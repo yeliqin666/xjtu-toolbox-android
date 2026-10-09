@@ -1,0 +1,695 @@
+package com.xjtu.toolbox.library
+
+import com.xjtu.toolbox.auth.CasLoginPages
+import com.xjtu.toolbox.auth.SessionExpiredException
+import com.xjtu.toolbox.platform.Log
+import com.xjtu.toolbox.util.AppJson
+import com.xjtu.toolbox.util.redactBody
+import com.xjtu.toolbox.util.redactUrl
+import com.xjtu.toolbox.util.safeInt
+import com.xjtu.toolbox.util.safeStringOrNull
+import com.xjtu.toolbox.webvpn.WebVpnUrl
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.jsonObject
+import okhttp3.Request
+import org.jsoup.Jsoup
+
+// ══════ 数据类 ══════
+//
+// SeatInfo / AreaStats / BookResult / MyBookingInfo / SeatResult 与那两个判据集合
+//（INACTIVE_BOOKING_STATUSES / URGENT_BOOKING_ACTIONS）都搬进了 :core（`com.xjtu.toolbox.library.LibraryModels.kt`）：
+// 共享屏与共享 ViewModel 要用同一份形状；本类（抓 `rg.lib.xjtu.edu.cn` 的那一套 okhttp 取数）
+// 现在在 `:data`：它只认 [LibrarySession] 这个缝，不再认识 `SiteSession` 与 `android.util.Log`
+// （JSON 也换成 `:core` 的 `AppJson`/`kotlinx.serialization`，不再用 Android 平台那份 `org.json`）。
+// 同一个包里，这里直接用，一行 import 都不用加。
+
+
+// ══════ LibraryApi ══════
+
+/**
+ * 图书馆座位系统（`rg.lib.xjtu.edu.cn:8086`）的**取数实现**：读（校区/区域/座位/平面图/我的预约）
+ * 与写（预约/换座/签到/取消/切校区）都在这里，一行逻辑没改，只是从 `:app` 搬进了 `:data`
+ * ——把 Android 的三处依赖换成缝：
+ *
+ * | 原来 | 现在 |
+ * |---|---|
+ * | `SiteSession`（客户端 + 重认证重放） | [LibrarySession]（`:app` 包 `SiteSession`，桌面直连） |
+ * | `android.util.Log` | `:core` 的 `com.xjtu.toolbox.platform.Log` |
+ * | `org.json`（Android 平台自带） | `:core` 的 `AppJson` + `kotlinx.serialization`（JVM 上也真能跑） |
+ *
+ * 两件留在宿主侧、**不属于本类**：平面图字节的磁盘缓存（需要 `cacheDir`）与「切回原校区」那个
+ * 不随页面取消的作用域（见 `AppLibrarySource`）。本类只负责「取/改图书馆的数据」。
+ */
+class LibraryApi(private val session: LibrarySession) {
+
+    companion object {
+        private const val BASE_URL = LibraryPages.BASE_URL
+        private const val TAG = "LibraryApi"
+
+        val AREA_MAP = linkedMapOf(
+            "北楼二层外文库（东）" to "north2east",
+            "二层连廊及流通大厅" to "north2elian",
+            "北楼二层外文库（西）" to "north2west",
+            "南楼二层大厅" to "south2",
+            "北楼三层ILibrary-B（西）" to "west3B",
+            "大屏辅学空间" to "eastnorthda",
+            "南楼三层中段" to "south3middle",
+            "北楼三层ILibrary-A（东）" to "east3A",
+            "北楼四层西侧" to "north4west",
+            "北楼四层中间" to "north4middle",
+            "北楼四层东侧" to "north4east",
+            "北楼四层西南侧" to "north4southwest",
+            "北楼四层东南侧" to "north4southeast"
+        )
+
+        val FLOORS = linkedMapOf(
+            "二楼" to listOf("北楼二层外文库（东）", "二层连廊及流通大厅", "北楼二层外文库（西）", "南楼二层大厅"),
+            "三楼" to listOf("北楼三层ILibrary-B（西）", "大屏辅学空间", "南楼三层中段", "北楼三层ILibrary-A（东）"),
+            "四楼" to listOf("北楼四层西侧", "北楼四层中间", "北楼四层东侧", "北楼四层西南侧", "北楼四层东南侧")
+        )
+
+        private val FLOOR_CODES = mapOf(
+            "二楼" to "xingqing2floor",
+            "三楼" to "xingqing3floor",
+            "四楼" to "xingqing4floor"
+        )
+
+        private val AREA_FLOOR_CODES = buildMap {
+            FLOORS.forEach { (floor, areas) ->
+                val floorCode = FLOOR_CODES[floor] ?: return@forEach
+                areas.forEach { area ->
+                    AREA_MAP[area]?.let { put(it, floorCode) }
+                }
+            }
+        }
+
+        /**
+         * 兴庆的区域码。
+         *
+         * 以前它叫 VALID_AREA_CODES，是 `filterScount` 的白名单——于是雁塔、创新港的
+         * 区域码一律被当成"无效"滤掉，两个校区的区域列表永远是空的（issue #42）。
+         * 现在白名单由 [knownAreaCodes] 在运行时从 `/qspace` 学，这份只当兴庆的兜底。
+         */
+        private val XINGQING_AREA_CODES = AREA_MAP.values.toSet()
+
+        /** 反向映射：areaCode → 区域显示名 */
+        val AREA_MAP_REVERSE = AREA_MAP.entries.associate { (name, code) -> code to name }
+
+        /**
+         * 判断响应体是不是 JSON，只看首个非空白字符。
+         *
+         * 不能用 Content-Type 做判据：rg.lib.xjtu.edu.cn 对合法 JSON 也会打
+         * `text/html; charset=utf-8` 的头，照着响应头判会把正常数据当成错误页拒掉。
+         * 反过来登录跳转页/错误页首字符是 `<`，这里一样能兜住。
+         */
+        private fun looksLikeJson(body: String): Boolean =
+            body.trimStart().firstOrNull()?.let { it == '{' || it == '[' } == true
+
+        /**
+         * 收到的不是图书馆数据时，报错里带上是哪个页面（#125 复现不了，靠用户截图看）。
+         * 不写「HTTP 200」：FriendlyError 会把带 HTTP 码的消息换成通用文案。
+         */
+        internal fun pageClue(response: okhttp3.Response, body: String): String {
+            val via = if (WebVpnUrl.isWebVpnUrl(response.request.url.toString())) "WebVPN" else "直连"
+            val doc = Jsoup.parse(body)
+            val page = doc.title().ifBlank { doc.body()?.text().orEmpty() }.trim().take(20).ifBlank { "空页面" }
+            return "$via · 状态码 ${response.code} · $page"
+        }
+
+        private fun unexpectedPage(what: String, response: okhttp3.Response, body: String) =
+            "${what}返回了异常数据（${pageClue(response, body)}），请稍后重试"
+
+        private fun isJpeg(b: ByteArray) = b[0] == 0xFF.toByte() && b[1] == 0xD8.toByte()
+        private fun isPng(b: ByteArray) = b[0] == 0x89.toByte() && b[1] == 'P'.code.toByte()
+
+        // 判据集合（INACTIVE_BOOKING_STATUSES / URGENT_BOOKING_ACTIONS）搬进了 :core，
+        // 因为共享屏与 `:app` 的 LibraryPages/LibraryStatus 都要用同一份。
+
+
+        /**
+         * scount 里混着区域码和一些非区域的键（楼层汇总之类），要挑出真正的区域。
+         *
+         * @param known 本次已从 `/qspace` 学到的区域码。为空（还没拉到楼层信息）时
+         *              退回兴庆那张静态表——否则首屏会连兴庆都滤没。
+         */
+        fun filterScount(
+            raw: Map<String, AreaStats>,
+            known: Set<String> = emptySet(),
+        ): Map<String, AreaStats> {
+            val allow = if (known.isEmpty()) XINGQING_AREA_CODES else known + XINGQING_AREA_CODES
+            return raw.filterKeys { it in allow }
+        }
+
+        // guessAreaCode 搬进了 :core（共享 ViewModel 用它做「不知道为什么区域时」的兜底）。
+    }
+
+    @Volatile
+    var cachedAreaStats: Map<String, AreaStats> = emptyMap()
+        private set
+
+    /**
+     * 运行时学到的「区域码 → 中文名」，来源是 `/qspace?floor=…` 的 `sp` 字段。
+     *
+     * 兴庆那张 [AREA_MAP] 是手抄的，抄不到雁塔和创新港；这份跟着用户翻到哪层就学到哪层，
+     * 三个校区一视同仁，学校改名也不用发版。
+     */
+    private val learnedAreaNames = java.util.concurrent.ConcurrentHashMap<String, String>()
+
+    /** 区域码 → 所在楼层码。`qseat` 之前要先 `qspace` 定位楼层，这张表就是给它用的。 */
+    private val learnedAreaFloors = java.util.concurrent.ConcurrentHashMap<String, String>()
+
+    /**
+     * 已经把哪个校区的所有楼层都学过了。
+     *
+     * [knownAreaNames] 平时只含用户翻过的那几层，拿它判断"这个区域是不是本校区的"
+     * 会把没翻过的楼层误判成外校区。预热过之后才敢下这个结论。
+     */
+    @Volatile
+    private var warmedCampus: LibraryCampus? = null
+
+    /**
+     * 把一个校区所有楼层的区域名一次学完。
+     *
+     * 代价是每校区 2~4 个 JSON 请求，只在切校区后跑一次；顺带让翻楼层时区域标签
+     * 立刻就有，不用等那一层的请求回来。
+     */
+    suspend fun warmCampusAreas(campus: LibraryCampus) {
+        if (warmedCampus == campus) return
+        campus.floorCodes.forEach { runCatching { getFloorAreas(it) } }
+        warmedCampus = campus
+        Log.d(TAG, "warmCampusAreas(${campus.displayName}): ${learnedAreaNames.size} areas")
+    }
+
+    /**
+     * 这个区域名**确定**不属于当前校区吗？
+     *
+     * 只有预热完成后才会给出 true——没预热就说"不认识"，那是在拿无知当证据。
+     * 用于拦下跨校区换座：预约绑在账号的 rplace 上，换到另一个校区的座位服务端
+     * 不会照办，只会把请求晾在那儿直到超时。
+     */
+    fun isForeignArea(areaName: String?): Boolean {
+        if (areaName.isNullOrBlank() || warmedCampus == null) return false
+        return areaName !in knownAreaNames()
+    }
+
+    /** 已知区域码：学到的 + 兴庆静态表。 */
+    fun knownAreaCodes(): Set<String> = learnedAreaNames.keys + AREA_MAP.values
+
+    /** 已知区域中文名，用于从预约页面文本里认出「我预约在哪个区」。 */
+    fun knownAreaNames(): Set<String> = learnedAreaNames.values.toSet() + AREA_MAP.keys
+
+    fun areaNameOf(areaCode: String): String =
+        learnedAreaNames[areaCode] ?: AREA_MAP_REVERSE[areaCode] ?: areaCode
+
+    private fun floorCodeOf(areaCode: String): String? =
+        learnedAreaFloors[areaCode] ?: AREA_FLOOR_CODES[areaCode]
+
+    /** 区域所在的楼层码。要先 [warmCampusAreas] 或翻过那一层，否则只认得兴庆的静态表。 */
+    fun floorOfArea(areaCode: String): String? = floorCodeOf(areaCode)
+
+    /**
+     * 拉一层的区域列表（码 → 中文名），顺带把 scount 更新掉。
+     *
+     * `qspace` **跟着账号当前校区走**：查别的校区之前必须先 [switchCampus]，
+     * 否则拿回来的还是当前校区那几层。
+     */
+    suspend fun getFloorAreas(floorCode: String): Map<String, String> {
+        val (response, body) = executeWithReAuth(
+            buildRequest("$BASE_URL/qspace?lang=zh&floor=$floorCode", ajax = true, referer = "$BASE_URL/seat/")
+        )
+        response.close()
+        if (!response.isSuccessful) throw RuntimeException("楼层信息加载失败: HTTP ${response.code}")
+        if (!looksLikeJson(body)) {
+            Log.e(TAG, "qspace(floor=$floorCode) not JSON: ${body.redactBody(300)}")
+            throw RuntimeException(unexpectedPage("图书馆楼层信息", response, body))
+        }
+        val json = AppJson.parseToJsonElement(body).jsonObject
+        val result = linkedMapOf<String, String>()
+        (json["sp"] as? JsonObject)?.let { sp ->
+            for ((code, value) in sp) {
+                if (code.isBlank()) continue
+                val name = value.safeStringOrNull()?.takeIf { it.isNotBlank() } ?: continue
+                result[code] = name
+                learnedAreaNames[code] = name
+                learnedAreaFloors[code] = floorCode
+            }
+        }
+        parseAreaStats(json["scount"] as? JsonObject).let { stats ->
+            cachedAreaStats = filterScount(stats, knownAreaCodes()).ifEmpty { cachedAreaStats }
+        }
+        Log.d(TAG, "getFloorAreas($floorCode): ${result.size} areas")
+        if (result.isEmpty()) Log.w(TAG, "qspace(floor=$floorCode) empty: ${body.redactBody(600)}")
+        return result
+    }
+
+    /**
+     * 账号当前所在校区。解析 `/modify` 页 `select#rplace` 的选中项，认不出返回 null。
+     */
+    suspend fun getCurrentCampus(): LibraryCampus? = try {
+        val (response, body) = executeWithReAuth(buildRequest("$BASE_URL/modify"))
+        response.close()
+        val selected = Jsoup.parse(body).select("select#rplace option[selected]").firstOrNull()?.attr("value")
+        LibraryCampus.byId(selected)
+    } catch (e: Exception) {
+        Log.w(TAG, "getCurrentCampus failed", e)
+        null
+    }
+
+    /**
+     * 切换账号校区。
+     *
+     * **这会改用户在图书馆系统里的个人资料**（`rplace` 是账号级字段，不是一次查询的参数），
+     * 所以只能由用户在校区选择器里主动触发，不要在后台自动切。表单要把邮箱、电话原样回填
+     * 再提交，少一个字段服务端会把它清空——切个校区顺手抹掉联系方式，用户是不会想到的。
+     */
+    suspend fun switchCampus(campus: LibraryCampus): Boolean = try {
+        val (formResp, formHtml) = executeWithReAuth(buildRequest("$BASE_URL/modify"))
+        formResp.close()
+        val doc = Jsoup.parse(formHtml)
+        val csrf = doc.select("input[name=csrf_token]").firstOrNull()?.attr("value").orEmpty()
+        val email = doc.select("#email").firstOrNull()?.attr("value").orEmpty()
+        val tel = doc.select("#tel").firstOrNull()?.attr("value").orEmpty()
+        if (csrf.isBlank()) {
+            Log.w(TAG, "switchCampus: no csrf_token in /modify")
+            false
+        } else {
+            val form = okhttp3.FormBody.Builder()
+                .add("csrf_token", csrf)
+                .add("email", email)
+                .add("tel", tel)
+                .add("rplace", campus.id)
+                .add("subit", "确认")
+                .build()
+            val req = Request.Builder().url("$BASE_URL/modify")
+                .header("Referer", "$BASE_URL/modify")
+                .post(form)
+                .build()
+            val resp = session.fetch(req)
+            val ok = resp.isSuccessful
+            resp.close()
+            // 提交完清掉学到的区域：换校区后区域码整套都变了，留着会把上个校区的
+            // 区域混进列表。
+            if (ok) {
+                learnedAreaNames.clear()
+                learnedAreaFloors.clear()
+                cachedAreaStats = emptyMap()
+                warmedCampus = null
+            }
+            ok
+        }
+    } catch (e: Exception) {
+        Log.w(TAG, "switchCampus failed", e)
+        false
+    }
+
+    /**
+     * 座位接口的通用请求头。
+     *
+     * 注意这里**没有**设任何超时，走的是会话那份 `client` 的默认值（25-30s）。
+     * 所以别在一条用户操作里串太多请求——换座那条链路曾经串到 7 个，
+     * 撞上服务端不响应时，用户看到的就是等了好几分钟然后"超时"。
+     */
+    private fun buildRequest(url: String, ajax: Boolean = false, referer: String = "$BASE_URL/seat/"): Request {
+        val b = Request.Builder().url(url)
+            .header("Referer", referer)
+        if (ajax) {
+            b.header("X-Requested-With", "XMLHttpRequest")
+            b.header("Accept", "application/json, text/javascript, */*; q=0.01")
+        }
+        return b.get().build()
+    }
+
+    private fun isRedirectedToLogin(body: String, finalUrl: String): Boolean =
+        body.contains("id=\"loginForm\"") || body.contains("name=\"execution\"") ||
+        body.contains("cas/login") || finalUrl.contains("login.xjtu.edu.cn") ||
+        CasLoginPages.isAuthFailureResponse(body)
+
+    /**
+     * 执行请求，如果被重定向到 CAS 登录页则自动 reAuthenticate 并重试
+     */
+    private suspend fun executeWithReAuth(request: Request): Pair<okhttp3.Response, String> {
+        val response = session.fetch(request)
+        val body = response.body.string()
+        if (isRedirectedToLogin(body, response.request.url.toString())) {
+            response.close()
+            throw session.authExpired("图书馆")
+        }
+        return response to body
+    }
+
+    // ── 座位查询 ──
+
+    private suspend fun loadFloorContext(areaCode: String): Map<String, AreaStats> {
+        val floorCode = floorCodeOf(areaCode) ?: return emptyMap()
+        val qspaceUrl = "$BASE_URL/qspace?lang=zh&floor=$floorCode"
+        val (response, body) = executeWithReAuth(
+            buildRequest(qspaceUrl, ajax = true, referer = "$BASE_URL/seat/")
+        )
+        val contentType = response.header("Content-Type")?.lowercase() ?: ""
+        response.close()
+        if (!response.isSuccessful) {
+            throw RuntimeException("楼层信息加载失败: HTTP ${response.code}")
+        }
+        // 检查是否返回了 HTML 而非 JSON
+        if (!looksLikeJson(body)) {
+            Log.e(TAG, "qspace did not return JSON. ContentType=$contentType, body preview: ${body.redactBody(500)}")
+            throw RuntimeException(unexpectedPage("图书馆楼层信息", response, body))
+        }
+        val json = AppJson.parseToJsonElement(body).jsonObject
+        val stats = parseAreaStats(json["scount"] as? JsonObject)
+        cachedAreaStats = filterScount(stats, knownAreaCodes())
+        return cachedAreaStats
+    }
+
+    /**
+     * 解析 `scount`：`{区域码: [总数, 空位]}`（原 `org.json` 版逐条对齐 —— 认不出的值取 0，
+     * 缺数组的键跳过）。
+     */
+    private fun parseAreaStats(scountObj: JsonObject?): Map<String, AreaStats> {
+        if (scountObj == null) return emptyMap()
+        val result = mutableMapOf<String, AreaStats>()
+        for ((key, value) in scountObj) {
+            if (key.isBlank()) continue
+            val arr = value as? JsonArray ?: continue
+            if (arr.size >= 2) {
+                result[key] = AreaStats(available = arr[1].safeInt(), total = arr[0].safeInt())
+            }
+        }
+        return result
+    }
+
+    suspend fun getSeats(areaCode: String): SeatResult {
+        val response: okhttp3.Response
+        val body: String
+        try {
+            // The site stores the selected floor in session state. Mirror the browser's
+            // HAR sequence: qspace(floor) -> qseat(area).
+            loadFloorContext(areaCode)
+            val floorCode = floorCodeOf(areaCode)
+            val referer = if (floorCode != null) "$BASE_URL/qspace?lang=zh&floor=$floorCode"
+                else "$BASE_URL/seat/"
+            // 走会话的 fetch：命中登录页会自动重认证并重放，
+            // 仍失败则抛会话失效异常（[SessionExpiredException]；由共享的 LibraryScreen 捕获触发静默重登）。
+            val (resp, respBody) = executeWithReAuth(
+                buildRequest("$BASE_URL/qseat?sp=$areaCode", ajax = true, referer = referer)
+            )
+            response = resp
+            body = respBody
+            response.close()
+        } catch (e: SessionExpiredException) {
+            throw e   // 透传给 UI 层做静默重登，不要降级成普通错误
+        } catch (e: java.io.IOException) {
+            Log.e(TAG, "getSeats network error", e)
+            return SeatResult.Error(com.xjtu.toolbox.error.FriendlyError.of(e, "加载座位"))
+        } catch (e: Exception) {
+            // 解析/响应异常（如 loadFloorContext 抛出的非 JSON），别伪装成网络问题
+            Log.e(TAG, "getSeats failed", e)
+            return SeatResult.Error(com.xjtu.toolbox.error.FriendlyError.of(e, "加载座位信息"))
+        }
+
+        val finalUrl = response.request.url.toString()
+        Log.d(TAG, "qseat: code=${response.code}, url=${finalUrl.redactUrl()}, len=${body.length}")
+
+        if (isRedirectedToLogin(body, finalUrl))
+            return SeatResult.AuthError("认证已失效")
+        if (body.length < 10)
+            return SeatResult.Error("服务器返回异常")
+
+        // 若服务器没返回 JSON（错误页/登录页），说明这次查询没拿到数据
+        val contentType = response.header("Content-Type")?.lowercase() ?: ""
+        if (!looksLikeJson(body)) {
+            Log.e(TAG, "qseat did not return JSON. ContentType=$contentType, body preview: ${body.redactBody(500)}")
+            return SeatResult.Error(unexpectedPage("图书馆", response, body))
+        }
+
+        try {
+            val json = AppJson.parseToJsonElement(body).jsonObject
+
+            // 解析 scount（全局区域统计）
+            val statsMap = parseAreaStats(json["scount"] as? JsonObject)
+            cachedAreaStats = filterScount(statsMap, knownAreaCodes()).ifEmpty { cachedAreaStats }
+            Log.d(TAG, "scount: ${cachedAreaStats.size} areas open")
+
+            // 解析 seat 对象
+            val seatObj = json["seat"] as? JsonObject
+            if (seatObj == null || seatObj.isEmpty()) {
+                return SeatResult.Success(emptyList(), cachedAreaStats)
+            }
+
+            val seatList = mutableListOf<SeatInfo>()
+            for ((seatId, value) in seatObj) {
+                // 与原来 `optInt(seatId, -1)` 同一口径：认不出的值当 -1（既不等于 0，也就不是空位）
+                val status = value.safeInt(-1)
+                seatList.add(SeatInfo(seatId, status == 0))
+            }
+
+            seatList.sortWith(compareBy<SeatInfo>(
+                { it.seatId.firstOrNull { c -> c.isLetter() } ?: ' ' },
+                { it.seatId.filter { c -> c.isDigit() }.toIntOrNull() ?: 0 }
+            ))
+
+            Log.d(TAG, "seats: ${seatList.size} total, ${seatList.count { it.available }} avail")
+            return SeatResult.Success(seatList, cachedAreaStats)
+        } catch (e: IllegalArgumentException) {
+            Log.e(TAG, "JSON parse error", e)
+            return SeatResult.Error("座位数据格式异常，请稍后再试")
+        }
+    }
+
+    // ── 平面图 ──
+
+    /**
+     * 区域平面图上每个座位的位置和实时状态（`/qseatuist`，学校网页版 `/seatui` 用的同一份）。
+     * 和 [getSeats] 一样要先 `qspace` 把楼层存进会话。
+     */
+    suspend fun getSeatLayout(areaCode: String): SeatLayout {
+        loadFloorContext(areaCode)
+        val referer = floorCodeOf(areaCode)?.let { "$BASE_URL/qspace?lang=zh&floor=$it" } ?: "$BASE_URL/seat/"
+        val (response, body) = executeWithReAuth(
+            buildRequest("$BASE_URL/qseatuist?sp=$areaCode", ajax = true, referer = referer)
+        )
+        response.close()
+        if (!response.isSuccessful) throw RuntimeException("平面图数据加载失败: HTTP ${response.code}")
+        if (!looksLikeJson(body)) {
+            Log.e(TAG, "qseatuist not JSON: ${body.redactBody(300)}")
+            throw RuntimeException(unexpectedPage("图书馆平面图", response, body))
+        }
+        return LibraryPages.parseSeatLayout(body)
+    }
+
+    /**
+     * 平面图图片原始字节（`/static/images/ui10/<name>`）。不存在或不是图片返回 null。
+     * 不走 [executeWithReAuth]：那条路会把响应体按字符串读掉。
+     */
+    suspend fun getPlanImage(name: String): ByteArray? = try {
+        val req = buildRequest("$BASE_URL/static/images/ui10/$name", referer = "$BASE_URL/seatui/")
+        session.fetch(req).use { resp ->
+            // 认文件头而不是 Content-Type：经 WebVPN 转发时类型头不一定还在；
+            // 登录页、404 页是 HTML，头两个字节对不上 JPEG / PNG。
+            val bytes = if (resp.isSuccessful) resp.body.bytes() else null
+            bytes?.takeIf { it.size > 4 && (isJpeg(it) || isPng(it)) }
+        }
+    } catch (e: SessionExpiredException) {
+        throw e
+    } catch (e: Exception) {
+        Log.w(TAG, "plan image $name failed: ${e.message}")
+        null
+    }
+
+    // ── 预约座位（带详细原因） ──
+
+    /**
+     * 预约座位。如果已有预约，系统会返回换座确认页面 → 自动确认换座。
+     * @param autoSwap 是否自动确认换座（默认 true）
+     */
+    suspend fun bookSeat(seatId: String, areaCode: String, autoSwap: Boolean = true): BookResult {
+        val url = "$BASE_URL/seat/?kid=$seatId&sp=$areaCode"
+        val response: okhttp3.Response
+        val html: String
+        try {
+            // 走 executeWithReAuth：命中登录页自动静默重登后重放，避免"预约失败：登录已失效"
+            val (resp, respBody) = executeWithReAuth(buildRequest(url))
+            response = resp
+            html = respBody
+            response.close()
+        } catch (e: SessionExpiredException) {
+            return BookResult(false, "登录状态已失效，请退出图书馆页面后重新进入")
+        } catch (e: Exception) {
+            return BookResult(false, com.xjtu.toolbox.error.FriendlyError.of(e, "预约"))
+        }
+
+        val finalUrl = response.request.url.toString()
+        val success = "/my/" in finalUrl || "/seat/my/" in finalUrl
+
+        if (success) {
+            return BookResult(true, "✓ 座位 $seatId 预约成功！", finalUrl)
+        }
+
+        // 已有预约时，使用 /updateseat/ 端点直接换座（HAR 验证的真实流程）
+        if (autoSwap) {
+            val bodyText = Jsoup.parse(html).body().text()
+            if ("已有预约" in bodyText || "已预约" in bodyText || "换座" in bodyText
+                || "已经预约" in bodyText || "存在预约" in bodyText) {
+                Log.d(TAG, "bookSeat: existing booking detected, using /updateseat/ endpoint")
+                return swapSeat(seatId, areaCode)
+            }
+        }
+
+        val reason = parseBookingFailure(html, response)
+        return BookResult(false, reason, finalUrl)
+    }
+
+    /**
+     * 动作前的页面预取。HAR(2026-06-14) 实证浏览器在换座/取消前的真实流程：
+     *   1) 先 GET 动作所在页面（/updateseat/ 或 /my/）——动作请求的 Referer 必须是该页面，
+     *      否则服务端拒绝（这是换座/取消「无效」的根因，**直连/校外都会发生**）；
+     *   2) WebVPN 模式下再 GET `wengine-vpn/cookie?...&path=<page>` 拿 path 级代理 cookie（仅校外需要）。
+     */
+    /** GET 一个页面，并在 WebVPN 模式下补取该 path 的 wengine cookie。 */
+    private suspend fun loadPageWithVpnCookie(path: String) {
+        val resp = session.fetch(buildRequest("$BASE_URL$path"))
+        val finalUrl = resp.request.url.toString()
+        resp.close()
+        if (WebVpnUrl.isWebVpnUrl(finalUrl)) {
+            val cookieUrl = "https://webvpn.xjtu.edu.cn/wengine-vpn/cookie" +
+                "?method=get&host=rg.lib.xjtu.edu.cn&scheme=http&path=$path" +
+                "&vpn_timestamp=${System.currentTimeMillis()}"
+            session.client.newCall(buildRequest(cookieUrl)).execute().use { it.body.string() }
+        }
+    }
+
+    /**
+     * 动作前完整复刻浏览器流程（HAR 2026-06-14 实证）：先看 /my/，再进入动作页面 [pagePath]。
+     * 动作请求的 Referer 必须是该页面，否则服务端拒绝——这是换座/取消「无效」的根因，**直连/校外都会发生**。
+     */
+    private suspend fun preflight(pagePath: String) {
+        runCatching {
+            loadPageWithVpnCookie("/my/")
+            if (pagePath != "/my/") loadPageWithVpnCookie(pagePath)
+            Log.d(TAG, "preflight ok for $pagePath")
+        }
+    }
+
+    /**
+     * 换座：复刻浏览器流程 GET /my/ → GET /updateseat/ → GET /updateseat/?kid=&sp=（Referer=/updateseat/）。
+     * **以换座后的实际预约状态判定成功**，不再靠重定向/文案猜测。
+     */
+    suspend fun swapSeat(seatId: String, areaCode: String): BookResult {
+        val url = "$BASE_URL/updateseat/?kid=$seatId&sp=$areaCode"
+        Log.d(TAG, "swapSeat: $url")
+        preflight("/updateseat/")
+        return try {
+            runCatching {
+                executeWithReAuth(
+                    buildRequest("$BASE_URL/qseat?sp=$areaCode", ajax = true, referer = "$BASE_URL/updateseat/")
+                ).first.close()
+            }
+            val (resp, html) = executeWithReAuth(buildRequest(url, referer = "$BASE_URL/updateseat/"))
+            resp.close()
+            val finalUrl = resp.request.url.toString()
+            // 实测：换座后查询「我的预约」，座位号变成目标即真成功
+            val after = runCatching { getMyBooking() }.getOrNull()
+            val booked = after?.seatId
+            // 严格相等：以前用 contains 双向比，A01 和 A011 会被当成同一个座位，换座没成也报成功。
+            if (booked != null && LibraryPages.sameSeat(booked, seatId)) BookResult(true, "✓ 已换座到 ${booked}！", finalUrl)
+            else BookResult(false, "换座未生效${booked?.let { "（当前仍为 $it）" } ?: ""}：${parseBookingFailure(html)}", finalUrl)
+        } catch (e: Exception) {
+            if (e is SessionExpiredException)
+                BookResult(false, "登录状态已失效，请退出图书馆页面后重新进入")
+            else BookResult(false, com.xjtu.toolbox.error.FriendlyError.of(e, "换座"))
+        }
+    }
+
+    private fun parseBookingFailure(html: String, response: okhttp3.Response? = null): String =
+        LibraryPages.bookingFailureReason(html)
+            ?: if (isRedirectedToLogin(html, "")) "登录状态已失效"
+            else "预约失败（未知原因${response?.let { " · " + pageClue(it, html) }.orEmpty()}）"
+
+    // ── 我的预约 ──
+
+    /** 当前预约；查不到（网络错、页面认不出）也返回 null。要区分这两种情况用 [fetchMyBooking]。 */
+    suspend fun getMyBooking(): MyBookingInfo? = fetchMyBooking().getOrNull()
+
+    /**
+     * 当前预约。成功且值为 null 表示页面明确说了「没有预约」；
+     * 所有候选地址都没给出能认的页面时返回失败——操作后复核不能把「没查到」当成「已取消」。
+     */
+    suspend fun fetchMyBooking(): Result<MyBookingInfo?> {
+        // HAR 2026-06-13 shows /my/ is the canonical booking page.
+        val candidateUrls = listOf("$BASE_URL/my/", "$BASE_URL/seat/my/", "$BASE_URL/seat/my")
+        var lastError: Throwable? = null
+        for (url in candidateUrls) {
+            try {
+                val (response, html) = executeWithReAuth(buildRequest(url, referer = "$BASE_URL/seat/"))
+                val finalUrl = response.request.url.toString()
+                response.close()
+                if (isRedirectedToLogin(html, finalUrl)) continue
+                when (val page = LibraryPages.parseMyPage(html, finalUrl, knownAreaNames())) {
+                    is LibraryPages.MyPage.Booked -> {
+                        Log.d(TAG, "getMyBooking: ${page.info.seatId} ${page.info.statusText} ${page.info.actionUrls.keys}")
+                        return Result.success(page.info)
+                    }
+                    LibraryPages.MyPage.NoBooking -> return Result.success(null)
+                    LibraryPages.MyPage.Unrecognized -> continue
+                }
+            } catch (e: SessionExpiredException) {
+                return Result.failure(e)
+            } catch (e: Exception) {
+                lastError = e
+                Log.e(TAG, "getMyBooking: error trying $url", e)
+            }
+        }
+        Log.d(TAG, "getMyBooking: no recognizable page across all candidate URLs")
+        return Result.failure(lastError ?: IllegalStateException("预约页面认不出来"))
+    }
+
+    /** 执行操作（签到/离馆/回馆/取消） */
+    suspend fun executeAction(actionUrl: String): BookResult {
+        // 兜底：相对路径补全 scheme + host
+        val normalizedUrl = if (actionUrl.startsWith("/")) "$BASE_URL$actionUrl" else actionUrl
+        // 取消/入馆/离馆等动作的页面与 Referer 均为 /my/（path 取 ? 之前部分）
+        val pagePath = normalizedUrl.substringAfter(BASE_URL, "/my/").substringBefore("?")
+        preflight(pagePath)
+        try {
+            val (response, html) = executeWithReAuth(buildRequest(normalizedUrl, referer = "$BASE_URL$pagePath"))
+            response.close()
+            val finalUrl = response.request.url.toString()
+            Log.d(TAG, "action: url=${actionUrl.redactUrl()} finalUrl=${finalUrl.redactUrl()} len=${html.length}")
+
+            val doc = Jsoup.parse(html)
+            val bodyText = doc.body().text()
+            val msg = LibraryPages.extractAlertText(doc, ".alert, .msg, .message, .success, .error")
+
+            // 取消预约：以「我的预约是否已消失」为准判定，最可靠
+            if ("cancel" in actionUrl.lowercase()) {
+                val after = fetchMyBooking()
+                return when (LibraryPages.actionVerdict("取消预约", after.getOrNull(), fetched = after.isSuccess)) {
+                    LibraryPages.ActionVerdict.DONE -> BookResult(true, msg.ifBlank { "✓ 已取消预约" }, finalUrl)
+                    LibraryPages.ActionVerdict.NOT_DONE ->
+                        BookResult(false, "取消未生效，当前仍为 ${after.getOrNull()?.seatId}。$msg", finalUrl)
+                    LibraryPages.ActionVerdict.UNKNOWN -> BookResult(true, "已提交取消，状态以下方刷新结果为准", finalUrl)
+                }
+            }
+
+            // 签到 / 离开 / 返回：以操作后「我的预约」页上还剩哪些按钮为准，不看落地页文案。
+            val label = LibraryPages.labelOfActionUrl(normalizedUrl)
+            val after = fetchMyBooking()
+            val verdict = LibraryPages.actionVerdict(label, after.getOrNull(), fetched = after.isSuccess)
+            Log.d(TAG, "action $label -> $verdict (body ${bodyText.redactBody(80)})")
+            return when (verdict) {
+                LibraryPages.ActionVerdict.DONE -> BookResult(true, msg.ifBlank { "✓ 已完成" }, finalUrl)
+                LibraryPages.ActionVerdict.NOT_DONE -> BookResult(
+                    false,
+                    "未生效，当前状态：${after.getOrNull()?.statusText ?: "无预约"}" + msg.takeIf { it.isNotBlank() }?.let { "（$it）" }.orEmpty(),
+                    finalUrl,
+                )
+                LibraryPages.ActionVerdict.UNKNOWN -> BookResult(true, "已提交，状态以下方刷新结果为准", finalUrl)
+            }
+        } catch (e: SessionExpiredException) {
+            return BookResult(false, "登录状态已失效，请退出图书馆页面后重新进入")
+        } catch (e: Exception) {
+            return BookResult(false, com.xjtu.toolbox.error.FriendlyError.of(e, "操作"))
+        }
+    }
+}

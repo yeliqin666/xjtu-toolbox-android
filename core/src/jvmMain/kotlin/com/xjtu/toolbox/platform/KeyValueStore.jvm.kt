@@ -19,6 +19,14 @@ private class MemoryKeyValueStore : KeyValueStore {
         map[key] = value
     }
 
+    /** 内存版：存的就是一份快照（[Set] 在 Kotlin 里是只读视图，集合本身可变 ⇒ 拷一份）。 */
+    override fun getStringSet(key: String): Set<String>? =
+        (map[key] as? Set<*>)?.filterIsInstance<String>()?.toSet()
+
+    override fun putStringSet(key: String, value: Set<String>) {
+        map[key] = value.toSet()
+    }
+
     override fun remove(key: String) {
         map.remove(key)
     }

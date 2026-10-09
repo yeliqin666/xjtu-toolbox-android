@@ -365,7 +365,13 @@ class AppLoginStateViewModel(application: android.app.Application) : androidx.li
     val accountStore = com.xjtu.toolbox.account.AccountStore(application)
 
     /** 新会话架构入口：双 backend、SiteSession 注册中心、MFA 状态机宿主。 */
-    val sessionManager = com.xjtu.toolbox.auth.SessionManager(application)
+    val sessionManager = com.xjtu.toolbox.auth.SessionManager()
+
+    init {
+        // 切账号时顺手丢掉一网通办令牌。搬迁前这一句写在 SessionManager.reconfigureForAccount 里，
+        // 而 CampusProbe 要 ConnectivityManager（宿主能力，没跟着会话内核搬进 :data）⇒ 改成宿主注入。
+        sessionManager.onAccountSwitched = { CampusProbe.ywtbToken = null }
+    }
 
     /** 多账号编排器。 */
     val accountManager = com.xjtu.toolbox.account.AccountManager(application, accountStore)

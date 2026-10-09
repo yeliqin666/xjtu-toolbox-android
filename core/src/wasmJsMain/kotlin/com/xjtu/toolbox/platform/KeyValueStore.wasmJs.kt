@@ -37,6 +37,24 @@ private class WebKeyValueStore(private val name: String) : KeyValueStore {
         localStorage.setItem(k(key), value.toString())
     }
 
+    /**
+     * 集合那一档：`localStorage` 没有集合类型，存的是**逗号分隔的字符串**。
+     *
+     * 为什么偏偏是逗号串而不是 JSON 数组：图书馆收藏**已经**是这个格式了 —— 原来 Web 端的
+     * `CampusLibraryApi` 就把它写成 `joinToString(",")` 存到同一个键（`library_favorites` /
+     * `favorite_seats`）。改成新格式等于把浏览器里已有的收藏丢掉。所以这里沿用老格式，
+     * 与 Android 那份 `getStringSet` 语义对齐（同样是「一组 id」），只是落地形态不同。
+     */
+    override fun getStringSet(key: String): Set<String>? =
+        localStorage.getItem(k(key))
+            ?.split(',')
+            ?.mapNotNull { it.trim().takeIf(String::isNotEmpty) }
+            ?.toSet()
+
+    override fun putStringSet(key: String, value: Set<String>) {
+        localStorage.setItem(k(key), value.joinToString(","))
+    }
+
     override fun remove(key: String) {
         localStorage.removeItem(k(key))
     }

@@ -115,6 +115,9 @@ ktor-client-darwin = { group = "io.ktor", name = "ktor-client-darwin", version.r
 ktor-client-mock = { group = "io.ktor", name = "ktor-client-mock", version.ref = "ktor" }
 kotlinx-coroutines-core = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-core", version.ref = "coroutines" }
 kotlinx-coroutines-test = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-test", version.ref = "coroutines" }
+# 桌面窗口的 Main 调度器：Compose Desktop 的 UI 与 :core 里那些 viewModelScope 都跑在 AWT 事件队列上。
+# 没有它，`Dispatchers.Main` 在 jvm 上是 missing，`:core` 的屏一建 ViewModel 就炸。
+kotlinx-coroutines-swing = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-swing", version.ref = "coroutines" }
 kotlinx-datetime = { group = "org.jetbrains.kotlinx", name = "kotlinx-datetime", version.ref = "kotlinxDatetime" }
 compose-ui-graphics = { group = "org.jetbrains.compose.ui", name = "ui-graphics", version.ref = "composeMultiplatform" }
 # MIUIX 的 **KMP 根模块**（不带 -android 后缀）：Gradle Module Metadata 会自动选 wasm-js 变体。
@@ -137,6 +140,9 @@ compose-material-icons-extended = { group = "org.jetbrains.compose.material", na
 compose-ui-backhandler = { group = "org.jetbrains.compose.ui", name = "ui-backhandler", version.ref = "composeMultiplatform" }
 
 [plugins]
+# 纯 JVM 模块（:desktop 窗口壳）：Compose Desktop 的 application/jpackage DSL 在
+# kotlin("jvm") 上是官方模板形态，比「KMP 只声明一个 jvm 目标」少一层坑。
+kotlin-jvm = { id = "org.jetbrains.kotlin.jvm", version.ref = "kotlin" }
 android-application = { id = "com.android.application", version.ref = "agp" }
 android-test = { id = "com.android.test", version.ref = "agp" }
 baselineprofile = { id = "androidx.baselineprofile", version.ref = "benchmark" }

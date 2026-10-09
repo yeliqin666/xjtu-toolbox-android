@@ -1940,7 +1940,7 @@ class AgentToolRegistry(
         val site = ensureSite(LoginType.LIBRARY)
             ?: return loginHint(LoginType.LIBRARY)
         return try {
-            val b = com.xjtu.toolbox.library.LibraryApi(site).getMyBooking()
+            val b = com.xjtu.toolbox.library.LibraryApi(com.xjtu.toolbox.library.AppLibrarySession(site)).getMyBooking()
                 ?: return ToolReply.empty("library_booking")
             buildString {
                 append("当前图书馆预约：座位 ${b.seatId ?: "?"}")
@@ -2060,7 +2060,7 @@ class AgentToolRegistry(
     private suspend fun getLibrarySeats(campusArg: String?, area: String?): String {
         val site = ensureSite(LoginType.LIBRARY)
             ?: return loginHint(LoginType.LIBRARY)
-        val api = com.xjtu.toolbox.library.LibraryApi(site)
+        val api = com.xjtu.toolbox.library.LibraryApi(com.xjtu.toolbox.library.AppLibrarySession(site))
         val current = withContext(Dispatchers.IO) { runCatching { api.getCurrentCampus() }.getOrNull() }
         val requested = campusArg?.trim()?.takeIf { it.isNotEmpty() }?.let { arg ->
             com.xjtu.toolbox.library.LibraryCampus.entries.firstOrNull { arg.contains(it.displayName) || it.displayName.contains(arg) }

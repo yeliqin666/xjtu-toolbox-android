@@ -62,6 +62,9 @@ class XjtuApp : Application() {
         // 后台任务、分享……）都通过这一个入口拿句柄 —— :core 的 commonMain 不认识 Context。
         // 放在 onCreate 最前面：任何用到 :core 平台能力的代码都晚于它。
         com.xjtu.toolbox.platform.initAndroidPlatform(this)
+        // 同一件事的 :data 版：会话内核要的密文存储（cookie / 站点快照）按名字从
+        // `:data` 的平台缝取，Android 那份 actual 同样需要进程级 Context。
+        com.xjtu.toolbox.platform.initDataPlatform(this)
         CrashReporter.install(this)
         // CourseColors 不再需要 init：它已搬进 :core 的 commonMain，存储走 keyValueStore
         // （Android actual 仍是同一份 SharedPreferences 文件）。

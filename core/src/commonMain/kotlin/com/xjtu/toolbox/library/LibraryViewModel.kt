@@ -25,8 +25,9 @@ import kotlinx.coroutines.withContext
 /**
  * 图书馆那几项本地偏好所在的存储：Android 上就是搬迁前那个 `SharedPreferences` 文件
  *（文件名、键名逐字未动 ⇒ 老用户的收藏、上次看的校区、视图模式都还在）。
- * **只有收藏不在这里**：它落盘用的是 `getStringSet`，而 `KeyValueStore` 没有集合那一档
- *（见 [LibrarySource] 的 KDoc）。
+ *
+ * 收藏也是这个文件里的一个键，但它现在归共享的 [LibraryFavorites] 管（以前 `KeyValueStore`
+ * 没有集合那一档，所以推给了实现方；现在有了）。
  */
 private const val PREF_NAME = "library_favorites"
 private const val KEY_CAMPUS = "library_campus"
@@ -114,9 +115,9 @@ internal class LibraryViewModel(private val source: LibrarySource) : ViewModel()
 
     /**
      * 收藏。同步读一次（搬迁前就是在构造时同步读 `SharedPreferences.getStringSet` 的那一份），
-     * 之后由 [toggleFavorite] 自己维护 —— 落盘仍是实现方那份（见 [LibrarySource] 的 KDoc）。
+     * 之后由 [toggleFavorite] 自己维护 —— 落盘也在共享层（[LibraryFavorites]），不再是实现方的事。
      */
-    var favorites by mutableStateOf(source.favorites()); private set
+    var favorites by mutableStateOf(LibraryFavorites.all()); private set
 
     /** 首屏先按上次用的校区画，进页面后以账号实际的 rplace 为准。 */
     var campus by mutableStateOf(LibraryCampus.byId(prefs.getString(KEY_CAMPUS)) ?: LibraryCampus.DEFAULT); private set
@@ -261,8 +262,8 @@ internal class LibraryViewModel(private val source: LibrarySource) : ViewModel()
     }
 
     fun toggleFavorite(seatId: String) {
-        // 落盘那份（实现方）说了算：与搬迁前「内存先变、随后写回读出来的那一份」同一个次序
-        favorites = source.toggleFavorite(seatId)
+        // 落盘那份说了算：与搬迁前「内存先变、随后写回读出来的那一份」同一个次序
+        favorites = LibraryFavorites.toggle(seatId)
     }
 
     private fun loadSeatsFor(areaCode: String, force: Boolean = false) {

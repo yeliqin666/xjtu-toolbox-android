@@ -201,6 +201,10 @@ dependencies {
     // 三端共用的业务与平台抽象（KMP）。目前里面只有传输层探针，
     // 后续按「一屏一提交」往里搬；:core 必须能编过 wasmJs（CI 门禁在守这条）。
     implementation(project(":core"))
+    // 数据层（从 :app 摘出来的取数与会话，jvm/android 共用）。目前里面是图书馆一条竖切
+    // （LibraryApi / LibraryPages / 会话缝），其余模块按 docs/desktop-port-plan.md §5.1 逐条搬。
+    // Android 侧走的是同一份实现，只多一个 AppLibrarySession 适配器（把 SiteSession 包成缝）。
+    implementation(project(":data"))
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.core.splashscreen)
     implementation(libs.androidx.lifecycle.runtime.ktx)
