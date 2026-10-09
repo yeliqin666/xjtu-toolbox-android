@@ -270,10 +270,10 @@ WebVPN 在桌面的复用（校外访问必需）· 桌面通知/托盘 · serve
 | 登录屏在 `:core` | ✓ `LoginScreen` + `MfaCodeDialog` 两个哑视图进 `:core`（状态由宿主喂）；`:app` 的登录界面一行未动（红线） |
 | 凭据存储 | ✓ `JvmCredentialStore`（`:data:jvmMain`）：**文件名与键名与 `:app` 的 `CredentialStore` 逐字相同**，落成 `0600` 的 Properties 文件；退出登录把凭据 + cookie + 站点快照一起删 |
 | 图书馆屏真取数 | ✓ `:core` 的 `LibraryScreen` + `DesktopLibrarySource`（`:data` 的 `LibraryApi` + 真 `LibrarySession`）—— 读/写/平面图都在 |
-| 其余路由 | ✓ 不再借 campus-api 画画面，而是 `NotPortedScreen` 如实列出「屏在了、取数还在 `:app`」（12 条） |
+| 其余路由 | ✓ 不再借 campus-api 画画面，而是 `NotPortedScreen` 如实列出「屏在了、取数还在 `:app`」（11 条） |
 | Android 行为不变 | ✓ `:app` / `:web` **diff 为空**（本轮改动只落在 `:core` 新增文件、`:data` 新增文件、`:desktop`、新模块 `:testkit`） |
-| 证据 | ✓ `:desktop:renderScreens` 出 5 张图：`login.png` / `library-after-login.png`（**真登录后的座位图**，含当前预约 A01 与平面图）/ `shell-after-login.png` / `routes.png` / `library-demo.png` |
-| 装配验收测试 | ✓ `:desktop:test` 的 `DesktopAuthLibraryJvmTest`（8 例）：真登录、错密码不落盘、读路径、冷启动免密、会话失效重登重放、退出即清除 |
+| 证据 | ✓ `:desktop:renderScreens` 出 7 张图：`login.png` / `library-after-login.png`（**真登录后的座位图**，含当前预约 A01 与平面图）/ `calendar.png` / `yellowpage.png` / `shell-after-login.png` / `routes.png` / `library-demo.png` |
+| 装配验收测试 | ✓ `:desktop:test` 的 `DesktopAuthLibraryJvmTest`（**10 例**，含免登录的校历与黄页）：真登录、错密码不落盘、读路径、冷启动免密、会话失效重登重放、退出即清除 |
 
 **这一轮落下的手法（下一步照抄）：**
 
@@ -307,7 +307,7 @@ WebVPN 在桌面的复用（校外访问必需）· 桌面通知/托盘 · serve
    （`cookies_normal_<学号>`）⇒ 测试里只清 `_default` 等于什么都没清，上一条测试留下的 TGC
    会把「真登录」变成 SSO 直通（`credentialPosts` 恒为 0）。**第一次跑就踩到了。**
 
-### 11.1 同一轮顺带做完的一条：校历（免登录上游的报偿）
+### 11.1 同一轮顺带做完的两条：校历与黄页（免登录上游的报偿）
 
 `:app` 的 `SchoolCalendarApi` **一行 Android 都没碰**（`HttpClients.base` 本来就在 `:data`，
 模型与解析早在 `:core`）⇒ 同包同类型名搬进 `:data`，`:app` 三处调用点一个字未改。
@@ -336,6 +336,20 @@ WebVPN 在桌面的复用（校外访问必需）· 桌面通知/托盘 · serve
    （与 `:core` 里那批 `Campus*Api(client, base)` 同一种形状）；校历解析不看 URL，
    所以这不影响「测的是不是真解析链路」。需要登录的站点**不能**这么办 —— 它们有一批按 host
    判断的判据，必须走代理、URL 一字不改。
+
+**黄页（第三条真数据路由）—— 连搬都不用搬**：`:core` 的 `YellowPageApi` 在第 1 步（okhttp→Ktor）
+就已经在 commonMain 里了，而且它的端口收一个 `HttpClient`（调用方一侧）⇒ 桌面端只要给一条客户端
+（`cache = null`：那份缓存缝要按账号隔离的落盘实现，属 §5.4）。
+
+| 验收 | 结果 |
+|---|---|
+| 桌面多一屏真数据 | ✓ `yellowpage.png`：类别标签（教务处 / 学生工作部）、机构行、拨打电话按钮、「收录 3 个校内机构 · 更新于 2026年08月01日」—— 全部来自真解析 |
+| 装配测试 | ✓ `:desktop:test` 多一条（共 10 例）：停用的类别/部门被滤掉、按 (sort, id) 升序、电话按 `/` 拆成两个可拨号码 |
+| 假上游不用起服务器 | ✓ `:testkit` 的 `YellowPageFixture` 只提供「两条响应体 + 哪条路径对应哪个体」，消费者用 Ktor 的 `MockEngine` 喂进去（`:testkit` 因此**仍然零依赖**，只有 JDK） |
+
+**这条得到的新结论**：`*Api` 的端口形状决定了假上游的形态 ——
+**收 `HttpClient` 的（Ktor 接口）用 `MockEngine`**（不起服务器、不受 https 限制、`:testkit` 保持零依赖）；
+**吃会话内核的（cookie/302/CAS）必须起服务器 + 代理**。按这个分，下一批屏的成本可以提前估出来。
 
 **这一轮没做的**：`Sites.kt` 里其余 18 个站点仍留在 `:app`（它们各自的 `*Login` + 功能包里的解析类要一起搬）；
 校园网判定（WebVPN 网关）在桌面端仍缺席 —— 故**校外直连不上**，属 §5.4；serve 模式、网络栈迁移、
