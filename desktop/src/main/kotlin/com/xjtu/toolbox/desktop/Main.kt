@@ -10,8 +10,22 @@ import androidx.compose.ui.window.rememberWindowState
 import androidx.lifecycle.ViewModelStore
 import androidx.lifecycle.ViewModelStoreOwner
 import androidx.lifecycle.viewmodel.compose.LocalViewModelStoreOwner
+import com.xjtu.toolbox.core.net.createToolboxClient
 import com.xjtu.toolbox.ui.theme.XJTUToolBoxTheme
+import io.ktor.client.HttpClient
 
+
+/**
+ * **免登录接口用的共享 Ktor 客户端**（现在只有黄页）。
+ *
+ * 黄页是**匿名可读**的接口（`:core` 的 `YellowPageApi` 里不带任何凭据），所以它不需要走会话内核
+ * 那条链路（cookie jar / WebVPN 改写 / 重认证）—— 与 `:app` 的 `appYellowPageApi` 同一条口径：
+ * 一条不带 CookieJar 的 `createToolboxClient()`。
+ *
+ * 进程级一份（`by lazy`）：别每次重组都新建一个连接池 —— `:app` 那份也是进程级一份。
+ * 后面再接免登录的屏（教师检索 / 公告正文）时，它们共用这一条。
+ */
+internal val yellowPageClient: HttpClient by lazy { createToolboxClient() }
 /**
  * `./gradlew :desktop:run` —— 真窗口。
  *

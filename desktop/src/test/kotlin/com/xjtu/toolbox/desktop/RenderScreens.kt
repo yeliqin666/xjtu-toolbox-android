@@ -13,6 +13,7 @@ import com.xjtu.toolbox.auth.ensureSite
 import com.xjtu.toolbox.calendar.SchoolCalendarApi
 import com.xjtu.toolbox.calendar.SchoolCalendarFakeUpstream
 import com.xjtu.toolbox.calendar.SchoolCalendarScreen
+import com.xjtu.toolbox.error.FriendlyError
 import com.xjtu.toolbox.library.LibraryFakeUpstream
 import com.xjtu.toolbox.library.LibraryScreen
 import com.xjtu.toolbox.library.TestRsaKey
@@ -21,6 +22,8 @@ import com.xjtu.toolbox.platform.JvmCredentialStore
 import com.xjtu.toolbox.platform.dataRootOverride
 import com.xjtu.toolbox.platform.wipeSecureStore
 import com.xjtu.toolbox.ui.theme.XJTUToolBoxTheme
+import com.xjtu.toolbox.yellowpage.YellowPageApi
+import com.xjtu.toolbox.yellowpage.YellowPageScreen
 import java.io.File
 import java.nio.file.Files
 import javax.swing.SwingUtilities
@@ -132,7 +135,19 @@ fun main(args: Array<String>) {
         )
     }
 
-    // ── ③④⑤⑥ 真登录之后（同一份假上游：图书馆要登录、校历不要）──────────────────
+
+    // ── ③ 黄页（免登录；Ktor 接口 ⇒ MockEngine 喂假响应，不需要服务器/代理）────────
+    // 这张图要的是「有数据时屏长什么样」：类别标签、部门行、可拨号码。
+    // 它**不走** FakeCampusProxy —— 黄页根本不需要会话（见 FakeKtorClients.kt 的 KDoc）。
+    shot("yellowpage.png", frames = 8) {
+        YellowPageScreen(
+            api = YellowPageApi(mockYellowPageClient()),
+            onBack = {},
+            errorText = { FriendlyError.of(it, "加载黄页") },
+        )
+    }
+
+    // ── ④⑤⑥⑦ 真登录之后（同一份假上游：图书馆要登录、校历不要）──────────────────
     withFakeCampus { auth ->
         // 「用户在登录页敲了字」这一步：用的是假上游那组**编出来的**账号密码
         //（`LibraryFakeUpstream.USERNAME` = 2021000001，不是任何人的学号）。

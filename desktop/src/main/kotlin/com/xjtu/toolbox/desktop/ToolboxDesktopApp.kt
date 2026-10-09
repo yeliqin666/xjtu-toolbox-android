@@ -12,6 +12,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Apps
 import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.EventNote
+import androidx.compose.material.icons.filled.Phone
 import androidx.compose.material.icons.filled.SportsEsports
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -42,6 +43,8 @@ import com.xjtu.toolbox.game.xiangqi.XiangqiScreen
 import com.xjtu.toolbox.library.LibraryScreen
 import com.xjtu.toolbox.nav.AppRoute
 import com.xjtu.toolbox.platform.keyValueStore
+import com.xjtu.toolbox.yellowpage.YellowPageApi
+import com.xjtu.toolbox.yellowpage.YellowPageScreen
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -134,10 +137,11 @@ internal sealed interface DesktopTarget {
 
 internal data class DesktopTab(val label: String, val icon: ImageVector, val target: DesktopTarget)
 
-/** 底栏那四格 —— 每一格都是这一端**真能画**的屏（取数在 `:data`，或压根不需要取数）。 */
+/** 底栏那五格 —— 每一格都是这一端**真能画**的屏（取数在 `:data`，或压根不需要取数）。 */
 internal val DESKTOP_TABS = listOf(
     DesktopTab("校历", Icons.Filled.EventNote, DesktopTarget.App(AppRoute.SchoolCalendar)),
     DesktopTab("图书馆", Icons.Filled.CalendarMonth, DesktopTarget.App(AppRoute.Library)),
+    DesktopTab("黄页", Icons.Filled.Phone, DesktopTarget.App(AppRoute.YellowPage)),
     DesktopTab("游戏", Icons.Filled.SportsEsports, DesktopTarget.App(AppRoute.Games)),
     DesktopTab("全部", Icons.Filled.Apps, DesktopTarget.Routes),
 )
@@ -145,12 +149,13 @@ internal val DESKTOP_TABS = listOf(
 /**
  * 这一端**真能画**的路由（`:core` 里有屏 + 取数在 `:data`，两者缺一不可）。
  *
- * 两条真取数：图书馆（要登录，走会话内核）与校历（**免登录**的公开门户接口）。
+ * 三条真取数：图书馆（要登录，走会话内核）、校历与黄页（**免登录**的公开门户接口）。
  * 其余是纯 UI 的游戏（与数据源无关，三端同一份）。
  */
 internal val DESKTOP_SUPPORTED_ROUTES = listOf(
     AppRoute.SchoolCalendar to "校历",
     AppRoute.Library to "图书馆座位",
+    AppRoute.YellowPage to "黄页",
     AppRoute.Games to "游戏合集",
     AppRoute.Game2048 to "GPA 2048",
     AppRoute.GameBlocks to "方块",
@@ -168,7 +173,6 @@ internal val DESKTOP_SUPPORTED_ROUTES = listOf(
 internal val DESKTOP_PENDING_ROUTES = listOf(
     AppRoute.Fitness to "体测",
     AppRoute.ScoreReport to "成绩",
-    AppRoute.YellowPage to "黄页",
     AppRoute.Notification to "通知公告",
     AppRoute.Faculty to "教师检索",
     AppRoute.SchoolCourse to "全校课表",
@@ -216,6 +220,15 @@ private fun DesktopPage(auth: DesktopAuth, route: AppRoute, onNavigate: (Desktop
         AppRoute.SchoolCalendar -> SchoolCalendarScreen(
             source = remember { SchoolCalendarApi() },
             onBack = back,
+        )
+        // 黄页：另一条**免登录**的公开门户接口，而且 `:core` 里那份 `YellowPageApi` 早就搬完了
+        //（第 1 步 okhttp→Ktor 时搬的，端口收一个 `HttpClient`）⇒ 桌面只需给一条客户端。
+        // `cache = null`：`:core` 的黄页缓存缝要一个按账号隔离的落盘实现（`:app` 是 `DataCache`），
+        // 桌面端还没有那份宿主存储（属 §5.4）——不缓存，直接请求，屏上的语义不变。
+        AppRoute.YellowPage -> YellowPageScreen(
+            api = remember { YellowPageApi(yellowPageClient) },
+            onBack = back,
+            errorText = { FriendlyError.of(it, "加载黄页") },
         )
         AppRoute.Library -> {
             val hintPrefs = remember { keyValueStore("feature_hints") }

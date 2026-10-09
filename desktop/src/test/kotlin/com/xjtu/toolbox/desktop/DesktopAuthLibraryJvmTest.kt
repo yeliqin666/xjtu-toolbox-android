@@ -17,6 +17,7 @@ import com.xjtu.toolbox.network.PersistentCookieJar
 import com.xjtu.toolbox.platform.JvmCredentialStore
 import com.xjtu.toolbox.platform.dataRootOverride
 import com.xjtu.toolbox.platform.wipeSecureStore
+import com.xjtu.toolbox.yellowpage.YellowPageApi
 import java.io.File
 import java.nio.file.Files
 import kotlin.test.Test
@@ -333,5 +334,25 @@ class DesktopAuthLibraryJvmTest {
     @Test
     fun `夹具与生产都指向同一个座位系统基址`() {
         assertEquals(LibraryFakeUpstream.LIBRARY_BASE, LibraryPages.BASE_URL)
+    }
+
+    // ══════ 黄页：另一条免登录的路（Ktor 接口 ⇒ 用 MockEngine，不需要服务器）══════
+
+    @Test
+    fun `黄页：免登录就能取到机构通讯录（停用的被滤掉，按 sort 与 id 排序）`() {
+        // 没有 `withFakeCampus`：这条根本不需要会话，也不走 `HttpClients.base`
+        //（`:core` 的 `YellowPageApi` 收一个 `HttpClient`，端口在调用方一侧）。
+        val data = runBlocking { YellowPageApi(mockYellowPageClient()).getData() }
+
+        assertEquals(listOf("教务处", "学生工作部（处）"), data.categories.map { it.name })
+        // (sort, id) 升序：(1,11) → (1,20) → (2,12)
+        assertEquals(
+            listOf("教学运行中心", "学生事务大厅", "综合办公室"),
+            data.departments.map { it.name },
+        )
+        // 电话里的 `/` 拆成两条（`phoneItems`），屏上因此有两个可拨号码
+        assertEquals(listOf("029-82668891", "029-82668892"), data.departments[1].phoneItems)
+        // 「数据更新于」的格式化口径（与 `:core` 那条单测同一个期望值）
+        assertEquals("2026年08月01日", data.updateTime)
     }
 }

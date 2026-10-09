@@ -65,6 +65,10 @@ dependencies {
     testImplementation(kotlin("test"))
     // JUnit4：`kotlin("test")` 在 kotlin-jvm 上默认落到 kotlin-test-junit，引擎要显式给。
     testImplementation(libs.junit)
+    // 黄页那条免登录上游是**Ktor 接口**（`:core` 的 `YellowPageApi` 收一个 HttpClient）⇒ 用 Ktor 自己的
+    // `MockEngine` 把假响应喂进去，比再起一个 HTTP 服务器干净（图书馆/校历那两条要服务器，
+    // 是因为它们面对的是会话内核的 cookie/302）。
+    testImplementation(libs.ktor.client.mock)
 }
 
 /**
