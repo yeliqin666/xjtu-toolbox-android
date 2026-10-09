@@ -9,6 +9,12 @@
 // 那 13 个 campus-api 版实现（`Campus*Api`），只把基址指向本机的 127.0.0.1:3099。
 // ⚠️ 那是**脚手架**：它只对「我这台跑着 campus-api 的机器」可用，正是因此它只出现在阶段 0。
 // Stage A 会把数据源换成 `:data`（自带登录、自带数据，见 docs/desktop-port-plan.md §6）。
+/**
+ * 桌面包的版本号。单独拎出来是因为它出现在两个地方：jpackage 的 `packageVersion`
+ * （只接受 `x.y.z`）与 tar.gz 的文件名。
+ */
+val desktopPackageVersion = "5.1.1"
+
 plugins {
     alias(libs.plugins.kotlin.jvm)
     alias(libs.plugins.compose.multiplatform)
@@ -46,15 +52,15 @@ dependencies {
 compose.desktop {
     application {
         mainClass = "com.xjtu.toolbox.desktop.MainKt"
-
-        // jpackage：`./gradlew :desktop:packageDeb` / `createDistributable`。
-        // 出包形态只是阶段 0 的验收项之一（能不能出一个包装上），安装器细节见设计文档 §7 待定项。
+        // jpackage：`./gradlew :desktop:packageDeb` / `:desktop:packageTarGz` / `createDistributable`。
+        // 出包形态按 `docs/desktop-port-plan.md` §7 定下来的三样：`.deb` / app-image（免安装目录）
+        // / 由 app-image 再打的 `tar.gz`。
         nativeDistributions {
             targetFormats(org.jetbrains.compose.desktop.application.dsl.TargetFormat.Deb,
                 org.jetbrains.compose.desktop.application.dsl.TargetFormat.AppImage)
             packageName = "xjtu-toolbox"
             // jpackage 的版本号规则比 :app 的 versionName 严：只接受 x.y.z（或带 -ea 之类后缀）
-            packageVersion = "5.1.1"
+            packageVersion = desktopPackageVersion
             description = "西安交通大学工具箱（桌面预览）"
             vendor = "XJTU ToolBox"
 
@@ -79,4 +85,26 @@ tasks.register<JavaExec>("renderScreens") {
     mainClass.set("com.xjtu.toolbox.desktop.RenderScreensKt")
     classpath = sourceSets["main"].runtimeClasspath
     args = listOf(layout.buildDirectory.dir("screenshots").get().asFile.absolutePath)
+}
+
+/**
+ * `./gradlew :desktop:packageTarGz` —— 把 jpackage 的 **app-image**（免安装目录）打成 `tar.gz`。
+ *
+ * 为什么要有它：`docs/desktop-port-plan.md` §7 定下来的 Linux 交付三样里，`tar.gz` 是
+ * 给「没有 dpkg / 不能用 FUSE」的机器用的 —— 解压后直接跑 `bin/xjtu-toolbox`，
+ * 不需要安装、也不需要 root。
+ *
+ * ⚠️ 口径说明：Compose Desktop 的 `TargetFormat.AppImage` 是 **jpackage 的 `app-image`**
+ * （一个自带运行时的目录），**不是** AppImage.org 那种单文件 `.AppImage`。真正的单文件
+ * AppImage 需要额外一步 `appimagetool`（且它依赖 FUSE），不在这条任务里 —— 见 §7。
+ */
+tasks.register<org.gradle.api.tasks.bundling.Tar>("packageTarGz") {
+    group = "distribution"
+    description = "把 app-image 打成 tar.gz（免安装：解压后直接跑 bin/xjtu-toolbox）"
+    dependsOn("createDistributable")
+    compression = org.gradle.api.tasks.bundling.Compression.GZIP
+    archiveFileName.set("xjtu-toolbox-$desktopPackageVersion-linux-x64.tar.gz")
+    destinationDirectory.set(layout.buildDirectory.dir("compose/binaries/main/tar"))
+    // app-image 的目录名就是 packageName，里面 bin/ + lib/ + runtime/ 整棵带走
+    from(layout.buildDirectory.dir("compose/binaries/main/app"))
 }

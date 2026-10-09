@@ -160,7 +160,26 @@ serve 模式走的是**浏览器承载**，对应 `wasmJsMain` 那 18 个 actual
 ## 7. 待定项（不阻塞开工）
 
 Windows 代码签名（否则 SmartScreen 报警）· 更新机制（没有商店）· EULA/隐私说明的复刻 ·
-WebVPN 在桌面的复用（校外访问必需）· Linux 打包形态（`.deb`/AppImage/`tar.gz` + 是否自动开浏览器）· 桌面通知/托盘。
+Windows 代码签名（否则 SmartScreen 报警）· 更新机制（没有商店）· EULA/隐私说明的复刻 ·
+WebVPN 在桌面的复用（校外访问必需）· 桌面通知/托盘 · serve 模式启动后要不要自动开浏览器
+（用户在 2026-10-09 那一轮明确「留到做 serve 模式那一轮再定」）。
+
+### 7.1 Linux 交付形态（**2026-10-09 已定**）
+
+**三样都出**：`.deb` + app-image / tar.gz。
+
+| 形态 | 任务 | 给谁用 |
+|---|---|---|
+| `.deb` | `./gradlew :desktop:packageDeb` | Debian / Ubuntu（apt 管依赖与卸载） |
+| app-image（免安装目录） | `./gradlew :desktop:createDistributable` | 本机试跑；也是 tar.gz 的输入 |
+| `tar.gz` | `./gradlew :desktop:packageTarGz` | 无 dpkg / 不能用 FUSE 的机器：解压后直接跑 `bin/xjtu-toolbox` |
+
+⚠️ **一个口径说明**：Compose Desktop 的 `TargetFormat.AppImage` 是 **jpackage 的 `app-image`**
+（一个自带运行时的目录），**不是** AppImage.org 那种单文件 `.AppImage`。
+真正的单文件 AppImage 要额外一步 `appimagetool`（而且它依赖 FUSE）—— 实测那台机器上没装，
+所以**真·单文件 AppImage 仍待定**（需要它时再加一条任务，与 `packageTarGz` 同形）。
+
+三个产物都带 jlink 运行时，体积约 100～190MB（tar.gz 115MB）。
 
 ---
 
