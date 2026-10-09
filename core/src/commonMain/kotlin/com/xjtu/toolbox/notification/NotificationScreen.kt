@@ -1,0 +1,512 @@
+package com.xjtu.toolbox.notification
+
+import com.xjtu.toolbox.ui.components.AppPullToRefresh
+import androidx.lifecycle.viewmodel.compose.viewModel
+import com.xjtu.toolbox.ui.components.enterOnce
+import com.xjtu.toolbox.ui.adaptive.fullLineItem
+import com.xjtu.toolbox.ui.glass.*
+import top.yukonga.miuix.kmp.theme.MiuixTheme
+import top.yukonga.miuix.kmp.basic.Card
+import top.yukonga.miuix.kmp.basic.CardDefaults
+import top.yukonga.miuix.kmp.basic.Text
+import top.yukonga.miuix.kmp.basic.Surface
+import top.yukonga.miuix.kmp.basic.Icon
+import top.yukonga.miuix.kmp.basic.IconButton
+import top.yukonga.miuix.kmp.basic.Scaffold
+import top.yukonga.miuix.kmp.basic.MiuixScrollBehavior
+import top.yukonga.miuix.kmp.basic.rememberTopAppBarState
+import top.yukonga.miuix.kmp.basic.CircularProgressIndicator
+import top.yukonga.miuix.kmp.basic.LinearProgressIndicator
+import top.yukonga.miuix.kmp.basic.HorizontalDivider
+import top.yukonga.miuix.kmp.utils.overScrollVertical
+
+import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Merge
+import androidx.compose.material.icons.outlined.WarningAmber
+import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
+import com.xjtu.toolbox.ui.components.AppFilterChip
+import com.xjtu.toolbox.ui.components.AppSuggestionChip
+import com.xjtu.toolbox.ui.components.EmptyState
+import com.xjtu.toolbox.ui.components.ErrorState
+import com.xjtu.toolbox.util.todayInSystemZone
+import kotlinx.datetime.LocalDate
+import kotlinx.datetime.daysUntil
+import com.xjtu.toolbox.nav.AppRoute
+
+@Composable
+fun NotificationScreen(
+    source: NoticeSource,
+    onBack: () -> Unit,
+    onNavigate: (AppRoute) -> Unit = {},
+) {
+    // 与 :app 同一个 ViewModel（只是取数换成了端口）；两端都用 androidx.lifecycle 的
+    // `viewModel { }`（:core 里是 JetBrains 版，同 API、同版本）。
+    val vm: NotificationViewModel = viewModel { NotificationViewModel(source) }
+    val notifications = vm.notifications
+    val searching = vm.searching
+    val listState = androidx.compose.foundation.lazy.staggeredgrid.rememberLazyStaggeredGridState()
+
+    // 当前分类下的来源
+    val sourcesInCategory = remember(vm.selectedCategory) {
+        vm.selectedCategory?.let { NotificationSource.byCategory(it) } ?: NotificationSource.entries.toList()
+    }
+
+    // 展示的通知：没在搜就是列表；在搜时是站内结果，外加本地已加载里的匹配（合并去重、按日期）
+    val filteredNotifications = remember(notifications, vm.searchQuery, vm.searchResults) {
+        if (!searching) notifications
+        else {
+            val local = notifications.filter { it.title.contains(vm.searchQuery.trim(), ignoreCase = true) }
+            val remote = vm.searchResults
+            if (remote == null) local
+            else (remote + local).distinctBy { it.link }.sortedByDescending { it.date }
+        }
+    }
+
+    // 换来源 / 模式后的内容回来了：滚回顶部
+    LaunchedEffect(vm.reloadGeneration) {
+        if (vm.reloadGeneration > 0) runCatching { listState.scrollToItem(0) }
+    }
+
+    // 滑动到底自动翻页
+    val shouldLoadMore by remember(vm.hasMorePages) {
+        derivedStateOf {
+            if (!vm.hasMorePages) return@derivedStateOf false
+            // 瀑布流里可见项不一定按下标排好，取最大的下标
+            val lastVisibleIndex = listState.layoutInfo.visibleItemsInfo.maxOfOrNull { it.index } ?: return@derivedStateOf false
+            val totalItems = listState.layoutInfo.totalItemsCount
+            totalItems > 0 && lastVisibleIndex >= totalItems - 3
+        }
+    }
+    LaunchedEffect(shouldLoadMore, vm.isLoadingMore, vm.isLoading) {
+        if (shouldLoadMore) vm.loadMore()
+    }
+
+    val scrollBehavior = MiuixScrollBehavior(rememberTopAppBarState())
+    // 玻璃顶栏（经典风格下为 null，一切照旧），用法见 ui/glass/GlassTopBar.kt
+    val glass = rememberPageGlass()
+    Scaffold(
+        topBar = {
+            GlassTopAppBar(
+                title = "通知公告",
+                glass = glass,
+                scrollBehavior = scrollBehavior,
+                onBack = onBack,
+                actions = {
+                    IconButton(onClick = vm::toggleMerge) {
+                        Icon(
+                            Icons.Default.Merge,
+                            contentDescription = if (vm.mergeMode) "取消合并" else "合并模式",
+                            tint = if (vm.mergeMode) MiuixTheme.colorScheme.primary
+                            else MiuixTheme.colorScheme.onSurfaceVariantSummary
+                        )
+                    }
+                },
+                // 分类、来源两行是导航，不跟列表滚：挂在顶栏里和顶栏一起做一整块玻璃，
+                // 通知卡片从它们下面滚过去
+                bottomContent = {
+                  Column {
+                    // ═══ 分类选择（文本 Tab 样式，轻量级层级感） ═══
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .horizontalScroll(rememberScrollState())
+                            .padding(horizontal = 16.dp, vertical = 2.dp),
+                        horizontalArrangement = Arrangement.spacedBy(2.dp)
+                    ) {
+                        val allCats = listOf<SourceCategory?>(null) + SourceCategory.entries
+                        allCats.forEach { cat ->
+                            val isSelected = vm.selectedCategory == cat
+                            val label = cat?.displayName ?: "全部"
+                            Column(
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .clickable { vm.selectedCategory = cat }
+                                    .padding(horizontal = 14.dp, vertical = 8.dp)
+                            ) {
+                                Text(
+                                    label,
+                                    style = MiuixTheme.textStyles.body2,
+                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                                    color = if (isSelected) MiuixTheme.colorScheme.primary
+                                    else MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                                    maxLines = 1
+                                )
+                                Spacer(Modifier.height(4.dp))
+                                Box(
+                                    Modifier
+                                        .width(if (isSelected) 20.dp else 0.dp)
+                                        .height(3.dp)
+                                        .background(
+                                            if (isSelected) MiuixTheme.colorScheme.primary else Color.Transparent,
+                                            RoundedCornerShape(1.5.dp)
+                                        )
+                                )
+                            }
+                        }
+                    }
+
+                    // ─── 分割线 ───
+                    HorizontalDivider(
+                        modifier = Modifier.padding(horizontal = 16.dp),
+                        thickness = 0.5.dp,
+                        color = MiuixTheme.colorScheme.outline.copy(alpha = 0.5f)
+                    )
+
+                    // ═══ 来源选择（Chip 样式） ═══
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .horizontalScroll(rememberScrollState())
+                            .padding(start = 16.dp, end = 16.dp, top = 6.dp, bottom = 4.dp),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        sourcesInCategory.forEach { source ->
+                            if (vm.mergeMode) {
+                                AppFilterChip(
+                                    selected = source in vm.selectedSources,
+                                    onClick = {
+                                        vm.toggleSource(source)
+                                    },
+                                    label = source.displayName
+                                )
+                            } else {
+                                AppFilterChip(
+                                    selected = source == vm.selectedSource,
+                                    onClick = { vm.selectedSource = source },
+                                    label = source.displayName
+                                )
+                            }
+                        }
+                    }
+
+                    // 合并模式提示
+                    if (vm.mergeMode) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 16.dp, vertical = 2.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Icon(
+                                Icons.Default.Merge,
+                                contentDescription = null,
+                                modifier = Modifier.size(14.dp),
+                                tint = MiuixTheme.colorScheme.primary
+                            )
+                            Text(
+                                "已选 ${vm.selectedSources.size} 个来源 · 按时间排列",
+                                style = MiuixTheme.textStyles.footnote1,
+                                color = MiuixTheme.colorScheme.primary
+                            )
+                        }
+                    }
+
+                    // ═══ 加载条 ═══
+                    AnimatedVisibility((vm.isLoading && notifications.isNotEmpty()) || vm.searchLoading, enter = fadeIn(), exit = fadeOut()) {
+                        LinearProgressIndicator(Modifier.fillMaxWidth())
+                    }
+                  }
+                },
+            )
+        }
+    ) { padding ->
+        // 内容铺到顶栏下面。宽屏不再限宽 720：下面的卡片分列铺开，上面两行跟着占满。
+        val glassTop = padding.glassTop(glass)
+        Column(
+            modifier = Modifier
+                .padding(padding.withoutTop(glass))
+                .glassSource(glass)
+                .fillMaxSize()
+                .nestedScroll(scrollBehavior.nestedScrollConnection)
+        ) {
+            // 分类、来源两行在顶栏里（bottomContent）；列表把 glassTop 放进 contentPadding，
+            // 不是列表的几种状态（加载中 / 出错 / 暂无）在这里让出顶栏高度
+            val listShown = !(vm.isLoading && notifications.isEmpty()) &&
+                !(vm.errorMessage != null && notifications.isEmpty()) &&
+                notifications.isNotEmpty()
+            if (!listShown) Spacer(Modifier.height(glassTop))
+
+            // 搜索框和「有源不可达」提示：有通知列表时是列表的头两项，跟着列表滚走；
+            // 分类、来源两行是导航，留在顶上。以前这一整段都钉在顶部，占掉小半屏，
+            // 往上划只有下面一截通知在动。没有列表（加载中 / 出错 / 暂无通知）时它们照旧放在这里。
+            // 搜不到匹配项时列表还在（只剩搜索框和一行「没有匹配」）：要是这时把搜索框挪出列表，
+            // 输入框换了位置就会丢焦点，打字打到一半键盘收起来。
+            val searchBar: @Composable (Modifier) -> Unit = { m ->
+                com.xjtu.toolbox.ui.components.AppSearchBar(
+                    query = vm.searchQuery,
+                    onQueryChange = { vm.searchQuery = it },
+                    label = if (vm.mergeMode) "在已选的 ${vm.selectedSources.size} 个来源里搜索" else "在${vm.selectedSource.displayName}站内搜索",
+                    modifier = m.fillMaxWidth()
+                )
+            }
+            // 通知源静默跳过提示：让用户知道"不是没通知，是某些源被静默"。
+            val bannerText = if (searching) vm.searchNotice else vm.skippedSourceNotice
+            val skippedNoticeBanner: @Composable (Modifier) -> Unit = { m ->
+              bannerText?.let { msg ->
+                Surface(
+                    color = MiuixTheme.colorScheme.tertiaryContainer.copy(alpha = 0.55f),
+                    modifier = m.fillMaxWidth(),
+                    shape = androidx.compose.foundation.shape.RoundedCornerShape(16.dp),
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Icon(
+                            Icons.Outlined.WarningAmber,
+                            contentDescription = "通知源不可达",
+                            tint = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                            modifier = Modifier.size(18.dp),
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        Text(
+                            msg,
+                            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                            style = MiuixTheme.textStyles.footnote1,
+                            modifier = Modifier.weight(1f),
+                        )
+                    }
+                }
+              }
+            }
+            if (!listShown) {
+                searchBar(Modifier.padding(horizontal = 16.dp, vertical = 8.dp))
+                skippedNoticeBanner(Modifier.padding(horizontal = 16.dp, vertical = 6.dp))
+            }
+
+            // ═══ 内容区 ═══
+            when {
+                vm.isLoading && notifications.isEmpty() -> {
+                    com.xjtu.toolbox.ui.components.SkeletonList(Modifier.fillMaxSize(), rows = 7, rowHeight = 84.dp)
+                }
+
+                vm.errorMessage != null && notifications.isEmpty() -> {
+                    ErrorState(
+                        message = vm.errorMessage ?: "未知错误",
+                        onRetry = vm::reload,
+                        modifier = Modifier.fillMaxSize()
+                    )
+                }
+
+                else -> {
+                    if (!listShown) {
+                        EmptyState(
+                            title = "暂无通知",
+                            subtitle = "当前暂无新通知",
+                            modifier = Modifier.fillMaxSize()
+                        )
+                    } else {
+                        var isPullRefreshing by remember { mutableStateOf(false) }
+                        LaunchedEffect(vm.isLoading) { if (!vm.isLoading) isPullRefreshing = false }
+                        AppPullToRefresh(
+                            isRefreshing = isPullRefreshing,
+                            onRefresh = {
+                                isPullRefreshing = true
+                                vm.refresh()
+                            },
+                            scrollBehavior = scrollBehavior,
+                            // 下拉指示器从玻璃顶栏（含分类、来源两行）下面出来
+                            topPadding = glassTop,
+                            modifier = Modifier.fillMaxSize(),
+                        ) {
+                        // 宽屏分两三列排卡片（见 AdaptiveCardGrid），窄屏和原来的单列一样
+                        com.xjtu.toolbox.ui.adaptive.AdaptiveCardGrid(
+                            modifier = Modifier.fillMaxSize().overScrollVertical(),
+                            state = listState,
+                            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp + glassTop, bottom = 8.dp),
+                            spacing = 8.dp,
+                        ) {
+                            fullLineItem(key = "search") { searchBar(Modifier) }
+                            if (bannerText != null) {
+                                fullLineItem(key = "skipped") { skippedNoticeBanner(Modifier) }
+                            }
+                            if (searching && !vm.searchLoading && vm.searchResults != null && filteredNotifications.isNotEmpty()) {
+                                fullLineItem(key = "search_count") {
+                                    Text(
+                                        "站内搜到 ${filteredNotifications.size} 条 · 按时间排列",
+                                        style = MiuixTheme.textStyles.footnote1,
+                                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                                        modifier = Modifier.padding(horizontal = 4.dp),
+                                    )
+                                }
+                            }
+                            if (filteredNotifications.isEmpty()) {
+                                fullLineItem(key = "no_match") {
+                                    if (searching && vm.searchLoading) {
+                                        Box(Modifier.fillMaxWidth().padding(vertical = 48.dp), contentAlignment = Alignment.Center) {
+                                            CircularProgressIndicator(size = 24.dp)
+                                        }
+                                    } else {
+                                        EmptyState(
+                                            title = "没有匹配的通知",
+                                            subtitle = if (searching) "站内也没搜到，换个关键词试试" else "请尝试更改搜索关键词",
+                                            modifier = Modifier.fillMaxWidth().padding(vertical = 48.dp)
+                                        )
+                                    }
+                                }
+                            }
+                            items(
+                                filteredNotifications.size,
+                                key = { index -> "${filteredNotifications[index].source.name}_${index}_${filteredNotifications[index].link.hashCode()}" }
+                            ) { index ->
+                                val notification = filteredNotifications[index]
+                                // 第一屏错峰淡入，之后的直接就位
+                                androidx.compose.foundation.layout.Box(Modifier.enterOnce(index)) {
+                                NotificationCard(
+                                    notification = notification,
+                                    showSource = vm.mergeMode,
+                                    onClick = {
+                                        onNavigate(AppRoute.Browser(notification.link))
+                                    }
+                                )
+                                }
+                            }
+
+                            if (!searching && (vm.hasMorePages || vm.isLoadingMore)) {
+                                fullLineItem {
+                                    Box(
+                                        modifier = Modifier.fillMaxWidth().padding(16.dp),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        CircularProgressIndicator(size = 24.dp)
+                                    }
+                                }
+                            }
+                        }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+// ==================== 日期格式化 ====================
+
+private fun formatRelativeDate(date: LocalDate): String {
+    return try {
+        val today = todayInSystemZone()
+        val days = date.daysUntil(today).toLong()
+        when {
+            days < -1L  -> "${-days}\u5929\u540e"   // \u672a\u6765\u8d85\u8fc71\u5929
+            days == -1L -> "\u660e\u65e5"
+            days == 0L  -> "\u4eca\u65e5"
+            days == 1L  -> "\u6628\u65e5"
+            days in 2..6 -> "${days}\u5929\u524d"
+            days in 7..13 -> "\u4e0a\u5468"
+            days in 14..30 -> "${days / 7}\u5468\u524d"
+            days in 31..365 -> "${days / 30}\u4e2a\u6708\u524d"
+            else -> date.toString()
+        }
+    } catch (_: Exception) {
+        date.toString()
+    }
+}
+
+// ==================== 通知卡片 ====================
+
+@Composable
+private fun NotificationCard(
+    notification: Notification,
+    showSource: Boolean = false,
+    onClick: () -> Unit
+) {
+    top.yukonga.miuix.kmp.basic.Card(
+        modifier = Modifier
+            .fillMaxWidth(),
+        onClick = onClick,
+        pressFeedbackType = top.yukonga.miuix.kmp.utils.PressFeedbackType.Sink,
+        colors = top.yukonga.miuix.kmp.basic.CardDefaults.defaultColors(color = MiuixTheme.colorScheme.surfaceVariant
+        )
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Text(
+                text = notification.title,
+                style = MiuixTheme.textStyles.body1,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+                color = MiuixTheme.colorScheme.onSurface
+            )
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                // 左边这组让出右边的来源和日期：标签多了自己截断，不把右边挤出卡片
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.weight(1f, fill = false).padding(end = 8.dp),
+                ) {
+                    // 合并模式下显示来源标签
+                    if (showSource) {
+                        Surface(
+                            shape = RoundedCornerShape(4.dp),
+                            color = MiuixTheme.colorScheme.primaryContainer
+                        ) {
+                            Text(
+                                notification.source.displayName,
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                style = MiuixTheme.textStyles.footnote1,
+                                fontWeight = FontWeight.Bold,
+                                color = MiuixTheme.colorScheme.onPrimaryContainer
+                            )
+                        }
+                    }
+                    // 标签只是说明，不能点：写成和右边来源、日期同一种小字。
+                    // 以前套的是可点的 AppSuggestionChip，还把高度硬压到 24dp，比组件自己要的矮，字被上下切掉。
+                    notification.tags.forEach { tag ->
+                        Text(
+                            tag,
+                            style = MiuixTheme.textStyles.footnote1,
+                            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                            maxLines = 1,
+                        )
+                    }
+                }
+
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    if (!showSource) {
+                        Text(
+                            text = notification.source.displayName,
+                            style = MiuixTheme.textStyles.footnote1,
+                            color = MiuixTheme.colorScheme.primary
+                        )
+                    }
+                    Text(
+                        text = formatRelativeDate(notification.date),
+                        style = MiuixTheme.textStyles.footnote1,
+                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary
+                    )
+                }
+            }
+        }
+    }
+}

@@ -1,5 +1,8 @@
 package com.xjtu.toolbox.widget
 
+import com.xjtu.toolbox.util.toJavaTime
+import com.xjtu.toolbox.util.toKx
+
 import android.app.AlarmManager
 import android.app.PendingIntent
 import android.appwidget.AppWidgetManager
@@ -332,7 +335,7 @@ object ScheduleWidgetUpdater {
             )
 
         val weekText = term.startDate
-            ?.let { com.xjtu.toolbox.schedule.TermWeeks.weekOf(it, today) }
+            ?.let { com.xjtu.toolbox.schedule.TermWeeks.weekOf(it.toKx(), today.toKx()) }
             ?.takeIf { it >= 1 }
             ?.let { "第${it}周" }
             .orEmpty()
@@ -385,7 +388,7 @@ object ScheduleWidgetUpdater {
         fun coursesOn(date: LocalDate, now: LocalDateTime = LocalDateTime.now()): List<WidgetCourse> {
             val isHoliday = date in holidays
             // 没有开学日期就算不出周次；这时按星期给出全部同星期的课，总好过一片空白
-            val week = startDate?.let { com.xjtu.toolbox.schedule.TermWeeks.weekOf(it, date) }
+            val week = startDate?.let { com.xjtu.toolbox.schedule.TermWeeks.weekOf(it.toKx(), date.toKx()) }
             return all
                 .filter { it.dayOfWeek == date.dayOfWeek.value }
                 .filter { !isHoliday || it.isUserCreated }
@@ -529,7 +532,7 @@ object ScheduleWidgetUpdater {
         val startDate = ScheduleCache.readStartDate(cache, termCode)
 
         val baseWeek = startDate?.let {
-            com.xjtu.toolbox.schedule.TermWeeks.weekOf(it, nowDate)
+            com.xjtu.toolbox.schedule.TermWeeks.weekOf(it.toKx(), nowDate.toKx())
         }
 
         val maxWeek = ScheduleCache.totalWeeks(cache, termCode, allCourses)
@@ -557,7 +560,7 @@ object ScheduleWidgetUpdater {
         val shouldFilterByWeek = baseWeek != null || weekOffset != 0
 
         val selectedDate = if (startDate != null) {
-            com.xjtu.toolbox.schedule.TermWeeks.dateOf(startDate, effectiveWeek, selectedDayOfWeek)
+            com.xjtu.toolbox.schedule.TermWeeks.dateOf(startDate.toKx(), effectiveWeek, selectedDayOfWeek).toJavaTime()
         } else {
             val relativeWeekDelta = effectiveWeek - (displayBaseWeek ?: 1)
             nowDate.plusDays(relativeWeekDelta * 7L + (selectedDayOfWeek - todayDow).toLong())

@@ -1,9 +1,10 @@
 package com.xjtu.toolbox.home
 
+import com.xjtu.toolbox.util.toKx
 import com.xjtu.toolbox.nav.expandOriginSource
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
-import androidx.activity.compose.BackHandler
+import com.xjtu.toolbox.platform.BackHandler
 import androidx.compose.animation.*
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import top.yukonga.miuix.kmp.utils.SinkFeedback
@@ -47,6 +48,7 @@ import com.xjtu.toolbox.ui.theme.serviceColor
 import com.xjtu.toolbox.bulletin.Bulletin
 import com.xjtu.toolbox.ui.components.AppCardColor
 import com.xjtu.toolbox.ui.components.ExpressiveIcon
+import com.xjtu.toolbox.ui.components.GradientAppIcon
 import com.xjtu.toolbox.ui.components.appCardShadow
 import com.xjtu.toolbox.ui.components.enterOnce
 import com.xjtu.toolbox.data.CredentialStore
@@ -540,7 +542,7 @@ internal fun HomeTab(
                 val startDate = schedule.start
                 val today = java.time.LocalDate.now()
                 val weekNumber = if (startDate != null) {
-                    com.xjtu.toolbox.schedule.TermWeeks.weekOf(startDate, today)
+                    com.xjtu.toolbox.schedule.TermWeeks.weekOf(startDate.toKx(), today.toKx())
                         .takeIf { it in 1..25 } ?: 0
                 } else {
                     0
@@ -557,7 +559,7 @@ internal fun HomeTab(
                     // 放假停的是教务的课，自建日程照常提醒
                     val isHoliday = holidayDates.containsKey(targetDate)
 
-                    val targetWeek = com.xjtu.toolbox.schedule.TermWeeks.weekOf(startDate, targetDate)
+                    val targetWeek = com.xjtu.toolbox.schedule.TermWeeks.weekOf(startDate.toKx(), targetDate.toKx())
                     if (targetWeek <= 0) continue
                     val daySchedules = allSchedules
                         .filter { it.dayOfWeek == targetDate.dayOfWeek.value && it.isInWeek(targetWeek) }
@@ -1130,39 +1132,6 @@ private fun HomeCategoryCard(
             }
             Spacer(Modifier.height(6.dp))
         }
-    }
-}
-
-/**
- * App 式图标：分类色的对角渐变铺满超椭圆，上半截一层柔和高光，字形用白色。
- * 不加投影：一屏二十几个图标，每个一层 dropShadow，滚动时帧率会掉。
- */
-@Composable
-internal fun GradientAppIcon(
-    icon: ImageVector,
-    color: Color,
-    size: androidx.compose.ui.unit.Dp = 48.dp,
-    iconSize: androidx.compose.ui.unit.Dp = 24.dp,
-) {
-    val radius = size * 0.3f
-    val top = androidx.compose.ui.graphics.lerp(color, Color.White, 0.22f)
-    val bottom = androidx.compose.ui.graphics.lerp(color, Color.Black, 0.10f)
-    Box(
-        Modifier
-            .size(size)
-            .squircleClip(radius)
-            .background(Brush.linearGradient(listOf(top, color, bottom)))
-            .drawBehind {
-                drawRect(
-                    Brush.verticalGradient(
-                        listOf(Color.White.copy(alpha = 0.26f), Color.Transparent),
-                        endY = this.size.height * 0.55f,
-                    )
-                )
-            },
-        contentAlignment = Alignment.Center,
-    ) {
-        Icon(icon, contentDescription = null, tint = Color.White, modifier = Modifier.size(iconSize))
     }
 }
 

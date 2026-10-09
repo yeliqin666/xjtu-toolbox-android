@@ -2,7 +2,7 @@ package com.xjtu.toolbox.lms
 
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import android.util.Log
-import androidx.activity.compose.BackHandler
+import com.xjtu.toolbox.platform.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*

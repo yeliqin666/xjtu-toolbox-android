@@ -4,9 +4,6 @@ import androidx.room.*
 
 const val AGENDA_NOTE_PREFIX = "[AGENDA]"
 
-/** 自建日程转成 [CourseItem] 时 courseCode 的前缀，见 [CourseItem.isUserCreated]。 */
-const val CUSTOM_COURSE_CODE_PREFIX = "custom_"
-
 fun encodeAgendaNote(note: String): String {
     val trimmed = note.trim()
     return if (trimmed.startsWith(AGENDA_NOTE_PREFIX)) trimmed else "$AGENDA_NOTE_PREFIX$trimmed"

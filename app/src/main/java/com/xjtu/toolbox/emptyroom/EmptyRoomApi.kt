@@ -22,39 +22,10 @@ import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 import java.util.concurrent.TimeUnit
 
-/**
- * 教室信息（来自 CDN 缓存）
- */
-@kotlinx.serialization.Serializable
-data class RoomInfo(
-    val name: String = "",      // 教室名称，如 "主楼A-101"
-    val size: Int = 0,          // 座位数
-    val status: List<Int> = emptyList(),  // 11 个元素，对应 1-11 节课的占用情况：0=空闲, 1=占用
-)
-
-/**
- * 校区-教学楼映射（来自 XJTUToolBox）
- */
-val CAMPUS_BUILDINGS = mapOf(
-    "兴庆校区" to listOf(
-        "主楼A", "主楼B", "主楼C", "主楼D", "中2", "中3",
-        "西2东", "西2西", "外文楼A", "外文楼B", "东1东", "东2",
-        "仲英楼", "东1西", "教2楼", "中1", "主楼E座",
-        "工程馆", "工程坊A区", "文管", "计教中心", "田家炳"
-    ),
-    "雁塔校区" to listOf(
-        "东配楼", "微免楼", "综合楼", "教学楼", "药学楼", "解剖楼",
-        "生化楼", "病理楼", "西配楼", "一附院科教楼", "二院教学楼",
-        "护理楼", "卫法楼"
-    ),
-    "曲江校区" to listOf("西一楼", "西五楼", "西四楼", "西六楼"),
-    "创新港校区" to listOf(
-        "1号巨构", "2号巨构", "3号巨构", "4号巨构", "5号巨构",
-        "9号巨构", "18号巨构", "19号巨构", "20号巨构", "21号巨构",
-        "图书馆", "2号绿楔", "3号绿楔", "主楼运动场", "工程博物馆-创新港"
-    ),
-    "苏州校区" to listOf("公共学院5号楼")
-)
+// ⚠️ 这里的 `RoomInfo` / `CAMPUS_BUILDINGS` / `NoDataException` 已搬进 `:core`
+// 的 `com.xjtu.toolbox.emptyroom`（`EmptyRoomModels.kt`）—— 屏与 ViewModel 进了 `:core`，两端
+// 必须共用同一份模型。本文件只剩**取数实现**（CDN + 直查教务），由 :app 的 `AppEmptyRoomSource`
+// 包成 `EmptyRoomSource` 端口；**取数一行未改**。
 
 /**
  * 空闲教室查询 API — 从 Cloudflare CDN 获取预生成数据
@@ -263,10 +234,6 @@ class EmptyRoomApi(context: Context? = null) {
     }
 }
 
-/**
- * 无数据异常（CDN 上没有该天的数据）
- */
-class NoDataException(message: String) : Exception(message)
 
 // =====================================================================================
 // 直连查询：通过教务系统接口实时查询空闲教室。

@@ -1,6 +1,7 @@
 package com.xjtu.toolbox.game.net
 
 import android.Manifest
+import android.content.Context
 import android.content.pm.PackageManager
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -21,9 +22,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -40,10 +39,7 @@ import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import com.xjtu.toolbox.qrlogin.QrScannerView
 import com.xjtu.toolbox.util.QrBitmap
-import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import top.yukonga.miuix.kmp.basic.Button
 import top.yukonga.miuix.kmp.basic.ButtonDefaults
@@ -52,46 +48,46 @@ import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextButton
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
-enum class LobbyStage { CHOOSE, HOST_WAITING, JOIN_SCANNING, JOIN_CONNECTING, FAILED }
-
 /**
- * 联机大厅的状态：放在棋盘页（而不是大厅组件）里记住。
- *
- * 以前这些都是大厅组件自己的 remember，外加一个组件自己的协程作用域：用户在「联机对战」
- * 等人时切到「人机对战」看一眼，大厅离开组合，房间被关、等人的协程被取消，切回来又是一张新码。
- * 现在状态和协程都挂在 [scope]（棋盘页的作用域）上，切 tab 不丢；离开整个棋盘页时由
- * [rememberOnlineLobbyState] 统一收尾。
+ * 给 NavHost 用的便利函数：把当前 Context 装进 [AppOnlineLobby] 并记住它。
+ * 棋盘屏（在 :core）只认 [OnlineLobby]，拿不到 Context。
  */
-@Stable
-class OnlineLobbyState internal constructor(internal val scope: CoroutineScope) {
-    var stage by mutableStateOf(LobbyStage.CHOOSE)
-        internal set
-    internal var qrText by mutableStateOf<String?>(null)
-    internal var statusText by mutableStateOf("")
-    internal var failReason by mutableStateOf("")
-    /** 房主开房时选的先后手：true = 房主（我）先走。 */
-    var hostFirst by mutableStateOf(true)
-
-    internal var room: OnlineController.HostRoom? = null
-    internal var job: Job? = null
-
-    /** 关掉开着的房间、停掉正在进行的连接，回到「创建 / 加入」。已交出去的会话不受影响。 */
-    fun reset() {
-        job?.cancel()
-        job = null
-        room?.close()
-        room = null
-        qrText = null
-        stage = LobbyStage.CHOOSE
-    }
+@Composable
+fun rememberAppOnlineLobby(): OnlineLobby {
+    val context = LocalContext.current
+    return remember(context) { AppOnlineLobby(context) }
 }
 
-/** 在棋盘页顶层调用：离开棋盘页时关房间，切 tab 不关。 */
-@Composable
-fun rememberOnlineLobbyState(scope: CoroutineScope): OnlineLobbyState {
-    val state = remember(scope) { OnlineLobbyState(scope) }
-    DisposableEffect(state) { onDispose { state.reset() } }
-    return state
+/**
+ * 联机入口的 **Android 实现**：一个蓝牙 [OnlineLobbyHost] + 原样的 Android 大厅界面。
+ *
+ * 这一层为什么留在 `:app`：大厅 UI 要用运行时权限弹窗、`QrScannerView`（Android View）、
+ * 以及 `android.graphics.Bitmap` 画的二维码 —— 三样都是 Android 专属。协议流程
+ * （[OnlineLobbyState]）与棋盘屏都在 `:core`，只认 [OnlineLobby] 这个接口。
+ *
+ * Web 端传 `null`：浏览器没有 BLE，联机入口整个不出现（不是做一个假大厅）。
+ */
+class AppOnlineLobby(private val context: Context) : OnlineLobby {
+    override val host: OnlineLobbyHost = BleOnlineLobbyHost(context)
+
+    @Composable
+    override fun Content(
+        state: OnlineLobbyState,
+        kind: GameKind,
+        ruleParam: String?,
+        onSessionReady: (session: OnlineGameSession, amHost: Boolean, hostFirst: Boolean, ruleParam: String?) -> Unit,
+        onCancel: () -> Unit,
+        hostOptions: (@Composable () -> Unit)?,
+    ) {
+        OnlineLobbyContent(
+            state = state,
+            kind = kind,
+            ruleParam = ruleParam,
+            onSessionReady = onSessionReady,
+            onCancel = onCancel,
+            hostOptions = hostOptions,
+        )
+    }
 }
 
 /**
@@ -100,6 +96,9 @@ fun rememberOnlineLobbyState(scope: CoroutineScope): OnlineLobbyState {
  * 对方的着法应用到棋盘上，是每个棋各自的事。
  *
  * 只走蓝牙：校园网开了 AP 隔离，局域网直连实测连不上。
+ *
+ * **流程**（开房、等人、连接、失败重试）在 :core 的 [OnlineLobbyState] 里，这里只管界面
+ * 与三样 Android 专属的交互（权限、扫码控件、二维码图片）。
  */
 @Composable
 fun OnlineLobbyContent(
@@ -109,7 +108,6 @@ fun OnlineLobbyContent(
     ruleParam: String?,
     onSessionReady: (session: OnlineGameSession, amHost: Boolean, hostFirst: Boolean, ruleParam: String?) -> Unit,
     onCancel: () -> Unit,
-    modifier: Modifier = Modifier,
     /** 房主开房前可选的规则（比如围棋路数），画在「创建房间」上面。 */
     hostOptions: (@Composable () -> Unit)? = null,
 ) {
@@ -144,69 +142,22 @@ fun OnlineLobbyContent(
         ActivityResultContracts.RequestPermission()
     ) { cameraGranted = it }
 
-    fun fail(reason: String) {
-        state.failReason = reason
-        state.stage = LobbyStage.FAILED
-    }
-
     fun startHost() {
-        state.reset()
-        val hostFirst = state.hostFirst
-        val opened = OnlineController.hostGame(context, kind, ruleParam, hostFirst, state.scope)
-        if (opened == null) {
-            fail(
-                if (!OnlinePermissions.hasAllBlePermissions(context)) "联机要用蓝牙，需要「附近设备」权限。请在系统设置里给本应用开启后重试。"
-                else "蓝牙没开。打开蓝牙后再创建房间。"
-            )
-            return
-        }
-        state.room = opened
-        state.qrText = opened.qrText
-        state.statusText = "等待对方扫码…两台手机靠近一点"
-        state.stage = LobbyStage.HOST_WAITING
-        state.job = state.scope.launch {
-            val session = opened.awaitGuest()
-            if (state.room !== opened) { session?.close(); return@launch }   // 期间已取消或重开
-            state.room = null
-            if (session == null) {
-                fail("3 分钟内没有人连进来，或者连上后握手没成功，房间已关闭。点「重试」可以再开一局。")
-                return@launch
-            }
-            state.stage = LobbyStage.CHOOSE
-            onSessionReady(session, true, hostFirst, ruleParam)
+        state.startHost(kind, ruleParam) { session, hostFirst, rule ->
+            onSessionReady(session, true, hostFirst, rule)
         }
     }
 
     fun startJoinWith(scanned: String) {
-        // 扫码控件对着同一张码会连续回调好几次，只认第一次
-        if (state.stage != LobbyStage.JOIN_SCANNING) return
-        val payload = OnlineQrPayload.decode(scanned)
-        if (payload == null) {
-            fail("这不是本游戏的联机对局二维码，或者对方的版本太旧，换一张再扫。")
-            return
-        }
-        state.stage = LobbyStage.JOIN_CONNECTING
-        state.statusText = "正在通过蓝牙连接房主…"
-        state.job = state.scope.launch {
-            OnlineController.joinGame(context, payload, kind, state.scope) { attempt ->
-                when (attempt) {
-                    OnlineController.JoinAttempt.Connecting -> state.statusText = "正在通过蓝牙连接房主…"
-                    OnlineController.JoinAttempt.Handshaking -> state.statusText = "已连上，正在和房主确认对局…"
-                    is OnlineController.JoinAttempt.Failed -> fail(attempt.message)
-                    is OnlineController.JoinAttempt.Success -> {
-                        state.stage = LobbyStage.CHOOSE
-                        // joinGame 只在握手完成后才报 Success，这时 resolved* 已是房主给的真实值
-                        onSessionReady(attempt.session, false, attempt.session.resolvedHostFirst, attempt.session.resolvedRuleParam)
-                    }
-                }
-            }
+        state.startJoinWith(scanned, kind) { session, hostFirst, rule ->
+            onSessionReady(session, false, hostFirst, rule)
         }
     }
 
     val cancel = { state.reset(); onCancel() }
 
     Column(
-        modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
+        Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         when (state.stage) {
@@ -234,7 +185,7 @@ fun OnlineLobbyContent(
                     Text("创建房间（我显示二维码）", color = MiuixTheme.colorScheme.onPrimary)
                 }
                 Spacer(8.dp)
-                Button(onClick = { withBlePermission { state.stage = LobbyStage.JOIN_SCANNING } }, modifier = Modifier.fillMaxWidth()) {
+                Button(onClick = { withBlePermission { state.beginScanning() } }, modifier = Modifier.fillMaxWidth()) {
                     Text("加入房间（我扫对方的码）")
                 }
                 Spacer(8.dp)
@@ -300,37 +251,6 @@ fun OnlineLobbyContent(
     }
 }
 
-/** 大厅里的一行选项：左边名称，右边一排互斥的小块。 */
-@Composable
-fun LobbyOptionRow(label: String, content: @Composable () -> Unit) {
-    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-        Text(
-            label,
-            style = MiuixTheme.textStyles.body2,
-            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-            modifier = Modifier.width(64.dp),
-        )
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) { content() }
-    }
-}
-
-@Composable
-fun LobbyChip(text: String, selected: Boolean, onClick: () -> Unit) {
-    Box(
-        Modifier
-            .clip(RoundedCornerShape(12.dp))
-            .background(if (selected) MiuixTheme.colorScheme.primary else MiuixTheme.colorScheme.secondaryContainer)
-            .clickable(onClick = onClick)
-            .padding(horizontal = 14.dp, vertical = 8.dp),
-    ) {
-        Text(
-            text,
-            style = MiuixTheme.textStyles.body2,
-            fontWeight = FontWeight.SemiBold,
-            color = if (selected) MiuixTheme.colorScheme.onPrimary else MiuixTheme.colorScheme.onSurface,
-        )
-    }
-}
 
 @Composable
 private fun HostQrCard(qrText: String?) {

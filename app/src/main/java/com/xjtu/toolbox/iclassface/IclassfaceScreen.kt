@@ -1,5 +1,8 @@
 package com.xjtu.toolbox.iclassface
 
+import com.xjtu.toolbox.util.toJavaTime
+import com.xjtu.toolbox.util.toKx
+
 import com.xjtu.toolbox.ui.components.AppPullToRefresh
 import com.xjtu.toolbox.ui.components.FullPageState
 import androidx.compose.foundation.background
@@ -123,14 +126,16 @@ fun IclassfaceScreen(
         AppDatePickerDialog(
             show = showDatePicker,
             title = "选择日期",
-            date = selectedDate,
-            minDate = today.minusYears(3),
-            maxDate = today,
+            date = selectedDate.toKx(),
+            minDate = today.minusYears(3).toKx(),
+            maxDate = today.toKx(),
             onDismiss = { showDatePicker = false },
             onConfirm = {
-                selectedDate = it
+                // AppDatePickerDialog 现在收/吐 kotlinx 日期，这里在边界上转回来
+                val day = it.toJavaTime()
+                selectedDate = day
                 showDatePicker = false
-                load(it, silent = true)
+                load(day, silent = true)
             }
         )
         AppPullToRefresh(

@@ -23,6 +23,8 @@ internal fun applyDetectedAccountType(
     val detected = AccountType.fromIdentityName(identityTypeName) ?: return
     if (detected == loginState.accountType) return
     loginState.accountType = detected
+    // 与 loginState.accountType 同步写全局上下文（路由表读它，见 :core 的 AccountContext）
+    AccountContext.activeAccountType = detected
     loginState.sessionManager?.accountType =
         if (detected == AccountType.POSTGRADUATE) {
             XJTULogin.AccountType.POSTGRADUATE

@@ -2,7 +2,7 @@ package com.xjtu.toolbox.home
 
 import com.xjtu.toolbox.ui.components.BackButton
 import com.xjtu.toolbox.nav.AppRoute
-import androidx.activity.compose.BackHandler
+import com.xjtu.toolbox.platform.BackHandler
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut

@@ -1,7 +1,7 @@
 package com.xjtu.toolbox.update
 
 import com.xjtu.toolbox.BuildConfig
-import androidx.activity.compose.BackHandler
+import com.xjtu.toolbox.platform.BackHandler
 import androidx.compose.animation.*
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState

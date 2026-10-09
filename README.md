@@ -64,8 +64,25 @@
 - Room、KSP、Kotlin Coroutines
 - Android Gradle Plugin 9、Gradle 9、JDK 21
 - `minSdk 31`、`targetSdk 36`、`compileSdk 37`
-
 MIUIX 从 Maven Central 引入，始终跟随最新正式版（见 `gradle/libs.versions.toml`）。
+
+### 模块划分（Kotlin Multiplatform）
+
+| 模块 | 目标 | 职责 |
+|---|---|---|
+| `:app` | Android | 宿主：`Context` / okhttp 会话内核 / Room / 相机 / BLE / 小组件 / 通知 |
+| `:core` | Android + jvm + wasmJs | **两端同一份**：模型、取数、路由表、主题与组件、周视图几何、游戏逻辑 |
+| `:web` | wasmJs（浏览器） | 浏览器外壳：只渲染 `:core` 里的屏，数据经同源反代（`web/tools/serve-same-origin.py`）取自 campus-api |
+
+**一屏搬进 `:core` 的规矩**（也是“两端一致”的定义）：
+
+1. 屏 + 模型 + 取数**端口**（`interface XxxSource`）进 `:core`；
+2. `:app` 侧把宿主机能（okhttp / Room / `DataCache` / Bitmap …）适配成端口并注入，**实现留在 `:app`**；
+3. Web 侧写一份 campus-api 版取数实现（`core/src/commonMain/kotlin/com/xjtu/toolbox/core/net/` 下的 `Campus*Api`）；
+4. 平台能力（原图查看、设备码登录、扫码 …）用 `@Composable` 槽位或带默认实现的接口参数化 —— `:app` 不实现时行为零变化。
+
+因此便携性判据不能只看 import：`String.format`、`toSortedMap`、`java.time`、`Dispatchers.IO`
+在 JVM 上都是默认导入/标准库，只有**把 `:core` 真编到 wasmJs**（`sh gradlew :core:compileKotlinWasmJs`）才能全部拦下。
 
 ---
 

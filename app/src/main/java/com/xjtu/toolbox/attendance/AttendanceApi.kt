@@ -316,7 +316,9 @@ class AttendanceApi(private val site: SiteSession) {
         }.getOrNull() ?: return 0
         return (1..11).minByOrNull { section ->
             val start = XjtuTime.getClassTime(section)?.start ?: return@minByOrNull Int.MAX_VALUE
-            kotlin.math.abs(ChronoUnit.MINUTES.between(start, time).toInt())
+            // XjtuTime 用的是 kotlinx-datetime 的 LocalTime，`ChronoUnit.between`（java.time）用不了；
+            // 同一天内两者等价：分钟数相减取绝对值
+            kotlin.math.abs((start.hour * 60 + start.minute) - (time.hour * 60 + time.minute))
         } ?: 0
     }
 }

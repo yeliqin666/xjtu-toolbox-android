@@ -44,7 +44,7 @@ object VenueCaptchaSolver {
      * 返回 null 表示图片格式不支持、匹配峰值不明确或置信度不足。
      */
     fun solve(
-        data: VenueApi.CaptchaData,
+        data: CaptchaData,
         minConfidence: Double = DEFAULT_MIN_CONFIDENCE
     ): CaptchaSolveResult? {
         val background = decodeBase64Image(data.backgroundImage)
@@ -68,7 +68,7 @@ object VenueCaptchaSolver {
     }
 
     private fun solveBitmaps(
-        data: VenueApi.CaptchaData,
+        data: CaptchaData,
         background: Bitmap,
         slider: Bitmap,
         minConfidence: Double

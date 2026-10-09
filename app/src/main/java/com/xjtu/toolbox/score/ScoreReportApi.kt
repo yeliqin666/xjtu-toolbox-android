@@ -4,17 +4,8 @@ import com.xjtu.toolbox.auth.SiteSession
 import okhttp3.Request
 import org.jsoup.Jsoup
 
-/**
- * 成绩报表数据
- */
-@kotlinx.serialization.Serializable
-data class ReportedGrade(
-    val courseName: String = "",
-    val coursePoint: Double = 0.0,
-    val score: String = "",      // 可能是数字或等级（如 "优秀"）
-    val gpa: Double? = null,
-    val term: String = "",       // 学期代码 "2024-2025-1"
-)
+// `ReportedGrade` 已搬进 :core（见 score/ScoreReportModels.kt）—— 屏幕与模型都在共享层，
+// 这个文件只剩「帆软报表的取数 + HTML 解析」。
 
 /**
  * 教务系统成绩报表查询 (FR Report)

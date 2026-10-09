@@ -170,7 +170,7 @@ object LibraryPages {
      */
     fun actionVerdict(label: String?, after: MyBookingInfo?, fetched: Boolean): ActionVerdict {
         if (!fetched || label == null) return ActionVerdict.UNKNOWN
-        val active = after?.takeIf { it.statusText !in LibraryApi.INACTIVE_STATUSES }
+        val active = after?.takeIf { it.statusText !in INACTIVE_BOOKING_STATUSES }
         val actions = active?.actionUrls?.keys.orEmpty()
         return when (label) {
             "取消预约" -> if (active == null) ActionVerdict.DONE else ActionVerdict.NOT_DONE
@@ -207,7 +207,7 @@ object LibraryPages {
             val blockEnd = statusMatch.range.last + 1
             val blockText = bodyText.substring(blockStart, blockEnd)
             blockStart = blockEnd
-            if (status in LibraryApi.INACTIVE_STATUSES) continue
+            if (status in INACTIVE_BOOKING_STATUSES) continue
             val seatId = SEAT_ID_REGEX.findAll(blockText).lastOrNull()?.value ?: continue
             val area = knownAreaNames.firstOrNull { it in blockText }
             return MyBookingInfo(seatId, area, status, parseActionsFromHtml(doc, html))
@@ -368,27 +368,6 @@ object LibraryPages {
     )
 }
 
-/** 平面图上的一个座位：矩形是平面图像素坐标。 */
-@kotlinx.serialization.Serializable
-data class PlanSeat(
-    val seatId: String = "",
-    val left: Float = 0f,
-    val top: Float = 0f,
-    val width: Float = 0f,
-    val height: Float = 0f,
-    val status: Int = 0,
-) {
-    val available: Boolean get() = status == FREE
-    val right: Float get() = left + width
-    val bottom: Float get() = top + height
+// 平面图上的座位（PlanSeat）与 SeatLayout 也搬进了 :core —— 它们要与共享屏挨着（同包），
+// 而本对象（:app 的页面解析）与 [LibraryApi] 一样留在 Android 侧。
 
-    companion object {
-        const val FREE = 2
-        const val BOOKED = 0
-        const val INSIDE = 1
-        const val LEAVE = 3
-        const val CANCELLED = -1
-    }
-}
-
-data class SeatLayout(val seats: List<PlanSeat>)

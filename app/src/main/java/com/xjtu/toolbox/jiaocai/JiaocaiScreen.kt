@@ -1,7 +1,7 @@
 package com.xjtu.toolbox.jiaocai
 
 import com.xjtu.toolbox.schedule.ScheduleCache
-import androidx.activity.compose.BackHandler
+import com.xjtu.toolbox.platform.BackHandler
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.fadeIn

@@ -1,162 +1,35 @@
 package com.xjtu.toolbox.calendar
 
-import com.xjtu.toolbox.util.stringValue
-import com.xjtu.toolbox.util.intValue
-import com.xjtu.toolbox.util.obj
-import com.xjtu.toolbox.util.arr
-import com.xjtu.toolbox.util.AppJson
-import kotlinx.serialization.json.jsonObject
-import kotlinx.serialization.json.JsonObject
 import com.xjtu.toolbox.network.HttpClients
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
-import java.time.DayOfWeek
-import java.time.LocalDate
 
 private const val CALENDAR_URL = "https://workflow.xjtu.edu.cn/selectpage/site/calendar/getData"
 
-/** 校历事件（假期/重要节点） */
-data class CalendarEvent(
-    val id: String,
-    val startDate: LocalDate,
-    val endDate: LocalDate,
-    val name: String,
-    val remark: String,
-    val days: Int,
-    val colorHex: String
-)
-
-/** 学期校历数据 */
-data class SchoolTerm(
-    val id: String,
-    val startDate: LocalDate,
-    val endDate: LocalDate,
-    val termName: String,    // e.g. "2025-2026学年第一学期"
-    val yearName: String,    // e.g. "2025-2026"
-    val totalWeeks: Int,
-    val workDays: Int,
-    val events: List<CalendarEvent>
-) {
-    /** 计算今天是第几学习周（1-based），不在学期内返回 0 */
-    fun currentWeek(today: LocalDate = LocalDate.now()): Int {
-        if (today < startDate || today > endDate) return 0
-        return ((today.toEpochDay() - startDate.toEpochDay()) / 7 + 1).toInt()
-    }
-
-    /** 计算今天是本学期第几天 */
-    fun currentDay(today: LocalDate = LocalDate.now()): Int {
-        if (today < startDate) return 0
-        return (today.toEpochDay() - startDate.toEpochDay() + 1).toInt()
-    }
-
-    /** 学期总天数 */
-    fun totalDays(): Int = (endDate.toEpochDay() - startDate.toEpochDay() + 1).toInt()
-
-    /** 剩余天数 */
-    fun daysRemaining(today: LocalDate = LocalDate.now()): Int {
-        if (today > endDate) return 0
-        val from = if (today < startDate) startDate else today
-        return (endDate.toEpochDay() - from.toEpochDay()).toInt()
-    }
-
-    /** 学期进度 (0f ~ 1f) */
-    fun progress(today: LocalDate = LocalDate.now()): Float {
-        if (today <= startDate) return 0f
-        if (today >= endDate) return 1f
-        val total = totalDays().toFloat()
-        val elapsed = currentDay(today).toFloat()
-        return (elapsed / total).coerceIn(0f, 1f)
-    }
-
-    /** 今天所在的事件（假期/节日/考试周等），可能为 null */
-    fun todayEvent(today: LocalDate = LocalDate.now()): CalendarEvent? {
-        return events.firstOrNull { today >= it.startDate && today <= it.endDate }
-    }
-}
-
 /**
- * 校历数据源：`workflow.xjtu.edu.cn` 的工作流门户首页小组件用的公开接口，不需要登录、
- * 不需要 CAS/SSO——这也是它被选中的原因：原来那套走 EIP 门户（one2020.xjtu.edu.cn）
- * 的方案，实测证明 jwxt 的登录态没法 SSO 到 EIP，接口没会话时也照样答 code=200 data=[]，
- * 逼用户重登完全没用（详见 git log 里这个文件的历史）。这个接口从抓包直接对上：
- * `GET /selectpage/site/calendar/getData`，响应外层是 `{e, d, m}`（e=0 成功），
- * `d.semesters[]` 每项一个学期，`holidays[]` 是有起止日期的假期/节点，`specialEvents[]`
- * 是按标题对应的详细说明文字（不是所有 holiday 都有对应的 specialEvent）。
+ * 校历取数（`:app` 端）：直连 `workflow.xjtu.edu.cn` 的工作流门户首页小组件接口。
+ *
+ * 搬迁后的分工 —— 这个文件**只剩 IO**：
+ *  - 模型（[SchoolTerm] / [CalendarEvent]）、解析（[parseUpstreamSchoolCalendar]）、
+ *    屏幕（[SchoolCalendarScreen]）全在 `:core`；
+ *  - 这里只负责「用 App 的 okhttp 客户端把响应体拿回来」，以及把阻塞调用放进
+ *    [Dispatchers.IO]（客户端是 okhttp，`HttpClients.base` 与搬迁前是同一个实例）。
+ *
+ * ⚠️ 接口免登录，所以这里**不带任何凭据**：原来那套走 EIP 门户（`one2020.xjtu.edu.cn`）的方案，
+ * 实测证明登录态没法 SSO 过去，逼用户重登完全没用（详见这个文件的历史）。
  */
-class SchoolCalendarApi {
+class SchoolCalendarApi : SchoolCalendarSource {
+
     /** 默认配置即可，直接用共享基础客户端，见 [HttpClients]。 */
     private val client: OkHttpClient = HttpClients.base
 
-    fun getTerms(): List<SchoolTerm> {
+    override suspend fun terms(): List<SchoolTerm> = withContext(Dispatchers.IO) {
         val request = Request.Builder().url(CALENDAR_URL).get().build()
         val body = client.newCall(request).execute().use { resp ->
             resp.body?.string() ?: throw RuntimeException("校历接口无响应")
         }
-        val json = AppJson.parseToJsonElement(body).jsonObject
-        val code = json.get("e")?.intValue ?: -1
-        if (code != 0) throw RuntimeException("校历接口返回异常：${json.get("m")?.stringValue}")
-        val data = json.obj("d") ?: throw RuntimeException("校历接口缺少数据")
-        val semesters = data.arr("semesters") ?: return emptyList()
-        return semesters.mapNotNull { runCatching { parseSemester(it.jsonObject) }.getOrNull() }
-            .sortedBy { it.startDate }
-    }
-
-    private fun parseSemester(obj: JsonObject): SchoolTerm? {
-        val start = obj.get("start_date")?.stringValue?.let { parseDateOrNull(it) } ?: return null
-        // 学期"结束"取考试周结束日（含教学+考试），没有就退到教学结束日，
-        // 再没有才用 end_date（那个其实是到下学期开学前，含整个寒暑假，会把"进度条"拉得没意义）。
-        val end = firstValidDate(obj, "exam_end", "term_end_date", "end_date") ?: return null
-
-        val specialByTitle = obj.arr("specialEvents")?.associate { el ->
-            val e = el.jsonObject
-            e.get("title")?.stringValue.orEmpty() to e.get("content")?.stringValue.orEmpty()
-        }.orEmpty()
-
-        val events = obj.arr("holidays")?.mapNotNull { el ->
-            val h = el.jsonObject
-            val hStart = h.get("start_date")?.stringValue?.let { parseDateOrNull(it) } ?: return@mapNotNull null
-            val hEnd = h.get("end_date")?.stringValue?.let { parseDateOrNull(it) } ?: hStart
-            val title = h.get("title")?.stringValue.orEmpty()
-            CalendarEvent(
-                id = "$title-$hStart",
-                startDate = hStart,
-                endDate = hEnd,
-                name = title,
-                remark = specialByTitle[title].orEmpty(),
-                days = (hEnd.toEpochDay() - hStart.toEpochDay() + 1).toInt(),
-                colorHex = "#196dd0",
-            )
-        }.orEmpty().sortedBy { it.startDate }
-
-        val totalWeeks = ((end.toEpochDay() - start.toEpochDay()) / 7).toInt().coerceAtLeast(0)
-        val workDays = generateSequence(start) { it.plusDays(1) }
-            .takeWhile { !it.isAfter(end) }
-            .count { it.dayOfWeek != DayOfWeek.SATURDAY && it.dayOfWeek != DayOfWeek.SUNDAY }
-
-        val year = obj.get("year")?.stringValue.orEmpty()
-        val semesterName = obj.get("name")?.stringValue.orEmpty()
-        return SchoolTerm(
-            id = obj.get("id")?.stringValue.orEmpty(),
-            startDate = start,
-            endDate = end,
-            termName = "${year}学年$semesterName",
-            yearName = year,
-            totalWeeks = totalWeeks,
-            workDays = workDays,
-            events = events,
-        )
-    }
-
-    private fun firstValidDate(obj: JsonObject, vararg keys: String): LocalDate? {
-        for (key in keys) {
-            obj.get(key)?.stringValue?.let { parseDateOrNull(it) }?.let { return it }
-        }
-        return null
-    }
-
-    /** 接口用 "0000-00-00" 表示字段没填，不是合法日期。 */
-    private fun parseDateOrNull(value: String): LocalDate? {
-        if (value.isBlank() || value == "0000-00-00") return null
-        return runCatching { LocalDate.parse(value) }.getOrNull()
+        parseUpstreamSchoolCalendar(body)
     }
 }

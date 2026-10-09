@@ -5,38 +5,40 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
-import java.time.LocalDate
-import java.time.YearMonth
+import kotlinx.datetime.DateTimeUnit
+import kotlinx.datetime.LocalDate
+import kotlinx.datetime.YearMonth
+import kotlinx.datetime.minus
 
 class CampusCardAnalysisTest {
 
-    private val today = LocalDate.of(2026, 8, 24)
+    private val today = LocalDate(2026, 8, 24)
 
     @Test
     fun periodTitle_thisMonthVsHistoricalVsSpan() {
         assertEquals(
             "本月消费",
-            CampusCardAnalysis.periodTitle(LocalDate.of(2026, 8, 1), today, today)
+            CampusCardAnalysis.periodTitle(LocalDate(2026, 8, 1), today, today)
         )
         assertEquals(
             "2023年3月消费",
             CampusCardAnalysis.periodTitle(
-                LocalDate.of(2023, 3, 1),
-                LocalDate.of(2023, 3, 31),
+                LocalDate(2023, 3, 1),
+                LocalDate(2023, 3, 31),
                 today
             )
         )
         assertEquals(
             "区间消费",
             CampusCardAnalysis.periodTitle(
-                LocalDate.of(2023, 1, 1),
-                LocalDate.of(2025, 6, 30),
+                LocalDate(2023, 1, 1),
+                LocalDate(2025, 6, 30),
                 today
             )
         )
         assertEquals(
             "区间消费",
-            CampusCardAnalysis.periodTitle(today.minusMonths(1), today, today)
+            CampusCardAnalysis.periodTitle(today.minus(1, DateTimeUnit.MONTH), today, today)
         )
     }
 
@@ -44,16 +46,16 @@ class CampusCardAnalysisTest {
     fun monthName_doesNotCallOldRangeThisMonth() {
         assertEquals(
             "2023年6月",
-            CampusCardAnalysis.monthName(YearMonth.of(2023, 6), LocalDate.of(2023, 12, 31), today)
+            CampusCardAnalysis.monthName(YearMonth(2023, 6), LocalDate(2023, 12, 31), today)
         )
-        assertEquals("本月", CampusCardAnalysis.monthName(YearMonth.of(2026, 8), today, today))
-        assertEquals("上月", CampusCardAnalysis.monthName(YearMonth.of(2026, 7), today, today))
+        assertEquals("本月", CampusCardAnalysis.monthName(YearMonth(2026, 8), today, today))
+        assertEquals("上月", CampusCardAnalysis.monthName(YearMonth(2026, 7), today, today))
     }
 
     @Test
     fun monthChangeInsight_usesDatedMonthsForHistory() {
         val june = MonthlyStats(
-            month = YearMonth.of(2023, 6),
+            month = YearMonth(2023, 6),
             totalSpend = 400.0,
             totalIncome = 0.0,
             transactionCount = 10,
@@ -61,11 +63,11 @@ class CampusCardAnalysisTest {
             avgDailySpend = 400.0 / 30,
             daysCovered = 30
         )
-        val may = june.copy(month = YearMonth.of(2023, 5), totalSpend = 200.0, avgDailySpend = 200.0 / 31, daysCovered = 31)
+        val may = june.copy(month = YearMonth(2023, 5), totalSpend = 200.0, avgDailySpend = 200.0 / 31, daysCovered = 31)
         val line = CampusCardAnalysis.monthChangeInsight(
             listOf(june, may),
-            LocalDate.of(2023, 5, 1),
-            LocalDate.of(2023, 6, 30),
+            LocalDate(2023, 5, 1),
+            LocalDate(2023, 6, 30),
             today
         )
         assertTrue(line!!.contains("2023年6月"))
@@ -103,7 +105,7 @@ class CampusCardAnalysisTest {
 
     @Test
     fun monthLabel_showsYearWhenRangeCrossesYears() {
-        assertEquals("3月", CampusCardAnalysis.monthLabel(YearMonth.of(2023, 3), spanYears = false))
-        assertEquals("2023年3月", CampusCardAnalysis.monthLabel(YearMonth.of(2023, 3), spanYears = true))
+        assertEquals("3月", CampusCardAnalysis.monthLabel(YearMonth(2023, 3), spanYears = false))
+        assertEquals("2023年3月", CampusCardAnalysis.monthLabel(YearMonth(2023, 3), spanYears = true))
     }
 }

@@ -41,7 +41,7 @@ object HomeSignals {
      *
      * 单独一条信号而不是让提醒规则去解析 [HomeStat] 里的状态文本：
      * 状态是学校页面的原文，措辞会变；这里存的是 `LibraryApi.classifyActionLabel`
-     * 归一化后的 label，只有固定几个值。见 `LibraryApi.URGENT_ACTIONS`。
+     * 归一化后的 label，只有固定几个值。见 `:core` 的 `URGENT_BOOKING_ACTIONS`。
      */
     var libraryUrgentAction by mutableStateOf<String?>(null)
 

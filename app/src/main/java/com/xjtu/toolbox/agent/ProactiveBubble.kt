@@ -51,6 +51,7 @@ import com.kyant.backdrop.drawBackdrop
 import com.kyant.backdrop.effects.blur
 import com.kyant.backdrop.effects.vibrancy
 import com.kyant.backdrop.highlight.Highlight
+import com.xjtu.toolbox.util.toKx
 import com.xjtu.toolbox.auth.AccountType
 import com.xjtu.toolbox.ui.theme.LocalIsDarkTheme
 import top.yukonga.miuix.kmp.basic.Icon
@@ -422,7 +423,7 @@ object ProactiveRules {
     fun pickOnTap(ctx: Context): ProactiveMessage? {
         if (readProactiveLevel(ctx) == ProactiveLevel.OFF) return null
         val line = ChatterPool.pick(
-            java.time.LocalDateTime.now(),
+            java.time.LocalDateTime.now().toKx(),
             chatterRecent(ctx),
             null,
             null,
@@ -445,7 +446,7 @@ object ProactiveRules {
     ): ProactiveMessage? {
         if (nowMs - lastChatterAt(ctx) < cooldownFor(ctx, CHATTER_ID)) return null
         val line = ChatterPool.pick(
-            java.time.LocalDateTime.now(),
+            java.time.LocalDateTime.now().toKx(),
             chatterRecent(ctx),
             nextCourseName,
             minutesToClass,

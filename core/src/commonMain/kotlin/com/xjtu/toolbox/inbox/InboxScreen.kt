@@ -1,0 +1,566 @@
+package com.xjtu.toolbox.inbox
+
+import androidx.compose.foundation.background
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.ui.draw.alpha
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListScope
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.Assignment
+import androidx.compose.material.icons.automirrored.filled.MenuBook
+import androidx.compose.material.icons.filled.Campaign
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.DirectionsBus
+import androidx.compose.material.icons.filled.DoneAll
+import androidx.compose.material.icons.filled.EditCalendar
+import androidx.compose.material.icons.filled.EmojiEvents
+import androidx.compose.material.icons.filled.EventSeat
+import androidx.compose.material.icons.filled.Notifications
+import androidx.compose.material.icons.filled.RateReview
+import androidx.compose.material.icons.filled.Restaurant
+import androidx.compose.material.icons.filled.School
+import androidx.compose.material.icons.filled.Tune
+import androidx.compose.material.icons.filled.Warning
+import androidx.compose.material.icons.outlined.Newspaper
+import androidx.compose.material.icons.outlined.NotificationsNone
+import androidx.compose.material.icons.outlined.TaskAlt
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import com.xjtu.toolbox.auth.LoginType
+import com.xjtu.toolbox.schedule.colorOf
+import com.xjtu.toolbox.schedule.rememberCourseColors
+import com.xjtu.toolbox.ui.adaptive.readableWidth
+import com.xjtu.toolbox.ui.components.AppPullToRefresh
+import com.xjtu.toolbox.ui.components.AppSegmentedTabs
+import top.yukonga.miuix.kmp.overlay.OverlayBottomSheet
+import com.xjtu.toolbox.ui.components.SelectionTile
+import com.xjtu.toolbox.ui.components.AppTabPager
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.navigationBarsPadding
+import com.xjtu.toolbox.platform.BackHandler
+import com.xjtu.toolbox.ui.components.EmptyState
+import com.xjtu.toolbox.ui.glass.GlassTopAppBar
+import com.xjtu.toolbox.ui.glass.LocalOnGlassBar
+import com.xjtu.toolbox.ui.glass.glassSource
+import com.xjtu.toolbox.ui.glass.glassTop
+import com.xjtu.toolbox.ui.glass.rememberPageGlass
+import com.xjtu.toolbox.ui.glass.withoutTop
+import kotlinx.coroutines.launch
+import top.yukonga.miuix.kmp.basic.ButtonDefaults
+import top.yukonga.miuix.kmp.basic.Card
+import top.yukonga.miuix.kmp.basic.HorizontalDivider
+import top.yukonga.miuix.kmp.basic.Icon
+import top.yukonga.miuix.kmp.basic.IconButton
+import top.yukonga.miuix.kmp.basic.MiuixScrollBehavior
+import top.yukonga.miuix.kmp.basic.Scaffold
+import top.yukonga.miuix.kmp.basic.SmallTitle
+import top.yukonga.miuix.kmp.basic.Text
+import top.yukonga.miuix.kmp.basic.TextButton
+import top.yukonga.miuix.kmp.basic.rememberTopAppBarState
+import top.yukonga.miuix.kmp.preference.SwitchPreference
+import top.yukonga.miuix.kmp.theme.MiuixTheme
+import top.yukonga.miuix.kmp.utils.overScrollVertical
+import top.yukonga.miuix.kmp.window.WindowDialog
+import com.xjtu.toolbox.util.todayInSystemZone
+import kotlin.time.Clock
+import kotlinx.datetime.Instant
+import kotlinx.datetime.LocalDate
+import kotlinx.datetime.TimeZone
+import kotlinx.datetime.minus
+import kotlinx.datetime.toLocalDateTime
+
+@Composable
+fun InboxScreen(
+    source: InboxSource,
+    onBack: () -> Unit,
+    onOpen: (String) -> Unit,
+    /** 收纳是**按账号**存的；null = 当前账号（:core 的 AccountContext）。 */
+    account: String? = null,
+) {
+    val scope = rememberCoroutineScope()
+    val scrollBehavior = MiuixScrollBehavior(rememberTopAppBarState())
+    val glass = rememberPageGlass()
+
+    val data = InboxStore.snapshot()
+    val now = remember(data) { Clock.System.now().toEpochMilliseconds() }
+    val todos = remember(data) { InboxRules.todos(data, now) }
+    val finished = remember(data) { InboxRules.finished(data, now) }
+    val groups = remember(data) { InboxRules.groups(data, now) }
+    val unread = groups.count { it.unread }
+    // 作业按科目取课表里那门课的颜色，和课表、思源学堂一致
+    val courseNames = remember(data) { (todos + finished.map { it.item }).filter { it.category == InboxCategories.LMS }.map { it.source }.distinct() }
+    val courseColors = rememberCourseColors(courseNames)
+    fun accentOf(item: InboxItem) = if (item.category == InboxCategories.LMS) courseColors.colorOf(item.source) else null
+    // 这次进来之前没看过的待办标个红点；一看到就记成看过，首页红点随之熄掉，这页的红点留到下次进来
+    val seenAtOpen = remember { data.seenTodos }
+
+    var tab by rememberSaveable { mutableIntStateOf(0) }
+    var refreshing by remember { mutableStateOf(false) }
+    var error by remember { mutableStateOf<String?>(null) }
+    var showSettings by remember { mutableStateOf(false) }
+    var detail by remember { mutableStateOf<InboxItem?>(null) }
+    var actions by remember { mutableStateOf<RowActions?>(null) }
+
+    val todoIds = todos.map { it.id }
+    androidx.compose.runtime.LaunchedEffect(tab, todoIds) {
+        if (tab == 0 && todoIds.isNotEmpty()) InboxStore.markTodosSeen(todoIds)
+    }
+
+    fun refresh() = scope.launch {
+        refreshing = true
+        error = null
+        try {
+            source.refresh(account)
+            // 本端专属的补拉（:app 现查图书馆座位；Web 空实现）
+            source.afterRefresh(data)
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            error = com.xjtu.toolbox.error.FriendlyError.of(e, "刷新学校消息")
+        } finally {
+            refreshing = false
+        }
+    }
+
+    fun open(item: InboxItem, ids: List<String> = listOf(item.id)) {
+        InboxStore.markRead(ids)
+        item.route?.let(onOpen) ?: run { detail = item }
+    }
+
+    Scaffold(
+        topBar = {
+            GlassTopAppBar(
+                title = "消息",
+                glass = glass,
+                scrollBehavior = scrollBehavior,
+                onBack = onBack,
+                actions = {
+                    if (tab == 1 && unread > 0) {
+                        IconButton(onClick = { InboxStore.markAllRead() }) {
+                            Icon(Icons.Default.DoneAll, contentDescription = "全部已读")
+                        }
+                    }
+                    IconButton(onClick = { showSettings = true }) {
+                        Icon(Icons.Default.Tune, contentDescription = "收纳设置")
+                    }
+                },
+                bottomContent = {
+                    CompositionLocalProvider(LocalOnGlassBar provides (glass != null)) {
+                        AppSegmentedTabs(
+                            tabs = listOf(
+                                if (todos.isEmpty()) "待办" else "待办 ${todos.size}",
+                                if (unread == 0) "消息" else "消息 $unread",
+                            ),
+                            selectedTabIndex = tab,
+                            onTabSelected = { tab = it },
+                            modifier = Modifier.readableWidth(),
+                        )
+                    }
+                },
+            )
+        },
+    ) { padding ->
+        val glassTop = padding.glassTop(glass)
+        AppPullToRefresh(
+            isRefreshing = refreshing,
+            onRefresh = { refresh() },
+            scrollBehavior = scrollBehavior,
+            topPadding = glassTop,
+            modifier = Modifier.padding(padding.withoutTop(glass)).glassSource(glass).fillMaxSize(),
+        ) {
+            // 待办、消息两栏可以左右滑：标签行和页面同步
+            AppTabPager(pageCount = 2, selectedTabIndex = tab, onTabSelected = { tab = it }, modifier = Modifier.fillMaxSize()) { page ->
+                LazyColumn(
+                    Modifier.fillMaxSize().overScrollVertical(),
+                    contentPadding = PaddingValues(top = glassTop, bottom = 24.dp),
+                ) {
+                    error?.let { msg ->
+                        item(key = "error") {
+                            Text(
+                                msg,
+                                color = MiuixTheme.colorScheme.error,
+                                style = MiuixTheme.textStyles.footnote1,
+                                modifier = Modifier.padding(horizontal = 28.dp, vertical = 8.dp),
+                            )
+                        }
+                    }
+                    if (page == 0) {
+                        if (todos.isEmpty()) {
+                            item(key = "empty") {
+                                EmptyState("没有待办", "学校事务、作业截止、加餐券都会出现在这里", Icons.Outlined.TaskAlt, Modifier.padding(top = 48.dp))
+                            }
+                        }
+                        todos.groupBy { todoSection(it, now) }.forEach { (title, list) ->
+                            section(title, list.map {
+                                Entry(
+                                    it, it.id, unread = it.id !in seenAtOpen, count = 1, accent = accentOf(it),
+                                    onLongClick = { actions = RowActions(it, listOf("忽略这条待办" to { InboxStore.ignoreTodo(it.id) })) },
+                                ) { open(it) }
+                            })
+                        }
+                        // 办完、忽略的灰着留 7 天，看得到最近处理掉了什么
+                        if (finished.isNotEmpty()) {
+                            section("已完成", finished.map { f ->
+                                Entry(
+                                    f.item, "done:${f.item.id}", unread = false, count = 1, dimmed = true, done = !f.ignored, accent = accentOf(f.item),
+                                    timeText = (if (f.ignored) "已忽略 · " else "已完成 · ") + timeLabel(f.at),
+                                ) { open(f.item) }
+                            })
+                        }
+                    } else {
+                        if (groups.isEmpty()) {
+                            item(key = "empty") {
+                                EmptyState("没有消息", "新成绩、调课、学校通知、工具箱公告都会出现在这里", Icons.Outlined.NotificationsNone, Modifier.padding(top = 48.dp))
+                            }
+                        }
+                        groups.groupBy { daySection(it.latest.time) }.forEach { (title, list) ->
+                            section(title, list.map { g ->
+                                Entry(
+                                    g.latest, g.latest.id, g.unread, g.count, dimmed = !g.unread,
+                                    onLongClick = if (g.unread) {
+                                        { actions = RowActions(g.latest, listOf("标为已读" to { InboxStore.markRead(g.ids) })) }
+                                    } else null,
+                                ) { open(g.latest, g.ids) }
+                            })
+                        }
+                    }
+                }
+            }
+        }
+        // Overlay 系弹窗要挂在 Scaffold 里面才有宿主，放在外面弹不出来
+        InboxSettingsSheet(showSettings, data) { showSettings = false }
+    }
+
+    detail?.let { d -> InboxDetailDialog(d) { detail = null } }
+    actions?.let { a -> RowActionsDialog(a) { actions = null } }
+}
+
+private class Entry(
+    val item: InboxItem,
+    val key: String,
+    val unread: Boolean,
+    val count: Int,
+    /** 读过的消息、办完的待办：整行变灰。 */
+    val dimmed: Boolean = false,
+    /** 办完的待办：图标角上打个勾。 */
+    val done: Boolean = false,
+    /** 替换右上角的时间，比如「已完成 · 3 小时前」。 */
+    val timeText: String? = null,
+    /** 作业按科目取课表里那门课的颜色，只给图标上色（课程色可自选，浅色当字色看不清）；为 null 用分类色。 */
+    val accent: Color? = null,
+    val onLongClick: (() -> Unit)? = null,
+    val onClick: () -> Unit,
+)
+
+/** 长按一条弹出的操作。 */
+private class RowActions(val item: InboxItem, val actions: List<Pair<String, () -> Unit>>)
+
+@Composable
+private fun RowActionsDialog(a: RowActions, onDismiss: () -> Unit) {
+    WindowDialog(show = true, title = a.item.title, summary = a.item.source, onDismissRequest = onDismiss) {
+        Column {
+            a.actions.forEach { (label, run) ->
+                TextButton(
+                    text = label,
+                    onClick = { run(); onDismiss() },
+                    modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                    colors = ButtonDefaults.textButtonColorsPrimary(),
+                )
+            }
+            TextButton(text = "取消", onClick = onDismiss, modifier = Modifier.fillMaxWidth().padding(top = 8.dp))
+        }
+    }
+}
+
+/** 一个小标题加一张卡片，卡片里的条目用细线隔开。 */
+private fun LazyListScope.section(title: String, entries: List<Entry>) {
+    item(key = "h:$title") { SmallTitle(title) }
+    item(key = "c:$title") {
+        Card(Modifier.fillMaxWidth().padding(horizontal = 12.dp).padding(bottom = 6.dp)) {
+            entries.forEachIndexed { i, e ->
+                key(e.key) {
+                    InboxRow(e)
+                    if (i != entries.lastIndex) {
+                        HorizontalDivider(Modifier.padding(start = 64.dp), color = MiuixTheme.colorScheme.onSurface.copy(alpha = 0.08f))
+                    }
+                }
+            }
+        }
+    }
+}
+
+private const val DAY_MS = 24 * 60 * 60 * 1000L
+
+private fun todoSection(item: InboxItem, now: Long) =
+    if (item.expiresAt > 0 && item.expiresAt - now < DAY_MS) "24 小时内截止" else "待办"
+
+private fun daySection(epoch: Long): String {
+    val day = localDateOf(epoch)
+    val today = todayInSystemZone()
+    return when {
+        day >= today -> "今天"
+        day == today.minus(1, kotlinx.datetime.DateTimeUnit.DAY) -> "昨天"
+        day > today.minus(7, kotlinx.datetime.DateTimeUnit.DAY) -> "本周"
+        else -> "更早"
+    }
+}
+
+/** `Instant.ofEpochMilli(epoch).atZone(systemDefault()).toLocalDate()` 的跨端等价。 */
+private fun localDateOf(epoch: Long): LocalDate =
+    Instant.fromEpochMilliseconds(epoch).toLocalDateTime(TimeZone.currentSystemDefault()).date
+
+/** 每类一个图标，颜色见 [InboxCategories.argb]，扫一眼就知道是哪儿来的。 */
+private fun categoryIcon(category: String): ImageVector = when (category) {
+    InboxCategories.SCHOOL_TODO -> Icons.AutoMirrored.Filled.Assignment
+    InboxCategories.BOOKING -> Icons.Default.DirectionsBus
+    InboxCategories.LIBRARY -> Icons.Default.EventSeat
+    InboxCategories.LMS -> Icons.AutoMirrored.Filled.MenuBook
+    InboxCategories.COUPON -> Icons.Default.Restaurant
+    InboxCategories.JUDGE -> Icons.Default.RateReview
+    InboxCategories.GRADE -> Icons.Default.EmojiEvents
+    InboxCategories.SCHEDULE -> Icons.Default.EditCalendar
+    InboxCategories.ATTENDANCE -> Icons.Default.Warning
+    InboxCategories.NOTICE -> Icons.Outlined.Newspaper
+    InboxCategories.BULLETIN -> Icons.Default.Campaign
+    else -> Icons.Default.School
+}
+
+/** 首页顶栏的铃铛：角标 = 未读消息组 + 没看过的待办。角标叠在按钮外面，不会被按钮的圆形裁掉。 */
+@Composable
+fun InboxBell(onClick: () -> Unit) {
+    val data = InboxStore.snapshot()
+    val count = remember(data) { InboxRules.badge(data, Clock.System.now().toEpochMilliseconds()) }
+    Box {
+        IconButton(onClick = onClick) {
+            Icon(
+                Icons.Default.Notifications,
+                contentDescription = if (count > 0) "消息，$count 条未处理" else "消息",
+                tint = MiuixTheme.colorScheme.onSurface,
+            )
+        }
+        if (count > 0) {
+            Box(
+                Modifier
+                    .align(Alignment.TopEnd)
+                    .offset(x = (-2).dp, y = 4.dp)
+                    .height(16.dp)
+                    .widthIn(min = 16.dp)
+                    .background(MiuixTheme.colorScheme.error, CircleShape)
+                    .padding(horizontal = 4.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    if (count > 99) "99+" else "$count",
+                    fontSize = 10.sp,
+                    lineHeight = 10.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = Color.White,
+                )
+            }
+        }
+    }
+}
+
+// `DateTimeFormatter.ofPattern("M月d日")` / `("HH:mm")` 是 JVM 专属 ⇒ 手写（:core 的既有做法）
+private fun dayText(date: LocalDate): String = "${date.monthNumber}月${date.dayOfMonth}日"
+
+private fun clockText(dateTime: kotlinx.datetime.LocalDateTime): String {
+    val h = dateTime.hour.toString().padStart(2, '0')
+    val m = dateTime.minute.toString().padStart(2, '0')
+    return "$h:$m"
+}
+
+/** 有截止时间的待办报还剩多久，其余报发生在什么时候。 */
+private fun timeLabel(item: InboxItem): String {
+    if (item.expiresAt <= 0) return timeLabel(item.time)
+    val minutes = (item.expiresAt - Clock.System.now().toEpochMilliseconds()) / 60_000
+    return when {
+        minutes < 60 -> "$minutes 分钟后截止"
+        minutes < 24 * 60 -> "${minutes / 60} 小时后截止"
+        else -> dayText(localDateOf(item.expiresAt)) + "截止"
+    }
+}
+
+private fun timeLabel(epoch: Long): String {
+    if (epoch <= 0) return ""
+    val at = Instant.fromEpochMilliseconds(epoch).toLocalDateTime(TimeZone.currentSystemDefault())
+    val minutes = (Clock.System.now().toEpochMilliseconds() - epoch) / 60_000
+    return when {
+        minutes < 1 -> "刚刚"
+        minutes < 60 -> "$minutes 分钟前"
+        at.date == todayInSystemZone() -> clockText(at)
+        else -> dayText(at.date)
+    }
+}
+
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
+@Composable
+private fun InboxRow(e: Entry) {
+    val item = e.item
+    val unread = e.unread
+    val count = e.count
+    val icon = categoryIcon(item.category)
+    val tint = e.accent ?: Color(InboxCategories.argb(item.category))
+    val urgent = !e.dimmed && item.expiresAt > 0 && item.expiresAt - Clock.System.now().toEpochMilliseconds() < DAY_MS
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .combinedClickable(onClick = e.onClick, onLongClick = e.onLongClick)
+            .alpha(if (e.dimmed) 0.5f else 1f)
+            .padding(horizontal = 14.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.Top,
+    ) {
+        Box {
+            Box(
+                Modifier.size(38.dp).clip(RoundedCornerShape(11.dp)).background(tint.copy(alpha = 0.14f)),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(icon, contentDescription = null, tint = tint, modifier = Modifier.size(20.dp))
+            }
+            if (unread) {
+                Box(
+                    Modifier
+                        .align(Alignment.TopEnd)
+                        .offset(x = 3.dp, y = (-3).dp)
+                        .size(11.dp)
+                        .background(MiuixTheme.colorScheme.surface, CircleShape)
+                        .padding(2.dp)
+                        .background(MiuixTheme.colorScheme.error, CircleShape),
+                )
+            }
+            if (e.done) {
+                Box(
+                    Modifier
+                        .align(Alignment.BottomEnd)
+                        .offset(x = 4.dp, y = 4.dp)
+                        .size(16.dp)
+                        .background(MiuixTheme.colorScheme.surface, CircleShape)
+                        .padding(2.dp)
+                        .background(Color(0xFF22C55E), CircleShape),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(Icons.Default.Check, contentDescription = "已完成", tint = Color.White, modifier = Modifier.size(9.dp))
+                }
+            }
+        }
+        Spacer(Modifier.width(12.dp))
+        Column(Modifier.weight(1f)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    item.source + if (count > 1) " · $count 条" else "",
+                    style = MiuixTheme.textStyles.footnote1,
+                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f),
+                )
+                Text(
+                    e.timeText ?: timeLabel(item),
+                    style = MiuixTheme.textStyles.footnote1,
+                    color = if (urgent) MiuixTheme.colorScheme.error else MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                    fontWeight = if (urgent) FontWeight.Medium else FontWeight.Normal,
+                    modifier = Modifier.padding(start = 8.dp),
+                )
+            }
+            // 学校不少消息的标题就是系统名，和上面的来源重复，这时直接拿正文当标题
+            val titleIsSource = item.title == item.source && item.body.isNotBlank()
+            Text(
+                if (titleIsSource) item.body else item.title,
+                style = MiuixTheme.textStyles.body1,
+                fontWeight = if (unread) FontWeight.SemiBold else FontWeight.Normal,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.padding(top = 2.dp),
+            )
+            if (item.body.isNotBlank() && !titleIsSource) {
+                Text(
+                    item.body,
+                    style = MiuixTheme.textStyles.body2,
+                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.padding(top = 2.dp),
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun InboxSettingsSheet(show: Boolean, data: InboxData, onDismiss: () -> Unit) {
+    BackHandler(enabled = show) { onDismiss() }
+    OverlayBottomSheet(show = show, title = "收纳设置", onDismissRequest = onDismiss) {
+        val school = InboxStore.schoolCategories(data).map { InboxCategory(it, InboxCategories.schoolLabel(it)) }
+        Column(Modifier.fillMaxWidth().navigationBarsPadding().heightIn(max = 520.dp).verticalScroll(rememberScrollState())) {
+            Text("勾掉的类别不进列表、不计数，屁岱也不再提。", style = MiuixTheme.textStyles.footnote1, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
+            SettingsGroup("待办", InboxCategories.todos, data)
+            SettingsGroup("消息", InboxCategories.messages, data)
+            if (school.isNotEmpty()) SettingsGroup("学校消息", school, data)
+            Spacer(Modifier.height(12.dp))
+        }
+    }
+}
+
+/** 一组类别，两列勾选块。 */
+@Composable
+private fun SettingsGroup(title: String, categories: List<InboxCategory>, data: InboxData) {
+    Text(title, style = MiuixTheme.textStyles.subtitle, modifier = Modifier.padding(start = 4.dp, top = 14.dp, bottom = 8.dp))
+    categories.chunked(2).forEach { row ->
+        Row(Modifier.fillMaxWidth().padding(vertical = 4.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            row.forEach { c ->
+                val on = c.key !in data.off
+                SelectionTile(c.label, on, Modifier.weight(1f), maxLines = 2) { InboxStore.setEnabled(c.key, !on) }
+            }
+            if (row.size == 1) Spacer(Modifier.weight(1f))
+        }
+    }
+}
+
+@Composable
+private fun InboxDetailDialog(item: InboxItem, onDismiss: () -> Unit) {
+    WindowDialog(show = true, title = item.title, summary = "${item.source} · ${timeLabel(item.time)}", onDismissRequest = onDismiss) {
+        Column {
+            Text(
+                item.body.ifBlank { item.title },
+                style = MiuixTheme.textStyles.body2,
+                modifier = Modifier.heightIn(max = 360.dp).verticalScroll(rememberScrollState()),
+            )
+            TextButton(text = "知道了", onClick = onDismiss, modifier = Modifier.fillMaxWidth().padding(top = 12.dp), colors = ButtonDefaults.textButtonColorsPrimary())
+        }
+    }
+}

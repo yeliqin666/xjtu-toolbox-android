@@ -1,5 +1,6 @@
 package com.xjtu.toolbox.agent
 
+import com.xjtu.toolbox.util.toKx
 import com.xjtu.toolbox.ui.components.pressScale
 import android.content.Context
 import androidx.compose.foundation.background
@@ -73,7 +74,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import java.time.LocalDate
 import java.time.LocalDateTime
-import java.time.LocalTime
+import kotlinx.datetime.LocalTime
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.theme.MiuixTheme
@@ -113,15 +114,16 @@ internal object WelcomeFactsLoader {
         val start = schedule?.start
         fun on(date: LocalDate): List<CourseItem> {
             if (start == null || holidays.containsKey(date)) return emptyList()
-            val week = TermWeeks.weekOf(start, date)
+            val week = TermWeeks.weekOf(start.toKx(), date.toKx())
             return courses.filter { it.dayOfWeek == date.dayOfWeek.value && it.isInWeek(week) }
                 .distinctBy { Triple(it.courseName, it.startSection, it.location) }
                 .sortedBy { it.startSection }
         }
-        val nowTime = now.toLocalTime()
+        // XjtuTime 现在给 kotlinx 的 LocalTime → 先按同一套类型转换，再直接比大小
+        val nowTime = now.toLocalTime().toKx()
         val todayCourses = on(today)
         val upcoming = todayCourses.filter { c ->
-            XjtuTime.getClassTime(c.startSection)?.start?.isAfter(nowTime) ?: false
+            XjtuTime.getClassTime(c.startSection)?.start?.let { it > nowTime } ?: false
         }
         val prefs = com.xjtu.toolbox.card.CampusCardCache.cardPrefs(ctx)
         WelcomeFacts(
@@ -273,7 +275,7 @@ internal fun AgentWelcome(
     val facts by produceState(WelcomeFacts(), context) {
         value = withContext(Dispatchers.IO) { WelcomeFactsLoader.load(context, now) }
     }
-    val greeting = com.xjtu.toolbox.home.Greeting.of(now.toLocalTime())
+    val greeting = com.xjtu.toolbox.home.Greeting.of(now.toLocalTime().toKx())
     val primary = MiuixTheme.colorScheme.primary
 
     Column(
@@ -346,7 +348,7 @@ internal fun AgentWelcome(
 /** 挑一句闲话当问候的第二行；避开推广句和带动作的句子，也避开刚说过的那句。 */
 private fun pickLine(facts: WelcomeFacts, now: LocalDateTime, avoid: String?): String? {
     repeat(6) {
-        val l = ChatterPool.pick(now, emptyList(), facts.nextToday?.courseName, null, facts = facts.chatter)
+        val l = ChatterPool.pick(now.toKx(), emptyList(), facts.nextToday?.courseName, null, facts = facts.chatter)
             ?.takeIf { !it.id.startsWith("app_") }
             ?.text
         if (l != null && l != avoid) return l

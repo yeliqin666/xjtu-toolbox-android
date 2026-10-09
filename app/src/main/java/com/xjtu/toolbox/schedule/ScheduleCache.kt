@@ -1,5 +1,8 @@
 package com.xjtu.toolbox.schedule
 
+import com.xjtu.toolbox.util.toJavaTime
+import com.xjtu.toolbox.util.toKx
+
 import com.xjtu.toolbox.data.DataCache
 import java.time.LocalDate
 
@@ -121,7 +124,7 @@ object ScheduleCache {
             val newBits = StringBuilder(course.weekBits)
             for (i in newBits.indices) {
                 if (newBits[i] == '1') {
-                    val courseDate = TermWeeks.dateOf(startOfTerm, i + 1, course.dayOfWeek)
+                    val courseDate = TermWeeks.dateOf(startOfTerm.toKx(), i + 1, course.dayOfWeek).toJavaTime()
                     if (holidayDates.containsKey(courseDate)) {
                         newBits.setCharAt(i, '0')
                         changed = true
@@ -142,7 +145,7 @@ object ScheduleCache {
      */
     fun isFinishedByDate(startOfTerm: LocalDate?, weeks: Int, today: LocalDate = LocalDate.now()): Boolean {
         if (startOfTerm == null || weeks <= 0) return false
-        return TermWeeks.weekOf(startOfTerm, today) > weeks + 1
+        return TermWeeks.weekOf(startOfTerm.toKx(), today.toKx()) > weeks + 1
     }
 
     /** 已结束且本地该有的都有：封存后不再为它发请求。 */

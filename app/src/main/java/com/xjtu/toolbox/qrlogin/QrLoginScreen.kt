@@ -3,7 +3,7 @@ package com.xjtu.toolbox.qrlogin
 import com.xjtu.toolbox.ui.components.enterOnce
 import android.Manifest
 import android.content.pm.PackageManager
-import androidx.activity.compose.BackHandler
+import com.xjtu.toolbox.platform.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
@@ -39,6 +39,7 @@ import com.xjtu.toolbox.ui.components.FullScreenOverlay
 import androidx.core.content.ContextCompat
 import com.xjtu.toolbox.auth.SessionManager
 import com.xjtu.toolbox.library.LibrarySeatQr
+import com.xjtu.toolbox.library.parseLibrarySeatQr
 import kotlinx.coroutines.launch
 import top.yukonga.miuix.kmp.basic.Button
 import top.yukonga.miuix.kmp.basic.Card
@@ -132,7 +133,7 @@ private fun QrLoginContent(
     }
 
     fun onDecoded(scanned: String) {
-        LibrarySeatQr.parse(scanned)?.let { onLibrarySeat(it); return }
+        parseLibrarySeatQr(scanned)?.let { onLibrarySeat(it); return }
         if (!CasQrLogin.isXjtuQrLogin(scanned)) {
             state = UiState.Error("这不是登录二维码，也不是图书馆座位码", canRescan = true, title = "认不出这个码")
             return

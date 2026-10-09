@@ -29,89 +29,11 @@ import okhttp3.RequestBody.Companion.toRequestBody
 private const val TAG = "JwappGPA"
 
 // ── 数据类 ──────────────────────────────
+// ⚠️ 成绩/GPA 的模型（`ScoreSource` / `CourseGroup` / `ScoreItem` / `ScoreDetail` / `TermScore` /
+// `GpaInfo` 与 `NoScoreDetailException`）已经搬进 **:core** 的 `jwapp/ScoreModels.kt` ——
+// 因为 GPA 算法（`score/ScoreCalculator`）现在在那边，模型留在这里两边都编不了。
+// 本文件只剩 okhttp 取数。
 
-enum class ScoreSource { JWAPP, REPORT }
-
-enum class CourseGroup(val label: String, val shortLabel: String) {
-    GEN_CORE("通核", "通核"),
-    GEN_ELECTIVE("通选", "通选");
-}
-
-@Serializable
-data class ScoreItem(
-    val id: String = "",
-    val termCode: String = "",
-    val courseName: String = "",
-    val score: String = "",
-    val scoreValue: Double? = null,
-    val passFlag: Boolean = false,
-    val specificReason: String? = null,
-    val coursePoint: Double = 0.0,
-    val examType: String = "",
-    val majorFlag: String? = null,
-    val examProp: String = "",
-    val replaceFlag: Boolean = false,
-    val gpa: Double? = null,
-    val source: ScoreSource = ScoreSource.JWAPP,
-    val courseCategory: String? = null,
-    val courseCode: String? = null,
-    val courseGroup: CourseGroup? = null,
-) {
-    fun asEmptyDetail(): ScoreDetail = ScoreDetail(
-        courseName = courseName,
-        coursePoint = coursePoint,
-        examType = examType,
-        majorFlag = majorFlag,
-        examProp = examProp,
-        replaceFlag = replaceFlag,
-        score = score,
-        scoreValue = scoreValue,
-        gpa = com.xjtu.toolbox.score.ScoreCalculator.courseGpa(this) ?: 0.0,
-        passFlag = com.xjtu.toolbox.score.ScoreCalculator.isPassed(this),
-        specificReason = specificReason,
-        itemList = emptyList(),
-    )
-}
-
-class NoScoreDetailException(message: String = "该课程暂无分项成绩") : RuntimeException(message)
-
-data class ScoreDetailItem(
-    val itemName: String,
-    val itemPercent: Double,
-    val itemScore: String,
-    val itemScoreValue: Double?
-)
-
-data class ScoreDetail(
-    val courseName: String,
-    val coursePoint: Double,
-    val examType: String,
-    val majorFlag: String?,
-    val examProp: String,
-    val replaceFlag: Boolean,
-    val score: String,
-    val scoreValue: Double?,
-    val gpa: Double,
-    val passFlag: Boolean,
-    val specificReason: String?,
-    val itemList: List<ScoreDetailItem>
-)
-
-@Serializable
-data class TermScore(
-    val termCode: String = "",
-    val termName: String = "",
-    val scoreList: List<ScoreItem> = emptyList(),
-)
-
-data class GpaInfo(
-    val gpa: Double,
-    val averageScore: Double,
-    val totalCredits: Double,
-    val courseCount: Int
-)
-
-// ── API ──────────────────────────────
 
 class JwappApi(private val site: SiteSession) {
 

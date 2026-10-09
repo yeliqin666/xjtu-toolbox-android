@@ -198,6 +198,9 @@ baselineProfile {
 }
 
 dependencies {
+    // 三端共用的业务与平台抽象（KMP）。目前里面只有传输层探针，
+    // 后续按「一屏一提交」往里搬；:core 必须能编过 wasmJs（CI 门禁在守这条）。
+    implementation(project(":core"))
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.core.splashscreen)
     implementation(libs.androidx.lifecycle.runtime.ktx)
@@ -256,6 +259,14 @@ dependencies {
     implementation(libs.kyant.backdrop)
     // 形状形变（加载动画）
     implementation(libs.androidx.graphics.shapes)
+    // ── Ktor：为「用 Ktor 的 API 包在现有 OkHttpClient 上」而接（见 network/KtorOnOkHttp.kt）──
+    // 关键点：**不换引擎**。ktor-client-okhttp 的 OkHttp 引擎允许预置一个已有的 OkHttpClient
+    // （preconfigured），所以 cookie jar、UA 拦截器、brotli、超时、TLS、连接池全部沿用，
+    // 只把「构造请求 / 读响应」的写法换成 Ktor —— 这是把 78 个 okhttp 文件搬进共享层的前置。
+    implementation(libs.ktor.client.core)
+    implementation(libs.ktor.client.okhttp)
+    implementation(libs.ktor.client.content.negotiation)
+    implementation(libs.ktor.serialization.kotlinx.json)
     testImplementation(libs.junit)
     debugImplementation(libs.androidx.ui.tooling)
 }

@@ -1,5 +1,6 @@
 package com.xjtu.toolbox.agent
 
+import com.xjtu.toolbox.util.toKx
 import android.content.Context
 import com.xjtu.toolbox.schedule.CourseItem
 import com.xjtu.toolbox.schedule.HolidayApi
@@ -26,7 +27,7 @@ internal object ChatterFactsLoader {
 
         fun coursesOn(date: LocalDate): List<CourseItem> {
             if (start == null || holidays.containsKey(date)) return emptyList()
-            val week = TermWeeks.weekOf(start, date)
+            val week = TermWeeks.weekOf(start.toKx(), date.toKx())
             return courses.filter { it.dayOfWeek == date.dayOfWeek.value && it.isInWeek(week) }
                 .sortedBy { it.startSection }
         }

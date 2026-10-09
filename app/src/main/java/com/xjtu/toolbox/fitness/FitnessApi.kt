@@ -12,88 +12,28 @@ import kotlinx.serialization.json.JsonObject
 import com.xjtu.toolbox.auth.AuthExpiredException
 import com.xjtu.toolbox.auth.SiteSession
 import com.xjtu.toolbox.util.safeParseJsonObject
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import okhttp3.FormBody
 import okhttp3.Request
 
-data class FitnessYear(
-    val yearNum: String,
-    val name: String,
-    val checked: Boolean,
-)
-
-data class FitnessScore(
-    val studentNumber: String,
-    val studentName: String,
-    val totalScore: String,
-    val totalGrade: String,
-    val reportType: String,
-    val reportStatus: String,
-    val sex: String,
-    val grade: String,
-    val items: List<FitnessItem>,
-)
-
-data class FitnessItem(
-    val name: String,
-    val value: String,
-    val grade: String,
-    val tone: String,
-)
-
-fun FitnessScore.hasUsableTotal(): Boolean {
-    val s = totalScore.trim()
-    return s.isNotEmpty() && s != "--" && s != "未测"
-}
-
-fun FitnessYear.yearValue(): Int? =
-    Regex("""\d{4}""").find(yearNum)?.value?.toIntOrNull()
-        ?: Regex("""\d{4}""").find(name)?.value?.toIntOrNull()
-
 /**
- * 体测系统会把尚未开测的下一学年也列在最前，[checked] 也经常指到那一档。
- * 按当前学年（9 月起算）往前排，丢掉还没考的年份。
+ * 体测取数（`:app` 端）。模型（[FitnessYear] / [FitnessScore] / [FitnessItem]）、
+ * 学年排序与解析（`orderedFitnessYears` / `pickFitnessYear` / `parseFitnessAcademicYear`）、
+ * 分数格式化（[formatFitnessScore]）已全部搬进 `:core`（见 `fitness/FitnessModels.kt`），
+ * 屏幕也搬走了（`fitness/FitnessScreen.kt`）—— 这个文件只剩**取数**：v3 加密协议优先，
+ * 失败退回 legacy PHP 路径（两条都是 okhttp，行为与搬迁前一致）。
+ *
+ * 唯一被替换的写法：`String.format(java.util.Locale.US, "%.2f", it)` 换成共享的
+ * [formatFitnessScore]（`String.format` 是 JVM 专属，且在 JVM 上是默认导入）。
  */
-fun orderedFitnessYears(
-    years: List<FitnessYear>,
-    academicYear: Int = com.xjtu.toolbox.schedule.XjtuTime.currentAcademicYear(),
-): List<FitnessYear> {
-    val ranked = years.sortedByDescending { it.yearValue() ?: Int.MIN_VALUE }
-    val eligible = ranked.filter { (it.yearValue() ?: Int.MAX_VALUE) <= academicYear }
-    return eligible.ifEmpty { ranked }
-}
-
-/**
- * 从用户/模型传入的学年参数里取出起始年。
- * `2025`、`2025-2026`、`2025-2026-1` 都表示 2025-2026 学年。
- */
-fun parseFitnessAcademicYear(raw: String?): Int? {
-    val s = raw?.trim().orEmpty()
-    if (s.isBlank()) return null
-    Regex("""(20\d{2})\s*[-~—/到至]\s*(20\d{2})""").find(s)?.let {
-        return it.groupValues[1].toInt()
-    }
-    return Regex("""20\d{2}""").find(s)?.value?.toIntOrNull()
-}
-
-fun pickFitnessYear(
-    years: List<FitnessYear>,
-    yearKey: String?,
-    academicYear: Int = com.xjtu.toolbox.schedule.XjtuTime.currentAcademicYear(),
-): FitnessYear? {
-    val ordered = orderedFitnessYears(years, academicYear)
-    val want = parseFitnessAcademicYear(yearKey) ?: return ordered.firstOrNull()
-    return ordered.firstOrNull { it.yearValue() == want }
-        ?: years.firstOrNull { it.yearValue() == want }
-        ?: yearKey?.let { key ->
-            years.firstOrNull { it.name.contains(key) || it.yearNum.contains(key) }
-        }
-}
-
-class FitnessApi(private val site: SiteSession) {
+class FitnessApi(private val site: SiteSession) : FitnessSource {
     private val refererUrl
         get() = site.localToken["referer_url"] ?: FitnessProtocol.H5_HOME_URL
 
-    suspend fun getYears(): List<FitnessYear> {
+    override suspend fun years(): List<FitnessYear> = withContext(Dispatchers.IO) { loadYears() }
+
+    private suspend fun loadYears(): List<FitnessYear> {
         val data = fetchData(
             v3Path = "fitness/fitnessYear",
             extra = mapOf("from" to 1),
@@ -116,7 +56,9 @@ class FitnessApi(private val site: SiteSession) {
         }
     }
 
-    suspend fun getScore(yearNum: String): FitnessScore {
+    override suspend fun score(yearNum: String): FitnessScore = withContext(Dispatchers.IO) { loadScore(yearNum) }
+
+    private suspend fun loadScore(yearNum: String): FitnessScore {
         val data = fetchData(
             v3Path = "Report/getStudentScore",
             extra = mapOf("year_num" to yearNum),
@@ -125,9 +67,7 @@ class FitnessApi(private val site: SiteSession) {
             accept = { it.containsKey("student_num") || it.containsKey("total_score") || it.containsKey("bmi_score") || it.containsKey("bmi_grade") },
         )
         fun value(key: String): String = text(data, key)
-        fun formatScore(raw: String): String =
-            raw.trim().toDoubleOrNull()?.let { String.format(java.util.Locale.US, "%.2f", it) }
-                ?: raw
+        fun formatScore(raw: String): String = formatFitnessScore(raw)
         fun item(name: String, key: String, display: String = value("${key}_score")) = FitnessItem(
             name = name,
             value = formatScore(display).ifBlank { "未测" },
@@ -136,8 +76,8 @@ class FitnessApi(private val site: SiteSession) {
         )
 
         val bmiDisplay = value("bmi_score_new").ifBlank { value("bmi_score") }
-        val strengthName = if (value("sex") == "女") "仰卧起坐" else "引体向上"
-        val runName = if (value("sex") == "女") "800 米" else "1000 米"
+        val strengthName = fitnessItemName("pull_and_sit", value("sex"))
+        val runName = fitnessItemName("run", value("sex"))
 
         return FitnessScore(
             studentNumber = value("student_num"),

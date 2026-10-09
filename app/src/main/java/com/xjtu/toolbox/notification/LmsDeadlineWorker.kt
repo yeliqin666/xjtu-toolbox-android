@@ -18,8 +18,9 @@ import com.xjtu.toolbox.lms.remaining
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import java.time.Duration
-import java.time.Instant
+import kotlin.time.Clock
+import kotlin.time.Duration.Companion.hours
+import kotlin.time.Instant
 import java.util.concurrent.TimeUnit
 
 private const val TAG = "LmsDeadline"
@@ -62,12 +63,14 @@ class LmsDeadlineWorker(
             return Result.retry()
         }
 
-        val now = Instant.now()
-        val horizon = now.plus(Duration.ofHours(AHEAD_HOURS))
+        // 时刻算法用 :core 的 kotlin.time.Instant（[remaining] / [deadlineInstant] 都是这个类型）：
+        // 上游这里用 java.time，搬进 :core 时统一换掉了 —— 比较与措辞都只此一套。
+        val now = Clock.System.now()
+        val horizon = now + AHEAD_HOURS.hours
         val fresh = due
             .filter { !it.submitted }
             .mapNotNull { d -> runCatching { Instant.parse(d.deadline) }.getOrNull()?.let { it to d } }
-            .filter { (deadline, _) -> !deadline.isBefore(now) && !deadline.isAfter(horizon) }
+            .filter { (deadline, _) -> deadline >= now && deadline <= horizon }
             .sortedBy { it.first }
             .map { (deadline, d) -> "${d.courseId}-${d.activityId}-$deadline" to "[${d.courseName}] ${d.title} · ${remaining(now, deadline)}" }
             .filterNot { ReminderStore.hasSeen(app, ReminderKind.LMS, it.first) }

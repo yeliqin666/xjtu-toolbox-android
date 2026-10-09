@@ -1,0 +1,1021 @@
+package com.xjtu.toolbox.schedule
+
+import com.xjtu.toolbox.platform.BackHandler
+import androidx.compose.animation.*
+import androidx.compose.animation.core.*
+import androidx.compose.foundation.*
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.lazy.items
+import com.xjtu.toolbox.ui.adaptive.AdaptiveCardGrid
+import com.xjtu.toolbox.ui.adaptive.fullLineItem
+import com.xjtu.toolbox.ui.adaptive.readableWidth
+import androidx.compose.foundation.lazy.staggeredgrid.items
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.*
+import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
+import com.xjtu.toolbox.auth.LocalAuthExpiry
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.DpSize
+import androidx.compose.ui.unit.dp
+import com.xjtu.toolbox.ui.glass.*
+import com.xjtu.toolbox.ui.components.AppFilterChip
+import com.xjtu.toolbox.ui.components.ErrorState
+import com.xjtu.toolbox.ui.components.LoadingState
+import top.yukonga.miuix.kmp.basic.*
+import top.yukonga.miuix.kmp.overlay.OverlayBottomSheet
+import top.yukonga.miuix.kmp.preference.OverlaySpinnerPreference
+import top.yukonga.miuix.kmp.theme.MiuixTheme
+import top.yukonga.miuix.kmp.utils.SinkFeedback
+import top.yukonga.miuix.kmp.utils.overScrollVertical
+import com.xjtu.toolbox.nav.AppRoute
+import androidx.lifecycle.viewmodel.compose.viewModel
+
+// ── 主屏幕 ────────────────────────────────
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+fun SchoolCourseScreen(
+    source: SchoolCourseSource,
+    onBack: () -> Unit
+) {
+    val authExpiry = LocalAuthExpiry.current
+
+    val vm: SchoolCourseViewModel = viewModel { SchoolCourseViewModel(source) }
+    LaunchedEffect(vm) { vm.authExpired.collect { authExpiry.onAuthExpired(AppRoute.SchoolCourse, onBack) } }
+
+
+    // 搜索条件
+    var selectedTermCode by rememberSaveable { mutableStateOf("") }
+    var searchCourseName by rememberSaveable { mutableStateOf("") }
+    var searchCourseCode by rememberSaveable { mutableStateOf("") }
+    var searchTeacher by rememberSaveable { mutableStateOf("") }
+    var searchClassName by rememberSaveable { mutableStateOf("") }
+    var selectedDeptCode by rememberSaveable { mutableStateOf("") }
+    var selectedCampusCode by rememberSaveable { mutableStateOf("") }
+    var selectedWeekday by rememberSaveable { mutableIntStateOf(0) } // 0 = 不限
+    var selectedStartSection by rememberSaveable { mutableIntStateOf(0) } // 0 = 不限
+    var selectedEndSection by rememberSaveable { mutableIntStateOf(0) }
+    var isPublicElectiveFilter by rememberSaveable { mutableStateOf<Boolean?>(null) }
+    var selectedElectiveCat by rememberSaveable { mutableStateOf("") }
+    // 学期默认选当前学期
+    LaunchedEffect(vm.currentTermCode) {
+        if (selectedTermCode.isBlank() && vm.currentTermCode.isNotBlank()) selectedTermCode = vm.currentTermCode
+    }
+
+    var showAdvancedFilter by rememberSaveable { mutableStateOf(false) }
+    var detailCourse by remember { mutableStateOf<SchoolCourse?>(null) }
+    val snackbarState = remember { SnackbarHostState() }
+
+    fun doSearch() = vm.search(
+        SchoolCourseQuery(
+            termCode = selectedTermCode,
+            courseName = searchCourseName,
+            courseCode = searchCourseCode,
+            teacher = searchTeacher,
+            departmentCode = selectedDeptCode,
+            className = searchClassName,
+            campusCode = selectedCampusCode,
+            isPublicElective = isPublicElectiveFilter,
+            electiveCategoryCode = selectedElectiveCat,
+            weekday = selectedWeekday,
+            startSection = selectedStartSection,
+            endSection = selectedEndSection,
+        )
+    )
+
+    // Scaffold 布局
+    val scrollBehavior = MiuixScrollBehavior(rememberTopAppBarState())
+    // 玻璃顶栏（经典风格下为 null，一切照旧），用法见 ui/glass/GlassTopBar.kt
+    val glass = rememberPageGlass()
+
+    Scaffold(
+        topBar = {
+            GlassTopAppBar(
+                title = "全校课程查询",
+                glass = glass,
+                scrollBehavior = scrollBehavior,
+                onBack = onBack,
+            )
+        },
+        snackbarHost = { SnackbarHost(snackbarState) }
+    ) { padding ->
+        val glassTop = padding.glassTop(glass)
+        if (vm.isInitializing) {
+            LoadingState("正在加载课程查询...", Modifier.padding(padding.withoutTop(glass)).glassSource(glass))
+            return@Scaffold
+        }
+
+        if (vm.initError != null) {
+            ErrorState(vm.initError.orEmpty(), onRetry = vm::loadOptions, modifier = Modifier.padding(padding.withoutTop(glass)).glassSource(glass))
+            return@Scaffold
+        }
+
+        val listState = androidx.compose.foundation.lazy.staggeredgrid.rememberLazyStaggeredGridState()
+
+        // 宽屏：学期和搜索条件限宽居中，课程卡分两三列（见 AdaptiveCardGrid）。
+        // 以前一列卡片横跨整个平板宽度，课程名在最左、上课时间在最右。
+        AdaptiveCardGrid(
+            state = listState,
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(padding.withoutTop(glass))
+                .glassSource(glass)
+                .nestedScroll(scrollBehavior.nestedScrollConnection),
+            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = glassTop + 12.dp, bottom = 12.dp),
+            spacing = 12.dp,
+        ) {
+            // ── 学期选择 ──
+            fullLineItem(key = "term_selector") {
+                val termEntries = vm.termList.map { DropdownItem(title = it.name) }
+                val selectedIdx = vm.termList.indexOfFirst { it.code == selectedTermCode }.coerceAtLeast(0)
+
+                Card(Modifier.readableWidth().fillMaxWidth(), cornerRadius = 16.dp) {
+                    if (termEntries.isNotEmpty()) {
+                        OverlaySpinnerPreference(
+                            items = termEntries,
+                            selectedIndex = selectedIdx,
+                            title = "学期",
+                            onSelectedIndexChange = { idx ->
+                                selectedTermCode = vm.termList.getOrNull(idx)?.code ?: ""
+                            },
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
+                }
+            }
+
+            // ── 快捷筛选（课程名 + 教师） ──
+            fullLineItem(key = "quick_search") {
+                Card(Modifier.readableWidth().fillMaxWidth(), cornerRadius = 16.dp) {
+                    Column(Modifier.padding(16.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                Icons.Default.Search,
+                                contentDescription = null,
+                                tint = MiuixTheme.colorScheme.primary,
+                                modifier = Modifier.size(20.dp)
+                            )
+                            Spacer(Modifier.width(8.dp))
+                            Text("搜索条件", style = MiuixTheme.textStyles.subtitle, fontWeight = FontWeight.Bold)
+                        }
+                        Spacer(Modifier.height(12.dp))
+
+                        TextField(
+                            value = searchCourseName,
+                            onValueChange = { searchCourseName = it },
+                            label = "课程名",
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        Spacer(Modifier.height(8.dp))
+                        TextField(
+                            value = searchTeacher,
+                            onValueChange = { searchTeacher = it },
+                            label = "教师姓名",
+                            modifier = Modifier.fillMaxWidth()
+                        )
+
+                        // 高级筛选切换
+                        Spacer(Modifier.height(8.dp))
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(8.dp))
+                                .clickable(
+                                    interactionSource = remember { MutableInteractionSource() },
+                                    indication = SinkFeedback()
+                                ) { showAdvancedFilter = !showAdvancedFilter }
+                                .padding(vertical = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.Center
+                        ) {
+                            Text(
+                                if (showAdvancedFilter) "收起高级筛选" else "展开高级筛选",
+                                style = MiuixTheme.textStyles.footnote1,
+                                color = MiuixTheme.colorScheme.primary
+                            )
+                            Icon(
+                                if (showAdvancedFilter) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                                contentDescription = null,
+                                tint = MiuixTheme.colorScheme.primary,
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
+
+                        // ── 高级筛选内容 ──
+                        AnimatedVisibility(
+                            visible = showAdvancedFilter,
+                            enter = expandVertically() + fadeIn(),
+                            exit = shrinkVertically() + fadeOut()
+                        ) {
+                            Column {
+                                Spacer(Modifier.height(8.dp))
+                                HorizontalDivider()
+                                Spacer(Modifier.height(12.dp))
+
+                                TextField(
+                                    value = searchCourseCode,
+                                    onValueChange = { searchCourseCode = it },
+                                    label = "课程号",
+                                    modifier = Modifier.fillMaxWidth()
+                                )
+                                Spacer(Modifier.height(8.dp))
+                                TextField(
+                                    value = searchClassName,
+                                    onValueChange = { searchClassName = it },
+                                    label = "上课班级",
+                                    modifier = Modifier.fillMaxWidth()
+                                )
+
+                                Spacer(Modifier.height(12.dp))
+
+                                // 开课单位。**这一端筛不了就整块不出现**（campus-api 不给那张 id 表，
+                                // 见 SchoolCourseSource 的能力开关）——比「出现了却筛不动」诚实。
+                                if (source.supportsDepartmentFilter) {
+                                    val deptEntries = buildList {
+                                        add(DropdownItem(title = "不限"))
+                                        vm.departmentList.forEach { add(DropdownItem(title = it.name)) }
+                                    }
+                                    val deptIdx = if (selectedDeptCode.isBlank()) 0
+                                        else (vm.departmentList.indexOfFirst { it.code == selectedDeptCode } + 1).coerceAtLeast(0)
+                                    Card(Modifier.fillMaxWidth(), cornerRadius = 12.dp) {
+                                        OverlaySpinnerPreference(
+                                            items = deptEntries,
+                                            selectedIndex = deptIdx,
+                                            title = "开课单位",
+                                            onSelectedIndexChange = { idx ->
+                                                selectedDeptCode = if (idx == 0) "" else vm.departmentList.getOrNull(idx - 1)?.code ?: ""
+                                            },
+                                            modifier = Modifier.fillMaxWidth()
+                                        )
+                                    }
+                                }
+
+                                if (source.supportsDepartmentFilter) Spacer(Modifier.height(12.dp))
+
+                                // 校区筛选
+                                Text("校区", style = MiuixTheme.textStyles.footnote1, fontWeight = FontWeight.Medium)
+                                Spacer(Modifier.height(6.dp))
+                                val campusList = vm.campusList
+                                FlowRow(
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    AppFilterChip(
+                                        selected = selectedCampusCode.isBlank(),
+                                        onClick = { selectedCampusCode = "" },
+                                        label = "全部"
+                                    )
+                                    campusList.forEach { campus ->
+                                        AppFilterChip(
+                                            selected = selectedCampusCode == campus.code,
+                                            onClick = { selectedCampusCode = if (selectedCampusCode == campus.code) "" else campus.code },
+                                            label = campus.name
+                                        )
+                                    }
+                                }
+
+                                Spacer(Modifier.height(12.dp))
+
+                                // 星期筛选
+                                Text("星期", style = MiuixTheme.textStyles.footnote1, fontWeight = FontWeight.Medium)
+                                Spacer(Modifier.height(6.dp))
+                                val weekDayLabels = listOf("不限", "一", "二", "三", "四", "五", "六", "日")
+                                FlowRow(
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    weekDayLabels.forEachIndexed { index, label ->
+                                        AppFilterChip(
+                                            selected = selectedWeekday == index,
+                                            onClick = { selectedWeekday = index },
+                                            label = label
+                                        )
+                                    }
+                                }
+
+                                Spacer(Modifier.height(12.dp))
+
+                                // 节次筛选
+                                Text("节次范围", style = MiuixTheme.textStyles.footnote1, fontWeight = FontWeight.Medium)
+                                Spacer(Modifier.height(6.dp))
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    val sectionEntries = buildList {
+                                        add(DropdownItem(title = "不限"))
+                                        for (i in 1..14) add(DropdownItem(title = "第${i}节"))
+                                    }
+                                    Card(Modifier.weight(1f), cornerRadius = 12.dp) {
+                                        OverlaySpinnerPreference(
+                                            items = sectionEntries,
+                                            selectedIndex = selectedStartSection,
+                                            title = "开始",
+                                            onSelectedIndexChange = { idx ->
+                                                selectedStartSection = idx
+                                                if (selectedEndSection in 1..<idx) selectedEndSection = idx
+                                            },
+                                            modifier = Modifier.fillMaxWidth()
+                                        )
+                                    }
+                                    Text(" ~ ", Modifier.padding(horizontal = 8.dp), color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
+                                    Card(Modifier.weight(1f), cornerRadius = 12.dp) {
+                                        OverlaySpinnerPreference(
+                                            items = sectionEntries,
+                                            selectedIndex = selectedEndSection,
+                                            title = "结束",
+                                            onSelectedIndexChange = { idx ->
+                                                selectedEndSection = idx
+                                                if (selectedStartSection in 1..14 && idx in 1..<selectedStartSection) selectedStartSection = idx
+                                            },
+                                            modifier = Modifier.fillMaxWidth()
+                                        )
+                                    }
+                                }
+
+                                Spacer(Modifier.height(12.dp))
+
+                                // 校公选课筛选。**这一端筛不了就整块不出现**
+                                // （campus-api 不放行这两个条件，见 SchoolCourseSource 的能力开关）
+                                if (source.supportsElectiveFilter) {
+                                Text("课程类型", style = MiuixTheme.textStyles.footnote1, fontWeight = FontWeight.Medium)
+                                Spacer(Modifier.height(6.dp))
+                                FlowRow(
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    AppFilterChip(
+                                        selected = isPublicElectiveFilter == null,
+                                        onClick = { isPublicElectiveFilter = null; selectedElectiveCat = "" },
+                                        label = "全部"
+                                    )
+                                    AppFilterChip(
+                                        selected = isPublicElectiveFilter == true,
+                                        onClick = {
+                                            isPublicElectiveFilter = if (isPublicElectiveFilter == true) null else true
+                                        },
+                                        label = "校公选课"
+                                    )
+                                    AppFilterChip(
+                                        selected = isPublicElectiveFilter == false,
+                                        onClick = {
+                                            isPublicElectiveFilter = if (isPublicElectiveFilter == false) null else false
+                                            selectedElectiveCat = ""
+                                        },
+                                        label = "非公选课"
+                                    )
+                                }
+
+                                // 公选课类别
+                                AnimatedVisibility(isPublicElectiveFilter == true) {
+                                    Column {
+                                        Spacer(Modifier.height(8.dp))
+                                        Text("公选课类别", style = MiuixTheme.textStyles.footnote1, fontWeight = FontWeight.Medium)
+                                        Spacer(Modifier.height(6.dp))
+                                        val categories = vm.electiveCategories
+                                        FlowRow(
+                                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                                        ) {
+                                            AppFilterChip(
+                                                selected = selectedElectiveCat.isBlank(),
+                                                onClick = { selectedElectiveCat = "" },
+                                                label = "全部"
+                                            )
+                                            categories.forEach { cat ->
+                                                AppFilterChip(
+                                                    selected = selectedElectiveCat == cat.code,
+                                                    onClick = { selectedElectiveCat = if (selectedElectiveCat == cat.code) "" else cat.code },
+                                                    label = cat.name
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                                }
+                            }
+                        }
+
+                        Spacer(Modifier.height(12.dp))
+
+                        // 搜索按钮
+                        Button(
+                            onClick = { doSearch() },
+                            modifier = Modifier.fillMaxWidth(),
+                            enabled = !vm.isSearching && selectedTermCode.isNotBlank()
+                        ) {
+                            if (vm.isSearching) {
+                                CircularProgressIndicator(modifier = Modifier.size(18.dp))
+                                Spacer(Modifier.width(8.dp))
+                            }
+                            Text(if (vm.isSearching) "搜索中..." else "搜索")
+                        }
+                    }
+                }
+            }
+
+            // ── 搜索结果统计 ──
+            vm.result?.let { r ->
+                fullLineItem(key = "result_stats") {
+                    Card(Modifier.fillMaxWidth(), cornerRadius = 16.dp) {
+                        Row(
+                            Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 16.dp, vertical = 12.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                "共 ${r.totalSize} 条结果",
+                                style = MiuixTheme.textStyles.body2,
+                                fontWeight = FontWeight.Medium
+                            )
+                            Text(
+                                "第 ${r.pageNumber}/${r.totalPages} 页",
+                                style = MiuixTheme.textStyles.footnote1,
+                                color = MiuixTheme.colorScheme.onSurfaceVariantSummary
+                            )
+                        }
+                    }
+                }
+            }
+
+            // ── 搜索错误 ──
+            if (vm.searchError != null) {
+                fullLineItem(key = "search_error") {
+                    ErrorState(vm.searchError.orEmpty(), onRetry = { vm.goToPage(vm.currentPage) })
+                }
+            }
+
+            // ── 搜索中/空状态 ──
+            if (vm.isSearching && vm.result == null) {
+                fullLineItem(key = "loading") {
+                    LoadingState("正在查询...")
+                }
+            }
+
+            // ── 课程列表 ──
+            vm.result?.let { r ->
+                if (r.courses.isEmpty() && !vm.isSearching) {
+                    fullLineItem(key = "empty") {
+                        Box(
+                            Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 48.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                Icon(
+                                    Icons.Default.SearchOff,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(48.dp),
+                                    tint = MiuixTheme.colorScheme.onSurfaceVariantSummary
+                                )
+                                Spacer(Modifier.height(12.dp))
+                                Text(
+                                    "没有找到匹配的课程",
+                                    style = MiuixTheme.textStyles.body2,
+                                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary
+                                )
+                                Text(
+                                    "试试放宽搜索条件？",
+                                    style = MiuixTheme.textStyles.footnote1,
+                                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary
+                                )
+                            }
+                        }
+                    }
+                }
+
+                items(r.courses, key = { it.teachingClassId.ifBlank { "${it.courseCode}_${it.sectionNumber}" } }) { course ->
+                    CourseCard(course = course, onClick = { detailCourse = course })
+                }
+
+                // ── 分页控制 ──
+                if (r.totalPages > 1) {
+                    fullLineItem(key = "pagination") {
+                        PaginationBar(
+                            currentPage = r.pageNumber,
+                            totalPages = r.totalPages,
+                            isSearching = vm.isSearching,
+                            onPageChange = vm::goToPage
+                        )
+                    }
+                }
+            }
+
+            // 底部间距
+            fullLineItem(key = "bottom_spacer") {
+                Spacer(Modifier.height(32.dp))
+            }
+        }
+
+        // 必须在 Scaffold 的 content 内（且在 LazyColumn 之外——item{} 不是 composable 上下文），
+        // 否则 OverlayBottomSheet 拿不到 Scaffold 提供的宿主，静默不显示。
+    // ── 课程详情 BottomSheet ──
+    detailCourse?.let { course ->
+        CourseDetailSheet(
+            course = course,
+            onDismiss = { detailCourse = null }
+        )
+    }
+    }
+
+}
+
+// ── 课程卡片 ────────────────────────────────
+
+@Composable
+private fun CourseCard(course: SchoolCourse, onClick: () -> Unit) {
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(16.dp))
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = SinkFeedback()
+            ) { onClick() },
+        cornerRadius = 16.dp
+    ) {
+        Column(Modifier.padding(16.dp)) {
+            // 标题行
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.Top
+            ) {
+                Column(Modifier.weight(1f)) {
+                    Text(
+                        course.courseName,
+                        style = MiuixTheme.textStyles.subtitle,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    Spacer(Modifier.height(2.dp))
+                    Text(
+                        "${course.courseCode} · 课序号 ${course.sectionNumber}",
+                        style = MiuixTheme.textStyles.footnote1,
+                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary
+                    )
+                }
+                Spacer(Modifier.width(8.dp))
+                // 学分标签
+                Surface(
+                    shape = RoundedCornerShape(12.dp),
+                    color = MiuixTheme.colorScheme.primary.copy(alpha = 0.12f)
+                ) {
+                    Text(
+                        "${course.credit}学分",
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                        style = MiuixTheme.textStyles.footnote1,
+                        fontWeight = FontWeight.Bold,
+                        color = MiuixTheme.colorScheme.primary
+                    )
+                }
+            }
+
+            Spacer(Modifier.height(10.dp))
+
+            // 教师 + 单位
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Default.Person, null, Modifier.size(14.dp), tint = MiuixTheme.colorScheme.onSurfaceVariantSummary)
+                Spacer(Modifier.width(4.dp))
+                Text(
+                    course.teacher.ifBlank { "未知" },
+                    style = MiuixTheme.textStyles.footnote1,
+                    color = MiuixTheme.colorScheme.onSurface,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f, fill = false)
+                )
+                Spacer(Modifier.width(12.dp))
+                Icon(Icons.Default.Business, null, Modifier.size(14.dp), tint = MiuixTheme.colorScheme.onSurfaceVariantSummary)
+                Spacer(Modifier.width(4.dp))
+                Text(
+                    course.department.ifBlank { "-" },
+                    style = MiuixTheme.textStyles.footnote1,
+                    color = MiuixTheme.colorScheme.onSurface,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+
+            // 时间地点
+            if (course.scheduleLocation.isNotBlank()) {
+                Spacer(Modifier.height(6.dp))
+                Row(verticalAlignment = Alignment.Top) {
+                    Icon(Icons.Default.Schedule, null, Modifier.size(14.dp), tint = MiuixTheme.colorScheme.onSurfaceVariantSummary)
+                    Spacer(Modifier.width(4.dp))
+                    Text(
+                        course.scheduleLocation,
+                        style = MiuixTheme.textStyles.footnote1,
+                        color = MiuixTheme.colorScheme.onSurface,
+                        maxLines = 3,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+            }
+
+            Spacer(Modifier.height(8.dp))
+
+            // 底部：选课/容量
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                // 校区 + 类型标签
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    if (course.campus.isNotBlank()) {
+                        SmallTag(course.campus, MiuixTheme.colorScheme.primary)
+                    }
+                    if (course.isPublicElective && course.electiveCategory.isNotBlank()) {
+                        SmallTag(course.electiveCategory, Color(0xFF00796B))
+                    }
+                }
+
+                // 选课人数 / 容量。**这一端不知道就不画**：campus-api 对人数类字段
+                // 刻意不投影（语义未证实），拿 0/0 冒充比不显示更糟。
+                val fillRatio = course.fillRatio
+                if (fillRatio != null) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        val fillColor = when {
+                            fillRatio >= 0.95f -> Color(0xFFD32F2F)
+                            fillRatio >= 0.8f -> Color(0xFFE65100)
+                            fillRatio >= 0.5f -> Color(0xFFF9A825)
+                            else -> Color(0xFF2E7D32)
+                        }
+                        Text(
+                            "${course.enrollCount}/${course.capacity}",
+                            style = MiuixTheme.textStyles.footnote1,
+                            fontWeight = FontWeight.Medium,
+                            color = fillColor
+                        )
+                        Spacer(Modifier.width(4.dp))
+                        // 容量条
+                        Box(
+                            Modifier
+                                .width(40.dp)
+                                .height(4.dp)
+                                .clip(RoundedCornerShape(2.dp))
+                                .background(MiuixTheme.colorScheme.surfaceVariant)
+                        ) {
+                            Box(
+                                Modifier
+                                    .fillMaxHeight()
+                                    .fillMaxWidth(fillRatio)
+                                    .clip(RoundedCornerShape(2.dp))
+                                    .background(fillColor)
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun SmallTag(text: String, color: Color) {
+    Surface(
+        shape = RoundedCornerShape(6.dp),
+        color = color.copy(alpha = 0.1f)
+    ) {
+        Text(
+            text,
+            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+            style = MiuixTheme.textStyles.footnote2,
+            color = color,
+            maxLines = 1
+        )
+    }
+}
+
+// ── 分页控件 ────────────────────────────────
+
+@Composable
+private fun PaginationBar(
+    currentPage: Int,
+    totalPages: Int,
+    isSearching: Boolean,
+    onPageChange: (Int) -> Unit
+) {
+    Card(Modifier.fillMaxWidth(), cornerRadius = 16.dp) {
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .padding(12.dp),
+            horizontalArrangement = Arrangement.Center,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            // 上一页
+            TextButton(
+                text = "上一页",
+                onClick = { if (currentPage > 1) onPageChange(currentPage - 1) },
+                enabled = currentPage > 1 && !isSearching
+            )
+
+            Spacer(Modifier.width(8.dp))
+
+            // 页码
+            val visiblePages = getVisiblePages(currentPage, totalPages)
+            visiblePages.forEach { page ->
+                if (page == -1) {
+                    Text(
+                        "...",
+                        modifier = Modifier.padding(horizontal = 4.dp),
+                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary
+                    )
+                } else {
+                    val isCurrentPage = page == currentPage
+                    Surface(
+                        modifier = Modifier
+                            .size(32.dp)
+                            .clip(CircleShape)
+                            .clickable(enabled = !isSearching && !isCurrentPage) { onPageChange(page) },
+                        shape = CircleShape,
+                        color = if (isCurrentPage) MiuixTheme.colorScheme.primary else Color.Transparent
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Text(
+                                "$page",
+                                style = MiuixTheme.textStyles.footnote1,
+                                fontWeight = if (isCurrentPage) FontWeight.Bold else FontWeight.Normal,
+                                color = if (isCurrentPage) Color.White else MiuixTheme.colorScheme.onSurface
+                            )
+                        }
+                    }
+                }
+            }
+
+            Spacer(Modifier.width(8.dp))
+
+            // 下一页
+            TextButton(
+                text = "下一页",
+                onClick = { if (currentPage < totalPages) onPageChange(currentPage + 1) },
+                enabled = currentPage < totalPages && !isSearching
+            )
+        }
+    }
+}
+
+private fun getVisiblePages(current: Int, total: Int): List<Int> {
+    if (total <= 7) return (1..total).toList()
+    val pages = mutableListOf<Int>()
+    pages.add(1)
+    if (current > 3) pages.add(-1) // ...
+    val start = (current - 1).coerceAtLeast(2)
+    val end = (current + 1).coerceAtMost(total - 1)
+    for (i in start..end) pages.add(i)
+    if (current < total - 2) pages.add(-1)
+    pages.add(total)
+    return pages
+}
+
+// ── 课程详情 BottomSheet ────────────────────
+
+@Composable
+private fun CourseDetailSheet(
+    course: SchoolCourse,
+    onDismiss: () -> Unit
+) {
+    BackHandler { onDismiss() }
+
+    val showSheet = remember { mutableStateOf(true) }
+
+    OverlayBottomSheet(
+        show = showSheet.value,
+        // 默认 insideMargin 已含 24dp 横向内边距，内容里再加一层就成了 48dp。
+        // 收到 16dp 并让内容自身不再加横向 padding，和列表页的边距对齐。
+        insideMargin = DpSize(16.dp, 0.dp),
+        // 默认底色是 background（浅色下纯白），卡片的 surfaceVariant 同样是白，
+        // 铺上去看不出边界；和页面一样改用 surface 打底
+        backgroundColor = MiuixTheme.colorScheme.surface,
+        onDismissRequest = { showSheet.value = false; onDismiss() }
+    ) {
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .overScrollVertical()
+                .verticalScroll(rememberScrollState())
+                .navigationBarsPadding()
+        ) {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                cornerRadius = 20.dp,
+                colors = CardDefaults.defaultColors(color = MiuixTheme.colorScheme.surfaceVariant),
+            ) {
+                Column(Modifier.padding(16.dp)) {
+                    Text(
+                        course.courseName,
+                        style = MiuixTheme.textStyles.title4,
+                        fontWeight = FontWeight.Bold,
+                    )
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        "${course.courseCode} · 课序号 ${course.sectionNumber}",
+                        style = MiuixTheme.textStyles.footnote1,
+                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary
+                    )
+                    Spacer(Modifier.height(14.dp))
+                    Row(Modifier.fillMaxWidth()) {
+                        HeadlineStat("学分", "${course.credit}", Modifier.weight(1f))
+                        course.totalHours?.let { HeadlineStat("总学时", "${it.toInt()}", Modifier.weight(1f)) }
+                        // 容量/人数这一端不知道就不显示这一栏（campus-api 不投影人数类字段）
+                        course.remaining?.let { remaining ->
+                            HeadlineStat(
+                                "剩余名额",
+                                "$remaining",
+                                Modifier.weight(1f),
+                                valueColor = when {
+                                    remaining <= 0 -> Color(0xFFD32F2F)
+                                    remaining <= 5 -> Color(0xFFE65100)
+                                    else -> null
+                                },
+                            )
+                        }
+                    }
+                    Spacer(Modifier.height(14.dp))
+                    CapacityBar(course)
+                }
+            }
+
+            SmallTitle("基本信息")
+            DetailCard {
+                DetailRow("开课单位", course.department)
+                DetailRow("教师", course.teacher.ifBlank { "未知" })
+                course.lectureHours?.takeIf { it > 0 }?.let { DetailRow("授课学时", "${it.toInt()}") }
+                course.labHours?.takeIf { it > 0 }?.let { DetailRow("实验学时", "${it.toInt()}") }
+                course.practiceHours?.takeIf { it > 0 }?.let { DetailRow("实践学时", "${it.toInt()}") }
+                course.weeklyHours?.takeIf { it > 0 }?.let { DetailRow("周学时", "$it") }
+                DetailRow("校区", course.campus.ifBlank { "未知" })
+            }
+
+            if (course.scheduleLocation.isNotBlank()) {
+                SmallTitle("时间地点")
+                DetailCard {
+                    course.scheduleLocation.split(",")
+                        .map { it.trim() }
+                        .filter { it.isNotEmpty() }
+                        .forEach { slot ->
+                            Row(
+                                Modifier.fillMaxWidth().padding(vertical = 5.dp),
+                                verticalAlignment = Alignment.Top
+                            ) {
+                                Box(
+                                    Modifier
+                                        .padding(top = 6.dp)
+                                        .size(6.dp)
+                                        .clip(CircleShape)
+                                        .background(MiuixTheme.colorScheme.primary)
+                                )
+                                Spacer(Modifier.width(10.dp))
+                                Text(slot, style = MiuixTheme.textStyles.body2)
+                            }
+                        }
+                }
+            }
+
+            // 「选课情况」整块依赖人数类字段；这一端不知道就整块不出现，不留空标题。
+            if (course.capacity != null && course.enrollCount != null) {
+                SmallTitle("选课情况")
+                DetailCard {
+                    DetailRow("选课人数", "${course.enrollCount} / ${course.capacity}")
+                    course.maleEnrollCount?.let { DetailRow("男生", "$it 人") }
+                    course.femaleEnrollCount?.let { DetailRow("女生", "$it 人") }
+                }
+            }
+
+            val hasExtra = course.isPublicElective ||
+                course.className.isNotBlank() ||
+                course.teachingClassId.isNotBlank()
+            if (hasExtra) {
+                SmallTitle("其他")
+                DetailCard {
+                    if (course.isPublicElective) {
+                        DetailRow("校公选课", "是")
+                        if (course.electiveCategory.isNotBlank()) {
+                            DetailRow("公选类别", course.electiveCategory)
+                        }
+                    }
+                    if (course.className.isNotBlank()) DetailRow("上课班级", course.className)
+                    if (course.teachingClassId.isNotBlank()) {
+                        DetailRow("教学班 ID", course.teachingClassId)
+                    }
+                }
+            }
+
+            Spacer(Modifier.height(16.dp))
+        }
+    }
+}
+
+/** 头部三联数值，比铺成键值行更容易一眼扫到 */
+@Composable
+private fun HeadlineStat(
+    label: String,
+    value: String,
+    modifier: Modifier = Modifier,
+    valueColor: Color? = null,
+) {
+    Column(modifier) {
+        Text(
+            value,
+            style = MiuixTheme.textStyles.title4,
+            fontWeight = FontWeight.Bold,
+            color = valueColor ?: MiuixTheme.colorScheme.onSurface,
+        )
+        Text(
+            label,
+            style = MiuixTheme.textStyles.footnote2,
+            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+        )
+    }
+}
+
+@Composable
+private fun CapacityBar(course: SchoolCourse) {
+    // 这一端不知道容量就什么都不画（调用方已经在 null 时不进来，这里再兜一层）
+    val ratio = course.fillRatio ?: return
+    val fillColor = when {
+        ratio >= 0.95f -> Color(0xFFD32F2F)
+        ratio >= 0.8f -> Color(0xFFE65100)
+        ratio >= 0.5f -> Color(0xFFF9A825)
+        else -> Color(0xFF2E7D32)
+    }
+    Column {
+        Box(
+            Modifier
+                .fillMaxWidth()
+                .height(6.dp)
+                .clip(RoundedCornerShape(3.dp))
+                .background(MiuixTheme.colorScheme.onBackground.copy(alpha = 0.08f))
+        ) {
+            Box(
+                Modifier
+                    .fillMaxHeight()
+                    .fillMaxWidth(ratio.coerceIn(0f, 1f))
+                    .clip(RoundedCornerShape(3.dp))
+                    .background(fillColor)
+            )
+        }
+        Spacer(Modifier.height(6.dp))
+        Text(
+            "已选 ${(ratio * 100).toInt()}%",
+            style = MiuixTheme.textStyles.footnote2,
+            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+        )
+    }
+}
+
+@Composable
+private fun DetailCard(content: @Composable ColumnScope.() -> Unit) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        cornerRadius = 20.dp,
+        colors = CardDefaults.defaultColors(color = MiuixTheme.colorScheme.surfaceVariant),
+    ) {
+        Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp), content = content)
+    }
+}
+
+@Composable
+private fun DetailRow(
+    label: String,
+    value: String,
+    valueColor: Color? = null
+) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .padding(vertical = 3.dp),
+        horizontalArrangement = Arrangement.SpaceBetween
+    ) {
+        Text(
+            label,
+            style = MiuixTheme.textStyles.body2,
+            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+        )
+        Spacer(Modifier.width(16.dp))
+        Text(
+            value,
+            style = MiuixTheme.textStyles.body2,
+            fontWeight = FontWeight.Medium,
+            color = valueColor ?: MiuixTheme.colorScheme.onSurface,
+            textAlign = TextAlign.End,
+            modifier = Modifier.weight(1f)
+        )
+    }
+}

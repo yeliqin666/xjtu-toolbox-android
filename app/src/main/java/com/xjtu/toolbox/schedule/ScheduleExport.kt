@@ -1,5 +1,8 @@
 package com.xjtu.toolbox.schedule
 
+import com.xjtu.toolbox.util.toJavaTime
+import com.xjtu.toolbox.util.toKx
+
 import android.content.Context
 import android.content.Intent
 import android.util.Log
@@ -57,7 +60,7 @@ object ScheduleExport {
             if (weeks.isEmpty()) continue
 
             for (week in weeks) {
-                val courseDate = TermWeeks.dateOf(startOfTerm, week, course.dayOfWeek)
+                val courseDate = TermWeeks.dateOf(startOfTerm.toKx(), week, course.dayOfWeek).toJavaTime()
 
                 // 节假日过滤：停的只是教务的课，自建日程照常导出
                 if (!course.isUserCreated && holidayDates.contains(courseDate)) {

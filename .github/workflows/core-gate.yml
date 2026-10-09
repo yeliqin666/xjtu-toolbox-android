@@ -1,0 +1,54 @@
+name: Core KMP Gate
+
+# :core 的 KMP 卫生门禁。刻意独立成一个 workflow，不改 build.yml 的触发条件
+# （build.yml 只在 push 到 main / dev 时跑，且带着发版流程：keystore、Release 上传）。
+#
+# 这里守的是交接文档 §9 那两条验收判据，但用了比它更强的形式：
+# 文档原文是 `grep -r "^import android\." **/commonMain/**` 必须为空 ——
+# 那个 grep 恰好漏掉 java.* / okhttp / jsoup，而这三样才是真正的坑
+# （实测：okhttp 出现在 79 个文件里，且 okhttp 5.5.0 只发布 jvm / android 变体）。
+# 让 commonMain 去编一个非 JVM 目标，就一次性把 android.*、androidx.*、java.*
+# 以及所有只有 JVM 变体的第三方库全拦下来。
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: core-gate-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  gate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          java-version: "21"
+          distribution: "temurin"
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Grant execute permission
+        run: chmod +x gradlew
+
+      - name: commonMain 必须能编到非 JVM 目标
+        # 这一条就是门禁本体：Android/AndroidX/JVM-only 依赖一进来就红
+        run: ./gradlew :core:compileKotlinWasmJs
+
+      - name: :core 与 :web 两个模块都必须能编到 wasmJs
+        # :web 是真正吃 :core 的非 Android 端。它编得过，就说明 :core 的公开面在浏览器目标上成立。
+        run: ./gradlew :core:compileKotlinWasmJs :web:compileKotlinWasmJs
+
+      - name: 共享逻辑的单元测试
+        # Cookie 会话往返、真实响应夹具、ZCMC 周次展开与学期日期换算（与 J1900 的
+        # jwxt2caldav.js::parseZcmc 逐条对齐），都不需要网络也不需要真机。
+        # ⚠️ 这里**不跑** :core:wasmJsNodeTest：一旦 :core 依赖 Compose 的 ui-graphics，
+        # Node 版测试包会去 import skiko.mjs 而失败（skiko 只为 browser 目标配好了 npm 解析）。
+        # wasm 的运行时证明交给 :web 在真浏览器里跑真数据。
+        run: ./gradlew :core:jvmTest

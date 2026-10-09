@@ -4,7 +4,7 @@ import com.xjtu.toolbox.ui.components.AppPullToRefresh
 import androidx.compose.foundation.layout.height
 import androidx.compose.ui.graphics.graphicsLayer
 import kotlinx.coroutines.delay
-import androidx.activity.compose.BackHandler
+import com.xjtu.toolbox.platform.BackHandler
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.CardDefaults

@@ -1,5 +1,6 @@
 package com.xjtu.toolbox.agent
 
+import com.xjtu.toolbox.util.toKx
 import kotlin.coroutines.resume
 import com.xjtu.toolbox.network.APP_UA
 import kotlinx.serialization.json.jsonObject
@@ -20,7 +21,10 @@ import com.xjtu.toolbox.auth.AccountType
 import com.xjtu.toolbox.auth.LoginType
 import com.xjtu.toolbox.auth.SiteSession
 import com.xjtu.toolbox.auth.ensureSite
+import com.xjtu.toolbox.card.AppCampusCardSource
 import com.xjtu.toolbox.card.CampusCardApi
+import com.xjtu.toolbox.card.allTransactions
+import com.xjtu.toolbox.util.toKx
 import com.xjtu.toolbox.emptyroom.CAMPUS_BUILDINGS
 import com.xjtu.toolbox.emptyroom.EmptyRoomApi
 import com.xjtu.toolbox.emptyroom.EmptyRoomCache
@@ -835,7 +839,7 @@ class AgentToolRegistry(
             cachedStartDate(it)?.let { sd ->
                 val startStr = sd.toString()
                 val daysSince = java.time.temporal.ChronoUnit.DAYS.between(sd, today).toInt()
-                val w = com.xjtu.toolbox.schedule.TermWeeks.weekOf(sd, today)
+                val w = com.xjtu.toolbox.schedule.TermWeeks.weekOf(sd.toKx(), today.toKx())
                 // 含起始日与已过天数，便于推算"整学期"区间（如校园卡整学期账单天数）
                 if (w in 1..25) "第${w}周（起始 $startStr，开学至今 $daysSince 天）" else null
             }
@@ -872,9 +876,11 @@ class AgentToolRegistry(
 
     private suspend fun getSchoolCalendar(term: String?): String {
         return try {
-            val terms = com.xjtu.toolbox.calendar.SchoolCalendarApi().getTerms()
+            // 模型与解析已搬进 :core（见 calendar/UpstreamSchoolCalendar.kt），这里只取数。
+            val terms = com.xjtu.toolbox.calendar.SchoolCalendarApi().terms()
             if (terms.isEmpty()) return ToolReply.empty("school_calendar")
-            val today = LocalDate.now()
+            // 「今天」用 :core 的 kotlinx-datetime 口径：下面比的是 :core 的 SchoolTerm 日期。
+            val today = com.xjtu.toolbox.util.todayInSystemZone()
             val selected = if (term.isNullOrBlank()) {
                 terms.firstOrNull { today in it.startDate..it.endDate }
                     ?: terms.lastOrNull { it.startDate <= today }
@@ -910,9 +916,9 @@ class AgentToolRegistry(
         }
     }
 
-    private fun searchYellowPage(query: String?, category: String?, limit: Int): String {
+    private suspend fun searchYellowPage(query: String?, category: String?, limit: Int): String {
         return try {
-            val data = com.xjtu.toolbox.yellowpage.YellowPageApi(context).getData()
+            val data = com.xjtu.toolbox.yellowpage.appYellowPageApi(context).getData()
             val categoryId = category?.takeIf { it.isNotBlank() }?.let { name ->
                 data.categories.firstOrNull {
                     it.name == name || it.name.contains(name) || name.contains(it.name)
@@ -1021,8 +1027,13 @@ class AgentToolRegistry(
                     if (course.department.isNotBlank()) append(" · ${course.department}")
                     if (course.campus.isNotBlank()) append(" · ${course.campus}")
                     if (course.scheduleLocation.isNotBlank()) append("\n  ${course.scheduleLocation}")
-                    if (course.capacity > 0) {
-                        append("\n  已选${course.enrollCount}/${course.capacity}，剩余${course.remaining.coerceAtLeast(0)}")
+                    // 人数类字段现在是可空的（:core 的 SchoolCourse；campus-api 不投影它们）——
+                    // 这里本来就只在有值时输出，行为不变。
+                    val capacity = course.capacity
+                    val enrolled = course.enrollCount
+                    val remaining = course.remaining
+                    if (capacity != null && enrolled != null && remaining != null && capacity > 0) {
+                        append("\n  已选${enrolled}/${capacity}，剩余${remaining.coerceAtLeast(0)}")
                     }
                     append("\n")
                 }
@@ -1109,7 +1120,7 @@ class AgentToolRegistry(
 
         if (dateStr != null) {
             val targetDate = runCatching { LocalDate.parse(dateStr) }.getOrElse { LocalDate.now() }
-            val weekNum = com.xjtu.toolbox.schedule.TermWeeks.weekOf(startDate, targetDate)
+            val weekNum = com.xjtu.toolbox.schedule.TermWeeks.weekOf(startDate.toKx(), targetDate.toKx())
             val targetSummer = XjtuTime.isSummerTime(targetDate.monthValue)
             val dayCourses = courses.filter { it.dayOfWeek == targetDate.dayOfWeek.value && it.isInWeek(weekNum) }
                 .sortedBy { it.clockMinutes(targetSummer).first }
@@ -1130,7 +1141,7 @@ class AgentToolRegistry(
             }.withChangeNote(changeNote)
         } else {
             val today = LocalDate.now()
-            val weekNum = com.xjtu.toolbox.schedule.TermWeeks.weekOf(startDate, today)
+            val weekNum = com.xjtu.toolbox.schedule.TermWeeks.weekOf(startDate.toKx(), today.toKx())
             if (weekNum <= 0) return "当前不在学期内。"
             // 每门课按它那天的日期算作息，跨月那周也不会错
             val monday = startDate.plusWeeks((weekNum - 1).toLong())
@@ -1433,9 +1444,14 @@ class AgentToolRegistry(
                 if (days != null) {
                     val d = days.coerceIn(1, 180)   // 放宽：用户可能要看整月/整学期账单
                     runCatching {
-                        CampusCardApi(site).getAllTransactions(
-                            startDate = LocalDate.now().minusDays(d.toLong()),
-                            endDate = LocalDate.now(),
+                        // 分页编排（allTransactions）搬进了 :core，是 CampusCardSource 上的扩展函数；
+                        // 这里走 AppCampusCardSource —— 与校园卡页同一条取数路径（同一个 ncard 接口、
+                        // 同样的 80 页上限与 allowIncomplete=false），结果与搬迁前一致。
+                        AppCampusCardSource(site, context).allTransactions(
+                            // :core 那条分页编排收 kotlinx-datetime 的日期，这里从 java.time 转过去
+                            //（本文件其余地方仍是 java.time，边界转换用 `:app` 的 toKx()，见 util/TimeBridge.kt）
+                            startDate = LocalDate.now().minusDays(d.toLong()).toKx(),
+                            endDate = LocalDate.now().toKx(),
                             maxPages = 80,
                             allowIncomplete = false,
                         )
@@ -2370,7 +2386,9 @@ class AgentToolRegistry(
                 } else {
                     a.endTime?.let { append("结束：$it\n") }
                 }
-                if (!a.description.isNullOrBlank()) append("说明：${org.jsoup.Jsoup.parse(a.description).text().take(1200)}\n")
+                // 跨模块无法 smart cast：先落成本地 val
+                val desc = a.description
+                if (!desc.isNullOrBlank()) append("说明：${org.jsoup.Jsoup.parse(desc).text().take(1200)}\n")
                 if (a.uploads.isNotEmpty()) {
                     append("附件：\n")
                     a.uploads.forEach { u ->
@@ -2428,7 +2446,7 @@ class AgentToolRegistry(
             ?: return loginHint(LoginType.FITNESS)
         return try {
             val api = com.xjtu.toolbox.fitness.FitnessApi(site)
-            val years = api.getYears()
+            val years = api.years()
             val selected = pickFitnessYear(years, year)
             if (selected == null) {
                 val opts = orderedFitnessYears(years)
@@ -2436,7 +2454,7 @@ class AgentToolRegistry(
                     .distinct()
                 return ToolReply.notFound("year", year.orEmpty(), opts.map { it.toString() })
             }
-            val score = api.getScore(selected.yearNum)
+            val score = api.score(selected.yearNum)
             buildString {
                 append("体测成绩（${selected.name}）：${score.studentName} ${score.studentNumber}\n")
                 append("总分：${score.totalScore}，等级：${score.totalGrade}\n")
@@ -2649,7 +2667,7 @@ class AgentToolRegistry(
         val termStart = cachedStartDate(termCode)
             ?: return ToolReply.failed("add_schedule_event", "no_term_start_date")
         val maxWeeks = 20
-        val week = com.xjtu.toolbox.schedule.TermWeeks.weekOf(termStart, day)
+        val week = com.xjtu.toolbox.schedule.TermWeeks.weekOf(termStart.toKx(), day.toKx())
         if (week !in 1..maxWeeks) {
             return ToolReply.outOfRange("date", "current term $termCode, weeks 1-$maxWeeks (from $termStart)")
         }
@@ -2682,7 +2700,7 @@ class AgentToolRegistry(
         val dao = com.xjtu.toolbox.data.AppDatabase.getInstance(context).customCourseDao()
         val conflicts = mutableListOf<String>()
         dao.getConflicts(accountId, termCode, entity.dayOfWeek, 1, com.xjtu.toolbox.schedule.MAX_SECTIONS)
-            .filter { com.xjtu.toolbox.schedule.CustomCourseConflicts.conflicts(entity, it) }
+            .filter { com.xjtu.toolbox.schedule.CustomCourseConflicts.conflicts(entity.toCourseItem(), it.toCourseItem(), sameTerm = entity.termCode == it.termCode) }
             .forEach { other ->
                 val shared = com.xjtu.toolbox.schedule.CustomCourseConflicts.sharedWeeks(entity.weekBits, other.weekBits)
                 conflicts += "${other.courseName}（自建，${com.xjtu.toolbox.schedule.CustomCourseConflicts.describeWeeks(shared)}）"

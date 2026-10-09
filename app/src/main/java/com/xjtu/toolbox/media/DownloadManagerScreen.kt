@@ -5,7 +5,7 @@ import com.xjtu.toolbox.ui.adaptive.readableWidth
 import android.content.Context
 import android.content.Intent
 import android.util.Log
-import androidx.activity.compose.BackHandler
+import com.xjtu.toolbox.platform.BackHandler
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
