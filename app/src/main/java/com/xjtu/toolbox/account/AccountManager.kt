@@ -328,7 +328,7 @@ class AccountManager(
         private val ACCOUNT_PREFS = listOf(
             "campus_card", "score_cursor", "attendance_watch", "course_colors", "schedule_diff",
             "empty_room_cache", "attendance_records_ug", "attendance_records_pg", "agent_config",
-            "schedule_source", "schedule_changes", "inbox", "dorm_power",
+            "agent_memory", "schedule_source", "schedule_changes", "inbox", "dorm_power",
         )
     }
 }

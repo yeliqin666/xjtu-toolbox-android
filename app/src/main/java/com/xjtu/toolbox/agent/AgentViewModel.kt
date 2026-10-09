@@ -243,7 +243,7 @@ class AgentViewModel : ViewModel() {
         lastTotalTokens = convo.lastTotalTokens
         contextExhausted = convo.contextExhausted
         contextExhaustedJustTriggered = false
-        // 落盘的 system prompt 是哪一版不可知，下一轮按当前配置比一次内容，变了才换。
+        // 落盘的 system prompt 原样沿用，缺了才在下一轮生成（见 sendMessage）
         tools = null; errorMessage = null
     }
 
@@ -467,8 +467,7 @@ class AgentViewModel : ViewModel() {
                 turnUserMsg = userMsg
                 llmHistory.add(userMsg)
                 sanitizeHistory()   // 自愈：清掉上一次中断留下的 tool_calls 残体
-                // 只留最近两轮的图：整段历史每轮都要重发一遍，不裁剪的话
-                // 贴过图的长对话会一直在重传同几张图。
+                // 带图轮数攒多了才裁一次，见 AgentVision.pruneOldImages
                 AgentVision.pruneOldImages(llmHistory)
 
                 val calledTools = mutableListOf<String>()

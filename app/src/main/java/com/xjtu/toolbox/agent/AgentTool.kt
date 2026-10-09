@@ -14,6 +14,7 @@ import android.provider.AlarmClock
 import android.content.Context
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import com.xjtu.toolbox.auth.AppLoginState
 import com.xjtu.toolbox.auth.AccountType
 import com.xjtu.toolbox.auth.LoginType
@@ -428,7 +429,7 @@ class AgentToolRegistry(
         arr.add(tool("get_empty_rooms",
             "空闲教室。今天且不给节次（或给的就是当前节）时返回此刻实时状态：空闲、其它使用（没排课但有人，附人数）、上课中；其余按课表逐节。",
             params(
-                "campus"   to strProp("兴庆校区/雁塔校区/曲江校区/创新港校区。缺省：兴庆校区。实时状态只有兴庆、雁塔、创新港。"),
+                "campus"   to enumProp("缺省：兴庆校区。实时状态只有兴庆、雁塔、创新港。", "兴庆校区", "雁塔校区", "曲江校区", "创新港校区"),
                 "building" to strProp("楼名，如 主楼A、1号巨构。缺省：全校区。"),
                 "section"  to intProp("节次 1–11。缺省：此刻（今天）/全天（其他日期）。"),
                 "date"     to strProp("今天/明天/yyyy-MM-dd。缺省：今天。")
@@ -460,32 +461,36 @@ class AgentToolRegistry(
             "在本机长期保存或删除一条用户偏好。只存可复用的信息，不存一次性事项。",
             params(
                 "key" to strProp("偏好名，同名覆盖。"),
-                "value" to strProp("内容，一句。缺省：删除该偏好。")
+                "value" to strProp("内容，一句。缺省：删除该偏好。"),
+                required = listOf("key"),
             )))
         arr.add(tool("find_faculty",
             "本校在职教师主页：学院、职称、研究方向、办公地点、邮箱、主页地址。不含学生、行政人员、校外人士。",
             params(
                 "name" to strProp("姓名，模糊。"),
                 "college" to strProp("学院名，用于重名。"),
-                "limit" to intProp("条数，默认 3，上限 8。")
+                "limit" to intProp("条数，默认 3，上限 8。"),
+                required = listOf("name"),
             )))
         arr.add(tool("web_search",
             "联网搜索，返回标题、URL、摘要。",
             params(
                 "query" to strProp("关键词。学校政策、办事流程加 site:xjtu.edu.cn 优先查官网。"),
-                "engine" to strProp("auto/baidu/so360/wechat/wiki。缺省：用户设置。auto=百度与360合并，wechat=公众号，wiki=百科词条。"),
-                "limit" to intProp("条数，默认 8，上限 22。")
+                "engine" to enumProp("缺省：用户设置。auto=百度与360合并，wechat=公众号，wiki=百科词条。", "auto", "baidu", "so360", "wechat", "wiki"),
+                "limit" to intProp("条数，默认 8，上限 22。"),
+                required = listOf("query"),
             )))
         arr.add(tool("web_fetch",
             "抓取网页正文，转 Markdown，约一万字。",
-            params("url" to strProp("http(s) URL。"))))
+            params("url" to strProp("http(s) URL。"), required = listOf("url"))))
         arr.add(tool("set_alarm",
             "打开系统闹钟设定闹钟。",
             params(
                 "hour" to intProp("0–23。"),
-                "minute" to intProp("0–59。"),
+                "minute" to intProp("0–59。缺省：0。"),
                 "message" to strProp("标签。"),
-                "days" to strProp("重复星期，逗号分隔：MON,TUE,WED,THU,FRI,SAT,SUN。缺省：单次。")
+                "days" to strProp("重复星期，逗号分隔：MON,TUE,WED,THU,FRI,SAT,SUN。缺省：单次。"),
+                required = listOf("hour"),
             )))
         arr.add(tool("add_schedule_event",
             "往本 App 的日程里添加一条，只限当前学期。与课程或已有日程时间重叠时不添加，返回冲突；用户确认后带 force=true 重试。",
@@ -497,13 +502,14 @@ class AgentToolRegistry(
                 "location" to strProp("地点。"),
                 "note" to strProp("备注。"),
                 "weeks" to strProp("每周重复的教学周，如 3-5,8。缺省：只加 date 所在的那一周。"),
-                "force" to boolProp("冲突时仍然添加。")
+                "force" to boolProp("冲突时仍然添加。"),
+                required = listOf("title", "date", "start"),
             )))
         arr.add(tool("get_library",
             "图书馆：本人当前座位预约，以及各区域空座。给 area 时返回该区域空座并附平面图卡片。需图书馆登录。" +
                 "推荐去哪自习时按用户所在校区选 campus，用户点名别的校区就用那个。",
             params(
-                "campus" to strProp("校区：兴庆 / 雁塔 / 创新港。缺省：账号在图书馆系统里当前的校区。"),
+                "campus" to enumProp("校区。缺省：账号在图书馆系统里当前的校区。", "兴庆", "雁塔", "创新港"),
                 "area" to strProp("区域名，模糊，如 北楼二层外文库。缺省：列出该校区全部区域及空座数。"),
             )))
         arr.add(tool("list_zyxf",
@@ -515,7 +521,8 @@ class AgentToolRegistry(
         arr.add(tool("read_zyxf_file",
             "读取仲英学辅资料站文件。文本返回正文；PDF/Office 只返回直链与大小。",
             params(
-                "file_id" to intProp("文件 ID，来自 list_zyxf。")
+                "file_id" to intProp("文件 ID，来自 list_zyxf。"),
+                required = listOf("file_id"),
             )))
         arr.add(tool("get_textbooks",
             "本人课程教材（教务教材报表）。需教务登录。",
@@ -525,19 +532,20 @@ class AgentToolRegistry(
             )))
         arr.add(tool("get_coupons",
             "本人加餐券：可领取、可使用、余额、有效期。需加餐券登录。",
-            params("status" to strProp("all=可领取+可使用；available=可领取；usable=可使用。缺省：all。"))))
+            params("status" to enumProp("all=可领取+可使用；available=可领取；usable=可使用。缺省：all。", "all", "available", "usable"))))
         arr.add(tool("get_lms",
             "思源学堂：不给 course 列出本人课程；给 course 列出该课的作业、课件、回放等活动；scope=assignments 汇总全部课程的作业（逐课查询，较慢）。需思源学堂登录。",
             params(
                 "course" to strProp("课程名，模糊。"),
-                "scope" to strProp("assignments：全部作业汇总。")
+                "scope" to enumProp("assignments：全部作业汇总。", "assignments")
             )))
         arr.add(tool("get_lms_activity",
             "思源学堂某个活动的详情：说明、截止时间、提交状态、附件名与 URL；给 file 时读取该附件文本（txt/md/html/json/csv；PDF/Office 只返回 URL）。需思源学堂登录。",
             params(
                 "course" to strProp("课程名，模糊。"),
                 "activity" to strProp("活动标题，模糊。"),
-                "file" to strProp("附件名关键词，模糊。")
+                "file" to strProp("附件名关键词，模糊。"),
+                required = listOf("course", "activity"),
             )))
         arr.add(tool("get_fitness_score",
             "本人体测成绩：总分、等级、分项。按学年计。需体测登录。",
@@ -545,15 +553,16 @@ class AgentToolRegistry(
         arr.add(tool("app_setting",
             "本应用设置：不给 value 时列出全部设置的当前值与可选值；给 key 和 value 时修改该项。",
             params(
-                "key" to strProp("dark_mode / dynamic_color / home_theme / nav_bar_style / show_quick_actions / default_tab / network_mode / account_type / venue_auto_solve_captcha / update_channel / receive_preview_updates。"),
+                "key" to enumProp("设置项。", "dark_mode", "dynamic_color", "home_theme", "nav_bar_style", "show_quick_actions",
+                    "default_tab", "network_mode", "account_type", "venue_auto_solve_captcha", "update_channel", "receive_preview_updates"),
                 "value" to strProp("新取值。")
             )))
         arr.add(tool("app_guide",
             "本 App 有哪些功能、某件事去哪一页办；兴庆、创新港的食堂和开放时间。",
-            params("topic" to strProp("app：功能与入口；campus：食堂与开放时间。缺省：两者都给。"))))
+            params("topic" to enumProp("app：功能与入口；campus：食堂与开放时间。缺省：两者都给。", "app", "campus"))))
         arr.add(tool("calculate",
             "计算表达式：+ - * / ^ 与括号。",
-            params("expression" to strProp("如 (3.7*4+4.0*3)/(4+3)。"))))
+            params("expression" to strProp("如 (3.7*4+4.0*3)/(4+3)。"), required = listOf("expression"))))
         return JsonArray(arr).toString()
     }
 
@@ -574,13 +583,20 @@ class AgentToolRegistry(
         put("required", JsonArray(emptyList()))
     }
 
-    private fun params(vararg props: Pair<String, JsonObject>): JsonObject = buildJsonObject {
+    /** [required] 列出必填参数：模型少填时不必白跑一轮再收到 missing_param。 */
+    private fun params(vararg props: Pair<String, JsonObject>, required: List<String> = emptyList()): JsonObject = buildJsonObject {
         put("type", "object")
         put("properties", buildJsonObject { props.forEach { (k, v) -> put(k, v) } })
-        put("required", JsonArray(emptyList()))
+        put("required", JsonArray(required.map { JsonPrimitive(it) }))
     }
 
     private fun strProp(description: String): JsonObject = propOf("string", description)
+    /** 取值固定的字符串参数。 */
+    private fun enumProp(description: String, vararg values: String): JsonObject = buildJsonObject {
+        put("type", "string")
+        put("description", description)
+        put("enum", JsonArray(values.map { JsonPrimitive(it) }))
+    }
     private fun intProp(description: String): JsonObject = propOf("integer", description)
     private fun boolProp(description: String): JsonObject = propOf("boolean", description)
     private fun propOf(type: String, description: String): JsonObject = buildJsonObject {

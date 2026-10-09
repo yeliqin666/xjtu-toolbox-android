@@ -113,6 +113,15 @@ class AgentRunner(private val tools: AgentToolRegistry) {
          */
         internal const val TOOL_CALL_FUSE = 20
 
+        /** 按 DeepSeek 错误码表转成能照着办的中文；400/422 等参数类错误保留服务端原文，便于排查。 */
+        internal fun httpErrorText(code: Int, serverMessage: String): String = when (code) {
+            401 -> "API Key 无效，请到屁岱设置里检查。"
+            402 -> "AI 服务商账户余额不足，请先充值。"
+            429 -> "请求太频繁，请稍后再试。"
+            500, 502, 503 -> "AI 服务商暂时繁忙（HTTP $code），请稍后再试。"
+            else -> "LLM 请求失败：$serverMessage"
+        }
+
         /** 只在熔断那一刻告诉模型，平时不提次数，免得它束手束脚。 */
         internal fun remainingToolHint(used: Int): String? =
             if (used >= TOOL_CALL_FUSE) "\n（工具次数已用尽）" else null
@@ -167,23 +176,15 @@ class AgentRunner(private val tools: AgentToolRegistry) {
                 put("stream", true)
                 if (config.provider == AgentConfig.PROVIDER_DEEPSEEK) {
                     put("stream_options", buildJsonObject { put("include_usage", true) })
-                    // DeepSeek 新版思考参数族：档位是 none / low / high / max，
-                    // 而且 `reasoning_effort` **两处都能放**——顶层，或 `thinking` 对象里。
-                    // 官方示例两处都给，这里照做：中转服务商往往只认其中一处，
-                    // 只写一处就会出现"调了档但没生效"。
-                    //
-                    // 关思考走 `none`，不只是 `type=disabled`：新参数族里"不思考"是一个档位，
-                    // 只给 type 的旧写法在部分端点上被忽略。
-                    val effort = when {
-                        !config.thinkingEnabled -> "none"
-                        config.reasoningEffort != AgentConfig.REASONING_AUTO -> config.reasoningEffort
-                        else -> null
-                    }
+                    // 按官方文档：开关是 `thinking.type`，强度是顶层 `reasoning_effort`（none / low / high / max，
+                    // none 即关思考）。`thinking` 里只有 type 一个字段。自动档不发强度，服务端默认 high。
                     put("thinking", buildJsonObject {
                         put("type", if (config.thinkingEnabled) "enabled" else "disabled")
-                        effort?.let { put("reasoning_effort", it) }
                     })
-                    effort?.let { put("reasoning_effort", it) }
+                    when {
+                        !config.thinkingEnabled -> put("reasoning_effort", "none")
+                        config.reasoningEffort != AgentConfig.REASONING_AUTO -> put("reasoning_effort", config.reasoningEffort)
+                    }
                 }
                 if (allowTools) {
                     put("tools", toolDefs)
@@ -196,8 +197,11 @@ class AgentRunner(private val tools: AgentToolRegistry) {
             }
             sr.totalTokens?.let(onUsage)
 
+            // 思考模式下更常见的是思维链先用完了输出上限（默认 64K），不一定是上下文满了
             if (sr.finishReason == "length" && sr.content.isBlank() && sr.toolCalls.isEmpty())
-                return "回复被截断（超出模型上下文限制）。请新开对话或缩短问题。"
+                return "回复被截断：输出长度达到上限（思考过长或上下文已满）。可以把问题拆小、调低思考强度，或新开对话。"
+            if (sr.finishReason == "aborted" && sr.content.isBlank() && sr.toolCalls.isEmpty())
+                return "生成被服务端中断，请重试。"
             if (sr.finishReason == "content_filter" && sr.content.isBlank())
                 return "回复被内容过滤拦截。"
             if (sr.finishReason == "insufficient_system_resource" && sr.content.isBlank())
@@ -242,6 +246,8 @@ class AgentRunner(private val tools: AgentToolRegistry) {
                     continue
                 }
                 messages.add(assistantMsg)
+                // 只提示用户，不写进历史
+                if (sr.finishReason == "aborted") assembled.append("\n\n（生成被服务端中断，回答可能不完整）")
                 return assembled.toString().ifBlank { "（无回复）" }
             }
 
@@ -336,7 +342,7 @@ class AgentRunner(private val tools: AgentToolRegistry) {
                         AppJson.parseToJsonElement(errBody).jsonObject
                             .obj("error")?.get("message")?.stringValue
                     }.getOrNull() ?: "HTTP ${resp.code}"
-                    throw RuntimeException("LLM 请求失败：$errMsg")
+                    throw RuntimeException(httpErrorText(resp.code, errMsg))
                 }
                 val source = resp.body?.source() ?: throw RuntimeException("LLM 响应为空")
                 val contentSb = StringBuilder()
@@ -400,8 +406,12 @@ class AgentRunner(private val tools: AgentToolRegistry) {
         }
     }
 
+    /**
+     * 只有 OpenAI 官方删 `reasoning_content`（它不认这个字段）。自定义端点原样回传：思维链就是它自己返回的，
+     * 而 DeepSeek 系模型带 tools 时要求历史思维链完整回传，删了会 400。
+     */
     private fun messagesForProvider(messages: List<JsonElement>, config: AgentConfig): JsonArray {
-        if (config.provider == AgentConfig.PROVIDER_DEEPSEEK) return JsonArray(messages)
+        if (config.provider != AgentConfig.PROVIDER_OPENAI) return JsonArray(messages)
         return buildJsonArray {
             messages.forEach { el ->
                 val src = el.jsonObject
