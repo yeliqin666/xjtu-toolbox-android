@@ -49,12 +49,8 @@ object AgentVision {
     const val MAX_IMAGES_PER_MESSAGE = 4
 
     /**
-     * 带图的用户轮数超过 [PRUNE_AT] 时，裁到只剩最近 [KEEP_IMAGE_TURNS] 轮。
-     *
-     * 每轮请求都把整段历史重发一遍，不裁的话贴过很多图的长对话每问一句都要重传全部图片，
-     * 校园网上很慢。但裁剪会改写较早的消息，从那条起往后的前缀缓存全部失效
-     * （缓存命中价约为未命中的 1/50，一张图最多 1024 token），所以攒够了再一次性裁，不每轮都裁。
-     * 更早的图在正文里留一句占位说明，模型知道"这里曾经有图"就够了。
+     * 带图轮数超过 [PRUNE_AT] 才裁到最近 [KEEP_IMAGE_TURNS] 轮：不裁每轮都重传全部图片，
+     * 裁一次又会让此后的前缀缓存失效，所以攒够了再裁。
      */
     private const val KEEP_IMAGE_TURNS = 2
     private const val PRUNE_AT = 6

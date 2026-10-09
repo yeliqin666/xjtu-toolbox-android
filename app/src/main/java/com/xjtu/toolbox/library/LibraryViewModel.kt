@@ -80,10 +80,14 @@ internal class LibraryViewModel(context: Context, private val site: SiteSession)
     /** 成功查到过「我的预约」；在此之前 [myBooking] 为 null 只代表还不知道，不能当成没有预约往外发。 */
     var myBookingKnown by mutableStateOf(false); private set
 
+    /** 最近一次查「我的预约」失败。 */
+    var myBookingFailed by mutableStateOf(false); private set
+
     /** 查询失败时保留上一次的结果。 */
     private suspend fun loadMyBooking() {
         withContext(Dispatchers.IO) { runCatching { api.fetchMyBooking().getOrThrow() } }
-            .onSuccess { myBooking = it; myBookingKnown = true }
+            .onSuccess { myBooking = it; myBookingKnown = true; myBookingFailed = false }
+            .onFailure { myBookingFailed = true }
     }
     var isLoadingBooking by mutableStateOf(false); private set
 
