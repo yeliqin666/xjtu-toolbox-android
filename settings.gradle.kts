@@ -71,6 +71,10 @@ include(":core")
 include(":web")
 include(":data")
 
+// 假校园上游（图书馆座位系统 + 统一认证）—— **只给测试与离屏证据用**，不在任何交付物里。
+// 为什么独立成模块、以及为什么页面原文只能有一份：见 testkit/build.gradle.kts 的 KDoc。
+include(":testkit")
+
 // 桌面端（Linux / Windows）的**窗口模式**：Compose Desktop 原生窗口，进程内直取数据。
 // 这是 docs/desktop-port-plan.md 的阶段 0.1 —— 目的只有一个：证明 :core 的屏在这台 Linux 上
 // 真能渲染、MIUIX 的桌面观感/鼠标/输入法可接受、jpackage 能出包。

@@ -6,7 +6,15 @@ import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 
 /**
- * 假的「图书馆座位系统（可选：再扮演统一认证）」上游 —— 两条 JVM 测试**共用同一批页面原文**。
+ * 假的「图书馆座位系统（可选：再扮演统一认证）」上游 —— 三个消费者**共用同一批页面原文**。
+ *
+ * ## 它为什么在 `:testkit`，而不是某个模块的 test 源集里
+ *
+ * 它曾经住在 `:data:jvmTest`。搬到独立模块的**唯一**原因是：桌面端的离屏证据
+ *（`renderScreens` 要画出「用真会话登进去的图书馆」那张图）也必须看到同一批页面，
+ * 而 Gradle 跨模块共享不了 test 源集（`java-test-fixtures` 对 KMP 不生效）。
+ * 于是它成了一条谁都不会依赖进生产构件的编译单元 —— 详情见 `testkit/build.gradle.kts` 的 KDoc。
+ * 两份夹具都只用 JDK（`com.sun.net.httpserver` / `java.security`），所以搬动零成本。
  *
  * ## 为什么是一个共享夹具
  *
@@ -14,9 +22,12 @@ import java.util.concurrent.atomic.AtomicInteger
  *   用 okhttp 拦截器把 `rg.lib.xjtu.edu.cn` 重写到本地端口，验的是「同一份数据层在 JVM 上真跑」。
  * - `LibraryLoginSessionJvmTest`（Stage A）：**真会话**（`SessionManager` + `SiteSession` +
  *   `XJTULogin` 真登录），用本地 HTTP 代理保住 URL 不变，验的是「数据层长了它自己的登录会话」。
+ * - `:desktop` 的 `DesktopAuthLibraryJvmTest` / `renderScreens`（Stage A 第二步）：驱动的是
+ *   **桌面端自己的装配**（`DesktopAuth` + `DesktopLibrarySource`）—— 验的是「用输入的凭据登进去
+ *   之后，桌面端那份取数在这份会话上真读得出座位」。
  *
- * 两条测试的差别**只在传输与会话**，页面/接口形状必须一模一样 —— 否则「同一批断言」这句话就不成立。
- * 所以夹具抽到这里：字符串只有一份，改一处两条测试一起动。
+ * 三者的差别**只在传输、会话与装配**，页面/接口形状必须一模一样 —— 否则「同一批断言」这句话就不成立。
+ * 所以夹具抽到这里：字符串只有一份，改一处三处一起动。
  *
  * ## 两种传输怎么共用它
  *
@@ -140,10 +151,51 @@ class LibraryFakeUpstream(
         {"A01":["10","20","30","40","2"],"cancel":["0","0","0","0","2"],"A02":["50","20","30","40","0"]}
     """.trimIndent()
 
-    /** 一张最小的 JPEG 头（`getPlanImage` 只认文件头，不解码）。 */
-    val jpegBytes = byteArrayOf(
-        0xFF.toByte(), 0xD8.toByte(), 0xFF.toByte(), 0xE0.toByte(), 0x00, 0x10, 0x4A, 0x46
-    )
+    /**
+     * 平面图**底图**（`区域码.jpg`）。
+     *
+     * 以前这里只有 8 个字节的 JPEG 文件头 —— `getPlanImage` 只认文件头、不解码，够用。
+     * Stage A 第二步加了一条「桌面端真登进去」的离屏证据，而平面图那一屏要把字节**解码**出来
+     *（`decodePlanImages` → skiko 的 `Image.makeFromEncoded`）⇒ 假数据立刻露馅：
+     * 屏上只剩一句「平面图解码失败」，看上去像个 bug。所以改成用 ImageIO 真画一张 JPEG。
+     *
+     * 尺寸必须比 [qseatuistJson] 里的矩形容得下（那里最大到 50+30 / 20+40），而且与
+     * [tileJpegBytes] **同比例** —— `decodePlanImages` 会拿比例筛掉尺寸对不上的状态图。
+     */
+    val jpegBytes: ByteArray = planJpeg(background = 0xE8EEF7, gridLine = 0x9AB4D8)
+
+    /** 平面图**状态贴图**（`-book` / `-inside` / `-leave` / `blanket`）。同尺寸、同比例；颜色不同好在图上认得出。 */
+    val tileJpegBytes: ByteArray = planJpeg(background = 0xFFF3D6, gridLine = 0xE0B860)
+
+    /**
+     * 画一张 [w]×[h] 的 JPEG：平淡底色 + 网格 + 边框。
+     *
+     * 刻意不用外部图片资源：夹具的整份页面原文都是**代码里的字符串**（改一处所有消费者一起动），
+     * 图片走同一套。AWT 的 `ImageIO` 在 headless JVM 下也能用（`:data:jvmTest` 与桌面端的测试
+     * 都是 headless）。
+     */
+    private fun planJpeg(background: Int, gridLine: Int): ByteArray {
+        val image = java.awt.image.BufferedImage(200, 300, java.awt.image.BufferedImage.TYPE_INT_RGB)
+        val g = image.createGraphics()
+        g.color = java.awt.Color(background)
+        g.fillRect(0, 0, 200, 300)
+        g.color = java.awt.Color(gridLine)
+        for (x in 0..200 step 20) g.drawLine(x, 0, x, 300)
+        for (y in 0..300 step 20) g.drawLine(0, y, 200, y)
+        g.drawRect(0, 0, 199, 299)
+        g.dispose()
+        return java.io.ByteArrayOutputStream().also {
+            javax.imageio.ImageIO.write(image, "jpg", it)
+        }.toByteArray()
+    }
+
+    /** 这些文件名存在（其余一律「查不到」—— 那条「不是图片就返回 null」的断言靠它）。 */
+    private fun planImageBytes(name: String): ByteArray? = when {
+        name == "north2east.jpg" -> jpegBytes
+        name == "blanket.jpg" -> tileJpegBytes
+        name.endsWith("-book.jpg") || name.endsWith("-inside.jpg") || name.endsWith("-leave.jpg") -> tileJpegBytes
+        else -> null
+    }
 
     /** 「我的预约」：`div.well` 是当前预约、`div.notwell` 是历史。座位行是第一个 `<hr>` 的尾随文本。 */
     fun myPage(seat: String): String = """
@@ -243,9 +295,13 @@ class LibraryFakeUpstream(
                 exchange,
                 if (cancelled.get()) noBookingPage else myPage(if (swapped.get()) "A02" else "A01"),
             )
-            // 只有那一张图存在；其余（含错误页）走 404，好让「不是图片就返回 null」那条断言有意义
-            path.endsWith("/north2east.jpg") -> respond(exchange, 200, "image/jpeg", jpegBytes)
-            path.startsWith("/static/images/ui10/") -> respondHtml(exchange, "<html><body>not found</body></html>")
+            // 存在的那几张图分别回真 JPEG；其余（含错误页）走 HTML/404，
+            // 好让「不是图片就返回 null」那条断言继续有意义
+            path.startsWith("/static/images/ui10/") -> {
+                val bytes = planImageBytes(path.substringAfterLast('/'))
+                if (bytes != null) respond(exchange, 200, "image/jpeg", bytes)
+                else respondHtml(exchange, "<html><body>not found</body></html>")
+            }
             else -> respond(exchange, 404, "text/plain", "nope".toByteArray())
         }
     }

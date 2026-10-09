@@ -59,6 +59,12 @@ kotlin {
             implementation(kotlin("test"))
             implementation(libs.kotlinx.coroutines.test)
         }
+        jvmTest.dependencies {
+            // 假上游（图书馆座位系统 + 可选的统一认证）从这里**搬走了**：它现在是 `:testkit`
+            // 这个独立模块——因为桌面端的离屏渲染证据也要看同一批页面原文，而跨模块共享不了
+            // test 源集（见 testkit/build.gradle.kts 的 KDoc）。搬动本身零成本：两份夹具只依赖 JDK。
+            implementation(project(":testkit"))
+        }
         androidMain.dependencies {
             // Android 侧的密文存储：`SecurePrefs`（EncryptedSharedPreferences）就靠它。
             implementation(libs.security.crypto)
