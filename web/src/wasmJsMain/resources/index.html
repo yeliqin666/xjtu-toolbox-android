@@ -11,5 +11,8 @@
     <!-- Compose Multiplatform (wasmJs) 的挂载点：viewportContainerId 必须与 Main.kt 一致 -->
     <div id="composeApp"></div>
     <script src="toolbox-web.js" type="application/javascript"></script>
+    <!-- canvas 与设备像素 1:1（分数 DPR 下 CMP 的 backing store 与真实视口差 1px ⇒ 永久微糊）。
+         必须放在 toolbox-web.js **之后**：它要等 CMP 把 canvas 挂上去再钉尺寸。 -->
+    <script src="canvas-crisp.js" type="application/javascript"></script>
   </body>
 </html>
