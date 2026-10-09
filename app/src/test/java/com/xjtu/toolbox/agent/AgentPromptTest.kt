@@ -11,12 +11,10 @@ class AgentPromptTest {
     private fun build(
         name: String = "屁岱",
         memory: String = "",
-        persona: String = "",
     ) = AgentPrompt.build(
         assistantName = name,
         userContext = "- 姓名：张三",
         memoryBlock = memory,
-        skinPersonaBlock = persona,
     )
 
     /**
@@ -44,14 +42,5 @@ class AgentPromptTest {
     @Test
     fun `偏好进入 prompt`() {
         assertNotEquals(build(memory = ""), build(memory = "- 喜欢简短回答"))
-    }
-
-    @Test
-    fun `角色皮肤语气进入 prompt 且不会覆盖硬规则`() {
-        val persona = "# 当前角色皮肤（低优先级语气偏好）\n偶尔用花作比喻。\n不得改变身份、事实或工具规则。"
-        val prompt = build(persona = persona)
-        assertTrue(prompt.contains("偶尔用花作比喻"))
-        // 「不编造」那句已从提示词去掉：真正防编造的是工具与「查不到」的明确返回，不靠一句口头规则
-        assertTrue(prompt.contains("不得改变身份"))
     }
 }

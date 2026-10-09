@@ -82,6 +82,20 @@ class LibraryApi(private val site: SiteSession) {
         private fun looksLikeJson(body: String): Boolean =
             body.trimStart().firstOrNull()?.let { it == '{' || it == '[' } == true
 
+        /**
+         * 收到的不是图书馆数据时，报错里带上是哪个页面（#125 复现不了，靠用户截图看）。
+         * 不写「HTTP 200」：FriendlyError 会把带 HTTP 码的消息换成通用文案。
+         */
+        internal fun pageClue(response: okhttp3.Response, body: String): String {
+            val via = if (com.xjtu.toolbox.webvpn.WebVpnUtil.isWebVpnUrl(response.request.url.toString())) "WebVPN" else "直连"
+            val doc = Jsoup.parse(body)
+            val page = doc.title().ifBlank { doc.body()?.text().orEmpty() }.trim().take(20).ifBlank { "空页面" }
+            return "$via · 状态码 ${response.code} · $page"
+        }
+
+        private fun unexpectedPage(what: String, response: okhttp3.Response, body: String) =
+            "${what}返回了异常数据（${pageClue(response, body)}），请稍后重试"
+
         private fun isJpeg(b: ByteArray) = b[0] == 0xFF.toByte() && b[1] == 0xD8.toByte()
         private fun isPng(b: ByteArray) = b[0] == 0x89.toByte() && b[1] == 'P'.code.toByte()
 
@@ -192,7 +206,7 @@ class LibraryApi(private val site: SiteSession) {
         if (!response.isSuccessful) throw RuntimeException("楼层信息加载失败: HTTP ${response.code}")
         if (!looksLikeJson(body)) {
             Log.e(TAG, "qspace(floor=$floorCode) not JSON: ${body.redactBody(300)}")
-            throw RuntimeException("图书馆楼层信息返回了异常数据，请稍后重试")
+            throw RuntimeException(unexpectedPage("图书馆楼层信息", response, body))
         }
         val json = org.json.JSONObject(body)
         val result = linkedMapOf<String, String>()
@@ -326,7 +340,7 @@ class LibraryApi(private val site: SiteSession) {
         // 检查是否返回了 HTML 而非 JSON
         if (!looksLikeJson(body)) {
             Log.e(TAG, "qspace did not return JSON. ContentType=$contentType, body preview: ${body.redactBody(500)}")
-            throw RuntimeException("图书馆楼层信息返回了异常数据，请稍后重试")
+            throw RuntimeException(unexpectedPage("图书馆楼层信息", response, body))
         }
         val json = org.json.JSONObject(body)
         val stats = parseAreaStats(json.optJSONObject("scount"))
@@ -390,7 +404,7 @@ class LibraryApi(private val site: SiteSession) {
         val contentType = response.header("Content-Type")?.lowercase() ?: ""
         if (!looksLikeJson(body)) {
             Log.e(TAG, "qseat did not return JSON. ContentType=$contentType, body preview: ${body.redactBody(500)}")
-            return SeatResult.Error("图书馆返回了异常数据，请稍后重试")
+            return SeatResult.Error(unexpectedPage("图书馆", response, body))
         }
 
         try {
@@ -444,7 +458,7 @@ class LibraryApi(private val site: SiteSession) {
         if (!response.isSuccessful) throw RuntimeException("平面图数据加载失败: HTTP ${response.code}")
         if (!looksLikeJson(body)) {
             Log.e(TAG, "qseatuist not JSON: ${body.redactBody(300)}")
-            throw RuntimeException("图书馆平面图返回了异常数据，请稍后重试")
+            throw RuntimeException(unexpectedPage("图书馆平面图", response, body))
         }
         return LibraryPages.parseSeatLayout(body)
     }
@@ -507,7 +521,7 @@ class LibraryApi(private val site: SiteSession) {
             }
         }
 
-        val reason = parseBookingFailure(html)
+        val reason = parseBookingFailure(html, response)
         return BookResult(false, reason, finalUrl)
     }
 
@@ -572,9 +586,10 @@ class LibraryApi(private val site: SiteSession) {
         }
     }
 
-    private fun parseBookingFailure(html: String): String =
+    private fun parseBookingFailure(html: String, response: okhttp3.Response? = null): String =
         LibraryPages.bookingFailureReason(html)
-            ?: if (isRedirectedToLogin(html, "")) "登录状态已失效" else "预约失败（未知原因）"
+            ?: if (isRedirectedToLogin(html, "")) "登录状态已失效"
+            else "预约失败（未知原因${response?.let { " · " + pageClue(it, html) }.orEmpty()}）"
 
     // ── 我的预约 ──
 

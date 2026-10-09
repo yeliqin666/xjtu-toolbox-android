@@ -99,6 +99,22 @@ object InboxCategories {
     fun school(label: String) = SCHOOL_PREFIX + label
     fun isSchool(key: String) = key.startsWith(SCHOOL_PREFIX)
     fun schoolLabel(key: String) = key.removePrefix(SCHOOL_PREFIX)
+
+    /** 每类一个颜色（ARGB），收纳页图标和桌面小组件的色条共用。 */
+    fun argb(category: String): Int = when (category) {
+        SCHOOL_TODO -> 0xFF3B82F6
+        BOOKING -> 0xFF14B8A6
+        LIBRARY -> 0xFF0D9488
+        LMS -> 0xFF8B5CF6
+        COUPON -> 0xFFF97316
+        JUDGE -> 0xFFEC4899
+        GRADE -> 0xFFEAB308
+        SCHEDULE -> 0xFF6366F1
+        ATTENDANCE -> 0xFFEF4444
+        NOTICE -> 0xFF10B981
+        BULLETIN -> 0xFF0EA5E9
+        else -> 0xFF64748B
+    }.toInt()
 }
 
 /** 纯规则，不碰存储，便于单测。 */
@@ -198,6 +214,21 @@ object InboxRules {
 }
 
 /**
+ * 「待办数据变了，请重画桌面小组件」这一枪的宿主槽位。
+ *
+ * 上游这份直接写在 `:app` 的 `InboxStore.update()` 里 —— 那里手上就有 `Context`，一句话够了。
+ * `InboxStore` 搬进 `:core` 的 commonMain 之后没有 `Context` 可给（`:core` 不认识这个类型），
+ * 所以换成注入：`:app` 在 `XjtuApp.onCreate` 里把 `TodoWidgetUpdater.requestUpdate` 挂上来；
+ * Web / jvm 没有桌面小组件，不挂就是空转（与 `platform/Toast.kt` 那类槽位同一条规矩）。
+ *
+ * 回调不带参数：宿主自己拿得到 `Context`，共享层不必认识它。
+ */
+object InboxWidgetHook {
+    /** null = 本端没有桌面小组件。 */
+    var onTodosChanged: (() -> Unit)? = null
+}
+
+/**
  * 收纳的存储：按账号一份 SharedPreferences，整份 JSON 读写，内存里缓存当前那份。
  * 写入方在后台线程，界面读 [version] 订阅变化。
  */
@@ -239,6 +270,8 @@ object InboxStore {
         prefs(account).putString("data", AppJson.encodeToString(next))
         cached = AccountContext.suffixFor(account) to next
         version++
+        // 当前账号的待办变了就重画桌面小组件（宿主槽位见 [InboxWidgetHook]）
+        if (AccountContext.suffixFor(account) == AccountContext.safeSuffix()) runCatching { InboxWidgetHook.onTodosChanged?.invoke() }
     }
 
     /** 当前账号的快照；在 Composable 里调用会随写入重组。 */

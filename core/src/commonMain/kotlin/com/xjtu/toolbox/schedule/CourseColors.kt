@@ -82,14 +82,29 @@ object CourseColors {
     }
 }
 
+/**
+ * 课程集合或用户改色（[CourseColors.revision]）变化时重算；课格只查表，不用每格读一次存储。
+ *
+ * 从 :app 的 `ScheduleComponents.kt` 搬进 commonMain：它只依赖 [CourseColors.revision] 与
+ * [AccountContext]（两个都在 :core），而 :core 的收纳页（作业按科目取课表课程色）也要用它；
+ * :app 那份同名声明已删。
+ */
 @Composable
-fun CourseColorDialog(courseName: String, current: Color, onDismiss: () -> Unit) {
+fun rememberCourseColors(names: List<String>): Map<String, Color> {
+    val revision = CourseColors.revision
+    val account = AccountContext.activeAccountId
+    return remember(names, revision, account) { courseColorMap(names) }
+}
+
+@Composable
+fun CourseColorDialog(courseName: String, current: Color, agenda: Boolean = false, onDismiss: () -> Unit) {
     var color by remember { mutableStateOf(current) }
     var hex by remember { mutableStateOf(CourseColors.toHex(current)) }
     WindowDialog(
         show = true,
-        title = "课程颜色",
-        summary = "课表和思源学堂里的「$courseName」一起换",
+        title = if (agenda) "日程颜色" else "课程颜色",
+        // 按名称存，同名日程一起换
+        summary = if (agenda) "课表里所有「$courseName」一起换" else "课表和思源学堂里的「$courseName」一起换",
         onDismissRequest = onDismiss,
     ) {
         Column {

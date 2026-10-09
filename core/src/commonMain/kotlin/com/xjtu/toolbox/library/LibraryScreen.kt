@@ -468,10 +468,11 @@ fun LibraryScreen(
                                     color = MiuixTheme.colorScheme.onSurfaceVariantSummary
                                 )
                             } else {
-                                Text("还没有预约", style = MiuixTheme.textStyles.body1,
+                                val unknown = !vm.myBookingKnown && vm.myBookingFailed
+                                Text(if (unknown) "预约状态没查到" else "还没有预约", style = MiuixTheme.textStyles.body1,
                                     fontWeight = FontWeight.Medium)
                                 Text(
-                                    "从下方选择区域和座位",
+                                    if (unknown) "下拉刷新重试" else "从下方选择区域和座位",
                                     style = MiuixTheme.textStyles.footnote1,
                                     color = MiuixTheme.colorScheme.onSurfaceVariantSummary
                                 )

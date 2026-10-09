@@ -15,7 +15,6 @@ import com.xjtu.toolbox.inbox.InboxStore
 import com.xjtu.toolbox.inbox.OwnInbox
 import com.xjtu.toolbox.inbox.SchoolInbox
 import com.xjtu.toolbox.lms.LmsCourseSummary
-import com.xjtu.toolbox.lms.deadlineInstant
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.sync.Mutex
@@ -326,8 +325,9 @@ object HomeStatsRefresher {
      * 2. **活动确实带时间戳**（`LmsActivity.updatedAt` / `createdAt`），所以能排序取最新——
      *    此前不确定有没有时间字段，看模型确认是有的。
      *
-     * 成本控制：逐门课查活动是 N 次请求，这里只取该学期前 [LMS_MAX_COURSES] 门，
-     * 且整个源一天只刷一次。
+     * 成本：该学期每门课一次活动请求（实测 11 门），外加未交作业各一次提交态查询；整个源一天只刷一次。
+     * 不能只取前几门：待办和日程页的作业截止也从这一轮出，课程列表又不按重要性排，
+     * 截断后排在后面的课（#121 里的英语排第 9）作业就永远进不了待办。
      */
     private suspend fun lmsLatest(site: SiteSession, ctx: Context): HomeStat? {
         val api = com.xjtu.toolbox.lms.LmsApi(site)
@@ -338,43 +338,23 @@ object HomeStatsRefresher {
         if (courses.isEmpty()) return null
 
         // 最新学期 = 学期 code 最大的一档。为什么不能用 sort，见 [lmsTermOrder] 的注释。
-        val inTerm = newestTermCourses(courses, LMS_MAX_COURSES)
+        val inTerm = newestTermCourses(courses)
         Log.d(TAG, "lms: 最新学期 ${inTerm.firstOrNull()?.semester?.code}，取 ${inTerm.size} 门：${inTerm.map { it.name }}")
+
+        val perCourse = com.xjtu.toolbox.lms.LmsDueCollector.activities(api, inTerm)
+        // 待办和日程页「接下来」读的截止缓存（LmsDueStore）也从这一轮写，它们自己从不发请求
+        com.xjtu.toolbox.lms.LmsDueCollector.collect(ctx, api, perCourse, roundAccount.orEmpty(), ::roundIsCurrent)
 
         val wanted = setOf(
             com.xjtu.toolbox.lms.LmsActivityType.HOMEWORK,
             com.xjtu.toolbox.lms.LmsActivityType.MATERIAL,
         )
-        // 带上课程 id：日程页「接下来」（plan2 §5）要按 (courseId, activityId) 合并落盘缓存。
-        val all = inTerm.flatMap { c ->
-            runCatching { api.getCourseActivities(c.id) }.getOrNull().orEmpty()
-                .map { Triple(c.id, c.name, it) }
-        }
+        val all = perCourse.flatMap { (c, acts) -> acts.map { Triple(c.id, c.name, it) } }
         Log.d(TAG, "lms: 活动共 ${all.size} 条，类型分布=${all.groupingBy { it.third.type }.eachCount()}")
         // 不再要求 published：活动列表接口返回的本就是学生可见的内容，而该字段在**列表**响应里
         // 常常缺失（详情接口才有），safeBoolean() 于是一律得到 false，把所有活动都滤没了。
         val acts = all.filter { it.third.type in wanted }
         Log.d(TAG, "lms: 命中作业/资料 ${acts.size} 条")
-
-        // 顺手把带截止时间的作业写进日程页读的那份缓存——这里已经在跑同样的请求，
-        // 日程页自己不用再发一次。见 plan2 §5.2：LmsDueStore 只读，从不发请求。
-        val dueItems = acts.filter { it.third.type == com.xjtu.toolbox.lms.LmsActivityType.HOMEWORK }
-            .mapNotNull { (courseId, courseName, a) ->
-                val deadline = a.deadlineInstant() ?: return@mapNotNull null
-                com.xjtu.toolbox.lms.LmsDue(
-                    courseId = courseId,
-                    courseName = courseName,
-                    activityId = a.id,
-                    title = a.title,
-                    deadline = deadline.toString(),
-                    submitted = a.userSubmitCount > 0,
-                    fetchedAt = System.currentTimeMillis(),
-                )
-            }
-        if (dueItems.isNotEmpty()) {
-            com.xjtu.toolbox.lms.LmsDueStore.save(ctx, dueItems, roundAccount.orEmpty())
-        }
-
         if (acts.isEmpty()) return null
 
         // 排序时间要逐级兜底：**部分作业既没有 updated_at 也没有 created_at**
@@ -395,8 +375,6 @@ object HomeStatsRefresher {
         }
         return HomeStat(label(latest[0]), latest.getOrNull(1)?.let(::label))
     }
-
-    private const val LMS_MAX_COURSES = 6
 
     /** 手机当前连着能上网的网络。不要求系统验证通过：校园网没过认证页时也算有网，失败照常计。 */
     fun isOnline(context: Context): Boolean {
@@ -657,15 +635,15 @@ object HomeStatsRefresher {
 }
 
 /**
- * 选出"最新学期"的课程，最多 [max] 门。
+ * 选出"最新学期"的全部课程。
  *
  * 认不出学期的课（`academic_year` / `semester` 为 null）不参与，也不会被当成最新；
- * 一门都认不出时退化成不筛——宁可多查几门，也别让首页空着。
+ * 一门都认不出时退化成不筛——宁可多查几门，也别让首页和待办空着。
  */
-internal fun newestTermCourses(courses: List<LmsCourseSummary>, max: Int): List<LmsCourseSummary> {
+internal fun newestTermCourses(courses: List<LmsCourseSummary>): List<LmsCourseSummary> {
     fun order(c: LmsCourseSummary) = lmsTermOrder(c.semester.code, c.academicYear.code)
-    val newest = courses.mapNotNull(::order).maxOrNull() ?: return courses.take(max)
-    return courses.filter { order(it) == newest }.take(max)
+    val newest = courses.mapNotNull(::order).maxOrNull() ?: return courses
+    return courses.filter { order(it) == newest }
 }
 
 /**

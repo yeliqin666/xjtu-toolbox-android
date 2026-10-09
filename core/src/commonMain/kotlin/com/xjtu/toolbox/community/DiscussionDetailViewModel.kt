@@ -44,7 +44,7 @@ class DiscussionDetailViewModel(
         loadedAt = Clock.System.now().toEpochMilliseconds()
         loader.fetch(true)
         viewModelScope.launch {
-            repo.detail(CommunityRepo.OWNER, CommunityRepo.NAME, discussion.number).onSuccess { discussion = it }
+            repo.detail(CommunityRepo.OWNER, CommunityRepo.NAME, discussion.number).onSuccess { discussion = it.keepPinned() }
         }
     }
 
@@ -130,8 +130,11 @@ class DiscussionDetailViewModel(
             replyRefresh[target.comment.id] = (replyRefresh[target.comment.id] ?: 0) + 1
         }
         is EditorTarget.EditComment -> repo.editComment(target.comment.id, body).map { patchComment(it) }
-        EditorTarget.EditDiscussion -> repo.edit(discussion.id, title.orEmpty(), body).map { discussion = it }
+        EditorTarget.EditDiscussion -> repo.edit(discussion.id, title.orEmpty(), body).map { discussion = it.keepPinned() }
     }
+
+    /** 单帖接口不带置顶（GitHub 的 Discussion 没有这个字段，只有仓库级 pinnedDiscussions），沿用列表里的。 */
+    private fun GithubDiscussion.keepPinned() = copy(pinned = discussion.pinned)
 }
 
 /** 失败提示：带上 GitHub 返回的原因（权限 / 限流 / 网络），并写日志。 */

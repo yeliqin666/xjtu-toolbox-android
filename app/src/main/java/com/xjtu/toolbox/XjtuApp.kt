@@ -67,6 +67,11 @@ class XjtuApp : Application() {
         // （Android actual 仍是同一份 SharedPreferences 文件）。
         // InboxStore 也不再需要 init：它已搬进 :core 的 commonMain，存储走 keyValueStore
         // （Android actual 仍是同一份 SharedPreferences 文件、同一个 "data" 键）。
+        // 桌面小组件那条缝：InboxStore 在 :core，写一次收纳就该重画一次小组件，
+        // 而重画要 Context 与 AppWidgetManager（都在 :app）⇒ 用回调挂上去（见 InboxWidgetHook）。
+        com.xjtu.toolbox.inbox.InboxWidgetHook.onTodosChanged = {
+            runCatching { com.xjtu.toolbox.widget.TodoWidgetUpdater.requestUpdate(this) }
+        }
         com.xjtu.toolbox.auth.CampusProbe.init(this)
         applicationScope.launch { CrashReporter.uploadPending(this@XjtuApp) }
         applicationScope.launch { removeRetiredFeatureData() }

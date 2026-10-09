@@ -61,6 +61,7 @@ import com.xjtu.toolbox.ui.glass.LocalGlassStyle
 import com.xjtu.toolbox.widget.CampusCardWidgetUpdater
 import com.xjtu.toolbox.widget.NoticeWidgetUpdater
 import com.xjtu.toolbox.widget.ScheduleWidgetUpdater
+import com.xjtu.toolbox.widget.TodoWidgetUpdater
 import com.xjtu.toolbox.nav.AwaitSite
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -338,6 +339,7 @@ private fun rememberSessionRestore(loginState: AppLoginState, onReady: () -> Uni
             ScheduleWidgetUpdater.requestUpdate(context, resetToToday = false)
             CampusCardWidgetUpdater.requestUpdate(context)
             NoticeWidgetUpdater.requestUpdate(context)
+            TodoWidgetUpdater.requestUpdate(context)
         }
         onReady()
         restore.run()

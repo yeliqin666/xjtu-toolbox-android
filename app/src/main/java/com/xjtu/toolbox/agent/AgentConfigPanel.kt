@@ -149,15 +149,6 @@ internal fun ConfigPanel(
                         keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
                         keyboardActions = KeyboardActions(onDone = { saveNow() })
                     )
-                    // 当前皮肤设了自己的名字时，这里填的名字不生效——说明白，
-                    // 免得用户改名字没反应还以为是 bug。
-                    PidaiAppearanceHost.activeSkin?.persona?.displayName?.takeIf { it.isNotBlank() }?.let { skinName ->
-                        Text(
-                            "当前皮肤把助手改叫「${sanitizeAgentTitle(skinName)}」，取消皮肤后这里的名字才生效。",
-                            style = MiuixTheme.textStyles.footnote1,
-                            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                        )
-                    }
                     TextField(
                         value = apiKey,
                         onValueChange = {

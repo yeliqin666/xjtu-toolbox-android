@@ -16,7 +16,6 @@ data class ChatterLine(
     val months: IntRange? = null,
     val weekdays: Set<DayOfWeek>? = null,
     val weight: Double = 1.0,
-    val action: String? = null,
 )
 
 /**
@@ -380,27 +379,12 @@ object ChatterPool {
         recentIds: List<String>,
         nextCourseName: String?,
         minutesToClass: Long?,
-        skinLines: List<ChatterLine> = emptyList(),
-        skinMix: Double = 0.0,
         facts: ChatterFacts? = null,
     ): ChatterLine? {
         val recent = recentIds.toSet()
-        val builtInPool = eligible(now) + situational(now, nextCourseName, minutesToClass, facts)
-        val eligibleSkin = skinLines.filter { line ->
-            (line.hours == null || now.hour in line.hours) &&
-                (line.months == null || (now.month.ordinal + 1) in line.months) &&
-                (line.weekdays == null || now.dayOfWeek in line.weekdays)
-        }
-        val builtIn = builtInPool.filter { it.id !in recent }.ifEmpty { builtInPool }
-        val skin = eligibleSkin.filter { it.id !in recent }.ifEmpty { eligibleSkin }
-        if (builtIn.isEmpty() && skin.isEmpty()) return null
-
-        val chooseSkin = when {
-            builtIn.isEmpty() -> true
-            skin.isEmpty() -> false
-            else -> Random.nextDouble() < skinMix.coerceIn(0.0, 1.0)
-        }
-        if (chooseSkin) return weightedPick(skin)
+        val pool = eligible(now) + situational(now, nextCourseName, minutesToClass, facts)
+        val builtIn = pool.filter { it.id !in recent }.ifEmpty { pool }
+        if (builtIn.isEmpty()) return null
 
         val (promo, life) = builtIn.partition { it.id.startsWith(PROMO_PREFIX) }
         // 想抽的那组空了就退回另一组，别因为限额把话说没了。

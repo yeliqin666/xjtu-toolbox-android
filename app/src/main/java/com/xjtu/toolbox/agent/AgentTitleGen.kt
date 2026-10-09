@@ -26,8 +26,7 @@ import java.util.concurrent.TimeUnit
  * 1. 显式禁掉思考。DeepSeek 侧 thinking **默认是开的**，必须显式传
  *    `thinking:{"type":"disabled"}` 才关得掉。原来这个参数只在 provider == deepseek 时才发，
  *    可走中转的用户 provider 填的是 custom，等于从没关过——线上看到的思考链标题多半出在这儿。
- *    现在默认就发，遇到 400（后端不认这个字段，典型是 OpenAI 官方）再去掉参数重试一次。
- *    标题这一路是"能成最好、不成退回截断"，多一次轻量重试完全划得来。
+ *    现在默认就发，只在 400（后端不认这个字段，典型是 OpenAI 官方）时去掉参数重试一次。
  * 2. **不读 `reasoning_content`。** 曾经为了"兼容某些后端把答案塞进 reasoning"加过这个回退，
  *    结果适得其反：推理模型的 content 未产出时，回退会把思考链原文当标题存下来，
  *    再被 max_tokens 从中间截断，于是侧栏里出现「用户想让我根据这段对话生…」这种东西。
@@ -47,17 +46,27 @@ object AgentTitleGen {
     suspend fun generate(config: AgentConfig, userMsg: String, assistantMsg: String): String? =
         withContext(Dispatchers.IO) {
             if (config.apiKey.isBlank()) return@withContext null
-            // 先带着"关思考"的参数试；后端不认就退化成裸请求再来一次。
-            request(config, userMsg, assistantMsg, disableThinking = true)
-                ?: request(config, userMsg, assistantMsg, disableThinking = false)
+            // 先带着"关思考"的参数试；只有 400（后端不认这俩字段）才去掉参数重来。
+            // 其余失败重试也没用：开着思考、64 token 的额度会被思维链吃光，拿不到标题。
+            when (val first = request(config, userMsg, assistantMsg, disableThinking = true)) {
+                is Attempt.Done -> first.title
+                Attempt.Rejected -> (request(config, userMsg, assistantMsg, disableThinking = false) as? Attempt.Done)?.title
+            }
         }
+
+    private sealed interface Attempt {
+        /** 请求成功；[title] 为 null 表示没拿到能用的标题。 */
+        class Done(val title: String?) : Attempt
+        /** HTTP 400：后端不认关思考的参数。 */
+        data object Rejected : Attempt
+    }
 
     private fun request(
         config: AgentConfig,
         userMsg: String,
         assistantMsg: String,
         disableThinking: Boolean,
-    ): String? {
+    ): Attempt {
         return run {
             val messages = buildJsonArray {
                 add(buildJsonObject {
@@ -105,26 +114,30 @@ object AgentTitleGen {
                         .build()
                 ).execute().use { resp ->
                     // 400 基本就是"这个后端不认那两个字段"，交给外层去掉参数重试。
-                    if (!resp.isSuccessful) return@use null
-                    val body = resp.body?.string() ?: return@use null
-                    val msg = AppJson.parseToJsonElement(body).jsonObject
-                        .arr("choices")?.get(0)?.jsonObject
-                        ?.obj("message") ?: return@use null
-                    // 只认 content。reasoning_content 是思考链，不是答案，见类注释第 2 条。
-                    val raw = msg.get("content")?.takeIf { !it.isNull }?.stringValue
-                        ?.takeIf { it.isNotBlank() }
-                        ?: return@use null
-                    // 推理模型偶尔把最终答案跟在思考后面并用换行分隔，取最后一行非空文本。
-                    val lastLine = raw.trim().lines().lastOrNull { it.isNotBlank() }?.trim()
-                        ?: return@use null
-                    lastLine
-                        .trim('"', '\u201c', '\u201d', '\u300c', '\u300d', '\u300a', '\u300b', '。', '.', ' ')
-                        .takeIf { it.isNotBlank() && !looksLikeMeta(it) }
-                        ?.let { sanitizeAgentTitle(it, "") }
-                        ?.takeIf { it.isNotBlank() }
+                    if (resp.code == 400 && disableThinking) return@use Attempt.Rejected
+                    Attempt.Done(if (resp.isSuccessful) parseTitle(resp.body?.string()) else null)
                 }
-            }.getOrNull()
+            }.getOrElse { Attempt.Done(null) }
             }
+    }
+
+    private fun parseTitle(body: String?): String? {
+        body ?: return null
+        val msg = AppJson.parseToJsonElement(body).jsonObject
+            .arr("choices")?.get(0)?.jsonObject
+            ?.obj("message") ?: return null
+        // 只认 content。reasoning_content 是思考链，不是答案，见类注释第 2 条。
+        val raw = msg.get("content")?.takeIf { !it.isNull }?.stringValue
+            ?.takeIf { it.isNotBlank() }
+            ?: return null
+        // 推理模型偶尔把最终答案跟在思考后面并用换行分隔，取最后一行非空文本。
+        val lastLine = raw.trim().lines().lastOrNull { it.isNotBlank() }?.trim()
+            ?: return null
+        return lastLine
+            .trim('"', '\u201c', '\u201d', '\u300c', '\u300d', '\u300a', '\u300b', '。', '.', ' ')
+            .takeIf { it.isNotBlank() && !looksLikeMeta(it) }
+            ?.let { sanitizeAgentTitle(it, "") }
+            ?.takeIf { it.isNotBlank() }
     }
 
     /**

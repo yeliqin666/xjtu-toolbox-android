@@ -140,7 +140,7 @@ class DiscussionsViewModel(
             val result = repository.create(repositoryId, category.id, current.title, current.body)
             if (!isActive) return@launch
             result.fold(onSuccess = { created -> mutable.update { it.copy(submitting = false,
-                items = (listOf(created) + it.items).distinctBy(GithubDiscussion::id), created = created,
+                items = it.items.partition(GithubDiscussion::pinned).let { (pinned, rest) -> pinned + created + rest }, created = created,
                 title = "", body = "", categoryId = null, composing = false) }; saveDraft() },
                 onFailure = { error -> mutable.update { it.copy(submitting = false, submitError = true,
                     submitMessage = (error as? GithubDiscussionException)?.message) } })

@@ -52,6 +52,30 @@ class InboxTest {
     }
 
     @Test
+    fun `思源作业：未截止未提交的进待办，过期和已交的不进`() {
+        // #121 样本账号的当前学期作业，英语排在课程列表第 9
+        val at = java.time.Instant.parse("2026-10-08T04:00:00Z")
+        fun hw(id: Int, deadline: String) = com.xjtu.toolbox.lms.LmsActivity(
+            id = id, type = com.xjtu.toolbox.lms.LmsActivityType.HOMEWORK, title = "作业$id", deadline = deadline,
+        )
+        fun course(id: Int, name: String) = com.xjtu.toolbox.lms.LmsCourseSummary(id = id, name = name)
+        val perCourse = listOf(
+            course(4, "数学物理方法") to listOf(hw(1, "2026-09-24T15:59:00Z"), hw(2, "2026-10-05T15:59:00Z"), hw(4, "2026-10-18T15:59:00Z")),
+            course(5, "概率论与数理统计") to listOf(hw(3, "2026-10-11T15:59:00Z")),
+            course(9, "国际学术交流英语") to listOf(hw(5, "2026-10-25T15:59:00Z"), hw(6, "2026-12-20T15:59:00Z")),
+            course(10, "已交的课") to listOf(hw(7, "2026-10-30T15:59:00Z")),
+        )
+        val items = com.xjtu.toolbox.lms.LmsDueCollector.dueItems(perCourse, fetchedAt = at.toEpochMilli())
+            .map { if (it.activityId == 7) it.copy(submitted = true) else it }
+        val stored = com.xjtu.toolbox.lms.LmsDueStore.mergeDue(emptyList(), items, at)
+        val data = InboxData(todos = mapOf(InboxCategories.LMS to OwnInbox.lmsTodos(stored)))
+        assertEquals(
+            listOf("lms:5:3", "lms:4:4", "lms:9:5", "lms:9:6"),
+            InboxRules.todos(data, at.toEpochMilli()).map { it.id },
+        )
+    }
+
+    @Test
     fun `合并按 id 去重，清掉保留期外的消息和对应已读`() {
         val data = InboxData(
             messages = listOf(msg("old", "x", now - InboxRules.KEEP_MS - 1), msg("a", "x", now - hour)),

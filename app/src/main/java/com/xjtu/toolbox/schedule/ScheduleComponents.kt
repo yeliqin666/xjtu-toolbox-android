@@ -62,16 +62,8 @@ private val CELL_GAP: Dp = 3.dp
 // 见 WeekGridLayout。
 //
 // ⚠️ 小时语义的三个常量（DAY_START_HOUR / DAY_END_HOUR / MAX_SECTIONS）与课程色那一簇
-// （COURSE_COLORS / defaultCourseColor / courseColorMap / colorOf）都搬进 :core 了
+// （COURSE_COLORS / defaultCourseColor / courseColorMap / colorOf / rememberCourseColors）都搬进 :core 了
 // （schedule/CourseItems.kt、schedule/CourseColorMap.kt）—— 别在本文件里再声明一份。
-
-/** 课程集合或用户改色（[CourseColors.revision]）变化时重算；课格只查表，不用每格读一次存储。 */
-@Composable
-fun rememberCourseColors(names: List<String>): Map<String, Color> {
-    val revision = CourseColors.revision
-    val account = com.xjtu.toolbox.account.AccountContext.activeAccountId
-    return remember(names, revision, account) { courseColorMap(names) }
-}
 
 // ── 周选择器（左右箭头式）────────────────
 

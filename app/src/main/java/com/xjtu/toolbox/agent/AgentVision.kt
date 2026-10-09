@@ -49,13 +49,11 @@ object AgentVision {
     const val MAX_IMAGES_PER_MESSAGE = 4
 
     /**
-     * 历史里保留图片的**用户轮数**。
-     *
-     * 图片是按 token 计费的，而且每轮请求都会把整段历史重发一遍。不裁剪的话，
-     * 一段聊了十轮、贴过五张图的对话，每问一句都要重传五张图。
-     * 更早的图在正文里留一句占位说明，模型知道"这里曾经有图"就够了。
+     * 带图轮数超过 [PRUNE_AT] 才裁到最近 [KEEP_IMAGE_TURNS] 轮：不裁每轮都重传全部图片，
+     * 裁一次又会让此后的前缀缓存失效，所以攒够了再裁。
      */
     private const val KEEP_IMAGE_TURNS = 2
+    private const val PRUNE_AT = 6
 
     private const val DIR_NAME = "agent_images"
 
@@ -167,7 +165,7 @@ object AgentVision {
     }
 
     /**
-     * 把过老的图片从历史里摘掉，只留最近 [KEEP_IMAGE_TURNS] 轮。
+     * 带图轮数超过 [PRUNE_AT] 时把过老的图片从历史里摘掉，只留最近 [KEEP_IMAGE_TURNS] 轮。
      *
      * 就地改写传入的数组。被摘掉的那条 user 消息退回纯文本，并在末尾补一句说明，
      * 免得模型对着"用户明明发过图"的空气找图。
@@ -178,7 +176,7 @@ object AgentVision {
                 val m = messages[i] as? JsonObject ?: return@filter false
                 m.get("role")?.stringValue == "user" && m.get("content")?.isArray == true
             }
-        if (imageTurns.size <= KEEP_IMAGE_TURNS) return
+        if (imageTurns.size <= PRUNE_AT) return
 
         imageTurns.dropLast(KEEP_IMAGE_TURNS).forEach { i ->
             val m = messages[i].jsonObject

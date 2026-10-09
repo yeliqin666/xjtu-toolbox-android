@@ -10,7 +10,7 @@ import java.time.Instant
  *
  * @param deadline ISO-8601，取自 [LmsActivity.deadlineInstant]（优先 `deadline`，
  * 缺失退回 `endTime`），与截止提醒通知同一口径。
- * @param submitted `userSubmitCount > 0`。
+ * @param submitted 详情里的 `user_submit_count > 0`（列表不给，见 [LmsDueCollector.collect]）。
  */
 @kotlinx.serialization.Serializable
 data class LmsDue(
@@ -27,8 +27,8 @@ data class LmsDue(
  * 作业截止时间的落盘缓存。
  *
  * 日程页**不为作业发任何请求**——仓库主担心过"一个功能牵涉多套登录，加载不及时就断了"。
- * 这里只读别处已经拉到的数据，两个写入方覆盖的课程范围不一样（见 [HomeStatsRefresher.lmsLatest]、
- * `LmsDeadlineWorker.collectDue`），所以按 (courseId, activityId) 合并，不能直接覆盖。
+ * 这里只读别处已经拉到的数据。两个写入方（首页刷新扫最新学期、截止提醒扫全部课，都经 [LmsDueCollector]）
+ * 覆盖的课程范围不一样，所以按 (courseId, activityId) 合并，不能直接覆盖。
  */
 object LmsDueStore {
     private const val KEY = "lms_due_items"

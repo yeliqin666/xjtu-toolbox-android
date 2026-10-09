@@ -23,7 +23,7 @@ interface FacultySource {
     /**
      * 老师个人主页正文（只做补充，检索 JSON 里没有的段落）。
      *
-     * **允许「不解析」**：返回 `HomepageResult.NotStandard(url)` 时详情页显示
+     * **允许「不解析」**：返回 [HomepageResult.External] 时详情页显示
      * 「在浏览器中打开」——这正是 :app 端遇到非标准主页时的同一条退路。
      */
     suspend fun homepage(member: FacultyMember): HomepageResult

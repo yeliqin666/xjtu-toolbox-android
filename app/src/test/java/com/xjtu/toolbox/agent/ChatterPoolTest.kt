@@ -36,19 +36,4 @@ class ChatterPoolTest {
         val line = ChatterPool.pick(now, emptyList(), null, null)
         assertTrue(line != null && line.text.length <= ChatterPool.MAX_CHARS)
     }
-
-    @Test
-    fun selectedSkinPoolCanMixInWithContextAndAction() {
-        val now = LocalDateTime(2026, 9, 14, 9, 0)
-        val skinLine = ChatterLine(
-            id = "narcissus:sun",
-            text = "晒会儿太阳吧",
-            hours = 8..10,
-            weekdays = setOf(DayOfWeek.MONDAY),
-            action = "bloom",
-        )
-        val picked = ChatterPool.pick(now, emptyList(), null, null, listOf(skinLine), skinMix = 1.0)
-        assertEquals("narcissus:sun", picked?.id)
-        assertEquals("bloom", picked?.action)
-    }
 }

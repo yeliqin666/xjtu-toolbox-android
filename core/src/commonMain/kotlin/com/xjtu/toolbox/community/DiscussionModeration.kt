@@ -41,11 +41,20 @@ fun closeReasonLabel(reason: String) = CLOSE_REASONS.firstOrNull { it.first == r
 fun minimizeReasonLabel(reason: String) =
     MINIMIZE_REASONS.firstOrNull { it.first == reason.uppercase().replace('-', '_') }?.second ?: "已折叠"
 
-/** 引用某条回复：取前几行，每行加「> 」，末尾空一行开始写。 */
-fun quoteMarkdown(comment: GithubDiscussionComment): String {
-    val lines = comment.body.trim().lines().take(8)
-    val quoted = lines.joinToString("\n") { "> $it" }
-    return "> @${comment.author ?: "ghost"}：\n$quoted\n\n"
+/**
+ * 引用某条回复，写成标准 Markdown 引用块，GitHub 网页和别的客户端上一样显示：
+ * 取它自己的前 [maxLines] 行（跳过它引别人的部分和代码块，免得越套越深、围栏被截断），
+ * 引用后空一行，@ 原作者写在引用外，保证对方收到通知。
+ */
+fun quoteMarkdown(comment: GithubDiscussionComment, maxLines: Int = 4): String {
+    var fenced = false
+    val own = comment.body.lines().map(String::trim).filter { line ->
+        if (line.startsWith("```") || line.startsWith("~~~")) { fenced = !fenced; false }
+        else !fenced && line.isNotEmpty() && !line.startsWith(">")
+    }
+    val quoted = (own.take(maxLines) + listOfNotNull("…".takeIf { own.size > maxLines })).joinToString("\n") { "> $it" }
+    val mention = comment.author?.let { "@$it " }.orEmpty()
+    return if (quoted.isEmpty()) mention else "$quoted\n\n$mention"
 }
 
 /** 菜单项；[danger] 用红字。 */

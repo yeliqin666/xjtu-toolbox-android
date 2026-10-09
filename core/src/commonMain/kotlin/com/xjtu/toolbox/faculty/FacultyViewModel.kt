@@ -35,6 +35,16 @@ internal class FacultyViewModel(val source: FacultySource) : ViewModel() {
     /** 正在查看的教师。 */
     var detail by mutableStateOf<FacultyMember?>(null)
 
+    /** 读过的主页按老师缓存：一次要抓主页加好几个栏目页，来回点同一位老师不必重抓。出错的不缓存，下次重试。 */
+    private val homepages = HashMap<Long, HomepageResult>()
+
+    fun cachedHomepage(member: FacultyMember): HomepageResult? = homepages[member.teacherId]
+
+    suspend fun homepage(member: FacultyMember): HomepageResult =
+        homepages[member.teacherId] ?: source.homepage(member).also {
+            if (it !is HomepageResult.Error) homepages[member.teacherId] = it
+        }
+
     private var searchJob: Job? = null
 
     init {

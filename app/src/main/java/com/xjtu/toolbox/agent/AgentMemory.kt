@@ -1,11 +1,13 @@
 package com.xjtu.toolbox.agent
 
 import android.content.Context
+import android.content.SharedPreferences
+import com.xjtu.toolbox.account.AccountContext
 
 /**
  * 屁岱记住的用户偏好。
  *
- * 纯本地 key-value，不上传任何地方，不参与账号同步。
+ * 纯本地 key-value，按账号分开，不参与账号同步。
  *
  * ## 边界
  *
@@ -24,7 +26,23 @@ object AgentMemory {
     private const val KEY_ORDER = "__order"
     const val MAX_ITEMS = 20
 
-    private fun prefs(ctx: Context) = ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+    /**
+     * 按账号分开存，和屁岱的配置、会话一致：偏好会写进系统提示，发给该账号配置的服务商。
+     * 旧版不分账号，由头一个登录着的账号接手（多数人只有一个账号），接完清掉。
+     */
+    private fun prefs(ctx: Context): SharedPreferences {
+        val p = ctx.getSharedPreferences(PREFS + AccountContext.safeSuffix(), Context.MODE_PRIVATE)
+        if (AccountContext.activeAccountId != null) {
+            val legacy = ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            if (legacy.all.isNotEmpty()) {
+                if (p.all.isEmpty()) p.edit().apply {
+                    legacy.all.forEach { (k, v) -> if (v is String) putString(k, v) }
+                }.commit()
+                legacy.edit().clear().apply()
+            }
+        }
+        return p
+    }
 
     private fun order(ctx: Context): List<String> =
         prefs(ctx).getString(KEY_ORDER, "").orEmpty()

@@ -33,7 +33,7 @@ import kotlinx.serialization.json.jsonObject
  * 1. **筛选 id 表拿不到**：[filters] 返回空的 [FacultyFilters]。那四张表在
  *    `search.jsp` 的 HTML 里，campus-api 刻意不解析（它的 KDoc 写明「要筛就得自己看页面拿 id」）
  *    ⇒ Web 上学院/学科两个下拉是空的，**职称那一档照常可用**（它由已加载结果推导）。
- * 2. **个人主页不解析**：[homepage] 返回 [HomepageResult.NotStandard]，
+ * 2. **个人主页不解析**：[homepage] 返回 [HomepageResult.External]，
  *    详情页据此显示「在浏览器中打开」—— 正是 :app 端遇到非标准主页时的同一条退路。
  * 3. **联系方式不取**：campus-api 默认不返回任何联系方式（只有 `?contacts=1` 才附，
  *    见它的隐私口径），本类**不传**那个参数 ⇒ 详情卡里少几行。这是刻意的：
@@ -77,7 +77,7 @@ class CampusFacultyApi(
 
     /** 见类 KDoc 第 2 条：不做主页正文解析，一律降级成「在浏览器中打开」。 */
     override suspend fun homepage(member: FacultyMember): HomepageResult =
-        HomepageResult.NotStandard(member.homepageUrl)
+        HomepageResult.External(member.homepageUrl)
 
     private fun parseMember(item: JsonObject): FacultyMember {
         val contacts = item["contacts"] as? JsonObject

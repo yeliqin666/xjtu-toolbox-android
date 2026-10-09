@@ -42,6 +42,7 @@ class WidgetRefreshReceiver : BroadcastReceiver() {
                 ScheduleWidgetUpdater.requestUpdate(context, resetToToday = false)
                 CampusCardWidgetUpdater.requestUpdate(context)
                 NoticeWidgetUpdater.requestUpdate(context)
+                TodoWidgetUpdater.requestUpdate(context)
             }
         }
     }

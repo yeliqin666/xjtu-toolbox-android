@@ -76,8 +76,6 @@ data class ProactiveMessage(
     val prompt: String = "",
     val fullReveal: Boolean = false,
     val chatterLineId: String? = null,
-    /** 导入皮肤的闲话可同时请求一个动作；缺失或已换皮肤时自动忽略。 */
-    val skinActionId: String? = null,
     /**
      * 非空则点击打开此路由，不进屁岱。
      * 气泡在说一件 App 里已经有页面的事（通知原文、加餐券、签到）时走这一支。
@@ -188,7 +186,6 @@ object ProactiveRules {
     fun markShown(ctx: Context, message: ProactiveMessage) {
         markShown(ctx, message.id)
         message.chatterLineId?.let { rememberChatterLine(ctx, it) }
-        PidaiSkinActionHost.request(message.skinActionId)
     }
 
     /**
@@ -204,7 +201,6 @@ object ProactiveRules {
             .putLong("shown_chatter_at", now)
             .apply()
         message.chatterLineId?.let { rememberChatterLine(ctx, it) }
-        PidaiSkinActionHost.request(message.skinActionId)
     }
 
     private fun chatterRecent(ctx: Context): List<String> =
@@ -426,14 +422,11 @@ object ProactiveRules {
      */
     fun pickOnTap(ctx: Context): ProactiveMessage? {
         if (readProactiveLevel(ctx) == ProactiveLevel.OFF) return null
-        val (skinLines, skinMix) = activeSkinChatter()
         val line = ChatterPool.pick(
             java.time.LocalDateTime.now().toKx(),
             chatterRecent(ctx),
             null,
             null,
-            skinLines,
-            skinMix,
             ChatterFactsLoader.load(ctx),
         ) ?: return null
         return ProactiveMessage(
@@ -442,7 +435,6 @@ object ProactiveRules {
             prompt = "",
             fullReveal = true,
             chatterLineId = line.id,
-            skinActionId = line.action,
         )
     }
 
@@ -453,14 +445,11 @@ object ProactiveRules {
         minutesToClass: Long?,
     ): ProactiveMessage? {
         if (nowMs - lastChatterAt(ctx) < cooldownFor(ctx, CHATTER_ID)) return null
-        val (skinLines, skinMix) = activeSkinChatter()
         val line = ChatterPool.pick(
             java.time.LocalDateTime.now().toKx(),
             chatterRecent(ctx),
             nextCourseName,
             minutesToClass,
-            skinLines,
-            skinMix,
             ChatterFactsLoader.load(ctx),
         ) ?: return null
         return ProactiveMessage(
@@ -469,27 +458,7 @@ object ProactiveRules {
             prompt = "",
             fullReveal = true,
             chatterLineId = line.id,
-            skinActionId = line.action,
         )
-    }
-
-    private fun activeSkinChatter(): Pair<List<ChatterLine>, Double> {
-        val skin = PidaiAppearanceHost.activeSkin ?: return emptyList<ChatterLine>() to 0.0
-        val persona = skin.persona ?: return emptyList<ChatterLine>() to 0.0
-        return persona.chatter.map { line ->
-            ChatterLine(
-                id = "${skin.manifest.id}:${line.id}",
-                text = line.text,
-                hours = line.hours,
-                months = line.months,
-                // 两边现在都是 kotlinx.datetime.DayOfWeek（PidaiSkinModels 已在源头迁完），
-                // 所以直传即可 —— 这里曾经做过一次 `dow.value - 1` 的转换，那是另一半修复
-                // 假设源头仍是 java.time 时写的；两处叠加会编不过（kotlinx 的枚举没有 value）。
-                weekdays = line.weekdays,
-                weight = line.weight,
-                action = line.action,
-            )
-        } to persona.chatterMix
     }
 
     /** 气泡事件快照：只写非空字段，给模型当「点的是哪件事」。 */
