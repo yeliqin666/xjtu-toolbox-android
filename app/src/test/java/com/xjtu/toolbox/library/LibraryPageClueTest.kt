@@ -33,6 +33,16 @@ class LibraryPageClueTest {
     }
 
     @Test
+    fun webVpnDenied_saysSwitchNetwork() {
+        val msg = LibraryApi.unexpectedPage(
+            "图书馆楼层信息",
+            response("https://webvpn.xjtu.edu.cn/http-8086/abc/qspace"),
+            "<html><head><title>访问被拒绝</title></head></html>",
+        )
+        assertEquals("学校 WebVPN 拒绝访问图书馆座位系统，请连校园网后再试（WebVPN · 状态码 200 · 访问被拒绝）", msg)
+    }
+
+    @Test
     fun emptyBody() {
         assertEquals("直连 · 状态码 200 · 空页面", LibraryApi.pageClue(response("http://rg.lib.xjtu.edu.cn:8086/qspace"), ""))
     }

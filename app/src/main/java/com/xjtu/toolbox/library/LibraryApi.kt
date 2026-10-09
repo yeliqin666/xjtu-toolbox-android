@@ -112,7 +112,7 @@ class LibraryApi(private val site: SiteSession) {
             body.trimStart().firstOrNull()?.let { it == '{' || it == '[' } == true
 
         /**
-         * 收到的不是图书馆数据时，报错里带上是哪个页面（#125 复现不了，靠用户截图看）。
+         * 收到的不是图书馆数据时，报错里带上是哪个页面。
          * 不写「HTTP 200」：FriendlyError 会把带 HTTP 码的消息换成通用文案。
          */
         internal fun pageClue(response: okhttp3.Response, body: String): String {
@@ -122,8 +122,12 @@ class LibraryApi(private val site: SiteSession) {
             return "$via · 状态码 ${response.code} · $page"
         }
 
-        private fun unexpectedPage(what: String, response: okhttp3.Response, body: String) =
-            "${what}返回了异常数据（${pageClue(response, body)}），请稍后重试"
+        /** 网关拒绝是学校那边对这个资源的限制，重试没用，得换网络。 */
+        internal fun unexpectedPage(what: String, response: okhttp3.Response, body: String): String {
+            val clue = pageClue(response, body)
+            return if (clue.startsWith("WebVPN") && "访问被拒绝" in clue) "学校 WebVPN 拒绝访问图书馆座位系统，请连校园网后再试（$clue）"
+            else "${what}返回了异常数据（$clue），请稍后重试"
+        }
 
         private fun isJpeg(b: ByteArray) = b[0] == 0xFF.toByte() && b[1] == 0xD8.toByte()
         private fun isPng(b: ByteArray) = b[0] == 0x89.toByte() && b[1] == 'P'.code.toByte()
