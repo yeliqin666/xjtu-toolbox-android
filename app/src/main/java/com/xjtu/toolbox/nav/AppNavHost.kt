@@ -1,5 +1,6 @@
 package com.xjtu.toolbox.nav
 
+import android.content.Context
 import android.net.Uri
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -63,6 +64,10 @@ import com.xjtu.toolbox.score.appScoreReportCache
 import com.xjtu.toolbox.score.appScoreReportSource
 import com.xjtu.toolbox.settings.SettingsScreen
 import com.xjtu.toolbox.social.MatchScreen
+import com.xjtu.toolbox.venue.AppVenueSource
+import com.xjtu.toolbox.venue.SliderCaptchaView
+import com.xjtu.toolbox.venue.SolvedCaptcha
+import com.xjtu.toolbox.venue.VenueCaptchaSolver
 import com.xjtu.toolbox.venue.VenueScreen
 import com.xjtu.toolbox.auth.AccountType
 import com.xjtu.toolbox.dormpower.DormPowerScreen
@@ -214,12 +219,53 @@ fun AppNavHost(
             WithSite("dzpz") { TranscriptScreen(site = it, onBack = back) }
         }
         entry<AppRoute.Venue>(transition = expand(AppRoute.Venue::class)) {
-            WithSite("venue") { VenueScreen(
-                    site = it,
-                    credentialStore = credentialStore,
-                    onOpenBrowser = { url, then -> router.open(AppRoute.Browser(url, then)) },
+            // 取数 + 收藏搬进 `:core` 的 VenueSource（`AppVenueSource` 包住原来的 `VenueApi` 与
+            // `VenueFavorites`，两份实现一行未改）；滑块控件与自动识别器是**屏上的两个槽位**
+            // （它们长在 `Bitmap`/`Base64` 上，搬不进 `:core`），在这里注入。
+            //
+            // 三处宿主能力：
+            //  - 「自动识别验证码」设置项仍然是**现读** `CredentialStore`（搬之前 VM 就是这么每次预订
+            //    现读一次的，关掉后下一次预订立刻生效）——lambda 用 `remember` 稳住，不要每次重组新建；
+            //  - 「功能说明弹过了没」还是原来那个 `feature_hints` 文件里的 `venue_hint_shown` 键，
+            //    改成「宿主读初值 + 一个回写回调」传进屏（与空闲教室同一套）；
+            //  - 支付仍走内置浏览器（`AppRoute.Browser(url, then)`），行为与搬之前逐字一致。
+            val context = LocalContext.current
+            val hintPrefs = remember(context) {
+                context.getSharedPreferences("feature_hints", Context.MODE_PRIVATE)
+            }
+            WithSite("venue") { site ->
+                VenueScreen(
+                    source = remember(site) { AppVenueSource(site, context) },
                     onBack = back,
-                ) }
+                    onOpenBrowser = { url, then -> router.open(AppRoute.Browser(url, then)) },
+                    autoSolveCaptcha = remember(credentialStore) {
+                        { credentialStore.venueAutoSolveCaptchaEnabled }
+                    },
+                    // 自动识别：识别器与「盖章」都在 :app（用的是 `java.time` 的 ISO_INSTANT，与手滑
+                    // 那条路径同一个格式）。屏给出「验证码是什么时候出现在屏幕上的」，用来算两个时刻。
+                    solveCaptcha = { data, shownAt ->
+                        VenueCaptchaSolver.solve(data)?.let { solved ->
+                            SolvedCaptcha(
+                                sliderResult = VenueCaptchaSolver.stamp(solved.sliderResult, shownAt),
+                                releaseAfterMillis = VenueCaptchaSolver.releaseAt(solved.sliderResult),
+                            )
+                        }
+                    },
+                    captchaView = { data, onSolved ->
+                        SliderCaptchaView(
+                            backgroundImageBase64 = data.backgroundImage,
+                            sliderImageBase64 = data.sliderImage,
+                            bgOriginalWidth = data.bgWidth,
+                            bgOriginalHeight = data.bgHeight,
+                            sliderOriginalWidth = data.sliderWidth,
+                            sliderOriginalHeight = data.sliderHeight,
+                            onSlideComplete = onSolved,
+                        )
+                    },
+                    showFirstUseHint = !hintPrefs.getBoolean("venue_hint_shown", false),
+                    onFirstUseHintRead = { hintPrefs.edit().putBoolean("venue_hint_shown", true).apply() },
+                )
+            }
         }
         entry<AppRoute.DormPower>(transition = expand(AppRoute.DormPower::class)) {
             WithSite("ssn") { site ->

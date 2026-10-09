@@ -31,6 +31,7 @@ import com.xjtu.toolbox.calendar.SchoolCalendarScreen
 import com.xjtu.toolbox.card.CampusCardScreen
 import com.xjtu.toolbox.core.net.CampusCardNetApi
 import com.xjtu.toolbox.core.net.CampusInboxApi
+import com.xjtu.toolbox.core.net.CampusVenueApi
 import com.xjtu.toolbox.core.net.CampusEmptyRoomApi
 import com.xjtu.toolbox.emptyroom.EmptyRoomScreen
 import com.xjtu.toolbox.platform.keyValueStore
@@ -65,6 +66,7 @@ import top.yukonga.miuix.kmp.basic.NavigationBarDisplayMode
 import top.yukonga.miuix.kmp.basic.NavigationBarItem
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextButton
+import com.xjtu.toolbox.venue.VenueScreen
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 /**
@@ -286,6 +288,28 @@ private fun AppPage(route: AppRoute, client: HttpClient, session: WebGithubSessi
             source = remember { CampusCardNetApi(client) },
             onBack = back,
         )
+        // 体育场馆：与 Android 同一个屏与 ViewModel（`:core/venue`）。**只读** —— campus-api 的
+        // 场馆模块自己写着 `readOnly:true`（抢场要解滑块且属写操作）⇒ `CampusVenueApi` 的
+        // canBook/canCancel 都是 false，于是屏上**没有**「确认预订」「去支付」「取消订单」，
+        // 时段格子一律不可选，验证码弹窗也进不去（两个 Android 专属槽位传 null：浏览器里没这条路）。
+        // 逐字段映射写在 CampusVenueApi 的 KDoc 里（订单缺 areaName/serviceName、明细时间常为 null
+        // ⇒ 如实留空，屏上那几段不画）。
+        AppRoute.Venue -> {
+            val hintPrefs = remember { keyValueStore("feature_hints") }
+            VenueScreen(
+                source = remember { CampusVenueApi(client) },
+                onBack = back,
+                // 支付那半在 Web 上不可达（canBook=false ⇒ 屏上不画入口）。真走到这里也只做浏览器
+                // 做得到的那一件：打开那个网址；`then`（先过 App 的登录再跳下一站）在浏览器里做不到，
+                // 因为会话在 campus-api 进程里而不在页面上 —— 如实忽略，不假装。
+                onOpenBrowser = { url, _ -> if (url.isNotBlank()) openInNewTab(url) },
+                // 「功能说明弹过了没」在 Web 存 localStorage（:app 存 feature_hints 那个 SharedPreferences），
+                // 键名与 :app 同一个；文案里那两条只在能下单那端成立的话，屏会自己按 canBook 少说。
+                showFirstUseHint = !hintPrefs.getBoolean("venue_hint_shown", false),
+                onFirstUseHintRead = { hintPrefs.putBoolean("venue_hint_shown", true) },
+            )
+        }
+
         AppRoute.Community -> CommunityScreen(
             session = session,
             // Web 端只有「粘贴 token」这一条登录路（设备码流程在浏览器里拿不到 device code）；

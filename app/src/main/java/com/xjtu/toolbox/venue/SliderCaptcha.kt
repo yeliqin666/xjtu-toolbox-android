@@ -19,41 +19,18 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
-import com.xjtu.toolbox.util.AppJson
-import kotlinx.serialization.Serializable
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import kotlin.math.roundToInt
 
 private const val TAG = "SliderCaptcha"
-
 /**
- * 滑动轨迹中的单个点
- */
-@Serializable
-data class TrackPoint(
-    val x: Int,
-    val y: Int,
-    val type: String,  // "down", "move", "up"
-    val t: Long        // 相对时间戳（ms）
-)
-
-/** 滑动验证码结果，发给服务器验证；字段名是服务端协议的一部分（含拼写 entSlidingTime），不能改。 */
-@Serializable
-data class SliderResult(
-    val bgImageWidth: Int,
-    val bgImageHeight: Int,
-    val sliderImageWidth: Int,
-    val sliderImageHeight: Int,
-    val startSlidingTime: String,   // ISO 8601
-    val entSlidingTime: String,     // ISO 8601
-    val trackList: List<TrackPoint>
-) {
-    fun toJson(): String = AppJson.encodeToString(this)
-}
-
-/**
- * 滑动拼图验证码组件
+ * 滑动拼图验证码组件（**Android 专属**：靠 `Bitmap`/`Base64` 解码图片，搬不进 `:core`）。
+ *
+ * 它以「屏上的一个槽位」注入共享屏（`VenueScreen` 的 `captchaView`）：从 [CaptchaData] 里取
+ * base64 图与尺寸，拖动完成时产出一条 [SliderResult]。数据模型（[TrackPoint]、[SliderResult]）
+ * 与采集它的这个控件分开：模型在 `:core`（屏与状态机要用），控件在这里（只有 Android 有 Bitmap）。
+ *
  *
  * @param backgroundImageBase64 背景图 data URI (data:image/jpeg;base64,...)
  * @param sliderImageBase64 滑块图 data URI (data:image/png;base64,...)

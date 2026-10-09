@@ -1,98 +1,144 @@
 package com.xjtu.toolbox.venue
 
-import com.xjtu.toolbox.ui.components.AppPullToRefresh
-import com.xjtu.toolbox.ui.components.FullPageState
-import androidx.lifecycle.viewmodel.compose.viewModel
-import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import android.content.Context
-import android.widget.Toast
-import com.xjtu.toolbox.platform.BackHandler
 import androidx.compose.animation.*
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.staggeredgrid.items
-import com.xjtu.toolbox.ui.adaptive.fullLineItem
-import com.xjtu.toolbox.ui.adaptive.readableWidth
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.*
 import androidx.compose.runtime.*
-import com.xjtu.toolbox.auth.LocalAppLoginState
-import com.xjtu.toolbox.auth.SiteSession
-import com.xjtu.toolbox.auth.handleAuthExpired
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.viewmodel.compose.viewModel
+import com.xjtu.toolbox.auth.LocalAuthExpiry
+import com.xjtu.toolbox.nav.AppRoute
+import com.xjtu.toolbox.platform.BackHandler
+import com.xjtu.toolbox.platform.showBriefMessage
+import com.xjtu.toolbox.ui.adaptive.AdaptiveCardGrid
+import com.xjtu.toolbox.ui.adaptive.fullLineItem
+import com.xjtu.toolbox.ui.adaptive.readableWidth
+import com.xjtu.toolbox.ui.components.AppPullToRefresh
 import com.xjtu.toolbox.ui.components.AppSegmentedTabs
-import com.xjtu.toolbox.ui.glass.LocalOnGlassBar
 import com.xjtu.toolbox.ui.components.AppTabPager
-import com.xjtu.toolbox.ui.glass.*
 import com.xjtu.toolbox.ui.components.EmptyState
 import com.xjtu.toolbox.ui.components.ErrorState
+import com.xjtu.toolbox.ui.components.FullPageState
 import com.xjtu.toolbox.ui.components.LoadingState
-import com.xjtu.toolbox.data.CredentialStore
+import com.xjtu.toolbox.ui.components.MorphingLoader
+import com.xjtu.toolbox.ui.glass.LocalOnGlassBar
+import com.xjtu.toolbox.ui.glass.glassBarColor
+import com.xjtu.toolbox.ui.glass.glassSource
+import com.xjtu.toolbox.ui.glass.glassTop
+import com.xjtu.toolbox.ui.glass.glassTopBar
+import com.xjtu.toolbox.ui.glass.rememberPageGlass
+import com.xjtu.toolbox.ui.glass.withoutTop
+import com.xjtu.toolbox.util.todayInSystemZone
+import kotlinx.datetime.DateTimeUnit
+import kotlinx.datetime.LocalDate
+import kotlinx.datetime.plus
 import top.yukonga.miuix.kmp.basic.*
 import top.yukonga.miuix.kmp.overlay.OverlayDialog
 import top.yukonga.miuix.kmp.theme.MiuixTheme
-import java.time.LocalDate
-import com.xjtu.toolbox.nav.AppRoute
 
 /**
- * 体育场馆预订主页面
+ * 体育场馆预订主页面。
  *
- * 流程：场馆列表 → 选择场馆 → 日期选择 + 时段网格 → 确认 → 滑动验证码 → 预订结果
+ * 流程：场馆列表 → 选择场馆 → 日期选择 + 时段网格 → 确认 → 滑动验证码 → 预订结果。
+ *
+ * 从 `:app` 搬进 `:core`：屏与 [VenueViewModel] 两端共用同一份，只在**取数、落盘、宿主能力**上切缝
+ * （[VenueSource] 的 KDoc 讲了为什么端口要暴露 `canBook`/`canCancel`）。下面每个参数都是
+ * 「这一端有什么」，而不是「这一端是不是 Android」。
+ *
+ * ## 两个 Android 专属槽位
+ *
+ * 滑块控件与自动识别器都长在 Android 的 `Bitmap`/`Base64` 上，留在 `:app`，由宿主注入：
+ *  - [captchaView]：画滑块、拖动完成时产出 [SliderResult]（`:app` = `SliderCaptchaView`，Web = null）；
+ *  - [solveCaptcha]：自动识别（`:app` = `VenueCaptchaSolver`，Web = null）。
+ *
+ * 传 null 的语义是「本端没有这条路径」。它们都只在写路径上被用到，而写路径的入口由
+ * [VenueSource.canBook] 封着 —— 两条缝对齐，只读端连验证码弹窗都不会出现。
+ *
+ * ## Web 端（只读）如实降级的地方
+ *
+ * 1. **勾不了、订不了**：时段格子全部渲染成不可选态（[SlotSelectionContent] 的 `selectable`），
+ *    底部「确认预订」栏整条不出现，验证码弹窗与预订结果弹窗都进不去；订单卡与订单详情里
+ *    「去支付」「取消订单」也不出现（`canBook=false` / `canCancel=false`）。
+ *    这不等于「删掉功能」——写路径的编排仍在共享代码里，Android 那一侧一行未改。
+ * 2. **短提示**：收藏切换、取消订单结果这些原来用 `Toast` 说的话，改走 `:core` 的
+ *    [showBriefMessage] 缝（Android 的 actual 就是同一个 Toast；Web 是空实现，只少了那句系统提示，
+ *    收藏状态本身照样变）。
+ * 3. **首次使用提示**的文案里「验证码默认自动识别」「支付在内置浏览器完成」两条只在能下单的那一端
+ *    成立，按 [VenueSource.canBook] 少说这两句 —— 不拿做不到的事当说明。
  */
 @Composable
 fun VenueScreen(
-    site: SiteSession,
-    credentialStore: CredentialStore,
-    onOpenBrowser: (url: String, then: String) -> Unit,
-    onBack: () -> Unit
+    /** 本端的取数 + 收藏（Android = `AppVenueSource`，Web = `CampusVenueApi`）。 */
+    source: VenueSource,
+    onBack: () -> Unit,
+    /** 打开内置浏览器/浏览器：[url] 是第一站（站点登录页），[then] 是它之后要去的那一页（支付页）。 */
+    onOpenBrowser: (url: String, then: String) -> Unit = { _, _ -> },
+    /**
+     * 「验证码自动识别」这个设置项的**现读**（不是布尔值）：搬迁前 VM 每次预订都现读一次
+     * `CredentialStore`，用户在设置里关掉后下一次预订立刻生效。宿主用 `remember` 稳住这个 lambda。
+     */
+    autoSolveCaptcha: () -> Boolean = { false },
+    /** 自动识别槽位（见类 KDoc）：Android = `VenueCaptchaSolver`，只读端 = null。 */
+    solveCaptcha: (suspend (data: CaptchaData, shownAtMillis: Long) -> SolvedCaptcha?)? = null,
+    /** 滑块控件槽位（见类 KDoc）：Android = `SliderCaptchaView`，只读端 = null。 */
+    captchaView: (@Composable (data: CaptchaData, onSolved: (SliderResult) -> Unit) -> Unit)? = null,
+    /**
+     * 「功能说明」还没读过吗。**由宿主读自己那份持久化偏好**（Android = `feature_hints` 里那个
+     * `venue_hint_shown`，Web = `localStorage` 同一个键名）—— 屏不碰任何平台的存储实现，
+     * 它只知道「该不该弹」与「弹过了要回写」（与 `EmptyRoomScreen` 的 `showCdnTip` 同一套写法）。
+     */
+    showFirstUseHint: Boolean = false,
+    onFirstUseHintRead: () -> Unit = {},
 ) {
-    val appLoginState = LocalAppLoginState.current
-    val context = LocalContext.current
-    val vm: VenueViewModel = viewModel(key = "venue-${System.identityHashCode(site)}") {
-        VenueViewModel(site) { credentialStore.venueAutoSolveCaptchaEnabled }
-    }
+    val authExpiry = LocalAuthExpiry.current
+    val vm: VenueViewModel = viewModel { VenueViewModel(source, autoSolveCaptcha, solveCaptcha) }
     LaunchedEffect(vm) {
         vm.events.collect { event ->
             when (event) {
-                VenueEvent.AuthExpired -> appLoginState.handleAuthExpired(AppRoute.Venue, onBack)
-                is VenueEvent.Message -> Toast.makeText(context, event.text, Toast.LENGTH_SHORT).show()
+                // 会话失效：与校历/体测/成绩/校园卡同一条缝（:app 注入 AppLoginState.handleAuthExpired）
+                VenueEvent.AuthExpired -> authExpiry.onAuthExpired(AppRoute.Venue, onBack)
+                is VenueEvent.Message -> showBriefMessage(event.text)
             }
         }
     }
 
-    val favoritesManager = remember { VenueFavorites(context) }
-    val favoriteIds by favoritesManager.favoriteIds.collectAsStateWithLifecycle()
+    val favoriteIds = vm.favoriteIds
+    val canBook = source.canBook
 
-    val prefs = remember { context.getSharedPreferences("feature_hints", Context.MODE_PRIVATE) }
-    val showHint = remember { mutableStateOf(!prefs.getBoolean("venue_hint_shown", false)) }
+    // 本地再记一份「读过了」：传进来的 showFirstUseHint 是组合那一刻的快照（宿主那份存储不是 State，
+    // 用户点掉后它不会自己变），所以「切走了再切回来要不要再弹」以本地这份为准。
+    var showHint by remember { mutableStateOf(!showFirstUseHint) }
 
     var selectedTab by rememberSaveable { mutableIntStateOf(0) }
     var showBookingConfirm by remember { mutableStateOf(false) }
-    var orderDetail by remember { mutableStateOf<VenueApi.OrderInfo?>(null) }
-    var cancelTarget by remember { mutableStateOf<VenueApi.OrderInfo?>(null) }
+    var orderDetail by remember { mutableStateOf<OrderInfo?>(null) }
+    var cancelTarget by remember { mutableStateOf<OrderInfo?>(null) }
 
     /** 先在内置浏览器里过一遍登录（带着 App 的统一认证 cookie，一般免输），再落到支付页。 */
-    fun pay(order: VenueApi.OrderInfo) =
-        onOpenBrowser(VenueApi.BROWSER_LOGIN_URL, vm.api.paymentUrl(order.orderId))
+    fun pay(order: OrderInfo) =
+        onOpenBrowser(source.browserLoginUrl, source.paymentUrl(order.orderId))
 
     val scrollBehavior = MiuixScrollBehavior(rememberTopAppBarState())
     // 玻璃顶栏（经典风格下为 null，一切照旧），用法见 ui/glass/GlassTopBar.kt
@@ -169,21 +215,28 @@ fun VenueScreen(
         // 必须放在 Scaffold 的 content 里：miuix 0.9.3 起 Overlay* 注册进 LocalDialogStates，
         // 而该 CompositionLocal 只有 Scaffold 提供。写在 Scaffold 外面会注册进一个没有宿主的
         // 空列表，无宿主渲染，不报错也不崩溃，就是不显示。
-        if (showHint.value) {
-            BackHandler { showHint.value = false; prefs.edit().putBoolean("venue_hint_shown", true).apply() }
+        if (showHint) {
+            BackHandler { showHint = false; onFirstUseHintRead() }
             OverlayDialog(
-                show = showHint.value,
+                show = showHint,
                 title = "功能说明",
                 onDismissRequest = {
-                    showHint.value = false
-                    prefs.edit().putBoolean("venue_hint_shown", true).apply()
+                    showHint = false
+                    onFirstUseHintRead()
                 }
             ) {
                 Column(Modifier.fillMaxWidth()) {
                     Text(
-                        "• 验证码默认自动识别，可在设置中关闭；失败仍可手滑\n" +
-                            "• 支付在内置浏览器里完成，登录一般自动通过\n" +
-                            "• 尽量在校园网下使用",
+                        // 后两条只在能下单的那一端成立（只读端没有验证码弹窗、也没有支付入口）
+                        buildString {
+                            if (canBook) {
+                                append("• 验证码默认自动识别，可在设置中关闭；失败仍可手滑\n")
+                                append("• 支付在内置浏览器里完成，登录一般自动通过\n")
+                            } else {
+                                append("• 本端只能看：场馆、时段与我的订单，预订与取消请在 App 里做\n")
+                            }
+                            append("• 尽量在校园网下使用")
+                        },
                         style = MiuixTheme.textStyles.body2,
                         color = MiuixTheme.colorScheme.onSurfaceVariantSummary
                     )
@@ -191,8 +244,8 @@ fun VenueScreen(
                     TextButton(
                         text = "知道了",
                         onClick = {
-                            showHint.value = false
-                            prefs.edit().putBoolean("venue_hint_shown", true).apply()
+                            showHint = false
+                            onFirstUseHintRead()
                         },
                         modifier = Modifier.fillMaxWidth()
                     )
@@ -229,6 +282,9 @@ fun VenueScreen(
                         onDetail = { orderDetail = it },
                         onCancel = { cancelTarget = it },
                         onPay = ::pay,
+                        // 只读端不画这两个按钮（点了必然失败）：见 :core VenueSource 的 KDoc
+                        canPay = canBook,
+                        canCancel = source.canCancel,
                         modifier = Modifier.fillMaxSize(),
                         scrollBehavior = scrollBehavior,
                         topPadding = glassTop,
@@ -258,10 +314,7 @@ fun VenueScreen(
                                 onRefresh = { vm.loadVenues(silent = true) },
                                 onVenueSelected = vm::openVenue,
                                 favoriteIds = favoriteIds,
-                                onToggleFavorite = { venue ->
-                                    val isFavorite = favoritesManager.toggleFavorite(venue.id)
-                                    Toast.makeText(context, if (isFavorite) "已收藏 ${venue.name}" else "已取消收藏 ${venue.name}", Toast.LENGTH_SHORT).show()
-                                },
+                                onToggleFavorite = vm::toggleFavorite,
                                 modifier = Modifier.fillMaxSize(),
                                 scrollBehavior = scrollBehavior,
                                 topPadding = glassTop,
@@ -277,6 +330,8 @@ fun VenueScreen(
                                 onRetry = { vm.loadSlots() },
                                 onRefresh = { vm.loadSlots(silent = true) },
                                 onConfirm = { showBookingConfirm = true },
+                                // 只读端时段格子一律不可选（见类 KDoc）
+                                selectable = canBook,
                                 modifier = Modifier.fillMaxSize(),
                                 scrollBehavior = scrollBehavior,
                                 topPadding = glassTop,
@@ -293,7 +348,7 @@ fun VenueScreen(
         // 拿到的是静态默认空列表，弹窗会被静默丢弃——不报错、不崩溃、就是不显示。
 
         // ─── 预约确认 ───
-        if (showBookingConfirm) {
+        if (showBookingConfirm && canBook) {
             BackHandler { showBookingConfirm = false }
             OverlayDialog(
                 title = "确认预订",
@@ -320,7 +375,7 @@ fun VenueScreen(
                             )
                         }
                     Text(
-                        "合计：¥${"%.2f".format(vm.selectedSlots.sumOf { it.price })}",
+                        "合计：¥${money2(vm.selectedSlots.sumOf { it.price })}",
                         style = MiuixTheme.textStyles.body1,
                         color = MiuixTheme.colorScheme.primary,
                         fontWeight = FontWeight.Bold
@@ -343,8 +398,9 @@ fun VenueScreen(
             }
         }
 
-        // ─── 验证码弹窗 ───
-        if (vm.showCaptcha) {
+        // ─── 验证码弹窗（只读端进不来：canBook=false 时 startBooking 就是空转，captchaView 也是 null）───
+        val captchaContent = captchaView
+        if (vm.showCaptcha && canBook && captchaContent != null) {
             BackHandler(onBack = vm::closeCaptcha)
             OverlayDialog(
                 title = "滑动验证",
@@ -358,14 +414,14 @@ fun VenueScreen(
                     when {
                         vm.bookingInProgress -> {
                             Spacer(Modifier.height(32.dp))
-                            com.xjtu.toolbox.ui.components.MorphingLoader()  // 整页加载统一用形变加载器
+                            MorphingLoader()  // 整页加载统一用形变加载器
                             Spacer(Modifier.height(8.dp))
                             Text("正在预订...", style = MiuixTheme.textStyles.body2)
                             Spacer(Modifier.height(32.dp))
                         }
                         vm.captchaLoading -> {
                             Spacer(Modifier.height(32.dp))
-                            com.xjtu.toolbox.ui.components.MorphingLoader()  // 整页加载统一用形变加载器
+                            MorphingLoader()  // 整页加载统一用形变加载器
                             Spacer(Modifier.height(8.dp))
                             Text(
                                 if (vm.captchaAutoSolving) "正在自动识别验证码..." else "加载验证码...",
@@ -388,15 +444,9 @@ fun VenueScreen(
                                 )
                                 Spacer(Modifier.height(8.dp))
                             }
-                            SliderCaptchaView(
-                                backgroundImageBase64 = captcha.backgroundImage,
-                                sliderImageBase64 = captcha.sliderImage,
-                                bgOriginalWidth = captcha.bgWidth,
-                                bgOriginalHeight = captcha.bgHeight,
-                                sliderOriginalWidth = captcha.sliderWidth,
-                                sliderOriginalHeight = captcha.sliderHeight,
-                                onSlideComplete = vm::submitBooking
-                            )
+                            // 滑块控件是宿主槽位：Android 传 SliderCaptchaView（它从 CaptchaData 里
+                            // 取 base64 图与尺寸，拖动产出一条 SliderResult）
+                            captchaContent(captcha, vm::submitBooking)
                             Spacer(Modifier.height(8.dp))
                             TextButton(text = "换一张", onClick = vm::reloadCaptcha)
                         }
@@ -405,7 +455,7 @@ fun VenueScreen(
             }
         }
 
-        // ─── 预订结果弹窗 ───
+        // ─── 预订结果弹窗（只读端进不来：没有可用的下单入口）───
         vm.bookingResult?.let { result ->
             BackHandler { vm.dismissResult(refresh = true) }
             OverlayDialog(
@@ -430,7 +480,7 @@ fun VenueScreen(
                             Text("订单号: ${result.orderId}", style = MiuixTheme.textStyles.footnote1, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
                         }
                         if (result.price > 0) {
-                            Text("金额: ¥${"%.1f".format(result.price)}", style = MiuixTheme.textStyles.body1, fontWeight = FontWeight.Bold, color = MiuixTheme.colorScheme.primary)
+                            Text("金额: ¥${money1(result.price)}", style = MiuixTheme.textStyles.body1, fontWeight = FontWeight.Bold, color = MiuixTheme.colorScheme.primary)
                         }
                         Spacer(Modifier.height(4.dp))
                         Text(
@@ -451,18 +501,20 @@ fun VenueScreen(
                         Text(result.message, style = MiuixTheme.textStyles.body2, textAlign = TextAlign.Center, color = MiuixTheme.colorScheme.error)
                     }
                     Spacer(Modifier.height(8.dp))
-                    if (result.success && result.orderId != null && result.price > 0) {
+                    if (canBook && result.success && result.orderId != null && result.price > 0) {
                         TextButton(
                             text = "去支付",
                             onClick = {
                                 vm.dismissResult(refresh = false)
-                                pay(VenueApi.OrderInfo(
-                                    orderId = result.orderId,
-                                    status = 0,
-                                    createdAt = "",
-                                    price = result.price,
-                                    details = emptyList()
-                                ))
+                                pay(
+                                    OrderInfo(
+                                        orderId = result.orderId,
+                                        status = 0,
+                                        createdAt = "",
+                                        price = result.price,
+                                        details = emptyList()
+                                    )
+                                )
                             },
                             modifier = Modifier.fillMaxWidth(),
                             colors = ButtonDefaults.textButtonColorsPrimary()
@@ -479,6 +531,10 @@ fun VenueScreen(
 
         // ─── 订单详情 ───
         orderDetail?.let { order ->
+            // 本端能不能支付/取消：只读端这两条都不画（订单模型自己的 canPay/canCancel 只说明
+            // 「服务端允不允许」，不代表「这一端做得到」）
+            val canPay = canBook && order.canPay
+            val canCancel = source.canCancel && order.canCancel
             BackHandler { orderDetail = null }
             OverlayDialog(
                 title = "订单详情",
@@ -512,20 +568,20 @@ fun VenueScreen(
                                 detail.areaName
                             ).filter { it.isNotBlank() }.joinToString("  ")
                             Text(
-                                "${index + 1}. ${line.ifBlank { "场地明细" }}  ¥${"%.2f".format(detail.price)}",
+                                "${index + 1}. ${line.ifBlank { "场地明细" }}  ¥${money2(detail.price)}",
                                 style = MiuixTheme.textStyles.body2
                             )
                         }
                     }
                     Text(
-                        "合计：¥${"%.2f".format(order.price)}",
+                        "合计：¥${money2(order.price)}",
                         style = MiuixTheme.textStyles.body1,
                         color = MiuixTheme.colorScheme.primary,
                         fontWeight = FontWeight.Bold
                     )
                     Spacer(Modifier.height(4.dp))
                     Row(Modifier.fillMaxWidth()) {
-                        if (order.canPay) {
+                        if (canPay) {
                             TextButton(
                                 text = "去支付",
                                 onClick = {
@@ -536,10 +592,10 @@ fun VenueScreen(
                                 colors = ButtonDefaults.textButtonColorsPrimary()
                             )
                         }
-                        if (order.canPay && order.canCancel) {
+                        if (canPay && canCancel) {
                             Spacer(Modifier.width(20.dp))
                         }
-                        if (order.canCancel) {
+                        if (canCancel) {
                             TextButton(
                                 text = "取消订单",
                                 onClick = {
@@ -552,7 +608,7 @@ fun VenueScreen(
                                 )
                             )
                         }
-                        if (!order.canPay && !order.canCancel) {
+                        if (!canPay && !canCancel) {
                             TextButton(
                                 text = "关闭",
                                 onClick = { orderDetail = null },
@@ -607,22 +663,48 @@ fun VenueScreen(
     }
 }
 
+// ─── 金额格式（`String.format("%.2f", x)` 是 JVM 专属，:core 里手写；口径与原来对齐）───
+//
+// 与 `card/CampusCardAnalysis.kt` 里那三个 money 助手同一套写法（那边的注释解释了为什么不能直接用
+// `"%.2f".format(...)`：它是 JVM 默认导入的扩展，`import` 判据看不见）。这里保持本地私有，
+// 不跨切片 import 另一个屏的金额助手。
+
+/** `"%.2f".format(value)` —— 金额两位小数（`VenueOrders.kt` 的订单卡也用，所以是 internal）。 */
+internal fun money2(value: Double): String = fixedDigits(value, 2)
+
+/** `"%.1f".format(value)` —— 金额一位小数。 */
+internal fun money1(value: Double): String = fixedDigits(value, 1)
+
+/** `"%.0f".format(value)` —— 金额取整（时段那一行的「¥9」）。 */
+internal fun money0(value: Double): String = fixedDigits(value, 0)
+
+private fun fixedDigits(value: Double, digits: Int): String {
+    if (!value.isFinite()) return value.toString()
+    val factor = if (digits == 2) 100L else if (digits == 1) 10L else 1L
+    val negative = value < 0
+    val scaled = kotlin.math.round(kotlin.math.abs(value) * factor).toLong()
+    if (digits == 0) return if (negative) "-$scaled" else "$scaled"
+    val whole = scaled / factor
+    val frac = (scaled % factor).toString().padStart(digits, '0')
+    return if (negative) "-$whole.$frac" else "$whole.$frac"
+}
+
 // ─── 场馆列表页 ───
 @Composable
 private fun VenueListContent(
-    venues: List<VenueApi.Venue>,
+    venues: List<Venue>,
     isLoading: Boolean,
     isRefreshing: Boolean,
     error: String?,
     onRetry: () -> Unit,
     onRefresh: () -> Unit,
-    onVenueSelected: (VenueApi.Venue) -> Unit,
+    onVenueSelected: (Venue) -> Unit,
     favoriteIds: Set<Int>,
-    onToggleFavorite: (VenueApi.Venue) -> Unit,
+    onToggleFavorite: (Venue) -> Unit,
     modifier: Modifier = Modifier,
     scrollBehavior: ScrollBehavior,
     /** 玻璃顶栏（含标签行）的高度，放进列表顶部留白。 */
-    topPadding: androidx.compose.ui.unit.Dp = 0.dp,
+    topPadding: Dp = 0.dp,
 ) {
     val sortedVenues = remember(venues, favoriteIds) {
         venues.sortedByDescending { it.id in favoriteIds }
@@ -640,7 +722,7 @@ private fun VenueListContent(
         error != null && venues.isEmpty() -> FullPageState(Modifier.fillMaxSize().padding(top = topPadding)) { ErrorState(message = error, onRetry = onRetry, modifier = Modifier.fillMaxSize()) }
         sortedVenues.isEmpty() -> FullPageState(Modifier.fillMaxSize().padding(top = topPadding)) { EmptyState(title = "暂无可预订场馆", modifier = Modifier.fillMaxSize()) }
         // 宽屏场馆卡分两三列（见 AdaptiveCardGrid）
-        else -> com.xjtu.toolbox.ui.adaptive.AdaptiveCardGrid(
+        else -> AdaptiveCardGrid(
             modifier = Modifier
                 .fillMaxSize(),
             contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp + topPadding, bottom = 8.dp),
@@ -659,9 +741,10 @@ private fun VenueListContent(
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun VenueCard(
-    venue: VenueApi.Venue,
+    venue: Venue,
     isFavorite: Boolean,
     onClick: () -> Unit,
     onDoubleClick: () -> Unit
@@ -749,19 +832,26 @@ private fun VenueCard(
 // ─── 时段选择页 ───
 @Composable
 private fun SlotSelectionContent(
-    availableSlots: List<VenueApi.AreaSlot>,
-    selectedSlots: Set<VenueApi.AreaSlot>,
-    onToggleSlot: (VenueApi.AreaSlot) -> Unit,
+    availableSlots: List<AreaSlot>,
+    selectedSlots: Set<AreaSlot>,
+    onToggleSlot: (AreaSlot) -> Unit,
     isLoading: Boolean,
     isRefreshing: Boolean,
     error: String?,
     onRetry: () -> Unit,
     onRefresh: () -> Unit,
     onConfirm: () -> Unit,
+    /**
+     * 本端能不能勾选时段（[VenueSource.canBook]）。
+     *
+     * false 时格子一律画成不可选（同一套置灰样式，与「已满」一致），底部「确认预订」栏整条不出现 ——
+     * 只读端点哪个格子都不会有反应，也不会走到那个必然失败的提交。
+     */
+    selectable: Boolean,
     modifier: Modifier = Modifier,
     scrollBehavior: ScrollBehavior,
     /** 玻璃顶栏（含标签行、日期条）的高度，放进列表顶部留白。日期条在顶栏里，见 VenueScreen。 */
-    topPadding: androidx.compose.ui.unit.Dp = 0.dp,
+    topPadding: Dp = 0.dp,
 ) {
     Column(modifier = modifier.fillMaxSize()) {
         AppPullToRefresh(
@@ -778,11 +868,13 @@ private fun SlotSelectionContent(
             else -> {
                 // 按时段分组（同一时段可能有多个场地）
                 val slotsByTime = remember(availableSlots) {
-                    availableSlots.groupBy { it.timeSlot }.toSortedMap()
+                    // `toSortedMap()` 是 JVM 专属（默认导入的扩展，import 判据看不见，只有整包编 wasmJs 才抓得到）
+                    // ⇒ 显式排一次序，键的 `String` 天然可比
+                    availableSlots.groupBy { it.timeSlot }.toList().sortedBy { it.first }
                 }
 
                 // 宽屏一个时间段一张卡，分两三列（见 AdaptiveCardGrid）
-                com.xjtu.toolbox.ui.adaptive.AdaptiveCardGrid(
+                AdaptiveCardGrid(
                     modifier = Modifier
                         .fillMaxSize(),
                     contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp + topPadding, bottom = 8.dp),
@@ -794,7 +886,8 @@ private fun SlotSelectionContent(
                                 timeSlot = timeSlot,
                                 slots = slots,
                                 selectedSlots = selectedSlots,
-                                onToggleSlot = onToggleSlot
+                                onToggleSlot = onToggleSlot,
+                                selectable = selectable,
                             )
                         }
                     }
@@ -805,9 +898,9 @@ private fun SlotSelectionContent(
         }
         }
 
-        // 底部确认栏
+        // 底部确认栏（只读端整条不出现：既然一个格子都勾不上，这栏也永远没有内容可确认）
         AnimatedVisibility(
-            visible = selectedSlots.isNotEmpty(),
+            visible = selectable && selectedSlots.isNotEmpty(),
             enter = slideInVertically(initialOffsetY = { it }) + fadeIn(),
             exit = slideOutVertically(targetOffsetY = { it }) + fadeOut()
         ) {
@@ -827,7 +920,7 @@ private fun SlotSelectionContent(
                         )
                         val totalPrice = selectedSlots.sumOf { it.price }
                         Text(
-                            "合计 ¥${"%.1f".format(totalPrice)}",
+                            "合计 ¥${money1(totalPrice)}",
                             style = MiuixTheme.textStyles.footnote1,
                             color = MiuixTheme.colorScheme.primary,
                             fontWeight = FontWeight.Bold
@@ -850,24 +943,18 @@ private fun DateSelector(
     // 可提前几天由场馆自己给（productData 的 advanceday），不同场馆并不一样
     advanceDay: Int = 7,
 ) {
-    val today = remember { LocalDate.now() }
+    val today = remember { todayInSystemZone() }
     val span = advanceDay.coerceIn(1, 14)
-    val dates = remember(span) { (0 until span).map { today.plusDays(it.toLong()) } }
+    val dates = remember(span) { (0 until span).map { today.plus(it, DateTimeUnit.DAY) } }
     val dayNames = remember(span) {
         (0 until span).map { offset ->
             when (offset) {
                 0 -> "今天"
                 1 -> "明天"
                 2 -> "后天"
-                else -> when (today.plusDays(offset.toLong()).dayOfWeek) {
-                    java.time.DayOfWeek.MONDAY -> "周一"
-                    java.time.DayOfWeek.TUESDAY -> "周二"
-                    java.time.DayOfWeek.WEDNESDAY -> "周三"
-                    java.time.DayOfWeek.THURSDAY -> "周四"
-                    java.time.DayOfWeek.FRIDAY -> "周五"
-                    java.time.DayOfWeek.SATURDAY -> "周六"
-                    java.time.DayOfWeek.SUNDAY -> "周日"
-                }
+                // `java.time.DayOfWeek.MONDAY…` 那段 when 换成 ISO 的 ordinal（周一 = 0）——
+                // 与 SchoolCalendarScreen 的 weekdayCn 同一个写法
+                else -> "周" + "一二三四五六日"[today.plus(offset, DateTimeUnit.DAY).dayOfWeek.ordinal]
             }
         }
     }
@@ -904,7 +991,9 @@ private fun DateSelector(
                         fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
                     )
                     Text(
-                        "${date.monthValue}/${date.dayOfMonth}",
+                        // `date.monthValue`（java.time）→ kotlinx 的 `month.ordinal + 1`
+                        //（与 SchoolCalendarScreen 的 monthDaySlash 同一个写法）
+                        "${date.month.ordinal + 1}/${date.day}",
                         style = MiuixTheme.textStyles.footnote1,
                         color = if (isSelected) MiuixTheme.colorScheme.onPrimary
                                else MiuixTheme.colorScheme.onSurfaceVariantSummary
@@ -919,9 +1008,11 @@ private fun DateSelector(
 @Composable
 private fun TimeSlotGroup(
     timeSlot: String,
-    slots: List<VenueApi.AreaSlot>,
-    selectedSlots: Set<VenueApi.AreaSlot>,
-    onToggleSlot: (VenueApi.AreaSlot) -> Unit
+    slots: List<AreaSlot>,
+    selectedSlots: Set<AreaSlot>,
+    onToggleSlot: (AreaSlot) -> Unit,
+    /** 见 [SlotSelectionContent] 的 `selectable`。 */
+    selectable: Boolean,
 ) {
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -942,7 +1033,7 @@ private fun TimeSlotGroup(
                 )
                 val price = slots.firstOrNull()?.price ?: 0.0
                 Text(
-                    "¥${"%.0f".format(price)}",
+                    "¥${money0(price)}",
                     style = MiuixTheme.textStyles.body2,
                     color = MiuixTheme.colorScheme.primary,
                     fontWeight = FontWeight.Medium
@@ -958,7 +1049,7 @@ private fun TimeSlotGroup(
             ) {
                 slots.forEach { slot ->
                     val isSelected = slot in selectedSlots
-                    val canSelect = slot.isAvailable
+                    val canSelect = selectable && slot.isAvailable
 
                     SlotChip(
                         areaName = slot.areaName,

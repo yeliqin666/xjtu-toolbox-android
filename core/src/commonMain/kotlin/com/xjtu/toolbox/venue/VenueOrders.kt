@@ -1,7 +1,5 @@
 package com.xjtu.toolbox.venue
 
-import com.xjtu.toolbox.ui.components.AppPullToRefresh
-import com.xjtu.toolbox.ui.components.FullPageState
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -14,9 +12,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.staggeredgrid.items
-import com.xjtu.toolbox.ui.adaptive.fullLineItem
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ReceiptLong
 import androidx.compose.material.icons.filled.CalendarToday
@@ -26,10 +22,16 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import com.xjtu.toolbox.ui.adaptive.AdaptiveCardGrid
+import com.xjtu.toolbox.ui.adaptive.fullLineItem
+import com.xjtu.toolbox.ui.components.AppPullToRefresh
 import com.xjtu.toolbox.ui.components.EmptyState
 import com.xjtu.toolbox.ui.components.ErrorState
+import com.xjtu.toolbox.ui.components.FullPageState
 import com.xjtu.toolbox.ui.components.LoadingState
 import top.yukonga.miuix.kmp.basic.Button
 import top.yukonga.miuix.kmp.basic.Card
@@ -37,9 +39,9 @@ import top.yukonga.miuix.kmp.basic.CardDefaults
 import top.yukonga.miuix.kmp.basic.CircularProgressIndicator
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.ScrollBehavior
+import top.yukonga.miuix.kmp.basic.Surface
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextButton
-import top.yukonga.miuix.kmp.basic.Surface
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 /**
@@ -47,10 +49,19 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
  *
  * 列表本身只负责呈现和分页触发，详情、取消确认、支付引导由父页面统一持有，
  * 这样从场馆页切换 Tab 时不会丢失弹窗状态，也能复用同一套认证错误处理。
+ *
+ * 从 `:app` 搬进 `:core` 时加了 [canPay] / [canCancel] 两个参数：订单模型自己的
+ * `canPay`/`canCancel` 只说「**服务端**允不允许」，而「**这一端**做不做得到」是另一端的事
+ *（campus-api 的场馆模块只读 ⇒ Web 两条都是 false）。点了必然失败的按钮一个都不画，
+ * 所以这里按两个开关关掉「去支付」「取消」。
+ *
+ * 订单字段缺失时这块 UI 会如实留白：campus-api 的订单明细没有场地名与场馆名
+ *（见 `CampusVenueApi` 的 KDoc），于是 [OrderCard] 的行摘要落到「暂无场地明细」、
+ * 标题落到「体育场馆订单」——这是 :app 原本就有的兜底，不是新编出来的内容。
  */
 @Composable
 fun VenueOrdersContent(
-    orders: List<VenueApi.OrderInfo>,
+    orders: List<OrderInfo>,
     isLoading: Boolean,
     isLoadingMore: Boolean,
     error: String?,
@@ -58,13 +69,17 @@ fun VenueOrdersContent(
     onRetry: () -> Unit,
     onRefresh: () -> Unit,
     onLoadMore: () -> Unit,
-    onDetail: (VenueApi.OrderInfo) -> Unit,
-    onCancel: (VenueApi.OrderInfo) -> Unit,
-    onPay: (VenueApi.OrderInfo) -> Unit,
+    onDetail: (OrderInfo) -> Unit,
+    onCancel: (OrderInfo) -> Unit,
+    onPay: (OrderInfo) -> Unit,
+    /** 本端能不能支付（[VenueSource.canBook]）。false ⇒ 订单卡上没有「去支付」。 */
+    canPay: Boolean = true,
+    /** 本端能不能取消（[VenueSource.canCancel]）。false ⇒ 订单卡上没有「取消」。 */
+    canCancel: Boolean = true,
     modifier: Modifier = Modifier,
     scrollBehavior: ScrollBehavior? = null,
     /** 玻璃顶栏（含标签行）的高度，放进列表顶部留白。 */
-    topPadding: androidx.compose.ui.unit.Dp = 0.dp,
+    topPadding: Dp = 0.dp,
 ) {
     AppPullToRefresh(
         isRefreshing = isLoading && orders.isNotEmpty(),
@@ -82,7 +97,7 @@ fun VenueOrdersContent(
 
         else -> {
             // 宽屏订单卡分两三列（见 AdaptiveCardGrid）
-            com.xjtu.toolbox.ui.adaptive.AdaptiveCardGrid(
+            AdaptiveCardGrid(
                 modifier = Modifier.fillMaxSize(),
                 contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 10.dp + topPadding, bottom = 10.dp),
                 spacing = 10.dp,
@@ -116,7 +131,9 @@ fun VenueOrdersContent(
                         order = order,
                         onDetail = { onDetail(order) },
                         onCancel = { onCancel(order) },
-                        onPay = { onPay(order) }
+                        onPay = { onPay(order) },
+                        canPay = canPay,
+                        canCancel = canCancel,
                     )
                 }
 
@@ -140,7 +157,7 @@ fun VenueOrdersContent(
                             modifier = Modifier.fillMaxWidth().padding(vertical = 10.dp),
                             style = MiuixTheme.textStyles.footnote1,
                             color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                            textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                            textAlign = TextAlign.Center
                         )
                     }
                 }
@@ -152,10 +169,13 @@ fun VenueOrdersContent(
 
 @Composable
 private fun OrderCard(
-    order: VenueApi.OrderInfo,
+    order: OrderInfo,
     onDetail: () -> Unit,
     onCancel: () -> Unit,
-    onPay: () -> Unit
+    onPay: () -> Unit,
+    /** 见 [VenueOrdersContent]：本端做不做得到（在订单自己的 `canPay`/`canCancel` 之上再与一次）。 */
+    canPay: Boolean,
+    canCancel: Boolean,
 ) {
     val statusColor = when (order.status) {
         0 -> Color(0xFFE27818)
@@ -205,11 +225,18 @@ private fun OrderCard(
                     tint = MiuixTheme.colorScheme.onSurfaceVariantSummary
                 )
                 Spacer(Modifier.width(6.dp))
-                val summary = order.details.joinToString("、") { detail ->
-                    listOf(detail.date, detail.timeSlot, detail.areaName)
-                        .filter { it.isNotBlank() }
-                        .joinToString(" ")
-                }
+                // 空的明细行不参与拼接：**字段缺失时不要把空串冒充成一条明细**。
+                // :app 那侧上游字段齐全，每一行都拼得出来 ⇒ 这条过滤对 Android 的输出没有影响；
+                // 而 Web 那侧 campus-api 的白名单里没有 `areaName`（见 CampusVenueApi 的 KDoc），
+                // 不过滤就会画出一个光秃秃的「、」。全部为空时下面那个 ifBlank 会落到「暂无场地明细」。
+                val summary = order.details
+                    .map { detail ->
+                        listOf(detail.date, detail.timeSlot, detail.areaName)
+                            .filter { it.isNotBlank() }
+                            .joinToString(" ")
+                    }
+                    .filter { it.isNotBlank() }
+                    .joinToString("、")
                 Text(
                     summary.ifBlank { "暂无场地明细" },
                     modifier = Modifier.weight(1f),
@@ -248,7 +275,7 @@ private fun OrderCard(
                     }
                 }
                 Text(
-                    "¥${"%.2f".format(order.price)}",
+                    "¥${money2(order.price)}",
                     style = MiuixTheme.textStyles.body1,
                     color = MiuixTheme.colorScheme.primary,
                     fontWeight = FontWeight.Bold
@@ -262,11 +289,11 @@ private fun OrderCard(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 TextButton(text = "详情", onClick = onDetail)
-                if (order.canPay) {
+                if (canPay && order.canPay) {
                     Spacer(Modifier.width(4.dp))
                     Button(onClick = onPay) { Text("去支付") }
                 }
-                if (order.canCancel) {
+                if (canCancel && order.canCancel) {
                     Spacer(Modifier.width(4.dp))
                     TextButton(text = "取消", onClick = onCancel)
                 }
