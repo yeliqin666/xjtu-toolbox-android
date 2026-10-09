@@ -14,6 +14,9 @@ import com.xjtu.toolbox.calendar.SchoolCalendarApi
 import com.xjtu.toolbox.calendar.SchoolCalendarFakeUpstream
 import com.xjtu.toolbox.calendar.SchoolCalendarScreen
 import com.xjtu.toolbox.error.FriendlyError
+import com.xjtu.toolbox.faculty.FacultyApi
+import com.xjtu.toolbox.faculty.FacultyApiSource
+import com.xjtu.toolbox.faculty.FacultyScreen
 import com.xjtu.toolbox.library.LibraryFakeUpstream
 import com.xjtu.toolbox.library.LibraryScreen
 import com.xjtu.toolbox.library.TestRsaKey
@@ -147,7 +150,16 @@ fun main(args: Array<String>) {
         )
     }
 
-    // ── ④⑤⑥⑦ 真登录之后（同一份假上游：图书馆要登录、校历不要）──────────────────
+    // ── ④ 教师检索（免登录；OkHttpClient 可注入 ⇒ 拦截器喂假上游，不需要服务器/代理）────
+    shot("faculty.png", frames = 12) {
+        FacultyScreen(
+            source = FacultyApiSource(FacultyApi(mockFacultyClient())),
+            onBack = {},
+            onOpenUrl = {},
+        )
+    }
+
+    // ── ⑤⑥⑦⑧ 真登录之后（同一份假上游：图书馆要登录、校历不要）──────────────────
     withFakeCampus { auth ->
         // 「用户在登录页敲了字」这一步：用的是假上游那组**编出来的**账号密码
         //（`LibraryFakeUpstream.USERNAME` = 2021000001，不是任何人的学号）。

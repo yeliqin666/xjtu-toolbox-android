@@ -32,7 +32,7 @@ import com.xjtu.toolbox.dzpz.TranscriptScreen
 import com.xjtu.toolbox.emptyroom.AppEmptyRoomSource
 import com.xjtu.toolbox.emptyroom.EmptyRoomScreen
 import com.xjtu.toolbox.error.FriendlyError
-import com.xjtu.toolbox.faculty.AppFacultySource
+import com.xjtu.toolbox.faculty.FacultyApiSource
 import com.xjtu.toolbox.faculty.FacultyAvatar
 import com.xjtu.toolbox.faculty.FacultyScreen
 import com.xjtu.toolbox.feedback.FeedbackScreen
@@ -463,10 +463,11 @@ fun AppNavHost(
             FeedbackScreen(onBack = back)
         }
         entry<AppRoute.Faculty>(transition = expand(AppRoute.Faculty::class)) {
-            // 取数仍是原来的 FacultyApi（AppFacultySource 只是把它包成 :core 的端口）；
+            // 取数仍是同一个 FacultyApi（FacultyApiSource 只是把它包成 :core 的端口）——
+            // 两者本轮都搬进了 :data（Stage A 收尾）：同包同名解析到新家，这里只改了适配器的名字；
             // 头像仍是原来的 FacultyAvatar（BitmapFactory + LruCache），行为逐字不变。
             FacultyScreen(
-                source = remember { AppFacultySource() },
+                source = remember { FacultyApiSource() },
                 onBack = back,
                 onOpenUrl = { url -> router.open(AppRoute.Browser(url)) },
                 avatar = { member, size -> FacultyAvatar(member, size) },

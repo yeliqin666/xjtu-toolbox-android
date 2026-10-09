@@ -34,6 +34,8 @@ import com.xjtu.toolbox.auth.ensureSite
 import com.xjtu.toolbox.calendar.SchoolCalendarApi
 import com.xjtu.toolbox.calendar.SchoolCalendarScreen
 import com.xjtu.toolbox.error.FriendlyError
+import com.xjtu.toolbox.faculty.FacultyApiSource
+import com.xjtu.toolbox.faculty.FacultyScreen
 import com.xjtu.toolbox.game.GamesScreen
 import com.xjtu.toolbox.game.blocks.BlocksScreen
 import com.xjtu.toolbox.game.g2048.Gpa2048Screen
@@ -156,6 +158,7 @@ internal val DESKTOP_SUPPORTED_ROUTES = listOf(
     AppRoute.SchoolCalendar to "校历",
     AppRoute.Library to "图书馆座位",
     AppRoute.YellowPage to "黄页",
+    AppRoute.Faculty to "教师检索",
     AppRoute.Games to "游戏合集",
     AppRoute.Game2048 to "GPA 2048",
     AppRoute.GameBlocks to "方块",
@@ -174,7 +177,6 @@ internal val DESKTOP_PENDING_ROUTES = listOf(
     AppRoute.Fitness to "体测",
     AppRoute.ScoreReport to "成绩",
     AppRoute.Notification to "通知公告",
-    AppRoute.Faculty to "教师检索",
     AppRoute.SchoolCourse to "全校课表",
     AppRoute.Inbox to "消息收纳",
     AppRoute.EmptyRoom to "空闲教室",
@@ -186,7 +188,7 @@ internal val DESKTOP_PENDING_ROUTES = listOf(
 @Composable
 private fun DesktopBottomBar(selected: DesktopTarget, onSelect: (DesktopTarget) -> Unit) {
     // 与 App 的「经典底栏」同一个组件、同一个 mode；只是格数不同（见文件头）。
-    // 当前页不在底栏那四格里（例如某个游戏子屏）⇒ 一格都不高亮，这是对的：
+    // 当前页不在底栏那五格里（例如某个游戏子屏、或教师检索）⇒ 一格都不高亮，这是对的：
     // 底栏是「去哪儿」，不是「你从哪儿来」。
     val selectedIndex = DESKTOP_TABS.indexOfFirst { it.target == selected }
     NavigationBar(mode = NavigationBarDisplayMode.IconAndText) {
@@ -220,6 +222,15 @@ private fun DesktopPage(auth: DesktopAuth, route: AppRoute, onNavigate: (Desktop
         AppRoute.SchoolCalendar -> SchoolCalendarScreen(
             source = remember { SchoolCalendarApi() },
             onBack = back,
+        )
+        // 教师检索：**免登录**（`faculty.xjtu.edu.cn` 检索 + `gr.xjtu.edu.cn` 主页），取数已搬进 `:data`。
+        // 适配器 `FacultyApiSource` 也是共享的（`:app` 与桌面用同一份，不再各写一份）。
+        // 头像用默认的 `InitialsFacultyAvatar`（首字圆）：`:app` 那份是 BitmapFactory + LruCache
+        //（Android 专属），而 `gr.xjtu.edu.cn` 不给 CORS 头 —— 不假装能取到图。
+        AppRoute.Faculty -> FacultyScreen(
+            source = remember { FacultyApiSource() },
+            onBack = back,
+            onOpenUrl = { openInBrowser(it) },
         )
         // 黄页：另一条**免登录**的公开门户接口，而且 `:core` 里那份 `YellowPageApi` 早就搬完了
         //（第 1 步 okhttp→Ktor 时搬的，端口收一个 `HttpClient`）⇒ 桌面只需给一条客户端。

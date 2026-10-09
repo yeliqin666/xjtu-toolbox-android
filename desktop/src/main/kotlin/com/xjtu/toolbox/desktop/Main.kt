@@ -13,6 +13,8 @@ import androidx.lifecycle.viewmodel.compose.LocalViewModelStoreOwner
 import com.xjtu.toolbox.core.net.createToolboxClient
 import com.xjtu.toolbox.ui.theme.XJTUToolBoxTheme
 import io.ktor.client.HttpClient
+import java.awt.Desktop
+import java.net.URI
 
 
 /**
@@ -58,7 +60,21 @@ fun main() = application {
         }
     }
 }
-// ⚠️ 这里**删掉了** Stage 0 留下的 `openInBrowser`（`Desktop.browse`）：它唯一的调用点是
-// 那批 campus-api 脚手架屏（黄页/教师检索/消息收纳里点外链），而那些屏这一轮已接不上数据源。
-// 留一个没人调的 internal 函数只是死代码；下一个带外链的屏搬过来时再按需要加回（`Desktop.browse`
-// 那三行 + 「没有桌面环境时静默吞掉」的降级）。
+/**
+ * 用系统浏览器打开外链（教师检索那一屏的「在浏览器中打开主页」用它）。
+ *
+ * 与 `:web` 的 `openInNewTab` 同义 —— 桌面端「内置浏览器」这条路不存在（`:app` 那个 WebView
+ * 带着站点会话，桌面没有），所以只做浏览器做得到的那件：把网址交出去。
+ * `Desktop.browse` 在没有桌面环境的机器上会抛 `UnsupportedOperationException`，静默吞掉
+ *（与 Web 那边「新标签被弹窗拦截器拦下 = 什么都没发生」同一种如实降级）。
+ *
+ * ⚠️ 它曾经在 Stage A 第二步被删过（当时它的调用点全在 campus-api 脚手架屏上，那些屏接不上
+ * 数据源 ⇒ 成了死代码）；教师检索搬进来之后它又有了真实调用点，所以又回来了。
+ */
+internal fun openInBrowser(url: String) {
+    runCatching {
+        if (Desktop.isDesktopSupported() && Desktop.getDesktop().isSupported(Desktop.Action.BROWSE)) {
+            Desktop.getDesktop().browse(URI(url))
+        }
+    }
+}

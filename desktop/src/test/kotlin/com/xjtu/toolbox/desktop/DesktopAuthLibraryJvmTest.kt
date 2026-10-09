@@ -7,6 +7,7 @@ import com.xjtu.toolbox.auth.SiteSession
 import com.xjtu.toolbox.calendar.SchoolCalendarApi
 import com.xjtu.toolbox.calendar.SchoolCalendarFakeUpstream
 import com.xjtu.toolbox.calendar.defaultTermIndex
+import com.xjtu.toolbox.faculty.FacultyApi
 import com.xjtu.toolbox.library.LibraryCampus
 import com.xjtu.toolbox.library.LibraryFakeUpstream
 import com.xjtu.toolbox.library.LibraryPages
@@ -354,5 +355,30 @@ class DesktopAuthLibraryJvmTest {
         assertEquals(listOf("029-82668891", "029-82668892"), data.departments[1].phoneItems)
         // 「数据更新于」的格式化口径（与 `:core` 那条单测同一个期望值）
         assertEquals("2026年08月01日", data.updateTime)
+    }
+
+    // ══════ 教师检索：另一条免登录的路（OkHttpClient 可注入 ⇒ 一条拦截器，不需要服务器）══════
+
+    @Test
+    fun `教师检索：免登录就能检索到教师，缺的主页地址由英文接口补齐`() {
+        // 同样不需要 `withFakeCampus`：`FacultyApi` 的 `OkHttpClient` 可注入，端口在调用方一侧。
+        val api = FacultyApi(mockFacultyClient())
+        val page = runBlocking { api.search() }
+
+        assertEquals(4, page.total)
+        assertEquals(listOf(20101L, 20102L, 20103L, 20104L), page.members.map { it.teacherId })
+        // 名字两边的空格被 trim（夹具里刻意带着空格）
+        assertEquals("示例甲", page.members[0].name)
+        // 第 2 行在中文接口里没有 url ⇒ 英文接口按 teacherId 补上（电气学院过半的人都这样）
+        assertTrue(
+            page.members[1].homepageUrl.contains("example-b"),
+            "英文接口应把主页地址补上：${page.members[1].homepageUrl}",
+        )
+        // 第 4 行是站外地址（ORCID）⇒ 原样返回、不算「空」，不该被英文接口覆盖
+        assertEquals("https://orcid.org/0000-0000-0000-0000", page.members[3].homepageUrl)
+
+        // 四张筛选 id 表从 search.jsp 的 HTML 里解析（免登录）
+        val filters = runBlocking { api.loadFilters() }
+        assertTrue(filters.colleges.isNotEmpty(), "学院表应解析出来：$filters")
     }
 }
