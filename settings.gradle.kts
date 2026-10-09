@@ -70,3 +70,8 @@ include(":core")
 // 这里只放「浏览器外壳 + 屏幕」，用来证明共享层在非 Android 端真的能跑真数据。
 include(":web")
 include(":data")
+
+// 桌面端（Linux / Windows）的**窗口模式**：Compose Desktop 原生窗口，进程内直取数据。
+// 这是 docs/desktop-port-plan.md 的阶段 0.1 —— 目的只有一个：证明 :core 的屏在这台 Linux 上
+// 真能渲染、MIUIX 的桌面观感/鼠标/输入法可接受、jpackage 能出包。
+include(":desktop")
