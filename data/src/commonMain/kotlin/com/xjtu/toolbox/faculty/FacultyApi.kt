@@ -1,8 +1,13 @@
 package com.xjtu.toolbox.faculty
 
-import com.xjtu.toolbox.util.redactBody
-import android.util.Log
 import com.xjtu.toolbox.network.HttpClients
+import com.xjtu.toolbox.platform.Log
+import com.xjtu.toolbox.util.AppJson
+import com.xjtu.toolbox.util.arr
+import com.xjtu.toolbox.util.redactBody
+import com.xjtu.toolbox.util.safeGet
+import com.xjtu.toolbox.util.safeInt
+import com.xjtu.toolbox.util.safeLong
 import com.xjtu.toolbox.webvpn.WebVpnUtil
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
@@ -11,13 +16,16 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.jsonObject
 import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.brotli.BrotliInterceptor
-import org.json.JSONObject
 import org.jsoup.Jsoup
 import java.util.concurrent.TimeUnit
 
@@ -36,6 +44,14 @@ import java.util.concurrent.TimeUnit
  * 4. 中文检索给部分老师的主页地址留空，用英文检索补，见 [search]。
  * 5. 个别老师的条目让检索整页回 `{}`，拆页绕开，见 [fetchPage]。
  * 6. 主页打不开一律走 [HomepageResult] 降级，不抛异常。
+ *
+ * ## 它为什么能在 `:data`
+ *
+ * 两个站点都**免登录** ⇒ 不碰任何会话内核，只做「发请求 + 解析」这一件事：把两处 Android 依赖
+ * 换成缝就能整块搬进 `:data`（`:app` 侧引用一个字未改）——
+ * `android.util.Log` → `:core` 的 `com.xjtu.toolbox.platform.Log`；
+ * 平台自带的 `org.json` → `:core` 的 `AppJson` + kotlinx.serialization。
+ * 取值口径逐条对齐（`optString` 那一格是唯一需要自己写助手的地方，见文件末尾的 `orgJsonString`）。
  */
 class FacultyApi(
     private val client: OkHttpClient = defaultClient
@@ -232,7 +248,7 @@ class FacultyApi(
             val en = runCatching { fetchPage(query, page.coerceAtLeast(1), size, 1, "en").second }
                 .onFailure { Log.w(TAG, "英文检索补主页地址失败", it) }
                 .getOrDefault(emptyList())
-                .associate { it.optLong("teacherId") to normalizeHomepage(it.optString("url")) }
+                .associate { it.safeGet("teacherId").safeLong() to normalizeHomepage(it.orgJsonString("url")) }
             members = members.map { m -> if (m.homepageUrl.isNotBlank()) m else m.copy(homepageUrl = en[m.teacherId].orEmpty()) }
         }
         FacultySearchPage(
@@ -254,16 +270,18 @@ class FacultyApi(
         pageSize: Int,
         profileLength: Int,
         lang: String,
-    ): Pair<Int, List<JSONObject>> {
+    ): Pair<Int, List<JsonObject>> {
         val url = buildSearchUrl(query, page, pageSize, profileLength, lang)
         val body = fetchText(url.toString(), referer = "$FACULTY_HOST/search.jsp")
         if (!looksLikeJson(body)) {
             Log.e(TAG, "advancesearch 未返回 JSON, preview=${body.redactBody(500)}")
             throw RuntimeException("教师检索返回了异常数据，请稍后重试")
         }
-        val json = JSONObject(body)
-        json.optJSONArray("teacherData")?.let { arr ->
-            return json.optInt("totalnum", arr.length()) to (0 until arr.length()).mapNotNull(arr::optJSONObject)
+        // 原来这一行是 `JSONObject(body)`：不是 JSON 对象（数组、垃圾体）就抛，别改成静默降级
+        val json = AppJson.parseToJsonElement(body).jsonObject
+        json.arr("teacherData")?.let { arr ->
+            return json.safeGet("totalnum").safeInt(arr.size) to
+                (0 until arr.size).mapNotNull { arr[it] as? JsonObject }
         }
         if (pageSize <= 1) return -1 to emptyList()
         val parts = (2..pageSize).first { pageSize % it == 0 }
@@ -331,40 +349,40 @@ class FacultyApi(
         FIXED_PARAMS.forEach { (k, v) -> addQueryParameter(k, v) }
     }.build()
 
-    private fun parseMember(o: JSONObject): FacultyMember = FacultyMember(
-        teacherId = o.optLong("teacherId"),
-        name = o.optString("name").trim(),
-        englishName = o.optString("ename").trim(),
-        pinyin = o.optString("pinYinName").trim(),
-        homepageUrl = normalizeHomepage(o.optString("url")),
-        collegeName = o.optString("collegeName").ifBlank { o.optString("unit") }.trim(),
-        proRank = o.optString("prorank").trim(),
-        job = o.optString("job").trim(),
-        discipline = o.optString("discipline").trim(),
-        degree = o.optString("degree").trim(),
-        education = o.optString("education").trim(),
-        graduatedUniversity = o.optString("graduatedUniversity").trim(),
-        isDoctoralTutor = o.optInt("doctorTutor") == 1,
-        isMasterTutor = o.optInt("gtutor") == 1,
-        profile = o.optString("profile").ifBlank { o.optString("profileSummary") }.trim(),
-        researchDirections = o.optJSONArray("researchDirectionList")?.let { arr ->
+    private fun parseMember(o: JsonObject): FacultyMember = FacultyMember(
+        teacherId = o.safeGet("teacherId").safeLong(),
+        name = o.orgJsonString("name").trim(),
+        englishName = o.orgJsonString("ename").trim(),
+        pinyin = o.orgJsonString("pinYinName").trim(),
+        homepageUrl = normalizeHomepage(o.orgJsonString("url")),
+        collegeName = o.orgJsonString("collegeName").ifBlank { o.orgJsonString("unit") }.trim(),
+        proRank = o.orgJsonString("prorank").trim(),
+        job = o.orgJsonString("job").trim(),
+        discipline = o.orgJsonString("discipline").trim(),
+        degree = o.orgJsonString("degree").trim(),
+        education = o.orgJsonString("education").trim(),
+        graduatedUniversity = o.orgJsonString("graduatedUniversity").trim(),
+        isDoctoralTutor = o.safeGet("doctorTutor").safeInt() == 1,
+        isMasterTutor = o.safeGet("gtutor").safeInt() == 1,
+        profile = o.orgJsonString("profile").ifBlank { o.orgJsonString("profileSummary") }.trim(),
+        researchDirections = o.arr("researchDirectionList")?.let { arr ->
             buildList {
-                for (i in 0 until arr.length()) {
-                    arr.optJSONObject(i)?.optString("researchDirectionTitle")
+                for (i in 0 until arr.size) {
+                    (arr[i] as? JsonObject)?.orgJsonString("researchDirectionTitle")
                         ?.trim()?.takeIf { it.isNotEmpty() }?.let { add(it) }
                 }
             }
         }.orEmpty(),
-        picUrl = o.optString("picUrl").trim(),
-        email = o.optString("email").trim(),
-        contact = o.optString("contact").trim(),
-        phone = o.optString("phone").trim(),
-        mobilePhone = o.optString("mobilephone").trim(),
-        officeLocation = o.optString("officeLocation").trim(),
-        address = o.optString("address").trim(),
-        entryTime = o.optString("entryTime").trim(),
-        lastUpdate = o.optString("latestUpdate").trim(),
-        clickTimes = o.optLong("clickTimes"),
+        picUrl = o.orgJsonString("picUrl").trim(),
+        email = o.orgJsonString("email").trim(),
+        contact = o.orgJsonString("contact").trim(),
+        phone = o.orgJsonString("phone").trim(),
+        mobilePhone = o.orgJsonString("mobilephone").trim(),
+        officeLocation = o.orgJsonString("officeLocation").trim(),
+        address = o.orgJsonString("address").trim(),
+        entryTime = o.orgJsonString("entryTime").trim(),
+        lastUpdate = o.orgJsonString("latestUpdate").trim(),
+        clickTimes = o.safeGet("clickTimes").safeLong(),
     )
 
     /** 本地补充过滤，见 [search] 注释 */
@@ -699,3 +717,34 @@ class FacultyApi(
         }
     }
 }
+
+// ══════ `org.json` 口径的取值助手（搬迁前就是这个口径，别顺手换成「更好看的」） ══════
+
+/**
+ * `org.json` 的 `optString(key)` —— **搬迁前的取值口径**，不是「更干净的写法」：
+ *
+ * | 上游给什么 | 这个函数 | `:core` 的 `safeString` / `safeStringOrNull` |
+ * |---|---|---|
+ * | 缺字段 | `""` | `""` |
+ * | 字符串 | 原样 | 原样 |
+ * | 数字 / 布尔 | 文本形式（`5`、`true`） | 同样 |
+ * | **JSON null** | **字面量 `"null"`** | `""` |
+ * | 对象 / 数组 | 它的 JSON 文本 | `""` |
+ *
+ * 最后一列就是**不能**直接换成 `:core` 那两个助手的原因：Android 的 `optString` 走
+ * `JSON.toString(JSONObject.NULL)` ⇒ `String.valueOf(JSONObject.NULL)` ⇒ `"null"`
+ *（AOSP `libcore/org/json/JSON.java`；上游 json.org 那份实现在这一格给的是 fallback，两边不一样，
+ * 而 `:app` 跑在 Android 上）。上游确实会夹 null，所以这一格照抄旧行为。
+ *
+ * 数值那两个不用自己写：`:core` 的 `safeInt` / `safeLong` 与 `optInt` / `optLong` 逐条等价
+ *（字符串数字会解析、布尔/对象/数组/JSON null 一律落回默认值），见本类 `parseMember` 的用法。
+ */
+private fun JsonElement?.orgJsonString(): String = when (this) {
+    null -> ""
+    // JsonNull 也是 JsonPrimitive，它的 content 就是 "null" —— 正是要的那一格
+    is JsonPrimitive -> content
+    else -> toString()
+}
+
+/** 取字段版本：用 `this[key]` 而不是 `safeGet` —— `safeGet` 把 JSON null 当「没有」，那一格就丢了。 */
+private fun JsonObject.orgJsonString(key: String): String = this[key].orgJsonString()
