@@ -72,13 +72,14 @@ object CourseColors {
 }
 
 @Composable
-fun CourseColorDialog(courseName: String, current: Color, onDismiss: () -> Unit) {
+fun CourseColorDialog(courseName: String, current: Color, agenda: Boolean = false, onDismiss: () -> Unit) {
     var color by remember { mutableStateOf(current) }
     var hex by remember { mutableStateOf(CourseColors.toHex(current)) }
     WindowDialog(
         show = true,
-        title = "课程颜色",
-        summary = "课表和思源学堂里的「$courseName」一起换",
+        title = if (agenda) "日程颜色" else "课程颜色",
+        // 按名称存，同名日程一起换
+        summary = if (agenda) "课表里所有「$courseName」一起换" else "课表和思源学堂里的「$courseName」一起换",
         onDismissRequest = onDismiss,
     ) {
         Column {

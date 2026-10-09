@@ -1143,18 +1143,16 @@ private fun CourseDetailContent(
                         fontWeight = FontWeight.Bold,
                         modifier = Modifier.weight(1f),
                     )
-                    if (!isAgenda) {
-                        var pickColor by remember { mutableStateOf(false) }
-                        val color = rememberCourseColors(allCourseNames).colorOf(course.courseName)
-                        Box(
-                            Modifier
-                                .size(26.dp)
-                                .clip(CircleShape)
-                                .background(color)
-                                .clickable { pickColor = true }
-                        )
-                        if (pickColor) CourseColorDialog(course.courseName, color) { pickColor = false }
-                    }
+                    var pickColor by remember { mutableStateOf(false) }
+                    val color = rememberCourseColors(allCourseNames).colorOf(course.courseName)
+                    Box(
+                        Modifier
+                            .size(26.dp)
+                            .clip(CircleShape)
+                            .background(color)
+                            .clickable { pickColor = true }
+                    )
+                    if (pickColor) CourseColorDialog(course.courseName, color, agenda = isAgenda) { pickColor = false }
                 }
                 course.courseType.takeIf { it.isNotBlank() && !isAgenda }?.let {
                     Spacer(Modifier.height(3.dp))
