@@ -50,8 +50,9 @@ enum class ScheduleSource(val key: String, val label: String, val summary: Strin
  * 1. **历史学期永远走教务**。非教务源不一定认得别的学期，查了要么报错，
  *    要么把当前学期的课当成那个学期的返回——后者比报错更糟。这里不靠外部判断"是不是
  *    当前学期"，而是问来源自己当前学期是哪个，对不上就换教务。
- * 2. **非教务源出任何问题都退回教务**。用户看不到课表是最坏的结果，比看到一份来自
+ * 2. **非教务源取不到就退回教务**。用户看不到课表是最坏的结果，比看到一份来自
  *    次选来源的课表糟得多；换源本身也不该成为看不到课表的新理由。
+ *    例外：这个源以前拿到过课表、这次只是连不上，就报错让调用方留着上次的。
  */
 object ScheduleSourceRouter {
 
@@ -75,6 +76,11 @@ object ScheduleSourceRouter {
         } catch (e: CancellationException) {
             throw e
         } catch (e: Throwable) {
+            // 这个源以前拿到过课表：报错让调用方留着上次的，别拿教务覆盖（教务没有调休日之类的安排）
+            if (servedSource(context) == source) {
+                Log.w(TAG, "${source.label}取课表失败，保留上次的：${e.javaClass.simpleName} ${e.message}")
+                throw java.io.IOException("${source.label}暂时连不上", e)
+            }
             Log.w(TAG, "${source.label}取课表失败，退回教务：${e.javaClass.simpleName} ${e.message}")
             null
         }
@@ -187,7 +193,8 @@ object ScheduleSourceRouter {
         termCode: String,
         userInitiated: Boolean,
     ): SourceSchedule? {
-        val site = manager.siteOrNull(LoginType.ATTENDANCE, userInitiated) ?: return null
+        val site = manager.siteOrNull(LoginType.ATTENDANCE, userInitiated)
+            ?: throw java.io.IOException("考勤系统登录不上")
         val sides = KqPortal.currentSemester(site).filter { sameTerm(it.termCode, termCode) }
         if (sides.isEmpty()) {
             Log.d(TAG, "考勤门户的当前学期不是 $termCode，走教务")
