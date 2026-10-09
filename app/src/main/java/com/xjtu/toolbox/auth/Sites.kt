@@ -124,23 +124,10 @@ class YwtbSession : CasSiteSession("ywtb", "一网通办", mustUseWebVpn = false
 }
 
 // ── LIBRARY 图书馆座位 ────────────────────────────────────────────────
-
-class LibrarySession : CasSiteSession("library", "图书馆", mustUseWebVpn = true) {
-    override fun createLogin(client: OkHttpClient, visitorId: String?, cachedRsaKey: String?): XJTULogin =
-        LibraryLogin(existingClient = client, visitorId = visitorId)
-
-    override suspend fun validateLogin(): Boolean = withIo {
-        val resp = client.newCall(
-            Request.Builder().url("http://rg.lib.xjtu.edu.cn:8086/seat/").get().build()
-        ).execute()
-        try {
-            val finalUrl = resp.request.url.toString()
-            // 同 JwxtSession：WebVPN 下明文域名判断会把失效会话误判为有效。
-            resp.code in 200..399 &&
-                com.xjtu.toolbox.webvpn.WebVpnUtil.isAtTargetSite(finalUrl, "rg.lib.xjtu.edu.cn")
-        } finally { resp.close() }
-    }
-}
+// `LibrarySession` 已搬进 `:data`（同一个类名、同一个包）：它是「Sites.kt 里的站点逐个接上
+// `:data`」的第一个 —— 它只用到 `CasSiteSession` + `LibraryLogin` + `WebVpnUtil`，这三样
+// 现在都在 `:data` 里，于是桌面端可以直接拿它登录（`docs/desktop-port-plan.md` Stage A）。
+// 类名与包路径都没变 ⇒ 下面 AppLoginState / HeadlessSessions 的 `register(...)` 一行不用改。
 
 // ── LMS 思源学堂 ─────────────────────────────────────────────────────
 

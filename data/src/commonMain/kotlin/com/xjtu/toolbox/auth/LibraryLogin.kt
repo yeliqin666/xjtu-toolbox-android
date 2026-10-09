@@ -15,15 +15,23 @@ import okhttp3.Response
  * 如果已有 TGC cookie（已登录其它服务），CAS 自动签发 ticket 回跳。
  *
  * ⚠️ 不再走 www.lib.xjtu.edu.cn 门户（那是 Vue SPA，没有 CAS 表单）
+ *
+ * `cachedRsaKey`：与其余 15 个站点（`Sites.kt` 里除了 campus_card 的每一个）同型的参数 ——
+ * 会话管家已经缓存了统一认证的公钥时直接拿来用，省掉一次
+ * `GET https://login.xjtu.edu.cn/cas/jwt/publicKey`。传进来的 key 解不出来时
+ * [XJTULogin.encryptPassword] 仍会照旧重新取一份，所以能力上只是少一次冗余请求。
+ * 图书馆站点早年漏传了这个参数（每次登录都白取一次公钥），这是把它与其余站点对齐。
  */
 class LibraryLogin(
     existingClient: OkHttpClient? = null,
-    visitorId: String? = null
+    visitorId: String? = null,
+    cachedRsaKey: String? = null,
 ) : XJTULogin(
     // 直接认证座位系统——它本身是 CAS 服务
     loginUrl = "http://rg.lib.xjtu.edu.cn:8086/seat/",
     existingClient = existingClient,
-    visitorId = visitorId
+    visitorId = visitorId,
+    cachedRsaKey = cachedRsaKey,
 ) {
     companion object {
         private const val TAG = "LibraryLogin"
