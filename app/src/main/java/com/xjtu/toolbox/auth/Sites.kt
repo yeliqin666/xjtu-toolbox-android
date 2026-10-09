@@ -343,38 +343,6 @@ class CouponSession : CasSiteSession("coupon", "餐券系统", mustUseWebVpn = f
     }
 }
 
-// ── 体测查询 ─────────────────────────────────────────────────────────
-
-/**
- * 体测查询。钉死直连（`mustUseWebVpn = false`），与 jwxt/jwapp/lms/class 同策略——
- * 这些域名公网可达，多绕一层 WebVPN 网关只会更慢。
- *
- * 2026-08-01 排查记录：校外点体测必失败，直连 `tyxylp.xjtu.edu.cn` 秒回 **HTTP 502**。
- * 一度据此推断"校外不可达、应改走 WebVPN"，遂改为跟随全局模式——**实测证伪**：
- * 走 WebVPN（从校园网内部发起）拿到的仍是同一个 502。两条独立路径同样结果，
- * 说明反向代理是通的、接不到后端，即体测应用自身故障，与访问路径无关。故已改回直连。
- */
-class FitnessSession : CasSiteSession("fitness", "体测查询", mustUseWebVpn = false) {
-    override fun createLogin(client: OkHttpClient, visitorId: String?, cachedRsaKey: String?): XJTULogin =
-        com.xjtu.toolbox.fitness.FitnessLogin(
-            session = client,
-            visitorId = visitorId,
-            cachedRsaKey = cachedRsaKey
-        )
-
-    override fun onLoginSuccess(login: XJTULogin) {
-        val fitness = login as? com.xjtu.toolbox.fitness.FitnessLogin ?: return
-        val launch = fitness.launch ?: return
-        com.xjtu.toolbox.fitness.FitnessProtocol.writeTokens(localToken, launch)
-    }
-
-    override suspend fun validateLogin(): Boolean = withIo {
-        val session = com.xjtu.toolbox.fitness.FitnessProtocol.sessionFromTokens(localToken) ?: return@withIo false
-        val referer = localToken["referer_url"] ?: com.xjtu.toolbox.fitness.FitnessProtocol.H5_HOME_URL
-        com.xjtu.toolbox.fitness.FitnessProtocol.requestUserInfo(client, session, referer) != null
-    }
-}
-
 // ── DZPZ 电子凭证（成绩单） ───────────────────────────────────────────
 
 class DzpzSession : CasSiteSession("dzpz", "电子凭证", mustUseWebVpn = false) {
