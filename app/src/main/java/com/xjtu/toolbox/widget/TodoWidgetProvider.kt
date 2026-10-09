@@ -24,8 +24,8 @@ import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 
 /**
- * 待办桌面小组件：收纳页「待办」栏的前几条，快截止的在前。一行一条：左边一道色条，作业按科目取课表那门课的颜色、
- * 科目名同色，其余待办用分类色；右边是截止时间。
+ * 待办桌面小组件：收纳页「待办」栏的前几条，快截止的在前。一行一条：左边一道色条，作业按科目取课表那门课的颜色，
+ * 其余待办用分类色；科目名不上色，课程色可自选，浅色当字色看不清。右边是截止时间。
  *
  * 数据来自 [InboxStore]，每次收纳写入都重画，小组件自己不发请求。点击进收纳页。
  */
@@ -83,9 +83,7 @@ object TodoWidgetUpdater {
                     val item = todos.getOrNull(i)
                     views.setViewVisibility(r.row, if (item == null) View.INVISIBLE else View.VISIBLE)
                     if (item == null) return@forEachIndexed
-                    val color = accent(item)
-                    views.setInt(r.accent, "setColorFilter", color)
-                    views.setTextColor(r.source, color)
+                    views.setInt(r.accent, "setColorFilter", accent(item))
                     views.setTextViewText(r.source, item.source)
                     // 学校不少待办的标题就是系统名，这时拿正文当标题
                     views.setTextViewText(r.title, if (item.title == item.source && item.body.isNotBlank()) item.body else item.title)

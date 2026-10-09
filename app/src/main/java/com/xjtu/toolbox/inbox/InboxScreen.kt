@@ -281,7 +281,7 @@ private class Entry(
     val done: Boolean = false,
     /** 替换右上角的时间，比如「已完成 · 3 小时前」。 */
     val timeText: String? = null,
-    /** 作业按科目取课表里那门课的颜色，图标和科目名一起上色；为 null 用分类色。 */
+    /** 作业按科目取课表里那门课的颜色，只给图标上色（课程色可自选，浅色当字色看不清）；为 null 用分类色。 */
     val accent: Color? = null,
     val onLongClick: (() -> Unit)? = null,
     val onClick: () -> Unit,
@@ -474,8 +474,7 @@ private fun InboxRow(e: Entry) {
                 Text(
                     item.source + if (count > 1) " · $count 条" else "",
                     style = MiuixTheme.textStyles.footnote1,
-                    color = if (e.accent != null) tint else MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                    fontWeight = if (e.accent != null) FontWeight.Medium else FontWeight.Normal,
+                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f),

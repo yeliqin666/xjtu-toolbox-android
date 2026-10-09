@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
   待办小部件：标题行（名称 + 条数），下面最近 4 条一行一条：左边一道色条（作业按科目取课表的课程色，
-  其余按分类色，setColorFilter 着色，见 widget_schedule_course_accent_item），科目名同色，右边截止时间。
+  其余按分类色，setColorFilter 着色，见 widget_schedule_course_accent_item），右边截止时间。
   四行平分剩下的高度，卡片拉高拉矮都铺得满。
 -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
