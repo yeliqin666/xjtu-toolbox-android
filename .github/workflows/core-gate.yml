@@ -58,6 +58,10 @@ jobs:
         # （okhttp 只发布 jvm/android 变体、jsoup 只有一份 JVM jar，加 wasm 立刻编不过），
         # 所以这里不拿它去编 wasm —— 它的可移植性判据是"同一份代码在这两个目标上都编得过 +
         # `LibraryDataLayerJvmTest` 在 JVM 上真跑通（本地 HTTP 服务器 + 域名重写）"。
-        # :desktop 是第一个 Compose Desktop 承载；离屏渲染（renderScreens）留作本地/人工验收
-        # （它需要 libGL 与 skiko 的原生库，不往 CI 里塞环境依赖）。
-        run: ./gradlew :data:compileAndroidMain :data:jvmTest :desktop:compileKotlin
+        # :desktop 是第一个 Compose Desktop 承载；它的**装配**有验收测试（真登录、凭据落盘、
+        # 冷启动恢复、会话失效重登），跑在 JVM 上、不需要显示服务器；而离屏渲染（renderScreens）
+        # 留作本地/人工验收（它需要 libGL 与 skiko 的原生库，不往 CI 里塞环境依赖）。
+        #
+        # :testkit 是假的校园上游（图书馆座位系统 + 统一认证）—— 它不在任何交付物里，但上面两条
+        # 测试都依赖它，所以要单独编一遍（它一旦编不过，两边的失败信息都很难指向真因）。
+        run: ./gradlew :testkit:compileKotlin :data:compileAndroidMain :data:jvmTest :desktop:compileKotlin :desktop:test

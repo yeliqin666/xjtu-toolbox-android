@@ -257,3 +257,46 @@ WebVPN 在桌面的复用（校外访问必需）· 桌面通知/托盘 · serve
 **这一轮没做的**：桌面端自身的登录界面与「把 `:desktop` 的脚手架数据源换成 `:data`」
 （窗口模式的下一步）；`Sites.kt` 里其余 18 个站点仍留在 `:app`（逐个搬，图书馆已搬完）；
 网络栈迁移、serve 模式、40/40 之外的清洁（理由同 §4/§8）。
+
+---
+
+## 11. Stage A 第二步结果（2026-10-09 实做）：`:desktop` 真的用上了 `:data`
+
+交接文档 §3.1 那一步做完了：**桌面端拆掉 campus-api 脚手架，改成自己登录、自己取数**。
+
+| 验收 | 结果 |
+|---|---|
+| 桌面端自己登录 | ✓ `:data` 的会话内核（`SessionManager` + `XJTULogin` + `LibrarySession`）在窗口里跑完整 CAS｜密码 RSA 加密送交、TGC 与站点会话落盘、冷启动从凭据文件静默恢复 |
+| 登录屏在 `:core` | ✓ `LoginScreen` + `MfaCodeDialog` 两个哑视图进 `:core`（状态由宿主喂）；`:app` 的登录界面一行未动（红线） |
+| 凭据存储 | ✓ `JvmCredentialStore`（`:data:jvmMain`）：**文件名与键名与 `:app` 的 `CredentialStore` 逐字相同**，落成 `0600` 的 Properties 文件；退出登录把凭据 + cookie + 站点快照一起删 |
+| 图书馆屏真取数 | ✓ `:core` 的 `LibraryScreen` + `DesktopLibrarySource`（`:data` 的 `LibraryApi` + 真 `LibrarySession`）—— 读/写/平面图都在 |
+| 其余路由 | ✓ 不再借 campus-api 画画面，而是 `NotPortedScreen` 如实列出「屏在了、取数还在 `:app`」（12 条） |
+| Android 行为不变 | ✓ `:app` / `:web` **diff 为空**（本轮改动只落在 `:core` 新增文件、`:data` 新增文件、`:desktop`、新模块 `:testkit`） |
+| 证据 | ✓ `:desktop:renderScreens` 出 5 张图：`login.png` / `library-after-login.png`（**真登录后的座位图**，含当前预约 A01 与平面图）/ `shell-after-login.png` / `routes.png` / `library-demo.png` |
+| 装配验收测试 | ✓ `:desktop:test` 的 `DesktopAuthLibraryJvmTest`（8 例）：真登录、错密码不落盘、读路径、冷启动免密、会话失效重登重放、退出即清除 |
+
+**这一轮落下的手法（下一步照抄）：**
+
+1. **假上游要能跨模块复用 ⇒ 它得是一个独立的模块**：`LibraryFakeUpstream` / `TestRsaKey` 从
+   `:data:jvmTest` 搬到新的 `:testkit`（纯 JVM、零依赖）。理由三条：页面原文只能有一份（改一处所有消费者
+   一起动）；Gradle 跨模块共享不了 test 源集（`java-test-fixtures` 对 KMP 不生效，手搬变体属性更脆）；
+   **它绝不能进任何交付物**（一个「任何密码都收」的假统一认证不该随 `.deb` 发出去）。
+2. **离屏证据生成器跟着假上游待在 test 源集里**：`RenderScreens` 与 `DemoLibrarySource` 因此从
+   `src/main` 搬到 `src/test`，`renderScreens` 任务的类路径也换成 `sourceSets["test"]`。
+   jpackage 只会打包 `src/main` ⇒ 假上游连影子都不在包里（可用 `dpkg -c` 核）。
+3. **桌面端的登录不需要「匿名罐」那一段**：`:app` 先匿名登录、拿到学号再 `adoptAnonymousSession(suffix)`，
+   那是因为它**登录前不知道 accountId**；桌面是用户手输学号 ⇒ **先定命名空间再登**（`reconfigureForAccount`
+   → `setCredentials` → `ensureSite`）。失败时退回匿名命名空间，绝不把一个没登上去的账号写进 `AccountContext`。
+4. **`WindowDialog` 在桌面是一个独立 AWT 窗口**（`androidx.compose.ui.window.Dialog` → `DialogWindow`）
+   ⇒ 离屏场景（`ImageComposeScene`）画不进它，没有显示服务器时连创建都不行。所以 MFA 那一屏的证据
+   只能由 `:desktop:run` 在真窗口里给 —— MFA 弹窗与 `:app` 那份逐条对齐（同一个 miuix 组件、同一套文案）。
+5. **夹具也要能「被解码」**：假上游原来的平面图只有 8 字节的 JPEG 文件头（`getPlanImage` 只认头、不解码，
+   够用）。一旦屏上要真把它画出来（`decodePlanImages` → skiko），就只剩一句「平面图解码失败」。
+   所以夹具改成用 `ImageIO` 真画 200×300 的 JPEG（底图 + 状态图同尺寸同比例）。
+6. **进程级会话状态的隔离要连命名空间一起清**：桌面登录会把 backends 换到账号命名空间
+   （`cookies_normal_<学号>`）⇒ 测试里只清 `_default` 等于什么都没清，上一条测试留下的 TGC
+   会把「真登录」变成 SSO 直通（`credentialPosts` 恒为 0）。**第一次跑就踩到了。**
+
+**这一轮没做的**：`Sites.kt` 里其余 18 个站点仍留在 `:app`（它们各自的 `*Login` + 功能包里的解析类要一起搬）；
+校园网判定（WebVPN 网关）在桌面端仍缺席 —— 故**校外直连不上**，属 §5.4；serve 模式、网络栈迁移、
+40/40 之外的清洁（理由同 §4/§8）。

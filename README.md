@@ -74,7 +74,8 @@ MIUIX 从 Maven Central 引入，始终跟随最新正式版（见 `gradle/libs.
 | `:core` | Android + jvm + wasmJs | **三端同一份**：模型、屏、路由表、主题与组件、周视图几何、游戏逻辑 |
 | `:data` | Android + jvm | **数据层**：会话内核（CAS 登录 / cookie / 站点快照 / WebVPN）+ 取数与解析（okhttp + jsoup）；三端共用一份（桌面窗口与服务模式跑在 jvm 变体上） |
 | `:web` | wasmJs（浏览器） | 浏览器外壳：只渲染 `:core` 里的屏，数据经同源反代（`web/tools/serve-same-origin.py`）取自 campus-api |
-| `:desktop` | jvm（Compose Desktop） | 桌面窗口壳：只渲染 `:core` 里的屏，jpackage 出包；数据源正在从 campus-api 脚手架换成 `:data` |
+| `:desktop` | jvm（Compose Desktop） | 桌面窗口壳：只渲染 `:core` 里的屏，jpackage 出包；**自己登录**（`:data` 的会话内核 + 凭据文件），不依赖 campus-api |
+| `:testkit` | jvm（仅测试） | 假的校园上游（图书馆座位系统 + 统一认证）—— **不在任何交付物里**：`:data:jvmTest` 的契约测试与桌面端的离屏证据共用同一批页面原文 |
 
 `:web` 不是独立客户端：它是 **serve 模式/本机后端**（`docs/desktop-port-plan.md` §3）的浏览器界面，
 数据来自同源 `/api/*`，不是自带会话的桌面/移动客户端。

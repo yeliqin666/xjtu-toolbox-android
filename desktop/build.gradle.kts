@@ -5,10 +5,28 @@
 // 里 compose.desktop.application 认哪个目标」的坑）。`:core` 是 KMP，但它的 jvm 变体对
 // 普通 JVM 消费者是可见的（Gradle Module Metadata 按属性选变体），所以 `project(":core")` 直接用。
 //
-// 这一端**没有自己的业务代码**：屏、ViewModel、模型、取数端口全在 `:core`；数据源是 `:core` 里
-// 那 13 个 campus-api 版实现（`Campus*Api`），只把基址指向本机的 127.0.0.1:3099。
-// ⚠️ 那是**脚手架**：它只对「我这台跑着 campus-api 的机器」可用，正是因此它只出现在阶段 0。
-// Stage A 会把数据源换成 `:data`（自带登录、自带数据，见 docs/desktop-port-plan.md §6）。
+// ## 这一端有什么（Stage A 第二步之后）
+//
+// - `:core` —— 屏 / ViewModel / 模型 / 端口（三端唯一一份）；
+// - `:data` —— **数据层与会话内核**：它自己发 CAS 登录、自己维持会话、自己取数。
+//   桌面端**不依赖 campus-api**（那是设计文档 C2：任何人独立安装、独立登录）。
+//
+// 所以 `src/main` 里只剩四样东西：窗壳（`Main`）、桌面外壳（`ToolboxDesktopApp`）、
+// 登录装配（`DesktopAuth`）、图书馆端口到 `:data` 的适配（`DesktopLibrarySource`）。
+// 业务一行都没有。
+//
+// ⚠️ **脚手架已经拆掉了**：Stage 0 时这里曾经把 `:core` 里那 13 个 `Campus*Api` 指向本机
+// `127.0.0.1:3099` 的 campus-api，好让 19 条路由都能画出画面。那违反 C2（它只对「我这台跑着
+// campus-api 的机器」可用），所以这一轮换成了 `:data` + 窗口里自己登录：**图书馆那条路由**是真数据，
+// 其余路由如实显示「还没搬到桌面」（`NotPortedScreen`）—— 它们卡的是各自的 `*Api` 还在 `:app`，
+// 见 `docs/desktop-port-plan.md` §3.1 与 §5.1。
+//
+// ## 离屏渲染证据为什么在 `src/test` 里
+//
+// `renderScreens` 要画出「用真会话登进去的图书馆」，就得有一个假的上游（真站点进不去、也不该进）。
+// 那个假上游是 `:testkit` —— **一个绝不能被任何交付物依赖到的模块**。所以证据生成器
+// （`RenderScreens`）与它一起待在 test 源集：`createDistributable` / `packageDeb` / `tar.gz`
+// 只会打包 `src/main` 的编译产物，假上游连影子都不该有。
 /**
  * 桌面包的版本号。单独拎出来是因为它出现在两个地方：jpackage 的 `packageVersion`
  * （只接受 `x.y.z`）与 tar.gz 的文件名。
@@ -29,18 +47,23 @@ kotlin {
 dependencies {
     // 唯一一份 UI 与业务逻辑
     implementation(project(":core"))
+    // 数据层与会话内核：桌面端自己登录、自己取数（不经过任何我方的服务器）
+    implementation(project(":data"))
     // Compose Desktop 的当前平台运行时（含 skiko 与 Swing 调度器）
     implementation(compose.desktop.currentOs)
     implementation(libs.kotlinx.coroutines.core)
-    // 读 campus-api 那份裸 JSON（`:core` 只在内部用它解析，没往上暴露类型）
-    implementation(libs.kotlinx.serialization.json)
     // `Dispatchers.Main` 在桌面 = AWT 事件队列。:core 的屏一律用 `viewModel { }` + `viewModelScope`，
     // 而 viewModelScope 跑在 Main.immediate 上 —— 少了这个，离屏渲染与真窗口都会以
     // 「Dispatchers.Main[missing]」失败。Compose Desktop 自己不转递它。
     implementation(libs.kotlinx.coroutines.swing)
-    // 脚手架数据源走的是 `:core` 的 Ktor 客户端（`createToolboxClient()` → `toolboxEngine()`），
-    // jvm 那份引擎是 okhttp（`core/src/jvmMain/.../ToolboxEngine.jvm.kt`），所以要把引擎显式拉进来。
-    implementation(libs.ktor.client.okhttp)
+
+    // ── test：只给离屏渲染证据与桌面端装配的验收测试用 ────────────────────────
+    // 假校园上游（图书馆座位系统 + 统一认证）。它**不进**任何交付物：见文件头与
+    // testkit/build.gradle.kts 的 KDoc。
+    testImplementation(project(":testkit"))
+    testImplementation(kotlin("test"))
+    // JUnit4：`kotlin("test")` 在 kotlin-jvm 上默认落到 kotlin-test-junit，引擎要显式给。
+    testImplementation(libs.junit)
 }
 
 /**
@@ -78,12 +101,15 @@ compose.desktop {
  * 为什么需要它：这台机器没有显示服务器（`DISPLAY` 为空），`run` 起不来窗口，
  * 但「屏在桌面真渲染」这条验收不能靠肉眼之外的东西。`ImageComposeScene` 走的是同一个
  * skiko/Skia 渲染栈（同一套 MIUIX 组件、同一份布局代码），只是把结果画到一张位图上而不是屏幕上。
+ *
+ * ⚠️ 它的类路径是 **test** 源集：证据生成器与假上游（`:testkit`）都在那里 ——
+ * 假统一认证绝不能出现在交付物里（见文件头）。
  */
 tasks.register<JavaExec>("renderScreens") {
     group = "verification"
-    description = "把 :core 的屏离屏渲染成 PNG（无需显示服务器）"
+    description = "把 :core 的屏离屏渲染成 PNG（无需显示服务器；含真登录后的图书馆）"
     mainClass.set("com.xjtu.toolbox.desktop.RenderScreensKt")
-    classpath = sourceSets["main"].runtimeClasspath
+    classpath = sourceSets["test"].runtimeClasspath
     args = listOf(layout.buildDirectory.dir("screenshots").get().asFile.absolutePath)
 }
 
