@@ -8,8 +8,11 @@ import androidx.compose.ui.unit.Density
 import androidx.lifecycle.ViewModelStore
 import androidx.lifecycle.ViewModelStoreOwner
 import androidx.lifecycle.viewmodel.compose.LocalViewModelStoreOwner
-import com.sun.net.httpserver.HttpServer
+import com.xjtu.toolbox.FakeCampusProxy
 import com.xjtu.toolbox.auth.ensureSite
+import com.xjtu.toolbox.calendar.SchoolCalendarApi
+import com.xjtu.toolbox.calendar.SchoolCalendarFakeUpstream
+import com.xjtu.toolbox.calendar.SchoolCalendarScreen
 import com.xjtu.toolbox.library.LibraryFakeUpstream
 import com.xjtu.toolbox.library.LibraryScreen
 import com.xjtu.toolbox.library.TestRsaKey
@@ -19,13 +22,7 @@ import com.xjtu.toolbox.platform.dataRootOverride
 import com.xjtu.toolbox.platform.wipeSecureStore
 import com.xjtu.toolbox.ui.theme.XJTUToolBoxTheme
 import java.io.File
-import java.net.InetSocketAddress
-import java.net.Proxy
-import java.net.ProxySelector
-import java.net.SocketAddress
-import java.net.URI
 import java.nio.file.Files
-import java.util.concurrent.Executors
 import javax.swing.SwingUtilities
 import kotlin.system.exitProcess
 import kotlinx.coroutines.runBlocking
@@ -81,15 +78,15 @@ fun main(args: Array<String>) {
     // 时代的证据，已经不对应今天的实现 —— 留着只会被当成「现在的桌面端长这样」。
     outDir.listFiles { f -> f.isFile && f.name.endsWith(".png") }?.forEach { it.delete() }
 
-    // ── 三个进程级前置，顺序都不能换 ───────────────────────────────────────────
+    // ── 两个进程级前置，顺序都不能换 ──────────────────────────────────────────
     //
     // ① 落盘存储指到临时目录：证据运行绝不碰用户真实数据（`~/.local/share/xjtu-toolbox`），
     //    也绝不会把「假登录」产生的 cookie 留在一个真账号旁边。必须在任何
     //    `secureKeyValueStore` / `PersistentCookieJar` 被碰之前设。
     dataRootOverride = Files.createTempDirectory("xjtu-desktop-shots").toFile()
-    // ② 常驻代理 selector（端口 0 = 不走代理）。必须在 `HttpClients.base` 第一次被初始化之前装，
-    //    否则它抄下的是「没有代理」。详见文件头第 1 条坑。
-    if (ProxySelector.getDefault() !== UpstreamProxy) ProxySelector.setDefault(UpstreamProxy)
+    // ② 常驻代理 selector（此刻端口 0 = 不走代理）。必须在 `HttpClients.base` 第一次被初始化
+    //    之前装，否则它抄下的是「没有代理」。详见文件头第 1 条坑。
+    FakeCampusProxy.installProxySelector()
 
     fun shot(name: String, width: Int = 520, height: Int = 900, frames: Int = 12, content: @Composable () -> Unit) {
         // 每个场景一个独立的 ViewModelStoreOwner：:core 的屏用 `viewModel { }` 建 VM，
@@ -135,8 +132,8 @@ fun main(args: Array<String>) {
         )
     }
 
-    // ── ③④⑤ 真登录之后 ────────────────────────────────────────────────────────
-    withFakeUpstream { auth ->
+    // ── ③④⑤⑥ 真登录之后（同一份假上游：图书馆要登录、校历不要）──────────────────
+    withFakeCampus { auth ->
         // 「用户在登录页敲了字」这一步：用的是假上游那组**编出来的**账号密码
         //（`LibraryFakeUpstream.USERNAME` = 2021000001，不是任何人的学号）。
         // 真窗口里这两个值来自键盘，这里来自夹具 —— 除此之外与 `:desktop:run` 走的是同一条路。
@@ -145,7 +142,7 @@ fun main(args: Array<String>) {
         val ok = runBlocking { auth.login() }
         println(
             "真登录结果=$ok  状态=${auth.loginState}  " +
-                "CAS 提交凭据次数=${fake.credentialPosts.get()}  签发的 ticket 数=${fake.tickets.get()}"
+                "CAS 提交凭据次数=${fake.library.credentialPosts.get()}  签发的 ticket 数=${fake.library.tickets.get()}"
         )
         check(ok) { "假上游上的真登录应当成功：${auth.loginState}" }
 
@@ -161,37 +158,50 @@ fun main(args: Array<String>) {
             )
         }
         shot("shell-after-login.png", frames = 20) { ToolboxDesktopApp(auth) }
+
+        // 校历：**免登录**的公开门户接口 —— 与上面那张不同，它不需要任何会话。
+        // 这是「屏在 :core + 取数在 :data」的直接报偿：搬一个 35 行的 IO 适配器就多一屏。
+        // 基址指向假上游（真机那条是 https，纯 HTTP 假代理给不了 CONNECT 隧道 —— 见夹具 KDoc）。
+        shot("calendar.png", frames = 12) {
+            SchoolCalendarScreen(
+                source = SchoolCalendarApi(SchoolCalendarFakeUpstream.URL),
+                onBack = {},
+            )
+        }
         shot("routes.png", frames = 4) { ToolboxDesktopApp(auth, DesktopTarget.Routes) }
     }
 
     exitProcess(0)
 }
 
-/** 假上游：`withFakeUpstream` 期间有效（把端口灌给常驻 selector 的就是它）。 */
-private lateinit var fake: LibraryFakeUpstream
+/** 假上游：`withFakeCampus` 期间有效（把端口灌给常驻 selector 的就是它）。 */
+private lateinit var fake: FakeCampusProxy
 
 /**
- * 把假的校园上游起起来（本地 HTTP 服务器 + 当代理），并在里面跑 [block]。
+ * 把假的校园上游起起来（`:testkit` 的 [FakeCampusProxy]：一个本地 HTTP 代理，按 host 分派
+ * 图书馆与校历），并在里面跑 [block]。
  *
  * 与 `:data:jvmTest` 的 `LibraryLoginSessionJvmTest.withFakeCas` 是同一套手法，
- * 差别只有一处：那边每条测试自己清理落盘存储，这边整个进程只有一次，所以前置在 `main` 里。
+ * 差别有两处：那边每条测试自己清理落盘存储（这边整个进程只有一次，所以前置在 `main` 里）；
+ * 这边的代理同时扮两个域名（校历那张图要一次跑通两条链路）。
  */
-private fun withFakeUpstream(block: (DesktopAuth) -> Unit) {
-    val server = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0)
-    fake = LibraryFakeUpstream(LibraryFakeUpstream.LIBRARY_BASE, casEnabled = true)
-    server.createContext("/", fake::handle)
-    server.executor = Executors.newCachedThreadPool()
-    server.start()
+private fun withFakeCampus(block: (DesktopAuth) -> Unit) {
+    fake = FakeCampusProxy(casEnabled = true)
 
-    // 保险：临时目录里本来不该有东西，但这三行让「跑了两次」也不会互相污染。
+    // 保险：临时目录里本来不该有东西，但这两行让「跑了两次」也不会互相污染。
+    // ⚠️ 账号命名空间也要清（桌面登录会把 backends 换到 `cookies_normal_<学号>`）。
+    val suffix = com.xjtu.toolbox.account.AccountContext.suffixFor(LibraryFakeUpstream.USERNAME)
+    for (base in listOf("cookies_normal", "cookies_webvpn", "sites_normal", "sites_webvpn")) {
+        wipeSecureStore("${base}_default")
+        wipeSecureStore("$base$suffix")
+    }
+    wipeSecureStore(JvmCredentialStore.FILE_NAME)
     for (name in listOf(
         "cookies_normal_default", "cookies_webvpn_default",
-        "sites_normal_default", "sites_webvpn_default",
+        "cookies_normal$suffix", "cookies_webvpn$suffix",
     )) {
-        wipeSecureStore(name)
+        PersistentCookieJar(name).clear()
     }
-    PersistentCookieJar("cookies_normal_default").clear()
-    PersistentCookieJar("cookies_webvpn_default").clear()
 
     // 预置一份缓存的 RSA 公钥（照真机的路径：首次登录取回后存进凭据文件，之后复用）。
     // 没有它，`XJTULogin` 会去 `https://login.xjtu.edu.cn/cas/jwt/publicKey` 取 —— https，
@@ -199,31 +209,12 @@ private fun withFakeUpstream(block: (DesktopAuth) -> Unit) {
     val credentials = JvmCredentialStore()
     credentials.rsaPublicKey = TestRsaKey.publicKeyBase64
 
-    UpstreamProxy.port = server.address.port
+    fake.start()
     try {
         block(DesktopAuth(credentials))
     } finally {
-        UpstreamProxy.port = 0
-        server.stop(0)
+        fake.close()
     }
-}
-
-/**
- * 进程级的「把连接指到本次假上游」开关 —— 必须**常驻**且读一个可变端口。
- *
- * 理由见文件头第 1 条坑：`HttpClients.base` 是进程级 `by lazy`，只会在第一次初始化时读一次
- * 默认 selector。装一个读可变字段的 selector，就绕开了「装晚了 / 换端口不生效」两件事。
- */
-private object UpstreamProxy : ProxySelector() {
-    @Volatile var port: Int = 0
-
-    override fun select(uri: URI): List<Proxy> {
-        val p = port
-        return if (p == 0) listOf(Proxy.NO_PROXY)
-        else listOf(Proxy(Proxy.Type.HTTP, InetSocketAddress("127.0.0.1", p)))
-    }
-
-    override fun connectFailed(uri: URI, sa: SocketAddress, ioe: java.io.IOException) = Unit
 }
 
 /**

@@ -11,6 +11,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Apps
 import androidx.compose.material.icons.filled.CalendarMonth
+import androidx.compose.material.icons.filled.EventNote
 import androidx.compose.material.icons.filled.SportsEsports
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -29,6 +30,8 @@ import androidx.compose.ui.unit.sp
 import com.xjtu.toolbox.auth.LoginScreen
 import com.xjtu.toolbox.auth.MfaCodeDialog
 import com.xjtu.toolbox.auth.ensureSite
+import com.xjtu.toolbox.calendar.SchoolCalendarApi
+import com.xjtu.toolbox.calendar.SchoolCalendarScreen
 import com.xjtu.toolbox.error.FriendlyError
 import com.xjtu.toolbox.game.GamesScreen
 import com.xjtu.toolbox.game.blocks.BlocksScreen
@@ -131,8 +134,9 @@ internal sealed interface DesktopTarget {
 
 internal data class DesktopTab(val label: String, val icon: ImageVector, val target: DesktopTarget)
 
-/** 底栏那三格 —— 每一格都是这一端**真能画**的屏（取数在 `:data`，或压根不需要取数）。 */
+/** 底栏那四格 —— 每一格都是这一端**真能画**的屏（取数在 `:data`，或压根不需要取数）。 */
 internal val DESKTOP_TABS = listOf(
+    DesktopTab("校历", Icons.Filled.EventNote, DesktopTarget.App(AppRoute.SchoolCalendar)),
     DesktopTab("图书馆", Icons.Filled.CalendarMonth, DesktopTarget.App(AppRoute.Library)),
     DesktopTab("游戏", Icons.Filled.SportsEsports, DesktopTarget.App(AppRoute.Games)),
     DesktopTab("全部", Icons.Filled.Apps, DesktopTarget.Routes),
@@ -141,9 +145,11 @@ internal val DESKTOP_TABS = listOf(
 /**
  * 这一端**真能画**的路由（`:core` 里有屏 + 取数在 `:data`，两者缺一不可）。
  *
- * 图书馆是唯一一条走 `:data` 取数的；其余是纯 UI 的游戏（与数据源无关，三端同一份）。
+ * 两条真取数：图书馆（要登录，走会话内核）与校历（**免登录**的公开门户接口）。
+ * 其余是纯 UI 的游戏（与数据源无关，三端同一份）。
  */
 internal val DESKTOP_SUPPORTED_ROUTES = listOf(
+    AppRoute.SchoolCalendar to "校历",
     AppRoute.Library to "图书馆座位",
     AppRoute.Games to "游戏合集",
     AppRoute.Game2048 to "GPA 2048",
@@ -160,7 +166,6 @@ internal val DESKTOP_SUPPORTED_ROUTES = listOf(
  * 搬到 `:data` 一条，这里就划掉一条（`docs/desktop-port-plan.md` §5.1／§3.2）。
  */
 internal val DESKTOP_PENDING_ROUTES = listOf(
-    AppRoute.SchoolCalendar to "校历",
     AppRoute.Fitness to "体测",
     AppRoute.ScoreReport to "成绩",
     AppRoute.YellowPage to "黄页",
@@ -177,7 +182,7 @@ internal val DESKTOP_PENDING_ROUTES = listOf(
 @Composable
 private fun DesktopBottomBar(selected: DesktopTarget, onSelect: (DesktopTarget) -> Unit) {
     // 与 App 的「经典底栏」同一个组件、同一个 mode；只是格数不同（见文件头）。
-    // 当前页不在底栏那三格里（例如某个游戏子屏）⇒ 一格都不高亮，这是对的：
+    // 当前页不在底栏那四格里（例如某个游戏子屏）⇒ 一格都不高亮，这是对的：
     // 底栏是「去哪儿」，不是「你从哪儿来」。
     val selectedIndex = DESKTOP_TABS.indexOfFirst { it.target == selected }
     NavigationBar(mode = NavigationBarDisplayMode.IconAndText) {
@@ -204,6 +209,14 @@ private fun DesktopPage(auth: DesktopAuth, route: AppRoute, onNavigate: (Desktop
     // 这一端没有返回栈，底栏就是导航 ⇒ 屏上的返回一律回图书馆首页（与 Stage 0 同一条口径）
     val back = { onNavigate(DesktopTarget.App(AppRoute.Library)) }
     when (route) {
+        // 校历：**免登录**的公开门户接口 ⇒ 不需要任何会话适配器，`：data` 的取数直接用
+        //（这正是「屏在 `:core` + 取数在 `:data`」的报偿：搬一个 35 行的 IO 适配器就多一屏）。
+        // `calendarImage` 不传：那是 `:app` 的教务处图片接口（`SchoolCalendarImageApi`），
+        // 用到 `Intent` 与 `DataCache`，还没搬——不传就是不画那一档，不假装有。
+        AppRoute.SchoolCalendar -> SchoolCalendarScreen(
+            source = remember { SchoolCalendarApi() },
+            onBack = back,
+        )
         AppRoute.Library -> {
             val hintPrefs = remember { keyValueStore("feature_hints") }
             LibraryScreen(

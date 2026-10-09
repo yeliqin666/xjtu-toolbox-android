@@ -277,6 +277,16 @@ WebVPN 在桌面的复用（校外访问必需）· 桌面通知/托盘 · serve
 
 **这一轮落下的手法（下一步照抄）：**
 
+**§10 那个待复核的取舍：留（不回退）。** 上一轮给 `LibrarySession.createLogin` 补上了传
+`cachedRsaKey`（图书馆与 campus_card 是 17 个站点里仅有的两个漏传的），当时标注“待复核”。
+本轮判定**留下**，理由两条：
+  - **桌面端就挂在它上面**：`JvmCredentialStore.rsaPublicKey` 缓存了那把静态公钥，本意就是
+    登录时不再发那一枪 `GET https://login.xjtu.edu.cn/cas/jwt/publicKey`——而 `cachedRsaKey`
+    要在 `LibraryLogin` 这一层被接收，缓存才有意义。回退它等于把桌面凭据文件的这一项变成死字段；
+  - 它**不改变密码学结果**：POST 出去的密文与不传缓存时逐字节相同（同一把学校公钥），
+    解不出来时 `encryptPassword` 的兜底仍会重新取（只看函数入参，不看缓存状态）。
+  Android 侧的请求序列确实少了一次冗余请求——这是**已论证过的小改动**，不是行为漂移。
+
 1. **假上游要能跨模块复用 ⇒ 它得是一个独立的模块**：`LibraryFakeUpstream` / `TestRsaKey` 从
    `:data:jvmTest` 搬到新的 `:testkit`（纯 JVM、零依赖）。理由三条：页面原文只能有一份（改一处所有消费者
    一起动）；Gradle 跨模块共享不了 test 源集（`java-test-fixtures` 对 KMP 不生效，手搬变体属性更脆）；
@@ -296,6 +306,36 @@ WebVPN 在桌面的复用（校外访问必需）· 桌面通知/托盘 · serve
 6. **进程级会话状态的隔离要连命名空间一起清**：桌面登录会把 backends 换到账号命名空间
    （`cookies_normal_<学号>`）⇒ 测试里只清 `_default` 等于什么都没清，上一条测试留下的 TGC
    会把「真登录」变成 SSO 直通（`credentialPosts` 恒为 0）。**第一次跑就踩到了。**
+
+### 11.1 同一轮顺带做完的一条：校历（免登录上游的报偿）
+
+`:app` 的 `SchoolCalendarApi` **一行 Android 都没碰**（`HttpClients.base` 本来就在 `:data`，
+模型与解析早在 `:core`）⇒ 同包同类型名搬进 `:data`，`:app` 三处调用点一个字未改。
+而它**免登录**，所以桌面端不需要任何站点会话适配器就有真数据。
+
+| 验收 | 结果 |
+|---|---|
+| 桌面多一屏真数据 | ✓ `calendar.png`：学期切换、第 5 学习周、进度 26%、18 周 / 95 工作日、日程安排（中秋/国庆/元旦）—— 全部来自真解析 |
+| 装配测试 | ✓ `:desktop:test` 多一条（共 9 例）：免登录取到两个学期、结束日取 `exam_end`、`specialEvents` 按标题对上、`defaultTermIndex` 选中「今天所在的那个学期」 |
+| Android 行为不变 | ✓ 搬迁 = 换目录（+ 一个带默认值的构造参数，见下） |
+
+**这一步得到的一般结论（值得优先做）：**
+
+1. **免登录的上游是最便宜的一批屏**。校历这类接口（还有黄页 / 教师检索 / 公告正文）不需要站点类、
+   不需要 `*Login`、不需要会话缝 —— 只要把 IO 适配器搬进 `:data`，三端立刻各多一屏。
+   而需要登录的那批（成绩 / 场馆 / 校园卡…）要先搬站点类 + 它的 `*Login`（`Sites.kt` 里 17 个，
+   已侦察：**站点类本身只碰 3 处 Android**（两行 `Log` + 一个嵌套 `withContext`），`*Login` 里
+   也只有 `android.util.Log` / `android.util.Base64` 两类要换 —— 那些 `com.xjtu.toolbox.util.*`
+   的 JSON 助手**早就在 `:core` 了**）。
+2. **一个假上游不够用了 ⇒ 要按 host 分派**：`:testkit` 的 `FakeCampusProxy` 用一个代理端口同时扮
+   `rg.lib.xjtu.edu.cn` / `login.xjtu.edu.cn` / `workflow.xjtu.edu.cn`（走代理时请求行是
+   absolute-form，`requestURI.host` 就是目标域名）。
+3. **https 的免登录接口在本地假上游上跑不通**：真机那条是 `https://workflow.xjtu.edu.cn/...`，
+   纯 HTTP 假代理给不了 CONNECT+TLS 隧道（图书馆那条能跑通是因为它从 http 的 `/seat/` 开始、
+   一路 302 都在 http 上）。所以 `SchoolCalendarApi` 加了一个**带默认值的 url 参数**
+   （与 `:core` 里那批 `Campus*Api(client, base)` 同一种形状）；校历解析不看 URL，
+   所以这不影响「测的是不是真解析链路」。需要登录的站点**不能**这么办 —— 它们有一批按 host
+   判断的判据，必须走代理、URL 一字不改。
 
 **这一轮没做的**：`Sites.kt` 里其余 18 个站点仍留在 `:app`（它们各自的 `*Login` + 功能包里的解析类要一起搬）；
 校园网判定（WebVPN 网关）在桌面端仍缺席 —— 故**校外直连不上**，属 §5.4；serve 模式、网络栈迁移、
