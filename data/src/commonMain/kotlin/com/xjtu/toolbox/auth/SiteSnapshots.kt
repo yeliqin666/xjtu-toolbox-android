@@ -1,6 +1,6 @@
 package com.xjtu.toolbox.auth
 
-import android.content.SharedPreferences
+import com.xjtu.toolbox.platform.KeyValueStore
 import com.xjtu.toolbox.util.safeParseJsonObject
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
@@ -19,25 +19,27 @@ import java.util.concurrent.Executors
  * [SiteSession.executeWithReAuth] 重登自愈。存了超过 [MAX_AGE_MS] 或令牌已过期的不恢复。
  *
  * 读写都排在一条专用线程上：顺序有保证，加密存储的打开和写盘也不会落到主线程。
+ *
+ * 存储从 `android.content.SharedPreferences` 换成了 `:data` 的平台缝 [KeyValueStore]
+ * （Android = 同一个 `SecurePrefs` 文件名，桌面 = `0600` 文件）—— 键名、值类型、JSON 形状一字未变。
  */
-class SiteSnapshots(openPrefs: () -> SharedPreferences) {
-    private val prefs by lazy(openPrefs)
+class SiteSnapshots(private val store: KeyValueStore) {
 
     fun save(siteKey: String, tokens: Map<String, String>, now: Long = System.currentTimeMillis()) {
         val raw = encode(tokens, now)
-        io.execute { runCatching { prefs.edit().putString(siteKey, raw).apply() } }
+        io.execute { runCatching { store.putString(siteKey, raw) } }
     }
 
     /** 没有、读不出、太旧或令牌已过期时返回 null。会阻塞到读完，只在后台线程调。 */
     fun load(siteKey: String, now: Long = System.currentTimeMillis()): Map<String, String>? =
-        io.submit<String?> { prefs.getString(siteKey, null) }.get()?.let { decode(it, now) }
+        io.submit<String?> { store.getString(siteKey) }.get()?.let { decode(it, now) }
 
     fun remove(siteKey: String) {
-        io.execute { runCatching { if (prefs.contains(siteKey)) prefs.edit().remove(siteKey).apply() } }
+        io.execute { runCatching { if (store.contains(siteKey)) store.remove(siteKey) } }
     }
 
     fun clear() {
-        io.execute { runCatching { prefs.edit().clear().apply() } }
+        io.execute { runCatching { store.clear() } }
     }
 
     companion object {

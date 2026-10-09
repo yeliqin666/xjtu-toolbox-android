@@ -1,7 +1,7 @@
 package com.xjtu.toolbox.auth
 
-import android.content.Context
-import android.util.Log
+import com.xjtu.toolbox.platform.Log
+import com.xjtu.toolbox.platform.elapsedRealtimeMs
 import com.xjtu.toolbox.account.AccountContext
 import com.xjtu.toolbox.webvpn.WebVpnUtil
 import kotlinx.coroutines.CancellationException
@@ -46,9 +46,7 @@ class MfaRequest(
  * - MFA 流程串行化：[activeMfaRequest] 是 StateFlow，同一时刻只可能有一个 MFA 询问处于挂起。
  * - 网络切换不破坏对端 cookies，仅切换 active mode 指针。
  */
-class SessionManager(context: Context) {
-
-    private val appContext = context.applicationContext
+class SessionManager {
 
     private val backendsLock = Any()
 
@@ -59,7 +57,7 @@ class SessionManager(context: Context) {
     private var backendSuffix: String? = null
 
     private fun buildBackends(accountSuffix: String?): Map<AccessMode, SessionBackend> =
-        AccessMode.entries.associateWith { SessionBackend.create(appContext, it, accountSuffix ?: ANONYMOUS_SUFFIX) }
+        AccessMode.entries.associateWith { SessionBackend.create(it, accountSuffix ?: ANONYMOUS_SUFFIX) }
 
     fun backend(accessMode: AccessMode): SessionBackend = backends.getValue(accessMode)
 
@@ -141,15 +139,26 @@ class SessionManager(context: Context) {
 
     val activeSiteCount: Int get() = sites.values.count { it.hasLogin }
 
-    /** 会话诊断：写进 logcat（标签 [TAG]）。 */
+    /**
+     * 切账号时清掉**宿主侧**与账号绑定的共享缓存。由宿主注入：
+     * `:app` 设成 `CampusProbe.ywtbToken = null`（一网通办令牌）；桌面端没有这一份，留空即可。
+     *
+     * 只在「真换了账号」时调用（冷启动从匿名恢复到当前账号不算），与搬迁前的判断逐条一致。
+     */
+    @Volatile var onAccountSwitched: (() -> Unit)? = null
+
+    /**
+     * 会话诊断：走 `:core` 的跨端日志门面（Android 仍落到 logcat 的 [TAG]，桌面落到标准输出）。
+     * 级别口径与搬迁前逐条对齐：ERROR / WARN / DEBUG / 其余按 INFO。
+     */
     fun recordDiagnostic(level: String, siteKey: String, message: String) {
-        val priority = when (level) {
-            "ERROR" -> Log.ERROR
-            "WARN" -> Log.WARN
-            "DEBUG" -> Log.DEBUG
-            else -> Log.INFO
+        val line = "[$siteKey] ${message.take(240)}"
+        when (level) {
+            "ERROR" -> Log.e(TAG, line)
+            "WARN" -> Log.w(TAG, line)
+            "DEBUG" -> Log.d(TAG, line)
+            else -> Log.i(TAG, line)
         }
-        Log.println(priority, TAG, "[$siteKey] ${message.take(240)}")
     }
 
     // ── 凭据 ────────────────────────────────────────────
@@ -441,8 +450,13 @@ class SessionManager(context: Context) {
      */
     fun reconfigureForAccount(accountSuffix: String) {
         AccountContext.switchEpoch++
-        // 真换了账号才丢一网通办令牌；冷启动从匿名恢复到当前账号不算
-        if (backendSuffix != null && backendSuffix != accountSuffix) CampusProbe.ywtbToken = null
+        // 真换了账号才让宿主丢掉它自己那份与账号绑定的缓存（`:app` = 一网通办令牌
+        // CampusProbe.ywtbToken）；冷启动从匿名恢复到当前账号不算。
+        //
+        // 为什么是个钩子而不是直接调 CampusProbe：那个对象要 `ConnectivityManager`（模拟器 / 桌面
+        // 都没有），属于宿主能力，不该跟着会话内核一起搬进 `:data`。会话内核需要它的**只有这一处**，
+        // 所以缝就照这一处切。
+        if (backendSuffix != null && backendSuffix != accountSuffix) onAccountSwitched?.invoke()
         backendSuffix = accountSuffix
         // 挂着的 MFA 是旧账号的：验证码发到了旧账号手机上，填了也只会登进旧账号
         _activeMfaRequest.value?.cancel()
@@ -495,7 +509,7 @@ class SessionManager(context: Context) {
 
     private fun isWebVpnGatewayFresh(backend: SessionBackend): Boolean {
         if (!backend.webvpnSelfLoggedIn || !hasLiveWebVpnTicket(backend)) return false
-        val age = android.os.SystemClock.elapsedRealtime() - backend.webvpnValidatedAt
+        val age = elapsedRealtimeMs() - backend.webvpnValidatedAt
         return backend.webvpnValidatedAt > 0L && age in 0 until WEBVPN_VALIDATE_TTL_MS
     }
 

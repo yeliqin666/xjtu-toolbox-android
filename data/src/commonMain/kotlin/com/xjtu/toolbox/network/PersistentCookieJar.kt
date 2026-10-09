@@ -1,13 +1,14 @@
 package com.xjtu.toolbox.network
 
-import android.content.Context
-import android.content.SharedPreferences
-import android.util.Log
+import com.xjtu.toolbox.platform.KeyValueStore
+import com.xjtu.toolbox.platform.Log
+import com.xjtu.toolbox.platform.secureKeyValueStore
 import okhttp3.Cookie
 import okhttp3.CookieJar
 import okhttp3.HttpUrl
 import java.util.concurrent.ConcurrentHashMap
-import com.xjtu.toolbox.data.SecurePrefs
+import java.util.concurrent.ScheduledThreadPoolExecutor
+import java.util.concurrent.TimeUnit
 
 /**
  * 持久化 CookieJar — Cookie 存储到 EncryptedSharedPreferences
@@ -16,22 +17,26 @@ import com.xjtu.toolbox.data.SecurePrefs
  * 持久化后冷启动时 TGC cookie 仍然有效（CAS 服务端不会主动失效），
  * XJTULogin 的 init 阶段可直接 SSO 跳过登录表单（0 RTT）。
  *
- * 安全性：使用 AES-256 加密存储，与 CredentialStore 同级别。
+ * 安全性：Android 上仍是 AES-256 加密存储（`SecurePrefs`），与 CredentialStore 同级别；
+ * 桌面端是 `0600` 权限的落盘文件（见 `:data` 的 `platform/SecureStore.kt`）。
  * 线程安全：ConcurrentHashMap + synchronized write。
+ *
+ * 构造参数从 `Context + 文件名` 换成**只要文件名**：存储由 `:data` 的平台缝按名字给出，
+ * 文件名（`xjtu_cookies` / `cookies_normal_default` …）与键名一字未变。
  */
-class PersistentCookieJar(context: Context, prefsName: String = PREFS_NAME) : CookieJar {
+class PersistentCookieJar(private val prefsName: String = PREFS_NAME) : CookieJar {
 
     /**
      * 同一个 prefs 文件的全部状态。按文件名全进程共享：前台 SessionManager、后台
      * HeadlessSessions、账号迁移都会各自 new 同名的 jar，以前每个实例一份内存表，
      * 谁最后防抖写盘谁覆盖别人刚拿到的 TGC，表现为偶发掉登录。
      */
-    private class Shared(openPrefs: () -> SharedPreferences) {
+    private class Shared(openStore: () -> KeyValueStore) {
         /**
          * 懒打开：SessionManager 在首帧组合时（主线程）就会构造 jar，而打开加密存储要走
          * keystore。第一次真正读写 cookie 都在 IO 线程（ensureLoaded / 防抖写盘），挪到那时。
          */
-        val prefs: SharedPreferences by lazy(openPrefs)
+        val store: KeyValueStore by lazy(openStore)
         val cookieStore = ConcurrentHashMap<String, MutableList<Cookie>>()
         @Volatile var loaded = false
         @Volatile var savePending = false
@@ -53,21 +58,23 @@ class PersistentCookieJar(context: Context, prefsName: String = PREFS_NAME) : Co
         // [性能] 必须在后台线程写：saveToDisk 会把整个 cookie 表做 AES-256 加密再落盘，
         // 登录链路上每 500ms 触发一次。挂在主线程 Looper 上会周期性阻塞 UI 帧。
         // 全进程共用一条线程——以前每个 jar 实例起一条且从不退出，切一次账号漏一条。
-        private val saveHandler by lazy {
-            android.os.Handler(android.os.HandlerThread("cookie-jar-io").apply { start() }.looper)
+        //
+        // 从 `android.os.Handler` 换成 `ScheduledThreadPoolExecutor`：语义一样（延时执行 +
+        // 可撤销），但 `java.util.concurrent` 在桌面端也有；Handler 只在 Android 上存在。
+        private val saveScheduler by lazy {
+            ScheduledThreadPoolExecutor(1) { r -> Thread(r, "cookie-jar-io").apply { isDaemon = true } }
         }
     }
 
     private val state: Shared = shared.getOrPut(prefsName) {
-        val app = context.applicationContext
-        Shared { SecurePrefs.open(app, prefsName) }.also { st ->
+        Shared { secureKeyValueStore(prefsName) }.also { st ->
             st.saveTask = Runnable {
                 st.savePending = false
                 saveToDisk(st)
             }
         }
     }
-    private val prefs: SharedPreferences get() = state.prefs
+    private val store: KeyValueStore get() = state.store
     private val cookieStore get() = state.cookieStore
 
     // loadFromDisk 延迟到首次使用时触发
@@ -86,13 +93,13 @@ class PersistentCookieJar(context: Context, prefsName: String = PREFS_NAME) : Co
     private fun scheduleSaveToDisk() {
         if (!state.savePending) {
             state.savePending = true
-            saveHandler.postDelayed(state.saveTask, SAVE_DEBOUNCE_MS)
+            saveScheduler.schedule(state.saveTask, SAVE_DEBOUNCE_MS, TimeUnit.MILLISECONDS)
         }
     }
 
     /** 立即写盘（用于 clear / 应用退出前） */
     fun flushToDisk() {
-        saveHandler.removeCallbacks(state.saveTask)
+        saveScheduler.remove(state.saveTask)
         state.savePending = false
         saveToDisk(state)
     }
@@ -160,11 +167,11 @@ class PersistentCookieJar(context: Context, prefsName: String = PREFS_NAME) : Co
 
     /** 清空所有 cookie（登出时使用） */
     fun clear() {
-        saveHandler.removeCallbacks(state.saveTask)
+        saveScheduler.remove(state.saveTask)
         state.savePending = false
         synchronized(state) {
             cookieStore.clear()
-            prefs.edit().clear().commit()
+            store.clear()
         }
     }
 
@@ -260,7 +267,7 @@ class PersistentCookieJar(context: Context, prefsName: String = PREFS_NAME) : Co
                         }
                     }
                 }
-                st.prefs.edit().putString(KEY_ALL_COOKIES, sb.toString()).apply()
+                st.store.putString(KEY_ALL_COOKIES, sb.toString())
             } catch (e: Exception) {
                 Log.e(TAG, "saveToDisk failed", e)
             }
@@ -269,7 +276,7 @@ class PersistentCookieJar(context: Context, prefsName: String = PREFS_NAME) : Co
 
     private fun loadFromDisk() {
         try {
-            val raw = prefs.getString(KEY_ALL_COOKIES, null) ?: return
+            val raw = store.getString(KEY_ALL_COOKIES) ?: return
             val now = System.currentTimeMillis()
             for (line in raw.lines()) {
                 if (line.isBlank()) continue

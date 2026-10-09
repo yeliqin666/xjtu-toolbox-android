@@ -104,7 +104,12 @@ object SecurePrefs {
 }
 
 /** 仅内存、线程安全的 SharedPreferences，加密存储彻底不可用时的兜底。 */
-internal class InMemorySharedPreferences : SharedPreferences {
+/**
+ * Keystore 不可用时的进程内兜底（不落盘）。`internal` 改 `public`：`:app` 的
+ * `InMemorySharedPreferencesTest` 跨模块看不见 `internal`，而它是 Android-only 的实现
+ * （实现的是 `android.content.SharedPreferences` 接口），搬不到 `:data:jvmTest` 去跑。
+ */
+class InMemorySharedPreferences : SharedPreferences {
     private val map = HashMap<String, Any?>()
     private val listeners = java.util.concurrent.CopyOnWriteArraySet<SharedPreferences.OnSharedPreferenceChangeListener>()
 

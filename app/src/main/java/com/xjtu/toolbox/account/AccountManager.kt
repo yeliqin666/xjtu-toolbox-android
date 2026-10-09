@@ -300,7 +300,7 @@ class AccountManager(
     private suspend fun wipeAccountFiles(accountId: String, cookiesOnly: Boolean) {
         val app = context.applicationContext
         val suffix = AccountContext.suffixFor(accountId)
-        SessionBackend.wipe(app, suffix)
+        SessionBackend.wipe(suffix)
         if (cookiesOnly) return
 
         runCatching { File(app.cacheDir, "data_cache$suffix").deleteRecursively() }

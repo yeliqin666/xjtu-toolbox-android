@@ -1,7 +1,7 @@
 package com.xjtu.toolbox.auth
 
 import com.xjtu.toolbox.util.redactUrl
-import android.util.Log
+import com.xjtu.toolbox.platform.Log
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.Response

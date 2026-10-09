@@ -4,8 +4,13 @@ import com.xjtu.toolbox.util.safeParseJsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import java.util.Base64
 
-/** 只解 JWT 的 exp、不验签：用来跳过必败的请求，真失效仍由服务器判。 */
-internal object Jwt {
+/**
+ * 只解 JWT 的 exp、不验签：用来跳过必败的请求，真失效仍由服务器判。
+ *
+ * `internal` 改 `public`：`:app` 的 `CampusProbe`（网络判定，属宿主能力，没跟着内核搬）
+ * 也要用它跳过一次注定失败的令牌检查。它本身是纯函数、不含任何秘密。
+ */
+object Jwt {
     /** 到期时刻（毫秒）；不是 JWT 或没有 exp 返回 null。 */
     fun expiresAtMs(token: String): Long? {
         val parts = token.split('.')

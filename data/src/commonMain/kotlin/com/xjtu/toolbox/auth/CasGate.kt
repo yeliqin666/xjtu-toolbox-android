@@ -1,7 +1,7 @@
 package com.xjtu.toolbox.auth
 
-import android.util.Log
-import android.os.SystemClock
+import com.xjtu.toolbox.platform.Log
+import com.xjtu.toolbox.platform.elapsedRealtimeMs
 import java.io.IOException
 import java.util.concurrent.locks.ReentrantLock
 
@@ -68,7 +68,7 @@ object CasGate {
         try {
             checkAllowed() // 等锁期间状态可能已变化（他人失败触发退避 / 密码熔断）
             val minInterval = if (consecutiveFailures == 0) MIN_INTERVAL_OK_MS else MIN_INTERVAL_FAIL_MS
-            val sinceLast = SystemClock.elapsedRealtime() - lastPostAt
+            val sinceLast = elapsedRealtimeMs() - lastPostAt
             if (!sameFlow && sinceLast in 0 until minInterval) {
                 val wait = minInterval - sinceLast
                 Log.d(TAG, "spacing credential post by ${wait}ms")
@@ -79,7 +79,7 @@ object CasGate {
                     throw IOException("登录请求等待被取消", e)
                 }
             }
-            lastPostAt = SystemClock.elapsedRealtime()
+            lastPostAt = elapsedRealtimeMs()
             return block()
         } finally {
             lock.unlock()
@@ -96,7 +96,7 @@ object CasGate {
         if (passwordLatch?.invoke() == true) return "密码已失效，自动登录已暂停"
         lock.lock()
         try {
-            val remain = backoffUntil - SystemClock.elapsedRealtime()
+            val remain = backoffUntil - elapsedRealtimeMs()
             if (remain > 0) return "登录退避中，还需 ${(remain + 999) / 1000} 秒"
         } finally {
             lock.unlock()
@@ -110,7 +110,7 @@ object CasGate {
         }
         lock.lock()
         try {
-            val now = SystemClock.elapsedRealtime()
+            val now = elapsedRealtimeMs()
             if (now < backoffUntil) {
                 val remainingSeconds = ((backoffUntil - now) + 999L) / 1000L
                 throw ThrottledException("登录尝试过于频繁，已暂停 $remainingSeconds 秒以保护账号")
@@ -139,7 +139,7 @@ object CasGate {
             if (n >= FAILURE_THRESHOLD) {
                 val shift = (n - FAILURE_THRESHOLD).coerceAtMost(5)
                 val backoff = (BACKOFF_BASE_MS shl shift).coerceAtMost(BACKOFF_MAX_MS)
-                backoffUntil = SystemClock.elapsedRealtime() + backoff
+                backoffUntil = elapsedRealtimeMs() + backoff
                 Log.w(TAG, "consecutive failures=$n, backing off ${backoff / 1000}s")
             }
         } finally {

@@ -1,9 +1,10 @@
 package com.xjtu.toolbox.auth
 
-import android.content.Context
-import com.xjtu.toolbox.data.SecurePrefs
 import com.xjtu.toolbox.network.HttpClients
 import com.xjtu.toolbox.network.PersistentCookieJar
+import com.xjtu.toolbox.platform.elapsedRealtimeMs
+import com.xjtu.toolbox.platform.secureKeyValueStore
+import com.xjtu.toolbox.platform.wipeSecureStore
 import com.xjtu.toolbox.webvpn.WebVpnInterceptor
 import okhttp3.ConnectionPool
 import okhttp3.Dispatcher
@@ -68,7 +69,7 @@ class SessionBackend(
 
     fun markWebVpnReady() {
         webvpnSelfLoggedIn = true
-        webvpnValidatedAt = android.os.SystemClock.elapsedRealtime()
+        webvpnValidatedAt = elapsedRealtimeMs()
     }
 
     fun markWebVpnStale() {
@@ -84,25 +85,31 @@ class SessionBackend(
     }
 
     companion object {
-        fun create(context: Context, mode: AccessMode, accountSuffix: String): SessionBackend {
-            val app = context.applicationContext
-            return SessionBackend(
+        /**
+         * 建一套 backend（cookie + 快照 + WebVPN 拦截器）。
+         *
+         * 参数里**没有 `Context`**：存储由 `:data` 的平台缝 [secureKeyValueStore] 按名字给出
+         * （Android 上是原来的 `SecurePrefs` 同名文件，桌面是 `0600` 文件）。这样会话内核
+         * 在两端是同一份代码，文件名/键名/值类型一字未变 —— 老会话不丢。
+         */
+        fun create(mode: AccessMode, accountSuffix: String): SessionBackend =
+            SessionBackend(
                 mode,
-                PersistentCookieJar(app, cookiePrefs(mode, accountSuffix)),
-                SiteSnapshots { SecurePrefs.open(app, snapshotPrefs(mode, accountSuffix)) },
+                PersistentCookieJar(cookiePrefs(mode, accountSuffix)),
+                SiteSnapshots(secureKeyValueStore(snapshotPrefs(mode, accountSuffix))),
                 webVpnInterceptor = if (mode == AccessMode.WEBVPN) WebVpnInterceptor() else null,
             )
-        }
 
-        /** 删掉某账号两边的会话存储，不需要 backend 实例（删账号时用）。 */
-        fun wipe(context: Context, accountSuffix: String) {
-            val app = context.applicationContext
+        /**
+         * 删掉某账号两边的会话存储，不需要 backend 实例（删账号时用）。
+         *
+         * 从 `wipe(context, suffix)` 换成按名字的 [wipeSecureStore]：口径不变 ——
+         * **文件不存在就什么都不做**，不为了清它去创建一份新的加密存储。
+         */
+        fun wipe(accountSuffix: String) {
             AccessMode.entries.forEach { mode ->
-                runCatching { PersistentCookieJar(app, cookiePrefs(mode, accountSuffix)).clear() }
-                val snapshots = snapshotPrefs(mode, accountSuffix)
-                if (java.io.File(app.applicationInfo.dataDir, "shared_prefs/$snapshots.xml").exists()) {
-                    runCatching { SecurePrefs.open(app, snapshots).edit().clear().apply() }
-                }
+                runCatching { PersistentCookieJar(cookiePrefs(mode, accountSuffix)).clear() }
+                runCatching { wipeSecureStore(snapshotPrefs(mode, accountSuffix)) }
             }
         }
 

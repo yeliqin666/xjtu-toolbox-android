@@ -1,7 +1,7 @@
 package com.xjtu.toolbox.auth
 
-import android.os.SystemClock
-import android.util.Log
+import com.xjtu.toolbox.platform.Log
+import com.xjtu.toolbox.platform.elapsedRealtimeMs
 import com.xjtu.toolbox.account.AccountContext
 import com.xjtu.toolbox.webvpn.WebVpnUtil
 import kotlinx.coroutines.Dispatchers
@@ -62,8 +62,13 @@ abstract class SiteSession(
     /** 当前 backend 的快照还没读过：换绑、[forget] 后为 true；恢复过、登录过或 [invalidateLogin] 后为 false。 */
     @Volatile private var restorePending = true
 
-    /** 由 SessionManager 注入，用于报告凭据失效、弹 MFA 等跨站点动作。 */
-    @Volatile internal var manager: SessionManager? = null
+    /**
+     * 由 [SessionManager.register] 注入，用于报告凭据失效、弹 MFA、取凭据等跨站点动作。
+     *
+     * 现在还是 `var` 而非 `internal`：站点子类（`Sites.kt`）暂时留在 `:app`，跨模块看不见
+     * `internal`。等站点子类连同它们的 `*Login` 一起搬进 `:data` 之后，这里应收回 `internal`。
+     */
+    @Volatile var manager: SessionManager? = null
 
     /** 同站点串行保护：同一时刻仅一个 ensureLogin 流程进行。 */
     private val loginLock = Mutex()
@@ -185,7 +190,7 @@ abstract class SiteSession(
                     if (valid != false) {
                         // 探活途中换了绑：结论属于另一边，这边下次再确认
                         if (rebound()) return
-                        lastValidatedAt = SystemClock.elapsedRealtime()
+                        lastValidatedAt = elapsedRealtimeMs()
                         // 真探过才给快照续期（顺带存下探活刷新的本地令牌，如电费 cid）；
                         // 没探活的只在登录时存，年龄上限对它们就是会话年龄
                         if (valid == true) saveSnapshot(bound)
@@ -215,7 +220,7 @@ abstract class SiteSession(
                 }
                 hasLogin = true
                 loginEpoch++
-                lastValidatedAt = SystemClock.elapsedRealtime()
+                lastValidatedAt = elapsedRealtimeMs()
                 saveSnapshot(bound)
                 manager?.clearLoginFailure(siteKey)
                 Log.d(TAG, "[$siteKey] login ok (mode=${currentAccessMode.key})")
@@ -243,7 +248,7 @@ abstract class SiteSession(
 
     /** 会话是否处于「近期确认有效」窗口内。 */
     private fun isFresh(): Boolean {
-        val age = SystemClock.elapsedRealtime() - lastValidatedAt
+        val age = elapsedRealtimeMs() - lastValidatedAt
         return age in 0 until VALIDATE_TTL_MS
     }
 

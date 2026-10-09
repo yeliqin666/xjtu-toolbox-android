@@ -44,10 +44,24 @@ kotlin {
             api(project(":core"))
             implementation(libs.kotlinx.serialization.json)
             implementation(libs.kotlinx.coroutines.core)
+            // `SessionBackend` 的 BrotliInterceptor（校园网某些接口只发 br 压缩）。
+            implementation(libs.okhttp.brotli)
+            implementation(libs.okhttp.java.net.cookiejar)
+            // 会话内核的「Ktor 写法」出口（`SiteSession.sendWithReAuth` →
+            // `asToolboxKtorClient`）。引擎是 OkHttp（预置实例），所以这里是 JVM/Android
+            // 都有的那份；`:data` 只有这两个目标，放 commonMain 是安全的（与 jsoup 同理：
+            // ⚠️ 一旦给 `:data` 加 wasm/ios 目标，这两条立刻编不过）。
+            implementation(libs.ktor.client.okhttp)
+            implementation(libs.ktor.client.content.negotiation)
+            implementation(libs.ktor.serialization.kotlinx.json)
         }
         commonTest.dependencies {
             implementation(kotlin("test"))
             implementation(libs.kotlinx.coroutines.test)
+        }
+        androidMain.dependencies {
+            // Android 侧的密文存储：`SecurePrefs`（EncryptedSharedPreferences）就靠它。
+            implementation(libs.security.crypto)
         }
     }
 }
