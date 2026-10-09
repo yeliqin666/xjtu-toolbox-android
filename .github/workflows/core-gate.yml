@@ -52,3 +52,12 @@ jobs:
         # Node 版测试包会去 import skiko.mjs 而失败（skiko 只为 browser 目标配好了 npm 解析）。
         # wasm 的运行时证明交给 :web 在真浏览器里跑真数据。
         run: ./gradlew :core:jvmTest
+
+      - name: 数据层（:data）与桌面端（:desktop）也要能编、能测
+        # :data 是同一条判据的第二个消费者：它刻意**只有 jvm + android** 两个目标
+        # （okhttp 只发布 jvm/android 变体、jsoup 只有一份 JVM jar，加 wasm 立刻编不过），
+        # 所以这里不拿它去编 wasm —— 它的可移植性判据是"同一份代码在这两个目标上都编得过 +
+        # `LibraryDataLayerJvmTest` 在 JVM 上真跑通（本地 HTTP 服务器 + 域名重写）"。
+        # :desktop 是第一个 Compose Desktop 承载；离屏渲染（renderScreens）留作本地/人工验收
+        # （它需要 libGL 与 skiko 的原生库，不往 CI 里塞环境依赖）。
+        run: ./gradlew :data:compileAndroidMain :data:jvmTest :desktop:compileKotlin
