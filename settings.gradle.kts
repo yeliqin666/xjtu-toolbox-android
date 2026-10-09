@@ -69,3 +69,4 @@ include(":core")
 // 它不是新的一套业务代码：数据模型、Ktor 客户端、会话存储全来自 :core，
 // 这里只放「浏览器外壳 + 屏幕」，用来证明共享层在非 Android 端真的能跑真数据。
 include(":web")
+include(":data")

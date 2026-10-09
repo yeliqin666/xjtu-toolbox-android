@@ -172,8 +172,10 @@ fun AppNavHost(
         entry<AppRoute.Library>(transition = expand(AppRoute.Library::class)) {
             val libraryContext = LocalContext.current
             WithSite("library") { site ->
-                // 屏与 ViewModel 都在 :core（`com.xjtu.toolbox.library.LibraryScreen`），取数从那里挪到
-                // AppLibrarySource（还是原来的 LibraryApi + PlanImageDiskCache  + 那份 SharedPreferences，实现一行未改）。
+                // 屏与 ViewModel 都在 :core（`com.xjtu.toolbox.library.LibraryScreen`），取数在 **:data**
+                // （`LibraryApi` + `LibraryPages` 搬过去了，逻辑一行未改），Android 侧只留 AppLibrarySource
+                // 这个宿主壳：Dispatchers.IO、平面图字节的磁盘缓存、以及不随页面取消的那个 restoreScope。
+                // 座位收藏也不在这里了 —— 它进了共享的 LibraryFavorites（同一个文件/键/值类型）。
                 // 四处宿主能力在这里注入，行为与搬之前一致：
                 //  1. onBookingChanged —— 「我的预约」一变就往外发（提醒 / 首页信号 / 收纳待办），
                 //     原来写在屏里直接调 LibraryStatus.publish(context, ...)；

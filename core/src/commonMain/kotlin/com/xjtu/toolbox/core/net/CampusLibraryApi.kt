@@ -10,7 +10,6 @@ import com.xjtu.toolbox.library.MyBookingInfo
 import com.xjtu.toolbox.library.SeatInfo
 import com.xjtu.toolbox.library.SeatLayout
 import com.xjtu.toolbox.library.SeatResult
-import com.xjtu.toolbox.platform.keyValueStore
 import com.xjtu.toolbox.util.AppJson
 import com.xjtu.toolbox.util.arr
 import com.xjtu.toolbox.util.isNull
@@ -84,9 +83,11 @@ import kotlinx.serialization.json.JsonObject
  *
  * ## Web 端的收藏
  *
- * 浏览器里存 `localStorage`（`:core` 的 `keyValueStore("library_favorites")`，文件与键名沿用 Android 那个
- * `favorite_seats`，值写成逗号分隔的字符串 —— `localStorage` 没有集合这一档，而 Android 那份是
- * `SharedPreferences.getStringSet`，两边各自记各自的收藏）。
+ * 收藏现在是**共享实现** [com.xjtu.toolbox.library.LibraryFavorites]，不在这个类里了 ——
+ * 它落在 `:core` 的 `keyValueStore("library_favorites")` / `favorite_seats`（与本类原来那两个方法
+ * **同一个文件、同一个键、同一个值形态**：`localStorage` 里的逗号串）⇒ 浏览器里已有的收藏不丢。
+ * 当初把 `localStorage` 写成逗号串正是因为 `KeyValueStore` 没有集合那一档；现在有了
+ *（`getStringSet` / `putStringSet`，wasm 的 actual 沿用老格式），同一件事就不该有两份代码。
  *
  * ## 关于 `warmCampusAreas`
  *
@@ -204,21 +205,12 @@ class CampusLibraryApi(
         }
     }
 
-    // ─── 收藏（localStorage，见类 KDoc）────────────────────────
+    // ─── 收藏**不在这里** ──────────────────────────────────
+    //
+    // `favorites()` / `toggleFavorite()` 曾经是本类里的两个重写（value 是 `localStorage` 里的
+    // 逗号串）。现在它们搬进了共享的 `com.xjtu.toolbox.library.LibraryFavorites`：这是本机偏好、
+    // 不是取数，三端就不该各写一遍。落盘位置、键名、值形态逐字未变（见类 KDoc）。
 
-    override fun favorites(): Set<String> =
-        favoritesStore.getString(KEY_FAVORITES)
-            .orEmpty()
-            .split(',')
-            .mapNotNull { it.trim().takeIf(String::isNotEmpty) }
-            .toSet()
-
-    override fun toggleFavorite(seatId: String): Set<String> {
-        val current = favorites().toMutableSet()
-        if (!current.remove(seatId)) current.add(seatId)
-        favoritesStore.putString(KEY_FAVORITES, current.joinToString(","))
-        return current
-    }
 
     // ─── 写（只读端一律抛，见类 KDoc）──────────────────────────
 
@@ -235,7 +227,6 @@ class CampusLibraryApi(
 
     // ─── 内部 ──────────────────────────────────────────────────
 
-    private val favoritesStore by lazy { keyValueStore(PREF_NAME) }
 
     /** 区域码 → 中文名（`areas` / `warmCampusAreas` 学到的；与 `:app` 的 `learnedAreaNames` 同一件事）。 */
     private val areaNames = LinkedHashMap<String, String>()
@@ -298,9 +289,7 @@ class CampusLibraryApi(
     }
 
     private companion object {
-        /** 收藏的键名/存储名沿用 Android 那个（排查时好认，见类 KDoc）。 */
-        const val PREF_NAME = "library_favorites"
-        const val KEY_FAVORITES = "favorite_seats"
+        // 收藏的存储名/键名搬去 LibraryFavorites 了（同一个名字，见类 KDoc）。
 
         /**
          * 座位的显示顺序：与 `:app` 的 `getSeats` 同一个比较器（先按首个字母，再按数字部分）。

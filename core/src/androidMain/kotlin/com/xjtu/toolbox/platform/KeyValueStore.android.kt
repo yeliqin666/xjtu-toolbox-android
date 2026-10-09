@@ -41,6 +41,19 @@ private class AndroidKeyValueStore(private val name: String) : KeyValueStore {
         prefs.edit().putInt(key, value).apply()
     }
 
+    /**
+     * 集合那一档直接用 `SharedPreferences.getStringSet` —— 与搬迁前 `AppLibrarySource`
+     * 逐字同一条调用（同一个文件、同一个键、同一个值类型 ⇒ 老收藏不丢）。
+     *
+     * `getStringSet` 返回的是框架内部实例，改它会破坏存储 ⇒ 这里交一份副本出去
+     * （原来的调用点本来就是 `-`/`+` 生成新集合，语义不变）。
+     */
+    override fun getStringSet(key: String): Set<String>? = prefs.getStringSet(key, null)?.toSet()
+
+    override fun putStringSet(key: String, value: Set<String>) {
+        prefs.edit().putStringSet(key, LinkedHashSet(value)).apply()
+    }
+
     override fun remove(key: String) {
         prefs.edit().remove(key).apply()
     }

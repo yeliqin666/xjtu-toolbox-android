@@ -35,14 +35,17 @@ import com.xjtu.toolbox.error.UserFacingFailure
  * 调用方需捕获此异常，调用 `AppLoginState.handleAuthExpired(...)` 静默触发
  * 重新登录（含 MFA）；不要直接将 message 展示给用户。
  *
- * 仍然继承 `java.io.IOException`：站点层是按 IOException 记「本次登录失败、进冷却」的，
- * 换父类型会改掉重认证的走向。[SessionExpiredFailure] 只用来认领文案
+ * 父类型仍是 `java.io.IOException`（经 `:data` 的 `SessionExpiredException`）：站点层是按 IOException
+ * 记「本次登录失败、进冷却」的，换父类型会改掉重认证的走向。`SessionExpiredFailure` 只用来认领文案
  * （见 :core 的 `error/FriendlyError.kt`）。
+ *
+ * 构造参数、文案与类名**一字未改**；变的是父类型从 `IOException` 换成了 `:data` 的那个共享基类
+ * —— 图书馆那条数据层搬进 `:data` 后要能按类型认出「会话失效」，而它不认识 `:app` 的类。
  */
 class AuthExpiredException(
-    val siteName: String = "",
+    siteName: String = "",
     message: String = if (siteName.isEmpty()) "登录态已失效" else "${siteName}登录态已失效"
-) : IOException(message), SessionExpiredFailure
+) : com.xjtu.toolbox.auth.SessionExpiredException(siteName, message)
 
 /**
  * 静默登录撞上短信验证。
@@ -1037,47 +1040,26 @@ open class XJTULogin(
     companion object {
         /**
          * 判断 HTML 是否为统一认证返回的「Safety Verify」二次认证页面。
-         * 检测条件：fm1 表单含 secState/execution/_eventId 三个字段，
-         * 且文档标题含 "Safety Verify" 或文档体含 "/cas/sec/initByType"、「选择安全认证」、「二次认证」。
+         *
+         * 判据本身（检测条件：fm1 表单含 secState/execution/_eventId 三个字段，且文档标题含
+         * "Safety Verify" 或文档体含 "/cas/sec/initByType"、「选择安全认证」、「二次认证」）搬到了
+         * `:data` 的 `CasLoginPages` —— 图书馆那条数据层也要认登录页，而它不认识 `:app`。
+         * 这里只留一行转发，行为逐字不变。
          */
         @JvmStatic
-        fun isSafetyVerifyPage(html: String): Boolean {
-            if (html.isBlank()) return false
-            return try {
-                val doc = Jsoup.parse(html)
-                val form = doc.selectFirst("#fm1") ?: return false
-                val hasVerifyForm = form.selectFirst("input[name=secState]")?.attr("value")?.isNotEmpty() == true
-                val hasExecution = form.selectFirst("input[name=execution]")?.attr("value")?.isNotEmpty() == true
-                val hasSubmitEvent = form.selectFirst("input[name=_eventId]")?.attr("value")?.isNotEmpty() == true
-                val title = doc.selectFirst("title")?.text() ?: ""
-                val hasSafetyTitle = "Safety Verify" in title
-                val hasSecInitApi = "/cas/sec/initByType" in html || "\\/cas\\/sec\\/initByType" in html
-                val hasSafetyText = "选择安全认证" in html || "二次认证" in html
-                hasVerifyForm && hasExecution && hasSubmitEvent && (hasSafetyTitle || hasSecInitApi || hasSafetyText)
-            } catch (_: Exception) {
-                html.contains("name=\"secState\"") && html.contains("name=\"execution\"")
-            }
-        }
+        fun isSafetyVerifyPage(html: String): Boolean = CasLoginPages.isSafetyVerifyPage(html)
 
         /**
          * 判断响应 HTML 是否表明当前业务站点的登录态已失效。
          *
-         * 检测两种场景：Safety Verify 页面和统一身份认证登录页。
+         * 检测两种场景：Safety Verify 页面和统一身份认证登录页。判据在 `:data` 的 `CasLoginPages`
+         * （与上一个函数同一个地方，只留一行转发）。
          *
          * 用法：在各子系统的 executeWithReAuth 中，对响应 body 调用此方法，
          *       若返回 true 则 reAuthenticate + 重放请求。
          */
         @JvmStatic
-        fun isAuthFailureResponse(html: String): Boolean {
-            if (html.isBlank()) return false
-            if (isSafetyVerifyPage(html)) return true
-            // 统一身份认证登录页（fm1 表单 + CAS 标识）
-            val hasLoginForm = "id=\"fm1\"" in html && "name=\"execution\"" in html
-            val hasLoginMarker = "login.xjtu.edu.cn" in html ||
-                    "cas/login" in html ||
-                    "统一身份认证" in html
-            return hasLoginForm && hasLoginMarker
-        }
+        fun isAuthFailureResponse(html: String): Boolean = CasLoginPages.isAuthFailureResponse(html)
 
         /**
          * 跟完跳转后仍停在统一认证登录页（直连或经网关）：免密没走通，要提交密码。

@@ -103,10 +103,13 @@ object WebVpnUtil {
     }
 
     /**
-     * 判断 URL 是否已是 WebVPN URL
+     * 判断 URL 是否已是 WebVPN URL。
+     *
+     * 判据本体搬到了 `:data` 的 `WebVpnUrl.isWebVpnUrl`（图书馆那份数据层要拿它区分
+     * 「这次请求走的直连还是网关」，而它不认识 `:app`）；常量 [INSTITUTION] 与本对象其余部分共用，
+     * 两处必须指向同一个域名 —— 改域名只需要改这一个常量。
      */
-    fun isWebVpnUrl(url: String): Boolean =
-        url.startsWith("https://$INSTITUTION") || url.startsWith("http://$INSTITUTION")
+    fun isWebVpnUrl(url: String): Boolean = WebVpnUrl.isWebVpnUrl(url)
 
     /** 网关的登录前页 `/login`（不带 cas_login、ticket）：没有网关会话时访问任何代理地址都会被 302 到这里。 */
     fun isLoginLanding(url: okhttp3.HttpUrl): Boolean =

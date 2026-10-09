@@ -2,38 +2,56 @@ package com.xjtu.toolbox.library
 
 import android.content.Context
 import com.xjtu.toolbox.auth.SiteSession
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 /**
- * `:core` 的 [LibrarySource] 在 Android 侧的实现 —— 包住原来的 `LibraryApi`（okhttp 抓
- * `rg.lib.xjtu.edu.cn`）与那份 `SharedPreferences`（收藏）。
+ * `:core` 的 [LibrarySource] 在 Android 侧的实现。
  *
- * **`LibraryApi` 的实现一行未改**（只搬走了模型、两个判据集合与 `guessAreaCode`，见那个文件里的注释）；
- * 本类只做两件搬迁前写在 ViewModel 里的事，两件都原来那个样子：
+ * ## 搬迁后它还剩什么（以及为什么只剩这些）
+ *
+ * 取数与解析（`LibraryApi` + `LibraryPages`，okhttp 抓 `rg.lib.xjtu.edu.cn`）已经搬进 `:data`，
+ * **实现一行未改**（只把 `SiteSession`/`android.util.Log`/`org.json` 三处换成缝，见那个类的 KDoc）。
+ * 本类因此只包住**真正属于 Android 宿主**的三件事：
  *
  *  1. **把每个取数调用包进 `Dispatchers.IO`**：原来的 VM 是 `withContext(Dispatchers.IO) { api.xxx() }`，
  *     现在 VM 不再替实现挑调度器（见 [LibrarySource] 的 KDoc），所以由本类自己包 —— 同一层、同一个调度器；
  *  2. **平面图的字节**：原来 VM 里那两处「先查磁盘缓存、没有再下载」（`PlanImageDiskCache` +
- *     `LibraryPages.planImageNames`）挪到这里 —— 共享侧只该看见「底图字节」「状态图字节」。
- *     分成 [planBase] / [planTiles] 两次取也是**照抄原来 VM 的顺序**：底图先到就能画，四张状态图随后补。
+ *     `LibraryPages.planImageNames`）留在这里 —— 缓存写的是 `Context.cacheDir` 下的文件，
+ *     共享侧只该看见「底图字节」「状态图字节」。分成 [planBase] / [planTiles] 两次取也是
+ *     **照抄原来 VM 的顺序**：底图先到就能画，四张状态图随后补；
+ *  3. **[restoreCampus] 那个作用域**：离开页面时把校区切回去这一枪，页面作用域那时已经取消了，
+ *     所以它自带一个进程级作用域（原来是 `LibraryApi.restoreScope`，现在是本类的 `restoreScope`）
+ *     —— 「不随页面取消」是宿主的编排，不是图书馆数据层的事。
  *
- * 三个例外，都不是「换个调度器跑同一段代码」：
- *  - [areaStats] / [areaNameOf] / [floorOfArea] / [isForeignArea] / [favorites] 读的是
- *    `LibraryApi` 或 `SharedPreferences` 里已经缓存好的那份，非挂起方法直接委派（原来 VM 也是这么读的）；
- *  - [restoreCampus] 用原来的 `LibraryApi.restoreScope`（页面作用域那时已经取消了）；
- *  - [toggleFavorite] 就是原来 VM 里那两行：读 `getStringSet`、翻转、写回同一个键
- *    （`:core` 的 `KeyValueStore` 没有集合这一档，所以这一件留在实现方，见 [LibrarySource] 的 KDoc）。
+ * ## 收藏不在这里了
+ *
+ * 座位收藏以前是本类里的一对重写（`SharedPreferences.getStringSet`）。`:core` 的 `KeyValueStore`
+ * 现在有集合那一档，于是它搬进了共享的 [LibraryFavorites]：**同一个文件（`library_favorites`）、
+ * 同一个键（`favorite_seats`）、同一个值类型（`StringSet`）** ⇒ 老收藏不丢，而代码只剩一份。
+ *
+ * ## 会话失效
+ *
+ * [AppLibrarySession] 把 `SiteSession` 包成 `:data` 要的那个缝，并原样给回 `AuthExpiredException`
+ * —— `:app` 里按那个类分支的调用点（屁岱的图书馆工具、`AppInboxSource`…）行为不变。
  */
 class AppLibrarySource(
-    private val site: SiteSession,
+    site: SiteSession,
     private val context: Context,
 ) : LibrarySource {
 
-    private val api = LibraryApi(site)
-    private val prefs = context.applicationContext
-        .getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
+    /** 会话缝：`:data` 的 `LibraryApi` 只看得到这一层（`:app` 侧的 `SiteSession` 包装）。 */
+    private val session = AppLibrarySession(site)
+    private val api = LibraryApi(session)
+
+    /**
+     * 离开页面时把校区切回去用的作用域。页面的协程作用域那时已经取消了，
+     * 切回原校区这一枪必须打完，否则用户看一眼别的校区，账号资料就一直停在那儿。
+     */
+    private val restoreScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     /** Android 直连图书馆站点：能预约、能换座、能签到/退座、能切校区（写路径一行未改）。 */
     override val canBook: Boolean get() = true
@@ -70,7 +88,7 @@ class AppLibrarySource(
         withContext(Dispatchers.IO) { api.fetchMyBooking() }
 
     override suspend fun seatAvailability(qr: LibrarySeatQr): LibrarySeatStatus =
-        withContext(Dispatchers.IO) { LibrarySeatAvailability.fetch(site.client, qr) }
+        withContext(Dispatchers.IO) { LibrarySeatAvailability.fetch(session.client, qr) }
 
     override fun areaStats(): Map<String, AreaStats> = api.cachedAreaStats
 
@@ -83,14 +101,6 @@ class AppLibrarySource(
     override suspend fun warmCampusAreas(campus: LibraryCampus) =
         withContext(Dispatchers.IO) { api.warmCampusAreas(campus) }
 
-    override fun favorites(): Set<String> = prefs.getStringSet(KEY_FAVORITES, emptySet()) ?: emptySet()
-
-    override fun toggleFavorite(seatId: String): Set<String> {
-        val next = if (seatId in favorites()) favorites() - seatId else favorites() + seatId
-        prefs.edit().putStringSet(KEY_FAVORITES, next).apply()
-        return next
-    }
-
     override suspend fun bookSeat(seatId: String, areaCode: String, autoSwap: Boolean): BookResult =
         withContext(Dispatchers.IO) { api.bookSeat(seatId, areaCode, autoSwap) }
 
@@ -101,17 +111,9 @@ class AppLibrarySource(
         withContext(Dispatchers.IO) { api.executeAction(actionUrl) }
 
     override fun restoreCampus(campus: LibraryCampus, onRestored: () -> Unit) {
-        // 页面作用域那时已经取消（见 LibrarySource.restoreCampus 的 KDoc）⇒ 用原来那个页面外的作用域
-        LibraryApi.restoreScope.launch {
+        // 页面作用域那时已经取消（见 LibrarySource.restoreCampus 的 KDoc）⇒ 用本类这个进程级作用域
+        restoreScope.launch {
             if (runCatching { api.switchCampus(campus) }.getOrDefault(false)) onRestored()
         }
-    }
-
-    private companion object {
-        /** 与搬迁前 VM 里那个 `PREF_NAME` 逐字一致（同一个 SharedPreferences 文件）。 */
-        const val PREF_NAME = "library_favorites"
-
-        /** 与搬迁前 VM 里那个 `KEY_FAVORITES` 逐字一致（同一个键、同一个 StringSet 形态 ⇒ 老收藏不丢）。 */
-        const val KEY_FAVORITES = "favorite_seats"
     }
 }

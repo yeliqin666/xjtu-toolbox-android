@@ -1,9 +1,17 @@
 package com.xjtu.toolbox.library
 
+import com.xjtu.toolbox.auth.CasLoginPages
+import com.xjtu.toolbox.auth.SessionExpiredException
+import com.xjtu.toolbox.platform.Log
+import com.xjtu.toolbox.util.AppJson
 import com.xjtu.toolbox.util.redactBody
 import com.xjtu.toolbox.util.redactUrl
-import android.util.Log
-import com.xjtu.toolbox.auth.SiteSession
+import com.xjtu.toolbox.util.safeInt
+import com.xjtu.toolbox.util.safeStringOrNull
+import com.xjtu.toolbox.webvpn.WebVpnUrl
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.jsonObject
 import okhttp3.Request
 import org.jsoup.Jsoup
 
@@ -11,13 +19,29 @@ import org.jsoup.Jsoup
 //
 // SeatInfo / AreaStats / BookResult / MyBookingInfo / SeatResult 与那两个判据集合
 //（INACTIVE_BOOKING_STATUSES / URGENT_BOOKING_ACTIONS）都搬进了 :core（`com.xjtu.toolbox.library.LibraryModels.kt`）：
-// 共享屏与共享 ViewModel 要用同一份形状，而本类留在 :app（okhttp + SiteSession）。
+// 共享屏与共享 ViewModel 要用同一份形状；本类（抓 `rg.lib.xjtu.edu.cn` 的那一套 okhttp 取数）
+// 现在在 `:data`：它只认 [LibrarySession] 这个缝，不再认识 `SiteSession` 与 `android.util.Log`
+// （JSON 也换成 `:core` 的 `AppJson`/`kotlinx.serialization`，不再用 Android 平台那份 `org.json`）。
 // 同一个包里，这里直接用，一行 import 都不用加。
 
 
 // ══════ LibraryApi ══════
 
-class LibraryApi(private val site: SiteSession) {
+/**
+ * 图书馆座位系统（`rg.lib.xjtu.edu.cn:8086`）的**取数实现**：读（校区/区域/座位/平面图/我的预约）
+ * 与写（预约/换座/签到/取消/切校区）都在这里，一行逻辑没改，只是从 `:app` 搬进了 `:data`
+ * ——把 Android 的三处依赖换成缝：
+ *
+ * | 原来 | 现在 |
+ * |---|---|
+ * | `SiteSession`（客户端 + 重认证重放） | [LibrarySession]（`:app` 包 `SiteSession`，桌面直连） |
+ * | `android.util.Log` | `:core` 的 `com.xjtu.toolbox.platform.Log` |
+ * | `org.json`（Android 平台自带） | `:core` 的 `AppJson` + `kotlinx.serialization`（JVM 上也真能跑） |
+ *
+ * 两件留在宿主侧、**不属于本类**：平面图字节的磁盘缓存（需要 `cacheDir`）与「切回原校区」那个
+ * 不随页面取消的作用域（见 `AppLibrarySource`）。本类只负责「取/改图书馆的数据」。
+ */
+class LibraryApi(private val session: LibrarySession) {
 
     companion object {
         private const val BASE_URL = LibraryPages.BASE_URL
@@ -87,7 +111,7 @@ class LibraryApi(private val site: SiteSession) {
          * 不写「HTTP 200」：FriendlyError 会把带 HTTP 码的消息换成通用文案。
          */
         internal fun pageClue(response: okhttp3.Response, body: String): String {
-            val via = if (com.xjtu.toolbox.webvpn.WebVpnUtil.isWebVpnUrl(response.request.url.toString())) "WebVPN" else "直连"
+            val via = if (WebVpnUrl.isWebVpnUrl(response.request.url.toString())) "WebVPN" else "直连"
             val doc = Jsoup.parse(body)
             val page = doc.title().ifBlank { doc.body()?.text().orEmpty() }.trim().take(20).ifBlank { "空页面" }
             return "$via · 状态码 ${response.code} · $page"
@@ -98,14 +122,6 @@ class LibraryApi(private val site: SiteSession) {
 
         private fun isJpeg(b: ByteArray) = b[0] == 0xFF.toByte() && b[1] == 0xD8.toByte()
         private fun isPng(b: ByteArray) = b[0] == 0x89.toByte() && b[1] == 'P'.code.toByte()
-
-        /**
-         * 离开页面时把校区切回去用的作用域。页面的协程作用域那时已经取消了，
-         * 切回原校区这一枪必须打完，否则用户看一眼别的校区，账号资料就一直停在那儿。
-         */
-        internal val restoreScope = kotlinx.coroutines.CoroutineScope(
-            kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.IO
-        )
 
         // 判据集合（INACTIVE_BOOKING_STATUSES / URGENT_BOOKING_ACTIONS）搬进了 :core，
         // 因为共享屏与 `:app` 的 LibraryPages/LibraryStatus 都要用同一份。
@@ -208,20 +224,18 @@ class LibraryApi(private val site: SiteSession) {
             Log.e(TAG, "qspace(floor=$floorCode) not JSON: ${body.redactBody(300)}")
             throw RuntimeException(unexpectedPage("图书馆楼层信息", response, body))
         }
-        val json = org.json.JSONObject(body)
+        val json = AppJson.parseToJsonElement(body).jsonObject
         val result = linkedMapOf<String, String>()
-        json.optJSONObject("sp")?.let { sp ->
-            val keys = sp.keys()
-            while (keys.hasNext()) {
-                val code = keys.next()
+        (json["sp"] as? JsonObject)?.let { sp ->
+            for ((code, value) in sp) {
                 if (code.isBlank()) continue
-                val name = sp.optString(code).takeIf { it.isNotBlank() } ?: continue
+                val name = value.safeStringOrNull()?.takeIf { it.isNotBlank() } ?: continue
                 result[code] = name
                 learnedAreaNames[code] = name
                 learnedAreaFloors[code] = floorCode
             }
         }
-        parseAreaStats(json.optJSONObject("scount")).let { stats ->
+        parseAreaStats(json["scount"] as? JsonObject).let { stats ->
             cachedAreaStats = filterScount(stats, knownAreaCodes()).ifEmpty { cachedAreaStats }
         }
         Log.d(TAG, "getFloorAreas($floorCode): ${result.size} areas")
@@ -271,7 +285,7 @@ class LibraryApi(private val site: SiteSession) {
                 .header("Referer", "$BASE_URL/modify")
                 .post(form)
                 .build()
-            val resp = site.executeWithReAuth(req)
+            val resp = session.fetch(req)
             val ok = resp.isSuccessful
             resp.close()
             // 提交完清掉学到的区域：换校区后区域码整套都变了，留着会把上个校区的
@@ -292,7 +306,7 @@ class LibraryApi(private val site: SiteSession) {
     /**
      * 座位接口的通用请求头。
      *
-     * 注意这里**没有**设任何超时，走的是 site.client 的默认值（25-30s）。
+     * 注意这里**没有**设任何超时，走的是会话那份 `client` 的默认值（25-30s）。
      * 所以别在一条用户操作里串太多请求——换座那条链路曾经串到 7 个，
      * 撞上服务端不响应时，用户看到的就是等了好几分钟然后"超时"。
      */
@@ -309,17 +323,17 @@ class LibraryApi(private val site: SiteSession) {
     private fun isRedirectedToLogin(body: String, finalUrl: String): Boolean =
         body.contains("id=\"loginForm\"") || body.contains("name=\"execution\"") ||
         body.contains("cas/login") || finalUrl.contains("login.xjtu.edu.cn") ||
-        com.xjtu.toolbox.auth.XJTULogin.isAuthFailureResponse(body)
+        CasLoginPages.isAuthFailureResponse(body)
 
     /**
      * 执行请求，如果被重定向到 CAS 登录页则自动 reAuthenticate 并重试
      */
     private suspend fun executeWithReAuth(request: Request): Pair<okhttp3.Response, String> {
-        val response = site.executeWithReAuth(request)
+        val response = session.fetch(request)
         val body = response.body.string()
         if (isRedirectedToLogin(body, response.request.url.toString())) {
             response.close()
-            throw com.xjtu.toolbox.auth.AuthExpiredException("图书馆")
+            throw session.authExpired("图书馆")
         }
         return response to body
     }
@@ -342,22 +356,24 @@ class LibraryApi(private val site: SiteSession) {
             Log.e(TAG, "qspace did not return JSON. ContentType=$contentType, body preview: ${body.redactBody(500)}")
             throw RuntimeException(unexpectedPage("图书馆楼层信息", response, body))
         }
-        val json = org.json.JSONObject(body)
-        val stats = parseAreaStats(json.optJSONObject("scount"))
+        val json = AppJson.parseToJsonElement(body).jsonObject
+        val stats = parseAreaStats(json["scount"] as? JsonObject)
         cachedAreaStats = filterScount(stats, knownAreaCodes())
         return cachedAreaStats
     }
 
-    private fun parseAreaStats(scountObj: org.json.JSONObject?): Map<String, AreaStats> {
+    /**
+     * 解析 `scount`：`{区域码: [总数, 空位]}`（原 `org.json` 版逐条对齐 —— 认不出的值取 0，
+     * 缺数组的键跳过）。
+     */
+    private fun parseAreaStats(scountObj: JsonObject?): Map<String, AreaStats> {
         if (scountObj == null) return emptyMap()
         val result = mutableMapOf<String, AreaStats>()
-        val keys = scountObj.keys()
-        while (keys.hasNext()) {
-            val key = keys.next()
+        for ((key, value) in scountObj) {
             if (key.isBlank()) continue
-            val arr = scountObj.optJSONArray(key) ?: continue
-            if (arr.length() >= 2) {
-                result[key] = AreaStats(available = arr.optInt(1), total = arr.optInt(0))
+            val arr = value as? JsonArray ?: continue
+            if (arr.size >= 2) {
+                result[key] = AreaStats(available = arr[1].safeInt(), total = arr[0].safeInt())
             }
         }
         return result
@@ -373,15 +389,15 @@ class LibraryApi(private val site: SiteSession) {
             val floorCode = floorCodeOf(areaCode)
             val referer = if (floorCode != null) "$BASE_URL/qspace?lang=zh&floor=$floorCode"
                 else "$BASE_URL/seat/"
-            // 走 executeWithReAuth：命中登录页会自动 reAuthenticate，
-            // 仍失败则抛 AuthExpiredException（由 LibraryScreen 捕获触发静默重登）。
+            // 走会话的 fetch：命中登录页会自动重认证并重放，
+            // 仍失败则抛会话失效异常（[SessionExpiredException]；由共享的 LibraryScreen 捕获触发静默重登）。
             val (resp, respBody) = executeWithReAuth(
                 buildRequest("$BASE_URL/qseat?sp=$areaCode", ajax = true, referer = referer)
             )
             response = resp
             body = respBody
             response.close()
-        } catch (e: com.xjtu.toolbox.auth.AuthExpiredException) {
+        } catch (e: SessionExpiredException) {
             throw e   // 透传给 UI 层做静默重登，不要降级成普通错误
         } catch (e: java.io.IOException) {
             Log.e(TAG, "getSeats network error", e)
@@ -408,24 +424,23 @@ class LibraryApi(private val site: SiteSession) {
         }
 
         try {
-            val json = org.json.JSONObject(body)
+            val json = AppJson.parseToJsonElement(body).jsonObject
 
             // 解析 scount（全局区域统计）
-            val statsMap = parseAreaStats(json.optJSONObject("scount"))
+            val statsMap = parseAreaStats(json["scount"] as? JsonObject)
             cachedAreaStats = filterScount(statsMap, knownAreaCodes()).ifEmpty { cachedAreaStats }
             Log.d(TAG, "scount: ${cachedAreaStats.size} areas open")
 
             // 解析 seat 对象
-            val seatObj = json.optJSONObject("seat")
-            if (seatObj == null || seatObj.length() == 0) {
+            val seatObj = json["seat"] as? JsonObject
+            if (seatObj == null || seatObj.isEmpty()) {
                 return SeatResult.Success(emptyList(), cachedAreaStats)
             }
 
             val seatList = mutableListOf<SeatInfo>()
-            val seatKeys = seatObj.keys()
-            while (seatKeys.hasNext()) {
-                val seatId = seatKeys.next()
-                val status = seatObj.optInt(seatId, -1)
+            for ((seatId, value) in seatObj) {
+                // 与原来 `optInt(seatId, -1)` 同一口径：认不出的值当 -1（既不等于 0，也就不是空位）
+                val status = value.safeInt(-1)
                 seatList.add(SeatInfo(seatId, status == 0))
             }
 
@@ -436,7 +451,7 @@ class LibraryApi(private val site: SiteSession) {
 
             Log.d(TAG, "seats: ${seatList.size} total, ${seatList.count { it.available }} avail")
             return SeatResult.Success(seatList, cachedAreaStats)
-        } catch (e: org.json.JSONException) {
+        } catch (e: IllegalArgumentException) {
             Log.e(TAG, "JSON parse error", e)
             return SeatResult.Error("座位数据格式异常，请稍后再试")
         }
@@ -469,13 +484,13 @@ class LibraryApi(private val site: SiteSession) {
      */
     suspend fun getPlanImage(name: String): ByteArray? = try {
         val req = buildRequest("$BASE_URL/static/images/ui10/$name", referer = "$BASE_URL/seatui/")
-        site.executeWithReAuth(req).use { resp ->
+        session.fetch(req).use { resp ->
             // 认文件头而不是 Content-Type：经 WebVPN 转发时类型头不一定还在；
             // 登录页、404 页是 HTML，头两个字节对不上 JPEG / PNG。
             val bytes = if (resp.isSuccessful) resp.body.bytes() else null
             bytes?.takeIf { it.size > 4 && (isJpeg(it) || isPng(it)) }
         }
-    } catch (e: com.xjtu.toolbox.auth.AuthExpiredException) {
+    } catch (e: SessionExpiredException) {
         throw e
     } catch (e: Exception) {
         Log.w(TAG, "plan image $name failed: ${e.message}")
@@ -498,7 +513,7 @@ class LibraryApi(private val site: SiteSession) {
             response = resp
             html = respBody
             response.close()
-        } catch (e: com.xjtu.toolbox.auth.AuthExpiredException) {
+        } catch (e: SessionExpiredException) {
             return BookResult(false, "登录状态已失效，请退出图书馆页面后重新进入")
         } catch (e: Exception) {
             return BookResult(false, com.xjtu.toolbox.error.FriendlyError.of(e, "预约"))
@@ -533,14 +548,14 @@ class LibraryApi(private val site: SiteSession) {
      */
     /** GET 一个页面，并在 WebVPN 模式下补取该 path 的 wengine cookie。 */
     private suspend fun loadPageWithVpnCookie(path: String) {
-        val resp = site.executeWithReAuth(buildRequest("$BASE_URL$path"))
+        val resp = session.fetch(buildRequest("$BASE_URL$path"))
         val finalUrl = resp.request.url.toString()
         resp.close()
-        if (com.xjtu.toolbox.webvpn.WebVpnUtil.isWebVpnUrl(finalUrl)) {
+        if (WebVpnUrl.isWebVpnUrl(finalUrl)) {
             val cookieUrl = "https://webvpn.xjtu.edu.cn/wengine-vpn/cookie" +
                 "?method=get&host=rg.lib.xjtu.edu.cn&scheme=http&path=$path" +
                 "&vpn_timestamp=${System.currentTimeMillis()}"
-            site.client.newCall(buildRequest(cookieUrl)).execute().use { it.body.string() }
+            session.client.newCall(buildRequest(cookieUrl)).execute().use { it.body.string() }
         }
     }
 
@@ -580,7 +595,7 @@ class LibraryApi(private val site: SiteSession) {
             if (booked != null && LibraryPages.sameSeat(booked, seatId)) BookResult(true, "✓ 已换座到 ${booked}！", finalUrl)
             else BookResult(false, "换座未生效${booked?.let { "（当前仍为 $it）" } ?: ""}：${parseBookingFailure(html)}", finalUrl)
         } catch (e: Exception) {
-            if (e is com.xjtu.toolbox.auth.AuthExpiredException)
+            if (e is SessionExpiredException)
                 BookResult(false, "登录状态已失效，请退出图书馆页面后重新进入")
             else BookResult(false, com.xjtu.toolbox.error.FriendlyError.of(e, "换座"))
         }
@@ -618,7 +633,7 @@ class LibraryApi(private val site: SiteSession) {
                     LibraryPages.MyPage.NoBooking -> return Result.success(null)
                     LibraryPages.MyPage.Unrecognized -> continue
                 }
-            } catch (e: com.xjtu.toolbox.auth.AuthExpiredException) {
+            } catch (e: SessionExpiredException) {
                 return Result.failure(e)
             } catch (e: Exception) {
                 lastError = e
@@ -671,7 +686,7 @@ class LibraryApi(private val site: SiteSession) {
                 )
                 LibraryPages.ActionVerdict.UNKNOWN -> BookResult(true, "已提交，状态以下方刷新结果为准", finalUrl)
             }
-        } catch (e: com.xjtu.toolbox.auth.AuthExpiredException) {
+        } catch (e: SessionExpiredException) {
             return BookResult(false, "登录状态已失效，请退出图书馆页面后重新进入")
         } catch (e: Exception) {
             return BookResult(false, com.xjtu.toolbox.error.FriendlyError.of(e, "操作"))

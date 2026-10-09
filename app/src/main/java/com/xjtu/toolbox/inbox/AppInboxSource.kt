@@ -4,6 +4,7 @@ import android.content.Context
 import com.xjtu.toolbox.auth.AppLoginState
 import com.xjtu.toolbox.auth.LoginType
 import com.xjtu.toolbox.auth.ensureSite
+import com.xjtu.toolbox.library.AppLibrarySession
 import com.xjtu.toolbox.library.LibraryApi
 import com.xjtu.toolbox.library.LibraryStatus
 
@@ -31,7 +32,7 @@ class AppInboxSource(
         if (data.todos[InboxCategories.LIBRARY].isNullOrEmpty()) return
         val manager = loginState.sessionManager ?: return
         runCatching {
-            LibraryApi(manager.ensureSite(LoginType.LIBRARY, userInitiated = true)).fetchMyBooking().getOrThrow()
+            LibraryApi(AppLibrarySession(manager.ensureSite(LoginType.LIBRARY, userInitiated = true))).fetchMyBooking().getOrThrow()
         }.onSuccess { LibraryStatus.publish(context, it) }
     }
 }

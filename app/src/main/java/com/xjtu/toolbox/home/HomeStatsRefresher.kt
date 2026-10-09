@@ -273,7 +273,7 @@ object HomeStatsRefresher {
             site ?: return@Source null
             withContext(Dispatchers.IO) {
                 // 查失败算这个源失败，不能当成「没有预约」把待办和提醒清掉
-                val b = com.xjtu.toolbox.library.LibraryApi(site).fetchMyBooking().getOrThrow()
+                val b = com.xjtu.toolbox.library.LibraryApi(com.xjtu.toolbox.library.AppLibrarySession(site)).fetchMyBooking().getOrThrow()
                 // 在图书馆自助机上约的座位不会经过本 App 的图书馆页，首页这一轮是唯一能发现它的地方。
                 com.xjtu.toolbox.library.LibraryStatus.publish(ctx, b, roundAccount)
                 if (b == null) return@withContext null

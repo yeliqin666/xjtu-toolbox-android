@@ -2,7 +2,6 @@ package com.xjtu.toolbox.library
 
 import com.xjtu.toolbox.core.net.CampusLibraryApi
 import com.xjtu.toolbox.core.net.createToolboxClient
-import com.xjtu.toolbox.platform.keyValueStore
 import io.ktor.client.engine.mock.MockEngine
 import io.ktor.client.engine.mock.respond
 import io.ktor.http.HttpHeaders
@@ -242,19 +241,7 @@ class CampusLibraryMappingTest {
         assertTrue("图书馆 qspace status=500" in error.message.orEmpty())
     }
 
-    @Test
-    fun favoritesRoundTripThroughTheWebStore() = runTest {
-        val store = keyValueStore("library_favorites")
-        store.clear()
-        val api = apiFor("/api/library/campus" to campusPayload)
-
-        // 冷启动没有收藏
-        assertTrue(api.favorites().isEmpty())
-        // 切换收藏返回切换后的那一份，且落盘（同一个键名，与 Android 那份共用格式：逗号分隔）
-        assertEquals(setOf("C38"), api.toggleFavorite("C38"))
-        assertEquals(setOf("C38"), api.favorites())
-        assertEquals(setOf("C38", "C9"), api.toggleFavorite("C9"))
-        assertEquals(setOf("C9"), api.toggleFavorite("C38"))
-        assertEquals("C9", store.getString("favorite_seats"))
-    }
+    // 收藏那一条测试不在这里了：它原本钉的是本类的两个重写（`favorites()` / `toggleFavorite()`），
+    // 现在这两个方法搬进了共享的 `LibraryFavorites`（`:core/library/LibraryFavorites.kt`）——
+    // 落盘位置、键名、值类型一字未变，验收在 `:core:jvmTest` 的 `LibraryFavoritesJvmTest`。
 }

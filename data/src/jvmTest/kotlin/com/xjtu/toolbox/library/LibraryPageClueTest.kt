@@ -1,11 +1,19 @@
 package com.xjtu.toolbox.library
 
+import kotlin.test.Test
+import kotlin.test.assertEquals
 import okhttp3.Protocol
 import okhttp3.Request
 import okhttp3.Response
-import org.junit.Assert.assertEquals
-import org.junit.Test
 
+/**
+ * `LibraryApi.pageClue` —— 「收到的不是图书馆数据时，报错里带上是哪个页面」那一条。
+ *
+ * 原文件在 `app/src/test/java/com/xjtu/toolbox/library/LibraryPageClueTest.kt`，随 [LibraryApi]
+ * 一起搬进 `:data:jvmTest`（`pageClue` 是 `internal`，只有同模块看得见；它本来就是本类的私有判据，
+ * 不是为了跨模块才存在）。断言逐条保留，只把 JUnit4 的注解/断言换成 `kotlin.test`
+ *（`:data` 的测试壳统一是这个）。
+ */
 class LibraryPageClueTest {
 
     private fun response(url: String, code: Int = 200) = Response.Builder()

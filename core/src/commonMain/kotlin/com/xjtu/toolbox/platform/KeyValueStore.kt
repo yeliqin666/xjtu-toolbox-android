@@ -23,6 +23,29 @@ interface KeyValueStore {
     fun putBoolean(key: String, value: Boolean)
     fun getInt(key: String, default: Int): Int
     fun putInt(key: String, value: Int)
+
+    /**
+     * **字符串集合**那一档。
+     *
+     * 为什么必须有：`SharedPreferences` 上有 `getStringSet` / `putStringSet`，而 `:app` 里用它
+     * 落盘的地方正好是那些「用户挑出来的一组 id」——座位收藏（`library_favorites` /
+     * `favorite_seats`）、场馆收藏。以前没有这一档时，这些端口只能把「收藏存在哪儿」
+     * 推给各端实现方（见 `LibrarySource.favorites` 的 KDoc），代价是**同一条竖切在两端各写一遍**。
+     *
+     * 语义与 `SharedPreferences` **逐条对齐**（这是行为不变的前提）：
+     *  - 返回 **null** 表示这个键不存在（不是空集合）—— 调用方自己决定默认值；
+     *  - 返回的集合**必须是可以随便改的副本**：Android 那份 `getStringSet` 返回的是框架内部
+     *    实例，改动它会破坏存储（原来的调用点一律先 `-`/`+` 生成新集合，语义不变）；
+     *  - [putStringSet] 存进去的也是副本，调用方之后改自己那份不影响已落盘的值。
+     *
+     * 类型口径与 `SharedPreferences` 一致：值必须是字符串集合。用 [getString] 去读一个
+     * 集合键会直接 `ClassCastException`（Android），故不要混用。
+     */
+    fun getStringSet(key: String): Set<String>?
+
+    /** 写一个字符串集合。空集合是合法值（与「键不存在」不同）。 */
+    fun putStringSet(key: String, value: Set<String>)
+
     fun remove(key: String)
 
     /**

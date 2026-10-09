@@ -39,14 +39,17 @@ package com.xjtu.toolbox.library
  * 是纯逻辑。所以「取字节」留在这个端口上（各端取数不同）、「解码一张图」留给平台缝、
  * 「组装 [PlanImages]」留在共享代码里（`LibrarySeatPlan.decodePlanImages`）。
  *
- * ## 收藏为什么留在实现方
+ * ## 收藏为什么不在这里（曾经的例外，已收回）
  *
- * `:app` 的座位收藏落盘用的是 **`SharedPreferences.getStringSet`**（文件 `library_favorites`、
- * 键 `favorite_seats`、值是一个字符串集合），而 `:core` 的 `KeyValueStore` 只有
- * `getString/getInt/getBoolean` —— 三端接口里没有集合这一档。用 `getString` 去读一个 `StringSet`
- * 会直接 `ClassCastException`；换个新键名就等于把老收藏丢了。所以「收藏存在哪儿」留给实现方：
- * Android 包住原来那份 `SharedPreferences`（文件与键名逐字未动 ⇒ 老收藏不丢），Web 用 `localStorage`。
- * 两者都是**同步**读写的，所以这两个方法不是挂起的 —— 搬迁前 ViewModel 也是在构造时同步读那一次。
+ * 座位收藏落盘用的一直是 **`SharedPreferences.getStringSet`**（文件 `library_favorites`、
+ * 键 `favorite_seats`、值是一个字符串集合），而 `:core` 的 `KeyValueStore` 以前只有
+ * `getString/getInt/getBoolean` —— 三端接口里没有集合那一档，于是「收藏存在哪儿」只能留给实现方
+ *（Android 包 `AppLibrarySource`，Web 包 `CampusLibraryApi`，两份同语义代码）。
+ *
+ * 现在 `KeyValueStore` 补上了 `getStringSet` / `putStringSet`（Android 的 actual 就是一字不改地
+ * 转发给 `SharedPreferences`；Web 沿用原来那个逗号串；jvm 走内存/落盘实现），于是一个存本地偏好
+ * 的动作不再需要一个**取数**端口来转发 —— 它搬进了共享的 [LibraryFavorites]，三端走同一份代码、
+ * 同一个文件与键名、同一个值类型（老收藏不丢）。
  *
  * ## 取数实现的 IO 调度由实现方自己负责
  *
@@ -150,13 +153,18 @@ interface LibrarySource {
      */
     suspend fun warmCampusAreas(campus: LibraryCampus)
 
-    // ─── 收藏（本端落盘，见接口 KDoc）────────────────────────────
+    // ─── 收藏**不在这里** ──────────────────────────────────
+    //
+    // 座位收藏（`library_favorites` / `favorite_seats`）曾经是这个端口上的两个方法，理由写在下边
+    // 那段旧注释里：「`KeyValueStore` 没有集合那一档」。现在 `:core` 的 `KeyValueStore` 补上了
+    // `getStringSet` / `putStringSet`（三端 actual 各自落地：Android 就是 `SharedPreferences`
+    // 那一条调用），于是「收藏存在哪」不再是一个**取数**问题——它是本机偏好，与上游无关。
+    //
+    // 所以它搬进了共享实现 [LibraryFavorites]，而不是在每个实现方里再写一遍：
+    //   * 原来 Android 那半在 `AppLibrarySource`、Web 那半在 `CampusLibraryApi`，是**两份**同语义代码；
+    //   * 落盘的文件名与键名、值类型一律未变（Android 还是同一个 `SharedPreferences` 文件的
+    //     同一个键、同一个 `StringSet`；Web 还是那个逗号串）⇒ 老收藏不丢。
 
-    /** 已收藏的座位号。屏进场读一次、切换后自己更新。 */
-    fun favorites(): Set<String>
-
-    /** 切换收藏，返回切换后的集合（实现方那份落盘才是准的）。 */
-    fun toggleFavorite(seatId: String): Set<String>
 
     // ─── 写（[canBook] = false 时抛）──────────────────────────────
 
