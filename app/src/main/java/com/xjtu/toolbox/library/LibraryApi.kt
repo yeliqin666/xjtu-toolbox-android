@@ -8,41 +8,12 @@ import okhttp3.Request
 import org.jsoup.Jsoup
 
 // ══════ 数据类 ══════
+//
+// SeatInfo / AreaStats / BookResult / MyBookingInfo / SeatResult 与那两个判据集合
+//（INACTIVE_BOOKING_STATUSES / URGENT_BOOKING_ACTIONS）都搬进了 :core（`com.xjtu.toolbox.library.LibraryModels.kt`）：
+// 共享屏与共享 ViewModel 要用同一份形状，而本类留在 :app（okhttp + SiteSession）。
+// 同一个包里，这里直接用，一行 import 都不用加。
 
-data class SeatInfo(
-    val seatId: String,
-    val available: Boolean
-)
-
-/** 区域统计：空座/总数 */
-data class AreaStats(val available: Int, val total: Int) {
-    val isOpen get() = total > 0
-    val label get() = "${available}/${total}"
-}
-
-/** 预约结果（含失败原因） */
-data class BookResult(
-    val success: Boolean,
-    val message: String,
-    val finalUrl: String = ""
-)
-
-/** "我的预约"信息 */
-data class MyBookingInfo(
-    val seatId: String?,
-    val area: String?,
-    val statusText: String?,
-    val actionUrls: Map<String, String>
-)
-
-sealed class SeatResult {
-    data class Success(
-        val seats: List<SeatInfo>,
-        val areaStatsMap: Map<String, AreaStats> = emptyMap()
-    ) : SeatResult()
-    data class AuthError(val message: String, val htmlPreview: String = "") : SeatResult()
-    data class Error(val message: String) : SeatResult()
-}
 
 // ══════ LibraryApi ══════
 
@@ -122,28 +93,9 @@ class LibraryApi(private val site: SiteSession) {
             kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.IO
         )
 
-        /**
-         * 「这条预约已经没用了」的状态文本。
-         *
-         * 状态是从预约页面 `预约状态：X` 里正则抓的**原文**，不是枚举，所以不可能列全
-         * "有效"的那一侧；能穷举的只有失效这一侧。判定一律用"不在这个集合里就是活的"。
-         *
-         * 原先这份集合在 [parseActiveBooking] 和 LibraryScreen 里各硬编码了一模一样的一份，
-         * 改一处漏一处。收到这里做唯一来源。
-         */
-        val INACTIVE_STATUSES = setOf(
-            "已取消", "已完成", "已过期", "已失效", "已违约",
-            "超时取消", "超时未入馆", "超时", "已离馆",
-        )
+        // 判据集合（INACTIVE_BOOKING_STATUSES / URGENT_BOOKING_ACTIONS）搬进了 :core，
+        // 因为共享屏与 `:app` 的 LibraryPages/LibraryStatus 都要用同一份。
 
-        /**
-         * 需要用户立刻动手、不做就会丢座位的操作。
-         *
-         * 判据取 [classifyActionLabel] 归一化后的 label 而不是状态原文：label 只有五个固定值，
-         * 稳定；状态文本随学校页面措辞变化。「中途离开」「取消预约」「我想换座」是常驻按钮，
-         * 不构成催办。
-         */
-        val URGENT_ACTIONS = setOf("入馆签到", "中途返回")
 
         /**
          * scount 里混着区域码和一些非区域的键（楼层汇总之类），要挑出真正的区域。
@@ -159,24 +111,7 @@ class LibraryApi(private val site: SiteSession) {
             return raw.filterKeys { it in allow }
         }
 
-        fun guessAreaCode(seatId: String): String? {
-            val prefix = seatId.firstOrNull()?.uppercaseChar() ?: return null
-            return when (prefix) {
-                'A', 'B' -> "north2elian"
-                'D', 'E' -> "north2east"
-                'C' -> "south2"
-                'N' -> "north2west"
-                'Y' -> "west3B"
-                'P' -> "eastnorthda"
-                'X' -> "east3A"
-                'K', 'L', 'M' -> "north4west"
-                'J' -> "north4middle"
-                'H', 'F', 'G' -> "north4east"
-                'Q' -> "north4southwest"
-                'T' -> "north4southeast"
-                else -> null
-            }
-        }
+        // guessAreaCode 搬进了 :core（共享 ViewModel 用它做「不知道为什么区域时」的兜底）。
     }
 
     @Volatile

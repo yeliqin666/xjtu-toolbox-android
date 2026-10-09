@@ -1,7 +1,10 @@
 package com.xjtu.toolbox.nav
 
 import android.content.Context
+import android.content.pm.ActivityInfo
 import android.net.Uri
+import androidx.activity.compose.LocalActivity
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -10,6 +13,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.window.DialogProperties
 import androidx.lifecycle.createSavedStateHandle
 import com.xjtu.toolbox.account.AccountManager
 import com.xjtu.toolbox.account.AccountManagerScreen
@@ -51,7 +55,9 @@ import com.xjtu.toolbox.jiaocai1.Jiaocai1Screen
 import com.xjtu.toolbox.judge.GraduateJudgeScreen
 import com.xjtu.toolbox.judge.JudgeScreen
 import com.xjtu.toolbox.jwapp.JwappScoreScreen
+import com.xjtu.toolbox.library.AppLibrarySource
 import com.xjtu.toolbox.library.LibraryScreen
+import com.xjtu.toolbox.library.LibraryStatus
 import com.xjtu.toolbox.lms.LmsScreen
 import com.xjtu.toolbox.main.AppRouter
 import com.xjtu.toolbox.media.DownloadManagerScreen
@@ -164,7 +170,46 @@ fun AppNavHost(
             }
         }
         entry<AppRoute.Library>(transition = expand(AppRoute.Library::class)) {
-            WithSite("library") { LibraryScreen(site = it, onBack = back) }
+            val libraryContext = LocalContext.current
+            WithSite("library") { site ->
+                // 屏与 ViewModel 都在 :core（`com.xjtu.toolbox.library.LibraryScreen`），取数从那里挪到
+                // AppLibrarySource（还是原来的 LibraryApi + PlanImageDiskCache  + 那份 SharedPreferences，实现一行未改）。
+                // 四处宿主能力在这里注入，行为与搬之前一致：
+                //  1. onBookingChanged —— 「我的预约」一变就往外发（提醒 / 首页信号 / 收纳待办），
+                //     原来写在屏里直接调 LibraryStatus.publish(context, ...)；
+                //  2. reAuthenticate —— 原来屏自己读 LocalAppLoginState 的凭据再 site.ensureLogin(force = true)；
+                //  3. landscapeLock —— 全屏看座位图时把 Activity 转横屏、关掉时恢复原来的方向；
+                //  4. 首次使用提示读没读过（feature_hints 里那个 library_hint_shown，宿主读初值 + 回写）。
+                val hintPrefs = remember(libraryContext) {
+                    libraryContext.getSharedPreferences("feature_hints", Context.MODE_PRIVATE)
+                }
+                LibraryScreen(
+                    source = remember(site) { AppLibrarySource(site, libraryContext) },
+                    onBack = back,
+                    onBookingChanged = { LibraryStatus.publish(libraryContext, it) },
+                    reAuthenticate = {
+                        val creds = loginState.sessionManager?.credentials ?: error("未配置凭据")
+                        withContext(Dispatchers.IO) {
+                            site.ensureLogin(creds.first, creds.second, force = true, userInitiated = true)
+                        }
+                    },
+                    landscapeLock = { landscape ->
+                        val activity = LocalActivity.current
+                        DisposableEffect(landscape) {
+                            val prev = activity?.requestedOrientation
+                            if (landscape) activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+                            onDispose { if (prev != null) activity?.requestedOrientation = prev }
+                        }
+                    },
+                    // 全屏那个 Dialog 的窗口属性：Android 侧这行与搬迁前逐字一致（多一个 decorFitsSystemWindows）
+                    fullscreenDialogProperties = DialogProperties(
+                        usePlatformDefaultWidth = false,
+                        decorFitsSystemWindows = false,
+                    ),
+                    showFirstUseHint = !hintPrefs.getBoolean("library_hint_shown", false),
+                    onFirstUseHintRead = { hintPrefs.edit().putBoolean("library_hint_shown", true).apply() },
+                )
+            }
         }
         entry<AppRoute.CampusCard>(transition = expand(AppRoute.CampusCard::class)) {
             AwaitSite(loginState, "campus_card", onTimeout = back) { site ->

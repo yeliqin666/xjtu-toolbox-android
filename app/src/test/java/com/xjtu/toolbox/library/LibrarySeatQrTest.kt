@@ -8,7 +8,7 @@ class LibrarySeatQrTest {
 
     @Test
     fun `parses desk qr exactly as printed`() {
-        val qr = LibrarySeatQr.parse("http://rg.lib.xjtu.edu.cn:8086/qavail/?seat=056&sp=north4southwest")!!
+        val qr = parseLibrarySeatQr("http://rg.lib.xjtu.edu.cn:8086/qavail/?seat=056&sp=north4southwest")!!
         // 座位号原样保留前导零，这就是预约接口的 kid
         assertEquals("056", qr.seat)
         assertEquals("north4southwest", qr.areaCode)
@@ -18,18 +18,18 @@ class LibrarySeatQrTest {
 
     @Test
     fun `accepts letter seats, https and trailing spaces`() {
-        assertEquals("D004", LibrarySeatQr.parse(" https://rg.lib.xjtu.edu.cn:8086/qavail/?seat=D004&sp=north2east \n")?.seat)
-        assertEquals("01", LibrarySeatQr.parse("http://rg.lib.xjtu.edu.cn:8086/qavail?sp=inno1central&seat=01")?.seat)
+        assertEquals("D004", parseLibrarySeatQr(" https://rg.lib.xjtu.edu.cn:8086/qavail/?seat=D004&sp=north2east \n")?.seat)
+        assertEquals("01", parseLibrarySeatQr("http://rg.lib.xjtu.edu.cn:8086/qavail?sp=inno1central&seat=01")?.seat)
     }
 
     @Test
     fun `rejects other links and unsafe values`() {
-        assertNull(LibrarySeatQr.parse("https://login.xjtu.edu.cn/cas/qrcode?uuid=abc"))
-        assertNull(LibrarySeatQr.parse("http://evil.example/qavail/?seat=056&sp=north4southwest"))
-        assertNull(LibrarySeatQr.parse("http://rg.lib.xjtu.edu.cn:8086/seat/?kid=056&sp=north4southwest"))
-        assertNull(LibrarySeatQr.parse("http://rg.lib.xjtu.edu.cn:8086/qavail/?seat=&sp=north4southwest"))
-        assertNull(LibrarySeatQr.parse("http://rg.lib.xjtu.edu.cn:8086/qavail/?seat=056%26kid%3D1&sp=north4southwest"))
-        assertNull(LibrarySeatQr.parse("随便一段文字"))
+        assertNull(parseLibrarySeatQr("https://login.xjtu.edu.cn/cas/qrcode?uuid=abc"))
+        assertNull(parseLibrarySeatQr("http://evil.example/qavail/?seat=056&sp=north4southwest"))
+        assertNull(parseLibrarySeatQr("http://rg.lib.xjtu.edu.cn:8086/seat/?kid=056&sp=north4southwest"))
+        assertNull(parseLibrarySeatQr("http://rg.lib.xjtu.edu.cn:8086/qavail/?seat=&sp=north4southwest"))
+        assertNull(parseLibrarySeatQr("http://rg.lib.xjtu.edu.cn:8086/qavail/?seat=056%26kid%3D1&sp=north4southwest"))
+        assertNull(parseLibrarySeatQr("随便一段文字"))
     }
 
     @Test

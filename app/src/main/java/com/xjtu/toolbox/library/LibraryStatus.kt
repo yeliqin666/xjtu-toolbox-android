@@ -14,7 +14,7 @@ import com.xjtu.toolbox.notification.LibraryReminderScheduler
  */
 object LibraryStatus {
     fun urgentAction(booking: MyBookingInfo?): String? =
-        booking?.actionUrls?.keys?.firstOrNull { it in LibraryApi.URGENT_ACTIONS }
+        booking?.actionUrls?.keys?.firstOrNull { it in URGENT_BOOKING_ACTIONS }
 
     fun publish(context: Context, booking: MyBookingInfo?, account: String? = AccountContext.activeAccountId) {
         LibraryReminderScheduler.sync(context, booking)

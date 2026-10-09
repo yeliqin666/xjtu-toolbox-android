@@ -1,9 +1,5 @@
 package com.xjtu.toolbox.library
 
-import android.content.pm.ActivityInfo
-import android.graphics.Bitmap
-import android.graphics.BitmapFactory
-import androidx.activity.compose.LocalActivity
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.size
@@ -54,7 +50,6 @@ import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.ColorMatrix
 import androidx.compose.ui.graphics.FilterQuality
 import androidx.compose.ui.graphics.ImageBitmap
-import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.withTransform
 import androidx.compose.ui.input.pointer.pointerInput
@@ -66,6 +61,8 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
+import com.xjtu.toolbox.platform.decodeImage
+import com.xjtu.toolbox.platform.decodeImageSize
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 import top.yukonga.miuix.kmp.basic.Button
@@ -76,6 +73,7 @@ import kotlin.math.abs
 import kotlin.math.hypot
 import kotlin.math.max
 import kotlin.math.min
+import kotlin.time.Clock
 
 /**
  * 一个区域的平面图图片。
@@ -83,6 +81,11 @@ import kotlin.math.min
  * 学校给的是「底图 + 每种状态一张整图」：已预约、使用中、中途离开的座位各自从对应那张图上
  * 裁自己那一块贴上去，和网页版 `/seatui` 一个画法。坐标都是底图原始像素（[origWidth]×[origHeight]），
  * 解码时为省内存做过降采样，画的时候按各图自己的比例换算。
+ *
+ * 从 `:app` 搬进 `:core` 时这个类一个字没改：它本来就是纯数据 + 纯算术。
+ * 唯一离开的是「怎么把一张 JPEG 变成像素」——那是平台缝（`platform/ImageDecode.kt`），
+ * Android 是 `BitmapFactory`、桌面/Web 是 skiko；「底图字节从哪儿来」留在了取数端口
+ *（`LibrarySource.planBase` / `planTiles`，Android 那份还带着磁盘缓存）。
  */
 class PlanImages(
     val base: ImageBitmap,
@@ -96,62 +99,32 @@ class PlanImages(
         PlanImages(base, origWidth, origHeight, tiles + decodeTiles(bytes, origWidth, origHeight))
 }
 
-/**
- * 平面图图片的磁盘缓存。图是学校服务器上的静态文件，一张几百 KB，经 WebVPN 下得很慢；
- * 缓存 7 天，过期或读坏了再重新下。
- */
-object PlanImageDiskCache {
-    private const val MAX_AGE_MS = 7L * 24 * 3600 * 1000
-
-    suspend fun get(context: android.content.Context, name: String, download: suspend (String) -> ByteArray?): ByteArray? {
-        val dir = java.io.File(context.cacheDir, "library_plan").apply { mkdirs() }
-        val file = java.io.File(dir, name.replace('/', '_'))
-        if (file.isFile && System.currentTimeMillis() - file.lastModified() < MAX_AGE_MS) {
-            runCatching { file.readBytes() }.getOrNull()?.takeIf { it.isNotEmpty() }?.let { return it }
-        }
-        val bytes = download(name) ?: return null
-        runCatching { file.writeBytes(bytes) }
-        return bytes
-    }
-}
-
 private const val BASE_MAX_DIM = 2048
 /** 状态图只用来裁小块，精度要求低，再压一半。 */
 private const val TILE_MAX_DIM = 1024
 
 /**
  * 解码平面图。底图失败返回 null（没底图就没法画）。
- * 全部用 RGB_565：JPEG 没有透明通道，内存砍半；一张 2048 的底图约 8MB。
+ *
+ * 解码交给平台缝 [decodeImage]（Android = 全部用 `RGB_565`：JPEG 没有透明通道，内存砍半；
+ * 一张 2048 的底图约 8MB），尺寸交给 [decodeImageSize]（只读文件头，不解像素）——
+ * 尺寸必须在解码前拿到：它既用来判「这张图能不能用」，也是 [PlanImages.origWidth] 的来源。
+ * 没有图片端点的端（Web，见 [LibrarySource.hasSeatPlan]）根本不会调到这里。
  */
 fun decodePlanImages(base: ByteArray, tiles: Map<Int, ByteArray>): PlanImages? {
-    val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-    BitmapFactory.decodeByteArray(base, 0, base.size, bounds)
-    if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
-    val baseBmp = decodeSampled(base, bounds.outWidth, bounds.outHeight, BASE_MAX_DIM) ?: return null
-    return PlanImages(baseBmp.asImageBitmap(), bounds.outWidth, bounds.outHeight, decodeTiles(tiles, bounds.outWidth, bounds.outHeight))
+    val size = decodeImageSize(base) ?: return null
+    val baseBmp = decodeImage(base, size, BASE_MAX_DIM) ?: return null
+    return PlanImages(baseBmp, size.width, size.height, decodeTiles(tiles, size.width, size.height))
 }
 
 private fun decodeTiles(tiles: Map<Int, ByteArray>, origW: Int, origH: Int): Map<Int, ImageBitmap> =
     tiles.mapNotNull { (status, bytes) ->
-        val b = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-        BitmapFactory.decodeByteArray(bytes, 0, bytes.size, b)
+        val size = decodeImageSize(bytes) ?: return@mapNotNull null
         // 尺寸对不上底图的状态图（比例不同）不能按比例裁，宁可不用
-        val sameAspect = b.outWidth > 0 && b.outHeight > 0 &&
-            abs(b.outWidth.toFloat() / b.outHeight - origW.toFloat() / origH) < 0.02f
+        val sameAspect = abs(size.width.toFloat() / size.height - origW.toFloat() / origH) < 0.02f
         if (!sameAspect) return@mapNotNull null
-        decodeSampled(bytes, b.outWidth, b.outHeight, TILE_MAX_DIM)?.let { status to it.asImageBitmap() }
+        decodeImage(bytes, size, TILE_MAX_DIM)?.let { status to it }
     }.toMap()
-
-private fun decodeSampled(bytes: ByteArray, w: Int, h: Int, maxDim: Int): Bitmap? {
-    var sample = 1
-    while (max(w, h) / (sample * 2) >= maxDim) sample *= 2
-    val opts = BitmapFactory.Options().apply {
-        inSampleSize = sample
-        inPreferredConfig = Bitmap.Config.RGB_565
-    }
-    return BitmapFactory.decodeByteArray(bytes, 0, bytes.size, opts)
-}
-
 
 /**
  * 平面图的缩放与平移：屏幕 = 图像像素 × [scale] + offset。整层图和区域座位图共用这一份。
@@ -288,7 +261,9 @@ private fun Modifier.planGestures(
             } while (event.changes.any { it.pressed })
             longPress?.cancel()
             if (moved || multi || longPressed) return@awaitEachGesture
-            val now = System.currentTimeMillis()
+            // 双击的判据是「两次点按间隔 < 300ms」：用 kotlin.time.Clock 而不是 System.currentTimeMillis
+            //（:core 的公共代码里没有 java.lang.System；两者都是墙钟毫秒）
+            val now = Clock.System.now().toEpochMilliseconds()
             val p = down.position
             if (now - lastTapAt < 300 && hypot(p.x - lastTapPos.x, p.y - lastTapPos.y) < slop * 4) {
                 lastTapAt = 0L
@@ -442,6 +417,13 @@ private fun planStatusLabel(status: Int): String = when (status) {
  * @param floor 这一层的整张图和全部矩形（含楼梯、出口）；默认视野按全部矩形框，免得裁掉东西
  * @param pickableAreas 其中能点的区域（开放的）
  * @param freeText 当前区域的空闲统计，如「空闲 23 / 120」，放在信息条的区域名后面
+ * @param canBook 本端能不能预约（见 [LibrarySource.canBook]）。false 时选中座位也不出「预约」按钮
+ *   —— 只读端连这一档 UI 都不出现（[LibrarySource.hasSeatPlan]），这里是第二层兜底
+ * @param landscapeLock 全屏看座位图时的方向锁定槽位：Android = 把 Activity 转横屏、离开时恢复原来的
+ *   方向（`:app` 注入的就是搬迁前那段 `DisposableEffect`）；Web = null（浏览器没有屏幕方向这回事）
+ * @param fullscreenDialogProperties 全屏那个 `Dialog` 的窗口属性：**由宿主给**，因为 Android 的
+ *   `DialogProperties` 多一个 `decorFitsSystemWindows`（桌面/浏览器那一档没有这个参数，写死在 `:core` 就编不过），
+ *   而搬迁前那行写的就是 `usePlatformDefaultWidth = false, decorFitsSystemWindows = false`，Android 侧照旧
  */
 @Composable
 fun SeatPlanPanel(
@@ -462,6 +444,9 @@ fun SeatPlanPanel(
     onToggleFavorite: (String) -> Unit,
     isBooking: Boolean,
     onBook: (String) -> Unit,
+    canBook: Boolean = true,
+    landscapeLock: (@Composable (Boolean) -> Unit)? = null,
+    fullscreenDialogProperties: DialogProperties = DialogProperties(usePlatformDefaultWidth = false),
     modifier: Modifier = Modifier,
 ) {
     // 按区域记选中：刷新座位状态后选中不丢，状态按新数据重新取
@@ -527,7 +512,8 @@ fun SeatPlanPanel(
                             freeText = freeText,
                             seat = selectedSeat,
                             favorite = selectedSeat?.seatId in favorites,
-                            canBook = !isBooking && !loading,
+                            canBook = canBook,
+                            enabled = !isBooking && !loading,
                             isBooking = isBooking,
                             onBook = onBook,
                             modifier = Modifier.height(barHeight),
@@ -537,7 +523,12 @@ fun SeatPlanPanel(
                         Column { MapAndBar(Modifier.fillMaxWidth().height(mapHeight)) }
                         PlanCornerButton(Icons.Default.Fullscreen, "全屏", Modifier.align(Alignment.TopEnd)) { fullscreen = true }
                     }
-                    if (fullscreen) PlanFullscreen(landscape = images.origWidth > images.origHeight, onClose = { fullscreen = false }) {
+                    if (fullscreen) PlanFullscreen(
+                        landscape = images.origWidth > images.origHeight,
+                        onClose = { fullscreen = false },
+                        landscapeLock = landscapeLock,
+                        properties = fullscreenDialogProperties,
+                    ) {
                         MapAndBar(Modifier.fillMaxWidth().weight(1f), barOnlyForSeat = true)
                     }
                 }
@@ -562,16 +553,26 @@ private fun PlanCornerButton(icon: ImageVector, description: String, modifier: M
     }
 }
 
-/** 全屏看座位图：宽图转横屏，关掉时恢复原来的方向。 */
+/**
+ * 全屏看座位图：宽图转横屏，关掉时恢复原来的方向。
+ *
+ * 「转屏幕方向」是宿主能力（Android 的 `Activity.requestedOrientation`），`androidx.activity`
+ * 的 `LocalActivity` 在 `:core` 里不存在 ⇒ 走 [landscapeLock] 槽位，由 `:app` 注入搬迁前那段
+ * `DisposableEffect`（连「进全屏前是什么方向」都记在那边，离开组合时按原值恢复）。
+ * 传 null 的语义是「本端没有屏幕方向这回事」（浏览器），不是"调用会抛"。
+ * [properties] 由宿主给（见 [SeatPlanPanel] 的 `fullscreenDialogProperties`）。
+ */
 @Composable
-private fun PlanFullscreen(landscape: Boolean, onClose: () -> Unit, content: @Composable ColumnScope.() -> Unit) {
-    val activity = LocalActivity.current
-    DisposableEffect(landscape) {
-        val prev = activity?.requestedOrientation
-        if (landscape) activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
-        onDispose { if (prev != null) activity?.requestedOrientation = prev }
-    }
-    Dialog(onDismissRequest = onClose, properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
+private fun PlanFullscreen(
+    landscape: Boolean,
+    onClose: () -> Unit,
+    landscapeLock: (@Composable (Boolean) -> Unit)?,
+    properties: DialogProperties,
+    content: @Composable ColumnScope.() -> Unit,
+) {
+    val lock = landscapeLock
+    if (lock != null) lock(landscape)
+    Dialog(onDismissRequest = onClose, properties = properties) {
         androidx.compose.foundation.layout.Box(
             Modifier.fillMaxSize().background(com.xjtu.toolbox.ui.components.AppCardColor).systemBarsPadding(),
         ) {
@@ -581,7 +582,14 @@ private fun PlanFullscreen(landscape: Boolean, onClose: () -> Unit, content: @Co
     }
 }
 
-/** 没选座时给区域名、空闲数和操作提示；选中后给座位状态和预约按钮。 */
+/**
+ * 没选座时给区域名、空闲数和操作提示；选中后给座位状态和预约按钮。
+ *
+ * @param canBook 本端能不能预约（见 [LibrarySource.canBook]）：false 时连按钮都不画 ——
+ *   只读端不留一个点了会失败的入口（而 [LibrarySource.hasSeatPlan] = false 时这整个平面图都不出现，
+ *   这里是第二层兜底）
+ * @param enabled 现在能不能按：不在提交中、平面图不在加载中（搬迁前那个 `canBook` 的语义）
+ */
 @Composable
 private fun PlanInfoBar(
     areaName: String,
@@ -589,6 +597,7 @@ private fun PlanInfoBar(
     seat: PlanSeat?,
     favorite: Boolean,
     canBook: Boolean,
+    enabled: Boolean,
     isBooking: Boolean,
     onBook: (String) -> Unit,
     modifier: Modifier = Modifier,
@@ -614,11 +623,12 @@ private fun PlanInfoBar(
                 )
             }
         }
-        // 不可约的座位不给按钮：深色下禁用态和正常态差不多，看着像能点
-        if (seat != null && seat.available) {
+        // 不可约的座位不给按钮：深色下禁用态和正常态差不多，看着像能点。
+        // 本端不能预约（canBook = false）时同样一个按钮都不画。
+        if (seat != null && seat.available && canBook) {
             Button(
                 onClick = { onBook(seat.seatId) },
-                enabled = canBook,
+                enabled = enabled,
                 colors = ButtonDefaults.buttonColorsPrimary(),
                 insideMargin = androidx.compose.foundation.layout.PaddingValues(horizontal = 18.dp, vertical = 8.dp),
             ) {

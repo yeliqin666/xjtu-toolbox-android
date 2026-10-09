@@ -25,7 +25,6 @@ import top.yukonga.miuix.kmp.utils.overScrollVertical
 
 import com.xjtu.toolbox.platform.BackHandler
 import androidx.compose.ui.input.nestedscroll.nestedScroll
-import android.content.Context
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.fadeIn
@@ -53,43 +52,109 @@ import top.yukonga.miuix.kmp.basic.IconButton
 import androidx.compose.material.icons.filled.EventSeat
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.runtime.*
-import com.xjtu.toolbox.auth.LocalAppLoginState
-import com.xjtu.toolbox.auth.SiteSession
-import com.xjtu.toolbox.auth.handleAuthExpired
+import com.xjtu.toolbox.auth.LocalAuthExpiry
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.layout
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.DialogProperties
 import top.yukonga.miuix.kmp.utils.SinkFeedback
 import com.xjtu.toolbox.ui.components.AppSegmentedTabs
 import com.xjtu.toolbox.ui.components.LoadingState
 import com.xjtu.toolbox.ui.glass.*
-import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
-import kotlin.coroutines.cancellation.CancellationException
 import com.xjtu.toolbox.nav.AppRoute
 import androidx.lifecycle.viewmodel.compose.viewModel
 
+/**
+ * 图书馆座位主页面：校区 → 楼层 → 区域 → 座位（列表 / 平面图），外加预约、换座与「我的预约」上的那几个动作。
+ *
+ * 从 `:app` 搬进 `:core`：屏与 [LibraryViewModel] 两端共用同一份，只在**取数、落盘、宿主能力**上切缝
+ * （[LibrarySource] 的 KDoc 讲了为什么端口要暴露 `canBook`/`hasSeatPlan`）。
+ * 下面每个参数都是「这一端有什么」，而不是「这一端是不是 Android」。
+ *
+ * ## 只读端（[LibrarySource.canBook] = false）不画的东西
+ *
+ * 一句话：**点了会失败的按钮，一个都不画**。具体是五处 ——
+ *  1. 座位格不可点选（只留长按收藏：那是本端落盘，两端都真的能用）；
+ *  2. 「我的预约」卡上不出现签到 / 中途离开 / 中途返回 / 取消预约；
+ *  3. 校区切换那一档整个不画（campus-api 的只读口径把「切校区」也算写操作：它改账号资料里的 rplace）；
+ *  4. 扫码进来的「预约座位」确认框不出现；
+ *  5. 出错页上的「重新认证」不出现（[reAuthenticate] 传 null 的那一端没有 App 的凭据与会话可重登）。
+ *
+ * 平面图那一档另外由 [LibrarySource.hasSeatPlan] 决定：没有座位布局/底图端点的端落到**列表**视图
+ * （见 [LibraryViewModel.viewMode]），也不去请求拿不到的数据。写路径的编排仍留在共享代码里，
+ * Android 那一侧一行未改。
+ *
+ * ## 两个宿主槽位
+ *
+ *  - [reAuthenticate]：`:app` 原来的「重新认证」按钮直接读 `LocalAppLoginState` 的凭据再
+ *    `site.ensureLogin(force = true)`；那两样都在 `:app`（`Context` + 会话内核），所以整件事走槽位。
+ *  - [landscapeLock]：全屏看座位图时把 Activity 转横屏（`androidx.activity` 的 `LocalActivity`），
+ *    浏览器里没有屏幕方向这回事 ⇒ 传 null。
+ *
+ * 会话失效仍走 `:core` 的 [LocalAuthExpiry]（`:app` 注入的就是同一个 `handleAuthExpired`，行为不变）。
+ * 「我的预约」一变就往外发（提醒 / 首页信号 / 收纳待办）也走注入的回调 [onBookingChanged]：
+ * 那是 `:app` 的副作用（`LibraryStatus.publish` 要 `Context`），Web 端没有这些东西。
+ */
 @Composable
-fun LibraryScreen(site: SiteSession, onBack: () -> Unit) {
-    val appLoginState = LocalAppLoginState.current
+fun LibraryScreen(
+    /** 本端的取数 + 落盘 + 写操作（Android = `AppLibrarySource`，Web = [com.xjtu.toolbox.core.net.CampusLibraryApi]）。 */
+    source: LibrarySource,
+    onBack: () -> Unit,
+    /**
+     * 拿到一份新的「我的预约」就往外发（`:app` =
+     * `LibraryStatus.publish`：后台提醒 + 首页信号 + 收纳待办）。null = 本端没有这些东西（Web）。
+     */
+    onBookingChanged: ((MyBookingInfo?) -> Unit)? = null,
+    /**
+     * 「重新认证」这一枪（`:app` = 读 App 的凭据 + `site.ensureLogin(force = true, userInitiated = true)`）。
+     * null = 本端没有可重登的会话（Web）⇒ 那个按钮不画。
+     */
+    reAuthenticate: (suspend () -> Unit)? = null,
+    /**
+     * 全屏看座位图时的方向锁定（`:app` = Activity 转横屏，离开时恢复进全屏前的方向）。
+     * null = 本端没有屏幕方向这回事（浏览器）。
+     */
+    landscapeLock: (@Composable (Boolean) -> Unit)? = null,
+    /**
+     * 全屏看座位图那个 `Dialog` 的窗口属性。**由宿主给**，因为各端的 `DialogProperties` 构造参数不一样：
+     * Android 多一个 `decorFitsSystemWindows`（`:app` 传的就是搬迁前那行
+     * `usePlatformDefaultWidth = false, decorFitsSystemWindows = false`），桌面/浏览器那一档没有它
+     *（写死在 `:core` 就编不过 jvm/wasmJs）。默认值 = 各端都有的那一个参数。
+     */
+    fullscreenDialogProperties: DialogProperties = DialogProperties(usePlatformDefaultWidth = false),
+    /**
+     * 「首次使用提示」还没读过吗。**由宿主读自己那份持久化偏好**（Android = `feature_hints` 里那个
+     * `library_hint_shown`，Web = `localStorage` 同一个键名）—— 屏不碰任何平台的存储实现，
+     * 它只知道「该不该弹」与「弹过了要回写」（与 `VenueScreen` 的 `showFirstUseHint` 同一套写法）。
+     * 两条提示各自只在「能预约」「有平面图」的那一端成立，两端都不成立的端（Web）整个提示不弹 ——
+     * 不拿做不到的事当说明（与场馆屏同一条口径）。
+     */
+    showFirstUseHint: Boolean = false,
+    onFirstUseHintRead: () -> Unit = {},
+) {
+    val appAuthExpiry = LocalAuthExpiry.current
     val scope = rememberCoroutineScope()
-    val context = LocalContext.current
-    val vm: LibraryViewModel = viewModel(key = "library-${System.identityHashCode(site)}") {
-        LibraryViewModel(context, site)
+    // key 与搬迁前同一个语义：原来 key 是 `System.identityHashCode(site)`（JVM 专属，:core 里没有），
+    // 而 site 与 source 一一对应（:app 那边 `remember(site) { AppLibrarySource(site, ...) }`），
+    // 所以换成 source 的 identity hashCode —— 换会话就换 ViewModel，行为不变。
+    val vm: LibraryViewModel = viewModel(key = "library-${source.hashCode()}") {
+        LibraryViewModel(source)
     }
     LaunchedEffect(vm) {
-        vm.events.collect { appLoginState.handleAuthExpired(AppRoute.Library, onBack) }
+        vm.events.collect { appAuthExpiry.onAuthExpired(AppRoute.Library, onBack) }
     }
 
     // ── 首次使用提示 ──
-    val prefs = remember { context.getSharedPreferences("feature_hints", Context.MODE_PRIVATE) }
-    val showHint = remember { mutableStateOf(!prefs.getBoolean("library_hint_shown", false)) }
+    //
+    // 本地再记一份「读过了」：传进来的 showFirstUseHint 是组合那一刻的快照（宿主那份存储不是 State，
+    // 用户点掉后它不会自己变），所以「切走了再切回来要不要再弹」以本地这份为准。
+    var showHint by remember { mutableStateOf(showFirstUseHint) }
 
     // 预约结果自动消失
     LaunchedEffect(vm.bookingResult) {
@@ -100,13 +165,13 @@ fun LibraryScreen(site: SiteSession, onBack: () -> Unit) {
 
     // 预约状态一变就往外发（提醒、首页信号、收纳）：预约 / 换座 / 中途离开 / 签到最后都会刷新 myBooking，盯结果比盯动作少漏
     LaunchedEffect(vm.myBookingKnown, vm.myBooking?.actionUrls?.keys, vm.myBooking?.seatId) {
-        if (vm.myBookingKnown) com.xjtu.toolbox.library.LibraryStatus.publish(context, vm.myBooking)
+        if (vm.myBookingKnown) onBookingChanged?.invoke(vm.myBooking)
     }
 
     var confirmDialog by remember { mutableStateOf<Pair<String, () -> Unit>?>(null) }
     var menuOpen by remember { mutableStateOf(false) }
     val campus = vm.campus
-    val selectedArea = vm.floorAreas[vm.selectedAreaCode] ?: vm.api.areaNameOf(vm.selectedAreaCode)
+    val selectedArea = vm.floorAreas[vm.selectedAreaCode] ?: source.areaNameOf(vm.selectedAreaCode)
     val floors = remember(campus) { campus.floorCodes.map { campus.floorLabel(it) } }
     // 只滤掉明确关闭（有统计且 total=0）的区域；统计没到或学校没给的照常列出
     val areaCodes = remember(vm.floorAreas, vm.areaStatsMap) {
@@ -124,7 +189,7 @@ fun LibraryScreen(site: SiteSession, onBack: () -> Unit) {
             return
         }
         val bookedArea = booking.area
-        if (vm.api.isForeignArea(bookedArea)) {
+        if (source.isForeignArea(bookedArea)) {
             confirmDialog = (
                 "你在「$bookedArea」有预约（$existing），不在${campus.displayName}。\n" +
                     "跨校区不能直接换座，需要先取消原预约。\n是否现在取消？"
@@ -142,8 +207,10 @@ fun LibraryScreen(site: SiteSession, onBack: () -> Unit) {
     var seatScope by rememberSaveable { mutableStateOf("可用") }
     val seats = vm.seats
     val favorites = vm.favorites
-    val planMode = vm.viewMode == VIEW_PLAN
-    // 平面图模式的座位状态来自平面图数据，不再另查一份座位列表
+    // 平面图模式的座位状态来自平面图数据，不再另查一份座位列表。
+    // hasSeatPlan=false 的端（Web）连这一档都不存在 —— ViewModel 也不会把 viewMode 切过去，
+    // 这里再兜一层：拿不到布局/底图的端永远走列表。
+    val planMode = vm.viewMode == VIEW_PLAN && source.hasSeatPlan
     val planSeats = vm.planLayout?.seats.orEmpty()
     val availableCount = if (planMode) planSeats.count { it.available } else seats.count { it.available }
     val totalCount = if (planMode) planSeats.size else seats.size
@@ -191,14 +258,20 @@ fun LibraryScreen(site: SiteSession, onBack: () -> Unit) {
                                 enabled = enabled,
                                 onClick = { menuOpen = false; onClick() },
                             )
-                            LibraryCampus.entries.forEach { c ->
-                                // 切换会写回账号资料（rplace），切换期间别让人连点
-                                option("${c.displayName}校区", campus == c, enabled = !vm.campusSwitching) { vm.switchCampus(c) }
+                            // 只读端切不了校区（那是改账号资料的写操作）⇒ 一档都不画
+                            if (source.canBook) {
+                                LibraryCampus.entries.forEach { c ->
+                                    // 切换会写回账号资料（rplace），切换期间别让人连点
+                                    option("${c.displayName}校区", campus == c, enabled = !vm.campusSwitching) { vm.switchCampus(c) }
+                                }
+                                HorizontalDivider(Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
                             }
-                            HorizontalDivider(Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
-                            listOf(VIEW_PLAN, VIEW_LIST).forEach { mode ->
-                                option(mode, vm.viewMode == mode) { vm.changeViewMode(mode) }
-                            }
+                            // 没有布局/底图端点的端不出现「平面图」（切过去只会是一张空图）⇒ 只留列表
+                            listOf(VIEW_PLAN, VIEW_LIST)
+                                .filter { it != VIEW_PLAN || source.hasSeatPlan }
+                                .forEach { mode ->
+                                    option(mode, vm.viewMode == mode) { vm.changeViewMode(mode) }
+                                }
                         }
                     }
                 },
@@ -211,22 +284,25 @@ fun LibraryScreen(site: SiteSession, onBack: () -> Unit) {
         // 必须放在 Scaffold 的 content 里：miuix 0.9.3 起 Overlay* 注册进 LocalDialogStates，
         // 而该 CompositionLocal 只有 Scaffold 提供。写在 Scaffold 外面会注册进一个没有宿主的
         // 空列表，无宿主渲染，不报错也不崩溃，就是不显示。
-        if (showHint.value) {
-            BackHandler { showHint.value = false; prefs.edit().putBoolean("library_hint_shown", true).apply() }
+        // 文案里那两条各自只在「能预约」「有平面图」的那一端成立：只读端（Web）两条都不成立 ⇒ 整个提示不弹
+        //（与场馆屏「按 canBook 少说那两句」同一个口径：不拿做不到的事当说明）。
+        // Android 两端都为真 ⇒ 两条都在、顺序不变，弹窗内容与搬迁前逐字一致。
+        val hintTips = buildList {
+            if (source.canBook) add("⏰" to "预约成功后，请在 30 分钟内入馆签到，否则当日将被禁止线上预约。")
+            if (source.hasSeatPlan) add("📋" to "座位状态说明：「使用中」= 已签到入座；「已预约」 = 已预约未签到；「暂离」= 短暂离开保留中。")
+        }
+        if (showHint && hintTips.isNotEmpty()) {
+            BackHandler { showHint = false; onFirstUseHintRead() }
             OverlayDialog(
-                show = showHint.value,
+                show = showHint,
                 title = "图书馆座位预约",
                 onDismissRequest = {
-                    showHint.value = false
-                    prefs.edit().putBoolean("library_hint_shown", true).apply()
+                    showHint = false
+                    onFirstUseHintRead()
                 }
             ) {
                 Column(Modifier.fillMaxWidth()) {
-                    val tips = listOf(
-                        "⏰" to "预约成功后，请在 30 分钟内入馆签到，否则当日将被禁止线上预约。",
-                        "📋" to "座位状态说明：「使用中」= 已签到入座；「已预约」 = 已预约未签到；「暂离」= 短暂离开保留中。",
-                    )
-                    tips.forEach { (emoji, text) ->
+                    hintTips.forEach { (emoji, text) ->
                         Row(Modifier.padding(vertical = 4.dp)) {
                             Text(emoji, style = MiuixTheme.textStyles.body1)
                             Spacer(Modifier.width(8.dp))
@@ -237,8 +313,8 @@ fun LibraryScreen(site: SiteSession, onBack: () -> Unit) {
                     TextButton(
                         text = "知道了",
                         onClick = {
-                            showHint.value = false
-                            prefs.edit().putBoolean("library_hint_shown", true).apply()
+                            showHint = false
+                            onFirstUseHintRead()
                         },
                         modifier = Modifier.fillMaxWidth()
                     )
@@ -250,10 +326,11 @@ fun LibraryScreen(site: SiteSession, onBack: () -> Unit) {
         // 正是"换座/取消点了没反应、请求从未发出"的真因。
         // 扫桌面二维码进来的预约确认。校区定下来就弹，状态查到前「预约」也能点：
         // 真被占了服务端会拒，失败原因照常显示在页面上。
+        // 只读端（canBook=false）不给这个框：它只有一个「预约」按钮，那按钮必失败。
         val ss = vm.scanSeat
         BackHandler(enabled = ss != null) { vm.scanSeat = null }
         OverlayDialog(
-            show = ss != null,
+            show = ss != null && source.canBook,
             title = "预约座位",
             summary = ss?.let { "${it.qr.areaName} · ${it.qr.seat} 号" },
             renderInRootScaffold = false,
@@ -309,25 +386,18 @@ fun LibraryScreen(site: SiteSession, onBack: () -> Unit) {
             title = "确认操作",
             summary = cd?.first,
             renderInRootScaffold = false,
-            onDismissRequest = {
-                android.util.Log.d("LibraryScreen", "confirm DISMISSED")
-                confirmDialog = null
-            }
+            onDismissRequest = { confirmDialog = null }
         ) {
             Row(Modifier.fillMaxWidth()) {
                 TextButton(
                     text = "取消",
-                    onClick = {
-                        android.util.Log.d("LibraryScreen", "confirm CANCELLED")
-                        confirmDialog = null
-                    },
+                    onClick = { confirmDialog = null },
                     modifier = Modifier.weight(1f)
                 )
                 Spacer(Modifier.width(20.dp))
                 TextButton(
                     text = "确认",
                     onClick = {
-                        android.util.Log.d("LibraryScreen", "confirm CLICKED")
                         val act = cd?.second
                         confirmDialog = null
                         act?.invoke()
@@ -408,9 +478,11 @@ fun LibraryScreen(site: SiteSession, onBack: () -> Unit) {
                             }
                         }
                     }
-                    val isExpiredBooking = vm.myBooking?.statusText in LibraryApi.INACTIVE_STATUSES
+                    val isExpiredBooking = vm.myBooking?.statusText in INACTIVE_BOOKING_STATUSES
                     val actions = if (isExpiredBooking) null else vm.myBooking?.actionUrls
-                    if (!actions.isNullOrEmpty()) {
+                    // 这些按钮全是写操作（签到 / 中途离开 / 中途返回 / 退座），本端做不到就一条都不画；
+                    // 只读端的 actionUrls 本来就是空的（上游只给按钮文案、不给地址，见 CampusLibraryApi 的 KDoc）
+                    if (source.canBook && !actions.isNullOrEmpty()) {
                         Spacer(Modifier.height(8.dp))
                         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             actions.filter { (label, _) -> "换座" !in label }.forEach { (label, url) ->
@@ -602,19 +674,19 @@ fun LibraryScreen(site: SiteSession, onBack: () -> Unit) {
                                 Button(onClick = {
                                     vm.reload()
                                 }) { Text("重试") }
-                                // 认证相关错误 → 提供重新认证
-                                if ("认证" in (vm.errorMessage ?: "") || "登录" in (vm.errorMessage ?: "") || "VPN" in (vm.errorMessage ?: "")) {
+                                // 认证相关错误 → 提供重新认证。本端没有可重登的会话时（Web）这条不画：
+                                // 它只会让人点了看见同一个错误。
+                                val reAuth = reAuthenticate
+                                if (reAuth != null &&
+                                    ("认证" in (vm.errorMessage ?: "") || "登录" in (vm.errorMessage ?: "") || "VPN" in (vm.errorMessage ?: ""))
+                                ) {
                                     var isReAuth by remember { mutableStateOf(false) }
                                     Button(
                                         onClick = {
                                             isReAuth = true
                                             scope.launch {
                                                 try {
-                                                    val creds = appLoginState.sessionManager?.credentials
-                                                        ?: error("未配置凭据")
-                                                    withContext(Dispatchers.IO) {
-                                                        site.ensureLogin(creds.first, creds.second, force = true, userInitiated = true)
-                                                    }
+                                                    reAuth.invoke()
                                                     vm.reload()
                                                 } catch (e: CancellationException) { throw e }
                                                 catch (e: Exception) { vm.errorMessage = FriendlyError.of(e, "重新认证") }
@@ -655,6 +727,9 @@ fun LibraryScreen(site: SiteSession, onBack: () -> Unit) {
                             onToggleFavorite = vm::toggleFavorite,
                             isBooking = vm.isBooking,
                             onBook = { bookSeat(it) },
+                            canBook = source.canBook,
+                            landscapeLock = landscapeLock,
+                            fullscreenDialogProperties = fullscreenDialogProperties,
                             modifier = Modifier.padding(start = 4.dp, end = 4.dp, top = 4.dp),
                         )
                     }
@@ -672,6 +747,7 @@ fun LibraryScreen(site: SiteSession, onBack: () -> Unit) {
                                 seat = seat,
                                 isBooking = vm.isBooking,
                                 isFavorite = seat.seatId in favorites,
+                                bookable = source.canBook,
                                 onClick = { if (seat.available) bookSeat(seat.seatId) },
                                 onLongClick = { vm.toggleFavorite(seat.seatId) }
                             )
@@ -726,6 +802,13 @@ private fun ResultBanner(result: BookResult?, onDismiss: () -> Unit, modifier: M
 @Composable
 private fun SeatChip(
     seat: SeatInfo, isBooking: Boolean, isFavorite: Boolean,
+    /**
+     * 本端点一下能不能预约（见 [LibrarySource.canBook]）。false 时**点击不给点** ——
+     * 这端发不出预约请求，点了一动不动只会让人以为页面坏了。
+     * 长按收藏照旧：那是本端落盘（Android 存 SharedPreferences、Web 存 localStorage），
+     * 两端都真的能用，与能不能约座位无关。
+     */
+    bookable: Boolean,
     onClick: () -> Unit, onLongClick: () -> Unit
 ) {
     val bgColor = when {
@@ -749,7 +832,7 @@ private fun SeatChip(
                     Modifier.combinedClickable(
                         interactionSource = press,
                         indication = SinkFeedback(),
-                        onClick = onClick,
+                        onClick = { if (bookable) onClick() },
                         onLongClick = onLongClick
                     )
                 else Modifier

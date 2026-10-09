@@ -33,7 +33,9 @@ import com.xjtu.toolbox.core.net.CampusCardNetApi
 import com.xjtu.toolbox.core.net.CampusInboxApi
 import com.xjtu.toolbox.core.net.CampusVenueApi
 import com.xjtu.toolbox.core.net.CampusEmptyRoomApi
+import com.xjtu.toolbox.core.net.CampusLibraryApi
 import com.xjtu.toolbox.emptyroom.EmptyRoomScreen
+import com.xjtu.toolbox.library.LibraryScreen
 import com.xjtu.toolbox.platform.keyValueStore
 import com.xjtu.toolbox.core.net.CampusFitnessApi
 import com.xjtu.toolbox.core.net.CampusSchoolCourseApi
@@ -309,6 +311,22 @@ private fun AppPage(route: AppRoute, client: HttpClient, session: WebGithubSessi
                 onFirstUseHintRead = { hintPrefs.putBoolean("venue_hint_shown", true) },
             )
         }
+        // 图书馆座位：与 Android 同一个屏与 ViewModel（`:core/library`）。**只读** —— campus-api 的
+        // 图书馆模块刻意不实现任何写操作（连切校区都不提供，那也改账号资料里的 rplace）⇒
+        // CampusLibraryApi 的 canBook 与 hasSeatPlan 都是 false，于是屏上**没有**校区切换、座位格不可点，
+        // 「我的预约」上没有签到/离开/返回/退座，扫码确认框不出现，平面图那一档整个不画（默认视图落到列表）。
+        // 逐字段映射写在 CampusLibraryApi 的 KDoc 里（尤其 `total:null` 不当 0、「我的预约」的 area 要从
+        // seatLine 反推、actions 只有文案没有地址 ⇒ actionUrls 留空）。四个宿主槽位全传空：
+        // 浏览器里没有 App 的凭据可重登、没有屏幕方向、没有提醒/首页信号/收纳。
+        AppRoute.Library -> {
+            val hintPrefs = remember { keyValueStore("feature_hints") }
+            LibraryScreen(
+                source = remember { CampusLibraryApi(client) },
+                onBack = back,
+                showFirstUseHint = !hintPrefs.getBoolean("library_hint_shown", false),
+                onFirstUseHintRead = { hintPrefs.putBoolean("library_hint_shown", true) },
+            )
+        }
 
         AppRoute.Community -> CommunityScreen(
             session = session,
@@ -328,7 +346,7 @@ private fun AppPage(route: AppRoute, client: HttpClient, session: WebGithubSessi
  * “这一屏还没搬到 Web”的占位页 —— 只给 `:core` 里尚未存在的 AppRoute 用。
  *
  * 为什么要有它：Web 只能渲染 `:core/commonMain` 里的屏；`:app` 那 40 条路由里还有一大批
- * （通知 / 全校课表 / 教师检索 / 图书馆 / 成绩单 / 我的 …）因为取数挂着
+ * （成绩单 / 我的 / 校园网登录 …）因为取数挂着
  * okhttp、Context、Room、BLE 而暂时搬不过来。这页把**具体哪一条没搬**、**它需不需要登录**
  * 直接写在脸上，而不是落回课表假装能用 —— 交接文档里那条「只信工作区」的验收，看的就是这个。
  */
