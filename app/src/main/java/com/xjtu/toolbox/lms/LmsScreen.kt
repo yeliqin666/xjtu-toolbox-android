@@ -33,6 +33,11 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.xjtu.toolbox.ui.glass.*
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 import top.yukonga.miuix.kmp.basic.*
 import top.yukonga.miuix.kmp.window.WindowDialog
@@ -70,6 +75,26 @@ internal class LmsPageCache(private val disk: DataCache) {
         if (activities[courseId] == null) disk.readIo<List<LmsActivity>>(key)?.let { activities[courseId] = it }
         activities[courseId] = withContext(Dispatchers.IO) { api.getCourseActivities(courseId).also { disk.writeSafe(key, it) } }
         syncedActivities += courseId
+    }
+
+    /** 作业 id → 交过没有。列表接口不给 `user_submit_count`，看作业时由 [syncSubmitted] 逐条查详情补上。 */
+    private val submittedById = mutableStateMapOf<Int, Boolean>()
+
+    /** 打开过详情的以详情为准（刚交完返回就能更新），否则用 [syncSubmitted] 查到的；null = 还不知道。 */
+    fun submitted(activity: LmsActivity): Boolean? =
+        details[activity.id]?.let { it.userSubmitCount > 0 } ?: submittedById[activity.id]
+
+    /** 并发查没查过的作业，查完一起写入，列表只重排一次；查失败的下次再查。 */
+    suspend fun syncSubmitted(api: LmsApi, homework: List<LmsActivity>) {
+        val todo = homework.filter { submitted(it) == null }
+        if (todo.isEmpty()) return
+        val gate = Semaphore(4)
+        val found = coroutineScope {
+            todo.map { a ->
+                async(Dispatchers.IO) { gate.withPermit { runCatching { a.id to (api.getUserSubmitCount(a.id) > 0) }.getOrNull() } }
+            }.awaitAll().filterNotNull()
+        }
+        submittedById.putAll(found)
     }
 
     private suspend inline fun <reified T> DataCache.readIo(key: String): T? =

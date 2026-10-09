@@ -20,6 +20,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -97,10 +98,14 @@ internal fun ActivityListPage(
         activities.map { it.type }.distinct().sortedBy { it.ordinal }
     }
 
-    val filtered = remember(activities, selectedType) {
-        if (selectedType == null) activities
-        else activities.filter { it.type == selectedType }
+    // 只看作业时（筛了「作业」，或这门课只有作业）补查提交态，交过的沉底
+    val homeworkOnly = (selectedType ?: types.singleOrNull()) == LmsActivityType.HOMEWORK
+    LaunchedEffect(homeworkOnly, activities) {
+        if (homeworkOnly) cache.syncSubmitted(api, activities.filter { it.type == LmsActivityType.HOMEWORK })
     }
+
+    val filtered = (if (selectedType == null) activities else activities.filter { it.type == selectedType })
+        .let { list -> if (homeworkOnly) list.sortedBy { cache.submitted(it) == true } else list }
 
     var pickColor by remember { mutableStateOf(false) }
     if (pickColor) CourseColorDialog(course.name, lmsAccent(course)) { pickColor = false }
@@ -214,6 +219,7 @@ internal fun ActivityListPage(
                             val canPick = activity.type in BATCH_TYPES
                             LmsActivityCard(
                                 activity,
+                                submitted = cache.submitted(activity) == true,
                                 selected = if (selecting) activity.id in picked else null,
                                 enabled = !selecting || canPick,
                             ) {
@@ -384,6 +390,8 @@ private fun BatchProgressCard(state: LmsBatchDownload.State) {
 @Composable
 private fun LmsActivityCard(
     activity: LmsActivity,
+    /** 作业已交过，标「已提交」。 */
+    submitted: Boolean = false,
     /** 批量选择时的勾选状态；null 表示不在选择模式。 */
     selected: Boolean? = null,
     enabled: Boolean = true,
@@ -432,6 +440,9 @@ private fun LmsActivityCard(
                         fontSize = 12.sp,
                         color = color
                     )
+                    if (submitted) {
+                        Text("已提交", fontSize = 12.sp, color = Color(0xFF22C55E))
+                    }
                     if (activity.isClosed) {
                         Text("已结束", fontSize = 12.sp, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
                     }
