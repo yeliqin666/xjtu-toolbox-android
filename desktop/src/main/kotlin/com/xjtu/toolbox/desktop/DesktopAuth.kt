@@ -6,6 +6,7 @@ import androidx.compose.runtime.setValue
 import com.xjtu.toolbox.account.AccountContext
 import com.xjtu.toolbox.auth.AccountType
 import com.xjtu.toolbox.auth.FitnessSession
+import com.xjtu.toolbox.auth.JwxtSession
 import com.xjtu.toolbox.auth.LoginUiState
 import com.xjtu.toolbox.auth.LibrarySession
 import com.xjtu.toolbox.auth.SessionBackend
@@ -74,6 +75,8 @@ class DesktopAuth(
         // 搬一个注册一个（`:data:commonMain` 的 `Sites.kt` 那一批）。
         register(LibrarySession())
         register(FitnessSession())
+        // 教务：全校课表与成绩报表两条路由共用的站点（`:data` 的 `JwxtSession` + `JwxtLogin`）。
+        register(JwxtSession())
         // 切账号时清宿主侧共享缓存：`:app` 把它设成 `CampusProbe.ywtbToken = null`，
         // 而 CampusProbe 要 `ConnectivityManager`（宿主能力，没跟着内核搬进 :data）；
         // 桌面端没有那份缓存，所以留空。这正是「缝照真正用到的那几处切」。
@@ -84,6 +87,12 @@ class DesktopAuth(
 
     /** 体测站点会话。与图书馆同一条会话语义，但它那一半是 https（见 `FitnessApi`）。 */
     val fitnessSite: SiteSession get() = sessionManager.getSite(FITNESS_SITE_KEY)
+
+    /**
+     * 教务站点会话。全校课表与成绩报表**共用一个**（同一个子系统），所以只注册一次、
+     * 两条路由各自进门时用它（见 `ToolboxDesktopApp` 的 `DesktopSiteGate`）。
+     */
+    val jwxtSite: SiteSession get() = sessionManager.getSite(JWXT_SITE_KEY)
 
     /**
      * 进某一屏之前把它的站点会话建起来（失败就抛给调用方）。
@@ -256,11 +265,14 @@ class DesktopAuth(
         const val LIBRARY_SITE_KEY = "library"
         const val FITNESS_SITE_KEY = "fitness"
 
+        /** 教务：全校课表 + 成绩报表共用的那一个站点。 */
+        const val JWXT_SITE_KEY = "jwxt"
+
         /**
          * 登录页那一步一次建起会话的站点：`:core` 里有屏 + `:data` 里有站点类与取数的那几个。
          * （校历 / 黄页 / 教师检索是免登录的公开接口，游戏是纯 UI —— 它们不需要会话。）
          */
-        private val SESSION_SITE_KEYS = listOf(LIBRARY_SITE_KEY, FITNESS_SITE_KEY)
+        private val SESSION_SITE_KEYS = listOf(LIBRARY_SITE_KEY, FITNESS_SITE_KEY, JWXT_SITE_KEY)
     }
 }
 

@@ -11,7 +11,11 @@ import com.xjtu.toolbox.fitness.FitnessApi
 import com.xjtu.toolbox.fitness.FitnessFakeUpstream
 import com.xjtu.toolbox.fitness.FitnessProtocol
 import com.xjtu.toolbox.fitness.FitnessYear
+import com.xjtu.toolbox.jwxt.JwxtFakeUpstream
 import com.xjtu.toolbox.faculty.FacultyApi
+import com.xjtu.toolbox.schedule.AppSchoolCourseSource
+import com.xjtu.toolbox.schedule.SchoolCourseQuery
+import com.xjtu.toolbox.score.scoreReportSource
 import com.xjtu.toolbox.library.LibraryCampus
 import com.xjtu.toolbox.library.LibraryFakeUpstream
 import com.xjtu.toolbox.library.LibraryPages
@@ -343,6 +347,102 @@ class DesktopAuthLibraryJvmTest {
         assertEquals(2, fake.fitness.launchCallbacks.get(), "并且又走了一遍 CAS 回的 launch 回调")
         assertEquals(FitnessFakeUpstream.TOKEN, site.localToken["token"], "快照里的 token 应当是夹具发的那份")
         assertEquals(years, runBlocking { FitnessApi(site).years() }, "重登之后取数照样读得出")
+    }
+
+    // ══════ 全校课表与成绩：同一个教务站点的两条路由 ══════
+
+    /**
+     * 从**真登录链**（窗口里输凭据 → CAS 表单 POST → 回跳教务）走到「全校课表」那一屏的取数。
+     *
+     * 期望值全部来自 `:testkit` 的 `JwxtFakeUpstream`（夹具）—— 不是从跑通的实现里抄的。
+     * 两条路由共用一个站点，所以这里连着把成绩报表也读一遍：会话只有一份（`auth.jwxtSite`），
+     * 只要一条链能站在同一个站点上取两种数，就说明站点注册与挂载都对。
+     */
+    @Test
+    fun `真登录之后：教务自己走完 CAS，全校课表与成绩报表都读得出夹具样本`() = withFakeCampus {
+        val (auth, _) = newAuth()
+        assertTrue(login(auth), "用假下游的账号密码应当登得上：${auth.loginState}")
+
+        // 夹具与生产必须指同一个站点：URL 漂了的话，下面这些断言测的就不是真协议
+        assertEquals(com.xjtu.toolbox.auth.XJTULogin.JWXT_URL, JwxtFakeUpstream.HOME_URL)
+
+        // ── 会话是 CAS 回跳那条链里拿到的（不是往快照里塞的）──
+        val site = auth.jwxtSite
+        assertTrue(site.hasLogin, "登录页那一步应当把教务站点也登起来（尽力预热）")
+        assertTrue(fake.jwxt.casRedirects.get() >= 1, "没带 ticket 时应当被交给统一认证")
+        assertEquals(1, fake.jwxt.ticketLandings.get(), "CAS 回跳只该落在教务首页一次")
+        assertTrue(fake.library.tickets.get() >= 1, "统一认证应当真签过 ticket")
+
+        // ── 全校课表（`AppRoute.SchoolCourse` 那一屏用的就是这个源）──
+        val courses = AppSchoolCourseSource(site)
+        assertEquals(
+            listOf(
+                JwxtFakeUpstream.TERM_NEW to JwxtFakeUpstream.TERM_NEW_NAME,
+                JwxtFakeUpstream.TERM_OLD to JwxtFakeUpstream.TERM_OLD_NAME,
+                // 夹具第三行只有 DM ⇒ 名字退回 DM
+                JwxtFakeUpstream.TERM_BARE to JwxtFakeUpstream.TERM_BARE,
+            ),
+            runBlocking { courses.terms() }.map { it.code to it.name },
+        )
+        assertEquals(JwxtFakeUpstream.TERM_NEW, runBlocking { courses.currentTerm() })
+        assertEquals(
+            listOf(JwxtFakeUpstream.DEPT_MATH, JwxtFakeUpstream.DEPT_MECH, JwxtFakeUpstream.DEPT_PHYSICS),
+            runBlocking { courses.departments() }.map { it.name },
+        )
+
+        // 筛条件留空（界面上就是「不限」），学期用当前学期
+        val page = runBlocking {
+            courses.query(SchoolCourseQuery(termCode = JwxtFakeUpstream.TERM_NEW), page = 1, pageSize = 20)
+        }
+        assertEquals(JwxtFakeUpstream.TOTAL_SIZE, page.totalSize)
+        assertEquals(
+            listOf(
+                JwxtFakeUpstream.COURSE_1_NAME,
+                JwxtFakeUpstream.COURSE_2_NAME,
+                JwxtFakeUpstream.COURSE_3_NAME,
+            ),
+            page.courses.map { it.courseName },
+        )
+        assertEquals(5.0, page.courses[0].credit)
+        assertEquals(30, page.courses[0].remaining, "150 容量 - 120 已选")
+        // 夹具刻意没给第二行的选课人数 ⇒ `safeInt` 的默认值 0（不是「猜一个」）
+        assertEquals(0, page.courses[1].enrollCount)
+
+        // ── 成绩报表：学号用登录时写进去的那个（桌面端屏上就是这么取的）──
+        val studentId = assertNotNull(AccountContext.activeAccountId, "登录之后应当有账号 id")
+        val grades = runBlocking { scoreReportSource(site, studentId).grades() }
+        assertEquals(JwxtFakeUpstream.STUDENT_ID, fake.jwxt.lastReportStudentId, "报表请求该带登录那个学号")
+        assertEquals(
+            listOf(
+                JwxtFakeUpstream.SCORE_1_NAME to "95",
+                JwxtFakeUpstream.SCORE_2_NAME to "优秀",
+                JwxtFakeUpstream.SCORE_3_NAME to "88",
+            ),
+            grades.map { it.courseName to it.score },
+        )
+        // 学期分组口径：标题都读成了可比的学期代码，且夏季小学期得到 `-3`
+        assertEquals(
+            listOf(JwxtFakeUpstream.SCORE_TERM_SUMMER, JwxtFakeUpstream.SCORE_TERM_SPRING),
+            grades.map { it.term }.distinct().sortedDescending(),
+        )
+    }
+
+    /**
+     * 两条路由**共用一份站点会话**：进门时那一发 `ensureSession("jwxt")` 是幂等的 ——
+     * 第二条路由（同一轮里已登过）不再多打一次 CAS。
+     */
+    @Test
+    fun `教务那两条路由共用一份会话：第二条进门不再重登`() = withFakeCampus {
+        val (auth, _) = newAuth()
+        assertTrue(login(auth))
+        val landings = fake.jwxt.ticketLandings.get()
+        val posts = fake.library.credentialPosts.get()
+
+        runBlocking { auth.ensureSession(DesktopAuth.JWXT_SITE_KEY) }
+        runBlocking { auth.ensureSession(DesktopAuth.JWXT_SITE_KEY) }
+
+        assertEquals(landings, fake.jwxt.ticketLandings.get(), "会话还在新鲜窗口内，不该再走一遍 CAS")
+        assertEquals(posts, fake.library.credentialPosts.get(), "也不该再提交一次凭据")
     }
 
     // ══════ 校历：免登录的那条路 ══════

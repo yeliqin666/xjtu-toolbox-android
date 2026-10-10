@@ -4,6 +4,10 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.ImageComposeScene
+import androidx.compose.ui.semantics.SemanticsActions
+import androidx.compose.ui.semantics.SemanticsNode
+import androidx.compose.ui.semantics.SemanticsProperties
+import androidx.compose.ui.semantics.getOrNull
 import androidx.compose.ui.unit.Density
 import androidx.lifecycle.ViewModelStore
 import androidx.lifecycle.ViewModelStoreOwner
@@ -45,6 +49,8 @@ import kotlinx.coroutines.runBlocking
  * | `library-after-login.png` | 图书馆座位屏，**用刚输入的凭据真登进去**之后的 | Stage A 的验收本体：桌面端自己登录、自己取数（`:data` 的会话内核 + `LibraryApi`） |
  * | `shell-after-login.png` | 整个外壳（底栏 + 图书馆屏） | 外壳与底栏在登录后正确切换 |
  * | `fitness.png` | 体测屏（真路由：外壳 → `AppRoute.Fitness` → `FitnessApi`） | 第五条真数据路由：https 站点、CAS 回跳后的 launch 会话、v3 取数 |
+ * | `schoolcourse.png` | 全校课表屏（真路由 + 真查询：外壳 → `AppRoute.SchoolCourse` → `AppSchoolCourseSource`） | 第六条真数据路由：登录后的学期 / 开课单位 / 课程卡片都是夹具样本（屏不会自己发查询，这张图靠 semantics 点一下「搜索」，见 [clickByLabel]） |
+ * | `scorereport.png` | 成绩报表屏（真路由：外壳 → `AppRoute.ScoreReport` → `scoreReportSource`） | 第七条真数据路由：学号取自登录时的 `AccountContext.activeAccountId`，图上按学期分组的成绩是夹具样本 |
  * | `routes.png` | 「全部页面」索引页 | 如实列出「真能用 / 还没有数据源」，并给出退出登录入口 |
  * | `library-demo.png` | 同一屏 + 固定假数据 | 布局与组件本身可复现（不依赖网络/会话，改屏时用它对比） |
  *
@@ -98,7 +104,15 @@ fun main(args: Array<String>) {
     //    详见文件头第 1 条坑与 `:testkit` 的 `FakeUpstreamFront`。
     FakeCampusProxy.installFakeUpstreams()
 
-    fun shot(name: String, width: Int = 520, height: Int = 900, frames: Int = 12, content: @Composable () -> Unit) {
+    fun shot(
+        name: String,
+        width: Int = 520,
+        height: Int = 900,
+        frames: Int = 12,
+        /** 每帧渲染**之前**在 EDT 上跑一次 —— 需要「点一下」的屏用它（见 [clickByLabel]）。 */
+        onFrame: ((frame: Int, scene: ImageComposeScene) -> Unit)? = null,
+        content: @Composable () -> Unit,
+    ) {
         // 每个场景一个独立的 ViewModelStoreOwner：:core 的屏用 `viewModel { }` 建 VM，
         // 桌面不像 Android 那样自带一个（与 Main.kt 里给真窗口装的是同一个东西）。
         val owner = object : ViewModelStoreOwner {
@@ -116,7 +130,11 @@ fun main(args: Array<String>) {
             repeat(frames) { i ->
                 // 帧间让出调用线程：EDT 就在这段空档里把 VM 的取数协程跑完
                 Thread.sleep(400)
-                image = onEdt { scene.render((i + 1) * 400_000_000L) }
+                image = onEdt {
+                    // 需要「点一下」的屏在这里动手（见 [clickByLabel]）：必须在渲染前、且在 EDT 上
+                    onFrame?.invoke(i, scene)
+                    scene.render((i + 1) * 400_000_000L)
+                }
             }
             val bytes = requireNotNull(image.encodeToData()) { "PNG 编码失败：$name" }.bytes
             val file = File(outDir, name)
@@ -126,6 +144,30 @@ fun main(args: Array<String>) {
             onEdt { scene.close() }
         }
     }
+
+    /** 深度优先找第一个满足 [predicate] 的语义节点（合并树里按钮自己就带着子文本）。 */
+    fun findNode(root: SemanticsNode, predicate: (SemanticsNode) -> Boolean): SemanticsNode? {
+        if (predicate(root)) return root
+        return root.children.firstNotNullOfOrNull { findNode(it, predicate) }
+    }
+
+    /**
+     * 在离屏场景里「点一下」写着 [label] 的那个控件 —— 靠 **semantics** 找它、直接调它的 `OnClick`，
+     * **不靠坐标**：坐标会随布局漂，而 semantics 是屏自己声明的（`clickable`/`Button` 都会带上）。
+     *
+     * 为什么需要它：全校课表那一屏**不会**自己发查询 —— 那一枪要用户点「搜索」，而离屏场景没有鼠标。
+     * 没有语义树（或按钮那时候还是 `enabled = false`）时返回 false，调用方下一帧再试。
+     */
+    fun clickByLabel(scene: ImageComposeScene, label: String): Boolean {
+        val root = scene.semanticsOwners.firstOrNull()?.rootSemanticsNode ?: return false
+        val target = findNode(root) { node ->
+            val click = node.config.getOrNull(SemanticsActions.OnClick)
+            val texts = node.config.getOrNull(SemanticsProperties.Text).orEmpty()
+            click != null && texts.any { it.text == label }
+        } ?: return false
+        return target.config.getOrNull(SemanticsActions.OnClick)?.action?.invoke() ?: false
+    }
+
 
     // ── ① 登录页（空输入框 · 红线：不预填学号）────────────────────────────────
     // 走真外壳：没登录 ⇒ 它自己落在 LoginScreen 上，这张图同时证明「壳的切换」是对的。
@@ -206,6 +248,24 @@ fun main(args: Array<String>) {
                 onBack = {},
             )
         }
+        // 全校课表（第六条真数据路由）：也是**真路由**（外壳 → `DesktopSiteGate` → `AppSchoolCourseSource`）。
+        // ⚠️ 这一屏**不会**自己发查询 —— 那一枪要用户点「搜索」，所以这里用 semantics 点一下
+        // （见 [clickByLabel]）：点不到就多试几帧，因为「搜索」按钮要等当前学期加载完才 `enabled`。
+        var searched = false
+        shot(
+            "schoolcourse.png",
+            frames = 22,
+            onFrame = { frame, scene -> if (!searched && frame >= 5) searched = clickByLabel(scene, "搜索") },
+        ) {
+            ToolboxDesktopApp(auth, DesktopTarget.App(AppRoute.SchoolCourse))
+        }
+        // 点不到就是「这张图里没有课程」，响亮地失败 —— 别把空屏当证据交出去
+        check(searched) { "schoolcourse.png：没点到「搜索」按钮（semantics 里没找到）" }
+
+        // 成绩（第七条）：学号取自登录时写进 `AccountContext.activeAccountId` 的那个（屏上就是这么取的），
+        // 所以这张图里是真能取到数据的；真取不到学号时屏会画「要一个学号」那张说明页（不是崩）。
+        shot("scorereport.png", frames = 20) { ToolboxDesktopApp(auth, DesktopTarget.App(AppRoute.ScoreReport)) }
+
         shot("routes.png", frames = 4) { ToolboxDesktopApp(auth, DesktopTarget.Routes) }
     }
 

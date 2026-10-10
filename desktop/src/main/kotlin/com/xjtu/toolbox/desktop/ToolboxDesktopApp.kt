@@ -30,6 +30,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.xjtu.toolbox.account.AccountContext
 import com.xjtu.toolbox.auth.LoginScreen
 import com.xjtu.toolbox.auth.MfaCodeDialog
 import com.xjtu.toolbox.auth.ensureSite
@@ -47,6 +48,10 @@ import com.xjtu.toolbox.game.g2048.Gpa2048Screen
 import com.xjtu.toolbox.game.go.GoScreen
 import com.xjtu.toolbox.game.gomoku.GomokuScreen
 import com.xjtu.toolbox.game.hop.HopScreen
+import com.xjtu.toolbox.schedule.AppSchoolCourseSource
+import com.xjtu.toolbox.schedule.SchoolCourseScreen
+import com.xjtu.toolbox.score.ScoreReportScreen
+import com.xjtu.toolbox.score.scoreReportSource
 import com.xjtu.toolbox.game.xiangqi.XiangqiScreen
 import com.xjtu.toolbox.library.LibraryScreen
 import com.xjtu.toolbox.nav.AppRoute
@@ -158,14 +163,16 @@ internal val DESKTOP_TABS = listOf(
 /**
  * 这一端**真能画**的路由（`:core` 里有屏 + 取数在 `:data`，两者缺一不可）。
  *
- * 五条真取数：图书馆与体测（**要登录**，走会话内核：登录页那一步一次建齐，见 `DesktopAuth.login`）、
- * 校历 / 黄页 / 教师检索（**免登录**的公开门户接口）。
+ * 七条真取数：图书馆 / 体测 / 全校课表 / 成绩（**要登录**，走会话内核 + 进那一屏再建会话，见
+ * `DesktopSiteGate`）、校历 / 黄页 / 教师检索（**免登录**的公开门户接口）。
  * 其余是纯 UI 的游戏（与数据源无关，三端同一份）。
  */
 internal val DESKTOP_SUPPORTED_ROUTES = listOf(
     AppRoute.SchoolCalendar to "校历",
     AppRoute.Library to "图书馆座位",
     AppRoute.Fitness to "体测",
+    AppRoute.SchoolCourse to "全校课表",
+    AppRoute.ScoreReport to "成绩",
     AppRoute.YellowPage to "黄页",
     AppRoute.Faculty to "教师检索",
     AppRoute.Games to "游戏合集",
@@ -184,9 +191,7 @@ internal val DESKTOP_SUPPORTED_ROUTES = listOf(
  * 搬到 `:data` 一条，这里就划掉一条（`docs/desktop-port-plan.md` §5.1／§3.2）。
  */
 internal val DESKTOP_PENDING_ROUTES = listOf(
-    AppRoute.ScoreReport to "成绩",
     AppRoute.Notification to "通知公告",
-    AppRoute.SchoolCourse to "全校课表",
     AppRoute.Inbox to "消息收纳",
     AppRoute.EmptyRoom to "空闲教室",
     AppRoute.CampusCard to "校园卡",
@@ -346,6 +351,30 @@ private fun DesktopPage(auth: DesktopAuth, route: AppRoute, onNavigate: (Desktop
                 onBack = back,
             )
         }
+        // 教务（全校课表）：站点会话**进门时才建**（见 `DesktopSiteGate`）。取数就是 `:data` 里那份
+        // `AppSchoolCourseSource`（包住原来的 `SchoolCourseApi`）—— `:core` 的屏只认端口。
+        AppRoute.SchoolCourse -> DesktopSiteGate(auth, DesktopAuth.JWXT_SITE_KEY, "教务") { site ->
+            SchoolCourseScreen(
+                source = remember(site) { AppSchoolCourseSource(site) },
+                onBack = back,
+            )
+        }
+        // 成绩：同一个教务站点（两条路由共用一份会话）。取数要一个**学号**，它闭在适配器里；
+        // 桌面端没有登录取学号那一套（`LoginScreen` 只有账号密码，学号不落屏），所以用登录时
+        // 写进 `AccountContext.activeAccountId` 的那个 —— 它**取不到就画错误页**，绝不拿空学号
+        // 去请求（那会遇到一张“查无此人”的报表，看起来像屏坏了）。
+        AppRoute.ScoreReport -> DesktopSiteGate(auth, DesktopAuth.JWXT_SITE_KEY, "教务") { site ->
+            val studentId = AccountContext.activeAccountId?.takeIf { it.isNotBlank() }
+            if (studentId == null) {
+                MissingIdentityPage(onNavigate)
+            } else {
+                ScoreReportScreen(
+                    source = remember(site, studentId) { scoreReportSource(site, studentId) },
+                    onBack = back,
+                )
+            }
+        }
+
         AppRoute.Games -> GamesScreen(
             onBack = back,
             onNavigate = { onNavigate(DesktopTarget.App(it)) },
@@ -461,6 +490,40 @@ private fun NotPortedScreen(route: AppRoute, onNavigate: (DesktopTarget) -> Unit
         Text(
             "桌面的取数不走 campus-api（设计文档 C2：任何人独立安装、独立登录）——" +
                 "所以 Stage 0 那批脚手架屏幕这一轮换成了如实说明，而不是继续借 campus-api 画画面。",
+            color = cs.onBackgroundVariant,
+            fontSize = 12.sp,
+        )
+        TextButton(
+            text = "回全部页面",
+            onClick = { onNavigate(DesktopTarget.Routes) },
+            minWidth = 120.dp,
+        )
+    }
+}
+
+/**
+ * 「没有身份就取不了数」的如实说明 —— 现在只有成绩那一屏会走到这里。
+ *
+ * 它的取数要一个**学号**，而桌面端的学号来自登录时写进 `AccountContext.activeAccountId` 的那个值
+ * （`JwappScoreViewModel` 在 App 上用 `loginState.activeUsername`，同一件事）。取不到时不拿空学号
+ * 去请求 —— 教务会回一张「查无此人」的报表，看上去像屏坏了；也不直接崩，那连回退都没有了。
+ */
+@Composable
+private fun MissingIdentityPage(onNavigate: (DesktopTarget) -> Unit) {
+    val cs = MiuixTheme.colorScheme
+    Column(
+        modifier = Modifier.fillMaxSize().padding(24.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        Text("成绩报表要一个学号，现在取不到", color = cs.onSurface, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+        Text(
+            "成绩报表按学号取数，学号来自这次登录。取不到通常是登录还没走完，或者这一份装配是" +
+                "从落盘凭据恢复的 —— 重新登录一次即可。",
+            color = cs.onBackgroundVariant,
+            fontSize = 13.sp,
+        )
+        Text(
+            "教务那边的会话本身是好的（能进这一屏就说明它建起来了）。",
             color = cs.onBackgroundVariant,
             fontSize = 12.sp,
         )
