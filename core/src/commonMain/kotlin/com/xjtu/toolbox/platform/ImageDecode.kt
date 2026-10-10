@@ -35,3 +35,32 @@ expect fun decodeImageSize(bytes: ByteArray): IntSize?
 
 /** 按 [maxDim] 上限降采样解码一张图。[size] 是 [decodeImageSize] 刚读出来的尺寸。 */
 expect fun decodeImage(bytes: ByteArray, size: IntSize, maxDim: Int): ImageBitmap?
+
+/**
+ * 解出的**原始像素**（ARGB8888、非预乘）—— 滑块验证码识别器要的正是 Android
+ * `Bitmap.getPixels` 那批 int 的语义（`0xAARRGGBB`）。JVM 侧用 ImageIO 的
+ * `BufferedImage.getRGB`（同为非预乘 ARGB），语义等价；wasm 无识别路径，恒 null。
+ */
+data class ImagePixels(
+    val width: Int,
+    val height: Int,
+    val pixels: IntArray,
+)
+
+/**
+ * 全尺寸、ARGB8888 解码一张图并解出原始像素 —— 场馆滑块验证码的自动识别用。
+ *
+ * 与 [decodeImage] 的区别（两条缝各自服务的路径不同）：
+ *  - [decodeImage] 是图书馆座位图的路径：`inSampleSize` 降采样 + `RGB_565`，只求画得对；
+ *  - **滑块识别要的是像素本身**（Sobel 边缘 + NCC 匹配），降采样或 565 都会悄悄改掉边缘的
+ *    形状 ⇒ 这里全尺寸解出原始 int，与搬进 `:data` 前 `:app` 的 `BitmapFactory.decodeByteArray`
+ *    + `getPixels` 路径逐字同构。
+ */
+expect fun decodeImagePixels(bytes: ByteArray): ImagePixels?
+
+/**
+ * 全尺寸解码一张**可绘制**的图 —— 场地滑块验证码的画面用（背景与滑块都带 alpha/原色，
+ * 不能走 [decodeImage] 的 `RGB_565` 降采样路径）。Android 实现就是搬迁前
+ * `SliderCaptchaView` 里那段 `BitmapFactory.decodeByteArray`（ARGB_8888 全尺寸）。
+ */
+expect fun decodeImageFull(bytes: ByteArray): ImageBitmap?

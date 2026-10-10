@@ -26,15 +26,15 @@ import kotlinx.coroutines.withContext
  *    `withContext(Dispatchers.IO)` 包着，但换个调度器跑同一段纯 CPU 代码没有任何可观测差别；
  *    它们在端口上就是非挂起方法，VM 在自己的协程里直接调。
  *
- * 验证码那两半（滑块控件与自动识别器）不在这里：它们是屏上的两个槽位，由宿主注入
- * （见 `VenueScreen` 的 KDoc）——它们不碰网络，不属于本端口的职责。
+ * 验证码那两半（画滑块与自动识别）不在这里：它们是屏上的宿主槽位（[SlideCaptchaHost]），
+ * 由宿主端注入（Android = `VenueSlideCaptchaHost`，桌面 = `DesktopSlideCaptchaHost`）——
+ * 它们不碰网络，不属于本端口的职责。
  *
  * @param canBook 本端能不能下单。Android 直连场馆站、写路径一行未改 ⇒ true（默认值）；
- *   桌面端传 **false**：那个站点登得上、读得了，但下单要先解滑块，而滑块控件长在 Android 的
- *   `Bitmap`/`Base64` 上（`VenueScreen` 的 `captchaView` 槽位，桌面传 null）—— 没有它就走不完
- *   「确认预订 → 验证码 → 提交」那一步。按 [VenueSource] 的 KDoc 那条口径（**点了会失败的按钮，
- *   一个都不画**）如实声明 false，屏上因此不画「确认预订」/「去支付」、时段格子不可勾选。
- *   取消订单不需要滑块（一次普通 POST），所以 [canCancel] 仍然是 true。
+ *   Stage B 之后桌面也有滑块宿主 ⇒ 桌面端同样传 **true**。按 [VenueSource] 的 KDoc 那条口径
+ *   （**点了会失败的按钮，一个都不画**），将来若有端没有宿主，传 false 屏上就不画
+ *   「确认预订」/「去支付」、时段格子不可勾选。取消订单不需要滑块（一次普通 POST），
+ *   所以 [canCancel] 仍然是 true。
  */
 class AppVenueSource(
     site: SiteSession,

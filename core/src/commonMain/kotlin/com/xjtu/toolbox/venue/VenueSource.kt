@@ -14,8 +14,8 @@ package com.xjtu.toolbox.venue
  * 那为什么不干脆把写方法从端口里删掉：**屏只有一份**，写路径的编排（先备参数、再拉验证码、识别、
  * 等到松手时刻、提交、失败重试那套状态机）是共享代码的一部分，删掉就等于删功能（Android 半边会跟着没）。
  * 于是切法是「共享代码保留全部路径 + 本端声明自己能做哪几件」：
- *  - [canBook] = false ⇒ 屏上不出现「确认预订」、时段格子不可勾选、验证码分支永不进入（[captchaView] /
- *    [solveCaptcha] 两个槽位本来就是 null）、预订结果弹窗里的「去支付」也不会出现；
+ *  - [canBook] = false ⇒ 屏上不出现「确认预订」、时段格子不可勾选、验证码分支永不进入（[captchaHost]
+ *    本来就是 null）、预订结果弹窗里的「去支付」也不会出现；
  *  - [canCancel] = false ⇒ 订单卡与订单详情里不出现「取消订单」。
  *
  * 一句话：**点了会失败的按钮，一个都不画**（这条口径与评教的 `canSubmit`、空闲教室的
@@ -24,11 +24,10 @@ package com.xjtu.toolbox.venue
  *
  * ## 为什么验证码 UI 是槽位而不是端口方法
  *
- * 验证码那两件事都长在 Android 的类型上：滑块控件要 `android.graphics.Bitmap` + 拖动轨迹，
- * 自动识别要 `Bitmap.getPixels` + Base64 解码。它们**不是取数**（不碰网络、不进端口该管的那一层），
- * 而是屏上的两个 UI/算力插槽：`captchaView`（画滑块、产出 [SliderResult]）与 `solveCaptcha`
- *（识别 [CaptchaData]、产出 [SolvedCaptcha]）。所以它们由宿主注入到屏上，Web 传 null。
- *
+ * 验证码那两件事都长在平台类型上：滑块控件要图片解码 + 拖动轨迹，自动识别要原始像素 + Base64。
+ * 它们**不是取数**（不碰网络、不进端口该管的那一层），而是屏上的 UI/算力插槽：宿主端各实现一份
+ * [SlideCaptchaHost]（画滑块、产出 [SliderResult] 与识别 [CaptchaData]、产出 [SolvedCaptcha]）。
+ * 所以由宿主注入到屏上，Web 传 null。
  * 注入 null 的语义是**本端没有这条路径**，不是"调用会抛"：状态机只在写路径上用它俩，
  * 而写路径又只在 [canBook] = true 时才可达，两条缝对齐。
  *

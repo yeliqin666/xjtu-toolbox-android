@@ -15,6 +15,11 @@ plugins {
     // 解析用 `:core` 的 `AppJson`（kotlinx.serialization）—— 不用 Android 平台那份 `org.json`：
     // 它在 JVM 单测里是 android.jar 的桩，一调就抛（`LibraryPages.parseSeatLayout` 早就踩过）。
     alias(libs.plugins.kotlin.serialization)
+    // 场馆滑块验证码（`SliderCaptchaView`）从 `:app` 搬进这里（Stage B：滑块共享化）：
+    // 那份是 @Composable，所以数据层第一次需要 Compose 编译器与 UI 依赖。
+    // ⚠️ `:data` 只有 jvm+android 两个目标（加 wasm/ios 会全线崩），这与 Compose 不冲突。
+    alias(libs.plugins.compose.multiplatform)
+    alias(libs.plugins.kotlin.compose)
 }
 
 kotlin {
@@ -54,6 +59,16 @@ kotlin {
             implementation(libs.ktor.client.okhttp)
             implementation(libs.ktor.client.content.negotiation)
             implementation(libs.ktor.serialization.kotlinx.json)
+            // ── 场馆滑块验证码（Stage B）：`SliderCaptchaView` 是 @Composable，且用 miuix
+            //    的 Text/主题 —— 与 `:core` 同一套坐标（CMP 的 android 变体转发到
+            //    androidx.compose，与 :app 不重复类）。公开签名只涉及 :core 的模型，
+            //    所以这里 implementation 就够（消费方经由 api(project(":core")) 已经有 compose）。
+            implementation(compose.runtime)
+            implementation(compose.foundation)
+            implementation(compose.ui)
+            implementation(libs.miuix.ui.kmp)
+            // 识别器与滑块视图都要解 base64 → 原始像素/可绘制位图：两条缝在 :core
+            // 的 `platform/ImageDecode.kt`（JVM 用 ImageIO、Android 用 BitmapFactory）。
         }
         commonTest.dependencies {
             implementation(kotlin("test"))
