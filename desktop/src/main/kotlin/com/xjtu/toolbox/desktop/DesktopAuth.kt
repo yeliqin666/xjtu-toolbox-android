@@ -6,6 +6,8 @@ import androidx.compose.runtime.setValue
 import com.xjtu.toolbox.account.AccountContext
 import com.xjtu.toolbox.auth.AccountType
 import com.xjtu.toolbox.auth.FitnessSession
+import com.xjtu.toolbox.auth.GmisSession
+import com.xjtu.toolbox.auth.GsteSession
 import com.xjtu.toolbox.auth.JwxtSession
 import com.xjtu.toolbox.auth.LoginUiState
 import com.xjtu.toolbox.auth.LibrarySession
@@ -75,8 +77,12 @@ class DesktopAuth(
         // 搬一个注册一个（`:data:commonMain` 的 `Sites.kt` 那一批）。
         register(LibrarySession())
         register(FitnessSession())
-        // 教务：全校课表与成绩报表两条路由共用的站点（`:data` 的 `JwxtSession` + `JwxtLogin`）。
+        // 教务：全校课表 / 成绩报表 / 本科评教三条路由共用的站点（`:data` 的 `JwxtSession` + `JwxtLogin`）。
         register(JwxtSession())
+        // 研究生评教要的两个站点：gste（问卷）与 gmis（课程详情 + 学位课）。它们**只**服务研究生，
+        // 本科账号登它们会失败 —— 所以登录页那一步只是「尽力预热」，失败只记不抛（见 `login()`）。
+        register(GsteSession())
+        register(GmisSession())
         // 切账号时清宿主侧共享缓存：`:app` 把它设成 `CampusProbe.ywtbToken = null`，
         // 而 CampusProbe 要 `ConnectivityManager`（宿主能力，没跟着内核搬进 :data）；
         // 桌面端没有那份缓存，所以留空。这正是「缝照真正用到的那几处切」。
@@ -265,14 +271,19 @@ class DesktopAuth(
         const val LIBRARY_SITE_KEY = "library"
         const val FITNESS_SITE_KEY = "fitness"
 
-        /** 教务：全校课表 + 成绩报表共用的那一个站点。 */
+        /** 教务：全校课表 + 成绩报表 + 本科评教共用的那一个站点。 */
         const val JWXT_SITE_KEY = "jwxt"
+
+        /** 研究生评教：问卷在 gste、课程信息在 gmis（两个站点，都只服务研究生）。 */
+        const val GSTE_SITE_KEY = "gste"
+        const val GMIS_SITE_KEY = "gmis"
 
         /**
          * 登录页那一步一次建起会话的站点：`:core` 里有屏 + `:data` 里有站点类与取数的那几个。
          * （校历 / 黄页 / 教师检索是免登录的公开接口，游戏是纯 UI —— 它们不需要会话。）
          */
-        private val SESSION_SITE_KEYS = listOf(LIBRARY_SITE_KEY, FITNESS_SITE_KEY, JWXT_SITE_KEY)
+        private val SESSION_SITE_KEYS =
+            listOf(LIBRARY_SITE_KEY, FITNESS_SITE_KEY, JWXT_SITE_KEY, GSTE_SITE_KEY, GMIS_SITE_KEY)
     }
 }
 

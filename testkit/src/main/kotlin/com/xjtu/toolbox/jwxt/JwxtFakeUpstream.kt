@@ -166,6 +166,9 @@ class JwxtFakeUpstream {
         const val JUDGE_WJDM_DONE = "WJ-3001"
         const val JUDGE_JXBID_FINAL = "JXB-9001"
         const val JUDGE_JXBID_DONE = "JXB-9100"
+        const val JUDGE_JXBID_MID = "JXB-9002"
+        const val JUDGE_WJDM_FINAL_BARE = "WJ-1002"
+        const val JUDGE_JXBID_FINAL_BARE = "JXB-9003"
         const val JUDGE_BPR_FINAL = "陶文铨"
         const val JUDGE_TEACHER_FINAL = "陶文铨"
         const val JUDGE_TEACHER_MID = "示例丁"
@@ -383,7 +386,7 @@ class JwxtFakeUpstream {
     val judgeUnfinishedMidJson = """
         {"datas":{"cxdwpj":{"rows":[
           {"BPJS":"$JUDGE_TEACHER_MID","BPR":"$JUDGE_TEACHER_MID","DBRS":"0",
-           "JSSJ":"2026-10-25 23:59:00","JXBID":"JXB-9002","KCH":"MATH1001",
+           "JSSJ":"2026-10-25 23:59:00","JXBID":"$JUDGE_JXBID_MID","KCH":"MATH1001",
            "KCM":"$JUDGE_COURSE_MID","KSSJ":"2026-10-01 08:00:00","PCDM":"PCDM-2026-05",
            "PGLXDM":"05","PGNR":"过程评教（第一次）","WJDM":"$JUDGE_WJDM_MID",
            "WJMC":"过程评教问卷","XNXQDM":"$JUDGE_TERM"}
@@ -402,9 +405,9 @@ class JwxtFakeUpstream {
            "KCM":"$JUDGE_COURSE_FINAL","KSSJ":"2026-12-20 08:00:00","PCDM":"PCDM-2026-01",
            "PGLXDM":"01","PGNR":"$JUDGE_PGNR","WJDM":"$JUDGE_WJDM_FINAL",
            "WJMC":"期末评教问卷","XNXQDM":"$JUDGE_TERM"},
-          {"BPJS":"$JUDGE_TEACHER_FINAL_BARE","BPR":"示例庚","JXBID":"JXB-9003",
+          {"BPJS":"$JUDGE_TEACHER_FINAL_BARE","BPR":"示例庚","JXBID":"$JUDGE_JXBID_FINAL_BARE",
            "KCM":"$JUDGE_COURSE_FINAL_BARE","KSSJ":"2026-12-20 08:00:00","PCDM":"PCDM-2026-01",
-           "PGLXDM":"01","PGNR":"$JUDGE_PGNR","WJDM":"WJ-1002",
+           "PGLXDM":"01","PGNR":"$JUDGE_PGNR","WJDM":"$JUDGE_WJDM_FINAL_BARE",
            "WJMC":"期末评教问卷","XNXQDM":"$JUDGE_TERM"}
         ]}}}
     """.trimIndent()

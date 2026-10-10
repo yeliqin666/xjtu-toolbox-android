@@ -2,6 +2,7 @@ package com.xjtu.toolbox.desktop
 
 import com.xjtu.toolbox.FakeCampusProxy
 import com.xjtu.toolbox.account.AccountContext
+import com.xjtu.toolbox.auth.AccountType
 import com.xjtu.toolbox.auth.SessionExpiredException
 import com.xjtu.toolbox.auth.SiteSession
 import com.xjtu.toolbox.calendar.SchoolCalendarApi
@@ -11,6 +12,8 @@ import com.xjtu.toolbox.fitness.FitnessApi
 import com.xjtu.toolbox.fitness.FitnessFakeUpstream
 import com.xjtu.toolbox.fitness.FitnessProtocol
 import com.xjtu.toolbox.fitness.FitnessYear
+import com.xjtu.toolbox.judge.JudgeCard
+import com.xjtu.toolbox.judge.UndergraduateJudgeSource
 import com.xjtu.toolbox.jwxt.JwxtFakeUpstream
 import com.xjtu.toolbox.faculty.FacultyApi
 import com.xjtu.toolbox.schedule.AppSchoolCourseSource
@@ -443,6 +446,80 @@ class DesktopAuthLibraryJvmTest {
 
         assertEquals(landings, fake.jwxt.ticketLandings.get(), "会话还在新鲜窗口内，不该再走一遍 CAS")
         assertEquals(posts, fake.library.credentialPosts.get(), "也不该再提交一次凭据")
+    }
+
+    // ══════ 评教：第八条真数据路由（本科那条链路）══════
+
+    /**
+     * 真登录链之后走「评教」那一屏用的那个源（`UndergraduateJudgeSource`）—— 桌面端 `AppRoute.Judge`
+     * 本科那一条就是它（研究生那条是 `GraduateJudgeSource`，它自己 `ensureSite` 两个站点）。
+     *
+     * 期望值全部来自 `:testkit` 的 [JwxtFakeUpstream] 夹具：未评两份（过程在前、期末在后）、已评一份，
+     * 以及 `card()` 的三项口径（课程 / 教师 / 标签）—— 屏上画的就是这三个字段，标签由 `PGLXDM` 换算
+     * （01 期末 / 05 过程），key 是 `WJDM_JXBID_BPR`（撤回时按它定位）。
+     *
+     * ⚠️ 进门那一发走的是 `DesktopSiteGate` 干的事（`ensureSession("jwxt")`）：评教与全校课表 / 成绩
+     * 是**同一个站点、同一份会话**，所以这里顺带钉住「评教不会再多登一次」。
+     */
+    @Test
+    fun `真登录之后：本科评教读出夹具样本，未评两份与卡片口径都对`() = withFakeCampus {
+        val (auth, _) = newAuth()
+        assertTrue(login(auth))
+        val postsAfterLogin = fake.library.credentialPosts.get()
+
+        runBlocking { auth.ensureSession(DesktopAuth.JWXT_SITE_KEY) }
+        assertEquals(
+            postsAfterLogin,
+            fake.library.credentialPosts.get(),
+            "评教与课表/成绩共用一份会话，不该再提交一次凭据",
+        )
+
+        // 桌面端选哪条链路看的是 `AccountContext` 里的身份（默认本科生 ⇒ 走教务那一条）
+        assertEquals(AccountType.UNDERGRADUATE, AccountContext.activeAccountType)
+        val username = assertNotNull(AccountContext.activeAccountId, "登录之后应当有账号 id")
+        val source = UndergraduateJudgeSource(auth.jwxtSite, username)
+
+        val (unfinished, finished) = runBlocking { source.load() }
+        assertEquals(
+            listOf(
+                JwxtFakeUpstream.JUDGE_COURSE_MID,
+                JwxtFakeUpstream.JUDGE_COURSE_FINAL,
+                JwxtFakeUpstream.JUDGE_COURSE_FINAL_BARE,
+            ),
+            unfinished.map { it.KCM },
+        )
+        assertEquals(listOf(JwxtFakeUpstream.JUDGE_COURSE_DONE), finished.map { it.KCM })
+
+        assertEquals(
+            listOf(
+                JudgeCard(
+                    key = "${JwxtFakeUpstream.JUDGE_WJDM_MID}_${JwxtFakeUpstream.JUDGE_JXBID_MID}_" +
+                        JwxtFakeUpstream.JUDGE_TEACHER_MID,
+                    course = JwxtFakeUpstream.JUDGE_COURSE_MID,
+                    teacher = JwxtFakeUpstream.JUDGE_TEACHER_MID,
+                    tag = "过程评教",
+                ),
+                JudgeCard(
+                    key = "${JwxtFakeUpstream.JUDGE_WJDM_FINAL}_${JwxtFakeUpstream.JUDGE_JXBID_FINAL}_" +
+                        JwxtFakeUpstream.JUDGE_BPR_FINAL,
+                    course = JwxtFakeUpstream.JUDGE_COURSE_FINAL,
+                    teacher = JwxtFakeUpstream.JUDGE_TEACHER_FINAL,
+                    tag = "期末评教",
+                ),
+                JudgeCard(
+                    key = "${JwxtFakeUpstream.JUDGE_WJDM_FINAL_BARE}_" +
+                        "${JwxtFakeUpstream.JUDGE_JXBID_FINAL_BARE}_示例庚",
+                    course = JwxtFakeUpstream.JUDGE_COURSE_FINAL_BARE,
+                    teacher = JwxtFakeUpstream.JUDGE_TEACHER_FINAL_BARE,
+                    tag = "期末评教",
+                ),
+            ),
+            unfinished.map { source.card(it) },
+        )
+        // 已评那一张：本科端可提交也可撤回（`canSubmit` 默认 true、`undo` 非空 ⇒ 屏上会出现那两个按钮）
+        assertEquals("期末评教", source.card(finished[0]).tag)
+        assertNotNull(source.undo, "本科端能撤回（屏上那个按钮据此出现）")
+        assertEquals("，确定继续？", source.confirmText)
     }
 
     // ══════ 校历：免登录的那条路 ══════

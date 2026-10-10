@@ -30,7 +30,9 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.viewmodel.compose.viewModel
 import com.xjtu.toolbox.account.AccountContext
+import com.xjtu.toolbox.auth.AccountType
 import com.xjtu.toolbox.auth.LoginScreen
 import com.xjtu.toolbox.auth.MfaCodeDialog
 import com.xjtu.toolbox.auth.ensureSite
@@ -42,6 +44,12 @@ import com.xjtu.toolbox.faculty.FacultyApiSource
 import com.xjtu.toolbox.faculty.FacultyScreen
 import com.xjtu.toolbox.fitness.FitnessApi
 import com.xjtu.toolbox.fitness.FitnessScreen
+import com.xjtu.toolbox.judge.GraduateJudgeSource
+import com.xjtu.toolbox.judge.GraduateQuestionnaire
+import com.xjtu.toolbox.judge.JudgeListScreen
+import com.xjtu.toolbox.judge.JudgeViewModel
+import com.xjtu.toolbox.judge.Questionnaire
+import com.xjtu.toolbox.judge.UndergraduateJudgeSource
 import com.xjtu.toolbox.game.GamesScreen
 import com.xjtu.toolbox.game.blocks.BlocksScreen
 import com.xjtu.toolbox.game.g2048.Gpa2048Screen
@@ -163,7 +171,7 @@ internal val DESKTOP_TABS = listOf(
 /**
  * 这一端**真能画**的路由（`:core` 里有屏 + 取数在 `:data`，两者缺一不可）。
  *
- * 七条真取数：图书馆 / 体测 / 全校课表 / 成绩（**要登录**，走会话内核 + 进那一屏再建会话，见
+ * 八条真取数：图书馆 / 体测 / 全校课表 / 成绩 / 评教（**要登录**，走会话内核 + 进那一屏再建会话，见
  * `DesktopSiteGate`）、校历 / 黄页 / 教师检索（**免登录**的公开门户接口）。
  * 其余是纯 UI 的游戏（与数据源无关，三端同一份）。
  */
@@ -173,6 +181,7 @@ internal val DESKTOP_SUPPORTED_ROUTES = listOf(
     AppRoute.Fitness to "体测",
     AppRoute.SchoolCourse to "全校课表",
     AppRoute.ScoreReport to "成绩",
+    AppRoute.Judge to "学生评教",
     AppRoute.YellowPage to "黄页",
     AppRoute.Faculty to "教师检索",
     AppRoute.Games to "游戏合集",
@@ -196,7 +205,6 @@ internal val DESKTOP_PENDING_ROUTES = listOf(
     AppRoute.EmptyRoom to "空闲教室",
     AppRoute.CampusCard to "校园卡",
     AppRoute.Venue to "体育场馆",
-    AppRoute.Judge to "评教",
 )
 
 @Composable
@@ -366,12 +374,56 @@ private fun DesktopPage(auth: DesktopAuth, route: AppRoute, onNavigate: (Desktop
         AppRoute.ScoreReport -> DesktopSiteGate(auth, DesktopAuth.JWXT_SITE_KEY, "教务") { site ->
             val studentId = AccountContext.activeAccountId?.takeIf { it.isNotBlank() }
             if (studentId == null) {
-                MissingIdentityPage(onNavigate)
+                MissingIdentityPage(
+                    onNavigate = onNavigate,
+                    title = "成绩报表要一个学号，现在取不到",
+                    lines = listOf(
+                        "成绩报表按学号取数，学号来自这次登录。取不到通常是登录还没走完，或者这一份装配是" +
+                            "从落盘凭据恢复的 —— 重新登录一次即可。",
+                        "教务那边的会话本身是好的（能进这一屏就说明它建起来了）。",
+                    ),
+                )
             } else {
                 ScoreReportScreen(
                     source = remember(site, studentId) { scoreReportSource(site, studentId) },
                     onBack = back,
                 )
+            }
+        }
+
+        // 评教（第八条真数据路由）—— 本科 / 研究生是**两条不同的链路**，与 `:app` 的导航层同一个判据
+        // （`AccountContext.activeAccountType`，即 `AppRoute.Judge.loginType` 里那个 `isPostgraduateSession()`）：
+        //
+        // - **本科**：与全校课表 / 成绩**共用同一个教务站点**（所以走同一个 `DesktopSiteGate`）。参评人
+        //   （`CPR`）就是登录时写进 `AccountContext.activeAccountId` 的学号 —— 取不到就画说明页，
+        //   不拿空学号去请求（那会领回一张空卷子，看着像屏坏了）；
+        // - **研究生**：问卷在 gste、课程信息在 gmis。这条**不套 Gate**：`GraduateJudgeSource` 自己
+        //   `ensureSite`（gste 进屏时登、gmis 到一键评教时才登）—— 这正是 `:app` 那边的语义，
+        //   只是把宿主那一发缓到真正取数的时候。
+        AppRoute.Judge -> if (AccountContext.activeAccountType == AccountType.POSTGRADUATE) {
+            val source = remember { GraduateJudgeSource(auth.sessionManager) }
+            val vm: JudgeViewModel<GraduateQuestionnaire> =
+                viewModel(key = "judge-postgraduate") { JudgeViewModel(source) }
+            JudgeListScreen("学生评教", vm, back)
+        } else {
+            DesktopSiteGate(auth, DesktopAuth.JWXT_SITE_KEY, "教务") { site ->
+                val username = AccountContext.activeAccountId?.takeIf { it.isNotBlank() }
+                if (username == null) {
+                    MissingIdentityPage(
+                        onNavigate = onNavigate,
+                        title = "评教要一个学号，现在取不到",
+                        lines = listOf(
+                            "评教是按学号取「我的问卷」的，学号来自这次登录。取不到通常是登录还没走完，或者" +
+                                "这一份装配是从落盘凭据恢复的 —— 重新登录一次即可。",
+                            "教务那边的会话本身是好的（能进这一屏就说明它建起来了）。",
+                        ),
+                    )
+                } else {
+                    val source = remember(site, username) { UndergraduateJudgeSource(site, username) }
+                    val vm: JudgeViewModel<Questionnaire> =
+                        viewModel(key = "judge-undergraduate") { JudgeViewModel(source) }
+                    JudgeListScreen("学生评教", vm, back)
+                }
             }
         }
 
@@ -502,31 +554,33 @@ private fun NotPortedScreen(route: AppRoute, onNavigate: (DesktopTarget) -> Unit
 }
 
 /**
- * 「没有身份就取不了数」的如实说明 —— 现在只有成绩那一屏会走到这里。
+ * 「没有身份就取不了数」的如实说明 —— 现在成绩报表与本科评教两屏会走到这里。
  *
- * 它的取数要一个**学号**，而桌面端的学号来自登录时写进 `AccountContext.activeAccountId` 的那个值
+ * 它们的取数都要一个**学号**，而桌面端的学号来自登录时写进 `AccountContext.activeAccountId` 的那个值
  * （`JwappScoreViewModel` 在 App 上用 `loginState.activeUsername`，同一件事）。取不到时不拿空学号
- * 去请求 —— 教务会回一张「查无此人」的报表，看上去像屏坏了；也不直接崩，那连回退都没有了。
+ * 去请求 —— 教务会回一张「查无此人」的报表、或一张空卷子，看上去像屏坏了；也不直接崩，那连回退都没有了。
+ *
+ * 两屏整合到同一个页而不是各写一份：差别只有标题与那两句话，画法与回退入口是同一套。
  */
 @Composable
-private fun MissingIdentityPage(onNavigate: (DesktopTarget) -> Unit) {
+private fun MissingIdentityPage(
+    onNavigate: (DesktopTarget) -> Unit,
+    title: String,
+    lines: List<String>,
+) {
     val cs = MiuixTheme.colorScheme
     Column(
         modifier = Modifier.fillMaxSize().padding(24.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        Text("成绩报表要一个学号，现在取不到", color = cs.onSurface, fontSize = 18.sp, fontWeight = FontWeight.Bold)
-        Text(
-            "成绩报表按学号取数，学号来自这次登录。取不到通常是登录还没走完，或者这一份装配是" +
-                "从落盘凭据恢复的 —— 重新登录一次即可。",
-            color = cs.onBackgroundVariant,
-            fontSize = 13.sp,
-        )
-        Text(
-            "教务那边的会话本身是好的（能进这一屏就说明它建起来了）。",
-            color = cs.onBackgroundVariant,
-            fontSize = 12.sp,
-        )
+        Text(title, color = cs.onSurface, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+        lines.forEachIndexed { index, line ->
+            Text(
+                line,
+                color = cs.onBackgroundVariant,
+                fontSize = if (index == 0) 13.sp else 12.sp,
+            )
+        }
         TextButton(
             text = "回全部页面",
             onClick = { onNavigate(DesktopTarget.Routes) },
