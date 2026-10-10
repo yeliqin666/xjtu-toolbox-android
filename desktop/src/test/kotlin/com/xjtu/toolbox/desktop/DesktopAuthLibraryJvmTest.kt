@@ -22,6 +22,9 @@ import com.xjtu.toolbox.card.CampusCardFakeUpstream
 import com.xjtu.toolbox.card.allTransactions
 import com.xjtu.toolbox.auth.CampusCardLogin
 import com.xjtu.toolbox.jwxt.JwxtFakeUpstream
+import com.xjtu.toolbox.auth.VenueLogin
+import com.xjtu.toolbox.venue.AppVenueSource
+import com.xjtu.toolbox.venue.VenueFakeUpstream
 import com.xjtu.toolbox.faculty.FacultyApi
 import com.xjtu.toolbox.schedule.AppSchoolCourseSource
 import com.xjtu.toolbox.schedule.SchoolCourseQuery
@@ -709,6 +712,107 @@ class DesktopAuthLibraryJvmTest {
             ),
         )
     }
+
+    // ══════ 体育场馆：第十一条真数据路由 ══════
+
+    /**
+     * 真登录链之后走「体育场馆」那一屏用的那个源（`:data` 的 `AppVenueSource`，桌面端
+     * `AppRoute.Venue` 就是它：`canBook = false` —— 这一端没有滑块控件，下单那一步走不完）。
+     *
+     * 这条同时钉住那一条登录链：场馆站的入口不是它自己，而是 `org.xjtu.edu.cn` 的 OAuth2
+     *（appId=1659）→ CAS → 回跳 `/web/cas/oauth2url.html` → 首页 userno。场馆站本身是**明文 http**
+     *（不走 CONNECT 隧道）；只有 OAuth 入口那一跳是 https。
+     *
+     * 期望值全部来自 `:testkit` 的 [VenueFakeUpstream]：9 个场馆（两页拼起来，`id=0` 那行被跳过）、
+     * 某天七个时段（可订 + 已占两路合并后排序）、我的订单两条 —— 不是从跑通的实现里抄的。
+     */
+    @Test
+    fun `真登录之后：体育场馆走完 OAuth 与 CAS，场馆列表与时段都读得出夹具样本`() = withFakeCampus {
+        val (auth, _) = newAuth()
+        assertTrue(login(auth), "用假下游的账号密码应当登得上：${auth.loginState}")
+
+        // 夹具与生产必须指同一个站点：URL 漂了的话，下面这些断言测的就不是真协议
+        assertEquals(VenueLogin.BASE_URL, VenueFakeUpstream.ORIGIN)
+        assertEquals(VenueLogin.VENUE_OAUTH_URL, VenueFakeUpstream.OAUTH_URL)
+
+        // ── 登录页那一步已经尽力预热过它（它在 SESSION_SITE_KEYS 里）──
+        assertTrue(fake.venue.oauthCalls.get() >= 1, "OAuth 入口那一跳应当被打开过")
+        assertEquals(1, fake.venue.ticketLandings.get(), "CAS 回跳只该落在那个回调上一次")
+        assertTrue(fake.library.tickets.get() >= 1, "统一认证应当真签过 ticket")
+
+        // 进门那一发（Gate 干的事）：会话已经新鲜，不该再走一遍 CAS
+        runBlocking { auth.ensureSession(DesktopAuth.VENUE_SITE_KEY) }
+        val landings = fake.venue.ticketLandings.get()
+        val posts = fake.library.credentialPosts.get()
+        val site = auth.venueSite
+        assertTrue(site.hasLogin, "登录页那一步应当把场馆站点也登起来")
+        runBlocking { auth.ensureSession(DesktopAuth.VENUE_SITE_KEY) }
+        assertEquals(landings, fake.venue.ticketLandings.get(), "会话还在新鲜窗口内，不该再走一遍 CAS")
+        assertEquals(posts, fake.library.credentialPosts.get(), "也不该再提交一次凭据")
+
+        // ── 取数：`AppRoute.Venue` 那一屏用的就是这个源 ──
+        val source = AppVenueSource(site, canBook = false)
+        assertEquals(false, source.canBook, "桌面没有滑块控件 ⇒ 如实声明不能下单")
+        assertTrue(source.canCancel, "取消不需要滑块 ⇒ 这一件照旧能做")
+
+        val venues = runBlocking { source.venues() }
+        assertEquals(
+            listOf(
+                VenueFakeUpstream.VENUE_A_NAME,
+                VenueFakeUpstream.VENUE_B_NAME,
+                "示例场馆丙",
+                "",
+                VenueFakeUpstream.VENUE_F_NAME,
+                "示例场馆庚",
+                "示例场馆辛",
+                VenueFakeUpstream.VENUE_ASCII_NAME,
+                VenueFakeUpstream.VENUE_GBK_NAME,
+            ),
+            venues.map { it.name },
+        )
+        assertEquals(2, fake.venue.listCalls.get(), "第一页满 8 条 ⇒ 必须再要一页")
+        assertEquals(VenueFakeUpstream.VENUE_A_ADDRESS, venues.first().address)
+        assertEquals(VenueFakeUpstream.VENUE_A_ICON, venues.first().iconType)
+        assertEquals(VenueFakeUpstream.VENUE_A_ADVANCE_DAY, venues.first().advanceDay)
+        assertEquals(VenueFakeUpstream.VENUE_A_ADVANCE_NUM, venues.first().advanceNum)
+
+        // 时段：可订 + 已占两路合并后按 (时段, 场地名) 排序
+        val date = "2026-10-12"
+        val slots = runBlocking { source.slots(VenueFakeUpstream.VENUE_A_ID, date) }
+        assertEquals(1, fake.venue.okCalls.get())
+        assertEquals(1, fake.venue.lockCalls.get())
+        assertEquals(
+            listOf(5101L, 5102L, 5105L, 5103L, 5104L, 5202L, 5201L),
+            slots.map { it.areaDetailId },
+        )
+        assertEquals(
+            listOf(7, 1, 5, 6, 1, 0, 0),
+            slots.map { it.surplus },
+            "status==1 才是可订（全满的兜到 1）；已占那两格剩余为 0",
+        )
+        assertEquals(date, slots.first().date, "date 用的是请求里那一天")
+        assertEquals(
+            listOf("场地1", "场地2", "场地3", "场地1", "预订", "场地1", "场地3"),
+            slots.map { it.areaName },
+        )
+
+        // 我的订单那一栏：两条（空 orderid 的行与数组里不是对象的元素都被丢掉）
+        val orders = runBlocking { source.orders(page = 1, pageSize = 20) }
+        assertEquals(
+            listOf(VenueFakeUpstream.ORDER_PAID_ID, VenueFakeUpstream.ORDER_PENDING_ID),
+            orders.orders.map { it.orderId },
+        )
+        assertEquals(2, orders.total)
+        assertEquals(false, orders.hasMore)
+
+        // 收藏：桌面与 App 看到的是同一份（`:core` 共享的 `VenueFavorites`，JVM 侧是内存 store）
+        val before = runBlocking { source.favorites() }
+        assertTrue(VenueFakeUpstream.VENUE_A_ID !in before, "这条用例开始时不该已收藏：$before")
+        assertTrue(runBlocking { source.toggleFavorite(VenueFakeUpstream.VENUE_A_ID) })
+        assertTrue(VenueFakeUpstream.VENUE_A_ID in runBlocking { source.favorites() })
+        assertTrue(!runBlocking { source.toggleFavorite(VenueFakeUpstream.VENUE_A_ID) }, "再翻一次回到原位")
+    }
+
     // ══════ 校历：免登录的那条路 ══════
     @Test
     fun `校历：免登录就能取到学期与假期（桌面端第二条真能用的路由）`() = withFakeCampus {

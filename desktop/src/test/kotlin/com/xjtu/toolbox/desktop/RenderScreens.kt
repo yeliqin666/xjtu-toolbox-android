@@ -54,6 +54,7 @@ import kotlinx.coroutines.runBlocking
  * | `judge.png` | 学生评教屏（真路由：外壳 → `AppRoute.Judge` → `UndergraduateJudgeSource`） | 第八条真数据路由：与课表/成绩同一个教务站点（同一份会话），上游是 `wspjyyapp`；图上未评那三张卡片的课名/教师/标签都是夹具样本 |
  * | `campuscard.png` | 校园卡屏（真路由：外壳 → `AppRoute.CampusCard` → `AppCampusCardSource`） | 第九条真数据路由：**https** 站点（ncard）、CAS 回跳那一跳上换 JWT，缓存传 `null`；图上余额 / 待入账 / 今日三餐与流水都是夹具样本 |
  * | `emptyroom.png` | 空闲教室屏（真路由：外壳 → `AppRoute.EmptyRoom` → `AppEmptyRoomSource`） | 第十条真数据路由：三档数据源里那一档「实时状态」要智慧教室站点（https，CAS 回跳后把票换成 `TOKEN-AUTH`）—— 会话由**源自己 ensure**（所以不套 `DesktopSiteGate`）；图上楼分组、四间教室、空闲/上课中/「其它使用」与「实时 · HH:MM」都是夹具样本 |
+ * | `venue.png` | 体育场馆屏（真路由：外壳 → `AppRoute.Venue` → `DesktopSiteGate` → `AppVenueSource`） | 第十一条真数据路由：登录要先过 `org.xjtu.edu.cn` 的 OAuth2 → CAS → 回跳（场馆站本身是明文 http）；图上九个场馆名（两页拼起来）都是夹具样本。这一端 `canBook = false`（滑块控件搬不到桌面）⇒ 只有读的那一半 |
  * | `routes.png` | 「全部页面」索引页 | 如实列出「真能用 / 还没有数据源」，并给出退出登录入口 |
  * | `library-demo.png` | 同一屏 + 固定假数据 | 布局与组件本身可复现（不依赖网络/会话，改屏时用它对比） |
  *
@@ -293,6 +294,11 @@ fun main(args: Array<String>) {
             onFrame = { frame, scene -> if (!pickedAll && frame >= 6) pickedAll = clickByLabel(scene, "全部 4") },
         ) { ToolboxDesktopApp(auth, DesktopTarget.App(AppRoute.EmptyRoom)) }
         check(pickedAll) { "emptyroom.png：没点到「全部 4」这个筛选（semantics 里没找到）" }
+        // 体育场馆（第十一条）：走**真路由**（外壳 → `AppRoute.Venue` → `DesktopSiteGate` →
+        // `AppVenueSource`）。这一端 `canBook = false`（没有滑块控件 ⇒ 下单那一步走不完，见
+        // `ToolboxDesktopApp` 那一段的注释），所以图上只有**读**的那一半：场馆列表（夹具那 9 个，
+        // `id=0` 那一行被跳过）—— 不是错误页，也不是转圈。
+        shot("venue.png", frames = 20) { ToolboxDesktopApp(auth, DesktopTarget.App(AppRoute.Venue)) }
 
         shot("routes.png", frames = 4) { ToolboxDesktopApp(auth, DesktopTarget.Routes) }
     }

@@ -67,6 +67,8 @@ import com.xjtu.toolbox.score.scoreReportSource
 import com.xjtu.toolbox.game.xiangqi.XiangqiScreen
 import com.xjtu.toolbox.library.LibraryScreen
 import com.xjtu.toolbox.nav.AppRoute
+import com.xjtu.toolbox.venue.AppVenueSource
+import com.xjtu.toolbox.venue.VenueScreen
 import com.xjtu.toolbox.platform.keyValueStore
 import com.xjtu.toolbox.yellowpage.YellowPageApi
 import com.xjtu.toolbox.yellowpage.YellowPageScreen
@@ -175,9 +177,9 @@ internal val DESKTOP_TABS = listOf(
 /**
  * 这一端**真能画**的路由（`:core` 里有屏 + 取数在 `:data`，两者缺一不可）。
  *
- * 十条真取数：图书馆 / 体测 / 全校课表 / 成绩 / 评教 / 校园卡（**要登录**，走会话内核 + 进那一屏再建会话，
- * 见 `DesktopSiteGate`）、空闲教室（三档数据源要登的站点不同 ⇒ **由源自己 ensure**，见那一段的注释）、
- * 校历 / 黄页 / 教师检索（**免登录**的公开门户接口）。
+ * 十一条真取数：图书馆 / 体测 / 全校课表 / 成绩 / 评教 / 校园卡 / 体育场馆（**要登录**，走会话内核 +
+ * 进那一屏再建会话，见 `DesktopSiteGate`）、空闲教室（三档数据源要登的站点不同 ⇒ **由源自己 ensure**，
+ * 见那一段的注释）、校历 / 黄页 / 教师检索（**免登录**的公开门户接口）。
  * 其余是纯 UI 的游戏（与数据源无关，三端同一份）。
  */
 internal val DESKTOP_SUPPORTED_ROUTES = listOf(
@@ -189,6 +191,7 @@ internal val DESKTOP_SUPPORTED_ROUTES = listOf(
     AppRoute.Judge to "学生评教",
     AppRoute.CampusCard to "校园卡",
     AppRoute.EmptyRoom to "空闲教室",
+    AppRoute.Venue to "体育场馆",
     AppRoute.YellowPage to "黄页",
     AppRoute.Faculty to "教师检索",
     AppRoute.Games to "游戏合集",
@@ -209,7 +212,6 @@ internal val DESKTOP_SUPPORTED_ROUTES = listOf(
 internal val DESKTOP_PENDING_ROUTES = listOf(
     AppRoute.Notification to "通知公告",
     AppRoute.Inbox to "消息收纳",
-    AppRoute.Venue to "体育场馆",
 )
 
 @Composable
@@ -460,6 +462,33 @@ private fun DesktopPage(auth: DesktopAuth, route: AppRoute, onNavigate: (Desktop
                 onBack = back,
                 showCdnTip = !prefs.getBoolean("empty_room_cdn_tip", false),
                 onCdnTipRead = { prefs.putBoolean("empty_room_cdn_tip", true) },
+            )
+        }
+
+        // 体育场馆（第十一条真数据路由）：站点是**明文 http**（`202.117.17.144:8080`），登录要先过
+        // `org.xjtu.edu.cn` 的 OAuth2（appId=1659）→ CAS → 回跳 `/web/cas/oauth2url.html`。会话
+        // **进门时才建**（见 `DesktopSiteGate`）—— 登录页那一步只是尽力预热它，场馆站自己挂了最坏
+        // 只影响这一屏。
+        //
+        // 取数是 `:data` 的 `AppVenueSource`（包住原来的 `VenueApi`）；收藏走 `:core` 共享的
+        // `VenueFavorites`（同一份文件、同一个键 ⇒ 与 App 那边看到的是同一批收藏）。
+        //
+        // ⚠️ `canBook = false`：下单要先解滑块，而滑块控件（屏上的 `captchaView` 槽位）长在 Android
+        // 的 `Bitmap`/`Base64` 上（`:app` 的 `SliderCaptchaView`）—— 桌面没有这条路径。按 `VenueSource`
+        // 那条口径（**点了会失败的按钮，一个都不画**）如实声明，于是屏上不画「确认预订」/「去支付」、
+        // 时段格子不可勾选；取消订单不需要滑块，`canCancel` 仍是 true ⇒ 「我的订单」里的取消照旧。
+        // 自动识别（`solveCaptcha`）也传 null：那条路本就只在能下单时可达。
+        // 支付那一跳按 Web 端同一条口径如实忽略（canBook=false ⇒ 根本走不到）。
+        // 「功能说明弹过了没」与 `:app` 同一个 pref 文件、同一个键（`feature_hints` / `venue_hint_shown`）。
+        AppRoute.Venue -> DesktopSiteGate(auth, DesktopAuth.VENUE_SITE_KEY, "体育场馆") { site ->
+            val hintPrefs = remember { keyValueStore("feature_hints") }
+            VenueScreen(
+                source = remember(site) { AppVenueSource(site, canBook = false) },
+                onBack = back,
+                onOpenBrowser = { url, _ -> if (url.isNotBlank()) openInBrowser(url) },
+                solveCaptcha = null,
+                showFirstUseHint = !hintPrefs.getBoolean("venue_hint_shown", false),
+                onFirstUseHintRead = { hintPrefs.putBoolean("venue_hint_shown", true) },
             )
         }
 
