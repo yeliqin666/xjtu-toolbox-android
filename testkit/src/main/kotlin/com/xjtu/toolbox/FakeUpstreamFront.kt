@@ -54,8 +54,14 @@ import javax.net.ssl.SSLContext
 class FakeUpstreamFront(
     /** 明文与 TLS 两条入口共用的那一张 host 分派表。 */
     private val handler: (HttpExchange) -> Unit,
-    /** 用自签证书扮演的那个 https 域名 —— CONNECT 只认它，别的目标响亮地 502。 */
-    private val httpsHost: String,
+    /**
+     * 用自签证书扮演的那些 https 域名 —— CONNECT 只认它们，别的目标响亮地 502。
+     *
+     * 收一个**集合**而不是单个域名：一枚证书可以带多个 SAN，而信任库是**单个**系统属性
+     * （`javax.net.ssl.trustStore`）—— 每个 https 站点各装一份的话，后装的那份会把前一份顶掉，
+     * 先来的那个站点直接 PKIX 失败。所以几个 https 站点共用这一枚证书，信任库只装一次。
+     */
+    private val httpsHosts: Set<String>,
 ) : AutoCloseable {
 
     private val plain: HttpServer = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0)
@@ -66,14 +72,14 @@ class FakeUpstreamFront(
     @Volatile
     private var running = false
 
-    /** 对外端口（`start()` 之后有效；`UpstreamSelector` 指向的就是它）。 */
+    /** 对外端口（`start()` 之后有效；`FakeUpstreamProxySelector` 指向的就是它）。 */
     val port: Int get() = front.localPort
 
     fun start(): FakeUpstreamFront {
         plain.createContext("/", handler)
         plain.executor = threads
         plain.start()
-        tls.setHttpsConfigurator(HttpsConfigurator(FakeUpstreamTls.sslContext(httpsHost)))
+        tls.setHttpsConfigurator(HttpsConfigurator(FakeUpstreamTls.sslContext(httpsHosts)))
         tls.createContext("/", handler)
         tls.executor = threads
         tls.start()
@@ -117,11 +123,15 @@ class FakeUpstreamFront(
         }
     }
 
-    /** CONNECT：只认 [httpsHost]（别的目标 502，别让「连错了域名」看起来像成功）。 */
+    /** CONNECT：只认 [httpsHosts]（别的目标 502，别让「连错了域名」看起来像成功）。 */
     private fun tunnelToTls(client: Socket, head: ByteArray) {
         val target = head.toString(Charsets.ISO_8859_1).substringAfter("CONNECT ").substringBefore(' ').substringBefore(':')
-        if (!target.equals(httpsHost, ignoreCase = true)) {
-            respondAndClose(client, "502 Bad Gateway", "fake upstream only plays https://$httpsHost (CONNECT $target)")
+        if (httpsHosts.none { it.equals(target, ignoreCase = true) }) {
+            respondAndClose(
+                client,
+                "502 Bad Gateway",
+                "fake upstream only plays ${httpsHosts.sorted().joinToString(",") { "https://$it" }} (CONNECT $target)",
+            )
             return
         }
         client.getOutputStream().apply {
@@ -204,10 +214,14 @@ class FakeUpstreamFront(
 }
 
 /**
- * 自签证书那一套（keytool + `javax.net.ssl`），按域名缓存一份。
+ * 自签证书那一套（keytool + `javax.net.ssl`），按**域名集合**缓存一份。
  *
- * 一个进程里只会为每个域名生成一次：生成要走 `keytool`（约 1 秒），而每个测试类都要用同一个
+ * 一个进程里只会为同一个集合生成一次：生成要走 `keytool`（约 1 秒），而每个测试类都要用同一个
  * 生成结果 —— 信任库与 TLS 服务端必须来自**同一对**密钥。
+ *
+ * 为什么要收集合：信任库是**单个**系统属性（`javax.net.ssl.trustStore`），两个 https 站点各装一份
+ * 的话后装的那份会把前一份顶掉。所以扮演多个 https 站点时只签**一枚带多个 SAN 的证书**、
+ * 只装一次信任库（`FakeCampusProxy` 里的 `HTTPS_HOSTS`）。
  */
 internal object FakeUpstreamTls {
 
@@ -216,35 +230,36 @@ internal object FakeUpstreamTls {
 
     private val materials = ConcurrentHashMap<String, Material>()
 
-    fun sslContext(host: String): SSLContext = material(host).sslContext
+    fun sslContext(hosts: Set<String>): SSLContext = material(hosts).sslContext
 
     /**
-     * 把 [host] 的自签证书装进进程的信任库（系统 cacerts 的副本 + 这枚证书）。
+     * 把 [hosts] 那枚自签证书装进进程的信任库（系统 cacerts 的副本 + 这枚证书）。
      * 幂等；**必须在建任何 `OkHttpClient` 之前**调（见 [FakeUpstreamFront] 的类 KDoc）。
      */
-    fun installTrustStore(host: String) {
-        val trust = material(host).trustStore
+    fun installTrustStore(hosts: Set<String>) {
+        val trust = material(hosts).trustStore
         System.setProperty("javax.net.ssl.trustStore", trust.toString())
         System.setProperty("javax.net.ssl.trustStorePassword", TRUST_STORE_PASS)
         System.setProperty("javax.net.ssl.trustStoreType", "PKCS12")
     }
 
-    private fun material(host: String): Material = materials.getOrPut(host) { Material(host) }
-
+    private fun material(hosts: Set<String>): Material =
+        materials.getOrPut(hosts.map { it.lowercase() }.sorted().joinToString(",")) { Material(hosts.sorted()) }
     /** 系统信任库的口令（JDK 的 cacerts 就是它；我们拷的是副本，不动原件）。 */
     private const val TRUST_STORE_PASS = "changeit"
 
-    private class Material(private val host: String) {
+    private class Material(private val hosts: List<String>) {
         private val dir: Path = Files.createTempDirectory("fake-upstream-tls")
         private val keyStore: Path = dir.resolve("server.p12")
 
-        /** 「系统 cacerts 的副本 + 这枚自签证书」：只增加一个受信任的主机。 */
+        /** 「系统 cacerts 的副本 + 这枚自签证书」：只增加这几个受信任的主机。 */
         val trustStore: Path = dir.resolve("trust.p12")
 
         init {
             keytool(
                 "-genkeypair", "-alias", ALIAS, "-keyalg", "RSA", "-keysize", "2048", "-validity", "3650",
-                "-dname", "CN=$host", "-ext", "SAN=dns:$host", "-storetype", "PKCS12",
+                "-dname", "CN=${hosts.first()}",
+                "-ext", "SAN=${hosts.joinToString(",") { "dns:$it" }}", "-storetype", "PKCS12",
                 "-keystore", keyStore.toString(), "-storepass", STORE_PASS, "-keypass", STORE_PASS,
             )
             val cert = dir.resolve("server.crt")

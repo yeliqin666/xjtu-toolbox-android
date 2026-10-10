@@ -5,14 +5,19 @@ import okhttp3.Request
 import org.jsoup.Jsoup
 
 // `ReportedGrade` 已搬进 :core（见 score/ScoreReportModels.kt）—— 屏幕与模型都在共享层，
-// 这个文件只剩「帆软报表的取数 + HTML 解析」。
+// 这个文件只剩「帆软报表的取数 + HTML 解析」。它与 `JwxtSession` 一起从 `:app` 搬进 `:data`
+// （同一个包名，`:app` 的 `AgentTool` / `JwappScoreViewModel` 一个字未改）；解析口径由
+// `:data:jvmTest` 的 `ScoreReportApiJvmTest` 对着 `:testkit` 的 `JwxtFakeUpstream` 钉住。
 
 /**
  * 教务系统成绩报表查询 (FR Report)
  * ⚠️ 可绕过强制评教限制，在未评教时查看成绩
  * 移植自 XJTUToolBox Python 的 score.py -> reported_grade()
  *
- * 原理：通过帆软报表 (FineReport) 接口获取成绩单 HTML，解析表格
+ * 原理：通过帆软报表 (FineReport) 接口获取成绩单 HTML，解析表格。
+ *
+ * ⚠️ 它**不是** `:core` 端口 `ScoreReportSource` 的实现（那个端口只有一个 `grades()`）；
+ * 端口实现在 `ScoreReportApiSource.kt`（`scoreReportSource(site, studentId)`）。
  */
 class ScoreReportApi(private val site: SiteSession) {
 

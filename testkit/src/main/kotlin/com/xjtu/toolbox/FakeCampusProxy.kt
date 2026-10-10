@@ -3,12 +3,8 @@ package com.xjtu.toolbox
 import com.sun.net.httpserver.HttpExchange
 import com.xjtu.toolbox.calendar.SchoolCalendarFakeUpstream
 import com.xjtu.toolbox.fitness.FitnessFakeUpstream
+import com.xjtu.toolbox.jwxt.JwxtFakeUpstream
 import com.xjtu.toolbox.library.LibraryFakeUpstream
-import java.net.InetSocketAddress
-import java.net.Proxy
-import java.net.ProxySelector
-import java.net.SocketAddress
-import java.net.URI
 
 /**
  * 把假的校园上游起成**一个本地端口**，按请求行里的 **host** 分派给各个夹具（裸 TCP 前置 + 明文/TLS
@@ -27,9 +23,10 @@ import java.net.URI
  *
  * `HttpClients.base`（`:data`）是进程级 `by lazy`，**它会把当时的默认 `ProxySelector` 抄进自己的
  * 配置**，而 `SessionBackend.client` 又是从它 `newBuilder()` 派生的。于是「每个用例装一个新的
- * selector」只有第一条生效，后面几条仍然拿着上一条的端口（服务已停 ⇒ Connection refused）。
- * 所以 [start] 只改 `UpstreamSelector.port`，[close] 把它设回 0（= 不走代理），
- * 而 `HttpClients.base` 抄下去的那一份永远指向这个可变字段。
+ * selector」只有**先碰 `HttpClients` 的那个类**生效，后面几条仍然拿着上一条的端口（服务已停 ⇒
+ * Connection refused）。所以 [start] 只改 `FakeUpstreamProxySelector.port`，[close] 把它设回 0
+ * （= 不走代理）：全进程只有**这一份** selector，谁先把 `HttpClients.base` 建出来都不影响结论。
+ * 坑的完整记述与「为什么不能一个测试类一份」见 [FakeUpstreamProxySelector] 的 KDoc。
  *
  * ## 用法
  *
@@ -55,11 +52,17 @@ class FakeCampusProxy(private val casEnabled: Boolean = true) : AutoCloseable {
     /** 校历门户。 */
     val calendar: SchoolCalendarFakeUpstream = SchoolCalendarFakeUpstream()
 
-    /** 体测系统（`tyxylp.xjtu.edu.cn`，**https** —— 它是唯一需要 TLS 的那一个，见 [FakeUpstreamFront]）。 */
+    /** 体测系统（`tyxylp.xjtu.edu.cn`，**https**，见 [FakeUpstreamFront]）。 */
     val fitness: FitnessFakeUpstream = FitnessFakeUpstream()
 
+    /**
+     * 教务系统（`jwxt.xjtu.edu.cn`，**https**）：全校课表 + 成绩报表两条链共用这一个上游。
+     * 登录那半台 CAS 由 [library] 扮演（见 [JwxtFakeUpstream] 的类 KDoc）。
+     */
+    val jwxt: JwxtFakeUpstream = JwxtFakeUpstream()
+
     private val server: FakeUpstreamFront =
-        FakeUpstreamFront(::dispatch, FitnessFakeUpstream.HOST)
+        FakeUpstreamFront(::dispatch, HTTPS_HOSTS)
 
     /** 代理端口（`start()` 之后有效）。 */
     val port: Int get() = server.port
@@ -67,11 +70,11 @@ class FakeCampusProxy(private val casEnabled: Boolean = true) : AutoCloseable {
     /** 起服务并把 selector 指过来。返回自身，便于 `.start().use { }`。 */
     fun start(): FakeCampusProxy = apply {
         server.start()
-        UpstreamSelector.port = port
+        FakeUpstreamProxySelector.port = port
     }
 
     override fun close() {
-        UpstreamSelector.port = 0
+        FakeUpstreamProxySelector.port = 0
         server.close()
     }
 
@@ -89,6 +92,7 @@ class FakeCampusProxy(private val casEnabled: Boolean = true) : AutoCloseable {
         when (host) {
             LibraryFakeUpstream.LIBRARY_HOST, LibraryFakeUpstream.CAS_HOST -> library.handle(exchange)
             FitnessFakeUpstream.HOST -> fitness.handle(exchange)
+            JwxtFakeUpstream.HOST -> jwxt.handle(exchange)
             SchoolCalendarFakeUpstream.HOST ->
                 if (exchange.requestURI.path == SchoolCalendarFakeUpstream.PATH) {
                     calendar.handle(exchange)
@@ -108,39 +112,22 @@ class FakeCampusProxy(private val casEnabled: Boolean = true) : AutoCloseable {
         /**
          * 装上两件进程级前置 —— **都必须在碰 `HttpClients`（建会话 / 建任何客户端）之前调**：
          *
-         * 1. 常驻的 selector（端口 0 = 不走代理，见类 KDoc）；
-         * 2. 假上游那枚自签证书的信任库（体测是 https：`OkHttpClient.Builder.build()` 那一刻
+         * 1. 常驻的 selector（端口 0 = 不走代理，见 [FakeUpstreamProxySelector]）；
+         * 2. 假上游那枚自签证书的信任库（体测与教务都是 https：`OkHttpClient.Builder.build()` 那一刻
          *    就把平台 trust manager 抄进客户端，晚一步那一条链必然 PKIX 失败 ——
          *    详见 [FakeUpstreamFront] 的类 KDoc）。
          *
          * 幂等。
          */
         fun installFakeUpstreams() {
-            if (ProxySelector.getDefault() !== UpstreamSelector) ProxySelector.setDefault(UpstreamSelector)
-            FakeUpstreamTls.installTrustStore(FitnessFakeUpstream.HOST)
+            FakeUpstreamProxySelector.install()
+            FakeUpstreamTls.installTrustStore(HTTPS_HOSTS)
         }
+
+        /**
+         * 需要 CONNECT 隧道的那几个域名 —— 一枚证书带这几个 SAN（信任库是单个系统属性，只能装一份）。
+         */
+        private val HTTPS_HOSTS = setOf(FitnessFakeUpstream.HOST, JwxtFakeUpstream.HOST)
     }
 }
 
-/**
- * 常驻的「把连接指到当前假上游」selector。端口 0 = 不走代理（进程默认状态）。
- *
- * ⚠️ 同一个坑在 `:data:jvmTest` 的 `LibraryLoginSessionJvmTest` 里有一份等价的单 host 版本
- * （它先于本类存在）。两处都留着的原因：那条测试直连夹具（okhttp 拦截器重写 URL），
- * 走的不是代理这条路，收敛反而会把两种传输搅在一起。**坑本身的完整记述以本文件为准。**
- */
-private object UpstreamSelector : ProxySelector() {
-
-    @Volatile var port: Int = 0
-
-    override fun select(uri: URI): List<Proxy> {
-        val p = port
-        return if (p == 0) {
-            listOf(Proxy.NO_PROXY)
-        } else {
-            listOf(Proxy(Proxy.Type.HTTP, InetSocketAddress("127.0.0.1", p)))
-        }
-    }
-
-    override fun connectFailed(uri: URI, sa: SocketAddress, ioe: java.io.IOException) = Unit
-}

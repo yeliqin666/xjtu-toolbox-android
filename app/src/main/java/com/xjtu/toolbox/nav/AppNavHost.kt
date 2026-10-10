@@ -67,7 +67,7 @@ import com.xjtu.toolbox.schedule.AppSchoolCourseSource
 import com.xjtu.toolbox.schedule.SchoolCourseScreen
 import com.xjtu.toolbox.score.ScoreReportScreen
 import com.xjtu.toolbox.score.appScoreReportCache
-import com.xjtu.toolbox.score.appScoreReportSource
+import com.xjtu.toolbox.score.scoreReportSource
 import com.xjtu.toolbox.settings.SettingsScreen
 import com.xjtu.toolbox.social.MatchScreen
 import com.xjtu.toolbox.venue.AppVenueSource
@@ -249,12 +249,13 @@ fun AppNavHost(
         }
         entry<AppRoute.ScoreReport>(transition = expand(AppRoute.ScoreReport::class)) {
             // 成绩报表屏已搬进 :core；这里注入取数（帆软报表）与缓存（DataCache）——
-            // 两者都在 score/ScoreReportApp.kt 里装配，学号与账号隔离留在 :app 这一侧。
+            // 取数（帆软报表）已搬进 :data（与 ScoreReportApi 同包，桌面端用同一份）；
+            // 缓存（DataCache）还在 :app —— 学号与账号隔离留在这一侧。
             WithSite("jwxt") { site ->
                 val scoreContext = LocalContext.current
                 val studentId = loginState.activeUsername
                 ScoreReportScreen(
-                    source = remember(site, studentId) { appScoreReportSource(site, studentId) },
+                    source = remember(site, studentId) { scoreReportSource(site, studentId) },
                     onBack = back,
                     cache = remember(loginState.accountId, studentId) {
                         appScoreReportCache(scoreContext, loginState.accountId.takeIf { it.isNotEmpty() }, studentId)

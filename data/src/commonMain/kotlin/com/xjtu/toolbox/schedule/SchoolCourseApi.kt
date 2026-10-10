@@ -10,7 +10,7 @@ import com.xjtu.toolbox.util.intValue
 import com.xjtu.toolbox.util.obj
 import com.xjtu.toolbox.util.arr
 import kotlinx.serialization.json.jsonObject
-import android.util.Log
+import com.xjtu.toolbox.platform.Log
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import com.xjtu.toolbox.auth.SiteSession
@@ -32,10 +32,20 @@ private const val BASE_URL = "https://jwxt.xjtu.edu.cn"
 // 数组、`qxfbkccx.do` 的 POST、以及 `/jwapp/code/*` 的院系表。
 //
 // ⚠️ `SchoolCourse` 里人数/学时那几项现在是**可空**的（campus-api 不投影它们），
-// :app 的上游一直有值 ⇒ 这里照旧直接赋值，行为逐字不变。
+// 而 `safeInt/safeDouble` 对上游客端的缺字段是**给 0**、`safeString` 给空串 —— 这两条默认值
+// 各有断言钉着（见 `SchoolCourseApiJvmTest`）。
 
 // ── API ─────────────────────────────────────────────
 
+/**
+ * 全校课表（开课任务级）的取数：`querySetting` 那个 JSON 数组、`qxfbkccx.do` 的 POST、
+ * `/jwapp/code/` 下那张院系 id 表与 `kcbcx` 下那几个下拉数据源。
+ *
+ * 它从 `:app` 的 `schedule/` 搬进 `:data`（同一个包名，`:app` 侧一个字未改），阻碍只有一处：
+ * `android.util.Log` → `:core` 的 [Log]。:core 的端口实现 `AppSchoolCourseSource` 同步搬了过来。
+ * 解析口径由 `:data:jvmTest` 的 `SchoolCourseApiJvmTest` 对着 `:testkit` 的
+ * `JwxtFakeUpstream` 钉住（搬之前先钉，之后再搬）。
+ */
 class SchoolCourseApi(private val site: SiteSession) {
 
     /** kcbcx 应用的基础 URL（与 wdkb 不同，是独立的应用） */

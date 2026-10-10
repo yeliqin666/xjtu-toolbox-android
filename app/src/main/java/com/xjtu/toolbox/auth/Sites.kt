@@ -23,32 +23,10 @@ import java.io.IOException
 // ─────────────────────────────────────────────────────────────────────
 
 // ── JWXT 教务系统 ─────────────────────────────────────────────────────
-
-// mustUseWebVpn=false：永远直连原域名。护网结束后 jwxt 已放开公网直连，校外通常也可用，
-// 但这是学校当前网络策略决定的，不是本字段保证的行为——若域名被重新收紧仅限校内，
-// 校外需连接校园官方 VPN 或回到校园网，App 内置 WebVPN 代理对本站点不生效。
-class JwxtSession : CasSiteSession("jwxt", "教务系统", mustUseWebVpn = false) {
-    override fun createLogin(client: OkHttpClient, visitorId: String?, cachedRsaKey: String?): XJTULogin =
-        JwxtLogin(session = client, visitorId = visitorId, cachedRsaKey = cachedRsaKey)
-
-    override suspend fun validateLogin(): Boolean = withIo {
-        val resp = client.newCall(
-            Request.Builder().url(VALIDATE_URL).get().build()
-        ).execute()
-        try {
-            val finalUrl = resp.request.url.toString()
-            // WebVPN 下被踢回 CAS 时 URL 是 webvpn.xjtu.edu.cn/https/{加密login域名}/cas/login…，
-            // 明文 "login.xjtu.edu.cn" 不出现，`!in` 反而成立 → 失效会话被误判为"仍然有效"，
-            // 于是跳过重登，后续接口拿到的是登录页。isAtTargetSite 兼容直连/WebVPN 两种模式。
-            resp.code == 200 && com.xjtu.toolbox.webvpn.WebVpnUtil.isAtTargetSite(finalUrl, "jwxt.xjtu.edu.cn")
-        } finally { resp.close() }
-    }
-
-    companion object {
-        /** 登录入口页：会话有效时停在教务，失效时被跳到统一认证。 */
-        private const val VALIDATE_URL = XJTULogin.JWXT_URL
-    }
-}
+//
+// `JwxtSession` 与它的 `JwxtLogin` 已搬进 `:data`（同一个包、同一个类名）：教务是「两条真数据路由
+// 共用同一个站点」（全校课表 + 成绩报表），桌面端要用它自己登录。类名与包路径都没变 ⇒
+// `AppLoginState` / `HeadlessSessions` 里那两处 `register(JwxtSession())` 一行不用改。
 
 // ── JWAPP 移动教务系统 ───────────────────────────────────────────────
 

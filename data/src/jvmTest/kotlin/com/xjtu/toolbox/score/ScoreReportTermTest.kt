@@ -1,8 +1,12 @@
 package com.xjtu.toolbox.score
 
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNull
-import org.junit.Test
+import kotlin.test.Test
+import kotlin.test.assertEquals
+import kotlin.test.assertNull
+
+// 原文件在 `app/src/test/java/com/xjtu/toolbox/score/ScoreReportTermTest.kt`，随 [ScoreReportApi]
+// 一起搬进 `:data:jvmTest`（`termCodeFromHeading` 是 `internal`，模块边界挡着 ⇒ 测试跟着代码走）。
+// 断言逐条保留，只把 JUnit4 的注解/断言换成 `kotlin.test`（`:data` 的测试壳统一是这个）。
 
 class ScoreReportTermTest {
 
