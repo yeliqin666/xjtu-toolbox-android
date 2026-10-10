@@ -41,6 +41,7 @@ import com.xjtu.toolbox.game.blocks.BlocksScreen
 import com.xjtu.toolbox.game.g2048.Gpa2048Screen
 import com.xjtu.toolbox.game.go.GoScreen
 import com.xjtu.toolbox.game.gomoku.GomokuScreen
+import com.xjtu.toolbox.game.hop.HopScreen
 import com.xjtu.toolbox.game.xiangqi.XiangqiScreen
 import com.xjtu.toolbox.library.LibraryScreen
 import com.xjtu.toolbox.nav.AppRoute
@@ -163,6 +164,7 @@ internal val DESKTOP_SUPPORTED_ROUTES = listOf(
     AppRoute.Game2048 to "GPA 2048",
     AppRoute.GameBlocks to "方块",
     AppRoute.GameGomoku to "五子棋",
+    AppRoute.GameHop to "跳一跳",
     AppRoute.GameGo to "围棋",
     AppRoute.GameXiangqi to "象棋",
 )
@@ -265,6 +267,10 @@ private fun DesktopPage(auth: DesktopAuth, route: AppRoute, onNavigate: (Desktop
         AppRoute.Game2048 -> Gpa2048Screen(onBack = back)
         AppRoute.GameBlocks -> BlocksScreen(onBack = back)
         AppRoute.GameGomoku -> GomokuScreen(onBack = back)
+        // 跳一跳：纯 UI（不需要任何取数）。远景地标图**不传** —— 那是平台资源
+        //（`:app` = R.drawable.hop_landmark_*，Web = 它自己的取图），桌面端没有那份资源；
+        // 屏自己写着「空列表 = 本端没图，就不画远景（游戏照常可玩）」，所以这是如实降级、不是坏掉。
+        AppRoute.GameHop -> HopScreen(onBack = back)
         AppRoute.GameGo -> GoScreen(onBack = back)
         AppRoute.GameXiangqi -> XiangqiScreen(onBack = back)
         // 其余路由**如实说「没搬过来」**，不拿有数据的屏冒充（深链/误点看着像 bug，也分不清
