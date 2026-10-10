@@ -8,6 +8,9 @@ import com.xjtu.toolbox.auth.SiteSession
 import com.xjtu.toolbox.calendar.SchoolCalendarApi
 import com.xjtu.toolbox.calendar.SchoolCalendarFakeUpstream
 import com.xjtu.toolbox.calendar.defaultTermIndex
+import com.xjtu.toolbox.emptyroom.AppEmptyRoomSource
+import com.xjtu.toolbox.emptyroom.EmptyRoomFakeUpstream
+import com.xjtu.toolbox.emptyroom.RoomSource
 import com.xjtu.toolbox.fitness.FitnessApi
 import com.xjtu.toolbox.fitness.FitnessFakeUpstream
 import com.xjtu.toolbox.fitness.FitnessProtocol
@@ -607,6 +610,105 @@ class DesktopAuthLibraryJvmTest {
         assertEquals(1, fake.campusCard.turnoverCalls.get(), "总数到齐 ⇒ 屏的首屏只打一页流水的枪")
     }
 
+    // ══════ 空闲教室：第十条真数据路由 ══════
+
+    /**
+     * 真登录链之后走「空闲教室」那一屏用的那个源（`:data` 的 `AppEmptyRoomSource`，桌面端
+     * `AppRoute.EmptyRoom` 就是它：落盘传 `null`）。
+     *
+     * 这条同时钉住**那个路由为什么不套 `DesktopSiteGate`**：`AppRoute.EmptyRoom.loginType` 是 null
+     * （三档数据源要登的站点不同）⇒ 会话由源自己 ensure。所以这里也顺手钉住「登录页那一步**没有**
+     * 预热这个站点」：`js` 刻意不在 `DesktopAuth.SESSION_SITE_KEYS` 里（只有这一屏的一档要它）。
+     *
+     * 期望值全部来自 `:testkit` 的 [EmptyRoomFakeUpstream]：楼顺序、四种状态、人数、课程与教师、
+     * 当天课表的 11 节占用与座位数 —— 不是从跑通的实现里抄的。
+     */
+    @Test
+    fun `真登录之后：空闲教室自己把智慧教室会话登起来，三档里两档读得出夹具样本`() = withFakeCampus {
+        val (auth, _) = newAuth()
+        assertTrue(login(auth), "用假下游的账号密码应当登得上：${auth.loginState}")
+
+        // ── 登录页那一步不该碰这个站点（它不在 SESSION_SITE_KEYS 里）──
+        val js = assertNotNull(
+            auth.sessionManager.getSiteOrNull(DesktopAuth.JS_SITE_KEY),
+            "js 站点得注册好 —— AppEmptyRoomSource 构造时就按它取会话，没注册那一档永远不可用",
+        )
+        assertTrue(!js.hasLogin, "登录页那一步没有预热它（只有这一屏的一档要它）")
+        assertEquals(0, fake.emptyRoom.tokenCalls.get(), "没进那一屏就不该走这一趟 CAS + 换令牌")
+
+        // ── 进屏：`AppRoute.EmptyRoom` 用的就是这个源 ──
+        val source = AppEmptyRoomSource(auth.sessionManager)
+        assertEquals(
+            listOf(RoomSource.LIVE, RoomSource.CDN, RoomSource.DIRECT),
+            source.availableSources,
+            "桌面能提供三档（实时状态 / CDN 课表 / 直查教务）",
+        )
+
+        // 第一枪实时状态：源自己 `ensureSite("js")` ⇒ 走完整 CAS + 用票换令牌
+        val snapshot = runBlocking { source.liveSnapshot(EmptyRoomFakeUpstream.LIVE_CAMPUS, force = true) }
+        assertTrue(js.hasLogin, "实时状态那一档自己把智慧教室会话登起来了")
+        assertEquals(1, fake.emptyRoom.ticketLandings.get(), "CAS 回跳只该落在 js 入口一次")
+        assertEquals(1, fake.emptyRoom.tokenCalls.get(), "票据只该换一次令牌")
+        assertTrue(fake.library.tickets.get() >= 1, "统一认证应当真签过 ticket")
+
+        // ── 教室列表与状态：全部来自夹具原文 ──
+        assertEquals(listOf(EmptyRoomFakeUpstream.BUILDING_A, EmptyRoomFakeUpstream.BUILDING_E), snapshot.buildings)
+        assertEquals(
+            listOf(
+                EmptyRoomFakeUpstream.ROOM_A101,
+                EmptyRoomFakeUpstream.ROOM_A102,
+                EmptyRoomFakeUpstream.ROOM_E303,
+                EmptyRoomFakeUpstream.ROOM_E305,
+            ),
+            snapshot.rooms.map { it.name },
+        )
+        assertEquals(2, snapshot.freeCount, "两间空闲")
+        assertEquals(1, snapshot.inUseCount, "一间「其它使用」（没排课但有人）")
+        assertEquals(1, snapshot.inClassCount, "一间上课中")
+        val inClass = snapshot.rooms.first { it.name == EmptyRoomFakeUpstream.ROOM_A101 }
+        assertEquals(EmptyRoomFakeUpstream.LIVE_COURSE, inClass.course)
+        assertEquals(EmptyRoomFakeUpstream.LIVE_TEACHER, inClass.teacher)
+        assertEquals(EmptyRoomFakeUpstream.LIVE_IN_CLASS_PEOPLE, inClass.people)
+        assertEquals(EmptyRoomFakeUpstream.SEATS_A101, inClass.seats)
+
+        // ── CDN 那一档：屏进实时状态时会顺带取一份当天课表（按教室名对上课节条）──
+        val schedule = runBlocking {
+            source.rooms(
+                campus = EmptyRoomFakeUpstream.LIVE_CAMPUS,
+                buildings = snapshot.buildings.toSet(),
+                date = EmptyRoomFakeUpstream.DATE,
+                direct = false,
+                force = true,
+                onProgress = { _, _ -> },
+            )
+        }
+        val byName = schedule.associateBy { it.name }
+        assertEquals(EmptyRoomFakeUpstream.SEATS_A101, byName.getValue(EmptyRoomFakeUpstream.ROOM_A101).size)
+        assertEquals(
+            listOf(1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0),
+            byName.getValue(EmptyRoomFakeUpstream.ROOM_A101).status,
+            "上午排满、下午空着（11 节状态）",
+        )
+        assertEquals(List(11) { 0 }, byName.getValue(EmptyRoomFakeUpstream.ROOM_A102).status)
+        assertTrue(fake.emptyRoom.cdnCalls.get() >= 1, "CDN 那一档应当打过夹具")
+
+        // 座位数（课表页的课程详情要显示「XX座」）
+        assertEquals(
+            EmptyRoomFakeUpstream.SEATS_A101,
+            runBlocking { source.seatCount(EmptyRoomFakeUpstream.ROOM_A101) },
+        )
+
+        // 桌面没有按账号分命名空间的宿主存储（传 null）⇒ 两处磁盘兜底都只能是 null
+        assertNull(source.readStaleLive(EmptyRoomFakeUpstream.LIVE_CAMPUS))
+        assertNull(
+            source.readStaleRooms(
+                EmptyRoomFakeUpstream.LIVE_CAMPUS,
+                setOf(EmptyRoomFakeUpstream.BUILDING_A),
+                EmptyRoomFakeUpstream.DATE,
+                direct = false,
+            ),
+        )
+    }
     // ══════ 校历：免登录的那条路 ══════
     @Test
     fun `校历：免登录就能取到学期与假期（桌面端第二条真能用的路由）`() = withFakeCampus {

@@ -9,6 +9,7 @@ import com.xjtu.toolbox.auth.CampusCardSession
 import com.xjtu.toolbox.auth.FitnessSession
 import com.xjtu.toolbox.auth.GmisSession
 import com.xjtu.toolbox.auth.GsteSession
+import com.xjtu.toolbox.auth.JsSession
 import com.xjtu.toolbox.auth.JwxtSession
 import com.xjtu.toolbox.auth.LoginUiState
 import com.xjtu.toolbox.auth.LibrarySession
@@ -88,6 +89,11 @@ class DesktopAuth(
         // 用同包的 `AppCampusCardSource` 取卡面与流水（缓存传 null —— 桌面没有宿主存储）。
         // 它也是「登录页那一步只是尽力预热」的一员：ncard 自己挂了最坏只影响那一屏。
         register(CampusCardSession())
+        // 智慧教室平台（`:data` 的 `JsSession` + `JsLogin`）：空闲教室「实时状态」那一档要它。
+        // 注册了才拿得到会话 —— `AppEmptyRoomSource` 构造时就 `getSiteOrNull("js")`，拿不到
+        // 那一档永远报「实时状态暂不可用」。但它**不在** `SESSION_SITE_KEYS` 里：只有这一屏的
+        // 三档里的那一档需要它，登录页那一步没必要为它多走一趟 CAS（见那个常量的 KDoc）。
+        register(JsSession())
         // 切账号时清宿主侧共享缓存：`:app` 把它设成 `CampusProbe.ywtbToken = null`，
         // 而 CampusProbe 要 `ConnectivityManager`（宿主能力，没跟着内核搬进 :data）；
         // 桌面端没有那份缓存，所以留空。这正是「缝照真正用到的那几处切」。
@@ -290,8 +296,23 @@ class DesktopAuth(
         const val CAMPUS_CARD_SITE_KEY = "campus_card"
 
         /**
+         * 智慧教室平台（`js`）：空闲教室的「实时状态」那一档用。
+         *
+         * ⚠️ 它**刻意不在** [SESSION_SITE_KEYS] 里（与其余站点都不同）：那个屏幕有三档数据源，
+         * 只有实时状态这一档要登这个站点（CDN 免登录、直查登教务）—— 为了一屏的一档，让
+         * **每一次登录**都多走一趟 CAS + 换令牌不划算。所以这一屏的会话由它自己 ensure：
+         * `AppRoute.EmptyRoom.loginType` 是 null（导航层不替它建会话），而 `:data` 的
+         * `AppEmptyRoomSource.liveSnapshot` 进门就 `ensureSite(JsSession.SITE_KEY)` ——
+         * 与 `GraduateJudgeSource` 那条先例同型，所以**不需要** `DesktopSiteGate`。
+         */
+        const val JS_SITE_KEY = JsSession.SITE_KEY
+
+        /**
          * 登录页那一步一次建起会话的站点：`:core` 里有屏 + `:data` 里有站点类与取数的那几个。
          * （校历 / 黄页 / 教师检索是免登录的公开接口，游戏是纯 UI —— 它们不需要会话。）
+         *
+         * ⚠️ `js` 是唯一一个**满足上面这条却不在**表里的：只有空闲教室那一屏的三档里的
+         * 「实时状态」要它，进屏时由那个源自己 ensure，见 [JS_SITE_KEY]。
          */
         private val SESSION_SITE_KEYS = listOf(
             LIBRARY_SITE_KEY,

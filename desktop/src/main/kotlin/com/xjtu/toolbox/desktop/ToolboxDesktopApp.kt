@@ -41,6 +41,8 @@ import com.xjtu.toolbox.calendar.SchoolCalendarApi
 import com.xjtu.toolbox.card.AppCampusCardSource
 import com.xjtu.toolbox.card.CampusCardScreen
 import com.xjtu.toolbox.calendar.SchoolCalendarScreen
+import com.xjtu.toolbox.emptyroom.AppEmptyRoomSource
+import com.xjtu.toolbox.emptyroom.EmptyRoomScreen
 import com.xjtu.toolbox.error.FriendlyError
 import com.xjtu.toolbox.faculty.FacultyApiSource
 import com.xjtu.toolbox.faculty.FacultyScreen
@@ -173,8 +175,9 @@ internal val DESKTOP_TABS = listOf(
 /**
  * 这一端**真能画**的路由（`:core` 里有屏 + 取数在 `:data`，两者缺一不可）。
  *
- * 九条真取数：图书馆 / 体测 / 全校课表 / 成绩 / 评教 / 校园卡（**要登录**，走会话内核 + 进那一屏再建会话，
- * 见 `DesktopSiteGate`）、校历 / 黄页 / 教师检索（**免登录**的公开门户接口）。
+ * 十条真取数：图书馆 / 体测 / 全校课表 / 成绩 / 评教 / 校园卡（**要登录**，走会话内核 + 进那一屏再建会话，
+ * 见 `DesktopSiteGate`）、空闲教室（三档数据源要登的站点不同 ⇒ **由源自己 ensure**，见那一段的注释）、
+ * 校历 / 黄页 / 教师检索（**免登录**的公开门户接口）。
  * 其余是纯 UI 的游戏（与数据源无关，三端同一份）。
  */
 internal val DESKTOP_SUPPORTED_ROUTES = listOf(
@@ -185,6 +188,7 @@ internal val DESKTOP_SUPPORTED_ROUTES = listOf(
     AppRoute.ScoreReport to "成绩",
     AppRoute.Judge to "学生评教",
     AppRoute.CampusCard to "校园卡",
+    AppRoute.EmptyRoom to "空闲教室",
     AppRoute.YellowPage to "黄页",
     AppRoute.Faculty to "教师检索",
     AppRoute.Games to "游戏合集",
@@ -205,7 +209,6 @@ internal val DESKTOP_SUPPORTED_ROUTES = listOf(
 internal val DESKTOP_PENDING_ROUTES = listOf(
     AppRoute.Notification to "通知公告",
     AppRoute.Inbox to "消息收纳",
-    AppRoute.EmptyRoom to "空闲教室",
     AppRoute.Venue to "体育场馆",
 )
 
@@ -438,6 +441,25 @@ private fun DesktopPage(auth: DesktopAuth, route: AppRoute, onNavigate: (Desktop
             CampusCardScreen(
                 source = remember(site) { AppCampusCardSource(site) },
                 onBack = back,
+            )
+        }
+
+        // 空闲教室（第十条真数据路由）：三档数据源（实时状态 / CDN 课表 / 直查教务）都在 `:data`
+        // 的 `AppEmptyRoomSource` 里 —— 会话由**那个源自己 ensure**（实时状态那一档登智慧教室
+        // `js`、直查那一档登教务），所以这一条**不套** `DesktopSiteGate`：`AppRoute.EmptyRoom.loginType`
+        // 本来就是 null（「按数据源不同要登的站点不同，由页面自己登」），与研究生评教那条同型。
+        // 落盘传 `null`：桌面没有按账号分命名空间的宿主存储（属 §5.4），屏仍旧自己取数，
+        // 只是少了下拉刷新之外的那一档磁盘兜底 —— 与 Web / 校园卡同一条口径。
+        // 「CDN 说明读没读过」与 Web 同一个键、同一个 pref 文件（`empty_room`，屏自己的偏好也在那儿）。
+        AppRoute.EmptyRoom -> {
+            val prefs = remember { keyValueStore("empty_room") }
+            EmptyRoomScreen(
+                source = remember { AppEmptyRoomSource(auth.sessionManager) },
+                // 身份证：与其余端一样传当前账号类型（研究生在屏上不提供直查教务那一档）
+                accountType = AccountContext.activeAccountType,
+                onBack = back,
+                showCdnTip = !prefs.getBoolean("empty_room_cdn_tip", false),
+                onCdnTipRead = { prefs.putBoolean("empty_room_cdn_tip", true) },
             )
         }
 

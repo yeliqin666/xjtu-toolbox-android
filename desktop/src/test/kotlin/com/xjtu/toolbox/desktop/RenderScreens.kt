@@ -53,6 +53,7 @@ import kotlinx.coroutines.runBlocking
  * | `scorereport.png` | 成绩报表屏（真路由：外壳 → `AppRoute.ScoreReport` → `scoreReportSource`） | 第七条真数据路由：学号取自登录时的 `AccountContext.activeAccountId`，图上按学期分组的成绩是夹具样本 |
  * | `judge.png` | 学生评教屏（真路由：外壳 → `AppRoute.Judge` → `UndergraduateJudgeSource`） | 第八条真数据路由：与课表/成绩同一个教务站点（同一份会话），上游是 `wspjyyapp`；图上未评那三张卡片的课名/教师/标签都是夹具样本 |
  * | `campuscard.png` | 校园卡屏（真路由：外壳 → `AppRoute.CampusCard` → `AppCampusCardSource`） | 第九条真数据路由：**https** 站点（ncard）、CAS 回跳那一跳上换 JWT，缓存传 `null`；图上余额 / 待入账 / 今日三餐与流水都是夹具样本 |
+ * | `emptyroom.png` | 空闲教室屏（真路由：外壳 → `AppRoute.EmptyRoom` → `AppEmptyRoomSource`） | 第十条真数据路由：三档数据源里那一档「实时状态」要智慧教室站点（https，CAS 回跳后把票换成 `TOKEN-AUTH`）—— 会话由**源自己 ensure**（所以不套 `DesktopSiteGate`）；图上楼分组、四间教室、空闲/上课中/「其它使用」与「实时 · HH:MM」都是夹具样本 |
  * | `routes.png` | 「全部页面」索引页 | 如实列出「真能用 / 还没有数据源」，并给出退出登录入口 |
  * | `library-demo.png` | 同一屏 + 固定假数据 | 布局与组件本身可复现（不依赖网络/会话，改屏时用它对比） |
  *
@@ -277,6 +278,21 @@ fun main(args: Array<String>) {
         // `AppCampusCardSource`，缓存传 `null`）。图上应是夹具那张家底：余额/待入账/今日三餐 +
         // 七条流水的商户与金额，而不是错误页或转圈。
         shot("campuscard.png", frames = 20) { ToolboxDesktopApp(auth, DesktopTarget.App(AppRoute.CampusCard)) }
+
+        // 空闲教室（第十条）：走**真路由**（外壳 → `AppRoute.EmptyRoom` → `AppEmptyRoomSource`）——
+        // 这一屏的会话由源自己 ensure，所以这张图里智慧教室 `js` 那一发 CAS + 换令牌是**屏**自己登的
+        // （其余需要会话的屏走 `DesktopSiteGate`，由外壳先建）。屏一进来按默认档筛「空闲」
+        // （`LIVE_FILTERS` 的第一档）⇒ 图上只有空闲那两间；这里用 semantics 点一下「全部 N」，
+        // 把四间都摆出来（含「上课中」那一间的课程/教师与「其它使用」那一间的人数）——
+        // 点不到就响亮地失败（见 [clickByLabel]），别把只画了一半的图当证据交出去。
+        var pickedAll = false
+        shot(
+            "emptyroom.png",
+            frames = 22,
+            // 计数来自夹具那四间（`EmptyRoomFakeUpstream.liveJson`）；夹具改了这里就会响亮地失败
+            onFrame = { frame, scene -> if (!pickedAll && frame >= 6) pickedAll = clickByLabel(scene, "全部 4") },
+        ) { ToolboxDesktopApp(auth, DesktopTarget.App(AppRoute.EmptyRoom)) }
+        check(pickedAll) { "emptyroom.png：没点到「全部 4」这个筛选（semantics 里没找到）" }
 
         shot("routes.png", frames = 4) { ToolboxDesktopApp(auth, DesktopTarget.Routes) }
     }
