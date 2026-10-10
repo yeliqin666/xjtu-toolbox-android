@@ -3,6 +3,7 @@ package com.xjtu.toolbox
 import com.sun.net.httpserver.HttpExchange
 import com.xjtu.toolbox.calendar.SchoolCalendarFakeUpstream
 import com.xjtu.toolbox.card.CampusCardFakeUpstream
+import com.xjtu.toolbox.emptyroom.EmptyRoomFakeUpstream
 import com.xjtu.toolbox.fitness.FitnessFakeUpstream
 import com.xjtu.toolbox.jwxt.JwxtFakeUpstream
 import com.xjtu.toolbox.library.LibraryFakeUpstream
@@ -15,7 +16,8 @@ import com.xjtu.toolbox.library.LibraryFakeUpstream
  *
  * 因为**客户端那边只认一个默认 `ProxySelector`**（而且它还是进程级、只读一次的，见下面）。一个
  * 端口同时扮演 `rg.lib.xjtu.edu.cn` / `login.xjtu.edu.cn` / `tyxylp.xjtu.edu.cn`（https）/
- * `ncard.xjtu.edu.cn`（https）/ `jwxt.xjtu.edu.cn`（https）/ 校历门户，
+ * `ncard.xjtu.edu.cn`（https）/ `jwxt.xjtu.edu.cn`（https）/ `js.xjtu.edu.cn`（https，空闲教室的实时状态）/
+ * 校历门户 / `gh-release.xjtutoolbox.com`（https，空闲教室的课表快照 CDN），
  * 就绕开了「按 host 选端口」那一层，也最接近真机上「所有域名都从同一条网络出去」的样子。
  * 走代理时请求行是 absolute-form（`GET http://host/path HTTP/1.1`），所以 `requestURI.host`
  * 就是目标域名；https 那一条在 TLS 隧道里会变回 origin-form，域名只剩在 `Host` 头里 ——
@@ -69,6 +71,15 @@ class FakeCampusProxy(private val casEnabled: Boolean = true) : AutoCloseable {
      */
     val campusCard: CampusCardFakeUpstream = CampusCardFakeUpstream()
 
+    /**
+     * 空闲教室（第 10 条真数据路由）：
+     * - 智慧教室平台 `js.xjtu.edu.cn`（https）= 「实时状态」那一档；
+     * - 课表快照 CDN `gh-release.xjtutoolbox.com`（https）= 「CDN 课表」那一档。
+     *
+     * 两面都由 [EmptyRoomFakeUpstream] 扮（两个域名，一个夹具 —— 它们属于同一条路由的两档取数，
+     * 见那个类的 KDoc）；第三档「直查教务」在 [jwxt] 里（同一个教务域名）。
+     */
+    val emptyRoom: EmptyRoomFakeUpstream = EmptyRoomFakeUpstream()
     private val server: FakeUpstreamFront =
         FakeUpstreamFront(::dispatch, HTTPS_HOSTS)
 
@@ -102,6 +113,8 @@ class FakeCampusProxy(private val casEnabled: Boolean = true) : AutoCloseable {
             FitnessFakeUpstream.HOST -> fitness.handle(exchange)
             JwxtFakeUpstream.HOST -> jwxt.handle(exchange)
             CampusCardFakeUpstream.HOST -> campusCard.handle(exchange)
+            EmptyRoomFakeUpstream.JS_HOST -> emptyRoom.handleJs(exchange)
+            EmptyRoomFakeUpstream.CDN_HOST -> emptyRoom.handleCdn(exchange)
             SchoolCalendarFakeUpstream.HOST ->
                 if (exchange.requestURI.path == SchoolCalendarFakeUpstream.PATH) {
                     calendar.handle(exchange)
@@ -144,6 +157,11 @@ class FakeCampusProxy(private val casEnabled: Boolean = true) : AutoCloseable {
             // 但 `CampusCardLogin` 是唯一不收 `cachedRsaKey` 的那个 ⇒ 它每次登录都会取一次
             // `https://login.xjtu.edu.cn/cas/jwt/publicKey`（见 `LibraryFakeUpstream.PUBLIC_KEY_PATH`）。
             LibraryFakeUpstream.CAS_HOST,
+            // 空闲教室那两档：实时状态的智慧教室平台与课表快照 CDN（都是 https）。
+            // ⚠️ 多一个域名就多一个 SAN —— 该集合变了，自签证书会**重生一份**（见 `FakeUpstreamTls`），
+            // 而不是把旧的叠上去。
+            EmptyRoomFakeUpstream.JS_HOST,
+            EmptyRoomFakeUpstream.CDN_HOST,
         )
     }
 }

@@ -7,7 +7,7 @@ import com.xjtu.toolbox.util.stringValue
 import com.xjtu.toolbox.util.isNull
 import com.xjtu.toolbox.util.isObject
 import kotlinx.serialization.json.jsonObject
-import android.util.Log
+import com.xjtu.toolbox.platform.Log
 import com.xjtu.toolbox.webvpn.WebVpnUtil
 import com.xjtu.toolbox.util.safeParseJsonObject
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
@@ -29,6 +29,11 @@ import java.io.IOException
  * 4. 回 `{"code":200,"data":{"tokenName":"TOKEN-AUTH","tokenValue":"<JWT>","tokenTimeout":36000}}`。
  *    之后每个业务请求带请求头 `TOKEN-AUTH: <JWT>` 和 `X-System: WEB`，不认 cookie。
  *    没带或过期时是 HTTP 401 + `{"code":401,"message":"token不存在或者过期"}`。
+ *
+ * 与 [JsSession] 一起从 `:app` 剪出来搬进 `:data`（桌面端第 10 条真数据路由：桌面要自己登智慧教室
+ * 才能读空闲教室的实时状态）。类名与包路径一字未改 ⇒ `:app` 那边 `JsSession.createLogin`
+ * 与 `AgentTool` 里按站点取会话的调用点一行不用改。搬迁时被替换的写法只有一处：
+ * `android.util.Log` → `:core` 的 [Log]。
  */
 class JsLogin(
     session: OkHttpClient? = null,

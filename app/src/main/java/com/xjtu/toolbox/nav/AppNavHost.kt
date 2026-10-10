@@ -31,6 +31,7 @@ import com.xjtu.toolbox.coupon.CouponScreen
 import com.xjtu.toolbox.data.CredentialStore
 import com.xjtu.toolbox.dzpz.TranscriptScreen
 import com.xjtu.toolbox.emptyroom.AppEmptyRoomSource
+import com.xjtu.toolbox.emptyroom.EmptyRoomCache
 import com.xjtu.toolbox.emptyroom.EmptyRoomScreen
 import com.xjtu.toolbox.error.FriendlyError
 import com.xjtu.toolbox.faculty.FacultyApiSource
@@ -127,11 +128,13 @@ fun AppNavHost(
 
         entry<AppRoute.EmptyRoom>(transition = expand(AppRoute.EmptyRoom::class)) {
             // 取数从 `:core` 的 EmptyRoomScreen 里挪到这里的 AppEmptyRoomSource（三档全保留，行为不变）；
+            // 它现在住在 `:data`（桌面端第 10 条真数据路由），落盘改成 `:core` 的 EmptyRoomStore 缝 ——
+            // `:app` 传的就是原来那份 `EmptyRoomCache`（一份文件、一个键、一个 TTL 都没动）。
             // 「CDN 说明读没读过」仍然存在 CredentialStore 里（与搬之前同一个键），屏只收一个初值 + 一个回写回调。
             val context = LocalContext.current
             val credentialStore = remember(context) { CredentialStore(context) }
             EmptyRoomScreen(
-                source = remember { AppEmptyRoomSource(loginState.sessionManager, context) },
+                source = remember { AppEmptyRoomSource(loginState.sessionManager, EmptyRoomCache(context)) },
                 accountType = remember { credentialStore.accountType },
                 onBack = back,
                 showCdnTip = !credentialStore.hasReadEmptyRoomCdnTip,

@@ -12,8 +12,8 @@ import com.xjtu.toolbox.util.obj
 import com.xjtu.toolbox.util.arr
 import kotlinx.serialization.json.jsonObject
 import com.xjtu.toolbox.util.redactBody
-import android.content.Context
 import com.xjtu.toolbox.network.HttpClients
+import com.xjtu.toolbox.platform.Log
 import com.xjtu.toolbox.util.safeParseJsonObject
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -22,10 +22,16 @@ import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 import java.util.concurrent.TimeUnit
 
-// ⚠️ 这里的 `RoomInfo` / `CAMPUS_BUILDINGS` / `NoDataException` 已搬进 `:core`
+// ⚠️ 这里的 `RoomInfo` / `CAMPUS_BUILDINGS` / `NoDataException` 早已搬进 `:core`
 // 的 `com.xjtu.toolbox.emptyroom`（`EmptyRoomModels.kt`）—— 屏与 ViewModel 进了 `:core`，两端
-// 必须共用同一份模型。本文件只剩**取数实现**（CDN + 直查教务），由 :app 的 `AppEmptyRoomSource`
-// 包成 `EmptyRoomSource` 端口；**取数一行未改**。
+// 必须共用同一份模型。本文件（CDN + 直查教务两条取数）与 `LiveRoomApi` / `AppEmptyRoomSource`
+// 一起从 `:app` 搬进 `:data`（桌面端第 10 条真数据路由：桌面自己登智慧教室、自己取数）。
+//
+// 搬迁时被替换的写法只有两类：
+//  1. `android.util.Log` → `:core` 的 `com.xjtu.toolbox.platform.Log`；
+//  2. 构造参数上的 `Context`（原来只拿去 new 一个 `EmptyRoomCache`）→ `:core` 的
+//     [EmptyRoomStore]（宿主存储缝，`:app` 那份 `EmptyRoomCache` 就是它的实现）。
+// **取数一行未改**：同一个类名、同一个包名、同一串 URL、同一套解析。
 
 /**
  * 空闲教室查询 API — 从 Cloudflare CDN 获取预生成数据
@@ -43,7 +49,7 @@ private val sharedClient: OkHttpClient by lazy {
         .build()
 }
 
-class EmptyRoomApi(context: Context? = null) {
+class EmptyRoomApi(store: EmptyRoomStore? = null) {
 
     private val cdnBaseUrl = "https://gh-release.xjtutoolbox.com/"
 
@@ -53,7 +59,7 @@ class EmptyRoomApi(context: Context? = null) {
     private var cachedDate: String? = null
     private var cachedFetchedDay: String? = null
     private var cachedData: JsonObject? = null
-    private val cache = context?.let { EmptyRoomCache(it) }
+    private val cache = store
 
     /** 教室名 → 座位数。value 为 null 表示"查过了，没有这个教室的容量数据"。 */
     private val seatCache = mutableMapOf<String, Int?>()
@@ -68,7 +74,7 @@ class EmptyRoomApi(context: Context? = null) {
         if (date == cachedDate && cachedFetchedDay == today && cachedData != null) {
             return cachedData!!
         }
-        cache?.readJson("cdn_day_$date", EmptyRoomCache.CDN_RESULT_TTL_DAYS)?.let {
+        cache?.readJson("cdn_day_$date", EmptyRoomStore.CDN_RESULT_TTL_DAYS)?.let {
             val json = it.safeParseJsonObject()
             cachedDate = date
             cachedFetchedDay = today
@@ -185,7 +191,7 @@ class EmptyRoomApi(context: Context? = null) {
         // 容量跟日期无关，却是从"某一天的空教室数据"里顺带读的，而那份数据一天一失效——
         // 于是每天第一次点开详情都要重拉全校整天的数据只为取一个数字。按教室名单独缓存。
         seatCache[location]?.let { return it }
-        cache?.readJson(EmptyRoomCache.SEAT_CACHE_KEY, EmptyRoomCache.SEAT_TTL_DAYS)?.let { raw ->
+        cache?.readJson(EmptyRoomStore.SEAT_CACHE_KEY, EmptyRoomStore.SEAT_TTL_DAYS)?.let { raw ->
             runCatching {
                 raw.safeParseJsonObject().entries.forEach { (k, v) ->
                     seatCache[k] = if (v.isNull) null else v.intValue
@@ -227,7 +233,7 @@ class EmptyRoomApi(context: Context? = null) {
         cache?.let { c ->
             runCatching {
                 val obj = JsonObject(seatCache.mapValues { (_, v) -> JsonPrimitive(v) })
-                c.writeJson(EmptyRoomCache.SEAT_CACHE_KEY, obj.toString())
+                c.writeJson(EmptyRoomStore.SEAT_CACHE_KEY, obj.toString())
             }
         }
         return size
@@ -260,7 +266,7 @@ data class DirectRoomRow(
  *
  * @param httpClient 已通过 JWXT 认证的 OkHttpClient（共享自 sharedClient 或 vpnClient）
  */
-class EmptyRoomDirectQuery(private val httpClient: OkHttpClient, private val cache: EmptyRoomCache? = null) {
+class EmptyRoomDirectQuery(private val httpClient: OkHttpClient, private val cache: EmptyRoomStore? = null) {
 
     companion object {
         private const val TAG = "EmptyRoomDirect"
@@ -312,7 +318,7 @@ class EmptyRoomDirectQuery(private val httpClient: OkHttpClient, private val cac
                 if (roleName == "学生") studentRoleId = roleId
             }
             if (currentRoleName != "学生" && studentRoleId != null) {
-                android.util.Log.d(TAG, "switching role $currentRoleName → 学生 ($studentRoleId)")
+                Log.d(TAG, "switching role $currentRoleName → 学生 ($studentRoleId)")
                 val form = okhttp3.FormBody.Builder().add("appRole", studentRoleId).build()
                 httpClient.newCall(
                     Request.Builder().url(CHANGE_ROLE_API).post(form).build()
@@ -320,7 +326,7 @@ class EmptyRoomDirectQuery(private val httpClient: OkHttpClient, private val cac
             }
             roleEnsuredStudent = true
         } catch (e: Exception) {
-            android.util.Log.w(TAG, "ensureRoleStudent failed (will continue anyway)", e)
+            Log.w(TAG, "ensureRoleStudent failed (will continue anyway)", e)
         }
     }
 
@@ -329,7 +335,7 @@ class EmptyRoomDirectQuery(private val httpClient: OkHttpClient, private val cac
         cachedCampusCodes?.let { (data, ts) ->
             if (System.currentTimeMillis() - ts < CODE_CACHE_TTL_MS) return data
         }
-        cache?.readCodeMap("direct_campus_codes", EmptyRoomCache.CODE_TTL_DAYS)?.let {
+        cache?.readCodeMap("direct_campus_codes", EmptyRoomStore.CODE_TTL_DAYS)?.let {
             cachedCampusCodes = it to System.currentTimeMillis()
             return it
         }
@@ -347,7 +353,7 @@ class EmptyRoomDirectQuery(private val httpClient: OkHttpClient, private val cac
         if (!resp.isSuccessful) throw RuntimeException("校区代码请求失败: HTTP ${resp.code}")
         val body = resp.body.string()
         val map = parseCodeMap(body)
-        android.util.Log.d(TAG, "campus code count=${map.size}, bodyPrefix=${body.redactBody(160)}")
+        Log.d(TAG, "campus code count=${map.size}, bodyPrefix=${body.redactBody(160)}")
         if (map.isEmpty()) throw RuntimeException("校区代码为空")
         cache?.writeCodeMap("direct_campus_codes", map)
         cachedCampusCodes = map to System.currentTimeMillis()
@@ -359,7 +365,7 @@ class EmptyRoomDirectQuery(private val httpClient: OkHttpClient, private val cac
         cachedBuildingCodes?.let { (data, ts) ->
             if (System.currentTimeMillis() - ts < CODE_CACHE_TTL_MS) return data
         }
-        cache?.readCodeMap("direct_building_codes", EmptyRoomCache.CODE_TTL_DAYS)?.let {
+        cache?.readCodeMap("direct_building_codes", EmptyRoomStore.CODE_TTL_DAYS)?.let {
             cachedBuildingCodes = it to System.currentTimeMillis()
             return it
         }
@@ -377,7 +383,7 @@ class EmptyRoomDirectQuery(private val httpClient: OkHttpClient, private val cac
         if (!resp.isSuccessful) throw RuntimeException("教学楼代码请求失败: HTTP ${resp.code}")
         val body = resp.body.string()
         val map = parseCodeMap(body)
-        android.util.Log.d(TAG, "building code count=${map.size}, bodyPrefix=${body.redactBody(160)}")
+        Log.d(TAG, "building code count=${map.size}, bodyPrefix=${body.redactBody(160)}")
         if (map.isEmpty()) throw RuntimeException("教学楼代码为空")
         cache?.writeCodeMap("direct_building_codes", map)
         cachedBuildingCodes = map to System.currentTimeMillis()
@@ -398,7 +404,7 @@ class EmptyRoomDirectQuery(private val httpClient: OkHttpClient, private val cac
                 out[name] = id
             }
         } catch (e: Exception) {
-            android.util.Log.w(TAG, "parseCodeMap failed", e)
+            Log.w(TAG, "parseCodeMap failed", e)
         }
         return out
     }
@@ -445,7 +451,7 @@ class EmptyRoomDirectQuery(private val httpClient: OkHttpClient, private val cac
         ).execute()
         if (!resp.isSuccessful) throw RuntimeException("空闲教室查询失败: HTTP ${resp.code}")
         val body = resp.body.string()
-        android.util.Log.d(TAG, "queryRooms date=$date start=$startTime end=$endTime http=${resp.code} bodyPrefix=${body.redactBody(120)}")
+        Log.d(TAG, "queryRooms date=$date start=$startTime end=$endTime http=${resp.code} bodyPrefix=${body.redactBody(120)}")
         // safeParseJsonObject 会自动检测 HTML 响应并抛出友好的错误信息
         val root = body.safeParseJsonObject()
         val datas = root.obj("datas")
@@ -488,7 +494,7 @@ class EmptyRoomDirectQuery(private val httpClient: OkHttpClient, private val cac
         progress: ((Int, Int) -> Unit)? = null
     ): List<RoomInfo> {
         val cacheKey = "direct_day_${campusName}_${buildingName}_$date"
-        cache?.readRoomList(cacheKey, EmptyRoomCache.DIRECT_RESULT_TTL_DAYS)?.let { return it }
+        cache?.readRoomList(cacheKey, EmptyRoomStore.DIRECT_RESULT_TTL_DAYS)?.let { return it }
         val campusCode = getCampusCodes()[campusName]
             ?: throw NoDataException("未知校区: $campusName")
         val buildingCode = getBuildingCodes()[buildingName]

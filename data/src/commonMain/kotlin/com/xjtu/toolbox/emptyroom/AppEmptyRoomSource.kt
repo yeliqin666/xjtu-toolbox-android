@@ -1,6 +1,5 @@
 package com.xjtu.toolbox.emptyroom
 
-import android.content.Context
 import com.xjtu.toolbox.auth.JsSession
 import com.xjtu.toolbox.auth.LoginType
 import com.xjtu.toolbox.auth.SessionManager
@@ -9,10 +8,20 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
 /**
- * `:core` 的 [EmptyRoomSource] 在 Android 侧的实现 —— 包住原来的 `EmptyRoomApi`（CDN + 直查教务）、
- * `LiveRoomApi`（智慧教室实时状态）与 `EmptyRoomCache`（磁盘缓存）。
+ * `:core` 的 [EmptyRoomSource] 在 `:data` 里的实现（Android 与桌面侧共用）—— 包住原来的
+ * `EmptyRoomApi`（CDN + 直查教务）、`LiveRoomApi`（智慧教室实时状态）与宿主存储 [store]。
  *
- * **那三个类一行未改**，本类只做三件原本写在别处的事：
+ * 它从 `:app` 搬进 `:data`（桌面端第 10 条真数据路由：桌面要自己登智慧教室、自己取数），
+ * 两大类各动一半：
+ *
+ * 1. **取数**（`EmptyRoomApi` / `EmptyRoomDirectQuery` / `LiveRoomApi`）的类名与包路径一字未改，
+ *    只是从 `:app/emptyroom/` 挪到同包的 `:data/emptyroom/`，替掉的只有 `android.util.Log`；
+ * 2. **落盘**原来直接调 `EmptyRoomCache`（SharedPreferences，所以要一个 `Context`），现在改成
+ *    构造参数 [store] —— `:app` 传 `EmptyRoomCache(context)`（**一份文件、一个键都没动**），
+ *    桌面端传 `null`（不缓存 —— 语义与「缓存里什么都没有」一致）。`Context` 因此不再跟着取数走，
+ *    `:data` 里一行 `android.content` 都没有。
+ *
+ * 本类自己做三件原本写在别处的事：
  *  1. 说出这一端有哪些档（[availableSources]：三档都有）；
  *  2. 会话准备 —— 实时状态要智慧教室站点会话、直查要先登教务 —— 原来写在 ViewModel 的
  *     `queryLive`/`queryRooms` 里，现在跟着实现走（那本来就是"各端能力"，不是屏的逻辑）；
@@ -20,29 +29,35 @@ import kotlinx.coroutines.withContext
  *     现在 VM 不再替实现挑调度器（见 [EmptyRoomSource] 的 KDoc），所以由本类自己包 ——
  *     **同一层、同一个调度器，行为不变**。
  *
- * 两处刻意照抄原样而非"顺手改好"：
- *  - [liveApi] 在**构造时**取一次站点会话（原来 VM 的 `liveApi` 也是构造时算的 `val`）。改成每次现取会
- *    让"进屏时没登录 → 之后登上了"从"本屏一直不可用"变成"重试就能用"，那是行为变化；
- *  - 下拉刷新（`force`）时**重新 new 一个不带磁盘缓存的取数对象**（原来 `if (force) EmptyRoomApi() else api`
- *    与 `EmptyRoomDirectQuery(client)` / `(client, cache)` 就是这两条路）。
+ * ## 会话由本类自己 ensure（所以不需要 Gate）
+ *
+ * [EmptyRoomSource] 的三档登的站点不同（实时状态→智慧教室 `js`、直查→教务、CDN→不登），
+ * 而 `AppRoute.EmptyRoom.loginType` 因此是 **null**（导航层不替它建会话）—— 这就是“由页面自己登”
+ * 的原本含义，与 `GraduateJudgeSource` 那一条同型。两处 ensure 就在下面：
+ * [liveSnapshot] 里 `ensureSite(js)`、[rooms]（`direct`）里 `ensureSite(LoginType.JWXT)`，
+ * 与搬进 `:core` 之前 VM 里那两句逐字相同。桌面端因此 **不用** `DesktopSiteGate`：
+ * 它只要自己的 `SessionManager` 里注册过这两个站点（`DesktopAuth` 里各一行），
+ * 进屏即用，失败也只是这一屏报错 + 重试。
+ *
+ * 两处刻意照抄原样而非“顺手改好”：
  */
 class AppEmptyRoomSource(
     private val sessionManager: SessionManager?,
-    private val context: Context,
+    /** 本端的宿主存储；`null` = 不缓存（桌面端）。见 [EmptyRoomStore]。 */
+    private val store: EmptyRoomStore? = null,
 ) : EmptyRoomSource {
 
-    private val appContext = context.applicationContext
 
     /** 默认取数：带磁盘缓存。 */
-    private val api = EmptyRoomApi(appContext)
-    private val cache = EmptyRoomCache(appContext)
+    private val api = EmptyRoomApi(store)
+    private val cache = store
 
     /** 实时状态：要智慧教室站点会话；没有会话就是 null（与原来 VM 里那份 `val` 同一时机、同一条件）。 */
     private val liveApi: LiveRoomApi? =
         sessionManager?.getSiteOrNull(JsSession.SITE_KEY)?.let { LiveRoomApi(it, cache) }
 
     /**
-     * Android 三档都能提供（与搬进 `:core` 之前一模一样）。**"研究生不提供直查教务"不在这里**：
+     * Android 与桌面（`store = null`）三档都能提供（与搬进 `:core` 之前一模一样）。**"研究生不提供直查教务"不在这里**：
      * 那是账号规则、不是本端能力，留在 ViewModel 与屏里（与原来同一处，行为不变）。
      */
     override val availableSources: List<RoomSource> =
@@ -96,6 +111,9 @@ class AppEmptyRoomSource(
     /**
      * 磁盘兜底：把几个楼各自的缓存合并成一份，时间戳取最新的那个（原来写在 VM 的 `fallbackToStale` 里，
      * 逐字搬过来；用的是 `readRoomListStale` —— 忽略 TTL，"过期了也别空白"）。
+     *
+     * `store == null`（桌面端）就是「缓存里什么都没有」：没有兜底可给，返回 null，
+     * 调用方（VM）据此画错误页 —— 与搬迁前那份空缓存走的同一条分支。
      */
     override fun readStaleRooms(
         campus: String,
@@ -103,14 +121,15 @@ class AppEmptyRoomSource(
         date: String,
         direct: Boolean,
     ): Pair<List<RoomInfo>, Long>? {
+        val held = store ?: return null
         val sourceKey = if (direct) "direct" else "cdn"
         val merged = mutableListOf<RoomInfo>()
         var newest = 0L
         for (building in buildings) {
             val key = "$sourceKey|$campus|$building|$date"
-            cache.readRoomListStale(key)?.let { stale ->
+            held.readRoomListStale(key)?.let { stale ->
                 merged.addAll(stale)
-                newest = maxOf(newest, cache.savedAt(key))
+                newest = maxOf(newest, held.savedAt(key))
             }
         }
         if (merged.isEmpty()) return null

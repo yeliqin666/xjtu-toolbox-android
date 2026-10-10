@@ -1238,7 +1238,7 @@ class AgentToolRegistry(
 
     private suspend fun getEmptyRooms(campus: String?, building: String?, section: Int?, date: String?): String {
         return try {
-            val api = EmptyRoomApi(context)
+            val api = EmptyRoomApi(EmptyRoomCache(context))
             val targetDate = parseToolDate(date)
             val dateStr = targetDate.format(DateTimeFormatter.ISO_LOCAL_DATE)
 

@@ -37,8 +37,7 @@ import java.util.concurrent.atomic.AtomicInteger
  * POST <JUDGE_QUESTION_URL> → 某问卷的题目 `datas.cxwjzb.rows`
  * POST <JUDGE_OPTION_URL>   → 某问卷的选项 `datas.cxxswjzbxq.rows`（六个 querySetting 条件一个不能少）
  * ```
- *
- * 形状逐字段对着 `JudgeApi` 的解析写：列表行的 14 个键（`BPJS/BPR/DBRS/JSSJ/JXBID/KCH/KCM/KSSJ/`
+ * 形状逐字段对着 `JudgeApi` 的解析写：
  * `PCDM/PGLXDM/PGNR/WJDM/WJMC/XNXQDM`，其中 `DBRS` 走 `safeInt`）、题目的 7 个键、选项的 7 个键
  * （注意选项的答案值读的是 **`DAFXDM`**，所以夹具在行里塞了一个错的 `DA`：读错键就会现形）。
  * 刻意留空了几格：未评的第二行缺 `DBRS/JSSJ/KCH`（`safeInt`/`safeString` 的默认值）、
@@ -50,6 +49,22 @@ import java.util.concurrent.atomic.AtomicInteger
  * `callbackAuthorize` → 教务）。这里**直接 302 到统一认证**：夹具要演的是「CAS 回跳之后
  * 客户端拿到的那个 URL 与页面」，OAuth 中间那几跳对被测代码没有可观察差别
  * （`JwxtLogin.postLogin` 只判「最终停在 jwxt 上」）。这条省略写在这里，免得被读成「真站点就两跳」。
+ *
+ * ## 空闲教室「直查教务」那一档（第 10 条真数据路由的第三档）也在这个 host 上
+ *
+ * 它跑在 `kxjas` 应用里，与课表/评教同一个域名 ⇒ 端点直接加在这个文件里（`EmptyRoomApi` 的
+ * `EmptyRoomDirectQuery` 真打的那些请求）：
+ *
+ * ```
+ * GET  <CURRENT_USER_URL>              → `datas.userGroups`（已经是学生 ⇒ 不换角色）
+ * POST <EMPTY_ROOM_CAMPUS_CODE_URL>    → 校区名→代码（`datas.code.rows`，最后一行只给 MC/DM）
+ * POST <EMPTY_ROOM_BUILDING_CODE_URL>  → 教学楼名→代码
+ * POST <EMPTY_ROOM_QUERY_URL>          → 某楼某天某节空闲的教室（KSJC/JSJC 都为 0 = 全楼名录）
+ * ```
+ *
+ * 逐节的 11 次查询由夹具按 `KSJC..JSJC` 现算：主楼A-101 第 6-11 节空闲、主楼A-102 全天空闲、
+ * 主楼A-103 全天占用。另有两行**噪声**（`JASLXDM` 为 null 的「幻觉教室」与名字含「测试专用」的）
+ * 每枪都回、且必须被生产代码滤掉 —— 少了它们，「过滤」那两条分支就没人钉了。
  *
  * ## 统一认证那一半为什么不在这个文件里
  *
@@ -194,6 +209,46 @@ class JwxtFakeUpstream {
         const val JUDGE_OPTION_DA_SECOND = "80"
         const val JUDGE_OPTION_DADM_THIRD = "DA-ZB01-60"
         const val JUDGE_OPTION_DA_THIRD = "60"
+
+        // ── 空闲教室「直查教务」那一档（第 10 条真数据路由的第三档）──
+        //
+        // 这一档在 `kxjas` 应用里（`EmptyRoomApi` 的 `EmptyRoomDirectQuery`）。四条 URL 都是它真打的；
+        // 那两个 UUID 是上游 `jwxt/empty_room.py` 里写死的编号，改了就等于换了接口。
+
+        const val EMPTY_ROOM_QUERY_URL = "$ORIGIN/jwapp/sys/kxjas/modules/kxjscx/cxkxjs.do"
+        const val EMPTY_ROOM_CAMPUS_CODE_URL = "$ORIGIN/jwapp/code/83a986fc-e677-400e-99a4-c7bb39c2ca35.do"
+        const val EMPTY_ROOM_BUILDING_CODE_URL = "$ORIGIN/jwapp/code/551fbcc3-cf07-4566-af1e-fc7ce272ddc1.do"
+        const val CURRENT_USER_URL = "$ORIGIN/jwapp/sys/homeapp/api/home/currentUser.do"
+        const val CHANGE_ROLE_URL = "$ORIGIN/jwapp/sys/homeapp/api/home/changeAppRole.do"
+
+        /** 直查那三间教室：与 `EmptyRoomFakeUpstream`（CDN / 实时状态）**同名**，屏按名字把两档对上。 */
+        const val EMPTY_ROOM_A101 = "主楼A-101"
+        const val EMPTY_ROOM_A102 = "主楼A-102"
+        const val EMPTY_ROOM_A103 = "主楼A-103"
+
+        /** 教室容量（`SKZWS`）—— 与 CDN 那份样本一致，`RoomInfo.size` 两边对得上。 */
+        const val EMPTY_ROOM_A101_SEATS = 60
+        const val EMPTY_ROOM_A102_SEATS = 48
+        const val EMPTY_ROOM_A103_SEATS = 40
+
+        /** 上午排满、下午空着的那间：第 6-11 节空闲（逐节问出来的 11 节状态就靠它）。 */
+        val EMPTY_ROOM_A101_FREE_PERIODS = listOf(6, 7, 8, 9, 10, 11)
+
+        /** 全天都空的一间（11 节全是空闲）。 */
+        val EMPTY_ROOM_A102_FREE_PERIODS = (1..11).toList()
+
+        /** 一节课都没有的那间：11 节全是占用。 */
+        val EMPTY_ROOM_A103_FREE_PERIODS = emptyList<Int>()
+
+        /** 教室类型的显示名（`JASLXDM_DISPLAY` ⇒ `DirectRoomRow.type`）。 */
+        const val EMPTY_ROOM_TYPE = "多媒体教室"
+
+        /** 校区显示名（`XXXQDM_DISPLAY` ⇒ `DirectRoomRow.campusName`）。 */
+        const val EMPTY_ROOM_CAMPUS_NAME = "兴庆校区"
+
+        /** 两条「噪声行」：`JASLXDM` 为 JSON null（接口幻觉教室）与名字里带「测试专用」，都该被滤掉。 */
+        const val EMPTY_ROOM_HALLUCINATION = "主楼A-999"
+        const val EMPTY_ROOM_TEST_NAME = "主楼A-901测试专用"
     }
 
     // ── 服务器可变状态：动作打进来时计数/记录，好让断言「这一枪真打到了哪里」──
@@ -261,6 +316,26 @@ class JwxtFakeUpstream {
 
     @Volatile
     var lastJudgeOptionForm: String? = null
+        private set
+
+    // ── 空闲教室直查（第 10 条真数据路由的第三档）：动作打进来时计数/记录 ──
+
+    /** `currentUser.do` 打过几次（`ensureRoleStudent` 的第一步；已经是学生就不换角色）。 */
+    val currentUserCalls = AtomicInteger()
+
+    /** `changeAppRole.do` 打过几次 —— 夹具扮的就是学生身份 ⇒ 正常应当一直是 0。 */
+    val changeRoleCalls = AtomicInteger()
+
+    /** 校区 / 教学楼代码表各打过几次。 */
+    val campusCodeCalls = AtomicInteger()
+    val buildingCodeCalls = AtomicInteger()
+
+    /** `cxkxjs.do` 打过几次（全楼一次 + 逐节 11 次 = 12）。 */
+    val emptyRoomQueryCalls = AtomicInteger()
+
+    /** 最近一次 `cxkxjs.do` 的表单原文（断言 XXXQDM/JXLDM/KXRQ/KSJC/JSJC 真发出去了）。 */
+    @Volatile
+    var lastEmptyRoomForm: String? = null
         private set
 
     // ── 样本：页面与 JSON 原文（消费者共用这一份）──────────────────
@@ -547,6 +622,24 @@ class JwxtFakeUpstream {
             }
             path == JUDGE_OPTION_PATH -> requirePost(exchange) { form -> handleJudgeOptions(exchange, form) }
 
+            path == CURRENT_USER_PATH -> {
+                currentUserCalls.incrementAndGet()
+                respondJson(exchange, currentUserJson)
+            }
+            path == CHANGE_ROLE_PATH -> requirePost(exchange) {
+                changeRoleCalls.incrementAndGet()
+                respondJson(exchange, """{"code":"0"}""")
+            }
+            path == EMPTY_ROOM_CAMPUS_CODE_PATH -> requirePost(exchange) {
+                campusCodeCalls.incrementAndGet()
+                respondJson(exchange, emptyRoomCampusCodesJson)
+            }
+            path == EMPTY_ROOM_BUILDING_CODE_PATH -> requirePost(exchange) {
+                buildingCodeCalls.incrementAndGet()
+                respondJson(exchange, emptyRoomBuildingCodesJson)
+            }
+            path == EMPTY_ROOM_QUERY_PATH -> requirePost(exchange) { form -> handleEmptyRoomQuery(exchange, form) }
+
             path == REPORT_PATH -> handleReport(exchange, query)
             else -> notFound(exchange)
         }
@@ -681,6 +774,93 @@ class JwxtFakeUpstream {
         respond(body)
     }
 
+    // ── 空闲教室直查：三条端点 + 逐节查询 ────────────────────────────
+
+    /** 当前身份：已是学生 ⇒ 不换角色（`ensureRoleStudent` 只认 `currentRole` 与 `roleName`）。 */
+    private val currentUserJson = """
+        {"code":200,"datas":{"userGroups":[{"roleName":"学生","roleId":"2","currentRole":true}]}}
+    """.trimIndent()
+
+    /** 校区代码表：最后一行刻意只给 `MC`/`DM`（`firstString` 的备用键名也得有人钉着）。 */
+    private val emptyRoomCampusCodesJson = """
+        {"datas":{"code":{"rows":[
+          {"name":"兴庆校区","id":"1"},
+          {"name":"雁塔校区","id":"2"},
+          {"name":"创新港校区","id":"3"},
+          {"MC":"苏州校区","DM":"5"}
+        ]}}}
+    """.trimIndent()
+
+    private val emptyRoomBuildingCodesJson = """
+        {"datas":{"code":{"rows":[
+          {"name":"主楼A","id":"A"},
+          {"name":"东1东","id":"E1E"},
+          {"name":"中2","id":"Z2"}
+        ]}}}
+    """.trimIndent()
+
+    /**
+     * 一行教室。`typeDisplay = null` = **不给** `JASLXDM_DISPLAY` 这个键（钉 `DirectRoomRow.type`
+     * 的 null）；[hallucinated] = `JASLXDM` 给 JSON null —— 生产代码按它过滤掉「接口幻觉教室」。
+     */
+    private data class EmptyRoomRow(
+        val name: String,
+        val seats: Int,
+        val typeDisplay: String?,
+        val freePeriods: List<Int>,
+        val hallucinated: Boolean = false,
+    )
+
+    private fun EmptyRoomRow.json(): String = buildString {
+        append("""{"JASMC":"$name","JXLDM_DISPLAY":"主楼A",""")
+        append(""""XXXQDM_DISPLAY":"$EMPTY_ROOM_CAMPUS_NAME",""")
+        if (hallucinated) append(""""JASLXDM":null,""") else append(""""JASLXDM":"01",""")
+        if (typeDisplay != null) append(""""JASLXDM_DISPLAY":"$typeDisplay",""")
+        append(""""SKZWS":$seats,"KSZWS":$seats}""")
+    }
+
+    /** 主楼A 的五间：三间真教室 + 两条该被滤掉的噪声行。 */
+    private val emptyRoomRows = listOf(
+        EmptyRoomRow(EMPTY_ROOM_A101, EMPTY_ROOM_A101_SEATS, EMPTY_ROOM_TYPE, EMPTY_ROOM_A101_FREE_PERIODS),
+        EmptyRoomRow(EMPTY_ROOM_A102, EMPTY_ROOM_A102_SEATS, EMPTY_ROOM_TYPE, EMPTY_ROOM_A102_FREE_PERIODS),
+        EmptyRoomRow(EMPTY_ROOM_A103, EMPTY_ROOM_A103_SEATS, null, EMPTY_ROOM_A103_FREE_PERIODS),
+        EmptyRoomRow(EMPTY_ROOM_HALLUCINATION, 20, EMPTY_ROOM_TYPE, EMPTY_ROOM_A102_FREE_PERIODS, hallucinated = true),
+        EmptyRoomRow(EMPTY_ROOM_TEST_NAME, 20, EMPTY_ROOM_TYPE, EMPTY_ROOM_A102_FREE_PERIODS),
+    )
+
+    /**
+     * 逐节查询：`KSJC`/`JSJC` 都是 0 = 「无过滤，给全楼所有教室」（`queryDay` 拿它当教室名录），
+     * 否则只给**那一（几）节空闲**的教室。两条噪声行每次都回，好让「过滤掉它们」的断言有意义。
+     */
+    private fun handleEmptyRoomQuery(exchange: HttpExchange, form: String) {
+        lastEmptyRoomForm = form
+        val fields = formFields(form)
+        val start = fields["KSJC"]?.toIntOrNull()
+        val end = fields["JSJC"]?.toIntOrNull()
+        if (fields["XXXQDM"] != "1" || fields["JXLDM"] != "A") {
+            badRequest(exchange, "夹具只扮兴庆校区的主楼A（XXXQDM=1/JXLDM=A），收到：$form")
+            return
+        }
+        if (fields["KXRQ"].isNullOrBlank() || start == null || end == null) {
+            badRequest(exchange, "cxkxjs.do 少了 KXRQ/KSJC/JSJC，收到：$form")
+            return
+        }
+        if (fields["pageSize"] != "500" || fields["pageNumber"] != "1") {
+            badRequest(exchange, "cxkxjs.do 的分页不是 pageSize=500&pageNumber=1，收到：$form")
+            return
+        }
+        emptyRoomQueryCalls.incrementAndGet()
+        respondJson(exchange, emptyRoomQueryJson(start, end))
+    }
+
+    private fun emptyRoomQueryJson(start: Int, end: Int): String {
+        val noise = setOf(EMPTY_ROOM_HALLUCINATION, EMPTY_ROOM_TEST_NAME)
+        val rows = emptyRoomRows.filter { row ->
+            row.name in noise || (start == 0 && end == 0) || row.freePeriods.any { it in start..end }
+        }
+        return """{"code":200,"datas":{"cxkxjs":{"rows":[${rows.joinToString(",") { it.json() }}]}}}"""
+    }
+
     // ── 响应小工具 ────────────────────────────────────────────────
 
     private fun respond(exchange: HttpExchange, code: Int, contentType: String, body: ByteArray) {
@@ -742,4 +922,9 @@ class JwxtFakeUpstream {
     private val JUDGE_LIST_PATH = JUDGE_LIST_URL.removePrefix(ORIGIN)
     private val JUDGE_QUESTION_PATH = JUDGE_QUESTION_URL.removePrefix(ORIGIN)
     private val JUDGE_OPTION_PATH = JUDGE_OPTION_URL.removePrefix(ORIGIN)
+    private val CURRENT_USER_PATH = CURRENT_USER_URL.removePrefix(ORIGIN)
+    private val CHANGE_ROLE_PATH = CHANGE_ROLE_URL.removePrefix(ORIGIN)
+    private val EMPTY_ROOM_CAMPUS_CODE_PATH = EMPTY_ROOM_CAMPUS_CODE_URL.removePrefix(ORIGIN)
+    private val EMPTY_ROOM_BUILDING_CODE_PATH = EMPTY_ROOM_BUILDING_CODE_URL.removePrefix(ORIGIN)
+    private val EMPTY_ROOM_QUERY_PATH = EMPTY_ROOM_QUERY_URL.removePrefix(ORIGIN)
 }
