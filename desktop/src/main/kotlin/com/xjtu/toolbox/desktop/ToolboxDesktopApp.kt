@@ -38,6 +38,8 @@ import com.xjtu.toolbox.auth.MfaCodeDialog
 import com.xjtu.toolbox.auth.ensureSite
 import com.xjtu.toolbox.auth.SiteSession
 import com.xjtu.toolbox.calendar.SchoolCalendarApi
+import com.xjtu.toolbox.card.AppCampusCardSource
+import com.xjtu.toolbox.card.CampusCardScreen
 import com.xjtu.toolbox.calendar.SchoolCalendarScreen
 import com.xjtu.toolbox.error.FriendlyError
 import com.xjtu.toolbox.faculty.FacultyApiSource
@@ -171,8 +173,8 @@ internal val DESKTOP_TABS = listOf(
 /**
  * 这一端**真能画**的路由（`:core` 里有屏 + 取数在 `:data`，两者缺一不可）。
  *
- * 八条真取数：图书馆 / 体测 / 全校课表 / 成绩 / 评教（**要登录**，走会话内核 + 进那一屏再建会话，见
- * `DesktopSiteGate`）、校历 / 黄页 / 教师检索（**免登录**的公开门户接口）。
+ * 九条真取数：图书馆 / 体测 / 全校课表 / 成绩 / 评教 / 校园卡（**要登录**，走会话内核 + 进那一屏再建会话，
+ * 见 `DesktopSiteGate`）、校历 / 黄页 / 教师检索（**免登录**的公开门户接口）。
  * 其余是纯 UI 的游戏（与数据源无关，三端同一份）。
  */
 internal val DESKTOP_SUPPORTED_ROUTES = listOf(
@@ -182,6 +184,7 @@ internal val DESKTOP_SUPPORTED_ROUTES = listOf(
     AppRoute.SchoolCourse to "全校课表",
     AppRoute.ScoreReport to "成绩",
     AppRoute.Judge to "学生评教",
+    AppRoute.CampusCard to "校园卡",
     AppRoute.YellowPage to "黄页",
     AppRoute.Faculty to "教师检索",
     AppRoute.Games to "游戏合集",
@@ -203,7 +206,6 @@ internal val DESKTOP_PENDING_ROUTES = listOf(
     AppRoute.Notification to "通知公告",
     AppRoute.Inbox to "消息收纳",
     AppRoute.EmptyRoom to "空闲教室",
-    AppRoute.CampusCard to "校园卡",
     AppRoute.Venue to "体育场馆",
 )
 
@@ -425,6 +427,18 @@ private fun DesktopPage(auth: DesktopAuth, route: AppRoute, onNavigate: (Desktop
                     JudgeListScreen("学生评教", vm, back)
                 }
             }
+        }
+
+        // 校园卡（第九条真数据路由）：站点是 **https**，取数走 `:data` 的 `AppCampusCardSource`
+        // （包住原来的 `CampusCardApi`）。会话**进门时才建**（见 `DesktopSiteGate`）—— 登录页那一步
+        // 只是尽力预热它，ncard 自己挂了不该把人挡在门外。
+        // 缓存传 `null`：桌面没有按账号分文件的宿主存储（属 §5.4），不缓存 —— 与 Web 端同一条口径：
+        // 屏仍旧自己取数，只是没有「首屏秒开」那一档。加餐券那条二级入口也不传（桌面没有那份首页摘要）。
+        AppRoute.CampusCard -> DesktopSiteGate(auth, DesktopAuth.CAMPUS_CARD_SITE_KEY, "校园卡") { site ->
+            CampusCardScreen(
+                source = remember(site) { AppCampusCardSource(site) },
+                onBack = back,
+            )
         }
 
         AppRoute.Games -> GamesScreen(

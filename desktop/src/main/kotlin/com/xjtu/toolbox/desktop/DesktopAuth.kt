@@ -5,6 +5,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import com.xjtu.toolbox.account.AccountContext
 import com.xjtu.toolbox.auth.AccountType
+import com.xjtu.toolbox.auth.CampusCardSession
 import com.xjtu.toolbox.auth.FitnessSession
 import com.xjtu.toolbox.auth.GmisSession
 import com.xjtu.toolbox.auth.GsteSession
@@ -83,6 +84,10 @@ class DesktopAuth(
         // 本科账号登它们会失败 —— 所以登录页那一步只是「尽力预热」，失败只记不抛（见 `login()`）。
         register(GsteSession())
         register(GmisSession())
+        // 校园卡（`:data` 的 `CampusCardSession` + `CampusCardLogin`）：桌面自己登 ncard，
+        // 用同包的 `AppCampusCardSource` 取卡面与流水（缓存传 null —— 桌面没有宿主存储）。
+        // 它也是「登录页那一步只是尽力预热」的一员：ncard 自己挂了最坏只影响那一屏。
+        register(CampusCardSession())
         // 切账号时清宿主侧共享缓存：`:app` 把它设成 `CampusProbe.ywtbToken = null`，
         // 而 CampusProbe 要 `ConnectivityManager`（宿主能力，没跟着内核搬进 :data）；
         // 桌面端没有那份缓存，所以留空。这正是「缝照真正用到的那几处切」。
@@ -99,6 +104,9 @@ class DesktopAuth(
      * 两条路由各自进门时用它（见 `ToolboxDesktopApp` 的 `DesktopSiteGate`）。
      */
     val jwxtSite: SiteSession get() = sessionManager.getSite(JWXT_SITE_KEY)
+
+    /** 校园卡站点会话（卡面 + 流水两条取数共用一个上游）。 */
+    val campusCardSite: SiteSession get() = sessionManager.getSite(CAMPUS_CARD_SITE_KEY)
 
     /**
      * 进某一屏之前把它的站点会话建起来（失败就抛给调用方）。
@@ -278,12 +286,21 @@ class DesktopAuth(
         const val GSTE_SITE_KEY = "gste"
         const val GMIS_SITE_KEY = "gmis"
 
+        /** 校园卡（ncard）。屏上的「校园卡」那一屏进门时用它（见 `ToolboxDesktopApp` 的 `DesktopSiteGate`）。 */
+        const val CAMPUS_CARD_SITE_KEY = "campus_card"
+
         /**
          * 登录页那一步一次建起会话的站点：`:core` 里有屏 + `:data` 里有站点类与取数的那几个。
          * （校历 / 黄页 / 教师检索是免登录的公开接口，游戏是纯 UI —— 它们不需要会话。）
          */
-        private val SESSION_SITE_KEYS =
-            listOf(LIBRARY_SITE_KEY, FITNESS_SITE_KEY, JWXT_SITE_KEY, GSTE_SITE_KEY, GMIS_SITE_KEY)
+        private val SESSION_SITE_KEYS = listOf(
+            LIBRARY_SITE_KEY,
+            FITNESS_SITE_KEY,
+            JWXT_SITE_KEY,
+            GSTE_SITE_KEY,
+            GMIS_SITE_KEY,
+            CAMPUS_CARD_SITE_KEY,
+        )
     }
 }
 

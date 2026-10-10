@@ -14,6 +14,10 @@ import com.xjtu.toolbox.fitness.FitnessProtocol
 import com.xjtu.toolbox.fitness.FitnessYear
 import com.xjtu.toolbox.judge.JudgeCard
 import com.xjtu.toolbox.judge.UndergraduateJudgeSource
+import com.xjtu.toolbox.card.AppCampusCardSource
+import com.xjtu.toolbox.card.CampusCardFakeUpstream
+import com.xjtu.toolbox.card.allTransactions
+import com.xjtu.toolbox.auth.CampusCardLogin
 import com.xjtu.toolbox.jwxt.JwxtFakeUpstream
 import com.xjtu.toolbox.faculty.FacultyApi
 import com.xjtu.toolbox.schedule.AppSchoolCourseSource
@@ -520,6 +524,87 @@ class DesktopAuthLibraryJvmTest {
         assertEquals("期末评教", source.card(finished[0]).tag)
         assertNotNull(source.undo, "本科端能撤回（屏上那个按钮据此出现）")
         assertEquals("，确定继续？", source.confirmText)
+    }
+
+    // ══════ 校园卡：第九条真数据路由 ══════
+
+    /**
+     * 真登录链之后走「校园卡」那一屏用的那个源（`:data` 的 `AppCampusCardSource`，桌面端
+     * `AppRoute.CampusCard` 就是它，缓存传 `null` —— 桌面没有按账号分文件的宿主存储）。
+     *
+     * 期望值全部来自 `:testkit` 的 [CampusCardFakeUpstream]：卡号 / 姓名 / 学号 / 余额 / 待入账 /
+     * 有效期 / 卡类型，以及七条流水的金额、商户名、余额 —— 不是从跑通的实现里抄的。
+     *
+     * 进门那一发走的是 `DesktopSiteGate` 干的事（`ensureSession("campus_card")`）：这里顺带钉住
+     * 「登录页那一步已经尽力预热过它 ⇒ 进屏不会再登一次」。
+     */
+    @Test
+    fun `真登录之后：校园卡自己走完 CAS，卡面与流水都读得出夹具样本`() = withFakeCampus {
+        val (auth, _) = newAuth()
+        assertTrue(login(auth), "用假下游的账号密码应当登得上：${auth.loginState}")
+
+        // 夹具与生产必须指同一个站点：URL 漂了的话，下面这些断言测的就不是真协议
+        assertEquals(CampusCardLogin.LOGIN_URL, CampusCardFakeUpstream.HOME_URL)
+
+        // ── 登录页那一步应当已经把这个站点预热起来（尽力预热，失败只记不抛）──
+        assertTrue(fake.campusCard.casRedirects.get() >= 1, "没带 ticket 时应当被交给统一认证")
+        assertEquals(1, fake.campusCard.ticketLandings.get(), "CAS 回跳只该落在 ncard 入口一次")
+        assertEquals(1, fake.campusCard.tokenCalls.get(), "ticket 只该换一次 JWT")
+        assertTrue(fake.campusCard.userInfoCalls.get() >= 1, "登录链上应当拉过一次用户资料")
+        assertTrue(fake.library.tickets.get() >= 1, "统一认证应当真签过 ticket")
+
+        // 进门那一发（Gate 干的事）是幂等的：会话还新鲜，不该再走一遍 CAS
+        val landings = fake.campusCard.ticketLandings.get()
+        val posts = fake.library.credentialPosts.get()
+        val site = auth.campusCardSite
+        runBlocking { auth.ensureSession(DesktopAuth.CAMPUS_CARD_SITE_KEY) }
+        assertTrue(site.hasLogin, "登录页那一步应当把校园卡站点也登起来")
+        assertEquals(landings, fake.campusCard.ticketLandings.get(), "会话还在新鲜窗口内，不该再走一遍 CAS")
+        assertEquals(posts, fake.library.credentialPosts.get(), "也不该再提交一次凭据")
+
+        // ── 取数：`AppRoute.CampusCard` 那一屏用的就是这个源（缓存传 null）──
+        val source = AppCampusCardSource(site)
+        val card = runBlocking { source.card() }
+        assertEquals(CampusCardFakeUpstream.CARD_ACCOUNT, card.account)
+        assertEquals(CampusCardFakeUpstream.USER_NAME, card.name)
+        assertEquals(CampusCardFakeUpstream.STUDENT_NO, card.studentNo)
+        assertEquals(CampusCardFakeUpstream.BALANCE_CENTS / 100.0, card.balance)
+        assertEquals(CampusCardFakeUpstream.PENDING_CENTS / 100.0, card.pendingAmount)
+        assertEquals(CampusCardFakeUpstream.EXPIRE_DATE, card.expireDate)
+        assertEquals(CampusCardFakeUpstream.CARD_TYPE, card.cardType)
+        assertEquals(false, card.lostFlag)
+        assertEquals(false, card.frozenFlag)
+
+        // 屏首屏走的就是 `allTransactions`（最多 12 页、允许残缺），夹具只有一页 ⇒ 只打一枪
+        val transactions = runBlocking {
+            source.allTransactions(startDate = LocalDate(2026, 10, 1), endDate = LocalDate(2026, 10, 10))
+        }
+        assertEquals(CampusCardFakeUpstream.TOTAL, transactions.size)
+        assertEquals(
+            listOf(
+                CampusCardFakeUpstream.MERCHANT_CANTEEN,
+                CampusCardFakeUpstream.MERCHANT_CANTEEN,
+                "充值",
+                CampusCardFakeUpstream.MERCHANT_DUMPLING,
+                CampusCardFakeUpstream.MERCHANT_UNKNOWN,
+                CampusCardFakeUpstream.MERCHANT_CARD_CENTER,
+                CampusCardFakeUpstream.MERCHANT_REFUND,
+            ),
+            transactions.map { it.displayMerchant },
+        )
+        assertEquals(
+            listOf(
+                -CampusCardFakeUpstream.TX_LUNCH_AMOUNT_CENTS / 100.0,
+                -CampusCardFakeUpstream.TX_BREAKFAST_AMOUNT_CENTS / 100.0,
+                CampusCardFakeUpstream.TX_RECHARGE_AMOUNT_CENTS / 100.0,
+                -CampusCardFakeUpstream.TX_QRCODE_AMOUNT_CENTS / 100.0,
+                -CampusCardFakeUpstream.TX_UNKNOWN_OUT_AMOUNT_CENTS / 100.0,
+                CampusCardFakeUpstream.TX_UNKNOWN_IN_AMOUNT_CENTS / 100.0,
+                CampusCardFakeUpstream.TX_REFUND_AMOUNT_CENTS / 100.0,
+            ),
+            transactions.map { it.amount },
+        )
+        assertEquals(1, fake.campusCard.turnoverCalls.get(), "总数到齐 ⇒ 屏的首屏只打一页流水的枪")
     }
 
     // ══════ 校历：免登录的那条路 ══════
