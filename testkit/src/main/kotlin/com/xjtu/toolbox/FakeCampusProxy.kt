@@ -2,6 +2,7 @@ package com.xjtu.toolbox
 
 import com.sun.net.httpserver.HttpExchange
 import com.xjtu.toolbox.calendar.SchoolCalendarFakeUpstream
+import com.xjtu.toolbox.card.CampusCardFakeUpstream
 import com.xjtu.toolbox.fitness.FitnessFakeUpstream
 import com.xjtu.toolbox.jwxt.JwxtFakeUpstream
 import com.xjtu.toolbox.library.LibraryFakeUpstream
@@ -13,7 +14,8 @@ import com.xjtu.toolbox.library.LibraryFakeUpstream
  * ## 为什么是「一个端口 + 按 host 分派」而不是「一个上游一个端口」
  *
  * 因为**客户端那边只认一个默认 `ProxySelector`**（而且它还是进程级、只读一次的，见下面）。一个
- * 端口同时扮演 `rg.lib.xjtu.edu.cn` / `login.xjtu.edu.cn` / `tyxylp.xjtu.edu.cn`（https）/ 校历门户，
+ * 端口同时扮演 `rg.lib.xjtu.edu.cn` / `login.xjtu.edu.cn` / `tyxylp.xjtu.edu.cn`（https）/
+ * `ncard.xjtu.edu.cn`（https）/ `jwxt.xjtu.edu.cn`（https）/ 校历门户，
  * 就绕开了「按 host 选端口」那一层，也最接近真机上「所有域名都从同一条网络出去」的样子。
  * 走代理时请求行是 absolute-form（`GET http://host/path HTTP/1.1`），所以 `requestURI.host`
  * 就是目标域名；https 那一条在 TLS 隧道里会变回 origin-form，域名只剩在 `Host` 头里 ——
@@ -61,6 +63,12 @@ class FakeCampusProxy(private val casEnabled: Boolean = true) : AutoCloseable {
      */
     val jwxt: JwxtFakeUpstream = JwxtFakeUpstream()
 
+    /**
+     * 校园卡（`ncard.xjtu.edu.cn`，**https**）：卡面 + 流水两条取数共用一个上游。
+     * 登录那半台 CAS 同样由 [library] 扮演（见 [CampusCardFakeUpstream] 的类 KDoc）。
+     */
+    val campusCard: CampusCardFakeUpstream = CampusCardFakeUpstream()
+
     private val server: FakeUpstreamFront =
         FakeUpstreamFront(::dispatch, HTTPS_HOSTS)
 
@@ -93,6 +101,7 @@ class FakeCampusProxy(private val casEnabled: Boolean = true) : AutoCloseable {
             LibraryFakeUpstream.LIBRARY_HOST, LibraryFakeUpstream.CAS_HOST -> library.handle(exchange)
             FitnessFakeUpstream.HOST -> fitness.handle(exchange)
             JwxtFakeUpstream.HOST -> jwxt.handle(exchange)
+            CampusCardFakeUpstream.HOST -> campusCard.handle(exchange)
             SchoolCalendarFakeUpstream.HOST ->
                 if (exchange.requestURI.path == SchoolCalendarFakeUpstream.PATH) {
                     calendar.handle(exchange)
@@ -127,7 +136,15 @@ class FakeCampusProxy(private val casEnabled: Boolean = true) : AutoCloseable {
         /**
          * 需要 CONNECT 隧道的那几个域名 —— 一枚证书带这几个 SAN（信任库是单个系统属性，只能装一份）。
          */
-        private val HTTPS_HOSTS = setOf(FitnessFakeUpstream.HOST, JwxtFakeUpstream.HOST)
+        private val HTTPS_HOSTS = setOf(
+            FitnessFakeUpstream.HOST,
+            JwxtFakeUpstream.HOST,
+            CampusCardFakeUpstream.HOST,
+            // 统一认证：绝大多数登录器把会话管家缓存的公钥传进来（不会走这条路），
+            // 但 `CampusCardLogin` 是唯一不收 `cachedRsaKey` 的那个 ⇒ 它每次登录都会取一次
+            // `https://login.xjtu.edu.cn/cas/jwt/publicKey`（见 `LibraryFakeUpstream.PUBLIC_KEY_PATH`）。
+            LibraryFakeUpstream.CAS_HOST,
+        )
     }
 }
 

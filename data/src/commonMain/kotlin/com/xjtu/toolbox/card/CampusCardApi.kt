@@ -8,7 +8,7 @@ import com.xjtu.toolbox.util.isObject
 import com.xjtu.toolbox.util.isPrimitive
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
-import android.util.Log
+import com.xjtu.toolbox.platform.Log
 import com.xjtu.toolbox.auth.SiteSession
 import com.xjtu.toolbox.util.safeParseJsonObject
 import okhttp3.Request
@@ -25,9 +25,13 @@ private const val TAG = "CampusCardApi"
 // 模型在 `CampusCardModels.kt`、纯统计在 `CampusCardAnalysis.kt`、分页编排（allTransactions /
 // transactionsUntilKnown）是 `CampusCardSource` 上的扩展函数。这里**只剩网络与解析**：登 ncard 抓
 // HTML/JSON、按 `CampusCardContract` 的约定判成功与收支方向 —— 抓到的数据由 `AppCampusCardSource`
-// 交给 :core 的屏（那才是端口 `CampusCardSource` 在 Android 侧的实现）。
+// 交给 :core 的屏（那才是端口 `CampusCardSource` 在 Android / 桌面两侧的实现，现在就在同包的
+// `AppCampusCardSource.kt` 里）。
 //
-// 取数实现本身**一行未改**（含那两行 `Log.d` 与两个 `allowRetry` 包装）：搬位置不改行为。
+// 后来又跟着 `AppCampusCardSource` 从 `:app` 搬进 `:data`（桌面端第 9 条真数据路由：桌面要自己登 ncard
+// 取这两组数）：类名与包路径一字未改 ⇒ `:app` 里 `CampusCardApi(site)` 那些调用点一行不用改。
+// 搬迁时被替换的写法只有一处 —— `android.util.Log` → `:core` 的 `com.xjtu.toolbox.platform.Log`
+//（那两行 `Log.d` 与两个 `allowRetry` 包装本身一行未改）。
 
 class CampusCardApi(private val site: SiteSession) {
 

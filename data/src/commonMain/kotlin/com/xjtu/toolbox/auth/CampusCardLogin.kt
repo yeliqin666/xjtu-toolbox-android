@@ -3,7 +3,7 @@ package com.xjtu.toolbox.auth
 import com.xjtu.toolbox.util.stringValue
 import com.xjtu.toolbox.util.obj
 import com.xjtu.toolbox.util.redactUrl
-import android.util.Log
+import com.xjtu.toolbox.platform.Log
 import com.xjtu.toolbox.card.CampusCardContract
 import com.xjtu.toolbox.util.safeParseJsonObject
 import okhttp3.FormBody
@@ -21,6 +21,11 @@ import java.net.URLDecoder
  * 3. 新 CAS 认证后 → berserker-auth/cas/login → /plat/?ticket=...
  * 4. 从 URL 提取 ticket，POST /berserker-auth/oauth/token 获取 JWT
  * 5. 使用 JWT Bearer token 调用校园卡 API（synjones-auth: bearer <token>）
+ *
+ * 与它的 [CampusCardSession] 一起从 `:app/auth/` 搬进 `:data`（桌面端第 9 条真数据路由：桌面要自己
+ * 登 ncard 取卡面与流水）。类名、包路径、原来的 import 一字未改 ⇒ `:app` 那边一行不用改。
+ * 搬迁时被替换的写法只有一处 —— `android.util.Log` → `:core` 的 `com.xjtu.toolbox.platform.Log`
+ *（同样的 tag、同样的级别，Android 上照样进 logcat，见 `Log.android.kt`）。
  */
 class CampusCardLogin(
     existingClient: OkHttpClient? = null,

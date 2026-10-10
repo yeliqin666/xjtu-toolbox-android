@@ -57,6 +57,18 @@ class LibraryFakeUpstream(
         /** 统一认证主机名 —— `XJTULogin.casPath` 只认这个 host（端口不计）。 */
         const val CAS_HOST = "login.xjtu.edu.cn"
 
+        /**
+         * 统一认证签发密码加密用的 RSA 公钥。
+         *
+         * 真站点上这条路是 **https**（`XJTULogin.fetchRsaPublicKeyFromServer` 硬编码的
+         * `https://login.xjtu.edu.cn/cas/jwt/publicKey`）。绝大多数站点根本不走它
+         *（登录器把会话管家缓存的公钥传进来），但 `CampusCardLogin` 是唯一不收 `cachedRsaKey` 的那一个
+         *（见 `LibraryLogin` 的 KDoc），所以校园卡这条链每次登录都会真的取一次 ——
+         * 夹具因此也得能回答它：`FakeCampusProxy.HTTPS_HOSTS` 里有 [CAS_HOST]，
+         * 这一条路由给的正是 [TestRsaKey.publicKeyBase64]（与客户端那份同一个密钥对）。
+         */
+        const val PUBLIC_KEY_PATH = "/cas/jwt/publicKey"
+
         const val USERNAME = "2021000001"
         const val PASSWORD = "correct-horse-battery"
         const val TGC_VALUE = "TGC-fake-1"
@@ -82,6 +94,9 @@ class LibraryFakeUpstream(
 
     /** CAS：发出过几个 ticket。 */
     val tickets = AtomicInteger(0)
+
+    /** `GET /cas/jwt/publicKey` 被打了几次（只有不收 `cachedRsaKey` 的那一两个站点会走它）。 */
+    val publicKeyCalls = AtomicInteger(0)
 
     /** 最近一次凭据 POST 提交上来的用户名 / 解密后的密码（没提交过则为 null）。 */
     @Volatile var lastPostedUsername: String? = null
@@ -252,6 +267,10 @@ class LibraryFakeUpstream(
         when {
             casEnabled && path == "/cas/login" && exchange.requestMethod == "POST" -> handleCasPost(exchange, query)
             casEnabled && path == "/cas/login" -> handleCasGet(exchange, query, cookieHeader(exchange))
+            casEnabled && path == PUBLIC_KEY_PATH -> {
+                publicKeyCalls.incrementAndGet()
+                respond(exchange, 200, "text/plain; charset=utf-8", TestRsaKey.publicKeyBase64.toByteArray())
+            }
 
             path == "/modify" -> respondHtml(exchange, modifyPage)
             // 会话失效那两条路：一次性失效优先（内核重登 + 重放），其次是一直失效（判据那条）
