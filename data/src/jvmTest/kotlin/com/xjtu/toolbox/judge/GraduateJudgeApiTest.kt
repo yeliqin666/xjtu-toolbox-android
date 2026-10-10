@@ -1,12 +1,22 @@
 package com.xjtu.toolbox.judge
 
 import org.jsoup.Jsoup
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
-import org.junit.Assert.assertNull
-import org.junit.Assert.assertTrue
-import org.junit.Test
+import kotlin.test.Test
+import kotlin.test.assertEquals
+import kotlin.test.assertFalse
+import kotlin.test.assertNull
+import kotlin.test.assertTrue
 
+/**
+ * 研究生评教的**解析口径**（`GraduateJudgeApi` 的 `parseForm` / `completeQuestionnaire` /
+ * `parseLessonInfo` / `parseDegreeCourseNames`）—— 页面样本是内联的，与 `:app` 那一份逐字相同。
+ *
+ * 从 `:app/src/test` 跟着代码搬进 `:data:jvmTest`（搬之前它就在那里钉着同一批口径），
+ * 只换了壳：JUnit → `kotlin.test`（照 `ScoreReportTermTest` 那次的做法）。
+ *
+ * ⚠️ gste / gmis 的**网络那一半没有夹具**：那两个站点的登录一个走 `cas.xjtu.edu.cn` 的 TARGET
+ * 回跳、一个走 `org.xjtu.edu.cn` 的 OAuth 链，本轮只搬取数、不假装它们已被验过。
+ */
 class GraduateJudgeApiTest {
 
     // 按 gste genForm.do 页面里 pjzbApp.form 的结构缩写：隐藏字段、同一行 label + 控件、webix.rules 引用、尾逗号

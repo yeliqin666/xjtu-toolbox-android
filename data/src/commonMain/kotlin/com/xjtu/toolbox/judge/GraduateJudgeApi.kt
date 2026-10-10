@@ -20,7 +20,8 @@ import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Request
 import org.jsoup.Jsoup
 import org.jsoup.nodes.Document
-import java.time.LocalDate
+import kotlinx.datetime.LocalDate
+import com.xjtu.toolbox.util.todayInSystemZone
 
 // ==================== 数据类 ====================
 
@@ -155,6 +156,12 @@ data class GraduateLessonInfo(
  * （gmis）的课程详情页和成绩页取。gmis 只有真正提交时才用得到，所以 [gmisProvider]
  * 到那时才调用（才去登录）——只看列表不多走一次 CAS、不多弹一次短信验证。
  * gste 只在校园网内可达，校外经 WebVPN。
+ *
+ * 从 `:app` 搬进 `:data`（同一个包，屏与 `:app` 的引用一字未改）。搬迁时被替换的写法只有一处：
+ * `java.time.LocalDate` —— 它在 commonMain 不存在（`:data` 要同时编 JVM 与 Android），换成
+ * `:core` 已经在用的 `kotlinx.datetime.LocalDate` + `todayInSystemZone()`，「本月是不是 ≥ 9 月」
+ * 的判据写成 `today.month.ordinal + 1`，与 `:core` 的 `XjtuTime.academicYear` 逐字同一条口径。
+ * 站点类 [GsteSession] / [GmisSession] 同批从 `:app/auth/Sites.kt` 剪进 `:data`。
  */
 class GraduateJudgeApi(
     private val gste: SiteSession,
@@ -201,8 +208,8 @@ class GraduateJudgeApi(
     }
 
     /** gmis 课程详情；学年按 9 月切换，与网页默认一致。 */
-    suspend fun getLessonInfo(kcbh: String, today: LocalDate = LocalDate.now()): GraduateLessonInfo {
-        val year = if (today.monthValue >= 9) today.year else today.year - 1
+    suspend fun getLessonInfo(kcbh: String, today: LocalDate = todayInSystemZone()): GraduateLessonInfo {
+        val year = if (today.month.ordinal + 1 >= 9) today.year else today.year - 1
         val html = execute(gmis(),
             Request.Builder().url("https://gmis.xjtu.edu.cn/pyxx/pygl/kckk/view/new/$kcbh/$year").get().build()
         )

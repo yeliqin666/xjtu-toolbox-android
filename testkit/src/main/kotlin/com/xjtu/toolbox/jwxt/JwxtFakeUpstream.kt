@@ -3,6 +3,7 @@ package com.xjtu.toolbox.jwxt
 import com.sun.net.httpserver.HttpExchange
 import com.xjtu.toolbox.library.LibraryFakeUpstream
 import java.net.URLDecoder
+import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.atomic.AtomicInteger
 
 /**
@@ -23,6 +24,28 @@ import java.util.concurrent.atomic.AtomicInteger
  * GET  <REPORT_URL>?…&op=page_content&sessionID=…&pn=N → 第 N 页表格
  * ```
  *
+ * ## 评教（本科那一条 = 第 8 条真数据路由）也在这个 host 上
+ *
+ * 评教应用 `wspjyyapp` 与课表 `kcbcx` 在**同一个域名**下，所以它没有自己的夹具类：端点直接加在
+ * 这个文件里，分派仍然只按 host。「一个 host 一个夹具」是这套夹具的规矩 —— 多开一个类只会让
+ * `FakeCampusProxy` 去猜「同一个域名的两条路径该给谁」。它演的是（`JudgeApi` 真打的那些请求）：
+ *
+ * ```
+ * GET  <JUDGE_INDEX_URL>    → 200（`JudgeApi.ensureAppInitialized` 的预热）
+ * POST <JUDGE_TERM_URL>     → 当前学期 `datas.cxxtcs.rows[0].CSZA`（请求必须带 `PJXNXQ`）
+ * POST <JUDGE_LIST_URL>     → 问卷列表 `datas.cxdwpj.rows`（按 `PGLXDM` + `SFPG` 挑样本）
+ * POST <JUDGE_QUESTION_URL> → 某问卷的题目 `datas.cxwjzb.rows`
+ * POST <JUDGE_OPTION_URL>   → 某问卷的选项 `datas.cxxswjzbxq.rows`（六个 querySetting 条件一个不能少）
+ * ```
+ *
+ * 形状逐字段对着 `JudgeApi` 的解析写：列表行的 14 个键（`BPJS/BPR/DBRS/JSSJ/JXBID/KCH/KCM/KSSJ/`
+ * `PCDM/PGLXDM/PGNR/WJDM/WJMC/XNXQDM`，其中 `DBRS` 走 `safeInt`）、题目的 7 个键、选项的 7 个键
+ * （注意选项的答案值读的是 **`DAFXDM`**，所以夹具在行里塞了一个错的 `DA`：读错键就会现形）。
+ * 刻意留空了几格：未评的第二行缺 `DBRS/JSSJ/KCH`（`safeInt`/`safeString` 的默认值）、
+ * 已评那行缺 `BPJS`（空串）、主观题不缺 —— 缺字段给什么因此写在明面上。
+ *
+ * **提交 / 撤回那两条（`WspjwjController` 下的 `*.do`）没有夹具**：这一轮的验收只看列表与「填卷」的取数，
+ * 任何一次误提交都会以 404 响亮地失败，而不是被一个假的成功页糊过去。
  * 真实站点那条登录链还夹着 `org.xjtu.edu.cn` 的 OAuth 三跳（`client_id=1675` →
  * `callbackAuthorize` → 教务）。这里**直接 302 到统一认证**：夹具要演的是「CAS 回跳之后
  * 客户端拿到的那个 URL 与页面」，OAuth 中间那几跳对被测代码没有可观察差别
@@ -116,6 +139,58 @@ class JwxtFakeUpstream {
         const val SCORE_1_NAME = "高等数学（上）"
         const val SCORE_2_NAME = "大学物理"
         const val SCORE_3_NAME = "工程训练"
+
+        // ── 评教（`wspjyyapp` 应用）：本科评教的全部端点（第 8 条真数据路由）──
+
+        /** 评教应用前缀（`JudgeApi` 里那些 URL 的共同前半截）。 */
+        const val WSPJ_APP = "$ORIGIN/jwapp/sys/wspjyyapp"
+
+        const val JUDGE_INDEX_URL = "$WSPJ_APP/modules/xspj/index.do"
+        const val JUDGE_TERM_URL = "$WSPJ_APP/modules/xspj/cxxtcs.do"
+        const val JUDGE_LIST_URL = "$WSPJ_APP/modules/xspj/cxdwpj.do"
+        const val JUDGE_QUESTION_URL = "$WSPJ_APP/modules/wj/cxwjzb.do"
+        const val JUDGE_OPTION_URL = "$WSPJ_APP/modules/wj/cxxswjzbxq.do"
+
+        /**
+         * 评教的当前学期（`CSZA`）。与课表那条**是同一个学期**：同一个教务系统不该就
+         * 「现在是什么学期」给出两个答案，所以它就是 [TERM_NEW]。
+         */
+        const val JUDGE_TERM = TERM_NEW
+
+        /** `cxxswjzbxq.do` 的 `querySetting` 里必须出现的六个条件（少一个就可能领回别人的卷子）。 */
+        val JUDGE_OPTION_CONDITIONS = listOf("BPR", "CPR", "JXBID", "PGNR", "WJDM", "PCDM")
+
+        /** 问卷的定位字段。`JudgeCard.key` 就是 `WJDM_JXBID_BPR`，断言直接引用它们。 */
+        const val JUDGE_WJDM_MID = "WJ-2001"
+        const val JUDGE_WJDM_FINAL = "WJ-1001"
+        const val JUDGE_WJDM_DONE = "WJ-3001"
+        const val JUDGE_JXBID_FINAL = "JXB-9001"
+        const val JUDGE_JXBID_DONE = "JXB-9100"
+        const val JUDGE_BPR_FINAL = "陶文铨"
+        const val JUDGE_TEACHER_FINAL = "陶文铨"
+        const val JUDGE_TEACHER_MID = "示例丁"
+        const val JUDGE_TEACHER_FINAL_BARE = "示例戊"
+        const val JUDGE_PGNR = "期末评教（2026-2027学年第一学期）"
+
+        /** 四条问卷（未评：过程一行 + 期末两行；已评：过程空表 + 期末一行）的课名。 */
+        const val JUDGE_COURSE_MID = "高等数学（上）"
+        const val JUDGE_COURSE_FINAL = "数值传热学"
+        const val JUDGE_COURSE_FINAL_BARE = "艺术导论"
+        const val JUDGE_COURSE_DONE = "流体力学"
+
+        // ── 评教题目与选项的样本（`ZB-01` 是唯一带选项的题）──
+
+        /**
+         * 选项的两个编号：`DADM` 是**答案代码**（`QuestionnaireOptionData.DADM`），`DA` 是
+         * **要填回问卷的选项编号**（服务端字段名是 `DAFXDM`）。两个都得对上：`DADM` 是选值
+         * 匹配用的，`DA` 才是提交时写进卷子的那个值。
+         */
+        const val JUDGE_OPTION_DADM_BEST = "DA-ZB01-100"
+        const val JUDGE_OPTION_DA_BEST = "100"
+        const val JUDGE_OPTION_DADM_SECOND = "DA-ZB01-80"
+        const val JUDGE_OPTION_DA_SECOND = "80"
+        const val JUDGE_OPTION_DADM_THIRD = "DA-ZB01-60"
+        const val JUDGE_OPTION_DA_THIRD = "60"
     }
 
     // ── 服务器可变状态：动作打进来时计数/记录，好让断言「这一枪真打到了哪里」──
@@ -155,6 +230,34 @@ class JwxtFakeUpstream {
     /** 最近一次翻页请求里带的会话 id（`sessionID=`），应当等于本夹具发的 [FR_SESSION_ID]。 */
     @Volatile
     var lastReportSessionId: String? = null
+        private set
+
+    // ── 评教（第 8 条真数据路由）：动作打进来时计数/记录 ──
+
+    /** 预热 `index.do` / 当前学期 / 列表 / 题目 / 选项 各打过几次。 */
+    val judgeIndexCalls = AtomicInteger()
+    val judgeTermCalls = AtomicInteger()
+    val judgeListCalls = AtomicInteger()
+    val judgeQuestionCalls = AtomicInteger()
+    val judgeOptionCalls = AtomicInteger()
+
+    /** 四次列表请求的**表单原文**（未评与已评各一遍：`05/0`、`01/0`、`05/1`、`01/1`）。 */
+    val judgeListForms = CopyOnWriteArrayList<String>()
+
+    @Volatile
+    var lastJudgeTermForm: String? = null
+        private set
+
+    @Volatile
+    var lastJudgeListForm: String? = null
+        private set
+
+    @Volatile
+    var lastJudgeQuestionForm: String? = null
+        private set
+
+    @Volatile
+    var lastJudgeOptionForm: String? = null
         private set
 
     // ── 样本：页面与 JSON 原文（消费者共用这一份）──────────────────
@@ -261,6 +364,110 @@ class JwxtFakeUpstream {
         </body></html>
     """.trimIndent()
 
+    /** 评教应用的首页（预热那一枪，客户端只 close 不解析）。 */
+    val judgeIndexPage = """
+        <html><head><title>学生评教</title></head><body>
+          <div id="app">学生评教</div>
+        </body></html>
+    """.trimIndent()
+
+    /**
+     * 评教的当前学期：`datas.cxxtcs.rows[0].CSZA`。
+     *
+     * 夹具行里只给 `CSZA`（`JudgeApi` 只读这个键）—— 服务器还会给一堆别的列，这里刻意不给：
+     * 「服务端多给了几个键也不会读错」这件事不该靠夹具替它兜着。
+     */
+    val judgeTermJson = """{"datas":{"cxxtcs":{"rows":[{"CSZA":"$JUDGE_TERM"}]}}}"""
+
+    /** 未评 · 过程评教（`PGLXDM=05`、`SFPG=0`）：一行。 */
+    val judgeUnfinishedMidJson = """
+        {"datas":{"cxdwpj":{"rows":[
+          {"BPJS":"$JUDGE_TEACHER_MID","BPR":"$JUDGE_TEACHER_MID","DBRS":"0",
+           "JSSJ":"2026-10-25 23:59:00","JXBID":"JXB-9002","KCH":"MATH1001",
+           "KCM":"$JUDGE_COURSE_MID","KSSJ":"2026-10-01 08:00:00","PCDM":"PCDM-2026-05",
+           "PGLXDM":"05","PGNR":"过程评教（第一次）","WJDM":"$JUDGE_WJDM_MID",
+           "WJMC":"过程评教问卷","XNXQDM":"$JUDGE_TERM"}
+        ]}}}
+    """.trimIndent()
+
+    /**
+     * 未评 · 期末评教（`PGLXDM=01`、`SFPG=0`）：两行。
+     *
+     * 第二行**刻意缺 `DBRS`/`JSSJ`/`KCH`** —— `safeInt` 的 0 与 `safeString` 的空串就是这么钉住的。
+     */
+    val judgeUnfinishedFinalJson = """
+        {"datas":{"cxdwpj":{"rows":[
+          {"BPJS":"$JUDGE_TEACHER_FINAL","BPR":"$JUDGE_BPR_FINAL","DBRS":"2",
+           "JSSJ":"2027-01-10 23:59:00","JXBID":"$JUDGE_JXBID_FINAL","KCH":"031002",
+           "KCM":"$JUDGE_COURSE_FINAL","KSSJ":"2026-12-20 08:00:00","PCDM":"PCDM-2026-01",
+           "PGLXDM":"01","PGNR":"$JUDGE_PGNR","WJDM":"$JUDGE_WJDM_FINAL",
+           "WJMC":"期末评教问卷","XNXQDM":"$JUDGE_TERM"},
+          {"BPJS":"$JUDGE_TEACHER_FINAL_BARE","BPR":"示例庚","JXBID":"JXB-9003",
+           "KCM":"$JUDGE_COURSE_FINAL_BARE","KSSJ":"2026-12-20 08:00:00","PCDM":"PCDM-2026-01",
+           "PGLXDM":"01","PGNR":"$JUDGE_PGNR","WJDM":"WJ-1002",
+           "WJMC":"期末评教问卷","XNXQDM":"$JUDGE_TERM"}
+        ]}}}
+    """.trimIndent()
+
+    /** 已评 · 过程评教：**空表**（夹具就是要钉住「没有就是空列表，不是报错」）。 */
+    val judgeFinishedMidJson = """{"datas":{"cxdwpj":{"rows":[]}}}"""
+
+    /** 已评 · 期末评教：一行，**刻意缺 `BPJS`** ⇒ 空串。 */
+    val judgeFinishedFinalJson = """
+        {"datas":{"cxdwpj":{"rows":[
+          {"BPR":"示例己","DBRS":"1","JSSJ":"2026-06-20 23:59:00","JXBID":"$JUDGE_JXBID_DONE",
+           "KCH":"PHYS1002","KCM":"$JUDGE_COURSE_DONE","KSSJ":"2026-05-01 08:00:00",
+           "PCDM":"PCDM-2026-01","PGLXDM":"01","PGNR":"$JUDGE_PGNR","WJDM":"$JUDGE_WJDM_DONE",
+           "WJMC":"期末评教问卷","XNXQDM":"$JUDGE_TERM"}
+        ]}}}
+    """.trimIndent()
+
+    /**
+     * 某问卷的题目（`datas.cxwjzb.rows`）：六道题把三种题型与三种匹配路径都摆出来。
+     *
+     * | 题 | 题型 | 这道题钉的是 |
+     * |---|---|---|
+     * | `ZB-01` | 客观 | 正常路径：选项表里有同名 `ZBDM` |
+     * | `ZB-02` | 主观 | **缺 `FZ`** ⇒ `safeStringOrNull()` 给 null |
+     * | `ZB-03` | 分值 | `getMaxScore()` 读的就是 `FZ` |
+     * | `ZB-04` | 客观 | `SFBT=0` 且选项表里没有 ⇒ 非必填题允许跳过 |
+     * | `ZB-05` | 客观 | `ZBDM` 不在选项表，靠 `DADM` 兜底 |
+     * | `ZB-06` | 客观 | 靠**题名**兜底（`ZBMC` 比 `ZB-01` 多一个冒号，归一化后就相等） |
+     */
+    val judgeQuestionJson = """
+        {"datas":{"cxwjzb":{"rows":[
+          {"WJDM":"$JUDGE_WJDM_FINAL","ZBDM":"ZB-01","ZBMC":"教学态度","TXDM":"01",
+           "DADM":"$JUDGE_OPTION_DADM_BEST","SFBT":"1","FZ":"100"},
+          {"WJDM":"$JUDGE_WJDM_FINAL","ZBDM":"ZB-02","ZBMC":"意见和建议","TXDM":"02",
+           "DADM":"","SFBT":"1"},
+          {"WJDM":"$JUDGE_WJDM_FINAL","ZBDM":"ZB-03","ZBMC":"总体评分","TXDM":"03",
+           "DADM":"","SFBT":"1","FZ":"100"},
+          {"WJDM":"$JUDGE_WJDM_FINAL","ZBDM":"ZB-04","ZBMC":"补充评价（选填）","TXDM":"01",
+           "DADM":"","SFBT":"0","FZ":"100"},
+          {"WJDM":"$JUDGE_WJDM_FINAL","ZBDM":"ZB-05","ZBMC":"教学效果","TXDM":"01",
+           "DADM":"$JUDGE_OPTION_DADM_SECOND","SFBT":"1","FZ":"100"},
+          {"WJDM":"$JUDGE_WJDM_FINAL","ZBDM":"ZB-06","ZBMC":"教学态度：","TXDM":"01",
+           "DADM":"","SFBT":"1","FZ":"100"}
+        ]}}}
+    """.trimIndent()
+
+    /**
+     * 某问卷的选项（`datas.cxxswjzbxq.rows`）：只给 `ZB-01` 三道，且**按 `DAPX` 倒序给**。
+     *
+     * 两件事因此被钉住：选值是**按 `DAPX` 精确匹配**（不是「取第一行」），以及答案值读的是
+     * `DAFXDM` —— 夹具特意在行里塞了一个错的 `DA`（`所写非所读`）。
+     */
+    val judgeOptionJson = """
+        {"datas":{"cxxswjzbxq":{"rows":[
+          {"ZBDM":"ZB-01","ZBMC":"教学态度","DADM":"$JUDGE_OPTION_DADM_THIRD","DAFXDM":"$JUDGE_OPTION_DA_THIRD",
+           "DA":"WRONG","TXDM":"01","DAPX":"3","FZ":"100"},
+          {"ZBDM":"ZB-01","ZBMC":"教学态度","DADM":"$JUDGE_OPTION_DADM_SECOND","DAFXDM":"$JUDGE_OPTION_DA_SECOND",
+           "TXDM":"01","DAPX":"2","FZ":"100"},
+          {"ZBDM":"ZB-01","ZBMC":"教学态度","DADM":"$JUDGE_OPTION_DADM_BEST","DAFXDM":"$JUDGE_OPTION_DA_BEST",
+           "TXDM":"01","DAPX":"1","FZ":"100"}
+        ]}}}
+    """.trimIndent()
+
     /** 成绩报表第 2 页：换一个学期标题（夏季小学期 → 学期代码 `-3`），再给一条课程。 */
     val reportPage2 = """
         <html><body>
@@ -310,6 +517,33 @@ class JwxtFakeUpstream {
                 queryCalls.incrementAndGet()
                 respondJson(exchange, queryJson)
             }
+            path == JUDGE_INDEX_PATH -> {
+                judgeIndexCalls.incrementAndGet()
+                respondHtml(exchange, judgeIndexPage)
+            }
+            path == JUDGE_TERM_PATH -> requirePost(exchange) { form ->
+                lastJudgeTermForm = form
+                // `setting` 里的 `PJXNXQ` 是「当前学年学期」这个查法本身（少了它问的就是别的东西）
+                if (!form.contains("PJXNXQ")) {
+                    badRequest(exchange, "cxxtcs.do 的 setting 里少了 PJXNXQ，收到：$form")
+                    return@requirePost
+                }
+                judgeTermCalls.incrementAndGet()
+                respondJson(exchange, judgeTermJson)
+            }
+            path == JUDGE_LIST_PATH -> requirePost(exchange) { form -> handleJudgeList(exchange, form) }
+            path == JUDGE_QUESTION_PATH -> requirePost(exchange) { form ->
+                lastJudgeQuestionForm = form
+                val fields = formFields(form)
+                if (fields["WJDM"].isNullOrEmpty() || fields["JXBID"].isNullOrEmpty()) {
+                    badRequest(exchange, "cxwjzb.do 少了 WJDM/JXBID，收到：$form")
+                    return@requirePost
+                }
+                judgeQuestionCalls.incrementAndGet()
+                respondJson(exchange, judgeQuestionJson)
+            }
+            path == JUDGE_OPTION_PATH -> requirePost(exchange) { form -> handleJudgeOptions(exchange, form) }
+
             path == REPORT_PATH -> handleReport(exchange, query)
             else -> notFound(exchange)
         }
@@ -373,6 +607,65 @@ class JwxtFakeUpstream {
         badRequest(exchange, "认不出的报表请求：$query")
     }
 
+    /**
+     * 评教问卷列表：按 `PGLXDM`（01 期末 / 05 过程）＋`SFPG`（1 已评）挑样本。
+     *
+     * 五个必备字段缺一个、或 `SFKF`/`SFFB` 不是 1（「只给开放中且已发布」的问卷），回 400——
+     * 与真站点的请求形体一致，顺带把「少发一个条件也照样成」这类退化搭住。
+     */
+    private fun handleJudgeList(exchange: HttpExchange, form: String) {
+        lastJudgeListForm = form
+        judgeListForms += form
+        val fields = formFields(form)
+        val missing = listOf("PGLXDM", "SFPG", "SFKF", "SFFB", "XNXQDM").filter { fields[it] == null }
+        if (missing.isNotEmpty()) {
+            badRequest(exchange, "cxdwpj.do 少了 ${missing.joinToString("/")}，收到：$form")
+            return
+        }
+        if (fields["SFKF"] != "1" || fields["SFFB"] != "1") {
+            badRequest(exchange, "cxdwpj.do 的 SFKF/SFFB 该是 1，收到：$form")
+            return
+        }
+        judgeListCalls.incrementAndGet()
+        respondJson(exchange, judgeListJson(fields.getValue("PGLXDM"), finished = fields.getValue("SFPG") == "1"))
+    }
+
+    /** 认不出的 `PGLXDM`/`SFPG` 组合就是空表（真实站点也是给空 `rows`，不是报错）。 */
+    private fun judgeListJson(type: String, finished: Boolean): String = when {
+        type == "05" && finished -> judgeFinishedMidJson
+        type == "05" -> judgeUnfinishedMidJson
+        type == "01" && finished -> judgeFinishedFinalJson
+        type == "01" -> judgeUnfinishedFinalJson
+        else -> """{"datas":{"cxdwpj":{"rows":[]}}}"""
+    }
+
+    /**
+     * 评教问卷的选项：`querySetting` 里那六个定位条件（`BPR`/`CPR`/`JXBID`/`PGNR`/`WJDM`/`PCDM`）
+     * 一个都不能少 —— 少一个就可能把别人的卷子领回来。
+     */
+    private fun handleJudgeOptions(exchange: HttpExchange, form: String) {
+        lastJudgeOptionForm = form
+        val fields = formFields(form)
+        val missing = (listOf("WJDM", "CPR", "PCDM", "SFPG", "BPR", "PGNR", "querySetting"))
+            .filter { fields[it] == null }
+        if (missing.isNotEmpty()) {
+            badRequest(exchange, "cxxswjzbxq.do 少了 ${missing.joinToString("/")}，收到：$form")
+            return
+        }
+        if (fields["CPR"] != LibraryFakeUpstream.USERNAME) {
+            badRequest(exchange, "cxxswjzbxq.do 的 CPR 该是本夹具那个学号，收到：${fields["CPR"]}")
+            return
+        }
+        val setting = fields.getValue("querySetting")
+        val absent = JUDGE_OPTION_CONDITIONS.filter { "\"name\":\"$it\"" !in setting }
+        if (absent.isNotEmpty()) {
+            badRequest(exchange, "querySetting 里缺 ${absent.joinToString("/")}，收到：$setting")
+            return
+        }
+        judgeOptionCalls.incrementAndGet()
+        respondJson(exchange, judgeOptionJson)
+    }
+
     // ── 响应的形体检查 ────────────────────────────────────────────
 
     /** POST 端点：必须真带表单（GET 打过来就 400，免得「方法漂了照样通过」）。 */
@@ -424,6 +717,12 @@ class JwxtFakeUpstream {
         raw.split('&').firstOrNull { it.substringBefore('=') == name }
             ?.substringAfter('=', "")
             ?.let { URLDecoder.decode(it, "UTF-8") }
+    /** 表单原文 → 字段表（`JudgeApi` 发的是 `application/x-www-form-urlencoded`）。 */
+    private fun formFields(form: String): Map<String, String> =
+        form.split('&').filter { it.isNotEmpty() }.associate { part ->
+            val raw = part.substringAfter('=', "")
+            part.substringBefore('=') to runCatching { URLDecoder.decode(raw, "UTF-8") }.getOrDefault(raw)
+        }
 
     private fun encode(value: String): String = java.net.URLEncoder.encode(value, "UTF-8")
 
@@ -435,4 +734,9 @@ class JwxtFakeUpstream {
     private val DEPARTMENTS_PATH = DEPARTMENTS_URL.removePrefix(ORIGIN)
     private val QUERY_PATH = QUERY_URL.removePrefix(ORIGIN)
     private val REPORT_PATH = REPORT_URL.removePrefix(ORIGIN)
+    private val JUDGE_INDEX_PATH = JUDGE_INDEX_URL.removePrefix(ORIGIN)
+    private val JUDGE_TERM_PATH = JUDGE_TERM_URL.removePrefix(ORIGIN)
+    private val JUDGE_LIST_PATH = JUDGE_LIST_URL.removePrefix(ORIGIN)
+    private val JUDGE_QUESTION_PATH = JUDGE_QUESTION_URL.removePrefix(ORIGIN)
+    private val JUDGE_OPTION_PATH = JUDGE_OPTION_URL.removePrefix(ORIGIN)
 }

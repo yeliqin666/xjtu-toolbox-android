@@ -507,74 +507,10 @@ class CampusCardSession : CasSiteSession("campus_card", "校园卡", mustUseWebV
 }
 
 // ── GSTE 研究生评教 / GMIS 研究生管理信息系统 ─────────────────────────
-
-/**
- * 只需走完 CAS、落到本站就算登录成功的站点。CAS 回跳偶尔停在「200 + 表单自动提交」上，
- * OkHttp 不会替你提交，这时 TGC 已经建好，重访一次入口就能把跳转链走完（同 [JwxtLogin]）。
- */
-private class LandingCasLogin(
-    private val entryUrl: String,
-    private val targetHost: String,
-    existingClient: OkHttpClient,
-    visitorId: String?,
-    cachedRsaKey: String?,
-) : XJTULogin(entryUrl, existingClient, visitorId, cachedRsaKey) {
-    override fun postLogin(response: Response) {
-        if (com.xjtu.toolbox.webvpn.WebVpnUtil.isAtTargetSite(response.request.url.toString(), targetHost)) return
-        client.newCall(Request.Builder().url(entryUrl).get().build()).execute().use { retry ->
-            val body = retry.body.string()
-            if (XJTULogin.isSafetyVerifyPage(body)) throw SafetyVerifyRequiredException(retry, body)
-            if (!com.xjtu.toolbox.webvpn.WebVpnUtil.isAtTargetSite(retry.request.url.toString(), targetHost)) {
-                throw IOException("$targetHost 登录没有完成，请重新登录")
-            }
-        }
-    }
-}
-
-/**
- * 研究生评教 gste.xjtu.edu.cn。只在校园网内可达，校外走 WebVPN。
- * 身份固定选研究生：本站只服务研究生，同时有本科身份的账号也要登研究生那一支。
- */
-class GsteSession : CasSiteSession("gste", "研究生评教", mustUseWebVpn = true) {
-    override val accountType: XJTULogin.AccountType get() = XJTULogin.AccountType.POSTGRADUATE
-
-    override fun createLogin(client: OkHttpClient, visitorId: String?, cachedRsaKey: String?): XJTULogin =
-        LandingCasLogin(LOGIN_URL, "gste.xjtu.edu.cn", client, visitorId, cachedRsaKey)
-
-    override suspend fun validateLogin(): Boolean = withIo {
-        client.newCall(Request.Builder().url(LIST_URL).get().build()).execute().use { resp ->
-            resp.code == 200 &&
-                com.xjtu.toolbox.webvpn.WebVpnUtil.isAtTargetSite(resp.request.url.toString(), "gste.xjtu.edu.cn") &&
-                resp.body.string().trimStart().startsWith("[")
-        }
-    }
-
-    companion object {
-        const val LOGIN_URL = "https://cas.xjtu.edu.cn/login?TARGET=http%3A%2F%2Fgste.xjtu.edu.cn%2Flogin.do"
-        const val LIST_URL = "http://gste.xjtu.edu.cn/app/sshd4Stu/list.do"
-    }
-}
-
-/** 研究生管理信息系统 gmis.xjtu.edu.cn。研究生评教要从这里取教材、授课语言、学位课信息来填问卷。 */
-class GmisSession : CasSiteSession("gmis", "研究生管理信息系统", mustUseWebVpn = true) {
-    override val accountType: XJTULogin.AccountType get() = XJTULogin.AccountType.POSTGRADUATE
-
-    override fun createLogin(client: OkHttpClient, visitorId: String?, cachedRsaKey: String?): XJTULogin =
-        LandingCasLogin(LOGIN_URL, "gmis.xjtu.edu.cn", client, visitorId, cachedRsaKey)
-
-    override suspend fun validateLogin(): Boolean = withIo {
-        client.newCall(Request.Builder().url(SCORE_URL).get().build()).execute().use { resp ->
-            resp.code == 200 &&
-                com.xjtu.toolbox.webvpn.WebVpnUtil.isAtTargetSite(resp.request.url.toString(), "gmis.xjtu.edu.cn")
-        }
-    }
-
-    companion object {
-        const val LOGIN_URL = "https://org.xjtu.edu.cn/openplatform/oauth/authorize?appId=1036&state=abcd1234" +
-            "&redirectUri=http://gmis.xjtu.edu.cn/pyxx/sso/login&responseType=code&scope=user_info"
-        const val SCORE_URL = "https://gmis.xjtu.edu.cn/pyxx/pygl/xscjcx/index"
-    }
-}
+//
+// `GsteSession` / `GmisSession` 与它们共用的 `LandingCasLogin` 已搬进 `:data`（同一个包、同一个
+// 类名）：研究生评教那一条路由在桌面上要它自己登录（`:data` 的 `GraduateJudgeApi` + `GraduateJudgeSource`）。
+// 类名与包路径都没变 ⇒ 下面 `AppLoginState` 里那两处 `register(...)` 一行不用改。
 
 // ── 智慧教室平台 js.xjtu.edu.cn（空闲教室实时状态） ──────────────
 
