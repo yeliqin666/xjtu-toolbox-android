@@ -68,6 +68,7 @@ internal object HeadlessSessions {
             val manager = SessionManager()
             // 与前台那份同一个钩子：真换了账号就丢掉一网通办令牌（见 AppLoginState 里的同名赋值）。
             manager.onAccountSwitched = { com.xjtu.toolbox.auth.CampusProbe.ywtbToken = null }
+            manager.onYwtbToken = { com.xjtu.toolbox.auth.CampusProbe.ywtbToken = it }
             with(manager) {
                 register(com.xjtu.toolbox.auth.JwxtSession())
                 register(com.xjtu.toolbox.auth.JwappSession())

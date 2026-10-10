@@ -2,11 +2,45 @@ package com.xjtu.toolbox.desktop
 
 import com.xjtu.toolbox.FakeCampusProxy
 import com.xjtu.toolbox.account.AccountContext
+import com.xjtu.toolbox.auth.AccountType
 import com.xjtu.toolbox.auth.SessionExpiredException
 import com.xjtu.toolbox.auth.SiteSession
 import com.xjtu.toolbox.calendar.SchoolCalendarApi
 import com.xjtu.toolbox.calendar.SchoolCalendarFakeUpstream
 import com.xjtu.toolbox.calendar.defaultTermIndex
+import com.xjtu.toolbox.emptyroom.AppEmptyRoomSource
+import com.xjtu.toolbox.emptyroom.EmptyRoomFakeUpstream
+import com.xjtu.toolbox.emptyroom.RoomSource
+import com.xjtu.toolbox.fitness.FitnessApi
+import com.xjtu.toolbox.fitness.FitnessFakeUpstream
+import com.xjtu.toolbox.inbox.AppInboxSource
+import com.xjtu.toolbox.inbox.InboxCategories
+import com.xjtu.toolbox.inbox.InboxData
+import com.xjtu.toolbox.inbox.InboxItem
+import com.xjtu.toolbox.inbox.InboxRules
+import com.xjtu.toolbox.inbox.InboxStore
+import com.xjtu.toolbox.fitness.FitnessProtocol
+import com.xjtu.toolbox.fitness.FitnessYear
+import com.xjtu.toolbox.judge.JudgeCard
+import com.xjtu.toolbox.judge.UndergraduateJudgeSource
+import com.xjtu.toolbox.card.AppCampusCardSource
+import com.xjtu.toolbox.card.CampusCardFakeUpstream
+import com.xjtu.toolbox.card.allTransactions
+import com.xjtu.toolbox.auth.CampusCardLogin
+import com.xjtu.toolbox.jwxt.JwxtFakeUpstream
+import com.xjtu.toolbox.auth.VenueLogin
+import com.xjtu.toolbox.nav.AppRoute
+import com.xjtu.toolbox.notification.AppNoticeSource
+import com.xjtu.toolbox.notification.NotificationFakeUpstream
+import com.xjtu.toolbox.notification.NotificationSource
+import com.xjtu.toolbox.auth.YwtbLogin
+import com.xjtu.toolbox.ywtb.YwtbFakeUpstream
+import com.xjtu.toolbox.venue.AppVenueSource
+import com.xjtu.toolbox.venue.VenueFakeUpstream
+import com.xjtu.toolbox.faculty.FacultyApi
+import com.xjtu.toolbox.schedule.AppSchoolCourseSource
+import com.xjtu.toolbox.schedule.SchoolCourseQuery
+import com.xjtu.toolbox.score.scoreReportSource
 import com.xjtu.toolbox.library.LibraryCampus
 import com.xjtu.toolbox.library.LibraryFakeUpstream
 import com.xjtu.toolbox.library.LibraryPages
@@ -65,8 +99,10 @@ class DesktopAuthLibraryJvmTest {
      * `initializationError`。
      *
      * ⚠️ 顺序要紧，三条都不能换：
-     *  1. **装 selector 必须在碰 `HttpClients` 之前**（也就是建任何 [DesktopAuth] 之前）——
-     *     它是进程级 `by lazy`，会把当时的默认 `ProxySelector` 抄进自己的配置；
+     *  1. **两件进程级前置必须在碰 `HttpClients` 之前装**（也就建任何 [DesktopAuth] 之前，
+     *     见 [FakeCampusProxy.installFakeUpstreams]）：常驻 selector（`HttpClients.base` 会把当时的
+     *     默认 `ProxySelector` 抄进自己的配置）与假上游那枚自签 https 证书的信任库
+     *     （客户端一建出来就把平台 trust manager 抄走了）；
      *  2. cookie jar 与 `secureKeyValueStore` 都是**进程级**缓存（App 里正是靠这一点让前台/后台
      *     共用同一个 jar）⇒ 必须把上一轮留下的内存态与文件一起清掉，否则上一条测试的 cookie
      *     会把「真登录」变成 SSO 直通；
@@ -94,7 +130,7 @@ class DesktopAuthLibraryJvmTest {
         // 这条也复位：`AccountContext` 是进程级的，上一条测试登录完会把它留着
         AccountContext.activeAccountId = null
 
-        FakeCampusProxy.installProxySelector()
+        FakeCampusProxy.installFakeUpstreams()
         fake.start()
         try {
             block()
@@ -211,7 +247,806 @@ class DesktopAuthLibraryJvmTest {
     }
 
     // ══════ 校历：免登录的那条路 ══════
+    // ══════ 体测：第五条真数据路由（要登录，而且这个站点是 https）══════
 
+    /**
+     * 走的是**真登录链**：桌面登录页那一步的 CAS 表单 POST（凭据 RSA 加密）之后，体测站点
+     * 靠同一份凭据/TGC 自己走完 CAS → `LOGIN_URL?ticket=` → launch 回调 → `UserInfo`，
+     * 会话参数落进站点快照；然后断言 `FitnessApi` 在那份快照上读出的东西。
+     *
+     * 期望值全部来自 `:testkit` 的夹具样本（`:testkit` 的 `FitnessFakeUpstream`），不是从跑通的
+     * 实现里抄的：分数还会过 `:core` 那两条共享口径（`formatFitnessScore` 两位小数、
+     * `fitnessItemName` 按 sex 换名），所以期望写法就是「夹具原文 + 那两条口径」。
+     *
+     * ⚠️ 这一条是**唯一**走 https 的用例：假上游为此自带 CONNECT 前置与一枚自签证书
+     *（见 `:testkit` 的 `FakeUpstreamFront`）。最后一段特意把 cookie（含 CAS 的 TGC）全清掉
+     * 再强制重登一次 —— 证明体测这条链自己就能从「CAS 表单 POST」一路走到 launch 回调，
+     * 而不是靠图书馆那次留下的 TGC 免密直通。
+     */
+    @Test
+    fun `真登录之后：体测站点自己走完 CAS 回跳，快照里落着 launch，读得出学年与成绩`() = withFakeCampus {
+        val (auth, _) = newAuth()
+        assertTrue(login(auth), "用假下游的账号密码应当登得上：${auth.loginState}")
+
+        // 夹具与生产必须指同一个站点：URL 漂了的话，下面这些断言测的就不是真协议
+        assertEquals(FitnessProtocol.TARGET_HOST, FitnessFakeUpstream.HOST)
+        assertEquals(FitnessProtocol.LOGIN_URL, FitnessFakeUpstream.LOGIN_URL)
+        assertEquals(FitnessProtocol.H5_HOME_URL, FitnessFakeUpstream.H5_HOME_URL)
+        assertEquals(FitnessProtocol.API_V3, FitnessFakeUpstream.API_V3)
+        assertEquals(FitnessProtocol.USER_INFO_URL, FitnessFakeUpstream.USER_INFO_URL)
+        assertEquals(FitnessProtocol.LEGACY_API_ROOT, FitnessFakeUpstream.LEGACY_API_ROOT)
+
+        // ── 会话是从 CAS 回跳的那个 URL 里解出来的（不是往快照里塞的）──
+        val site = auth.fitnessSite
+        assertTrue(site.hasLogin, "登录页那一步应当把体测站点也登起来")
+        assertEquals(1, fake.fitness.launchCallbacks.get(), "CAS 回跳只该发出一次 launch 回调")
+        assertTrue(fake.fitness.casRedirects.get() >= 1, "没带 ticket 时应当被交给统一认证")
+        assertTrue(fake.fitness.userInfoCalls.get() >= 1, "postLogin 里那一枪 UserInfo 应当打到夹具")
+        assertTrue(fake.library.tickets.get() >= 1, "统一认证应当真签过 ticket")
+
+        // 快照里的字段：取数要的那八个 `SESSION_FIELDS` 一个不能少；
+        // ⚠️ 七个必需字段里 `user_type` 是唯一被**消费掉**的 —— `extractLaunch` 拿它换算成 `role`
+        // 之后就不原样留着（`SESSION_FIELDS` 里也没有它），所以那一项按 `role` 断言（见下）。
+        for (field in FitnessProtocol.SESSION_FIELDS) {
+            assertTrue(site.localToken[field]?.isNotBlank() == true, "快照里缺 $field：${site.localToken}")
+        }
+        for (field in FitnessProtocol.REQUIRED_LAUNCH_FIELDS - "user_type") {
+            assertTrue(site.localToken[field]?.isNotBlank() == true, "快照里缺 $field：${site.localToken}")
+        }
+        assertEquals(FitnessFakeUpstream.UID, site.localToken["uid"])
+        assertEquals(FitnessFakeUpstream.TOKEN, site.localToken["token"])
+        assertEquals(FitnessFakeUpstream.STUDENT_NUM, site.localToken["student_num"])
+        assertEquals(FitnessFakeUpstream.CARD_ID, site.localToken["card_id"])
+        assertEquals(FitnessFakeUpstream.NONCE, site.localToken["nonce"])
+        // role 由 user_type 换算（ROLE_BY_USER_TYPE），referer 取的是回调的碎片路径
+        assertEquals(
+            FitnessProtocol.ROLE_BY_USER_TYPE.getValue(FitnessFakeUpstream.USER_TYPE).toString(),
+            site.localToken["role"],
+        )
+        assertEquals(FitnessProtocol.H5_HOME_URL, site.localToken["referer_url"])
+
+        // ── 取数：`AppRoute.Fitness` 那一屏用的就是这个 `FitnessApi` ──
+        val api = FitnessApi(site)
+        val years = runBlocking { api.years() }
+        assertEquals(
+            listOf(
+                FitnessYear(FitnessFakeUpstream.YEAR_OLD, FitnessFakeUpstream.YEAR_OLD_NAME, checked = false),
+                FitnessYear(FitnessFakeUpstream.YEAR_NEW, FitnessFakeUpstream.YEAR_NEW_NAME, checked = true),
+            ),
+            years,
+        )
+
+        val score = runBlocking { api.score(FitnessFakeUpstream.YEAR_NEW) }
+        assertTrue(fake.fitness.v3Calls.get() >= 2, "v3 端点应当真被打过（学年 + 成绩）")
+        assertEquals(FitnessFakeUpstream.STUDENT_NUM, score.studentNumber)
+        assertEquals(FitnessFakeUpstream.STUDENT_NAME, score.studentName)
+        assertEquals("78.80", score.totalScore, "总分要过 `formatFitnessScore`（两位小数）")
+        assertEquals("良好", score.totalGrade)
+        assertEquals(FitnessFakeUpstream.SEX, score.sex)
+        assertEquals(FitnessFakeUpstream.GRADE, score.grade)
+        assertEquals(FitnessFakeUpstream.REPORT_STATUS, score.reportStatus)
+
+        // 七个分项：名字（按 sex 换名）、分数、等级、配色都是 `FitnessApi.loadScore` 的口径
+        // 夹具刻意没给 `50m_*` ⇒ 那一行落到「未测 / 缺项」
+        assertEquals(
+            listOf("身高 / 体重", "肺活量", "立定跳远", "坐位体前屈", "引体向上", "50 米", "1000 米"),
+            score.items.map { it.name },
+        )
+        assertEquals(
+            listOf("85.00", "4123.00", "2.31", "12.50", "9.00", "未测", "4.12"),
+            score.items.map { it.value },
+        )
+        assertEquals(
+            listOf("良好", "优秀", "良好", "优秀", "及格", "缺项", "良好"),
+            score.items.map { it.grade },
+        )
+        assertEquals(
+            listOf("good", "excellent", "good", "excellent", "pass", "", "good"),
+            score.items.map { it.tone },
+        )
+
+        // ── legacy 那一路（`FitnessApi` 的兜底）：两路必须给出同一份业务数据 ──
+        fake.fitness.v3Down.set(true)
+        val viaLegacy = runBlocking { api.score(FitnessFakeUpstream.YEAR_NEW) }
+        assertEquals(score, viaLegacy, "v3 挂了应当由 legacy 给出同一份成绩")
+        assertTrue(fake.fitness.legacyCalls.get() >= 1, "应当真打到 legacy 端点")
+        fake.fitness.v3Down.set(false)
+
+        // ── 体测这条链自己就能登进来：把 cookie（含 TGC）全清掉再强制重登一次 ──
+        val suffix = AccountContext.suffixFor(LibraryFakeUpstream.USERNAME)
+        PersistentCookieJar("cookies_normal$suffix").clear()
+        val postsBefore = fake.library.credentialPosts.get()
+        runBlocking {
+            site.ensureLogin(
+                LibraryFakeUpstream.USERNAME,
+                LibraryFakeUpstream.PASSWORD,
+                force = true,
+                userInitiated = true,
+            )
+        }
+        assertEquals(
+            postsBefore + 1,
+            fake.library.credentialPosts.get(),
+            "TGC 被清掉后，体测这次登录应当自己提交一次凭据（CAS 表单 POST）",
+        )
+        assertEquals(2, fake.fitness.launchCallbacks.get(), "并且又走了一遍 CAS 回的 launch 回调")
+        assertEquals(FitnessFakeUpstream.TOKEN, site.localToken["token"], "快照里的 token 应当是夹具发的那份")
+        assertEquals(years, runBlocking { FitnessApi(site).years() }, "重登之后取数照样读得出")
+    }
+
+    // ══════ 全校课表与成绩：同一个教务站点的两条路由 ══════
+
+    /**
+     * 从**真登录链**（窗口里输凭据 → CAS 表单 POST → 回跳教务）走到「全校课表」那一屏的取数。
+     *
+     * 期望值全部来自 `:testkit` 的 `JwxtFakeUpstream`（夹具）—— 不是从跑通的实现里抄的。
+     * 两条路由共用一个站点，所以这里连着把成绩报表也读一遍：会话只有一份（`auth.jwxtSite`），
+     * 只要一条链能站在同一个站点上取两种数，就说明站点注册与挂载都对。
+     */
+    @Test
+    fun `真登录之后：教务自己走完 CAS，全校课表与成绩报表都读得出夹具样本`() = withFakeCampus {
+        val (auth, _) = newAuth()
+        assertTrue(login(auth), "用假下游的账号密码应当登得上：${auth.loginState}")
+
+        // 夹具与生产必须指同一个站点：URL 漂了的话，下面这些断言测的就不是真协议
+        assertEquals(com.xjtu.toolbox.auth.XJTULogin.JWXT_URL, JwxtFakeUpstream.HOME_URL)
+
+        // ── 会话是 CAS 回跳那条链里拿到的（不是往快照里塞的）──
+        val site = auth.jwxtSite
+        assertTrue(site.hasLogin, "登录页那一步应当把教务站点也登起来（尽力预热）")
+        assertTrue(fake.jwxt.casRedirects.get() >= 1, "没带 ticket 时应当被交给统一认证")
+        assertEquals(1, fake.jwxt.ticketLandings.get(), "CAS 回跳只该落在教务首页一次")
+        assertTrue(fake.library.tickets.get() >= 1, "统一认证应当真签过 ticket")
+
+        // ── 全校课表（`AppRoute.SchoolCourse` 那一屏用的就是这个源）──
+        val courses = AppSchoolCourseSource(site)
+        assertEquals(
+            listOf(
+                JwxtFakeUpstream.TERM_NEW to JwxtFakeUpstream.TERM_NEW_NAME,
+                JwxtFakeUpstream.TERM_OLD to JwxtFakeUpstream.TERM_OLD_NAME,
+                // 夹具第三行只有 DM ⇒ 名字退回 DM
+                JwxtFakeUpstream.TERM_BARE to JwxtFakeUpstream.TERM_BARE,
+            ),
+            runBlocking { courses.terms() }.map { it.code to it.name },
+        )
+        assertEquals(JwxtFakeUpstream.TERM_NEW, runBlocking { courses.currentTerm() })
+        assertEquals(
+            listOf(JwxtFakeUpstream.DEPT_MATH, JwxtFakeUpstream.DEPT_MECH, JwxtFakeUpstream.DEPT_PHYSICS),
+            runBlocking { courses.departments() }.map { it.name },
+        )
+
+        // 筛条件留空（界面上就是「不限」），学期用当前学期
+        val page = runBlocking {
+            courses.query(SchoolCourseQuery(termCode = JwxtFakeUpstream.TERM_NEW), page = 1, pageSize = 20)
+        }
+        assertEquals(JwxtFakeUpstream.TOTAL_SIZE, page.totalSize)
+        assertEquals(
+            listOf(
+                JwxtFakeUpstream.COURSE_1_NAME,
+                JwxtFakeUpstream.COURSE_2_NAME,
+                JwxtFakeUpstream.COURSE_3_NAME,
+            ),
+            page.courses.map { it.courseName },
+        )
+        assertEquals(5.0, page.courses[0].credit)
+        assertEquals(30, page.courses[0].remaining, "150 容量 - 120 已选")
+        // 夹具刻意没给第二行的选课人数 ⇒ `safeInt` 的默认值 0（不是「猜一个」）
+        assertEquals(0, page.courses[1].enrollCount)
+
+        // ── 成绩报表：学号用登录时写进去的那个（桌面端屏上就是这么取的）──
+        val studentId = assertNotNull(AccountContext.activeAccountId, "登录之后应当有账号 id")
+        val grades = runBlocking { scoreReportSource(site, studentId).grades() }
+        assertEquals(JwxtFakeUpstream.STUDENT_ID, fake.jwxt.lastReportStudentId, "报表请求该带登录那个学号")
+        assertEquals(
+            listOf(
+                JwxtFakeUpstream.SCORE_1_NAME to "95",
+                JwxtFakeUpstream.SCORE_2_NAME to "优秀",
+                JwxtFakeUpstream.SCORE_3_NAME to "88",
+            ),
+            grades.map { it.courseName to it.score },
+        )
+        // 学期分组口径：标题都读成了可比的学期代码，且夏季小学期得到 `-3`
+        assertEquals(
+            listOf(JwxtFakeUpstream.SCORE_TERM_SUMMER, JwxtFakeUpstream.SCORE_TERM_SPRING),
+            grades.map { it.term }.distinct().sortedDescending(),
+        )
+    }
+
+    /**
+     * 两条路由**共用一份站点会话**：进门时那一发 `ensureSession("jwxt")` 是幂等的 ——
+     * 第二条路由（同一轮里已登过）不再多打一次 CAS。
+     */
+    @Test
+    fun `教务那两条路由共用一份会话：第二条进门不再重登`() = withFakeCampus {
+        val (auth, _) = newAuth()
+        assertTrue(login(auth))
+        val landings = fake.jwxt.ticketLandings.get()
+        val posts = fake.library.credentialPosts.get()
+
+        runBlocking { auth.ensureSession(DesktopAuth.JWXT_SITE_KEY) }
+        runBlocking { auth.ensureSession(DesktopAuth.JWXT_SITE_KEY) }
+
+        assertEquals(landings, fake.jwxt.ticketLandings.get(), "会话还在新鲜窗口内，不该再走一遍 CAS")
+        assertEquals(posts, fake.library.credentialPosts.get(), "也不该再提交一次凭据")
+    }
+
+    // ══════ 评教：第八条真数据路由（本科那条链路）══════
+
+    /**
+     * 真登录链之后走「评教」那一屏用的那个源（`UndergraduateJudgeSource`）—— 桌面端 `AppRoute.Judge`
+     * 本科那一条就是它（研究生那条是 `GraduateJudgeSource`，它自己 `ensureSite` 两个站点）。
+     *
+     * 期望值全部来自 `:testkit` 的 [JwxtFakeUpstream] 夹具：未评两份（过程在前、期末在后）、已评一份，
+     * 以及 `card()` 的三项口径（课程 / 教师 / 标签）—— 屏上画的就是这三个字段，标签由 `PGLXDM` 换算
+     * （01 期末 / 05 过程），key 是 `WJDM_JXBID_BPR`（撤回时按它定位）。
+     *
+     * ⚠️ 进门那一发走的是 `DesktopSiteGate` 干的事（`ensureSession("jwxt")`）：评教与全校课表 / 成绩
+     * 是**同一个站点、同一份会话**，所以这里顺带钉住「评教不会再多登一次」。
+     */
+    @Test
+    fun `真登录之后：本科评教读出夹具样本，未评两份与卡片口径都对`() = withFakeCampus {
+        val (auth, _) = newAuth()
+        assertTrue(login(auth))
+        val postsAfterLogin = fake.library.credentialPosts.get()
+
+        runBlocking { auth.ensureSession(DesktopAuth.JWXT_SITE_KEY) }
+        assertEquals(
+            postsAfterLogin,
+            fake.library.credentialPosts.get(),
+            "评教与课表/成绩共用一份会话，不该再提交一次凭据",
+        )
+
+        // 桌面端选哪条链路看的是 `AccountContext` 里的身份（默认本科生 ⇒ 走教务那一条）
+        assertEquals(AccountType.UNDERGRADUATE, AccountContext.activeAccountType)
+        val username = assertNotNull(AccountContext.activeAccountId, "登录之后应当有账号 id")
+        val source = UndergraduateJudgeSource(auth.jwxtSite, username)
+
+        val (unfinished, finished) = runBlocking { source.load() }
+        assertEquals(
+            listOf(
+                JwxtFakeUpstream.JUDGE_COURSE_MID,
+                JwxtFakeUpstream.JUDGE_COURSE_FINAL,
+                JwxtFakeUpstream.JUDGE_COURSE_FINAL_BARE,
+            ),
+            unfinished.map { it.KCM },
+        )
+        assertEquals(listOf(JwxtFakeUpstream.JUDGE_COURSE_DONE), finished.map { it.KCM })
+
+        assertEquals(
+            listOf(
+                JudgeCard(
+                    key = "${JwxtFakeUpstream.JUDGE_WJDM_MID}_${JwxtFakeUpstream.JUDGE_JXBID_MID}_" +
+                        JwxtFakeUpstream.JUDGE_TEACHER_MID,
+                    course = JwxtFakeUpstream.JUDGE_COURSE_MID,
+                    teacher = JwxtFakeUpstream.JUDGE_TEACHER_MID,
+                    tag = "过程评教",
+                ),
+                JudgeCard(
+                    key = "${JwxtFakeUpstream.JUDGE_WJDM_FINAL}_${JwxtFakeUpstream.JUDGE_JXBID_FINAL}_" +
+                        JwxtFakeUpstream.JUDGE_BPR_FINAL,
+                    course = JwxtFakeUpstream.JUDGE_COURSE_FINAL,
+                    teacher = JwxtFakeUpstream.JUDGE_TEACHER_FINAL,
+                    tag = "期末评教",
+                ),
+                JudgeCard(
+                    key = "${JwxtFakeUpstream.JUDGE_WJDM_FINAL_BARE}_" +
+                        "${JwxtFakeUpstream.JUDGE_JXBID_FINAL_BARE}_示例庚",
+                    course = JwxtFakeUpstream.JUDGE_COURSE_FINAL_BARE,
+                    teacher = JwxtFakeUpstream.JUDGE_TEACHER_FINAL_BARE,
+                    tag = "期末评教",
+                ),
+            ),
+            unfinished.map { source.card(it) },
+        )
+        // 已评那一张：本科端可提交也可撤回（`canSubmit` 默认 true、`undo` 非空 ⇒ 屏上会出现那两个按钮）
+        assertEquals("期末评教", source.card(finished[0]).tag)
+        assertNotNull(source.undo, "本科端能撤回（屏上那个按钮据此出现）")
+        assertEquals("，确定继续？", source.confirmText)
+    }
+
+    // ══════ 校园卡：第九条真数据路由 ══════
+
+    /**
+     * 真登录链之后走「校园卡」那一屏用的那个源（`:data` 的 `AppCampusCardSource`，桌面端
+     * `AppRoute.CampusCard` 就是它，缓存传 `null` —— 桌面没有按账号分文件的宿主存储）。
+     *
+     * 期望值全部来自 `:testkit` 的 [CampusCardFakeUpstream]：卡号 / 姓名 / 学号 / 余额 / 待入账 /
+     * 有效期 / 卡类型，以及七条流水的金额、商户名、余额 —— 不是从跑通的实现里抄的。
+     *
+     * 进门那一发走的是 `DesktopSiteGate` 干的事（`ensureSession("campus_card")`）：这里顺带钉住
+     * 「登录页那一步已经尽力预热过它 ⇒ 进屏不会再登一次」。
+     */
+    @Test
+    fun `真登录之后：校园卡自己走完 CAS，卡面与流水都读得出夹具样本`() = withFakeCampus {
+        val (auth, _) = newAuth()
+        assertTrue(login(auth), "用假下游的账号密码应当登得上：${auth.loginState}")
+
+        // 夹具与生产必须指同一个站点：URL 漂了的话，下面这些断言测的就不是真协议
+        assertEquals(CampusCardLogin.LOGIN_URL, CampusCardFakeUpstream.HOME_URL)
+
+        // ── 登录页那一步应当已经把这个站点预热起来（尽力预热，失败只记不抛）──
+        assertTrue(fake.campusCard.casRedirects.get() >= 1, "没带 ticket 时应当被交给统一认证")
+        assertEquals(1, fake.campusCard.ticketLandings.get(), "CAS 回跳只该落在 ncard 入口一次")
+        assertEquals(1, fake.campusCard.tokenCalls.get(), "ticket 只该换一次 JWT")
+        assertTrue(fake.campusCard.userInfoCalls.get() >= 1, "登录链上应当拉过一次用户资料")
+        assertTrue(fake.library.tickets.get() >= 1, "统一认证应当真签过 ticket")
+
+        // 进门那一发（Gate 干的事）是幂等的：会话还新鲜，不该再走一遍 CAS
+        val landings = fake.campusCard.ticketLandings.get()
+        val posts = fake.library.credentialPosts.get()
+        val site = auth.campusCardSite
+        runBlocking { auth.ensureSession(DesktopAuth.CAMPUS_CARD_SITE_KEY) }
+        assertTrue(site.hasLogin, "登录页那一步应当把校园卡站点也登起来")
+        assertEquals(landings, fake.campusCard.ticketLandings.get(), "会话还在新鲜窗口内，不该再走一遍 CAS")
+        assertEquals(posts, fake.library.credentialPosts.get(), "也不该再提交一次凭据")
+
+        // ── 取数：`AppRoute.CampusCard` 那一屏用的就是这个源（缓存传 null）──
+        val source = AppCampusCardSource(site)
+        val card = runBlocking { source.card() }
+        assertEquals(CampusCardFakeUpstream.CARD_ACCOUNT, card.account)
+        assertEquals(CampusCardFakeUpstream.USER_NAME, card.name)
+        assertEquals(CampusCardFakeUpstream.STUDENT_NO, card.studentNo)
+        assertEquals(CampusCardFakeUpstream.BALANCE_CENTS / 100.0, card.balance)
+        assertEquals(CampusCardFakeUpstream.PENDING_CENTS / 100.0, card.pendingAmount)
+        assertEquals(CampusCardFakeUpstream.EXPIRE_DATE, card.expireDate)
+        assertEquals(CampusCardFakeUpstream.CARD_TYPE, card.cardType)
+        assertEquals(false, card.lostFlag)
+        assertEquals(false, card.frozenFlag)
+
+        // 屏首屏走的就是 `allTransactions`（最多 12 页、允许残缺），夹具只有一页 ⇒ 只打一枪
+        val transactions = runBlocking {
+            source.allTransactions(startDate = LocalDate(2026, 10, 1), endDate = LocalDate(2026, 10, 10))
+        }
+        assertEquals(CampusCardFakeUpstream.TOTAL, transactions.size)
+        assertEquals(
+            listOf(
+                CampusCardFakeUpstream.MERCHANT_CANTEEN,
+                CampusCardFakeUpstream.MERCHANT_CANTEEN,
+                "充值",
+                CampusCardFakeUpstream.MERCHANT_DUMPLING,
+                CampusCardFakeUpstream.MERCHANT_UNKNOWN,
+                CampusCardFakeUpstream.MERCHANT_CARD_CENTER,
+                CampusCardFakeUpstream.MERCHANT_REFUND,
+            ),
+            transactions.map { it.displayMerchant },
+        )
+        assertEquals(
+            listOf(
+                -CampusCardFakeUpstream.TX_LUNCH_AMOUNT_CENTS / 100.0,
+                -CampusCardFakeUpstream.TX_BREAKFAST_AMOUNT_CENTS / 100.0,
+                CampusCardFakeUpstream.TX_RECHARGE_AMOUNT_CENTS / 100.0,
+                -CampusCardFakeUpstream.TX_QRCODE_AMOUNT_CENTS / 100.0,
+                -CampusCardFakeUpstream.TX_UNKNOWN_OUT_AMOUNT_CENTS / 100.0,
+                CampusCardFakeUpstream.TX_UNKNOWN_IN_AMOUNT_CENTS / 100.0,
+                CampusCardFakeUpstream.TX_REFUND_AMOUNT_CENTS / 100.0,
+            ),
+            transactions.map { it.amount },
+        )
+        assertEquals(1, fake.campusCard.turnoverCalls.get(), "总数到齐 ⇒ 屏的首屏只打一页流水的枪")
+    }
+
+    // ══════ 空闲教室：第十条真数据路由 ══════
+
+    /**
+     * 真登录链之后走「空闲教室」那一屏用的那个源（`:data` 的 `AppEmptyRoomSource`，桌面端
+     * `AppRoute.EmptyRoom` 就是它：落盘传 `null`）。
+     *
+     * 这条同时钉住**那个路由为什么不套 `DesktopSiteGate`**：`AppRoute.EmptyRoom.loginType` 是 null
+     * （三档数据源要登的站点不同）⇒ 会话由源自己 ensure。所以这里也顺手钉住「登录页那一步**没有**
+     * 预热这个站点」：`js` 刻意不在 `DesktopAuth.SESSION_SITE_KEYS` 里（只有这一屏的一档要它）。
+     *
+     * 期望值全部来自 `:testkit` 的 [EmptyRoomFakeUpstream]：楼顺序、四种状态、人数、课程与教师、
+     * 当天课表的 11 节占用与座位数 —— 不是从跑通的实现里抄的。
+     */
+    @Test
+    fun `真登录之后：空闲教室自己把智慧教室会话登起来，三档里两档读得出夹具样本`() = withFakeCampus {
+        val (auth, _) = newAuth()
+        assertTrue(login(auth), "用假下游的账号密码应当登得上：${auth.loginState}")
+
+        // ── 登录页那一步不该碰这个站点（它不在 SESSION_SITE_KEYS 里）──
+        val js = assertNotNull(
+            auth.sessionManager.getSiteOrNull(DesktopAuth.JS_SITE_KEY),
+            "js 站点得注册好 —— AppEmptyRoomSource 构造时就按它取会话，没注册那一档永远不可用",
+        )
+        assertTrue(!js.hasLogin, "登录页那一步没有预热它（只有这一屏的一档要它）")
+        assertEquals(0, fake.emptyRoom.tokenCalls.get(), "没进那一屏就不该走这一趟 CAS + 换令牌")
+
+        // ── 进屏：`AppRoute.EmptyRoom` 用的就是这个源 ──
+        val source = AppEmptyRoomSource(auth.sessionManager)
+        assertEquals(
+            listOf(RoomSource.LIVE, RoomSource.CDN, RoomSource.DIRECT),
+            source.availableSources,
+            "桌面能提供三档（实时状态 / CDN 课表 / 直查教务）",
+        )
+
+        // 第一枪实时状态：源自己 `ensureSite("js")` ⇒ 走完整 CAS + 用票换令牌
+        val snapshot = runBlocking { source.liveSnapshot(EmptyRoomFakeUpstream.LIVE_CAMPUS, force = true) }
+        assertTrue(js.hasLogin, "实时状态那一档自己把智慧教室会话登起来了")
+        assertEquals(1, fake.emptyRoom.ticketLandings.get(), "CAS 回跳只该落在 js 入口一次")
+        assertEquals(1, fake.emptyRoom.tokenCalls.get(), "票据只该换一次令牌")
+        assertTrue(fake.library.tickets.get() >= 1, "统一认证应当真签过 ticket")
+
+        // ── 教室列表与状态：全部来自夹具原文 ──
+        assertEquals(listOf(EmptyRoomFakeUpstream.BUILDING_A, EmptyRoomFakeUpstream.BUILDING_E), snapshot.buildings)
+        assertEquals(
+            listOf(
+                EmptyRoomFakeUpstream.ROOM_A101,
+                EmptyRoomFakeUpstream.ROOM_A102,
+                EmptyRoomFakeUpstream.ROOM_E303,
+                EmptyRoomFakeUpstream.ROOM_E305,
+            ),
+            snapshot.rooms.map { it.name },
+        )
+        assertEquals(2, snapshot.freeCount, "两间空闲")
+        assertEquals(1, snapshot.inUseCount, "一间「其它使用」（没排课但有人）")
+        assertEquals(1, snapshot.inClassCount, "一间上课中")
+        val inClass = snapshot.rooms.first { it.name == EmptyRoomFakeUpstream.ROOM_A101 }
+        assertEquals(EmptyRoomFakeUpstream.LIVE_COURSE, inClass.course)
+        assertEquals(EmptyRoomFakeUpstream.LIVE_TEACHER, inClass.teacher)
+        assertEquals(EmptyRoomFakeUpstream.LIVE_IN_CLASS_PEOPLE, inClass.people)
+        assertEquals(EmptyRoomFakeUpstream.SEATS_A101, inClass.seats)
+
+        // ── CDN 那一档：屏进实时状态时会顺带取一份当天课表（按教室名对上课节条）──
+        val schedule = runBlocking {
+            source.rooms(
+                campus = EmptyRoomFakeUpstream.LIVE_CAMPUS,
+                buildings = snapshot.buildings.toSet(),
+                date = EmptyRoomFakeUpstream.DATE,
+                direct = false,
+                force = true,
+                onProgress = { _, _ -> },
+            )
+        }
+        val byName = schedule.associateBy { it.name }
+        assertEquals(EmptyRoomFakeUpstream.SEATS_A101, byName.getValue(EmptyRoomFakeUpstream.ROOM_A101).size)
+        assertEquals(
+            listOf(1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0),
+            byName.getValue(EmptyRoomFakeUpstream.ROOM_A101).status,
+            "上午排满、下午空着（11 节状态）",
+        )
+        assertEquals(List(11) { 0 }, byName.getValue(EmptyRoomFakeUpstream.ROOM_A102).status)
+        assertTrue(fake.emptyRoom.cdnCalls.get() >= 1, "CDN 那一档应当打过夹具")
+
+        // 座位数（课表页的课程详情要显示「XX座」）
+        assertEquals(
+            EmptyRoomFakeUpstream.SEATS_A101,
+            runBlocking { source.seatCount(EmptyRoomFakeUpstream.ROOM_A101) },
+        )
+
+        // 桌面没有按账号分命名空间的宿主存储（传 null）⇒ 两处磁盘兜底都只能是 null
+        assertNull(source.readStaleLive(EmptyRoomFakeUpstream.LIVE_CAMPUS))
+        assertNull(
+            source.readStaleRooms(
+                EmptyRoomFakeUpstream.LIVE_CAMPUS,
+                setOf(EmptyRoomFakeUpstream.BUILDING_A),
+                EmptyRoomFakeUpstream.DATE,
+                direct = false,
+            ),
+        )
+    }
+
+    // ══════ 体育场馆：第十一条真数据路由 ══════
+
+    /**
+     * 真登录链之后走「体育场馆」那一屏用的那个源（`:data` 的 `AppVenueSource`，桌面端
+     * `AppRoute.Venue` 就是它：`canBook = false` —— 这一端没有滑块控件，下单那一步走不完）。
+     *
+     * 这条同时钉住那一条登录链：场馆站的入口不是它自己，而是 `org.xjtu.edu.cn` 的 OAuth2
+     *（appId=1659）→ CAS → 回跳 `/web/cas/oauth2url.html` → 首页 userno。场馆站本身是**明文 http**
+     *（不走 CONNECT 隧道）；只有 OAuth 入口那一跳是 https。
+     *
+     * 期望值全部来自 `:testkit` 的 [VenueFakeUpstream]：9 个场馆（两页拼起来，`id=0` 那行被跳过）、
+     * 某天七个时段（可订 + 已占两路合并后排序）、我的订单两条 —— 不是从跑通的实现里抄的。
+     */
+    @Test
+    fun `真登录之后：体育场馆走完 OAuth 与 CAS，场馆列表与时段都读得出夹具样本`() = withFakeCampus {
+        val (auth, _) = newAuth()
+        assertTrue(login(auth), "用假下游的账号密码应当登得上：${auth.loginState}")
+
+        // 夹具与生产必须指同一个站点：URL 漂了的话，下面这些断言测的就不是真协议
+        assertEquals(VenueLogin.BASE_URL, VenueFakeUpstream.ORIGIN)
+        assertEquals(VenueLogin.VENUE_OAUTH_URL, VenueFakeUpstream.OAUTH_URL)
+
+        // ── 登录页那一步已经尽力预热过它（它在 SESSION_SITE_KEYS 里）──
+        assertTrue(fake.venue.oauthCalls.get() >= 1, "OAuth 入口那一跳应当被打开过")
+        assertEquals(1, fake.venue.ticketLandings.get(), "CAS 回跳只该落在那个回调上一次")
+        assertTrue(fake.library.tickets.get() >= 1, "统一认证应当真签过 ticket")
+
+        // 进门那一发（Gate 干的事）：会话已经新鲜，不该再走一遍 CAS
+        runBlocking { auth.ensureSession(DesktopAuth.VENUE_SITE_KEY) }
+        val landings = fake.venue.ticketLandings.get()
+        val posts = fake.library.credentialPosts.get()
+        val site = auth.venueSite
+        assertTrue(site.hasLogin, "登录页那一步应当把场馆站点也登起来")
+        runBlocking { auth.ensureSession(DesktopAuth.VENUE_SITE_KEY) }
+        assertEquals(landings, fake.venue.ticketLandings.get(), "会话还在新鲜窗口内，不该再走一遍 CAS")
+        assertEquals(posts, fake.library.credentialPosts.get(), "也不该再提交一次凭据")
+
+        // ── 取数：`AppRoute.Venue` 那一屏用的就是这个源 ──
+        val source = AppVenueSource(site, canBook = false)
+        assertEquals(false, source.canBook, "桌面没有滑块控件 ⇒ 如实声明不能下单")
+        assertTrue(source.canCancel, "取消不需要滑块 ⇒ 这一件照旧能做")
+
+        val venues = runBlocking { source.venues() }
+        assertEquals(
+            listOf(
+                VenueFakeUpstream.VENUE_A_NAME,
+                VenueFakeUpstream.VENUE_B_NAME,
+                "示例场馆丙",
+                "",
+                VenueFakeUpstream.VENUE_F_NAME,
+                "示例场馆庚",
+                "示例场馆辛",
+                VenueFakeUpstream.VENUE_ASCII_NAME,
+                VenueFakeUpstream.VENUE_GBK_NAME,
+            ),
+            venues.map { it.name },
+        )
+        assertEquals(2, fake.venue.listCalls.get(), "第一页满 8 条 ⇒ 必须再要一页")
+        assertEquals(VenueFakeUpstream.VENUE_A_ADDRESS, venues.first().address)
+        assertEquals(VenueFakeUpstream.VENUE_A_ICON, venues.first().iconType)
+        assertEquals(VenueFakeUpstream.VENUE_A_ADVANCE_DAY, venues.first().advanceDay)
+        assertEquals(VenueFakeUpstream.VENUE_A_ADVANCE_NUM, venues.first().advanceNum)
+
+        // 时段：可订 + 已占两路合并后按 (时段, 场地名) 排序
+        val date = "2026-10-12"
+        val slots = runBlocking { source.slots(VenueFakeUpstream.VENUE_A_ID, date) }
+        assertEquals(1, fake.venue.okCalls.get())
+        assertEquals(1, fake.venue.lockCalls.get())
+        assertEquals(
+            listOf(5101L, 5102L, 5105L, 5103L, 5104L, 5202L, 5201L),
+            slots.map { it.areaDetailId },
+        )
+        assertEquals(
+            listOf(7, 1, 5, 6, 1, 0, 0),
+            slots.map { it.surplus },
+            "status==1 才是可订（全满的兜到 1）；已占那两格剩余为 0",
+        )
+        assertEquals(date, slots.first().date, "date 用的是请求里那一天")
+        assertEquals(
+            listOf("场地1", "场地2", "场地3", "场地1", "预订", "场地1", "场地3"),
+            slots.map { it.areaName },
+        )
+
+        // 我的订单那一栏：两条（空 orderid 的行与数组里不是对象的元素都被丢掉）
+        val orders = runBlocking { source.orders(page = 1, pageSize = 20) }
+        assertEquals(
+            listOf(VenueFakeUpstream.ORDER_PAID_ID, VenueFakeUpstream.ORDER_PENDING_ID),
+            orders.orders.map { it.orderId },
+        )
+        assertEquals(2, orders.total)
+        assertEquals(false, orders.hasMore)
+
+        // 收藏：桌面与 App 看到的是同一份（`:core` 共享的 `VenueFavorites`，JVM 侧是内存 store）
+        val before = runBlocking { source.favorites() }
+        assertTrue(VenueFakeUpstream.VENUE_A_ID !in before, "这条用例开始时不该已收藏：$before")
+        assertTrue(runBlocking { source.toggleFavorite(VenueFakeUpstream.VENUE_A_ID) })
+        assertTrue(VenueFakeUpstream.VENUE_A_ID in runBlocking { source.favorites() })
+        assertTrue(!runBlocking { source.toggleFavorite(VenueFakeUpstream.VENUE_A_ID) }, "再翻一次回到原位")
+    }
+
+    // ══════ 消息收纳：第十二条真数据路由 ══════
+
+    /**
+     * 真登录之后走「消息收纳」那一屏用的那个源（`:data` 的 `AppInboxSource`，桌面端 `AppRoute.Inbox`
+     * 就是它：构造参数只有会话管家，图书馆座位那条补拉的缝传 `null` —— 桌面端没有任何东西写
+     * `LIBRARY` 那一类待办，早返回与空实现同义）。
+     *
+     * 它同时钉住那条登录链：一网通办门户 → CAS（凭据 RSA 加密）→ 回跳门户时 `ticket=` 是一枚
+     * **JWT**（`YwtbLogin` 从它的 payload 里读出 idToken）→ 四路取数都带 `x-id-token`。
+     * 四路 URL 与夹具**逐字相同**（夹具按「路径 + 查询串」逐字比对，不认识就 404）。
+     *
+     * 期望值全部来自 `:testkit` 的 [YwtbFakeUpstream]（两条消息 —— 四条样本里两条该被滤掉、两条事务
+     * 中心待办、预约中心 3 条与校车 0 条），不是从跑通的实现里抄的；屏上读的就是下面这些 store 投影。
+     */
+    @Test
+    fun `真登录之后：消息收纳自己登上一网通办，四路取数都读得出夹具样本`() = withFakeCampus {
+        val (auth, _) = newAuth()
+        assertTrue(login(auth), "用假下游的账号密码应当登得上：${auth.loginState}")
+
+        // 夹具与生产必须指同一个门户（登录入口的 service 参数就是它）；四路 URL 由夹具逐字比对
+        assertTrue(
+            YwtbLogin.YWTB_LOGIN_URL.contains(YwtbFakeUpstream.HOST),
+            "一网通办登录入口回的就是夹具那个门户：${YwtbLogin.YWTB_LOGIN_URL}",
+        )
+
+        // ── 登录页那一步已经尽力预热过它（它在 SESSION_SITE_KEYS 里）──
+        assertTrue(fake.ywtb.portalLandings.get() >= 1, "登录页那一步应当把一网通办也登起来")
+        runBlocking { auth.ensureSession(DesktopAuth.YWTB_SITE_KEY) }
+        val landings = fake.ywtb.portalLandings.get()
+        val posts = fake.library.credentialPosts.get()
+        assertTrue(auth.sessionManager.getSite(DesktopAuth.YWTB_SITE_KEY).hasLogin, "登录页那一步应当把一网通办站点也登起来")
+        runBlocking { auth.ensureSession(DesktopAuth.YWTB_SITE_KEY) }
+        assertEquals(landings, fake.ywtb.portalLandings.get(), "会话还在新鲜窗口内，不该再走一遍 CAS")
+        assertEquals(posts, fake.library.credentialPosts.get(), "也不该再提交一次凭据")
+
+        // ── 取数：`AppRoute.Inbox` 那一屏用的就是这个源 ──
+        val source = AppInboxSource(auth.sessionManager)
+        val account = AccountContext.activeAccountId
+        assertEquals(LibraryFakeUpstream.USERNAME, account, "进门那一发按登录账号分命名空间")
+        assertTrue(source.isDue(account, System.currentTimeMillis()), "第一次进屏还没拉过 ⇒ 该拉")
+        runBlocking { source.refresh(account) }
+
+        assertEquals(1, fake.ywtb.messageCalls.get(), "消息那一路应当恰好被打一次")
+        assertEquals(1, fake.ywtb.todoCalls.get(), "事务中心那一路应当恰好被打一次")
+        assertEquals(1, fake.ywtb.bookingCalls.get(), "预约中心那一路应当恰好被打一次")
+        assertEquals(1, fake.ywtb.busCalls.get(), "校车那一路应当恰好被打一次")
+        assertEquals(YwtbFakeUpstream.BUS_URL, fake.ywtb.lastBusinessUrl.get(), "最后一枪就是校车那一条 URL")
+        assertEquals(YwtbFakeUpstream.ID_TOKEN, fake.ywtb.lastIdToken.get(), "四路都只认 CAS 换来那颗 x-id-token")
+        assertTrue(!source.isDue(account, System.currentTimeMillis()), "刚拉过 ⇒ TTL 内不再拉")
+
+        // 桌面端没有图书馆座位那一路 ⇒ 有座位待办也只是空转（不抛、不用 Context）
+        runBlocking {
+            source.afterRefresh(
+                InboxData(
+                    todos = mapOf(
+                        InboxCategories.LIBRARY to listOf(
+                            InboxItem(id = "library:入馆签到", category = InboxCategories.LIBRARY, source = "图书馆", title = "座位 A01 待入馆签到"),
+                        ),
+                    ),
+                ),
+            )
+        }
+
+        // ── 屏读的就是 InboxStore（收纳按账号存）──
+        val data = InboxStore.load(account)
+        assertEquals(
+            listOf("school:${YwtbFakeUpstream.MESSAGE_SIGNED_ID}", "school:${YwtbFakeUpstream.MESSAGE_BARE_ID}"),
+            data.messages.map { it.id },
+            "四条消息样本里两条该被滤掉（事务中心那条、座位那条）",
+        )
+        assertEquals(YwtbFakeUpstream.MESSAGE_SIGNED_SOURCE, data.messages.first().source, "来源取正文末尾的落款")
+        assertEquals(
+            2,
+            data.todos.getValue(InboxCategories.SCHOOL_TODO).size,
+            "事务中心两条：一条有 taskId、一条没有（id 回落成「标题@addTime」）",
+        )
+        assertEquals(
+            "todo:${YwtbFakeUpstream.TODO_ID}",
+            data.todos.getValue(InboxCategories.SCHOOL_TODO).first().id,
+        )
+        val booking = data.todos.getValue(InboxCategories.BOOKING).single()
+        assertEquals(
+            "预约中心 有 ${YwtbFakeUpstream.BOOKING_RESERVATION_TOTAL} 个待使用的预约",
+            booking.title,
+            "预约与校车只报数量（校车 0 条 ⇒ 一条都不出）",
+        )
+
+        // 屏上那两栏的投影（`InboxRules` 是 :core 的口径，这里只验「真读得出东西」）
+        val now = System.currentTimeMillis()
+        assertEquals(2, InboxRules.groups(data, now).size, "两条消息两类")
+        assertEquals(3, InboxRules.todos(data, now).size, "两条事务中心待办 + 一条预约")
+    }
+
+    // ══════ 通知公告：第 13 条真数据路由 ══════
+
+    /**
+     * 通知公告那一屏**不需要登录**（29 个源全是公开的公告页，屏一进门就自己爬），所以这一段验的是
+     * 「外壳接的那条路真取得到数」：源来自 `:data` 的 [AppNoticeSource]，三个夹具源都读出夹具样本，
+     * 其中化工学院那一条要过**动态挑战**（纯 HTTP 解：页面给 `a`/`b`/`operator`，客户端自己算答案
+     * 并按那段 JS 的语义算 hash，POST `/dynamic_challenge` 换 `client_id`）。
+     *
+     * ⚠️ 诚实边界：夹具只扮了 29 个源里的 3 个（教务处 / 化工学院 / OA）—— 另 26 个没被覆盖。
+     * 它到此只能证明「这两条爬虫族 + 挑战解在真实响应形状上是对的」，**不是**「29 个源都验过了」。
+     */
+    @Test
+    fun `真登录之后：通知公告直连学校站点，教务处、化工学院（含挑战）与 OA 都读出夹具样本`() = withFakeCampus {
+        val (auth, _) = newAuth()
+        assertTrue(login(auth), "用假下游的账号密码应当登得上：${auth.loginState}")
+
+        // ── 屏用的就是这个源（`AppRoute.Notification` 那一段）；它一个站点会话都不需要 ──
+        val source = AppNoticeSource()
+
+        // ── 教务处：屏的默认来源（夹具覆盖面里的第一个）──
+        val jwc = runBlocking { source.page(NotificationSource.JWC, 1) }
+        assertEquals(
+            listOf(
+                NotificationFakeUpstream.JWC_TITLE_1,
+                NotificationFakeUpstream.JWC_TITLE_2,
+                NotificationFakeUpstream.JWC_TITLE_3,
+            ),
+            jwc.items.map { it.title },
+        )
+        assertEquals(
+            listOf(
+                NotificationFakeUpstream.JWC_DATE_1,
+                NotificationFakeUpstream.JWC_DATE_2,
+                NotificationFakeUpstream.JWC_DATE_3,
+            ),
+            jwc.items.map { it.date.toString() },
+        )
+        assertEquals(
+            listOf(
+                NotificationFakeUpstream.JWC_TAG,
+                NotificationFakeUpstream.JWC_TAG,
+                NotificationFakeUpstream.JWC_TAG,
+            ),
+            jwc.items.map { it.tags.single() },
+        )
+        assertTrue(jwc.hasMore, "「下页」那条在 ⇒ 屏还能往下翻")
+
+        // ── 化工学院：动态挑战那一路（那一枪真打过：夹具手里有提交计数）──
+        val clet = runBlocking { source.page(NotificationSource.CLET, 1) }
+        assertEquals(1, fake.notification.challengeAccepts.get(), "挑战应当恰好解过一次")
+        assertEquals(listOf(
+            NotificationFakeUpstream.CLET_TITLE_1,
+            NotificationFakeUpstream.CLET_TITLE_2,
+            NotificationFakeUpstream.CLET_TITLE_3,
+        ), clet.items.map { it.title })
+        // 拆分日期模板（`<span><b>MM/DD</b>YYYY</span>`）拼回来的
+        assertEquals(
+            listOf(
+                NotificationFakeUpstream.CLET_DATE_1,
+                NotificationFakeUpstream.CLET_DATE_2,
+                NotificationFakeUpstream.CLET_DATE_3,
+            ),
+            clet.items.map { it.date.toString() },
+        )
+        assertEquals(1, fake.notification.cletListCalls.get(), "通过挑战之后才取到列表")
+
+        // ── OA：另一族爬虫（表格行 + `页次`）──
+        val oa = runBlocking { source.page(NotificationSource.OA, 1) }
+        assertEquals(
+            listOf(
+                NotificationFakeUpstream.OA_TITLE_1,
+                NotificationFakeUpstream.OA_TITLE_2,
+                NotificationFakeUpstream.OA_TITLE_3,
+            ),
+            oa.items.map { it.title },
+        )
+        assertEquals(
+            listOf(
+                NotificationFakeUpstream.OA_DEPT_1,
+                NotificationFakeUpstream.OA_DEPT_2,
+                NotificationFakeUpstream.OA_DEPT_3,
+            ),
+            oa.items.map { it.tags.single() },
+            "部门取的是 `td.timedate1` 里「部门（日期）」那一半",
+        )
+
+        // ── 合并（屏的「合并模式」那条路）：9 条按日期倒序，没人被静默跳过 ──
+        val merged = runBlocking {
+            source.merged(
+                listOf(NotificationSource.JWC, NotificationSource.CLET, NotificationSource.OA),
+                1,
+            )
+        }
+        assertEquals(9, merged.items.size)
+        assertEquals(
+            NotificationFakeUpstream.CLET_DATE_3,
+            merged.items.first().date.toString(),
+            "按日期倒序：10-09 那条在最前",
+        )
+        assertEquals(NotificationFakeUpstream.JWC_DATE_1, merged.items[2].date.toString())
+        assertTrue(merged.skipped.isEmpty(), "三个源都在 ⇒ 屏上不该出现「暂不可达」那一行")
+        assertTrue(merged.hasMore)
+
+        // ── 站内检索：走站自己的博达检索（关键词 Base64 放在 newskeycode2 里）──
+        val searched = runBlocking {
+            source.search(listOf(NotificationSource.JWC), NotificationFakeUpstream.SEARCH_KEYWORD)
+        }
+        assertEquals(
+            listOf(NotificationFakeUpstream.SEARCH_TITLE_1, NotificationFakeUpstream.SEARCH_TITLE_2),
+            searched.items.map { it.title },
+        )
+        assertEquals(
+            NotificationFakeUpstream.SEARCH_KEYWORD,
+            fake.notification.lastSearchKeyword.get(),
+            "夹具把 Base64 解回来逐字比对",
+        )
+
+        // ── 路由那一行：这条已经从「还没搬」挪进「真能用」──
+        assertTrue(
+            DESKTOP_SUPPORTED_ROUTES.any { it.first == AppRoute.Notification },
+            "通知公告该在「真能用」那一栏里",
+        )
+        assertTrue(
+            DESKTOP_PENDING_ROUTES.isEmpty(),
+            "Stage A 的 pending 表该空了，还剩：${DESKTOP_PENDING_ROUTES.map { it.second }}",
+        )
+    }
+
+    // ══════ 校历：免登录的那条路 ══════
     @Test
     fun `校历：免登录就能取到学期与假期（桌面端第二条真能用的路由）`() = withFakeCampus {
         // 注意：**没有任何登录**。这个接口是公开门户接口，`:data` 的 `SchoolCalendarApi` 直接用。
@@ -233,6 +1068,37 @@ class DesktopAuthLibraryJvmTest {
         // 默认选中哪一学期：今天（2026-10-09）在第一学期内 ⇒ 选它，而不是"最后一个"或"最老的"
         assertEquals(0, defaultTermIndex(terms, LocalDate.parse("2026-10-09")))
         assertEquals(5, first.currentWeek(LocalDate.parse("2026-10-09")))
+    }
+
+    // ══════ 「某个子系统挂了」不该把整个客户端挡在门外 ══════
+
+    /**
+     * 体测服务历史上真的返回过 502（见 `:data` 的 `FitnessSession` KDoc）。所以登录页那一步
+     * **只硬要求主站（图书馆）**，其余站点是「尽力预热、失败只记不抛」；那些站点在**自己那一屏**
+     * 进门时再补登（`ToolboxDesktopApp` 的 `DesktopSiteGate`）。
+     *
+     * 这一条就是那个设计的回归网：体测全站 503 时，登录必须照样成功、图书馆照样能读，
+     * 而体测那一屏自己报错（不是把登录态弄坏）。
+     */
+    @Test
+    fun `体测服务挂了也不阻塞登录（主站照常，进那一屏才报错）`() = withFakeCampus {
+        fake.fitness.outage = true
+        val (auth, _) = newAuth()
+
+        assertTrue(login(auth), "体测挂了不该让登录失败：${auth.loginState}")
+        assertTrue(auth.loggedIn, "登录态应当照常建立")
+
+        // 主站（图书馆）硬要求，所以它必须真能用
+        val seats = assertIs<SeatResult.Success>(runBlocking { auth.librarySource.seats("north2east") })
+        assertEquals(listOf("A01", "A02", "A10"), seats.seats.map { it.seatId })
+
+        // 体测那一屏自己失败（Gate 会把这条失败画成「重试」页），但不影响登录态
+        assertTrue(
+            runCatching { runBlocking { auth.ensureSession(DesktopAuth.FITNESS_SITE_KEY) } }.isFailure,
+            "体测服务挂着时，补登它应当失败",
+        )
+        assertTrue(auth.loggedIn, "体测失败不该把登录态弄坏")
+        assertEquals(0, fake.fitness.launchCallbacks.get(), "服务挂着时不该有成功的 launch 回调")
     }
 
     // ══════ 冷启动 ══════
@@ -354,5 +1220,30 @@ class DesktopAuthLibraryJvmTest {
         assertEquals(listOf("029-82668891", "029-82668892"), data.departments[1].phoneItems)
         // 「数据更新于」的格式化口径（与 `:core` 那条单测同一个期望值）
         assertEquals("2026年08月01日", data.updateTime)
+    }
+
+    // ══════ 教师检索：另一条免登录的路（OkHttpClient 可注入 ⇒ 一条拦截器，不需要服务器）══════
+
+    @Test
+    fun `教师检索：免登录就能检索到教师，缺的主页地址由英文接口补齐`() {
+        // 同样不需要 `withFakeCampus`：`FacultyApi` 的 `OkHttpClient` 可注入，端口在调用方一侧。
+        val api = FacultyApi(mockFacultyClient())
+        val page = runBlocking { api.search() }
+
+        assertEquals(4, page.total)
+        assertEquals(listOf(20101L, 20102L, 20103L, 20104L), page.members.map { it.teacherId })
+        // 名字两边的空格被 trim（夹具里刻意带着空格）
+        assertEquals("示例甲", page.members[0].name)
+        // 第 2 行在中文接口里没有 url ⇒ 英文接口按 teacherId 补上（电气学院过半的人都这样）
+        assertTrue(
+            page.members[1].homepageUrl.contains("example-b"),
+            "英文接口应把主页地址补上：${page.members[1].homepageUrl}",
+        )
+        // 第 4 行是站外地址（ORCID）⇒ 原样返回、不算「空」，不该被英文接口覆盖
+        assertEquals("https://orcid.org/0000-0000-0000-0000", page.members[3].homepageUrl)
+
+        // 四张筛选 id 表从 search.jsp 的 HTML 里解析（免登录）
+        val filters = runBlocking { api.loadFilters() }
+        assertTrue(filters.colleges.isNotEmpty(), "学院表应解析出来：$filters")
     }
 }

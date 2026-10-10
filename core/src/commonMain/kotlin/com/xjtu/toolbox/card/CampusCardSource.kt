@@ -23,14 +23,15 @@ import kotlinx.datetime.LocalDate
  *
  * ## 各端
  *
- * - `AppCampusCardSource`（`:app`）= 原来的 `CampusCardApi`（okhttp 抓 ncard）+ `CampusCardCache`
- *   （SharedPreferences），**那两份实现一行未改**，只是被包进这个端口；
+ * - `AppCampusCardSource`（`:data`，Android 与桌面两侧共用）= 原来的 `CampusCardApi`（okhttp 抓 ncard，
+ *   取数一行未改）+ 构造参数那份宿主存储 `CampusCardStore`（`:app` 传 `appCampusCardStore(context)`
+ *   = 原来的 `CampusCardCache`（SharedPreferences），桌面端传 `null`），只是被包进这个端口；
  * - `CampusCardNetApi`（`:core/core/net`，Web 端用）= campus-api 的 `/api/card/balance` 与
  *   `/api/card/transactions`，逐字段映射写在那个类的 KDoc 里。
  *
  * ## IO 调度由实现方自己负责
  *
- * `:app` 那两份是阻塞式 okhttp + SharedPreferences，实现里自己 `withContext(Dispatchers.IO)`；
+ * `AppCampusCardSource` 是阻塞式 okhttp + 阻塞式存储，实现里自己 `withContext(Dispatchers.IO)`；
  * Web 走 ktor 的挂起接口，不需要。VM 只在自己的可取消作用域里调用，不再替实现挑调度器
  *（与 `EmptyRoomSource` 同一条约定）。
  *

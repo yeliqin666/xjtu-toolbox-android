@@ -371,6 +371,9 @@ class AppLoginStateViewModel(application: android.app.Application) : androidx.li
         // 切账号时顺手丢掉一网通办令牌。搬迁前这一句写在 SessionManager.reconfigureForAccount 里，
         // 而 CampusProbe 要 ConnectivityManager（宿主能力，没跟着会话内核搬进 :data）⇒ 改成宿主注入。
         sessionManager.onAccountSwitched = { CampusProbe.ywtbToken = null }
+        // 反方向的那一枪：一网通办登上了就把新令牌交回来（`YwtbSession` 已搬进 :data，它不再认识
+        // CampusProbe，所以这一句也变成了宿主注入 —— 与上一句同一条缝）。
+        sessionManager.onYwtbToken = { CampusProbe.ywtbToken = it }
     }
 
     /** 多账号编排器。 */

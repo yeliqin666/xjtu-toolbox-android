@@ -19,30 +19,62 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.viewmodel.compose.viewModel
+import com.xjtu.toolbox.account.AccountContext
+import com.xjtu.toolbox.auth.AccountType
 import com.xjtu.toolbox.auth.LoginScreen
 import com.xjtu.toolbox.auth.MfaCodeDialog
 import com.xjtu.toolbox.auth.ensureSite
+import com.xjtu.toolbox.auth.SiteSession
 import com.xjtu.toolbox.calendar.SchoolCalendarApi
+import com.xjtu.toolbox.card.AppCampusCardSource
+import com.xjtu.toolbox.card.CampusCardScreen
 import com.xjtu.toolbox.calendar.SchoolCalendarScreen
+import com.xjtu.toolbox.emptyroom.AppEmptyRoomSource
+import com.xjtu.toolbox.emptyroom.EmptyRoomScreen
 import com.xjtu.toolbox.error.FriendlyError
+import com.xjtu.toolbox.faculty.FacultyApiSource
+import com.xjtu.toolbox.faculty.FacultyScreen
+import com.xjtu.toolbox.fitness.FitnessApi
+import com.xjtu.toolbox.fitness.FitnessScreen
+import com.xjtu.toolbox.judge.GraduateJudgeSource
+import com.xjtu.toolbox.judge.GraduateQuestionnaire
+import com.xjtu.toolbox.judge.JudgeListScreen
+import com.xjtu.toolbox.judge.JudgeViewModel
+import com.xjtu.toolbox.judge.Questionnaire
+import com.xjtu.toolbox.judge.UndergraduateJudgeSource
 import com.xjtu.toolbox.game.GamesScreen
 import com.xjtu.toolbox.game.blocks.BlocksScreen
 import com.xjtu.toolbox.game.g2048.Gpa2048Screen
 import com.xjtu.toolbox.game.go.GoScreen
 import com.xjtu.toolbox.game.gomoku.GomokuScreen
+import com.xjtu.toolbox.game.hop.HopScreen
+import com.xjtu.toolbox.schedule.AppSchoolCourseSource
+import com.xjtu.toolbox.schedule.SchoolCourseScreen
+import com.xjtu.toolbox.score.ScoreReportScreen
+import com.xjtu.toolbox.score.scoreReportSource
 import com.xjtu.toolbox.game.xiangqi.XiangqiScreen
+import com.xjtu.toolbox.inbox.AppInboxSource
+import com.xjtu.toolbox.inbox.InboxScreen
 import com.xjtu.toolbox.library.LibraryScreen
 import com.xjtu.toolbox.nav.AppRoute
+import com.xjtu.toolbox.nav.appRouteOf
+import com.xjtu.toolbox.notification.AppNoticeSource
+import com.xjtu.toolbox.notification.NotificationScreen
 import com.xjtu.toolbox.platform.keyValueStore
+import com.xjtu.toolbox.venue.AppVenueSource
+import com.xjtu.toolbox.venue.VenueScreen
 import com.xjtu.toolbox.yellowpage.YellowPageApi
 import com.xjtu.toolbox.yellowpage.YellowPageScreen
 import kotlinx.coroutines.Dispatchers
@@ -51,6 +83,7 @@ import kotlinx.coroutines.withContext
 import top.yukonga.miuix.kmp.basic.NavigationBar
 import top.yukonga.miuix.kmp.basic.NavigationBarDisplayMode
 import top.yukonga.miuix.kmp.basic.NavigationBarItem
+import top.yukonga.miuix.kmp.basic.CircularProgressIndicator
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextButton
 import top.yukonga.miuix.kmp.theme.MiuixTheme
@@ -77,11 +110,13 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
  * | 数据从哪来 | 同源反代到 campus-api（浏览器只能这样） | 进程内直取 `:data`（自己登录、自己取数） |
  * | 外链怎么开 | `window.open` / `location.assign` | `java.awt.Desktop.browse` |
  *
- * ## 底栏只有 3 格（诚实的一条）
+ * ## 底栏那几格，只放这一端**真能画**的东西（诚实的一条）
  *
- * 底栏**只放这一端真能用的东西**：图书馆（唯一搬进 `:data` 的站点）+ 游戏（纯 UI，与数据无关）+
- * 「全部」。Stage 0 那 19 条路由里其余的 12 条，屏在 `:core` 但取数还在 `:app` 的 `Campus*Api` /
- * 站点类里 —— 点了会看到 [NotPortedScreen] 把这些话写在脸上，而不是落回某一屏假装能用。
+ * 底栏那五格（见 [DESKTOP_TABS]）都是这一端真能画的屏：`:core` 里有屏 + 取数在 `:data`。
+ * 「全部」那一页里的「真能用」就是这张表（[DESKTOP_SUPPORTED_ROUTES]）；13 条真数据路由
+ * 搬完之后 [DESKTOP_PENDING_ROUTES] **空了** —— 「屏在 `:core` 而取数还在 `:app`」那条路由
+ * 一条不剩。索引页上「还没有数据源」那一栏照旧画出来（数字是进度，不是装饰），
+ * 所以那一行现在是 0。
  *
  * 屏上的「返回」箭头一律回图书馆首页：这一端没有返回栈（底栏就是导航），与 Stage 0 那条
  * 「返回 = 回默认页」同一条口径。
@@ -149,44 +184,54 @@ internal val DESKTOP_TABS = listOf(
 /**
  * 这一端**真能画**的路由（`:core` 里有屏 + 取数在 `:data`，两者缺一不可）。
  *
- * 三条真取数：图书馆（要登录，走会话内核）、校历与黄页（**免登录**的公开门户接口）。
+ * 十三条真取数：图书馆 / 体测 / 全校课表 / 成绩 / 评教 / 校园卡 / 体育场馆（**要登录**，走会话内核 +
+ * 进那一屏再建会话，见 `DesktopSiteGate`）、消息收纳（一网通办那四路：站点要登，但会话由**源自己
+ * ensure** —— `AppRoute.Inbox.loginType` 是 null，与空闲教室同型）、通知公告（29 个公开的公告页，
+ * **一个都不用登录** —— `AppRoute.Notification.loginType` 也是 null，由源自己爬）、空闲教室（三档数据源要登的站点
+ * 不同 ⇒ 也是由源自己 ensure，见那一段的注释）、
+ * 校历 / 黄页 / 教师检索（**免登录**的公开门户接口）。
  * 其余是纯 UI 的游戏（与数据源无关，三端同一份）。
  */
 internal val DESKTOP_SUPPORTED_ROUTES = listOf(
     AppRoute.SchoolCalendar to "校历",
     AppRoute.Library to "图书馆座位",
+    AppRoute.Fitness to "体测",
+    AppRoute.SchoolCourse to "全校课表",
+    AppRoute.ScoreReport to "成绩",
+    AppRoute.Judge to "学生评教",
+    AppRoute.CampusCard to "校园卡",
+    AppRoute.EmptyRoom to "空闲教室",
+    AppRoute.Venue to "体育场馆",
+    AppRoute.Inbox to "消息收纳",
+    AppRoute.Notification to "通知公告",
     AppRoute.YellowPage to "黄页",
+    AppRoute.Faculty to "教师检索",
     AppRoute.Games to "游戏合集",
     AppRoute.Game2048 to "GPA 2048",
     AppRoute.GameBlocks to "方块",
     AppRoute.GameGomoku to "五子棋",
+    AppRoute.GameHop to "跳一跳",
     AppRoute.GameGo to "围棋",
     AppRoute.GameXiangqi to "象棋",
 )
 
 /**
- * **屏已经搬进 `:core`、但这一端还没有数据源**的路由 —— 也就是 Stage A 剩下的进度表。
+ * **屏已经搬进 `:core`、但这一端还没有数据源**的路由 —— 也就是 Stage A 的口径进度表。
  *
- * 它们卡的都是同一件事：取数还在 `:app`（`Campus*Api` 的只读端，或某个站点的 `*Login` + 站点类）。
- * 搬到 `:data` 一条，这里就划掉一条（`docs/desktop-port-plan.md` §5.1／§3.2）。
+ * **现在是空的**：第 13 条（通知公告）搬完之后，`AppRoute` 里「屏在 `:core` 而取数还没搬」的
+ * 那种路由一条不剩。这个列表与 [DESKTOP_SUPPORTED_ROUTES] 一样留在代码里而不是删掉：
+ * 屏先落地、取数后到是 Stage A 里的**常规**中间态（这一份历史就是 13 次），下一屏要搬时
+ * 它还会重新长出条目；索引页上那一栏也照旧画出来（数字是进度，不是装饰）。
+ *
+ * 进来一条就说明它卡的是同一件事：取数还在 `:app`（`Campus*Api` 的只读端，或某个站点的
+ * `*Login` + 站点类）。搬到 `:data` 一条，这里就划掉一条（`docs/desktop-port-plan.md` §5.1／§3.2）。
  */
-internal val DESKTOP_PENDING_ROUTES = listOf(
-    AppRoute.Fitness to "体测",
-    AppRoute.ScoreReport to "成绩",
-    AppRoute.Notification to "通知公告",
-    AppRoute.Faculty to "教师检索",
-    AppRoute.SchoolCourse to "全校课表",
-    AppRoute.Inbox to "消息收纳",
-    AppRoute.EmptyRoom to "空闲教室",
-    AppRoute.CampusCard to "校园卡",
-    AppRoute.Venue to "体育场馆",
-    AppRoute.Judge to "评教",
-)
+internal val DESKTOP_PENDING_ROUTES = emptyList<Pair<AppRoute, String>>()
 
 @Composable
 private fun DesktopBottomBar(selected: DesktopTarget, onSelect: (DesktopTarget) -> Unit) {
     // 与 App 的「经典底栏」同一个组件、同一个 mode；只是格数不同（见文件头）。
-    // 当前页不在底栏那四格里（例如某个游戏子屏）⇒ 一格都不高亮，这是对的：
+    // 当前页不在底栏那五格里（例如某个游戏子屏、或教师检索）⇒ 一格都不高亮，这是对的：
     // 底栏是「去哪儿」，不是「你从哪儿来」。
     val selectedIndex = DESKTOP_TABS.indexOfFirst { it.target == selected }
     NavigationBar(mode = NavigationBarDisplayMode.IconAndText) {
@@ -207,6 +252,78 @@ private fun DesktopBottomBar(selected: DesktopTarget, onSelect: (DesktopTarget) 
  *   （宿主手里就有凭据与会话 —— 这正是只读端没有的能力，见 `LibraryScreen` 的 `reAuthenticate`）；
  * - 外链交给系统浏览器（`java.awt.Desktop.browse`）；
  * - 「功能说明弹过了没」这类本地偏好走 `:core` 的 `keyValueStore`（JVM 侧是落盘的 Properties 文件）。
+ *
+ * 需要站点会话的屏（现在只有体测）走 [DesktopSiteGate] —— 会话按需建立，见那一段的 KDoc。
+ */
+
+/**
+ * 「进这一屏之前先把它的站点会话建起来」—— 与 `:app` 同一条口径：那边是导航层
+ * `AppRouter.open(route)` 先按 `route.loginType` 的 `ensureSite` 再跳，所以屏自己从不处理
+ * 「会话未初始化」。
+ *
+ * 为什么不放在登录页那一步：体测服务历史上真返回过 502（见 `:data` 的 `FitnessSession` 的 KDoc），
+ * 把每个站点都塞进 `login()` 会让「某个子系统自己挂了」变成「整个桌面端登不进去」。
+ * 放在路由上，最坏只是这一屏自己报错 —— 而且这里给了「重试」，服务恢复后点一下就回来。
+ */
+@Composable
+private fun DesktopSiteGate(
+    auth: DesktopAuth,
+    siteKey: String,
+    siteName: String,
+    content: @Composable (SiteSession) -> Unit,
+) {
+    val site = auth.sessionManager.getSiteOrNull(siteKey)
+    var attempt by remember(siteKey) { mutableIntStateOf(0) }
+    var failure by remember(siteKey) { mutableStateOf<String?>(null) }
+    var ready by remember(siteKey) { mutableStateOf(site?.hasLogin == true) }
+
+    LaunchedEffect(siteKey, attempt) {
+        if (ready) return@LaunchedEffect
+        failure = null
+        ready = runCatching { auth.ensureSession(siteKey) }.fold(
+            onSuccess = { true },
+            onFailure = { failure = FriendlyError.of(it, "建立$siteName 会话"); false },
+        )
+    }
+
+    when {
+        ready && site != null -> content(site)
+        failure != null -> Column(
+            modifier = Modifier.fillMaxSize().padding(24.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Text(
+                "$siteName 会话没建起来",
+                color = MiuixTheme.colorScheme.onSurface,
+                fontSize = 18.sp,
+                fontWeight = FontWeight.Bold,
+            )
+            Text(failure.orEmpty(), color = MiuixTheme.colorScheme.error, fontSize = 13.sp)
+            Text(
+                "这一屏需要先登录「$siteName」。它与图书馆是同一套凭据；这里失败通常是那个子系统自己出问题" +
+                    "（体测服务历史上返回过 502），不是账号问题。",
+                color = MiuixTheme.colorScheme.onBackgroundVariant,
+                fontSize = 12.sp,
+            )
+            TextButton(text = "重试", onClick = { attempt++ }, minWidth = 120.dp)
+        }
+        else -> Column(
+            modifier = Modifier.fillMaxSize(),
+            verticalArrangement = Arrangement.Center,
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            CircularProgressIndicator()
+            Text(
+                "正在准备$siteName 会话…",
+                color = MiuixTheme.colorScheme.onBackgroundVariant,
+                fontSize = 13.sp,
+            )
+        }
+    }
+}
+
+/**
+ * 一屏共享页 —— 见文件上方那段 KDoc（「每个屏只注入这一端能提供的东西」）。
  */
 @Composable
 private fun DesktopPage(auth: DesktopAuth, route: AppRoute, onNavigate: (DesktopTarget) -> Unit) {
@@ -220,6 +337,15 @@ private fun DesktopPage(auth: DesktopAuth, route: AppRoute, onNavigate: (Desktop
         AppRoute.SchoolCalendar -> SchoolCalendarScreen(
             source = remember { SchoolCalendarApi() },
             onBack = back,
+        )
+        // 教师检索：**免登录**（`faculty.xjtu.edu.cn` 检索 + `gr.xjtu.edu.cn` 主页），取数已搬进 `:data`。
+        // 适配器 `FacultyApiSource` 也是共享的（`:app` 与桌面用同一份，不再各写一份）。
+        // 头像用默认的 `InitialsFacultyAvatar`（首字圆）：`:app` 那份是 BitmapFactory + LruCache
+        //（Android 专属），而 `gr.xjtu.edu.cn` 不给 CORS 头 —— 不假装能取到图。
+        AppRoute.Faculty -> FacultyScreen(
+            source = remember { FacultyApiSource() },
+            onBack = back,
+            onOpenUrl = { openInBrowser(it) },
         )
         // 黄页：另一条**免登录**的公开门户接口，而且 `:core` 里那份 `YellowPageApi` 早就搬完了
         //（第 1 步 okhttp→Ktor 时搬的，端口收一个 `HttpClient`）⇒ 桌面只需给一条客户端。
@@ -245,6 +371,202 @@ private fun DesktopPage(auth: DesktopAuth, route: AppRoute, onNavigate: (Desktop
                 onFirstUseHintRead = { hintPrefs.putBoolean("library_hint_shown", true) },
             )
         }
+        // 体测：站点是 **https**，取数走 `:data` 的 `FitnessApi`（v3 加密协议优先、失败退回 legacy PHP）。
+        // 站点会话**进门时才建**（见 `DesktopSiteGate`）：登录页那一步只是尽力预热它 ——
+        // 体测服务历史上真的返回过 502，不能因为它挂了就把人挡在登录页外。
+        AppRoute.Fitness -> DesktopSiteGate(auth, DesktopAuth.FITNESS_SITE_KEY, "体测") { site ->
+            FitnessScreen(
+                source = remember(site) { FitnessApi(site) },
+                onBack = back,
+            )
+        }
+        // 教务（全校课表）：站点会话**进门时才建**（见 `DesktopSiteGate`）。取数就是 `:data` 里那份
+        // `AppSchoolCourseSource`（包住原来的 `SchoolCourseApi`）—— `:core` 的屏只认端口。
+        AppRoute.SchoolCourse -> DesktopSiteGate(auth, DesktopAuth.JWXT_SITE_KEY, "教务") { site ->
+            SchoolCourseScreen(
+                source = remember(site) { AppSchoolCourseSource(site) },
+                onBack = back,
+            )
+        }
+        // 成绩：同一个教务站点（两条路由共用一份会话）。取数要一个**学号**，它闭在适配器里；
+        // 桌面端没有登录取学号那一套（`LoginScreen` 只有账号密码，学号不落屏），所以用登录时
+        // 写进 `AccountContext.activeAccountId` 的那个 —— 它**取不到就画错误页**，绝不拿空学号
+        // 去请求（那会遇到一张“查无此人”的报表，看起来像屏坏了）。
+        AppRoute.ScoreReport -> DesktopSiteGate(auth, DesktopAuth.JWXT_SITE_KEY, "教务") { site ->
+            val studentId = AccountContext.activeAccountId?.takeIf { it.isNotBlank() }
+            if (studentId == null) {
+                MissingIdentityPage(
+                    onNavigate = onNavigate,
+                    title = "成绩报表要一个学号，现在取不到",
+                    lines = listOf(
+                        "成绩报表按学号取数，学号来自这次登录。取不到通常是登录还没走完，或者这一份装配是" +
+                            "从落盘凭据恢复的 —— 重新登录一次即可。",
+                        "教务那边的会话本身是好的（能进这一屏就说明它建起来了）。",
+                    ),
+                )
+            } else {
+                ScoreReportScreen(
+                    source = remember(site, studentId) { scoreReportSource(site, studentId) },
+                    onBack = back,
+                )
+            }
+        }
+
+        // 评教（第八条真数据路由）—— 本科 / 研究生是**两条不同的链路**，与 `:app` 的导航层同一个判据
+        // （`AccountContext.activeAccountType`，即 `AppRoute.Judge.loginType` 里那个 `isPostgraduateSession()`）：
+        //
+        // - **本科**：与全校课表 / 成绩**共用同一个教务站点**（所以走同一个 `DesktopSiteGate`）。参评人
+        //   （`CPR`）就是登录时写进 `AccountContext.activeAccountId` 的学号 —— 取不到就画说明页，
+        //   不拿空学号去请求（那会领回一张空卷子，看着像屏坏了）；
+        // - **研究生**：问卷在 gste、课程信息在 gmis。这条**不套 Gate**：`GraduateJudgeSource` 自己
+        //   `ensureSite`（gste 进屏时登、gmis 到一键评教时才登）—— 这正是 `:app` 那边的语义，
+        //   只是把宿主那一发缓到真正取数的时候。
+        AppRoute.Judge -> if (AccountContext.activeAccountType == AccountType.POSTGRADUATE) {
+            val source = remember { GraduateJudgeSource(auth.sessionManager) }
+            val vm: JudgeViewModel<GraduateQuestionnaire> =
+                viewModel(key = "judge-postgraduate") { JudgeViewModel(source) }
+            JudgeListScreen("学生评教", vm, back)
+        } else {
+            DesktopSiteGate(auth, DesktopAuth.JWXT_SITE_KEY, "教务") { site ->
+                val username = AccountContext.activeAccountId?.takeIf { it.isNotBlank() }
+                if (username == null) {
+                    MissingIdentityPage(
+                        onNavigate = onNavigate,
+                        title = "评教要一个学号，现在取不到",
+                        lines = listOf(
+                            "评教是按学号取「我的问卷」的，学号来自这次登录。取不到通常是登录还没走完，或者" +
+                                "这一份装配是从落盘凭据恢复的 —— 重新登录一次即可。",
+                            "教务那边的会话本身是好的（能进这一屏就说明它建起来了）。",
+                        ),
+                    )
+                } else {
+                    val source = remember(site, username) { UndergraduateJudgeSource(site, username) }
+                    val vm: JudgeViewModel<Questionnaire> =
+                        viewModel(key = "judge-undergraduate") { JudgeViewModel(source) }
+                    JudgeListScreen("学生评教", vm, back)
+                }
+            }
+        }
+
+        // 校园卡（第九条真数据路由）：站点是 **https**，取数走 `:data` 的 `AppCampusCardSource`
+        // （包住原来的 `CampusCardApi`）。会话**进门时才建**（见 `DesktopSiteGate`）—— 登录页那一步
+        // 只是尽力预热它，ncard 自己挂了不该把人挡在门外。
+        // 缓存传 `null`：桌面没有按账号分文件的宿主存储（属 §5.4），不缓存 —— 与 Web 端同一条口径：
+        // 屏仍旧自己取数，只是没有「首屏秒开」那一档。加餐券那条二级入口也不传（桌面没有那份首页摘要）。
+        AppRoute.CampusCard -> DesktopSiteGate(auth, DesktopAuth.CAMPUS_CARD_SITE_KEY, "校园卡") { site ->
+            CampusCardScreen(
+                source = remember(site) { AppCampusCardSource(site) },
+                onBack = back,
+            )
+        }
+
+        // 空闲教室（第十条真数据路由）：三档数据源（实时状态 / CDN 课表 / 直查教务）都在 `:data`
+        // 的 `AppEmptyRoomSource` 里 —— 会话由**那个源自己 ensure**（实时状态那一档登智慧教室
+        // `js`、直查那一档登教务），所以这一条**不套** `DesktopSiteGate`：`AppRoute.EmptyRoom.loginType`
+        // 本来就是 null（「按数据源不同要登的站点不同，由页面自己登」），与研究生评教那条同型。
+        // 落盘传 `null`：桌面没有按账号分命名空间的宿主存储（属 §5.4），屏仍旧自己取数，
+        // 只是少了下拉刷新之外的那一档磁盘兜底 —— 与 Web / 校园卡同一条口径。
+        // 「CDN 说明读没读过」与 Web 同一个键、同一个 pref 文件（`empty_room`，屏自己的偏好也在那儿）。
+        AppRoute.EmptyRoom -> {
+            val prefs = remember { keyValueStore("empty_room") }
+            EmptyRoomScreen(
+                source = remember { AppEmptyRoomSource(auth.sessionManager) },
+                // 身份证：与其余端一样传当前账号类型（研究生在屏上不提供直查教务那一档）
+                accountType = AccountContext.activeAccountType,
+                onBack = back,
+                showCdnTip = !prefs.getBoolean("empty_room_cdn_tip", false),
+                onCdnTipRead = { prefs.putBoolean("empty_room_cdn_tip", true) },
+            )
+        }
+
+        // 体育场馆（第十一条真数据路由）：站点是**明文 http**（`202.117.17.144:8080`），登录要先过
+        // `org.xjtu.edu.cn` 的 OAuth2（appId=1659）→ CAS → 回跳 `/web/cas/oauth2url.html`。会话
+        // **进门时才建**（见 `DesktopSiteGate`）—— 登录页那一步只是尽力预热它，场馆站自己挂了最坏
+        // 只影响这一屏。
+        //
+        // 取数是 `:data` 的 `AppVenueSource`（包住原来的 `VenueApi`）；收藏走 `:core` 共享的
+        // `VenueFavorites`（同一份文件、同一个键 ⇒ 与 App 那边看到的是同一批收藏）。
+        //
+        // ⚠️ `canBook = false`：下单要先解滑块，而滑块控件（屏上的 `captchaView` 槽位）长在 Android
+        // 的 `Bitmap`/`Base64` 上（`:app` 的 `SliderCaptchaView`）—— 桌面没有这条路径。按 `VenueSource`
+        // 那条口径（**点了会失败的按钮，一个都不画**）如实声明，于是屏上不画「确认预订」/「去支付」、
+        // 时段格子不可勾选；取消订单不需要滑块，`canCancel` 仍是 true ⇒ 「我的订单」里的取消照旧。
+        // 自动识别（`solveCaptcha`）也传 null：那条路本就只在能下单时可达。
+        // 支付那一跳按 Web 端同一条口径如实忽略（canBook=false ⇒ 根本走不到）。
+        // 「功能说明弹过了没」与 `:app` 同一个 pref 文件、同一个键（`feature_hints` / `venue_hint_shown`）。
+        AppRoute.Venue -> DesktopSiteGate(auth, DesktopAuth.VENUE_SITE_KEY, "体育场馆") { site ->
+            val hintPrefs = remember { keyValueStore("feature_hints") }
+            VenueScreen(
+                source = remember(site) { AppVenueSource(site, canBook = false) },
+                onBack = back,
+                onOpenBrowser = { url, _ -> if (url.isNotBlank()) openInBrowser(url) },
+                solveCaptcha = null,
+                showFirstUseHint = !hintPrefs.getBoolean("venue_hint_shown", false),
+                onFirstUseHintRead = { hintPrefs.putBoolean("venue_hint_shown", true) },
+            )
+        }
+
+        // 消息收纳（第十二条真数据路由）：取数是 `:data` 的 `AppInboxSource`（包住搬进 `:data` 的
+        // `SchoolInbox` —— 一网通办那四路）。会话由**那个源自己 ensure**（`AppRoute.Inbox.loginType`
+        // 是 null），所以不套 `DesktopSiteGate`，与空闲教室 / 研究生评教同型。
+        //
+        // 进门先拉一轮：这一屏**没有 ViewModel**（数据在 `:core` 的 `InboxStore` 里，写入方是学校那四路、
+        // 首页定时刷新、桌面小组件…），屏自己只在「下拉刷新」里调 `refresh` —— `:app` 那边进门那一枪是
+        // 导航层与首页 `HomeStatsRefresher` 打的。桌面没有那两份，所以由外壳在进屏时补上：「该不该拉」
+        // 仍由源自己判（`isDue`，TTL 30 分钟），失败就把原因写在屏上方（屏没有参数可以收下这一发）。
+        AppRoute.Inbox -> {
+            val source = remember { AppInboxSource(auth.sessionManager) }
+            // 收纳按账号分命名空间（`:app` 传的是登录账号）：桌面端就是登录时写进
+            // `AccountContext.activeAccountId` 的那个，与 `InboxStore` 的默认读法是同一个。
+            val account = AccountContext.activeAccountId?.takeIf { it.isNotBlank() }
+            var failure by remember { mutableStateOf<String?>(null) }
+            LaunchedEffect(source) {
+                failure = runCatching {
+                    if (source.isDue(account, System.currentTimeMillis())) source.refresh(account)
+                }.exceptionOrNull()?.let { FriendlyError.of(it, "刷新消息收纳") }
+            }
+            Column(Modifier.fillMaxSize()) {
+                failure?.let { msg ->
+                    Text(
+                        msg,
+                        color = MiuixTheme.colorScheme.error,
+                        fontSize = 12.sp,
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
+                    )
+                }
+                Box(Modifier.weight(1f)) {
+                    InboxScreen(
+                        source = source,
+                        onBack = back,
+                        // 与 `:app` / Web 同一条口径：外链交给系统浏览器（桌面没有内置浏览器），
+                        // 其余按路由 id 走站内导航（认不出的直接忽略 —— 可能是旧版本存下的）。
+                        onOpen = { id ->
+                            when (val r = appRouteOf(id)) {
+                                is AppRoute.Browser -> if (r.url.isNotBlank()) openInBrowser(r.url)
+                                null -> Unit
+                                else -> onNavigate(DesktopTarget.App(r))
+                            }
+                        },
+                        account = account,
+                    )
+                }
+            }
+        }
+        // 通知公告（第十三条真数据路由）：取数是 `:data` 的 `AppNoticeSource`（包住搬进 `:data` 的
+        // `NotificationApi` —— okhttp + jsoup 爬 29 个公开的公告页，含那条纯 HTTP 就能解开的动态挑战）。
+        // 29 个源**一个都不用登录**，不靠任何站点会话 ⇒ 不套 `DesktopSiteGate`
+        // （`AppRoute.Notification.loginType` 就是 null）；这个源连 `SessionManager` 都不收。
+        // 点开一条通知就是 `AppRoute.Browser(link)` ⇒ 外链交给系统浏览器（与消息收纳同一口径）。
+        AppRoute.Notification -> NotificationScreen(
+            source = remember { AppNoticeSource() },
+            onBack = back,
+            onNavigate = { r ->
+                when (r) {
+                    is AppRoute.Browser -> if (r.url.isNotBlank()) openInBrowser(r.url)
+                    else -> onNavigate(DesktopTarget.App(r))
+                }
+            },
+        )
         AppRoute.Games -> GamesScreen(
             onBack = back,
             onNavigate = { onNavigate(DesktopTarget.App(it)) },
@@ -254,6 +576,10 @@ private fun DesktopPage(auth: DesktopAuth, route: AppRoute, onNavigate: (Desktop
         AppRoute.Game2048 -> Gpa2048Screen(onBack = back)
         AppRoute.GameBlocks -> BlocksScreen(onBack = back)
         AppRoute.GameGomoku -> GomokuScreen(onBack = back)
+        // 跳一跳：纯 UI（不需要任何取数）。远景地标图**不传** —— 那是平台资源
+        //（`:app` = R.drawable.hop_landmark_*，Web = 它自己的取图），桌面端没有那份资源；
+        // 屏自己写着「空列表 = 本端没图，就不画远景（游戏照常可玩）」，所以这是如实降级、不是坏掉。
+        AppRoute.GameHop -> HopScreen(onBack = back)
         AppRoute.GameGo -> GoScreen(onBack = back)
         AppRoute.GameXiangqi -> XiangqiScreen(onBack = back)
         // 其余路由**如实说「没搬过来」**，不拿有数据的屏冒充（深链/误点看着像 bug，也分不清
@@ -303,8 +629,13 @@ internal fun RoutesPage(auth: DesktopAuth, onNavigate: (DesktopTarget) -> Unit) 
             fontWeight = FontWeight.Bold,
         )
         Text(
-            "下面这些屏已经是 :core 的共享屏，卡的是**取数**：它们的 `*Api` / 站点类还在 :app。" +
-                "搬到 :data 一条就能用一条。",
+            if (DESKTOP_PENDING_ROUTES.isEmpty())
+                "现在是 0：13 条真数据路由都搬完了 —— 「屏在 :core 而取数还在 :app」的路由一条不剩。" +
+                    "这一栏留着是因为它是 Stage A 的进度表：屏先落地、取数后到是常规的中间态，" +
+                    "下一屏要搬时它会重新长出条目。"
+            else
+                "下面这些屏已经是 :core 的共享屏，卡的是**取数**：它们的 `*Api` / 站点类还在 :app。" +
+                    "搬到 :data 一条就能用一条。",
             color = cs.onBackgroundVariant,
             fontSize = 12.sp,
         )
@@ -359,6 +690,42 @@ private fun NotPortedScreen(route: AppRoute, onNavigate: (DesktopTarget) -> Unit
             color = cs.onBackgroundVariant,
             fontSize = 12.sp,
         )
+        TextButton(
+            text = "回全部页面",
+            onClick = { onNavigate(DesktopTarget.Routes) },
+            minWidth = 120.dp,
+        )
+    }
+}
+
+/**
+ * 「没有身份就取不了数」的如实说明 —— 现在成绩报表与本科评教两屏会走到这里。
+ *
+ * 它们的取数都要一个**学号**，而桌面端的学号来自登录时写进 `AccountContext.activeAccountId` 的那个值
+ * （`JwappScoreViewModel` 在 App 上用 `loginState.activeUsername`，同一件事）。取不到时不拿空学号
+ * 去请求 —— 教务会回一张「查无此人」的报表、或一张空卷子，看上去像屏坏了；也不直接崩，那连回退都没有了。
+ *
+ * 两屏整合到同一个页而不是各写一份：差别只有标题与那两句话，画法与回退入口是同一套。
+ */
+@Composable
+private fun MissingIdentityPage(
+    onNavigate: (DesktopTarget) -> Unit,
+    title: String,
+    lines: List<String>,
+) {
+    val cs = MiuixTheme.colorScheme
+    Column(
+        modifier = Modifier.fillMaxSize().padding(24.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        Text(title, color = cs.onSurface, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+        lines.forEachIndexed { index, line ->
+            Text(
+                line,
+                color = cs.onBackgroundVariant,
+                fontSize = if (index == 0) 13.sp else 12.sp,
+            )
+        }
         TextButton(
             text = "回全部页面",
             onClick = { onNavigate(DesktopTarget.Routes) },

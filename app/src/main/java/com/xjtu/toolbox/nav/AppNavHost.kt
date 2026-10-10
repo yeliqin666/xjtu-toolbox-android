@@ -23,6 +23,7 @@ import com.xjtu.toolbox.auth.SiteSession
 import com.xjtu.toolbox.browser.BrowserScreen
 import com.xjtu.toolbox.calendar.SchoolCalendarScreen
 import com.xjtu.toolbox.card.AppCampusCardSource
+import com.xjtu.toolbox.card.appCampusCardStore
 import com.xjtu.toolbox.card.CampusCardScreen
 import com.xjtu.toolbox.card.CouponEntryStat
 import com.xjtu.toolbox.community.CommunityScreen
@@ -30,9 +31,10 @@ import com.xjtu.toolbox.coupon.CouponScreen
 import com.xjtu.toolbox.data.CredentialStore
 import com.xjtu.toolbox.dzpz.TranscriptScreen
 import com.xjtu.toolbox.emptyroom.AppEmptyRoomSource
+import com.xjtu.toolbox.emptyroom.EmptyRoomCache
 import com.xjtu.toolbox.emptyroom.EmptyRoomScreen
 import com.xjtu.toolbox.error.FriendlyError
-import com.xjtu.toolbox.faculty.AppFacultySource
+import com.xjtu.toolbox.faculty.FacultyApiSource
 import com.xjtu.toolbox.faculty.FacultyAvatar
 import com.xjtu.toolbox.faculty.FacultyScreen
 import com.xjtu.toolbox.feedback.FeedbackScreen
@@ -67,7 +69,7 @@ import com.xjtu.toolbox.schedule.AppSchoolCourseSource
 import com.xjtu.toolbox.schedule.SchoolCourseScreen
 import com.xjtu.toolbox.score.ScoreReportScreen
 import com.xjtu.toolbox.score.appScoreReportCache
-import com.xjtu.toolbox.score.appScoreReportSource
+import com.xjtu.toolbox.score.scoreReportSource
 import com.xjtu.toolbox.settings.SettingsScreen
 import com.xjtu.toolbox.social.MatchScreen
 import com.xjtu.toolbox.venue.AppVenueSource
@@ -126,11 +128,13 @@ fun AppNavHost(
 
         entry<AppRoute.EmptyRoom>(transition = expand(AppRoute.EmptyRoom::class)) {
             // 取数从 `:core` 的 EmptyRoomScreen 里挪到这里的 AppEmptyRoomSource（三档全保留，行为不变）；
+            // 它现在住在 `:data`（桌面端第 10 条真数据路由），落盘改成 `:core` 的 EmptyRoomStore 缝 ——
+            // `:app` 传的就是原来那份 `EmptyRoomCache`（一份文件、一个键、一个 TTL 都没动）。
             // 「CDN 说明读没读过」仍然存在 CredentialStore 里（与搬之前同一个键），屏只收一个初值 + 一个回写回调。
             val context = LocalContext.current
             val credentialStore = remember(context) { CredentialStore(context) }
             EmptyRoomScreen(
-                source = remember { AppEmptyRoomSource(loginState.sessionManager, context) },
+                source = remember { AppEmptyRoomSource(loginState.sessionManager, EmptyRoomCache(context)) },
                 accountType = remember { credentialStore.accountType },
                 onBack = back,
                 showCdnTip = !credentialStore.hasReadEmptyRoomCdnTip,
@@ -216,15 +220,16 @@ fun AppNavHost(
         entry<AppRoute.CampusCard>(transition = expand(AppRoute.CampusCard::class)) {
             AwaitSite(loginState, "campus_card", onTimeout = back) { site ->
                 // 屏与 ViewModel 都在 :core（`com.xjtu.toolbox.card.CampusCardScreen`），取数从那里挪到
-                // AppCampusCardSource（还是原来的 CampusCardApi + CampusCardCache，实现一行未改）。
-                // 四处宿主能力在这里注入，行为与搬之前一致：
+                // 屏与 ViewModel 都在 :core（`com.xjtu.toolbox.card.CampusCardScreen`），取数现在是 `:data` 的
+                // AppCampusCardSource（`CampusCardApi` 一行未改）；它唯一的宿主依赖是落盘，这里注入 :app 那份
+                // （`appCampusCardStore` 就是原来的 `CampusCardCache`，文件与 key 一个没动）。
                 //  1. savedState —— 与原来一样用 createSavedStateHandle()（时间范围能跟着进程恢复）；
                 //  2. onCacheUpdated —— 首页 tab 的缓存版本号（原来写在屏里直接读 LocalAppLoginState）；
                 //  3. onBalanceChanged —— 桌面小组件刷新（原来由 VM 直接调 CampusCardWidgetUpdater）；
                 //  4. couponStat —— 「加餐券」入口的状态（原来屏自己读 HomeStats.pushed）。
                 val cardContext = LocalContext.current
                 CampusCardScreen(
-                    source = remember(site) { AppCampusCardSource(site, cardContext) },
+                    source = remember(site) { AppCampusCardSource(site, appCampusCardStore(cardContext)) },
                     onBack = back,
                     // 跟着设置实时变：直接读存储只在进页那一刻读一次，页面开着时切风格不会跟过来
                     glass = com.xjtu.toolbox.ui.glass.LocalGlassStyle.current,
@@ -249,12 +254,13 @@ fun AppNavHost(
         }
         entry<AppRoute.ScoreReport>(transition = expand(AppRoute.ScoreReport::class)) {
             // 成绩报表屏已搬进 :core；这里注入取数（帆软报表）与缓存（DataCache）——
-            // 两者都在 score/ScoreReportApp.kt 里装配，学号与账号隔离留在 :app 这一侧。
+            // 取数（帆软报表）已搬进 :data（与 ScoreReportApi 同包，桌面端用同一份）；
+            // 缓存（DataCache）还在 :app —— 学号与账号隔离留在这一侧。
             WithSite("jwxt") { site ->
                 val scoreContext = LocalContext.current
                 val studentId = loginState.activeUsername
                 ScoreReportScreen(
-                    source = remember(site, studentId) { appScoreReportSource(site, studentId) },
+                    source = remember(site, studentId) { scoreReportSource(site, studentId) },
                     onBack = back,
                     cache = remember(loginState.accountId, studentId) {
                         appScoreReportCache(scoreContext, loginState.accountId.takeIf { it.isNotEmpty() }, studentId)
@@ -266,8 +272,9 @@ fun AppNavHost(
             WithSite("dzpz") { TranscriptScreen(site = it, onBack = back) }
         }
         entry<AppRoute.Venue>(transition = expand(AppRoute.Venue::class)) {
-            // 取数 + 收藏搬进 `:core` 的 VenueSource（`AppVenueSource` 包住原来的 `VenueApi` 与
-            // `VenueFavorites`，两份实现一行未改）；滑块控件与自动识别器是**屏上的两个槽位**
+            // 取数搬进 `:data`（`AppVenueSource` 包住原来的 `VenueApi`，行数没变）；收藏搬进
+            // `:core` 的 `VenueFavorites`（`KeyValueStore`，**同一份文件、同一个键名** ⇒ 老收藏不丢）；
+            // 滑块控件与自动识别器是**屏上的两个槽位**
             // （它们长在 `Bitmap`/`Base64` 上，搬不进 `:core`），在这里注入。
             //
             // 三处宿主能力：
@@ -282,7 +289,7 @@ fun AppNavHost(
             }
             WithSite("venue") { site ->
                 VenueScreen(
-                    source = remember(site) { AppVenueSource(site, context) },
+                    source = remember(site) { AppVenueSource(site) },
                     onBack = back,
                     onOpenBrowser = { url, then -> router.open(AppRoute.Browser(url, then)) },
                     autoSolveCaptcha = remember(credentialStore) {
@@ -433,11 +440,18 @@ fun AppNavHost(
             SettingsScreen(credentialStore = credentialStore, onBack = back)
         }
         entry<AppRoute.Inbox>(transition = expand(AppRoute.Inbox::class)) {
-            // 取数仍是原来的 SchoolInbox（AppInboxSource 只是把它包成 :core 的端口）；
-            // 屏与 store/rules 都在 :core。
+            // 取数（学校那四路）已经搬进 `:data` 的 `AppInboxSource`；屏与 store/rules 都在 `:core`。
+            // 本端专属的那一条（有座位待办就现查一次图书馆）也跟着搬了，只是把「现查 + 发出」
+            // 做成一条构造参数传进去 —— `Context` 与 `LibraryStatus` 都留在 `:app`。
             val inboxContext = androidx.compose.ui.platform.LocalContext.current
+            val sessionManager = loginState.sessionManager
             com.xjtu.toolbox.inbox.InboxScreen(
-                source = remember(inboxContext) { com.xjtu.toolbox.inbox.AppInboxSource(loginState, inboxContext) },
+                source = remember(inboxContext) {
+                    com.xjtu.toolbox.inbox.AppInboxSource(
+                        sessionManager,
+                        com.xjtu.toolbox.inbox.appInboxLibraryBooking(inboxContext, sessionManager),
+                    )
+                },
                 onBack = back,
                 onOpen = { router.open(it) },
                 account = loginState.accountId.ifEmpty { null },
@@ -463,10 +477,11 @@ fun AppNavHost(
             FeedbackScreen(onBack = back)
         }
         entry<AppRoute.Faculty>(transition = expand(AppRoute.Faculty::class)) {
-            // 取数仍是原来的 FacultyApi（AppFacultySource 只是把它包成 :core 的端口）；
+            // 取数仍是同一个 FacultyApi（FacultyApiSource 只是把它包成 :core 的端口）——
+            // 两者本轮都搬进了 :data（Stage A 收尾）：同包同名解析到新家，这里只改了适配器的名字；
             // 头像仍是原来的 FacultyAvatar（BitmapFactory + LruCache），行为逐字不变。
             FacultyScreen(
-                source = remember { AppFacultySource() },
+                source = remember { FacultyApiSource() },
                 onBack = back,
                 onOpenUrl = { url -> router.open(AppRoute.Browser(url)) },
                 avatar = { member, size -> FacultyAvatar(member, size) },

@@ -148,6 +148,17 @@ class SessionManager {
     @Volatile var onAccountSwitched: (() -> Unit)? = null
 
     /**
+     * 一网通办登录成功后把令牌交给宿主。由宿主注入，`:app` 设成 `CampusProbe.ywtbToken = it`
+     * （网络判定要拿它问服务端「我在不在校内」，而那份缓存绑着 `ConnectivityManager`，属宿主能力）。
+     *
+     * 为什么也是一条缝而不是直接调 `CampusProbe`：一网通办站点（[YwtbSession]）搬进了 `:data`
+     * （桌面端第 12 条真数据路由：消息收纳），而 `CampusProbe` 与其余宿主能力一样没跟着搬。
+     * 会话内核里需要它的只有这一处，所以缝就照这一处切（与 [onAccountSwitched] 同型）。
+     * 桌面端没有这份缓存，留空即可。
+     */
+    @Volatile var onYwtbToken: ((String) -> Unit)? = null
+
+    /**
      * 会话诊断：走 `:core` 的跨端日志门面（Android 仍落到 logcat 的 [TAG]，桌面落到标准输出）。
      * 级别口径与搬迁前逐条对齐：ERROR / WARN / DEBUG / 其余按 INFO。
      */

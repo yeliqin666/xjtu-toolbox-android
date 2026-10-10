@@ -1,7 +1,9 @@
 package com.xjtu.toolbox.library
 
 import com.sun.net.httpserver.HttpExchange
+import com.xjtu.toolbox.ywtb.YwtbFakeUpstream
 import java.net.URLDecoder
+import java.util.Base64
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 
@@ -57,6 +59,18 @@ class LibraryFakeUpstream(
         /** 统一认证主机名 —— `XJTULogin.casPath` 只认这个 host（端口不计）。 */
         const val CAS_HOST = "login.xjtu.edu.cn"
 
+        /**
+         * 统一认证签发密码加密用的 RSA 公钥。
+         *
+         * 真站点上这条路是 **https**（`XJTULogin.fetchRsaPublicKeyFromServer` 硬编码的
+         * `https://login.xjtu.edu.cn/cas/jwt/publicKey`）。绝大多数站点根本不走它
+         *（登录器把会话管家缓存的公钥传进来），但 `CampusCardLogin` 是唯一不收 `cachedRsaKey` 的那一个
+         *（见 `LibraryLogin` 的 KDoc），所以校园卡这条链每次登录都会真的取一次 ——
+         * 夹具因此也得能回答它：`FakeCampusProxy.HTTPS_HOSTS` 里有 [CAS_HOST]，
+         * 这一条路由给的正是 [TestRsaKey.publicKeyBase64]（与客户端那份同一个密钥对）。
+         */
+        const val PUBLIC_KEY_PATH = "/cas/jwt/publicKey"
+
         const val USERNAME = "2021000001"
         const val PASSWORD = "correct-horse-battery"
         const val TGC_VALUE = "TGC-fake-1"
@@ -82,6 +96,9 @@ class LibraryFakeUpstream(
 
     /** CAS：发出过几个 ticket。 */
     val tickets = AtomicInteger(0)
+
+    /** `GET /cas/jwt/publicKey` 被打了几次（只有不收 `cachedRsaKey` 的那一两个站点会走它）。 */
+    val publicKeyCalls = AtomicInteger(0)
 
     /** 最近一次凭据 POST 提交上来的用户名 / 解密后的密码（没提交过则为 null）。 */
     @Volatile var lastPostedUsername: String? = null
@@ -252,6 +269,10 @@ class LibraryFakeUpstream(
         when {
             casEnabled && path == "/cas/login" && exchange.requestMethod == "POST" -> handleCasPost(exchange, query)
             casEnabled && path == "/cas/login" -> handleCasGet(exchange, query, cookieHeader(exchange))
+            casEnabled && path == PUBLIC_KEY_PATH -> {
+                publicKeyCalls.incrementAndGet()
+                respond(exchange, 200, "text/plain; charset=utf-8", TestRsaKey.publicKeyBase64.toByteArray())
+            }
 
             path == "/modify" -> respondHtml(exchange, modifyPage)
             // 会话失效那两条路：一次性失效优先（内核重登 + 重放），其次是一直失效（判据那条）
@@ -319,10 +340,26 @@ class LibraryFakeUpstream(
     private fun handleCasGet(exchange: HttpExchange, query: String, cookie: String) {
         val service = param(query, "service") ?: "$base/seat/"
         if ("TGC=$TGC_VALUE" in cookie) {
-            redirect(exchange, "$service" + (if ("?" in service) "&" else "?") + "ticket=ST-${tickets.incrementAndGet()}")
+            redirect(exchange, serviceWithTicket(service, ticketFor(service)))
         } else {
             respondHtml(exchange, casLoginPage)
         }
+    }
+
+    /**
+     * 把票据交回去：**塞进 query**，不能拼在字符串末尾。
+     *
+     * 一网通办那个 `service` 自己带一个 `#/Index` 片段（见 `YwtbLogin.YWTB_LOGIN_URL` 里那个 `path`），
+     * 拼在末尾的话票据会落进**片段**里 —— 客户端读的是 `response.request.url.queryParameter("ticket")`，
+     * 于是什么也读不到（实测：`YwtbLogin` 报「无法获取 YWTB ticket」）。真 CAS 也是把 ticket 放进
+     * query 的（片段照旧留在最后）。
+     */
+    private fun serviceWithTicket(service: String, ticket: String): String {
+        val hash = service.indexOf('#')
+        val head = if (hash >= 0) service.substring(0, hash) else service
+        val fragment = if (hash >= 0) service.substring(hash) else ""
+        val separator = if ('?' in head) "&" else "?"
+        return "$head$separator" + "ticket=$ticket" + fragment
     }
 
     /** 凭据表单：认用户名 + RSA 解出的密码，种 TGC，签 ticket 回跳业务站。 */
@@ -340,7 +377,25 @@ class LibraryFakeUpstream(
         credentialPosts.incrementAndGet()
         val service = param(query, "service") ?: "$base/seat/"
         exchange.responseHeaders.add("Set-Cookie", "TGC=$TGC_VALUE; Path=/")
-        redirect(exchange, "$service" + (if ("?" in service) "&" else "?") + "ticket=ST-${tickets.incrementAndGet()}")
+        redirect(exchange, serviceWithTicket(service, ticketFor(service)))
+    }
+
+    /**
+     * 签一张回跳票据。绝大多数站点拿到的是 `ST-n` 那种不透明票据；**一网通办例外**：
+     * `YwtbLogin.postLogin` 要从 `ticket=` 里解出一枚 JWT 的 payload（`idToken`），
+     * 真站点发的就是那个形状 ⇒ 夹具按 `service` 分得清，照真实形状签一枚。
+     *
+     * 为什么在这里而不是新开一个 host 的夹具：`login.xjtu.edu.cn` 是**所有站点共用**的一台 CAS，
+     * 按 host 分派的话它只能属于一个夹具（见 `FakeCampusProxy`）；一网通办那半台（门户与四路取数）
+     * 在 `YwtbFakeUpstream` 里。
+     */
+    private fun ticketFor(service: String): String {
+        val n = tickets.incrementAndGet()
+        if (YwtbFakeUpstream.HOST !in service) return "ST-$n"
+        val payload = Base64.getUrlEncoder().withoutPadding()
+            .encodeToString("""{"idToken":"${YwtbFakeUpstream.ID_TOKEN}","sub":"$USERNAME"}""".toByteArray())
+        // 头一个 base64url 的 header、签名字段随便给（本端不验签，真站点也不由本端验）
+        return "eyJhbGciOiJSUzI1NiJ9.$payload.sig"
     }
 
     private fun cookieHeader(exchange: HttpExchange): String =

@@ -1,6 +1,8 @@
 package com.xjtu.toolbox.library
 
 import com.sun.net.httpserver.HttpServer
+import com.xjtu.toolbox.FakeCampusProxy
+import com.xjtu.toolbox.FakeUpstreamProxySelector
 import com.xjtu.toolbox.auth.AccessMode
 import com.xjtu.toolbox.auth.SessionManager
 import com.xjtu.toolbox.auth.SessionExpiredException
@@ -11,10 +13,6 @@ import com.xjtu.toolbox.network.PersistentCookieJar
 import com.xjtu.toolbox.platform.dataRootOverride
 import com.xjtu.toolbox.platform.wipeSecureStore
 import java.net.InetSocketAddress
-import java.net.Proxy
-import java.net.ProxySelector
-import java.net.SocketAddress
-import java.net.URI
 import java.nio.file.Files
 import java.util.concurrent.Executors
 import kotlin.test.Test
@@ -65,25 +63,17 @@ class LibraryLoginSessionJvmTest {
     private lateinit var fake: LibraryFakeUpstream
 
     /**
-     * 进程级的「把连接指到本测试的夹具」开关。
+     * 进程级的「把连接指到本测试的夹具」开关 —— 就是 `:testkit` 那一份 [FakeUpstreamProxySelector]。
      *
-     * ⚠️ 为什么必须是**可变端口 + 常驻**的 ProxySelector，而不是每条测试装一个新的：
-     * `HttpClients.base` 是进程级 `by lazy`，**它会把当时的默认 ProxySelector 抄进自己的配置**，
-     * 而 `SessionBackend.client` 又是从它 `newBuilder()` 派生的。于是「本次测试装的 selector」
-     * 只会对第一条测试生效，后面几条仍然拿着上一条的端口（服务已停 ⇒ Connection refused）。
-     * 装一个读 [port] 的 selector 就绕开了：谁派生都指向当前这条测试的夹具。
+     * ⚠️ 为什么必须是**全进程共用同一个对象 + 可变端口**，而不是每条测试/每个测试类各装一个：
+     * `HttpClients.base` 是进程级 `by lazy`，**它会把当时的默认 ProxySelector 抄进自己的配置**
+     * （`OkHttpClient` 在 `build()` 那一刻就被抄走了），而 `SessionBackend.client` 又是从它
+     * `newBuilder()` 派生的。于是「各装一个」只有**先碰 `HttpClients.base` 的那个测试类**生效：
+     * 它那个对象被永远拿着，后面的类即使换了默认值也影响不到它 —— 表现就是端口不对
+     * （服务已停 ⇒ Connection refused）或者干脆不走代理。所以两处（这里与 `FakeCampusProxy`）
+     * 收敛到 `:testkit` 的同一份实现上：谁先初始化 `HttpClients.base` 都指向同一个可变端口。
      */
-    private object UpstreamProxy : ProxySelector() {
-        @Volatile var port: Int = 0
-
-        override fun select(uri: URI): List<Proxy> {
-            val p = port
-            return if (p == 0) listOf(Proxy.NO_PROXY)
-            else listOf(Proxy(Proxy.Type.HTTP, InetSocketAddress("127.0.0.1", p)))
-        }
-
-        override fun connectFailed(uri: URI, sa: SocketAddress, ioe: java.io.IOException) = Unit
-    }
+    private val UpstreamProxy = FakeUpstreamProxySelector
 
     /**
      * 把上游夹具当**代理**起起来，并把进程的 ProxySelector 指过去（结束复原）。
@@ -92,6 +82,13 @@ class LibraryLoginSessionJvmTest {
      * 这类断言是会返回值的（Kotlin 的 Unit 协变只在期望类型是 Unit 时生效）。
      */
     private fun withFakeCas(block: () -> Unit) {
+        // 进程级前置，必须在建任何客户端**之前**：常驻 selector + 假上游那枚自签证书的信任库。
+        // 信任库这一条不止为体测/教务：JDK 的默认 trust store 与 OkHttp 的 trust manager 都是
+        // **进程级读一次**的（`Builder.build()` 那一刻就抄进客户端），所以同一 JVM 里只要有一个
+        // 测试类会走 https（`JwxtLoginTestHarness`），每个会建客户端的测试类都得先装它一遍 ——
+        // 否则先跑的那个类把「没有这枚证书」的 trust manager 定死了，后面的 https 链必然 PKIX 失败。
+        FakeCampusProxy.installFakeUpstreams()
+
         server = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0)
         fake = LibraryFakeUpstream(LibraryFakeUpstream.LIBRARY_BASE, casEnabled = true)
         server.createContext("/", fake::handle)
@@ -114,7 +111,7 @@ class LibraryLoginSessionJvmTest {
         PersistentCookieJar("cookies_webvpn_default").clear()
 
         // ⚠️ SessionManager 必须在装上它之后再建（OkHttp 的 proxySelector 在建客户端时取默认值）。
-        if (ProxySelector.getDefault() !== UpstreamProxy) ProxySelector.setDefault(UpstreamProxy)
+        UpstreamProxy.install()
         UpstreamProxy.port = server.address.port
         try {
             block()
