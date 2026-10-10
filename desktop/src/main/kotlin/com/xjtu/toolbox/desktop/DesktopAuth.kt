@@ -85,6 +85,17 @@ class DesktopAuth(
     /** 体测站点会话。与图书馆同一条会话语义，但它那一半是 https（见 `FitnessApi`）。 */
     val fitnessSite: SiteSession get() = sessionManager.getSite(FITNESS_SITE_KEY)
 
+    /**
+     * 进某一屏之前把它的站点会话建起来（失败就抛给调用方）。
+     *
+     * 与 `:app` 的导航层同一条口径：那边 `AppRouter.open(route)` 先按 `route.loginType`
+     * `ensureSite` 再跳，所以屏自己从不处理「会话未初始化」。桌面端由 `ToolboxDesktopApp` 的
+     * `DesktopSiteGate` 调它 —— 这样「某个站点自己挂了」最坏只影响那一屏。
+     */
+    suspend fun ensureSession(siteKey: String) {
+        sessionManager.ensureSite(siteKey, userInitiated = true)
+    }
+
     /** 图书馆端口到 `:data`（`LibraryApi`）的适配，给 `:core` 的 `LibraryScreen` 用。 */
     val librarySource: LibrarySource by lazy { DesktopLibrarySource(librarySite) }
 
@@ -177,10 +188,19 @@ class DesktopAuth(
         sessionManager.cachedRsaKey = credentials.rsaPublicKey
         return try {
             // 真登录：CAS 表单 POST（密码 RSA 加密）→ TGC → ticket 回跳 → 各站点自己的会话。
-            // 一次把这一端**需要会话**的站点都建起来（[SESSION_SITE_KEYS]）—— 只在屏上用到某个
-            // 站点时才登，用户点进去会先看到一句「会话未初始化」，而索引页上写的是「真能用」。
+            //
+            // 登录页这一步**只硬要求主站（图书馆）**：它证明这组凭据真能过统一认证，也是 Stage A
+            // 验收那条竖切。其余站点**尽力而为**（失败只记不抛）—— 不能因为某个子系统自己挂了
+            // 就把人挡在门外：体测服务历史上真返回过 502（见 `FitnessSession` 的 KDoc），
+            // 把它硬塞进 login() 会让「体测挂了」变成「整个桌面端登不进去」。
+            // 那些站点在自己那一屏进门时再补登（见 `ToolboxDesktopApp` 的 `DesktopSiteGate`，
+            // 与 `:app` 导航层「先 ensureSite 再跳」是同一条口径）。
             // userInitiated = true：用户正等结果，豁免站点级 60 秒冷却（防刷由 CasGate 兜）。
-            SESSION_SITE_KEYS.forEach { sessionManager.ensureSite(it, userInitiated = true) }
+            sessionManager.ensureSite(LIBRARY_SITE_KEY, userInitiated = true)
+            SESSION_SITE_KEYS.filter { it != LIBRARY_SITE_KEY }.forEach { key ->
+                runCatching { sessionManager.ensureSite(key, userInitiated = true) }
+                    .onFailure { sessionManager.recordDiagnostic("WARN", key, "登录时预热失败（不阻塞登录）：${it.message}") }
+            }
 
             // 成功才记住。设备指纹与 RSA 公钥一起存：前者换来换去会被学校当成新设备（多一次短信），
             // 后者省掉每次登录那一枪 `GET /cas/jwt/publicKey`。

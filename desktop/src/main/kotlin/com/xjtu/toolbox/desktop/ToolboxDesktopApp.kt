@@ -19,10 +19,12 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
@@ -31,6 +33,7 @@ import androidx.compose.ui.unit.sp
 import com.xjtu.toolbox.auth.LoginScreen
 import com.xjtu.toolbox.auth.MfaCodeDialog
 import com.xjtu.toolbox.auth.ensureSite
+import com.xjtu.toolbox.auth.SiteSession
 import com.xjtu.toolbox.calendar.SchoolCalendarApi
 import com.xjtu.toolbox.calendar.SchoolCalendarScreen
 import com.xjtu.toolbox.error.FriendlyError
@@ -56,6 +59,7 @@ import kotlinx.coroutines.withContext
 import top.yukonga.miuix.kmp.basic.NavigationBar
 import top.yukonga.miuix.kmp.basic.NavigationBarDisplayMode
 import top.yukonga.miuix.kmp.basic.NavigationBarItem
+import top.yukonga.miuix.kmp.basic.CircularProgressIndicator
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextButton
 import top.yukonga.miuix.kmp.theme.MiuixTheme
@@ -214,6 +218,78 @@ private fun DesktopBottomBar(selected: DesktopTarget, onSelect: (DesktopTarget) 
  *   （宿主手里就有凭据与会话 —— 这正是只读端没有的能力，见 `LibraryScreen` 的 `reAuthenticate`）；
  * - 外链交给系统浏览器（`java.awt.Desktop.browse`）；
  * - 「功能说明弹过了没」这类本地偏好走 `:core` 的 `keyValueStore`（JVM 侧是落盘的 Properties 文件）。
+ *
+ * 需要站点会话的屏（现在只有体测）走 [DesktopSiteGate] —— 会话按需建立，见那一段的 KDoc。
+ */
+
+/**
+ * 「进这一屏之前先把它的站点会话建起来」—— 与 `:app` 同一条口径：那边是导航层
+ * `AppRouter.open(route)` 先按 `route.loginType` 的 `ensureSite` 再跳，所以屏自己从不处理
+ * 「会话未初始化」。
+ *
+ * 为什么不放在登录页那一步：体测服务历史上真返回过 502（见 `:data` 的 `FitnessSession` 的 KDoc），
+ * 把每个站点都塞进 `login()` 会让「某个子系统自己挂了」变成「整个桌面端登不进去」。
+ * 放在路由上，最坏只是这一屏自己报错 —— 而且这里给了「重试」，服务恢复后点一下就回来。
+ */
+@Composable
+private fun DesktopSiteGate(
+    auth: DesktopAuth,
+    siteKey: String,
+    siteName: String,
+    content: @Composable (SiteSession) -> Unit,
+) {
+    val site = auth.sessionManager.getSiteOrNull(siteKey)
+    var attempt by remember(siteKey) { mutableIntStateOf(0) }
+    var failure by remember(siteKey) { mutableStateOf<String?>(null) }
+    var ready by remember(siteKey) { mutableStateOf(site?.hasLogin == true) }
+
+    LaunchedEffect(siteKey, attempt) {
+        if (ready) return@LaunchedEffect
+        failure = null
+        ready = runCatching { auth.ensureSession(siteKey) }.fold(
+            onSuccess = { true },
+            onFailure = { failure = FriendlyError.of(it, "建立$siteName 会话"); false },
+        )
+    }
+
+    when {
+        ready && site != null -> content(site)
+        failure != null -> Column(
+            modifier = Modifier.fillMaxSize().padding(24.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Text(
+                "$siteName 会话没建起来",
+                color = MiuixTheme.colorScheme.onSurface,
+                fontSize = 18.sp,
+                fontWeight = FontWeight.Bold,
+            )
+            Text(failure.orEmpty(), color = MiuixTheme.colorScheme.error, fontSize = 13.sp)
+            Text(
+                "这一屏需要先登录「$siteName」。它与图书馆是同一套凭据；这里失败通常是那个子系统自己出问题" +
+                    "（体测服务历史上返回过 502），不是账号问题。",
+                color = MiuixTheme.colorScheme.onBackgroundVariant,
+                fontSize = 12.sp,
+            )
+            TextButton(text = "重试", onClick = { attempt++ }, minWidth = 120.dp)
+        }
+        else -> Column(
+            modifier = Modifier.fillMaxSize(),
+            verticalArrangement = Arrangement.Center,
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            CircularProgressIndicator()
+            Text(
+                "正在准备$siteName 会话…",
+                color = MiuixTheme.colorScheme.onBackgroundVariant,
+                fontSize = 13.sp,
+            )
+        }
+    }
+}
+
+/**
+ * 一屏共享页 —— 见文件上方那段 KDoc（「每个屏只注入这一端能提供的东西」）。
  */
 @Composable
 private fun DesktopPage(auth: DesktopAuth, route: AppRoute, onNavigate: (DesktopTarget) -> Unit) {
@@ -261,12 +337,15 @@ private fun DesktopPage(auth: DesktopAuth, route: AppRoute, onNavigate: (Desktop
                 onFirstUseHintRead = { hintPrefs.putBoolean("library_hint_shown", true) },
             )
         }
-        // 体测：会话语义与图书馆同一条（登录页那一步建好），只是这个站点是 **https** ——
-        // 取数走 `:data` 的 `FitnessApi`（v3 加密协议优先、失败退回 legacy PHP）。
-        AppRoute.Fitness -> FitnessScreen(
-            source = remember { FitnessApi(auth.fitnessSite) },
-            onBack = back,
-        )
+        // 体测：站点是 **https**，取数走 `:data` 的 `FitnessApi`（v3 加密协议优先、失败退回 legacy PHP）。
+        // 站点会话**进门时才建**（见 `DesktopSiteGate`）：登录页那一步只是尽力预热它 ——
+        // 体测服务历史上真的返回过 502，不能因为它挂了就把人挡在登录页外。
+        AppRoute.Fitness -> DesktopSiteGate(auth, DesktopAuth.FITNESS_SITE_KEY, "体测") { site ->
+            FitnessScreen(
+                source = remember(site) { FitnessApi(site) },
+                onBack = back,
+            )
+        }
         AppRoute.Games -> GamesScreen(
             onBack = back,
             onNavigate = { onNavigate(DesktopTarget.App(it)) },

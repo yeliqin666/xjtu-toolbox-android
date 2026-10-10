@@ -181,7 +181,25 @@ class FitnessFakeUpstream {
 
     // ── 路由 ─────────────────────────────────────────────────────
 
+    /**
+     * 让体测服务「挂掉」：所有路径回 503。
+     *
+     * 存在的理由是一条真实风险：**某个子系统自己挂了，不该把整个客户端挡在登录页外**。
+     * 体测服务历史上真的返回过 502（见 `:data` 的 `FitnessSession` KDoc），所以
+     * `DesktopAuth.login()` 只硬要求主站（图书馆），其余站点是「尽力预热、失败只记不抛」。
+     * `:desktop:test` 里那条「体测服务挂了也不阻塞登录」就是靠这个开关验的。
+     */
+    @Volatile
+    var outage: Boolean = false
+
     fun handle(exchange: HttpExchange) {
+        if (outage) {
+            val body = "体测服务故障（夹具模拟）".toByteArray()
+            exchange.sendResponseHeaders(503, body.size.toLong())
+            exchange.responseBody.write(body)
+            exchange.close()
+            return
+        }
         val path = exchange.requestURI.path
         val query = exchange.requestURI.query.orEmpty()
         when {

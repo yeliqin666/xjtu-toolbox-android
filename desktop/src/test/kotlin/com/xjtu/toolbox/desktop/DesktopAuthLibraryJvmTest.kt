@@ -369,6 +369,37 @@ class DesktopAuthLibraryJvmTest {
         assertEquals(5, first.currentWeek(LocalDate.parse("2026-10-09")))
     }
 
+    // ══════ 「某个子系统挂了」不该把整个客户端挡在门外 ══════
+
+    /**
+     * 体测服务历史上真的返回过 502（见 `:data` 的 `FitnessSession` KDoc）。所以登录页那一步
+     * **只硬要求主站（图书馆）**，其余站点是「尽力预热、失败只记不抛」；那些站点在**自己那一屏**
+     * 进门时再补登（`ToolboxDesktopApp` 的 `DesktopSiteGate`）。
+     *
+     * 这一条就是那个设计的回归网：体测全站 503 时，登录必须照样成功、图书馆照样能读，
+     * 而体测那一屏自己报错（不是把登录态弄坏）。
+     */
+    @Test
+    fun `体测服务挂了也不阻塞登录（主站照常，进那一屏才报错）`() = withFakeCampus {
+        fake.fitness.outage = true
+        val (auth, _) = newAuth()
+
+        assertTrue(login(auth), "体测挂了不该让登录失败：${auth.loginState}")
+        assertTrue(auth.loggedIn, "登录态应当照常建立")
+
+        // 主站（图书馆）硬要求，所以它必须真能用
+        val seats = assertIs<SeatResult.Success>(runBlocking { auth.librarySource.seats("north2east") })
+        assertEquals(listOf("A01", "A02", "A10"), seats.seats.map { it.seatId })
+
+        // 体测那一屏自己失败（Gate 会把这条失败画成「重试」页），但不影响登录态
+        assertTrue(
+            runCatching { runBlocking { auth.ensureSession(DesktopAuth.FITNESS_SITE_KEY) } }.isFailure,
+            "体测服务挂着时，补登它应当失败",
+        )
+        assertTrue(auth.loggedIn, "体测失败不该把登录态弄坏")
+        assertEquals(0, fake.fitness.launchCallbacks.get(), "服务挂着时不该有成功的 launch 回调")
+    }
+
     // ══════ 冷启动 ══════
 
     @Test
