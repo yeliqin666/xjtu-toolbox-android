@@ -130,6 +130,59 @@
 > **已补齐的那一行**：`/api/session*` —— 逐条请求/响应形状、错误码、Set-Cookie 归属与两条 TODO
 > 都写在 §5.1（由 `2026-10-11` 那次「serve 第二步」的提交补齐）。
 
+### 5.2 P0 取数端点（2026-10-11 落地，`:server` 实现，测试 33 例钉住）
+
+端点全部挂在令牌闸门内（`/api/status` 是唯一免令牌端点）。统一口径：信封 `{code,data,message}`；
+`code == HTTP 状态码`（成功 `0` + 200）；时间一律 ISO-8601 **服务端系统时区**（跨界部署时区差异由部署方负责）；
+错误码：`400` 参数形状 · `401` 无令牌/错了，或令牌对但**没登录**（「请先登录：POST /api/session/login」）·
+`404` 未实现 · `502` 上游/网络故障（`FriendlyError` 中文短句，含会话过期）。
+能力开关一律**如实**：`canBook` / `canCancel` / `canSubmit` / `availableSources` / `contactsAvailable` 出现在各自响应里。
+
+**红线（三处刻意例外，均为公开数据或登录者本人数据，测试用编造夹具值钉住）**：
+「响应不含学号/姓名/手机号」对登录者本人成立；例外的三处是 ① `fitness/score` 的姓名/学号（本人数据），
+② `yellowpage`/`faculty` 的教师名与部门电话（公开通讯录），③ `emptyroom/rooms` 实时档的上课教师名。
+
+| 端点 | 请求 | 响应 `data`（逐字段） | 备注 |
+|---|---|---|---|
+| `GET /api/calendar/school` | —— | `{terms:[{name,startDate,endDate,remark?}]}` | `SchoolCalendarSource.terms`，开学日起序 |
+| `GET /api/info/yellowpage` | —— | `[{dept,name,phone?}]`（或 `{departments:[…]}`，逐位置照 `YellowPageSource`） | MockEngine 夹具 |
+| `GET /api/info/faculty` | `?name=&dept=&page=&size=` | `{page,size,total,list:[…],contactsAvailable:false}` | 不解析主页、不传 `contacts=1`（serve 只读）；`contactsAvailable:false` 固定 |
+| `GET /api/fitness/years` | —— | `[{year,checked}]` | `FitnessSource` |
+| `GET /api/fitness/score` | `?year=` | `{studentNo,studentName,year,score,level,…}` | **本人数据**（例外①）：姓名/学号可投影 |
+| `GET /api/notification/list` | `?page=&size=&source=&all=1` | `{page,size,total,items:[…]}` | `size`=本次响应条数（`NoticeSource` 无页大小概念，非服务端分页窗） | 
+| `GET /api/notification/sources` | —— | `[{id,name,type,…}]` | 29 个源 |
+| `GET /api/inbox` | —— | 四路聚合（消息/事务/预约/校车，逐位置照 `InboxSource`） | 读侧；`markRead` 等写路径属 Stage B |
+| `GET /api/emptyroom/cdn` | `?campus=&date=&from=&to=` | `{availableSources:[…], rooms:[…]}` | CDN 档 |
+| `GET /api/emptyroom/rooms` | `?campus=&date=` | `{availableSources, live?:{…}, direct?:{…}}` | `availableSources`：未登录 `[cdn]`；登录后 `[live,cdn,direct]` |
+
+**TODO（拍板过，未做）**：`emptyroom/rooms` 的 `from/to`（节次过滤）——`:data` `EmptyRoomDirectQuery` 只给全天，留待上游加维度；
+`faculty` 的 `?filters=1`（筛选项表四张，`:data` 能解析但契约未定）与 `fitness/score` 的 `?year=all`（全学期聚合）同理；
+时间戳一律服务端时区。
+
+### 5.3 P0 需登录六域（2026-10-11 落地）
+
+| 端点 | 请求 | 响应 `data`（逐字段，节选） | 备注 |
+|---|---|---|---|
+| `GET /api/jwxt/terms` | —— | `[{name,startDate,endDate,current?}]` | 学期名兜底 = `DM` 字段 |
+| `GET /api/jwxt/term` | —— | 当前学期对象（形状同上） | `ScheduleSource` 一族 |
+| `GET /api/jwxt/grades` | `?term=&all=1` | `{page,size,total,grades:[…]}` | 默认全量；`:data` `ScoreReportSource` |
+| `GET /api/jwxt/school-courses` | `?course=&code=&teacher=&campus=&weekday=&from=&to=&page=&size=` | 见下节 | **要改**（契约§5）：补人数/学时、`YPSJDD`、开课单位、公选筛选（`:data` `AppSchoolCourseSource` 已能取的投影，取不到标 TODO） |
+| `GET /api/jwxt/evaluations` | `?terms=&type=&finished=` | `{canSubmit:false,items:[…]}` | `canSubmit` 必须出现、如实 `false`（本实现只看不认不投） |
+| `GET /api/jwxt/evaluations/status` | —— | `{canSubmit:false}` | 提交/撤销（P1）、研究生 gste/gmis 路（P1） |
+| `GET /api/library/campus` | —— | `{current:{code,name}|null, campuses:[{code,name}], queryableFloors:[…]|null, canBook:true, hasSeatPlan:true}` | `current:null`=认不出不猜；`canBook:true` 如实（:data 写路径真） |
+| `GET /api/library/areas` | `?campus=&floor=` | `{floor,areaCount,areas:[{code,name,floor,available,total}],totals:{…}}` | `available/total:null`=scount 无此区域（不拿 0 冒充「满了」） |
+| `GET /api/library/seats` | `?area=&time=` | `{area,total,available,seats:[{seatId,available}]}` | 排序与 `:app` 同；**`time` 收了但上游无时间维**（TODO） |
+| `GET /api/library/my` | —— | `{my:{seatId,area,statusText}|null}` | `my:null`=页面明确没预约（§4 null≠空对象）；`actionUrls` 不投影（指向 rg.lib，点了会失败，P1 `/api/library/action` 未实现） |
+| `GET /api/card/balance` | —— | `{balance,pendingAmount,lostFlag,frozenFlag,expireDate,cardType,department}` | 红线：`account/name/studentNo` **不投影**；挂失口径选 **`barflag`**（`:data`/`:app` 读法，不选 campus-api 的 `lostflag`） |
+| `GET /api/card/transactions` | `?from=&to=`（必填 YYYY-MM-DD，反序 400）`&page=&size=` | `{page,size,total,transactions:[{time,merchant,amount,balance,type,description}]}` | `amount` 带符号（负=支出）、`description`←resume |
+| `GET /api/venue/products` | —— | `{venues:[{id,name,address?,iconType?,advanceDay,advanceNum}]}` | 拉页到不足为止 |
+| `GET /api/venue/slots` | `?serviceId=&date=`（必填 400） | `{serviceId,date,slots:[{areaDetailId,areaName,stockId,timeSlot,price,date,allCount,usingNum,surplus,serviceid,isAvailable}]}` | **`surplus` 读法 = `(all-used).coerceAtLeast(1)`、`all==used` 给 1 不给 0**（旧字段废弃） |
+| `GET /api/venue/orders` | `?page=&size=` | `{page,size,total|null,orders:[{orderId,status,statusText,createdAt,price,venueName,canPay,canCancel,details:[…]}],hasMore}` | |
+| `GET /api/venue/status` | —— | `{canBook:false, canCancel:true, browserLoginUrl}` | `canBook:false` 如实（serve 无滑块宿主，与桌面端同口径）；`/book` `/cancel` 是 P1 不实现 |
+
+**TODO（拍板过，未做）**：`library/seats?time`（上游无时间维）、`library/my.actionUrls` 与 `/api/library/action`（P1 写）、
+`venue/book` `/cancel` 与 `canBook:true`（P1 写，须先解决滑块宿主）、`card` 挂失（P1 写）、`evaluations` 提交/撤销（P1）。
+
 ## 6. 夹具契约测试（D5 要求，不能只写文档）
 
 - 位置：**`:server:test`**（`kotlin("jvm")` 模块的测试任务就叫这个名；本轮已经有 13 例：6 例是 serve 第一步的

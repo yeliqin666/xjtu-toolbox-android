@@ -71,6 +71,16 @@ fun Application.serveModule(
             // `/api/session*` 四个端点（契约 §5 的 P0）—— 挂在这里就是「自动被闸门罩住」
             sessionRoutes(session, accessToken)
 
+            // 契约 §5 的 P0 取数端点：组一（免登录/轻登录六域）+ 组二（需登录六域）
+            // 两组各自在独立文件里实现（`serveEndpointRoutes` / `jwxtRoutes` / `libraryRoutes` /
+            // `cardRoutes` / `venueRoutes`），这里只是把它们一行一行接进来；顺序无关，
+            // Ktor 按选择器具体度选路（常数段优先于 {path...} 尾卡）。
+            serveEndpointRoutes(session)
+            jwxtRoutes(session)
+            libraryRoutes(session)
+            cardRoutes(session)
+            venueRoutes(session)
+
             // 过了闸门、但还没实现这个端点 ⇒ 404（信封，中文短句）。
             // 尾卡选择器 + handle（不带方法）：GET/POST/… 全收 —— 没实现的端点不该在方法上给差别待遇。
             route("{path...}") {

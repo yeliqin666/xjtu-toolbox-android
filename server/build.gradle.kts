@@ -60,6 +60,8 @@ dependencies {
     // 真 ticket 回跳、真短信二验），那套上游只能来自它。它**绝不进交付物** —— 只挂 test 源集
     // （`implementation(project(":testkit"))` 会把一个「任何密码都收」的假统一认证打进 .deb）。
     testImplementation(project(":testkit"))
+    // 黄页那条契约测试：`YellowPageApi` 收 Ktor 客户端 ⇒ 用 MockEngine 喂夹具响应（:desktop:test 同款）
+    testImplementation(libs.ktor.client.mock)
 }
 
 application {

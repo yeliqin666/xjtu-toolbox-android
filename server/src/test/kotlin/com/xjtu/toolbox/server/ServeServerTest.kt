@@ -141,14 +141,17 @@ class ServeServerTest {
         assertEquals(401, harness.get("/api/session").statusCode())
 
         // 对令牌 → 过闸门。这一步**已经实现**的端点只有 `/api/status` 与 `/api/session*`，
-        // 所以拿一个还没搬过来的端点当证据：过闸门之后是 404（信封）。
-        val allowed = harness.get("/api/venue/products", bearer = token)
+        // 对令牌 → 过闸门。这一步取数端点已基本搬完（P0 全在），所以拿一个**还没实现的 P2/P1**
+        // 端点当证据：过闸门之后是 404（信封）。用 `/api/payment-code`（P2，未实现）——
+        // 不能用 `/api/venue/products` 这类刚实现的端点：它们过闸门后要么 200、要么要登录，
+        // 都会让「404 才是没实现」的断言失真（全量门禁踩过）。
+        val allowed = harness.get("/api/payment-code", bearer = token)
         assertEquals(404, allowed.statusCode())
         assertEquals(404, allowed.body().asJsonObject().getValue("code").jsonPrimitive.content.toInt())
 
         // cookie 形态（契约 §3.2 的第二种）：令牌换 cookie 之后随请求带
-        assertEquals(404, harness.get("/api/venue/products", cookie = token).statusCode())
-        assertEquals(401, harness.get("/api/venue/products", cookie = "wrong").statusCode())
+        assertEquals(404, harness.get("/api/payment-code", cookie = token).statusCode())
+        assertEquals(401, harness.get("/api/payment-code", cookie = "wrong").statusCode())
 
         // `/api/session*` 也已经挂上了（逐条形状在 `ServeSessionTest` 里）：过闸门就是 200 的信封
         assertEquals(200, harness.get("/api/session", bearer = token).statusCode())

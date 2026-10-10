@@ -471,10 +471,6 @@ class ServeSessionTest {
 
 // ── 断言小工具（响应体按 JSON 读；本文件到处都在读那几个字段）──────────────────────────
 
-private fun String.asJsonObject(): JsonObject = Json.parseToJsonElement(this).jsonObject
-
-private fun HttpResponse<String>.envelope(): JsonObject = body().asJsonObject()
-
 /** 信封的 `code`（= HTTP 状态码那一套，见 [ApiErrors]）。 */
 private fun code(response: HttpResponse<String>): Int =
     response.envelope().getValue("code").jsonPrimitive.content.toInt()
@@ -482,6 +478,8 @@ private fun code(response: HttpResponse<String>): Int =
 /** 信封的 `message`（失败时是给用户看的中文短句）。 */
 private fun message(response: HttpResponse<String>): String =
     response.envelope().optString("message").orEmpty()
+
+private fun String.asJsonObject(): JsonObject = Json.parseToJsonElement(this).jsonObject
 
 private fun data(response: HttpResponse<String>): JsonObject = response.envelope().getValue("data").jsonObject
 
@@ -491,10 +489,3 @@ private fun authenticatedField(response: HttpResponse<String>): Boolean =
 /** `serve_token=<令牌>; Path=/…` → `<令牌>`（断言里不打印它）。 */
 private fun cookieValue(setCookie: String): String = setCookie.substringBefore(';').substringAfter('=')
 
-/** 见 [JsonNull]：`null` 写成字段值时读出来是 `null` 而不是缺失，两者这里都当「没有」处理。 */
-private fun JsonObject.optString(key: String): String? =
-    (this[key] as? JsonPrimitive)?.takeIf { it !is JsonNull }?.content
-
-private fun JsonObject.optInt(key: String): Int? = optString(key)?.toIntOrNull()
-
-private fun JsonObject.optBoolean(key: String): Boolean? = optString(key)?.toBooleanStrictOrNull()
