@@ -272,8 +272,9 @@ fun AppNavHost(
             WithSite("dzpz") { TranscriptScreen(site = it, onBack = back) }
         }
         entry<AppRoute.Venue>(transition = expand(AppRoute.Venue::class)) {
-            // 取数 + 收藏搬进 `:core` 的 VenueSource（`AppVenueSource` 包住原来的 `VenueApi` 与
-            // `VenueFavorites`，两份实现一行未改）；滑块控件与自动识别器是**屏上的两个槽位**
+            // 取数搬进 `:data`（`AppVenueSource` 包住原来的 `VenueApi`，行数没变）；收藏搬进
+            // `:core` 的 `VenueFavorites`（`KeyValueStore`，**同一份文件、同一个键名** ⇒ 老收藏不丢）；
+            // 滑块控件与自动识别器是**屏上的两个槽位**
             // （它们长在 `Bitmap`/`Base64` 上，搬不进 `:core`），在这里注入。
             //
             // 三处宿主能力：
@@ -288,7 +289,7 @@ fun AppNavHost(
             }
             WithSite("venue") { site ->
                 VenueScreen(
-                    source = remember(site) { AppVenueSource(site, context) },
+                    source = remember(site) { AppVenueSource(site) },
                     onBack = back,
                     onOpenBrowser = { url, then -> router.open(AppRoute.Browser(url, then)) },
                     autoSolveCaptcha = remember(credentialStore) {

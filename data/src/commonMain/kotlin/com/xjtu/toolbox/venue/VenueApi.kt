@@ -13,7 +13,7 @@ import com.xjtu.toolbox.util.obj
 import com.xjtu.toolbox.util.AppJson
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonArray
-import android.util.Log
+import com.xjtu.toolbox.platform.Log
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
@@ -39,6 +39,13 @@ import org.jsoup.Jsoup
  * 两套是并存的不同部署，不是同一批接口。
  *
  * 支付页仍在 80 端口，要浏览器自身的会话：在内置浏览器里先走一遍 OAuth 登录再进支付页。
+ *
+ * ## 它在哪一端
+ *
+ * 从 `:app/venue/` 搬进 `:data`（桌面端第 11 条真数据路由：桌面要自己登场馆站、自己取数），
+ * 类名与包路径一字未改；被替换的写法只有一处 —— `android.util.Log` → `:core` 的 [Log]。
+ * 它自己不管收藏（那在 [AppVenueSource] 那一层，走 `:core` 的 `KeyValueStore`），
+ * 所以这一份连同 `:data` 里其余取数都没有一行 `android.content`。
  */
 class VenueApi(private val site: SiteSession) {
 

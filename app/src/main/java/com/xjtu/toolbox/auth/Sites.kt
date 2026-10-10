@@ -355,12 +355,11 @@ class DzpzSession : CasSiteSession("dzpz", "电子凭证", mustUseWebVpn = false
     }
 }
 
-// ── VENUE 场馆预订 ────────────────────────────────────────────────────
-
-class VenueSession : CasSiteSession("venue", "场馆预订", mustUseWebVpn = false) {
-    override fun createLogin(client: OkHttpClient, visitorId: String?, cachedRsaKey: String?): XJTULogin =
-        VenueLogin(session = client, visitorId = visitorId, cachedRsaKey = cachedRsaKey)
-}
+// ── VENUE 场馆预订 ─────────────────────────────────────────────
+//
+// `VenueSession` 与它的 `VenueLogin` 已搬进 `:data`（同一个包、同一个类名，共 3 行）：场馆是
+// 「一条真数据路由一个站点」（体育场馆预订），桌面端要自己登场馆站、自己取数。类名与包路径都没变 ⇒
+// `AppLoginState` 里那处 `register(VenueSession())` 一行不用改。
 
 // ── SSN 宿舍电费 ──────────────────────────────────────────────────────
 

@@ -112,16 +112,18 @@ interface VenueSource {
     /**
      * 已收藏的场馆 id。屏进场读一次、切换后自己更新。
      *
-     * 为什么不把 `:app` 的 `VenueFavorites` 整体搬进 `:core` 走 `keyValueStore`：
-     * 它落盘用的是 **`SharedPreferences.getStringSet`**（文件 `venue_favorites`、键
-     * `favorite_venue_ids`，值是一个字符串集合），而 `:core` 的 `KeyValueStore` 只有
-     * `getString/getInt/getBoolean` —— 三端接口里没有集合这一档。用 `getString` 去读一个
-     * `StringSet` 会直接 `ClassCastException`；换个新键名就等于把老收藏丢了。
-     * 所以「收藏存在哪儿」留给实现方：Android 包住原来那个 `VenueFavorites`（文件与键名逐字未动 ⇒
-     * 老收藏不丢），Web 用 `localStorage` 存同一件事。
+     * **落盘现在在共享层**：搬迁前它只能留给各端实现（那会儿 `:core` 的 `KeyValueStore` 只有
+     * `getString/getInt/getBoolean` 三档，而这里落盘用的是 `SharedPreferences.getStringSet` ——
+     * 用 `getString` 去读一个集合键会直接 `ClassCastException`，换个新键名又等于把老收藏丢了）。
+     * `KeyValueStore` 补上集合那一档之后，它像座位收藏那样收回了 `:core` 的 `VenueFavorites`
+     * （文件 `venue_favorites`、键 `favorite_venue_ids` 逐字未动）。
+     *
+     * 两个方法仍留在端口上而不是让屏直调 `VenueFavorites`：这是屏与「各端落盘」之间的原缝
+     *（将来若要按账号分文件，换的是实现而不是屏），且 `:app` 的导航层与 Web 的装配本来就
+     *对着这条端口——搬动不再动它们。
      */
     suspend fun favorites(): Set<Int>
 
-    /** 切换收藏，返回切换后的状态（与 `VenueFavorites.toggleFavorite` 同一个返回值语义）。 */
+    /** 切换收藏，返回切换后的状态（与 `VenueFavorites.toggle` 同一个返回值语义）。 */
     suspend fun toggleFavorite(venueId: Int): Boolean
 }

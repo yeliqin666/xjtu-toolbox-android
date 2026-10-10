@@ -1,7 +1,7 @@
 package com.xjtu.toolbox.auth
 
 import com.xjtu.toolbox.util.redactUrl
-import android.util.Log
+import com.xjtu.toolbox.platform.Log
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.Response
@@ -18,6 +18,10 @@ import okhttp3.Response
  *
  * 早前这里走的是另一套部署（CAS client_id=1439 → 80 端口的 `/xjtu/…`，业务路径不带
  * `/web/` 前缀）。那套会话很不稳定、订单接口也取不到数据，改成本文件现在这套。
+ *
+ * 与 [VenueSession] 一起从 `:app` 搬进 `:data`（桌面端第 11 条真数据路由：桌面要自己登场馆站），
+ * 类名与包路径一字未改 ⇒ `Sites.kt` 与导航层那两处引用一行不用改。被替换的写法只有一处：
+ * `android.util.Log` → `:core` 的 [Log]。
  */
 class VenueLogin(
     session: OkHttpClient? = null,

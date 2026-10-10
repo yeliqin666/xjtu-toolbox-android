@@ -7,6 +7,7 @@ import com.xjtu.toolbox.emptyroom.EmptyRoomFakeUpstream
 import com.xjtu.toolbox.fitness.FitnessFakeUpstream
 import com.xjtu.toolbox.jwxt.JwxtFakeUpstream
 import com.xjtu.toolbox.library.LibraryFakeUpstream
+import com.xjtu.toolbox.venue.VenueFakeUpstream
 
 /**
  * 把假的校园上游起成**一个本地端口**，按请求行里的 **host** 分派给各个夹具（裸 TCP 前置 + 明文/TLS
@@ -80,6 +81,17 @@ class FakeCampusProxy(private val casEnabled: Boolean = true) : AutoCloseable {
      * 见那个类的 KDoc）；第三档「直查教务」在 [jwxt] 里（同一个教务域名）。
      */
     val emptyRoom: EmptyRoomFakeUpstream = EmptyRoomFakeUpstream()
+
+    /**
+     * 体育场馆（第 11 条真数据路由）：
+     * - 开放平台 `org.xjtu.edu.cn`（https）= 登录入口那一跳（302 到统一认证）；
+     * - 场馆站 `202.117.17.144:8080`（**明文 http**）= 业务与登录探针。
+     *
+     * 两面都由 [VenueFakeUpstream] 扮（两个域名，一个夹具 —— 它们属于同一条登录链，
+     * 见那个类的 KDoc）；CAS 那半台在 [library] 里。⚠️ 分派只看 host，所以 80 端口那台
+     * 支付站也落在这里（那座站点只被拼进 URL，不真请求）。
+     */
+    val venue: VenueFakeUpstream = VenueFakeUpstream()
     private val server: FakeUpstreamFront =
         FakeUpstreamFront(::dispatch, HTTPS_HOSTS)
 
@@ -115,6 +127,8 @@ class FakeCampusProxy(private val casEnabled: Boolean = true) : AutoCloseable {
             CampusCardFakeUpstream.HOST -> campusCard.handle(exchange)
             EmptyRoomFakeUpstream.JS_HOST -> emptyRoom.handleJs(exchange)
             EmptyRoomFakeUpstream.CDN_HOST -> emptyRoom.handleCdn(exchange)
+            VenueFakeUpstream.OAUTH_HOST -> venue.handleOauth(exchange)
+            VenueFakeUpstream.HOST -> venue.handle(exchange)
             SchoolCalendarFakeUpstream.HOST ->
                 if (exchange.requestURI.path == SchoolCalendarFakeUpstream.PATH) {
                     calendar.handle(exchange)
@@ -162,6 +176,9 @@ class FakeCampusProxy(private val casEnabled: Boolean = true) : AutoCloseable {
             // 而不是把旧的叠上去。
             EmptyRoomFakeUpstream.JS_HOST,
             EmptyRoomFakeUpstream.CDN_HOST,
+            // 体育场馆的登录入口那一跳（`org.xjtu.edu.cn` 的 OAuth 授权页）；业务那半台是**明文**
+            // `202.117.17.144:8080`，不走隧道，所以不在这里。
+            VenueFakeUpstream.OAUTH_HOST,
         )
     }
 }
