@@ -1,5 +1,7 @@
 package com.xjtu.toolbox.server
 
+import com.xjtu.toolbox.FakeCampusProxy
+import com.xjtu.toolbox.platform.JvmCredentialStore
 import com.xjtu.toolbox.platform.dataRootOverride
 import com.xjtu.toolbox.platform.wipeSecureStore
 import io.ktor.server.cio.CIOApplicationEngine
@@ -63,6 +65,8 @@ class ServeServerTest {
         // 每条测试自己起一个真服务器（临时端口），跑完必须关掉 —— 否则 JVM 退不掉
         started?.stop(gracePeriodMillis = 100, timeoutMillis = 500)
         started = null
+        // 数据根会由 start() 换到临时目录，这里复位（与 AccessToken 那条测试的 finally 同口径）
+        dataRootOverride = null
     }
 
     @Test
@@ -136,15 +140,19 @@ class ServeServerTest {
         assertEquals(401, harness.get("/api/anything", bearer = token.dropLast(1)).statusCode())
         assertEquals(401, harness.get("/api/session").statusCode())
 
-        // 对令牌 → 过闸门。这一步还没有别的端点，所以过闸门之后是 404（信封）——
-        // 「不是 401」就是闸门开了的证据（/api/session 是下一步）。
-        val allowed = harness.get("/api/session", bearer = token)
+        // 对令牌 → 过闸门。这一步**已经实现**的端点只有 `/api/status` 与 `/api/session*`，
+        // 所以拿一个还没搬过来的端点当证据：过闸门之后是 404（信封）。
+        val allowed = harness.get("/api/venue/products", bearer = token)
         assertEquals(404, allowed.statusCode())
         assertEquals(404, allowed.body().asJsonObject().getValue("code").jsonPrimitive.content.toInt())
 
         // cookie 形态（契约 §3.2 的第二种）：令牌换 cookie 之后随请求带
-        assertEquals(404, harness.get("/api/session", cookie = token).statusCode())
-        assertEquals(401, harness.get("/api/session", cookie = "wrong").statusCode())
+        assertEquals(404, harness.get("/api/venue/products", cookie = token).statusCode())
+        assertEquals(401, harness.get("/api/venue/products", cookie = "wrong").statusCode())
+
+        // `/api/session*` 也已经挂上了（逐条形状在 `ServeSessionTest` 里）：过闸门就是 200 的信封
+        assertEquals(200, harness.get("/api/session", bearer = token).statusCode())
+        assertEquals(200, harness.get("/api/session", cookie = token).statusCode())
 
         // 免令牌端点不受令牌影响：带错令牌也照常 200（它不是「有条件免令牌」）
         assertEquals(200, harness.get("/api/status", bearer = "not-the-token").statusCode())
@@ -256,8 +264,27 @@ class ServeServerTest {
     private fun start(distDir: File, token: String = AccessToken.newToken()): Harness {
         // 端口 0 = 系统挑一个空闲端口。**不能**用 8123：那个端口上现在跑着
         // web/tools/serve-same-origin.py（用户在用的那一个）。
+        //
+        // 会话装配（`ServeSession`）会读落盘凭据与 cookie 快照 ⇒ 数据根必须指到临时目录，
+        // **绝不碰** ~/.local/share/xjtu-toolbox/ 里那份真的（与令牌那条测试同口径）。
+        dataRootOverride = Files.createTempDirectory("xjtu-serve-session").toFile()
+        // ⚠️ 两件进程级前置要在**建会话之前**装好（见 `FakeCampusProxy.installFakeUpstreams`）：
+        // `ServeSession` 一构造就会把 `HttpClients.base` 建出来，而那一下会把当时的
+        // `ProxySelector` 与 trust manager **抄进客户端**，全进程只生效一次。这一步测试不用假上游，
+        // 但不装的话，**同一 JVM 里后跑的**那个用假上游的测试类（`ServeSessionTest`）会静默地
+        // 连不上任何上游（表现是 502 —— 不装 selector 就等于绕过那个假代理）。
+        FakeCampusProxy.installFakeUpstreams()
+        // 进程级的**会话态**也要清：凭据是按名字全进程缓存的（`secureKeyValueStore`），
+        // 同一个 JVM 里先跑的那个登录过的测试类会把它留在缓存里 ⇒ 这一轮的 `/api/status`
+        // 就不再报「没会话」了（`:server:test` 的两个测试类跑在同一个 JVM —— 实测撞到过）。
+        wipeSecureStore(JvmCredentialStore.FILE_NAME)
         val config = ServeConfig(port = 0, distDir = distDir)
-        val server = serveServer(config, token, startedAtMillis = System.currentTimeMillis() - 5_000)
+        val server = serveServer(
+            config,
+            token,
+            ServeSession(),
+            startedAtMillis = System.currentTimeMillis() - 5_000,
+        )
         server.start(wait = false)
         started = server
         val connector = runBlocking { server.engine.resolvedConnectors().single() }

@@ -38,8 +38,9 @@ object AccessToken {
     /**
      * 令牌换 cookie 之后随请求带的那个 cookie 名（`docs/api-contract.md` §3.2 的第二种形态）。
      *
-     * `/api/session` 落地时由它换 cookie（那一步的事）；这一步先**认**这个名字，
-     * 免得「先按 Bearer 实现、以后再加 cookie」时两边各起一个名字。
+     * 换 cookie 的那一步是 `GET /api/session`（[setCookieHeader]，已落地）：浏览器在地址栏里
+     * 贴不了 `Authorization`，所以「先拿 Bearer 换一枚 cookie，之后只靠它」是页面里唯一可行的形态。
+     * 闸门（[accessTokenGate]）两种形态都认，名字就是这一个常量 —— 两边不会各起一个。
      */
     const val COOKIE_NAME = "serve_token"
 
@@ -62,6 +63,20 @@ object AccessToken {
     fun newToken(): String = ByteArray(TOKEN_BYTES)
         .also { random.nextBytes(it) }
         .let { Base64.getUrlEncoder().withoutPadding().encodeToString(it) }
+
+    /**
+     * 令牌换 cookie 的 `Set-Cookie` 值（`GET /api/session` 回给浏览器的那一行）。
+     *
+     * 三个属性各自对应一件真事：
+     * - `Path=/`：`/api/…` 与静态产物（`index.html`、`.wasm`）都走这一枚 cookie；
+     * - `HttpOnly`：**这是重点** —— 页面里的脚本读不到令牌（令牌是这一层唯一的门，
+     *   页面上任何一个 XSS 都能把非 HttpOnly 的 cookie 读走）；
+     * - `SameSite=Lax`：serve 是「同源单页 + 用户自己敲地址/点书签」的形态，Lax 够用。
+     *   不能给 `None`（那要求 `Secure`，而默认是明文 HTTP ⇒ cookie 直接被丢掉），
+     *   也不用 `Strict`（从聊天/邮件里点进来的链接会丢掉 cookie ⇒ 用户看到的是
+     *   「刚登录过、每次进去又都说没登录」）。
+     */
+    fun setCookieHeader(token: String): String = "$COOKIE_NAME=$token; Path=/; HttpOnly; SameSite=Lax"
 
     /**
      * 常数时间比较。

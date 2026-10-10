@@ -11,7 +11,7 @@ import kotlin.system.exitProcess
  * 1. 解析命令行（[ServeConfig.parse]）；
  * 2. 取访问令牌（[AccessToken.loadOrCreate]：没有就生成并落盘 `0600`）；
  * 3. **打印启动横幅** —— 令牌与「只监听 127.0.0.1」的说明都在里面，这是用户唯一能拿到令牌的地方；
- * 4. 启动并阻塞（Ctrl+C 结束；CIO 自己注册了关停钩子）。
+ * 4. 建好**会话装配**（[ServeSession]）并启动（阻塞；Ctrl+C 结束，CIO 自己注册了关停钩子）。
  *
  * 没有业务代码：路由在 [serveModule]，静态托管在 `staticSite`。
  *
@@ -35,7 +35,7 @@ fun main(args: Array<String>) {
 
     val token = AccessToken.loadOrCreate()
     printStartupBanner(config, token)
-    serveServer(config, token).start(wait = true)
+    serveServer(config, token, ServeSession()).start(wait = true)
 }
 
 private val HELP_FLAGS = setOf("-h", "--help")

@@ -19,7 +19,7 @@
 |---|---|---|
 | **能力** | **只读**：图书馆/场馆/评教都在自己的 status 里写 `readOnly:true` | **含写路径**：约座 / 换座 / 签到 / 退座 / 下单 / 取消 / 付款码（`:data` 里已经有了，campus-api 没有） |
 | **谁能做** | 一刀切只读 | **能力开关随部署与账号变**：`canBook` / `canCancel` / `canSubmit` / `hasSeatPlan` / `availableSources` 必须**如实**出现在响应里，屏按它决定画不画按钮（"点了会失败的按钮一个都不画"） |
-| **会话** | 单账号、回环、零鉴权（凭据托管在 campus-api 进程里） | **浏览器不带任何凭据**：登录/登出/短信二验都经 `/api/session*`，会话在 `:server` 进程里（默认只监听 `127.0.0.1` + 访问令牌） |
+| **会话** | 单账号、回环、零鉴权（凭据托管在 campus-api 进程里） | **浏览器不带任何凭据**：登录/登出/短信二验都经 `/api/session*`，会话在 `:server` 进程里（默认只监听 `127.0.0.1` + 访问令牌）。令牌先换成 cookie `serve_token`（只有它能被浏览器带着走），之后的请求就只靠它 |
 
 > 推论（写进 `:web` 的改造）：浏览器端原来那 13 个「只读投影」实现在 serve 模式下**要退休**——
 > 它们把能力开关硬编成 `false`（`canBook=false` 那种）。新契约里开关是**响应的一部分**，
@@ -28,7 +28,10 @@
 ## 3. 默认安全口径（D3 定稿，实现时逐条守住）
 
 1. 默认**只监听 `127.0.0.1`**；
-2. 首次启动生成并**打印访问令牌**；浏览器侧必须带（`Authorization: Bearer <token>`，或令牌换 cookie 后随请求带）；
+2. 首次启动生成并**打印访问令牌**；浏览器侧必须带（`Authorization: Bearer <token>`，或令牌换 cookie 后随请求带）。
+    cookie 名固定 **`serve_token`**，由 `GET /api/session` 发出（`Path=/; HttpOnly; SameSite=Lax`，见 §5.1）；
+    浏览器在地址栏里贴不了 `Authorization`，所以实际形态就是「先用 Bearer 换 cookie，之后只带 cookie」；
+    不带 `Secure` 是因为默认是明文 HTTP（浏览器会直接丢掉带 `Secure` 的 cookie）。
 3. 对外暴露必须**显式** `--host 0.0.0.0`，文档写明"自己加反代 + 鉴权，风险自负"；
 4. `/api/status` 是**唯一免令牌**端点（只报"活着 + 有没有会话"），且**不含身份信息**（不返回学号/姓名）。
 5. **`--host 0.0.0.0` + HTTP ⇒ 非安全上下文**（2026-10-10 实测，Web 外壳那边撞到的）：
@@ -41,6 +44,10 @@
 ## 4. 通用形状
 
 - **信封**：`{ "code": 0, "data": <T|null>, "message": "<错误文案>" }`（`code != 0` 时 `message` 必须是能直接给用户看的中文短句，口径与 `:core` 的 `FriendlyError` 一致）。
+- **`code` 就是 HTTP 状态码**（2026-10-11 落地 `/api/session*` 时定下，`:server` 的 `ApiErrors` 是这一条的实现）：
+  成功 `code == 0` 且 HTTP 200；失败时 `code` 与 HTTP 状态码**逐位相同** —— 一条信息不出现两种写法，
+  客户端读哪一个都一样。已用的码：`400` 请求体形状不对 · `401` 无令牌 / 登录被拒 · `404` 端点不存在 ·
+  `409` 另一次登录正在进行 · `502` 上游或网络的故障（稍后重试可能就成）。
 - **例外**：`/api/status` 是**裸对象**（历史遗留）。要么在实现时统一成信封，要么在本文档里明确标注为例外 —— **只能选一个**。
 - ⚠️ **时间一律 ISO-8601 带时区的字符串**（`2026-10-09T23:52:00+08:00`）。
   **不要用 epoch 秒/毫秒**：这是"静默漂移"的头号来源（秒 vs 毫秒、本地时区 vs UTC 在两端的表现不同，
@@ -57,7 +64,7 @@
 | 路径 | 对应端口（`:core`） | 屏 | 优先级 | 沿用旧形状？ |
 |---|---|---|---|---|
 | `/api/status` | ——（探活，裸对象） | （外壳） | P0 | 沿用（但见 §3.4：不含身份） |
-| `/api/session` `/api/session/login` `/api/session/logout` `/api/session/mfa` | 新（`:data` 的 `SessionManager`） | 登录屏 / MFA 弹窗 | **P0（新）** | 无旧形状可沿用 |
+| `/api/session` `/api/session/login` `/api/session/logout` `/api/session/mfa` | 新（`:data` 的 `SessionManager`） | 登录屏 / MFA 弹窗 | **P0（新）** | 无旧形状可沿用（逐条形状见 §5.1） |
 | `/api/calendar/school` | `SchoolCalendarSource` | 校历 | P0 | 沿用（`UpstreamSchoolCalendar` 已有解析） |
 | `/api/jwxt/terms` `/api/jwxt/term` `/api/jwxt/term-start` | `ScheduleSource` 一族 | 课表 | P0 | 沿用 |
 | `/api/jwxt/grades` | `ScoreReportSource` | 成绩报表 | P0 | 沿用 |
@@ -75,16 +82,67 @@
 | `/api/coupon/…` `/api/payment-code` | 新 | 加餐券 / 付款码 | P2 | 无旧形状 |
 | `/api/v1/personal/me/user` | —— | （身份） | P2 | ⚠️ 待确认：这条出现在 `:core` 现有代码里，实现时先查清它是谁的投影 |
 
+### 5.1 `/api/session*`（P0「新」那一行的实测形状，2026-10-11 落地）
+
+会话本体在 `:server` 进程里（`ServeSession`：`:data` 的 `SessionManager` + 落盘凭据），
+浏览器**不带任何凭据**地登进来。四个端点全部挂在令牌闸门**里面**（`/api/status` 的免令牌是唯一例外，见 §3.4）。
+
+| 端点 | 请求 | 响应 `data` |
+|---|---|---|
+| `GET /api/session` | —— | `{ "authenticated": true\|false }`，并带 `Set-Cookie`（见下） |
+| `POST /api/session/login` | `{"username":"…","password":"…"}` | `{ "authenticated": true }` |
+| `POST /api/session/logout` | ——（不读 body，`{}` 也行） | `{ "authenticated": false }` |
+| `GET /api/session/mfa` | ——（轮询） | `{ "pending": …, "siteName": …, "rejections": …, "attemptsLeft": … }` |
+| `POST /api/session/mfa` | `{"code":"…"}` 或 `{"cancel":true}` | 同上（**动作之后那一刻**的快照） |
+
+四条口径（实现见 `server/src/main/kotlin/com/xjtu/toolbox/server/SessionRoutes.kt` / `ServeSession.kt`）：
+
+1. **令牌换 cookie 只在 `GET /api/session` 发**：响应带
+   `Set-Cookie: serve_token=<令牌>; Path=/; HttpOnly; SameSite=Lax`。浏览器先用
+   `Authorization: Bearer` 打这一枪，之后**只带 cookie**（闸门两种形态都认，名字固定 `serve_token`）。
+   `HttpOnly` 是重点：页面脚本读不到令牌。其余三个端点**不发**这行 —— 客户端启动时必然要问一次
+   「有没有会话」，cookie 顺手就拿到了。
+2. **`authenticated` 的含义是「登录跑完了」**（或冷启动从落盘凭据静默恢复过），**不是**
+   「内核里有凭据」：登录挂在短信二验上时它仍是 `false`（那一发随时可能失败），`/api/status` 也照此报。
+   恢复**不联网验证**（第一次真取数时站点会话自己探活）—— 打开页面这个最该快的动作不该等一次网络。
+3. **MFA 是轮询**（不是 SSE）：`GET` 报挂起的询问，`POST` 交验证码或取消。
+   - 没有挂起时 `{"pending":false}`（其余三个字段是 `null`，不是字段缺失）；有挂起时 `pending:true` +
+     `siteName`（站点显示名，如「图书馆」）+ `rejections`（服务端拒绝了几次）+ `attemptsLeft`
+     （= `3 - rejections`；3 是 `:data` 的 `SessionManager.MFA_MAX_ATTEMPTS`）。
+   - `POST` 是**动作**不是结果：验证码交给内核那条登录流程去校验，结论从下一次轮询（`rejections` 涨没涨）
+     或那一发登录请求的响应读；取消之后那一发登录以 4xx 收尾（这就是 `cancel` 的语义）。
+   - 拿手机号是一个**副作用**：轮询到 `pending:true` 那一刻 `:server` 会调 `MFAContext.getPhoneNumber()`
+     —— 不只是为了显示，`verifyCode` 要拿它设下的 `gid` 才能校验验证码（两个窗口端在弹窗里做的是同一件事）。
+4. **`POST /api/session/login` 同时只允许一个流程**：第二发并发请求拿 `409`（中文短句），
+   不排队等一个可能 150 秒的 MFA（并存的两个登录会互相 `reconfigureForAccount`，把命名空间搅成半新半旧）。
+   失败码：`401` = 凭据/验证被拒（重发同样的请求没有意义）· `502` = 上游或网络的故障（稍后重试可能就成）·
+   `400` = 请求体形状不对。登录成功后凭据落盘（与桌面端同一份存储，`0600`），登出时凭据 / cookie /
+   站点快照**一起删**。
+
+> **未投影的东西（TODO）**：① MFA 的绑定手机号（弹窗里那句「验证码已发送到 138\*\*\*\*0000」要它；
+> 多一个字段 = 多一处口径，留到 `:web` 那个弹窗真开始画时一起加）；② `attemptsLeft` 依赖
+> `SessionManager.MFA_MAX_ATTEMPTS`（那边是 `private`，`:server` 侧是同一数字的第二份写法，
+> 改内核那个值要连它一起改）；③ `/api/session*` 的响应**只有**上面那些字段 —— 学号 / 姓名 /
+> 手机号 / 账号类型一律**不投影**（与 `/api/status` 那条红线同一口径）。
+
 > **TODO（每条一行，由搬它的提交补齐）**：请求参数的确切名字与默认值 · 响应字段的逐条形状 ·
 > 与 `:app` 同一条上游样本的逐字段一致性证据（夹具）· 该端点的能力开关取值表。
+> **已补齐的那一行**：`/api/session*` —— 逐条请求/响应形状、错误码、Set-Cookie 归属与两条 TODO
+> 都写在 §5.1（由 `2026-10-11` 那次「serve 第二步」的提交补齐）。
 
 ## 6. 夹具契约测试（D5 要求，不能只写文档）
 
-- 位置：`:server:jvmTest`（新）——起 `:server`，用**同一批上游样本**（已抽成 `:testkit`，隔壁刚建的）灌进 `:data`，
-  对 `/api/*` 的响应**逐字段断言**；
-- 与既有测试的关系：`:data:jvmTest` 的夹具测的是"数据层"；契约测的是"**同一份数据层 × HTTP 形状**"，
+- 位置：**`:server:test`**（`kotlin("jvm")` 模块的测试任务就叫这个名；本轮已经有 13 例：6 例是 serve 第一步的
+  外壳验收，7 例是 `/api/session*` 的契约验收）——起**真** `:server`（端口 `0`，系统挑），用**同一批上游样本**
+  （已抽成 `:testkit`，`testImplementation(project(":testkit"))`）灌进 `:data`，对 `/api/*` 的响应**逐字段断言**；
+- 与既有测试的关系：`:data:jvmTest` 的夹具测的是“数据层”；契约测的是“**同一份数据层 × HTTP 形状**”，
   两者都要在：前者保证解析没漂，后者保证形状没漂；
-- 用**上游样本 → 期望 JSON** 的成对文件（放 `:server/src/jvmTest/resources/`），避免断言散在代码里。
+- 断言写在代码里（`ServeSessionTest` / `ServeServerTest`），与仓库其余契约测试同一形态；
+  “上游样本 → 期望 JSON”的成对资源文件**这一轮没采用**（样本已经在 `:testkit` 的夹具常量里，
+  再措一份 JSON 只会多一份要同步的副本）—— 若后续要上，放在 `:server/src/test/resources/`。
+- MFA（短信二验）那条链需要一份**真的能走完**的上游剧本：二次认证页 + 取手机号 + 校验验证码 +
+  隐藏表单回提，四步都在 `:testkit`（`CasSafetyVerifyPage` / `LibraryFakeUpstream` / `JwxtFakeUpstream`），
+  默认关着开关，契约测试开它。
 
 ## 7. 变更纪律
 

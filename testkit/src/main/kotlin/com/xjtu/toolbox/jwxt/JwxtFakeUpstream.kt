@@ -1,8 +1,10 @@
 package com.xjtu.toolbox.jwxt
 
 import com.sun.net.httpserver.HttpExchange
+import com.xjtu.toolbox.library.CasSafetyVerifyPage
 import com.xjtu.toolbox.library.LibraryFakeUpstream
 import java.net.URLDecoder
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.atomic.AtomicInteger
 
@@ -69,8 +71,24 @@ import java.util.concurrent.atomic.AtomicInteger
  * ## 统一认证那一半为什么不在这个文件里
  *
  * `login.xjtu.edu.cn` 是所有站点共用的一台 CAS，`FakeCampusProxy` 把它分派给
- * [LibraryFakeUpstream]（它完整扮演了登录页 / 表单 POST / 签 ticket / TGC）。这个夹具只负责
- * `jwxt.xjtu.edu.cn` 那一半：**CAS 回跳之后**的事。
+ * [LibraryFakeUpstream]（它完整扮演了登录页 / 表单 POST / 签 ticket / TGC，外加短信二次验证
+ * 的「取手机号」与「校验验证码」两枪）。这个夹具只负责 `jwxt.xjtu.edu.cn` 那一半：**CAS 回跳之后**的事。
+ *
+ * ## 短信二次认证（CAS Safety Verify）那一幕也在这一半
+ *
+ * 真站点上它是 **jwxt 独有**的：`client_id=1675` 这个高敏感 OAuth 客户端即使在 TGC 已下发之后
+ * 也会被 CAS 拦到「Safety Verify」页（`JwxtLogin.postLogin` 的注释与 `CasLoginPages.isSafetyVerifyPage`
+ * 都是为它写的）。而**那一页要落在 jwxt 域名下才拦得到这条链** ⇒ 由这个夹具发它
+ *（页面原文在 [CasSafetyVerifyPage]，只有那一份）。整条剧本是：
+ *
+ * ```
+ * 开 requireSafetyVerify
+ * GET  <HOME_URL>?ticket=ST-n  → 200 二次认证页（**不是**首页）   ← XJTULogin 认出来 ⇒ REQUIRE_MFA
+ * GET  <CAS>/cas/sec/initByType/securephone?state=<secState> → gid + 屏蔽手机号
+ * POST <CAS>/attest/api/guard/securephone/valid  {gid,code}    → code==123456 才过
+ * POST <HOME_URL>?ticket=ST-n  （secState/execution/_eventId/submit） → 200 首页 + 会话 cookie
+ * ```
+ * 默认**关着**（既有用例要的是「一步登进去」）；`:server` 的 MFA 桥测试开它。
  *
  * ## 契约：逐字段对着 `:data` 里的解析函数写
  *
@@ -259,6 +277,25 @@ class JwxtFakeUpstream {
     /** CAS 回跳（带 ticket）落在本站的次数 —— 用户级「登录真的走完了」。 */
     val ticketLandings = AtomicInteger()
 
+    /**
+     * 二次认证剧本的开关：开上之后，**带 ticket 的回跳给的不是首页而是 [safetyVerifyPage]**。
+     *
+     * 什么时候开：测「登录链上撞到短信二验」时（`:server` 的 MFA 桥）。默认关 —— 其余用例要的是
+     * 「一步登进去」。
+     */
+    val requireSafetyVerify = AtomicBoolean(false)
+
+    /** 二次认证页被给出去几次（= 登录链真的在那一步被拦住了）。 */
+    val safetyVerifyLandings = AtomicInteger()
+
+    /** 二次认证页的隐藏表单被回提了几次（= 验证码真过了、`MfaContext.verifyCode` 走到了最后一步）。 */
+    val safetyVerifySubmissions = AtomicInteger()
+
+    /** 最近一次回提的表单原文（断言 `secState`/`execution`/`_eventId`/`submit`/`fpVisitorId` 真发出去了）。 */
+    @Volatile
+    var lastSafetyVerifyForm: String? = null
+        private set
+
     /** `ensureAppInitialized` 的预热请求打过几次。 */
     val appIndexCalls = AtomicInteger()
 
@@ -346,6 +383,15 @@ class JwxtFakeUpstream {
           <div id="app">本科教务 · 学生端</div>
         </body></html>
     """.trimIndent()
+
+    /**
+     * CAS 的「Safety Verify」二次认证页 —— 只有 [requireSafetyVerify] 打开时才会被给出去。
+     *
+     * ⚠️ 页面原文在 [CasSafetyVerifyPage]（**只有那一份**：它不属于任何一个业务站，真站点上是 CAS
+     * 渲染的）。这里只负责「在回跳那一步发给客户端」—— 与图书馆那条链（CAS 自己在凭据 POST 的落点
+     * 发它）的差别，见那个对象的 KDoc。
+     */
+    val safetyVerifyPage: String get() = CasSafetyVerifyPage.HTML
 
     /** `kcbcx` 应用的首页（预热用，客户端只 close 不解析）。 */
     val appIndexPage = """
@@ -648,10 +694,26 @@ class JwxtFakeUpstream {
     /**
      * 登录入口页：带 ticket 或已经握着本站会话 cookie ⇒ 给首页；否则 302 到统一认证
      * （`service` 就是本页地址，真站点也是这么把票据交回来的）。
+     *
+     * 二次认证剧本（[requireSafetyVerify] 开着）多两条分支：
+     * - **带 ticket 的回跳不给首页，给 [safetyVerifyPage]** —— 真站点正是这样：TGC 已下发、
+     *   CAS 仍把 jwxt（`client_id=1675`）拦到二次认证（`XJTULogin.open` 的 `initialSafetyVerify`
+     *   分支认的就是这一页）；
+     * - **`POST` 回本页** = 二次认证页的隐藏表单回提（`MFAContext.verifyCode` 的最后一步），
+     *   校验通过就回到正常形态：首页 + 本站会话 cookie。
      */
     private fun handleHome(exchange: HttpExchange, query: String) {
+        if (exchange.requestMethod == "POST") {
+            handleSafetyVerifySubmit(exchange)
+            return
+        }
         if ("ticket=" in query) {
             ticketLandings.incrementAndGet()
+            if (requireSafetyVerify.get()) {
+                safetyVerifyLandings.incrementAndGet()
+                respondHtml(exchange, safetyVerifyPage)
+                return
+            }
             exchange.responseHeaders.add("Set-Cookie", "JSESSIONID=$JWXT_SESSION_VALUE; Path=/")
             respondHtml(exchange, homePage)
             return
@@ -662,6 +724,27 @@ class JwxtFakeUpstream {
         }
         casRedirects.incrementAndGet()
         redirect(exchange, "http://${LibraryFakeUpstream.CAS_HOST}/cas/login?service=${encode(HOME_URL)}")
+    }
+
+    /**
+     * 二次认证页的隐藏表单回提：字段对不上就 400 + 原文，合格就把回跳走完（首页 + 本站会话 cookie）。
+     *
+     * 字段契约只写在 [CasSafetyVerifyPage.rejection] 一处 —— 图书馆那条链（CAS 自己发的页）
+     * 走的是同一个校验，那是「页面原文只有一份」的直接后果。
+     */
+    private fun handleSafetyVerifySubmit(exchange: HttpExchange) {
+        val form = readBody(exchange)
+        lastSafetyVerifyForm = form
+        val rejection = CasSafetyVerifyPage.rejection(form)
+        if (rejection != null) {
+            badRequest(exchange, rejection)
+            return
+        }
+        safetyVerifySubmissions.incrementAndGet()
+        // 认证通过 ⇒ 这个站点从此回到正常形态（后续探活看到的就是首页）
+        requireSafetyVerify.set(false)
+        exchange.responseHeaders.add("Set-Cookie", "JSESSIONID=$JWXT_SESSION_VALUE; Path=/")
+        respondHtml(exchange, homePage)
     }
 
     /** 帆软报表：初始页（`reportlet=`）与翻页（`op=page_content`）两条，认不出就响亮地失败。 */

@@ -78,6 +78,27 @@ class LibraryFakeUpstream(
 
         /** 统一认证登录页上的 `execution`。 */
         private const val CAS_EXECUTION = "e1s1"
+
+        // ── 短信二次验证（MFA）那一半：Safety Verify 流程的两条端点 ───────────────────
+        //
+        // `MFAContext` 按流程选路径段：MFA_DETECT → `/cas/mfa/…`，SAFETY_VERIFY → `/cas/sec/…`
+        //（`MFAFlow.pathSegment`）。本夹具只演 **SAFETY_VERIFY** 这一条 —— 那一页的原文在
+        // `CasSafetyVerifyPage`（图书馆与教务两条链都会发它），这里只负责「取手机号」与「校验验证码」两枪。
+
+        /** 取绑定手机号（`MFAContext.getPhoneNumber`）：`state` 就是二次认证页上的 `secState`。 */
+        const val MFA_PHONE_PATH = "/cas/sec/initByType/securephone"
+
+        /** 校验短信验证码（`MFAContext.verifyCode`）。 */
+        const val MFA_VERIFY_PATH = "/attest/api/guard/securephone/valid"
+
+        /** 验证码的样本值：**只有它会被接受**，其余一律按服务端拒绝回（`code != 0`）。 */
+        const val MFA_CODE = "123456"
+
+        /** 手机号一次验证流程里的 `gid`（`verifyCode` 要原样带回）。 */
+        const val MFA_GID = "gid-1"
+
+        /** 返回的手机号：真站点也是中间四位屏蔽（所以它是**可投影给界面**的那个形状）。 */
+        const val MFA_PHONE_MASKED = "138****0000"
     }
 
     // ── 服务器可变状态：动作打进来时翻一下，好让「动作后复核」有东西可查 ──
@@ -99,6 +120,32 @@ class LibraryFakeUpstream(
 
     /** `GET /cas/jwt/publicKey` 被打了几次（只有不收 `cachedRsaKey` 的那一两个站点会走它）。 */
     val publicKeyCalls = AtomicInteger(0)
+
+    /** 二次认证：取手机号那一枪打过几次（`MFAContext.getPhoneNumber`）。 */
+    val mfaPhoneCalls = AtomicInteger(0)
+
+    /** 二次认证：校验验证码那一枪打过几次（`MFAContext.verifyCode`）—— 错码也算（那是真打到服务端了）。 */
+    val mfaVerifyCalls = AtomicInteger(0)
+
+    /**
+     * 二次认证剧本的开关：开上之后，**凭据 POST 的落点不是带 ticket 的回跳，而是 [CasSafetyVerifyPage]**。
+     *
+     * 什么时候开：测「登录链在**必登的那个站点**上撞到短信二验」（`:server` 的 MFA 桥要验
+     * 「取消必须让整次登录失败」—— 而只有硬要求的站点才有这个语义）。默认关 —— 其余用例要的是
+     * 「一步登进去」。
+     */
+    val requireSafetyVerify = AtomicBoolean(false)
+
+    /** 二次认证页被给出去几次（= 密码对之后真被拦到了那一页）。 */
+    val safetyVerifyLandings = AtomicInteger()
+
+    /** 二次认证页的隐藏表单被回提了几次（= 验证码真过了、`MfaContext.verifyCode` 走到了最后一步）。 */
+    val safetyVerifySubmissions = AtomicInteger()
+
+    /** 最近一次回提的表单原文（断言 `secState`/`execution`/`_eventId`/`submit`/`fpVisitorId` 真发出去了）。 */
+    @Volatile
+    var lastSafetyVerifyForm: String? = null
+        private set
 
     /** 最近一次凭据 POST 提交上来的用户名 / 解密后的密码（没提交过则为 null）。 */
     @Volatile var lastPostedUsername: String? = null
@@ -273,6 +320,10 @@ class LibraryFakeUpstream(
                 publicKeyCalls.incrementAndGet()
                 respond(exchange, 200, "text/plain; charset=utf-8", TestRsaKey.publicKeyBase64.toByteArray())
             }
+            // 短信二次验证的两枪（Safety Verify 流程）：取手机号 + 校验验证码。
+            // 触发这一整套的是二次认证页（页面原文见 `CasSafetyVerifyPage`，两个业务站夹具都发它）。
+            casEnabled && path == MFA_PHONE_PATH -> handleMfaPhone(exchange, query)
+            casEnabled && path == MFA_VERIFY_PATH && exchange.requestMethod == "POST" -> handleMfaVerify(exchange)
 
             path == "/modify" -> respondHtml(exchange, modifyPage)
             // 会话失效那两条路：一次性失效优先（内核重登 + 重放），其次是一直失效（判据那条）
@@ -362,9 +413,22 @@ class LibraryFakeUpstream(
         return "$head$separator" + "ticket=$ticket" + fragment
     }
 
-    /** 凭据表单：认用户名 + RSA 解出的密码，种 TGC，签 ticket 回跳业务站。 */
+    /**
+     * 凭据表单：认用户名 + RSA 解出的密码，种 TGC，签 ticket 回跳业务站。
+     *
+     * 两个额外分支：
+     * - 表单里带 `secState` ⇒ 它是**二次认证页的隐藏表单回提**（`MFAContext.verifyCode` 的最后一步），
+     *   不是一次凭据提交（触发页就是上一次凭据 POST 的落点，所以两者打的是同一个 `/cas/login`）；
+     * - [requireSafetyVerify] 开着 ⇒ 密码对也不直接给 ticket，而是给 [CasSafetyVerifyPage]
+     *   （真站点上高敏感客户端就是这样被拦的）。
+     */
     private fun handleCasPost(exchange: HttpExchange, query: String) {
         val form = exchange.requestBody.readBytes().decodeToString()
+        // 回提优先：它是另一条形态的同名请求（见上面的 KDoc）
+        if ("secState=" in form) {
+            handleSafetyVerifySubmit(exchange, query, form)
+            return
+        }
         val username = param(form, "username")
         val encrypted = param(form, "password").orEmpty()
         val password = TestRsaKey.decrypt(encrypted)
@@ -376,7 +440,33 @@ class LibraryFakeUpstream(
         lastPostedPassword = password
         credentialPosts.incrementAndGet()
         val service = param(query, "service") ?: "$base/seat/"
+        // TGC 先种下：真站点上「密码已经对了、但还要过一次安全验证」正是这个形态
+        // （二次认证回去之后不必再交一次密码）
         exchange.responseHeaders.add("Set-Cookie", "TGC=$TGC_VALUE; Path=/")
+        if (requireSafetyVerify.get()) {
+            safetyVerifyLandings.incrementAndGet()
+            respondHtml(exchange, CasSafetyVerifyPage.HTML)
+            return
+        }
+        redirect(exchange, serviceWithTicket(service, ticketFor(service)))
+    }
+
+    /**
+     * 二次认证页的隐藏表单回提：字段对不上就 400 + 原文，合格就签 ticket 把登录链走完。
+     *
+     * 字段契约（哪些必须有、值该等于什么）只写在 [CasSafetyVerifyPage.rejection] 一处 ——
+     * 教务那条链的回提走的是同一个校验（那是「页面原文只有一份」的直接后果）。
+     */
+    private fun handleSafetyVerifySubmit(exchange: HttpExchange, query: String, form: String) {
+        lastSafetyVerifyForm = form
+        val rejection = CasSafetyVerifyPage.rejection(form)
+        if (rejection != null) {
+            badRequest(exchange, rejection)
+            return
+        }
+        safetyVerifySubmissions.incrementAndGet()
+        requireSafetyVerify.set(false)
+        val service = param(query, "service") ?: "$base/seat/"
         redirect(exchange, serviceWithTicket(service, ticketFor(service)))
     }
 
@@ -398,8 +488,62 @@ class LibraryFakeUpstream(
         return "eyJhbGciOiJSUzI1NiJ9.$payload.sig"
     }
 
+    /**
+     * 取绑定手机号：`state` 必须**就是二次认证页上的 `secState`**，否则响亮地 400。
+     *
+     * 为什么这条要卡：`MFAContext.getPhoneNumber()` 拿这个 state 去问「往哪个号发验证码」，
+     * 漂了的话真站点会把别人的号给出来；夹具把它钉成「只能问那一个 state」，
+     * 于是「拿错 state 也照样过」这种退化在测试里不可能成立。
+     */
+    private fun handleMfaPhone(exchange: HttpExchange, query: String) {
+        val state = param(query, "state")
+        if (state != CasSafetyVerifyPage.SEC_STATE) {
+            badRequest(exchange, "二次认证取手机号的 state 该是 ${CasSafetyVerifyPage.SEC_STATE}，收到：$state")
+            return
+        }
+        mfaPhoneCalls.incrementAndGet()
+        respondJson(
+            exchange,
+            """{"code":0,"data":{"gid":"$MFA_GID","securePhone":"$MFA_PHONE_MASKED"}}""",
+        )
+    }
+
+    /**
+     * 校验短信验证码：只认 [MFA_CODE]，其余按真站点的失败响应回（`code:1` + 中文 message）。
+     *
+     * 形状逐字段对着 `MFAContext.verifyCode` 的读法写：先看 `code == 0`，再看 `data.status == "2"`。
+     * 所以成功响应**两样都给**（少了 `status`，成功那条分支就永远测不到）。
+     */
+    private fun handleMfaVerify(exchange: HttpExchange) {
+        val body = exchange.requestBody.readBytes().decodeToString()
+        val gid = jsonField(body, "gid")
+        val code = jsonField(body, "code")
+        if (gid.isNullOrBlank() || code == null) {
+            badRequest(exchange, "校验验证码要带 gid 与 code（收到：$body）")
+            return
+        }
+        if (gid != MFA_GID) {
+            badRequest(exchange, "校验验证码的 gid 该是本夹具发的 $MFA_GID，收到：$gid")
+            return
+        }
+        mfaVerifyCalls.incrementAndGet()
+        if (code != MFA_CODE) {
+            respondJson(exchange, """{"code":1,"message":"验证码错误"}""")
+            return
+        }
+        respondJson(exchange, """{"code":0,"data":{"status":"2"}}""")
+    }
+
+    /** 认得出的路径但形体不对 ⇒ 响亮地 400（与其余夹具同一条纪律）。 */
+    private fun badRequest(exchange: HttpExchange, message: String) =
+        respond(exchange, 400, "text/plain; charset=utf-8", message.toByteArray())
+
     private fun cookieHeader(exchange: HttpExchange): String =
         exchange.requestHeaders.getFirst("Cookie").orEmpty()
+
+    /** 从 `{"k":"v",…}` 里取一个字符串字段（夹具只认这一种形状，不为它引 JSON 依赖）。 */
+    private fun jsonField(body: String, name: String): String? =
+        Regex("\"$name\"\\s*:\\s*\"([^\"]*)\"").find(body)?.groupValues?.get(1)
 
     private fun param(raw: String, name: String): String? =
         raw.split('&').firstOrNull { it.substringBefore('=') == name }

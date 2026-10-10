@@ -56,6 +56,10 @@ dependencies {
     testImplementation(kotlin("test"))
     // JUnit4：`kotlin("test")` 在 kotlin-jvm 上默认落到 kotlin-test-junit，引擎要显式给
     testImplementation(libs.junit)
+    // 假校园上游（`:testkit`）：`/api/session*` 的契约测试要**真登录**一次（真 CAS 表单 POST、
+    // 真 ticket 回跳、真短信二验），那套上游只能来自它。它**绝不进交付物** —— 只挂 test 源集
+    // （`implementation(project(":testkit"))` 会把一个「任何密码都收」的假统一认证打进 .deb）。
+    testImplementation(project(":testkit"))
 }
 
 application {
