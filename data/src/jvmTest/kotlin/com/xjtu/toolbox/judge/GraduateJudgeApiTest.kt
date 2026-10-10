@@ -49,7 +49,7 @@ class GraduateJudgeApiTest {
     """.trimIndent()
 
     private val questionnaire = GraduateQuestionnaire(
-        assessment = "allow", kcbh = "031002", kcmc = "Numerical Heat Transfer", jsxm = "陶文铨",
+        assessment = "allow", kcbh = "031002", kcmc = "Numerical Heat Transfer", jsxm = "示例己",
         skls_duty = "主讲", termname = "2024秋",
         raw = mapOf("assessment" to "allow", "kcbh" to "031002", "kcmc" to "Numerical Heat Transfer", "data_jxb_id" to "108345"),
     )
@@ -73,7 +73,7 @@ class GraduateJudgeApiTest {
             isDegreeCourse = true,
         )
         assertEquals("Numerical Heat Transfer", data.answers["kcmc_q"])
-        assertEquals("陶文铨", data.answers["skjs_q"])
+        assertEquals("示例己", data.answers["skjs_q"])
         assertEquals("2", data.answers["jcqk"])
         assertEquals("b", data.answers["jcyy"])
         assertEquals("2", data.answers["skyy"])
