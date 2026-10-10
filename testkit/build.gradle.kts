@@ -1,4 +1,4 @@
-// :testkit —— **假的校园上游**（图书馆座位系统 + 可选的统一认证），只给测试与离屏证据用。
+// :testkit —— **假的校园上游**（图书馆座位系统 + 可选的统一认证 + 校历门户 + 体测系统），只给测试与离屏证据用。
 //
 // 为什么它是一个独立模块，而不是塞在某个模块的 test 源集里：
 //
@@ -11,8 +11,9 @@
 //      一起发出去——一个「任何密码都收」的假统一认证不该出现在用户机器上。
 //      所以它是一条**独立的、谁都不会依赖到生产构件里**的编译单元。
 //
-// 它没有依赖，也不需要：两个夹具只用 JDK 的 `com.sun.net.httpserver` 与 `java.security`
-// （这正是它们能搬出 `:data` 的原因；搬之前它们就在 `:data:jvmTest` 里，同样零依赖）。
+// 它没有依赖，也不需要：夹具只用 JDK 自己的东西（`com.sun.net.httpserver` / `java.security` /
+// `java.net.Socket` / `javax.net.ssl` + 命令行 `keytool`，后者只用来给 https 站点现签一枚自签证书）
+//（这正是它们能搬出 `:data` 的原因；搬之前它们就在 `:data:jvmTest` 里，同样零依赖）。
 //
 // 消费者：
 //   - `:data:jvmTest`（`testImplementation(project(":testkit"))`）—— 契约测试；

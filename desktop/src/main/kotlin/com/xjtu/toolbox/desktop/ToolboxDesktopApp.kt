@@ -36,6 +36,8 @@ import com.xjtu.toolbox.calendar.SchoolCalendarScreen
 import com.xjtu.toolbox.error.FriendlyError
 import com.xjtu.toolbox.faculty.FacultyApiSource
 import com.xjtu.toolbox.faculty.FacultyScreen
+import com.xjtu.toolbox.fitness.FitnessApi
+import com.xjtu.toolbox.fitness.FitnessScreen
 import com.xjtu.toolbox.game.GamesScreen
 import com.xjtu.toolbox.game.blocks.BlocksScreen
 import com.xjtu.toolbox.game.g2048.Gpa2048Screen
@@ -152,12 +154,14 @@ internal val DESKTOP_TABS = listOf(
 /**
  * 这一端**真能画**的路由（`:core` 里有屏 + 取数在 `:data`，两者缺一不可）。
  *
- * 三条真取数：图书馆（要登录，走会话内核）、校历与黄页（**免登录**的公开门户接口）。
+ * 五条真取数：图书馆与体测（**要登录**，走会话内核：登录页那一步一次建齐，见 `DesktopAuth.login`）、
+ * 校历 / 黄页 / 教师检索（**免登录**的公开门户接口）。
  * 其余是纯 UI 的游戏（与数据源无关，三端同一份）。
  */
 internal val DESKTOP_SUPPORTED_ROUTES = listOf(
     AppRoute.SchoolCalendar to "校历",
     AppRoute.Library to "图书馆座位",
+    AppRoute.Fitness to "体测",
     AppRoute.YellowPage to "黄页",
     AppRoute.Faculty to "教师检索",
     AppRoute.Games to "游戏合集",
@@ -176,7 +180,6 @@ internal val DESKTOP_SUPPORTED_ROUTES = listOf(
  * 搬到 `:data` 一条，这里就划掉一条（`docs/desktop-port-plan.md` §5.1／§3.2）。
  */
 internal val DESKTOP_PENDING_ROUTES = listOf(
-    AppRoute.Fitness to "体测",
     AppRoute.ScoreReport to "成绩",
     AppRoute.Notification to "通知公告",
     AppRoute.SchoolCourse to "全校课表",
@@ -258,6 +261,12 @@ private fun DesktopPage(auth: DesktopAuth, route: AppRoute, onNavigate: (Desktop
                 onFirstUseHintRead = { hintPrefs.putBoolean("library_hint_shown", true) },
             )
         }
+        // 体测：会话语义与图书馆同一条（登录页那一步建好），只是这个站点是 **https** ——
+        // 取数走 `:data` 的 `FitnessApi`（v3 加密协议优先、失败退回 legacy PHP）。
+        AppRoute.Fitness -> FitnessScreen(
+            source = remember { FitnessApi(auth.fitnessSite) },
+            onBack = back,
+        )
         AppRoute.Games -> GamesScreen(
             onBack = back,
             onNavigate = { onNavigate(DesktopTarget.App(it)) },

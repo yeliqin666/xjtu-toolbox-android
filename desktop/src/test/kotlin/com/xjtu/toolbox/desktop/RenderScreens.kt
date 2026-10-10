@@ -20,6 +20,7 @@ import com.xjtu.toolbox.faculty.FacultyScreen
 import com.xjtu.toolbox.library.LibraryFakeUpstream
 import com.xjtu.toolbox.library.LibraryScreen
 import com.xjtu.toolbox.library.TestRsaKey
+import com.xjtu.toolbox.nav.AppRoute
 import com.xjtu.toolbox.network.PersistentCookieJar
 import com.xjtu.toolbox.platform.JvmCredentialStore
 import com.xjtu.toolbox.platform.dataRootOverride
@@ -43,6 +44,7 @@ import kotlinx.coroutines.runBlocking
  * | `login.png` | 登录页（空输入框） | `:core` 的共享登录屏在桌面真画得出来；**不预填学号**（红线） |
  * | `library-after-login.png` | 图书馆座位屏，**用刚输入的凭据真登进去**之后的 | Stage A 的验收本体：桌面端自己登录、自己取数（`:data` 的会话内核 + `LibraryApi`） |
  * | `shell-after-login.png` | 整个外壳（底栏 + 图书馆屏） | 外壳与底栏在登录后正确切换 |
+ * | `fitness.png` | 体测屏（真路由：外壳 → `AppRoute.Fitness` → `FitnessApi`） | 第五条真数据路由：https 站点、CAS 回跳后的 launch 会话、v3 取数 |
  * | `routes.png` | 「全部页面」索引页 | 如实列出「真能用 / 还没有数据源」，并给出退出登录入口 |
  * | `library-demo.png` | 同一屏 + 固定假数据 | 布局与组件本身可复现（不依赖网络/会话，改屏时用它对比） |
  *
@@ -90,9 +92,11 @@ fun main(args: Array<String>) {
     //    也绝不会把「假登录」产生的 cookie 留在一个真账号旁边。必须在任何
     //    `secureKeyValueStore` / `PersistentCookieJar` 被碰之前设。
     dataRootOverride = Files.createTempDirectory("xjtu-desktop-shots").toFile()
-    // ② 常驻代理 selector（此刻端口 0 = 不走代理）。必须在 `HttpClients.base` 第一次被初始化
-    //    之前装，否则它抄下的是「没有代理」。详见文件头第 1 条坑。
-    FakeCampusProxy.installProxySelector()
+    // ② 常驻代理 selector（此刻端口 0 = 不走代理）+ 假上游那枚自签 https 证书的信任库。
+    //    两者都必须在 `HttpClients.base` 第一次被初始化**之前**装：它抄下的是「没有代理」，
+    //    而客户端建出来那一刻就把平台 trust manager 也抄走了（体测是 https）。
+    //    详见文件头第 1 条坑与 `:testkit` 的 `FakeUpstreamFront`。
+    FakeCampusProxy.installFakeUpstreams()
 
     fun shot(name: String, width: Int = 520, height: Int = 900, frames: Int = 12, content: @Composable () -> Unit) {
         // 每个场景一个独立的 ViewModelStoreOwner：:core 的屏用 `viewModel { }` 建 VM，
@@ -159,7 +163,7 @@ fun main(args: Array<String>) {
         )
     }
 
-    // ── ⑤⑥⑦⑧ 真登录之后（同一份假上游：图书馆要登录、校历不要）──────────────────
+    // ── ⑤⑥⑦⑧⑨ 真登录之后（同一份假上游：图书馆与体测要登录、校历不要）──────────────
     withFakeCampus { auth ->
         // 「用户在登录页敲了字」这一步：用的是假上游那组**编出来的**账号密码
         //（`LibraryFakeUpstream.USERNAME` = 2021000001，不是任何人的学号）。
@@ -186,9 +190,16 @@ fun main(args: Array<String>) {
         }
         shot("shell-after-login.png", frames = 20) { ToolboxDesktopApp(auth) }
 
+        // 体测（第五条真数据路由）：这张图走**外壳 + 真路由**（`AppRoute.Fitness` → `FitnessApi`），
+        // 所以它同时证明「路由真接上了」与「数据是真的」（学年胶囊 / 姓名 / 总分 / 七个分项）。
+        // 站点是 **https**：假上游为此自带 CONNECT 前置与一枚自签证书（见 `:testkit` 的
+        // `FakeUpstreamFront`）—— 这是「URL 一个字符都不改」那条口径在 https 站点的代价。
+        shot("fitness.png", frames = 20) { ToolboxDesktopApp(auth, DesktopTarget.App(AppRoute.Fitness)) }
+
         // 校历：**免登录**的公开门户接口 —— 与上面那张不同，它不需要任何会话。
         // 这是「屏在 :core + 取数在 :data」的直接报偿：搬一个 35 行的 IO 适配器就多一屏。
-        // 基址指向假上游（真机那条是 https，纯 HTTP 假代理给不了 CONNECT 隧道 —— 见夹具 KDoc）。
+        // 基址指向假上游（`SchoolCalendarApi` 的基址本来就是构造参数）：真机那条是 https，
+        // 而这里只需要「取数链路是真的」—— 直接指过来最省事，也不用为它再签一枚证书。
         shot("calendar.png", frames = 12) {
             SchoolCalendarScreen(
                 source = SchoolCalendarApi(SchoolCalendarFakeUpstream.URL),

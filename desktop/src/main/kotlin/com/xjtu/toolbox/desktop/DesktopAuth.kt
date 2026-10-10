@@ -5,6 +5,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import com.xjtu.toolbox.account.AccountContext
 import com.xjtu.toolbox.auth.AccountType
+import com.xjtu.toolbox.auth.FitnessSession
 import com.xjtu.toolbox.auth.LoginUiState
 import com.xjtu.toolbox.auth.LibrarySession
 import com.xjtu.toolbox.auth.SessionBackend
@@ -41,8 +42,9 @@ import kotlinx.coroutines.CancellationException
  *
  * 1. `AccountContext.activeAccountId = 学号`，`reconfigureForAccount(suffix)` ⇒ backends 绑到
  *    该账号的 cookie / 快照文件（`cookies_normal_<学号>` …，与其余端同一套命名）；
- * 2. `setCredentials` + `ensureSite("library", userInitiated = true)` ⇒ 走完整 CAS（RSA 加密密码、
- *    TGC、ticket 回跳），这条链路与 `:data:jvmTest` 的 `LibraryLoginSessionJvmTest` 验的是同一段；
+ * 2. `setCredentials` + 把 [SESSION_SITE_KEYS] 里每个站点 `ensureSite(userInitiated = true)`
+ *    ⇒ 走完整 CAS（RSA 加密密码、TGC、ticket 回跳），这条链路与 `:data:jvmTest` 的
+ *    `LibraryLoginSessionJvmTest` 验的是同一段；
  * 3. **成功才落盘**：学号密码进 [JvmCredentialStore]（0600 的 Properties），设备指纹与 RSA 公钥
  *    顺手存下来（省掉下次登录的一次公钥请求）；
  * 4. 失败就把命名空间退回匿名，绝不把一个没登上去的账号写进 [AccountContext]（那会让所有按账号
@@ -68,9 +70,10 @@ class DesktopAuth(
 
     /** 会话管家：双 backend（直连 / WebVPN）、站点注册中心、MFA 状态机宿主。 */
     val sessionManager: SessionManager = SessionManager().apply {
-        // 只注册桌面端**能取数**的站点。其余 18 个站点的类与它们的 `*Login` 还在 :app，
+        // 只注册桌面端**能取数**的站点。其余站点的类与它们的 `*Login` 还在 :app，
         // 搬一个注册一个（`:data:commonMain` 的 `Sites.kt` 那一批）。
         register(LibrarySession())
+        register(FitnessSession())
         // 切账号时清宿主侧共享缓存：`:app` 把它设成 `CampusProbe.ywtbToken = null`，
         // 而 CampusProbe 要 `ConnectivityManager`（宿主能力，没跟着内核搬进 :data）；
         // 桌面端没有那份缓存，所以留空。这正是「缝照真正用到的那几处切」。
@@ -78,6 +81,9 @@ class DesktopAuth(
 
     /** 图书馆站点会话。冷启动时它还是「从快照恢复、待确认」，第一次取数会自己探活/重登。 */
     val librarySite: SiteSession get() = sessionManager.getSite(LIBRARY_SITE_KEY)
+
+    /** 体测站点会话。与图书馆同一条会话语义，但它那一半是 https（见 `FitnessApi`）。 */
+    val fitnessSite: SiteSession get() = sessionManager.getSite(FITNESS_SITE_KEY)
 
     /** 图书馆端口到 `:data`（`LibraryApi`）的适配，给 `:core` 的 `LibraryScreen` 用。 */
     val librarySource: LibrarySource by lazy { DesktopLibrarySource(librarySite) }
@@ -170,9 +176,11 @@ class DesktopAuth(
         sessionManager.fpVisitorId = credentials.fpVisitorId
         sessionManager.cachedRsaKey = credentials.rsaPublicKey
         return try {
-            // 真登录：CAS 表单 POST（密码 RSA 加密）→ TGC → ticket 回跳 → 座位系统会话。
+            // 真登录：CAS 表单 POST（密码 RSA 加密）→ TGC → ticket 回跳 → 各站点自己的会话。
+            // 一次把这一端**需要会话**的站点都建起来（[SESSION_SITE_KEYS]）—— 只在屏上用到某个
+            // 站点时才登，用户点进去会先看到一句「会话未初始化」，而索引页上写的是「真能用」。
             // userInitiated = true：用户正等结果，豁免站点级 60 秒冷却（防刷由 CasGate 兜）。
-            sessionManager.ensureSite(LIBRARY_SITE_KEY, userInitiated = true)
+            SESSION_SITE_KEYS.forEach { sessionManager.ensureSite(it, userInitiated = true) }
 
             // 成功才记住。设备指纹与 RSA 公钥一起存：前者换来换去会被学校当成新设备（多一次短信），
             // 后者省掉每次登录那一枪 `GET /cas/jwt/publicKey`。
@@ -226,6 +234,13 @@ class DesktopAuth(
     companion object {
         /** 站点 key，与 `Sites.kt` / `LoginType.siteKey()` 里的那个字符串一致。 */
         const val LIBRARY_SITE_KEY = "library"
+        const val FITNESS_SITE_KEY = "fitness"
+
+        /**
+         * 登录页那一步一次建起会话的站点：`:core` 里有屏 + `:data` 里有站点类与取数的那几个。
+         * （校历 / 黄页 / 教师检索是免登录的公开接口，游戏是纯 UI —— 它们不需要会话。）
+         */
+        private val SESSION_SITE_KEYS = listOf(LIBRARY_SITE_KEY, FITNESS_SITE_KEY)
     }
 }
 

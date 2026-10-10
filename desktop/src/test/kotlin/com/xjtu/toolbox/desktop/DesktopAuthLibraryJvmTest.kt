@@ -7,6 +7,10 @@ import com.xjtu.toolbox.auth.SiteSession
 import com.xjtu.toolbox.calendar.SchoolCalendarApi
 import com.xjtu.toolbox.calendar.SchoolCalendarFakeUpstream
 import com.xjtu.toolbox.calendar.defaultTermIndex
+import com.xjtu.toolbox.fitness.FitnessApi
+import com.xjtu.toolbox.fitness.FitnessFakeUpstream
+import com.xjtu.toolbox.fitness.FitnessProtocol
+import com.xjtu.toolbox.fitness.FitnessYear
 import com.xjtu.toolbox.faculty.FacultyApi
 import com.xjtu.toolbox.library.LibraryCampus
 import com.xjtu.toolbox.library.LibraryFakeUpstream
@@ -66,8 +70,10 @@ class DesktopAuthLibraryJvmTest {
      * `initializationError`。
      *
      * ⚠️ 顺序要紧，三条都不能换：
-     *  1. **装 selector 必须在碰 `HttpClients` 之前**（也就是建任何 [DesktopAuth] 之前）——
-     *     它是进程级 `by lazy`，会把当时的默认 `ProxySelector` 抄进自己的配置；
+     *  1. **两件进程级前置必须在碰 `HttpClients` 之前装**（也就建任何 [DesktopAuth] 之前，
+     *     见 [FakeCampusProxy.installFakeUpstreams]）：常驻 selector（`HttpClients.base` 会把当时的
+     *     默认 `ProxySelector` 抄进自己的配置）与假上游那枚自签 https 证书的信任库
+     *     （客户端一建出来就把平台 trust manager 抄走了）；
      *  2. cookie jar 与 `secureKeyValueStore` 都是**进程级**缓存（App 里正是靠这一点让前台/后台
      *     共用同一个 jar）⇒ 必须把上一轮留下的内存态与文件一起清掉，否则上一条测试的 cookie
      *     会把「真登录」变成 SSO 直通；
@@ -95,7 +101,7 @@ class DesktopAuthLibraryJvmTest {
         // 这条也复位：`AccountContext` 是进程级的，上一条测试登录完会把它留着
         AccountContext.activeAccountId = null
 
-        FakeCampusProxy.installProxySelector()
+        FakeCampusProxy.installFakeUpstreams()
         fake.start()
         try {
             block()
@@ -212,7 +218,134 @@ class DesktopAuthLibraryJvmTest {
     }
 
     // ══════ 校历：免登录的那条路 ══════
+    // ══════ 体测：第五条真数据路由（要登录，而且这个站点是 https）══════
 
+    /**
+     * 走的是**真登录链**：桌面登录页那一步的 CAS 表单 POST（凭据 RSA 加密）之后，体测站点
+     * 靠同一份凭据/TGC 自己走完 CAS → `LOGIN_URL?ticket=` → launch 回调 → `UserInfo`，
+     * 会话参数落进站点快照；然后断言 `FitnessApi` 在那份快照上读出的东西。
+     *
+     * 期望值全部来自 `:testkit` 的夹具样本（`:testkit` 的 `FitnessFakeUpstream`），不是从跑通的
+     * 实现里抄的：分数还会过 `:core` 那两条共享口径（`formatFitnessScore` 两位小数、
+     * `fitnessItemName` 按 sex 换名），所以期望写法就是「夹具原文 + 那两条口径」。
+     *
+     * ⚠️ 这一条是**唯一**走 https 的用例：假上游为此自带 CONNECT 前置与一枚自签证书
+     *（见 `:testkit` 的 `FakeUpstreamFront`）。最后一段特意把 cookie（含 CAS 的 TGC）全清掉
+     * 再强制重登一次 —— 证明体测这条链自己就能从「CAS 表单 POST」一路走到 launch 回调，
+     * 而不是靠图书馆那次留下的 TGC 免密直通。
+     */
+    @Test
+    fun `真登录之后：体测站点自己走完 CAS 回跳，快照里落着 launch，读得出学年与成绩`() = withFakeCampus {
+        val (auth, _) = newAuth()
+        assertTrue(login(auth), "用假下游的账号密码应当登得上：${auth.loginState}")
+
+        // 夹具与生产必须指同一个站点：URL 漂了的话，下面这些断言测的就不是真协议
+        assertEquals(FitnessProtocol.TARGET_HOST, FitnessFakeUpstream.HOST)
+        assertEquals(FitnessProtocol.LOGIN_URL, FitnessFakeUpstream.LOGIN_URL)
+        assertEquals(FitnessProtocol.H5_HOME_URL, FitnessFakeUpstream.H5_HOME_URL)
+        assertEquals(FitnessProtocol.API_V3, FitnessFakeUpstream.API_V3)
+        assertEquals(FitnessProtocol.USER_INFO_URL, FitnessFakeUpstream.USER_INFO_URL)
+        assertEquals(FitnessProtocol.LEGACY_API_ROOT, FitnessFakeUpstream.LEGACY_API_ROOT)
+
+        // ── 会话是从 CAS 回跳的那个 URL 里解出来的（不是往快照里塞的）──
+        val site = auth.fitnessSite
+        assertTrue(site.hasLogin, "登录页那一步应当把体测站点也登起来")
+        assertEquals(1, fake.fitness.launchCallbacks.get(), "CAS 回跳只该发出一次 launch 回调")
+        assertTrue(fake.fitness.casRedirects.get() >= 1, "没带 ticket 时应当被交给统一认证")
+        assertTrue(fake.fitness.userInfoCalls.get() >= 1, "postLogin 里那一枪 UserInfo 应当打到夹具")
+        assertTrue(fake.library.tickets.get() >= 1, "统一认证应当真签过 ticket")
+
+        // 快照里的字段：取数要的那八个 `SESSION_FIELDS` 一个不能少；
+        // ⚠️ 七个必需字段里 `user_type` 是唯一被**消费掉**的 —— `extractLaunch` 拿它换算成 `role`
+        // 之后就不原样留着（`SESSION_FIELDS` 里也没有它），所以那一项按 `role` 断言（见下）。
+        for (field in FitnessProtocol.SESSION_FIELDS) {
+            assertTrue(site.localToken[field]?.isNotBlank() == true, "快照里缺 $field：${site.localToken}")
+        }
+        for (field in FitnessProtocol.REQUIRED_LAUNCH_FIELDS - "user_type") {
+            assertTrue(site.localToken[field]?.isNotBlank() == true, "快照里缺 $field：${site.localToken}")
+        }
+        assertEquals(FitnessFakeUpstream.UID, site.localToken["uid"])
+        assertEquals(FitnessFakeUpstream.TOKEN, site.localToken["token"])
+        assertEquals(FitnessFakeUpstream.STUDENT_NUM, site.localToken["student_num"])
+        assertEquals(FitnessFakeUpstream.CARD_ID, site.localToken["card_id"])
+        assertEquals(FitnessFakeUpstream.NONCE, site.localToken["nonce"])
+        // role 由 user_type 换算（ROLE_BY_USER_TYPE），referer 取的是回调的碎片路径
+        assertEquals(
+            FitnessProtocol.ROLE_BY_USER_TYPE.getValue(FitnessFakeUpstream.USER_TYPE).toString(),
+            site.localToken["role"],
+        )
+        assertEquals(FitnessProtocol.H5_HOME_URL, site.localToken["referer_url"])
+
+        // ── 取数：`AppRoute.Fitness` 那一屏用的就是这个 `FitnessApi` ──
+        val api = FitnessApi(site)
+        val years = runBlocking { api.years() }
+        assertEquals(
+            listOf(
+                FitnessYear(FitnessFakeUpstream.YEAR_OLD, FitnessFakeUpstream.YEAR_OLD_NAME, checked = false),
+                FitnessYear(FitnessFakeUpstream.YEAR_NEW, FitnessFakeUpstream.YEAR_NEW_NAME, checked = true),
+            ),
+            years,
+        )
+
+        val score = runBlocking { api.score(FitnessFakeUpstream.YEAR_NEW) }
+        assertTrue(fake.fitness.v3Calls.get() >= 2, "v3 端点应当真被打过（学年 + 成绩）")
+        assertEquals(FitnessFakeUpstream.STUDENT_NUM, score.studentNumber)
+        assertEquals(FitnessFakeUpstream.STUDENT_NAME, score.studentName)
+        assertEquals("78.80", score.totalScore, "总分要过 `formatFitnessScore`（两位小数）")
+        assertEquals("良好", score.totalGrade)
+        assertEquals(FitnessFakeUpstream.SEX, score.sex)
+        assertEquals(FitnessFakeUpstream.GRADE, score.grade)
+        assertEquals(FitnessFakeUpstream.REPORT_STATUS, score.reportStatus)
+
+        // 七个分项：名字（按 sex 换名）、分数、等级、配色都是 `FitnessApi.loadScore` 的口径
+        // 夹具刻意没给 `50m_*` ⇒ 那一行落到「未测 / 缺项」
+        assertEquals(
+            listOf("身高 / 体重", "肺活量", "立定跳远", "坐位体前屈", "引体向上", "50 米", "1000 米"),
+            score.items.map { it.name },
+        )
+        assertEquals(
+            listOf("85.00", "4123.00", "2.31", "12.50", "9.00", "未测", "4.12"),
+            score.items.map { it.value },
+        )
+        assertEquals(
+            listOf("良好", "优秀", "良好", "优秀", "及格", "缺项", "良好"),
+            score.items.map { it.grade },
+        )
+        assertEquals(
+            listOf("good", "excellent", "good", "excellent", "pass", "", "good"),
+            score.items.map { it.tone },
+        )
+
+        // ── legacy 那一路（`FitnessApi` 的兜底）：两路必须给出同一份业务数据 ──
+        fake.fitness.v3Down.set(true)
+        val viaLegacy = runBlocking { api.score(FitnessFakeUpstream.YEAR_NEW) }
+        assertEquals(score, viaLegacy, "v3 挂了应当由 legacy 给出同一份成绩")
+        assertTrue(fake.fitness.legacyCalls.get() >= 1, "应当真打到 legacy 端点")
+        fake.fitness.v3Down.set(false)
+
+        // ── 体测这条链自己就能登进来：把 cookie（含 TGC）全清掉再强制重登一次 ──
+        val suffix = AccountContext.suffixFor(LibraryFakeUpstream.USERNAME)
+        PersistentCookieJar("cookies_normal$suffix").clear()
+        val postsBefore = fake.library.credentialPosts.get()
+        runBlocking {
+            site.ensureLogin(
+                LibraryFakeUpstream.USERNAME,
+                LibraryFakeUpstream.PASSWORD,
+                force = true,
+                userInitiated = true,
+            )
+        }
+        assertEquals(
+            postsBefore + 1,
+            fake.library.credentialPosts.get(),
+            "TGC 被清掉后，体测这次登录应当自己提交一次凭据（CAS 表单 POST）",
+        )
+        assertEquals(2, fake.fitness.launchCallbacks.get(), "并且又走了一遍 CAS 回的 launch 回调")
+        assertEquals(FitnessFakeUpstream.TOKEN, site.localToken["token"], "快照里的 token 应当是夹具发的那份")
+        assertEquals(years, runBlocking { FitnessApi(site).years() }, "重登之后取数照样读得出")
+    }
+
+    // ══════ 校历：免登录的那条路 ══════
     @Test
     fun `校历：免登录就能取到学期与假期（桌面端第二条真能用的路由）`() = withFakeCampus {
         // 注意：**没有任何登录**。这个接口是公开门户接口，`:data` 的 `SchoolCalendarApi` 直接用。
