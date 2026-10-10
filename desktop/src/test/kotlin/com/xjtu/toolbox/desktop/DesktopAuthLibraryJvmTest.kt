@@ -29,6 +29,10 @@ import com.xjtu.toolbox.card.allTransactions
 import com.xjtu.toolbox.auth.CampusCardLogin
 import com.xjtu.toolbox.jwxt.JwxtFakeUpstream
 import com.xjtu.toolbox.auth.VenueLogin
+import com.xjtu.toolbox.nav.AppRoute
+import com.xjtu.toolbox.notification.AppNoticeSource
+import com.xjtu.toolbox.notification.NotificationFakeUpstream
+import com.xjtu.toolbox.notification.NotificationSource
 import com.xjtu.toolbox.auth.YwtbLogin
 import com.xjtu.toolbox.ywtb.YwtbFakeUpstream
 import com.xjtu.toolbox.venue.AppVenueSource
@@ -912,6 +916,134 @@ class DesktopAuthLibraryJvmTest {
         val now = System.currentTimeMillis()
         assertEquals(2, InboxRules.groups(data, now).size, "两条消息两类")
         assertEquals(3, InboxRules.todos(data, now).size, "两条事务中心待办 + 一条预约")
+    }
+
+    // ══════ 通知公告：第 13 条真数据路由 ══════
+
+    /**
+     * 通知公告那一屏**不需要登录**（29 个源全是公开的公告页，屏一进门就自己爬），所以这一段验的是
+     * 「外壳接的那条路真取得到数」：源来自 `:data` 的 [AppNoticeSource]，三个夹具源都读出夹具样本，
+     * 其中化工学院那一条要过**动态挑战**（纯 HTTP 解：页面给 `a`/`b`/`operator`，客户端自己算答案
+     * 并按那段 JS 的语义算 hash，POST `/dynamic_challenge` 换 `client_id`）。
+     *
+     * ⚠️ 诚实边界：夹具只扮了 29 个源里的 3 个（教务处 / 化工学院 / OA）—— 另 26 个没被覆盖。
+     * 它到此只能证明「这两条爬虫族 + 挑战解在真实响应形状上是对的」，**不是**「29 个源都验过了」。
+     */
+    @Test
+    fun `真登录之后：通知公告直连学校站点，教务处、化工学院（含挑战）与 OA 都读出夹具样本`() = withFakeCampus {
+        val (auth, _) = newAuth()
+        assertTrue(login(auth), "用假下游的账号密码应当登得上：${auth.loginState}")
+
+        // ── 屏用的就是这个源（`AppRoute.Notification` 那一段）；它一个站点会话都不需要 ──
+        val source = AppNoticeSource()
+
+        // ── 教务处：屏的默认来源（夹具覆盖面里的第一个）──
+        val jwc = runBlocking { source.page(NotificationSource.JWC, 1) }
+        assertEquals(
+            listOf(
+                NotificationFakeUpstream.JWC_TITLE_1,
+                NotificationFakeUpstream.JWC_TITLE_2,
+                NotificationFakeUpstream.JWC_TITLE_3,
+            ),
+            jwc.items.map { it.title },
+        )
+        assertEquals(
+            listOf(
+                NotificationFakeUpstream.JWC_DATE_1,
+                NotificationFakeUpstream.JWC_DATE_2,
+                NotificationFakeUpstream.JWC_DATE_3,
+            ),
+            jwc.items.map { it.date.toString() },
+        )
+        assertEquals(
+            listOf(
+                NotificationFakeUpstream.JWC_TAG,
+                NotificationFakeUpstream.JWC_TAG,
+                NotificationFakeUpstream.JWC_TAG,
+            ),
+            jwc.items.map { it.tags.single() },
+        )
+        assertTrue(jwc.hasMore, "「下页」那条在 ⇒ 屏还能往下翻")
+
+        // ── 化工学院：动态挑战那一路（那一枪真打过：夹具手里有提交计数）──
+        val clet = runBlocking { source.page(NotificationSource.CLET, 1) }
+        assertEquals(1, fake.notification.challengeAccepts.get(), "挑战应当恰好解过一次")
+        assertEquals(listOf(
+            NotificationFakeUpstream.CLET_TITLE_1,
+            NotificationFakeUpstream.CLET_TITLE_2,
+            NotificationFakeUpstream.CLET_TITLE_3,
+        ), clet.items.map { it.title })
+        // 拆分日期模板（`<span><b>MM/DD</b>YYYY</span>`）拼回来的
+        assertEquals(
+            listOf(
+                NotificationFakeUpstream.CLET_DATE_1,
+                NotificationFakeUpstream.CLET_DATE_2,
+                NotificationFakeUpstream.CLET_DATE_3,
+            ),
+            clet.items.map { it.date.toString() },
+        )
+        assertEquals(1, fake.notification.cletListCalls.get(), "通过挑战之后才取到列表")
+
+        // ── OA：另一族爬虫（表格行 + `页次`）──
+        val oa = runBlocking { source.page(NotificationSource.OA, 1) }
+        assertEquals(
+            listOf(
+                NotificationFakeUpstream.OA_TITLE_1,
+                NotificationFakeUpstream.OA_TITLE_2,
+                NotificationFakeUpstream.OA_TITLE_3,
+            ),
+            oa.items.map { it.title },
+        )
+        assertEquals(
+            listOf(
+                NotificationFakeUpstream.OA_DEPT_1,
+                NotificationFakeUpstream.OA_DEPT_2,
+                NotificationFakeUpstream.OA_DEPT_3,
+            ),
+            oa.items.map { it.tags.single() },
+            "部门取的是 `td.timedate1` 里「部门（日期）」那一半",
+        )
+
+        // ── 合并（屏的「合并模式」那条路）：9 条按日期倒序，没人被静默跳过 ──
+        val merged = runBlocking {
+            source.merged(
+                listOf(NotificationSource.JWC, NotificationSource.CLET, NotificationSource.OA),
+                1,
+            )
+        }
+        assertEquals(9, merged.items.size)
+        assertEquals(
+            NotificationFakeUpstream.CLET_DATE_3,
+            merged.items.first().date.toString(),
+            "按日期倒序：10-09 那条在最前",
+        )
+        assertEquals(NotificationFakeUpstream.JWC_DATE_1, merged.items[2].date.toString())
+        assertTrue(merged.skipped.isEmpty(), "三个源都在 ⇒ 屏上不该出现「暂不可达」那一行")
+        assertTrue(merged.hasMore)
+
+        // ── 站内检索：走站自己的博达检索（关键词 Base64 放在 newskeycode2 里）──
+        val searched = runBlocking {
+            source.search(listOf(NotificationSource.JWC), NotificationFakeUpstream.SEARCH_KEYWORD)
+        }
+        assertEquals(
+            listOf(NotificationFakeUpstream.SEARCH_TITLE_1, NotificationFakeUpstream.SEARCH_TITLE_2),
+            searched.items.map { it.title },
+        )
+        assertEquals(
+            NotificationFakeUpstream.SEARCH_KEYWORD,
+            fake.notification.lastSearchKeyword.get(),
+            "夹具把 Base64 解回来逐字比对",
+        )
+
+        // ── 路由那一行：这条已经从「还没搬」挪进「真能用」──
+        assertTrue(
+            DESKTOP_SUPPORTED_ROUTES.any { it.first == AppRoute.Notification },
+            "通知公告该在「真能用」那一栏里",
+        )
+        assertTrue(
+            DESKTOP_PENDING_ROUTES.isEmpty(),
+            "Stage A 的 pending 表该空了，还剩：${DESKTOP_PENDING_ROUTES.map { it.second }}",
+        )
     }
 
     // ══════ 校历：免登录的那条路 ══════

@@ -70,6 +70,8 @@ import com.xjtu.toolbox.inbox.InboxScreen
 import com.xjtu.toolbox.library.LibraryScreen
 import com.xjtu.toolbox.nav.AppRoute
 import com.xjtu.toolbox.nav.appRouteOf
+import com.xjtu.toolbox.notification.AppNoticeSource
+import com.xjtu.toolbox.notification.NotificationScreen
 import com.xjtu.toolbox.platform.keyValueStore
 import com.xjtu.toolbox.venue.AppVenueSource
 import com.xjtu.toolbox.venue.VenueScreen
@@ -108,12 +110,13 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
  * | 数据从哪来 | 同源反代到 campus-api（浏览器只能这样） | 进程内直取 `:data`（自己登录、自己取数） |
  * | 外链怎么开 | `window.open` / `location.assign` | `java.awt.Desktop.browse` |
  *
- * ## 底栏只有 3 格（诚实的一条）
+ * ## 底栏那几格，只放这一端**真能画**的东西（诚实的一条）
  *
- * 底栏**只放这一端真能用的东西**：图书馆（唯一搬进 `:data` 的站点）+ 游戏（纯 UI，与数据无关）+
- * 「全部」。那一页里「真能用」的条数就是取数已搬进 `:data` 的那些（`DESKTOP_SUPPORTED_ROUTES`）；
- * 剩下的屏在 `:core` 但取数还在 `:app` 的 `Campus*Api` / 站点类里 —— 点了会看到 [NotPortedScreen]
- * 把这些话写在脸上，而不是落回某一屏假装能用。
+ * 底栏那五格（见 [DESKTOP_TABS]）都是这一端真能画的屏：`:core` 里有屏 + 取数在 `:data`。
+ * 「全部」那一页里的「真能用」就是这张表（[DESKTOP_SUPPORTED_ROUTES]）；13 条真数据路由
+ * 搬完之后 [DESKTOP_PENDING_ROUTES] **空了** —— 「屏在 `:core` 而取数还在 `:app`」那条路由
+ * 一条不剩。索引页上「还没有数据源」那一栏照旧画出来（数字是进度，不是装饰），
+ * 所以那一行现在是 0。
  *
  * 屏上的「返回」箭头一律回图书馆首页：这一端没有返回栈（底栏就是导航），与 Stage 0 那条
  * 「返回 = 回默认页」同一条口径。
@@ -181,9 +184,10 @@ internal val DESKTOP_TABS = listOf(
 /**
  * 这一端**真能画**的路由（`:core` 里有屏 + 取数在 `:data`，两者缺一不可）。
  *
- * 十二条真取数：图书馆 / 体测 / 全校课表 / 成绩 / 评教 / 校园卡 / 体育场馆（**要登录**，走会话内核 +
+ * 十三条真取数：图书馆 / 体测 / 全校课表 / 成绩 / 评教 / 校园卡 / 体育场馆（**要登录**，走会话内核 +
  * 进那一屏再建会话，见 `DesktopSiteGate`）、消息收纳（一网通办那四路：站点要登，但会话由**源自己
- * ensure** —— `AppRoute.Inbox.loginType` 是 null，与空闲教室同型）、空闲教室（三档数据源要登的站点
+ * ensure** —— `AppRoute.Inbox.loginType` 是 null，与空闲教室同型）、通知公告（29 个公开的公告页，
+ * **一个都不用登录** —— `AppRoute.Notification.loginType` 也是 null，由源自己爬）、空闲教室（三档数据源要登的站点
  * 不同 ⇒ 也是由源自己 ensure，见那一段的注释）、
  * 校历 / 黄页 / 教师检索（**免登录**的公开门户接口）。
  * 其余是纯 UI 的游戏（与数据源无关，三端同一份）。
@@ -199,6 +203,7 @@ internal val DESKTOP_SUPPORTED_ROUTES = listOf(
     AppRoute.EmptyRoom to "空闲教室",
     AppRoute.Venue to "体育场馆",
     AppRoute.Inbox to "消息收纳",
+    AppRoute.Notification to "通知公告",
     AppRoute.YellowPage to "黄页",
     AppRoute.Faculty to "教师检索",
     AppRoute.Games to "游戏合集",
@@ -211,14 +216,17 @@ internal val DESKTOP_SUPPORTED_ROUTES = listOf(
 )
 
 /**
- * **屏已经搬进 `:core`、但这一端还没有数据源**的路由 —— 也就是 Stage A 剩下的进度表。
+ * **屏已经搬进 `:core`、但这一端还没有数据源**的路由 —— 也就是 Stage A 的口径进度表。
  *
- * 它们卡的都是同一件事：取数还在 `:app`（`Campus*Api` 的只读端，或某个站点的 `*Login` + 站点类）。
- * 搬到 `:data` 一条，这里就划掉一条（`docs/desktop-port-plan.md` §5.1／§3.2）。
+ * **现在是空的**：第 13 条（通知公告）搬完之后，`AppRoute` 里「屏在 `:core` 而取数还没搬」的
+ * 那种路由一条不剩。这个列表与 [DESKTOP_SUPPORTED_ROUTES] 一样留在代码里而不是删掉：
+ * 屏先落地、取数后到是 Stage A 里的**常规**中间态（这一份历史就是 13 次），下一屏要搬时
+ * 它还会重新长出条目；索引页上那一栏也照旧画出来（数字是进度，不是装饰）。
+ *
+ * 进来一条就说明它卡的是同一件事：取数还在 `:app`（`Campus*Api` 的只读端，或某个站点的
+ * `*Login` + 站点类）。搬到 `:data` 一条，这里就划掉一条（`docs/desktop-port-plan.md` §5.1／§3.2）。
  */
-internal val DESKTOP_PENDING_ROUTES = listOf(
-    AppRoute.Notification to "通知公告",
-)
+internal val DESKTOP_PENDING_ROUTES = emptyList<Pair<AppRoute, String>>()
 
 @Composable
 private fun DesktopBottomBar(selected: DesktopTarget, onSelect: (DesktopTarget) -> Unit) {
@@ -544,6 +552,21 @@ private fun DesktopPage(auth: DesktopAuth, route: AppRoute, onNavigate: (Desktop
                 }
             }
         }
+        // 通知公告（第十三条真数据路由）：取数是 `:data` 的 `AppNoticeSource`（包住搬进 `:data` 的
+        // `NotificationApi` —— okhttp + jsoup 爬 29 个公开的公告页，含那条纯 HTTP 就能解开的动态挑战）。
+        // 29 个源**一个都不用登录**，不靠任何站点会话 ⇒ 不套 `DesktopSiteGate`
+        // （`AppRoute.Notification.loginType` 就是 null）；这个源连 `SessionManager` 都不收。
+        // 点开一条通知就是 `AppRoute.Browser(link)` ⇒ 外链交给系统浏览器（与消息收纳同一口径）。
+        AppRoute.Notification -> NotificationScreen(
+            source = remember { AppNoticeSource() },
+            onBack = back,
+            onNavigate = { r ->
+                when (r) {
+                    is AppRoute.Browser -> if (r.url.isNotBlank()) openInBrowser(r.url)
+                    else -> onNavigate(DesktopTarget.App(r))
+                }
+            },
+        )
         AppRoute.Games -> GamesScreen(
             onBack = back,
             onNavigate = { onNavigate(DesktopTarget.App(it)) },
@@ -606,8 +629,13 @@ internal fun RoutesPage(auth: DesktopAuth, onNavigate: (DesktopTarget) -> Unit) 
             fontWeight = FontWeight.Bold,
         )
         Text(
-            "下面这些屏已经是 :core 的共享屏，卡的是**取数**：它们的 `*Api` / 站点类还在 :app。" +
-                "搬到 :data 一条就能用一条。",
+            if (DESKTOP_PENDING_ROUTES.isEmpty())
+                "现在是 0：13 条真数据路由都搬完了 —— 「屏在 :core 而取数还在 :app」的路由一条不剩。" +
+                    "这一栏留着是因为它是 Stage A 的进度表：屏先落地、取数后到是常规的中间态，" +
+                    "下一屏要搬时它会重新长出条目。"
+            else
+                "下面这些屏已经是 :core 的共享屏，卡的是**取数**：它们的 `*Api` / 站点类还在 :app。" +
+                    "搬到 :data 一条就能用一条。",
             color = cs.onBackgroundVariant,
             fontSize = 12.sp,
         )

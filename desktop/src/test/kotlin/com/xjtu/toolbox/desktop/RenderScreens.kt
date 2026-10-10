@@ -32,6 +32,7 @@ import com.xjtu.toolbox.platform.wipeSecureStore
 import com.xjtu.toolbox.ui.theme.XJTUToolBoxTheme
 import com.xjtu.toolbox.yellowpage.YellowPageApi
 import com.xjtu.toolbox.yellowpage.YellowPageScreen
+import com.xjtu.toolbox.notification.NotificationFakeUpstream
 import com.xjtu.toolbox.ywtb.YwtbFakeUpstream
 import java.io.File
 import java.nio.file.Files
@@ -57,6 +58,7 @@ import kotlinx.coroutines.runBlocking
  * | `emptyroom.png` | 空闲教室屏（真路由：外壳 → `AppRoute.EmptyRoom` → `AppEmptyRoomSource`） | 第十条真数据路由：三档数据源里那一档「实时状态」要智慧教室站点（https，CAS 回跳后把票换成 `TOKEN-AUTH`）—— 会话由**源自己 ensure**（所以不套 `DesktopSiteGate`）；图上楼分组、四间教室、空闲/上课中/「其它使用」与「实时 · HH:MM」都是夹具样本 |
  * | `venue.png` | 体育场馆屏（真路由：外壳 → `AppRoute.Venue` → `DesktopSiteGate` → `AppVenueSource`） | 第十一条真数据路由：登录要先过 `org.xjtu.edu.cn` 的 OAuth2 → CAS → 回跳（场馆站本身是明文 http）；图上九个场馆名（两页拼起来）都是夹具样本。这一端 `canBook = false`（滑块控件搬不到桌面）⇒ 只有读的那一半 |
  * | `inbox.png` | 消息收纳屏（真路由：外壳 → `AppRoute.Inbox` → `AppInboxSource`） | 第十二条真数据路由：一网通办那四路（消息 / 事务中心 / 预约 / 校车），会话由**源自己 ensure**（不套 Gate）；图上待办那两栏的条目与「预约中心 有 3 个…」都是夹具样本 |
+ * | `notification.png` | 通知公告屏（真路由：外壳 → `AppRoute.Notification` → `AppNoticeSource`） | 第十三条真数据路由：29 个公开的公告页里夹具扮了 3 个（教务处 / 化工学院 / OA），这是最后一条 pending 路 —— 图上那三条教务处通知（默认来源）的标题/日期/标签都是夹具样本，不是错误页或转圈 |
  * | `routes.png` | 「全部页面」索引页 | 如实列出「真能用 / 还没有数据源」，并给出退出登录入口 |
  * | `library-demo.png` | 同一屏 + 固定假数据 | 布局与组件本身可复现（不依赖网络/会话，改屏时用它对比） |
  *
@@ -329,7 +331,27 @@ fun main(args: Array<String>) {
             },
         ) { ToolboxDesktopApp(auth, DesktopTarget.App(AppRoute.Inbox)) }
         check(inboxShown) { "inbox.png：屏上没有夹具那条待办（${YwtbFakeUpstream.TODO_TITLE}）—— 多半没拉到数据" }
-        shot("routes.png", frames = 4) { ToolboxDesktopApp(auth, DesktopTarget.Routes) }
+
+        // 通知公告（第十三条，也是最后一条 pending 路）：走**真路由**（外壳 → `AppRoute.Notification`
+        // → `AppNoticeSource`，由 `:data` 的 `NotificationApi` 爬 29 个公开的公告页）。这一屏**不需要
+        // 登录**，屏一进门就取数；默认来源就是教务处（夹具覆盖面里的第一个）⇒ 不必点任何筛选。
+        // 图上应当是夹具那几条教务处通知（标题 + 日期 + 「通知」标签），而不是空列表、错误页或转圈；
+        // 拿不到夹具那条标题就是「没取到数」，响亮地失败（见 [hasText]）。
+        var noticeShown = false
+        shot(
+            "notification.png",
+            frames = 20,
+            onFrame = { frame, scene ->
+                if (!noticeShown && frame >= 4) noticeShown = hasText(scene, NotificationFakeUpstream.JWC_TITLE_1)
+            },
+        ) { ToolboxDesktopApp(auth, DesktopTarget.App(AppRoute.Notification)) }
+        check(noticeShown) {
+            "notification.png：屏上没有夹具那条通知（${NotificationFakeUpstream.JWC_TITLE_1}）—— 多半没取到数"
+        }
+
+        // 「全部页面」：这一页的 height 单独调大（不是其余图那个 900）—— 它是一张要读完的长表，
+        // 而这一轮要证明的正是那个 0。把整页都框进来，免得拿半张图交差。
+        shot("routes.png", height = 1900, frames = 4) { ToolboxDesktopApp(auth, DesktopTarget.Routes) }
     }
 
     exitProcess(0)
