@@ -17,6 +17,7 @@ import com.xjtu.toolbox.auth.SessionBackend
 import com.xjtu.toolbox.auth.SessionManager
 import com.xjtu.toolbox.auth.SiteSession
 import com.xjtu.toolbox.auth.VenueSession
+import com.xjtu.toolbox.auth.YwtbSession
 import com.xjtu.toolbox.auth.XJTULogin
 import com.xjtu.toolbox.auth.ensureSite
 import com.xjtu.toolbox.error.FriendlyError
@@ -101,6 +102,10 @@ class DesktopAuth(
         // ⚠️ 这个站点在桌面上**不能下单**：下单要先解滑块，而滑块控件长在 Android 的
         // `Bitmap`/`Base64` 上（屏上的 `captchaView` 槽位）—— 那一条路由传 `canBook = false`。
         register(VenueSession())
+        // 一网通办（`:data` 的 `YwtbSession` + `YwtbLogin`）：消息收纳那四路（消息 / 事务中心 / 预约 /
+        // 校车）共用的站点，桌面自己登它，用同包的 `AppInboxSource` 取数。与校园卡/场馆一样，
+        // 「登录页那一步」只是尽力预热它，它自己挂了最坏只影响那一屏。
+        register(YwtbSession())
         // 切账号时清宿主侧共享缓存：`:app` 把它设成 `CampusProbe.ywtbToken = null`，
         // 而 CampusProbe 要 `ConnectivityManager`（宿主能力，没跟着内核搬进 :data）；
         // 桌面端没有那份缓存，所以留空。这正是「缝照真正用到的那几处切」。
@@ -321,6 +326,16 @@ class DesktopAuth(
         const val VENUE_SITE_KEY = VenueSession.SITE_KEY
 
         /**
+         * 一网通办（`ywtb`）：消息收纳那四路取数要它（`:data` 的 `AppInboxSource` 进门自己 ensure）。
+         *
+         * 与 [JS_SITE_KEY] 不同，它在 [SESSION_SITE_KEYS] 里 —— 这一屏取数**只有**这一个站点，
+         * 登录页那一步顺手预热它的代价就是一趟（多半有 TGC 免密的）CAS；`js` 那边是一屏三档里
+         * 只有一档要它，才刻意不预。两处都不套 `DesktopSiteGate`：`AppRoute.Inbox.loginType`
+         * 本来就是 null（要登哪个站点是数据源的事）。
+         */
+        const val YWTB_SITE_KEY = YwtbSession.SITE_KEY
+
+        /**
          * 登录页那一步一次建起会话的站点：`:core` 里有屏 + `:data` 里有站点类与取数的那几个。
          * （校历 / 黄页 / 教师检索是免登录的公开接口，游戏是纯 UI —— 它们不需要会话。）
          *
@@ -335,6 +350,7 @@ class DesktopAuth(
             GMIS_SITE_KEY,
             CAMPUS_CARD_SITE_KEY,
             VENUE_SITE_KEY,
+            YWTB_SITE_KEY,
         )
     }
 }

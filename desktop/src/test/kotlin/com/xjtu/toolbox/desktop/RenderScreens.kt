@@ -32,6 +32,7 @@ import com.xjtu.toolbox.platform.wipeSecureStore
 import com.xjtu.toolbox.ui.theme.XJTUToolBoxTheme
 import com.xjtu.toolbox.yellowpage.YellowPageApi
 import com.xjtu.toolbox.yellowpage.YellowPageScreen
+import com.xjtu.toolbox.ywtb.YwtbFakeUpstream
 import java.io.File
 import java.nio.file.Files
 import javax.swing.SwingUtilities
@@ -55,6 +56,7 @@ import kotlinx.coroutines.runBlocking
  * | `campuscard.png` | 校园卡屏（真路由：外壳 → `AppRoute.CampusCard` → `AppCampusCardSource`） | 第九条真数据路由：**https** 站点（ncard）、CAS 回跳那一跳上换 JWT，缓存传 `null`；图上余额 / 待入账 / 今日三餐与流水都是夹具样本 |
  * | `emptyroom.png` | 空闲教室屏（真路由：外壳 → `AppRoute.EmptyRoom` → `AppEmptyRoomSource`） | 第十条真数据路由：三档数据源里那一档「实时状态」要智慧教室站点（https，CAS 回跳后把票换成 `TOKEN-AUTH`）—— 会话由**源自己 ensure**（所以不套 `DesktopSiteGate`）；图上楼分组、四间教室、空闲/上课中/「其它使用」与「实时 · HH:MM」都是夹具样本 |
  * | `venue.png` | 体育场馆屏（真路由：外壳 → `AppRoute.Venue` → `DesktopSiteGate` → `AppVenueSource`） | 第十一条真数据路由：登录要先过 `org.xjtu.edu.cn` 的 OAuth2 → CAS → 回跳（场馆站本身是明文 http）；图上九个场馆名（两页拼起来）都是夹具样本。这一端 `canBook = false`（滑块控件搬不到桌面）⇒ 只有读的那一半 |
+ * | `inbox.png` | 消息收纳屏（真路由：外壳 → `AppRoute.Inbox` → `AppInboxSource`） | 第十二条真数据路由：一网通办那四路（消息 / 事务中心 / 预约 / 校车），会话由**源自己 ensure**（不套 Gate）；图上待办那两栏的条目与「预约中心 有 3 个…」都是夹具样本 |
  * | `routes.png` | 「全部页面」索引页 | 如实列出「真能用 / 还没有数据源」，并给出退出登录入口 |
  * | `library-demo.png` | 同一屏 + 固定假数据 | 布局与组件本身可复现（不依赖网络/会话，改屏时用它对比） |
  *
@@ -170,6 +172,18 @@ fun main(args: Array<String>) {
             click != null && texts.any { it.text == label }
         } ?: return false
         return target.config.getOrNull(SemanticsActions.OnClick)?.action?.invoke() ?: false
+    }
+
+    /**
+     * 语义树里有没有写着（含）[text] 的节点 —— 用作「这一枪真打到屏上了」的判据。
+     * 消息收纳那一屏用它：它的第一枪是**外壳**打的（屏自己只在「下拉刷新」里调 `refresh`），
+     * 没拉到数据时屏上就是一个空列表 —— 那种图不能当「真数据路由」的证据交出去。
+     */
+    fun hasText(scene: ImageComposeScene, text: String): Boolean {
+        val root = scene.semanticsOwners.firstOrNull()?.rootSemanticsNode ?: return false
+        return findNode(root) { node ->
+            node.config.getOrNull(SemanticsProperties.Text).orEmpty().any { it.text.contains(text) }
+        } != null
     }
 
 
@@ -300,6 +314,21 @@ fun main(args: Array<String>) {
         // `id=0` 那一行被跳过）—— 不是错误页，也不是转圈。
         shot("venue.png", frames = 20) { ToolboxDesktopApp(auth, DesktopTarget.App(AppRoute.Venue)) }
 
+        // 消息收纳（第十二条）：也是**真路由**（外壳 → `AppRoute.Inbox` → `AppInboxSource`）。
+        // 这一屏**没有 ViewModel**（数据在 `:core` 的 `InboxStore` 里），屏自己只在「下拉刷新」里
+        // 调 `refresh` ⇒ 进屏那一发由外壳打（见 `ToolboxDesktopApp` 那一段的注释）。
+        // 图上应当是夹具那两条事务中心待办 + 「预约中心 有 3 个待使用的预约」那一行，
+        // 而不是空列表、错误页或转圈 —— 空列表正是「不该把没取到数的屏当证据」那种假绿。
+        // 图上必须有夹具那两条待办里的一条 —— 拿不到就是「没拉到数据」，响亮地失败（见 [hasText]）。
+        var inboxShown = false
+        shot(
+            "inbox.png",
+            frames = 20,
+            onFrame = { frame, scene ->
+                if (!inboxShown && frame >= 4) inboxShown = hasText(scene, YwtbFakeUpstream.TODO_TITLE)
+            },
+        ) { ToolboxDesktopApp(auth, DesktopTarget.App(AppRoute.Inbox)) }
+        check(inboxShown) { "inbox.png：屏上没有夹具那条待办（${YwtbFakeUpstream.TODO_TITLE}）—— 多半没拉到数据" }
         shot("routes.png", frames = 4) { ToolboxDesktopApp(auth, DesktopTarget.Routes) }
     }
 

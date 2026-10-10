@@ -13,6 +13,12 @@ import com.xjtu.toolbox.emptyroom.EmptyRoomFakeUpstream
 import com.xjtu.toolbox.emptyroom.RoomSource
 import com.xjtu.toolbox.fitness.FitnessApi
 import com.xjtu.toolbox.fitness.FitnessFakeUpstream
+import com.xjtu.toolbox.inbox.AppInboxSource
+import com.xjtu.toolbox.inbox.InboxCategories
+import com.xjtu.toolbox.inbox.InboxData
+import com.xjtu.toolbox.inbox.InboxItem
+import com.xjtu.toolbox.inbox.InboxRules
+import com.xjtu.toolbox.inbox.InboxStore
 import com.xjtu.toolbox.fitness.FitnessProtocol
 import com.xjtu.toolbox.fitness.FitnessYear
 import com.xjtu.toolbox.judge.JudgeCard
@@ -23,6 +29,8 @@ import com.xjtu.toolbox.card.allTransactions
 import com.xjtu.toolbox.auth.CampusCardLogin
 import com.xjtu.toolbox.jwxt.JwxtFakeUpstream
 import com.xjtu.toolbox.auth.VenueLogin
+import com.xjtu.toolbox.auth.YwtbLogin
+import com.xjtu.toolbox.ywtb.YwtbFakeUpstream
 import com.xjtu.toolbox.venue.AppVenueSource
 import com.xjtu.toolbox.venue.VenueFakeUpstream
 import com.xjtu.toolbox.faculty.FacultyApi
@@ -811,6 +819,99 @@ class DesktopAuthLibraryJvmTest {
         assertTrue(runBlocking { source.toggleFavorite(VenueFakeUpstream.VENUE_A_ID) })
         assertTrue(VenueFakeUpstream.VENUE_A_ID in runBlocking { source.favorites() })
         assertTrue(!runBlocking { source.toggleFavorite(VenueFakeUpstream.VENUE_A_ID) }, "再翻一次回到原位")
+    }
+
+    // ══════ 消息收纳：第十二条真数据路由 ══════
+
+    /**
+     * 真登录之后走「消息收纳」那一屏用的那个源（`:data` 的 `AppInboxSource`，桌面端 `AppRoute.Inbox`
+     * 就是它：构造参数只有会话管家，图书馆座位那条补拉的缝传 `null` —— 桌面端没有任何东西写
+     * `LIBRARY` 那一类待办，早返回与空实现同义）。
+     *
+     * 它同时钉住那条登录链：一网通办门户 → CAS（凭据 RSA 加密）→ 回跳门户时 `ticket=` 是一枚
+     * **JWT**（`YwtbLogin` 从它的 payload 里读出 idToken）→ 四路取数都带 `x-id-token`。
+     * 四路 URL 与夹具**逐字相同**（夹具按「路径 + 查询串」逐字比对，不认识就 404）。
+     *
+     * 期望值全部来自 `:testkit` 的 [YwtbFakeUpstream]（两条消息 —— 四条样本里两条该被滤掉、两条事务
+     * 中心待办、预约中心 3 条与校车 0 条），不是从跑通的实现里抄的；屏上读的就是下面这些 store 投影。
+     */
+    @Test
+    fun `真登录之后：消息收纳自己登上一网通办，四路取数都读得出夹具样本`() = withFakeCampus {
+        val (auth, _) = newAuth()
+        assertTrue(login(auth), "用假下游的账号密码应当登得上：${auth.loginState}")
+
+        // 夹具与生产必须指同一个门户（登录入口的 service 参数就是它）；四路 URL 由夹具逐字比对
+        assertTrue(
+            YwtbLogin.YWTB_LOGIN_URL.contains(YwtbFakeUpstream.HOST),
+            "一网通办登录入口回的就是夹具那个门户：${YwtbLogin.YWTB_LOGIN_URL}",
+        )
+
+        // ── 登录页那一步已经尽力预热过它（它在 SESSION_SITE_KEYS 里）──
+        assertTrue(fake.ywtb.portalLandings.get() >= 1, "登录页那一步应当把一网通办也登起来")
+        runBlocking { auth.ensureSession(DesktopAuth.YWTB_SITE_KEY) }
+        val landings = fake.ywtb.portalLandings.get()
+        val posts = fake.library.credentialPosts.get()
+        assertTrue(auth.sessionManager.getSite(DesktopAuth.YWTB_SITE_KEY).hasLogin, "登录页那一步应当把一网通办站点也登起来")
+        runBlocking { auth.ensureSession(DesktopAuth.YWTB_SITE_KEY) }
+        assertEquals(landings, fake.ywtb.portalLandings.get(), "会话还在新鲜窗口内，不该再走一遍 CAS")
+        assertEquals(posts, fake.library.credentialPosts.get(), "也不该再提交一次凭据")
+
+        // ── 取数：`AppRoute.Inbox` 那一屏用的就是这个源 ──
+        val source = AppInboxSource(auth.sessionManager)
+        val account = AccountContext.activeAccountId
+        assertEquals(LibraryFakeUpstream.USERNAME, account, "进门那一发按登录账号分命名空间")
+        assertTrue(source.isDue(account, System.currentTimeMillis()), "第一次进屏还没拉过 ⇒ 该拉")
+        runBlocking { source.refresh(account) }
+
+        assertEquals(1, fake.ywtb.messageCalls.get(), "消息那一路应当恰好被打一次")
+        assertEquals(1, fake.ywtb.todoCalls.get(), "事务中心那一路应当恰好被打一次")
+        assertEquals(1, fake.ywtb.bookingCalls.get(), "预约中心那一路应当恰好被打一次")
+        assertEquals(1, fake.ywtb.busCalls.get(), "校车那一路应当恰好被打一次")
+        assertEquals(YwtbFakeUpstream.BUS_URL, fake.ywtb.lastBusinessUrl.get(), "最后一枪就是校车那一条 URL")
+        assertEquals(YwtbFakeUpstream.ID_TOKEN, fake.ywtb.lastIdToken.get(), "四路都只认 CAS 换来那颗 x-id-token")
+        assertTrue(!source.isDue(account, System.currentTimeMillis()), "刚拉过 ⇒ TTL 内不再拉")
+
+        // 桌面端没有图书馆座位那一路 ⇒ 有座位待办也只是空转（不抛、不用 Context）
+        runBlocking {
+            source.afterRefresh(
+                InboxData(
+                    todos = mapOf(
+                        InboxCategories.LIBRARY to listOf(
+                            InboxItem(id = "library:入馆签到", category = InboxCategories.LIBRARY, source = "图书馆", title = "座位 A01 待入馆签到"),
+                        ),
+                    ),
+                ),
+            )
+        }
+
+        // ── 屏读的就是 InboxStore（收纳按账号存）──
+        val data = InboxStore.load(account)
+        assertEquals(
+            listOf("school:${YwtbFakeUpstream.MESSAGE_SIGNED_ID}", "school:${YwtbFakeUpstream.MESSAGE_BARE_ID}"),
+            data.messages.map { it.id },
+            "四条消息样本里两条该被滤掉（事务中心那条、座位那条）",
+        )
+        assertEquals(YwtbFakeUpstream.MESSAGE_SIGNED_SOURCE, data.messages.first().source, "来源取正文末尾的落款")
+        assertEquals(
+            2,
+            data.todos.getValue(InboxCategories.SCHOOL_TODO).size,
+            "事务中心两条：一条有 taskId、一条没有（id 回落成「标题@addTime」）",
+        )
+        assertEquals(
+            "todo:${YwtbFakeUpstream.TODO_ID}",
+            data.todos.getValue(InboxCategories.SCHOOL_TODO).first().id,
+        )
+        val booking = data.todos.getValue(InboxCategories.BOOKING).single()
+        assertEquals(
+            "预约中心 有 ${YwtbFakeUpstream.BOOKING_RESERVATION_TOTAL} 个待使用的预约",
+            booking.title,
+            "预约与校车只报数量（校车 0 条 ⇒ 一条都不出）",
+        )
+
+        // 屏上那两栏的投影（`InboxRules` 是 :core 的口径，这里只验「真读得出东西」）
+        val now = System.currentTimeMillis()
+        assertEquals(2, InboxRules.groups(data, now).size, "两条消息两类")
+        assertEquals(3, InboxRules.todos(data, now).size, "两条事务中心待办 + 一条预约")
     }
 
     // ══════ 校历：免登录的那条路 ══════
