@@ -1,6 +1,6 @@
 package com.xjtu.toolbox.inbox
 
-import android.util.Log
+import com.xjtu.toolbox.platform.Log
 import com.xjtu.toolbox.auth.SiteSession
 import com.xjtu.toolbox.nav.AppRoute
 import com.xjtu.toolbox.util.arr
@@ -15,6 +15,7 @@ import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import okhttp3.Request
+import kotlin.time.Clock
 import java.time.LocalDateTime
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -22,6 +23,15 @@ import java.time.format.DateTimeFormatter
 /**
  * 学校的消息、事务中心待办、预约中心和校车预约。四个服务都只认一网通办的 `x-id-token`，
  * 所以全挂在一网通办站点上发请求，token 失效时由它自动重登。
+ *
+ * 它从 `:app` 搬进同包的 `:data`（桌面端第 12 条真数据路由：消息收纳 —— 桌面要自己登一网通办、
+ * 自己去这四路取数），**类名与包路径一字未改**：`:app` 的 `HomeStatsRefresher` 与 `AppInboxSource`
+ * 里那些引用一行都不用改。被替换的写法只有两处：
+ *
+ *  1. `android.util.Log` → `:core` 的 [Log]；
+ *  2. [bookingTodo] 原来借 `:app` 的 `OwnInbox.todo(...)` 造条目 —— 那个对象留在 `:app`
+ *     （它别的成员挂着 `Bulletin`/`MyBookingInfo` 这类 `:app` 类型），所以这里把那一行**逐字段摊开**成
+ *     同一个 [InboxItem]（id/分类/来源/标题/时刻/无路由，一字不差）。
  */
 object SchoolInbox {
     private const val TAG = "SchoolInbox"
@@ -111,6 +121,13 @@ object SchoolInbox {
     private fun bookingTodo(root: JsonObject, name: String): InboxItem? {
         val total = root.obj("data")?.safeGet("total").safeInt()
         if (total <= 0) return null
-        return OwnInbox.todo(InboxCategories.BOOKING, "booking:$name", name, "$name 有 $total 个待使用的预约", route = null)
+        return InboxItem(
+            id = "booking:$name",
+            category = InboxCategories.BOOKING,
+            source = name,
+            title = "$name 有 $total 个待使用的预约",
+            time = Clock.System.now().toEpochMilliseconds(),
+            route = null,
+        )
     }
 }

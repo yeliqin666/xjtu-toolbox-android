@@ -440,11 +440,18 @@ fun AppNavHost(
             SettingsScreen(credentialStore = credentialStore, onBack = back)
         }
         entry<AppRoute.Inbox>(transition = expand(AppRoute.Inbox::class)) {
-            // 取数仍是原来的 SchoolInbox（AppInboxSource 只是把它包成 :core 的端口）；
-            // 屏与 store/rules 都在 :core。
+            // 取数（学校那四路）已经搬进 `:data` 的 `AppInboxSource`；屏与 store/rules 都在 `:core`。
+            // 本端专属的那一条（有座位待办就现查一次图书馆）也跟着搬了，只是把「现查 + 发出」
+            // 做成一条构造参数传进去 —— `Context` 与 `LibraryStatus` 都留在 `:app`。
             val inboxContext = androidx.compose.ui.platform.LocalContext.current
+            val sessionManager = loginState.sessionManager
             com.xjtu.toolbox.inbox.InboxScreen(
-                source = remember(inboxContext) { com.xjtu.toolbox.inbox.AppInboxSource(loginState, inboxContext) },
+                source = remember(inboxContext) {
+                    com.xjtu.toolbox.inbox.AppInboxSource(
+                        sessionManager,
+                        com.xjtu.toolbox.inbox.appInboxLibraryBooking(inboxContext, sessionManager),
+                    )
+                },
                 onBack = back,
                 onOpen = { router.open(it) },
                 account = loginState.accountId.ifEmpty { null },

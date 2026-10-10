@@ -74,32 +74,12 @@ class JwappSession : CasSiteSession("jwapp", "移动教务", mustUseWebVpn = fal
 }
 
 // ── YWTB 一网通办 ─────────────────────────────────────────────────────
-
-// mustUseWebVpn=false：一网通办和挂在它令牌上的消息、事务中心、预约、校车都能公网直连（学校超级 App
-// 校外也是直连这几个域名）。绕 WebVPN 只会多一跳，而且服务端看到的来源 IP 变成网关的校内地址。
-class YwtbSession : CasSiteSession("ywtb", "一网通办", mustUseWebVpn = false) {
-    override fun createLogin(client: OkHttpClient, visitorId: String?, cachedRsaKey: String?): XJTULogin =
-        YwtbLogin(session = client, visitorId = visitorId, cachedRsaKey = cachedRsaKey)
-
-    override fun onLoginSuccess(login: XJTULogin) {
-        (login as? YwtbLogin)?.idToken?.takeIf { it.isNotEmpty() }?.let {
-            localToken["id_token"] = it
-            CampusProbe.ywtbToken = it
-        }
-    }
-
-    override fun decorateRequest(builder: Request.Builder): Request.Builder {
-        localToken["id_token"]?.let { builder.header("x-id-token", it) }
-        return builder
-    }
-
-    override fun isAuthFailureResponse(response: Response, bodyPreview: String?): Boolean {
-        if (super.isAuthFailureResponse(response, bodyPreview)) return true
-        val body = bodyPreview ?: return false
-        return """"code"\s*:\s*401""".toRegex().containsMatchIn(body) ||
-            body.contains("未登录") || body.contains("登录过期")
-    }
-}
+//
+// `YwtbSession` 与它的 `YwtbLogin` 已搬进 `:data`（同一个包、同一个类名）：一网通办是消息收纳
+// 「四路取数共用一个站点」那一条路由要用的站点（`:data` 的 `AppInboxSource` 自己 `ensureSite`），
+// 桌面端要自己登它、自己去那四路取数。类名与包路径都没变 ⇒ 下面 `AppLoginState` 里那处
+// `register(YwtbSession())` 一行不用改；登录成功那颗令牌改由 SessionManager 的宿主槽位
+// `onYwtbToken` 交出去（`:app` 那一行仍然写 `CampusProbe.ywtbToken`，行为逐字不变）。
 
 // ── LIBRARY 图书馆座位 ────────────────────────────────────────────────
 // `LibrarySession` 已搬进 `:data`（同一个类名、同一个包）：它是「Sites.kt 里的站点逐个接上

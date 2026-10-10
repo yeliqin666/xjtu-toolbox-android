@@ -1,6 +1,5 @@
 package com.xjtu.toolbox.inbox
 
-import com.xjtu.toolbox.util.safeParseJsonObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -161,10 +160,8 @@ class InboxTest {
         val borrow = InboxItem(id = "b", category = InboxCategories.school("图书馆借阅系统"), source = "图书馆借阅系统", title = "图书即将到期", time = now - hour)
         val merged = InboxRules.merge(InboxData(messages = listOf(seat, borrow)), emptyList(), now)
         assertEquals(listOf("b"), merged.messages.map { it.id })
-
-        val json = """{"data":[{"id":"m1","title":"图书馆预约系统","editTime":"2026-09-27 20:00:12",
-            "content":"<p>您的预约已经超时，即将在五分钟后释放。 (图书馆预约系统)</p>"}]}""".safeParseJsonObject()
-        assertTrue(SchoolInbox.parseMessages(json).isEmpty())
+        // 「解析阶段就该把座位类消息丢掉」那半（`SchoolInbox.parseMessages`）跟着取数搬进 `:data` 了，
+        // 断言在 `:data:jvmTest` 的 `InboxApiJvmTest`（`internal` 跨不了模块边界）。
     }
 
     @Test
@@ -198,35 +195,6 @@ class InboxTest {
         assertEquals("图书馆预约系统", InboxRules.signature(body))
         assertNull(InboxRules.signature("没有落款的正文"))
     }
-
-    @Test
-    fun `解析学校消息：按落款当来源，事务中心的推送跳过`() {
-        val json = """{"code":0,"data":[
-            {"id":"m1","title":"低电通知","appId":"ycz7pmawmfpksprtio309vow","appName":"消息平台","editTime":"2026-09-27 20:00:12",
-             "content":"<p>您当前的电费余额不足，请及时缴费。 (公寓用电管理系统)</p>","mobileUrl":"","url":""},
-            {"id":"m2","title":"待办催办","appId":"b125b6f0e46911ebc909e55a42ec966e","appName":"事务中心","editTime":"2026-09-27 20:00:12","content":"x"}
-        ]}""".safeParseJsonObject()
-        val items = SchoolInbox.parseMessages(json)
-        assertEquals(1, items.size)
-        assertEquals("school:m1", items[0].id)
-        assertEquals("公寓用电管理系统", items[0].source)
-        assertEquals(InboxCategories.school("公寓用电管理系统"), items[0].category)
-        assertNull(items[0].route)
-        assertTrue(items[0].time > 0)
-    }
-
-    @Test
-    fun `解析事务中心待办：带办理链接`() {
-        val json = """{"code":0,"data":{"pageIndex":2,"items":[
-            {"nodeName":"成绩单申请","addTime":"2026-09-11 16:20:27","title":"在校本科生电子成绩单申请","custom1":"师生可信电子凭证门户",
-             "taskId":"t1","mHandleUrl":"https://dzpz.xjtu.edu.cn/m/handle?id=1","timeOut":"false"}
-        ]}}""".safeParseJsonObject()
-        val todos = SchoolInbox.parseTodos(json)
-        assertEquals(1, todos.size)
-        assertEquals("todo:t1", todos[0].id)
-        assertEquals("师生可信电子凭证门户", todos[0].source)
-        assertEquals("成绩单申请", todos[0].body)
-        assertTrue(todos[0].route!!.startsWith("browser?url="))
-        assertFalse(todos[0].route!!.contains(" "))
-    }
+    // 解析学校消息 / 事务中心待办 的两条用例跟着 `SchoolInbox` 搬进 `:data:jvmTest`（`InboxApiJvmTest`）：
+    // 那两个函数是 `internal`，跨不了模块边界。
 }

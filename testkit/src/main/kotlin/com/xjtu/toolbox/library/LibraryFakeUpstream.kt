@@ -1,7 +1,9 @@
 package com.xjtu.toolbox.library
 
 import com.sun.net.httpserver.HttpExchange
+import com.xjtu.toolbox.ywtb.YwtbFakeUpstream
 import java.net.URLDecoder
+import java.util.Base64
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 
@@ -338,10 +340,26 @@ class LibraryFakeUpstream(
     private fun handleCasGet(exchange: HttpExchange, query: String, cookie: String) {
         val service = param(query, "service") ?: "$base/seat/"
         if ("TGC=$TGC_VALUE" in cookie) {
-            redirect(exchange, "$service" + (if ("?" in service) "&" else "?") + "ticket=ST-${tickets.incrementAndGet()}")
+            redirect(exchange, serviceWithTicket(service, ticketFor(service)))
         } else {
             respondHtml(exchange, casLoginPage)
         }
+    }
+
+    /**
+     * 把票据交回去：**塞进 query**，不能拼在字符串末尾。
+     *
+     * 一网通办那个 `service` 自己带一个 `#/Index` 片段（见 `YwtbLogin.YWTB_LOGIN_URL` 里那个 `path`），
+     * 拼在末尾的话票据会落进**片段**里 —— 客户端读的是 `response.request.url.queryParameter("ticket")`，
+     * 于是什么也读不到（实测：`YwtbLogin` 报「无法获取 YWTB ticket」）。真 CAS 也是把 ticket 放进
+     * query 的（片段照旧留在最后）。
+     */
+    private fun serviceWithTicket(service: String, ticket: String): String {
+        val hash = service.indexOf('#')
+        val head = if (hash >= 0) service.substring(0, hash) else service
+        val fragment = if (hash >= 0) service.substring(hash) else ""
+        val separator = if ('?' in head) "&" else "?"
+        return "$head$separator" + "ticket=$ticket" + fragment
     }
 
     /** 凭据表单：认用户名 + RSA 解出的密码，种 TGC，签 ticket 回跳业务站。 */
@@ -359,7 +377,25 @@ class LibraryFakeUpstream(
         credentialPosts.incrementAndGet()
         val service = param(query, "service") ?: "$base/seat/"
         exchange.responseHeaders.add("Set-Cookie", "TGC=$TGC_VALUE; Path=/")
-        redirect(exchange, "$service" + (if ("?" in service) "&" else "?") + "ticket=ST-${tickets.incrementAndGet()}")
+        redirect(exchange, serviceWithTicket(service, ticketFor(service)))
+    }
+
+    /**
+     * 签一张回跳票据。绝大多数站点拿到的是 `ST-n` 那种不透明票据；**一网通办例外**：
+     * `YwtbLogin.postLogin` 要从 `ticket=` 里解出一枚 JWT 的 payload（`idToken`），
+     * 真站点发的就是那个形状 ⇒ 夹具按 `service` 分得清，照真实形状签一枚。
+     *
+     * 为什么在这里而不是新开一个 host 的夹具：`login.xjtu.edu.cn` 是**所有站点共用**的一台 CAS，
+     * 按 host 分派的话它只能属于一个夹具（见 `FakeCampusProxy`）；一网通办那半台（门户与四路取数）
+     * 在 `YwtbFakeUpstream` 里。
+     */
+    private fun ticketFor(service: String): String {
+        val n = tickets.incrementAndGet()
+        if (YwtbFakeUpstream.HOST !in service) return "ST-$n"
+        val payload = Base64.getUrlEncoder().withoutPadding()
+            .encodeToString("""{"idToken":"${YwtbFakeUpstream.ID_TOKEN}","sub":"$USERNAME"}""".toByteArray())
+        // 头一个 base64url 的 header、签名字段随便给（本端不验签，真站点也不由本端验）
+        return "eyJhbGciOiJSUzI1NiJ9.$payload.sig"
     }
 
     private fun cookieHeader(exchange: HttpExchange): String =
