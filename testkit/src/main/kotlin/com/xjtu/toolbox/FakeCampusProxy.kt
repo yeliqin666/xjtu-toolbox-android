@@ -7,6 +7,7 @@ import com.xjtu.toolbox.emptyroom.EmptyRoomFakeUpstream
 import com.xjtu.toolbox.fitness.FitnessFakeUpstream
 import com.xjtu.toolbox.jwxt.JwxtFakeUpstream
 import com.xjtu.toolbox.library.LibraryFakeUpstream
+import com.xjtu.toolbox.notification.NotificationFakeUpstream
 import com.xjtu.toolbox.venue.VenueFakeUpstream
 import com.xjtu.toolbox.ywtb.YwtbFakeUpstream
 
@@ -102,6 +103,13 @@ class FakeCampusProxy(private val casEnabled: Boolean = true) : AutoCloseable {
      * [library] 里，它对一网通办那个 service 会签一枚 **JWT** ticket（真正发 idToken 的就是它）。
      */
     val ywtb: YwtbFakeUpstream = YwtbFakeUpstream()
+
+    /**
+     * 通知公告（第 13 条真数据路由）：三个**代表性源**的域名 —— 教务处 `dean.xjtu.edu.cn`、
+     * 化工学院 `clet.xjtu.edu.cn`（动态挑战 + 拆分日期）、OA `oa.xjtu.edu.cn`（表格行）。
+     * 三个 host 都是 https（29 个源不可能全演，覆盖到哪几条见 [NotificationFakeUpstream] 的 KDoc）。
+     */
+    val notification: NotificationFakeUpstream = NotificationFakeUpstream()
     private val server: FakeUpstreamFront =
         FakeUpstreamFront(::dispatch, HTTPS_HOSTS)
 
@@ -145,6 +153,10 @@ class FakeCampusProxy(private val casEnabled: Boolean = true) : AutoCloseable {
             YwtbFakeUpstream.TRANSACTION_HOST -> ywtb.handleTodos(exchange)
             YwtbFakeUpstream.RESERVATION_HOST -> ywtb.handleBookings(exchange)
             YwtbFakeUpstream.BUS_HOST -> ywtb.handleBus(exchange)
+            // 通知公告（第 13 条真数据路由）：教务处 / 化工学院（含挑战）/ OA —— 三个源三条取数路径。
+            NotificationFakeUpstream.JWC_HOST -> notification.handleJwc(exchange)
+            NotificationFakeUpstream.CLET_HOST -> notification.handleClet(exchange)
+            NotificationFakeUpstream.OA_HOST -> notification.handleOa(exchange)
             SchoolCalendarFakeUpstream.HOST ->
                 if (exchange.requestURI.path == SchoolCalendarFakeUpstream.PATH) {
                     calendar.handle(exchange)
@@ -202,7 +214,9 @@ class FakeCampusProxy(private val casEnabled: Boolean = true) : AutoCloseable {
             // 体育场馆的登录入口那一跳（`org.xjtu.edu.cn` 的 OAuth 授权页）；业务那半台是**明文**
             // `202.117.17.144:8080`，不走隧道，所以不在这里。
             VenueFakeUpstream.OAUTH_HOST,
-        )
+            // 通知公告那三个源：全是 https（教务处 / 化工学院 / OA）。
+            // ⚠️ 又装三枚 SAN（见上面那条：该集合变了，自签证书会重生一份）。
+        ) + NotificationFakeUpstream.HOSTS
     }
 }
 

@@ -2,7 +2,7 @@ package com.xjtu.toolbox.notification
 
 import com.xjtu.toolbox.util.stringValue
 import com.xjtu.toolbox.util.booleanValue
-import android.util.Log
+import com.xjtu.toolbox.platform.Log
 import com.xjtu.toolbox.network.HttpClients
 import com.xjtu.toolbox.util.safeParseJsonObject
 import kotlinx.coroutines.Dispatchers
@@ -21,17 +21,22 @@ import java.net.URL
 import java.net.URLEncoder
 import java.nio.charset.StandardCharsets
 import java.time.LocalDate
-import com.xjtu.toolbox.util.toKx
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
 
-// 模型 / 来源枚举 / 取数端口都搬到了 :core 的 `notification/NoticeModels.kt`（两端共用）：
+// 模型 / 来源枚举 / 取数端口在 :core 的 `notification/NoticeModels.kt`（三端共用）：
 // `Notification` / `NotificationPage` / `MergedNotificationPage` / `SourceCategory` /
 // `NotificationSource` / `NoticeSource`。本文件只剩「怎么把某个站的 HTML 抠成条目」——
-// 那是 jsoup + okhttp，只有 Android 需要（Web 端的解析在 campus-api 里）。
+// 那是 jsoup + okhttp，Android 与桌面端（JVM）共用这一份（Web 端的解析在 campus-api 里）。
 //
 // 唯一的类型替换：`Notification.date` 现在是 `kotlinx.datetime.LocalDate`，
-// 所以下面三个构造点要用 `com.xjtu.toolbox.util.toKx()` 转一下。
+// 所以下面三个构造点要用本文件底下那条 `toKx()` 转一下。它逐字等于 `:app` 的
+// `util/TimeBridge.kt` 里那一条（年/月/日逐个搬、无时区参与），只是那份是 `:app` 的
+// `internal`、跳不过模块边界，而这一个只需要一个方向。
+//
+// 本次搬迁（:app → :data，类名与包路径一字未改）动的是四处：`android.util.Log` → `:core` 的
+// `Log`、[XjtuSiteFetcher] 由 `internal` 改为公开（它被 `:app` 的 `SchoolCalendarImageApi` 用着，
+// `internal` 跨不了模块边界）、`toKx()` 换成下面那条本地实现（原因同上），以及这段文件头注释。
 
 // ==================== 反爬虫处理 ====================
 
@@ -846,6 +851,16 @@ internal object SiteSearch {
 
 // ==================== 工具函数 ====================
 
+/**
+ * `java.time.LocalDate` → `kotlinx.datetime.LocalDate`（`:core` 的模型说后者）。
+ *
+ * 与 `:app` 的 `util/TimeBridge.kt` 里那一条逐字等价：年/月/日逐个搬，没有时区参与。
+ * 那份是 `:app` 的 `internal`（跨不了模块边界），所以这里带一份单向的最小实现。
+ * 手写而不是用 kotlinx-datetime 的 `toKotlinLocalDate()`：那是 jvmMain 专属 API。
+ */
+private fun LocalDate.toKx(): kotlinx.datetime.LocalDate =
+    kotlinx.datetime.LocalDate(year, monthValue, dayOfMonth)
+
 private fun resolveUrl(baseUrl: String, relative: String): String {
     return try {
         URL(URL(baseUrl), relative).toString()
@@ -887,8 +902,11 @@ private val notificationClient: OkHttpClient by lazy {
 /**
  * 学校站群（博达 CMS）上的非通知页面也挂着同一套人机验证，例如教务处校历页。
  * 复用这里的挑战求解和按域名缓存的 client_id，别在别处再实现一遍。
+ *
+ * ⚠️ 是公开的（不是 `internal`）：`:app` 的 `SchoolCalendarImageApi` 在用它，而 `internal`
+ * 只在模块内可见 —— 搬到 `:data` 之后就跨不过那条边界了。搬动时只改了可见性，行为未变。
  */
-internal object XjtuSiteFetcher {
+object XjtuSiteFetcher {
     fun document(url: String): Document = fetchDocumentWithChallenge(notificationClient, url)
 
     /** 下载站内文件（图片等）。先取过 [document] 的话会带上已通过验证的 client_id。 */
