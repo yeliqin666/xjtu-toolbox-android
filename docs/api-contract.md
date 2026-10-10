@@ -120,10 +120,13 @@
    站点快照**一起删**。
 
 > **未投影的东西（TODO）**：① MFA 的绑定手机号（弹窗里那句「验证码已发送到 138\*\*\*\*0000」要它；
-> 多一个字段 = 多一处口径，留到 `:web` 那个弹窗真开始画时一起加）；② `attemptsLeft` 依赖
+> 多一个字段 = 多一处口径，留到 `:web` 那个弹窗真开始画时一起加 —— 2026-10-11 弹窗**已经画了**，
+> 在 `WebServeSessionScreen` 里，这句如实没写，正是差这个字段）；② `attemptsLeft` 依赖
 > `SessionManager.MFA_MAX_ATTEMPTS`（那边是 `private`，`:server` 侧是同一数字的第二份写法，
 > 改内核那个值要连它一起改）；③ `/api/session*` 的响应**只有**上面那些字段 —— 学号 / 姓名 /
-> 手机号 / 账号类型一律**不投影**（与 `/api/status` 那条红线同一口径）。
+> 手机号 / 账号类型一律**不投影**（与 `/api/status` 那条红线同一口径）；
+> ④ **轮询间隔**：契约只写「轮询」不写间隔，消费方现在取 **2 秒**（`WebServeSessionScreen` 的
+> `MFA_POLL_INTERVAL_MS` 与它的 TODO）—— 要写死就两处一起写死，并考虑退避。
 
 > **TODO（每条一行，由搬它的提交补齐）**：请求参数的确切名字与默认值 · 响应字段的逐条形状 ·
 > 与 `:app` 同一条上游样本的逐字段一致性证据（夹具）· 该端点的能力开关取值表。
@@ -144,16 +147,16 @@
 
 | 端点 | 请求 | 响应 `data`（逐字段） | 备注 |
 |---|---|---|---|
-| `GET /api/calendar/school` | —— | `{terms:[{name,startDate,endDate,remark?}]}` | `SchoolCalendarSource.terms`，开学日起序 |
-| `GET /api/info/yellowpage` | —— | `[{dept,name,phone?}]`（或 `{departments:[…]}`，逐位置照 `YellowPageSource`） | MockEngine 夹具 |
-| `GET /api/info/faculty` | `?name=&dept=&page=&size=` | `{page,size,total,list:[…],contactsAvailable:false}` | 不解析主页、不传 `contacts=1`（serve 只读）；`contactsAvailable:false` 固定 |
-| `GET /api/fitness/years` | —— | `[{year,checked}]` | `FitnessSource` |
-| `GET /api/fitness/score` | `?year=` | `{studentNo,studentName,year,score,level,…}` | **本人数据**（例外①）：姓名/学号可投影 |
-| `GET /api/notification/list` | `?page=&size=&source=&all=1` | `{page,size,total,items:[…]}` | `size`=本次响应条数（`NoticeSource` 无页大小概念，非服务端分页窗） | 
-| `GET /api/notification/sources` | —— | `[{id,name,type,…}]` | 29 个源 |
-| `GET /api/inbox` | —— | 四路聚合（消息/事务/预约/校车，逐位置照 `InboxSource`） | 读侧；`markRead` 等写路径属 Stage B |
-| `GET /api/emptyroom/cdn` | `?campus=&date=&from=&to=` | `{availableSources:[…], rooms:[…]}` | CDN 档 |
-| `GET /api/emptyroom/rooms` | `?campus=&date=` | `{availableSources, live?:{…}, direct?:{…}}` | `availableSources`：未登录 `[cdn]`；登录后 `[live,cdn,direct]` |
+| `GET /api/calendar/school` | —— | `{terms:[{id,startDate,endDate,termName,yearName,totalWeeks,workDays,events:[{id,startDate,endDate,name,remark,days,colorHex}]}]}` | 开学日起序；`:web` 消费方 2026-10-11 落地（§5.4） |
+| `GET /api/info/yellowpage` | —— | `{updateTime,categories:[{id,name}],departments:[{id,categoryId,name,phone}]}` | 已滤 `status!=1`、不投影 `sort` |
+| `GET /api/info/faculty` | `?name=&dept=&page=&size=` | `{contactsAvailable:false,total,totalPage,pageIndex,members:[…]}` | 不解析主页、不传 `contacts=1`（serve 只读）；`contactsAvailable:false` 固定 |
+| `GET /api/fitness/years` | —— | `{years:[{yearNum,name,checked}]}` | `FitnessSource` |
+| `GET /api/fitness/score` | `?year=` | `{studentNumber,studentName,totalScore,totalGrade,reportType,reportStatus,sex,grade,items:[…]}` | **本人数据**（例外①）：姓名/学号可投影，消费方 2026-10-11 带上 |
+| `GET /api/notification/list` | `?page=&size=&source=&all=1` | `{page,size,total,items:[…],skipped:[…],hasMore}` | `size`=本次响应条数（`NoticeSource` 无页大小概念，非服务端分页窗） | 
+| `GET /api/notification/sources` | —— | `{total,sources:[{code,displayName,category}]}` | 29 个源 |
+| `GET /api/inbox` | —— | `{messages,todos:{分类:[…]},finished,readAt,seenTodos,ignored,off,schoolFetchedAt,bubbled}` | `:data` 的 `InboxData` 投影（读侧；`markRead` 等写路径属 Stage B） |
+| `GET /api/emptyroom/cdn` | `?campus=&date=&from=&to=` | `{availableSources:[{key,name}],source,campus,buildings,date,noData,note,rooms:[…]}` | CDN 档（`noData:true` + `note` = 那天没数据，不是错误） |
+| `GET /api/emptyroom/rooms` | `?campus=&date=&source=direct\|live` | 直查：同 CDN 档；实时：`{availableSources,…,fetchedAt,buildings,rooms:[{name,building,status,people,seats,course?,teacher?}]}` | `availableSources`：未登录 `[cdn]`；登录后 `[live,cdn,direct]` |
 
 **TODO（拍板过，未做）**：`emptyroom/rooms` 的 `from/to`（节次过滤）——`:data` `EmptyRoomDirectQuery` 只给全天，留待上游加维度；
 `faculty` 的 `?filters=1`（筛选项表四张，`:data` 能解析但契约未定）与 `fitness/score` 的 `?year=all`（全学期聚合）同理；
@@ -166,7 +169,7 @@
 | `GET /api/jwxt/terms` | —— | `[{name,startDate,endDate,current?}]` | 学期名兜底 = `DM` 字段 |
 | `GET /api/jwxt/term` | —— | 当前学期对象（形状同上） | `ScheduleSource` 一族 |
 | `GET /api/jwxt/grades` | `?term=&all=1` | `{page,size,total,grades:[…]}` | 默认全量；`:data` `ScoreReportSource` |
-| `GET /api/jwxt/school-courses` | `?course=&code=&teacher=&campus=&weekday=&from=&to=&page=&size=` | 见下节 | **要改**（契约§5）：补人数/学时、`YPSJDD`、开课单位、公选筛选（`:data` `AppSchoolCourseSource` 已能取的投影，取不到标 TODO） |
+| `GET /api/jwxt/school-courses` | `?course=&code=&teacher=&campus=&weekday=&from=&to=&page=&size=` | 见下节 | **要改**（契约§5）：补人数/学时、`YPSJDD`、开课单位、公选筛选（`:data` `AppSchoolCourseSource` 已能取的投影，取不到标 TODO）。消费方 2026-10-11 把 `supportsDepartmentFilter` / `supportsElectiveFilter` 读进去了（§5.4 的两个「不画」） |
 | `GET /api/jwxt/evaluations` | `?terms=&type=&finished=` | `{canSubmit:false,items:[…]}` | `canSubmit` 必须出现、如实 `false`（本实现只看不认不投） |
 | `GET /api/jwxt/evaluations/status` | —— | `{canSubmit:false}` | 提交/撤销（P1）、研究生 gste/gmis 路（P1） |
 | `GET /api/library/campus` | —— | `{current:{code,name}|null, campuses:[{code,name}], queryableFloors:[…]|null, canBook:true, hasSeatPlan:true}` | `current:null`=认不出不猜；`canBook:true` 如实（:data 写路径真） |
@@ -182,6 +185,31 @@
 
 **TODO（拍板过，未做）**：`library/seats?time`（上游无时间维）、`library/my.actionUrls` 与 `/api/library/action`（P1 写）、
 `venue/book` `/cancel` 与 `canBook:true`（P1 写，须先解决滑块宿主）、`card` 挂失（P1 写）、`evaluations` 提交/撤销（P1）。
+
+### 5.4 `:web` 消费方（2026-10-11 落地，`ApiMode` 那一次提交）
+
+消费方（`core/net` 的 13 个 `Campus*Api` + `:web` 外壳）按**本文件**接线，不认 campus-api 的字段名（§7.2）。
+这条只记**消费方自己的行为**，不改任何端点的形状 —— 改形状仍然要走 §7 的三处同改。
+
+- **模式开关**：`?backend=serve` 钉死 serve 模式（书签/排障用）；否则探一次 `GET /api/status` —— serve 的那份是
+  **裸对象且不含身份**（§3.4），campus-api 的同名端点带 `username`，这是两条路在同一个路径上唯一稳定的差别。
+  探不出结果按 campus-api 处理（默认形态一字不改）。实现：`web/…/ServeSession.kt` 的 `detectApiMode`。
+- **登录**：`POST /api/session/login`；挂起时**并发轮询** `GET /api/session/mfa` —— 间隔由消费方定 **2 秒**
+  （`MFA_POLL_INTERVAL_MS`，TODO 见 §5.1 的 ④）。MFA 弹窗显示 `siteName` / `rejections` / `attemptsLeft`
+  （`WebServeSessionScreen`）；绑定手机号不投影（§5.1 TODO ①），弹窗如实不写「已发送到 138\*\*\*\*0000」。
+- **访问令牌只在浏览器内存里**：不落 `localStorage`（XSS 拿到令牌就等于拿到这道门）；`GET /api/session`
+  那一发顺手把令牌换成 `serve_token` cookie（§3.2），之后每次请求同时带 Bearer 与 cookie ——
+  「Ktor 的 fetch 引擎会不会自动带 cookie」是引擎实现细节，不作为契约依赖。
+- **三个消费方侧的「不画」**（都是「点了会失败的按钮一个都不画」这一条的实现，服务端别当成 bug）：
+  1. library：`/api/library/campus` 报 `canBook:true` / `hasSeatPlan:true`，但写端点是 P1（`/api/library/book`
+     `/swap` `/action` 现在答 404）、布局/底图端点不在 §5 ⇒ 消费方报 `false`；
+  2. venue：`/api/venue/status` 报 `canCancel:true`，但 `/api/venue/cancel` 是 P1 ⇒ 消费方报 `false`；
+  3. school-courses：响应报 `supportsDepartmentFilter` / `supportsElectiveFilter` 是 `true`，但没有返回那两张
+     id 表的端点 ⇒ 消费方报 `false`（下拉出现了却没有选项，比不出现更糟）。
+  三处的 TODO 都写在对应 `Campus*Api` 的 KDoc 里，端点落地的提交把它们一起翻成 true。
+- **课表缺口**（如实降级，不算实现错误）：`/api/jwxt/schedule` 与 `/api/jwxt/term-start` 列在 §5 表里
+  （「沿用」），但**不在已落地的 26 条里** ⇒ serve 模式下课表屏（含默认落地页）报「接口不存在」。
+  TODO：`:server` 补这两个端点。
 
 ## 6. 夹具契约测试（D5 要求，不能只写文档）
 

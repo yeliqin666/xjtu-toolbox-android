@@ -65,9 +65,13 @@ import kotlin.time.Clock
 class CampusCardNetApi(
     private val client: HttpClient,
     private val baseUrl: String = "",
+    /** 见 [ApiMode]：默认 campus-api（旧行为一字不改），serve 模式读契约 §5.3 的形状。 */
+    private val mode: ApiMode = ApiMode.CAMPUS_API,
 ) : CampusCardSource {
 
     override suspend fun card(): CardInfo {
+        // 两个后端的形状不同：campus-api 给 `{card:{…}}`，serve 给**扁平**的一份（见 serveCard）
+        if (mode == ApiMode.SERVE) return serveCard()
         val data = getData("/api/card/balance")
         val card = data["card"] as? JsonObject
             ?: error("campus-api 校园卡返回缺少 card")
@@ -93,6 +97,7 @@ class CampusCardNetApi(
         page: Int,
         pageSize: Int,
     ): Pair<Int, List<Transaction>> {
+        if (mode == ApiMode.SERVE) return serveTransactions(from, to, page, pageSize)
         val data = getData(
             "/api/card/transactions",
             "from" to from.toString(),
@@ -156,8 +161,75 @@ class CampusCardNetApi(
     /** 本次会话里最后落盘的那一份（[persist] 写、[snapshot] 读）。刷新页面即失效，见类 KDoc。 */
     private var session: CampusCardSnapshot? = null
 
+    // ─── serve 模式（契约 §5.3）────────────────────────────────────────────
+
+    /**
+     * serve 模式（契约 §5.3）：**扁平的**一份
+     * `{balance,pendingAmount,lostFlag,frozenFlag,expireDate,cardType,department}`。
+     *
+     * 与旧路的三处差别：
+     *  - 没有 `card` 外层（旧路是 campus-api 的嵌套投影）；
+     *  - `account` / `name` / `studentNo` **不投影**（§5.3 红线：卡账号、姓名、学号是登录用户本人），
+     *    所以这三行如实留空 —— 旧路拿到的是**掩码**后的学号，新契约干脆不给，这里不编一个；
+     *  - `lostFlag` 看的是服务端的 `lostFlag`（`:data` 的 `barflag` 口径，§5.3 明文选定），
+     *    与 `:app` 一致（旧路的 `card.lost` 是 campus-api 的 `lostflag`）。
+     */
+    private suspend fun serveCard(): CardInfo {
+        val data = getData("/api/card/balance")
+        return CardInfo(
+            account = "",
+            name = "",
+            studentNo = "",
+            balance = data["balance"].safeDouble(),
+            pendingAmount = data["pendingAmount"].safeDouble(),
+            lostFlag = data["lostFlag"].safeBoolean(),
+            frozenFlag = data["frozenFlag"].safeBoolean(),
+            expireDate = data["expireDate"].safeString(),
+            cardType = data["cardType"].safeString(),
+            department = data["department"].safeString(),
+        )
+    }
+
+    /**
+     * serve 模式（契约 §5.3）：`{page,size,total,transactions:[{time,merchant,amount,balance,type,description}]}`
+     * —— 比旧路少一层专门的两字段兜底：`amount` 已经是**带符号**的（`:data` 的 `signedAmountCents`
+     * 合成好了），`description` 就是 `:app` 解析的 `resume`，所以旧路那两条（`amount <- signed`、
+     * `description <- channel` + `merchantFromResume`）在新形状里都没有对应物。
+     * `merchant` 为空时不再补一次：模型上的 `displayMerchant` 会在展示时兜（同一句、同一处）。
+     */
+    private suspend fun serveTransactions(
+        from: LocalDate,
+        to: LocalDate,
+        page: Int,
+        pageSize: Int,
+    ): Pair<Int, List<Transaction>> {
+        val data = getData(
+            "/api/card/transactions",
+            "from" to from.toString(),
+            "to" to to.toString(),
+            "page" to page.toString(),
+            "size" to pageSize.toString(),
+        )
+        val total = data["total"].safeInt()
+        val rows = data.arr("transactions").orEmpty().mapNotNull { element ->
+            val row = element as? JsonObject ?: return@mapNotNull null
+            Transaction(
+                time = row["time"].safeString(),
+                merchant = row["merchant"].safeString(),
+                amount = row["amount"].safeDouble(),
+                balance = row["balance"].safeDouble(),
+                type = row["type"].safeString(),
+                description = row["description"].safeString(),
+            )
+        }
+        return total to rows
+    }
+
+
     /** 拆 `{code,data}` 信封；`code!=0` 按体测/校历那套报法显式失败。 */
     private suspend fun getData(path: String, vararg query: Pair<String, String>): JsonObject {
+        // serve 契约（§4）的信封见 ApiMode / serveData：code == HTTP 状态码、失败文案在 message
+        if (mode == ApiMode.SERVE) return client.serveData("校园卡", baseUrl, path, query.toList())
         val text = client.get("$baseUrl$path") {
             query.forEach { (k, v) -> parameter(k, v) }
         }.bodyAsText()

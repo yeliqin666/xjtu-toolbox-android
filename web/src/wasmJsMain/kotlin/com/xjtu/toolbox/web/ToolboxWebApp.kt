@@ -17,6 +17,7 @@ import androidx.compose.material.icons.filled.Phone
 import androidx.compose.material.icons.filled.Psychology
 import androidx.compose.material.icons.filled.SportsEsports
 import androidx.compose.material.icons.filled.Forum
+import androidx.compose.material.icons.filled.AccountCircle
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -25,6 +26,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
+import com.xjtu.toolbox.core.net.ApiMode
 import com.xjtu.toolbox.community.CommunityScreen
 import com.xjtu.toolbox.community.GithubSession
 import com.xjtu.toolbox.calendar.SchoolCalendarScreen
@@ -63,6 +65,7 @@ import com.xjtu.toolbox.inbox.InboxScreen
 import com.xjtu.toolbox.schedule.SchoolCourseScreen
 import com.xjtu.toolbox.yellowpage.YellowPageScreen
 import io.ktor.client.HttpClient
+import kotlinx.coroutines.withTimeoutOrNull
 import top.yukonga.miuix.kmp.basic.NavigationBar
 import top.yukonga.miuix.kmp.basic.NavigationBarDisplayMode
 import top.yukonga.miuix.kmp.basic.NavigationBarItem
@@ -91,29 +94,60 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
 fun ToolboxWebApp() {
     val client = remember { toolboxWebClient() }
     val session = remember { WebGithubSession(client) }
+    // serve 模式的会话（登录 / 短信二验 / 登出）：令牌持有者是页面级单例，见 ServeSession.kt
+    val serveSession = remember { WebServeSession(client, serveToken) }
+    // 后端模式：探测完成前**不起任何屏** —— 取数装配要按模式选实现，猜错了就是一批白打的请求
+    var mode by remember { mutableStateOf<ApiMode?>(null) }
     val initial = remember { initialWebTarget() }
     var target: WebTarget by remember { mutableStateOf(initial) }
 
+    LaunchedEffect(Unit) {
+        // 探测只是**猜**：猜不出来（谁都没起、或卡住）就走老路 campus-api（默认形态一字不改）
+        mode = withTimeoutOrNull(BACKEND_DETECT_TIMEOUT_MS) { detectApiMode(client) } ?: ApiMode.CAMPUS_API
+    }
+
     Column(modifier = Modifier.fillMaxSize()) {
         Box(modifier = Modifier.weight(1f)) {
-            when (val t = target) {
-                is WebTarget.App -> AppPage(t.route, client, session) { target = it }
-                WebTarget.Probe -> ProbeScreen()
-                WebTarget.Eula -> EulaScreen(onAccept = { target = WebTarget.Probe })
+            val backend = mode
+            when {
+                backend == null -> Text(
+                    "正在探测数据源（serve 模式的 :server / 同源反代 campus-api）…",
+                    color = MiuixTheme.colorScheme.onSurface,
+                    modifier = Modifier.padding(16.dp),
+                )
+                else -> when (val t = target) {
+                    is WebTarget.App -> AppPage(t.route, client, backend, session) { target = it }
+                    WebTarget.Probe -> ProbeScreen()
+                    WebTarget.Eula -> EulaScreen(onAccept = { target = WebTarget.Probe })
+                    WebTarget.Serve -> WebServeSessionScreen(serveSession) { target = WebTarget.App(AppRoute.Schedule) }
+                }
             }
         }
-        WebBottomBar(selected = target) { target = it }
+        WebBottomBar(selected = target, serveMode = mode == ApiMode.SERVE) { target = it }
     }
 }
+
+/**
+ * 探测后端最多等多久。超时按 campus-api 处理（= 默认形态）：一个卡住的探测不该让页面白屏。
+ *
+ * 3 秒是「本地回环的一次 HTTP 往返」的宽松上限（同机的 `:server` / campus-api 都在毫秒量级）。
+ */
+private const val BACKEND_DETECT_TIMEOUT_MS = 3_000L
 
 /** 当前页：`:core` 的路由，或两个 Web 专有页。 */
 internal sealed interface WebTarget {
     data class App(val route: AppRoute) : WebTarget
     data object Probe : WebTarget
     data object Eula : WebTarget
+
+    /**
+     * serve 模式的会话屏（登录 / 短信二验 / 登出）—— Web 专有，不进 `:core` 的路由表：
+     * campus-api 那套没有「页面上登录」这回事（凭据托管在反代进程里）。
+     */
+    data object Serve : WebTarget
 }
 
-/** 底栏的五格 —— 每一格都是 `:core` 里真实存在的屏。 */
+/** 底栏的每一格都是 `:core` 里真实存在的屏（serve 模式还会多一格「会话」，见 [WebBottomBar]）。 */
 internal data class WebTab(val route: AppRoute, val label: String, val icon: ImageVector)
 
 internal val WEB_TABS = listOf(
@@ -129,8 +163,8 @@ internal val WEB_TABS = listOf(
 )
 
 @Composable
-private fun WebBottomBar(selected: WebTarget, onSelect: (WebTarget) -> Unit) {
-    // 与 App 的「经典底栏」同一个组件、同一个 mode；只换 tab 集合（Web 只有这五件事能做）
+private fun WebBottomBar(selected: WebTarget, serveMode: Boolean, onSelect: (WebTarget) -> Unit) {
+    // 与 App 的「经典底栏」同一个组件、同一个 mode；只换 tab 集合（Web 只有这几件事能做）
     NavigationBar(mode = NavigationBarDisplayMode.IconAndText) {
         WEB_TABS.forEach { tab ->
             NavigationBarItem(
@@ -140,21 +174,47 @@ private fun WebBottomBar(selected: WebTarget, onSelect: (WebTarget) -> Unit) {
                 label = tab.label,
             )
         }
+        // serve 模式多一格「会话」：登录 / 短信二验 / 登出都在那一屏（[WebServeSessionScreen]）。
+        // 非 serve 模式**不画它** —— 同源反代 campus-api 那套没有「页面上登录」这回事
+        //（凭据托管在反代进程里），多一格只会让人点进去看见一个用不到的屏。
+        if (serveMode) {
+            NavigationBarItem(
+                selected = selected is WebTarget.Serve,
+                onClick = { onSelect(WebTarget.Serve) },
+                icon = Icons.Filled.AccountCircle,
+                label = "会话",
+            )
+        }
     }
 }
 
 /**
  * 一屏共享页。每个屏只注入**这一端能提供的东西**：
- * - 黄页：campus-api 版的 [CampusYellowPageApi]（Android 那边直连学校，Web 只能走同源反代）；
+ * - 黄页：campus-api 版的 [CampusYellowPageApi]（serve 模式下是同一份类的 `ApiMode.SERVE` 那一支）；
  * - 校历/体测：campus-api 版的 [CampusSchoolCalendarApi] / [CampusFitnessApi]（同一条理由：学校域名不给 CORS 头）；
+ * - 取数：`mode` 决定 baseUrl 与解析形状（[ApiMode]），13 个 `Campus*Api` 一行不改地两边跑；
  * - 社区：登录态与设备码登录在 Web 上如实报「未配置」（见 [WebGithubSession]）；
  * - 错误文案统一用 `:core` 的 [FriendlyError] —— 与 App 字句相同。
  */
 @Composable
-private fun AppPage(route: AppRoute, client: HttpClient, session: WebGithubSession, onNavigate: (WebTarget) -> Unit) {
+private fun AppPage(
+    route: AppRoute,
+    client: HttpClient,
+    /**
+     * 这一份 `:web` 在对谁说话（见 [ApiMode]）：13 个 `Campus*Api` 都按它选解析形状与基址。
+     * 由外壳探测一次后传下来 —— 屏自己不去猜后端（那是装配层的知识）。
+     */
+    mode: ApiMode,
+    session: WebGithubSession,
+    onNavigate: (WebTarget) -> Unit,
+) {
     val back = { onNavigate(WebTarget.App(AppRoute.Schedule)) }
     when (route) {
-        AppRoute.Schedule -> ScheduleScreen()
+        // 课表用的 CampusScheduleApi 在两个后端走**同一批路径**（`/api/jwxt/term` 等），
+        // 所以它不需要 mode；但它必须用**带令牌的那个客户端**（serve 模式下所有请求都要过闸门）。
+        // ⚠️ serve 模式下这一屏会报「接口不存在」：`:server` 还没实现 /api/jwxt/schedule 与
+        // /api/jwxt/term-start（见 CampusApi.schedule 的 KDoc，那里有 TODO）。
+        AppRoute.Schedule -> ScheduleScreen(client)
         // 内置浏览器：**Web 端的浏览器就是浏览器本身** —— 把 URL 交给它，同标签导航过去。
         //
         // :app 的 BrowserScreen 是个 WebView，它比普通浏览器多两件事：① 复用 App 已经登好的
@@ -176,24 +236,24 @@ private fun AppPage(route: AppRoute, client: HttpClient, session: WebGithubSessi
         // 校历：与 Android 同一个屏、同一份模型与算法（:core/calendar），只换取数——
         // 浏览器不能直连 workflow.xjtu.edu.cn（无 CORS 头），走 campus-api 同源反代。
         AppRoute.SchoolCalendar -> SchoolCalendarScreen(
-            source = remember { CampusSchoolCalendarApi(client) },
+            source = remember(client, mode) { CampusSchoolCalendarApi(client, API_BASE, mode) },
             onBack = back,
         )
         // 体测：与 Android 同一个屏、同一套模型与分项口径（:core/fitness），只换取数——
         // campus-api 按隐私口径不返回姓名/学号，所以英雄卡标题会落到兜底文案（已写在 FitnessSource 的 KDoc）。
         AppRoute.Fitness -> FitnessScreen(
-            source = remember { CampusFitnessApi(client) },
+            source = remember(client, mode) { CampusFitnessApi(client, API_BASE, mode) },
             onBack = back,
         )
         // 成绩：与 Android 同一个屏与模型（:core/score），取数换成 campus-api 的精确成绩。
         // 两个端上游不是同一个接口（:app 解析帆软报表 HTML），字段对齐写在 CampusGradesApi 的 KDoc 里。
         AppRoute.ScoreReport -> ScoreReportScreen(
-            source = remember { CampusGradesApi(client) },
+            source = remember(client, mode) { CampusGradesApi(client, API_BASE, mode) },
             onBack = back,
             cache = remember { WebScoreReportCache() },
         )
         AppRoute.YellowPage -> YellowPageScreen(
-            api = remember { CampusYellowPageApi(client) },
+            api = remember(client, mode) { CampusYellowPageApi(client, API_BASE, mode) },
             onBack = back,
             errorText = { FriendlyError.of(it, "加载黄页") },
         )
@@ -226,7 +286,7 @@ private fun AppPage(route: AppRoute, client: HttpClient, session: WebGithubSessi
         // 通知公告：与 Android 同一个屏与模型（:core/notification），取数换成 campus-api ——
         // 它覆盖同样 29 个源，两端拿到的是同一批通知（差别只在「谁去爬」）。
         AppRoute.Notification -> NotificationScreen(
-            source = remember { CampusNoticeApi(client) },
+            source = remember(client, mode) { CampusNoticeApi(client, API_BASE, mode) },
             onBack = back,
             onNavigate = { onNavigate(WebTarget.App(it)) },
         )
@@ -234,7 +294,7 @@ private fun AppPage(route: AppRoute, client: HttpClient, session: WebGithubSessi
         // `/api/info/faculty`（免登录、同一个上游 advancesearch.jsp）。三处刻意降级写在
         // CampusFacultyApi 的 KDoc 里：筛选项表拿不到、主页不解析（改为新标签打开）、联系方式不取。
         AppRoute.Faculty -> FacultyScreen(
-            source = remember { CampusFacultyApi(client) },
+            source = remember(client, mode) { CampusFacultyApi(client, API_BASE, mode) },
             onBack = back,
             onOpenUrl = { openInNewTab(it) },
         )
@@ -242,18 +302,18 @@ private fun AppPage(route: AppRoute, client: HttpClient, session: WebGithubSessi
         // （人数/学时、YPSJDD、开课单位与公选筛选），逐条写在 CampusSchoolCourseApi 的 KDoc 里；
         // 屏据能力开关把筛不了的那两档控件整个隐藏，人数/学时那几块不画 —— 不拿 0 冒充。
         AppRoute.SchoolCourse -> SchoolCourseScreen(
-            source = remember { CampusSchoolCourseApi(client) },
+            source = remember(client, mode) { CampusSchoolCourseApi(client, API_BASE, mode) },
             onBack = back,
         )
         // 评教：与 Android 同一份屏与 ViewModel（:core/judge），取数换成 campus-api。
         // **只读** —— campus-api 永不实现提交/撤销评教，所以屏上不出现「一键全部好评」
         // 与撤回按钮（JudgeSource.canSubmit=false）；能看「哪些课还没评」。
-        AppRoute.Judge -> WebJudgeScreen(onBack = back)
+        AppRoute.Judge -> WebJudgeScreen(client, mode, onBack = back)
         // 消息收纳：与 Android 同一个屏与 store/rules（:core/inbox），取数换成 campus-api 的
         // `/api/inbox`（同样四路）。点击行为：外链（`browser?url=`）新标签打开 —— 与 :app 的
         // 内置浏览器同义；其余按 AppRoute 走站内导航。
         AppRoute.Inbox -> InboxScreen(
-            source = remember { CampusInboxApi(client) },
+            source = remember(client, mode) { CampusInboxApi(client, API_BASE, mode) },
             onBack = back,
             onOpen = { id ->
                 when (val r = appRouteOf(id)) {
@@ -271,7 +331,7 @@ private fun AppPage(route: AppRoute, client: HttpClient, session: WebGithubSessi
         AppRoute.EmptyRoom -> {
             val prefs = remember { keyValueStore("empty_room") }
             EmptyRoomScreen(
-                source = remember { CampusEmptyRoomApi(client) },
+                source = remember(client, mode) { CampusEmptyRoomApi(client, API_BASE, mode) },
                 accountType = null,
                 onBack = back,
                 showCdnTip = !prefs.getBoolean("empty_room_cdn_tip", false),
@@ -287,19 +347,20 @@ private fun AppPage(route: AppRoute, client: HttpClient, session: WebGithubSessi
         //  ④ 没有「加餐券」那一屏 ⇒ 那条入口整个不画（couponStat = null，不是画一条点了会落到占位页的）。
         // 浏览器里也没有 SavedStateRegistryOwner ⇒ savedState 用屏的默认值（内存版 SavedStateHandle）。
         AppRoute.CampusCard -> CampusCardScreen(
-            source = remember { CampusCardNetApi(client) },
+            source = remember(client, mode) { CampusCardNetApi(client, API_BASE, mode) },
             onBack = back,
         )
         // 体育场馆：与 Android 同一个屏与 ViewModel（`:core/venue`）。**只读** —— campus-api 的
         // 场馆模块自己写着 `readOnly:true`（抢场要解滑块且属写操作）⇒ `CampusVenueApi` 的
         // canBook/canCancel 都是 false，于是屏上**没有**「确认预订」「去支付」「取消订单」，
-        // 时段格子一律不可选，验证码弹窗也进不去（两个 Android 专属槽位传 null：浏览器里没这条路）。
+        // 时段格子一律不可选，验证码弹窗也进不去（captchaHost 传 null：浏览器里没这条路，
+        // 宿主端口见 `:core` 的 `SlideCaptchaHost`）。
         // 逐字段映射写在 CampusVenueApi 的 KDoc 里（订单缺 areaName/serviceName、明细时间常为 null
         // ⇒ 如实留空，屏上那几段不画）。
         AppRoute.Venue -> {
             val hintPrefs = remember { keyValueStore("feature_hints") }
             VenueScreen(
-                source = remember { CampusVenueApi(client) },
+                source = remember(client, mode) { CampusVenueApi(client, API_BASE, mode) },
                 onBack = back,
                 // 支付那半在 Web 上不可达（canBook=false ⇒ 屏上不画入口）。真走到这里也只做浏览器
                 // 做得到的那一件：打开那个网址；`then`（先过 App 的登录再跳下一站）在浏览器里做不到，
@@ -321,7 +382,7 @@ private fun AppPage(route: AppRoute, client: HttpClient, session: WebGithubSessi
         AppRoute.Library -> {
             val hintPrefs = remember { keyValueStore("feature_hints") }
             LibraryScreen(
-                source = remember { CampusLibraryApi(client) },
+                source = remember(client, mode) { CampusLibraryApi(client, API_BASE, mode) },
                 onBack = back,
                 showFirstUseHint = !hintPrefs.getBoolean("library_hint_shown", false),
                 onFirstUseHintRead = { hintPrefs.putBoolean("library_hint_shown", true) },
@@ -384,5 +445,8 @@ internal fun initialWebTarget(): WebTarget = when (val raw = browserRouteParam()
     null -> WebTarget.App(AppRoute.Schedule)
     "probe" -> WebTarget.Probe
     "eula" -> WebTarget.Eula
+    // `?route=serve`：serve 模式的会话屏（登录 / 短信二验 / 登出）。非 serve 模式下它也在路由表里
+    //（深链不会突然 404），只是底栏不会长出那一格 —— 非 serve 模式用不到它，见 WebBottomBar。
+    "serve" -> WebTarget.Serve
     else -> WebTarget.App(appRouteOf(raw) ?: AppRoute.Schedule)
 }

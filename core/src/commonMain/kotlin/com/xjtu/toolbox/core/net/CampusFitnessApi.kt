@@ -46,6 +46,8 @@ import kotlinx.serialization.json.jsonObject
 class CampusFitnessApi(
     private val client: HttpClient,
     private val baseUrl: String = "",
+    /** 见 [ApiMode]：默认 campus-api（旧行为一字不改），serve 模式读契约 §5.2 的形状。 */
+    private val mode: ApiMode = ApiMode.CAMPUS_API,
 ) : FitnessSource {
 
     override suspend fun years(): List<FitnessYear> {
@@ -65,6 +67,7 @@ class CampusFitnessApi(
     }
 
     override suspend fun score(yearNum: String): FitnessScore {
+        if (mode == ApiMode.SERVE) return serveScore(yearNum)
         val data = getData("/api/fitness/score", "year" to yearNum)
         if (!data["hasScore"].safeBoolean()) {
             // 与 :app 的 `fetchData` 同一句话：优先用上游 info，没有就给一句通用的。
@@ -109,8 +112,49 @@ class CampusFitnessApi(
         )
     }
 
+    /**
+     * serve 模式（契约 §5.2）：**扁平的**一份
+     * `{studentNumber,studentName,totalScore,totalGrade,reportType,reportStatus,sex,grade,
+     *   items:[{name,value,grade,tone}]}`。
+     *
+     * 与旧路的两处**实质升级**（契约 §5 把体测标成「要改」的就是这两条）：
+     *  1. **姓名/学号有值了**：§5.2 的红线例外①把「本人数据」放行，而旧路那两行写死的空串是
+     *     campus-api 隐私口径造成的降级（见类 KDoc 第 1 条）⇒ 这里如实带上；
+     *  2. **分项不再按 key 重定名**：`:server` 投影的是 `:data` 已定好名的
+     *     [com.xjtu.toolbox.fitness.FitnessItem]（同一个 [fitnessItemName] 口径），所以用服务端给的名字 ——
+     *     旧路那条「按 sex 自己再推一遍」在新契约里没有输入（它不投影 key）。
+     *
+     * 「该学年没有成绩」在新契约里**是取数失败**（服务端给 `502` + 中文短句，由 `serveData` 抛出），
+     * 旧路那个 `hasScore:false` 分支在新形状里不存在 —— 不猜一个「暂无体测数据」出来。
+     */
+    private suspend fun serveScore(yearNum: String): FitnessScore {
+        val data = client.serveData("查询体测成绩", baseUrl, "/api/fitness/score", listOf("year" to yearNum))
+        val items = data.arr("items").orEmpty().mapNotNull { element ->
+            val item = element as? JsonObject ?: return@mapNotNull null
+            FitnessItem(
+                name = item["name"].safeString(),
+                value = formatFitnessScore(item["value"].safeString()).ifBlank { "未测" },
+                grade = item["grade"].safeString().ifBlank { "缺项" },
+                tone = item["tone"].safeString(),
+            )
+        }
+        return FitnessScore(
+            studentNumber = data["studentNumber"].safeString(),
+            studentName = data["studentName"].safeString(),
+            totalScore = formatFitnessScore(data["totalScore"].safeString()).ifBlank { "--" },
+            totalGrade = data["totalGrade"].safeString().ifBlank { "未测" },
+            reportType = data["reportType"].safeString(),
+            reportStatus = data["reportStatus"].safeString(),
+            sex = data["sex"].safeString(),
+            grade = data["grade"].safeString(),
+            items = items,
+        )
+    }
+
     /** 拆 `{code,data}` 信封；`data` 缺失（含 `code!=0`）按校历/黄页那套报法显式失败。 */
     private suspend fun getData(path: String, vararg query: Pair<String, String>): JsonObject {
+        // serve 契约（§4）的信封见 ApiMode / serveData：code == HTTP 状态码、失败文案在 message
+        if (mode == ApiMode.SERVE) return client.serveData("加载体测", baseUrl, path, query.toList())
         val text = client.get("$baseUrl$path") {
             query.forEach { (k, v) -> parameter(k, v) }
         }.bodyAsText()

@@ -19,8 +19,10 @@ import io.ktor.client.request.get
 import io.ktor.client.request.parameter
 import io.ktor.client.statement.bodyAsText
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlin.time.Clock
+import kotlin.time.Instant
 
 /**
  * 消息收纳的 **campus-api 版取数**：给 Web 端用（Android 端走 `:app` 的 `SchoolInbox`）。
@@ -40,12 +42,16 @@ import kotlin.time.Clock
 class CampusInboxApi(
     private val client: HttpClient,
     private val baseUrl: String = "",
+    /** 见 [ApiMode]：默认 campus-api（旧行为一字不改），serve 模式读契约 §5.2 的形状。 */
+    private val mode: ApiMode = ApiMode.CAMPUS_API,
 ) : InboxSource {
 
     /** 与 `:app` 的 `SchoolInbox.TTL_MS` 同一个值（30 分钟）。 */
     private val ttlMs: Long = 30L * 60 * 1000
 
     override suspend fun refresh(account: String?) {
+        // serve 的四路聚合已经在服务端做完了（见 serveRefresh 的 KDoc）⇒ 旧路那四段解析一行都不跑
+        if (mode == ApiMode.SERVE) return serveRefresh(account)
         val sources = getData("/api/inbox")["sources"] as? JsonObject ?: return
         val now = Clock.System.now().toEpochMilliseconds()
 
@@ -125,6 +131,59 @@ class CampusInboxApi(
         value?.safeString()?.trim()?.takeIf { it.isNotEmpty() && it != "None" && it != "null" }
 
     private fun raw(value: kotlinx.serialization.json.JsonElement?): String = value?.safeString().orEmpty()
+
+
+    /**
+     * serve 模式（契约 §5.2）：`{messages:[…], todos:{分类:[…]}, finished:[…], readAt:{…}, seenTodos:[…],
+     * ignored:[…], off:[…], schoolFetchedAt:…, bubbled:[…]}`。
+     *
+     * 与旧路的本质差别：campus-api 给的是**四路原始投影**（`sources.messages/todos/reservations/bus`），
+     * 聚合与筛选在客户端做；`:server` 给的是 `:data` 的 [com.xjtu.toolbox.inbox.InboxData]
+     * —— 同一份聚合已经在服务端落过盘，所以这里把「学校那几路」的两块（消息、待办）写进
+     * [InboxStore] 就够了。
+     *
+     * ⚠️ `finished` / `readAt` / `seenTodos` / `ignored` / `off` / `bubbled` **不写**：那几个是
+     * **用户态**（读了哪条、关了哪类），它们的真源是**这个浏览器**的 [InboxStore]（localStorage）；
+     * 服务端那份是另一个进程里的另一份用户态，拿它覆盖等于把用户在页面上的操作回惹。
+     */
+    private suspend fun serveRefresh(account: String?) {
+        val data = client.serveData("刷新消息收纳", baseUrl, "/api/inbox")
+        val now = Clock.System.now().toEpochMilliseconds()
+        // 与旧路同一条：各接口互不影响（失败的保留上次结果）
+        runCatching { InboxStore.post(parseServeItems(data.arr("messages")), account) }
+        runCatching {
+            (data["todos"] as? JsonObject)?.forEach { (category, items) ->
+                InboxStore.setTodos(category, parseServeItems(items as? JsonArray), account)
+            }
+        }
+        InboxStore.setSchoolFetchedAt(now, account)
+    }
+
+    /** serve 的 `messages[]` / `todos[分类][]` 是同一份形状（见 `InboxItemDto` 的投影）。 */
+    private fun parseServeItems(element: JsonArray?): List<InboxItem> =
+        element.orEmpty().mapNotNull { itemElement ->
+            if (!itemElement.isObject) return@mapNotNull null
+            val item = itemElement.jsonObject
+            val id = item["id"].safeString().trim()
+            if (id.isEmpty()) return@mapNotNull null
+            InboxItem(
+                id = id,
+                category = item["category"].safeString(),
+                source = item["source"].safeString(),
+                title = item["title"].safeString(),
+                body = item["body"].safeString(),
+                // 契约 §4：时间一律 ISO-8601 带时区；`null` = 没有（这里落 0，模型上就是「没有」）
+                time = isoEpochMs(item["time"].safeString()),
+                route = item["route"].safeString().takeIf { it.isNotBlank() },
+                expiresAt = isoEpochMs(item["expiresAt"].safeString()),
+            )
+        }
+
+    /** `2026-10-09T23:52:00+08:00` → epoch 毫秒；空串/解不出就是 0（模型里「没有」的那个值）。 */
+    private fun isoEpochMs(raw: String): Long =
+        raw.takeIf { it.isNotBlank() }
+            ?.let { runCatching { Instant.parse(it).toEpochMilliseconds() }.getOrNull() }
+            ?: 0L
 
 
     private suspend fun getData(path: String, vararg query: Pair<String, String>): JsonObject {

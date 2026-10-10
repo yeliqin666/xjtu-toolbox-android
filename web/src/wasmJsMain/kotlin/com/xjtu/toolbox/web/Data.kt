@@ -2,6 +2,9 @@
 
 package com.xjtu.toolbox.web
 
+import io.ktor.client.plugins.defaultRequest
+import io.ktor.client.request.header
+import io.ktor.http.HttpHeaders
 import com.xjtu.toolbox.core.net.createToolboxClient
 import com.xjtu.toolbox.util.decodeUrlComponentOrNull
 import io.ktor.client.HttpClient
@@ -59,17 +62,39 @@ external fun navigateSameTab(url: String)
  * 解码用 `:core` 的 [decodeUrlComponentOrNull] —— 与 `AppRoute.id` 的**编码**同一套实现
  * （含 `+` ↔ 空格 那套 java.net 语义），所以“深链里的 id”和“App 存下来的 id”永远解析得一样。
  */
-fun browserRouteParam(): String? {
+fun browserRouteParam(): String? = browserSearchParam("route")
+
+/**
+ * `?<name>=<value>` 的值（URL 解码过；没写或为空返回 null）。
+ *
+ * 与 [browserRouteParam] 共用同一套解码（`:core` 的 [decodeUrlComponentOrNull]）：
+ * serve 模式的 `?backend=serve` 与深链的 `?route=` 不该各解一遍。
+ */
+fun browserSearchParam(name: String): String? {
     val raw = browserSearch().removePrefix("?").split('&')
-        .firstOrNull { it.substringBefore('=') == "route" }
+        .firstOrNull { it.substringBefore('=') == name }
         ?.substringAfter('=', missingDelimiterValue = "")
         ?: return null
     if (raw.isEmpty()) return null
     return decodeUrlComponentOrNull(raw) ?: raw
 }
 
-/** 复用 :core 的客户端工厂：引擎、JSON 口径、Cookie 策略全在共享层，各端不各配一遍。 */
-fun toolboxWebClient(): HttpClient = createToolboxClient()
+/**
+ * 复用 :core 的客户端工厂：引擎、JSON 口径、Cookie 策略全在共享层，各端不各配一遍。
+ *
+ * serve 模式多一层：装一个 `defaultRequest`，它每次都读 [ServeTokenHolder.token] 并把
+ * `Authorization: Bearer <令牌>` 带上 —— 「贴一次令牌」之后**所有**客户端（含课表屏、评教屏自己
+ * new 的那两个）都带着它。为什么不能只靠 cookie：契约 §3.2 的两种形态是「Bearer 或 cookie」，
+ * 而「Ktor 的 fetch 引擎会不会按浏览器默认带 cookie」是引擎的实现细节，不是契约 —— 不赌它。
+ *
+ * 非 serve 模式（同源反代 campus-api）下令牌始终是 `null` ⇒ 这个插件是个空操作。
+ */
+fun toolboxWebClient(token: ServeTokenHolder = serveToken): HttpClient =
+    createToolboxClient().config {
+        defaultRequest {
+            token.token?.let { header(HttpHeaders.Authorization, "Bearer $it") }
+        }
+    }
 
 data class ProbeResult(
     val label: String,

@@ -73,12 +73,16 @@ MIUIX 从 Maven Central 引入，始终跟随最新正式版（见 `gradle/libs.
 | `:app` | Android | 宿主：`Context` / Room / 相机 / BLE / 小组件 / 通知；把宿主机能适配成 `:core` 的端口 |
 | `:core` | Android + jvm + wasmJs | **三端同一份**：模型、屏、路由表、主题与组件、周视图几何、游戏逻辑 |
 | `:data` | Android + jvm | **数据层**：会话内核（CAS 登录 / cookie / 站点快照 / WebVPN）+ 取数与解析（okhttp + jsoup）；三端共用一份（桌面窗口与服务模式跑在 jvm 变体上） |
-| `:web` | wasmJs（浏览器） | 浏览器外壳：只渲染 `:core` 里的屏，数据经同源反代（`web/tools/serve-same-origin.py`）取自 campus-api |
+| `:web` | wasmJs（浏览器） | 浏览器外壳：只渲染 `:core` 里的屏，数据经同源 `/api/*` 取自 campus-api（默认，`web/tools/serve-same-origin.py` 反代）或 serve 模式的 `:server`（`docs/api-contract.md` §5；`?backend=serve` 或自动探测，登录/短信二验走 `/api/session*`） |
 | `:desktop` | jvm（Compose Desktop） | 桌面窗口壳：只渲染 `:core` 里的屏，jpackage 出包；**自己登录**（`:data` 的会话内核 + 凭据文件），不依赖 campus-api |
 | `:testkit` | jvm（仅测试） | 假的校园上游（图书馆座位系统 + 统一认证 + 校历门户）—— **不在任何交付物里**：`:data:jvmTest` 的契约测试与桌面端的离屏证据共用同一批页面原文；一个代理端口按 host 分派（`FakeCampusProxy`） |
 
 `:web` 不是独立客户端：它是 **serve 模式/本机后端**（`docs/desktop-port-plan.md` §3）的浏览器界面，
 数据来自同源 `/api/*`，不是自带会话的桌面/移动客户端。
+
+**serve 模式**（`:server` 托管本页 + 提供 `/api/*`，契约见 `docs/api-contract.md`）：
+`./gradlew :server:run` 后浏览器打开它打印的地址，页面上「会话」一格里先贴启动横幅里打印的访问令牌、再登录即可；
+页面的数据源由 `?backend=serve` 钉死、否则自动探测（探 `/api/status` 有没有 `username` 字段区分 serve 与 campus-api）。
 
 **一屏搬进 `:core` 的规矩**（也是“两端一致”的定义）：
 

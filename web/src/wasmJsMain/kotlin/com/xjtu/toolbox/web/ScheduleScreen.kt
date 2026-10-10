@@ -38,6 +38,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import io.ktor.client.HttpClient
 import com.xjtu.toolbox.schedule.CampusScheduleApi
 import com.xjtu.toolbox.schedule.ConflictGroup
 import com.xjtu.toolbox.schedule.CourseSlot
@@ -78,7 +79,13 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
  *     与 App 的 `timeLineInfo` 是同一个公式。
  */
 @Composable
-fun ScheduleScreen() {
+fun ScheduleScreen(
+    /**
+     * 与整页同一个客户端（由外壳传下来）：serve 模式下它带着 `Authorization` 头，
+     * 所以不能在这里自己 new 一个（那样就漏了令牌，所有请求都会被闸门 401）。
+     */
+    client: HttpClient = toolboxWebClient(),
+) {
     val cs = MiuixTheme.colorScheme
     var data by remember { mutableStateOf<CourseTable?>(null) }
     var error by remember { mutableStateOf<String?>(null) }
@@ -87,7 +94,7 @@ fun ScheduleScreen() {
 
     LaunchedEffect(Unit) {
         try {
-            val d = CampusScheduleApi(toolboxWebClient(), API_BASE).load()
+            val d = CampusScheduleApi(client, API_BASE).load()
             data = d
             week = d.termStart.weekOf(todayInSystemZone().toString())
         } catch (e: Throwable) {

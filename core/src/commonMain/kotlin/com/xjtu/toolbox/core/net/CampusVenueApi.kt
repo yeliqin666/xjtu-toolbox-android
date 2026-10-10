@@ -94,18 +94,36 @@ import kotlinx.serialization.json.JsonObject
 class CampusVenueApi(
     private val client: HttpClient,
     private val baseUrl: String = "",
+    /** 见 [ApiMode]：默认 campus-api（旧行为一字不改），serve 模式读契约 §5.3 的形状。 */
+    private val mode: ApiMode = ApiMode.CAMPUS_API,
 ) : VenueSource {
 
-    /** campus-api 的场馆模块只读（见类 KDoc）⇒ 下单与取消都不画。 */
+    /**
+     * 能不能在屏上下单（见 [VenueSource.canBook]）。
+     *
+     * campus-api 的场馆模块自己写着 `readOnly:true`；serve 的 `/api/venue/status` 也报
+     * `canBook:false`（滑块宿主在 serve 里没有）⇒ 两端的答案一致。**都报 false 也是因为
+     * `/api/venue/book` 本身是 P1**（契约 §5），能力与端点两件事不互相掩盖。
+     */
     override val canBook: Boolean get() = false
 
-    /** 同上。 */
+    /**
+     * 能不能取消订单（见 [VenueSource.canCancel]）。
+     *
+     * ⚠️ 这里与 serve 的 `/api/venue/status` **不一致**，是故意选的：`/api/venue/status` 报
+     * `canCancel:true`（取消不需要滑块），但契约 §5 把取消订单的写端点 `/api/venue/cancel` 列为
+     * P1、`:server` 现在答 404 ⇒ 报 true 就是画一个点了会失败的按钮（本端的红线，
+     * 见 [VenueSource] 的 KDoc）。
+     * TODO：`:server` 落地 P1 写端点后，这三处（canBook/canCancel + [cancelOrder]）要一起改；
+     * 那时也该把 `/api/venue/status` 读进来（它是个挂起调用，不能直接当属性）。
+     */
     override val canCancel: Boolean get() = false
 
     /** Web 端没有「内置浏览器带着 App 的统一认证 cookie」这回事 ⇒ 空串（而且 canBook=false 时走不到支付）。 */
     override val browserLoginUrl: String get() = ""
 
     override suspend fun venues(): List<Venue> {
+        if (mode == ApiMode.SERVE) return serveVenues()
         val venues = mutableListOf<Venue>()
         var page = 1
         while (page <= MAX_VENUE_PAGES) {
@@ -138,6 +156,7 @@ class CampusVenueApi(
     }
 
     override suspend fun slots(serviceId: Int, date: String): List<AreaSlot> {
+        if (mode == ApiMode.SERVE) return serveSlots(serviceId, date)
         val data = getData(
             "/api/venue/slots",
             "serviceid" to serviceId.toString(),
@@ -168,6 +187,7 @@ class CampusVenueApi(
     }
 
     override suspend fun orders(page: Int, pageSize: Int): OrderPage {
+        if (mode == ApiMode.SERVE) return serveOrders(page, pageSize)
         val data = getData(
             "/api/venue/orders",
             "page" to page.toString(),
@@ -210,9 +230,113 @@ class CampusVenueApi(
         )
     }
 
+    // ─── serve 模式（契约 §5.3）────────────────────────────────────────────
+
+    /**
+     * serve 模式（契约 §5.3）：`{venues:[{id,name,address?,iconType?,advanceDay,advanceNum}]}`。
+     *
+     * `:server` 自己已经把页拉到不足为止了（`VenueSource.venues()` 就是那份数据）⇒ **一次请求**，
+     * 不再照旧路那样按 `hasMore` 翻页（旧路的翻页是 campus-api 的投影只有一页大小造成的）。
+     * `id` 在这里就是**数字**（旧路是字符串 `"341"`）；≤ 0 跳过该行 —— 与旧路同一个判据。
+     */
+    private suspend fun serveVenues(): List<Venue> {
+        val data = getData("/api/venue/products")
+        return data.arr("venues").orEmpty().mapNotNull { element ->
+            val row = element as? JsonObject ?: return@mapNotNull null
+            val id = row["id"].safeInt()
+            if (id <= 0) return@mapNotNull null
+            Venue(
+                id = id,
+                name = row["name"].safeString().trim(),
+                address = row["address"].safeString().trim().takeIf { it.isNotBlank() },
+                iconType = row["iconType"].safeString().trim().takeIf { it.isNotBlank() },
+                advanceDay = row["advanceDay"].safeInt().takeIf { it > 0 } ?: 7,
+                advanceNum = row["advanceNum"].safeInt().takeIf { it > 0 } ?: 8,
+            )
+        }
+    }
+
+    /**
+     * serve 模式（契约 §5.3）：`{serviceId,date,slots:[{areaDetailId,areaName,stockId,timeSlot,price,
+     * date,allCount,usingNum,surplus,serviceid,isAvailable}]}`。
+     *
+     * 四处与旧路不同（都是契约写明的）：参数名是 `serviceId`（旧路是 `serviceid`）、
+     * 可订与已占用已经合成一个 `slots[]`（旧路要自己拼 `bookable + locked`）、`areaName` 直接给
+     * （旧路读的是 `name`）、以及 **`surplus` 直接用服务端那个值** —— §5.3 把「可订就至少算 1」
+     * 那条口径放在 `:data` 里（旧路是拿到 campus-api 的 `surplus` 后自己在客户端重算一遍，
+     * 同一件事两处算就会分叉）。
+     */
+    private suspend fun serveSlots(serviceId: Int, date: String): List<AreaSlot> {
+        val data = getData(
+            "/api/venue/slots",
+            "serviceId" to serviceId.toString(),
+            "date" to date,
+        )
+        return data.arr("slots").orEmpty().mapNotNull { element ->
+            val row = element as? JsonObject ?: return@mapNotNull null
+            AreaSlot(
+                areaDetailId = row["areaDetailId"].safeString().trim().toLongOrNull() ?: 0L,
+                // 与旧路逐字同一个兜底（无细分场地的那一行否则会是个没字的格子）
+                areaName = row["areaName"].safeString().trim().ifBlank { "预订" },
+                stockId = row["stockId"].safeString().trim().toLongOrNull() ?: 0L,
+                timeSlot = row["timeSlot"].safeString(),
+                price = row["price"].safeDouble(),
+                date = row["date"].safeString().takeIf { it.isNotBlank() } ?: date,
+                allCount = row["allCount"].safeInt(),
+                usingNum = row["usingNum"].safeInt(),
+                surplus = row["surplus"].safeInt(),
+                serviceid = row["serviceid"].safeString().ifBlank { serviceId.toString() },
+            )
+        }.sortedWith(compareBy({ it.timeSlot }, { it.areaName }))
+    }
+
+    /**
+     * serve 模式（契约 §5.3）：`{page,size,total|null,orders:[…],hasMore}`。
+     *
+     * 与旧路的三处差别：行里叫 `createdAt`（旧路 `createdDate`）、分页参数是 `size`（旧路 `rows`）、
+     * 以及 **`details[]` 里的 `areaName` / `serviceName` 现在有值了**（旧路上游没投影这两项，
+     * 屏上那两段是空着不画的）；`total` 仍然可空（上游给不了就是 `null`，不拿这一页的条数冒充）。
+     */
+    private suspend fun serveOrders(page: Int, pageSize: Int): OrderPage {
+        val data = getData(
+            "/api/venue/orders",
+            "page" to page.toString(),
+            "size" to pageSize.toString(),
+        )
+        val orders = data.arr("orders").orEmpty().mapNotNull { element ->
+            val row = element as? JsonObject ?: return@mapNotNull null
+            OrderInfo(
+                orderId = row["orderId"].safeString(),
+                status = row["status"].safeInt(),
+                createdAt = row["createdAt"].safeString(),
+                price = row["price"].safeDouble(),
+                details = row.arr("details").orEmpty().mapNotNull { detailElement ->
+                    val detail = detailElement as? JsonObject ?: return@mapNotNull null
+                    OrderDetail(
+                        date = detail["date"].safeString(),
+                        timeSlot = detail["timeSlot"].safeString(),
+                        areaName = detail["areaName"].safeString(),
+                        price = detail["price"].safeDouble(),
+                        serviceId = detail["serviceId"].safeString(),
+                        serviceName = detail["serviceName"].safeString(),
+                    )
+                },
+            )
+        }
+        return OrderPage(
+            orders = orders,
+            page = data["page"].safeInt(page),
+            pageSize = data["size"].safeInt(pageSize),
+            // §5.3：上游给不了总数就是 null（不拿这一页的条数冒充）
+            total = if (data["total"].isNull) null else data["total"].safeInt(),
+            hasMore = data["hasMore"].safeBoolean(),
+        )
+    }
+
+
+
     /** 只读端不实现支付（`canBook=false` ⇒ 屏上不画支付入口）。真被调到就是有人画了不该画的按钮。 */
     override fun paymentUrl(orderId: String): String = readOnly()
-
     override suspend fun captcha(serviceId: Int): CaptchaData = readOnly()
 
     override fun prepareOrder(serviceId: Int, selections: List<AreaSlot>): PendingOrder = readOnly()
@@ -248,6 +372,8 @@ class CampusVenueApi(
 
     /** 拆 `{code,data}` 信封；`code!=0` 按体测/校历那套报法显式失败（含 `appCode:need-login`）。 */
     private suspend fun getData(path: String, vararg query: Pair<String, String>): JsonObject {
+        // serve 契约（§4）的信封见 ApiMode / serveData：code == HTTP 状态码、失败文案在 message
+        if (mode == ApiMode.SERVE) return client.serveData("场馆", baseUrl, path, query.toList())
         val text = client.get("$baseUrl$path") {
             query.forEach { (k, v) -> parameter(k, v) }
         }.bodyAsText()
