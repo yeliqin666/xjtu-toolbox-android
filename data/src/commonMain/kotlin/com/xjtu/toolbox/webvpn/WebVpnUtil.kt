@@ -10,8 +10,15 @@ import javax.crypto.spec.SecretKeySpec
  * WebVPN URL 加密工具
  * 使用 AES-128-CFB 加密域名，将普通 URL 转换为 WebVPN 代理 URL
  * 算法与 XJTUToolBox Python 版本完全一致
+ *
+ * 两个方向 (`getVpnUrl` / `getOriginalUrl`) 也实现了 `:core` 的 [WebVpnCodec] —— `:core` 的
+ * `WebVpnConverterScreen`（本屏）只认那条缝，本对象就是 Android 与桌面两端注入的那一份。
  */
-object WebVpnUtil {
+object WebVpnUtil : WebVpnCodec {
+
+    // —— `:core` 的 WebVpnCodec 缝：两个方向各一行委托，本体就在下面 ——
+    override fun toVpnUrl(url: String): String = getVpnUrl(url)
+    override fun fromVpnUrl(vpnUrl: String): String? = getOriginalUrl(vpnUrl)
 
     private const val INSTITUTION = "webvpn.xjtu.edu.cn"
 

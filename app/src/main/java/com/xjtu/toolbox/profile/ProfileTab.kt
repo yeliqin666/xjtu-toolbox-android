@@ -753,7 +753,7 @@ internal fun ProfileTab(
         if (!loginState.isLoggedIn) return@produceState
         value = withContext(Dispatchers.IO) {
             runCatching {
-                val stats = com.xjtu.toolbox.media.DownloadManager.getInstance(ctx).getDownloadStats()
+                val stats = com.xjtu.toolbox.media.AppDownloadManager.getInstance(ctx).getDownloadStats()
                 val lms = com.xjtu.toolbox.lms.LmsDownloadStore.getAll(ctx).size
                 buildString {
                     if (stats.downloadingCount > 0) append("${stats.downloadingCount} 个下载中")

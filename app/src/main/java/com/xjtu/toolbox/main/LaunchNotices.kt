@@ -34,7 +34,7 @@ import com.xjtu.toolbox.update.AutoUpdateDialog
 import com.xjtu.toolbox.update.UpdateNoticeDialog
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
-import java.time.Instant
+import kotlin.time.Clock
 
 /** 启动时的公告（首页堆叠条 + 最重要的一条弹框）、自动检查到的新版本、本地更新日志。 */
 @Stable
@@ -43,7 +43,8 @@ class LaunchNotices(
     private val credentialStore: CredentialStore,
     private val scope: CoroutineScope,
 ) {
-    private val bulletinStore = BulletinStore(context)
+    // 公告的本地状态已搬进 `:core`（键值缝，store 名与三个键一字未改）⇒ 不再需要 Context
+    private val bulletinStore = BulletinStore()
 
     /** 上一次运行的版本；全新安装为 null。 */
     val previousRunVersion: String? = credentialStore.lastRunVersion
@@ -79,7 +80,8 @@ class LaunchNotices(
         }
         applyHero(bulletinStore.peekCached(), null)
 
-        val fetched = runCatching { BulletinApi.fetch() }.getOrNull()
+        // UA 里的版本号原本读 `BuildConfig`（`:app` 的构建产物，`:data` 里没有）⇒ 由宿主递进去
+        val fetched = runCatching { BulletinApi.fetch(BuildConfig.VERSION_NAME) }.getOrNull()
         if (fetched != null) bulletinStore.cachedJson = fetched.rawJson
         val remoteItems = fetched?.items ?: bulletinStore.peekCached()
         syncInbox(remoteItems)
@@ -110,6 +112,8 @@ class LaunchNotices(
     }
 
     fun onHeroTap(bulletin: Bulletin) {
+        // `url` 现在声明在 `:core`（跨模块拿不到 smart cast，见交接文档 §4.4）⇒ 先取一个局部 val
+        val url = bulletin.url
         when {
             bulletin.isPoll -> {
                 launchDialogBulletin = bulletin
@@ -117,8 +121,8 @@ class LaunchNotices(
             }
             bulletin.level == BulletinLevel.FORCE_UPDATE ||
                 bulletin.level == BulletinLevel.UPDATE ||
-                bulletin.synthesized -> openPendingUpdate(bulletin.url)
-            !bulletin.url.isNullOrBlank() -> openUrl(bulletin.url)
+                bulletin.synthesized -> openPendingUpdate(url)
+            !url.isNullOrBlank() -> openUrl(url)
         }
     }
 
@@ -155,7 +159,7 @@ class LaunchNotices(
                     category = "投票·${bulletin.id}",
                     content = selected.joinToString("、"),
                     contact = "",
-                    anonId = FeedbackStore.anonId(context),
+                    anonId = FeedbackStore.anonId(),
                 )
             }
         }
@@ -182,7 +186,7 @@ class LaunchNotices(
 
     /** 收纳里的「工具箱公告」：当前版本、当前时间有效的全部公告，投票留给首页和弹框处理。首页关过的算已读。 */
     private fun syncInbox(remote: List<Bulletin>) {
-        val now = Instant.now()
+        val now = Clock.System.now()
         val active = remote.filter { !it.isPoll && BulletinRules.isActive(it, now, BuildConfig.VERSION_NAME, BuildConfig.VERSION_CODE) }
         InboxStore.replace(InboxCategories.BULLETIN, active.map(OwnInbox::bulletin))
         val seen = bulletinStore.dismissedIds + bulletinStore.ackedIds
@@ -198,7 +202,7 @@ class LaunchNotices(
         }
         heroBulletins = BulletinRules.visible(
             items = remote + listOfNotNull(synthetic),
-            now = Instant.now(),
+            now = Clock.System.now(),
             currentVersion = BuildConfig.VERSION_NAME,
             currentVersionCode = BuildConfig.VERSION_CODE,
             dismissedIds = bulletinStore.dismissedIds,

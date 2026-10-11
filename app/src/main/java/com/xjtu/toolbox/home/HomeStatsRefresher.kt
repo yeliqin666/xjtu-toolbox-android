@@ -426,7 +426,8 @@ object HomeStatsRefresher {
                 // 首页评教统计走的是本科教务评教；研究生评教在 gste，要单独登录，不在后台刷
                 if (s.route == AppRoute.Judge && accountType != AccountType.UNDERGRADUATE) continue
                 // 没进过宿舍电费页就不去登录那个系统：绑宿舍在页面里，之后这里才有得查。
-                if (s.route == AppRoute.DormPower && !com.xjtu.toolbox.dormpower.DormPowerStore.isUsed(context)) continue
+                //（`isUsed` 搬进 `:core` 之后不再收 `Context` —— 落盘走平台键值缝，同名同键。）
+                if (s.route == AppRoute.DormPower && !com.xjtu.toolbox.dormpower.DormPowerStore.isUsed()) continue
                 val last = stamps[s.route.id] ?: 0L
                 val hasContent = s.route.id in existing
                 val ttl = s.ttlNow()
@@ -508,7 +509,7 @@ object HomeStatsRefresher {
 
     /** 宿舍电量：首页显示最低的那间，低于 [com.xjtu.toolbox.dormpower.LOW_KWH] 时写提醒信号。 */
     private suspend fun dormPowerStatus(ctx: Context, site: SiteSession): HomeStat? {
-        val readings = com.xjtu.toolbox.dormpower.DormPowerStore.refresh(ctx, com.xjtu.toolbox.dormpower.DormPowerApi(site))
+        val readings = com.xjtu.toolbox.dormpower.DormPowerStore.refresh(com.xjtu.toolbox.dormpower.DormPowerApi(site))
         val lowest = readings.filter { it.kwh != null }.minByOrNull { it.kwh ?: Double.MAX_VALUE } ?: return null
         val low = com.xjtu.toolbox.dormpower.DormPowerStore.lowest(readings)
         // 拉取期间切了账号：这份结果属于上一个账号，不能写成新账号的提醒

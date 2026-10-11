@@ -65,6 +65,9 @@ class XjtuApp : Application() {
         // 同一件事的 :data 版：会话内核要的密文存储（cookie / 站点快照）按名字从
         // `:data` 的平台缝取，Android 那份 actual 同样需要进程级 Context。
         com.xjtu.toolbox.platform.initDataPlatform(this)
+        // 反馈后端的凭据：搬进 `:data` 的 FeedbackApi 不再读 BuildConfig（`:data` 是 JVM/Android
+        // 共用的模块）⇒ 宿主在这里注入一次。必须在下面那发 CrashReporter 上传之前。
+        com.xjtu.toolbox.feedback.AppFeedback.install()
         CrashReporter.install(this)
         // CourseColors 不再需要 init：它已搬进 :core 的 commonMain，存储走 keyValueStore
         // （Android actual 仍是同一份 SharedPreferences 文件）。

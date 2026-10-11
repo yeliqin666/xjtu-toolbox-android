@@ -131,6 +131,11 @@ class EmptyRoomApiJvmTest {
     /**
      * 座位数（课表页的课程详情要显示「XX座」）：上游同一份 JSON 里既有全名键、也有纯房间号键，
      * 两条查找路径都要走通；查不到的记成 null 且**不重复拉全校数据**（同一次进程只打一枪）。
+     *
+     * ⚠️ 这一条问的是**今天**（`getRoomSeatCount` 只有 `LocalDate.now()` 这一档），所以它必须确认
+     * 「问的那一天夹具有数据」，而不是在测试里写死一个日历日 —— 夹具那边 [NO_DATA_DATE] 本身就是
+     * 相对值（今天 + 120 天，见它的 KDoc），下面那行断言就是拆日期炸弹的那道哨兵：
+     * 夹具哪天把「没有数据的那天」又撞回今天，这里会直接说出原因。
      */
     @Test
     fun `座位数：全名与「楼名-房间号」两种写法都查得到，查不到返回 null 且不再多打上游`() {
@@ -142,6 +147,13 @@ class EmptyRoomApiJvmTest {
             assertNull(api.getRoomSeatCount(ROOM_BLANK_KEY), "size 缺了这一格，不该编一个")
             assertNull(api.getRoomSeatCount("主楼A-888"), "查不到就是 null")
             assertEquals(1, fake.emptyRoom.cdnCalls.get(), "四枪座位查询共用同一份当天快照")
+            // 判据取自夹具的 hasDataOn（与 CDN 那头同一份），不在测试里再算一次「今天」
+            val askedDate = fake.emptyRoom.lastCdnDate
+            assertTrue(!askedDate.isNullOrBlank(), "座位数查询真打过 CDN：$askedDate")
+            assertTrue(
+                fake.emptyRoom.hasDataOn(askedDate!!),
+                "查的必须是有数据的那一天（NO_DATA_DATE=$NO_DATA_DATE 不该落在今天）",
+            )
         }
     }
 

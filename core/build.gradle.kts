@@ -136,11 +136,17 @@ kotlin {
             // 与 :app 同一个坐标；compose.ui 的 android 变体虽然也会传递进来，但这里显式声明，
             // 免得将来 compose 换依赖时这个 actual 悄悄编不过。
             implementation(libs.androidx.core.ktx)
+            // 二维码 / 条形码的**编码器**（`platform/CodeMatrix` 的 actual）：zxing 是一份纯 Java jar，
+            // 只有 jvm/android 那一份（与 `:data` 的 jsoup 同型）⇒ 它进不了 commonMain，
+            // 只能待在两个 actual 各自的源集里；wasmJs 那份如实返回 null（见那个 actual 的 TODO）。
+            implementation(libs.zxing.core)
         }
         jvmMain.dependencies {
             // 探针阶段沿用 App 现在的引擎，好让「换 Ktor」的差异只在 Ktor 这一层，
             // 不掺进引擎差异。iOS 用 darwin、Web 用 js，等对应目标加进来再各自 actual。
             implementation(libs.ktor.client.okhttp)
+            // 同一个编码器（见 androidMain 那条注释）：桌面端「真出码」的编码侧。
+            implementation(libs.zxing.core)
         }
         wasmJsMain.dependencies {
             implementation(libs.ktor.client.js)

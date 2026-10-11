@@ -150,6 +150,31 @@ class JwxtFakeUpstream {
         /** 第三行**只有 DM**：解析的兜底是「没有 MC 就拿 DM 当名字」，这条就是钉它的。 */
         const val TERM_BARE = "2024-2025-1"
 
+        // ── 精确成绩（`cjcx` 应用）的端点与样本（成绩屏的第二条上游，第 19 条真数据路由）──
+
+        /** `CjcxApi.baseUrl` 就是它。 */
+        const val CJCX = "$ORIGIN/jwapp/sys/cjcx"
+        const val CJCX_INDEX_PATH = "/jwapp/sys/cjcx/*default/index.do"
+        const val CJCX_QUERY_PATH = "/jwapp/sys/cjcx/modules/cjcx/xscjcx.do"
+        const val CJCX_INDEX_URL = "$ORIGIN$CJCX_INDEX_PATH"
+        const val CJCX_QUERY_URL = "$ORIGIN$CJCX_QUERY_PATH"
+
+        /**
+         * `xscjcx.do` 的两行：第一行与 [com.xjtu.toolbox.jwapp.JwappFakeUpstream] 那门课
+         * **同学期同课名**（屏上显示的就是它替换后的精确总评），第二行是另一个学期的课
+         *（jwapp 没有对应行）—— 「按学期 + 课名对得上才替换」这条口径就是靠这两行钉住的。
+         */
+        const val CJCX_KCM = com.xjtu.toolbox.jwapp.JwappFakeUpstream.COURSE_NAME
+        const val CJCX_TERM = com.xjtu.toolbox.jwapp.JwappFakeUpstream.TERM_CODE
+        const val CJCX_ZCJ = 88.0
+        const val CJCX_XFJD = 3.9
+        const val CJCX_XF = 5.0
+        const val CJCX_KCH = "MATH1001"
+        const val CJCX_OTHER_KCM = "大学物理"
+        const val CJCX_OTHER_TERM = TERM_OLD
+        const val CJCX_OTHER_ZCJ = 91.5
+        const val CJCX_OTHER_XFJD = 4.1
+
         const val DEPT_PHYSICS = "物理学院"
         const val DEPT_MATH = "数学与统计学院"
         const val DEPT_MECH = "机械工程学院"
@@ -350,6 +375,18 @@ class JwxtFakeUpstream {
     /** 成绩报表的翻页请求打过几次（`totalPages=2` ⇒ 一次 `pn=1` + 一次 `pn=2`）。 */
     val reportPageCalls = AtomicInteger()
 
+    /**
+     * 精确成绩（`cjcx` 应用的 `xscjcx.do`）与它的预热请求打过几次 —— 第 19 条真数据路由
+     * （移动教务成绩屏）的**第二条上游**，与校课表/报表共用这台假教务。
+     */
+    val cjcxIndexCalls = AtomicInteger()
+    val cjcxCalls = AtomicInteger()
+
+    /** 最近一次 `xscjcx.do` 的表单原文（断言 `querySetting` / `pageSize` / `pageNumber` 真发了）。 */
+    @Volatile
+    var lastCjcxForm: String? = null
+        private set
+
     /** 最近一次 `xnxqcx.do` 的表单原文（断言 `*order=-DM` 真发出去了）。 */
     @Volatile
     var lastTermListForm: String? = null
@@ -451,6 +488,32 @@ class JwxtFakeUpstream {
         <html><head><title>课程表查询</title></head><body>
           <div id="app">全校课程查询</div>
         </body></html>
+    """.trimIndent()
+
+    /** `cjcx` 应用的首页（`CjcxApi.ensureSession` 预热用，客户端只 close 不解析）。 */
+    val cjcxIndexPage = """
+        <html><head><title>成绩查询</title></head><body>
+          <div id="app">学生成绩查询</div>
+        </body></html>
+    """.trimIndent()
+
+    /**
+     * `xscjcx.do`：`datas.xscjcx.rows` 两行（`totalSize` 也是 2）。
+     *
+     * 键名就是上游列名（解析按 `safeString` / `safeDouble` 读）；第一行的 `DJCJMC` / `PSCJXS` /
+     * `QMCJXS` 刻意留空（空串 ⇒ 解析成 null）—— 等级制那几格的默认值就是这么钉住的。
+     */
+    val cjcxJson = """
+        {"code":"0","datas":{"xscjcx":{"totalSize":2,"rows":[
+          {"KCM":"$CJCX_KCM","XNXQDM":"$CJCX_TERM","ZCJ":$CJCX_ZCJ,"XFJD":$CJCX_XFJD,"XF":$CJCX_XF,
+           "DJCJLXDM":"","DJCJMC":"","PSCJ":-1.0,"PSCJXS":"","QMCJ":-1.0,"QMCJXS":"",
+           "KCH":"$CJCX_KCH","JXBID":"JXB-9101","SFJG":"1",
+           "CXCKDM_DISPLAY":"初修","KCLBDM_DISPLAY":"必修"},
+          {"KCM":"$CJCX_OTHER_KCM","XNXQDM":"$CJCX_OTHER_TERM","ZCJ":$CJCX_OTHER_ZCJ,
+           "XFJD":$CJCX_OTHER_XFJD,"XF":4.0,"DJCJLXDM":"","DJCJMC":"","PSCJ":-1.0,"PSCJXS":"",
+           "QMCJ":-1.0,"QMCJXS":"","KCH":"PHYS1001","JXBID":"JXB-9102","SFJG":"1",
+           "CXCKDM_DISPLAY":"初修","KCLBDM_DISPLAY":"必修"}
+        ]}}}
     """.trimIndent()
 
     /** 当前学期：`datas.dqxnxq.rows[0].DM`。 */
@@ -690,6 +753,23 @@ class JwxtFakeUpstream {
             path == APP_INDEX_PATH || path == APP_INDEX_PATH.replace("*", "%2A") -> {
                 appIndexCalls.incrementAndGet()
                 respondHtml(exchange, appIndexPage)
+            }
+            // 精确成绩（`cjcx` 应用，成绩屏的第二条上游）：预热那一枪与取数那一枪
+            // （`*` 同上面那条：转义与否两种都认）。
+            path == CJCX_INDEX_PATH || path == CJCX_INDEX_PATH.replace("*", "%2A") -> {
+                cjcxIndexCalls.incrementAndGet()
+                respondHtml(exchange, cjcxIndexPage)
+            }
+            path == CJCX_QUERY_PATH -> requirePost(exchange) { form ->
+                lastCjcxForm = form
+                // `CjcxApi` 筛的是「有效成绩」（SFYX=1），分页参数一个不能少 ——
+                // 少了任何一个，拉回的就是别的东西（或者无限翻页）。
+                if (!form.contains("querySetting=") || !form.contains("pageSize=") || !form.contains("pageNumber=")) {
+                    badRequest(exchange, "xscjcx.do 少了 querySetting/pageSize/pageNumber，收到：$form")
+                    return@requirePost
+                }
+                cjcxCalls.incrementAndGet()
+                respondJson(exchange, cjcxJson)
             }
             path == CURRENT_TERM_PATH -> requirePost(exchange) {
                 currentTermCalls.incrementAndGet()

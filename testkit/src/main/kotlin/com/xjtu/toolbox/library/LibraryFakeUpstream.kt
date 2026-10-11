@@ -38,6 +38,16 @@ import java.util.concurrent.atomic.AtomicInteger
  * - 直连模式：[base] = 本地 `http://127.0.0.1:<port>`（拦截器已经把 URL 换掉了）；
  * - 代理模式：[base] = `http://rg.lib.xjtu.edu.cn:8086`（URL 保持原样，`Location` 也必须是原域名）。
  *
+ * ## 写路径剧本（默认就是活的）
+ *
+ * 图书馆的写路径**不需要滑块**，所以这一份剧本默认开着（场馆那条相反 —— 它的下单默认关，要先解滑块）：
+ * `/seat/?kid=` 落在 `/my/`（约座成功）、`/updateseat/?kid=` 换座并把「我的预约」的座位号翻过去、
+ * `/my/?cancel=1` 让预约消失、`/my/?firstruguan=1` / `midleave=1` / `midreturn=1` 把页面上那个状态动作
+ * 从「入馆签到」→「中途离开」→「中途返回」推着走（[myPage] 按状态渲染）。
+ *
+ * 需要「失败」那一侧时才开那三个开关：[seatTaken]（座位被占）、[cancelled]、[swapped] 用的是各自的状态。
+ * `POST /modify` 也演了（[lastPostedRplace]）：切校区那一枪要证明表单真的提交了。
+ *
  * ## [casEnabled]
  *
  * 打开后多出 `/cas/login` 两条路由，并且 `/seat/` 不带 `?ticket=` 时按真实站点那样 302 到统一认证。
@@ -70,6 +80,16 @@ class LibraryFakeUpstream(
          * 这一条路由给的正是 [TestRsaKey.publicKeyBase64]（与客户端那份同一个密钥对）。
          */
         const val PUBLIC_KEY_PATH = "/cas/jwt/publicKey"
+
+        /**
+         * CAS 的 **OAuth2 授权入口**（`/cas/oauth2.0/authorize?client_id=…&redirect_uri=…`）。
+         *
+         * 真站点上这是「某些子系统的登录入口」那一跳：子系统自己的入口页（如 `dzpz` 的
+         * `Login.jsp`）先 302 到这里，CAS 认完人以后再 302 回 `redirect_uri?code=OC-…`，
+         * 子系统拿 code 换它自己的会话。所以在同一个 CAS 上多扮这一个端点就够了 ——
+         * 门户与四路取数（一网通办）、开放平台那一跳（场馆）各有各的夹具，唯独 CAS 只有一台。
+         */
+        const val OAUTH_AUTHORIZE_PATH = "/cas/oauth2.0/authorize"
 
         const val USERNAME = "2021000001"
         const val PASSWORD = "correct-horse-battery"
@@ -106,6 +126,30 @@ class LibraryFakeUpstream(
     val swapped = AtomicBoolean(false)
     val cancelled = AtomicBoolean(false)
 
+    // ── 写路径剧本 ─────────────────────────────────────────────────
+    //
+    // 与场馆那条（下单剧本默认**关**，要先解滑块）不同：图书馆的写路径没有滑块，**默认就是活的**
+    // 一份完整剧本 —— 约座落在 `/my/`、换座走 `/updateseat/`、退座/签到/中途离开/中途返回
+    // 都是 `/my/` 上的那一枪。下面这几个开关只用来把某一条支路掰到「失败」那一侧。
+
+    /** 座位已被他人占：`/seat/?kid=` 回一个带提示的页面，`bookSeat` 的失败分支就是从它读原因。 */
+    val seatTaken = AtomicBoolean(false)
+
+    /** 签过到了（`/my/?firstruguan=1`）：页面上「入馆签到」消失、改渲染「中途离开」。 */
+    val signedIn = AtomicBoolean(false)
+
+    /** 正处在「中途离开」状态（`/my/?midleave=1` 之后、`/my/?midreturn=1` 之前）。 */
+    val away = AtomicBoolean(false)
+
+    /** 账号资料里的校区（`select#rplace` 的选中项）；`POST /modify` 会改它。 */
+    @Volatile
+    var currentRplace: String = "east"
+
+    /** 最近一次 `POST /modify` 提交上来的 `rplace`（切校区那一枪真的发出去了没有）。 */
+    @Volatile
+    var lastPostedRplace: String? = null
+        private set
+
     /** 只要为真，`/qspace` 就回登录页（「会话失效」那条测试用）。 */
     val loginMode = AtomicBoolean(false)
 
@@ -117,6 +161,9 @@ class LibraryFakeUpstream(
 
     /** CAS：发出过几个 ticket。 */
     val tickets = AtomicInteger(0)
+
+    /** CAS：OAuth2 授权入口签发过几个 `code=OC-…`（走 OAuth2 登录链的子系统用）。 */
+    val oauthCodes = AtomicInteger(0)
 
     /** `GET /cas/jwt/publicKey` 被打了几次（只有不收 `cachedRsaKey` 的那一两个站点会走它）。 */
     val publicKeyCalls = AtomicInteger(0)
@@ -183,17 +230,46 @@ class LibraryFakeUpstream(
     /** 302 到「我的预约」页：`bookSeat` 正是按「最终落到 /my/」判成功的。 */
     private fun redirectToMy(exchange: HttpExchange) = redirect(exchange, "$base/my/")
 
+    /**
+     * `POST /modify`（切校区）：`LibraryApi.switchCampus` 靠 `csrf_token` 存在与否判「表单能不能提」，
+     * 所以缺了它这里要响亮地 400（照其余夹具的纪律）；`rplace` 记下来并真的翻 [currentRplace]，
+     * 于是紧接着的 `GET /modify`（`getCurrentCampus`）会跟着变 —— 切校区是个**可验证的写**，
+     * 不能只回一个 200。
+     */
+    private fun handleModifyPost(exchange: HttpExchange) {
+        val form = exchange.requestBody.readBytes().decodeToString()
+        if (param(form, "csrf_token").isNullOrBlank()) {
+            badRequest(exchange, "切校区要带 csrf_token（收到：$form）")
+            return
+        }
+        val rplace = param(form, "rplace").orEmpty()
+        if (rplace.isBlank()) {
+            badRequest(exchange, "切校区要带 rplace（收到：$form）")
+            return
+        }
+        lastPostedRplace = rplace
+        currentRplace = rplace
+        respondHtml(exchange, modifyPage)
+    }
+
     // ── 夹具：与学校页面同形状 ─────────────────────────────────────
 
     /** `/modify`：账号资料页，校区是 `select#rplace` 的选中项。 */
-    val modifyPage = """
+    /**
+     * `/modify`：账号资料页，校区是 `select#rplace` 的选中项（[currentRplace]，`POST /modify` 会改它）。
+     *
+     * `csrf_token` / `email` / `tel` 不是装饰：`LibraryApi.switchCampus` 会把它们**原样回填**再提交
+     *（少一个字段服务端就会把它清空）—— 所以 `POST /modify` 那一支要校验到它们。
+     */
+    val modifyPage: String
+        get() = """
         <html><body><form>
           <input name="csrf_token" value="tok-1">
           <input id="email" name="email" value="a@b.c">
           <input id="tel" name="tel" value="13800000000">
           <select id="rplace" name="rplace">
-            <option value="east" selected>兴庆</option>
-            <option value="west">雁塔</option>
+            <option value="east"${if (currentRplace == "east") " selected" else ""}>兴庆</option>
+            <option value="west"${if (currentRplace == "west") " selected" else ""}>雁塔</option>
           </select>
         </form></body></html>
     """.trimIndent()
@@ -261,7 +337,13 @@ class LibraryFakeUpstream(
         else -> null
     }
 
-    /** 「我的预约」：`div.well` 是当前预约、`div.notwell` 是历史。座位行是第一个 `<hr>` 的尾随文本。 */
+    /**
+     * 「我的预约」：`div.well` 是当前预约、`div.notwell` 是历史。座位行是第一个 `<hr>` 的尾随文本。
+     *
+     * 状态动作**按当前状态渲染**（真站点就是这样：签到之后「入馆签到」就没了、改给「中途离开」）——
+     * 于是读与写共用同一份页面原文：`LibraryApi.executeAction` 的「这一枪生效了没有」正是靠
+     * 重新拉到这张页面上还剩哪些按钮来判的（`LibraryPages.actionVerdict`）。
+     */
     fun myPage(seat: String): String = """
         <html><body>
         <div class="well"><div class="row">
@@ -270,11 +352,25 @@ class LibraryFakeUpstream(
           <h4><a href="/updateseat">我想换座</a></h4></div>
           <div class="col-md-3 cta-button"><center><h4>预约状态:</h4><h3>已预约</h3>
           <script>showConfirmModal('确认', 'cancel', '88')</script>
-          <script>showConfirmModal('确认', 'ruguan1', '88')</script>
+          <script>showConfirmModal('确认', '$stateAction', '88')</script>
           </center></div>
         </div></div>
         </body></html>
     """.trimIndent()
+
+    /**
+     * 此刻页面上那一个状态动作（`showConfirmModal` 的第二个参数 = 页面 JS 的动作名）：
+     * 没签到 ⇒ `ruguan1`（入馆签到）；签到过、没离开 ⇒ `leave`；离开中 ⇒ `return`。
+     */
+    private val stateAction: String
+        get() = when {
+            !signedIn.get() -> "ruguan1"
+            away.get() -> "return"
+            else -> "leave"
+        }
+
+    /** 座位已被占的那张页面（原因文本照真站点的措辞，`bookingFailureReason` 认得它）。 */
+    val takenSeatPage = "<html><body><div class='alert'>该座位已被他人预约</div></body></html>"
 
     val noBookingPage = """
         <html><body><div class="notwell">暂无预约记录</div></body></html>
@@ -314,8 +410,15 @@ class LibraryFakeUpstream(
         val path = exchange.requestURI.path
         val query = exchange.requestURI.query.orEmpty()
         when {
-            casEnabled && path == "/cas/login" && exchange.requestMethod == "POST" -> handleCasPost(exchange, query)
-            casEnabled && path == "/cas/login" -> handleCasGet(exchange, query, cookieHeader(exchange))
+            // ⚠️ 用 `rawQuery`（百分号编码原文）而不是 `query`：`java.net.URI.getQuery()` 返回的是
+            // **解码后**的查询串，service 值里若有 `&`（encode 过的 redirect_uri 常见）会被当成
+            // 参数分隔符截断 —— 凭据 POST 后回跳的 authorize URL 就会丢参数（实测 400）。
+            // `param()` 自己会做一次 URLDecoder.decode，所以这里交给它编码原文正好合适。
+            casEnabled && path == "/cas/login" && exchange.requestMethod == "POST" ->
+                handleCasPost(exchange, exchange.requestURI.rawQuery.orEmpty())
+            casEnabled && path == "/cas/login" -> handleCasGet(exchange, exchange.requestURI.rawQuery.orEmpty(), cookieHeader(exchange))
+            casEnabled && path == OAUTH_AUTHORIZE_PATH ->
+                handleCasOauthAuthorize(exchange, exchange.requestURI.rawQuery.orEmpty(), cookieHeader(exchange))
             casEnabled && path == PUBLIC_KEY_PATH -> {
                 publicKeyCalls.incrementAndGet()
                 respond(exchange, 200, "text/plain; charset=utf-8", TestRsaKey.publicKeyBase64.toByteArray())
@@ -325,6 +428,7 @@ class LibraryFakeUpstream(
             casEnabled && path == MFA_PHONE_PATH -> handleMfaPhone(exchange, query)
             casEnabled && path == MFA_VERIFY_PATH && exchange.requestMethod == "POST" -> handleMfaVerify(exchange)
 
+            path == "/modify" && exchange.requestMethod == "POST" -> handleModifyPost(exchange)
             path == "/modify" -> respondHtml(exchange, modifyPage)
             // 会话失效那两条路：一次性失效优先（内核重登 + 重放），其次是一直失效（判据那条）
             path == "/qspace" -> when {
@@ -342,6 +446,8 @@ class LibraryFakeUpstream(
             path == "/qseatuist" -> respondJson(exchange, qseatuistJson)
 
             path == "/seat/" -> when {
+                // 座位被占那一支（写路径的失败剧本）：两条传输都要能看到它，所以放在 `!casEnabled` 之前
+                seatTaken.get() && "kid=" in query -> respondHtml(exchange, takenSeatPage)
                 !casEnabled -> redirectToMy(exchange)
                 "ticket=" in query -> {
                     // CAS 回跳：真站点在这里种下它自己的会话 cookie，并把页面给出来。
@@ -362,6 +468,20 @@ class LibraryFakeUpstream(
             path == "/my/" && "cancel=1" in query -> {
                 cancelled.set(true)
                 respondHtml(exchange, "<html><body><div class='alert'>已取消</div></body></html>")
+            }
+            // 入馆签到 / 中途离开 / 中途返回：三个都用 `/my/` 上的那一枪，只是页面状态跟着变
+            //（下一发 `/my/` 会渲染出新的那一个按钮 —— `executeAction` 的复核就靠这个差异）。
+            path == "/my/" && "firstruguan=1" in query -> {
+                signedIn.set(true)
+                respondHtml(exchange, "<html><body><div class='alert'>签到成功</div></body></html>")
+            }
+            path == "/my/" && "midleave=1" in query -> {
+                away.set(true)
+                respondHtml(exchange, "<html><body><div class='alert'>已暂离</div></body></html>")
+            }
+            path == "/my/" && "midreturn=1" in query -> {
+                away.set(false)
+                respondHtml(exchange, "<html><body><div class='alert'>已返回</div></body></html>")
             }
             path == "/my/" -> respondHtml(
                 exchange,
@@ -398,6 +518,30 @@ class LibraryFakeUpstream(
     }
 
     /**
+     * OAuth2 授权入口：带 TGC 就签一个 `code` 回 `redirect_uri`，否则把**这个 authorize 地址本身**
+     * 当作 `service` 交给登录页（真 CAS 就是这么转的：`/cas/login?service=<authorize url>`）——
+     * 凭据 POST 后 `handleCasPost` 会把票据加回 authorize，再回来时 TGC 已在 jar 里，于是签 code。
+     *
+     * `redirect_uri` 缺失就响亮 400（漂了的话子系统会拿到一个没有 code 的回跳，看起来像"登录成功了
+     * 但换不到会话"，那正是最难查的一种坏）。
+     */
+    private fun handleCasOauthAuthorize(exchange: HttpExchange, query: String, cookie: String) {
+        val redirectUri = param(query, "redirect_uri")
+        if (redirectUri.isNullOrBlank()) {
+            badRequest(exchange, "OAuth2 authorize 要带 redirect_uri（收到：$query）")
+            return
+        }
+        if ("TGC=$TGC_VALUE" in cookie) {
+            val code = "OC-fake-${oauthCodes.incrementAndGet()}"
+            redirect(exchange, appendParam(redirectUri, "code", code))
+        } else {
+            // [query] 是 rawQuery（百分号编码原文）⇒ 拼进 service 时**不要再包一层 encode**：
+            // 那样会把参数里的 `%` 变成 `%25`，绕一圈回来仍是原样的编码值 —— 保持一层编码正好。
+            redirect(exchange, "https://$CAS_HOST/cas/login?service=${encode("https://$CAS_HOST$OAUTH_AUTHORIZE_PATH?$query")}")
+        }
+    }
+
+    /**
      * 把票据交回去：**塞进 query**，不能拼在字符串末尾。
      *
      * 一网通办那个 `service` 自己带一个 `#/Index` 片段（见 `YwtbLogin.YWTB_LOGIN_URL` 里那个 `path`），
@@ -411,6 +555,14 @@ class LibraryFakeUpstream(
         val fragment = if (hash >= 0) service.substring(hash) else ""
         val separator = if ('?' in head) "&" else "?"
         return "$head$separator" + "ticket=$ticket" + fragment
+    }
+
+    /** 往 URL 上挂一个参数：已有 query 就用 `&`，否则用 `?`；片段留在最后。 */
+    private fun appendParam(url: String, name: String, value: String): String {
+        val hash = url.indexOf('#')
+        val head = if (hash >= 0) url.substring(0, hash) else url
+        val fragment = if (hash >= 0) url.substring(hash) else ""
+        return "$head${if ('?' in head) '&' else '?'}$name=$value$fragment"
     }
 
     /**

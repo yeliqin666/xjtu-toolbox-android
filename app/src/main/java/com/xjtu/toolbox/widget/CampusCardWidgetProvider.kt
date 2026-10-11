@@ -26,7 +26,7 @@ object CampusCardWidgetUpdater {
         if (appWidgetIds.isEmpty()) return
         if (com.xjtu.toolbox.account.AccountContext.activeAccountId == null) {
             runCatching {
-                com.xjtu.toolbox.account.AccountStore(context).activeAccountId()?.let {
+                com.xjtu.toolbox.account.AccountStore().activeAccountId()?.let {
                     com.xjtu.toolbox.account.AccountContext.activeAccountId = it
                 }
             }

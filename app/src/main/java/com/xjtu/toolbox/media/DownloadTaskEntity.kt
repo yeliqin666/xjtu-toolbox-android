@@ -3,8 +3,12 @@ package com.xjtu.toolbox.media
 import androidx.room.*
 
 /**
- * 下载任务实体 (Room 数据库)
- * 用于跟踪课程回放的下载进度
+ * 下载任务实体（Room 表 `download_tasks`）—— **只用来落盘**，业务模型是 `:core` 的
+ * `media/DownloadTask`（字段与这里逐列同名同序），两者之间由 `AppDownloadTaskStore` 的两个
+ * 私有扩展函数映射。
+ *
+ * 状态的派生值（`progress` / `statusLabel` / `isActive`）已经随业务搬进 `:core` 的模型了 ——
+ * 一张表行不需要知道「已暂停」在屏上怎么措辞。列本身一个没动 ⇒ 老数据照旧读得出来。
  */
 @Entity(tableName = "download_tasks")
 data class DownloadTaskEntity(
@@ -24,27 +28,7 @@ data class DownloadTaskEntity(
     val completeTime: Long?,          // 完成时间戳(ms), null表示未完成
     val errorMessage: String?,        // 失败原因
     val downloadSpeed: Long = 0       // 实时下载速度(字节/秒)
-) {
-    /** 下载进度 (0.0 ~ 1.0) */
-    val progress: Float
-        get() = if (fileSize > 0) downloadedSize.toFloat() / fileSize else 0f
-
-    /** 用户友好的状态标签 */
-    val statusLabel: String
-        get() = when (status) {
-            "pending" -> "等待中"
-            "downloading" -> "下载中"
-            "paused" -> "已暂停"
-            "completed" -> "已完成"
-            "failed" -> "失败"
-            "cancelled" -> "已取消"
-            else -> status
-        }
-
-    /** 是否活跃 (正在下载或暂停) */
-    val isActive: Boolean
-        get() = status == "downloading" || status == "paused" || status == "pending"
-}
+)
 
 /** DAO 接口 */
 @Dao

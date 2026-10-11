@@ -1,6 +1,8 @@
 package com.xjtu.toolbox.emptyroom
 
 import com.sun.net.httpserver.HttpExchange
+import java.time.LocalDate
+import java.time.format.DateTimeFormatter
 import java.util.concurrent.atomic.AtomicInteger
 
 /**
@@ -40,6 +42,13 @@ import java.util.concurrent.atomic.AtomicInteger
  * 真站的 CDN 是**一天一个文件**。夹具只区分「有数据」与 [NO_DATA_DATE]（404），
  * 其余日期一律当有数据给同一份 JSON：它的用途是钉住**解析与错误分支**，不是钉住日历
  * （写死某一天会让桌面端那张连实时状态一起出的图只在当天成立）。
+ *
+ * ⚠️ 正因为如此，[NO_DATA_DATE] 是**相对今天算的**（今天 + [NO_DATA_OFFSET_DAYS] 天），
+ * 不是写死某个日历日：`EmptyRoomApi.getRoomSeatCount` 查的是**今天**（它只有 `LocalDate.now()`
+ * 这一档，容量跟日期无关却要从那天那份 JSON 里顺带读）—— 写死的那一天一旦真排在今天，
+ * 整个 `:data:jvmTest` / `:desktop:test` 就会在到点的那一天红（曾经用 `"2026-10-12"`，到 2026-10-12 就红了）。
+ * 相对值把这条日期炸弹拆了，同时也让 [DATE] 可以继续是任选的一天（夹具对除 [NO_DATA_DATE]
+ * 以外的任何日期都回同一份，与「今天」无关）。
  */
 class EmptyRoomFakeUpstream {
 
@@ -80,11 +89,23 @@ class EmptyRoomFakeUpstream {
         /** CDN 的取法就是这一个 query：`?file=static/empty_room/{日期}.json`。 */
         const val CDN_FILE_PREFIX = "static/empty_room/"
 
-        /** 断言里用的那一天（夹具对**除了** [NO_DATA_DATE] 以外的日期都回同一份）。 */
+        /**
+         * 断言里用的那一天。它是**任选**的一天（夹具对除 [NO_DATA_DATE] 以外的任何日期都回同一份），
+         * 与「今天」无关 —— 所以不需要跟着日历走。
+         */
         const val DATE = "2026-10-10"
 
-        /** 这一天的文件不在夹具里 ⇒ 404（`EmptyRoomApi` 该抛 `NoDataException`）。 */
-        const val NO_DATA_DATE = "2026-10-12"
+        /** 「这一天还没生成」与今天相隔多少天：相对值，见类 KDoc 的「日期」一节。 */
+        const val NO_DATA_OFFSET_DAYS = 120L
+
+        /**
+         * 这一天的文件不在夹具里 ⇒ 404（`EmptyRoomApi` 该抛 `NoDataException`）。
+         *
+         * **相对今天算**（今天 + [NO_DATA_OFFSET_DAYS] 天），不是写死的日历日 —— 写死会让它有一天
+         * 撞上「今天」，而 `getRoomSeatCount` 恰好看的是今天（那时门禁必红）。
+         */
+        val NO_DATA_DATE: String =
+            LocalDate.now().plusDays(NO_DATA_OFFSET_DAYS).format(DateTimeFormatter.ISO_LOCAL_DATE)
 
         // ── 教室样本（两档同名同座位数）──
 
@@ -140,6 +161,14 @@ class EmptyRoomFakeUpstream {
     @Volatile
     var lastCdnDate: String? = null
         private set
+
+    /**
+     * 这一天夹具有没有数据（除 [NO_DATA_DATE] 之外都有）。
+     *
+     * 给断言用：让「查的是哪一天」与夹具**同一份判据**，而不是在测试里再写一次 `LocalDate.now()`
+     * 对着写死的日期比 —— 那正是日期炸弹的写法（见类 KDoc 的「日期」一节）。
+     */
+    fun hasDataOn(date: String): Boolean = date != NO_DATA_DATE
 
     /** 最近一次 loginCas 的表单原文 / 实时状态请求的 query，错了也好一眼看出来。 */
     @Volatile

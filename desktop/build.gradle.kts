@@ -1,3 +1,6 @@
+import java.io.File
+import java.util.Properties
+
 // :desktop —— 桌面端（Linux / Windows）的**窗口模式**：Compose Desktop 原生窗口。
 //
 // 为什么是纯 JVM 模块而不是 KMP：这一端不需要任何 wasm/ios 目标，而 Compose Desktop 的
@@ -34,6 +37,69 @@
  */
 val desktopPackageVersion = "5.1.1"
 
+/**
+ * 反馈后端的凭据（与 `:app` **同一份来源**）：优先环境变量（CI = GitHub Actions secrets），
+ * 否则读仓库根目录的 `feedback.properties`（已 gitignore）。两者都没有时留空串 ⇒
+ * `FeedbackApi.isConfigured` 为 false，反馈页降级成只剩 GitHub 外链（与 Android 同一条口径）。
+ *
+ * 为什么在构建期读、而不是运行期读：桌面端是**可分发**的（`.deb` / tar.gz），装到别人机器上时
+ * 仓库根目录那份文件早就不在了。构建期烘焙进去与 Android 的做法逐字同源（见 `app/build.gradle.kts`
+ * 里那段 `cfg()`）—— 也正因为 `app_secret` 终究是烘焙进产物的，两端的权限都只给到
+ * 「写反馈表 / 读回复表」（见 `:data` 的 `FeedbackApi` KDoc 里的安全模型）。
+ */
+val desktopFeedbackConfig: Map<String, String> = run {
+    val fp = rootProject.file("feedback.properties")
+    val props = Properties().apply { if (fp.exists()) fp.inputStream().use { load(it) } }
+    fun cfg(key: String): String {
+        val underscored = key.replace(Regex("([a-z])([A-Z])"), "$1_$2").uppercase()
+        val glued = key.uppercase()
+        listOf("FEEDBACK_$underscored", "FEEDBACK_$glued").distinct().forEach { name ->
+            System.getenv(name)?.takeIf { it.isNotBlank() }?.let { return it }
+        }
+        return props.getProperty(key)?.trim().orEmpty()
+    }
+    mapOf(
+        "APP_ID" to cfg("appId"),
+        "APP_SECRET" to cfg("appSecret"),
+        "BASE_TOKEN" to cfg("baseToken"),
+        "TABLE_SUBMIT" to cfg("tableSubmit"),
+        "TABLE_REPLY" to cfg("tableReply"),
+    )
+}
+
+/**
+ * 把上面那份凭据生成成一个 Kotlin 常量对象（`DesktopBuildConfig`）—— 纯 JVM 模块没有
+ * Android 那边的 `buildConfigField`，所以自己写一个生成任务。
+ *
+ * 生成目录在 `build/` 下（gitignored）：凭据不进仓库，也不会被误提交。
+ */
+val generateDesktopBuildConfig = tasks.register("generateDesktopBuildConfig") {
+    val outDir = layout.buildDirectory.dir("generated/desktopBuildConfig/kotlin").get().asFile
+    val values = desktopFeedbackConfig
+    val version = desktopPackageVersion
+    inputs.property("feedback", values)
+    inputs.property("version", version)
+    outputs.dir(outDir)
+    doLast {
+        val pkgDir = File(outDir, "com/xjtu/toolbox/desktop").apply { mkdirs() }
+        fun esc(s: String) = s.replace("\\", "\\\\").replace("\"", "\\\"")
+        val text = buildString {
+            appendLine("package com.xjtu.toolbox.desktop")
+            appendLine()
+            appendLine("// 由 `:desktop` 的 `generateDesktopBuildConfig` 任务生成，**不要手改**：")
+            appendLine("// 值来自仓库根目录的 `feedback.properties`（gitignored）或环境变量，")
+            appendLine("// 与 `:app` 的 `BuildConfig.FEEDBACK_*` 同一份来源（见 desktop/build.gradle.kts）。")
+            appendLine("internal object DesktopBuildConfig {")
+            appendLine("    const val VERSION_NAME = \"${esc(version)}\"")
+            values.forEach { (key, value) ->
+                appendLine("    const val FEEDBACK_$key = \"${esc(value)}\"")
+            }
+            appendLine("}")
+        }
+        File(pkgDir, "DesktopBuildConfig.kt").writeText(text)
+    }
+}
+
 plugins {
     alias(libs.plugins.kotlin.jvm)
     alias(libs.plugins.compose.multiplatform)
@@ -43,6 +109,8 @@ plugins {
 kotlin {
     // 与 :app / :core 对齐：miuix 各模块都是 JDK 21 工具链编译的，字节码目标不一致会直接编译失败。
     jvmToolchain(21)
+    // 生成的构建常量（上面那个任务）：`srcDir(taskProvider)` 会让 `compileKotlin` 自动依赖它。
+    sourceSets["main"].kotlin.srcDir(generateDesktopBuildConfig)
 }
 
 dependencies {
@@ -57,6 +125,10 @@ dependencies {
     // 而 viewModelScope 跑在 Main.immediate 上 —— 少了这个，离屏渲染与真窗口都会以
     // 「Dispatchers.Main[missing]」失败。Compose Desktop 自己不转递它。
     implementation(libs.kotlinx.coroutines.swing)
+    // 教材全文库的书架在本端是**一份 JSON 落盘**（`:core` 的 `Jiaocai1ShelfStore` 的桌面实现，
+    // 见 `jiaocai1/DesktopJiaocai1Storage.kt`）：解析用 `:core` 的 `AppJson`，那个类型来自
+    // kotlinx.serialization，而 `:core` / `:data` 都只把它声明成 implementation ⇒ 这一端自己显式要一份。
+    implementation(libs.kotlinx.serialization.json)
 
     // ── test：只给离屏渲染证据与桌面端装配的验收测试用 ────────────────────────
     // 假校园上游（图书馆座位系统 + 统一认证）。它**不进**任何交付物：见文件头与
@@ -69,6 +141,10 @@ dependencies {
     // `MockEngine` 把假响应喂进去，比再起一个 HTTP 服务器干净（图书馆/校历那两条要服务器，
     // 是因为它们面对的是会话内核的 cookie/302）。
     testImplementation(libs.ktor.client.mock)
+    // 付款码那条路由的「真出码」判据：把 `:core` 编出来的模块阵列拿 zxing 的**低层解码器**
+    // 解回同一串数字（掩码 / RS 纠错 / 格式信息 / 数据排布全得对）。`:core` 的 jvmMain 自己
+    // 已经有 zxing（implementation，不进编译类路径）⇒ 测试这一侧显式要一份。
+    testImplementation(libs.zxing.core)
 }
 
 /**

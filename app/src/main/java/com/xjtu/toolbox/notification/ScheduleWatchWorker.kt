@@ -43,7 +43,7 @@ class ScheduleWatchWorker(
 
         return try {
             // 需要短信验证 / 密码失效：这一轮直接放弃，等下次正常调度，别退避重试再提交一次密码
-            val site = HeadlessSessions.site(app, LoginType.JWXT) ?: return Result.success()
+            val site = HeadlessSessions.site(LoginType.JWXT) ?: return Result.success()
             withContext(Dispatchers.IO) {
                 val api = ScheduleApi(site)
                 val term = api.getCurrentTerm()
@@ -69,7 +69,7 @@ class ScheduleWatchWorker(
             context = context,
             jwxt = api,
             termCode = term,
-            manager = HeadlessSessions.manager(context),
+            manager = HeadlessSessions.manager(),
         )
         if (courses.isEmpty()) return
         val summary = ScheduleDiff.summarize(ScheduleDiff.diffAndStore(context, term, courses)) ?: return
@@ -109,7 +109,7 @@ object ScheduleWatchScheduler {
     fun apply(context: Context) {
         val app = context.applicationContext
         val wm = WorkManager.getInstance(app)
-        if (!ReminderStore.isEnabled(app, ReminderKind.SCHEDULE) || !HeadlessSessions.hasAccount(app)) {
+        if (!ReminderStore.isEnabled(app, ReminderKind.SCHEDULE) || !HeadlessSessions.hasAccount()) {
             wm.cancelUniqueWork(UNIQUE)
             return
         }

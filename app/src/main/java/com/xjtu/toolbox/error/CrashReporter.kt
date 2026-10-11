@@ -110,7 +110,7 @@ object CrashReporter {
                     category = "崩溃",
                     content = content,
                     contact = "",
-                    anonId = FeedbackStore.anonId(context),
+                    anonId = FeedbackStore.anonId(),
                     version = crashBuild(content),
                 )
                 f.delete()

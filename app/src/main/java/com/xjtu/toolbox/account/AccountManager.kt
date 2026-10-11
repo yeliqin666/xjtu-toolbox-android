@@ -27,11 +27,29 @@ import java.io.File
  *
  * 「切换模式」：同一时刻仅一个账号在线，其余账号的 cookies/缓存静默躺在磁盘命名空间里，
  * 切回时由步骤 2 的 cookieJar 实例化直接复用，无需重新登录（除非服务端 session 已过期）。
+ *
+ * ## 本轮的变化（屏幕与接口搬走后）
+ *
+ * 多账号页（`AccountManagerScreen`）与它认的那条缝（`AccountsController`）本轮搬进了 `:core`，
+ * 而**动作本体留在这一端** —— 它要宿主能力：`Context`（清 SharedPreferences / Room / 头像 /
+ * agent 配置）、WebView 存储、以及 `AppLoginStateHolder`。本类实现 `:core` 那条缝，
+ * 方法名与语义与搬走前**逐字相同**。
+ */
+/**
+ * 多账号编排器。统一处理切换、新增、删除、登出。
+ *
+ * ## 本轮的变化（屏幕与接口搬走后）
+ *
+ * 多账号页（`AccountManagerScreen`）与它认的那条缝（`AccountsController`）本轮搬进了 `:core`，
+ * 而**动作本体留在这一端** —— 它要宿主能力：`Context`（清 SharedPreferences / Room / 头像 /\
+ * agent 配置）、WebView 存储、以及 `AppLoginStateHolder`。本类实现 `:core` 那条缝，
+ * 方法名与语义与搬走前**逐字相同**（`switchTo` / `addAccount` / `updatePassword` /
+ * `removeAccount` / `accountList`）。
  */
 class AccountManager(
     private val context: Context,
     private val accountStore: AccountStore,
-) {
+) : AccountsController {
 
     lateinit var sessionManager: SessionManager
         internal set
@@ -41,7 +59,7 @@ class AccountManager(
     /** 序列化所有账号切换/新增/删除/登出操作，避免并发导致命名空间与 AccountContext 错位。 */
     private val switchLock = Mutex()
 
-    fun accountList(): List<Account> = accountStore.list()
+    override fun accountList(): List<Account> = accountStore.list()
     fun activeAccount(): Account? = accountStore.activeAccount()
     fun accountCount(): Int = accountStore.list().size
 
@@ -57,7 +75,7 @@ class AccountManager(
      * 切换到目标账号。幂等：若已是当前账号则仅更新 lastUsedAt。
      * @return 切换后的 [Account]；目标不存在则返回 null。
      */
-    suspend fun switchTo(accountId: String): Account? = switchLock.withLock {
+    override suspend fun switchTo(accountId: String): Account? = switchLock.withLock {
         switchToLocked(accountId)
     }
 
@@ -101,7 +119,7 @@ class AccountManager(
      * @return Result：成功返回新增的 [Account]；失败返回错误信息。
      * 失败时自动切回原激活账号，不留中间态。
      */
-    suspend fun addAccount(
+    override suspend fun addAccount(
         username: String,
         password: String,
         accountType: AccountType,
@@ -174,7 +192,7 @@ class AccountManager(
     /**
      * 更新账号密码（用户在设置页改密后调用）。同步清除密码失效熔断。
      */
-    fun updatePassword(accountId: String, newPassword: String) {
+    override fun updatePassword(accountId: String, newPassword: String) {
         accountStore.update(accountId) { it.copy(password = newPassword) }
         if (AccountContext.activeAccountId == accountId) {
             holder.savedPassword = newPassword
@@ -224,7 +242,7 @@ class AccountManager(
      * 删除账号：清除其全部命名空间存储（cookies / DataCache / Agent 会话 / 校园卡缓存 / Room 行）。
      * @param deleteCache true=同时删除本地缓存（课表/成绩/对话）；false=仅删凭据与 cookies。
      */
-    suspend fun removeAccount(accountId: String, deleteCache: Boolean): Boolean = withContext(Dispatchers.IO) {
+    override suspend fun removeAccount(accountId: String, deleteCache: Boolean): Boolean = withContext(Dispatchers.IO) {
         switchLock.withLock { removeAccountLocked(accountId, deleteCache) }
     }
 

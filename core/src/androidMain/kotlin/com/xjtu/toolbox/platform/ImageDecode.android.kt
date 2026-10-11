@@ -50,3 +50,29 @@ actual fun decodeImagePixels(bytes: ByteArray): ImagePixels? {
 /** Android 侧：全尺寸 ARGB_8888 解码（默认配置）—— `SliderCaptchaView` 搬迁前的原样路径。 */
 actual fun decodeImageFull(bytes: ByteArray): ImageBitmap? =
     BitmapFactory.decodeByteArray(bytes, 0, bytes.size)?.asImageBitmap()
+
+/**
+ * Android 侧真实现 —— 与搬迁前 `:app/jiaocai1/Jiaocai1PageLoader.decode` 里那段**逐字同构**
+ * （按 `bounds.outWidth` 选 2 的幂 `inSampleSize`、`RGB_565`、DETAIL 档再降一档）。
+ */
+actual fun decodeImageDownToWidth(
+    bytes: ByteArray,
+    size: IntSize,
+    wantWidthPx: Int,
+    halveSample: Boolean,
+): ImageBitmap? {
+    var sample = 1
+    if (wantWidthPx > 0) {
+        while (size.width / (sample * 2) >= wantWidthPx) sample *= 2
+    }
+    if (halveSample) sample = (sample / 2).coerceAtLeast(1)
+    val opts = BitmapFactory.Options().apply {
+        inSampleSize = sample
+        inPreferredConfig = Bitmap.Config.RGB_565
+    }
+    return BitmapFactory.decodeByteArray(bytes, 0, bytes.size, opts)?.asImageBitmap()
+}
+
+/** Android 侧：与搬迁前 `Jiaocai1PageLoader` 那个 `LruCache` 的容量表达式**同一句话**。 */
+actual fun imageMemoryCacheBudgetBytes(): Int =
+    (Runtime.getRuntime().maxMemory() / 8).coerceAtMost(64L * 1024 * 1024).toInt()

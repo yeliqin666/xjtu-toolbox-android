@@ -20,23 +20,30 @@ import io.ktor.client.HttpClient
 import io.ktor.client.request.get
 import io.ktor.client.request.parameter
 import io.ktor.client.statement.bodyAsText
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
+import kotlinx.serialization.encodeToString
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.JsonObject
 
 /**
  * 图书馆座位的 **campus-api 版取数**：给 Web 端用（Android 端走 `:app` 的 `AppLibrarySource`）。
  *
- * ## 只读（[canBook] = false，[hasSeatPlan] = false）
+ * ## 两种形态（[ApiMode] 的默认值就是旧行为，一字不改）
  *
- * campus-api 的图书馆模块**刻意不实现任何写操作**：不选座、不换座、不退座，**也不切校区**
- *（切校区改的是账号资料里的 `rplace`，是写操作 ⇒ 它的 `/api/library/campus` 自己在 `note` 里写明
- *「要查别的校区请在网页上切换后再来」）。所以 `:core` 端口里的那几个写方法在这里**一律抛**，
- * 而屏据 [canBook] 把对应的 UI 整个不画（见 `LibrarySource` 的 KDoc：点了会失败的按钮一个都不画）。
- * 抛而不是「静默返回假成功」：真被调到就是有人画了不该画的按钮，得响。
+ * - **campus-api**（默认）：那个模块**刻意不实现任何写操作** —— 不选座、不换座、不退座，**也不切校区**
+ *   （切校区改的是账号资料里的 `rplace`，是写操作 ⇒ 它的 `/api/library/campus` 自己在 `note` 里写明
+ *   「要查别的校区请在网页上切换后再来」）。所以那几个写方法在这一支**一律抛**，屏据 [canBook]=false
+ *   把对应的 UI 整个不画（见 `LibrarySource` 的 KDoc：点了会失败的按钮一个都不画）。抛而不是
+ *   「静默返回假成功」：真被调到就是有人画了不该画的按钮，得响。
+ * - **serve**（契约 §5.3 / §5.3.1）：`/api/library/action` 是**真**写端点 —— [canBook] 随服务端如实报的
+ *   `canBook` 翻 true，[bookSeat] / [swapSeat] / [action] / [switchCampus] 变成对那个端点的真请求，
+ *   业务拒绝（座位被占 = 409 这类）原样带回 [BookResult]。
  *
- * 平面图（座位布局 + 底图/状态图）campus-api **两个端点都没有** ⇒ [hasSeatPlan] = false，
- * 屏落到列表视图、ViewModel 也不去取那些拿不到的数据（见 `LibrarySource.hasSeatPlan` 的 KDoc）。
- * [seatLayout] / [planBase] / [planTiles] 同样抛。
- *
+ * 平面图两条路都没有那两张图（campus-api 没有端点；serve 的契约 §5 只有四读一写、没有布局/底图端点）
+ * ⇒ [hasSeatPlan] 恒 `false`：屏落到列表视图，[seatLayout] / [planBase] / [planTiles] 一律抛。
  * ## 逐字段映射（2026-10-09 核对 campus-api 的 `modules/library.js` 与其真机实测注释）
  *
  * 校区 `GET /api/library/campus` → `data{current{code,name}, campuses[], queryableFloors[], note, parsed}`
@@ -110,16 +117,24 @@ class CampusLibraryApi(
     private var serveHasSeatPlan = false
 
     /**
+     * 「我的预约」报出来的动作地址 → 动作文案（`actionUrls` 的反表）：`action(url)` 靠它把屏上那条
+     * 按钮的地址认成动作码（见类 KDoc —— 地址只认**最近一次**报出来的）。
+     */
+    private var serveUrlToLabel: Map<String, String> = emptyMap()
+
+    /**
+     * [restoreCampus] 要用的进程级作用域 —— 与 `:app` / `:desktop` 的 `restoreScope` 同一条约定
+     * （页面作用域在离开那一刻已经取消了，这一枪必须在它之外打完）。
+     */
+    private val restoreScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+
+    /**
      * 能不能在屏上做预约 / 换座 / 退座（见 [LibrarySource.canBook]）。
      *
-     * serve 的 `/api/library/campus` 报 `canBook:true`（`:data` 的写路径是现成的），但**写端点本身
-     * 是 P1**：契约 §5 把 `/api/library/book` `/swap` `/action` 标为 P1，`:server` 现在会答 `404`
-     * —— 照 `canBook:true` 画出来的按钮一点就失败，而这一端的规矩是「点了会失败的按钮一个都不画」
-     *（见 [LibrarySource] 的 KDoc）。campus-api 那一路更是根本没有写能力。
-     *
-     * 所以这里报的是两件事的**与**：服务端能力 true、但本端调不到那个端点 ⇒ false。
-     * TODO：`:server` 落地 P1 写端点后把 [SERVE_WRITE_ENDPOINTS_READY] 改成 true，并把
-     * [bookSeat] / [swapSeat] / [action] / [switchCampus] 从 [readOnly] 换成真请求。
+     * serve 的 `/api/library/campus` 报 `canBook:true`，且写端点 `/api/library/action` **已经落地**
+     * （契约 §5.3.1，[SERVE_WRITE_ENDPOINTS_READY] = true）⇒ 两件事的**与**就是 `true`：屏上的座位格、
+     * 「我的预约」按钮、校区切换全部真的能点。campus-api 那一路没有写能力（[serveCanBook] 也读不到
+     * 那个字段）⇒ 仍是 `false`，与搬迁前的行为逐字一致。
      */
     override val canBook: Boolean get() = serveCanBook && SERVE_WRITE_ENDPOINTS_READY
 
@@ -205,24 +220,30 @@ class CampusLibraryApi(
         }
     }
     /**
-     * serve 模式（契约 §5.3）：`{my:{seatId,area,statusText}|null}`。
+     * serve 模式（契约 §5.3）：`{my:{seatId,area,statusText,actionUrls}|null}`。
      *
      * 比旧路**简单且更准**（三处都是契约明写的）：
      *  - 「没有预约」是 `my:null`（§4：`null` = 上游明确说没有）⇒ `Result.success(null)`，
      *    不再靠 `state == "none"` 那个字符串，也就没有「认不出的 state」可以误判成「没预约」；
      *  - `area` 由服务端直接给（旧路要从 `seatLine` 反推 —— 那是 campus-api 没投影区域名的绕路）；
-     *  - `actionUrls` 不投影（P1 写端点未实现，见 [canBook]），与旧路留空一致。
+     *  - `actionUrls` **投影**（label → 上游地址，写端点落地后屏上的按钮要它们），并随手记下反表
+     *    供 [action] 把地址认成动作码。
      */
     private suspend fun serveMyBooking(): Result<MyBookingInfo?> {
         val data = getData("/api/library/my")
         val my = data["my"] as? JsonObject ?: return Result.success(null)
+        val rawActions = (my["actionUrls"] as? JsonObject)?.mapValues { (_, v) -> v.safeString() }
+            ?: emptyMap()
+        serveUrlToLabel = rawActions.mapNotNull { (label, url) ->
+            url.trim().takeIf { it.isNotEmpty() }?.let { it to label }
+        }.toMap()
         return Result.success(
             MyBookingInfo(
                 seatId = blankToNull(my["seatId"].safeString()),
                 area = blankToNull(my["area"].safeString()),
                 statusText = blankToNull(my["statusText"].safeString()),
-                actionUrls = emptyMap(),
-            )
+                actionUrls = rawActions,
+            ),
         )
     }
 
@@ -265,16 +286,42 @@ class CampusLibraryApi(
 
     // ─── 写（只读端一律抛，见类 KDoc）──────────────────────────
 
-    override suspend fun switchCampus(campus: LibraryCampus): Boolean = readOnly()
+    override suspend fun switchCampus(campus: LibraryCampus): Boolean {
+        if (mode != ApiMode.SERVE) return readOnly()
+        return postAction("switch_campus", "campus" to campus.id).success
+    }
 
-    override suspend fun bookSeat(seatId: String, areaCode: String, autoSwap: Boolean): BookResult = readOnly()
+    override suspend fun bookSeat(seatId: String, areaCode: String, autoSwap: Boolean): BookResult {
+        if (mode != ApiMode.SERVE) return readOnly()
+        return postAction("seat", "seatId" to seatId, "area" to areaCode, "autoSwap" to autoSwap.toString())
+    }
+    override suspend fun swapSeat(seatId: String, areaCode: String): BookResult {
+        if (mode != ApiMode.SERVE) return readOnly()
+        return postAction("change", "seatId" to seatId, "area" to areaCode)
+    }
+    override suspend fun action(actionUrl: String): BookResult {
+        if (mode != ApiMode.SERVE) return readOnly()
+        // 地址 → 标签 → 动作码：地址必须是「我的预约」刚报出来的那一条（反表见 [serveMyBooking]），
+        // 标签在这四个里才有人画这个按钮（契约 §5.3.1 的动作表）。
+        val label = serveUrlToLabel[actionUrl]
+            ?: throw IllegalStateException("这条动作地址不是「我的预约」页报出来的：$actionUrl")
+        return postAction(SERVE_PAGE_ACTION_CODES[label]
+            ?: throw IllegalStateException("本端不认识这个动作：$label"))
+    }
 
-    override suspend fun swapSeat(seatId: String, areaCode: String): BookResult = readOnly()
 
-    override suspend fun action(actionUrl: String): BookResult = readOnly()
-
-    /** 只读端不切校区 ⇒ 没有要恢复的东西（真走到这里说明有人画了不该画的校区切换）。 */
-    override fun restoreCampus(campus: LibraryCampus, onRestored: () -> Unit) = Unit
+    /**
+     * 离开本页时把账号校区切回去（[restoreCampus] 的约定见 `LibrarySource`）。
+     *
+     * campus-api 那一路根本不切校区 ⇒ 没有要恢复的东西（空实现照旧）。serve 那一路切过才需要这一枪 ——
+     * 页面作用域那时已取消，用 [restoreScope] 这个进程级作用域打完。
+     */
+    override fun restoreCampus(campus: LibraryCampus, onRestored: () -> Unit) {
+        if (mode != ApiMode.SERVE) return
+        restoreScope.launch {
+            if (runCatching { switchCampus(campus) }.getOrDefault(false)) onRestored()
+        }
+    }
 
     // ─── 内部 ──────────────────────────────────────────────────
 
@@ -312,6 +359,27 @@ class CampusLibraryApi(
     private fun blankToNull(value: String): String? = value.trim().takeIf { it.isNotEmpty() }
 
     /**
+     * 打一发 `/api/library/action`（契约 §5.3.1）：请求体在这里拼（本服务只有两个写端点，不值得引序列化
+     * 框架 —— 拼的是合法 JSON，字符串值走 [AppJson.encodeToString] 转义）。结果由 [serveAction] 拆成
+     * `ok` / `message`（`data` 那一格这里不用：这个端点的结果只有一句话）：业务拒绝（409 那种）变成
+     * `BookResult(false, 服务端的中文短句)`，与 `:app` 的 `LibraryApi.bookSeat` 失败时的形状一致
+     * —— 屏上的结果横幅只认 BookResult。
+     */
+    private suspend fun postAction(action: String, vararg extra: Pair<String, String>): BookResult {
+        val body = buildString {
+            append("{\"action\":")
+            append(AppJson.encodeToString(JsonPrimitive(action)))
+            for ((key, value) in extra) {
+                append(",\"$key\":")
+                append(AppJson.encodeToString(JsonPrimitive(value)))
+            }
+            append('}')
+        }
+        val outcome = client.serveAction(baseUrl, LIBRARY_ACTION_PATH, body)
+        return BookResult(outcome.ok, outcome.message)
+    }
+
+    /**
      * `seatLine`（形如「北楼四层西南侧 056」）→ 区域名：座位号在行尾，抠掉剩下的就是区域名。
      * 行尾不是座位号就返回 null —— **不猜**（见类 KDoc）。
      */
@@ -343,12 +411,27 @@ class CampusLibraryApi(
 
     private companion object {
         /**
-         * serve 契约里有没有图书馆的**写端点**（`book` / `swap` / `action` / 切校区）。
+         * serve 契约里有没有图书馆的**写端点**（`/api/library/action`，契约 §5.3.1）。
          *
-         * 契约 §5 把它们标成 P1，`:server` 现在会答 404 ⇒ 报 `canBook:true` 就是在许诺一个
-         * 「点了会失败」的按钮。补上写端点后改成 `true` 即可（见 [canBook] 的 TODO）。
+         * 2026 年落地时翻成 true：写端点真在（约座 / 换座 / 签到 / 中途离开 / 中途返回 / 退座 / 切校区），
+         * [canBook] 才敢随服务端的 `canBook:true` 一起亮 —— 那之前报 true 就是在许诺「点了会失败」的按钮。
          */
-        const val SERVE_WRITE_ENDPOINTS_READY = false
+        const val SERVE_WRITE_ENDPOINTS_READY = true
+
+        /** serve 契约里 library 写端点的路径（§5.3.1）。 */
+        const val LIBRARY_ACTION_PATH = "/api/library/action"
+
+        /**
+         * 「我的预约」页上那四个动作的文案 → 动作码（契约 §5.3.1；服务端那张「动作码 → 文案」表的反表）。
+         *
+         * 文案就是 `:data` 的 `LibraryPages.labelOfActionUrl` 认的那一批 —— 别再起第二套名字。
+         */
+        val SERVE_PAGE_ACTION_CODES = mapOf(
+            "入馆签到" to "signin",
+            "中途离开" to "leave",
+            "中途返回" to "back",
+            "取消预约" to "cancel",
+        )
 
         /**
          * serve 契约里有没有**座位布局 / 平面图**端点。

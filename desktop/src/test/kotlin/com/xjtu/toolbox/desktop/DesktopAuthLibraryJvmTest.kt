@@ -2,6 +2,7 @@ package com.xjtu.toolbox.desktop
 
 import com.xjtu.toolbox.FakeCampusProxy
 import com.xjtu.toolbox.account.AccountContext
+import com.xjtu.toolbox.account.AccountStore
 import com.xjtu.toolbox.auth.AccountType
 import com.xjtu.toolbox.auth.SessionExpiredException
 import com.xjtu.toolbox.auth.SiteSession
@@ -29,12 +30,28 @@ import com.xjtu.toolbox.card.allTransactions
 import com.xjtu.toolbox.auth.CampusCardLogin
 import com.xjtu.toolbox.jwxt.JwxtFakeUpstream
 import com.xjtu.toolbox.auth.VenueLogin
+import com.xjtu.toolbox.auth.ensureSite
 import com.xjtu.toolbox.desktop.venue.DesktopSlideCaptchaHost
 import com.xjtu.toolbox.desktop.venue.encodeDesktopSlideResult
 import com.xjtu.toolbox.nav.AppRoute
 import com.xjtu.toolbox.venue.CaptchaData
 import com.xjtu.toolbox.venue.TrackPoint
 import com.xjtu.toolbox.venue.VenueCaptchaFixture
+import com.xjtu.toolbox.dzpz.AppTranscriptSource
+import com.xjtu.toolbox.dzpz.DzpzDocuments
+import com.xjtu.toolbox.coupon.AppCouponSource
+import com.xjtu.toolbox.coupon.CouponFilter
+import com.xjtu.toolbox.coupon.CouponFakeUpstream
+import com.xjtu.toolbox.dzpz.DzpzFakeUpstream
+import com.xjtu.toolbox.dormpower.DormPowerApi
+import com.xjtu.toolbox.dormpower.DormPowerFakeUpstream
+import com.xjtu.toolbox.dormpower.DormPowerStore
+import com.xjtu.toolbox.dormpower.DormRoom
+import com.xjtu.toolbox.attendance.AppAttendanceSource
+import com.xjtu.toolbox.attendance.AttendanceFakeUpstream
+import com.xjtu.toolbox.attendance.WaterType
+import com.xjtu.toolbox.auth.AttendanceSession
+import com.xjtu.toolbox.platform.keyValueStore
 import com.xjtu.toolbox.notification.AppNoticeSource
 import com.xjtu.toolbox.notification.NotificationFakeUpstream
 import com.xjtu.toolbox.notification.NotificationSource
@@ -125,6 +142,10 @@ class DesktopAuthLibraryJvmTest {
         }
         // 凭据文件也要清：它是进程级缓存的 KeyValueStore（`stores` 那张表）
         wipeSecureStore(JvmCredentialStore.FILE_NAME)
+        // 多账号之后**账号表**才是凭据的真相（`AccountStore`，存储名 `xjtu_accounts`）：它同样是
+        // 进程级缓存的 KeyValueStore ⇒ 不清的话上一条测试的账号会漏进下一条（`restore()` 会
+        // 直接把它恢复成已登录）。
+        wipeSecureStore(AccountStore.FILE_NAME)
         // 清 in-memory：`PersistentCookieJar` 按文件名全进程共享一份内存表，只删文件不够
         for (name in listOf(
             "cookies_normal_default", "cookies_webvpn_default",
@@ -183,21 +204,32 @@ class DesktopAuthLibraryJvmTest {
         assertNotNull(jar.findCookieByName("TGC"), "统一认证的 TGC 应落在本端 cookie 存储里")
         assertNotNull(jar.findCookieByName("JSESSIONID"), "座位系统自己的会话 cookie 也应落盘")
 
-        // 凭据自己记下来了（下次冷启动靠它免登），且两个输入框都清空了（红线：学号不上屏/不进日志）
-        assertEquals(LibraryFakeUpstream.USERNAME to LibraryFakeUpstream.PASSWORD, store.load())
+        // 凭据自己记下来了（下次冷启动靠它免登）：多账号之后它落在**账号表**里
+        //（`AccountStore`，存储名 `xjtu_accounts`），而 Stage A 那份单账号凭据文件已经不再写。
+        assertEquals(LibraryFakeUpstream.PASSWORD, AccountStore().get(LibraryFakeUpstream.USERNAME)?.password)
+        assertEquals(LibraryFakeUpstream.USERNAME, AccountStore().activeAccountId())
         assertEquals("", auth.password, "登录成功后界面上的密码字段应被清空")
         assertEquals("", auth.username, "登录成功后界面上的学号字段也应清空")
 
-        // 文件权限：0600（同目录的 `SecureStore.jvm.kt` 那条口径）
-        val file = File(requireNotNull(dataRootOverride), "${JvmCredentialStore.FILE_NAME}.properties")
-        assertTrue(file.exists(), "凭据应落成文件：$file")
+        // 文件权限：0600（同目录的 `SecureStore.jvm.kt` 那条口径）。
+        // 存着密码明文的那一份从 `xjtu_credentials` 换成了 `xjtu_accounts`（账号表）。
+        val root = requireNotNull(dataRootOverride)
+        val file = File(root, "${AccountStore.FILE_NAME}.properties")
+        assertTrue(file.exists(), "账号表应落成文件：$file")
         assertEquals(
             setOf(
                 java.nio.file.attribute.PosixFilePermission.OWNER_READ,
                 java.nio.file.attribute.PosixFilePermission.OWNER_WRITE,
             ),
             Files.getPosixFilePermissions(file.toPath()),
-            "凭据文件只该给本用户读写",
+            "账号表只该给本用户读写",
+        )
+        // 反过来：Stage A 那份单账号凭据文件里**不该**再有账号密码（它降级成「只读一次做导入」）
+        val legacy = File(root, "${JvmCredentialStore.FILE_NAME}.properties")
+        val legacyText = if (legacy.exists()) legacy.readText() else ""
+        assertTrue(
+            !legacyText.contains(LibraryFakeUpstream.PASSWORD),
+            "单账号凭据文件里不该再写账号密码（账号表是唯一真相）",
         )
     }
 
@@ -209,7 +241,7 @@ class DesktopAuthLibraryJvmTest {
         val ok = runBlocking { auth.login() }
 
         assertTrue(!ok, "错密码不该登得上")
-        assertNull(store.load(), "失败一次就不该记住任何凭据")
+        assertTrue(AccountStore().list().isEmpty(), "失败一次就不该记住任何账号")
         assertNull(AccountContext.activeAccountId, "失败后命名空间应退回匿名")
         assertTrue(!auth.loggedIn, "失败后仍是未登录态")
         val state = auth.loginState
@@ -1200,7 +1232,8 @@ class DesktopAuthLibraryJvmTest {
 
         assertTrue(restarted.loggedIn, "有落盘凭据 ⇒ 直接进已登录态，不该再让用户输一遍")
         assertEquals("", restarted.username, "恢复不该把学号填进登录页的输入框（红线）")
-        assertEquals(LibraryFakeUpstream.USERNAME to LibraryFakeUpstream.PASSWORD, store.load())
+        assertEquals(LibraryFakeUpstream.PASSWORD, AccountStore().get(LibraryFakeUpstream.USERNAME)?.password)
+        assertEquals(LibraryFakeUpstream.USERNAME, AccountStore().activeAccountId())
 
         val site: SiteSession = restarted.librarySite
         val seats = assertIs<SeatResult.Success>(runBlocking { restarted.librarySource.seats("north2east") })
@@ -1250,12 +1283,13 @@ class DesktopAuthLibraryJvmTest {
         val (auth, store) = newAuth()
         assertTrue(login(auth))
         val suffix = AccountContext.suffixFor(LibraryFakeUpstream.USERNAME)
-        assertNotNull(store.load())
+        assertNotNull(AccountStore().get(LibraryFakeUpstream.USERNAME))
 
         auth.logout()
 
         assertTrue(!auth.loggedIn, "退出后应回到登录页")
-        assertNull(store.load(), "凭据文件里的账号密码应被删掉")
+        assertTrue(AccountStore().list().isEmpty(), "退出登录要把这条账号的记录一并删掉")
+        assertNull(AccountStore().activeAccountId(), "激活指针也要清掉，否则下次冷启动会把它恢复回来")
         assertEquals("", auth.username, "退出后界面字段也清空")
         // 这条账号的 cookie 与站点快照都被删（不是「留着下次免密」——桌面是可分发客户端）
         val jarName = "cookies_normal$suffix"
@@ -1266,8 +1300,12 @@ class DesktopAuthLibraryJvmTest {
             !File(root, "sites_normal$suffix.properties").exists(),
             "退出后站点快照文件应被删掉（否则下一个人点一下就能 SSO 直通）",
         )
+        // 账号表里连这条记录都没了（多账号之后「退出登录」就是删这一条，见 `DesktopAuth.logout`），
+        // 而那份单账号凭据文件里也不该残留密码明文。
+        val legacy = File(root, "${JvmCredentialStore.FILE_NAME}.properties")
+        val legacyText = if (legacy.exists()) legacy.readText() else ""
         assertTrue(
-            !File(root, "${JvmCredentialStore.FILE_NAME}.properties").readText().contains(LibraryFakeUpstream.PASSWORD),
+            !legacyText.contains(LibraryFakeUpstream.PASSWORD),
             "凭据文件里不应再残留密码明文",
         )
         // 再登一次：会重新走完整 CAS（没有旧 cookie 可以 SSO 直通）
@@ -1330,4 +1368,221 @@ class DesktopAuthLibraryJvmTest {
         val filters = runBlocking { api.loadFilters() }
         assertTrue(filters.colleges.isNotEmpty(), "学院表应解析出来：$filters")
     }
+
+    // ══════ 电子成绩单（dzpz）：自己走 OAuth2 + CAS 的那条路 ══════
+
+    /**
+     * 第 14 条真数据路由。它与前面 13 条最大的不同是**登录入口**：`dzpz` 有自己的独立登录页
+     * （`Login.jsp` → CAS 的 OAuth2 授权入口 `client_id=new9940` → 回跳换 `loginidweaver`），
+     * 不借别的已搬站点的会话 —— 所以这条用例真跑一遍那趟 OAuth2（假 CAS 由 `LibraryFakeUpstream`
+     * 扮演，它为新端点多扮了 `/cas/oauth2.0/authorize`）。
+     */
+    @Test
+    fun `真登录之后：电子凭证自己走完 OAuth2 与 CAS，成绩单七步读出夹具样本`() = withFakeCampus {
+        val (auth, _) = newAuth()
+        assertTrue(login(auth), "用假下游的账号密码应当登得上：${auth.loginState}")
+
+        // 登录页那一步只是「尽力预热」，所以这里显式确保一次（这正是 `DesktopSiteGate` 干的事：
+        // 它调的就是 `auth.ensureSession(siteKey)` → `SessionManager.ensureSite(...)`）
+        val site = runBlocking { auth.ensureSession(DesktopAuth.DZPZ_SITE_KEY) }
+            .let { auth.sessionManager.getSite(DesktopAuth.DZPZ_SITE_KEY) }
+        assertTrue(site.hasLogin, "dzpz 应当在假上游上登得上")
+        assertEquals(
+            DzpzFakeUpstream.OA_ID,
+            site.localToken["user_id"],
+            "OA id 来自 loginidweaver cookie（DzpzSession.onLoginSuccess 那两行）",
+        )
+
+        // 桌面端取数走的就是 `:data` 的 `AppTranscriptSource`（包住搬过来的 `TranscriptApi`）
+        val source = AppTranscriptSource(site)
+        val (pdf, info) = runBlocking {
+            val ctx = source.loadCreateForm(DzpzDocuments.TRANSCRIPT.workflowId)
+            val type = ctx.typeOptions.single().value
+            val linkage = source.getLinkageData(ctx, type)
+            val docId = source.generatePreviewPdf(ctx.workflowId, type)
+            val first = source.submitCreate(ctx, linkage, type, docId)
+            val second = source.reloadAndForward(ctx, first, type)
+            val info = source.getDownloadInfo(second)
+            source.downloadPdf(info.downloadUrl) to info
+        }
+
+        assertEquals(DzpzFakeUpstream.PDF_FILENAME, info.filename)
+        assertEquals(DzpzFakeUpstream.PDF_FILESIZE, info.filesize)
+        assertEquals(DzpzFakeUpstream.PDF_BYTES.toList(), pdf.toList())
+        assertEquals(DzpzFakeUpstream.PDF_REFERER, fake.dzpz.downloadReferer)
+        // 两次提交都真打过（夹具把原文留着，学号是从联动那一枪的响应里拿的）
+        assertEquals(2, fake.dzpz.submitBodies.size)
+        assertTrue(DzpzFakeUpstream.STUDENT_ID in fake.dzpz.submitBodies.first())
+
+        // 路由那一行：这条也进了「真能用」
+        assertTrue(
+            DESKTOP_SUPPORTED_ROUTES.any { it.first == AppRoute.Transcript },
+            "电子成绩单该在「真能用」那一栏里",
+        )
+    }
+
+    // ══════ 加餐券（egc.xjtu.edu.cn）：自己走 OAuth2 + 开放平台那条路 ══════
+
+    /**
+     * 第 15 条真数据路由。登录入口**也有自己的独立登录页**：CAS OAuth2 `client_id=1596` →
+     * `org.xjtu.edu.cn` 开放平台（`authorizesw`，redirect_uri 是 base64 的 egc 接收页）→
+     * 回落到 `receiveCas.html` → 换 `auth_token`。这条用例真跑一遍那趟链，再读出夹具的券卡。
+     */
+    @Test
+    fun `真登录之后：加餐券自己走完 OAuth2 与开放平台，查券读出夹具样本`() = withFakeCampus {
+        val (auth, _) = newAuth()
+        assertTrue(login(auth), "用假下游的账号密码应当登得上：${auth.loginState}")
+
+        // 登录页那一步只是「尽力预热」，这里显式确保一次（这正是 `DesktopSiteGate` 干的事）
+        runBlocking { auth.ensureSession(DesktopAuth.COUPON_SITE_KEY) }
+        val site = auth.sessionManager.getSite(DesktopAuth.COUPON_SITE_KEY)
+        assertTrue(site.hasLogin, "egc 应当在假上游上登得上")
+        assertEquals(
+            CouponFakeUpstream.AUTH_TOKEN,
+            site.localToken["auth_token"],
+            "auth_token 来自 SSO 换令牌那一枪（CouponSession.onLoginSuccess 那两行）",
+        )
+
+        // 桌面端取数走的就是 `:data` 的 `AppCouponSource`（包住搬过来的 `CouponApi`）
+        val source = AppCouponSource(site)
+        val pages = runBlocking {
+            listOf(
+                source.queryCoupons(CouponFilter.USABLE),
+                source.queryCoupons(CouponFilter.AVAILABLE),
+            )
+        }
+        val usable = pages[0]
+        assertEquals(2, usable.records.size)
+        assertEquals(CouponFakeUpstream.USABLE_NAME, usable.records.first().voucherName)
+        assertEquals(500L, usable.records.first().amountFen)
+        assertEquals("https://egc.xjtu.edu.cn${CouponFakeUpstream.PIC_PATH}", usable.records.first().imageUrl)
+        assertEquals(1, pages[1].records.size)
+        assertEquals(CouponFakeUpstream.AVAILABLE_NAME, pages[1].records.single().voucherName)
+        // 业务请求带着 Authorization（`CouponSession.decorateRequest`）
+        assertEquals(CouponFakeUpstream.AUTH_TOKEN, fake.coupon.lastBusinessAuthorization)
+
+        // 路由那一行：这条也进了「真能用」
+        assertTrue(
+            DESKTOP_SUPPORTED_ROUTES.any { it.first == AppRoute.Coupon },
+            "加餐券该在「真能用」那一栏里",
+        )
+    }
+
+    // ══════ 宿舍电费（ssn.xjtu.edu.cn）：自己走开放平台那条链 ══════
+
+    /**
+     * 第 17 条真数据路由。登录入口**也有自己的独立登录页**：`org.xjtu.edu.cn` 开放平台的
+     * OAuth2（appId=1759）→ 统一认证 → 带 `code` 回缴费页（站点点下会话、页面里内嵌 `cid`）。
+     * 这条用例真跑一遍那趟链，再取一次缴费页入口与电量（`:data` 的 `DormPowerApi`，假上游样本）。
+     */
+    @Test
+    fun `真登录之后：ssn 自己走完开放平台链，缴费页入口与电量读出夹具样本`() = withFakeCampus {
+        val (auth, _) = newAuth()
+        assertTrue(login(auth), "用假下游的账号密码应当登得上：${auth.loginState}")
+
+        // 登录页那一步只是「尽力预热」，这里显式确保一次（这正是 `DesktopSiteGate` 干的事）
+        runBlocking { auth.ensureSession(DesktopAuth.SSN_SITE_KEY) }
+        val site = auth.sessionManager.getSite(DesktopAuth.SSN_SITE_KEY)
+        assertTrue(site.hasLogin, "ssn 应当在假上游上登得上")
+        assertEquals(
+            DormPowerFakeUpstream.CID,
+            site.localToken["cid"],
+            "cid 来自缴费页 HTML（SsnSession.onLoginSuccess 那两行）",
+        )
+
+        // 桌面端取数走的就是 `:data` 的 `DormPowerApi`（实现 `:core` 的 `DormPowerSource` 端口）
+        val suffix = AccountContext.suffixFor(LibraryFakeUpstream.USERNAME)
+        keyValueStore("dorm_power$suffix").clear()
+        val api = DormPowerApi(site)
+        assertEquals(
+            "https://${DormPowerFakeUpstream.HOST}${DormPowerFakeUpstream.PAY_PATH}?code=${DormPowerFakeUpstream.OAUTH_CODE}",
+            runBlocking { api.freshPayUrl() },
+            "缴费页入口 = OAuth 回调带 code 的那一跳（http→https）",
+        )
+        assertTrue(DormPowerStore.isUsed(), "拿到地址之后要记「进过宿舍电费页」")
+        assertTrue(fake.dormPower.oauthLandings.get() > 0, "开放平台那一跳应当真被打到")
+
+        // 路由那一行：这条也进了「真能用」
+        assertTrue(
+            DESKTOP_SUPPORTED_ROUTES.any { it.first == AppRoute.DormPower },
+            "宿舍电费该在「真能用」那一栏里",
+        )
+    }
+
+    @Test
+    fun `真登录之后：宿舍列表与电量按夹具字段读出，查完写回本机`() = withFakeCampus {
+        val (auth, _) = newAuth()
+        assertTrue(login(auth))
+        runBlocking { auth.ensureSession(DesktopAuth.SSN_SITE_KEY) }
+        val site = auth.sessionManager.getSite(DesktopAuth.SSN_SITE_KEY)
+        val api = DormPowerApi(site)
+
+        val rooms = runBlocking { api.rooms() }
+        assertEquals(listOf(DormRoom(DormPowerFakeUpstream.ROOM_ID, DormPowerFakeUpstream.ROOM_NAME)), rooms)
+        assertEquals(DormPowerFakeUpstream.CID, fake.dormPower.lastListCid, "列表请求要带会话里的 cid")
+        assertEquals(DormPowerFakeUpstream.KWH, runBlocking { api.kwh(rooms.single().id) } ?: 0.0, 1e-9)
+        assertEquals(DormPowerFakeUpstream.ROOM_ID, fake.dormPower.lastKwhRoomId)
+
+        val readings = runBlocking { DormPowerStore.refresh(api) }
+        assertEquals(1, readings.size, "夹具里只有一间宿舍")
+        assertEquals(readings, DormPowerStore.readings(), "写回本机后原样读得出来")
+    }
+
+
+    // ══════ 考勤（bk-kq.xjtu.edu.cn）：自己走直连业务站那条链 ══════
+
+    /**
+     * 第 16 条真数据路由。登录入口**也有自己的独立登录页**：`AttendanceLogin` 直连本科生业务站
+     *（`bk-kq.xjtu.edu.cn/sa/auth/cas/login/student-pc`）→ CAS → 回调带 loginRequestId+ticket
+     * 换业务令牌。这条用例真跑一遍那趟链，再取一次学期与请假（`:data` 的 `AppAttendanceSource`）。
+     */
+    @Test
+    fun `真登录之后：考勤自己走完直连业务站链，学期与请假读出夹具样本`() = withFakeCampus {
+        val (auth, _) = newAuth()
+        assertTrue(login(auth), "用假下游的账号密码应当登得上：${auth.loginState}")
+
+        // 登录页那一步只是「尽力预热」，这里显式确保一次（这正是 `DesktopSiteGate` 干的事）
+        runBlocking { auth.ensureSession(DesktopAuth.ATTENDANCE_SITE_KEY) }
+        val site = auth.sessionManager.getSite(DesktopAuth.ATTENDANCE_SITE_KEY)
+        assertTrue(site.hasLogin, "考勤应当在假上游上登得上")
+        assertEquals(AttendanceFakeUpstream.TOKEN, site.localToken["business_token"], "业务令牌来自换票那一枪")
+        assertEquals(
+            "https://bk-kq.xjtu.edu.cn/sa",
+            site.localToken[AttendanceSession.BASE_URL_KEY],
+            "根地址来自 resolvedBaseUrl（本科那套部署）",
+        )
+
+        val source = AppAttendanceSource(site)
+        val (terms, leaves) = runBlocking { source.getTermList() to source.getLeavePage() }
+        assertEquals(AttendanceFakeUpstream.TERM_CURRENT_CODE, terms.first().code)
+        assertEquals(AttendanceFakeUpstream.LEAVE_REASON, leaves.records.single().reason)
+        assertEquals(AttendanceFakeUpstream.TOKEN, fake.attendance.lastBusinessToken, "业务请求要带会话装饰器的令牌头")
+
+        // 路由那一行：这条也进了「真能用」
+        assertTrue(
+            DESKTOP_SUPPORTED_ROUTES.any { it.first == AppRoute.Attendance },
+            "考勤该在「真能用」那一栏里",
+        )
+    }
+
+    @Test
+    fun `真登录之后：考勤流水与打卡流水按夹具字段读出`() = withFakeCampus {
+        val (auth, _) = newAuth()
+        assertTrue(login(auth))
+        runBlocking { auth.ensureSession(DesktopAuth.ATTENDANCE_SITE_KEY) }
+        val site = auth.sessionManager.getSite(DesktopAuth.ATTENDANCE_SITE_KEY)
+        val source = AppAttendanceSource(site)
+
+        val records = runBlocking { source.getWaterRecords(AttendanceFakeUpstream.TERM_CURRENT_BH, "2026-09-01", "2026-09-30") }
+        assertEquals(2, records.size)
+        assertEquals(AttendanceFakeUpstream.COURSE_NAME, records.first().courseName)
+        assertEquals(WaterType.LATE, records.first().status, "按日期降序，最近那条（09-18 迟到）在前")
+        assertEquals(AttendanceFakeUpstream.ROOM, records.first().location)
+
+        val streams = runBlocking { source.getStreams("2026-09-01", "2026-09-30") }
+        assertEquals(1, streams.size)
+        assertTrue(streams.single().effective)
+        assertEquals("WEB", fake.attendance.lastSystemHeader, "业务请求要带 X-System（网页端同款）")
+    }
+
 }

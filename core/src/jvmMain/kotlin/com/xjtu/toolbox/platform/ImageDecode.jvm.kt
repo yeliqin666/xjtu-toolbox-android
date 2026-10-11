@@ -52,3 +52,14 @@ actual fun decodeImagePixels(bytes: ByteArray): ImagePixels? = runCatching {
 actual fun decodeImageFull(bytes: ByteArray): ImageBitmap? = runCatching {
     Image.makeFromEncoded(bytes).toComposeImageBitmap()
 }.getOrNull()
+
+/** JVM 侧：skiko 没有 `inSampleSize` ⇒ 全尺寸解码（`wantWidthPx` / `halveSample` 不起作用，见 expect）。 */
+actual fun decodeImageDownToWidth(
+    bytes: ByteArray,
+    size: IntSize,
+    wantWidthPx: Int,
+    halveSample: Boolean,
+): ImageBitmap? = decodeImageFull(bytes)
+
+/** JVM 侧：没有「这个进程能拿多少内存」的等价口径 ⇒ 固定 32MB（偏保守，不假装能算）。 */
+actual fun imageMemoryCacheBudgetBytes(): Int = 32 * 1024 * 1024

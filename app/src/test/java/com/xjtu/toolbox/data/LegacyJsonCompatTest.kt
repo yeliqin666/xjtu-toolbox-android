@@ -1,6 +1,5 @@
 package com.xjtu.toolbox.data
 
-import com.xjtu.toolbox.account.AccountStore
 import com.xjtu.toolbox.agent.CardWidget
 import com.xjtu.toolbox.agent.ScheduleWidget
 import com.xjtu.toolbox.agent.StoredConversation
@@ -8,7 +7,6 @@ import com.xjtu.toolbox.agent.storedToWidget
 import com.xjtu.toolbox.agent.toStored
 import com.xjtu.toolbox.attendance.AttendanceRecordStore
 import com.xjtu.toolbox.attendance.WaterType
-import com.xjtu.toolbox.auth.AccountType
 import com.xjtu.toolbox.card.CampusCardSnapshot
 import com.xjtu.toolbox.jwapp.ScoreSource
 import com.xjtu.toolbox.jwapp.TermScore
@@ -26,21 +24,9 @@ import org.junit.Test
  */
 class LegacyJsonCompatTest {
 
-    @Test
-    fun accounts_badEntryOnlyDropsItself() {
-        val raw = """[
-            {"accountId":"2210000001","password":"p","accountType":"POSTGRADUATE","nickname":"张三","rsaKeyTime":1,"lastUsedAt":2},
-            {"password":"no-id"},
-            {"accountId":"2210000002","password":"q","accountType":"SOMETHING_NEW"},
-            {"accountId":{"broken":true}}
-        ]"""
-        val accounts = AccountStore.decodeAccounts(raw)
-        assertEquals(listOf("2210000001", "2210000002"), accounts.map { it.accountId })
-        assertEquals(AccountType.POSTGRADUATE, accounts[0].accountType)
-        assertEquals("张三", accounts[0].nickname)
-        // 认不出的枚举值落回默认
-        assertEquals(AccountType.UNDERGRADUATE, accounts[1].accountType)
-    }
+    // `accounts_badEntryOnlyDropsItself` 本轮**搬走了**：`AccountStore` 进了 `:data`，而它的
+    // `decodeAccounts` 是 internal（模块级）—— 这一支现在在 `:data:jvmTest` 的
+    // `account/AccountStoreJvmTest.kt` 里，用例本体一行未改、又多补了三支（见那边的 KDoc）。
 
     @Test
     fun courses_oldCacheWithoutMinuteFields() {

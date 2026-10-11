@@ -4,6 +4,10 @@ import com.xjtu.toolbox.util.AppJson
 import com.xjtu.toolbox.util.safeString
 import io.ktor.client.HttpClient
 import io.ktor.client.request.get
+import io.ktor.client.request.post
+import io.ktor.client.request.setBody
+import io.ktor.http.ContentType
+import io.ktor.http.contentType
 import io.ktor.client.request.parameter
 import io.ktor.client.statement.bodyAsText
 import kotlinx.serialization.json.JsonObject
@@ -75,3 +79,52 @@ internal suspend fun HttpClient.serveData(
     return envelope["data"] as? JsonObject
         ?: error("$what：服务端返回缺少 data（HTTP ${response.status.value}）")
 }
+
+
+/**
+ * serve 契约的一次**写**（`POST`，例如 `POST /api/library/action`、`POST /api/venue/book`）。
+ *
+ * 与 [serveData] 的差别在**失败怎么报**：写动作的失败是**业务结果**（座位被占、验证码有误、当前
+ * 预约上没有这个操作 —— 契约 §5.3.1 / §5.3.2 里这些是 `409` + 中文 `message`），调用方要把它显示
+ * 出来，不能当异常吞掉。所以这里把它**返回**而不是抛：
+ *
+ * - `code == 0` ⇒ `ok = true`，`message` = `data.message`，`data` = 整个 `data` 对象
+ *   （除了 `message` 之外还要读结果的写端点用它：`/api/venue/book` 的 `orderId` / `price`）；
+ * - `code != 0` ⇒ `ok = false` + 信封的 `message`，`data` 为 null（失败响应的 `data` 本来就不存在）；
+ * - 形状没对上（非 JSON / 缺顶层 `data` / 网络错）**仍然抛** —— 那是「这一枪没打通」，不是「上游说不行」。
+ *
+ * 请求体是调用方拼好的 JSON 字符串（本服务只有两个写端点，不值得为它们起一个序列化框架）。
+ */
+internal suspend fun HttpClient.serveAction(
+    baseUrl: String,
+    path: String,
+    body: String,
+): ServeActionOutcome {
+    val response = post("$baseUrl$path") {
+        contentType(ContentType.Application.Json)
+        setBody(body)
+    }
+    val text = response.bodyAsText()
+    val envelope = AppJson.parseToJsonElement(text) as? JsonObject
+        ?: error("服务端返回不是 JSON 对象（HTTP ${response.status.value}）")
+    val code = envelope["code"].safeString().trim().toIntOrNull()
+    if (code != 0) {
+        val message = envelope["message"].safeString().trim()
+            .ifBlank { "服务端返回 HTTP ${response.status.value}" }
+        return ServeActionOutcome(ok = false, message = message, data = null)
+    }
+    val data = envelope["data"] as? JsonObject
+        ?: error("服务端返回缺少 data（HTTP ${response.status.value}）")
+    return ServeActionOutcome(ok = true, message = data["message"].safeString(), data = data)
+}
+
+/**
+ * 一次写动作的结果（见 [serveAction]）：业务拒绝（`code != 0`）也是**结果**，不是异常。
+ *
+ * [data] 是成功时信封里那个 `data` 对象（`:core` 的调用方按自己的形状读它）—— 失败时为 null。
+ */
+internal data class ServeActionOutcome(
+    val ok: Boolean,
+    val message: String,
+    val data: JsonObject?,
+)

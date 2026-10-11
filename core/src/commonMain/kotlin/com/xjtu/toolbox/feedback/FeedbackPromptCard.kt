@@ -1,0 +1,184 @@
+package com.xjtu.toolbox.feedback
+
+import com.xjtu.toolbox.platform.BackHandler
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.padding
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
+import com.xjtu.toolbox.platform.keyValueStore
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import top.yukonga.miuix.kmp.basic.ButtonDefaults
+import top.yukonga.miuix.kmp.basic.Text
+import top.yukonga.miuix.kmp.basic.TextButton
+import top.yukonga.miuix.kmp.basic.TextField
+import top.yukonga.miuix.kmp.overlay.OverlayBottomSheet
+import top.yukonga.miuix.kmp.theme.MiuixTheme
+
+/**
+ * 主动询问：冷启动后问一次「最近用着怎么样」。
+ *
+ * 用 BottomSheet 而不是首页横幅——横幅占 Hero 位置、关了也还在信息流里晃；
+ * Sheet 滑掉就结束。节流规则仍在 [FeedbackStore.shouldPrompt]：每版本至多一次、
+ * 两次至少隔两周、且用户真的用过一阵子。答了或划走都记账，不会再追问。
+ *
+ * 必须写在某个 Scaffold 的 content 里，OverlayBottomSheet 才找得到宿主。
+ * 延迟弹出，给启动公告 / 更新框先走，避免两层叠在一起。
+ *
+ * ## 搬进 `:core` 时改了什么（三处，判定逻辑一行未改）
+ *
+ * 1. `FeedbackApi` → [FeedbackSource]（参数）；
+ * 2. `BuildConfig.VERSION_CODE` / `VERSION_NAME` → 参数 —— `:core` 不认识 `:app` 的构建常量，
+ *    Android 侧那个调用点把两个值传进来；
+ * 3. `ServiceUsageTracker.counts(context, …)` → `keyValueStore("home_usage")` 逐键读同一个
+ *    文件、同一批键（见 [usageCount]）—— 「这人用了多少」这个估算口径一字未改。
+ */
+@Composable
+fun FeedbackPromptSheet(
+    source: FeedbackSource,
+    /** 当前版本号：`BuildConfig.VERSION_CODE`（`:app` 在调用点传）。 */
+    versionCode: Int,
+    /** 当前版本名：`BuildConfig.VERSION_NAME`（`:app` 在调用点传），只用于弹窗标题。 */
+    versionName: String,
+) {
+    val scope = rememberCoroutineScope()
+
+    var show by remember { mutableStateOf(false) }
+    var armed by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) {
+        val used = usageCount()
+        if (!FeedbackStore.shouldPrompt(versionCode, used, source.isConfigured)) return@LaunchedEffect
+        delay(2200)
+        armed = true
+        show = true
+    }
+    if (!armed) return
+
+    var note by remember { mutableStateOf("") }
+    var sent by remember { mutableStateOf(false) }
+
+    fun close() {
+        FeedbackStore.markPrompted(versionCode)
+        show = false
+    }
+
+    fun send(rating: String, text: String) {
+        // 失败就静默丢弃：这是我们主动打扰用户换来的一句话，不值得再弹一个错误提示
+        val ticket = FeedbackStore.newTicket()
+        scope.launch {
+            runCatching {
+                source.submit(
+                    ticket = ticket,
+                    category = "版本评价 · " + rating,
+                    content = text.ifBlank { "（未填写）" },
+                    contact = "",
+                    anonId = FeedbackStore.anonId(),
+                )
+            }.onSuccess {
+                FeedbackStore.addTicket(
+                    FeedbackStore.Ticket(ticket, "版本评价", text, nowMillis())
+                )
+            }
+        }
+        FeedbackStore.markPrompted(versionCode)
+        sent = true
+    }
+
+    BackHandler(enabled = show) { close() }
+    OverlayBottomSheet(
+        show = show,
+        title = "v${versionName} 用着还顺手吗？",
+        onDismissRequest = { close() }
+    ) {
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .navigationBarsPadding()
+                .padding(bottom = 8.dp)
+        ) {
+            if (sent) {
+                Text(
+                    "谢了，收到。回复会出现在社区的「旧版反馈」里。",
+                    style = MiuixTheme.textStyles.body2,
+                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                )
+                Spacer(Modifier.height(16.dp))
+                TextButton(
+                    text = "知道了",
+                    onClick = { show = false },
+                    colors = ButtonDefaults.textButtonColorsPrimary(),
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                return@Column
+            }
+
+            // 原来是"选好用/有问题 → 换一屏填备注 → 再点发送"两步；合并成一步：
+            // 备注框和评价按钮一开始就都在，点评价按钮直接带上当前备注一并提交。
+            Text(
+                "一句话就行，不用注册。划掉就不会再问。",
+                style = MiuixTheme.textStyles.body2,
+                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+            )
+            Spacer(Modifier.height(16.dp))
+            TextField(
+                value = note,
+                onValueChange = { note = it },
+                label = "有什么想说的？（选填）",
+                singleLine = false,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(min = 96.dp),
+            )
+            Spacer(Modifier.height(12.dp))
+            // 底部弹窗惯例：左次要、右主要，两个。「别问了」删了——下滑/点外面关掉就是不再问，
+            // 和两个评价并排反而像三选一。
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                TextButton(
+                    text = "有问题",
+                    onClick = { send("有问题", note.trim()) },
+                    modifier = Modifier.weight(1f),
+                )
+                TextButton(
+                    text = "挺好",
+                    onClick = { send("好用", note.trim()) },
+                    colors = ButtonDefaults.textButtonColorsPrimary(),
+                    modifier = Modifier.weight(1f),
+                )
+            }
+        }
+    }
+}
+/**
+ * 「这人到底用了多少」的估算：逐键读 `home_usage` 那份存储（搬迁前 `:app` 的
+ * `ServiceUsageTracker.counts(context, TRACKED_KEYS).values.sum()`）。
+ *
+ * **同一个文件名、同一批键、同一个求和口径** —— `ServiceUsageTracker` 写进去的就是这些键，
+ * 所以 `:core` 这一段读得到 `:app` 记下的次数（不需要让 `:app` 再把计数传进来）。
+ * 它还留在 `:app/`：`record` / `topKeys` 是首页自己用得上的（快捷入口 top-4、卡片 hint）。
+ */
+private fun usageCount(): Int {
+    val store = keyValueStore("home_usage")
+    return TRACKED_KEYS.sumOf { store.getInt(it, 0) }
+}
+
+/** `System.currentTimeMillis()` 在 commonMain 不存在（`Clock.System` 是同一时刻、同一 epoch 毫秒）。 */
+private fun nowMillis(): Long = kotlin.time.Clock.System.now().toEpochMilliseconds()
+// 只是用来估算"这人用了多少"，不需要跟服务列表严格同步
+private val TRACKED_KEYS = listOf(
+    "schedule", "score", "card", "library", "emptyroom",
+    "lms", "attendance", "jiaocai1", "agent",
+)

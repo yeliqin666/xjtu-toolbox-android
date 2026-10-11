@@ -34,7 +34,7 @@ internal fun applyDetectedAccountType(
     CredentialStore(context).accountType = detected
     val id = loginState.accountId
     if (id.isNotEmpty()) {
-        val store = AccountStore(context)
+        val store = AccountStore()
         store.get(id)?.let { store.upsert(it.copy(accountType = detected)) }
     }
 }

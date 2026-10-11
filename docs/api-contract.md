@@ -47,7 +47,7 @@
 - **`code` 就是 HTTP 状态码**（2026-10-11 落地 `/api/session*` 时定下，`:server` 的 `ApiErrors` 是这一条的实现）：
   成功 `code == 0` 且 HTTP 200；失败时 `code` 与 HTTP 状态码**逐位相同** —— 一条信息不出现两种写法，
   客户端读哪一个都一样。已用的码：`400` 请求体形状不对 · `401` 无令牌 / 登录被拒 · `404` 端点不存在 ·
-  `409` 另一次登录正在进行 · `502` 上游或网络的故障（稍后重试可能就成）。
+  `409` 另一次登录正在进行 / 上游明确拒绝一次写动作（§5.3.1） · `502` 上游或网络的故障（稍后重试可能就成）。
 - **例外**：`/api/status` 是**裸对象**（历史遗留）。要么在实现时统一成信封，要么在本文档里明确标注为例外 —— **只能选一个**。
 - ⚠️ **时间一律 ISO-8601 带时区的字符串**（`2026-10-09T23:52:00+08:00`）。
   **不要用 epoch 秒/毫秒**：这是"静默漂移"的头号来源（秒 vs 毫秒、本地时区 vs UTC 在两端的表现不同，
@@ -76,9 +76,10 @@
 | `/api/notification/list` `/api/notification/sources` | `NoticeSource` | 通知 | P0 | 沿用（29 个源） |
 | `/api/inbox` | `InboxSource` | 消息收纳 | P0 | 沿用（四路聚合） |
 | `/api/emptyroom/cdn` `/api/emptyroom/rooms` | `EmptyRoomSource` | 空闲教室 | P0 | **要改**：旧版只有 CDN 一档（`availableSources` 只报它）。直连教务后"实时状态/直查教务"两档能回来 ⇒ 开关如实报 |
-| `/api/library/campus` `/api/library/areas` `/api/library/seats` `/api/library/my` | `LibrarySource` | 图书馆座位 | P0 | **部分沿用 + 补**：`/campus` `/areas` `/seats` `/my` 形状可沿用（逐字段映射见 `CampusLibraryApi` 的 KDoc 表）；**`/api/library/book` `/swap` `/action` 是新增的写端点**（P1），`canBook=true` 时屏上那些按钮才画 |
+| `/api/library/campus` `/api/library/areas` `/api/library/seats` `/api/library/my` `/api/library/action` | `LibrarySource` | 图书馆座位 | P0 | **部分沿用 + 补**：`/campus` `/areas` `/seats` `/my` 形状可沿用（逐字段映射见 `CampusLibraryApi` 的 KDoc 表）；**写端点 `/api/library/action` 已落地**（§5.3.1），`canBook=true` 时屏上那些按钮才画 |
 | `/api/card/balance` `/api/card/transactions` | `CampusCardSource` | 校园卡 | P0 | 沿用（`amount ← signed`、`description ← channel`、`cardType ← cardName`；⚠️ 挂失口径 `lostflag` vs `barflag` 要在本文档里明确选一个） |
-| `/api/venue/products` `/api/venue/slots` `/api/venue/orders` `/api/venue/status` | `VenueSource` | 体育场馆 | P0/P1 | **部分沿用 + 补**：`slots` 的 `surplus` **不要用旧字段**（旧口径在 `all == used` 时给 0，而两端一致的读法是 `status == 1` ⇒ 可订）；`/book` `/cancel` 是新增写端点（P1） |
+| `/api/venue/products` `/api/venue/slots` `/api/venue/orders` `/api/venue/status` | `VenueSource` | 体育场馆 | P0 | **部分沿用 + 补**：`slots` 的 `surplus` **不要用旧字段**（旧口径在 `all == used` 时给 0，而两端一致的读法是 `status == 1` ⇒ 可订） |
+| `/api/venue/captcha` `/api/venue/book` `/api/venue/cancel` | `VenueSource` | 体育场馆（写） | **P1（新增）** | 无旧形状：serve 侧新开的两条写路径（契约 §5.3.2 逐字段） |
 | `/api/coupon/…` `/api/payment-code` | 新 | 加餐券 / 付款码 | P2 | 无旧形状 |
 | `/api/v1/personal/me/user` | —— | （身份） | P2 | ⚠️ 待确认：这条出现在 `:core` 现有代码里，实现时先查清它是谁的投影 |
 
@@ -177,16 +178,149 @@
 | `GET /api/library/campus` | —— | `{current:{code,name}|null, campuses:[{code,name}], queryableFloors:[…]|null, canBook:true, hasSeatPlan:true}` | `current:null`=认不出不猜；`canBook:true` 如实（:data 写路径真） |
 | `GET /api/library/areas` | `?campus=&floor=` | `{floor,areaCount,areas:[{code,name,floor,available,total}],totals:{…}}` | `available/total:null`=scount 无此区域（不拿 0 冒充「满了」） |
 | `GET /api/library/seats` | `?area=&time=` | `{area,total,available,seats:[{seatId,available}]}` | 排序与 `:app` 同；**`time` 收了但上游无时间维**（TODO） |
-| `GET /api/library/my` | —— | `{my:{seatId,area,statusText}|null}` | `my:null`=页面明确没预约（§4 null≠空对象）；`actionUrls` 不投影（指向 rg.lib，点了会失败，P1 `/api/library/action` 未实现） |
+| `GET /api/library/my` | —— | `{my:{seatId,area,statusText,actionUrls}|null}` | `my:null`=页面明确没预约（§4 null≠空对象）；`actionUrls` = 页面上那几个动作 **→ 上游地址**（label→url，见 §5.3.1 —— 客户端只当不透明句柄） |
+| `POST /api/library/action` | body `{action,…}`（动作表见 §5.3.1） | `{ok:true,message}` | 约座/换座/签到/中途离开/中途返回/退座/切校区···一个端点一条动作轴；失败码（400/401/409/502）与例子见 §5.3.1 |
 | `GET /api/card/balance` | —— | `{balance,pendingAmount,lostFlag,frozenFlag,expireDate,cardType,department}` | 红线：`account/name/studentNo` **不投影**；挂失口径选 **`barflag`**（`:data`/`:app` 读法，不选 campus-api 的 `lostflag`） |
 | `GET /api/card/transactions` | `?from=&to=`（必填 YYYY-MM-DD，反序 400）`&page=&size=` | `{page,size,total,transactions:[{time,merchant,amount,balance,type,description}]}` | `amount` 带符号（负=支出）、`description`←resume |
 | `GET /api/venue/products` | —— | `{venues:[{id,name,address?,iconType?,advanceDay,advanceNum}]}` | 拉页到不足为止 |
 | `GET /api/venue/slots` | `?serviceId=&date=`（必填 400） | `{serviceId,date,slots:[{areaDetailId,areaName,stockId,timeSlot,price,date,allCount,usingNum,surplus,serviceid,isAvailable}]}` | **`surplus` 读法 = `(all-used).coerceAtLeast(1)`、`all==used` 给 1 不给 0**（旧字段废弃） |
 | `GET /api/venue/orders` | `?page=&size=` | `{page,size,total|null,orders:[{orderId,status,statusText,createdAt,price,venueName,canPay,canCancel,details:[…]}],hasMore}` | |
-| `GET /api/venue/status` | —— | `{canBook:false, canCancel:true, browserLoginUrl}` | `canBook:false` 如实（serve 无滑块宿主，与桌面端同口径）；`/book` `/cancel` 是 P1 不实现 |
+| `GET /api/venue/status` | —— | `{canBook:true, canCancel:true, browserLoginUrl}` | `canBook:true` 如实（写端点 `/captcha` `/book` 已落地，滑块由浏览器端宿主画，见 §5.3.2）；`canCancel:true` 不需要滑块 |
+| `GET /api/venue/captcha` | `?serviceId=`（必填 400） | `{captchaId,backgroundImage,sliderImage,bgWidth,bgHeight,sliderWidth,sliderHeight}` | 写路径的第一步：把上游那张滑块图与它发的 `captchaId` **按值**端出来（§5.3.2 第 1 条） |
+| `POST /api/venue/book` | body `{serviceId,selections:[{stockId,areaDetailId}],captchaId,sliderTrack}` | `{ok:true,orderId|null,price,message}` | 下单：轨迹（**字符串**原文）带回来交给 `:data`；失败码（400/401/409/502）见 §5.3.2 |
+| `POST /api/venue/cancel` | body `{orderId}` | `{ok:true,message}` | 取消：一次普通 POST，不需要滑块 |
 
-**TODO（拍板过，未做）**：`library/seats?time`（上游无时间维）、`library/my.actionUrls` 与 `/api/library/action`（P1 写）、
-`venue/book` `/cancel` 与 `canBook:true`（P1 写，须先解决滑块宿主）、`card` 挂失（P1 写）、`evaluations` 提交/撤销（P1）。
+**TODO（拍板过，未做）**：`library/seats?time`（上游无时间维）、
+`card` 挂失（P1 写）、`evaluations` 提交/撤销（P1）。
+（`venue/book` `/cancel` 与 `canBook:true` 已于 2026-10-12 落地，见 §5.3.2。）
+
+### 5.3.1 library 写路径（2026-10-11 落地）：`POST /api/library/action`
+
+一个端点、一条动作轴（`data.action`），不是七个路径：约座 / 换座 / 签到 / 中途离开 / 中途返回 / 退座 / 切校区
+共用同一条会话、同一套失败码、同一份信封，拆开只会多七处要同步的形状。
+
+**`actionUrls` 现在投影了**：`GET /api/library/my` 的 `my.actionUrls` = `` {label: 上游地址} ``
+（例如 `{"取消预约":"http://rg.lib.xjtu.edu.cn:8086/my/?cancel=1&ri=88"}`）—— 客户端只把它当
+**不透明句柄**（认得出自己刚拿到的那一条）；「要执行哪个动作」说 `action` 码，**地址由服务端自己从当前
+预约页上取**，本契约不允许客户端指定「拿我的会话去打哪个地址」。
+
+| 动作 | 中文 | 请求里的字段 | `:data` 的调用 |
+|---|---|---|---|
+| `seat` | 约座 | `seatId` + `area`（区域码）必填；`autoSwap` 可选（默认 `true` = 已有预约时自动改走换座） | `bookSeat(seatId, area, autoSwap)` |
+| `change` | 换座 | `seatId` + `area` 必填 | `swapSeat(seatId, area)` |
+| `signin` | 入馆签到 | ——（地址服务端从当前预约页取） | `executeAction(「入馆签到」的地址)` |
+| `leave` | 中途离开 | 同 `signin` | `executeAction(「中途离开」的地址)` |
+| `back` | 中途返回 | 同 `signin` | `executeAction(「中途返回」的地址)` |
+| `cancel` | 退座（取消预约） | 同 `signin` | `executeAction(「取消预约」的地址)` |
+| `switch_campus` | 切换账号校区 | `campus` 必填（`east`/`west`/`inno`） | `switchCampus(LibraryCampus.byId(campus))` |
+
+请求例子（约座）：
+
+```json
+POST /api/library/action
+{"action":"seat","seatId":"A01","area":"north2east","autoSwap":true}
+```
+
+签到/中途离开/中途返回/退座只发动作码（`{"action":"signin"}`）—— 地址不在请求里（见上）。
+
+响应 `data`（成功）：`{ "ok": true, "message": "✓ 座位 A01 预约成功！" }` —— `ok` 恒为 `true`（失败走信封，
+见下），`message` 是 `:data` 的 `BookResult.message` **原样转发**（已是中文短句）。失败时 `data` 为 `null`、
+`code` 与 HTTP 码逐位相同（§4）。
+
+错误码（§4 那一套的延伸）：
+
+- **400** 未知的 `action` / 缺了这个动作要的字段 / `campus` 不认 —— 文案把合法取值列出来；
+- **401** 未登录（与会话闸门同一个码，`message` 指路先登录）；
+- **409** 上游**明确说这次动作不成**（座位已被他人预约、已有别的预约、当前预约上没有这个操作、不在开放
+  时间…）—— 与「另一次登录在进行」同一个码、同一种意思（「现在不能」），区别只在谁在说不行；
+  重发同样的请求没有意义，所以**不是** 502；会话失效的 `message`（「登录状态已失效…」）也在这档上，但
+  会先被翻成 401（同一句话的语义就是要你去重新登录）；
+- **502** 上游/网络的故障（稍后重试可能就成），或「我的预约」页认不出来、取不到按钮地址。
+
+⚠️ 切校区是**改账号资料**的写（`rplace`）：浏览器端离开本页时会把校区**真切回去**（`restoreCampus` 走
+同一个端点，`:core` 的 `CampusLibraryApi` 带了页面之外的作用域）—— 与 `:app` / 桌面端同一条约定。
+
+### 5.3.2 venue 写路径（2026-10-12 落地）：`POST /api/venue/book` / `POST /api/venue/cancel`
+
+场馆的下单比图书馆多一样东西：**一张滑块图**。这一节把「挑战怎么暴露」「两个端点逐字段」
+「失败码」写死。
+
+#### 1. 滑块挑战的暴露方式：**服务端按值端出，浏览器端自己画**（本轮拍板）
+
+这两条路里选的是**后者**：
+
+| 方案 | 为什么不选 |
+|---|---|
+| ① 服务端自己解（`:server` 用 `:data` 的 `VenueCaptchaSolver` 在进程内识别，浏览器不用画滑块） | 它能把「下单」做成一个原子调用，但**把滑块这一步变成了黑盒**：`:app` / 桌面都是宿主画的，serve 选它就意味着这条路在三种端上是三套不同的东西；而且它把一个「人机验证」变成服务端自动过，与各端已经存在的手动那条路也不一致 |
+| ② **按值端出去**（`GET /api/venue/captcha` + `POST /api/venue/book` 带轨迹） | —— **选它**：与 Android/桌面**同一条协议**（轨迹的 JSON 原文一字不改地往上传），且浏览器里真的能画、能拖、能提交（`:web` 的 `WebSlideCaptchaHost`） |
+
+为什么不能「浏览器直接用 `:data` 的求解器」：**`:data` 只有 jvm/android 两个目标**，
+`SliderCaptchaView` 与 `VenueCaptchaSolver` 都依赖 okhttp/jsoup 那一档（wasm 上引用不到）⇒
+浏览器里能用的只有 `:core` 的图片缝（skiko 解码）+ 自己写的拖动采集。
+
+**生命周期**：本层**不发行自己的挑战号、也不常驻状态** —— `captchaId` 就是上游发的那个
+（`CaptchaData.id` 原名改名，与 `orderId` 一样是**要原样带回来的句柄**），「用掉了没 / 过期没」
+由上游判。所以没有需要清理的内存表。TODO（真站未验）：若实测发现上游还要求「服务端必须记住
+图与 id 的对应关系」之类的事，再在这一层加一张一次性挑战表（内存 + TTL，写在文件头）。
+
+#### 2. `GET /api/venue/captcha`
+
+```json
+GET /api/venue/captcha?serviceId=101
+{"code":0,"data":{"captchaId":"cap-1",
+  "backgroundImage":"data:image/jpeg;base64,…","sliderImage":"data:image/png;base64,…",
+  "bgWidth":260,"bgHeight":160,"sliderWidth":50,"sliderHeight":50}}
+```
+
+七格就是全部（`captchaId ← CaptchaData.id`，其余原样转发）：两张图都是 data URI 原文，
+服务端不重编码、不验尺寸。`?serviceId=` 缺或不是数字 ⇒ **400**。
+
+#### 3. `POST /api/venue/book`
+
+```json
+POST /api/venue/book
+{"serviceId":101,
+ "selections":[{"stockId":9101,"areaDetailId":5101}],
+ "captchaId":"cap-1",
+ "sliderTrack":"{\"bgImageWidth\":260,…}"}
+```
+
+| 字段 | 必填 | 说明 |
+|---|---|---|
+| `serviceId` | ✓ | 场馆号（`/api/venue/products` 的 `id`），正整数 |
+| `selections[]` | ✓（至少一行） | 选中的场地明细：**只要两个数**（`stockId` + `areaDetailId`，来自 `/api/venue/slots`）。上游 `stockdetail` 那个信封（`:data` 的 `VenueApi.buildBookingParam`）只用到它们 |
+| `captchaId` | ✓ | `/api/venue/captcha` 给的那个，原样带回 |
+| `sliderTrack` | ✓ | 滑块轨迹的 JSON **原文**（`:core` 的 `SliderResult.toJson()`，与 Android/桌面同一协议：260 坐标系 + down/move/up + 两个 ISO 时刻）。**当字符串传**，服务端不解析它 |
+
+响应 `data`（成功）：`{ "ok": true, "orderId": "VT20261013001", "price": 20.0, "message": "预订成功" }`
+—— `ok` 恒为 `true`（失败走信封），`orderId` 上游没给就是 `null`（§4 不编），`message` / `price`
+是 `:data` 的 `BookingResult` 原样（即上游那一句）。服务端不再算一份 `param`（那是 `:data` 的事，
+客户端也拼不了），也不走那条「先拿 `PendingOrder` 再提交」的两次请求（`:data` 的 `prepareOrder` 是纯计算）。
+
+#### 4. `POST /api/venue/cancel`
+
+```json
+POST /api/venue/cancel
+{"orderId":"VT20261013001"}
+```
+
+响应 `data`：`{ "ok": true, "message": "取消成功" }` —— 与 `/api/library/action` 同一套（`ok` 恒 `true`，
+`message` 是 `:data` 的 `OrderActionResult.message` 原样）。取消不需要滑块（一次普通 POST）。
+
+#### 5. 错误码（两个写端点共用）
+
+- **400** 参数形状不对：请求体不是 JSON / `serviceId` 不是正整数 / `selections` 空或某行少了
+  `stockId`/`areaDetailId` / 缺 `captchaId` / 缺 `sliderTrack` / 缺 `orderId`。文案一律说出缺什么；
+- **401** 未登录（与会话闸门同一个码，`message` 指路先登录）——包括取数/提交时发现**会话已失效**那一档；
+- **409** 上游**明确说这次动作不成**：验证码有误、场地已被抢、订单不存在……都是业务结果不是故障，
+  文案是 `:data` 的结果对象里那句原样中文（与图书馆那张同一个码、同一种意思：「现在不能」）；
+- **502** 上游/网络的故障（稍后重试可能就成）：挑战取不回来、提交那一枪没打通。
+
+⚠️ **已知缺口（如实记下，不在本轮）**：下单能成之后屏上那个「去支付」**点了不会有动作** ——
+支付页在 80 端口那台站点上（`VenueApi.paymentUrl` 拼的），而浏览器里没有场馆站的会话，
+支付页地址也只有 `:data` 知道（`:core` 不复制一份站点知识）⇒ `CampusVenueApi.paymentUrl` 在 serve
+模式下如实返回空串（不是抛、也不是编一个地址）。TODO：契约给了支付入口（或让 `/api/venue/status`
+的 `browserLoginUrl` 能被客户端缓存下来）之后再把它接上。
 
 ### 5.4 `:web` 消费方（2026-10-11 落地，`ApiMode` 那一次提交）
 
@@ -202,13 +336,20 @@
 - **访问令牌只在浏览器内存里**：不落 `localStorage`（XSS 拿到令牌就等于拿到这道门）；`GET /api/session`
   那一发顺手把令牌换成 `serve_token` cookie（§3.2），之后每次请求同时带 Bearer 与 cookie ——
   「Ktor 的 fetch 引擎会不会自动带 cookie」是引擎实现细节，不作为契约依赖。
-- **三个消费方侧的「不画」**（都是「点了会失败的按钮一个都不画」这一条的实现，服务端别当成 bug）：
-  1. library：`/api/library/campus` 报 `canBook:true` / `hasSeatPlan:true`，但写端点是 P1（`/api/library/book`
-     `/swap` `/action` 现在答 404）、布局/底图端点不在 §5 ⇒ 消费方报 `false`；
-  2. venue：`/api/venue/status` 报 `canCancel:true`，但 `/api/venue/cancel` 是 P1 ⇒ 消费方报 `false`；
+- **消费方侧的「不画」**（都是「点了会失败的按钮一个都不画」这一条的实现，服务端别当成 bug）：
+  1. ~~library~~（已翻转，2026-10-11）：写端点 `/api/library/action` 落地（§5.3.1）⇒ `CampusLibraryApi` 的
+     `SERVE_WRITE_ENDPOINTS_READY=true`，`canBook` 随服务端如实报的 `canBook:true` 翻 true —— 座位格、
+     「我的预约」按钮、校区切换全部真的能点；但 `hasSeatPlan` 仍报 `false`（§5 的 library 没有布局/底图
+     端点 ⇒ 平面图那一档不画）。
+  2. ~~venue~~（已翻转，2026-10-12）：写端点 `/api/venue/captcha` + `/book` + `/cancel` 落地（§5.3.2），
+     滑块由 `:web` 的 `WebSlideCaptchaHost` 在浏览器里画 ⇒ `CampusVenueApi` 的 `SERVE_WRITE_ENDPOINTS_READY=true`，
+     `canBook`/`canCancel` 翻 true（与 `/api/venue/status` 报的两个开关一致）。⚠️ 留下的**如实缺口**：
+     「去支付」那一跳在浏览器里仍不可达（见 §5.3.2 末尾）；
   3. school-courses：响应报 `supportsDepartmentFilter` / `supportsElectiveFilter` 是 `true`，但没有返回那两张
      id 表的端点 ⇒ 消费方报 `false`（下拉出现了却没有选项，比不出现更糟）。
-  三处的 TODO 都写在对应 `Campus*Api` 的 KDoc 里，端点落地的提交把它们一起翻成 true。
+  两处的 TODO 都写在对应 `Campus*Api` 的 KDoc 里，端点落地的提交把它们一起翻成 true ——
+  library 那一条已由 2026-10-11 的提交翻成 true，venue 那一条已由 2026-10-12 的提交翻成 true，
+  school-courses 的那处照旧。
 - **课表缺口已补齐**（2026-10-11）：`/api/jwxt/schedule` 与 `/api/jwxt/term-start` 两个端点落地，
   serve 模式的课表屏（含默认落地页）正常出数据 —— 消费侧是 `CampusScheduleApi` 的 `ApiMode.SERVE` 那一支
   （`CampusApi.schedule` / `.termStart`，`:web` 的 `ScheduleScreen` 把外壳探到的 mode 传下去）。

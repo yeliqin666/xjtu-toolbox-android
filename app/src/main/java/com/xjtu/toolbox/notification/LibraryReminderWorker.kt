@@ -42,7 +42,7 @@ class LibraryReminderWorker(
 
         val booking = try {
             // 需要短信验证 / 密码失效：这一轮直接放弃，别退避重试再提交一次密码
-            val site = HeadlessSessions.site(app, LoginType.LIBRARY) ?: return Result.success()
+            val site = HeadlessSessions.site(LoginType.LIBRARY) ?: return Result.success()
             withContext(Dispatchers.IO) { LibraryApi(AppLibrarySession(site)).getMyBooking() }
         } catch (e: CancellationException) {
             throw e

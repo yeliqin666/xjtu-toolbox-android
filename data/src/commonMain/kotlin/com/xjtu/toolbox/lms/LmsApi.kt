@@ -1,0 +1,849 @@
+package com.xjtu.toolbox.lms
+
+import com.xjtu.toolbox.util.safeString
+import com.xjtu.toolbox.util.safeInt
+import com.xjtu.toolbox.util.safeBoolean
+import com.xjtu.toolbox.util.stringValue
+import com.xjtu.toolbox.util.intValue
+import com.xjtu.toolbox.util.doubleValue
+import com.xjtu.toolbox.util.booleanValue
+import com.xjtu.toolbox.util.isNull
+import com.xjtu.toolbox.util.isObject
+import com.xjtu.toolbox.util.isArray
+import com.xjtu.toolbox.util.arr
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonArray
+import com.xjtu.toolbox.platform.Log
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonObject
+import com.xjtu.toolbox.auth.SiteSession
+import com.xjtu.toolbox.util.safeParseJsonObject
+import com.xjtu.toolbox.util.decodeUrlComponentOrNull
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.Request
+import okhttp3.RequestBody.Companion.toRequestBody
+
+private const val TAG = "LmsApi"
+
+// ════════════════════════════════════════
+//  JSON 安全扩展
+// ════════════════════════════════════════
+
+private fun JsonElement?.safeString(): String? =
+    if (this == null || this.isNull) null else try { this.stringValue } catch (_: Exception) { null }
+
+private fun JsonElement?.safeInt(default: Int = 0): Int =
+    if (this == null || this.isNull) default else try { this.intValue } catch (_: Exception) { default }
+
+private fun JsonElement?.safeBoolean(default: Boolean = false): Boolean =
+    if (this == null || this.isNull) default else try { this.booleanValue } catch (_: Exception) { default }
+
+private fun JsonElement?.safeArray(): JsonArray =
+    if (this == null || this.isNull || !this.isArray) JsonArray(emptyList()) else this.jsonArray
+
+private fun JsonElement?.safeObject(): JsonObject? =
+    if (this == null || this.isNull || !this.isObject) null else this.jsonObject
+
+/**
+ * 把列表级的字段并进详情：只补详情缺的，不覆盖详情已有的。
+ *
+ * `deadline` 上游只在列表里给（详情 79 个键里没有），只能这样拿。合并不到时才退回
+ * [LmsActivity.endTime]——它和真截止最多差 20 天，但总比显示"未设置截止时间"强。
+ */
+fun LmsActivity.mergeBrief(brief: LmsActivity?): LmsActivity {
+    val start = startTime?.takeIf { it.isNotBlank() } ?: brief?.startTime?.takeIf { it.isNotBlank() }
+    val visibleStart = visibleStartAt?.takeIf { it.isNotBlank() } ?: brief?.visibleStartAt?.takeIf { it.isNotBlank() }
+    val end = endTime?.takeIf { it.isNotBlank() } ?: brief?.endTime?.takeIf { it.isNotBlank() }
+    // 截止时间只对作业有意义；课堂、页面的 end_time 是"结束"，别把它存成"截止"
+    val due = if (type != LmsActivityType.HOMEWORK) {
+        deadline?.takeIf { it.isNotBlank() } ?: brief?.deadline?.takeIf { it.isNotBlank() }
+    } else {
+        deadline?.takeIf { it.isNotBlank() }
+            ?: brief?.deadline?.takeIf { it.isNotBlank() }
+            ?: end
+    }
+    return copy(startTime = start, visibleStartAt = visibleStart, endTime = end, deadline = due)
+}
+
+/**
+ * 活动正文：作业/课件在 `data.description`，页面型（课程简介、教学进度、课程考核构成、
+ * 平时成绩细则）在 `data.content`。两处都试一次——实测页面型的 description 长度是 0，
+ * 正文只在 content 里；讨论区的说明则在 description 里。
+ */
+fun lmsActivityBody(data: JsonObject?): String? =
+    data?.get("description").safeString()?.takeIf { it.isNotBlank() }
+        ?: data?.get("content").safeString()?.takeIf { it.isNotBlank() }
+
+// ════════════════════════════════════════
+//  LmsApi — 思源学堂 API 封装
+// ════════════════════════════════════════
+
+class LmsApi(private val site: SiteSession) {
+
+    private val baseUrl = "https://lms.xjtu.edu.cn"
+    private val rmsBaseUrl = "https://rms-v5.xjtu.edu.cn"
+
+    // 缓存
+    private var cachedUserInfo: LmsUserInfo? = null
+    private val replayVideoCache = mutableMapOf<String, List<LmsReplayVideo>>()
+    private val playerTokenCache = mutableMapOf<Int, String>()
+    private val rmsTokenCache = mutableMapOf<Int, String>()
+
+    // ── 公有接口 ──────────────────────────
+
+    /**
+     * 获取当前登录用户基本信息
+     * 返回值来自 /user/index 页面中的 globalData.user
+     */
+    suspend fun getUserInfo(refresh: Boolean = false): LmsUserInfo {
+        if (cachedUserInfo != null && !refresh) return cachedUserInfo!!
+
+        val page = getIndexPage()
+        val userBlock = extractJsBlock(page, "user", "dept")
+        val deptBlock = extractJsBlock(page, "dept", "locale")
+
+        val info = LmsUserInfo(
+            id = extractJsKeyValue(userBlock, "id")?.toIntOrNull() ?: 0,
+            name = extractJsKeyValue(userBlock, "name") ?: "",
+            userNo = extractJsKeyValue(userBlock, "userNo") ?: "",
+            orgId = extractJsKeyValue(userBlock, "orgId")?.toIntOrNull() ?: 0,
+            mobile = extractJsKeyValue(userBlock, "mobile") ?: "",
+            orgName = extractJsKeyValue(userBlock, "orgName") ?: "",
+            orgCode = extractJsKeyValue(userBlock, "orgCode") ?: "",
+            role = extractJsKeyValue(userBlock, "role") ?: "",
+            hasAiAbility = extractJsKeyValue(userBlock, "hasAiAbility") == "true",
+            dept = LmsDepartment(
+                id = extractJsKeyValue(deptBlock, "id")?.toIntOrNull() ?: 0,
+                name = extractJsKeyValue(deptBlock, "name") ?: "",
+                code = extractJsKeyValue(deptBlock, "code") ?: ""
+            )
+        )
+        cachedUserInfo = info
+        return info
+    }
+
+    /**
+     * 获取我的课程列表
+     */
+    suspend fun getMyCourses(): List<LmsCourseSummary> {
+        val data = postJson("$baseUrl/api/my-courses")
+        val courses = data?.arr("courses") ?: return emptyList()
+        return courses.mapNotNull { elem ->
+            try {
+                val obj = elem.jsonObject
+                extractCourseSummary(obj)
+            } catch (e: Exception) {
+                Log.w(TAG, "getMyCourses: skip bad course", e)
+                null
+            }
+        }
+    }
+
+    /**
+     * 获取课程活动列表
+     */
+    suspend fun getCourseActivities(courseId: Int): List<LmsActivity> {
+        val data = getJson("$baseUrl/api/courses/$courseId/activities")
+        if (data == null) {
+            Log.w(TAG, "getCourseActivities($courseId): 响应为空或非 JSON 对象")
+            return emptyList()
+        }
+        val activities = data.arr("activities")
+        if (activities == null) {
+            // 首页统计发现某些课程恒返回 0 条活动，这里把顶层键打出来，
+            // 便于确认是响应结构变了（不再是 {activities:[...]}）还是课程本身没内容。
+            Log.w(TAG, "getCourseActivities($courseId): 无 activities 键，顶层键=${data.keys}")
+            return emptyList()
+        }
+        Log.d(TAG, "getCourseActivities($courseId): ${activities.size} 条")
+        return activities.mapNotNull { elem ->
+            try {
+                val obj = elem.jsonObject
+                extractActivityBrief(obj)
+            } catch (e: Exception) {
+                Log.w(TAG, "getCourseActivities: skip bad activity", e)
+                null
+            }
+        }
+    }
+
+    /**
+     * 获取活动详细信息
+     * - homework 类型自动注入 submissionList
+     * - lesson 类型自动注入 replayVideos + replayDownloadUrls
+     *
+     * [brief] 传列表里那条（[getCourseActivities] 的返回值）：**详情接口不返回 `deadline`**
+     * （实测 79 个键里没有，只有列表有），不传就只能退回 `endTime`。
+     */
+    suspend fun getActivityDetail(activityId: Int, brief: LmsActivity? = null): LmsActivity {
+        val data = getJson("$baseUrl/api/activities/$activityId")
+            ?: throw RuntimeException("获取活动详情失败")
+        var detail = extractActivityDetail(data)
+
+        // homework → 自动注入提交列表及批改附件
+        if (detail.type == LmsActivityType.HOMEWORK) {
+            try {
+                val submissionList = getSubmissionList(activityId, activityDetail = data)
+                val enrichedItems = submissionList.list.map { sub -> injectMarkedAttachments(sub) }
+                detail = detail.copy(submissionList = submissionList.copy(list = enrichedItems))
+            } catch (e: Exception) {
+                Log.w(TAG, "getActivityDetail: failed to get submissions for $activityId", e)
+            }
+        }
+
+        return detail.mergeBrief(brief)
+    }
+
+    /** 作业已提交次数。列表接口不给 `user_submit_count`，只有详情有。 */
+    suspend fun getUserSubmitCount(activityId: Int): Int =
+        (getJson("$baseUrl/api/activities/$activityId") ?: throw RuntimeException("获取活动详情失败"))
+            .get("user_submit_count").safeInt()
+
+    // ── 内部方法 ──────────────────────
+
+    private suspend fun injectMarkedAttachments(sub: LmsSubmissionItem): LmsSubmissionItem {
+        if (sub.uploads.isEmpty()) return sub
+        return try {
+            val data = getJson("$baseUrl/api/submissions/${sub.id}/marked_attachments") ?: return sub
+            val rules = data.get("rules").safeArray()
+            if (rules.isEmpty()) return sub
+            val nameToUrl = mutableMapOf<String, String>()
+            for (rule in rules) {
+                val r = rule.safeObject() ?: continue
+                val name = (r.get("origin_upload_name").safeString()
+                    ?: r.get("origin_name").safeString()
+                    ?: r.get("name").safeString())?.trim() ?: continue
+                val url = (r.get("marked_attachment_url").safeString()
+                    ?: r.get("attachment_url").safeString()
+                    ?: r.get("url").safeString())?.trim() ?: continue
+                if (name.isNotEmpty() && url.isNotEmpty()) nameToUrl[name.lowercase()] = url
+            }
+            if (nameToUrl.isEmpty()) return sub
+            val enriched = sub.uploads.map { upload ->
+                val attachUrl = nameToUrl[upload.name.lowercase()]
+                if (attachUrl != null) upload.copy(attachmentUrl = attachUrl) else upload
+            }
+            sub.copy(uploads = enriched)
+        } catch (e: Exception) {
+            Log.w(TAG, "injectMarkedAttachments: failed for submission ${sub.id}", e)
+            sub
+        }
+    }
+
+    /**
+     * 官方下载就是 GET /api/uploads/{id}/blob。
+     * 活动未结束时 200 或 302 到 media.xjtu.edu.cn（带 timestamp/token）；
+     * 已结束时学堂直接 403。不要再换别的 URL。
+     */
+    suspend fun downloadToStream(url: String, outputStream: java.io.OutputStream): Boolean {
+        return pullToStream(url, outputStream) == LmsDownloadResult.Ok
+    }
+
+    suspend fun downloadUpload(upload: LmsUpload, outputStream: java.io.OutputStream): LmsDownloadResult {
+        val url = blobUrl(upload) ?: upload.attachmentUrl.takeIf { it.isNotBlank() }
+        if (url.isNullOrBlank()) return LmsDownloadResult.Failed
+        return pullToStream(url, outputStream)
+    }
+
+    suspend fun downloadBytes(url: String): ByteArray? = pullToBytes(url)
+
+    suspend fun downloadUploadBytes(upload: LmsUpload): ByteArray? {
+        val url = blobUrl(upload) ?: return null
+        return pullToBytes(url)
+    }
+
+    private fun blobUrl(upload: LmsUpload): String? = when {
+        upload.downloadUrl.isNotBlank() -> upload.downloadUrl
+        upload.id > 0 -> "$baseUrl/api/uploads/${upload.id}/blob"
+        else -> null
+    }
+
+    private suspend fun pullToStream(url: String, outputStream: java.io.OutputStream): LmsDownloadResult {
+        return try {
+            val resp = site.executeWithReAuth(authenticatedRequest(url).get().build())
+            resp.use { r ->
+                when {
+                    r.code == 403 -> {
+                        Log.w(TAG, "download $url → 403")
+                        LmsDownloadResult.Forbidden
+                    }
+                    !r.isSuccessful -> {
+                        Log.w(TAG, "download $url → HTTP ${r.code}")
+                        LmsDownloadResult.Failed
+                    }
+                    else -> {
+                        r.body?.byteStream()?.use { it.copyTo(outputStream) }
+                            ?: return LmsDownloadResult.Failed
+                        LmsDownloadResult.Ok
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "downloadToStream failed: $url", e)
+            LmsDownloadResult.Failed
+        }
+    }
+
+    private suspend fun pullToBytes(url: String): ByteArray? {
+        return try {
+            val resp = site.executeWithReAuth(authenticatedRequest(url).get().build())
+            resp.use { r ->
+                if (!r.isSuccessful) {
+                    Log.w(TAG, "downloadBytes $url → HTTP ${r.code}")
+                    return null
+                }
+                r.body?.bytes()
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "downloadBytes failed: $url", e)
+            null
+        }
+    }
+
+    private suspend fun getIndexPage(): String {
+        val req = authenticatedRequest("$baseUrl/user/index").get().build()
+        val resp = site.executeWithReAuth(req)
+        return resp.body?.use { it.string() } ?: ""
+    }
+
+    private suspend fun getJson(url: String, headers: Map<String, String>? = null): JsonObject? {
+        val builder = authenticatedRequest(url).get()
+        headers?.forEach { (k, v) -> builder.header(k, v) }
+        val resp = site.executeWithReAuth(builder.build())
+        val body = resp.body?.use { it.string() } ?: return null
+        return try {
+            body.safeParseJsonObject()
+        } catch (e: Exception) {
+            Log.e(TAG, "getJson: parse failed for $url", e)
+            null
+        }
+    }
+
+    private suspend fun postJson(url: String): JsonObject? {
+        val emptyBody = "".toRequestBody("application/json".toMediaType())
+        val req = authenticatedRequest(url)
+            .post(emptyBody)
+            .build()
+        val resp = site.executeWithReAuth(req)
+        val body = resp.body?.use { it.string() } ?: return null
+        return try {
+            body.safeParseJsonObject()
+        } catch (e: Exception) {
+            Log.e(TAG, "postJson: parse failed for $url", e)
+            null
+        }
+    }
+
+    private fun authenticatedRequest(url: String): Request.Builder =
+        Request.Builder()
+            .url(url)
+            .header("Referer", "$baseUrl/user/courses")
+            .header("Accept", "application/json, text/plain, */*")
+
+
+    // ── 作业提交列表 ──────────────────────
+
+    private suspend fun getSubmissionList(
+        activityId: Int,
+        userId: Int? = null,
+        groupId: Int? = null,
+        submitByGroup: Boolean? = null,
+        activityDetail: JsonObject? = null
+    ): LmsSubmissionListResponse {
+        val detail = activityDetail ?: getJson("$baseUrl/api/activities/$activityId")
+            ?: throw RuntimeException("获取活动详情失败")
+
+        val isByGroup = submitByGroup ?: detail.get("submit_by_group").safeBoolean()
+
+        val url = if (isByGroup) {
+            val gid = groupId ?: detail.get("group_id").safeInt()
+            if (gid == 0) throw RuntimeException("小组作业但找不到 group_id")
+            "$baseUrl/api/activities/$activityId/groups/$gid/submission_list"
+        } else {
+            val uid = userId ?: getUserInfo().id
+            if (uid == 0) throw RuntimeException("无法获取 user_id")
+            "$baseUrl/api/activities/$activityId/students/$uid/submission_list"
+        }
+
+        val data = getJson(url) ?: throw RuntimeException("获取提交列表失败")
+        return extractSubmissionList(data)
+    }
+
+    // ── 课堂回放视频 ──────────────────────
+
+    private suspend fun getLessonPlayerUrl(lessonActivityId: Int): String {
+        val data = getJson("$baseUrl/api/lessons/$lessonActivityId/player-url?from_page=course")
+            ?: throw RuntimeException("获取播放器 URL 失败")
+        return data.get("url").safeString()
+            ?.takeIf { it.isNotEmpty() }
+            ?: throw RuntimeException("播放器 URL 为空")
+    }
+
+    private suspend fun getLessonPlayerToken(lessonActivityId: Int): String {
+        playerTokenCache[lessonActivityId]?.let { return it }
+        val playerUrl = getLessonPlayerUrl(lessonActivityId)
+        val token = queryParameter(playerUrl, "token")
+            ?: throw RuntimeException("没有找到视频的播放凭证，请稍后重试")
+        playerTokenCache[lessonActivityId] = token
+        return token
+    }
+
+    /**
+     * 取 URL 的 query 参数值（`android.net.Uri.getQueryParameter` 的等价物，百分号编码照解）。
+     * 搬迁前那行是 `android.net.Uri.parse(playerUrl).getQueryParameter("token")` ——
+     * `android.net` 进不了 `:data`（见 §5.1 那批「真硬耦合」的 Lms），换成这个手写版，语义不变。
+     */
+    private fun queryParameter(url: String, name: String): String? {
+        val queryStart = url.indexOf('?')
+        if (queryStart < 0) return null
+        val query = url.substring(queryStart + 1).substringBefore('#')
+        val raw = query.split('&').firstOrNull { it.substringBefore('=') == name }
+            ?.substringAfter('=', "")
+            ?.takeIf { it.isNotEmpty() } ?: return null
+        // Uri.getQueryParameter 返回的是解码后的值；解码失败（`%` 凑不齐两位）按原样用
+        return decodeUrlComponentOrNull(raw) ?: raw
+    }
+
+    private suspend fun exchangeEmbedToken(playerToken: String): String {
+        val data = getJson("$rmsBaseUrl/api/v1/auth/embed-token?token=$playerToken")
+            ?: throw RuntimeException("embed-token 交换失败")
+
+        // 检查错误
+        data.safeObject()?.let { obj ->
+            obj.get("error").safeObject()?.let { error ->
+                val code = error.get("code").safeInt()
+                if (code != 0) {
+                    throw RuntimeException("embed-token 交换失败: code=$code, message=${error.get("message").safeString()}")
+                }
+            }
+        }
+
+        return data.get("data").safeString()
+            ?.takeIf { it.isNotEmpty() }
+            ?: throw RuntimeException("embed-token 返回空 rms_token")
+    }
+
+    private suspend fun getLessonRmsToken(lessonActivityId: Int): String {
+        rmsTokenCache[lessonActivityId]?.let { return it }
+        val playerToken = getLessonPlayerToken(lessonActivityId)
+        val rmsToken = exchangeEmbedToken(playerToken)
+        rmsTokenCache[lessonActivityId] = rmsToken
+        return rmsToken
+    }
+
+    private suspend fun getReplayVideos(
+        replayCode: String,
+        lessonActivityId: Int? = null
+    ): List<LmsReplayVideo> {
+        replayVideoCache[replayCode]?.let { return it }
+
+        val headers = mutableMapOf<String, String>()
+        if (lessonActivityId != null) {
+            // 拿不到 token 就别继续了：captures 接口没有 Authorization 会返回鉴权错误，
+            // 之前只 warn 然后照发无 token 请求，于是错误被当成"没有回放"，表现为播放失败。
+            val rmsToken = getLessonRmsToken(lessonActivityId)
+            headers["Authorization"] = "Bearer $rmsToken"
+        }
+
+        // lesson_activity_id 必须作为 query 参数带上，上游同样传了这个参数
+        val url = buildString {
+            append("$rmsBaseUrl/api/embed/lesson-activities/captures/$replayCode")
+            if (lessonActivityId != null) append("?lesson_activity_id=$lessonActivityId")
+        }
+        val data = getJson(url, headers) ?: return emptyList()
+
+        // 检查错误
+        data.get("error").safeObject()?.let { error ->
+            val code = error.get("code").safeInt()
+            if (code != 0) {
+                Log.w(TAG, "getReplayVideos: error code=$code, message=${error.get("message").safeString()}")
+                return emptyList()
+            }
+        }
+
+        var videosArray = data.get("lesson_videos").safeArray()
+        if (videosArray.size == 0) {
+            // 尝试嵌套结构
+            data.get("data").safeObject()?.let { inner ->
+                videosArray = inner.get("lesson_videos").safeArray()
+            }
+        }
+
+        val videos = videosArray.mapNotNull { elem ->
+            try {
+                val obj = elem.jsonObject
+                LmsReplayVideo(
+                    id = obj.get("id").safeInt(),
+                    label = obj.get("label").safeString() ?: "",
+                    mute = obj.get("mute").safeBoolean(),
+                    isBestAudio = obj.get("is_best_audio").safeBoolean(),
+                    playType = obj.get("play_type").safeString() ?: "",
+                    downloadUrl = obj.get("download_url").safeString() ?: "",
+                    playUrl = obj.get("play_url").safeString() ?: "",
+                    fileKey = obj.get("file_key").safeString() ?: "",
+                    size = obj.get("size").safeInt()
+                )
+            } catch (e: Exception) {
+                Log.w(TAG, "getReplayVideos: skip bad video", e)
+                null
+            }
+        }
+        replayVideoCache[replayCode] = videos
+        return videos
+    }
+
+    // ── 数据提取 ──────────────────────────
+
+    private fun extractCourseSummary(obj: JsonObject): LmsCourseSummary {
+        val instructors = obj.get("instructors").safeArray().mapNotNull { elem ->
+            elem.safeObject()?.let { LmsInstructor(it.get("id").safeInt(), it.get("name").safeString() ?: "") }
+        }
+        val ay = obj.get("academic_year").safeObject()
+        val sem = obj.get("semester").safeObject()
+        val dept = obj.get("department").safeObject()
+        val attrs = obj.get("course_attributes").safeObject()
+
+        return LmsCourseSummary(
+            id = obj.get("id").safeInt(),
+            name = obj.get("name").safeString() ?: "",
+            courseCode = obj.get("course_code").safeString() ?: "",
+            courseType = obj.get("course_type").safeInt(),
+            credit = obj.get("credit").safeString() ?: "",
+            compulsory = obj.get("compulsory").safeBoolean(),
+            startDate = obj.get("start_date").safeString(),
+            endDate = obj.get("end_date").safeString(),
+            academicYear = LmsAcademicYear(
+                id = ay?.get("id").safeInt() ?: 0,
+                code = ay?.get("code").safeString() ?: "",
+                name = ay?.get("name").safeString() ?: "",
+                sort = ay?.get("sort").safeInt() ?: 0
+            ),
+            semester = LmsSemester(
+                id = sem?.get("id").safeInt() ?: 0,
+                code = sem?.get("code").safeString() ?: "",
+                name = sem?.get("name").safeString(),
+                realName = sem?.get("real_name").safeString(),
+                sort = sem?.get("sort").safeInt() ?: 0
+            ),
+            department = LmsDepartment(
+                id = dept?.get("id").safeInt() ?: 0,
+                name = dept?.get("name").safeString() ?: ""
+            ),
+            instructors = instructors,
+            courseAttributes = LmsCourseAttributes(
+                published = attrs?.get("published").safeBoolean() ?: false,
+                studentCount = attrs?.get("student_count").safeInt() ?: 0,
+                teachingClassName = attrs?.get("teaching_class_name").safeString() ?: ""
+            )
+        )
+    }
+
+    private fun extractActivityBrief(obj: JsonObject): LmsActivity {
+        return LmsActivity(
+            id = obj.get("id").safeInt(),
+            courseId = obj.get("course_id").safeInt(),
+            type = LmsActivityType.fromString(obj.get("type").safeString() ?: ""),
+            title = obj.get("title").safeString() ?: "",
+            moduleId = obj.get("module_id")?.let { if (it.isNull) null else it.safeInt() },
+            startTime = obj.get("start_time").safeString(),
+            visibleStartAt = obj.get("visible_start_at").safeString(),
+            endTime = obj.get("end_time").safeString(),
+            deadline = obj.get("deadline").safeString(),
+            submitByGroup = obj.get("submit_by_group").safeBoolean(),
+            published = obj.get("published").safeBoolean(),
+            createdAt = obj.get("created_at").safeString() ?: "",
+            updatedAt = obj.get("updated_at").safeString() ?: "",
+            isClosed = obj.get("is_closed").safeBoolean(),
+        )
+    }
+
+    private fun extractUpload(obj: JsonObject): LmsUpload {
+        val uploadId = obj.get("id").safeInt()
+        val refId = obj.get("reference_id").safeInt()
+        return LmsUpload(
+            id = uploadId,
+            name = obj.get("name").safeString() ?: "",
+            type = obj.get("type").safeString() ?: "",
+            size = obj.get("size").safeInt(),
+            referenceId = refId,
+            status = obj.get("status").safeString() ?: "",
+            createdAt = obj.get("created_at").safeString() ?: "",
+            updatedAt = obj.get("updated_at").safeString() ?: "",
+            downloadUrl = if (uploadId > 0) "$baseUrl/api/uploads/$uploadId/blob" else "",
+            previewUrl = if (refId > 0) "$baseUrl/api/uploads/reference/document/$refId/url?preview=true" else ""
+        )
+    }
+
+    private suspend fun extractActivityDetail(obj: JsonObject): LmsActivity {
+        val typeStr = obj.get("type").safeString() ?: ""
+        val type = LmsActivityType.fromString(typeStr)
+        val dataObj = obj.get("data").safeObject()
+        val lessonResource = obj.get("lesson_resource").safeObject()
+        val lessonProperties = lessonResource?.get("properties").safeObject()
+
+        val activityId = obj.get("id").safeInt()
+        val courseId = obj.get("course_id").safeInt()
+        val uploads = obj.get("uploads").safeArray().mapNotNull { elem ->
+            try { extractUpload(elem.jsonObject).copy(activityId = activityId, courseId = courseId) } catch (_: Exception) { null }
+        }
+
+        // 正文：作业/课件在 description，页面型在 content（见 lmsActivityBody）
+        val body = lmsActivityBody(dataObj)
+
+        val common = LmsActivity(
+            id = activityId,
+            courseId = courseId,
+            type = type,
+            title = obj.get("title").safeString() ?: "",
+            description = body,
+            moduleId = obj.get("module_id")?.let { if (it.isNull) null else it.safeInt() },
+            startTime = obj.get("start_time").safeString(),
+            visibleStartAt = obj.get("visible_start_at").safeString(),
+            endTime = obj.get("end_time").safeString(),
+            published = obj.get("published").safeBoolean(),
+            createdAt = obj.get("created_at").safeString() ?: "",
+            updatedAt = obj.get("updated_at").safeString() ?: "",
+            uploads = uploads,
+            isClosed = obj.get("is_closed").safeBoolean(),
+        )
+
+        return when (type) {
+            LmsActivityType.HOMEWORK -> common.copy(
+                submitByGroup = obj.get("submit_by_group").safeBoolean(),
+                groupId = obj.get("group_id")?.let { if (it.isNull) null else it.safeInt() },
+                groupSetName = obj.get("group_set_name").safeString(),
+                userSubmitCount = obj.get("user_submit_count").safeInt(),
+                averageScore = obj.get("average_score")?.let { if (it.isNull) null else it.doubleValue },
+                highestScore = obj.get("highest_score")?.let { if (it.isNull) null else it.doubleValue },
+                lowestScore = obj.get("lowest_score")?.let { if (it.isNull) null else it.doubleValue },
+                hasScoreCount = obj.get("has_score_count")?.let { if (it.isNull) null else it.safeInt() },
+                // deadline 不在这里读：详情接口不返回它，由 mergeBrief 从列表并进来（见 LmsModels）
+                submitTimes = dataObj?.get("submit_times")?.let { if (it.isNull) null else it.safeInt() },
+                nonSubmitTimes = obj.get("non_submit_times").safeBoolean(),
+            )
+
+            // 正文已经在 common 里取好（description ?: content）
+            LmsActivityType.MATERIAL -> common
+
+            LmsActivityType.LESSON -> {
+                // 提取 replay_code（多处备选）
+                var replayCode: String? = obj.get("replay_code").safeString()?.takeIf { it.isNotEmpty() }
+                if (replayCode == null) {
+                    replayCode = lessonProperties?.get("replay_code").safeString()?.takeIf { it.isNotEmpty() }
+                }
+                if (replayCode == null) {
+                    replayCode = dataObj?.get("external_live_detail").safeObject()
+                        ?.get("replay_id").safeString()?.takeIf { it.isNotEmpty() }
+                }
+
+                // 获取回放视频
+                val lessonActivityId = obj.get("id").safeInt()
+                var replayVideos = emptyList<LmsReplayVideo>()
+                var replayDownloadUrls = emptyList<String>()
+
+                if (replayCode != null) {
+                    try {
+                        replayVideos = getReplayVideos(replayCode, lessonActivityId)
+                        replayDownloadUrls = replayVideos.mapNotNull { it.downloadUrl.takeIf { url -> url.isNotEmpty() } }
+                    } catch (e: Exception) {
+                        Log.w(TAG, "extractActivityDetail: failed to get replay videos for $lessonActivityId", e)
+                    }
+                }
+
+                common.copy(
+                    replayCode = replayCode,
+                    lessonStart = dataObj?.get("lesson_start").safeString(),
+                    lessonEnd = dataObj?.get("lesson_end").safeString(),
+                    replayVideos = replayVideos,
+                    replayDownloadUrls = replayDownloadUrls,
+                    replayVideoCount = replayVideos.size
+                )
+            }
+
+            LmsActivityType.LECTURE_LIVE -> {
+                val external = dataObj?.get("external_live_detail").safeObject()
+
+                // 解析教室信息（room 是 JSON 对象）
+                val roomObj = external?.get("room").safeObject()
+                val roomName = roomObj?.get("room_name").safeString()
+                val roomCode = roomObj?.get("room_code").safeString()
+
+                // 解析教师名单
+                val instructorNames = external?.get("instructor_names").safeArray()
+                    ?.mapNotNull { it.safeString() } ?: emptyList()
+
+                // 解析 HLS 直播流（多机位）
+                val streams = external?.get("streams").safeArray()?.mapNotNull { elem ->
+                    try {
+                        val s = elem.jsonObject
+                        LmsLiveStream(
+                            label = s.get("label").safeString() ?: "",
+                            src = s.get("src").safeString()
+                                ?: s.get("stream_url").safeString() ?: "",
+                            mute = s.get("mute").safeBoolean() || s.get("muted").safeBoolean(),
+                            type = s.get("type").safeString() ?: "application/x-mpegURL"
+                        )
+                    } catch (e: Exception) {
+                        Log.w(TAG, "extractActivityDetail: skip bad stream", e)
+                        null
+                    }
+                }?.filter { it.src.isNotEmpty() } ?: emptyList()
+
+                // 解析录播回放视频
+                val replayVideosArr = external?.get("replay_videos").safeArray()
+                val liveReplayVideos = replayVideosArr?.mapNotNull { elem ->
+                    try {
+                        val v = elem.jsonObject
+                        LmsReplayVideo(
+                            id = v.get("id").safeInt(),
+                            label = v.get("label").safeString()
+                                ?: v.get("camera_type").safeString() ?: "",
+                            mute = v.get("mute").safeBoolean(),
+                            isBestAudio = v.get("is_best_audio").safeBoolean(),
+                            playType = v.get("play_type").safeString() ?: "",
+                            downloadUrl = v.get("download_url").safeString()
+                                ?: v.get("url").safeString() ?: "",
+                            playUrl = v.get("play_url").safeString() ?: "",
+                            fileKey = v.get("file_key").safeString() ?: "",
+                            size = v.get("size").safeInt()
+                        )
+                    } catch (e: Exception) {
+                        Log.w(TAG, "extractActivityDetail: skip bad live replay video", e)
+                        null
+                    }
+                } ?: emptyList()
+
+                // 如果有 replay_id 且 replay_videos 为空，尝试通过 RMS 获取回放
+                val replayId = external?.get("replay_id")?.let {
+                    if (it.isNull) null
+                    else it.safeString()?.takeIf { s -> s.isNotEmpty() }
+                        ?: it.safeInt().takeIf { i -> i > 0 }?.toString()
+                }
+                val finalReplayVideos = if (liveReplayVideos.isEmpty() && replayId != null) {
+                    try {
+                        getReplayVideos(replayId, common.id)
+                    } catch (e: Exception) {
+                        Log.w(TAG, "extractActivityDetail: failed to get RMS replay videos for LECTURE_LIVE", e)
+                        emptyList()
+                    }
+                } else liveReplayVideos
+
+                common.copy(
+                    replayCode = replayId,
+                    liveRoomName = roomName,
+                    liveRoomCode = roomCode,
+                    liveStatus = external?.get("status").safeString(),
+                    liveInstructorNames = instructorNames,
+                    liveStreams = streams,
+                    liveReplayVideos = finalReplayVideos,
+                    externalLiveId = external?.get("id").safeInt(),
+                    viewLive = external?.get("view_live").safeBoolean(),
+                    viewRecord = external?.get("view_record").safeBoolean()
+                )
+            }
+
+            else -> common
+        }
+    }
+
+    private fun extractSubmissionList(data: JsonObject): LmsSubmissionListResponse {
+        val items = data.get("list").safeArray().mapNotNull { elem ->
+            try {
+                val obj = elem.jsonObject
+                val uploads = obj.get("uploads").safeArray().mapNotNull { u ->
+                    try { extractUpload(u.jsonObject) } catch (_: Exception) { null }
+                }
+                val createdBy = obj.get("created_by").safeObject()
+                val sc = obj.get("submission_correct").safeObject()
+                val scUploads = sc?.get("uploads").safeArray()?.mapNotNull { u ->
+                    try { extractUpload(u.jsonObject) } catch (_: Exception) { null }
+                } ?: emptyList()
+
+                LmsSubmissionItem(
+                    id = obj.get("id").safeInt(),
+                    activityId = obj.get("activity_id").safeInt(),
+                    studentId = obj.get("student_id").safeInt(),
+                    groupId = obj.get("group_id").safeInt(),
+                    canRetract = obj.get("can_retract").safeBoolean(),
+                    comment = obj.get("comment").safeString() ?: "",
+                    createdAt = obj.get("created_at").safeString(),
+                    createdBy = LmsSubmissionCreator(
+                        id = createdBy?.get("id").safeInt() ?: 0,
+                        name = createdBy?.get("name").safeString() ?: "",
+                        userNo = (createdBy?.get("user_no").safeString() ?: createdBy?.get("userNo").safeString()) ?: ""
+                    ),
+                    instructorComment = obj.get("instructor_comment").safeString() ?: "",
+                    isLatestVersion = obj.get("is_latest_version").safeBoolean(),
+                    isResubmitted = obj.get("is_resubmitted").safeBoolean(),
+                    isRedo = obj.get("is_redo").safeBoolean(),
+                    mode = obj.get("mode").safeString() ?: "",
+                    status = obj.get("status").safeString() ?: "",
+                    isDraft = obj.get("is_draft").safeBoolean(),
+                    score = obj.get("score").safeString(),
+                    finalScore = obj.get("final_score").safeString(),
+                    scoreAt = obj.get("score_at").safeString(),
+                    submittedAt = obj.get("submitted_at").safeString(),
+                    submitByInstructor = obj.get("submit_by_instructor").safeBoolean(),
+                    submissionCorrect = LmsSubmissionCorrect(
+                        id = sc?.get("id").safeInt() ?: 0,
+                        comment = sc?.get("comment").safeString() ?: "",
+                        instructorScore = sc?.get("instructor_score").safeString(),
+                        score = sc?.get("score").safeString(),
+                        updatedAt = sc?.get("updated_at").safeString() ?: "",
+                        uploads = scUploads
+                    ),
+                    updatedAt = obj.get("updated_at").safeString(),
+                    content = obj.get("content").safeString() ?: "",
+                    uploads = uploads
+                )
+            } catch (e: Exception) {
+                Log.w(TAG, "extractSubmissionList: skip bad item", e)
+                null
+            }
+        }
+
+        val topUploads = data.get("uploads").safeArray().mapNotNull { u ->
+            try { extractUpload(u.jsonObject) } catch (_: Exception) { null }
+        }
+
+        return LmsSubmissionListResponse(list = items, uploads = topUploads)
+    }
+
+    // ── JavaScript 解析工具 ──────────────
+
+    /**
+     * 从 HTML 页面中提取 globalData 的 JS 对象块
+     * 例如: user: { id: 123, name: "张三" }, dept: { ... }
+     */
+    private fun extractJsBlock(page: String, key: String, nextKey: String): String {
+        val pattern = Regex(
+            """${Regex.escape(key)}\s*:\s*\{(?<body>.*?)\}\s*,\s*${Regex.escape(nextKey)}\s*:""",
+            RegexOption.DOT_MATCHES_ALL
+        )
+        return pattern.find(page)?.groups?.get("body")?.value ?: ""
+    }
+
+    /**
+     * 从 JS 对象块中提取键值对
+     */
+    private fun extractJsKeyValue(block: String, key: String): String? {
+        if (block.isEmpty()) return null
+        val pattern = Regex(
+            """${Regex.escape(key)}\s*:\s*(?<value>"(?:\\.|[^"])*"|true|false|null|None|-?\d+(?:\.\d+)?)"""
+        )
+        val match = pattern.find(block) ?: return null
+        return parseJsScalar(match.groups["value"]!!.value)
+    }
+
+    private fun parseJsScalar(raw: String): String? {
+        val value = raw.trim()
+        if (value.startsWith("\"") && value.endsWith("\"")) {
+            return value.substring(1, value.length - 1)
+                .replace("\\\"", "\"")
+                .replace("\\\\", "\\")
+        }
+        if (value == "null" || value == "None") return null
+        return value  // true/false/numbers as string
+    }
+}

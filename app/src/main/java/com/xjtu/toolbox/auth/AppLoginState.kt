@@ -362,7 +362,7 @@ val LocalAppLoginState = staticCompositionLocalOf<AppLoginState> {
 class AppLoginStateViewModel(application: android.app.Application) : androidx.lifecycle.AndroidViewModel(application) {
     val loginState = AppLoginState()
     val credentialStore = CredentialStore(application)
-    val accountStore = com.xjtu.toolbox.account.AccountStore(application)
+    val accountStore = com.xjtu.toolbox.account.AccountStore()
 
     /** 新会话架构入口：双 backend、SiteSession 注册中心、MFA 状态机宿主。 */
     val sessionManager = com.xjtu.toolbox.auth.SessionManager()

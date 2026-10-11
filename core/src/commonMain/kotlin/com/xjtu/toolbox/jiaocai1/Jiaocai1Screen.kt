@@ -1,0 +1,949 @@
+package com.xjtu.toolbox.jiaocai1
+
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.xjtu.toolbox.platform.BackHandler
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.LibraryBooks
+import androidx.compose.material.icons.automirrored.filled.MenuBook
+import androidx.compose.material.icons.filled.ChevronRight
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.outlined.Delete
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.dp
+import com.xjtu.toolbox.ui.components.AppCardColor
+import com.xjtu.toolbox.ui.components.AppFilterChip
+import com.xjtu.toolbox.ui.components.AppInsetColor
+import com.xjtu.toolbox.ui.components.AppSearchBar
+import com.xjtu.toolbox.ui.components.EmptyState
+import com.xjtu.toolbox.ui.components.ErrorState
+import com.xjtu.toolbox.ui.components.LoadingState
+import com.xjtu.toolbox.ui.components.rememberRetainedLazyListState
+import com.xjtu.toolbox.ui.components.rememberRetainedLazyStaggeredGridState
+import com.xjtu.toolbox.ui.adaptive.AdaptiveCardGrid
+import com.xjtu.toolbox.ui.adaptive.fullLineItem
+import com.xjtu.toolbox.ui.adaptive.readableWidth
+import androidx.compose.foundation.lazy.staggeredgrid.items
+import kotlinx.coroutines.launch
+import top.yukonga.miuix.kmp.basic.Card
+import top.yukonga.miuix.kmp.basic.CardDefaults
+import top.yukonga.miuix.kmp.basic.CircularProgressIndicator
+import top.yukonga.miuix.kmp.basic.HorizontalDivider
+import top.yukonga.miuix.kmp.basic.Icon
+import top.yukonga.miuix.kmp.basic.LinearProgressIndicator
+import top.yukonga.miuix.kmp.basic.ProgressIndicatorDefaults
+import top.yukonga.miuix.kmp.basic.Text
+import top.yukonga.miuix.kmp.basic.ButtonDefaults
+import top.yukonga.miuix.kmp.basic.TextButton
+import top.yukonga.miuix.kmp.squircle.squircleBorder
+import top.yukonga.miuix.kmp.squircle.squircleSurface
+import top.yukonga.miuix.kmp.theme.MiuixTheme
+import top.yukonga.miuix.kmp.window.WindowDialog
+import top.yukonga.miuix.kmp.utils.SinkFeedback
+import top.yukonga.miuix.kmp.utils.overScrollVertical
+import com.xjtu.toolbox.auth.LocalAuthExpiry
+import com.xjtu.toolbox.ui.components.AppSegmentedTabs
+import com.xjtu.toolbox.ui.components.AppTabPager
+import com.xjtu.toolbox.ui.glass.*
+import top.yukonga.miuix.kmp.basic.MiuixScrollBehavior
+import top.yukonga.miuix.kmp.basic.Scaffold
+import top.yukonga.miuix.kmp.basic.rememberTopAppBarState
+import kotlin.time.Clock
+import kotlinx.datetime.Instant
+import kotlinx.datetime.TimeZone
+import kotlinx.datetime.toLocalDateTime
+import com.xjtu.toolbox.nav.AppRoute
+
+/**
+ * 教材全文库那一屏（书架 + 五种字段检索 + 中图法分类树）。
+ * 进阅读器走独立路由，浏览态活在本页 ViewModel 上，返回不丢。
+ *
+ * ## 它与 `:app` 那个 `Jiaocai1Screen` 是什么关系
+ *
+ * `:app` 的 `AppRoute.Jiaocai1` 落在 `jiaocai.TextbookScreen`（合并了「查教材 / 书架 /
+ * 全文库」三栏的页面）的**第三栏**，那个页面属于 `jiaocai` 域（它的取数与那两栏的搬迁是另一条
+ * 竖切）。`jiaocai1` 域自己要交付的是**这一屏**：
+ *
+ * - 书架（含阅读进度与「移出」）；
+ * - 全文库（关键词检索 / 中图法分类浏览交替）。
+ *
+ * 两栏的内容区就是下面那两个 `internal` 组合函数（`:app` 的 `TextbookScreen` 也调它们，
+ * 一份代码两处用）—— 桌面端这条路由只画这两栏，不假装有「查教材」那一栏（它的取数还在
+ * `jiaocai` 域里）。默认落在**全文库**那一栏，与 `:app` 的 `initialTab = 2` 同一条口径。
+ */
+@Composable
+fun Jiaocai1LibraryScreen(
+    vm: Jiaocai1ViewModel,
+    images: Jiaocai1PageImages,
+    onBack: () -> Unit,
+    onOpenBook: (ssno: String, title: String) -> Unit,
+) {
+    val authExpiry = LocalAuthExpiry.current
+    // 与 `:app` 的 TextbookScreen 同一条口径：两个 ViewModel 的会话过期都交给导航层
+    // （`:core` 的 [LocalAuthExpiry]，见那个端口的 KDoc）。
+    if (vm.authExpired) {
+        LaunchedEffect(vm) {
+            vm.authExpired = false
+            authExpiry.onAuthExpired(AppRoute.Jiaocai1, onBack)
+        }
+    }
+    Jiaocai1UsageNotice(onDecline = onBack)
+
+    var selectedTab by rememberSaveable { mutableIntStateOf(1) }
+    val scrollBehavior = MiuixScrollBehavior(rememberTopAppBarState())
+    val glass = rememberPageGlass()
+    Scaffold(
+        topBar = {
+            GlassTopAppBar(
+                title = "教材全文",
+                glass = glass,
+                scrollBehavior = scrollBehavior,
+                onBack = onBack,
+                bottomContent = {
+                    CompositionLocalProvider(LocalOnGlassBar provides (glass != null)) {
+                        AppSegmentedTabs(
+                            tabs = listOf("书架", "全文库"),
+                            selectedTabIndex = selectedTab,
+                            onTabSelected = { selectedTab = it },
+                            modifier = Modifier.readableWidth(),
+                        )
+                    }
+                },
+            )
+        },
+    ) { padding ->
+        val glassTop = padding.glassTop(glass)
+        Column(
+            Modifier
+                .padding(padding.withoutTop(glass))
+                .fillMaxSize()
+                .glassSource(glass)
+        ) {
+            AppTabPager(
+                pageCount = 2,
+                selectedTabIndex = selectedTab,
+                onTabSelected = { selectedTab = it },
+                modifier = Modifier.fillMaxSize(),
+            ) { page ->
+                Box(Modifier.fillMaxSize().padding(top = glassTop)) {
+                    when (page) {
+                        0 -> Jiaocai1ShelfContent(vm, images, onOpenBook)
+                        else -> Jiaocai1BrowseContent(vm, images, onOpenBook)
+                    }
+                }
+            }
+        }
+    }
+}
+
+/**
+ * 「书架 + 全文库（检索/分类合一）」内容区，不带 Scaffold / TopAppBar，
+ * 供 `:app` 的 `com.xjtu.toolbox.jiaocai.TextbookScreen` 的对应栏调用（**公开**：那个合并页
+ * 在 `:app`，`internal` 它看不见；而那一页的搬迁是另一条竖切）。
+ */
+@Composable
+fun Jiaocai1ShelfContent(
+    vm: Jiaocai1ViewModel,
+    images: Jiaocai1PageImages,
+    onOpenBook: (ssno: String, title: String) -> Unit,
+) {
+    val shelf by vm.shelf.collectAsStateWithLifecycle()
+    ShelfTab(
+        items = shelf,
+        images = images,
+        onOpen = { onOpenBook(it.ssno, it.title) },
+        onRemove = { ssno -> vm.removeFromShelf(ssno) },
+    )
+}
+
+/**
+ * 全文库栏：关键词为空、也没选分类时先看分类树（分类浏览往往比关键词更容易找到教材）；
+ * 一旦有关键词或选了分类，就切到检索结果列表。不再是两个平行标签，是同一栏内的两种状态。
+ */
+@Composable
+fun Jiaocai1BrowseContent(
+    vm: Jiaocai1ViewModel,
+    images: Jiaocai1PageImages,
+    onOpenBook: (ssno: String, title: String) -> Unit,
+) {
+    // 检索框一直在顶上，下面才在「分类树」和「检索结果」之间切换。
+    // 合并教材页（PR L）时写成了关键词为空就整栏换成分类树，检索框只长在结果页里：
+    // 于是一进全文库根本没有地方输关键词，搜过以后把关键词删空，输入框还会连同整栏一起消失。
+    // 分类树什么时候出现：没限定分类，并且关键词为空或者还没按下检索。
+    val showBrowse = vm.cls.isBlank() && (vm.keyword.isBlank() || vm.result == null) &&
+        !vm.loading && vm.error == null
+    run {
+        SearchTab(
+            showBrowse = showBrowse,
+            browse = {
+                CategoryTab(
+                    vm = vm,
+                    onPick = { vm.pickCategory(it) },
+                )
+            },
+            keyword = vm.keyword,
+            onKeywordChange = { vm.keyword = it },
+            field = vm.field,
+            onFieldChange = { vm.changeField(it) },
+            clsName = vm.clsName,
+            onClearCls = { vm.clearCls() },
+            books = vm.books,
+            result = vm.result,
+            loading = vm.loading,
+            loadingMore = vm.loadingMore,
+            moreFailed = vm.moreFailed,
+            error = vm.error,
+            images = images,
+            onSearch = { vm.search(1) },
+            onLoadMore = { vm.result?.let { if (it.hasMore) vm.search(it.currentPage + 1) } },
+            onOpenBook = { onOpenBook(it.ssno, it.title) },
+        )
+    }
+}
+
+// ── 书架 ─────────────────────────────────────────────────────────────
+
+@Composable
+private fun ShelfTab(
+    items: List<Jiaocai1ShelfRecord>,
+    images: Jiaocai1PageImages,
+    onOpen: (Jiaocai1ShelfRecord) -> Unit,
+    onRemove: suspend (String) -> Unit,
+) {
+    val scope = rememberCoroutineScope()
+    val listState = rememberRetainedLazyStaggeredGridState("jiaocai1_shelf")
+    // 移出书架会连阅读进度一起丢，先确认再删
+    var pendingRemove by remember { mutableStateOf<Jiaocai1ShelfRecord?>(null) }
+
+    pendingRemove?.let { target ->
+        WindowDialog(
+            show = true,
+            title = "移出书架",
+            summary = "将「${target.title.ifBlank { "未命名教材" }}」移出书架，阅读进度会一并清除。书本身仍可通过检索重新打开。",
+            onDismissRequest = { pendingRemove = null },
+        ) {
+            Row(Modifier.fillMaxWidth()) {
+                TextButton(
+                    text = "取消",
+                    onClick = { pendingRemove = null },
+                    modifier = Modifier.weight(1f),
+                )
+                Spacer(Modifier.width(20.dp))
+                TextButton(
+                    text = "移出",
+                    onClick = {
+                        val ssno = target.ssno
+                        pendingRemove = null
+                        scope.launch { onRemove(ssno) }
+                    },
+                    modifier = Modifier.weight(1f),
+                    colors = ButtonDefaults.textButtonColorsPrimary(),
+                )
+            }
+        }
+    }
+
+    if (items.isEmpty()) {
+        EmptyState(
+            title = "书架还是空的",
+            subtitle = "打开过的书和读到哪页会记在这里",
+            icon = Icons.AutoMirrored.Filled.LibraryBooks,
+            modifier = Modifier.fillMaxSize(),
+        )
+        return
+    }
+
+    // 宽屏书架分两三列（见 AdaptiveCardGrid）
+    AdaptiveCardGrid(
+        state = listState,
+        modifier = Modifier.fillMaxSize().overScrollVertical(),
+        spacing = 10.dp,
+        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+    ) {
+        fullLineItem {
+            Text(
+                "共 ${items.size} 本",
+                style = MiuixTheme.textStyles.footnote1,
+                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp),
+            )
+        }
+        items(items, key = { it.ssno }) { row ->
+            ShelfCard(
+                row = row,
+                images = images,
+                onOpen = { onOpen(row) },
+                onRemove = { pendingRemove = row },
+            )
+        }
+        fullLineItem { Spacer(Modifier.height(60.dp)) }
+    }
+}
+
+@Composable
+private fun ShelfCard(
+    row: Jiaocai1ShelfRecord,
+    images: Jiaocai1PageImages,
+    onOpen: () -> Unit,
+    onRemove: () -> Unit,
+) {
+    val progressFrac = if (row.totalPages > 0)
+        ((row.lastReadIndex + 1f) / row.totalPages).coerceIn(0f, 1f)
+    else 0f
+    val progressLabel = if (row.totalPages > 0)
+        "第 ${row.lastReadIndex + 1} / ${row.totalPages} 页"
+    else
+        "第 ${row.lastReadIndex + 1} 页"
+    val whenLabel = relativeReadAt(row.lastReadAt)
+
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = SinkFeedback(),
+                onClick = onOpen,
+            ),
+        cornerRadius = 18.dp,
+        colors = CardDefaults.defaultColors(color = AppCardColor),
+    ) {
+        Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
+            CoverThumb(
+                url = row.coverUrl,
+                images = images,
+                title = row.title,
+                width = 64.dp,
+                height = 88.dp,
+            )
+            Spacer(Modifier.width(14.dp))
+            Column(Modifier.weight(1f)) {
+                Text(
+                    row.title.ifBlank { "未命名教材" },
+                    style = MiuixTheme.textStyles.body2,
+                    fontWeight = FontWeight.Medium,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                if (row.author.isNotBlank()) {
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        row.author,
+                        style = MiuixTheme.textStyles.footnote1,
+                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+                Spacer(Modifier.height(8.dp))
+                if (row.totalPages > 0) {
+                    LinearProgressIndicator(
+                        progress = progressFrac,
+                        modifier = Modifier.fillMaxWidth(),
+                        height = 3.dp,
+                        colors = ProgressIndicatorDefaults.progressIndicatorColors(
+                            foregroundColor = MiuixTheme.colorScheme.primary,
+                            backgroundColor = AppInsetColor,
+                        ),
+                    )
+                    Spacer(Modifier.height(6.dp))
+                }
+                Text(
+                    listOf(progressLabel, whenLabel).filter { it.isNotBlank() }.joinToString(" · "),
+                    style = MiuixTheme.textStyles.footnote2,
+                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                )
+            }
+            // 48dp 触摸目标：紧挨着整卡点击区，小了极易误触进阅读器
+            Box(
+                Modifier
+                    .size(48.dp)
+                    .clip(CircleShape)
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = SinkFeedback(),
+                        onClick = onRemove,
+                    ),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    Icons.Outlined.Delete,
+                    contentDescription = "移出书架",
+                    modifier = Modifier.size(20.dp),
+                    tint = MiuixTheme.colorScheme.onSurfaceVariantActions,
+                )
+            }
+        }
+    }
+}
+
+private fun relativeReadAt(at: Long): String {
+    if (at <= 0L) return ""
+    val min = (Clock.System.now().toEpochMilliseconds() - at) / 60_000L
+    return when {
+        min < 1 -> "刚刚"
+        min < 60 -> "${min} 分钟前"
+        min < 60 * 24 -> "${min / 60} 小时前"
+        min < 60 * 24 * 7 -> "${min / (60 * 24)} 天前"
+        else -> monthDayCn(at)
+    }
+}
+
+// ── 检索页 ───────────────────────────────────────────────────────────
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun SearchTab(
+    /** true 时检索框下面放 [browse]（分类树），不放检索结果。见 Jiaocai1BrowseContent。 */
+    showBrowse: Boolean,
+    browse: @Composable () -> Unit,
+    keyword: String,
+    onKeywordChange: (String) -> Unit,
+    field: Jiaocai1SearchField,
+    onFieldChange: (Jiaocai1SearchField) -> Unit,
+    clsName: String,
+    onClearCls: () -> Unit,
+    books: List<Jiaocai1Book>,
+    result: Jiaocai1SearchResult?,
+    loading: Boolean,
+    @Suppress("UNUSED_PARAMETER") loadingMore: Boolean,
+    moreFailed: Boolean,
+    error: String?,
+    images: Jiaocai1PageImages,
+    onSearch: () -> Unit,
+    onLoadMore: () -> Unit,
+    onOpenBook: (Jiaocai1Book) -> Unit,
+) {
+    val listState = rememberRetainedLazyStaggeredGridState("jiaocai1_search_${field.key}_$clsName")
+    Column(Modifier.fillMaxSize()) {
+        Card(
+            modifier = Modifier
+                .readableWidth()
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 4.dp),
+            cornerRadius = 18.dp,
+            colors = CardDefaults.defaultColors(color = AppCardColor),
+        ) {
+            Column(Modifier.padding(12.dp)) {
+                AppSearchBar(
+                    query = keyword,
+                    onQueryChange = onKeywordChange,
+                    label = "按${field.label}检索",
+                    onSearch = { onSearch() },
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Spacer(Modifier.height(10.dp))
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Jiaocai1SearchField.entries.forEach { f ->
+                        AppFilterChip(
+                            selected = f == field,
+                            onClick = { onFieldChange(f) },
+                            label = f.label,
+                        )
+                    }
+                }
+                if (clsName.isNotBlank()) {
+                    Spacer(Modifier.height(10.dp))
+                    Row(
+                        Modifier
+                            .fillMaxWidth()
+                            .squircleSurface(
+                                color = MiuixTheme.colorScheme.tertiaryContainer,
+                                cornerRadius = 10.dp,
+                            )
+                            .clickable(
+                                interactionSource = remember { MutableInteractionSource() },
+                                indication = SinkFeedback(),
+                                onClick = onClearCls,
+                            )
+                            .padding(horizontal = 10.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            "限定",
+                            style = MiuixTheme.textStyles.footnote2,
+                            color = MiuixTheme.colorScheme.onTertiaryContainer.copy(alpha = 0.7f),
+                        )
+                        Spacer(Modifier.width(6.dp))
+                        Text(
+                            clsName,
+                            style = MiuixTheme.textStyles.footnote1,
+                            color = MiuixTheme.colorScheme.onTertiaryContainer,
+                            fontWeight = FontWeight.Medium,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f),
+                        )
+                        Icon(
+                            Icons.Default.Close,
+                            contentDescription = "取消分类限定",
+                            modifier = Modifier.size(14.dp),
+                            tint = MiuixTheme.colorScheme.onTertiaryContainer,
+                        )
+                    }
+                }
+            }
+        }
+
+        when {
+            showBrowse -> Box(Modifier.weight(1f).fillMaxSize()) { browse() }
+            loading -> LoadingState("正在检索…", modifier = Modifier.weight(1f).fillMaxSize())
+            error != null -> ErrorState(error, onRetry = onSearch, modifier = Modifier.weight(1f).fillMaxSize())
+            result == null -> EmptyState(
+                title = "输入书名或选个分类",
+                subtitle = "试试按分类浏览，常比关键词好找",
+                icon = Icons.AutoMirrored.Filled.LibraryBooks,
+                modifier = Modifier.weight(1f).fillMaxSize(),
+            )
+            books.isEmpty() -> EmptyState(
+                title = "没有匹配的书目",
+                subtitle = "换个字段试试；索书号、ISBN 需完全匹配",
+                icon = Icons.AutoMirrored.Filled.MenuBook,
+                modifier = Modifier.weight(1f).fillMaxSize(),
+            )
+            // 宽屏检索结果分两三列（见 AdaptiveCardGrid）
+            else -> AdaptiveCardGrid(
+                state = listState,
+                modifier = Modifier.weight(1f).overScrollVertical(),
+                spacing = 10.dp,
+                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+            ) {
+                fullLineItem {
+                    Text(
+                        "共 ${result.totalRows} 条",
+                        style = MiuixTheme.textStyles.footnote1,
+                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                        modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp),
+                    )
+                }
+                items(books, key = { it.ssno }) { book ->
+                    Jiaocai1BookCard(book = book, images = images, onClick = { onOpenBook(book) })
+                }
+                if (result.hasMore) {
+                    fullLineItem {
+                        if (moreFailed) {
+                            Box(
+                                Modifier.fillMaxWidth().padding(vertical = 16.dp),
+                                contentAlignment = Alignment.Center
+                            ) { TextButton(text = "加载失败，点击重试", onClick = onLoadMore) }
+                        } else {
+                            LaunchedEffect(result.currentPage) { onLoadMore() }
+                            Box(
+                                Modifier.fillMaxWidth().padding(vertical = 16.dp),
+                                contentAlignment = Alignment.Center
+                            ) { CircularProgressIndicator() }
+                        }
+                    }
+                }
+                fullLineItem { Spacer(Modifier.height(60.dp)) }
+            }
+        }
+    }
+}
+
+@Composable
+private fun Jiaocai1BookCard(
+    book: Jiaocai1Book,
+    images: Jiaocai1PageImages,
+    onClick: () -> Unit,
+) {
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = SinkFeedback(),
+                onClick = onClick,
+            ),
+        cornerRadius = 18.dp,
+        colors = CardDefaults.defaultColors(color = AppCardColor),
+    ) {
+        Row(Modifier.padding(14.dp), verticalAlignment = Alignment.Top) {
+            CoverThumb(
+                url = book.coverUrl,
+                images = images,
+                title = book.title,
+                width = 56.dp,
+                height = 76.dp,
+            )
+            Spacer(Modifier.width(14.dp))
+            Column(Modifier.weight(1f)) {
+                Text(
+                    book.title, style = MiuixTheme.textStyles.body2, fontWeight = FontWeight.Medium,
+                    maxLines = 2, overflow = TextOverflow.Ellipsis,
+                )
+                val meta = listOf(book.author, book.publishDate).filter { it.isNotBlank() }
+                if (meta.isNotEmpty()) {
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        meta.joinToString(" · "),
+                        style = MiuixTheme.textStyles.footnote1,
+                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                        maxLines = 1, overflow = TextOverflow.Ellipsis,
+                    )
+                }
+                if (book.callNo.isNotBlank()) {
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        "索书号 ${book.callNo}",
+                        style = MiuixTheme.textStyles.footnote2,
+                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun CoverThumb(
+    url: String,
+    images: Jiaocai1PageImages,
+    title: String = "",
+    width: Dp = 56.dp,
+    height: Dp = 76.dp,
+) {
+    var bitmap by remember(url) { mutableStateOf<androidx.compose.ui.graphics.ImageBitmap?>(null) }
+    LaunchedEffect(url) { bitmap = images.loadCover(url, 200) }
+    val (top, bottom) = remember(title) { coverPalette(title) }
+    val initial = remember(title) { coverInitial(title) }
+    val corner = 8.dp
+    val outline = MiuixTheme.colorScheme.outline.copy(alpha = 0.18f)
+
+    Box(
+        Modifier
+            .width(width)
+            .height(height)
+            .squircleSurface(color = top, cornerRadius = corner)
+            .squircleBorder(width = { 0.6.dp }, color = { outline }, cornerRadius = corner),
+        contentAlignment = Alignment.Center,
+    ) {
+        Box(
+            Modifier
+                .fillMaxSize()
+                .background(Brush.verticalGradient(listOf(top, bottom))),
+        )
+        val bmp = bitmap
+        if (bmp != null) {
+            Image(
+                bitmap = bmp,
+                contentDescription = null,
+                modifier = Modifier.fillMaxSize(),
+                contentScale = ContentScale.Crop,
+            )
+        } else {
+            Text(
+                initial,
+                style = MiuixTheme.textStyles.title3,
+                fontWeight = FontWeight.SemiBold,
+                color = Color.White.copy(alpha = 0.92f),
+            )
+        }
+    }
+}
+
+private fun coverInitial(title: String): String {
+    val ch = title.firstOrNull { !it.isWhitespace() } ?: '书'
+    return ch.uppercaseChar().toString()
+}
+
+private fun coverPalette(title: String): Pair<Color, Color> {
+    val palettes = listOf(
+        Color(0xFF6B7BB8) to Color(0xFF44518A),
+        Color(0xFF6A8F7A) to Color(0xFF446354),
+        Color(0xFFB07A62) to Color(0xFF8A5644),
+        Color(0xFF7A6B8F) to Color(0xFF54486A),
+        Color(0xFF8A7A5C) to Color(0xFF5C503C),
+        Color(0xFF5C7A8A) to Color(0xFF3C5460),
+    )
+    val i = (title.hashCode().toLong() and 0x7fffffffL).toInt() % palettes.size
+    return palettes[i]
+}
+
+// ── 分类浏览页 ───────────────────────────────────────────────────────
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun CategoryTab(
+    vm: Jiaocai1ViewModel,
+    onPick: (Jiaocai1Category) -> Unit,
+) {
+    LaunchedEffect(Unit) { vm.loadCategories() }
+    BackHandler(enabled = vm.categoryPath.isNotEmpty()) {
+        vm.categoryPath = vm.categoryPath.dropLast(1)
+    }
+
+    val current = vm.categoryPath.lastOrNull()?.children ?: vm.categoryRoots
+    val pathKey = vm.categoryPath.joinToString("/") { it.id }
+    val listState = rememberRetainedLazyListState("jiaocai1_cat_$pathKey")
+    val here = vm.categoryPath.lastOrNull()
+
+    Column(Modifier.fillMaxSize()) {
+        when {
+            vm.categoryLoading -> LoadingState("正在加载分类…", modifier = Modifier.weight(1f).fillMaxSize())
+            vm.categoryError != null -> ErrorState(
+                vm.categoryError!!,
+                onRetry = { vm.reloadCategories() },
+                modifier = Modifier.weight(1f).fillMaxSize(),
+            )
+            else -> LazyColumn(
+                state = listState,
+                // 分类树是一张长卡片，宽屏限宽居中就好，分列反而打乱层级
+                modifier = Modifier.weight(1f).readableWidth().overScrollVertical(),
+                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+            ) {
+                if (vm.categoryPath.isNotEmpty()) {
+                    item {
+                        CategoryPathBar(
+                            path = vm.categoryPath,
+                            onJump = { i ->
+                                vm.categoryPath = if (i < 0) emptyList() else vm.categoryPath.take(i + 1)
+                            },
+                        )
+                        Spacer(Modifier.height(10.dp))
+                    }
+                }
+                item {
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        cornerRadius = 16.dp,
+                        colors = CardDefaults.defaultColors(color = AppCardColor),
+                    ) {
+                        Column {
+                            if (here != null) {
+                                CategoryBrowseAllRow(node = here, onClick = { onPick(here) })
+                                if (current.isNotEmpty()) {
+                                    HorizontalDivider(Modifier.padding(horizontal = 16.dp))
+                                }
+                            }
+                            current.forEachIndexed { index, node ->
+                                CategoryRow(
+                                    node = node,
+                                    onClick = {
+                                        if (node.children.isEmpty()) onPick(node)
+                                        else vm.categoryPath = vm.categoryPath + node
+                                    },
+                                )
+                                if (index < current.lastIndex) {
+                                    HorizontalDivider(Modifier.padding(start = 62.dp, end = 16.dp))
+                                }
+                            }
+                        }
+                    }
+                }
+                item { Spacer(Modifier.height(60.dp)) }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun CategoryPathBar(
+    path: List<Jiaocai1Category>,
+    onJump: (Int) -> Unit,
+) {
+    FlowRow(
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        CategoryPathChip(label = "全部", selected = false, onClick = { onJump(-1) })
+        path.forEachIndexed { i, node ->
+            CategoryPathChip(
+                label = node.name,
+                selected = i == path.lastIndex,
+                onClick = { onJump(i) },
+            )
+        }
+    }
+}
+
+@Composable
+private fun CategoryPathChip(
+    label: String,
+    selected: Boolean,
+    onClick: () -> Unit,
+) {
+    val bg = if (selected) MiuixTheme.colorScheme.tertiaryContainer else Color.Transparent
+    val fg = if (selected) MiuixTheme.colorScheme.onTertiaryContainer
+    else MiuixTheme.colorScheme.onSurfaceVariantSummary
+    val outline = MiuixTheme.colorScheme.outline
+    val corner = 10.dp
+    Box(
+        Modifier
+            .squircleSurface(color = bg, cornerRadius = corner)
+            .squircleBorder(
+                width = { if (selected) 0.dp else 1.dp },
+                color = { outline },
+                cornerRadius = corner,
+            )
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = SinkFeedback(),
+                onClick = onClick,
+            )
+            .padding(horizontal = 12.dp, vertical = 6.dp),
+    ) {
+        Text(
+            label,
+            style = MiuixTheme.textStyles.footnote1,
+            fontWeight = if (selected) FontWeight.Medium else FontWeight.Normal,
+            color = fg,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+    }
+}
+
+@Composable
+private fun CategoryBrowseAllRow(
+    node: Jiaocai1Category,
+    onClick: () -> Unit,
+) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = SinkFeedback(),
+                onClick = onClick,
+            )
+            .padding(horizontal = 14.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        CategoryMark(label = "书", tinted = true)
+        Spacer(Modifier.width(12.dp))
+        Column(Modifier.weight(1f)) {
+            Text(
+                "查看本类图书",
+                style = MiuixTheme.textStyles.body2,
+                fontWeight = FontWeight.Medium,
+                color = MiuixTheme.colorScheme.primary,
+            )
+            Text(
+                node.name,
+                style = MiuixTheme.textStyles.footnote2,
+                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+        Icon(
+            Icons.Default.ChevronRight, null, Modifier.size(18.dp),
+            tint = MiuixTheme.colorScheme.primary,
+        )
+    }
+}
+
+@Composable
+private fun CategoryRow(
+    node: Jiaocai1Category,
+    onClick: () -> Unit,
+) {
+    val hasChildren = node.children.isNotEmpty()
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = SinkFeedback(),
+                onClick = onClick,
+            )
+            .padding(horizontal = 14.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        CategoryMark(label = node.name)
+        Spacer(Modifier.width(12.dp))
+        Column(Modifier.weight(1f)) {
+            Text(
+                node.name,
+                style = MiuixTheme.textStyles.body2,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+            if (hasChildren) {
+                Text(
+                    "${node.children.size} 个子类",
+                    style = MiuixTheme.textStyles.footnote2,
+                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                )
+            }
+        }
+        if (hasChildren) {
+            Icon(
+                Icons.Default.ChevronRight, null, Modifier.size(18.dp),
+                tint = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+            )
+        }
+    }
+}
+
+@Composable
+private fun CategoryMark(label: String, tinted: Boolean = false) {
+    val ch = coverInitial(label)
+    val bg = if (tinted) MiuixTheme.colorScheme.primary.copy(alpha = 0.12f)
+    else MiuixTheme.colorScheme.tertiaryContainer
+    val fg = if (tinted) MiuixTheme.colorScheme.primary
+    else MiuixTheme.colorScheme.onTertiaryContainer
+    Box(
+        Modifier
+            .size(36.dp)
+            .squircleSurface(color = bg, cornerRadius = 10.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            ch,
+            style = MiuixTheme.textStyles.subtitle,
+            fontWeight = FontWeight.SemiBold,
+            color = fg,
+        )
+    }
+}
+
+// `SimpleDateFormat("M月d日", Locale.CHINA)` 是 JVM 专属 ⇒ 手写（`:core` 的既有做法，见
+// `feedback/FeedbackScreen.monthDayCn`）。用系统默认时区，与搬迁前那个 `SimpleDateFormat` 同一条口径。
+private fun monthDayCn(epochMs: Long): String {
+    val date = Instant.fromEpochMilliseconds(epochMs)
+        .toLocalDateTime(TimeZone.currentSystemDefault()).date
+    return "${date.monthNumber}月${date.dayOfMonth}日"
+}

@@ -65,6 +65,13 @@ object ApiErrors {
     const val LOGIN_BUSY = 409
     const val LOGIN_BUSY_MESSAGE = "已有一次登录正在进行（可能在等短信验证码），请稍后再试或先取消它"
 
+    /**
+     * 上游**明确说这次写动作不成**（座位已被他人预约 / 已有别的预约 / 不在开放时间 / 当前预约上没有这个
+     * 操作）。与 [LOGIN_BUSY] 同一个码、同一种意思 ——「现在不能」，区别只在谁在说不行（那一条是本进程，
+     * 这一条是上游）。重发同样的请求没有意义，所以不是 [UPSTREAM_FAILED]。
+     */
+    const val ACTION_REJECTED = 409
+
     const val LOGIN_BODY_MESSAGE = "请求体需要 JSON：{\"username\":\"…\",\"password\":\"…\"}"
     const val MFA_BODY_MESSAGE = "请求体需要 JSON：{\"code\":\"…\"} 或 {\"cancel\":true}"
 

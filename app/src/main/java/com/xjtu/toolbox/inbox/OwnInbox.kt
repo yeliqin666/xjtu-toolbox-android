@@ -39,7 +39,9 @@ object OwnInbox {
         }.getOrNull()
         return InboxItem(
             id = "bulletin:${b.id}", category = InboxCategories.BULLETIN, source = "工具箱",
-            title = b.title, body = b.body, time = b.startsAt?.toEpochMilli() ?: dated ?: Clock.System.now().toEpochMilliseconds(),
+            // `Bulletin` 与它的 `Instant` 都搬进了 `:core`（kotlinx-datetime）⇒ 取毫秒的那一档
+            // 叫 `toEpochMilliseconds()`（`java.time` 的 `toEpochMilli()` 只差一个 s）。
+            title = b.title, body = b.body, time = b.startsAt?.toEpochMilliseconds() ?: dated ?: Clock.System.now().toEpochMilliseconds(),
             route = b.url?.let { com.xjtu.toolbox.nav.AppRoute.Browser(it).id },
         )
     }

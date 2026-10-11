@@ -535,7 +535,13 @@ internal fun MainScreen(
                         modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = floatingBarReserve),
                     )
 
-                    FeedbackPromptSheet()
+                    // 屏已搬进 `:core`（取数是 `:data` 的 `AppFeedbackSource`）；版本号/版本名是
+                    // 构建常量，`:core` 不认识 ⇒ 在调用点传进去（判定逻辑一字未改）。
+                    FeedbackPromptSheet(
+                        source = com.xjtu.toolbox.feedback.AppFeedbackSource,
+                        versionCode = com.xjtu.toolbox.BuildConfig.VERSION_CODE,
+                        versionName = com.xjtu.toolbox.BuildConfig.VERSION_NAME,
+                    )
                     PasswordInvalidatedDialog(loginState, onUpdatePassword = { router.open(AppRoute.Settings) })
                 }
             }

@@ -47,6 +47,11 @@ fun main() = application {
     // 会话管家 + 凭据存储 + 登录状态。建在这里（而不是某个屏里）是因为它必须活得比任何一屏长：
     // 登录发生在登录页，取数发生在图书馆屏，MFA 弹窗挂在整棵树上，三者共用同一个管家。
     val auth = remember { DesktopAuth() }
+    // 反馈后端的凭据：搬进 `:data` 的 FeedbackApi 不再读构建常量（`:data` 是 JVM/Android 共用的
+    // 模块）⇒ 桌面端在这里注入一次（构建期从同一份 feedback.properties / 环境变量注入，
+    // 见 `DesktopBuildConfig`）。没有凭据时 isConfigured=false ⇒ 反馈页降级成只剩 GitHub 外链，
+    // 与 Android 那条口径完全一致。
+    DesktopFeedback.install()
     Window(
         onCloseRequest = ::exitApplication,
         title = "西交工具箱（桌面预览 · Stage A）",

@@ -36,3 +36,14 @@ actual fun decodeImagePixels(bytes: ByteArray): ImagePixels? = null
 actual fun decodeImageFull(bytes: ByteArray): ImageBitmap? = runCatching {
     Image.makeFromEncoded(bytes).toComposeImageBitmap()
 }.getOrNull()
+
+/** Web 侧：skiko 没有 `inSampleSize` ⇒ 全尺寸解码（见 expect）。 */
+actual fun decodeImageDownToWidth(
+    bytes: ByteArray,
+    size: IntSize,
+    wantWidthPx: Int,
+    halveSample: Boolean,
+): ImageBitmap? = decodeImageFull(bytes)
+
+/** Web 侧：浏览器不给「可用内存」这一档 ⇒ 固定 32MB（与桌面同一条如实口径）。 */
+actual fun imageMemoryCacheBudgetBytes(): Int = 32 * 1024 * 1024

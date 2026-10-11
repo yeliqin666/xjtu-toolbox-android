@@ -21,6 +21,12 @@ fun LmsActivity.deadlineInstant(): Instant? {
 }
 
 /**
+ * 解析一条**上游时间串**（不挑 deadline / endTime）。详情页的「剩 N 分钟/小时/天」与「已过期」
+ * 用它：详情串与截止串同一种形状（带偏移的 ISO），解析不了返回 null（不猜）。
+ */
+fun lmsInstant(raw: String): Instant? = runCatching { Instant.parse(stripZoneName(raw)) }.getOrNull()
+
+/**
  * `ZonedDateTime.parse` 认 `2026-09-14T00:00:00+08:00[Asia/Shanghai]` 这种带时区名的形状，
  * ISO 的 `Instant.parse` 不认（它只认到偏移量）。上游两种都给过，所以这里把尾部的
  * `[Zone]` 去掉再解析 —— 偏移量还在，时刻不变。

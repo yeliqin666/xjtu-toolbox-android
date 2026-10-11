@@ -1,0 +1,125 @@
+package com.xjtu.toolbox.attendance
+
+import com.xjtu.toolbox.account.AccountContext
+import com.xjtu.toolbox.platform.Log
+import com.xjtu.toolbox.platform.keyValueStore
+import com.xjtu.toolbox.util.AppJson
+
+private const val TAG = "AttendanceStore"
+
+/**
+ * 一学期考勤流水的落盘缓存，按教务学期码（`2025-2026-2`）分片。
+ * 键选它是因为课表和考勤流水的 `termString` 都是这个格式。
+ *
+ * 刷新分层——老师改考勤没有时间限制，期末回头补第 3 周是常事，只做增量看不到那种修改，
+ * 但每次全量又太贵：
+ *
+ * - 历史学期：结束了不会再改，永久命中，一个请求不发
+ * - 当前学期：[FRESH_TTL_MS] 内直接用；过期只补最近 [INCREMENTAL_DAYS] 天
+ * - 兜底：距上次全量超过 [FULL_RESCAN_MS] 整学期重扫一遍
+ * - 下拉刷新：强制全量
+ *
+ * 从 `:app` 的 `attendance/AttendanceRecordStore.kt` 整份搬进 `:data`（同包、同类名，桌面端第 16 条
+ * 真数据路由那一批），只换了两处住址：
+ *
+ * - **落盘**：原来收 `android.content.Context` 自己开 `SharedPreferences`，现在走 `:core` 的
+ *   平台键值缝 [keyValueStore] —— Android 侧的 actual 就是**同一个文件名的 `SharedPreferences`**
+ *   （`attendance_records_ug|pg<suffix>`，键是学期码）⇒ 老缓存一个不丢，不需要迁移代码；
+ * - **日志**：`android.util.Log.d` → `:core` 的 [Log].d。
+ *
+ * 各方法的 `Context` 参数全部去掉（`:app` 的 `schedule/CourseLinks.kt` 是唯一调用方，跟着改名），
+ * 其余签名、常量、`Shard` 的字段与 `merge` / `planFor` 的编排一字未改。
+ */
+object AttendanceRecordStore {
+
+    /** 当前学期缓存的新鲜期。这段时间内不发任何请求。 */
+    const val FRESH_TTL_MS = 2L * 60 * 60 * 1000
+
+    /** 增量刷新回看的天数。 */
+    const val INCREMENTAL_DAYS = 3L
+
+    /** 全量重扫间隔，用来捞老师事后修改的早期记录。 */
+    const val FULL_RESCAN_MS = 3L * 24 * 60 * 60 * 1000
+
+    @kotlinx.serialization.Serializable
+    data class Shard(
+        val termCode: String = "",
+        val records: List<AttendanceWaterRecord> = emptyList(),
+        /** 上次任意刷新的时刻。 */
+        val fetchedAt: Long = 0L,
+        /** 上次**全量**刷新的时刻。增量刷新不更新它。 */
+        val fullScanAt: Long = 0L,
+    )
+
+    /** [accountId] 由调用方在发起拉取时定下，避免结果回来时已切账号而写错命名空间。 */
+    private fun store(postgraduate: Boolean, accountId: String?) = keyValueStore(
+        (if (postgraduate) "attendance_records_pg" else "attendance_records_ug") +
+            AccountContext.suffixFor(accountId),
+    )
+
+    fun load(
+        postgraduate: Boolean,
+        termCode: String,
+        accountId: String? = AccountContext.activeAccountId,
+    ): Shard? {
+        if (termCode.isBlank()) return null
+        val raw = store(postgraduate, accountId).getString(termCode) ?: return null
+        return runCatching { AppJson.decodeFromString<Shard>(raw) }.getOrNull()
+            ?.takeIf { it.records.isNotEmpty() }
+    }
+
+    fun save(
+        postgraduate: Boolean,
+        shard: Shard,
+        accountId: String? = AccountContext.activeAccountId,
+    ) {
+        runCatching {
+            store(postgraduate, accountId).putString(shard.termCode, AppJson.encodeToString(shard))
+        }
+    }
+
+    /**
+     * 合并新旧记录，同一条以新盖旧。
+     *
+     * 去重键取 `sbh`：老师改状态时 sbh 不变、status 变，新的在前于是覆盖旧的。
+     * sbh 为空的脏数据退回四元组，至少不会互相吞掉。
+     */
+    fun merge(
+        fresh: List<AttendanceWaterRecord>,
+        cached: List<AttendanceWaterRecord>,
+    ): List<AttendanceWaterRecord> =
+        (fresh + cached)
+            .distinctBy { it.sbh.ifBlank { "${it.date}|${it.startTime}|${it.courseName}|${it.location}" } }
+            .sortedByDescending { it.date }
+
+    /** 该做哪种刷新。 */
+    enum class Plan {
+        /** 缓存够用，不发请求。 */
+        NONE,
+
+        /** 只补最近几天。 */
+        INCREMENTAL,
+
+        /** 整学期重扫。 */
+        FULL,
+    }
+
+    /**
+     * @param sealedTerm 这个学期是否已经结束（数据不会再变）。
+     * @param force 用户主动下拉刷新。
+     */
+    fun planFor(shard: Shard?, sealedTerm: Boolean, force: Boolean): Plan {
+        if (force) return Plan.FULL
+        if (shard == null) return Plan.FULL
+        if (sealedTerm) return Plan.NONE
+        val now = System.currentTimeMillis()
+        if (now - shard.fullScanAt > FULL_RESCAN_MS) return Plan.FULL
+        if (now - shard.fetchedAt > FRESH_TTL_MS) return Plan.INCREMENTAL
+        return Plan.NONE
+    }
+
+    fun logPlan(termCode: String, plan: Plan, shard: Shard?) {
+        val age = shard?.let { (System.currentTimeMillis() - it.fetchedAt) / 60000 }
+        Log.d(TAG, "$termCode: $plan（缓存 ${shard?.records?.size ?: 0} 条，${age ?: "-"} 分钟前）")
+    }
+}

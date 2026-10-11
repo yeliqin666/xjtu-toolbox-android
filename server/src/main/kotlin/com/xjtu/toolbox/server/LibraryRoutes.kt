@@ -2,13 +2,16 @@ package com.xjtu.toolbox.server
 
 import com.xjtu.toolbox.auth.SessionExpiredException
 import com.xjtu.toolbox.auth.SiteSession
+import com.xjtu.toolbox.library.BookResult
 import com.xjtu.toolbox.library.LibraryApi
 import com.xjtu.toolbox.library.LibraryCampus
 import com.xjtu.toolbox.library.LibrarySession
 import com.xjtu.toolbox.library.SeatResult
 import io.ktor.server.response.respond
+import io.ktor.server.application.ApplicationCall
 import io.ktor.server.routing.Route
 import io.ktor.server.routing.get
+import io.ktor.server.routing.post
 import io.ktor.server.routing.route
 import kotlinx.serialization.Serializable
 import okhttp3.OkHttpClient
@@ -16,7 +19,7 @@ import okhttp3.Request
 import okhttp3.Response
 
 /**
- * `/api/library*` —— 四个端点（`docs/api-contract.md` §5 的 P0），全部走 `:data` 的
+ * `/api/library*` —— 五个端点（`docs/api-contract.md` §5 的 P0 读 + §5.3.1 的写），全部走 `:data` 的
  * [LibraryApi]（通过 [ServerLibrarySession] 这个缝接到会话内核）：取数/解析一行不重做。
  *
  * | 端点 | 对应端口方法 |
@@ -25,6 +28,7 @@ import okhttp3.Response
  * | `GET /api/library/areas` | `LibraryApi.getFloorAreas()` + `cachedAreaStats`（`AreaStats`） |
  * | `GET /api/library/seats` | `LibraryApi.getSeats()`（`SeatResult`） |
  * | `GET /api/library/my` | `LibraryApi.fetchMyBooking()`（`Result<MyBookingInfo?>`） |
+ * | `POST /api/library/action` | `LibraryApi.bookSeat` / `swapSeat` / `executeAction` / `switchCampus`（**写**，动作表见 §5.3.1） |
  *
  * ## 逐字段映射（判据是 `CampusLibraryApi` 的 KDoc 表 + `:data` 的实现）
  *
@@ -41,15 +45,16 @@ import okhttp3.Response
  *   上游**：`:data` 的 `getSeats` 只有 `area` 一维（`qseat?sp=`），时间维度是 TODO（见返回报告）；
  * - **my**：`{my: MyBookingInfo|null}`。`success(null)` = 页面明确说「没有预约」⇒ `my: null`
  *   （§4：null = 上游明确说没有，≠ 空对象）；`failure` = 502。
- *   ⚠️ `MyBookingInfo.actionUrls` **不投影**：那些 URL 指向上游站点（`rg.lib.xjtu.edu.cn`），
- *   而执行动作的 `/api/library/action` 是 P1 写端点、不实现 —— 投影出来就是给浏览器一个
- *   「点了会失败的按钮」（canBook=true 只声明能力，按 §2 开关语义客户端据此画按钮，P1 再接线）。
+ *   `actionUrls` = 页面上那几个动作**→ 上游那条地址**（`LibraryApi.MyBookingInfo.actionUrls` 原样投影）。
+ *   客户端只把它当**不透明句柄**（认得出自己刚拿到的那一条）；「要执行哪个动作」说的是 `action` 码，
+ *   地址由服务端自己从当前预约页上取 —— 这一层不让客户端指定「拿我的会话去打哪个地址」（§5.3.1）。
  *
  * ## 能力开关
  *
- * `canBook = true`（`:data` 的写路径一行未改，是会真成功的）、`hasSeatPlan = true`
- * （布局/底图端点都在）。**写端点本身（book/swap/action）是 P1，本层不实现** —— 能力开关
- * 如实报，端点如实 404，两件事不互相掩盖。
+ * `canBook = true`：`/api/library/action` 是本层实现的**真**写端点（约座 / 换座 / 签到 / 中途离开 /
+ * 中途返回 / 退座 / 切校区），写路径一行未改地走 `:data`。`hasSeatPlan = true`：布局与底图在 `:data`
+ * 里都在 —— 但**布局/底图端点不在 §5 的 library 那几条里**，所以那一档还是 P2（`:web` 侧据此报
+ * `false`，见 §5.4）：`canBook` 说的是「能约座」，不是「能看平面图」，两件事各报各的。
  *
  * @param session 会话装配；图书馆站点从 `session.sessionManager` 取。
  */
@@ -167,8 +172,14 @@ internal fun Route.libraryRoutes(session: ServeSession) {
                 call.respond(
                     ApiEnvelope.ok(
                         MyBookingData(
-                            // success(null) = 页面明确说「没有预约」⇒ null（§4：null ≠ 空对象）
-                            my = info?.let { MyBookingInfoDto(it.seatId, it.area, it.statusText) },
+                            my = info?.let {
+                                MyBookingInfoDto(
+                                    it.seatId,
+                                    it.area,
+                                    it.statusText,
+                                    it.actionUrls,
+                                )
+                            },
                         ),
                     ),
                 )
@@ -176,8 +187,183 @@ internal fun Route.libraryRoutes(session: ServeSession) {
                 call.respondUpstreamFailure(e, "加载我的预约")
             }
         }
+
+        // ── 写：约座 / 换座 / 签到 / 中途离开 / 中途返回 / 退座 / 切校区 ────────
+        //
+        // 一个端点、一条动作轴（`data.action`），不是七个路径：这些动作共用同一条会话、同一套失败码、
+        // 同一份信封，拆开只会多六处要同步的形状。动作表与请求/响应例子在契约 §5.3.1。
+        post(LIBRARY_ACTION) {
+            if (!session.authenticated) return@post call.respondLoginRequired()
+            val body = call.receiveOrNull<LibraryActionRequest>()
+                ?: return@post call.respondBadRequestMessage(LIBRARY_ACTION_BODY_MESSAGE)
+            val api = session.libraryApi()
+            when (val action = body.action.trim()) {
+                LIBRARY_ACTION_SEAT, LIBRARY_ACTION_CHANGE -> {
+                    val seatId = body.seatId?.trim().orEmpty()
+                    val area = body.area?.trim().orEmpty()
+                    if (seatId.isEmpty() || area.isEmpty()) {
+                        return@post call.respondBadRequestMessage(
+                            "action=$action 要带 seatId 与 area（座位号与区域码）",
+                        )
+                    }
+                    call.respondLibraryAction(if (action == LIBRARY_ACTION_SEAT) "预约座位" else "换座") {
+                        if (action == LIBRARY_ACTION_SEAT) api.bookSeat(seatId, area, body.autoSwap)
+                        else api.swapSeat(seatId, area)
+                    }
+                }
+
+                // 四个 `/my/` 页面动作：「打向哪个地址」不由客户端给 —— 从**当前**预约页上取那条按钮的
+                // 真实地址（`:data` 的 `executeAction` 正是按地址再复核一次「这一枪生效了没有」）。
+                LIBRARY_ACTION_SIGNIN, LIBRARY_ACTION_LEAVE,
+                LIBRARY_ACTION_BACK, LIBRARY_ACTION_CANCEL,
+                -> {
+                    val label = LIBRARY_PAGE_ACTION_LABELS.getValue(action)
+                    val booking = try {
+                        api.fetchMyBooking()
+                    } catch (e: Exception) {
+                        return@post call.respondUpstreamFailure(e, "读取我的预约")
+                    }
+                    if (booking.isFailure) {
+                        return@post call.respondUpstreamFailure(
+                            booking.exceptionOrNull() ?: IllegalStateException("预约页面认不出来"),
+                            "读取我的预约",
+                        )
+                    }
+                    val url = booking.getOrNull()?.actionUrls?.get(label)
+                        ?: return@post call.respondActionRejected("当前预约上没有「$label」这个操作")
+                    call.respondLibraryAction(label) { api.executeAction(url) }
+                }
+
+                LIBRARY_ACTION_SWITCH_CAMPUS -> {
+                    val campus = LibraryCampus.byId(body.campus)
+                        ?: return@post call.respondBadRequestMessage(
+                            "campus 只认 ${LibraryCampus.entries.joinToString(" / ") { it.id }}",
+                        )
+                    val switched = try {
+                        api.switchCampus(campus)
+                    } catch (e: Exception) {
+                        return@post call.respondUpstreamFailure(e, "切换校区")
+                    }
+                    if (!switched) {
+                        // `:data` 的 switchCampus 把「没提交上 / 上游没确认」都吞成 false ⇒ 只能算上游那一层
+                        // 出了问题（502 的含义正是「稍后重试可能就成」）。
+                        return@post call.respondUpstreamFailure(
+                            IllegalStateException("图书馆没有确认这次校区切换"),
+                            "切换校区",
+                        )
+                    }
+                    call.respond(
+                        ApiEnvelope.ok(LibraryActionResult(ok = true, message = "✓ 已切换到${campus.displayName}校区")),
+                    )
+                }
+
+                else -> call.respondBadRequestMessage(
+                    "未知的 action：${body.action}（只认 ${LIBRARY_ACTIONS.joinToString(" / ")}）",
+                )
+            }
+        }
     }
 }
+
+
+// ── 写路径的数据模型（客户端形状）───────────────────────────────────────────
+
+/**
+ * `POST /api/library/action` 的请求体。
+ *
+ * 七个动作共用这一个形状（动作表与例子见契约 §5.3.1）：[action] 说「做什么」，其余字段按动作取用。
+ * 未知的 [action] 或缺了这个动作要的字段 ⇒ 400。
+ */
+@Serializable
+internal data class LibraryActionRequest(
+    /** 动作码：`seat` / `change` / `signin` / `leave` / `back` / `cancel` / `switch_campus`。 */
+    val action: String = "",
+    /** `seat` / `change`：座位号（如 `A01`）。 */
+    val seatId: String? = null,
+    /** `seat` / `change`：区域码（如 `north2east`）。 */
+    val area: String? = null,
+    /** `seat`：已有预约时自动改走换座。默认 `true` —— 与 `:data` 的 `bookSeat` 那个默认值一致。 */
+    val autoSwap: Boolean = true,
+    /** `switch_campus`：校区码 —— `east`（兴庆）/ `west`（雁塔）/ `inno`（创新港）。 */
+    val campus: String? = null,
+)
+
+/** `POST /api/library/action` 成功时的 `data`。 */
+@Serializable
+internal data class LibraryActionResult(
+    /**
+     * 动作做成了没有。**成功响应里恒为 `true`** —— 失败走 4xx + 信封的 `message`（§4：一条信息不出现
+     * 两种写法）。留着这个字段是让「写动作的结果」在 `data` 里显式可见，客户端不用从 HTTP 码反推。
+     */
+    val ok: Boolean,
+    /** `:data` 的 `BookResult.message` 原样转发（「✓ 座位 A01 预约成功！」这种，已是中文短句）。 */
+    val message: String,
+)
+
+// ── 写路径的小工具 ─────────────────────────────────────────────────────
+
+/** 一次写动作的结果 → 信封（契约 §5.3.1）。 */
+private suspend fun ApplicationCall.respondBookResult(result: BookResult) {
+    if (result.success) {
+        return respond(ApiEnvelope.ok(LibraryActionResult(ok = true, message = result.message)))
+    }
+    // `:data` 的 BookResult 只有 `success` + `message`（业务拒绝与网络故障不分档），所以这里只分一处：
+    // 会话失效（那边把话吞进 message 里了）⇒ 401 指路先登录；其余一律 409 + 原文（§5.3.1）。
+    if (LIBRARY_SESSION_EXPIRED_MARK in result.message) return respondLoginRequired()
+    respondActionRejected(result.message)
+}
+
+/** 一次写动作：抛出来的算上游/网络故障（502），返回的 [BookResult] 交给 [respondBookResult]。 */
+private suspend fun ApplicationCall.respondLibraryAction(what: String, action: suspend () -> BookResult) {
+    val result = try {
+        action()
+    } catch (e: Exception) {
+        return respondUpstreamFailure(e, what)
+    }
+    respondBookResult(result)
+}
+
+
+// ── 动作码（契约 §5.3.1）────────────────────────────────────────────────
+
+/**
+ * 四个 `/my/` 页面动作 → 「我的预约」页上那个按钮的**文案**。
+ *
+ * 这批文案不是这里发明的：`:data` 的 `LibraryPages.labelOfActionUrl` / `actionVerdict` 用的就是它们
+ *（「入馆签到」从页面上消失 = 签到成功），`MyBookingInfo.actionUrls` 的键也是它们。所以这张表就是把
+ * 线上词表接到 `:data` 词表上的那一处 —— 别再起第二套名字。
+ */
+private val LIBRARY_PAGE_ACTION_LABELS = mapOf(
+    LIBRARY_ACTION_SIGNIN to "入馆签到",
+    LIBRARY_ACTION_LEAVE to "中途离开",
+    LIBRARY_ACTION_BACK to "中途返回",
+    LIBRARY_ACTION_CANCEL to "取消预约",
+)
+
+private const val LIBRARY_ACTION_SEAT = "seat"
+private const val LIBRARY_ACTION_CHANGE = "change"
+private const val LIBRARY_ACTION_SIGNIN = "signin"
+private const val LIBRARY_ACTION_LEAVE = "leave"
+private const val LIBRARY_ACTION_BACK = "back"
+private const val LIBRARY_ACTION_CANCEL = "cancel"
+private const val LIBRARY_ACTION_SWITCH_CAMPUS = "switch_campus"
+
+/** 合法动作码（400 的文案里逐个列出来，客户端照着改）。 */
+private val LIBRARY_ACTIONS = listOf(
+    LIBRARY_ACTION_SEAT,
+    LIBRARY_ACTION_CHANGE,
+    LIBRARY_ACTION_SIGNIN,
+    LIBRARY_ACTION_LEAVE,
+    LIBRARY_ACTION_BACK,
+    LIBRARY_ACTION_CANCEL,
+    LIBRARY_ACTION_SWITCH_CAMPUS,
+)
+
+private const val LIBRARY_ACTION_BODY_MESSAGE =
+    "请求体需要 JSON：{\"action\":\"seat\",\"seatId\":\"A01\",\"area\":\"north2east\"}（动作表见契约 §5.3.1）"
+
+/** 会话失效的判据 —— `:data` 把它吞进 `BookResult.message`（见 [respondBookResult]）。 */
+private const val LIBRARY_SESSION_EXPIRED_MARK = "登录"
 
 // ── 数据模型（客户端形状）──────────────────────────────────────────
 
@@ -234,7 +420,7 @@ internal data class SeatRow(val seatId: String, val available: Boolean)
 /** `GET /api/library/my` 的 `data`。 */
 @Serializable
 internal data class MyBookingData(
-    /** `null` = 页面明确说「没有预约」（§4）。`actionUrls` 刻意不投影（P1 写端点，见文件头 KDoc）。 */
+    /** `null` = 页面明确说「没有预约」（§4）；`actionUrls` 是页面上那几个动作 → 上游地址（见文件头）。 */
     val my: MyBookingInfoDto? = null,
 )
 
@@ -243,6 +429,11 @@ internal data class MyBookingInfoDto(
     val seatId: String? = null,
     val area: String? = null,
     val statusText: String? = null,
+    /**
+     * 「取消预约」「入馆签到」… → **上游那条动作地址**（见文件头：客户端只当不透明句柄，
+     * 「要做什么」由 `/api/library/action` 的 `action` 说）。
+     */
+    val actionUrls: Map<String, String> = emptyMap(),
 )
 
 // ── 会话缝与常量 ─────────────────────────────────────────────────────
@@ -269,3 +460,4 @@ internal const val LIBRARY_CAMPUS = "campus"
 internal const val LIBRARY_AREAS = "areas"
 internal const val LIBRARY_SEATS = "seats"
 internal const val LIBRARY_MY = "my"
+internal const val LIBRARY_ACTION = "action"

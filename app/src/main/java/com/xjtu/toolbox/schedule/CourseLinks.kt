@@ -172,9 +172,10 @@ object CourseLinks {
     ): AttendanceIndex? {
         // 先看落盘缓存能不能免掉这次请求。存储和刷新策略在 AttendanceRecordStore，
         // 考勤页和课表角标共用同一份——原来两边各拉各的、各存各的。
-        val ctx = appContext
         val pg = accountType == AccountType.POSTGRADUATE
-        val shard = ctx?.let { AttendanceRecordStore.load(it, pg, termCode, c.accountId) }
+        // `AttendanceRecordStore` 搬进 `:data` 后不再收 Context（落盘走 :core 键值缝，同名同键）；
+        // 原来「没挂过 context 就不读缓存」的闸门照旧保留（日程页 `attachContext` 在首次调用前设好）。
+        val shard = if (appContext != null) AttendanceRecordStore.load(pg, termCode, c.accountId) else null
         val plan = AttendanceRecordStore.planFor(
             shard = shard,
             sealedTerm = sealedTerms.contains(termCode),
@@ -279,10 +280,9 @@ object CourseLinks {
                     Log.d(TAG, "attendance: account switched mid-fetch, discard")
                     return@runCatching null
                 }
-                appContext?.let { ctx ->
+                if (appContext != null) {
                     val now = System.currentTimeMillis()
                     AttendanceRecordStore.save(
-                        ctx,
                         accountType == AccountType.POSTGRADUATE,
                         AttendanceRecordStore.Shard(
                             termCode = termCode,

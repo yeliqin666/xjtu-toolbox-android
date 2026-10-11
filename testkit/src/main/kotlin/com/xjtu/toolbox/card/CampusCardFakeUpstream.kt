@@ -148,6 +148,39 @@ class CampusCardFakeUpstream {
 
         /** 服务端总数 = 七条（夹具只有一页）。 */
         const val TOTAL = 7
+
+        // ── 付款码（`AppRoute.PaymentCode`，同一个站点的另一条路由）──
+        //
+        // 付款码借的就是**校园卡这个会话**（`AppRoute.PaymentCode.loginType = CAMPUS_CARD`），
+        // 业务请求带同一个 `Synjones-Auth: bearer <JWT>`（见 `PaymentCodeApi.authRequest`），
+        // 所以它扮在同一个夹具里：同 host、同 JWT、同一条登录链。
+
+        /** 付款码取数（`PaymentCodeApi.BAR_CODE_URL` 的路径）。 */
+        const val BAR_CODE_PATH = "/berserker-app/authCode/batchGetBarCodeGet"
+
+        /** 可用加餐券（`PaymentCodeApi.VOUCHERS_URL` 的路径）。 */
+        const val VOUCHERS_PATH = "/berserker-app/vouchers/list"
+
+        /** 同步「这一轮用哪几张券」（`PaymentCodeApi.UPDATE_VOUCHERS_URL`）。 */
+        const val UPDATE_VOUCHERS_PATH = "/berserker-app/vouchers/updateVoucherStatus"
+
+        /**
+         * **编出来的**付款码号（20 位十进制，形状像真码，值与任何人的付款码无关）。
+         * 证据图与测试都拿它当「这一串真从上游取回来了」的判据。
+         */
+        const val BAR_CODE = "60041234000000000001"
+
+        /** 两张加餐券的 `showCardId`（同样编的）。 */
+        const val VOUCHER_CANTEEN_ID = "v-2026-canteen-01"
+        const val VOUCHER_MILK_ID = "v-2026-milk-02"
+
+        /** 券名（示例食堂 / 示例奶站 —— 不是真的店名）。 */
+        const val VOUCHER_CANTEEN_NAME = "加餐券（示例食堂）"
+        const val VOUCHER_MILK_NAME = "加餐券（示例奶站）"
+
+        /** 两张券的面额（分）：`tranamt` 是数字，屏上要按 `¥5.00` 那样显示。 */
+        const val VOUCHER_CANTEEN_FEN = 500L
+        const val VOUCHER_MILK_FEN = 300L
     }
 
     // ── 服务器可变状态：动作打进来时计数/记录，好让断言「这一枪真打到了哪里」──
@@ -165,6 +198,16 @@ class CampusCardFakeUpstream {
     val userInfoCalls = AtomicInteger()
     val cardCalls = AtomicInteger()
     val turnoverCalls = AtomicInteger()
+
+    /** 付款码 / 加餐券列表 / 券选择同步各打了几次。 */
+    val barCodeCalls = AtomicInteger()
+    val voucherListCalls = AtomicInteger()
+    val voucherUpdateCalls = AtomicInteger()
+
+    /** 最近一次「同步券选择」的请求体原文（断言真把勾选的 id 发出去了）。 */
+    @Volatile
+    var lastVoucherUpdateBody: String? = null
+        private set
 
     /** 最近一次 ticket 兑换的表单原文（断言确实把 ticket 当凭据发了出去）。 */
     @Volatile
@@ -235,6 +278,32 @@ class CampusCardFakeUpstream {
            "typeFrom":"1","toAccount":88003,"fromAccount":"$CARD_ACCOUNT","cardBalance":$TX_REFUND_BALANCE_CENTS}
         ]}}
     """.trimIndent()
+    /**
+     * 付款码：`PaymentCodeApi.getBarCode` 只读 `success` → `data.barCodeVo.barcode[0]`。
+     *
+     * `barcode` 刻意是**数组**（真接口就是这个形体，屏取第 0 个）——夹具只摆一个元素。
+     */
+    val barCodeJson = """
+        {"success":true,"msg":"成功","data":{"barCodeVo":{"barcode":["$BAR_CODE"]}}}
+    """.trimIndent()
+
+    /**
+     * 可用加餐券两张：`data` 是数组，逐项读 `showCardId`/`voucherName`/`typeName`/`tranamt`/`endDate`/`flag`。
+     *
+     * 两张而不是一张：屏上「已选 N 张」那一档要 N 才有意义（证据运行会勾一张）。
+     * 两张券的面额不同（¥5.00 / ¥3.00）⇒ `formatYuan` 那条手写的分转元真有人钉着。
+     */
+    val vouchersJson = """
+        {"success":true,"msg":"成功","data":[
+          {"showCardId":"$VOUCHER_CANTEEN_ID","voucherName":"$VOUCHER_CANTEEN_NAME",
+           "typeName":"加餐券","tranamt":$VOUCHER_CANTEEN_FEN,"endDate":"2026-12-31","flag":"1"},
+          {"showCardId":"$VOUCHER_MILK_ID","voucherName":"$VOUCHER_MILK_NAME",
+           "typeName":"加餐券","tranamt":$VOUCHER_MILK_FEN,"endDate":"2026-11-30","flag":"1"}
+        ]}
+    """.trimIndent()
+
+    /** 同步券选择成功（`PaymentCodeApi.updateVoucherStatus` 只看 `success`）。 */
+    val voucherUpdateJson = """{"success":true,"msg":"成功"}"""
 
     // ── 路由 ─────────────────────────────────────────────────────
 
@@ -253,6 +322,24 @@ class CampusCardFakeUpstream {
                 respondJson(exchange, cardJson)
             }
             TURNOVER_PATH -> requireBearer(exchange) { handleTurnover(exchange, query) }
+            // ── 付款码（同一个 JWT、同一个 host）──
+            BAR_CODE_PATH -> requireBearer(exchange) {
+                if (query != "payacc=000&voucherType=1&synAccessSource=h5") {
+                    badRequest(exchange, "付款码查询串该是 payacc=000&voucherType=1&synAccessSource=h5，收到：$query")
+                    return@requireBearer
+                }
+                barCodeCalls.incrementAndGet()
+                respondJson(exchange, barCodeJson)
+            }
+            VOUCHERS_PATH -> requireBearer(exchange) {
+                if (query != "synAccessSource=h5") {
+                    badRequest(exchange, "加餐券查询串该是 synAccessSource=h5，收到：$query")
+                    return@requireBearer
+                }
+                voucherListCalls.incrementAndGet()
+                respondJson(exchange, vouchersJson)
+            }
+            UPDATE_VOUCHERS_PATH -> requireBearer(exchange) { handleVoucherUpdate(exchange) }
             else -> notFound(exchange)
         }
     }
@@ -317,6 +404,26 @@ class CampusCardFakeUpstream {
         }
         turnoverCalls.incrementAndGet()
         respondJson(exchange, if (current == 1) turnoverJson else emptyPageJson)
+    }
+    /**
+     * 同步券选择：必须是 POST、请求体是 JSON 数组（`PaymentCodeApi.updateVoucherStatus` 用
+     * `buildJsonArray` 拼的），且每一项都是非空的 `showCardId` —— 形状不对就 400，
+     * 免得「勾选根本没发出去」也能通过。
+     */
+    private fun handleVoucherUpdate(exchange: HttpExchange) {
+        val body = readBody(exchange)
+        if (exchange.requestMethod != "POST") {
+            badRequest(exchange, "同步券选择该是 POST，收到 ${exchange.requestMethod} ${exchange.requestURI}")
+            return
+        }
+        lastVoucherUpdateBody = body
+        val ids = Regex("\"([^\"]*)\"").findAll(body).map { it.groupValues[1] }.toList()
+        if (ids.isEmpty() || ids.any { it.isBlank() }) {
+            badRequest(exchange, "同步券选择的请求体该是一个非空字符串的 JSON 数组，收到：$body")
+            return
+        }
+        voucherUpdateCalls.incrementAndGet()
+        respondJson(exchange, voucherUpdateJson)
     }
 
     /** 夹具只有一页：翻到第 2 页起是空表（总数照旧），`allTransactions` 会据此响亮地失败。 */

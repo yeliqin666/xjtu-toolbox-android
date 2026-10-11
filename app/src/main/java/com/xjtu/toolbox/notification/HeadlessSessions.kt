@@ -39,9 +39,11 @@ internal object HeadlessSessions {
     /**
      * 拿一个已登录的站点。没有账号、需要短信验证、密码已失效时返回 null：这些情况重试也没用，
      * 还会再提交一次密码，调用方应当直接结束这一轮。网络等临时故障照常抛出，由调用方决定重试。
+     *
+     * 不收 `Context` 的理由见 [manager]（账号表不再要宿主句柄）。
      */
-    suspend fun site(context: Context, type: LoginType): SiteSession? {
-        val manager = manager(context) ?: return null
+    suspend fun site(type: LoginType): SiteSession? {
+        val manager = manager() ?: return null
         return try {
             manager.ensureSite(type, silent = true)
         } catch (e: MfaRequiredException) {
@@ -53,11 +55,17 @@ internal object HeadlessSessions {
         }
     }
 
-    suspend fun manager(context: Context): SessionManager? {
+    /**
+     * 后台临时会话。
+     *
+     * 不再收 `Context`：账号表（`AccountStore`）本轮搬进 `:data`，它现在走 `:data` 的密文键值缝
+     *（Android 的 actual 仍是同一个 `SecurePrefs` 文件），不需要宿主的句柄了 —— 那两个调用点
+     *（两个 Worker）与这一处一起改掉，免得留一个没人用的参数。
+     */
+    suspend fun manager(): SessionManager? {
         SessionManager.active?.let { return it }
 
-        val app = context.applicationContext
-        val account = AccountStore(app).activeAccount() ?: return null
+        val account = AccountStore().activeAccount() ?: return null
         if (account.password.isBlank()) return null
 
         lock.withLock {
@@ -95,7 +103,7 @@ internal object HeadlessSessions {
         }
     }
 
-    /** 有没有可用于后台自动登录的账号。没有就别排后台任务，省得空转。 */
-    fun hasAccount(context: Context): Boolean =
-        AccountStore(context.applicationContext).activeAccount()?.password?.isNotBlank() == true
+    /** 有没有可用于后台自动登录的账号。没有就别排后台任务，省得空转（不收 `Context` 的理由见 [manager]）。 */
+    fun hasAccount(): Boolean =
+        AccountStore().activeAccount()?.password?.isNotBlank() == true
 }

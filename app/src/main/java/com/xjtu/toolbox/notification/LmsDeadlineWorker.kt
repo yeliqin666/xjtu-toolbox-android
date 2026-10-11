@@ -49,7 +49,7 @@ class LmsDeadlineWorker(
 
         val due = try {
             // 需要短信验证 / 密码失效：这一轮直接放弃，等下次正常调度，别退避重试再提交一次密码
-            val site = HeadlessSessions.site(app, LoginType.LMS) ?: return Result.success()
+            val site = HeadlessSessions.site(LoginType.LMS) ?: return Result.success()
             val account = AccountContext.activeAccountId
             withContext(Dispatchers.IO) {
                 val api = LmsApi(site)
@@ -89,7 +89,7 @@ object LmsDeadlineScheduler {
     fun apply(context: Context) {
         val app = context.applicationContext
         val wm = WorkManager.getInstance(app)
-        if (!ReminderStore.isEnabled(app, ReminderKind.LMS) || !HeadlessSessions.hasAccount(app)) {
+        if (!ReminderStore.isEnabled(app, ReminderKind.LMS) || !HeadlessSessions.hasAccount()) {
             wm.cancelUniqueWork(UNIQUE)
             return
         }

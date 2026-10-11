@@ -1,0 +1,192 @@
+package com.xjtu.toolbox.auth
+
+import com.xjtu.toolbox.util.stringValue
+import com.xjtu.toolbox.util.isNull
+import com.xjtu.toolbox.util.isObject
+import com.xjtu.toolbox.util.isArray
+import com.xjtu.toolbox.util.isPrimitive
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonArray
+import com.xjtu.toolbox.platform.Log
+import kotlinx.serialization.json.JsonElement
+import com.xjtu.toolbox.util.safeGet
+import com.xjtu.toolbox.util.safeParseJsonObject
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import okhttp3.RequestBody.Companion.toRequestBody
+import okhttp3.Response
+import java.io.IOException
+import java.net.URLDecoder
+import java.net.URLEncoder
+import java.util.concurrent.TimeUnit
+
+// ══════════════════════════════════════════════════════════════
+//  本类从 `:app/auth/CouponLogin.kt` 搬进 `:data`（同一个包名、同一个类名），与站点类
+//  [CouponSession] 一起 —— 桌面端要自己登 `egc.xjtu.edu.cn`（加餐券那条路由）。
+//  搬动只换了一处写法：`android.util.Log` → `:core` 的 [Log]（其余日志调用逐字不变）。
+//  登录入口如实交代：**它有自己的独立登录页**，不借别的已搬站点的会话 ——
+//  CAS OAuth2 `client_id=1596` → 回跳到 `org.xjtu.edu.cn` 开放平台（authorizesw）→
+//  落到 `egc.xjtu.edu.cn/page/cas/receiveCas.html` → 再换 `auth_token`。
+// ══════════════════════════════════════════════════════════════
+private const val COUPON_TAG = "CouponLogin"
+
+class CouponLogin(
+    session: OkHttpClient? = null,
+    visitorId: String? = null,
+    cachedRsaKey: String? = null
+) : XJTULogin(buildCouponOAuthUrl(), session.withCouponTimeouts(), visitorId, cachedRsaKey) {
+
+    companion object {
+        private const val BASE_URL = "https://egc.xjtu.edu.cn"
+        private const val RECEIVE_URL = "$BASE_URL/page/cas/receiveCas.html?version=SAFT_VERSION"
+        private const val SSO_LOGIN_BASE = "$BASE_URL/sso/login"
+        private val JSON = "application/json;charset=UTF-8".toMediaType()
+
+        private const val ORG_REDIRECT =
+            "https://org.xjtu.edu.cn/openplatform/oauth/authorizesw?redirect_uri=base64aHR0cHM6Ly9lZ2MueGp0dS5lZHUuY24vcGFnZS9jYXMvcmVjZWl2ZUNhcy5odG1sP3ZlcnNpb249U0FGVF9WRVJTSU9O"
+
+        fun buildCouponOAuthUrl(): String {
+            return "https://login.xjtu.edu.cn/cas/oauth2.0/authorize" +
+                "?response_type=code" +
+                "&client_id=1596" +
+                "&redirect_uri=${urlEncode(ORG_REDIRECT)}" +
+                "&state=1995"
+        }
+    }
+
+    var authToken: String? = null
+        private set
+
+    override fun postLogin(response: Response) {
+        if (!response.isSuccessful) {
+            throw RuntimeException("登录失败：加餐券认证入口返回 HTTP ${response.code}")
+        }
+        val finalUrl = response.request.url.toString()
+        Log.d(COUPON_TAG, "postLogin: finalUrl=${finalUrl.redactCouponCallback()}")
+        val params = extractCallbackParams(finalUrl)
+            ?: extractCallbackParams(lastResponseBody)
+            ?: throw RuntimeException("登录失败：无法获取加餐券授权码")
+        exchangeCodeForToken(params)
+    }
+
+    private fun exchangeCodeForToken(params: CallbackParams) {
+        Log.d(
+            COUPON_TAG,
+            "exchangeCodeForToken: start userType=${params.userType.isNotBlank()} employeeNo=${params.employeeNo.isNotBlank()}"
+        )
+        val url = "$SSO_LOGIN_BASE?code=${urlEncode(params.code)}&userType=${urlEncode(params.userType)}&employeeNo=${urlEncode(params.employeeNo)}"
+        val request = Request.Builder()
+            .url(url)
+            .post("""{"json":true}""".toRequestBody(JSON))
+            .header("Accept", "application/json, text/javascript, */*; q=0.01")
+            .header("Accept-Language", "zh-CN,zh;q=0.9,en;q=0.8")
+            .header("Content-Type", "application/json;charset=UTF-8")
+            .header("Origin", BASE_URL)
+            .header("Referer", RECEIVE_URL)
+            .header("X-Requested-With", "XMLHttpRequest")
+            .build()
+
+        client.newCall(request).execute().use { response ->
+            val text = response.body.string()
+            Log.d(COUPON_TAG, "exchangeCodeForToken: response code=${response.code}, bodyLen=${text.length}")
+            val headerToken = response.header("Authorization")?.normalizeToken()
+            val bodyToken = extractToken(text)
+            authToken = headerToken ?: bodyToken
+                ?: throw RuntimeException("登录失败：无法获取加餐券令牌 (${text.take(80)})")
+            Log.d(COUPON_TAG, "exchangeCodeForToken: token obtained, len=${authToken?.length}")
+        }
+    }
+
+    private data class CallbackParams(
+        val code: String,
+        val userType: String,
+        val employeeNo: String
+    )
+
+    private fun extractCallbackParams(text: String): CallbackParams? {
+        if (text.isBlank()) return null
+        val decoded = runCatching { URLDecoder.decode(text, "UTF-8") }.getOrDefault(text)
+        val code = findParam(decoded, "code") ?: return null
+        return CallbackParams(
+            code = code,
+            userType = findParam(decoded, "userType").orEmpty(),
+            employeeNo = findParam(decoded, "employeeNo").orEmpty()
+        )
+    }
+
+    private fun findParam(text: String, key: String): String? {
+        val encoded = Regex("""[?&#]$key=([^&#"']*)""").find(text)?.groupValues?.getOrNull(1)
+        if (!encoded.isNullOrBlank()) return URLDecoder.decode(encoded, "UTF-8")
+        val jsonLike = Regex(""""$key"\s*:\s*"([^"]+)"""").find(text)?.groupValues?.getOrNull(1)
+        return jsonLike?.takeIf { it.isNotBlank() }
+    }
+
+    private fun extractToken(text: String): String? {
+        val root = runCatching { text.safeParseJsonObject() }.getOrNull()
+        if (root != null) findTokenInJson(root)?.let { return it }
+        return Regex("""eyJ[A-Za-z0-9_\-.]+""").find(text)?.value?.normalizeToken()
+    }
+
+    private fun findTokenInJson(element: JsonElement?): String? {
+        if (element == null || element.isNull) return null
+        if (element.isPrimitive) {
+            val value = element.stringValue.normalizeToken()
+            return value.takeIf { it.startsWith("eyJ") }
+        }
+        if (element.isObject) {
+            val obj = element.jsonObject
+            listOf("Authorization", "authorization", "token", "accessToken", "access_token", "jwt", "data").forEach { key ->
+                findTokenInJson(obj.safeGet(key))?.let { return it }
+            }
+            obj.entries.forEach { (_, value) -> findTokenInJson(value)?.let { return it } }
+        }
+        if (element.isArray) {
+            element.jsonArray.forEach { value -> findTokenInJson(value)?.let { return it } }
+        }
+        return null
+    }
+}
+
+private fun urlEncode(value: String): String = URLEncoder.encode(value, "UTF-8")
+
+private fun OkHttpClient?.withCouponTimeouts(): OkHttpClient? =
+    this?.newBuilder()
+        ?.connectTimeout(60, TimeUnit.SECONDS)
+        ?.readTimeout(60, TimeUnit.SECONDS)
+        ?.writeTimeout(60, TimeUnit.SECONDS)
+        ?.callTimeout(120, TimeUnit.SECONDS)
+        ?.addInterceptor { chain ->
+            val request = chain.request()
+            // 不自设 UA，用全局的 APP_UA（见 HttpClients）
+            val requestWithBrowserHeaders = request.newBuilder()
+                .header(
+                    "Accept",
+                    request.header("Accept")
+                        ?: "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8"
+                )
+                .header("Accept-Language", request.header("Accept-Language") ?: "zh-CN,zh;q=0.9,en;q=0.8")
+                .build()
+            val start = System.nanoTime()
+            Log.d(COUPON_TAG, "HTTP start ${requestWithBrowserHeaders.method} ${requestWithBrowserHeaders.url.redactCouponCallback()}")
+            try {
+                val response = chain.proceed(requestWithBrowserHeaders)
+                val elapsedMs = (System.nanoTime() - start) / 1_000_000
+                Log.d(COUPON_TAG, "HTTP end ${response.code} ${requestWithBrowserHeaders.url.redactCouponCallback()} ${elapsedMs}ms")
+                response
+            } catch (e: IOException) {
+                val elapsedMs = (System.nanoTime() - start) / 1_000_000
+                Log.e(COUPON_TAG, "HTTP fail ${requestWithBrowserHeaders.url.redactCouponCallback()} ${elapsedMs}ms ${e.javaClass.simpleName}: ${e.message}", e)
+                throw e
+            }
+        }
+        ?.build()
+
+private fun String.normalizeToken(): String =
+    trim().removePrefix("Bearer ").removePrefix("bearer ")
+
+private fun String.redactCouponCallback(): String =
+    replace(Regex("""code=[^&#]+"""), "code=<redacted>")
+        .replace(Regex("""employeeNo=[^&#]+"""), "employeeNo=<redacted>")
+
+private fun okhttp3.HttpUrl.redactCouponCallback(): String = toString().redactCouponCallback()

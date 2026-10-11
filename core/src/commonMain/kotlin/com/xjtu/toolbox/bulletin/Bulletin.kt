@@ -1,0 +1,328 @@
+package com.xjtu.toolbox.bulletin
+
+import com.xjtu.toolbox.util.requireArr
+import com.xjtu.toolbox.util.isNumber
+import kotlinx.serialization.json.JsonElement
+import com.xjtu.toolbox.util.stringValue
+import com.xjtu.toolbox.util.intValue
+import com.xjtu.toolbox.util.booleanValue
+import com.xjtu.toolbox.util.isObject
+import com.xjtu.toolbox.util.isArray
+import com.xjtu.toolbox.util.isPrimitive
+import com.xjtu.toolbox.util.AppJson
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.datetime.Instant
+import kotlinx.datetime.LocalDate
+import kotlinx.datetime.LocalDateTime
+import kotlinx.datetime.TimeZone
+import kotlinx.datetime.atStartOfDayIn
+import kotlinx.datetime.toInstant
+
+enum class BulletinLevel {
+    INFO, WARN, UPDATE, CRITICAL, FORCE_UPDATE;
+
+    val rank: Int
+        get() = when (this) {
+            FORCE_UPDATE -> 5
+            CRITICAL -> 4
+            UPDATE -> 3
+            WARN -> 2
+            INFO -> 1
+        }
+
+    companion object {
+        fun parse(raw: String?): BulletinLevel = when (raw?.trim()?.lowercase()) {
+            "warn", "warning" -> WARN
+            "update", "upgrade" -> UPDATE
+            "critical" -> CRITICAL
+            "force_update", "force-update", "forceupdate" -> FORCE_UPDATE
+            else -> INFO
+        }
+    }
+}
+
+data class Bulletin(
+    val id: String,
+    val level: BulletinLevel,
+    val title: String,
+    val body: String,
+    val url: String? = null,
+    val startsAt: Instant? = null,
+    val endsAt: Instant? = null,
+    val minVersion: String? = null,
+    val maxVersion: String? = null,
+    /** 当前 versionName >= 此值则不展示。名字会打架（4.72 对 4.7.3），新公告请同时写 [targetVersionCode]。 */
+    val targetVersion: String? = null,
+    /** 当前 versionCode >= 此值则不展示。内部版本号单调递增，比名字可靠。 */
+    val targetVersionCode: Int? = null,
+    /** 当前版本 < 此值时，把 update 升级成 force_update。 */
+    val forceBelow: String? = null,
+    /**
+     * mustAck 原来只管"确认过之后还要不要再弹"，poll 用它多一层含义：
+     * 弹窗本身不可跳过（没有返回键/点外部关闭），只有提交答案才能关掉，
+     * 见 MainActivity 里 BulletinLaunchDialog 对 [options] 非空 + mustAck 的处理。
+     */
+    val mustAck: Boolean,
+    val block: Boolean,
+    val synthesized: Boolean = false,
+    /** 作废开关：改这个不用等时间窗过期，remote 配置里直接置 false 立刻不再展示。 */
+    val active: Boolean = true,
+    /** 非空即投票：渲染成选项列表而不是纯文字通知。 */
+    val options: List<String> = emptyList(),
+    /** 投票是否允许多选；单选时选中一项自动替换上一次选择。 */
+    val allowMultiple: Boolean = false,
+    /** 附加一个"其他（自己填）"文本框；填了就作为额外一条选项一起提交。 */
+    val allowOther: Boolean = false,
+) {
+    val isPoll: Boolean get() = options.isNotEmpty()
+}
+
+object BulletinRules {
+    private val beijing = TimeZone.of("Asia/Shanghai")
+
+    fun parsePayload(json: String): List<Bulletin> {
+        val trimmed = json.trim()
+        if (trimmed.isEmpty()) return emptyList()
+        val root = runCatching { AppJson.parseToJsonElement(trimmed) }.getOrNull() ?: return emptyList()
+        val array = when {
+            root.isArray -> root.jsonArray
+            root.isObject && root.jsonObject.containsKey("bulletins") ->
+                root.jsonObject.requireArr("bulletins")
+            else -> return emptyList()
+        }
+        return array.mapNotNull { el ->
+            if (!el.isObject) return@mapNotNull null
+            val obj = el.jsonObject
+            val id = obj.get("id")?.takeIf { it.isPrimitive }?.stringValue?.trim().orEmpty()
+            val title = obj.get("title")?.takeIf { it.isPrimitive }?.stringValue?.trim().orEmpty()
+            if (id.isEmpty() || title.isEmpty()) return@mapNotNull null
+            val level = BulletinLevel.parse(obj.get("level")?.takeIf { it.isPrimitive }?.stringValue)
+            val mustAck = when {
+                obj.containsKey("mustAck") && obj.get("mustAck").isPrimitive -> obj.get("mustAck").booleanValue
+                else -> level == BulletinLevel.CRITICAL
+            }
+            Bulletin(
+                id = id,
+                level = level,
+                title = title,
+                body = obj.get("body")?.takeIf { it.isPrimitive }?.stringValue.orEmpty(),
+                url = obj.get("url")?.takeIf { it.isPrimitive }?.stringValue?.trim()?.ifBlank { null },
+                startsAt = parseInstant(obj.get("startsAt")?.takeIf { it.isPrimitive }?.stringValue),
+                endsAt = parseInstant(obj.get("endsAt")?.takeIf { it.isPrimitive }?.stringValue),
+                minVersion = obj.get("minVersion")?.takeIf { it.isPrimitive }?.stringValue?.trim()?.ifBlank { null },
+                maxVersion = obj.get("maxVersion")?.takeIf { it.isPrimitive }?.stringValue?.trim()?.ifBlank { null },
+                targetVersion = obj.get("targetVersion")?.takeIf { it.isPrimitive }?.stringValue?.trim()?.ifBlank { null },
+                targetVersionCode = parseInt(obj.get("targetVersionCode")),
+                forceBelow = obj.get("forceBelow")?.takeIf { it.isPrimitive }?.stringValue?.trim()?.ifBlank { null },
+                mustAck = mustAck,
+                block = obj.get("block")?.takeIf { it.isPrimitive }?.booleanValue ?: false,
+                active = obj.get("active")?.takeIf { it.isPrimitive }?.booleanValue ?: true,
+                options = obj.get("options")?.takeIf { it.isArray }
+                    ?.jsonArray
+                    ?.mapNotNull { o -> o.takeIf { it.isPrimitive }?.stringValue?.trim()?.ifBlank { null } }
+                    .orEmpty(),
+                allowMultiple = obj.get("allowMultiple")?.takeIf { it.isPrimitive }?.booleanValue ?: false,
+                allowOther = obj.get("allowOther")?.takeIf { it.isPrimitive }?.booleanValue ?: false,
+            )
+        }
+    }
+
+    fun isActive(
+        bulletin: Bulletin,
+        now: Instant,
+        currentVersion: String,
+        currentVersionCode: Int? = null,
+    ): Boolean {
+        if (!bulletin.active) return false
+        // `java.time` 的 `isBefore` 在 kotlinx-datetime 里是 `Instant` 自己的比较运算符
+        // （`Instant : Comparable<Instant>`）：语义逐字对应（`!a.isBefore(b)` ≡ `a >= b`）。
+        if (bulletin.startsAt != null && now < bulletin.startsAt) return false
+        if (bulletin.endsAt != null && now >= bulletin.endsAt) return false
+        val min = bulletin.minVersion
+        if (!min.isNullOrBlank() && compareVersions(currentVersion, min) < 0) return false
+        val max = bulletin.maxVersion
+        if (!max.isNullOrBlank() && compareVersions(currentVersion, max) > 0) return false
+        val targetCode = bulletin.targetVersionCode
+        if (targetCode != null && currentVersionCode != null && currentVersionCode >= targetCode) {
+            return false
+        }
+        val target = bulletin.targetVersion
+        if (!target.isNullOrBlank() && compareVersions(currentVersion, target) >= 0) return false
+        return true
+    }
+
+    fun resolveForVersion(bulletin: Bulletin, currentVersion: String): Bulletin {
+        val floor = bulletin.forceBelow
+        if (!floor.isNullOrBlank() && compareVersions(currentVersion, floor) < 0) {
+            return bulletin.copy(level = BulletinLevel.FORCE_UPDATE)
+        }
+        return bulletin
+    }
+
+    fun isHidden(
+        bulletin: Bulletin,
+        dismissedIds: Set<String>,
+        ackedIds: Set<String>,
+        snoozedIds: Set<String>,
+    ): Boolean {
+        if (bulletin.id in snoozedIds) return true
+        if (bulletin.id in dismissedIds) return true
+        if (bulletin.level == BulletinLevel.CRITICAL && bulletin.mustAck && bulletin.id in ackedIds) {
+            return true
+        }
+        if (bulletin.level == BulletinLevel.CRITICAL && !bulletin.mustAck && bulletin.id in ackedIds) {
+            return true
+        }
+        // 投票答过一次就不再问，跟 level 无关（CRITICAL 之外的等级也能是投票）。
+        if (bulletin.isPoll && bulletin.id in ackedIds) return true
+        return false
+    }
+
+    fun visible(
+        items: List<Bulletin>,
+        now: Instant,
+        currentVersion: String,
+        dismissedIds: Set<String>,
+        ackedIds: Set<String>,
+        snoozedIds: Set<String>,
+        currentVersionCode: Int? = null,
+    ): List<Bulletin> {
+        return items
+            .filter { isActive(it, now, currentVersion, currentVersionCode) }
+            .filterNot { isHidden(it, dismissedIds, ackedIds, snoozedIds) }
+            .map { resolveForVersion(it, currentVersion) }
+            .sortedWith(
+                compareByDescending<Bulletin> { it.level.rank }
+                    .thenByDescending { it.id },
+            )
+    }
+
+    fun pick(
+        items: List<Bulletin>,
+        now: Instant,
+        currentVersion: String,
+        dismissedIds: Set<String>,
+        ackedIds: Set<String>,
+        snoozedIds: Set<String>,
+        currentVersionCode: Int? = null,
+    ): Bulletin? = visible(
+        items,
+        now,
+        currentVersion,
+        dismissedIds,
+        ackedIds,
+        snoozedIds,
+        currentVersionCode,
+    ).firstOrNull()
+
+    /**
+     * 投票故意不在这里返回 true：不想在冷启动就顶一个强制弹窗糊用户一脸，
+     * 而是跟 INFO/WARN 一样先在首页顶部堆叠条里露面，用户点开才弹真正的答题框
+     * （那个框本身在 mustAck 时才是真不可跳过的，见 MainActivity 的 BulletinLaunchDialog）。
+     */
+    fun shouldShowLaunchDialog(bulletin: Bulletin): Boolean =
+        bulletin.block ||
+            bulletin.level == BulletinLevel.CRITICAL ||
+            bulletin.level == BulletinLevel.FORCE_UPDATE
+
+    /** 冷启动只弹一条：已按等级排好的列表里，取第一条需要弹窗的。 */
+    fun pickLaunchDialog(items: List<Bulletin>): Bulletin? =
+        items.firstOrNull { !it.synthesized && shouldShowLaunchDialog(it) }
+
+    private fun parseInt(el: JsonElement?): Int? {
+        if (el == null || !el.isPrimitive) return null
+        val p = el.jsonPrimitive
+        if (p.isNumber) return runCatching { p.intValue }.getOrNull()
+        return p.stringValue.trim().toIntOrNull()
+    }
+
+    /**
+     * 时间窗那两种写法：带时区的 ISO 8601（`2026-08-19T08:00:00Z` / `+08:00`），
+     * 或者**不带时区**的本地时间（`2026-08-19T08:00:00` / `2026-08-19`）—— 后者按北京时间理解。
+     *
+     * 搬进 `:core` 时把 `java.time` 换成了 `kotlinx-datetime`（`:core` 的既有依赖），逐条对应：
+     * `Instant.parse` 与 `OffsetDateTime.parse` 两条在 kotlinx 里就是**一条**（它的 `Instant.parse`
+     * 本来就认 `+08:00` 这种偏移）；`LocalDateTime` / `LocalDate` 那两条改走
+     * `toInstant(beijing)` / `atStartOfDayIn(beijing)`。
+     */
+    fun parseInstant(raw: String?): Instant? {
+        val text = raw?.trim().orEmpty()
+        if (text.isEmpty()) return null
+        runCatching { Instant.parse(text) }.getOrNull()?.let { return it }
+        runCatching { LocalDateTime.parse(text).toInstant(beijing) }.getOrNull()?.let { return it }
+        runCatching { LocalDate.parse(text).atStartOfDayIn(beijing) }.getOrNull()?.let { return it }
+        return null
+    }
+
+    fun compareVersions(v1: String, v2: String): Int {
+        val s1 = v1.trim()
+        val s2 = v2.trim()
+        if (s1 == s2) return 0
+
+        val idx1 = s1.indexOf('-')
+        val core1 = if (idx1 >= 0) s1.substring(0, idx1) else s1
+        val pre1 = if (idx1 >= 0) s1.substring(idx1 + 1) else null
+
+        val idx2 = s2.indexOf('-')
+        val core2 = if (idx2 >= 0) s2.substring(0, idx2) else s2
+        val pre2 = if (idx2 >= 0) s2.substring(idx2 + 1) else null
+
+        val parts1 = versionParts(core1)
+        val parts2 = versionParts(core2)
+        val maxLen = maxOf(parts1.size, parts2.size)
+        for (i in 0 until maxLen) {
+            val p1 = parts1.getOrElse(i) { 0 }
+            val p2 = parts2.getOrElse(i) { 0 }
+            if (p1 != p2) return p1.compareTo(p2)
+        }
+
+        // 核心版本相同，比较预发布标识
+        if (pre1 == null && pre2 == null) return 0
+        // 有 pre 的比没有 pre 的小（例如 4.9.8-dev.12 < 4.9.8）
+        if (pre1 != null && pre2 == null) return -1
+        if (pre1 == null && pre2 != null) return 1
+
+        // 两者都有 pre，按 '.' 分段逐段比较
+        val segs1 = pre1!!.split('.')
+        val segs2 = pre2!!.split('.')
+        val minSegs = minOf(segs1.size, segs2.size)
+        for (i in 0 until minSegs) {
+            val seg1 = segs1[i]
+            val seg2 = segs2[i]
+            val n1 = seg1.toLongOrNull()
+            val n2 = seg2.toLongOrNull()
+            if (n1 != null && n2 != null) {
+                val cmp = n1.compareTo(n2)
+                if (cmp != 0) return cmp
+            } else {
+                val cmp = seg1.compareTo(seg2)
+                if (cmp != 0) return cmp
+            }
+        }
+        return segs1.size.compareTo(segs2.size)
+    }
+
+    /**
+     * 兼容旧写法：`4.72` / `4.71` / `4.61` 分别当成 `4.7.2` / `4.7.1` / `4.6.1`。
+     * 已经带第三段的（如 `4.7.3`、`4.5.3`）原样比较。
+     */
+    private fun versionParts(raw: String): List<Int> {
+        val parts = raw.split('.').mapNotNull { it.toIntOrNull() }
+        if (parts.size == 2 && parts[1] >= 10) {
+            return listOf(parts[0], parts[1] / 10, parts[1] % 10)
+        }
+        return parts
+    }
+
+    fun syntheticUpdate(version: String, channel: String): Bulletin = Bulletin(
+        id = "auto_${channel}_$version",
+        level = BulletinLevel.UPDATE,
+        title = "发现新版本 v$version",
+        body = "可在首页这条提示或设置里下载更新。",
+        mustAck = false,
+        block = false,
+        synthesized = true,
+    )
+}

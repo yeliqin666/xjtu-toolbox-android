@@ -484,7 +484,7 @@ class ServeP0Group2Test {
         assertEquals(false, (rows[1] as JsonObject).optBoolean("available"))
         assertEquals(true, (rows[2] as JsonObject).optBoolean("available"))
 
-        // my：有预约 ⇒ 逐字段（actionUrls 刻意不投影，P1 写端点）
+        // my：有预约 ⇒ 逐字段（actionUrls 投影 —— 写端点已落地，屏上的按钮要它们，§5.3.1）
         val my = http.get("/api/library/my")
         assertEquals(200, my.statusCode())
         assertEquals(ApiEnvelope.CODE_OK, envelopeCode(my))
@@ -494,7 +494,11 @@ class ServeP0Group2Test {
         assertEquals("A01", booking.optString("seatId"))
         assertEquals("北楼二层外文库（东）", booking.optString("area"))
         assertEquals("已预约", booking.optString("statusText"))
-        assertFalse(booking.containsKey("actionUrls"), "动作按钮 P1 才接线，现在投影出来就是点了会失败的按钮")
+        assertEquals(
+            setOf("取消预约", "入馆签到"),
+            booking.getValue("actionUrls").jsonObject.keys,
+            "夹具默认按钮；值是上游地址，客户端只当不透明句柄（见 §5.3.1）",
+        )
 
         // my：页面明确说没有预约 ⇒ my:null（§4：null = 明确说没有，≠ 空对象）
         serve.fake.library.cancelled.set(true)
@@ -606,7 +610,7 @@ class ServeP0Group2Test {
             setOf("canBook", "canCancel", "browserLoginUrl"),
             statusData.keys,
         )
-        assertEquals(false, statusData.optBoolean("canBook"), "serve 没有滑块宿主 ⇒ canBook 如实 false")
+        assertEquals(true, statusData.optBoolean("canBook"), "写端点 /captcha /book 已落地、滑块由浏览器端宿主画 ⇒ canBook 如实 true")
         assertEquals(true, statusData.optBoolean("canCancel"), "取消不需要滑块 ⇒ 如实 true")
         assertTrue(statusData.optString("browserLoginUrl").orEmpty().isNotEmpty())
     }

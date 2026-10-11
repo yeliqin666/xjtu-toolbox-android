@@ -8,9 +8,6 @@ import com.xjtu.toolbox.util.safeParseJsonObject
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.Response
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
-import java.io.IOException
 
 // ─────────────────────────────────────────────────────────────────────
 //  13 个业务子系统的 SiteSession 实现。
@@ -29,49 +26,11 @@ import java.io.IOException
 // `AppLoginState` / `HeadlessSessions` 里那两处 `register(JwxtSession())` 一行不用改。
 
 // ── JWAPP 移动教务系统 ───────────────────────────────────────────────
-
-// mustUseWebVpn=false：永远直连原域名。CAS 入口走 org.xjtu.edu.cn 开放平台，若该入口
-// 与 jwapp.xjtu.edu.cn 本身对公网开放，校外可直连；若学校收紧访问，需连校园官方 VPN。
-class JwappSession : CasSiteSession("jwapp", "移动教务", mustUseWebVpn = false) {
-    override fun createLogin(client: OkHttpClient, visitorId: String?, cachedRsaKey: String?): XJTULogin =
-        JwappLogin(session = client, visitorId = visitorId, cachedRsaKey = cachedRsaKey)
-
-    override fun onLoginSuccess(login: XJTULogin) {
-        (login as? JwappLogin)?.authToken?.takeIf { it.isNotEmpty() }?.let {
-            localToken["auth_token"] = it
-        }
-    }
-
-    override fun decorateRequest(builder: Request.Builder): Request.Builder {
-        localToken["auth_token"]?.let { builder.header("Authorization", it) }
-        return builder
-    }
-
-    override suspend fun validateLogin(): Boolean = withIo {
-        val token = localToken["auth_token"] ?: return@withIo false
-        val resp = client.newCall(
-            Request.Builder()
-                .url("https://jwapp.xjtu.edu.cn/api/biz/v410/common/school/time")
-                .header("Authorization", token)
-                .get().build()
-        ).execute()
-        try {
-            resp.code == 200
-        } finally { resp.close() }
-    }
-
-    override fun isAuthFailureResponse(response: Response, bodyPreview: String?): Boolean {
-        if (super.isAuthFailureResponse(response, bodyPreview)) return true
-        val body = bodyPreview ?: return false
-        // 分项成绩接口对「这门课没有细则」也会给 JSON code=401，不能单凭数字当掉登录。
-        return body.contains("Authentication error", ignoreCase = true) ||
-            (body.contains("token", ignoreCase = true) && body.contains("过期")) ||
-            (""""code"\s*:\s*401""".toRegex().containsMatchIn(body) &&
-                (body.contains("authentication", ignoreCase = true) ||
-                    body.contains("未登录") ||
-                    body.contains("过期")))
-    }
-}
+//
+// `JwappSession` 与它的 `JwappLogin` 已搬进 `:data`（同一个包、同一个类名）：移动教务是「桌面端第 18
+// 条真数据路由」，桌面要自己登它、自己取学期成绩与分项成绩（`:data` 的 `JwappApi` / `CjcxApi` +
+// `AppJwappScoreSource`）。`mustUseWebVpn = false`（永远直连原域名）跟着类一起搬。类名与包路径都没变 ⇒
+// `AppLoginState` / `HeadlessSessions` 里那两处 `register(JwappSession())` 一行不用改。
 
 // ── YWTB 一网通办 ─────────────────────────────────────────────────────
 //
@@ -88,109 +47,29 @@ class JwappSession : CasSiteSession("jwapp", "移动教务", mustUseWebVpn = fal
 // 类名与包路径都没变 ⇒ 下面 AppLoginState / HeadlessSessions 的 `register(...)` 一行不用改。
 
 // ── LMS 思源学堂 ─────────────────────────────────────────────────────
+// `LmsSession` 与它的 `LmsLogin` 已搬进 `:data`（同一个包、同一个类名）：思源学堂是
+// 「桌面端第 18 条真数据路由」，桌面要自己登 lms、自己取课程/活动/详情。类名与包路径都
+// 没变 ⇒ `AppLoginState` / `HeadlessSessions` 里那两处 `register(LmsSession())`、
+// `LmsDeadlineWorker` / `OwnInbox` / `DownloadManagerScreen` / `ProfileTab` 里那些取数调用点，
+// 一行都不用改。
 
-// mustUseWebVpn=false：永远直连原域名。护网结束后 lms.xjtu.edu.cn 已放开公网直连，
-// 校外通常也可用；若学校重新收紧，需连校园官方 VPN 或回到校园网。
-class LmsSession : CasSiteSession("lms", "思源学堂", mustUseWebVpn = false) {
-    override fun createLogin(client: OkHttpClient, visitorId: String?, cachedRsaKey: String?): XJTULogin =
-        com.xjtu.toolbox.lms.LmsLogin(session = client, visitorId = visitorId, cachedRsaKey = cachedRsaKey)
+// ── ICLASSFACE 人脸识别签到 ──────────────────────────────────────────
+//
+// `IclassfaceSession` 与它的 `IclassfaceLogin` 已搬进 `:data`（同一个包、同一个类名）：人脸识别
+// 签到是「桌面端第 20 条真数据路由」（考勤屏上的「快速考勤流水」二级入口），桌面要自己登
+// `iclassface`、自己查今天的刷卡与人脸记录（`:data` 的 `IclassfaceApi` + `AppIclassfaceSource`）。
+// 登录形态如实交代：它有自己的独立登录链（CAS OAuth2 `client_id=1543` → `org.xjtu.edu.cn`
+// 开放平台 `authorizesw` 中转 → 回落到 `/oauth/callback/xjtu_new`），落地后凭据就是 `PHPSESSID`
+// cookie。类名与包路径都没变 ⇒ `AppLoginState` / `HeadlessSessions` 里那两处
+// `register(IclassfaceSession())` 一行不用改。
 
-    override fun isAuthFailureResponse(response: Response, bodyPreview: String?): Boolean {
-        // 活动已结束时 /api/uploads/{id}/blob 也是 403 + 「没有权限」。
-        // 这是业务拒绝，不是掉登录，按 403 重登只会空转。
-        if (response.code == 403 && bodyPreview?.contains("没有权限") == true) return false
-        if (response.code == 401 || XJTULogin.isCasLoginUrl(response.request.url)) return true
-        if (bodyPreview != null) return XJTULogin.isAuthFailureResponse(bodyPreview)
-        return false
-    }
-}
-
-// ── ICLASSFACE 人脸识别签到 ──────────────────────────────────────────────
-
-class IclassfaceSession : CasSiteSession("iclassface", "快速考勤流水", mustUseWebVpn = true) {
-    override fun createLogin(client: OkHttpClient, visitorId: String?, cachedRsaKey: String?): XJTULogin =
-        com.xjtu.toolbox.iclassface.IclassfaceLogin(session = client, visitorId = visitorId, cachedRsaKey = cachedRsaKey)
-}
-
-// ── ATTENDANCE 考勤 kq.xjtu.edu.cn ──────────────────────────────
-
-// mustUseWebVpn=true：考勤这几个域名只在校内网络可达，校外直连连不上（443 端口
-// 连超时都不给，卡满 12 秒）。写成 false 会被 SessionManager 永久锁死在直连，
-// 校外必然打不开——旧考勤一直是走网关的，这里跟齐。
-class AttendanceSession : CasSiteSession("new_attendance", "考勤", mustUseWebVpn = true) {
-
-    /** 当前账号所属的考勤站点根地址（本科 bk-kq / 研究生 yjs-kq），登录成功时写入。原始域名，不含网关。 */
-    fun baseUrl(): String =
-        localToken[BASE_URL_KEY] ?: com.xjtu.toolbox.attendance.AttendanceLogin.BASE_URL
-
-    override fun createLogin(client: OkHttpClient, visitorId: String?, cachedRsaKey: String?): XJTULogin =
-        com.xjtu.toolbox.attendance.AttendanceLogin(
-            session = client,
-            visitorId = visitorId,
-            cachedRsaKey = cachedRsaKey,
-            // 账号类型来自一网通办身份判断（见 AccountType.fromIdentityName），跟
-            // ScheduleSourceRouter 挑 kq 部署用的是同一个信号。已知的话直接登对应
-            // 业务站，省掉门户那三次往返；AttendanceLogin.postLogin 里若直连失败
-            // 会自动退回门户流程，不会因为猜错身份就登不上。
-            knownAccountType = accountType,
-        )
-
-    override fun onLoginSuccess(login: XJTULogin) {
-        val kq = login as? com.xjtu.toolbox.attendance.AttendanceLogin
-        val token = kq?.authToken
-        if (!token.isNullOrBlank()) localToken["business_token"] = token
-        // 本科与研究生是两套部署（bk-kq / yjs-kq），业务请求必须打到签发令牌的那一套。
-        kq?.resolvedBaseUrl?.let { localToken[BASE_URL_KEY] = it }
-    }
-
-    override fun decorateRequest(builder: Request.Builder): Request.Builder {
-        localToken["business_token"]?.let { builder.header(com.xjtu.toolbox.attendance.AttendanceLogin.TOKEN_HEADER, it) }
-        // 网页端每个业务请求都带这一条，跟着带上，免得日后服务端开始校验。
-        builder.header(
-            com.xjtu.toolbox.attendance.AttendanceLogin.SYSTEM_HEADER,
-            com.xjtu.toolbox.attendance.AttendanceLogin.SYSTEM_VALUE,
-        )
-        return builder
-    }
-
-    override fun isAuthFailureResponse(response: Response, bodyPreview: String?): Boolean {
-        if (super.isAuthFailureResponse(response, bodyPreview)) return true
-        val preview = bodyPreview ?: return false
-        if (Regex("\"code\"\\s*:\\s*4001").containsMatchIn(preview)) return true
-        return preview.contains("业务令牌") && (
-            preview.contains("过期") || preview.contains("无效") || preview.contains("未登录")
-        )
-    }
-
-    override suspend fun validateLogin(): Boolean = withIo {
-        val token = localToken["business_token"] ?: return@withIo false
-        // 走跟正常业务请求一样的 KqHttp.buildUrl：校外经 WebVPN 网关改写地址，
-        // 直连域名探活必然超时；同时补上网页端每个请求都带的 X-System 头，
-        // 免得服务端哪天开始校验就把探活单独漏掉。
-        val resp = client.newCall(
-            Request.Builder()
-                .url(com.xjtu.toolbox.attendance.KqHttp.buildUrl(this@AttendanceSession, "/student/home"))
-                .header(com.xjtu.toolbox.attendance.AttendanceLogin.TOKEN_HEADER, token)
-                .header(
-                    com.xjtu.toolbox.attendance.AttendanceLogin.SYSTEM_HEADER,
-                    com.xjtu.toolbox.attendance.AttendanceLogin.SYSTEM_VALUE,
-                )
-                .get()
-                .build()
-        ).execute()
-        try {
-            if (resp.code != 200) return@withIo false
-            val body = resp.body.string()
-            if (XJTULogin.isAuthFailureResponse(body)) return@withIo false
-            body.safeParseJsonObject().get("code")?.takeIf { !it.isNull }?.intValue == 0
-        } finally {
-            resp.close()
-        }
-    }
-}
-
-/** [AttendanceSession.localToken] 里存考勤站点根地址的键。 */
-const val BASE_URL_KEY = "kq_base_url"
+// ── ATTENDANCE 考勤 kq.xjtu.edu.cn ────────────────────────────────
+//
+// `AttendanceSession` 与它的 `AttendanceLogin` 已搬进 `:data`（同一个包、同一个类名）：考勤是
+// 「桌面端第 16 条真数据路由」，桌面要自己登 `kq`、自己取考勤流水 / 请假 / 课表。类名与包路径都
+// 没变 ⇒ `AppLoginState` / `HeadlessSessions` 里那两处 `register(AttendanceSession())`、
+// `AgentTool` / `HomeStatsRefresher` / `CourseLinks` / `ScheduleSource` 里那些取数调用点，
+// 一行都不用改。
 
 // ── HELLO 迎新/个人信息 ────────────────────────────────────────────────
 
@@ -269,71 +148,28 @@ class HelloSession : CasSiteSession("hello", "个人信息", mustUseWebVpn = tru
     }
 }
 
-// ── JIAOCAI 教材中心 ──────────────────────────────────────────────────
-
-class JiaocaiSession : CasSiteSession("jiaocai", "教材中心", mustUseWebVpn = true) {
-    override fun createLogin(client: OkHttpClient, visitorId: String?, cachedRsaKey: String?): XJTULogin =
-        com.xjtu.toolbox.jiaocai.JiaocaiLogin(existingClient = client, visitorId = visitorId, cachedRsaKey = cachedRsaKey)
-}
+// ── JIAOCAI 教材中心 ──────────────────────────────────────────────
+//
+// `JiaocaiSession` 与它的 `JiaocaiLogin` 已搬进 `:data`（同一个包、同一个类名）：教材全文库
+//（`jiaocai1`）是「桌面端第 22 批真数据路由」里的那一条，而它**借的就是教材中心的会话**
+// （`AppRoute.Jiaocai1` / `Jiaocai1Reader` 的 `loginType` 都是 `LoginType.JIAOCAI`，导航层那句
+// `WithSite("jiaocai")` 建的正是这个站点）—— 桌面端不把它搬过去就登不上去。类名与包路径都没变 ⇒
+// 下面 `AppLoginState` 里那处 `register(JiaocaiSession())` 一行不用改。
 
 // ── COUPON 餐券 ──────────────────────────────────────────────────────
-
-class CouponSession : CasSiteSession("coupon", "餐券系统", mustUseWebVpn = false) {
-    override fun createLogin(client: OkHttpClient, visitorId: String?, cachedRsaKey: String?): XJTULogin =
-        CouponLogin(session = client, visitorId = visitorId, cachedRsaKey = cachedRsaKey)
-
-    override fun onLoginSuccess(login: XJTULogin) {
-        (login as? CouponLogin)?.authToken?.takeIf { it.isNotBlank() }?.let {
-            localToken["auth_token"] = it
-        }
-    }
-
-    override fun decorateRequest(builder: Request.Builder): Request.Builder {
-        localToken["auth_token"]?.let { builder.header("Authorization", it) }
-        return builder
-    }
-
-    override fun isAuthFailureResponse(response: Response, bodyPreview: String?): Boolean {
-        if (super.isAuthFailureResponse(response, bodyPreview)) return true
-        val body = bodyPreview ?: return false
-        return """"code"\s*:\s*401""".toRegex().containsMatchIn(body) ||
-            body.contains("登录过期") || body.contains("未登录")
-    }
-}
+//
+// `CouponSession` 与它的 `CouponLogin` 已搬进 `:data`（同一个包、同一个类名）：加餐券是
+// 「桌面端第 15 条真数据路由」，桌面要自己登 `egc.xjtu.edu.cn`、自己查券与领券
+//（`:data` 的 `AppCouponSource` 包住原来的 `CouponApi`）。类名与包路径都没变 ⇒
+// 下面 `AppLoginState` 里那处 `register(CouponSession())`、以及 `AgentTool` / `HomeStatsRefresher`
+// 里那两处 `CouponApi(site)`，一行都不用改。
 
 // ── DZPZ 电子凭证（成绩单） ───────────────────────────────────────────
-
-class DzpzSession : CasSiteSession("dzpz", "电子凭证", mustUseWebVpn = false) {
-    override fun createLogin(client: OkHttpClient, visitorId: String?, cachedRsaKey: String?): XJTULogin =
-        DzpzLogin(session = client, visitorId = visitorId, cachedRsaKey = cachedRsaKey)
-
-    override fun onLoginSuccess(login: XJTULogin) {
-        (login as? DzpzLogin)?.userId?.takeIf { it.isNotEmpty() }?.let {
-            localToken["user_id"] = it
-        }
-    }
-
-    /**
-     * getOSinfo 登录态下返回 `resourceid`（= loginidweaver），匿名访问时该字段缺失。
-     * 不能用 /api/ecode/sync —— 它匿名访问也返回 200 且不跳 CAS，探不出失效。
-     */
-    override suspend fun validateLogin(): Boolean = withIo {
-        val resp = client.newCall(
-            Request.Builder()
-                .url("${DzpzLogin.OS_INFO_URL}?__random__=${System.currentTimeMillis()}")
-                .header("Referer", "${DzpzLogin.BASE_URL}/wui/index.html")
-                .get().build()
-        ).execute()
-        try {
-            if (resp.code != 200) return@withIo false
-            val id = (resp.body.string()).safeParseJsonObject()
-                .get("resourceid")?.takeIf { !it.isNull }?.stringValue
-                ?.takeIf { it.isNotBlank() && it != "0" } ?: return@withIo false
-            localToken["user_id"] = id
-            true
-        } finally { resp.close() }
-    }
-}
+//
+// `DzpzSession` 与它的 `DzpzLogin` 已搬进 `:data`（同一个包、同一个类名）：成绩单是
+// 「桌面端第 14 条真数据路由」，桌面要自己登 `dzpz`、自己走完生成-提交-签章-下载七步
+//（`:data` 的 `AppTranscriptSource` 包住原来的 `TranscriptApi`）。类名与包路径都没变 ⇒
+// 下面 `AppLoginState` 里那处 `register(DzpzSession())` 一行不用改。
 
 // ── VENUE 场馆预订 ─────────────────────────────────────────────
 //
@@ -342,70 +178,13 @@ class DzpzSession : CasSiteSession("dzpz", "电子凭证", mustUseWebVpn = false
 // `AppLoginState` 里那处 `register(VenueSession())` 一行不用改。
 
 // ── SSN 宿舍电费 ──────────────────────────────────────────────────────
-
-// mustUseWebVpn=true：ssn 只对校内网络开放，校外直连回 403「请先拨通学校 VPN」，得走 WebVPN 网关。
-class SsnSession : CasSiteSession("ssn", "宿舍电费", mustUseWebVpn = true) {
-    override fun createLogin(client: OkHttpClient, visitorId: String?, cachedRsaKey: String?): XJTULogin =
-        SsnLogin(session = client, visitorId = visitorId, cachedRsaKey = cachedRsaKey)
-
-    override fun onLoginSuccess(login: XJTULogin) {
-        (login as? SsnLogin)?.cid?.let { localToken["cid"] = it }
-    }
-
-    /** 接口返回 401001 表示凭证过期。 */
-    override fun isAuthFailureResponse(response: Response, bodyPreview: String?): Boolean =
-        super.isAuthFailureResponse(response, bodyPreview) || bodyPreview?.contains("\"code\":401001") == true
-
-    /**
-     * 给浏览器用的缴费页入口：缴费站没有可搬运的会话 cookie，每次进页面都要凭 OAuth 回调里一次性的 code 换会话。
-     * 这里用 App 存的账号再走一遍 OAuth，拦下最后那一跳（带 code 的缴费页地址）不去请求，
-     * 交给 WebView 自己打开，会话就建在 WebView 里。校外时拿到的是 WebVPN 网关形式的地址。
-     */
-    suspend fun freshPayUrl(): String {
-        val (username, password) = manager?.credentials ?: throw IOException("还没有登录账号，请先在「我的」页登录")
-        if (currentAccessMode == AccessMode.WEBVPN) manager?.ensureWebVpnLogin()
-        val backend = checkNotNull(backend) { "[$siteKey] backend not bound" }
-        return backend.loginGate.withLock(foreground = true) {
-            withContext(Dispatchers.IO) { capturePayCallback(backend.client, username, password) }
-        }
-    }
-
-    private fun capturePayCallback(client: OkHttpClient, username: String, password: String): String {
-        var callback: String? = null
-        // 得用网络拦截器：重定向的每一跳只有它看得到（应用拦截器只见第一个请求）。
-        // 它必须放行一次，所以带 code 的那一跳改成不带参数的同一页，code 原样留给 WebView 去用。
-        val capturing = client.newBuilder().addNetworkInterceptor { chain ->
-            val request = chain.request()
-            val isCallback = request.url.encodedPath.endsWith("/cems/index/mobile/pay") && request.url.queryParameter("code") != null
-            if (!isCallback) return@addNetworkInterceptor chain.proceed(request)
-            callback = request.url.toString().replaceFirst("http://", "https://")
-            chain.proceed(request.newBuilder().url(request.url.newBuilder().query(null).build()).build())
-        }.build()
-        val login = object : SsnLogin(capturing, manager?.fpVisitorId, manager?.cachedRsaKey) {
-            override fun postLogin(response: Response) {}
-        }
-        val result = login.login(username, password)
-        return callback ?: throw IOException(result.message.ifBlank { "没能取得缴费页入口，请稍后重试" })
-    }
-
-    /**
-     * 拿存下的 cid 查一次宿舍列表：有效回 code 0，过期回 401001。不能重开缴费页来判断——
-     * 缴费页要凭 OAuth 回调里一次性的 code 进（见 [freshPayUrl]），不带 code 打开一律当成没登录。
-     */
-    override suspend fun validateLogin(): Boolean = withIo {
-        val cid = localToken["cid"] ?: return@withIo false
-        val request = Request.Builder().url("${SsnLogin.BASE_URL}/mobile/addr/list?cid=$cid")
-            .header("Accept", "application/json, text/javascript, */*; q=0.01")
-            .header("Referer", SsnLogin.PAY_PAGE_URL)
-            .header("X-Requested-With", "XMLHttpRequest")
-            .get().build()
-        client.newCall(request).execute().use { resp ->
-            resp.isSuccessful && runCatching {
-                com.xjtu.toolbox.dormpower.DormPowerParsers.data(com.xjtu.toolbox.dormpower.DormPowerParsers.decode(resp.body.bytes()))
-            }.isSuccess
-        }
-    }
-}
+//
+// `SsnSession` 与它的 `SsnLogin` 已搬进 `:data`（同一个包、同一个类名）：宿舍电费是「桌面端第 17 条
+// 真数据路由」，而且**它有自己的独立登录链** —— `org.xjtu.edu.cn` 开放平台的 OAuth2（appId=1759）→
+// CAS → 带 `code` 回 `/cems/index/mobile/pay`，站点点下会话、页面 HTML 里内嵌 `cid`，不借校园卡 /
+// 教务的会话。取数也是 `:data` 的 `DormPowerApi`（实现 `:core` 的 `DormPowerSource` 端口）。
+// 类名与包路径都没变 ⇒ `AppLoginState` / `HeadlessSessions` 里那两处 `register(SsnSession())`
+// 一行不用改。
 
 // ── CAMPUS CARD 校园卡 ───────────────────────────────────────────────
 // `CampusCardSession` 与它的 `CampusCardLogin` 已搬进 `:data`（同一个包、同一个类名）：校园卡是
