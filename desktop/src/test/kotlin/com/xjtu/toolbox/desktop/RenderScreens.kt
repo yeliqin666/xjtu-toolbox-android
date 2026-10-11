@@ -17,6 +17,7 @@ import com.xjtu.toolbox.auth.ensureSite
 import com.xjtu.toolbox.calendar.SchoolCalendarApi
 import com.xjtu.toolbox.calendar.SchoolCalendarFakeUpstream
 import com.xjtu.toolbox.calendar.SchoolCalendarScreen
+import com.xjtu.toolbox.coupon.CouponFakeUpstream
 import com.xjtu.toolbox.dzpz.DzpzFakeUpstream
 import com.xjtu.toolbox.error.FriendlyError
 import com.xjtu.toolbox.faculty.FacultyApi
@@ -61,6 +62,7 @@ import kotlinx.coroutines.runBlocking
  * | `inbox.png` | 消息收纳屏（真路由：外壳 → `AppRoute.Inbox` → `AppInboxSource`） | 第十二条真数据路由：一网通办那四路（消息 / 事务中心 / 预约 / 校车），会话由**源自己 ensure**（不套 Gate）；图上待办那两栏的条目与「预约中心 有 3 个…」都是夹具样本 |
  * | `notification.png` | 通知公告屏（真路由：外壳 → `AppRoute.Notification` → `AppNoticeSource`） | 第十三条真数据路由：29 个公开的公告页里夹具扮了 3 个（教务处 / 化工学院 / OA），这是最后一条 pending 路 —— 图上那三条教务处通知（默认来源）的标题/日期/标签都是夹具样本，不是错误页或转圈 |
  * | `transcript.png` | 电子成绩单屏（真路由：外壳 → `AppRoute.Transcript` → `DesktopSiteGate` → `AppTranscriptSource`） | 第十四条真数据路由：`dzpz` **有自己的独立登录页**（`Login.jsp` → CAS OAuth2 → 回跳换 `loginidweaver`），屏与七步流程都在 `:core`，PDF 落盘在桌面上写用户的下载目录；图上那一条成绩单类型、申请日期与「一键申请成绩单」按钮都是夹具样本 |
+ * | `coupon.png` | 加餐券屏（真路由：外壳 → `AppRoute.Coupon` → `DesktopSiteGate` → `AppCouponSource`） | 第十五条真数据路由：`egc.xjtu.edu.cn` **有自己的独立登录页**（CAS OAuth2 `client_id=1596` → `org.xjtu.edu.cn` 开放平台 → 回落到 receiveCas.html 换 `auth_token`），屏与分页/领取的编排都在 `:core`；图上「可使用」那两批券卡与摘要行都是夹具样本 |
  * | `routes.png` | 「全部页面」索引页 | 如实列出「真能用 / 还没有数据源」，并给出退出登录入口 |
  * | `library-demo.png` | 同一屏 + 固定假数据 | 布局与组件本身可复现（不依赖网络/会话，改屏时用它对比） |
  *
@@ -349,6 +351,22 @@ fun main(args: Array<String>) {
         ) { ToolboxDesktopApp(auth, DesktopTarget.App(AppRoute.Notification)) }
         check(noticeShown) {
             "notification.png：屏上没有夹具那条通知（${NotificationFakeUpstream.JWC_TITLE_1}）—— 多半没取到数"
+        }
+
+        // 加餐券（第十五条真数据路由）：走**真路由**（外壳 → `AppRoute.Coupon` → `DesktopSiteGate`
+        // → `AppCouponSource`）。登录链里有 `org.xjtu.edu.cn` 开放平台那一跳（与场馆共用一台 host，
+        // 按路径分派）。图上应当是「可使用」那两批券卡中的一张（标题 + 面额 + 日期，那行
+        // 「剩余 / 面额 ¥5.00」）+ 顶栏的分段页签 —— 不是转圈，也不是错误页。
+        var couponShown = false
+        shot(
+            "coupon.png",
+            frames = 20,
+            onFrame = { frame, scene ->
+                if (!couponShown && frame >= 4) couponShown = hasText(scene, CouponFakeUpstream.USABLE_NAME)
+            },
+        ) { ToolboxDesktopApp(auth, DesktopTarget.App(AppRoute.Coupon)) }
+        check(couponShown) {
+            "coupon.png：屏上没有夹具那张券卡（${CouponFakeUpstream.USABLE_NAME}）—— 多半没取到数"
         }
 
         // 电子成绩单（第十四条真数据路由）：走**真路由**（外壳 → `AppRoute.Transcript` →

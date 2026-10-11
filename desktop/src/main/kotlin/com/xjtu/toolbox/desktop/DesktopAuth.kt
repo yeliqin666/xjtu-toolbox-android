@@ -6,6 +6,7 @@ import androidx.compose.runtime.setValue
 import com.xjtu.toolbox.account.AccountContext
 import com.xjtu.toolbox.auth.AccountType
 import com.xjtu.toolbox.auth.CampusCardSession
+import com.xjtu.toolbox.auth.CouponSession
 import com.xjtu.toolbox.auth.DzpzSession
 import com.xjtu.toolbox.auth.FitnessSession
 import com.xjtu.toolbox.auth.GmisSession
@@ -107,6 +108,12 @@ class DesktopAuth(
         // 校车）共用的站点，桌面自己登它，用同包的 `AppInboxSource` 取数。与校园卡/场馆一样，
         // 「登录页那一步」只是尽力预热它，它自己挂了最坏只影响那一屏。
         register(YwtbSession())
+        // 加餐券（`:data` 的 `CouponSession` + `CouponLogin`）：`egc.xjtu.edu.cn` 这条路由
+        // 进门时要用它（见 `ToolboxDesktopApp` 的 `DesktopSiteGate`）。它**有自己的独立登录页**
+        // （CAS OAuth2 `client_id=1596` → `org.xjtu.edu.cn` 开放平台 → 回落到 egc 的
+        // receiveCas.html → 换 `auth_token`），不借别的站点会话 —— 见 `CouponSession` 的 KDoc。
+        // 与校园卡/场馆一样，「登录页那一步」只是尽力预热它，它自己挂了最坏只影响那一屏。
+        register(CouponSession())
         // 电子凭证（`:data` 的 `DzpzSession` + `DzpzLogin`）：成绩单（`dzpz` 的工作流引擎）这条路由
         // 进门时要用它（见 `ToolboxDesktopApp` 的 `DesktopSiteGate`）。它**有自己的独立登录页**
         // （`dzpz.xjtu.edu.cn/login/Login.jsp` → CAS OAuth2 `client_id=new9940` → 回跳换
@@ -342,6 +349,9 @@ class DesktopAuth(
          */
         const val YWTB_SITE_KEY = YwtbSession.SITE_KEY
 
+        /** 加餐券（`coupon` = `egc.xjtu.edu.cn`）。那条路由进门时用它（见 `ToolboxDesktopApp` 的 `DesktopSiteGate`）。 */
+        const val COUPON_SITE_KEY = CouponSession.SITE_KEY
+
         /** 电子凭证（`dzpz`）。成绩单那条路由进门时用它（见 `ToolboxDesktopApp` 的 `DesktopSiteGate`）。 */
         const val DZPZ_SITE_KEY = DzpzSession.SITE_KEY
 
@@ -362,6 +372,7 @@ class DesktopAuth(
             VENUE_SITE_KEY,
             YWTB_SITE_KEY,
             DZPZ_SITE_KEY,
+            COUPON_SITE_KEY,
         )
     }
 }

@@ -277,29 +277,12 @@ class JiaocaiSession : CasSiteSession("jiaocai", "教材中心", mustUseWebVpn =
 }
 
 // ── COUPON 餐券 ──────────────────────────────────────────────────────
-
-class CouponSession : CasSiteSession("coupon", "餐券系统", mustUseWebVpn = false) {
-    override fun createLogin(client: OkHttpClient, visitorId: String?, cachedRsaKey: String?): XJTULogin =
-        CouponLogin(session = client, visitorId = visitorId, cachedRsaKey = cachedRsaKey)
-
-    override fun onLoginSuccess(login: XJTULogin) {
-        (login as? CouponLogin)?.authToken?.takeIf { it.isNotBlank() }?.let {
-            localToken["auth_token"] = it
-        }
-    }
-
-    override fun decorateRequest(builder: Request.Builder): Request.Builder {
-        localToken["auth_token"]?.let { builder.header("Authorization", it) }
-        return builder
-    }
-
-    override fun isAuthFailureResponse(response: Response, bodyPreview: String?): Boolean {
-        if (super.isAuthFailureResponse(response, bodyPreview)) return true
-        val body = bodyPreview ?: return false
-        return """"code"\s*:\s*401""".toRegex().containsMatchIn(body) ||
-            body.contains("登录过期") || body.contains("未登录")
-    }
-}
+//
+// `CouponSession` 与它的 `CouponLogin` 已搬进 `:data`（同一个包、同一个类名）：加餐券是
+// 「桌面端第 15 条真数据路由」，桌面要自己登 `egc.xjtu.edu.cn`、自己查券与领券
+//（`:data` 的 `AppCouponSource` 包住原来的 `CouponApi`）。类名与包路径都没变 ⇒
+// 下面 `AppLoginState` 里那处 `register(CouponSession())`、以及 `AgentTool` / `HomeStatsRefresher`
+// 里那两处 `CouponApi(site)`，一行都不用改。
 
 // ── DZPZ 电子凭证（成绩单） ───────────────────────────────────────────
 //

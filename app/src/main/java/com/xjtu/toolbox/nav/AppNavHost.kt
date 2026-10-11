@@ -27,6 +27,7 @@ import com.xjtu.toolbox.card.appCampusCardStore
 import com.xjtu.toolbox.card.CampusCardScreen
 import com.xjtu.toolbox.card.CouponEntryStat
 import com.xjtu.toolbox.community.CommunityScreen
+import com.xjtu.toolbox.coupon.AppCouponSource
 import com.xjtu.toolbox.coupon.CouponScreen
 import com.xjtu.toolbox.data.CredentialStore
 import com.xjtu.toolbox.dzpz.AppTranscriptSaver
@@ -250,7 +251,18 @@ fun AppNavHost(
             }
         }
         entry<AppRoute.Coupon>(transition = expand(AppRoute.Coupon::class)) {
-            WithSite("coupon") { CouponScreen(site = it, onBack = back) }
+            // 屏与编排都搬进了 `:core`（`CouponScreen` + `CouponViewModel` + `CouponSource` 端口）；
+            // 取数是 `:data` 的 `AppCouponSource`（包住原来的 `CouponApi`，行数没变），站点类与
+            // 它的 `CouponLogin` 同批搬进 `:data`。还留在这里的只有这一端的**宿主能力**：
+            // 把「待领取/待使用」摘要写回首页的 `HomeStats.push`（与搬迁前那一行逐字一致）。
+            val couponContext = LocalContext.current
+            WithSite("coupon") { site ->
+                CouponScreen(
+                    source = remember(site) { AppCouponSource(site) },
+                    onBack = back,
+                    onSummary = { value, detail -> HomeStats.push(couponContext, AppRoute.Coupon, value, detail) },
+                )
+            }
         }
         entry<AppRoute.ScoreReport>(transition = expand(AppRoute.ScoreReport::class)) {
             // 成绩报表屏已搬进 :core；这里注入取数（帆软报表）与缓存（DataCache）——

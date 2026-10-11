@@ -6,7 +6,6 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.xjtu.toolbox.ui.adaptive.readableWidth
 import com.xjtu.toolbox.ui.adaptive.fullLineItem
 import androidx.compose.foundation.lazy.staggeredgrid.items
-import android.graphics.BitmapFactory
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
@@ -36,13 +35,11 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import com.xjtu.toolbox.auth.LocalAppLoginState
-import com.xjtu.toolbox.auth.handleAuthExpired
+import com.xjtu.toolbox.auth.LocalAuthExpiry
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -51,11 +48,8 @@ import com.xjtu.toolbox.ui.components.AppSegmentedTabs
 import com.xjtu.toolbox.ui.components.EmptyState
 import com.xjtu.toolbox.ui.components.ErrorState
 import com.xjtu.toolbox.ui.components.LoadingState
+import com.xjtu.toolbox.platform.decodeImageFull
 import com.xjtu.toolbox.ui.glass.*
-import com.xjtu.toolbox.auth.SiteSession
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
-import okhttp3.Request
 import top.yukonga.miuix.kmp.basic.Button
 import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.CircularProgressIndicator
@@ -69,15 +63,37 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.utils.overScrollVertical
 import com.xjtu.toolbox.nav.AppRoute
 
+/**
+ * 加餐券：四个分类的分段页签 + 瀑布流券卡 + 领取，翻页触底自动加载。
+ *
+ * 本屏从 `:app` 搬进 `:core`（桌面端第 15 条真数据路由），屏与 [CouponViewModel] 是两端
+ * 共用的同一份，只在**取数**与**宿主能力**上切缝（表格即「原来」→「现在」）：
+ *
+ * | 原来 | 现在 |
+ * |---|---|
+ * | `site: SiteSession` | [source]（`:data` 的 `AppCouponSource`；Web 以后接 campus-api） |
+ * | `LocalAppLoginState.handleAuthExpired(...)` | `:core` 的 [LocalAuthExpiry] |
+ * | 屏上自己发 okhttp 取券图 + `BitmapFactory` | [CouponSource.loadImage] + `:core` 的图片缝 [decodeImageFull] |
+ * | `HomeStats.push(appContext, AppRoute.Coupon, …)` | [onSummary]（首页摘要回写槽位） |
+ * | `"¥%.2f".format(...)`（JVM 专属） | [formatYuan]（与 `:core` 既有先例同一条手写口径） |
+ * | `System.identityHashCode(site)` 当 VM key | 固定 key `"coupon"`（`identityHashCode` 是 JVM 专属，`:core` 还要编到 wasm） |
+ *
+ * 屏自己的画法、文案、状态走向**一行未改**。
+ */
 @Composable
 fun CouponScreen(
-    site: SiteSession,
-    onBack: () -> Unit
+    /** 本端的取数（Android / 桌面 = `:data` 的 `AppCouponSource`；Web 还没有这条链）。 */
+    source: CouponSource,
+    onBack: () -> Unit,
+    /**
+     * 首页摘要回写（见 [CouponViewModel.onSummary]）：Android = `HomeStats.push(…, AppRoute.Coupon, …)`
+     *（与搬迁前那一行逐字一致）；桌面/Web 没有那份首页摘要 ⇒ 默认空实现。
+     */
+    onSummary: (summary: String, detail: String?) -> Unit = { _, _ -> },
 ) {
-    val appLoginState = LocalAppLoginState.current
-    val context = androidx.compose.ui.platform.LocalContext.current
-    val vm: CouponViewModel = viewModel(key = "coupon-${System.identityHashCode(site)}") { CouponViewModel(context, site) }
-    LaunchedEffect(vm) { vm.authExpired.collect { appLoginState.handleAuthExpired(AppRoute.Coupon, onBack) } }
+    val authExpiry = LocalAuthExpiry.current
+    val vm: CouponViewModel = viewModel(key = "coupon") { CouponViewModel(source, onSummary) }
+    LaunchedEffect(vm) { vm.authExpired.collect { authExpiry.onAuthExpired(AppRoute.Coupon, onBack) } }
     val scrollBehavior = MiuixScrollBehavior(rememberTopAppBarState())
     val selectedFilter = vm.filter
 
@@ -150,7 +166,7 @@ fun CouponScreen(
                         )
                     }
                     else -> CouponList(
-                        site = site,
+                        source = source,
                         records = vm.records,
                         total = vm.total,
                         filter = selectedFilter,
@@ -172,7 +188,7 @@ fun CouponScreen(
 
 @Composable
 private fun CouponList(
-    site: SiteSession,
+    source: CouponSource,
     records: List<CouponRecord>,
     total: Int,
     isLoadingMore: Boolean,
@@ -222,7 +238,7 @@ private fun CouponList(
         }
         items(records, key = { it.showCardId.ifBlank { it.sendId } }) { coupon ->
             CouponRecordCard(
-                site = site,
+                source = source,
                 coupon = coupon,
                 filter = filter,
                 isReceiving = coupon.showCardId in receivingIds,
@@ -325,7 +341,7 @@ private fun CouponSummaryCard(
             Column(horizontalAlignment = Alignment.End) {
                 Text("剩余面额", style = MiuixTheme.textStyles.footnote1, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
                 Text(
-                    "¥%.2f".format(leftAmountFen / 100.0),
+                    formatYuan(leftAmountFen),
                     style = MiuixTheme.textStyles.subtitle,
                     color = MiuixTheme.colorScheme.primary,
                     fontWeight = FontWeight.Bold
@@ -337,7 +353,7 @@ private fun CouponSummaryCard(
 
 @Composable
 private fun CouponRecordCard(
-    site: SiteSession,
+    source: CouponSource,
     coupon: CouponRecord,
     filter: CouponFilter,
     isReceiving: Boolean,
@@ -353,7 +369,7 @@ private fun CouponRecordCard(
                 .padding(14.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            CouponImage(site = site, url = coupon.imageUrl)
+            CouponImage(source = source, url = coupon.imageUrl)
             Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -377,14 +393,14 @@ private fun CouponRecordCard(
                 Spacer(Modifier.height(10.dp))
                 Row(verticalAlignment = Alignment.Bottom) {
                     Text(
-                        "¥%.2f".format(coupon.leftAmountYuan),
+                        formatYuan(coupon.leftAmountFen),
                         style = MiuixTheme.textStyles.title4,
                         color = MiuixTheme.colorScheme.primary,
                         fontWeight = FontWeight.Bold
                     )
                     Spacer(Modifier.width(6.dp))
                     Text(
-                        "剩余 / 面额 ¥%.2f".format(coupon.amountYuan),
+                        "剩余 / 面额 ${formatYuan(coupon.amountFen)}",
                         style = MiuixTheme.textStyles.footnote1,
                         color = MiuixTheme.colorScheme.onSurfaceVariantSummary
                     )
@@ -417,23 +433,18 @@ private fun CouponRecordCard(
 }
 
 @Composable
-private fun CouponImage(site: SiteSession, url: String) {
+private fun CouponImage(source: CouponSource, url: String) {
     var imageBytes by remember(url) { mutableStateOf<ByteArray?>(null) }
     LaunchedEffect(url) {
         imageBytes = null
         if (url.isBlank()) return@LaunchedEffect
-        imageBytes = withContext(Dispatchers.IO) {
-            runCatching {
-                site.client.newCall(Request.Builder().url(url).get().build()).execute().use { response ->
-                    if (!response.isSuccessful) null else response.body.bytes()
-                }
-            }.getOrNull()
-        }
+        // 取图原来在这屏上直接发 okhttp —— 现在收进取数端口（实现自己包 IO），
+        // 屏只做「要字节、拿不到就算了」这一件事
+        imageBytes = source.loadImage(url)
     }
 
-    val bitmap = remember(imageBytes) {
-        imageBytes?.let { BitmapFactory.decodeByteArray(it, 0, it.size) }
-    }
+    // 解码那半用 `:core` 的图片缝（Android = BitmapFactory，桌面 = skiko），与 `:app` 原实现同一条路
+    val bitmap = remember(imageBytes) { imageBytes?.let { decodeImageFull(it) } }
     Box(
         modifier = Modifier
             .size(74.dp)
@@ -443,7 +454,7 @@ private fun CouponImage(site: SiteSession, url: String) {
     ) {
         if (bitmap != null) {
             Image(
-                bitmap = bitmap.asImageBitmap(),
+                bitmap = bitmap,
                 contentDescription = null,
                 modifier = Modifier.fillMaxSize(),
                 contentScale = ContentScale.Crop
@@ -457,6 +468,16 @@ private fun CouponImage(site: SiteSession, url: String) {
             )
         }
     }
+}
+
+/**
+ * 分转元的显示口径（原来那个 `"¥%.2f".format(x / 100.0)` 是 JVM 专属写法，`:core` 还要编到
+ * wasm，按既有先例手写 —— 幂等：`500` 分 → `5.00`，`505` 分 → `5.05`，`999` → `9.99`）。
+ */
+private fun formatYuan(fen: Long): String {
+    val sign = if (fen < 0) "-" else ""
+    val abs = if (fen < 0) -fen else fen
+    return "$sign¥${abs / 100}.${(abs % 100).toString().padStart(2, '0')}"
 }
 
 @Composable

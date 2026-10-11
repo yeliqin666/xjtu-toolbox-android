@@ -67,6 +67,8 @@ import com.xjtu.toolbox.score.scoreReportSource
 import com.xjtu.toolbox.game.xiangqi.XiangqiScreen
 import com.xjtu.toolbox.inbox.AppInboxSource
 import com.xjtu.toolbox.inbox.InboxScreen
+import com.xjtu.toolbox.coupon.AppCouponSource
+import com.xjtu.toolbox.coupon.CouponScreen
 import com.xjtu.toolbox.dzpz.AppTranscriptSource
 import com.xjtu.toolbox.dzpz.TranscriptScreen
 import com.xjtu.toolbox.desktop.dzpz.DesktopTranscriptSaver
@@ -211,6 +213,7 @@ internal val DESKTOP_SUPPORTED_ROUTES = listOf(
     AppRoute.YellowPage to "黄页",
     AppRoute.Faculty to "教师检索",
     AppRoute.Transcript to "电子成绩单",
+    AppRoute.Coupon to "加餐券",
     AppRoute.Games to "游戏合集",
     AppRoute.Game2048 to "GPA 2048",
     AppRoute.GameBlocks to "方块",
@@ -572,6 +575,21 @@ private fun DesktopPage(auth: DesktopAuth, route: AppRoute, onNavigate: (Desktop
                 }
             },
         )
+        // 加餐券（第十五条真数据路由）：站点是 **https** 的 `egc.xjtu.edu.cn`，而且
+        // **它有自己的独立登录页**（CAS OAuth2 `client_id=1596` → `org.xjtu.edu.cn` 开放平台
+        // → 回落到 receiveCas.html → 换 `auth_token`，见 `:data` 的 `CouponLogin`）—— 不借别的
+        // 已搬站点的会话。会话**进门时才建**（见 `DesktopSiteGate`）：登录页那一步只是尽力预热它。
+        //
+        // 屏与分页/领取的编排都在 `:core`（`CouponScreen` + `CouponViewModel`），取数是 `:data` 的
+        // `AppCouponSource`（包住搬进 `:data` 的 `CouponApi`，字段口径一行未改）。券封面图也走
+        // 这个源（`loadImage`，本端 = 站点会话客户端 + `:core` 图片缝解码）。唯一留在这端的空白是
+        // 首页摘要：桌面没有那份 HomeStats，`onSummary` 不传（屏的默认空实现）—— 如实不写。
+        AppRoute.Coupon -> DesktopSiteGate(auth, DesktopAuth.COUPON_SITE_KEY, "餐券系统") { site ->
+            CouponScreen(
+                source = remember(site) { AppCouponSource(site) },
+                onBack = back,
+            )
+        }
         // 电子成绩单（第十四条真数据路由）：站点是 **https** 的 `dzpz.xjtu.edu.cn`，而且
         // **它有自己的独立登录页**（Ecology 的 `Login.jsp` → CAS OAuth2 `client_id=new9940`
         // → 回跳换 `loginidweaver`，见 `:data` 的 `DzpzLogin`）—— 不借别的已搬站点的会话。

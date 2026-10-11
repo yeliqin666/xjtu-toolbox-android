@@ -327,9 +327,15 @@ class LibraryFakeUpstream(
         val path = exchange.requestURI.path
         val query = exchange.requestURI.query.orEmpty()
         when {
-            casEnabled && path == "/cas/login" && exchange.requestMethod == "POST" -> handleCasPost(exchange, query)
-            casEnabled && path == "/cas/login" -> handleCasGet(exchange, query, cookieHeader(exchange))
-            casEnabled && path == OAUTH_AUTHORIZE_PATH -> handleCasOauthAuthorize(exchange, query, cookieHeader(exchange))
+            // ⚠️ 用 `rawQuery`（百分号编码原文）而不是 `query`：`java.net.URI.getQuery()` 返回的是
+            // **解码后**的查询串，service 值里若有 `&`（encode 过的 redirect_uri 常见）会被当成
+            // 参数分隔符截断 —— 凭据 POST 后回跳的 authorize URL 就会丢参数（实测 400）。
+            // `param()` 自己会做一次 URLDecoder.decode，所以这里交给它编码原文正好合适。
+            casEnabled && path == "/cas/login" && exchange.requestMethod == "POST" ->
+                handleCasPost(exchange, exchange.requestURI.rawQuery.orEmpty())
+            casEnabled && path == "/cas/login" -> handleCasGet(exchange, exchange.requestURI.rawQuery.orEmpty(), cookieHeader(exchange))
+            casEnabled && path == OAUTH_AUTHORIZE_PATH ->
+                handleCasOauthAuthorize(exchange, exchange.requestURI.rawQuery.orEmpty(), cookieHeader(exchange))
             casEnabled && path == PUBLIC_KEY_PATH -> {
                 publicKeyCalls.incrementAndGet()
                 respond(exchange, 200, "text/plain; charset=utf-8", TestRsaKey.publicKeyBase64.toByteArray())
@@ -429,6 +435,8 @@ class LibraryFakeUpstream(
             val code = "OC-fake-${oauthCodes.incrementAndGet()}"
             redirect(exchange, appendParam(redirectUri, "code", code))
         } else {
+            // [query] 是 rawQuery（百分号编码原文）⇒ 拼进 service 时**不要再包一层 encode**：
+            // 那样会把参数里的 `%` 变成 `%25`，绕一圈回来仍是原样的编码值 —— 保持一层编码正好。
             redirect(exchange, "https://$CAS_HOST/cas/login?service=${encode("https://$CAS_HOST$OAUTH_AUTHORIZE_PATH?$query")}")
         }
     }

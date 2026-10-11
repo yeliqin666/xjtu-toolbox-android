@@ -38,6 +38,9 @@ import com.xjtu.toolbox.venue.TrackPoint
 import com.xjtu.toolbox.venue.VenueCaptchaFixture
 import com.xjtu.toolbox.dzpz.AppTranscriptSource
 import com.xjtu.toolbox.dzpz.DzpzDocuments
+import com.xjtu.toolbox.coupon.AppCouponSource
+import com.xjtu.toolbox.coupon.CouponFilter
+import com.xjtu.toolbox.coupon.CouponFakeUpstream
 import com.xjtu.toolbox.dzpz.DzpzFakeUpstream
 import com.xjtu.toolbox.notification.AppNoticeSource
 import com.xjtu.toolbox.notification.NotificationFakeUpstream
@@ -1384,6 +1387,53 @@ class DesktopAuthLibraryJvmTest {
         assertTrue(
             DESKTOP_SUPPORTED_ROUTES.any { it.first == AppRoute.Transcript },
             "电子成绩单该在「真能用」那一栏里",
+        )
+    }
+
+    // ══════ 加餐券（egc.xjtu.edu.cn）：自己走 OAuth2 + 开放平台那条路 ══════
+
+    /**
+     * 第 15 条真数据路由。登录入口**也有自己的独立登录页**：CAS OAuth2 `client_id=1596` →
+     * `org.xjtu.edu.cn` 开放平台（`authorizesw`，redirect_uri 是 base64 的 egc 接收页）→
+     * 回落到 `receiveCas.html` → 换 `auth_token`。这条用例真跑一遍那趟链，再读出夹具的券卡。
+     */
+    @Test
+    fun `真登录之后：加餐券自己走完 OAuth2 与开放平台，查券读出夹具样本`() = withFakeCampus {
+        val (auth, _) = newAuth()
+        assertTrue(login(auth), "用假下游的账号密码应当登得上：${auth.loginState}")
+
+        // 登录页那一步只是「尽力预热」，这里显式确保一次（这正是 `DesktopSiteGate` 干的事）
+        runBlocking { auth.ensureSession(DesktopAuth.COUPON_SITE_KEY) }
+        val site = auth.sessionManager.getSite(DesktopAuth.COUPON_SITE_KEY)
+        assertTrue(site.hasLogin, "egc 应当在假上游上登得上")
+        assertEquals(
+            CouponFakeUpstream.AUTH_TOKEN,
+            site.localToken["auth_token"],
+            "auth_token 来自 SSO 换令牌那一枪（CouponSession.onLoginSuccess 那两行）",
+        )
+
+        // 桌面端取数走的就是 `:data` 的 `AppCouponSource`（包住搬过来的 `CouponApi`）
+        val source = AppCouponSource(site)
+        val pages = runBlocking {
+            listOf(
+                source.queryCoupons(CouponFilter.USABLE),
+                source.queryCoupons(CouponFilter.AVAILABLE),
+            )
+        }
+        val usable = pages[0]
+        assertEquals(2, usable.records.size)
+        assertEquals(CouponFakeUpstream.USABLE_NAME, usable.records.first().voucherName)
+        assertEquals(500L, usable.records.first().amountFen)
+        assertEquals("https://egc.xjtu.edu.cn${CouponFakeUpstream.PIC_PATH}", usable.records.first().imageUrl)
+        assertEquals(1, pages[1].records.size)
+        assertEquals(CouponFakeUpstream.AVAILABLE_NAME, pages[1].records.single().voucherName)
+        // 业务请求带着 Authorization（`CouponSession.decorateRequest`）
+        assertEquals(CouponFakeUpstream.AUTH_TOKEN, fake.coupon.lastBusinessAuthorization)
+
+        // 路由那一行：这条也进了「真能用」
+        assertTrue(
+            DESKTOP_SUPPORTED_ROUTES.any { it.first == AppRoute.Coupon },
+            "加餐券该在「真能用」那一栏里",
         )
     }
 }

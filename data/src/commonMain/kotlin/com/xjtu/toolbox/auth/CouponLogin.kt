@@ -7,7 +7,7 @@ import com.xjtu.toolbox.util.isArray
 import com.xjtu.toolbox.util.isPrimitive
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonArray
-import android.util.Log
+import com.xjtu.toolbox.platform.Log
 import kotlinx.serialization.json.JsonElement
 import com.xjtu.toolbox.util.safeGet
 import com.xjtu.toolbox.util.safeParseJsonObject
@@ -21,6 +21,14 @@ import java.net.URLDecoder
 import java.net.URLEncoder
 import java.util.concurrent.TimeUnit
 
+// ══════════════════════════════════════════════════════════════
+//  本类从 `:app/auth/CouponLogin.kt` 搬进 `:data`（同一个包名、同一个类名），与站点类
+//  [CouponSession] 一起 —— 桌面端要自己登 `egc.xjtu.edu.cn`（加餐券那条路由）。
+//  搬动只换了一处写法：`android.util.Log` → `:core` 的 [Log]（其余日志调用逐字不变）。
+//  登录入口如实交代：**它有自己的独立登录页**，不借别的已搬站点的会话 ——
+//  CAS OAuth2 `client_id=1596` → 回跳到 `org.xjtu.edu.cn` 开放平台（authorizesw）→
+//  落到 `egc.xjtu.edu.cn/page/cas/receiveCas.html` → 再换 `auth_token`。
+// ══════════════════════════════════════════════════════════════
 private const val COUPON_TAG = "CouponLogin"
 
 class CouponLogin(

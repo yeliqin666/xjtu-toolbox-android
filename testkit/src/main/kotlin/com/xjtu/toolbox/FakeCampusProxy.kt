@@ -2,6 +2,7 @@ package com.xjtu.toolbox
 
 import com.sun.net.httpserver.HttpExchange
 import com.xjtu.toolbox.calendar.SchoolCalendarFakeUpstream
+import com.xjtu.toolbox.coupon.CouponFakeUpstream
 import com.xjtu.toolbox.dzpz.DzpzFakeUpstream
 import com.xjtu.toolbox.card.CampusCardFakeUpstream
 import com.xjtu.toolbox.emptyroom.EmptyRoomFakeUpstream
@@ -113,6 +114,13 @@ class FakeCampusProxy(private val casEnabled: Boolean = true) : AutoCloseable {
     val notification: NotificationFakeUpstream = NotificationFakeUpstream()
 
     /**
+     * 加餐券（第 15 条真数据路由）：业务在 `egc.xjtu.edu.cn`（**https**），开放平台那一跳
+     * `org.xjtu.edu.cn/openplatform/oauth/authorizesw` 也归它（登录链的一部分，见 KDoc）。
+     * CAS 那半台（含 OAuth2 授权入口）由 [library] 扮演。
+     */
+    val coupon: CouponFakeUpstream = CouponFakeUpstream()
+
+    /**
      * 电子凭证（第 14 条真数据路由）：成绩单所在的 `dzpz.xjtu.edu.cn`（**https**）。
      * 登录那半台 CAS（含 OAuth2 授权入口）由 [library] 扮演 —— 见 [DzpzFakeUpstream] 的 KDoc。
      */
@@ -152,7 +160,15 @@ class FakeCampusProxy(private val casEnabled: Boolean = true) : AutoCloseable {
             CampusCardFakeUpstream.HOST -> campusCard.handle(exchange)
             EmptyRoomFakeUpstream.JS_HOST -> emptyRoom.handleJs(exchange)
             EmptyRoomFakeUpstream.CDN_HOST -> emptyRoom.handleCdn(exchange)
-            VenueFakeUpstream.OAUTH_HOST -> venue.handleOauth(exchange)
+            VenueFakeUpstream.OAUTH_HOST ->
+                // 同一台 `org.xjtu.edu.cn` 开放平台，两个消费方：场馆走 `/openplatform/oauth/authorize`，
+                // 加餐券走 `/openplatform/oauth/authorizesw` —— 按路径分派（分派表只有 host 一维）。
+                if (exchange.requestURI.path.startsWith("/openplatform/oauth/authorizesw")) {
+                    coupon.handleOrg(exchange)
+                } else {
+                    venue.handleOauth(exchange)
+                }
+            CouponFakeUpstream.HOST -> coupon.handleBusiness(exchange)
             VenueFakeUpstream.HOST -> venue.handle(exchange)
             // 消息收纳（第 12 条真数据路由）的五个域名：门户 + 四路取数（它们都只认一网通办令牌）。
             YwtbFakeUpstream.HOST -> ywtb.handlePortal(exchange)
@@ -222,6 +238,9 @@ class FakeCampusProxy(private val casEnabled: Boolean = true) : AutoCloseable {
             // 体育场馆的登录入口那一跳（`org.xjtu.edu.cn` 的 OAuth 授权页）；业务那半台是**明文**
             // `202.117.17.144:8080`，不走隧道，所以不在这里。
             VenueFakeUpstream.OAUTH_HOST,
+            // 加餐券：`egc.xjtu.edu.cn` 是 https（业务接口都是；登录链上的开放平台
+            // `org.xjtu.edu.cn` 与场馆共用一枚 SAN，见 VenueFakeUpstream.OAUTH_HOST）。
+            CouponFakeUpstream.HOST,
             // 电子凭证（成绩单）：`dzpz.xjtu.edu.cn` 是 https（它的登录入口页与业务接口都是）。
             DzpzFakeUpstream.HOST,
             // 通知公告那三个源：全是 https（教务处 / 化工学院 / OA）。

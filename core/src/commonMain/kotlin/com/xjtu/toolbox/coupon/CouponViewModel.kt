@@ -1,29 +1,41 @@
 package com.xjtu.toolbox.coupon
 
-import android.content.Context
-import com.xjtu.toolbox.error.FriendlyError
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.xjtu.toolbox.auth.AuthExpiredException
-import com.xjtu.toolbox.auth.SiteSession
-import com.xjtu.toolbox.home.HomeStats
-import com.xjtu.toolbox.nav.AppRoute
+import com.xjtu.toolbox.error.FriendlyError
+import com.xjtu.toolbox.error.SessionExpiredFailure
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 
-/** 加餐券：按分类分页，领取；换分类时取消上一个分类还没回来的请求。 */
-internal class CouponViewModel(context: Context, site: SiteSession) : ViewModel() {
-    private val appContext = context.applicationContext
-    private val api = CouponApi(site)
+/**
+ * 加餐券：按分类分页，领取；换分类时取消上一个分类还没回来的请求。
+ *
+ * 从 `:app` 搬进 `:core`：**编排逻辑一行未改**（按分类拉页、翻页失败只提示不丢列表、
+ * 领取先查详情再激活、会话失效走 [SessionExpiredFailure]），只换了三处「住址」：
+ *
+ *  - 取数从 `CouponApi(site)` 换成端口 [CouponSource]（Android / 桌面 = `:data` 的
+ *    `AppCouponSource`）—— VM 不再认识 `SiteSession`，也不再自己挑 `Dispatchers.IO`；
+ *  - 「把摘要留给首页」从 `HomeStats.push(appContext, AppRoute.Coupon, …)`（Android 的
+ *    `Context` + 首页缓存）换成参数 [onSummary] —— 桌面没有那份首页摘要，传默认不写；
+ *  - 会话失效由 `:core` 的标记接口 [SessionExpiredFailure] 认领（`:app` 的
+ *    `AuthExpiredException` 实现了它）——`catch` 抓不了接口，所以先抓 `Exception` 再判，
+ *    与评教/成绩/校园卡同一条缝。
+ */
+internal class CouponViewModel(
+    private val source: CouponSource,
+    /**
+     * 首页摘要回写（值 + 说明）：Android = `HomeStats.push(appContext, AppRoute.Coupon, …)`
+     *（与搬迁前那一行逐字一致）；桌面/Web 没有那份首页摘要 ⇒ 默认空实现。
+     */
+    private val onSummary: (summary: String, detail: String?) -> Unit = { _, _ -> },
+) : ViewModel() {
     private val authExpiredChannel = Channel<Unit>(Channel.CONFLATED)
     val authExpired = authExpiredChannel.receiveAsFlow()
 
@@ -76,17 +88,21 @@ internal class CouponViewModel(context: Context, site: SiteSession) : ViewModel(
         val filter = filter
         job = viewModelScope.launch {
             try {
-                val data = withContext(Dispatchers.IO) { api.queryCoupons(filter = filter, page = page, pageSize = 20) }
+                val data = source.queryCoupons(filter = filter, page = page, pageSize = 20)
                 total = data.total
                 this@CouponViewModel.page = page
                 records = if (append) records + data.records else data.records
                 if (!append) pushHomeStat(filter, data.total)
             } catch (e: CancellationException) {
                 throw e
-            } catch (_: AuthExpiredException) {
-                authExpiredChannel.send(Unit)
             } catch (e: Exception) {
-                if (append) loadMoreError = FriendlyError.of(e, "加载更多") else errorMessage = FriendlyError.of(e, "加载加餐券")
+                if (e is SessionExpiredFailure) {
+                    authExpiredChannel.send(Unit)
+                } else if (append) {
+                    loadMoreError = FriendlyError.of(e, "加载更多")
+                } else {
+                    errorMessage = FriendlyError.of(e, "加载加餐券")
+                }
             } finally {
                 isLoading = false
                 isLoadingMore = false
@@ -95,7 +111,11 @@ internal class CouponViewModel(context: Context, site: SiteSession) : ViewModel(
         }
     }
 
-    /** 顺手把摘要留给首页：只记「可领取 / 可使用」，已用完、已过期的条数写上去只会误导。 */
+    /**
+     * 顺手把摘要留给首页：只记「可领取 / 可使用」，已用完、已过期的条数写上去只会误导。
+     * 文案不变（「N 个待领取 / N 个待使用」，都没有就说「暂无可用」），
+     * 只是从「写 Android 的 HomeStats」变成「交给宿主 [onSummary]」。
+     */
     private fun pushHomeStat(filter: CouponFilter, count: Int) {
         if (filter == CouponFilter.AVAILABLE) pendingCount = count
         if (filter == CouponFilter.USABLE) usableCount = count
@@ -104,7 +124,7 @@ internal class CouponViewModel(context: Context, site: SiteSession) : ViewModel(
             if (pendingCount > 0) add("$pendingCount 个待领取")
             if (usableCount > 0) add("$usableCount 个待使用")
         }
-        HomeStats.push(appContext, AppRoute.Coupon, parts.firstOrNull() ?: "暂无可用", parts.drop(1).firstOrNull())
+        onSummary(parts.firstOrNull() ?: "暂无可用", parts.drop(1).firstOrNull())
     }
 
     fun receive(coupon: CouponRecord) {
@@ -114,19 +134,18 @@ internal class CouponViewModel(context: Context, site: SiteSession) : ViewModel(
         statusMessage = null
         viewModelScope.launch {
             try {
-                val detail = withContext(Dispatchers.IO) {
-                    val fetched = runCatching { api.getCouponDetail(id) }.getOrNull()
-                    api.activateCoupon(id)
-                    fetched
-                }
+                val detail = runCatching { source.getCouponDetail(id) }.getOrNull()
+                source.activateCoupon(id)
                 statusMessage = detail?.title?.takeIf { it.isNotBlank() } ?: "已领取 ${coupon.voucherName}"
                 load(silent = true)
             } catch (e: CancellationException) {
                 throw e
-            } catch (_: AuthExpiredException) {
-                authExpiredChannel.send(Unit)
             } catch (e: Exception) {
-                statusMessage = FriendlyError.of(e, "领取")
+                if (e is SessionExpiredFailure) {
+                    authExpiredChannel.send(Unit)
+                } else {
+                    statusMessage = FriendlyError.of(e, "领取")
+                }
             } finally {
                 receivingIds = receivingIds - id
             }
