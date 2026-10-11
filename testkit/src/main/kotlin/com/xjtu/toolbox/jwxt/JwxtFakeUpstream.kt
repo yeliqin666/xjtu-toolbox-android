@@ -22,6 +22,8 @@ import java.util.concurrent.atomic.AtomicInteger
  * POST <KCB_CX>/modules/bjkcb/xnxqcx.do   → 学期列表（请求里必须带 `*order=-DM`）
  * POST <DEPARTMENTS_URL>               → 开课单位（`/jwapp/code/…` 那张 id 表）
  * POST <KCB_CX>/modules/qxkcb/qxfbkccx.do → 全校课表一页（请求里必须带 `querySetting`）
+ * POST <WDKB>/modules/xskcb/xskcb.do    → 学生课表整学期（请求里必须带 `XNXQDM`）—— `:app` 的 `ScheduleApi`
+ * POST <WDKB>/modules/jshkcb/cxjcs.do   → 学期起点 `XQKSRQ`/`ZZC`（请求里必须带 `XN` 与 `XQ`）
  * GET  <REPORT_URL>?reportlet=…&xh=…    → 帆软报表初始页（`FR.SessionMgr.register`）
  * GET  <REPORT_URL>?…&op=page_content&sessionID=…&pn=N → 第 N 页表格
  * ```
@@ -127,6 +129,11 @@ class JwxtFakeUpstream {
         const val QUERY_URL = "$KCB_CX/modules/qxkcb/qxfbkccx.do"
         const val APP_INDEX_URL = "$KCB_CX/*default/index.do"
 
+        /** 学生课表应用（`wdkb`）—— `:app` 的 `schedule/ScheduleApi.kt` 打的就是它（与 kcbcx 同一个域名）。 */
+        const val WDKB = "$ORIGIN/jwapp/sys/wdkb"
+        const val SCHEDULE_URL = "$WDKB/modules/xskcb/xskcb.do"
+        const val TERM_START_URL = "$WDKB/modules/jshkcb/cxjcs.do"
+
         /** 帆软成绩报表。 */
         const val REPORT_URL = "$ORIGIN/jwapp/sys/frReport2/show.do"
 
@@ -153,6 +160,38 @@ class JwxtFakeUpstream {
         const val COURSE_2_NAME = "大学物理"
         const val COURSE_3_NAME = "艺术导论"
         const val TOTAL_SIZE = 3
+
+        // ── 学生课表样本（`wdkb`：`xskcb.do` 的行 + `cxjcs.do` 的学期起点）──
+        //
+        // 行的键名就是上游列名；`SKXQ`/`KSJC`/`JSJC` 三格**故意给 JSON 数字** ——
+        // 解析按 `safeString` 读成文本（「数字也按文本投影」那条口径就是这么钉住的）。
+
+        /** 第一行：整学期课（`ZCMC` = `1-16周`）。 */
+        const val SCHEDULE_1_COURSE = "高等数学（上）"
+        const val SCHEDULE_1_TEACHER = "示例甲"
+        const val SCHEDULE_1_ROOM = "主楼A-101"
+        const val SCHEDULE_1_WEEKS = "1-16周"
+        const val SCHEDULE_1_JXBID = "JXB-8001"
+        const val SCHEDULE_1_DAY = 1
+        const val SCHEDULE_1_START = 1
+        const val SCHEDULE_1_END = 2
+
+        /** 第二行：单周课（`ZCMC` 的 `(单)` 写法）—— 周次读的是这一格，不是 `SKZC` 位串。 */
+        const val SCHEDULE_2_COURSE = "大学物理"
+        const val SCHEDULE_2_TEACHER = "示例乙"
+        const val SCHEDULE_2_ROOM = "中2-3201"
+        const val SCHEDULE_2_WEEKS = "1-15周(单)"
+        const val SCHEDULE_2_JXBID = "JXB-8002"
+        const val SCHEDULE_2_DAY = 3
+        const val SCHEDULE_2_START = 3
+        const val SCHEDULE_2_END = 4
+
+        /** 第三行只有 `KCM`：缺的键读成空串（「缺键 = 空串」那条口径由它钉住）。 */
+        const val SCHEDULE_3_COURSE = "艺术导论"
+
+        /** 学期起点：`XQKSRQ` 给到秒（解析只取日期那一段），`ZZC` = 总周数（含考试周）。 */
+        const val TERM_START_DATE = "2026-09-14"
+        const val TERM_TOTAL_WEEKS = 18
 
         // ── 成绩报表样本 ──
 
@@ -304,6 +343,10 @@ class JwxtFakeUpstream {
     val departmentCalls = AtomicInteger()
     val queryCalls = AtomicInteger()
 
+    /** 学生课表的两条端点各打过几次（`wdkb`：`xskcb.do` / `jshkcb/cxjcs.do`）。 */
+    val scheduleCalls = AtomicInteger()
+    val termStartCalls = AtomicInteger()
+
     /** 成绩报表的翻页请求打过几次（`totalPages=2` ⇒ 一次 `pn=1` + 一次 `pn=2`）。 */
     val reportPageCalls = AtomicInteger()
 
@@ -315,6 +358,16 @@ class JwxtFakeUpstream {
     /** 最近一次 `qxfbkccx.do` 的表单原文（断言 `querySetting` 与分页参数真发出去了）。 */
     @Volatile
     var lastQueryForm: String? = null
+        private set
+
+    /** 最近一次 `xskcb.do` 的表单原文（断言 `XNXQDM=<学期>` 真发出去了）。 */
+    @Volatile
+    var lastScheduleForm: String? = null
+        private set
+
+    /** 最近一次 `cxjcs.do` 的表单原文（断言学期号真被切成了 `XN` + `XQ` 两格）。 */
+    @Volatile
+    var lastTermStartForm: String? = null
         private set
 
     /** 最近一次报表初始页请求里带的学号（`xh=`）。 */
@@ -403,6 +456,29 @@ class JwxtFakeUpstream {
     /** 当前学期：`datas.dqxnxq.rows[0].DM`。 */
     val currentTermJson = """
         {"datas":{"dqxnxq":{"rows":[{"DM":"$TERM_NEW","MC":"$TERM_NEW_NAME"}]}}}
+    """.trimIndent()
+
+    /**
+     * 学生课表的整学期行（`datas.xskcb.rows`）：三行。
+     *
+     * 第一行整学期、第二行单周（`ZCMC` 的 `(单)` 写法）、第三行**只有 `KCM`** —— 缺的键读成空串。
+     * 三格里 `SKXQ`/`KSJC`/`JSJC` 给的是 **JSON 数字**（真站点就是这么给的），解析成文本是它的口径。
+     */
+    val scheduleJson = """
+        {"datas":{"xskcb":{"rows":[
+          {"JXBID":"$SCHEDULE_1_JXBID","KCH":"MATH1001","KCM":"$SCHEDULE_1_COURSE",
+           "SKJS":"$SCHEDULE_1_TEACHER","JASMC":"$SCHEDULE_1_ROOM","SKXQ":$SCHEDULE_1_DAY,
+           "KSJC":$SCHEDULE_1_START,"JSJC":$SCHEDULE_1_END,"ZCMC":"$SCHEDULE_1_WEEKS","SKZC":"1111111111111111"},
+          {"JXBID":"$SCHEDULE_2_JXBID","KCH":"PHYS1002","KCM":"$SCHEDULE_2_COURSE",
+           "SKJS":"$SCHEDULE_2_TEACHER","JASMC":"$SCHEDULE_2_ROOM","SKXQ":$SCHEDULE_2_DAY,
+           "KSJC":$SCHEDULE_2_START,"JSJC":$SCHEDULE_2_END,"ZCMC":"$SCHEDULE_2_WEEKS","SKZC":"1010101010101010"},
+          {"KCM":"$SCHEDULE_3_COURSE"}
+        ]}}}
+    """.trimIndent()
+
+    /** 学期起点：`datas.cxjcs.rows[0]` 的 `XQKSRQ`（给到秒）+ `ZZC`。 */
+    val termStartJson = """
+        {"datas":{"cxjcs":{"rows":[{"XN":"$TERM_NEW","XQKSRQ":"$TERM_START_DATE 00:00:00","ZZC":"$TERM_TOTAL_WEEKS"}]}}}
     """.trimIndent()
 
     /** 学期列表：三行，**倒序给**（上游按 `*order=-DM` 排好），第三行只有 DM。 */
@@ -640,6 +716,25 @@ class JwxtFakeUpstream {
                 }
                 queryCalls.incrementAndGet()
                 respondJson(exchange, queryJson)
+            }
+            path == SCHEDULE_PATH -> requirePost(exchange) { form ->
+                lastScheduleForm = form
+                if (!form.contains("XNXQDM=")) {
+                    badRequest(exchange, "xskcb.do 少了 XNXQDM，收到：$form")
+                    return@requirePost
+                }
+                scheduleCalls.incrementAndGet()
+                respondJson(exchange, scheduleJson)
+            }
+            path == TERM_START_PATH -> requirePost(exchange) { form ->
+                lastTermStartForm = form
+                // 学期号切成两格发出去了没有：少了任何一格，问的就是别的东西
+                if (!form.contains("XN=") || !form.contains("XQ=")) {
+                    badRequest(exchange, "cxjcs.do 少了 XN/XQ，收到：$form")
+                    return@requirePost
+                }
+                termStartCalls.incrementAndGet()
+                respondJson(exchange, termStartJson)
             }
             path == JUDGE_INDEX_PATH -> {
                 judgeIndexCalls.incrementAndGet()
@@ -999,6 +1094,8 @@ class JwxtFakeUpstream {
     private val TERM_LIST_PATH = TERM_LIST_URL.removePrefix(ORIGIN)
     private val DEPARTMENTS_PATH = DEPARTMENTS_URL.removePrefix(ORIGIN)
     private val QUERY_PATH = QUERY_URL.removePrefix(ORIGIN)
+    private val SCHEDULE_PATH = SCHEDULE_URL.removePrefix(ORIGIN)
+    private val TERM_START_PATH = TERM_START_URL.removePrefix(ORIGIN)
     private val REPORT_PATH = REPORT_URL.removePrefix(ORIGIN)
     private val JUDGE_INDEX_PATH = JUDGE_INDEX_URL.removePrefix(ORIGIN)
     private val JUDGE_TERM_PATH = JUDGE_TERM_URL.removePrefix(ORIGIN)

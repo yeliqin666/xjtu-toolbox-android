@@ -88,7 +88,123 @@ class ServeP0Group2Test {
         assertEquals(JwxtFakeUpstream.TERM_NEW, envelopeData(term).optString("term"))
     }
 
-    // ── jwxt：grades ───────────────────────────────────────────────────
+    // ── jwxt：term-start / schedule（2026-10-11 补的两个读端点）────────────
+
+    /**
+     * `/api/jwxt/term-start`：`TermStartData` 三格逐字段。
+     *
+     * 两条口径在这里被钉住：`?term=` 省略时用**当前学期**（与 `/api/jwxt/term` 同一个来源），
+     * 以及上游给到秒的 `XQKSRQ` 只取日期那一段（`startDate` 是第 1 周周一，不是时间戳）。
+     */
+    @Test
+    fun `jwxt term-start：逐字段 + term 形状 400`() = withServe { serve ->
+        val http = serve.http
+        assertEquals(200, serve.login().statusCode())
+
+        val current = http.get("/api/jwxt/term-start")
+        assertEquals(200, current.statusCode())
+        assertEquals(ApiEnvelope.CODE_OK, envelopeCode(current))
+        assertNoIdentity(current.body(), "GET /api/jwxt/term-start", IDENTITY)
+        val data = envelopeData(current)
+        assertEquals(
+            setOf("term", "startDate", "totalWeeks"),
+            data.keys,
+            "学期起点就是这三格（没有服务端算出来的「今天是第几周」）",
+        )
+        assertEquals(JwxtFakeUpstream.TERM_NEW, data.optString("term"), "term 省略 ⇒ 当前学期")
+        assertEquals(JwxtFakeUpstream.TERM_START_DATE, data.optString("startDate"), "XQKSRQ 只取日期那一段")
+        assertEquals(JwxtFakeUpstream.TERM_TOTAL_WEEKS, data.optInt("totalWeeks"), "ZZC = 总周数（含考试周）")
+        // 学期号真被切成了 XN/XQ 两格（夹具少了任何一格会 400）
+        val form = serve.fake.jwxt.lastTermStartForm.orEmpty()
+        assertTrue(form.contains("XN=2026-2027"), "XN 由学期号切出来，实际：$form")
+        assertTrue(form.contains("XQ=1"), "XQ 由学期号切出来，实际：$form")
+
+        // 显式给学期：term 原样回给客户端
+        val explicit = http.get("/api/jwxt/term-start?term=${JwxtFakeUpstream.TERM_NEW}")
+        assertEquals(200, explicit.statusCode())
+        assertEquals(JwxtFakeUpstream.TERM_NEW, envelopeData(explicit).optString("term"))
+        assertEquals(2, serve.fake.jwxt.termStartCalls.get(), "两枪都真打到了 cxjcs.do")
+
+        // 形状不对的学期号 ⇒ 400（不拿「2026」这种半截学期号去查上游）
+        val bad = http.get("/api/jwxt/term-start?term=2026")
+        assertEquals(400, bad.statusCode())
+        assertEquals(ApiErrors.BAD_REQUEST, envelopeCode(bad))
+        assertNoIdentity(bad.body(), "GET /api/jwxt/term-start?term=2026", IDENTITY)
+        assertEquals(2, serve.fake.jwxt.termStartCalls.get(), "400 那一枪没到取数层")
+    }
+
+    /**
+     * `/api/jwxt/schedule`：行就是 `ScheduleRow` 钉住的那 8 列（键名 = 上游列名）。
+     *
+     * 三件容易漂的事都被钉住：① 上游给 JSON 数字的三格投影成**文本**（`:core` 的 `ScheduleRow`
+     * 读的是字符串）；② 缺键是**空串**（不是 null、不是字段缺失）；③ 周次只看 `ZCMC`，`SKZC` 位串不投影。
+     */
+    @Test
+    fun `jwxt schedule：8 列投影 + 缺键空串 + 未登录 401`() = withServe { serve ->
+        val http = serve.http
+
+        // 令牌对、但没登录 ⇒ 401（先判会话再取数）
+        val noSession = http.get("/api/jwxt/schedule")
+        assertEquals(401, noSession.statusCode())
+        assertEquals(ApiErrors.UNAUTHORIZED, envelopeCode(noSession))
+
+        assertEquals(200, serve.login().statusCode())
+        val response = http.get("/api/jwxt/schedule")
+        assertEquals(200, response.statusCode())
+        assertEquals(ApiEnvelope.CODE_OK, envelopeCode(response))
+        assertNoIdentity(response.body(), "GET /api/jwxt/schedule", IDENTITY)
+
+        val data = envelopeData(response)
+        assertEquals(setOf("term", "rows", "count"), data.keys, "课表就是这三格（:core 的 ScheduleData）")
+        assertEquals(JwxtFakeUpstream.TERM_NEW, data.optString("term"), "term 省略 ⇒ 当前学期")
+        assertEquals(3, data.optInt("count"))
+        val rows = data.getValue("rows").jsonArray
+        assertEquals(3, rows.size)
+
+        val first = rows[0] as JsonObject
+        assertEquals(
+            setOf("KCM", "SKJS", "JASMC", "SKXQ", "KSJC", "JSJC", "ZCMC", "JXBID"),
+            first.keys,
+            "行的键名就是上游列名（多一格就说明投影口径漂了）",
+        )
+        assertEquals(JwxtFakeUpstream.SCHEDULE_1_COURSE, first.optString("KCM"))
+        assertEquals(JwxtFakeUpstream.SCHEDULE_1_TEACHER, first.optString("SKJS"))
+        assertEquals(JwxtFakeUpstream.SCHEDULE_1_ROOM, first.optString("JASMC"))
+        // 夹具给的是 JSON 数字 ⇒ 投影成文本
+        assertEquals("${JwxtFakeUpstream.SCHEDULE_1_DAY}", first.optString("SKXQ"))
+        assertEquals("${JwxtFakeUpstream.SCHEDULE_1_START}", first.optString("KSJC"))
+        assertEquals("${JwxtFakeUpstream.SCHEDULE_1_END}", first.optString("JSJC"))
+        assertEquals(JwxtFakeUpstream.SCHEDULE_1_WEEKS, first.optString("ZCMC"), "周次是 ZCMC 文本")
+        assertEquals(JwxtFakeUpstream.SCHEDULE_1_JXBID, first.optString("JXBID"))
+        assertFalse(response.body().contains("SKZC"), "位串不投影（上游位宽 16/18 不齐，两端都不踩）")
+
+        // 第二行：单周课的周次文本原样给
+        assertEquals(JwxtFakeUpstream.SCHEDULE_2_WEEKS, (rows[1] as JsonObject).optString("ZCMC"))
+        // 第三行上游只给 KCM ⇒ 其余七格是空串
+        val bare = rows[2] as JsonObject
+        assertEquals(JwxtFakeUpstream.SCHEDULE_3_COURSE, bare.optString("KCM"))
+        assertEquals("", bare.optString("ZCMC"))
+        assertEquals("", bare.optString("JASMC"))
+        assertEquals("", bare.optString("KSJC"))
+
+        // 请求真带着学期打到了 xskcb.do 上
+        assertTrue(
+            serve.fake.jwxt.lastScheduleForm.orEmpty().contains("XNXQDM=${JwxtFakeUpstream.TERM_NEW}"),
+            "实际：${serve.fake.jwxt.lastScheduleForm}",
+        )
+        assertEquals(1, serve.fake.jwxt.scheduleCalls.get(), "这一枪真打到了；未登录那一枪没到取数层")
+
+        // 形状不对 ⇒ 400
+        assertEquals(400, http.get("/api/jwxt/schedule?term=26-27").statusCode())
+
+        // 显式学期：term 原样带回（不做「猜学期」那种二次解析）
+        val explicit = http.get("/api/jwxt/schedule?term=${JwxtFakeUpstream.TERM_OLD}")
+        assertEquals(200, explicit.statusCode())
+        assertEquals(JwxtFakeUpstream.TERM_OLD, envelopeData(explicit).optString("term"))
+        assertEquals(2, serve.fake.jwxt.scheduleCalls.get(), "两枪都真打到了 xskcb.do（400 那一枪没到）")
+    }
+
+    // ── jwxt：grades ────────────────────────────────────
 
     @Test
     fun `jwxt grades：默认全量、term 过滤、gpa 可空`() = withServe { serve ->

@@ -66,7 +66,7 @@
 | `/api/status` | ——（探活，裸对象） | （外壳） | P0 | 沿用（但见 §3.4：不含身份） |
 | `/api/session` `/api/session/login` `/api/session/logout` `/api/session/mfa` | 新（`:data` 的 `SessionManager`） | 登录屏 / MFA 弹窗 | **P0（新）** | 无旧形状可沿用（逐条形状见 §5.1） |
 | `/api/calendar/school` | `SchoolCalendarSource` | 校历 | P0 | 沿用（`UpstreamSchoolCalendar` 已有解析） |
-| `/api/jwxt/terms` `/api/jwxt/term` `/api/jwxt/term-start` | `ScheduleSource` 一族 | 课表 | P0 | 沿用 |
+| `/api/jwxt/terms` `/api/jwxt/term` `/api/jwxt/term-start` `/api/jwxt/schedule` | `ScheduleSource` 一族（`:data` 侧：`AppSchoolCourseSource` + `JwxtScheduleApi`） | 课表 | P0 | 沿用 |
 | `/api/jwxt/grades` | `ScoreReportSource` | 成绩报表 | P0 | 沿用 |
 | `/api/jwxt/school-courses` | `SchoolCourseSource` | 全校课表 | P0 | **要改**：campus-api 的投影少一批字段（人数/学时、`YPSJDD`、开课单位、公选筛选）⇒ 屏把筛不了的控件隐藏了。服务端自己直连教务后**能补齐**，补齐后 `:web` 可以把那两档控件放回来 |
 | `/api/jwxt/evaluations` `/api/jwxt/evaluations/status` | `JudgeSource` | 评教 | P0 | **要改**：`canSubmit` 在新契约里取决于实现（只看不提交仍是默认），但**字段必须出现在响应里** |
@@ -133,7 +133,7 @@
 > **已补齐的那一行**：`/api/session*` —— 逐条请求/响应形状、错误码、Set-Cookie 归属与两条 TODO
 > 都写在 §5.1（由 `2026-10-11` 那次「serve 第二步」的提交补齐）。
 
-### 5.2 P0 取数端点（2026-10-11 落地，`:server` 实现，测试 33 例钉住）
+### 5.2 P0 取数端点（2026-10-11 落地，`:server` 实现，测试 35 例钉住）
 
 端点全部挂在令牌闸门内（`/api/status` 是唯一免令牌端点）。统一口径：信封 `{code,data,message}`；
 `code == HTTP 状态码`（成功 `0` + 200）；时间一律 ISO-8601 **服务端系统时区**（跨界部署时区差异由部署方负责）；
@@ -168,6 +168,8 @@
 |---|---|---|---|
 | `GET /api/jwxt/terms` | —— | `[{name,startDate,endDate,current?}]` | 学期名兜底 = `DM` 字段 |
 | `GET /api/jwxt/term` | —— | 当前学期对象（形状同上） | `ScheduleSource` 一族 |
+| `GET /api/jwxt/term-start` | `?term=`（省略 = 当前学期） | `{term,startDate,totalWeeks}` | 2026-10-11 落地：`startDate` = 上游 `XQKSRQ` 的**日期那一段**（第 1 周周一）、`totalWeeks` = `ZZC`（只在 `1..30` 里算数，否则 `0`）。`:data` 侧 `JwxtScheduleApi.termStart()`。**没有**「今天是第几周」这种服务端算出来的字段（那是消费方拿 `startDate` 自己算的）；`?term=` 形状不对 ⇒ `400` |
+| `GET /api/jwxt/schedule` | `?term=`（省略 = 当前学期） | `{term,count,rows:[…]}`；行的键名 = 上游列名，只投影 `KCM`/`SKJS`/`JASMC`/`SKXQ`/`KSJC`/`JSJC`/`ZCMC`/`JXBID` 八列，值一律是**字符串**（上游给数字的三格也按文本给）、缺键是**空串** | 2026-10-11 落地：`:data` 侧 `JwxtScheduleApi.rows()`（`wdkb` 的 `xskcb.do`）。周次看 `ZCMC` 文本、**不看** `SKZC` 位串；`?term=` 形状不对 ⇒ `400`。⚠️ **调停补课没有合进这些行**（`:app` 的 `ScheduleApi.getSchedule` 会合）—— TODO 在 `JwxtScheduleApi.rows` 的 KDoc 里 |
 | `GET /api/jwxt/grades` | `?term=&all=1` | `{page,size,total,grades:[…]}` | 默认全量；`:data` `ScoreReportSource` |
 | `GET /api/jwxt/school-courses` | `?course=&code=&teacher=&campus=&weekday=&from=&to=&page=&size=` | 见下节 | **要改**（契约§5）：补人数/学时、`YPSJDD`、开课单位、公选筛选（`:data` `AppSchoolCourseSource` 已能取的投影，取不到标 TODO）。消费方 2026-10-11 把 `supportsDepartmentFilter` / `supportsElectiveFilter` 读进去了（§5.4 的两个「不画」） |
 | `GET /api/jwxt/evaluations` | `?terms=&type=&finished=` | `{canSubmit:false,items:[…]}` | `canSubmit` 必须出现、如实 `false`（本实现只看不认不投） |
@@ -207,9 +209,11 @@
   3. school-courses：响应报 `supportsDepartmentFilter` / `supportsElectiveFilter` 是 `true`，但没有返回那两张
      id 表的端点 ⇒ 消费方报 `false`（下拉出现了却没有选项，比不出现更糟）。
   三处的 TODO 都写在对应 `Campus*Api` 的 KDoc 里，端点落地的提交把它们一起翻成 true。
-- **课表缺口**（如实降级，不算实现错误）：`/api/jwxt/schedule` 与 `/api/jwxt/term-start` 列在 §5 表里
-  （「沿用」），但**不在已落地的 26 条里** ⇒ serve 模式下课表屏（含默认落地页）报「接口不存在」。
-  TODO：`:server` 补这两个端点。
+- **课表缺口已补齐**（2026-10-11）：`/api/jwxt/schedule` 与 `/api/jwxt/term-start` 两个端点落地，
+  serve 模式的课表屏（含默认落地页）正常出数据 —— 消费侧是 `CampusScheduleApi` 的 `ApiMode.SERVE` 那一支
+  （`CampusApi.schedule` / `.termStart`，`:web` 的 `ScheduleScreen` 把外壳探到的 mode 传下去）。
+  留下的那一处**如实差异**：这些行是排课原样、调停补课没合进去（见 §5.3 的 TODO），
+  所以同一份课表在 serve 模式与 `:app` 之间对调课的表现不同。
 
 ## 6. 夹具契约测试（D5 要求，不能只写文档）
 

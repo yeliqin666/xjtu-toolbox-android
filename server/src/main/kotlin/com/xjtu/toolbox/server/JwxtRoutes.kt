@@ -2,10 +2,14 @@ package com.xjtu.toolbox.server
 
 import com.xjtu.toolbox.account.AccountContext
 import com.xjtu.toolbox.auth.SiteSession
+import com.xjtu.toolbox.core.net.ScheduleData
+import com.xjtu.toolbox.core.net.TermStartData
 import com.xjtu.toolbox.judge.JudgeApi
 import com.xjtu.toolbox.judge.Questionnaire
 import com.xjtu.toolbox.schedule.AppSchoolCourseSource
+import com.xjtu.toolbox.schedule.JwxtScheduleApi
 import com.xjtu.toolbox.schedule.SchoolCourseQuery
+import com.xjtu.toolbox.schedule.isTermCode
 import com.xjtu.toolbox.score.ReportedGrade
 import com.xjtu.toolbox.score.scoreReportSource
 import io.ktor.server.response.respond
@@ -15,12 +19,14 @@ import io.ktor.server.routing.route
 import kotlinx.serialization.Serializable
 
 /**
- * `/api/jwxt*` —— 六个端点（`docs/api-contract.md` §5 的 P0）：
+ * `/api/jwxt*` —— 八个端点（`docs/api-contract.md` §5 的 P0）：
  *
  * | 端点 | 对应端口（`:core` 模型 / `:data` 实现） |
  * |---|---|
  * | `GET /api/jwxt/terms` | `SchoolCourseSource.terms()`（`TermOption`） |
  * | `GET /api/jwxt/term` | `SchoolCourseSource.currentTerm()` |
+ * | `GET /api/jwxt/term-start` | `JwxtScheduleApi.termStart()`（`:data` 的 `wdkb` 取数） |
+ * | `GET /api/jwxt/schedule` | `JwxtScheduleApi.rows()`（同上） |
  * | `GET /api/jwxt/grades` | `ScoreReportSource.grades()`（`ReportedGrade`） |
  * | `GET /api/jwxt/school-courses` | `SchoolCourseSource.query()`（`SchoolCourseResult`） |
  * | `GET /api/jwxt/evaluations` `…/status` | `JudgeApi`（`Questionnaire`） |
@@ -37,6 +43,17 @@ import kotlinx.serialization.Serializable
  * - **term**：当前学期号（`dqxnxq.do` 的 `DM`）。这一格刻意不带 `name`：
  *   `/api/jwxt/term` 的语义是「当前学期号」，名字在 terms 列表里（与旧 campus-api
  *   `TermData(term)` 同一个形状）；
+ * - **term-start**：`?term=`（省略 = 当前学期，与 `/api/jwxt/term` 同一个来源）。数据是
+ *   `:core` 的 `TermStartData(term, startDate, totalWeeks)` —— `startDate` = 上游 `XQKSRQ` 的
+ *   日期那一段、`totalWeeks` = `ZZC`（只在 `1..TermWeeks.MAX_REASONABLE` 里算数，否则 0）。
+ *   刻意**没有**「今天是第几周」那种服务端算出来的字段：那是消费方拿 `startDate` 自己算的
+ *   （契约 §4 的模型分工），端出去只会多一个要同步的口径；
+ * - **schedule**：`?term=`（省略 = 当前学期，同上）。数据是 `:core` 的
+ *   `ScheduleData(term, rows, count)` —— `rows` 就是 `ScheduleRow` 钉住的那 8 列，键名 = 上游列名
+ *   （`KCM`/`SKJS`/`JASMC`/`SKXQ`/`KSJC`/`JSJC`/`ZCMC`/`JXBID`），上游给数字的三格读成文本、
+ *   缺键是空串（口径在 `JwxtScheduleApi.rows`）。两个端点的 `?term=` 形状不对都答 400。
+ *   ⚠️ 调停补课**没有**合进这些行（`:app` 的 `ScheduleApi.getSchedule` 会合）—— 见
+ *   `JwxtScheduleApi.rows` 的 TODO，不要当成两端已经一致；
  * - **grades**：`ReportedGrade(courseName, coursePoint, score, gpa, term)` 原样投影。
  *   `gpa` 是**可空的**：等级制课程（如「优秀」）不参与绩点 ⇒ `null`（§4：null = 上游明确说没有）。
  *   学号只在**请求教务报表的 URL**（`xh=`）里出现，响应里**没有** —— 红线（不投影身份）；
@@ -82,6 +99,37 @@ internal fun Route.jwxtRoutes(session: ServeSession) {
                 call.respond(ApiEnvelope.ok(CurrentTermData(AppSchoolCourseSource(session.jwxtSite()).currentTerm())))
             } catch (e: Exception) {
                 call.respondUpstreamFailure(e, "加载当前学期")
+            }
+        }
+
+        // ── 学期起点（wdkb 的 jshkcb/cxjcs.do：XQKSRQ + ZZC）────────────
+        get(JWXT_TERM_START) {
+            if (!session.authenticated) return@get call.respondLoginRequired()
+            val requested = call.request.queryParameters[JWXT_PARAM_TERM]?.trim()?.takeIf { it.isNotEmpty() }
+            if (requested != null && !isTermCode(requested)) {
+                return@get call.respondBadRequestMessage(JWXT_TERM_SHAPE_MESSAGE)
+            }
+            try {
+                val term = requested ?: currentTerm(session)
+                call.respond(ApiEnvelope.ok(JwxtScheduleApi(session.jwxtSite()).termStart(term)))
+            } catch (e: Exception) {
+                call.respondUpstreamFailure(e, "加载学期起点")
+            }
+        }
+
+        // ── 本学期课表（wdkb 的 xskcb.do，调停补课未合并：见类 KDoc）────────
+        get(JWXT_SCHEDULE) {
+            if (!session.authenticated) return@get call.respondLoginRequired()
+            val requested = call.request.queryParameters[JWXT_PARAM_TERM]?.trim()?.takeIf { it.isNotEmpty() }
+            if (requested != null && !isTermCode(requested)) {
+                return@get call.respondBadRequestMessage(JWXT_TERM_SHAPE_MESSAGE)
+            }
+            try {
+                val term = requested ?: currentTerm(session)
+                val rows = JwxtScheduleApi(session.jwxtSite()).rows(term)
+                call.respond(ApiEnvelope.ok(ScheduleData(term = term, rows = rows, count = rows.size)))
+            } catch (e: Exception) {
+                call.respondUpstreamFailure(e, "加载课表")
             }
         }
 
@@ -355,6 +403,8 @@ private fun Questionnaire.toDto(finished: Boolean) = EvaluationDto(
 internal const val JWXT_SEGMENT = "jwxt"
 internal const val JWXT_TERMS = "terms"
 internal const val JWXT_TERM = "term"
+internal const val JWXT_TERM_START = "term-start"
+internal const val JWXT_SCHEDULE = "schedule"
 internal const val JWXT_GRADES = "grades"
 internal const val JWXT_SCHOOL_COURSES = "school-courses"
 internal const val JWXT_EVALUATIONS = "evaluations"
@@ -387,4 +437,22 @@ private fun io.ktor.http.Parameters.evalTerms(): List<String>? {
 
 /** 教务站点会话（`ServeSession` 注册过的那个）。 */
 internal fun ServeSession.jwxtSite(): SiteSession = sessionManager.getSite(ServeSession.JWXT_SITE_KEY)
+
+/**
+ * 「这个请求问的是哪个学期」（`/api/jwxt/term-start` 与 `/api/jwxt/schedule` 共用）。
+ *
+ * 只走「没给 `?term=`」那一支：给了的话端点已经判过形状（[isTermCode]，不对就 400）。
+ * 当前学期与 `/api/jwxt/term` **同一个来源**（`:data` 的 `AppSchoolCourseSource.currentTerm()`）。
+ *
+ * 拿到空串时抛错，**不拿空学期去查**：那样课表与学期起点全按空学期查，页面一片空白还没有任何报错
+ * —— 与 `:app` 的 `ScheduleApi.getCurrentTerm`（「接口偶发给回空行」那句）同一个判断。
+ */
+private suspend fun currentTerm(session: ServeSession): String {
+    val term = AppSchoolCourseSource(session.jwxtSite()).currentTerm()
+    if (term.isBlank()) throw IllegalStateException("教务未返回当前学期代码")
+    return term
+}
+
+/** `?term=` 的形状（两个新端点共用一条口径）：`2026-2027-1`，不对就 400。 */
+private const val JWXT_TERM_SHAPE_MESSAGE = "term 需要形如 2026-2027-1"
 

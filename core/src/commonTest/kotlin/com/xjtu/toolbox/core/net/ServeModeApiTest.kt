@@ -165,7 +165,88 @@ class ServeModeApiTest {
         assertEquals("国庆节", term.events.single().name)
     }
 
+    /**
+     * 契约 §5.3 的两个课表端点（2026-10-11 落地）：`:server` 给的 `data` 与 campus-api 的
+     * `ScheduleData` / `TermStartData` **形状相同**（差别只在信封怎么读）⇒ 两边都能解码进同一批模型。
+     *
+     * 这里同时钉住失败那一支：`code != 0` 时读 `message`（不是 `msg`/`error`），并把「请先登录」原样给用户。
+     */
+    @Test
+    fun serveScheduleAndTermStart() = runTest {
+        val scheduleBody = """
+            {"code":0,"data":{"term":"2026-2027-1","count":2,"rows":[
+              {"KCM":"高等数学（上）","SKJS":"示例甲","JASMC":"主楼A-101","SKXQ":"1","KSJC":"1",
+               "JSJC":"2","ZCMC":"1-16周","JXBID":"JXB-8001","SKZC":"1111111111111111"},
+              {"KCM":"大学物理","SKJS":"示例乙","JASMC":"中2-3201","SKXQ":"3","KSJC":"3",
+               "JSJC":"4","ZCMC":"1-15周(单)","JXBID":"JXB-8002"}]}}
+        """.trimIndent()
+        val termStartBody = """
+            {"code":0,"data":{"term":"2026-2027-1","startDate":"2026-09-14","totalWeeks":18}}
+        """.trimIndent()
+        val api = CampusApi(
+            createToolboxClient(
+                engine = engineFor(
+                    "/api/jwxt/schedule" to scheduleBody,
+                    "/api/jwxt/term-start" to termStartBody,
+                ),
+            ),
+            "",
+            ApiMode.SERVE,
+        )
+
+        val start = api.termStart()
+        assertEquals("2026-2027-1", start.term)
+        assertEquals("2026-09-14", start.startDate)
+        assertEquals(18, start.totalWeeks)
+
+        val schedule = api.schedule("2026-2027-1")
+        assertEquals("2026-2027-1", schedule.term)
+        val rows = schedule.rows
+        assertEquals(2, rows.size)
+        assertEquals("高等数学（上）", rows[0].courseName)
+        assertEquals("示例甲", rows[0].teacher)
+        assertEquals("主楼A-101", rows[0].classroom)
+        assertEquals("1", rows[0].dayOfWeek, "服务端给的就是文本（数字也按文本投影）")
+        assertEquals("1-16周", rows[0].weeksText)
+        assertEquals("1-15周(单)", rows[1].weeksText)
+
+        // 失败那一支：读 message（新契约里没有 msg/error），中文短句原样带上
+        val failing = CampusApi(
+            createToolboxClient(
+                engine = engineFor(
+                    "/api/jwxt/term-start" to
+                        """{"code":401,"data":null,"message":"请先登录：POST /api/session/login"}""",
+                ),
+            ),
+            "",
+            ApiMode.SERVE,
+        )
+        val e = assertFailsWith<IllegalStateException> { failing.termStart() }
+        assertTrue(e.message?.contains("请先登录") == true, "实际：${e.message}")
+    }
+
+    /**
+     * C1 红线：课表那两条端点不传 [ApiMode] 时，老形状（campus-api 的上游 47 列）**一字不改**地照旧解析 ——
+     * 多给的列被 `ignoreUnknownKeys` 忽略。
+     */
+    @Test
+    fun defaultModeStillReadsLegacyScheduleShape() = runTest {
+        val body = """
+            {"code":0,"msg":null,"data":{"term":"2026-2027-1","count":1,"rows":[
+              {"KCM":"高等数学（上）","SKJS":"示例甲","JASMC":"主楼A-101","SKXQ":"1","KSJC":"1",
+               "JSJC":"2","ZCMC":"1-16周","JXBID":"JXB-8001",
+               "KCH":"MATH1001","KCXZMC":"必修","YPSJDD":"兴庆校区 主楼A-101 周一1-2节"}]}}
+        """.trimIndent()
+        // 注意：不传 mode（默认 = CAMPUS_API）
+        val api = CampusApi(createToolboxClient(engine = engineFor("/api/jwxt/schedule" to body)), "")
+        val rows = api.schedule("2026-2027-1").rows
+        assertEquals(1, rows.size)
+        assertEquals("高等数学（上）", rows[0].courseName)
+        assertEquals("1-16周", rows[0].weeksText)
+    }
+
     /** C1 红线：不传 [ApiMode] 时，老形状（campus-api）**一字不改**地照旧解析。 */
+
     @Test
     fun defaultModeStillReadsLegacyCampusShape() = runTest {
         val body = """

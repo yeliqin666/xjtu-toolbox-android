@@ -210,11 +210,12 @@ private fun AppPage(
 ) {
     val back = { onNavigate(WebTarget.App(AppRoute.Schedule)) }
     when (route) {
-        // 课表用的 CampusScheduleApi 在两个后端走**同一批路径**（`/api/jwxt/term` 等），
-        // 所以它不需要 mode；但它必须用**带令牌的那个客户端**（serve 模式下所有请求都要过闸门）。
-        // ⚠️ serve 模式下这一屏会报「接口不存在」：`:server` 还没实现 /api/jwxt/schedule 与
-        // /api/jwxt/term-start（见 CampusApi.schedule 的 KDoc，那里有 TODO）。
-        AppRoute.Schedule -> ScheduleScreen(client)
+        // 课表：两个后端走**同一批路径**（`/api/jwxt/term`、`/api/jwxt/term-start`、
+        // `/api/jwxt/schedule`），形状也相同（都是上游那些列）—— 只有**信封**的读法不同，
+        // 所以它要把 mode 传进去（[CampusScheduleApi] 的 `ApiMode`）。
+        // 它必须用**带令牌的那个客户端**：serve 模式下所有请求都要过闸门。
+        // （两个课表端点 2026-10-11 落地前这一屏在 serve 模式下报「接口不存在」；现在都答了。）
+        AppRoute.Schedule -> ScheduleScreen(client, mode)
         // 内置浏览器：**Web 端的浏览器就是浏览器本身** —— 把 URL 交给它，同标签导航过去。
         //
         // :app 的 BrowserScreen 是个 WebView，它比普通浏览器多两件事：① 复用 App 已经登好的

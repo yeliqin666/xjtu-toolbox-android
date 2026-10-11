@@ -39,6 +39,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import io.ktor.client.HttpClient
+import com.xjtu.toolbox.core.net.ApiMode
 import com.xjtu.toolbox.schedule.CampusScheduleApi
 import com.xjtu.toolbox.schedule.ConflictGroup
 import com.xjtu.toolbox.schedule.CourseSlot
@@ -85,6 +86,11 @@ fun ScheduleScreen(
      * 所以不能在这里自己 new 一个（那样就漏了令牌，所有请求都会被闸门 401）。
      */
     client: HttpClient = toolboxWebClient(),
+    /**
+     * 这一份 `:web` 在对谁说话（见 [ApiMode]）：两个后端的课表端点形状相同、**信封**不同，
+     * 默认旧行为（campus-api）一字不改 —— 由外壳探到 serve 后传 [ApiMode.SERVE]。
+     */
+    mode: ApiMode = ApiMode.CAMPUS_API,
 ) {
     val cs = MiuixTheme.colorScheme
     var data by remember { mutableStateOf<CourseTable?>(null) }
@@ -94,7 +100,7 @@ fun ScheduleScreen(
 
     LaunchedEffect(Unit) {
         try {
-            val d = CampusScheduleApi(client, API_BASE).load()
+            val d = CampusScheduleApi(client, API_BASE, mode).load()
             data = d
             week = d.termStart.weekOf(todayInSystemZone().toString())
         } catch (e: Throwable) {

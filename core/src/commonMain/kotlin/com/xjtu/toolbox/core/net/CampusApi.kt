@@ -1,10 +1,12 @@
 package com.xjtu.toolbox.core.net
 
+import com.xjtu.toolbox.util.AppJson
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
 import io.ktor.client.request.get
 import io.ktor.client.request.parameter
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.decodeFromJsonElement
 
 /**
  * campus-api 的 `{code,data}` 信封。
@@ -38,6 +40,8 @@ data class SessionStatus(
 class CampusApi(
     private val client: HttpClient,
     private val baseUrl: String,
+    /** 见 [ApiMode]：默认 campus-api（旧行为一字不改），serve 模式读契约 §5.3 的形状。 */
+    private val mode: ApiMode = ApiMode.CAMPUS_API,
 ) {
     suspend fun status(): SessionStatus = client.get("$baseUrl/api/status").body()
 
@@ -48,18 +52,26 @@ class CampusApi(
     }
 
     /**
-     * 教务课表。返回的是**上游原始 47 列**（`data.rows`），周次看 [ScheduleRow.weeksText]。
+     * 教务课表。返回的是**上游原始列**的行（`data.rows`），周次看 [ScheduleRow.weeksText]。
      *
      * Android 端现在走自己的 okhttp 版 ScheduleApi；这个方法是为共享层与 Web 端存在的，
      * 也是将来 Android 端切过来的落点（探针已证明 Ktor 能替代 okhttp）。
      *
-     * ⚠️ **serve 模式下这个方法拿不到数据**：`docs/api-contract.md` §5 的端点清单里
-     * `/api/jwxt/schedule` 不在已落地的那 26 条 P0 取数端点里（`:server` 会答 `404` +
-     * `message:"接口不存在"`，本方法会抛出那句），`/api/jwxt/term-start` 同理。
-     * 所以 serve 模式的 Web 端**课表屏（含默认落地页）**现在会显示这句错误 —— 这是如实降级，
-     * 不是本地解析错了（TODO：:server 补这两个端点后，这一条就该删掉）。
+     * 两个后端都在这一条路径上答：campus-api 给的是上游 47 列，serve 模式的
+     * `/api/jwxt/schedule`（`docs/api-contract.md` §5.3，2026-10-11 落地）给的是 [ScheduleRow]
+     * 钉住的那 8 列 —— 两者都由 [ScheduleRow] 解码（多给的列被 `ignoreUnknownKeys` 忽略），
+     * 两条路只在「信封怎么读」上有差别：serve 那一支走 [serveData]（成功判据是 `code == 0`、
+     * 失败读 `message`）。
+     *
+     * ⚠️ serve 模式给的这些行是**排课原样**：调停补课没有合进去（`docs/api-contract.md` §5.3
+     * 的 TODO），`ScheduleData` 也带不下那份记录。
      */
     suspend fun schedule(term: String): ScheduleData {
+        if (mode == ApiMode.SERVE) {
+            return AppJson.decodeFromJsonElement<ScheduleData>(
+                client.serveData("加载课表", baseUrl, "/api/jwxt/schedule", listOf("term" to term)),
+            )
+        }
         val env: Envelope<ScheduleData> = client
             .get("$baseUrl/api/jwxt/schedule") { parameter("term", term) }
             .body()
@@ -69,9 +81,15 @@ class CampusApi(
     /**
      * 学期起始：`startDate` 是**第 1 周周一**。课表本身不含日期，周次换算全靠它。
      *
-     * ⚠️ serve 模式下 `:server` 尚未实现这个端点（见 [schedule] 的 KDoc，同一条 TODO）。
+     * 两个后端都在这一条路径上答（`docs/api-contract.md` §5.3，serve 那一支 2026-10-11 落地）；
+     * serve 模式下 `?term=` 省略时的「当前学期」是**服务端**判的（与 `/api/jwxt/term` 同一个来源）。
      */
     suspend fun termStart(): TermStartData {
+        if (mode == ApiMode.SERVE) {
+            return AppJson.decodeFromJsonElement<TermStartData>(
+                client.serveData("加载学期起点", baseUrl, "/api/jwxt/term-start"),
+            )
+        }
         val env: Envelope<TermStartData> = client.get("$baseUrl/api/jwxt/term-start").body()
         return env.data ?: error("term-start 缺失：code=${env.code} message=${env.message}")
     }
