@@ -3,10 +3,6 @@ package com.xjtu.toolbox.dzpz
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.compose.ui.graphics.graphicsLayer
-import android.content.ContentValues
-import android.content.Context
-import android.provider.MediaStore
-import android.widget.Toast
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.background
@@ -18,25 +14,19 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.runtime.*
-import com.xjtu.toolbox.auth.LocalAppLoginState
-import com.xjtu.toolbox.auth.handleAuthExpired
+import com.xjtu.toolbox.auth.LocalAuthExpiry
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.nestedscroll.nestedScroll
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.xjtu.toolbox.auth.SiteSession
-import com.xjtu.toolbox.lms.LmsDownloadRecord
-import com.xjtu.toolbox.lms.LmsDownloadStore
 import com.xjtu.toolbox.ui.components.ErrorState
 import com.xjtu.toolbox.ui.components.LoadingState
 import com.xjtu.toolbox.ui.glass.*
-import com.xjtu.toolbox.data.CredentialStore
 import top.yukonga.miuix.kmp.basic.*
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import com.xjtu.toolbox.nav.AppRoute
@@ -46,21 +36,42 @@ import com.xjtu.toolbox.nav.AppRoute
  *
  * 流程：加载表单 → 选择类型 → 一键申请 → 自动提交 → 下载 PDF
  * UI 风格遵循项目 Miuix 风格，使用步骤进度条展示处理状态
+ *
+ * ## 它现在住哪儿、两端各填什么
+ *
+ * 本屏从 `:app` 搬进 `:core`（桌面端第 14 条真数据路由），屏与 [TranscriptViewModel] 是两端
+ * 共用的同一份，只在**取数**与**宿主能力**上切缝：
+ *
+ * | 原来 | 现在 |
+ * |---|---|
+ * | `site: SiteSession` | [source]（`:data` 的 `AppTranscriptSource`；Web 以后接 campus-api） |
+ * | `LocalAppLoginState.handleAuthExpired(...)` | `:core` 的 [LocalAuthExpiry] |
+ * | `Intent`/`MediaStore`/`Toast` 存 PDF | [saveSink] + [TranscriptSaveSink]（宿主能力） |
+ * | `LmsDownloadStore.publicDisplayPath()` | [TranscriptSaveSink.locationLabel]（Android = `Download/岱宗盒子/`） |
+ * | `System.identityHashCode(site)` 当 VM key | [DzpzDocument.id]（`identityHashCode` 是 JVM 专属，`:core` 还要编到 wasm） |
+ *
+ * 屏自己的画法、文案、状态走向**一行未改**。
  */
 @Composable
 fun TranscriptScreen(
-    site: SiteSession,
+    /** 本端的取数（Android / 桌面 = `:data` 的 `AppTranscriptSource`；Web 还没有这条链）。 */
+    source: TranscriptSource,
     onBack: () -> Unit,
     // 现在只有成绩单一种文件，先把参数留出来；P2 接了文件列表页以后，
     // 调用方会传不同的 DzpzDocument 进来。
     document: DzpzDocument = DzpzDocuments.TRANSCRIPT,
+    /**
+     * 「把这份 PDF 存到本端该存的地方」—— 宿主能力（`:core` 不认识 MediaStore / 文件系统）。
+     * **null = 本端没有保存路径**（按钮与「将保存到 …」那一行都不画 —— 与「点了会失败的按钮，
+     * 一个都不画」同一条口径）；Android 传 [TranscriptSaveSink] 的 MediaStore 实现，桌面传写下载目录那份。
+     */
+    saveSink: TranscriptSaveSink? = null,
 ) {
-    val appLoginState = LocalAppLoginState.current
-    val context = LocalContext.current
-    val vm: TranscriptViewModel = viewModel(key = "transcript-${document.hashCode()}-${System.identityHashCode(site)}") {
-        TranscriptViewModel(site, document)
+    val authExpiry = LocalAuthExpiry.current
+    val vm: TranscriptViewModel = viewModel(key = "transcript-${document.id}") {
+        TranscriptViewModel(source, document)
     }
-    LaunchedEffect(vm) { vm.authExpired.collect { appLoginState.handleAuthExpired(AppRoute.Transcript, onBack) } }
+    LaunchedEffect(vm) { vm.authExpired.collect { authExpiry.onAuthExpired(AppRoute.Transcript, onBack) } }
     val scrollBehavior = MiuixScrollBehavior(rememberTopAppBarState())
 
     // 玻璃顶栏（经典风格下为 null，一切照旧），用法见 ui/glass/GlassTopBar.kt
@@ -147,7 +158,7 @@ fun TranscriptScreen(
                             DownloadSuccessCard(
                                 info = vm.downloadInfo!!,
                                 pdfBytes = vm.pdfBytes!!,
-                                context = context
+                                sink = saveSink,
                             )
                         }
                     }
@@ -177,7 +188,7 @@ enum class WorkflowState {
 
 @Composable
 private fun TranscriptTypeSelector(
-    options: List<TranscriptApi.TranscriptTypeOption>,
+    options: List<TranscriptTypeOption>,
     selectedIndex: Int,
     enabled: Boolean,
     onSelect: (Int) -> Unit
@@ -469,10 +480,16 @@ private fun StepsPreview() {
 
 @Composable
 private fun DownloadSuccessCard(
-    info: TranscriptApi.DownloadInfo,
+    info: DownloadInfo,
     pdfBytes: ByteArray,
-    context: Context
+    /**
+     * 见屏的 `saveSink` 槽位。**可以为 null**（本端没有保存路径时这张卡照旧画，只是不出现
+     * 「保存到下载」那个按钮 —— 卡上还有文件名与「成绩单已生成」这些必看的信息）。
+     */
+    sink: TranscriptSaveSink?,
 ) {
+    // 取成局部 val：`sink` 是函数参数，下面的 lambda（点击回调）里拿不到 smart cast
+    val saver = sink
     Card(
         modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.defaultColors(color = MiuixTheme.colorScheme.surfaceVariant)
@@ -501,10 +518,11 @@ private fun DownloadSuccessCard(
                         color = MiuixTheme.colorScheme.onSurface,
                         maxLines = 2
                     )
-                    if (info.filesize.isNotEmpty()) {
+                    // 目标位置与本端存法都是宿主告诉屏的；本端没有保存路径就不画这一行。
+                    if (info.filesize.isNotEmpty() && saver != null && saver.locationLabel.isNotEmpty()) {
                         Spacer(Modifier.height(2.dp))
                         Text(
-                            "${info.filesize} · 将保存到 ${LmsDownloadStore.publicDisplayPath()}",
+                            "${info.filesize} · 将保存到 ${saver.locationLabel}",
                             fontSize = 12.sp,
                             color = MiuixTheme.colorScheme.onSurface.copy(alpha = 0.5f)
                         )
@@ -514,65 +532,56 @@ private fun DownloadSuccessCard(
 
             Spacer(Modifier.height(16.dp))
 
-            // 操作按钮
-            Button(
-                onClick = { savePdfToDownloads(context, info.filename, pdfBytes) },
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Icon(
-                    Icons.Default.SaveAlt,
-                    contentDescription = null,
-                    modifier = Modifier.size(18.dp)
+            if (saver != null) {
+                // 操作按钮
+                Button(
+                    onClick = { saver.save(info.filename, pdfBytes) },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Icon(
+                        Icons.Default.SaveAlt,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Spacer(Modifier.width(6.dp))
+                    Text(saver.actionLabel)
+                }
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    saver.hint,
+                    style = MiuixTheme.textStyles.footnote1,
+                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary
                 )
-                Spacer(Modifier.width(6.dp))
-                Text("保存到下载")
             }
-            Spacer(Modifier.height(8.dp))
-            Text(
-                "保存在「我的 · 下载管理」，可用文件管理器或 PDF 阅读器打开。",
-                style = MiuixTheme.textStyles.footnote1,
-                color = MiuixTheme.colorScheme.onSurfaceVariantSummary
-            )
         }
     }
 }
 
 // ══════════════════════════════════════
-//  文件操作
+//  PDF 落盘端口
 // ══════════════════════════════════════
 
-private fun savePdfToDownloads(context: Context, filename: String, bytes: ByteArray) {
-    try {
-        val contentValues = ContentValues().apply {
-            put(MediaStore.Downloads.DISPLAY_NAME, filename)
-            put(MediaStore.Downloads.MIME_TYPE, "application/pdf")
-            put(MediaStore.Downloads.RELATIVE_PATH, LmsDownloadStore.RELATIVE_PATH)
-            put(MediaStore.Downloads.IS_PENDING, 1)
-        }
-        val resolver = context.contentResolver
-        val uri = resolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, contentValues)
-        if (uri != null) {
-            resolver.openOutputStream(uri)?.use { it.write(bytes) }
-            contentValues.clear()
-            contentValues.put(MediaStore.Downloads.IS_PENDING, 0)
-            resolver.update(uri, contentValues, null, null)
-            LmsDownloadStore.add(
-                context,
-                LmsDownloadRecord(
-                    name = filename,
-                    mimeType = "application/pdf",
-                    uri = uri.toString(),
-                    savedAt = System.currentTimeMillis(),
-                    category = LmsDownloadStore.CATEGORY_TRANSCRIPT
-                )
-            )
-            Toast.makeText(context, "已保存到下载管理", Toast.LENGTH_SHORT).show()
-        } else {
-            Toast.makeText(context, "保存失败", Toast.LENGTH_SHORT).show()
-        }
-    } catch (e: Exception) {
-        Toast.makeText(context, com.xjtu.toolbox.error.FriendlyError.of(e, "保存"), Toast.LENGTH_SHORT).show()
-    }
+/**
+ * 「把这份 PDF 存到本端该存的地方」——**宿主能力坐位**（`:core` 不认识 `MediaStore`、磁盘路径、
+ * `Intent`，也不应该在共享代码里编一个假的「下载目录」。
+ *
+ * 三端各自的实现：
+ *  - Android：`TranscriptSaveSink` 的实现落在 `:app`（`app/.../dzpz/TranscriptPdfSaver.kt`）——
+ *    `MediaStore` 写进 `Download/岱宗盒子/` 并记进「我的 · 下载管理」（与搬迁前逐字一致）；
+ *  - 桌面：`:desktop` 写用户的下载目录（`:data`/`:core` 不碰文件系统）；
+ *  - Web：不传（屏上就不出现「保存到下载」那个按钮）。
+ *
+ * [actionLabel] / [hint] 也放在这里，因为「存到哪儿、怎么打开」本来就是本端的事：
+ * Android 是「保存到下载」+「保存在「我的 · 下载管理」…」，桌面是写进下载目录那份文案。
+ */
+interface TranscriptSaveSink {
+    /** 按钮上的字（Android = 「保存到下载」）。 */
+    val actionLabel: String
+    /** 按钮下面那句说明（怎么打开、存到哪儿）。 */
+    val hint: String
+    /** 界面上那一行「将保存到 X」的目标位置；空串 = 本端不显示这一行。 */
+    val locationLabel: String
+
+    /** 存一份 PDF。失败由实现方自己提示（`:core` 不管弹什么）。 */
+    fun save(filename: String, bytes: ByteArray)
 }
-
-

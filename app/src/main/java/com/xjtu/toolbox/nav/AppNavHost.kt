@@ -29,6 +29,8 @@ import com.xjtu.toolbox.card.CouponEntryStat
 import com.xjtu.toolbox.community.CommunityScreen
 import com.xjtu.toolbox.coupon.CouponScreen
 import com.xjtu.toolbox.data.CredentialStore
+import com.xjtu.toolbox.dzpz.AppTranscriptSaver
+import com.xjtu.toolbox.dzpz.AppTranscriptSource
 import com.xjtu.toolbox.dzpz.TranscriptScreen
 import com.xjtu.toolbox.emptyroom.AppEmptyRoomSource
 import com.xjtu.toolbox.emptyroom.EmptyRoomCache
@@ -267,7 +269,18 @@ fun AppNavHost(
             }
         }
         entry<AppRoute.Transcript>(transition = expand(AppRoute.Transcript::class)) {
-            WithSite("dzpz") { TranscriptScreen(site = it, onBack = back) }
+            // 屏与流程都搬进了 `:core`（`TranscriptScreen` + `TranscriptViewModel` + `TranscriptSource`
+            // 端口）；取数是 `:data` 的 `AppTranscriptSource`（包住原来的 `TranscriptApi`，行数没变），
+            // 会话仍是同一个 `dzpz` 站点（站点类与它的 `DzpzLogin` 同批搬进 `:data`，行为未改）。
+            // 还留在这里的只有这一端的**宿主能力**：PDF 落盘（MediaStore + 下载管理，见 `AppTranscriptSaver`）。
+            val transcriptContext = LocalContext.current
+            WithSite("dzpz") { site ->
+                TranscriptScreen(
+                    source = remember(site) { AppTranscriptSource(site) },
+                    onBack = back,
+                    saveSink = remember(transcriptContext) { AppTranscriptSaver(transcriptContext) },
+                )
+            }
         }
         entry<AppRoute.Venue>(transition = expand(AppRoute.Venue::class)) {
             // 取数搬进 `:data`（`AppVenueSource` 包住原来的 `VenueApi`，行数没变）；收藏搬进

@@ -71,6 +71,16 @@ class LibraryFakeUpstream(
          */
         const val PUBLIC_KEY_PATH = "/cas/jwt/publicKey"
 
+        /**
+         * CAS 的 **OAuth2 授权入口**（`/cas/oauth2.0/authorize?client_id=…&redirect_uri=…`）。
+         *
+         * 真站点上这是「某些子系统的登录入口」那一跳：子系统自己的入口页（如 `dzpz` 的
+         * `Login.jsp`）先 302 到这里，CAS 认完人以后再 302 回 `redirect_uri?code=OC-…`，
+         * 子系统拿 code 换它自己的会话。所以在同一个 CAS 上多扮这一个端点就够了 ——
+         * 门户与四路取数（一网通办）、开放平台那一跳（场馆）各有各的夹具，唯独 CAS 只有一台。
+         */
+        const val OAUTH_AUTHORIZE_PATH = "/cas/oauth2.0/authorize"
+
         const val USERNAME = "2021000001"
         const val PASSWORD = "correct-horse-battery"
         const val TGC_VALUE = "TGC-fake-1"
@@ -117,6 +127,9 @@ class LibraryFakeUpstream(
 
     /** CAS：发出过几个 ticket。 */
     val tickets = AtomicInteger(0)
+
+    /** CAS：OAuth2 授权入口签发过几个 `code=OC-…`（走 OAuth2 登录链的子系统用）。 */
+    val oauthCodes = AtomicInteger(0)
 
     /** `GET /cas/jwt/publicKey` 被打了几次（只有不收 `cachedRsaKey` 的那一两个站点会走它）。 */
     val publicKeyCalls = AtomicInteger(0)
@@ -316,6 +329,7 @@ class LibraryFakeUpstream(
         when {
             casEnabled && path == "/cas/login" && exchange.requestMethod == "POST" -> handleCasPost(exchange, query)
             casEnabled && path == "/cas/login" -> handleCasGet(exchange, query, cookieHeader(exchange))
+            casEnabled && path == OAUTH_AUTHORIZE_PATH -> handleCasOauthAuthorize(exchange, query, cookieHeader(exchange))
             casEnabled && path == PUBLIC_KEY_PATH -> {
                 publicKeyCalls.incrementAndGet()
                 respond(exchange, 200, "text/plain; charset=utf-8", TestRsaKey.publicKeyBase64.toByteArray())
@@ -398,6 +412,28 @@ class LibraryFakeUpstream(
     }
 
     /**
+     * OAuth2 授权入口：带 TGC 就签一个 `code` 回 `redirect_uri`，否则把**这个 authorize 地址本身**
+     * 当作 `service` 交给登录页（真 CAS 就是这么转的：`/cas/login?service=<authorize url>`）——
+     * 凭据 POST 后 `handleCasPost` 会把票据加回 authorize，再回来时 TGC 已在 jar 里，于是签 code。
+     *
+     * `redirect_uri` 缺失就响亮 400（漂了的话子系统会拿到一个没有 code 的回跳，看起来像"登录成功了
+     * 但换不到会话"，那正是最难查的一种坏）。
+     */
+    private fun handleCasOauthAuthorize(exchange: HttpExchange, query: String, cookie: String) {
+        val redirectUri = param(query, "redirect_uri")
+        if (redirectUri.isNullOrBlank()) {
+            badRequest(exchange, "OAuth2 authorize 要带 redirect_uri（收到：$query）")
+            return
+        }
+        if ("TGC=$TGC_VALUE" in cookie) {
+            val code = "OC-fake-${oauthCodes.incrementAndGet()}"
+            redirect(exchange, appendParam(redirectUri, "code", code))
+        } else {
+            redirect(exchange, "https://$CAS_HOST/cas/login?service=${encode("https://$CAS_HOST$OAUTH_AUTHORIZE_PATH?$query")}")
+        }
+    }
+
+    /**
      * 把票据交回去：**塞进 query**，不能拼在字符串末尾。
      *
      * 一网通办那个 `service` 自己带一个 `#/Index` 片段（见 `YwtbLogin.YWTB_LOGIN_URL` 里那个 `path`），
@@ -411,6 +447,14 @@ class LibraryFakeUpstream(
         val fragment = if (hash >= 0) service.substring(hash) else ""
         val separator = if ('?' in head) "&" else "?"
         return "$head$separator" + "ticket=$ticket" + fragment
+    }
+
+    /** 往 URL 上挂一个参数：已有 query 就用 `&`，否则用 `?`；片段留在最后。 */
+    private fun appendParam(url: String, name: String, value: String): String {
+        val hash = url.indexOf('#')
+        val head = if (hash >= 0) url.substring(0, hash) else url
+        val fragment = if (hash >= 0) url.substring(hash) else ""
+        return "$head${if ('?' in head) '&' else '?'}$name=$value$fragment"
     }
 
     /**

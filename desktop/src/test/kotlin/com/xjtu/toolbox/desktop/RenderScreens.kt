@@ -17,6 +17,7 @@ import com.xjtu.toolbox.auth.ensureSite
 import com.xjtu.toolbox.calendar.SchoolCalendarApi
 import com.xjtu.toolbox.calendar.SchoolCalendarFakeUpstream
 import com.xjtu.toolbox.calendar.SchoolCalendarScreen
+import com.xjtu.toolbox.dzpz.DzpzFakeUpstream
 import com.xjtu.toolbox.error.FriendlyError
 import com.xjtu.toolbox.faculty.FacultyApi
 import com.xjtu.toolbox.faculty.FacultyApiSource
@@ -59,6 +60,7 @@ import kotlinx.coroutines.runBlocking
  * | `venue.png` | 体育场馆屏（真路由：外壳 → `AppRoute.Venue` → `DesktopSiteGate` → `AppVenueSource`） | 第十一条真数据路由：登录要先过 `org.xjtu.edu.cn` 的 OAuth2 → CAS → 回跳（场馆站本身是明文 http）；图上九个场馆名（两页拼起来）都是夹具样本。这一端 `canBook = false`（滑块控件搬不到桌面）⇒ 只有读的那一半 |
  * | `inbox.png` | 消息收纳屏（真路由：外壳 → `AppRoute.Inbox` → `AppInboxSource`） | 第十二条真数据路由：一网通办那四路（消息 / 事务中心 / 预约 / 校车），会话由**源自己 ensure**（不套 Gate）；图上待办那两栏的条目与「预约中心 有 3 个…」都是夹具样本 |
  * | `notification.png` | 通知公告屏（真路由：外壳 → `AppRoute.Notification` → `AppNoticeSource`） | 第十三条真数据路由：29 个公开的公告页里夹具扮了 3 个（教务处 / 化工学院 / OA），这是最后一条 pending 路 —— 图上那三条教务处通知（默认来源）的标题/日期/标签都是夹具样本，不是错误页或转圈 |
+ * | `transcript.png` | 电子成绩单屏（真路由：外壳 → `AppRoute.Transcript` → `DesktopSiteGate` → `AppTranscriptSource`） | 第十四条真数据路由：`dzpz` **有自己的独立登录页**（`Login.jsp` → CAS OAuth2 → 回跳换 `loginidweaver`），屏与七步流程都在 `:core`，PDF 落盘在桌面上写用户的下载目录；图上那一条成绩单类型、申请日期与「一键申请成绩单」按钮都是夹具样本 |
  * | `routes.png` | 「全部页面」索引页 | 如实列出「真能用 / 还没有数据源」，并给出退出登录入口 |
  * | `library-demo.png` | 同一屏 + 固定假数据 | 布局与组件本身可复现（不依赖网络/会话，改屏时用它对比） |
  *
@@ -347,6 +349,23 @@ fun main(args: Array<String>) {
         ) { ToolboxDesktopApp(auth, DesktopTarget.App(AppRoute.Notification)) }
         check(noticeShown) {
             "notification.png：屏上没有夹具那条通知（${NotificationFakeUpstream.JWC_TITLE_1}）—— 多半没取到数"
+        }
+
+        // 电子成绩单（第十四条真数据路由）：走**真路由**（外壳 → `AppRoute.Transcript` →
+        // `DesktopSiteGate` → `AppTranscriptSource`）。站点 `dzpz.xjtu.edu.cn` **有自己的独立登录页**
+        // （`Login.jsp` → CAS OAuth2 `client_id=new9940` → 回跳换 `loginidweaver`），登录页那一步已经把
+        // 它预热好（`SESSION_SITE_KEYS` 里有它）。图上应当是**表单那一档**：成绩单类型（夹具那条）+
+        // 申请信息（日期 / 所属单位 / 份数）+「一键申请成绩单」按钮 —— 不是转圈，也不是错误页。
+        var transcriptFormShown = false
+        shot(
+            "transcript.png",
+            frames = 20,
+            onFrame = { frame, scene ->
+                if (!transcriptFormShown && frame >= 4) transcriptFormShown = hasText(scene, DzpzFakeUpstream.TYPE_NAME)
+            },
+        ) { ToolboxDesktopApp(auth, DesktopTarget.App(AppRoute.Transcript)) }
+        check(transcriptFormShown) {
+            "transcript.png：屏上没有夹具那个成绩单类型（${DzpzFakeUpstream.TYPE_NAME}）—— 多半没取到表单"
         }
 
         // 「全部页面」：这一页的 height 单独调大（不是其余图那个 900）—— 它是一张要读完的长表，

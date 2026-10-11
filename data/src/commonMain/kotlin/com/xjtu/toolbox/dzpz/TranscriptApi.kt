@@ -8,10 +8,10 @@ import com.xjtu.toolbox.util.obj
 import com.xjtu.toolbox.util.arr
 import kotlinx.serialization.json.jsonObject
 import com.xjtu.toolbox.util.redactUrl
-import android.util.Log
-import kotlinx.serialization.json.JsonObject
+import com.xjtu.toolbox.platform.Log
 import com.xjtu.toolbox.auth.SiteSession
 import com.xjtu.toolbox.util.safeParseJsonObject
+import kotlinx.serialization.json.JsonObject
 import okhttp3.FormBody
 import okhttp3.Request
 import java.text.SimpleDateFormat
@@ -29,6 +29,19 @@ import java.util.Locale
  * 5. reloadAndForward() → 重新加载 + 校验 + 第二次提交（自动转发到下载节点）
  * 6. getDownloadInfo() → 获取最终的文件下载链接
  * 7. downloadPdf() → 下载 PDF 二进制文件
+ *
+ * ## 它现在住哪儿、为什么
+ *
+ * 本类从 `:app` 搬进 `:data`（**同一个包名、同一个类名**，桌面端要自己登 `dzpz` 站、自己取数）：
+ * `:app` 那处 `TranscriptApi(site)` 一个字都不用改，桌面端用同一份实现。搬动只动了三处：
+ *  1. `android.util.Log` → `:core` 的 [Log]（其余日志调用逐字不变）；
+ *  2. 那五个嵌套数据类 → `:core` 的 [TranscriptTypeOption] / [FormContext] / [LinkageResult] /
+ *     [SubmitResult] / [DownloadInfo]（同包顶层声明，屏与 VM 也要认这些形状）；
+ *  3. 会话仍是 `:data` 的 [SiteSession]，一行未改 —— 站点类（[com.xjtu.toolbox.auth.DzpzSession]
+ *     与 [com.xjtu.toolbox.auth.DzpzLogin]）同批搬进 `:data`。
+ *
+ * 取数口径（表单/联动的字段号、两次提交的表单体、`checksubmit` 的兜底值、下载链接的两条分支）
+ * **一行未改**：`:data:jvmTest` 的 `TranscriptApiJvmTest` 用 `:testkit` 的夹具把搬之前的口径钉住了。
  */
 class TranscriptApi(private val site: SiteSession) {
 
@@ -46,53 +59,6 @@ class TranscriptApi(private val site: SiteSession) {
 
     private suspend fun execute(builder: Request.Builder): String = execute(builder.build())
 
-    // ══════════════════════════════════════
-    //  数据类
-    // ══════════════════════════════════════
-
-    /** 成绩单类型选项（从 loadForm 的 field 定义中解析） */
-    data class TranscriptTypeOption(
-        val name: String,   // 显示名称，如 "本科生中文成绩单"
-        val value: Int,     // 选项值，如 0
-        val cancelled: Boolean = false  // 是否已取消
-    )
-
-    /** 表单上下文 — 包含后续操作所需的全部状态 */
-    data class FormContext(
-        val workflowId: Int,
-        val params: JsonObject,
-        val submitParams: JsonObject,
-        val maindata: JsonObject,
-        val typeOptions: List<TranscriptTypeOption>,
-        val linkageUUID: String,
-        val signatureAttributesStr: String,
-        val signatureSecretKey: String,
-        val defaultDate: String,
-        val defaultRequestName: String
-    )
-
-    /** 联动查询结果 */
-    data class LinkageResult(
-        val studentId: String,       // 学号 (field7237)
-        val enrollYear: String,      // 入学年份 (field7536)
-        val templatePath: String,    // CPT 模板路径 (field7247)
-        val categoryName: String,    // 业务分类名 (field7241)
-        val workflowIdField: String  // 流程 ID (field7245)
-    )
-
-    /** 提交结果 */
-    data class SubmitResult(
-        val requestId: Int,
-        val sessionKey: String,
-        val submitToken: Long
-    )
-
-    /** 下载信息 */
-    data class DownloadInfo(
-        val filename: String,
-        val downloadUrl: String,
-        val filesize: String
-    )
 
     // ══════════════════════════════════════
     //  Step 1: 加载创建表单

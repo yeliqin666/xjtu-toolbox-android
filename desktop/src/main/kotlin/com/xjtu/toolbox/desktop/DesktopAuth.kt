@@ -6,6 +6,7 @@ import androidx.compose.runtime.setValue
 import com.xjtu.toolbox.account.AccountContext
 import com.xjtu.toolbox.auth.AccountType
 import com.xjtu.toolbox.auth.CampusCardSession
+import com.xjtu.toolbox.auth.DzpzSession
 import com.xjtu.toolbox.auth.FitnessSession
 import com.xjtu.toolbox.auth.GmisSession
 import com.xjtu.toolbox.auth.GsteSession
@@ -106,6 +107,12 @@ class DesktopAuth(
         // 校车）共用的站点，桌面自己登它，用同包的 `AppInboxSource` 取数。与校园卡/场馆一样，
         // 「登录页那一步」只是尽力预热它，它自己挂了最坏只影响那一屏。
         register(YwtbSession())
+        // 电子凭证（`:data` 的 `DzpzSession` + `DzpzLogin`）：成绩单（`dzpz` 的工作流引擎）这条路由
+        // 进门时要用它（见 `ToolboxDesktopApp` 的 `DesktopSiteGate`）。它**有自己的独立登录页**
+        // （`dzpz.xjtu.edu.cn/login/Login.jsp` → CAS OAuth2 `client_id=new9940` → 回跳换
+        // `loginidweaver`），不借别的站点会话 —— 见 `DzpzSession` 的 KDoc。
+        // 与校园卡/场馆一样，「登录页那一步」只是尽力预热它，它自己挂了最坏只影响那一屏。
+        register(DzpzSession())
         // 切账号时清宿主侧共享缓存：`:app` 把它设成 `CampusProbe.ywtbToken = null`，
         // 而 CampusProbe 要 `ConnectivityManager`（宿主能力，没跟着内核搬进 :data）；
         // 桌面端没有那份缓存，所以留空。这正是「缝照真正用到的那几处切」。
@@ -335,6 +342,9 @@ class DesktopAuth(
          */
         const val YWTB_SITE_KEY = YwtbSession.SITE_KEY
 
+        /** 电子凭证（`dzpz`）。成绩单那条路由进门时用它（见 `ToolboxDesktopApp` 的 `DesktopSiteGate`）。 */
+        const val DZPZ_SITE_KEY = DzpzSession.SITE_KEY
+
         /**
          * 登录页那一步一次建起会话的站点：`:core` 里有屏 + `:data` 里有站点类与取数的那几个。
          * （校历 / 黄页 / 教师检索是免登录的公开接口，游戏是纯 UI —— 它们不需要会话。）
@@ -351,6 +361,7 @@ class DesktopAuth(
             CAMPUS_CARD_SITE_KEY,
             VENUE_SITE_KEY,
             YWTB_SITE_KEY,
+            DZPZ_SITE_KEY,
         )
     }
 }

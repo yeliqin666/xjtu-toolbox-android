@@ -67,6 +67,9 @@ import com.xjtu.toolbox.score.scoreReportSource
 import com.xjtu.toolbox.game.xiangqi.XiangqiScreen
 import com.xjtu.toolbox.inbox.AppInboxSource
 import com.xjtu.toolbox.inbox.InboxScreen
+import com.xjtu.toolbox.dzpz.AppTranscriptSource
+import com.xjtu.toolbox.dzpz.TranscriptScreen
+import com.xjtu.toolbox.desktop.dzpz.DesktopTranscriptSaver
 import com.xjtu.toolbox.library.LibraryScreen
 import com.xjtu.toolbox.nav.AppRoute
 import com.xjtu.toolbox.nav.appRouteOf
@@ -207,6 +210,7 @@ internal val DESKTOP_SUPPORTED_ROUTES = listOf(
     AppRoute.Notification to "通知公告",
     AppRoute.YellowPage to "黄页",
     AppRoute.Faculty to "教师检索",
+    AppRoute.Transcript to "电子成绩单",
     AppRoute.Games to "游戏合集",
     AppRoute.Game2048 to "GPA 2048",
     AppRoute.GameBlocks to "方块",
@@ -568,6 +572,22 @@ private fun DesktopPage(auth: DesktopAuth, route: AppRoute, onNavigate: (Desktop
                 }
             },
         )
+        // 电子成绩单（第十四条真数据路由）：站点是 **https** 的 `dzpz.xjtu.edu.cn`，而且
+        // **它有自己的独立登录页**（Ecology 的 `Login.jsp` → CAS OAuth2 `client_id=new9940`
+        // → 回跳换 `loginidweaver`，见 `:data` 的 `DzpzLogin`）—— 不借别的已搬站点的会话。
+        // 会话**进门时才建**（见 `DesktopSiteGate`）：登录页那一步只是尽力预热它。
+        //
+        // 屏与七步流程都在 `:core`（`TranscriptScreen` + `TranscriptViewModel`），取数是 `:data` 的
+        // `AppTranscriptSource`（包住搬进 `:data` 的 `TranscriptApi`，七步的表单/字段口径一行未改）。
+        // 唯一留在这一端的是 **PDF 落盘**：桌面没有 MediaStore 与「我的 · 下载管理」，
+        // `DesktopTranscriptSaver` 写用户的下载目录（`:core` 的 `TranscriptSaveSink` 槽位）。
+        AppRoute.Transcript -> DesktopSiteGate(auth, DesktopAuth.DZPZ_SITE_KEY, "电子凭证") { site ->
+            TranscriptScreen(
+                source = remember(site) { AppTranscriptSource(site) },
+                onBack = back,
+                saveSink = DesktopTranscriptSaver,
+            )
+        }
         AppRoute.Games -> GamesScreen(
             onBack = back,
             onNavigate = { onNavigate(DesktopTarget.App(it)) },

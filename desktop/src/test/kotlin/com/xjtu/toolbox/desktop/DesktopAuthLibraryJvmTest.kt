@@ -29,12 +29,16 @@ import com.xjtu.toolbox.card.allTransactions
 import com.xjtu.toolbox.auth.CampusCardLogin
 import com.xjtu.toolbox.jwxt.JwxtFakeUpstream
 import com.xjtu.toolbox.auth.VenueLogin
+import com.xjtu.toolbox.auth.ensureSite
 import com.xjtu.toolbox.desktop.venue.DesktopSlideCaptchaHost
 import com.xjtu.toolbox.desktop.venue.encodeDesktopSlideResult
 import com.xjtu.toolbox.nav.AppRoute
 import com.xjtu.toolbox.venue.CaptchaData
 import com.xjtu.toolbox.venue.TrackPoint
 import com.xjtu.toolbox.venue.VenueCaptchaFixture
+import com.xjtu.toolbox.dzpz.AppTranscriptSource
+import com.xjtu.toolbox.dzpz.DzpzDocuments
+import com.xjtu.toolbox.dzpz.DzpzFakeUpstream
 import com.xjtu.toolbox.notification.AppNoticeSource
 import com.xjtu.toolbox.notification.NotificationFakeUpstream
 import com.xjtu.toolbox.notification.NotificationSource
@@ -1329,5 +1333,57 @@ class DesktopAuthLibraryJvmTest {
         // 四张筛选 id 表从 search.jsp 的 HTML 里解析（免登录）
         val filters = runBlocking { api.loadFilters() }
         assertTrue(filters.colleges.isNotEmpty(), "学院表应解析出来：$filters")
+    }
+
+    // ══════ 电子成绩单（dzpz）：自己走 OAuth2 + CAS 的那条路 ══════
+
+    /**
+     * 第 14 条真数据路由。它与前面 13 条最大的不同是**登录入口**：`dzpz` 有自己的独立登录页
+     * （`Login.jsp` → CAS 的 OAuth2 授权入口 `client_id=new9940` → 回跳换 `loginidweaver`），
+     * 不借别的已搬站点的会话 —— 所以这条用例真跑一遍那趟 OAuth2（假 CAS 由 `LibraryFakeUpstream`
+     * 扮演，它为新端点多扮了 `/cas/oauth2.0/authorize`）。
+     */
+    @Test
+    fun `真登录之后：电子凭证自己走完 OAuth2 与 CAS，成绩单七步读出夹具样本`() = withFakeCampus {
+        val (auth, _) = newAuth()
+        assertTrue(login(auth), "用假下游的账号密码应当登得上：${auth.loginState}")
+
+        // 登录页那一步只是「尽力预热」，所以这里显式确保一次（这正是 `DesktopSiteGate` 干的事：
+        // 它调的就是 `auth.ensureSession(siteKey)` → `SessionManager.ensureSite(...)`）
+        val site = runBlocking { auth.ensureSession(DesktopAuth.DZPZ_SITE_KEY) }
+            .let { auth.sessionManager.getSite(DesktopAuth.DZPZ_SITE_KEY) }
+        assertTrue(site.hasLogin, "dzpz 应当在假上游上登得上")
+        assertEquals(
+            DzpzFakeUpstream.OA_ID,
+            site.localToken["user_id"],
+            "OA id 来自 loginidweaver cookie（DzpzSession.onLoginSuccess 那两行）",
+        )
+
+        // 桌面端取数走的就是 `:data` 的 `AppTranscriptSource`（包住搬过来的 `TranscriptApi`）
+        val source = AppTranscriptSource(site)
+        val (pdf, info) = runBlocking {
+            val ctx = source.loadCreateForm(DzpzDocuments.TRANSCRIPT.workflowId)
+            val type = ctx.typeOptions.single().value
+            val linkage = source.getLinkageData(ctx, type)
+            val docId = source.generatePreviewPdf(ctx.workflowId, type)
+            val first = source.submitCreate(ctx, linkage, type, docId)
+            val second = source.reloadAndForward(ctx, first, type)
+            val info = source.getDownloadInfo(second)
+            source.downloadPdf(info.downloadUrl) to info
+        }
+
+        assertEquals(DzpzFakeUpstream.PDF_FILENAME, info.filename)
+        assertEquals(DzpzFakeUpstream.PDF_FILESIZE, info.filesize)
+        assertEquals(DzpzFakeUpstream.PDF_BYTES.toList(), pdf.toList())
+        assertEquals(DzpzFakeUpstream.PDF_REFERER, fake.dzpz.downloadReferer)
+        // 两次提交都真打过（夹具把原文留着，学号是从联动那一枪的响应里拿的）
+        assertEquals(2, fake.dzpz.submitBodies.size)
+        assertTrue(DzpzFakeUpstream.STUDENT_ID in fake.dzpz.submitBodies.first())
+
+        // 路由那一行：这条也进了「真能用」
+        assertTrue(
+            DESKTOP_SUPPORTED_ROUTES.any { it.first == AppRoute.Transcript },
+            "电子成绩单该在「真能用」那一栏里",
+        )
     }
 }

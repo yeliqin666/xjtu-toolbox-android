@@ -302,38 +302,11 @@ class CouponSession : CasSiteSession("coupon", "餐券系统", mustUseWebVpn = f
 }
 
 // ── DZPZ 电子凭证（成绩单） ───────────────────────────────────────────
-
-class DzpzSession : CasSiteSession("dzpz", "电子凭证", mustUseWebVpn = false) {
-    override fun createLogin(client: OkHttpClient, visitorId: String?, cachedRsaKey: String?): XJTULogin =
-        DzpzLogin(session = client, visitorId = visitorId, cachedRsaKey = cachedRsaKey)
-
-    override fun onLoginSuccess(login: XJTULogin) {
-        (login as? DzpzLogin)?.userId?.takeIf { it.isNotEmpty() }?.let {
-            localToken["user_id"] = it
-        }
-    }
-
-    /**
-     * getOSinfo 登录态下返回 `resourceid`（= loginidweaver），匿名访问时该字段缺失。
-     * 不能用 /api/ecode/sync —— 它匿名访问也返回 200 且不跳 CAS，探不出失效。
-     */
-    override suspend fun validateLogin(): Boolean = withIo {
-        val resp = client.newCall(
-            Request.Builder()
-                .url("${DzpzLogin.OS_INFO_URL}?__random__=${System.currentTimeMillis()}")
-                .header("Referer", "${DzpzLogin.BASE_URL}/wui/index.html")
-                .get().build()
-        ).execute()
-        try {
-            if (resp.code != 200) return@withIo false
-            val id = (resp.body.string()).safeParseJsonObject()
-                .get("resourceid")?.takeIf { !it.isNull }?.stringValue
-                ?.takeIf { it.isNotBlank() && it != "0" } ?: return@withIo false
-            localToken["user_id"] = id
-            true
-        } finally { resp.close() }
-    }
-}
+//
+// `DzpzSession` 与它的 `DzpzLogin` 已搬进 `:data`（同一个包、同一个类名）：成绩单是
+// 「桌面端第 14 条真数据路由」，桌面要自己登 `dzpz`、自己走完生成-提交-签章-下载七步
+//（`:data` 的 `AppTranscriptSource` 包住原来的 `TranscriptApi`）。类名与包路径都没变 ⇒
+// 下面 `AppLoginState` 里那处 `register(DzpzSession())` 一行不用改。
 
 // ── VENUE 场馆预订 ─────────────────────────────────────────────
 //
