@@ -101,18 +101,46 @@ import kotlinx.serialization.json.JsonObject
 class CampusLibraryApi(
     private val client: HttpClient,
     private val baseUrl: String = "",
+    /** 见 [ApiMode]：默认 campus-api（旧行为一字不改），serve 模式读契约 §5.3 的形状。 */
+    private val mode: ApiMode = ApiMode.CAMPUS_API,
 ) : LibrarySource {
 
-    /** campus-api 的图书馆模块只读（见类 KDoc）⇒ 预约/换座/动作/切校区都不画。 */
-    override val canBook: Boolean get() = false
+    /** serve 的 `/api/library/campus` 如实报的两个能力开关（拉到响应后才更新）。 */
+    private var serveCanBook = false
+    private var serveHasSeatPlan = false
 
-    /** campus-api 没有座位布局与平面图图片端点（见类 KDoc）⇒ 平面图那一档整个不画。 */
-    override val hasSeatPlan: Boolean get() = false
+    /**
+     * 能不能在屏上做预约 / 换座 / 退座（见 [LibrarySource.canBook]）。
+     *
+     * serve 的 `/api/library/campus` 报 `canBook:true`（`:data` 的写路径是现成的），但**写端点本身
+     * 是 P1**：契约 §5 把 `/api/library/book` `/swap` `/action` 标为 P1，`:server` 现在会答 `404`
+     * —— 照 `canBook:true` 画出来的按钮一点就失败，而这一端的规矩是「点了会失败的按钮一个都不画」
+     *（见 [LibrarySource] 的 KDoc）。campus-api 那一路更是根本没有写能力。
+     *
+     * 所以这里报的是两件事的**与**：服务端能力 true、但本端调不到那个端点 ⇒ false。
+     * TODO：`:server` 落地 P1 写端点后把 [SERVE_WRITE_ENDPOINTS_READY] 改成 true，并把
+     * [bookSeat] / [swapSeat] / [action] / [switchCampus] 从 [readOnly] 换成真请求。
+     */
+    override val canBook: Boolean get() = serveCanBook && SERVE_WRITE_ENDPOINTS_READY
+
+    /**
+     * 有没有座位布局与平面图（见 [LibrarySource.hasSeatPlan]）。
+     *
+     * serve 的 `/api/library/campus` 报 `hasSeatPlan:true`，但契约 §5 的 library 只有
+     * `campus` / `areas` / `seats` / `my` 四条 —— **没有**布局/底图端点 ⇒ [seatLayout] /
+     * [planBase] / [planTiles] 调不到东西。报 true 会让屏画一个永远空白的平面图，
+     * 所以同样报「与」的结果。campus-api 那一路则是真的没有这些端点。
+     */
+    override val hasSeatPlan: Boolean get() = serveHasSeatPlan && SERVE_PLAN_ENDPOINTS_READY
 
     // ─── 读 ────────────────────────────────────────────────────
 
     override suspend fun campus(): LibraryCampus? {
         val data = getData("/api/library/campus")
+        // serve（§5.3）把两个能力开关放在同一个响应里（见 canBook / hasSeatPlan）：拉到就更新。
+        // campus-api 不投影这两项 ⇒ safeBoolean 给 false，与旧行为一致。
+        serveCanBook = data["canBook"].safeBoolean()
+        serveHasSeatPlan = data["hasSeatPlan"].safeBoolean()
         val code = (data["current"] as? JsonObject)?.get("code").safeString().trim()
         return LibraryCampus.byId(code)
     }
@@ -136,7 +164,8 @@ class CampusLibraryApi(
         val data = getData("/api/library/seats", "area" to areaCode)
         val seats = data.arr("seats").orEmpty().mapNotNull { element ->
             val row = element as? JsonObject ?: return@mapNotNull null
-            val id = row["id"].safeString().trim()
+            // serve（§5.3）的行叫 `seatId`，campus-api 的行叫 `id`（同一件事）
+            val id = row[if (mode == ApiMode.SERVE) "seatId" else "id"].safeString().trim()
             if (id.isEmpty()) return@mapNotNull null
             SeatInfo(seatId = id, available = row["available"].safeBoolean())
         }.sortedWith(SEAT_ORDER)
@@ -154,6 +183,7 @@ class CampusLibraryApi(
     override suspend fun planTiles(areaCode: String): Map<Int, ByteArray> = noEndpoint("平面图状态图")
 
     override suspend fun myBooking(): Result<MyBookingInfo?> {
+        if (mode == ApiMode.SERVE) return serveMyBooking()
         val data = getData("/api/library/my")
         return when (val state = data["state"].safeString().trim()) {
             "none" -> Result.success(null)
@@ -173,6 +203,27 @@ class CampusLibraryApi(
             // 认不出就失败：不装作「没有预约」（与 :app 的 fetchMyBooking 同一条规矩）
             else -> Result.failure(IllegalStateException("图书馆预约页面认不出来（state=$state），不敢当成「没有预约」"))
         }
+    }
+    /**
+     * serve 模式（契约 §5.3）：`{my:{seatId,area,statusText}|null}`。
+     *
+     * 比旧路**简单且更准**（三处都是契约明写的）：
+     *  - 「没有预约」是 `my:null`（§4：`null` = 上游明确说没有）⇒ `Result.success(null)`，
+     *    不再靠 `state == "none"` 那个字符串，也就没有「认不出的 state」可以误判成「没预约」；
+     *  - `area` 由服务端直接给（旧路要从 `seatLine` 反推 —— 那是 campus-api 没投影区域名的绕路）；
+     *  - `actionUrls` 不投影（P1 写端点未实现，见 [canBook]），与旧路留空一致。
+     */
+    private suspend fun serveMyBooking(): Result<MyBookingInfo?> {
+        val data = getData("/api/library/my")
+        val my = data["my"] as? JsonObject ?: return Result.success(null)
+        return Result.success(
+            MyBookingInfo(
+                seatId = blankToNull(my["seatId"].safeString()),
+                area = blankToNull(my["area"].safeString()),
+                statusText = blankToNull(my["statusText"].safeString()),
+                actionUrls = emptyMap(),
+            )
+        )
     }
 
     /** 没有 `/qavail/` 这一档（那是 :app 直连图书馆站点的查询）；扫码那条入口只在 App 上，走不到这里。 */
@@ -273,6 +324,8 @@ class CampusLibraryApi(
 
     /** 拆 `{code,data}` 信封；`code!=0` 按场馆/校园卡那套报法显式失败。 */
     private suspend fun getData(path: String, vararg query: Pair<String, String>): JsonObject {
+        // serve 契约（§4）的信封见 ApiMode / serveData：code == HTTP 状态码、失败文案在 message
+        if (mode == ApiMode.SERVE) return client.serveData("图书馆", baseUrl, path, query.toList())
         val text = client.get("$baseUrl$path") {
             query.forEach { (k, v) -> parameter(k, v) }
         }.bodyAsText()
@@ -289,6 +342,22 @@ class CampusLibraryApi(
     }
 
     private companion object {
+        /**
+         * serve 契约里有没有图书馆的**写端点**（`book` / `swap` / `action` / 切校区）。
+         *
+         * 契约 §5 把它们标成 P1，`:server` 现在会答 404 ⇒ 报 `canBook:true` 就是在许诺一个
+         * 「点了会失败」的按钮。补上写端点后改成 `true` 即可（见 [canBook] 的 TODO）。
+         */
+        const val SERVE_WRITE_ENDPOINTS_READY = false
+
+        /**
+         * serve 契约里有没有**座位布局 / 平面图**端点。
+         *
+         * 契约 §5 的 library 只有 `campus`/`areas`/`seats`/`my` 四条（见 [hasSeatPlan]）。
+         */
+        const val SERVE_PLAN_ENDPOINTS_READY = false
+
+
         // 收藏的存储名/键名搬去 LibraryFavorites 了（同一个名字，见类 KDoc）。
 
         /**

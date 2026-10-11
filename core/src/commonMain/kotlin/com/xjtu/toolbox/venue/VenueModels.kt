@@ -7,11 +7,11 @@ import kotlinx.serialization.Serializable
  * 体育场馆的**数据模型**：从 `:app` 的 `venue/VenueApi.kt` 与 `venue/SliderCaptcha.kt` 原样搬进
  * `:core`（包名不变，仍是 `com.xjtu.toolbox.venue`），两端共用同一份屏与 ViewModel 时它们必须是共享类型。
  *
- * 为什么滑块那两个（[TrackPoint] / [SliderResult]）也在这里，而自动识别器与滑块控件留在 `:app`：
- * [SliderResult] 是**数据**（服务端协议的一部分），它有两个实现者 —— `:app` 的 `SliderCaptchaView`
- * （手滑产出）与 `:app` 的 `VenueCaptchaSolver`（自动识别产出）。生产的和消费的实现都靠 Android 的
- * `Bitmap` / `Base64`，搬不动；但**传它、提交它**的流程是共享的（[VenueViewModel] 的预订状态机），
- * 所以类型本身必须在 `:core`。
+ * 为什么滑块那两个（[TrackPoint] / [SliderResult]）也在这里，而自动识别器与滑块控件在 `:data`：
+ * [SliderResult] 是**数据**（服务端协议的一部分），它有两个实现者 —— `:data` 的 `SliderCaptchaView`
+ * （手滑产出）与 `:data` 的 `VenueCaptchaSolver`（自动识别产出）。生产的和消费的实现靠
+ * `:core` 的图片缝与 Base64（`:data` 只有 JVM/Android 两个目标，这些都进得来）；但**传它、提交它**
+ * 的流程是共享的（[VenueViewModel] 的预订状态机），所以类型本身必须在 `:core`。
  *
  * 形状一行未改（`:app` 的收藏/订单缓存里有老数据；`@Serializable` 那两个的字段名就是服务端协议）。
  */
@@ -151,15 +151,13 @@ data class SliderResult(
 }
 
 /**
- * 自动识别（[VenueScreen] 的 `solveCaptcha` 槽位）交给共享预订状态机的结果。
- *
- * 为什么要多这两样、而不是只给一条轨迹：识别那一刻屏**还没到松手时刻**，而服务端要求
+ * 自动识别（[VenueScreen] 的 `captchaHost` 槽位）交给共享预订状态机的结果。
  * `startSlidingTime` / `entSlidingTime` 是「验证码出现在屏幕上」之后的两个真实时刻（`:app` 的
  * `VenueCaptchaSolver.stamp` 那段注释记着这个坑：识别完立刻提交、时间戳往前倒推，服务端必判错）。
  * 「验证码什么时候出现的」只有屏知道（[shownAtMillis]），「这条轨迹几点几分松手」只有轨迹自己知道
  *（[releaseAfterMillis]）—— 两边各出一半，所以识别由槽位做、等待由状态机做。
  *
- * 盖章本身留在实现方（`:app` 的 `VenueCaptchaSolver.stamp`，用的是 `java.time` 的
+ * 盖章本身留在实现方（`:data` 的 `VenueCaptchaSolver.stamp`，用的是 `java.time` 的
  * `ISO_INSTANT` 格式，与手滑那条路径同一个格式）：那是**写进请求的线上格式**，不是共享逻辑，
  * 搬过来只会多一个"两端时间戳字符串长得不一样"的风险点。
  */

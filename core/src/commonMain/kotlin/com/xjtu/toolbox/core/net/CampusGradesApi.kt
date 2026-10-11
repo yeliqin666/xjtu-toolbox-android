@@ -43,9 +43,13 @@ import kotlinx.serialization.json.jsonObject
 class CampusGradesApi(
     private val client: HttpClient,
     private val baseUrl: String = "",
+    /** 见 [ApiMode]：默认 campus-api（旧行为一字不改），serve 模式读契约 §5.3 的形状。 */
+    private val mode: ApiMode = ApiMode.CAMPUS_API,
 ) : ScoreReportSource {
 
     override suspend fun grades(): List<ReportedGrade> {
+        // 两个后端的上游**不是**同一张报表（见类 KDoc），投影也不同 ⇒ 各走各的解析
+        if (mode == ApiMode.SERVE) return serveGrades()
         val text = client.get("$baseUrl/api/jwxt/grades") {
             parameter("all", "1")
         }.bodyAsText()
@@ -71,4 +75,31 @@ class CampusGradesApi(
             )
         }
     }
+    /**
+     * serve 模式（契约 §5.3）：`{grades:[{courseName,coursePoint,score,gpa,term}]}`。
+     *
+     * 旧路是 campus-api 的嵌套投影（`rows[].course.name`、`score.level` 优先、`score.gpa`），
+     * `:server` 给的是 `:data` 的 [ReportedGrade] 本体 —— 「有等级就用等级」与「`gpa` 可空」这两条
+     * 口径**已经在 `:data` 里做过**（见 [ReportedGrade] 的 KDoc），所以这里只搬字段，
+     * 不把那条判据再实现一遍（两份实现迟早会分叉）。
+     *
+     * `?all=1` 两个后端都认（serve 的默认本来也是全量，显式带上更不含糊）。
+     */
+    private suspend fun serveGrades(): List<ReportedGrade> {
+        val data = client.serveData("加载成绩", baseUrl, "/api/jwxt/grades", listOf("all" to "1"))
+        return data.arr("grades").orEmpty().mapNotNull { element ->
+            val row = element as? JsonObject ?: return@mapNotNull null
+            val name = row["courseName"].safeString().trim()
+            if (name.isEmpty()) return@mapNotNull null
+            ReportedGrade(
+                courseName = name,
+                coursePoint = row["coursePoint"].safeDouble(),
+                score = row["score"].safeString().trim(),
+                gpa = row["gpa"].safeDoubleOrNull(),
+                term = row["term"].safeString(),
+            )
+        }
+    }
+
+
 }

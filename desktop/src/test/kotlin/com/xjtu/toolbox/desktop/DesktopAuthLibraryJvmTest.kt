@@ -29,7 +29,12 @@ import com.xjtu.toolbox.card.allTransactions
 import com.xjtu.toolbox.auth.CampusCardLogin
 import com.xjtu.toolbox.jwxt.JwxtFakeUpstream
 import com.xjtu.toolbox.auth.VenueLogin
+import com.xjtu.toolbox.desktop.venue.DesktopSlideCaptchaHost
+import com.xjtu.toolbox.desktop.venue.encodeDesktopSlideResult
 import com.xjtu.toolbox.nav.AppRoute
+import com.xjtu.toolbox.venue.CaptchaData
+import com.xjtu.toolbox.venue.TrackPoint
+import com.xjtu.toolbox.venue.VenueCaptchaFixture
 import com.xjtu.toolbox.notification.AppNoticeSource
 import com.xjtu.toolbox.notification.NotificationFakeUpstream
 import com.xjtu.toolbox.notification.NotificationSource
@@ -729,7 +734,8 @@ class DesktopAuthLibraryJvmTest {
 
     /**
      * 真登录链之后走「体育场馆」那一屏用的那个源（`:data` 的 `AppVenueSource`，桌面端
-     * `AppRoute.Venue` 就是它：`canBook = false` —— 这一端没有滑块控件，下单那一步走不完）。
+     * `AppRoute.Venue` 就是它）。Stage B 之后 `canBook = true`：桌面有滑块宿主
+     * （[DesktopSlideCaptchaHost]，新写的滑块 UI + 拖动回调），下单那一步走得完。
      *
      * 这条同时钉住那一条登录链：场馆站的入口不是它自己，而是 `org.xjtu.edu.cn` 的 OAuth2
      *（appId=1659）→ CAS → 回跳 `/web/cas/oauth2url.html` → 首页 userno。场馆站本身是**明文 http**
@@ -739,7 +745,7 @@ class DesktopAuthLibraryJvmTest {
      * 某天七个时段（可订 + 已占两路合并后排序）、我的订单两条 —— 不是从跑通的实现里抄的。
      */
     @Test
-    fun `真登录之后：体育场馆走完 OAuth 与 CAS，场馆列表与时段都读得出夹具样本`() = withFakeCampus {
+    fun `真登录之后：体育场馆走完 OAuth 与 CAS，读场馆列表时段，并拿到滑块剧本下的成功订单`() = withFakeCampus {
         val (auth, _) = newAuth()
         assertTrue(login(auth), "用假下游的账号密码应当登得上：${auth.loginState}")
 
@@ -763,8 +769,8 @@ class DesktopAuthLibraryJvmTest {
         assertEquals(posts, fake.library.credentialPosts.get(), "也不该再提交一次凭据")
 
         // ── 取数：`AppRoute.Venue` 那一屏用的就是这个源 ──
-        val source = AppVenueSource(site, canBook = false)
-        assertEquals(false, source.canBook, "桌面没有滑块控件 ⇒ 如实声明不能下单")
+        val source = AppVenueSource(site, canBook = true)
+        assertTrue(source.canBook, "Stage B 之后桌面能下单（滑块宿主就绪）")
         assertTrue(source.canCancel, "取消不需要滑块 ⇒ 这一件照旧能做")
 
         val venues = runBlocking { source.venues() }
@@ -823,6 +829,84 @@ class DesktopAuthLibraryJvmTest {
         assertTrue(runBlocking { source.toggleFavorite(VenueFakeUpstream.VENUE_A_ID) })
         assertTrue(VenueFakeUpstream.VENUE_A_ID in runBlocking { source.favorites() })
         assertTrue(!runBlocking { source.toggleFavorite(VenueFakeUpstream.VENUE_A_ID) }, "再翻一次回到原位")
+
+        // ── Stage B：登录 → 拿滑块挑战 → 模拟拖动提交 → 下单成功（剧本默认关，这里打开）──
+        fake.venue.captchaScript = true
+        val captcha = runBlocking { source.captcha(VenueFakeUpstream.VENUE_A_ID) }
+        assertEquals(1, fake.venue.captchaCalls.get())
+        assertTrue(captcha.backgroundImage.length > 100, "剧本打开后 /gen 发的是真图（base64 可长）")
+
+        val pending = source.prepareOrder(VenueFakeUpstream.VENUE_A_ID, listOf(slots.first()))
+        // 模拟桌面拖动：把偏移量推到缺口处（夹具已知缺口，见 VenueCaptchaFixture）
+        val now = System.currentTimeMillis()
+        val dragged = encodeDesktopSlideResult(
+            serverSliderHeight = 50,
+            offsetXPx = VenueCaptchaFixture.EXPECTED_SOLVE_TARGET_X.toFloat(),
+            cumulativeYPx = 0f,
+            displayWidthPx = 260f,
+            dragStartTime = now - 1600,
+            dragEndTime = now,
+            trackPoints = listOf(
+                TrackPoint(0, 0, "down", 900),
+                TrackPoint(70, 0, "move", 1300),
+                TrackPoint(VenueCaptchaFixture.EXPECTED_SOLVE_TARGET_X, 0, "move", 2200),
+            ),
+        )
+        val booking = runBlocking {
+            source.submitBooking(VenueFakeUpstream.VENUE_A_ID, pending, captcha.id, dragged.toJson())
+        }
+        assertTrue(booking.success, "拖到缺口应当下单成功：${booking.message}")
+        assertEquals(VenueFakeUpstream.BOOKED_ORDER_ID, booking.orderId)
+        assertEquals(1, fake.venue.tobookCalls.get(), "一次提交、无重试")
+        assertTrue(
+            fake.venue.lastYzm.orEmpty().contains("synjones${captcha.id}synjones"),
+            "yzm 带的是这次拿到的验证码 id",
+        )
+    }
+
+    // ══════ 桌面滑块宿主（Stage B）：拖动编码与识别委托 ══════
+
+    /**
+     * 不点开窗口也能钉住的宿主半边：拖动编码（[encodeDesktopSlideResult]）与识别委托
+     * （[DesktopSlideCaptchaHost.solve] 走 `:data` 的 `VenueSlideCaptchaHost`）。
+     * 期望值来自 `:data` 的 `SliderCaptchaView` 同一条协议（260 坐标系、up 点、ISO 时刻）。
+     */
+    @Test
+    fun `桌面滑块宿主：拖动编码合成为服务端协议，识别委托共享路径`() = withFakeCampus {
+        // ── 拖动编码：260 坐标系 + ISO 时刻 + up 点 ──
+        val now = 1_730_000_000_000L
+        val result = encodeDesktopSlideResult(
+            serverSliderHeight = 50,
+            offsetXPx = 130f,
+            cumulativeYPx = 0f,
+            displayWidthPx = 260f,
+            dragStartTime = now - 1600,
+            dragEndTime = now,
+            trackPoints = listOf(TrackPoint(0, 0, "down", 900), TrackPoint(100, 0, "move", 1500)),
+        )
+        assertEquals(260, result.bgImageWidth)
+        assertEquals(0, result.bgImageHeight)
+        assertEquals(0, result.sliderImageWidth)
+        assertEquals(50, result.sliderImageHeight)
+        assertEquals(java.time.Instant.ofEpochMilli(now - 1600), java.time.Instant.parse(result.startSlidingTime))
+        assertEquals(java.time.Instant.ofEpochMilli(now), java.time.Instant.parse(result.entSlidingTime))
+        assertEquals(3, result.trackList.size)
+        assertEquals("up", result.trackList.last().type)
+        assertEquals(130, result.trackList.last().x, "(130 * 260 / 260) 落在 260 坐标系")
+        assertEquals(900L + 1600L, result.trackList.last().t, "up 点时刻 = 出现延迟 + 真实拖动时长")
+
+        // ── 识别委托：合成图上有缺口 ⇒ 盖章后的轨迹与 release 时长都非空 ──
+        val data = CaptchaData(
+            id = VenueFakeUpstream.CAPTCHA_ID,
+            backgroundImage = VenueCaptchaFixture.backgroundDataUri(),
+            sliderImage = VenueCaptchaFixture.sliderDataUri(),
+            bgWidth = 260, bgHeight = 160, sliderWidth = 50, sliderHeight = 50,
+        )
+        val solved = runBlocking { DesktopSlideCaptchaHost.solve(data, now) }
+        assertNotNull(solved, "共享路径应当识别出合成图上的缺口")
+        assertEquals(VenueCaptchaFixture.EXPECTED_SOLVE_TARGET_X, solved.sliderResult.trackList.last().x)
+        assertTrue(solved.sliderResult.startSlidingTime.isNotBlank())
+        assertTrue(solved.releaseAfterMillis > 0)
     }
 
     // ══════ 消息收纳：第十二条真数据路由 ══════

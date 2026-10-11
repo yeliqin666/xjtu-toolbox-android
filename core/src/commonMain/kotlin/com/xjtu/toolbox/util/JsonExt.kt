@@ -34,6 +34,15 @@ fun JsonElement?.safeDouble(default: Double = 0.0): Double = safeDoubleOrNull() 
 
 fun JsonElement?.safeDoubleOrNull(): Double? = primitive?.content?.toDoubleOrNull()
 
+/**
+ * 可空的整数读法：字段缺失、JSON `null`、或者内容根本不是整数都给 `null`。
+ *
+ * 与 [safeInt] 的分工就是**模型上有没有「不知道」那一档**：`safeInt` 是「缺就是 0」（座位数那种
+ * 上游会漏、且 0 有意义的字段），这个是「缺就是不知道」（课容量/选课人数那种 —— 拿 0 冒充
+ * 会画出 0/0 的容量条，见 `SchoolCourse` 的 KDoc）。
+ */
+fun JsonElement?.safeIntOrNull(): Int? = safeStringOrNull()?.trim()?.toIntOrNull()
+
 fun JsonElement?.safeInt(default: Int = 0): Int = safeLongOrNull()?.toInt() ?: default
 
 fun JsonElement?.safeLong(default: Long = 0L): Long = safeLongOrNull() ?: default

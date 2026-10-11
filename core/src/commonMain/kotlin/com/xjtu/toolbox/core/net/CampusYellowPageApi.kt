@@ -36,9 +36,13 @@ import kotlin.time.Instant
 class CampusYellowPageApi(
     private val client: HttpClient,
     private val baseUrl: String = "",
+    /** 见 [ApiMode]：默认 campus-api（旧行为一字不改），serve 模式读契约 §5.2 的形状。 */
+    private val mode: ApiMode = ApiMode.CAMPUS_API,
 ) : YellowPageSource {
 
     override suspend fun getData(forceRefresh: Boolean): YellowPageData {
+        // serve 契约（§5.2）的形状与 campus-api **不是同一份投影**（见 serveYellowPage 的 KDoc）
+        if (mode == ApiMode.SERVE) return serveYellowPage()
         val text = client.get("$baseUrl/api/info/yellowpage").bodyAsText()
         val envelope = AppJson.parseToJsonElement(text) as? JsonObject
             ?: error("campus-api 黄页返回不是 JSON 对象")
@@ -52,6 +56,25 @@ class CampusYellowPageApi(
             categories = categories.filter { it.status == 1 }.sortedWith(compareBy({ it.sort }, { it.id })),
             departments = departments.filter { it.status == 1 }.sortedWith(compareBy({ it.sort }, { it.id })),
             updateTime = formatFetchedAt(data["fetchedAt"].safeString()),
+        )
+    }
+
+    /**
+     * serve 模式（契约 §5.2）：`{updateTime, categories:[{id,name}], departments:[{id,categoryId,name,phone}]}`。
+     *
+     * 三处与旧路的差别，都是**契约明写**的：
+     *  - 服务端已经滤掉 `status != 1` 的项（也不投影 `status`/`sort`）⇒ 这里不再过滤、不再排序；
+     *  - `updateTime` 是 [YellowPageData.updateTime] 那个展示串（「2026年08月01日」，`:data` 解析出的
+     *    同一份），不是 ISO instant ⇒ 不做时间格式化；
+     *  - 解码仍走同一套 [YellowPageCategory]/[YellowPageDepartment] 模型 —— 少了两个字段时靠模型
+     *    的默认值吃下（`status=0`、`sort=0`），所以那条 filter/sort 在这里没有意义，不重复做一遍。
+     */
+    private suspend fun serveYellowPage(): YellowPageData {
+        val data = client.serveData("加载黄页", baseUrl, "/api/info/yellowpage")
+        return YellowPageData(
+            categories = decodeList(data["categories"]),
+            departments = decodeList(data["departments"]),
+            updateTime = data["updateTime"].safeString(),
         )
     }
 

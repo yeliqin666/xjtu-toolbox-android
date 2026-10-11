@@ -73,6 +73,7 @@ import com.xjtu.toolbox.nav.appRouteOf
 import com.xjtu.toolbox.notification.AppNoticeSource
 import com.xjtu.toolbox.notification.NotificationScreen
 import com.xjtu.toolbox.platform.keyValueStore
+import com.xjtu.toolbox.desktop.venue.DesktopSlideCaptchaHost
 import com.xjtu.toolbox.venue.AppVenueSource
 import com.xjtu.toolbox.venue.VenueScreen
 import com.xjtu.toolbox.yellowpage.YellowPageApi
@@ -487,20 +488,20 @@ private fun DesktopPage(auth: DesktopAuth, route: AppRoute, onNavigate: (Desktop
         // 取数是 `:data` 的 `AppVenueSource`（包住原来的 `VenueApi`）；收藏走 `:core` 共享的
         // `VenueFavorites`（同一份文件、同一个键 ⇒ 与 App 那边看到的是同一批收藏）。
         //
-        // ⚠️ `canBook = false`：下单要先解滑块，而滑块控件（屏上的 `captchaView` 槽位）长在 Android
-        // 的 `Bitmap`/`Base64` 上（`:app` 的 `SliderCaptchaView`）—— 桌面没有这条路径。按 `VenueSource`
-        // 那条口径（**点了会失败的按钮，一个都不画**）如实声明，于是屏上不画「确认预订」/「去支付」、
-        // 时段格子不可勾选；取消订单不需要滑块，`canCancel` 仍是 true ⇒ 「我的订单」里的取消照旧。
-        // 自动识别（`solveCaptcha`）也传 null：那条路本就只在能下单时可达。
-        // 支付那一跳按 Web 端同一条口径如实忽略（canBook=false ⇒ 根本走不到）。
+        // ✅ Stage B 之后 `canBook = true`：下单要解滑块，桌面现在有宿主（`DesktopSlideCaptchaHost`，
+        // 新写的滑块 UI + 拖动回调；识别/提交逻辑在 `:data`），`VenueScreen` 的 `captchaHost` 槽位
+        // 由它填上 ⇒ 「确认预订」→ 验证码弹窗 → 拖动 → 提交这条写路径在桌面走通。
+        // 自动识别（`solveCaptcha`）由桌面宿主提供，但桌面没有「自动识别验证码」设置项 ⇒
+        // `autoSolveCaptcha` 用默认 false，停在手动拖动那一档（与功能说明文案一致）。
+        // 支付那一跳与 `:app` 同一条口径：内置浏览器/系统浏览器先过登录页再落支付页。
         // 「功能说明弹过了没」与 `:app` 同一个 pref 文件、同一个键（`feature_hints` / `venue_hint_shown`）。
         AppRoute.Venue -> DesktopSiteGate(auth, DesktopAuth.VENUE_SITE_KEY, "体育场馆") { site ->
             val hintPrefs = remember { keyValueStore("feature_hints") }
             VenueScreen(
-                source = remember(site) { AppVenueSource(site, canBook = false) },
+                source = remember(site) { AppVenueSource(site, canBook = true) },
                 onBack = back,
                 onOpenBrowser = { url, _ -> if (url.isNotBlank()) openInBrowser(url) },
-                solveCaptcha = null,
+                captchaHost = remember { DesktopSlideCaptchaHost },
                 showFirstUseHint = !hintPrefs.getBoolean("venue_hint_shown", false),
                 onFirstUseHintRead = { hintPrefs.putBoolean("venue_hint_shown", true) },
             )

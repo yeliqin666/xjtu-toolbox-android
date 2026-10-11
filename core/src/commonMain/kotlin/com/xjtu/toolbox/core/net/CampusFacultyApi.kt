@@ -47,9 +47,13 @@ import kotlinx.serialization.json.jsonObject
 class CampusFacultyApi(
     private val client: HttpClient,
     private val baseUrl: String = "",
+    /** 见 [ApiMode]：默认 campus-api（旧行为一字不改），serve 模式读契约 §5.2 的形状。 */
+    private val mode: ApiMode = ApiMode.CAMPUS_API,
 ) : FacultySource {
 
     override suspend fun search(query: FacultySearchQuery, page: Int): FacultySearchPage {
+        // serve（§5.2）给的是 `{…, members:[…]}`（已归一的模型字段），旧路是 campus-api 的 `rows[]`
+        if (mode == ApiMode.SERVE) return serveSearch(query, page)
         val data = getData(
             "/api/info/faculty",
             "q" to query.name,
@@ -126,6 +130,8 @@ class CampusFacultyApi(
     }
 
     private suspend fun getData(path: String, vararg query: Pair<String, String>): JsonObject {
+        // serve 契约（§4）的信封见 ApiMode / serveData：code == HTTP 状态码、失败文案在 message
+        if (mode == ApiMode.SERVE) return client.serveData("教师检索", baseUrl, path, query.toList())
         val text = client.get("$baseUrl$path") {
             query.forEach { (k, v) -> if (v.isNotEmpty()) parameter(k, v) }
         }.bodyAsText()
@@ -137,4 +143,85 @@ class CampusFacultyApi(
         return envelope["data"] as? JsonObject
             ?: error("campus-api 教师检索返回缺少 data：${text.take(120)}")
     }
+    // ─── serve 模式（契约 §5.2）────────────────────────────────────────────
+
+    /**
+     * 能力开关：本端这一次响应**有没有投影联系方式**（serve 恒为 `false`，见类 KDoc）。
+     *
+     * 它不是装饰：[parseServeMember] 按它决定收不收 `contacts` 那几行 —— 开关说 `true` 而字段没投影，
+     * 屏上就会多出几个空标签（那比不画更糟）。campus-api 那一路没有这个字段，默认 `false`。
+     */
+    private var contactsAvailable = false
+
+    /**
+     * serve 模式（契约 §5.2）：`{contactsAvailable,total,totalPage,pageIndex,members:[FacultyMemberDto]}`。
+     *
+     * 三处与旧路的差别：
+     *  - `members`（旧路 `rows`）、`totalPage`（旧路 `totalPages`）；
+     *  - `researchDirections` **有值了**：旧路那份是 campus-api 的投影事故（`["[object Object]", …]`）
+     *    所以旧路刻意丢弃，新契约给的是字符串数组 ⇒ 照收（契约 §5.2 的「补齐」之一）；
+     *  - **联系方式不取、也没有**：`contactsAvailable` 恒 `false`（§5.2 红线例外②只说教师名与部门
+     *    电话属公开通讯录，而这一屏是可批量下拉的检索 ⇒ serve 不投影 email/电话/手机/办公地点/住址）。
+     *
+     * 「那四张筛选项表拿不到」「主页不解析」两条**两个后端一致**（[filters] / [homepage] 的降级就是它们），
+     * 所以那两个方法不分叉。
+     */
+    private suspend fun serveSearch(query: FacultySearchQuery, page: Int): FacultySearchPage {
+        val data = getData(
+            "/api/info/faculty",
+            "q" to query.name,
+            "college" to query.collegeId.takeIf { it > 0 }?.toString().orEmpty(),
+            "discipline" to query.disciplineId.takeIf { it > 0 }?.toString().orEmpty(),
+            "page" to page.coerceAtLeast(1).toString(),
+        )
+        contactsAvailable = data["contactsAvailable"].safeBoolean()
+        val members = data.arr("members").orEmpty()
+            .mapNotNull { if (it.isObject) it.jsonObject else null }
+            .map { parseServeMember(it) }
+            // 职称 / 博导硕导是**客户端**过滤（服务端没有那两张表），与 :app 的 `matches` 同逻辑
+            .filter { it.matches(query) }
+        return FacultySearchPage(
+            total = data["total"].safeInt(),
+            totalPage = data["totalPage"].safeInt().coerceAtLeast(1),
+            pageIndex = data["pageIndex"].safeInt().takeIf { it > 0 } ?: page,
+            members = members,
+        )
+    }
+
+    /** serve 的 `FacultyMemberDto`：字段名与 [FacultyMember] 逐字对应（就是 `:data` 那份模型）。 */
+    private fun parseServeMember(item: JsonObject): FacultyMember {
+        val contacts = if (contactsAvailable) item["contacts"] as? JsonObject else null
+        return FacultyMember(
+            teacherId = item["teacherId"].safeLong(),
+            name = item["name"].safeString().trim(),
+            englishName = item["englishName"].safeString().trim(),
+            pinyin = item["pinyin"].safeString().trim(),
+            homepageUrl = item["homepageUrl"].safeString().trim(),
+            collegeName = item["collegeName"].safeString().trim(),
+            proRank = item["proRank"].safeString().trim(),
+            job = item["job"].safeString().trim(),
+            discipline = item["discipline"].safeString().trim(),
+            degree = item["degree"].safeString().trim(),
+            education = item["education"].safeString().trim(),
+            graduatedUniversity = item["graduatedUniversity"].safeString().trim(),
+            isDoctoralTutor = item["isDoctoralTutor"].safeBoolean(),
+            isMasterTutor = item["isMasterTutor"].safeBoolean(),
+            profile = item["profile"].safeString().trim(),
+            researchDirections = item.arr("researchDirections").orEmpty()
+                .map { it.safeString().trim() }
+                .filter { it.isNotEmpty() },
+            picUrl = item["picUrl"].safeString().trim(),
+            email = contacts?.get("email").safeString().trim().orEmpty(),
+            contact = contacts?.get("contact").safeString().trim().orEmpty(),
+            phone = contacts?.get("phone").safeString().trim().orEmpty(),
+            mobilePhone = contacts?.get("mobilephone").safeString().trim().orEmpty(),
+            officeLocation = contacts?.get("officeLocation").safeString().trim().orEmpty(),
+            address = contacts?.get("address").safeString().trim().orEmpty(),
+            entryTime = item["entryTime"].safeString().trim(),
+            lastUpdate = item["lastUpdate"].safeString().trim(),
+            clickTimes = item["clickTimes"].safeLong(),
+        )
+    }
+
+
 }

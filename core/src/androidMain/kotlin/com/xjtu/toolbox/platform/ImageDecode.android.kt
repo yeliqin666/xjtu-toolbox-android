@@ -30,3 +30,23 @@ actual fun decodeImage(bytes: ByteArray, size: IntSize, maxDim: Int): ImageBitma
     }
     return BitmapFactory.decodeByteArray(bytes, 0, bytes.size, opts)?.asImageBitmap()
 }
+
+/**
+ * Android 侧真实现 —— 与搬迁前 `:app/venue/VenueCaptchaSolver.kt` 里那段
+ * `BitmapFactory.decodeByteArray` + `getPixels` 逐字同构：全尺寸、ARGB_8888、非预乘。
+ * 位图在函数内即时回收（识别器只拿像素，不画）—— 与搬迁前 `solve` 的 finally 同一件事。
+ */
+actual fun decodeImagePixels(bytes: ByteArray): ImagePixels? {
+    val bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size) ?: return null
+    return try {
+        val pixels = IntArray(bitmap.width * bitmap.height)
+        bitmap.getPixels(pixels, 0, bitmap.width, 0, 0, bitmap.width, bitmap.height)
+        ImagePixels(bitmap.width, bitmap.height, pixels)
+    } finally {
+        runCatching { if (!bitmap.isRecycled) bitmap.recycle() }
+    }
+}
+
+/** Android 侧：全尺寸 ARGB_8888 解码（默认配置）—— `SliderCaptchaView` 搬迁前的原样路径。 */
+actual fun decodeImageFull(bytes: ByteArray): ImageBitmap? =
+    BitmapFactory.decodeByteArray(bytes, 0, bytes.size)?.asImageBitmap()

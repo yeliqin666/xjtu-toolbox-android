@@ -1,8 +1,10 @@
 package com.xjtu.toolbox.jwxt
 
 import com.sun.net.httpserver.HttpExchange
+import com.xjtu.toolbox.library.CasSafetyVerifyPage
 import com.xjtu.toolbox.library.LibraryFakeUpstream
 import java.net.URLDecoder
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.atomic.AtomicInteger
 
@@ -20,6 +22,8 @@ import java.util.concurrent.atomic.AtomicInteger
  * POST <KCB_CX>/modules/bjkcb/xnxqcx.do   → 学期列表（请求里必须带 `*order=-DM`）
  * POST <DEPARTMENTS_URL>               → 开课单位（`/jwapp/code/…` 那张 id 表）
  * POST <KCB_CX>/modules/qxkcb/qxfbkccx.do → 全校课表一页（请求里必须带 `querySetting`）
+ * POST <WDKB>/modules/xskcb/xskcb.do    → 学生课表整学期（请求里必须带 `XNXQDM`）—— `:app` 的 `ScheduleApi`
+ * POST <WDKB>/modules/jshkcb/cxjcs.do   → 学期起点 `XQKSRQ`/`ZZC`（请求里必须带 `XN` 与 `XQ`）
  * GET  <REPORT_URL>?reportlet=…&xh=…    → 帆软报表初始页（`FR.SessionMgr.register`）
  * GET  <REPORT_URL>?…&op=page_content&sessionID=…&pn=N → 第 N 页表格
  * ```
@@ -69,8 +73,24 @@ import java.util.concurrent.atomic.AtomicInteger
  * ## 统一认证那一半为什么不在这个文件里
  *
  * `login.xjtu.edu.cn` 是所有站点共用的一台 CAS，`FakeCampusProxy` 把它分派给
- * [LibraryFakeUpstream]（它完整扮演了登录页 / 表单 POST / 签 ticket / TGC）。这个夹具只负责
- * `jwxt.xjtu.edu.cn` 那一半：**CAS 回跳之后**的事。
+ * [LibraryFakeUpstream]（它完整扮演了登录页 / 表单 POST / 签 ticket / TGC，外加短信二次验证
+ * 的「取手机号」与「校验验证码」两枪）。这个夹具只负责 `jwxt.xjtu.edu.cn` 那一半：**CAS 回跳之后**的事。
+ *
+ * ## 短信二次认证（CAS Safety Verify）那一幕也在这一半
+ *
+ * 真站点上它是 **jwxt 独有**的：`client_id=1675` 这个高敏感 OAuth 客户端即使在 TGC 已下发之后
+ * 也会被 CAS 拦到「Safety Verify」页（`JwxtLogin.postLogin` 的注释与 `CasLoginPages.isSafetyVerifyPage`
+ * 都是为它写的）。而**那一页要落在 jwxt 域名下才拦得到这条链** ⇒ 由这个夹具发它
+ *（页面原文在 [CasSafetyVerifyPage]，只有那一份）。整条剧本是：
+ *
+ * ```
+ * 开 requireSafetyVerify
+ * GET  <HOME_URL>?ticket=ST-n  → 200 二次认证页（**不是**首页）   ← XJTULogin 认出来 ⇒ REQUIRE_MFA
+ * GET  <CAS>/cas/sec/initByType/securephone?state=<secState> → gid + 屏蔽手机号
+ * POST <CAS>/attest/api/guard/securephone/valid  {gid,code}    → code==123456 才过
+ * POST <HOME_URL>?ticket=ST-n  （secState/execution/_eventId/submit） → 200 首页 + 会话 cookie
+ * ```
+ * 默认**关着**（既有用例要的是「一步登进去」）；`:server` 的 MFA 桥测试开它。
  *
  * ## 契约：逐字段对着 `:data` 里的解析函数写
  *
@@ -109,6 +129,11 @@ class JwxtFakeUpstream {
         const val QUERY_URL = "$KCB_CX/modules/qxkcb/qxfbkccx.do"
         const val APP_INDEX_URL = "$KCB_CX/*default/index.do"
 
+        /** 学生课表应用（`wdkb`）—— `:app` 的 `schedule/ScheduleApi.kt` 打的就是它（与 kcbcx 同一个域名）。 */
+        const val WDKB = "$ORIGIN/jwapp/sys/wdkb"
+        const val SCHEDULE_URL = "$WDKB/modules/xskcb/xskcb.do"
+        const val TERM_START_URL = "$WDKB/modules/jshkcb/cxjcs.do"
+
         /** 帆软成绩报表。 */
         const val REPORT_URL = "$ORIGIN/jwapp/sys/frReport2/show.do"
 
@@ -135,6 +160,38 @@ class JwxtFakeUpstream {
         const val COURSE_2_NAME = "大学物理"
         const val COURSE_3_NAME = "艺术导论"
         const val TOTAL_SIZE = 3
+
+        // ── 学生课表样本（`wdkb`：`xskcb.do` 的行 + `cxjcs.do` 的学期起点）──
+        //
+        // 行的键名就是上游列名；`SKXQ`/`KSJC`/`JSJC` 三格**故意给 JSON 数字** ——
+        // 解析按 `safeString` 读成文本（「数字也按文本投影」那条口径就是这么钉住的）。
+
+        /** 第一行：整学期课（`ZCMC` = `1-16周`）。 */
+        const val SCHEDULE_1_COURSE = "高等数学（上）"
+        const val SCHEDULE_1_TEACHER = "示例甲"
+        const val SCHEDULE_1_ROOM = "主楼A-101"
+        const val SCHEDULE_1_WEEKS = "1-16周"
+        const val SCHEDULE_1_JXBID = "JXB-8001"
+        const val SCHEDULE_1_DAY = 1
+        const val SCHEDULE_1_START = 1
+        const val SCHEDULE_1_END = 2
+
+        /** 第二行：单周课（`ZCMC` 的 `(单)` 写法）—— 周次读的是这一格，不是 `SKZC` 位串。 */
+        const val SCHEDULE_2_COURSE = "大学物理"
+        const val SCHEDULE_2_TEACHER = "示例乙"
+        const val SCHEDULE_2_ROOM = "中2-3201"
+        const val SCHEDULE_2_WEEKS = "1-15周(单)"
+        const val SCHEDULE_2_JXBID = "JXB-8002"
+        const val SCHEDULE_2_DAY = 3
+        const val SCHEDULE_2_START = 3
+        const val SCHEDULE_2_END = 4
+
+        /** 第三行只有 `KCM`：缺的键读成空串（「缺键 = 空串」那条口径由它钉住）。 */
+        const val SCHEDULE_3_COURSE = "艺术导论"
+
+        /** 学期起点：`XQKSRQ` 给到秒（解析只取日期那一段），`ZZC` = 总周数（含考试周）。 */
+        const val TERM_START_DATE = "2026-09-14"
+        const val TERM_TOTAL_WEEKS = 18
 
         // ── 成绩报表样本 ──
 
@@ -259,6 +316,25 @@ class JwxtFakeUpstream {
     /** CAS 回跳（带 ticket）落在本站的次数 —— 用户级「登录真的走完了」。 */
     val ticketLandings = AtomicInteger()
 
+    /**
+     * 二次认证剧本的开关：开上之后，**带 ticket 的回跳给的不是首页而是 [safetyVerifyPage]**。
+     *
+     * 什么时候开：测「登录链上撞到短信二验」时（`:server` 的 MFA 桥）。默认关 —— 其余用例要的是
+     * 「一步登进去」。
+     */
+    val requireSafetyVerify = AtomicBoolean(false)
+
+    /** 二次认证页被给出去几次（= 登录链真的在那一步被拦住了）。 */
+    val safetyVerifyLandings = AtomicInteger()
+
+    /** 二次认证页的隐藏表单被回提了几次（= 验证码真过了、`MfaContext.verifyCode` 走到了最后一步）。 */
+    val safetyVerifySubmissions = AtomicInteger()
+
+    /** 最近一次回提的表单原文（断言 `secState`/`execution`/`_eventId`/`submit`/`fpVisitorId` 真发出去了）。 */
+    @Volatile
+    var lastSafetyVerifyForm: String? = null
+        private set
+
     /** `ensureAppInitialized` 的预热请求打过几次。 */
     val appIndexCalls = AtomicInteger()
 
@@ -266,6 +342,10 @@ class JwxtFakeUpstream {
     val termListCalls = AtomicInteger()
     val departmentCalls = AtomicInteger()
     val queryCalls = AtomicInteger()
+
+    /** 学生课表的两条端点各打过几次（`wdkb`：`xskcb.do` / `jshkcb/cxjcs.do`）。 */
+    val scheduleCalls = AtomicInteger()
+    val termStartCalls = AtomicInteger()
 
     /** 成绩报表的翻页请求打过几次（`totalPages=2` ⇒ 一次 `pn=1` + 一次 `pn=2`）。 */
     val reportPageCalls = AtomicInteger()
@@ -278,6 +358,16 @@ class JwxtFakeUpstream {
     /** 最近一次 `qxfbkccx.do` 的表单原文（断言 `querySetting` 与分页参数真发出去了）。 */
     @Volatile
     var lastQueryForm: String? = null
+        private set
+
+    /** 最近一次 `xskcb.do` 的表单原文（断言 `XNXQDM=<学期>` 真发出去了）。 */
+    @Volatile
+    var lastScheduleForm: String? = null
+        private set
+
+    /** 最近一次 `cxjcs.do` 的表单原文（断言学期号真被切成了 `XN` + `XQ` 两格）。 */
+    @Volatile
+    var lastTermStartForm: String? = null
         private set
 
     /** 最近一次报表初始页请求里带的学号（`xh=`）。 */
@@ -347,6 +437,15 @@ class JwxtFakeUpstream {
         </body></html>
     """.trimIndent()
 
+    /**
+     * CAS 的「Safety Verify」二次认证页 —— 只有 [requireSafetyVerify] 打开时才会被给出去。
+     *
+     * ⚠️ 页面原文在 [CasSafetyVerifyPage]（**只有那一份**：它不属于任何一个业务站，真站点上是 CAS
+     * 渲染的）。这里只负责「在回跳那一步发给客户端」—— 与图书馆那条链（CAS 自己在凭据 POST 的落点
+     * 发它）的差别，见那个对象的 KDoc。
+     */
+    val safetyVerifyPage: String get() = CasSafetyVerifyPage.HTML
+
     /** `kcbcx` 应用的首页（预热用，客户端只 close 不解析）。 */
     val appIndexPage = """
         <html><head><title>课程表查询</title></head><body>
@@ -357,6 +456,29 @@ class JwxtFakeUpstream {
     /** 当前学期：`datas.dqxnxq.rows[0].DM`。 */
     val currentTermJson = """
         {"datas":{"dqxnxq":{"rows":[{"DM":"$TERM_NEW","MC":"$TERM_NEW_NAME"}]}}}
+    """.trimIndent()
+
+    /**
+     * 学生课表的整学期行（`datas.xskcb.rows`）：三行。
+     *
+     * 第一行整学期、第二行单周（`ZCMC` 的 `(单)` 写法）、第三行**只有 `KCM`** —— 缺的键读成空串。
+     * 三格里 `SKXQ`/`KSJC`/`JSJC` 给的是 **JSON 数字**（真站点就是这么给的），解析成文本是它的口径。
+     */
+    val scheduleJson = """
+        {"datas":{"xskcb":{"rows":[
+          {"JXBID":"$SCHEDULE_1_JXBID","KCH":"MATH1001","KCM":"$SCHEDULE_1_COURSE",
+           "SKJS":"$SCHEDULE_1_TEACHER","JASMC":"$SCHEDULE_1_ROOM","SKXQ":$SCHEDULE_1_DAY,
+           "KSJC":$SCHEDULE_1_START,"JSJC":$SCHEDULE_1_END,"ZCMC":"$SCHEDULE_1_WEEKS","SKZC":"1111111111111111"},
+          {"JXBID":"$SCHEDULE_2_JXBID","KCH":"PHYS1002","KCM":"$SCHEDULE_2_COURSE",
+           "SKJS":"$SCHEDULE_2_TEACHER","JASMC":"$SCHEDULE_2_ROOM","SKXQ":$SCHEDULE_2_DAY,
+           "KSJC":$SCHEDULE_2_START,"JSJC":$SCHEDULE_2_END,"ZCMC":"$SCHEDULE_2_WEEKS","SKZC":"1010101010101010"},
+          {"KCM":"$SCHEDULE_3_COURSE"}
+        ]}}}
+    """.trimIndent()
+
+    /** 学期起点：`datas.cxjcs.rows[0]` 的 `XQKSRQ`（给到秒）+ `ZZC`。 */
+    val termStartJson = """
+        {"datas":{"cxjcs":{"rows":[{"XN":"$TERM_NEW","XQKSRQ":"$TERM_START_DATE 00:00:00","ZZC":"$TERM_TOTAL_WEEKS"}]}}}
     """.trimIndent()
 
     /** 学期列表：三行，**倒序给**（上游按 `*order=-DM` 排好），第三行只有 DM。 */
@@ -595,6 +717,25 @@ class JwxtFakeUpstream {
                 queryCalls.incrementAndGet()
                 respondJson(exchange, queryJson)
             }
+            path == SCHEDULE_PATH -> requirePost(exchange) { form ->
+                lastScheduleForm = form
+                if (!form.contains("XNXQDM=")) {
+                    badRequest(exchange, "xskcb.do 少了 XNXQDM，收到：$form")
+                    return@requirePost
+                }
+                scheduleCalls.incrementAndGet()
+                respondJson(exchange, scheduleJson)
+            }
+            path == TERM_START_PATH -> requirePost(exchange) { form ->
+                lastTermStartForm = form
+                // 学期号切成两格发出去了没有：少了任何一格，问的就是别的东西
+                if (!form.contains("XN=") || !form.contains("XQ=")) {
+                    badRequest(exchange, "cxjcs.do 少了 XN/XQ，收到：$form")
+                    return@requirePost
+                }
+                termStartCalls.incrementAndGet()
+                respondJson(exchange, termStartJson)
+            }
             path == JUDGE_INDEX_PATH -> {
                 judgeIndexCalls.incrementAndGet()
                 respondHtml(exchange, judgeIndexPage)
@@ -648,10 +789,26 @@ class JwxtFakeUpstream {
     /**
      * 登录入口页：带 ticket 或已经握着本站会话 cookie ⇒ 给首页；否则 302 到统一认证
      * （`service` 就是本页地址，真站点也是这么把票据交回来的）。
+     *
+     * 二次认证剧本（[requireSafetyVerify] 开着）多两条分支：
+     * - **带 ticket 的回跳不给首页，给 [safetyVerifyPage]** —— 真站点正是这样：TGC 已下发、
+     *   CAS 仍把 jwxt（`client_id=1675`）拦到二次认证（`XJTULogin.open` 的 `initialSafetyVerify`
+     *   分支认的就是这一页）；
+     * - **`POST` 回本页** = 二次认证页的隐藏表单回提（`MFAContext.verifyCode` 的最后一步），
+     *   校验通过就回到正常形态：首页 + 本站会话 cookie。
      */
     private fun handleHome(exchange: HttpExchange, query: String) {
+        if (exchange.requestMethod == "POST") {
+            handleSafetyVerifySubmit(exchange)
+            return
+        }
         if ("ticket=" in query) {
             ticketLandings.incrementAndGet()
+            if (requireSafetyVerify.get()) {
+                safetyVerifyLandings.incrementAndGet()
+                respondHtml(exchange, safetyVerifyPage)
+                return
+            }
             exchange.responseHeaders.add("Set-Cookie", "JSESSIONID=$JWXT_SESSION_VALUE; Path=/")
             respondHtml(exchange, homePage)
             return
@@ -662,6 +819,27 @@ class JwxtFakeUpstream {
         }
         casRedirects.incrementAndGet()
         redirect(exchange, "http://${LibraryFakeUpstream.CAS_HOST}/cas/login?service=${encode(HOME_URL)}")
+    }
+
+    /**
+     * 二次认证页的隐藏表单回提：字段对不上就 400 + 原文，合格就把回跳走完（首页 + 本站会话 cookie）。
+     *
+     * 字段契约只写在 [CasSafetyVerifyPage.rejection] 一处 —— 图书馆那条链（CAS 自己发的页）
+     * 走的是同一个校验，那是「页面原文只有一份」的直接后果。
+     */
+    private fun handleSafetyVerifySubmit(exchange: HttpExchange) {
+        val form = readBody(exchange)
+        lastSafetyVerifyForm = form
+        val rejection = CasSafetyVerifyPage.rejection(form)
+        if (rejection != null) {
+            badRequest(exchange, rejection)
+            return
+        }
+        safetyVerifySubmissions.incrementAndGet()
+        // 认证通过 ⇒ 这个站点从此回到正常形态（后续探活看到的就是首页）
+        requireSafetyVerify.set(false)
+        exchange.responseHeaders.add("Set-Cookie", "JSESSIONID=$JWXT_SESSION_VALUE; Path=/")
+        respondHtml(exchange, homePage)
     }
 
     /** 帆软报表：初始页（`reportlet=`）与翻页（`op=page_content`）两条，认不出就响亮地失败。 */
@@ -916,6 +1094,8 @@ class JwxtFakeUpstream {
     private val TERM_LIST_PATH = TERM_LIST_URL.removePrefix(ORIGIN)
     private val DEPARTMENTS_PATH = DEPARTMENTS_URL.removePrefix(ORIGIN)
     private val QUERY_PATH = QUERY_URL.removePrefix(ORIGIN)
+    private val SCHEDULE_PATH = SCHEDULE_URL.removePrefix(ORIGIN)
+    private val TERM_START_PATH = TERM_START_URL.removePrefix(ORIGIN)
     private val REPORT_PATH = REPORT_URL.removePrefix(ORIGIN)
     private val JUDGE_INDEX_PATH = JUDGE_INDEX_URL.removePrefix(ORIGIN)
     private val JUDGE_TERM_PATH = JUDGE_TERM_URL.removePrefix(ORIGIN)

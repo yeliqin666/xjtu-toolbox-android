@@ -37,6 +37,7 @@ import com.xjtu.toolbox.venue.VenueFakeUpstream.Companion.VENUE_GBK_NAME
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import kotlinx.coroutines.runBlocking
@@ -60,11 +61,11 @@ import kotlinx.coroutines.runBlocking
  * 缺 `name` 的场馆、负数与字符串形式的 `advanceday`、GBK 编码那一页、`status=1` 但已满的时段、
  * 空 `sname`、带 `¥` 的价格、订单里空 `orderid` 的行与不是对象的数组元素。
  *
- * ## 写路径为什么不在这里
+ * ## 写路径为什么在有剧本之后才在这里
  *
- * 下单要先解滑块（`:app` 那份长在 `Bitmap`/`Base64` 上），而且夹具**没有**实现 `tobook` / `delorder`
- * （见那个类的 KDoc）—— 真去提交只会拿到一个响亮的 404。这里只钉**读**：场馆列表 / 时段 /
- * 订单 / 验证码，以及两个纯函数（`prepareOrder` / `paymentUrl`）。
+ * 下单要先解滑块；夹具默认关着（[VenueFakeUpstream.captchaScript] = false，`tobook` 仍是 404）。
+ * 打开剧本后（Stage B 两条写路径用例），这里钉住「识别 → 提交 → 成功」与「拖错被拒」——
+ * 轨迹把关、返回形状都与真站点对齐（见那个夹具的「写路径」一节）。
  */
 class VenueApiJvmTest {
 
@@ -350,6 +351,75 @@ class VenueApiJvmTest {
         assertTrue(VENUE_A_ID in runBlocking { android.favorites() }, "收藏读得回来（走的是同一份落盘）")
         assertTrue(!runBlocking { desktop.toggleFavorite(VENUE_A_ID) }, "第二次翻转 ⇒ 取消收藏（同一个布尔返回）")
         assertEquals(before, runBlocking { android.favorites() }, "翻两次回到原位")
+    }
+
+    // ══════ Stage B：滑块剧本下的写路径（`captchaScript = true` 才打开）══════
+
+    /**
+     * 登录 → 拿滑块挑战 → **自动识别** → 提交 → 下单成功。
+     *
+     * `captchaScript = true` 时 `/gen` 发的是 [VenueCaptchaFixture] 的程序生成真图，识别器
+     * 解出位移 141，`tobook` 校验轨迹最终 x 落在缺口（±3）才回成功 —— 这一条把「识别器 →
+     * 提交 → 成功」的整条写路径钉在同一份夹具上。
+     */
+    @Test
+    fun `真登录之后：滑块剧本下识别并提交，下单成功`() = withVenueLogin { site, fake ->
+        fake.venue.captchaScript = true
+        val api = VenueApi(site)
+
+        val captcha = runBlocking { api.generateCaptcha(SERVICE_ID) }
+        assertEquals(CAPTCHA_ID, captcha.id)
+        assertEquals(1, fake.venue.captchaCalls.get())
+
+        // 识别 + 盖章走共享宿主（:data）—— 桌面宿主也委托这一份
+        val shownAt = System.currentTimeMillis()
+        val solved = runBlocking { VenueSlideCaptchaHost.solve(captcha, shownAt) }
+        assertNotNull(solved, "合成图上的缺口应当被识别出来")
+        assertEquals(VenueCaptchaFixture.EXPECTED_SOLVE_TARGET_X, solved.sliderResult.trackList.last().x)
+
+        val pending = api.prepareOrder(SERVICE_ID, listOf(slot(5101, "场地1", 9101, SLOT_EARLY)))
+        val result = runBlocking {
+            api.submitBooking(SERVICE_ID, pending, captcha.id, solved.sliderResult.toJson())
+        }
+
+        assertTrue(result.success, "拖对了应当下单成功：${result.message}")
+        assertEquals(VenueFakeUpstream.BOOKED_ORDER_ID, result.orderId)
+        assertEquals("预订成功", result.message)
+        assertEquals(1, fake.venue.tobookCalls.get(), "一次成功，不该有重试")
+        assertTrue(fake.venue.lastYzm.orEmpty().contains("synjones$CAPTCHA_ID" + "synjones"), "yzm 带着验证码 id")
+        assertTrue(fake.venue.lastBookingParam.orEmpty().contains("\"stockdetail\""), "param 是服务端参数信封")
+    }
+
+    /**
+     * 拖**错**位置的轨迹被夹具按真站点那句「验证码有误」拒绝（result 100 ⇒ [VenueApi.submitBooking]
+     * 原样重试同一份请求三次，全失败）。写路径的拒绝对齐到真站点的语义。
+     */
+    @Test
+    fun `真登录之后：拖错位置的轨迹被按验证码有误拒绝`() = withVenueLogin { site, fake ->
+        fake.venue.captchaScript = true
+        val api = VenueApi(site)
+
+        val captcha = runBlocking { api.generateCaptcha(SERVICE_ID) }
+        val wrong = SliderResult(
+            bgImageWidth = 260,
+            bgImageHeight = 0,
+            sliderImageWidth = 0,
+            sliderImageHeight = 50,
+            startSlidingTime = "",
+            entSlidingTime = "",
+            trackList = listOf(
+                TrackPoint(0, 0, "down", 800),
+                TrackPoint(50, 0, "up", 1500),
+            ),
+        )
+        val pending = api.prepareOrder(SERVICE_ID, listOf(slot(5101, "场地1", 9101, SLOT_EARLY)))
+        val result = runBlocking {
+            api.submitBooking(SERVICE_ID, pending, captcha.id, wrong.toJson())
+        }
+
+        assertTrue(!result.success, "拖错位置不该下单成功")
+        assertTrue(result.message.contains("验证码"), "拒绝对齐真站点那句：实际=${result.message}")
+        assertEquals(3, fake.venue.tobookCalls.get(), "result=100+验证码 ⇒ 同一份请求重试三次")
     }
 
     private fun param(raw: String?, name: String): String? =

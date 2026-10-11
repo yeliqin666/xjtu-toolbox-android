@@ -1,6 +1,7 @@
 package com.xjtu.toolbox.core.net
 
 import com.xjtu.toolbox.emptyroom.EmptyRoomSource
+import com.xjtu.toolbox.emptyroom.LiveRoom
 import com.xjtu.toolbox.emptyroom.LiveSnapshot
 import com.xjtu.toolbox.emptyroom.NoDataException
 import com.xjtu.toolbox.emptyroom.RoomInfo
@@ -13,6 +14,7 @@ import com.xjtu.toolbox.util.isNull
 import com.xjtu.toolbox.util.requireArr
 import com.xjtu.toolbox.util.safeBoolean
 import com.xjtu.toolbox.util.safeString
+import com.xjtu.toolbox.util.safeInt
 import io.ktor.client.HttpClient
 import io.ktor.client.request.get
 import io.ktor.client.request.parameter
@@ -21,6 +23,7 @@ import kotlinx.datetime.DateTimeUnit
 import kotlinx.datetime.plus
 import kotlinx.serialization.json.JsonObject
 import kotlin.time.Clock
+import kotlin.time.Instant
 
 /**
  * 空闲教室的 **campus-api 版取数**：给 Web 端用（Android 端走 `:app` 的 `AppEmptyRoomSource`）。
@@ -54,13 +57,29 @@ import kotlin.time.Clock
 class CampusEmptyRoomApi(
     private val client: HttpClient,
     private val baseUrl: String = "",
+    /** 见 [ApiMode]：默认 campus-api（旧行为一字不改），serve 模式读契约 §5.2 的形状。 */
+    private val mode: ApiMode = ApiMode.CAMPUS_API,
 ) : EmptyRoomSource {
 
     /**
-     * 本端只有 CDN 这一档。屏据此把「实时状态」「直查教务」两项整个不画 ——
-     * 它们在这端不是"暂时失败"，是"根本没有这条数据"。
+     * 本端能提供哪几档，屏据此画「数据源」菜单（见 [EmptyRoomSource.availableSources]）。
+     *
+     * - campus-api（默认）：**只有 CDN 那一档**，写死 —— 它没有智慧教室实时端点，
+     *   直查教务那一档也拿不到逐节的 `status[11]`（见类 KDoc）⇒ 那两项整个不画，
+     *   它们在这端不是"暂时失败"，是"根本没有这条数据"；
+     * - serve（契约 §5.2/§5）：`:server` **如实报** —— 没登录 `[cdn]`、登录后 `[live,cdn,direct]`
+     *   （顺序照屏上的菜单），所以这张表改成随响应变（[refreshServeSources]）。
+     *   首屏还没发过任何请求时按契约里**最保守**的那一档 `[cdn]` 起步：屏用
+     *   `availableSources.first()` 选默认档（见 `EmptyRoomViewModel`），空表会让它没档可选；
+     *   拉到第一个响应后这张表就与 `:server` 报的一致了。
+     *
+     * ⚠️ 它是个普通属性（不是 Compose 状态）：多出来的两档在**下一次重组**（数据到位）时进菜单。
      */
-    override val availableSources: List<RoomSource> = listOf(RoomSource.CDN)
+    override val availableSources: List<RoomSource>
+        get() = if (mode == ApiMode.SERVE) serveSources else listOf(RoomSource.CDN)
+
+    /** serve 模式最后一次响应报的档位；默认是最保守的那一档（见 [availableSources]）。 */
+    private var serveSources: List<RoomSource> = listOf(RoomSource.CDN)
 
     /** CDN 是预生成的按天快照，只有今天/明天两档（与 `EmptyRoomApi.getAvailableDates()` 同口径）。 */
     override fun availableDates(): List<String> {
@@ -68,8 +87,37 @@ class CampusEmptyRoomApi(
         return listOf(today.toString(), today.plus(1, DateTimeUnit.DAY).toString())
     }
 
-    override suspend fun liveSnapshot(campus: String, force: Boolean): LiveSnapshot =
-        throw RuntimeException("本端只有 CDN 课表可用（campus-api 没有智慧教室实时端点）")
+    override suspend fun liveSnapshot(campus: String, force: Boolean): LiveSnapshot {
+        if (mode != ApiMode.SERVE) {
+            throw RuntimeException("本端只有 CDN 课表可用（campus-api 没有智慧教室实时端点）")
+        }
+        val data = getData(
+            "/api/emptyroom/rooms",
+            "source" to "live",
+            "campus" to campus,
+            "force" to if (force) "1" else "",
+        )
+        refreshServeSources(data)
+        return LiveSnapshot(
+            campus = campus,
+            buildings = data.arr("buildings").orEmpty().map { it.safeString() },
+            rooms = data.arr("rooms").orEmpty().mapNotNull { element ->
+                val room = element as? JsonObject ?: return@mapNotNull null
+                LiveRoom(
+                    name = room["name"].safeString(),
+                    building = room["building"].safeString(),
+                    status = room["status"].safeInt(),
+                    people = room["people"].safeInt(),
+                    seats = room["seats"].safeInt(),
+                    course = room["course"].safeString().takeIf { it.isNotBlank() },
+                    teacher = room["teacher"].safeString().takeIf { it.isNotBlank() },
+                )
+            },
+            // 服务端给了抓取时刻就用它；没给时用「本端此刻拿到」—— 我们确实是刚拿到这一份
+            //（模型 KDoc 区分的是「读落盘缓存」那种情形，这里没有缓存可读）
+            fetchedAt = parseIsoMillis(data["fetchedAt"].safeString()) ?: Clock.System.now().toEpochMilliseconds(),
+        )
+    }
 
     override fun readStaleLive(campus: String): LiveSnapshot? = null
 
@@ -81,6 +129,8 @@ class CampusEmptyRoomApi(
         force: Boolean,
         onProgress: (done: Int, total: Int) -> Unit,
     ): List<RoomInfo> {
+        // serve 的 CDN / 直查两档都能真取数（见 serveRooms 的 KDoc）
+        if (mode == ApiMode.SERVE) return serveRooms(campus, buildings, date, direct, force, onProgress)
         requireCdn(direct)
         if (buildings.isEmpty()) return emptyList()
         // 直查那种"逐楼逐节、报进度"的形态这里不存在：一次请求就拿到整天的数据，不调 onProgress。
@@ -174,6 +224,8 @@ class CampusEmptyRoomApi(
 
 
     private suspend fun getData(path: String, vararg query: Pair<String, String>): JsonObject {
+        // serve 契约（§4）的信封见 ApiMode / serveData：code == HTTP 状态码、失败文案在 message
+        if (mode == ApiMode.SERVE) return client.serveData("加载空闲教室", baseUrl, path, query.toList())
         val text = client.get("$baseUrl$path") {
             query.forEach { (k, v) -> if (v.isNotEmpty()) parameter(k, v) }
         }.bodyAsText()
@@ -185,5 +237,90 @@ class CampusEmptyRoomApi(
         return envelope["data"] as? JsonObject
             ?: error("campus-api 空闲教室返回缺少 data：${text.take(120)}")
     }
+
+    // ─── serve 模式（契约 §5.2）────────────────────────────────────────────
+
+    /**
+     * CDN / 直查两档（实时那一档见 [liveSnapshot]）：一次请求拿到整天（CDN）或整批楼（直查）。
+     *
+     * 与旧路的两处差别：
+     *  - `campus` 是**必填参数**（`:server` 按校区查），而旧路是「拉整天全校区再本地筛」⇒ 传下去；
+     *  - 楼名单一次用逗号传完（`:server` 的 `building` 就收逗号分隔；缺省 = 该校区全部楼）
+     *    ⇒ 两档都是**一次请求**，所以不逐楼报进度（只报一次「全做完」）。
+     *
+     * 没有数据不当成失败：CDN 那天没文件 / 校区认不出时服务端给 `noData:true` + `note`，
+     * 这里翻成 [NoDataException]（与旧路 CDN 404 同义：「这一天没有数据」，不兜底缓存）。
+     */
+    private suspend fun serveRooms(
+        campus: String,
+        buildings: Set<String>,
+        date: String,
+        direct: Boolean,
+        force: Boolean,
+        onProgress: (done: Int, total: Int) -> Unit,
+    ): List<RoomInfo> {
+        if (buildings.isEmpty()) return emptyList()
+        val requested = buildings.sorted()
+        val data = if (direct) {
+            getData(
+                "/api/emptyroom/rooms",
+                "source" to "direct",
+                "campus" to campus,
+                "date" to date,
+                "building" to requested.joinToString(","),
+                "force" to if (force) "1" else "",
+            )
+        } else {
+            getData(
+                "/api/emptyroom/cdn",
+                "campus" to campus,
+                "date" to date,
+                "force" to if (force) "1" else "",
+            )
+        }
+        refreshServeSources(data)
+        if (data["noData"].safeBoolean()) {
+            throw NoDataException(data["note"].safeString().ifBlank { "当天暂无空闲教室数据，请稍后再试" })
+        }
+        onProgress(requested.size, requested.size)
+        return parseServeRoomRows(data)
+            .filter { it.campus == campus && it.building in buildings }
+            .map { RoomInfo(name = it.room, size = it.seats, status = it.status) }
+            .sortedBy { it.name }
+    }
+
+    /** serve 的 `rooms[]`（`{campus,building,room,seats,status[11]}`）→ 内部的 [RoomRow]。 */
+    private fun parseServeRoomRows(data: JsonObject): List<RoomRow> =
+        data.arr("rooms").orEmpty().mapNotNull { element ->
+            val row = element as? JsonObject ?: return@mapNotNull null
+            val room = row["room"].safeString().trim()
+            if (room.isEmpty()) return@mapNotNull null
+            val status = runCatching { row.requireArr("status").map { it.intValue } }.getOrNull()
+                ?: return@mapNotNull null
+            RoomRow(
+                campus = row["campus"].safeString(),
+                building = row["building"].safeString(),
+                room = room,
+                // 座位缺失落 0：与旧路 CDN 那一档同口径（见类 KDoc）
+                seats = row["seats"]?.let { if (it.isNull) 0 else it.intValue } ?: 0,
+                status = status,
+            )
+        }
+
+    /** 把响应里的能力开关 `availableSources:[{key,name}]` 刷进 [serveSources]（键 = [RoomSource.key]）。 */
+    private fun refreshServeSources(data: JsonObject) {
+        val keys = data.arr("availableSources").orEmpty().mapNotNull { element ->
+            val key = (element as? JsonObject)?.get("key").safeString()?.trim()
+            RoomSource.entries.firstOrNull { it.key == key }
+        }
+        // 空表不当成「一档都没有」（那会让屏的档位菜单空掉）：拿不到就保持现状，如实降级
+        if (keys.isNotEmpty()) serveSources = keys
+    }
+
+    /** 契约 §4 的 ISO-8601 带时区时间 → epoch 毫秒；空串/解不出给 null（兜底交给调用方）。 */
+    private fun parseIsoMillis(raw: String): Long? =
+        raw.takeIf { it.isNotBlank() }
+            ?.let { runCatching { Instant.parse(it).toEpochMilliseconds() }.getOrNull() }
+
 
 }

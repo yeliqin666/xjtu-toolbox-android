@@ -44,10 +44,11 @@ internal sealed interface VenueEvent {
  *
  * ## 两个只在写路径上用的参数
  *
- * [autoSolveCaptcha] 与 [solveCaptcha] 是「自动识别验证码」这一段的两个宿主输入：
+ * [autoSolveCaptcha] 与 [captchaHost] 是「自动识别验证码」这一段的两个宿主输入：
  * 前者是设置项（Android 读 `CredentialStore.venueAutoSolveCaptchaEnabled`，是个 lambda 而不是
  * 布尔值 —— 搬之前 VM 就是这么**每次现读**的，用户在设置里关掉后下一次预订立刻生效），
- * 后者是识别器本身（`:app` = `VenueCaptchaSolver`，Web = null）。识别器为 null 时这一整段直接跳过，
+ * 后者是整个滑块宿主（`:data` = `VenueSlideCaptchaHost`，桌面 = `DesktopSlideCaptchaHost`，
+ * Web = null）。宿主为 null 时这一整段直接跳过，
  * 停在「请手动滑动」那一档 —— 与只读端（[VenueSource.canBook] = false）的入口封条互相印证：
  * 没有验证码这条路，也不会有验证码弹窗。
  */
@@ -56,8 +57,8 @@ internal class VenueViewModel(
     private val source: VenueSource,
     /** 「验证码自动识别」这个设置项，**每次现读**（见类 KDoc）。 */
     private val autoSolveCaptcha: () -> Boolean = { false },
-    /** 自动识别槽位：给验证码数据与「它是什么时候出现在屏幕上的」，返回盖章后的轨迹；null = 本端没有。 */
-    private val solveCaptcha: (suspend (data: CaptchaData, shownAtMillis: Long) -> SolvedCaptcha?)? = null,
+    /** 滑块验证码宿主槽位（见类 KDoc）：null = 本端没有这条路径。 */
+    private val captchaHost: SlideCaptchaHost? = null,
 ) : ViewModel() {
     private val eventChannel = Channel<VenueEvent>(Channel.BUFFERED)
     val events = eventChannel.receiveAsFlow()
@@ -278,12 +279,12 @@ internal class VenueViewModel(
         if (token != captchaToken || !showCaptcha) return
         captchaData = data
         captchaNotice = null
-        val solve = solveCaptcha ?: return
+        val host = captchaHost ?: return
         if (!autoSolveCaptcha()) return
         val shownAt = Clock.System.now().toEpochMilliseconds()
         captchaAutoSolving = true
         val solved = try {
-            withContext(Dispatchers.Default) { solve(data, shownAt) }
+            withContext(Dispatchers.Default) { host.solve(data, shownAt) }
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {

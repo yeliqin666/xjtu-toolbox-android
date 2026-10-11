@@ -73,10 +73,8 @@ import com.xjtu.toolbox.score.scoreReportSource
 import com.xjtu.toolbox.settings.SettingsScreen
 import com.xjtu.toolbox.social.MatchScreen
 import com.xjtu.toolbox.venue.AppVenueSource
-import com.xjtu.toolbox.venue.SliderCaptchaView
-import com.xjtu.toolbox.venue.SolvedCaptcha
-import com.xjtu.toolbox.venue.VenueCaptchaSolver
 import com.xjtu.toolbox.venue.VenueScreen
+import com.xjtu.toolbox.venue.VenueSlideCaptchaHost
 import com.xjtu.toolbox.auth.AccountType
 import com.xjtu.toolbox.dormpower.DormPowerScreen
 import com.xjtu.toolbox.webvpn.WebVpnConverterScreen
@@ -274,8 +272,9 @@ fun AppNavHost(
         entry<AppRoute.Venue>(transition = expand(AppRoute.Venue::class)) {
             // 取数搬进 `:data`（`AppVenueSource` 包住原来的 `VenueApi`，行数没变）；收藏搬进
             // `:core` 的 `VenueFavorites`（`KeyValueStore`，**同一份文件、同一个键名** ⇒ 老收藏不丢）；
-            // 滑块控件与自动识别器是**屏上的两个槽位**
-            // （它们长在 `Bitmap`/`Base64` 上，搬不进 `:core`），在这里注入。
+            // 滑块控件与自动识别器（原来这里两个 lambda）随 Stage B 的滑块共享化搬去
+            // `:data`：`VenueSlideCaptchaHost` 就是它们俩的原样合成（同包同类型名，
+            // Bitmap/Base64 换成 `:core` 的图片缝），行为一行不改；桌面端另有自己的宿主。
             //
             // 三处宿主能力：
             //  - 「自动识别验证码」设置项仍然是**现读** `CredentialStore`（搬之前 VM 就是这么每次预订
@@ -295,27 +294,7 @@ fun AppNavHost(
                     autoSolveCaptcha = remember(credentialStore) {
                         { credentialStore.venueAutoSolveCaptchaEnabled }
                     },
-                    // 自动识别：识别器与「盖章」都在 :app（用的是 `java.time` 的 ISO_INSTANT，与手滑
-                    // 那条路径同一个格式）。屏给出「验证码是什么时候出现在屏幕上的」，用来算两个时刻。
-                    solveCaptcha = { data, shownAt ->
-                        VenueCaptchaSolver.solve(data)?.let { solved ->
-                            SolvedCaptcha(
-                                sliderResult = VenueCaptchaSolver.stamp(solved.sliderResult, shownAt),
-                                releaseAfterMillis = VenueCaptchaSolver.releaseAt(solved.sliderResult),
-                            )
-                        }
-                    },
-                    captchaView = { data, onSolved ->
-                        SliderCaptchaView(
-                            backgroundImageBase64 = data.backgroundImage,
-                            sliderImageBase64 = data.sliderImage,
-                            bgOriginalWidth = data.bgWidth,
-                            bgOriginalHeight = data.bgHeight,
-                            sliderOriginalWidth = data.sliderWidth,
-                            sliderOriginalHeight = data.sliderHeight,
-                            onSlideComplete = onSolved,
-                        )
-                    },
+                    captchaHost = VenueSlideCaptchaHost,
                     showFirstUseHint = !hintPrefs.getBoolean("venue_hint_shown", false),
                     onFirstUseHintRead = { hintPrefs.edit().putBoolean("venue_hint_shown", true).apply() },
                 )

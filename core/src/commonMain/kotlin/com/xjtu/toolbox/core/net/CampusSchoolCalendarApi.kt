@@ -43,9 +43,13 @@ import kotlinx.serialization.json.jsonObject
 class CampusSchoolCalendarApi(
     private val client: HttpClient,
     private val baseUrl: String = "",
+    /** 见 [ApiMode]：默认 campus-api（旧行为一字不改），serve 模式读契约 §5.2 的形状。 */
+    private val mode: ApiMode = ApiMode.CAMPUS_API,
 ) : SchoolCalendarSource {
 
     override suspend fun terms(): List<SchoolTerm> {
+        // serve 一次给全部学期（见 serveTerms 的 KDoc）⇒ 不走旧路那个「一个学期一拉、拼起来」的循环
+        if (mode == ApiMode.SERVE) return serveTerms()
         val first = fetch(term = null)
         val current = first.semester ?: error("campus-api 校历返回缺少 semester")
         val others = first.availableTerms
@@ -53,6 +57,48 @@ class CampusSchoolCalendarApi(
             .mapNotNull { runCatching { fetch(it).semester }.getOrNull() }
         return (listOf(current) + others).distinctBy { it.id }.sortedBy { it.startDate }
     }
+
+    /**
+     * serve 模式（契约 §5.2）：`{terms:[{id,startDate,endDate,termName,yearName,totalWeeks,workDays,
+     * events:[{id,startDate,endDate,name,remark,days,colorHex}]}]}`（开学日起序）。
+     *
+     * 与旧路**不是同一份投影**：campus-api 一次只回一个学期（`semester`）外加一串可查学期号，
+     * 要客户端拿每个学期号再拉 N 次拼起来；`:server` 一次给全（`SchoolCalendarSource.terms()` 就是
+     * 这份数据），而且结束日、总周数、工作日数、事件的 `remark`/`days` 都已在 `:data` 算好 ⇒
+     * 这里**不重算**那几条口径（`examEnd → termEndDate → endDate` 的次序、`specialEvents` 的关联），
+     * 也不做 `distinctBy`/排序。
+     */
+    private suspend fun serveTerms(): List<SchoolTerm> {
+        val data = client.serveData("加载校历", baseUrl, "/api/calendar/school")
+        return data.arr("terms").orEmpty().mapNotNull { element ->
+            val term = element as? JsonObject ?: return@mapNotNull null
+            val start = parseDateOrNull(term["startDate"].safeString()) ?: return@mapNotNull null
+            val end = parseDateOrNull(term["endDate"].safeString()) ?: return@mapNotNull null
+            SchoolTerm(
+                id = term["id"].safeString(),
+                startDate = start,
+                endDate = end,
+                termName = term["termName"].safeString(),
+                yearName = term["yearName"].safeString(),
+                totalWeeks = term["totalWeeks"].safeInt(),
+                workDays = term["workDays"].safeInt(),
+                events = term.arr("events").orEmpty().mapNotNull { eventElement ->
+                    val event = eventElement as? JsonObject ?: return@mapNotNull null
+                    val eventStart = parseDateOrNull(event["startDate"].safeString()) ?: return@mapNotNull null
+                    CalendarEvent(
+                        id = event["id"].safeString(),
+                        startDate = eventStart,
+                        endDate = parseDateOrNull(event["endDate"].safeString()) ?: eventStart,
+                        name = event["name"].safeString(),
+                        remark = event["remark"].safeString(),
+                        days = event["days"].safeInt(),
+                        colorHex = event["colorHex"].safeString(),
+                    )
+                },
+            )
+        }
+    }
+
 
     private suspend fun fetch(term: String?): Payload {
         val text = client.get("$baseUrl/api/calendar/school") {

@@ -79,3 +79,8 @@ include(":testkit")
 // 这是 docs/desktop-port-plan.md 的阶段 0.1 —— 目的只有一个：证明 :core 的屏在这台 Linux 上
 // 真能渲染、MIUIX 的桌面观感/鼠标/输入法可接受、jpackage 能出包。
 include(":desktop")
+
+// serve 模式（同一份设计的另一半，D3）：**无窗口的常驻进程** —— Ktor 托管 `:web` 的 wasm 产物
+// 并实现 `/api/*`（浏览器访问）。它既不是「端」也不是数据层：UI 是 `:web` 的，数据是 `:data` 的，
+// 这里只有 HTTP 外壳（默认只监听 127.0.0.1 + 访问令牌，见 docs/api-contract.md §3）。
+include(":server")

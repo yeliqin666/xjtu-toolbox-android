@@ -1,11 +1,11 @@
 package com.xjtu.toolbox.venue
 
-import android.graphics.Bitmap
-import android.graphics.BitmapFactory
-import android.util.Base64
-import android.util.Log
+import com.xjtu.toolbox.platform.ImagePixels
+import com.xjtu.toolbox.platform.Log
+import com.xjtu.toolbox.platform.decodeImagePixels
 import java.time.Instant
 import java.time.format.DateTimeFormatter
+import java.util.Base64
 import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.min
@@ -27,11 +27,17 @@ data class CaptchaSolveResult(
 )
 
 /**
- * 场馆滑块验证码自动识别器。
+ * 场馆滑块验证码自动识别器 —— 从 `:app` 按五步法搬进 `:data`（同包同类型名，Stage B 滑块共享化）。
  *
  * 验证码的滑块 PNG 带有透明通道，缺口边缘会在背景图上形成明显的梯度。这里
  * 先用 alpha 通道定位拼图块，再按 PR #54 的方式对拼图块/背景做二值 Sobel
  * 边缘归一化相关匹配，避免只取「边缘总和最大」被背景中的随机纹理误导。
+ *
+ * 被替换的 Android 专属依赖：`Bitmap`/`BitmapFactory` → `:core` 的 [decodeImagePixels]
+ * （Android 侧 actual 就是同一段 `BitmapFactory` + `getPixels`，ARGB8888 非预乘，见那条缝的 KDoc；
+ * JVM 侧用 ImageIO 的 `BufferedImage.getRGB`，语义逐位同构）；`android.util.Base64` →
+ * `java.util.Base64`；`android.util.Log` → `:core` 的 [Log]。`recycle()` 那两行不再需要：
+ * 位图生命周期收进 [decodeImagePixels]（里面对应着回收），这里只拿像素数组，由 GC 收。
  */
 object VenueCaptchaSolver {
     /** 默认最低峰值间隔；不满足时交给用户手动滑动。 */
@@ -55,22 +61,17 @@ object VenueCaptchaSolver {
         }
 
         return try {
-            solveBitmaps(data, background, slider, minConfidence)
+            solvePixels(data, background, slider, minConfidence)
         } catch (e: Exception) {
             Log.e(TAG, "solve captcha failed", e)
             null
-        } finally {
-            // BitmapFactory 返回的位图不再被 UI 使用；尽早释放大图，避免连续换图时
-            // 在低内存设备上累积 native heap。recycle 失败不影响回退到手动滑块。
-            runCatching { if (!background.isRecycled) background.recycle() }
-            runCatching { if (!slider.isRecycled) slider.recycle() }
         }
     }
 
-    private fun solveBitmaps(
+    private fun solvePixels(
         data: CaptchaData,
-        background: Bitmap,
-        slider: Bitmap,
+        background: ImagePixels,
+        slider: ImagePixels,
         minConfidence: Double
     ): CaptchaSolveResult? {
         val bw = background.width
@@ -82,10 +83,8 @@ object VenueCaptchaSolver {
             return null
         }
 
-        val bgPixels = IntArray(bw * bh)
-        background.getPixels(bgPixels, 0, bw, 0, 0, bw, bh)
-        val sliderPixels = IntArray(sw * sh)
-        slider.getPixels(sliderPixels, 0, sw, 0, 0, sw, sh)
+        val bgPixels = background.pixels
+        val sliderPixels = slider.pixels
 
         // ── 1. 透明轮廓 ────────────────────────────────────────────────
         var opaqueCount = 0
@@ -319,13 +318,13 @@ object VenueCaptchaSolver {
         return points
     }
 
-    private fun decodeBase64Image(dataUri: String): Bitmap? {
+    private fun decodeBase64Image(dataUri: String): ImagePixels? {
         return try {
             val encoded = dataUri.substringAfter("base64,", dataUri)
                 .replace(Regex("\\s"), "")
-            val bytes = runCatching { Base64.decode(encoded, Base64.DEFAULT) }
-                .getOrElse { Base64.decode(encoded, Base64.URL_SAFE) }
-            BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+            val bytes = runCatching { Base64.getDecoder().decode(encoded) }
+                .getOrElse { Base64.getUrlDecoder().decode(encoded) }
+            decodeImagePixels(bytes)
         } catch (e: Exception) {
             Log.w(TAG, "invalid base64 image", e)
             null

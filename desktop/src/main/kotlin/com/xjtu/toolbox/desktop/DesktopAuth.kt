@@ -99,8 +99,8 @@ class DesktopAuth(
         // 体育场馆（`:data` 的 `VenueSession` + `VenueLogin`）：桌面自己登场馆站，用同包的
         // `AppVenueSource` 取场馆 / 时段 / 订单（收藏走 `:core` 的 `VenueFavorites`，JVM 侧的内存 store）。
         // 与校园卡/教务一样，「登录页那一步」只是尽力预热它，它自己挂了最坏只影响那一屏。
-        // ⚠️ 这个站点在桌面上**不能下单**：下单要先解滑块，而滑块控件长在 Android 的
-        // `Bitmap`/`Base64` 上（屏上的 `captchaView` 槽位）—— 那一条路由传 `canBook = false`。
+        // ✅ Stage B 之后这个站点在桌面上能下单：滑块宿主（`DesktopSlideCaptchaHost`）就绪，
+        // 那条路由传 `canBook = true`（下单要先解滑块，识别/提交逻辑在 `:data`）。
         register(VenueSession())
         // 一网通办（`:data` 的 `YwtbSession` + `YwtbLogin`）：消息收纳那四路（消息 / 事务中心 / 预约 /
         // 校车）共用的站点，桌面自己登它，用同包的 `AppInboxSource` 取数。与校园卡/场馆一样，

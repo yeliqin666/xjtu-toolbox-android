@@ -1,8 +1,5 @@
 package com.xjtu.toolbox.venue
 
-import android.graphics.BitmapFactory
-import android.util.Base64
-import android.util.Log
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectDragGestures
@@ -13,24 +10,33 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
-import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
+import com.xjtu.toolbox.platform.Log
+import com.xjtu.toolbox.platform.decodeImageFull
+import java.util.Base64
+import kotlin.math.roundToInt
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.theme.MiuixTheme
-import kotlin.math.roundToInt
 
 private const val TAG = "SliderCaptcha"
+
 /**
- * 滑动拼图验证码组件（**Android 专属**：靠 `Bitmap`/`Base64` 解码图片，搬不进 `:core`）。
+ * 滑动拼图验证码组件 —— 从 `:app` 按五步法搬进 `:data`（同包同类型名，Stage B 滑块共享化）。
  *
- * 它以「屏上的一个槽位」注入共享屏（`VenueScreen` 的 `captchaView`）：从 [CaptchaData] 里取
+ * 它以「屏上的一个槽位」注入共享屏（`VenueScreen` 的 [SlideCaptchaHost]）：从 [CaptchaData] 里取
  * base64 图与尺寸，拖动完成时产出一条 [SliderResult]。数据模型（[TrackPoint]、[SliderResult]）
- * 与采集它的这个控件分开：模型在 `:core`（屏与状态机要用），控件在这里（只有 Android 有 Bitmap）。
+ * 在 `:core`，产它的控件在这里。
  *
+ * 被替换的 Android 专属依赖只有三处（语义一行未改）：
+ *  - `BitmapFactory.decodeByteArray` → `:core` 的 [decodeImageFull]（Android 侧实际就是
+ *    同一段 `BitmapFactory`，ARGB_8888 全尺寸，见那条缝的 KDoc）；
+ *  - `android.util.Base64` → `java.util.Base64`（`:data` 只有 JVM/Android 两个目标）；
+ *  - `android.util.Log` → `:core` 的 [Log]（Android 侧 actual 就是同一个 `android.util.Log`）。
  *
  * @param backgroundImageBase64 背景图 data URI (data:image/jpeg;base64,...)
  * @param sliderImageBase64 滑块图 data URI (data:image/png;base64,...)
@@ -130,7 +136,7 @@ fun SliderCaptchaView(
         ) {
             // 背景图
             Image(
-                bitmap = bgBitmap.asImageBitmap(),
+                bitmap = bgBitmap,
                 contentDescription = "验证码背景",
                 modifier = Modifier.fillMaxSize(),
                 contentScale = ContentScale.FillBounds
@@ -138,7 +144,7 @@ fun SliderCaptchaView(
 
             // 滑块
             Image(
-                bitmap = sliderBitmap.asImageBitmap(),
+                bitmap = sliderBitmap,
                 contentDescription = "滑块",
                 modifier = Modifier
                     .size(sliderDisplayWidthDp, displayHeightDp)
@@ -251,11 +257,11 @@ fun SliderCaptchaView(
 /**
  * 解码 data URI base64 图片
  */
-private fun decodeBase64Image(dataUri: String): android.graphics.Bitmap? {
+private fun decodeBase64Image(dataUri: String): ImageBitmap? {
     return try {
         val base64Str = dataUri.substringAfter("base64,")
-        val bytes = Base64.decode(base64Str, Base64.DEFAULT)
-        BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+        val bytes = Base64.getDecoder().decode(base64Str)
+        decodeImageFull(bytes)
     } catch (e: Exception) {
         Log.e(TAG, "Failed to decode image", e)
         null

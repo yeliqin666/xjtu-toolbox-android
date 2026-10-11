@@ -44,6 +44,8 @@ import kotlinx.serialization.json.jsonObject
 class CampusNoticeApi(
     private val client: HttpClient,
     private val baseUrl: String = "",
+    /** 见 [ApiMode]：默认 campus-api（旧行为一字不改），serve 模式读契约 §5.2 的形状。 */
+    private val mode: ApiMode = ApiMode.CAMPUS_API,
 ) : NoticeSource {
 
     override suspend fun page(source: NotificationSource, page: Int): NotificationPage {
@@ -54,11 +56,16 @@ class CampusNoticeApi(
     override suspend fun merged(sources: List<NotificationSource>, page: Int): MergedNotificationPage {
         if (sources.isEmpty()) return MergedNotificationPage(emptyList(), emptySet(), false)
         val data = getList(sources, page)
-        // campus-api 把「这次没爬到」的源放在 degraded[] 里，reason/error 是给人看的
-        val skipped = data.arr("degraded").orEmpty().mapNotNull { element ->
-            if (!element.isObject) return@mapNotNull null
-            sourceOf(element.jsonObject["source"].safeString())
-        }.toSet()
+        // 没拉到的源：campus-api 放在 degraded[]（每项一个对象，reason/error 是给人看的）；
+        // serve（§5.2）直接给一串源**代码**（与 [NotificationSource] 的枚举名同一套）
+        val skipped = if (mode == ApiMode.SERVE) {
+            data.arr("skipped").orEmpty().mapNotNull { sourceOf(it.safeString()) }.toSet()
+        } else {
+            data.arr("degraded").orEmpty().mapNotNull { element ->
+                if (!element.isObject) return@mapNotNull null
+                sourceOf(element.jsonObject["source"].safeString())
+            }.toSet()
+        }
         return MergedNotificationPage(
             items = parseItems(data),
             skipped = skipped,
@@ -77,6 +84,19 @@ class CampusNoticeApi(
         MergedNotificationPage(emptyList(), emptySet(), false)
 
     private suspend fun getList(sources: List<NotificationSource>, page: Int): JsonObject {
+        // serve（§5.2）：`sources` 逗号分隔 + `page`；它**没有** campus-api 那个「一次取几页」的 `pages`
+        //（契约 §4 的页大小由服务端定，客户端不传）
+        if (mode == ApiMode.SERVE) {
+            return client.serveData(
+                "加载通知",
+                baseUrl,
+                "/api/notification/list",
+                listOf(
+                    "sources" to sources.joinToString(",") { it.name },
+                    "page" to page.coerceAtLeast(1).toString(),
+                ),
+            )
+        }
         val text = client.get("$baseUrl/api/notification/list") {
             parameter("sources", sources.joinToString(",") { it.name })
             parameter("page", page.coerceAtLeast(1))
@@ -98,13 +118,15 @@ class CampusNoticeApi(
             val item = element.jsonObject
             val source = sourceOf(item["source"].safeString()) ?: return@mapNotNull null
             val title = item["title"].safeString().trim()
-            val link = item["url"].safeString().trim()
+            // serve（§5.2）投影的是已归一的 `link`/`description`（`:core` 的 [Notification] 字段名）；
+            // 旧路是 campus-api 的 `url`/`summary`
+            val link = item[if (mode == ApiMode.SERVE) "link" else "url"].safeString().trim()
             if (title.isEmpty() || link.isEmpty()) return@mapNotNull null
             Notification(
                 title = title,
                 link = link,
                 source = source,
-                description = item["summary"].safeString(),
+                description = if (mode == ApiMode.SERVE) item["description"].safeString() else item["summary"].safeString(),
                 tags = item.arr("tags").orEmpty().map { it.safeString() }.filter { it.isNotBlank() },
                 date = runCatching { LocalDate.parse(item["date"].safeString()) }.getOrNull() ?: todayInSystemZone(),
             )

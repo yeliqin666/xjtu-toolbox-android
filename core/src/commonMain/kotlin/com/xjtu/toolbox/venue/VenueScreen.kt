@@ -67,15 +67,16 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
  * （[VenueSource] 的 KDoc 讲了为什么端口要暴露 `canBook`/`canCancel`）。下面每个参数都是
  * 「这一端有什么」，而不是「这一端是不是 Android」。
  *
- * ## 两个 Android 专属槽位
+ * ## 滑块验证码宿主槽位
  *
- * 滑块控件与自动识别器都长在 Android 的 `Bitmap`/`Base64` 上，留在 `:app`，由宿主注入：
- *  - [captchaView]：画滑块、拖动完成时产出 [SliderResult]（`:app` = `SliderCaptchaView`，Web = null）；
- *  - [solveCaptcha]：自动识别（`:app` = `VenueCaptchaSolver`，Web = null）。
+ * 画滑块与自动识别收进一个 [SlideCaptchaHost] 端口，由宿主端各实现一份：
+ *  - Android（`:app`）= `:data` 的 `VenueSlideCaptchaHost`（就是搬迁前的 `SliderCaptchaView`
+ *    + `VenueCaptchaSolver`，Bitmap/Base64 换成了 `:core` 的图片缝）；
+ *  - 桌面（`:desktop`）= 新的 `DesktopSlideCaptchaHost`；
+ *  - Web = null。
  *
- * 传 null 的语义是「本端没有这条路径」。它们都只在写路径上被用到，而写路径的入口由
+ * 传 null 的语义是「本端没有这条路径」。它只在写路径上被用到，而写路径的入口由
  * [VenueSource.canBook] 封着 —— 两条缝对齐，只读端连验证码弹窗都不会出现。
- *
  * ## Web 端（只读）如实降级的地方
  *
  * 1. **勾不了、订不了**：时段格子全部渲染成不可选态（[SlotSelectionContent] 的 `selectable`），
@@ -100,10 +101,8 @@ fun VenueScreen(
      * `CredentialStore`，用户在设置里关掉后下一次预订立刻生效。宿主用 `remember` 稳住这个 lambda。
      */
     autoSolveCaptcha: () -> Boolean = { false },
-    /** 自动识别槽位（见类 KDoc）：Android = `VenueCaptchaSolver`，只读端 = null。 */
-    solveCaptcha: (suspend (data: CaptchaData, shownAtMillis: Long) -> SolvedCaptcha?)? = null,
-    /** 滑块控件槽位（见类 KDoc）：Android = `SliderCaptchaView`，只读端 = null。 */
-    captchaView: (@Composable (data: CaptchaData, onSolved: (SliderResult) -> Unit) -> Unit)? = null,
+    /** 滑块验证码宿主槽位（见类 KDoc）：Android/桌面 = 各端宿主，只读端 = null。 */
+    captchaHost: SlideCaptchaHost? = null,
     /**
      * 「功能说明」还没读过吗。**由宿主读自己那份持久化偏好**（Android = `feature_hints` 里那个
      * `venue_hint_shown`，Web = `localStorage` 同一个键名）—— 屏不碰任何平台的存储实现，
@@ -113,7 +112,7 @@ fun VenueScreen(
     onFirstUseHintRead: () -> Unit = {},
 ) {
     val authExpiry = LocalAuthExpiry.current
-    val vm: VenueViewModel = viewModel { VenueViewModel(source, autoSolveCaptcha, solveCaptcha) }
+    val vm: VenueViewModel = viewModel { VenueViewModel(source, autoSolveCaptcha, captchaHost) }
     LaunchedEffect(vm) {
         vm.events.collect { event ->
             when (event) {
@@ -404,9 +403,9 @@ fun VenueScreen(
             }
         }
 
-        // ─── 验证码弹窗（只读端进不来：canBook=false 时 startBooking 就是空转，captchaView 也是 null）───
-        val captchaContent = captchaView
-        if (vm.showCaptcha && canBook && captchaContent != null) {
+        // ─── 验证码弹窗（只读端进不来：canBook=false 时 startBooking 就是空转，captchaHost 也是 null）───
+        val host = captchaHost
+        if (vm.showCaptcha && canBook && host != null) {
             BackHandler(onBack = vm::closeCaptcha)
             OverlayDialog(
                 title = "滑动验证",
@@ -450,9 +449,9 @@ fun VenueScreen(
                                 )
                                 Spacer(Modifier.height(8.dp))
                             }
-                            // 滑块控件是宿主槽位：Android 传 SliderCaptchaView（它从 CaptchaData 里
-                            // 取 base64 图与尺寸，拖动产出一条 SliderResult）
-                            captchaContent(captcha, vm::submitBooking)
+                            // 滑块宿主槽位：Android 传 `VenueSlideCaptchaHost`（画滑块、拖动产出
+                            // 一条 SliderResult），桌面传 `DesktopSlideCaptchaHost`（同一条路径）
+                            host.CaptchaView(captcha, vm::submitBooking)
                             Spacer(Modifier.height(8.dp))
                             TextButton(text = "换一张", onClick = vm::reloadCaptcha)
                         }
