@@ -1,6 +1,7 @@
 package com.xjtu.toolbox.data
 
 import com.xjtu.toolbox.util.AppJson
+import com.xjtu.toolbox.schedule.ScheduleCacheStore
 import android.content.Context
 import android.util.Log
 import com.xjtu.toolbox.account.AccountContext
@@ -29,7 +30,7 @@ private const val TAG = "DataCache"
 class DataCache(
     context: Context,
     accountId: String? = AccountContext.activeAccountId,
-) {
+) : ScheduleCacheStore {
     private val appContext = context.applicationContext
     private val dirName = "data_cache${AccountContext.suffixFor(accountId)}"
 
@@ -41,7 +42,23 @@ class DataCache(
 
     /** per-key 锁对象，不同 key 之间互不阻塞 */
     private val locks = ConcurrentHashMap<String, Any>()
+    /**
+     * ── [ScheduleCacheStore] 的五个一行转发 ──
+     *
+     * 课表那一族的键（`schedule_<学期>` / `exams_<学期>` / …）搬进 `:data` 的 `ScheduleCache`
+     * 之后，它只要「读一段 JSON + TTL」这两个动作。这里**只转发、不改行为**：目录名、
+     * 文件名、账号后缀、per-key 锁、`.tmp` 原子写入全是原来这一份，所以老用户的缓存
+     * 与升级前逐字节相同（这也是不把 `ScheduleCache` 自己复制到两处的原因）。
+     */
+    override fun readJson(key: String, ttlMs: Long): String? = get(key, ttlMs)
 
+    override fun writeJson(key: String, json: String) = put(key, json)
+
+    override fun readJsonStale(key: String): String? = getStale(key)
+
+    override fun dropJson(key: String) { invalidate(key) }
+
+    override fun ageMsOfJson(key: String): Long? = ageMs(key)
     companion object {
         /** 默认 TTL: 7 天（日程/成绩在学期内基本稳定） */
         const val DEFAULT_TTL_MS = 7L * 24 * 60 * 60 * 1000L

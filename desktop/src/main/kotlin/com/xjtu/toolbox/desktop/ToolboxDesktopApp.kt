@@ -13,6 +13,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Apps
 import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.EventNote
+import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Phone
 import androidx.compose.material.icons.filled.SportsEsports
 import androidx.compose.runtime.Composable
@@ -38,6 +39,8 @@ import com.xjtu.toolbox.auth.LoginScreen
 import com.xjtu.toolbox.auth.MfaCodeDialog
 import com.xjtu.toolbox.auth.ensureSite
 import com.xjtu.toolbox.auth.SiteSession
+import com.xjtu.toolbox.bulletin.BulletinApi
+import com.xjtu.toolbox.bulletin.BulletinLaunchDialog
 import com.xjtu.toolbox.calendar.SchoolCalendarApi
 import com.xjtu.toolbox.card.AppCampusCardSource
 import com.xjtu.toolbox.card.CampusCardScreen
@@ -64,6 +67,7 @@ import com.xjtu.toolbox.game.go.GoScreen
 import com.xjtu.toolbox.game.gomoku.GomokuScreen
 import com.xjtu.toolbox.game.hop.HopScreen
 import com.xjtu.toolbox.schedule.AppSchoolCourseSource
+import com.xjtu.toolbox.schedule.ScheduleScreen
 import com.xjtu.toolbox.schedule.SchoolCourseScreen
 import com.xjtu.toolbox.score.ScoreReportScreen
 import com.xjtu.toolbox.score.scoreReportSource
@@ -160,7 +164,9 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
  *
  * ## 底栏那几格，只放这一端**真能画**的东西（诚实的一条）
  *
- * 底栏那五格（见 [DESKTOP_TABS]）都是这一端真能画的屏：`:core` 里有屏 + 取数在 `:data`。
+ * 底栏那六格（见 [DESKTOP_TABS]）都是这一端真能画的屏：`:core` 里有屏 + 取数在 `:data`。
+ * 第一格是**首页**（`AppRoute.Main` → `:core` 的 `HomeScreen` + 本端的 `DesktopHomeScreen` 宿主面）：
+ * 它与 `:app` 的「Tab 1」是同一份屏，只是这一端没有玻璃顶栏，消息那一格画在首页里。
  * 「全部」那一页里的「真能用」就是这张表（[DESKTOP_SUPPORTED_ROUTES]）；17 条真数据路由
  * 搬完之后 [DESKTOP_PENDING_ROUTES] **空了** —— 「屏在 `:core` 而取数还在 `:app`」那条路由
  * 一条不剩。索引页上「还没有数据源」那一栏照旧画出来（数字是进度，不是装饰），
@@ -169,29 +175,45 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
  * 屏上的「返回」箭头一律回图书馆首页：这一端没有返回栈（底栏就是导航），与 Stage 0 那条
  * 「返回 = 回默认页」同一条口径。
  *
- * ## 还没点亮的宿主面（TODO：校园公告那条）
+ * ## 公告（这一轮点亮的宿主面）
  *
- * 公告（`bulletin`）本批只搬了**数据半**：模型与规则在 `:core`（`bulletin/Bulletin.kt`）、
- * 取数在 `:data`（`bulletin/BulletinApi.kt`，UA 的版本号由宿主递进去），**没有**为它新增
- * `AppRoute`（路由口径不变），所以上面那张表里也不会多出一行。`:app` 那边的两个宿主面
- * —— 首页顶部的公告堆叠条（`home/HomeTab.kt` 的 `BulletinNoticePanel`）与冷启动那条弹框
- * （`main/LaunchNotices.kt`）—— 仍在 `:app`，桌面外壳还没有对应的位置。
+ * 公告这条链现在四层全在共享层：模型与规则（`:core` 的 `bulletin/Bulletin.kt`）、本地状态
+ * （`:core` 的 `BulletinStore`，键值缝）、「现在该看哪些 / 关掉一条意味着什么」
+ * （`:core` 的 `BulletinFeed`，本轮从 `:app` 的 `LaunchNotices` 搬过去的那一半）、取数
+ * （`:data` 的 `BulletinApi`，UA 的版本号由宿主递进去）。本端只剩装配：`DesktopBulletins`
+ * 持有 [BulletinStore] 并在冷启动拉一次；顶部那条堆叠条画在首页里（`HomeCard.BULLETIN_BAR`），
+ * 那条弹框挂在**壳**上（同一刻只弹一层，与 `:app` 的 `LaunchNoticeDialogs` 同一条口径）。
  *
- * **TODO（桌面侧点亮公告条）**：桌面要在哪一面挂它还没定（底栏只有五格、没有首页），
- * 真要接的时候三件东西已经齐了：`BulletinStore()`（键值缝，无需 `Context`）、
- * `BulletinApi.fetch(uaVersion)`（`:data`）、`BulletinRules.visible(...)`（`:core`，时间用
- * `kotlin.time.Clock`）。现在的行为是**什么都没显示**（不是显示成空），这是如实的缺口。
+ * `:app` 的 `LaunchNotices` 还管着自动更新检查与本地更新日志 —— 那两样属于更新域，桌面
+ * 是 `DesktopUpdate` 那套（`.deb`/tar.gz 没有「下载并安装 APK」那条路），本端公告宿主面
+ * **只有公告那一半**，见 `DesktopBulletins` 的 KDoc。
  *
  * @param auth 会话 + 凭据 + 登录状态（`Main.kt` 与离屏证据各建一个）
- * @param initialTarget 首屏。默认图书馆 —— 它是这一端唯一有真数据的屏。
+ * @param initialTarget 首屏。默认**首页**（`AppRoute.Main`）—— 与 `:app` 落在「Tab 1」同一条口径，
+ *   它也是这一端第一屏就有真数据的那一屏（课表缓存里那几格 + 公告条 + 消息那一格）。
+ *   其余几屏照旧从底栏/索引页进去。
  */
 @Composable
 internal fun ToolboxDesktopApp(
     auth: DesktopAuth,
-    initialTarget: DesktopTarget = DesktopTarget.App(AppRoute.Library),
+    initialTarget: DesktopTarget = DesktopTarget.App(AppRoute.Main),
+    /**
+     * 公告取数那一枪（[DesktopBulletins.fetch]）。
+     *
+     * 默认是**真站点**（`:data` 的 `BulletinApi`，Gitee 优先、失败退 GitHub）。留这一格是为了
+     * 离屏证据运行：那一枪要拿夹具公告（见 `RenderScreens`），而不是把真公告画进图里
+     *（与图书馆那张 `library-demo.png` 注入 `DemoLibrarySource` 同一条口径）。
+     */
+    bulletinFetch: suspend (String) -> BulletinApi.FetchResult? = { BulletinApi.fetch(it) },
 ) {
     var target by remember { mutableStateOf(initialTarget) }
     val scope = rememberCoroutineScope()
+
+    // 公告（顶部那条堆叠条 + 冷启动弹框）：四层都在共享层，这一端只装配（见 `DesktopBulletins`）。
+    // 冷启动跑一次：先铺本地缓存，再去拉远端那份 JSON（拉不到就继续用缓存）。
+    // 证据运行把 `bulletinFetch` 换成夹具 —— 离屏那一枪不该去拉真的公告。
+    val bulletins = remember { DesktopBulletins(scope, fetch = bulletinFetch) }
+    LaunchedEffect(bulletins) { bulletins.check() }
 
     // 外观设置：`:core` 的 `SettingsStore`（这一端落盘在 0600 的 `app_settings.properties`）。
     // 键值缝没有监听器 ⇒ 设置页改完由 `DesktopSettingsHost.onAppearanceChanged` 戳一下这个计数，
@@ -223,7 +245,7 @@ internal fun ToolboxDesktopApp(
         Column(modifier = Modifier.fillMaxSize()) {
             Box(modifier = Modifier.weight(1f)) {
                 when (val t = target) {
-                    is DesktopTarget.App -> DesktopPage(auth, t.route, { appearanceTick++ }) { target = it }
+                    is DesktopTarget.App -> DesktopPage(auth, t.route, bulletins, { appearanceTick++ }) { target = it }
                     DesktopTarget.Routes -> RoutesPage(auth) { target = it }
                 }
             }
@@ -233,6 +255,24 @@ internal fun ToolboxDesktopApp(
 
     // 登录页与主界面都要挂：登录本身就可能要短信二验
     DesktopMfaDialog(auth)
+
+    // 冷启动那一条公告：与 MFA 弹窗同一个位置 —— 挂在**壳**上，登录页与主界面都要能弹
+    //（`:app` 的 `LaunchNoticeDialogs` 也在 `MainActivity` 那一层）。同一刻只弹一条，
+    // 挑哪一条的判据在 `:core` 的 `BulletinRules.pickLaunchDialog`。
+    //
+    // ⚠️ 它在桌面上是一个**独立的 AWT 窗口**（miuix 的 `WindowBottomSheet` 在非 Android 目标是
+    // `androidx.compose.ui.window.Dialog`，与 `MfaCodeDialog` 同一条）⇒ 离屏证据图里画不到它，
+    // 只能由 `:desktop:run` 在真窗口里给。所以公告那两处里，有图的是首页顶部那条
+    //（`home.png` / `main.png`），弹框那条由 `DesktopHomeJvmTest` 钉「挑中了哪一条」。
+    bulletins.launchBulletin?.let { bulletin ->
+        BulletinLaunchDialog(
+            bulletin = bulletin,
+            show = bulletins.showLaunchDialog,
+            onDismiss = { bulletins.dismissDialog(bulletin) },
+            onPrimary = { bulletins.confirmDialog(bulletin) },
+            onSubmitPoll = { bulletins.submitPoll(bulletin, it) },
+        )
+    }
     }
 }
 
@@ -244,8 +284,11 @@ internal sealed interface DesktopTarget {
 
 internal data class DesktopTab(val label: String, val icon: ImageVector, val target: DesktopTarget)
 
-/** 底栏那五格 —— 每一格都是这一端**真能画**的屏（取数在 `:data`，或压根不需要取数）。 */
+/** 底栏那六格 —— 每一格都是这一端**真能画**的屏（取数在 `:data`，或压根不需要取数）。 */
 internal val DESKTOP_TABS = listOf(
+    // 首页（`AppRoute.Main`）：与 `:app` 的第一格同位。屏是 `:core` 的 `HomeScreen`，
+    // 这一端只提供宿主面（课表缓存 / 节假日 / 真能打开的路由表 / 公告 / 消息那两格）。
+    DesktopTab("首页", Icons.Filled.Home, DesktopTarget.App(AppRoute.Main)),
     DesktopTab("校历", Icons.Filled.EventNote, DesktopTarget.App(AppRoute.SchoolCalendar)),
     DesktopTab("图书馆", Icons.Filled.CalendarMonth, DesktopTarget.App(AppRoute.Library)),
     DesktopTab("黄页", Icons.Filled.Phone, DesktopTarget.App(AppRoute.YellowPage)),
@@ -269,10 +312,21 @@ internal val DESKTOP_TABS = listOf(
  * 其余是纯 UI 的游戏（与数据源无关，三端同一份）。
  */
 internal val DESKTOP_SUPPORTED_ROUTES = listOf(
+    // 首页（第 31 条真数据路由，也是底栏的第一格）：屏是 `:core` 的 `HomeScreen`，这一端提供
+    // 宿主面（课表缓存 / 节假日 / 真能打开的路由表 / 公告 / 消息那一格），见 `DesktopHomeScreen`。
+    // 它不在 `:app` 的服务目录（`AppServices`）里 —— 那边首页是一个 tab、不是一条路由，
+    // 所以首页宫格也不会出现「首页」这个格子。
+    AppRoute.Main to "首页",
     AppRoute.SchoolCalendar to "校历",
     AppRoute.Library to "图书馆座位",
     AppRoute.Fitness to "体测",
     AppRoute.SchoolCourse to "全校课表",
+
+    // 我的课表（第 30 条真数据路由，也是本批的主角）：屏与 ViewModel 本轮按五步法搬进了 `:core`
+    // （模型 / 端口 / 宿主槽位都就位），取数是 `:data` 的 `JwxtScheduleApi` + `ScheduleSourceRouter`，
+    // 落盘是这个端的键值文件（见 `DesktopScheduleHost` 那张表）。名字照 `:app` 服务表里的叫法
+    //（「我的课表」）。它与「全校课表」是**同一个教务站点**、同一份会话。
+    AppRoute.Schedule to "我的课表",
     AppRoute.ScoreReport to "成绩",
     AppRoute.Judge to "学生评教",
     AppRoute.CampusCard to "校园卡",
@@ -456,6 +510,8 @@ private fun DesktopSiteGate(
 private fun DesktopPage(
     auth: DesktopAuth,
     route: AppRoute,
+    /** 公告宿主面（只有首页用得上：顶部那条堆叠条）。 */
+    bulletins: DesktopBulletins,
     /** 外观设置改完之后戳一下外壳（设置屏通过 `DesktopSettingsHost` 回调过来，见 `ToolboxDesktopApp`）。 */
     onAppearanceChanged: () -> Unit,
     onNavigate: (DesktopTarget) -> Unit,
@@ -463,6 +519,16 @@ private fun DesktopPage(
     // 这一端没有返回栈，底栏就是导航 ⇒ 屏上的返回一律回图书馆首页（与 Stage 0 同一条口径）
     val back = { onNavigate(DesktopTarget.App(AppRoute.Library)) }
     when (route) {
+        // 首页（`AppRoute.Main`，第 31 条真数据路由）：与 `:app` 的「Tab 1」**同一份屏**
+        //（`:core` 的 `HomeScreen`）。本端只提供宿主面：课表缓存（`DesktopScheduleHost`）、
+        // 节假日、真能打开的路由表、公告、以及消息那一格。见 `DesktopHomeScreen` 的 KDoc
+        //（那里列了它真出数的几样与如实降级的那几样，包括没有桌面小组件这件事）。
+        AppRoute.Main -> DesktopHomeScreen(
+            auth = auth,
+            bulletins = bulletins,
+            onNavigate = onNavigate,
+        )
+
         // 校历：**免登录**的公开门户接口 ⇒ 不需要任何会话适配器，`：data` 的取数直接用
         //（这正是「屏在 `:core` + 取数在 `:data`」的报偿：搬一个 35 行的 IO 适配器就多一屏）。
         // `calendarImage` 不传：那是 `:app` 的教务处图片接口（`SchoolCalendarImageApi`），
@@ -519,6 +585,24 @@ private fun DesktopPage(
             SchoolCourseScreen(
                 source = remember(site) { AppSchoolCourseSource(site) },
                 onBack = back,
+            )
+        }
+        // 我的课表（第 30 条真数据路由）：屏与 ViewModel 都在 `:core`，这一端只提供**拿得到的
+        // 宿主面**（`DesktopScheduleHost` 那张表：键值落盘 / 教务会话 / 节假日 / 思源与考勤）。
+        // 站点会话**进门时才建**（见 `DesktopSiteGate`）—— 与全校课表 / 成绩共用同一个教务站点。
+        //
+        // 这一屏是唯一一屏要传 `host` 的：其余几屏拿的是**一个端口**（`source`），日程页要的是
+        // 一整组能力（本地落盘、分享面板、小组件与首页信号……），端口逐个拆反而看不清哪些端没有。
+        AppRoute.Schedule -> DesktopSiteGate(auth, DesktopAuth.JWXT_SITE_KEY, "教务") { _ ->
+            ScheduleScreen(
+                host = remember { DesktopScheduleHost(auth) },
+                onBack = back,
+                onNavigate = { r ->
+                    when (r) {
+                        is AppRoute.Browser -> if (r.url.isNotBlank()) openInBrowser(r.url)
+                        else -> onNavigate(DesktopTarget.App(r))
+                    }
+                },
             )
         }
         // 成绩：同一个教务站点（两条路由共用一份会话）。取数要一个**学号**，它闭在适配器里；
@@ -1041,11 +1125,10 @@ private fun DesktopPage(
         // 匹配交友（`AppRoute.Match`）：这一条卡的是**本机数据**，不是网络。
         //
         // 它一条请求都不发（KDoc：「全程离线……算契合度这一步在本机完成」）：把自己的档案压成一张
-        // 二维码、把对方的码解回来，交集全从**本机已有的缓存**里算。而桌面端现在没有那些缓存 ——
-        // 它们全部是 `:app` 的 Android 实现，一件都没搬：`ScheduleCache` + `DataCache`（课表 /
-        // 教材 / 考试 / 学期表）、`HelloProfileStore`（学工系统档案与头像）、`DiningHabit`（校园卡
-        // 消费）。桌面端只有自己那一份按站点的取数，没有「课表缓存」这一层
-        //（那条路由（`AppRoute.Schedule`）也还没搬过来）。
+        // 二维码、把对方的码解回来，交集全从**本机已有的缓存**里算。桌面端现在有一件了 —— 课表缓存
+        // 那一层随「我的课表」搬了过来（`AppRoute.Schedule` + `DesktopScheduleHost` 的键值文件），
+        // 但其余三件仍是 `:app` 的 Android 实现：`HelloProfileStore`（学工系统档案与头像）、
+        // `DiningHabit`（校园卡消费），以及**本机数据的读写口径**（那份 900 行的算法还在 `:app`）。
         //
         // 另外两件也卡着：分享码本体用 `java.util.zip` 的 deflate + `java.util.Base64`（`:core`
         // 的 commonMain 要编到 wasmJs，两者都不存在），扫码用 Android 的相机（`QrScannerView`）。
@@ -1064,9 +1147,9 @@ private fun DesktopPage(
             lines = listOf(
                 "它全程离线、一条请求都不发：把自己的档案压成一张码、把对方的码解回来，" +
                     "交集全从本机已有的缓存里算。",
-                "桌面端还没有那些缓存 —— 课表 / 教材 / 考试（ScheduleCache + DataCache）、" +
-                    "学工系统档案（HelloProfileStore）、校园卡消费（DiningHabit）都还是 :app 的实现，" +
-                    "一件都没搬过来。没有它们，这一屏算出来的交集只能是空的。",
+                "桌面端还没有那些缓存 —— 课表缓存这一层随「我的课表」搬过来了（键值文件），" +
+                    "但学工系统档案（HelloProfileStore）与校园卡消费（DiningHabit）还是 :app 的实现，" +
+                    "算法本体（MatchProfile）也还没搬。缺了它们，这一屏算出来的交集只能是空的。",
                 "分享码本体还要 java.util.zip 的 deflate 与 java.util.Base64（:core 的 commonMain 里" +
                     "不存在），扫码要 Android 的相机 —— 两件都得先切成平台缝。",
             ),

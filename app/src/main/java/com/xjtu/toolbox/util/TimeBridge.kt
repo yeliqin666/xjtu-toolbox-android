@@ -40,3 +40,7 @@ internal fun java.time.Instant.toKx(): Instant = Instant.fromEpochSeconds(epochS
 internal fun java.time.LocalDate.toKx(): LocalDate = LocalDate(year, monthValue, dayOfMonth)
 
 internal fun LocalDate.toJavaTime(): java.time.LocalDate = java.time.LocalDate.of(year, month.ordinal + 1, day)
+
+/** 时刻那一条：`HomeHero` 算出的「下一节课什么时候开始」要进 `:app` 的提醒评估（它说 java.time）。 */
+internal fun LocalDateTime.toJavaTime(): java.time.LocalDateTime =
+    java.time.LocalDateTime.of(year, month.ordinal + 1, day, hour, minute, second, nanosecond)

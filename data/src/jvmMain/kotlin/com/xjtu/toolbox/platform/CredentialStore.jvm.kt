@@ -21,8 +21,14 @@ import com.xjtu.toolbox.auth.XJTULogin
  * —— 桌面端没有「老数据」要继承，保持一致是为了让两端的语义能一眼对上，也免得将来做
  * 「从 Android 迁一个账号过来」时又对一遍键名。
  *
- * ⚠️ **这是 Stage A 的口径，不是终点**：Linux 上「文件 + 0600」与 campus-api 现有做法同口径；
- * Windows 上按设计文档要给 DPAPI / Credential Manager，属于宿主机能族那一批（§5.4）。
+ * ⚠️ **落盘的字节受谁保护，是这一端唯一分平台的地方**（见 [SecretProtector] 与
+ * [ProtectedKeyValueStore]）：Windows 走系统原生的 **DPAPI**（当前用户作用域：只有本机本用户
+ * 能解开），Linux / macOS **没有**原生保护 —— 就是「文件 + `0600` 权限」，与 campus-api 现有
+ * 做法同口径（设计文档 §5.1 明确接受了这一档；真正的 Linux 原生保护要 Secret Service，属 §5.4）。
+ *
+ * 分平台那一层是**注入进来的**（[protector] 默认由 [secretProtectorForPlatform] 按 `os.name` 挑）：
+ * 测试与多实例可以换一份 —— 测试就靠一个假保护器钉住「密文落盘 → 读回解密 → 篡改/换用户解不开」
+ * 的口径，与同目录的 `dataRootOverride` 是同一条思路。
  * 前端一旦有真账号，凭据就是分发的代价（§8 第 3 条）：退出登录必须调 [clear]。
  *
  * ## 键/值类型
@@ -31,9 +37,17 @@ import com.xjtu.toolbox.auth.XJTULogin
  * 所以 `rsa_key_time` 存成十进制字符串，读的时候解析。**不要**改成别的类型 —— 类型变了
  * 老文件就读不出来（这条与 `SecureStore` 那批文件是同一条纪律）。
  */
-class JvmCredentialStore(private val storeName: String = FILE_NAME) {
+class JvmCredentialStore(
+    private val storeName: String = FILE_NAME,
+    protector: SecretProtector? = secretProtectorForPlatform(),
+) {
 
-    private val store: KeyValueStore = secureKeyValueStore(storeName)
+    /**
+     * 落盘那一层（[secureKeyValueStore]）外面再套一层**保护器**：Windows 上的值写下去是
+     * `xjtu-sealed:1:dpapi:…`（DPAPI 密文），Linux / macOS 上没有保护器 ⇒ 字节与这一轮之前
+     * 一模一样（读老文件也还认得）。两者合并的地方就是这一行。
+     */
+    private val store: KeyValueStore = ProtectedKeyValueStore(secureKeyValueStore(storeName), protector)
 
     /** 账号与密码。**任一为空都算没有**（与 `:app` 的 `CredentialStore.load` 同口径）。 */
     fun load(): Pair<String, String>? {

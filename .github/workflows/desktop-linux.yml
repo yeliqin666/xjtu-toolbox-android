@@ -1,0 +1,97 @@
+name: Desktop Linux Packaging
+
+# Linux 出包通道（`.deb` + app-image）。与 desktop-windows.yml 对称：那边出 `.msi`/`.exe`（只能在
+# Windows 上打），这边出 Linux 那两样（只能在 Linux 上打）。
+#
+# 这一条比 Windows 那条简单：jpackage 在 Linux 上出 `.deb` 只用得上 dpkg 自己的 `dpkg-deb`
+# （ubuntu-latest 自带），不需要 WiX 那种要单独下载的工具链。而 Compose Desktop 的
+# `TargetFormat.AppImage` 是 **jpackage 的 app-image**（一个自带运行时的目录），**不是**
+# AppImage.org 那种单文件 `.AppImage` ⇒ 这里也**不需要** appimagetool / FUSE
+# （口径见 docs/desktop-port-plan.md §7.1 与 docs/linux-delivery.md §1）。
+#
+# 与 core-gate.yml / desktop-windows.yml 同一种风格：独立触发、按路径过滤、并发去重。
+# 这里**不做**发布（不上传 Release）—— 桌面产物现在只作为 artifact 留档。
+
+on:
+  pull_request:
+    paths:
+      - 'desktop/**'
+      - 'data/**'
+      - 'core/**'
+      - 'gradle/**'
+      - 'gradlew'
+      - 'gradlew.bat'
+      - 'settings.gradle.kts'
+      - '.github/workflows/desktop-linux.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: desktop-linux-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        # 与 gradle/libs.versions.toml 的 kotlin 2.4.20 + 三个模块的 jvmToolchain(21) 对齐
+        uses: actions/setup-java@v4
+        with:
+          java-version: "21"
+          distribution: "temurin"
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Grant execute permission
+        run: chmod +x gradlew
+
+      - name: 确认 Android SDK 在（:app 的 AGP 在**配置期**就要它）
+        # 我们只编 :desktop，但 Gradle 会配置整个构建，包括 apply 了 AGP 的 :app。
+        # ubuntu-latest 的镜像自带 Android SDK（ANDROID_HOME/ANDROID_SDK_ROOT 已设）；
+        # 万一将来镜像变了，这一步会**响亮地**失败在这里，而不是让人去猜后面那条报错。
+        run: |
+          if [ -z "$ANDROID_HOME" ] && [ -z "$ANDROID_SDK_ROOT" ]; then
+            echo "::error::镜像里没有 Android SDK：:app 的 AGP 在配置期就要 ANDROID_HOME"
+            exit 1
+          fi
+          echo "ANDROID_HOME=$ANDROID_HOME"
+
+      - name: 编译桌面端
+        # 先编一遍：编译错误（比如只有 Linux 才走的分支）在这里就报，不必等到 jlink 跑完
+        run: ./gradlew :desktop:compileKotlin
+
+      - name: 打 Linux 安装包（.deb 与 app-image）
+        # `packageDeb` 走 jpackage + dpkg-deb；`packageAppImage` 是 jpackage 的 app-image
+        # （落点 desktop/build/compose/binaries/main/app/），与 `createDistributable` 同一个产物。
+        run: ./gradlew :desktop:packageDeb :desktop:packageAppImage
+
+      - name: 列出产物
+        # `.deb` 顺带把控制信息（包名/版本/依赖/安装体积）打出来：这几行进不了 artifact，
+        # 但它是「包里的元数据对不对」最快的证据。
+        run: |
+          set -x
+          ls -la desktop/build/compose/binaries/main/deb/
+          dpkg-deb -I desktop/build/compose/binaries/main/deb/*.deb
+          du -sh desktop/build/compose/binaries/main/app/
+
+      - name: 上传产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: xjtu-toolbox-linux
+          path: |
+            desktop/build/compose/binaries/main/deb/*.deb
+            desktop/build/compose/binaries/main/app/
+          # 没产物就是出包失败，别当成「跑过了」：Compose Desktop 对与宿主不兼容的 target
+          # 会把任务 **SKIPPED 而不报错**（见 docs/windows-delivery.md §1 的实测），
+          # 所以「命令绿了但什么都没出包」是可能的 —— 这条设置把它变成失败。
+          if-no-files-found: error
+
+      # ── 验证步骤刻意放在出包**之后**：万一有用例红了，`.deb` 与 app-image 仍然留得下来给人查。
+      #    这里跑的是 :desktop 自己的整套；:core / :data / :testkit 那几道在 core-gate.yml 里
+      #    （同一个 ubuntu-latest，不重复一遍）。
+      - name: 桌面端单元测试
+        run: ./gradlew :desktop:test

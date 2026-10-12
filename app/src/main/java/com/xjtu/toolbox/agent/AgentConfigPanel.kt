@@ -338,8 +338,8 @@ internal fun ConfigPanel(
         item { PidaiAppearancePanel() }
         item {
             // 记住的偏好必须**可见可删**：模型往本机写了东西，用户有权知道写了什么。
-            val ctx = androidx.compose.ui.platform.LocalContext.current
-            var memories by remember { mutableStateOf(AgentMemory.all(ctx)) }
+            val memory = remember { AgentMemory() }
+            var memories by remember { mutableStateOf(memory.all()) }
             if (memories.isNotEmpty()) {
                 Card(colors = CardDefaults.defaultColors(color = com.xjtu.toolbox.ui.components.AppCardColor)) {
                     Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -362,8 +362,8 @@ internal fun ConfigPanel(
                                 TextButton(
                                     text = "删除",
                                     onClick = {
-                                        AgentMemory.forget(ctx, k)
-                                        memories = AgentMemory.all(ctx)
+                                        memory.forget(k)
+                                        memories = memory.all()
                                     },
                                 )
                             }
@@ -371,8 +371,8 @@ internal fun ConfigPanel(
                         TextButton(
                             text = "全部清空",
                             onClick = {
-                                AgentMemory.clear(ctx)
-                                memories = AgentMemory.all(ctx)
+                                memory.clear()
+                                memories = memory.all()
                             },
                             modifier = Modifier.fillMaxWidth(),
                         )

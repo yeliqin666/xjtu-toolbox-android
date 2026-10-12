@@ -111,10 +111,11 @@ class DesktopAuthJiaocaiJvmTest {
     }
 
     @Test
-    fun `本学期我的教材：桌面没有教务课表缓存 ⇒ 端口如实回空表`() = runBlocking {
+    fun `本学期我的教材：这一端还没接课表缓存 ⇒ 端口如实回空表`() = runBlocking {
         assertTrue(
             DesktopJiaocaiTermTextbooks.currentTerm().isEmpty(),
-            "桌面这一端还没有课表缓存 ⇒ 那一段整段不显示（如实降级，不是漏做）",
+            "桌面这一端有课表缓存了（`schedule_cache<账号后缀>`），但本对象还没接那条缓存 " +
+                "⇒ 那一段整段不显示（如实降级，不是漏做；见 DesktopJiaocaiTermTextbooks 的 TODO）",
         )
     }
 }

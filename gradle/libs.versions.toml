@@ -20,6 +20,10 @@ markdownRenderer = "0.45.0"
 jetbrainsMarkdown = "0.7.9"
 coil = "3.6.3"
 jsoup = "1.23.2"
+jna = "5.19.1"
+# Windows 的**原生凭据保护**（DPAPI）走 JNA：JDK 自己没有 CryptProtectData 的绑定
+# （SunMSCAPI 是 CryptoAPI 的密钥库/签名，不含 DPAPI），而 FFM API 在 JDK 21 还是 preview。
+# 只被 `:data` 的 jvmMain 用到（见 data/build.gradle.kts）。
 flexmark = "0.64.8"
 coroutines = "1.11.0"
 securityCrypto = "1.0.0"
@@ -76,6 +80,7 @@ okhttp = { group = "com.squareup.okhttp3", name = "okhttp", version.ref = "okhtt
 okhttp-brotli = { group = "com.squareup.okhttp3", name = "okhttp-brotli", version.ref = "okhttp" }
 okhttp-java-net-cookiejar = { group = "com.squareup.okhttp3", name = "okhttp-java-net-cookiejar", version.ref = "okhttp" }
 jsoup = { group = "org.jsoup", name = "jsoup", version.ref = "jsoup" }
+jna-platform = { group = "net.java.dev.jna", name = "jna-platform", version.ref = "jna" }
 flexmark-html2md = { group = "com.vladsch.flexmark", name = "flexmark-html2md-converter", version.ref = "flexmark" }
 coroutines-android = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-android", version.ref = "coroutines" }
 security-crypto = { group = "androidx.security", name = "security-crypto", version.ref = "securityCrypto" }

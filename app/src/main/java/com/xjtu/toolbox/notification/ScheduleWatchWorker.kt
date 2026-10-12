@@ -12,8 +12,9 @@ import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import com.xjtu.toolbox.auth.LoginType
 import com.xjtu.toolbox.schedule.ExamCountdown
-import com.xjtu.toolbox.schedule.ScheduleApi
+import com.xjtu.toolbox.schedule.JwxtScheduleApi
 import com.xjtu.toolbox.schedule.ScheduleDiff
+import com.xjtu.toolbox.schedule.scheduleDiffStore
 import com.xjtu.toolbox.schedule.ScheduleSourceRouter
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -45,8 +46,8 @@ class ScheduleWatchWorker(
             // 需要短信验证 / 密码失效：这一轮直接放弃，等下次正常调度，别退避重试再提交一次密码
             val site = HeadlessSessions.site(LoginType.JWXT) ?: return Result.success()
             withContext(Dispatchers.IO) {
-                val api = ScheduleApi(site)
-                val term = api.getCurrentTerm()
+                val api = JwxtScheduleApi(site)
+                val term = api.currentTerm()
                 checkScheduleChange(app, api, term)
                 checkUpcomingExam(app, api, term)
             }
@@ -64,24 +65,23 @@ class ScheduleWatchWorker(
      * 这里发了通知，日程页下次进来就不会再弹同样的 snackbar。发不出通知（没授权 /
      * 渠道被关）时退回写 pending，让屁岱气泡接手——总不能两边都不说。
      */
-    private suspend fun checkScheduleChange(context: Context, api: ScheduleApi, term: String) {
+    private suspend fun checkScheduleChange(context: Context, api: JwxtScheduleApi, term: String) {
         val courses = ScheduleSourceRouter.getSchedule(
-            context = context,
             jwxt = api,
             termCode = term,
             manager = HeadlessSessions.manager(),
         )
         if (courses.isEmpty()) return
-        val summary = ScheduleDiff.summarize(ScheduleDiff.diffAndStore(context, term, courses)) ?: return
+        val summary = ScheduleDiff.summarize(ScheduleDiff.diffAndStore(scheduleDiffStore(), term, courses, ScheduleSourceRouter.servedSource().key)) ?: return
         com.xjtu.toolbox.inbox.InboxStore.post(com.xjtu.toolbox.inbox.OwnInbox.scheduleChange(summary))
         if (!ReminderNotifier.notifyScheduleChange(context, summary)) {
-            ScheduleDiff.setPending(context, summary)
+            ScheduleDiff.setPending(scheduleDiffStore(), summary)
         }
     }
 
     /** 同一场考试只提醒一次：游标记「课程名+日期」，改期算新的一场，会再提醒。 */
-    private suspend fun checkUpcomingExam(context: Context, api: ScheduleApi, term: String) {
-        val exams = runCatching { api.getExamSchedule(term) }.getOrElse {
+    private suspend fun checkUpcomingExam(context: Context, api: JwxtScheduleApi, term: String) {
+        val exams = runCatching { api.examSchedule(term) }.getOrElse {
             Log.w(TAG, "考试表拉取失败：${it.message}")
             return
         }

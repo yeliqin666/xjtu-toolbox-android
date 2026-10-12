@@ -16,7 +16,7 @@ object AgentPrompt {
     fun build(
         assistantName: String,
         userContext: String = "",
-        /** 见 [AgentMemory.promptBlock]。没有偏好时为空串。 */
+        /** 见 [AgentMemory]，拼好的那一段从 `AgentMemory.promptBlock()` 来。没有偏好时为空串。 */
         memoryBlock: String = "",
     ): String = listOf(
         """

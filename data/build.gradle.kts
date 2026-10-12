@@ -74,6 +74,19 @@ kotlin {
             implementation(kotlin("test"))
             implementation(libs.kotlinx.coroutines.test)
         }
+        jvmMain.dependencies {
+            // **Windows 上的凭据保护**（DPAPI · CryptProtectData/CryptUnprotectData）靠 JNA 调
+            // Crypt32：`com.sun.jna.platform.win32.Crypt32Util` 是那两个调用的直接封装。
+            // 只给 jvmMain：Android 那份凭据存储是 `EncryptedSharedPreferences`（见下面 androidMain），
+            // 两端各用各的系统原生能力，互不影响。
+            //
+            // 为什么不是别的：JDK 里没有 DPAPI 的绑定（`SunMSCAPI` 是 CryptoAPI 的密钥库/签名，
+            // 不含 DPAPI），而 FFM API 在 JDK 21 还是 preview（本工程的工具链就是 21）。
+            // Linux 上这份依赖只是躺在类路径上：`secretProtectorForPlatform` 在非 Windows 上
+            // 返回 null（不加密，见 `SecretProtector` 的 KDoc），永远不会走到 Crypt32。
+            implementation(libs.jna.platform)
+        }
+
         jvmTest.dependencies {
             // 假上游（图书馆座位系统 + 可选的统一认证）从这里**搬走了**：它现在是 `:testkit`
             // 这个独立模块——因为桌面端的离屏渲染证据也要看同一批页面原文，而跨模块共享不了

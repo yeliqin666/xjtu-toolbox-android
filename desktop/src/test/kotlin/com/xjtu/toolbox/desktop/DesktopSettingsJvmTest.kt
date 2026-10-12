@@ -88,15 +88,18 @@ class DesktopSettingsJvmTest {
         val host = DesktopSettingsHost { ticked++ }
 
         assertEquals(
-            setOf(SettingsRow.DARK_MODE, SettingsRow.DYNAMIC_COLOR),
+            // 首页主题（`HOME_THEME`）本轮接上了：桌面有首页了（`AppRoute.Main` →
+            // `DesktopHomeScreen`），它读的就是这个键。`QUICK_ACTIONS` 不列 ——
+            // 桌面没有点击记录，那一排压根不画（见 `DesktopHomeScreen`）。
+            setOf(SettingsRow.DARK_MODE, SettingsRow.DYNAMIC_COLOR, SettingsRow.HOME_THEME),
             host.honoredRows,
-            "桌面外壳只接了深色模式与取色（见 DesktopSettingsHost 的 KDoc）",
+            "桌面外壳接了深色模式 / 取色 / 首页主题（见 DesktopSettingsHost 的 KDoc）",
         )
         assertNull(host.noticeSection, "桌面没有系统通知权限与 WorkManager 排程 ⇒ 整组不画")
         assertNull(host.dataPrivacySection, "桌面没有 Android 应用缓存与 CrashReporter ⇒ 整组不画")
         assertNull(host.updateSection, "桌面是 .deb/tar.gz，没有「下载并安装 APK」那条路 ⇒ 整组不画")
         assertNull(host.onNetworkModeChanged, "桌面只按直连走 ⇒ 连接模式那一行不画")
-        assertTrue(host.scheduleSourceOptions.isEmpty(), "桌面还没有课表 ⇒ 课表来源那一行不画")
+        assertTrue(host.scheduleSourceOptions.isEmpty(), "桌面还没有改课表来源的入口 ⇒ 那一行不画")
         assertTrue(host.changelog.isEmpty(), "更新日志属 :app 的更新域，没搬 ⇒ 那一行不画")
         assertTrue(host.versionText.startsWith("v"), "版本号那一行照旧画（桌面包的版本）")
 

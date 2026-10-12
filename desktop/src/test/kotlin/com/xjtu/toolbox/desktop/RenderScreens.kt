@@ -58,6 +58,13 @@ import com.xjtu.toolbox.platform.wipeSecureStore
 import com.xjtu.toolbox.ui.theme.XJTUToolBoxTheme
 import com.xjtu.toolbox.yellowpage.YellowPageApi
 import com.xjtu.toolbox.yellowpage.YellowPageScreen
+import com.xjtu.toolbox.jwxt.JwxtFakeUpstream
+import com.xjtu.toolbox.bulletin.BulletinApi
+import com.xjtu.toolbox.bulletin.BulletinRules
+import com.xjtu.toolbox.schedule.CourseItem
+import com.xjtu.toolbox.schedule.ExamItem
+import com.xjtu.toolbox.schedule.ScheduleCache
+import com.xjtu.toolbox.util.todayInSystemZone
 import com.xjtu.toolbox.notification.NotificationFakeUpstream
 import com.xjtu.toolbox.ywtb.YwtbFakeUpstream
 import java.io.File
@@ -65,6 +72,7 @@ import java.nio.file.Files
 import javax.swing.SwingUtilities
 import kotlin.system.exitProcess
 import kotlinx.coroutines.runBlocking
+import kotlinx.datetime.LocalDate
 
 /**
  * `./gradlew :desktop:renderScreens` —— 把屏**离屏**渲染成 PNG，作为桌面端的可视化证据。
@@ -75,7 +83,7 @@ import kotlinx.coroutines.runBlocking
  * |---|---|---|
  * | `login.png` | 登录页（空输入框） | `:core` 的共享登录屏在桌面真画得出来；**不预填学号**（红线） |
  * | `library-after-login.png` | 图书馆座位屏，**用刚输入的凭据真登进去**之后的 | Stage A 的验收本体：桌面端自己登录、自己取数（`:data` 的会话内核 + `LibraryApi`） |
- * | `shell-after-login.png` | 整个外壳（底栏 + 图书馆屏） | 外壳与底栏在登录后正确切换 |
+ * | `shell-after-login.png` | 整个外壳（底栏 + 图书馆屏；首屏显式给图书馆） | 外壳与底栏在登录后正确切换。外壳的**默认**首屏是首页（见 `home.png` / `main.png`）—— 这一张显式给图书馆，因为要拍的正是「外壳 + 某一屏」这件事本身 |
  * | `fitness.png` | 体测屏（真路由：外壳 → `AppRoute.Fitness` → `FitnessApi`） | 第五条真数据路由：https 站点、CAS 回跳后的 launch 会话、v3 取数 |
  * | `schoolcourse.png` | 全校课表屏（真路由 + 真查询：外壳 → `AppRoute.SchoolCourse` → `AppSchoolCourseSource`） | 第六条真数据路由：登录后的学期 / 开课单位 / 课程卡片都是夹具样本（屏不会自己发查询，这张图靠 semantics 点一下「搜索」，见 [clickByLabel]） |
  * | `scorereport.png` | 成绩报表屏（真路由：外壳 → `AppRoute.ScoreReport` → `scoreReportSource`） | 第七条真数据路由：学号取自登录时的 `AccountContext.activeAccountId`，图上按学期分组的成绩是夹具样本 |
@@ -102,7 +110,10 @@ import kotlinx.coroutines.runBlocking
  * | `webvpn_converter.png` | WebVPN 转换器屏（真路由：外壳 → `AppRoute.WebVpnConverter` → `:core` 的 `WebVpnConverterScreen`） | 第二十八条真数据路由：屏本轮才搬进 `:core`，转换本体是 `:data` 的 `WebVpnUtil`（`:core` 的 `WebVpnCodec` 缝，与 Android **同一份实现**）。图上的输入与结果都是拍的时候现场做的：往输入框里塞 `https://jwxt.xjtu.edu.cn/`（夹具网址，公开站点名、无凭据）再点「转换」，结果里那串密文域名（`…fae05988692862446b468ca88d1b203b`）就是 AES-128-CFB 真算出来的 —— 与 `DesktopWebVpnCodecJvmTest` 里那一条同值 |
  * | `accounts.png` | 账号管理屏（真路由：外壳 → `AppRoute.Accounts` → `:core` 的 `AccountManagerScreen`） | 第二十九条真数据路由：多账号。屏本轮才搬进 `:core`，动作本体是 `:desktop` 的 `DesktopAccounts`（`:core` 的 `AccountsController` 缝）。拍之前**真切了一次**：上面那次真登录把夹具账号写进了账号表（`AccountStore`），再加一条夹具账号（值都是编的），然后 `switchTo` 第二条 ⇒ 图上的「当前账号」卡与列表高亮都是第二条（`2021000002`），列表里还有第一条（`2021000001`）。头像那一格不传（画首字母圆）、昵称一直为空 —— 两处如实降级见 `DesktopAccounts` 的 KDoc |
  * | `game_merge.png` | 合成西交大的**如实说明页**（`AppRoute.GameMerge`） | 这条路由卡的是**载体**：游戏本体是 `:app` 的 `assets/games/merge/`（HTML + 776 行 JS + Matter.js 物理引擎），跑在 Android 的 WebView 里；桌面端没有 WebView、依赖里也没有 JVM 上的 JS 引擎 ⇒ 这一端没有能执行它的地方。这张图就是那张说明页本身（**不进** `DESKTOP_SUPPORTED_ROUTES`），不是「没搬过来」那个通用页 —— 卡的不是取数 |
- * | `schedule_match.png` | 匹配交友的**如实说明页**（`AppRoute.Match`） | 这条路由卡的是**本机数据**：它全程离线，交集全从本机缓存算，而课表/教材/考试（`ScheduleCache` + `DataCache`）、学工系统档案（`HelloProfileStore`）、校园卡消费（`DiningHabit`）四件都还是 `:app` 的实现；分享码本体还要 `java.util.zip` 的 deflate 与 `java.util.Base64`（`:core` 的 commonMain 里不存在）、扫码要 Android 相机 ⇒ 三件都得先切成平台缝。图上是那张说明页（**不进** `DESKTOP_SUPPORTED_ROUTES`）|
+ * | `schedule_match.png` | 匹配交友的**如实说明页**（`AppRoute.Match`） | 这条路由卡的是**本机数据**：它全程离线，交集全从本机缓存算。课表缓存那一层随「我的课表」搬过来了（见 `schedule.png`），但学工系统档案（`HelloProfileStore`）、校园卡消费（`DiningHabit`）与算法本体（`MatchProfile`，900 行）还在 `:app`；分享码本体还要 `java.util.zip` 的 deflate 与 `java.util.Base64`（`:core` 的 commonMain 里不存在）、扫码要 Android 相机 ⇒ 三件都得先切成平台缝。图上是那张说明页（**不进** `DESKTOP_SUPPORTED_ROUTES`）|
+ * | `schedule.png` | 我的课表屏（真路由：外壳 → `AppRoute.Schedule` → `DesktopSiteGate(教务)` → `:core` 的 `ScheduleScreen` + 本端 `DesktopScheduleHost`） | 第三十条真数据路由，也是本批的主角：屏与 ViewModel 按五步法搬进 `:core`（模型 / `CustomCourseStore` 端口 / 宿主槽位 / `CourseLinks` 按能力切开），这一端只提供宿主面（键值落盘 / 教务会话 / 节假日 / 思源入口）。图上的课名与教室都是夹具样本，而且**是格子画出来的**（`CourseCell` 那两行文本节点），不是只有一段说明文字 |
+ * | `home.png` | 首页（真路由：外壳 → `AppRoute.Main` → `:core` 的 `HomeScreen` + 本端 `DesktopHomeScreen`） | 第三十一条真数据路由，也是 Stage C 「宿主机能族」的第一条：首页就是底栏的第一格（不另造一套壳）。这张图上的**第 4 周**、**下周那节课（夹具课名 + 教室）**、**考试倒计时（还有 5 天 · 主楼B-201）**与顶部那条**公告条**都是从**本端键值缓存**算出来的（`HomeHero` / `HomeScheduleStats` / `BulletinFeed` 都是 `:core` 的）；课表/考试/教材是拍之前写进去的夹具（值都是编的），公告那一枪注入的是夹具公告（`.invalid` 域名）。首页一个网络请求都不发 |
+ * | `main.png` | 主壳（同一个 `AppRoute.Main`，宽窗 900×900） | 首页接进**现有导航壳**之后的形态：底栏六格（首页 / 校历 / 图书馆 / 黄页 / 游戏 / 全部）都在，第一格「首页」是当前页；同一份夹具缓存与同一条夹具公告。外壳的**默认首屏**这一轮也改成了首页（与 `:app` 落在「Tab 1」同一条口径）—— 原来那个默认（图书馆）的理由是「它是这一端唯一有真数据的屏」，首页点亮之后这条不再成立。**桌面小组件这一端没有**（设计文档 §6 Stage C 的口径是「用系统通知替代」，那条路还没做）—— 它不在这一端任何一个宿主面里，不是「画不出来」 |
  * | `routes.png` | 「全部页面」索引页 | 如实列出「真能用 / 还没有数据源」，并给出退出登录入口 |
  * | `library-demo.png` | 同一屏 + 固定假数据 | 布局与组件本身可复现（不依赖网络/会话，改屏时用它对比） |
  *
@@ -308,7 +319,9 @@ fun main(args: Array<String>) {
                 onFirstUseHintRead = {},
             )
         }
-        shot("shell-after-login.png", frames = 20) { ToolboxDesktopApp(auth) }
+        // 外壳 + 图书馆屏：这一张要拍的是**外壳本身**（登录之后底栏与当前页正确切换），
+        // 所以首屏显式给图书馆 —— 外壳的默认首屏现在是**首页**（`AppRoute.Main`，见 `home.png`）。
+        shot("shell-after-login.png", frames = 20) { ToolboxDesktopApp(auth, DesktopTarget.App(AppRoute.Library)) }
 
         // 体测（第五条真数据路由）：这张图走**外壳 + 真路由**（`AppRoute.Fitness` → `FitnessApi`），
         // 所以它同时证明「路由真接上了」与「数据是真的」（学年胶囊 / 姓名 / 总分 / 七个分项）。
@@ -755,6 +768,111 @@ fun main(args: Array<String>) {
         check(downloadShown) {
             "download_manager.png：屏上没有夹具那场活动（${DownloadFakeUpstream.ACTIVITY_TITLE}）—— 多半没取到队列"
         }
+        // ── 首页 / 主壳（`AppRoute.Main`，第三十一条真数据路由）─────────────────────────
+        // 走**真路由**：外壳 → `AppRoute.Main` → 本端 `DesktopHomeScreen` → `:core` 的 `HomeScreen`。
+        // 首页这一端**一个请求都不发**（它只读本机课表缓存），所以「真数据」是**写进本端键值缓存**
+        // 的一份夹具课表/考试/教材（值都是编的）—— 与 `schedule.png` 那张读的是同一份缓存
+        //（`DesktopScheduleHost.cache`，0600 的 properties 文件）。
+        //
+        // 公告那一枪注入夹具：证据运行不该去打真站点，更不该把真公告画进图里（与 `library-demo.png`
+        // 注入 `DemoLibrarySource` 同一条口径）。`url` 用 `.invalid` 保留域，点了也不会真打开什么。
+        val homeTerm = "2026-2027-1"
+        val homeToday = todayInSystemZone()
+        val homeCache = DesktopScheduleHost(auth).cache(AccountContext.activeAccountId)
+        // 两节课同名字同教室，分放「今天晚些」与「明天早八」：不论证据运行在一天里的哪个钟点跑，
+        // 「下一项安排」都有东西可画（否则 22:00 之后跑就变成「接下来两周都没课」了）。
+        // `courseCode` 用自建日程那个前缀：节假日停的是教务排的课，自建日程照常 ——
+        // 这张图不该因为「今天恰好是夹具里的假期」而少一格。
+        fun homeFixtureCourse(dayOfWeek: Int, startMinute: Int, endMinute: Int) = CourseItem(
+            courseName = "示例课程（夹具）",
+            teacher = "示例老师（夹具）",
+            location = "主楼A-101",
+            weekBits = "1".repeat(20),
+            dayOfWeek = dayOfWeek,
+            startSection = 1,
+            endSection = 2,
+            courseCode = "custom_fixture_home",
+            startMinuteOfDay = startMinute,
+            endMinuteOfDay = endMinute,
+        )
+        ScheduleCache.writeCurrentTerm(homeCache, homeTerm)
+        // 开学日期 = 三周前 ⇒ 首页那一行固定是「第 4 周」（与 `DesktopHomeJvmTest` 同一个夹具）。
+        // 日期加减走 `fromEpochDays`：与 `:core` 的 `SchoolCalendarModels.plusDays` 同一个写法。
+        val homeStart = LocalDate.fromEpochDays(homeToday.toEpochDays() - 21)
+        ScheduleCache.writeStartDate(homeCache, homeTerm, homeStart, weeks = 20)
+        ScheduleCache.writeOptimizedCourses(
+            homeCache,
+            homeTerm,
+            listOf(
+                homeFixtureCourse(homeToday.dayOfWeek.ordinal + 1, 22 * 60, 23 * 60 + 30),
+                homeFixtureCourse(
+                    LocalDate.fromEpochDays(homeToday.toEpochDays() + 1).dayOfWeek.ordinal + 1,
+                    8 * 60,
+                    9 * 60 + 35,
+                ),
+            ),
+        )
+        ScheduleCache.writeExams(
+            homeCache,
+            homeTerm,
+            listOf(
+                ExamItem(
+                    courseName = "示例考试（夹具）",
+                    examDate = LocalDate.fromEpochDays(homeToday.toEpochDays() + 5).toString(),
+                    examTime = "09:00-11:00",
+                    location = "主楼B-201",
+                ),
+            ),
+        )
+        val homeBulletinTitle = "首页公告条（夹具）"
+        val homeBulletinJson = """{"bulletins":[{"id":"fixture-home-bar","level":"info","title":"$homeBulletinTitle",""" +
+            """"body":"值都是编的","url":"https://example.invalid/fixture"}]}"""
+        val homeBulletinFetch: suspend (String) -> BulletinApi.FetchResult? = {
+            BulletinApi.FetchResult(BulletinRules.parsePayload(homeBulletinJson), homeBulletinJson)
+        }
+
+        var homeCourseShown = false
+        var homeWeekShown = false
+        var homeExamShown = false
+        var homeBulletinShown = false
+        shot(
+            "home.png",
+            frames = 12,
+            onFrame = { frame, scene ->
+                if (frame >= 3) {
+                    if (!homeCourseShown) homeCourseShown = hasText(scene, "示例课程（夹具）")
+                    if (!homeWeekShown) homeWeekShown = hasText(scene, "第4周")
+                    if (!homeExamShown) homeExamShown = hasText(scene, "还有 5 天")
+                    if (!homeBulletinShown) homeBulletinShown = hasText(scene, homeBulletinTitle)
+                }
+            },
+        ) { ToolboxDesktopApp(auth, DesktopTarget.App(AppRoute.Main), homeBulletinFetch) }
+        check(homeCourseShown) { "home.png：屏上没出现夹具那节课 —— 首页没读出课表缓存？" }
+        check(homeWeekShown) { "home.png：屏上没有「第4周」—— 开学日期那一格没算出来？" }
+        check(homeExamShown) { "home.png：屏上没有考试倒计时 —— 考试表那一格没读出来？" }
+        check(homeBulletinShown) { "home.png：顶部没有夹具那条公告 —— 公告条没接上共享层？" }
+
+        // 主壳：同一个路由、宽窗拍一张 —— 首页接进**现有导航壳**之后的形态（底栏六格 + 首页高亮）。
+        var mainShellShown = false
+        var mainHomeTabShown = false
+        var mainBulletinShown = false
+        shot(
+            "main.png",
+            width = 900,
+            height = 900,
+            frames = 8,
+            onFrame = { frame, scene ->
+                if (frame >= 3) {
+                    if (!mainShellShown) mainShellShown = hasText(scene, "示例课程（夹具）")
+                    if (!mainHomeTabShown) mainHomeTabShown = hasText(scene, "首页")
+                    if (!mainBulletinShown) mainBulletinShown = hasText(scene, homeBulletinTitle)
+                }
+            },
+        ) { ToolboxDesktopApp(auth, DesktopTarget.App(AppRoute.Main), homeBulletinFetch) }
+        check(mainShellShown) { "main.png：宽窗下的首页没画出夹具那节课" }
+        check(mainHomeTabShown) { "main.png：底栏上没有「首页」那一格 —— 首页没接进现有壳？" }
+        check(mainBulletinShown) { "main.png：顶部没有夹具那条公告" }
+
 
         // 「全部页面」：这一页的 height 单独调大（不是其余图那个 900）—— 它是一张要读完的长表，
         // 而这一轮要证明的正是那个 0。把整页都框进来，免得拿半张图交差。
@@ -819,6 +937,43 @@ fun main(args: Array<String>) {
         ) { ToolboxDesktopApp(auth, DesktopTarget.App(AppRoute.WebVpnConverter)) }
         check(vpnTyped) { "webvpn_converter.png：没找到那个输入框（semantics 里没有 SetText）" }
         check(vpnConverted) { "webvpn_converter.png：没点到「转换」" }
+
+        // ── 我的课表（第三十条真数据路由，本批主角）───────────────────────────────
+        // 走**真路由**：外壳 → `AppRoute.Schedule` → `DesktopSiteGate(教务)` → `:core` 的
+        // `ScheduleScreen` + 本端 `DesktopScheduleHost`（键值落盘 / 教务会话 / 节假日）。
+        //
+        // ⚠️ 这一段必须排在「账号管理」之前：那一块会**真切账号**（换绑命名空间），
+        // 而课表的缓存、会话都按激活账号走。
+        //
+        // 这张图要证明的不是「有一屏」，而是**课表真画出来了**，所以断言分两层：
+        //  ① 夹具那门课的名字（`高等数学（上）`）出现在屏上 —— 教务会话建起来了、课表取到了；
+        //  ② 夹具那个教室（`主楼A-101`，`CourseCell` 画成 `@主楼A-101` 那一行）也在 ——
+        //     说明**格子真渲染**了（只有名字出现的话，也可能是哪行说明文字里带的）。
+        var scheduleCourseShown = false
+        var scheduleCellShown = false
+        shot(
+            "schedule.png",
+            width = 900,
+            height = 900,
+            // 进屏那一枪要走：建教务会话 → 拉课表 + 考试 + 学期列表 → 落缓存 → 上屏。
+            frames = 24,
+            onFrame = { frame, scene ->
+                if (frame >= 6 && !scheduleCourseShown) {
+                    scheduleCourseShown = hasText(scene, JwxtFakeUpstream.SCHEDULE_1_COURSE)
+                }
+                if (scheduleCourseShown && !scheduleCellShown) {
+                    scheduleCellShown = hasText(scene, JwxtFakeUpstream.SCHEDULE_1_ROOM)
+                }
+            },
+        ) { ToolboxDesktopApp(auth, DesktopTarget.App(AppRoute.Schedule)) }
+        check(scheduleCourseShown) { "schedule.png：屏上没出现夹具的课名 —— 多半没取到课表（会话或取数断了）" }
+        check(scheduleCellShown) { "schedule.png：课名在、教室不在 —— 课程格子没画出来？" }
+        // 顺手确认上屏的数据真落到了本端那份缓存里（逐条钉落盘的是 `DesktopScheduleJvmTest`）。
+        check(
+            com.xjtu.toolbox.schedule.ScheduleCache.readCurrentTerm(
+                DesktopScheduleHost(auth).cache(AccountContext.activeAccountId),
+            ) != null,
+        ) { "schedule.png：拍完了但课表缓存是空的 —— 上屏的数据没落盘" }
 
         // ── 账号管理（多账号，第二十九条真数据路由）────────────────────────────────
         // 走**真路由**（外壳 → `AppRoute.Accounts` → `:core` 的 `AccountManagerScreen`），注入的是

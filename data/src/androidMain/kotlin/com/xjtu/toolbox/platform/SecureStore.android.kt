@@ -22,14 +22,20 @@ private var appContext: Context? = null
 private fun requireContext(): Context = appContext
     ?: error("initDataPlatform(context) 还没被调用 —— 见 :data 的 platform/SecureStore.kt")
 
+/** 同一个句柄给 `:data` 其余 Android actual 用（如 `DataFiles.android.kt` 的 `Context.filesDir`）。 */
+internal fun requireDataPlatformContext(): Context = requireContext()
+
 /**
  * Android 侧就是 `SecurePrefs`（`EncryptedSharedPreferences`）——**同名文件**，
  * 与搬迁前 `SessionBackend` / `PersistentCookieJar` / `SiteSnapshots` 用的是同一批
  * `cookies_normal_default` / `sites_normal_default` 之类。改名就会让所有人重登。
  */
-private class PrefsKeyValueStore(private val name: String) : KeyValueStore {
+private class PrefsKeyValueStore(
+    private val name: String,
+    private val legacyFallbackName: String,
+) : KeyValueStore {
     private val prefs: SharedPreferences
-        get() = SecurePrefs.open(requireContext(), name)
+        get() = SecurePrefs.open(requireContext(), name, legacyFallbackName)
 
     override fun getString(key: String): String? = prefs.getString(key, null)
 
@@ -69,7 +75,8 @@ private class PrefsKeyValueStore(private val name: String) : KeyValueStore {
     }
 }
 
-actual fun secureKeyValueStore(name: String): KeyValueStore = PrefsKeyValueStore(name)
+actual fun secureKeyValueStore(name: String, legacyFallbackName: String?): KeyValueStore =
+    PrefsKeyValueStore(name, legacyFallbackName ?: "${name}_fallback")
 
 /**
  * 与搬迁前 `SessionBackend.wipe` 的口径一致：**文件不存在就什么都不做** ——

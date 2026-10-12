@@ -1,0 +1,93 @@
+name: Desktop Windows Packaging
+
+# Windows 安装包的出包通道。**为什么必须是一条独立的 workflow、而且只能在 windows-latest 上跑**：
+# jpackage 不接受交叉构建 —— 出 `.msi` / `.exe` 要调 Windows 自己的 WiX（`candle.exe` / `light.exe`），
+# 在 Linux 上执行那两个任务会直接失败（见 desktop/build.gradle.kts 里那段注释）。
+#
+# WiX 不用手工装：Compose Desktop 自己下载一份 WiX 3.11 到 gradle 用户目录
+# （属性 `compose.desktop.application.downloadWix`，默认开；也可以用 `WIX_PATH` 指一份现成的）。
+#
+# 与 core-gate.yml 同一种风格：独立触发、按路径过滤、并发去重。这里**不做**发布（不上传 Release）——
+# 桌面产物现在只作为 artifact 留档，要不要发进 Release 由发版流程那一轮定（见 docs/windows-delivery.md）。
+
+on:
+  pull_request:
+    paths:
+      - 'desktop/**'
+      - 'data/**'
+      - 'core/**'
+      - 'gradle/**'
+      - 'gradlew'
+      - 'gradlew.bat'
+      - 'settings.gradle.kts'
+      - '.github/workflows/desktop-windows.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: desktop-windows-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  package:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        # 与 gradle/libs.versions.toml 的 kotlin 2.4.20 + 三个模块的 jvmToolchain(21) 对齐
+        uses: actions/setup-java@v4
+        with:
+          java-version: "21"
+          distribution: "temurin"
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: 确认 Android SDK 在（:app 的 AGP 在**配置期**就要它）
+        # 我们只编 :desktop，但 Gradle 会配置整个构建，包括 apply 了 AGP 的 :app。
+        # windows-latest 的镜像自带 Android SDK（ANDROID_HOME/ANDROID_SDK_ROOT 已设）；
+        # 万一将来镜像变了，这一步会**响亮地**失败在这里，而不是让人去猜后面那条报错。
+        shell: pwsh
+        run: |
+          if (-not $env:ANDROID_HOME -and -not $env:ANDROID_SDK_ROOT) {
+            throw "镜像里没有 Android SDK：:app 的 AGP 在配置期就要 ANDROID_HOME"
+          }
+          Write-Host "ANDROID_HOME=$env:ANDROID_HOME"
+
+      - name: 编译桌面端
+        # 先编一遍：编译错误（比如只有 Windows 才走的分支）在这里就报，不必等到 jlink 跑完
+        run: .\gradlew.bat :desktop:compileKotlin
+
+      - name: 打 Windows 安装包（.msi 与 .exe）
+        # ⚠️ 这一步本机（Linux）跑不了，只能在这里验。WiX 由 Compose Desktop 自动下载。
+        run: .\gradlew.bat :desktop:packageMsi :desktop:packageExe
+
+      - name: 列出产物
+        shell: pwsh
+        run: |
+          Get-ChildItem -Recurse desktop\build\compose\binaries\main -File |
+            Select-Object FullName, @{Name="MB";Expression={[math]::Round($_.Length / 1MB, 1)}}
+
+      - name: 上传产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: xjtu-toolbox-windows
+          path: |
+            desktop/build/compose/binaries/main/msi/*.msi
+            desktop/build/compose/binaries/main/exe/*.exe
+          # 没产物就是出包失败，别当成「跑过了」
+          if-no-files-found: error
+
+      # ── 验证步骤刻意放在出包**之后**：万一有平台相关的用例红了，产物仍然留得下来给人查。
+      #    跑的都是「指定类」而不是整套：整套在 Windows 上现在会红，原因见 docs/windows-delivery.md
+      #    的未验证项清单（DesktopAuthLibraryJvmTest 断言 0600 POSIX 权限，Windows 没有这个概念）。
+
+      - name: 凭据保护的单元测试（平台上真跑：这几条含真 DPAPI 往返/篡改）
+        # Windows 上 secretProtectorForPlatform 真给 DPAPI ⇒ 这两条用例在这里**真跑**
+        # （Linux 上它们自己跳过，所以这是它们唯一的验证现场）
+        run: .\gradlew.bat :data:jvmTest --tests "com.xjtu.toolbox.platform.*"
+
+      - name: 更新骨架的单元测试
+        # 纯函数那半（挑发布、比版本）与注入假响应的那条 GET：与平台无关，Windows 上也该绿
+        run: .\gradlew.bat :desktop:test --tests "com.xjtu.toolbox.desktop.DesktopUpdateJvmTest"

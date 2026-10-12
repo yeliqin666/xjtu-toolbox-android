@@ -1,5 +1,6 @@
 import java.io.File
 import java.util.Properties
+import org.jetbrains.compose.desktop.application.dsl.TargetFormat
 
 // :desktop —— 桌面端（Linux / Windows）的**窗口模式**：Compose Desktop 原生窗口。
 //
@@ -156,21 +157,61 @@ dependencies {
 compose.desktop {
     application {
         mainClass = "com.xjtu.toolbox.desktop.MainKt"
-        // jpackage：`./gradlew :desktop:packageDeb` / `:desktop:packageTarGz` / `createDistributable`。
-        // 出包形态按 `docs/desktop-port-plan.md` §7 定下来的三样：`.deb` / app-image（免安装目录）
-        // / 由 app-image 再打的 `tar.gz`。
+        // jpackage：`./gradlew :desktop:packageDeb` / `:desktop:packageTarGz` / `createDistributable`
+        //（Linux，本机就能验）与 `:desktop:packageMsi` / `:desktop:packageExe`（Windows）。
+        //
+        // ⚠️ **Windows 的包只能在 Windows 上打**：jpackage 不接受交叉构建，它要调 Windows 自己的
+        // WiX（`candle.exe`/`light.exe`）—— Compose Desktop 会自己下载一份 WiX 3.11 到 gradle 用户目录
+        //（`compose.desktop.application.downloadWix`，也能用 `WIX_PATH` 指一份现成的）。
+        // 所以 Windows 那两个 target 在这里只是**声明**：任务会注册，但在 Linux 上执行会失败；
+        // 真出包的路在 `.github/workflows/desktop-windows.yml`（windows-latest）。
+        // 出包形态按 `docs/desktop-port-plan.md` §7 定下来的三样（`.deb` / app-image / `tar.gz`）
+        // + `docs/windows-delivery.md` 定下来的两样（`.msi` / `.exe`）。
         nativeDistributions {
-            targetFormats(org.jetbrains.compose.desktop.application.dsl.TargetFormat.Deb,
-                org.jetbrains.compose.desktop.application.dsl.TargetFormat.AppImage)
+            targetFormats(
+                // Linux（§7.1 三样）：`packageDeb` / `createDistributable` / `packageTarGz`
+                TargetFormat.Deb,
+                TargetFormat.AppImage,
+                // Windows（docs/windows-delivery.md）：.msi 是企业分发/组策略常用的那一种，
+                // .exe 是普通用户双击就走的那种（两者都需要 Windows + WiX）
+                TargetFormat.Msi,
+                TargetFormat.Exe,
+            )
             packageName = "xjtu-toolbox"
             // jpackage 的版本号规则比 :app 的 versionName 严：只接受 x.y.z（或带 -ea 之类后缀）
             packageVersion = desktopPackageVersion
             description = "西安交通大学工具箱（桌面预览）"
             vendor = "XJTU ToolBox"
+            copyright = "Copyright © XJTU ToolBox contributors"
 
             linux {
                 menuGroup = "Education"
                 appCategory = "Education"
+            }
+
+            /**
+             * Windows 那一套（都是 jpackage 的 `--win-*` / WiX 参数），逐项写清为什么：
+             *
+             *  - [WindowsPlatformSettings.perUserInstall] `true`：装到用户自己的目录（`%LOCALAPPDATA%`）、
+             *    **不弹 UAC**。这一端本来就是「每个人装自己一份、装完各登各的」——凭据用 DPAPI 的
+             *    **当前用户**作用域（见 `:data` 的 `DpapiSecretProtector`），装上就能用；
+             *  - [WindowsPlatformSettings.upgradeUuid]：**升级与卸载靠它认人**（MSI 的 UpgradeCode）。
+             *    发过一次版就**绝对不能改** —— 改了就是「另一个产品」，老版本不会被升级/卸载，
+             *    而是并存两个；
+             *  - [WindowsPlatformSettings.menuGroup]：开始菜单里的文件夹名（与 Linux 那栏同一个词）；
+             *  - [AbstractPlatformSettings.iconFile]：`desktop/icons/windows.ico`（多尺寸，从 Android 的
+             *    `ic_launcher.webp` 转出来的；jpackage 在 Windows 上只收 `.ico`）。
+             *    不用 app-image 里那套默认的 Java 图标 —— 装出来在开始菜单/控制面板里就是「Java」。
+             *
+             * 其余几个用默认值：`console = false`（不开控制台窗）、`shortcut = true` / `menu = true`
+             *（桌面快捷方式 + 开始菜单）、`dirChooser = true`（安装时可选目录）、`msiPackageVersion` /
+             * `exePackageVersion` 默认取 `packageVersion`。
+             */
+            windows {
+                perUserInstall = true
+                upgradeUuid = "528a294e-23ee-4307-a37a-1a71bb591fa0"
+                menuGroup = "Education"
+                iconFile.set(project.file("icons/windows.ico"))
             }
         }
     }

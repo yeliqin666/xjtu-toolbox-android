@@ -15,8 +15,13 @@ package com.xjtu.toolbox.platform
  *
  * 类型刻意复用 `:core` 的 [KeyValueStore] 接口：调用方（会话内核）只用到 getString / putString /
  * remove / contains / clear 这几件，接口一模一样，不必再长一个同形接口出来。
+ *
+ * [legacyFallbackName] 是 Android 那半的历史包袱：`SecurePrefs.open` 有一个「老明文文件迁进来
+ * 然后删掉」的步骤，默认按 `${name}_fallback` 找。`:app` 时代的几个调用点各有自己的名字
+ * （如 `agent_config_fallback<suffix>`），搬迁时把名字带过来 —— **不能换成默认值**，
+ * 换了那一步就不再发生：老机器上那份明文 API key 既迁不过去也删不掉。其余端没有这一步，忽略。
  */
-expect fun secureKeyValueStore(name: String): KeyValueStore
+expect fun secureKeyValueStore(name: String, legacyFallbackName: String? = null): KeyValueStore
 
 /**
  * 整份删掉一个密文存储（删账号时用）。

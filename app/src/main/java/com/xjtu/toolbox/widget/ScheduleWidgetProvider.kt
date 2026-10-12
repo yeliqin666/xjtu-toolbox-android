@@ -104,15 +104,16 @@ object ScheduleWidgetUpdater {
      * 第一次刷新小组件都有 ANR 风险。缓存为空就先按"无节假日"渲染，后台拉到后再刷一次。
      */
     private fun widgetHolidays(context: Context): Map<LocalDate, String> {
-        val cached = com.xjtu.toolbox.schedule.HolidayApi.peekCached(context)
+        val cached = com.xjtu.toolbox.schedule.HolidayApi.peekCached(com.xjtu.toolbox.data.DataCache(context))
+            .mapKeys { it.key.toJavaTime() }
         if (cached.isNotEmpty()) return cached
         if (holidayFetchInFlight.compareAndSet(false, true)) {
             val app = context.applicationContext
             kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
                 try {
                     val fetched = runCatching {
-                        com.xjtu.toolbox.schedule.HolidayApi.getHolidayDates(app)
-                    }.getOrDefault(emptyMap())
+                        com.xjtu.toolbox.schedule.HolidayApi.getHolidayDates(com.xjtu.toolbox.data.DataCache(app))
+                    }.getOrDefault(emptyMap()).mapKeys { it.key.toJavaTime() }
                     // 拉不到就别刷新，否则每次刷新又触发一次拉取，形成循环
                     if (fetched.isNotEmpty()) requestUpdate(app, resetToToday = false)
                 } finally {
@@ -493,7 +494,7 @@ object ScheduleWidgetUpdater {
         return apiCourses + customCourses
     }
 
-    private fun readStartDate(cache: DataCache, termCode: String): LocalDate? = ScheduleCache.readStartDate(cache, termCode)
+    private fun readStartDate(cache: DataCache, termCode: String): LocalDate? = ScheduleCache.readStartDate(cache, termCode)?.toJavaTime()
 
     /**
      * Widget 进程入口可能未经 MainActivity，AccountContext 未初始化；
@@ -529,7 +530,7 @@ object ScheduleWidgetUpdater {
         // 按整学期的课分配颜色，和课表页一样，避开撞色的顺延结果才对得上
         val colors = courseColorMap(allCourses.map { it.courseName })
 
-        val startDate = ScheduleCache.readStartDate(cache, termCode)
+        val startDate = ScheduleCache.readStartDate(cache, termCode)?.toJavaTime()
 
         val baseWeek = startDate?.let {
             com.xjtu.toolbox.schedule.TermWeeks.weekOf(it.toKx(), nowDate.toKx())

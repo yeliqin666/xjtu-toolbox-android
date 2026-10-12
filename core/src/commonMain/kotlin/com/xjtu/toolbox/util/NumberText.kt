@@ -32,3 +32,10 @@ fun formatFixed(value: Double, digits: Int): String {
 
 /** [formatFixed] 的 `Float` 重载（屏上的回调收的就是 `Float`）。 */
 fun formatFixed(value: Float, digits: Int): String = formatFixed(value.toDouble(), digits)
+
+/**
+ * `%02d` 的跨端等价实现 —— 与 [formatFixed] 同一个来由（`String.format` 是 JVM 专属，
+ * 而且它在 JVM 上是默认导入，基于 import 的判据看不见）。课表那一族从 `:app` 搬进来时
+ * 带着十来处 `"%02d:%02d".format(...)`，这里是它们唯一的一份替身。
+ */
+fun formatTwoDigits(value: Int): String = value.toString().padStart(2, '0')

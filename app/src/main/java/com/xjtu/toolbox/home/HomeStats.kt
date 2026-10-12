@@ -2,23 +2,16 @@ package com.xjtu.toolbox.home
 
 import android.content.Context
 import com.xjtu.toolbox.account.AccountContext
-import com.xjtu.toolbox.schedule.ScheduleCache
-import kotlinx.serialization.Serializable
 import com.xjtu.toolbox.data.DataCache
 import com.xjtu.toolbox.nav.AppRoute
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import java.time.LocalDate
 
-/** 一条首页状态：[value] 是大字主数据，[detail] 是补充说明。 */
-@Serializable
-data class HomeStat(val value: String = "", val detail: String? = null)
-
-/** 最近一场考试（名称 + 倒计时）在 [HomeStats.collect] 结果里的键。 */
-const val EXAM_KEY = "exam_next"
-
+// 值对象 `HomeStat` 与键名 `EXAM_KEY` 已搬进 `:core`（同包同名，见 `core` 的
+// `home/HomeStat.kt`）：它们的消费方跨端（卡片模型），而下面这套采集器仍然是 Android 专属的
+// —— 它读的是 `DataCache`（SharedPreferences + Room）与 `CampusCardCache`，属 §5.1 那座桥。
 /**
- * 首页各功能的「当前状态」采集器。
+ * 首页各功能的「当前状态」采集器（`:app` 这一端：读本机缓存）。
  *
  * 原则：**只读本地缓存，一个网络请求都不发**。首页是启动第一屏，为了几行状态去打十几个
  * 校园系统既慢又容易把会话打挂。拿不到就返回 null，对应功能退回纯入口，不显示占位符。
@@ -255,50 +248,12 @@ object HomeStats {
 
             if (termCode.isNullOrBlank()) return@withContext out
 
-            // ── 校历 / 教学周：由学期开始日期本地推算，不需要网络 ──
-            runCatching {
-                ScheduleCache.readStartDate(cache, termCode)?.let { start ->
-                    val today = LocalDate.now()
-                    val week = ((today.toEpochDay() - start.toEpochDay()) / 7 + 1).toInt()
-                    if (week in 1..30) {
-                        out["school_calendar"] = HomeStat("第 $week 周", "$termCode 学期")
-                    }
-                }
-            }
-
-            // ── 考试：最近一场 + 倒计时 ──
-            ScheduleCache.readExams(cache, termCode)?.let { exams ->
-                val today = LocalDate.now()
-                exams.mapNotNull { e ->
-                    val day = runCatching { LocalDate.parse(e.examDate.take(10)) }.getOrNull() ?: return@mapNotNull null
-                    if (day < today) null else e to day
-                }.minByOrNull { it.second }?.let { (e, day) ->
-                    val days = day.toEpochDay() - today.toEpochDay()
-                    // 单独一项：首页 Hero 的考试倒计时读它，不挤占「日程」那一格
-                    out[EXAM_KEY] = HomeStat(
-                        e.courseName.ifBlank { "考试" },
-                        buildString {
-                            append(if (days == 0L) "就在今天" else "还有 $days 天")
-                            if (e.location.isNotBlank()) append(" · ${e.location}")
-                        }
-                    )
-                }
-            }
-
-            // ── 日程：本学期有多少门课。下节课和考试都在 Hero 里，这一格只给学期概况，
-            // 否则假期/短学期里它永远是空的，看着像功能坏了。
-            run {
-                runCatching {
-                    val courses = ScheduleCache.readCourses(cache, termCode)
-                    if (!courses.isNullOrEmpty()) {
-                        out["schedule"] = HomeStat("${courses.size} 门课", "$termCode 学期")
-                    }
-                }
-            }
-
-            // ── 教材：本学期册数 ──
-            val books = ScheduleCache.readTextbooks(cache, termCode, Long.MAX_VALUE)?.size ?: 0
-            if (books > 0) out["jiaocai"] = HomeStat("$books 本", "本学期教材")
+            // ── 课表族缓存里那几格（教学周 / 最近一场考试 / 本学期课数 / 教材册数）──
+            // 判定搬进 `:core` 的 [HomeScheduleStats]：它读的三样（课表、考试、教材）都在共享层的
+            // 同一份课表族缓存里（`:app` 这一端那份的实现就是上面的 [DataCache]），于是桌面首页
+            // 与这里**同一份算法**、同一批键名。留在本文件的是剩下两段：各功能页推送的摘要
+            //（`DataCache` 的 `home_stat_*` 键）与校园卡余额（`CampusCardCache`），属 §5.1 那座桥。
+            out.putAll(HomeScheduleStats.of(cache, termCode))
 
             out
         }

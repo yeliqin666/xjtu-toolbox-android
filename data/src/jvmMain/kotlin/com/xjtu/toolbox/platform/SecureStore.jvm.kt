@@ -108,7 +108,8 @@ private class FileKeyValueStore(private val file: File) : KeyValueStore {
     }
 }
 
-actual fun secureKeyValueStore(name: String): KeyValueStore = stores.computeIfAbsent(name) {
+// 桌面没有「老明文文件迁进来」那一步（[legacyFallbackName] 只对 Android 有意义），参数收下不用。
+actual fun secureKeyValueStore(name: String, legacyFallbackName: String?): KeyValueStore = stores.computeIfAbsent(name) {
     FileKeyValueStore(File(dataRoot(), "$name.properties"))
 }
 

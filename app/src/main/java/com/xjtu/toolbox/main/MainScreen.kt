@@ -102,6 +102,8 @@ import com.xjtu.toolbox.profile.ProfileTab
 import com.xjtu.toolbox.qrlogin.QrLoginScreen
 import com.xjtu.toolbox.schedule.ExamCountdown
 import com.xjtu.toolbox.schedule.ScheduleDiff
+import com.xjtu.toolbox.schedule.cachedNextExam
+import com.xjtu.toolbox.schedule.scheduleDiffStore
 import com.xjtu.toolbox.schedule.ScheduleScreen
 import com.xjtu.toolbox.ui.WindowSize
 import com.xjtu.toolbox.ui.components.LocalPageVisible
@@ -257,7 +259,7 @@ internal fun MainScreen(
             try {
                 val site = manager.ensureSite(com.xjtu.toolbox.auth.LoginType.JWXT, silent = true)
                 com.xjtu.toolbox.schedule.ScheduleSourceRouter.ensureCached(
-                    context, cache, com.xjtu.toolbox.schedule.ScheduleApi(site), manager,
+                    cache, com.xjtu.toolbox.schedule.JwxtScheduleApi(site), manager,
                     studentId = loginState.activeUsername,
                 )
                 HomeSignals.scheduleVersion++
@@ -782,7 +784,7 @@ private fun ProactiveReminderLoop(loginState: AppLoginState) {
             val unseenNotice = HomeStats.unseenNoticeTitle(context)
             val unseenNoticeLink = HomeStats.unseenNoticeLink(context)
             val libraryTodo = HomeSignals.libraryUrgentAction
-            val nextExam = withContext(Dispatchers.IO) { ExamCountdown.fromCache(context) }
+            val nextExam = withContext(Dispatchers.IO) { cachedNextExam(com.xjtu.toolbox.data.DataCache(context)) }
             val msg = ProactiveRules.pick(
                 ctx = context,
                 balance = balance,
@@ -809,7 +811,7 @@ private fun ProactiveReminderLoop(loginState: AppLoginState) {
                 when (msg.id) {
                     "grade" -> HomeStats.setPendingNewScores(context, 0)
                     "notice" -> HomeStats.clearUnseenNotice(context)
-                    "schedule_change" -> ScheduleDiff.setPending(context, null)
+                    "schedule_change" -> ScheduleDiff.setPending(scheduleDiffStore(), null)
                     "attendance" -> HomeSignals.attendanceAlert = null
                     "coupon" -> HomeSignals.couponAlert = null
                     "dorm_power" -> HomeSignals.dormPowerAlert = null
@@ -835,10 +837,15 @@ private fun CoursesTab(
     onActionsChange: ((@Composable RowScope.() -> Unit)?) -> Unit,
     onBottomContentChange: ((@Composable () -> Unit)?) -> Unit,
 ) {
+    // 日程页的宿主面（本地落盘 / 教务会话 / 分享面板 / 考勤与思源那几档）—— 屏在 `:core`，
+    // 这一端只把它认得的那些能力接上去。见 `AppScheduleHost` 那张表。
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val scheduleHost = remember(loginState) {
+        com.xjtu.toolbox.schedule.AppScheduleHost(context, loginState)
+    }
     Box(Modifier.fillMaxSize().nestedScroll(scrollBehavior.nestedScrollConnection)) {
         ScheduleScreen(
-            site = loginState.sessionManager?.getSiteOrNull("jwxt"),
-            studentId = loginState.activeUsername,
+            host = scheduleHost,
             onBack = {},
             onSubtitleChange = onSubtitleChange,
             onActionsChange = onActionsChange,

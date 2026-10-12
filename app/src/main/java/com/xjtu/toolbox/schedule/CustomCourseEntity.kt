@@ -2,18 +2,18 @@ package com.xjtu.toolbox.schedule
 
 import androidx.room.*
 
-const val AGENDA_NOTE_PREFIX = "[AGENDA]"
-
-fun encodeAgendaNote(note: String): String {
-    val trimmed = note.trim()
-    return if (trimmed.startsWith(AGENDA_NOTE_PREFIX)) trimmed else "$AGENDA_NOTE_PREFIX$trimmed"
-}
-
-fun decodeAgendaNote(note: String): String = note.removePrefix(AGENDA_NOTE_PREFIX).trim()
-
 /**
- * 自定义课程实体（Room 数据库）
- * 用于存储用户手动添加的实验课、临时排课等
+ * 自定义课程实体（Room 数据库）—— **表还是这一张**：`custom_courses`，列名一个未改。
+ *
+ * ## 与 `:core` 的 `CustomCourse` 是什么关系
+ *
+ * 屏与 ViewModel 进了 `:core`，而 Room 注解是 Android 专属的 ⇒ `:core` 那边放**领域模型**
+ * （`CustomCourse`，字段与这里一个不差），这里留实体与两张之间的逐字段映射。
+ * 读写那条路由 `RoomCustomCourseStore` 收成 `:core` 的 `CustomCourseStore` 缝
+ * （同一个库、同一张表、同一批列名 —— 老用户的自建日程一条都不会丢）。
+ *
+ * 谁仍直接用这一份：`ScheduleWidgetProvider` / `HomeTab` / `AgentTool` / `AccountManager`
+ * 四处（它们本来就在 `:app`），一行未改。
  */
 @Entity(tableName = "custom_courses")
 data class CustomCourseEntity(
@@ -57,39 +57,43 @@ data class CustomCourseEntity(
         startMinuteOfDay = startMinuteOfDay,
         endMinuteOfDay = endMinuteOfDay
     )
+
+    /** 表行 → 领域模型（逐字段，一个不漏）。 */
+    fun toCustomCourse(): CustomCourse = CustomCourse(
+        id = id,
+        accountId = accountId,
+        courseName = courseName,
+        teacher = teacher,
+        location = location,
+        weekBits = weekBits,
+        dayOfWeek = dayOfWeek,
+        startSection = startSection,
+        endSection = endSection,
+        startMinuteOfDay = startMinuteOfDay,
+        endMinuteOfDay = endMinuteOfDay,
+        termCode = termCode,
+        note = note,
+        createdAt = createdAt,
+    )
 }
 
-/**
- * 将诸如 "第1-4，6-16周"、"1,2,4-10" 等不规则字符串解析为周次列表
- * 自建课程落库模型。
- */
-fun parseWeeksString(weeksStr: String): List<Int> {
-    if (weeksStr.isBlank()) return emptyList()
-    var s = weeksStr.trim().replace("第", "").replace("周", "")
-    val seps = arrayOf("，", "、", ";", "；", " ")
-    for (sep in seps) {
-        s = s.replace(sep, ",")
-    }
-    val parts = s.split(",").filter { it.isNotBlank() }
-    val weeks = mutableSetOf<Int>()
-    for (p in parts) {
-        val part = p.trim()
-        if (part.isBlank()) continue
-        if ("-" in part) {
-            val range = part.split("-", limit = 2)
-            val start = range.getOrNull(0)?.toIntOrNull()
-            val end = range.getOrNull(1)?.toIntOrNull()
-            if (start != null && end != null) {
-                val s1 = minOf(start, end)
-                val e1 = maxOf(start, end)
-                weeks.addAll(s1..e1)
-            }
-        } else {
-            part.toIntOrNull()?.let { weeks.add(it) }
-        }
-    }
-    return weeks.sorted()
-}
+/** 领域模型 → 表行。新增（`id == 0`）落回 Room 的自增主键。 */
+fun CustomCourse.toEntity(): CustomCourseEntity = CustomCourseEntity(
+    id = id,
+    accountId = accountId,
+    courseName = courseName,
+    teacher = teacher,
+    location = location,
+    weekBits = weekBits,
+    dayOfWeek = dayOfWeek,
+    startSection = startSection,
+    endSection = endSection,
+    startMinuteOfDay = startMinuteOfDay,
+    endMinuteOfDay = endMinuteOfDay,
+    termCode = termCode,
+    note = note,
+    createdAt = createdAt,
+)
 
 @Dao
 interface CustomCourseDao {

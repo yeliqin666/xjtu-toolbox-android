@@ -68,14 +68,15 @@ fun AgentScreen(
 ) {
     val context = LocalContext.current
     val loginState = LocalAppLoginState.current
-    val configStore = remember { AgentConfigStore(context) }
+    val configStore = remember { AgentConfigStore() }
     var config by remember { mutableStateOf(configStore.load()) }
     // 不要 rememberSaveable：冷启动第一帧可能读到空 key，之后会把设置页钉死。
     var showConfig by remember { mutableStateOf(false) }
     val vm: AgentViewModel = viewModel(viewModelStoreOwner = context as ViewModelStoreOwner)
 
     // 多会话持久化：绑定一次，加载会话列表并恢复最近会话
-    val sessionStore = remember { AgentSessionStore(context) }
+    // 两者都在 `:data`：根目录/存储由那边的缝解析（Android 就是原来的 filesDir 与两个 SharedPreferences 文件）
+    val sessionStore = remember { AgentSessionStore() }
     LaunchedEffect(Unit) { vm.bind(sessionStore) }
 
     LaunchedEffect(loginState.accountId) {

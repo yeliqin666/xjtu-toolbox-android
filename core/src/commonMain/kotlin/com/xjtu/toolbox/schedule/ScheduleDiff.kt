@@ -1,0 +1,199 @@
+package com.xjtu.toolbox.schedule
+import com.xjtu.toolbox.account.AccountContext
+import com.xjtu.toolbox.platform.KeyValueStore
+import com.xjtu.toolbox.platform.Log
+import com.xjtu.toolbox.platform.keyValueStore
+
+private const val TAG = "ScheduleDiff"
+
+/**
+ * 快照与待提醒随账号走，换账号后不会拿别人的课表来比。
+ *
+ * 从 `SharedPreferences` 换成 `:core` 的 [KeyValueStore] 缝：Android 那份就是**同一个文件、
+ * 同一批键**（`schedule_diff<suffix>`），老用户的快照照旧读得出来；桌面那份落在键值文件里。
+ */
+fun scheduleDiffStore(): KeyValueStore = keyValueStore("schedule_diff" + AccountContext.safeSuffix())
+
+/**
+ * 课表变更检测：调课、停课、换教室。
+ *
+ * 学校改课表不会通知任何人，教务系统里直接就变了。用户下次打开 App 看到的是新的，
+ * 但**没人告诉他哪里变了**——这正是最需要知道的一件事。
+ *
+ * 做法是把上一次拉到的课表按课程指纹存一份，下次拉到新的就比一遍。
+ * 不额外发任何请求：日程页本来每次进来都要拉课表，这里只是顺手比对一下。
+ *
+ * 只在**网络拉到的新数据**上比，读缓存不比：缓存和快照本来就是同一份，
+ * 比出来永远是"无变化"，白跑一趟。
+ *
+ * 搬迁：从 `:app` 的 `schedule/ScheduleDiff.kt` 搬进 commonMain，`Context` +
+ * `SharedPreferences` 换成 `:core` 的 [KeyValueStore]（键名与值逐字未动，见 [scheduleDiffStore]）。
+ * 唯一的行为差别在**清理旧版本快照**那一行：`SharedPreferences` 能枚举全部键，而这条缝只能
+ * get/put/remove ⇒ 改成「记住自己写过的快照键，下次清掉不在当前集合里的」——
+ * 代价是升级后头一次比完之前，旧版本留下的 `snap_*` 键会短暂留在文件里（几百字节，不影响结果）。
+ */
+object ScheduleDiff {
+
+    /**
+     * 一节课的身份与内容分开：
+     * - 身份 [key]：课程号 + 星期 + 起始节次。这是"哪一节课"。
+     * - 内容 [fingerprint]：教室 + 周次位串 + 结束节次 + 教师。这是"这节课什么样"。
+     *
+     * 身份不含教室，否则换教室会被判成"删一节 + 加一节"，而不是"这节课换教室了"。
+     */
+    private fun keyOf(c: CourseItem) = "${c.courseCode}|${c.dayOfWeek}|${c.startSection}"
+
+    private fun fingerprintOf(c: CourseItem) =
+        "${c.location}|${c.weekBits}|${c.endSection}|${c.teacher}"
+
+    /**
+     * 同一身份下可能有多条：某几周临时换教室时，数据源会按教室拆成几条（周次互不重叠）。
+     * 只有一条时与 [fingerprintOf] 完全相同，老快照不会因此误报。多条时把它们合成一份：
+     * 教室按「教室[周次]」列全，周次取并集——临时换教室换到了哪一周也能比出来，而不是
+     * 像 `associate` 那样只留下最后一条、把其余几条的变化悄悄吞掉。
+     */
+    internal fun groupFingerprint(group: List<CourseItem>): String {
+        if (group.size == 1) return fingerprintOf(group.single())
+        val sorted = group.sortedBy { it.getWeeks().firstOrNull() ?: Int.MAX_VALUE }
+        val location = sorted.joinToString("、") { "${it.location}[${TermWeeks.formatRanges(it.getWeeks())}]" }
+        val len = group.maxOf { it.weekBits.length }
+        val bits = CharArray(len) { i -> if (group.any { it.weekBits.getOrNull(i) == '1' }) '1' else '0' }
+        val ends = group.map { it.endSection }.distinct().sorted().joinToString(",")
+        val teachers = group.map { it.teacher }.distinct().sorted().joinToString("、")
+        return "$location|${bits.concatToString()}|$ends|$teachers"
+    }
+
+    data class Change(val kind: Kind, val courseName: String, val detail: String) {
+        enum class Kind { ADDED, REMOVED, MOVED }
+    }
+
+    /**
+     * 比一遍并落新快照。第一次跑（没有旧快照）只落快照、不报变更——
+     * 否则新装 App 的人一进来就会被告知"新增了 40 节课"。
+     */
+    fun diffAndStore(
+        prefs: KeyValueStore,
+        termCode: String,
+        courses: List<CourseItem>,
+        /** 最近一次课表**实际**来自哪个系统（`ScheduleSourceRouter.servedSource().key`）。 */
+        servedSourceKey: String,
+    ): List<Change> {
+        if (termCode.isBlank() || courses.isEmpty()) return emptyList()
+        // 快照按来源分开存。教务和考勤给的周次位串长度、教室写法都不完全一样，
+        // 用同一份快照去比会在换来源（设置里改、或非教务源失败退回教务）的那一次
+        // 把每一门课都报成"变了"。分开存的代价只是换来源后重建一次基线。
+        //
+        // 键名带格式版本：教务课表合进调停课后数据形状变了，拿老快照来比会把没变的课报成"变了"。
+        // 键名带格式版本：教务课表合进调停课后数据形状变了，拿老快照来比会把没变的课报成"变了"。
+        // 换版本等于重建一次基线。
+        //
+        // ⚠️ 搬迁前这里还会顺手枚举 `SharedPreferences` 的全部键，把上一版格式（`snap_*`）的
+        // 快照删掉；`KeyValueStore` 没有枚举能力，所以那一行去掉了 —— 旧键留在存储里，
+        // 但**永远不会被读到**（读的只有 `snap3_` 开头的）。
+        val storeKey = "${SNAPSHOT_PREFIX}${termCode}_$servedSourceKey"
+        val old = prefs.getStringSet(storeKey)
+
+        val groups = courses.groupBy(::keyOf)
+        val now = groups.mapValues { (_, group) -> groupFingerprint(group) }
+        val nowFlat = now.map { "${it.key}=>${it.value}" }.toSet()
+        val nameOf = groups.mapValues { (_, group) -> group.first().courseName }
+
+        prefs.putStringSet(storeKey, nowFlat)
+        if (old == null) {
+            Log.d(TAG, "$termCode 首次建立快照，${courses.size} 节，不报变更")
+            return emptyList()
+        }
+
+        val oldMap = old.mapNotNull { entry ->
+            val i = entry.indexOf("=>")
+            if (i <= 0) null else entry.substring(0, i) to entry.substring(i + 2)
+        }.toMap()
+
+        val changes = buildList {
+            for ((k, fp) in now) {
+                val prev = oldMap[k]
+                val name = nameOf[k] ?: continue
+                when {
+                    prev == null -> add(Change(Change.Kind.ADDED, name, describeKey(k)))
+                    prev != fp -> add(Change(Change.Kind.MOVED, name, describeDelta(prev, fp)))
+                }
+            }
+            for (k in oldMap.keys - now.keys) {
+                // 停掉的课在新表里已经没有名字了，只能报位置。
+                add(Change(Change.Kind.REMOVED, "有课停了", describeKey(k)))
+            }
+        }
+        if (changes.isNotEmpty()) Log.d(TAG, "$termCode 检出 ${changes.size} 处变更")
+        return changes
+    }
+
+    /** 检出的变更暂存一条给屁岱气泡用；冒过就清掉，不重复念。 */
+    fun setPending(prefs: KeyValueStore, text: String?) {
+        prefs.putString("pending", text)
+    }
+
+    fun pending(prefs: KeyValueStore): String? =
+        prefs.getString("pending")?.takeIf { it.isNotBlank() }
+
+    /** 把一串变更压成一句人话。多于一条只报最要紧的那条加个计数，气泡塞不下更多。 */
+    fun summarize(changes: List<Change>): String? {
+        if (changes.isEmpty()) return null
+        // 停课最要紧（白跑一趟），其次换教室/调时间，最后新增。
+        val first = changes.minByOrNull {
+            when (it.kind) {
+                Change.Kind.REMOVED -> 0
+                Change.Kind.MOVED -> 1
+                Change.Kind.ADDED -> 2
+            }
+        }!!
+        val head = when (first.kind) {
+            Change.Kind.REMOVED -> "课表有课被取消了（${first.detail}）"
+            Change.Kind.MOVED -> "${first.courseName}变了：${first.detail}"
+            Change.Kind.ADDED -> "课表新增了${first.courseName}（${first.detail}）"
+        }
+        return if (changes.size > 1) "$head，共 ${changes.size} 处改动" else head
+    }
+
+    private val DAY_NAMES = listOf("", "一", "二", "三", "四", "五", "六", "日")
+    private const val SNAPSHOT_PREFIX = "snap3_"
+    private val ROOM_WEEKS = Regex("""^(.*)\[([0-9,\-]+)]$""")
+
+    private fun describeKey(k: String): String {
+        val p = k.split('|')
+        val day = p.getOrNull(1)?.toIntOrNull() ?: return "时间未知"
+        val sec = p.getOrNull(2)?.toIntOrNull() ?: return "周${DAY_NAMES.getOrElse(day) { "?" }}"
+        return "周${DAY_NAMES.getOrElse(day) { "?" }}第${sec}节"
+    }
+
+    /** 只说变了哪一项，别把整串指纹丢给用户。 */
+    private fun describeDelta(oldFp: String, newFp: String): String {
+        val a = oldFp.split('|')
+        val b = newFp.split('|')
+        val parts = buildList {
+            if (a.getOrNull(0) != b.getOrNull(0)) add(describeRooms(a.getOrNull(0).orEmpty(), b.getOrNull(0).orEmpty()))
+            if (a.getOrNull(1) != b.getOrNull(1)) add("上课周次有调整")
+            if (a.getOrNull(2) != b.getOrNull(2)) add("下课节次变了")
+            if (a.getOrNull(3) != b.getOrNull(3)) {
+                add("教师 ${a.getOrNull(3).orEmpty().ifBlank { "?" }} → ${b.getOrNull(3).orEmpty().ifBlank { "?" }}")
+            }
+        }
+        return parts.joinToString("；").ifBlank { "有改动" }
+    }
+
+    /**
+     * 教室那一段的变化。拆成几条的课，教室写成 `主楼A-101[1-4]、主楼B-202[5]`；
+     * 整串甩给用户看不懂，只报新出现的那几段："第5周改在主楼B-202"。
+     */
+    private fun describeRooms(old: String, new: String): String {
+        fun parts(s: String) = s.split("、").filter { it.isNotBlank() }
+        val oldParts = parts(old).toSet()
+        val added = parts(new).filter { it !in oldParts }
+        if ('[' !in old && '[' !in new) return "教室 ${old.ifBlank { "?" }} → ${new.ifBlank { "?" }}"
+        val described = added.map { part ->
+            ROOM_WEEKS.find(part)?.destructured
+                ?.let { (room, weeks) -> "第${weeks.replace(",", "、")}周改在${room.ifBlank { "?" }}" }
+                ?: "教室改为$part"
+        }
+        return described.joinToString("，").ifBlank { "教室安排有调整" }
+    }
+}

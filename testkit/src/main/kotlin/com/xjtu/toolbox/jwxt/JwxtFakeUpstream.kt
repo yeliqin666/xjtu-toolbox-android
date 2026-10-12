@@ -134,6 +134,20 @@ class JwxtFakeUpstream {
         const val SCHEDULE_URL = "$WDKB/modules/xskcb/xskcb.do"
         const val TERM_START_URL = "$WDKB/modules/jshkcb/cxjcs.do"
 
+        /**
+         * 课表应用（`wdkb`）自己的「当前学期」与「调停补课」两条端点。
+         *
+         * ⚠️ [CURRENT_TERM_URL] 那条是**全校课表应用**（`kcbcx`）的，两条不是同一个 URL：
+         * `:data` 的 `JwxtScheduleApi.currentTerm` 打的是下面这条，而 `termList` 走的是 kcbcx。
+         */
+        const val WDKB_CURRENT_TERM_URL = "$WDKB/modules/jshkcb/dqxnxq.do"
+
+        /** 调停补课记录（`xskcb/xsdkkc.do`）—— 课表合并那一半的数据源，请求里必须带 `XNXQDM`。 */
+        const val CHANGES_URL = "$WDKB/modules/xskcb/xsdkkc.do"
+
+        /** 考试安排（`studentWdksapApp`，与课表同一个域名）。 */
+        const val EXAM_URL = "$ORIGIN/jwapp/sys/studentWdksapApp/modules/wdksap/wdksap.do"
+
         /** 帆软成绩报表。 */
         const val REPORT_URL = "$ORIGIN/jwapp/sys/frReport2/show.do"
 
@@ -217,6 +231,33 @@ class JwxtFakeUpstream {
         /** 学期起点：`XQKSRQ` 给到秒（解析只取日期那一段），`ZZC` = 总周数（含考试周）。 */
         const val TERM_START_DATE = "2026-09-14"
         const val TERM_TOTAL_WEEKS = 18
+
+        // ── 调停补课样本（`xsdkkc.do`）—— 全部是**编造值**，只要形状与真站点一样 ──
+        //
+        // 一条 MOVED（`TKLXDM` = `1`）：第 5 周、周一第 1-2 节的高等数学（上）从 [SCHEDULE_1_ROOM]
+        // 换到 [CHANGE_NEW_ROOM]。挑第 1 行那条课是因为它整学期都上（`ZCMC` = `1-16周`），
+        // 合并后应当表现为「原行被挖掉第 5 周」+「多出一条只在第 5 周、在新教室的行」——
+        // 两边的差别在断言里是逐字段看的（改错一格就现形）。
+
+        /** 调课记录的被调课教学班：必须等于 [SCHEDULE_1_JXBID]，否则合不上任何一门课。 */
+        const val CHANGE_JXBID = SCHEDULE_1_JXBID
+        const val CHANGE_COURSE = SCHEDULE_1_COURSE
+        const val CHANGE_OLD_ROOM = SCHEDULE_1_ROOM
+        const val CHANGE_NEW_ROOM = "主楼B-202"
+        const val CHANGE_WEEK = 5
+
+        /** `SKZC`/`XSKZC` 位串（16 位，只有第 [CHANGE_WEEK] 位是 `1`）。 */
+        const val CHANGE_BITS = "0000100000000000"
+        const val CHANGE_APPLIED_AT = "2026-09-28 09:00:00"
+
+        // ── 考试安排样本（`wdksap.do`）──
+        const val EXAM_COURSE = SCHEDULE_1_COURSE
+        const val EXAM_CODE = "MATH1001"
+        const val EXAM_DATE = "2027-01-15"
+        /** 上游把日期与时段塞在同一格（`KSRQ` 带 `00:00:00`、`KSSJMS` 带日期）—— 解析要剥掉两边。 */
+        const val EXAM_TIME = "14:30-16:30"
+        const val EXAM_ROOM = "主楼A-101"
+        const val EXAM_SEAT = "27"
 
         // ── 成绩报表样本 ──
 
@@ -372,6 +413,11 @@ class JwxtFakeUpstream {
     val scheduleCalls = AtomicInteger()
     val termStartCalls = AtomicInteger()
 
+    /** `wdkb` 的「当前学期」/「调停补课」/「考试安排」三条各打过几次。 */
+    val wdkbCurrentTermCalls = AtomicInteger()
+    val changesCalls = AtomicInteger()
+    val examCalls = AtomicInteger()
+
     /** 成绩报表的翻页请求打过几次（`totalPages=2` ⇒ 一次 `pn=1` + 一次 `pn=2`）。 */
     val reportPageCalls = AtomicInteger()
 
@@ -405,6 +451,16 @@ class JwxtFakeUpstream {
     /** 最近一次 `cxjcs.do` 的表单原文（断言学期号真被切成了 `XN` + `XQ` 两格）。 */
     @Volatile
     var lastTermStartForm: String? = null
+        private set
+
+    /** 最近一次 `xsdkkc.do` 的表单原文（断言 `XNXQDM=<学期>` 真发出去了）。 */
+    @Volatile
+    var lastChangesForm: String? = null
+        private set
+
+    /** 最近一次 `wdksap.do` 的表单原文（断言 `XNXQDM=<学期>` 与 `*order` 真发出去了）。 */
+    @Volatile
+    var lastExamForm: String? = null
         private set
 
     /** 最近一次报表初始页请求里带的学号（`xh=`）。 */
@@ -544,6 +600,35 @@ class JwxtFakeUpstream {
         {"datas":{"cxjcs":{"rows":[{"XN":"$TERM_NEW","XQKSRQ":"$TERM_START_DATE 00:00:00","ZZC":"$TERM_TOTAL_WEEKS"}]}}}
     """.trimIndent()
 
+    /** `wdkb` 自己的当前学期（与 kcbcx 那条同名端点给的是同一个学期，但**路由不同**）。 */
+    val wdkbCurrentTermJson = """
+        {"datas":{"dqxnxq":{"rows":[{"DM":"$TERM_NEW","MC":"$TERM_NEW_NAME"}]}}}
+    """.trimIndent()
+
+    /**
+     * 调停补课：一条 MOVED（第 [CHANGE_WEEK] 周的高等数学换到 [CHANGE_NEW_ROOM]）。
+     *
+     * 键名全是上游列名：`TKLXDM` 1/2/3 = 调课/停课/补课（`JwxtChange.of` 就认这三个数字，
+     * 所以我在这里写成 `"1"` 而不是 `"01"` —— 它自己会 `trimStart('0')`，两种都行）；
+     * `YSKJS`/`XSKJS` 是 `"姓名/工号"` 拼起来的写法，解析要把工号切掉。
+     */
+    val changesJson = """
+        {"datas":{"xsdkkc":{"rows":[
+          {"TKLXDM":"1","JXBID":"$CHANGE_JXBID","KCM":"$CHANGE_COURSE","KCH":"$EXAM_CODE",
+           "SKZC":"$CHANGE_BITS","SKXQ":$SCHEDULE_1_DAY,"KSJC":$SCHEDULE_1_START,"JSJC":$SCHEDULE_1_END,
+           "JASMC":"$CHANGE_OLD_ROOM","YSKJS":"${SCHEDULE_1_TEACHER}/0001",
+           "XSKZC":"$CHANGE_BITS","XSKXQ":$SCHEDULE_1_DAY,"XKSJC":$SCHEDULE_1_START,"XJSJC":$SCHEDULE_1_END,
+           "XJASMC":"$CHANGE_NEW_ROOM","XSKJS":"${SCHEDULE_1_TEACHER}/0001","SQSJ":"$CHANGE_APPLIED_AT"}
+        ]}}}
+    """.trimIndent()
+
+    /** 考试安排：一行；`KSRQ` 给到秒、`KSSJMS` 里又带一遍日期（解析要剥干净）。 */
+    val examJson = """
+        {"datas":{"wdksap":{"rows":[
+          {"KCM":"$EXAM_COURSE","KCH":"$EXAM_CODE","KSRQ":"$EXAM_DATE 00:00:00",
+           "KSSJMS":"$EXAM_DATE $EXAM_TIME","JASMC":"$EXAM_ROOM","ZWH":"$EXAM_SEAT"}
+        ]}}}
+    """.trimIndent()
     /** 学期列表：三行，**倒序给**（上游按 `*order=-DM` 排好），第三行只有 DM。 */
     val termListJson = """
         {"datas":{"xnxqcx":{"rows":[
@@ -815,6 +900,30 @@ class JwxtFakeUpstream {
                 }
                 termStartCalls.incrementAndGet()
                 respondJson(exchange, termStartJson)
+            }
+            // wdkb 自己的当前学期（与 kcbcx 那条不是同一个 URL，见常量的注释）。
+            path == WDKB_CURRENT_TERM_PATH -> requirePost(exchange) {
+                wdkbCurrentTermCalls.incrementAndGet()
+                respondJson(exchange, wdkbCurrentTermJson)
+            }
+            path == CHANGES_PATH -> requirePost(exchange) { form ->
+                lastChangesForm = form
+                if (!form.contains("XNXQDM=")) {
+                    badRequest(exchange, "xsdkkc.do 少了 XNXQDM，收到：$form")
+                    return@requirePost
+                }
+                changesCalls.incrementAndGet()
+                respondJson(exchange, changesJson)
+            }
+            path == EXAM_PATH -> requirePost(exchange) { form ->
+                lastExamForm = form
+                // 学期 + 排序两格都要在（少了排序上游会报错，而那是它在假成功时不会露的坑）。
+                if (!form.contains("XNXQDM=") || !form.contains("*order=")) {
+                    badRequest(exchange, "wdksap.do 少了 XNXQDM/*order，收到：$form")
+                    return@requirePost
+                }
+                examCalls.incrementAndGet()
+                respondJson(exchange, examJson)
             }
             path == JUDGE_INDEX_PATH -> {
                 judgeIndexCalls.incrementAndGet()
@@ -1176,6 +1285,9 @@ class JwxtFakeUpstream {
     private val QUERY_PATH = QUERY_URL.removePrefix(ORIGIN)
     private val SCHEDULE_PATH = SCHEDULE_URL.removePrefix(ORIGIN)
     private val TERM_START_PATH = TERM_START_URL.removePrefix(ORIGIN)
+    private val WDKB_CURRENT_TERM_PATH = WDKB_CURRENT_TERM_URL.removePrefix(ORIGIN)
+    private val CHANGES_PATH = CHANGES_URL.removePrefix(ORIGIN)
+    private val EXAM_PATH = EXAM_URL.removePrefix(ORIGIN)
     private val REPORT_PATH = REPORT_URL.removePrefix(ORIGIN)
     private val JUDGE_INDEX_PATH = JUDGE_INDEX_URL.removePrefix(ORIGIN)
     private val JUDGE_TERM_PATH = JUDGE_TERM_URL.removePrefix(ORIGIN)

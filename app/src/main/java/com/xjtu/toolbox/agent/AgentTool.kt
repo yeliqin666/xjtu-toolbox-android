@@ -1,5 +1,6 @@
 package com.xjtu.toolbox.agent
 
+import com.xjtu.toolbox.util.toJavaTime
 import com.xjtu.toolbox.util.toKx
 import kotlin.coroutines.resume
 import com.xjtu.toolbox.network.APP_UA
@@ -25,6 +26,7 @@ import com.xjtu.toolbox.card.AppCampusCardSource
 import com.xjtu.toolbox.card.appCampusCardStore
 import com.xjtu.toolbox.card.CampusCardApi
 import com.xjtu.toolbox.card.allTransactions
+import com.xjtu.toolbox.util.toJavaTime
 import com.xjtu.toolbox.util.toKx
 import com.xjtu.toolbox.emptyroom.CAMPUS_BUILDINGS
 import com.xjtu.toolbox.emptyroom.EmptyRoomApi
@@ -36,7 +38,7 @@ import com.xjtu.toolbox.fitness.orderedFitnessYears
 import com.xjtu.toolbox.fitness.pickFitnessYear
 import com.xjtu.toolbox.fitness.yearValue
 import com.xjtu.toolbox.schedule.CourseItem
-import com.xjtu.toolbox.schedule.ScheduleApi
+import com.xjtu.toolbox.schedule.JwxtScheduleApi
 import com.xjtu.toolbox.schedule.ScheduleCache
 import com.xjtu.toolbox.score.ScoreReportApi
 import com.xjtu.toolbox.data.CredentialStore
@@ -100,7 +102,9 @@ class AgentToolRegistry(
     private val loginState: AppLoginState,
     private val dataCache: DataCache,
     private val context: Context,
-    private val defaultSearchEngine: String = AgentConfig.SEARCH_AUTO
+    private val defaultSearchEngine: String = AgentConfig.SEARCH_AUTO,
+    /** 记住的用户偏好（[AgentMemory]）：宿主可以换一份落盘实现，见那个类的 KDoc。 */
+    private val memory: AgentMemory = AgentMemory(),
 ) {
 
     /**
@@ -110,7 +114,7 @@ class AgentToolRegistry(
     fun rateLimitKeyOf(toolName: String): String? = toolSites[toolName]
 
     /** 记住的用户偏好，拼进系统提示。走注册表是因为 ViewModel 手上没有 Context。 */
-    fun memoryBlock(): String = AgentMemory.promptBlock(context)
+    fun memoryBlock(): String = memory.promptBlock()
 
     /** 工具 → 它访问的后端系统。只用于限流分组。 */
     private val toolSites = mapOf(
@@ -665,8 +669,8 @@ class AgentToolRegistry(
             "preference" -> {
                 val key = args.str("key") ?: ""
                 val value = (args.str("value")).orEmpty()
-                if (value.isBlank()) AgentMemory.forget(context, key)
-                else AgentMemory.remember(context, key, value)
+                if (value.isBlank()) memory.forget(key)
+                else memory.remember(key, value)
             }
             "find_faculty" -> findFaculty(
                 name = args.str("name") ?: "",
@@ -873,7 +877,9 @@ class AgentToolRegistry(
      */
     private fun cachedTermCode(): String? = ScheduleCache.readCurrentTerm(dataCache)
 
-    private fun cachedStartDate(term: String): LocalDate? = ScheduleCache.readStartDate(dataCache, term)
+    // 开学日期在 :core 那边改说 kotlinx-datetime（`ScheduleCache` 进了 `:core`），
+    // 这里仍在 java.time 口径上算天数差与周次，过一道 `TimeBridge`。
+    private fun cachedStartDate(term: String): LocalDate? = ScheduleCache.readStartDate(dataCache, term)?.toJavaTime()
 
     private suspend fun getSchoolCalendar(term: String?): String {
         return try {
@@ -1063,7 +1069,7 @@ class AgentToolRegistry(
             ?: return ToolReply.noCache(ToolReply.loginFailed("教务系统", "unreachable"))
         return try {
             com.xjtu.toolbox.schedule.ScheduleSourceRouter.ensureCached(
-                context, dataCache, ScheduleApi(site), loginState.sessionManager, term,
+                dataCache, JwxtScheduleApi(site), loginState.sessionManager, term,
             )
             null
         } catch (e: com.xjtu.toolbox.auth.AuthExpiredException) {
@@ -1116,8 +1122,11 @@ class AgentToolRegistry(
         }.getOrNull() ?: return ToolReply.failed("get_schedule", "no_term_start_date")
 
         // 法定假日：课表照排，但那天停课。数据源只有放假日，没有调休补课日，所以只标停课
-        val holidays = runCatching { com.xjtu.toolbox.schedule.HolidayApi.getHolidayDates(context) }
+        // 节假日表也跟着改说 kotlinx 日期了（HolidayApi 在 :data，屏与 VM 在 :core），
+        // 这一处仍按 java.time 取键 —— 逐字段转一次，只有几十个日期。
+        val holidays = runCatching { com.xjtu.toolbox.schedule.HolidayApi.getHolidayDates(com.xjtu.toolbox.data.DataCache(context)) }
             .getOrDefault(emptyMap())
+            .mapKeys { it.key.toJavaTime() }
 
         if (dateStr != null) {
             val targetDate = runCatching { LocalDate.parse(dateStr) }.getOrElse { LocalDate.now() }
@@ -1190,7 +1199,7 @@ class AgentToolRegistry(
      */
     private fun scheduleChangeNote(termCode: String, courses: List<CourseItem>): String? {
         val codes = courses.map { it.courseCode }.toSet()
-        val relevant = com.xjtu.toolbox.schedule.ScheduleSourceRouter.changeEvents(context, termCode)
+        val relevant = com.xjtu.toolbox.schedule.ScheduleSourceRouter.changeEvents(termCode)
             .filter { it.courseCode.isBlank() || it.courseCode in codes }
             .takeLast(3)
         if (relevant.isEmpty()) return null
@@ -1218,7 +1227,7 @@ class AgentToolRegistry(
         val site = ensureSite(LoginType.JWXT)
             ?: return loginHint(LoginType.JWXT)
         return try {
-            val exams = ScheduleApi(site).getExamSchedule()
+            val exams = JwxtScheduleApi(site).examSchedule()
             if (exams.isEmpty()) return ToolReply.empty("exams")
             pendingWidgets.add(ExamWidget(exams))
             val text = buildString {
@@ -2192,12 +2201,12 @@ class AgentToolRegistry(
         val site = ensureSite(LoginType.JWXT)
             ?: return loginHint(LoginType.JWXT)
         return try {
-            val api = ScheduleApi(site)
-            val termCode = requestedTerm ?: api.getCurrentTerm()
+            val api = JwxtScheduleApi(site)
+            val termCode = requestedTerm ?: api.currentTerm()
             runCatching { com.xjtu.toolbox.schedule.ScheduleTermStore.merge(dataCache, api.termNames()) }
             val studentId = loginState.activeUsername
             if (studentId.isBlank()) return ToolReply.failed("lookup", "no_student_id")
-            val books = api.getTextbooks(studentId, termCode)
+            val books = api.textbooks(studentId, termCode)
             ScheduleCache.writeTextbooks(dataCache, termCode, books)
             formatTextbooks(termCode, books, cached = false)
         } catch (e: com.xjtu.toolbox.auth.AuthExpiredException) {

@@ -17,6 +17,7 @@ import androidx.compose.ui.platform.LocalContext
 import com.xjtu.toolbox.BuildConfig
 import com.xjtu.toolbox.bulletin.Bulletin
 import com.xjtu.toolbox.bulletin.BulletinApi
+import com.xjtu.toolbox.bulletin.BulletinFeed
 import com.xjtu.toolbox.bulletin.BulletinLaunchDialog
 import com.xjtu.toolbox.bulletin.BulletinLevel
 import com.xjtu.toolbox.bulletin.BulletinRules
@@ -128,18 +129,19 @@ class LaunchNotices(
 
     fun dismissHero(bulletin: Bulletin) {
         InboxStore.markRead(listOf(OwnInbox.bulletin(bulletin).id))
-        when {
-            bulletin.synthesized -> credentialStore.markUpdateNoticeSeen(bulletin.id)
-            bulletin.level == BulletinLevel.CRITICAL -> bulletinStore.ack(bulletin.id)
-            bulletin.level == BulletinLevel.FORCE_UPDATE -> bulletinStore.snooze(bulletin.id)
-            else -> bulletinStore.dismiss(bulletin.id)
+        // 等级决定怎么记账（CRITICAL → 已确认 / FORCE_UPDATE → 推迟 / 其余 → 已关闭）——
+        // 这张分档表搬进了 `:core` 的 `BulletinFeed`：桌面那条公告条要的是同一份。
+        // 返回 false 只有一种情形：宿主自己合成的那条「发现新版本」，它的已见记在更新提示账本上。
+        if (!BulletinFeed.dismiss(bulletinStore, bulletin)) {
+            credentialStore.markUpdateNoticeSeen(bulletin.id)
         }
         refreshHero()
     }
 
     internal fun dismissBulletinDialog(bulletin: Bulletin) {
+        // 只有「必须升级」那一条要记账（推迟到下次冷启动），判据在 `:core` 的 `BulletinFeed`
         if (bulletin.level == BulletinLevel.FORCE_UPDATE) {
-            bulletinStore.snooze(bulletin.id)
+            BulletinFeed.dismissDialog(bulletinStore, bulletin)
             refreshHero()
         }
         closeBulletinDialog()
@@ -200,14 +202,12 @@ class LaunchNotices(
             BulletinRules.syntheticUpdate(info.version, info.channel)
                 .takeUnless { credentialStore.isUpdateNoticeSeen(it.id) }
         }
-        heroBulletins = BulletinRules.visible(
-            items = remote + listOfNotNull(synthetic),
-            now = Clock.System.now(),
+        heroBulletins = BulletinFeed.visible(
+            store = bulletinStore,
+            cached = remote,
+            extras = listOfNotNull(synthetic),
             currentVersion = BuildConfig.VERSION_NAME,
             currentVersionCode = BuildConfig.VERSION_CODE,
-            dismissedIds = bulletinStore.dismissedIds,
-            ackedIds = bulletinStore.ackedIds,
-            snoozedIds = BulletinStore.sessionSnoozedIds(),
         )
     }
 

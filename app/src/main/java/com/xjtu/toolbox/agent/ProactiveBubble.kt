@@ -255,7 +255,7 @@ object ProactiveRules {
         val alert = pickAlert(
             ctx, now, balance, nextCourseName, minutesToClass, newGradeCount, latestNotice,
             libraryPendingAction, examCountdown,
-            com.xjtu.toolbox.schedule.ScheduleDiff.pending(ctx),
+            com.xjtu.toolbox.schedule.ScheduleDiff.pending(com.xjtu.toolbox.schedule.scheduleDiffStore()),
             com.xjtu.toolbox.home.HomeSignals.attendanceAlert,
             com.xjtu.toolbox.home.HomeSignals.couponAlert,
             com.xjtu.toolbox.home.HomeSignals.dormPowerAlert,
