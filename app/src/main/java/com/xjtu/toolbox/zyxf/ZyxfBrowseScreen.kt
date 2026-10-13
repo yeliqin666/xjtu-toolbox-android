@@ -28,9 +28,11 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Clear
+import androidx.compose.material.icons.filled.CloudOff
 import androidx.compose.material.icons.filled.Download
-import androidx.compose.material.icons.filled.Folder
+import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.SearchOff
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
@@ -207,11 +209,24 @@ fun ZyxfBrowseScreen(
                             if (stateText == null) {
                                 com.xjtu.toolbox.ui.components.MorphingLoader()  // 整页加载统一用形变加载器
                             } else {
-                                Text(
-                                    stateText,
-                                    style = MiuixTheme.textStyles.body2,
-                                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                                )
+                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                    Icon(
+                                        when {
+                                            vm.error != null -> Icons.Default.CloudOff
+                                            searching -> Icons.Default.SearchOff
+                                            else -> Icons.Default.FolderOpen
+                                        },
+                                        contentDescription = null,
+                                        tint = MiuixTheme.colorScheme.onSurfaceVariantSummary.copy(alpha = 0.6f),
+                                        modifier = Modifier.size(40.dp),
+                                    )
+                                    Spacer(Modifier.height(10.dp))
+                                    Text(
+                                        stateText,
+                                        style = MiuixTheme.textStyles.body2,
+                                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                                    )
+                                }
                             }
                         }
                     }
@@ -365,21 +380,30 @@ private fun Breadcrumb(stack: List<Crumb>, onJump: (Int) -> Unit) {
         verticalAlignment = Alignment.CenterVertically,
     ) {
         stack.forEachIndexed { i, crumb ->
+            val current = i == stack.lastIndex
             if (i > 0) {
                 Text(
-                    "  ›  ",
+                    "›",
                     style = MiuixTheme.textStyles.footnote1,
                     color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                    modifier = Modifier.padding(horizontal = 6.dp),
                 )
             }
+            // 胶囊：能点的上一级淡蓝底，当前所在目录灰底加粗，一眼看出「我在哪、能退到哪」
             Text(
                 crumb.name,
                 style = MiuixTheme.textStyles.footnote1,
-                fontWeight = if (i == stack.lastIndex) FontWeight.Bold else FontWeight.Normal,
-                color = if (i == stack.lastIndex) MiuixTheme.colorScheme.onSurface
-                else MiuixTheme.colorScheme.primary,
+                fontWeight = if (current) FontWeight.Bold else FontWeight.Normal,
+                color = if (current) MiuixTheme.colorScheme.onSurface else MiuixTheme.colorScheme.primary,
                 maxLines = 1,
-                modifier = Modifier.clickable(enabled = i < stack.lastIndex) { onJump(i) },
+                modifier = Modifier
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(
+                        if (current) MiuixTheme.colorScheme.surfaceVariant
+                        else MiuixTheme.colorScheme.primary.copy(alpha = 0.10f),
+                    )
+                    .clickable(enabled = !current) { onJump(i) }
+                    .padding(horizontal = 10.dp, vertical = 5.dp),
             )
         }
     }
@@ -398,26 +422,43 @@ private fun SortBar(
     desc: Boolean,
     onPick: (ZyxfApi.Sort) -> Unit,
 ) {
-    Row(
-        Modifier
-            .fillMaxWidth()
-            .horizontalScroll(rememberScrollState())
-            .padding(horizontal = 16.dp, vertical = 6.dp),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        ZyxfApi.Sort.entries.forEach { option ->
-            val active = option == sort
-            val arrow = when {
-                !active || option == ZyxfApi.Sort.MANUAL -> ""
-                desc -> " ↓"
-                else -> " ↑"
-            }
-            com.xjtu.toolbox.ui.components.AppFilterChip(
-                selected = active,
-                onClick = { onPick(option) },
-                label = option.label + arrow,
+    // 排序是低频操作：平时只留一行小字，点开才展开四个选项，别让它和搜索框叠着占首屏
+    var open by remember { mutableStateOf(false) }
+    fun arrowOf(option: ZyxfApi.Sort) = when {
+        option != sort || option == ZyxfApi.Sort.MANUAL -> ""
+        desc -> " ↓"
+        else -> " ↑"
+    }
+    Column(Modifier.fillMaxWidth()) {
+        Row(
+            Modifier
+                .clickable { open = !open }
+                .padding(horizontal = 22.dp, vertical = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                "排序 · ${sort.label}${arrowOf(sort)}  ${if (open) "▴" else "▾"}",
+                style = MiuixTheme.textStyles.footnote1,
+                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
             )
+        }
+        androidx.compose.animation.AnimatedVisibility(visible = open) {
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState())
+                    .padding(horizontal = 16.dp, vertical = 2.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                ZyxfApi.Sort.entries.forEach { option ->
+                    com.xjtu.toolbox.ui.components.AppFilterChip(
+                        selected = option == sort,
+                        onClick = { onPick(option) },
+                        label = option.label + arrowOf(option),
+                    )
+                }
+            }
         }
     }
 }
@@ -463,10 +504,25 @@ private fun SectionLabel(title: String, count: Int) {
     }
 }
 
-/** 文件夹：带色块图标的小卡片，两列排开，一屏能看到的目录多一倍。 */
+/** 文件夹配色：按名字取，同一个目录每次颜色一样；八种都是中等饱和度，深浅色下都不刺眼。 */
+private val FOLDER_TONES = longArrayOf(
+    0xFF3B82F6, 0xFF14B8A6, 0xFFF0A23C, 0xFF8B5CF6, 0xFFEC4899, 0xFF3FBF7F, 0xFFE5484D, 0xFF0EA5E9,
+)
+
+private fun folderTone(name: String) =
+    androidx.compose.ui.graphics.Color(FOLDER_TONES[(name.hashCode() and 0x7fffffff) % FOLDER_TONES.size])
+
+/** 取名字里第一个能当「首字」的字符，跳过开头的括号和空格。 */
+private fun folderInitial(name: String): String =
+    name.trim().trimStart('(', '（', '[', '【', '《', '「').firstOrNull()?.toString() ?: "?"
+
+/**
+ * 文件夹：课程首字 + 按名字取色的小卡片，两列排开，一屏能看到的目录多一倍。
+ * 以前统一一个蓝色文件夹图标，根目录一屏全是同一种颜色，只能靠读字找课。
+ */
 @Composable
 private fun FolderTile(entry: ZyxfApi.Entry, modifier: Modifier, onClick: () -> Unit) {
-    val primary = MiuixTheme.colorScheme.primary
+    val tone = folderTone(entry.name)
     Row(
         modifier
             .clip(RoundedCornerShape(16.dp))
@@ -479,10 +535,16 @@ private fun FolderTile(entry: ZyxfApi.Entry, modifier: Modifier, onClick: () -> 
             Modifier
                 .size(36.dp)
                 .clip(RoundedCornerShape(10.dp))
-                .background(primary.copy(alpha = 0.12f)),
+                .background(tone.copy(alpha = 0.16f)),
             contentAlignment = Alignment.Center,
         ) {
-            Icon(Icons.Default.Folder, contentDescription = null, tint = primary, modifier = Modifier.size(20.dp))
+            Text(
+                folderInitial(entry.name),
+                style = MiuixTheme.textStyles.body1,
+                fontWeight = FontWeight.Bold,
+                color = tone,
+                maxLines = 1,
+            )
         }
         Spacer(Modifier.width(10.dp))
         Text(
@@ -545,14 +607,30 @@ private fun FileRow(
             }
             Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f)) {
-                Text(
-                    entry.name,
-                    style = MiuixTheme.textStyles.body2,
-                    fontWeight = FontWeight.Medium,
-                    color = MiuixTheme.colorScheme.onSurface,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        entry.name,
+                        style = MiuixTheme.textStyles.body2,
+                        fontWeight = FontWeight.Medium,
+                        color = MiuixTheme.colorScheme.onSurface,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f, fill = false),
+                    )
+                    if (entry.isFresh) {
+                        Spacer(Modifier.width(6.dp))
+                        Text(
+                            "新",
+                            style = MiuixTheme.textStyles.footnote2,
+                            fontWeight = FontWeight.Bold,
+                            color = MiuixTheme.colorScheme.primary,
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(5.dp))
+                                .background(MiuixTheme.colorScheme.primary.copy(alpha = 0.12f))
+                                .padding(horizontal = 5.dp, vertical = 1.dp),
+                        )
+                    }
+                }
                 val sub = listOfNotNull(
                     entry.path.takeIf { it.isNotBlank() },
                     entry.sizeText.takeIf { it.isNotBlank() },

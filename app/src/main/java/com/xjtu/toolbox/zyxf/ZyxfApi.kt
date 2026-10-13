@@ -82,6 +82,10 @@ object ZyxfApi {
                 }
             }
 
+        /** 一周内上传的：列表里打「新」标，翻资料时一眼看出哪些是刚传的。 */
+        val isFresh: Boolean
+            get() = !isFolder && createdAt > 0 && (System.currentTimeMillis() - createdAt) in 0 until 7 * 86_400_000L
+
         val extNormalized: String get() = ext.lowercase().removePrefix(".")
         val readable: Boolean get() = !isFolder && extNormalized in TEXT_EXTS
 
