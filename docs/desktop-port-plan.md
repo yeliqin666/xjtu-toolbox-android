@@ -743,3 +743,248 @@ e: .../core/src/commonMain/kotlin/com/xjtu/toolbox/social/MatchProfile.kt:497:29
 
 ⚠️ 同一次实跑也复现了服务端的告警：**HTTP + 非 localhost 是浏览器的非安全上下文**，
 `navigator.clipboard` / `crypto.subtle` 之类会被禁用；要真当产品用，前面得加 HTTPS 反代 + 鉴权。
+
+### 14.7 阶段 B 留下的一处可疑退化：`shell-after-login.png` 底部那 64px —— 查到底了，**不是退化**（2026-10-13 本轮）
+
+`6d94a59c`（桌面换成共享壳）的提交信息里如实留了一条没查到底的疑点：`shell-after-login.png` 的底部一条
+与基线对不上。这一轮把它钉死了，结论是**正常差异**（同一条 miuix 契约在换壳前后两种宿主上的必然结果），
+`:core` 共享壳**一个字没改**。
+
+#### 现象（只看那一张 PNG；520×900）
+
+| | 旧壳（旧代码重出的那一批） | 新壳（本轮重出） |
+|---|---|---|
+| 与「上一轮同代码重出」的可见差异 | — | **74,461 px / 15.910%**，包围盒 `520x296+0+604` |
+| y=0..603 | 两图**逐字节相同** | |
+| 弹窗卡片（亮色连续段 ≥ 200px 的行） | y=**604..822** | y=**669..887** |
+| 底栏那一条（y=836..900）的底色 | `247,247,247` | `172,172,172` |
+| 底栏图标上那一点的灰度 | `168` | `117` |
+
+172/247 = 0.696、117/168 = 0.697 —— 正好是 miuix 的 `windowDimming`（浅色下 `Color.Black.copy(alpha = 0.3F)`，
+`miuix-ui/…/theme/Colors.kt:391`）：**底下那一层没换颜色，是被压暗了**。差的那 64 就是经典底栏的高度
+（836..900）：弹窗整体下移 64 之后压在底栏上。
+
+> 旧壳那一批是上一轮在**旧代码**（`6283fad2` 之前那份 `ToolboxDesktopApp`）上重出的 42 张
+> （临时目录 `/tmp/base-screens`，日志 `/tmp/baserender.log`）：42 张的字节数与日志**逐条一致**；其中两张
+> 不涉壳的图（`login.png` / `library-after-login.png`）与本轮 HEAD 重出的**逐字节相同** ⇒ 那份基线
+> 就是「同场景、只差壳」。两样都在临时目录里，不进仓库。
+
+#### 语义树 bounds（本轮新加的两个用例：`desktop/…/DesktopShellOverlayJvmTest.kt`）
+
+```
+PROBE[shell] 底栏第一格=Rect.fromLTRB(0.0, 836.0, 86.0, 900.0)  弹窗标题=Rect.fromLTRB(74.0, 733.0, 446.0, 754.0)
+PROBE[shell] 弹窗卡片 rows=709..887
+PROBE[shell] 语义树文字=[…, 当前预约：A03, …, A01, …, A09, 兴庆图书馆, 首页, 校历, 图书馆, 黄页, 游戏, 全部, 图书馆座位预约, ⏰, 预约成功后，请在 30 分钟内入馆签到…, 知道了]
+PROBE[old-shape] 卡片底边=824.0（页框底 = 900 − 64 = 836）/ 壳里=888.0
+PROBE[old-shape] 标题底：旧壳那种容器=690.0 / 壳里=754.0
+```
+
+- **底栏第一格 `top=836`** ⇒ 页框仍然是 836（= 900 − 64），**没有拿到整窗高度** —— 上一轮那个
+  「页拿到了整窗高度 / `bottomBar` 的槽被判空」的假设就此证伪；
+- 弹窗底：壳里 **888 = 900 − 12**、旧壳那种容器 **824 = 836 − 12**（`DialogDefaults.outsideMargin.height`
+  = 12dp）；两组各自再差 64（像素：卡片 888−824；语义树：标题底 754−690，两次量法互相印证）；
+- 两种容器里**页里的内容一模一样**（座位 A01..A09、三个区域、「当前预约：A03」都在）⇒ 「只有内容填到
+  底部才出现」那条线索也不成立：差的那 64 与页里画了多少东西无关。
+
+#### 根因（miuix 的契约 + 宿主从「页」变成了「壳」）
+
+`miuix-ui` 的 `overlay/OverlayDialog.kt`：`renderInRootScaffold: Boolean = true`（**默认**）——
+KDoc 原文「When true (default), the dialog covers the full screen. When false, it renders within the
+current Scaffold's bounds.」；`layout/DialogContentLayout.kt` 里的定位是 `Alignment.BottomCenter` +
+`outsideMargin.height`（12dp），变暗那一层 `.fillMaxSize()` 也画在这个宿主里。
+
+- **旧桌面壳**（`6283fad2` 之前的 `ToolboxDesktopApp`）是
+  `Column { Box(Modifier.weight(1f)) { 当前页 }; NavigationBar { … } }` —— **一个 Scaffold 都没有**
+  ⇒ 「最外层 Scaffold」落在**页自己**身上：宿主 = 836，弹窗被页框裁在底栏上方，底栏也不在变暗范围内
+  （所以旧壳那张图里底栏是本色 247）。
+- **共享壳**（`AppShell`）自己就是一个 `Scaffold` ⇒ 宿主 = 520×900 整窗：弹窗锚到窗口底、变暗层盖住底栏。
+  `:app` 的 `MainScreen.kt` 从第一天起就是这样（`:app` 一直是「弹窗铺满整窗」）—— 也就是说，这一处的
+  变化正是「三端同壳」本身，不是桌面这一端的退格。
+
+#### 判定与处置
+
+**不是 bug**：旧壳那 64px 是「桌面这一端恰好没有 Scaffold」这个偶然事实的产物，`shell-after-login.png`
+现在的样子才是与 `:app` 一致的形态。所以按纪律**没有**给桌面打补丁、也**没有**改 `:core` 的共享壳
+（`AppShell` / `ShellTabHost` / `ShellLayout` 本轮零改动）。钉住它的是两个**新用例**
+（`:desktop:test` 98 → **100**，0 失败）：同一份夹具（`canBook = true` 的库页取数）+ 同一个页
+（`LibraryScreen` 那条「首次使用提示」），只换外面那层容器，断言弹窗底锚在谁的底上、两者相差正好是
+底栏那一条 —— 语义树与像素各量一次。
+
+#### 顺带收敛的另一条 Open risk：深色下外壳那三层的层次
+
+共享壳会铺 Scaffold 的 `containerColor`（= `MiuixTheme.colorScheme.surface`），这是一处**看得见的变化**
+（旧桌面壳那些像素是**透明**的）。新加两张图（`home-dark.png` / `main-dark.png`）与两条判据
+（`RenderScreens` 的 `bandOf`），判据落在**落盘的 PNG** 上：
+
+```
+深浅对照：底栏 最亮=247 亮占比=100% → 最亮=24 亮占比=0%；侧栏 最亮=247 亮占比=100% → 最亮=24 亮占比=0%；页面 最亮=255 亮占比=97% → 最亮=254 亮占比=1%
+```
+
+- `home-dark.png`（520×900，与 `home.png` 同一条路由）量的是**底栏**那一层；`main-dark.png`（900×900）
+  量的是宽窗下换成**侧栏**的那一层；「页面」那一层用内容区的亮像素占比量（深色下 1%、浅色下 97%）。
+  三层都跟着主题换，没有哪一层留在浅色上。
+- ⚠️ 深色那两张的课表/考试两格与浅色那两张**不是同一份数据**：这一枪在所有图之后，缓存里已经是
+  `schedule_match.png` 那一枪写进去的夹具（图上会看到另一门课）。深浅对照要的是外壳那三层的像素，
+  与页里画了什么无关。
+
+**这一轮的证据图 42 → 44 张**（新增 `home-dark.png` / `main-dark.png`）：42 张里 33 张与上一轮 HEAD
+重出**逐字节相同**；9 张的差异都是 0.02%~0.85% 的局部小块（时序噪声，上一轮已记），**没有一张**的差异
+落在底栏那一条或图像底部。
+
+#### 本轮门禁（`--max-workers=1`；日志 `/tmp/gate-mine.log`）
+
+| 任务 | 用例 / 产物 | 失败 | 跑法 |
+|---|---|---|---|
+| `:core:jvmTest` | **439**（69 个 XML） | 0 | `--rerun` 独占重跑（XML 20:08:50） |
+| `:app:testDebugUnitTest` | **429**（76 个 XML） | 0 | `--rerun` 独占重跑（XML 20:09:48） |
+| `:desktop:test` | **98 → 100**（24 个 XML） | 0 | 本轮真跑（新增那两个用例） |
+| `:desktop:renderScreens` | **42 → 44 张** | — | 本轮真跑 |
+| `:core:compileKotlinWasmJs` / `:core:compileAndroidMain` / `:data:compileAndroidMain` / `:app:compileDebugKotlin` / `:desktop:compileKotlin` | — | — | 全部 `UP-TO-DATE`（`:core` 本轮零改动；`:web:compileKotlinWasmJs` 不在本轮范围） |
+
+⚠️ 这一轮跑门禁时，同一棵工作区里还有另一个子代理在做阶段 C（`:web`）：`core/net/CampusApi.kt` 有一处在途的
+**兼容性扩展**（`termStart(term: String? = null)`）与一批未跟踪的 `web/src/wasmJsMain/…` 文件参与了编译
+（它们仍在 `git status` 里 —— 本轮提交只 `git add` 了自己那三个路径）。
+
+
+## 15. 阶段 C：`:web` 换成共享壳（2026-10-13 实做）
+
+这一阶段只解决一件事：**web 的层级与 App 不再是两套**。用户的原话是「web 组织页面的层级逻辑和 app
+简直天差地别」——搬迁前 `:web` 的底栏是「课表 / 校历 / 体测 / 成绩 / 黄页 / GPA2048 / 方块 / 游戏 / 社区」
+九格（**能做的功能**凑出来的），与 `:app` 的 `BottomTab` 五格（首页 / 日程 / 屁岱 / 学辅 / 我的）
+**没有一格对得上**，外壳也是自己写的 `Column + WebBottomBar`。阶段 A/B 已经把壳搬进 `:core`
+（`shell/**` 十个文件）并把 `:app` 与桌面换过去；这一阶段把 `:web` 也换过去。
+
+### 15.1 五格与每一格的归属（与 `BottomTab` 逐字一致）
+
+`WebShell.kt` 的 `WEB_SHELL_TABS` 五格，顺序 / 文字 / 图标 / `iconSize` 与
+`app/src/main/java/com/xjtu/toolbox/main/BottomTab.kt` **逐字相同**，id 也用那个枚举的名字
+（`HOME` / `COURSES` / `PIDAI` / `TOOLS` / `PROFILE`；`SettingsStore.TAB_*` 与 `:app` 的
+`defaultTab` / 启动意图认的就是这几个串）：
+
+| 格 | 这一端的归属 | 为什么 |
+|---|---|---|
+| 首页 | **共享屏** `:core` 的 `HomeScreen` + 本端 `WebHomeHost`（2026-10-13 补：见 §15.8；当时这一格是降级页，于是十几条路由的入口全被关上了） | 这一端所有功能屏的入口：宫格 = `:core` 的服务目录 × 本端真能打开的路由（`WebSupport` 那份唯一真源） |
+| 日程 | **共享屏**：`:core` 的 `ScheduleScreen` + 本端 `WebScheduleHost` | 见 §15.3（本端真接上的三格之一，另两格是首页与我的） |
+| 屁岱 | **降级页** | `:core` 的 `AgentScreen` 要 `AgentHost`：配置 / 会话 / 记忆三份落盘、一条流式传输（`:data` 的 SSE）、工具层取数口。本端一件都没接，服务端契约里也没有对应端点 |
+| 学辅 | 本端自己的**可点目录** `WebServicesScreen`（**不是**降级：点一行进那一屏 + 会话入口；2026-10-13 从「本端有什么」说明页改过来） | `:app` 那一格是学业服务目录（`AppServices` 宫格 + 点击习惯排序 + 每项此刻的状态），本端没有「状态摘要」那一半 ⇒ 换成同一份目录的可点清单，不伪造一个宫格 |
+| 我的 | **共享屏**：`:core` 的 `SettingsScreen` + 本端 `WebSettingsHost` | `:app` 那一格是账号页（多账号 / 登录态）；本端没有账号这回事（凭据在 campus-api / serve 进程里）⇒ 落同一份共享设置屏。`honoredRows` 列 `DARK_MODE` 与 `HOME_THEME`（两项真会生效，见 §15.5 与 §15.8），其余九项各自写明为什么不列（列了就是假开关） |
+
+**做不到的格子落降级页、不藏起来**：藏起来就又变成"另一套层级"（这条是这一阶段的验收口径）。
+「我的」那一格 `showsAccountBadge = true` 照抄 `:app`，但 `ShellNavState.accountBadge` 传 null ⇒
+壳一个角标都不画（本端真没有数字可写，不是藏）。
+
+### 15.2 外壳：`ShellNavState + AppShell`，删掉自己的底栏与伪路由
+
+`ToolboxWebApp` 的 `Column { Box(weight) { when(target) } ; WebBottomBar }` 那一段换成：
+
+- `ShellNavState(tabs = webTabs(), target = target.toShell(), onSelect = { tab.target.toWeb()?.let { target = it } })`
+  —— 当前页仍是 `WebTarget`（这一端对「当前在哪一页」的写法，与桌面那份 `DesktopTarget` 同型），
+  两个方向的换算在 `WebShell.kt`（`WebTarget.toShell()` 全函数；`ShellTarget.toWeb()` 对
+  `AllPages` 与认不出的 `Custom` 如实返回 null ⇒ 不动，不假装能去）；
+- `AppShell(pageHost = ShellPageHost.CURRENT_ONLY, glassStyle = false, bottomInset = 0.dp,
+  contentWindowInsets = WindowInsets(0))` + `LocalIsWideLayout provides calculateIsWideLayout()`
+  —— 判据与 `:app` / 桌面同一套：**宽窗（短边 ≥ 600dp 且窗口够宽）底栏换成侧栏**，窄窗是 miuix 经典底栏。
+  `glassStyle = false`：这一端没有「界面风格」这一项（设置页里那一行也不画），搬迁前画的也是经典底栏；
+- `page` 里只分派「哪一种页」：`ShellTarget.App(route)` → 各屏（**每屏的宿主面一行未改**），
+  `ShellTarget.Custom(id)` → 会话 / 自检 / 协议 / 学辅 / 我的 / 认不出。
+
+删掉：`WebBottomBar`（约 45 行）、`WEB_TABS` / `WebTab`（九格表）、以及 **`:web` 自己那份 439 行的周视图**
+`web/src/wasmJsMain/kotlin/com/xjtu/toolbox/web/ScheduleScreen.kt`（共享 `ScheduleScreen` 取代它：
+搬迁前那份是 `:app` 课表网格的第二份实现，正是"两套层级"的一部分）。
+
+**「会话」那一屏不进 tab 列表**（它进任何一格都会让"五格与 `:app` 逐字一致"当场失效）：它是
+`ShellTarget.Custom("serve")` 这一档，三条入口 —— `?route=serve` 深链（搬迁前就有）、
+serve 模式下 `GET /api/session` 失败时自动落过去（搬迁前那一段行为）、「学辅」页上的一个入口行。
+
+**一行未改的那几段**：`?token=<一次性令牌>` 的一次性入口、`?route=` 的语义（`probe` / `eula` / `serve`
+三个伪路由 + `:core` 的 `appRouteOf`）、后端探测（3s 超时按 campus-api）、以及「过不了闸门就落到会话屏」
+那一段。改的只是"当前页"的表达：从自制的 `WebTarget` 分支换成壳的 `ShellNavState`。
+
+### 15.3 web `ScheduleHost` 的缝落法（哪几条是真的、缺哪三个端点）
+
+`:core` 的 `ScheduleHost` 有四类槽位，本端逐条落成这样（`WebScheduleHost.kt`）：
+
+| 槽位 | 本端 |
+|---|---|
+| `cache` / `customCourses` | `:core` 的键值缝 `KeyValueScheduleCacheStore` / `KeyValueCustomCourseStore` + `keyValueStore(name)`。**wasm 上的 actual 是 `localStorage`**（`core/src/wasmJsMain/.../KeyValueStore.wasmJs.kt`，键前缀 `xjtu-toolbox.`）—— **真落盘**，刷新页面还在；不是内存实现。没有按账号加后缀：本端没有账号 |
+| `login` | `accountId` / `studentId` 空串（本端没有学号，编一个更糟：会去请求别人的数据），`hasCredentials = true`（"能不能取数"由服务端答，答 false 会让屏永远不取数） |
+| `session` | `WebScheduleSession` + `WebScheduleSource`：**服务端契约里真有的那四个端点** —— `/api/jwxt/term`（当前学期）、`/api/jwxt/term-start?term=`（开学日 + 总周数）、`/api/jwxt/terms`（学期表，走 `:core` 的 `CampusSchoolCourseApi.terms()`）、`/api/jwxt/schedule?term=`（课表行）。`isLoggedIn = true`、`ensureLogin` / `reAuthenticate` 是空操作：**会话在对面进程里**，这一端没有"页面上登录"这回事 |
+| `holidays` | 只读落盘缓存（键 `holiday_dates` 与 `:data` 逐字相同），**不联网**：`:data` 那份挂着 okhttp 打两个公开接口，而浏览器直连它们没有 CORS 头 ⇒ 读不到就是空表（课表里没有一天被当成放假 —— 是"少画"，不是"画错"） |
+| `honored` | 只有 `CUSTOM_COURSE_EDIT`（自建日程真落盘）。`SHARE_FILE` / `LMS_LINK` / `ATTENDANCE` / `SEAT_COUNT` / `DUE_HOMEWORK` / `WIDGET_REFRESH` / `HOME_SIGNALS` / `ONLINE_CHECK` / `SCHEDULE_CHANGE_BUBBLE` 一条都不列 ⇒ 屏上那几档**一个字都不画** |
+
+**缺的三个端点（如实写在页面上，不只写在注释里）**：`/api/jwxt/changes`（调停补课）、
+`/api/jwxt/exams`（考试）、`/api/jwxt/textbooks`（教材）—— `docs/api-contract.md` §5 的八个端点清单里
+**没有它们**（2026-10-13 实测 serve 对这三个答 `404 {"code":404,…,"message":"接口不存在"}`）。
+而 `/api/jwxt/schedule` 端出去的是**排课原样**（契约里写明：调停补课没有合进这些行）⇒
+本端日程页显示的是排课原样：**调课 / 停课 / 换教室不体现在格子上，考试与教材两栏空着**。
+这一条由 `WebScheduleGapNote` 画在日程页顶部（一行 11sp 的说明），不让用户以为教务就长这样。
+campus-api 那边虽然有 `/api/jwxt/changes` 与 `/api/jwxt/exams`，但本端没有对应客户端（`:core` 里
+没有它们的模型与读法），**不编形状**。
+
+历史学期：`schedule` 认任意学期，但 `term-start` 只答当前学期（非当前学期两个后端都会把当前学期的
+开学日当成它答回来 = 静默错答）⇒ 非当前学期一律抛错，屏那边本来就 `try { … } catch { null }`，
+于是退化成「没有开学日、周次按学期表/日期推」。
+
+### 15.4 为此动的 `:core` 一行（最小改动，逐条说明）
+
+`CampusApi.termStart()` 补一个可选参数 `term: String? = null`（两个后端都按契约带上 `?term=`）。
+理由：`?term=` 是契约里本来就有的参数，而原生端一直直接问 `:data`，只有浏览器这一侧要靠这个端点，
+历史学期必须有它才拿得到。**只加默认参数，调用点一行未改**；`:core:jvmTest` 439 例、`:app` 429 例、
+`:desktop` 那一套（见 §15.6）与改动前同数、全绿。壳（`shell/**`）**一个字未改**。
+
+### 15.5 我的 = 共享设置屏（顺带把「深色模式」接通）
+
+`WebSettingsHost` 只声明 `DARK_MODE` 一项真会照着办：`Main.kt` 现在按 `SettingsStore().darkMode`
+套 `XJTUToolBoxTheme`，设置页改完回调 `onAppearanceChanged` 让外壳重新读一次（键值缝没有监听器，
+与 `:desktop` 那份 `appearanceTick` 同一个写法）⇒「把深色模式改成始终深色」当场就变。
+其余十项各自写明为什么不列（Monet 在 wasm 上未验证 / 首页还是降级页 / 本端没有玻璃底栏这一档 /
+没有"启动"这回事 / 没有触感 / 只有一条网络路 / 只有一个课表来源 / 没有考勤取数 / 图片解码在 wasm 上恒 null）。
+
+### 15.6 验收（这一轮真跑的，逐条可核）
+
+| 项 | 结果 |
+|---|---|
+| `:web:compileKotlinWasmJs` | **BUILD SUCCESSFUL**（日志 `/tmp/webc2.log`；唯一告警是既有那条 `BrowserUrl.kt` 的 opt-in） |
+| `:core:jvmTest` | **439 例 / 0 失败**（`core/build/test-results/jvmTest`，基线 439，只增不减） |
+| `:app:testDebugUnitTest` | **429 例 / 0 失败**（基线 429 一条不减） |
+| `:desktop:test` | **100 例 / 0 失败**（24 个类，`--rerun` 独占重跑；本轮开始时这一套是 98 例 —— 同时段另一个提交 `07820517` 给桌面加了 2 例） |
+| `:web:wasmJsBrowserDistribution` | **BUILD SUCCESSFUL in 24m 22s**（44 tasks：10 executed / 34 up-to-date），产物时间戳 `20:34` |
+| serve 冒烟（curl） | 见下面那段：`/`、`toolbox-web.js`、新 `.wasm` 三份的 md5 与盘上逐字节一致；`/api/status` 200 |
+
+### 15.6.1 serve 冒烟的证据（`curl` 现场跑的，逐条是原文）
+
+服务端 `:server:run` 一直跑在本机 `0.0.0.0:40961`（令牌在 `~/.local/share/xjtu-toolbox/serve.properties`
+的 `access_token`），**直接从盘上读 `web/build/dist/wasmJs/productionExecutable/`** ⇒ 重建完就生效。
+这一轮重跑产出的新 wasm 名字是 `25195b5c10e41a3ae110.wasm`（8,945,354 B），旧的那份是
+`0b55fcaa4f325379b37c.wasm`（8,186,584 B）：
+
+| 请求 | 结果 |
+|---|---|
+| `curl -H 'Accept-Encoding: identity' http://127.0.0.1:40961/toolbox-web.js \| md5sum` | `343d7d6962ae7d5cc53618580ffd7701` —— 与盘上那份 `toolbox-web.js` **同一个 md5**（这份 js 是 20:34 新生成的） |
+| 同一份 js 里搜新 / 旧 wasm 名字 | 新名 `25195b5c…` 出现 **1** 次；旧名 `0b55fcaa…` **0** 次 ⇒ 服务端在吐**新产物** |
+| `curl …/25195b5c10e41a3ae110.wasm \| md5sum` | `8684fa6c14664568e865e9c3da95d41e` —— 与盘上那份逐字节一致（HTTP 200） |
+| `curl -H 'Accept-Encoding: identity' http://127.0.0.1:40961/ \| md5sum` | `a27d0829c8192199b5dae4a4d4d311a6` —— 与盘上 `index.html` 一致（874 B；这份是静态模板，新旧同字节，所以新鲜度看上面那两条） |
+| `curl http://127.0.0.1:40961/api/status` | `200` `{"authenticated":true,"uptimeSeconds":39190}` |
+| 在服务端吐的 `.wasm` 里搜本阶段新加的文案 | `排课原样` / `首页（Web 这一端）` / `学辅（Web 这一端）` / `屁岱（Web 这一端）` / `认不出这一页` **各 1 次** ⇒ 服务端吐的那份二进制里**确实**是这一阶段的代码 |
+
+⚠️ **`:web` 没有测试源集**：`web/src/` 下只有 `wasmJsMain`（没有 `commonTest` / `wasmJsTest`），
+所以这一端的自动化验收**只到「能编译 + 产物能出 + 服务端在吐新产物（且产物里是这份代码）」**这几条；页面上的
+「五格与 App 一样、宽窗变侧栏、降级页写清了缺什么」**要靠人看**（本轮没有人看过 —— 见 §15.7 第 1 条）。
+
+⚠️ **`:desktop:test` 的环境插曲（如实记）**：第一次 `--rerun` 时同一台机器上还有几个 Gradle 守护进程与
+另一个子代理的构建在跑，内存 / tmpfs 吃紧，那一轮里 59 例以 `java.io.IOException: Disk quota exceeded`
+（以及 `keytool -genkeypair` 写不下）报错 —— 那是**环境**，不是代码：等一个空闲窗口重跑，同一棵树
+**100 例 / 0 失败**（`desktop/build/test-results/test`，XML 时间 `20:52:54`；副本留在 `/tmp/desktop-results-stageC-full`）。
+
+### 15.7 仍缺的能力（下一步的清单）
+
+1. **人看一眼**：浏览器里打开 serve 那一页，确认五格与 App 一致、宽窗是侧栏、日程能出课表、
+   降级页的文案读得懂 —— 这是本轮唯一没人做过的验收（`:web` 没有测试源集，也没有离屏渲染证据运行）。
+2. **首页**：接 `HomeHost` 里算得出来的那几块（问候 / 教学周 / 常用入口 / 宫格目录 + `openableRouteIds`），
+   把 `HomeCard` 只列那几块；公告条与消息那一格要等本端有对应的 store 宿主。
+3. **屁岱**：要服务端有对应的端点（模型配置 / 会话 / 记忆 / 流式）才谈得上，不在本阶段的范围内。
+4. **日程缺的三个端点**：`/api/jwxt/changes` / `exams` / `textbooks` 进 serve 契约（或让
+   `/api/jwxt/schedule` 端出**已合并调停补课**的那一份）—— 接上之后 web 日程才与 App 同口径；
+   在那之前页顶那一行说明必须留着。
+5. **`SEAT_COUNT`**：本端已有 `CampusEmptyRoomApi`，补一个「按教室名取座位数」就能点亮详情里那一格。
+6. **`DYNAMIC_COLOR`**：先验证 Monet 在 wasm 上真能跑，再把这一项列进 `honoredRows` 并让 `Main.kt` 读它。

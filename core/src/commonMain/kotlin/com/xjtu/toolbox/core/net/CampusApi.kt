@@ -81,16 +81,21 @@ class CampusApi(
     /**
      * 学期起始：`startDate` 是**第 1 周周一**。课表本身不含日期，周次换算全靠它。
      *
-     * 两个后端都在这一条路径上答（`docs/api-contract.md` §5.3，serve 那一支 2026-10-11 落地）；
-     * serve 模式下 `?term=` 省略时的「当前学期」是**服务端**判的（与 `/api/jwxt/term` 同一个来源）。
+     * 两个后端都在这一条路径上答（`docs/api-contract.md` §5.3，serve 那一支 2026-10-11 落地）。
+     *
+     * @param term 学期号；省略 = 当前学期（**服务端**判的，与 `/api/jwxt/term` 同一个来源）。
+     *   这一格是给 `:web` 的日程宿主面补的（`WebScheduleSource`）：原生端一直直接问 `:data`，
+     *   而浏览器这一侧只能走这两个端点，历史学期要 `?term=` 才拿得到。
      */
-    suspend fun termStart(): TermStartData {
+    suspend fun termStart(term: String? = null): TermStartData {
         if (mode == ApiMode.SERVE) {
             return AppJson.decodeFromJsonElement<TermStartData>(
-                client.serveData("加载学期起点", baseUrl, "/api/jwxt/term-start"),
+                client.serveData("加载学期起点", baseUrl, "/api/jwxt/term-start", listOf("term" to term.orEmpty())),
             )
         }
-        val env: Envelope<TermStartData> = client.get("$baseUrl/api/jwxt/term-start").body()
+        val env: Envelope<TermStartData> = client
+            .get("$baseUrl/api/jwxt/term-start") { term?.takeIf { it.isNotBlank() }?.let { parameter("term", it) } }
+            .body()
         return env.data ?: error("term-start 缺失：code=${env.code} message=${env.message}")
     }
 }

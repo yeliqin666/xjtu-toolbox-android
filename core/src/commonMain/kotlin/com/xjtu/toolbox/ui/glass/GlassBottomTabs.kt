@@ -99,6 +99,10 @@ class GlassTab(
  *     )
  * }
  * ```
+ *
+ * @param selectedIndex 选中那一格的序号。**-1 = 一格都不高亮**（滑块不画、每格都按未选中态画）：
+ *   当前页不属于任何一格时就是这样（见 `ShellNavState.selected`，例如桌面上一条非 tab 路由）；
+ *   拖动 / 点击仍会把选中落到某一格上（那时这个值已经变了）。
  */
 @Composable
 fun GlassBottomTabs(
@@ -153,13 +157,14 @@ fun GlassBottomTabs(
 
         val isLtr = LocalLayoutDirection.current == LayoutDirection.Ltr
         val animationScope = rememberCoroutineScope()
-        var currentIndex by remember { mutableIntStateOf(selectedIndex.coerceIn(0, tabsCount - 1)) }
+        // -1 = 一格都不高亮（见 selectedIndex 的 KDoc）：索引本身允许是 -1，只有滑块的位置要它 ≥ 0
+        var currentIndex by remember { mutableIntStateOf(selectedIndex.takeIf { it in 0 until tabsCount } ?: -1) }
         val onTabSelectedUpdated by rememberUpdatedState(onTabSelected)
 
         val dampedDrag = remember(animationScope, tabsCount) {
             GlassDampedDragAnimation(
                 animationScope = animationScope,
-                initialValue = currentIndex.toFloat(),
+                initialValue = currentIndex.coerceAtLeast(0).toFloat(),
                 valueRange = 0f..(tabsCount - 1).toFloat(),
                 visibilityThreshold = 0.001f,
                 initialScale = 1f,
@@ -188,10 +193,10 @@ fun GlassBottomTabs(
 
         // 选中项被外部改动（比如程序切 tab）时，把滑块同步过去，但不重复回调 onTabSelected。
         LaunchedEffect(selectedIndex, tabsCount) {
-            val target = selectedIndex.coerceIn(0, tabsCount - 1)
+            val target = selectedIndex.takeIf { it in 0 until tabsCount } ?: -1
             if (currentIndex != target) {
                 currentIndex = target
-                dampedDrag.animateToValue(target.toFloat())
+                if (target >= 0) dampedDrag.animateToValue(target.toFloat())
             }
         }
 
@@ -345,7 +350,8 @@ fun GlassBottomTabs(
             }
         }
 
-        if (tabWidthPx > 0f) {
+        // 一格都不高亮（currentIndex = -1）时滑块不画：它没有该停的位置
+        if (tabWidthPx > 0f && currentIndex in 0 until tabsCount) {
             if (glass && tabsBackdrop != null) {
                 Box(
                     Modifier

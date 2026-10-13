@@ -4,24 +4,16 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.State
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import com.xjtu.toolbox.agent.PidaiGlance
-import androidx.compose.ui.Alignment
+import androidx.compose.ui.layout.layout
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
@@ -30,51 +22,38 @@ import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.layout.boundsInRoot
-import androidx.compose.ui.layout.layout
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.LineHeightStyle
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.util.lerp
-import com.kyant.backdrop.backdrops.LayerBackdrop
 import com.xjtu.toolbox.agent.AgentThinkingHost
 import com.xjtu.toolbox.agent.BubbleArrowSide
+import com.xjtu.toolbox.agent.PidaiGlance
 import com.xjtu.toolbox.agent.PidaiNavButton
 import com.xjtu.toolbox.agent.ProactiveBubbleHost
 import com.xjtu.toolbox.agent.ProactiveMessage
 import com.xjtu.toolbox.agent.pidaiNavAppearance
-import com.xjtu.toolbox.ui.glass.GlassBottomTabs
-import com.xjtu.toolbox.ui.glass.GlassTab
-import top.yukonga.miuix.kmp.basic.Badge
-import top.yukonga.miuix.kmp.basic.FloatingNavigationBar
-import top.yukonga.miuix.kmp.basic.FloatingNavigationBarItem
-import top.yukonga.miuix.kmp.basic.Icon
-import top.yukonga.miuix.kmp.basic.NavigationBar
-import top.yukonga.miuix.kmp.basic.NavigationBarDisplayMode
-import top.yukonga.miuix.kmp.basic.NavigationBarItem
-import top.yukonga.miuix.kmp.basic.NavigationBarItemColors
-import top.yukonga.miuix.kmp.basic.NavigationRail
-import top.yukonga.miuix.kmp.basic.NavigationRailItem
-import top.yukonga.miuix.kmp.basic.NavigationRailState
+import com.xjtu.toolbox.shell.ShellTab
+import com.xjtu.toolbox.shell.ShellTabArt
+import com.xjtu.toolbox.shell.ShellTabVariant
+import com.xjtu.toolbox.shell.ShellTabs
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import kotlin.math.abs
-import kotlin.math.round
 
-/** 底栏 / 侧栏共用的状态：选中哪个 tab、「我的」角标要用的登录状态和账号数。 */
-internal class MainNavState(
-    val selected: BottomTab,
-    val isLoggedIn: Boolean,
-    val accountCount: Int,
-    val onSelect: (BottomTab) -> Unit,
-    /** 点屁岱：既切 tab，也负责戳一下冒闲话气泡，所以和普通 tab 分开。 */
-    val onPidaiTap: () -> Unit,
-)
+/*
+ * Android 这一端**只剩下来**的那几件：屁岱那一格（会动的机器人 + 它认的那几样宿主面）、
+ * 宽屏侧栏里它那一格、以及旁边那只气泡。
+ *
+ * 底栏 / 侧栏的画法已经搬进 `:core` 的 `com.xjtu.toolbox.shell`（`ShellBars.kt`），
+ * 这里只是把「自绘那一格」接到那条缝上（`ShellTabArt`）。行为逐字未改：几何、动画、
+ * 瞟眼判据、气泡锚点全是原来那几行。
+ */
 
 /**
  * 主界面上手指最近按在哪（根坐标），屁岱拿来看。不是 State：只在它自己的帧循环里读，
@@ -112,10 +91,22 @@ internal fun Modifier.feedPidaiTouch(origin: () -> Offset): Modifier = pointerIn
  * 导航栏里的屁岱：同样是一个 tab，只是画成会动的机器人。
  * 点了别的 tab 它会朝那边瞟一眼（横排栏往左右看并眨那一侧的眼，竖排侧栏 [vertical] 往上下看）；
  * 在别的 tab 上看手指按的地方，在自己那页只看底栏附近的手指（拖底栏）。
+ *
+ * 搬迁前这一格的参数是「整个底栏状态」（`MainNavState`）；现在底栏状态在共享壳里
+ * （`ShellNavState`），所以这里改成只收它真读的四样：当前选中的那一格、它自己那一格、
+ * 那一格的序号（瞟眼往哪边看）、以及点击。**判据与画法一个字没改。**
+ *
+ * @param tabs 这一端的 tab 集合（只为取序号：原来用的是 `BottomTab.ordinal`）
+ * @param current 当前页落的那一格；**null = 不属于任何一格**（底栏一格都不高亮，见 `ShellNavState.selected`）
+ * @param tab 屁岱那一格
+ * @param onClick 点这一格（共享壳接的是 `ShellNavState.onSelect`）
  */
 @Composable
 private fun PidaiTabButton(
-    nav: MainNavState,
+    tabs: ShellTabs,
+    current: ShellTab?,
+    tab: ShellTab,
+    onClick: () -> Unit,
     selected: Boolean,
     diameter: Dp,
     paper: Color,
@@ -125,19 +116,21 @@ private fun PidaiTabButton(
 ) {
     val style = pidaiNavAppearance()
     var glance by remember { mutableStateOf<PidaiGlance?>(null) }
-    var lastSelected by remember { mutableStateOf(nav.selected) }
-    LaunchedEffect(nav.selected) {
-        val tab = nav.selected
-        if (tab != lastSelected && tab != BottomTab.PIDAI) {
-            val side = if (tab.ordinal < BottomTab.PIDAI.ordinal) -1f else 1f
+    var lastSelected by remember { mutableStateOf(current) }
+    LaunchedEffect(current) {
+        // current = null（当前页不属于任何一格）时没有「切到哪一格」可言 ⇒ 机器人不看那一边。
+        // Android 这一端每一页都落在某一格上，走不到这一支（桌面才有那 37 条非 tab 路由）。
+        val now = current
+        if (now != null && now.id != lastSelected?.id && now.id != tab.id) {
+            val side = if (tabs.indexOf(now.id) < tabs.indexOf(tab.id)) -1f else 1f
             glance = PidaiGlance(if (vertical) 0f else side, if (vertical) side else 0f, (glance?.serial ?: 0) + 1)
         }
-        lastSelected = tab
+        lastSelected = now
     }
     // 自己的中心（根坐标），布局时写、帧循环里读
     val center = remember { floatArrayOf(Float.NaN, 0f) }
     val reach = with(LocalDensity.current) { 160.dp.toPx() }
-    val onOwnTab = nav.selected == BottomTab.PIDAI
+    val onOwnTab = current?.id == tab.id
     val look = look@{
         val p = PidaiTouch.point() ?: return@look null
         if (center[0].isNaN()) return@look null
@@ -149,7 +142,7 @@ private fun PidaiTabButton(
         Offset(dx * k, dy * k)
     }
     PidaiNavButton(
-        onClick = nav.onPidaiTap,
+        onClick = onClick,
         excited = ProactiveBubbleHost.message != null,
         thinking = AgentThinkingHost.isThinking,
         selected = selected,
@@ -168,189 +161,21 @@ private fun PidaiTabButton(
     )
 }
 
-/** 经典底栏（界面风格选「经典」时，手机上用）。5 个 tab，屁岱在正中。 */
-@Composable
-internal fun ClassicBottomBar(
-    nav: MainNavState,
-    colors: NavigationBarItemColors,
-    bubble: @Composable () -> Unit,
-) {
-    Column {
-        bubble()
-        NavigationBar(mode = NavigationBarDisplayMode.IconAndText) {
-            BottomTab.entries.forEach { tab ->
-                if (tab == BottomTab.PIDAI) {
-                    PidaiTabButton(
-                        nav,
-                        selected = nav.selected == tab,
-                        diameter = 38.dp,
-                        liftUp = 8.dp,
-                        paper = MiuixTheme.colorScheme.surface,
-                        modifier = Modifier.weight(1f),
-                    )
-                } else {
-                    NavigationBarItem(
-                        selected = nav.selected == tab,
-                        onClick = { nav.onSelect(tab) },
-                        icon = tab.icon,
-                        label = tab.label,
-                        colors = colors,
-                        badge = bottomTabBadge(tab, nav),
-                    )
-                }
-            }
-        }
-    }
-}
-
-/**
- * 手机竖屏的玻璃胶囊底栏，可以拖动切 tab。
- *
- * @param iconBox 图标统一放进这么高的框里，五格文字基线才对齐
- * @param exportedBackdrop 底栏导出的一层，供屁岱气泡采样
- */
-@Composable
-internal fun GlassBottomBar(
-    nav: MainNavState,
-    selectedColor: Color,
-    unselectedColor: Color,
-    iconBox: Dp,
-    backdrop: LayerBackdrop,
-    exportedBackdrop: LayerBackdrop,
-    bottomPadding: Dp,
-    bubble: @Composable () -> Unit,
-) {
-    Column(
-        Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 20.dp)
-            .padding(bottom = bottomPadding),
-    ) {
-        bubble()
-        GlassBottomTabs(
-            tabs = BottomTab.entries.map { tab ->
-                // 屁岱免染色：强调色是把整排再画一遍，机器人不能画出第二份
-                GlassTab(key = tab, tintExempt = tab == BottomTab.PIDAI) { selected ->
-                    if (tab == BottomTab.PIDAI) {
-                        PidaiTabButton(nav, selected, diameter = 40.dp, paper = MiuixTheme.colorScheme.surfaceContainerHigh)
-                    } else {
-                        val tint = if (selected) selectedColor else unselectedColor
-                        Box(Modifier.height(iconBox), contentAlignment = Alignment.Center) {
-                            Box {
-                                Icon(tab.icon, contentDescription = tab.label, tint = tint, modifier = Modifier.size(tab.iconSize))
-                                bottomTabBadge(tab, nav)?.let { badge ->
-                                    Box(Modifier.align(Alignment.TopEnd).offset(x = 10.dp, y = (-4).dp)) { badge() }
-                                }
-                            }
-                        }
-                        Text(tab.label, fontSize = 11.sp, maxLines = 1, color = tint)
-                    }
-                }
-            },
-            selectedIndex = nav.selected.ordinal,
-            onTabSelected = { index ->
-                val tab = BottomTab.entries[index]
-                if (tab == BottomTab.PIDAI) nav.onPidaiTap() else nav.onSelect(tab)
-            },
-            backdrop = backdrop,
-            exportedBackdrop = exportedBackdrop,
-            glass = true,
-        )
-    }
-}
-
-/** 平板竖屏的悬浮胶囊（miuix FloatingNavigationBar）。 */
-@Composable
-internal fun FloatingBottomBar(
-    nav: MainNavState,
-    colors: NavigationBarItemColors,
-    offsetY: Dp,
-    bubble: @Composable () -> Unit,
-) {
-    Column(Modifier.offset(y = offsetY)) {
-        bubble()
-        FloatingNavigationBar(
-            color = MiuixTheme.colorScheme.surfaceContainerHigh,
-            modifier = Modifier.clip(RoundedCornerShape(50)),
-        ) {
-            BottomTab.entries.forEach { tab ->
-                if (tab == BottomTab.PIDAI) {
-                    PidaiTabButton(nav, nav.selected == tab, diameter = 40.dp, paper = MiuixTheme.colorScheme.surfaceContainerHigh)
-                } else {
-                    FloatingNavigationBarItem(
-                        selected = nav.selected == tab,
-                        onClick = { nav.onSelect(tab) },
-                        icon = tab.icon,
-                        label = tab.label,
-                        colors = colors,
-                        badge = bottomTabBadge(tab, nav),
-                    )
-                }
-            }
-        }
-    }
-}
-
-/**
- * 宽屏可展开侧栏。自己处理 inset，外面不要再补 padding。
- *
- * @param railState 内容区也要读它，动画期间按终点宽度排版（[railSettledWidth]）
- * @param onPidaiBoundsChange 屁岱这一格的根坐标，宽屏气泡靠它定位
- */
-@Composable
-internal fun MainNavigationRail(
-    nav: MainNavState,
-    railState: NavigationRailState,
-    onPidaiBoundsChange: (Rect) -> Unit,
-) {
-    // 钉死行高：字号随展开进度插值时，文字高度按整像素跳变会让所有格子抖一下
-    val railTextStyles = MiuixTheme.textStyles.let { ts ->
-        ts.copy(
-            main = ts.main.copy(
-                lineHeight = 16.sp,
-                lineHeightStyle = LineHeightStyle(
-                    alignment = LineHeightStyle.Alignment.Center,
-                    trim = LineHeightStyle.Trim.None,
-                ),
-            ),
-        )
-    }
-    MiuixTheme(textStyles = railTextStyles) {
-        NavigationRail(
-            color = MiuixTheme.colorScheme.surface,
-            state = railState,
-            expandContentDescription = "展开导航栏",
-            collapseContentDescription = "收起导航栏",
-        ) {
-            BottomTab.entries.forEach { tab ->
-                if (tab == BottomTab.PIDAI) {
-                    RailPidaiItem(nav, railState, onPidaiBoundsChange)
-                } else {
-                    NavigationRailItem(
-                        selected = nav.selected == tab,
-                        onClick = { nav.onSelect(tab) },
-                        icon = tab.icon,
-                        label = tab.label,
-                        badge = bottomTabBadge(tab, nav),
-                    )
-                }
-            }
-        }
-    }
-}
-
 /**
  * 侧栏里的屁岱。miuix 侧栏的展开进度是 internal 的，这里用同一条弹簧自己算一份，
  * 几何照它的公式，展开 / 收起时和邻居一起平滑移动。
  */
 @Composable
 private fun RailPidaiItem(
-    nav: MainNavState,
-    railState: NavigationRailState,
+    tabs: ShellTabs,
+    current: ShellTab?,
+    tab: ShellTab,
+    onClick: () -> Unit,
+    expanded: Boolean,
     onPidaiBoundsChange: (Rect) -> Unit,
 ) {
     val railProgress by animateFloatAsState(
-        targetValue = if (railState.isExpanded) 1f else 0f,
+        targetValue = if (expanded) 1f else 0f,
         animationSpec = spring(dampingRatio = 1f, stiffness = 322f, visibilityThreshold = 0.001f),
         label = "pidaiRailProgress",
     )
@@ -365,11 +190,20 @@ private fun RailPidaiItem(
             }
             .fillMaxWidth()
             .padding(vertical = 12.dp) // = NavigationRailDefaults.ItemVerticalPadding
-            .clickable(onClick = nav.onPidaiTap),
+            .clickable(onClick = onClick),
         content = {
-            PidaiTabButton(nav, nav.selected == BottomTab.PIDAI, diameter = 40.dp, paper = MiuixTheme.colorScheme.surface, vertical = true)
+            PidaiTabButton(
+                tabs = tabs,
+                current = current,
+                tab = tab,
+                onClick = onClick,
+                selected = current?.id == tab.id,
+                diameter = 40.dp,
+                paper = MiuixTheme.colorScheme.surface,
+                vertical = true,
+            )
             Text(
-                BottomTab.PIDAI.label,
+                tab.label,
                 color = MiuixTheme.colorScheme.onSurfaceContainer,
                 fontSize = 16.sp,
                 fontWeight = FontWeight.Medium,
@@ -392,6 +226,49 @@ private fun RailPidaiItem(
             icon.placeRelative(iconX, (height - icon.height) / 2)
             if (f > 0f) label.placeRelative(labelX, (height - label.height) / 2)
         }
+    }
+}
+
+/**
+ * Android 那一份 [ShellTabArt]：屁岱那一格自己画（`PidaiNavButton`），其余格交给共享壳。
+ *
+ * 「哪一格自绘」按 id 认（`BottomTab.PIDAI.name`）；`onPidaiBoundsChange` 是宽屏气泡的锚点，
+ * 由主界面传进来（它才知道覆盖层原点）。
+ */
+internal class AndroidShellTabArt(
+    private val tabs: ShellTabs,
+    private val pidai: ShellTab,
+    private val onPidaiBoundsChange: (Rect) -> Unit,
+) : ShellTabArt {
+
+    override fun handles(tab: ShellTab): Boolean = tab.id == pidai.id
+
+    @Composable
+    override fun barTab(current: ShellTab?, tab: ShellTab, selected: Boolean, variant: ShellTabVariant) {
+        PidaiTabButton(
+            tabs = tabs,
+            current = current,
+            tab = tab,
+            onClick = variant.onClick,
+            selected = selected,
+            diameter = variant.diameter,
+            paper = variant.paper,
+            modifier = variant.modifier,
+            liftUp = variant.liftUp,
+            vertical = variant.vertical,
+        )
+    }
+
+    @Composable
+    override fun railTab(current: ShellTab?, tab: ShellTab, expanded: Boolean, variant: ShellTabVariant) {
+        RailPidaiItem(
+            tabs = tabs,
+            current = current,
+            tab = tab,
+            onClick = variant.onClick,
+            expanded = expanded,
+            onPidaiBoundsChange = onPidaiBoundsChange,
+        )
     }
 }
 
@@ -428,41 +305,3 @@ internal fun RailProactiveBubble(
     }
 }
 
-/** 侧栏动画期间内容区一直按终点宽度排版（多出的由外层裁掉），不逐帧重测。 */
-@Composable
-internal fun Modifier.railSettledWidth(railState: NavigationRailState, progress: State<Float>): Modifier {
-    // [0] 终点宽度 px，[1] 对应目标（1 展开 / 0 收起 / -1 无）
-    val held = remember { IntArray(2).also { it[1] = -1 } }
-    return this.layout { measurable, constraints ->
-        val target = if (railState.isExpanded) 1 else 0
-        val p = progress.value
-        val animating = abs(p - target) > 0.001f && constraints.hasBoundedWidth
-        val width = if (animating) {
-            if (held[1] != target) {
-                val remaining = round((p - target) * (240.dp - 80.dp).toPx()).toInt()
-                held[0] = (constraints.maxWidth + remaining).coerceAtLeast(0)
-                held[1] = target
-            }
-            held[0]
-        } else {
-            held[1] = -1
-            constraints.maxWidth
-        }
-        val placeable = measurable.measure(constraints.copy(minWidth = width, maxWidth = width))
-        layout(constraints.maxWidth, placeable.height) { placeable.place(0, 0) }
-    }
-}
-
-/** 「我的」上的角标：多账号时显示账号数，未登录时显示一个红点。 */
-private fun bottomTabBadge(tab: BottomTab, nav: MainNavState): (@Composable () -> Unit)? {
-    if (tab != BottomTab.PROFILE) return null
-    return when {
-        nav.accountCount > 1 -> {
-            { Badge { Text(nav.accountCount.coerceAtMost(99).toString()) } }
-        }
-        !nav.isLoggedIn -> {
-            { Badge() }
-        }
-        else -> null
-    }
-}

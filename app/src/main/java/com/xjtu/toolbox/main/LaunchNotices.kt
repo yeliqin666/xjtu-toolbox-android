@@ -33,6 +33,7 @@ import com.xjtu.toolbox.update.AppUpdateInfo
 import com.xjtu.toolbox.update.AppUpdater
 import com.xjtu.toolbox.update.AutoUpdateDialog
 import com.xjtu.toolbox.update.UpdateNoticeDialog
+import com.xjtu.toolbox.shell.ShellLaunchLayer
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 import kotlin.time.Clock
@@ -248,33 +249,45 @@ fun rememberLaunchNotices(credentialStore: CredentialStore): LaunchNotices {
     return notices
 }
 
-/** 启动弹框，同一时刻只弹优先级最高的一个（WindowBottomSheet 叠两层会互相顶掉）。 */
+/** 启动弹框，同一刻只弹优先级最高的一个（WindowBottomSheet 叠两层会互相顶掉）。 */
 @Composable
 fun LaunchNoticeDialogs(notices: LaunchNotices) {
     val bulletin = notices.launchDialogBulletin
     val update = notices.autoUpdate
-    when {
-        notices.showBulletinDialog.value && bulletin != null -> BulletinLaunchDialog(
-            bulletin = bulletin,
-            show = notices.showBulletinDialog,
-            onDismiss = { notices.dismissBulletinDialog(bulletin) },
-            onPrimary = { notices.confirmBulletinDialog(bulletin) },
-            onSubmitPoll = { notices.submitPoll(bulletin, it) },
-        )
-        update != null -> AutoUpdateDialog(
-            version = update.version,
-            body = update.notes,
-            downloadUrl = update.downloadUrl,
-            releaseUrl = update.releaseUrl,
-            channelLabel = update.channelLabel,
-            isPreview = update.isPreview,
-            onDismiss = notices::dismissAutoUpdate,
-        )
-        notices.checkFinished && notices.showChangelog.value -> UpdateNoticeDialog(
+    // 「挑哪一层」的判据在 `:core` 的 `ShellLaunchLayer`（桌面也按同一条口径只弹一层）；
+    // 每一层画什么仍在这一端（更新那两档是 APK 那一套，桌面没有）。
+    when (ShellLaunchLayer.layer(
+        bulletin = notices.showBulletinDialog.value && bulletin != null,
+        update = update != null,
+        changelog = notices.checkFinished && notices.showChangelog.value,
+    )) {
+        // 上面那两个判据保证：选到这一层时 bulletin 一定非空（与搬迁前那个 `when` 的先后一致）
+        ShellLaunchLayer.BULLETIN -> bulletin?.let { shown ->
+            BulletinLaunchDialog(
+                bulletin = shown,
+                show = notices.showBulletinDialog,
+                onDismiss = { notices.dismissBulletinDialog(shown) },
+                onPrimary = { notices.confirmBulletinDialog(shown) },
+                onSubmitPoll = { notices.submitPoll(shown, it) },
+            )
+        }
+        ShellLaunchLayer.UPDATE -> update?.let { pending ->
+            AutoUpdateDialog(
+                version = pending.version,
+                body = pending.notes,
+                downloadUrl = pending.downloadUrl,
+                releaseUrl = pending.releaseUrl,
+                channelLabel = pending.channelLabel,
+                isPreview = pending.isPreview,
+                onDismiss = notices::dismissAutoUpdate,
+            )
+        }
+        ShellLaunchLayer.CHANGELOG -> UpdateNoticeDialog(
             entries = notices.pendingChangelog,
             show = notices.showChangelog,
             fromVersion = notices.previousRunVersion?.takeIf { it != BuildConfig.VERSION_NAME },
             onDismiss = notices::dismissChangelog,
         )
+        null -> Unit
     }
 }

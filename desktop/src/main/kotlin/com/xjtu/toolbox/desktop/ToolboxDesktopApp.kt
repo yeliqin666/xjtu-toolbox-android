@@ -7,19 +7,14 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Apps
-import androidx.compose.material.icons.filled.CalendarMonth
-import androidx.compose.material.icons.filled.EventNote
-import androidx.compose.material.icons.filled.Home
-import androidx.compose.material.icons.filled.Phone
-import androidx.compose.material.icons.filled.SportsEsports
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -31,7 +26,6 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -121,6 +115,12 @@ import com.xjtu.toolbox.pay.PaymentCodeScreen
 import com.xjtu.toolbox.pay.PaymentSelectionStore
 import com.xjtu.toolbox.platform.secureKeyValueStore
 import com.xjtu.toolbox.settings.SettingsScreen
+import com.xjtu.toolbox.shell.AppShell
+import com.xjtu.toolbox.shell.ShellNavState
+import com.xjtu.toolbox.shell.ShellPageHost
+import com.xjtu.toolbox.shell.ShellTarget
+import com.xjtu.toolbox.ui.LocalIsWideLayout
+import com.xjtu.toolbox.ui.calculateIsWideLayout
 import com.xjtu.toolbox.ui.theme.XJTUToolBoxTheme
 import com.xjtu.toolbox.library.LibraryScreen
 import com.xjtu.toolbox.account.AccountManagerScreen
@@ -139,9 +139,6 @@ import com.xjtu.toolbox.webvpn.WebVpnUtil
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import top.yukonga.miuix.kmp.basic.NavigationBar
-import top.yukonga.miuix.kmp.basic.NavigationBarDisplayMode
-import top.yukonga.miuix.kmp.basic.NavigationBarItem
 import top.yukonga.miuix.kmp.basic.CircularProgressIndicator
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextButton
@@ -154,10 +151,27 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
  *
  * 一层很薄的壳，只做四件事：
  *  1. 没登录 → [LoginScreen]（`:core` 的共享登录屏），登录状态由 [DesktopAuth] 持有；
- *  2. 已登录 → 底栏 + 当前页；
+ *  2. 已登录 → **共享壳**（`:core` 的 [AppShell]：底栏 / 侧栏 + 当前页）；
  *  3. 全程挂着 MFA 弹窗宿主（登录本身就可能要短信二验，登录页上也一样要）；
  *  4. 「全部页面」那张索引页如实列出**哪些路由真能用、哪些还没搬**。
  *
+
+ * ## 外壳是共享壳（Stage B 的主角）
+ *
+ * 「底栏长什么样、画在哪、当前页怎么摆、宽窄怎么自适应」都不在这一端了 —— 它们在 `:core` 的
+ * [AppShell] 里，与 `:app`（Android）是**同一份代码**。这一端只交三样：
+ *
+ *  1. 六格（[desktopTabs]，顺序 / 文字 / 图标与搬迁前那份 `DESKTOP_TABS` 逐字相同）；
+ *  2. 当前页（[DesktopTarget] ↔ [ShellTarget] 的换算，见 `DesktopShell.kt`）；
+ *  3. 「留下谁」那一档（[ShellPageHost.CURRENT_ONLY]：这一端的导航模型是**路由表**，
+ *     43 条里 37 条不属于任何一格，逐条常驻既没意义、又会一直涨）。
+ *
+ * 于是「非 tab 路由不高亮任何一格」这件事不用这一端写一行判据：它是 `:core` 的
+ * [ShellNavState.selected]（`target` 落在哪一格上就高亮哪一格，落不上就不高亮）。
+ *
+ * 窗口何谓「宽」也由壳判：这一端只把窗口形状算好喂下去（`LocalIsWideLayout`，
+ * 判据就是 `:core` 那条 `calculateIsWideLayout` —— 与 Android 在宽屏 / 折叠屏上同一套），
+ * 窗口够宽时底栏自动变成侧栏。
  * 数据全来自 `:data`（会话内核 + `LibraryApi`），**没有任何我方的服务器**（设计文档 C2）。
  *
  * ## 与 `:web` 的外壳是什么关系
@@ -171,7 +185,7 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
  *
  * ## 底栏那几格，只放这一端**真能画**的东西（诚实的一条）
  *
- * 底栏那六格（见 [DESKTOP_TABS]）都是这一端真能画的屏：`:core` 里有屏 + 取数在 `:data`。
+ * 底栏那六格（见 [desktopTabs]）都是这一端真能画的屏：`:core` 里有屏 + 取数在 `:data`。
  * 第一格是**首页**（`AppRoute.Main` → `:core` 的 `HomeScreen` + 本端的 `DesktopHomeScreen` 宿主面）：
  * 它与 `:app` 的「Tab 1」是同一份屏，只是这一端没有玻璃顶栏，消息那一格画在首页里。
  * 「全部」那一页里的「真能用」就是这张表（[DESKTOP_SUPPORTED_ROUTES]）；17 条真数据路由
@@ -261,14 +275,48 @@ internal fun ToolboxDesktopApp(
                 "登录需要两步验证时会在窗口里弹出来。",
         )
     } else {
-        Column(modifier = Modifier.fillMaxSize()) {
-            Box(modifier = Modifier.weight(1f)) {
-                when (val t = target) {
-                    is DesktopTarget.App -> DesktopPage(auth, t.route, bulletins, agent, { appearanceTick++ }) { target = it }
-                    DesktopTarget.Routes -> RoutesPage(auth) { target = it }
-                }
-            }
-            DesktopBottomBar(selected = target) { target = it }
+        // 共享壳（`:core` 的 AppShell）：底栏 / 侧栏 / 当前页那一层 / 形态学全在它里面，
+        // 与 `:app` 是同一份代码。这一端只交三样：六格、当前页、以及「留下谁」那一档。
+        val navState = ShellNavState(
+            tabs = desktopTabs(),
+            target = target.toShell(),
+            onSelect = { tab ->
+                // 六格里只有「某一屏」与「全部」两种目标（见 desktopTabs）；Custom（端自己的页）
+                // 这一端还没有 ⇒ 映射不出来就不动（不假装能去）。
+                tab.target.toDesktop()?.let { target = it }
+            },
+        )
+        // 窗口形状喂给共享壳（`:app` 那边由 `AppNavigation` 算好往下提供）：窗口够宽时底栏换侧栏，
+        // 判据就是 `:core` 那条 `calculateIsWideLayout` —— 与 Android 在宽屏 / 折叠屏上同一套。
+        CompositionLocalProvider(LocalIsWideLayout provides calculateIsWideLayout()) {
+            AppShell(
+                nav = navState,
+                // 这一端的导航模型是**路由表**（43 条里 37 条不属于任何一格）⇒ 只画当前这一页，
+                // 不做「进过的 tab 常驻」（那是 `:app` 五格的形态，见 ShellPageHost）。
+                pageHost = ShellPageHost.CURRENT_ONLY,
+                // 这一端没有「界面风格」这一项（设置页里那两行如实不画，见 DesktopSettingsHost）
+                // ⇒ 一律经典：搬迁前这一端画的也是 miuix 经典底栏，不是玻璃胶囊。
+                glassStyle = false,
+                // 没有系统栏、没有刘海：窗口 chrome 全是 0（壳那边于是只剩底栏本体）
+                bottomInset = 0.dp,
+                contentWindowInsets = WindowInsets(0),
+                page = { opened, _ ->
+                    // 43 条顶层分支都在 DesktopPage 里（`when (route)`）——这一段只分派「哪一种页」。
+                    when (val openedTarget = opened.target) {
+                        is ShellTarget.App -> DesktopPage(
+                            auth = auth,
+                            route = openedTarget.route,
+                            bulletins = bulletins,
+                            agentHost = agent,
+                            onAppearanceChanged = { appearanceTick++ },
+                            onNavigate = { target = it },
+                        )
+
+                        // 「全部」那一页 = 索引页。Custom（端自己的页）这一端还没有 ⇒ 落到同一页，不白屏。
+                        ShellTarget.AllPages, is ShellTarget.Custom -> RoutesPage(auth) { target = it }
+                    }
+                },
+            )
         }
     }
 
@@ -295,25 +343,6 @@ internal fun ToolboxDesktopApp(
     }
 }
 
-/** 当前页：`:core` 路由表里的一屏，或「全部页面」那张索引页。 */
-internal sealed interface DesktopTarget {
-    data class App(val route: AppRoute) : DesktopTarget
-    data object Routes : DesktopTarget
-}
-
-internal data class DesktopTab(val label: String, val icon: ImageVector, val target: DesktopTarget)
-
-/** 底栏那六格 —— 每一格都是这一端**真能画**的屏（取数在 `:data`，或压根不需要取数）。 */
-internal val DESKTOP_TABS = listOf(
-    // 首页（`AppRoute.Main`）：与 `:app` 的第一格同位。屏是 `:core` 的 `HomeScreen`，
-    // 这一端只提供宿主面（课表缓存 / 节假日 / 真能打开的路由表 / 公告 / 消息那两格）。
-    DesktopTab("首页", Icons.Filled.Home, DesktopTarget.App(AppRoute.Main)),
-    DesktopTab("校历", Icons.Filled.EventNote, DesktopTarget.App(AppRoute.SchoolCalendar)),
-    DesktopTab("图书馆", Icons.Filled.CalendarMonth, DesktopTarget.App(AppRoute.Library)),
-    DesktopTab("黄页", Icons.Filled.Phone, DesktopTarget.App(AppRoute.YellowPage)),
-    DesktopTab("游戏", Icons.Filled.SportsEsports, DesktopTarget.App(AppRoute.Games)),
-    DesktopTab("全部", Icons.Filled.Apps, DesktopTarget.Routes),
-)
 
 /**
  * 这一端**真能画**的路由（`:core` 里有屏 + 取数在 `:data`，两者缺一不可）。
@@ -454,23 +483,6 @@ internal val DESKTOP_SUPPORTED_ROUTES = listOf(
  */
 internal val DESKTOP_PENDING_ROUTES = emptyList<Pair<AppRoute, String>>()
 
-@Composable
-private fun DesktopBottomBar(selected: DesktopTarget, onSelect: (DesktopTarget) -> Unit) {
-    // 与 App 的「经典底栏」同一个组件、同一个 mode；只是格数不同（见文件头）。
-    // 当前页不在底栏那五格里（例如某个游戏子屏、或教师检索）⇒ 一格都不高亮，这是对的：
-    // 底栏是「去哪儿」，不是「你从哪儿来」。
-    val selectedIndex = DESKTOP_TABS.indexOfFirst { it.target == selected }
-    NavigationBar(mode = NavigationBarDisplayMode.IconAndText) {
-        DESKTOP_TABS.forEachIndexed { index, tab ->
-            NavigationBarItem(
-                selected = index == selectedIndex,
-                onClick = { onSelect(tab.target) },
-                icon = tab.icon,
-                label = tab.label,
-            )
-        }
-    }
-}
 
 /**
  * 一屏共享页。每个屏只注入**这一端能提供的东西**：

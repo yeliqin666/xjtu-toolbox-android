@@ -22,6 +22,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.xjtu.toolbox.home.AppServices
 import com.xjtu.toolbox.schedule.CampusScheduleApi
 import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.Text
@@ -89,6 +90,47 @@ fun ProbeScreen() {
                         Text(r.detail, color = cs.onBackgroundVariant, fontSize = 11.sp)
                     }
                 }
+            }
+        }
+        // ── 本端支持清单（`WebSupport`，与首页宫格/学辅目录同一份真源）在页面上的现场快照 ──
+        // 它不联网、也不依赖上面那几发探测：只想让“哪些能点、哪些还没有”在一张页上可核。
+        Spacer(Modifier.height(8.dp))
+        Card(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 4.dp),
+            insideMargin = PaddingValues(12.dp),
+        ) {
+            Column {
+                Text(
+                    "本端支持的路由（${WebSupport.openableRouteIds.size} 条）",
+                    color = cs.onSurface,
+                    fontSize = 13.sp,
+                )
+                Text(
+                    WebSupport.openableRouteIds.sorted().joinToString(" · "),
+                    color = cs.onBackgroundVariant,
+                    fontSize = 10.sp,
+                )
+                Spacer(Modifier.height(6.dp))
+                Text(
+                    "服务目录里能点进去的（${WebSupport.openableCatalog.size}/${AppServices.all.size}）：" +
+                        WebSupport.openableCatalog.joinToString(" · ") { it.title },
+                    color = cs.onBackgroundVariant,
+                    fontSize = 10.sp,
+                )
+                Spacer(Modifier.height(6.dp))
+                Text(
+                    "目录里有、本端还没有屏的（${WebSupport.unsupportedCatalog.size}）：" +
+                        WebSupport.unsupportedCatalog.joinToString(" · ") { it.title },
+                    color = cs.onBackgroundVariant,
+                    fontSize = 10.sp,
+                )
+                Spacer(Modifier.height(6.dp))
+                Text(
+                    "这张清单与 `AppPage` 的 `when` 分支必须同时改（加一屏要改哪两处，见 `WebSupport` 的 KDoc）：" +
+                        "只加分支不加清单 = 那一屏没有入口；只加清单不加分支 = 点进去会看到「清单与分支对不上」。",
+                    color = cs.primary,
+                    fontSize = 10.sp,
+                )
             }
         }
         Spacer(Modifier.height(12.dp))

@@ -74,6 +74,7 @@ import com.xjtu.toolbox.ywtb.YwtbFakeUpstream
 import java.io.File
 import java.nio.file.Files
 import javax.swing.SwingUtilities
+import javax.imageio.ImageIO
 import kotlin.system.exitProcess
 import kotlinx.coroutines.runBlocking
 import kotlinx.datetime.LocalDate
@@ -121,6 +122,8 @@ import kotlinx.datetime.LocalDate
  * | `agent_welcome.png` | 屁岱的**未配置欢迎页**（同一个 `AppRoute.Agent` 真路由，只把夹具传输换成空配置下的状态） | 与 `agent.png` 同一屏的另一个入口：没接模型时先落在「先接一个模型」那张欢迎页上。这一枪只断言「真路由接上宿主面之后确实落在这张页上」，对话流与落盘由 `agent.png`（及 `DesktopAgentJvmTest`）钉住 |
  * | `home.png` | 首页（真路由：外壳 → `AppRoute.Main` → `:core` 的 `HomeScreen` + 本端 `DesktopHomeScreen`） | 第三十一条真数据路由，也是 Stage C 「宿主机能族」的第一条：首页就是底栏的第一格（不另造一套壳）。这张图上的**第 4 周**、**下周那节课（夹具课名 + 教室）**、**考试倒计时（还有 5 天 · 主楼B-201）**与顶部那条**公告条**都是从**本端键值缓存**算出来的（`HomeHero` / `HomeScheduleStats` / `BulletinFeed` 都是 `:core` 的）；课表/考试/教材是拍之前写进去的夹具（值都是编的），公告那一枪注入的是夹具公告（`.invalid` 域名）。首页一个网络请求都不发 |
  * | `main.png` | 主壳（同一个 `AppRoute.Main`，宽窗 900×900） | 首页接进**现有导航壳**之后的形态：底栏六格（首页 / 校历 / 图书馆 / 黄页 / 游戏 / 全部）都在，第一格「首页」是当前页；同一份夹具缓存与同一条夹具公告。外壳的**默认首屏**这一轮也改成了首页（与 `:app` 落在「Tab 1」同一条口径）—— 原来那个默认（图书馆）的理由是「它是这一端唯一有真数据的屏」，首页点亮之后这条不再成立。**桌面小组件这一端没有**（设计文档 §6 Stage C 的口径是「用系统通知替代」，那条路还没做）—— 它不在这一端任何一个宿主面里，不是「画不出来」 |
+ * | `home-dark.png` | 首页，**深色**（同一个 `AppRoute.Main`，与 `home.png` 同一份夹具缓存 / 同一条夹具公告） | 共享壳现在会铺 Scaffold 的 `containerColor`（= `MiuixTheme.colorScheme.surface`）—— 这是一处**看得见的变化**（旧桌面壳那些像素是**透明**的，见 §14 里那一行）。这一对（含 `main-dark.png`）把「换主题时底栏 / 侧栏 / 页面三层是不是都跟着换」变成落在 PNG 像素上的断言，判据见 `bandOf` 那段 |
+ * | `main-dark.png` | 主壳（宽窗 900×900），**深色**（与 `main.png` 同一枪） | 宽窗下底栏换成**侧栏**，所以那一条也得单独核：三层里没有哪一层留在浅色主题上 |
  * | `routes.png` | 「全部页面」索引页 | 如实列出「真能用 / 还没有数据源」，并给出退出登录入口 |
  * | `library-demo.png` | 同一屏 + 固定假数据 | 布局与组件本身可复现（不依赖网络/会话，改屏时用它对比） |
  *
@@ -1202,6 +1205,51 @@ fun main(args: Array<String>) {
         check(matchIntersectionShown) {
             "schedule_match.png：屏上没有夹具算出来的交集 —— 解码或逐维比较断了"
         }
+        // ── 深色下的外壳：`home-dark.png` / `main-dark.png`（与 `home.png` / `main.png` 同一枪）──────
+        //
+        // 为什么要这一对：共享壳现在会铺 Scaffold 的 `containerColor`（= `MiuixTheme.colorScheme.surface`）
+        // —— 旧桌面壳那些像素是**透明**的，所以这是一处「看得见的变化」。只拍浅色答不了「换主题时
+        // 三层（底栏 / 侧栏 / 页面）是不是都跟着换」；深浅并排、判据落在**落盘的那两张 PNG** 上才有话说。
+        //
+        // ⚠️ 顺序：必须在**所有其它图之后** —— `dark_mode` 是写进进程级那份 store 的，写在中间会把
+        // 后面的图一起带成深色（`webvpn_converter.png` / `browser.png` 今天就是被 `settings.png` 那
+        // 一枪带成深色的，那是既有现象，本轮没动它）。
+        // 与 `home.png` / `main.png` 是**同一条路由、同一份公告夹具**。⚠️ 课表/考试那两格别指望与那两张
+        // 逐像素一样：这一枪在最末尾，缓存里已经是 `schedule_match.png` 那一枪写进去的夹具了（图上会
+        // 看到另一门课），而深浅对照要的是**外壳那三层**的像素 —— 那几层与页里画了什么无关。
+        // 账号管理那一枪把当前账号切到了第二条，而首页读的是**本账号**的缓存 ⇒ 先切回来。
+        runBlocking { DesktopAccounts(auth).switchTo(LibraryFakeUpstream.USERNAME) }
+        secureKeyValueStore(SettingsStore.APP_SETTINGS_FILE)
+            .putString("dark_mode", SettingsStore.DARK_MODE_DARK)
+        shot("home-dark.png", frames = 12) {
+            ToolboxDesktopApp(auth, DesktopTarget.App(AppRoute.Main), homeBulletinFetch)
+        }
+        shot("main-dark.png", width = 900, height = 900, frames = 8) {
+            ToolboxDesktopApp(auth, DesktopTarget.App(AppRoute.Main), homeBulletinFetch)
+        }
+
+        // 三条判据（浅 → 深），每条都读**落盘的 PNG**：
+        //  ① 底栏那一条（520×900 里六格下面那一段）：浅色那边是最亮的 247，深色这张必须是深色；
+        //  ② 侧栏那一条竖带（900×900 里 x=2..6 整列）：宽窗下底栏换侧栏，同样得跟着主题走；
+        //  ③ 页面那一层（内容区整块）：「亮像素」占比 —— 深色下要小、浅色下要大（页面也没留在浅色上）。
+        val lightBar = bandOf(outDir, "home.png", 60, 888, 460, 898)
+        val darkBar = bandOf(outDir, "home-dark.png", 60, 888, 460, 898)
+        check(lightBar.maxLuma >= 200) { "home.png：底栏那一条不是浅色（$lightBar）—— 底栏没按主题铺色？" }
+        check(darkBar.maxLuma <= 80) {
+            "home-dark.png：底栏那一条在深色下还是亮的（$darkBar）—— 外壳铺的那层没跟着深色走？"
+        }
+        val lightRail = bandOf(outDir, "main.png", 2, 100, 6, 800)
+        val darkRail = bandOf(outDir, "main-dark.png", 2, 100, 6, 800)
+        check(lightRail.maxLuma >= 200) { "main.png：宽窗下侧栏那一条不是浅色（$lightRail）" }
+        check(darkRail.maxLuma <= 80) { "main-dark.png：宽窗下侧栏那一条在深色下还是亮的（$darkRail）" }
+        val lightPage = bandOf(outDir, "home.png", 20, 60, 500, 830)
+        val darkPage = bandOf(outDir, "home-dark.png", 20, 60, 500, 830)
+        check(lightPage.brightRatio > 0.5f) { "home.png：页面那一层不是浅色（$lightPage）" }
+        check(darkPage.brightRatio < 0.2f) {
+            "home-dark.png：深色下页面那一层还有一大片亮像素（$darkPage）—— 三层里有一层没换底？"
+        }
+        println("深浅对照：底栏 $lightBar → $darkBar；侧栏 $lightRail → $darkRail；页面 $lightPage → $darkPage")
+
     }
     exitProcess(0)
 }
@@ -1288,4 +1336,36 @@ private fun <T> onEdt(block: () -> T): T {
     failure?.let { throw it }
     @Suppress("UNCHECKED_CAST")
     return result as T
+}
+
+/**
+ * 从**落盘的那张证据图**上量一块矩形区域：最亮值（0..255）与「亮像素」（任一通道 > 200）的占比。
+ *
+ * 为什么读文件、而不是读内存里那份位图：`ImageComposeScene.render()` 返回的是**同一块 surface**
+ * 的包装，下一次 render 会把它覆盖掉（场景关掉之后更是不能用）⇒ 判据落在真正交出去的那份 PNG 上，
+ * 顺便也把「写出来的字节是对的」一起核了。
+ *
+ * 这一对数是给深 / 浅两套外壳对照用的（`home-dark.png` / `main-dark.png` 那一段）：外壳那几条
+ * 结构带（底栏 / 侧栏）与页面那一层，浅色主题下是浅色、深色主题下必须是深色 —— 任何一层留在
+ * 另一套主题上，就是「层次错位」。
+ */
+private class BandStats(val maxLuma: Int, val brightRatio: Float) {
+    override fun toString(): String = "最亮=$maxLuma 亮占比=${(brightRatio * 100).toInt()}%"
+}
+
+private fun bandOf(shotsDir: File, name: String, x0: Int, y0: Int, x1: Int, y1: Int): BandStats {
+    val image = requireNotNull(ImageIO.read(File(shotsDir, name))) { "读不到证据图：$name" }
+    var maxLuma = 0
+    var bright = 0
+    var total = 0
+    for (y in y0 until y1) {
+        for (x in x0 until x1) {
+            val argb = image.getRGB(x, y)
+            val luma = maxOf((argb shr 16) and 0xFF, (argb shr 8) and 0xFF, argb and 0xFF)
+            if (luma > maxLuma) maxLuma = luma
+            if (luma > 200) bright++
+            total++
+        }
+    }
+    return BandStats(maxLuma, bright.toFloat() / total)
 }
