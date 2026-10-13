@@ -3,49 +3,8 @@ package com.xjtu.toolbox.agent
 import com.xjtu.toolbox.account.AccountContext
 import com.xjtu.toolbox.platform.dataFilesDir
 import com.xjtu.toolbox.util.AppJson
-import kotlinx.serialization.Serializable
 import java.io.File
 import java.util.UUID
-
-/**
- * 一个会话的元数据（用于抽屉列表）。
- * 会话是带 id/title/时间戳的持久实体，标题由首条消息自动生成。
- */
-@Serializable
-data class AgentSession(
-    val id: String = "",
-    val title: String = "",
-    val createdAt: Long = 0L,
-    val updatedAt: Long = 0L,
-    /** true=标题已由用户改名或 AI 总结锁定，不再被首条消息自动覆盖。 */
-    val locked: Boolean = false
-)
-
-@Serializable
-data class StoredWidget(val type: String = "", val json: String = "")
-
-/** 持久化用的精简消息。 */
-@Serializable
-data class StoredMessage(
-    val role: String = "assistant",
-    val content: String = "",
-    val nav: List<List<String>> = emptyList(),   // [[label, route], ...]
-    val widgets: List<StoredWidget>? = emptyList(),
-    val reasoningContent: String? = null,
-    val timestamp: Long? = null,
-    val toolError: String? = null,
-    /** 图片附件的本地路径。老会话没有这个字段，反序列化得到 null。 */
-    val images: List<String>? = null,
-)
-
-/** 一个会话的完整内容：UI 消息 + 供续聊的 LLM 历史（JsonArray 的字符串形式）。 */
-@Serializable
-data class StoredConversation(
-    val messages: List<StoredMessage> = emptyList(),
-    val llmHistory: String = "[]",
-    val lastTotalTokens: Long? = null,
-    val contextExhausted: Boolean = false
-)
 
 /**
  * Agent 多会话持久化存储。
@@ -66,7 +25,7 @@ data class StoredConversation(
 class AgentSessionStore(
     /** 数据根目录（**每次调用重新解析**，默认取本端的 `dataFilesDir()`）。 */
     private val rootDirOf: () -> File = { dataFilesDir() },
-) {
+) : AgentSessionPersistence {
     /** 当前账号命名空间下的会话目录，每次调用动态解析以响应账号切换。 */
     private val dir: File
         get() = File(rootDirOf(), "agent_sessions" + AccountContext.safeSuffix()).apply { mkdirs() }
@@ -74,10 +33,10 @@ class AgentSessionStore(
         get() = File(dir, "index.json")
 
     /** 全部会话，按最近更新降序。 */
-    fun list(): List<AgentSession> = readIndex().sortedByDescending { it.updatedAt }
+    override fun list(): List<AgentSession> = readIndex().sortedByDescending { it.updatedAt }
 
     /** 新建空会话并登记。 */
-    fun create(title: String = DEFAULT_TITLE): AgentSession {
+    override fun create(title: String): AgentSession {
         val now = System.currentTimeMillis()
         val session = AgentSession(UUID.randomUUID().toString(), sanitizeAgentTitle(title, DEFAULT_TITLE), now, now)
         writeIndex(readIndex() + session)
@@ -86,26 +45,26 @@ class AgentSessionStore(
     }
 
     /** @param lock 是否锁定标题（用户改名或 AI 总结时为 true）。 */
-    fun rename(id: String, title: String, lock: Boolean = true) {
+    override fun rename(id: String, title: String, lock: Boolean) {
         val now = System.currentTimeMillis()
         writeIndex(readIndex().map {
             if (it.id == id) it.copy(title = sanitizeAgentTitle(title, DEFAULT_TITLE), updatedAt = now, locked = lock) else it
         })
     }
 
-    fun delete(id: String) {
+    override fun delete(id: String) {
         writeIndex(readIndex().filterNot { it.id == id })
         convoFile(id).delete()
     }
 
-    fun load(id: String): StoredConversation? {
+    override fun load(id: String): StoredConversation? {
         val f = convoFile(id)
         if (!f.exists()) return null
         return runCatching { AppJson.decodeFromString<StoredConversation>(f.readText()) }.getOrNull()
     }
 
     /** 保存会话内容，并把 title/updatedAt 同步进 index（不存在则补登记）。保留已有 locked 标志。 */
-    fun save(id: String, convo: StoredConversation, title: String) {
+    override fun save(id: String, convo: StoredConversation, title: String) {
         writeConvo(id, convo)
         val now = System.currentTimeMillis()
         val idx = readIndex()
@@ -117,7 +76,7 @@ class AgentSessionStore(
     }
 
     /** 当前标题是否已锁定（用于 ViewModel 决定是否自动改标题）。 */
-    fun isLocked(id: String): Boolean = readIndex().firstOrNull { it.id == id }?.locked == true
+    override fun isLocked(id: String): Boolean = readIndex().firstOrNull { it.id == id }?.locked == true
 
     // ── 内部 ──────────────────────────────────────────────────────────────
 
@@ -136,6 +95,6 @@ class AgentSessionStore(
     }
 
     companion object {
-        const val DEFAULT_TITLE = "新对话"
+        const val DEFAULT_TITLE = AGENT_SESSION_DEFAULT_TITLE
     }
 }

@@ -76,6 +76,11 @@ import com.kyant.backdrop.backdrops.rememberCombinedBackdrop
 import com.kyant.backdrop.backdrops.rememberLayerBackdrop
 import com.xjtu.toolbox.account.AccountManager
 import com.xjtu.toolbox.agent.AgentPendingPrompt
+import com.xjtu.toolbox.agent.AndroidAgentHost
+import com.xjtu.toolbox.agent.AndroidPidaiHero
+import com.xjtu.toolbox.agent.AndroidPokeWhisper
+import com.xjtu.toolbox.agent.PidaiAppearancePanel
+import com.xjtu.toolbox.agent.rememberAndroidAgentImagePicker
 import com.xjtu.toolbox.agent.AgentScreen
 import com.xjtu.toolbox.agent.BubbleArrowSide
 import com.xjtu.toolbox.agent.ProactiveBubbleHost
@@ -493,6 +498,15 @@ internal fun MainScreen(
                                 contentTopPadding = tabTopPadding,
                             )
                             BottomTab.PIDAI -> AgentScreen(
+                                // 端装配与端上资源：`:core` 的屁岱只认这条缝（见 AgentHost）
+                                host = remember { AndroidAgentHost(context, loginState) },
+                                // 系统相册挑图（`:app` 的适配器）：`:core` 拿不到 ActivityResultLauncher
+                                imagePicker = rememberAndroidAgentImagePicker(),
+                                // 屁岱形象那三块（首屏问候头、戳一下的回应气泡、形象选择）都还在这一端：
+                                // 它们认 `ProactiveBubbleHost` / 形象设置 / `PidaiPokes`，桌面没有那几样。
+                                hero = { title, facts, now -> AndroidPidaiHero(title, facts, now) },
+                                pokeWhisper = { AndroidPokeWhisper(it) },
+                                appearanceSection = { PidaiAppearancePanel() },
                                 // 输入栏钉在底边，要让开浮在上面的底栏
                                 extraBottomPadding = floatingBarReserve,
                                 hostBottomPadding = padding.calculateBottomPadding(),

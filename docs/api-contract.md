@@ -17,7 +17,7 @@
 
 | | campus-api（旧） | `/api/*`（新） |
 |---|---|---|
-| **能力** | **只读**：图书馆/场馆/评教都在自己的 status 里写 `readOnly:true` | **含写路径**：约座 / 换座 / 签到 / 退座 / 下单 / 取消 / 付款码（`:data` 里已经有了，campus-api 没有） |
+| **能力** | **只读**：图书馆/场馆/评教都在自己的 status 里写 `readOnly:true` | **含写路径**（已落地的两种）：图书馆约座 / 换座 / 签到 / 退座（§5.3.1）与场馆下单 / 取消（§5.3.2）。⚠️ **付款码与加餐券不在其中**：`:data` 侧两份实现都有（`data/src/commonMain/kotlin/com/xjtu/toolbox/pay/PaymentCodeApi.kt`、`data/src/commonMain/kotlin/com/xjtu/toolbox/coupon/CouponApi.kt`），Android 与桌面的窗口模式已在用，但这套 `/api/*` **还没有对应端点**（§5 表里仍是 P2 未实现） |
 | **谁能做** | 一刀切只读 | **能力开关随部署与账号变**：`canBook` / `canCancel` / `canSubmit` / `hasSeatPlan` / `availableSources` 必须**如实**出现在响应里，屏按它决定画不画按钮（"点了会失败的按钮一个都不画"） |
 | **会话** | 单账号、回环、零鉴权（凭据托管在 campus-api 进程里） | **浏览器不带任何凭据**：登录/登出/短信二验都经 `/api/session*`，会话在 `:server` 进程里（默认只监听 `127.0.0.1` + 访问令牌）。令牌先换成 cookie `serve_token`（只有它能被浏览器带着走），之后的请求就只靠它 |
 
@@ -79,10 +79,20 @@
 | `/api/library/campus` `/api/library/areas` `/api/library/seats` `/api/library/my` `/api/library/action` | `LibrarySource` | 图书馆座位 | P0 | **部分沿用 + 补**：`/campus` `/areas` `/seats` `/my` 形状可沿用（逐字段映射见 `CampusLibraryApi` 的 KDoc 表）；**写端点 `/api/library/action` 已落地**（§5.3.1），`canBook=true` 时屏上那些按钮才画 |
 | `/api/card/balance` `/api/card/transactions` | `CampusCardSource` | 校园卡 | P0 | 沿用（`amount ← signed`、`description ← channel`、`cardType ← cardName`；⚠️ 挂失口径 `lostflag` vs `barflag` 要在本文档里明确选一个） |
 | `/api/venue/products` `/api/venue/slots` `/api/venue/orders` `/api/venue/status` | `VenueSource` | 体育场馆 | P0 | **部分沿用 + 补**：`slots` 的 `surplus` **不要用旧字段**（旧口径在 `all == used` 时给 0，而两端一致的读法是 `status == 1` ⇒ 可订） |
-| `/api/venue/captcha` `/api/venue/book` `/api/venue/cancel` | `VenueSource` | 体育场馆（写） | **P1（新增）** | 无旧形状：serve 侧新开的两条写路径（契约 §5.3.2 逐字段） |
+| `/api/venue/captcha` `/api/venue/book` `/api/venue/cancel` | `VenueSource` | 体育场馆（写） | **P1（写路径）· 已落地 2026-10-12** | 无旧形状：serve 侧新开的两条写路径（契约 §5.3.2 逐字段；落地提交 `45a0e50`） |
 | `/api/coupon/…` `/api/payment-code` | 新 | 加餐券 / 付款码 | P2 | 无旧形状 |
 | `/api/v1/personal/me/user` | —— | （身份） | P2 | ⚠️ 待确认：这条出现在 `:core` 现有代码里，实现时先查清它是谁的投影 |
 
+> **状态收口（2026-10-13 核账，纯文档轮次）**：`:server` 里**已实现**的端点族 =
+> `status` · `session{,/login,/logout,/mfa}` · `calendar/school` · `info/{yellowpage,faculty}` ·
+> `fitness/{years,score}` · `notification/{sources,list}` · `inbox` · `emptyroom/{cdn,rooms}` ·
+> `jwxt/{terms,term,term-start,schedule,grades,school-courses,evaluations,evaluations/status}` ·
+> `library/{campus,areas,seats,my,action}` · `venue/{products,slots,orders,status,captcha,book,cancel}` ·
+> `card/{balance,transactions}` —— 与本文档 §5.1–§5.3.2 逐条对得上（核法：`:server` 源码里那些
+> `*_SEGMENT` 常量与 `get()`/`post()` 注册点逐个列过一遍）。
+> **仍未实现**的只有三行：`/api/coupon/…` 与 `/api/payment-code`（P2：`:server` 里没有这两个端点）、
+> `/api/v1/personal/me/user`（P2：来源仍待确认）。
+> ⚠️ **表里那个 `P0`/`P1`/`P2` 是优先级，不是状态** —— `P1` 那两行（写路径）都已落地（见各自那一格）。
 ### 5.1 `/api/session*`（P0「新」那一行的实测形状，2026-10-11 落地）
 
 会话本体在 `:server` 进程里（`ServeSession`：`:data` 的 `SessionManager` + 落盘凭据），
@@ -170,7 +180,7 @@
 | `GET /api/jwxt/terms` | —— | `[{name,startDate,endDate,current?}]` | 学期名兜底 = `DM` 字段 |
 | `GET /api/jwxt/term` | —— | 当前学期对象（形状同上） | `ScheduleSource` 一族 |
 | `GET /api/jwxt/term-start` | `?term=`（省略 = 当前学期） | `{term,startDate,totalWeeks}` | 2026-10-11 落地：`startDate` = 上游 `XQKSRQ` 的**日期那一段**（第 1 周周一）、`totalWeeks` = `ZZC`（只在 `1..30` 里算数，否则 `0`）。`:data` 侧 `JwxtScheduleApi.termStart()`。**没有**「今天是第几周」这种服务端算出来的字段（那是消费方拿 `startDate` 自己算的）；`?term=` 形状不对 ⇒ `400` |
-| `GET /api/jwxt/schedule` | `?term=`（省略 = 当前学期） | `{term,count,rows:[…]}`；行的键名 = 上游列名，只投影 `KCM`/`SKJS`/`JASMC`/`SKXQ`/`KSJC`/`JSJC`/`ZCMC`/`JXBID` 八列，值一律是**字符串**（上游给数字的三格也按文本给）、缺键是**空串** | 2026-10-11 落地：`:data` 侧 `JwxtScheduleApi.rows()`（`wdkb` 的 `xskcb.do`）。周次看 `ZCMC` 文本、**不看** `SKZC` 位串；`?term=` 形状不对 ⇒ `400`。⚠️ **调停补课没有合进这些行**（`:app` 的 `ScheduleApi.getSchedule` 会合）—— TODO 在 `JwxtScheduleApi.rows` 的 KDoc 里 |
+| `GET /api/jwxt/schedule` | `?term=`（省略 = 当前学期） | `{term,count,rows:[…]}`；行的键名 = 上游列名，只投影 `KCM`/`SKJS`/`JASMC`/`SKXQ`/`KSJC`/`JSJC`/`ZCMC`/`JXBID` 八列，值一律是**字符串**（上游给数字的三格也按文本给）、缺键是**空串** | 2026-10-11 落地：`:data` 侧 `JwxtScheduleApi.rows()`（`wdkb` 的 `xskcb.do`）。周次看 `ZCMC` 文本、**不看** `SKZC` 位串；`?term=` 形状不对 ⇒ `400`。⚠️ **调停补课没有合进这些行**，而且这已经**是有意为之、不是缺口**（2026-10-13 核）：`:data` 的 `JwxtScheduleApi` 现在两条都在 —— `rows()` = 排课原样（本端点端出去的就是它，契约面逐字冻结），`schedule()` = **已合并**调停补课（合并那一层由 `7a5590da` 落地，Android 与桌面端吃的就是它）；两条路「别混用」写在 `rows` 的 KDoc 里。要不要给本端点再加一档（把合并后的那一份也端出去）是**下一个决定**（TODO：待用户拍板） |
 | `GET /api/jwxt/grades` | `?term=&all=1` | `{page,size,total,grades:[…]}` | 默认全量；`:data` `ScoreReportSource` |
 | `GET /api/jwxt/school-courses` | `?course=&code=&teacher=&campus=&weekday=&from=&to=&page=&size=` | 见下节 | **要改**（契约§5）：补人数/学时、`YPSJDD`、开课单位、公选筛选（`:data` `AppSchoolCourseSource` 已能取的投影，取不到标 TODO）。消费方 2026-10-11 把 `supportsDepartmentFilter` / `supportsElectiveFilter` 读进去了（§5.4 的两个「不画」） |
 | `GET /api/jwxt/evaluations` | `?terms=&type=&finished=` | `{canSubmit:false,items:[…]}` | `canSubmit` 必须出现、如实 `false`（本实现只看不认不投） |
@@ -193,6 +203,7 @@
 **TODO（拍板过，未做）**：`library/seats?time`（上游无时间维）、
 `card` 挂失（P1 写）、`evaluations` 提交/撤销（P1）。
 （`venue/book` `/cancel` 与 `canBook:true` 已于 2026-10-12 落地，见 §5.3.2。）
+⚠️ 上面那三件事**仍未实现**（2026-10-13 核：`:server` 的 `CardRoutes` 只有 `balance`/`transactions`，`JwxtRoutes` 的评教只有只读那两发 —— 没有挂失与提交端点）。
 
 ### 5.3.1 library 写路径（2026-10-11 落地）：`POST /api/library/action`
 
@@ -353,8 +364,21 @@ POST /api/venue/cancel
 - **课表缺口已补齐**（2026-10-11）：`/api/jwxt/schedule` 与 `/api/jwxt/term-start` 两个端点落地，
   serve 模式的课表屏（含默认落地页）正常出数据 —— 消费侧是 `CampusScheduleApi` 的 `ApiMode.SERVE` 那一支
   （`CampusApi.schedule` / `.termStart`，`:web` 的 `ScheduleScreen` 把外壳探到的 mode 传下去）。
-  留下的那一处**如实差异**：这些行是排课原样、调停补课没合进去（见 §5.3 的 TODO），
-  所以同一份课表在 serve 模式与 `:app` 之间对调课的表现不同。
+  留下的那一处**如实差异**：这些行是**排课原样**（`:data` 的 `JwxtScheduleApi.rows()`），调停补课没合进去
+  （合并后的那一份是同一个类的 `schedule()`，`7a5590da` 落地，Android 与桌面端吃的就是它）——
+  所以同一份课表在 serve 模式与 `:app` / 桌面端之间对调课的表现不同。**这是有意为之，不是缺口**（§5.3 那一格）。
+
+**消费方现状收口（2026-10-13 核账）**：
+
+- 上面那三处「不画」里：**library 已翻 true**（`4abd1ae` 那次提交）、**venue 已翻 true**（`45a0e50` 那次提交，
+  `canBook`/`canCancel` 与服务端报的两个开关一致）、**school-courses 照旧**（缺那两张 id 表的端点）；
+- 课表那两个端点落地的提交是 `0022296`（它同一次里改了本文档 §5.3 两行 + 这一节 + `:testkit` 夹具，
+  也就是 §7 的「三处同改」）；
+- 本节**只记消费方自己的行为**，端点形状的改动仍要走 §7；
+- 本节**没有**覆盖 Stage C 那批宿主能力（加餐券 / 付款码）：它们在 `:server` 侧还是 P2 未实现（§5 表那三行），
+  所以 `:web` 这边也还没有可谈的消费方行为。⚠️ 但别读成「这两样没实现」：`:data` 侧的实现都在（
+  `data/src/commonMain/kotlin/com/xjtu/toolbox/pay/PaymentCodeApi.kt`、`data/src/commonMain/kotlin/com/xjtu/toolbox/coupon/CouponApi.kt`），
+  Android 与桌面都在用（`docs/desktop-port-plan.md` §12.2 / §12.3）；缺的只是 `:server` 把它们端出去。
 
 ## 6. 夹具契约测试（D5 要求，不能只写文档）
 
@@ -375,6 +399,7 @@ POST /api/venue/cancel
 1. 改契约 = **同时改**：本文档 + 夹具 + `:web` 对应实现（三处都不动就是漂移的开始）；
 2. `:web` 侧只认**本文档**，不认 campus-api 的字段名（那条路在 serve 模式下退休）；
 3. 与 `:data` 的分工：**`:data` 定义模型与口径，本文档只定义"怎么把它端出去"**——同一个字段名不在这两处各起一个。
+4. **这条纪律最近三次契约变更都照做了**：`0022296`（§5.3 两行 + §5.4）、`4abd1ae`（§5.3.1 写路径）、`45a0e50`（§5.3.2 写路径）—— 本文档、`:testkit` 夹具、`:web` 实现三处都在**同一次提交**里（见各自的提交信息）。反过来，不碰 `/api/*` 形状的那些搬迁提交（`:core`/`:data`/`:desktop`）**不动本文档**。
 
 ---
 

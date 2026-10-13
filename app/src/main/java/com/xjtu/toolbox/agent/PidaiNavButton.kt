@@ -281,30 +281,9 @@ private fun PlainPidaiIcon(
     }
 }
 
-/** 互斥的动画状态，优先级 TAP/COMET > THINKING > ALERT > IDLE > REST。COMET 是连戳彩蛋。 */
-internal enum class PidaiBeat { REST, IDLE, ALERT, TAP, COMET, THINKING }
-
-/** 一次性节拍播完后保持多久再落回去；null = 持续态，不自己结束。新角色各有各的时长。 */
-internal fun PidaiBeat.holdMs(cast: CastCharacter?): Long? {
-    if (cast != null) {
-        val sec = when (this) {
-            PidaiBeat.IDLE -> cast.microSec
-            PidaiBeat.TAP -> cast.pokeSec
-            PidaiBeat.COMET -> cast.comboSec
-            else -> return null
-        }
-        return (sec * 1000).toLong()
-    }
-    return when (this) {
-        // wink：bloub wink duration 1.6s
-        PidaiBeat.IDLE -> 1_600L
-        // poke：0.7s 收回静息脸
-        PidaiBeat.TAP -> 700L
-        // 彗星：核在 1.85s 后开始长回、2.45s 长完，再留一点余量让尾巴融进 idle 的入场形变
-        PidaiBeat.COMET -> 2_500L
-        else -> null
-    }
-}
+// `PidaiBeat` 与 `holdMs` 搬去了 `:core`（`core/.../agent/PidaiBeat.kt`）：那一对画屁岱的
+// 组件（`BloubBotIcon` / `CastIcon`）在那边，节拍就是它们认的类型。这里只留按钮本体与
+// `PidaiPokes`（要 `SystemClock.uptimeMillis()`，Android 的单调钟）。
 
 /** 连戳计数：[COMBO_TAPS] 下落在 [COMBO_WINDOW_MS] 内就放彗星彩蛋。 */
 internal class PidaiPokes {

@@ -185,8 +185,24 @@ compose.desktop {
             copyright = "Copyright © XJTU ToolBox contributors"
 
             linux {
+                // 桌面项的图标（`.desktop` 的 `Icon=`）：**应用自己的图标**，不是 Compose Desktop 那套
+                // 默认图标。源是仓库里那份自适应图标的两片矢量 —— `app/src/main/res/drawable/`
+                // 的 `ic_launcher_background.xml`（#87CEEB 满幅）与 `ic_launcher_foreground.xml`
+                //（远山 / 主峰 / 雪顶 / 地面线）：转写成 108×108 viewport 的 SVG 后光栅化成 256×256 的
+                // PNG（生成命令与实测见 docs/linux-delivery.md §2.1）。
+                // ⚠️ **不要**拿 `mipmap-*/ic_launcher.webp` 当源 —— 那是 Android Studio 模板的绿机器人
+                // 占位图，不是应用的图标（Windows 那份 `icons/windows.ico` 恰好就是拿它转的，见
+                // docs/windows-delivery.md §7 第 10 条）。
+                iconFile.set(project.file("icons/linux.png"))
                 menuGroup = "Education"
                 appCategory = "Education"
+                // `.deb` 的 `Maintainer:`。⚠️ 实测（本机真出包 + `dpkg-deb -I`）：jpackage 的
+                // `--linux-deb-maintainer` 只收**邮箱**，控制文件那一行是它自己拼的 `<vendor> <这一串>`。
+                // 第一次传了完整的 `名字 <邮箱>` ⇒ 出来的是 `XJTU ToolBox <XJTU ToolBox <邮箱>>`（双层
+                // 尖括号），所以这里只给地址。不设的话它填 `<vendor> <Unknown>`。
+                // 用的身份是仓库里能核到的：`git log` 里桌面交付那两批（b624008 / 603ece98）以及最近
+                // 200 次提交里 133 次的作者，且是 GitHub 的 noreply 地址（不发个人邮箱）。换人改这一行。
+                debMaintainer = "114236693+Triangle-GitHub@users.noreply.github.com"
             }
 
             /**
@@ -200,8 +216,11 @@ compose.desktop {
              *    而是并存两个；
              *  - [WindowsPlatformSettings.menuGroup]：开始菜单里的文件夹名（与 Linux 那栏同一个词）；
              *  - [AbstractPlatformSettings.iconFile]：`desktop/icons/windows.ico`（多尺寸，从 Android 的
-             *    `ic_launcher.webp` 转出来的；jpackage 在 Windows 上只收 `.ico`）。
+             *    `mipmap-*dpi/ic_launcher.webp` 转出来的；jpackage 在 Windows 上只收 `.ico`）。
              *    不用 app-image 里那套默认的 Java 图标 —— 装出来在开始菜单/控制面板里就是「Java」。
+             *    ⚠️ 如实记一笔：那份 `.webp` 是 Android Studio 模板的**绿机器人占位图**，不是应用的图标
+             *    （应用自己的图标是 Linux 那份 `linux.png` 用的自适应矢量）。换掉它在本机（Linux）验不了：
+             *    jpackage 不能交叉出包，只能等 Windows 上真打一次 —— 见 docs/windows-delivery.md §7 第 10 条。
              *
              * 其余几个用默认值：`console = false`（不开控制台窗）、`shortcut = true` / `menu = true`
              *（桌面快捷方式 + 开始菜单）、`dirChooser = true`（安装时可选目录）、`msiPackageVersion` /

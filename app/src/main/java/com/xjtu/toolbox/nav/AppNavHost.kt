@@ -97,7 +97,7 @@ import com.xjtu.toolbox.score.scoreReportSource
 import com.xjtu.toolbox.settings.SettingsScreen
 import com.xjtu.toolbox.settings.SettingsStore
 import com.xjtu.toolbox.settings.rememberAppSettingsHost
-import com.xjtu.toolbox.social.MatchScreen
+import com.xjtu.toolbox.social.AppMatchScreen
 import com.xjtu.toolbox.venue.AppVenueSource
 import com.xjtu.toolbox.venue.VenueScreen
 import com.xjtu.toolbox.venue.VenueSlideCaptchaHost
@@ -649,7 +649,10 @@ fun AppNavHost(
             XiangqiScreen(onBack = back, onlineLobby = rememberAppOnlineLobby())
         }
         entry<AppRoute.Match>(transition = expand(AppRoute.Match::class)) {
-            MatchScreen(onBack = back)
+            // 屏（含算法与模型）本轮搬进了 `:core`（`social/MatchScreen.kt`）；这一端只剩装配：
+            // 宿主面 `AppMatchHost`（课表族缓存 / 学工档案 / 校园卡消费三件都是原来那几份）
+            // 与扫码那一档 `MatchScanner`（相机取景与相册选图**逐字未动**）。画法与文案一行未改。
+            AppMatchScreen(onBack = back)
         }
         entry<AppRoute.Accounts>(transition = expand(AppRoute.Accounts::class)) {
             // 屏本轮搬进了 `:core`（`account/AccountManagerScreen.kt`）；动作本体（切换/新增/删除）

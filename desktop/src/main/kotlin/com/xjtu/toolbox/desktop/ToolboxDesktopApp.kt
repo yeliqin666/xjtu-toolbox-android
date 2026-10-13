@@ -4,6 +4,9 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -34,6 +37,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.xjtu.toolbox.account.AccountContext
+import com.xjtu.toolbox.agent.AgentConfig
+import com.xjtu.toolbox.agent.AgentHost
+import com.xjtu.toolbox.agent.AgentScreen
 import com.xjtu.toolbox.auth.AccountType
 import com.xjtu.toolbox.auth.LoginScreen
 import com.xjtu.toolbox.auth.MfaCodeDialog
@@ -85,6 +91,7 @@ import com.xjtu.toolbox.jiaocai1.Jiaocai1ReaderScreen
 import com.xjtu.toolbox.jiaocai1.Jiaocai1ViewModel
 import com.xjtu.toolbox.desktop.jiaocai1.DesktopJiaocai1ShelfStore
 import com.xjtu.toolbox.desktop.jiaocai1.jiaocai1CacheRoot
+import com.xjtu.toolbox.social.MatchScreen
 import com.xjtu.toolbox.coupon.AppCouponSource
 import com.xjtu.toolbox.coupon.CouponScreen
 import com.xjtu.toolbox.dormpower.DormPowerApi
@@ -205,9 +212,21 @@ internal fun ToolboxDesktopApp(
      *（与图书馆那张 `library-demo.png` 注入 `DemoLibrarySource` 同一条口径）。
      */
     bulletinFetch: suspend (String) -> BulletinApi.FetchResult? = { BulletinApi.fetch(it) },
+    /**
+     * 屁岱的宿主面（`:core` 的 [AgentHost]）。
+     *
+     * 默认是**本端真装配**的那一份（`DesktopAgentHost`：配置/会话/记忆真落盘、`:data` 的 SSE
+     * 传输、五件接得上的工具）。留这一格与上面的 [bulletinFetch] 同一条理由：离屏证据运行要拿
+     * **夹具传输**（见 `RenderScreens` 的 `agent.png`）—— 那一枪不该真去连一次 LLM。
+     */
+    agentHost: AgentHost? = null,
 ) {
     var target by remember { mutableStateOf(initialTarget) }
     val scope = rememberCoroutineScope()
+
+    // 屁岱的宿主面：进程内一份（与 `:app` 把屁岱挂在导航项上同位 —— 切页不丢会话）。
+    val agent = agentHost ?: remember(auth) { DesktopAgentHost(auth) }
+
 
     // 公告（顶部那条堆叠条 + 冷启动弹框）：四层都在共享层，这一端只装配（见 `DesktopBulletins`）。
     // 冷启动跑一次：先铺本地缓存，再去拉远端那份 JSON（拉不到就继续用缓存）。
@@ -245,7 +264,7 @@ internal fun ToolboxDesktopApp(
         Column(modifier = Modifier.fillMaxSize()) {
             Box(modifier = Modifier.weight(1f)) {
                 when (val t = target) {
-                    is DesktopTarget.App -> DesktopPage(auth, t.route, bulletins, { appearanceTick++ }) { target = it }
+                    is DesktopTarget.App -> DesktopPage(auth, t.route, bulletins, agent, { appearanceTick++ }) { target = it }
                     DesktopTarget.Routes -> RoutesPage(auth) { target = it }
                 }
             }
@@ -306,10 +325,17 @@ internal val DESKTOP_TABS = listOf(
  * 不同 ⇒ 也是由源自己 ensure，见那一段的注释）、
  * 校历 / 黄页 / 教师检索（**免登录**的公开门户接口）。
  *
- * 两条**不需要校园会话、但也不需要取数**的：WebVPN 转换器（本机算的字符串互转，见 `:core` 的
- * `WebVpnCodec` 缝）与账号管理（多账号：看/切/增/删，动作本体是 `:desktop` 的 `DesktopAccounts`）。
+ * 三条**不需要校园会话、但也不需要取数**的：WebVPN 转换器（本机算的字符串互转，见 `:core` 的
+ * `WebVpnCodec` 缝）、账号管理（多账号：看/切/增/删，动作本体是 `:desktop` 的 `DesktopAccounts`），
+ * 以及内置浏览器（`AppRoute.Browser`：桌面没有内嵌浏览器这一层 ⇒ 这一端的等价物是**外链中转页**，
+ * 只做那条路由真交出去的那件事 —— 把地址交给系统浏览器，见 `DesktopBrowser.kt`）。
  *
  * 其余是纯 UI 的游戏（与数据源无关，三端同一份）。
+ *
+ * 最后一条是**屁岱**（`AppRoute.Agent`）：屏与调度循环在 `:core`，工具层五件里有两件取数走
+ * `:data`（黄页 / 教师检索，都免登录），宿主面（配置 / 会话 / 记忆三份真落盘、`:data` 的 SSE
+ * 传输）在本端 —— 见 `DesktopAgentHost`（那里也列了它没接的那几档与 TODO）。
+ * 它同样不是校园站点：`AppRoute.Agent.loginType` 是 null。
  */
 internal val DESKTOP_SUPPORTED_ROUTES = listOf(
     // 首页（第 31 条真数据路由，也是底栏的第一格）：屏是 `:core` 的 `HomeScreen`，这一端提供
@@ -390,10 +416,29 @@ internal val DESKTOP_SUPPORTED_ROUTES = listOf(
     // 索引页这一栏用屏自己的标题（WebVPN）。
     AppRoute.WebVpnConverter to "WebVPN 转换器",
 
+    // 内置浏览器（`AppRoute.Browser`）：与上面那条同型 —— **不取数、也不需要校园会话**，一条请求都不发。
+    // 名字照 `:app` 那一屏自己的标题（`BrowserScreen` 的 `pageTitle` 初值就是「浏览器」）；这一端的
+    // 等价物是外链中转页（`DesktopBrowser.kt`：目标网址 + 交给系统浏览器 + 复制）。
+    // 带参形状：`Browser` 是 data class ⇒ 这里必须写 `()`（裸写 `AppRoute.Browser` 编不过，
+    // 与上面那批 `AppRoute.Lms()` 同型）。
+    AppRoute.Browser() to "浏览器",
+
     // 账号管理（多账号，第 29 条真数据路由）：**不需要校园会话就能进**（进去是为了看/换/增/删），
     // 但它每一个动作都要会话内核：切账号 = 换绑 backends、新增 = 先探活登录再落库。
     // 名字照 `:app` 服务表里的叫法（「账号管理」/「切换或添加统一认证账号」）。
     AppRoute.Accounts to "账号管理",
+
+    // 屁岱（`AppRoute.Agent`，最后一条点亮的路由）：名字照 `:app` 底栏那一格的叫法（`BottomTab.PIDAI`
+    // 的 `"屁岱"`，也是它自己顶栏上的那个标题）。屏、调度循环、工具层的纯逻辑都在 `:core`，
+    // 这一端交宿主面（配置 / 会话 / 记忆三份真落盘、`:data` 的 SSE 传输）与五件接得上的工具 ——
+    // 见 `DesktopAgentHost`。它也不套 `DesktopSiteGate`（这一端接的两档取数都免登录）。
+    AppRoute.Agent to "屁岱",
+
+    // 匹配交友（`AppRoute.Match`，第 33 条真数据路由）：名字照 `:app` 服务表里的叫法（「匹配交友」）。
+    // 屏与算法本轮搬进 `:core`，这一端只交宿主面（课表族缓存与「我的课表」「首页」同一份）——
+    // 它一条请求都不发，所以「离线算交集」在这一端是真算的；学工档案与校园卡消费这一端没有（见
+    // `DesktopMatchHost` 的表），扫码那一档也没有相机 ⇒ 那两颗按钮一个字都不画。
+    AppRoute.Match to "匹配交友",
 )
 
 /**
@@ -512,6 +557,8 @@ private fun DesktopPage(
     route: AppRoute,
     /** 公告宿主面（只有首页用得上：顶部那条堆叠条）。 */
     bulletins: DesktopBulletins,
+    /** 屁岱的宿主面（只有 `AppRoute.Agent` 用得上；外壳持有，切页不丢会话）。 */
+    agentHost: AgentHost,
     /** 外观设置改完之后戳一下外壳（设置屏通过 `DesktopSettingsHost` 回调过来，见 `ToolboxDesktopApp`）。 */
     onAppearanceChanged: () -> Unit,
     onNavigate: (DesktopTarget) -> Unit,
@@ -1090,6 +1137,20 @@ private fun DesktopPage(
             onBack = back,
             onOpenWithWebVpn = { url -> openInBrowser(url) },
         )
+
+        // 内置浏览器（`AppRoute.Browser`）：这一屏在 `:app` 是 WebView 里的内置浏览器（顶栏地址栏 /
+        // 前进后退 / 往 WebView 里注 App 已登好的校园会话 / `then=` 那一跳 / 夜间模式），桌面端没有
+        // WebView 这一层 ⇒ 这一端的等价物是**外链中转页**（`DesktopBrowser.kt`）：把地址交给系统
+        // 浏览器，本窗只给去向（与上面那条「用 WebVPN 打开」、以及 `DesktopPayPage` 同一套口径）。
+        //
+        // 消息收纳与公告里的外链**不走这条路由**：那几处是 `onOpenUrl` 槽位，直接把 url 交给系统
+        // 浏览器（与 `:app` 同一条口径）。这一支是深链（`?route=browser?url=…`）与索引页点进来的那一屏。
+        is AppRoute.Browser -> DesktopBrowserScreen(
+            url = route.url,
+            then = route.then,
+            codec = WebVpnUtil,
+            onNavigate = onNavigate,
+        )
         AppRoute.GameXiangqi -> XiangqiScreen(onBack = back)
 
         // 合成西交大（`AppRoute.GameMerge`）：这一条卡的不是**取数**，而是**载体**。
@@ -1122,44 +1183,84 @@ private fun DesktopPage(
             onNavigate = onNavigate,
         )
 
-        // 匹配交友（`AppRoute.Match`）：这一条卡的是**本机数据**，不是网络。
+        // 匹配交友（`AppRoute.Match`，第 33 条真数据路由，也是最后一条从「说明页」变真屏的路由）。
         //
-        // 它一条请求都不发（KDoc：「全程离线……算契合度这一步在本机完成」）：把自己的档案压成一张
-        // 二维码、把对方的码解回来，交集全从**本机已有的缓存**里算。桌面端现在有一件了 —— 课表缓存
-        // 那一层随「我的课表」搬了过来（`AppRoute.Schedule` + `DesktopScheduleHost` 的键值文件），
-        // 但其余三件仍是 `:app` 的 Android 实现：`HelloProfileStore`（学工系统档案与头像）、
-        // `DiningHabit`（校园卡消费），以及**本机数据的读写口径**（那份 900 行的算法还在 `:app`）。
+        // 它一条请求都不发（KDoc：「全程离线……算契合度这一步在本机完成」）：把自己的档案压成一段码、
+        // 把对方的码解回来，交集全从**本机已有的缓存**里算。本轮它按五步法搬进了共享层：
+        // 算法与模型（`MatchProfile` / `MatchData` / `DiningHabit`）与屏都进了 `:core`，
+        // deflate/inflate 与 URL-safe Base64 切成了 `:core` 的平台缝（Android/jvm 是原来那两份实现，
+        // wasmJs 如实没有），扫码与相册那两条长在平台类型上的路收成了 `MatchScanner`。
         //
-        // 另外两件也卡着：分享码本体用 `java.util.zip` 的 deflate + `java.util.Base64`（`:core`
-        // 的 commonMain 要编到 wasmJs，两者都不存在），扫码用 Android 的相机（`QrScannerView`）。
+        // 这一端真交出来的是 [DesktopMatchHost]（课表族缓存 = 与「我的课表」「首页」同一份 0600 键值文件）
+        // ⇒ **离线算交集这一件事在这一端是真算的**：自己的课表/考试从本端缓存来，对方的码用
+        // `:core` 的算法解出来比。另外两维（学工档案 / 校园卡消费）在这一端**没有**（见那份 KDoc 的表），
+        // 界面上照旧是禁用 + 写明原因，不拿空数据凑一维。
         //
-        // 所以这里如实说明。**已经能用的那一半**照旧能用：生成自己的二维码在本仓库已经有共享实现
-        //（付款码那一批的 `qrCodeModules` + `CodeMatrixView`），缺的是「拿什么当输入」。
-        //
-        // TODO（按五步法搬它，顺序有讲究）：
-        //  ① 先把 `MatchProfile`（分享码格式 + 契合度算法，835 行）搬进 `:core`，deflate/base64
-        //     按能力缝注入（与 WebVPN 的 `WebVpnCodec` 同一个做法）；
-        //  ② 再把 `MatchData` 收成 `MatchSource` 端口（`:app` 那份继续读它的四个缓存），屏搬进 `:core`；
-        //  ③ 桌面的 `MatchSource` 要等课表缓存那一层落地才有东西可算（它是同一个「宿主机能」缺口）。
-        AppRoute.Match -> HostUnavailableScreen(
-            route = route,
-            title = "匹配交友在桌面上还没有数据",
-            lines = listOf(
-                "它全程离线、一条请求都不发：把自己的档案压成一张码、把对方的码解回来，" +
-                    "交集全从本机已有的缓存里算。",
-                "桌面端还没有那些缓存 —— 课表缓存这一层随「我的课表」搬过来了（键值文件），" +
-                    "但学工系统档案（HelloProfileStore）与校园卡消费（DiningHabit）还是 :app 的实现，" +
-                    "算法本体（MatchProfile）也还没搬。缺了它们，这一屏算出来的交集只能是空的。",
-                "分享码本体还要 java.util.zip 的 deflate 与 java.util.Base64（:core 的 commonMain 里" +
-                    "不存在），扫码要 Android 的相机 —— 两件都得先切成平台缝。",
-            ),
-            onNavigate = onNavigate,
+        // `scanner = null`：桌面没有相机，也没有相册 ⇒ 那一档一个字都不画，屏上直说这一端只能粘
+        // 文字码（那颗按钮真能用）。TODO：要么接一个桌面端的相机/截图取码面（`MatchScanner` 的第三份实现），
+        // 要么把「选一张图」接到系统文件选择器 + `:core` 的图片缝上去 —— 两者都不在本轮。
+        AppRoute.Match -> MatchScreen(
+            host = remember(auth) { DesktopMatchHost(auth) },
+            onBack = back,
+            scanner = null,
         )
+        // 屁岱（`AppRoute.Agent`，最后一条点亮的路由）：屏与调度循环（`AgentRunner`）在 `:core`，
+        // 这一端交的是宿主面与工具层（配置 / 会话 / 记忆三份真落盘、`:data` 的 SSE 传输、
+        // 五件接得上的工具），见 `DesktopAgentHost`。
+        //
+        // 不套 `DesktopSiteGate`：`AppRoute.Agent.loginType` 是 null，而这一端接的两档取数
+        //（黄页 / 教师检索）都是**免登录**的公开门户接口；会话本身要的那几档（闹钟 / 应用设置 /
+        // 自建日程）这一端没有，也就不会去建任何校园会话。整个外壳本来就只在登录之后才画这些屏。
+        AppRoute.Agent -> DesktopAgentScreen(agentHost, onNavigate)
+
         // 其余路由**如实说「没搬过来」**，不拿有数据的屏冒充（深链/误点看着像 bug，也分不清
         // 「没实现」与「坏了」）。
         else -> NotPortedScreen(route, onNavigate)
     }
 }
+/**
+ * 屁岱在桌面的**宿主壳** —— `:core` 的 [AgentScreen] 自己不带顶栏：它把标题与「会话列表 / 配置」
+ * 两颗按钮反向交给宿主（`:app` 那边画在 `MainTopAppBar` 里）。
+ *
+ * 这一端没有 `:app` 那种 Scaffold + TopAppBar（桌面的每一屏自己画头部，底栏在内容下面、不盖在
+ * 上面），所以照它要的那三格拼一条最简的顶栏：左边会话列表开关、中间标题、右边配置。
+ * 两样不传，这一端没有对应物：`scrollBehavior`（没有折叠式玻璃顶栏）与 `contentTopPadding`
+ *（顶栏是这条 `Row` 里的普通一行，不浮在内容上）。
+ */
+@Composable
+private fun DesktopAgentScreen(host: AgentHost, onNavigate: (DesktopTarget) -> Unit) {
+    // 屏把这三格送上来（见 AgentScreen 的 KDoc）：标题跟着助手名走，进配置面板时变成「配置」。
+    var title by remember { mutableStateOf(AgentConfig.DEFAULT_ASSISTANT_NAME) }
+    var actions by remember { mutableStateOf<(@Composable RowScope.() -> Unit)?>(null) }
+    var navIcon by remember { mutableStateOf<(@Composable () -> Unit)?>(null) }
+
+    Column(Modifier.fillMaxSize()) {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(end = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            navIcon?.invoke()
+            Text(
+                title,
+                color = MiuixTheme.colorScheme.onSurface,
+                fontSize = 17.sp,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.padding(start = 12.dp),
+            )
+            Spacer(Modifier.weight(1f))
+            actions?.invoke(this)
+        }
+        AgentScreen(
+            host = host,
+            // 导航就是在壳里换一屏（桌面没有内置浏览器这一层，与其余屏的 onNavigate 同一条口径）。
+            onNavigate = { route -> onNavigate(DesktopTarget.App(route)) },
+            onTitleChange = { title = it },
+            onActionsChange = { actions = it },
+            onNavIconChange = { navIcon = it },
+        )
+    }
+}
+
 
 /**
  * 全部页面：先列**真能用**的，再列**屏在了但没数据源**的。这一页同时是 Stage A 的进度表，

@@ -343,7 +343,7 @@ fun BrowserScreen(
                                 if (isWeb) {
                                     item(Icons.Default.ContentCopy, "复制链接") {
                                         scope.launch {
-                                            clipboard.setClipEntry(ClipEntry(android.content.ClipData.newPlainText("url", shareableUrl(currentUrl))))
+                                            clipboard.setClipEntry(ClipEntry(android.content.ClipData.newPlainText("url", shareableUrl(currentUrl, WebVpnUtil))))
                                             Toast.makeText(context, "已复制链接", Toast.LENGTH_SHORT).show()
                                         }
                                     }
@@ -351,7 +351,7 @@ fun BrowserScreen(
                                     item(Icons.Default.Share, "分享") { shareWebPage(context, pageTitle, currentUrl) }
                                     item(Icons.AutoMirrored.Filled.OpenInNew, "在外部浏览器打开") {
                                         runCatching {
-                                            context.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(shareableUrl(currentUrl))))
+                                            context.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(shareableUrl(currentUrl, WebVpnUtil))))
                                         }.onFailure { Toast.makeText(context, "没有可用的浏览器", Toast.LENGTH_SHORT).show() }
                                     }
                                 }
@@ -588,13 +588,13 @@ private fun isAuthHop(url: String): Boolean {
 
 /** 顶栏第二行显示的域名：WebVPN 代理地址换回原站域名，去掉 www.。 */
 private fun displayHost(url: String): String {
-    val real = shareableUrl(url)
+    val real = shareableUrl(url, WebVpnUtil)
     return runCatching { URI(real).host.orEmpty() }.getOrDefault("").removePrefix("www.")
 }
 
-/** 对外（复制、分享、外部打开）用的地址：WebVPN 代理地址换回原始地址，对方没有网关会话也看得懂。 */
-internal fun shareableUrl(url: String): String =
-    WebVpnUtil.getOriginalUrl(url)?.takeIf { WebVpnUtil.isWebVpnUrl(url) && it.isNotBlank() } ?: url
+// 「对外（复制、分享、外部打开）用的地址」这条规则本轮按五步法搬进了 `:core`
+//（`browser/ShareableUrl.kt`，判据 `:core:commonTest` 的 `ShareableUrlTest`）——
+// 桌面端的外链中转页用的是**同一份**：那边没有内嵌浏览器，交给系统浏览器的就是它。
 
 private fun normalizeUrl(input: String): String {
     val trimmed = input.trim()
@@ -616,7 +616,7 @@ private fun hostOf(url: String): String? =
  * 标题是 WebView 还没拿到时的占位「浏览器」，或者就是网址本身时，只发链接。
  */
 internal fun shareWebPage(context: android.content.Context, title: String, url: String) {
-    val link = shareableUrl(url)
+    val link = shareableUrl(url, WebVpnUtil)
     val cleanTitle = title.trim().takeIf { it.isNotEmpty() && it != "浏览器" && it != url && it != link }
     val text = if (cleanTitle != null) "$cleanTitle\n$link" else link
     val send = android.content.Intent(android.content.Intent.ACTION_SEND).apply {

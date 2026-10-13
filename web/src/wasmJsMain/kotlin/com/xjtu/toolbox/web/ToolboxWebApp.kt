@@ -102,8 +102,23 @@ fun ToolboxWebApp() {
     var target: WebTarget by remember { mutableStateOf(initial) }
 
     LaunchedEffect(Unit) {
+        // `?token=<令牌>`：**一次性入口**（今天唯一能从地址栏进来的东西）。贴进内存持有者、
+        // 立刻把地址栏抹干净（免得它进历史/截图），下面那一发 `sessionState()` 顺手换成 cookie。
+        browserSearchParam("token")?.let {
+            serveSession.setToken(it)
+            browserStripTokenParam()
+        }
         // 探测只是**猜**：猜不出来（谁都没起、或卡住）就走老路 campus-api（默认形态一字不改）
         mode = withTimeoutOrNull(BACKEND_DETECT_TIMEOUT_MS) { detectApiMode(client) } ?: ApiMode.CAMPUS_API
+        // serve 模式下多一事：**过不了闸门就别硬画课表**。
+        //
+        // 这一发 `GET /api/session` 就是「令牌换 cookie」那一步（§5.1 第 1 条），失败只有两种：
+        // 手里没令牌 / 令牌不对 —— 两种的下一步都一样：把用户**直接落到「会话」屏**去贴。
+        // （实测过的坑：不落这一步的话，用户打开页面看到的是课表屏上那句「term 缺失：code=401…」，
+        // 而贴令牌的入口藏在底栏多出来的那一格里 —— 没人会去猜。）
+        if (mode == ApiMode.SERVE && serveSession.sessionState().isFailure) {
+            target = WebTarget.Serve
+        }
     }
 
     Column(modifier = Modifier.fillMaxSize()) {

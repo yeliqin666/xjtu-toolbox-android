@@ -238,9 +238,10 @@ class DesktopHomeJvmTest {
             all.flatMap { it.rows }.any { it.key == AppRoute.Agent.id },
             "服务目录里有「屁岱」—— 先确认这条断言的前提还成立",
         )
-        assertFalse(
+        // 屁岱这一格：`AppRoute.Agent` 点亮之后，它就该出现在「真能打开」的宫里。
+        assertTrue(
             shown.flatMap { it.rows }.any { it.key == AppRoute.Agent.id },
-            "桌面还没有屁岱那一屏 ⇒ 这一格不画（不是画一个点了落占位页的格子）",
+            "桌面已有屁岱那一屏（`DESKTOP_SUPPORTED_ROUTES` 里那条）⇒ 这一格该画出来",
         )
         assertTrue(shown.flatMap { it.rows }.any { it.key == AppRoute.Schedule.id }, "我的课表这一端真能打开")
         assertTrue(shown.flatMap { it.rows }.all { it.key in DESKTOP_OPENABLE_ROUTE_IDS })

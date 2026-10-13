@@ -32,6 +32,10 @@ concurrency:
 jobs:
   package:
     runs-on: ubuntu-latest
+    # 卡死的护栏：jlink / jpackage 卡住时 GitHub 默认会白白跑 6 小时。60 分钟是拍的
+    # —— 本机出包实测 6 分 39 秒（docs/linux-delivery.md §3.1），留给冷缓存 ~9 倍余量。
+    # ⚠️ 这个数字没在 CI 上量过（本机连不上 GitHub 跑 workflow）。
+    timeout-minutes: 60
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -78,6 +82,23 @@ jobs:
           dpkg-deb -I desktop/build/compose/binaries/main/deb/*.deb
           du -sh desktop/build/compose/binaries/main/app/
 
+      - name: 核对包里的桌面项图标就是我们自己那份
+        # 为什么要这一步：`linux.iconFile` 指错人不会报错 —— jpackage 只是把给它的文件拷进包里，
+        # 「没给」与「给对了」在日志里长得差不多（上一轮就是没给 ⇒ 包里是 Compose 的默认图标，
+        # 见 docs/linux-delivery.md §3.3 的 md5）。所以这里把**包里那一张**与仓库里的
+        # `desktop/icons/linux.png` 比 md5：不相等就是 `iconFile` 没生效（或图标源换了没重转）。
+        # 与 `if-no-files-found: error` 同一个用意：把「静默变成默认行为」变成响亮失败。
+        run: |
+          set -eux
+          deb=$(ls desktop/build/compose/binaries/main/deb/*.deb)
+          packed=$(dpkg-deb --fsys-tarfile "$deb" | tar -xO ./opt/xjtu-toolbox/lib/xjtu-toolbox.png | md5sum | cut -d' ' -f1)
+          ours=$(md5sum desktop/icons/linux.png | cut -d' ' -f1)
+          echo "包里 opt/xjtu-toolbox/lib/xjtu-toolbox.png = $packed"
+          echo "仓库 desktop/icons/linux.png            = $ours"
+          # `.desktop` 里的 Icon= 指的就是包里那一张（桌面环境读的是这一行）
+          dpkg-deb --fsys-tarfile "$deb" | tar -xO ./opt/xjtu-toolbox/lib/xjtu-toolbox-xjtu-toolbox.desktop | grep '^Icon='
+          [ "$packed" = "$ours" ]
+
       - name: 上传产物
         uses: actions/upload-artifact@v4
         with:
@@ -86,8 +107,9 @@ jobs:
             desktop/build/compose/binaries/main/deb/*.deb
             desktop/build/compose/binaries/main/app/
           # 没产物就是出包失败，别当成「跑过了」：Compose Desktop 对与宿主不兼容的 target
-          # 会把任务 **SKIPPED 而不报错**（见 docs/windows-delivery.md §1 的实测），
-          # 所以「命令绿了但什么都没出包」是可能的 —— 这条设置把它变成失败。
+          # 会把任务**静默 SKIPPED**（连任务体都不跑，命令却仍然是绿的 —— 实测见
+          # docs/windows-delivery.md §1，两条工作流各自那一节：docs/linux-delivery.md §4 /
+          # docs/windows-delivery.md §3），所以「命令绿了但什么都没出包」是可能的 —— 这条设置把它变成响亮失败。
           if-no-files-found: error
 
       # ── 验证步骤刻意放在出包**之后**：万一有用例红了，`.deb` 与 app-image 仍然留得下来给人查。

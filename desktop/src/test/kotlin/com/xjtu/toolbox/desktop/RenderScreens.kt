@@ -13,6 +13,8 @@ import com.xjtu.toolbox.account.Account
 import com.xjtu.toolbox.account.AccountContext
 import com.xjtu.toolbox.account.AccountStore
 import androidx.compose.ui.unit.Density
+import com.xjtu.toolbox.agent.AgentConfig
+import com.xjtu.toolbox.agent.AgentPendingPrompt
 import androidx.lifecycle.ViewModelStore
 import androidx.lifecycle.ViewModelStoreOwner
 import androidx.lifecycle.viewmodel.compose.LocalViewModelStoreOwner
@@ -56,6 +58,8 @@ import com.xjtu.toolbox.settings.SettingsStore
 import com.xjtu.toolbox.platform.keyValueStore
 import com.xjtu.toolbox.platform.wipeSecureStore
 import com.xjtu.toolbox.ui.theme.XJTUToolBoxTheme
+import com.xjtu.toolbox.social.MatchData
+import com.xjtu.toolbox.social.MatchProfile
 import com.xjtu.toolbox.yellowpage.YellowPageApi
 import com.xjtu.toolbox.yellowpage.YellowPageScreen
 import com.xjtu.toolbox.jwxt.JwxtFakeUpstream
@@ -97,6 +101,7 @@ import kotlinx.datetime.LocalDate
  * | `transcript.png` | 电子成绩单屏（真路由：外壳 → `AppRoute.Transcript` → `DesktopSiteGate` → `AppTranscriptSource`） | 第十四条真数据路由：`dzpz` **有自己的独立登录页**（`Login.jsp` → CAS OAuth2 → 回跳换 `loginidweaver`），屏与七步流程都在 `:core`，PDF 落盘在桌面上写用户的下载目录；图上那一条成绩单类型、申请日期与「一键申请成绩单」按钮都是夹具样本 |
  * | `coupon.png` | 加餐券屏（真路由：外壳 → `AppRoute.Coupon` → `DesktopSiteGate` → `AppCouponSource`） | 第十五条真数据路由：`egc.xjtu.edu.cn` **有自己的独立登录页**（CAS OAuth2 `client_id=1596` → `org.xjtu.edu.cn` 开放平台 → 回落到 receiveCas.html 换 `auth_token`），屏与分页/领取的编排都在 `:core`；图上「可使用」那两批券卡与摘要行都是夹具样本 |
  * | `dormpower.png` | 宿舍电费屏（真路由：外壳 → `AppRoute.DormPower` → `DesktopSiteGate` → `DormPowerApi`） | 第十七条真数据路由：`ssn.xjtu.edu.cn/cems` **有自己的独立登录链**（`org.xjtu.edu.cn` 开放平台 OAuth2 `appId=1759` → CAS → 带 `code` 回缴费页换会话），屏在 `:core`；桌面端没有内置浏览器，`browser` 槽位用系统浏览器打开、本窗给一句去向（图上那句「缴费页已交给系统浏览器打开…」就是夹具样本） |
+ * | `browser.png` | 内置浏览器的**桌面等价物**：外链中转页（真路由：外壳 → `AppRoute.Browser("https://notice.example.invalid/…")` → 本端 `DesktopBrowser.kt`） | 这条路由的屏在 `:app` 是 `browser/BrowserScreen.kt`（629 行的 WebView + 自己的顶栏地址栏 / 前进后退 / 复制 / 「在外部浏览器打开」 + 往 WebView 里注 App 的校园会话 + `then=` 那一跳 + 夜间模式）；桌面端没有 WebView 这一层 ⇒ 这一端只做那条路由**真交出去**的那件事：把地址交给系统浏览器，本窗只给去向（与 `DesktopPayPage`、`DesktopVideoPlayerHost` 同一套口径）。图上那个网址是 `.invalid` 夹具（永远解析不出来）；交出去的地址与 `:app` 顶栏那颗「在外部浏览器打开」用的是**同一份** `shareableUrl`（本轮按五步法搬进 `:core`，判据在 `:core:commonTest` 的 `ShareableUrlTest` 与 `DesktopBrowserJvmTest`）。这一枪**只画不点**（那两颗按钮一颗会真去弹系统浏览器、一颗会碰系统剪贴板），断言三条：那句如实说明在、网址在、**`NotPortedScreen` 的标题不在** |
  * | `attendance.png` | 考勤屏（真路由：外壳 → `AppRoute.Attendance` → `DesktopSiteGate` → `AppAttendanceSource`） | 第十六条真数据路由：`bk-kq.xjtu.edu.cn` **有自己的独立登录入口**（`AttendanceLogin` 直连业务站的 CAS `student-pc` 入口 → 回调带 loginRequestId+ticket 换业务令牌），屏/VM 与取数端口都在 `:core`，桌面端没有 SAF 文件选择器 ⇒ `pickEvidenceFiles` 用默认；图上「流水」那一栏的夹具课名（光电子学（假））与姓名行都是夹具样本 |
  * | `lms.png` | 思源学堂屏（真路由：外壳 → `AppRoute.Lms` → `DesktopSiteGate` → `AppLmsSource`） | 第十八条真数据路由：`lms.xjtu.edu.cn` **直接 CAS 回跳**（`LmsLogin.loginUrl` = lms 根路径，与教务同型、没有独立登录页），屏在 `:core`，落盘是 `DesktopLmsSaver`；图上课程列表那门夹具课（数据结构（示例课））与老师名都是夹具样本 |
  * | `jwapp.png` | 成绩屏（真路由：外壳 → `AppRoute.JwappScore` → `DesktopSiteGate` → `AppJwappScoreSource`） | 第十九条真数据路由：`jwapp.xjtu.edu.cn` **有自己的独立登录链**（开放平台 `appId=1370` → CAS → 回跳带 `token`，令牌从回调 URL 里抠出来当 `Authorization`）；这一屏的上游是**两个站点**（jwapp 那份粗分 + 教务 `xscjcx` 的精确总评，各自一份会话）；图上那门课（高等数学（上））与精确成绩都是夹具样本 |
@@ -110,8 +115,10 @@ import kotlinx.datetime.LocalDate
  * | `webvpn_converter.png` | WebVPN 转换器屏（真路由：外壳 → `AppRoute.WebVpnConverter` → `:core` 的 `WebVpnConverterScreen`） | 第二十八条真数据路由：屏本轮才搬进 `:core`，转换本体是 `:data` 的 `WebVpnUtil`（`:core` 的 `WebVpnCodec` 缝，与 Android **同一份实现**）。图上的输入与结果都是拍的时候现场做的：往输入框里塞 `https://jwxt.xjtu.edu.cn/`（夹具网址，公开站点名、无凭据）再点「转换」，结果里那串密文域名（`…fae05988692862446b468ca88d1b203b`）就是 AES-128-CFB 真算出来的 —— 与 `DesktopWebVpnCodecJvmTest` 里那一条同值 |
  * | `accounts.png` | 账号管理屏（真路由：外壳 → `AppRoute.Accounts` → `:core` 的 `AccountManagerScreen`） | 第二十九条真数据路由：多账号。屏本轮才搬进 `:core`，动作本体是 `:desktop` 的 `DesktopAccounts`（`:core` 的 `AccountsController` 缝）。拍之前**真切了一次**：上面那次真登录把夹具账号写进了账号表（`AccountStore`），再加一条夹具账号（值都是编的），然后 `switchTo` 第二条 ⇒ 图上的「当前账号」卡与列表高亮都是第二条（`2021000002`），列表里还有第一条（`2021000001`）。头像那一格不传（画首字母圆）、昵称一直为空 —— 两处如实降级见 `DesktopAccounts` 的 KDoc |
  * | `game_merge.png` | 合成西交大的**如实说明页**（`AppRoute.GameMerge`） | 这条路由卡的是**载体**：游戏本体是 `:app` 的 `assets/games/merge/`（HTML + 776 行 JS + Matter.js 物理引擎），跑在 Android 的 WebView 里；桌面端没有 WebView、依赖里也没有 JVM 上的 JS 引擎 ⇒ 这一端没有能执行它的地方。这张图就是那张说明页本身（**不进** `DESKTOP_SUPPORTED_ROUTES`），不是「没搬过来」那个通用页 —— 卡的不是取数 |
- * | `schedule_match.png` | 匹配交友的**如实说明页**（`AppRoute.Match`） | 这条路由卡的是**本机数据**：它全程离线，交集全从本机缓存算。课表缓存那一层随「我的课表」搬过来了（见 `schedule.png`），但学工系统档案（`HelloProfileStore`）、校园卡消费（`DiningHabit`）与算法本体（`MatchProfile`，900 行）还在 `:app`；分享码本体还要 `java.util.zip` 的 deflate 与 `java.util.Base64`（`:core` 的 commonMain 里不存在）、扫码要 Android 相机 ⇒ 三件都得先切成平台缝。图上是那张说明页（**不进** `DESKTOP_SUPPORTED_ROUTES`）|
+ * | `schedule_match.png` | 匹配交友屏（真路由：外壳 → `AppRoute.Match` → `:core` 的 `MatchScreen` + 本端 `DesktopMatchHost`） | 第三十三条真数据路由，也是**最后一条**从「如实说明页」变真屏的路由：算法与模型（`MatchProfile` 一族 / `MatchData` / `DiningHabit`）与屏本轮按五步法搬进 `:core`，deflate/inflate 与 URL-safe Base64 切成 `:core` 的两条平台缝（Android / jvm 是**原来那份实现**，wasmJs 如实没有），扫码与相册那两条收成 `MatchScanner`。这一端一条请求都不发：自己的课表/考试从**本端键值缓存**来（与「我的课表」「首页」同一份），对方的码是拍之前用同一套算法编出来的夹具档案 —— 图上「翻到的交集」里那条「一起上 1 门课」与那个夹具课名就是**离线算出来的**（同一条链在 `DesktopMatchJvmTest` 里逐条钉住）。两处如实降级：桌面没有相机/相册 ⇒「扫一扫」「从相册选图」一个字都不画、只留粘文字码那一条（图上那句说明就是它）；学工档案与校园卡消费这一端没有 ⇒「吃」与「人」那两维在「分享哪些」里是禁用态 |
  * | `schedule.png` | 我的课表屏（真路由：外壳 → `AppRoute.Schedule` → `DesktopSiteGate(教务)` → `:core` 的 `ScheduleScreen` + 本端 `DesktopScheduleHost`） | 第三十条真数据路由，也是本批的主角：屏与 ViewModel 按五步法搬进 `:core`（模型 / `CustomCourseStore` 端口 / 宿主槽位 / `CourseLinks` 按能力切开），这一端只提供宿主面（键值落盘 / 教务会话 / 节假日 / 思源入口）。图上的课名与教室都是夹具样本，而且**是格子画出来的**（`CourseCell` 那两行文本节点），不是只有一段说明文字 |
+ * | `agent.png` | 屁岱（真路由：外壳 → `AppRoute.Agent` → `:core` 的 `AgentScreen` + 本端 `DesktopAgentHost`） | 最后一条点亮的路由：屏、调度循环（`AgentRunner`）、工具层的纯逻辑都在 `:core`，这一端交宿主面（配置 / 会话 / 记忆三份**真落盘**、`:data` 的 `SseAgentTransport`、五件接得上的工具）。那一枪的「发一条」走 `:core` 的 `AgentPendingPrompt`（与 `:app` 从提醒气泡进来同一条路），模型那一侧换成夹具传输（`FixtureAgentTransport`，**不连任何 LLM**，回复是写死的常量）—— 图上那条助手气泡就是它，而配置与那轮会话是**真落在临时数据根目录里的文件** |
+ * | `agent_welcome.png` | 屁岱的**未配置欢迎页**（同一个 `AppRoute.Agent` 真路由，只把夹具传输换成空配置下的状态） | 与 `agent.png` 同一屏的另一个入口：没接模型时先落在「先接一个模型」那张欢迎页上。这一枪只断言「真路由接上宿主面之后确实落在这张页上」，对话流与落盘由 `agent.png`（及 `DesktopAgentJvmTest`）钉住 |
  * | `home.png` | 首页（真路由：外壳 → `AppRoute.Main` → `:core` 的 `HomeScreen` + 本端 `DesktopHomeScreen`） | 第三十一条真数据路由，也是 Stage C 「宿主机能族」的第一条：首页就是底栏的第一格（不另造一套壳）。这张图上的**第 4 周**、**下周那节课（夹具课名 + 教室）**、**考试倒计时（还有 5 天 · 主楼B-201）**与顶部那条**公告条**都是从**本端键值缓存**算出来的（`HomeHero` / `HomeScheduleStats` / `BulletinFeed` 都是 `:core` 的）；课表/考试/教材是拍之前写进去的夹具（值都是编的），公告那一枪注入的是夹具公告（`.invalid` 域名）。首页一个网络请求都不发 |
  * | `main.png` | 主壳（同一个 `AppRoute.Main`，宽窗 900×900） | 首页接进**现有导航壳**之后的形态：底栏六格（首页 / 校历 / 图书馆 / 黄页 / 游戏 / 全部）都在，第一格「首页」是当前页；同一份夹具缓存与同一条夹具公告。外壳的**默认首屏**这一轮也改成了首页（与 `:app` 落在「Tab 1」同一条口径）—— 原来那个默认（图书馆）的理由是「它是这一端唯一有真数据的屏」，首页点亮之后这条不再成立。**桌面小组件这一端没有**（设计文档 §6 Stage C 的口径是「用系统通知替代」，那条路还没做）—— 它不在这一端任何一个宿主面里，不是「画不出来」 |
  * | `routes.png` | 「全部页面」索引页 | 如实列出「真能用 / 还没有数据源」，并给出退出登录入口 |
@@ -873,6 +880,29 @@ fun main(args: Array<String>) {
         check(mainHomeTabShown) { "main.png：底栏上没有「首页」那一格 —— 首页没接进现有壳？" }
         check(mainBulletinShown) { "main.png：顶部没有夹具那条公告" }
 
+        // 屁岱（最后一条点亮的路由 `AppRoute.Agent`）：屏与调度循环在 `:core`，这一端只给宿主面
+        //（`DesktopAgentHost`：配置/会话/记忆真落盘）。模型那一侧注入夹具传输
+        //（`FixtureAgentTransport`）⇒ 这一枪一个 LLM 请求都不发；配置是空的 ⇒ 落在 `:core` 屏自己的
+        //「先接一个模型」欢迎页上（那句话不是本端画的）。「发一条 → 流式回一条」的端到端判据在
+        // `DesktopAgentJvmTest` 里（断言的就是 `AGENT_FIXTURE_REPLY`）。
+        var agentWelcomeShown = false
+        shot(
+            "agent_welcome.png",
+            frames = 12,
+            onFrame = { frame, scene ->
+                if (frame >= 3) {
+                    if (!agentWelcomeShown) agentWelcomeShown = hasText(scene, "先接一个模型")
+                }
+            },
+        ) {
+            ToolboxDesktopApp(
+                auth,
+                DesktopTarget.App(AppRoute.Agent),
+                agentHost = fixtureAgentHost(auth, FixtureAgentTransport()),
+            )
+        }
+        check(agentWelcomeShown) { "agent_welcome.png：没落在「先接一个模型」那张欢迎页上 —— AppRoute.Agent 没接上宿主面？" }
+
 
         // 「全部页面」：这一页的 height 单独调大（不是其余图那个 900）—— 它是一张要读完的长表，
         // 而这一轮要证明的正是那个 0。把整页都框进来，免得拿半张图交差。
@@ -938,6 +968,37 @@ fun main(args: Array<String>) {
         check(vpnTyped) { "webvpn_converter.png：没找到那个输入框（semantics 里没有 SetText）" }
         check(vpnConverted) { "webvpn_converter.png：没点到「转换」" }
 
+        // ── 内置浏览器（`AppRoute.Browser`，桌面端等价物 = 外链中转页）────────────────────
+        // 走**真路由**：外壳 → `AppRoute.Browser("https://notice.example.invalid/2026/summer-camp")`
+        // → 本端的 `DesktopBrowserScreen`。这条路由在 `:app` 是 WebView 里的内置浏览器（629 行），
+        // 桌面端没有那一层 ⇒ 这一端的等价物是「把地址交给系统浏览器」的中转页。
+        //
+        // 这一枪**只画不点**：「在系统浏览器打开」真会去 `Desktop.browse` / `xdg-open`（这台机器上
+        // 会真弹一个窗口），「复制链接」会碰 AWT 系统剪贴板（离屏无显示服务器时是 `HeadlessException`）。
+        // 那两颗按钮的装配由 `DesktopBrowserJvmTest` 钉，这里只钉「真路由落在了这一屏上」。
+        //
+        // 判据三条（全在 semantics 上）：① 那句如实说明在屏上（这条路由在桌面上的形态就是它）；
+        // ② 路由带的那个网址在屏上（`.invalid` 夹具 —— 证明参数真传到了屏上，不是一页空壳）；
+        // ③ **`NotPortedScreen` 那句标题不在**（这一条路由再也不会落到那张占位页）。
+        val browserUrl = "https://notice.example.invalid/2026/summer-camp"
+        var browserShown = false
+        var browserUrlShown = false
+        var notPortedShown = false
+        shot(
+            "browser.png",
+            frames = 6,
+            onFrame = { frame, scene ->
+                if (frame >= 3) {
+                    if (!browserShown) browserShown = hasText(scene, "桌面端没有内嵌浏览器")
+                    if (!browserUrlShown) browserUrlShown = hasText(scene, browserUrl)
+                    if (!notPortedShown) notPortedShown = hasText(scene, "这一屏还没搬到桌面")
+                }
+            },
+        ) { ToolboxDesktopApp(auth, DesktopTarget.App(AppRoute.Browser(browserUrl))) }
+        check(browserShown) { "browser.png：屏上没有那句「桌面端没有内嵌浏览器」—— 多半没走到中转页" }
+        check(browserUrlShown) { "browser.png：屏上没有路由带的那个网址（$browserUrl）—— 参数没传到屏上" }
+        check(!notPortedShown) { "browser.png：落到了 `NotPortedScreen` 那张占位页 —— 这一条路由本该有真分支" }
+
         // ── 我的课表（第三十条真数据路由，本批主角）───────────────────────────────
         // 走**真路由**：外壳 → `AppRoute.Schedule` → `DesktopSiteGate(教务)` → `:core` 的
         // `ScheduleScreen` + 本端 `DesktopScheduleHost`（键值落盘 / 教务会话 / 节假日）。
@@ -974,6 +1035,41 @@ fun main(args: Array<String>) {
                 DesktopScheduleHost(auth).cache(AccountContext.activeAccountId),
             ) != null,
         ) { "schedule.png：拍完了但课表缓存是空的 —— 上屏的数据没落盘" }
+        // ── 屁岱（`AppRoute.Agent`，最后一条点亮的路由）─────────────────────────────
+        // 走**真路由**：外壳 → `AppRoute.Agent` → `:core` 的 `AgentScreen` + 本端 `DesktopAgentHost`
+        //（配置 / 会话 / 记忆三份**真落盘**、`:data` 的 `SseAgentTransport`、五件接得上的工具）。
+        //
+        // 这条链上唯一的外部依赖是「发一次 chat/completions」：这一枪把它换成夹具传输
+        //（`FixtureAgentTransport`，见 `AgentFixture.kt`）—— **不连任何 LLM**，回复是写死的常量。
+        // 「发一条」走 `:core` 的 `AgentPendingPrompt`（与 `:app` 从提醒气泡点进来同一条路；
+        // 离屏场景里没有鼠标，点不到输入栏那颗发送圆键）。
+        //
+        // 拍之前先落一份夹具配置（`saveConfig`，与配置面板同一个动作本体）：没有 key 时屏上
+        // 是「先去设置里配一下」那条提示，根本没有对话可拍。
+        // 图上的判据是**那条夹具回复**（`hasText`）：助手气泡里出现了它，就说明
+        // 「待发消息 → 装配工具层与传输 → 流式回调 → 上屏」整条真的跑通了。
+        val agent = fixtureAgentHost(auth, FixtureAgentTransport())
+        agent.saveConfig(AgentConfig(apiKey = "fixture-key", model = "fixture-model"))
+        AgentPendingPrompt.set("帮我看一下桌面这一端接上了没有")
+        var agentReplied = false
+        shot(
+            "agent.png",
+            frames = 20,
+            onFrame = { frame, scene ->
+                if (!agentReplied && frame >= 4) agentReplied = hasText(scene, AGENT_FIXTURE_REPLY)
+            },
+        ) { ToolboxDesktopApp(auth, DesktopTarget.App(AppRoute.Agent), agentHost = agent) }
+        check(agentReplied) { "agent.png：屏上没有那条夹具回复 —— 待发消息没发出去，或流式回包没上屏" }
+        // 配置与那一轮会话都落在本端数据根目录里（逐条钉落盘的是 `DesktopAgentJvmTest`）。
+        val agentConfigFile = File(shotsRoot, "agent_config${AccountContext.safeSuffix()}.properties")
+        check(agentConfigFile.isFile) { "agent.png：配置没落盘：${agentConfigFile.absolutePath}" }
+        check(
+            shotsRoot.walkTopDown().any {
+                it.isFile && it.name.startsWith("convo_") && it.readText().contains(AGENT_FIXTURE_REPLY)
+            },
+        ) { "agent.png：拍完了但那轮会话没落盘" }
+        println("屁岱落盘：${agentConfigFile.absolutePath}")
+
 
         // ── 账号管理（多账号，第二十九条真数据路由）────────────────────────────────
         // 走**真路由**（外壳 → `AppRoute.Accounts` → `:core` 的 `AccountManagerScreen`），注入的是
@@ -1023,16 +1119,89 @@ fun main(args: Array<String>) {
         ) { ToolboxDesktopApp(auth, DesktopTarget.App(AppRoute.GameMerge)) }
         check(mergeShown) { "game_merge.png：没画到那张说明页" }
 
-        // ── 匹配交友（`schedule_match`）：如实说明它卡的是本机数据 ────────────────
-        var matchShown = false
+        // ── 匹配交友（`schedule_match`，第三十三条真数据路由）─────────────────────────────────
+        // 走**真路由**：外壳 → `AppRoute.Match` → `:core` 的 `MatchScreen` + 本端 `DesktopMatchHost`。
+        //
+        // 这一条路由**一条请求都不发**，所以「真数据」只能是本机缓存：自己的课表/考试由拍之前写进
+        // 本端键值缓存（与 `schedule.png` / `home.png` 同一份 `DesktopScheduleHost.cache`），
+        // 对方的码就是「朋友把那串文字发过来」那件事 —— 同一套算法在别处编的一段夹具档案。
+        //
+        // 图和断言分两层（离屏场景没有鼠标，所以走 semantics）：
+        //  ① 往唯一的输入框里塞对方那段码、点一下「算一算」；
+        //  ② 断言屏上出现**夹具算出来的交集**：「一起上 1 门课」与那门课的名字。课名只会来自
+        //     解出来的那段码（这一屏别处不画课名），所以它出现就说明「Base64+inflate → 逐维比较」真跑了。
+        //
+        // 窗口给得高：桌面这一端没有 `LocalIsWideLayout`（只有 `:app` 在导航根部提供它）
+        // ⇒ 屏走的是**单栏**排版，结果卡就在两张码下面；窗口矮了 LazyColumn 不会组合它。
+        val matchTerm = "2026-2027-1"
+        val matchCourseName = "大学物理（夹具）"
+        val matchPeerName = "小张（夹具）"
+        val matchCache = DesktopScheduleHost(auth).cache(AccountContext.activeAccountId)
+        fun matchCourse(day: Int, from: Int, to: Int, code: String, teacher: String, room: String) = CourseItem(
+            courseName = matchCourseName,
+            teacher = teacher,
+            location = room,
+            weekBits = "1".repeat(20),
+            dayOfWeek = day,
+            startSection = from,
+            endSection = to,
+            courseCode = code,
+            courseType = "",
+        )
+        fun matchExam(date: String) = ExamItem(
+            courseName = matchCourseName,
+            courseCode = "FIX-PHY",
+            examDate = date,
+            examTime = "09:00-11:00",
+            location = "主楼A-101",
+            seatNumber = "12",
+        )
+        ScheduleCache.writeCurrentTerm(matchCache, matchTerm)
+        ScheduleCache.writeOptimizedCourses(
+            matchCache,
+            matchTerm,
+            listOf(
+                matchCourse(1, 1, 2, "FIX-MATH", "张老师（夹具）", "主楼A-101"),
+                matchCourse(3, 5, 6, "FIX-PHY", "李老师（夹具）", "中2-2101"),
+            ),
+        )
+        ScheduleCache.writeExams(matchCache, matchTerm, listOf(matchExam("2027-01-08")))
+        val theirMatchCode = MatchProfile.encode(
+            MatchProfile.build(
+                local = MatchData.Local(
+                    courses = listOf(matchCourse(3, 5, 6, "FIX-PHY", "李老师（夹具）", "中2-3305")),
+                    exams = listOf(matchExam("2027-01-08")),
+                ),
+                nickname = matchPeerName,
+            ),
+        )
+        check(theirMatchCode.isNotEmpty()) {
+            "schedule_match.png：夹具那段对方码编不出来（jvm 上 deflate/Base64 两条缝都应当有）"
+        }
+        var matchTyped = false
+        var matchComputed = false
+        var matchIntersectionShown = false
         shot(
             "schedule_match.png",
-            frames = 4,
-            onFrame = { _, scene ->
-                if (!matchShown) matchShown = hasText(scene, "匹配交友在桌面上还没有数据")
+            width = 560,
+            height = 1900,
+            frames = 16,
+            onFrame = { frame, scene ->
+                if (frame >= 4) {
+                    if (!matchTyped) matchTyped = setTextOnFirstField(scene, theirMatchCode)
+                    if (matchTyped && !matchComputed) matchComputed = clickByLabel(scene, "算一算")
+                }
+                if (matchComputed && !matchIntersectionShown) {
+                    matchIntersectionShown =
+                        hasText(scene, "一起上 1 门课") && hasText(scene, matchCourseName)
+                }
             },
         ) { ToolboxDesktopApp(auth, DesktopTarget.App(AppRoute.Match)) }
-        check(matchShown) { "schedule_match.png：没画到那张说明页" }
+        check(matchTyped) { "schedule_match.png：没找到那个输入框（semantics 里没有 SetText）" }
+        check(matchComputed) { "schedule_match.png：没点到「算一算」" }
+        check(matchIntersectionShown) {
+            "schedule_match.png：屏上没有夹具算出来的交集 —— 解码或逐维比较断了"
+        }
     }
     exitProcess(0)
 }

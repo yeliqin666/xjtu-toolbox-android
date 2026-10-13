@@ -30,6 +30,10 @@ concurrency:
 jobs:
   package:
     runs-on: windows-latest
+    # 卡死的护栏：WiX / jlink / jpackage 卡住时 GitHub 默认会白白跑 6 小时。60 分钟与
+    # desktop-linux.yml 同一个数字（那边本机实测出包 6 分 39 秒；Windows 这条路还要额外下载
+    # WiX，只能估）。⚠️ 这个数字没在 CI 上量过。
+    timeout-minutes: 60
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -59,6 +63,32 @@ jobs:
         # 先编一遍：编译错误（比如只有 Windows 才走的分支）在这里就报，不必等到 jlink 跑完
         run: .\gradlew.bat :desktop:compileKotlin
 
+      - name: 核对 windows.ico 是多尺寸 ICO
+        # 为什么要这一步：jpackage 在 Windows 上只收 `.ico`，而 `windows.iconFile` 指过去之后
+        # 能不能被 WiX 吃下，本机（Linux）验不了（jpackage 不能交叉出包）——docs/windows-delivery.md
+        # §7 第 3 条把这件事一直挂着。这里只能验「文件本身是合法 ICO、且带 256×256 那张」
+        # （MSI 的控制面板/开始菜单图标用它），验不了「WiX 真的接受它」；但能在花十几分钟跑
+        # WiX 之前，先把「转错了格式 / 传了个空文件」这类错拦下来。
+        # 这段脚本本机用 pwsh 跑过（正例 + 缺文件 / magic 错 / 没 256 三个负例），见
+        # docs/windows-delivery.md §3。
+        shell: pwsh
+        run: |
+          $ico = "desktop/icons/windows.ico"
+          if (-not (Test-Path $ico)) { throw "找不到 $ico（jpackage 的 --icon 就指它）" }
+          $bytes = [System.IO.File]::ReadAllBytes($ico)
+          if ($bytes.Length -lt 6 -or $bytes[0] -ne 0 -or $bytes[1] -ne 0 -or $bytes[2] -ne 1 -or $bytes[3] -ne 0) {
+            throw "$ico 不是 ICO 文件（头四字节应为 00 00 01 00）——检查是不是转错了格式"
+          }
+          $count = [BitConverter]::ToUInt16($bytes, 4)
+          $sizes = @()
+          for ($i = 0; $i -lt $count; $i++) {
+            $o = 6 + 16 * $i
+            $w = if ($bytes[$o] -eq 0) { 256 } else { [int]$bytes[$o] }
+            $sizes += $w
+          }
+          Write-Host "windows.ico: $count 张图，尺寸 $($sizes -join ' / ')"
+          if ($sizes -notcontains 256) { throw "$ico 里没有 256×256 那张（MSI 的控制面板图标用它）" }
+
       - name: 打 Windows 安装包（.msi 与 .exe）
         # ⚠️ 这一步本机（Linux）跑不了，只能在这里验。WiX 由 Compose Desktop 自动下载。
         run: .\gradlew.bat :desktop:packageMsi :desktop:packageExe
@@ -76,7 +106,10 @@ jobs:
           path: |
             desktop/build/compose/binaries/main/msi/*.msi
             desktop/build/compose/binaries/main/exe/*.exe
-          # 没产物就是出包失败，别当成「跑过了」
+          # 没产物就是出包失败，别当成「跑过了」：Compose Desktop 对与宿主不兼容的 target
+          # 会把任务**静默 SKIPPED**（连任务体都不跑，命令却仍然是绿的 —— 实测见
+          # docs/windows-delivery.md §1，两条工作流各自那一节：docs/linux-delivery.md §4 /
+          # docs/windows-delivery.md §3），所以「命令绿了但什么都没出包」是可能的 —— 这条设置把它变成响亮失败。
           if-no-files-found: error
 
       # ── 验证步骤刻意放在出包**之后**：万一有平台相关的用例红了，产物仍然留得下来给人查。
