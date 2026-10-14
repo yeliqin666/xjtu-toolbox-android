@@ -218,6 +218,10 @@ data class LmsActivity(
     val lessonStart: String? = null,
     val lessonEnd: String? = null,
 
+    // forum 专有
+    val topicCategoryId: Int? = null,
+    val topicCount: Int = 0,
+
     // lecture_live 专有
     val liveRoomName: String? = null,
     val liveRoomCode: String? = null,
@@ -402,3 +406,80 @@ data class LmsReplayVideo(
             else -> "%.1f MB".format(size / (1024.0 * 1024.0))
         }
 }
+
+// ════════════════════════════════════════
+//  讨论区 (Forum)
+// ════════════════════════════════════════
+
+@Serializable
+data class LmsForumUser(
+    val id: Int = 0,
+    val name: String = "",
+    val nickname: String? = null,
+    val userNo: String? = null,
+    val role: String? = null,
+) {
+    val roleLabel: String?
+        get() = when (role?.lowercase()) {
+            "teacher" -> "教师"
+            "student" -> "学生"
+            "ta", "assistant" -> "助教"
+            else -> role?.takeIf { it.isNotBlank() }
+        }
+}
+
+@Serializable
+data class LmsForumTopic(
+    val id: Int = 0,
+    val categoryId: Int = 0,
+    val title: String = "",
+    val content: String = "",
+    val createdAt: String = "",
+    val updatedAt: String? = null,
+    val createdBy: LmsForumUser = LmsForumUser(),
+    val replyCount: Int = 0,
+    val unreadReplyCount: Int = 0,
+    val likeCount: Int = 0,
+    val currentUserLiked: Boolean = false,
+    val currentUserRead: Boolean = false,
+    val isHotTopic: Boolean = false,
+    val isTeacherTop: Boolean = false,
+    val topicToppedSort: Int = 0,
+    val userVisitsNumber: Int = 0,
+    val uploads: List<LmsUpload> = emptyList(),
+) {
+    /** 是否置顶 */
+    val isTopped: Boolean get() = isTeacherTop || topicToppedSort > 0
+}
+
+@Serializable
+data class LmsForumReply(
+    val id: Int = 0,
+    val topicId: Int = 0,
+    val content: String = "",
+    val createdAt: String = "",
+    val updatedAt: String? = null,
+    val createdBy: LmsForumUser = LmsForumUser(),
+    val likeCount: Int = 0,
+    val currentUserLiked: Boolean = false,
+    val replyCount: Int = 0,
+    val userVisitsNumber: Int = 0,
+    val comments: List<LmsForumComment> = emptyList(),
+)
+
+@Serializable
+data class LmsForumComment(
+    val id: Int = 0,
+    val content: String = "",
+    val createdAt: String = "",
+    val createdBy: LmsForumUser = LmsForumUser(),
+    val likeCount: Int = 0,
+)
+
+data class LmsForumCategoryResult(
+    val page: Int = 1,
+    val pageSize: Int = 10,
+    val pages: Int = 1,
+    val total: Int = 0,
+    val topics: List<LmsForumTopic> = emptyList(),
+)
