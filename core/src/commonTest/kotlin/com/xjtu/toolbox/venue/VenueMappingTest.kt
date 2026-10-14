@@ -253,7 +253,7 @@ class VenueMappingTest {
     @Test
     fun favoritesRoundTripInLocalStorage() = runTest {
         val api = apiFor()
-        // jvm 上的 `keyValueStore` 是**整个 JVM 一份**的内存实现 ⇒ 先清干净，测试之间不互相污染
+        // jvm 上的 `keyValueStore` 现在真落盘 ⇒ 先清干净，测试之间不互相污染
         keyValueStore("venue_favorites").clear()
         assertEquals(emptySet(), api.favorites())
         assertTrue(api.toggleFavorite(42))

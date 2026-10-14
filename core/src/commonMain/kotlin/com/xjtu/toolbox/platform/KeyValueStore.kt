@@ -7,7 +7,7 @@ package com.xjtu.toolbox.platform
  * 那一批用法的落点。三端实现：
  *   - Android = `SharedPreferences`（`name` 就是文件名，行为与现在一致）；
  *   - Web     = `localStorage`（加前缀，避免与同源下别的页面串键）；
- *   - jvm     = 内存（本地测试用，不落盘 —— 免得测试之间互相污染）。
+ *   - jvm     = `<name>.properties`（与桌面密文存储同一个数据根、同一套 0600 权限）。
  *
  * 为什么是 `expect fun` 返回接口，而不是 `expect class`：接口 + 工厂的粒度正好是「能力」，
  * 各端实现可以随便换（Android 将来若换 DataStore，只改 androidMain 一个文件）。

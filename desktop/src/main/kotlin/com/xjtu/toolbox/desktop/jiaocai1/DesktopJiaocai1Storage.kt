@@ -1,5 +1,7 @@
 package com.xjtu.toolbox.desktop.jiaocai1
 
+import com.xjtu.toolbox.account.AccountContext
+import com.xjtu.toolbox.desktop.accountScopedStoreName
 import com.xjtu.toolbox.jiaocai1.Jiaocai1ShelfRecord
 import com.xjtu.toolbox.jiaocai1.Jiaocai1ShelfStore
 import com.xjtu.toolbox.platform.KeyValueStore
@@ -25,7 +27,8 @@ import kotlinx.serialization.json.put
  *
  * 搬迁前书架是 Room（`androidx.room` + `Context`），桌面端没有那一套。这里用**一份 JSON 落盘**：
  * 把行数组序列化成一个字符串，存进 `:data` 的密文键值缝 [com.xjtu.toolbox.platform.secureKeyValueStore]
- * —— 它在本端就是 `<数据根>/jiaocai1_shelf.properties`（权限 0600，与 cookie / 凭据同一处），
+ * —— 它在本端就是 `<数据根>/jiaocai1_shelf<账号后缀>.properties`（S7b；权限 0600，与 cookie /
+ * 凭据同一处。加后缀之前那份旧名 `jiaocai1_shelf` 只会被**只读**读一次，见构造器的 `legacyStore`），
  * 写入是同步的，所以「离开阅读器时那一发」不需要额外的协程。
  *
  * 行数很少（书架 = 我读过的那几本），所以每次写整份重写；JSON 手写而不是给模型加
@@ -42,9 +45,21 @@ import kotlinx.serialization.json.put
  * 而 Android 那条 Room 路径一个字都没动。
  */
 class DesktopJiaocai1ShelfStore(
-    /** 存储；默认是那份 0600 的落盘文件（测试可传内存版做隔离）。 */
-    private val store: KeyValueStore = com.xjtu.toolbox.platform.secureKeyValueStore(FILE_NAME),
+    /** 存储；生产装配给的是那份 0600 的落盘文件（测试可传内存版做隔离）。 */
+    private val store: KeyValueStore,
+    /**
+     * S7b 之前那份旧名（[STORE_NAME]，无账号后缀）的**只读**兜底：新名里没有行时读它一次
+     * （§6.1 第 2 条「旧形状只读」—— 只读，不往回写、也不删旧文件）。默认 null：测试注入 [store]
+     * 时不该顺带读到隔离根之外的旧文件。
+     */
+    private val legacyStore: KeyValueStore? = null,
 ) : Jiaocai1ShelfStore {
+
+    /** 生产装配（S7b）：端内名 = `jiaocai1_shelf<账号后缀>` + 旧名的只读兜底。 */
+    constructor(accountId: String? = AccountContext.activeAccountId) : this(
+        store = com.xjtu.toolbox.platform.secureKeyValueStore(storeName(accountId)),
+        legacyStore = com.xjtu.toolbox.platform.secureKeyValueStore(STORE_NAME),
+    )
 
     private val rows = MutableStateFlow(read())
 
@@ -86,7 +101,8 @@ class DesktopJiaocai1ShelfStore(
     }
 
     private fun read(): List<Jiaocai1ShelfRecord> {
-        val raw = store.getString(KEY_ROWS) ?: return emptyList()
+        // S7b：新名里没有行时，读一次旧名那份（旧形状只读）
+        val raw = store.getString(KEY_ROWS) ?: legacyStore?.getString(KEY_ROWS) ?: return emptyList()
         val array = runCatching { AppJson.parseToJsonElement(raw).jsonArray }.getOrNull() ?: return emptyList()
         return array.mapNotNull { element ->
             val o = element as? JsonObject ?: return@mapNotNull null
@@ -129,9 +145,15 @@ class DesktopJiaocai1ShelfStore(
         return (v as? JsonPrimitive)?.content.orEmpty()
     }
 
-    private companion object {
-        const val FILE_NAME = "jiaocai1_shelf"
-        const val KEY_ROWS = "rows"
+    companion object {
+        /** 端内 store 名的基础部分；完整端内名见 [storeName]（S7b：带账号后缀）。 */
+        const val STORE_NAME = "jiaocai1_shelf"
+
+        /** 端内名（`jiaocai1_shelf<账号后缀>`）—— 测试清场与「落盘文件在哪儿」共用这一处口径。 */
+        fun storeName(accountId: String? = AccountContext.activeAccountId): String =
+            accountScopedStoreName(STORE_NAME, accountId)
+
+        private const val KEY_ROWS = "rows"
     }
 }
 
@@ -151,5 +173,5 @@ internal fun jiaocai1CacheRoot(): File {
     return File(base, "xjtu-toolbox")
 }
 
-/** 测试用的内存存储（桌面端的 `:core` 键值缝在本端就是内存实现）。 */
+/** 测试用的落盘存储（桌面端的 `:core` 键值缝在本端现在也是落盘实现）。 */
 internal fun inMemoryJiaocai1ShelfStore(): KeyValueStore = keyValueStore("jiaocai1_shelf_test")

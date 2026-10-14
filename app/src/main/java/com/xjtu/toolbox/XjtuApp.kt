@@ -54,6 +54,9 @@ class XjtuApp : Application() {
             com.xjtu.toolbox.account.AccountStore.FILE_NAME,
             com.xjtu.toolbox.data.CredentialStore.FILE_NAME,
         )
+        // 统一存档层的一次性导入触发点（S4 接线点）：只判读 staging 里有无待导入档案，
+        // 合并语义在后续工单 —— 默认不动用户数据（§6.2 / §8.7，顺序在换包清理之后）。
+        com.xjtu.toolbox.archive.AppArchiveUx.maybeImportPendingArchive(base)
     }
 
     override fun onCreate() {

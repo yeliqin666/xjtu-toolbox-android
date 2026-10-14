@@ -1,6 +1,7 @@
 package com.xjtu.toolbox.desktop
 
 import com.xjtu.toolbox.FakeCampusProxy
+import com.xjtu.toolbox.account.AccountContext
 import com.xjtu.toolbox.desktop.media.DesktopDownloadTaskStore
 import com.xjtu.toolbox.media.DownloadFakeUpstream
 import com.xjtu.toolbox.media.DownloadItem
@@ -54,7 +55,9 @@ class DesktopDownloadsJvmTest {
     private fun withFakeCampus(block: () -> Unit) {
         root = Files.createTempDirectory("xjtu-desktop-download-test").toFile()
         dataRootOverride = root
-        wipeSecureStore("download_tasks")
+        // S7b：队列的端内名带账号后缀 ⇒ 先把命名空间钉成「未登录」（后缀 `default`，无前导下划线）
+        AccountContext.activeAccountId = null
+        wipeSecureStore("download_tasksdefault")
         FakeCampusProxy.installFakeUpstreams()
         fake = FakeCampusProxy(casEnabled = false)
         fake.start()
@@ -63,6 +66,7 @@ class DesktopDownloadsJvmTest {
         } finally {
             fake.close()
             dataRootOverride = null
+            AccountContext.activeAccountId = null
         }
     }
 
@@ -125,7 +129,7 @@ class DesktopDownloadsJvmTest {
         assertEquals(0L, fake.download.rangeRequests.get(), "全新下载不该带 Range")
 
         // 记录真的落在那份 0600 的 JSON 里（不是只在内存里）：这是「桌面端没有 Room」的替代物
-        val stored = File(root, "download_tasks.properties")
+        val stored = File(root, "download_tasksdefault.properties")
         assertTrue(stored.isFile, "下载任务要落在 ${stored.path}")
         val raw = stored.readText()
         assertTrue(raw.contains("\"activityTitle\""), "落盘的 JSON 里要有任务记录：${raw.take(120)}")

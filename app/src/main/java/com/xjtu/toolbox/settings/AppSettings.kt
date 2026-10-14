@@ -33,10 +33,12 @@ import androidx.compose.material.icons.filled.BatteryAlert
 import androidx.compose.material.icons.filled.BugReport
 import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.CloudSync
+import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.EventSeat
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.filled.Upload
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -53,6 +55,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import com.xjtu.toolbox.BuildConfig
+import com.xjtu.toolbox.archive.AppArchiveUx
 import com.xjtu.toolbox.data.CredentialStore
 import com.xjtu.toolbox.notification.LibraryReminderScheduler
 import com.xjtu.toolbox.notification.LmsDeadlineScheduler
@@ -346,6 +349,34 @@ private fun DataPrivacySection(context: Context, scope: CoroutineScope) {
         }
     }
 
+    var pendingExportArchive by remember { mutableStateOf<Map<String, String>?>(null) }
+
+    val exportLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument(AppArchiveUx.ARCHIVE_MIME),
+    ) { uri ->
+        val archive = pendingExportArchive
+        pendingExportArchive = null
+        if (uri != null && archive != null) {
+            scope.launch(Dispatchers.IO) {
+                val ok = runCatching { AppArchiveUx.writeExportToUri(context, uri, archive) }.isSuccess
+                withContext(Dispatchers.Main) {
+                    Toast.makeText(context, if (ok) "已导出数据存档" else "导出失败", Toast.LENGTH_SHORT).show()
+                }
+            }
+        }
+    }
+
+    val importLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) {
+            scope.launch(Dispatchers.IO) {
+                val ok = runCatching { AppArchiveUx.copyImportToStaging(context, uri) != null }.getOrDefault(false)
+                withContext(Dispatchers.Main) {
+                    Toast.makeText(context, if (ok) "已放入待导入" else "导入失败", Toast.LENGTH_SHORT).show()
+                }
+            }
+        }
+    }
+
     SmallTitle("数据与隐私")
     SettingsCard {
         ArrowPreference(
@@ -363,6 +394,28 @@ private fun DataPrivacySection(context: Context, scope: CoroutineScope) {
                 crashReportEnabled = it
                 com.xjtu.toolbox.error.CrashReporter.setEnabled(context, it)
             }
+        )
+        ArrowPreference(
+            title = "导出数据存档",
+            summary = "把本机数据打包成 zip（不含密码等凭据）",
+            startAction = { SettingsIcon(Icons.Default.Upload) },
+            onClick = {
+                scope.launch {
+                    val archive = withContext(Dispatchers.IO) { runCatching { AppArchiveUx.exportArchive(context) }.getOrNull() }
+                    if (archive == null) {
+                        Toast.makeText(context, "导出失败", Toast.LENGTH_SHORT).show()
+                    } else {
+                        pendingExportArchive = archive
+                        exportLauncher.launch("xjtu-toolbox-archive.zip")
+                    }
+                }
+            },
+        )
+        ArrowPreference(
+            title = "导入数据存档",
+            summary = "从 zip 档案导入（默认不覆盖本机数据）",
+            startAction = { SettingsIcon(Icons.Default.Download) },
+            onClick = { importLauncher.launch(arrayOf("*/*")) },
         )
     }
 

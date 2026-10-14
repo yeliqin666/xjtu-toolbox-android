@@ -47,8 +47,14 @@ import kotlinx.serialization.Serializable
  *
  * @param session 会话装配（[ServeSession]）；四个端点都只是它的薄投影。
  * @param accessToken 换 cookie 用的那一枚令牌（[AccessToken.setCookieHeader]）。
+ * @param secureCookie 发出的 cookie 带不带 `Secure`（D11）：HTTPS 形态（[ServeConfig.tls] 非 null）
+ *   为 true，明文形态为 false。默认 false = 明文那一档的历史行为，**逐字不变** —— 契约 §3.2。
  */
-internal fun Route.sessionRoutes(session: ServeSession, accessToken: String) {
+internal fun Route.sessionRoutes(
+    session: ServeSession,
+    accessToken: String,
+    secureCookie: Boolean = false,
+) {
     // ⚠️ 相对段而不是绝对路径：这棵子树已经挂在 `route("/api")` 之下，Ktor 会把路径段**接在父节点后面**
     //    —— 再写一遍 `/api/session` 会得到 `/api/api/session`（一个静默的 404，测试会告诉你）。
     route(SESSION_SEGMENT) {
@@ -62,7 +68,10 @@ internal fun Route.sessionRoutes(session: ServeSession, accessToken: String) {
          * 必然要问一次「有没有会话」，cookie 顺手就拿到了，多余地到处发只会多出几个「哪一份才是真的」。
          */
         get {
-            call.response.header(HttpHeaders.SetCookie, AccessToken.setCookieHeader(accessToken))
+            call.response.header(
+                HttpHeaders.SetCookie,
+                AccessToken.setCookieHeader(accessToken, secure = secureCookie),
+            )
             call.respond(ApiEnvelope.ok(SessionState(session.authenticated)))
         }
 

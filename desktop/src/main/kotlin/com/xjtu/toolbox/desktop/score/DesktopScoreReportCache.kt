@@ -1,5 +1,7 @@
 package com.xjtu.toolbox.desktop.score
 
+import com.xjtu.toolbox.account.AccountContext
+import com.xjtu.toolbox.desktop.accountScopedStoreName
 import com.xjtu.toolbox.platform.KeyValueStore
 import com.xjtu.toolbox.platform.keyValueStore
 import com.xjtu.toolbox.score.ReportedGrade
@@ -34,18 +36,37 @@ import kotlinx.serialization.json.put
  * TTL 与 `:app` 同一条：`DataCache.DEFAULT_TTL_MS`（7 天）。过期读到就删掉那个键、返回 null，
  * 于是屏幕照旧去拉一份新的 —— 与 DataCache 过期时删文件是同一个行为。
  *
- * [store] 与 [now] 可注入：测试用一次性存储与固定时钟把「过期 / 坏值 / 换学号」三档钉住。
+ * [store] / [legacyStore] 与 [now] 可注入：测试用一次性存储与固定时钟把「过期 / 坏值 / 换学号」三档钉住。
+ *
+ * ## S7b：端内名带账号后缀
+ *
+ * 键里那个学号不变（与 `:app` 同键的约束在上面），变的只有 **store 名**：
+ * `score_report` → `score_report<账号后缀>`（[storeName]）。加后缀之前那份旧名会被**只读**读一次
+ * （[legacyStore]），所以旧缓存不会因为这次改名而丢。
  */
 class DesktopScoreReportCache(
     private val studentId: String,
-    private val store: KeyValueStore = keyValueStore(STORE_NAME),
+    private val store: KeyValueStore,
+    /**
+     * S7b 之前那份旧名（[STORE_NAME]，无账号后缀）的**只读**兜底：新名里没有这个键时读它一次
+     * （§6.1 第 2 条「旧形状只读」）。默认 null：测试注入 [store] 时不该顺带读到隔离根之外的旧文件。
+     */
+    private val legacyStore: KeyValueStore? = null,
     private val now: () -> Long = { System.currentTimeMillis() },
 ) : ScoreReportCache {
+
+    /** 生产装配（S7b）：store 名带账号后缀 + 旧名（无后缀那份）的只读兜底。 */
+    constructor(
+        studentId: String,
+        accountId: String? = AccountContext.activeAccountId,
+        now: () -> Long = { System.currentTimeMillis() },
+    ) : this(studentId, keyValueStore(storeName(accountId)), keyValueStore(STORE_NAME), now)
 
     private val key get() = keyFor(studentId)
 
     override fun read(): List<ReportedGrade>? {
-        val raw = store.getString(key) ?: return null
+        // S7b：新名里没有这个键时，读一次旧名那份（旧形状只读）
+        val raw = store.getString(key) ?: legacyStore?.getString(key) ?: return null
         val obj = runCatching { AppJson.parseToJsonElement(raw).jsonObject }.getOrNull() ?: return null
         val at = (obj["at"] as? JsonPrimitive)?.longOrNull ?: return null
         if (now() - at > TTL_MS) {
@@ -67,8 +88,12 @@ class DesktopScoreReportCache(
     }
 
     companion object {
-        /** 桌面这一端的键值缝名（`:app` 的 DataCache 是按文件放的，没有这一档）。 */
+        /** 桌面这一端的 store 名基础部分（S7b 之前没有后缀）；完整端内名见 [storeName]。 */
         const val STORE_NAME = "score_report"
+
+        /** 端内名（`score_report<账号后缀>`）—— 测试清场与「落盘文件在哪儿」共用这一处口径。 */
+        fun storeName(accountId: String? = AccountContext.activeAccountId): String =
+            accountScopedStoreName(STORE_NAME, accountId)
 
         /** 与 `:app` 的 `DataCache.DEFAULT_TTL_MS` 同一句话（7 天）。 */
         const val TTL_MS = 7L * 24 * 60 * 60 * 1000L

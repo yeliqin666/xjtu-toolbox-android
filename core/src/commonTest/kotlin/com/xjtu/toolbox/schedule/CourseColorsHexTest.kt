@@ -19,7 +19,7 @@ import kotlin.test.assertNull
  *  - `of()` 的判定从 `prefs.contains` 换成了 `KeyValueStore.contains`，而它存在的理由就是
  *    「用户正好把颜色设成某个默认值」时也不能被当成「没设过」。
  *
- * 这两个用例跑在 `:core:jvmTest`（jvm 的内存 KeyValueStore）里，Android 侧走同名 SharedPreferences。
+ * 这两个用例跑在 `:core:jvmTest`（jvm 的落盘 KeyValueStore）里，Android 侧走同名 SharedPreferences。
  */
 class CourseColorsHexTest {
 

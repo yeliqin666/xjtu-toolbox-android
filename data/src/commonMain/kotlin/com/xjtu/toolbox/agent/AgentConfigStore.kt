@@ -14,7 +14,7 @@ import com.xjtu.toolbox.platform.secureKeyValueStore
  *
  * | 那一半 | Android（默认） | 桌面 |
  * |---|---|---|
- * | 非敏感（服务商 / 模型 / 助手名 / 搜索源 / 思考开关） | `agent_config<suffix>`：`keyValueStore` 的 Android actual 就是搬迁前那个 `SharedPreferences` 文件 | 宿主传 `secureKeyValueStore`（`:core` 的 jvm 实现是**进程内内存**，不落盘） |
+ * | 非敏感（服务商 / 模型 / 助手名 / 搜索源 / 思考开关） | `agent_config<suffix>`：`keyValueStore` 的 Android actual 就是搬迁前那个 `SharedPreferences` 文件 | 宿主传 `secureKeyValueStore`（`keyValueStore` 的 jvm 实现现在也真落盘，桌面仍走 0600 密文那套） |
  * | **API Key** | `agent_config_secure<suffix>`：`SecurePrefs` 的那个加密文件 | 同一份缝 = 0600 落盘文件，Windows 上再套一层 DPAPI（见 `:data` 的 `SecretProtector` / `docs/windows-delivery.md`） |
  *
  * 密钥那一半**刻意不给宿主换**：它只能落在密文存储上。老机器上那份明文

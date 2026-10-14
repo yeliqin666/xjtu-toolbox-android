@@ -29,9 +29,12 @@
 
 1. 默认**只监听 `127.0.0.1`**；
 2. 首次启动生成并**打印访问令牌**；浏览器侧必须带（`Authorization: Bearer <token>`，或令牌换 cookie 后随请求带）。
-    cookie 名固定 **`serve_token`**，由 `GET /api/session` 发出（`Path=/; HttpOnly; SameSite=Lax`，见 §5.1）；
+    cookie 名固定 **`serve_token`**，由 `GET /api/session` 发出，属性随形态变（D11 批④，实现：
+    `AccessToken.setCookieHeader(token, secure)`）：
+    - **明文形态（默认，不给新参数）**：`Path=/; HttpOnly; SameSite=Lax` —— **逐字不变**；
+    - **HTTPS 形态（`--https`）**：多一个 `Secure`。
     浏览器在地址栏里贴不了 `Authorization`，所以实际形态就是「先用 Bearer 换 cookie，之后只带 cookie」；
-    不带 `Secure` 是因为默认是明文 HTTP（浏览器会直接丢掉带 `Secure` 的 cookie）。
+    明文那一档不能带 `Secure`（浏览器会直接丢掉一个来自 http:// 的 Secure cookie）。
 3. 对外暴露必须**显式** `--host 0.0.0.0`，文档写明"自己加反代 + 鉴权，风险自负"；
 4. `/api/status` 是**唯一免令牌**端点（只报"活着 + 有没有会话"），且**不含身份信息**（不返回学号/姓名）。
 5. **`--host 0.0.0.0` + HTTP ⇒ 非安全上下文**（2026-10-10 实测，Web 外壳那边撞到的）：
@@ -40,6 +43,20 @@
    ⇒ 对外暴露时要么自己上 HTTPS（反代 + 证书），要么给复制路径留一条 `document.execCommand('copy')`
    的降级；**不要**默认就走降级 —— 那是把「不安全」常态化。同类受影响的还有 `crypto.subtle`、
    地理位置、Service Worker（`serve` 模式若打算做 PWA，先把这一条想清楚）。
+6. **serve 内置 HTTPS（D11 批④，2026-10-15 落地）**：`--https` 把 serve 切成 HTTPS 形态 ——
+   `--host/--port` 就是 HTTPS 的地址与端口，证书默认 `<数据根>/tls/serve.p12`（`--cert` / `--cert-alias`
+   可指别处，证书目录与访问令牌同一个数据根），没给 `--cert` 时**缺证书就现生成一张自签**
+   （JDK 的 keytool，SAN 含 `localhost` 与 `127.0.0.1`）。**三点口径**：
+   - 不给 `--https` ⇒ 明文 HTTP + 令牌闸门，**与今天逐字相同**（默认行为不动）；
+   - HTTPS 形态下明文监听只绑 `127.0.0.1`（本进程内部用），令牌闸门与 `/api/session` 换 cookie 的语义
+     一概不变，只多一个 `Secure`；
+   - 证书缺了 / 路径不存在 / 密码不对 / 文件不是证书库 ⇒ **一律明确报错、退出码 2**，
+     **绝不静默回落成明文**（“我以为开了 HTTPS”比“起不来”糟得多）。
+   怎么开（自签一条命令 + 自带证书库 + 证书放哪儿 + 浏览器怎么信任）：
+   `docs/linux-delivery.md` / `docs/windows-delivery.md` 的「怎么开 HTTPS」那一节。
+7. **在 HTTPS 落地用起来之前，写 / 支付端点不要挂在公网口上**（§16.4 第二条风险，P1 的判据）：
+   `0.0.0.0` + 明文 + 一枚令牌的那个口子只能自用；对外要么 `--https`，要么自己加反代。
+   今天已落地的写路径（图书馆约座 / 场馆下单，§5.3.1 / §5.3.2）与将来 D7 那一批（含真支付）都适用这一条。
 
 ## 4. 通用形状
 
@@ -96,6 +113,8 @@
 | `/api/match/dining` | `CampusCardSource`（流水） + `:core` 的 `DiningHabit` / `MatchProfile` | 匹配交友（消费统计） | **P0 · 已落地 2026-10-14** | **新形状**：只端「常在几点吃饭 / 常去哪个食堂」那两维（不含金额 / 商户全称 / 明细）；⚠️ `/api/match/profile`（**学工档案**）**不端** —— `:data` 里没有 `hello` 取数（那条链在 `:app`，桌面端也如实没有），见 §5.7 |
 | `POST /api/webvpn/convert` | `WebVpnCodec`（`:data` 侧 `WebVpnUtil`） | WebVPN 转换器 | **P0 · 已落地 2026-10-14** | **新形状**：纯转换（两个方向、无会话、不碰上游、`400` 只有参数那一档）。**为什么不做成浏览器本地**：HTTP + 非 localhost ⇒ 非安全上下文 ⇒ `crypto.subtle` 被禁，见 §5.7 |
 | `/api/v1/personal/me/user` | —— | （身份） | P2 | ⚠️ 待确认：这条出现在 `:core` 现有代码里，实现时先查清它是谁的投影 |
+| `/api/accounts` | `:core` 的 `CampusAccountsApi`（serve 支）读 `:data` 的 `AccountStore` | 账号管理（多账号，D9） | **P2 · 已落地 2026-10-15**（批② 工单 S7a） | **新形状**：只读一条。`id` 是**打码后**的学号（`2023****0001`，既当显示名也当句柄），完整学号/姓名/密码/指纹/公钥一律**不投影**（红线 §3.4）；`readOnly:true` 是能力开关（切换/新增/删除/改密这一批**没有**端点，如实降级）；它**不打上游** —— 读的是本机账号表与 serve 自己的登录态，见 §5.10 |
+
 
 > **状态收口（2026-10-13 核账，纯文档轮次）**：`:server` 里**已实现**的端点族 =
 > `status` · `session{,/login,/logout,/mfa}` · `calendar/school` · `info/{yellowpage,faculty}` ·
@@ -117,6 +136,9 @@
 > **第四批（2026-10-14 新增）**：`jwxt/{changes,exams,textbooks}`、`jwapp/score-detail`、
 > `emptyroom/seat-count` —— 逐字段与「不端什么」见 §5.8；会话侧**一个新站点都没注册**（三条打教务、
 > 一条打移动教务，两个站点本就就在清单里；座位数那一条读的是免登录的 CDN 档）。
+> **批② 工单 S7a（2026-10-15 新增）**：`accounts`（多账号页那一族的**只读**一条）—— 逐字段与
+> 「不端什么」见 §5.10；它**不打任何上游**（读的是本机账号表 `xjtu_accounts` 与 serve 自己的登录态）
+> ⇒ 会话侧一个新站点都没注册。
 > **仍未实现**的只剩一行 + 一处如实缺口：`/api/v1/personal/me/user`（P2：来源仍待确认）、
 > `/api/match/profile`（P2：**学工档案**在 `:data` 里没有源 —— `hello` 那条链只在 `:app`，桌面端也
 > 如实没有 ⇒ 本轮不端，判据与 `DesktopMatch.kt` 的 TODO 见 §5.7）。
@@ -139,8 +161,9 @@
 四条口径（实现见 `server/src/main/kotlin/com/xjtu/toolbox/server/SessionRoutes.kt` / `ServeSession.kt`）：
 
 1. **令牌换 cookie 只在 `GET /api/session` 发**：响应带
-   `Set-Cookie: serve_token=<令牌>; Path=/; HttpOnly; SameSite=Lax`。浏览器先用
-   `Authorization: Bearer` 打这一枪，之后**只带 cookie**（闸门两种形态都认，名字固定 `serve_token`）。
+   `Set-Cookie: serve_token=<令牌>; Path=/; HttpOnly; SameSite=Lax`（**HTTPS 形态时末尾多一个 `; Secure`**
+   —— D11 批④：`AccessToken.setCookieHeader(token, secure)`，形态由 `ServeConfig.tls` 定）。
+   浏览器先用 `Authorization: Bearer` 打这一枪，之后**只带 cookie**（闸门两种形态都认，名字固定 `serve_token`）。
    `HttpOnly` 是重点：页面脚本读不到令牌。其余三个端点**不发**这行 —— 客户端启动时必然要问一次
    「有没有会话」，cookie 顺手就拿到了。
 2. **`authenticated` 的含义是「登录跑完了」**（或冷启动从落盘凭据静默恢复过），**不是**
@@ -1031,6 +1054,59 @@ POST /api/venue/cancel
 `SourceSchedule` / 参数读法 / 形状没对上与非 serve 形态抛错）。
 
 
+### 5.10 批②（2026-10-15 落地）：`GET /api/accounts` —— 多账号页那一族的**只读**端点
+
+**决策来源**：`docs/desktop-port-plan.md` §16.1 的 **D9**（「web = serve 进程，浏览器上切换账号 = 让 serve
+换一套凭据」）+ 工单 **S7a**（`docs/storage-layout-plan.md`）。统一口径照 §5.2（信封、`code == HTTP 状态码`、
+`401` 指路、`502` 上游/网络故障）。**会话**：一个新站点都没注册 —— 这一族**不打任何上游**，
+它读的是本机账号表与 serve 自己的登录态（所以没有 `502` 那一档：没有上游可坏）。
+
+| 端点 | 请求 | 响应 `data`（逐字段） |
+|---|---|---|
+| `GET /api/accounts` | ——（不收参数） | `{authenticated:bool, readOnly:true, accounts:[{id, accountType, lastUsedAt, active}]}` |
+
+- **这一条答的是两个真相的合成**（两个都只读）：① 本机账号表 `xjtu_accounts`（`:data` 的 `AccountStore`；
+  它**与桌面端是同一份文件** —— 同一个数据根、同一套账号后缀规则，见 `docs/agent-web-spec.md` 那一条）；
+  ② **serve 这一侧的当前会话**（`AccountContext.activeAccountId`：登录成功或冷启动恢复时写入）。
+  表里没有②时**补一条**放在末尾（它的 `lastUsedAt` 就是 `null`）—— 否则屏上会出现「已登录但一个账号也没有」；
+  同一个学号两处都在时只出现**一行**（去重）。行序 = 表里原本的顺序，补的那条在末尾（屏自己会按
+  「当前账号优先、最近使用优先」再排一次，与三端同一套）。
+- ⚠️ **`id` 是打码后的学号**（`2023****0001`）：既是显示名也是句柄。**完整学号、姓名（`nickname`）、
+  密码、设备指纹、RSA 公钥一律不投影**（红线 §3.4）。这不是 §5.2 那三处例外的第四处：它端的是
+  **打码形式**（`maskedAccountId`：够长就留前 4 后 4、短一点留前 1 后 1），由 `ServeAccountsTest`
+  钉住 —— 而夹具里那些值**明明都在**（「不是夹具没有所以没出现」）。
+- `accountType` 是 `undergraduate` / `postgraduate`（`:core` 的 `AccountType.key` 那套写法）。
+- `active` = **serve 这一侧的当前会话就是它**，**不是**账号表里的激活指针（那是桌面端的，serve 不写也不读它）。
+- `lastUsedAt` 是 ISO-8601 带时区（§4）；`null` = 本端**明确说没有**（上面②那种补出来的行就是），
+  **不编一个时刻**（先例：`/api/dorm/reading` 不编时间戳那一条）。
+- `readOnly` 是**能力开关**（§4）：常量 `true`，见下。
+- **不要求已登录**：未登录时 `authenticated:false`，账号表照旧列出来（那张表在磁盘上，与任何会话无关）。
+  错误码只有 `401`（令牌闸门那一档：没带 / 令牌不对）。
+
+#### 这一批**没有**写端点（如实降级，不是漏）
+
+D9 要的「浏览器上切换账号 = 让 serve 换一套凭据」，落到实现上就是 serve 自己的**登录态迁移**
+（账号命名空间 + 凭据 + 站点快照一起换）。本批按工单的「只读优先」只端**读**那一半 ⇒ 切换 / 新增 /
+删除 / 改密四个动作**一个端点都没有**，`readOnly:true` 就是这件事的能力开关（与
+`/api/jwxt/evaluations` 的 `canSubmit:false` 同型：客户端不得靠猜）。浏览器那一端照它如实说：
+页顶那一行（`WebGapNote`）与动作失败的 toast（`WebAccountsNotWritable`，中文短句、由 `FriendlyError`
+原样透出）都写「要去 App 或桌面端做」——不画一个点了没反应的「切换」按钮，也不把这一屏落成
+「还没搬到 Web」（屏真在这里，看见的是真数据）。
+
+#### 消费方（`:web`）：**已落地**（2026-10-15，本批）
+
+| 屏（`:core`） | 用了哪一格 | 真画了什么 | 如实不画 / 做不到（缺口） |
+|---|---|---|---|
+| 账号管理 `AccountManagerScreen`（取数 `:core/net` 的 `CampusAccountsApi.accounts()`） | `GET /api/accounts` | **与 App / 桌面同一份屏、同一套层级**（当前账号、账号列表、身份与「上次使用」都由那一份共享屏画）；打码 id 就是屏上的显示名 | ① 四个写动作这一端**一个都没有**（切换 / 新增 / 删除 / 改密）⇒ 页顶一行与失败 toast 如实指路到 App / 桌面端（见上）；② **campus-api 形态**下这一族不存在 ⇒ 落 `WebServeOnlyScreen`（「切到 serve 模式就能用」），不是一张空账号表；③ 头像那一格照旧 `null`（证件照缓存是 `:app` 的 `HelloProfileStore`，要 `Context` 与 Bitmap）⇒ 走首字母圆，与桌面端同一条 |
+
+夹具与用例（§7 的第 1 条，三处同改）：`:testkit` 新增 `AccountsFixture`（两个**编造**账号 + 密码 / 姓名 /
+指纹 / 公钥常量，纯字符串 —— `:testkit` 一个工程依赖都没有，装不了 `:core` 的 `Account` 对象）；
+`:server:test` 新增 `ServeAccountsTest`（**3** 例：未登录且空表 + 闸门 401 · 登录态 + 表里一条别的账号
+（打码逐字段、`active` 只标 serve 那一条、`lastUsedAt` 的 `null`、红线与「键集合」钉死）· 表里也有当前
+会话那一条时合成成一行）；`:core` 新增 `ServeAccountsApiTest`（**3** 例：四格逐字段与 ISO → epoch 往返 ·
+`readOnly` 缺了按只读 + 空 id 行丢掉 + 认不出的身份落回本科 · campus-api 形态抛错且**一个请求都不发**）。
+
+
 ## 6. 夹具契约测试（D5 要求，不能只写文档）
 
 - 位置：**`:server:test`**（`kotlin("jvm")` 模块的测试任务就叫这个名；本轮已经有 13 例：6 例是 serve 第一步的
@@ -1128,6 +1204,36 @@ webvpn 的请求体就是 `{url, direction}` 两个字段）· 失败只读 `mes
 `:testkit` **零改动**（本批三个件全落在早已存在的夹具上）—— 「夹具那一处不是每次都得动，但每次都得核」：
 这次的核就是这一句。
 
+**新增的 3 例（2026-10-15，批② 工单 S7a §5.10）**：`ServeAccountsTest` —— 这一族**不打上游**，所以它验的
+不是「上游样本 × HTTP 形状」而是**本机两个真相 × HTTP 形状**：① 未登录且账号表为空 ⇒ 一张空表 +
+`readOnly:true`，没令牌照旧 401；② 登录态（落盘凭据在 ⇒ 冷启动静默恢复）+ 表里另一条 ⇒ 两行：表里那条
+打码后逐字段（ISO 解回 epoch）、serve 那一条 `active:true` 且 `lastUsedAt` 是**显式 null**，外加红线断言
+（夹具里完整学号 / 密码 / 姓名 / 指纹 / 公钥全在，响应里一个都不许有）与「响应只有四格」的键集合断言；
+③ 表里也有当前会话那一条 ⇒ 合成成一行并带上表里的 `lastUsedAt`。夹具那一处本批**新增**了
+`AccountsFixture`（纯字符串常量，见 §5.10 末段）；`:core` 那一侧同时新增 `ServeAccountsApiTest`（**3** 例）。
+
+**新增的 8 例（2026-10-15，批④ / D11 §3 第 6/7 条）**：`ServeHttpsTest` —— 这一族也**不打上游**
+（全部是监听 / TLS / 证书 / 参数），`:server:test` **85 → 93**：
+
+- **默认那一档逐字冻结两例**：① 不给新参数 ⇒ `tls == null`、`--host/--port/--dist` 三个默认值与
+  今天逐字相同，证书默认路径就是 `<数据根>/tls/serve.p12` 而且**不建目录**，`setCookieHeader`
+  仍然只有 `Path=/; HttpOnly; SameSite=Lax`；② 同一台机器上无论怎么调，HTTPS 那个端口上发明文
+  HTTP 必须失败（不静默回落 —— 实测 CIO 的 `sslConnector` 恰恰是那个静默形态，所以这条必须是断言）；
+- **真 HTTPS 往返一例**：`--https --port 0` ⇒ `ServeHttps.start`（**生产入口**）起来、
+  `resolvedConnectors` 那个端口上真握 TLS + 收发（客户端只信那一张自签证书）、`/api/status` 200、
+  闸门还在（无令牌 401 / 对令牌过闸门后 404）；
+- **cookie 那一例**：HTTPS 形态下 `GET /api/session` 的 `Set-Cookie` 仍带 `HttpOnly + SameSite=Lax + Path=/`，
+  只多一个 `Secure`；明文那一档仍是那一行**逐字**；
+- **转发语义一例**：一条 TLS 连接上连打两发（`Connection: keep-alive`）—— 字节转发不许把
+  keep-alive 弄丢（将来 D10 的 SSE / 长连接就靠它）；
+- **自签生成一例**：默认路径上生成（两个文件 `0600`、证书 `CN=localhost` 且 SAN 含 `localhost` 与
+  `127.0.0.1`、`sanOf` 三档），第二次启动**不重签**（指纹相同）；
+- **失败语义两例**：① `--cert` / `--cert-alias` 离了 `--https` 就报错（`--https` 本身不带值、`--cert` 缺值也报错）；
+  ② 库不存在（不捂着生成）、别名不在库里、文件不是证书库、密码文件没了 —— 四种各一句中文短句。
+
+`:testkit` 本批**零改动**（这一族根本不打上游，与 §5.10 那一批「不打上游的族」同一个形态）。
+
+
 
 ## 7. 变更纪律
 
@@ -1191,6 +1297,28 @@ webvpn 的请求体就是 `{url, direction}` 两个字段）· 失败只读 `mes
    「本学期我的教材」接上、`OwnInbox` 搬进 `:core`（`SCHEDULE_CHANGE_BUBBLE` 因此在 `:web` 上翻 true）。
    **这一批要记的新纪律**：「同一个端点加一档参数」也算契约变更 —— 默认那一档要**逐字冻结**并由用例
    钉住（`ServeJwxtScheduleMergedTest` 里那条 `changesCalls == 0` 的断言就是干这个的）。
+10. ✅ **批② 工单 S7a（2026-10-15）三处同改齐了**：`GET /api/accounts`（§5.10）落地的同一次提交里带上了
+    本文档（§5 的那一行 + §5.10 + 本节 + §6 的计数）、`:testkit` 夹具（**新增** `AccountsFixture` —— 这一族
+    不打上游，夹具不是页面原文而是两个编造账号，理由写在 §5.10 末段）与 `:web` 实现（`:core` 的
+    `CampusAccountsApi` + `WebAccountsScreen` + `WebSupport.openableRouteIds` 加 `AppRoute.Accounts` +
+    `AppPage` 那条分支）。
+    **这一批多出来的一条规矩**：「端只读、写动作如实不端」也要在契约里**指名点姓**地写成能力开关
+    （`readOnly:true`）**加上**一条「为什么不端」的理由 —— 否则下一个人会把它读成「漏了」而去补一个
+    半成品的写端点。这也是**路由差集 7 → 6** 的那一格：`AppRoute.Accounts` 从此在 `:web` 的清单里
+    （§16.2 第 1 条的路由全等口径），而「清单里有」不等于「四个动作都能做」—— 那件事写在页面上。
+11. ✅ **批④（2026-10-15，D11）三处同改齐了**：serve 内置 HTTPS（§3 第 6/7 条 + §3.2 的 cookie 属性 + §5.1）。
+    这一批**不动任何端点的请求/响应形状**（还是那几个信封），所以 §7 第 1 条的「三处」是：
+    - **本文档**：§3（新增第 6/7 条、改第 2 条）、§3.2（cookie 的 `Secure` 随形态）、§5.1（`Set-Cookie` 那行）、§6（计数）；
+    - **夹具**：**零改动** —— 这一批不打任何上游（验的是监听/TLS/证书/参数，`ServeHttpsTest` 一次没碰
+      `:testkit`）。「夹具那一处不是每次都得动，但每次都得核」：这次核的结论就是这一句；
+    - **`:web`**：**零改动** —— 形状没变，`Secure` 是 cookie 属性、由浏览器自己带（`web/.../ServeSession.kt`
+      那边不需要知道这件事）。将来浏览器靠 HTTPS 换成**安全上下文**才能用的那些能力（剪贴板 /
+      `crypto.subtle` / Service Worker）属 D12，不在这一批。
+    这一批多出来的一条规矩：**「默认那一档逐字冻结」还要管命令行** —— 不给新参数时 `serve` 的行为
+    不只是「端点的形状不变」，还包括启动横幅、`--host/--port` 的语义、cookie 属性一个都不多；
+    `ServeHttpsTest` 的第一条与第三条（明文默认值 / HTTPS 端口上发明文必须失败）就是干这个的。
+    另：`--https` 下「证书缺了 / 路径不存在 / 密码不对 / 不是证书库」一律报错退出（码 2），
+    **不许静默回落成明文** —— 这条也是用例钉住的（`ServeTlsException` 四条）。
 
 ---
 

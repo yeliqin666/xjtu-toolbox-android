@@ -4,7 +4,11 @@ import com.xjtu.toolbox.account.Account
 import com.xjtu.toolbox.account.AccountContext
 import com.xjtu.toolbox.account.AccountStore
 import com.xjtu.toolbox.auth.AccountType
+import com.xjtu.toolbox.desktop.jiaocai1.DesktopJiaocai1ShelfStore
+import com.xjtu.toolbox.desktop.media.DesktopDownloadTaskStore
+import com.xjtu.toolbox.desktop.score.DesktopScoreReportCache
 import com.xjtu.toolbox.platform.dataRootOverride
+import com.xjtu.toolbox.platform.keyValueStore
 import com.xjtu.toolbox.platform.secureKeyValueStore
 import com.xjtu.toolbox.platform.wipeSecureStore
 import java.io.File
@@ -214,6 +218,37 @@ class DesktopAccountsJvmTest {
 
         assertFalse(file1.exists(), "删掉的账号的会话文件要一并清掉")
         assertTrue(file2.exists(), "其余账号的会话文件一条都不能动")
+    }
+
+    @Test
+    fun `删账号带 deleteCache：清掉按账号分的那三处落盘，别的账号一条不动（S7b 的范围）`() = runBlocking {
+        seed(account("2210000001"), account("2210000002"))
+        val auth = DesktopAuth()
+        val accounts = DesktopAccounts(auth)
+        accounts.switchTo("2210000001")
+
+        // S7b 之后这三处的端内名都带账号后缀：成绩报表 / 下载队列 / 教材书架
+        val mine = "2210000001"
+        val other = "2210000002"
+        val myReport = accountScopedStoreName(DesktopScoreReportCache.STORE_NAME, mine)
+        val myQueue = accountScopedStoreName(DesktopDownloadTaskStore.STORE_NAME, mine)
+        val myShelf = accountScopedStoreName(DesktopJiaocai1ShelfStore.STORE_NAME, mine)
+        keyValueStore(myReport).putString(DesktopScoreReportCache.keyFor(mine), """{"at":1,"grades":[]}""")
+        secureKeyValueStore(myQueue).putString("rows", "[]")
+        secureKeyValueStore(myShelf).putString("rows", "[]")
+        // 另一条账号的那两份（删 mine 时一条都不该动）
+        val otherQueue = accountScopedStoreName(DesktopDownloadTaskStore.STORE_NAME, other)
+        val otherShelf = accountScopedStoreName(DesktopJiaocai1ShelfStore.STORE_NAME, other)
+        secureKeyValueStore(otherQueue).putString("rows", "[]")
+        secureKeyValueStore(otherShelf).putString("rows", "[]")
+
+        accounts.removeAccount(mine, deleteCache = true)
+
+        assertNull(keyValueStore(myReport).getString(DesktopScoreReportCache.keyFor(mine)), "成绩报表缓存要清掉")
+        assertNull(secureKeyValueStore(myQueue).getString("rows"), "下载队列要清掉")
+        assertNull(secureKeyValueStore(myShelf).getString("rows"), "教材书架要清掉")
+        assertEquals("[]", secureKeyValueStore(otherQueue).getString("rows"), "其余账号的队列一条都不能动")
+        assertEquals("[]", secureKeyValueStore(otherShelf).getString("rows"), "其余账号的书架一条都不能动")
     }
 
     @Test

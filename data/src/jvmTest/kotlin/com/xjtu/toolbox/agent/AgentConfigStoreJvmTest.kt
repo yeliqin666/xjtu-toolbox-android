@@ -104,7 +104,7 @@ class AgentConfigStoreJvmTest {
             File(root, AgentConfigStore.STORE_SECURE + suffix + ".properties").exists(),
             "密文那半应当落在 agent_config_securedefault.properties",
         )
-        // 明文那半的 jvm 实现（`keyValueStore`）是进程内内存，不落盘 —— 只验名字，
+        // 明文那半的 jvm 实现（`keyValueStore`）现在也真落盘 —— 只验名字（落盘根由 Gradle 系统属性隔离），
         // 名字就是 Android 上那个 SharedPreferences 文件名。
         assertEquals("agent_config", AgentConfigStore.STORE)
         assertEquals("agent_config_secure", AgentConfigStore.STORE_SECURE)

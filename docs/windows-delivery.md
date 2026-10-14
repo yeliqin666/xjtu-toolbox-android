@@ -244,3 +244,78 @@ Windows 这份还是模板占位图」。
    XDG 口径，在那台机器上就是 `C:\Users\<你>\.local\share\…`）。看着别扭但能用，
    而改成 `%LOCALAPPDATA%` 会挪动凭据/会话文件的落点（等于让老用户重新登一次）—— 留到
    「Windows 上真装一次」那一轮一并定（现在没人装过 Windows 预览版，改起来其实零成本）。
+
+## 10. 怎么开 HTTPS（serve 模式，D11）
+
+`docs/desktop-port-plan.md` §16.1 的 **D11**：serve 内置 HTTPS + 鉴权，开箱可启用。**这一端与 Linux 是
+同一个 `:server` 模块**（`docs/linux-delivery.md` §10 是同一件事的 Linux 版命令），所以这里的差别只有
+路径写法与 `gradlew.bat`。口径在 `docs/api-contract.md` §3 第 6/7 条，实现与判据在 `:server`
+（`ServeConfig` / `ServeTls` / `ServeHttps`）与 `:server:test` 的 `ServeHttpsTest`（**8** 例）。
+
+**默认不变**：不给 `--https` 时 serve 与今天**逐字相同**（明文 HTTP + 令牌闸门，默认只监听 `127.0.0.1`）。
+HTTPS 是**另一档形态**，它带来的三件事：`--host/--port` 变成 HTTPS 的地址与端口、令牌换来的
+cookie 多一个 `Secure`、纯明文那一层只绑回环（外面看不到）。
+
+### 10.1 一条命令：自签 + 起 HTTPS
+
+```powershell
+# 在仓库根跑
+.\gradlew.bat :server:run --args="--https --host 0.0.0.0 --port 8443"
+```
+
+证书不存在就**现生成一张自签**（JDK 的 `bin\keytool.exe`；`java.home` 那个运行时里一定有它，
+jpackage 打出来的运行时镜像里也有），然后起在 `0.0.0.0:8443` 上。浏览器打开
+`https://<那台机器的地址>:8443/`，第一次会警告证书不可信 —— 点「继续访问」即可
+（自己签的证书没人替它背书，这条警告是必然的）。
+
+证书与密码落在**数据根**下面（Windows 上仍是 XDG 口径，见 §9 第 6 条）：
+
+| 文件 | 是什么 | 权限 |
+|---|---|---|
+| `C:\Users\<你>\.local\share\xjtu-toolbox\tls\serve.p12` | 证书库（PKCS12，含私钥 + 自签证书） | 只给本用户（POSIX 权限在 Windows 上不适用，`0600` 那一档会静默跳过） |
+| `C:\Users\<你>\.local\share\xjtu-toolbox\tls\serve.p12.password` | 上面那个库的密码（随机生成） | 同上 |
+
+⚠️ 两个文件都**不要**进仓库 / 截图 / 聊天。想换一张自签：删掉这两个文件再启动（与「换访问令牌 =
+删 `serve.properties`」同一套口径）。
+
+### 10.2 用自己那份证书
+
+```powershell
+# PKCS12 或 JKS 都认；密码走环境变量（命令行上的密码会留在 ps 与 shell 历史里）
+$env:XJTU_TOOLBOX_TLS_PASSWORD = "<你的库密码>"
+.\gradlew.bat :server:run --args="--https --host 0.0.0.0 --port 8443 --cert C:\certs\serve.p12 --cert-alias serve"
+```
+
+自己生成一份也可以（alias 与 SAN 按你的访问地址写）：
+
+```powershell
+keytool -genkeypair -alias serve -keyalg RSA -keysize 2048 -validity 3650 `
+  -dname "CN=你的域名或机器名" -ext "SAN=dns:localhost,ip:127.0.0.1,ip:192.168.1.5" `
+  -storetype PKCS12 -keystore C:\certs\serve.p12
+```
+
+### 10.3 让浏览器不再警告（可选）
+
+把证书库里的**证书**导出来（只有证书、不含私钥），用 `certmgr.msc` 或者
+「管理用户证书 → 受信任的根证书颁发机构 → 导入」装进去：
+
+```powershell
+$root = "$env:USERPROFILE\.local\share\xjtu-toolbox\tls"
+keytool -exportcert -rfc -alias serve -keystore "$root\serve.p12" `
+  -storepass (Get-Content "$root\serve.p12.password") > serve.crt
+```
+
+### 10.4 参数与失败语义（都会明确报错，**不会**回落成明文）
+
+| 参数 | 作用 |
+|---|---|
+| `--https` | 开关：切成 HTTPS 形态（`--host/--port` 就是 HTTPS 的地址与端口） |
+| `--cert <路径>` | 证书库（PKCS12/JKS）。省略 = `<数据根>\tls\serve.p12`，不存在就生成自签 |
+| `--cert-alias <别名>` | 库里的别名，默认 `serve` |
+
+- `--cert` / `--cert-alias` 给了却没给 `--https` ⇒ 参数报错（退出码 2）—— 不静默忽略；
+- `--cert` 指的文件不存在 ⇒ 报错，**不**在那儿捂着生成、**不**回落成明文；
+- 库读不了（密码没有/不对、不是 PKCS12/JKS、别名不在库里）⇒ 报错并指出下一步（退出码 2）。
+
+⚠️ HTTPS 只解决「传输这一段」。**在 HTTPS 真正用起来之前，写 / 支付端点不要挂在公网口上**
+（`docs/desktop-port-plan.md` §16.4 第二条风险）—— 那一条同时写在 `docs/api-contract.md` §3 第 7 条。

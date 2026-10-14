@@ -10,6 +10,7 @@ import java.nio.file.Files
 import java.util.Properties
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
@@ -25,8 +26,9 @@ import kotlin.test.assertTrue
  *     `nav_bar_style` …），默认值也一致（`system` / `false` / `floating` / 考勤角标默认开），
  *     把内存实例抹掉再打开还是同一份值；
  *  2. **如实降级**：[DesktopSettingsHost] 只声明它**真会照着办**的两行（深色模式 / 取色），
- *     Android 独有的那三组（通知与提醒 / 数据与隐私 / 更新）与连接模式、课表来源、更新日志
- *     都是「没有」⇒ 屏上整组不画。断言写在这里，免得将来有人顺手把它们填成空实现。
+ *     Android 独有的那两组（通知与提醒 / 更新）与连接模式、课表来源、更新日志都是「没有」⇒ 屏上整组不画；
+ *     「数据与隐私」那一组 S5 起**不再是 null**（接了两行归档动作，见 `DesktopArchiveJvmTest`）。
+ *     断言写在这里，免得将来有人顺手把它们填成空实现。
  */
 class DesktopSettingsJvmTest {
 
@@ -83,7 +85,7 @@ class DesktopSettingsJvmTest {
     }
 
     @Test
-    fun `桌面宿主的如实降级：只声明真会照办的两行，没有的三组是 null`() {
+    fun `桌面宿主的如实降级：只声明真会照办的两行，没有的行与组是 null`() {
         var ticked = 0
         val host = DesktopSettingsHost { ticked++ }
 
@@ -96,7 +98,12 @@ class DesktopSettingsJvmTest {
             "桌面外壳接了深色模式 / 取色 / 首页主题（见 DesktopSettingsHost 的 KDoc）",
         )
         assertNull(host.noticeSection, "桌面没有系统通知权限与 WorkManager 排程 ⇒ 整组不画")
-        assertNull(host.dataPrivacySection, "桌面没有 Android 应用缓存与 CrashReporter ⇒ 整组不画")
+        // S5：这一组不再是 null —— 它接上了两行归档动作（导出 / 导入数据存档），
+        // 见 `com.xjtu.toolbox.desktop.archive.DesktopArchiveHost` 与 `DesktopArchiveJvmTest`。
+        assertNotNull(
+            host.dataPrivacySection,
+            "S5 起「数据与隐私」是真组：导出数据存档 / 导入数据存档两行（Android 那两样仍然没有）",
+        )
         assertNull(host.updateSection, "桌面是 .deb/tar.gz，没有「下载并安装 APK」那条路 ⇒ 整组不画")
         assertNull(host.onNetworkModeChanged, "桌面只按直连走 ⇒ 连接模式那一行不画")
         assertTrue(host.scheduleSourceOptions.isEmpty(), "桌面还没有改课表来源的入口 ⇒ 那一行不画")

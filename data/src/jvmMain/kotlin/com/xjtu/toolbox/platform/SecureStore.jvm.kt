@@ -22,6 +22,15 @@ var dataRootOverride: File? = null
 internal fun dataRoot(): File =
     dataRootOverride ?: File(System.getProperty("user.home") ?: "/tmp", ".local/share/xjtu-toolbox")
 
+/**
+ * 数据根目录的**对外**形态：宿主拿它下面的子目录。
+ *
+ * 今天只有一个消费者：`:server` 的 serve 模式（HTTPS 的证书默认落在它下面的 `tls/` ——
+ * 与访问令牌那份 `serve.properties` 同一个根，见 `ServeConfig` 的 KDoc）。
+ * 口径与 [dataRoot] 逐字相同（[dataRootOverride] 优先）；**不**新建目录，只是算路径。
+ */
+fun dataRootDir(): File = dataRoot()
+
 private val stores = ConcurrentHashMap<String, KeyValueStore>()
 
 /**

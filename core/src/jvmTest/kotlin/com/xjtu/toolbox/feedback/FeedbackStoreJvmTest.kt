@@ -21,7 +21,7 @@ import kotlin.test.assertTrue
  *     `shouldPrompt`（三重闸门，其中 `isConfigured=false` 直接 false —— 这一档搬迁前读的是
  *     `FeedbackApi.isConfigured`，现在由调用方传进来）。
  *
- * 放在 `jvmTest` 而不是 `commonTest`：jvm 的 `KeyValueStore` 是**进程内单例**（`MemoryKeyValueStore`），
+ * 放在 `jvmTest` 而不是 `commonTest`：jvm 的 `KeyValueStore` 是**进程内单例**（落盘文件），
  * 用例之间会互相看见，所以每个用例前显式清一次；commonTest 会在 wasm 上跑，而 wasm 那份落的是
  * `localStorage`，不适合放这里（与 `LibraryFavoritesJvmTest` 同一条口径）。
  */

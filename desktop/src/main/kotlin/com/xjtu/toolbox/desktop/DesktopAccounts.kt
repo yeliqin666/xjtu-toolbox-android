@@ -10,6 +10,9 @@ import com.xjtu.toolbox.auth.AccountType
 import com.xjtu.toolbox.auth.SessionBackend
 import com.xjtu.toolbox.auth.ensureSite
 import com.xjtu.toolbox.platform.keyValueStore
+import com.xjtu.toolbox.platform.secureKeyValueStore
+import com.xjtu.toolbox.desktop.jiaocai1.DesktopJiaocai1ShelfStore
+import com.xjtu.toolbox.desktop.media.DesktopDownloadTaskStore
 import com.xjtu.toolbox.desktop.score.DesktopScoreReportCache
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -25,7 +28,7 @@ import kotlinx.coroutines.sync.withLock
  * | | `:app`（`AccountManager`） | 桌面（这里） |
  * |---|---|---|
  * | 切账号时清场 | WebView 的 localStorage/IndexedDB、Room 自定义课程、按账号的 SharedPreferences、头像 | 只换会话命名空间（桌面没有那几样） |
- * | 删账号时的「本地缓存」 | `data_cache_<后缀>` 目录、头像、agent 会话、Room 行 | 桌面**唯一**按账号分的缓存：成绩报表的 SWR（键 `score_report_<学号>`） |
+ * | 删账号时的「本地缓存」 | `data_cache_<后缀>` 目录、头像、agent 会话、Room 行 | 桌面按账号分的那三处：成绩报表的 SWR（键 `score_report_<学号>`）、下载队列、教材书架（S7b 之后三者的端内名都带后缀，见 [wipeDesktopCaches]） |
  * | 昵称 | 一网通办回填（`holder.ywtbUserInfo`） | **没有** ⇒ `nickname` 一直是 null（如实降级，见下） |
  * | 新增账号的探活 | 硬要求 JWXT + YWTB | 同上（两个站点在桌面都注册了、都是真取数的站点） |
  *
@@ -38,8 +41,9 @@ import kotlinx.coroutines.sync.withLock
  *   桌面端的 `:data` 里没有那份「取用户名」的调用（`YwtbSession` 只留了 `id_token` 与
  *   `onYwtbToken` 钩子）⇒ 账号列表里显示的是学号本身。要补的话是 `:data` 侧加一个
  *   「YWTB 取用户信息」的出口，不在这一轮。
- * - **`deleteCache` 的清场范围**：桌面按账号分的落盘只有成绩报表那一条缓存，见 [wipeDesktopCaches]。
- *   将来哪一屏加了按账号的缓存，就往那个列表里补一行。
+ * - **`deleteCache` 的清场范围**：桌面按账号分的落盘就那三处（成绩报表 / 下载队列 / 教材书架，
+ *   S7b 之后它们的端内名都带账号后缀），见 [wipeDesktopCaches]。将来哪一屏加了按账号的缓存，
+ *   就往那个列表里补一行。
  */
 internal class DesktopAccounts(
     private val auth: DesktopAuth,
@@ -165,14 +169,23 @@ internal class DesktopAccounts(
     /**
      * 删掉这个账号在本端的**本地缓存**（`deleteCache = true` 那一档）。
      *
-     * 桌面按账号分的落盘目前只有一条：成绩报表的 SWR 缓存 —— 键与 `:app` 同一个
-     * （`score_report_<学号>`，见 `DesktopScoreReportCache.keyFor`）。其余屏的缓存要么是按
-     * 站点分的（在 `SessionBackend.wipe` 那一步清掉了），要么是本端全局的（设置 / 提示开关）。
-     * 新屏加了按账号的缓存就往这里补一行。
+     * 桌面按账号分的落盘就是这三处（S7b 之后端内名都带账号后缀，靠 [accountScopedStoreName]
+     * 拼出来，见那儿的 KDoc）：
+     *  - 成绩报表的 SWR 缓存（键与 `:app` 同一个：`score_report_<学号>`，见 `DesktopScoreReportCache.keyFor`）；
+     *  - 下载队列（`DesktopDownloadTaskStore`）；
+     *  - 教材书架（`DesktopJiaocai1ShelfStore`）。
+     *
+     * 「加后缀之前那份旧名」**不在清场范围内**：那是全局的旧文件（不带账号信息，清它等于把别人的
+     * 旧数据也删了），且只被只读读一次。
+     * 其余屏的缓存要么是按站点分的（在 `SessionBackend.wipe` 那一步清掉了），要么是本端全局的
+     * （设置 / 提示开关）。新屏加了按账号的缓存就往这里补一行。
      */
     private fun wipeDesktopCaches(accountId: String) {
         runCatching {
-            keyValueStore(DesktopScoreReportCache.STORE_NAME).remove(DesktopScoreReportCache.keyFor(accountId))
+            keyValueStore(accountScopedStoreName(DesktopScoreReportCache.STORE_NAME, accountId))
+                .remove(DesktopScoreReportCache.keyFor(accountId))
+            secureKeyValueStore(accountScopedStoreName(DesktopDownloadTaskStore.STORE_NAME, accountId)).clear()
+            secureKeyValueStore(accountScopedStoreName(DesktopJiaocai1ShelfStore.STORE_NAME, accountId)).clear()
         }
     }
 

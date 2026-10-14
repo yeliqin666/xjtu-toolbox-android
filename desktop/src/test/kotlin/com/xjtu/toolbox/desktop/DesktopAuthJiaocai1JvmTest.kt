@@ -53,7 +53,9 @@ class DesktopAuthJiaocai1JvmTest {
             wipeSecureStore("$base$suffix")
         }
         wipeSecureStore(JvmCredentialStore.FILE_NAME)
-        wipeSecureStore("jiaocai1_shelf")
+        // S7b：书架的端内名带账号后缀 ⇒ 两个可能的命名空间都清（未登录与夹具账号）
+        wipeSecureStore(accountScopedStoreName(DesktopJiaocai1ShelfStore.STORE_NAME, null))
+        wipeSecureStore(accountScopedStoreName(DesktopJiaocai1ShelfStore.STORE_NAME, LibraryFakeUpstream.USERNAME))
         for (name in listOf(
             "cookies_normal_default", "cookies_webvpn_default",
             "cookies_normal$suffix", "cookies_webvpn$suffix",

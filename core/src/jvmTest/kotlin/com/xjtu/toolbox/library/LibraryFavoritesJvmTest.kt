@@ -16,7 +16,7 @@ import kotlin.test.assertEquals
  *  2. `LibraryFavorites.all()` 读的是同一份（三端共用一份实现，不再各端各写一遍）；
  *  3. 翻转语义与原 `AppLibrarySource.toggleFavorite` 的两行逐字一致（读 → `-`/`+` → 写回 → 返回新集合）。
  *
- * 放在 `jvmTest` 而不是 `commonTest`：jvm 的 `KeyValueStore` 是**进程内单例**（`MemoryKeyValueStore`），
+ * 放在 `jvmTest` 而不是 `commonTest`：jvm 的 `KeyValueStore` 是**进程内单例**（落盘文件），
  * 用例之间会互相看见，所以这里显式在前后清一次；commonTest 会在 wasm 上跑，
  * 而 wasm 那份落的是 `localStorage`（还需要一个浏览器），不适合放这里。
  */

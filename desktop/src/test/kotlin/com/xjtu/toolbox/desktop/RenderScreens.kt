@@ -50,6 +50,7 @@ import com.xjtu.toolbox.media.DownloadItem
 import com.xjtu.toolbox.media.DownloadStatus
 import com.xjtu.toolbox.nav.AppRoute
 import com.xjtu.toolbox.network.PersistentCookieJar
+import com.xjtu.toolbox.desktop.media.DesktopDownloadTaskStore
 import com.xjtu.toolbox.desktop.media.DesktopDownloads
 import com.xjtu.toolbox.platform.JvmCredentialStore
 import com.xjtu.toolbox.platform.dataRootOverride
@@ -656,7 +657,7 @@ fun main(args: Array<String>) {
 
         // ⚠️ 先把「使用声明读过了没」置成已读：那个弹窗用的是 miuix 的 `WindowDialog`，在离屏场景里
         // 是独立 AWT 窗口（建不出来 —— 与 lms 的说明弹窗同一条坑）。置已读就不会弹，图上才是屏本身。
-        // 桌面那份键值缝是进程内内存实现 ⇒ 这次置值只活在这一次证据运行里（真机上是它自己记的）。
+        // 桌面那份键值缝现在真落盘（证据运行的根由 Gradle 系统属性隔离）⇒ 置值只活在这一次证据运行里。
         keyValueStore("feature_hints").putBoolean("jiaocai1_hint_shown", true)
 
         // 教材全文库（第 22 批里的 `jiaocai1`）：走**真路由**（外壳 → `AppRoute.Jiaocai1` →
@@ -1274,8 +1275,10 @@ private lateinit var fake: FakeCampusProxy
  */
 private fun withFakeCampus(block: (DesktopAuth) -> Unit) {
     // 下载队列（`:desktop` 那份 0600 的 JSON）也清一下：`DesktopDownloads.manager` 是进程级单例，
-    // 它那份存储的根在**第一次碰它时**才定下来（见下面 `download_manager.png` 那一段）。
-    wipeSecureStore("download_tasks")
+    // 它那份存储的根与**端内名**都在第一次碰它时定下来（S7b 之后名里带账号后缀 ⇒ 两个可能的
+    // 命名空间都清，跑两次仍是同一种起点；见下面 `download_manager.png` 那一段）。
+    wipeSecureStore(accountScopedStoreName(DesktopDownloadTaskStore.STORE_NAME, null))
+    wipeSecureStore(accountScopedStoreName(DesktopDownloadTaskStore.STORE_NAME, LibraryFakeUpstream.USERNAME))
     // 账号表（`AccountStore`，存储名 `xjtu_accounts`）同样清一下：多账号之后它会在「真登录」那一步
     // 长出一条夹具账号，而 `restore()` 会直接拿它恢复成已登录 —— 跑两次就该是同一种起点。
     wipeSecureStore(AccountStore.FILE_NAME)

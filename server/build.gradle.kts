@@ -78,3 +78,11 @@ application {
 tasks.named<JavaExec>("run") {
     workingDir = rootProject.projectDir
 }
+
+// S0：jvm 的 `keyValueStore` 现在真落盘 ⇒ 每次跑测试前清空隔离根，并把根指到 build 目录下，
+// 免得测试互染 / 污染 `~/.local/share/xjtu-toolbox/` 里的真数据（系统属性 `xjtu.toolbox.keyValueRoot`）。
+tasks.named<Test>("test") {
+    val root = layout.buildDirectory.dir("testStoreRoot")
+    doFirst { root.get().asFile.deleteRecursively() }
+    systemProperty("xjtu.toolbox.keyValueRoot", root.get().asFile.absolutePath)
+}

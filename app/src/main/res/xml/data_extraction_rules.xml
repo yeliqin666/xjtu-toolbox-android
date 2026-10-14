@@ -14,6 +14,7 @@
         <exclude domain="sharedpref" path="notice_watch.xml"/>
         <exclude domain="sharedpref" path="campus_card*"/>
         <exclude domain="file" path="agent_sessions*"/>
+        <exclude domain="file" path="archive*"/>
     </cloud-backup>
     <device-transfer>
         <exclude domain="sharedpref" path="xjtu_credentials.xml"/>
@@ -28,5 +29,6 @@
         <exclude domain="sharedpref" path="notice_watch.xml"/>
         <exclude domain="sharedpref" path="campus_card*"/>
         <exclude domain="file" path="agent_sessions*"/>
+        <exclude domain="file" path="archive*"/>
     </device-transfer>
 </data-extraction-rules>

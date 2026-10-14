@@ -10,6 +10,7 @@ import androidx.compose.ui.window.rememberWindowState
 import androidx.lifecycle.ViewModelStore
 import androidx.lifecycle.ViewModelStoreOwner
 import androidx.lifecycle.viewmodel.compose.LocalViewModelStoreOwner
+import com.xjtu.toolbox.desktop.archive.DesktopArchiveHost
 import com.xjtu.toolbox.core.net.createToolboxClient
 import com.xjtu.toolbox.ui.theme.XJTUToolBoxTheme
 import io.ktor.client.HttpClient
@@ -44,6 +45,11 @@ fun main() = application {
             override val viewModelStore = ViewModelStore()
         }
     }
+    // 启动检查（S5 / 规格 §6.2 桌面那一行）：扫一次数据根里有没有待导入档案
+    //（`<数据根>/archive/` 目录或数据根下的 `*.zip`）—— 有就自校验一次并记一条日志，**不写任何端内数据**
+    //（逐 store 合并那一半待 `:core` 的 `StoreArchive.import`，见 `DesktopArchiveHost` 的 KDoc）。
+    // 包一层 `runCatching`：档案坏了不该让窗口起不来（“坏档案不动端”，A7）。
+    runCatching { DesktopArchiveHost.maybeImportPendingArchive() }
     // 会话管家 + 凭据存储 + 登录状态。建在这里（而不是某个屏里）是因为它必须活得比任何一屏长：
     // 登录发生在登录页，取数发生在图书馆屏，MFA 弹窗挂在整棵树上，三者共用同一个管家。
     val auth = remember { DesktopAuth() }

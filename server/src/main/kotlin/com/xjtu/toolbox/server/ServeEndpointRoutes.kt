@@ -51,9 +51,6 @@ import io.ktor.server.routing.get
 import io.ktor.server.routing.route
 import kotlinx.coroutines.CancellationException
 import kotlinx.serialization.Serializable
-import java.time.Instant
-import java.time.ZoneId
-import java.time.format.DateTimeFormatter
 
 /**
  * **P0 取数端点组一（免登录 / 轻登录六域）** —— `docs/api-contract.md` §5 那批 P0 端点的实现。
@@ -942,14 +939,6 @@ private suspend fun ApplicationCall.respondFetchError(e: Throwable, action: Stri
 /** 400 + 信封（[ApiErrors.badRequest]）。 */
 private suspend fun ApplicationCall.respondBadRequest(message: String) =
     respond(HttpStatusCode.BadRequest, ApiErrors.badRequest(message))
-
-/** epoch 毫秒 → ISO-8601 带时区字符串（契约 §4）；`<= 0`（没读过 / 没过期）→ null。 */
-private fun isoTime(epochMs: Long): String? {
-    if (epochMs <= 0L) return null
-    return Instant.ofEpochMilli(epochMs).atZone(ZoneId.systemDefault()).format(ISO_FORMATTER)
-}
-
-private val ISO_FORMATTER: DateTimeFormatter = DateTimeFormatter.ISO_OFFSET_DATE_TIME
 
 // ── 路径段（相对 route("/api")；对外路径 = API_PREFIX + "/" + 段）────────────────
 

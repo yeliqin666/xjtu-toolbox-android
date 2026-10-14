@@ -527,3 +527,78 @@ Icon=/opt/xjtu-toolbox/lib/xjtu-toolbox.png
 5. **Linux 的通知 / 托盘 / 文件关联**（`fileAssociation` 没用上）；
 6. **凭据的 Secret Service 集成**：Linux 仍是「文件 + `0600`」（§5.1 接受这一档；`windows-delivery.md`
    §5.5 第 4 条把两端一起记着）。⚠️ 桌面端的 `DISPLAY` 之外，这一条是 Linux 交付面**最大的**安全缺口。
+
+## 10. 怎么开 HTTPS（serve 模式，D11）
+
+`docs/desktop-port-plan.md` §16.1 的 **D11**：serve 内置 HTTPS + 鉴权，开箱可启用。这一节只讲**怎么用**；
+口径在 `docs/api-contract.md` §3 第 6/7 条，实现与判据在 `:server`（`ServeConfig` / `ServeTls` /
+`ServeHttps`）与 `ServeHttpsTest`（**8** 例：`:server:test` 85 → **93**）。
+
+**默认不变**：不给 `--https` 时 serve 与今天**逐字相同**（明文 HTTP + 令牌闸门，默认只监听 `127.0.0.1`）。
+HTTPS 是**另一档形态**，它带来的三件事：`--host/--port` 变成 HTTPS 的地址与端口、令牌换来的
+cookie 多一个 `Secure`、纯明文那一层只绑回环（外面看不到）。
+
+### 10.1 一条命令：自签 + 起 HTTPS
+
+```bash
+# 在仓库根跑（`:server:run` 的工作目录已钉成仓库根，`--dist` 的默认值按它算）
+# 证书不存在就**现生成一张自签**（JDK 的 keytool），然后起在 0.0.0.0:8443 上
+sh gradlew :server:run --args="--https --host 0.0.0.0 --port 8443"
+```
+
+横幅里会多三行：`监听： https://0.0.0.0:8443`、证书库的绝对路径（并说明「本次刚生成的自签证书」
+还是「已有的证书库」）、密码在哪儿。浏览器打开 `https://<那台机器的地址>:8443/`，
+第一次会警告证书不可信 —— 点「继续访问」即可（自己签的证书没人替它背书，这条警告是必然的）。
+
+证书与密码落在**数据根**下面（与访问令牌同一个根，§6 那张表的口径）：
+
+| 文件 | 是什么 | 权限 |
+|---|---|---|
+| `~/.local/share/xjtu-toolbox/tls/serve.p12` | 证书库（PKCS12，含私钥 + 自签证书） | `0600` |
+| `~/.local/share/xjtu-toolbox/tls/serve.p12.password` | 上面那个库的密码（随机生成） | `0600` |
+
+⚠️ 两个文件都**不要**进仓库 / 截图 / 聊天。想换一张自签：删掉这两个文件再启动（与「换访问令牌 =
+删 `serve.properties`」同一套口径）。
+
+### 10.2 用自己那份证书
+
+```bash
+# PKCS12 或 JKS 都认；密码走环境变量（命令行上的密码会留在 ps 与 shell 历史里）
+XJTU_TOOLBOX_TLS_PASSWORD='<你的库密码>' \
+  sh gradlew :server:run --args="--https --host 0.0.0.0 --port 8443 --cert /etc/xjtu-toolbox/serve.p12 --cert-alias serve"
+```
+
+自己生成一份也可以（alias 与 SAN 按你的访问地址写）：
+
+```bash
+keytool -genkeypair -alias serve -keyalg RSA -keysize 2048 -validity 3650 \
+  -dname "CN=你的域名或机器名" -ext "SAN=dns:localhost,ip:127.0.0.1,ip:192.168.1.5" \
+  -storetype PKCS12 -keystore /etc/xjtu-toolbox/serve.p12
+```
+
+### 10.3 让浏览器不再警告（可选）
+
+把证书库里的**证书**导出来（只有证书、不含私钥），装进系统/浏览器信任库：
+
+```bash
+keytool -exportcert -rfc -alias serve \
+  -keystore ~/.local/share/xjtu-toolbox/tls/serve.p12 \
+  -storepass "$(cat ~/.local/share/xjtu-toolbox/tls/serve.p12.password)" > serve.crt
+# Firefox/Chromium 走各自的证书管理页导入；系统级可以：
+sudo cp serve.crt /usr/local/share/ca-certificates/xjtu-toolbox-serve.crt && sudo update-ca-certificates
+```
+
+### 10.4 参数与失败语义（都会明确报错，**不会**回落成明文）
+
+| 参数 | 作用 |
+|---|---|
+| `--https` | 开关：切成 HTTPS 形态（`--host/--port` 就是 HTTPS 的地址与端口） |
+| `--cert <路径>` | 证书库（PKCS12/JKS）。省略 = `<数据根>/tls/serve.p12`，不存在就生成自签 |
+| `--cert-alias <别名>` | 库里的别名，默认 `serve` |
+
+- `--cert` / `--cert-alias` 给了却没给 `--https` ⇒ 参数报错（退出码 2）—— 不静默忽略；
+- `--cert` 指的文件不存在 ⇒ 报错，**不**在那儿捂着生成、**不**回落成明文；
+- 库读不了（密码没有/不对、不是 PKCS12/JKS、别名不在库里）⇒ 报错并指出下一步（退出码 2）。
+
+⚠️ HTTPS 只解决「传输这一段」。**在 HTTPS 真正用起来之前，写 / 支付端点不要挂在公网口上**
+（`docs/desktop-port-plan.md` §16.4 第二条风险）—— 那一条同时写在 `docs/api-contract.md` §3 第 7 条。

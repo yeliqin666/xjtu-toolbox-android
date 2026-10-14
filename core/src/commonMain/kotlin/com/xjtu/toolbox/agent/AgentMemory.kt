@@ -27,8 +27,8 @@ import com.xjtu.toolbox.platform.keyValueStore
  *
  *  - Android 默认那份（[keyValueStore]）就是搬迁前**同一个文件、同一批键**
  *    （`agent_memory<suffix>`）⇒ 老用户记过的偏好一条不丢；
- *  - 桌面端 `:core` 的 jvm 实现是**进程内内存**（刻意不落盘，免得测试互相污染），
- *    要真落盘由宿主传 `secureKeyValueStore`（设计文档 §5.3 把这一项列在「jvm 侧要真化」）。
+ *  - 桌面端 `:core` 的 jvm 实现现在也真落盘（`<name>.properties`，0600）；宿主仍可传
+ *    `secureKeyValueStore` 走密文存储那一套（设计文档 §5.3 把这一项列在「jvm 侧要真化」）。
  */
 class AgentMemory(
     /** 当前账号命名空间的偏好存储，**每次调用重新解析**（切账号即切文件）。 */

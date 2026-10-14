@@ -28,7 +28,7 @@ import kotlinx.coroutines.runBlocking
  */
 class DormPowerApiJvmTest {
 
-    /** jvm 的 `keyValueStore` 是进程内单例 ⇒ 上一轮测试的 `dorm_power_*` 会留在内存里，先清干净。 */
+    /** jvm 的 `keyValueStore` 是进程内单例 ⇒ 上一轮测试的 `dorm_power_*` 会留在落盘文件里，先清干净。 */
     private fun clearStore() = keyValueStore("dorm_power_default").clear()
 
     @Test

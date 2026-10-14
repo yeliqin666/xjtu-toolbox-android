@@ -11,7 +11,7 @@ import kotlinx.browser.localStorage
  * 浏览器里**不存任何凭据** —— CAS 会话与各域会话都在 campus-api 里，页面只走同源反代。
  * 这里存的是纯偏好（主题、周次视图、上次选的学期之类），丢了不影响功能。
  */
-private const val PREFIX = "xjtu-toolbox."
+internal const val PREFIX = "xjtu-toolbox."
 
 private class WebKeyValueStore(private val name: String) : KeyValueStore {
     private fun k(key: String) = "$PREFIX$name.$key"

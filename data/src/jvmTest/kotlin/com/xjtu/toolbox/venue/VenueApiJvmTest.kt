@@ -330,7 +330,7 @@ class VenueApiJvmTest {
      *
      * `canBook` 由构造参数决定（Android 默认 true；桌面端传 false —— 它没有滑块控件，下单那一步
      * 走不完），`canCancel` 与实现一起是 true（取消不需要滑块）。收藏走 `:core` 共享的
-     * [VenueFavorites]（`KeyValueStore`，JVM 侧是进程内内存实现）—— 这里钉住「翻转返回的是
+     * [VenueFavorites]（`KeyValueStore`，JVM 侧现在真落盘）—— 这里钉住「翻转返回的是
      * **切换后**的状态」与「再翻一次回到原位」。
      */
     @Test

@@ -68,8 +68,10 @@ fun Application.serveModule(
         route(API_PREFIX) {
             install(accessTokenGate(accessToken))
 
-            // `/api/session*` 四个端点（契约 §5 的 P0）—— 挂在这里就是「自动被闸门罩住」
-            sessionRoutes(session, accessToken)
+            // `/api/session*` 四个端点（契约 §5 的 P0）—— 挂在这里就是「自动被闸门罩住」。
+            // `secureCookie`：HTTPS 形态（config.tls 非 null ⇒ 这一次是 [ServeHttps] 起的）下
+            // 令牌换来的 cookie 带 `Secure`；明文那一档是 false，**与今天逐字相同**。
+            sessionRoutes(session, accessToken, secureCookie = config.tls != null)
 
             // 契约 §5 的 P0 取数端点：组一（免登录/轻登录六域）+ 组二（需登录六域）
             // 两组各自在独立文件里实现（`serveEndpointRoutes` / `jwxtRoutes` / `libraryRoutes` /
@@ -102,6 +104,11 @@ fun Application.serveModule(
             feedbackRoutes()
             matchRoutes(session)
             webVpnRoutes()
+
+            // 多账号页那一族（只读，契约 §5.10 / D9）：账号表（与桌面共用 `xjtu_accounts`）
+            // + serve 这一侧当前会话那一条。**没有写端点** —— 切换/新增/删除/改密仍要去 App 或桌面端
+            // 做，`readOnly:true` 就是这件事的能力开关（见 `AccountRoutes.kt` 的文件头）。
+            accountRoutes(session)
 
             // 过了闸门、但还没实现这个端点 ⇒ 404（信封，中文短句）。
             // 尾卡选择器 + handle（不带方法）：GET/POST/… 全收 —— 没实现的端点不该在方法上给差别待遇。

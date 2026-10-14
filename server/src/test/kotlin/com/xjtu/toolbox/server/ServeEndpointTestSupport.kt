@@ -98,7 +98,7 @@ private fun wipeSharedServeState() {
     )) {
         PersistentCookieJar(name).clear()
     }
-    // 收纳按账号分的内存 keyValueStore（JVM 上是进程级内存实现），文件根换了也要清内存表。
+    // 收纳按账号分的 keyValueStore（JVM 上现在也落盘，根由 Gradle 系统属性隔离），文件根换了也要清一遍。
     for (name in listOf("inbox_default", "inbox$suffix")) {
         runCatching { keyValueStore(name).clear() }
     }

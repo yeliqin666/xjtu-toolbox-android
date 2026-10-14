@@ -1,0 +1,185 @@
+# serve 真站点逐屏点位清单（验收）
+
+> 口径：会议 D9（`docs/desktop-port-plan.md` §16.0）——**实现方列清单、用户照单点**；点不通的由用户回报【现象 + 截图 + 哪一格】，实现方查。
+> 验收基准：**这是重构，不是功能更新 —— Android 怎么做，web 就怎么做**（§16.5 D15）。清单里的「期望」= 与 Android 同口径，不是「应该更好用」。
+> 本清单只描述现状与期望，不是「这些功能都该做」的排期。
+
+---
+
+## 怎么用（打开 serve 那一页）
+
+```bash
+TOKEN=$(grep -E '^access_token=' ~/.local/share/xjtu-toolbox/serve.properties | cut -d= -f2-)
+IP=$(hostname -I | awk '{print $1}')
+echo "http://$IP:40961/?token=$TOKEN"
+```
+
+浏览器打开打印出的那一串（**令牌不要外传、不要截图、不要写进聊天/书签**）。点错了就在下面清单里找到那一行，回报【现象 + 截图 + 哪一格】。
+
+---
+
+## 前置条件
+
+### 1. 先判断 serve 跑的是哪种形态 / 有多旧
+
+```bash
+curl -s http://127.0.0.1:40961/api/status
+```
+
+- serve 形态：**裸对象、不含身份**，如 `{"authenticated":true,"uptimeSeconds":…}`（没有 `username` 字段）。
+- campus-api 形态：同名端点**带 `username`**——这是两条路在同一个路径上唯一稳定的差别（`docs/api-contract.md` §5.4）。
+- `uptimeSeconds` = 进程已跑秒数。**比最新构建还早 = 大概率要重启 serve**（见下一节）。
+- 页面自己会探测；书签/排障可加 `?backend=serve` 钉死 serve 模式（§5.4）。
+
+### 2. 哪些点位要**先重启 serve** 才生效
+
+静态页面（`index.html` / `.wasm` / `toolbox-web.js`）是 serve 从盘上 `web/build/dist/wasmJs/productionExecutable/` 直接吐的 ⇒ **重建即生效、不用重启**（§15.6.1）。
+但 `/api/*` 端点编译在 `:server` 的 JVM 里 ⇒ **新端点要「重新构建 + 重启 serve 进程」才会存在**，旧进程对新端点答 `404 {"code":404,…,"message":"接口不存在"}`。
+
+带令牌探一发即可判断（404 = 进程太旧，401 = 端点在了但没登录，200 = 就位且已登录）：
+
+```bash
+TOKEN=$(grep -E '^access_token=' ~/.local/share/xjtu-toolbox/serve.properties | cut -d= -f2-)
+curl -s -H "Authorization: Bearer $TOKEN" "http://127.0.0.1:40961/api/jwxt/schedule?term=&merged=1"
+```
+
+以下端点族都是**新加的**，对应的屏要「重启后的 serve」才有数据（否则整屏落「需要 serve 模式」页或栏位空着）：
+
+| # | 端点族（契约节） | 受影响的清单点位 |
+|---|---|---|
+| 1 | 只读四域（§5.5）：`/api/dzpz/transcript` · `/api/attendance/{terms,records}` · `/api/coupon/{list,detail}` · `/api/dorm/{rooms,reading}` | ⑥ 只读四域全部四屏 |
+| 2 | 第二批（§5.6）：`/api/lms/{courses,activities,activity}` · `/api/jiaocai/{search,ssno}` · `/api/jwapp/{scores,precise-scores}` · `/api/iclassface/records` | ⑦ 第二批四屏全部 |
+| 3 | 第三批（§5.7）：`/api/pay/{code,vouchers}` · `/api/feedback/{replies,public-qa}` · `/api/match/dining` · `POST /api/webvpn/convert` | ⑧ 付款码 / 反馈 / WebVPN（匹配屏不消费端点） |
+| 4 | 第四批（§5.8）：`/api/jwxt/{changes,exams,textbooks}` · `/api/jwapp/score-detail` · `/api/emptyroom/seat-count` | ③ 日程（考试栏/教材栏/N座）· ⑦ 成绩屏的分项 · 教材屏「本学期我的教材」 |
+| 5 | 批①收尾（§5.9）：`/api/jwxt/schedule?merged=1`（同一端点的新参数档） | ③ 日程「格子已合调停补课」 |
+
+> 场馆 / 图书馆两条**写**端点（`§5.3.2 /api/venue/*`、`§5.3.1 /api/library/action`）是 2026-10-11/12 落地，若进程早于那两天同样要重启。判据同上：带令牌 curl 一个写端点看是 404 还是 401。
+
+### 3. 哪些点位要**真账号登录**
+
+serve 形态下，会话在 serve 进程里。要走登录的点位（AppRoute 的 `loginType`），用户得先在**会话屏**（`?route=serve`，或「学辅」页的「打开会话屏」按钮，或「过不了闸门自动落过去」）走 `POST /api/session/login` + 短信二验：**日程 / 成绩报表 / 全校课表 / 评教 / 校园卡 / 图书馆 / 场馆 / 体测**，以及**只读四域 + 第二批 + 第三批里借站点会话的那几屏**（成绩单 / 考勤 / 加餐券 / 宿舍电费 / 思源学堂 / 教材查询 / 成绩 / 快速考勤流水 / 付款码）。免登录可直接开的：校历 / 黄页 / 通知 / 教师检索 / 空闲教室 / 社区 / 小游戏 / 设置。
+
+---
+
+## 主清单（照单点）
+
+每行 6 栏：`屏幕/路由 id` | `入口怎么点到` | `点哪里` | `期望看到什么` | `不通过的典型现象` | `已知缺口（如实）`。
+`?route=<id>` 深链写的是 `AppRoute.id`（见 `core/.../nav/AppRoute.kt`）。
+
+### ① 外壳
+
+- [ ] 底栏五格（逐字一致） | 打开首页，看底栏 | 看五格的顺序 / 文字 / 图标 | 五格依次 **首页 / 日程 / 屁岱 / 学辅 / 我的**，图标 Home / CalendarMonth / SmartToy / MenuBook / Person | 多一格、少一格、顺序或文字与 App 不同 | 无（这是阶段 C 的验收点，`WebShell.kt` 与 `:app BottomTab` 逐字一致）
+- [ ] 宽窗变侧栏 | 把窗口拉宽到短边 ≥600dp（或最大化） | 看底栏形态 | 底栏换成**左侧栏**，五格竖排 | 仍是最底下一横条 | 判据 `:core` 的 `calculateIsWideLayout`（与 Android 宽屏/折叠屏同一套）
+- [ ] 窄窗回到底栏 | 再把窗口拉窄 | 看底栏形态 | 变回 miuix **经典底栏**（`glassStyle=false`，无玻璃风） | 侧栏不消失 / 出现玻璃底栏 | 无
+- [ ] 当前页恢复（刷新） | 打开首页后刷新页面（F5） | 看落在哪一页 | 落**日程**（`?route=` 为空时默认 `AppRoute.Schedule`） | 白屏 / 落错页 / 一直「正在探测数据源…」超过 3 秒 | 探测超时按 campus-api 兜底（3s），不会无限白屏
+- [ ] 深链直接进屏 | 地址栏加 `?route=school_calendar` 回车 | 看当前页 | 直接打开**校历**屏，底栏「首页」格不高亮（它不属于任何一格） | 落回日程 / 显示「认不出」 | 认不出的路由兜底落日程（与 `:app` `appRouteOf` 返回 null 同口径）
+
+### ② 首页
+
+- [ ] 宫格 = 入口（36 条） | 打开首页，看宫格 | 数/看宫格条目 | 宫格 = `:core` 服务目录 × `WebSupport.openableRouteIds`（36 条）；**点得进去的才画**，打不开的入口不画 | 出现一个点了报错/落占位页的格子；或缺了很多本该有的入口 | 上一轮的漏正是「屏在、门不在」，现在门与宫格同源（`WebSupport`）
+- [ ] 问候不写名字 | 看首页顶部问候 | 看问候文案 | 只有问候 + 日期（`dateLabel` 如「10月14日 · 周二」），**没有名字** | 出现昵称/姓名 | 本端没有账号（`greetingName=""`），凭据在 campus-api / serve 进程里
+- [ ] 「第 N 周 / 下一项安排」 | 首页中部 | 看这两格 | 真算（`HomeHero.weekNumber` / `HomeHero.find`）：算出周次、给出下一项；算不出给三种说法之一——「正在读取本机课表…」/「课表还没同步 · 点这里去同步」/「接下来两周都没课 · 点这里看整学期」 | 一直「正在读取…」不散；或把「没同步」说成「没课」 | 与桌面/`:app` 判据逐条一致（`WebHomeHost.nextUp`）
+- [ ] 「待办与消息」那一格 | 首页 | 看那一格 | 有真待办/未读才画，读 `:core` 的 `InboxStore`（wasm 上 localStorage）；没有就不画（**不画个 0**） | 画出一个空的「0」格 | 无
+- [ ] 不画的块（如实） | 首页扫一遍 | 看有没有这三块 | **不出现**：顶部公告条（BULLETIN_BAR）、速览格（GLANCE）、常用功能（QUICK_ACTIONS） | 出现空的公告条/速览格/随机常用功能 | 三块缺宿主面 ⇒ 一条都不画（`WebHomeHost.honoredCards` 只列六块）
+
+### ③ 日程
+
+> serve 形态 = 与 Android/桌面同口径；campus-api 形态 = 只排课原样。页顶有一行说明把两种形态分开写（`WebScheduleGapNote`）。
+
+- [ ] 页顶说明（serve） | 日程页顶部 | 读那行 11sp 说明 | 开头「这一份日程与 Android / 桌面同口径：格子里的课**已经合过调课 / 停课 / 补课**（/api/jwxt/schedule?merged=1 端的就是 :data 已合并的那一份），考试与教材两栏也真取数。」 | 说明写「只有排课原样」 | 该句在 §5.9 接线后已收紧
+- [ ] 格子已合调停补课 | 日程格子里看一门被调/停/补过的课 | 看今天/本周那门课 | 调课换到新时间新地点、停课被挖掉、补课出现在新位置（与 Android 同一张表） | 仍是排课原样（调课没体现） | campus-api 形态无 `merged` ⇒ 仍是原样；合并走服务端 `?merged=1`，本端一行没自己合
+- [ ] 考试栏 | 日程页考试栏 | 看内容 | 真取数（`/api/jwxt/exams`，六格：课程/课程号/日期/时间/地点/座号），倒计时横幅 + 完整列表 | 栏空着且无说明 | campus-api 形态取不到 ⇒ 空着（字段面不认，§7.2）
+- [ ] 教材栏 | 日程页教材栏 | 看内容 | 真取数（`/api/jwxt/textbooks`，八格 + `hasTextbook`），「无教材」排在后面 | 栏空着 | campus-api 形态取不到 ⇒ 空着；学号由服务端从会话取（请求不含学号）
+- [ ] 详情「N 座」 | 点开一门课的详情 | 看「N座」那一格 | serve 形态真显示「N座」（`/api/emptyroom/seat-count`）；`seats:null` 时**不画那一格**（不写成「0座」） | 显示「0座」；或 serve 形态也不出现 | campus-api 形态 `honored` 不列 `SEAT_COUNT`（列了是假开关）
+- [ ] 永远不画的三处 | 日程页工具栏/详情/今日栏 | 看这三处 | **不出现**：①「导出日历 (ICS)」② 详情里的「思源学堂」「本次考勤」下钻 ③ 今日栏「接下来」的作业截止 | 出现点了没反应的按钮 | 三处两种形态都做不到（无系统分享面板 / 要那两个站会话 / 要思源落盘缓存）
+- [ ] 自建日程 | 工具栏「+」/「编辑日程」 | 加一条自建日程 | 真落盘（`KeyValueCustomCourseStore` → localStorage），刷新还在 | 加了刷新就没了 | `CUSTOM_COURSE_EDIT` 两种形态都列
+
+### ④ 学辅
+
+- [ ] 可点目录 | 底栏第四格「学辅」 | 看目录 | 标题「学辅（Web 这一端）」；按 `ServiceCategory` 分组列出**本端真能点开的屏**（一行一屏，点一行进那一屏） | 纯文字说明页 / 列了但点了不动 | 与首页宫格共用 `WebSupport.openableCatalog` 同一真源
+- [ ] 「本端还没有这一屏」如实列出 | 学辅页往下翻 | 看那一段 | 一行小字列出「目录里有、这一端还没有屏的」（`unsupportedCatalog`），**点不动** | 把这些当成能点的 | 该段是「如实」，不是漏
+- [ ] 会话入口（serve） | 学辅页「Web 专有的一屏」段 | 看有没有「打开会话屏」按钮 | serve 形态有「打开会话屏」按钮，点了进会话屏（登录/二验/登出）；campus-api 形态显示「页面上没有登录这回事」 | serve 形态却没有这个按钮 | 会话屏不进五格（进任何一格都会破坏「五格逐字一致」）
+- [ ] 后端自检 | 学辅页底部「后端自检」按钮 | 点它 | 进自检屏（`?route=probe`），列出本端能开/不能开的清单 | 404 / 白屏 | 无
+
+### ⑤ 我的
+
+- [ ] 设置屏（不是账号页） | 底栏第五格「我的」 | 看当前页 | 落在 `:core` 共享**设置屏**（本端没有账号这回事），版本行写「Web 构建（wasm）」 | 落成账号页 / 显示 `vX.Y.Z` 版本号 | `WebSettingsHost.versionText` 如实写自己是哪份构建
+- [ ] 深色模式当场生效 | 设置页「深色模式」 | 改成「始终深色」 | **当场**整页变深色（`onAppearanceChanged` 让外壳重读 `SettingsStore.darkMode`） | 改了不变色 / 要刷新才变 | 键值缝无监听器，靠回调重读（与桌面同写法）
+- [ ] 首页主题 | 设置页「首页主题」 | 切卡片/图标主题，回首页 | 首页宫格在两套布局间切换（读 `SettingsStore.homeTheme`，键名与 `:app` 相同） | 改了首页没变 | 本端一次只组合当前页，回首页重新读一次
+- [ ] 不列的行（如实） | 设置页扫一遍 | 看少了哪些行 | **不出现**：动态取色 / 常用功能 / 玻璃·经典 / 启动 Tab / 触感 / 网络模式 / 课表来源 / 考勤角标 / 场馆自动识别验证码（九项各有「列了就是假开关」的理由） | 出现一个改了没反应的开关 | `WebSettingsHost.honoredRows` 只列 `DARK_MODE` + `HOME_THEME`
+
+### ⑥ 只读四域（成绩单 / 考勤 / 加餐券 / 宿舍电费）
+
+> serve 形态才画真屏；campus-api 形态四屏都落「（Web 这一端：需要 serve 模式）」如实页（`WebServeOnlyScreen`）。
+
+- [ ] 电子成绩单 | `?route=transcript` | 看整屏 | serve：类型选择 + 申请信息（「申请日期」=`defaultDate`），页顶缺口说明写「只画得了『选类型』这一步」，**没有**「一键申请」和那五步预览 | campus-api：落「电子成绩单（Web 这一端：需要 serve 模式）」页 | 第 2~7 步无端点（出 PDF 要 App/桌面端）
+- [ ] 考勤 | `?route=new_attendance` | 看整屏 | serve：学期选择器 + 流水表（节次/状态/地点/日期）；页顶写缺「教师名/统计/打卡原始流水/请假」 | campus-api：落「考勤（…需要 serve 模式）」页 | 教师名不投影（红线）；`status=-1` 按「未知」显示
+- [ ] 加餐券 | `?route=coupon` | 看整屏 | serve：四档 + 翻页 + 金额（单位分）+ 有效期；**没有**「领取」按钮；券卡退成图标（无封面图） | campus-api：落「加餐券（…需要 serve 模式）」页 | 领券是写路径不端；封面图要 egc 会话
+- [ ] 宿舍电费 | `?route=dorm_power` | 看整屏 | serve：房间列表 + 剩余电量（`kwh:null` 单独说「这一间没有电表」）+ **本机**查询时刻；页顶写「去缴费在浏览器里不可达」 | campus-api：落「宿舍电费（…需要 serve 模式）」页 | 用的是 `:web` 自己的读数页 `WebDormPowerScreen`，不是 `:core` 那张缴费页浏览器
+
+### ⑦ 第二批四屏（思源学堂 / 教材查询 / 移动教务成绩 / 人脸签到）
+
+- [ ] 思源学堂 | `?route=lms` | 看整屏 | serve：课程卡（名称/课程号/学分/学期/教学班/人数）+ 活动列表 + 详情；教师名显示「未知」；附件/播放地址/提交记录**不画** | campus-api：落「思源学堂（…需要 serve 模式）」页 | 教师名不投影（红线）；附件预览下载/播放/提交记录都不端
+- [ ] 教材查询 | `?route=jiaocai` | 看整屏 | serve：「查教材」一栏（关键词输入 + 结果卡 + 详情）+【本学期我的教材】一段（走 `GET /api/jwxt/textbooks`）；**没有**「书架/全文库」两栏、没有「读全文」入口 | campus-api：落「教材查询（…需要 serve 模式）」页 | 全文库（jiaocai1）另一域名另一套会话不端；ssno 列表里恒空、进详情才补
+- [ ] 移动教务成绩 | `?route=jwapp_score` | 看整屏 | serve：学期成绩 + GPA 卡 + 选课算均分（两份上游合并）；「点开一门课看分项」serve 下能展开（`/api/jwapp/score-detail`） | campus-api：落「成绩（…需要 serve 模式）」页 | 未评教名单/按学号补报表两路不接（学号红线）；`precise-scores` 502 可容忍、只出 jwapp 那份
+- [ ] 快速考勤流水 | `?route=iclassface` | 看整屏 | serve：日期条 + 一天一张卡（时刻/地点/类型），**不画姓名学号**；时间是**服务端墙上时间**（不做本地时区转换） | campus-api：落「快速考勤流水（…需要 serve 模式）」页 | 姓名学号红线不投影；上游无照片字段；无分页
+
+### ⑧ 第三批四屏（付款码 / 反馈 / 匹配交友 / WebVPN）
+
+- [ ] 付款码 = 只画数字 | `?route=payment_code` | 看整屏 | serve：显示**付款码那串数字** + 加餐券几行（名称/金额分/到期）；**没有**条码/二维码矩阵，换一句「本端没有条码 / 二维码编码器，画不出可扫的码；下面这串数字就是付款码本身。」；券**不可勾选**（整行只读） | campus-api：落「付款码（…需要 serve 模式）」页 | 矩阵编码器 wasm 上返回 null；勾选同步是写路径不端；⚠️ 这一屏是**能付钱的东西**，`0.0.0.0` 部署要先解决鉴权（§3.3）
+- [ ] 反馈只读 | `?route=feedback` | 看整屏 | serve：「大家在问」真画 +「去 GitHub 提 Issue」外链；**没有**提交表单（只留一句「只能看、不能提」）；新浏览器里「我提过的」不出现（本地账本空） | campus-api：落「反馈与建议（…需要 serve 模式）」页 | 提交是写路径不端；读要 serve 配全 `FEEDBACK_*` 三环境变量，否则端点 502 且屏吞掉 ⇒ 显示「没有新回复/问答」
+- [ ] 匹配交友说明页 | `?route=schedule_match` | 看整屏 | **如实说明页**，标题「匹配交友（Web 这一端：这一屏用不了）」，逐条写缺什么（deflate / URL-safe Base64 两个 actual 返回 null / 学工档案只在 `:app` / 考试教材两维没缓存）；**不是**半开着的交友界面 | 出现一个出不了码的交友界面 / 空矩阵当码 | 两种形态都用不了；服务端不代出码（码含昵称+课表网格）
+- [ ] WebVPN 转换器 | `?route=webvpn_converter` | 输入网址点「转换」 | serve：真能转（两个方向），结果由服务端 `WebVpnUtil` 算；「用 WebVPN 打开」新标签打开网关地址（要过网关自己的登录页） | campus-api：落「WebVPN 转换器（…需要 serve 模式）」页 | 转换是一发 HTTP（断网转不了，Android/桌面是本地纯函数）；不收会话
+
+### ⑨ campus-api 形态 vs serve 形态 的差别
+
+- [ ] 判断两种形态 | 见「前置条件 1」`/api/status` | 看响应 | serve = 裸对象无 `username`；campus-api = 带 `username` | 分不清 | 页面自己探测，`?backend=serve` 可钉死
+- [ ] 只读四域 + 第二批 + 第三批在 campus-api 下 | 分别打开这 12 屏 | 看落点 | 全部落「（Web 这一端：需要 serve 模式）」页，写清端点 + 为什么 + 「切到 serve 模式就能用」 | 落「这一屏还没搬到 Web」/ 白屏 | 这些域在 campus-api 里没有端点，屏在 `:core`（不是没搬）
+- [ ] 日程在 campus-api 下 | 打开日程 | 看页顶 + 格子 | 页顶写「只有排课原样…考试与教材两栏空着、详情里的『N座』也不画；调课/停课/换教室同样不体现」 | 显示成与 serve 一样 | 本端只认 serve 契约字段面（§7.2）
+- [ ] 图书馆/场馆在两种形态 | 打开 library / venue | 看可点性 | campus-api：只读（无约座/预订按钮，时段不可选）；serve：写端点落地 ⇒ 能约座/预订/取消（滑块在本端画） | campus-api 出现点了会失败的写按钮 | 能力开关随形态变（§2「点了会失败的按钮一个都不画」）
+
+### ⑩ 明确不可用项（逐个为什么）
+
+- [ ] 屁岱（`Agent`） | 底栏第三格「屁岱」 | 看落点 | 落降级页「屁岱（Web 这一端）」，写清缺 `AgentHost` 四件（配置/会话/记忆落盘、流式传输、工具层） | 出现聊天界面 | 设计稿 `docs/agent-web-spec.md` 未实现（循环要跑在 serve，D10）
+- [ ] 下载管理（`DownloadManager`） | `?route=download_manager` | 看落点 | 落「这一屏还没搬到 Web」+「AppRoute.DownloadManager」 | 出现下载列表 | 取数挂 okhttp/Context
+- [ ] 教材全文（`Jiaocai1`） | `?route=jiaocai1` | 看落点 | 落「这一屏还没搬到 Web」 | 出现全文库书架 | 另一域名另一套会话，本轮不碰（D13 之后要做）
+- [ ] 教材全文阅读器（`Jiaocai1Reader`） | `?route=jiaocai1_reader/<ssno>?title=` | 看落点 | 落「这一屏还没搬到 Web」 | 出现阅读器 | 同上
+- [ ] 合成西交大（`GameMerge`） | `?route=game_merge` | 看落点 | 落「这一屏还没搬到 Web」（游戏合集里「合成西交大」点进去也落到此） | 出现合成游戏 | 该屏是 WebView（D12-⑤：浏览器本身是 JS 引擎，web 端最省，但还没做）
+- [ ] 账号管理（`Accounts`） | `?route=accounts` | 看落点 | 落「这一屏还没搬到 Web」 | 出现账号页 | 多账号归批②（D9）
+- [ ] 内置浏览器（`Browser`） | `?route=browser?url=…` | 看落点 | **不是一屏**：同标签直接导航到那个网址（`navigateSameTab`），回来靠浏览器后退 | 出现一个「浏览器」页面 | 它把 URL 交给浏览器本身，不算一屏（口径上不算差集）
+- [ ] 桌面端「GameMerge 载体」 | 桌面端看合成西交大 | —— | 桌面**仍卡载体**（无 WebView 宿主） | —— | 见 §16.2 第 1 条（web 端最省、桌面卡载体）
+- [ ] 场馆「去支付」 | serve 下订完场看支付入口 | 看「去支付」 | **不可达**：支付页地址只有 `:data` 能拼、浏览器里没有场馆站会话 ⇒ `CampusVenueApi.paymentUrl` 给空串，那一枪什么都不做 | 出现一个点了报错的「去支付」 | §5.3.2 末尾缺口；真支付是 D11b（HTTPS+鉴权之后）
+
+---
+
+## 判据出处（期望值从哪来，不许凭印象）
+
+| 清单分组 | 判据来源 |
+|---|---|
+| ① 外壳（五格/宽窗/当前页） | `web/.../web/WebShell.kt`（`WEB_SHELL_TABS` 五格与 `:app BottomTab` 逐字一致、`calculateIsWideLayout`）；`ToolboxWebApp.kt`（`ShellPageHost.CURRENT_ONLY`、`initialWebTarget()` 默认落日程）；`docs/desktop-port-plan.md` §15.1 / §15.2 |
+| ② 首页（宫格=入口） | `web/.../web/WebHomeHost.kt`（`honoredCards` 六块、`greetingName=""`、`openableRouteIds=WebSupport.openableRouteIds`）；`web/.../web/WebSupport.kt`（唯一真源 36 条）；`core/.../home/AppServices.kt`（宫格与学辅目录条目） |
+| ③ 日程 | `web/.../web/WebScheduleHost.kt`（`honored`：`CUSTOM_COURSE_EDIT`/`SCHEDULE_CHANGE_BUBBLE`/serve 下 `SEAT_COUNT`）；`web/.../web/WebScheduleSource.kt`（七个端点，`?merged=1` 取 `:data JwxtScheduleApi.schedule()`）；`web/.../web/WebFallbackScreens.kt` 的 `WebScheduleGapNote`（页顶两种形态文案）；`docs/api-contract.md` §5.8 / §5.9 |
+| ④ 学辅 | `web/.../web/WebFallbackScreens.kt` 的 `WebServicesScreen`（可点目录 + 会话入口 + 后端自检）；`WebSupport.openableCatalog` / `unsupportedCatalog` |
+| ⑤ 我的 | `web/.../web/WebSettingsHost.kt`（`honoredRows={DARK_MODE,HOME_THEME}`、`versionText="Web 构建（wasm）"`、九个不列的理由）；`ToolboxWebApp.kt` 的 `AppRoute.Settings` 分支 |
+| ⑥ 只读四域 | `ToolboxWebApp.kt` 四个分支（`AppRoute.Transcript/Attendance/Coupon/DormPower`）；`WebFallbackScreens.kt` 的 `WebServeOnlyScreen` + `WebGapNote`；`web/.../web/WebDormPowerScreen.kt`；`docs/api-contract.md` §5.5（含末尾消费方表） |
+| ⑦ 第二批四屏 | `ToolboxWebApp.kt` 四个分支（`AppRoute.Lms/Jiaocai/JwappScore/Iclassface`）；`web/.../web/WebJiaocaiHost.kt`（`WebJiaocaiTermTextbooks`）；`docs/api-contract.md` §5.6（含消费方表） |
+| ⑧ 第三批四屏 | `ToolboxWebApp.kt` 四个分支（`AppRoute.PaymentCode/Feedback/Match/WebVpnConverter`）；`WebFallbackScreens.kt` 的 `WebMatchGapScreen`（匹配说明页全文案）；`docs/api-contract.md` §5.7（含消费方表） |
+| ⑨ 形态差别 | `docs/api-contract.md` §5.4（模式开关/登录/令牌/消费方不画）；`WebServeOnlyScreen` / `WebScheduleGapNote` 两种形态分支 |
+| ⑩ 明确不可用项 | `WebSupport.kt` 文件头（「什么不在清单里」）；`ToolboxWebApp.kt` 的 `AppRoute.Agent` 降级分支 + `NotPortedScreen`；`docs/desktop-port-plan.md` §16.2 第 1 条（43 条差集 7 条）；`docs/agent-web-spec.md`（屁岱设计稿未实现） |
+
+---
+
+## 本清单覆盖不到的东西
+
+- **逐像素/逐状态全等（丙口径）的自动化**：`:web` 没有测试源集（`web/src/` 只有 `wasmJsMain`），本清单是**人工照单点**，不能替代 D14 要建的 `:web` 测试源集（路由清单覆盖测试 + 存档层互认 + 关键屏 wasmJs 测试）。
+- **深色/侧栏的视觉细节**：本清单只验「变了/没变」，不验与 Android 的像素级差异。
+- **错误态 / 空态 / 加载态的逐条文案**：除各屏页顶缺口说明外，其余文案逐条对 Android 没在本清单展开（那是 D14/丙口径的活）。
+- **统一存档层 / 多账号（批②）**：`Accounts` / 存档互认 / serve 侧 DPAPI 等，见 `docs/storage-layout-plan.md`，不在本清单（本清单只管「serve 这一页现在长什么样」）。
+- **HTTPS / 鉴权（D11）**、真支付（D11b）、能力边界收口（D12 矩阵/分享码/相机/剪贴板/PWA）**尚未落地**，不在本次验收范围。
+
+## 下一步
+
+1. 用户照单点，逐行勾 `- [x]`；点不通的按【现象 + 截图 + 哪一格】回报。
+2. 涉及「需重启 serve」的点位，先跑一遍「前置条件 2」的探针确认新端点是否就位，再点对应屏。
+3. 回报口径里把「campus-api 形态下该屏就是『需要 serve 模式』页」与「serve 形态下真出 bug」分开说——前者是现状、后者要查。
+4. 验收完后按 D14 把「人工照单点」沉淀成 `:web` 测试源集，本清单留在 `docs/` 作为人工点位记录。

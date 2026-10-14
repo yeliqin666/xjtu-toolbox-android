@@ -23,9 +23,9 @@ import kotlin.test.assertTrue
  *
  * ## 为什么在 jvmTest
  *
- * 键值缝的 JVM 实现是**进程内**的（同名的 store 是同一个实例），所以这里的 setUp 要先
- * `clear()`；这也正是它不能被当成「落盘语义」来测的原因 —— 落盘那一档由各端的 actual 负责
- * （Android 就是上面那个 `getSharedPreferences`）。
+ * 键值缝的 JVM 实现是**进程内单例**的（同名的 store 是同一个实例），所以这里的 setUp 要先
+ * `clear()`；落盘语义由 jvm 那份 actual（`<name>.properties`，0600）与 Android 的
+ * `getSharedPreferences` 各端自己的测试钉着。
  */
 class BulletinStoreJvmTest {
 

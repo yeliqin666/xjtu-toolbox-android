@@ -6,6 +6,9 @@ import io.ktor.server.application.ApplicationCall
 import io.ktor.server.request.receive
 import io.ktor.server.response.respond
 import kotlinx.coroutines.CancellationException
+import java.time.Instant
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
 
 /**
  * 这几个 `*Routes`（jwxt / library / card / venue / lms / jiaocai / jwapp / iclassface）共用的小工具。
@@ -100,3 +103,17 @@ internal suspend inline fun <reified T : Any> ApplicationCall.receiveOrNull(): T
 } catch (_: Exception) {
     null
 }
+
+/**
+ * epoch 毫秒 → ISO-8601 带时区字符串（契约 §4）；`<= 0`（没读过 / 没过期 / 本端不知道）→ null。
+ *
+ * 原先它是 `ServeEndpointRoutes.kt` 里的一个 private 函数（`/api/inbox` 那几处时间字段在用）。
+ * `/api/accounts` 也要端时间（账号表的 `lastUsedAt`）⇒ 按 [receiveOrNull] 同一条做法搬到这里 ——
+ * 时间的口径只有这一份（手写 `SimpleDateFormat`、各文件各写一遍都是第二个口径）。
+ */
+internal fun isoTime(epochMs: Long): String? {
+    if (epochMs <= 0L) return null
+    return Instant.ofEpochMilli(epochMs).atZone(ZoneId.systemDefault()).format(ISO_FORMATTER)
+}
+
+private val ISO_FORMATTER: DateTimeFormatter = DateTimeFormatter.ISO_OFFSET_DATE_TIME

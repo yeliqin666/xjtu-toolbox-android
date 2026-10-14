@@ -67,16 +67,21 @@ object AccessToken {
     /**
      * 令牌换 cookie 的 `Set-Cookie` 值（`GET /api/session` 回给浏览器的那一行）。
      *
-     * 三个属性各自对应一件真事：
+     * 四个属性各自对应一件真事：
      * - `Path=/`：`/api/…` 与静态产物（`index.html`、`.wasm`）都走这一枚 cookie；
      * - `HttpOnly`：**这是重点** —— 页面里的脚本读不到令牌（令牌是这一层唯一的门，
      *   页面上任何一个 XSS 都能把非 HttpOnly 的 cookie 读走）；
      * - `SameSite=Lax`：serve 是「同源单页 + 用户自己敲地址/点书签」的形态，Lax 够用。
-     *   不能给 `None`（那要求 `Secure`，而默认是明文 HTTP ⇒ cookie 直接被丢掉），
-     *   也不用 `Strict`（从聊天/邮件里点进来的链接会丢掉 cookie ⇒ 用户看到的是
-     *   「刚登录过、每次进去又都说没登录」）。
+     *   不能给 `None`（那要求 `Secure`），也不用 `Strict`（从聊天/邮件里点进来的链接
+     *   会丢掉 cookie ⇒ 用户看到的是「刚登录过、每次进去又都说没登录」）；
+     * - `Secure`：**只在 HTTPS 形态（`--https`）加上**（D11）。明文 HTTP 下加它等于把 cookie
+     *   废掉（浏览器会直接丢掉一个来自 http:// 的 Secure cookie）⇒ 默认那一档不能带，
+     *   所以它是一个参数而不是一个常量。
+     *
+     * @param secure HTTPS 形态（[ServeConfig.tls] 非 null）时为 true ⇒ 多一个 `Secure`
      */
-    fun setCookieHeader(token: String): String = "$COOKIE_NAME=$token; Path=/; HttpOnly; SameSite=Lax"
+    fun setCookieHeader(token: String, secure: Boolean = false): String =
+        "$COOKIE_NAME=$token; Path=/; HttpOnly; SameSite=Lax" + if (secure) "; Secure" else ""
 
     /**
      * 常数时间比较。

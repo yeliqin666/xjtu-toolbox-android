@@ -81,7 +81,8 @@ internal class DesktopScheduleHost(private val auth: DesktopAuth) : ScheduleHost
 
     override fun cache(accountId: String?): ScheduleCacheStore =
         KeyValueScheduleCacheStore(
-            secureKeyValueStore(SCHEDULE_CACHE_STORE + AccountContext.suffixFor(accountId)),
+            // 端内名 = `schedule_cache<账号后缀>`（S7b 把这条规则收进了 accountScopedStoreName）
+            secureKeyValueStore(accountScopedStoreName(SCHEDULE_CACHE_STORE, accountId)),
         )
 
     override val customCourses: CustomCourseStore =

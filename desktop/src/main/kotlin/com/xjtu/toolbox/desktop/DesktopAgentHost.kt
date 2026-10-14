@@ -41,8 +41,8 @@ import kotlinx.coroutines.flow.map
  * 三份都存在本端的数据根目录里（`dataFilesDir()` = `~/.local/share/xjtu-toolbox`，测试与证据运行
  * 用 `dataRootOverride` 指到临时目录），文件名与 Android 那份**逐字相同**，键名也同一批：
  *
- *  - 配置：[AgentConfigStore] 的非敏感那半走 `secureKeyValueStore`（`:core` 的 jvm `keyValueStore`
- *    是**进程内内存**，设置项存进去重开就没了 —— 与 `DesktopSettingsHost` 同一条理由）；
+ *  - 配置：[AgentConfigStore] 的非敏感那半走 `secureKeyValueStore`（`keyValueStore` 的 jvm 实现
+ *    现在也真落盘了，但这一端按「同名 store 不得同时以 plain 与 secure 打开」的纪律统一走密文那套 —— 与 `DesktopSettingsHost` 同一条理由）；
  *    密钥那一半本来就只能落在密文存储上（Windows 上再套一层 DPAPI，见 `:data` 的 `SecretProtector`）；
  *  - 会话：[AgentSessionStore]（`agent_sessions<账号后缀>/index.json` + 每会话一个 `convo_*.json`）；
  *  - 记忆：[AgentMemory] 落在 0600 的 `agent_memory<账号后缀>.properties`（不分账号的旧版文件由它自己迁移）。
@@ -135,7 +135,7 @@ internal class DesktopAgentHost(private val auth: DesktopAuth) : AgentHost {
 
     /**
      * 非敏感那半的存储：**必须传 `secureKeyValueStore`**（0600 的 `agent_config*<账号后缀>.properties`）。
-     * `:core` 的 `keyValueStore` 在 jvm 上是进程内内存实现，用它等于「服务商/模型/助手名一关窗就丢」。
+     * `keyValueStore` 在 jvm 上现在也真落盘了，但这一端统一走 0600 密文那套（同一 store 名不得同时以 plain 与 secure 打开）。
      */
     private val configStore = AgentConfigStore(plainStoreOf = { secureKeyValueStore(it) })
 

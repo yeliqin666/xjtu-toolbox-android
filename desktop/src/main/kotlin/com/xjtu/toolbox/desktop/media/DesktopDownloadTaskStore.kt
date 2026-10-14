@@ -1,5 +1,7 @@
 package com.xjtu.toolbox.desktop.media
 
+import com.xjtu.toolbox.account.AccountContext
+import com.xjtu.toolbox.desktop.accountScopedStoreName
 import com.xjtu.toolbox.media.DownloadStatus
 import com.xjtu.toolbox.media.DownloadTask
 import com.xjtu.toolbox.media.DownloadTaskStore
@@ -24,7 +26,8 @@ import kotlinx.serialization.json.put
  *
  * 搬迁前这份数据是 Room 表（`androidx.room` + `Context`），桌面端没有那一套。这里用**一份 JSON 落盘**：
  * 把行数组序列化成一个字符串，存进 `:data` 的密文键值缝 [secureKeyValueStore]
- * —— 它在本端就是 `<数据根>/download_tasks.properties`（权限 0600，与 cookie / 凭据同一处），
+ * —— 它在本端就是 `<数据根>/download_tasks<账号后缀>.properties`（S7b；权限 0600，与 cookie /
+ * 凭据同一处。加后缀之前那份旧名 `download_tasks` 只会被**只读**读一次，见构造器的 [legacyStore]），
  * 写入是同步的，所以「暂停时那一发状态」不需要额外的协程。
  *
  * 行数很少（我排过的回放就那几条），所以每次写整份重写；JSON 手写而不是给模型加 `@Serializable`：
@@ -39,14 +42,32 @@ import kotlinx.serialization.json.put
  * | 自增 id | `@PrimaryKey(autoGenerate = true)` | 内存里的 `maxOf(id) + 1`（**重启后不会与原表冲突**：这张表是本端独有的） |
  * | 并发 | SQLite 事务 | 一把 `Mutex`（写整份重写，读改都在锁里） |
  * | 多进程 | 任何进程读同一份库 | **只有本进程看得见**（单实例应用的正常取舍） |
- * | 老数据 | 原表原样、迁移路径未动 | 没有老数据（桌面端第一次有这个队列） |
+ * | 老数据 | 原表原样、迁移路径未动 | 队列本身没老数据（桌面第一次有这个队列）；端内名从 `download_tasks` 变成带账号后缀时只**只读**读一次旧名（S7b） |
  *
  * 也就是说：**共享层只承诺语义**（见 [DownloadTaskStore]），Android 那条 Room 路径一个字都没动。
  */
 class DesktopDownloadTaskStore(
-    /** 存储；默认是那份 0600 的落盘文件（测试可传内存版做隔离）。 */
-    private val store: KeyValueStore = secureKeyValueStore(FILE_NAME),
+    /** 存储；生产装配给的是那份 0600 的落盘文件（测试可传内存版做隔离）。 */
+    private val store: KeyValueStore,
+    /**
+     * S7b 之前那份旧名（[STORE_NAME]，无账号后缀）的**只读**兜底：新名里没有行时读它一次
+     * （§6.1 第 2 条「旧形状只读」—— 只读，不往回写、也不删旧文件）。
+     *
+     * 默认 null：测试注入 [store] 时不该顺带读到隔离根之外的旧文件（生产装配见下面那个构造器）。
+     */
+    private val legacyStore: KeyValueStore? = null,
 ) : DownloadTaskStore {
+
+    /**
+     * 生产装配（S7b）：端内名 = `download_tasks<账号后缀>`（[storeName]）+ 旧名的只读兜底。
+     *
+     * ⚠️ 名字在**建实例时**定下来：`DesktopDownloads.manager` 是进程级单例 ⇒ 这条队列属于
+     * 「本进程第一次碰它时那个账号」（未定项见 `accountScopedStoreName` 的 KDoc）。
+     */
+    constructor(accountId: String? = AccountContext.activeAccountId) : this(
+        store = secureKeyValueStore(storeName(accountId)),
+        legacyStore = secureKeyValueStore(STORE_NAME),
+    )
 
     private val lock = Mutex()
 
@@ -126,7 +147,8 @@ class DesktopDownloadTaskStore(
     }
 
     private fun read(): List<DownloadTask> {
-        val raw = store.getString(KEY_ROWS) ?: return emptyList()
+        // S7b：新名里没有行时，读一次旧名那份（旧形状只读）
+        val raw = store.getString(KEY_ROWS) ?: legacyStore?.getString(KEY_ROWS) ?: return emptyList()
         val array = runCatching { AppJson.parseToJsonElement(raw).jsonArray }.getOrNull() ?: return emptyList()
         return array.mapNotNull { element ->
             val o = element as? JsonObject ?: return@mapNotNull null
@@ -190,9 +212,15 @@ class DesktopDownloadTaskStore(
         return (v as? JsonPrimitive)?.content
     }
 
-    private companion object {
-        const val FILE_NAME = "download_tasks"
-        const val KEY_ROWS = "rows"
+    companion object {
+        /** 端内 store 名的基础部分；完整端内名见 [storeName]（S7b：带账号后缀）。 */
+        const val STORE_NAME = "download_tasks"
+
+        /** 端内名（`download_tasks<账号后缀>`）—— 测试清场与「落盘文件在哪儿」共用这一处口径。 */
+        fun storeName(accountId: String? = AccountContext.activeAccountId): String =
+            accountScopedStoreName(STORE_NAME, accountId)
+
+        private const val KEY_ROWS = "rows"
     }
 }
 

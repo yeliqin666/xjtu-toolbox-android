@@ -39,7 +39,7 @@ import com.xjtu.toolbox.nav.AppRoute
  *   工具层，本端一件都没有 ⇒ 不是"能打开的一屏"）；
  * - `is AppRoute.Browser`：它有分支，但它**不是一屏** —— 它把 URL 交给浏览器本身
  *   （`navigateSameTab`）。清单的口径是"点了会落在本端的一张真屏上"，所以它不在这里；
- * - 其余 `:core` 路由（`DownloadManager` / `Jiaocai1` / `Jiaocai1Reader` / `GameMerge` / `Accounts` …）：
+ * - 其余 `:core` 路由（`DownloadManager` / `Jiaocai1` / `Jiaocai1Reader` / `GameMerge` …）：
  *   本端没有它们的屏，`AppPage` 落 `NotPortedScreen`。
  *
  * ⚠️ 清单里**不等于** "那一屏在本端真能用"：第三批的 `AppRoute.Match` 就在清单里，而它在浏览器里
@@ -118,6 +118,12 @@ internal object WebSupport {
         AppRoute.GameGomoku,
         AppRoute.GameGo,
         AppRoute.GameXiangqi,
+        // 账号管理（D9 / 工单 S7a）：**屏就是 `:core` 那份 `AccountManagerScreen`**（三端同一套层级），
+        // 取数是 serve 的 `GET /api/accounts`（契约 §5.10）。这一端**只读** —— 切换 / 新增 / 删除 / 改密
+        // 要在 App 或桌面端做（serve 只端了读那一半），页顶那一行与动作失败的 toast 说的都是这件事
+        // （见 `WebAccountsScreen` / `WebGapNote`）。与 `AppRoute.Match` 同理：门照旧开着，
+        // 「点了会有个说法」——而且这一条能看见的是**真数据**（账号表与当前账号）。
+        AppRoute.Accounts,
     ).mapTo(mutableSetOf()) { it.id }
 
     /** 这一端真能打开 [route] 吗（见文件头：清单与 `AppPage` 的分支必须同时改）。 */

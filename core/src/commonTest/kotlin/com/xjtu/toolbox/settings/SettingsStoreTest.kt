@@ -15,7 +15,7 @@ import kotlin.test.assertTrue
  *  - 每个键的默认值（`system` / `floating` / `COURSES` / `true` 那一套，与搬迁前逐条对齐）；
  *  - 值常量的字面量（`"jwxt"` / `"bkkq"` / `"HOME"` ……）——它们已经写进用户数据，不能改。
  *
- * 存储用 `:core` 的键值缝（JVM 上是内存实现）：这一层不关心落盘在哪儿，
+ * 存储用 `:core` 的键值缝（JVM 上现在真落盘）：这一层不关心落盘在哪儿，
  * 落盘那份由各端的宿主测（桌面的 `DesktopSettingsJvmTest` 钉的是 0600 的 Properties 文件）。
  */
 class SettingsStoreTest {
