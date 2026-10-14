@@ -41,14 +41,18 @@ import top.yukonga.miuix.kmp.utils.overScrollVertical
 
 /**
  * 「查教材」栏内容，不带 Scaffold / TopAppBar：检索框 + 教材中心检索结果，
- * 搜索框为空时额外插一段「本学期我的教材」，带一键「读全文」。
+ * 搜索框为空时额外插一段「本学期我的教材」，带一键「读全文」（本端有全文库那条链时）。
  * 供 [TextbookScreen] 调用。
  */
 @Composable
 internal fun JiaocaiSearchContent(
     source: JiaocaiSource,
     termTextbooks: JiaocaiTermTextbooks,
-    jiaocai1: Jiaocai1Source,
+    /**
+     * 全文库那一半的取数（「读全文 / 阅读全文」要它）。**null = 本端没有这一档** ⇒ 那些入口一个都不画：
+     * serve 形态就是这样（契约 §5.6：`jiaocai1` 是另一个域名、另一套会话，本轮不碰）。
+     */
+    jiaocai1: Jiaocai1Source?,
     vm: JiaocaiViewModel,
     onOpenFullText: (ssno: String, title: String) -> Unit,
     snackbarHostState: SnackbarHostState,
@@ -169,7 +173,9 @@ internal fun JiaocaiSearchContent(
                 source = source,
                 book = book,
                 onDismiss = { vm.selected = null },
-                onRead = { ssno -> onOpenFullText(ssno, book.title) },
+                // 没有全文库那一半（本端没有那条链）时 `onRead = null`：详情卡里那个
+                // 「阅读全文」按钮整个不画（见 `JiaocaiBookSheet` 的说明）。
+                onRead = if (jiaocai1 != null) { ssno -> onOpenFullText(ssno, book.title) } else null,
             )
         }
     }
@@ -247,11 +253,14 @@ private fun JiaocaiBookSheet(
     source: JiaocaiSource,
     book: JiaocaiBook,
     onDismiss: () -> Unit,
-    onRead: (String) -> Unit,
+    /** 开了全文阅读才传（本端没有 `jiaocai1` 那条链时传 null ⇒ 那个按钮不画）。 */
+    onRead: ((ssno: String) -> Unit)?,
 ) {
     var ssno by remember(book.id) { mutableStateOf(book.ssno) }
     var resolving by remember(book.id) { mutableStateOf(false) }
     LaunchedEffect(book.id) {
+        // 没有阅读入口时连 `ssno` 也不拉：拉了也没地方用（入口那半在下面同一个判断里）
+        if (onRead == null) return@LaunchedEffect
         if (ssno != null || !book.hasFullText) return@LaunchedEffect
         resolving = true
         ssno = source.fetchSsno(book)
@@ -301,7 +310,10 @@ private fun JiaocaiBookSheet(
                 )
             }
 
-            if (book.hasFullText) {
+            // 见参数说明：本端没有全文阅读（serve 形态）时连这个按钮都不画 ——
+            // 画一个点了打不开的「阅读全文」比不画更差。
+            val reader = onRead
+            if (book.hasFullText && reader != null) {
                 Spacer(Modifier.height(16.dp))
                 val ready = ssno
                 TextButton(
@@ -310,7 +322,7 @@ private fun JiaocaiBookSheet(
                         resolving -> "正在获取全文地址…"
                         else -> "该书暂无法在线阅读"
                     },
-                    onClick = { ready?.let(onRead) },
+                    onClick = { if (ready != null) reader(ready) },
                     enabled = ready != null,
                     modifier = Modifier.fillMaxWidth(),
                     colors = ButtonDefaults.textButtonColorsPrimary()
@@ -344,7 +356,7 @@ private sealed class FullTextOutcome {
 @Composable
 private fun MyTextbooksSection(
     termTextbooks: JiaocaiTermTextbooks,
-    jiaocai1: Jiaocai1Source,
+    jiaocai1: Jiaocai1Source?,
     onOpenFullText: (ssno: String, title: String) -> Unit,
     snackbarHostState: SnackbarHostState,
 ) {
@@ -374,7 +386,7 @@ private fun MyTextbooksSection(
 
 @Composable
 private fun MyTextbookRow(
-    jiaocai1: Jiaocai1Source,
+    jiaocai1: Jiaocai1Source?,
     item: JiaocaiTermTextbook,
     onOpenFullText: (ssno: String, title: String) -> Unit,
     snackbarHostState: SnackbarHostState,
@@ -408,22 +420,26 @@ private fun MyTextbookRow(
                 )
             }
             Spacer(Modifier.width(8.dp))
-            TextButton(
-                text = if (resolving) "查找中…" else "读全文",
-                enabled = !resolving,
-                onClick = {
-                    resolving = true
-                    scope.launch {
-                        val outcome = resolveFullText(jiaocai1, item)
-                        resolving = false
-                        when (outcome) {
-                            is FullTextOutcome.Found -> onOpenFullText(outcome.ssno, item.textbookName)
-                            FullTextOutcome.NotFound -> snackbarHostState.showSnackbar("全文库里没有这本")
-                            FullTextOutcome.Failed -> snackbarHostState.showSnackbar("全文库暂时打不开，可能在校外")
+            // 「读全文」要打全文库：本端没有那条链（serve 形态）时这一格的按钮不画
+            val lib = jiaocai1
+            if (lib != null) {
+                TextButton(
+                    text = if (resolving) "查找中…" else "读全文",
+                    enabled = !resolving,
+                    onClick = {
+                        resolving = true
+                        scope.launch {
+                            val outcome = resolveFullText(lib, item)
+                            resolving = false
+                            when (outcome) {
+                                is FullTextOutcome.Found -> onOpenFullText(outcome.ssno, item.textbookName)
+                                FullTextOutcome.NotFound -> snackbarHostState.showSnackbar("全文库里没有这本")
+                                FullTextOutcome.Failed -> snackbarHostState.showSnackbar("全文库暂时打不开，可能在校外")
+                            }
                         }
                     }
-                }
-            )
+                )
+            }
         }
     }
 }

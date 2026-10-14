@@ -32,6 +32,16 @@ interface FeedbackSource {
     val isConfigured: Boolean
 
     /**
+     * 这一端**能不能提交**新反馈。默认 `true`（Android / 桌面的原行为）。
+     *
+     * `false` = 这一端只能读：提交（[submit]）真会往多维表格里加一行，是**写路径**，
+     * serve 契约（`docs/api-contract.md` §5.7）不端它（`:web` 的取数是 [CampusFeedbackApi]）。
+     * 屏据它把**整块表单**不画，只留「去 GitHub 提 Issue」那条外链降级 —— 与「凭据没配全」
+     *（[isConfigured] `false`）那一档的区别是：这里后端**是**配全的、只是本端不能写。
+     */
+    val canSubmit: Boolean get() = true
+
+    /**
      * 提交一条反馈。成功返回即完成（**工单号由调用方生成**，不是服务端下发）。
      *
      * [version] 为空取当前版本；崩溃日志是下次启动才补报的，传崩溃时的版本，免得升级后记错。

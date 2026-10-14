@@ -78,6 +78,8 @@ class AttendanceFakeUpstream {
 
         const val COURSE_NAME = "光电子学（假）"
         const val COURSE_CODE = "PHYS999999"
+        /** 上课教师名（**姓名**）：考勤流水里带着它，而 `/api/attendance/records` 按 §5.2 红线**不投影**它 —— 契约测试拿它当钉子。 */
+        const val TEACHER_NAME = "高宏（假）"
         const val ROOM = "西2楼-假-307"
 
         const val LEAVE_ID = "L-假-0001"
@@ -204,10 +206,10 @@ class AttendanceFakeUpstream {
         {"code":0,"msg":"ok","data":{"total":2,"rows":[
           {"resultId":"r-假-1","semesterId":"$TERM_CURRENT_BH","courseName":"$COURSE_NAME","courseCode":"$COURSE_CODE",
            "courseDate":"2026-09-16","startSection":1,"endSection":2,"classroomName":"$ROOM",
-           "teacherName":"高宏（假）","attendanceStatus":"NORMAL"},
+           "teacherName":"$TEACHER_NAME","attendanceStatus":"NORMAL"},
           {"resultId":"r-假-2","semesterId":"$TERM_CURRENT_BH","courseName":"$COURSE_NAME","courseCode":"$COURSE_CODE",
            "courseDate":"2026-09-18","startSection":3,"endSection":4,"classroomName":"$ROOM",
-           "teacherName":"高宏（假）","attendanceStatus":"LATE"}
+           "teacherName":"$TEACHER_NAME","attendanceStatus":"LATE"}
         ]}}
     """.trimIndent()
 

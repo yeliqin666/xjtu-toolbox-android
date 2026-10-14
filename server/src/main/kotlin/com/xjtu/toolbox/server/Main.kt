@@ -1,5 +1,6 @@
 package com.xjtu.toolbox.server
 
+import com.xjtu.toolbox.feedback.FeedbackApi
 import kotlin.system.exitProcess
 
 /**
@@ -34,6 +35,10 @@ fun main(args: Array<String>) {
     }
 
     val token = AccessToken.loadOrCreate()
+    // 反馈那一条链的凭据是**运行期**注入的（两个窗口端是构建期烘焙的常量，serve 是部署在那台
+    // 机器上的常驻进程 ⇒ 按环境变量注入才是它这一形态的正确答案，见 `ServeFeedback`）。
+    // 没配也只是 `/api/feedback*` 那两条端点报「没配」，不影响其余端点。
+    ServeFeedback.install()
     printStartupBanner(config, token)
     serveServer(config, token, ServeSession()).start(wait = true)
 }
@@ -59,6 +64,13 @@ private fun printStartupBanner(config: ServeConfig, token: String) {
             ""
         } else {
             "  ⚠️ 这个目录不存在：静态一律 404。先跑 ./gradlew :web:wasmJsBrowserDistribution（约 18 分钟），或用 --dist 指到别处"
+        },
+    )
+    println(
+        "  反馈后端：    " + if (FeedbackApi.isConfigured) {
+            "已配置（/api/feedback/* 可用）"
+        } else {
+            "未配置 ⇒ /api/feedback/* 报 502；设 ${ServeFeedback.ENV_APP_ID} / ${ServeFeedback.ENV_APP_SECRET} / ${ServeFeedback.ENV_BASE_TOKEN} 再启动"
         },
     )
     println("  访问令牌：    $token")

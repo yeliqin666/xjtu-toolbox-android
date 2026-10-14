@@ -119,6 +119,10 @@ fun JwappScoreScreen(
     val vm: JwappScoreViewModel = viewModel(key = "score-$studentId") {
         JwappScoreViewModel(source, jwxt, studentId, cache)
     }
+    // 本端能不能「点开一门课看分项」（见 `JwappScoreSource.canFetchScoreDetail` 的 KDoc）：
+    // serve 形态没有那一条端点 ⇒ 卡片点了不展开 —— 展开的是一个拿不到数据的格子，只会画出
+    // 「无法加载详细成绩」那句假话（缺口写在各端自己的页顶说明里）。
+    val canExpandDetail = source?.canFetchScoreDetail == true
     val snackbarHostState = remember { SnackbarHostState() }
     LaunchedEffect(vm) {
         vm.messages.collect {
@@ -494,7 +498,7 @@ fun JwappScoreScreen(
                                                         } else {
                                                             selectedCourseIds + scoreItem.id
                                                         }
-                                                    } else if (!isFromReport) {
+                                                    } else if (!isFromReport && canExpandDetail) {
                                                         if (isExpanded) {
                                                             expandedCourseId = null
                                                         } else {

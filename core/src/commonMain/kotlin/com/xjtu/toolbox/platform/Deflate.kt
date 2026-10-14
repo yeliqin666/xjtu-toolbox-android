@@ -21,9 +21,11 @@ package com.xjtu.toolbox.platform
  * 浏览器侧其实有 `CompressionStream('deflate')`，但它是**流式异步**的（要么 `awaiter`，要么
  * 攒完整段再读），而分享码这条路在本仓库里是「编码→立刻拿到字符串→画二维码」的同步链
  * （`MatchProfile.encode`）。把一个同步算法换成 `suspend` 会一路改到屏与 ViewModel，
- * 而 Web 端那条路由今天还没点亮 —— 不值得为它先付这笔账。
+ * 而 `:web` 的匹配交友屏（2026-10-14 起也接上了）**不靠这条路**：它落一张如实说明页 ——
+ * 所以还是不值得先付这笔账。
  *
- * **TODO（Web 端的匹配交友）**：`AppRoute.Match` 在 `:web` 还没点亮。真要接的时候，这个
+ * **TODO（Web 端的匹配交友）**：`AppRoute.Match` 在 `:web` 上今天落的就是那张**如实说明页**
+ *（「这一屏要在能出码的端上用」）。真要把它做成能出码的屏，这个
  * actual 有两条路：① 用 `CompressionStream` + `DecompressionStream`，把 `MatchProfile.encode`
  * / `decode` 收成 `suspend`（连带屏上那两处调用点）；② 换成一份纯 Kotlin 的 deflate
  * 实现（进 commonMain，三端同一份）。在那之前，`deflateAvailable` 是 false，

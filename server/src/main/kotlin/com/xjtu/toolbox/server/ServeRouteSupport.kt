@@ -8,7 +8,7 @@ import io.ktor.server.response.respond
 import kotlinx.coroutines.CancellationException
 
 /**
- * 四个 `*Routes`（jwxt / library / card / venue）共用的三件小事。
+ * 这几个 `*Routes`（jwxt / library / card / venue / lms / jiaocai / jwapp / iclassface）共用的小工具。
  *
  * ## 读路径的失败都走 502
  *
@@ -49,6 +49,38 @@ internal suspend fun ApplicationCall.respondBadRequestMessage(message: String) =
  */
 internal suspend fun ApplicationCall.respondActionRejected(message: String) =
     respond(HttpStatusCode.Conflict, ApiEnvelope<Unit>(ApiErrors.ACTION_REJECTED, message = message))
+
+/**
+ * 收一个**整数**查询参数 [name]（缺 / 空白 / 不是整数 / 小于 [min] ⇒ 400 + 中文短句，返回 null）。
+ *
+ * [what] 是给用户看的那半句说明（「取自哪里」），拼出来的文案形如
+ * `courseId 需要是正整数（课程 id（取自 /api/lms/courses 的 id））` —— 一律**说清怎么办**。
+ *
+ * 为什么收在这里：`/api/lms/{activities,activity}`、`/api/jiaocai/ssno` 这几条端点的参数
+ * 都只是「一个/几个 id」，各自写一遍「空 / 非数字」的判据必然漂开（`/api/attendance/records`
+ * 的 `?term=` 与 `/api/coupon` 的 `?page=` 就是各写一遍的先例）。[min] 默认 `1`（id 都从 1 起，
+ * 上游没有 0 号课），`/api/jiaocai/ssno` 的 `appId` / `engineInstanceId` 传 `0`
+ * （它们可以是 0，那是 `:data` 里 `JiaocaiBook` 的默认值）。
+ */
+internal suspend fun ApplicationCall.requireIntParam(name: String, what: String, min: Int = 1): Int? {
+    val raw = request.queryParameters[name]?.trim().orEmpty()
+    if (raw.isEmpty()) {
+        respondBadRequestMessage("$name 必填（$what）")
+        return null
+    }
+    val value = raw.toIntOrNull()
+    if (value == null || value < min) {
+        respondBadRequestMessage(
+            when {
+                min >= 1 -> "$name 需要是正整数（$what）"
+                min == 0 -> "$name 需要是非负整数（$what）"
+                else -> "$name 需要是不小于 $min 的整数（$what）"
+            },
+        )
+        return null
+    }
+    return value
+}
 
 /**
  * 收一个 JSON 请求体；形状不对（缺字段 / JSON 坏 / content-type 不是 JSON）给 null，

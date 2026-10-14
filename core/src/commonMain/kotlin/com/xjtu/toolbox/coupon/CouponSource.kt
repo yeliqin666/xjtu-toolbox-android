@@ -17,9 +17,19 @@ package com.xjtu.toolbox.coupon
  * | 端 | 实现 | 备注 |
  * |---|---|---|
  * | Android / 桌面 | `:data` 的 `AppCouponSource`（包住 `CouponApi`） | 走自己的站点会话（`coupon`） |
- * | Web | 还没有 | 屏搬好了，取数要等 campus-api 或 `:server` 的 `/api` 端点给出（如实记在 `:web` 的未搬清单里） |
+ * | Web | `:core` 的 `CampusCouponApi`（`ApiMode.SERVE`） | `GET /api/coupon/{list,detail}`（只读两格）。**领券不端**（写路径）⇒ [CouponSource.canActivate] 报 `false`；封面图要 egc 会话 ⇒ [CouponSource.loadImage] 如实给 `null` |
  */
 interface CouponSource {
+
+    /**
+     * 本端这一份取数**能不能真领取**。
+     *
+     * 默认 `true` = 搬迁前的行为（`:data` 的 `AppCouponSource` 能领）。serve 契约 §5.5 只端只读
+     * 两格：`activateCoupon`（`POST /app/voucher/activate`）真会改上游状态，是写路径 ⇒ `:web`
+     * 那一份报 `false`，屏上那张「可领取」卡里**不画**「领取」按钮 —— 与「点了会失败的按钮，
+     * 一个都不画」同一条口径。
+     */
+    val canActivate: Boolean get() = true
 
     /** 按分类分页查券。分类的线上取值全在 [CouponFilter] 里（`status` / `count` / `expired`）。 */
     suspend fun queryCoupons(

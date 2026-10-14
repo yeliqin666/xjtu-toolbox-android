@@ -56,9 +56,20 @@ import com.xjtu.toolbox.nav.AppRoute
 fun TextbookScreen(
     source: JiaocaiSource,
     termTextbooks: JiaocaiTermTextbooks,
-    jiaocai1Source: Jiaocai1Source,
-    jiaocai1Shelf: Jiaocai1ShelfStore,
-    jiaocai1Cache: Jiaocai1Cache?,
+    /**
+     * 全文库那一半（页图取数 + 书架 + 分类树缓存）。**null = 本端没有这一档** ⇒ 只画「查教材」一栏，
+     * 各处的「读全文 / 阅读全文」入口一个都不画。
+     *
+     * serve 形态就是这样（`docs/api-contract.md` §5.6）：那八个端点里没有 `jiaocai1` 那条链
+     *（另一个域名、另一套会话）—— 拿不到的东西不摆入口，而不是摆一个点了没反应的
+     *（与 `LmsScreen.videoPlayer` / `AttendanceScreen.onOpenIclassface` 同一条 idiom）。
+     * 两个都给齐了才算有：只给一个画不了那一栏。
+     *
+     * Android / 桌面两处调用点都给，所以那两端的屏一行未变。
+     */
+    jiaocai1Source: Jiaocai1Source? = null,
+    jiaocai1Shelf: Jiaocai1ShelfStore? = null,
+    jiaocai1Cache: Jiaocai1Cache? = null,
     onBack: () -> Unit,
     onOpenBook: (ssno: String, title: String) -> Unit,
     initialTab: Int = 0,
@@ -70,23 +81,27 @@ fun TextbookScreen(
     jiaocaiVm.bind(source)
     // jiaocai1（全文库）那一半也在共享内核：取数/页字节、书架、分类树缓存都是端口，由宿主决定填
     // 什么（Android 是 Room DAO + DataCache，桌面是 JSON 落盘 + 没有缓存），页图解码在 `:core`。
-    val jiaocai1Vm: Jiaocai1ViewModel = viewModel(key = "jiaocai-library") {
-        Jiaocai1ViewModel(jiaocai1Source, jiaocai1Shelf, jiaocai1Cache)
+    // 宿主没填（serve 形态）时整半不建：见 `jiaocai1Source` 的说明。
+    val lib = jiaocai1Source?.let { s -> jiaocai1Shelf?.let { shelf -> s to shelf } }
+    val jiaocai1Vm: Jiaocai1ViewModel? = lib?.let { (libSource, libShelf) ->
+        viewModel(key = "jiaocai-library") { Jiaocai1ViewModel(libSource, libShelf, jiaocai1Cache) }
     }
-    jiaocai1Vm.bind()
-    val jiaocai1Images = remember(jiaocai1Source) { Jiaocai1PageImages(jiaocai1Source) }
+    jiaocai1Vm?.bind()
+    val jiaocai1Images = lib?.let { (libSource, _) -> remember(libSource) { Jiaocai1PageImages(libSource) } }
 
     // 全文库使用声明：三栏共用一个页面，进哪一栏都可能碰到全文内容，统一在最外层弹一次，
     // 不必等用户切到「全文库」栏才提醒——沿用原 Jiaocai1Screen 的做法（进页面就弹）。
-    Jiaocai1UsageNotice(onDecline = onBack)
+    // 没有全文库那一半时（本端没有那条链）不弹：那一栏根本没画出来。
+    if (lib != null) Jiaocai1UsageNotice(onDecline = onBack)
+    val tabs = if (lib != null) listOf("查教材", "书架", "全文库") else listOf("查教材")
+    var selectedTab by rememberSaveable { mutableIntStateOf(initialTab.coerceIn(0, tabs.lastIndex)) }
 
-    var selectedTab by rememberSaveable { mutableIntStateOf(initialTab.coerceIn(0, 2)) }
-
-    LaunchedEffect(initialKeyword) {
-        if (initialKeyword.isNotBlank() && jiaocai1Vm.result == null) {
-            jiaocai1Vm.keyword = initialKeyword
+    LaunchedEffect(initialKeyword, jiaocai1Vm) {
+        val libVm = jiaocai1Vm ?: return@LaunchedEffect
+        if (initialKeyword.isNotBlank() && libVm.result == null) {
+            libVm.keyword = initialKeyword
             selectedTab = 2
-            jiaocai1Vm.search(1)
+            libVm.search(1)
         }
     }
 
@@ -98,7 +113,7 @@ fun TextbookScreen(
             authExpiry.onAuthExpired(authExpiredRoute, onBack)
         }
     }
-    if (jiaocai1Vm.authExpired) {
+    if (jiaocai1Vm?.authExpired == true) {
         LaunchedEffect(Unit) {
             jiaocai1Vm.authExpired = false
             authExpiry.onAuthExpired(authExpiredRoute, onBack)
@@ -121,7 +136,7 @@ fun TextbookScreen(
                 bottomContent = {
                     CompositionLocalProvider(LocalOnGlassBar provides (glass != null)) {
                         AppSegmentedTabs(
-                            tabs = listOf("查教材", "书架", "全文库"),
+                            tabs = tabs,
                             selectedTabIndex = selectedTab,
                             onTabSelected = { selectedTab = it },
                             modifier = Modifier.readableWidth(),
@@ -141,7 +156,7 @@ fun TextbookScreen(
         ) {
             // 三栏顶上都是不滚动的检索框 / 分类条，整栏让出顶栏高度，不压到玻璃后面
             AppTabPager(
-                pageCount = 3,
+                pageCount = tabs.size,
                 selectedTabIndex = selectedTab,
                 onTabSelected = { selectedTab = it },
                 modifier = Modifier.fillMaxSize(),
@@ -157,16 +172,22 @@ fun TextbookScreen(
                         snackbarHostState = snackbarHostState,
                         modifier = Modifier.fillMaxSize(),
                     )
-                    1 -> Jiaocai1ShelfContent(
-                        vm = jiaocai1Vm,
-                        images = jiaocai1Images,
-                        onOpenBook = onOpenBook,
-                    )
-                    else -> Jiaocai1BrowseContent(
-                        vm = jiaocai1Vm,
-                        images = jiaocai1Images,
-                        onOpenBook = onOpenBook,
-                    )
+                    // 1 / 2 两页只在有全文库那一半时才会被划到（`pageCount = tabs.size`）：
+                    // 没有那一半时只有一页。这里的判空是给编译器看的，不是给用户看的。
+                    1 -> if (jiaocai1Vm != null && jiaocai1Images != null) {
+                        Jiaocai1ShelfContent(
+                            vm = jiaocai1Vm,
+                            images = jiaocai1Images,
+                            onOpenBook = onOpenBook,
+                        )
+                    }
+                    else -> if (jiaocai1Vm != null && jiaocai1Images != null) {
+                        Jiaocai1BrowseContent(
+                            vm = jiaocai1Vm,
+                            images = jiaocai1Images,
+                            onOpenBook = onOpenBook,
+                        )
+                    }
                 }
               }
             }

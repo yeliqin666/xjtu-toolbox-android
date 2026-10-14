@@ -249,25 +249,38 @@ fun PaymentCodeScreen(
 
                         Spacer(Modifier.height(16.dp))
 
-                        CodeMatrixView(
-                            matrix = qrMatrix,
-                            // 与搬迁前那张 600×600 的位图同一个口径：外边留 1 个模块的白边
-                            //（`QrBitmap.generate` 的 `MARGIN=1`），码本身居于正中。
-                            quietZoneModules = 1,
-                            modifier = Modifier.size(200.dp),
-                        )
+                        // 这一端到底有没有编码器：wasmJs 的 `qrCodeModules` / `code128Modules` **如实返回
+                        // null**（这一端没有 encoder，zxing 只有 JVM/Android 那一份 jar）⇒ 两个矩阵都不画，
+                        // 只留下面那串数字（纯文本那一档，不依赖编码器）。不画一张假的，也不留两块空白
+                        // 让人以为图挂了 —— 画不出来就说清楚（见 core/src/wasmJsMain/.../CodeMatrix.wasmJs.kt）。
+                        if (qrMatrix == null && barMatrix == null) {
+                            Text(
+                                "本端没有条码 / 二维码编码器，画不出可扫的码；下面这串数字就是付款码本身。",
+                                fontSize = 12.sp,
+                                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                                textAlign = TextAlign.Center,
+                            )
+                        } else {
+                            CodeMatrixView(
+                                matrix = qrMatrix,
+                                // 与搬迁前那张 600×600 的位图同一个口径：外边留 1 个模块的白边
+                                //（`QrBitmap.generate` 的 `MARGIN=1`），码本身居于正中。
+                                quietZoneModules = 1,
+                                modifier = Modifier.size(200.dp),
+                            )
 
-                        Spacer(Modifier.height(16.dp))
+                            Spacer(Modifier.height(16.dp))
 
-                        CodeMatrixView(
-                            matrix = barMatrix,
-                            // 静默区已经含在 Code128 的条纹阵列里（writer 默认留 10 个模块，
-                            // 与搬迁前那 800 像素宽的位图同一个比例）⇒ 这里不再另留。
-                            quietZoneModules = 0,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(70.dp),
-                        )
+                            CodeMatrixView(
+                                matrix = barMatrix,
+                                // 静默区已经含在 Code128 的条纹阵列里（writer 默认留 10 个模块，
+                                // 与搬迁前那 800 像素宽的位图同一个比例）⇒ 这里不再另留。
+                                quietZoneModules = 0,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(70.dp),
+                            )
+                        }
 
                         Spacer(Modifier.height(6.dp))
 
@@ -291,6 +304,9 @@ fun PaymentCodeScreen(
 
                         VoucherSelectorCard(
                             vouchers = vouchers,
+                            // 这一端能不能改勾选：serve 契约没有那个写端点（`canSelectVouchers`）⇒ false 时
+                            // 那几行券只读（不画勾选框、整行不可点），不是画一个点了会报错的勾选框
+                            canSelect = source.canSelectVouchers,
                             selectedIds = selectedVoucherIds,
                             isLoading = isVoucherLoading,
                             isSyncing = isVoucherSyncing,
@@ -339,9 +355,19 @@ fun PaymentCodeScreen(
 }
 
 
+/**
+ * 加餐券那一栏。
+ *
+ * [canSelect] = `false` 时是**只读展示**（`PaymentCodeSource.canSelectVouchers` 报 false —— serve 契约
+ * 没有「同步这一轮用哪几张」的写端点，契约 §5.7）⇒ 不画勾选框、整行也不可点，标题右边那一格写
+ * 「共 N 张 · 本端只读」而不是「未使用 / 已选 N 张」（后者在只读这一档是编话：本端根本不知道
+ * 上游那一头此刻勾了哪几张）。
+ */
 @Composable
 private fun VoucherSelectorCard(
     vouchers: List<PaymentVoucher>,
+    /** `false` ⇒ 只读展示（不画勾选框、整行也不可点）—— 见 `PaymentCodeSource.canSelectVouchers`。 */
+    canSelect: Boolean,
     selectedIds: Set<String>,
     isLoading: Boolean,
     isSyncing: Boolean,
@@ -355,7 +381,7 @@ private fun VoucherSelectorCard(
         colors = CardDefaults.defaultColors(color = MiuixTheme.colorScheme.surface)
     ) {
         Column(Modifier.fillMaxWidth().padding(14.dp)) {
-            // 一行标题，状态用右边一个词说：暂无可用 / 未使用 / 已选 N 张。勾选框本身就说明了用法
+            // 一行标题，状态用右边一个词说：暂无可用 / 未使用 / 已选 N 张（只读那一档见 [canSelect]）
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
                     "加餐券抵扣",
@@ -368,6 +394,7 @@ private fun VoucherSelectorCard(
                     isLoading || isSyncing -> CircularProgressIndicator(size = 18.dp, strokeWidth = 2.dp)
                     error != null -> Unit
                     vouchers.isEmpty() -> Text("暂无可用", style = MiuixTheme.textStyles.footnote1, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
+                    !canSelect -> Text("共 ${vouchers.size} 张 · 本端只读", style = MiuixTheme.textStyles.footnote1, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
                     selected > 0 -> Text("已选 $selected 张", style = MiuixTheme.textStyles.footnote1, color = MiuixTheme.colorScheme.primary)
                     else -> Text("未使用", style = MiuixTheme.textStyles.footnote1, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
                 }
@@ -392,10 +419,17 @@ private fun VoucherSelectorCard(
                     vouchers.take(4).forEach { voucher ->
                         val checked = voucher.showCardId in selectedIds
                         Surface(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clip(RoundedCornerShape(14.dp))
-                                .clickable { onToggle(voucher) },
+                            // 只读那一档（canSelect = false）：没有勾选，也就没有可点的地方
+                            modifier = if (canSelect) {
+                                Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(14.dp))
+                                    .clickable { onToggle(voucher) }
+                            } else {
+                                Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(14.dp))
+                            },
                             color = if (checked) MiuixTheme.colorScheme.primary.copy(alpha = 0.10f)
                             else MiuixTheme.colorScheme.surfaceVariant,
                             shape = RoundedCornerShape(14.dp)
@@ -404,11 +438,13 @@ private fun VoucherSelectorCard(
                                 Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Checkbox(
-                                    state = if (checked) ToggleableState.On else ToggleableState.Off,
-                                    onClick = { onToggle(voucher) }
-                                )
-                                Spacer(Modifier.width(8.dp))
+                                if (canSelect) {
+                                    Checkbox(
+                                        state = if (checked) ToggleableState.On else ToggleableState.Off,
+                                        onClick = { onToggle(voucher) }
+                                    )
+                                    Spacer(Modifier.width(8.dp))
+                                }
                                 Column(Modifier.weight(1f)) {
                                     Text(
                                         voucher.voucherName,

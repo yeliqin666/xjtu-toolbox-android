@@ -26,6 +26,8 @@ import java.util.concurrent.atomic.AtomicInteger
  * POST <WDKB>/modules/jshkcb/cxjcs.do   → 学期起点 `XQKSRQ`/`ZZC`（请求里必须带 `XN` 与 `XQ`）
  * GET  <REPORT_URL>?reportlet=…&xh=…    → 帆软报表初始页（`FR.SessionMgr.register`）
  * GET  <REPORT_URL>?…&op=page_content&sessionID=…&pn=N → 第 N 页表格
+ * POST <REPORT_URL>（body `reportlets=[{'xh':…,'xnxqdm':…,'reportlet':'jcgl/wdjc.cpt'}]`）
+ *                                    → 教材报表初始页（**内联表格**；见 [handleTextbookReport]）
  * ```
  *
  * ## 评教（本科那一条 = 第 8 条真数据路由）也在这个 host 上
@@ -106,6 +108,9 @@ import java.util.concurrent.atomic.AtomicInteger
  * - 成绩报表的页数、会话 id、学期标题与课程行都照 `ScoreReportApi` 的判据写：
  *   `FR.SessionMgr.register('<id>'`、`FR._p.reportTotalPage = <n>`、单列表格行 = 学期标题、
  *   三列行 = 课程（课程名 / 学分 / 成绩），表头与学分行不是数字的行会被跳过。
+ * - 教材报表的列头与 `JwxtScheduleApi.parseTableRows` 的列映射一一对得上
+ *   （课程号 / 课程名 / 书名 / 主编 / 出版社 / ISBN号 / 定价 / 版次），第二行就是「无教材」那一档
+ *   （带占位 ISBN）—— `hasSubstantiveTextbook` 为假就是靠这两行钉住的。
  *
  * ## 认不出的路径要响亮
  *
@@ -258,6 +263,37 @@ class JwxtFakeUpstream {
         const val EXAM_TIME = "14:30-16:30"
         const val EXAM_ROOM = "主楼A-101"
         const val EXAM_SEAT = "27"
+        // ── 教材报表样本（`frReport2/show.do` 的 `jcgl/wdjc.cpt`；`:data` 的 `JwxtScheduleApi.textbooks`）──
+        //
+        // 与成绩报表**同一个 show.do**、同一台假教务：差别只在「怎么问」——成绩报表是 GET + `?reportlet=…&xh=…`
+        // （成绩那一族已经在钉），教材报表是 POST + 请求体里的 `reportlets=[{…}]`（见 [handleTextbookReport]）。
+        // 表头写的是真站点的列名（课程号 / 课程名 / 书名 / 主编 / 出版社 / ISBN号 / 定价 / 版次），
+        // 因为 `parseTableRows` 的列映射认的就是这些词 —— 值全是编的。
+
+        /** 教材报表的 reportlet 与它那个表单字段名（`:data` 里那两处字面量）。 */
+        const val TEXTBOOK_REPORTLET = "jcgl/wdjc.cpt"
+        const val TEXTBOOK_REPORT_PARAM = "reportlets"
+
+        /** 第一行：一门正常有教材的课（八格都有值）。 */
+        const val TEXTBOOK_COURSE = "线性代数"
+        const val TEXTBOOK_COURSE_CODE = "MATH1002"
+        const val TEXTBOOK_NAME = "线性代数（第七版）"
+        const val TEXTBOOK_AUTHOR = "示例作者"
+        const val TEXTBOOK_PUBLISHER = "示例出版社"
+        const val TEXTBOOK_ISBN = "978-7-0000-0000-0"
+        const val TEXTBOOK_PRICE = "39.00"
+        const val TEXTBOOK_EDITION = "第7版"
+
+        /**
+         * 第二行：「无教材」那一档 —— 书名就是「无教材」，ISBN 是报表那串**占位号**
+         * （[TEXTBOOK_PLACEHOLDER_ISBN]）。`TextbookItem.hasSubstantiveTextbook` 为假就是判这一行，
+         * 而占位号刻意留着：`:core` 的 `realIsbn` 才是滤它的那一处，本夹具不替它滤。
+         */
+        const val TEXTBOOK_NONE_COURSE = "大学物理"
+        const val TEXTBOOK_NONE_COURSE_CODE = "PHYS1002"
+        const val TEXTBOOK_NONE_NAME = "无教材"
+        const val TEXTBOOK_PLACEHOLDER_ISBN = "9780000000000"
+
 
         // ── 成绩报表样本 ──
 
@@ -463,6 +499,18 @@ class JwxtFakeUpstream {
     var lastExamForm: String? = null
         private set
 
+    /**
+     * 教材报表初始化那一枪打过几次，以及**最近一次 `reportlets` 字段的原文**（URL 解码之后）。
+     *
+     * 断言用：这一格里有学号与学期号 —— 「学号只在请求里、不进响应」这条红线全靠它证明
+     * （响应里没有那个值，但夹具明明收到了它）。
+     */
+    val textbookReportCalls = AtomicInteger()
+
+    @Volatile
+    var lastTextbookReportlet: String? = null
+        private set
+
     /** 最近一次报表初始页请求里带的学号（`xh=`）。 */
     @Volatile
     var lastReportStudentId: String? = null
@@ -629,6 +677,25 @@ class JwxtFakeUpstream {
            "KSSJMS":"$EXAM_DATE $EXAM_TIME","JASMC":"$EXAM_ROOM","ZWH":"$EXAM_SEAT"}
         ]}}}
     """.trimIndent()
+    /**
+     * 教材报表的**初始页**（`:data` 的 `JwxtScheduleApi.textbooks` Step 1/3 那一枪）。
+     *
+     * 只给内联 `<table>`：`parseTextbookTable` 的**策略 1**（标准表格）就能解析出来 ⇒ 走不到
+     * Step 4/5 那条 `FR.SessionMgr.register` + `op=page_content` 的翻页链（成绩报表那一族已经在钉它）。
+     * ⚠️ 页面里**不能**出现 `login` / `openplatform` 两个词：`:data` 把「有 login 又没有 SessionMgr」
+     * 当成会话失效（`AuthExpiredException`），那会把这一条端点的测试变成另一件事。
+     */
+    val textbookReportPage = """
+        <html><head><title>教材使用情况</title></head><body>
+        <table><tbody>
+          <tr><th>课程号</th><th>课程名</th><th>书名</th><th>主编</th><th>出版社</th><th>ISBN号</th><th>定价</th><th>版次</th></tr>
+          <tr><td>$TEXTBOOK_COURSE_CODE</td><td>$TEXTBOOK_COURSE</td><td>$TEXTBOOK_NAME</td><td>$TEXTBOOK_AUTHOR</td><td>$TEXTBOOK_PUBLISHER</td><td>$TEXTBOOK_ISBN</td><td>$TEXTBOOK_PRICE</td><td>$TEXTBOOK_EDITION</td></tr>
+          <tr><td>$TEXTBOOK_NONE_COURSE_CODE</td><td>$TEXTBOOK_NONE_COURSE</td><td>$TEXTBOOK_NONE_NAME</td><td></td><td></td><td>$TEXTBOOK_PLACEHOLDER_ISBN</td><td></td><td></td></tr>
+        </tbody></table>
+        </body></html>
+    """.trimIndent()
+
+
     /** 学期列表：三行，**倒序给**（上游按 `*order=-DM` 排好），第三行只有 DM。 */
     val termListJson = """
         {"datas":{"xnxqcx":{"rows":[
@@ -1031,8 +1098,16 @@ class JwxtFakeUpstream {
         respondHtml(exchange, homePage)
     }
 
-    /** 帆软报表：初始页（`reportlet=`）与翻页（`op=page_content`）两条，认不出就响亮地失败。 */
+    /**
+     * 帆软报表：成绩报表（初始页 `reportlet=` / 翻页 `op=page_content`，两条都是 **GET**）、
+     * 教材报表（**POST** + 请求体里的 `reportlets=[…]`，见 [handleTextbookReport]），认不出就响亮地失败。
+     */
     private fun handleReport(exchange: HttpExchange, query: String) {
+        // 教材报表那一枪**没有 query**：参数全在请求体里 ⇒ 先按方法分，再按 query 分。
+        if (exchange.requestMethod == "POST") {
+            handleTextbookReport(exchange)
+            return
+        }
         if ("op=page_content" in query) {
             val pn = param(query, "pn")?.toIntOrNull()
             val sessionId = param(query, "sessionID")
@@ -1068,6 +1143,29 @@ class JwxtFakeUpstream {
             return
         }
         badRequest(exchange, "认不出的报表请求：$query")
+    }
+
+    /**
+     * 教材报表的初始页：`reportlets` 里那三个键（`xh` / `xnxqdm` / `reportlet`）都要在，
+     * 而且 reportlet 必须是教材那一张 —— 少了任何一格，问的就是别的东西（与其余端点同一条规矩）。
+     *
+     * 记的是**解码之后**的 `reportlets`：`:data` 用 `FormBody` 发，原文里 `'` `{` `}` 全是百分号编码。
+     */
+    private fun handleTextbookReport(exchange: HttpExchange) {
+        val body = readBody(exchange)
+        val reportlets = formFields(body)[TEXTBOOK_REPORT_PARAM].orEmpty()
+        lastTextbookReportlet = reportlets
+        val missing = listOf("'xh'", "'xnxqdm'").filterNot { it in reportlets }
+        if (missing.isNotEmpty()) {
+            badRequest(exchange, "教材报表的 reportlets 少了 ${missing.joinToString("/")}，收到：$reportlets")
+            return
+        }
+        if (TEXTBOOK_REPORTLET !in reportlets) {
+            badRequest(exchange, "教材报表的 reportlet 不是 $TEXTBOOK_REPORTLET，收到：$reportlets")
+            return
+        }
+        textbookReportCalls.incrementAndGet()
+        respondHtml(exchange, textbookReportPage)
     }
 
     /**

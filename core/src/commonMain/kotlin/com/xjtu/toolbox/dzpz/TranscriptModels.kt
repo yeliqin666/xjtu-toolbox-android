@@ -79,9 +79,21 @@ data class DownloadInfo(
  * | 端 | 实现 | 备注 |
  * |---|---|---|
  * | Android / 桌面 | `:data` 的 `AppTranscriptSource`（包住 `TranscriptApi`） | 走自己的站点会话（`dzpz`） |
- * | Web | 还没有 | 屏搬好了，取数要等 campus-api 或 `:server` 的 `/api` 端点给出这条链（如实记在 `:web` 的未搬清单里） |
+ * | Web | `:core` 的 `CampusTranscriptApi`（`ApiMode.SERVE`） | **只有第一步**：`GET /api/dzpz/transcript`。契约 §5.5 刻意不投影第 2~7 步（学号 / 写路径 / 签章密钥）⇒ [TranscriptSource.canRunWorkflow] 报 `false`，屏上不画「一键申请」那半条链 |
  */
 interface TranscriptSource {
+
+    /**
+     * 本端这一份取数**能不能走完那七步**（出 PDF 那半条链：联动 → 生成 → 两次提交 → 签章 → 下载）。
+     *
+     * 默认 `true` = 搬迁前的行为（`:data` 的 `AppTranscriptSource` 七步都在）。serve 契约 §5.5 只端了
+     * 第 1 步（建单表单）：第 2 步的返回值里有**学号**（红线），第 3~7 步是写路径（生成预览 PDF /
+     * 提交 / 签章 / 取下载链接 / 下载字节）⇒ `:web` 那一份报 `false`。
+     *
+     * 屏据此**不画**「一键申请成绩单」按钮与那五步的步骤预览（点了只会失败），改画一张
+     * 如实说明缺口的卡 —— 与「点了会失败的按钮，一个都不画」同一条口径。
+     */
+    val canRunWorkflow: Boolean get() = true
 
     /** Step 1：加载创建表单（含成绩单类型选项、默认日期、签名参数）。 */
     suspend fun loadCreateForm(workflowId: Int): FormContext

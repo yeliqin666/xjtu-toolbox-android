@@ -51,10 +51,17 @@ import com.xjtu.toolbox.nav.AppRoute
  * | `System.identityHashCode(site)` 当 VM key | [DzpzDocument.id]（`identityHashCode` 是 JVM 专属，`:core` 还要编到 wasm） |
  *
  * 屏自己的画法、文案、状态走向**一行未改**。
+ *
+ * ## serve 模式下的**如实缺口**（2026-10-13 那次接线）
+ *
+ * `:web` 那一份取数是 `:core` 的 `CampusTranscriptApi`（`ApiMode.SERVE`），它只填得了第一步
+ * （`GET /api/dzpz/transcript`）⇒ [TranscriptSource.canRunWorkflow] 报 `false`，于是这块「工作流状态」
+ * 位置画的是 [TranscriptWorkflowGapCard]（说清缺哪几步、为什么缺），**不画**「一键申请成绩单」与
+ * 那五步的步骤预览 —— 点了必然失败的东西不摆出来。
  */
 @Composable
 fun TranscriptScreen(
-    /** 本端的取数（Android / 桌面 = `:data` 的 `AppTranscriptSource`；Web 还没有这条链）。 */
+    /** 本端的取数（Android / 桌面 = `:data` 的 `AppTranscriptSource`；serve 模式 = `:core` 的 `CampusTranscriptApi`）。 */
     source: TranscriptSource,
     onBack: () -> Unit,
     // 现在只有成绩单一种文件，先把参数留出来；P2 接了文件列表页以后，
@@ -144,12 +151,16 @@ fun TranscriptScreen(
 
                     // ── 工作流状态 ──
                     item {
-                        WorkflowProgressCard(
-                            state = vm.workflowState,
-                            progress = vm.workflowProgress,
-                            onStart = vm::start,
-                            enabled = vm.workflowState != WorkflowState.RUNNING
-                        )
+                        if (source.canRunWorkflow) {
+                            WorkflowProgressCard(
+                                state = vm.workflowState,
+                                progress = vm.workflowProgress,
+                                onStart = vm::start,
+                                enabled = vm.workflowState != WorkflowState.RUNNING,
+                            )
+                        } else {
+                            TranscriptWorkflowGapCard()
+                        }
                     }
 
                     // ── 下载完成区域 ──
@@ -311,6 +322,37 @@ private fun InfoCard(
                     )
                 }
             }
+        }
+    }
+}
+
+/**
+ * serve 模式下替代 [WorkflowProgressCard] 的那张卡（见屏的 KDoc）：契约 §5.5 只端了七步里的
+ * 第一步，第 2~7 步没有端点 —— 这里把**哪几步没有、为什么没有**写在屏幕上，
+ * 而不是画一个点了会失败的按钮。
+ */
+@Composable
+private fun TranscriptWorkflowGapCard() {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.defaultColors(color = MiuixTheme.colorScheme.surfaceVariant)
+    ) {
+        Column(Modifier.fillMaxWidth().padding(16.dp)) {
+            Text(
+                "出 PDF 那半条链没有端点",
+                fontSize = 15.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = MiuixTheme.colorScheme.onSurface
+            )
+            Spacer(Modifier.height(8.dp))
+            Text(
+                "这一端只拿得到「选类型」这一步（服务端契约 §5.5 的 GET /api/dzpz/transcript）。" +
+                    "后面那六步（学籍联动 / 生成预览 PDF / 两次提交 / 签章 / 取下载链接 / 下载 PDF）" +
+                    "刻意不投影：第二步的返回值里有学号，其余是写路径 ⇒ 这里不出现「一键申请成绩单」。" +
+                    "要出 PDF 请在 App 或桌面端申请。",
+                fontSize = 13.sp,
+                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+            )
         }
     }
 }

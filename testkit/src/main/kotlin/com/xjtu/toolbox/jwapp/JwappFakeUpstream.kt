@@ -104,6 +104,18 @@ class JwappFakeUpstream {
         const val ITEM_2_PERCENT = "70%"
         const val ITEM_2_SCORE = "90"
 
+        /**
+         * 「这门课没有分项」那一档的课程 id：拿它去问 `scoreDetail` 会得到一张
+         * `code=200` 但 `data=null` 的响应 —— `JwappApi.getDetail` 把它判成
+         * `NoScoreDetailException`（服务端在 `msg` 里说「该课程暂无分项成绩」）。
+         *
+         * 为什么要有这一档：那是**上游明确说没有**（不是故障），`:server` 的
+         * `/api/jwapp/score-detail` 靠它钉「`detail: null` 而不是 502/404」。
+         */
+        const val DETAIL_MISSING_ID = "SCORE-NODETAIL"
+        const val DETAIL_MISSING_JSON =
+            """{"code":200,"msg":"该课程暂无分项成绩","data":null}"""
+
         val CURRENT_TERM_JSON = """
             {"code":200,"msg":"ok","data":{"xnxqdm":"$TERM_CODE"}}
         """.trimIndent()
@@ -221,8 +233,14 @@ class JwappFakeUpstream {
                 respondJson(exchange, GRADE_JSON)
             }
             path == DETAIL_PATH -> {
-                lastDetailBody = readBody(exchange)
+                val body = readBody(exchange)
+                lastDetailBody = body
                 detailCalls.incrementAndGet()
+                // 「这门课没有分项」那一档：真站点给 `code:200` + `data:null`（见 [DETAIL_MISSING_ID]）。
+                if (body.contains("\"id\":\"$DETAIL_MISSING_ID\"")) {
+                    respondJson(exchange, DETAIL_MISSING_JSON)
+                    return
+                }
                 respondJson(exchange, DETAIL_JSON)
             }
             else -> respond(

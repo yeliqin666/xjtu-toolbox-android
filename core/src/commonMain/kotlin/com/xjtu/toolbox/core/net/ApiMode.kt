@@ -80,6 +80,22 @@ internal suspend fun HttpClient.serveData(
         ?: error("$what：服务端返回缺少 data（HTTP ${response.status.value}）")
 }
 
+/**
+ * 「这条取数链**只在 serve 契约里**」的固定说法：成绩单 / 考勤 / 加餐券 / 宿舍电费这四个新域
+ * （`docs/api-contract.md` §5.5，2026-10-13 接线）在 campus-api 里**没有对应端点** —— 它们是
+ * `:app` / 桌面直接走 `:data` 的 okhttp 抓的。
+ *
+ * 所以那四个 `Campus*Api` 的非 serve 分支**不猜、也不编一份空数据**：悄悄返回空表或 `null`
+ * 会让「形态不对」看起来像「真没有数据」，而这是两件完全不同的事。
+ *
+ * @param what 面向用户/排障的动作名（“考勤取数”那种）
+ * @param endpoints 这条链在 serve 契约里的端点（写清哪几个，照 §5.5 的表）
+ */
+internal fun serveOnly(what: String, endpoints: String): Nothing = throw UnsupportedOperationException(
+    "campus-api 形态没有「$what」的端点：它只在 serve 契约里（$endpoints，docs/api-contract.md §5.5）" +
+        "—— 这一端要在 serve 模式下才有这条取数链",
+)
+
 
 /**
  * serve 契约的一次**写**（`POST`，例如 `POST /api/library/action`、`POST /api/venue/book`）。
@@ -87,10 +103,12 @@ internal suspend fun HttpClient.serveData(
  * 与 [serveData] 的差别在**失败怎么报**：写动作的失败是**业务结果**（座位被占、验证码有误、当前
  * 预约上没有这个操作 —— 契约 §5.3.1 / §5.3.2 里这些是 `409` + 中文 `message`），调用方要把它显示
  * 出来，不能当异常吞掉。所以这里把它**返回**而不是抛：
- *
  * - `code == 0` ⇒ `ok = true`，`message` = `data.message`，`data` = 整个 `data` 对象
  *   （除了 `message` 之外还要读结果的写端点用它：`/api/venue/book` 的 `orderId` / `price`）；
- * - `code != 0` ⇒ `ok = false` + 信封的 `message`，`data` 为 null（失败响应的 `data` 本来就不存在）；
+ * - `code != 0` ⇒ `ok = false` + 信封的 `message` + 信封的 `code`，`data` 为 null（失败响应的 `data`
+ *   本来就不存在）。[ServeActionOutcome.code] 是给「同一族里 400 与 401 意思完全不同」的消费方用的
+ *   （`/api/webvpn/convert`：`400` = 你给的不是网关地址、`401` = 令牌闸门）；library / venue 那两个
+ *   写端点按 `ok` 分支，不看它；
  * - 形状没对上（非 JSON / 缺顶层 `data` / 网络错）**仍然抛** —— 那是「这一枪没打通」，不是「上游说不行」。
  *
  * 请求体是调用方拼好的 JSON 字符串（本服务只有两个写端点，不值得为它们起一个序列化框架）。
@@ -111,7 +129,7 @@ internal suspend fun HttpClient.serveAction(
     if (code != 0) {
         val message = envelope["message"].safeString().trim()
             .ifBlank { "服务端返回 HTTP ${response.status.value}" }
-        return ServeActionOutcome(ok = false, message = message, data = null)
+        return ServeActionOutcome(ok = false, message = message, data = null, code = code ?: 0)
     }
     val data = envelope["data"] as? JsonObject
         ?: error("服务端返回缺少 data（HTTP ${response.status.value}）")
@@ -122,9 +140,16 @@ internal suspend fun HttpClient.serveAction(
  * 一次写动作的结果（见 [serveAction]）：业务拒绝（`code != 0`）也是**结果**，不是异常。
  *
  * [data] 是成功时信封里那个 `data` 对象（`:core` 的调用方按自己的形状读它）—— 失败时为 null。
+ *
+ * [code] 就是信封里那个 `code`（§4：它**逐位等于 HTTP 状态码**）：成功时是 `0`，失败时是那一次
+ * 失败的状态码。加它是为了让消费方能分清「参数不对」与「没登录」：webvpn 那一族里 `400` 要如实
+ * 翻成 `null`（「你给的不是网关地址」），`401` 得报错（「请先登录」）—— 拿 message 去猜字符串
+ * 是另一回事，不干。
  */
 internal data class ServeActionOutcome(
     val ok: Boolean,
     val message: String,
     val data: JsonObject?,
+    /** 信封里的 `code`（= HTTP 状态码）：成功 `0`，失败是那一次的状态码。 */
+    val code: Int = 0,
 )

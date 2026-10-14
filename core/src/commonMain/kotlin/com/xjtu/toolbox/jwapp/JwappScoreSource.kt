@@ -27,6 +27,15 @@ import com.xjtu.toolbox.score.ReportedGrade
  */
 interface JwappScoreSource {
 
+    /**
+     * 本端能不能拿「一门课的分项成绩」（[getScoreDetail]）。
+     *
+     * serve 形态拿不到（`docs/api-contract.md` §5.6：那一条端点刻意不端）⇒ 报 `false`，
+     * 屏上点开一门课**不再展开**那一段 —— 否则展开的是一个拿不到数据的格子，
+     * 只会画出「无法加载详细成绩」那句假话。默认 `true`（Android / 桌面的行为一行未变）。
+     */
+    val canFetchScoreDetail: Boolean get() = true
+
     /** 全部学期的成绩（`termCode` 传 null = 所有学期，与搬迁前 `getGrade(null)` 同一个请求体）。 */
     suspend fun getGrade(termCode: String? = null): List<TermScore>
 

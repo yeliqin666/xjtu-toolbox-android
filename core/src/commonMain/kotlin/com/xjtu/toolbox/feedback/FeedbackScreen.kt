@@ -223,7 +223,33 @@ fun FeedbackScreen(
             verticalArrangement = Arrangement.spacedBy(4.dp)
         ) {
             Spacer(Modifier.height(glassTop))
-            if (source.isConfigured) {
+            // 三档，各不相同（不能混成一句）：
+            //  ① 后端配全了、但**本端不能写**（serve 契约 §5.7 不端 `submit` 那个写路径）⇒ 只读说明；
+            //  ② 后端配全了、也能写（Android / 桌面）⇒ 原样的表单；
+            //  ③ 后端凭据没配（`isConfigured = false`）⇒ 「这个安装包没有应用内反馈」。
+            if (source.isConfigured && !source.canSubmit) {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    cornerRadius = 16.dp,
+                    colors = CardDefaults.defaultColors(color = AppCardColor)
+                ) {
+                    Column(Modifier.padding(16.dp)) {
+                        Text(
+                            "这一端只能看，不能提",
+                            style = MiuixTheme.textStyles.subtitle,
+                            fontWeight = FontWeight.SemiBold,
+                        )
+                        Spacer(Modifier.height(6.dp))
+                        Text(
+                            "下面的「大家在问」与「我提过的」都能读（serve 契约 §5.7 端了那两个只读端点）；但提交" +
+                                "没有端点（写路径不端）⇒ 这里不画表单。要提就去 GitHub 提 Issue，效果一样。",
+                            style = MiuixTheme.textStyles.body2,
+                            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                        )
+                    }
+                }
+                SmallTitle("怎么说")
+            } else if (source.isConfigured) {
                 Card(
                     modifier = Modifier.fillMaxWidth(),
                     cornerRadius = 16.dp,

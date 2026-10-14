@@ -648,7 +648,9 @@ internal class ScheduleViewModel(private val host: ScheduleHost) : ViewModel() {
         val jw = activeSource
         val blocked = when {
             jw == null -> "尚未登录教务系统"
-            studentId.isBlank() -> "未获取到学号"
+            // 学号是空白就不取数 —— 除非这一端的教材接口本来就不要学号（serve 契约的
+            // `/api/jwxt/textbooks` 由服务端从会话里取，见 `JwxtScheduleSource.textbooksWithoutStudentId`）
+            studentId.isBlank() && !jw.textbooksWithoutStudentId -> "未获取到学号"
             else -> null
         }
         if (jw == null || blocked != null) {

@@ -1,6 +1,9 @@
 package com.xjtu.toolbox.web
 
 import com.xjtu.toolbox.core.net.ApiMode
+import com.xjtu.toolbox.core.net.CampusEmptyRoomApi
+import com.xjtu.toolbox.inbox.InboxStore
+import com.xjtu.toolbox.inbox.OwnInbox
 import com.xjtu.toolbox.platform.keyValueStore
 import com.xjtu.toolbox.schedule.CourseLinkAccess
 import com.xjtu.toolbox.schedule.CustomCourseStore
@@ -34,40 +37,67 @@ import kotlinx.datetime.LocalDate
  * [cache] 没有按账号分文件：这一端没有账号（凭据在 campus-api / serve 进程里），
  * `:app` / 桌面那份按账号加后缀是为了多账号互不串数据，本端只有一个"当前"。
  *
- * ## [honored] 只列一条
+ * ## [honored]：自建日程 + 课表变更气泡（两种形态都有）+ serve 形态下的座位数
  *
- * 列进来的只有 [ScheduleCapability.CUSTOM_COURSE_EDIT]（`KeyValueCustomCourseStore` 真落盘 ⇒
- * 工具栏那个「+」与「编辑日程」是真能干的事）。没列的都是这一端**没有**的东西，屏上**一个字都不画**：
+ * - [ScheduleCapability.CUSTOM_COURSE_EDIT]：`KeyValueCustomCourseStore` 真落盘 ⇒ 工具栏那个
+ *   「+」与「编辑日程」是真能干的事（两种形态都一样）；
+ * - [ScheduleCapability.SEAT_COUNT]：**只在 serve 形态列出** —— 它读的是 §5.8 的
+ *   `GET /api/emptyroom/seat-count?room=`（[roomSeatCount] 接的就是那一发）；campus-api 形态下
+ *   没有这条端点，本端的座位数取数只剩「自己拉过的那一份当天 CDN」那一档，而课表详情页与空闲教室
+ *   那一屏是两个实例 ⇒ 永远查不到 ⇒ 不列它（列了做不到的就是假开关：`ScheduleScreen` 只按这张表
+ *   决定画不画「N座」）。
+ * - [ScheduleCapability.SCHEDULE_CHANGE_BUBBLE]：调课/停课的气泡写进 `:core` 的 `InboxStore`
+ *   （[postScheduleChange] 就是 `InboxStore.post(OwnInbox.scheduleChange(…))`，与 `:app` 那一手
+ *   逐字同一行）—— 它要的工厂 `OwnInbox` 2026-10-14 已搬进 `:core`（`docs/desktop-port-plan.md`
+ *   §16.5 的第 2 条），而收纳那一份 `InboxStore` 早就在 `:core`（wasm 上落 `localStorage`）；
+ *   首页那一格（`HomeCard.INBOX`）与消息收纳那一屏读的就是同一份 ⇒ 两种形态下都真会照着办。
  *
+ * 没列的都是这一端**没有**的东西，屏上**一个字都不画**：
  * - `SHARE_FILE` —— 浏览器里没有系统分享面板（`:app` 是 `Intent.ACTION_SEND`、桌面是
  *   `Desktop.browse`）。ICS 生成那一半（`:core` 的 `ScheduleExport`）本来就能用，缺的是"交给谁"
  *   ⇒ 「导出日历 (ICS)」那一行不画（不是画了点了没反应）；
  * - `LMS_LINK` / `ATTENDANCE` —— 课程详情里那两项下钻要会话内核 + `LmsApi` + 考勤记录
  *   （`:data` 的 `CourseLinks`）⇒ [courseLinks] 传 null，两档都不画；
- * - `SEAT_COUNT` —— 教室座位数在空闲教室那套取数里（本端有 `/api/emptyroom/…` 那条路，
- *   但「按教室名查座位表」那个方法还没接）⇒ 详情里「N座」不画；
  * - `DUE_HOMEWORK` —— 思源作业截止那份落盘缓存（`:app` 的 `LmsDueStore`）本端没有
  *   ⇒ 今日栏的「接下来」只有考试；
- * - `WIDGET_REFRESH` / `HOME_SIGNALS` —— 浏览器里没有桌面小组件，本端「首页」那一格也还是
- *   降级页（见 `WebFallbackScreens`）⇒ 课表落地后没有谁要通知；
+ * - `WIDGET_REFRESH` / `HOME_SIGNALS` —— 浏览器里没有桌面小组件；而首页那一格（`WebHomeScreen`）
+ *   每次进屏都重读一次 `localStorage`（浏览器里每次刷新页面本来就是一次冷启动）⇒ 课表落地后
+ *   没有谁要通知；
  * - `ONLINE_CHECK` —— 浏览器没有"校内外"判定 ⇒ 走默认 `true`（真发请求失败自然会被当成失败）；
- * - `SCHEDULE_CHANGE_BUBBLE` —— 调课冒泡要走消息收纳那份宿主（本端没有）；而且**调停补课这个
- *   端点本端就没有**（见 [WebScheduleSource]），变更检测拿到的"变化"只会是被动比对的结果。
  *
- * ## TODO（下一批能接的一格）
+ * ## 还剩什么缺口（同一份判断，写在屏幕上那份是 `WebScheduleGapNote`）
  *
- * `SEAT_COUNT`：本端已有 `CampusEmptyRoomApi`（空闲教室那条路由在用它），补一个「按教室名取座位数」
- * 的方法就能把详情里那一格点亮 —— 不必先有会话，因为那条路是 campus-api 自己带的登录。
+ * 学期 / 课表（**已合过调停补课**）/ 考试 / 教材四条在 **serve 形态**下都真取数（[WebScheduleSource]）；
+ * campus-api 形态里那三条端点的字段面本端不认（契约 §7 第 2 条）⇒ 考试与教材两栏空着、格子仍是
+ * 排课原样、座位数那一格也不画。日程页顶部那行说明把两种形态分开写明了。
  *
  * @param client 与整页同一个客户端（serve 模式下它带着 `Authorization` 头）
  * @param mode 这一份 `:web` 在对谁说话（[ApiMode]）—— 决定 [WebScheduleSource] 的信封读法
  */
 internal class WebScheduleHost(
-    client: HttpClient,
-    mode: ApiMode,
+    private val client: HttpClient,
+    private val mode: ApiMode,
 ) : ScheduleHost {
 
-    override val honored: Set<ScheduleCapability> = setOf(ScheduleCapability.CUSTOM_COURSE_EDIT)
+    /** 见类 KDoc：自建日程与课表变更气泡两种形态都有；座位数只在 serve 形态下真有取数。 */
+    override val honored: Set<ScheduleCapability> = buildSet {
+        add(ScheduleCapability.CUSTOM_COURSE_EDIT)
+        // 调课/停课的气泡：一条自己的提醒写进 `:core` 的收纳（见类 KDoc 与 [postScheduleChange]）
+        add(ScheduleCapability.SCHEDULE_CHANGE_BUBBLE)
+        if (mode == ApiMode.SERVE) add(ScheduleCapability.SEAT_COUNT)
+    }
+
+    /**
+     * 课表变更（调课/停课/换教室）冒一条气泡 —— 与 `:app` 的 `AppScheduleHost` **逐字同一行**：
+     * `InboxStore.post(OwnInbox.scheduleChange(message))`。
+     *
+     * 落点是这一端真有的那份收纳：`InboxStore` 在 wasm 上是 `localStorage`（前缀 `xjtu-toolbox.`），
+     * 首页那一格（`HomeCard.INBOX`）与消息收纳那一屏读的就是它 —— 所以这条气泡在本端**看得见**，
+     * 不是写进一份没人读的存储（那种“列了做不到”的开关不发：见类 KDoc 的 [honored] 那一段）。
+     */
+    override fun postScheduleChange(message: String) {
+        InboxStore.post(OwnInbox.scheduleChange(message))
+    }
 
     override fun cache(accountId: String?): ScheduleCacheStore =
         KeyValueScheduleCacheStore(keyValueStore(SCHEDULE_CACHE_STORE))
@@ -78,8 +108,10 @@ internal class WebScheduleHost(
     /**
      * 这一端没有账号：`accountId` / `studentId` 都给空串（`:app` 那边是登录态里的学号）。
      *
-     * 空串会让教材那一条落成「未获取到学号」—— 那正好是事实（本端没有教材端点也没有学号），
-     * 屏上写的就是这句话，不是空白。**编一个假的学号更糟**：它会去请求别人的数据。
+     * 空串让教材那一条在 campus-api 形态下落成「未获取到学号」（那确实是真的：那一头没有教材端点，
+     * 屏上写的就是这句话，不是空白）；而 serve 形态下教材那条端点**不要学号**
+     *（`/api/jwxt/textbooks` 由服务端从会话里取）⇒ [WebScheduleSource.textbooksWithoutStudentId] 报
+     * `true`，空串不再拦取数。**编一个假的学号更糟**：它会去请求别人的数据。
      */
     override val login: ScheduleLogin = object : ScheduleLogin {
         override val accountId: String = ""
@@ -98,6 +130,11 @@ internal class WebScheduleHost(
 
     /** 课程详情里那两项下钻（思源学堂 / 本次考勤）本端没有 ⇒ 不画（见类 KDoc）。 */
     override val courseLinks: CourseLinkAccess? = null
+
+    /** 详情里「N座」那一格的取数：serve 形态是 §5.8 的 `seat-count`（见类 KDoc 的 `honored`）。 */
+    private val emptyRoom = CampusEmptyRoomApi(client, API_BASE, mode)
+
+    override suspend fun roomSeatCount(location: String): Int? = emptyRoom.seatCount(location)
 
     companion object {
         /** 课表族缓存的键前缀（wasm 上落在 `xjtu-toolbox.schedule_cache.*`）。 */

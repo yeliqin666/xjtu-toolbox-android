@@ -131,4 +131,56 @@ class CampusEmptyRoomApiTest {
         assertEquals(1, kotlinx.datetime.LocalDate.parse(dates[1]).toEpochDays() -
             kotlinx.datetime.LocalDate.parse(dates[0]).toEpochDays())
     }
+
+    /** serve 形态的座位数那一发：只认 `?room=`，其余路径不该被碰到。 */
+    private fun seatCountApiFor(body: String): CampusEmptyRoomApi {
+        val engine = MockEngine { request ->
+            check(request.url.encodedPath.endsWith("/api/emptyroom/seat-count")) {
+                "不该请求 ${request.url.encodedPath}"
+            }
+            respond(
+                content = body,
+                status = HttpStatusCode.OK,
+                headers = headersOf(HttpHeaders.ContentType to listOf("application/json")),
+            )
+        }
+        return CampusEmptyRoomApi(createToolboxClient(engine = engine), "", ApiMode.SERVE)
+    }
+
+    /**
+     * serve 形态（契约 §5.8）：座位数走它自己那一条端点 —— 一次一个数、**不套会话**（与 `/cdn` 同档），
+     * 而 `seats: null` = 「这间房查不到」⇒ 如实回 `null`（拿 0 顶会让屏上出现一排「0座」）。
+     */
+    @Test
+    fun serveSeatCountReadsItsOwnEndpointAndNullStaysNull() = runTest {
+        val api = seatCountApiFor("""{"code":0,"data":{"room":"主楼A-101","seats":96}}""")
+        assertEquals(96, api.seatCount("主楼A-101"))
+        assertEquals(96, api.seatCount(" 主楼A-101 "), "服务端按教室名查，两边的空白由请求侧去掉")
+
+        val unknown = seatCountApiFor("""{"code":0,"data":{"room":"不存在","seats":null}}""")
+        assertNull(unknown.seatCount("不存在"), "`seats: null` = 这间房查不到 ⇒ 不拿 0 顶")
+        assertNull(unknown.seatCount("   "), "空白教室名不问上游")
+    }
+
+    /** 字段缺失是「形状没对上」⇒ 抛错（§4：`null` 与字段缺失是两件事），不拿 null 冒充「上游说没有」。 */
+    @Test
+    fun serveSeatCountMissingFieldIsAShapeError() = runTest {
+        val api = seatCountApiFor("""{"code":0,"data":{"room":"主楼A-101"}}""")
+        assertFailsWith<IllegalStateException> { api.seatCount("主楼A-101") }
+    }
+
+    /**
+     * campus-api 形态（旧行为一字未改）：座位数只查**已经拉过的那一份当天数据**，
+     * 不为一个座位数再打一次请求（`:app` 那一份为它单开了一次全校拉取 + 一年的座位缓存，
+     * 是因为课表详情页每次点开都要用；Web 的课表是另一条切片）。
+     */
+    @Test
+    fun campusApiSeatCountStaysLocal() = runTest {
+        val recorder = Recorder()
+        val api = apiFor(payload, recorder)
+        assertNull(api.seatCount("主楼A-102"), "还没拉过当天那一份 ⇒ 查不到（屏上不画那一格）")
+        api.rooms("兴庆校区", setOf("主楼A"), date, direct = false, force = false) { _, _ -> }
+        assertEquals(96, api.seatCount("主楼A-102"), "拉过之后本地就能答")
+        assertEquals(1, recorder.calls, "座位数本身不发请求")
+    }
 }

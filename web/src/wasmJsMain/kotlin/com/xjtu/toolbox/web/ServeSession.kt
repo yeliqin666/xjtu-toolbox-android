@@ -34,7 +34,7 @@ import kotlinx.serialization.json.JsonObject
  * ## 令牌怎么进请求头
  *
  * [toolboxWebClient] 装了一个 `defaultRequest`，每次请求都读 [ServeTokenHolder.token]
- * —— 于是「贴一次」之后**所有**请求（含 13 个取数）都带着 `Bearer`。为什么不只靠 cookie：
+ * —— 于是「贴一次」之后**所有**请求（含 17 个取数）都带着 `Bearer`。为什么不只靠 cookie：
  * 「fetch 会不会自动带 cookie」是**引擎的实现细节**（契约 §3.2 只管闸门认哪两种形态），
  * 而带上 Bearer 是契约里写死的形态 ⇒ 两条路任一成立都能过闸门，不必赌第三条。
  */

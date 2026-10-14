@@ -90,11 +90,24 @@ class LmsFakeUpstream {
         /** 已结束作业的下载（/blob）→ 403 + 「没有权限」：LmsSession 把它认成业务拒绝，不重登。 */
         const val CLOSED_UPLOAD_ID = 666
 
+        /**
+         * `/user/index` 里那个登录者本人的**姓名**。
+         *
+         * 单独提成常量（值没变，2026-10-14）：契约 §5.6 里 `GET /api/lms*` 的红线断言要引用它
+         * ——「响应里不该出现本人姓名」必须是在**夹具里有这个值**的前提下证明的，
+         * 内联在 HTML 里就只能手抄一遍字符串（与上一批 `AttendanceFakeUpstream.TEACHER_NAME` 同一种做法）。
+         * 编造值，非真人。
+         */
+        const val USER_INDEX_NAME = "张三"
+
+        /** `/user/index` 里那个登录者本人的**学号**（值没变，同上；与 `LibraryFakeUpstream.USERNAME` 同一个人）。 */
+        const val USER_INDEX_USER_NO = "2021000001"
+
         /** `/user/index`：`globalData.user` 与 `dept` 的 JS 形状（`getUserInfo` 就解析这两块）。 */
         val USER_INDEX_HTML = """
 <html><body><script>
 window.__TI_GLOBAL_DATA__ = {
-  user: { id: 1, name: "张三", userNo: "2021000001", orgId: 2, mobile: "13800000000",
+  user: { id: 1, name: "$USER_INDEX_NAME", userNo: "$USER_INDEX_USER_NO", orgId: 2, mobile: "13800000000",
           orgName: "计算机学院", orgCode: "CS", role: "student", hasAiAbility: false },
   dept: { id: 3, name: "软件学院", code: "RJ" },
   locale: "zh_CN"

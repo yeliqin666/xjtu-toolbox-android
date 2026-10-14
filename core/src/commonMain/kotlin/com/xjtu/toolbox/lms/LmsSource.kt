@@ -80,6 +80,29 @@ interface LmsSource {
     val supportsVideoQueue: Boolean
 
     /**
+     * 本端能不能把附件**落下来**（[uploadBytes] 的图片预览与 [saveDownload] 的下载那一整档）。
+     *
+     * 为什么单立一格而不是与 [supportsVideoQueue] 合成一个：两件事在某一端上会分开 ——
+     * serve 形态（`docs/api-contract.md` §5.6）两样都没有（三个地址与字节都不投影）；
+     * 而桌面端只是没有回放队列，附件照下。
+     *
+     * 默认 `true`（Android / 桌面的行为一行未变）。报 `false` 时屏上**不画**预览与下载入口
+     *（详情页的附件卡只展示名字与大小），批量下载那一整档也不出现 —— 点了会失败的按钮不摆出来。
+     */
+    val supportsDownload: Boolean get() = true
+
+    /**
+     * 本端能不能拿到**作业的提交记录**（详情里的 `submissionList`）。
+     *
+     * serve 形态拿不到（`docs/api-contract.md` §5.6）：那一块里有提交人的**姓名与学号**
+     *—— 契约 §5.2 红线，例外清单里没有这一族。报 `false` 时详情页**整块不画**提交记录，
+     * 也不画「还没有提交记录」那张卡：后者会把「拿不到」说成「真没交」。
+     *
+     * 默认 `true`（Android / 桌面的行为一行未变）。
+     */
+    val supportsSubmissionList: Boolean get() = true
+
+    /**
      * 把回放视频排进本端的下载队列，返回排进去的条数（本端不支持时恒 0）。
      *
      * 搬迁前这一句写在 `LmsBatchDownload` 里（`media.DownloadManager.enqueueDownloads`）——

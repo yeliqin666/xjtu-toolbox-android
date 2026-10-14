@@ -82,7 +82,7 @@ import com.xjtu.toolbox.nav.AppRoute
  */
 @Composable
 fun CouponScreen(
-    /** 本端的取数（Android / 桌面 = `:data` 的 `AppCouponSource`；Web 还没有这条链）。 */
+    /** 本端的取数（Android / 桌面 = `:data` 的 `AppCouponSource`；serve 模式 = `:core` 的 `CampusCouponApi`）。 */
     source: CouponSource,
     onBack: () -> Unit,
     /**
@@ -168,6 +168,7 @@ fun CouponScreen(
                     else -> CouponList(
                         source = source,
                         records = vm.records,
+                        canReceive = source.canActivate,
                         total = vm.total,
                         filter = selectedFilter,
                         statusMessage = vm.statusMessage,
@@ -196,6 +197,8 @@ private fun CouponList(
     onLoadMore: () -> Unit,
     filter: CouponFilter,
     statusMessage: String?,
+    /** 本端能不能真领取（见 [CouponSource.canActivate]）；透给券卡。 */
+    canReceive: Boolean,
     receivingIds: Set<String>,
     onReceive: (CouponRecord) -> Unit,
     /** 玻璃顶栏（含标签行）的高度，放进列表顶部留白。 */
@@ -240,6 +243,7 @@ private fun CouponList(
             CouponRecordCard(
                 source = source,
                 coupon = coupon,
+                canReceive = canReceive,
                 filter = filter,
                 isReceiving = coupon.showCardId in receivingIds,
                 onReceive = onReceive
@@ -355,6 +359,8 @@ private fun CouponSummaryCard(
 private fun CouponRecordCard(
     source: CouponSource,
     coupon: CouponRecord,
+    /** 本端能不能真领取（见 [CouponSource.canActivate]）：`false` 时不画那个按钮。 */
+    canReceive: Boolean,
     filter: CouponFilter,
     isReceiving: Boolean,
     onReceive: (CouponRecord) -> Unit
@@ -413,7 +419,7 @@ private fun CouponRecordCard(
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
-                if (filter == CouponFilter.AVAILABLE) {
+                if (filter == CouponFilter.AVAILABLE && canReceive) {
                     Spacer(Modifier.height(10.dp))
                     Button(
                         onClick = { onReceive(coupon) },

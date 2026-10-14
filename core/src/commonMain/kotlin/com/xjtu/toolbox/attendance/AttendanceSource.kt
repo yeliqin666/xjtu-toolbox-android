@@ -13,7 +13,7 @@ import kotlinx.serialization.json.JsonObject
  * | 端 | 实现 | 备注 |
  * |---|---|---|
  * | Android / 桌面 | `:data` 的 `AppAttendanceSource`（包住 `AttendanceApi` + `LeaveApi`） | 走自己的站点会话（`new_attendance`） |
- * | Web | 还没有 | 屏搬好了，取数要等 campus-api 或 `:server` 的 `/api` 端点给出（如实记在 `:web` 的未搬清单里） |
+ * | Web | `:core` 的 `CampusAttendanceApi`（`ApiMode.SERVE`） | **只有学期列表 + 流水表**：`GET /api/attendance/terms` + `/records`。另外三栏（统计 / 打卡流水 / 请假）契约 §5.5 没有端点 ⇒ [AttendanceCapabilities] 三档全报 `false` |
  *
  * ## 为什么 IO 调度不在端口上
  *
@@ -26,7 +26,31 @@ import kotlinx.serialization.json.JsonObject
  * 这些方法都可能抛 `SessionExpiredFailure`（`:app`/`:data` 的 `AuthExpiredException` 是它的
  * 实现）—— VM 与屏据此回登录/退回，与评教/成绩/校园卡同一条缝。
  */
+/**
+ * 本端这一份取数**真拿得到哪几栏**：屏按它决定那一栏画什么。
+ *
+ * 默认三档都是 `true` = 搬迁前的行为（`:data` 的 `AppAttendanceSource` 三栏都在）。serve 契约
+ * §5.5 只端了「学期列表 + 考勤流水」⇒ `:web` 那一份三档全报 `false`。
+ *
+ * 报了 `false` 的那几栏，屏上**不画「暂无…」**（那会被读成「真没有」，是把缺口说成了事实），
+ * 而是画一句指名道姓的缺口说明（说清服务端契约里没有对应端点）。
+ *
+ * 「学生姓名」不在这里：契约 §5.5 不端 `getStudentInfo`（姓名是红线）⇒ 那一格由空串自然不画
+ *（`AttendanceUiState.studentName.isNotBlank()`），没有开关可翻。
+ */
+data class AttendanceCapabilities(
+    /** 按课程的统计那一栏（`getKqtjCurrentWeek` / `getKqtjByTime` / `computeCourseStatsFromRecords`）。 */
+    val stats: Boolean = true,
+    /** 打卡原始流水那一栏（`getStreams`）。 */
+    val streams: Boolean = true,
+    /** 请假那一栏（`getLeavePage` 等 —— 请假 / 销假是写路径，契约 §5.5 一律不端）。 */
+    val leave: Boolean = true,
+)
+
 interface AttendanceSource {
+
+    /** 见 [AttendanceCapabilities]：本端这一份取数真拿得到哪几栏（默认三栏都在）。 */
+    val capabilities: AttendanceCapabilities get() = AttendanceCapabilities()
 
     // ── 考勤流水（AttendanceApi 那半）────────────────────────────────
 

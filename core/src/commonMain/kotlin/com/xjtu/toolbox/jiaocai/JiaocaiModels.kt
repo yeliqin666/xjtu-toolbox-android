@@ -1,5 +1,7 @@
 package com.xjtu.toolbox.jiaocai
 
+import com.xjtu.toolbox.schedule.TextbookItem
+
 /**
  * 教材中心（`jiaocai.lib.xjtu.edu.cn`）的**模型** —— 搬迁前它长在 `:app` 的 `JiaocaiApi.kt` 里
  * （取数实现那个文件），搬进共享内核时按老规矩拆开：模型与取数端口在 `:core`（屏要用），
@@ -44,3 +46,28 @@ data class JiaocaiTermTextbook(
     val publisher: String = "",
     val isbn: String = "",
 )
+
+/**
+ * 「本学期我的教材」那一行从**教务**那份（`:core` 的 [TextbookItem]）过来的映射。
+ *
+ * serve 契约的 `GET /api/jwxt/textbooks`（§5.8）端的就是 [TextbookItem] 九格，而 `:web` 那一端的
+ * 宿主端口 [JiaocaiTermTextbooks] 吃的是 [JiaocaiTermTextbook] ⇒ 中间这一层就是它。
+ *
+ * 两件事与 `:app` 的 `AppJiaocaiTermTextbooks`（那边读 `ScheduleCache`）**逐字一致**：
+ * ①「无教材」那些行滤掉（[TextbookItem.hasSubstantiveTextbook]，与屏上那条判据同一个）；
+ * ② 只搬那五格。顺序**原样**（不排序）：`:app` 那份的顺序是缓存给的，屏自己不排。
+ *
+ * ⚠️ `:app` 那一份没有改成调这个函数（本次是重构收尾，只动三端不一致那几处）—— 两处现在是
+ * 同一套口径的两份写法，理由写在 `docs/desktop-port-plan.md` §16.5 的 D15 里。
+ */
+fun List<TextbookItem>.toJiaocaiTermTextbooks(): List<JiaocaiTermTextbook> =
+    filter { it.hasSubstantiveTextbook }
+        .map {
+            JiaocaiTermTextbook(
+                courseName = it.courseName,
+                textbookName = it.textbookName,
+                author = it.author,
+                publisher = it.publisher,
+                isbn = it.isbn,
+            )
+        }

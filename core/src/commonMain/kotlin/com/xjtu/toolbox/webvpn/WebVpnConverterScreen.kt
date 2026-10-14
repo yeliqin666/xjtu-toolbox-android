@@ -11,6 +11,8 @@ import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.OpenInBrowser
 import androidx.compose.material.icons.filled.VpnKey
 import androidx.compose.runtime.*
+import com.xjtu.toolbox.error.FriendlyError
+import kotlinx.coroutines.launch
 import com.xjtu.toolbox.platform.Log
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -31,24 +33,43 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.utils.overScrollVertical
 
 /**
+ * Android / 桌面那条路：本端有**同步**实现（`:data` 的 `WebVpnUtil`，纯字符串运算）⇒ 包一层
+ * [asAsyncCodec] 交给下面那个实现。两端（`:app` 的 `AppNavHost` / 桌面的装配）与两个测试
+ * （`RenderScreens` / `DesktopBrowserJvmTest`）的调用点**一个字都没改**。
+ */
+@Composable
+fun WebVpnConverterScreen(
+    codec: WebVpnCodec,
+    onOpenWithWebVpn: (vpnUrl: String) -> Unit,
+    onBack: () -> Unit,
+) = WebVpnConverterScreen(codec.asAsyncCodec(), onOpenWithWebVpn, onBack)
+
+/**
  * WebVPN 网址互转工具：
  * - 校内 URL ↔ WebVPN URL 双向转换
  * - 转换后可通过内置浏览器（自动复用 WebVPN session）打开
  *
- * @param codec 两个方向的转换本体（[WebVpnCodec]）。为什么是**参数**而不是直接调
+ * 这是**那个实现**（转换本体是异步的）。为什么要有两个重载：两个形态的类型不同
+ * （[WebVpnCodec] / [WebVpnAsyncCodec]），而 Kotlin 接口不能同时声明同步与 `suspend` 的同名方法 ⇒
+ * 「本端有实现」与「转换在别处」只能各占一条（见 [WebVpnAsyncCodec] 的 KDoc）。真实的实现都只实现
+ * 其中之一，所以重载解析没有歧义。
+ *
+ * @param codec 两个方向的转换本体（[WebVpnAsyncCodec]）。为什么是**参数**而不是直接调
  *              `:data` 的 `WebVpnUtil`：那个对象要用 `javax.crypto` 的 AES-128-CFB 加密域名，
- *              而这一屏在 `:core` 的 commonMain（三个目标，含 wasmJs）⇒ 加密实现按平台的
- *              能力缝由宿主注入（Android/桌面都传同一份 `WebVpnUtil`）。
+ *              而这一屏在 `:core` 的 commonMain（三个目标，含 wasmJs）⇒ 实现按平台的能力缝由宿主
+ *              注入：Android / 桌面传同步那份 `WebVpnUtil`（走上面那个同名的重载），`:web` 传
+ *              `CampusWebVpnApi`（转换在服务端，`POST /api/webvpn/convert`，契约 §5.7）。
  * @param onOpenWithWebVpn 用户点击访问按钮时调用，参数为最终要访问的（已转为 WebVPN 域的）URL。
  *                        `:app` 那侧外层没连上 WebVPN 时会用已存账号自动登录，再进入 BrowserScreen；
  *                        桌面端没有内置浏览器，直接把地址交给系统浏览器。
  */
 @Composable
 fun WebVpnConverterScreen(
-    codec: WebVpnCodec,
+    codec: WebVpnAsyncCodec,
     onOpenWithWebVpn: (vpnUrl: String) -> Unit,
-    onBack: () -> Unit
+    onBack: () -> Unit,
 ) {
+    val scope = rememberCoroutineScope()
     val scrollBehavior = MiuixScrollBehavior(rememberTopAppBarState())
     var inputUrl by remember { mutableStateOf("") }
     var convertedUrl by remember { mutableStateOf("") }
@@ -170,14 +191,28 @@ fun WebVpnConverterScreen(
                             val normalized = if (!isReversed && !raw.startsWith("http://") && !raw.startsWith("https://")) {
                                 "https://$raw"
                             } else raw
-                            convertedUrl = if (!isReversed) {
-                                codec.toVpnUrl(normalized)
-                            } else {
-                                codec.fromVpnUrl(normalized).orEmpty().also {
-                                    if (it.isBlank()) error = "无法解析此 WebVPN 网址，请确认格式正确"
+                            // 转换可能是一次 **HTTP 往返**（`:web` 的取数就是那一发）⇒ 一律走协程。
+                            // Android / 桌面那份实现是同步的，照样立刻拿到结果（不多一次延迟）。
+                            scope.launch {
+                                val reversed = isReversed
+                                error = null
+                                val result = runCatching {
+                                    if (!reversed) codec.toVpnUrl(normalized) else codec.fromVpnUrl(normalized)
                                 }
+                                val converted = result.getOrNull()
+                                if (converted.isNullOrBlank()) {
+                                    convertedUrl = ""
+                                    // 两种“没拿到”分开说：实现自己抛的错（401 闸门 / 网络那类）用它那句话，
+                                    // 而 from_vpn 解不出来那一档是取数实现**如实返回 null**（契约 §5.7 的 400），
+                                    // 屏上那句话正好说的是这件事。
+                                    error = result.exceptionOrNull()?.let { FriendlyError.of(it, "转换") }
+                                        ?: if (reversed) "无法解析此 WebVPN 网址，请确认格式正确"
+                                        else "转换失败，请稍后重试"
+                                } else {
+                                    convertedUrl = converted
+                                }
+                                Log.d("WebVpnConverter", "convert reversed=$reversed input=$normalized output=${convertedUrl.redactUrl()}")
                             }
-                            Log.d("WebVpnConverter", "convert reversed=$isReversed input=$normalized output=${convertedUrl.redactUrl()}")
                         },
                         modifier = Modifier.fillMaxWidth()
                     ) { Text("转换") }

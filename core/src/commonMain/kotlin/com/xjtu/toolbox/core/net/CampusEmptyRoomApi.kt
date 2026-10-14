@@ -52,6 +52,10 @@ import kotlin.time.Instant
  * 这里照抄同一条口径 —— 两端看同一份上游数据时显示的座位数必须一致，而不是一端空着、一端写 0。
  * （[RoomInfo] 是 `@Serializable`、形状不能改，也没有"未知座位"这一档，所以这不是新决定。）
  *
+ * ⚠️ 这条口径管的是**教室列表那一档**（`rooms[]` 里的 `seats`）。[seatCount]（课表详情里「N座」
+ * 那一格）不是它：serve 形态下它读的是 `GET /api/emptyroom/seat-count?room=`，那里 `null` =
+ * 「这间房查不到」⇒ 如实回 `null`，**不拿 0 顶**（见那个方法的 KDoc）。两件事不能混。
+ *
  * @param baseUrl 留空 ⇒ 相对路径即**同源**（Web 端必须这样）。
  */
 class CampusEmptyRoomApi(
@@ -162,12 +166,27 @@ class CampusEmptyRoomApi(
     }
 
     /**
-     * 教室名 → 座位数。**只查已经拉过的那一份当天数据**，不为一个座位数再打一次请求
-     * （`:app` 那边为它单开了一次全校拉取 + 一年的座位缓存，是因为课表详情页每次点开都要用；
-     * Web 的课表是另一条切片，这里按"拿得到就给、拿不到就 null"处理）。
+     * 教室名 → 座位数（课表详情里「N座」那一格）。
+     *
+     * 两种形态的取数**不同**，各自是实话：
+     *
+     * - **serve（契约 §5.8）**：`GET /api/emptyroom/seat-count?room=` 一发一个数 —— 服务端读的就是
+     *   当天那份**免登录**的 CDN 课表（与 `/cdn` 同一档）⇒ 这一格不跟着「先登录」那条路走。
+     *   ⚠️ `seats` **显式为 `null`** = 这间房查不到（名字对不上 / 当天 CDN 拉不到 / 那间房没有座位数）
+     *   ⇒ 如实回 `null`，**不拿 0 顶**（屏按 `null` 不画那一块，写 0 会画出一排「0座」）；
+     *   而 `seats` **字段缺失**是「形状没对上」⇒ 抛错（§4：`null` 与字段缺失是两件事）；
+     * - **campus-api（默认，旧行为一字不改）**：只查已经拉过的那一份当天数据，不为一个座位数再打
+     *   一次请求（`:app` 那边为它单开了一次全校拉取 + 一年的座位缓存，是因为课表详情页每次点开都要用；
+     *   Web 的课表是另一条切片，这里按"拿得到就给、拿不到就 null"处理）。
      */
     override suspend fun seatCount(roomName: String): Int? {
         if (roomName.isBlank()) return null
+        if (mode == ApiMode.SERVE) {
+            val room = roomName.trim()
+            val data = getData("/api/emptyroom/seat-count", "room" to room)
+            val seats = data["seats"] ?: error("serve 座位数响应缺少 seats（$room）")
+            return if (seats.isNull) null else seats.intValue
+        }
         return cachedRooms.firstOrNull { it.room == roomName }?.seats?.takeIf { it > 0 }
     }
 

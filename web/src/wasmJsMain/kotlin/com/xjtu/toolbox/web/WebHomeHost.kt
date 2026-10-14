@@ -59,8 +59,9 @@ import kotlin.time.Clock
  * - [HomeCard.BULLETIN_BAR]：顶部公告条要 `:core` 的 `BulletinStore` + 一份公告取数（`:data` 的
  *   `BulletinApi`，挂着 okhttp）⇒ 本端没有公告源，不画一条空的；
  * - [HomeCard.GLANCE]：速览格是「校园卡余额 / 社区 / 考试倒计时」那一排 —— 余额读的是 `:app` 的
- *   `CampusCardCache` 落盘摘要（本端没有那份缓存）、考试读的是缓存里的考试表（本端取不到考试：
- *   `/api/jwxt/exams` 不在服务端契约里，见 `WebScheduleSource`）⇒ 三格都填不出来，整排不画；
+ *   `CampusCardCache` 落盘摘要（本端没有那份缓存）、考试读的是缓存里的考试表（日程页在 serve 形态下
+ *   真取得到考试并会写这份缓存 —— 见 `WebScheduleSource`；campus-api 形态下那一栏仍空着）⇒
+ *   三格里两格填不出来，整排仍不画；
  * - [HomeCard.QUICK_ACTIONS]：「常用功能」按点击习惯排（`:app` 的 `ServiceUsageTracker` 记在
  *   `DataCache` 里）⇒ 本端没有那份记录，不画一排随机入口冒充（与桌面同一条口径）；
  * - `heroArt`：Hero 右上角那张校区插画是 `:app` 的 `R.drawable.home_campus_hero`，本端没有那份资源

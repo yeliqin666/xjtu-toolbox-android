@@ -29,9 +29,11 @@ import java.time.format.DateTimeFormatter
  * 里那些引用一行都不用改。被替换的写法只有两处：
  *
  *  1. `android.util.Log` → `:core` 的 [Log]；
- *  2. [bookingTodo] 原来借 `:app` 的 `OwnInbox.todo(...)` 造条目 —— 那个对象留在 `:app`
- *     （它别的成员挂着 `Bulletin`/`MyBookingInfo` 这类 `:app` 类型），所以这里把那一行**逐字段摊开**成
- *     同一个 [InboxItem]（id/分类/来源/标题/时刻/无路由，一字不差）。
+ *  2. [bookingTodo] 原来借 `:app` 的 `OwnInbox.todo(...)` 造条目 —— 当时那个对象在 `:app`，所以这里把
+ *     那一行**逐字段摊开**成同一个 [InboxItem]（id/分类/来源/标题/时刻/无路由，一字不差）。
+ *     ⚠️ `OwnInbox` 已于 2026-10-14 搬进 `:core`（`docs/desktop-port-plan.md` §16.5 的第 2 条），
+ *     但**这里不改成调它**：本次是重构收尾，`:data` 这一处的行为一字未动 —— 两处现在是同一套口径的
+ *     两份写法（搬 `OwnInbox` 那次也没把这一行收回去）。
  */
 object SchoolInbox {
     private const val TAG = "SchoolInbox"

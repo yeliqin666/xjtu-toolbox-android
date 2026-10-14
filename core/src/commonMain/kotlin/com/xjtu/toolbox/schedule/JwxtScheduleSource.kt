@@ -57,6 +57,17 @@ interface JwxtScheduleSource {
     /** 可选学期，新的在前。拿不到时实现自己兜底，不抛。 */
     suspend fun termList(): List<String>
 
+    /**
+     * 这一端的教材接口**要不要学号**（默认要 —— `:data` 的帆软报表就是拿 `xh=` 去查的）。
+     *
+     * serve 契约的 `GET /api/jwxt/textbooks` **不要**：学号由服务端从会话里取（请求参数里没有这一格，
+     * §5.2 红线），所以 `:web` 传空串也该照取。屏上那个「未获取到学号」的拦门（“学号是空白就不取数”）
+     * 就是读这一格 —— 本端没有学号并不是「取不了」的理由。
+     *
+     * 默认 `false`（= 要学号），Android / 桌面的行为一字未改。
+     */
+    val textbooksWithoutStudentId: Boolean get() = false
+
     /** 教材（帆软报表）。[term] 为空取当前学期。 */
     suspend fun textbooks(studentId: String, term: String? = null): List<TextbookItem>
 }

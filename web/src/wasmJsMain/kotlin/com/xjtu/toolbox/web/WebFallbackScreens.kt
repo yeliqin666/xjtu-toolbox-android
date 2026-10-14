@@ -17,6 +17,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.xjtu.toolbox.core.net.ApiMode
 import com.xjtu.toolbox.home.AppService
 import com.xjtu.toolbox.home.ServiceCategory
 import com.xjtu.toolbox.nav.AppRoute
@@ -35,14 +36,17 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
  * 流式传输、工具层，本端一件都没有）。把格子藏掉就又变成"另一套层级"，所以照桌面 `HostUnavailableScreen` /
  * `NotPortedScreen` 的口径**落一张写清原因与缺哪一件的页**：用户看得见这一格、也看得见为什么。
  *
- * 四张页的分工：
+ * 五张页的分工：
  * - [WebUnavailableScreen]：通用降级页（屁岱，以及壳里认不出的自定义目标）；
  * - [WebSupportMismatchScreen]：**这一端的 bug 页** —— 支持清单说有、`AppPage` 却没有分支时画它
  *   （见 `WebSupport` 的 KDoc：清单与分支必须同时改）；
  * - [WebServicesScreen]：「学辅」那一格 —— **可点目录**（`:app` 那格是学业服务目录 + 每项此刻的
  *   状态摘要，本端没有后一半，于是列同一份目录里本端真能点开的那些，点一行进一屏）；
- * - [WebScheduleGapNote]：**日程页顶部那一行**。日程是本端真接上的共享屏，
- *   但它缺三个端点（见那段 KDoc），这一行把它写在屏幕上而不是只写在代码注释里。
+ * - [WebScheduleGapNote]：**日程页顶部那一行**。日程是本端真接上的共享屏，但它残余的缺口
+ *（排课原样、campus-api 形态下那两栏）不能只写在代码注释里 —— 这一行把它写在屏幕上；
+ * - [WebMatchGapScreen]：**匹配交友那一屏的落点**。它与上面几张不同：那一屏的屏**就在 `:core`**
+ *   （不是"还没搬过来"），用不了的是它的能力（wasm 上没有 deflate / Base64 ⇒ 分享码不可用）
+ *   —— 所以这一张写的是"这一端缺哪两件能力"，而不是"缺哪个宿主面"。
  */
 
 /**
@@ -208,33 +212,164 @@ private fun ServiceEntryRow(service: AppService, onNavigate: (WebTarget) -> Unit
     }
 }
 
+/**
+ * 一屏顶部的**如实缺口**说明（通用那张；日程那一张 [WebScheduleGapNote] 就是它的第一个用户）。
+ *
+ * 为什么要有它：这一端接上共享屏之后，缺的往往是**服务端契约**里的东西（某几个端点没端、某几格
+ * 刻意不投影）。那些话不能只写在代码注释里 —— 用户看着一屏少了半截，得能分清「本端/契约没有」
+ * 与「真没有数据」，这两件事在屏幕上的说法完全不同（后者是「暂无…」，前者必须指名道姓）。
+ */
+@Composable
+internal fun WebGapNote(text: String) {
+    val cs = MiuixTheme.colorScheme
+    Card(modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp), insideMargin = PaddingValues(10.dp)) {
+        Text(text, color = cs.onBackgroundVariant, fontSize = 11.sp)
+    }
+}
 
 /**
- * 日程页顶部那一行**如实说明**（不是装饰：它说的是这一页少掉的三样）。
+ * 「这一屏要有 serve 模式才有取数链」—— 只读四域（成绩单 / 考勤 / 加餐券 / 宿舍电费，§5.5）与
+ * 第二批那四屏（思源学堂 / 教材查询 / 成绩 / 快速考勤流水，§5.6）在 **campus-api 形态**下的落点。
  *
- * 为什么要有它：日程是本端唯一接上共享屏的一格，`ScheduleHost` 的三条缝里
- * [com.xjtu.toolbox.schedule.ScheduleHost.cache] / `customCourses` / `login` 都是真的
- *（前两条用 `:core` 的 `keyValueStore` 缝，在 wasm 上是 **localStorage**，见
- * `core/src/wasmJsMain/.../KeyValueStore.wasmJs.kt`），但 `source`（教务取数）只能靠
- * **服务端契约里真有的那四个端点**拼：`/api/jwxt/term`、`/api/jwxt/term-start`、
- * `/api/jwxt/terms`、`/api/jwxt/schedule`。另外三个端点（调停补课 / 考试 / 教材）在
- * `docs/api-contract.md` §5 的八个端点清单里**不存在**（实测 serve 直接 404），
- * campus-api 那边虽然有 `/api/jwxt/changes` 与 `/api/jwxt/exams`，但本端没有对应客户端，
- * 而 `/api/jwxt/schedule` 端出去的是**排课原样**（契约里写明：调停补课没有合进这些行）。
+ * 为什么不是 `NotPortedScreen`：那些屏本端**有**（就是 `:core` 的共享屏），本端也有取数
+ *（`:core` 的四个 `Campus*Api`），只是它们只认 serve 契约 —— campus-api 里没有对应端点
+ *（`:app` / 桌面是走 `:data` 的 okhttp 抓的）。所以这里写的是「切到 serve 模式就能用」，
+ * 而不是「这一屏还没搬到 Web」—— 后者是假话。
  *
- * 于是这一页显示的是**排课原样**：调课 / 停课 / 换教室不会体现在格子上，考试与教材两栏空着。
+ * @param title 那一屏的名字（“考勤”那种）
+ * @param endpoints 它在 serve 契约里的端点（照 §5.5 / §5.6 的表写）
+ * @param why 为什么这一端只能走 serve（一句话：哪个站/哪条会话）
+ * @param section 这些端点在哪一节（`"§5.5"` / `"§5.6"` / `"§5.7"` —— 这一页三批共用一个）
+ */
+@Composable
+internal fun WebServeOnlyScreen(
+    title: String,
+    endpoints: String,
+    why: String,
+    section: String = "§5.5",
+) {
+    val cs = MiuixTheme.colorScheme
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState())
+            .padding(24.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        Text("$title（Web 这一端：需要 serve 模式）", color = cs.onSurface, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+        Text(
+            "这一屏在本端**有**（`:core` 的共享屏 + `:web` 注入的 `:core` 取数），但它只认 serve 契约的端点：" +
+                "$endpoints（docs/api-contract.md $section）。$why 当前这一份 `:web` 探到的是 campus-api 形态" +
+                "（凭据托管在同源反代进程里），那几个端点不存在 ⇒ 这里写清楚，不拿别的屏冒充。",
+            color = cs.onSurface,
+            fontSize = 13.sp,
+        )
+        Text("这一端缺的东西：", color = cs.primary, fontSize = 12.sp)
+        listOf(
+            "serve 会话：起 `:server`（它同时托管这一份 `:web`），或用 `?backend=serve` 把模式钉死",
+            "campus-api 形态下这条取数链不存在 —— 这些域在 campus-api 里没有端点（不是本端没实现）",
+        ).forEach { line ->
+            Text("· $line", color = cs.onBackgroundVariant, fontSize = 12.sp)
+        }
+    }
+}
+
+/**
+ * 匹配交友（`AppRoute.Match`）在 `:web` 上的落点：**如实说明页**。
+ *
+ * 为何不是直接挂那张共享屏：`MatchScreen` 就在 `:core`（**不是**"还没搬过来"），但它整屏的价值都在
+ * 「把自己的档案压成一段分享码 / 解朋友的码」那两步上，而那两步要 **deflate** 与 **URL-safe Base64**
+ * 两件平台能力 —— wasmJs 上两个 actual 都**如实返回 null**（浏览器那两份是流式异步 API，而这条链在
+ * 共享层是同步的，见 `core/.../platform/Deflate.kt` 文件头）⇒ `MatchProfile.codecAvailable` 是 false：
+ * 生成与解析**都不可用**。
+ *
+ * 所以这里不画那些东西（每一条都写在页面上）：不拿空矩阵当码、不拿「共同空闲 100%」那种默认值顶上、
+ * 也不为了"看起来能用"把消费统计单独画成一列（它是出码的输入，出不了码就没有地方用它）。
+ *
+ * 服务端**也不**代它出码：码里含昵称与课表网格，是用户自己决定给谁看的东西（`MatchProfile` 的类 KDoc
+ * 就是为这条写的）—— 那一族在 serve 契约里只端了消费统计那一发（§5.7）。
+ */
+@Composable
+internal fun WebMatchGapScreen(onNavigate: (WebTarget) -> Unit) {
+    val cs = MiuixTheme.colorScheme
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState())
+            .padding(24.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        Text(
+            "匹配交友（Web 这一端：这一屏用不了）",
+            color = cs.onSurface,
+            fontSize = 18.sp,
+            fontWeight = FontWeight.Bold,
+        )
+        Text(
+            "屏本身就在这里（`:core` 的 `MatchScreen`，不是「还没搬到 Web」）。用不了的是它**全部的动作**：" +
+                "把自己的档案压成一段分享码给朋友扫，或者解朋友发来的码 —— 那两步要 deflate 与 URL-safe " +
+                "Base64 两件平台能力，而浏览器这一端两个 actual 都如实返回 null ⇒ 生成与解析**都不可用**" +
+                "（`MatchProfile.codecAvailable` 是 false）。",
+            color = cs.onSurface,
+            fontSize = 13.sp,
+        )
+        Text("这一端缺的东西：", color = cs.primary, fontSize = 12.sp)
+        listOf(
+            "deflate / inflate（`core/.../platform/Deflate.wasmJs.kt`：如实返回 null —— 浏览器的 " +
+                "CompressionStream 是流式异步的，而分享码这条链在共享层是同步的）",
+            "URL-safe Base64（`core/.../platform/Base64Url.wasmJs.kt`：如实返回 null）",
+            "学工档案（年级 / 专业 / 学院 / 书院 / 校区 / 班级 / 生源地）：那条链是 hello.xjtu.edu.cn，" +
+                "实现只在 `:app`（要 Context 与站点会话），`:data` 里一个 hello 字面量都没有 ⇒ 服务端契约也没有 " +
+                "`/api/match/profile`",
+            "消费统计那一维（服务端有 `/api/match/dining`）在本端**没有消费方**：它是出码的一个输入，" +
+                "出不了码就没有地方用它 —— 拿它单独画一列就是半残的交友界面",
+            "课表族缓存里那几维（考试 / 教材）：本端只有课表那一份（服务端契约里没有考试与教材的端点，" +
+                "见日程页顶部那条说明）",
+        ).forEach { line ->
+            Text("· $line", color = cs.onBackgroundVariant, fontSize = 12.sp)
+        }
+        Text(
+            "结论：这一屏请在**能出码的端**上用（App 或桌面）。服务端**不**代它出码 —— 码里含昵称与" +
+                "课表网格，是用户自己决定给谁看的东西（`MatchProfile` 的类 KDoc 就是为这条写的）。",
+            color = cs.onBackgroundVariant,
+            fontSize = 12.sp,
+        )
+        TextButton(text = "回首页", onClick = { onNavigate(WebTarget.App(AppRoute.Main)) }, minWidth = 128.dp)
+    }
+}
+
+/**
+ * 日程页顶部那一行**如实说明**（不是装饰：它写的是这一页此刻真正拿不到的东西）。
+ *
+ * 为什么要有它：日程是本端接上共享屏的一格，`ScheduleHost` 的缝里 `cache` / `customCourses` /
+ * `login` / `session` 都是真的（前两条用 `:core` 的 `keyValueStore` 缝，在 wasm 上是
+ * **localStorage**，见 `core/src/wasmJsMain/.../KeyValueStore.wasmJs.kt`），`source`（教务取数）靠
+ * **服务端契约里的端点**拼。2026-10-14（§5.8 接线与批①收尾）之后它要说的是两件事，**两种形态各说各的**：
+ *
+ * - **serve 形态**：格子里的课**已经合过调课 / 停课 / 补课**（`?merged=1` 那一档端的就是 `:data`
+ *   的 `JwxtScheduleApi.schedule()`，契约 §5.9），考试与教材两栏也真取数 —— 与 Android / 桌面同口径；
+ * - **campus-api 形态**：那三条端点在这一头没有（本端也不认它的字段名，契约 §7 第 2 条），而且
+ *   那一头不认 `merged` ⇒ 考试与教材两栏空着、详情里「N座」也不画，格子仍是排课原样。
+ *
+ * 两种形态下还有**同样做不到的三处**（能力级，与取数无关），屏上一个都不画 —— 逐条理由写在
+ * `WebScheduleHost` 的 `honored` 那一段；这几句不写在屏幕上，用户看着一张比 App 短的日程页只能猜。
+ *
  * 这一句不能只写在代码里 —— 用户看着一张"没有调课的课表"会以为教务就长这样。
  */
 @Composable
-internal fun WebScheduleGapNote() {
-    val cs = MiuixTheme.colorScheme
-    Card(modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp), insideMargin = PaddingValues(10.dp)) {
-        Text(
-            "Web 这一份的日程只显示排课原样：调停补课 / 考试 / 教材三个端点不在服务端契约里" +
-                "（`docs/api-contract.md` §5 只有八个端点，实测 serve 对它们答 404），" +
-                "所以调课、停课、换教室不体现在格子上，考试与教材两栏空着。",
-            color = cs.onBackgroundVariant,
-            fontSize = 11.sp,
-        )
-    }
+internal fun WebScheduleGapNote(mode: ApiMode) {
+    WebGapNote(
+        (if (mode == ApiMode.SERVE) {
+            "这一份日程与 Android / 桌面同口径：格子里的课**已经合过调课 / 停课 / 补课**" +
+                "（/api/jwxt/schedule?merged=1 端的就是 :data 已合并的那一份），考试与教材两栏也真取数。"
+        } else {
+            "这一份日程只有排课原样，而且后端不是 serve 模式：调停补课 / 考试 / 教材这三条端点" +
+                "本端只认 serve 契约里的那一种面（campus-api 的同名路径字段名不同，本端不认，§7 第 2 条）" +
+                "⇒ 考试与教材两栏空着、详情里的「N座」也不画；调课 / 停课 / 换教室同样不体现在格子上。"
+        }) +
+            "另外三处**这一端两种形态下都做不到**、屏上一个都不画：" +
+            "① 「导出日历 (ICS)」—— 浏览器里没有系统分享面板；" +
+            "② 课程详情里的「思源学堂」与「本次考勤」两项下钻 —— 要那两个站点的会话；" +
+            "③ 今日栏「接下来」的作业截止 —— 要思源那份落盘缓存。",
+    )
 }

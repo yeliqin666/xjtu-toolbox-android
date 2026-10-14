@@ -57,6 +57,9 @@ internal fun ActivityDetailPage(
     onPlayVideo: (title: String, instructorUrl: String?, encoderUrl: String?, isLive: Boolean, headers: Map<String, String>, startInDual: Boolean) -> Unit
 ) {
     val authExpiry = LocalAuthExpiry.current
+    // 本端能不能把附件落下来（见 `LmsSource.supportsDownload` 的 KDoc）：serve 形态的附件只有
+    // 元数据（三个地址都不投影，契约 §5.6）⇒ 附件卡只展示名字与大小，不画预览/下载那两个入口。
+    val uploadSource = if (source.supportsDownload) source else null
     val detail = cache.details[activity.id]
     var isLoading by remember { mutableStateOf(cache.details[activity.id] == null) }
     val listState = rememberRetainedLazyListState("lms_detail_${activity.id}")
@@ -175,7 +178,7 @@ internal fun ActivityDetailPage(
                         if (d.uploads.isNotEmpty()) {
                             item(key = "uploads_header") { SectionHeader("附件 (${d.uploads.size})") }
                             items(d.uploads, key = { "upload_${it.id}" }) { upload ->
-                                UploadCard(upload, source, activityClosed = d.isClosed)
+                                UploadCard(upload, uploadSource, activityClosed = d.isClosed)
                             }
                         }
 
@@ -183,16 +186,21 @@ internal fun ActivityDetailPage(
                         if (d.type == LmsActivityType.HOMEWORK) {
                             item(key = "hw_meta") { HomeworkMetaCard(d) }
 
-                            val submissions = d.submissionList?.list.orEmpty()
-                            if (submissions.isNotEmpty()) {
-                                item(key = "sub_header") { SectionHeader("提交记录 (${submissions.size})") }
-                                items(submissions, key = { "sub_${it.id}" }) { sub ->
-                                    SubmissionCard(sub, source, activityClosed = d.isClosed)
+                            // 提交记录：那一块里有提交人的姓名与学号（红线）⇒ serve 形态拿不到
+                            // （`submissionList` 恒 null）。此时**整块不画** —— 画「还没有提交记录」
+                            // 会把「拿不到」说成「真没交」，那是两件事（见 `LmsSource.supportsSubmissionList`）。
+                            if (source.supportsSubmissionList) {
+                                val submissions = d.submissionList?.list.orEmpty()
+                                if (submissions.isNotEmpty()) {
+                                    item(key = "sub_header") { SectionHeader("提交记录 (${submissions.size})") }
+                                    items(submissions, key = { "sub_${it.id}" }) { sub ->
+                                        SubmissionCard(sub, uploadSource, activityClosed = d.isClosed)
+                                    }
+                                } else {
+                                    // 一条都没有时必须明确说出来。之前这里什么都不渲染，
+                                    // 用户分不清是「没交」还是「加载失败」。
+                                    item(key = "sub_empty") { NoSubmissionCard(closed = d.isClosed) }
                                 }
-                            } else {
-                                // 一条都没有时必须明确说出来。之前这里什么都不渲染，
-                                // 用户分不清是「没交」还是「加载失败」。
-                                item(key = "sub_empty") { NoSubmissionCard(closed = d.isClosed) }
                             }
                         }
 
@@ -430,7 +438,12 @@ private fun InfoChip(text: String, icon: ImageVector) {
 @Composable
 private fun UploadCard(
     upload: LmsUpload,
-    /** 取数与落盘（可空性照搬迁前：null = 只有展示、不能预览/下载那一档）。 */
+    /**
+     * 取数与落盘（可空性照搬迁前：null = 只有展示、不能预览/下载那一档）。
+     *
+     * serve 形态就是 null（`LmsSource.supportsDownload = false`，契约 §5.6）：附件只有元数据，
+     * 三个地址与字节都没有端点 ⇒ 这一张卡只展示名字与大小，连那个下载/放大图标也不画。
+     */
     source: LmsSource? = null,
     activityClosed: Boolean = false,
 ) {
@@ -509,9 +522,11 @@ private fun UploadCard(
             }
             if (isDownloading) {
                 CircularProgressIndicator(size = 20.dp, strokeWidth = 2.dp)
-            } else {
+            } else if (source != null) {
+                // 只有真能取字节时才画那个图标：取不到还画一个下载/放大图标，就是许一个点了不会动的东西
+                // （serve 形态：契约 §5.6 不端附件的三个地址）
                 Icon(
-                    if (isImage && source != null) Icons.Default.ZoomIn else Icons.Default.Download,
+                    if (isImage) Icons.Default.ZoomIn else Icons.Default.Download,
                     null, tint = MiuixTheme.colorScheme.primary
                 )
             }
@@ -637,7 +652,7 @@ private fun remainingLabel(deadlineRaw: String): String? {
 @Composable
 private fun SubmissionCard(
     sub: LmsSubmissionItem,
-    source: LmsSource,
+    source: LmsSource?,
     activityClosed: Boolean = false,
 ) {
     val scope = rememberCoroutineScope()
@@ -703,7 +718,10 @@ private fun SubmissionCard(
                 Text("提交附件", fontSize = 12.sp, fontWeight = FontWeight.Medium, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
                 sub.uploads.forEach { upload ->
                     UploadCard(upload, source, activityClosed = activityClosed)
-                    if (upload.attachmentUrl.isNotEmpty()) {
+                    // 「下载批改版」要真能把文件落下来（`attachmentUrl` 只有 `:data` 那条链给得出）：
+                    // 本端没有下载那一档时（serve 形态，source 为 null）连这个按钮都不画
+                    val jobSource = source
+                    if (upload.attachmentUrl.isNotEmpty() && jobSource != null) {
                         var downloadingMarked by remember { mutableStateOf(false) }
                         TextButton(
                             text = if (downloadingMarked) "正在下载批改版…" else "下载批改版",
@@ -713,7 +731,7 @@ private fun SubmissionCard(
                                 scope.launch {
                                     val markedName = upload.name.substringBeforeLast('.', upload.name) +
                                         "_批改版." + upload.name.substringAfterLast('.', "bin")
-                                    val result = source.saveDownload(
+                                    val result = jobSource.saveDownload(
                                         LmsDownloadJob(name = markedName, mimeType = upload.type, folder = "", url = upload.attachmentUrl)
                                     )
                                     downloadingMarked = false

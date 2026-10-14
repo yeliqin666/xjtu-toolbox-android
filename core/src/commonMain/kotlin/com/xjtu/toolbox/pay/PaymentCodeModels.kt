@@ -45,6 +45,16 @@ interface PaymentCodeSource {
     /** 取可用的加餐券；没有就返回空表。 */
     suspend fun getVouchers(): List<PaymentVoucher>
 
+    /**
+     * 这一端**能不能勾选**加餐券。默认 `true`（Android / 桌面的原行为）。
+     *
+     * `false` = 这一端只有只读那一半：勾选会把「这一轮用哪几张」真的推给上游（[updateVoucherStatus]），
+     * 那是**写路径**，serve 契约（`docs/api-contract.md` §5.7）不端它（`:web` 的取数是
+     * [CampusPayApi]）。屏据它把那几行券画成**只读**（不画勾选框、整行不可点），
+     * 而不是画一个点了会弹「同步失败」的勾选框。
+     */
+    val canSelectVouchers: Boolean get() = true
+
     /** 把「这一轮用哪几张加餐券」同步给上游。 */
     suspend fun updateVoucherStatus(selectedIds: Collection<String>)
 }

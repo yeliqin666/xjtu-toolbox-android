@@ -93,10 +93,16 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 
 @Composable
 fun AttendanceScreen(
-    /** 本端的取数（Android / 桌面 = `:data` 的 `AppAttendanceSource`；Web 还没有这条链）。 */
+    /** 本端的取数（Android / 桌面 = `:data` 的 `AppAttendanceSource`；serve 模式 = `:core` 的 `CampusAttendanceApi`，三栏拿不到）。 */
     source: AttendanceSource,
     onBack: () -> Unit,
-    onOpenIclassface: () -> Unit,
+    /**
+     * 「快速考勤流水」（`AppRoute.Iclassface`）那一屏的入口。**null = 本端没有那一屏**
+     * （`:web` 的 serve 形态：它的屏在 `:core` 有（`IclassfaceScreen`），但取数端口要
+     * `iclassface` 站点的会话，而契约里没有它的端点）⇒ 顶栏那个图标**不画**
+     *（点了会落到降级页的按钮不摆出来）。
+     */
+    onOpenIclassface: (() -> Unit)? = null,
     /**
      * 宿主的 saved state（「上次选的学期」在进程被回收后要还在）。
      *
@@ -146,10 +152,14 @@ fun AttendanceScreen(
                 actions = {
                     // 快速考勤流水（电子班牌刷卡、人脸签到）：另一个系统的打卡记录，
                     // 首页不再单独放入口，改从这里进去，做法照搬成绩页右上角的「成绩报表」。
-                    IconButton(onClick = onOpenIclassface) {
-                        Icon(Icons.Default.Face, contentDescription = "快速考勤流水（电子班牌刷卡、人脸签到）")
+                    // 少了这一档（`onOpenIclassface == null`）就不画这个图标：点了会落到降级页的
+                    // 按钮不摆出来（见那个参数的 KDoc）。
+                    onOpenIclassface?.let { open ->
+                        IconButton(onClick = open) {
+                            Icon(Icons.Default.Face, contentDescription = "快速考勤流水（电子班牌刷卡、人脸签到）")
+                        }
                     }
-                    if (selectedTab == 3) {
+                    if (selectedTab == 3 && source.capabilities.leave) {
                         IconButton(onClick = { showForm = true }) {
                             Icon(Icons.Default.Add, contentDescription = "新建请假")
                         }
@@ -233,10 +243,11 @@ fun AttendanceScreen(
                         val header: @Composable () -> Unit = { listHeader(tab) }
                         when (tab) {
                             0 -> RecordList(state.records, glassTop, header)
-                            1 -> StreamList(state.streams, glassTop, header)
-                            2 -> StatList(state.stats, glassTop, header)
+                            1 -> StreamList(state.streams, source.capabilities.streams, glassTop, header)
+                            2 -> StatList(state.stats, source.capabilities.stats, glassTop, header)
                             else -> LeaveList(
                                 leaves = state.leaves,
+                                supported = source.capabilities.leave,
                                 onOpen = { detail = it },
                                 onWithdraw = { pendingAction = LeaveAction.WITHDRAW to it },
                                 onCancel = { pendingAction = LeaveAction.CANCEL to it },
@@ -423,12 +434,23 @@ private fun RecordList(
 @Composable
 private fun StreamList(
     streams: List<AttendanceStream>,
+    /**
+     * 本端这一份取数真拿得到打卡流水吗（见 [AttendanceCapabilities.streams]）。
+     * `false` 时那张空页说的是「本端拿不到」而不是「暂无」—— 后者会把缺口说成事实。
+     */
+    supported: Boolean,
     topPadding: androidx.compose.ui.unit.Dp,
     header: @Composable () -> Unit,
 ) {
     AttendanceListShell(
         isEmpty = streams.isEmpty(),
-        empty = { EmptyState(title = "暂无打卡流水", modifier = it) },
+        empty = {
+            EmptyState(
+                title = if (supported) "暂无打卡流水" else "本端拿不到打卡原始流水",
+                subtitle = if (supported) "" else "服务端契约（docs/api-contract.md §5.5）没有 getStreams 的端点",
+                modifier = it,
+            )
+        },
         topPadding = topPadding,
         header = header,
     ) {
@@ -471,12 +493,20 @@ private fun StreamList(
 @Composable
 private fun StatList(
     stats: List<CourseAttendanceStat>,
+    /** 本端这一份取数真拿得到统计吗（见 [AttendanceCapabilities.stats]）。 */
+    supported: Boolean,
     topPadding: androidx.compose.ui.unit.Dp,
     header: @Composable () -> Unit,
 ) {
     AttendanceListShell(
         isEmpty = stats.isEmpty(),
-        empty = { EmptyState(title = "暂无课程考勤统计数据", modifier = it) },
+        empty = {
+            EmptyState(
+                title = if (supported) "暂无课程考勤统计数据" else "本端拿不到课程考勤统计",
+                subtitle = if (supported) "" else "服务端契约（§5.5）没有统计端点（getKqtjCurrentWeek / computeCourseStatsFromRecords）",
+                modifier = it,
+            )
+        },
         topPadding = topPadding,
         header = header,
     ) {
@@ -511,6 +541,8 @@ private fun StatList(
 @Composable
 private fun LeaveList(
     leaves: List<LeaveRecord>,
+    /** 本端这一份取数真拿得到请假记录吗（见 [AttendanceCapabilities.leave]）。 */
+    supported: Boolean,
     onOpen: (LeaveRecord) -> Unit,
     onWithdraw: (LeaveRecord) -> Unit,
     onCancel: (LeaveRecord) -> Unit,
@@ -521,9 +553,13 @@ private fun LeaveList(
         isEmpty = leaves.isEmpty(),
         empty = {
             EmptyState(
-                title = "还没请过假",
-                subtitle = "点右上角加号提交病假或私事假申请",
-                modifier = it
+                title = if (supported) "还没请过假" else "本端拿不到请假记录",
+                subtitle = if (supported) {
+                    "点右上角加号提交病假或私事假申请"
+                } else {
+                    "请假 / 销假是写路径，服务端契约（§5.5）一律不端 ⇒ 那一栏与右上角加号都不画"
+                },
+                modifier = it,
             )
         },
         topPadding = topPadding,
