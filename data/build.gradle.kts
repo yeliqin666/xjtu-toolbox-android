@@ -1,4 +1,4 @@
-// :data —— 取数与会话（okhttp + jsoup，只有 JVM / Android 变体，所以不能进 :core）。
+// :data —— 残留：场馆滑块验证码（@Composable + 识别器，只有 JVM / Android）；取数与会话在 :shared:data，这里 api 转发。
 plugins {
     id("org.jetbrains.kotlin.multiplatform")
     id("com.android.kotlin.multiplatform.library")

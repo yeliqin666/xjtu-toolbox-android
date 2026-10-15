@@ -43,7 +43,11 @@ jobs:
         # ⚠️ 这里**不跑** :core:wasmJsNodeTest：一旦 :core 依赖 Compose 的 ui-graphics，
         # Node 版测试包会去 import skiko.mjs 而失败（skiko 只为 browser 目标配好了 npm 解析）。
         # wasm 的运行时证明交给 :web 在真浏览器里跑真数据。
-        run: ./gradlew :core:jvmTest
+        # 拆模块后测试跟着源码走：:shared:*（除 data）与 :feature:* 各跑各的 jvmTest。
+        run: >-
+          ./gradlew :core:jvmTest
+          :shared:model:jvmTest :shared:navigation:jvmTest :shared:designsystem:jvmTest :shared:network:jvmTest
+          :feature:account:jvmTest :feature:agent:jvmTest :feature:attendance:jvmTest :feature:campus:jvmTest :feature:community:jvmTest :feature:game:jvmTest :feature:home:jvmTest :feature:jiaocai:jvmTest :feature:library:jvmTest :feature:lms:jvmTest :feature:notice:jvmTest :feature:schedule:jvmTest :feature:score:jvmTest :feature:settings:jvmTest :feature:webvpn:jvmTest
 
       - name: 数据层（:data）与桌面端（:desktop）也要能编、能测
         # :data 是同一条判据的第二个消费者：它刻意**只有 jvm + android** 两个目标
@@ -56,4 +60,4 @@ jobs:
         #
         # :testkit 是假的校园上游（图书馆座位系统 + 统一认证）—— 它不在任何交付物里，但上面两条
         # 测试都依赖它，所以要单独编一遍（它一旦编不过，两边的失败信息都很难指向真因）。
-        run: ./gradlew :testkit:compileKotlin :data:compileAndroidMain :data:jvmTest :desktop:compileKotlin :desktop:test
+        run: ./gradlew :testkit:compileKotlin :shared:data:compileAndroidMain :shared:data:jvmTest :data:compileAndroidMain :data:jvmTest :desktop:compileKotlin :desktop:test

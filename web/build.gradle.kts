@@ -69,7 +69,7 @@ kotlin {
             implementation(libs.miuix.icons.kmp)
         }
 
-        // ── wasmJsTest：只编进 `:core` commonTest 的 ArchiveFixture.kt（:core 的 commonTest 整体在 wasmJs 上编不过）──
+        // ── wasmJsTest：只编进 `:feature:settings` commonTest 的 ArchiveFixture.kt（原 :core 的 commonTest 整体在 wasmJs 上编不过）──
         wasmJsTest.dependencies {
             implementation(kotlin("test"))
             implementation(project(":core"))
@@ -153,10 +153,10 @@ val generateWebTestSourceSnapshot = tasks.register("generateWebTestSourceSnapsho
     }
 }
 
-// ── 档案夹具：拷 `:core` commonTest 的那一份（`:testkit` 是 jvm，wasm 用不了）──
+// ── 档案夹具：拷 `:feature:settings` commonTest 的那一份（`:testkit` 是 jvm，wasm 用不了）──
 val materializeArchiveFixture = tasks.register<Copy>("materializeArchiveFixture") {
     group = "verification"
-    description = "把 :core commonTest 里的档案夹具拷进本端测试源集（A5：三端同一份夹具）"
+    description = "把 :feature:settings commonTest 里的档案夹具拷进本端测试源集（A5：三端同一份夹具）"
     from(rootProject.file("feature/settings/src/commonTest/kotlin/com/xjtu/toolbox/archive/ArchiveFixture.kt"))
     into(layout.buildDirectory.dir("generated/coreArchiveFixture/kotlin/com/xjtu/toolbox/archive"))
 }

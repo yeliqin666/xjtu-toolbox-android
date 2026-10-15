@@ -1,6 +1,6 @@
 import org.jetbrains.kotlin.gradle.ExperimentalWasmDsl
 
-// :core —— 三端共用的业务逻辑与平台抽象（KMP）。
+// :core —— 残留壳：三端共用的应用外壳（shell/**），并用 api 转发全部 :shared:* 与 :feature:*（见 docs/kmp-module-map.md）。
 plugins {
     id("org.jetbrains.kotlin.multiplatform")
     // 没有它 :app 消费不了 :core（jvm 变体对 Android 消费者不可见）。

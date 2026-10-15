@@ -16,6 +16,9 @@ on:
       - 'desktop/**'
       - 'data/**'
       - 'core/**'
+      - 'shared/**'
+      - 'feature/**'
+      - 'build-logic/**'
       - 'gradle/**'
       - 'gradlew'
       - 'gradlew.bat'
@@ -119,7 +122,7 @@ jobs:
       - name: 凭据保护的单元测试（平台上真跑：这几条含真 DPAPI 往返/篡改）
         # Windows 上 secretProtectorForPlatform 真给 DPAPI ⇒ 这两条用例在这里**真跑**
         # （Linux 上它们自己跳过，所以这是它们唯一的验证现场）
-        run: .\gradlew.bat :data:jvmTest --tests "com.xjtu.toolbox.platform.*"
+        run: .\gradlew.bat :shared:data:jvmTest --tests "com.xjtu.toolbox.platform.*"
 
       - name: 更新骨架的单元测试
         # 纯函数那半（挑发布、比版本）与注入假响应的那条 GET：与平台无关，Windows 上也该绿
