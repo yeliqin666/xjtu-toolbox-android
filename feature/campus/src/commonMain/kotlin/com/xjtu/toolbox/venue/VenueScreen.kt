@@ -482,7 +482,7 @@ fun VenueScreen(
                                 vm.dismissResult(refresh = false)
                                 pay(
                                     OrderInfo(
-                                        orderId = result.orderId,
+                                        orderId = result.orderId!!,
                                         status = 0,
                                         createdAt = "",
                                         price = result.price,

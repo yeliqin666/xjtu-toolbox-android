@@ -336,7 +336,7 @@ private fun ReportGradeRow(grade: ReportedGrade) {
                 )
                 Spacer(Modifier.height(2.dp))
                 Text(
-                    "${grade.coursePoint} 学分" + if (grade.gpa != null) " · GPA ${formatTwoDecimals(grade.gpa)}" else "",
+                    "${grade.coursePoint} 学分" + if (grade.gpa != null) " · GPA ${formatTwoDecimals(grade.gpa!!)}" else "",
                     style = MiuixTheme.textStyles.footnote2,
                     color = MiuixTheme.colorScheme.onSurfaceVariantSummary
                 )
