@@ -157,7 +157,7 @@ val generateWebTestSourceSnapshot = tasks.register("generateWebTestSourceSnapsho
 val materializeArchiveFixture = tasks.register<Copy>("materializeArchiveFixture") {
     group = "verification"
     description = "把 :core commonTest 里的档案夹具拷进本端测试源集（A5：三端同一份夹具）"
-    from(rootProject.file("core/src/commonTest/kotlin/com/xjtu/toolbox/archive/ArchiveFixture.kt"))
+    from(rootProject.file("feature/settings/src/commonTest/kotlin/com/xjtu/toolbox/archive/ArchiveFixture.kt"))
     into(layout.buildDirectory.dir("generated/coreArchiveFixture/kotlin/com/xjtu/toolbox/archive"))
 }
 
