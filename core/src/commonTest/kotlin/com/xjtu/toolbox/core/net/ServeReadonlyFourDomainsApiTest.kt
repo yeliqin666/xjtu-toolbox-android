@@ -1,5 +1,6 @@
 package com.xjtu.toolbox.core.net
 
+import com.xjtu.toolbox.attendance.LeaveType
 import com.xjtu.toolbox.attendance.WaterType
 import com.xjtu.toolbox.coupon.CouponFilter
 import io.ktor.client.engine.mock.MockEngine
@@ -166,23 +167,129 @@ class ServeReadonlyFourDomainsApiTest {
         assertEquals("2026-09-01", calls[2]["from"])
         assertEquals("2026-09-30", calls[2]["to"])
 
-        // 三栏（统计 / 打卡流水 / 请假）契约 §5.5 都没有端点：能力开关全 false，屏据此不画「暂无…」
+        // 只剩统计 / 打卡流水两栏没有端点（`leave` 已于批③-b / D7 ② 翻 true）：
+        // 屏据此不画「暂无…」而是写「本端拿不到 …」。
         assertEquals(
-            com.xjtu.toolbox.attendance.AttendanceCapabilities(stats = false, streams = false, leave = false),
+            com.xjtu.toolbox.attendance.AttendanceCapabilities(stats = false, streams = false, leave = true),
             api.capabilities,
         )
         assertTrue(api.getKqtjCurrentWeek().isEmpty(), "统计不端 ⇒ 空表（不拿流水在本机算第二份口径）")
         assertTrue(api.computeCourseStatsFromRecords(records).isEmpty())
         assertTrue(api.getStreams("2026-09-01", "2026-09-30").isEmpty())
         assertTrue(api.getStudentInfo().isEmpty(), "姓名那格不端 ⇒ 空表（屏上姓名那一行自然不画）")
-        val leavePage = api.getLeavePage()
-        assertTrue(leavePage.records.isEmpty())
-        assertFailsWith<UnsupportedOperationException> { api.getSemesterWindow() }
+    }
+
+    /**
+     * 请假那一半（批③-b / D7 ②）：三读 + 三写都真走；附件上传仍然没有端点。
+     *
+     * 钉的四件事：① 窗口 / 预览 / 列表三格逐格投影（含两类姓名按 §5.2 例外 ④ **真投影**）；
+     * ② 提交真发一枪、`requestId` 空串时本端补一枚（幂等键），而且**不发** `evidenceFiles`；
+     * ③ 撤回 / 销假各一枪，body 只有契约那三格 / 两格；④ `uploadEvidence` 照旧抛错（屏上那个槽位
+     * 给的是空表，不会调到这里）。
+     */
+    @Test
+    fun serveAttendanceLeaveReadsAndWritesFollowContract() = runTest {
+        val windowBody =
+            """{"code":0,"data":{"semesterId":"646","academicYear":"2026-2027",""" +
+                """"semesterName":"第一学期","startDate":"2026-09-14","endDate":"2027-02-21",""" +
+                """"maxStudentLeaveMinutes":2880}}"""
+        val previewBody =
+            """{"code":0,"data":{"nextNodeNo":1,"nextApprovers":[{"userId":"A1","name":"李四（假）"}],""" +
+                """"nodes":[{"nodeNo":1,"nodeRole":"TEACHER","nodeName":"辅导员","configured":true,""" +
+                """"approvers":[{"userId":"A1","name":"李四（假）"}]}]}}"""
+        val recordsBody =
+            """{"code":0,"data":{"page":1,"size":20,"total":1,"records":[""" +
+                """{"leaveId":"L1","leaveType":"SICK","reason":"发烧","applyTime":"2026-10-10 08:00",""" +
+                """"startTime":"2026-10-11 08:00:00","endTime":"2026-10-11 12:00:00",""" +
+                """"status":"PENDING","displayStatus":"","approvalStatus":"PENDING","cancelStatus":"",""" +
+                """"sourceType":"STUDENT","durationMinutes":240,"durationText":"4 小时","archiveId":"AR1",""" +
+                """"withdrawable":true,"cancellable":false,"evidenceFiles":[],"approvalNodes":[],""" +
+                """"courses":[{"courseId":"C1","courseName":"光电子学","courseDate":"2026-10-11",""" +
+                """"startSection":1,"endSection":2,"teacherNames":"张三（假）"}]}]}}"""
+        val paths = mutableListOf<String>()
+        val bodies = mutableListOf<String>()
+        val engine = MockEngine { request ->
+            val path = request.url.encodedPath
+            paths += path
+            val body = when {
+                path.endsWith("/api/attendance/leave/window") -> windowBody
+                path.endsWith("/api/attendance/leave/preview") -> previewBody
+                path.endsWith("/api/attendance/leave/records") -> recordsBody
+                path.endsWith("/api/attendance/leave/withdraw") || path.endsWith("/api/attendance/leave/cancel") -> {
+                    bodies += (request.body as io.ktor.content.TextContent).text
+                    """{"code":0,"data":{"ok":true,"message":"ok"}}"""
+                }
+                path.endsWith("/api/attendance/leave") -> {
+                    bodies += (request.body as io.ktor.content.TextContent).text
+                    """{"code":0,"data":{"leaveId":"L-NEW"}}"""
+                }
+                else -> error("没有为 $path 准备响应")
+            }
+            respond(body, HttpStatusCode.OK, headersOf(HttpHeaders.ContentType to listOf("application/json")))
+        }
+        val api = CampusAttendanceApi(createToolboxClient(engine = engine), "", ApiMode.SERVE)
+
+        val window = api.getSemesterWindow()
+        assertEquals("646", window.semesterId)
+        assertEquals(2880, window.maxStudentLeaveMinutes)
+
+        val preview = api.getFlowPreview(LeaveType.SICK)
+        assertEquals(1, preview.nextNodeNo)
+        assertEquals("A1", preview.nextApprovers.single().userId, "下拉框的句柄是 userId（提交时要原样带回）")
+        assertEquals(
+            "李四（假）",
+            preview.nextApprovers.single().name,
+            "审批人姓名在 §5.2 例外 ④ 里 ⇒ 真投影（屏上那个下拉框画的就是它）",
+        )
+        assertTrue(preview.nodes.single().configured)
+
+        val page = api.getLeavePage()
+        assertEquals(1, page.total)
+        val record = page.records.single()
+        assertEquals("L1", record.leaveId)
+        assertEquals("发烧", record.reason)
+        assertTrue(record.withdrawable)
+        assertEquals(
+            "张三（假）",
+            record.courses.single().teacherNames,
+            "任课教师姓名在 §5.2 例外 ④ 里 ⇒ 真投影（例外的根据是「我自己的课」）",
+        )
+
+        val leaveId = api.createLeave(
+            type = LeaveType.SICK,
+            startTime = "2026-10-20 08:00:00",
+            endTime = "2026-10-20 12:00:00",
+            reason = "发烧",
+            nextApproverUserId = "A1",
+            evidenceFiles = emptyList(),
+            requestId = "",
+        )
+        assertEquals("L-NEW", leaveId, "服务端给的单号原样带回")
+        assertEquals("/api/attendance/leave", paths.last())
+        val createBody = bodies.first()
+        assertTrue(createBody.contains(""""type":"SICK""""), "type 发的是枚举码：$createBody")
+        assertTrue(createBody.contains(""""startTime":"2026-10-20 08:00:00""""), createBody)
+        assertTrue(createBody.contains(""""nextApproverUserId":"A1""""), createBody)
+        assertTrue(createBody.contains("requestId"), createBody)
+        assertTrue(!createBody.contains("evidenceFiles"), "附件那一格不发出去（本端没有那个端点）：$createBody")
+        val requestId = Regex(""""requestId":"([0-9A-F]+)""").find(createBody)?.groupValues?.get(1)
+        assertTrue(requestId != null && requestId.length == 16, "补出来的幂等键是 16 位十六进制：$requestId")
+
+        api.withdrawLeave("L1", "学生撤回")
+        assertEquals("/api/attendance/leave/withdraw", paths.last())
+        api.cancelLeave("L1")
+        assertEquals("/api/attendance/leave/cancel", paths.last())
+        assertEquals(3, bodies.size, "提交 / 撤回 / 销假各一发")
+
+        // 附件上传：本端没有端点（屏上那个槽位给的是空表，不会调到这里）
+        assertFailsWith<UnsupportedOperationException> { api.uploadEvidence("a.pdf", "application/pdf", byteArrayOf()) }
+        // 打卡流水那一栏不是「抛错」而是「如实空表」（屏按 `capabilities.streams` 不画那一栏）
+        assertTrue(api.getStreams("2026-09-01", "2026-09-30").isEmpty())
     }
 
     /**
      * 加餐券：金额一律是**分**（不换算）、封面图**不发那一枪**（直连会拿到登录页）、
-     * 领券（写路径）没有端点 ⇒ `canActivate = false` + 方法抛错。
+     * 领券（写路径）已经端了：`POST /api/coupon/activate`（`canActivate = true`）。
      */
     @Test
     fun serveCouponKeepsFenAndSkipsLoginPageImage() = runTest {
@@ -202,11 +309,18 @@ class ServeReadonlyFourDomainsApiTest {
               "openPacketImageUrl":"https://egc.xjtu.edu.cn/o.jpg"}}
         """.trimIndent()
         val calls = mutableListOf<Map<String, String>>()
+        val paths = mutableListOf<String>()
+        val activateBodies = mutableListOf<String>()
         val engine = MockEngine { request ->
+            paths += request.url.encodedPath
             calls += request.url.parameters.names().associateWith { request.url.parameters[it].orEmpty() }
             val body = when {
                 request.url.encodedPath.endsWith("/api/coupon/list") -> listBody
                 request.url.encodedPath.endsWith("/api/coupon/detail") -> detailBody
+                request.url.encodedPath.endsWith("/api/coupon/activate") -> {
+                    activateBodies += (request.body as io.ktor.content.TextContent).text
+                    """{"code":0,"data":{"ok":true,"message":"✓ 已领取"}}"""
+                }
                 else -> error("没有为 ${request.url.encodedPath} 准备响应")
             }
             respond(body, HttpStatusCode.OK, headersOf(HttpHeaders.ContentType to listOf("application/json")))
@@ -230,10 +344,12 @@ class ServeReadonlyFourDomainsApiTest {
         assertNull(api.loadImage(coupon.imageUrl), "取不到图就不画图，不拿登录页当封面")
         assertEquals(2, calls.size, "loadImage 不许发请求")
 
-        // 领券是写路径 ⇒ 没有端点
-        assertFalse(api.canActivate, "领券不端 ⇒ 屏上不画那个按钮")
-        val e = assertFailsWith<UnsupportedOperationException> { api.activateCoupon("C1") }
-        assertTrue(e.message?.contains("写路径") == true, "实际：${e.message}")
+        // 领券：端子在 ⇒ 屏上那个按钮照旧画；这一发真打出去（`{showCardId}`）
+        assertTrue(api.canActivate, "领券端了（POST /api/coupon/activate）⇒ 屏上那块「领取」照旧画")
+        api.activateCoupon("C1")
+        assertEquals("/api/coupon/activate", paths.last(), "第三发是领券那一条路径")
+        assertEquals(1, activateBodies.size, "领券真发了一枪")
+        assertEquals("""{"showCardId":"C1"}""", activateBodies.single(), "body 只有契约那一格")
     }
 
     /**

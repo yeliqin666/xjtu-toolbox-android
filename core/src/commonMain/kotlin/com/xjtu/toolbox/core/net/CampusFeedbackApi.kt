@@ -7,6 +7,8 @@ import com.xjtu.toolbox.util.arr
 import com.xjtu.toolbox.util.safeString
 import io.ktor.client.HttpClient
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 
 /**
  * 反馈的 **serve 版取数**：给 `:web` 用，实现 [FeedbackSource]。
@@ -15,6 +17,7 @@ import kotlinx.serialization.json.JsonObject
  * |---|---|
  * | `GET /api/feedback/replies?tickets=` | [replies] |
  * | `GET /api/feedback/public-qa` | [publicQa] |
+ * | `POST /api/feedback/submit` | [submit]（**写**） |
  *
  * 契约 §5.7；`:server` 那一侧是 `FeedbackRoutes.kt`（薄包装 `:data` 的 `FeedbackApi`，飞书开放平台
  * 多维表格）。
@@ -29,10 +32,11 @@ import kotlinx.serialization.json.JsonObject
  * 一句「去哪儿配」的中文短句（契约 §5.7），屏把失败吞掉 ⇒ 页面呈现为「没有新回复 / 没有问答」。
  * 这一条写在 `:web` 那一屏的页顶说明里，不在这里编一个假判据出来。
  *
- * ⚠️ **提交新反馈是写路径，不端**：`FeedbackSource.submit(...)`（`POST .../records`）真往多维表格
- * 里加一行 ⇒ [canSubmit] 报 `false`，屏上**整块表单不画**，只剩「去 GitHub 提 Issue」那条外链
- * （屏本来就有这条降级路径）。于是浏览器这一端能读、不能提 —— 与契约 §5.7 同一条口径。
- *
+ * ✅ **提交新反馈也端了**（写路径，契约 §5.7）：`POST /api/feedback/submit`—— 请求体就是
+ * [submit] 那五格（`ticket` / `category` / `content` / `contact` / `anonId`），工单号仍由**屏自己**
+ * 生成（`FeedbackStore.newTicket()`），端点只校形状并**原样回**，不由服务端下发。
+ * ⚠️ 这一枪在服务端**真的**往多维表格里加一行，而且上游是匿名可写（反馈没有站点会话）——
+ * 能挡住滥用的只有令牌闸门 + 飞书那张表的写权限范围。
  * ## 缺字段不编造
  *
  * - `ticket` 空白的那几条回复**不列**（归不到某个工单上的回复没法显示在「我提过的」里）；
@@ -65,8 +69,13 @@ class CampusFeedbackApi(
     /** 见类 KDoc：端点在这份契约里有（编译期定死）；「凭据配没配」是服务端运行期的事。 */
     override val isConfigured: Boolean get() = true
 
-    /** 见类 KDoc：提交是写路径（契约 §5.7 不端）⇒ 屏上整块表单不画，只剩 GitHub 外链。 */
-    override val canSubmit: Boolean get() = false
+    /**
+     * 见类 KDoc：提交端了（`POST /api/feedback/submit`，契约 §5.7）⇒ 屏上那块表单照旧画。
+     *
+     * 与 `:data` / 桌面那一份**逐字相同**的默认值（`FeedbackSource.canSubmit` 默认 `true`）：
+     * 本类不再覆写它，否则这一端就会自己把自己画成「只能看」—— 而端点是在的。
+     */
+    override val canSubmit: Boolean get() = true
 
     override suspend fun replies(tickets: List<String>): Map<String, FeedbackReply> {
         requireServe()
@@ -113,14 +122,25 @@ class CampusFeedbackApi(
         contact: String,
         anonId: String,
         version: String?,
-    ): Unit = throw UnsupportedOperationException(
-        "serve 契约没有「提交反馈」的端点：`FeedbackSource.submit`（POST .../records）真会往飞书多维表格里" +
-            "加一行，属写路径（docs/api-contract.md §5.7）—— 屏上整块表单不画，只留 GitHub 外链" +
-            "（FeedbackSource.canSubmit = false）",
-    )
+    ) {
+        requireServe()
+        // `version` 不进请求体（见类 KDoc）—— 留空时由 `:data` 用宿主注入的 config 那三格顶上：
+        // 这里显式丢掉它，免得下一个读的人以为「传了就会发出去」—— 端点不收这一格。
+        val body = buildJsonObject {
+            put("ticket", ticket)
+            put("category", category)
+            put("content", content)
+            put("contact", contact)
+            put("anonId", anonId)
+        }.toString()
+        val outcome = client.serveAction(baseUrl, SUBMIT_PATH, body)
+        // 400（形状不对）与 502（凭据没配全 / 上游故障）都是「这一枪没成」⇒ 抛出去，
+        // 由屏上那条降级文案接（与两端同一档）；成功就是 200 + `data.ticket`。
+        if (!outcome.ok) error("提交反馈：${outcome.message}")
+    }
 
     private fun requireServe() {
-        if (mode != ApiMode.SERVE) serveOnly("反馈取数", "$REPLIES_PATH + $PUBLIC_QA_PATH")
+        if (mode != ApiMode.SERVE) serveOnly("反馈取数", "$REPLIES_PATH + $PUBLIC_QA_PATH + $SUBMIT_PATH")
     }
 }
 
@@ -129,6 +149,9 @@ private const val REPLIES_PATH = "/api/feedback/replies"
 
 /** 「大家在问」（不收参数；上游表里没勾「公开」的不出现）。 */
 private const val PUBLIC_QA_PATH = "/api/feedback/public-qa"
+
+/** 提交一条反馈（**写**：`POST /api/feedback/submit`，请求体是 [CampusFeedbackApi.submit] 那五格）。 */
+private const val SUBMIT_PATH = "/api/feedback/submit"
 
 private const val TICKETS_PARAM = "tickets"
 

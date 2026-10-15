@@ -640,12 +640,6 @@ internal const val JWXT_PARAM_MERGED = "merged"
  */
 private const val EVALUATIONS_CAN_SUBMIT = false
 
-/** `?page=&size=` 的正整数读法；不是正整数（或没给）返回 null。 */
-private fun io.ktor.http.Parameters.positiveInt(name: String, default: Int): Int? {
-    val raw = get(name)?.trim() ?: return default
-    return raw.toIntOrNull()?.takeIf { it > 0 }
-}
-
 /** `?terms=` 的读法：逗号分隔、最多 4 个学期（与 :core 客户端先例同一个上限）；没给 = 空表。 */
 private fun io.ktor.http.Parameters.evalTerms(): List<String>? {
     val raw = get("terms")?.trim()?.takeIf { it.isNotEmpty() } ?: return emptyList()

@@ -2,12 +2,22 @@ package com.xjtu.toolbox.server
 
 import com.xjtu.toolbox.attendance.AppAttendanceSource
 import com.xjtu.toolbox.attendance.AttendanceWaterRecord
+import com.xjtu.toolbox.attendance.LeaveApprovalNode
+import com.xjtu.toolbox.attendance.LeaveApprover
+import com.xjtu.toolbox.attendance.LeaveCourse
+import com.xjtu.toolbox.attendance.LeaveEvidence
+import com.xjtu.toolbox.attendance.LeaveFlowNode
+import com.xjtu.toolbox.attendance.LeaveFlowPreview
+import com.xjtu.toolbox.attendance.LeaveRecord
+import com.xjtu.toolbox.attendance.LeaveSemesterWindow
+import com.xjtu.toolbox.attendance.LeaveType
 import com.xjtu.toolbox.attendance.TermInfo
 import com.xjtu.toolbox.auth.SiteSession
 import io.ktor.server.response.respond
 import io.ktor.server.routing.Route
 import io.ktor.server.routing.get
 import io.ktor.server.routing.route
+import io.ktor.server.routing.post
 import kotlinx.serialization.Serializable
 
 /**
@@ -18,6 +28,12 @@ import kotlinx.serialization.Serializable
  * |---|---|
  * | `GET /api/attendance/terms` | `AttendanceSource.getTermList()`（`TermInfo`） |
  * | `GET /api/attendance/records` | `AttendanceSource.getTermBh()` + `getWaterRecords(bh, from, to)` |
+ * | `GET /api/attendance/leave/window` | `AttendanceSource.getSemesterWindow()` |
+ * | `GET /api/attendance/leave/preview?type=` | `AttendanceSource.getFlowPreview(type)` |
+ * | `GET /api/attendance/leave/records?page=&size=&status=&type=` | `AttendanceSource.getLeavePage(…)` |
+ * | `POST /api/attendance/leave` | `AttendanceSource.createLeave(…)`（**写**） |
+ * | `POST /api/attendance/leave/withdraw` | `AttendanceSource.withdrawLeave(id, reason)`（**写**） |
+ * | `POST /api/attendance/leave/cancel` | `AttendanceSource.cancelLeave(id)`（**写**） |
  *
  * ## 端了什么、刻意不端什么
  *
@@ -27,7 +43,10 @@ import kotlinx.serialization.Serializable
  * | `getStudentInfo` | 不端：它要 `name` 那格是**姓名**（登录用户本人）——契约 §5.2 红线，例外清单里没有它 |
  * | `getKqtjCurrentWeek` / `getKqtjByTime` / `computeCourseStatsFromRecords` | 不端：屏上「按课程统计」那一栏（TODO，见下） |
  * | `getStreams` | 不端：打卡原始流水那一栏（TODO，见下） |
- * | 请假那一半（`getSemesterWindow` / `getFlowPreview` / `getLeavePage` / `uploadEvidence` / `createLeave` / `withdrawLeave` / `cancelLeave`） | **一律不端**：请假 / 销假是**写路径**（本批只端只读） |
+ * | 请假那一半 | ✅ **已端**（2026-10-15，批③-b / D7 ②）：窗口 / 流程预览 / 列表三格读 + 提交 / 撤回 / 销假三个写 |
+ * | `uploadEvidence` | 不端：它是 `multipart/form-data`，而 `:web` 那一端没有文件选择宿主（`AttendanceScreen` 的 `pickEvidenceFiles` 默认就是空）⇒ 与桌面同一条：不发附件 |
+ * | 请求体里的 `evidenceFiles` | 固定空表（见上一行）—— serve 这一层没有地方接受文件字节，也不把「没传附件」说成「传了一个空的」 |
+ * | `requestId`（幂等键） | ✅ 由**调用方**给（与两端的接口签名一致）；缺了 ⇒ `400`（重发两次不该变成两条请假） |
  *
  * ## 逐字段映射（判据是真源：`:data` 的解析 + `:core` 的模型）
  *
@@ -44,8 +63,13 @@ import kotlinx.serialization.Serializable
  *   `WaterType` KDoc 把这条写死了（不许悄悄算成正常，那会把统计数字做成好看的假数字）。
  * - ⚠️ **`teacher` 不投影**：考勤记录里的上课教师名是**姓名**，而契约 §5.2 的例外清单里没有它
  *   （例外只有 ① `fitness/score` 本人姓名/学号 ② 黄页/教师检索的通讯录 ③ `emptyroom/rooms`
- *   实时档的上课教师名）⇒ 本层按红线不端。`:web` 的考勤屏若要显示教师名，得先拍板把它加进
- *   例外清单（那是改契约，不是改这一层）。
+ *   实时档的上课教师名 ④ 请假这一族的两类姓名，见下一行）⇒ 本层按红线不端。`:web` 的考勤屏
+ *   若要显示教师名，得先拍板把它加进例外清单（那是改契约，不是改这一层）。
+ * - ✅ **请假这一族的两个姓名（例外④）已于 2026-10-15 拍板、真投影**：`leave/preview` 的
+ *   `nextApprovers[].name` / `nodes[].approvers[].name`（**我自己的申请上的审批人姓名**）与
+ *   `leave/records` 的 `courses[].teacherNames`（**我自己的课的任课教师姓名**）。理由与 ③ 同
+ *   性质（都是「我自己的申请 / 我自己的课」上的真人名；不加这一条，屏上那个审批人下拉框就
+ *   退化成一行 `userId`）。除了这两类，其余姓名一律仍不投影。
  *
  * ## 请求参数与错误码
  *
@@ -107,6 +131,151 @@ internal fun Route.attendanceRoutes(session: ServeSession) {
             } catch (e: Exception) {
                 call.respondUpstreamFailure(e, "加载考勤流水")
             }
+        }
+
+        // ── 请假 / 销假（2026-10-15，批③-b / D7 ②）──────────────────────────
+        //
+        // 六条端点 = `:core` 那张请假屏真正要的那几样：**窗口**（表单上的上限与日期范围）、
+        // **流程预览**（选审批人）、**列表**（那一栏的卡）+ 提交 / 撤回 / 销假三个写。
+        // 三个写的**二次确认在屏上**（撤回 / 销假各有一次 `OverlayDialog`，提交前有一整套表单校验），
+        // 本层不再加一层 —— 服务端没有「用户按了确定」这个信号，编一个只会变成第二个口径。
+
+        // 请假学期窗口（读）
+        get(ATTENDANCE_LEAVE_WINDOW) {
+            if (!session.authenticated) return@get call.respondLoginRequired()
+            try {
+                val window = AppAttendanceSource(session.attendanceSite()).getSemesterWindow()
+                call.respond(ApiEnvelope.ok(window.toDto()))
+            } catch (e: Exception) {
+                call.respondUpstreamFailure(e, "加载请假学期窗口")
+            }
+        }
+
+        // 审批流程预览（读；`?type=` 只认 SICK / PERSONAL）
+        get(ATTENDANCE_LEAVE_PREVIEW) {
+            if (!session.authenticated) return@get call.respondLoginRequired()
+            val raw = call.request.queryParameters[ATTENDANCE_PARAM_TYPE]?.trim()
+            val leaveType = LeaveType.entries.firstOrNull { it.code.equals(raw, ignoreCase = true) }
+                ?: return@get call.respondBadRequestMessage(ATTENDANCE_LEAVE_TYPE_MESSAGE)
+            try {
+                val preview = AppAttendanceSource(session.attendanceSite()).getFlowPreview(leaveType)
+                call.respond(ApiEnvelope.ok(preview.toDto()))
+            } catch (e: Exception) {
+                call.respondUpstreamFailure(e, "加载审批流程")
+            }
+        }
+
+        // 请假记录（读）
+        get(ATTENDANCE_LEAVE_RECORDS) {
+            if (!session.authenticated) return@get call.respondLoginRequired()
+            val params = call.request.queryParameters
+            val page = params.positiveInt(ATTENDANCE_PARAM_PAGE, 1)
+                ?: return@get call.respondBadRequestMessage("page 需要是正整数")
+            val size = params.positiveInt(ATTENDANCE_PARAM_SIZE, ATTENDANCE_LEAVE_PAGE_SIZE)
+                ?: return@get call.respondBadRequestMessage("size 需要是正整数")
+            val status = params[ATTENDANCE_PARAM_STATUS]?.trim().orEmpty()
+            val rawType = params[ATTENDANCE_PARAM_TYPE]?.trim().orEmpty()
+            if (rawType.isNotEmpty() && LeaveType.entries.none { it.code.equals(rawType, ignoreCase = true) }) {
+                return@get call.respondBadRequestMessage(ATTENDANCE_LEAVE_TYPE_MESSAGE)
+            }
+            try {
+                val leavePage = AppAttendanceSource(session.attendanceSite())
+                    .getLeavePage(pageNum = page, pageSize = size, status = status, leaveType = rawType.uppercase())
+                call.respond(
+                    ApiEnvelope.ok(
+                        AttendanceLeavePageData(
+                            // 页码 / 页大小回的是**请求给的那两个**（与 `/api/coupon/list` 同一条；
+                            // 上游回显的那两个本层不回，消费方一个都不读）
+                            page = page,
+                            size = size,
+                            total = leavePage.total,
+                            records = leavePage.records.map { it.toDto() },
+                        ),
+                    ),
+                )
+            } catch (e: Exception) {
+                call.respondUpstreamFailure(e, "加载请假记录")
+            }
+        }
+
+        // 提交请假申请（写）
+        post(ATTENDANCE_LEAVE) {
+            if (!session.authenticated) return@post call.respondLoginRequired()
+            val body = call.receiveOrNull<AttendanceLeaveCreateRequest>()
+                ?: return@post call.respondBadRequestMessage(ATTENDANCE_LEAVE_CREATE_BODY_MESSAGE)
+            val leaveType = LeaveType.entries.firstOrNull { it.code.equals(body.type.trim(), ignoreCase = true) }
+                ?: return@post call.respondBadRequestMessage(ATTENDANCE_LEAVE_TYPE_MESSAGE)
+            for ((name, value) in listOf(
+                ATTENDANCE_PARAM_START_TIME to body.startTime,
+                ATTENDANCE_PARAM_END_TIME to body.endTime,
+                ATTENDANCE_PARAM_NEXT_APPROVER to body.nextApproverUserId,
+                ATTENDANCE_PARAM_REQUEST_ID to body.requestId,
+            )) {
+                if (value.isBlank()) return@post call.respondBadRequestMessage("$name 必填（不能是空白）")
+            }
+            if (body.reason.isBlank()) {
+                return@post call.respondBadRequestMessage("reason 必填（不能是空白）")
+            }
+            // 两个时间要的是 `:data` 要的那一种形状（`yyyy-MM-dd HH:mm:ss`）——
+            // 服务端不替它猜一种别的写法（猜错就是把「时区/格式不对」变成一条奇怪的申请）
+            for ((name, value) in listOf(
+                ATTENDANCE_PARAM_START_TIME to body.startTime,
+                ATTENDANCE_PARAM_END_TIME to body.endTime,
+            )) {
+                if (!LEAVE_TIME_RE.matches(value.trim())) {
+                    return@post call.respondBadRequestMessage(ATTENDANCE_LEAVE_TIME_MESSAGE.replace("X", name))
+                }
+            }
+            try {
+                val leaveId = AppAttendanceSource(session.attendanceSite()).createLeave(
+                    type = leaveType,
+                    startTime = body.startTime.trim(),
+                    endTime = body.endTime.trim(),
+                    reason = body.reason.trim(),
+                    nextApproverUserId = body.nextApproverUserId.trim(),
+                    // 附件这一格固定空表：`uploadEvidence` 在本层没有端点（见文件头 KDoc）
+                    evidenceFiles = emptyList(),
+                    requestId = body.requestId.trim(),
+                )
+                call.respond(ApiEnvelope.ok(AttendanceLeaveCreatedData(leaveId = leaveId)))
+            } catch (e: Exception) {
+                call.respondUpstreamFailure(e, "提交请假申请")
+            }
+        }
+
+        // 撤回请假（写）
+        post(ATTENDANCE_LEAVE_WITHDRAW) {
+            if (!session.authenticated) return@post call.respondLoginRequired()
+            val body = call.receiveOrNull<AttendanceLeaveWithdrawRequest>()
+                ?: return@post call.respondBadRequestMessage(ATTENDANCE_LEAVE_WITHDRAW_BODY_MESSAGE)
+            val leaveId = body.leaveId.trim()
+            if (leaveId.isEmpty()) {
+                return@post call.respondBadRequestMessage("leaveId 必填（取自 /api/attendance/leave/records 的 leaveId）")
+            }
+            try {
+                AppAttendanceSource(session.attendanceSite())
+                    .withdrawLeave(leaveId, body.reason.trim(), body.requestId.trim())
+            } catch (e: Exception) {
+                return@post call.respondUpstreamFailure(e, "撤回请假")
+            }
+            call.respond(ApiEnvelope.ok(AttendanceLeaveActionResult(ok = true, message = LEAVE_WITHDRAWN_MESSAGE)))
+        }
+
+        // 销假（写）
+        post(ATTENDANCE_LEAVE_CANCEL) {
+            if (!session.authenticated) return@post call.respondLoginRequired()
+            val body = call.receiveOrNull<AttendanceLeaveCancelRequest>()
+                ?: return@post call.respondBadRequestMessage(ATTENDANCE_LEAVE_CANCEL_BODY_MESSAGE)
+            val leaveId = body.leaveId.trim()
+            if (leaveId.isEmpty()) {
+                return@post call.respondBadRequestMessage("leaveId 必填（取自 /api/attendance/leave/records 的 leaveId）")
+            }
+            try {
+                AppAttendanceSource(session.attendanceSite()).cancelLeave(leaveId, body.requestId.trim())
+            } catch (e: Exception) {
+                return@post call.respondUpstreamFailure(e, "申请销假")
+            }
+            call.respond(ApiEnvelope.ok(AttendanceLeaveActionResult(ok = true, message = LEAVE_CANCELLED_MESSAGE)))
         }
     }
 }
@@ -201,3 +370,283 @@ internal const val ATTENDANCE_PARAM_TO = "to"
 
 /** `?term=` 的形状（学期号 = `bh`，形如 `646`；不是就 400）。 */
 private const val ATTENDANCE_TERM_SHAPE_MESSAGE = "term 需要是学期号，形如 646（取自 /api/attendance/terms 的 bh）"
+
+// ── 请假 / 销假（批③-b / D7 ②）──────────────────────────────────────
+
+/**
+ * `GET /api/attendance/leave/window` 的 `data`：`LeaveSemesterWindow` 的六格原样投影。
+ *
+ * 屏拿它做三件事：日期范围（`startDate` / `endDate`）、`maxStudentLeaveMinutes` 那一条校验
+ *（超过单次上限 ⇒ 表单不提交）。它是 `:data` 的解析结果，本层不再拼第二份。
+ */
+@Serializable
+internal data class AttendanceLeaveWindowData(
+    val semesterId: String,
+    val academicYear: String,
+    val semesterName: String,
+    val startDate: String,
+    val endDate: String,
+    val maxStudentLeaveMinutes: Int,
+)
+
+/** `GET /api/attendance/leave/preview` 的 `data`。 */
+@Serializable
+internal data class AttendanceLeavePreviewData(
+    val nextNodeNo: Int,
+    /** 这一轮能选的下一个审批人（屏上的下拉框就是它）。 */
+    val nextApprovers: List<AttendanceLeaveApproverDto>,
+    val nodes: List<AttendanceLeaveFlowNodeDto>,
+)
+
+/**
+ * 一个审批人（`LeaveApprover` 的两格）。
+ *
+ * ✅ `name` 是**学校工作人员的真实姓名**，2026-10-15 上一级拍板把它加进了 §5.2 的例外清单 ④
+ * —— **我自己的申请上的审批人姓名**（与 ③ `emptyroom/rooms` 实时档的上课教师名同性质：都是
+ * 「我自己的那条记录」上的真人名），所以本层**真投影**它（原来是空串）。
+ *
+ * 不加这一条例外的代价写在屏上：`:core` 写的是 `it.name.ifBlank { it.userId }` ⇒ 留空不丢功能，
+ * 但那个下拉框会退化成一行 `userId`（提交要的就是那个 `userId`）。
+ *
+ * `userId` 为空的那一条在 `:core` 那一层丢掉（它是那个下拉框的**句柄**，提交时要原样带回）；
+ * `name` 空着不影响功能 —— 屏上有 `ifBlank` 兜底。
+ */
+@Serializable
+internal data class AttendanceLeaveApproverDto(val userId: String, val name: String)
+
+/** 流程上的一个节点（`configured = false` 时上游还没配好，屏上那一栏应当如实说）。 */
+@Serializable
+internal data class AttendanceLeaveFlowNodeDto(
+    val nodeNo: Int,
+    val nodeRole: String,
+    val nodeName: String,
+    val configured: Boolean,
+    val approvers: List<AttendanceLeaveApproverDto>,
+)
+
+/** `GET /api/attendance/leave/records` 的 `data`：分页形状（§4）。 */
+@Serializable
+internal data class AttendanceLeavePageData(
+    /** 请求给的那个页码（上游回显的两个本层不回，与 `/api/coupon/list` 同一条）。 */
+    val page: Int,
+    val size: Int,
+    val total: Int,
+    val records: List<AttendanceLeaveRecordDto>,
+)
+
+/** 一条请假记录（`LeaveRecord` 的线上形状）。 */
+@Serializable
+internal data class AttendanceLeaveRecordDto(
+    val leaveId: String,
+    /** `SICK` / `PERSONAL`（`:data` 原样端出来的上游值）。 */
+    val leaveType: String,
+    val reason: String,
+    val applyTime: String,
+    val startTime: String,
+    val endTime: String,
+    val status: String,
+    val displayStatus: String,
+    val approvalStatus: String,
+    val cancelStatus: String,
+    val sourceType: String,
+    val durationMinutes: Int,
+    val durationText: String,
+    val archiveId: String,
+    /** 能不能撤回 / 能不能销假（`:data` 的判据；屏上那两个按钮据它画）。 */
+    val withdrawable: Boolean,
+    val cancellable: Boolean,
+    val evidenceFiles: List<AttendanceLeaveEvidenceDto>,
+    val approvalNodes: List<AttendanceLeaveNodeDto>,
+    val courses: List<AttendanceLeaveCourseDto>,
+)
+
+/** 一个附件（**只读**投影：附件本身怎么传上来本层没有端点，见文件头 KDoc）。 */
+@Serializable
+internal data class AttendanceLeaveEvidenceDto(
+    val evidenceId: String,
+    val fileName: String,
+    val fileType: String,
+    val fileSize: Long,
+)
+
+/** 一个审批节点（八格原样投影）。 */
+@Serializable
+internal data class AttendanceLeaveNodeDto(
+    val nodeName: String,
+    val status: String,
+    val approverName: String,
+    val processedName: String,
+    val processedTime: String,
+    val remark: String,
+    val actionType: String,
+    val autoReason: String,
+)
+
+/**
+ * 这条请假涉及的一节课（六格）。
+ *
+ * ✅ `teacherNames` 是**任课教师姓名**，2026-10-15 上一级拍板把它加进了 §5.2 的例外清单 ④：
+ * **我自己的课的任课教师姓名**，所以本层**真投影**它（原来是空串）。
+ *
+ * ⚠️ 这一条例外**只覆盖这一格**：它的根据是「这是我自己的请假单涉及的那节课」——
+ * 考勤流水里那个 `teacher`（当堂上课的教师名）**不在这条例外里**，仍然不投影（§5.5）。
+ *
+ * 画不画仍由屏说了算：`:core` 的屏至今没读 `teacherNames`（`grep` 可证）—— 本层端的是数据，
+ * 不是版面。
+ */
+@Serializable
+internal data class AttendanceLeaveCourseDto(
+    val courseId: String,
+    val courseName: String,
+    val courseDate: String,
+    val startSection: Int,
+    val endSection: Int,
+    val teacherNames: String,
+)
+
+/** `POST /api/attendance/leave` 的请求体。 */
+@Serializable
+internal data class AttendanceLeaveCreateRequest(
+    /** `SICK` / `PERSONAL`（大小写不敏感）；其他值 ⇒ `400`。 */
+    val type: String = "",
+    val startTime: String = "",
+    val endTime: String = "",
+    val reason: String = "",
+    /** 取自 `/api/attendance/leave/preview` 的 `nextApprovers[].userId`。 */
+    val nextApproverUserId: String = "",
+    /** 幂等键（与两端的接口签名同一条）：缺了 ⇒ `400`（重发两次不该变成两条请假）。 */
+    val requestId: String = "",
+)
+
+/** `POST /api/attendance/leave` 的 `data`：服务端（上游）给的那个单号。 */
+@Serializable
+internal data class AttendanceLeaveCreatedData(val leaveId: String)
+
+/** `POST /api/attendance/leave/withdraw` 的请求体。 */
+@Serializable
+internal data class AttendanceLeaveWithdrawRequest(
+    val leaveId: String = "",
+    /** 撤回理由（屏上写的是固定那一句「学生撤回」）。 */
+    val reason: String = "",
+    val requestId: String = "",
+)
+
+/** `POST /api/attendance/leave/cancel` 的请求体。 */
+@Serializable
+internal data class AttendanceLeaveCancelRequest(val leaveId: String = "", val requestId: String = "")
+
+/** 两个写动作共用 `{ok, message}`（与 §5.3.1 / §5.3.2 同一个形状）。 */
+@Serializable
+internal data class AttendanceLeaveActionResult(val ok: Boolean, val message: String)
+
+// ── 投影 helpers ─────────────────────────────────────────────────────
+
+private fun LeaveSemesterWindow.toDto() = AttendanceLeaveWindowData(
+    semesterId = semesterId,
+    academicYear = academicYear,
+    semesterName = semesterName,
+    startDate = startDate,
+    endDate = endDate,
+    maxStudentLeaveMinutes = maxStudentLeaveMinutes,
+)
+
+private fun LeaveFlowPreview.toDto() = AttendanceLeavePreviewData(
+    nextNodeNo = nextNodeNo,
+    nextApprovers = nextApprovers.map { it.toDto() },
+    nodes = nodes.map { it.toDto() },
+)
+
+private fun LeaveApprover.toDto() =
+    // 见 [AttendanceLeaveApproverDto] 的 KDoc：审批人姓名在 §5.2 例外④里 ⇒ 真投影
+    AttendanceLeaveApproverDto(userId = userId, name = name)
+
+private fun LeaveFlowNode.toDto() = AttendanceLeaveFlowNodeDto(
+    nodeNo = nodeNo,
+    nodeRole = nodeRole,
+    nodeName = nodeName,
+    configured = configured,
+    approvers = approvers.map { it.toDto() },
+)
+
+private fun LeaveRecord.toDto() = AttendanceLeaveRecordDto(
+    leaveId = leaveId,
+    leaveType = leaveType,
+    reason = reason,
+    applyTime = applyTime,
+    startTime = startTime,
+    endTime = endTime,
+    status = status,
+    displayStatus = displayStatus,
+    approvalStatus = approvalStatus,
+    cancelStatus = cancelStatus,
+    sourceType = sourceType,
+    durationMinutes = durationMinutes,
+    durationText = durationText,
+    archiveId = archiveId,
+    withdrawable = withdrawable,
+    cancellable = cancellable,
+    evidenceFiles = evidenceFiles.map { AttendanceLeaveEvidenceDto(it.evidenceId, it.fileName, it.fileType, it.fileSize) },
+    approvalNodes = approvalNodes.map {
+        AttendanceLeaveNodeDto(
+            nodeName = it.nodeName,
+            status = it.status,
+            approverName = it.approverName,
+            processedName = it.processedName,
+            processedTime = it.processedTime,
+            remark = it.remark,
+            actionType = it.actionType,
+            autoReason = it.autoReason,
+        )
+    },
+    courses = courses.map {
+        AttendanceLeaveCourseDto(
+            courseId = it.courseId,
+            courseName = it.courseName,
+            courseDate = it.courseDate,
+            startSection = it.startSection,
+            endSection = it.endSection,
+            // 见上面那条 KDoc：任课教师姓名在 §5.2 例外④里 ⇒ 真投影
+            teacherNames = it.teacherNames,
+        )
+    },
+)
+
+// ── 常量（请假那一族）────────────────────────────────────────────────
+
+internal const val ATTENDANCE_LEAVE = "leave"
+internal const val ATTENDANCE_LEAVE_WINDOW = "leave/window"
+internal const val ATTENDANCE_LEAVE_PREVIEW = "leave/preview"
+internal const val ATTENDANCE_LEAVE_RECORDS = "leave/records"
+internal const val ATTENDANCE_LEAVE_WITHDRAW = "leave/withdraw"
+internal const val ATTENDANCE_LEAVE_CANCEL = "leave/cancel"
+internal const val ATTENDANCE_PARAM_TYPE = "type"
+internal const val ATTENDANCE_PARAM_PAGE = "page"
+internal const val ATTENDANCE_PARAM_SIZE = "size"
+internal const val ATTENDANCE_PARAM_STATUS = "status"
+internal const val ATTENDANCE_PARAM_START_TIME = "startTime"
+internal const val ATTENDANCE_PARAM_END_TIME = "endTime"
+internal const val ATTENDANCE_PARAM_NEXT_APPROVER = "nextApproverUserId"
+internal const val ATTENDANCE_PARAM_REQUEST_ID = "requestId"
+
+/** 请假列表那一栏的默认页大小（= `:core` 的 `getLeavePage()` 默认值 20）。 */
+private const val ATTENDANCE_LEAVE_PAGE_SIZE = 20
+
+/** `?type=` 不认识时的中文短句（把合法取值列出来）。 */
+private const val ATTENDANCE_LEAVE_TYPE_MESSAGE = "type 只能是 SICK / PERSONAL（大小写不敏感）"
+
+/** 两个时间要的形状（`:data` 拼给上游的就是这一种：`formatLeaveTime` 那一行）。 */
+private val LEAVE_TIME_RE = Regex("""\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}""")
+
+private const val ATTENDANCE_LEAVE_TIME_MESSAGE = "X 需要形如 2026-10-20 08:00:00（与屏上那两个时间选择器同一种写法）"
+
+internal const val ATTENDANCE_LEAVE_CREATE_BODY_MESSAGE =
+    "请求体需要 JSON：{\"type\":\"SICK|PERSONAL\",\"startTime\":\"…\",\"endTime\":\"…\",\"reason\":\"…\",\"nextApproverUserId\":\"…\",\"requestId\":\"…\"}"
+
+internal const val ATTENDANCE_LEAVE_WITHDRAW_BODY_MESSAGE =
+    "请求体需要 JSON：{\"leaveId\":\"…\",\"reason\":\"…\",\"requestId\":\"…\"}"
+
+internal const val ATTENDANCE_LEAVE_CANCEL_BODY_MESSAGE =
+    "请求体需要 JSON：{\"leaveId\":\"…\",\"requestId\":\"…\"}"
+
+internal const val LEAVE_WITHDRAWN_MESSAGE = "✓ 已撤回；需要重新提交请假申请"
+internal const val LEAVE_CANCELLED_MESSAGE = "✓ 销假已提交给审批人确认"

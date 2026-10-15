@@ -793,14 +793,20 @@ private fun DesktopPage(
         // 由它填上 ⇒ 「确认预订」→ 验证码弹窗 → 拖动 → 提交这条写路径在桌面走通。
         // 自动识别（`solveCaptcha`）由桌面宿主提供，但桌面没有「自动识别验证码」设置项 ⇒
         // `autoSolveCaptcha` 用默认 false，停在手动拖动那一档（与功能说明文案一致）。
-        // 支付那一跳与 `:app` 同一条口径：内置浏览器/系统浏览器先过登录页再落支付页。
+        // 支付那一跳：`:app` 是内置浏览器串两跳（先 OAuth 入口，`isAuthHop` 判完再 `loadUrl(支付页)`）；
+        // 桌面端没有可观察的页面 ⇒ `openInBrowser` 一次只交一个地址，按 `desktopBrowserTarget` 的
+        // 判据把**第二跳那个支付页**交出去（跳过去之后站点自己会先要一次登录）。
         // 「功能说明弹过了没」与 `:app` 同一个 pref 文件、同一个键（`feature_hints` / `venue_hint_shown`）。
         AppRoute.Venue -> DesktopSiteGate(auth, DesktopAuth.VENUE_SITE_KEY, "体育场馆") { site ->
             val hintPrefs = remember { keyValueStore("feature_hints") }
             VenueScreen(
                 source = remember(site) { AppVenueSource(site, canBook = true) },
                 onBack = back,
-                onOpenBrowser = { url, _ -> if (url.isNotBlank()) openInBrowser(url) },
+                onOpenBrowser = { url, then ->
+                    // 见 `DesktopBrowser.kt` 的 `desktopBrowserTarget`：桌面收不到回调 ⇒ 只挑一个地址
+                    //（优先第二跳那个支付页）；两个都空时不替它编一个地址。
+                    desktopBrowserTarget(url, then)?.let { openInBrowser(it) }
+                },
                 captchaHost = remember { DesktopSlideCaptchaHost },
                 showFirstUseHint = !hintPrefs.getBoolean("venue_hint_shown", false),
                 onFirstUseHintRead = { hintPrefs.putBoolean("venue_hint_shown", true) },

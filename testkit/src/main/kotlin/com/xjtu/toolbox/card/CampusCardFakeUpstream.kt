@@ -164,6 +164,9 @@ class CampusCardFakeUpstream {
         /** 同步「这一轮用哪几张券」（`PaymentCodeApi.UPDATE_VOUCHERS_URL`）。 */
         const val UPDATE_VOUCHERS_PATH = "/berserker-app/vouchers/updateVoucherStatus"
 
+        /** [voucherUpdateRejected] 打开时上游给的那句 msg（一眼假的）。 */
+        const val VOUCHER_UPDATE_REJECTED_MSG = "当前不允许修改加餐券选择（夹具）"
+
         /**
          * **编出来的**付款码号（20 位十进制，形状像真码，值与任何人的付款码无关）。
          * 证据图与测试都拿它当「这一串真从上游取回来了」的判据。
@@ -305,6 +308,14 @@ class CampusCardFakeUpstream {
     /** 同步券选择成功（`PaymentCodeApi.updateVoucherStatus` 只看 `success`）。 */
     val voucherUpdateJson = """{"success":true,"msg":"成功"}"""
 
+    /**
+     * 打开后同步券选择回 `{"success":false,...}` —— 演「上游到了、上游说不给改」。
+     *
+     * 与「校园卡没登录」（到不了上游）不是一回事：它到了上游，是上游说的不行。
+     */
+    @Volatile
+    var voucherUpdateRejected: Boolean = false
+
     // ── 路由 ─────────────────────────────────────────────────────
 
     fun handle(exchange: HttpExchange) {
@@ -423,7 +434,14 @@ class CampusCardFakeUpstream {
             return
         }
         voucherUpdateCalls.incrementAndGet()
-        respondJson(exchange, voucherUpdateJson)
+        respondJson(
+            exchange,
+            if (voucherUpdateRejected) {
+                """{"success":false,"msg":"$VOUCHER_UPDATE_REJECTED_MSG"}"""
+            } else {
+                voucherUpdateJson
+            },
+        )
     }
 
     /** 夹具只有一页：翻到第 2 页起是空表（总数照旧），`allTransactions` 会据此响亮地失败。 */

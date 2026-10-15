@@ -245,6 +245,9 @@ class VenueMappingTest {
         assertFalse(api.canCancel)
         // 支付/预订/取消/验证码四条写路径一律抛（屏据 canBook/canCancel 根本不画那些按钮）
         assertFailsWith<RuntimeException> { api.paymentUrl("1000000000000001") }
+        // 登录入口那一格也不给：这条路的屏上根本不画支付那一段（serve 形态改用 `GET /api/venue/pay`，见
+        // `CampusVenueApi` 的 KDoc）
+        assertEquals("", api.browserLoginUrl)
         assertFailsWith<RuntimeException> { api.captcha(42) }
         assertFailsWith<RuntimeException> { api.prepareOrder(42, emptyList()) }
         assertFailsWith<RuntimeException> { api.cancelOrder("1000000000000001") }

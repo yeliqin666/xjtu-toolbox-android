@@ -7,6 +7,10 @@ import com.xjtu.toolbox.util.safeLong
 import com.xjtu.toolbox.util.safeString
 import io.ktor.client.HttpClient
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.add
+import kotlinx.serialization.json.buildJsonArray
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 
 /**
  * 付款码（`ncard.xjtu.edu.cn`）的 **serve 版取数**：给 `:web` 用，实现 [PaymentCodeSource]。
@@ -15,21 +19,24 @@ import kotlinx.serialization.json.JsonObject
  * |---|---|
  * | `GET /api/pay/code` | [getBarCode]（`authenticate()` 那一枪由本类自己走，见下） |
  * | `GET /api/pay/vouchers` | [getVouchers] |
+ * | `POST /api/pay/vouchers/select` | [updateVoucherStatus]（**写**，body `{showCardIds}`） |
  *
  * 契约 §5.7；`:server` 那一侧是 `PayRoutes.kt`（薄包装 `:data` 的 `PaymentCodeApi`，
  * 借的是**校园卡**那个会话 —— 付款码的业务请求带的就是校园卡登录时存下的那张 JWT）。
  *
- * ## 两处**如实不画**（都在端口上留了开关）
+ * ## 一处**如实不画**（在端口上留了开关）
  *
  * 1. **条码 / 二维码矩阵画不出来**：`qrCodeModules` / `code128Modules` 的 **wasmJs actual 如实返回
  *    `null`**（`core/src/wasmJsMain/.../CodeMatrix.wasmJs.kt`：这一端没有编码器，zxing 只有
  *    JVM/Android 那一份 jar）⇒ 屏上只画付款码**数字**那一档（纯文本，不依赖编码器），两个矩阵
  *    一个都不画 —— 不是画一张假的。这不是本类的事（本类只给那一串数字），记在这里是为了让
- *    「为什么浏览器里看不到码图」有处可查；
- * 2. **勾选加餐券是写路径，不端**：`updateVoucherStatus(ids)`（`POST .../vouchers/updateVoucherStatus`）
- *    会把「这一轮用哪几张」**真的推给上游**（契约 §5.7 的「刻意不端的写路径」）⇒
- *    [canSelectVouchers] 报 `false`，屏上那几行券**不画勾选框、也不可点**，只当只读展示
- *    （[updateVoucherStatus] 自己照旧抛错，见那个方法）。
+ *    「为什么浏览器里看不到码图」有处可查。
+ *
+ * ## 勾选加餐券：✅ 已经端了（2026-10-15，批③-b / D7 ④）
+ *
+ * `POST /api/pay/vouchers/select`（body 只有一格 `{showCardIds:[…]}`）—— [canSelectVouchers]
+ * 不再覆写，就是基类那个 `true`（三端同一个值），屏上那几行券**照旧画勾选框**。
+ * `:core` 那一份勾选落盘（`PaymentSelectionStore`）照旧由 `:web` 接上（wasm 上是 localStorage）。
  *
  * ⚠️ [getBarCode] 拿到的**就是能付钱的东西**（登录者本人的一次性凭据）：它不在 §5.2 那四个红线
  * 字段里，但敏感度不比它们低。serve 的默认姿势（只监听回环 + 令牌闸门）是它的前提 ——
@@ -66,8 +73,13 @@ class CampusPayApi(
     private val mode: ApiMode = ApiMode.CAMPUS_API,
 ) : PaymentCodeSource {
 
-    /** 见类 KDoc：勾选同步是写路径（契约 §5.7 不端）⇒ 屏上那几行券只读，不画勾选框。 */
-    override val canSelectVouchers: Boolean get() = false
+    /**
+     * 见类 KDoc：勾选同步端了（`POST /api/pay/vouchers/select`，契约 §5.7）⇒ 屏上那几行券照旧可勾。
+     *
+     * 与 `:data` / 桌面那一份**逐字相同**的默认值（`PaymentCodeSource.canSelectVouchers` 默认
+     * `true`）：本类不再覆写它，否则这一端就会自己把自己画成只读 —— 而端点是有的。
+     */
+    override val canSelectVouchers: Boolean get() = true
 
     /** 见类 KDoc：serve 这一端没有「本地会话」可查，真正的判据是 `/api/pay/code` 那一枪。 */
     override fun authenticate() = Unit
@@ -107,18 +119,24 @@ class CampusPayApi(
     }
 
     /**
-     * 见类 KDoc：勾选同步是**写路径**（真会改上游状态），serve 契约 §5.7 不端 ⇒ 这里照旧抛错。
-     * 正常路径上它不会被调用：屏按 [canSelectVouchers] 把勾选框整个不画。
+     * 见类 KDoc：端点是 `POST /api/pay/vouchers/select`，body 只有一格 `{showCardIds}`（顺序取**调用方
+     * 给的先后**，去重去空白；空表也照发 —— 取消全部勾选就是空表）。
+     *
+     * 失败（`400` 参数 / `401` 没会话 / `502` 上游拒或会话失效）一律**抛错** ——
+     * `PaymentCodeScreen` 接的是它自己那句「同步失败」，不能当成功静默过去。
      */
-    override suspend fun updateVoucherStatus(selectedIds: Collection<String>): Unit =
-        throw UnsupportedOperationException(
-            "serve 契约没有「同步加餐券勾选」的端点：`PaymentCodeSource.updateVoucherStatus`" +
-                "（POST .../vouchers/updateVoucherStatus）真会改上游状态，属写路径（docs/api-contract.md §5.7）" +
-                "—— 屏上那几行券只读、不画勾选框（PaymentCodeSource.canSelectVouchers = false）",
-        )
+    override suspend fun updateVoucherStatus(selectedIds: Collection<String>) {
+        requireServe()
+        val ids = selectedIds.map { it.trim() }.filter { it.isNotEmpty() }.distinct()
+        val body = buildJsonObject {
+            put("showCardIds", buildJsonArray { ids.forEach { add(it) } })
+        }.toString()
+        val outcome = client.serveAction(baseUrl, VOUCHERS_SELECT_PATH, body)
+        if (!outcome.ok) error("同步加餐券勾选：${outcome.message}")
+    }
 
     private fun requireServe() {
-        if (mode != ApiMode.SERVE) serveOnly("付款码取数", "$CODE_PATH + $VOUCHERS_PATH")
+        if (mode != ApiMode.SERVE) serveOnly("付款码取数", "$CODE_PATH + $VOUCHERS_PATH + $VOUCHERS_SELECT_PATH")
     }
 }
 
@@ -127,3 +145,6 @@ private const val CODE_PATH = "/api/pay/code"
 
 /** 可用加餐券列表（只读）。 */
 private const val VOUCHERS_PATH = "/api/pay/vouchers"
+
+/** 同步「这一轮用哪几张加餐券」（**写**：`POST /api/pay/vouchers/select`）。 */
+private const val VOUCHERS_SELECT_PATH = "/api/pay/vouchers/select"

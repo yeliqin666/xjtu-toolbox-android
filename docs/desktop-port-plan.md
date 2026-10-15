@@ -585,7 +585,7 @@ Windows 的 `.msi`/DPAPI 真行为与 Linux 的真桌面启动都只有本机能
 |---|---|---|---|
 | 1 | **浏览器里的端到端**（真登录 + 真站点 + 真下单）没有可核记录 | 仓库里没有任何一条这样的记录；`:web` **没有测试源集**（`find web/src -name '*Test*.kt'` 为空），它的门禁只有编译（`core-gate.yml` 第 46 行 `:core:compileKotlinWasmJs :web:compileKotlinWasmJs`） | 人工跑一次 serve 模式（真浏览器 + 真账号），把结论记进契约或本文档 |
 | 2 | 契约里仍标 TODO 的端点：`/api/coupon/…` 与 `/api/payment-code`（P2，`:server` 里**没有**这两个端点）、`/api/v1/personal/me/user`（P2，来源待确认）、`card` 挂失（P1 写）、`evaluations` 提交/撤销（P1）、`library/seats?time`（上游无时间维）、`emptyroom/rooms` 的 `from/to`、`faculty` 的 `?filters=1`、`fitness/score` 的 `?year=all` | 拍板过但未做 | 各自那一轮（`docs/api-contract.md` §5.2 / §5.3 的 TODO 行） |
-| 3 | venue「去支付」那一跳在浏览器里不可达（支付页在 80 端口那台站点上，浏览器里没有场馆站的会话；`CampusVenueApi.paymentUrl` 如实返回空串） | 见契约 §5.3.2 末尾 | 契约给出支付入口（或让 `/api/venue/status` 的 `browserLoginUrl` 能被缓存）之后接上 |
+| 3 | venue「去支付」那一跳**已经接上**（2026-10-15，批③-a / D11b：`GET /api/venue/pay` 302 → 80 端口那台的 `pay/show.html?id=…`，`CampusVenueApi.paymentUrl` 不再空）⇒ 剩下的是**落点没在线验证过**：那一页要的是浏览器这一侧的场馆站会话，而 serve 的会话带不过去 ⇒ 落成能付款的一页**不担保** | 见契约 §5.3.2 第 6 条（302 一定被跟随；三条依据；并且**不许**写成「已支持真支付」） | 用户在真浏览器里点一次「去支付」，把落点记下来（`docs/serve-visual-checklist.md` ⑨ 那一行；不许替用户打支付站） |
 | 4 | 消费方 `school-courses` 的两档筛选不画（服务端报 `supportsDepartmentFilter` / `supportsElectiveFilter` 是 `true`，但没有返回那两张 id 表的端点 ⇒ 消费方报 `false`） | 见契约 §5.4 | 端点落地后把 `Campus*Api` 的 TODO 翻成 true（契约 §7：三处同改） |
 | 5 | 契约 §3 的默认安全口径（只听回环 / 令牌换 cookie / `--host 0.0.0.0` 的暴露形态）只做了静态核对 | `:server` 的测试起的是端口 `0` 的临时服务，验的是**形状**不是**部署形态**；本轮没起过真服务进程 | 起一次 `:server`，按契约 §3 逐条走一遍 |
 
@@ -1142,4 +1142,26 @@ campus-api 那边虽然有 `/api/jwxt/changes` 与 `/api/jwxt/exams`，但本端
 
 **仍未接（如实）**：`StoreArchive.import` 已经在 `:core`（S1b），但**三端的导入写侧**还只到「自校验 → 如实报告」——
 真合并要后续工单把 S4/S5/S6 的导入接到它上（`:app` 侧要单独授权）。
+
+### 16.9 批③-a（写路径对齐里的场馆「去支付」/ D11b）完工记录（2026-10-15）
+
+| 项 | 落地内容 |
+|---|---|
+| 端点 | `GET /api/venue/pay?orderId=…` —— **302 + `Location`**（D11b 要的那个真支付入口的**入口那一跳**）。它是 `/api/…` 家族里**第二条不当信封答**的端点（第一条是 `/api/status` 的裸对象），例外清单写在契约 §4 |
+| `:core` | `CampusVenueApi.paymentUrl` 在 serve 形态从「空串」改成 serve 自己的代跳地址（`/api/venue/pay?orderId=…`）；`browserLoginUrl` **仍是空串** |
+| `:web` | 新宿主 `WebVenueHost`（判据 `venuePayTarget`：只开一个标签、优先支付页；两个地址都空时在页顶如实写一句）+ `ToolboxWebApp` 那条分支改指它；`WebVenuePayTargetTest` **3 例** |
+| 夹具 | `:testkit` 的 `VenueFakeUpstream` 新增 `PAYMENT_PAGE_PATH` / `paymentPageUrl`（这一族第一次动夹具；夹具**不扮演**那一页） |
+| 门禁 | `:server:test` **93 → 95** · `:web:wasmJsBrowserTest` **5 → 8 例**；其余四项计数未变（`:core:jvmTest` 515 / `:desktop:test` 117 / `:data:jvmTest` 259 / `:app:testDebugUnitTest` 444） |
+
+**D11b 的原话是「浏览器里真能付款」，本批只做到一半，如实记下**：这一跳**一定被浏览器跟随**（顶层 302），
+但**落成能付款的一页不担保** —— 支付页要的是**它自己那个站点在浏览器这一侧的会话**，而 serve 的会话只在
+serve 进程的 cookie 罐里（页面替不了别的域名写 cookie）。Android 之所以能，是因为它的内置浏览器是**进程内**的
+WebView：`BrowserScreen.syncCookiesToWebView` 把 App 的 cookie 罐灌进 `CookieManager`，再用
+`onPageFinished` + `isAuthHop` 串第二跳 —— 浏览器里没有这两手。逐条依据写在契约 §5.3.2 第 6 条
+（含 `data/…/auth/VenueLogin.kt` 的 `PAY_BASE_URL` KDoc 那句「要求浏览器自身的会话」。）
+⇒ 页面上如实写「**跳过去后若要求登录，请用 App / 桌面端支付**」，**不许**读成「本端已支持真支付」；
+这一格的「第一次点到底落在哪一页」**没能在线验证**（不许真发起支付、也没探测那台支付站），
+以点位清单 `docs/serve-visual-checklist.md` ⑨ 那一行、用户点出来的现象为准。要把它做成「浏览器里真能付」，
+下一步是让 serve **代理**支付页（同源发出去、连表单与 JS 一起转）—— 那是新的写/支付暴露面，需单独授权。
+施工坑照旧：KDoc 里不要写 `/**`（§16.7）。
 

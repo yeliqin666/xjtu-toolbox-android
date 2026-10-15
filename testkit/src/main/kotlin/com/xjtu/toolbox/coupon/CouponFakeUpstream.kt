@@ -75,6 +75,9 @@ class CouponFakeUpstream {
         const val CLOSED_PIC = "/coupon-fake/closed.png"
         const val OPEN_PIC = "/coupon-fake/open.png"
 
+        /** `activate` 业务拒收那一档的 msg（[activateRejected] 打开后用）。 */
+        const val ACTIVATE_REJECTED_MSG = "该券已领完（夹具）"
+
         /** 1×1 透明 PNG（真实可解码的字节，封面图那条链会真解它）。 */
         val PIC_BYTES: ByteArray = Base64.getDecoder().decode(
             "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==",
@@ -101,6 +104,20 @@ class CouponFakeUpstream {
 
     /** 打开后 `query.page.list` 回 `{"code":401,...}`（auth token 失效的那条路）。 */
     var forceCode401 = false
+
+    /**
+     * 打开后 `activate` 回一个 `{"code":400,...}` 的业务拒收（券领完了 / 不能领那一档）——
+     * 演「到了上游、上游说不给领」。
+     *
+     * ⚠️ serve 那一层现在把它当 `502` 报（`:data` 的 `CouponApi.activateCoupon` 只有「抛一句
+     * 上游原文」这一种失败），这份夹具正是用来钉住那条口径的。
+     */
+    @Volatile
+    var activateRejected: Boolean = false
+
+    /** 打开后 `activate` 回 `{"code":401,...}` —— 演「领券时才发现会话失效」。 */
+    @Volatile
+    var activateExpired: Boolean = false
 
     fun handleBusiness(exchange: HttpExchange) {
         val path = exchange.requestURI.path
@@ -133,6 +150,14 @@ class CouponFakeUpstream {
             }
             path == "/app/voucher/activate" -> {
                 activateBodies += body
+                if (activateExpired) {
+                    respondJson(exchange, "{\"code\":401,\"msg\":\"令牌过期（夹具）\"}")
+                    return
+                }
+                if (activateRejected) {
+                    respondJson(exchange, "{\"code\":400,\"msg\":\"$ACTIVATE_REJECTED_MSG\"}")
+                    return
+                }
                 respondJson(exchange, """{"code":200,"msg":"操作成功"}""")
             }
             path == PIC_PATH -> {

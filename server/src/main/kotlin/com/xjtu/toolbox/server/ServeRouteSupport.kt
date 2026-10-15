@@ -116,4 +116,17 @@ internal fun isoTime(epochMs: Long): String? {
     return Instant.ofEpochMilli(epochMs).atZone(ZoneId.systemDefault()).format(ISO_FORMATTER)
 }
 
+/**
+ * `?page=&size=` 那一类的**正整数读法**：没给 ⇒ [default]；给了但不是正整数 ⇒ null
+ *（由调用方回 `400`）。
+ *
+ * 原先它是 [CouponRoutes] 里的一个 private 函数；`/api/attendance/leave/records` 也要这两个参数
+ * ⇒ 按 [receiveOrNull] / [isoTime] 同一条做法搬到这里 —— 分页参数的判据只有这一份
+ *（各写一遍必然漂开，而「`page=0` 到底算第几页」这种问题不该有两个答案）。
+ */
+internal fun io.ktor.http.Parameters.positiveInt(name: String, default: Int): Int? {
+    val raw = get(name)?.trim() ?: return default
+    return raw.toIntOrNull()?.takeIf { it > 0 }
+}
+
 private val ISO_FORMATTER: DateTimeFormatter = DateTimeFormatter.ISO_OFFSET_DATE_TIME

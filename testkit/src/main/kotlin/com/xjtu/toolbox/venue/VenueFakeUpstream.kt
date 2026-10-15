@@ -43,8 +43,9 @@ import kotlin.math.abs
  * 夹具要演的是「CAS 回跳之后客户端拿到的那条链」，中间那一次 code 兑换对被测代码没有可观察差别
  *（`VenueLogin.postLogin` 只判「最终落在 `/web/index.html` 且页面里有 userno」）。这条省略写在这里，
  * 免得被读成「真站点就这两跳」。`202.117.17.144` 这个 IP 同时也是 80 端口那台**支付站**
- *（[PAY_ORIGIN]）—— 分派只看 host，所以两个端口都落进本夹具；支付页是浏览器那边的事，
- * 这里**没有** `/pay/…` 的路由，真被打到就是 404。
+ *（[PAY_ORIGIN]）—— 分派只看 host，所以两个端口都落进本夹具；支付页是浏览器那边的事：
+ * 这里**没有** `/pay/…` 的路由（真被打到就是 404），只有 [paymentPageUrl] 说出它的**地址长什么样**
+ * —— serve 的 `GET /api/venue/pay` 只回 302 + 这个地址，**不许真去取那一页**（取它等于替用户打支付站）。
  *
  * ## 写路径：默认没有夹具，要剧本才打开
  *
@@ -87,6 +88,18 @@ class VenueFakeUpstream {
 
         /** 80 端口那台支付站（`VenueLogin.PAY_BASE_URL`）—— 分派只看 host，所以它也在本夹具上。 */
         const val PAY_ORIGIN = "http://$HOST"
+
+        /** 80 端口那台支付站的支付页路径（`:data` 的 `VenueApi.paymentUrl` 拼的就是它）。 */
+        const val PAYMENT_PAGE_PATH = "/pay/show.html"
+
+        /**
+         * 「某个订单号的真支付页地址」= serve 那条 302 的 `Location`。
+         *
+         * 编码与 `:data` 的 `VenueApi.paymentUrl` 逐字同一套（`java.net.URLEncoder`：空格成 `+`）
+         * —— 断言用它，就不用把那个拼法在测试里再写一遍（两处写就会漂）。
+         */
+        fun paymentPageUrl(orderId: String): String =
+            "$PAY_ORIGIN$PAYMENT_PAGE_PATH?id=" + java.net.URLEncoder.encode(orderId, "UTF-8")
 
         /** 业务接口前缀（`VenueApi` 的 `BASE`）。 */
         const val WEB = "$ORIGIN/web"

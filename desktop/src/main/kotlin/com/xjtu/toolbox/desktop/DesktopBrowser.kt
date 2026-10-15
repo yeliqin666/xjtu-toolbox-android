@@ -150,3 +150,26 @@ internal fun DesktopBrowserScreen(
         )
     }
 }
+
+/**
+ * 「去支付」这类**带 then 的**跳转，该把哪一个地址交给系统浏览器（纯函数：宿主与单测同一份判据）。
+ *
+ * `:app` 的语义是**两跳**：先把第一站（站点 OAuth 入口）交给内置浏览器，页面加载完、`isAuthHop` 判明
+ * 已经离开登录中转页之后，再 `normalizeUrl(then)` 落到支付页。桌面端做不到那两跳：`openInBrowser`
+ * 一次只把一个地址交给系统浏览器，而且**收不到任何回调**（页面在别人的进程里，跳没跳、跳去哪
+ * 都一样看不见）⇒ 这一端只能挑一个地址。
+ *
+ * 挑的是 `then`（第二跳，也就是用户真要去的支付页）：`then` 非空就交它 —— 那正是 Android 走完两跳
+ * 之后停下来的那一页。站点在系统浏览器里没有会话时会**自己**先要一次登录（`:web` 那一端把同一条
+ * 写成「不担保」的第三条，见 `WebVenueHost.kt` 的文件头），本端不代它做这件事。
+ *
+ * 三种写法（顺序就是优先级）：
+ *  - `then` 非空 ⇒ 交它（界面上的「去支付」就是要那一页）；
+ *  - 否则第一站非空 ⇒ 交它（只剩下登录站可去时也得有个动作 —— 把这一枪吞掉就是静默没动作）；
+ *  - 两个都空 ⇒ `null`，由调用方决定 —— 本端**不编**一个假地址。
+ */
+internal fun desktopBrowserTarget(url: String, then: String): String? = when {
+    then.isNotBlank() -> then
+    url.isNotBlank() -> url
+    else -> null
+}

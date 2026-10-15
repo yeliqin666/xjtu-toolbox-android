@@ -3,6 +3,7 @@ package com.xjtu.toolbox.core.net
 import com.xjtu.toolbox.platform.keyValueStore
 import com.xjtu.toolbox.util.AppJson
 import com.xjtu.toolbox.util.arr
+import com.xjtu.toolbox.util.encodeUrlComponent
 import com.xjtu.toolbox.util.isNull
 import com.xjtu.toolbox.util.safeBoolean
 import com.xjtu.toolbox.util.safeDouble
@@ -45,6 +46,10 @@ import kotlinx.serialization.json.putJsonArray
  *   自己出轨迹；下单 `POST /api/venue/book` 把 `captchaId` + 轨迹原文带回去，取消 `POST /api/venue/cancel`
  *   是一次普通 POST。两个开关（[canBook]/[canCancel]）随两条路径已落地而翻 `true`。
  *   逐字段形状（请求/响应/错误码）在契约 §5.3.2，本类只负责翻译。
+ *   支付那一跳也在这条路上：[paymentUrl] 给的是 serve 的代跳地址（`GET /api/venue/pay`，302 到
+ *   支付那一跳也在这条路上：[paymentUrl] 给的是 serve 的代跳地址（`GET /api/venue/pay`，302 到
+ *   80 端口那台站点上的支付页地址）—— 浏览器新标签打开它，302 一定被跟随；那一页要不要再登录、
+ *   能不能直接付，本端**不担保**（三条依据在 [paymentUrl] 的 KDoc 与契约 §5.3.2 第 6 条）。
  *
  * ## 逐字段映射（2026-10-08 核对 campus-api 的 `modules/venue.js` + 真机夹具
  * `tests/fixtures/venue-*.json`；左边是 `:core` 的模型，右边是 campus-api 的键）
@@ -130,12 +135,14 @@ class CampusVenueApi(
     override val canCancel: Boolean get() = mode == ApiMode.SERVE && SERVE_WRITE_ENDPOINTS_READY
 
     /**
-     * 支付页入口站（OAuth 入口）。
+     * 支付前要先去这个站点的登录页过一遍（`:app` 的内置浏览器带着 App 的统一认证 cookie，一般免输密码）。
      *
-     * 两种形态都是空串：浏览器里没有「内置浏览器带着 App 的统一认证 cookie」这回事，而这份地址
-     * （`VenueApi.BROWSER_LOGIN_URL`）也只有 `:data` 知道 —— `:core` 不复制一份站点知识。
-     * serve 模式下屏上能下成单，但「去支付」那一跳在浏览器里做不到（支付页在 80 端口那台站点上，
-     * 会话在 serve 进程里）⇒ 点了不会有动作，见契约 §5.3.2 末尾的缺口说明与 [paymentUrl]。
+     * 两种形态都是空串，但理由不同（见契约 §5.3.2 第 6 条）：
+     * - campus-api（旧路）：那条路的写端点都不存在 ⇒ 屏上根本不画支付入口（[canBook] = false）；
+     * - serve：支付那一跳**不需要**这一格 —— [paymentUrl] 给的就是 serve 的代跳地址
+     *   （`GET /api/venue/pay` → 302 到 80 端口那台站点上的支付页地址）。浏览器里两跳串不成一条链
+     *   （跨源跳转看不见、也接不住），登录由支付页自己那次跳转去要。这一格的**真实值**
+     *   （`VenueApi.BROWSER_LOGIN_URL`）也只有 `:data` 知道 —— `:core` 不复制一份站点知识。
      */
     override val browserLoginUrl: String get() = ""
 
@@ -353,19 +360,30 @@ class CampusVenueApi(
     // ─── 写路径（serve 模式；契约 §5.3.2）────────────────────────────
 
     /**
-     * 支付页 URL。
+     * 支付页地址（屏上那个「去支付」把它交给宿主打开，见 `VenueScreen` 的 `pay`）。
      *
-     * campus-api（旧路）：与从前一样抛 —— 那条路 `canBook = false`，屏上不画支付入口（真被调到就是有人
-     * 画了不该画的按钮）。
+     * campus-api（旧路）：与从前一样抛 —— 那条路 `canBook = false`，屏上不画支付入口（真被调到就是
+     * 有人画了不该画的按钮）。
      *
-     * serve：**空串**（不是抛，也不是编一个地址）：支付页在 `:data` 的 `VenueApi.paymentUrl` 里拼
-     * （`:core` 不复制那份站点知识），而浏览器里也没有场馆站的会话（会话在 serve 进程里）⇒ 屏上那个
-     * 「去支付」确实打不开。这是**已知缺口**，写在契约 §5.3.2 末尾；哪天契约给了支付入口、或把状态里的
-     * `browserLoginUrl` 接给客户端，再把它补上。空串而不是抛：那条路是**能到达**的（下单能成），
-     * 抛会在点击时炸掉页面。
+     * serve：**serve 自己的代跳地址**（`GET /api/venue/pay?orderId=…`，契约 §5.3.2 第 6 条）——
+     * 浏览器新标签打开它，serve 回 302 到 80 端口那台站点上的支付页地址（地址由 `:data` 的
+     * `VenueApi.paymentUrl` 拼，`:core` 不复制那份站点知识、也不编一个地址）。**302 这一跳一定被
+     * 浏览器跟随**（顶层跳转）；但**落在那一页上能不能付款，本端不担保** —— 那一页要的是
+     * **浏览器这一侧的**场馆站会话，而浏览器里没有（见下面 ①）：
+     *
+     * ⚠️ 三条如实说明（免得读成「本端能代付」）：① serve 的会话**不参与**这一跳 —— 那是场馆站
+     * 8080 的 `SESSION` cookie，而 cookie 按**域名**存（端口不参与作用域）、页面也不能替别的域名写
+     * cookie ⇒ 浏览器这一侧的场馆站会话要由站点自己那次登录给，**第一次点很可能先落在该站点自己的
+     * 登录页**（Android 能串这两跳是因为它那手 `syncCookiesToWebView` 把 App 的 cookie 罐灌进了
+     * WebView，浏览器里没有这一手）；② 本端**不发起支付**，只把浏览器送到那一页；③ 上面两条写进
+     * 契约 §5.3.2 第 6 条与 `:web` 那一屏顶部的说明，页面上那句是「跳过去后若要求登录，请用 App /
+     * 桌面端支付」—— 是**已知局限**，不是本端的静默降级（从前那个空串才是），也**不许**读成「已支持真支付」。
      */
-    override fun paymentUrl(orderId: String): String =
-        if (mode == ApiMode.SERVE) "" else readOnly()
+    override fun paymentUrl(orderId: String): String = if (mode == ApiMode.SERVE) {
+        "$baseUrl$VENUE_PAY_PATH?orderId=${encodeUrlComponent(orderId)}"
+    } else {
+        readOnly()
+    }
 
     /**
      * `GET /api/venue/captcha?serviceId=`（契约 §5.3.2 第 1 条）：把挑战拿回浏览器里画。
@@ -514,6 +532,9 @@ class CampusVenueApi(
 
         /** 取消订单（§5.3.2）。 */
         const val VENUE_CANCEL_PATH = "/api/venue/cancel"
+
+        /** 支付那一跳（§5.3.2 第 6 条）：serve 的代跳端点（302 → 80 端口那台站点上的支付页地址）。 */
+        const val VENUE_PAY_PATH = "/api/venue/pay"
 
         /** 收藏的键名沿用 Android 那个（排查时好认）；值形态不同，见类 KDoc。 */
         const val KEY_FAVORITES = "favorite_venue_ids"

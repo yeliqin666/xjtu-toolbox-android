@@ -223,6 +223,77 @@ class ServeVenueActionTest {
         assertEquals(1, fake.venue.delorderCalls.get())
     }
 
+    @Test
+    fun `支付跳转：未登录 401 · 缺 orderId 400 · 没令牌 401`() = withFakeProxy { _ ->
+        val token = AccessToken.newToken()
+        val session = ServeSession()
+        val (server, http) = startEndpointServer(token) {
+            sessionRoutes(session, token)
+            venueRoutes(session)
+        }
+        started = server
+
+        // 令牌闸门照旧（这一条虽然不取数，但它是场馆那一族的口径）：没带令牌 401 + 指路那句中文短句
+        val noToken = http.get("$PAY_PATH?orderId=${VenueFakeUpstream.ORDER_PAID_ID}", bearer = null)
+        assertEquals(401, noToken.statusCode())
+        assertEquals(ApiErrors.UNAUTHORIZED, envelopeCode(noToken))
+
+        // 令牌对、但没会话 ⇒ 401（与会话闸门同一个码，指路先登录）
+        val anonymous = http.get("$PAY_PATH?orderId=${VenueFakeUpstream.ORDER_PAID_ID}")
+        assertEquals(401, anonymous.statusCode())
+        assertEquals(ApiErrors.UNAUTHORIZED, envelopeCode(anonymous))
+        assertTrue(envelopeMessage(anonymous).orEmpty().contains("登录"), "401 要指路「先登录」")
+
+        assertEquals(200, http.postJson(SESSION_PATH + "/login", LOGIN_BODY).statusCode())
+
+        // 缺 orderId（没给 / 空白）⇒ 400，文案要说缺什么
+        val missing = http.get(PAY_PATH)
+        assertEquals(400, missing.statusCode())
+        assertEquals(ApiErrors.BAD_REQUEST, envelopeCode(missing))
+        assertTrue(envelopeMessage(missing).orEmpty().contains("orderId"), "400 要说出缺什么")
+        assertEquals(400, http.get("$PAY_PATH?orderId=%20").statusCode(), "空白 orderId 同一条判据")
+    }
+
+    @Test
+    fun `支付跳转：302 到 80 端口那台站上的真支付页（地址由数据层拼，本层不取数）`() = withFakeProxy { fake ->
+        val token = AccessToken.newToken()
+        val session = ServeSession()
+        val (server, http) = startEndpointServer(token) {
+            sessionRoutes(session, token)
+            venueRoutes(session)
+        }
+        started = server
+        assertEquals(200, http.postJson(SESSION_PATH + "/login", LOGIN_BODY).statusCode())
+
+        // 真支付页地址 = `:data` 的 `VenueApi.paymentUrl`（夹具那个 `paymentPageUrl` 就是同一个拼法）
+        val hop = http.get("$PAY_PATH?orderId=${VenueFakeUpstream.ORDER_PAID_ID}")
+        assertEquals(302, hop.statusCode(), "这一条是跳转，不是信封（契约 §4 的例外清单第二条）")
+        assertEquals(
+            VenueFakeUpstream.paymentPageUrl(VenueFakeUpstream.ORDER_PAID_ID),
+            hop.headers().firstValue("Location").orElse(""),
+            "Location 要逐字等于 80 端口那台站上的那个地址",
+        )
+        assertTrue(hop.body().isBlank(), "302 的响应体是空的（没有信封）")
+        // 地址就落在 80 端口（不是 8080 那套业务站）、路径与 :data 拼的一致
+        assertEquals(
+            VenueFakeUpstream.PAY_ORIGIN + VenueFakeUpstream.PAYMENT_PAGE_PATH,
+            hop.headers().firstValue("Location").orElse("").substringBefore("?"),
+        )
+        // 本层不取数：这一枪根本不该碰场馆站（取支付页等于替用户打支付站，更别说发起支付）
+        assertEquals(0, fake.venue.orderCalls.get(), "支付跳转不打订单接口")
+        assertEquals(0, fake.venue.tobookCalls.get(), "支付跳转不下单")
+
+        // 订单号里的 `/` 与 `+` 原样带到 Location（都是 `java.net.URLEncoder` 那套：`/`→`%2F`、`+`→`%2B`）
+        val tricky = "A/1+2"
+        val encoded = java.net.URLEncoder.encode(tricky, "UTF-8")
+        val trickyHop = http.get("$PAY_PATH?orderId=$encoded")
+        assertEquals(302, trickyHop.statusCode())
+        assertEquals(VenueFakeUpstream.paymentPageUrl(tricky), trickyHop.headers().firstValue("Location").orElse(""))
+
+        // 红线（§3.4）：这一条只回一个 Location，但试体里也不许出现身份
+        assertNoIdentity(hop.body(), "GET $PAY_PATH", IDENTITY)
+    }
+
     private companion object {
         val LOGIN_BODY =
             """{"username":"${LibraryFakeUpstream.USERNAME}","password":"${LibraryFakeUpstream.PASSWORD}"}"""
@@ -231,6 +302,7 @@ class ServeVenueActionTest {
         const val CANCEL_PATH = "/api/venue/cancel"
         const val CAPTCHA_PATH = "/api/venue/captcha"
 
+        const val PAY_PATH = "/api/venue/pay"
         /** 夹具只扮演这一个场馆的一个场地明细（`slotsJson` 的第一行：stockid=9101 / id=5101）。 */
         const val STOCK_ID = 9101L
         const val AREA_DETAIL_ID = 5101L

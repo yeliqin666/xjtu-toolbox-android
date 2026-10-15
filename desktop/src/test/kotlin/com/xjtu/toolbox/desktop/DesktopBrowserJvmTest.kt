@@ -7,6 +7,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotEquals
 import kotlin.test.assertNotNull
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 /**
@@ -15,7 +16,7 @@ import kotlin.test.assertTrue
  * 这一条路由的屏在 `:app` 是 `browser/BrowserScreen.kt`（629 行）：WebView + 自己的顶栏
  * （地址栏 / 前进后退 / 复制 / 分享 / 在外部浏览器打开）+ cookie 注入 + `then=` 那一跳 + 夜间模式。
  * 桌面端没有 WebView 这一层，等于物是**外链中转页**（`DesktopBrowser.kt`：目标网址 + 交给系统浏览器 +
- * 复制），所以这里钉的是两件装配事实：
+ * 复制），所以这里钉的是三件装配事实：
  *
  *  1. **进得了、列得出**：`AppRoute.Browser` 在 `DESKTOP_SUPPORTED_ROUTES` 里（索引页那一栏
  *     「真能用」会列出它），名字照 `:app` 那一屏自己的标题（`BrowserScreen` 的 `pageTitle` 初值
@@ -24,6 +25,9 @@ import kotlin.test.assertTrue
  *  2. **交出去的地址是同一份口径**：桌面点「在系统浏览器打开」用的是 `:app` 顶栏那颗
  *     「在外部浏览器打开」同一条规则 —— `:core` 的 `browser/ShareableUrl.kt`（本轮按五步法从
  *     `:app` 搬进来），注入的实现是 `:data` 的 [WebVpnUtil]（Android 与桌面**同一份**）。
+ *  3. **带 `then` 的跳转交出去的是第二跳**：「去支付」那一枪（`VenueScreen.onOpenBrowser(登录站, 支付页)`）
+ *     `:app` 是在内置浏览器里串两跳，而 `openInBrowser` 一次只交一个地址、也收不到任何回调 ⇒
+ *     桌面按 [desktopBrowserTarget] 的判据交 `then`（支付页）出去，见底下那一条用例。
  *
  * ⚠️ 夹具全是编造的：域名用 `.invalid`（保留 TLD，永远解析不出来），一个请求都不发 ——
  * 这一条链只做字符串改写，`openInBrowser` 那一枪（`java.awt.Desktop.browse` / `xdg-open`）在
@@ -71,5 +75,23 @@ class DesktopBrowserJvmTest {
             shareableUrl(gateway, WebVpnUtil).trimEnd('/'),
             "网关地址要还原成原始地址：$gateway",
         )
+    }
+
+    @Test
+    fun `去支付带了 then 时走第二跳 —— 交出去的是支付页`() {
+        val login = "https://org.example.invalid/web/cas/oauth2url.html?appId=1659"
+        val pay = "https://venue.example.invalid/pay/show.html?id=VT-假-0001"
+
+        assertEquals(
+            pay,
+            desktopBrowserTarget(login, pay),
+            "`:app` 是两跳（先 OAuth 入口，`isAuthHop` 判完再 loadUrl(支付页)）；" +
+                "`openInBrowser` 只交一个地址、收不到回调 ⇒ 桌面的等价物是第二跳那个地址",
+        )
+        // 没有 then 时才回第一站：只剩登录站可去时也得有个动作（把这一枪吞掉就是静默没动作）
+        assertEquals(login, desktopBrowserTarget(login, ""))
+        // 两个都空 ⇒ null：本端不编一个假地址，也不假弹一次浏览器（调用方自己决定怎么办）
+        assertNull(desktopBrowserTarget("", ""))
+        assertNull(desktopBrowserTarget("   ", "\t"))
     }
 }

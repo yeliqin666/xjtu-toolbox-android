@@ -49,11 +49,13 @@ curl -s -H "Authorization: Bearer $TOKEN" "http://127.0.0.1:40961/api/jwxt/sched
 |---|---|---|
 | 1 | 只读四域（§5.5）：`/api/dzpz/transcript` · `/api/attendance/{terms,records}` · `/api/coupon/{list,detail}` · `/api/dorm/{rooms,reading}` | ⑥ 只读四域全部四屏 |
 | 2 | 第二批（§5.6）：`/api/lms/{courses,activities,activity}` · `/api/jiaocai/{search,ssno}` · `/api/jwapp/{scores,precise-scores}` · `/api/iclassface/records` | ⑦ 第二批四屏全部 |
-| 3 | 第三批（§5.7）：`/api/pay/{code,vouchers}` · `/api/feedback/{replies,public-qa}` · `/api/match/dining` · `POST /api/webvpn/convert` | ⑧ 付款码 / 反馈 / WebVPN（匹配屏不消费端点） |
+| 3 | 第三批（§5.7）：`/api/pay/{code,vouchers}` · `/api/feedback/{replies,public-qa}` · `/api/match/dining` · `POST /api/webvpn/convert`；**批③-b / D7（2026-10-15）加** `POST /api/feedback/submit` · `POST /api/pay/vouchers/select` | ⑧ 付款码（拿码 + 勾选券）/ 反馈（读 + 提交）/ WebVPN（匹配屏不消费端点） |
 | 4 | 第四批（§5.8）：`/api/jwxt/{changes,exams,textbooks}` · `/api/jwapp/score-detail` · `/api/emptyroom/seat-count` | ③ 日程（考试栏/教材栏/N座）· ⑦ 成绩屏的分项 · 教材屏「本学期我的教材」 |
 | 5 | 批①收尾（§5.9）：`/api/jwxt/schedule?merged=1`（同一端点的新参数档） | ③ 日程「格子已合调停补课」 |
 
 > 场馆 / 图书馆两条**写**端点（`§5.3.2 /api/venue/*`、`§5.3.1 /api/library/action`）是 2026-10-11/12 落地，若进程早于那两天同样要重启。判据同上：带令牌 curl 一个写端点看是 404 还是 401。
+> 场馆「去支付」那一跳（`GET /api/venue/pay`，批③-a / D11b，契约 §5.3.2 第 6 条）是 **2026-10-15** 落地的：
+> 进程早于这一天时点它会拿到 `404 {"code":404,…}`（而不是场馆那一族那种 401）—— 那一格就是⑨里的「场馆去支付」。
 
 ### 3. 哪些点位要**真账号登录**
 
@@ -112,9 +114,9 @@ serve 形态下，会话在 serve 进程里。要走登录的点位（AppRoute �
 
 > serve 形态才画真屏；campus-api 形态四屏都落「（Web 这一端：需要 serve 模式）」如实页（`WebServeOnlyScreen`）。
 
-- [ ] 电子成绩单 | `?route=transcript` | 看整屏 | serve：类型选择 + 申请信息（「申请日期」=`defaultDate`），页顶缺口说明写「只画得了『选类型』这一步」，**没有**「一键申请」和那五步预览 | campus-api：落「电子成绩单（Web 这一端：需要 serve 模式）」页 | 第 2~7 步无端点（出 PDF 要 App/桌面端）
-- [ ] 考勤 | `?route=new_attendance` | 看整屏 | serve：学期选择器 + 流水表（节次/状态/地点/日期）；页顶写缺「教师名/统计/打卡原始流水/请假」 | campus-api：落「考勤（…需要 serve 模式）」页 | 教师名不投影（红线）；`status=-1` 按「未知」显示
-- [ ] 加餐券 | `?route=coupon` | 看整屏 | serve：四档 + 翻页 + 金额（单位分）+ 有效期；**没有**「领取」按钮；券卡退成图标（无封面图） | campus-api：落「加餐券（…需要 serve 模式）」页 | 领券是写路径不端；封面图要 egc 会话
+- [ ] 电子成绩单 | `?route=transcript` | 看整屏 | serve：类型选择 + 申请信息（「申请日期」=`defaultDate`），页顶缺口说明写「只画得了『选类型』这一步」，**没有**「一键申请」和那五步预览 | campus-api：落「电子成绩单（Web 这一端：需要 serve 模式）」页 | 第 2~7 步无端点（出 PDF 要 App/桌面端）。**D7 ⑤ 查过并于 2026-10-15 如实不端**：`:data` 侧有 PDF 能力，但那是**真的替用户提交一份申请**（要签章 + 审批）而浏览器这一侧没有“二次确认”这一格 ⇒ 依据与最小可行方案见契约 §5.5 末尾
+- [ ] 考勤 | `?route=new_attendance` | 看整屏，走一遭请假 | serve：学期选择器 + 流水表（节次/状态/地点/日期）；**「请假」那一栏真能用**（窗口 / 审批人下拉（**入的是人名，不是 `userId`**）/ 列表 / 提交 / 撤回 / 销假）；页顶写缺「**流水那一栏的**上课教师名/统计/打卡原始流水/附件」 | campus-api：落「考勤（…需要 serve 模式）」页 | 考勤**流水那一栏**的上课教师名不投影（红线）；请假那一族的两类姓名（审批人姓名、请假单里那节课的任课教师姓名）自 2026-10-15 起按 §5.2 例外 ④ 投影；`status=-1` 按「未知」显示；附件那一格没有端点（本端没有文件选择宿主，与桌面同一条）
+- [ ] 加餐券 | `?route=coupon` | 看整屏，领一张 | serve：四档 + 翻页 + 金额（单位分）+ 有效期；「可领取」那一档的券卡里**有**「领取」按钮且**点了真能领**（领完重拉当前档）；券卡退成图标（无封面图） | 封面图当成了真图 / 点了「领取」没反应 | 封面图要 egc 会话；领券被上游拒与会话失效**都落 502**（分不出「上游说不能领」，见契约 §5.5）
 - [ ] 宿舍电费 | `?route=dorm_power` | 看整屏 | serve：房间列表 + 剩余电量（`kwh:null` 单独说「这一间没有电表」）+ **本机**查询时刻；页顶写「去缴费在浏览器里不可达」 | campus-api：落「宿舍电费（…需要 serve 模式）」页 | 用的是 `:web` 自己的读数页 `WebDormPowerScreen`，不是 `:core` 那张缴费页浏览器
 
 ### ⑦ 第二批四屏（思源学堂 / 教材查询 / 移动教务成绩 / 人脸签到）
@@ -126,8 +128,8 @@ serve 形态下，会话在 serve 进程里。要走登录的点位（AppRoute �
 
 ### ⑧ 第三批四屏（付款码 / 反馈 / 匹配交友 / WebVPN）
 
-- [ ] 付款码 = 只画数字 | `?route=payment_code` | 看整屏 | serve：显示**付款码那串数字** + 加餐券几行（名称/金额分/到期）；**没有**条码/二维码矩阵，换一句「本端没有条码 / 二维码编码器，画不出可扫的码；下面这串数字就是付款码本身。」；券**不可勾选**（整行只读） | campus-api：落「付款码（…需要 serve 模式）」页 | 矩阵编码器 wasm 上返回 null；勾选同步是写路径不端；⚠️ 这一屏是**能付钱的东西**，`0.0.0.0` 部署要先解决鉴权（§3.3）
-- [ ] 反馈只读 | `?route=feedback` | 看整屏 | serve：「大家在问」真画 +「去 GitHub 提 Issue」外链；**没有**提交表单（只留一句「只能看、不能提」）；新浏览器里「我提过的」不出现（本地账本空） | campus-api：落「反馈与建议（…需要 serve 模式）」页 | 提交是写路径不端；读要 serve 配全 `FEEDBACK_*` 三环境变量，否则端点 502 且屏吞掉 ⇒ 显示「没有新回复/问答」
+- [ ] 付款码 = 只画数字 + 勾选真同步 | `?route=payment_code` | 看整屏，勾一张券 | serve：显示**付款码那串数字** + 加餐券几行（名称/金额分/到期），那几行**有勾选框、勾了真同步**（POST /api/pay/vouchers/select）；**没有**条码/二维码矩阵，换一句「本端没有条码 / 二维码编码器，画不出可扫的码；下面这串数字就是付款码本身。」 | campus-api：落「付款码（…需要 serve 模式）」页 | 矩阵编码器 wasm 上返回 null；「支付」那一档**上游客户端本来就没有**（不是缺口）；⚠️ 这一屏是**能付钱的东西**，`0.0.0.0` 部署要先解决鉴权（§3.3）
+- [ ] 反馈：读 + 提交 | `?route=feedback` | 看整屏，提一条 | serve：「大家在问」真画 + 提交表单**真画**（能提交，提完那条工单进本地账本、「我提过的」出现）+「去 GitHub 提 Issue」外链仍在 | 提交按钮点了无反应 / 仍显示「只能看、不能提」那张卡 | 提交要 serve 配全 `FEEDBACK_*` 三环境变量，否则三条端点 502（含提交那一枪）且屏吞掉 ⇒ 显示「没有新回复/问答」；工单号是**屏生成**的（换浏览器找不回旧工单，服务端不代管也不下发新号） |
 - [ ] 匹配交友说明页 | `?route=schedule_match` | 看整屏 | **如实说明页**，标题「匹配交友（Web 这一端：这一屏用不了）」，逐条写缺什么（deflate / URL-safe Base64 两个 actual 返回 null / 学工档案只在 `:app` / 考试教材两维没缓存）；**不是**半开着的交友界面 | 出现一个出不了码的交友界面 / 空矩阵当码 | 两种形态都用不了；服务端不代出码（码含昵称+课表网格）
 - [ ] WebVPN 转换器 | `?route=webvpn_converter` | 输入网址点「转换」 | serve：真能转（两个方向），结果由服务端 `WebVpnUtil` 算；「用 WebVPN 打开」新标签打开网关地址（要过网关自己的登录页） | campus-api：落「WebVPN 转换器（…需要 serve 模式）」页 | 转换是一发 HTTP（断网转不了，Android/桌面是本地纯函数）；不收会话
 
@@ -137,6 +139,7 @@ serve 形态下，会话在 serve 进程里。要走登录的点位（AppRoute �
 - [ ] 只读四域 + 第二批 + 第三批在 campus-api 下 | 分别打开这 12 屏 | 看落点 | 全部落「（Web 这一端：需要 serve 模式）」页，写清端点 + 为什么 + 「切到 serve 模式就能用」 | 落「这一屏还没搬到 Web」/ 白屏 | 这些域在 campus-api 里没有端点，屏在 `:core`（不是没搬）
 - [ ] 日程在 campus-api 下 | 打开日程 | 看页顶 + 格子 | 页顶写「只有排课原样…考试与教材两栏空着、详情里的『N座』也不画；调课/停课/换教室同样不体现」 | 显示成与 serve 一样 | 本端只认 serve 契约字段面（§7.2）
 - [ ] 图书馆/场馆在两种形态 | 打开 library / venue | 看可点性 | campus-api：只读（无约座/预订按钮，时段不可选）；serve：写端点落地 ⇒ 能约座/预订/取消（滑块在本端画） | campus-api 出现点了会失败的写按钮 | 能力开关随形态变（§2「点了会失败的按钮一个都不画」）
+- [ ] 场馆「去支付」（**可用**，D11b） | serve：订完场（或「我的订单」里那一行）→ 点「去支付」 | 点「去支付」 | 新标签先到 serve 的代跳地址 `GET /api/venue/pay?orderId=…`（302，不当信封），随后落在站点 80 端口那台的 `pay/show.html?id=<订单号>`（顶层跳转，浏览器一律跟）；扣款在那一页上完成。⚠️ **那一页要不要再登录，本端不担保** —— 它要的是**浏览器这一侧**的场馆站会话，而 serve 的会话带不过去（页面替不了别的域名写 cookie；Android 能是因为 WebView 在同一个进程里，被 `syncCookiesToWebView` 灌了 cookie 罐）⇒ 第一次很可能先看到**该站点自己的登录页**：**若它要求登录，请用 App / 桌面端支付**（或按那一页自己的登录流程过一次再回来） | 点了根本没动作 / 新标签白屏 / 落一个写着「接口不存在」的 JSON 页（= serve 进程太旧，见「前置条件 2」） | **302 这一跳一定走完，但落成能付款的一页不担保** —— 三条依据在契约 §5.3.2 第 6 条；`browserLoginUrl` 仍是空串；「第一次点到底落在哪一页」本仓**没能在线验证**（不许真发起支付、也没探测那台站），以你点出来的现象为准
 
 ### ⑩ 明确不可用项（逐个为什么）
 
@@ -148,7 +151,6 @@ serve 形态下，会话在 serve 进程里。要走登录的点位（AppRoute �
 - [ ] 账号管理（`Accounts`） | `?route=accounts` | 看落点 | 落「这一屏还没搬到 Web」 | 出现账号页 | 多账号归批②（D9）
 - [ ] 内置浏览器（`Browser`） | `?route=browser?url=…` | 看落点 | **不是一屏**：同标签直接导航到那个网址（`navigateSameTab`），回来靠浏览器后退 | 出现一个「浏览器」页面 | 它把 URL 交给浏览器本身，不算一屏（口径上不算差集）
 - [ ] 桌面端「GameMerge 载体」 | 桌面端看合成西交大 | —— | 桌面**仍卡载体**（无 WebView 宿主） | —— | 见 §16.2 第 1 条（web 端最省、桌面卡载体）
-- [ ] 场馆「去支付」 | serve 下订完场看支付入口 | 看「去支付」 | **不可达**：支付页地址只有 `:data` 能拼、浏览器里没有场馆站会话 ⇒ `CampusVenueApi.paymentUrl` 给空串，那一枪什么都不做 | 出现一个点了报错的「去支付」 | §5.3.2 末尾缺口；真支付是 D11b（HTTPS+鉴权之后）
 
 ---
 
@@ -164,7 +166,7 @@ serve 形态下，会话在 serve 进程里。要走登录的点位（AppRoute �
 | ⑥ 只读四域 | `ToolboxWebApp.kt` 四个分支（`AppRoute.Transcript/Attendance/Coupon/DormPower`）；`WebFallbackScreens.kt` 的 `WebServeOnlyScreen` + `WebGapNote`；`web/.../web/WebDormPowerScreen.kt`；`docs/api-contract.md` §5.5（含末尾消费方表） |
 | ⑦ 第二批四屏 | `ToolboxWebApp.kt` 四个分支（`AppRoute.Lms/Jiaocai/JwappScore/Iclassface`）；`web/.../web/WebJiaocaiHost.kt`（`WebJiaocaiTermTextbooks`）；`docs/api-contract.md` §5.6（含消费方表） |
 | ⑧ 第三批四屏 | `ToolboxWebApp.kt` 四个分支（`AppRoute.PaymentCode/Feedback/Match/WebVpnConverter`）；`WebFallbackScreens.kt` 的 `WebMatchGapScreen`（匹配说明页全文案）；`docs/api-contract.md` §5.7（含消费方表） |
-| ⑨ 形态差别 | `docs/api-contract.md` §5.4（模式开关/登录/令牌/消费方不画）；`WebServeOnlyScreen` / `WebScheduleGapNote` 两种形态分支 |
+| ⑨ 形态差别 | `docs/api-contract.md` §5.4（模式开关/登录/令牌/消费方不画）；§5.3.2 第 6 条（支付那一跳的 302、三条如实说明）；`WebServeOnlyScreen` / `WebScheduleGapNote` 两种形态分支；`WebVenueHost`（`venuePayTarget`）|
 | ⑩ 明确不可用项 | `WebSupport.kt` 文件头（「什么不在清单里」）；`ToolboxWebApp.kt` 的 `AppRoute.Agent` 降级分支 + `NotPortedScreen`；`docs/desktop-port-plan.md` §16.2 第 1 条（43 条差集 7 条）；`docs/agent-web-spec.md`（屁岱设计稿未实现） |
 
 ---
@@ -175,7 +177,7 @@ serve 形态下，会话在 serve 进程里。要走登录的点位（AppRoute �
 - **深色/侧栏的视觉细节**：本清单只验「变了/没变」，不验与 Android 的像素级差异。
 - **错误态 / 空态 / 加载态的逐条文案**：除各屏页顶缺口说明外，其余文案逐条对 Android 没在本清单展开（那是 D14/丙口径的活）。
 - **统一存档层 / 多账号（批②）**：`Accounts` / 存档互认 / serve 侧 DPAPI 等，见 `docs/storage-layout-plan.md`，不在本清单（本清单只管「serve 这一页现在长什么样」）。
-- **HTTPS / 鉴权（D11）**、真支付（D11b）、能力边界收口（D12 矩阵/分享码/相机/剪贴板/PWA）**尚未落地**，不在本次验收范围。
+- **HTTPS / 鉴权（D11）**已于 2026-10-15 落地（批④：`--https` 开箱可启用，`docs/linux-delivery.md` / `docs/windows-delivery.md` §10）；场馆「去支付」（D11b）也已落地（本批，见⑨那一行）。**能力边界收口（D12 矩阵/分享码/相机/剪贴板/PWA）尚未落地**，不在本次验收范围。
 
 ## 下一步
 

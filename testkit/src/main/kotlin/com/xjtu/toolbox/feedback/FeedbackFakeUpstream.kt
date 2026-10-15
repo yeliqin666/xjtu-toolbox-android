@@ -71,6 +71,10 @@ class FeedbackFakeUpstream {
         /** 飞书把「查找引用」用在 filter 上时的错误码。 */
         const val FILTER_REJECTED_CODE = 1254018
 
+        /** 上游拒收一次提交时给的码与 msg（[submitRejected] 打开后用）。 */
+        const val SUBMIT_REJECTED_CODE = 1254302
+        const val SUBMIT_REJECTED_MSG = "Permission denied（示例：这张表不给写）"
+
         /** 飞书拒绝这个 filter 时给的 msg（实现只把它写进日志，不抛）。 */
         const val FILTER_ERROR_MSG = "FieldNameNotFound"
     }
@@ -99,6 +103,15 @@ class FeedbackFakeUpstream {
     /** search 被 POST 了几次（含带 filter 与不带 filter 两种）。 */
     val searchCalls = AtomicInteger(0)
 
+    /**
+     * 打开后：提交那一发回一个 `code != 0` —— 演「上游拒收这次写」。
+     *
+     * 这一档与「凭据没配全」（那个在 serve 启动时就定了，根本到不了上游）**不是一回事**：
+     * 它到得了上游，是上游说的不行 ⇒ `:data` 的 `submit` 把 msg 抛成异常 ⇒ serve 按 502 报。
+     */
+    @Volatile
+    var submitRejected: Boolean = false
+
     /** 最近一次提交请求体里的 `fields` 原文（断言字段口径用）。 */
     @Volatile
     var lastSubmitFields: String? = null
@@ -125,6 +138,10 @@ class FeedbackFakeUpstream {
             path.endsWith("/records") && exchange.requestMethod == "POST" -> {
                 submitCalls.incrementAndGet()
                 lastSubmitFields = body
+                if (submitRejected) {
+                    respondJson(exchange, """{"code":$SUBMIT_REJECTED_CODE,"msg":"$SUBMIT_REJECTED_MSG"}""")
+                    return
+                }
                 respondJson(exchange, """{"code":0,"msg":"ok","data":{"record":{"record_id":"recfake01"}}}""")
             }
             path.endsWith("/records/search") -> {

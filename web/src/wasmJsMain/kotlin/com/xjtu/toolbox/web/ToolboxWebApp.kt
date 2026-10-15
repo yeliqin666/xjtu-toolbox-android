@@ -41,7 +41,6 @@ import com.xjtu.toolbox.core.net.CampusCouponApi
 import com.xjtu.toolbox.core.net.CampusDormPowerApi
 import com.xjtu.toolbox.core.net.CampusTranscriptApi
 import com.xjtu.toolbox.core.net.CampusInboxApi
-import com.xjtu.toolbox.core.net.CampusVenueApi
 import com.xjtu.toolbox.core.net.CampusEmptyRoomApi
 import com.xjtu.toolbox.core.net.CampusLibraryApi
 import com.xjtu.toolbox.emptyroom.EmptyRoomScreen
@@ -85,7 +84,6 @@ import com.xjtu.toolbox.shell.ShellPageInsets
 import com.xjtu.toolbox.shell.ShellTarget
 import com.xjtu.toolbox.ui.LocalIsWideLayout
 import com.xjtu.toolbox.ui.calculateIsWideLayout
-import com.xjtu.toolbox.venue.VenueScreen
 import com.xjtu.toolbox.yellowpage.YellowPageScreen
 import io.ktor.client.HttpClient
 import kotlinx.coroutines.withTimeoutOrNull
@@ -519,32 +517,16 @@ private fun AppPage(
         //    ⇒ canBook/canCancel 翻 true，于是屏上真能下单 —— **滑块在本端画**：服务端把挑战
         //    （图 + captchaId）按值端出来，`WebSlideCaptchaHost` 用 `:core` 的图片缝解码、按与
         //    Android/桌面同一协议采集拖动轨迹，`POST /api/venue/book` 把 captchaId + 轨迹原文带回。
-        //    ⚠️ 「去支付」那一跳仍不可达（浏览器里没有场馆站的会话，支付页地址也只有 `:data` 知道）
-        //    ⇒ CampusVenueApi.paymentUrl 如实给空串，见契约 §5.3.2 末尾的缺口说明。
+        // 宿主面（取数形态 + 「去支付」那一跳）在 `WebVenueHost` 里：`CampusVenueApi.paymentUrl` 在 serve 形态
+        // 给的是 `GET /api/venue/pay`，serve 回 302 到 80 端口那台站点上的支付页（契约 §5.3.2 第 6 条）。
+        // ⚠️ 302 这一跳浏览器一定跟；但**落成能付款的一页不担保**：浏览器只能开**一个**地址、两跳串不成
+        // 一条链（跨源跳转看不见、也接不住、更不能替别的域名写 cookie）⇒ 场馆站要的会话只能由站点自己
+        // 那次登录给，第一次点很可能先落在该站点自己的登录页（屏顶那句如实说明与 `WebVenueHost` 的文件头）。
         // 逐字段映射写在 CampusVenueApi 的 KDoc 里（订单缺 areaName/serviceName、明细时间常为 null
         // ⇒ 如实留空，屏上那几段不画）。
         // **自动识别**（`solveCaptcha`）在浏览器里没有：`:core` 的 `decodeImagePixels` 在 wasm 上恒 null，
         // 本端也不传 autoSolveCaptcha（默认 false）⇒ 停在手动滑动那一档。
-        AppRoute.Venue -> {
-            val hintPrefs = remember { keyValueStore("feature_hints") }
-            VenueScreen(
-                source = remember(client, mode) { CampusVenueApi(client, API_BASE, mode) },
-                onBack = back,
-                // 支付那半在两种形态下都不可达（campus-api：canBook=false ⇒ 屏上不画入口；serve：
-                // canBook=true 但支付页地址只有 `:data` 能拼、而且浏览器里没有场馆站的会话 ⇒
-                // `CampusVenueApi.paymentUrl` 如实给空串，这一枪什么都不做）。真走到这里也只做浏览器
-                // 做得到的那一件：打开那个网址；`then`（先过 App 的登录再跳下一站）在浏览器里做不到，
-                // 因为会话在 serve / campus-api 进程里而不在页面上 —— 如实忽略，不假装。
-                onOpenBrowser = { url, _ -> if (url.isNotBlank()) openInNewTab(url) },
-                // 滑块宿主槽位（见上面那段注：serve 模式下下单要它；campus-api 的 canBook=false
-                // ⇒ 验证码弹窗根本不出现）。宿主端口见 `:core` 的 `SlideCaptchaHost`。
-                captchaHost = remember { WebSlideCaptchaHost },
-                // 「功能说明弹过了没」在 Web 存 localStorage（:app 存 feature_hints 那个 SharedPreferences），
-                // 键名与 :app 同一个；文案里那两条只在能下单那端成立的话，屏会自己按 canBook 少说。
-                showFirstUseHint = !hintPrefs.getBoolean("venue_hint_shown", false),
-                onFirstUseHintRead = { hintPrefs.putBoolean("venue_hint_shown", true) },
-            )
-        }
+        AppRoute.Venue -> WebVenueScreen(client = client, mode = mode, onBack = back)
         // 图书馆座位：与 Android 同一个屏与 ViewModel（`:core/library`）。两种形态（见 CampusLibraryApi 的
         // KDoc）：campus-api 只读（写方法一律抛）；serve 模式的 `/api/library/action` 已落地（契约 §5.3.1）
         // ⇒ canBook 随服务端如实报的 `canBook:true` 翻 true —— 座位格可点、有预约/换座/签到/离开/返回/退座
@@ -600,17 +582,19 @@ private fun AppPage(
         AppRoute.Attendance -> if (mode != ApiMode.SERVE) {
             WebServeOnlyScreen(
                 title = "考勤",
-                endpoints = "GET /api/attendance/terms + /api/attendance/records",
+                endpoints = "GET /api/attendance/{terms,records} + /api/attendance/leave/{window,preview,records} + POST /api/attendance/leave{,/withdraw,/cancel}",
                 why = "考勤走 `new_attendance` 站点的会话。",
             )
         } else {
             Column(Modifier.fillMaxSize()) {
                 WebGapNote(
-                    "这一屏只有「学期选择 + 流水表」两样：serve 契约 §5.5 只端了这两个端点。如实不画的三处：" +
-                        "① 上课教师名（记录里有这个名字，但 §5.2 的例外清单里没有它 —— 红线）；" +
-                        "②「统计」那一栏（getKqtjCurrentWeek / computeCourseStatsFromRecords 没有端点，" +
-                        "本端也不拿流水在本机算第二份口径）；③「打卡流水」与「请假」两栏（打卡原始流水没有端点，" +
-                        "请假 / 销假是写路径、一律不端）。姓名那一格同理不画（getStudentInfo 不端）。",
+                    "三处如实不画：① 考勤**流水那一栏**的上课教师名（那一格是当堂上课的教师名，§5.2 的" +
+                        "例外清单里没有它 —— 红线）；②「统计」那一栏（getKqtjCurrentWeek / computeCourseStatsFromRecords " +
+                        "没有端点，本端也不拿流水在本机算第二份口径）；③「打卡流水」那一栏（打卡原始流水没有端点）。" +
+                        "本人姓名那一格同理不画（getStudentInfo 不端）。" +
+                        "请假那一族的**两类姓名已按 §5.2 例外 ④ 端出来**（审批人姓名、请假单里那节课的任课教师姓名）；" +
+                        "「请假」那一栏**已经真能用了**（窗口 / 审批人 / 列表 / 提交 / 撤回 / 销假六条端点）；" +
+                        "只有**附件**没端 —— 本端没有文件选择宿主，与桌面同一条（不发附件）。",
                 )
                 Box(Modifier.weight(1f)) {
                     AttendanceScreen(
@@ -628,16 +612,16 @@ private fun AppPage(
         AppRoute.Coupon -> if (mode != ApiMode.SERVE) {
             WebServeOnlyScreen(
                 title = "加餐券",
-                endpoints = "GET /api/coupon/list + /api/coupon/detail",
+                endpoints = "GET /api/coupon/list + /api/coupon/detail + POST /api/coupon/activate",
                 why = "加餐券走 `coupon` 站点的会话。",
             )
         } else {
             Column(Modifier.fillMaxSize()) {
                 WebGapNote(
-                    "两处如实不画：①「领取」按钮 —— 领券（POST /app/voucher/activate）是写路径，" +
-                        "serve 契约 §5.5 只端只读两格，那个按钮没有端点可走；② 券封面图 —— 那张图要带 egc 的" +
-                        "Authorization 才取得到，浏览器直接打开那个 URL 会拿到登录页（契约里没有图片代理端点）" +
-                        "⇒ 券卡退化成图标。金额一格单位是分（屏自己除 100 显示，本端不换算）。",
+                    "一处如实不画：券封面图 —— 那张图要带 egc 的 Authorization 才取得到，浏览器直接打开" +
+                        "那个 URL 会拿到登录页（契约里没有图片代理端点）⇒ 券卡退化成图标。金额一格单位是分" +
+                        "（屏自己除 100 显示，本端不换算）。「领取」按钮**照旧画**：领券已端" +
+                        "（POST /api/coupon/activate），失败会如实报（领券被上游拒 / 会话失效都落 502）。",
                 )
                 Box(Modifier.weight(1f)) {
                     CouponScreen(
@@ -820,24 +804,24 @@ private fun AppPage(
         AppRoute.PaymentCode -> if (mode != ApiMode.SERVE) {
             WebServeOnlyScreen(
                 title = "付款码",
-                endpoints = "GET /api/pay/code + /api/pay/vouchers",
+                endpoints = "GET /api/pay/code + /api/pay/vouchers + POST /api/pay/vouchers/select",
                 why = "付款码借的是校园卡那个站点的会话。",
                 section = "§5.7",
             )
         } else {
             Column(Modifier.fillMaxSize()) {
                 WebGapNote(
-                    "两处如实不画：① 条码 / 二维码的**矩阵** —— 浏览器这一端没有编码器（wasm 的" +
+                    "一处如实不画：条码 / 二维码的**矩阵** —— 浏览器这一端没有编码器（wasm 的" +
                         "`qrCodeModules` / `code128Modules` 如实返回 null）⇒ 只画付款码**数字**那一档，" +
-                        "两个矩阵一个都不画（不是画一张假的）；② 加餐券的**勾选框** —— 勾选会把「这一轮" +
-                        "用哪几张」真的推给上游，那是写路径（serve 契约 §5.7 不端）⇒ 那几行券只读。" +
+                        "两个矩阵一个都不画（不是画一张假的）。加餐券的勾选**照旧真能勾**" +
+                        "（POST /api/pay/vouchers/select 真把「这一轮用哪几张」推给上游）。" +
                         "⚠️ 这一屏显示的是**能付钱的东西**：`--host 0.0.0.0` 部署要先解决鉴权（§3.3）。",
                 )
                 Box(Modifier.weight(1f)) {
                     PaymentCodeScreen(
                         source = remember(client, mode) { CampusPayApi(client, API_BASE, mode) },
                         // 勾选的落盘存储：与 Android 同一个存储名、同一批键（wasm 上是 localStorage）。
-                        // 本端是只读那一档（`canSelectVouchers = false`）⇒ 它只会读到一张空表。
+                        // 上游那一份勾选走 `POST /api/pay/vouchers/select`；本机这一份就是它。
                         selections = remember { PaymentSelectionStore(keyValueStore("payment_code")) },
                         // 这一屏在 `:app` 是个弹窗，"关掉"就是退出；本端的等价物是回日程（与其它屏的返回同一条）。
                         onDismiss = back,
@@ -849,20 +833,20 @@ private fun AppPage(
         AppRoute.Feedback -> if (mode != ApiMode.SERVE) {
             WebServeOnlyScreen(
                 title = "反馈与建议",
-                endpoints = "GET /api/feedback/replies + /api/feedback/public-qa",
+                endpoints = "GET /api/feedback/replies + /api/feedback/public-qa + POST /api/feedback/submit",
                 why = "反馈没有校园站点会话：凭据由 serve 进程启动时读 FEEDBACK_* 环境变量注入。",
                 section = "§5.7",
             )
         } else {
             Column(Modifier.fillMaxSize()) {
                 WebGapNote(
-                    "四处如实缺口：① 提交那一半**没有端点**（写路径不端）⇒ 屏上整块表单不画，只剩" +
-                        "「去 GitHub 提 Issue」那条外链；② 工单号来自**屏自己的本地账本**（`:core` 的" +
-                        "`FeedbackStore`，本端落在 localStorage），而这一端**不能提交** ⇒ 新浏览器里那份账本" +
-                        "是空的 ⇒「我提过的」那一段不出现（只有账本里真有单号的人才看得到回复）；" +
-                        "③ 读这一半要服务端配了那三个 `FEEDBACK_*` 环境变量：没配全时两条端点答 502，" +
-                        "而屏把取数失败吞掉了 ⇒ 页面会显示成「没有新回复 / 没有问答」；④ 这一族**不套会话**，" +
-                        "所以本端没有「先登录校园账号」那一步。",
+                    "三处如实缺口：① 这一族**不套会话** —— 反馈没有学校站点，所谓「登录」是服务端拿" +
+                        "`app_id` + `app_secret` 换一张租户令牌，所以本端没有「先登录校园账号」那一步；" +
+                        "② 提交要服务端配了那三个 `FEEDBACK_*` 环境变量：没配全时三条端点一律答 502（含提交那一枪），" +
+                        "而屏把取数失败吞掉了 ⇒「我提过的 / 大家在问」会显示成「没有新回复」；" +
+                        "③ 提交那一发在服务端**真的**往多维表格里加一行，而且工单号是**屏自己生成**的" +
+                        "（`FeedbackStore`，本端落在 localStorage ⇒ 换了浏览器就找不回旧工单）。" +
+                        "⚠️ 写的那一格只该走回环 + 令牌闸门：对外部署要先加反代 + 鉴权（§3.3）。",
                 )
                 Box(Modifier.weight(1f)) {
                     FeedbackScreen(

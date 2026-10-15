@@ -8,6 +8,7 @@ import com.xjtu.toolbox.venue.OrderDetail
 import com.xjtu.toolbox.venue.OrderInfo
 import com.xjtu.toolbox.venue.Venue
 import io.ktor.server.response.respond
+import io.ktor.server.response.respondRedirect
 import io.ktor.server.routing.Route
 import io.ktor.server.routing.get
 import io.ktor.server.routing.post
@@ -15,7 +16,7 @@ import io.ktor.server.routing.route
 import kotlinx.serialization.Serializable
 
 /**
- * `/api/venue*` —— 七个端点（`docs/api-contract.md` §5 的 P0 读 + §5.3.2 的写），
+ * `/api/venue*` —— 八个端点（`docs/api-contract.md` §5 的 P0 读 + §5.3.2 的写 + 支付那一跳），
  * 走 `:data` 的 [AppVenueSource]（包住 `VenueApi` 的场馆站抓取，解析口径一行不重做）。
  *
  * | 端点 | 对应端口方法 |
@@ -27,7 +28,23 @@ import kotlinx.serialization.Serializable
  * | `GET /api/venue/captcha` | `VenueSource.captcha(serviceId)`（`CaptchaData`）—— 写路径的第一步 |
  * | `POST /api/venue/book` | `VenueSource.prepareOrder` + `VenueSource.submitBooking`（**写**） |
  * | `POST /api/venue/cancel` | `VenueSource.cancelOrder(orderId)`（**写**） |
+ * | `GET /api/venue/pay` | `VenueSource.paymentUrl(orderId)`（纯拼串，**302 跳转**，见下） |
  *
+ * ## 支付那一跳（D11b / §5.3.2 第 6 条）：本层**代跳，不代付**
+ *
+ * `GET /api/venue/pay?orderId=` 是这一族里**唯一一条不当信封答的端点**：302 + `Location`
+ *（契约 §4 的例外清单只有两条，另一条是 `/api/status` 的裸对象）。原因是这一跳**要给浏览器点**：
+ * 支付页在 80 端口那台站点上，地址只有 `:data` 拼得出来（`VenueApi.paymentUrl`），
+ * 而浏览器既拿不到那份站点知识、也不能替别的域名写 cookie ⇒ serve 把这一跳代过去。
+ *
+ * 三条如实说明（免得被读成「serve 能替你付」）：
+ * 1. **本层不发起支付、也不碰那个订单**：它只回一个 302，扣款/确认在站点那一页上由人点
+ *    —— 与 Android 的内置浏览器同一条口径（客户端本来就没有「代扣」这个动作）；
+ * 2. **serve 的会话带不过去**：那条会话是场馆站（8080）的 `SESSION` cookie，cookie 按**域名**存、
+ *    端口不参与作用域，而浏览器不允许一个页面给别的域名写 cookie ⇒ 浏览器这一侧的场馆站会话
+ *    只能由站点自己那次登录给（与 Android 同一条：登录过一次，两个端口带的是同一个 cookie）；
+ * 3. **因此第一次点可能落在该站点自己的登录页**（CAS SSO 一般一路过），登录完回到支付页。这一条
+ *    本仓**没能在线验证**（不许真发起支付），写进 §5.3.2 与 `docs/serve-visual-checklist.md` 那一行。
  * ## ⚠️ `slots` 的 `surplus`：不用旧字段，用 `status == 1` 可订的读法
  *
  * `:data` 的 `VenueApi.fetchAvailableSlots` 已经把「可订 + 已占用」两路合并，并且按 `:app` 的
@@ -223,6 +240,20 @@ internal fun Route.venueRoutes(session: ServeSession) {
             if (!result.success) return@post call.respondActionRejected(result.message)
             call.respond(ApiEnvelope.ok(VenueCancelResult(ok = true, message = result.message)))
         }
+
+        // ── 支付那一跳：把浏览器送到 80 端口那台站点上的支付页地址（见文件头）──────
+        //
+        // 302 + Location，**不是信封**（契约 §4 的例外清单第二条）。闸门与「有没有会话」两道都照旧：
+        // 这一条虽然不取数，但它是场馆那一族的口径 —— 没登录的人不该从 serve 这里拿到一条支付跳转。
+        get(VENUE_PAY) {
+            if (!session.authenticated) return@get call.respondLoginRequired()
+            val orderId = call.request.queryParameters["orderId"]?.trim().orEmpty()
+            if (orderId.isEmpty()) {
+                return@get call.respondBadRequestMessage("orderId 必填（来自 /api/venue/orders 的 orderId）")
+            }
+            // 地址由 `:data` 拼（`VenueApi.paymentUrl`，站点知识只有那一份）；本层不取数、不发起支付。
+            call.respondRedirect(session.venueSource().paymentUrl(orderId))
+        }
     }
 }
 
@@ -377,8 +408,11 @@ internal data class VenueStatusData(
     val canCancel: Boolean,
     /**
      * 支付页入口站（OAuth 入口，`VenueApi.BROWSER_LOGIN_URL`）。
-     * ⚠️ 支付那一跳在浏览器里做不到（支付页在 80 端口那台站点上，而会话在 serve 进程里）——
-     * 这个字段是如实投影，消费方据自己的会话能力决定要不要用（见契约 §5.3.2 末尾的缺口说明）。
+     *
+     * ⚠️ 支付那一跳本身**不在**这一格上：它是 `GET /api/venue/pay?orderId=`（302 到真支付页，
+     * 见文件头）—— 浏览器里两跳（先过统一认证、再落支付页）串不成一条链（跨源跳转看不见、也接不住），
+     * 所以那一页要的会话只能由站点自己那次登录给（第一次点很可能先落在它自己的登录页）。这一格仍然如实投影
+     * 消费方据自己的会话能力决定用不用它（见契约 §5.3.2 第 6 条）。
      */
     val browserLoginUrl: String,
 )
@@ -414,12 +448,6 @@ private fun OrderInfo.toDto() = OrderInfoDto(
 )
 
 private fun OrderDetail.toDto() = OrderDetailDto(date, timeSlot, areaName, price, serviceId, serviceName)
-
-/** `?page=&size=` 的正整数读法；不是正整数（或没给）返回 null。 */
-private fun io.ktor.http.Parameters.positiveInt(name: String, default: Int): Int? {
-    val raw = get(name)?.trim() ?: return default
-    return raw.toIntOrNull()?.takeIf { it > 0 }
-}
 
 /**
  * 一条选中的场地明细 → `:data` 的 `AreaSlot`。
@@ -469,6 +497,7 @@ internal const val VENUE_STATUS = "status"
 internal const val VENUE_CAPTCHA = "captcha"
 internal const val VENUE_BOOK = "book"
 internal const val VENUE_CANCEL = "cancel"
+internal const val VENUE_PAY = "pay"
 
 /** 请求体不是端点要的形状时的 400 文案（把合法形状写出来）。 */
 private const val VENUE_BOOK_BODY_MESSAGE =
