@@ -15,11 +15,10 @@ import kotlin.test.assertTrue
  *  - 剪贴板那条路（CMP 在 wasm 上的 `ClipboardManager` 就是 `navigator.clipboard.writeText`）
  *    在这份部署里**真的在**（D11 的 `--https` 之外，`127.0.0.1` 也满足这一条）；
  *  - `crypto.subtle` 同样只在安全上下文里存在（本端没有消费方，见 [WebBrowserCapabilities.webCrypto]）；
- *  - **桌面 Chrome 到今天没有 `BarcodeDetector`** ⇒ 相机扫码那一路缺的不是 `getUserMedia`，
- *    而是一个能在浏览器里跑的二维码**解码器**。
- *
+ *  - **桌面 Chrome 到今天没有 `BarcodeDetector`** —— 这一端**不靠它**：2026-10-16 起解码器已按 D12 ③
+ *    搬进 `:core` 的 commonMain（见 [WebQrCamera] / [WebMatchScanner]）；
  * 最后那一条是**探针**（canary）：哪天桌面 Chrome 真长出了这个 API，它会红 —— 那时该做的是回去
- * 重新评估 §16.11 里那份「最小可行方案」，**不是**把断言删掉。
+ * 重读 §16.11 里那份「最小可行方案」并评估要不要改用它，**不是**把断言删掉。
  */
 class WebBrowserCapabilitiesTest {
 

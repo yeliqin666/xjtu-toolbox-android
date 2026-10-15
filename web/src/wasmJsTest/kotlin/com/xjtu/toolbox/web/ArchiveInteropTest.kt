@@ -34,11 +34,12 @@ import kotlin.test.assertTrue
  * A5 要证的是「同一份字节被这一端的代码读懂、值逐字对上」，所以端内落点用一张内存表
  * （[MemoryTarget]，与 `:core` 那份 A6 用例同型）。
  *
- * 刻意**不**拿 `archiveStoreBackend()`（`localStorage` 投影）当断言对象，两个理由：
- *  1. 这一端**生产上的写侧还没接上** —— `WebArchiveHost` 的 KDoc 写着：拿到用户选的档案只做
- *     `StoreArchive.inspect` 自校验、**不写端内**（写侧是 D8 那一件还没拍的活）；
- *  2. `:web` 的端内键值缝只有 s/b/i/set 四档（`KeyValueStore.wasmJs.kt`），`l`（long）与 `f`（float）
- *     在这端怎么落尚无口径 —— 混进来会把「这一端还没有那两档槽位」读成「夹具错了」。
+ * 这一端**生产上的写侧**（`WebArchiveImportTarget`）在 `WebArchiveImportTest` 里单独验：那边拿
+ * `archiveStoreBackend()`（`localStorage` 的真投影）当断言对象；这里用内存表，是为了让 A5 只考
+ * 「同一份字节被这一端的代码读懂、值逐字对上」这一件事，不被下面那条槽位差异干扰：
+ * `:web` 的端内键值缝只有 s/b/i/set 四档（`KeyValueStore.wasmJs.kt`），`l`（long）与 `f`（float）
+ * 在这端按字符串落、读回来反推成 `s`（端上的形状如此，与导入无关）—— 混进来会把「这一端
+ * 还没有那两档槽位」读成「夹具错了」。
  *
  * 于是两个用例都在**内存端内**上跑：第一个断言「导进来之后的值与夹具逐条相同」，第二个断言
  * 「本端把导进来的那份再导出回去，`stores/` 与 `files/` 的字节与原来那份逐字相同」（同一批字节

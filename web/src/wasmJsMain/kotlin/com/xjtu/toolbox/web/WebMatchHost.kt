@@ -25,11 +25,12 @@ import kotlinx.coroutines.Dispatchers
  *
  * ## 扫码那一档
  *
- * `MatchScreen` 的 `scanner` 传 `null`：浏览器里要开相机得走 `getUserMedia`，而它**只在安全上下文
- * （HTTPS / localhost）里存在**，还要处理权限被拒、没有相机这些情形 —— 那是 D12 ③ 那一档
- *（`docs/desktop-port-plan.md` §16.1），不在本批（②：两条编解码缝 + 分享码真能用）的范围里。
- * 传 null 的效果就是**那两颗按钮一个字都不画**、屏上直说只能粘文字码（与桌面同一处置），
- * 而不是画两颗点了没反应的按钮。
+ * `MatchScreen` 的 `scanner` 自 2026-10-16（D12 ③ 收尾）起传的是本端的 [WebMatchScanner]：
+ * 「从相册选图」与「扫一扫」两档在这一端**真能扫** —— 解码链按 D12 ① 同一套做法搬进了 `:core` 的
+ * commonMain（`platform/qr/`），本端只负责「拿到一帧像素」（`getUserMedia` + `<video>` + canvas，
+ * 或 `input[type=file]` + `createImageBitmap`）。开相机要 `getUserMedia`，它**只在安全上下文
+ * （HTTPS / localhost）里存在** ⇒ 不是安全上下文时那扇门会**如实说**为什么开不了，不画假按钮；
+ * 三处如实差异（「补定位块」没搬、中日文码表没有、失败态多两条）写在 [WebMatchScanner] 的 KDoc 里。
  *
  * ## 这一端为什么不再落「说明页」
  *

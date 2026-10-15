@@ -92,6 +92,10 @@ private fun contentTypeOf(file: File): ContentType = when (file.extension.lowerc
     // D12 ⑤：合成西交大那 9 张校徽是 webp（`:app` 的 assets 原样拷进产物，见 `web/build.gradle.kts`）。
     // 浏览器对 <img> 会自己嗅探图片，但一张静态托管里的图发 octet-stream 本来就不对：显式给 mime。
     "webp" -> ContentType("image", "webp")
+    // D12 ④：PWA 的 manifest。规范给的类型就是 `application/manifest+json` —— 发成
+    // octet-stream 的话 Chrome 会拒绝那一份 manifest（装成 App 那一步直接没了），
+    // 而且**不带 charset**：那两个扩展名一样的东西浏览器只认裸类型。
+    "webmanifest" -> ContentType("application", "manifest+json")
     "jpg", "jpeg" -> ContentType.Image.JPEG
     "svg" -> ContentType.Image.SVG
     "ico" -> ContentType.Image.XIcon

@@ -21,7 +21,7 @@ object AppArchiveHost {
     /** §1.1 未决 #3：档案落地目录 = `filesDir/archive/`（与 `dataFilesDir()` 同根，零新权限）。 */
     const val ARCHIVE_DIR = "archive"
 
-    /** §6.1：导入先落地 `filesDir/archive_staging/` 再自校验、再合并（合并语义在后续工单）。 */
+    /** §6.1：SAF 选中的档案先落地 `filesDir/archive_staging/`，下次启动由导入触发点消费。 */
     const val STAGING_DIR = "archive_staging"
 
     fun archiveRoot(context: Context): File = File(context.filesDir, ARCHIVE_DIR)
@@ -104,5 +104,24 @@ object AppArchiveHost {
             target.parentFile?.mkdirs()
             target.writeText(content)
         }
+    }
+
+    /**
+     * 一个**档案目录** → 档案字节映射（[writeToDirectory] 的反向，导入侧读目录形态的那一半）。
+     *
+     * 相对路径用 `/` 连接、按码点升序读取（`read` 那边是查表，顺序只影响可复现性）。
+     * 跳过两类**不是档案内容**的东西：点开头的名字（「已导入」标记 [AppArchiveImport.MARKER_NAME]、
+     * 编辑器残片）与 `.tmp` 换名残片 —— 它们落在同一个目录里，但都不该被当成档案的条目。
+     */
+    fun readDirectory(root: File): Map<String, String> {
+        if (!root.isDirectory) return emptyMap()
+        val out = linkedMapOf<String, String>()
+        root.walkTopDown()
+            .filter { it.isFile && !it.name.startsWith(".") && !it.name.endsWith(".tmp") }
+            .sortedBy { it.relativeTo(root).invariantSeparatorsPath }
+            .forEach { file ->
+                out[file.relativeTo(root).invariantSeparatorsPath] = file.readText()
+            }
+        return out
     }
 }

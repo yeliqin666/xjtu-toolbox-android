@@ -881,13 +881,15 @@ private fun AppPage(
         // （`ZlibCodec` / `UrlSafeBase64`）⇒ 这一端真能出码、真能解朋友的码，那张说明页随之删掉。
         //
         // 这一屏一条请求都不发（只读本机缓存：课表族缓存 = localStorage，与日程页同一份）⇒ 与后端是
-        // 哪一形态无关。`scanner = null`：浏览器里开相机要 `getUserMedia`（只在安全上下文里存在）
-        // 与权限那一档，属 D12 ③；传 null 的效果是那两颗按钮一个字都不画（与桌面同一处置），
-        // 而不是画两颗点了没反应的按钮。
+        // 哪一形态无关。2026-10-16（D12 ③ 的收尾）：`scanner` 从 `null` 改成本端的 `WebMatchScanner` ——
+        // 那两颗按钮（「扫一扫」/「从相册选图」）在这一端**真能扫**：解码链按 D12 ① 同一套做法搬进了
+        // `:core` 的 commonMain（`platform/qr/`），本端只做「拿到一帧像素」（`WebQrCamera`：`getUserMedia`
+        // + `<video>` + canvas，或 `<input type=file>` + `createImageBitmap`）。
+        // 三处如实差异（「补定位块」没搬、中日文码表没有、失败态多两条）写在 `WebMatchScanner` 的 KDoc 里。
         AppRoute.Match -> MatchScreen(
             host = remember { WebMatchHost() },
             onBack = back,
-            scanner = null,
+            scanner = remember { WebMatchScanner() },
         )
 
         AppRoute.WebVpnConverter -> if (mode != ApiMode.SERVE) {

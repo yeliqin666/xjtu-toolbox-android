@@ -55,11 +55,12 @@ jobs:
       - name: Decode Keystore
         env:
           KEYSTORE_B64: ${{ secrets.SIGNING_KEYSTORE }}
+          KEYSTORE_PATH: ${{ runner.temp }}/release.jks
         run: |
           python3 -c "
           import base64, os
           data = base64.b64decode(os.environ['KEYSTORE_B64'])
-          open('${{ runner.temp }}/release.jks', 'wb').write(data)
+          open(os.environ['KEYSTORE_PATH'], 'wb').write(data)
           print(f'Keystore decoded: {len(data)} bytes')
           "
 
@@ -103,9 +104,11 @@ jobs:
 
       - name: Delete existing tag (if any)
         if: github.ref == 'refs/heads/main'
+        env:
+          TAG: ${{ steps.version.outputs.tag }}
         run: |
-          git tag -d ${{ steps.version.outputs.tag }} 2>/dev/null || true
-          git push origin :refs/tags/${{ steps.version.outputs.tag }} 2>/dev/null || true
+          git tag -d "$TAG" 2>/dev/null || true
+          git push origin ":refs/tags/$TAG" 2>/dev/null || true
 
       - name: Create GitHub Release
         if: github.ref == 'refs/heads/main'
@@ -121,10 +124,12 @@ jobs:
       - name: Generate release notes from AppChangelog.kt
         if: github.ref == 'refs/heads/main'
         id: notes
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
         run: |
           python3 - <<'PY' > /tmp/release_body.md
           import re, sys, os
-          ver = "${{ steps.version.outputs.version }}"
+          ver = os.environ["VERSION"]
           src = open('app/src/main/java/com/xjtu/toolbox/update/AppChangelog.kt', encoding='utf-8').read()
           # 匹配 "X.Y.Z" to VersionChangelog( ... ),
           pattern = rf'"{re.escape(ver)}"\s*to\s*VersionChangelog\((.*?)\n\s*\)\s*,?\s*(?:"|//|$)'
@@ -176,15 +181,21 @@ jobs:
         continue-on-error: true
         env:
           GITEE_TOKEN: ${{ secrets.GITEE_ACCESS_TOKEN }}
+          # 拿不到凭据就直接失败，不要在无人值守的 CI 上等输入框
+          GIT_TERMINAL_PROMPT: "0"
         run: |
-          TAG="${{ steps.version.outputs.tag }}"
           OWNER="yeliqin666"
           REPO="xjtu-toolbox-android"
           APK_PATH="app/build/outputs/apk/release/app-release.apk"
 
           # 配置 Gitee remote
-          git remote add gitee "https://yeliqin666:${GITEE_TOKEN}@gitee.com/${OWNER}/${REPO}.git" 2>/dev/null || \
-            git remote set-url gitee "https://yeliqin666:${GITEE_TOKEN}@gitee.com/${OWNER}/${REPO}.git"
+          GITEE_URL="https://gitee.com/${OWNER}/${REPO}.git"
+          # token 不拼进 remote URL：URL 会被 git 写进 .git/config，之后任何
+          # `git remote -v` 或 push 报错都可能把它打出来。凭据只经 env 交给 credential
+          # helper（.git/config 里存下的也只是对 $GITEE_TOKEN 的引用）。
+          git remote add gitee "$GITEE_URL" 2>/dev/null || git remote set-url gitee "$GITEE_URL"
+          git config --local --replace-all 'credential.https://gitee.com.helper' \
+            '!f() { echo "username=yeliqin666"; echo "password=$GITEE_TOKEN"; }; f'
 
           # 同步 main 分支
           git push gitee main:main --force
@@ -265,8 +276,9 @@ jobs:
       - name: Compute preview version
         if: github.ref == 'refs/heads/dev'
         id: preview
+        env:
+          BASE: ${{ steps.version.outputs.version }}
         run: |
-          BASE="${{ steps.version.outputs.version }}"
           # dev 上的 versionName 不能已带后缀
           case "$BASE" in *-*) echo "::error::dev 的 versionName 不应带后缀: $BASE"; exit 1;; esac
           # 防呆：dev 版本号不能低于最新正式 tag。**等于**是允许的：dev 预览继续用当前
@@ -307,6 +319,8 @@ jobs:
 
       - name: Verify preview APK
         if: github.ref == 'refs/heads/dev'
+        env:
+          VERSION: ${{ steps.preview.outputs.version }}
         run: |
           APK=app/build/outputs/apk/preview/app-preview.apk
           test -f "$APK" || { echo "::error::app-preview.apk 不存在"; ls -la app/build/outputs/apk/preview/ || true; exit 1; }
@@ -316,9 +330,9 @@ jobs:
           if $BT/aapt dump badging "$APK" | grep -q application-debuggable; then
             echo "::error::预览包不应是 debuggable"; exit 1
           fi
-          $BT/aapt dump badging "$APK" | grep -q "versionName='${{ steps.preview.outputs.version }}'" \
-            || { echo "::error::APK 内 versionName 与预期 ${{ steps.preview.outputs.version }} 不一致"; exit 1; }
-          cp "$APK" "xjtu-toolbox-${{ steps.preview.outputs.version }}.apk"
+          $BT/aapt dump badging "$APK" | grep -q "versionName='$VERSION'" \
+            || { echo "::error::APK 内 versionName 与预期 $VERSION 不一致"; exit 1; }
+          cp "$APK" "xjtu-toolbox-$VERSION.apk"
 
       - name: Create GitHub Pre-release
         if: github.ref == 'refs/heads/dev'

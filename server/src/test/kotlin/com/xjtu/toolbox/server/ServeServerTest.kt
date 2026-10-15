@@ -196,6 +196,13 @@ class ServeServerTest {
             harness.get("/badge.webp").headers().firstValue("content-type").orElse(""),
         )
 
+        // D12 ④：PWA 的 manifest 要发成 application/manifest+json（发错 Chrome 会拒掉它）
+        File(dist, "manifest.webmanifest").writeText("{}")
+        assertEquals(
+            "application/manifest+json",
+            harness.get("/manifest.webmanifest").headers().firstValue("content-type").orElse(""),
+        )
+
         // 找不到的文件 → 404
         assertEquals(404, harness.get("/missing.js").statusCode())
 

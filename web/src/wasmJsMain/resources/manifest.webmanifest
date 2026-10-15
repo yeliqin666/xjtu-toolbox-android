@@ -1,0 +1,32 @@
+{
+  "name": "西交工具箱",
+  "short_name": "西交工具箱",
+  "description": "西安交通大学的校园工具箱：课表 / 成绩 / 场馆 / 餐券 / 教材 / 屁岱…… 与 App、桌面同一套共享层（D12 ④ 的最小可行方案）。",
+  "lang": "zh-CN",
+  "dir": "ltr",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#FFFFFF",
+  "theme_color": "#87CEEB",
+  "icons": [
+    {
+      "src": "icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "icons/maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ]
+}

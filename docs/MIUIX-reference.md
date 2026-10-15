@@ -1,9 +1,9 @@
 # MIUIX Reference
 
 Artifacts: `top.yukonga.miuix.kmp:miuix-{ui,preference,icons,squircle,nav}-android`,
-resolved from Maven Central. The version is `latest.release` (see
-`gradle/libs.versions.toml`): every build picks the newest stable release, and
-pre-releases are rejected in `app/build.gradle.kts`.
+resolved from Maven Central. The version is pinned in `gradle/libs.versions.toml`
+(`0.9.4`): every build compiles against exactly that stable release, and an
+upgrade is a deliberate edit to the version catalog.
 
 Upstream: https://github.com/compose-miuix-ui/miuix
 

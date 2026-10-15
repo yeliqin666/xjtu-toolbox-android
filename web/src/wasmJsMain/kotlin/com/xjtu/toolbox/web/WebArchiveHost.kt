@@ -3,10 +3,11 @@ package com.xjtu.toolbox.web
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
-import com.xjtu.toolbox.archive.ARCHIVE_FORMAT
+import com.xjtu.toolbox.archive.ArchiveImportTarget
 import com.xjtu.toolbox.archive.ArchiveInspection
 import com.xjtu.toolbox.archive.ArchiveStoreBackend
 import com.xjtu.toolbox.archive.ExportOptions
+import com.xjtu.toolbox.archive.ImportResult
 import com.xjtu.toolbox.archive.StoreArchive
 import com.xjtu.toolbox.archive.StoreSnapshot
 import com.xjtu.toolbox.archive.archiveSourceOf
@@ -35,11 +36,16 @@ import kotlin.time.Clock
  * 这一端的触发点**就是**用户在设置页点一次「导入数据存档」（浏览器本来也要求文件选择由用户手势发起）；
  * 「页面加载时检查」那一档要等 D9 之后由 serve 侧给（S7a），本工单不假装它存在。
  *
- * ## 合并导入：`:core` 已经落地（S1b），但这一端的写侧还没接上
+ * ## 合并导入：写侧真接上了（§6.4）
  *
- * §6.4 的逐 store 合并现在是 `:core` 的 `StoreArchive.import`（S1b）+ 写侧窄口 `ArchiveImportTarget`；
- * 这一端还没给出那个写侧（`localStorage` 的逐键写）⇒ 拿到用户选的档案之后只做**自校验**
- * （`StoreArchive.inspect`，§6.2 第 3 条的前半）并如实报告，**不写任何端内数据**。
+ * §6.4 的逐 store 合并是 `:core` 的 [StoreArchive.import]（S1b）+ 写侧窄口 `ArchiveImportTarget`；
+ * 本工单把这一端的写侧（[WebArchiveImportTarget]：逐键写回同一批 `localStorage` 键）接上，
+ * 所以用户点一次「导入数据存档」现在是**真导**：自校验 → §6.4 合并 → 如实报结果。
+ * 坏档案在写第一笔之前就明确失败、**本机零改动**（A7）。
+ *
+ * **为什么这一端没有「已导入」标记**：这一端的导入是用户**主动点一次**的动作（没有「页面加载时
+ * 扫一遍」那一步），不需要认「这份档案导过没有」；而且 `localStorage` 里也没有一个「档案落地目录」
+ * 可挂标记（§8.7 的禁止项里连 `data_cache*` 都不该写）。用户想再导一次，就再点一次。
  */
 internal object WebArchiveHost {
 
@@ -109,12 +115,36 @@ internal object WebArchiveHost {
     /** 导入那一行的结论文本（纯函数，供屏与「手工点一次」共用同一份措辞）。 */
     fun importStatusText(picked: PickedArchive): String = when (picked) {
         is PickedArchive.Failed -> "导入失败：${picked.reason}"
-        is PickedArchive.Entries -> when (val check = checkArchive(picked.entries)) {
-            is WebArchiveCheck.Failed -> "「${picked.fileName}」不可用：${check.reason}（本机数据未改动）"
-            is WebArchiveCheck.Ok ->
-                "「${picked.fileName}」format=$ARCHIVE_FORMAT v${check.version}，" +
-                    "${check.stores.size} 个 store / ${check.files} 个文件；" +
-                    "写侧还没接上 StoreArchive.import（S1b 已落地 `:core`；本次未改动任何数据）"
+        is PickedArchive.Entries -> importAndReport(picked)
+    }
+
+    /**
+     * 真导 + 一句如实的结论。
+     *
+     * 链路逐字是 §6.2 第 3 条那一串：自校验（`StoreArchive.import` 内部先做）→ §6.4 合并 → 报告。
+     * 坏档案在写第一笔之前就返回 [ImportResult.Failed]，**本机零改动**（A7）。
+     *
+     * ⚠️ 本端**没有**「已导入」标记：导入是用户主动点一次的动作（见类 KDoc 那段）。
+     */
+    fun importArchive(
+        entries: Map<String, String>,
+        target: ArchiveImportTarget = WebArchiveImportTarget(),
+    ): ImportResult = StoreArchive.import(archiveSourceOf(withoutFilesLayer(entries)), target)
+
+    private fun importAndReport(picked: PickedArchive.Entries): String {
+        val skippedFiles = filesLayerCount(picked.entries)
+        return when (val result = importArchive(picked.entries)) {
+            is ImportResult.Failed -> "「${picked.fileName}」不可用：${result.reason}（本机数据未改动）"
+            is ImportResult.Ok -> buildString {
+                append("「${picked.fileName}」已导入：:core 的 StoreArchive.import 按 §6.4 写入 ")
+                append(result.keysWritten)
+                append(" 个键 / 保持 ")
+                append(result.keysKept)
+                append(" 个")
+                if (skippedFiles > 0) {
+                    append("；本端没有文件系统 ⇒ 档案里 $skippedFiles 个 files/ 条目未落地")
+                }
+            }
         }
     }
 }
@@ -157,7 +187,7 @@ internal class WebArchiveActions {
             .getOrElse { "导出失败：${it.message ?: it::class.simpleName}" }
     }
 
-    /** 导入：选一份 zip → 内存里解 → 自校验并如实报告（写侧接上后改调 `StoreArchive.import`）。 */
+    /** 导入：选一份 zip → 内存里解 → 自校验 → `:core` 的 `StoreArchive.import` 按 §6.4 合并 → 如实报一句。 */
     fun import() {
         WebArchiveIo.pick { picked -> status = WebArchiveHost.importStatusText(picked) }
     }

@@ -658,7 +658,9 @@ private fun DesktopPage(
                 onBack = back,
                 onNavigate = { r ->
                     when (r) {
-                        is AppRoute.Browser -> if (r.url.isNotBlank()) openInBrowser(r.url)
+                        // 与下面 `InboxScreen` / `NotificationScreen` 那两处同一条口径：外链交给系统浏览器，
+                        // 带 `then` 时交的是第二跳（判据在 `DesktopBrowser.kt` 的 `desktopBrowserTarget`）。
+                        is AppRoute.Browser -> desktopBrowserTarget(r.url, r.then)?.let { openInBrowser(it) }
                         else -> onNavigate(DesktopTarget.App(r))
                     }
                 },
@@ -847,9 +849,10 @@ private fun DesktopPage(
                         onBack = back,
                         // 与 `:app` / Web 同一条口径：外链交给系统浏览器（桌面没有内置浏览器），
                         // 其余按路由 id 走站内导航（认不出的直接忽略 —— 可能是旧版本存下的）。
+                        // 带 `then` 时交的是第二跳，见 `DesktopBrowser.kt` 的 `desktopBrowserTarget`。
                         onOpen = { id ->
                             when (val r = appRouteOf(id)) {
-                                is AppRoute.Browser -> if (r.url.isNotBlank()) openInBrowser(r.url)
+                                is AppRoute.Browser -> desktopBrowserTarget(r.url, r.then)?.let { openInBrowser(it) }
                                 null -> Unit
                                 else -> onNavigate(DesktopTarget.App(r))
                             }
@@ -863,13 +866,14 @@ private fun DesktopPage(
         // `NotificationApi` —— okhttp + jsoup 爬 29 个公开的公告页，含那条纯 HTTP 就能解开的动态挑战）。
         // 29 个源**一个都不用登录**，不靠任何站点会话 ⇒ 不套 `DesktopSiteGate`
         // （`AppRoute.Notification.loginType` 就是 null）；这个源连 `SessionManager` 都不收。
-        // 点开一条通知就是 `AppRoute.Browser(link)` ⇒ 外链交给系统浏览器（与消息收纳同一口径）。
+        // 点开一条通知就是 `AppRoute.Browser(link)` ⇒ 外链交给系统浏览器（与消息收纳同一口径；
+        // 带 `then` 时交第二跳，见 `DesktopBrowser.kt` 的 `desktopBrowserTarget`）。
         AppRoute.Notification -> NotificationScreen(
             source = remember { AppNoticeSource() },
             onBack = back,
             onNavigate = { r ->
                 when (r) {
-                    is AppRoute.Browser -> if (r.url.isNotBlank()) openInBrowser(r.url)
+                    is AppRoute.Browser -> desktopBrowserTarget(r.url, r.then)?.let { openInBrowser(it) }
                     else -> onNavigate(DesktopTarget.App(r))
                 }
             },

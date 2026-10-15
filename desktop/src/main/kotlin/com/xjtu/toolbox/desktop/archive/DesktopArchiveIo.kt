@@ -101,12 +101,18 @@ object DesktopArchiveIo {
         }
     }
 
-    /** 目录 → 档案字节映射（相对路径用 `/` 连接，按码点升序；空目录 = 空映射）。 */
+    /**
+     * 目录 → 档案字节映射（相对路径用 `/` 连接，按码点升序；空目录 = 空映射）。
+     *
+     * 跳过两类**不是档案内容**的东西：点开头的名字（「已导入」标记 [DesktopArchiveImport.MARKER_NAME]）
+     * 与 `.tmp` 换名残片 —— 它们与档案在同一个目录里，但不该被当成档案的条目（[writeDirectory] 写出去的
+     * 那份没有这两类，所以写读往返仍逐字相等）。
+     */
     fun readDirectory(root: File): Map<String, String> {
         if (!root.isDirectory) return emptyMap()
         val out = linkedMapOf<String, String>()
         root.walkTopDown()
-            .filter { it.isFile }
+            .filter { it.isFile && !it.name.startsWith(".") && !it.name.endsWith(".tmp") }
             .sortedBy { it.relativeTo(root).invariantSeparatorsPath }
             .forEach { file ->
                 val rel = file.relativeTo(root).invariantSeparatorsPath

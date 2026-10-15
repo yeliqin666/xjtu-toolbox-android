@@ -1,5 +1,4 @@
 import java.util.Properties
-import java.util.concurrent.TimeUnit
 
 plugins {
     alias(libs.plugins.android.application)
@@ -172,21 +171,6 @@ androidComponents {
     }
 }
 
-// miuix 走 latest.release：拒掉预发布版本；解析到的最新版本号缓存 30 分钟，
-// 既能跟上新版本，又不会因为一次网络抖动让构建失败
-configurations.configureEach {
-    resolutionStrategy {
-        cacheDynamicVersionsFor(30, TimeUnit.MINUTES)
-        componentSelection.all {
-            if (candidate.group == "top.yukonga.miuix.kmp" &&
-                Regex("(?i)(alpha|beta|rc|dev|snapshot)").containsMatchIn(candidate.version)
-            ) {
-                reject("miuix 只跟正式版")
-            }
-        }
-    }
-}
-
 // 插件只会把 profile 打进非 debuggable 变体（release），debug 不做 AOT、拿它没用。
 baselineProfile {
     // 每次构建都重新采集会要求构建机常驻真机——本项目的 CI 没有设备，
@@ -249,7 +233,7 @@ dependencies {
     // profile 的来源模块；只是数据依赖，不进 APK
     baselineProfile(project(":baselineprofile"))
     ksp(libs.androidx.room.compiler)
-    // MIUIX：版本见 libs.versions.toml，始终取 Maven Central 最新正式版
+    // MIUIX：版本钉在 libs.versions.toml（0.9.4，正式版），升级是显式改版本号
     implementation(libs.miuix.ui)
     implementation(libs.miuix.preference)
     implementation(libs.miuix.icons)

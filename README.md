@@ -64,7 +64,7 @@
 - Room、KSP、Kotlin Coroutines
 - Android Gradle Plugin 9、Gradle 9、JDK 21
 - `minSdk 31`、`targetSdk 36`、`compileSdk 37`
-MIUIX 从 Maven Central 引入，始终跟随最新正式版（见 `gradle/libs.versions.toml`）。
+MIUIX 从 Maven Central 引入，版本钉在 `gradle/libs.versions.toml`（`0.9.4`，正式版）；升级是显式改版本号。
 
 ### 模块划分（Kotlin Multiplatform）
 

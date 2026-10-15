@@ -20,9 +20,9 @@ package com.xjtu.toolbox.web
  *    实现就是 `navigator.clipboard.writeText`；
  *  - **有 API 但没消费方**：WebCrypto —— 唯一的候选（WebVPN 的 AES-128-CFB）WebCrypto 根本不支持，
  *    而转换本来就在服务端（§5.7）；
- *  - **缺的不是这个 API**：相机扫码 —— `getUserMedia` 只是一个前提，真正的卡点是**二维码解码器**
- *    （见 [qrDetector] 那一行的说明与 `docs/desktop-port-plan.md` §16.11）。
- *
+ *  - **在用（2026-10-16 起）**：相机 —— 匹配交友那一屏的「扫一扫」走 `WebQrCamera`（`getUserMedia`
+ *    → `<video>` → 每 250ms 拉一帧），解码器是 2026-10-16 搬进 `:core` commonMain 的那份纯 Kotlin 链
+ *    （`platform/qr/`；“缺解码器”那条卡点在 D12 ③ 的收尾里已经解掉了）。
  * 这些结论的机器可验那一半在 `WebBrowserCapabilitiesTest`（真浏览器里断言事实），
  * 另一半（差什么、最小可行方案）在 §16.11 —— **不在屏上许诺任何本端做不到的事**。
  */
@@ -49,20 +49,22 @@ internal object WebBrowserCapabilities {
     val clipboardWriteText: Boolean get() = webHasClipboardWriteText()
 
     /**
-     * 相机：`navigator.mediaDevices.getUserMedia` 在不在 —— **本端没有消费方**。
+     * 相机：`navigator.mediaDevices.getUserMedia` 在不在 —— **本端在用**（2026-10-16 起）。
      *
-     * 匹配交友那一屏的扫码档今天传 `scanner = null`（两颗按钮一个字都不画）。缺的不是这一个 API：
-     * 没有二维码**解码器**，拿到取景画面也读不出码，见 [qrDetector]。
+     * 匹配交友那一屏的「扫一扫」走它（`WebQrCamera`：`getUserMedia` → `<video>` → 拉帧 → `:core` 的
+     * 解码器）；解码链已按 D12 ③ 搬进 `:core` 的 commonMain ⇒ 这一条为 false 时那扇门会**如实说**
+     * 「这一份部署不给相机」（非安全上下文 / 没有 `mediaDevices`），而不是画一颗点了没反应的按钮。
      */
     val camera: Boolean get() = webHasCamera()
 
     /**
-     * 浏览器自带的二维码识别器 `BarcodeDetector` 在不在 —— 这是相机扫码那一路**另一半**的判据。
+     * 浏览器自带的二维码识别器 `BarcodeDetector` 在不在 —— 这一端**不靠它**。
      *
      * 只查构造器在不在（查它支持哪些格式是异步的，自检屏这一格不等它）：桌面 Chrome 到今天
-     * 都没有这个构造器（只有 Chrome on Android / ChromeOS 有），所以在这一端「开相机扫码」就还差
-     * 一个**在浏览器里能跑的二维码解码器** —— `:core` 只有 zxing 的**编码器**被搬成了纯 Kotlin
-     *（D12 ①），解码那一侧（`QrBitmap.read`）还在 `:app`/JVM 上，`decodeImagePixels` 在 wasm 上恒 null。
+     * 都没有这个构造器（只有 Chrome on Android / ChromeOS 有）。
+     *
+     * 2026-10-16 起这一条**不再是缺口**：解码器已搬进 `:core` 的 commonMain（`platform/qr/`，扫描
+     * 那一档用 `qrDecodeArgb`），所以「浏览器自带识别器」只是**另一条可选的路**，本端没借它。
      */
     val qrDetector: Boolean get() = webHasQrDetector()
 
@@ -94,13 +96,14 @@ internal object WebBrowserCapabilities {
         BrowserCapabilityRow(
             label = "相机（navigator.mediaDevices.getUserMedia）",
             present = camera,
-            note = "本端**没有消费方**：匹配交友的扫码档传 null（按钮不画）—— 缺的是二维码解码器，不是这个 API。",
+            note = "本端**在用**（2026-10-16 起）：匹配交友那一屏的「扫一扫」走它（`WebQrCamera`）" +
+                "—— 安全上下文 + 允许之后真出画面，扫到的码交给 `:core` 的解码器。",
         ),
         BrowserCapabilityRow(
             label = "浏览器自带二维码识别器（BarcodeDetector）",
             present = qrDetector,
-            note = "只查构造器在不在。桌面 Chrome 到今天没有它 ⇒ 相机扫码还差一个能在浏览器里跑的" +
-                "二维码解码器（详见 D12 ③ 的报告）。",
+            note = "只查构造器在不在。桌面 Chrome 到今天没有它 —— 但本端**不靠它**：二维码解码器" +
+                "已按 D12 ③ 搬进 `:core` 的 commonMain（`platform/qr/`）。",
         ),
         BrowserCapabilityRow(
             label = "WebCrypto（crypto.subtle）",

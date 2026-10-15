@@ -1,5 +1,6 @@
 package com.xjtu.toolbox.web
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -167,6 +168,109 @@ fun ProbeScreen() {
                 }
             }
         }
+        // ── PWA（D12 ④）：manifest / Service Worker / 系统通知各自到哪一步 ──────────────────────
+        // 三条都跟地址走（Service Worker 与 Notification 都只在安全上下文里能用），所以得现场列；
+        // 两颗按钮各自是一次**真动作**（要权限 / 发一条通知）—— 不画办不到的按钮。
+        Spacer(Modifier.height(8.dp))
+        Card(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 4.dp),
+            insideMargin = PaddingValues(12.dp),
+        ) {
+            Column {
+                Text("装成 App / 系统通知（PWA）", color = cs.onSurface, fontSize = 13.sp)
+                Spacer(Modifier.height(6.dp))
+                // 注册是异步的：进这一屏时可能还没好，所以给一颗「重查」把这一屏重算一遍（一个计数器）。
+                var recheck by remember { mutableStateOf(0) }
+                val manifest = remember(recheck) { WebPwa.manifestHref() }
+                val swSupported = remember(recheck) { WebPwa.serviceWorkerSupported() }
+                val swReady = remember(recheck) { WebPwa.serviceWorkerReady() }
+                val swError = remember(recheck) { WebPwa.registrationError() }
+                val notifSupported = remember(recheck) { WebPwa.notificationSupported() }
+                val permission = remember(recheck) { WebPwa.notificationPermission() }
+                var action by remember { mutableStateOf("") }
+
+                pwaRow("PWA 可安装（manifest）", manifest.isNotEmpty()) {
+                    if (manifest.isNotEmpty()) "这一份页面里带了 manifest：图标 / 名称 / `display: standalone` ⇒ 浏览器地址栏那只可把它「装成 App」。"
+                    else "这一份页面里没有 `<link rel=\"manifest\">` ⇒ 装不了（产物里没带 manifest.webmanifest，或服务端没把它发成 application/manifest+json）。"
+                }
+                pwaRow("Service Worker（离线壳 + 装到桌面）", swReady) {
+                    when {
+                        swReady -> "注册好了：在线时网络优先（永远拿新产物），断网时回落到最近一次抓成功的那一份；通知点击也由它负责把窗口拉到前台。"
+                        swError.isNotEmpty() -> "没注册：$swError"
+                        swSupported -> "还没注册好（注册是异步的）—— 点旁边的「重查」或刷新一下再看。"
+                        else -> "这个浏览器没有 Service Worker（要 HTTPS 或 localhost）。"
+                    }
+                }
+                pwaRow("系统通知（Notification）", notifSupported && permission == "granted") {
+                    when {
+                        !notifSupported -> "这个浏览器没有 Notification。"
+                        permission == "granted" -> "已允许。下面那颗按钮会经 Service Worker 发一条真通知。"
+                        permission == "denied" -> "被拒了（地址栏那把锁里能改），改完再点「要一下通知权限」。"
+                        else -> "还没问过 —— 点下面那颗按钮（权限那一枪必须由用户手势发起）。"
+                    }
+                }
+                Spacer(Modifier.height(6.dp))
+                Row {
+                    Text(
+                        "要一下通知权限",
+                        color = cs.primary,
+                        fontSize = 12.sp,
+                        modifier = Modifier.clickable {
+                            WebPwa.requestNotificationPermission { value ->
+                                action = "权限现在是：$value"
+                                recheck++
+                            }
+                        },
+                    )
+                    Spacer(Modifier.width(16.dp))
+                    Text(
+                        "发一条测试通知",
+                        color = cs.primary,
+                        fontSize = 12.sp,
+                        modifier = Modifier.clickable {
+                            WebPwa.showTestNotification("西交工具箱", "这是一条测试通知（点它会把窗口拉到前台）。") { ok, why ->
+                                action = if (ok) "发出去了（点通知试试）" else "发不出去：$why"
+                            }
+                        },
+                    )
+                    Spacer(Modifier.width(16.dp))
+                    Text(
+                        "重查",
+                        color = cs.primary,
+                        fontSize = 12.sp,
+                        modifier = Modifier.clickable { recheck++ },
+                    )
+                }
+                if (action.isNotEmpty()) {
+                    Text(action, color = cs.onBackgroundVariant, fontSize = 10.sp)
+                }
+                Spacer(Modifier.height(6.dp))
+                Text(WebPwa.widgetNote, color = cs.onBackgroundVariant, fontSize = 10.sp)
+            }
+        }
         Spacer(Modifier.height(12.dp))
     }
+}
+
+/**
+ * PWA 那张卡里的一行：✓/✗ + 一句「这一份部署里它到哪一步了」（文案由调用方给，见 [WebPwa] 的 KDoc）。
+ *
+ * 与「浏览器能力」那张卡同一套画法（`WebBrowserCapabilities`）—— 两边都是「现场事实 + 本端谁在用」。
+ */
+@Composable
+private fun pwaRow(label: String, present: Boolean, note: () -> String) {
+    val cs = MiuixTheme.colorScheme
+    Row {
+        Text(
+            if (present) "✓" else "✗",
+            color = if (present) Color(0xFF2E7D32) else cs.error,
+            fontSize = 14.sp,
+        )
+        Spacer(Modifier.width(8.dp))
+        Column {
+            Text(label, color = cs.onSurface, fontSize = 12.sp)
+            Text(note(), color = cs.onBackgroundVariant, fontSize = 10.sp)
+        }
+    }
+    Spacer(Modifier.height(6.dp))
 }

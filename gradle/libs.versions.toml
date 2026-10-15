@@ -8,8 +8,8 @@ coreKtx = "1.19.1"
 coreSplashscreen = "1.2.0"
 lifecycle = "2.11.0"
 activityCompose = "1.13.0"
-# 取 Maven Central 最新正式版（预发布版由 app/build.gradle.kts 拒掉，版本号缓存 30 分钟）
-miuix = "latest.release"
+# 钉死的正式版（审计 #33：latest.release 让同一份源码两次构建可能编到不同版本）。升级 = 改这里
+miuix = "0.9.4"
 # 与 miuix 带进来的 Compose 保持一致（ui 1.12.1）
 composeBom = "2026.09.00"
 okhttp = "5.5.0"

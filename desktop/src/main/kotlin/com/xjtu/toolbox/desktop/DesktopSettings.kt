@@ -23,8 +23,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
+import com.xjtu.toolbox.archive.StoreArchive
 import com.xjtu.toolbox.desktop.archive.ArchiveCheck
 import com.xjtu.toolbox.desktop.archive.DesktopArchiveHost
+import com.xjtu.toolbox.desktop.archive.DesktopImportOutcome
 import com.xjtu.toolbox.platform.secureKeyValueStore
 import com.xjtu.toolbox.settings.ChangelogEntry
 import com.xjtu.toolbox.settings.ScheduleSourceOption
@@ -141,11 +143,19 @@ internal class DesktopSettingsHost(private val notifyAppearanceChanged: () -> Un
 /**
  * 「数据与隐私」组（S5 接上）：两行归档动作 + 一行结果文本。
  *
- * 为什么结果写成卡片里的那行文本、而不是 `:app` 那样的 `Toast`：桌面没有 Toast
- * （`android.widget.Toast` 在 JVM 上不存在）—— 这里用同一处「如实报一句」的形态。
+ * ## 一次性导入：本宿主把写侧真的接上了（§6.4）
  *
- * 两行都是**真动作**：导出会真的在数据根下落两个文件（目录形态 + zip 形态）；导入会真的扫数据根
- * 并自校验（“合并”那一半待 `:core` 的 `StoreArchive.import`，见 [DesktopArchiveHost] 的 KDoc）。
+ * §6.2 的完整链路是「有档案才跑 → staging 落地 + 自校验 → 逐 store 合并 → 任一步失败则端内零变化」。
+ * 逐 store 合并是 `:core` 的 [StoreArchive.import]（S1b），本工单把**写侧**（[DesktopArchiveImportTarget]）
+ * 接上去，所以现在：
+ *
+ *  - [pendingArchives] —— 扫数据根（§6.2 桌面那一行的触发点），有档案才继续；
+ *  - [checkArchive] —— 自校验：调 `:core` 的 `StoreArchive.inspect`（S1b 收口），只补本端的
+ *    「档案路径 → 数据根文件」那一列（A13）；
+ *  - [maybeImportPendingArchive] —— 真的导：自校验 → §6.4 合并 → 落「已导入」标记
+ *    （[DesktopArchiveImport]），坏档案在写第一笔之前就返回 [ArchiveCheck.Failed] ⇒ 端内零改动（A7）。
+ *
+ * 结果文本以卡片里的一行给出（桌面没有 `Toast`，`android.widget.Toast` 在 JVM 上不存在）。
  */
 @Composable
 private fun DesktopDataPrivacySection() {
@@ -202,16 +212,22 @@ private fun DesktopDataPrivacySection() {
 
 /**
  * 导入那一行的结果文本（纯函数，供屏与测试共用同一份措辞）：
- * 数据根下没有档案、档案不可用、档案可用但合并那一半还没落地 —— 三种如实分开说。
+ * 数据根下没有档案、真导入了、这一份已经导过、档案不可用 —— 四种如实分开说。
+ *
+ * 措辞仍以「发现待导入档案 <名>」开头（存档被发现的这件事没变），后面接真的结果：
+ * `:core` 的 [StoreArchive.import] 写了几笔、这一份是否已经导过、或者为什么不可用。
  */
 internal fun importStatusText(): String {
     val pending = DesktopArchiveHost.maybeImportPendingArchive()
         ?: return "数据根下没有待导入的档案"
-    return when (val check = pending.check) {
-        is ArchiveCheck.Ok ->
-            "发现待导入档案 ${pending.path.name}：${check.stores.size} 个 store / ${check.files} 个文件；" +
-                "合并导入待 :core 的 StoreArchive.import 落地（本次未改动任何数据）"
-        is ArchiveCheck.Failed -> "待导入档案 ${pending.path.name} 不可用：${check.reason}"
+    val prefix = "发现待导入档案 ${pending.path.name}"
+    return when (val outcome = pending.outcome) {
+        is DesktopImportOutcome.Imported ->
+            "$prefix：已交给 :core 的 StoreArchive.import 按 §6.4 合并 —— " +
+                "写入 ${outcome.result.keysWritten} 个键 / 保持 ${outcome.result.keysKept} 个 / " +
+                "写回 ${outcome.result.filesWritten} 个文件"
+        is DesktopImportOutcome.AlreadyImported -> "$prefix：这份档案已经导过（标记与它一致），本次未改动任何数据"
+        is DesktopImportOutcome.Failed -> "$prefix 不可用：${outcome.reason}（端内零变化）"
     }
 }
 

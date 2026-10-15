@@ -35,20 +35,21 @@ import kotlin.time.Clock
  * 同值 —— S2 的测试钉着这一条）。档案落在数据根下的 [ARCHIVE_DIR] 目录（目录形态，可整拷）
  * 与 `<数据根>/archive.zip`（运输形态，§2.0）。
  *
- * ## 一次性导入：本宿主只做**入口 + 自校验**（与 `:app` 的 S4、web 的 S6 同一处缺口）
+ * ## 一次性导入：写侧真接上了（§6.4）
  *
  * §6.2 的完整链路是「有档案才跑 → 已导入标记（端内私有项）→ staging 落地 + 自校验 → 逐 store 合并
- * → 任一步失败则端内零变化」。其中**逐 store 合并**（§6.4）在 S1b 已经落地到 `:core`
- * （`StoreArchive.import` + 写侧窄口 `ArchiveImportTarget`），但**这一端还没把写侧接上**
- *（与 `:app` 的 S4 一样：那里也停在自校验，改成真合并要单独一次授权）。所以本宿主：
+ * → 任一步失败则端内零变化」。逐 store 合并是 `:core` 的 [com.xjtu.toolbox.archive.StoreArchive.import]
+ * （S1b）+ 写侧窄口 `ArchiveImportTarget`；本工单把这一端的**写侧**（[DesktopArchiveImportTarget]）接上，
+ * 于是：
  *
  *  - [pendingArchives] —— 扫数据根（§6.2 桌面那一行的触发点），有档案才继续；
  *  - [checkArchive] —— 自校验：调 `:core` 的 `StoreArchive.inspect`（S1b 收口），只补本端的
  *    「档案路径 → 数据根文件」那一列（A13）；
- *  - **不写任何端内数据**（连"已导入标记"都不写 —— 没有合并就没有"已导入"可言）。
+ *  - [maybeImportPendingArchive] —— **真的导**：自校验 → §6.4 合并 → 落「已导入」标记
+ *    （[DesktopArchiveImport]）。
  *
- * 于是「坏档案不动端」（A7）在这一端是**结构性成立**的：这个方法跑完，端内键集合与值逐字未变。
- * 接上写侧之后，这条性质改由 `StoreArchive.import` 的「先全量校验再落地」保住。
+ * 「坏档案不动端」（A7）由 `StoreArchive.import` 的「先全量校验再落地」保住：自校验不过就在写第一笔
+ * 之前返回，端内键集合与值逐字未变（标记也不落）。
  */
 object DesktopArchiveHost {
 
@@ -152,13 +153,16 @@ object DesktopArchiveHost {
     // ── 数据根扫描 + 一次性导入的闸门（§6.2） ───────────────────────────────
 
     /**
-     * 数据根下的待导入档案：`<数据根>/archive/`（非空的目录形态）与数据根下的 `*.zip`
-     * （§6.2 桌面那一行的「有档案目录/zip」）。按路径升序，稳定。
+     * 数据根下的待导入档案：`<数据根>/archive/`（里面真有 `manifest.json` 的目录形态）与数据根下的
+     * `*.zip`（§6.2 桌面那一行的「有档案目录/zip」）。按路径升序，稳定。
+     *
+     * 目录那一支看的是 `manifest.json`（而不是只看到「非空」）：导完之后目录里只剩「已导入」标记
+     * （[DesktopArchiveImport.MARKER_NAME]），那不算一份待导入的档案。
      */
     fun pendingArchives(): List<File> {
         val root = dataRoot()
         val dir = File(root, ARCHIVE_DIR)
-        val fromDirectory = if (dir.isDirectory && dir.listFiles()?.isNotEmpty() == true) listOf(dir) else emptyList()
+        val fromDirectory = if (dir.isDirectory && File(dir, "manifest.json").isFile) listOf(dir) else emptyList()
         val fromZip = root.listFiles()
             ?.filter { it.isFile && it.name.endsWith(DesktopArchiveIo.ZIP_SUFFIX) }
             ?.sortedBy { it.name }
@@ -167,20 +171,27 @@ object DesktopArchiveHost {
     }
 
     /**
-     * §6.2 第 1 条 + 第 3 条的前半：有档案才跑（没有就静默返回 `null`），有则自校验。
-     * 无论结果如何**都不写端内数据**（合并见类 KDoc 的缺口说明）。
+     * §6.2 的触发点（`Main.kt` 启动时调一次，设置页那一行也走它）：有档案才跑，没有就静默返回 `null`。
+     *
+     * 有则走完整链路：自校验 → `:core` 的 [StoreArchive.import]（§6.4）→ 落「已导入」标记。
+     * 坏档案在写第一笔之前就返回 [DesktopImportOutcome.Failed]，**端内零改动**（A7）。
      */
     fun maybeImportPendingArchive(): PendingArchive? {
         val path = pendingArchives().firstOrNull() ?: return null
-        val check = checkArchive(path)
-        when (check) {
-            is ArchiveCheck.Ok ->
-                Log.i(TAG, "发现待导入档案 ${path.name}：format=${check.format} v${check.version}，" +
-                    "${check.stores.size} 个 store / ${check.files} 个文件；写侧还没接上 StoreArchive.import（S1b 已落地 `:core`）")
-            is ArchiveCheck.Failed ->
-                Log.w(TAG, "待导入档案 ${path.name} 不可用：${check.reason}（端内零变化）")
+        val entries = runCatching { DesktopArchiveIo.read(path) }.getOrElse {
+            Log.w(TAG, "待导入档案 ${path.name} 读不出来：${it.message ?: it::class.simpleName}（端内零变化）")
+            val reason = "读不出来：${it.message ?: it::class.simpleName}"
+            return PendingArchive(path, ArchiveCheck.Failed(reason), DesktopImportOutcome.Failed(reason))
         }
-        return PendingArchive(path, check)
+        val check = checkArchive(entries)
+        val outcome = when (check) {
+            is ArchiveCheck.Failed -> {
+                Log.w(TAG, "待导入档案 ${path.name} 不可用：${check.reason}（端内零变化）")
+                DesktopImportOutcome.Failed(check.reason)
+            }
+            is ArchiveCheck.Ok -> DesktopArchiveImport.run(path, entries)
+        }
+        return PendingArchive(path, check, outcome)
     }
 
     /**
@@ -195,6 +206,11 @@ object DesktopArchiveHost {
         val entries = runCatching { DesktopArchiveIo.read(path) }.getOrElse {
             return ArchiveCheck.Failed("读不出来：${it.message ?: it::class.simpleName}")
         }
+        return checkArchive(entries)
+    }
+
+    /** 同上，但调用方已经把目录/zip 解好了（[maybeImportPendingArchive] 只读一次档案）。 */
+    fun checkArchive(entries: Map<String, String>): ArchiveCheck {
         return when (val inspection = StoreArchive.inspect(archiveSourceOf(entries))) {
             is ArchiveInspection.Failed -> ArchiveCheck.Failed(inspection.reason)
             is ArchiveInspection.Ok -> {
@@ -216,8 +232,17 @@ object DesktopArchiveHost {
 /** 导出动作的结果（目录形态 + zip 形态 + 条目数）。 */
 data class ExportOutcome(val directory: File, val zip: File, val entries: Int)
 
-/** 数据根里发现的一份待导入档案 + 它的自校验结果。 */
-data class PendingArchive(val path: File, val check: ArchiveCheck)
+/**
+ * 数据根里发现的一份待导入档案 + 它的自校验结果 + 这一次**合并**的结论（§6.4）。
+ *
+ * [check] 是自校验（A13 的 `targets` 那一列在它里面）；[outcome] 是 [DesktopArchiveImport] 跑完的结论 ——
+ * 自校验没过时它就是 [DesktopImportOutcome.Failed]（端内零改动，A7）。
+ */
+data class PendingArchive(
+    val path: File,
+    val check: ArchiveCheck,
+    val outcome: DesktopImportOutcome,
+)
 
 /**
  * 一份档案的自校验结果（§6.2 第 3 条的前半）。

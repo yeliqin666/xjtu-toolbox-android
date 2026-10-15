@@ -5,6 +5,12 @@
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <meta name="color-scheme" content="light dark" />
     <title>西交工具箱 · Web</title>
+    <!-- D12 ④（PWA）的那一半：manifest（图标 / 名称 / display: standalone ⇒ 「装成 App」）、主题色、
+         以及 iOS 那颗 add-to-home-screen 用的图标。manifest 与图标都由 `wasmJsProcessResources`
+         进产物目录（与 sw.js / pwa.js 同一个静态根：serve 的 --dist / nginx / dev-server 都一样）。 -->
+    <link rel="manifest" href="manifest.webmanifest" />
+    <meta name="theme-color" content="#87CEEB" />
+    <link rel="apple-touch-icon" href="icons/apple-touch-icon.png" />
     <link href="styles.css" rel="stylesheet" type="text/css" />
   </head>
   <body>
@@ -14,5 +20,8 @@
     <!-- canvas 与设备像素 1:1（分数 DPR 下 CMP 的 backing store 与真实视口差 1px ⇒ 永久微糊）。
          必须放在 toolbox-web.js **之后**：它要等 CMP 把 canvas 挂上去再钉尺寸。 -->
     <script src="canvas-crisp.js" type="application/javascript"></script>
+    <!-- Service Worker 注册（只在安全上下文里真注册；结果写在 globalThis.__xjtuToolboxPwa 里，
+         给 ?route=probe 那张 PWA 卡读）。放在最后：它不参与首屏渲染，晚一点注册没影响。 -->
+    <script src="pwa.js" type="application/javascript"></script>
   </body>
 </html>

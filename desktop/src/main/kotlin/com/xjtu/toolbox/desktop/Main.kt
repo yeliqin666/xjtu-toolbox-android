@@ -46,8 +46,8 @@ fun main() = application {
         }
     }
     // 启动检查（S5 / 规格 §6.2 桌面那一行）：扫一次数据根里有没有待导入档案
-    //（`<数据根>/archive/` 目录或数据根下的 `*.zip`）—— 有就自校验一次并记一条日志，**不写任何端内数据**
-    //（逐 store 合并那一半待 `:core` 的 `StoreArchive.import`，见 `DesktopArchiveHost` 的 KDoc）。
+    //（`<数据根>/archive/` 目录或数据根下的 `*.zip`）—— 有就自校验 → `:core` 的 `StoreArchive.import`
+    // 按 §6.4 合并 → 落「已导入」标记（见 `DesktopArchiveHost` / `DesktopArchiveImport` 的 KDoc）。
     // 包一层 `runCatching`：档案坏了不该让窗口起不来（“坏档案不动端”，A7）。
     runCatching { DesktopArchiveHost.maybeImportPendingArchive() }
     // 会话管家 + 凭据存储 + 登录状态。建在这里（而不是某个屏里）是因为它必须活得比任何一屏长：

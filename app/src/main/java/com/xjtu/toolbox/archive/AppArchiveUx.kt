@@ -5,22 +5,30 @@ import android.net.Uri
 import com.xjtu.toolbox.BuildConfig
 import com.xjtu.toolbox.account.AccountStore
 import com.xjtu.toolbox.data.AppDatabase
+import com.xjtu.toolbox.platform.Log
 import java.io.ByteArrayOutputStream
 import java.io.File
 import java.util.zip.ZipEntry
+import java.util.zip.ZipInputStream
 import java.util.zip.ZipOutputStream
 
 /**
  * `:app` 侧的**导入/导出入口与通道**（S4 接线点）：SAF 通道 + 导出动作 + 一次性导入触发点。
  *
- * 本工单只做「入口与通道」（plan §2 的 S4 条目 / §3 的红线四类）——**不做合并语义**：
- * §6.4 的 `StoreArchive.import`（merge / replace、`at` 新者胜、坏档案不动端）要在 `:core`
- * 落地，而目前 `StoreArchive` 只有 `export`。所以这里：
+ * 这里只有「入口与通道」（plan §2 的 S4 条目 / §3 的红线四类）——**合并语义一行都不在这里**：
+ * §6.4 的裁决逐字来自 `:core` 的 [StoreArchive.import]（S1b），本文件负责的是：
  *  - **导出**：真的组装 + 落盘（`AppArchiveHost.buildArchive` 只读端内）；
- *  - **导入**：只把选中的档案**复制进 staging**（通道），`maybeImportPendingArchive` 只判读
- *    有没有待导入档案 —— 两者都不写任何 store / Room 数据（默认不动用户数据）。
+ *  - **导入通道**：把选中的档案复制进 `filesDir/archive_staging/`（SAF）或让用户 `adb push`
+ *    到 `filesDir/archive/`（§1.1 未决 #3）；
+ *  - **一次性导入**：`XjtuApp.attachBaseContext` 里扫这两个目录，交给 [AppArchiveImport] 跑
+ *    「自校验 → 行数组预检 → §6.4 合并 → 落「已导入」标记」，失败时端内零改动（A7）。
+ *
+ * 无 Context 的那一个重载（[maybeImportPendingArchive] 带 `roots`）刻意只做**判读**：门禁用它断言
+ * 「没有写入缝时一个字节都不动」，真合并只在宿主那一条路径上。
  */
 object AppArchiveUx {
+    private const val TAG = "AppArchive"
+
     /** SAF 导出/导入的 MIME：zip 是档案的运输形态（§2.0）。 */
     const val ARCHIVE_MIME = "application/zip"
 
@@ -36,6 +44,29 @@ object AppArchiveUx {
         }
         return bos.toByteArray()
     }
+
+    /** zip 字节 → 档案字节映射（[zipArchive] 的反向；目录条目跳过，条目名就是档案内相对路径）。 */
+    fun unzipArchive(bytes: ByteArray): Map<String, String> {
+        val out = linkedMapOf<String, String>()
+        ZipInputStream(bytes.inputStream()).use { zis ->
+            while (true) {
+                val entry = zis.nextEntry ?: break
+                if (!entry.isDirectory) {
+                    out[entry.name] = zis.readBytes().toString(Charsets.UTF_8)
+                }
+                zis.closeEntry()
+            }
+        }
+        return out
+    }
+
+    /**
+     * 一份**待导入档案** → 档案字节映射：目录按目录读（[AppArchiveHost.readDirectory]）、
+     * `.zip` 按 zip 解（§2.0 的两种形态）。读不出来 / 不是 zip ⇒ null（由调用方当成一次明确失败）。
+     */
+    fun readArchive(path: File): Map<String, String>? = runCatching {
+        if (path.isDirectory) AppArchiveHost.readDirectory(path) else unzipArchive(path.readBytes())
+    }.getOrNull()
 
     /** 端内 → 完整档案字节映射（导出动作的核心；只读端内，不写任何 store / Room 数据）。 */
     suspend fun exportArchive(context: Context): Map<String, String> {
@@ -71,13 +102,35 @@ object AppArchiveUx {
 
     /**
      * 一次性导入的**触发点**（§6.2，`XjtuApp.attachBaseContext` 里调用，顺序在
-     * `DataCache.clearIfPackageChanged` 之后，§8.7）。
+     * `DataCache.clearIfPackageChanged` 之后，§8.7）：扫两个落地目录，把找到的那份档案交给
+     * [AppArchiveImport]（自校验 → 行数组预检 → §6.4 合并 → 落「已导入」标记）。
      *
-     * 本工单只做入口：真正的合并（§6.4）排在后续工单 ⇒ 这里只判读「有没有待导入的档案」，
-     * 不写任何 store / Room 数据 —— **默认不动用户数据**。
+     * 没有待导入档案 ⇒ `null`（什么都不做）；已经导过的那一份 ⇒ [ArchiveImportOutcome.AlreadyImported]；
+     * 坏档案 ⇒ [ArchiveImportOutcome.Failed] 且**端内零改动**（A7：自校验在写第一笔之前就返回）。
      */
-    fun maybeImportPendingArchive(context: Context) {
-        maybeImportPendingArchive(pendingArchiveRoots(context))
+    fun maybeImportPendingArchive(context: Context): ArchiveImportOutcome? {
+        val archive = pendingArchiveCandidates(pendingArchiveRoots(context)).firstOrNull() ?: return null
+        val entries = readArchive(archive) ?: return log(
+            ArchiveImportOutcome.Failed("读不出来：${archive.absolutePath}"),
+        )
+        val outcome = AppArchiveImport.run(archive, entries) { manifest ->
+            AppArchiveImportTarget.of(context, archiveAccountIds = manifest.accounts.map { it.accountId })
+        }
+        return log(outcome)
+    }
+
+    private fun log(outcome: ArchiveImportOutcome): ArchiveImportOutcome {
+        when (outcome) {
+            is ArchiveImportOutcome.Imported -> Log.i(
+                TAG,
+                "导入 ${outcome.archive.name}：写入 ${outcome.result.keysWritten} 个键 /" +
+                    " 保持 ${outcome.result.keysKept} 个 / ${outcome.result.filesWritten} 个文件",
+            )
+            is ArchiveImportOutcome.AlreadyImported ->
+                Log.i(TAG, "${outcome.archive.name} 已经导过（标记与这份档案一致）—— 什么都不做")
+            is ArchiveImportOutcome.Failed -> Log.w(TAG, "导入失败：${outcome.reason}（端内零变化）")
+        }
+        return outcome
     }
 
     /**
@@ -87,14 +140,42 @@ object AppArchiveUx {
     fun pendingArchiveRoots(context: Context): List<File> =
         listOf(AppArchiveHost.archiveRoot(context), AppArchiveHost.stagingRoot(context))
 
-    /** 同 [maybeImportPendingArchive]，把根目录列表参数化以便单测驱动（无真 Context）。 */
+    /**
+     * 同 [maybeImportPendingArchive]（带 Context 的那一个），把根目录列表参数化以便单测驱动
+     * （无真 Context）。它刻意只做**判读**：不建写入缝、不合并、不落标记 —— 于是「没有写入缝时
+     * 一个字节都不动」在门禁里是可断言的事实。
+     */
     fun maybeImportPendingArchive(roots: List<File>) {
-        if (!roots.any { it.hasPendingArchive() }) return
-        // 待导入档案已落地；由后续工单的 StoreArchive.import 消费（本工单不 merge、不删、不标记）。
+        pendingArchiveCandidates(roots)
     }
 
-    /** 根目录下有一个待导入的档案（zip 文件与整目录两种形态都算，§2.0 的两种落地形态）。 */
-    private fun File.hasPendingArchive(): Boolean = isDirectory && listFiles()?.isNotEmpty() == true
+    /**
+     * 根目录列表里真正**待导入的那一份**（§6.2 的「有档案才跑」）：每个根下按三种形态找 ——
+     *
+     *  1. 根本身就是档案（`<root>/manifest.json` 在，§2.0 的「目录即档案本体」）；
+     *  2. 根下的 `.zip`（运输形态，含 SAF 通道推进 `archive_staging/` 的那一份）；
+     *  3. 根下某个子目录是档案（`adb push` 解到一层子目录里也认）。
+     *
+     * 已在同一根里排过序（码点升序）⇒ 结果稳定；根与根的次序按调用方给的那一份。
+     */
+    fun pendingArchiveCandidates(roots: List<File>): List<File> = roots.flatMap { root ->
+        when {
+            !root.isDirectory -> emptyList()
+            File(root, "manifest.json").isFile -> listOf(root)
+            else -> {
+                val zips = root.listFiles { f -> f.isFile && f.name.endsWith(".zip") }
+                    ?.sortedBy { it.name }
+                    ?: emptyList()
+                if (zips.isNotEmpty()) {
+                    zips
+                } else {
+                    root.listFiles { f -> f.isDirectory && File(f, "manifest.json").isFile }
+                        ?.sortedBy { it.name }
+                        ?: emptyList()
+                }
+            }
+        }
+    }
 
     private fun appVersionText(): String = "${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})"
 
