@@ -1,4 +1,6 @@
 pluginManagement {
+    // 约定插件：toolbox.kmp.library / toolbox.kmp.jvm-android / toolbox.kmp.compose
+    includeBuild("build-logic")
     repositories {
         google {
             content {
@@ -57,3 +59,26 @@ include(":testkit")
 include(":desktop")
 
 include(":server")
+
+// ── 模块拆分：共享层（:shared:*）与功能模块（:feature:*）。:core / :data 只剩壳与残留（见 docs/kmp-module-map.md）──
+include(":shared:model")
+include(":shared:navigation")
+include(":shared:designsystem")
+include(":shared:network")
+include(":shared:data")
+include(":feature:account")
+include(":feature:agent")
+include(":feature:attendance")
+include(":feature:campus")
+include(":feature:community")
+include(":feature:game")
+include(":feature:home")
+include(":feature:jiaocai")
+include(":feature:library")
+include(":feature:lms")
+include(":feature:notice")
+include(":feature:schedule")
+include(":feature:score")
+include(":feature:settings")
+include(":feature:webvpn")
+
