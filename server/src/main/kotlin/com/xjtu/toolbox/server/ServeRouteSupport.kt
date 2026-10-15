@@ -1,6 +1,7 @@
 package com.xjtu.toolbox.server
 
 import com.xjtu.toolbox.error.FriendlyError
+import com.xjtu.toolbox.error.SessionExpiredFailure
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.application.ApplicationCall
 import io.ktor.server.request.receive
@@ -12,9 +13,14 @@ import java.time.format.DateTimeFormatter
 
 /** 这几个 `*Routes`（jwxt / library / card / venue / lms / jiaocai / jwapp / iclassface）共用的小工具。 */
 
-/** 取数失败（含会话过期）：502 + `FriendlyError` 的中文短句。 */
+/**
+ * 取数失败：502 + `FriendlyError` 的中文短句。
+ * 学校那边的会话过期（[SessionExpiredFailure]，`SessionExpiredException` / `AuthExpiredException` 都实现它）
+ * 不是上游故障，重试也没用 ⇒ 改回 401（[respondLoginRequired]），让客户端去重新登录。
+ */
 internal suspend fun ApplicationCall.respondUpstreamFailure(error: Throwable, what: String) {
     if (error is CancellationException) throw error
+    if (error is SessionExpiredFailure) return respondLoginRequired()
     respond(HttpStatusCode.BadGateway, ApiEnvelope<Unit>(ApiErrors.UPSTREAM_FAILED, message = FriendlyError.of(error, what)))
 }
 

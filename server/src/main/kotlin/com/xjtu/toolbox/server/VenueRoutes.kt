@@ -1,6 +1,5 @@
 package com.xjtu.toolbox.server
 
-import com.xjtu.toolbox.error.SessionExpiredFailure
 import com.xjtu.toolbox.venue.AppVenueSource
 import com.xjtu.toolbox.venue.AreaSlot
 import com.xjtu.toolbox.venue.CaptchaData
@@ -141,7 +140,6 @@ internal fun Route.venueRoutes(session: ServeSession) {
             val result = try {
                 source.submitBooking(body.serviceId, pendingOrder, captchaId, sliderTrack)
             } catch (e: Exception) {
-                if (e is SessionExpiredFailure) return@post call.respondLoginRequired()
                 return@post call.respondUpstreamFailure(e, "提交预订")
             }
             if (!result.success) return@post call.respondActionRejected(result.message)
@@ -169,7 +167,6 @@ internal fun Route.venueRoutes(session: ServeSession) {
             val result = try {
                 session.venueSource().cancelOrder(orderId)
             } catch (e: Exception) {
-                if (e is SessionExpiredFailure) return@post call.respondLoginRequired()
                 return@post call.respondUpstreamFailure(e, "取消订单")
             }
             if (!result.success) return@post call.respondActionRejected(result.message)

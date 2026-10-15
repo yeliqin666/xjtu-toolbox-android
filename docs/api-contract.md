@@ -64,7 +64,7 @@
 - **信封**：`{ "code": 0, "data": <T|null>, "message": "<错误文案>" }`（`code != 0` 时 `message` 必须是能直接给用户看的中文短句，口径与 `:core` 的 `FriendlyError` 一致）。
 - **`code` 就是 HTTP 状态码**（2026-10-11 落地 `/api/session*` 时定下，`:server` 的 `ApiErrors` 是这一条的实现）：
   成功 `code == 0` 且 HTTP 200；失败时 `code` 与 HTTP 状态码**逐位相同** —— 一条信息不出现两种写法，
-  客户端读哪一个都一样。已用的码：`400` 请求体形状不对 · `401` 无令牌 / 登录被拒 · `404` 端点不存在 ·
+  客户端读哪一个都一样。已用的码：`400` 请求体形状不对 · `401` 无令牌 / 登录被拒 / 学校会话过期（重新登录） · `404` 端点不存在 ·
   `409` 另一次登录正在进行 / 上游明确拒绝一次写动作（§5.3.1） · `502` 上游或网络的故障（稍后重试可能就成）。
 - **例外（只有两条，不许再开第三条）**：① `/api/status` 是**裸对象**（历史遗留）；② `GET /api/venue/pay`
   **不当信封答** —— 它是给浏览器点的**跳转**（`302` + `Location`，没有 `code`/`data`/`message`，见 §5.3.2 第 6 条）。
@@ -104,7 +104,7 @@
 | `/api/venue/captcha` `/api/venue/book` `/api/venue/cancel` `/api/venue/pay` | `VenueSource` | 体育场馆（写 + 支付那一跳） | **P1（写路径）· 已落地 2026-10-12 · `pay` 2026-10-15（D11b）** | 无旧形状：serve 侧新开的写路径（§5.3.2 逐字段；落地提交 `45a0e50`）＋支付那一跳 `pay`（**302 不当信封**，§4 的第二条例外；逐字段见 §5.3.2 第 6 条） |
 | `/api/dzpz/transcript` | `TranscriptSource`（`:data` 侧 `AppTranscriptSource` + `TranscriptApi`） | 电子成绩单 | **P0 · 已落地 2026-10-13** | **新形状**：只端七步里的**第一步**（建单表单）—— 出 PDF 那半条链没有端点，逐字段见 §5.5 |
 | `/api/attendance/terms` `/api/attendance/records` `/api/attendance/leave/{window,preview,records}` `POST /api/attendance/leave{,/withdraw,/cancel}` | `AttendanceSource`（`AppAttendanceSource` + `AttendanceApi` / `LeaveApi`） | 考勤（**流水 + 请假 / 销假**） | **P0 读 · 2026-10-13 已落地**；**请假那一族（三读 + 三写）于 2026-10-15 批③-b / D7 ② 落地** | **要改**：`startSection ← startTime`、`endSection ← endTime`、`term ← termString` 三处改名（`:core` 那两个 `Time` 字段其实是节次）；**一处姓名不投影**（考勤流水里的 `teacher`）—— 请假单里的 `courses[].teacherNames` 与审批人的 `name` 于 2026-10-15 按 §5.2 例外 ④ **真投影**（见下与 §7 的 12g）；附件上传没有端点，见 §5.5.1 |
-| `/api/coupon/list` `/api/coupon/detail` `/api/coupon/activate` | `CouponSource`（`AppCouponSource` + `CouponApi`） | 加餐券（**读 + 领券**） | **P0 读 · 2026-10-13 已落地**；**领券（P1 写）于 2026-10-15 批③-b / D7 ③ 落地** | **新形状**（原来这一行是 P2 = Stage C 宿主能力）。金额单位是**分**；领券成功回 `{ok, message}`，上游拒收与会话失效**都落 `502`**（`:data` 那一层分不出业务拒绝，见 §5.5） |
+| `/api/coupon/list` `/api/coupon/detail` `/api/coupon/activate` | `CouponSource`（`AppCouponSource` + `CouponApi`） | 加餐券（**读 + 领券**） | **P0 读 · 2026-10-13 已落地**；**领券（P1 写）于 2026-10-15 批③-b / D7 ③ 落地** | **新形状**（原来这一行是 P2 = Stage C 宿主能力）。金额单位是**分**；领券成功回 `{ok, message}`，上游拒收落 `502`（`:data` 那一层分不出业务拒绝，见 §5.5），会话失效落 `401` |
 | `/api/dorm/rooms` `/api/dorm/reading` | `DormPowerSource`（`:data` 的 `DormPowerApi` 本身就是端口实现） | 宿舍电费 | **P0 · 已落地 2026-10-13** | **要改**：旧的 `GET /api/dorm/kwh?roomId=` 一个端点把列表与读数混在一处 ⇒ 拆成两个；`reading` 不带时间戳，见 §5.5 |
 | `/api/lms/courses` `/api/lms/activities` `/api/lms/activity` | `LmsSource`（`:data` 侧 `AppLmsSource` + `LmsApi`） | 思源学堂 | **P0 · 已落地 2026-10-14** | **要改**：`instructors` / `liveInstructorNames`（**教师姓名**）按红线不投影；附件的三个下载/预览地址与回放、直播地址**不端**（要站点会话）；`type` 是 `LmsActivityType.value` 那个小写字符串，见 §5.6 |
 | `/api/jiaocai/search` `/api/jiaocai/ssno` | `JiaocaiSource`（`AppJiaocaiSource` + `JiaocaiApi`） | 教材查询 | **P0 · 已落地 2026-10-14** | **新形状**：`search` 只收一个 `keyword`（这一屏没有院系/教师那种筛选控件）、**没有翻页**；`ssno` 是「列表里拿不到、进详情才有的全文库书目号」那一枪，见 §5.6 |
@@ -228,7 +228,8 @@
 端点全部挂在令牌闸门内（`/api/status` 是唯一免令牌端点）。统一口径：信封 `{code,data,message}`；
 `code == HTTP 状态码`（成功 `0` + 200）；时间一律 ISO-8601 **服务端系统时区**（跨界部署时区差异由部署方负责）；
 错误码：`400` 参数形状 · `401` 无令牌/错了，或令牌对但**没登录**（「请先登录：POST /api/session/login」）·
-`404` 未实现 · `502` 上游/网络故障（`FriendlyError` 中文短句，含会话过期）。
+`404` 未实现 · `502` 上游/网络故障（`FriendlyError` 中文短句）。学校那边会话过期（`SessionExpiredFailure`）不算上游故障，
+`respondUpstreamFailure` 统一改回 `401`「请先登录」。
 能力开关一律**如实**：`canBook` / `canCancel` / `canSubmit` / `availableSources` / `contactsAvailable` 出现在各自响应里。
 
 **红线（四处刻意例外，均为公开数据或登录者本人数据，测试用编造夹具值钉住）**：
@@ -670,7 +671,7 @@ Location: http://202.117.17.144/pay/show.html?id=VT20261013001
   要分出 `409` 得先把 `:data` 那一层的失败细分（与 `/api/library/action` 的 `OrderActionResult` 同一个
   形状）—— 本轮不编一个判据出来；
 - 错误码：`400` `filter` 不认识 / `page`、`size` 不是正整数 / `showCardId` 缺失 / `activate` 的 body 不是那一格 · `401` 没会话 ·
-  `502` 上游/网络故障（含 `:data` 认出的会话失效那一档）。
+  `502` 上游/网络故障（`:data` 认出的会话失效那一档回 `401`，见 §4）。
 
 **`GET /api/dorm/rooms` / `GET /api/dorm/reading`（宿舍电费，只读）**
 
@@ -687,8 +688,8 @@ Location: http://202.117.17.144/pay/show.html?id=VT20261013001
 - **绑定 / 解绑 / 充值 / `freshPayUrl` 都不端**：那几件事发生在缴费页里（浏览器端的事）；`freshPayUrl()`
   只是「换一张能直接登录缴费页的入口地址」，而且它**顺手记下「用户进过这一页」**（`DormPowerStore.markUsed`）
   —— 那是宿主侧状态，serve 这一层不该替浏览器记 ⇒ `:web` 的「去缴费」那一跳在 serve 模式下没有端点；
-- 错误码：`400` `roomId` 缺/空白 · `401` 没会话 · `502` 上游/网络故障（含会话失效那一档 —— 上游的
-  `401001` 被 `:data` 认成登录过期，本层按 `502` 报「稍后重试可能就成」）。
+- 错误码：`400` `roomId` 缺/空白 · `401` 没会话或会话失效（上游的
+  `401001` 被 `:data` 认成登录过期 ⇒ `401`，见 §4） · `502` 上游/网络故障。
 
 #### 消费方（`:web`）：**已落地**（2026-10-13 接线）
 

@@ -91,7 +91,7 @@ class ServeCouponActivateTest {
     }
 
     @Test
-    fun `领券：上游业务拒收与会话失效都是 502 —— 本层不编一个判据把两者分开`() = withFakeProxy { fake ->
+    fun `领券：上游业务拒收是 502，会话失效是 401（去重新登录）`() = withFakeProxy { fake ->
         val token = AccessToken.newToken()
         val session = ServeSession()
         val (server, http) = startEndpointServer(token) {
@@ -116,8 +116,9 @@ class ServeCouponActivateTest {
         fake.coupon.activateRejected = false
         fake.coupon.activateExpired = true
         val expired = http.postJson(ACTIVATE_PATH, validBody())
-        assertEquals(502, expired.statusCode())
-        assertEquals(ApiErrors.UPSTREAM_FAILED, envelopeCode(expired))
+        // 会话过期不是上游故障 ⇒ 401（让客户端去重新登录），不是 502
+        assertEquals(401, expired.statusCode())
+        assertEquals(ApiErrors.UNAUTHORIZED, envelopeCode(expired))
         assertTrue(!envelopeMessage(expired).isNullOrBlank())
         assertTrue(fake.coupon.activateBodies.size >= 2, "第二枪也到了上游")
 
