@@ -117,6 +117,7 @@
 | `POST /api/webvpn/convert` | `WebVpnCodec`（`:data` 侧 `WebVpnUtil`） | WebVPN 转换器 | **P0 · 已落地 2026-10-14** | **新形状**：纯转换（两个方向、无会话、不碰上游、`400` 只有参数那一档）。**为什么不做成浏览器本地**：HTTP + 非 localhost ⇒ 非安全上下文 ⇒ `crypto.subtle` 被禁，见 §5.7 |
 | `/api/v1/personal/me/user` | —— | （身份） | P2 | ⚠️ 待确认：这条出现在 `:core` 现有代码里，实现时先查清它是谁的投影 |
 | `/api/accounts` | `:core` 的 `CampusAccountsApi`（serve 支）读 `:data` 的 `AccountStore` | 账号管理（多账号，D9） | **P2 · 已落地 2026-10-15**（批② 工单 S7a） | **新形状**：只读一条。`id` 是**打码后**的学号（`2023****0001`，既当显示名也当句柄），完整学号/姓名/密码/指纹/公钥一律**不投影**（红线 §3.4）；`readOnly:true` 是能力开关（切换/新增/删除/改密这一批**没有**端点，如实降级）；它**不打上游** —— 读的是本机账号表与 serve 自己的登录态，见 §5.10 |
+| `/api/agent/{config,models,sessions*,memory*,chat,stop,status}` | `:core` 的 `AgentRunner` / `AgentTools` / `AgentPrompt` 等 + `:data` 的 `AgentConfigStore` / `AgentSessionStore` / `SseAgentTransport` / `AgentModelFetcher` / `AgentTitleGen`（循环与落盘都在 **serve** 这一侧） | 屁岱（Agent） | **P2 · 已落地 2026-10-15**（批⑤：工单 **S-a** 端点 → **S-b** `:core` 三处小改 → **S-c** 白名单工具层 → **S-d** `:web` 接线，**四件全部落地**） | **新形状**：十四端点（含一轮对话）；`POST /api/agent/chat` 成功时是 **SSE**（`text/event-stream`），开门阶段的失败仍是信封。⚠️ **key 只在 serve 侧**（浏览器一个字都不拿到，`keyConfigured` 是唯一投影）；**白名单工具层（S-c）已落地** —— `toolAllowlist` 现在是那九件（仍是从真下发的工具定义里读出来的）；**`:web` 接线（S-d）也已落地** —— 浏览器里那一格是 `:core` 的 `AgentScreen` 本身（`WebAgentSession` + `@JsFun` fetch/SSE 桥），它不再在路由差集里（5 → 4），逐条见 §5.11 |
 
 
 > **状态收口（2026-10-13 核账，纯文档轮次）**：`:server` 里**已实现**的端点族 =
@@ -163,6 +164,13 @@
 > （`/api/payment-code` 那一行已于 2026-10-14 从「未实现」里出来 —— 拿码 + 可用券两发落地，路径同时
 > 写死成 `/api/pay/{code,vouchers}`，见 §5.7；**支付 / 扣款**那个动作客户端本来就没有，**勾选同步**仍未端。）
 > ⚠️ **表里那个 `P0`/`P1`/`P2` 是优先级，不是状态** —— `P1` 那两行（写路径）都已落地（见各自那一格）。
+> **批⑤（2026-10-15 新增）**：`/api/agent/*` —— 屁岱（Agent）在浏览器上的那一族（D10；**S-a** 端点 → **S-b**
+> `:core` 三处小改 → **S-c** 白名单工具层 → **S-d** `:web` 接线，**四件全部落地**）。
+> 十四条端点 + **SSE**（`POST /api/agent/chat` 成功时是 `text/event-stream`，不是信封；开门阶段的失败仍是
+> 信封，见 §5.11）—— 逐字段、十一类事件、红线、白名单那九件、`:web` 那一屏接上之后**还剩什么没做**
+>（逐条：campus-api 形态下这一族没有端点、`suspend` 测试函数在 wasmJs 上不支持 ⇒ 异步那一支探针验不了）
+> 都写在 **§5.11**。绝不把「端出来了」当成「这一端真用得上」。
+
 ### 5.1 `/api/session*`（P0「新」那一行的实测形状，2026-10-11 落地）
 
 会话本体在 `:server` 进程里（`ServeSession`：`:data` 的 `SessionManager` + 落盘凭据），
@@ -1362,6 +1370,172 @@ D9 要的「浏览器上切换账号 = 让 serve 换一套凭据」，落到实�
 `readOnly` 缺了按只读 + 空 id 行丢掉 + 认不出的身份落回本科 · campus-api 形态抛错且**一个请求都不发**）。
 
 
+### 5.11 批⑤（2026-10-15 落地）：`/api/agent/*` —— 屁岱（Agent）在浏览器上（D10，**S-a → S-d 四件全部落地**）
+
+**决策来源**：`docs/desktop-port-plan.md` §16.1 的 **D10**；**设计真源 = `docs/agent-web-spec.md`**（438 行，
+端点形状、SSE 十一类事件、工具白名单、三份落盘、与 `:app` / `:desktop` 的差异表、未决问题都在那里）。
+统一口径照 §4（信封、`code == HTTP 状态码`、失败给能直接看的中文短句）。
+
+**这一节记的是 S-a 的实况 + 后面三小批的续记**（工单把 D10 分成 S-a `:server` 端点 → S-b `:core` 三处小改 →
+→ S-c 白名单工具层 → S-d `:web` 接线）：十四个端点 + SSE 已落地并被 **27** 用例钉住；`:core` 的「工具行文案 /
+跳转建议 / 自愈历史」上提与 `:data` 的密钥半保护器随 S-a 一起动（S-a 的形状离不开它们）。
+
+**S-b / S-c / S-d 都已落地**（2026-10-15 同一天的续三批）：`:core` 的 `AgentConfig.keyConfigured` + 配置面板那三个槽位
++ `AgentChatSession` 抽口（S-d 的前提），桌面的密钥半改用**与 serve 同一个保护器**（缺口 A 的桌面那一半），
+白名单工具层那九件与 `/api/agent/config` 的 `toolAllowlist` 是**同一份定义**（逐条见下面那一段里改成事实的两条）。
+**`:web` 接线（S-d）也已落地**：浏览器那一格现在是 `:core` 的 `AgentScreen` 本身（驱动是本端的
+`WebAgentSession`：SSE 帧 → 状态；fetch/SSE 桥是 `@JsFun` 手写的那一段），`AppRoute.Agent` 从路由差集里去掉
+（**5 → 4**），页面上那段「这一份部署能做什么」按 `toolAllowlist` **现生成**（白名单与页面说明同源）。
+下面「本批**没有**做的」那一段已按事实重写 —— 它现在记的是 S-d 之后**还剩下的**那几件，不是「没做接线」。
+
+**会话**：一个新站点都没注册（这一族**不打任何学校上游** —— 它打的是用户自己配的模型服务商，而且那一枪在
+测试里一律是夹具）。
+
+| # | 端点 | 请求 | 响应 `data`（逐字段） | 错误码 |
+|---|---|---|---|---|
+| 1 | `GET /api/agent/config` | —— | `{provider, model, effectiveModel, baseUrl, assistantName, searchEngine, thinkingEnabled, reasoningEffort, showReasoning, keyConfigured, toolAllowlist:[string], honored:[string], canEditKey}` | `401` 无令牌 |
+| 2 | `POST /api/agent/config` | `{provider, model, baseUrl, assistantName, searchEngine, thinkingEnabled, reasoningEffort, showReasoning, apiKey?}` | `{ok, message}` | `400` 取值认不出 / 缺字段 · `401` |
+| 3 | `POST /api/agent/models` | `{provider, baseUrl?}` | `{models:[string]}`（去重升序） | `400` · `401` · `409` 没配 key · `502` 服务商 / 网络 |
+| 4 | `GET /api/agent/sessions` | —— | `{sessions:[{id,title,createdAt,updatedAt,locked}]}`，序 = `updatedAt` 降序 | `401` |
+| 5 | `POST /api/agent/sessions` | `{title?}`（缺省 = `DEFAULT_TITLE`「新对话」） | `{session:{…}}` | `401` |
+| 6 | `GET /api/agent/sessions/{id}` | —— | `{conversation:{messages:[…],lastTotalTokens,contextExhausted}\|null}`；`null` = 这条会话不在了 | `401` |
+| 7 | `POST /api/agent/sessions/{id}/rename` | `{title, lock?:true}` | `{ok, message}`（对不存在的 id 是**空操作**） | `400` · `401` |
+| 8 | `POST /api/agent/sessions/{id}/delete` | ——（幂等） | `{ok, message}` | `401` |
+| 9 | `GET /api/agent/memory` | —— | `{items:[{key,value}]}`，序 = `AgentMemory.all()`；`__order` **不投影** | `401` |
+| 10 | `POST /api/agent/memory/forget` | `{key}` | `{ok, message}`（`message` 是 store 的原话；`ok` = 原来有没有这一条） | `400` · `401` |
+| 11 | `POST /api/agent/memory/clear` | —— | `{ok, message}` | `401` |
+| 12 | `POST /api/agent/chat` | `{sessionId, text}` | **`text/event-stream`**（见下） | `400` 形状 · `401` · `404` 会话不在 · `409` 没配 key / 有一轮在跑 / 上下文耗尽 · `502` **只在流开始前** |
+| 13 | `POST /api/agent/stop` | `{sessionId?}` | `{ok, message}`（没有在跑也 `200`，`ok:false`） | `401` |
+| 14 | `GET /api/agent/status` | —— | `{running, sessionId:string\|null}` | `401` |
+
+十四条**全部**挂在 `route(API_PREFIX)` 的令牌闸门里面（`ServeModule` 里一行 `agentRoutes(agent)`），
+所以「没带令牌 ⇒ 401」是自动的 —— `ServeAgentTest.everyEndpointSitsBehindTheTokenGate` 把 14 条逐个走了一遍。
+**这一族不要求已登录**：key 与循环都在 serve，而「没配 key」是一门明确的错（见下），不是 401。
+
+#### `POST /api/agent/chat` 的流（`text/event-stream`）
+
+响应头带 `cache-control: no-store` 与 `x-accel-buffering: no`（反代不缓冲）。一帧 = `event: <名>` + 一行
+`data: <JSON>` + 空行；**保活**是 SSE 规范的注释行 `: ping`（每 15 秒一次，客户端必须忽略）。
+
+**十一类事件**（与设计稿 §3.2 的表逐条对应）：
+
+| 事件 | `data` | 何时 |
+|---|---|---|
+| `delta` | `{text}` | 模型正文增量，逐段 |
+| `reasoning` | `{text}` | 思维链增量（仅思考开启时） |
+| `tool_call` | `{name}` | 一次工具调用聚合之后、执行之前（**只报名字**，文案由消费者按 `:core` 的同一份表拼） |
+| `tool_result` | `{name, success, error:string\|null}` | 该次执行结束（失败时 `error` 是原话） |
+| `usage` | `{totalTokens}` | 模型回报 usage（只用来显示 / 兜底） |
+| `mfa` | `{pending, siteName:string\|null}` | 校园站点短信二验挂起 / 结束（**只有站名，没有手机号**） |
+| `widget` | `{widgets:[{type,json}]}` | 一轮工具执行全部结束后、`done` 之前（一次给全） |
+| `nav` | `{routes:[{label,route}]}` | 同上（`route` 是 `AppRoute.id`） |
+| `done` | `{content, sessionId, title, contextExhausted, totalTokens:long\|null}` | **唯一正常终止事件**，之后流关闭 |
+| `error` | `{kind, message}` | **唯一异常终止事件**（`kind` = `session_expired` / `llm` / `tool` / `internal`） |
+| `: ping` | ——（无 `data`） | 每 15 秒一次，直到流关闭 |
+
+**开门阶段 vs 开流之后**：HTTP 状态码在流开始后改不了 ⇒ `400/401/404/409/502` 这些走**信封**（非 SSE），
+流开始之后的失败一律走 `error` 事件。这一条与 §4 没有冲突：§4 管「响应长什么样」，这里是「开门那段是信封、
+开流之后才是帧」——**不是** §4 的第三条例外。
+
+**停止 / 断开是同一条路**：`POST /api/agent/stop` 取消这一轮；被取消（或客户端断开、或写帧失败）时
+**一个终止事件都不发** —— 这一轮没跑完，说它「正常结束」（`done`）或「出错」（`error`）都是假话。
+`stop` 自己是个普通端点，会如实回一句 `{ok, message}`（没有在跑时 `ok:false`）。
+
+#### 三条要点（写在这里，免得下一个人重新推一遍）
+
+- **红线：任何响应（含 SSE 每一帧）都不含 API Key** —— 不是掩码，是**字段不存在**。`keyConfigured` 是
+  这一族唯一的「key 相关」投影（一个 bool）。同一族的红线还包括：`StoredMessage.images`（那是 **serve 那台
+  机器**上的绝对路径，可能带用户名，而浏览器根本读不到那块盘）**不投影**、`llmHistory`（含工具结果与画像
+  原文）**不投影**、MFA 帧里只有站名。`ServeAgentTest` 的每一条用例都在**夹具里明明有那把 key** 的前提下
+  断言它不在响应里（并且有一条反过来钉住它确实落在 `agent_config_secure` + 账号后缀那份 store 里 ——
+  未登录时后缀是 `default`，所以文件名是 **`agent_config_securedefault.properties`**，即设计稿 §0「缺口 B」
+  那条口径的落点）。
+- **两处 `409`**（`ApiErrors.ACTION_REJECTED`）：①「上一轮还在生成」（Android 是**静默忽略**，这里有意更清楚）；
+  ②「还没配置 API Key」/「上下文已达上限」——三种情形的 `message` 各说各的，客户端只要显示它。
+- **`404` 的用法扩了一处**：`chat` 的「会话不存在」用 `404` + 指名 message（`GET /api/agent/sessions/{id}` 仍用
+  `200 + conversation:null`，照 `/api/library/my` 的 `my:null`）。§5 的 404 兜底（端点不存在）语义不变。
+
+#### 两处**有意**偏离 `docs/agent-web-spec.md` 表格的地方（口径要记录，不许默默漂）
+
+1. **会话与消息的时间是 epoch 毫秒，不是 ISO-8601**（§4 的通则在这里让位）：`createdAt` / `updatedAt` 是
+   `:core` 模型 `AgentSession` 的 `Long` 字段、`StoredMessage.timestamp` 也是 ——浏览器那一端要把它们原样
+   放回**同一个模型**（抽屉自己格式化）。转成字符串等于逼两端各写一遍转换，而这两格的使用者只有本族自己。
+2. **`done` 里没有 `finishReason`**：`:core` 的 `AgentRunner` 只回正文
+   （`finishReason` 用在它内部的截断 / 续写判据上，不外传），投影一个自造的值就是造事实 —— 按 §4「字段缺失
+   = 本端不投影」处理。`done` 实际带的六格见上表。
+
+#### S-d 落地之后的实况（哪几件成了、还剩哪几件没做）
+
+- ✅ **白名单工具层（S-c）已落地**（2026-10-15）：`ServeAgent.forServe` 交给模型的是 `ServeAgentTools` ——
+  设计稿 §6.1 那九件（`calculate` / `app_guide` / `preference` / `get_calendar` / `search_yellow_page` /
+  `find_faculty` / `get_schedule` / `get_empty_rooms` / `get_exam_schedule`），其中课表族那四条是**逐字搬**
+  `:app` 的 `AgentToolRegistry`（差异只有五处端上缝，由 `ServeAgentToolCopyDriftTest` 逐行钉住）。
+  `GET /api/agent/config` 的 `toolAllowlist` 因此**如实是这九件** —— 它仍是**从真下发给模型的工具定义里读出来的**
+  （不是另维护一份清单）。`tool_call` / `tool_result` / `widget` / `nav` 四类事件在真机上会出现。
+  ⚠️ 没开放的那一串（写路径 / 钱 / 本人敏感 / 要站点会话 / 联网搜索）逐条理由在设计稿 §6.2，
+  `ServeAgentToolsTest` 有一条用例把那串名字逐个钉住「不在工具表里」。
+- ✅ **`:core` 的三处小改全部落地**（S-b）：工具行文案 / 跳转建议 / 自愈历史早在 S-a 就提到顶层
+  （`AgentShared.kt`）；`AgentConfig.keyConfigured`（默认 `false`、**不进 `AgentConfigStore.save()`**）与
+  配置面板那三个槽位（`enabled = config.isConfigured`、API Key 那一行可注入、「记住的偏好」那一块可注入）、
+  以及 `AgentChatSession` 抽口（`AgentViewModel` 实现它，`AgentScreen(session = …)` 与 `AgentChat(vm = …)`
+  都收这一条接口）在这一批补上。`:app` / Android 可见行为**逐字未变**（默认参数 = 现状）；
+  桌面那一半的「缺口 A」也修了：`agent_config_secure<suffix>` 改用**与 serve 同一个** `protectedSecureKeyValueStore`
+  （Windows ⇒ DPAPI 信封，Linux / macOS ⇒ 明文 `0600`，与今天逐字相同），盘上老的**明文**值原样读得回来。
+- ✅ **`:web` 接线（S-d）已落地**（2026-10-15）：浏览器那一格现在是 `:core` 的 `AgentScreen` 本身（同一个屏、
+  只换了驱动），三件新东西 + 一处清单：
+  1. **`WebAgentSession`**（`web/src/wasmJsMain/.../web/WebAgentSession.kt`）：SSE 帧 → 状态（`AgentStreamState`：
+     十一类逐类映射，与 `AgentViewModel` 逐条同判据 —— 50ms 合流、工具行换气泡、`done` 才收尾、
+     「没见到终止事件就关流」= 已停止）+ 会话 / 配置 / 记忆那几发 HTTP（`code == 0` 才算成功，照 §4）；
+  2. **`@JsFun` 的 fetch / SSE 桥**（`AgentSseBridge.kt` + 纯函数的 `AgentSseParser`）：**不走 Ktor 的 Js 引擎**
+     （设计稿 §3.1 未核对 #2）—— `fetch` + `resp.body.getReader()` + `TextDecoder`，一帧一行的帧由 Kotlin 切；
+     `AbortController` 按 key 存在 `globalThis` 里，切会话 / 新建 / 点停止都能真的取消；
+  3. **`WebAgentScreen` / `WebAgentHost`**：面板两槽位按端上传（API Key 那是**只读徽标**、「记住的偏好」
+     读的是 **serve 上那一份** —— §4.3 第 3 条的必改项）；屏顶上那段「能做什么」按 `toolAllowlist` 现生成；
+  4. **路由那一处**：`AppRoute.Agent` 进了 `WebSupport.openableRouteIds`，路由差集 **5 → 4**
+     （剩 `Browser` / `DownloadManager` / `Jiaocai1` / `Jiaocai1Reader`）。
+  ⚠️ campus-api 形态下这一族**没有端点**（Key 与循环都不在它那一头）⇒ 那一格画的是 `WebServeOnlyScreen`
+  （「切到 serve 模式就能用」），与只读四域的规矩同一条：**「本端有没有这一屏」与「此刻后端是哪一形态」是两件事**。
+- ⚠️ **`@JsFun` 把 Kotlin 回调交给 JS 那件事，探针结论与一个盲点**（设计稿 §4.5 未核对 #3）：`:web:wasmJsTest`
+  里的 `AgentJsFunCallbackProbeTest` 在**真浏览器**里验了两条 —— ① JS **同步**调用 Kotlin 回调、值真的落回来；
+  ② 回调先被 JS 存进 `globalThis`、以后再由 JS 调用（**稳定的函数句柄**，能用第二次）—— 于是这一族用
+  **回调推送**的形态，不需要退化成「JS 攒缓冲 + Kotlin 轮询拉」。
+  ⚠️ **僵点**：③「`Promise` 微任务里回调」那一支**本测试源集验不了** —— `kotlin.test` 的 wasmJs 适配器不支持
+  `suspend` 测试函数（编译器直接报错），而那一支天然是异步的。它靠 ①② 盖住的那件事 + 真浏览器里手点一次
+  （`docs/serve-visual-checklist.md` ⑪ 那一行）来证明 —— 这里**不假装验过**。
+- ⚠️ **两件没拍的（未决项照旧）**：① 「改上一条重发」在浏览器上只能做到「屏幕上换掉 + 再发一次」——
+  契约里没有「替换上一轮」的入口（设计稿 §9 未决 #7），而那一颗钮是共享屏画的（逐字全等与「不画点了会失败的钮」
+  在这里摊不开，要拍板才能收）；② 没配 Key 时输入栏上方那条提示仍写着「API Key 配好就能聊」
+  （那是 `:core` 的文案，浏览器上应说「Key 在运行 serve 的那台机器上」—— 未决 #8）。
+  两件都写在那张屏的页顶说明里，**页面不说假话**：说了这一端只能再发一次。
+- **`GET /api/agent/sessions/{id}` 的 `messages[].widgets` 会带回来**（落盘形状），但**卡片的重建**在浏览器那
+  一侧（`storedToWidget`，`:core` 现成的）—— 这一族只在 `widget` 事件里把同一批 `{type,json}` 端出去。
+
+#### 夹具与用例（§7 的第 1 条「三处同改」的核）
+
+- **`:testkit`**：**新增** `AgentFixture`（一把**编造**的 API Key + 型号 / 助手名 / 标题 / 记忆键值 / 回复正文 /
+  工具名 / MFA 站名与一个**手机号常量**，纯字符串 —— `:testkit` 一个工程依赖都没有，装不了 `:core` 的对象）。
+  这一族不打学校上游，所以夹具不是「页面原文」而是「一组编造的值 + 那把 key」：红线断言靠的就是
+  「夹具里明明有它」这一点。
+- **`:server:test`**：**新增** `ServeAgentTest`（**27 例**：配置三 · 型号两 · 会话五 · 记忆两 · 对话十一 ·
+  闸门与尾卡两 · **生产装配一** · 纯函数一。十四个端点逐条 ≥2 例 —— 形状 / 闸门 401 / 400 / 404 / 409 / 502 各档、
+  SSE 逐帧、红线、没配 key 的明确错误、并发 409、停止、上下文耗尽、MFA + 保活；最后一条把十一类帧的形状一次钉全）。
+  夹具传输 / 工具表 / 起标题三格都在这个文件里（**绝不打真服务商**）；「生产装配一」那一条专门走
+  `ServeAgent.forServe`（其余用例用的是测试自己拼的那份），并钉住匿名账号那份文件名（缺口 B）。
+- **`:server:test` 又新增 8 例（2026-10-15，S-b / S-c 两批）**：`ServeAgentToolsTest`（**7 例**：纯逻辑三件一例、
+  公开通讯录两件一例、`get_calendar` / `get_schedule` / `get_exam_schedule` / `get_empty_rooms` 各一例、
+  「白名单之外不下发」一例）+ `ServeAgentToolCopyDriftTest`（**1 例**：把 serve 与 `:app` 两份源文件里同名函数的
+  函数体逐行比一遍，差异只允许是清单里那 13 条端上缝，且每条必须真的用上）。上游全是 `:testkit` 早已存在的
+  假上游（教务 / 智慧教室 / 空闲教室 CDN / 校历 / 黄页 / 教师检索），**不打真站点、不花一分钱**。
+- **`:core:jvmTest` / `:data:jvmTest` / `:desktop:test` 各新增一例（S-b）**：`keyConfigured` 那一格（默认 `false`
+  ⇒ 三端行为不变）、它**不进落盘**（存了也不写键）、桌面 `agent_config_secure` 的旧明文读得回 + 有保护器时落信封
+  （拿一份夹具保护器把 Windows 那条路在 Linux 上就地钉住）。
+- **`:web`**：本批（S-d）**新增 32 例**（`tests = 52`，基线 20：`AgentJsFunCallbackProbeTest` 2 ·
+  `AgentSseParserTest` 11 · `WebAgentSessionTest` 13 · `WebAgentNoteTest` 6；`WebRouteCoverageTest` 那三条
+  跟着改了预期（差集 5 → 4、`AppPage` 多出来的分支只剩 `Browser`））。其中 `WebAgentNoteTest` 把一个
+  **原有的 S8 快照机制**多用了一次：`:server` 的 `ServeAgentTools.kt` 也在构建期读进快照 ⇒ 它能把「页面说明
+  盖了每一件真下发的工具」当场对一次（换了名单不改页面说明就红）；`web/build.gradle.kts` 里那份清单多一行。
+
+
 ## 6. 夹具契约测试（D5 要求，不能只写文档）
 
 - 位置：**`:server:test`**（`kotlin("jvm")` 模块的测试任务就叫这个名；本轮已经有 13 例：6 例是 serve 第一步的
@@ -1532,6 +1706,36 @@ webvpn 的请求体就是 `{url, direction}` 两个字段）· 失败只读 `mes
 ⚠️ 本批**没有**动 `:data`（四个域的取数与解析一行未改）⇒ `:data:jvmTest` 与 `:desktop:test` 的计数
 逐条不变；`ServeRouteSupport.positiveInt` 那次小整理改了四个 `:server` 文件（删掉 4 份逐字相同的
 private 拷贝、留一份 `internal`），不影响任何测试的计数。
+
+**新增的 27 例（2026-10-15，批⑤ §5.11 / D10 的 S-a）**：`ServeAgentTest` —— 十四个端点逐条 ≥2 例
+（**配置三例**（默认值如实 / 写读往返 + 键集合与红线 / 认不出的取值 400 与 `apiKey` 的可选语义）·
+**型号两例**（没配 key 的明确错 + 「一个请求都不打出去」/ 成与 `502`）· **会话五例**（空表 / 新建 /
+内容与 `conversation:null` / 改名锁与空操作 / 删除幂等）· **记忆两例**（序与 `__order` 不投影 / 忘却与清空）·
+**对话十一例**（没 key · 开门阶段 400/401/404 · 逐帧的 `delta`→`usage`→`widget`→`nav`→`done` + 落盘 ·
+工具与思维链三帧 + 工具行文案与 `nav` 跳转建议 · 工具失败 · `error` 两种 `kind` · 并发 409 · 停止 · 上下文耗尽 ·
+MFA 与保活）· **闸门与尾卡两例**（14 条一遍扫过 / status 默认值与尾卡 404）· **生产装配一例**
+（`ServeAgent.forServe` 真走一遍：工具表空、key 落 `agent_config_securedefault`、会话落 `agent_sessionsdefault`）·
+**纯函数一例**（十一类帧的形状一次钉全））。夹具的那三格（传输 / 工具表 / 起标题）就在这个文件里，测试**绝不打真服务商**。
+
+**本批的六项门禁实测（2026-10-15，XML 实测计数）**：`:server:test` **136**（109 → 136，新增 `ServeAgentTest` 27）·
+`:core:jvmTest` **536**（**不变** —— `AgentShared` 那次上提是纯搬迁，`AgentViewModel` 的断言一条未改）·
+`:desktop:test` **118**（**不变**）· `:data:jvmTest` **259**（**不变** —— `AgentConfigStore` 多了一个**默认值等于现状**的构造参数）·
+`:app:testDebugUnitTest` **444**（**一条未减**，`:app` 本批**零改动**）· `:web` 本批**零改动**（S-d 未做）。
+
+⚠️ 两处**没有**测试覆盖、必须如实记的事：① Windows 上的 DPAPI 那一档在本机（Linux）验不了 —— `agent_config_secure`
+套上 `protectedSecureKeyValueStore` 之后，Linux 上 `protector == null` ⇒ 字节与今天**逐字相同**（有测试钉的是
+「key 确实落在那份 store 里」），DPAPI 信封本身要靠 Windows CI；② Ktor 3.6 的**服务端没有** SSE 插件
+（`gradle/libs.versions.toml` 里没引 `ktor-server-sse`）⇒ 帧是手写的，保活是注释行 —— 形状由上面那条纯函数用例钉住，
+但「在真浏览器里逐帧上屏」**到今天（S-d 落地）才有路径**：客户端换成了 `@JsFun` 的 fetch/SSE 桥，
+帧的切分与映射由 `:web` 侧的纯函数做（`AgentSseParser` / `AgentStreamState`，有 24 例钉着）——
+「桥那一半（异步回调）」在本机只能靠真浏览器里手点一次，见本节末尾与 `docs/serve-visual-checklist.md` ⑪。
+
+**批⑤收尾（S-b / S-c / S-d 三小批）的六项门禁实测（2026-10-15，XML 实测计数）**：`:server:test` **144**（136 → 144，S-c 新增 `ServeAgentToolsTest` 7 + `ServeAgentToolCopyDriftTest` 1）· `:core:jvmTest` **537**（536 → 537，S-b 的 `keyConfigured` 那一格）· `:desktop:test` **119**（118 → 119，同一个洞的那一例）· `:data:jvmTest` **260**（259 → 260，`protectedSecureKeyValueStore` 多一个 protector 参数那一例）· `:app:testDebugUnitTest` **444**（**一条未减**，`:app` 三小批**零改动**）· `:web:wasmJsBrowserTest` **52 例 / 0 失败**（基线 20 → 52，S-d 新增 32）；`:web:compileKotlinWasmJs` **BUILD SUCCESSFUL**。
+⚠️ 本批**新增的一处「验不了」**必须如实记：`@JsFun` 回调桥的**异步**那一支（`Promise` 微任务里回调
+Kotlin 那一格）在本测试源集里**断言不了** —— `kotlin.test` 的 wasmJs 适配器不支持 `suspend` 测试函数
+（实测：编译器直接报「suspend functions annotated with @kotlin.test.Test are unsupported」）。
+同步回调与「JS 存下句柄、以后再调」两条是真验过的（`AgentJsFunCallbackProbeTest`，跑在真浏览器里），
+所以桥的形态是对的；**逐字上屏那一步要靠真浏览器里手点一次**（`docs/serve-visual-checklist.md` ⑪ 那一行）。
 
 ## 7. 变更纪律
 
@@ -1724,6 +1928,69 @@ private 拷贝、留一份 `internal`），不影响任何测试的计数。
     ⚠️ 红线本身一个字没松：学生本人姓名 / 学号 / 手机号 / 通讯录仍一律不端，考勤流水那一格的 `teacher`
     （当堂上课的教师名）**仍不投影**（它不在例外 ④ 里，§5.5 那一条一字未改）。
 
+13. ✅ **批⑤（2026-10-15，D10 的 S-a）三处同改核过了**：`/api/agent/*` 那十四条（§5.11，D10 的第一批）：
+    - **本文档**：§5 的表（新增一行）+ 状态收口（一段）+ **§5.11**（端点 / SSE 十一类事件 / 红线 /
+      两处有意偏离 / 「本批**没有**做的」）+ §6（新增 27 例与六项门禁计数）+ 本节；
+    - **夹具**：`:testkit` **新增** `AgentFixture`（一把**编造**的 API Key + 一组编造的值）。它是这一族唯一
+      能当夹具的东西：这一族**不打学校上游**（连模型那一枪在测试里也是夹具）⇒ 夹具不是「页面原文」，而是
+      「一组编造的值 + 那把 key」，红线断言靠的就是「夹具里明明有它」；
+    - **`:web`**：**零改动** —— 本批**没有**做 S-d 接线（那一屏仍是降级页）。这一处在 §5.11 的「本批**没有**
+      做的」里**指名点姓**地写了出来（每一条：做到哪、还剩什么、为什么），那是第 1 条纪律允许的唯一形态。
+    **本批要记的三条新纪律**：
+    - **「能力开关必须来自实现本身，不能来自『打算实现什么』」**：`:toolAllowlist` 是从**真下发给模型的工具定义**
+      里读出来的（不是另维护一份常量清单），所以 S-c 未落地时它**如实是空数组**。反过来说：要是当初写成一份
+      手维护的清单，这一版就会报「有 9 个工具」而模型一个都调不到 —— 那就是一个**假入口**；
+    - **「现在不能」的三种情形走同一个 `409`**（先例是 `LOGIN_BUSY` / `ACTION_REJECTED`）：没配 key /
+      已有一轮在跑 / 上下文耗尽。它们不是形状错误（`400`）、也不是「等会儿再来」（`502`）——「先处理那一件」
+      才是它们的意思，`message` 各说各的；
+    - **SSE 这一族的「不是异常终止」是**：被停止 / 客户端断开 / 写帧失败 ⇒ **一个终止事件都不发**（`done` 与
+      `error` 都不发）。这条必须写进契约，否则下一个人会把「流没发完」读成「契约漏了一个事件」。
+    另记一条**施工事实**（值得下一个人知道）：`SseAgentTransport` 把增量回调派发到 `Dispatchers.Main.immediate`，
+    而 **`:server` 没有主线程**（它只依赖 `kotlinx-coroutines-core`，不引 coroutines-swing / -android）⇒
+    直接写会在**第一个增量**上抛「Module with the Main dispatcher had failed to initialize」。本批把那一格改成
+    「有主线程就用它、没有就用 `Dispatchers.Default`」（Android / 桌面**行为一字未改**）—— 不改的话，
+    这一族在 serve 上根本跑不起来，而它在夹具下完全看不出来。
+14. ✅ **批⑤ 的续两小批（2026-10-15，S-b 剩余 + S-c）三处同改核过了**：`AgentConfig.keyConfigured` / 配置面板
+    三个槽位 / `AgentChatSession` 抽口（S-b）与 serve 白名单工具层九件（S-c）：
+    - **本文档**：§5 那一行与状态收口（改成事实）+ **§5.11**（「本批**没有**做的」那一段按事实重写、夹具与用例补两条）
+      + 本节；
+    - **`:core`**：`AgentConfig.keyConfigured`（默认 `false`、不落盘）、`AgentConfigPanel` 三个槽位、新的
+      `AgentChatSession.kt`、`AgentViewModel` / `AgentChat` / `AgentScreen` 收口；**`:app` / Android 行为逐字未变**；
+    - **`:data` / `:desktop`**：`protectedSecureKeyValueStore` 多一个 `protector` 参数（默认本机那一档，只为让
+      Windows 的密封路在 Linux 上可测）；`DesktopAgentHost` 的密钥半改用同一个保护器（缺口 A 的桌面那一半）；
+    - **`:server`**：`ServeAgentTools.kt`（九件工具，课表族那四条逐字搬 `:app`）+ `ServeAgent.forServe` 接上它 +
+      `schedule_cache<suffix>` / `custom_courses` 两份与桌面同名的落盘；
+    - **夹具 / 用例**：`:testkit` **零改动**（这一批用的全是早已存在的假上游）；`:server:test` **136 → 144**、
+      `:core:jvmTest` **536 → 537**、`:data:jvmTest` **259 → 260**、`:desktop:test` **118 → 119**，
+      `:app:testDebugUnitTest` **444 一条不减**。
+    ⚠️ **施工坑一条**（值得下一个人知道）：`:app` 的 `toKx()` / `toJavaTime()`（`util/TimeBridge.kt`）是
+    `internal`，`:server` 拿不到 ⇒ 逐字搬过来的那几段要 `:server` 自己写一份同名同语义的换算，
+    否则那几行会变成「差异清单」里的假差异（那份清单只该记**端上资源**那几处）。
+15. ✅ **批⑤ 的 S-d（2026-10-15，`:web` 接线）三处同改核过了**：浏览器里那一格从降级页换成 `:core` 的
+    `AgentScreen` 本身：
+    - **本文档**：§5 那一行与状态收口（改成事实）+ **§5.11**（S-d 那一大段、探针结论与盲点、`:web` 新增 32 例、
+      六项门禁计数）+ 本节；
+    - **`:web`**：**新增** `AgentSse.kt`（`AgentFrame` + 纯函数 `AgentSseParser`）、`AgentSseBridge.kt`
+      （`@JsFun` 的 fetch/SSE 桥 + abort）、`AgentStreamState.kt`（十一类事件 → 状态）、`WebAgentSession.kt`
+      （会话 / 配置 / 记忆的那几发 HTTP + 消费循环）、`WebAgentScreen.kt`（表头 / 页顶说明 / Key 徽标 /
+      serve 侧记忆那一块 / `WebAgentHost`）；**改** `ToolboxWebApp.kt`（`AppRoute.Agent` 那条分支）+
+      `WebSupport.kt`（`openableRouteIds` 加 `Agent`、文件头那段同步，**差集 5 → 4**）+ `WebFallbackScreens.kt` /
+      `WebShell.kt` / `WebScheduleSource.kt`（三处提到「屁岱是降级页」的旧话改成事实）+ `web/build.gradle.kts`
+      （快照多读一份 `:server` 的源文件）；
+    - **`:core`**：`AgentScreen.kt` 的 `onSave` 多一行 —— 保存之后把 `keyConfigured` 按**宿主那一份**补回来
+      （面板自己拼的那份不带它；Android / 桌面的默认实现恒 `false` ⇒ **三端行为逐字不变**）。这一行是工单
+      拍板的「保存一次之后页面仍然知道这份部署配没配 key」那个要求；
+    - **夹具 / 用例**：**`:testkit` 零改动**（这一族不打学校上游：它打的是用户自己配的模型服务商，测试里一律夹具）；
+      `:web:wasmJsTest` **新增 32 例**（基线 20 → 52，逐组分法在 §5.11）；其余五项**一条未减**（537 / 144 / 119 /
+      260 / 444，逐条见 §5.11 的门禁段）。
+    ⚠️ **施工坑两条**（值得下一个人知道，两条都是**实际踩到**的）：
+    ① **KDoc 里的路径通配会把块注释嵌套掉**：Kotlin 的块注释是可嵌套的，写一句「十四个端点都在
+    `/api/agent` 那一族」没问题，写成 `/api/agent` 后面跟一个星号，就会让编译器报
+    `Syntax error: Unclosed comment`（而且报在文件末尾，看着像另一处错）—— 设计稿 §16.7 那条「KDoc 里
+    不要出现块注释起始符」就是这个坑；
+    ② **wasmJs 的 `kotlin.test` 不支持 `suspend @Test`**：探针那条异步用例必须删掉（编译器直接报
+    `suspend functions annotated with @kotlin.test.Test are unsupported`）⇒ 这一端凡是要等异步结果的断言
+    都写不了，只能盖住纯函数与同步回调那一半。
 ---
 
 ## 8. 这份草案的依据（谁写的、读了什么）

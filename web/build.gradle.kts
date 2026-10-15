@@ -163,6 +163,11 @@ val webTestSourceSnapshotFiles = listOf(
     //（`MERGE_GAME_HIGHSCORE_KEY` ↔ 它里的 `STORAGE_KEY`），那种跟跨语言常量的绑定靠人记就会腐坏
     // —— 所以也读进来，由 `WebGameMergeTest` 当场对一次（改游戏那份 JS 就会重新生成这份快照）。
     rootProject.file("app/src/main/assets/games/merge/index.js"),
+    // D10 的 S-d：屁岱那一族「能做什么」的**页面说明与白名单同源**。页面说明是按
+    // `/api/agent/config` 的 `toolAllowlist` 现生成的，而那份名单的真源在 `:server` 的
+    // `ServeAgentTools.NAMES`（**从真下发的工具定义里读出来的**）—— 把那份源文件也读进来，
+    // `WebAgentNoteTest` 就能当场对一次「页面说明盖了每一件真下发的工具」，而不是对着一份手抄的名单。
+    rootProject.file("server/src/main/kotlin/com/xjtu/toolbox/server/ServeAgentTools.kt"),
 )
 
 val generateWebTestSourceSnapshot = tasks.register("generateWebTestSourceSnapshot") {

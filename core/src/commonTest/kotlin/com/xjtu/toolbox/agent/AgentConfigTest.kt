@@ -90,4 +90,24 @@ class AgentConfigTest {
         }
         assertTrue("bing" in AgentConfig.RETIRED_SEARCH_ENGINES)
     }
+
+    /**
+     * 浏览器那一端的「配好了没」：key 在 **serve** 上，这一端一个字都拿不到 ⇒ 靠 `keyConfigured` 这一格。
+     * 默认 `false`，所以 Android / 桌面（`apiKey` 就在手边）的判据与搬迁前**逐字相同**。
+     */
+    @Test
+    fun `keyConfigured：key 不在手上也算配好了，默认 false 时一字不变`() {
+        // 本端有 key：这一格从来用不上（`AgentConfigStore.save` 也不会写它）
+        val onDevice = AgentConfig(apiKey = "sk-假的-测试值")
+        assertEquals(false, onDevice.keyConfigured)
+        assertTrue(onDevice.isConfigured)
+
+        // 浏览器那一端：apiKey 恒为空串（它一个字都不拿到），靠 serve 投影过来的 keyConfigured
+        val onBrowser = AgentConfig(keyConfigured = true)
+        assertTrue(onBrowser.apiKey.isEmpty())
+        assertTrue(onBrowser.isConfigured)
+
+        // 两边都没配：还是 false（与搬迁前逐字相同的那一条）
+        assertFalse(AgentConfig().isConfigured)
+    }
 }

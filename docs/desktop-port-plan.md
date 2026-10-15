@@ -1017,7 +1017,7 @@ campus-api 那边虽然有 `/api/jwxt/changes` 与 `/api/jwxt/exams`，但本端
 | **D11b** | 场馆「去支付」 | **serve 端一条真支付入口，浏览器里真能付款** | 用户明确「要真能付」。这条把 serve 从「只读代理」变成「有支付能力的远端」⇒ HTTPS + 鉴权（D11）从「加分项」变成**前提** |
 | **D8** | 持久化 | **键名逐字 + 统一存档层 + 三端互认** | 立一份「统一存档格式」当唯一真源（目录/文件名 + JSON 形状 + 键名 + 账号后缀 `safeSuffix()` + TTL），三端都能**导出/导入**这套档案、目录**可直接拷过去用**。**Android 内部仍走 SharedPreferences/Room**（不动 C1 红线：`:app` 429 条一条不减、行为逐字不变），但对外形状逐字一致 |
 | **D9** | 多账号 | **三端都支持** | Android 用现状（keystore）；桌面 DPAPI（`docs/windows-delivery.md` 那条缝）；**web = serve 进程**（DPAPI 保护），浏览器上「切换账号」= 让 serve 换一套凭据。账号页在 web 上要与 App 同一套层级（不再落「本端没有账号这回事」） |
-| **D10** | 屁岱（Agent）在浏览器上 | **key 存 serve 侧（DPAPI），浏览器只发消息，serve 转发 SSE** | 工具层按**白名单**开放（先只读口：黄页 / 教师检索 / 课表 / 空教室 / 校历…）；配置 / 会话 / 记忆三份落盘也归 serve，走 D8 的统一存档层 |
+| **D10** | 屁岱（Agent）在浏览器上 | **key 存 serve 侧（DPAPI），浏览器只发消息，serve 转发 SSE** | 工具层按**白名单**开放（先只读口：黄页 / 教师检索 / 课表 / 空教室 / 校历…）；配置 / 会话 / 记忆三份落盘也归 serve，走 D8 的统一存档层。**⇒ 实做现状（2026-10-15，工单 **S-a → S-d 四件全部落地**）**：serve 侧的 **14 个端点 + SSE** 已落地（契约 **§5.11**），key 确实落在 serve 那一侧（`:data` 的 `protectedSecureKeyValueStore`，Windows = DPAPI；Linux/macOS 无保护器 ⇒ 仍是明文 `0600`，与今天逐字相同）；**白名单工具层（S-c）**交给模型的是那九件（`toolAllowlist` 从真下发的定义里读出来）；**`:web` 接线（S-d）**把浏览器那一格换成 `:core` 的 `AgentScreen` 本身（驱动是本端的 `WebAgentSession` + `@JsFun` 的 fetch/SSE 桥），**路由差集 5 → 4**。逐条现状与「还剩哪几件没做」写在契约 §5.11 |
 | **D11** | HTTPS / 部署 / 鉴权 | **serve 内置 HTTPS + 鉴权，开箱可启用** | 证书目录（含自签选项）+ 令牌鉴权 + 写进交付文档；反代仍可由用户自己接。**这是相机扫码 / 剪贴板 / WebCrypto / PWA 的前置**（HTTP 非 localhost = 非安全上下文，浏览器一律禁） |
 | **D12** | 能力边界逐条 | 全部**在 D11 之后**收口 | ① 付款码矩阵：引纯 Kotlin/JS 的 QR + Code128 编码器（不再只画数字）；② 匹配交友分享码：把 deflate + Base64 两条缝搬进 wasm/`commonMain`；③ 相机扫码 / 剪贴板 / WebCrypto：依赖 D11；④ PWA（系统通知 / 小组件 / 后台定时）：依赖 D11 + 用户授权；⑤ `GameMerge`：**浏览器本身就是 JS 引擎 ⇒ web 端最省**（桌面仍卡载体），按此定各端做法。**⇒ 实做与结论（2026-10-15）**：①② 见 §16.10；⑤ 与 ③ 见 §16.11（⑤：web 端真能玩、桌面仍卡载体；③：**剪贴板能用**（前置＝安全上下文，D11 已给）、**相机扫码做不到**（缺的不是相机 API 而是二维码解码器）、**WebCrypto 没有消费方**）；④ **仍未做**（缺什么与最小可行方案在 §16.11 末段） |
 | **D13** | 补端点清单 | **一律「端」**（不再逐条请示） | 我课表三端点 `/api/jwxt/changes`（调停补课）+ `exams`（考试）+ `textbooks`（教材）；教材全文库 `jiaocai1` 页图；学堂附件图片代理；成绩分项 `score-detail`；教室座位数（点亮 web 日程/详情里的 `SEAT_COUNT`）；场馆支付（D11b） |
@@ -1026,7 +1026,7 @@ campus-api 那边虽然有 `/api/jwxt/changes` 与 `/api/jwxt/exams`，但本端
 ### 16.2 「全等」的判据怎么落地（工程口径，四条）
 
 1. **路由全等**：`WebSupport.openableRouteIds` 与 `AppRoute`（43 条）的差集，只允许剩「浏览器/这一端永远做不到」的条目，且**每条都在页面上有如实说明**。
-   今天的差集是 7 条：`Agent`（D10 之后要变成真屏）/ `DownloadManager` / `Jiaocai1` / `Jiaocai1Reader`（D13 之后要做）/ `GameMerge`（D12-⑤）/ `Accounts`（D9 之后要做）/ `Browser`（它不是一屏，口径上不算差集）。**2026-10-15 起是 5 条**：`Accounts` 已由批② 的 S7b 落地、`GameMerge` 已由 D12 ⑤ 落地（§16.11）⇒ 剩下 `Agent` / `DownloadManager` / `Jiaocai1` / `Jiaocai1Reader`，外加口径上不算差集的 `Browser` —— `:web` 的 `WebRouteCoverageTest` 钉的就是这 5 条（它同时钉住「差集里每一条在 `WebSupport` 文件头都有一句为什么」）。
+   今天的差集是 7 条：`Agent`（D10 之后要变成真屏）/ `DownloadManager` / `Jiaocai1` / `Jiaocai1Reader`（D13 之后要做）/ `GameMerge`（D12-⑤）/ `Accounts`（D9 之后要做）/ `Browser`（它不是一屏，口径上不算差集）。**2026-10-15 起是 4 条**：`Accounts` 已由批② 的 S7b 落地、`GameMerge` 已由 D12 ⑤ 落地（§16.11）、`Agent` 已由 D10 的 S-d 落地（§16.1 那一行 + 契约 §5.11）⇒ 剩下 `DownloadManager` / `Jiaocai1` / `Jiaocai1Reader`，外加口径上不算差集的 `Browser` —— `:web` 的 `WebRouteCoverageTest` 钉的就是这 4 条（它同时钉住「差集里每一条在 `WebSupport` 文件头都有一句为什么」）。
 2. **存档全等**：统一存档格式是唯一真源 —— 文档 + 夹具 + 三端消费方，**遵 `docs/api-contract.md` §7 的「三处同改」**。
 3. **屏全等**：每屏的四种状态（加载 / 空 / 错误 / 降级）三端**同一套文案来源**（共享字符串与共享屏，不在各端各写一遍）。
 4. **数字回归网**：§5 那张表**只增不减**（`:app:testDebugUnitTest` **429 条一条不许减**）。

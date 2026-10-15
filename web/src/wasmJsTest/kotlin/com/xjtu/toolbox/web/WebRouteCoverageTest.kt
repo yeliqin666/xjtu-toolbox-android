@@ -101,7 +101,7 @@ class WebRouteCoverageTest {
     // ── 断言 ──
 
     @Test
-    fun `路由差集只剩那 5 条，且每条都在 WebSupport 的文件头里有如实说明`() {
+    fun `路由差集只剩那 4 条，且每条都在 WebSupport 的文件头里有如实说明`() {
         assertEquals(
             43,
             declaredRoutes.size,
@@ -109,7 +109,7 @@ class WebRouteCoverageTest {
                 "加/删一条声明要同时看这里与 desktop 那份 DesktopRouteCoverageJvmTest",
         )
         assertEquals(
-            listOf("Agent", "Browser", "DownloadManager", "Jiaocai1", "Jiaocai1Reader"),
+            listOf("Browser", "DownloadManager", "Jiaocai1", "Jiaocai1Reader"),
             notOpenableNames.sorted(),
             "差集变了（现在 ${notOpenableNames}）：$criterion；" +
                 "新补上一屏就把它从差集里拿掉（同时改 AppPage 的分支与 WebSupport 的文件头说明），" +
@@ -153,13 +153,13 @@ class WebRouteCoverageTest {
     }
 
     @Test
-    fun `AppPage 多出来的分支只有 Agent 与 Browser 两条（清单与分支必须同时改）`() {
+    fun `AppPage 多出来的分支只有 Browser 一条（清单与分支必须同时改）`() {
         val extra = appPageBranches().filterNot { it in openableNames.toSet() }.sorted()
         assertEquals(
-            listOf("Agent", "Browser"),
+            listOf("Browser"),
             extra,
             "AppPage 里多出了清单之外的分支（现在 $extra）：$criterion；" +
-                "Agent 是降级页、Browser 不是一屏（两条都在 WebSupport 文件头里写着）——" +
+                "Browser 不是一屏（`navigateSameTab`，在 WebSupport 文件头里写着）——" +
                 "除此之外的分支必须同时进 openableRouteIds，否则那一屏在首页宫格与学辅目录上都没有门",
         )
 

@@ -43,12 +43,17 @@ internal const val API_STATUS_PATH = "$API_PREFIX/status"
  * 默认参数在这里等于给测试埋一个「悄悄碰用户真实凭据」的陷。
  *
  * @param session serve 进程的会话装配（[ServeSession]）：`/api/session*` 与 `/api/status` 的会话源。
+ * @param agent 屁岱（Agent）那一族的驱动与三份落盘（契约 §5.11）。
+ *   默认值就是**生产装配**（[ServeAgent.forServe]）；只有本族的契约测试会传自己那一份（临时数据根）。
+ *   它与 [session] **不是同一种东西**：session 一构造就读落盘凭据，而 agent 的三个 store 都是**懒读**
+ *   —— 不碰 `/api/agent*` 就一个字节都不读写，所以这里可以给默认值。
  * @param startedAtMillis [ServeStatus.uptimeSeconds] 的计时起点（默认进程启动那一刻）
  */
 fun Application.serveModule(
     config: ServeConfig,
     accessToken: String,
     session: ServeSession,
+    agent: ServeAgent = ServeAgent.forServe(session),
     startedAtMillis: Long = System.currentTimeMillis(),
 ) {
     // 出网 JSON 用 ApiJson（AppJson + explicitNulls，理由见那里的 KDoc）
@@ -110,6 +115,12 @@ fun Application.serveModule(
             // 做，`readOnly:true` 就是这件事的能力开关（见 `AccountRoutes.kt` 的文件头）。
             accountRoutes(session)
 
+            // 屁岱（Agent）那一族（契约 §5.11 / D10）：14 个端点，其中 `POST /api/agent/chat`
+            // 是 **SSE**（`text/event-stream`，与本族其余条的信封不同，见那个文件的 KDoc）。
+            // 驱动与三份落盘都在 [ServeAgent] 里；它**不要求已登录** —— key 与循环都在 serve，
+            // 而「没配 key」是 409 + 中文短句（不静默失败）。
+            agentRoutes(agent)
+
             // 过了闸门、但还没实现这个端点 ⇒ 404（信封，中文短句）。
             // 尾卡选择器 + handle（不带方法）：GET/POST/… 全收 —— 没实现的端点不该在方法上给差别待遇。
             route("{path...}") {
@@ -132,8 +143,9 @@ fun serveServer(
     config: ServeConfig,
     accessToken: String,
     session: ServeSession,
+    agent: ServeAgent = ServeAgent.forServe(session),
     startedAtMillis: Long = System.currentTimeMillis(),
 ): EmbeddedServer<CIOApplicationEngine, CIOApplicationEngine.Configuration> =
     embeddedServer(CIO, port = config.port, host = config.host) {
-        serveModule(config, accessToken, session, startedAtMillis)
+        serveModule(config, accessToken, session, agent, startedAtMillis)
     }

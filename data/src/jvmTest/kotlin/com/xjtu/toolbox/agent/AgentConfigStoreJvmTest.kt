@@ -80,6 +80,26 @@ class AgentConfigStoreJvmTest {
         assertEquals(AgentConfig(), store().load())
     }
 
+    /**
+     * `keyConfigured` 是 `:core` 模型上的一格**非密文信道**（浏览器那一端拿不到 key）：
+     * 它**不进落盘** —— 存了也不写键，读回来恒为 `false`，否则 `docs/storage-layout.md` §7
+     * 的 A1/A2 键集合判据就会多出一个键。
+     */
+    @Test
+    fun `keyConfigured 不落盘：存了也不写键，读回来恒为 false`() {
+        store().save(AgentConfig(apiKey = "sk-fake-config-003", keyConfigured = true))
+
+        assertNull(plainStore().getString("key_configured"), "非敏感那半不该多一个键")
+        assertNull(plainStore().getString("keyConfigured"), "非敏感那半不该多一个键（驼峰写法也不许）")
+        // 密码那一半里只有 api_key 这一个键
+        assertNull(secureStore().getString("key_configured"))
+        assertEquals("sk-fake-config-003", secureStore().getString("api_key"))
+
+        val loaded = store().load()
+        assertEquals(false, loaded.keyConfigured, "读回来那一格只能是默认的 false")
+        assertTrue(loaded.isConfigured, "key 在本端 ⇒ isConfigured 仍靠 apiKey 那一格")
+    }
+
     @Test
     fun `密钥只落在密文那半，明文那份里没有 api_key 这个键`() {
         store().save(AgentConfig(apiKey = "sk-fake-config-002", searchEngine = AgentConfig.SEARCH_BAIDU))

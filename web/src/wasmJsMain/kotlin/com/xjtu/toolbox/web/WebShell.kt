@@ -31,7 +31,9 @@ import com.xjtu.toolbox.shell.ShellTarget
  *
  * 哪一格真能做：见 `ToolboxWebApp` 的 `page` 分支（首页 = 共享 `HomeScreen` + web `WebHomeHost`，
  * 日程 = 共享 `ScheduleScreen` + web `ScheduleHost`，
- * 我的 = 共享 `SettingsScreen` + web `SettingsHost`），做不到的（屁岱）见 `WebFallbackScreens.kt`。
+ * 我的 = 共享 `SettingsScreen` + web `SettingsHost`，
+ * 屁岱 = 共享 `AgentScreen` + web `WebAgentSession` / `WebAgentHost` / `WebAgentScreen`），
+ * 壳里认不出的自定义目标见 `WebFallbackScreens.kt`。
  *
  * ## 「会话」那一屏不进 tab 列表（壳级 [ShellTarget.Custom] 入口）
  *

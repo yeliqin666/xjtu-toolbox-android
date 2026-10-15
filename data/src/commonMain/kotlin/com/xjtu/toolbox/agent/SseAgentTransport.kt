@@ -10,6 +10,7 @@ import com.xjtu.toolbox.util.longValue
 import com.xjtu.toolbox.util.obj
 import com.xjtu.toolbox.util.stringValue
 import java.util.concurrent.TimeUnit
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.awaitCancellation
@@ -41,11 +42,30 @@ import okhttp3.RequestBody.Companion.toRequestBody
  *
  * ## 责任（与 [AgentTransport] 的 KDoc 对齐）
  *
- *  - 增量当场回调（不是攒完再一次给），回调走 `Dispatchers.Main.immediate`；
+ *  - 增量当场回调（不是攒完再一次给），回调派发到 [callbackDispatcher]；
  *  - 协程被取消时 `call.cancel()`（[cancellationWatcher]），别让连接在后台把 token 烧完；
  *  - IO 由这一层自己包（循环侧不再 `withContext(Dispatchers.IO)`）—— 网络边界的调度是传输层的事。
+ *
+ * ## 增量回调派发到哪（[callbackDispatcher]）
+ *
+ * Android / 桌面有主线程（`Dispatchers.Main`）⇒ 回调就派发到它（上屏的写法在 UI 线程，**行为一字未改**）。
+ * `:server` 的 serve 进程**没有主线程**（它只依赖 `kotlinx-coroutines-core`，不引 coroutines-swing /
+ * coroutines-android），直接写 `Dispatchers.Main.immediate` 会在第一个增量上抛
+ * 「Module with the Main dispatcher had failed to initialize」—— 屁岱在浏览器上根本跑不起来。
+ * 所以这一格按「有主线程就用、没有就用当前端自己的后台派发器」选一次：两端的字节与顺序都没变。
  */
 class SseAgentTransport : AgentTransport {
+
+    /**
+     * 增量回调用哪个派发器（见类 KDoc 的「增量回调派发到哪」）：先试 `Dispatchers.Main.immediate`
+     *（Android / 桌面今天就是它），拿不到就用 [Dispatchers.Default]。
+     *
+     * 【本机实测】没有 Main 时 `Dispatchers.Main.immediate` 取属性就抛 `IllegalStateException`
+     *（「Module with the Main dispatcher had failed to initialize」），所以这里必须包住：
+     * 它不是「延迟到某个时刻」的错，是**取的那一刻**就错。
+     */
+    private val callbackDispatcher: CoroutineDispatcher =
+        runCatching { Dispatchers.Main.immediate }.getOrElse { Dispatchers.Default }
 
     /** 流式累积一个 tool_call（OpenAI 把 id/name/arguments 分片下发，按 index 聚合）。 */
     private class ToolCallAcc(var id: String = "", var name: String = "") {
@@ -122,12 +142,12 @@ class SseAgentTransport : AgentTransport {
 
                     delta.get("reasoning_content")?.takeIf { !it.isNull }?.stringValue?.let {
                         reasoningSb.append(it)
-                        withContext(Dispatchers.Main.immediate) { onReasoningDelta(it) }
+                        withContext(callbackDispatcher) { onReasoningDelta(it) }
                     }
                     delta.get("content")?.takeIf { !it.isNull }?.stringValue?.let { frag ->
                         if (frag.isNotEmpty()) {
                             contentSb.append(frag)
-                            withContext(Dispatchers.Main.immediate) { onDelta(frag) }
+                            withContext(callbackDispatcher) { onDelta(frag) }
                         }
                     }
                     delta.get("tool_calls")?.takeIf { !it.isNull }?.jsonArray?.forEach { el ->

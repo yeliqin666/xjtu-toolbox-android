@@ -42,6 +42,18 @@ internal fun ConfigPanel(
      * 没有形象这一档的端（桌面 / Web）传 null ⇒ 那一整块不画。
      */
     appearanceSection: (@Composable () -> Unit)? = null,
+    /**
+     * API Key 那一行。默认 = 下面那个可输入的框（Android / 桌面**逐字不变**）；
+     * 浏览器那一端拿不到 key（它存在运行 serve 的那台机器上）⇒ 宿主交一格「只读徽标 + 一句指路」，
+     * 整行换掉（`docs/agent-web-spec.md` §4.3 第 2 条）。
+     */
+    apiKeySection: (@Composable () -> Unit)? = null,
+    /**
+     * 「记住的偏好」那一块。默认 = 本端 [AgentMemory]（Android / 桌面逐字不变）；
+     * 浏览器上模型用的记忆在 **serve** ⇒ 宿主把那一块整块交进来（`/api/agent/memory*` 那份视图）。
+     * **这一条是必改项**：不收口的话面板显示的记忆与模型用的记忆不是一份（§4.3 第 3 条）。
+     */
+    memorySection: (@Composable () -> Unit)? = null,
     scrollBehavior: ScrollBehavior,
     onSave: (AgentConfig) -> Unit,
     modifier: Modifier = Modifier,
@@ -155,7 +167,10 @@ internal fun ConfigPanel(
                         keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
                         keyboardActions = KeyboardActions(onDone = { saveNow() })
                     )
-                    TextField(
+                    // API Key 那一行：默认 = 下面这个可输入的框（Android / 桌面逐字不变）。
+                    // 浏览器那一端拿不到 key（它存在运行 serve 的那台机器上）⇒ 宿主交一格
+                    // 「只读徽标 + 一句指路」把整行换掉（`docs/agent-web-spec.md` §4.3 第 2 条）。
+                    if (apiKeySection != null) apiKeySection() else TextField(
                         value = apiKey,
                         onValueChange = {
                             apiKey = it
@@ -191,7 +206,7 @@ internal fun ConfigPanel(
                                 )
                             } else {
                                 IconButton(
-                                    enabled = apiKey.isNotBlank(),
+                                    enabled = config.isConfigured,
                                     onClick = {
                                         fetchError = null
                                         fetchingModels = true
@@ -212,7 +227,7 @@ internal fun ConfigPanel(
                                     Icon(
                                         Icons.Default.Refresh,
                                         contentDescription = "拉取模型列表",
-                                        tint = if (apiKey.isNotBlank()) MiuixTheme.colorScheme.primary
+                                        tint = if (config.isConfigured) MiuixTheme.colorScheme.primary
                                         else MiuixTheme.colorScheme.onSurfaceVariantSummary,
                                     )
                                 }
@@ -344,50 +359,63 @@ internal fun ConfigPanel(
         //（见 `PidaiAppearanceHost`）。**只有有形象的端才画**：`:app` 交 `PidaiAppearancePanel`，
         // 桌面没有形象设置那一档 ⇒ 这里什么都不出（见 [AgentScreen] 的 `appearanceSection`）。
         appearanceSection?.let { section -> item { section() } }
+        // 记住的偏好必须**可见可删**：模型往本机写了东西，用户有权知道写了什么。
+        // 内置那一份读的是**本端**的 [AgentMemory]；浏览器上模型用的记忆在 serve ⇒ 那一块由宿主整块交进来
+        //（见 [memorySection]）。
         item {
-            // 记住的偏好必须**可见可删**：模型往本机写了东西，用户有权知道写了什么。
-            val memory = remember { AgentMemory() }
-            var memories by remember { mutableStateOf(memory.all()) }
-            if (memories.isNotEmpty()) {
-                Card(colors = CardDefaults.defaultColors(color = com.xjtu.toolbox.ui.components.AppCardColor)) {
-                    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        Text("记住的偏好", style = MiuixTheme.textStyles.title3, fontWeight = FontWeight.Bold)
-                        Text(
-                            "只存在这台设备上，不上传。最多 ${AgentMemory.MAX_ITEMS} 条。增删从下一个新对话起生效。",
-                            style = MiuixTheme.textStyles.footnote1,
-                            color = MiuixTheme.colorScheme.onSurfaceVariantSummary
-                        )
-                        memories.forEach { (k, v) ->
-                            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                                Column(Modifier.weight(1f)) {
-                                    Text(k, style = MiuixTheme.textStyles.body2, fontWeight = FontWeight.Medium)
-                                    Text(
-                                        v,
-                                        style = MiuixTheme.textStyles.footnote1,
-                                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary
-                                    )
-                                }
-                                TextButton(
-                                    text = "删除",
-                                    onClick = {
-                                        memory.forget(k)
-                                        memories = memory.all()
-                                    },
-                                )
-                            }
+            if (memorySection != null) memorySection() else AgentMemorySection()
+        }
+        // 所有配置已改为即时保存，无需底部按钮
+    }
+}
+
+/**
+ * 「记住的偏好」那一块的内置实现：读**本端**的 [AgentMemory]（落盘在本端数据根目录里）。
+ *
+ * 单独拎成一个函数只为一件事：让宿主可以把这一整块换掉（[ConfigPanel] 的 `memorySection`）——
+ * 浏览器那一端模型用的记忆在 serve，读本端存储的那一份画出来就是**谎话**。
+ */
+@Composable
+private fun AgentMemorySection() {
+    val memory = remember { AgentMemory() }
+    var memories by remember { mutableStateOf(memory.all()) }
+    if (memories.isNotEmpty()) {
+        Card(colors = CardDefaults.defaultColors(color = com.xjtu.toolbox.ui.components.AppCardColor)) {
+            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text("记住的偏好", style = MiuixTheme.textStyles.title3, fontWeight = FontWeight.Bold)
+                Text(
+                    "只存在这台设备上，不上传。最多 ${AgentMemory.MAX_ITEMS} 条。增删从下一个新对话起生效。",
+                    style = MiuixTheme.textStyles.footnote1,
+                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary
+                )
+                memories.forEach { (k, v) ->
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f)) {
+                            Text(k, style = MiuixTheme.textStyles.body2, fontWeight = FontWeight.Medium)
+                            Text(
+                                v,
+                                style = MiuixTheme.textStyles.footnote1,
+                                color = MiuixTheme.colorScheme.onSurfaceVariantSummary
+                            )
                         }
                         TextButton(
-                            text = "全部清空",
+                            text = "删除",
                             onClick = {
-                                memory.clear()
+                                memory.forget(k)
                                 memories = memory.all()
                             },
-                            modifier = Modifier.fillMaxWidth(),
                         )
                     }
                 }
+                TextButton(
+                    text = "全部清空",
+                    onClick = {
+                        memory.clear()
+                        memories = memory.all()
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                )
             }
         }
-        // 所有配置已改为即时保存，无需底部按钮
     }
 }

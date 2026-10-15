@@ -50,6 +50,12 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
 fun AgentScreen(
     host: AgentHost,
     /**
+     * 驱动这一屏的那一份会话状态。**不给就用本端的 [AgentViewModel]**（Android / 桌面，与搬迁前同一处、
+     * 同一个 `key = "agent"`）；浏览器那一端交的是它自己的 `WebAgentSession`（循环在 serve，
+     * 见 [AgentChatSession] 与 `docs/agent-web-spec.md` §4.2）。
+     */
+    session: AgentChatSession? = null,
+    /**
      * 系统相册挑图的适配器（`:app` 用 `rememberLauncherForActivityResult` 实现，
      * 见那个模块的 `rememberAndroidAgentImagePicker`）。默认 = 这一端没有相册，
      * 而 [AgentCapability.IMAGE_INPUT] 会把那颗回形针整颗不画。
@@ -75,6 +81,12 @@ fun AgentScreen(
     /** 「形象选择」那一整块：`:app` 交 `PidaiAppearancePanel`；没有形象设置的端传 null。 */
     appearanceSection: (@Composable () -> Unit)? = null,
     /**
+     * 配置面板里那两格要交给宿主的（见 [ConfigPanel] 的 `apiKeySection` / `memorySection`）：
+     * 浏览器那一端拿不到 key（它在 serve 上）、模型用的记忆也在 serve ⇒ 这两块得由它自己画。
+     */
+    apiKeySection: (@Composable () -> Unit)? = null,
+    memorySection: (@Composable () -> Unit)? = null,
+    /**
      * tab 模式下宿主玻璃顶栏的高度。非 0 时宿主不再整体下移这一页：对话、配置两个列表铺到
      * 顶栏下面、把这段留白放进列表里；不滚动的会话栏、抽屉自己让出这段高度。
      */
@@ -85,7 +97,7 @@ fun AgentScreen(
     var showConfig by remember { mutableStateOf(false) }
     // 与 `:app` 原来挂在导航项上的那颗 ViewModel 同位（切 tab 不丢）；宿主在宿主侧 remember，
     // 所以 key 固定成 "agent" 就够（两个宿主形态、一个实例）。
-    val vm: AgentViewModel = viewModel(key = "agent") { AgentViewModel(host) }
+    val vm: AgentChatSession = session ?: viewModel(key = "agent") { AgentViewModel(host) }
 
     // 多会话持久化：绑定一次，加载会话列表并恢复最近会话。
     // 存储本体在 `:data`（`AgentSessionStore`），根目录由那边的缝解析（Android 就是原来的 filesDir）。
@@ -207,18 +219,24 @@ fun AgentScreen(
                                 slideOutHorizontally(animationSpec = tween(180)) { -direction * it / 6 }
                         )
                 },
-                label = "agentContent",
             ) { configVisible ->
                 if (configVisible) {
                     ConfigPanel(
                         host = host,
                         appearanceSection = appearanceSection,
+                        apiKeySection = apiKeySection,
+                        memorySection = memorySection,
                         config = config,
                         scrollBehavior = effectiveScrollBehavior,
                         onSave = { newConfig ->
                             // 即改即存：每次配置变动立即写入，不必等到用户点「保存」
                             host.saveConfig(newConfig)
-                            config = newConfig
+                            // 「这一端配没配 Key」是宿主提供的一格（浏览器上 Key 在 serve 侧，本端拿不到）：
+                            // 面板自己拼的那份不带它 ⇒ 保存后按宿主那份补回来，否则页面会当「没配」显示
+                            // （Android / 桌面的默认实现恒为 false ⇒ 这一行与搬迁前逐字同值）
+                            config = newConfig.copy(
+                                keyConfigured = newConfig.keyConfigured || host.loadConfig().keyConfigured,
+                            )
                         },
                         modifier = Modifier
                             .fillMaxSize()
@@ -279,7 +297,7 @@ fun AgentScreen(
                 OverlayDialog(
                     show = true,
                     title = "对话上下文已达上限",
-                    summary = AgentViewModel.CONTEXT_EXHAUSTED_MESSAGE + "\n\n继续累积可能导致 AI 回复变慢或回答失准。",
+                    summary = AgentChatSession.CONTEXT_EXHAUSTED_MESSAGE + "\n\n继续累积可能导致 AI 回复变慢或回答失准。",
                     onDismissRequest = { showContextExhaustedDialog = false }
                 ) {
                     Row(Modifier.fillMaxWidth()) {

@@ -52,6 +52,7 @@ curl -s -H "Authorization: Bearer $TOKEN" "http://127.0.0.1:40961/api/jwxt/sched
 | 3 | 第三批（§5.7）：`/api/pay/{code,vouchers}` · `/api/feedback/{replies,public-qa}` · `/api/match/dining` · `POST /api/webvpn/convert`；**批③-b / D7（2026-10-15）加** `POST /api/feedback/submit` · `POST /api/pay/vouchers/select` | ⑧ 付款码（拿码 + 勾选券）/ 反馈（读 + 提交）/ WebVPN（匹配屏不消费端点） |
 | 4 | 第四批（§5.8）：`/api/jwxt/{changes,exams,textbooks}` · `/api/jwapp/score-detail` · `/api/emptyroom/seat-count` | ③ 日程（考试栏/教材栏/N座）· ⑦ 成绩屏的分项 · 教材屏「本学期我的教材」 |
 | 5 | 批①收尾（§5.9）：`/api/jwxt/schedule?merged=1`（同一端点的新参数档） | ③ 日程「格子已合调停补课」 |
+| 6 | 批⑤（§5.11）：`/api/agent/*`（十四条 + `POST /api/agent/chat` 的 SSE） | ⑪ 屁岱（**这一格要先重启 serve**；就算进程旧，那一格也会如实说「读不到配置」并给一次重试） |
 
 > 场馆 / 图书馆两条**写**端点（`§5.3.2 /api/venue/*`、`§5.3.1 /api/library/action`）是 2026-10-11/12 落地，若进程早于那两天同样要重启。判据同上：带令牌 curl 一个写端点看是 404 还是 401。
 > 场馆「去支付」那一跳（`GET /api/venue/pay`，批③-a / D11b，契约 §5.3.2 第 6 条）是 **2026-10-15** 落地的：
@@ -143,7 +144,6 @@ serve 形态下，会话在 serve 进程里。要走登录的点位（AppRoute �
 
 ### ⑩ 明确不可用项（逐个为什么）
 
-- [ ] 屁岱（`Agent`） | 底栏第三格「屁岱」 | 看落点 | 落降级页「屁岱（Web 这一端）」，写清缺 `AgentHost` 四件（配置/会话/记忆落盘、流式传输、工具层） | 出现聊天界面 | 设计稿 `docs/agent-web-spec.md` 未实现（循环要跑在 serve，D10）
 - [ ] 下载管理（`DownloadManager`） | `?route=download_manager` | 看落点 | 落「这一屏还没搬到 Web」+「AppRoute.DownloadManager」 | 出现下载列表 | 取数挂 okhttp/Context
 - [ ] 教材全文（`Jiaocai1`） | `?route=jiaocai1` | 看落点 | 落「这一屏还没搬到 Web」 | 出现全文库书架 | 另一域名另一套会话，本轮不碰（D13 之后要做）
 - [ ] 教材全文阅读器（`Jiaocai1Reader`） | `?route=jiaocai1_reader/<ssno>?title=` | 看落点 | 落「这一屏还没搬到 Web」 | 出现阅读器 | 同上
@@ -153,11 +153,11 @@ serve 形态下，会话在 serve 进程里。要走登录的点位（AppRoute �
 
 ---
 
-### ⑪ 本轮点亮的：合成西交大在浏览器上真能玩 + 浏览器能力自检（D12 ⑤ / ③，2026-10-15）
+### ⑪ 本轮点亮的：合成西交大在浏览器上真能玩 + 浏览器能力自检 + 屁岱（D12 ⑤ / ③ / D10 的 S-d，2026-10-15）
 
 - [ ] 合成西交大（`GameMerge`） | 首页宫格「小游戏」→ 合集第一张卡「合成西交大」（或 `?route=game_merge`） | 看整屏，玩一局 | **真跑起来**：顶栏「合成西交大」+ 返回箭头下面就是**Android 那一张游戏**（同一个 HTML + `index.js` + 本地 Matter.js + 9 张校徽 webp，构建期从 `:app` 的 assets 原样拷进 web 产物）—— 能投放、能合、能出「本局得分」与「再来一局」；顶栏与底栏都还在，点别的格子能走 | 白屏 / 顶栏下面空着 / 落「这一屏还没搬到 Web」（后者= serve 进程或在吐旧产物，见「前置条件 2」） | 两条如实差异：① **没音效**（浏览器里没有 App 那座 JS 桥 ⇒ 游戏侧静默；这其实是本端所有小游戏的共同事实）；② **成绩回传的时机**不同（App 是游戏结束那一刻由桥回调；这里是**离开这一屏**时把游戏页记的成绩收回合集页那一行）—— 端上看到的最高分两边一致。桌面端仍卡载体（见⑩最后一行）
 - [ ] 浏览器能力自检（D12 ③） | 底栏「学辅」→ 页底「后端自检」（或 `?route=probe`） | 往下翻到「浏览器能力（这一份部署的）」那张卡 | 五行逐条带 ✓/✗ **加一句「本端谁在用 / 差什么」**：安全上下文 / 剪贴板写入 / 相机 / 浏览器自带二维码识别器 / WebCrypto | 没这张卡 / 只有✓没有说明 | 这几条**跟地址走**：HTTPS 或 localhost 才有，明文 HTTP + 非 localhost 一律 ✗（后者下**页面上几颗复制按钮会静默失败**）。三样「能不能用」的结论与最小可行方案（含 PWA）见 `docs/desktop-port-plan.md` §16.11
-
+- [ ] **屁岱（`Agent`）真能聊**（D10 的 S-d） | 底栏第三格「屁岱」（或 `?route=agent`） | ① 看页顶那行说明与「API Key」那一格；② 发一句真话；③ 顺手点一次「停止」，再打开一次会话列表 | ① 页顶那段「这一份部署能做什么」列的是**真下发的工具**（`GET /api/agent/config` 的 `toolAllowlist`，今天九件：`calculate` / `app_guide` / `preference` / `get_calendar` / `search_yellow_page` / `find_faculty` / `get_schedule` / `get_empty_rooms` / `get_exam_schedule`），并逐档写清不开的为什么；Key 那一行是**只读徽标**（「已在运行 serve 的那台机器上配好」）—— **没有输入框**；② 逐字上屏（正文 / 思考折叠栏 / 工具行「查询课表…」→「已查询课表」），收尾后侧栏标题会变；③ 点「停止」后那一条**既不写「已完成」也不写出错**（一律写「（已停止）」），会话抽屉里能切 / 新建 / 改名 / 删 | 页顶那段把我们没开放的工具也列成能查 / Key 那一行是个可输入的框 / 发出去没反应（或憋 30 秒才一次性上屏，那是不逐帧）/ 点停止后还在转 | **两张屏的驱动不同、屏是同一个**（`:core` 的 `AgentScreen`）；循环与工具层、会话与记忆落盘、Key 全在 **serve**（契约 §5.11）；⚠️ **两处如实**：① 「改上一条」那颗钮是共享屏画的，本端只能做到「屏幕上换掉 + 再发一次」（serve 契约里没有「替换上一轮」的入口 —— 设计稿 §9 未决 #7）；② 没配 Key 时输入栏上方那条提示仍写着「API Key 配好就能聊」（那是 `:core` 的文案，未决 #8）；⚠️ 还有一件**没验过**的事：那个 `@JsFun` 回调桥的**异步**那一支（`Promise` 微任务里回调）在测试源集里验不了（`kotlin.test` 的 wasmJs 适配器不支持 `suspend` 测试函数）⇒ 就靠上面 ② 那一步在真浏览器里证明它逐字上屏。
 ---
 
 ## 判据出处（期望值从哪来，不许凭印象）
@@ -173,14 +173,14 @@ serve 形态下，会话在 serve 进程里。要走登录的点位（AppRoute �
 | ⑦ 第二批四屏 | `ToolboxWebApp.kt` 四个分支（`AppRoute.Lms/Jiaocai/JwappScore/Iclassface`）；`web/.../web/WebJiaocaiHost.kt`（`WebJiaocaiTermTextbooks`）；`docs/api-contract.md` §5.6（含消费方表） |
 | ⑧ 第三批四屏 | `ToolboxWebApp.kt` 四个分支（`AppRoute.PaymentCode/Feedback/Match/WebVpnConverter`）；匹配交友那一屏是 `:core` 的 `MatchScreen` + 本端 `WebMatchHost`（旧的那张「匹配说明页」`WebMatchGapScreen` 自 D12 ② 起已删）；`docs/api-contract.md` §5.7（含消费方表） |
 | ⑨ 形态差别 | `docs/api-contract.md` §5.4（模式开关/登录/令牌/消费方不画）；§5.3.2 第 6 条（支付那一跳的 302、三条如实说明）；`WebServeOnlyScreen` / `WebScheduleGapNote` 两种形态分支；`WebVenueHost`（`venuePayTarget`）|
-| ⑩ 明确不可用项 | `WebSupport.kt` 文件头（「什么不在清单里」）；`ToolboxWebApp.kt` 的 `AppRoute.Agent` 降级分支 + `NotPortedScreen`；`docs/desktop-port-plan.md` §16.2 第 1 条（43 条路由的差集，2026-10-15 起剩 5 条：`Agent`/`Browser`/`DownloadManager`/`Jiaocai1`/`Jiaocai1Reader`）；`docs/agent-web-spec.md`（屁岱设计稿未实现） |
-| ⑪ 本轮点亮的两格 | 合成西交大：`web/.../WebGameMerge.kt`（`iframe` + `MergeGameScoreBridge`）+ `web/build.gradle.kts` 的 `mergeGameResources`（`:app` 的 assets 原样拷进产物）+ `ToolboxWebApp.kt` 那条分支 + `WebSupport.openableRouteIds` 的 `AppRoute.GameMerge`；`docs/desktop-port-plan.md` §16.11。浏览器能力自检：`web/.../WebBrowserCapabilities.kt` + `ProbeScreen.kt` 那张卡 + `WebBrowserCapabilitiesTest` |
+| ⑩ 明确不可用项 | `WebSupport.kt` 文件头（「什么不在清单里」）；`ToolboxWebApp.kt` 的 `NotPortedScreen`（还有屏没搬的那些）；`docs/desktop-port-plan.md` §16.2 第 1 条（43 条路由的差集，2026-10-15 起剩 **4** 条：`Browser`/`DownloadManager`/`Jiaocai1`/`Jiaocai1Reader`） |
+| ⑪ 本轮点亮的三格 | 合成西交大：`web/.../WebGameMerge.kt`（`iframe` + `MergeGameScoreBridge`）+ `web/build.gradle.kts` 的 `mergeGameResources`（`:app` 的 assets 原样拷进产物）+ `ToolboxWebApp.kt` 那条分支 + `WebSupport.openableRouteIds` 的 `AppRoute.GameMerge`；`docs/desktop-port-plan.md` §16.11。浏览器能力自检：`web/.../WebBrowserCapabilities.kt` + `ProbeScreen.kt` 那张卡 + `WebBrowserCapabilitiesTest`。屁岱：`ToolboxWebApp.kt` 的 `AppRoute.Agent` 分支 + `web/.../WebAgentScreen.kt`（表头 / 页顶说明 / Key 徽标 / serve 侧记忆那一块）+ `WebAgentSession.kt`（SSE 帧 → 状态）+ `AgentSseBridge.kt`（`@JsFun` 的 fetch/SSE 桥）+ `AgentSse.kt`（纯函数解析器）+ `WebSupport.openableRouteIds` 的 `AppRoute.Agent`；`docs/agent-web-spec.md` §4（逐槽位）+ `docs/api-contract.md` §5.11 |
 
 ---
 
 ## 本清单覆盖不到的东西
 
-- **逐像素/逐状态全等（丙口径）的自动化**：`:web` 没有测试源集（`web/src/` 只有 `wasmJsMain`），本清单是**人工照单点**，不能替代 D14 要建的 `:web` 测试源集（路由清单覆盖测试 + 存档层互认 + 关键屏 wasmJs 测试）。
+- **逐像素/逐状态全等（丙口径）的自动化**：`:web` 的测试源集（`web/src/wasmJsTest`，D14 / 工单 S8）**已建**（跑在真浏览器里：`./gradlew :web:wasmJsBrowserTest`），但里面大部分是**纯函数与源码一致性**那一类（路由清单 = 分支、档案层互认、SSE 帧解析、白名单与页面说明同源…）；**逐像素 / 逐状态的视觉全等仍然是人工照单点**，本清单不能被它替代（今天两边各行其是：清单管人类看得见的现象，测试管能断言的判据）。
 - **深色/侧栏的视觉细节**：本清单只验「变了/没变」，不验与 Android 的像素级差异。
 - **错误态 / 空态 / 加载态的逐条文案**：除各屏页顶缺口说明外，其余文案逐条对 Android 没在本清单展开（那是 D14/丙口径的活）。
 - **统一存档层 / 多账号（批②）**：`Accounts` / 存档互认 / serve 侧 DPAPI 等，见 `docs/storage-layout-plan.md`，不在本清单（本清单只管「serve 这一页现在长什么样」）。

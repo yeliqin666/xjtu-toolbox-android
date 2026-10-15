@@ -123,3 +123,31 @@ internal class ProtectedKeyValueStore(
         const val ID_SEPARATOR = ':'
     }
 }
+
+/**
+ * `:data` 的密文存储 **+ 凭据保护器** 的那一份：位置、文件名与权限与 [secureKeyValueStore] 逐字相同，
+ * 只在有原生保护器的平台上（Windows ⇒ DPAPI）多一层信封。
+ *
+ * 与 [JvmCredentialStore] 里那一行是同一条合成口径（`ProtectedKeyValueStore(secureKeyValueStore(…), protector)`），
+ * 差别只在于凭什么 [name]：凭据那份固定，这一份按账号后缀变。
+ *
+ * ## 为什么要把它露出来
+ *
+ * `ProtectedKeyValueStore` 本身是 `:data` 的 `internal`，而**屁岱的 API Key** 不在凭据那一份里 ——
+ * 它落在 `agent_config_secure<suffix>`（`docs/storage-layout.md` §2.2 / §3.2 第 9 行）。
+ * serve 的屁岱端点要把这一份也套上保护器（`docs/agent-web-spec.md` §5.1 / 缺口 A），
+ * 所以这里给一个**公开的**构造口，而不是让 `:server` 自己去 `new`（它 new 不出 internal 的类）。
+ * 传不传它是各端自己的事：不传 = 与今天逐字相同（Linux / macOS 没有保护器，本来就是明文 `0600`）。
+ *
+ * @param name 文件名（不含目录与 `.properties` 后缀），一般带账号后缀。
+ * @param legacyFallbackName 老明文文件的名字，只用于「第一次读时迁进来」，不传就没有这一步。
+ * @param protector 凭据保护器。默认 = 本机那一档（[secretProtectorForPlatform]：Windows ⇒ DPAPI，
+ *   其余平台没有）。**收成参数只为一件事**：Windows 那条密封路在 Linux / macOS 上跑不到，
+ *   而它是「读了就密封、解不开就抛」这条契约的一半 —— 单测传一份夹具保护器就能在本机把它钉住
+ *（照 [secretProtectorForPlatform] 的 `osName` 参数那一处先例）。生产调用点一个都不传。
+ */
+fun protectedSecureKeyValueStore(
+    name: String,
+    legacyFallbackName: String? = null,
+    protector: SecretProtector? = secretProtectorForPlatform(),
+): KeyValueStore = ProtectedKeyValueStore(secureKeyValueStore(name, legacyFallbackName), protector)

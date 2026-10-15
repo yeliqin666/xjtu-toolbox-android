@@ -17,8 +17,9 @@ import com.xjtu.toolbox.platform.secureKeyValueStore
  * | 非敏感（服务商 / 模型 / 助手名 / 搜索源 / 思考开关） | `agent_config<suffix>`：`keyValueStore` 的 Android actual 就是搬迁前那个 `SharedPreferences` 文件 | 宿主传 `secureKeyValueStore`（`keyValueStore` 的 jvm 实现现在也真落盘，桌面仍走 0600 密文那套） |
  * | **API Key** | `agent_config_secure<suffix>`：`SecurePrefs` 的那个加密文件 | 同一份缝 = 0600 落盘文件，Windows 上再套一层 DPAPI（见 `:data` 的 `SecretProtector` / `docs/windows-delivery.md`） |
  *
- * 密钥那一半**刻意不给宿主换**：它只能落在密文存储上。老机器上那份明文
- * `agent_config_fallback<suffix>` 由 [legacyFallbackName] 负责迁进来再删掉（照搬迁前的名字）。
+ * 密钥那一半**只能落在密文存储上**：默认那份就是 [secureKeyValueStore]（Windows 上还套一层
+ * DPAPI 的那一份由宿主显式传进来，见构造参数 [secureStoreOf]）。老机器上那份明文
+ * `agent_config_fallback<suffix>` 由 `legacyFallbackName` 负责迁进来再删掉（照搬迁前的名字）。
  */
 class AgentConfigStore(
     /**
@@ -26,16 +27,25 @@ class AgentConfigStore(
      * 所以这里收的是「名字 → 存储」的函数而不是一个存储实例。
      */
     private val plainStoreOf: (String) -> KeyValueStore = { keyValueStore(it) },
+    /**
+     * 密钥那一半的存储。**每次调用用当前账号后缀重新解析**（切账号即切文件），规则与
+     * [plainStoreOf] 同型：这里收的是「账号后缀 → 存储」的函数。
+     *
+     * 默认值 = 搬迁前的形状（[secureKeyValueStore] + 老明文文件的名字）。宿主换它只有一个理由：
+     * 在那一层外面再套一位**凭据保护器**（Windows 的 DPAPI）。`docs/agent-web-spec.md` §5.2 第 1 条：
+     * serve 侧传的就是 `:data` 的 `protectedSecureKeyValueStore`，**默认那份一字不变** ⇒
+     * Android / 桌面今天的字节与行为都不受影响（那是「缺口 A」的修法：serve 先接上，桌面另议）。
+     */
+    private val secureStoreOf: (String) -> KeyValueStore = { suffix ->
+        secureKeyValueStore(STORE_SECURE + suffix, legacyFallbackName = STORE_LEGACY + suffix)
+    },
 ) {
 
     private val plain: KeyValueStore
         get() = plainStoreOf(STORE + AccountContext.safeSuffix())
 
     private val secure: KeyValueStore
-        get() = secureKeyValueStore(
-            STORE_SECURE + AccountContext.safeSuffix(),
-            legacyFallbackName = STORE_LEGACY + AccountContext.safeSuffix(),
-        )
+        get() = secureStoreOf(AccountContext.safeSuffix())
 
     fun load(): AgentConfig = AgentConfig(
         provider = plain.getString("provider") ?: AgentConfig.PROVIDER_DEEPSEEK,

@@ -7,6 +7,8 @@ import com.xjtu.toolbox.agent.AgentMemory
 import com.xjtu.toolbox.agent.AgentViewModel
 import com.xjtu.toolbox.faculty.FacultyApi
 import com.xjtu.toolbox.platform.dataRootOverride
+import com.xjtu.toolbox.platform.SecretProtectionException
+import com.xjtu.toolbox.platform.SecretProtector
 import com.xjtu.toolbox.platform.wipeSecureStore
 import com.xjtu.toolbox.util.AppJson
 import com.xjtu.toolbox.yellowpage.YellowPageApi
@@ -15,6 +17,8 @@ import java.nio.file.Files
 import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
+import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 import kotlinx.coroutines.runBlocking
@@ -229,4 +233,65 @@ class DesktopAgentJvmTest {
             assertEquals("error: missing_param; param: name", tools.execute("find_faculty", "{}"))
         }
     }
+
+    /**
+     * 密钥那一半的落盘口径 —— `docs/agent-web-spec.md` §5.1 「缺口 A」的**桌面那一半**。
+     *
+     * 三条钉子：
+     *  1. **旧明文读得回**：这一轮之前那份 `agent_config_secure<suffix>.properties` 里是明文
+     *     （Windows 上也是），换用凭据保护器之后它必须原样读得回来 —— 否则老用户一升级就丢 key；
+     *  2. **文件名与键名一字未改**：写的还是同一个文件、同一个 `api_key`，而且本机没有保护器
+     *     时落盘的字节就是那个值本身（Linux / macOS 的现状，与搬迁前逐字相同）；
+     *  3. **有保护器时落的是信封**：拿一份夹具保护器把 Windows 那条路就地钉住 —— 盘上没有明文，
+     *     同一个保护器读得回来，换了保护器（换用户 / 换机器 / 跨平台拷过来）**明确抛**，
+     *     而不是把密文当密码交出去。
+     */
+    @Test
+    fun `密钥那一半：旧明文读得回、文件名不变、有保护器时落信封`() {
+        val secureFile = File(root, "agent_config_secure${AccountContext.safeSuffix()}.properties")
+
+        // ① 手工搭一份「这一轮之前」的明文文件（键名与搬迁前逐字相同）
+        secureFile.parentFile?.mkdirs()
+        secureFile.writeText("api_key=sk-fake-legacy-plaintext\n")
+        assertEquals("sk-fake-legacy-plaintext", newHost().loadConfig().apiKey, "老明文必须原样读得回来")
+
+        // ② 存一次：还是同一个文件、同一个键；本机没有保护器 ⇒ 落的就是明文本身
+        newHost().saveConfig(AgentConfig(apiKey = "sk-fake-desktop-001", model = "fixture-model"))
+        val plainText = secureFile.readText()
+        assertTrue(plainText.contains("api_key"), "键名一字未改：$plainText")
+        assertTrue(plainText.contains("sk-fake-desktop-001"), "本机没有保护器 ⇒ 与今天逐字相同：$plainText")
+        assertEquals("sk-fake-desktop-001", newHost().loadConfig().apiKey)
+
+        // ③ 真有保护器（Windows）时的那条路
+        DesktopAgentHost(DesktopAuth(), FixtureSecretProtector())
+            .saveConfig(AgentConfig(apiKey = "sk-fake-desktop-002", model = "fixture-model"))
+        val sealedText = secureFile.readText()
+        // ⚠️ `Properties` 会把值里的冒号转义成 `\:`（文件层面的事，读回来还是冒号）⇒ 只断言前缀
+        assertTrue(sealedText.contains("xjtu-sealed"), "有保护器时盘上应当是信封：$sealedText")
+        assertFalse(sealedText.contains("sk-fake-desktop-002"), "有保护器时盘上不许留明文：$sealedText")
+        assertEquals(
+            "sk-fake-desktop-002",
+            DesktopAgentHost(DesktopAuth(), FixtureSecretProtector()).loadConfig().apiKey,
+            "同一个保护器要读得回来（前缀与 id 都对得上才解）",
+        )
+        assertFailsWith<SecretProtectionException>("换用户 / 换机器 / 跨平台拷过来的文件：抛") {
+            DesktopAgentHost(DesktopAuth(), FixtureSecretProtector("other")).loadConfig()
+        }
+    }
+}
+
+/**
+ * 夹具凭据保护器：把明文倒过来当密文（**必须真的改变字节**，见 `SecretProtector` 的契约）。
+ *
+ * 为什么要它：Linux / macOS 上 `secretProtectorForPlatform()` 是 `null`，而 Windows 那条
+ * 「写了就是信封、解不开就抛」的路在本机跑不到 —— 拿这一份替掉就能把**桌面宿主的那一份装配**
+ * （`DesktopAgentHost` 的 `protector` 参数）在 Linux 上钉住。
+ */
+private class FixtureSecretProtector(private val name: String = "fixture") : SecretProtector {
+
+    override val id: String get() = name
+
+    override fun protect(plain: ByteArray): ByteArray = plain.reversedArray()
+
+    override fun unprotect(sealed: ByteArray): ByteArray = sealed.reversedArray()
 }

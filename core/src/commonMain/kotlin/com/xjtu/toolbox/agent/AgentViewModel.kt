@@ -5,8 +5,6 @@ import kotlinx.serialization.json.add
 import kotlinx.serialization.json.put
 import kotlinx.serialization.json.buildJsonObject
 import com.xjtu.toolbox.util.stringValue
-import com.xjtu.toolbox.util.isNull
-import com.xjtu.toolbox.util.arr
 import com.xjtu.toolbox.util.AppJson
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonArray
@@ -17,7 +15,6 @@ import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.serialization.json.JsonArray
-import kotlinx.serialization.json.JsonObject
 import com.xjtu.toolbox.nav.AppRoute
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.Flow
@@ -58,16 +55,16 @@ object AgentThinkingHost {
     var isThinking by mutableStateOf(false)
 }
 
-class AgentViewModel(private val host: AgentHost) : ViewModel() {
+class AgentViewModel(private val host: AgentHost) : ViewModel(), AgentChatSession {
     companion object {
-        private const val CONTEXT_TOKEN_LIMIT = 800_000L
         /** 流式分片合并写入的间隔：约 3 帧，肉眼仍是连续输出，重组和解析次数降一两个数量级。 */
         private const val STREAM_FLUSH_MS = 50L
-        const val CONTEXT_EXHAUSTED_MESSAGE = "本对话上下文已达到上限，请新建对话后继续。"
+        /** 见 [AGENT_CONTEXT_EXHAUSTED_MESSAGE]：serve 侧的同一句文案就是它。 */
+        const val CONTEXT_EXHAUSTED_MESSAGE = AGENT_CONTEXT_EXHAUSTED_MESSAGE
     }
 
-    val messages = mutableStateListOf<ChatMessage>()
-    var isLoading by mutableStateOf(false)
+    override val messages = mutableStateListOf<ChatMessage>()
+    override var isLoading by mutableStateOf(false)
         private set
 
     /** 加载态的唯一写入口：UI 加载与底栏思考动画共用同一信号，不会各走各的。 */
@@ -75,27 +72,27 @@ class AgentViewModel(private val host: AgentHost) : ViewModel() {
         isLoading = loading
         AgentThinkingHost.isThinking = loading
     }
-    var errorMessage by mutableStateOf<String?>(null)
+    override var errorMessage by mutableStateOf<String?>(null)
     /**
      * 上下文耗尽标记。变 true 时 UI 应主动弹窗提醒用户"请新开对话"，
      * 而不是悄悄把输入框禁用 + 文字提示里藏一句。
      */
-    var contextExhausted by mutableStateOf(false)
+    override var contextExhausted by mutableStateOf(false)
         private set
     private var lastTotalTokens: Long? = null
 
     /** contextExhausted 刚刚由 false 变 true 的一次性事件：UI 用 LaunchedEffect 弹窗。 */
-    var contextExhaustedJustTriggered by mutableStateOf(false)
+    override var contextExhaustedJustTriggered by mutableStateOf(false)
         private set
-    fun consumeContextExhaustedTrigger(): Boolean {
+    override fun consumeContextExhaustedTrigger(): Boolean {
         val v = contextExhaustedJustTriggered
         contextExhaustedJustTriggered = false
         return v
     }
 
     // ── 多会话状态 ──────────────────────────────────────────────────────
-    val sessions = mutableStateListOf<AgentSession>()
-    var currentSessionId by mutableStateOf<String?>(null)
+    override val sessions = mutableStateListOf<AgentSession>()
+    override var currentSessionId by mutableStateOf<String?>(null)
         private set
     private var store: AgentSessionPersistence? = null
 
@@ -119,9 +116,9 @@ class AgentViewModel(private val host: AgentHost) : ViewModel() {
     private var currentJob: kotlinx.coroutines.Job? = null
 
     /** 停止正在进行的生成。 */
-    fun stop() { currentJob?.cancel() }
+    override fun stop() { currentJob?.cancel() }
 
-    fun replaceLastUserAndSend(
+    override fun replaceLastUserAndSend(
         newText: String,
         config: AgentConfig,
     ) {
@@ -149,57 +146,26 @@ class AgentViewModel(private val host: AgentHost) : ViewModel() {
         persist()
     }
 
-    private fun completeToolLabel(running: String): String {
-        val base = running.trimEnd('…', '.', '。', ' ')
-        return if (base.startsWith("已")) base else "已$base"
-    }
-
     private fun settleToolAt(index: Int, success: Boolean, err: String?) {
         if (index !in messages.indices) return
         val bubble = messages[index]
         if (bubble.role != "tool_event") return
         messages[index] = bubble.copy(
             isToolCall = false,
-            content = if (success) completeToolLabel(bubble.content) else bubble.content,
+            content = if (success) agentCompleteToolLabel(bubble.content) else bubble.content,
             toolError = if (success) null else (err ?: bubble.toolError),
         )
     }
 
-    /**
-     * 修复历史完整性：丢弃"带 tool_calls 却没有(完整) tool 回应"的 assistant 残体，以及孤儿 tool 消息。
-     * 用于自愈此前因取消/掉线/后台中断而损坏的会话（否则会永久报 must be followed by tool messages）。
-     */
+    /** 修复历史完整性：见 [agentSanitizeHistory]（两端同一份判据）。 */
     private fun sanitizeHistory() {
-        val items = (0 until llmHistory.size).map { llmHistory[it].jsonObject }
-        val out = ArrayList<JsonObject>()
-        var i = 0
-        while (i < items.size) {
-            val m = items[i]
-            val role = m.get("role")?.stringValue
-            val tcs = if (m.containsKey("tool_calls") && !m.get("tool_calls").isNull) m.arr("tool_calls") else null
-            when {
-                role == "assistant" && tcs != null -> {
-                    val ids = tcs.mapNotNull { it.jsonObject.get("id")?.stringValue }.toSet()
-                    val toolMsgs = ArrayList<JsonObject>()
-                    var j = i + 1
-                    while (j < items.size && items[j].get("role")?.stringValue == "tool") { toolMsgs.add(items[j]); j++ }
-                    val covered = toolMsgs.mapNotNull { it.get("tool_call_id")?.stringValue }.toSet()
-                    if (ids.isNotEmpty() && ids.all { it in covered }) {
-                        out.add(m); toolMsgs.forEach { out.add(it) }
-                    } // 否则：丢弃该 assistant 及其不完整 tool 回应
-                    i = j
-                }
-                role == "tool" -> i++   // 孤儿 tool，丢弃
-                else -> { out.add(m); i++ }
-            }
-        }
-        if (out.size != items.size) llmHistory = out.toMutableList<JsonElement>()
+        llmHistory = agentSanitizeHistory(llmHistory)
     }
 
     // ── 会话管理 ────────────────────────────────────────────────────────
 
     /** 绑定持久化存储并加载会话列表（仅一次）。空则自动建首个会话。 */
-    fun bind(store: AgentSessionPersistence) {
+    override fun bind(store: AgentSessionPersistence) {
         if (this.store != null) return
         this.store = store
         sessions.addAll(store.list())
@@ -207,7 +173,7 @@ class AgentViewModel(private val host: AgentHost) : ViewModel() {
         if (first != null) switchSession(first.id) else newSession()
     }
 
-    fun newSession() {
+    override fun newSession() {
         val store = store ?: return
         currentJob?.cancel(); applyLoading(false)   // 取消进行中的生成，避免写入新会话造成错乱
         val s = store.create()
@@ -217,7 +183,7 @@ class AgentViewModel(private val host: AgentHost) : ViewModel() {
         refreshSessions()
     }
 
-    fun switchSession(id: String) {
+    override fun switchSession(id: String) {
         val store = store ?: return
         if (id == currentSessionId && messages.isNotEmpty() && !isLoading) return
         currentJob?.cancel(); applyLoading(false)   // 切换前停掉旧生成，避免两个会话内容串台
@@ -247,7 +213,7 @@ class AgentViewModel(private val host: AgentHost) : ViewModel() {
         tools = null; errorMessage = null
     }
 
-    fun deleteSession(id: String) {
+    override fun deleteSession(id: String) {
         val store = store ?: return
         store.delete(id)
         refreshSessions()
@@ -328,13 +294,13 @@ class AgentViewModel(private val host: AgentHost) : ViewModel() {
         }
     }
 
-    fun sendMessage(
+    override fun sendMessage(
         userText: String,
         config: AgentConfig,
-        /** 不进聊天气泡，只进发给模型的 user 消息。见屁岱提醒快照。 */
-        llmAnnex: String? = null,
+        /** 不进聊天气泡，只进发给模型的 user 消息（默认值写在 [AgentChatSession] 那条接口上）。 */
+        llmAnnex: String?,
         /** 随消息发送的图片路径，见 [AgentVision.attach]。 */
-        images: List<String> = emptyList(),
+        images: List<String>,
     ) {
         // 只发图不打字是合理的（「这是什么」），所以有图时允许正文为空。
         if ((userText.isBlank() && images.isEmpty()) || isLoading) return
@@ -522,36 +488,7 @@ class AgentViewModel(private val host: AgentHost) : ViewModel() {
                         // 换气泡前先把攒着的分片落到旧气泡上。
                         flushStream()
                         streamIdx = -1
-                        val label = when (name) {
-                            "get_calendar"          -> "查询时间与校历…"
-                            "get_schedule"          -> "查询课表…"
-                            "get_exam_schedule"     -> "查询考试安排…"
-                            "search_school_courses" -> "查询全校课程…"
-                            "get_empty_rooms"       -> "查询空教室…"
-                            "get_attendance"        -> "查询考勤记录…"
-                            "get_grades"            -> "查询成绩…"
-                            "get_fitness_score"     -> "查询体测成绩…"
-                            "get_card_info"         -> "查询校园卡信息…"
-                            "get_notifications"     -> "查询通知公告…"
-                            "search_yellow_page"    -> "查询校园黄页…"
-                            "web_search"            -> "联网搜索…"
-                            "web_fetch"             -> "阅读网页…"
-                            "set_alarm"             -> "打开系统闹钟…"
-                            "add_schedule_event"    -> "添加日程…"
-                            "get_library"           -> "查询图书馆…"
-                            "get_textbooks"         -> "查询日程教材…"
-                            "get_coupons"           -> "查询加餐券…"
-                            "get_lms"               -> "查询思源学堂…"
-                            "get_lms_activity"      -> "读取课程活动…"
-                            "list_zyxf"             -> "检索学辅资料…"
-                            "read_zyxf_file"        -> "读取学辅资料…"
-                            "find_faculty"          -> "查询教师…"
-                            "preference"            -> "记下偏好…"
-                            "app_setting"           -> "读取 / 修改设置…"
-                            "calculate"             -> "计算…"
-                            "app_guide"             -> "查看 App 指南…"
-                            else                    -> "调用工具 $name…"
-                        }
+                        val label = agentToolLabel(name)
                         if (currentSessionId == turnSid) {
                             messages.add(ChatMessage("tool_event", label, isToolCall = true))
                             toolBubbleIndices.add(messages.lastIndex)
@@ -566,7 +503,7 @@ class AgentViewModel(private val host: AgentHost) : ViewModel() {
                     },
                     onUsage = { totalTokens ->
                         lastTotalTokens = totalTokens
-                        if (totalTokens >= CONTEXT_TOKEN_LIMIT) {
+                        if (totalTokens >= AGENT_CONTEXT_TOKEN_LIMIT) {
                             val wasExhausted = contextExhausted
                             contextExhausted = true
                             // 只在本次会话中由「未耗尽 → 耗尽」转变时弹窗，避免每次回复都触发
@@ -587,25 +524,7 @@ class AgentViewModel(private val host: AgentHost) : ViewModel() {
                 }
 
                 // 存的是 [AppRoute.id]：聊天记录要落盘，点按钮时再用 appRouteOf 解析回来
-                val navSuggestions = calledTools.mapNotNull { toolName ->
-                    when (toolName) {
-                        "get_schedule", "get_exam_schedule", "add_schedule_event" -> "查看课表" to AppRoute.Schedule
-                        "get_calendar"                      -> "查看校历"   to AppRoute.SchoolCalendar
-                        "search_school_courses"             -> "全校课程"   to AppRoute.SchoolCourse
-                        "get_empty_rooms"                   -> "空闲教室"   to AppRoute.EmptyRoom
-                        "get_attendance"                    -> "查看考勤"   to AppRoute.Attendance
-                        "get_grades"                        -> "成绩查询"   to AppRoute.JwappScore
-                        "get_card_info"                     -> "校园卡"     to AppRoute.CampusCard
-                        "get_notifications"                 -> "通知公告"   to AppRoute.Notification
-                        "search_yellow_page"                -> "校园黄页"   to AppRoute.YellowPage
-                        "get_library"                       -> "图书馆"     to AppRoute.Library
-                        "get_textbooks"                     -> "日程教材"   to AppRoute.Schedule
-                        "get_coupons"                       -> "加餐券"     to AppRoute.Coupon
-                        "get_lms", "get_lms_activity"       -> "思源学堂"   to AppRoute.Lms()
-                        "app_setting"                       -> "设置"       to AppRoute.Settings
-                        else                                -> null
-                    }?.let { (label, route) -> label to route.id }
-                }.distinctBy { it.second }
+                val navSuggestions = agentNavSuggestions(calledTools)
 
                 val widgets = registry.drainWidgets()
                 flushStream()

@@ -56,7 +56,11 @@ import top.yukonga.miuix.kmp.utils.overScrollVertical
 
 @Composable
 internal fun ChatPanel(
-    vm: AgentViewModel,
+    /**
+     * 驱动这一屏的那一份会话状态：Android / 桌面是 [AgentViewModel]，浏览器是 `WebAgentSession`
+     *（循环在 serve）。屏只认识它们的公共面（见 [AgentChatSession]）。
+     */
+    vm: AgentChatSession,
     config: AgentConfig,
     /** 端装配与端上资源（见 `:core` 的 [AgentHost]）。 */
     host: AgentHost,

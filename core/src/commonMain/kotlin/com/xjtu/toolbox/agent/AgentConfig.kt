@@ -31,7 +31,19 @@ data class AgentConfig(
     val searchEngine: String = SEARCH_AUTO,
     val thinkingEnabled: Boolean = true,
     val reasoningEffort: String = REASONING_AUTO,
-    val showReasoning: Boolean = true
+    val showReasoning: Boolean = true,
+    /**
+     * 「这一端**知道** key 配好了，但 key 不在我手上」这一格（默认 `false` ⇒ 三端行为一字不变）。
+     *
+     * 为什么需要它：浏览器那一端永远拿不到 key（它在 serve 上，见 `docs/agent-web-spec.md` §5.3 的红线），
+     * 而面板与提示条要回答「配好了没」这件事 —— 今天只有 [apiKey] 这一个真源。浏览器拿到的配置里
+     * `apiKey` 恒为空串，`isConfigured` 就永远是 false，屏上会一直说「先填一下模型」。
+     * 所以多一格**非密文信道**：serve 侧投影过来的 `keyConfigured`（`GET /api/agent/config` 的同一格）。
+     *
+     * ⚠️ **不进 `AgentConfigStore.save()`**：落盘多一个键会破 `docs/storage-layout.md` §7 的
+     * A1/A2 键集合判据，也会让「配置是否配好」这件事多出一份要同步的盘上状态。
+     */
+    val keyConfigured: Boolean = false
 ) {
     val effectiveName: String get() = sanitizeAgentTitle(assistantName, DEFAULT_ASSISTANT_NAME)
 
@@ -52,7 +64,7 @@ data class AgentConfig(
             }
         }
 
-    val isConfigured: Boolean get() = apiKey.isNotBlank()
+    val isConfigured: Boolean get() = apiKey.isNotBlank() || keyConfigured
 
     companion object {
         const val DEFAULT_ASSISTANT_NAME = "屁岱"

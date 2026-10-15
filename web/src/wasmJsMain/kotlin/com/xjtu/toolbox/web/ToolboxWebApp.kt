@@ -120,7 +120,7 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
  * |---|---|
  * | 首页 | **共享屏** `:core` 的 `HomeScreen` + 本端 `WebHomeHost`（真算的：问候 / 教学周 / 下一项安排 / 待办那一格；宫格按「本端真能打开的路由」筛）—— 它是这一端**所有功能屏的入口**，上一轮把这一格留成降级页，于是那些屏的入口全被关上了 |
  * | 日程 | **共享屏** `:core` 的 `ScheduleScreen` + `WebScheduleHost`（本端真接上的唯一一格，见那个类的 KDoc 与页顶那一行说明） |
- * | 屁岱 | **降级页**：`:core` 的 `AgentScreen` 要 `AgentHost`（配置 / 会话 / 记忆三份落盘、SSE 传输、工具层），本端一件都没有 |
+ * | 屁岱 | **共享屏** `:core` 的 `AgentScreen` + 本端 `WebAgentSession` / `WebAgentHost` / `WebAgentScreen`（D10 的 S-d）：循环与工具层、会话与记忆落盘、API Key 都在 **serve**（契约 §5.11 的十四条 + SSE），这一端只做「事件 → 状态」与那几发 HTTP。campus-api 形态下这一族没有端点 ⇒ 落 `WebServeOnlyScreen` |
  * | 学辅 | 本端自己的**可点目录**（`WebServicesScreen`）：`:app` 那格是学业服务目录（宫格 + 每项此刻的状态摘要），本端没有"状态摘要"那半 ⇒ 换成同一份目录的可点清单 + 会话入口，**不是**一张纯文字说明 |
  * | 我的 | **共享屏** `:core` 的 `SettingsScreen` + `WebSettingsHost`（本端没有账号这回事，所以落设置屏而不是账号页） |
  *
@@ -287,7 +287,7 @@ internal fun initialWebTarget(): WebTarget = when (val raw = browserRouteParam()
  * - 日程：`:core` 的共享屏 + 本端 `WebScheduleHost`（见那个类的 KDoc：哪几条缝是真的、缺哪几档）；
  * - 我的 / 学辅：见 [WebSettingsHost] 与 [WebServicesScreen]；
  * - 首页：`:core` 的共享屏 + 本端 `WebHomeHost`（见那个类的 KDoc：真算哪几样、如实不列哪几块）；
- * - 屁岱：降级页（见 [WebUnavailableScreen]，写清缺哪一个宿主面）；
+ * - 屁岱：`:core` 的共享屏 + 本端 `WebAgentSession`（事件 → 状态）/ `WebAgentHost`（配置那一格只读）/ `WebAgentScreen`（表头 + 「能做什么」那一段按 serve 的 `toolAllowlist` 现生成）；
  * - 黄页：campus-api 版的 [CampusYellowPageApi]（serve 模式下是同一份类的 `ApiMode.SERVE` 那一支）；
  * - 校历/体测：campus-api 版的 [CampusSchoolCalendarApi] / [CampusFitnessApi]（同一条理由：学校域名不给 CORS 头）；
  * - 只读四域：成绩单 / 考勤 / 加餐券 / 宿舍电费（`:core` 的共享屏 + `:core` 的 `Campus*Api` 取数）。
@@ -360,21 +360,26 @@ private fun AppPage(
             onNavigate = onNavigate,
         )
 
-        // 屁岱：`:core` 的 `AgentScreen` 要 `AgentHost`（配置 / 会话 / 记忆三份落盘、SSE 传输、
-        // 工具层那一堆）—— 本端一件都没有。如实说：浏览器里也没有那几样能落盘的地方，
-        // 模型调用与工具取数都得在服务端有对应端点（今天没有）。
-        AppRoute.Agent -> WebUnavailableScreen(
-            title = "屁岱（Web 这一端）",
-            why = "App 与桌面的屁岱是 `:core` 的 `AgentScreen`，它要一份 `AgentHost`：" +
-                "配置 / 会话 / 记忆三份落盘、一条流式传输、以及工具层那几个取数口；" +
-                "Web 这一端一件都没接（服务端契约里也没有对应的端点）。",
-            missing = listOf(
-                "`AgentHost`：模型配置与 API Key 的持有（本端没有可落盘的凭据位）",
-                "会话与记忆的落盘（本端只有 localStorage，且语义与 `AgentSessionPersistence` 对不上）",
-                "流式传输（`:data` 那份 SSE 客户端）",
-                "工具层（黄页 / 教师检索 / 课表那几个口）",
-            ),
-        )
+        // 屁岱（2026-10-15，D10 的 S-d 接线）：与 Android / 桌面**同一个屏**（`:core` 的 `AgentScreen`），
+        // 但驱动换了人：循环、工具层、会话与记忆落盘、API Key 全在 **serve**（契约 §5.11 的十四条 + SSE），
+        // 这一端只做「事件 → 状态」与那几发 HTTP（`WebAgentSession` / `WebAgentHost`，见 `WebAgentScreen`）。
+        //
+        // 两种形态各自如实：campus-api 形态下这一族**没有端点**（Key 与循环都不在它那一头）⇒ 落
+        // `WebServeOnlyScreen`（说清「切到 serve 模式就能用」）；serve 形态才是真的聊天界面。
+        AppRoute.Agent -> if (mode != ApiMode.SERVE) {
+            WebServeOnlyScreen(
+                title = "屁岱",
+                endpoints = "GET/POST /api/agent/{config,models,sessions*,memory*} + POST /api/agent/chat（SSE） + /stop",
+                why = "屁岱的模型调用、工具取数、会话与记忆、API Key 全在 serve 那一侧（campus-api 形态下这几个域没有端点）。",
+                section = "§5.11",
+            )
+        } else {
+            WebAgentScreen(
+                client = client,
+                insets = insets,
+                onNavigate = onNavigate,
+            )
+        }
 
         // 内置浏览器：**Web 端的浏览器就是浏览器本身** —— 把 URL 交给它，同标签导航过去。
         //

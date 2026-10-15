@@ -52,7 +52,9 @@ import io.ktor.client.HttpClient
  * 那行说明写的就是它。
  *
  * ⚠️ [changes] 在本端**目前没有屏上消费方**：`:app` 里它是屁岱回答「最近调了什么课」的输入，
- * 而 web 的屁岱是降级页（没有 `AgentHost`）。它是接口的一格，读法接上，等那一屏落地才有人读。
+ * 而浏览器这一端的屁岱**循环在 serve**（D10 的 S-d：工具层是 `:server` 的 `ServeAgentTools`，直接读
+ * `:data` 的 `JwxtScheduleApi.schedule()`），本端这一格没有人读。它是接口的一格，读法接上，
+ * 等本端出现第二个消费方（例如某个屏要单独列调停补课）才有人读。
  *
  * ## 历史学期
  *

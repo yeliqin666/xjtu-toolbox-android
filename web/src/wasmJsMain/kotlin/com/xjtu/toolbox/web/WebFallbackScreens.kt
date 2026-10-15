@@ -32,12 +32,14 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
  * ## 为什么要单写一张降级页（而不是藏掉格子）
  *
  * 阶段 C 的验收点是「三端同壳」：web 的底栏与 `:app` 的 `BottomTab` **逐字一致**（见 `WebShell.kt`）。
- * 一致之后仍有格子在这一端**没有对应的屏**（屁岱要 `AgentHost`：配置 / 会话 / 记忆三份落盘、
- * 流式传输、工具层，本端一件都没有）。把格子藏掉就又变成"另一套层级"，所以照桌面 `HostUnavailableScreen` /
+ * 一致之后仍然有格子在这一端**没有对应的屏**（例：`Accounts` 只有只读那一半），而壳里认不出的自定义
+ * 目标也总要一个落点。把格子藏掉就又变成"另一套层级"，所以照桌面 `HostUnavailableScreen` /
  * `NotPortedScreen` 的口径**落一张写清原因与缺哪一件的页**：用户看得见这一格、也看得见为什么。
+ * （屁岱曾经是这张页的第一个用户：D10 的 S-d（`WebAgentScreen.kt`）之后它真能用了 —— 那一屏是 `:core`
+ * 的 `AgentScreen` 本身，循环与工具层在 serve。）
  *
  * 五张页的分工：
- * - [WebUnavailableScreen]：通用降级页（屁岱，以及壳里认不出的自定义目标）；
+ * - [WebUnavailableScreen]：通用降级页（壳里认不出的自定义目标；屁岱自 D10 的 S-d 起不再用它）；
  * - [WebSupportMismatchScreen]：**这一端的 bug 页** —— 支持清单说有、`AppPage` 却没有分支时画它
  *   （见 `WebSupport` 的 KDoc：清单与分支必须同时改）；
  * - [WebServicesScreen]：「学辅」那一格 —— **可点目录**（`:app` 那格是学业服务目录 + 每项此刻的
