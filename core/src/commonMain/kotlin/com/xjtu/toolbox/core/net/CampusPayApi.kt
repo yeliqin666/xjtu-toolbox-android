@@ -24,13 +24,13 @@ import kotlinx.serialization.json.put
  * 契约 §5.7；`:server` 那一侧是 `PayRoutes.kt`（薄包装 `:data` 的 `PaymentCodeApi`，
  * 借的是**校园卡**那个会话 —— 付款码的业务请求带的就是校园卡登录时存下的那张 JWT）。
  *
- * ## 一处**如实不画**（在端口上留了开关）
+ * ## 码图：三端都真画（2026-10-15，D12 ①）
  *
- * 1. **条码 / 二维码矩阵画不出来**：`qrCodeModules` / `code128Modules` 的 **wasmJs actual 如实返回
- *    `null`**（`core/src/wasmJsMain/.../CodeMatrix.wasmJs.kt`：这一端没有编码器，zxing 只有
- *    JVM/Android 那一份 jar）⇒ 屏上只画付款码**数字**那一档（纯文本，不依赖编码器），两个矩阵
- *    一个都不画 —— 不是画一张假的。这不是本类的事（本类只给那一串数字），记在这里是为了让
- *    「为什么浏览器里看不到码图」有处可查。
+ * **`qrCodeModules` / `code128Modules` 在 Android / jvm / wasmJs 三端都编得出** —— 前两端的 zxing
+ * 与浏览器那一端的纯 Kotlin 编码器（`QrCodec` / `Code128Codec`，在 `:core` 的 commonMain）
+ * **编出来的矩阵逐模块相同**（`:core:jvmTest` 的 `CodeMatrixParityJvmTest` 逐格钉住）。
+ * 本类只给那串数字，画图那一步在 [com.xjtu.toolbox.pay.PaymentCodeScreen]；
+ * 那一屏的降级分支（编不出来时只画数字）留着，但三端今天都走不到它。
  *
  * ## 勾选加餐券：✅ 已经端了（2026-10-15，批③-b / D7 ④）
  *

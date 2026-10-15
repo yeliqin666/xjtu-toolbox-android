@@ -1206,8 +1206,9 @@ private fun DesktopPage(
         // 它一条请求都不发（KDoc：「全程离线……算契合度这一步在本机完成」）：把自己的档案压成一段码、
         // 把对方的码解回来，交集全从**本机已有的缓存**里算。本轮它按五步法搬进了共享层：
         // 算法与模型（`MatchProfile` / `MatchData` / `DiningHabit`）与屏都进了 `:core`，
-        // deflate/inflate 与 URL-safe Base64 切成了 `:core` 的平台缝（Android/jvm 是原来那两份实现，
-        // wasmJs 如实没有），扫码与相册那两条长在平台类型上的路收成了 `MatchScanner`。
+        // deflate/inflate 与 URL-safe Base64 切成了 `:core` 的平台缝（Android/jvm 是原来那两份实现；
+        // wasmJs 的 D12 ② 之后是 commonMain 里那两份纯 Kotlin 实现），扫码与相册那两条长在平台类型上的路
+        // 收成了 `MatchScanner`。
         //
         // 这一端真交出来的是 [DesktopMatchHost]（课表族缓存 = 与「我的课表」「首页」同一份 0600 键值文件）
         // ⇒ **离线算交集这一件事在这一端是真算的**：自己的课表/考试从本端缓存来，对方的码用

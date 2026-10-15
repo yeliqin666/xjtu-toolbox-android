@@ -29,13 +29,15 @@ class CodeMatrix(val width: Int, val height: Int, private val bits: BooleanArray
 /**
  * 平台能力：**把一段文本编成二维码的模块阵列**（不含静默区，渲染方自己按需留白）。
  *
- * 编码器是一份现成的库（zxing `QRCodeWriter`），而 zxing 只有 JVM/Android 那一份 jar
- * （与 `:data` 里 jsoup 的情况同型），进不了 `:core` 的 commonMain —— 所以这里切一条缝：
- *  - Android / jvm：zxing，参数与搬迁前 `:app` 逐字相同（`CHARACTER_SET=UTF-8`、
+ * 编码器在两端各有一份实现，而**编出来的矩阵逐模块相同**（`:core:jvmTest` 的
+ * `CodeMatrixParityJvmTest` 拿同一批输入逐格断言）：
+ *  - Android / jvm：zxing（`QRCodeWriter`，一份纯 Java jar —— 与 `:data` 里 jsoup 的情况同型，
+ *    进不了 `:core` 的 commonMain），参数与搬迁前 `:app` 逐字相同（`CHARACTER_SET=UTF-8`、
  *    纠错 `L`、静默区留 0 个模块由渲染方补 —— 搬迁前那一份是 `QrBitmap` 的 `MARGIN=1`，
  *    渲染出来的白边宽度一致，见 `PaymentCodeScreen` 的 `CodeMatrixView`）；
- *  - wasmJs：**没有**编码器，如实返回 null（`:web` 的付款码屏自 2026-10-14 起接上了：那一屏只画
- *    付款码**数字**、两个矩阵一个都不画，见 actual 里的 TODO）。
+ *  - wasmJs：**没有 zxing**（它是 JVM/Android 的 jar），所以 2026-10-15（D12 ①）把编码器按
+ *    「三端一份」搬进了 commonMain —— 纯 Kotlin 的 [QrCodec]。那一份不是「web 侧另写一份」：
+ *    `:web` 里一行编码逻辑都没有，wasmJs 的 actual 只是转调它。
  *
  * 装不下（文本太长、超出该纠错等级的最大版本）返回 null，不抛给调用方。
  */

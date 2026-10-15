@@ -128,10 +128,10 @@ serve 形态下，会话在 serve 进程里。要走登录的点位（AppRoute �
 
 ### ⑧ 第三批四屏（付款码 / 反馈 / 匹配交友 / WebVPN）
 
-- [ ] 付款码 = 只画数字 + 勾选真同步 | `?route=payment_code` | 看整屏，勾一张券 | serve：显示**付款码那串数字** + 加餐券几行（名称/金额分/到期），那几行**有勾选框、勾了真同步**（POST /api/pay/vouchers/select）；**没有**条码/二维码矩阵，换一句「本端没有条码 / 二维码编码器，画不出可扫的码；下面这串数字就是付款码本身。」 | campus-api：落「付款码（…需要 serve 模式）」页 | 矩阵编码器 wasm 上返回 null；「支付」那一档**上游客户端本来就没有**（不是缺口）；⚠️ 这一屏是**能付钱的东西**，`0.0.0.0` 部署要先解决鉴权（§3.3）
+- [ ] 付款码 = 真出码 + 勾选真同步 | `?route=payment_code` | 看整屏，拿手机扫一下那张码，再勾一张券 | serve：**二维码 + Code128 条形码都真画**（与 Android 同一张矩阵：D12 ① 把编码器搬进了 `:core` 的 commonMain），手机扫出来就是**付款码那串数字**；加餐券几行（名称/金额分/到期）**有勾选框、勾了真同步**（POST /api/pay/vouchers/select） | 二维码/条形码画不出来（或扫码枪/手机扫不出那串数字）、券勾了不生效 | campus-api：落「付款码（…需要 serve 模式）」页 | 三端编码器现在是同一份纯 Kotlin 实现（`QrCodec` / `Code128Codec`，与 zxing 逐模块相同）；「支付」那一档**上游客户端本来就没有**（不是缺口）；⚠️ 这一屏是**能付钱的东西**，`0.0.0.0` 部署要先解决鉴权（§3.3）
 - [ ] 反馈：读 + 提交 | `?route=feedback` | 看整屏，提一条 | serve：「大家在问」真画 + 提交表单**真画**（能提交，提完那条工单进本地账本、「我提过的」出现）+「去 GitHub 提 Issue」外链仍在 | 提交按钮点了无反应 / 仍显示「只能看、不能提」那张卡 | 提交要 serve 配全 `FEEDBACK_*` 三环境变量，否则三条端点 502（含提交那一枪）且屏吞掉 ⇒ 显示「没有新回复/问答」；工单号是**屏生成**的（换浏览器找不回旧工单，服务端不代管也不下发新号） |
-- [ ] 匹配交友说明页 | `?route=schedule_match` | 看整屏 | **如实说明页**，标题「匹配交友（Web 这一端：这一屏用不了）」，逐条写缺什么（deflate / URL-safe Base64 两个 actual 返回 null / 学工档案只在 `:app` / 考试教材两维没缓存）；**不是**半开着的交友界面 | 出现一个出不了码的交友界面 / 空矩阵当码 | 两种形态都用不了；服务端不代出码（码含昵称+课表网格）
-- [ ] WebVPN 转换器 | `?route=webvpn_converter` | 输入网址点「转换」 | serve：真能转（两个方向），结果由服务端 `WebVpnUtil` 算；「用 WebVPN 打开」新标签打开网关地址（要过网关自己的登录页） | campus-api：落「WebVPN 转换器（…需要 serve 模式）」页 | 转换是一发 HTTP（断网转不了，Android/桌面是本地纯函数）；不收会话
+- [ ] 匹配交友真屏 | `?route=schedule_match` | 看整屏；点「复制」拿自己的码，再把它粘回「对方的码」点「算一算」 | **与 App / 桌面同一张共享屏**（`:core` 的 `MatchScreen` + 本端 `WebMatchHost`）：二维码真画、码真出、粘回来真算（离线算，一条请求都不发）；课表那几维来自本页 localStorage（先逛一次日程页） | 出不了码 / 二维码画不出来 / 自己的码粘回去解不开 | 「吃」与「人」那两维本端**没有数据源**（校园卡流水与学工档案都没有落盘）⇒ 分享设置里那两项是禁用态；**扫码那一档没有**（浏览器相机属 D12 ③）⇒ 只留「粘一段文字」；服务端不代出码（码含昵称+课表网格）
+- [ ] 匹配交友真屏 | `?route=schedule_match` | 看整屏；点「复制」拿自己的码，再把它粘回「对方的码」点「算一算」 | **与 App / 桌面同一张共享屏**（`:core` 的 `MatchScreen` + 本端 `WebMatchHost`）：二维码真画、码真出、粘回来真算（离线算，一条请求都不发）；课表那几维来自本页 localStorage（先逛一次日程页） | 出不了码 / 二维码画不出来 / 自己的码粘回去解不开 / 点「复制文字」没反应（看下面缺口那一格） | 「吃」与「人」那两维本端**没有数据源**（校园卡流水与学工档案都没有落盘）⇒ 分享设置里那两项是禁用态；**扫码那一档没有**（D12 ③ 查清：D11 之后「安全上下文」这个前置已经有了，真正缺的是**浏览器里没有二维码解码器** —— 编码器搬进了 `:core`，解码那一侧（`QrBitmap.read`）还在 JVM 上、`decodeImagePixels` 在 wasm 上恒 null，桌面 Chrome 也没有 `BarcodeDetector` ⇒ 最小可行方案见 §16.11）⇒ 只留「粘一段文字」；另外那几颗**复制按钮只在安全上下文里真能用**（非安全上下文时 CMP 只 `console.warn`，点了没反应、也不报错 —— 拿 ⑪ 那张能力表可以当场核）；服务端不代出码（码含昵称+课表网格） |
 
 ### ⑨ campus-api 形态 vs serve 形态 的差别
 
@@ -147,10 +147,16 @@ serve 形态下，会话在 serve 进程里。要走登录的点位（AppRoute �
 - [ ] 下载管理（`DownloadManager`） | `?route=download_manager` | 看落点 | 落「这一屏还没搬到 Web」+「AppRoute.DownloadManager」 | 出现下载列表 | 取数挂 okhttp/Context
 - [ ] 教材全文（`Jiaocai1`） | `?route=jiaocai1` | 看落点 | 落「这一屏还没搬到 Web」 | 出现全文库书架 | 另一域名另一套会话，本轮不碰（D13 之后要做）
 - [ ] 教材全文阅读器（`Jiaocai1Reader`） | `?route=jiaocai1_reader/<ssno>?title=` | 看落点 | 落「这一屏还没搬到 Web」 | 出现阅读器 | 同上
-- [ ] 合成西交大（`GameMerge`） | `?route=game_merge` | 看落点 | 落「这一屏还没搬到 Web」（游戏合集里「合成西交大」点进去也落到此） | 出现合成游戏 | 该屏是 WebView（D12-⑤：浏览器本身是 JS 引擎，web 端最省，但还没做）
 - [ ] 账号管理（`Accounts`） | `?route=accounts` | 看落点 | 落「这一屏还没搬到 Web」 | 出现账号页 | 多账号归批②（D9）
 - [ ] 内置浏览器（`Browser`） | `?route=browser?url=…` | 看落点 | **不是一屏**：同标签直接导航到那个网址（`navigateSameTab`），回来靠浏览器后退 | 出现一个「浏览器」页面 | 它把 URL 交给浏览器本身，不算一屏（口径上不算差集）
-- [ ] 桌面端「GameMerge 载体」 | 桌面端看合成西交大 | —— | 桌面**仍卡载体**（无 WebView 宿主） | —— | 见 §16.2 第 1 条（web 端最省、桌面卡载体）
+- [ ] 桌面端「GameMerge 载体」 | 桌面端看合成西交大 | —— | 桌面**仍卡载体**（无浏览器内核、也没有 JVM 上的 JS 引擎） | —— | 见 §16.2 第 1 条与§⑪（web 端已是真游戏，桌面那一端本批一行未改）
+
+---
+
+### ⑪ 本轮点亮的：合成西交大在浏览器上真能玩 + 浏览器能力自检（D12 ⑤ / ③，2026-10-15）
+
+- [ ] 合成西交大（`GameMerge`） | 首页宫格「小游戏」→ 合集第一张卡「合成西交大」（或 `?route=game_merge`） | 看整屏，玩一局 | **真跑起来**：顶栏「合成西交大」+ 返回箭头下面就是**Android 那一张游戏**（同一个 HTML + `index.js` + 本地 Matter.js + 9 张校徽 webp，构建期从 `:app` 的 assets 原样拷进 web 产物）—— 能投放、能合、能出「本局得分」与「再来一局」；顶栏与底栏都还在，点别的格子能走 | 白屏 / 顶栏下面空着 / 落「这一屏还没搬到 Web」（后者= serve 进程或在吐旧产物，见「前置条件 2」） | 两条如实差异：① **没音效**（浏览器里没有 App 那座 JS 桥 ⇒ 游戏侧静默；这其实是本端所有小游戏的共同事实）；② **成绩回传的时机**不同（App 是游戏结束那一刻由桥回调；这里是**离开这一屏**时把游戏页记的成绩收回合集页那一行）—— 端上看到的最高分两边一致。桌面端仍卡载体（见⑩最后一行）
+- [ ] 浏览器能力自检（D12 ③） | 底栏「学辅」→ 页底「后端自检」（或 `?route=probe`） | 往下翻到「浏览器能力（这一份部署的）」那张卡 | 五行逐条带 ✓/✗ **加一句「本端谁在用 / 差什么」**：安全上下文 / 剪贴板写入 / 相机 / 浏览器自带二维码识别器 / WebCrypto | 没这张卡 / 只有✓没有说明 | 这几条**跟地址走**：HTTPS 或 localhost 才有，明文 HTTP + 非 localhost 一律 ✗（后者下**页面上几颗复制按钮会静默失败**）。三样「能不能用」的结论与最小可行方案（含 PWA）见 `docs/desktop-port-plan.md` §16.11
 
 ---
 
@@ -165,9 +171,10 @@ serve 形态下，会话在 serve 进程里。要走登录的点位（AppRoute �
 | ⑤ 我的 | `web/.../web/WebSettingsHost.kt`（`honoredRows={DARK_MODE,HOME_THEME}`、`versionText="Web 构建（wasm）"`、九个不列的理由）；`ToolboxWebApp.kt` 的 `AppRoute.Settings` 分支 |
 | ⑥ 只读四域 | `ToolboxWebApp.kt` 四个分支（`AppRoute.Transcript/Attendance/Coupon/DormPower`）；`WebFallbackScreens.kt` 的 `WebServeOnlyScreen` + `WebGapNote`；`web/.../web/WebDormPowerScreen.kt`；`docs/api-contract.md` §5.5（含末尾消费方表） |
 | ⑦ 第二批四屏 | `ToolboxWebApp.kt` 四个分支（`AppRoute.Lms/Jiaocai/JwappScore/Iclassface`）；`web/.../web/WebJiaocaiHost.kt`（`WebJiaocaiTermTextbooks`）；`docs/api-contract.md` §5.6（含消费方表） |
-| ⑧ 第三批四屏 | `ToolboxWebApp.kt` 四个分支（`AppRoute.PaymentCode/Feedback/Match/WebVpnConverter`）；`WebFallbackScreens.kt` 的 `WebMatchGapScreen`（匹配说明页全文案）；`docs/api-contract.md` §5.7（含消费方表） |
+| ⑧ 第三批四屏 | `ToolboxWebApp.kt` 四个分支（`AppRoute.PaymentCode/Feedback/Match/WebVpnConverter`）；匹配交友那一屏是 `:core` 的 `MatchScreen` + 本端 `WebMatchHost`（旧的那张「匹配说明页」`WebMatchGapScreen` 自 D12 ② 起已删）；`docs/api-contract.md` §5.7（含消费方表） |
 | ⑨ 形态差别 | `docs/api-contract.md` §5.4（模式开关/登录/令牌/消费方不画）；§5.3.2 第 6 条（支付那一跳的 302、三条如实说明）；`WebServeOnlyScreen` / `WebScheduleGapNote` 两种形态分支；`WebVenueHost`（`venuePayTarget`）|
-| ⑩ 明确不可用项 | `WebSupport.kt` 文件头（「什么不在清单里」）；`ToolboxWebApp.kt` 的 `AppRoute.Agent` 降级分支 + `NotPortedScreen`；`docs/desktop-port-plan.md` §16.2 第 1 条（43 条差集 7 条）；`docs/agent-web-spec.md`（屁岱设计稿未实现） |
+| ⑩ 明确不可用项 | `WebSupport.kt` 文件头（「什么不在清单里」）；`ToolboxWebApp.kt` 的 `AppRoute.Agent` 降级分支 + `NotPortedScreen`；`docs/desktop-port-plan.md` §16.2 第 1 条（43 条路由的差集，2026-10-15 起剩 5 条：`Agent`/`Browser`/`DownloadManager`/`Jiaocai1`/`Jiaocai1Reader`）；`docs/agent-web-spec.md`（屁岱设计稿未实现） |
+| ⑪ 本轮点亮的两格 | 合成西交大：`web/.../WebGameMerge.kt`（`iframe` + `MergeGameScoreBridge`）+ `web/build.gradle.kts` 的 `mergeGameResources`（`:app` 的 assets 原样拷进产物）+ `ToolboxWebApp.kt` 那条分支 + `WebSupport.openableRouteIds` 的 `AppRoute.GameMerge`；`docs/desktop-port-plan.md` §16.11。浏览器能力自检：`web/.../WebBrowserCapabilities.kt` + `ProbeScreen.kt` 那张卡 + `WebBrowserCapabilitiesTest` |
 
 ---
 
@@ -177,7 +184,7 @@ serve 形态下，会话在 serve 进程里。要走登录的点位（AppRoute �
 - **深色/侧栏的视觉细节**：本清单只验「变了/没变」，不验与 Android 的像素级差异。
 - **错误态 / 空态 / 加载态的逐条文案**：除各屏页顶缺口说明外，其余文案逐条对 Android 没在本清单展开（那是 D14/丙口径的活）。
 - **统一存档层 / 多账号（批②）**：`Accounts` / 存档互认 / serve 侧 DPAPI 等，见 `docs/storage-layout-plan.md`，不在本清单（本清单只管「serve 这一页现在长什么样」）。
-- **HTTPS / 鉴权（D11）**已于 2026-10-15 落地（批④：`--https` 开箱可启用，`docs/linux-delivery.md` / `docs/windows-delivery.md` §10）；场馆「去支付」（D11b）也已落地（本批，见⑨那一行）。**能力边界收口（D12 矩阵/分享码/相机/剪贴板/PWA）尚未落地**，不在本次验收范围。
+- **HTTPS / 鉴权（D11）**已于 2026-10-15 落地（批④：`--https` 开箱可启用，`docs/linux-delivery.md` / `docs/windows-delivery.md` §10）；场馆「去支付」（D11b）也已落地（见⑨那一行）。**D12 的能力边界收口**：① 付款码矩阵 / ② 分享码（批⑤-a）与 ⑤ 合成西交大、③ 相机扫码·剪贴板·WebCrypto 的逐条查清（本批，见 ⑪）都已落地；**④ PWA 仍未做**（缺什么 + 最小可行方案见 `docs/desktop-port-plan.md` §16.11）。
 
 ## 下一步
 

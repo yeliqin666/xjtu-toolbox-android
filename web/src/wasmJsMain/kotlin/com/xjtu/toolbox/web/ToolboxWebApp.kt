@@ -27,6 +27,7 @@ import com.xjtu.toolbox.core.net.CampusJwxtScheduleApi
 import com.xjtu.toolbox.feedback.FeedbackScreen
 import com.xjtu.toolbox.pay.PaymentCodeScreen
 import com.xjtu.toolbox.pay.PaymentSelectionStore
+import com.xjtu.toolbox.social.MatchScreen
 import com.xjtu.toolbox.webvpn.WebVpnConverterScreen
 import com.xjtu.toolbox.community.CommunityScreen
 import com.xjtu.toolbox.community.GithubSession
@@ -418,8 +419,9 @@ private fun AppPage(
             errorText = { FriendlyError.of(it, "加载黄页") },
         )
         // 游戏合集：与 Android 同一个屏（:core/game/GamesScreen），战绩读同一份 GameStore
-        // （Web 走 localStorage，Android 走 SharedPreferences）。合集里没搬过来的那几条
-        // （合成西交大 = WebView）点进去会落到 NotPortedScreen —— 不冒充。
+        // （Web 走 localStorage，Android 走 SharedPreferences）。合集里那七条子路由在这一端
+        // 全是**真屏**（含「合成西交大」，见下面那条分支 / D12 ⑤）—— 合集那一行读的最
+        // 高分也是同一份（`MergeGameScoreBridge` 在离开游戏那一屏时把成绩收回 App 侧）。
         AppRoute.Games -> GamesScreen(
             onBack = back,
             onNavigate = { onNavigate(WebTarget.App(it)) },
@@ -443,6 +445,15 @@ private fun AppPage(
             onBack = back,
             landmarkImages = rememberWebHopLandmarkImages(),
         )
+        // 合成西交大（`AppRoute.GameMerge`）：这一条卡的不是**取数**，而是**载体** —— 而浏览器
+        // **本身就是那个 JS 引擎**（D12 ⑤）。游戏本体是 `:app` 的 `assets/games/merge/`（HTML +
+        // 776 行 JS + 本地 Matter.js 物理引擎，408KB，全程不联网）：本端把**同一份字节**在构建期
+        // 拷进自己的资源根（`web/build.gradle.kts` 的 `mergeGameResources`），再用一个 `<iframe>`
+        // 挂到 `<body>` 上跑起来 —— 一行游戏逻辑都没有重写，没有任何新依赖。
+        // 桌面那一条**不在本批**：那一端没有浏览器内核也没有 JVM 上的 JS 引擎 ⇒ 仍落
+        // `HostUnavailableScreen`（如实说明），一行未改。
+        AppRoute.GameMerge -> WebGameMergeScreen(onBack = back)
+
         // 通知公告：与 Android 同一个屏与模型（:core/notification），取数换成 campus-api ——
         // 它覆盖同样 29 个源，两端拿到的是同一批通知（差别只在「谁去爬」）。
         AppRoute.Notification -> NotificationScreen(
@@ -811,9 +822,9 @@ private fun AppPage(
         } else {
             Column(Modifier.fillMaxSize()) {
                 WebGapNote(
-                    "一处如实不画：条码 / 二维码的**矩阵** —— 浏览器这一端没有编码器（wasm 的" +
-                        "`qrCodeModules` / `code128Modules` 如实返回 null）⇒ 只画付款码**数字**那一档，" +
-                        "两个矩阵一个都不画（不是画一张假的）。加餐券的勾选**照旧真能勾**" +
+                    "这一屏与 App / 桌面**同一个屏、同一张码**：二维码与 Code128 条形码在自己这一端算出来" +
+                        "（D12 ①：编码器在 `:core` 的 commonMain，与 Android 那份 zxing 逐模块相同）⇒ 手机上" +
+                        "扫出来就是下面那串付款码数字。加餐券的勾选**照旧真能勾**" +
                         "（POST /api/pay/vouchers/select 真把「这一轮用哪几张」推给上游）。" +
                         "⚠️ 这一屏显示的是**能付钱的东西**：`--host 0.0.0.0` 部署要先解决鉴权（§3.3）。",
                 )
@@ -858,11 +869,21 @@ private fun AppPage(
             }
         }
 
-        // 匹配交友：这一屏在浏览器里**整屏用不了** —— 它的全部动作都是「把自己的档案压成一段码」与
-        // 「解朋友的码」，而那两步要 deflate 与 URL-safe Base64（wasm 上两个 actual 都如实返回 null）
-        // ⇒ `MatchProfile.codecAvailable` 是 false。学工档案那一半服务端也没有端点（hello 那条链只在
-        // `:app`）。所以这里画的是**如实说明页**，不是半开着的交友界面（见 [WebMatchGapScreen]）。
-        AppRoute.Match -> WebMatchGapScreen(onNavigate)
+        // 匹配交友（`AppRoute.Match`）：与 App / 桌面**同一张共享屏**（`:core` 的 `MatchScreen` + 本端
+        // 宿主面 `WebMatchHost`）。2026-10-14 接线的第一版在这里落的是**如实说明页**（`WebMatchGapScreen`）：
+        // 那时 wasm 上没有 deflate 与 URL-safe Base64 ⇒ `MatchProfile.codecAvailable` 是 false，出码与解码
+        // 都不可用，而整屏的价值全在那两步上。2026-10-15（D12 ②）两条缝补进 `:core` 的 commonMain
+        // （`ZlibCodec` / `UrlSafeBase64`）⇒ 这一端真能出码、真能解朋友的码，那张说明页随之删掉。
+        //
+        // 这一屏一条请求都不发（只读本机缓存：课表族缓存 = localStorage，与日程页同一份）⇒ 与后端是
+        // 哪一形态无关。`scanner = null`：浏览器里开相机要 `getUserMedia`（只在安全上下文里存在）
+        // 与权限那一档，属 D12 ③；传 null 的效果是那两颗按钮一个字都不画（与桌面同一处置），
+        // 而不是画两颗点了没反应的按钮。
+        AppRoute.Match -> MatchScreen(
+            host = remember { WebMatchHost() },
+            onBack = back,
+            scanner = null,
+        )
 
         AppRoute.WebVpnConverter -> if (mode != ApiMode.SERVE) {
             WebServeOnlyScreen(

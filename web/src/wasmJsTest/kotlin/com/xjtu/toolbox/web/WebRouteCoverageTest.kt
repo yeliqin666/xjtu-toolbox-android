@@ -35,8 +35,9 @@ import kotlin.test.assertTrue
  * `generateWebTestSourceSnapshot`：三份文件都在 `inputs` 里，改源码就会重新生成）。
  *
  * ⚠️ 口径与 §16.2 第 1 条一致：这是**清单与分支的一致性**，不是「那一屏真能用」。
- * `AppRoute.Match` 与 `AppRoute.Accounts` 都在清单里，而它们在浏览器里落的是如实说明页
- * （分享码没有 deflate/Base64；账号页这一端只读）—— 那两条由各自的屏自己说，不在本测试的范围里。
+ * `AppRoute.Accounts` 就在清单里，而它在浏览器里是**只读**的（页顶那句写明），由那一屏自己说，
+ * 不在本测试的范围里。（`AppRoute.Match` 2026-10-14 也属这一档 —— 那时 wasm 上没有
+ * deflate/Base64、分享码用不了，落的是如实说明页；D12 ② 之后它真能用了。）
  */
 class WebRouteCoverageTest {
 
@@ -100,7 +101,7 @@ class WebRouteCoverageTest {
     // ── 断言 ──
 
     @Test
-    fun `路由差集只剩那 6 条，且每条都在 WebSupport 的文件头里有如实说明`() {
+    fun `路由差集只剩那 5 条，且每条都在 WebSupport 的文件头里有如实说明`() {
         assertEquals(
             43,
             declaredRoutes.size,
@@ -108,7 +109,7 @@ class WebRouteCoverageTest {
                 "加/删一条声明要同时看这里与 desktop 那份 DesktopRouteCoverageJvmTest",
         )
         assertEquals(
-            listOf("Agent", "Browser", "DownloadManager", "GameMerge", "Jiaocai1", "Jiaocai1Reader"),
+            listOf("Agent", "Browser", "DownloadManager", "Jiaocai1", "Jiaocai1Reader"),
             notOpenableNames.sorted(),
             "差集变了（现在 ${notOpenableNames}）：$criterion；" +
                 "新补上一屏就把它从差集里拿掉（同时改 AppPage 的分支与 WebSupport 的文件头说明），" +

@@ -39,11 +39,15 @@ import com.xjtu.toolbox.nav.AppRoute
  *   工具层，本端一件都没有 ⇒ 不是"能打开的一屏"）；
  * - `is AppRoute.Browser`：它有分支，但它**不是一屏** —— 它把 URL 交给浏览器本身
  *   （`navigateSameTab`）。清单的口径是"点了会落在本端的一张真屏上"，所以它不在这里；
- * - 其余 `:core` 路由（`DownloadManager` / `Jiaocai1` / `Jiaocai1Reader` / `GameMerge` …）：
- *   本端没有它们的屏，`AppPage` 落 `NotPortedScreen`。
+ * - 其余 `:core` 路由（`DownloadManager` / `Jiaocai1` / `Jiaocai1Reader` …）：
+ *   本端没有它们的屏，`AppPage` 落 `NotPortedScreen`。（`GameMerge` 2026-10-15（D12 ⑤）
+ *   从这一档搬走了：浏览器本身就是那个 JS 引擎 ⇒ 本端把游戏资源挂进产物、用一个 `<iframe>`
+ *   跑起来，屏在 `WebGameMerge.kt`。）
  *
- * ⚠️ 清单里**不等于** "那一屏在本端真能用"：第三批的 `AppRoute.Match` 就在清单里，而它在浏览器里
- * 落的是**如实说明页**（wasm 上没有 deflate / Base64 ⇒ 分享码生成与解析都不可用，见 `WebMatchGapScreen`）。
+ * ⚠️ 清单里**不等于** "那一屏在本端真能用"：`AppRoute.Accounts` 就在清单里，而它在浏览器里是**只读**的
+ * （切换 / 新增 / 删除 / 改密要在 App 或桌面端做）；`AppRoute.Match` 曾经也属这一档（wasm 上没有
+ * deflate / Base64 ⇒ 分享码生成与解析都不可用，落 `WebMatchGapScreen`），2026-10-15（D12 ②）
+ * 两条缝补进 `:core` 的 commonMain 之后它**真能用**了，那张说明页随之删掉。
  * 清单管的是"点了会有个说法"，那一屏到底真能用还是如实说明，由 `AppPage` 那条分支自己说。
  *
  * ## 与目录的另一半：还没有屏的那些
@@ -103,9 +107,10 @@ internal object WebSupport {
         // 四条里三种落法，但门都列在这里（「本端有没有这一屏」与「此刻后端是哪一形态」是两件事）：
         //  - 付款码 / 反馈 / WebVPN：屏在 `:core`，取数只认 serve 契约 ⇒ campus-api 形态下画
         //    `WebServeOnlyScreen`（说清「切到 serve 模式就能用」，不是「还没搬到 Web」）；
-        //  - 匹配交友：**两种形态下都用不了**（wasm 上没有 deflate / Base64 ⇒ 分享码生成与解析都
-        //    不可用）⇒ `AppPage` 落一张**如实说明页**（`WebMatchGapScreen`）—— 那也是「本端能打开
-        //    这一条路由」的一种真相，而且比藏起来强：用户点进去看得到为什么。
+        //  - 匹配交友：两种形态下都是**真屏**（`:core` 的 `MatchScreen` + 本端 `WebMatchHost`）。
+        //    这一屏一条请求都不发（只读本机缓存），所以与后端是哪一形态无关；2026-10-14 那一轮它只在
+        //    wasm 上缺 deflate / Base64（分享码用不了）⇒ 落的是如实说明页，2026-10-15（D12 ②）之后
+        //    两条缝补进 `:core` 的 commonMain ⇒ 那一页删掉、门照旧列在这里。
         AppRoute.PaymentCode,
         AppRoute.Feedback,
         AppRoute.Match,
@@ -118,6 +123,11 @@ internal object WebSupport {
         AppRoute.GameGomoku,
         AppRoute.GameGo,
         AppRoute.GameXiangqi,
+        // 合成西交大（2026-10-15，D12 ⑤）：屏是 `:web` 自己的 `WebGameMergeScreen` —— Android 用
+        // WebView 装 `assets/games/merge/`，浏览器这一端把**同一份字节**（构建期拷进产物，见
+        // `web/build.gradle.kts` 的 `mergeGameResources`）交给一个 `<iframe>`。别的端传不了候选：
+        // 桌面仍卡载体（没有浏览器内核、也没有 JVM 上的 JS 引擎）⇒ 那一端仍落 `HostUnavailableScreen`。
+        AppRoute.GameMerge,
         // 账号管理（D9 / 工单 S7a）：**屏就是 `:core` 那份 `AccountManagerScreen`**（三端同一套层级），
         // 取数是 serve 的 `GET /api/accounts`（契约 §5.10）。这一端**只读** —— 切换 / 新增 / 删除 / 改密
         // 要在 App 或桌面端做（serve 只端了读那一半），页顶那一行与动作失败的 toast 说的都是这件事

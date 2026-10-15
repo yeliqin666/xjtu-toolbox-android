@@ -89,6 +89,9 @@ private fun contentTypeOf(file: File): ContentType = when (file.extension.lowerc
     // 这一行是「托管 :web」能不能成立的关键。
     "wasm" -> ContentType("application", "wasm")
     "png" -> ContentType.Image.PNG
+    // D12 ⑤：合成西交大那 9 张校徽是 webp（`:app` 的 assets 原样拷进产物，见 `web/build.gradle.kts`）。
+    // 浏览器对 <img> 会自己嗅探图片，但一张静态托管里的图发 octet-stream 本来就不对：显式给 mime。
+    "webp" -> ContentType("image", "webp")
     "jpg", "jpeg" -> ContentType.Image.JPEG
     "svg" -> ContentType.Image.SVG
     "ico" -> ContentType.Image.XIcon

@@ -42,16 +42,16 @@ import kotlinx.datetime.daysUntil
  * 它原先在 `:app`：编解码直接用 `java.util.zip` 的 deflate 与 `java.util.Base64`，
  * 日期用 `java.time`。搬进 `:core` 的 commonMain 之后（要编到 wasmJs）三处都换掉了：
  * - deflate / inflate → `:core` 的平台缝 `platform/Deflate.kt`（Android 与 jvm 是**原来那两份**
- *   实现，逐字相同；wasmJs 如实没有）；
- * - URL-safe Base64 → `platform/Base64Url.kt`（同上）；
+ *   实现，逐字相同；wasmJs 2026-10-15 起接上了 `ZlibCodec` 那份纯 Kotlin 实现，见 D12 ②）；
+ * - URL-safe Base64 → `platform/Base64Url.kt`（同上，wasmJs 是 `UrlSafeBase64`）；
  * - `java.time.LocalDate` → `kotlinx-datetime` 的 `LocalDate`（`:core` 早就在用它，
  *   差异只有 `monthValue`→`monthNumber`、`ChronoUnit.DAYS.between`→`daysUntil`，都同义）。
  *
  * 取数交给 [MatchData]（读哪种缓存由 [MatchHost] 说），打分逻辑因此仍能在普通 JVM
  * 单元测试里跑，见 `:app` 的 `MatchProfileTest`（它一条断言都没改）。
  *
- * [codecAvailable] 是「这一端能不能出码」的判据：今天只有 wasmJs 是 false，
- * 那里 [encode] 只能给空串，屏据该字段**如实说这一端生成不了分享码**。
+ * [codecAvailable] 是「这一端能不能出码」的判据：**三端今天都是 true**（2026-10-15 的 D12 ②
+ * 把两条缝补进了 commonMain；在那之前 wasmJs 是 false，那里 [encode] 只能给空串）。
  */
 object MatchProfile {
 
@@ -101,7 +101,8 @@ object MatchProfile {
     /**
      * 这一端会不会出分享码：要 deflate 与 Base64 两件都在（见两个平台缝的 KDoc）。
      *
-     * 今天三端里只有 wasmJs 是 false（那里两件都没有）。屏据它**如实说明**，
+     * **三端今天都是 true**（wasmJs 在 2026-10-15 的 D12 ② 之前是 false：那里两件都没有，
+     * 浏览器上整屏用不了）。这一格仍是屏的判据：屏据它**如实说明**，
      * 而不是把 [encode] 的空串当成"算出错了"。
      */
     val codecAvailable: Boolean get() = deflateAvailable && base64Available
@@ -320,7 +321,7 @@ object MatchProfile {
     // 老师、考试、教材，明文有好几千字符，粘不进聊天框。
 
     /**
-     * @return 这一端没有 deflate / Base64 时（[codecAvailable] 为 false，今天只有 wasmJs）
+     * @return 这一端没有 zlib / Base64 时（[codecAvailable] 为 false，三端今天都不会）
      *   返回**空串**；屏据 [codecAvailable] 如实说明，不把空串当成"算出错了"。
      */
     fun encode(p: Profile): String {

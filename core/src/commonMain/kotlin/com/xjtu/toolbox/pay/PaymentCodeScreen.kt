@@ -249,10 +249,11 @@ fun PaymentCodeScreen(
 
                         Spacer(Modifier.height(16.dp))
 
-                        // 这一端到底有没有编码器：wasmJs 的 `qrCodeModules` / `code128Modules` **如实返回
-                        // null**（这一端没有 encoder，zxing 只有 JVM/Android 那一份 jar）⇒ 两个矩阵都不画，
-                        // 只留下面那串数字（纯文本那一档，不依赖编码器）。不画一张假的，也不留两块空白
-                        // 让人以为图挂了 —— 画不出来就说清楚（见 core/src/wasmJsMain/.../CodeMatrix.wasmJs.kt）。
+                        // 这一端到底有没有编码器：`qrCodeModules` / `code128Modules` 编不出来时给 null
+                        //（比如文本超出最大版本）。三端今天都编得出（D12 ① 把纯 Kotlin 的编码器搬进了
+                        // commonMain，wasmJs 那一端也在内）⇒ 这一支走不到；留着是**如实降级**那条规矩：
+                        // 一个真编不出来的端上只画下面那串数字（纯文本，不依赖编码器），不画假的、也不留
+                        // 两块空白让人以为图挂了。
                         if (qrMatrix == null && barMatrix == null) {
                             Text(
                                 "本端没有条码 / 二维码编码器，画不出可扫的码；下面这串数字就是付款码本身。",

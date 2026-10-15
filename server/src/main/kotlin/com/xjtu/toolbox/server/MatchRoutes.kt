@@ -57,7 +57,8 @@ import kotlinx.serialization.Serializable
  * ## 分享码那一半的如实说明（`:web` 接的时候最要紧的一条）
  *
  * 这一族的终点是**分享码**（`:core` 的 `MatchProfile.encode` / `decode`），而它要的两条平台缝
- * （deflate、Base64）在 **wasmJs 上不存在** ⇒ `MatchProfile.codecAvailable == false`：
+ * （deflate、Base64）在 **wasmJs 上曾经不存在**（2026-10-15 的 D12 ② 之后已补上，浏览器能自己出码了）
+ * ⇒ 当时 `MatchProfile.codecAvailable == false`：
  * **浏览器端生成 / 解析分享码都不可用**（`:web` 那一侧的路由 `schedule_match` 因此整屏接不上，
  * 见契约 §5.7 的「消费方待接」）。本端点端的是**原料**（饭点 / 食堂那两维），
  * 不是码本身 —— 服务端这一侧没有「生成分享码」端点，也不该有：码里含昵称与课表网格，

@@ -1,17 +1,20 @@
 package com.xjtu.toolbox.platform
 
 /**
- * Web（wasmJs）侧：**如实返回 null** —— 这一端没有二维码 / 条形码编码器。
+ * Web（wasmJs）侧的码阵实现：**转调 `:core` commonMain 里那份纯 Kotlin 编码器**。
  *
- * zxing 只有 JVM/Android 那一份 jar（进不了 wasm），而手写一份 QR 编码器（GF(256) 的 RS 纠错、
- * 掩码评分、版本表）不是这一批要做的事。
+ * zxing（`QRCodeWriter` / `Code128Writer`）只有 JVM/Android 那一份 jar，进不了 wasmJs；
+ * 而浏览器这一端要画真码（付款码那两个矩阵、分享码的二维码）⇒ 编码器按「三端一份」的做法
+ * 搬进 commonMain：二维码是 [QrCodec]，条形码是 [Code128Codec]。
  *
- * **TODO（Web 端的付款码）**：Web 那条路由 2026-10-14 起已经点亮（`AppRoute.PaymentCode`
- * 落的是共享屏 `:core` 的 `PaymentCodeScreen`），**但编码器仍然没有** —— 那一屏摇到的两个矩阵都是
- * null ⇒ 屏上只画付款码**数字**（那一档是纯文本，不依赖编码器），两个矩阵一个都不画。
- * 真要画码，这个 actual 要么换一个 wasm 可用的编码器，要么把「编码器」也收成 `:core` 的共享实现
- * （三端同一份）—— 不是画一张假的。
+ * | | 这一端 |
+ * |---|---|
+ * | 二维码 | [QrCodec.encode]（单个模式、纠错 L、UTF-8、不留静默区 —— 与 zxing 那条路逐字同参数） |
+ * | 条形码 | [Code128Codec.encode]（code A/B/C 自动选集 + 校验位 + 停止符，静默区每侧 5 个模块） |
+ * | 与 Android 的关系 | **逐模块相同**：`:core:jvmTest` 的 `CodeMatrixParityJvmTest` 拿同一批输入同时跑这一份与 zxing 那份 actual，逐格断言相等；androidMain / jvmMain 两份 actual **一行未改**（红线：Android 行为逐字不变） |
+ *
+ * 编不出来（内容太长、装不进 40 版；或条形码里出现非 ASCII 字符）时与那两份 actual 一样返回 null。
  */
-actual fun qrCodeModules(text: String): CodeMatrix? = null
+actual fun qrCodeModules(text: String): CodeMatrix? = QrCodec.encode(text)
 
-actual fun code128Modules(text: String): CodeMatrix? = null
+actual fun code128Modules(text: String): CodeMatrix? = Code128Codec.encode(text)

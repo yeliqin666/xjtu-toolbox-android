@@ -1,18 +1,19 @@
 package com.xjtu.toolbox.platform
 
 /**
- * Web（wasmJs）侧：**如实返回 null** —— 这一端没有 deflate。
+ * Web（wasmJs）侧：**转调 `:core` commonMain 里那份纯 Kotlin 实现**（[ZlibCodec]）。
  *
- * 浏览器有 `CompressionStream('deflate')`，但它是流式异步的，而分享码这条路在共享层是同步链
- * （见 commonMain 的 KDoc）。把同步换成 suspend 会一路改到屏与调用点，而 `AppRoute.Match`
- * 在 `:web` 上落的是**如实说明页**（不是真屏）—— 还是不值得先付这笔账。
+ * 原先这一端如实返回 null（浏览器只有流式异步的 `CompressionStream`，而分享码这条链在共享层是同步的）。
+ * 2026-10-15（D12 ②）改成「纯 Kotlin 一份、三端共享」：压缩是固定 Huffman + 贪心 LZ77 的 **zlib 流**
+ * （头 + deflate + Adler-32，与 `java.util.zip.Deflater(BEST_COMPRESSION)` 同一种封装），
+ * 解压三种块（存储 / 固定 / 动态 Huffman）都认 —— 所以 Android/jvm 编出来的分享码在这一端解得开，
+ * 反过来也一样（两个方向都钉在 `:core:jvmTest` 的 `ShareCodeInteropJvmTest` 里）。
  *
- * **TODO（Web 端的匹配交友）**：见 commonMain `Deflate.kt` 文件头那两条路。在那之前
- * [deflateAvailable] 是 false，`:core` 的匹配屏与 `:web` 的那张说明页都据它**如实说这一端
- * 生成不了分享码**，而不是画一张空的 / 假的码。
+ * ⚠️ 与 Android/jvm 那两份 actual 的差别只有一处，且是**允许**的那一处：同一段明文压出来的**字节数
+ * 不同**（这边不做动态 Huffman）。分享码的语义是「对方解得开」，不是「字节相同」，见 [ZlibCodec] 文件头。
  */
-actual fun deflateBytes(raw: ByteArray): ByteArray? = null
+actual fun deflateBytes(raw: ByteArray): ByteArray? = ZlibCodec.deflate(raw)
 
-actual fun inflateBytes(bytes: ByteArray, maxBytes: Int): ByteArray? = null
+actual fun inflateBytes(bytes: ByteArray, maxBytes: Int): ByteArray? = ZlibCodec.inflate(bytes, maxBytes)
 
-actual val deflateAvailable: Boolean = false
+actual val deflateAvailable: Boolean = true

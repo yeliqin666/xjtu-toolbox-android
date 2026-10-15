@@ -133,6 +133,40 @@ fun ProbeScreen() {
                 )
             }
         }
+        // ── 浏览器能力（D12 ③）：三样（相机扫码 / 剪贴板 / WebCrypto）在**这一份部署里**到底在不在 ──
+        // 它们跟地址栏里的地址走（安全上下文），所以只在文档里写没用：这里现场列出来，
+        // 而且每一行都带「本端谁在用 / 差的是什么」—— 见 `WebBrowserCapabilities` 的 KDoc。
+        Spacer(Modifier.height(8.dp))
+        Card(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 4.dp),
+            insideMargin = PaddingValues(12.dp),
+        ) {
+            Column {
+                Text("浏览器能力（这一份部署的）", color = cs.onSurface, fontSize = 13.sp)
+                Text(
+                    "这几条不是代码能决定的，而是**当前这个地址**决定的（安全上下文）：HTTPS 或 localhost " +
+                        "有，明文 HTTP + 非 localhost 没有（契约 §3.5；--https 见 D11）。",
+                    color = cs.onBackgroundVariant,
+                    fontSize = 10.sp,
+                )
+                Spacer(Modifier.height(6.dp))
+                WebBrowserCapabilities.rows().forEach { row ->
+                    Row {
+                        Text(
+                            if (row.present) "✓" else "✗",
+                            color = if (row.present) Color(0xFF2E7D32) else cs.error,
+                            fontSize = 14.sp,
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        Column {
+                            Text(row.label, color = cs.onSurface, fontSize = 12.sp)
+                            Text(row.note, color = cs.onBackgroundVariant, fontSize = 10.sp)
+                        }
+                    }
+                    Spacer(Modifier.height(6.dp))
+                }
+            }
+        }
         Spacer(Modifier.height(12.dp))
     }
 }

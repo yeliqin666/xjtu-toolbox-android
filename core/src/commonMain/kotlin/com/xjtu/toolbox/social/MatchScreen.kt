@@ -401,12 +401,13 @@ private fun MyCodeCard(
         // 不显式写一次的话，新码没画出来之前显示的还是上一张旧码。
         value = QrState.Loading
         value = when {
-            // 这一端没有 deflate / Base64（wasmJs）：这**不是**"出错了"，是这一端做不到。
+            // 这一端没有压缩（zlib）或 Base64：这**不是**"出错了"，是这一端做不到。
             // 说清是哪一件缺了，而不是让人反复退出重进一个永远好不了的状态。
+            // 三端今天都走不到这一支（D12 ② 把两条缝补进了 :core 的 commonMain）。
             !MatchProfile.codecAvailable -> QrState.Failed(
-                "这一端还没有分享码要用的压缩（deflate）与 Base64，生成不了码。" +
-                    "Android 与桌面已经能用；Web 端要等这两件接上" +
-                    "（见 :core 的 platform/Deflate.kt 与 platform/Base64Url.kt 里的 TODO）。"
+                "这一端还没有分享码要用的压缩（zlib）与 Base64，生成不了码。" +
+                    "Android、桌面与浏览器三端都已经能用（见 :core 的 platform/Deflate.kt " +
+                    "与 platform/Base64Url.kt）。"
             )
 
             // 正常不会走到：encode 至少会带版本号。但空串喂给 zxing 是直接抛异常，

@@ -189,6 +189,13 @@ class ServeServerTest {
         assertEquals("application/wasm", wasm.headers().firstValue("content-type").orElse(""))
         assertContains(harness.get("/app.js").headers().firstValue("content-type").orElse(""), "javascript")
 
+        // D12 ⑤：合成西交大那 9 张校徽是 webp —— 静态托管不能把图发成 octet-stream
+        File(dist, "badge.webp").writeBytes(byteArrayOf(0x52, 0x49, 0x46, 0x46, 0x00, 0x00, 0x00, 0x00))
+        assertEquals(
+            "image/webp",
+            harness.get("/badge.webp").headers().firstValue("content-type").orElse(""),
+        )
+
         // 找不到的文件 → 404
         assertEquals(404, harness.get("/missing.js").statusCode())
 

@@ -159,6 +159,10 @@ val webTestSourceSnapshotFiles = listOf(
     rootProject.file("core/src/commonMain/kotlin/com/xjtu/toolbox/nav/AppRoute.kt"),
     file("src/wasmJsMain/kotlin/com/xjtu/toolbox/web/WebSupport.kt"),
     file("src/wasmJsMain/kotlin/com/xjtu/toolbox/web/ToolboxWebApp.kt"),
+    // D12 ⑤：合成西交大那份**游戏页自己的 JS**。它不是 Kotlin，但本端有一个常量跟它**逐字绑定**
+    //（`MERGE_GAME_HIGHSCORE_KEY` ↔ 它里的 `STORAGE_KEY`），那种跟跨语言常量的绑定靠人记就会腐坏
+    // —— 所以也读进来，由 `WebGameMergeTest` 当场对一次（改游戏那份 JS 就会重新生成这份快照）。
+    rootProject.file("app/src/main/assets/games/merge/index.js"),
 )
 
 val generateWebTestSourceSnapshot = tasks.register("generateWebTestSourceSnapshot") {
@@ -171,12 +175,13 @@ val generateWebTestSourceSnapshot = tasks.register("generateWebTestSourceSnapsho
     val outDir = layout.buildDirectory.dir("generated/webTestSourceSnapshot/kotlin").get().asFile
     outputs.dir(outDir)
     doLast {
-        // 文件名 → 常量名（ToolboxWebApp.kt ⇒ TOOLBOX_WEB_APP）
+        // 文件名 → 常量名（ToolboxWebApp.kt ⇒ TOOLBOX_WEB_APP，index.js ⇒ INDEX）
+        // 去掉扩展名而不是只去 `.kt`：这一批里还放了一份游戏页的 `index.js`（见上面那份清单）。
         fun constantName(fileName: String): String =
-            fileName.removeSuffix(".kt")
+            fileName.substringBeforeLast('.')
                 .replace(Regex("([a-z0-9])([A-Z])"), "$1_$2")
+                .replace(Regex("[^A-Za-z0-9]+"), "_")
                 .uppercase()
-
         // 按行切块：避免一个几十 KB 的字符串字面量（也避免在非 BMP 字符中间切断）
         fun chunks(text: String, maxChars: Int = 8_000): List<String> {
             val out = mutableListOf<String>()
@@ -253,3 +258,26 @@ kotlin.sourceSets.getByName("wasmJsTest").kotlin.apply {
     srcDir(generateWebTestSourceSnapshot)
     srcDir(materializeArchiveFixture)
 }
+
+// ── D12 ⑤：把「合成西交大」那份游戏资源带进本端产物（浏览器上真能玩） ──────────────────
+//
+// 游戏本体只有一份：`:app` 的 `src/main/assets/games/merge/`（index.html + index.js +
+// 本地 matter.min.js + 9 张校徽 webp，约 408KB，全程不联网）。Android 从 assets 读它、跑在
+// `MergeGameScreen` 的 WebView 里；浏览器这一端**本来就在跑 JS** ⇒ 缺的只是「这几个文件得在
+// 静态根下能被 GET 到」。所以这里在构建期把**同一份源文件**拷进本模块的资源根（`games/merge/`），
+// 由 `wasmJsProcessResources` → wasm 产物那一条既有的路带到 dist 里
+//（serve 的 `--dist` / nginx / webpack dev-server 都是同一个静态根）。
+//
+// 为什么不把文件复制进仓库（`web/src/wasmJsMain/resources/games/…`）：那就成了两份字节，
+// 改一处漏一处。这里 `from` 的是 `:app` 那一份，产物与 Android 逐字节同一份。
+//
+// 这一条也解释了「桌面为什么仍然卡载体」：桌面没有浏览器内核，也没有 WebView/JS 引擎 ——
+// 那一端落 `HostUnavailableScreen`，本批一行未改（见 `docs/desktop-port-plan.md` §16.11）。
+val mergeGameResources = tasks.register<Sync>("mergeGameResources") {
+    group = "build"
+    description = "把 :app 的 assets/games/merge 拷进 :web 的资源根（D12 ⑤）"
+    from(rootProject.file("app/src/main/assets/games/merge")) { into("games/merge") }
+    into(layout.buildDirectory.dir("generated/mergeGameResources"))
+}
+
+kotlin.sourceSets.getByName("wasmJsMain").resources.srcDir(mergeGameResources)
