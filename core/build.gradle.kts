@@ -49,6 +49,7 @@ kotlin {
             api(project(":feature:lms"))
             api(project(":feature:notice"))
             api(project(":feature:schedule"))
+            api(project(":feature:score"))
             // api 而非 implementation：HttpClientEngine 出现在公开的 expect 声明里
             api(libs.ktor.client.core)
             implementation(libs.ktor.client.content.negotiation)
