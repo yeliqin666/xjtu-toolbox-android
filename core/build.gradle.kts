@@ -36,6 +36,7 @@ kotlin {
             api(project(":shared:model"))
             api(project(":shared:navigation"))
             api(project(":shared:designsystem"))
+            api(project(":shared:network"))
             // api 而非 implementation：HttpClientEngine 出现在公开的 expect 声明里
             api(libs.ktor.client.core)
             implementation(libs.ktor.client.content.negotiation)
