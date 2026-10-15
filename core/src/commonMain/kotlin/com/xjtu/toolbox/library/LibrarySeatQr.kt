@@ -61,7 +61,7 @@ enum class LibraryQrArea(val code: String, val campus: LibraryCampus, val floorC
 }
 
 /** 图书馆页里「扫码要约的座位」确认框的状态。 */
-internal data class ScanSeatPrompt(
+data class ScanSeatPrompt(
     val qr: LibrarySeatQr,
     val status: LibrarySeatStatus? = null,
     val checking: Boolean = true,

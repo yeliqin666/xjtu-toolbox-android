@@ -3,7 +3,7 @@ package com.xjtu.toolbox.platform
 import kotlinx.browser.localStorage
 
 /** Web：`localStorage`。 */
-internal const val PREFIX = "xjtu-toolbox."
+const val PREFIX = "xjtu-toolbox."
 
 private class WebKeyValueStore(private val name: String) : KeyValueStore {
     private fun k(key: String) = "$PREFIX$name.$key"

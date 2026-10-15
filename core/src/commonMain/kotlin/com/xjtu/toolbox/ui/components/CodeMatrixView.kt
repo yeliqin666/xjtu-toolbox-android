@@ -10,7 +10,7 @@ import com.xjtu.toolbox.platform.CodeMatrix
 
 /** 把一个 [CodeMatrix] 画成码 —— 三端同一份，不需要任何平台的像素缓冲 API 。 */
 @Composable
-internal fun CodeMatrixView(
+fun CodeMatrixView(
     matrix: CodeMatrix?,
     quietZoneModules: Int,
     modifier: Modifier,

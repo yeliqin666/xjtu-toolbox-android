@@ -12,7 +12,7 @@ import java.util.concurrent.ConcurrentHashMap
 var keyValueStoreRootOverride: File? = null
 
 /** 本端普通键值存储的根目录。解析顺序：显式 override ?: 系统属性 ?: 默认字面量（与密文存储同根）。 */
-internal fun keyValueStoreRoot(): File =
+fun keyValueStoreRoot(): File =
     keyValueStoreRootOverride
         ?: System.getProperty("xjtu.toolbox.keyValueRoot")?.let { File(it) }
         ?: File(System.getProperty("user.home") ?: "/tmp", ".local/share/xjtu-toolbox")

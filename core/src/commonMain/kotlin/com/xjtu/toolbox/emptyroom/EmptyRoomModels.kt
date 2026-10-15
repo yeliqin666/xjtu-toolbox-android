@@ -13,7 +13,7 @@ enum class RoomSource(val key: String) {
 }
 
 /** 记住"上次选的是哪一档"的偏好键。 */
-internal const val SOURCE_PREF_KEY = "empty_room_source"
+const val SOURCE_PREF_KEY = "empty_room_source"
 
 /** 教室信息（来自 CDN 缓存） */
 @kotlinx.serialization.Serializable

@@ -66,7 +66,7 @@ private fun parseSemester(obj: JsonObject): SchoolTerm? {
 }
 
 /** `start..end`（闭区间）里的工作日数。 */
-internal fun countWorkDays(start: LocalDate, end: LocalDate): Int {
+fun countWorkDays(start: LocalDate, end: LocalDate): Int {
     var day = start
     var count = 0
     while (day <= end) {
