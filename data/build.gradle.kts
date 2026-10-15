@@ -27,6 +27,8 @@ kotlin {
             // api：okhttp 与 jsoup 的类型出现在公开签名里。
             api(libs.okhttp)
             api(libs.jsoup)
+            // 取数与会话已拆到 :shared:data；这里只剩场馆滑块验证码（@Composable + 识别器），api 转发给各端壳。
+            api(project(":shared:data"))
             // api：`SessionExpiredFailure` 在 :core，消费方要看得见这个父类型。
             api(project(":core"))
             implementation(libs.kotlinx.serialization.json)
