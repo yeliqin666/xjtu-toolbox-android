@@ -32,6 +32,8 @@ kotlin {
 
     sourceSets {
         commonMain.dependencies {
+            // 拆出去的共享层与功能模块：:core 只剩壳（shell），用 api 转发给 :app / :web / :desktop / :server。
+            api(project(":shared:model"))
             // api 而非 implementation：HttpClientEngine 出现在公开的 expect 声明里
             api(libs.ktor.client.core)
             implementation(libs.ktor.client.content.negotiation)
