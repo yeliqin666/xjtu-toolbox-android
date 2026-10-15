@@ -41,6 +41,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.jsoup.Jsoup
+import com.xjtu.toolbox.html.HtmlContent
 import top.yukonga.miuix.kmp.basic.*
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.utils.PressFeedbackType
@@ -192,15 +193,14 @@ internal fun ActivityDetailPage(
                         // 基本信息卡
                         item(key = "info") { ActivityInfoCard(d) }
 
-                        // 正文（HTML 去标签后展示）
+                        // 正文（富文本 HTML 原生渲染）
                         if (!d.description.isNullOrBlank()) {
                             item(key = "desc") {
-                                val plainText = remember(d.description) { htmlToPlainText(d.description) }
                                 SectionHeader(if (d.type == LmsActivityType.HOMEWORK) "作业描述" else "内容")
                                 Card(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
-                                    Text(
-                                        plainText,
-                                        style = MiuixTheme.textStyles.body2,
+                                    HtmlContent(
+                                        html = d.description,
+                                        callFactory = api.client,
                                         modifier = Modifier.padding(16.dp)
                                     )
                                 }

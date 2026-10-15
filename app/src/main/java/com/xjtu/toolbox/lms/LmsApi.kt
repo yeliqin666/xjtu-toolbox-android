@@ -137,6 +137,10 @@ internal fun extractBulletin(obj: JsonObject, courseId: Int, baseUrl: String = "
 
 class LmsApi(private val site: SiteSession) {
 
+    /** 当前站点认证绑定的 OkHttpClient（持有会话 CookieJar 与 WebVPN 代理拦截器） */
+    val client: okhttp3.OkHttpClient
+        get() = site.client
+
     private val baseUrl = "https://lms.xjtu.edu.cn"
     private val rmsBaseUrl = "https://rms-v5.xjtu.edu.cn"
 

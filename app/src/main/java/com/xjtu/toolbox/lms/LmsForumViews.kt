@@ -26,8 +26,10 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.xjtu.toolbox.html.HtmlContent
 import com.xjtu.toolbox.ui.adaptive.readableWidth
 import com.xjtu.toolbox.ui.components.rememberRetainedLazyListState
+import okhttp3.Call
 import com.xjtu.toolbox.ui.glass.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -224,6 +226,7 @@ internal fun LmsForumTopicCard(
 @Composable
 internal fun LmsForumReplyCard(
     reply: LmsForumReply,
+    callFactory: Call.Factory? = null,
 ) {
     val colors = MiuixTheme.colorScheme
     Card(
@@ -268,12 +271,13 @@ internal fun LmsForumReplyCard(
             Spacer(Modifier.height(8.dp))
 
             // 回复正文
-            val contentText = remember(reply.content) { htmlToPlainText(reply.content) }
-            Text(
-                contentText,
-                style = MiuixTheme.textStyles.body2,
-                fontSize = 14.sp
-            )
+            if (reply.content.isNotBlank()) {
+                HtmlContent(
+                    html = reply.content,
+                    callFactory = callFactory,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
 
             // 楼中楼子评论
             if (reply.comments.isNotEmpty()) {
@@ -421,12 +425,11 @@ internal fun LmsForumTopicDetailPage(
                             Spacer(Modifier.height(12.dp))
 
                             // 正文
-                            val bodyText = remember(topic.content) { htmlToPlainText(topic.content) }
-                            if (bodyText.isNotBlank()) {
-                                Text(
-                                    bodyText,
-                                    style = MiuixTheme.textStyles.body1,
-                                    lineHeight = 22.sp
+                            if (topic.content.isNotBlank()) {
+                                HtmlContent(
+                                    html = topic.content,
+                                    callFactory = api.client,
+                                    modifier = Modifier.fillMaxWidth()
                                 )
                             }
                         }
@@ -475,7 +478,7 @@ internal fun LmsForumTopicDetailPage(
                     }
                     else -> {
                         items(replies, key = { "reply_${it.id}" }) { reply ->
-                            LmsForumReplyCard(reply)
+                            LmsForumReplyCard(reply, callFactory = api.client)
                         }
                     }
                 }

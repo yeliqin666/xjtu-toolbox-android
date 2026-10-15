@@ -24,6 +24,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
+import com.xjtu.toolbox.html.HtmlContent
 import com.xjtu.toolbox.ui.adaptive.readableWidth
 import com.xjtu.toolbox.ui.glass.*
 import kotlinx.coroutines.launch
@@ -137,9 +138,6 @@ internal fun BulletinDetailPage(
     val scrollBehavior = MiuixScrollBehavior(rememberTopAppBarState())
     val glass = rememberPageGlass()
 
-    val plainText = remember(bulletin.content) { htmlToPlainText(bulletin.content) }
-    val imageUrls = remember(bulletin.content) { extractImageUrls(bulletin.content) }
-
     Scaffold(
         topBar = {
             GlassTopAppBar(
@@ -185,36 +183,19 @@ internal fun BulletinDetailPage(
                             .padding(vertical = 4.dp),
                         colors = CardDefaults.defaultColors(color = com.xjtu.toolbox.ui.components.AppCardColor)
                     ) {
-                        Column(Modifier.padding(16.dp)) {
-                            if (plainText.isNotBlank()) {
-                                Text(
-                                    text = plainText,
-                                    style = MiuixTheme.textStyles.body2,
-                                    color = MiuixTheme.colorScheme.onSurface,
-                                    modifier = Modifier.fillMaxWidth()
+                        Box(Modifier.padding(16.dp)) {
+                            if (bulletin.content.isNotBlank()) {
+                                HtmlContent(
+                                    html = bulletin.content,
+                                    callFactory = api.client,
+                                    modifier = Modifier.fillMaxWidth(),
                                 )
-                            } else if (imageUrls.isEmpty()) {
+                            } else {
                                 Text(
                                     text = "（无正文描述）",
                                     style = MiuixTheme.textStyles.body2,
                                     color = MiuixTheme.colorScheme.onSurfaceVariantSummary
                                 )
-                            }
-
-                            // 富文本内嵌图片
-                            if (imageUrls.isNotEmpty()) {
-                                if (plainText.isNotBlank()) Spacer(Modifier.height(12.dp))
-                                imageUrls.forEach { url ->
-                                    AsyncImage(
-                                        model = url,
-                                        contentDescription = "公告配图",
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .padding(vertical = 4.dp)
-                                            .clip(RoundedCornerShape(8.dp)),
-                                        contentScale = ContentScale.FillWidth
-                                    )
-                                }
                             }
                         }
                     }
