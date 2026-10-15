@@ -41,6 +41,7 @@ kotlin {
             api(project(":feature:agent"))
             api(project(":feature:attendance"))
             api(project(":feature:campus"))
+            api(project(":feature:community"))
             // api 而非 implementation：HttpClientEngine 出现在公开的 expect 声明里
             api(libs.ktor.client.core)
             implementation(libs.ktor.client.content.negotiation)
