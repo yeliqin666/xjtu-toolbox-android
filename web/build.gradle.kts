@@ -79,7 +79,7 @@ kotlin {
 
 // ── 测试要断言的源码快照（浏览器里没有文件系统）；⚠️ 任务体里不能引用脚本成员，否则 configuration cache 失败 ──
 val webTestSourceSnapshotFiles = listOf(
-    rootProject.file("core/src/commonMain/kotlin/com/xjtu/toolbox/nav/AppRoute.kt"),
+    rootProject.file("shared/navigation/src/commonMain/kotlin/com/xjtu/toolbox/nav/AppRoute.kt"),
     file("src/wasmJsMain/kotlin/com/xjtu/toolbox/web/WebSupport.kt"),
     file("src/wasmJsMain/kotlin/com/xjtu/toolbox/web/ToolboxWebApp.kt"),
     rootProject.file("app/src/main/assets/games/merge/index.js"),

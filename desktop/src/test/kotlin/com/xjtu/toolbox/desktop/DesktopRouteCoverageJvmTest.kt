@@ -25,7 +25,7 @@ class DesktopRouteCoverageJvmTest {
     }
 
     private val routeSource: String by lazy {
-        File(repoRoot(), "core/src/commonMain/kotlin/com/xjtu/toolbox/nav/AppRoute.kt").readText()
+        File(repoRoot(), "shared/navigation/src/commonMain/kotlin/com/xjtu/toolbox/nav/AppRoute.kt").readText()
     }
 
     private val desktopAppSource: String by lazy {
