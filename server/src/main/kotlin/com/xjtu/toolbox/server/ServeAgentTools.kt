@@ -35,6 +35,7 @@ import com.xjtu.toolbox.schedule.ScheduleCache
 import com.xjtu.toolbox.schedule.ScheduleCacheStore
 import com.xjtu.toolbox.schedule.XjtuTime
 import com.xjtu.toolbox.util.AppJson
+import com.xjtu.toolbox.util.CampusZoneId
 import com.xjtu.toolbox.yellowpage.YellowPageSource
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
@@ -232,7 +233,7 @@ internal class ServeAgentTools(
     }
 
     private fun currentPeriodIndex(): Int {
-        val now = java.time.LocalDateTime.now()
+        val now = java.time.LocalDateTime.now(CampusZoneId)
         val isSummer = XjtuTime.isSummerTime(now.monthValue)
         val nowMinute = now.hour * 60 + now.minute
         val section = (1..11).firstOrNull { s ->
@@ -313,7 +314,7 @@ internal class ServeAgentTools(
         else -> ToolReply.loginFailed(type.label, "connection", e.message?.take(60))
     }
     private fun getCurrentTime(): String {
-        val now = LocalDateTime.now()
+        val now = LocalDateTime.now(CampusZoneId)
         val today = now.toLocalDate()
         val isSummer = XjtuTime.isSummerTime(today.monthValue)
         val dayNames = listOf("", "周一", "周二", "周三", "周四", "周五", "周六", "周日")
@@ -371,7 +372,7 @@ internal class ServeAgentTools(
         return try {
             val terms = calendar.terms()
             if (terms.isEmpty()) return ToolReply.empty("school_calendar")
-            val today = com.xjtu.toolbox.util.todayInSystemZone()
+            val today = com.xjtu.toolbox.util.todayOnCampus()
             val selected = if (term.isNullOrBlank()) {
                 terms.firstOrNull { today in it.startDate..it.endDate }
                     ?: terms.lastOrNull { it.startDate <= today }
@@ -468,7 +469,7 @@ internal class ServeAgentTools(
             .mapKeys { it.key.toJavaTime() }
 
         if (dateStr != null) {
-            val targetDate = runCatching { LocalDate.parse(dateStr) }.getOrElse { LocalDate.now() }
+            val targetDate = runCatching { LocalDate.parse(dateStr) }.getOrElse { LocalDate.now(CampusZoneId) }
             val weekNum = com.xjtu.toolbox.schedule.TermWeeks.weekOf(startDate.toKx(), targetDate.toKx())
             val targetSummer = XjtuTime.isSummerTime(targetDate.monthValue)
             val dayCourses = courses.filter { it.dayOfWeek == targetDate.dayOfWeek.value && it.isInWeek(weekNum) }
@@ -489,7 +490,7 @@ internal class ServeAgentTools(
                 dayCourses.forEach { c -> append(agentCourseLine(c, targetSummer, withTeacher = true)).append('\n') }
             }.withAgentChangeNote(changeNote)
         } else {
-            val today = LocalDate.now()
+            val today = LocalDate.now(CampusZoneId)
             val weekNum = com.xjtu.toolbox.schedule.TermWeeks.weekOf(startDate.toKx(), today.toKx())
             if (weekNum <= 0) return "当前不在学期内。"
             // 每门课按它那天的日期算作息，跨月那周也不会错
@@ -553,7 +554,7 @@ internal class ServeAgentTools(
             // serve 没有 App 那一屏的数据源偏好（`empty_room` prefs 在 :app）⇒ 一律走默认那一档
             val sourcePref: String? = null
             val nowSection = currentPeriodIndex() + 1
-            val asksNow = targetDate == LocalDate.now() && (section == null || section == nowSection)
+            val asksNow = targetDate == LocalDate.now(CampusZoneId) && (section == null || section == nowSection)
             var liveNote: String? = null
             if (asksNow && (sourcePref == null || sourcePref == "live") && targetCampus in LIVE_CAMPUSES) {
                 val site = ensureSiteKey(com.xjtu.toolbox.auth.JsSession.SITE_KEY)
@@ -635,7 +636,7 @@ internal class ServeAgentTools(
         }
     }
     private fun parseToolDate(date: String?): LocalDate {
-        val today = LocalDate.now()
+        val today = LocalDate.now(CampusZoneId)
         return when (date?.trim()?.lowercase()) {
             null, "", "今天", "今日", "today" -> today
             "明天", "tomorrow" -> today.plusDays(1)

@@ -20,6 +20,7 @@ import java.net.URI
 import java.net.URL
 import java.net.URLEncoder
 import java.nio.charset.StandardCharsets
+import com.xjtu.toolbox.util.CampusZoneId
 import java.time.LocalDate
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
@@ -546,7 +547,7 @@ private class GenericXjtuCrawler(
 
         // 完整日期
         FULL_DATE_RE.find(text)?.let {
-            val d = parseDateSafe(it.value); if (d != LocalDate.now()) return d
+            val d = parseDateSafe(it.value); if (d != LocalDate.now(CampusZoneId)) return d
         }
 
         // YYYY-MM + DD（SOM/MEC/XSC 模式）
@@ -592,7 +593,7 @@ private class GenericXjtuCrawler(
     /** 页面只给 MM-DD 时，把「比今天晚一周以上」的日期算到去年。 */
     private fun inferMonthDay(month: Int, day: Int): LocalDate? {
         return try {
-            val today = LocalDate.now()
+            val today = LocalDate.now(CampusZoneId)
             val candidate = LocalDate.of(today.year, month, day)
             if (candidate.isAfter(today.plusDays(7))) candidate.minusYears(1) else candidate
         } catch (_: Exception) {
@@ -639,7 +640,7 @@ private class GenericXjtuCrawler(
 
         // ── 4. 兜底：li 全文正则 ──
         FULL_DATE_RE.find(el.text())?.let { return parseDateSafe(it.value) }
-        return LocalDate.now()
+        return LocalDate.now(CampusZoneId)
     }
 
     private fun parseListItem(el: org.jsoup.nodes.Element, baseUrl: String): Notification? {
@@ -741,7 +742,7 @@ private class OaNoticeCrawler(
             .trim()
         val match = META_RE.find(meta)
         val dept = match?.groupValues?.get(1)?.trim().orEmpty()
-        val date = match?.groupValues?.get(2)?.let { parseDateSafe(it) } ?: LocalDate.now()
+        val date = match?.groupValues?.get(2)?.let { parseDateSafe(it) } ?: LocalDate.now(CampusZoneId)
         val tags = if (dept.isNotEmpty()) listOf(dept) else emptyList()
         return Notification(title = title, link = link, source = source, date = date.toKx(), tags = tags)
     }
@@ -802,7 +803,7 @@ internal object SiteSearch {
     }
 
     fun parseVsb(doc: Document, source: NotificationSource, page: Int): VsbResult {
-        val latest = LocalDate.now().plusDays(7)
+        val latest = LocalDate.now(CampusZoneId).plusDays(7)
         var undated = 0
         val items = doc.select("a[href]")
             .asSequence()
@@ -869,10 +870,10 @@ private fun parseDateSafe(dateStr: String): LocalDate {
             val (y, m, d) = match.destructured
             LocalDate.of(y.toInt(), m.toInt(), d.toInt())
         } else {
-            LocalDate.now()
+            LocalDate.now(CampusZoneId)
         }
     } catch (_: Exception) {
-        LocalDate.now()
+        LocalDate.now(CampusZoneId)
     }
 }
 

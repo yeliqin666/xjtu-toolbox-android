@@ -44,7 +44,7 @@ import com.xjtu.toolbox.ui.components.EmptyState
 import com.xjtu.toolbox.ui.components.ErrorState
 import com.xjtu.toolbox.ui.components.LoadingState
 import com.xjtu.toolbox.ui.glass.*
-import com.xjtu.toolbox.util.todayInSystemZone
+import com.xjtu.toolbox.util.todayOnCampus
 import kotlinx.datetime.DateTimeUnit
 import kotlinx.datetime.LocalDate
 import kotlinx.datetime.isoDayNumber
@@ -76,7 +76,7 @@ import com.xjtu.toolbox.nav.AppRoute
  *  3. 会话失效由 `:core` 的标记接口 [SessionExpiredFailure] 认领（`:app` 的
  *     `AuthExpiredException` 实现了它）—— `catch` 抓不了接口，先抓 `Exception` 再判；
  *  4. `java.time.LocalDate` → `kotlinx.datetime.LocalDate`（`commonMain` 没有前者；
- *     「今天」用 `:core` 既有的 [todayInSystemZone]，与考勤屏同一个口径）；
+ *     「今天」按学校时区 [todayOnCampus] 算，不跟本机时区走）；
  *  5. `AppDatePickerDialog` 的边界转换（`toKx()` / `toJavaTime()`）不再需要 ——
  *     那个组件本来收/吐的就是 `kotlinx.datetime.LocalDate`。
  */
@@ -89,7 +89,7 @@ fun IclassfaceScreen(
     val authExpiry = LocalAuthExpiry.current
     val scope = rememberCoroutineScope()
 
-    var selectedDate by remember { mutableStateOf(todayInSystemZone()) }
+    var selectedDate by remember { mutableStateOf(todayOnCampus()) }
     var showDatePicker by remember { mutableStateOf(false) }
     var records by remember { mutableStateOf<List<CheckinRecord>>(emptyList()) }
     var loading by remember { mutableStateOf(true) }
@@ -118,7 +118,7 @@ fun IclassfaceScreen(
     LaunchedEffect(Unit) { load(selectedDate) }
 
     val scrollBehavior = MiuixScrollBehavior(rememberTopAppBarState())
-    val isToday = selectedDate == todayInSystemZone()
+    val isToday = selectedDate == todayOnCampus()
     // 玻璃顶栏（经典风格下为 null，一切照旧），用法见 ui/glass/GlassTopBar.kt
     val glass = rememberPageGlass()
 
@@ -133,7 +133,7 @@ fun IclassfaceScreen(
         }
     ) { padding ->
         val glassTop = padding.glassTop(glass)
-        val today = todayInSystemZone()
+        val today = todayOnCampus()
         AppDatePickerDialog(
             show = showDatePicker,
             title = "选择日期",
@@ -222,7 +222,7 @@ private fun DateSwitchRow(
     onDateChange: (LocalDate) -> Unit,
     onPickDate: () -> Unit,
 ) {
-    val today = remember { todayInSystemZone() }
+    val today = remember { todayOnCampus() }
     val recent = remember(today) { (13 downTo 0).map { today.minus(it, DateTimeUnit.DAY) } }
     val days = if (date in recent) recent else listOf(date) + recent
     val listState = androidx.compose.foundation.lazy.rememberLazyListState()

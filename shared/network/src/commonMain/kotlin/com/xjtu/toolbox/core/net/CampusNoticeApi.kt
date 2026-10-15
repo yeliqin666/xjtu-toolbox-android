@@ -12,7 +12,7 @@ import com.xjtu.toolbox.util.isObject
 import com.xjtu.toolbox.util.obj
 import com.xjtu.toolbox.util.safeBoolean
 import com.xjtu.toolbox.util.safeString
-import com.xjtu.toolbox.util.todayInSystemZone
+import com.xjtu.toolbox.util.todayOnCampus
 import io.ktor.client.HttpClient
 import io.ktor.client.request.get
 import io.ktor.client.request.parameter
@@ -101,7 +101,7 @@ class CampusNoticeApi(
                 source = source,
                 description = if (mode == ApiMode.SERVE) item["description"].safeString() else item["summary"].safeString(),
                 tags = item.arr("tags").orEmpty().map { it.safeString() }.filter { it.isNotBlank() },
-                date = runCatching { LocalDate.parse(item["date"].safeString()) }.getOrNull() ?: todayInSystemZone(),
+                date = runCatching { LocalDate.parse(item["date"].safeString()) }.getOrNull() ?: todayOnCampus(),
             )
         }
 

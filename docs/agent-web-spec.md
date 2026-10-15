@@ -145,7 +145,7 @@
 | 步骤 | Android 现在在哪 | 浏览器上放哪 |
 |---|---|---|
 | 系统提示（一段对话只生成一次） | `:core` ViewModel（`:398-424`：`hasSystem` 判据 + `userContextProbe` 冷却） | **serve**（画像要学号） |
-| 每条 user 消息头 `[现在：…]` | ViewModel `nowTag` | **serve**（契约 §4：时间 = 服务端系统时区） |
+| 每条 user 消息头 `[现在：…]` | ViewModel `nowTag` | **serve**（时间按学校时区 Asia/Shanghai，与服务端部署时区无关） |
 | 工具循环 / 保险丝 / 限流 / 截断 / 原子提交 / `length` 续写 | `:core` `AgentRunner` | serve（同一份代码） |
 | 模型那一枪 | `:data` `SseAgentTransport` | serve（同一份） |
 | 会话落盘 / 自动标题 | `:data`（`:266` / `:301`） | serve |

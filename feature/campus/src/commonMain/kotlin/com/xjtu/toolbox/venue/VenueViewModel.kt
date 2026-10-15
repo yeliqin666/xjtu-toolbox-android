@@ -7,7 +7,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.xjtu.toolbox.error.FriendlyError
 import com.xjtu.toolbox.error.SessionExpiredFailure
-import com.xjtu.toolbox.util.todayInSystemZone
+import com.xjtu.toolbox.util.todayOnCampus
 import kotlin.time.Clock
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -49,7 +49,7 @@ internal class VenueViewModel(
     var favoriteIds by mutableStateOf<Set<Int>>(emptySet()); private set
 
     var selectedVenue by mutableStateOf<Venue?>(null); private set
-    var selectedDate by mutableStateOf(todayInSystemZone()); private set
+    var selectedDate by mutableStateOf(todayOnCampus()); private set
     var availableSlots by mutableStateOf<List<AreaSlot>>(emptyList()); private set
     var slotsLoading by mutableStateOf(false); private set
     var slotsRefreshing by mutableStateOf(false); private set

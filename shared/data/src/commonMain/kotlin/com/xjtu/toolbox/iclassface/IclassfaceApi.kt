@@ -1,7 +1,7 @@
 package com.xjtu.toolbox.iclassface
 
 import com.xjtu.toolbox.auth.SessionExpiredException
-import com.xjtu.toolbox.util.todayInSystemZone
+import com.xjtu.toolbox.util.todayOnCampus
 import com.xjtu.toolbox.auth.SiteSession
 import com.xjtu.toolbox.auth.XJTULogin
 import com.xjtu.toolbox.platform.Log
@@ -30,7 +30,7 @@ class IclassfaceApi(private val site: SiteSession) {
      * 查询指定日期的签到记录（默认今天）。
      * 返回空列表表示当天确实没有任何记录（含"还没刷上卡"的情况）。
      */
-    suspend fun fetchRecords(date: LocalDate = todayInSystemZone()): List<CheckinRecord> {
+    suspend fun fetchRecords(date: LocalDate = todayOnCampus()): List<CheckinRecord> {
         val dateStr = date.toString()
         val formBody = FormBody.Builder().add("date", dateStr).build()
         val response = execute(

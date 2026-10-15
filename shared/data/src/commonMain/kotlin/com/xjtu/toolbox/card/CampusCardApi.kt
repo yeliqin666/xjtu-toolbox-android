@@ -12,7 +12,7 @@ import com.xjtu.toolbox.platform.Log
 import com.xjtu.toolbox.auth.SiteSession
 import com.xjtu.toolbox.util.safeParseJsonObject
 import okhttp3.Request
-import com.xjtu.toolbox.util.todayInSystemZone
+import com.xjtu.toolbox.util.todayOnCampus
 import kotlinx.datetime.DateTimeUnit
 import kotlinx.datetime.LocalDate
 import kotlinx.datetime.minus
@@ -108,10 +108,10 @@ class CampusCardApi(private val site: SiteSession) {
 
     /** 获取交易流水（分页） */
     suspend fun getTransactions(
-        // 日期参数是 kotlinx-datetime 的（:core 的屏与端口都用它）；默认值与原 `LocalDate.now()`
-        // 同一个"本机时区的今天"，减三个月也一样是日历减法。
-        startDate: LocalDate = todayInSystemZone().minus(3, DateTimeUnit.MONTH),
-        endDate: LocalDate = todayInSystemZone(),
+        // 日期参数是 kotlinx-datetime 的（:core 的屏与端口都用它）；默认值按学校时区的今天
+        // （[todayOnCampus]，不跟运行机器的时区走），减三个月是日历减法。
+        startDate: LocalDate = todayOnCampus().minus(3, DateTimeUnit.MONTH),
+        endDate: LocalDate = todayOnCampus(),
         page: Int = 1,
         pageSize: Int = 30
     ): Pair<Int, List<Transaction>> = getTransactionsInternal(startDate, endDate, page, pageSize, allowRetry = true)

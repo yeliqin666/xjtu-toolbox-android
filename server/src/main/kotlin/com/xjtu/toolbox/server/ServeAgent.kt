@@ -32,7 +32,7 @@ import com.xjtu.toolbox.faculty.FacultyApi
 import com.xjtu.toolbox.platform.secureKeyValueStore
 import com.xjtu.toolbox.util.AppJson
 import com.xjtu.toolbox.util.formatTwoDigits
-import com.xjtu.toolbox.util.nowInSystemZone
+import com.xjtu.toolbox.util.nowOnCampus
 import com.xjtu.toolbox.util.obj
 import com.xjtu.toolbox.util.stringValue
 import io.ktor.http.ContentType
@@ -433,7 +433,7 @@ class ServeAgent(
         if (failure.kind == "session_expired") failure.message else "出错了：${failure.message}"
     /** 每条 user 消息开头的实时标签（与 `AgentViewModel.nowTag` 同形）。 */
     private fun nowTag(model: String): String {
-        val now = nowInSystemZone()
+        val now = nowOnCampus()
         val days = listOf("", "周一", "周二", "周三", "周四", "周五", "周六", "周日")
         val w = days.getOrElse(now.dayOfWeek.isoDayNumber) { "" }
         val time = "${now.date} ${formatTwoDigits(now.hour)}:${formatTwoDigits(now.minute)}"

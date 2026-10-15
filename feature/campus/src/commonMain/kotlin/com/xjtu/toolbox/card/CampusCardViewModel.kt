@@ -9,7 +9,7 @@ import androidx.lifecycle.viewModelScope
 import com.xjtu.toolbox.account.AccountContext
 import com.xjtu.toolbox.error.FriendlyError
 import com.xjtu.toolbox.error.SessionExpiredFailure
-import com.xjtu.toolbox.util.todayInSystemZone
+import com.xjtu.toolbox.util.todayOnCampus
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
@@ -31,9 +31,9 @@ internal enum class TimeRange(val label: String, val months: Int?) {
 
     fun resolve(customStart: LocalDate, customEnd: LocalDate): Pair<LocalDate, LocalDate> {
         // `java.time` 的 `LocalDate.now().minusMonths(n)` → kotlinx-datetime 的
-        // `todayInSystemZone().minus(n, DateTimeUnit.MONTH)`（同一个系统默认时区、同一个日历减法）
+        // `todayOnCampus().minus(n, DateTimeUnit.MONTH)`（按学校时区的今天、日历减法）
         if (this == CUSTOM) return if (customStart > customEnd) customEnd to customStart else customStart to customEnd
-        val today = todayInSystemZone()
+        val today = todayOnCampus()
         return today.minus(months ?: 1, DateTimeUnit.MONTH) to today
     }
 }
@@ -80,8 +80,8 @@ internal class CampusCardViewModel(
     var stats by mutableStateOf(CardStats()); private set
 
     var timeRange by mutableStateOf(saved[KEY_RANGE] ?: TimeRange.ONE_MONTH); private set
-    private var customStart: LocalDate = saved.get<String>(KEY_START)?.let(LocalDate::parse) ?: todayInSystemZone().minus(1, DateTimeUnit.MONTH)
-    private var customEnd: LocalDate = saved.get<String>(KEY_END)?.let(LocalDate::parse) ?: todayInSystemZone()
+    private var customStart: LocalDate = saved.get<String>(KEY_START)?.let(LocalDate::parse) ?: todayOnCampus().minus(1, DateTimeUnit.MONTH)
+    private var customEnd: LocalDate = saved.get<String>(KEY_END)?.let(LocalDate::parse) ?: todayOnCampus()
     private var generation = 0
 
     val range: Pair<LocalDate, LocalDate> get() = timeRange.resolve(customStart, customEnd)

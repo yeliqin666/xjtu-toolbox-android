@@ -70,9 +70,9 @@ import androidx.compose.ui.unit.sp
 import kotlinx.datetime.LocalTime
 import kotlinx.datetime.TimeZone
 import kotlinx.datetime.toLocalDateTime
-import kotlin.time.Clock
 import kotlin.time.Instant
-import com.xjtu.toolbox.util.todayInSystemZone
+import com.xjtu.toolbox.util.nowOnCampus
+import com.xjtu.toolbox.util.todayOnCampus
 import kotlin.math.roundToInt
 import com.xjtu.toolbox.ui.components.AppFilterChip
 import com.xjtu.toolbox.ui.components.AppSearchBar
@@ -106,8 +106,8 @@ private val PERIOD_TIMES = listOf(
 
 /** 根据当前时间判断当前节次（0-based），返回 -1 表示不在上课时间 */
 private fun getCurrentPeriod(): Int {
-    // `LocalTime.now()`（java.time）是 JVM 专属 ⇒ kotlinx-datetime 的“本机时区的此刻”。
-    val now = Clock.System.now().toLocalDateTime(TimeZone.currentSystemDefault()).time
+    // 节次是学校作息 ⇒ 按学校时区的此刻算，不跟本机时区走。
+    val now = nowOnCampus().time
     PERIOD_TIMES.forEachIndexed { index, (start, end) ->
         val s = LocalTime.parse(start)
         val e = LocalTime.parse(end)
@@ -204,7 +204,7 @@ fun EmptyRoomScreen(
     var endPeriod by rememberSaveable { mutableIntStateOf(11) }
 
     val currentPeriod = remember { getCurrentPeriod() }
-    val isToday = selectedDate == todayInSystemZone().toString()
+    val isToday = selectedDate == todayOnCampus().toString()
     val effectivePeriod = if (isToday) currentPeriod else -1
     val smartFilters = if (isToday) listOf("现在空闲", "刚解放", "大教室", "全部") else listOf("大教室", "全部")
     LaunchedEffect(isToday) {

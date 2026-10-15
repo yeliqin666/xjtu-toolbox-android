@@ -304,7 +304,7 @@ class ServePayFeedbackMatchWebvpnTest {
         }
         assertEquals(callsBefore, fake.campusCard.turnoverCalls.get(), "参数不对那一枪不该到上游")
 
-        // `to` 省略 = 服务端系统时区的今天；`from` 省略 = `to` 往前 90 天（2026-10-14 − 90 = 2026-07-16）
+        // `to` 省略 = 学校时区（Asia/Shanghai）的今天；`from` 省略 = `to` 往前 90 天（2026-10-14 − 90 = 2026-07-16）
         val defaults = http.get("$MATCH_DINING_PATH?$MATCH_PARAM_TO=2026-10-14")
         assertEquals(200, defaults.statusCode())
         assertEquals("2026-07-16", envelopeData(defaults).optString("from"))
@@ -313,9 +313,9 @@ class ServePayFeedbackMatchWebvpnTest {
         val todayOnly = http.get(MATCH_DINING_PATH)
         assertEquals(200, todayOnly.statusCode())
         assertEquals(
-            com.xjtu.toolbox.util.todayInSystemZone().toString(),
+            com.xjtu.toolbox.util.todayOnCampus().toString(),
             envelopeData(todayOnly).optString("to"),
-            "两个日期参数都省略 ⇒ to 是服务端系统时区的今天",
+            "两个日期参数都省略 ⇒ to 是学校时区的今天",
         )
     }
 

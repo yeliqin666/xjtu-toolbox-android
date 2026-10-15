@@ -18,6 +18,7 @@ import com.xjtu.toolbox.util.safeParseJsonObject
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.brotli.BrotliInterceptor
+import com.xjtu.toolbox.util.CampusZoneId
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 import java.util.concurrent.TimeUnit
@@ -59,7 +60,7 @@ class EmptyRoomApi(store: EmptyRoomStore? = null) {
      */
     private fun fetchDayData(date: String): JsonObject {
         // 命中缓存
-        val today = LocalDate.now().format(DateTimeFormatter.ISO_LOCAL_DATE)
+        val today = LocalDate.now(CampusZoneId).format(DateTimeFormatter.ISO_LOCAL_DATE)
         if (date == cachedDate && cachedFetchedDay == today && cachedData != null) {
             return cachedData!!
         }
@@ -102,7 +103,7 @@ class EmptyRoomApi(store: EmptyRoomStore? = null) {
     fun getEmptyRoomsMulti(
         campusName: String,
         buildingNames: Set<String>,
-        date: String = LocalDate.now().format(DateTimeFormatter.ISO_LOCAL_DATE)
+        date: String = LocalDate.now(CampusZoneId).format(DateTimeFormatter.ISO_LOCAL_DATE)
     ): List<RoomInfo> {
         if (buildingNames.isEmpty()) return emptyList()
         val data = fetchDayData(date)
@@ -133,7 +134,7 @@ class EmptyRoomApi(store: EmptyRoomStore? = null) {
     fun getEmptyRooms(
         campusName: String,
         buildingName: String,
-        date: String = LocalDate.now().format(DateTimeFormatter.ISO_LOCAL_DATE)
+        date: String = LocalDate.now(CampusZoneId).format(DateTimeFormatter.ISO_LOCAL_DATE)
     ): List<RoomInfo> {
         val data = fetchDayData(date)
 
@@ -163,7 +164,7 @@ class EmptyRoomApi(store: EmptyRoomStore? = null) {
      * 获取可查询的日期列表（今天和明天）
      */
     fun getAvailableDates(): List<String> {
-        val today = LocalDate.now()
+        val today = LocalDate.now(CampusZoneId)
         return listOf(
             today.format(DateTimeFormatter.ISO_LOCAL_DATE),
             today.plusDays(1).format(DateTimeFormatter.ISO_LOCAL_DATE)
@@ -189,7 +190,7 @@ class EmptyRoomApi(store: EmptyRoomStore? = null) {
             if (seatCache.containsKey(location)) return seatCache[location]
         }
 
-        val date = LocalDate.now().format(DateTimeFormatter.ISO_LOCAL_DATE)
+        val date = LocalDate.now(CampusZoneId).format(DateTimeFormatter.ISO_LOCAL_DATE)
         val data = try { fetchDayData(date) } catch (_: Exception) { return null }
 
         for ((_, campusJson) in data.entries) {

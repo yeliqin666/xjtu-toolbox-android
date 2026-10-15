@@ -3,7 +3,7 @@ package com.xjtu.toolbox.server
 import com.xjtu.toolbox.auth.SiteSession
 import com.xjtu.toolbox.iclassface.AppIclassfaceSource
 import com.xjtu.toolbox.iclassface.CheckinRecord
-import com.xjtu.toolbox.util.todayInSystemZone
+import com.xjtu.toolbox.util.todayOnCampus
 import io.ktor.server.response.respond
 import io.ktor.server.routing.Route
 import io.ktor.server.routing.get
@@ -20,7 +20,7 @@ internal fun Route.iclassfaceRoutes(session: ServeSession) {
             if (!session.authenticated) return@get call.respondLoginRequired()
             val raw = call.request.queryParameters[ICLASSFACE_PARAM_DATE]?.trim().orEmpty()
             val date = if (raw.isEmpty()) {
-                todayInSystemZone()
+                todayOnCampus()
             } else {
                 runCatching { LocalDate.parse(raw) }.getOrNull()
                     ?: return@get call.respondBadRequestMessage(
@@ -46,7 +46,7 @@ internal fun Route.iclassfaceRoutes(session: ServeSession) {
 /** `GET /api/iclassface/records` 的 `data`。 */
 @Serializable
 internal data class IclassfaceRecordsData(
-    /** 定下来的那一天（`YYYY-MM-DD`）：省略 `?date=` 时就是服务端系统时区的今天。 */
+    /** 定下来的那一天（`YYYY-MM-DD`）：省略 `?date=` 时就是学校时区（Asia/Shanghai）的今天。 */
     val date: String,
     val count: Int,
     val records: List<IclassfaceRecordDto>,

@@ -48,7 +48,7 @@ import com.xjtu.toolbox.ui.components.enterOnce
 import com.xjtu.toolbox.ui.glass.followTopBar
 import com.xjtu.toolbox.ui.glass.glassBarSurface
 import com.xjtu.toolbox.ui.glass.glassBarTint
-import com.xjtu.toolbox.util.todayInSystemZone
+import com.xjtu.toolbox.util.todayOnCampus
 import kotlin.math.abs
 import kotlin.time.Clock
 import kotlinx.datetime.DateTimeUnit
@@ -1051,7 +1051,7 @@ private fun CustomRangeDialog(
     var draftStart by remember(show, initialStart) { mutableStateOf(initialStart) }
     var draftEnd by remember(show, initialEnd) { mutableStateOf(initialEnd) }
     var picking by remember(show) { mutableStateOf<String?>(null) }
-    val today = remember { todayInSystemZone() }
+    val today = remember { todayOnCampus() }
     val earliest = remember { today.minus(6, DateTimeUnit.YEAR) }
 
     BackHandler(enabled = show && picking == null) { onDismiss() }
@@ -1449,7 +1449,7 @@ private fun getTransactionIcon(tx: Transaction): ImageVector {
 private fun formatDateHeader(dateStr: String): String {
     return try {
         val date = LocalDate.parse(dateStr)
-        val today = todayInSystemZone()
+        val today = todayOnCampus()
         when {
             date == today -> "今天"
             date == today.minus(1, DateTimeUnit.DAY) -> "昨天"

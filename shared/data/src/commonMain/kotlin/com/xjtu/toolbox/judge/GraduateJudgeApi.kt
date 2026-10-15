@@ -21,7 +21,7 @@ import okhttp3.Request
 import org.jsoup.Jsoup
 import org.jsoup.nodes.Document
 import kotlinx.datetime.LocalDate
-import com.xjtu.toolbox.util.todayInSystemZone
+import com.xjtu.toolbox.util.todayOnCampus
 
 // ==================== 数据类 ====================
 
@@ -202,7 +202,7 @@ class GraduateJudgeApi(
     }
 
     /** gmis 课程详情；学年按 9 月切换，与网页默认一致。 */
-    suspend fun getLessonInfo(kcbh: String, today: LocalDate = todayInSystemZone()): GraduateLessonInfo {
+    suspend fun getLessonInfo(kcbh: String, today: LocalDate = todayOnCampus()): GraduateLessonInfo {
         val year = if (today.month.ordinal + 1 >= 9) today.year else today.year - 1
         val html = execute(gmis(),
             Request.Builder().url("https://gmis.xjtu.edu.cn/pyxx/pygl/kckk/view/new/$kcbh/$year").get().build()

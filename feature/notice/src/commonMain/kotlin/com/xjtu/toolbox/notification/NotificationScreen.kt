@@ -45,7 +45,7 @@ import com.xjtu.toolbox.ui.components.AppFilterChip
 import com.xjtu.toolbox.ui.components.AppSuggestionChip
 import com.xjtu.toolbox.ui.components.EmptyState
 import com.xjtu.toolbox.ui.components.ErrorState
-import com.xjtu.toolbox.util.todayInSystemZone
+import com.xjtu.toolbox.util.todayOnCampus
 import kotlinx.datetime.LocalDate
 import kotlinx.datetime.daysUntil
 import com.xjtu.toolbox.nav.AppRoute
@@ -405,7 +405,7 @@ fun NotificationScreen(
 
 private fun formatRelativeDate(date: LocalDate): String {
     return try {
-        val today = todayInSystemZone()
+        val today = todayOnCampus()
         val days = date.daysUntil(today).toLong()
         when {
             days < -1L  -> "${-days}\u5929\u540e"   // \u672a\u6765\u8d85\u8fc71\u5929

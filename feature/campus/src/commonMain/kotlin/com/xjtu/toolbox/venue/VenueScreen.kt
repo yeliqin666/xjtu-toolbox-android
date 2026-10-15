@@ -50,7 +50,7 @@ import com.xjtu.toolbox.ui.glass.glassTop
 import com.xjtu.toolbox.ui.glass.glassTopBar
 import com.xjtu.toolbox.ui.glass.rememberPageGlass
 import com.xjtu.toolbox.ui.glass.withoutTop
-import com.xjtu.toolbox.util.todayInSystemZone
+import com.xjtu.toolbox.util.todayOnCampus
 import kotlinx.datetime.DateTimeUnit
 import kotlinx.datetime.LocalDate
 import kotlinx.datetime.plus
@@ -912,7 +912,7 @@ private fun DateSelector(
     // 可提前几天由场馆自己给（productData 的 advanceday），不同场馆并不一样
     advanceDay: Int = 7,
 ) {
-    val today = remember { todayInSystemZone() }
+    val today = remember { todayOnCampus() }
     val span = advanceDay.coerceIn(1, 14)
     val dates = remember(span) { (0 until span).map { today.plus(it, DateTimeUnit.DAY) } }
     val dayNames = remember(span) {

@@ -1,6 +1,6 @@
 package com.xjtu.toolbox.card
 
-import com.xjtu.toolbox.util.todayInSystemZone
+import com.xjtu.toolbox.util.todayOnCampus
 import kotlinx.datetime.DateTimeUnit
 import kotlinx.datetime.LocalDate
 import kotlinx.datetime.YearMonth
@@ -34,7 +34,7 @@ object CampusCardAnalysis {
     fun spansYears(start: LocalDate, end: LocalDate): Boolean =
         start.year != end.year
 
-    fun periodTitle(start: LocalDate, end: LocalDate, today: LocalDate = todayInSystemZone()): String {
+    fun periodTitle(start: LocalDate, end: LocalDate, today: LocalDate = todayOnCampus()): String {
         val thisMonth = today.yearMonth
         val startMonth = start.yearMonth
         val endMonth = end.yearMonth
@@ -47,7 +47,7 @@ object CampusCardAnalysis {
         return "区间消费"
     }
 
-    fun periodSubtitle(start: LocalDate, end: LocalDate, today: LocalDate = todayInSystemZone()): String? {
+    fun periodSubtitle(start: LocalDate, end: LocalDate, today: LocalDate = todayOnCampus()): String? {
         if (periodTitle(start, end, today) == "本月消费") return null
         return "${start.year}/${start.month.number}/${start.day}–${end.year}/${end.month.number}/${end.day}"
     }
@@ -58,7 +58,7 @@ object CampusCardAnalysis {
     fun monthName(
         month: YearMonth,
         rangeEnd: LocalDate,
-        today: LocalDate = todayInSystemZone(),
+        today: LocalDate = todayOnCampus(),
     ): String {
         val thisMonth = today.yearMonth
         val rangeEndMonth = rangeEnd.yearMonth
@@ -71,7 +71,7 @@ object CampusCardAnalysis {
 
     fun formatPeakDay(dateStr: String, spanYears: Boolean): String {
         val date = runCatching { LocalDate.parse(dateStr) }.getOrNull() ?: return dateStr
-        return if (spanYears || date.year != todayInSystemZone().year) {
+        return if (spanYears || date.year != todayOnCampus().year) {
             "${date.year}/${date.month.number}/${date.day}"
         } else {
             "${date.month.number}/${date.day}"
@@ -88,7 +88,7 @@ object CampusCardAnalysis {
         stats: List<MonthlyStats>,
         start: LocalDate,
         end: LocalDate,
-        today: LocalDate = todayInSystemZone(),
+        today: LocalDate = todayOnCampus(),
     ): RangeSpendSummary {
         val days = calendarDays(start, end)
         val topMerchants = stats.flatMap { it.topMerchants }
@@ -117,7 +117,7 @@ object CampusCardAnalysis {
         stats: List<MonthlyStats>,
         start: LocalDate,
         end: LocalDate,
-        today: LocalDate = todayInSystemZone(),
+        today: LocalDate = todayOnCampus(),
     ): String? {
         val change = monthChange(stats, start, end, today) ?: return null
         val consecutive = consecutiveTail(stats) ?: return null
@@ -459,7 +459,7 @@ private fun classifyMerchant(merchant: String, description: String, time: String
 private val UTILITY_KEYS = listOf("电控", "水控", "能源", "电量", "电费", "水费")
 
 /** 从流水里算今天的消费汇总。 */
-fun todaySummaryOf(transactions: List<Transaction>, today: LocalDate = todayInSystemZone()): TodaySpendSummary {
+fun todaySummaryOf(transactions: List<Transaction>, today: LocalDate = todayOnCampus()): TodaySpendSummary {
     val todayStr = today.toString()
     val spends = transactions.filter { it.time.startsWith(todayStr) && it.amount < 0 }
     fun sumInHours(hours: IntRange) = spends.filter { tx ->
@@ -474,7 +474,7 @@ fun todaySummaryOf(transactions: List<Transaction>, today: LocalDate = todayInSy
 }
 
 /** 近 30 天的在校日均：支出 ÷ 有消费的天数。 */
-fun dailySpendRate(transactions: List<Transaction>, today: LocalDate = todayInSystemZone()): Double? {
+fun dailySpendRate(transactions: List<Transaction>, today: LocalDate = todayOnCampus()): Double? {
     val since = today.minus(29, DateTimeUnit.DAY).toString()
     val until = today.toString()
     val spends = transactions.filter { tx ->

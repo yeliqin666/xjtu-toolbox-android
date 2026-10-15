@@ -1,7 +1,7 @@
 package com.xjtu.toolbox.notification
 
 import kotlinx.datetime.LocalDate
-import com.xjtu.toolbox.util.todayInSystemZone
+import com.xjtu.toolbox.util.todayOnCampus
 
 /** 通知/公告的数据层（模型 + 来源枚举 + 取数端口）。 */
 
@@ -13,7 +13,7 @@ data class Notification(
     val source: NotificationSource,
     val description: String = "",
     val tags: List<String> = emptyList(),
-    val date: LocalDate = todayInSystemZone(),
+    val date: LocalDate = todayOnCampus(),
 )
 
 /** 某一页的抓取结果。[hasMore] 表示站点分页里还有下一页，不是「这一页是不是空的」。 */

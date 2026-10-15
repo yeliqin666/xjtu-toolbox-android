@@ -7,7 +7,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.xjtu.toolbox.auth.AccountType
 import com.xjtu.toolbox.platform.keyValueStore
-import com.xjtu.toolbox.util.todayInSystemZone
+import com.xjtu.toolbox.util.todayOnCampus
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -161,7 +161,7 @@ internal class EmptyRoomViewModel(
             liveSnapshot = snapshot
             staleNote = null
             // 当天课表只做点缀：拿不到照样显示实时状态
-            val today = todayInSystemZone().toString()
+            val today = todayOnCampus().toString()
             val schedule = runCatching {
                 source.rooms(campus, snapshot.buildings.toSet(), today, direct = false, force = false) { _, _ -> }
                     .associateBy { it.name }
@@ -203,7 +203,7 @@ internal class EmptyRoomViewModel(
             return
         }
         // 命中单楼缓存的不再请求
-        val cacheDay = todayInSystemZone().toString()
+        val cacheDay = todayOnCampus().toString()
         buildingCache.entries.removeAll { it.value.first != cacheDay || it.value.second.isEmpty() }
         val cachedRows = mutableListOf<RoomInfo>()
         val toFetch = mutableListOf<String>()

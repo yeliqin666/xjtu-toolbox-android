@@ -6,7 +6,7 @@ import com.xjtu.toolbox.jwapp.JwappFakeUpstream
 import com.xjtu.toolbox.jwxt.JwxtFakeUpstream
 import com.xjtu.toolbox.library.LibraryFakeUpstream
 import com.xjtu.toolbox.lms.LmsFakeUpstream
-import com.xjtu.toolbox.util.todayInSystemZone
+import com.xjtu.toolbox.util.todayOnCampus
 import io.ktor.server.cio.CIOApplicationEngine
 import io.ktor.server.engine.EmbeddedServer
 import kotlin.test.AfterTest
@@ -472,12 +472,12 @@ class ServeLmsJiaocaiJwappIclassfaceTest {
 
         assertEquals(200, http.postJson(SESSION_PATH + "/login", LOGIN_BODY).statusCode())
 
-        val today = todayInSystemZone().toString()
+        val today = todayOnCampus().toString()
         val response = http.get(ICLASSFACE_RECORDS_PATH)
         assertEquals(200, response.statusCode())
         assertEquals(ApiEnvelope.CODE_OK, envelopeCode(response))
         assertNoIdentity(response.body(), "GET $ICLASSFACE_RECORDS_PATH", IDENTITY)
-        assertEquals(today, fake.iclassface.lastDate, "省略 ?date= ⇒ 打出去的是服务端时区的今天")
+        assertEquals(today, fake.iclassface.lastDate, "省略 ?date= ⇒ 打出去的是学校时区的今天")
 
         val data = envelopeData(response)
         assertEquals(setOf("date", "count", "records"), data.keys)

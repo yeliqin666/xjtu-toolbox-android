@@ -5,7 +5,7 @@ import com.xjtu.toolbox.card.Transaction
 import com.xjtu.toolbox.social.DiningHabit
 import com.xjtu.toolbox.social.MatchData
 import com.xjtu.toolbox.social.MatchProfile
-import com.xjtu.toolbox.util.todayInSystemZone
+import com.xjtu.toolbox.util.todayOnCampus
 import io.ktor.server.response.respond
 import io.ktor.server.routing.Route
 import io.ktor.server.routing.get
@@ -24,7 +24,7 @@ internal fun Route.matchRoutes(session: ServeSession) {
             if (!session.authenticated) return@get call.respondLoginRequired()
             val rawTo = call.request.queryParameters[MATCH_PARAM_TO]?.trim().orEmpty()
             val to = if (rawTo.isEmpty()) {
-                todayInSystemZone()
+                todayOnCampus()
             } else {
                 runCatching { LocalDate.parse(rawTo) }.getOrNull()
                     ?: return@get call.respondBadRequestMessage(matchDateMessage(MATCH_PARAM_TO))
@@ -75,7 +75,7 @@ internal fun Route.matchRoutes(session: ServeSession) {
 internal data class MatchDiningData(
     /** 统计窗口的起点（`YYYY-MM-DD`；省略 `?from=` 时 = `to` 往前 [DINING_DEFAULT_DAYS] 天）。 */
     val from: String,
-    /** 统计窗口的终点（`YYYY-MM-DD`；省略 `?to=` 时 = 服务端系统时区的今天）。 */
+    /** 统计窗口的终点（`YYYY-MM-DD`；省略 `?to=` 时 = 学校时区（Asia/Shanghai）的今天）。 */
     val to: String,
     /** 真正进统计的**笔数**（窗口内的流水全表；不是「食堂消费笔数」）。 */
     val scanned: Int,

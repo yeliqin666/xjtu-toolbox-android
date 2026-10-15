@@ -14,7 +14,7 @@ import kotlinx.serialization.json.JsonObject
 import com.xjtu.toolbox.util.safeParseJsonObject
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import com.xjtu.toolbox.util.todayInSystemZone
+import com.xjtu.toolbox.util.todayOnCampus
 import okhttp3.Request
 import kotlinx.datetime.LocalDate
 import java.util.concurrent.TimeUnit
@@ -89,7 +89,7 @@ object HolidayApi {
             Log.w(TAG, "Primary holiday API failed, trying fallback...", e)
             try {
                 // 后备接口：holiday-cn
-                val currentYear = todayInSystemZone().year
+                val currentYear = todayOnCampus().year
                 val yearsToFetch = listOf(currentYear, currentYear + 1)
                 
                 for (y in yearsToFetch) {

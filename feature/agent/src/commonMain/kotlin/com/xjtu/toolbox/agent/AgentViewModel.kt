@@ -20,7 +20,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.Flow
 import kotlinx.datetime.isoDayNumber
 import com.xjtu.toolbox.util.formatTwoDigits
-import com.xjtu.toolbox.util.nowInSystemZone
+import com.xjtu.toolbox.util.nowOnCampus
 import kotlin.time.Clock
 
 /**
@@ -256,7 +256,7 @@ class AgentViewModel(private val host: AgentHost) : ViewModel(), AgentChatSessio
      * 这两样一段对话里会变（跨天、中途换模型），所以不放进只生成一次的系统提示。
      */
     private fun nowTag(model: String): String {
-        val now = nowInSystemZone()
+        val now = nowOnCampus()
         val days = listOf("", "周一", "周二", "周三", "周四", "周五", "周六", "周日")
         val w = days.getOrElse(now.dayOfWeek.isoDayNumber) { "" }
         val time = "${now.date} ${formatTwoDigits(now.hour)}:${formatTwoDigits(now.minute)}"

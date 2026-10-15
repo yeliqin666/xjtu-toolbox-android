@@ -6,7 +6,7 @@ import com.xjtu.toolbox.emptyroom.LiveSnapshot
 import com.xjtu.toolbox.emptyroom.NoDataException
 import com.xjtu.toolbox.emptyroom.RoomInfo
 import com.xjtu.toolbox.emptyroom.RoomSource
-import com.xjtu.toolbox.util.todayInSystemZone
+import com.xjtu.toolbox.util.todayOnCampus
 import com.xjtu.toolbox.util.AppJson
 import com.xjtu.toolbox.util.arr
 import com.xjtu.toolbox.util.intValue
@@ -42,7 +42,7 @@ class CampusEmptyRoomApi(
 
     /** CDN 是预生成的按天快照，只有今天/明天两档。 */
     override fun availableDates(): List<String> {
-        val today = todayInSystemZone()
+        val today = todayOnCampus()
         return listOf(today.toString(), today.plus(1, DateTimeUnit.DAY).toString())
     }
 
