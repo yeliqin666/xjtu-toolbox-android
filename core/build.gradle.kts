@@ -39,6 +39,7 @@ kotlin {
             api(project(":shared:network"))
             api(project(":feature:account"))
             api(project(":feature:agent"))
+            api(project(":feature:attendance"))
             // api 而非 implementation：HttpClientEngine 出现在公开的 expect 声明里
             api(libs.ktor.client.core)
             implementation(libs.ktor.client.content.negotiation)
