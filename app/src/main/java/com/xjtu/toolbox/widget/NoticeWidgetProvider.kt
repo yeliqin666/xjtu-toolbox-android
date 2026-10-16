@@ -11,6 +11,7 @@ import android.widget.RemoteViews
 import com.xjtu.toolbox.MainActivity
 import com.xjtu.toolbox.R
 import com.xjtu.toolbox.nav.AppRoute
+import com.xjtu.toolbox.util.RequestCodes
 
 /**
  * 教务通知桌面 Widget。
@@ -69,7 +70,7 @@ object NoticeWidgetUpdater {
         }
         val pendingIntent = PendingIntent.getActivity(
             context,
-            3001,
+            RequestCodes.NOTICE_WIDGET,
             launchIntent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )

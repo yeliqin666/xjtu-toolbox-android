@@ -8,6 +8,7 @@ import androidx.core.app.NotificationManagerCompat
 import com.xjtu.toolbox.MainActivity
 import com.xjtu.toolbox.R
 import com.xjtu.toolbox.nav.AppRoute
+import com.xjtu.toolbox.util.RequestCodes
 
 /**
  * 三类后台提醒的系统通知。
@@ -30,6 +31,7 @@ internal object ReminderNotifier {
     fun notifyLibrary(context: Context, action: String, seat: String?): Boolean = post(
         context = context,
         id = ID_LIBRARY,
+        requestCode = RequestCodes.REMINDER_LIBRARY,
         channel = AppNotificationChannels.CHANNEL_REMINDER,
         icon = R.drawable.ic_notification_seat,
         title = "图书馆座位要$action",
@@ -43,6 +45,7 @@ internal object ReminderNotifier {
     fun notifyScheduleChange(context: Context, summary: String): Boolean = post(
         context = context,
         id = ID_SCHEDULE,
+        requestCode = RequestCodes.REMINDER_SCHEDULE,
         channel = AppNotificationChannels.CHANNEL_APP,
         icon = R.drawable.ic_notification_notice,
         title = "课表有变动",
@@ -53,6 +56,7 @@ internal object ReminderNotifier {
     fun notifyExam(context: Context, courseName: String, label: String, detail: String): Boolean = post(
         context = context,
         id = ID_EXAM,
+        requestCode = RequestCodes.REMINDER_EXAM,
         channel = AppNotificationChannels.CHANNEL_APP,
         icon = R.drawable.ic_notification_notice,
         title = "$courseName$label",
@@ -67,6 +71,7 @@ internal object ReminderNotifier {
         return post(
             context = context,
             id = ID_LMS,
+            requestCode = RequestCodes.REMINDER_LMS,
             channel = AppNotificationChannels.CHANNEL_APP,
             icon = R.drawable.ic_notification_notice,
             title = if (items.size == 1) "作业快截止了" else "${items.size} 份作业快截止了",
@@ -79,6 +84,7 @@ internal object ReminderNotifier {
     private fun post(
         context: Context,
         id: Int,
+        requestCode: Int,
         channel: String,
         icon: Int,
         title: String,
@@ -93,7 +99,7 @@ internal object ReminderNotifier {
         }
         val pending = PendingIntent.getActivity(
             context,
-            id,
+            requestCode,
             launch,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )

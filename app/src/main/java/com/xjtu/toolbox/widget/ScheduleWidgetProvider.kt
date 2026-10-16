@@ -30,6 +30,7 @@ import java.time.LocalDateTime
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import com.xjtu.toolbox.nav.AppRoute
+import com.xjtu.toolbox.util.RequestCodes
 
 enum class WidgetSize { SMALL, LARGE }
 
@@ -89,7 +90,6 @@ object ScheduleWidgetUpdater {
     private const val KEY_DAY_OF_WEEK = "day_of_week"
     /** 周次偏移、选中星期是哪天定下的；换了一天就作废，回到今天。 */
     private const val KEY_BROWSE_DATE = "browse_date"
-    private const val REFRESH_ALARM_CODE = 5000
     private const val MIN_WEEK_OFFSET = -30
     private const val MAX_WEEK_OFFSET = 30
 
@@ -203,7 +203,7 @@ object ScheduleWidgetUpdater {
         if (index > 0) views.setScrollPosition(listId, index)
     }
 
-    private fun buildLaunchPendingIntent(context: Context, requestCode: Int): PendingIntent {
+    private fun buildLaunchPendingIntent(context: Context): PendingIntent {
         val launchIntent = Intent(context, MainActivity::class.java).apply {
             putExtra(MainActivity.EXTRA_LAUNCH_ROUTE, AppRoute.Main.id)
             putExtra(MainActivity.EXTRA_LAUNCH_TAB, BottomTab.COURSES.name)
@@ -211,7 +211,7 @@ object ScheduleWidgetUpdater {
         }
         return PendingIntent.getActivity(
             context,
-            requestCode,
+            RequestCodes.SCHEDULE_WIDGET,
             launchIntent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
@@ -257,12 +257,12 @@ object ScheduleWidgetUpdater {
         val views = RemoteViews(context.packageName, R.layout.widget_schedule_2x2)
         views.setTextViewText(R.id.widget_day_text, data.dayText)
         views.setTextViewText(R.id.widget_week, data.weekText)
-        views.setOnClickPendingIntent(R.id.widget_root, buildLaunchPendingIntent(context, 1001))
-        views.setOnClickPendingIntent(R.id.widget_day_prev, buildActionPendingIntent(context, 1201, ACTION_DAY_PREV, provider))
-        views.setOnClickPendingIntent(R.id.widget_day_next, buildActionPendingIntent(context, 1202, ACTION_DAY_NEXT, provider))
+        views.setOnClickPendingIntent(R.id.widget_root, buildLaunchPendingIntent(context))
+        views.setOnClickPendingIntent(R.id.widget_day_prev, buildActionPendingIntent(context, RequestCodes.SCHEDULE_DAY_PREV, ACTION_DAY_PREV, provider))
+        views.setOnClickPendingIntent(R.id.widget_day_next, buildActionPendingIntent(context, RequestCodes.SCHEDULE_DAY_NEXT, ACTION_DAY_NEXT, provider))
         views.setRemoteAdapter(R.id.widget_course_list, buildCourseListAdapterIntent(context, appWidgetId, WidgetSize.SMALL))
         views.setEmptyView(R.id.widget_course_list, R.id.widget_empty)
-        views.setPendingIntentTemplate(R.id.widget_course_list, buildLaunchPendingIntent(context, 3000 + appWidgetId))
+        views.setPendingIntentTemplate(R.id.widget_course_list, buildLaunchPendingIntent(context))
         bindEmpty(views, R.id.widget_empty, R.id.widget_empty_title, R.id.widget_empty_detail, data.empty, data.courses.isEmpty())
         scrollToUpcoming(views, R.id.widget_course_list, data.courses)
         return views
@@ -283,7 +283,7 @@ object ScheduleWidgetUpdater {
         views.setTextViewText(R.id.widget_date_month, data.monthText)
         views.setTextViewText(R.id.widget_date_dow, data.dowText)
         views.setTextViewText(R.id.widget_week, data.weekText)
-        views.setOnClickPendingIntent(R.id.widget_root, buildLaunchPendingIntent(context, 1002))
+        views.setOnClickPendingIntent(R.id.widget_root, buildLaunchPendingIntent(context))
 
         listOf(
             Triple(R.id.widget_course_list, R.id.widget_empty, 0),
@@ -294,10 +294,7 @@ object ScheduleWidgetUpdater {
                 buildCourseListAdapterIntent(context, appWidgetId, WidgetSize.LARGE, dayOffset)
             )
             views.setEmptyView(listId, emptyId)
-            views.setPendingIntentTemplate(
-                listId,
-                buildLaunchPendingIntent(context, 4000 + dayOffset * 1000 + appWidgetId)
-            )
+            views.setPendingIntentTemplate(listId, buildLaunchPendingIntent(context))
         }
 
         bindEmpty(views, R.id.widget_empty, R.id.widget_empty_title, R.id.widget_empty_detail, data.todayEmpty, data.today.isEmpty())
@@ -478,7 +475,7 @@ object ScheduleWidgetUpdater {
             WidgetSize.SMALL -> ScheduleWidget2x2Provider::class.java
             WidgetSize.LARGE -> ScheduleWidget4x2Provider::class.java
         }
-        return buildActionPendingIntent(context, REFRESH_ALARM_CODE + size.ordinal, ACTION_REFRESH, provider)
+        return buildActionPendingIntent(context, RequestCodes.SCHEDULE_REFRESH_ALARM + size.ordinal, ACTION_REFRESH, provider)
     }
 
     private fun allCoursesOf(context: Context, cache: DataCache, termCode: String): List<CourseItem> {

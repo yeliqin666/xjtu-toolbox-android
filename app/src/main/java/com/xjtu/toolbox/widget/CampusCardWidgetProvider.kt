@@ -10,6 +10,7 @@ import android.widget.RemoteViews
 import com.xjtu.toolbox.MainActivity
 import com.xjtu.toolbox.R
 import com.xjtu.toolbox.nav.AppRoute
+import com.xjtu.toolbox.util.RequestCodes
 
 object CampusCardWidgetUpdater {
     fun requestUpdate(context: Context) {
@@ -55,7 +56,7 @@ object CampusCardWidgetUpdater {
         }
         val pendingIntent = PendingIntent.getActivity(
             context,
-            2001,
+            RequestCodes.CAMPUS_CARD_WIDGET,
             launchIntent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )

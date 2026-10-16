@@ -12,6 +12,7 @@ import androidx.core.content.ContextCompat
 import com.xjtu.toolbox.MainActivity
 import com.xjtu.toolbox.R
 import com.xjtu.toolbox.nav.AppRoute
+import com.xjtu.toolbox.util.RequestCodes
 
 /**
  * 把新教务通知落到系统通知栏。
@@ -21,7 +22,6 @@ import com.xjtu.toolbox.nav.AppRoute
  */
 internal object NoticeNotifier {
     const val NOTIFICATION_ID = 3101
-    private const val REQUEST_CODE = 3101
 
     fun canPost(context: Context): Boolean {
         if (!AppNotificationChannels.areNotificationsEnabled(context)) return false
@@ -50,7 +50,7 @@ internal object NoticeNotifier {
         }
         val pending = PendingIntent.getActivity(
             context,
-            REQUEST_CODE,
+            RequestCodes.NOTICE_PUSH,
             launch,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )

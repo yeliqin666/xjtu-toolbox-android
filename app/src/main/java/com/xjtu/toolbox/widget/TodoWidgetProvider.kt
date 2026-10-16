@@ -18,6 +18,7 @@ import com.xjtu.toolbox.inbox.InboxStore
 import com.xjtu.toolbox.nav.AppRoute
 import com.xjtu.toolbox.schedule.colorOf
 import com.xjtu.toolbox.schedule.courseColorMap
+import com.xjtu.toolbox.util.RequestCodes
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
@@ -72,7 +73,7 @@ object TodoWidgetUpdater {
             putExtra(MainActivity.EXTRA_LAUNCH_ROUTE, AppRoute.Inbox.id)
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
         }
-        val pendingIntent = PendingIntent.getActivity(context, 4001, launchIntent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+        val pendingIntent = PendingIntent.getActivity(context, RequestCodes.TODO_WIDGET,launchIntent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
 
         for (id in appWidgetIds) {
             runCatching {
