@@ -110,31 +110,6 @@ class ServeAgentToolCopyDriftTest {
             listOf("com.xjtu.toolbox.faculty.FacultyApi().searchAll("),
             listOf("faculty.searchAll("),
         ),
-        // 6. 时区那一格：serve 的「今天 / 此刻」按学校时区（e0b25f01），:app 暂按系统时区（留给移植那边一起换）
-        Seam(
-            listOf("val now = java.time.LocalDateTime.now()"),
-            listOf("val now = java.time.LocalDateTime.now(CampusZoneId)"),
-        ),
-        Seam(
-            listOf("val now = LocalDateTime.now()"),
-            listOf("val now = LocalDateTime.now(CampusZoneId)"),
-        ),
-        Seam(
-            listOf("val today = com.xjtu.toolbox.util.todayInSystemZone()"),
-            listOf("val today = com.xjtu.toolbox.util.todayOnCampus()"),
-        ),
-        Seam(
-            listOf("val targetDate = runCatching { LocalDate.parse(dateStr) }.getOrElse { LocalDate.now() }"),
-            listOf("val targetDate = runCatching { LocalDate.parse(dateStr) }.getOrElse { LocalDate.now(CampusZoneId) }"),
-        ),
-        Seam(
-            listOf("val today = LocalDate.now()"),
-            listOf("val today = LocalDate.now(CampusZoneId)"),
-        ),
-        Seam(
-            listOf("val asksNow = targetDate == LocalDate.now() && (section == null || section == nowSection)"),
-            listOf("val asksNow = targetDate == LocalDate.now(CampusZoneId) && (section == null || section == nowSection)"),
-        ),
     )
 
     /** 两个文件里同名函数的函数体逐行比 —— 差异只允许是 [seams]。 */

@@ -237,7 +237,7 @@ class AgentToolRegistry(
     }
     /** 当前节次的 0 基索引；不在上课时段返回 -1。 */
     private fun currentPeriodIndex(): Int {
-        val now = LocalDateTime.now(CampusZoneId)
+        val now = java.time.LocalDateTime.now(CampusZoneId)
         val isSummer = XjtuTime.isSummerTime(now.monthValue)
         val nowMinute = now.hour * 60 + now.minute
         val section = (1..11).firstOrNull { s ->
