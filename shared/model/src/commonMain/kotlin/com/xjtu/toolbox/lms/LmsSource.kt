@@ -15,6 +15,12 @@ interface LmsSource {
     /** 课程公告（`GET /api/courses/{id}/bulletins`）；本端没接这个接口时恒空（列表里就只有活动）。 */
     suspend fun courseBulletins(courseId: Int): List<LmsBulletin> = emptyList()
 
+    /** 讨论区某分区下的帖子（`GET /api/forum/categories/{id}`）；本端没接时恒空。 */
+    suspend fun forumCategoryTopics(categoryId: Int, page: Int = 1): LmsForumCategoryResult = LmsForumCategoryResult()
+
+    /** 帖子的回复楼层（`GET /api/forum/topics/{id}/replies`）；本端没接时恒空。 */
+    suspend fun forumTopicReplies(topicId: Int): List<LmsForumReply> = emptyList()
+
     /** 正文里内嵌图片的字节（学堂自己的图走登录态）；取不到或本端不支持返回 null，屏上退化成链接。 */
     suspend fun imageBytes(url: String): ByteArray? = null
 

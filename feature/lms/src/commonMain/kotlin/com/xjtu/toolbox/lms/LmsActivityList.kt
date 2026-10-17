@@ -546,6 +546,9 @@ private fun LmsActivityCard(
                         fontSize = 12.sp,
                         color = color
                     )
+                    if (activity.type == LmsActivityType.FORUM && activity.topicCount > 0) {
+                        Text("${activity.topicCount} 帖", fontSize = 12.sp, color = color)
+                    }
                     if (submitted) {
                         Text("已提交", fontSize = 12.sp, color = Color(0xFF22C55E))
                     }

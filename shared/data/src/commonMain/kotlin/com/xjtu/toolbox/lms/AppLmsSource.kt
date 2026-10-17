@@ -24,6 +24,12 @@ class AppLmsSource(
     override suspend fun courseBulletins(courseId: Int): List<LmsBulletin> =
         withContext(Dispatchers.IO) { api.getCourseBulletins(courseId) }
 
+    override suspend fun forumCategoryTopics(categoryId: Int, page: Int): LmsForumCategoryResult =
+        withContext(Dispatchers.IO) { api.getForumCategoryTopics(categoryId, page) }
+
+    override suspend fun forumTopicReplies(topicId: Int): List<LmsForumReply> =
+        withContext(Dispatchers.IO) { api.getTopicReplies(topicId) }
+
     /** 学堂（`*.xjtu.edu.cn`）的图走登录态取；外站图不带学堂的凭据，用一个干净的客户端取。 */
     override suspend fun imageBytes(url: String): ByteArray? = withContext(Dispatchers.IO) {
         val host = runCatching { java.net.URI(url).host }.getOrNull()?.lowercase() ?: return@withContext null

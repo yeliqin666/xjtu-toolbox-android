@@ -56,6 +56,8 @@ internal class LmsPageCache(private val disk: LmsCacheStore?) {
     val bulletins = mutableStateMapOf<Int, List<LmsBulletin>>()
     val selectedTypes = mutableStateMapOf<Int, LmsActivityType?>()
     val details = mutableStateMapOf<Int, LmsActivity>()
+    val forumTopics = mutableStateMapOf<Int, List<LmsForumTopic>>()
+    val topicReplies = mutableStateMapOf<Int, List<LmsForumReply>>()
 
     /** 本次进入后已联网刷新过，返回时不再请求。 */
     var coursesSynced by mutableStateOf(false)
@@ -121,6 +123,7 @@ private sealed class LmsPage {
     data class ActivityList(val course: LmsCourseSummary) : LmsPage()
     data class ActivityDetail(val course: LmsCourseSummary, val activity: LmsActivity) : LmsPage()
     data class BulletinDetail(val course: LmsCourseSummary, val bulletin: LmsBulletin) : LmsPage()
+    data class ForumTopicDetail(val course: LmsCourseSummary, val activity: LmsActivity, val topic: LmsForumTopic) : LmsPage()
     /** 视频播放器页面（直播 HLS 或录播） */
     data class VideoPlayer(
         val title: String,
@@ -244,6 +247,7 @@ fun LmsScreen(
         }
         currentPage = when (cur) {
             is LmsPage.VideoPlayer -> cur.returnPage
+            is LmsPage.ForumTopicDetail -> LmsPage.ActivityDetail(cur.course, cur.activity)
             is LmsPage.ActivityDetail -> LmsPage.ActivityList(cur.course)
             is LmsPage.BulletinDetail -> LmsPage.ActivityList(cur.course)
             is LmsPage.ActivityList -> LmsPage.CourseList
@@ -280,6 +284,7 @@ fun LmsScreen(
             val forward = when {
                 targetState is LmsPage.ActivityList && initialState is LmsPage.CourseList -> true
                 (targetState is LmsPage.ActivityDetail || targetState is LmsPage.BulletinDetail) && initialState is LmsPage.ActivityList -> true
+                targetState is LmsPage.ForumTopicDetail && initialState is LmsPage.ActivityDetail -> true
                 targetState is LmsPage.VideoPlayer -> true
                 else -> false
             }
@@ -324,6 +329,7 @@ fun LmsScreen(
                 course = page.course,
                 activity = page.activity,
                 onBack = { currentPage = LmsPage.ActivityList(page.course) },
+                onTopicSelected = { topic -> currentPage = LmsPage.ForumTopicDetail(page.course, page.activity, topic) },
                 onPlayVideo = { title, instrUrl, encUrl, isLive, headers, startInDual ->
                     currentPage = LmsPage.VideoPlayer(
                         title = title,
@@ -335,6 +341,14 @@ fun LmsScreen(
                         startInDual = startInDual,
                     )
                 }
+            )
+            is LmsPage.ForumTopicDetail -> LmsForumTopicDetailPage(
+                source = source,
+                cache = cache,
+                course = page.course,
+                activity = page.activity,
+                topic = page.topic,
+                onBack = { currentPage = LmsPage.ActivityDetail(page.course, page.activity) }
             )
             is LmsPage.BulletinDetail -> BulletinDetailPage(
                 source = source,
