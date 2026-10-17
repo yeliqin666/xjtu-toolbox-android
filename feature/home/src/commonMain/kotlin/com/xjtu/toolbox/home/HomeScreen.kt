@@ -12,6 +12,7 @@ import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.ScrollState
+import androidx.compose.foundation.border
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -554,21 +555,29 @@ private fun EditorialMasthead(
     ) {
         Image(HomeSeal.Tall, contentDescription = "岱宗盒子", modifier = Modifier.size(width = 30.dp, height = 109.dp))
         Spacer(Modifier.width(16.dp))
-        // 一列文字贴着印章：日期一行、问候、朱红短线、称呼与网络。刊头高度由印章定死，数据晚到也不跳
+        // 一列文字贴着印章：星期与周次、问候、朱红短线、日期称呼与网络，分量中—大—小。
+        // 刊头高度由印章定死，数据晚到也不跳
         Column(Modifier.weight(1f).fillMaxHeight(), verticalArrangement = Arrangement.SpaceBetween) {
-            Text(
-                buildString {
-                    append(today.month.number).append('月').append(today.day).append("日 · ")
-                    append(chineseWeekday(today.dayOfWeek))
-                    if (weekNumber in 1..25) append(" · 第").append(weekNumber).append('周')
-                },
-                style = TextStyle(fontFamily = Editorial.Serif, fontWeight = FontWeight.Medium, fontSize = 13.sp, lineHeight = 17.sp, letterSpacing = 1.sp),
-                color = muted,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                // 右上角是顶栏的三个圆钮
-                modifier = Modifier.padding(end = if (underBar) 128.dp else 0.dp),
-            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    chineseWeekday(today.dayOfWeek),
+                    style = TextStyle(fontFamily = Editorial.Serif, fontWeight = FontWeight.Bold, fontSize = 17.sp, lineHeight = 22.sp, letterSpacing = 2.sp),
+                    color = MiuixTheme.colorScheme.onSurface,
+                    maxLines = 1,
+                )
+                if (weekNumber in 1..25) {
+                    Spacer(Modifier.width(8.dp))
+                    Text(
+                        "第${weekNumber}周",
+                        style = TextStyle(fontFamily = Editorial.Serif, fontWeight = FontWeight.Bold, fontSize = 12.sp, lineHeight = 15.sp, letterSpacing = 1.sp),
+                        color = HomeSeal.Red,
+                        maxLines = 1,
+                        modifier = Modifier
+                            .border(1.dp, HomeSeal.Red.copy(alpha = 0.7f), RoundedCornerShape(5.dp))
+                            .padding(horizontal = 6.dp, vertical = 1.dp),
+                    )
+                }
+            }
             Column {
                 Text(
                     greeting,
@@ -579,6 +588,12 @@ private fun EditorialMasthead(
                 Box(Modifier.padding(top = 6.dp).width(24.dp).height(2.dp).background(HomeSeal.Red, RoundedCornerShape(1.dp)))
             }
             Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    "${today.month.number}月${today.day}日 · ",
+                    style = TextStyle(fontFamily = Editorial.Serif, fontWeight = FontWeight.Medium, fontSize = 13.sp, lineHeight = 17.sp, letterSpacing = 1.sp),
+                    color = muted,
+                    maxLines = 1,
+                )
                 if (name.isNotBlank()) {
                     Text(
                         "$name · ",
