@@ -80,11 +80,8 @@ class AttendanceViewModel(
         val bh = requestedBh.ifBlank { source.getTermBh() }
         val term = terms.firstOrNull { it.bh == bh }
         val records = source.getWaterRecords(bh, term?.startDate.orEmpty(), term?.endDate.orEmpty())
-        val stats = try {
-            if (bh == source.getTermBh()) source.getKqtjCurrentWeek() else source.computeCourseStatsFromRecords(records)
-        } catch (_: Exception) {
-            source.computeCourseStatsFromRecords(records)
-        }
+        // 统计按整学期记录算；首页接口只有本周，会漏掉前几周的缺勤（#134）
+        val stats = source.computeCourseStatsFromRecords(records)
         // 打卡流水只是原始刷卡数据，拉不到不影响其它栏
         val streams = try {
             source.getStreams(term?.startDate.orEmpty(), term?.endDate.orEmpty())

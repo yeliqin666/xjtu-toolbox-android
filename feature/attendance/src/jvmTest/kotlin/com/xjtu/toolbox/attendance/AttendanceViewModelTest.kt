@@ -48,9 +48,9 @@ class AttendanceViewModelTest {
         assertTrue(!state.loading)
         assertNull(state.error)
         assertEquals(
-            listOf("getStudentInfo", "getTermList", "getTermBh", "getWaterRecords", "getTermBh", "getKqtjCurrentWeek", "getStreams", "getSemesterWindow", "getLeavePage"),
+            listOf("getStudentInfo", "getTermList", "getTermBh", "getWaterRecords", "computeCourseStatsFromRecords", "getStreams", "getSemesterWindow", "getLeavePage"),
             source.calls,
-            "拉取顺序与搬迁前一致",
+            "统计按整学期流水算，不再调只有本周的 getKqtjCurrentWeek（#134）",
         )
     }
 

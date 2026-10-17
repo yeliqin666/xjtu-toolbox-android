@@ -279,7 +279,7 @@ class AttendanceApi(private val site: SiteSession) {
                 subjectCode = KqHttp.str(obj, "courseCode", "subjectCode", "courseNo"),
                 normalCount = KqHttp.int(obj, "normalCount"),
                 lateCount = KqHttp.int(obj, "lateCount"),
-                absenceCount = KqHttp.int(obj, "absenceCount"),
+                absenceCount = KqHttp.int(obj, "absenceCount", "absentCount"),
                 leaveEarlyCount = KqHttp.int(obj, "leaveEarlyCount"),
                 leaveCount = KqHttp.int(obj, "leaveCount"),
                 total = KqHttp.int(obj, "total"),
