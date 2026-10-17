@@ -7,7 +7,7 @@
 
 ## 为什么是独立服务
 
-这是一个**公开、无鉴权的写接口**——谁都能 POST 一个分数上来。资料站后端（`/opt/zyxf/backend`）
+这是一个**公开、无鉴权的写接口**——谁都能 POST 一个分数上来。同一台机器上的资料站后端
 握着 OSS 密钥、阿里云 IMM 凭据和用户 JWT，两者共用进程或数据库都不划算：榜单这边被人打穿，
 不该连带资料站。所以它独立进程、独立端口、独立 SQLite 文件。
 
@@ -186,36 +186,41 @@ curl -s http://127.0.0.1:4100/games/health; echo   # moderation 字段应当变�
 
 ## 部署
 
-目标机：`47.93.224.61`（阿里云轻量应用服务器，Ubuntu 22.04，Node 24）。
+目标机：一台 Linux 服务器（本文的参考环境是 Ubuntu 22.04 + Node 24）。
+下面用 `$HOST` 代替具体地址——**别把服务器的 IP 写进本仓库**：域名解析一下就能拿到 IP，
+所以写 IP 并不能"隐藏"什么，但它会把「这个仓库」和「这台机器」在公开文档里明确绑到一起。
+用域名或你自己的笔记即可。
 
 ```bash
-# 1. 建目录、拷代码（本地执行）
-ssh root@47.93.224.61 'mkdir -p /opt/xjtu-games'
-scp index.js package.json root@47.93.224.61:/opt/xjtu-games/
+HOST=zyxf.top                  # 换成本机实际可达的地址（域名即可）
 
-# 2. 让 www 用户拥有工作目录（DB 就落在里面）
-ssh root@47.93.224.61 'chown -R www:www /opt/xjtu-games'
+# 1. 建目录、拷代码（本地执行）
+ssh root@"$HOST" 'mkdir -p /opt/xjtu-games'
+scp index.js package.json root@"$HOST":/opt/xjtu-games/
+
+# 2. 让运行用户拥有工作目录（DB 就落在里面）
+ssh root@"$HOST" 'chown -R www:www /opt/xjtu-games'
 
 # 3. 装 systemd 单元
-scp deploy/xjtu-games.service root@47.93.224.61:/etc/systemd/system/
-ssh root@47.93.224.61 'systemctl daemon-reload && systemctl enable --now xjtu-games'
+scp deploy/xjtu-games.service root@"$HOST":/etc/systemd/system/
+ssh root@"$HOST" 'systemctl daemon-reload && systemctl enable --now xjtu-games'
 
-# 4. 把 deploy/nginx-games.conf 的内容加进 /etc/nginx/conf.d/zyxf.conf 的 443 server 块，
+# 4. 把 deploy/nginx-games.conf 的内容加进你站点 nginx 的 443 server 块，
 #    然后检查并重载
-ssh root@47.93.224.61 'nginx -t && systemctl reload nginx'
+ssh root@"$HOST" 'nginx -t && systemctl reload nginx'
 
 # 5. 验证
 curl -s https://zyxf.top/games/health
 curl -s 'https://zyxf.top/games/board?game=2048&uid=testuid12345&limit=10'
 ```
 
-升级只改 `index.js` 的话：`scp index.js root@47.93.224.61:/opt/xjtu-games/ && ssh root@… 'systemctl restart xjtu-games'`。
+升级只改 `index.js` 的话：`scp index.js root@"$HOST":/opt/xjtu-games/ && ssh root@"$HOST" 'systemctl restart xjtu-games'`。
 
 ### 回滚
 
 ```bash
 systemctl disable --now xjtu-games
-# 从 zyxf.conf 里删掉 location ^~ /games/ 那段，nginx -t && systemctl reload nginx
+# 从站点的 nginx 配置里删掉 location ^~ /games/ 那段，nginx -t && systemctl reload nginx
 ```
 
 App 侧把 `LeaderboardApi.HOST` 置空字符串，整块排行榜功能就不再出现（入口按钮都会隐藏）。
@@ -242,4 +247,16 @@ CREATE TABLE scores (
 ```
 
 `uid` 是设备级匿名 ID（`ANDROID_ID` 的哈希，见 `FeedbackStore.anonId`），不含学号账号。
+**一台设备一份**：换设备就是新的一行，同一个人在两台设备上会有两条记录。
+
+> **为什么没做成「一个账户一行」。** 那需要用学号派生一个稳定 ID，但学号是公开可枚举的
+> （校区分段 + 年份 + 院系 + 序号），而 App 是公开的、盐就在源码里——拿到榜单库的人把候选
+> 挨个算一遍就能反查出每行是谁，**换什么哈希都一样**。实测：完整学号在一张消费级显卡上是
+> **秒级**，加 30 万次迭代也只抬到「天级」，挡得住顺手而为，挡不住铁了心的人。姓名同理，
+> 而且姓名还会变（ID 跟着变，反而破坏「一行」）。要让「按账户」同时反推不出来，输入必须
+> 掺进一个**秘密**，而秘密只能靠数据迁移（备份带着走）或第三方登录跨设备——对一个小游戏
+> 排行榜都不划算。所以定成设备级：**宁可少一点唯一性，也不引入任何可反查的标识**。
+>
+> 想隐藏身份仍然可以：**昵称留空即匿名**，榜上显示什么由玩家自己决定。
+
 整个库里就这些——**没有时间线、没有历史成绩、没有其他任何用户数据**。

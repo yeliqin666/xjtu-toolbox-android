@@ -17,7 +17,8 @@ import com.xjtu.toolbox.platform.Log
  *    不再打断他。同一个身份在服务端是同一行，只用最高分。
  * 3. **失败了就装作没有这回事**。榜单是锦上添花，网络不通不该让玩家在结算页看到一个报错。
  *
- * 上传的只有「游戏、分数、名字、一个设备级匿名 ID」，不含学号账号。这是本项目唯一把
+ * 上传的只有「游戏、分数、名字、一个设备级匿名 ID」，不含学号账号——为什么身份是设备级的、
+ * 而不是按账户或学号派生，见 [LeaderboardStore.uid] 的说明。这是本项目唯一把
  * 游戏数据发出设备的地方——[com.xjtu.toolbox.game.GameStore] 里其余数字仍然只在本地。
  */
 object Leaderboard {
@@ -133,8 +134,9 @@ object Leaderboard {
         name: String?,
         silent: Boolean,
     ): AnswerResult {
+        val uid = LeaderboardStore.uid()
         LeaderboardStore.remember(game, name, silent)
-        val error = runCatching { LeaderboardApi.submit(game, LeaderboardStore.uid(), name, score) }
+        val error = runCatching { LeaderboardApi.submit(game, uid, name, score) }
             .onFailure { Log.w(TAG, "上榜失败：$game", it) }
             .exceptionOrNull()
         return when {

@@ -5,7 +5,9 @@ After=network.target
 
 [Service]
 Type=simple
-# 和 zyxf.service 用同一个受限用户：这个服务只需要能读写自己的工作目录
+# 用一个专用的受限用户：这个服务只需要能读写自己的工作目录。
+# 机器上已经有 www 就直接复用——给每个服务单开一个无登录权限的用户是更严的做法，
+# 但对一台机器上的几个小服务来说，一个共用受限用户更好管。
 User=www
 Group=www
 WorkingDirectory=/opt/xjtu-games
