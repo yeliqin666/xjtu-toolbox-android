@@ -265,6 +265,14 @@ class WebVpnInterceptor : Interceptor {
             }
         }
 
-        return chain.proceed(builder.build())
+        val response = chain.proceed(builder.build())
+        // 拒绝页是 200 的 HTML：只对网关自己的 HTML 响应偷看页首，认出来就别让业务层当数据去解析
+        if (response.header("Content-Type")?.contains("html", ignoreCase = true) == true &&
+            WebVpnDenied.isDeniedPage(response.peekBody(WebVpnDenied.PEEK_BYTES).string())
+        ) {
+            response.close()
+            throw WebVpnDeniedException()
+        }
+        return response
     }
 }

@@ -38,7 +38,8 @@ fun WebVpnConverterScreen(
     codec: WebVpnCodec,
     onOpenWithWebVpn: (vpnUrl: String) -> Unit,
     onBack: () -> Unit,
-) = WebVpnConverterScreen(codec.asAsyncCodec(), onOpenWithWebVpn, onBack)
+    onOpenApply: (() -> Unit)? = null,
+) = WebVpnConverterScreen(codec.asAsyncCodec(), onOpenWithWebVpn, onBack, onOpenApply)
 
 /**
  * WebVPN 网址互转工具：
@@ -58,12 +59,14 @@ fun WebVpnConverterScreen(
  * @param onOpenWithWebVpn 用户点击访问按钮时调用，参数为最终要访问的（已转为 WebVPN 域的）URL。
  *                        `:app` 那侧外层没连上 WebVPN 时会用已存账号自动登录，再进入 BrowserScreen；
  *                        桌面端没有内置浏览器，直接把地址交给系统浏览器。
+ * @param onOpenApply 「去申请 WebVPN 权限」（打开 [WebVpnDenied.APPLY_URL]）；为 null 的端不显示这张卡。
  */
 @Composable
 fun WebVpnConverterScreen(
     codec: WebVpnAsyncCodec,
     onOpenWithWebVpn: (vpnUrl: String) -> Unit,
     onBack: () -> Unit,
+    onOpenApply: (() -> Unit)? = null,
 ) {
     val scope = rememberCoroutineScope()
     val scrollBehavior = MiuixScrollBehavior(rememberTopAppBarState())
@@ -244,6 +247,30 @@ fun WebVpnConverterScreen(
                 },
                 second = {
             introCard()
+            // 申请入口：提示「学校 WebVPN 没给你的账号开通…」的用户来这儿
+            if (onOpenApply != null) {
+                Card(modifier = Modifier.fillMaxWidth(), cornerRadius = 14.dp) {
+                    Column(Modifier.padding(16.dp)) {
+                        Text(
+                            "用不了 WebVPN？",
+                            style = MiuixTheme.textStyles.subtitle,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Spacer(Modifier.height(8.dp))
+                        Text(
+                            "WebVPN 要先在学校事务中心申请权限，通过后才能从校外访问。点下面按钮直达申请页，已带上你的登录状态。",
+                            style = MiuixTheme.textStyles.body2,
+                            color = MiuixTheme.colorScheme.onSurfaceVariantSummary
+                        )
+                        Spacer(Modifier.height(12.dp))
+                        Button(onClick = onOpenApply, modifier = Modifier.fillMaxWidth()) {
+                            Icon(Icons.Default.OpenInBrowser, null, modifier = Modifier.size(18.dp))
+                            Spacer(Modifier.width(8.dp))
+                            Text("去申请 WebVPN 权限")
+                        }
+                    }
+                }
+            }
             // 示例提示卡
             Card(modifier = Modifier.fillMaxWidth(), cornerRadius = 14.dp) {
                 Column(Modifier.padding(16.dp)) {

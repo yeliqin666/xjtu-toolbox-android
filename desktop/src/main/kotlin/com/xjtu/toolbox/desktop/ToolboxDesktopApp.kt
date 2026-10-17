@@ -743,6 +743,7 @@ private fun DesktopPage(
             codec = WebVpnUtil,
             onBack = back,
             onOpenWithWebVpn = { url -> openInBrowser(url) },
+            onOpenApply = { openInBrowser(com.xjtu.toolbox.webvpn.WebVpnDenied.APPLY_URL) },
         )
 
         is AppRoute.Browser -> DesktopBrowserScreen(
