@@ -233,6 +233,9 @@ internal fun ToolboxDesktopApp(
     // 登录页与主界面都要挂：登录本身就可能要短信二验
     DesktopMfaDialog(auth)
 
+    // 小游戏排行榜的弹窗（榜单、改名），同 MFA 一样挂在壳上；上榜询问由各游戏页自己挂
+    com.xjtu.toolbox.game.board.LeaderboardHost()
+
     // 冷启动公告挂在壳上（登录页与主界面都要能弹）；⚠️ 它是独立 AWT 窗口，离屏证据图里画不到。
     bulletins.launchBulletin?.let { bulletin ->
         BulletinLaunchDialog(

@@ -1,0 +1,14 @@
+{
+  "name": "xjtu-toolbox-leaderboard",
+  "version": "1.0.0",
+  "private": true,
+  "description": "小游戏全服榜服务端：零依赖，只用 Node 内置的 http 与 sqlite",
+  "type": "module",
+  "engines": {
+    "node": ">=24.0.0"
+  },
+  "scripts": {
+    "start": "node index.js",
+    "test": "node --test test/smoke.test.js"
+  }
+}

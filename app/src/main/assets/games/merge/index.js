@@ -291,6 +291,17 @@
     } catch (e) { /* 非 Android 环境或桥未注入，忽略 */ }
   }
 
+  // 一局打完，单独跟原生端说一声，用来上报全服榜。
+  // 不能借 submitScoreToHost：那个记的是本地最高分，页面加载时补 localStorage 迁移也会调，
+  // 拿它报榜会让玩家一进游戏就被问「要不要上榜」。
+  function finishRunToHost(score) {
+    try {
+      if (window.AndroidGameBridge && typeof window.AndroidGameBridge.finishRun === 'function') {
+        window.AndroidGameBridge.finishRun(Math.floor(score));
+      }
+    } catch (e) { /* 老版本客户端没有这个方法，忽略 */ }
+  }
+
   const GameStates = { READY: 0, DROP: 1, LOSE: 2 };
 
   const els = {
@@ -465,6 +476,7 @@
       els.end.style.display = 'flex';
       sfx('SAD_TROMBONE');
       submitScoreToHost(Game.score);
+      finishRunToHost(Game.score);
     },
 
     celebrate(text) {

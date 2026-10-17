@@ -1,6 +1,6 @@
 package com.xjtu.toolbox.feedback
 
-import com.xjtu.toolbox.platform.deviceInstallId
+import com.xjtu.toolbox.platform.AnonymousId
 import com.xjtu.toolbox.platform.keyValueStore
 import com.xjtu.toolbox.platform.secureRandomInt
 import com.xjtu.toolbox.util.AppJson
@@ -18,7 +18,6 @@ import kotlinx.serialization.json.put
 /** 反馈的本地账本。 */
 object FeedbackStore {
     private const val PREFS = "feedback"
-    private const val K_ANON_ID = "anon_id"
     private const val K_TICKETS = "tickets"
     private const val K_READ = "read_replies"
     private const val K_PROMPT_AT = "prompt_last_at"
@@ -28,19 +27,7 @@ object FeedbackStore {
     private val store by lazy { keyValueStore(PREFS) }
 
     /** 匿名标识，用来把同一个人的多条反馈串起来，不含学号。 */
-    fun anonId(): String {
-        val fromDevice = deviceInstallId("feedback")
-        if (fromDevice != null) {
-            if (store.getString(K_ANON_ID) != fromDevice) {
-                store.putString(K_ANON_ID, fromDevice)
-            }
-            return fromDevice
-        }
-        store.getString(K_ANON_ID)?.let { return it }
-        val id = randomHex(8)
-        store.putString(K_ANON_ID, id)
-        return id
-    }
+    fun anonId(): String = AnonymousId.get()
 
     /** 工单号：10 位大写十六进制。 */
     fun newTicket(): String = "T" + randomHex(10).uppercase()

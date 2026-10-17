@@ -2,7 +2,15 @@ package com.xjtu.toolbox.game
 
 import com.xjtu.toolbox.platform.keyValueStore
 
-/** 小游戏的本地记录：最高分与胜负战绩。 */
+/**
+ * 小游戏的本地记录：最高分与胜负战绩。
+ *
+ * 全部存在一份 `keyValueStore("games")` 里，本身**不上传、不进任何网络请求**。
+ *
+ * 唯一的例外是分数类游戏的**全服榜**：够上榜的成绩会由 [com.xjtu.toolbox.game.board.Leaderboard]
+ * 另发一份到自建服务端，上传的只有游戏、分数、名字和一个设备级匿名 ID。这份记录仍是本地的
+ * 权威——榜拉不到、网断了都不影响这里的数字，对弈类战绩则始终不出设备。
+ */
 object GameStore {
 
     private const val PREFS = "games"
@@ -47,6 +55,10 @@ object GameStore {
     fun getBoolean(key: String, default: Boolean): Boolean = store().getBoolean(key, default)
 
     fun putBoolean(key: String, value: Boolean) = store().putBoolean(key, value)
+
+    fun contains(key: String): Boolean = store().contains(key)
+
+    fun remove(key: String) = store().remove(key)
 }
 
 enum class GameResult { WIN, LOSS, DRAW }

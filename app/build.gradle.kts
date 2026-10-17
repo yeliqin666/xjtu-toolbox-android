@@ -55,6 +55,22 @@ android {
             buildConfigField("String", "FEEDBACK_BASE_TOKEN", "\"${cfg("baseToken")}\"")
             buildConfigField("String", "FEEDBACK_TABLE_SUBMIT", "\"${cfg("tableSubmit")}\"")
             buildConfigField("String", "FEEDBACK_TABLE_REPLY", "\"${cfg("tableReply")}\"")
+
+            // 小游戏全服榜的服务端地址（服务端见 server/leaderboard）。
+            //
+            // 默认指向正式环境，这是公开地址、不是密钥，所以直接写在这里而不是塞进
+            // 某个 properties 文件——CI 和普通克隆都该开箱即用。本地联调要指到自己的
+            // 服务端时，用环境变量 LEADERBOARD_BASE_URL，或在仓库根建
+            // leaderboard.properties（已 gitignore）写 baseUrl=http://127.0.0.1:4100/games，
+            // 配合 adb reverse tcp:4100 tcp:4100。
+            //
+            // 置成空字符串 = 整块排行榜功能从界面上消失（Leaderboard.enabled 为 false）。
+            val lbFile = rootProject.file("leaderboard.properties")
+            val lbProps = Properties().apply { if (lbFile.exists()) lbFile.inputStream().use { load(it) } }
+            val lbUrl = System.getenv("LEADERBOARD_BASE_URL")?.trim()?.takeIf { it.isNotEmpty() }
+                ?: lbProps.getProperty("baseUrl")?.trim()?.takeIf { it.isNotEmpty() }
+                ?: "https://zyxf.top/games"
+            buildConfigField("String", "LEADERBOARD_BASE_URL", "\"$lbUrl\"")
         }
     }
 

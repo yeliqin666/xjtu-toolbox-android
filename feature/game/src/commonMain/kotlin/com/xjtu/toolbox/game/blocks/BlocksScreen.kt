@@ -34,6 +34,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.EmojiEvents
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -74,6 +75,8 @@ import com.xjtu.toolbox.game.GameIds
 import com.xjtu.toolbox.game.GameSound
 import com.xjtu.toolbox.game.GameStore
 import com.xjtu.toolbox.game.Sfx
+import com.xjtu.toolbox.game.board.Leaderboard
+import com.xjtu.toolbox.game.board.LeaderboardAskDialog
 import com.xjtu.toolbox.game.ui.GameMenu
 import com.xjtu.toolbox.ui.rememberHaptics
 import kotlin.math.abs
@@ -228,6 +231,8 @@ private fun BlocksPlay(mode: BlocksMode, best: Int, palette: BlocksPalette, onRe
     var secondsLeft by remember { mutableIntStateOf((ULTRA_MS / 1000).toInt()) }
     var paused by remember { mutableStateOf(false) }
     var over by remember { mutableStateOf(false) }
+    // 够上榜时的上榜询问。归本页持有，玩家退出去弹窗就跟着没了
+    var boardAsk by remember { mutableStateOf<Leaderboard.PendingAsk?>(null) }
     var cellPx by remember { mutableFloatStateOf(1f) }
     var label by remember { mutableStateOf<ClearEvent?>(null) }
     val labelAnim = remember { Animatable(1f) }
@@ -328,6 +333,8 @@ private fun BlocksPlay(mode: BlocksMode, best: Int, palette: BlocksPalette, onRe
         haptics.error()
         GameSound.play(Sfx.SAD_TROMBONE, 0.8f)
         onRecord(game.score)
+        // 三种玩法各一个榜，报的是当前玩法的那个
+        boardAsk = Leaderboard.report(blocksRecordId(mode), game.score)
     }
     LaunchedEffect(score) { if (score > best) onRecord(score) }
 
@@ -365,11 +372,17 @@ private fun BlocksPlay(mode: BlocksMode, best: Int, palette: BlocksPalette, onRe
             .focusable(),
     ) {
         Column(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().padding(horizontal = 12.dp)) {
-            // 顶栏：返回 · 分数 · 暂停
+            // 顶栏：返回 · 分数 · 排行榜 · 暂停
             Row(Modifier.fillMaxWidth().height(52.dp), verticalAlignment = Alignment.CenterVertically) {
                 BarIcon(Icons.AutoMirrored.Filled.ArrowBack, "返回", palette.ink) { if (!over) paused = true }
                 Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
                     Text(shownScore.toString(), fontSize = 28.sp, fontWeight = FontWeight.Bold, color = palette.ink, lineHeight = 30.sp)
+                }
+                if (Leaderboard.enabled) {
+                    BarIcon(Icons.Filled.EmojiEvents, "排行榜", palette.ink) {
+                        if (!over) paused = true
+                        Leaderboard.openRanking(blocksRecordId(mode))
+                    }
                 }
                 BarIcon(Icons.Filled.Pause, "暂停", palette.ink) { if (!over) paused = true }
             }
@@ -468,7 +481,11 @@ private fun BlocksPlay(mode: BlocksMode, best: Int, palette: BlocksPalette, onRe
                 title = if (game.timeUp) "时间到" else "堆满了",
                 big = score.toString(),
                 subtitle = "消了 $lines 行" + if (score >= best && score > 0) " · 新纪录" else " · 最高 $best",
-                actions = listOf("再来一局" to { restart() }, "退出" to onExit),
+                actions = listOfNotNull(
+                    "再来一局" to { restart() },
+                    "退出" to onExit,
+                    if (Leaderboard.enabled) "排行榜" to { Leaderboard.openRanking(blocksRecordId(mode)) } else null,
+                ),
                 accent = accent, panel = palette.panel, ink = palette.ink,
             )
             paused -> GameMenu(
@@ -479,6 +496,8 @@ private fun BlocksPlay(mode: BlocksMode, best: Int, palette: BlocksPalette, onRe
             )
         }
     }
+
+    LeaderboardAskDialog(boardAsk) { boardAsk = null }
 }
 
 @Composable

@@ -12,10 +12,15 @@ import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.EmojiEvents
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.compose.LocalLifecycleOwner
@@ -24,7 +29,11 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import com.xjtu.toolbox.game.GameIds
 import com.xjtu.toolbox.game.GameStore
+import com.xjtu.toolbox.game.board.Leaderboard
+import com.xjtu.toolbox.game.board.LeaderboardAskDialog
 import com.xjtu.toolbox.util.releaseSafely
+import top.yukonga.miuix.kmp.basic.Icon
+import top.yukonga.miuix.kmp.basic.IconButton
 import top.yukonga.miuix.kmp.basic.Scaffold
 import top.yukonga.miuix.kmp.basic.SmallTopAppBar
 import top.yukonga.miuix.kmp.theme.MiuixTheme
@@ -55,6 +64,15 @@ fun MergeGameScreen(onBack: () -> Unit) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
     val webViewRef = remember { mutableStateOf<WebView?>(null) }
+    // 一局结束的分数。桥方法跑在 WebView 的 JavaBridge 线程上，不能直接起协程，
+    // 所以先落到状态里，再由下面的 LaunchedEffect 在主线程上拿去报榜。
+    val finishedScore = remember { mutableStateOf<Int?>(null) }
+    // 够上榜时的上榜询问。归本页持有，玩家退出去弹窗就跟着没了
+    var boardAsk by remember { mutableStateOf<Leaderboard.PendingAsk?>(null) }
+
+    LaunchedEffect(finishedScore.value) {
+        finishedScore.value?.let { boardAsk = Leaderboard.report(GameIds.MERGE, it) }
+    }
 
     // 页面不可见时暂停 JS 侧的物理循环，避免在后台空跑耗电。
     DisposableEffect(lifecycleOwner) {
@@ -76,7 +94,14 @@ fun MergeGameScreen(onBack: () -> Unit) {
                 color = MiuixTheme.colorScheme.surface,
                 navigationIcon = {
                     BackButton(onBack)
-                }
+                },
+                actions = {
+                    if (Leaderboard.enabled) {
+                        IconButton(onClick = { Leaderboard.openRanking(GameIds.MERGE) }) {
+                            Icon(Icons.Default.EmojiEvents, contentDescription = "排行榜")
+                        }
+                    }
+                },
             )
         }
     ) { padding ->
@@ -101,7 +126,10 @@ fun MergeGameScreen(onBack: () -> Unit) {
 
                     // JS -> Kotlin 分数回传：游戏结束这一刻发生一次，事件驱动，
                     // 比 evaluateJavascript 轮询查状态更直接也更省资源。
-                    addJavascriptInterface(MergeGameBridge(ctx), "AndroidGameBridge")
+                    addJavascriptInterface(
+                        MergeGameBridge(ctx) { finishedScore.value = it },
+                        "AndroidGameBridge",
+                    )
 
                     webViewClient = object : WebViewClient() {
                         override fun shouldInterceptRequest(
@@ -131,6 +159,8 @@ fun MergeGameScreen(onBack: () -> Unit) {
                 .padding(padding)
         )
     }
+
+    LeaderboardAskDialog(boardAsk) { boardAsk = null }
 }
 
 /** 一个空的 404 响应，用来挡掉不在白名单里的请求。 */
@@ -141,7 +171,7 @@ private object EmptyInputStream : InputStream() {
     override fun read(): Int = -1
 }
 
-private class MergeGameBridge(private val context: Context) {
+private class MergeGameBridge(private val context: Context, private val onFinishRun: (Int) -> Unit) {
     @JavascriptInterface
     fun submitScore(score: Int) {
         if (score <= 0) return
@@ -150,6 +180,17 @@ private class MergeGameBridge(private val context: Context) {
 
     @JavascriptInterface
     fun bestScore(): Int = GameStore.bestScore(GameIds.MERGE)
+
+    /**
+     * 一局打完。和 [submitScore] 分开是有原因的：那个记的是本地最高分，页面加载时补
+     * localStorage 迁移也会调它，拿它去报榜会让玩家一进游戏就被问「要不要上榜」。
+     * 这个只在 [游戏里 lose() 那一刻] 调。
+     */
+    @JavascriptInterface
+    fun finishRun(score: Int) {
+        if (score <= 0) return
+        onFinishRun(score)
+    }
 
     /** 网页里按 [Sfx] 的名字点音效，和原生小游戏共用同一套声音与开关。 */
     @JavascriptInterface

@@ -60,7 +60,22 @@ plan.md
 # 反馈后端（飞书多维表格）凭据，不入库
 feedback.properties
 
+# 小游戏全服榜的服务端地址覆盖，只在本地联调时用（默认走正式环境，见 app/build.gradle.kts）
+leaderboard.properties
+
+# 榜单昵称的禁止词表：放服务端目录下按需增补，不进仓库
+# （公开一份词表等于给绕过它的人一张清单）
+server/leaderboard/banned.txt
+
+# 内容安全凭据，只该存在于服务器的 /opt/xjtu-games/
+server/leaderboard/aliyun.env
+
 # 屁岱皮肤制作 Skill：独立维护在 yeliqin666/pidai-skin-maker，本仓库不再内嵌一份拷贝
 # （曾经嵌过，两边一改就容易分叉）。本地想用就 clone 到这两个路径，不会被 git 跟踪。
 /.agents/skills/pidai-skin-maker/
 /.claude/skills/pidai-skin-maker/
+
+# miuix 的本地源码副本，查 MIUIX 组件实现时用的参考。App 走 Maven 依赖
+# （top.yukonga.miuix.kmp:miuix-*-android），并不编译这个目录——但它是整个仓库里
+# 最大的未跟踪目录（152MB / 7000+ 文件），不忽略的话一个 git add -A 就带进去了。
+miuix-ref/

@@ -32,6 +32,8 @@ fun main() = application {
     // 登录发生在登录页，取数发生在图书馆屏，MFA 弹窗挂在整棵树上，三者共用同一个管家。
     val auth = remember { DesktopAuth() }
     DesktopFeedback.install()
+    // 小游戏全服榜：桌面没有 BuildConfig，直接用正式环境（公开地址，不是密钥）
+    remember { com.xjtu.toolbox.game.board.LeaderboardApi.install(com.xjtu.toolbox.game.board.LeaderboardApi.DEFAULT_BASE_URL) }
     Window(
         onCloseRequest = ::exitApplication,
         title = "西交工具箱（桌面预览 · Stage A）",

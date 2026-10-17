@@ -1,0 +1,29 @@
+[Unit]
+Description=XJTU Toolbox 小游戏全服榜
+Documentation=https://github.com/yeliqin666/xjtu-toolbox-android
+After=network.target
+
+[Service]
+Type=simple
+# 和 zyxf.service 用同一个受限用户：这个服务只需要能读写自己的工作目录
+User=www
+Group=www
+WorkingDirectory=/opt/xjtu-games
+ExecStart=/usr/bin/node index.js
+Environment=NODE_ENV=production
+Environment=PORT=4100
+Environment=DB_PATH=/opt/xjtu-games/data.db
+Restart=always
+RestartSec=3
+
+# 加固：只读系统目录，进程自己只能写工作目录和临时目录
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+
+[Install]
+WantedBy=multi-user.target

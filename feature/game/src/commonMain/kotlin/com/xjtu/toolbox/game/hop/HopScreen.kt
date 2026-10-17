@@ -51,12 +51,15 @@ import com.xjtu.toolbox.game.GameIds
 import com.xjtu.toolbox.game.GameSound
 import com.xjtu.toolbox.game.GameStore
 import com.xjtu.toolbox.game.Sfx
+import com.xjtu.toolbox.game.board.Leaderboard
+import com.xjtu.toolbox.game.board.LeaderboardAskDialog
 import com.xjtu.toolbox.game.ui.GameMenu
 import com.xjtu.toolbox.ui.rememberHaptics
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.VolumeOff
 import androidx.compose.material.icons.automirrored.filled.VolumeUp
+import androidx.compose.material.icons.filled.EmojiEvents
 import top.yukonga.miuix.kmp.basic.Icon
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.height
@@ -133,6 +136,8 @@ fun HopScreen(
     var streak by remember { mutableIntStateOf(0) }
     var over by remember { mutableStateOf(false) }
     var paused by remember { mutableStateOf(false) }
+    // 够上榜时的上榜询问。归本页持有，玩家退出去弹窗就跟着没了
+    var boardAsk by remember { mutableStateOf<Leaderboard.PendingAsk?>(null) }
     var best by remember { mutableIntStateOf(GameStore.bestScore(GameIds.HOP)) }
     var tip by remember { mutableStateOf(hint(game)) }
     // 镜头对准的世界坐标，逐帧向「脚下和下一块之间」靠拢
@@ -254,6 +259,7 @@ fun HopScreen(
         GameSound.play(Sfx.SAD_TROMBONE, 0.8f)
         GameStore.submitScore(GameIds.HOP, game.score)
         best = maxOf(best, game.score)
+        boardAsk = Leaderboard.report(GameIds.HOP, game.score)
     }
 
     Box(Modifier.fillMaxSize()) {
@@ -354,7 +360,7 @@ fun HopScreen(
             }
         }
 
-        // 右上：音效开关、换角色
+        // 右上：排行榜、音效开关、换角色
         Row(
             Modifier
                 .align(Alignment.TopEnd)
@@ -362,6 +368,22 @@ fun HopScreen(
                 .padding(end = 16.dp, top = 12.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
+            if (Leaderboard.enabled) {
+                Icon(
+                    Icons.Default.EmojiEvents,
+                    contentDescription = "排行榜",
+                    tint = ink,
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(20.dp))
+                        .background(ink.copy(alpha = 0.08f))
+                        .clickable(remember { MutableInteractionSource() }, SinkFeedback()) {
+                            game.cancelCharge()
+                            Leaderboard.openRanking(GameIds.HOP)
+                        }
+                        .padding(8.dp)
+                        .size(20.dp),
+                )
+            }
             Icon(
                 if (GameSound.enabled) Icons.AutoMirrored.Filled.VolumeUp else Icons.AutoMirrored.Filled.VolumeOff,
                 contentDescription = if (GameSound.enabled) "关闭音效" else "打开音效",
@@ -435,7 +457,11 @@ fun HopScreen(
                 title = "掉下去了",
                 big = score.toString(),
                 subtitle = if (score >= best && score > 0) "新纪录！" else "最高 $best",
-                actions = listOf("再来一局" to { restart() }, "退出" to onBack),
+                actions = listOfNotNull(
+                    "再来一局" to { restart() },
+                    "退出" to onBack,
+                    if (Leaderboard.enabled) "排行榜" to { Leaderboard.openRanking(GameIds.HOP) } else null,
+                ),
                 accent = ACCENT, panel = panel, ink = ink,
             )
             paused -> GameMenu(
@@ -447,6 +473,8 @@ fun HopScreen(
             )
         }
     }
+
+    LeaderboardAskDialog(boardAsk) { boardAsk = null }
 }
 
 private val ACCENT = Color(0xFF6C63FF)

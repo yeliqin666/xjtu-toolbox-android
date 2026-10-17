@@ -25,6 +25,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Undo
+import androidx.compose.material.icons.filled.EmojiEvents
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
@@ -57,6 +58,8 @@ import com.xjtu.toolbox.game.GameIds
 import com.xjtu.toolbox.game.GameSound
 import com.xjtu.toolbox.game.GameStore
 import com.xjtu.toolbox.game.Sfx
+import com.xjtu.toolbox.game.board.Leaderboard
+import com.xjtu.toolbox.game.board.LeaderboardAskDialog
 import com.xjtu.toolbox.game.ui.GameMenu
 import com.xjtu.toolbox.game.ui.ScoreCard
 import com.xjtu.toolbox.ui.adaptive.readableWidth
@@ -110,11 +113,17 @@ fun Gpa2048Screen(onBack: () -> Unit) {
     var lastGain by remember { mutableIntStateOf(0) }
     var gainStamp by remember { mutableIntStateOf(0) }
     var winDismissed by remember { mutableStateOf(false) }
+    // 够上榜时的上榜询问。归本页持有，玩家退出去弹窗就跟着没了
+    var boardAsk by remember { mutableStateOf<Leaderboard.PendingAsk?>(null) }
 
     LaunchedEffect(Unit) { best = GameStore.bestScore(GameIds.G2048) }
     LaunchedEffect(state.score) {
         GameStore.submitScore(GameIds.G2048, state.score)
         best = maxOf(best, state.score)
+    }
+    // 只在整局结束时报榜：中途的分数不往外发，够不够上榜由服务端那边说了算
+    LaunchedEffect(state.isOver) {
+        if (state.isOver) boardAsk = Leaderboard.report(GameIds.G2048, state.score)
     }
     // 合成用的「影子」方块滑到位就撤掉
     LaunchedEffect(stamp) {
@@ -201,6 +210,13 @@ fun Gpa2048Screen(onBack: () -> Unit) {
                     BackButton(onBack)
                 },
                 color = MiuixTheme.colorScheme.background,
+                actions = {
+                    if (Leaderboard.enabled) {
+                        IconButton(onClick = { Leaderboard.openRanking(GameIds.G2048) }) {
+                            Icon(Icons.Default.EmojiEvents, contentDescription = "排行榜")
+                        }
+                    }
+                },
             )
         },
     ) { padding ->
@@ -270,6 +286,7 @@ fun Gpa2048Screen(onBack: () -> Unit) {
                             actions = listOfNotNull(
                                 Gpa2048Texts.RESTART to { restart() },
                                 if (undoLeft > 0 && history.isNotEmpty()) Gpa2048Texts.undoLeft(undoLeft) to { undo() } else null,
+                                if (Leaderboard.enabled) "排行榜" to { Leaderboard.openRanking(GameIds.G2048) } else null,
                             ),
                             accent = MiuixTheme.colorScheme.primary,
                             panel = MiuixTheme.colorScheme.surface,
@@ -292,6 +309,8 @@ fun Gpa2048Screen(onBack: () -> Unit) {
             Spacer(Modifier.height(24.dp))
         }
     }
+
+    LeaderboardAskDialog(boardAsk) { boardAsk = null }
 }
 
 /** 场上方块绩点的平均值，两位小数；空盘 0。 */

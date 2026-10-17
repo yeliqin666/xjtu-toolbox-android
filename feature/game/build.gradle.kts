@@ -12,5 +12,8 @@ kotlin {
             api(project(":shared:designsystem"))
             api(project(":shared:network"))
         }
+        commonTest.dependencies {
+            implementation(libs.ktor.client.mock)
+        }
     }
 }
