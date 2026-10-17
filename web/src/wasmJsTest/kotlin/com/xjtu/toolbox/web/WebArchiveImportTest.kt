@@ -59,8 +59,11 @@ class WebArchiveImportTest {
         try {
             val result = WebArchiveHost.importArchive(archiveFromFixture())
 
-            // `files/` 那一层在导入前被滤掉（本端没有文件系统）⇒ 写进去的 files 条目数是 0（不是谎话）
-            assertEquals(ImportResult.Ok(keysWritten = 7, keysKept = 0, filesWritten = 0), result)
+            // `files/` 那一层里只有三族行数组中有落点的那一族落地（自建日程）⇒ filesWritten = 1；
+            // 其余条目（`agent_sessions/index.json`）本端没有落点，导入前如实滤掉
+            assertEquals(ImportResult.Ok(keysWritten = 7, keysKept = 0, filesWritten = 1), result)
+            // 夹具里那一族是空数组 `[]` ⇒ 合并后就写成 `[]`（不声称这一族有行，也不把它弄丢）
+            assertEquals("[]", keyValueStore(WebScheduleHost.CUSTOM_COURSE_STORE).getString("custom_courses"))
 
             val settings = SettingsStore(keyValueStore(SettingsStore.APP_SETTINGS_FILE))
             assertEquals("dark", settings.darkMode)
@@ -190,8 +193,9 @@ class WebArchiveImportTest {
             assertTrue(text.contains("已导入"), text)
             assertTrue(text.contains("StoreArchive.import"), text)
             assertTrue(text.contains("写入 7 个键"), text)
-            // 夹具里有 2 条 `files/`（agent_sessions/index.json + courses/custom_courses.json）
-            assertTrue(text.contains("2 个 files/ 条目未落地"), text)
+            // 夹具里有 2 条 `files/`：自建日程那一族（空数组）落地了，`agent_sessions/index.json` 没有落点
+            assertTrue(text.contains("落了 1 条"), text)
+            assertTrue(text.contains("1 个其他 files/ 条目未落地"), text)
         } finally {
             cleanup()
         }
@@ -218,6 +222,7 @@ class WebArchiveImportTest {
     private companion object {
         /** 这些用例会碰到的 store（前后各清一次；karma 里所有用例共用同一个页面的 `localStorage`）。 */
         val TOUCHED_STORES = listOf(
+            WebScheduleHost.CUSTOM_COURSE_STORE,
             "app_settings",
             "library_favorites",
             "schedule_cache${ArchiveFixture.SUFFIX}",

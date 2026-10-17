@@ -44,13 +44,21 @@ import java.io.File
  * 绝大多数 store。导入是**启动时**的一次性动作（`Main.kt`，早于任何屏建句柄）⇒ 另一族的句柄
  * 之后第一次用时从磁盘读到的是导入后的文件。
  *
- * ## 只写 `agent_sessions<suffix>/` 这一族文件
+ * ## `files/` 那一层：`agent_sessions<suffix>/` 与三族行数组（§2.3 的表尾三行）
  *
- * §2.3 里桌面的 `files/` 层只有 `agent_sessions<suffix>/`（S3 的读侧 `JvmFileBackend` 就只枚举这一族），
- * 课表族在 KV 店（store 投影）。Android 那三族行数组（`files/courses` / `files/media` / `files/jiaocai`）
- * 在桌面上是**另外几个动作的 KV 店**（`KeyValueCustomCourseStore` / `DesktopDownloadTaskStore` /
- * `DesktopJiaocai1Storage`），形状不是行数组 —— §6.3 那条「拆成行数组」的转换是另一件事，
- * 这里**不假装**做了：不是这两族的 `files/` 条目一律不落地。
+ * 桌面在这一层有两个落点，形状不同：
+ *  - `agent_sessions/<名字>.json` ⇄ `<数据根>/agent_sessions<suffix>/<名字>.json`（真文件，原子写）；
+ *  - 三族行数组（`courses/custom_courses.json` / `media/download_tasks.json` /
+ *    `jiaocai/jiaocai1_shelf.json`）⇄ 端内那三个键值店（端内名与键的映射见 [DesktopArchiveRows]）。
+ *    这三族在端内的形状**本来就是行数组**（单键里的一段 JSON），所以 §6.3 那条「KV 单键 → 拆成
+ *    行数组」在桌面上就是「按 §2.3 排好序 + 原样搬运」；进来时按 `ArchiveRowFamilies.merge` 合并
+ *    （本端已有的主键**整行保留**、只追加端内没有的主键），合并基含两个带后缀的族的旧名只读兜底。
+ *  - 其余条目（例：`schedule/<key>.json`、空教室缓存）在这一端没有落点，不落地。
+ *
+ * ⚠️ 三族行数组的端内名按 `AccountContext.activeAccountId` 解析（与运行时那几个 Store 同一条规则）：
+ * 启动时（`Main.kt` 那一发）还没登录 ⇒ 两个带后缀的族落到 `<端内名>default`，而登录后运行时建的那
+ * 两个 Store 用的是 `<端内名>_<学号>`。这个错位与导出侧（[DesktopArchiveHost.exportArchive] 的默认
+ * 账号）是同一处，本工单不动它，只如实记下。
  */
 class DesktopArchiveImportTarget(
     /** 写侧：按**端内名逐字**取那个已有句柄（默认 [secureKeyValueStore]）。 */
@@ -82,14 +90,24 @@ class DesktopArchiveImportTarget(
     override fun readFile(suffix: String, relPath: String): String? = files?.read(suffix, relPath)
 
     override fun putFile(suffix: String, relPath: String, content: String) {
+        // §2.3 表尾那三族：端内落点是键值店里的一个键（认领了这一笔就不再当文件写）
+        if (landRowFamily(suffix, relPath, content)) return
         val root = dataRoot ?: return
         if (!relPath.startsWith(AGENT_SESSIONS_PREFIX)) return
         val target = File(File(root, "agent_sessions$suffix"), relPath.removePrefix(AGENT_SESSIONS_PREFIX))
         DesktopArchiveIo.writeFile(target, content.toByteArray(Charsets.UTF_8))
     }
 
+    /**
+     * 档案里那一族行数组合并进端内键值店（[DesktopArchiveRows.land]）；认领了这一笔 ⇒ true。
+     *
+     * 「是不是那三族 / `suffix` 是不是空」都在 `:core` 的 `ArchiveRowFamilies.of` 里判，这里不另写一份。
+     */
+    private fun landRowFamily(suffix: String, relPath: String, content: String): Boolean =
+        DesktopArchiveRows.land(suffix, relPath, content, storeOf = storeOf) != null
+
     private companion object {
-        /** §2.3：桌面 `files/` 这一层只有这一族（课表族在 KV 店）。 */
+        /** §2.3：桌面 `files/` 这一层除三族行数组之外唯一落文件的那一族。 */
         const val AGENT_SESSIONS_PREFIX = "agent_sessions/"
     }
 }

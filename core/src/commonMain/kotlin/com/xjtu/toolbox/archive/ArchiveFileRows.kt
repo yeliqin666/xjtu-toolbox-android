@@ -18,7 +18,9 @@ import kotlinx.serialization.json.JsonPrimitive
  *  - `files/jiaocai/jiaocai1_shelf.json` 按 `(addedAt desc, ssno)`；
  *  - `files/agent_sessions/index.json`   按 `updatedAt` 降序（`AgentSessionStore.list()` 现有口径）。
  *
- * 输入的 [JsonArray] 由 S4/S5 的宿主（Room DAO 只读投影 / index 原文）给出，这里只是它们要调的排序。
+ * 输入的 [JsonArray] 由各端宿主给出：Android 是 Room 三张表的只读投影（`:app` 的 `RoomArchiveFamilies`），
+ * 桌面/web 是端内键值店里那一段行数组（[ArchiveRowFamilies]，单键 KV 的形状 ⇒ 原生就是行数组）；
+ * `agent_sessions` 的 index 是端内 index 原文。这里只是它们要调的排序，不含任何端内 I/O。
  */
 object ArchiveFileRows {
 

@@ -6,9 +6,10 @@ package com.xjtu.toolbox.archive
  * 与 store 投影（[ArchiveStoreBackend]）并列：这一格只覆盖「端内真实是文件」的两族 ——
  *  - `files/agent_sessions/…` ⇄ 端内 `agent_sessions<suffix>/`（§2.3 / `AgentSessionStore`）；
  *  - `files/schedule/<key>.json` ⇄ Android 的 `cacheDir/data_cache<suffix>/<key>.json`（§2.3 / §8.7）。
- * Room 三张表（`files/courses` / `files/media` / `files/jiaocai` 下的 `.json`）的端内源是 Room 表、
- * 空教室缓存（`files/cache/empty_room/…`）的端内源是 KV 店 —— 都不在这一格，由 S4–S6 的宿主经
- * [ArchiveFileRows] 与 store 投影组装。
+ * 三族「行数组」（`files/courses` / `files/media` / `files/jiaocai` 下的 `.json`）也不在这一格：
+ * Android 的端内源是 Room 表（`:app` 的 `RoomArchiveFamilies`），桌面/web 的端内源是键值店里的一个键
+ * （[ArchiveRowFamilies]，单键里那段 JSON 本身就是行数组）；空教室缓存（`files/cache/empty_room/…`）
+ * 的端内源同样是 KV 店，但它的档案形状还没接（§2.3 那张表最后一行）。
  *
  * `relPath` 一律是 `files/` 之下的相对路径（`agent_sessions/index.json`、`schedule/<key>.json`），
  * **目录名不带 suffix**（suffix 已经在 `accounts/<suffix>/` 那一层，§2.3 末段）；`suffix` 由调用方给

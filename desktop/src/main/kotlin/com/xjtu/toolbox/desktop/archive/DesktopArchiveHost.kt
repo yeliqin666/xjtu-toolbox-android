@@ -1,12 +1,14 @@
 package com.xjtu.toolbox.desktop.archive
 
 import com.xjtu.toolbox.account.Account
+import com.xjtu.toolbox.account.AccountContext
 import com.xjtu.toolbox.account.AccountStore
 import com.xjtu.toolbox.archive.ArchiveAccount
 import com.xjtu.toolbox.archive.StoreSnapshot
 import com.xjtu.toolbox.archive.ArchiveInspection
 import com.xjtu.toolbox.archive.ArchiveFile
 import com.xjtu.toolbox.archive.ArchiveNames
+import com.xjtu.toolbox.archive.ArchiveRowFamilies
 import com.xjtu.toolbox.archive.ArchiveStoreBackend
 import com.xjtu.toolbox.archive.ArchiveFileBackend
 import com.xjtu.toolbox.archive.ExportOptions
@@ -16,7 +18,9 @@ import com.xjtu.toolbox.archive.archiveDataRoot
 import com.xjtu.toolbox.archive.archiveFileBackend
 import com.xjtu.toolbox.archive.archiveStoreBackend
 import com.xjtu.toolbox.desktop.DesktopBuildConfig
+import com.xjtu.toolbox.platform.KeyValueStore
 import com.xjtu.toolbox.platform.Log
+import com.xjtu.toolbox.platform.secureKeyValueStore
 import java.io.File
 import kotlin.time.Clock
 
@@ -26,7 +30,7 @@ import kotlin.time.Clock
  * 这不是缝、也不是共享逻辑，而是宿主签名（plan §1.4 的「数据袋」在桌面侧的落点）：
  * 它只**读**端内已有的东西（`archiveStoreBackend()` 的 store 投影、`archiveFileBackend()` 的
  * `agent_sessions<suffix>/`、`AccountStore()` 的账号表），不新建任何端内文件格式（C1 红线）。
- * 纯函数部分（[accountsFrom] / [readStores] / [readFiles] / [buildArchive] / [checkArchive]）
+ * 纯函数部分（[accountsFrom] / [readStores] / [readFiles] / [readRowFiles] / [buildArchive] / [checkArchive]）
  * 刻意拆出来，供 `:desktop:test` 用临时数据根（`dataRootOverride` + `keyValueStoreRootOverride`）驱动。
  *
  * ## 数据根（§1.2 / A13）
@@ -101,8 +105,10 @@ object DesktopArchiveHost {
         backend.storeNames().mapNotNull { backend.readStore(it) }
 
     /**
-     * 读端内 `files` 那一层（S3 缝 B）：桌面只有 `agent_sessions<suffix>/` 一族
-     * （课表族在 KV 店、Room 三表在这一端不存在 ⇒ 它们走 store 投影，§2.3）。
+     * 读端内 `files` 那一层（S3 缝 B）里**真落在文件里**的那一族：`agent_sessions<suffix>/`。
+     *
+     * 三族行数组（`courses` / `media` / `jiaocai`）在这一端是 KV 店、不在文件层 ⇒ 不在这里，
+     * 由 [readRowFiles] 追加（§2.3 / §6.3）。
      */
     fun readFiles(backend: ArchiveFileBackend?, suffixes: List<String>): List<ArchiveFile> {
         val fb = backend ?: return emptyList()
@@ -125,17 +131,38 @@ object DesktopArchiveHost {
     ): Map<String, String> =
         StoreArchive.export(accounts, createdBy, appVersion, stores, files, ExportOptions(now = now))
 
-    /** 端内 → 完整档案字节映射（导出动作；只读端内，不写任何 store / 文件）。 */
-    fun exportArchive(now: () -> Long = { Clock.System.now().toEpochMilliseconds() }): Map<String, String> {
+    /**
+     * 端内 → 完整档案字节映射（导出动作；只读端内，不写任何 store / 文件）。
+     *
+     * 两类来源都在：[readFiles] 给出 `agent_sessions<suffix>/` 那一族真文件，[readRowFiles] 给出
+     * 三族行数组（桌面上是 KV 店，§2.3）。
+     */
+    fun exportArchive(
+        now: () -> Long = { Clock.System.now().toEpochMilliseconds() },
+        storeOf: (String) -> KeyValueStore = { secureKeyValueStore(it) },
+        accountId: String? = AccountContext.activeAccountId,
+    ): Map<String, String> {
         val accounts = accountsFrom(AccountStore().list())
         val suffixes = (accounts.map { it.suffix } + ANONYMOUS_SUFFIXES).distinct()
         return buildArchive(
             accounts = accounts,
             stores = readStores(archiveStoreBackend()),
-            files = readFiles(archiveFileBackend(), suffixes),
+            files = readFiles(archiveFileBackend(), suffixes) + readRowFiles(storeOf, accountId),
             now = now,
         )
     }
+
+    /**
+     * 三族行数组的端内投影（§2.3 的表尾三行）：桌面这三族都是键值店里的一个键
+     * （`custom_courses` / `download_tasks<账号后缀>` / `jiaocai1_shelf<账号后缀>`），
+     * 档案里写成与 Android 同形的行数组（列名逐字、`id` 保持原值、排序按 §2.3）。
+     *
+     * 端上没有行的那一族**不写**（不拿一个 `[]` 去声称「本端这一族是空的」，见 [ArchiveRowFamilies.rowsForArchive]）。
+     */
+    fun readRowFiles(
+        storeOf: (String) -> KeyValueStore = { secureKeyValueStore(it) },
+        accountId: String? = AccountContext.activeAccountId,
+    ): List<ArchiveFile> = DesktopArchiveRows.filesOf(storeOf, accountId)
 
     /**
      * 导出到数据根：目录形态（`<数据根>/archive/`，可整拷）+ zip 形态
