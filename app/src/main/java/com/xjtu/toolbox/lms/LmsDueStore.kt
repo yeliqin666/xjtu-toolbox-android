@@ -40,13 +40,13 @@ object LmsDueStore {
     private fun loadRaw(cache: DataCache): List<LmsDue> = cache.read<List<LmsDue>>(KEY, Long.MAX_VALUE).orEmpty()
 
     /**
-     * 按 (courseId, activityId) 合并：同一条以 fetchedAt 较新的为准；
+     * 按 (courseId, activityId, exam) 合并：同一条以 fetchedAt 较新的为准；
      * 截止时间早于「现在减 1 天」的条目丢掉——留着也没人会看已经过期一天以上的作业。
      */
     internal fun mergeDue(existing: List<LmsDue>, incoming: List<LmsDue>, now: Instant = Instant.now()): List<LmsDue> {
         val cutoff = now.minus(EXPIRE_MARGIN)
         return (existing + incoming)
-            .groupBy { it.courseId to it.activityId }
+            .groupBy { Triple(it.courseId, it.activityId, it.exam) }
             .values
             .map { group -> group.maxBy { it.fetchedAt } }
             .filter { item -> runCatching { Instant.parse(item.deadline) }.getOrNull()?.isAfter(cutoff) ?: true }

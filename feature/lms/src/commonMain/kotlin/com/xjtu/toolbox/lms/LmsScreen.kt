@@ -381,6 +381,7 @@ internal fun LmsActivityType.displayName(): String = when (this) {
     LmsActivityType.FORUM -> "讨论区"
     LmsActivityType.QUESTIONNAIRE -> "问卷"
     LmsActivityType.ONLINE_VIDEO -> "在线视频"
+    LmsActivityType.EXAM -> "测试"
     LmsActivityType.UNKNOWN -> "其他"
 }
 internal fun activityTypeVisual(type: LmsActivityType): Pair<ImageVector, Color> = when (type) {
@@ -392,6 +393,7 @@ internal fun activityTypeVisual(type: LmsActivityType): Pair<ImageVector, Color>
     LmsActivityType.FORUM -> Icons.Default.Forum to Color(0xFF6D4C41)
     LmsActivityType.QUESTIONNAIRE -> Icons.Default.Quiz to Color(0xFFAD1457)
     LmsActivityType.ONLINE_VIDEO -> Icons.Default.PlayCircle to Color(0xFF00838F)
+    LmsActivityType.EXAM -> Icons.Default.FactCheck to Color(0xFFD84315)
     LmsActivityType.UNKNOWN -> Icons.AutoMirrored.Filled.HelpOutline to Color(0xFF757575)
 }
 internal fun downloadToast(result: LmsDownloadResult): String = when (result) {

@@ -45,6 +45,17 @@ class LmsDueStoreTest {
     }
 
     @Test
+    fun 测试和作业id相同也各留各的() {
+        val hw = due(courseId = 1, activityId = 7)
+        val exam = due(courseId = 1, activityId = 7, title = "期中测试").copy(exam = true)
+        val merged = LmsDueStore.mergeDue(listOf(hw), listOf(exam), now)
+        assertEquals(2, merged.size)
+        val todos = com.xjtu.toolbox.inbox.OwnInbox.lmsTodos(merged)
+        assertEquals(listOf("lms:1:7", "lms:exam:1:7"), todos.map { it.id })
+        assertEquals("测试 · 期中测试", todos[1].title)
+    }
+
+    @Test
     fun 截止早于现在减一天的被丢弃() {
         val expired = due(deadline = "2027-01-08T00:00:00Z") // 早于 now-1day (01-09)
         val stillValid = due(activityId = 2, deadline = "2027-01-09T12:00:00Z") // 晚于 cutoff

@@ -9,6 +9,7 @@ import org.junit.Test
  * 列表取自 2026-09-18 对 34 门课 1631 条活动的实测：`lecture_live` 827、`lesson` 646、
  * `online_video` 44、`material` 34、`forum` 8、`page` 6、`homework` 65、`questionnaire` 1。
  * 漏一种就会落到 UNKNOWN：能被列出来但混在「其他」里，正文也不按类型展示。
+ * `exam`（测试）没在实测数据里出现过，取自学堂前端 JS 的活动类型表（zh-CN 里叫「测试」）。
  */
 class LmsActivityTypeTest {
 
@@ -21,6 +22,7 @@ class LmsActivityTypeTest {
         "forum" to LmsActivityType.FORUM,
         "questionnaire" to LmsActivityType.QUESTIONNAIRE,
         "online_video" to LmsActivityType.ONLINE_VIDEO,
+        "exam" to LmsActivityType.EXAM,
     )
 
     @Test

@@ -53,14 +53,16 @@ object OwnInbox {
     fun todo(category: String, id: String, source: String, title: String, route: String?, expiresAt: Long = 0L) =
         InboxItem(id = id, category = category, source = source, title = title, time = Clock.System.now().toEpochMilliseconds(), route = route, expiresAt = expiresAt)
 
-    /** 思源学堂还没交、没过截止的作业。 */
+    /** 思源学堂还没交、没过截止的作业和测试。 */
     fun lmsTodos(items: List<LmsDue>): List<InboxItem> = items
         .filter { !it.submitted }
         .mapNotNull { d ->
             val deadline = runCatching { Instant.parse(d.deadline).toEpochMilliseconds() }.getOrNull() ?: return@mapNotNull null
             InboxItem(
-                id = "lms:${d.courseId}:${d.activityId}", category = InboxCategories.LMS, source = d.courseName,
-                title = d.title, time = d.fetchedAt, route = AppRoute.Lms(d.courseId).id, expiresAt = deadline,
+                id = (if (d.exam) "lms:exam:" else "lms:") + "${d.courseId}:${d.activityId}",
+                category = InboxCategories.LMS, source = d.courseName,
+                title = if (d.exam) "测试 · ${d.title}" else d.title,
+                time = d.fetchedAt, route = AppRoute.Lms(d.courseId).id, expiresAt = deadline,
             )
         }
 }

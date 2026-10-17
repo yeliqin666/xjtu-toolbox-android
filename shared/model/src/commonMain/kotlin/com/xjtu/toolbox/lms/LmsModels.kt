@@ -69,6 +69,19 @@ data class LmsCourseAttributes(
     val teachingClassName: String = ""
 )
 
+/**
+ * 学堂首页待办（`/api/todos`）的一条。只列没交的；[type] 为 `homework` / `exam`（网页里叫「测试」）
+ * / `questionnaire` 等。[endTime] 是 UTC 串，没设截止的为空。
+ */
+data class LmsTodo(
+    val type: String,
+    val id: Int,
+    val courseId: Int,
+    val courseName: String,
+    val title: String,
+    val endTime: String?,
+)
+
 @Serializable
 data class LmsCourseSummary(
     val id: Int = 0,
@@ -120,6 +133,8 @@ enum class LmsActivityType(val value: String) {
     QUESTIONNAIRE("questionnaire"),
     /** 在线视频 */
     ONLINE_VIDEO("online_video"),
+    /** 测试（网页上叫「测试」，类型值 exam）。答题只能在网页做，这里只列出和跳转 */
+    EXAM("exam"),
     UNKNOWN("unknown");
 
     companion object {

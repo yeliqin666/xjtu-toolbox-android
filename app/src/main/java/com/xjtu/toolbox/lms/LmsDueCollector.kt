@@ -3,6 +3,7 @@ package com.xjtu.toolbox.lms
 import android.content.Context
 import android.util.Log
 import java.time.Instant
+import java.time.ZonedDateTime
 
 /**
  * 思源作业截止的采集：逐门课拉活动 → 挑出带截止的作业 → 补提交态 → 写进 [LmsDueStore]。
@@ -34,7 +35,8 @@ object LmsDueCollector {
         isCurrent: () -> Boolean,
     ): List<LmsDue> {
         val now = Instant.now()
-        val known = LmsDueStore.load(ctx, account).filter { it.submitted }.mapTo(HashSet()) { it.courseId to it.activityId }
+        val stored = LmsDueStore.load(ctx, account)
+        val known = stored.filter { it.submitted && !it.exam }.mapTo(HashSet()) { it.courseId to it.activityId }
         val items = dueItems(perCourse, System.currentTimeMillis()).map { d ->
             when {
                 d.courseId to d.activityId in known -> d.copy(submitted = true)
@@ -45,8 +47,40 @@ object LmsDueCollector {
             }
         }
         Log.d(TAG, "作业 ${items.size} 条，未交未截止 ${items.count { !it.submitted && !isPast(it, now) }} 条")
-        if (isCurrent()) LmsDueStore.save(ctx, items, account)
+        val exams = examDues(api, perCourse, stored)
+        if (isCurrent()) LmsDueStore.save(ctx, items + exams, account)
         return items
+    }
+
+    /**
+     * 学堂待办里的「测试」。活动列表里没有它的截止和提交态，网页的待办（`/api/todos`）才有，且只列没交的：
+     * 之前记过、这次不在了的就是交了，标成已交让它从待办里挪走。待办拉不到时返回空，旧记录原样留着。
+     * 没设截止时间的测试进不了待办（待办按截止排、到点自动清），先不收。
+     */
+    private suspend fun examDues(
+        api: LmsApi,
+        perCourse: List<Pair<LmsCourseSummary, List<LmsActivity>>>,
+        stored: List<LmsDue>,
+    ): List<LmsDue> {
+        val todos = runCatching { api.getTodos() }
+            .onFailure { Log.w(TAG, "学堂待办拉取失败：${it.message}") }
+            .getOrNull() ?: return emptyList()
+        val fetchedAt = System.currentTimeMillis()
+        val courseNames = perCourse.associate { (c, _) -> c.id to c.name }
+        val pending = todos.filter { it.type == "exam" }.mapNotNull { t ->
+            val deadline = t.endTime?.let { runCatching { ZonedDateTime.parse(it).toInstant() }.getOrNull() }
+                ?: return@mapNotNull null
+            LmsDue(
+                courseId = t.courseId, courseName = t.courseName.ifBlank { courseNames[t.courseId].orEmpty() },
+                activityId = t.id, title = t.title, deadline = deadline.toString(), fetchedAt = fetchedAt, exam = true,
+            )
+        }
+        val pendingKeys = pending.mapTo(HashSet()) { it.courseId to it.activityId }
+        val done = stored
+            .filter { it.exam && !it.submitted && it.courseId to it.activityId !in pendingKeys }
+            .map { it.copy(submitted = true, fetchedAt = fetchedAt) }
+        Log.d(TAG, "测试 未交 ${pending.size} 条，新交 ${done.size} 条")
+        return pending + done
     }
 
     internal fun dueItems(perCourse: List<Pair<LmsCourseSummary, List<LmsActivity>>>, fetchedAt: Long): List<LmsDue> =

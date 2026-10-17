@@ -141,6 +141,26 @@ class LmsApi(private val site: SiteSession) {
     }
 
     /**
+     * 学堂首页待办：网页上的「测试」不在课程活动列表的作业里，只能从这里拿。
+     * 响应不是 `{todo_list:[…]}` 时抛错，调用方别把它当成「没有待办」。
+     */
+    suspend fun getTodos(): List<LmsTodo> {
+        val data = getJson("$baseUrl/api/todos?no-intercept=true") ?: throw RuntimeException("获取待办失败")
+        val list = data.arr("todo_list") ?: throw RuntimeException("待办响应缺少 todo_list，顶层键=${data.keys}")
+        return list.mapNotNull { elem ->
+            val o = elem.safeObject() ?: return@mapNotNull null
+            LmsTodo(
+                type = o.get("type").safeString().orEmpty(),
+                id = o.get("id").safeInt(),
+                courseId = o.get("course_id").safeInt(),
+                courseName = o.get("course_name").safeString().orEmpty(),
+                title = o.get("title").safeString().orEmpty(),
+                endTime = o.get("end_time").safeString()?.takeIf { it.isNotBlank() },
+            )
+        }
+    }
+
+    /**
      * 获取课程活动列表
      */
     suspend fun getCourseActivities(courseId: Int): List<LmsActivity> {
@@ -177,6 +197,10 @@ class LmsApi(private val site: SiteSession) {
      * （实测 79 个键里没有，只有列表有），不传就只能退回 `endTime`。
      */
     suspend fun getActivityDetail(activityId: Int, brief: LmsActivity? = null): LmsActivity {
+        // 测试的详情在 /api/exams/{id}，不是活动详情；没有样本就不猜字段，只用列表里的信息并指路网页
+        if (brief?.type == LmsActivityType.EXAM) {
+            return brief.copy(description = "测试需要在思源学堂网页端作答，这里只显示时间安排。")
+        }
         val data = getJson("$baseUrl/api/activities/$activityId")
             ?: throw RuntimeException("获取活动详情失败")
         var detail = extractActivityDetail(data)

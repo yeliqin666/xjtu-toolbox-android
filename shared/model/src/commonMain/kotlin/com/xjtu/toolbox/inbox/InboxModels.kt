@@ -84,7 +84,7 @@ object InboxCategories {
         InboxCategory(SCHOOL_TODO, "学校事务中心"),
         InboxCategory(BOOKING, "预约中心 / 校车预约"),
         InboxCategory(LIBRARY, "图书馆座位签到 / 返回"),
-        InboxCategory(LMS, "思源学堂作业截止"),
+        InboxCategory(LMS, "思源学堂作业 / 测试截止"),
         InboxCategory(COUPON, "加餐券"),
         InboxCategory(JUDGE, "评教未完成"),
     )

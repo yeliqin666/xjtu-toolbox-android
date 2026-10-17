@@ -162,7 +162,7 @@ internal class ScheduleViewModel(private val host: ScheduleHost) : ViewModel() {
             try { holidayDates = host.holidays.refresh(cache) } catch (_: Exception) {}
             homeworkDue = withContext(host.io) {
                 if (ScheduleCapability.DUE_HOMEWORK in host.honored) {
-                    runCatching { host.dueHomeworks(account) }.getOrDefault(emptyList())
+                    runCatching { host.dueHomeworks(account).filter { !it.exam } }.getOrDefault(emptyList())
                 } else {
                     emptyList()
                 }

@@ -48,6 +48,7 @@ fun agentLmsTypeName(t: LmsActivityType): String = when (t) {
     LmsActivityType.FORUM -> "讨论区"
     LmsActivityType.QUESTIONNAIRE -> "问卷"
     LmsActivityType.ONLINE_VIDEO -> "在线视频"
+    LmsActivityType.EXAM -> "测试"
     else -> "其他"
 }
 
