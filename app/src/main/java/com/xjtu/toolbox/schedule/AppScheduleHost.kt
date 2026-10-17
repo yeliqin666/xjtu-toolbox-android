@@ -85,8 +85,8 @@ internal class AppScheduleHost(
                 putExtra(Intent.EXTRA_STREAM, uri)
                 addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
             }
-            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            app.startActivity(Intent.createChooser(intent, "导出 $fileName"))
+            // 从 Application 启动：NEW_TASK 要加在真正启动的选择器上，加在里层 intent 上不算
+            app.startActivity(Intent.createChooser(intent, "导出 $fileName").addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
             true
         } catch (e: Exception) {
             com.xjtu.toolbox.platform.showBriefMessage(FriendlyError.of(e, "导出日历"))

@@ -43,7 +43,7 @@ fun appDownloadDirInfo(): DownloadDirInfo = DownloadDirInfo(
     ),
 )
 
-/** 打开一个文件类下载。 */
+/** 打开一个文件类下载。[context] 是 Application，启动选择器必须带 NEW_TASK，否则直接抛异常。 */
 private fun openDownloadedFile(context: Context, record: DownloadedFile) {
     runCatching {
         val intent = Intent(Intent.ACTION_VIEW).apply {
@@ -53,8 +53,9 @@ private fun openDownloadedFile(context: Context, record: DownloadedFile) {
             )
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
         }
-        context.startActivity(Intent.createChooser(intent, "打开文件"))
+        context.startActivity(Intent.createChooser(intent, "打开文件").addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
     }.onFailure {
+        Log.w(TAG, "open ${record.uri} failed", it)
         android.widget.Toast.makeText(context, "文件已被移动或删除", android.widget.Toast.LENGTH_SHORT).show()
     }
 }
