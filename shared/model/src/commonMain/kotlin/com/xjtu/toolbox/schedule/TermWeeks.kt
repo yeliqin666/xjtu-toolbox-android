@@ -1,6 +1,6 @@
 package com.xjtu.toolbox.schedule
 
-import com.xjtu.toolbox.util.todayInSystemZone
+import com.xjtu.toolbox.util.todayOnCampus
 import kotlinx.datetime.LocalDate
 
 /**
@@ -41,7 +41,7 @@ object TermWeeks {
      *
      * @param startOfTerm 教务下发的学期开始日期
      */
-    fun weekOf(startOfTerm: LocalDate, date: LocalDate = todayInSystemZone()): Int {
+    fun weekOf(startOfTerm: LocalDate, date: LocalDate = todayOnCampus()): Int {
         val anchor = startOfTerm.anchoredToMonday()
         val days = date.toEpochDays().toLong() - anchor.toEpochDays().toLong()
         return floorDiv(days, 7L).toInt() + 1
@@ -78,7 +78,7 @@ object TermWeeks {
         startOfTerm: LocalDate,
         totalWeeks: Int,
         firstTeachWeek: Int? = null,
-        today: LocalDate = todayInSystemZone(),
+        today: LocalDate = todayOnCampus(),
     ): Status {
         val raw = weekOf(startOfTerm, today)
         return when {

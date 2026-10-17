@@ -45,7 +45,7 @@ import com.xjtu.toolbox.schedule.CourseItem
 import com.xjtu.toolbox.schedule.ExamItem
 import com.xjtu.toolbox.score.ReportedGrade
 import com.xjtu.toolbox.schedule.XjtuTime
-import com.xjtu.toolbox.util.todayInSystemZone
+import com.xjtu.toolbox.util.todayOnCampus
 import kotlinx.datetime.LocalDate
 import kotlinx.datetime.daysUntil
 import com.xjtu.toolbox.schedule.colorOf
@@ -316,7 +316,7 @@ private fun DateBlock(date: LocalDate?, accent: Color) {
 @Composable
 private fun ExamWidgetView(w: ExamWidget, modifier: Modifier) {
     val accent = MiuixTheme.colorScheme.primary
-    val today = todayInSystemZone()
+    val today = todayOnCampus()
     WidgetCard(
         title = "考试安排",
         icon = Icons.AutoMirrored.Filled.EventNote,

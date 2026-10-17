@@ -56,7 +56,7 @@ import com.xjtu.toolbox.ui.glass.glassTopBar
 import com.xjtu.toolbox.ui.glass.rememberPageGlass
 import com.xjtu.toolbox.ui.glass.withoutTop
 import com.xjtu.toolbox.ui.isWideLayout
-import com.xjtu.toolbox.util.todayInSystemZone
+import com.xjtu.toolbox.util.todayOnCampus
 import kotlin.math.roundToInt
 import kotlinx.datetime.LocalDate
 import top.yukonga.miuix.kmp.basic.Card
@@ -89,7 +89,7 @@ fun SchoolCalendarScreen(
     var errorMessage by remember { mutableStateOf<String?>(null) }
     var selectedTermIndex by remember { mutableIntStateOf(0) }
 
-    val today = remember { todayInSystemZone() }
+    val today = remember { todayOnCampus() }
     val scrollState = rememberLazyListState()
     val scrollBehavior = MiuixScrollBehavior()
     // 玻璃顶栏（经典风格下为 null，一切照旧），用法见 ui/glass/GlassTopBar.kt

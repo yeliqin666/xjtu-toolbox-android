@@ -23,7 +23,7 @@ import androidx.compose.ui.unit.dp
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.theme.MiuixTheme
-import com.xjtu.toolbox.util.nowInSystemZone
+import com.xjtu.toolbox.util.nowOnCampus
 import kotlinx.datetime.LocalDate
 import kotlinx.datetime.LocalDateTime
 
@@ -41,7 +41,7 @@ data class ExamListData(val active: List<ExamItem>, val ended: List<ExamItem>) {
  * - 未结束（TODAY/SOON/LATER）按日期正序，UNDATED 排在它们后面；
  * - 已结束单独放一边，按日期倒序——最近考完的排最上面。
  */
-fun sortExamsForList(exams: List<ExamItem>, now: LocalDateTime = nowInSystemZone()): ExamListData {
+fun sortExamsForList(exams: List<ExamItem>, now: LocalDateTime = nowOnCampus()): ExamListData {
     val distinct = exams.distinctBy { "${it.courseName}_${it.examDate}_${it.examTime}" }
     val phased = distinct.map { it to ExamCountdown.phaseOf(it, now) }
     val ended = phased.filter { it.second == ExamCountdown.ExamPhase.ENDED }
@@ -67,7 +67,7 @@ fun LazyListScope.examListItems(
     data: ExamListData,
     endedExpanded: Boolean,
     onToggleEnded: () -> Unit,
-    now: LocalDateTime = nowInSystemZone(),
+    now: LocalDateTime = nowOnCampus(),
 ) {
     items(data.active, key = { "exam_active_${it.courseName}_${it.examDate}_${it.examTime}" }) { exam ->
         ExamCard(exam, now)

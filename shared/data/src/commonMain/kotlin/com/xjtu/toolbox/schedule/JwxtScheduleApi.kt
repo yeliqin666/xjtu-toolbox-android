@@ -293,7 +293,7 @@ class JwxtScheduleApi(private val site: SiteSession) : JwxtScheduleSource {
 
     /** 仅凭本地日期推算当前学期代码（无网络）。9月起为秋季学期(-1)，否则为春季学期(-2)。 */
     private fun currentTermFromDate(): String {
-        val now = LocalDate.now()
+        val now = LocalDate.now(com.xjtu.toolbox.util.CampusZoneId)
         val y = now.year
         return if (now.monthValue >= 9) "$y-${y + 1}-1" else "${y - 1}-$y-2"
     }

@@ -1,5 +1,6 @@
 package com.xjtu.toolbox.attendance
 
+import com.xjtu.toolbox.util.CampusZoneId
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.put
 import kotlinx.serialization.json.buildJsonObject
@@ -80,7 +81,7 @@ class AttendanceApi(private val site: SiteSession) {
         val terms = cachedTerms.ifEmpty { getTermList() }
         if (terms.isEmpty()) return ""
         val first = terms.first()
-        val today = LocalDate.now().toString()
+        val today = LocalDate.now(CampusZoneId).toString()
         if (first.startDate.isBlank() || first.endDate.isBlank() ||
             (first.startDate <= today && today <= first.endDate)
         ) {
@@ -95,7 +96,7 @@ class AttendanceApi(private val site: SiteSession) {
         val bh = termBh ?: getTermBh()
         val term = terms.firstOrNull { it.bh == bh }
         val start = normalizeDate(startDate).ifBlank { term?.startDate.orEmpty() }
-        val end = normalizeDate(endDate).ifBlank { LocalDate.now().toString() }
+        val end = normalizeDate(endDate).ifBlank { LocalDate.now(CampusZoneId).toString() }
         val rows = fetchAttendanceRecords(bh, start, end)
         return rows.mapNotNull { row ->
             val courseName = KqHttp.str(row, "courseName", "course")
@@ -130,13 +131,13 @@ class AttendanceApi(private val site: SiteSession) {
             val root = getJson("/student/pc/home/attendance-statistics")
             parseCourseStats(root.get("data")).ifEmpty { parseCourseStats(root) }
                 .ifEmpty {
-                    val monday = LocalDate.now().with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY))
+                    val monday = LocalDate.now(CampusZoneId).with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY))
                     getKqtjByTime(monday.toString(), monday.plusDays(6).toString())
                 }
         } catch (e: AuthExpiredException) {
             throw e
         } catch (_: Exception) {
-            val monday = LocalDate.now().with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY))
+            val monday = LocalDate.now(CampusZoneId).with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY))
             getKqtjByTime(monday.toString(), monday.plusDays(6).toString())
         }
     }

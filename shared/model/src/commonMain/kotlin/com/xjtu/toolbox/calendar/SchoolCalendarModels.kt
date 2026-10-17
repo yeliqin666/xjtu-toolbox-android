@@ -82,8 +82,8 @@ interface SchoolCalendarSource {
 internal fun LocalDate.plusDays(days: Int): LocalDate =
     LocalDate.fromEpochDays(toEpochDays().toLong() + days)
 
-/** 本机时区的「今天」。 */
-private fun todayInZone(): LocalDate = com.xjtu.toolbox.util.todayInSystemZone()
+/** 学校时区的「今天」：校历按北京时间翻页，不跟运行机器走。 */
+private fun todayInZone(): LocalDate = com.xjtu.toolbox.util.todayOnCampus()
 
 /** 该日期是不是周末 —— 原实现写的是 `dayOfWeek != SATURDAY && dayOfWeek != SUNDAY`。 */
 internal fun LocalDate.isWeekend(): Boolean =

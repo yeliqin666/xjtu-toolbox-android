@@ -48,7 +48,8 @@ import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.utils.overScrollVertical
 import com.xjtu.toolbox.util.formatTwoDigits
-import com.xjtu.toolbox.util.nowInSystemZone
+import com.xjtu.toolbox.util.CampusTimeZone
+import com.xjtu.toolbox.util.nowOnCampus
 import kotlinx.datetime.LocalDate
 import kotlinx.datetime.LocalDateTime
 import kotlinx.datetime.LocalTime
@@ -126,7 +127,7 @@ fun TodayTimeline(
             .filter { !it.submitted }
             .mapNotNull { hw ->
                 val deadline = runCatching { Instant.parse(hw.deadline) }.getOrNull() ?: return@mapNotNull null
-                val zoned = deadline.toLocalDateTime(TimeZone.currentSystemDefault())
+                val zoned = deadline.toLocalDateTime(CampusTimeZone)
                 if (zoned.date != today) return@mapNotNull null
                 TimelineEntry(
                     startMinute = zoned.hour * 60 + zoned.minute,
@@ -161,10 +162,10 @@ fun TodayTimeline(
     }
 
     // 每到整分钟走一次：正在上的课的进度、过去的课变淡都跟着它，不用重进页面才更新
-    val nowMinute by androidx.compose.runtime.produceState(nowInSystemZone().time.toMinuteOfDay()) {
+    val nowMinute by androidx.compose.runtime.produceState(nowOnCampus().time.toMinuteOfDay()) {
         while (true) {
-            kotlinx.coroutines.delay((60 - nowInSystemZone().time.second) * 1000L)
-            value = nowInSystemZone().time.toMinuteOfDay()
+            kotlinx.coroutines.delay((60 - nowOnCampus().time.second) * 1000L)
+            value = nowOnCampus().time.toMinuteOfDay()
         }
     }
     LazyColumn(
@@ -362,10 +363,10 @@ data class UpcomingItem(
 fun buildUpcoming(
     exams: List<ExamItem>,
     homework: List<LmsDue>,
-    now: LocalDateTime = nowInSystemZone(),
+    now: LocalDateTime = nowOnCampus(),
 ): List<UpcomingItem> {
     val today = now.date
-    val zone = TimeZone.currentSystemDefault()
+    val zone = CampusTimeZone
     val examItems = exams
         .filter { ExamCountdown.phaseOf(it, now) == ExamCountdown.ExamPhase.SOON }
         .mapNotNull { e ->

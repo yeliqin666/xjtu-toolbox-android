@@ -1,8 +1,8 @@
 package com.xjtu.toolbox.schedule
 
 import com.xjtu.toolbox.util.formatTwoDigits
-import com.xjtu.toolbox.util.nowInSystemZone
-import com.xjtu.toolbox.util.todayInSystemZone
+import com.xjtu.toolbox.util.nowOnCampus
+import com.xjtu.toolbox.util.todayOnCampus
 import kotlinx.datetime.LocalDate
 
 import top.yukonga.miuix.kmp.theme.MiuixTheme
@@ -160,8 +160,8 @@ fun ScheduleGrid(
 
     // 当前时间线位置计算（仅在当前周激活）
     val timeLineInfo = if (isCurrentWeek) {
-        val now = nowInSystemZone().time
-        val todayDow = todayInSystemZone().dayOfWeek.ordinal + 1  // 1=Mon...7=Sun
+        val now = nowOnCampus().time
+        val todayDow = todayOnCampus().dayOfWeek.ordinal + 1  // 1=Mon...7=Sun
         Pair(todayDow, layout.positionOf(now.hour * 60 + now.minute, todaySummer))
     } else null
     Column(
@@ -177,7 +177,7 @@ fun ScheduleGrid(
                 Text("", fontSize = 9.sp)
             }
             DAY_HEADERS.forEachIndexed { idx, day ->
-                val todayDow = todayInSystemZone().dayOfWeek.ordinal + 1
+                val todayDow = todayOnCampus().dayOfWeek.ordinal + 1
                 val isToday = isCurrentWeek && (idx + 1) == todayDow
                 val date = weekDates?.getOrNull(idx)
                 val holidayName = if (date != null) holidayNames[date] else null

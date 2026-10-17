@@ -28,7 +28,7 @@ import com.xjtu.toolbox.inbox.InboxStore
 import com.xjtu.toolbox.nav.AppRoute
 import com.xjtu.toolbox.schedule.ScheduleCache
 import com.xjtu.toolbox.schedule.ScheduleCacheStore
-import com.xjtu.toolbox.util.todayInSystemZone
+import com.xjtu.toolbox.util.todayOnCampus
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.datetime.LocalDate
@@ -50,7 +50,7 @@ internal fun DesktopHomeScreen(
     // 只在「进这一屏」「切账号」「课表同步过」时读一次；读的都是本机缓存，一个请求都不发。
     LaunchedEffect(accountId, DesktopHomeSignals.scheduleVersion) {
         val data = withContext(Dispatchers.IO) {
-            val today = todayInSystemZone()
+            val today = todayOnCampus()
             val term = ScheduleCache.readCurrentTerm(cache)
             val schedule = ScheduleCache.readCurrentTermSchedule(cache)
             val start = schedule?.start
@@ -89,7 +89,7 @@ internal fun DesktopHomeScreen(
             state = state,
             inboxSummary = inbox,
             // 「今天」每次重组现取：跨零点还开着的窗口，日期那一行自己就跟上了
-            today = { todayInSystemZone() },
+            today = { todayOnCampus() },
             onNavigate = onNavigate,
         ),
     )

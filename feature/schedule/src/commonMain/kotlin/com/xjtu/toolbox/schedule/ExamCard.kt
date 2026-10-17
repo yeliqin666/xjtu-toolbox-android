@@ -18,7 +18,7 @@ import androidx.compose.ui.unit.dp
 import com.xjtu.toolbox.schedule.ExamCountdown.ExamPhase
 import com.xjtu.toolbox.ui.components.ExpiredStyle
 import com.xjtu.toolbox.util.formatTwoDigits
-import com.xjtu.toolbox.util.nowInSystemZone
+import com.xjtu.toolbox.util.nowOnCampus
 import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.CardDefaults
 import top.yukonga.miuix.kmp.basic.Surface
@@ -37,7 +37,7 @@ import kotlinx.datetime.LocalDateTime
 @Composable
 internal fun ExamCard(
     exam: ExamItem,
-    now: LocalDateTime = nowInSystemZone(),
+    now: LocalDateTime = nowOnCampus(),
     modifier: Modifier = Modifier,
     /**
      * 排在一张分组卡里面（「已考完的考试」展开以后）：不画自己的卡片底色和圆角，

@@ -221,14 +221,14 @@ object CourseLinks {
                 // 还有定期全量重扫兜底，见 AttendanceRecordStore 的分层说明。
                 val incremental = plan == AttendanceRecordStore.Plan.INCREMENTAL
                 val fromDate = if (incremental) {
-                    java.time.LocalDate.now()
+                    java.time.LocalDate.now(com.xjtu.toolbox.util.CampusZoneId)
                         .minusDays(AttendanceRecordStore.INCREMENTAL_DAYS)
                         .toString()
                 } else {
                     matched?.startDate.orEmpty()
                 }
                 val toDate = if (incremental) {
-                    java.time.LocalDate.now().toString()
+                    java.time.LocalDate.now(com.xjtu.toolbox.util.CampusZoneId).toString()
                 } else {
                     matched?.endDate.orEmpty()
                 }

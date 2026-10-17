@@ -12,8 +12,8 @@ import com.xjtu.toolbox.schedule.TermWeeks
 import com.xjtu.toolbox.nav.AppRoute
 import com.xjtu.toolbox.schedule.XjtuTime
 import com.xjtu.toolbox.schedule.civilFromEpochDay
-import com.xjtu.toolbox.util.nowInSystemZone
-import com.xjtu.toolbox.util.todayInSystemZone
+import com.xjtu.toolbox.util.nowOnCampus
+import com.xjtu.toolbox.util.todayOnCampus
 import kotlinx.datetime.LocalDate
 import kotlinx.datetime.LocalDateTime
 import kotlinx.datetime.LocalTime
@@ -44,7 +44,7 @@ object HomeHero {
     val EXAM_ICON: ImageVector get() = Icons.AutoMirrored.Filled.EventNote
 
     /** 教学周。 */
-    fun weekNumber(startOfTerm: LocalDate?, today: LocalDate = todayInSystemZone()): Int {
+    fun weekNumber(startOfTerm: LocalDate?, today: LocalDate = todayOnCampus()): Int {
         val start = startOfTerm ?: return 0
         return TermWeeks.weekOf(start, today).takeIf { it in WEEK_MIN..WEEK_MAX } ?: 0
     }
@@ -54,7 +54,7 @@ object HomeHero {
         courses: List<CourseItem>,
         startOfTerm: LocalDate?,
         holidayDates: Set<LocalDate> = emptySet(),
-        now: LocalDateTime = nowInSystemZone(),
+        now: LocalDateTime = nowOnCampus(),
         days: Int = LOOKAHEAD_DAYS,
         /** 点这一格去哪儿；由宿主挑（三端都是「我的课表」那条路由）。 */
         route: AppRoute? = null,

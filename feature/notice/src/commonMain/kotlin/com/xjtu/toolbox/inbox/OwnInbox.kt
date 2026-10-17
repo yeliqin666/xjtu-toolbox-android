@@ -6,7 +6,7 @@ import com.xjtu.toolbox.library.MyBookingInfo
 import com.xjtu.toolbox.lms.LmsDue
 import com.xjtu.toolbox.nav.AppRoute
 import com.xjtu.toolbox.notification.Notification
-import com.xjtu.toolbox.util.todayInSystemZone
+import com.xjtu.toolbox.util.todayOnCampus
 import kotlin.time.Clock
 import kotlin.time.Instant
 
@@ -18,17 +18,17 @@ object OwnInbox {
     )
 
     fun attendance(text: String) = InboxItem(
-        id = "attendance:${todayInSystemZone()}:$text", category = InboxCategories.ATTENDANCE, source = "考勤",
+        id = "attendance:${todayOnCampus()}:$text", category = InboxCategories.ATTENDANCE, source = "考勤",
         title = text, time = Clock.System.now().toEpochMilliseconds(), route = "new_attendance",
     )
 
     fun scheduleChange(text: String) = InboxItem(
-        id = "schedule:${todayInSystemZone()}:${text.hashCode()}", category = InboxCategories.SCHEDULE, source = "课表",
+        id = "schedule:${todayOnCampus()}:${text.hashCode()}", category = InboxCategories.SCHEDULE, source = "课表",
         title = "课表有变动", body = text, time = Clock.System.now().toEpochMilliseconds(), route = "schedule",
     )
 
     fun examChange(text: String) = InboxItem(
-        id = "exam_change:${todayInSystemZone()}:${text.hashCode()}", category = InboxCategories.SCHEDULE, source = "考试",
+        id = "exam_change:${todayOnCampus()}:${text.hashCode()}", category = InboxCategories.SCHEDULE, source = "考试",
         title = "考试安排有变", body = text, time = Clock.System.now().toEpochMilliseconds(), route = "schedule",
     )
 

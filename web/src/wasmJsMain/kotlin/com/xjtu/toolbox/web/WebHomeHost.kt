@@ -26,7 +26,7 @@ import com.xjtu.toolbox.nav.AppRoute
 import com.xjtu.toolbox.schedule.ScheduleCache
 import com.xjtu.toolbox.settings.SettingsStore
 import com.xjtu.toolbox.shell.ShellPageInsets
-import com.xjtu.toolbox.util.todayInSystemZone
+import com.xjtu.toolbox.util.todayOnCampus
 import io.ktor.client.HttpClient
 import kotlinx.datetime.LocalDate
 import kotlin.time.Clock
@@ -48,7 +48,7 @@ internal fun WebHomeScreen(
     LaunchedEffect(scheduleHost) {
         // wasm 是单线程、localStorage 是同步的 ⇒ 这一段不需要切线程（桌面那一份要 withContext，
         // 因为它的键值缝是文件）。读的还是「进这一屏」这一下，不发请求。
-        val today = todayInSystemZone()
+        val today = todayOnCampus()
         val term = ScheduleCache.readCurrentTerm(cache)
         val schedule = ScheduleCache.readCurrentTermSchedule(cache)
         val start = schedule?.start
@@ -89,7 +89,7 @@ internal fun WebHomeScreen(
             inboxSummary = inbox,
             theme = settings.homeTheme,
             // 「今天」每次重组现取：跨零点还开着的页面，日期那一行自己就跟上了
-            today = { todayInSystemZone() },
+            today = { todayOnCampus() },
             onNavigate = onNavigate,
         ),
         // 底栏浮在内容之上（壳的 `ShellPageInsets.bottomBarReserve`），页面末尾得自己留出来。

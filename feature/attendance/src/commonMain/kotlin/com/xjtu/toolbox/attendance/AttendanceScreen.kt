@@ -84,7 +84,9 @@ import kotlinx.datetime.TimeZone
 import kotlinx.datetime.plus
 import kotlinx.datetime.toInstant
 import kotlinx.datetime.toLocalDateTime
-import com.xjtu.toolbox.util.todayInSystemZone
+import com.xjtu.toolbox.util.CampusTimeZone
+import com.xjtu.toolbox.util.nowOnCampus
+import com.xjtu.toolbox.util.todayOnCampus
 import com.xjtu.toolbox.nav.AppRoute
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.CreationExtras
@@ -622,10 +624,10 @@ private fun LeaveFormDialog(
     val scope = rememberCoroutineScope()
     var type by remember { mutableStateOf(LeaveType.PERSONAL) }
     val nextHour = remember {
-        // `LocalDateTime.now()`（java.time）是 JVM 专属 ⇒ kotlinx-datetime：本机时区此刻
+        // `LocalDateTime.now()`（java.time）是 JVM 专属 ⇒ kotlinx-datetime：学校时区此刻（请假按北京时间算）
         // 加一小时再截到整点 —— 与 `plusHours(1).withMinute(0).withSecond(0).withNano(0)` 等价。
         // `LocalDateTime.plus` 只认日期型单位，所以先在 `Instant` 上加小时再转回本地时间。
-        val shifted = Clock.System.now().plus(1, DateTimeUnit.HOUR).toLocalDateTime(TimeZone.currentSystemDefault())
+        val shifted = Clock.System.now().plus(1, DateTimeUnit.HOUR).toLocalDateTime(CampusTimeZone)
         LocalDateTime(shifted.date, LocalTime(shifted.hour, 0))
     }
     var startDate by remember { mutableStateOf(nextHour.date) }
@@ -642,7 +644,7 @@ private fun LeaveFormDialog(
     var pickingStartDate by remember { mutableStateOf(false) }
     var pickingEndDate by remember { mutableStateOf(false) }
 
-    val today = todayInSystemZone()
+    val today = todayOnCampus()
     val maxDate = remember(window) {
         window?.endDate?.takeIf { it.isNotBlank() }?.let {
             runCatching { LocalDate.parse(it.take(10)) }.getOrNull()
@@ -741,12 +743,12 @@ private fun LeaveFormDialog(
                     modifier = Modifier.weight(1f),
                     onClick = {
                         // java.time → kotlinx-datetime（commonMain 没有 java.time）：同一时刻、同一语义
-                        //（system zone 的 epoch 毫秒差 ÷ 60000 ＝ `ChronoUnit.MINUTES.between`）。
+                        //（学校时区的 epoch 毫秒差 ÷ 60000 ＝ `ChronoUnit.MINUTES.between`）。
                         val start = LocalDateTime(startDate, LocalTime(startHour, 0))
                         val end = LocalDateTime(endDate, LocalTime(endHour, 0))
-                        val now = Clock.System.now().toLocalDateTime(TimeZone.currentSystemDefault())
-                        val minutes = ((end.toInstant(TimeZone.currentSystemDefault()).toEpochMilliseconds() -
-                            start.toInstant(TimeZone.currentSystemDefault()).toEpochMilliseconds()) / 60_000)
+                        val now = nowOnCampus()
+                        val minutes = ((end.toInstant(CampusTimeZone).toEpochMilliseconds() -
+                            start.toInstant(CampusTimeZone).toEpochMilliseconds()) / 60_000)
                         formError = when {
                             start <= now -> "请假时间必须晚于当前时间"
                             start.minute != 0 || end.minute != 0 -> "请假开始和结束时间必须选择整点"

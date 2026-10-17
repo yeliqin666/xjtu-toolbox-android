@@ -1,7 +1,7 @@
 package com.xjtu.toolbox.schedule
 
 import com.xjtu.toolbox.util.AppJson
-import com.xjtu.toolbox.util.todayInSystemZone
+import com.xjtu.toolbox.util.todayOnCampus
 import kotlinx.datetime.LocalDate
 
 /**
@@ -155,7 +155,7 @@ object ScheduleCache {
      * 按学期自己的起止判断有没有结束（多留一周缓冲：最后一周还可能补录考勤、传回放）。
      * 不依赖「当前学期是哪个」：冷启动时它会被正在画的学期覆盖。
      */
-    fun isFinishedByDate(startOfTerm: LocalDate?, weeks: Int, today: LocalDate = todayInSystemZone()): Boolean {
+    fun isFinishedByDate(startOfTerm: LocalDate?, weeks: Int, today: LocalDate = todayOnCampus()): Boolean {
         if (startOfTerm == null || weeks <= 0) return false
         return TermWeeks.weekOf(startOfTerm, today) > weeks + 1
     }

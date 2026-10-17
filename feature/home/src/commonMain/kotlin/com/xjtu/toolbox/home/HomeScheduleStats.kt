@@ -15,7 +15,7 @@ object HomeScheduleStats {
     fun of(
         cache: ScheduleCacheStore,
         termCode: String?,
-        today: LocalDate = com.xjtu.toolbox.util.todayInSystemZone(),
+        today: LocalDate = com.xjtu.toolbox.util.todayOnCampus(),
     ): Map<String, HomeStat> {
         if (termCode.isNullOrBlank()) return emptyMap()
         val out = LinkedHashMap<String, HomeStat>()
@@ -32,7 +32,7 @@ object HomeScheduleStats {
 
         // ── 考试：最近一场 + 倒计时，7 天内扎堆时写场数 ──
         // 单独一项：首页 Hero 的考试格读它，不挤占「日程」那一格
-        val now = if (today == com.xjtu.toolbox.util.todayInSystemZone()) com.xjtu.toolbox.util.nowInSystemZone()
+        val now = if (today == com.xjtu.toolbox.util.todayOnCampus()) com.xjtu.toolbox.util.nowOnCampus()
         else LocalDateTime(today, LocalTime(0, 0))
         ScheduleCache.readExams(cache, termCode)
             ?.let { examStat(it, now) }

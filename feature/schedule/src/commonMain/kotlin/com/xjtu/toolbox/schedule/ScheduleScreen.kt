@@ -8,8 +8,8 @@ import com.xjtu.toolbox.auth.LocalAuthExpiry
 import com.xjtu.toolbox.platform.BackHandler
 import com.xjtu.toolbox.platform.showBriefMessage
 import com.xjtu.toolbox.util.formatTwoDigits
-import com.xjtu.toolbox.util.nowInSystemZone
-import com.xjtu.toolbox.util.todayInSystemZone
+import com.xjtu.toolbox.util.nowOnCampus
+import com.xjtu.toolbox.util.todayOnCampus
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.CardDefaults
@@ -651,11 +651,11 @@ fun ScheduleScreen(
                                         filteredMergedCourses.filter { it.isInWeek(vm.realCurrentWeek) }
                                     },
                                     exams = vm.exams,
-                                    today = todayInSystemZone(),
+                                    today = todayOnCampus(),
                                     allCourseNames = allCourseNames,
                                     onCourseClick = {
                                         unifiedOccurrence = Occurrence(
-                                            todayInSystemZone(), vm.realCurrentWeek,
+                                            todayOnCampus(), vm.realCurrentWeek,
                                         )
                                         unifiedSelectedCourse = it
                                     },
@@ -718,7 +718,7 @@ fun ScheduleScreen(
                     }
                     val onTodayTab = contentOf(selectedTab) == "today"
                     val todayFocus = if (unifiedSelectedCourse == null && onTodayTab) {
-                        remember(weekCourses) { focusCourseOf(weekCourses, todayInSystemZone(), nowInSystemZone().time) }
+                        remember(weekCourses) { focusCourseOf(weekCourses, todayOnCampus(), nowOnCampus().time) }
                     } else {
                         null
                     }
@@ -748,7 +748,7 @@ fun ScheduleScreen(
                                 textbooksProblem = vm.textbooksBackgroundError,
                                 termCode = vm.selectedTermCode,
                                 occurrence = if (todayFocus != null) {
-                                    Occurrence(todayInSystemZone(), vm.realCurrentWeek)
+                                    Occurrence(todayOnCampus(), vm.realCurrentWeek)
                                 } else {
                                     unifiedOccurrence
                                 },
@@ -757,7 +757,7 @@ fun ScheduleScreen(
                             )
                         }
                     } else if (onTodayTab) {
-                        WeekGlance(courses = weekCourses, today = todayInSystemZone())
+                        WeekGlance(courses = weekCourses, today = todayOnCampus())
                     } else {
                         Text(
                             "今天的课",
@@ -768,11 +768,11 @@ fun ScheduleScreen(
                         TodayTimeline(
                             courses = weekCourses,
                             exams = vm.exams,
-                            today = todayInSystemZone(),
+                            today = todayOnCampus(),
                             allCourseNames = allCourseNames,
                             onCourseClick = {
                                 unifiedOccurrence = Occurrence(
-                                    todayInSystemZone(), vm.realCurrentWeek,
+                                    todayOnCampus(), vm.realCurrentWeek,
                                 )
                                 unifiedSelectedCourse = it
                             },
@@ -1175,7 +1175,7 @@ private fun CourseDetailContent(
                 5 -> "五"; 6 -> "六"; 7 -> "日"; else -> "?"
             }
             val timeText = if (isAgenda) {
-                val summer = XjtuTime.isSummerTime((occurrence?.date ?: todayInSystemZone()).monthNumber)
+                val summer = XjtuTime.isSummerTime((occurrence?.date ?: todayOnCampus()).monthNumber)
                 val (start, end) = course.clockMinutes(summer)
                 "星期$dayName ${formatTwoDigits(start / 60)}:${formatTwoDigits(start % 60)}-${formatTwoDigits(end / 60)}:${formatTwoDigits(end % 60)}"
             } else {
