@@ -165,14 +165,17 @@ class DesktopAuthLibraryJvmTest {
         val root = requireNotNull(dataRootOverride)
         val file = File(root, "${AccountStore.FILE_NAME}.properties")
         assertTrue(file.exists(), "账号表应落成文件：$file")
-        assertEquals(
-            setOf(
-                java.nio.file.attribute.PosixFilePermission.OWNER_READ,
-                java.nio.file.attribute.PosixFilePermission.OWNER_WRITE,
-            ),
-            Files.getPosixFilePermissions(file.toPath()),
-            "账号表只该给本用户读写",
-        )
+        // 0600 只在 posix 文件系统上断言：Windows 上 getPosixFilePermissions 抛 UnsupportedOperationException。
+        if (file.toPath().fileSystem.supportedFileAttributeViews().contains("posix")) {
+            assertEquals(
+                setOf(
+                    java.nio.file.attribute.PosixFilePermission.OWNER_READ,
+                    java.nio.file.attribute.PosixFilePermission.OWNER_WRITE,
+                ),
+                Files.getPosixFilePermissions(file.toPath()),
+                "账号表只该给本用户读写",
+            )
+        }
         val legacy = File(root, "${JvmCredentialStore.FILE_NAME}.properties")
         val legacyText = if (legacy.exists()) legacy.readText() else ""
         assertTrue(

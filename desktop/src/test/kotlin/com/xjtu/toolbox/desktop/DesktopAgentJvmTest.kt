@@ -216,7 +216,9 @@ class DesktopAgentJvmTest {
         secureFile.writeText("api_key=sk-fake-legacy-plaintext\n")
         assertEquals("sk-fake-legacy-plaintext", newHost().loadConfig().apiKey, "老明文必须原样读得回来")
 
-        newHost().saveConfig(AgentConfig(apiKey = "sk-fake-desktop-001", model = "fixture-model"))
+        // 显式不给保护器：newHost() 用的是本平台那一个（Windows 上是 DPAPI），盘上就成了信封。
+        DesktopAgentHost(DesktopAuth(), protector = null)
+            .saveConfig(AgentConfig(apiKey = "sk-fake-desktop-001", model = "fixture-model"))
         val plainText = secureFile.readText()
         assertTrue(plainText.contains("api_key"), "键名一字未改：$plainText")
         assertTrue(plainText.contains("sk-fake-desktop-001"), "本机没有保护器 ⇒ 与今天逐字相同：$plainText")
