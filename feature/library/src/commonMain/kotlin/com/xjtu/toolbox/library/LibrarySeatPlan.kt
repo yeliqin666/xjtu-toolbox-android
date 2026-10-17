@@ -9,6 +9,11 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Fullscreen
 import androidx.compose.material.icons.filled.FullscreenExit
 import androidx.compose.material.icons.filled.Whatshot
+import androidx.compose.material.icons.filled.Layers
+import androidx.compose.material.icons.filled.ExpandLess
+import androidx.compose.material.icons.filled.ExpandMore
+import androidx.compose.foundation.border
+import androidx.compose.ui.draw.shadow
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.window.Dialog
@@ -497,26 +502,115 @@ fun SeatPlanPanel(
     }
     val floorBounds = remember(floor) { floor?.first?.seats?.takeIf { it.isNotEmpty() }?.let(::paddedBounds) }
 
-    androidx.compose.foundation.layout.BoxWithConstraints(
-        modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(20.dp))
-            .background(com.xjtu.toolbox.ui.components.AppCardColor)
-    ) {
+    // 两张卡有层级：区域图在后、座位图在前，像系统多任务那样叠放。区域图平时只露出上沿一条
+    // （写着当前区域），点开才展开整层图；在整层图上点了区域就自动收回，注意力还给座位图。
+    // 前卡只压住后卡底下那一截留白，两张卡的内容都不被挡住。
+    var floorOpen by remember { mutableStateOf(false) }
+    val hasFloor = floor != null && floorBounds != null
+    val cardShape = RoundedCornerShape(20.dp)
+    val cardColor = com.xjtu.toolbox.ui.components.AppCardColor
+    val primary = MiuixTheme.colorScheme.primary
+    val muted = MiuixTheme.colorScheme.onSurfaceVariantSummary
+
+    androidx.compose.foundation.layout.BoxWithConstraints(modifier.fillMaxWidth()) {
         val width = maxWidth
         val barHeight = 58.dp
-        val floorHeight = floorBounds?.let { (width * (it.height / it.width)).coerceIn(110.dp, 190.dp) } ?: 0.dp
-        val mapBudget = (maxHeight - floorHeight - barHeight).coerceAtLeast(200.dp)
-        Column(Modifier.fillMaxWidth()) {
-            if (floor != null && floorBounds != null) FloorPlanView(
-                layout = floor.first,
-                images = floor.second,
-                bounds = floorBounds,
-                pickable = pickableAreas,
-                selectedArea = selectedArea,
-                onPick = onPickArea,
-                modifier = Modifier.fillMaxWidth().height(floorHeight),
-            )
+        val headerHeight = 52.dp
+        val peekHeight = 46.dp
+        val overlap = 14.dp
+        val floorFull = floorBounds?.let { (width * (it.height / it.width)).coerceIn(130.dp, 220.dp) } ?: 0.dp
+        val stackSpring = spring<Dp>(dampingRatio = 0.86f, stiffness = 420f)
+        val backHeight by androidx.compose.animation.core.animateDpAsState(
+            when {
+                !hasFloor -> 0.dp
+                floorOpen -> peekHeight + floorFull + overlap
+                else -> peekHeight + overlap
+            },
+            stackSpring,
+            label = "floorCardHeight",
+        )
+        // 收起时后卡比前卡窄一圈，看得出是「在后面」；展开时铺满，和前卡平起平坐
+        val backInset by androidx.compose.animation.core.animateDpAsState(if (floorOpen) 0.dp else 12.dp, stackSpring, label = "floorCardInset")
+        val mapBudget = (maxHeight - (if (hasFloor) peekHeight else 0.dp) - headerHeight - barHeight).coerceAtLeast(200.dp)
+
+        if (hasFloor) androidx.compose.foundation.layout.Box(
+            Modifier
+                .fillMaxWidth()
+                .padding(horizontal = backInset)
+                .height(backHeight)
+                .clip(cardShape)
+                .background(cardColor)
+                .background(primary.copy(alpha = 0.07f)),
+        ) {
+            Column(Modifier.fillMaxWidth()) {
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .height(peekHeight)
+                        .clickable { floorOpen = !floorOpen }
+                        .padding(horizontal = 14.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Icon(Icons.Default.Layers, contentDescription = null, tint = primary, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.size(8.dp))
+                    Text("区域", style = MiuixTheme.textStyles.footnote2, color = muted)
+                    Spacer(Modifier.size(6.dp))
+                    Text(
+                        areaName,
+                        style = MiuixTheme.textStyles.body2,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1,
+                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f),
+                    )
+                    Text(if (floorOpen) "收起" else "换区域", style = MiuixTheme.textStyles.footnote1, color = primary, fontWeight = FontWeight.Medium)
+                    Icon(
+                        if (floorOpen) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                        contentDescription = if (floorOpen) "收起楼层平面图" else "展开楼层平面图",
+                        tint = primary,
+                        modifier = Modifier.size(18.dp),
+                    )
+                }
+                if (floorOpen) FloorPlanView(
+                    layout = floor!!.first,
+                    images = floor.second,
+                    bounds = floorBounds!!,
+                    pickable = pickableAreas,
+                    selectedArea = selectedArea,
+                    onPick = {
+                        onPickArea(it)
+                        floorOpen = false
+                    },
+                    modifier = Modifier.fillMaxWidth().height(floorFull),
+                )
+            }
+        }
+
+        // 前卡：座位图。顶上是区域名、空闲数和热力图开关
+        Column(
+            Modifier
+                .padding(top = (backHeight - overlap).coerceAtLeast(0.dp))
+                .fillMaxWidth()
+                .shadow(if (hasFloor) 10.dp else 0.dp, cardShape, clip = false)
+                .clip(cardShape)
+                .background(cardColor),
+        ) {
+            Row(
+                Modifier.fillMaxWidth().height(headerHeight).padding(horizontal = 14.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(Modifier.weight(1f)) {
+                    Text(
+                        areaName,
+                        style = MiuixTheme.textStyles.body1,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1,
+                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                    )
+                    if (freeText != null) Text(freeText, style = MiuixTheme.textStyles.footnote2, color = muted, maxLines = 1)
+                }
+                if (layout != null && images != null && error == null) HeatToggle(heatOn) { heatOn = !heatOn }
+            }
             when {
                 error != null -> Column(
                     Modifier.fillMaxWidth().padding(24.dp),
@@ -551,11 +645,11 @@ fun SeatPlanPanel(
                                 heat = heat,
                                 modifier = Modifier.fillMaxSize().clipToBounds().background(Color(0xFF8A6A45)),
                             )
-                            PlanCornerButton(
-                                Icons.Default.Whatshot,
-                                if (heatOn) "关闭热力图" else "热力图：看哪里人少、靠墙",
-                                Modifier.align(Alignment.TopStart),
-                                active = heatOn,
+                            // 全屏没有卡片头，开关浮在图的左上角
+                            if (barOnlyForSeat) HeatToggle(
+                                heatOn,
+                                Modifier.align(Alignment.TopStart).padding(10.dp),
+                                onImage = true,
                             ) { heatOn = !heatOn }
                         }
                         // 全屏只看图，选了座（或开着热力有推荐）才出信息条
@@ -588,6 +682,41 @@ fun SeatPlanPanel(
                 }
             }
         }
+    }
+}
+
+/**
+ * 热力图开关：一枚带字的胶囊，放在座位卡顶上最显眼的位置。关着是描边，开着是实心绿；
+ * 浮在图上时（全屏）关着的底色换成半透明黑，压得住图。
+ */
+@Composable
+private fun HeatToggle(
+    on: Boolean,
+    modifier: Modifier = Modifier,
+    onImage: Boolean = false,
+    onClick: () -> Unit,
+) {
+    val shape = RoundedCornerShape(50)
+    val offBg = if (onImage) Color.Black.copy(alpha = 0.4f) else Color.Transparent
+    val bg by androidx.compose.animation.animateColorAsState(if (on) HEAT_GOOD else offBg, label = "heatToggleBg")
+    val fg = if (on || onImage) Color.White else HEAT_GOOD
+    Row(
+        modifier
+            .clip(shape)
+            .background(bg)
+            .border(1.dp, if (on || onImage) Color.Transparent else HEAT_GOOD.copy(alpha = 0.75f), shape)
+            .clickable(onClick = onClick)
+            .padding(horizontal = 12.dp, vertical = 7.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(Icons.Default.Whatshot, contentDescription = null, tint = fg, modifier = Modifier.size(16.dp))
+        Spacer(Modifier.size(4.dp))
+        Text(
+            if (on) "热力图已开" else "热力图",
+            color = fg,
+            style = MiuixTheme.textStyles.footnote1,
+            fontWeight = FontWeight.Bold,
+        )
     }
 }
 
@@ -679,9 +808,9 @@ private fun PlanInfoBar(
                 )
             } else if (seat == null) {
                 Text(
-                    areaName + (freeText?.let { " · $it" } ?: ""),
-                    style = MiuixTheme.textStyles.body2,
-                    fontWeight = FontWeight.Medium,
+                    "点一个座位看状态，捏合放大",
+                    style = MiuixTheme.textStyles.footnote1,
+                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                     maxLines = 1,
                 )
             } else {
