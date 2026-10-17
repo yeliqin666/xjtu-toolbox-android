@@ -27,6 +27,9 @@ fun agentToolLabel(name: String): String = when (name) {
     "web_fetch"             -> "阅读网页…"
     "set_alarm"             -> "打开系统闹钟…"
     "add_schedule_event"    -> "添加日程…"
+    "add_todo"              -> "记待办…"
+    "get_todos"             -> "查看待办…"
+    "complete_todo"         -> "标记完成…"
     "get_library"           -> "查询图书馆…"
     "get_textbooks"         -> "查询日程教材…"
     "get_coupons"           -> "查询加餐券…"
@@ -53,6 +56,7 @@ fun agentNavSuggestions(calledTools: List<String>): List<Pair<String, String>> =
     calledTools.mapNotNull { toolName ->
         when (toolName) {
             "get_schedule", "get_exam_schedule", "add_schedule_event" -> "查看课表" to AppRoute.Schedule
+            "add_todo", "get_todos", "complete_todo" -> "查看待办" to AppRoute.Inbox
             "get_calendar"                      -> "查看校历"   to AppRoute.SchoolCalendar
             "search_school_courses"             -> "全校课程"   to AppRoute.SchoolCourse
             "get_empty_rooms"                   -> "空闲教室"   to AppRoute.EmptyRoom

@@ -107,7 +107,8 @@ fun agentToolDefinitions(honored: Set<AgentCapability>): String {
     }
     if (AgentCapability.SCHEDULE_EVENT_WRITE in honored) {
         arr.add(agentTool("add_schedule_event",
-            "往本 App 的日程里添加一条，只限当前学期。与课程或已有日程时间重叠时不添加，返回冲突；用户确认后带 force=true 重试。",
+            "往本 App 的日程里添加一条（占课表里的一段具体时间），只限当前学期。与课程或已有日程时间重叠时不添加，返回冲突；用户确认后带 force=true 重试。" +
+                "只有截止、没有具体时段的事用 add_todo。",
             agentParams(
                 "title" to agentStrProp("标题。"),
                 "date" to agentStrProp("yyyy-MM-dd；星期取这一天。"),

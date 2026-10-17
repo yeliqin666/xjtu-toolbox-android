@@ -26,8 +26,10 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Assignment
 import androidx.compose.material.icons.automirrored.filled.MenuBook
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Campaign
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Checklist
 import androidx.compose.material.icons.filled.DirectionsBus
 import androidx.compose.material.icons.filled.DoneAll
 import androidx.compose.material.icons.filled.EditCalendar
@@ -133,8 +135,12 @@ fun InboxScreen(
     var refreshing by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
     var showSettings by remember { mutableStateOf(false) }
+    var showAdd by remember { mutableStateOf(false) }
     var detail by remember { mutableStateOf<InboxItem?>(null) }
     var actions by remember { mutableStateOf<RowActions?>(null) }
+
+    // 自建待办留在收纳里时靠时间戳判可见，进来时刷一次，别让它悄悄过期
+    androidx.compose.runtime.LaunchedEffect(Unit) { SelfTodoStore.publish() }
 
     val todoIds = todos.map { it.id }
     androidx.compose.runtime.LaunchedEffect(tab, todoIds) {
@@ -170,6 +176,11 @@ fun InboxScreen(
                 scrollBehavior = scrollBehavior,
                 onBack = onBack,
                 actions = {
+                    if (tab == 0) {
+                        IconButton(onClick = { showAdd = true }) {
+                            Icon(Icons.Default.Add, contentDescription = "新建待办")
+                        }
+                    }
                     if (tab == 1 && unread > 0) {
                         IconButton(onClick = { InboxStore.markAllRead() }) {
                             Icon(Icons.Default.DoneAll, contentDescription = "全部已读")
@@ -222,14 +233,21 @@ fun InboxScreen(
                     if (page == 0) {
                         if (todos.isEmpty()) {
                             item(key = "empty") {
-                                EmptyState("没有待办", "学校事务、作业截止、加餐券都会出现在这里", Icons.Outlined.TaskAlt, Modifier.padding(top = 48.dp))
+                                EmptyState("没有待办", "学校事务、作业截止、加餐券都会出现在这里，也可以点右上角 ＋ 记自己的事", Icons.Outlined.TaskAlt, Modifier.padding(top = 48.dp))
                             }
                         }
                         todos.groupBy { todoSection(it, now) }.forEach { (title, list) ->
                             section(title, list.map {
                                 Entry(
                                     it, it.id, unread = it.id !in seenAtOpen, count = 1, accent = accentOf(it),
-                                    onLongClick = { actions = RowActions(it, listOf("忽略这条待办" to { InboxStore.ignoreTodo(it.id) })) },
+                                    onLongClick = {
+                                        val selfId = SelfTodoRules.todoIdOf(it.id)
+                                        actions = if (selfId != null) {
+                                            RowActions(it, listOf("标为完成" to { SelfTodoStore.complete(selfId) }, "删除" to { SelfTodoStore.delete(selfId) }))
+                                        } else {
+                                            RowActions(it, listOf("忽略这条待办" to { InboxStore.ignoreTodo(it.id) }))
+                                        }
+                                    },
                                 ) { open(it) }
                             })
                         }
@@ -268,6 +286,81 @@ fun InboxScreen(
 
     detail?.let { d -> InboxDetailDialog(d) { detail = null } }
     actions?.let { a -> RowActionsDialog(a) { actions = null } }
+    if (showAdd) AddTodoDialog { showAdd = false }
+}
+
+/** 新建一条自建待办：标题必填，截止（今天 / 明天 / 本周日 / 不设）和优先级可选。 */
+@Composable
+private fun AddTodoDialog(onDismiss: () -> Unit) {
+    var title by remember { mutableStateOf("") }
+    var dueOffset by remember { mutableStateOf<Int?>(null) }
+    var priority by remember { mutableIntStateOf(SelfTodoRules.PRIORITY_NONE) }
+    var remind by remember { mutableStateOf(true) }
+    val today = remember { com.xjtu.toolbox.util.todayOnCampus() }
+    val dueChoices = listOf<Pair<String, Int?>>(
+        "不设" to null, "今天" to 0, "明天" to 1, "本周日" to SelfTodoRules.daysToSunday(today),
+    ).distinctBy { it.second }
+    val priorityChoices = listOf(
+        "无" to SelfTodoRules.PRIORITY_NONE, "低" to SelfTodoRules.PRIORITY_LOW,
+        "中" to SelfTodoRules.PRIORITY_MEDIUM, "高" to SelfTodoRules.PRIORITY_HIGH,
+    )
+    WindowDialog(show = true, title = "新建待办", summary = "记一件有截止、不占课表时段的事", onDismissRequest = onDismiss) {
+        Column {
+            top.yukonga.miuix.kmp.basic.TextField(
+                value = title,
+                onValueChange = { title = it.take(80) },
+                label = "要做什么",
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth(),
+            )
+            Spacer(Modifier.height(14.dp))
+            Text("截止", style = MiuixTheme.textStyles.footnote1, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
+            Spacer(Modifier.height(6.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                dueChoices.forEach { (label, offset) ->
+                    com.xjtu.toolbox.ui.components.AppFilterChip(selected = dueOffset == offset, onClick = { dueOffset = offset }, label = label)
+                }
+            }
+            if (dueOffset != null) {
+                Spacer(Modifier.height(12.dp))
+                Text("提醒", style = MiuixTheme.textStyles.footnote1, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
+                Spacer(Modifier.height(6.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    com.xjtu.toolbox.ui.components.AppFilterChip(selected = remind, onClick = { remind = true }, label = "当天 9 点")
+                    com.xjtu.toolbox.ui.components.AppFilterChip(selected = !remind, onClick = { remind = false }, label = "不提醒")
+                }
+            }
+            Spacer(Modifier.height(12.dp))
+            Text("优先级", style = MiuixTheme.textStyles.footnote1, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
+            Spacer(Modifier.height(6.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                priorityChoices.forEach { (label, value) ->
+                    com.xjtu.toolbox.ui.components.AppFilterChip(selected = priority == value, onClick = { priority = value }, label = label)
+                }
+            }
+            Spacer(Modifier.height(16.dp))
+            Row {
+                TextButton(text = "取消", onClick = onDismiss, modifier = Modifier.weight(1f))
+                Spacer(Modifier.width(12.dp))
+                TextButton(
+                    text = "添加",
+                    enabled = title.isNotBlank(),
+                    onClick = {
+                        SelfTodoStore.create(
+                            title = title,
+                            dueDate = SelfTodoRules.dueAt(dueOffset, Clock.System.now()),
+                            priority = priority,
+                            allDay = dueOffset != null,
+                            remind = remind && dueOffset != null,
+                        )
+                        onDismiss()
+                    },
+                    modifier = Modifier.weight(1f),
+                    colors = ButtonDefaults.textButtonColorsPrimary(),
+                )
+            }
+        }
+    }
 }
 
 private class Entry(
@@ -326,8 +419,12 @@ private fun LazyListScope.section(title: String, entries: List<Entry>) {
 
 private const val DAY_MS = 24 * 60 * 60 * 1000L
 
-private fun todoSection(item: InboxItem, now: Long) =
-    if (item.expiresAt > 0 && item.expiresAt - now < DAY_MS) "24 小时内截止" else "待办"
+private fun todoSection(item: InboxItem, now: Long) = when {
+    // 自建待办过了截止不消失，单列一组提醒用户去处理
+    item.sticky && item.expiresAt in 1 until now -> "已逾期"
+    item.expiresAt > 0 && item.expiresAt - now < DAY_MS -> "24 小时内截止"
+    else -> "待办"
+}
 
 private fun daySection(epoch: Long): String {
     val day = localDateOf(epoch)
@@ -346,6 +443,7 @@ private fun localDateOf(epoch: Long): LocalDate =
 
 /** 每类一个图标，颜色见 [InboxCategories.argb]，扫一眼就知道是哪儿来的。 */
 private fun categoryIcon(category: String): ImageVector = when (category) {
+    InboxCategories.SELF -> Icons.Default.Checklist
     InboxCategories.SCHOOL_TODO -> Icons.AutoMirrored.Filled.Assignment
     InboxCategories.BOOKING -> Icons.Default.DirectionsBus
     InboxCategories.LIBRARY -> Icons.Default.EventSeat

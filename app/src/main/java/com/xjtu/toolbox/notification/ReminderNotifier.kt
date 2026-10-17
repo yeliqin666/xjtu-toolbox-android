@@ -54,6 +54,18 @@ internal object ReminderNotifier {
         route = AppRoute.Schedule,
     )
 
+    /** 自建待办到点。一条待办一个通知 id，重复提醒时覆盖上一条而不是堆叠。 */
+    fun notifyTodo(context: Context, todoId: String, title: String, detail: String): Boolean = post(
+        context = context,
+        id = ("self_todo:$todoId").hashCode(),
+        requestCode = RequestCodes.REMINDER_TODO,
+        channel = AppNotificationChannels.CHANNEL_APP,
+        icon = R.drawable.ic_notification_notice,
+        title = "待办：$title",
+        text = detail,
+        route = AppRoute.Inbox,
+    )
+
     fun notifyExam(context: Context, courseName: String, label: String, detail: String): Boolean = post(
         context = context,
         id = ID_EXAM,
