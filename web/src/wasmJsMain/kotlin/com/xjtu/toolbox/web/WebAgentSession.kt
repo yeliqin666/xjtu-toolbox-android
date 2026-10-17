@@ -48,6 +48,9 @@ internal class WebAgentSession(
 
     override val isLoading: Boolean get() = state.isLoading
 
+    /** 浏览器端没有外部深链，这一格只为接口对齐。 */
+    override var draft: String? by mutableStateOf(null)
+
     override var errorMessage: String?
         get() = state.errorMessage
         set(value) {

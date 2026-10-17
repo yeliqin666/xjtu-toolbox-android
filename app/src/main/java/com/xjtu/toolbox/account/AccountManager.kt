@@ -9,6 +9,7 @@ import com.xjtu.toolbox.auth.SessionManager
 import com.xjtu.toolbox.auth.ensureSite
 import com.xjtu.toolbox.data.SecurePrefs
 import com.xjtu.toolbox.data.AppDatabase
+import com.xjtu.toolbox.util.redactUrl
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -48,11 +49,18 @@ class AccountManager(
     fun activeAccount(): Account? = accountStore.activeAccount()
     fun accountCount(): Int = accountStore.list().size
 
-    /** 清空 WebView 的 localStorage / sessionStorage / IndexedDB。WebStorage 只能在主线程调用；失败不影响切换。 */
+    /**
+     * 清空 WebView 的 cookie 和 localStorage / IndexedDB，并作废一网通办令牌。内置浏览器会把 CAS 的 TGC
+     * 同步进 WebView，不清的话换了账号打开内置浏览器还是上一个人。WebView 只能在主线程动；失败不影响切换。
+     */
     private fun clearWebViewStorage() {
+        com.xjtu.toolbox.auth.CampusProbe.ywtbToken = null
         android.os.Handler(android.os.Looper.getMainLooper()).post {
-            runCatching { android.webkit.WebStorage.getInstance().deleteAllData() }
-                .onFailure { Log.w(TAG, "clear WebStorage failed: ${it.message}") }
+            runCatching {
+                android.webkit.CookieManager.getInstance().removeAllCookies(null)
+                android.webkit.CookieManager.getInstance().flush()
+                android.webkit.WebStorage.getInstance().deleteAllData()
+            }.onFailure { Log.w(TAG, "clear WebView storage failed: ${it.message}") }
         }
     }
 
@@ -66,7 +74,7 @@ class AccountManager(
 
     private suspend fun switchToLocked(accountId: String): Account? {
         val account = accountStore.get(accountId) ?: run {
-            Log.w(TAG, "switchTo: account $accountId not found")
+            Log.w(TAG, "switchTo: account ${accountId.redactUrl()} not found")
             return null
         }
         if (AccountContext.activeAccountId == accountId && holder.accountId == accountId) {
@@ -75,7 +83,7 @@ class AccountManager(
             return account
         }
 
-        Log.i(TAG, "Switching account: ${AccountContext.activeAccountId} -> $accountId")
+        Log.i(TAG, "Switching account: ${AccountContext.activeAccountId.redactUrl()} -> ${accountId.redactUrl()}")
         // 1) 清旧账号内存态
         holder.clearInMemorySessionState()
         // 1.5) 清 WebView 本地存储：移动交大等页面把令牌存在 localStorage（cookie 清不掉），
@@ -237,6 +245,7 @@ class AccountManager(
         // 当前账号要清正在用的 jar，否则 debounce 写盘会把 TGC 写回
         if (AccountContext.activeAccountId == accountId) {
             runCatching { AccessMode.entries.forEach { sessionManager.backend(it).clearAuth() } }
+            clearWebViewStorage()
         }
         wipeAccountFiles(accountId, cookiesOnly = !deleteCache)
 
@@ -254,7 +263,7 @@ class AccountManager(
                 accountStore.clearActive()
             }
         }
-        Log.i(TAG, "removeAccount($accountId, deleteCache=$deleteCache) done")
+        Log.i(TAG, "removeAccount(${accountId.redactUrl()}, deleteCache=$deleteCache) done")
         withContext(Dispatchers.Main) {
             holder.switchNotice = if (deleteCache) "已彻底删除账号「${account.nickname ?: account.accountId}」及本地缓存"
                 else "已删除账号「${account.nickname ?: account.accountId}」（保留缓存）"
@@ -272,11 +281,12 @@ class AccountManager(
         runCatching {
             AccessMode.entries.forEach { sessionManager.backend(it).clearAuth() }
         }
+        clearWebViewStorage()
         AccountContext.activeAccountId = null
         holder.clearInMemorySessionState()
         sessionManager.reconfigureForAnonymous()
         accountStore.clearActive()
-        Log.i(TAG, "logoutCurrent($id) done")
+        Log.i(TAG, "logoutCurrent(${id.redactUrl()}) done")
     }
 
     /** 新增账号失败后退回原账号（没有原账号就回到未登录）。 */
@@ -332,6 +342,7 @@ class AccountManager(
             "campus_card", "score_cursor", "attendance_watch", "course_colors", "schedule_diff",
             "empty_room_cache", "attendance_records_ug", "attendance_records_pg", "agent_config",
             "agent_memory", "schedule_source", "schedule_changes", "inbox", "dorm_power",
+            "payment_code", "self_todos",
         )
     }
 }

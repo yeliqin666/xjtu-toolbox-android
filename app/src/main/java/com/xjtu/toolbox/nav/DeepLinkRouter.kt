@@ -10,7 +10,7 @@ import android.net.Uri
  * 已支持的 host：
  * - agent / schedule / empty_room / campus_card / notification / score / grade / course
  *
- * `xjtu://agent?q=xxx` 中的 q 解析成 [DeepLinkTarget.prompt]，交给 AgentScreen 自动发送。
+ * `xjtu://agent?q=xxx` 中的 q 解析成 [DeepLinkTarget.prompt]，填进屁岱的输入框，由用户自己决定发不发。
  * 其余 host 暂不消费 path（`grade/{term}` / `course/{courseId}` 仅 host 命中）。
  *
  * 失败（host 未知、scheme 不匹配）→ null，由调用方降级到主屏。

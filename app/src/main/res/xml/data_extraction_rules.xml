@@ -1,34 +1,58 @@
 <?xml version="1.0" encoding="utf-8"?>
 <data-extraction-rules>
-    <!-- minSdk 31：只有这套规则生效。path 可带 *；sharedpref 写文件名（可带或不带 .xml），file 是 filesDir 下的路径 -->
+    <!-- minSdk 31：只有这套规则生效。path 可带 *；sharedpref 写文件名（可带或不带 .xml），file 是 filesDir 下的路径。
+         数据库（学号、日程、书架）和 files 目录（屁岱会话与照片、头像、页面缓存）整块不备份；
+         SharedPreferences 只留外观、收藏这类换机想带走的，凭据、令牌、聊天记忆、待办、收纳都排除。 -->
     <cloud-backup>
-        <exclude domain="sharedpref" path="xjtu_credentials.xml"/>
-        <exclude domain="sharedpref" path="xjtu_credentials_fallback.xml"/>
-        <exclude domain="sharedpref" path="xjtu_accounts.xml"/>
-        <exclude domain="sharedpref" path="xjtu_accounts_fallback.xml"/>
-        <exclude domain="sharedpref" path="xjtu_cookies.xml"/>
-        <exclude domain="sharedpref" path="xjtu_vpn_cookies.xml"/>
+        <exclude domain="database" path="."/>
+        <exclude domain="file" path="."/>
+        <exclude domain="sharedpref" path="xjtu_credentials*"/>
+        <exclude domain="sharedpref" path="xjtu_accounts*"/>
+        <exclude domain="sharedpref" path="xjtu_cookies*"/>
+        <exclude domain="sharedpref" path="xjtu_vpn_cookies*"/>
         <exclude domain="sharedpref" path="cookies_normal*"/>
         <exclude domain="sharedpref" path="cookies_webvpn*"/>
+        <exclude domain="sharedpref" path="sites_*"/>
         <exclude domain="sharedpref" path="agent_config*"/>
-        <exclude domain="sharedpref" path="notice_watch.xml"/>
+        <exclude domain="sharedpref" path="agent_memory*"/>
+        <exclude domain="sharedpref" path="campus_probe*"/>
+        <exclude domain="sharedpref" path="github_community*"/>
         <exclude domain="sharedpref" path="campus_card*"/>
-        <exclude domain="file" path="agent_sessions*"/>
-        <exclude domain="file" path="archive*"/>
+        <exclude domain="sharedpref" path="payment_code*"/>
+        <exclude domain="sharedpref" path="inbox*"/>
+        <exclude domain="sharedpref" path="self_todos*"/>
+        <exclude domain="sharedpref" path="score_cursor*"/>
+        <exclude domain="sharedpref" path="empty_room_cache*"/>
+        <exclude domain="sharedpref" path="notice_watch*"/>
+        <exclude domain="sharedpref" path="notice_widget_cache*"/>
+        <exclude domain="sharedpref" path="data_cache*"/>
+        <exclude domain="sharedpref" path="crash_reporter*"/>
+        <exclude domain="sharedpref" path="feedback*"/>
     </cloud-backup>
     <device-transfer>
-        <exclude domain="sharedpref" path="xjtu_credentials.xml"/>
-        <exclude domain="sharedpref" path="xjtu_credentials_fallback.xml"/>
-        <exclude domain="sharedpref" path="xjtu_accounts.xml"/>
-        <exclude domain="sharedpref" path="xjtu_accounts_fallback.xml"/>
-        <exclude domain="sharedpref" path="xjtu_cookies.xml"/>
-        <exclude domain="sharedpref" path="xjtu_vpn_cookies.xml"/>
+        <exclude domain="database" path="."/>
+        <exclude domain="file" path="."/>
+        <exclude domain="sharedpref" path="xjtu_credentials*"/>
+        <exclude domain="sharedpref" path="xjtu_accounts*"/>
+        <exclude domain="sharedpref" path="xjtu_cookies*"/>
+        <exclude domain="sharedpref" path="xjtu_vpn_cookies*"/>
         <exclude domain="sharedpref" path="cookies_normal*"/>
         <exclude domain="sharedpref" path="cookies_webvpn*"/>
+        <exclude domain="sharedpref" path="sites_*"/>
         <exclude domain="sharedpref" path="agent_config*"/>
-        <exclude domain="sharedpref" path="notice_watch.xml"/>
+        <exclude domain="sharedpref" path="agent_memory*"/>
+        <exclude domain="sharedpref" path="campus_probe*"/>
+        <exclude domain="sharedpref" path="github_community*"/>
         <exclude domain="sharedpref" path="campus_card*"/>
-        <exclude domain="file" path="agent_sessions*"/>
-        <exclude domain="file" path="archive*"/>
+        <exclude domain="sharedpref" path="payment_code*"/>
+        <exclude domain="sharedpref" path="inbox*"/>
+        <exclude domain="sharedpref" path="self_todos*"/>
+        <exclude domain="sharedpref" path="score_cursor*"/>
+        <exclude domain="sharedpref" path="empty_room_cache*"/>
+        <exclude domain="sharedpref" path="notice_watch*"/>
+        <exclude domain="sharedpref" path="notice_widget_cache*"/>
+        <exclude domain="sharedpref" path="data_cache*"/>
+        <exclude domain="sharedpref" path="crash_reporter*"/>
+        <exclude domain="sharedpref" path="feedback*"/>
     </device-transfer>
 </data-extraction-rules>

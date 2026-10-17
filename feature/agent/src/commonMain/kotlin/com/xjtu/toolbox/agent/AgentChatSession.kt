@@ -14,6 +14,9 @@ interface AgentChatSession {
     /** 这一轮的失败文案（`null` = 没有）。与 `AgentViewModel` 同名同型。 */
     var errorMessage: String?
 
+    /** 要填进输入框的话（外部深链带来的，只填不发），输入框取走后置回 `null`。 */
+    var draft: String?
+
     /** 上下文是否已达上限（800k token）。 */
     val contextExhausted: Boolean
 

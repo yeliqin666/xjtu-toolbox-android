@@ -371,14 +371,22 @@ private fun MdImage(alt: String, url: String, images: AgentImageLoader, linkColo
     var failed by androidx.compose.runtime.remember(url) {
         androidx.compose.runtime.mutableStateOf(images.hasFailed(url))
     }
-    androidx.compose.runtime.LaunchedEffect(url) {
-        if (bitmap == null && !failed) {
+    // 外链图片点了才加载：网页、资料里藏的指令能让模型把数据拼进图片地址，自动加载就等于自动发出去
+    var allowed by androidx.compose.runtime.remember(url) { androidx.compose.runtime.mutableStateOf(bitmap != null) }
+    androidx.compose.runtime.LaunchedEffect(url, allowed) {
+        if (allowed && bitmap == null && !failed) {
             bitmap = images.load(url)
             failed = bitmap == null
         }
     }
     val bmp = bitmap
     when {
+        !allowed -> Text(
+            "🖼 ${alt.ifBlank { "图片" }} · ${url.substringAfter("://", "").substringBefore('/').substringBefore('?').substringAfterLast('@').ifBlank { "外部网站" }}（点一下加载）",
+            color = linkColor,
+            style = MiuixTheme.textStyles.body2,
+            modifier = Modifier.clickable { allowed = true },
+        )
         bmp != null -> androidx.compose.foundation.Image(
             bitmap = bmp,
             contentDescription = alt.ifBlank { "图片" },

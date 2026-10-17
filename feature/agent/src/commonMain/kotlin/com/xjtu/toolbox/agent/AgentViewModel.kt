@@ -73,6 +73,9 @@ class AgentViewModel(private val host: AgentHost) : ViewModel(), AgentChatSessio
         AgentThinkingHost.isThinking = loading
     }
     override var errorMessage by mutableStateOf<String?>(null)
+
+    /** 要填进输入框的话（外部深链带来的），输入框取走后置回 null。 */
+    override var draft by mutableStateOf<String?>(null)
     /**
      * 上下文耗尽标记。变 true 时 UI 应主动弹窗提醒用户"请新开对话"，
      * 而不是悄悄把输入框禁用 + 文字提示里藏一句。
@@ -164,10 +167,21 @@ class AgentViewModel(private val host: AgentHost) : ViewModel(), AgentChatSessio
 
     // ── 会话管理 ────────────────────────────────────────────────────────
 
-    /** 绑定持久化存储并加载会话列表（仅一次）。空则自动建首个会话。 */
+    private var boundSuffix: String? = null
+
+    /**
+     * 绑定持久化存储并加载会话列表，空则自动建首个会话。同一账号只做一次；换了账号要重来，
+     * 不然上一个账号的对话还摆在屏幕上，再发一条就整段写进新账号的目录。
+     */
     override fun bind(store: AgentSessionPersistence) {
-        if (this.store != null) return
+        val suffix = com.xjtu.toolbox.account.AccountContext.safeSuffix()
+        if (this.store != null && boundSuffix == suffix) return
+        currentJob?.cancel(); applyLoading(false)
         this.store = store
+        boundSuffix = suffix
+        currentSessionId = null
+        messages.clear(); llmHistory = mutableListOf(); userContextProbe = null
+        sessions.clear()
         sessions.addAll(store.list())
         val first = sessions.firstOrNull()
         if (first != null) switchSession(first.id) else newSession()

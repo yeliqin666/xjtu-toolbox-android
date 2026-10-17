@@ -76,12 +76,16 @@ internal fun ConfigPanel(
         ))
     }
 
-    /**
-     * 防抖保存：每次调用都把挂起的保存任务延后 500ms，
-     * 文本框按键连续触发时只触发最后一次，避免每键一次 SharedPreferences 写。
-     * 切页 / 退出 Composable 时通过 `DisposableEffect` flush。
-     */
     var pendingSaveJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
+    // 刚粘完 API Key 就按返回：面板的协程跟着被取消，挂着的那次保存得在这里补上
+    DisposableEffect(Unit) {
+        onDispose {
+            if (pendingSaveJob?.isActive == true) {
+                pendingSaveJob?.cancel()
+                saveNow()
+            }
+        }
+    }
 
     // 模型一键拉取
     var availableModels by remember { mutableStateOf<List<String>>(emptyList()) }
@@ -92,7 +96,7 @@ internal fun ConfigPanel(
     /**
      * 防抖保存：每次调用都把挂起的保存任务延后 500ms，
      * 文本框按键连续触发时只触发最后一次，避免每键一次 SharedPreferences 写。
-     * 切页 / 退出 Composable 时通过 `DisposableEffect` flush。
+     * 退出时没赶上的由上面的 DisposableEffect 补存。
      */
     fun scheduleSave() {
         pendingSaveJob?.cancel()
@@ -368,7 +372,7 @@ private fun AgentMemorySection() {
             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 Text("记住的偏好", style = MiuixTheme.textStyles.title3, fontWeight = FontWeight.Bold)
                 Text(
-                    "只存在这台设备上，不上传。最多 ${AgentMemory.MAX_ITEMS} 条。增删从下一个新对话起生效。",
+                    "存在这台设备上，聊天时会一并发给你配置的模型作参考。最多 ${AgentMemory.MAX_ITEMS} 条。增删从下一个新对话起生效。",
                     style = MiuixTheme.textStyles.footnote1,
                     color = MiuixTheme.colorScheme.onSurfaceVariantSummary
                 )

@@ -30,7 +30,10 @@ fun PaymentCodeDialog(
 
     PaymentCodeScreen(
         source = remember(site) { PaymentCodeApi(site) },
-        selections = remember { PaymentSelectionStore(keyValueStore("payment_code")) },
+        // 券是各人自己的，按账号分开存；不然切了账号会把上一个人勾的券同步到新账号上
+        selections = remember(com.xjtu.toolbox.account.AccountContext.safeSuffix()) {
+            PaymentSelectionStore(keyValueStore("payment_code" + com.xjtu.toolbox.account.AccountContext.safeSuffix()))
+        },
         onDismiss = onDismiss,
     )
 }

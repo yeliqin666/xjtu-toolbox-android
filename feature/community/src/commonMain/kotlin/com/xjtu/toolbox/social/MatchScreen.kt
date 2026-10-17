@@ -107,10 +107,8 @@ fun MatchScreen(
     val clipboard = LocalClipboardManager.current
     val scrollBehavior = MiuixScrollBehavior(rememberTopAppBarState())
 
+    // 名字默认空着，不拿档案里的真名：码常被截图发到群里、表白墙，真名加课表等于把人定位到教室
     var nickname by remember { mutableStateOf("") }
-    // 名字默认填本机档案里的真名，但用户一旦动过就不再回填——
-    // 否则他刚改成外号，档案一加载又被覆盖回去。
-    var nicknameEdited by remember { mutableStateOf(false) }
     var dims by remember { mutableStateOf(MatchProfile.Dimensions()) }
     var dietInput by remember { mutableStateOf("") }
     var local by remember { mutableStateOf(MatchData.Local()) }
@@ -139,12 +137,6 @@ fun MatchScreen(
         }
         loading = false
     }
-    LaunchedEffect(local.identity?.name) {
-        if (!nicknameEdited) {
-            local.identity?.name?.takeIf { it.isNotBlank() }?.let { nickname = it }
-        }
-    }
-
     val myProfile = remember(nickname, local, dietInput, dims) {
         MatchProfile.build(
             local = local,
@@ -339,7 +331,7 @@ fun MatchScreen(
                     ShareSettingsDialog(
                         local = local,
                         nickname = nickname,
-                        onNickname = { nickname = it; nicknameEdited = true },
+                        onNickname = { nickname = it },
                         dims = dims,
                         onDims = { dims = it },
                         dietInput = dietInput,
@@ -616,7 +608,7 @@ private fun ShareSettingsDialog(
                 TextField(
                     value = nickname,
                     onValueChange = onNickname,
-                    label = "名字（对方会看到）",
+                    label = "昵称（对方会看到，不填就不显示名字）",
                     modifier = Modifier.fillMaxWidth(),
                     singleLine = true,
                 )

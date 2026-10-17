@@ -5,6 +5,7 @@ import android.util.Log
 import com.xjtu.toolbox.data.AppDatabase
 import com.xjtu.toolbox.data.CredentialStore
 import com.xjtu.toolbox.network.PersistentCookieJar
+import com.xjtu.toolbox.util.redactUrl
 import java.io.File
 
 /**
@@ -38,7 +39,7 @@ object AccountMigration {
 
         val (username, password) = oldCreds
         val accountId = username
-        Log.i(TAG, "Migrating legacy single-account data to accountId=$accountId")
+        Log.i(TAG, "Migrating legacy single-account data to accountId=${accountId.redactUrl()}")
 
         val account = Account(
             accountId = accountId,
@@ -111,7 +112,7 @@ object AccountMigration {
         AccountContext.activeAccountId = accountId
         accountStore.migrationDone = true
         credentialStore.clearLegacyCredentials()
-        Log.i(TAG, "Migration completed for accountId=$accountId")
+        Log.i(TAG, "Migration completed for accountId=${accountId.redactUrl()}")
         return account
     }
 

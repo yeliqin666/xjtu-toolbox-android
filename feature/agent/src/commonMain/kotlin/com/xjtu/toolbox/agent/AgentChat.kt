@@ -78,6 +78,9 @@ internal fun ChatPanel(
     modifier: Modifier = Modifier
 ) {
     var input by rememberSaveable { mutableStateOf("") }
+    LaunchedEffect(vm.draft) {
+        vm.draft?.let { input = it; vm.draft = null }
+    }
     var editingLast by rememberSaveable { mutableStateOf(false) }
     val keyboard = LocalSoftwareKeyboardController.current
 

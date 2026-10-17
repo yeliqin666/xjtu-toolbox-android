@@ -12,6 +12,8 @@ object AgentPendingPrompt {
         val text: String,
         /** 不进聊天气泡，只进发给模型的 user 消息。 */
         val snapshot: String? = null,
+        /** 只填进输入框等用户自己发。外部深链来的都是这种。 */
+        val draftOnly: Boolean = false,
     )
 
     @Volatile
@@ -20,8 +22,8 @@ object AgentPendingPrompt {
     var generation by mutableIntStateOf(0)
         private set
 
-    fun set(text: String, snapshot: String? = null) {
-        pending = Pending(text, snapshot)
+    fun set(text: String, snapshot: String? = null, draftOnly: Boolean = false) {
+        pending = Pending(text, snapshot, draftOnly)
         generation++
     }
 

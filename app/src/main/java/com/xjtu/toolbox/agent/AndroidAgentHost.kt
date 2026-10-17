@@ -379,7 +379,8 @@ private object AndroidAgentImages : AgentImageLoader {
     }
     private val failed = java.util.Collections.synchronizedSet(mutableSetOf<String>())
     private val client by lazy {
-        HttpClients.base.newBuilder()
+        // 图片地址是模型给的：走和联网搜索同一套公网策略，不让它摸到内网
+        AgentWeb.applyPublicNetworkPolicy(HttpClients.base.newBuilder())
             .connectTimeout(8, java.util.concurrent.TimeUnit.SECONDS)
             .readTimeout(15, java.util.concurrent.TimeUnit.SECONDS)
             .build()

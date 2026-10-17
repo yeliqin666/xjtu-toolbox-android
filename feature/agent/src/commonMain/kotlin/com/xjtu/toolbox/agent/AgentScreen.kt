@@ -84,10 +84,9 @@ fun AgentScreen(
     // 宿主侧 remember，key 固定即可（切 tab 不丢）。
     val vm: AgentChatSession = session ?: viewModel(key = "agent") { AgentViewModel(host) }
 
-    // 多会话持久化：绑定一次，加载会话列表并恢复最近会话。
-    LaunchedEffect(Unit) { vm.bind(host.sessions()) }
-
+    // 多会话持久化：加载会话列表并恢复最近会话，换账号时重新加载
     LaunchedEffect(host.accountId) {
+        vm.bind(host.sessions())
         config = host.loadConfig()
         // 刻意不再「没配 key 就自动跳设置页」：那样每次进来都是一屏表单，
         // 既没解释为什么，也让人以为点错了。改为正常进对话界面，
@@ -102,6 +101,10 @@ fun AgentScreen(
         val pending = AgentPendingPrompt.consume() ?: return@LaunchedEffect
         showConfig = false
         vm.newSession()
+        if (pending.draftOnly) {
+            vm.draft = pending.text
+            return@LaunchedEffect
+        }
         vm.sendMessage(pending.text, config, llmAnnex = pending.snapshot)
     }
 

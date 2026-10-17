@@ -3,6 +3,8 @@ package com.xjtu.toolbox.auth
 import com.xjtu.toolbox.platform.Log
 import com.xjtu.toolbox.platform.elapsedRealtimeMs
 import com.xjtu.toolbox.account.AccountContext
+import com.xjtu.toolbox.util.redactBody
+import com.xjtu.toolbox.util.redactUrl
 import com.xjtu.toolbox.webvpn.WebVpnUtil
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
@@ -332,8 +334,8 @@ abstract class SiteSession(
             ?: response.request.url.toString()
         Log.w(
             TAG,
-            "[$siteKey] auth failure: code=${response.code} url=$failedUrl " +
-                "preview=${bodyPreview?.take(160)?.replace("\n", " ")}"
+            "[$siteKey] auth failure: code=${response.code} url=${failedUrl.redactUrl()} " +
+                "preview=${bodyPreview.redactBody(160)}"
         )
         withContext(Dispatchers.IO) { response.close() }
         // 被网关打回登录前页：网关会话死了，重登前得先让网关续上，不能再信它的新鲜窗口

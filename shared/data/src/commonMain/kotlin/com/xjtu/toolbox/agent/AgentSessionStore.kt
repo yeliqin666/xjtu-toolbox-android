@@ -48,6 +48,8 @@ class AgentSessionStore(
     }
 
     override fun delete(id: String) {
+        // 发给模型的照片跟着会话走，不然删了会话私人照片还留在本机
+        load(id)?.messages?.flatMap { it.images.orEmpty() }?.forEach { runCatching { File(it).delete() } }
         writeIndex(readIndex().filterNot { it.id == id })
         convoFile(id).delete()
     }
