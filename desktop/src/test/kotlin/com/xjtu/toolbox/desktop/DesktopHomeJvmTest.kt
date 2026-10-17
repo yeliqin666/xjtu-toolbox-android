@@ -17,7 +17,6 @@ import com.xjtu.toolbox.schedule.CourseItem
 import com.xjtu.toolbox.schedule.ExamItem
 import com.xjtu.toolbox.schedule.ScheduleCache
 import com.xjtu.toolbox.schedule.TextbookItem
-import com.xjtu.toolbox.util.todayInSystemZone
 import java.nio.file.Files
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -31,6 +30,7 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.datetime.LocalDate
 import kotlinx.datetime.LocalDateTime
 import kotlinx.datetime.LocalTime
+import com.xjtu.toolbox.util.todayOnCampus
 
 /** 首页（`AppRoute.Main`）在桌面端的装配验收。 */
 class DesktopHomeJvmTest {
@@ -77,7 +77,7 @@ class DesktopHomeJvmTest {
         AccountContext.activeAccountId = account
         val cache = DesktopScheduleHost(auth).cache(account)
 
-        val today = todayInSystemZone()
+        val today = todayOnCampus()
         // 开学日期 = 三周前：于是「第 N 周」稳定是 4（不锚周一那一条算式也一样，见 HomeScheduleStats）
         val start = LocalDate.fromEpochDays(today.toEpochDays() - 21)
         val course = CourseItem(
@@ -178,7 +178,7 @@ class DesktopHomeJvmTest {
             bulletinHost = offlineBulletins(),
             state = state,
             inboxSummary = null,
-            today = { todayInSystemZone() },
+            today = { todayOnCampus() },
             onNavigate = {},
         )
 

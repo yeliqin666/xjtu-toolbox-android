@@ -53,9 +53,7 @@ import top.yukonga.miuix.kmp.preference.ArrowPreference
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.utils.overScrollVertical
 import kotlin.time.Clock
-import kotlinx.datetime.Instant
-import kotlinx.datetime.TimeZone
-import kotlinx.datetime.toLocalDateTime
+import com.xjtu.toolbox.util.campusDateTimeOf
 
 private const val FEEDBACK_GITHUB_ISSUE_URL =
     "https://github.com/yeliqin666/xjtu-toolbox-android/issues/new"
@@ -517,8 +515,7 @@ fun FeedbackScreen(
 }
 
 private fun monthDayCn(epochMs: Long): String {
-    val date = Instant.fromEpochMilliseconds(epochMs)
-        .toLocalDateTime(TimeZone.currentSystemDefault()).date
+    val date = campusDateTimeOf(epochMs).date
     return "${date.monthNumber}月${date.dayOfMonth}日"
 }
 

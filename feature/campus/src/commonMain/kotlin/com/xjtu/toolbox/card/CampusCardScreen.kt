@@ -53,7 +53,6 @@ import kotlin.math.abs
 import kotlin.time.Clock
 import kotlinx.datetime.DateTimeUnit
 import kotlinx.datetime.LocalDate
-import kotlinx.datetime.TimeZone
 import kotlinx.datetime.minus
 import kotlinx.datetime.number
 import kotlinx.datetime.toLocalDateTime
@@ -87,6 +86,7 @@ import com.xjtu.toolbox.nav.AppRoute
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.viewmodel.CreationExtras
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.xjtu.toolbox.util.CampusTimeZone
 
 // ==================== 时间范围枚举 ====================
 
@@ -694,8 +694,7 @@ private fun RangeSpendCard(summary: RangeSpendSummary, activeDays: Int) {
 /** 今天三餐各花了多少。区间统计在分析页，概览页只管「现在」。 */
 @Composable
 private fun TodayMealsCard(today: TodaySpendSummary) {
-    // `java.time.LocalTime.now().hour` → kotlinx 的「本机时区此刻的小时」（同一个系统默认时区）
-    val hour = Clock.System.now().toLocalDateTime(TimeZone.currentSystemDefault()).hour
+    val hour = Clock.System.now().toLocalDateTime(CampusTimeZone).hour
     top.yukonga.miuix.kmp.basic.Card(modifier = Modifier.fillMaxWidth(), cornerRadius = 20.dp) {
         Column(Modifier.padding(20.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {

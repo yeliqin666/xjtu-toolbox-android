@@ -68,15 +68,13 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.datetime.LocalTime
-import kotlinx.datetime.TimeZone
-import kotlinx.datetime.toLocalDateTime
-import kotlin.time.Instant
 import com.xjtu.toolbox.util.nowOnCampus
 import com.xjtu.toolbox.util.todayOnCampus
 import kotlin.math.roundToInt
 import com.xjtu.toolbox.ui.components.AppFilterChip
 import com.xjtu.toolbox.ui.components.AppSearchBar
 import com.xjtu.toolbox.auth.AccountType
+import com.xjtu.toolbox.util.campusDateTimeOf
 
 /** 实时状态的快捷筛选。第一个是默认。 */
 private val LIVE_FILTERS = listOf("空闲", "其它使用", "上课中", "全部")
@@ -136,7 +134,7 @@ private fun consecutiveFree(status: List<Int>, startPeriod: Int): Int {
 
 /** `SimpleDateFormat("HH:mm")` 是 JVM 专属 ⇒ 手写补零（:core 的既有做法）。 */
 private fun hhmm(millis: Long): String {
-    val at = Instant.fromEpochMilliseconds(millis).toLocalDateTime(TimeZone.currentSystemDefault())
+    val at = campusDateTimeOf(millis)
     return "${at.hour.toString().padStart(2, '0')}:${at.minute.toString().padStart(2, '0')}"
 }
 

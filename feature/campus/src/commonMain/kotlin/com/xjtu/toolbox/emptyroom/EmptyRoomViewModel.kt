@@ -12,9 +12,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-import kotlinx.datetime.TimeZone
-import kotlinx.datetime.toLocalDateTime
-import kotlin.time.Instant
+import com.xjtu.toolbox.util.campusDateTimeOf
 
 /**
  * 空教室：数据源（实时状态 / CDN 课表 / 直查教务）× 校区 × 楼 × 日期，任一变化就取消旧查询重查。
@@ -298,7 +296,7 @@ internal class EmptyRoomViewModel(
 
     /** `SimpleDateFormat("HH:mm")` 是 JVM 专属 ⇒ 手写补零（:core 的既有做法）。 */
     private fun hhmm(millis: Long): String {
-        val at = Instant.fromEpochMilliseconds(millis).toLocalDateTime(TimeZone.currentSystemDefault())
+        val at = campusDateTimeOf(millis)
         return "${at.hour.toString().padStart(2, '0')}:${at.minute.toString().padStart(2, '0')}"
     }
 

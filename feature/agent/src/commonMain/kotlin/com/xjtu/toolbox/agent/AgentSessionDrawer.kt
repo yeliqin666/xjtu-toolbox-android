@@ -2,9 +2,6 @@
 
 package com.xjtu.toolbox.agent
 
-import kotlinx.datetime.Instant
-import kotlinx.datetime.TimeZone
-import kotlinx.datetime.toLocalDateTime
 import com.xjtu.toolbox.util.formatTwoDigits
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.shape.CircleShape
@@ -40,6 +37,7 @@ import androidx.compose.ui.zIndex
 import top.yukonga.miuix.kmp.basic.*
 import top.yukonga.miuix.kmp.overlay.OverlayDialog
 import top.yukonga.miuix.kmp.theme.MiuixTheme
+import com.xjtu.toolbox.util.campusDateTimeOf
 
 @Composable
 internal fun SessionDrawer(
@@ -279,7 +277,7 @@ private fun SessionRow(
 }
 private fun formatSessionTime(ts: Long): String =
     // `SimpleDateFormat("MM-dd HH:mm")` 的跨端等价（commonMain 没有 `java.text`）：
-    // 系统默认时区 + 同样补零，年月日之外的部分本来就是稳定格式。
-    Instant.fromEpochMilliseconds(ts).toLocalDateTime(TimeZone.currentSystemDefault())
+    // 北京时间 + 同样补零，年月日之外的部分本来就是稳定格式。
+    campusDateTimeOf(ts)
         .let { "${formatTwoDigits(it.monthNumber)}-${formatTwoDigits(it.dayOfMonth)} " +
             "${formatTwoDigits(it.hour)}:${formatTwoDigits(it.minute)}" }

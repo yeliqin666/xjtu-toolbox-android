@@ -17,8 +17,8 @@ import kotlinx.serialization.json.JsonObject
 import okhttp3.Request
 import kotlin.time.Clock
 import java.time.LocalDateTime
-import java.time.ZoneId
 import java.time.format.DateTimeFormatter
+import com.xjtu.toolbox.util.CampusZoneId
 
 /**
  * 学校的消息、事务中心待办、预约中心和校车预约。四个服务都只认一网通办的 `x-id-token`，
@@ -38,7 +38,7 @@ object SchoolInbox {
     private const val TRANSACTION_APP_ID = "b125b6f0e46911ebc909e55a42ec966e"
 
     private val TIME = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")
-    private val ZONE = ZoneId.of("Asia/Shanghai")
+    private val ZONE = CampusZoneId
 
     fun isDue(account: String?, now: Long = System.currentTimeMillis()) =
         now - InboxStore.load(account).schoolFetchedAt >= TTL_MS

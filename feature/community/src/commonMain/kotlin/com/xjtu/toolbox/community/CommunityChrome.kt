@@ -72,6 +72,7 @@ import kotlin.time.Clock
 import kotlin.time.Instant
 import kotlinx.datetime.TimeZone
 import kotlinx.datetime.toLocalDateTime
+import com.xjtu.toolbox.util.CampusTimeZone
 
 /**
  * 社区各页的外壳：App 自己的玻璃小标题栏，内容铺到顶栏下面做采样源。
@@ -376,7 +377,7 @@ fun CommunityAction(
 
 /** 相对时间：刚刚 / N 分钟前 / N 小时前 / 昨天 HH:mm / MM-dd / yyyy-MM-dd。 */
 fun communityTime(iso: String): String =
-    communityTimeOf(iso, Clock.System.now(), TimeZone.currentSystemDefault())
+    communityTimeOf(iso, Clock.System.now(), CampusTimeZone)
 
 /** [communityTime] 的可注入版本：`now` / `zone` 由调用方给，测试才能固定「今天」与「哪个时区的今天」。 */
 internal fun communityTimeOf(iso: String, now: Instant, zone: TimeZone): String = runCatching {

@@ -22,8 +22,6 @@ object XjtuTime {
     fun isSummerTime(month: Int = todayOnCampus().month.ordinal + 1): Boolean =
         month in 5..9
 
-    // 「本机时区的今天」提成 :core 的 util/Today.kt（TermWeeks 也要），这里不再留私有副本
-
     /** 冬季时间表（10月-4月），每节50分钟 */
     private val WINTER_SCHEDULE = mapOf(
         1 to ClassTime(LocalTime(8, 0), LocalTime(8, 50), LocalTime(7, 20), LocalTime(8, 5)),

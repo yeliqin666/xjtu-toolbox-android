@@ -49,6 +49,7 @@ import kotlinx.serialization.json.jsonPrimitive
 import java.time.LocalDate
 import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
+import com.xjtu.toolbox.util.formatOnCampus
 /** serve 侧的白名单工具层（`docs/agent-web-spec.md` §6） */
 internal class ServeAgentTools(
     private val session: ServeSession,
@@ -276,7 +277,7 @@ internal class ServeAgentTools(
         }
         if (scope.isEmpty()) return null
 
-        val time = java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault()).format(snap.fetchedAt)
+        val time = formatOnCampus(snap.fetchedAt, "HH:mm")
         val free = scope.filter { it.isFree }
         val inUse = scope.filter { it.isInUse }.sortedBy { it.people }
         val inClass = scope.count { it.isInClass }

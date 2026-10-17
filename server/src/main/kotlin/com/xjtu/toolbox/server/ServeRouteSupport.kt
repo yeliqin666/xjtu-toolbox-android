@@ -8,8 +8,8 @@ import io.ktor.server.request.receive
 import io.ktor.server.response.respond
 import kotlinx.coroutines.CancellationException
 import java.time.Instant
-import java.time.ZoneId
 import java.time.format.DateTimeFormatter
+import com.xjtu.toolbox.util.CampusZoneId
 
 /** 这几个 `*Routes`（jwxt / library / card / venue / lms / jiaocai / jwapp / iclassface）共用的小工具。 */
 
@@ -68,7 +68,7 @@ internal suspend inline fun <reified T : Any> ApplicationCall.receiveOrNull(): T
 /** epoch 毫秒 → ISO-8601 带时区字符串（契约 §4）；`<= 0`（没读过 / 没过期 / 本端不知道）→ null。 */
 internal fun isoTime(epochMs: Long): String? {
     if (epochMs <= 0L) return null
-    return Instant.ofEpochMilli(epochMs).atZone(ZoneId.systemDefault()).format(ISO_FORMATTER)
+    return Instant.ofEpochMilli(epochMs).atZone(CampusZoneId).format(ISO_FORMATTER)
 }
 
 /** `?page=&size=` 那一类的正整数读法：没给 ⇒ [default]；给了但不是正整数 ⇒ null （由调用方回 `400`）。 */

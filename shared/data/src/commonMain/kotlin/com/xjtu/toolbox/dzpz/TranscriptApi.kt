@@ -14,9 +14,7 @@ import com.xjtu.toolbox.util.safeParseJsonObject
 import kotlinx.serialization.json.JsonObject
 import okhttp3.FormBody
 import okhttp3.Request
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
+import com.xjtu.toolbox.util.todayOnCampus
 
 /**
  * 电子成绩单 API
@@ -86,7 +84,7 @@ class TranscriptApi(private val site: SiteSession) {
 
         // 默认日期和请求名
         val dt = maindata.obj("field7249")?.get("value")?.stringValue
-            ?: SimpleDateFormat("yyyy-MM-dd", Locale.CHINA).format(Date())
+            ?: todayOnCampus().toString()
         val reqName = maindata.obj("field-1")?.get("value")?.stringValue ?: ""
 
         Log.d(TAG, "loadCreateForm: got ${typeOptions.size} type options, linkageUUID=$linkageUUID")

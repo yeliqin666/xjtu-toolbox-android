@@ -31,10 +31,7 @@ import com.xjtu.toolbox.ui.components.LoadingState
 import com.xjtu.toolbox.ui.glass.GlassTopAppBar
 import com.xjtu.toolbox.ui.glass.rememberPageGlass
 import kotlin.time.Clock
-import kotlin.time.Instant
 import kotlinx.coroutines.CancellationException
-import kotlinx.datetime.TimeZone
-import kotlinx.datetime.toLocalDateTime
 import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.CardDefaults
 import top.yukonga.miuix.kmp.basic.MiuixScrollBehavior
@@ -43,6 +40,7 @@ import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextButton
 import top.yukonga.miuix.kmp.basic.rememberTopAppBarState
 import top.yukonga.miuix.kmp.theme.MiuixTheme
+import com.xjtu.toolbox.util.campusDateTimeOf
 
 /** 宿舍电费的读数页（`:web` 自己的一张屏，不在 `:core` 里）。 */
 @Composable
@@ -200,9 +198,9 @@ private fun formatKwh(kwh: Double): String {
     return "$sign${abs / 10}.${abs % 10}"
 }
 
-/** `MM-dd HH:mm`（本机时区）：上游不给时间戳，所以这一格写的是**本机**那一刻。 */
+/** `MM-dd HH:mm`（北京时间）：上游不给时间戳，所以这一格写的是本机取数的那一刻。 */
 private fun localStamp(epochMillis: Long): String {
-    val t = Instant.fromEpochMilliseconds(epochMillis).toLocalDateTime(TimeZone.currentSystemDefault())
+    val t = campusDateTimeOf(epochMillis)
     fun p2(v: Int) = v.toString().padStart(2, '0')
     return "${p2(t.monthNumber)}-${p2(t.dayOfMonth)} ${p2(t.hour)}:${p2(t.minute)}"
 }

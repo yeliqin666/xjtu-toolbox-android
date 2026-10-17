@@ -77,8 +77,7 @@ object ZyxfApi {
                     days == 0L -> "今天"
                     days == 1L -> "昨天"
                     days < 30 -> "${days}天前"
-                    else -> java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.CHINA)
-                        .format(java.util.Date(createdAt))
+                    else -> com.xjtu.toolbox.util.formatOnCampus(createdAt, "yyyy-MM-dd")
                 }
             }
 

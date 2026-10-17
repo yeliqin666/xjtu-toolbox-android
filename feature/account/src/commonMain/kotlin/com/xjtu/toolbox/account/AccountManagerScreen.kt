@@ -45,9 +45,6 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.foundation.text.KeyboardOptions
 import com.xjtu.toolbox.error.FriendlyError
-import kotlinx.datetime.Instant
-import kotlinx.datetime.TimeZone
-import kotlinx.datetime.toLocalDateTime
 import kotlin.time.Clock
 import com.xjtu.toolbox.auth.AccountType
 import com.xjtu.toolbox.ui.glass.*
@@ -81,6 +78,7 @@ import top.yukonga.miuix.kmp.icon.extended.Ok
 import top.yukonga.miuix.kmp.overlay.OverlayDialog
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.utils.overScrollVertical
+import com.xjtu.toolbox.util.campusDateTimeOf
 
 /**
  * 多账号管理页。
@@ -966,7 +964,7 @@ private fun lastUsedText(ts: Long): String {
 
 /** 时间戳→ `MM-dd`。 */
 private fun monthDayText(ts: Long): String {
-    val date = Instant.fromEpochMilliseconds(ts).toLocalDateTime(TimeZone.currentSystemDefault()).date
+    val date = campusDateTimeOf(ts).date
     fun pad(v: Int) = v.toString().padStart(2, '0')
     return "${pad(date.monthNumber)}-${pad(date.dayOfMonth)}"
 }

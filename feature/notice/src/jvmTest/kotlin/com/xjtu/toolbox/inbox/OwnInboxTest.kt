@@ -7,7 +7,6 @@ import com.xjtu.toolbox.lms.LmsDue
 import com.xjtu.toolbox.nav.AppRoute
 import com.xjtu.toolbox.notification.Notification
 import com.xjtu.toolbox.notification.NotificationSource
-import com.xjtu.toolbox.util.todayInSystemZone
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
@@ -17,6 +16,8 @@ import kotlinx.datetime.TimeZone
 import kotlinx.datetime.atStartOfDayIn
 import kotlinx.datetime.toLocalDateTime
 import kotlin.time.Instant
+import com.xjtu.toolbox.util.CampusTimeZone
+import com.xjtu.toolbox.util.todayOnCampus
 
 /** [OwnInbox] 的行为钉子。 */
 class OwnInboxTest {
@@ -24,7 +25,7 @@ class OwnInboxTest {
     /** 每一条提醒的 id 形状（见类 KDoc 第 1 条）。 */
     @Test
     fun everyIdKeepsItsExactShape() {
-        val today = todayInSystemZone()
+        val today = todayOnCampus()
 
         assertEquals("grade:12", OwnInbox.grade(2, 12).id)
         assertEquals("出了 2 门新成绩", OwnInbox.grade(2, 12).title)
@@ -102,8 +103,8 @@ class OwnInboxTest {
         val undated = OwnInbox.bulletin(dated.copy(id = "no-date-here"))
         assertTrue(undated.time > 0L, "认不出日期时取「现在」，不是 0")
         assertEquals(
-            todayInSystemZone(),
-            Instant.fromEpochMilliseconds(undated.time).toLocalDateTime(TimeZone.currentSystemDefault()).date,
+            todayOnCampus(),
+            Instant.fromEpochMilliseconds(undated.time).toLocalDateTime(CampusTimeZone).date,
             "取的就是「现在」那一档",
         )
     }

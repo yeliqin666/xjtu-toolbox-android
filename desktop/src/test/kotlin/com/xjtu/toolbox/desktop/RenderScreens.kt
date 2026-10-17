@@ -69,7 +69,6 @@ import com.xjtu.toolbox.bulletin.BulletinRules
 import com.xjtu.toolbox.schedule.CourseItem
 import com.xjtu.toolbox.schedule.ExamItem
 import com.xjtu.toolbox.schedule.ScheduleCache
-import com.xjtu.toolbox.util.todayInSystemZone
 import com.xjtu.toolbox.notification.NotificationFakeUpstream
 import com.xjtu.toolbox.ywtb.YwtbFakeUpstream
 import java.io.File
@@ -79,6 +78,7 @@ import javax.imageio.ImageIO
 import kotlin.system.exitProcess
 import kotlinx.coroutines.runBlocking
 import kotlinx.datetime.LocalDate
+import com.xjtu.toolbox.util.todayOnCampus
 
 /** `./gradlew :desktop:renderScreens` —— 把屏离屏渲染成 PNG，作为桌面端的可视化证据。 */
 @OptIn(ExperimentalComposeUiApi::class)
@@ -570,7 +570,7 @@ fun main(args: Array<String>) {
             "download_manager.png：屏上没有夹具那场活动（${DownloadFakeUpstream.ACTIVITY_TITLE}）—— 多半没取到队列"
         }
         val homeTerm = "2026-2027-1"
-        val homeToday = todayInSystemZone()
+        val homeToday = todayOnCampus()
         val homeCache = DesktopScheduleHost(auth).cache(AccountContext.activeAccountId)
         // 两节课分放「今天晚些」与「明天早八」：任何钟点跑都有「下一项安排」；用自建日程前缀，不受节假日影响。
         fun homeFixtureCourse(dayOfWeek: Int, startMinute: Int, endMinute: Int) = CourseItem(

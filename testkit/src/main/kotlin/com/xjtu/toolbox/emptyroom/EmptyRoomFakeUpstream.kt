@@ -50,7 +50,7 @@ class EmptyRoomFakeUpstream {
 
         /** 这一天的文件不在夹具里 ⇒ 404（`EmptyRoomApi` 该抛 `NoDataException`）。 */
         val NO_DATA_DATE: String =
-            LocalDate.now().plusDays(NO_DATA_OFFSET_DAYS).format(DateTimeFormatter.ISO_LOCAL_DATE)
+            LocalDate.now(java.time.ZoneId.of("Asia/Shanghai")).plusDays(NO_DATA_OFFSET_DAYS).format(DateTimeFormatter.ISO_LOCAL_DATE)
 
         // ── 教室样本（两档同名同座位数）──
 

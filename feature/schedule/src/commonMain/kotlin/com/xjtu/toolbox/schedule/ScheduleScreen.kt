@@ -82,6 +82,7 @@ import kotlinx.coroutines.withContext
 import kotlinx.datetime.LocalDate
 import com.xjtu.toolbox.nav.AppRoute
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.xjtu.toolbox.util.campusTimeHint
 
 @Composable
 fun ScheduleScreen(
@@ -340,6 +341,14 @@ fun ScheduleScreen(
                     if (tab == 2) vm.ensureTextbooks(requireApi = false)
                 },
             )
+            campusTimeHint()?.let {
+                Text(
+                    it,
+                    style = MiuixTheme.textStyles.footnote1,
+                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                    modifier = Modifier.align(Alignment.CenterHorizontally).padding(top = 4.dp),
+                )
+            }
         }
     }
 

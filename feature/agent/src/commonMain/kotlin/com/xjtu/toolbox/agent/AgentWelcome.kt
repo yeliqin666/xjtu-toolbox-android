@@ -70,11 +70,10 @@ import kotlinx.datetime.LocalDateTime
 import kotlinx.datetime.LocalTime
 import com.xjtu.toolbox.util.formatFixed
 import com.xjtu.toolbox.util.formatTwoDigits
-import com.xjtu.toolbox.util.nowInSystemZone
-import com.xjtu.toolbox.util.todayInSystemZone
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.theme.MiuixTheme
+import com.xjtu.toolbox.util.nowOnCampus
 
 /**
  * 屁岱的首屏（还没开始聊的时候）。三层：
@@ -240,7 +239,7 @@ internal fun AgentWelcome(
     hero: @Composable (title: String, facts: WelcomeFacts, now: LocalDateTime) -> Unit =
         { title, f, n -> agentWelcomePlainHero(title, f, n) },
 ) {
-    val now = remember { nowInSystemZone() }
+    val now = remember { nowOnCampus() }
     val facts by produceState(WelcomeFacts(), host) {
         value = withContext(host.io) { host.welcomeFacts(now) }
     }

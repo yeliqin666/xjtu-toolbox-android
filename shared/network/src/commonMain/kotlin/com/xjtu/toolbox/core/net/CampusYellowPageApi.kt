@@ -9,12 +9,12 @@ import com.xjtu.toolbox.yellowpage.YellowPageSource
 import io.ktor.client.HttpClient
 import io.ktor.client.request.get
 import io.ktor.client.statement.bodyAsText
-import kotlinx.datetime.TimeZone
 import kotlinx.datetime.toLocalDateTime
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.decodeFromJsonElement
 import kotlin.time.Instant
+import com.xjtu.toolbox.util.CampusTimeZone
 
 /** 黄页的 campus-api 版取数：给 Web 端用（Android 端仍直连学校，见 `YellowPageApi`）。 */
 class CampusYellowPageApi(
@@ -58,7 +58,7 @@ class CampusYellowPageApi(
 
     /** `2026-10-07T15:32:54.121Z` → `2026年10月07日`（与学校那侧的 `page_update_time` 同一种展示）。 */
     private fun formatFetchedAt(raw: String): String = runCatching {
-        val local = Instant.parse(raw).toLocalDateTime(TimeZone.currentSystemDefault())
+        val local = Instant.parse(raw).toLocalDateTime(CampusTimeZone)
         "${local.year}年${pad2(local.month.ordinal + 1)}月${pad2(local.day)}日"
     }.getOrDefault("")
 

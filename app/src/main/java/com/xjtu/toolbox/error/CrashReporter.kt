@@ -8,9 +8,7 @@ import com.xjtu.toolbox.feedback.FeedbackStore
 import java.io.File
 import java.io.PrintWriter
 import java.io.StringWriter
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
+import com.xjtu.toolbox.util.formatOnCampus
 
 /**
  * 未捕获异常 → 落盘 → 下次启动匿名上报到反馈表（类型「崩溃」）。
@@ -66,7 +64,7 @@ object CrashReporter {
         d.listFiles()?.sortedBy { it.name }?.dropLast(MAX_PENDING - 1)?.forEach { it.delete() }
         val sw = StringWriter()
         throwable.printStackTrace(PrintWriter(sw))
-        val ts = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US).format(Date())
+        val ts = formatOnCampus(System.currentTimeMillis(), "yyyy-MM-dd HH:mm:ss")
         val text = buildString {
             append("time=").append(ts).append('\n')
             append("build=").append(BuildConfig.VERSION_NAME).append(" (").append(BuildConfig.VERSION_CODE).append(if (BuildConfig.IS_PREVIEW) " [preview]" else "").append(")\n")

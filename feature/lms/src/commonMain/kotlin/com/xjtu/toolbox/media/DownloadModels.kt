@@ -1,8 +1,6 @@
 package com.xjtu.toolbox.media
 
-import kotlinx.datetime.TimeZone
-import kotlinx.datetime.toLocalDateTime
-import kotlin.time.Instant
+import com.xjtu.toolbox.util.campusDateTimeOf
 
 /** 下载任务的共享模型（字段与 Room 表 `download_tasks` 逐列同名同序）。 */
 data class DownloadTask(
@@ -124,9 +122,9 @@ data class DownloadedFile(
     }
 }
 
-/** 时间戳 → `MM/dd HH:mm`（本地时区）。 */
+/** 时间戳 → `MM/dd HH:mm`（北京时间）。 */
 internal fun formatDownloadTime(timestamp: Long): String {
-    val at = Instant.fromEpochMilliseconds(timestamp).toLocalDateTime(TimeZone.currentSystemDefault())
+    val at = campusDateTimeOf(timestamp)
     fun pad(value: Int) = value.toString().padStart(2, '0')
     return "${pad(at.monthNumber)}/${pad(at.dayOfMonth)} ${pad(at.hour)}:${pad(at.minute)}"
 }

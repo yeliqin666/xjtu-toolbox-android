@@ -5,8 +5,8 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import kotlinx.datetime.LocalDateTime
-import kotlinx.datetime.TimeZone
 import kotlinx.datetime.toInstant
+import com.xjtu.toolbox.util.CampusTimeZone
 
 /**
  * 「接下来」构建函数的契约单测（plan2 §5.4）：过滤已提交、过滤过期/超窗、
@@ -53,12 +53,10 @@ class UpcomingTest {
 
     @Test
     fun 今天截止的作业不出现在接下来() {
-        // 用系统默认时区把 now 当天晚上 8 点转成 Instant，跟 buildUpcoming 内部判断
+        // 按北京时间把 now 当天晚上 8 点转成 Instant，跟 buildUpcoming 内部判断
         // 「是不是今天」用的是同一个时区，不受测试机时区影响。
-        // 用系统默认时区把 now 当天晚上 8 点转成 Instant（`kotlin.time.Instant`），
-        // 跟 buildUpcoming 内部判断「是不是今天」用的是同一个时区，不受测试机时区影响。
         val deadline = LocalDateTime(now.year, now.monthNumber, now.dayOfMonth, 20, 0)
-            .toInstant(TimeZone.currentSystemDefault()).toString()
+            .toInstant(CampusTimeZone).toString()
         val today = due(title = "今天交", deadline = deadline)
         val result = buildUpcoming(emptyList(), listOf(today), now)
         assertTrue(result.none { it.title.contains("今天交") })

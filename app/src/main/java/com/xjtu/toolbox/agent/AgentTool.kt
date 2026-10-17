@@ -49,6 +49,7 @@ import java.time.LocalDate
 import java.time.LocalDateTime
 import java.time.LocalTime
 import java.time.format.DateTimeFormatter
+import com.xjtu.toolbox.util.formatOnCampus
 
 /**
  * 暴露给 Agent 的工具注册表 —— 工具层的**取数那半边**。
@@ -308,7 +309,7 @@ class AgentToolRegistry(
         }
         if (scope.isEmpty()) return null
 
-        val time = java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault()).format(snap.fetchedAt)
+        val time = formatOnCampus(snap.fetchedAt, "HH:mm")
         val free = scope.filter { it.isFree }
         val inUse = scope.filter { it.isInUse }.sortedBy { it.people }
         val inClass = scope.count { it.isInClass }

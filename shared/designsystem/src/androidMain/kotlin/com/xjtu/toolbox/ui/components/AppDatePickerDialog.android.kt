@@ -38,6 +38,7 @@ actual fun AppDatePickerDialog(
             },
             initial.year, initial.month.ordinal, initial.day,
         )
+        // 系统 DatePicker 按本机时区解读 min/max 毫秒；这里只是把（北京时间的）日期原样往返，必须用本机时区
         val zone = TimeZone.currentSystemDefault()
         dialog.datePicker.minDate = minDate.atStartOfDayIn(zone).toEpochMilliseconds()
         dialog.datePicker.maxDate = maxDate.atStartOfDayIn(zone).toEpochMilliseconds()

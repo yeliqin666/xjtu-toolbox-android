@@ -87,10 +87,8 @@ import top.yukonga.miuix.kmp.basic.MiuixScrollBehavior
 import top.yukonga.miuix.kmp.basic.Scaffold
 import top.yukonga.miuix.kmp.basic.rememberTopAppBarState
 import kotlin.time.Clock
-import kotlinx.datetime.Instant
-import kotlinx.datetime.TimeZone
-import kotlinx.datetime.toLocalDateTime
 import com.xjtu.toolbox.nav.AppRoute
+import com.xjtu.toolbox.util.campusDateTimeOf
 
 /**
  * 教材全文库那一屏（书架 + 五种字段检索 + 中图法分类树）。
@@ -939,7 +937,6 @@ private fun CategoryMark(label: String, tinted: Boolean = false) {
 }
 
 private fun monthDayCn(epochMs: Long): String {
-    val date = Instant.fromEpochMilliseconds(epochMs)
-        .toLocalDateTime(TimeZone.currentSystemDefault()).date
+    val date = campusDateTimeOf(epochMs).date
     return "${date.monthNumber}月${date.dayOfMonth}日"
 }

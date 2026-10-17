@@ -31,7 +31,6 @@ import com.xjtu.toolbox.auth.siteKey
 import com.xjtu.toolbox.bulletin.Bulletin
 import com.xjtu.toolbox.card.CampusCardCache
 import com.xjtu.toolbox.data.DataCache
-import com.xjtu.toolbox.util.todayInSystemZone
 import com.xjtu.toolbox.nav.AppRoute
 import com.xjtu.toolbox.schedule.HolidayApi
 import com.xjtu.toolbox.schedule.ScheduleCache
@@ -41,6 +40,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.time.LocalDate
 import java.util.Locale
+import com.xjtu.toolbox.util.todayOnCampus
 
 /** 首页在 `:app` 这一端的两半：宿主面（[host]）+ 它自己的那一层弹窗（[showStatusSheet]）。 */
 @Stable

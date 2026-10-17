@@ -98,13 +98,12 @@ import top.yukonga.miuix.kmp.preference.SwitchPreference
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.utils.overScrollVertical
 import top.yukonga.miuix.kmp.window.WindowDialog
-import com.xjtu.toolbox.util.todayInSystemZone
 import kotlin.time.Clock
 import kotlinx.datetime.Instant
 import kotlinx.datetime.LocalDate
-import kotlinx.datetime.TimeZone
 import kotlinx.datetime.minus
-import kotlinx.datetime.toLocalDateTime
+import com.xjtu.toolbox.util.campusDateTimeOf
+import com.xjtu.toolbox.util.todayOnCampus
 
 @Composable
 fun InboxScreen(
@@ -428,7 +427,7 @@ private fun todoSection(item: InboxItem, now: Long) = when {
 
 private fun daySection(epoch: Long): String {
     val day = localDateOf(epoch)
-    val today = todayInSystemZone()
+    val today = todayOnCampus()
     return when {
         day >= today -> "今天"
         day == today.minus(1, kotlinx.datetime.DateTimeUnit.DAY) -> "昨天"
@@ -437,9 +436,8 @@ private fun daySection(epoch: Long): String {
     }
 }
 
-/** `Instant.ofEpochMilli(epoch).atZone(systemDefault()).toLocalDate()` 的跨端等价。 */
 private fun localDateOf(epoch: Long): LocalDate =
-    Instant.fromEpochMilliseconds(epoch).toLocalDateTime(TimeZone.currentSystemDefault()).date
+    campusDateTimeOf(epoch).date
 
 /** 每类一个图标，颜色见 [InboxCategories.argb]，扫一眼就知道是哪儿来的。 */
 private fun categoryIcon(category: String): ImageVector = when (category) {
@@ -516,12 +514,12 @@ private fun timeLabel(item: InboxItem): String {
 
 private fun timeLabel(epoch: Long): String {
     if (epoch <= 0) return ""
-    val at = Instant.fromEpochMilliseconds(epoch).toLocalDateTime(TimeZone.currentSystemDefault())
+    val at = campusDateTimeOf(epoch)
     val minutes = (Clock.System.now().toEpochMilliseconds() - epoch) / 60_000
     return when {
         minutes < 1 -> "刚刚"
         minutes < 60 -> "$minutes 分钟前"
-        at.date == todayInSystemZone() -> clockText(at)
+        at.date == todayOnCampus() -> clockText(at)
         else -> dayText(at.date)
     }
 }
