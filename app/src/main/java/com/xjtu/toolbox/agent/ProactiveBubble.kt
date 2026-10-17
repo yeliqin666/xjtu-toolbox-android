@@ -442,7 +442,7 @@ object ProactiveRules {
     fun pickOnTap(ctx: Context): ProactiveMessage? {
         if (readProactiveLevel(ctx) == ProactiveLevel.OFF) return null
         val line = ChatterPool.pick(
-            java.time.LocalDateTime.now().toKx(),
+            java.time.LocalDateTime.now(com.xjtu.toolbox.util.CampusZoneId).toKx(),
             chatterRecent(ctx),
             null,
             null,
@@ -465,7 +465,7 @@ object ProactiveRules {
     ): ProactiveMessage? {
         if (nowMs - lastChatterAt(ctx) < cooldownFor(ctx, CHATTER_ID)) return null
         val line = ChatterPool.pick(
-            java.time.LocalDateTime.now().toKx(),
+            java.time.LocalDateTime.now(com.xjtu.toolbox.util.CampusZoneId).toKx(),
             chatterRecent(ctx),
             nextCourseName,
             minutesToClass,

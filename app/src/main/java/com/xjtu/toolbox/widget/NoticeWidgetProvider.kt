@@ -72,7 +72,7 @@ object NoticeWidgetUpdater {
             val cal = java.util.Calendar.getInstance().apply { timeInMillis = updatedAt }
             "更新 %02d:%02d".format(cal.get(java.util.Calendar.HOUR_OF_DAY), cal.get(java.util.Calendar.MINUTE))
         }
-        val today = java.time.LocalDate.now()
+        val today = java.time.LocalDate.now(com.xjtu.toolbox.util.CampusZoneId)
 
         val launchIntent = Intent(context, MainActivity::class.java).apply {
             putExtra(MainActivity.EXTRA_LAUNCH_ROUTE, AppRoute.Notification.id)

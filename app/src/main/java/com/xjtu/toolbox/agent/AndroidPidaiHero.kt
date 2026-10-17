@@ -77,7 +77,6 @@ import kotlinx.datetime.LocalDateTime
 import kotlinx.datetime.LocalTime
 import com.xjtu.toolbox.util.formatFixed
 import com.xjtu.toolbox.util.formatTwoDigits
-import com.xjtu.toolbox.util.nowInSystemZone
 import com.xjtu.toolbox.util.todayInSystemZone
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.Text
@@ -158,7 +157,7 @@ internal fun AndroidPidaiHero(title: String, facts: WelcomeFacts, now: LocalDate
                 .clip(CircleShape)
                 .clickable {
                     beat = pokes.poke()
-                    pickLine(facts, nowInSystemZone(), line)?.let { line = it }
+                    pickLine(facts, com.xjtu.toolbox.util.nowOnCampus(), line)?.let { line = it }
                 },
             contentAlignment = Alignment.Center,
         ) {

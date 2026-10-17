@@ -109,7 +109,7 @@ internal fun rememberAppHome(
                 } catch (_: Exception) { emptyList() }
                 val allSchedules = apiCourses + customCourses
                 val startDate = schedule.start
-                val today = com.xjtu.toolbox.util.todayInSystemZone()
+                val today = com.xjtu.toolbox.util.todayOnCampus()
                 val weekNumber = HomeHero.weekNumber(startDate, today)
                 if (startDate == null) {
                     return@withContext Triple(null, weekNumber, true)
@@ -202,7 +202,7 @@ internal fun rememberAppHome(
         )
     } else null
 
-    val today = LocalDate.now()
+    val today = LocalDate.now(com.xjtu.toolbox.util.CampusZoneId)
     val weekDay = today.dayOfWeek.getDisplayName(java.time.format.TextStyle.FULL, Locale.CHINESE)
 
     val host = object : HomeHost {

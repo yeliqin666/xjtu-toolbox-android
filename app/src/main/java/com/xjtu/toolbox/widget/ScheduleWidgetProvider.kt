@@ -159,7 +159,7 @@ object ScheduleWidgetUpdater {
     }
 
     internal fun resetBrowseSelectionToToday(context: Context) {
-        val today = LocalDate.now()
+        val today = LocalDate.now(com.xjtu.toolbox.util.CampusZoneId)
         context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
             .edit()
             .putInt(KEY_WEEK_OFFSET, 0)
@@ -171,7 +171,7 @@ object ScheduleWidgetUpdater {
     /** 翻页状态是前些天留下的就回到今天，否则过了零点还停在昨天那个星期几。 */
     private fun dropStaleBrowseState(context: Context) {
         val browseDate = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).getLong(KEY_BROWSE_DATE, -1L)
-        if (browseDate != LocalDate.now().toEpochDay()) resetBrowseSelectionToToday(context)
+        if (browseDate != LocalDate.now(com.xjtu.toolbox.util.CampusZoneId).toEpochDay()) resetBrowseSelectionToToday(context)
     }
 
     fun updateSpecific(
@@ -316,7 +316,7 @@ object ScheduleWidgetUpdater {
      */
     internal fun loadTwoDayData(context: Context): WidgetTwoDayData {
         com.xjtu.toolbox.account.AccountContext.restoreIfNeeded()
-        val today = LocalDate.now()
+        val today = LocalDate.now(com.xjtu.toolbox.util.CampusZoneId)
         val tomorrow = today.plusDays(1)
         val header = { d: LocalDate ->
             Triple(
@@ -385,7 +385,7 @@ object ScheduleWidgetUpdater {
         private val colors = courseColorMap(all.map { it.courseName })
 
         /** 某一天的课，按开始时间排。节假日只滤掉教务的课，自建日程照常显示。 */
-        fun coursesOn(date: LocalDate, now: LocalDateTime = LocalDateTime.now()): List<WidgetCourse> {
+        fun coursesOn(date: LocalDate, now: LocalDateTime = LocalDateTime.now(com.xjtu.toolbox.util.CampusZoneId)): List<WidgetCourse> {
             val isHoliday = date in holidays
             // 没有开学日期就算不出周次；这时按星期给出全部同星期的课，总好过一片空白
             val week = startDate?.let { com.xjtu.toolbox.schedule.TermWeeks.weekOf(it.toKx(), date.toKx()) }
@@ -445,7 +445,7 @@ object ScheduleWidgetUpdater {
     }
 
     private fun todayCourses(context: Context): List<WidgetCourse> =
-        loadTerm(context)?.coursesOn(LocalDate.now()).orEmpty()
+        loadTerm(context)?.coursesOn(LocalDate.now(com.xjtu.toolbox.util.CampusZoneId)).orEmpty()
 
     /**
      * 约下一次刷新：今天下一个上课或下课时刻，今天没有了就约到明天零点。系统自带的定时刷新半小时起步、
@@ -453,7 +453,7 @@ object ScheduleWidgetUpdater {
      * 不用精确闹钟（要用户单独授权），系统允许最多晚 10 分钟。
      */
     private fun scheduleNextRefresh(context: Context, size: WidgetSize) {
-        val now = LocalDateTime.now()
+        val now = LocalDateTime.now(com.xjtu.toolbox.util.CampusZoneId)
         val today = now.toLocalDate()
         val nowMinute = now.hour * 60 + now.minute
         val at = todayCourses(context)
@@ -463,7 +463,7 @@ object ScheduleWidgetUpdater {
             // 结束在 24:00 的条目落到明天零点，和跨天刷新是同一次
             ?.let { today.atStartOfDay().plusMinutes(it.toLong()) }
             ?: today.plusDays(1).atStartOfDay()
-        val millis = at.atZone(java.time.ZoneId.systemDefault()).toInstant().toEpochMilli()
+        val millis = at.atZone(com.xjtu.toolbox.util.CampusZoneId).toInstant().toEpochMilli()
         context.getSystemService(AlarmManager::class.java)
             ?.setWindow(AlarmManager.RTC, millis, 10 * 60_000L, refreshAlarmIntent(context, size))
     }
@@ -499,7 +499,7 @@ object ScheduleWidgetUpdater {
     internal fun loadScheduleData(context: Context): WidgetScheduleData {
         com.xjtu.toolbox.account.AccountContext.restoreIfNeeded()
         dropStaleBrowseState(context)
-        val nowAt = LocalDateTime.now()
+        val nowAt = LocalDateTime.now(com.xjtu.toolbox.util.CampusZoneId)
         val nowDate = nowAt.toLocalDate()
         val todayDow = nowDate.dayOfWeek.value
 
@@ -597,7 +597,7 @@ object ScheduleWidgetUpdater {
     internal fun adjustSelectedDayOfWeek(context: Context, delta: Int) {
         dropStaleBrowseState(context)
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-        val todayDow = LocalDate.now().dayOfWeek.value
+        val todayDow = LocalDate.now(com.xjtu.toolbox.util.CampusZoneId).dayOfWeek.value
         val currentDay = prefs.getInt(KEY_DAY_OF_WEEK, todayDow).coerceIn(1, 7)
         val currentOffset = prefs.getInt(KEY_WEEK_OFFSET, 0).coerceIn(MIN_WEEK_OFFSET, MAX_WEEK_OFFSET)
 

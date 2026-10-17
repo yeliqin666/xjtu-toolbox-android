@@ -620,7 +620,7 @@ private fun ProactiveReminderLoop(loginState: AppLoginState) {
         while (true) {
             val balance = cardPrefs.getFloat("card_balance_cache", -1f).takeIf { it >= 0f }?.toDouble()
             val focus = HomeSignals.scheduleReminder
-            val minutes = focus?.let { Duration.between(LocalDateTime.now(), it.startAt).toMinutes() }
+            val minutes = focus?.let { Duration.between(LocalDateTime.now(com.xjtu.toolbox.util.CampusZoneId), it.startAt).toMinutes() }
             val pendingScores = HomeStats.pendingNewScores(context)
             val unseenNotice = HomeStats.unseenNoticeTitle(context)
             val unseenNoticeLink = HomeStats.unseenNoticeLink(context)

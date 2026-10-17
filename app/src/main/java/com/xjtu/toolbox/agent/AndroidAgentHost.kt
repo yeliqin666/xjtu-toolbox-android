@@ -418,7 +418,7 @@ private object AndroidAgentImages : AgentImageLoader {
 /** 首屏要用的本地数据快照。 */
 private object AndroidWelcomeFactsLoader {
 
-    fun load(ctx: Context, now: java.time.LocalDateTime = java.time.LocalDateTime.now()): WelcomeFacts = runCatching {
+    fun load(ctx: Context, now: java.time.LocalDateTime = java.time.LocalDateTime.now(com.xjtu.toolbox.util.CampusZoneId)): WelcomeFacts = runCatching {
         val today = now.toLocalDate()
         val cache = DataCache(ctx)
         val holidays = com.xjtu.toolbox.schedule.HolidayApi.peekCached(DataCache(ctx)).mapKeys { it.key.toJavaTime() }

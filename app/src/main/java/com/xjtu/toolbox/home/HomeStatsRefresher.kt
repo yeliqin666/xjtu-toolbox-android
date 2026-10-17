@@ -544,7 +544,7 @@ object HomeStatsRefresher {
         if (available == null && usable == null) return null
 
         val pending = available?.records?.size ?: 0
-        val today = java.time.LocalDate.now()
+        val today = java.time.LocalDate.now(com.xjtu.toolbox.util.CampusZoneId)
         // endDate 是 "2026-01-31" 这类文本，解析不出就不参与到期判断——
         // 猜错日期去催用户用券，比不催更糟。
         val soonest = usable?.records.orEmpty()
@@ -565,7 +565,7 @@ object HomeStatsRefresher {
                     OwnInbox.todo(
                         InboxCategories.COUPON, "coupon:expiring", "加餐券",
                         if (daysLeft == 0) "有加餐券今天到期" else "有加餐券 $daysLeft 天后到期", AppRoute.Coupon.id,
-                        expiresAt = day.plusDays(1).atStartOfDay(java.time.ZoneId.systemDefault()).toInstant().toEpochMilli(),
+                        expiresAt = day.plusDays(1).atStartOfDay(com.xjtu.toolbox.util.CampusZoneId).toInstant().toEpochMilli(),
                     )
                 },
             ),

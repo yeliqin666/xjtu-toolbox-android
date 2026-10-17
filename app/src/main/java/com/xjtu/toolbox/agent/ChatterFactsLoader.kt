@@ -17,7 +17,7 @@ import java.time.LocalDate
  */
 internal object ChatterFactsLoader {
 
-    fun load(ctx: Context, today: LocalDate = LocalDate.now()): ChatterFacts = runCatching {
+    fun load(ctx: Context, today: LocalDate = LocalDate.now(com.xjtu.toolbox.util.CampusZoneId)): ChatterFacts = runCatching {
         val cache = DataCache(ctx)
         val holidays = HolidayApi.peekCached(com.xjtu.toolbox.data.DataCache(ctx)).mapKeys { it.key.toJavaTime() }
         val nextHoliday = nextHoliday(holidays, today)
