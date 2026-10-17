@@ -1260,25 +1260,8 @@ class AgentToolRegistry(
 
     // ── 联网搜索/网页阅读（无需登录） ─────────────────────────────────────
 
-    private val webCookies = object : okhttp3.CookieJar {
-        private val lock = Any()
-        private val jar = mutableListOf<okhttp3.Cookie>()
-        override fun saveFromResponse(url: okhttp3.HttpUrl, cookies: List<okhttp3.Cookie>) {
-            synchronized(lock) {
-                cookies.forEach { incoming ->
-                    jar.removeAll { it.name == incoming.name && it.domain == incoming.domain && it.path == incoming.path }
-                    jar.add(incoming)
-                }
-            }
-        }
-        override fun loadForRequest(url: okhttp3.HttpUrl): List<okhttp3.Cookie> {
-            val now = System.currentTimeMillis()
-            synchronized(lock) {
-                jar.removeAll { it.expiresAt < now }
-                return jar.filter { it.matches(url) }
-            }
-        }
-    }
+    /** 联网搜索 / 网页阅读的匿名 cookie：只在内存里，不和学校站点的登录态混在一起。 */
+    private val webCookies = com.xjtu.toolbox.network.InMemoryCookieJar()
 
     private val webClient by lazy {
         AgentWeb.applyPublicNetworkPolicy(HttpClients.base.newBuilder())
@@ -1341,20 +1324,7 @@ class AgentToolRegistry(
      * - 每次搜索前换一份新 cookie：8/8 一次通过，只多一次首页请求（约 0.3 秒）。
      * 所以不再「一个会话热身一次」，而是每次都新拿；万一还是被拦，换 cookie 再试一次。
      */
-    private val baiduJar = object : okhttp3.CookieJar {
-        private val store = java.util.concurrent.CopyOnWriteArrayList<okhttp3.Cookie>()
-        fun clear() = store.clear()
-        override fun saveFromResponse(url: okhttp3.HttpUrl, cookies: List<okhttp3.Cookie>) {
-            for (c in cookies) {
-                store.removeAll { it.name == c.name && it.domain == c.domain && it.path == c.path }
-                store.add(c)
-            }
-        }
-        override fun loadForRequest(url: okhttp3.HttpUrl): List<okhttp3.Cookie> {
-            val now = System.currentTimeMillis()
-            return store.filter { it.expiresAt > now && it.matches(url) }
-        }
-    }
+    private val baiduJar = com.xjtu.toolbox.network.InMemoryCookieJar()
     private val baiduClient by lazy { searchClient.newBuilder().cookieJar(baiduJar).build() }
     /** 换 cookie 这件事不能并发：两次搜索同时清空、同时热身会互相踩掉。 */
     private val baiduMutex = kotlinx.coroutines.sync.Mutex()
