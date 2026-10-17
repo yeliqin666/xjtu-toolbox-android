@@ -12,6 +12,12 @@ interface LmsSource {
     /** 活动详情（`GET /api/activities/{id}`）。 */
     suspend fun activityDetail(activityId: Int, brief: LmsActivity? = null): LmsActivity
 
+    /** 课程公告（`GET /api/courses/{id}/bulletins`）；本端没接这个接口时恒空（列表里就只有活动）。 */
+    suspend fun courseBulletins(courseId: Int): List<LmsBulletin> = emptyList()
+
+    /** 正文里内嵌图片的字节（学堂自己的图走登录态）；取不到或本端不支持返回 null，屏上退化成链接。 */
+    suspend fun imageBytes(url: String): ByteArray? = null
+
     /** 作业已提交次数（只有详情接口给 `user_submit_count`）。 */
     suspend fun userSubmitCount(activityId: Int): Int
 
@@ -61,4 +67,6 @@ interface LmsCacheStore {
     suspend fun writeCourses(courses: List<LmsCourseSummary>)
     suspend fun readActivities(courseId: Int): List<LmsActivity>?
     suspend fun writeActivities(courseId: Int, activities: List<LmsActivity>)
+    suspend fun readBulletins(courseId: Int): List<LmsBulletin>? = null
+    suspend fun writeBulletins(courseId: Int, bulletins: List<LmsBulletin>) {}
 }

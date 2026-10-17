@@ -22,6 +22,12 @@ class AppLmsCache(context: Context, accountId: String?) : LmsCacheStore {
     override suspend fun writeActivities(courseId: Int, activities: List<LmsActivity>) =
         withContext(Dispatchers.IO) { writeSafe(activityKey(courseId), activities) }
 
+    override suspend fun readBulletins(courseId: Int): List<LmsBulletin>? =
+        withContext(Dispatchers.IO) { readSafe(BULLETINS_KEY_PREFIX + courseId) }
+
+    override suspend fun writeBulletins(courseId: Int, bulletins: List<LmsBulletin>) =
+        withContext(Dispatchers.IO) { writeSafe(BULLETINS_KEY_PREFIX + courseId, bulletins) }
+
     private inline fun <reified T> readSafe(key: String): T? =
         runCatching { cache.read<T>(key, DataCache.TERM_TTL_MS) }.getOrNull()
 
@@ -35,5 +41,6 @@ class AppLmsCache(context: Context, accountId: String?) : LmsCacheStore {
     private companion object {
         const val COURSES_KEY = "lms_courses"
         const val ACTIVITIES_KEY_PREFIX = "lms_activities_"
+        const val BULLETINS_KEY_PREFIX = "lms_bulletins_"
     }
 }

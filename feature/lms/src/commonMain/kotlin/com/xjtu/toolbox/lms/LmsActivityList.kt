@@ -30,6 +30,7 @@ import com.xjtu.toolbox.ui.adaptive.AdaptiveCardGrid
 import com.xjtu.toolbox.ui.adaptive.fullLineItem
 import androidx.compose.foundation.lazy.staggeredgrid.items
 import com.xjtu.toolbox.ui.glass.*
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 import top.yukonga.miuix.kmp.basic.*
 import top.yukonga.miuix.kmp.theme.MiuixTheme
@@ -42,19 +43,31 @@ private const val TAG = "LmsScreen"
 //  页面 2 — 活动列表
 // ════════════════════════════════════════
 
+private sealed class CourseContentFilter {
+    data object All : CourseContentFilter()
+    data object Bulletin : CourseContentFilter()
+    data class Activity(val type: LmsActivityType) : CourseContentFilter()
+}
+
 @Composable
 internal fun ActivityListPage(
     source: LmsSource,
     cache: LmsPageCache,
     course: LmsCourseSummary,
     onBack: () -> Unit,
-    onActivitySelected: (LmsActivity) -> Unit
+    onActivitySelected: (LmsActivity) -> Unit,
+    onBulletinSelected: (LmsBulletin) -> Unit,
 ) {
     val authExpiry = LocalAuthExpiry.current
     val activities = cache.activities[course.id].orEmpty()
-    var isLoading by remember { mutableStateOf(cache.activities[course.id] == null) }
+    val bulletins = cache.bulletins[course.id].orEmpty()
+    var isLoading by remember { mutableStateOf(cache.activities[course.id] == null && cache.bulletins[course.id] == null) }
     var errorMsg by remember { mutableStateOf<String?>(null) }
-    var selectedType by remember { mutableStateOf(cache.selectedTypes[course.id]) }
+    var filter by remember {
+        mutableStateOf<CourseContentFilter>(
+            cache.selectedTypes[course.id]?.let { CourseContentFilter.Activity(it) } ?: CourseContentFilter.All
+        )
+    }
     val scope = rememberCoroutineScope()
 
     // ── 批量下载（照 yan-xiaoo/XJTUToolBox）：勾选活动 → 选下载内容 → 后台收集并下载 ──
@@ -64,7 +77,9 @@ internal fun ActivityListPage(
     val batchState by LmsBatchDownload.state.collectAsStateWithLifecycle()
     BackHandler(enabled = selecting) { selecting = false; picked.clear() }
 
-    LaunchedEffect(selectedType) { cache.selectedTypes[course.id] = selectedType }
+    LaunchedEffect(filter) {
+        cache.selectedTypes[course.id] = (filter as? CourseContentFilter.Activity)?.type
+    }
 
     val listState = rememberRetainedLazyStaggeredGridState("lms_activities_${course.id}")
     val scrollBehavior = MiuixScrollBehavior(rememberTopAppBarState())
@@ -76,13 +91,19 @@ internal fun ActivityListPage(
             isLoading = true
             errorMsg = null
             try {
-                cache.syncActivities(source, course.id)
+                coroutineScope {
+                    launch { cache.syncActivities(source, course.id) }
+                    launch {
+                        runCatching { cache.syncBulletins(source, course.id) }
+                            .onFailure { Log.w(TAG, "syncBulletins error", it) }
+                    }
+                }
             } catch (e: Exception) {
                 if (e is com.xjtu.toolbox.error.SessionExpiredFailure) {
                     authExpiry.onAuthExpired(AppRoute.Lms(), onBack)
                 } else {
                     Log.e(TAG, "loadActivities error", e)
-                    errorMsg = com.xjtu.toolbox.error.FriendlyError.of(e, "加载活动")
+                    errorMsg = com.xjtu.toolbox.error.FriendlyError.of(e, "加载课程内容")
                 }
             } finally {
                 isLoading = false
@@ -90,19 +111,26 @@ internal fun ActivityListPage(
         }
     }
 
-    LaunchedEffect(Unit) { if (!cache.activitiesSynced(course.id)) loadActivities() }
+    LaunchedEffect(Unit) {
+        if (!cache.activitiesSynced(course.id) || !cache.bulletinsSynced(course.id)) loadActivities()
+    }
 
     val types = remember(activities) {
         activities.map { it.type }.distinct().sortedBy { it.ordinal }
     }
 
-    // 只看作业时（筛了「作业」，或这门课只有作业）补查提交态，交过的沉底
-    val homeworkOnly = (selectedType ?: types.singleOrNull()) == LmsActivityType.HOMEWORK
+    val sortedBulletins = remember(bulletins) {
+        bulletins.sortedByDescending { it.createdAt }
+    }
+
+    // 只看作业时（筛了「作业」，或这门课只有作业且当前全览）补查提交态，交过的沉底
+    val selectedActivityType = (filter as? CourseContentFilter.Activity)?.type
+    val homeworkOnly = (selectedActivityType ?: types.singleOrNull()) == LmsActivityType.HOMEWORK
     LaunchedEffect(homeworkOnly, activities) {
         if (homeworkOnly) cache.syncSubmitted(source, activities.filter { it.type == LmsActivityType.HOMEWORK })
     }
 
-    val filtered = (if (selectedType == null) activities else activities.filter { it.type == selectedType })
+    val filteredActivities = (if (selectedActivityType == null) activities else activities.filter { it.type == selectedActivityType })
         .let { list -> if (homeworkOnly) list.sortedBy { cache.submitted(it) == true } else list }
 
     var pickColor by remember { mutableStateOf(false) }
@@ -122,7 +150,7 @@ internal fun ActivityListPage(
                     // 批量下载要能把文件落下来（`source.saveDownload` = 取字节 + 写下载位置）：
                     // serve 形态两样都没有（契约 §5.6）⇒ 这一档整个不出现 —— 与「课堂回放」那一行
                     // 按 `supportsVideoQueue` 收口同一条规矩（点了会失败的东西不摆出来）。
-                    if (activities.any { it.type in BATCH_TYPES } && source.supportsDownload) {
+                    if (activities.any { it.type in BATCH_TYPES } && source.supportsDownload && filter !is CourseContentFilter.Bulletin) {
                         IconButton(onClick = {
                             selecting = !selecting
                             if (!selecting) picked.clear()
@@ -155,10 +183,11 @@ internal fun ActivityListPage(
             )
         }
         Box(Modifier.fillMaxSize().padding(padding.withoutTop(glass)).glassSource(glass).nestedScroll(scrollBehavior.nestedScrollConnection)) {
+            val hasContent = activities.isNotEmpty() || bulletins.isNotEmpty()
             when {
-                isLoading && activities.isEmpty() -> LoadingIndicator("加载活动列表…")
-                errorMsg != null && activities.isEmpty() -> ErrorRetry(errorMsg!!) { loadActivities() }
-                activities.isEmpty() -> EmptyState(Icons.Default.Inbox, "暂无活动", "该课程还没有发布任何活动")
+                isLoading && !hasContent -> LoadingIndicator("加载课程内容…")
+                errorMsg != null && !hasContent -> ErrorRetry(errorMsg!!) { loadActivities() }
+                !hasContent -> EmptyState(Icons.Default.Inbox, "暂无内容", "该课程还没有发布任何活动或公告")
                 else -> {
                     // 宽屏卡片分两三列（见 AdaptiveCardGrid）；卡片自带外边距，间距给 0
                     AdaptiveCardGrid(
@@ -168,7 +197,7 @@ internal fun ActivityListPage(
                         spacing = 0.dp,
                         horizontalSpacing = 0.dp,
                     ) {
-                        if (types.size > 1) {
+                        if (bulletins.isNotEmpty() || types.size > 1) {
                             fullLineItem(key = "type_filter") {
                                 Card(
                                     modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp),
@@ -183,7 +212,11 @@ internal fun ActivityListPage(
                                             modifier = Modifier.padding(horizontal = 16.dp)
                                         )
                                         Text(
-                                            selectedType?.displayName() ?: "全部内容",
+                                            when (filter) {
+                                                CourseContentFilter.All -> "全部内容"
+                                                CourseContentFilter.Bulletin -> "课程公告"
+                                                is CourseContentFilter.Activity -> (filter as CourseContentFilter.Activity).type.displayName()
+                                            },
                                             style = MiuixTheme.textStyles.footnote1,
                                             color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                                             modifier = Modifier.padding(horizontal = 16.dp, vertical = 3.dp)
@@ -193,11 +226,26 @@ internal fun ActivityListPage(
                                                 .padding(horizontal = 12.dp, vertical = 7.dp),
                                             horizontalArrangement = Arrangement.spacedBy(8.dp)
                                         ) {
-                                            AppFilterChip(selected = selectedType == null, onClick = { selectedType = null }, label = "全部")
+                                            AppFilterChip(
+                                                selected = filter is CourseContentFilter.All,
+                                                onClick = { filter = CourseContentFilter.All },
+                                                label = "全部"
+                                            )
+                                            if (bulletins.isNotEmpty()) {
+                                                AppFilterChip(
+                                                    selected = filter is CourseContentFilter.Bulletin,
+                                                    onClick = {
+                                                        filter = CourseContentFilter.Bulletin
+                                                        selecting = false
+                                                        picked.clear()
+                                                    },
+                                                    label = "公告"
+                                                )
+                                            }
                                             types.forEach { type ->
                                                 AppFilterChip(
-                                                    selected = selectedType == type,
-                                                    onClick = { selectedType = type },
+                                                    selected = (filter as? CourseContentFilter.Activity)?.type == type,
+                                                    onClick = { filter = CourseContentFilter.Activity(type) },
                                                     label = type.displayName()
                                                 )
                                             }
@@ -211,26 +259,76 @@ internal fun ActivityListPage(
                             BatchProgressCard(batch, source.publicPathLabel())
                         }
                         fullLineItem(key = "count") {
+                            val countLabel = when {
+                                selecting -> "勾选要下载的活动（课件、作业、回放）"
+                                else -> {
+                                    val count = when (filter) {
+                                        CourseContentFilter.All -> activities.size + bulletins.size
+                                        CourseContentFilter.Bulletin -> sortedBulletins.size
+                                        is CourseContentFilter.Activity -> filteredActivities.size
+                                    }
+                                    "共 $count 个项目"
+                                }
+                            }
                             Text(
-                                if (selecting) "勾选要下载的活动（课件、作业、回放）" else "共 ${filtered.size} 个活动",
+                                countLabel,
                                 fontSize = 12.sp,
                                 color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                                 modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp)
                             )
                         }
-                        items(filtered, key = { it.id }) { activity ->
-                            val canPick = activity.type in BATCH_TYPES
-                            LmsActivityCard(
-                                activity,
-                                submitted = cache.submitted(activity) == true,
-                                selected = if (selecting) activity.id in picked else null,
-                                enabled = !selecting || canPick,
-                            ) {
-                                when {
-                                    !selecting -> onActivitySelected(activity)
-                                    !canPick -> Unit
-                                    activity.id in picked -> picked.remove(activity.id)
-                                    else -> picked.add(activity.id)
+
+                        when (filter) {
+                            is CourseContentFilter.Bulletin -> {
+                                items(sortedBulletins, key = { "b_${it.id}" }) { bulletin ->
+                                    LmsBulletinCard(
+                                        bulletin = bulletin,
+                                        onClick = { onBulletinSelected(bulletin) }
+                                    )
+                                }
+                            }
+                            is CourseContentFilter.Activity -> {
+                                items(filteredActivities, key = { it.id }) { activity ->
+                                    val canPick = activity.type in BATCH_TYPES
+                                    LmsActivityCard(
+                                        activity,
+                                        submitted = cache.submitted(activity) == true,
+                                        selected = if (selecting) activity.id in picked else null,
+                                        enabled = !selecting || canPick,
+                                    ) {
+                                        when {
+                                            !selecting -> onActivitySelected(activity)
+                                            !canPick -> Unit
+                                            activity.id in picked -> picked.remove(activity.id)
+                                            else -> picked.add(activity.id)
+                                        }
+                                    }
+                                }
+                            }
+                            is CourseContentFilter.All -> {
+                                if (!selecting && sortedBulletins.isNotEmpty()) {
+                                    items(sortedBulletins, key = { "b_${it.id}" }) { bulletin ->
+                                        LmsBulletinCard(
+                                            bulletin = bulletin,
+                                            onClick = { onBulletinSelected(bulletin) }
+                                        )
+                                    }
+                                }
+                                items(filteredActivities, key = { it.id }) { activity ->
+                                    val canPick = activity.type in BATCH_TYPES
+                                    LmsActivityCard(
+                                        activity,
+                                        submitted = cache.submitted(activity) == true,
+                                        selected = if (selecting) activity.id in picked else null,
+                                        enabled = !selecting || canPick,
+                                    ) {
+                                        when {
+                                            !selecting -> onActivitySelected(activity)
+                                            !canPick -> Unit
+                                            activity.id in picked -> picked.remove(activity.id)
+                                            else -> picked.add(activity.id)
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -240,7 +338,7 @@ internal fun ActivityListPage(
             }
             if (selecting) {
                 // 底部操作条：全选当前筛选下能下的 / 开始下载
-                val pickable = filtered.filter { it.type in BATCH_TYPES }
+                val pickable = filteredActivities.filter { it.type in BATCH_TYPES }
                 val allPicked = pickable.isNotEmpty() && pickable.all { it.id in picked }
                 Row(
                     Modifier

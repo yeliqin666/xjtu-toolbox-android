@@ -21,6 +21,26 @@ class AppLmsSource(
     override suspend fun activityDetail(activityId: Int, brief: LmsActivity?): LmsActivity =
         withContext(Dispatchers.IO) { api.getActivityDetail(activityId, brief) }
 
+    override suspend fun courseBulletins(courseId: Int): List<LmsBulletin> =
+        withContext(Dispatchers.IO) { api.getCourseBulletins(courseId) }
+
+    /** 学堂（`*.xjtu.edu.cn`）的图走登录态取；外站图不带学堂的凭据，用一个干净的客户端取。 */
+    override suspend fun imageBytes(url: String): ByteArray? = withContext(Dispatchers.IO) {
+        val host = runCatching { java.net.URI(url).host }.getOrNull()?.lowercase() ?: return@withContext null
+        if (host == "xjtu.edu.cn" || host.endsWith(".xjtu.edu.cn")) api.downloadBytes(url)
+        else runCatching {
+            externalImageClient.newCall(okhttp3.Request.Builder().url(url).get().build()).execute().use { r ->
+                if (r.isSuccessful) r.body?.bytes() else null
+            }
+        }.getOrNull()
+    }
+
+    private val externalImageClient by lazy {
+        okhttp3.OkHttpClient.Builder()
+            .callTimeout(20, java.util.concurrent.TimeUnit.SECONDS)
+            .build()
+    }
+
     override suspend fun userSubmitCount(activityId: Int): Int =
         withContext(Dispatchers.IO) { api.getUserSubmitCount(activityId) }
 

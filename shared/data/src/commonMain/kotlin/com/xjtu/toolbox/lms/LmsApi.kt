@@ -75,6 +75,54 @@ fun lmsActivityBody(data: JsonObject?): String? =
     data?.get("description").safeString()?.takeIf { it.isNotBlank() }
         ?: data?.get("content").safeString()?.takeIf { it.isNotBlank() }
 
+internal fun extractUpload(obj: JsonObject, baseUrl: String = "https://lms.xjtu.edu.cn"): LmsUpload {
+    val uploadId = obj.get("id").safeInt()
+    val refId = obj.get("reference_id").safeInt()
+    return LmsUpload(
+        id = uploadId,
+        name = obj.get("name").safeString() ?: "",
+        type = obj.get("type").safeString() ?: "",
+        size = obj.get("size").safeInt(),
+        referenceId = refId,
+        status = obj.get("status").safeString() ?: "",
+        createdAt = obj.get("created_at").safeString() ?: "",
+        updatedAt = obj.get("updated_at").safeString() ?: "",
+        downloadUrl = if (uploadId > 0) "$baseUrl/api/uploads/$uploadId/blob" else "",
+        previewUrl = if (refId > 0) "$baseUrl/api/uploads/reference/document/$refId/url?preview=true" else ""
+    )
+}
+
+internal fun extractBulletin(obj: JsonObject, courseId: Int, baseUrl: String = "https://lms.xjtu.edu.cn"): LmsBulletin {
+    val createdByObj = obj.get("created_by").safeObject()
+    val updatedByObj = obj.get("updated_by").safeObject()
+    val uploads = obj.get("uploads").safeArray().mapNotNull { elem ->
+        try { extractUpload(elem.jsonObject, baseUrl).copy(courseId = courseId) } catch (_: Exception) { null }
+    }
+    return LmsBulletin(
+        id = obj.get("id").safeInt(),
+        courseId = courseId,
+        title = obj.get("title").safeString() ?: "",
+        content = obj.get("content").safeString() ?: "",
+        createdAt = obj.get("created_at").safeString() ?: "",
+        updatedAt = obj.get("updated_at").safeString(),
+        createdBy = LmsBulletinAuthor(
+            id = createdByObj?.get("id").safeInt(),
+            name = createdByObj?.get("name").safeString() ?: ""
+        ),
+        updatedBy = updatedByObj?.let {
+            LmsBulletinAuthor(
+                id = it.get("id").safeInt(),
+                name = it.get("name").safeString() ?: ""
+            )
+        },
+        startTime = obj.get("start_time").safeString(),
+        endTime = obj.get("end_time").safeString(),
+        targets = obj.get("targets").safeArray().mapNotNull { it.safeString() },
+        targetsName = obj.get("targets_name").safeArray().mapNotNull { it.safeString() },
+        uploads = uploads
+    )
+}
+
 // ════════════════════════════════════════
 //  LmsApi — 思源学堂 API 封装
 // ════════════════════════════════════════
@@ -183,6 +231,27 @@ class LmsApi(private val site: SiteSession) {
                 extractActivityBrief(obj)
             } catch (e: Exception) {
                 Log.w(TAG, "getCourseActivities: skip bad activity", e)
+                null
+            }
+        }
+    }
+
+    /**
+     * 获取课程公告列表
+     */
+    suspend fun getCourseBulletins(courseId: Int): List<LmsBulletin> {
+        val data = getJson("$baseUrl/api/courses/$courseId/bulletins")
+        if (data == null) {
+            Log.w(TAG, "getCourseBulletins($courseId): 响应为空或非 JSON 对象")
+            return emptyList()
+        }
+        val bulletins = data.arr("bulletins") ?: return emptyList()
+        return bulletins.mapNotNull { elem ->
+            try {
+                val obj = elem.jsonObject
+                extractBulletin(obj, courseId)
+            } catch (e: Exception) {
+                Log.w(TAG, "getCourseBulletins: skip bad bulletin", e)
                 null
             }
         }
@@ -575,23 +644,6 @@ class LmsApi(private val site: SiteSession) {
             createdAt = obj.get("created_at").safeString() ?: "",
             updatedAt = obj.get("updated_at").safeString() ?: "",
             isClosed = obj.get("is_closed").safeBoolean(),
-        )
-    }
-
-    private fun extractUpload(obj: JsonObject): LmsUpload {
-        val uploadId = obj.get("id").safeInt()
-        val refId = obj.get("reference_id").safeInt()
-        return LmsUpload(
-            id = uploadId,
-            name = obj.get("name").safeString() ?: "",
-            type = obj.get("type").safeString() ?: "",
-            size = obj.get("size").safeInt(),
-            referenceId = refId,
-            status = obj.get("status").safeString() ?: "",
-            createdAt = obj.get("created_at").safeString() ?: "",
-            updatedAt = obj.get("updated_at").safeString() ?: "",
-            downloadUrl = if (uploadId > 0) "$baseUrl/api/uploads/$uploadId/blob" else "",
-            previewUrl = if (refId > 0) "$baseUrl/api/uploads/reference/document/$refId/url?preview=true" else ""
         )
     }
 

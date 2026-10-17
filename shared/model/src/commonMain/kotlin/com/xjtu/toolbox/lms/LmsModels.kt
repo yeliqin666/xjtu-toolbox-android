@@ -238,6 +238,33 @@ sealed class LmsDownloadResult {
 }
 
 // ════════════════════════════════════════
+//  课程公告 (Bulletin)
+// ════════════════════════════════════════
+
+@Serializable
+data class LmsBulletinAuthor(
+    val id: Int = 0,
+    val name: String = "",
+)
+
+@Serializable
+data class LmsBulletin(
+    val id: Int = 0,
+    val courseId: Int = 0,
+    val title: String = "",
+    val content: String = "",
+    val createdAt: String = "",
+    val updatedAt: String? = null,
+    val createdBy: LmsBulletinAuthor = LmsBulletinAuthor(),
+    val updatedBy: LmsBulletinAuthor? = null,
+    val startTime: String? = null,
+    val endTime: String? = null,
+    val targets: List<String> = emptyList(),
+    val targetsName: List<String> = emptyList(),
+    val uploads: List<LmsUpload> = emptyList(),
+)
+
+// ════════════════════════════════════════
 //  作业提交
 // ════════════════════════════════════════
 
