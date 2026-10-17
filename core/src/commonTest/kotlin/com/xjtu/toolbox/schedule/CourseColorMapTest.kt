@@ -5,16 +5,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
-/**
- * [courseColorMap] 的分配规则：同一批课名尽量不同色、与输入顺序无关、
- * 单门课时与 [defaultCourseColor] 一致、超过色板才允许重复。
- *
- * 原文件在 `app/src/test/java/com/xjtu/toolbox/schedule/CourseColorMapTest.kt`，随
- * `courseColorMap` 一起搬进 :core —— 留在 :app 会红，因为这一簇要读一次用户自定义色
- * （[CourseColors.of]），而 :app 的**单元测试**跑在 JVM 上、拿到的是 :core 的 android 变体，
- * 那里的 `KeyValueStore` 需要 `initAndroidPlatform` 注入的 `Context`（Android actual 故意
- * 在未注入时报错，而不是静默当成空存储）。搬进 commonTest 之后走 jvm 的内存 store，断言照旧。
- */
+/** [courseColorMap] 的分配规则。 */
 class CourseColorMapTest {
 
     private val names = listOf("高等数学", "大学物理", "线性代数", "大学英语", "程序设计", "思想道德与法治", "工程图学")

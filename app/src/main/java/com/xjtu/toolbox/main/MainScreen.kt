@@ -119,17 +119,7 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
 import java.time.Duration
 import java.time.LocalDateTime
 
-/**
- * 主界面（返回栈栈底）：底栏 / 宽屏侧栏 + 五个 tab。跳转走 [router]，选中的 tab 在 [tabs]。
- *
- * ## 这一层现在只剩「Android 端的装配」
- *
- * 底栏 / 侧栏 / 当前页那一层 / 形态学 / 恢复登录横幅都搬进了 `:core` 的
- * [com.xjtu.toolbox.shell.AppShell]（这一阶段的主角）。留在这里的是**只有这一端才有的东西**：
- * 顶栏（带 Android 的扫一扫图标与每 tab 的表头槽位）、五个 tab 的屏与各自的宿主面、
- * 屁岱的形象与气泡、搜索与扫一扫两个整屏浮层、反馈与密码失效两个弹层、返回键的双击退出。
- * 它们按 [AppShell] 的可空插槽一个个塞进去 —— 见那里的「各端注入什么」那张表。
- */
+/** 主界面（返回栈栈底）：底栏 / 宽屏侧栏 + 五个 tab。 */
 @Composable
 internal fun MainScreen(
     router: AppRouter,
@@ -312,7 +302,6 @@ internal fun MainScreen(
 
     AppShell(
         nav = navState,
-        // 根 Box 上的两样（`AppShell` 会先把 fillMaxSize 挂上，链序与搬迁前逐字一致）
         rootModifier = Modifier
             .onGloballyPositioned { overlayOrigin = it.positionInRoot() }
             .feedPidaiTouch { overlayOrigin },
@@ -425,8 +414,6 @@ internal fun MainScreen(
         },
         // 壳级弹层：反馈邀请与「密码可能已变更」
         sheets = {
-            // 屏已搬进 `:core`（取数是 `:data` 的 `AppFeedbackSource`）；版本号/版本名是
-            // 构建常量，`:core` 不认识 ⇒ 在调用点传进去（判定逻辑一字未改）。
             FeedbackPromptSheet(
                 source = com.xjtu.toolbox.feedback.AppFeedbackSource,
                 versionCode = com.xjtu.toolbox.BuildConfig.VERSION_CODE,
@@ -434,7 +421,6 @@ internal fun MainScreen(
             )
             PasswordInvalidatedDialog(loginState, onUpdatePassword = { router.open(AppRoute.Settings) })
         },
-        // 返回键：先关浮层，再退首页，最后双击退出（与搬迁前逐字一致）
         onBack = {
             when {
                 showQrLogin -> showQrLogin = false

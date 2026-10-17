@@ -18,9 +18,6 @@ import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalView
 
 /**
- * Android 侧的真实现 —— 与搬迁前 :app `ui/Haptics.kt` **逐字一致**（只把 `Context`/`View`
- * 收进了本文件、并把入口改成 actual）。
- *
  * 降级链（§11.2）：`VibrationEffect.startComposition()`（minSdk=31 全覆盖，不需要版本判断）
  * 探测到的基本振动 → `View.performHapticFeedback` → Compose 自己的 `LocalHapticFeedback`。
  * 不同厂商支持的基本振动不一样，第一层的探测结果只和硬件有关、不会中途变化，缓存在进程里。

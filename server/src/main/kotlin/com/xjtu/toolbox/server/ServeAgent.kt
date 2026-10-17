@@ -57,67 +57,7 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.put
 import kotlin.time.Clock
 
-/**
- * 屁岱在 serve 侧的那一半：**配置 / 会话 / 记忆三份落盘** + **整个调度循环** + **SSE 事件流**。
- *
- * ## 它是谁（与 `AgentHost` / `:web` 的关系）
- *
- * `docs/agent-web-spec.md` §1.2 选了「循环跑在 serve，不跑在浏览器」：`:core` 的 [AgentRunner]、
- * `:data` 的 [SseAgentTransport] 与三个 store 在 serve（jvm）上**原样可用**，所以这一端要写的只有
- * 「把它们接起来」这一层 —— 就是本类。它**不是** [com.xjtu.toolbox.agent.AgentHost] 的实现
- *（那个面的语义是「这一端有什么**端上资源**」，浏览器与 serve 都没有那些资源，见设计稿 §4.1），
- * 也**不是** `AgentViewModel`：那个类带着 Compose 状态与「切屏/串台」的 UI 顾虑，这里的消费者是
- * HTTP 与 SSE。
- *
- * ## 与 `AgentViewModel` 的对应（同一份判据，两处消费者）
- *
- * | 这件事 | `AgentViewModel` | 这里 |
- * |---|---|---|
- * | 系统提示（一段对话只生成一次） | 首轮按 `hasSystem` 生成 | 同一个判据，写进落盘的历史 |
- * | 每条 user 消息头 `[现在：…]` | `nowTag` | [nowTag]（逐字同形） |
- * | 循环 / 保险丝 / 限流 / 截断 / 原子提交 | `AgentRunner` | **同一份** [AgentRunner] |
- * | 模型那一枪 | `SseAgentTransport` | **同一份**（serve 上直接 `new`） |
- * | 工具行文案 / 跳转建议 | `:core` 的 `agentToolLabel` / `agentNavSuggestions` | 同一份（serve 只报工具名与路由 id） |
- * | 落盘时机 | 一轮结束时 `persist(turnSid)` | 同一时机（流结束/被中断都在 `finally` 里落） |
- * | 自愈损坏的历史 | `sanitizeHistory` | 同一份 `agentSanitizeHistory` |
- * | 800k 阈值 | `AGENT_CONTEXT_TOKEN_LIMIT` | 同一个常量，结果由 `done` 带出 |
- *
- * **不在这里**的：气泡的 50ms 合流、思考动画、弹窗（那些是浏览器屏的事）、
- * 以及 `replaceLastUserAndSend` 的「改上一条」（v1 不画那个入口，见设计稿 §9 未决 #7）。
- *
- * ## 工具层：白名单九件（S-c 已落地）
- *
- * [toolTable] 是「这次部署真给模型的工具表」这一格缝。[forServe] 交的是 [ServeAgentTools] ——
- * 设计稿 §6 那九件（四条逐字搬 `:app` + 3 条纯逻辑 + 公开通讯录两条），
- * 见那个类的 KDoc 与 `ServeAgentToolCopyDriftTest`（两份不漂的钉子）。
- * 后果是**可见的**：`/api/agent/config` 的 `toolAllowlist` 就是那九件（它是从真下发给模型的
- * 工具定义里读出来的，不是另维护一份清单），`tool_call` / `tool_result` / `widget` / `nav`
- * 四类事件在真机上都会出现。
- *
- * ## 并发与取消（设计稿 §3.4）
- *
- * - **同时只允许一轮**（[runMutex] + [tryBeginRun]）：两个并发 run 会往同一份 `llmHistory` 里
- *   交错写 tool 消息，历史直接烂掉。第二发由路由答 `409`；
- * - **停止 / 客户端断开是同一条路**：[stop] 取消的是这一轮的 [Job]（不是 HTTP 那个 call 的协程 ——
- *   那会把响应也一起掐断，客户端就连「流干净地结束了」都看不到）。被取消时：
- *   历史**不留残体**（照 `discardUnfinishedTurn` 把本轮那条 user 消息之后的全部丢掉）、
- *   落盘里末尾那句写「（已停止）」、**不再发任何事件**（`done` / `error` 都不发：
- *   这一轮没跑完，说它「正常结束」或「出错」都是假话；消费者自己知道自己按了停止）。
- *
- * @param session serve 的会话装配：MFA 询问（[mfaSiteName]）与「这一轮该不该联网补画像」都由它给。
- * @param configStore 配置那两份落盘（非敏感 + 密钥半）。**serve 上必须传真落盘的 KV**，
- *   否则 `:core` 的 jvm `keyValueStore` 是进程内存（`docs/storage-layout.md` §0 第 3 条）。
- * @param store 会话落盘（`agent_sessions<suffix>/index.json` + `convo_<id>.json`）。
- * @param memory 记忆（`agent_memory<suffix>`）—— 与配置、会话同一套账号后缀。
- * @param toolTable 「搜索源 → 工具表」：与 `AgentViewModel` 一样按搜索源重建（工具表构造时绑账号）。
- * @param transport 「发一次请求」那一格缝。生产是 `:data` 的 [SseAgentTransport]，测试用夹具。
- * @param mfaSiteName 正在等哪个站点的短信验证码（null = 没有）。默认读 serve 的会话内核。
- * @param pingIntervalMillis SSE 保活注释帧的间隔；`<= 0` 表示不发（测试用）。
- *
- * 【可见性】这个类是 **public** 的，只有一个原因：[serveModule] / [serveServer] 是 public 函数，
- * 而它们的签名里带着这一格（Kotlin 不让 public 函数暴露 internal 类型）。它不是给模块外用的 API：
- * 外面那一层契约始终是 HTTP（契约 §5.11）。
- */
+/** 屁岱在 serve 侧的那一半：配置 / 会话 / 记忆三份落盘 + 整个调度循环 + SSE 事件流。 */
 class ServeAgent(
     private val session: ServeSession,
     private val configStore: AgentConfigStore,
@@ -125,15 +65,9 @@ class ServeAgent(
     private val memory: AgentMemory,
     private val toolTable: (String) -> AgentTools,
     private val transport: () -> AgentTransport,
-    /**
-     * 拉模型列表那一枪（`POST /api/agent/models`）。默认就是 `:data` 的
-     * `AgentModelFetcher`（与 Android / 桌面同一份）；测试换成夹具 —— 这一族**不许**真打服务商。
-     */
+    /** 拉模型列表那一枪（`POST /api/agent/models`）。 */
     private val fetchModels: suspend (AgentConfig) -> List<String> = { AgentModelFetcher.fetch(it) },
-    /**
-     * 首轮结束后那一枪「给这段对话起个标题」（`:data` 的 `AgentTitleGen`，与 Android / 桌面同一份）。
-     * 测试换成夹具／关掉 —— 和 [fetchModels] 同一条理由：**这一族不许真打服务商**。
-     */
+    /** 首轮结束后那一枪「给这段对话起个标题」（`:data` 的 `AgentTitleGen`，与 Android / 桌面同一份）。 */
     private val generateTitle: suspend (AgentConfig, String, String) -> String? =
         { config, user, assistant -> AgentTitleGen.generate(config, user, assistant) },
     private val mfaSiteName: () -> String? = { session.activeMfaRequest?.siteName },
@@ -175,12 +109,7 @@ class ServeAgent(
     /** 删除（幂等）。 */
     fun deleteSession(id: String) = store.delete(id)
 
-    /**
-     * 这一份部署真给模型的工具名（= `/api/agent/config` 的 `toolAllowlist`）。
-     *
-     * **从工具定义里读**，不是另维护一份常量清单：白名单与「模型能调什么」共用一处真相，
-     * 两边不可能对上不上（设计稿 §6 的「同一份常量两个消费者」在这里的落法是「同一份定义」）。
-     */
+    /** 这一份部署真给模型的工具名（`/api/agent/config` 的 `toolAllowlist`）。 */
     fun toolAllowlist(searchEngine: String): List<String> =
         runCatching {
             AppJson.parseToJsonElement(toolTable(searchEngine).toolDefinitions).jsonArray
@@ -203,11 +132,7 @@ class ServeAgent(
     /** 在跑的是哪个会话（没有就是 null）。 */
     fun runningSession(): String? = runningSessionId
 
-    /**
-     * 占住「这一轮」的位置；占不到就是**已经有一轮在跑**（路由据此答 409）。
-     *
-     * 用 `tryLock` 而不是 `lock`：第二发要**立刻**拿到答案，不能排在可能几十秒的一轮后面。
-     */
+    /** 占住「这一轮」的位置；占不到就是已经有一轮在跑（路由据此答 409）。 */
     fun tryBeginRun(sessionId: String): Boolean {
         if (!runMutex.tryLock()) return false
         runningSessionId = sessionId
@@ -228,13 +153,7 @@ class ServeAgent(
         return true
     }
 
-    /**
-     * 跑一轮，把事件按 [write] 写出去（路由传的是「往 SSE 通道写一帧」）。
-     *
-     * 结构：事件先进一个**无界队列**，一个写手协程按顺序出队写 —— 因为 [AgentRunner] 的几个回调
-     * （`onToolCall` / `onToolResult` / `onUsage`）**不是 suspend 的**，不能直接调写通道。
-     * 取消只落在这一轮的 [Job] 上：写手照旧把队列排空，流干净地结束。
-     */
+    /** 跑一轮，把事件按 [write] 写出去（路由传的是「往 SSE 通道写一帧」）。 */
     suspend fun runTurn(sessionId: String, text: String, write: suspend (String) -> Unit) {
         coroutineScope {
             val events = Channel<AgentStreamEvent>(Channel.UNLIMITED)
@@ -282,8 +201,6 @@ class ServeAgent(
         tools.drainWidgets()   // 丢弃上一轮残留，确保本轮控件干净
         val runner = AgentRunner(tools, transport())
 
-        // 系统提示**一段对话只生成一次**：与 `AgentViewModel` 同一个判据（历史里没有 system 才生成）。
-        // 画像要学号，只在 serve 侧拼得出来（设计稿 §5.2 红线：学号不出网）。
         if (history.firstOrNull()?.jsonObject?.get("role")?.stringValue != "system") {
             val systemPrompt = AgentPrompt.build(
                 assistantName = config.effectiveName,
@@ -364,7 +281,6 @@ class ServeAgent(
             history = history.take(unfinishedFrom).toMutableList()
             toolLines.forEach { it.success = false; it.error = it.error ?: "已中断" }
             failure = if (e is SessionExpiredFailure) {
-                // 与 `AgentViewModel` 的 catch 分支逐字同源（同一条「登录失效」的标记接口）
                 AgentStreamEvent.Error("session_expired", SESSION_EXPIRED_TEXT)
             } else {
                 AgentStreamEvent.Error("llm", e.message?.takeIf { it.isNotBlank() } ?: "未知错误")
@@ -435,12 +351,7 @@ class ServeAgent(
         )
     }
 
-    /**
-     * 把这一轮的结果写进会话（时机与 `AgentViewModel.persist(turnSid)` 相同：流结束时）。
-     *
-     * @param reply 助手这一轮的回复；[cancelled] 为 true 时是那句「（已停止）」。
-     * @return 落盘后的标题（`done.title` 用它）。
-     */
+    /** 把这一轮的结果写进会话（时机与 `AgentViewModel.persist(turnSid)` 相同：流结束时）。 */
     private fun persist(
         sessionId: String,
         ui: MutableList<StoredMessage>,
@@ -499,13 +410,7 @@ class ServeAgent(
         }
     }
 
-    /**
-     * 首轮结束后用一次轻量模型调用起标题（与 `AgentViewModel.maybeAutoTitle` 同判据：
-     * 只在真用户消息恰好一条、且标题没被锁时做）。
-     *
-     * 它在**这一轮之外**跑（[background]）：那一枪最长 20 秒，压在这一轮里会让浏览器在
-     * `done` 之后还挂着一个没关的流。
-     */
+    /** 首轮结束后用一次轻量模型调用起标题（与 `AgentViewModel.maybeAutoTitle` 同判据： 只在真用户消息恰好一条、且标题没被锁时做）。 */
     private fun maybeAutoTitle(sessionId: String, config: AgentConfig) {
         val convo = store.load(sessionId) ?: return
         if (store.isLocked(sessionId)) return
@@ -523,16 +428,10 @@ class ServeAgent(
     }
 
 
-    /**
-     * 那一轮失败落盘时写进气泡的那句话 —— 与 `AgentViewModel` 的两条 catch 分支逐字同源：
-     * 登录失效是那一整句，其余是「出错了：$detail」（浏览器侧照同一句画）。
-     */
+    /** 那一轮失败落盘时写进气泡的那句话。 */
     private fun errorBubbleText(failure: AgentStreamEvent.Error): String =
         if (failure.kind == "session_expired") failure.message else "出错了：${failure.message}"
-    /**
-     * 每条 user 消息开头的实时标签（与 `AgentViewModel.nowTag` 逐字同形）。
-     * 契约 §4 说时间用服务端系统时区（这一端就是 serve 那台机器）。
-     */
+    /** 每条 user 消息开头的实时标签（与 `AgentViewModel.nowTag` 同形）。 */
     private fun nowTag(model: String): String {
         val now = nowInSystemZone()
         val days = listOf("", "周一", "周二", "周三", "周四", "周五", "周六", "周日")
@@ -541,13 +440,7 @@ class ServeAgent(
         return "[现在：$time $w" + (if (model.isBlank()) "" else " · $model") + "]"
     }
 
-    /**
-     * 把校园会话的 MFA 挂起状态变成 `mfa` 事件（**只有站名，没有手机号** —— §5.1 红线）。
-     *
-     * 为什么是轮询而不是监听：serve 的会话内核把这件事暴露成 `activeMfaRequest` 这个**属性**
-     *（`StateFlow` 的 `.value`），而这里只要「变了就说一声」。500ms 的粒度对一条「请等短信」的
-     * 提示完全够，且不会漏掉一次请求（它最长挂 150 秒）。
-     */
+    /** 把校园会话的 MFA 挂起状态变成 `mfa` 事件（只有站名，没有手机号 —— §5.1）。 */
     private suspend fun watchMfa(emit: (AgentStreamEvent) -> Unit) {
         var last: String? = null
         while (true) {
@@ -568,13 +461,7 @@ class ServeAgent(
         /** MFA 挂起状态轮询的间隔（见 [watchMfa]）。 */
         private const val AGENT_MFA_POLL_MS = 500L
 
-        /**
-         * 课表族缓存的落盘文件（`schedule_cache<账号后缀>`）。
-         *
-         * ⚠️ 与 `:desktop` 的 `DesktopScheduleHost.SCHEDULE_CACHE_STORE`、`:web` 的同名常量
-         * **逐字相同**：serve 与桌面读的是同一份文件（设计稿 §9 未决 #5 的口径）。三处各写一份
-         * 字面量（跨模块拿不到彼此的 `internal` 常量），改一处就得三处一起改。
-         */
+        /** 课表族缓存的落盘文件（`schedule_cache<账号后缀>`）。 */
         private const val SCHEDULE_CACHE_STORE = "schedule_cache"
 
         /** 自建日程的落盘文件（里面只有 `custom_courses` 这一个键，与桌面同一份）。 */
@@ -583,13 +470,7 @@ class ServeAgent(
         /** 与 `AgentViewModel` 的那句完全一致（同一个标记接口、同一个文案）。 */
         internal const val SESSION_EXPIRED_TEXT = "登录已失效，请返回并重新进入对应功能页面完成认证后再试。"
 
-        /**
-         * serve 进程的默认装配：三份落盘按 `docs/storage-layout.md` §2/§3/§5 的口径接上，
-         * 密钥半套 `:data` 的凭据保护器（Windows = DPAPI；Linux/macOS 没有保护器 ⇒ 明文 0600，
-         * 与今天逐字相同 —— 设计稿 §5.1 的「缺口 A」在 serve 这一侧就此收口）。
-         * ⚠️ **工具表这一格交的是 [ServeAgentTools]**（白名单九件，与 `/api/agent/config` 的
-         * `toolAllowlist` 同一份定义）：这一行与那一份清单不可能对不上（设计稿 §6 的「同一份常量两个消费者」）。
-         */
+        /** serve 进程的默认装配。 */
         fun forServe(session: ServeSession): ServeAgent {
             // 非敏感半与记忆：serve 上必须用**真落盘**的那份（0600 properties），默认的
             // `keyValueStore` 在 jvm 上按端而异，不能靠它（`docs/storage-layout.md` §0 第 3 条）。
@@ -607,8 +488,6 @@ class ServeAgent(
                 storeOf = { secureKeyValueStore(AgentMemory.STORE + AccountContext.safeSuffix()) },
                 legacyStoreOf = { secureKeyValueStore(AgentMemory.STORE) },
             )
-            // 课表族缓存与自建日程：文件名与桌面**逐字相同** ⇒ serve 读得到桌面写下的那一份
-            //（设计稿 §8 「自建日程读」那一条：桌面加的看得到，Android 的 Room 看不到）。
             val scheduleCache = KeyValueScheduleCacheStore(
                 secureKeyValueStore(SCHEDULE_CACHE_STORE + AccountContext.safeSuffix()),
             )
@@ -642,12 +521,7 @@ class ServeAgent(
     }
 }
 
-/**
- * SSE 那一帧要说的十类事（`docs/agent-web-spec.md` §3.2 的表）+ 一类保活注释帧。
- *
- * 事件名与载荷**逐条照设计稿**：`delta` / `reasoning` / `tool_call` / `tool_result` / `usage` /
- * `mfa` / `widget` / `nav` / `done` / `error`，外加 `: ping`（SSE 规范里的注释行，客户端必须忽略）。
- */
+/** SSE 那一帧要说的十类事（`docs/agent-web-spec.md` §3.2 的表）+ 一类保活注释帧。 */
 internal sealed interface AgentStreamEvent {
 
     /** 模型正文增量，逐段。 */
@@ -690,12 +564,7 @@ internal sealed interface AgentStreamEvent {
     data object Ping : AgentStreamEvent
 }
 
-/**
- * 一个事件 → SSE 的一帧。**纯函数**（`:web` 那一侧的解析器与它对着写，也是本文件唯一被单测直接钉的形状）。
- *
- * 帧的形状照 SSE 规范：`event: <名>\n` + `data: <一行 JSON>\n` + 一个空行。
- * 载荷里**没有换行**（JSON 自己会把换行转义成 `\n`），所以「一帧一行」这条成立。
- */
+/** 一个事件 → SSE 的一帧。 */
 internal fun agentSseFrame(event: AgentStreamEvent): String = when (event) {
     is AgentStreamEvent.Delta ->
         sseFrame("delta", buildJsonObject { put("text", event.text) })

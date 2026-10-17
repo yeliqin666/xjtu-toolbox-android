@@ -13,30 +13,10 @@ import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
-/**
- * 多账号那张表的**落盘口径**：`AccountStore` 本轮从 `:app` 搬进 `:data`（多账号页要它，见
- * `docs/desktop-port-plan.md` §5.4 与 `AccountStore` 的 KDoc），存储从「拿 `Context` 开
- * `SecurePrefs`」换成 `:data` 的密文键值缝 `secureKeyValueStore`。
- *
- * 搬动**不允许**改变任何一条对用户可见的契约，这里逐条钉住：
- *
- *  1. **存储名与键名一个字都不能改**（`xjtu_accounts` / `accounts` / `active_account` /
- *     `migration_done`）：Android 的 actual 就是同一个 `SecurePrefs` 文件，改一个字符
- *     老用户的账号列表与激活指针就找不到了 —— 与 `GithubCommunityJvmTest` 里那条
- *     「存储名逐字不变」是同一条口径；
- *  2. **逐条解码**：某一条坏了只丢那一条（不整表清空），缺学号的条目也丢掉；
- *  3. **激活指针跟着列表走**：`remove` 掉当前激活账号要把 `active_account` 一并清掉，
- *     否则下次启动会「恢复」一个不存在的账号。
- *
- * 第一支用例（`accounts_badEntryOnlyDropsItself`）是从 `:app` 的 `LegacyJsonCompatTest`
- * **原样搬过来**的：`decodeAccounts` 是 `internal`（模块级），跟着实现一起进了 `:data`。
- */
+/** 多账号那张表的落盘口径（`secureKeyValueStore`）。 */
 class AccountStoreJvmTest {
 
-    /**
-     * 直接照**搬迁前那个存储名**开一份（那时是 `SecurePrefs.open(context, "xjtu_accounts")`）——
-     * 刻意写字符串而不是引用 `AccountStore.FILE_NAME`：常量若被改掉，这条对照就会先红。
-     */
+    /** 按老存储名 `xjtu_accounts` 直接开一份，确认老数据仍读得到。 */
     private val raw = secureKeyValueStore("xjtu_accounts")
 
     @BeforeTest
@@ -120,7 +100,6 @@ class AccountStoreJvmTest {
         store.upsert(Account(accountId = "2210000001", password = "p"), setActive = true)
         assertFalse(store.migrationDone)
 
-        // 键名是契约：直读底层存储（搬迁前那几个键名逐字不变）
         assertEquals("2210000001", raw.getString("active_account"))
         assertTrue(raw.getString("accounts")!!.contains("2210000001"))
         assertEquals(false, raw.getBoolean("migration_done", false))

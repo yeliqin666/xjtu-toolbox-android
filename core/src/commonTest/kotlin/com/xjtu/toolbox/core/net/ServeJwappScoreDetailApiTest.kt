@@ -14,20 +14,7 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import kotlinx.coroutines.test.runTest
 
-/**
- * serve 契约 §5.8 的**客户端那一侧**：一门课的**分项**成绩
- *（`GET /api/jwapp/score-detail?courseId=`，[CampusJwappScoreApi.getScoreDetail]）。
- *
- * 这一格在 §5.6 那一批里还是「刻意不端」（开关报 `false`、卡片点了不展开），2026-10-14 按 D13
- * 端了 ⇒ 本类钉住四件事：
- *
- *  1. **请求形状**：`?courseId=` 必填、原样发（它就是 `/api/jwapp/scores` 那一行的 `id`）；
- *  2. **`itemPercent` 是比例**（`0.3` = 30%）：`:data` 已经把上游的 `"30%"` 除过 100，本端不除第二次；
- *  3. ⚠️ **「这门课没有分项」= `detail:null` ⇒ 抛 [NoScoreDetailException]**（与 `:data` 的
- *     `JwappApi.getDetail` 同一个异常，屏据此拼 `ScoreItem.asEmptyDetail()`），**不是** 加载失败；
- *  4. **两种形态的开关不一样**：serve 形态 `canFetchScoreDetail = true`，campus-api 形态 `false`
- *     （移动教务在那一头没有这条端点）⇒ 屏在那形态下不展开那一格。
- */
+/** serve 契约 §5.8 的客户端那一侧。 */
 class ServeJwappScoreDetailApiTest {
 
     private class Call(val path: String, val url: String)
@@ -82,10 +69,7 @@ class ServeJwappScoreDetailApiTest {
         assertEquals("98", detail.itemList.last().itemScore)
     }
 
-    /**
-     * 「这门课没有分项」是**上游明确说没有**（§4：`detail` 显式为 `null`）⇒ 抛 [NoScoreDetailException]，
-     * 屏的 `loadDetail` 拿它走「自己拼一份空明细」那条老分支，而不是弹「加载分项成绩失败」。
-     */
+    /** 「这门课没有分项」是上游明确说没有（§4：`detail` 显式为 `null`） */
     @Test
     fun serveDetailNullMeansNoItemsNotAFailure() = runTest {
         val api = CampusJwappScoreApi(
@@ -113,10 +97,7 @@ class ServeJwappScoreDetailApiTest {
         assertEquals(0, calls.size, "空 id 不该发请求")
     }
 
-    /**
-     * campus-api 形态：那一头没有这条端点（那个上游就没有它）⇒ 开关报 `false`，方法抛 `serveOnly` 那句错
-     * —— 屏据开关不展开那一格（不是画一个点了会报错的控件）。
-     */
+    /** campus-api 形态：那一头没有这条端点（那个上游就没有它）⇒ 开关报 `false`，方法抛 `serveOnly` 那句错。 */
     @Test
     fun campusApiModeStillReportsNoScoreDetail() = runTest {
         val api = CampusJwappScoreApi(

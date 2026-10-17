@@ -5,40 +5,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
-/**
- * 「`WebSupport.openableRouteIds` = `AppPage` 的分支」这件事的机器可验版本（D14 / 工单 S8）。
- *
- * 同型写法见 `desktop/src/test/.../DesktopRouteCoverageJvmTest.kt`；判据是
- * `docs/desktop-port-plan.md` §16.2 第 1 条：清单与 `AppRoute` 的差集**只允许剩「这一端永远做不到」
- * 的条目，且每条都在页面上有如实说明**。
- *
- * ## 为什么要有它
- *
- * `WebSupport` 的文件头把「加一屏要改哪两处」写成了规矩（① `AppPage` 加分支；② `openableRouteIds`
- * 加一条）。规矩靠人记就会腐坏：删掉一条分支、或新加一条声明而不加分支，上一轮的验收（“能编译 +
- * 产物能出 + 服务端在吐新产物”）**一条都不会红** —— 用户在首页宫格里看得到门，点进去却是
- * 「还没搬到 Web」，那正是 2026-10-13 那一轮踩过的坑。所以这里把它变成断言。
- *
- * ## 断言对象是源码（浏览器里读不到盘上的文件）
- *
- * `AppRoute` 是 sealed interface 加一堆 `data object` / `data class`，**没有**一份「全部声明」的清单
- * 可枚举（wasm 上也没有 `sealedSubclasses` 那种反射）⇒ 声明侧与分支侧都取源码文本：
- *
- * - 声明侧：`core/.../nav/AppRoute.kt` 里的 `@Serializable data object|class Xxx` + 它 `id` getter
- *   里那几个字符串字面量（`Lms` 那种带参声明有两个字面量，`Browser` 那种是模板串）；
- * - 分支侧：`ToolboxWebApp.kt` 里 `AppPage(...)` 那个 `when (route) {` 的**顶层**分支
- *   （缩进比 `when` 深一级的那些行；嵌在分支体里的 `when` 不算）；
- * - 两端（声明侧 / 分支侧）之间那条绳子 = **运行时**的 `WebSupport.openableRouteIds`
- *   （清单本身不解析源码，用真的那一份）。
- *
- * 源码怎么进浏览器：构建期生成一个常量对象（见 `web/build.gradle.kts` 的
- * `generateWebTestSourceSnapshot`：三份文件都在 `inputs` 里，改源码就会重新生成）。
- *
- * ⚠️ 口径与 §16.2 第 1 条一致：这是**清单与分支的一致性**，不是「那一屏真能用」。
- * `AppRoute.Accounts` 就在清单里，而它在浏览器里是**只读**的（页顶那句写明），由那一屏自己说，
- * 不在本测试的范围里。（`AppRoute.Match` 2026-10-14 也属这一档 —— 那时 wasm 上没有
- * deflate/Base64、分享码用不了，落的是如实说明页；D12 ② 之后它真能用了。）
- */
+/** 「`WebSupport.openableRouteIds` = `AppPage` 的分支」这件事的机器可验版本。 */
 class WebRouteCoverageTest {
 
     /** 见文件头：每条失败信息都带上它。 */
@@ -116,7 +83,6 @@ class WebRouteCoverageTest {
                 "差集里多出新的一条就要在文件头里写清「为什么这一端做不到」",
         )
 
-        // 「每条都有如实说明的来源」：WebSupport 文件头里那一段就是唯一一份说法（不是漏，是这一端做不到）
         val explained = WebSourceSnapshot.WEB_SUPPORT
             .substringAfter("## 什么不在清单里", missingDelimiterValue = "")
             .substringBefore("internal object WebSupport")
@@ -163,8 +129,7 @@ class WebRouteCoverageTest {
                 "除此之外的分支必须同时进 openableRouteIds，否则那一屏在首页宫格与学辅目录上都没有门",
         )
 
-        // 兜底那一支还在：它是「清单说有、这里却没有分支」的最后一道可见退路（报错页，而不是一张
-        // 「还没搬到 Web」的假话）。今天它接不到任何一条（上面两条断言互为正反面）。
+        // 兜底那一支还在（清单说有、这里却没有分支时的报错页）。
         assertTrue(
             Regex("""^\s*else\s*->""", RegexOption.MULTILINE).containsMatchIn(WebSourceSnapshot.TOOLBOX_WEB_APP),
             "AppPage 的 when 里没有 `else ->` 兜底了：$criterion；删掉它会让漏掉的分支静默落一张" +

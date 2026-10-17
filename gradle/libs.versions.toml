@@ -8,22 +8,18 @@ coreKtx = "1.19.1"
 coreSplashscreen = "1.2.0"
 lifecycle = "2.11.0"
 activityCompose = "1.13.0"
-# 钉死的正式版（审计 #33：latest.release 让同一份源码两次构建可能编到不同版本）。升级 = 改这里
+# 钉死的正式版（latest.release 会让同一份源码构建出不同版本）
 miuix = "0.9.4"
 # 与 miuix 带进来的 Compose 保持一致（ui 1.12.1）
 composeBom = "2026.09.00"
 okhttp = "5.5.0"
 markdownRenderer = "0.45.0"
-# mikepenz 的 renderer 传递进来的 markdown 解析器（org.intellij.markdown）。
-# 社区列表的摘要（community/DiscussionSummary）直接用它的 AST 去标记，所以 :core 显式声明它；
-# 版本跟 renderer 0.45.0 的传递版本一致（0.7.9），免得「明明能编、换依赖就崩」。
+# 社区摘要直接用 org.intellij.markdown 的 AST，版本与 renderer 0.45.0 的传递版本一致。
 jetbrainsMarkdown = "0.7.9"
 coil = "3.6.3"
 jsoup = "1.23.2"
 jna = "5.19.1"
-# Windows 的**原生凭据保护**（DPAPI）走 JNA：JDK 自己没有 CryptProtectData 的绑定
-# （SunMSCAPI 是 CryptoAPI 的密钥库/签名，不含 DPAPI），而 FFM API 在 JDK 21 还是 preview。
-# 只被 `:data` 的 jvmMain 用到（见 data/build.gradle.kts）。
+# Windows DPAPI 走 JNA（JDK 没有 CryptProtectData 绑定，FFM 在 JDK 21 还是 preview）。
 flexmark = "0.64.8"
 coroutines = "1.11.0"
 securityCrypto = "1.0.0"
@@ -33,23 +29,15 @@ media3 = "1.11.1"
 backdrop = "2.0.1"
 graphicsShapes = "1.1.0"
 kotlinxSerialization = "1.11.0"
-# 传输层探针：okhttp 实测只发布 jvm/android 变体（iOS/wasm 都没有），
-# 要编到非 Android 端必须换 Ktor（三端都有引擎）。
+# okhttp 只发布 jvm/android 变体，非 Android 端用 Ktor。
 ktor = "3.6.0"
 kotlinxDatetime = "0.8.0"
-# Compose Multiplatform：:core 要用 androidx.compose.ui.graphics 这类「无 Composable 的
-# 绘图基础类型」（Color / Path / 几何）——它们在 CMP 里是 common 的。
-# 版本必须与 :app 的 compose ui（1.12.1）一致：android 变体是 6KB 空壳，转发到
-# androidx.compose.ui:ui-graphics，所以两边不会重复类。
+# CMP 版本必须与 :app 的 compose ui 一致（android 变体只是转发到 androidx）。
 composeMultiplatform = "1.12.1"
-# JetBrains 版的 androidx.lifecycle（KMP）：**与 :app 的 androidx.lifecycle 同版 2.11.0**。
-# 第 3 步搬 UI 时 ViewModel / collectAsStateWithLifecycle 从这里来，只换组名不换版本。
+# 与 :app 的 androidx.lifecycle 同版。
 jetbrainsLifecycle = "2.11.0"
-# material-icons-extended：CMP 的多平台发布**停在 1.7.3**（JetBrains 之后停发），而 :app 有
-# 470 处 Icons.*。共享 UI 需要跳端图标，只能钉这个版本 —— 它同时有 inline 的 androidJvm
-# 变体与 wasm-js / uikit 变体（实测 .module 确认），所以三端都能用。
+# material-icons-extended 的多平台发布停在 1.7.3，只能钉这个版本。
 composeMaterialIcons = "1.7.3"
-# Web 端探针用到的浏览器 API（localStorage / location）与 kotlinx-io 的 web 目标。
 kotlinxBrowser = "0.5.0"
 junit = "4.13.2"
 junitVersion = "1.3.0"
@@ -118,20 +106,17 @@ ktor-client-okhttp = { group = "io.ktor", name = "ktor-client-okhttp", version.r
 ktor-client-js = { group = "io.ktor", name = "ktor-client-js", version.ref = "ktor" }
 ktor-client-darwin = { group = "io.ktor", name = "ktor-client-darwin", version.ref = "ktor" }
 ktor-client-mock = { group = "io.ktor", name = "ktor-client-mock", version.ref = "ktor" }
-# Ktor 的**服务端**（:server = serve 模式）。与客户端同一个 `ktor` 版本号：两者是同一次发布。
-# 引擎选 CIO（纯 Kotlin 协程、无 native 传输层依赖）：serve 模式的并发量是「一个人的浏览器」。
+# Ktor 服务端与客户端同版本；引擎用 CIO。
 ktor-server-core = { group = "io.ktor", name = "ktor-server-core", version.ref = "ktor" }
 ktor-server-cio = { group = "io.ktor", name = "ktor-server-cio", version.ref = "ktor" }
 ktor-server-content-negotiation = { group = "io.ktor", name = "ktor-server-content-negotiation", version.ref = "ktor" }
 kotlinx-coroutines-core = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-core", version.ref = "coroutines" }
 kotlinx-coroutines-test = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-test", version.ref = "coroutines" }
-# 桌面窗口的 Main 调度器：Compose Desktop 的 UI 与 :core 里那些 viewModelScope 都跑在 AWT 事件队列上。
-# 没有它，`Dispatchers.Main` 在 jvm 上是 missing，`:core` 的屏一建 ViewModel 就炸。
+# 没有它 jvm 上 `Dispatchers.Main` 缺失，:core 的屏一建 ViewModel 就崩。
 kotlinx-coroutines-swing = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-swing", version.ref = "coroutines" }
 kotlinx-datetime = { group = "org.jetbrains.kotlinx", name = "kotlinx-datetime", version.ref = "kotlinxDatetime" }
 compose-ui-graphics = { group = "org.jetbrains.compose.ui", name = "ui-graphics", version.ref = "composeMultiplatform" }
-# MIUIX 的 **KMP 根模块**（不带 -android 后缀）：Gradle Module Metadata 会自动选 wasm-js 变体。
-# :app 用的是 -android 变体，这里要的是同一套组件的 Web 端，所以刻意不带后缀。
+# MIUIX 的 KMP 根模块（不带 -android 后缀），给 Web 端用。
 miuix-ui-kmp = { group = "top.yukonga.miuix.kmp", name = "miuix-ui", version.ref = "miuix" }
 miuix-icons-kmp = { group = "top.yukonga.miuix.kmp", name = "miuix-icons", version.ref = "miuix" }
 kotlinx-browser = { group = "org.jetbrains.kotlinx", name = "kotlinx-browser", version.ref = "kotlinxBrowser" }
@@ -139,19 +124,14 @@ compose-material-icons-core = { group = "org.jetbrains.compose.material", name =
 miuix-nav-kmp = { group = "top.yukonga.miuix.kmp", name = "miuix-nav", version.ref = "miuix" }
 miuix-preference-kmp = { group = "top.yukonga.miuix.kmp", name = "miuix-preference", version.ref = "miuix" }
 miuix-squircle-kmp = { group = "top.yukonga.miuix.kmp", name = "miuix-squircle", version.ref = "miuix" }
-# KMP 的 lifecycle：ViewModel / viewModelScope / collectAsStateWithLifecycle
 jb-lifecycle-viewmodel = { group = "org.jetbrains.androidx.lifecycle", name = "lifecycle-viewmodel", version.ref = "jetbrainsLifecycle" }
 jb-lifecycle-viewmodel-compose = { group = "org.jetbrains.androidx.lifecycle", name = "lifecycle-viewmodel-compose", version.ref = "jetbrainsLifecycle" }
 jb-lifecycle-runtime-compose = { group = "org.jetbrains.androidx.lifecycle", name = "lifecycle-runtime-compose", version.ref = "jetbrainsLifecycle" }
 compose-material-icons-extended = { group = "org.jetbrains.compose.material", name = "material-icons-extended", version.ref = "composeMaterialIcons" }
-# 多平台的 BackHandler：Android 专属的 androidx.activity.compose.BackHandler 在共享 UI 里
-# 不能用。这个坐标是 CMP 单独发布的（有 wasm-js / iosarm64 / macosarm64 变体），
-# android 变体委派给 androidx.activity —— 所以行为不变，只是 import 换一行。
+# 多平台 BackHandler（android 变体委派给 androidx.activity）。
 compose-ui-backhandler = { group = "org.jetbrains.compose.ui", name = "ui-backhandler", version.ref = "composeMultiplatform" }
 
 [plugins]
-# 纯 JVM 模块（:desktop 窗口壳）：Compose Desktop 的 application/jpackage DSL 在
-# kotlin("jvm") 上是官方模板形态，比「KMP 只声明一个 jvm 目标」少一层坑。
 kotlin-jvm = { id = "org.jetbrains.kotlin.jvm", version.ref = "kotlin" }
 android-application = { id = "com.android.application", version.ref = "agp" }
 android-test = { id = "com.android.test", version.ref = "agp" }
@@ -161,7 +141,6 @@ kotlin-serialization = { id = "org.jetbrains.kotlin.plugin.serialization", versi
 ksp = { id = "com.google.devtools.ksp", version.ref = "ksp" }
 kotlin-multiplatform = { id = "org.jetbrains.kotlin.multiplatform", version.ref = "kotlin" }
 android-kotlin-multiplatform-library = { id = "com.android.kotlin.multiplatform.library", version.ref = "agp" }
-# Web（wasmJs）应用模块 :web 用的 Compose Multiplatform 插件。
-# 与 :core 的 composeMultiplatform 版本同源，避免一套工程里出现两个 CMP 版本。
+# :web 的 CMP 插件，与 :core 的 composeMultiplatform 同版。
 compose-multiplatform = { id = "org.jetbrains.compose", version.ref = "composeMultiplatform" }
 

@@ -19,16 +19,7 @@ private const val TAG = "AttendanceStore"
  * - 兜底：距上次全量超过 [FULL_RESCAN_MS] 整学期重扫一遍
  * - 下拉刷新：强制全量
  *
- * 从 `:app` 的 `attendance/AttendanceRecordStore.kt` 整份搬进 `:data`（同包、同类名，桌面端第 16 条
- * 真数据路由那一批），只换了两处住址：
- *
- * - **落盘**：原来收 `android.content.Context` 自己开 `SharedPreferences`，现在走 `:core` 的
- *   平台键值缝 [keyValueStore] —— Android 侧的 actual 就是**同一个文件名的 `SharedPreferences`**
- *   （`attendance_records_ug|pg<suffix>`，键是学期码）⇒ 老缓存一个不丢，不需要迁移代码；
- * - **日志**：`android.util.Log.d` → `:core` 的 [Log].d。
- *
- * 各方法的 `Context` 参数全部去掉（`:app` 的 `schedule/CourseLinks.kt` 是唯一调用方，跟着改名），
- * 其余签名、常量、`Shard` 的字段与 `merge` / `planFor` 的编排一字未改。
+ * 落盘走 [keyValueStore]，文件名 `attendance_records_ug|pg<suffix>`、键是学期码（与 Android 老缓存同名，别改）。
  */
 object AttendanceRecordStore {
 

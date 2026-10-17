@@ -2,15 +2,7 @@ package com.xjtu.toolbox.schedule
 
 import com.xjtu.toolbox.core.net.ScheduleRow
 
-/**
- * 一节课在「周 × 星期 × 节次」网格里的位置 —— **跨端共享的课表模型**。
- *
- * 与 `:app` 现有 `ScheduleSlot` / `CourseItem` 的关系（照实说明，避免两套模型悄悄分叉）：
- *   - 那边是 Android 侧的历史形状：周次用 `weekBits` 位串、`location` 不区分教室与校区；
- *   - 这边用**展开后的周次列表** + 拆分后的 `room` / `campus`，因为 Web 端没有位串这套历史包袱，
- *     而位串正是交接文档点名要退役的东西（`SKZC` 位宽 16/18 不齐）。
- *   - 第 3 步搬 UI 时 `:app` 会收敛到这个模型上，届时 `weekBits` 退役。
- */
+/** 一节课在「周 × 星期 × 节次」网格里的位置 —— 跨端共享的课表模型。 */
 data class CourseSlot(
     val courseName: String = "",
     val teacher: String = "",
@@ -35,19 +27,7 @@ data class CourseSlot(
     override val slotEndSection get() = endSection
 }
 
-/**
- * `ZCMC` 周次文本 → 周集合。口径与 J1900 的 `jwxt2caldav.js::parseZcmc` **逐条对齐**
- * （那份是权威实现，两侧算出来的周次必须一模一样，否则日历与 App 会互相打脸）：
- *
- *   - 范围段：`1-16周`、`2-16周`
- *   - 单双周：`5-7周(单)`、`5-7周(双)`
- *   - **单周段**：`16周`、`1周,8周` —— 过往学期数据里真实存在，旧解析只认范围段会直接 die
- *   - 段间用逗号分隔，允许空格
- *
- * 与权威实现的一处**有意差异**：解析不了的段落**跳过而不是抛异常**。
- * 理由：这里跑在用户面前（Android/Web 同一份），一个畸形段落不该让整张课表白屏；
- * 服务端那份是离线任务，抛异常让人发现才是对的。
- */
+/** `ZCMC` 周次文本 → 周集合。 */
 fun parseWeeksText(zcmc: String?): List<Int> {
     if (zcmc.isNullOrBlank()) return emptyList()
     val out = mutableSetOf<Int>()

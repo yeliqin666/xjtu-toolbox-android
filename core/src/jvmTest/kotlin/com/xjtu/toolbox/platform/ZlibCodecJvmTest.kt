@@ -11,23 +11,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
-/**
- * **纯 Kotlin 那一份 zlib（[ZlibCodec]）与 `java.util.zip` 的关系**的机器可验版本。
- *
- * 它是 D12 ② 的另一半：浏览器端（wasmJs）用 [ZlibCodec]，Android / 桌面用 `java.util.zip`
- * （`deflateBytes` / `inflateBytes` 两份 actual，与本文件里的 `jdkDeflate` / `jdkInflate` 同一份源码）。
- * 分享码要能互认，就得钉住下面这些：
- *
- * 1. **这一份压出来的流 `java.util.zip` 解得开**（浏览器出的码 → Android 解得开）；
- * 2. **`java.util.zip` 压出来的流这一份解得开**（Android 出的码 → 浏览器解得开）—— 样本里刻意放了
- *    随机字节那种**压不动**的输入，因为 zlib 对它会发**存储块**（`BTYPE=00`），那是解压器最容易漏的一条路；
- * 3. **坏数据的判据一致**（头部、FCHECK、Adler-32、块类型）⇒ 两边都是 null；
- * 4. **上限与截断那两档**的行为如实（两边在截断上都给「已经解出来的那一段」，上限那格这一份更严，
- *    见 `ZlibCodec` 文件头那张表的最后一行）。
- *
- * 逐字节**不同**的那一处（这一份用固定 Huffman、zlib 用动态 Huffman）在这里**不**是失败：
- * 判据是「解得回原文」，不是「压出来一样」。端到端的互认在 `ShareCodeInteropJvmTest` 里钉。
- */
+/** 纯 Kotlin 那一份 zlib（[ZlibCodec]）与 `java.util.zip` 的关系的机器可验版本。 */
 class ZlibCodecJvmTest {
 
     // ── 方向一：纯 Kotlin 压 → java.util.zip 解 ──────────────
@@ -171,7 +155,7 @@ class ZlibCodecJvmTest {
         )
     }
 
-    /** 搬迁前 `:app` 的 `MatchProfile.deflate`（`java.util.zip` 那份，逐字抄在这里当基准）。 */
+    /** `java.util.zip` 的 deflate，当基准。 */
     private fun jdkDeflate(raw: ByteArray): ByteArray {
         val deflater = Deflater(Deflater.BEST_COMPRESSION)
         deflater.setInput(raw)
@@ -183,7 +167,7 @@ class ZlibCodecJvmTest {
         return out.toByteArray()
     }
 
-    /** 搬迁前 `:app` 的 `MatchProfile.inflate`。 */
+    /** `java.util.zip` 的 inflate，当基准。 */
     private fun jdkInflate(bytes: ByteArray, maxBytes: Int): ByteArray = assertNotNullBytes(
         runCatching {
             val inflater = Inflater()

@@ -15,14 +15,7 @@ import kotlinx.datetime.LocalDateTime
 import kotlinx.serialization.json.decodeFromJsonElement
 import kotlinx.serialization.json.jsonObject
 
-/**
- * 黄页的**缓存**能力切口。
- *
- * 原本 `YellowPageApi` 直接持有 :app 的 `DataCache`（Context + 文件 + 按账号隔离的目录），
- * 那套是 Android 专属的。搬进 commonMain 后把它收成一个接口：
- * Android 侧仍用 `DataCache`（同一个 key、同一个 TTL，行为逐字一致），
- * 其余端可以传 null（不缓存，直接请求）或将来接自己的实现。
- */
+/** 黄页的缓存能力切口。 */
 interface YellowPageCache {
     /** 未过期（TTL 内）的缓存，没有返回 null。 */
     fun read(): YellowPageData?
@@ -33,28 +26,12 @@ interface YellowPageCache {
     fun write(data: YellowPageData)
 }
 
-/**
- * 黄页取数端口 —— 让同一个 [YellowPageScreen] 在两个端取数：
- * - Android/直连：`YellowPageApi`（Ktor 直连 `workflow.xjtu.edu.cn`）；
- * - Web：`CampusYellowPageApi`（同源 `/api/info/yellowpage`，由 campus-api 代取 —— 浏览器直连学校
- *   拿不到 CORS 头，这是 Web 端唯一可用的数据路径）。
- *
- * 与 `GithubDiscussionsRepository` 是同一条缝（交接文档§5.1 的路 1）：屏幕只认识端口与模型。
- */
+/** 黄页取数端口。 */
 interface YellowPageSource {
     suspend fun getData(forceRefresh: Boolean = false): YellowPageData
 }
 
-/**
- * 黄页（`workflow.xjtu.edu.cn/selectpage` 的机构通讯录）的只读接口。
- *
- * 从 :app 的 `yellowpage/YellowPageApi.kt` 搬进 commonMain，并**只把传输层从 okhttp 换成
- * Ktor**（第 1 步 okhttp→Ktor 的一处）：接口路径、请求头、错误文案、"优先缓存 / 失败回退旧缓存"
- * 的顺序都逐字保留；`Context` 依赖通过 [YellowPageCache] 注入。
- *
- * @param cache null 表示不缓存。
- * @param baseUrl 测试可注入；默认与 :app 一致。
- */
+/** 黄页（`workflow.xjtu.edu.cn/selectpage` 的机构通讯录）的只读接口。 */
 class YellowPageApi(
     private val client: HttpClient,
     private val cache: YellowPageCache? = null,
@@ -80,11 +57,7 @@ class YellowPageApi(
         }
     }
 
-    /**
-     * 解析 getList 的响应体：取 `d` 下的 categories / departments，各自只留 status==1，
-     * 再按 (sort, id) 升序。抽成 internal 纯函数是为了让“换 Ktor 但解析逐字不变”这件事
-     * 能被 commonTest 钉住（跨端回归网）。
-     */
+    /** 解析 getList 的响应体。 */
     internal fun parseListBody(root: kotlinx.serialization.json.JsonObject): Pair<List<YellowPageCategory>, List<YellowPageDepartment>> {
         val data = root.obj("d")
             ?: throw RuntimeException("黄页接口缺少数据")
@@ -97,13 +70,7 @@ class YellowPageApi(
         return categories to departments
     }
 
-    /**
-     * 解析 getUpdateTime 的响应体为「2026年08月01日」。
-     *
-     * 原本是 `java.time.LocalDateTime.parse(raw).format("yyyy年MM月dd日")`；
-     * kotlinx-datetime 的解析口径与 ISO_LOCAL_DATE_TIME 一致，格式化手写补零。
-     * 解析不了（拿不到字段、格式不对）时抛出，由调用方 runCatching 成 ""——与搬迁前一致。
-     */
+    /** 解析 getUpdateTime 的响应体为「2026年08月01日」。 */
     internal fun parseUpdateTime(root: kotlinx.serialization.json.JsonObject): String {
         val raw = root.obj("d")
             ?.get("page_update_time")
@@ -119,7 +86,7 @@ class YellowPageApi(
     }.let { response ->
         val body = response.bodyAsText()
         if (!response.status.isSuccess()) {
-            // 与 :app 逐字一致：只带状态码，不让上游 HTML 混进用户可见文案
+            // 只带状态码，不让上游 HTML 混进用户可见文案
             throw RuntimeException("黄页接口 HTTP ${response.status.value}")
         }
         AppJson.parseToJsonElement(body).jsonObject.also {

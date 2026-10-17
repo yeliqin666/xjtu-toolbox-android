@@ -30,18 +30,7 @@ import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 import top.yukonga.miuix.kmp.basic.Text
 
-/**
- * 共享壳在**两种窗口形状**下的形态：六格是画成侧栏、还是画成底栏，以及六格挤不挤得下。
- *
- * 为什么要有它：桌面的窗口默认就是手机比例（520×900，见 `Main.kt`），而 900×900 那种宽窗在
- * 42 张证据图里只有 `main.png` / `schedule.png` 两张 —— 「六格在侧栏 / 底栏里画得下吗、文字会不会
- * 被截断、『全部』那一格还点不点得到」这三件事光看图看不出来（图能看出有没有，看不出宽度对不对）。
- * 这里用与证据运行**同一套**离屏渲染（`ImageComposeScene`、同一个 skiko 栈）把它们变成断言：
- * 读语义树里每一格的**位置与宽度**，并真的点一下「全部」。
- *
- * ⚠️ 它测的是 `:core` 的壳 + 这一端的六格（[desktopTabs]），**不需要登录**：注进去的那一页是个空
- * Box —— 要钉的是底栏 / 侧栏，不是某一屏。
- */
+/** 共享壳在两种窗口形状下的形态：六格是画成侧栏、还是画成底栏，以及六格挤不挤得下。 */
 @OptIn(ExperimentalComposeUiApi::class)
 class DesktopShellRailJvmTest {
 
@@ -74,10 +63,7 @@ class DesktopShellRailJvmTest {
             XJTUToolBoxTheme { content() }
         }
 
-    /**
-     * 与 `ToolboxDesktopApp` 里那一处逐字同型：把窗口形状喂给共享壳，壳自己判「底栏还是侧栏」。
-     * 页那一格是个空 Box（这一层要钉的是壳，不是任何一屏）。
-     */
+    /** 把窗口形状喂给共享壳，壳自己判「底栏还是侧栏」（与 `ToolboxDesktopApp` 同型）。 */
     private fun shellScene(width: Int, height: Int, onSelect: (ShellTab) -> Unit = {}): ImageComposeScene =
         renderScene(width, height) {
             CompositionLocalProvider(LocalIsWideLayout provides calculateIsWideLayout()) {

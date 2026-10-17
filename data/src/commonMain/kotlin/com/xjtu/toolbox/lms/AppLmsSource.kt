@@ -4,26 +4,7 @@ import com.xjtu.toolbox.auth.SiteSession
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
-/**
- * `:core` 的 [LmsSource] 在 `:data` 里的实现（Android 与桌面共用）—— 包住搬进 `:data` 的
- * [LmsApi]（okhttp 抓 `lms.xjtu.edu.cn` 思源学堂），并把「下载/回放队列」交给宿主槽位
- * [LmsDownloadSink]（`:app` 的 `AppLmsSink` / 桌面 `DesktopLmsSaver`）。
- *
- * 两件事各动一半：
- *
- * 1. **取数**（[LmsApi]）的类名与包路径一字未改，只是从 `:app/lms/` 挪到同包的 `:data/lms/`；
- *    它本来就用 `:data` 的 [SiteSession]（`lms` 站点，见
- *    [com.xjtu.toolbox.auth.LmsSession] 与 [com.xjtu.toolbox.lms.LmsLogin]），所以一行调用都不用改。
- * 2. **调度器**：搬迁前是屏（`LmsPageCache` 等）每次调用自己 `withContext(Dispatchers.IO)`，
- *    现在屏不再替实现挑调度器（见 [LmsSource] 的 KDoc），所以由本类自己包 ——
- *    **同一层、同一个调度器，行为不变**。
- *
- * **落盘**也收进本实现（[saveDownload]）：从上游拉字节那一步仍然是 [LmsApi] 的
- * `downloadUpload` / `downloadToStream`（走会话、判断 403 关闭下载的语义一行未改），
- * 「写到哪儿、记不登记」由 [sink] 决定。桌面没有「我的 · 下载管理」，所以 Android 与
- * 桌面看到的 [LmsSource.publicPathLabel] / [LmsSource.supportsVideoQueue] 不同 —— 屏据此
- * 老实显示本端的位置与可选档位。
- */
+/** `:core` 的 [LmsSource] 在 `:data` 里的实现（Android 与桌面共用） */
 class AppLmsSource(
     private val site: SiteSession,
     private val sink: LmsDownloadSink = LmsDownloadSink.Unsupported,

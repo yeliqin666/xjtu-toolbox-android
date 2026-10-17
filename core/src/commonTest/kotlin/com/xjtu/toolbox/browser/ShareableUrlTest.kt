@@ -4,23 +4,13 @@ import com.xjtu.toolbox.webvpn.WebVpnCodec
 import kotlin.test.Test
 import kotlin.test.assertEquals
 
-/**
- * 「对外用的地址」那条规则的判据（`:core` 的 [shareableUrl]）。
- *
- * 为什么值得写：这条规则决定的是**交给外部浏览器/复制出去的那个字符串**——写错了要么把网关
- * 地址发出去（对方打不开也看不懂），要么把用户手上的地址改坏。它不认识 Android，所以判据放在
- * commonTest 里（整包编到 wasmJs，与 `:core` 其余判据同一条口径）。
- *
- * 这里用**夹具 codec**（真实现是 `:data` 的 `WebVpnUtil`，要 AES ⇒ 进不了 commonTest；
- * 那份实现的定值判据在 `:desktop:test` 的 `DesktopWebVpnCodecJvmTest` 里）。这一支只钉规则本身：
- * 谁在什么情况下被改写、改写不出来时**原样还回去**。
- */
+/** 「对外用的地址」那条规则的判据（`:core` 的 [shareableUrl]）。 */
 class ShareableUrlTest {
 
     private val gateway = "https://webvpn.xjtu.edu.cn/https/77726e6f746963652e6578616d706c65/" +
         "d3JkdnBuaXN0aGViZXN0/notice"
 
-    /** 只会把 [originals] 里认得的那一个换回去，别的都算「解不出来」（与 `WebVpnUtil` 同口径）。 */
+    /** 只会把 [originals] 里认得的那一个换回去，别的都算「解不出来」。 */
     private class FixtureCodec(private val originals: Map<String, String?>) : WebVpnCodec {
         override fun toVpnUrl(url: String): String = url
         override fun fromVpnUrl(vpnUrl: String): String? = originals[vpnUrl]

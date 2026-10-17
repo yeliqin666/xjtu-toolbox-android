@@ -2,14 +2,7 @@ package com.xjtu.toolbox.game.xiangqi.rules
 
 import kotlin.random.Random
 
-/**
- * 棋盘数据（本质就是 FEN 串的表示）。
- *
- * 从 :app 的 `rules/Board.java` 搬过来。`piece` 从 `int[][]` 换成 `Array<IntArray>`
- * （`Zobrist.getZobristFromBoard` 也跟着换签名），初始局面、FEN 解析、走子语义一字未改。
- * 唯一被替换的实现细节是 `Math.random()` → `kotlin.random.Random.nextDouble()`
- * （`randomizePieces` 只给调试用，两者都是「随便摆」）。
- */
+/** 棋盘数据（本质就是 FEN 串的表示）。 */
 class Board {
     var bRedGo: Boolean = true
     var rounds: Int = 1

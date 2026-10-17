@@ -28,9 +28,6 @@ import kotlinx.datetime.LocalDate
 import kotlinx.datetime.LocalDateTime
 
 /**
- * 从 `:app` 的 `schedule/ExamList.kt` 搬进 commonMain（`java.time` → `kotlinx.datetime`），
- * 排序与去重口径一行未改。
- *
  * 排好序的考试列表：未结束的在前（正序，日期待定的排最后），已结束的单独收着，
  * 供调用方做成「已结束 N 场 ▾」的折叠行。见 plan2 §1.3④。
  */

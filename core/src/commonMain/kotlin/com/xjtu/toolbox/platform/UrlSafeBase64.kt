@@ -1,29 +1,6 @@
 package com.xjtu.toolbox.platform
 
-/**
- * **URL-safe Base64（无填充）** 的纯 Kotlin 实现 —— 三端同一份，浏览器端靠它把分享码那段字编出来 / 解回来。
- *
- * ## 为什么要有这一份
- *
- * `platform/Base64Url.kt` 那条缝的 androidMain / jvmMain 两份 actual 用的是 `java.util.Base64`
- * （`getUrlEncoder().withoutPadding()`），`:core` 的 commonMain 里没有它 ⇒ wasmJs 那一端原先
- * **如实返回空串 / null**（`base64Available = false`）。分享码是「zlib → URL-safe Base64」两步，
- * 少一步这条链就断，匹配交友在浏览器里整屏用不了。这一份就是补上浏览器那一端的实现。
- *
- * **它的行为与 `java.util.Base64` 的 URL 编解码器逐字对齐**（由 `:core:jvmTest` 的
- * `ShareCodeInteropJvmTest` 与 `UrlSafeBase64JvmTest` 两类用例钉住）：
- *
- * | | 这一份 | `java.util.Base64` |
- * |---|---|---|
- * | 字母表 | `A-Z a-z 0-9 - _` | 同（URL 编码器） |
- * | 填充 | **编码时不留** `=`；解码时接受末端的 `=`，但**要么没有、要么正好补满一组** | 同（实测 `QQ` / `QQ==` / `QUI=` 解得开，`QQ=` 与 `AAA=` 拒） |
- * | 长度 `% 4 == 1` | 非法（null） | 同（`Q` 抛 `IllegalArgumentException`） |
- * | 末端多余的位 | 忽略（`QR` → `0x41`） | 同（实测一致） |
- * | 字母表外的字符 / `=` 出现在中间 | 非法（null） | 同 |
- *
- * 解码这一侧的宽松与 JDK 一致是**有意的**：对方发来的码可能被聊天软件加过填充或被手工改过尾部，
- * 「解得开就解」比「挑剔形状」更接近 Android 的行为（`:app` 那边同样是 JDK 的解码器）。
- */
+/** URL-safe Base64（无填充） 的纯 Kotlin 实现 —— 三端同一份，浏览器端靠它把分享码那段字编出来 / 解回来。 */
 internal object UrlSafeBase64 {
 
     private const val ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_"
@@ -64,10 +41,7 @@ internal object UrlSafeBase64 {
         return out.toString()
     }
 
-    /**
-     * 解码 URL-safe Base64。**接受带填充与不带填充两种**；不是合法 Base64 时返回 null
-     * （与 `java.util.Base64` 抛 `IllegalArgumentException` 同一档，只是换成 null）。
-     */
+    /** 解码 URL-safe Base64。 */
     fun decode(text: String): ByteArray? {
         // 末端最多两个 '='：先剥掉，再按「长度 % 4 不能是 1」判。
         var end = text.length

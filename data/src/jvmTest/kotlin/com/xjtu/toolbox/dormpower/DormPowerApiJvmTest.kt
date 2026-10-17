@@ -14,18 +14,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 import kotlinx.coroutines.runBlocking
 
-/**
- * 宿舍电费取数的**字段级口径**：`DormPowerApi` （以及它实现的 `:core` 端口 [DormPowerSource]）
- * 对着 `:testkit` 的 [DormPowerFakeUpstream] 逐行读。
- *
- * ## 为什么在 `:data` 而不是 `:app`
- *
- * 这一轮把宿舍电费的取数（`DormPowerApi` + `DormPowerParsers`）、站点（`SsnSession` +
- * `SsnLogin`）与本地 Store（`DormPowerStore`，模型与落盘进 `:core`）从 `:app` 搬进共享内核
- * （桌面端第 17 条真数据路由）。搬之前先把**搬之前**的口径钉住 —— 这些断言全部来自**夹具原文**
- * 与**搬迁前的代码语义**：`cid` 落在 `localToken["cid"]`、缴费页入口地址是 OAuth 回调里的
- * 「https 化」那一跳、`rooms`/`kwh` 的字段与 null 语义、查完写回本机（`DormPowerStore.refresh`）。
- */
+/** 宿舍电费取数的字段级口径：`DormPowerApi` （以及它实现的 `:core` 端口 [DormPowerSource]）对着 `:testkit` 的 [DormPowerFakeUpstream] 逐行读。 */
 class DormPowerApiJvmTest {
 
     /** jvm 的 `keyValueStore` 是进程内单例 ⇒ 上一轮测试的 `dorm_power_*` 会留在落盘文件里，先清干净。 */

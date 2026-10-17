@@ -11,21 +11,7 @@ import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.setMain
 
-/**
- * 教材中心的浏览态（[JiaocaiViewModel]）在 JVM 上的口径。
- *
- * ## 它钉的是什么
- *
- * 搬进 `:core` 时取数从 `JiaocaiApi(site)` 换成了 [JiaocaiSource] 端口（IO 由实现方包）、
- * 会话失效从 `AuthExpiredException` 换成 [SessionExpiredFailure] 标记接口 —— 编排一行未改。
- * 这里用一个记账用的假实现把三处钉住：检索只在关键词非空时发一发、成功后落 `books` 与
- * `hasSearched`（屏据此切「结果列表 / 未找到」两态）、会话失效走 `authExpired` 而不是错误文案。
- *
- * ## 为什么在 jvmTest
- *
- * `viewModelScope` 要一个 Main 调度器，`Dispatchers.setMain` 只在 JVM 侧稳定（与
- * `TranscriptViewModelTest` / `AttendanceViewModelTest` 同一条理由）。
- */
+/** 教材中心的浏览态（[JiaocaiViewModel]）在 JVM 上的口径。 */
 class JiaocaiViewModelTest {
 
     @AfterTest

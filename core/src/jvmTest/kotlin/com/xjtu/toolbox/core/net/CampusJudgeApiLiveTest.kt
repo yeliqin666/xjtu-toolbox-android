@@ -5,16 +5,7 @@ import kotlinx.coroutines.runBlocking
 import kotlin.test.Test
 import kotlin.test.assertTrue
 
-/**
- * 评教的 campus-api 映射**真数据**验证（本机 campus-api `127.0.0.1:3099`）。
- *
- * 默认**跳过**（依赖本机服务，不能进 CI）：
- *   `TOOLBOX_PROBE_LIVE=1 ./gradlew :core:jvmTest`
- *
- * 为什么指定学期：屏用的是上游评教学期 `CSZA`（与 :app 同一口径），而它**常常整学期为空**
- * （实测 `2025-2026-3` 全空）—— 空的时候两端都显示「暂无待评课程」，看不出映射对不对。
- * 所以这里指定一个**确实有数据**的学期（`2025-2026-1`，实测 14 条未评）来盯映射。
- */
+/** 评教的 campus-api 映射真数据验证（本机 campus-api `127.0.0.1:3099`）。 */
 class CampusJudgeApiLiveTest {
 
     private val enabled: Boolean = System.getenv("TOOLBOX_PROBE_LIVE") == "1"

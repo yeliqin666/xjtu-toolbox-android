@@ -19,35 +19,7 @@ import kotlin.test.assertTrue
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonObject
 
-/**
- * **第二批只读域**（思源学堂 / 教材中心 / 移动教务成绩 / 人脸识别签到）的契约测试 ——
- * `GET /api/lms/{courses,activities,activity}` · `GET /api/jiaocai/{search,ssno}` ·
- * `GET /api/jwapp/{scores,precise-scores}` · `GET /api/iclassface/records`
- * （`docs/api-contract.md` §5.6）。
- *
- * ## 脚手架
- *
- * 与 [ServeReadonlyFourDomainsTest] 同一条（[withFakeProxy] + [startEndpointServer]）：
- * 真 socket（端口 0）、真令牌闸门、真 `ServeSession`、四族的 `*Routes` 挂进 `route("/api")`。
- * 夹具是 `:testkit` 的四份假上游（`LmsFakeUpstream` / `Jiaocai1FakeUpstream`（它同时扮教材中心
- * `jiaocai.lib` 与全文库 `jiaocai1.lib`）/ `JwappFakeUpstream` + `JwxtFakeUpstream`（成绩的第二条
- * 上游在教务）/ `IclassfaceFakeUpstream`），期望值全部来自它们的常量 —— **一个都不手写**。
- *
- * ## 这一组钉的是什么
- *
- * - **闸门**：四族八条路径各自进门先判会话 ⇒ 未登录 401（不是让取数拿 502 蒙混），
- *   而且**未登录那一枪不该到取数层**（夹具的调用计数为 0）；
- * - **形状**：每个 `data` 的键集合逐格钉住（多一格少一格都算投影漂了），
- *   包括「按类型只出现一块」的 `homework` / `lesson` / `live`；
- * - **两个站点的成绩**：`scores` 打 `jwapp`、`precise-scores` 打 `jwxt`（两条上游的请求体/表单
- *   分别对着夹具断言）；
- * - **红线**：每个响应都过 [assertNoIdentity]，而且是在**夹具里明明有那些值**的前提下证明的
- *   （`LmsFakeUpstream.INSTRUCTOR_NAME` 是课程教师名、`USER_INDEX_HTML` 里有姓名与学号、
- *   `IclassfaceFakeUpstream.RECORD_NAME` / `RECORD_STUDENT_NO` 是签到表里的姓名与学号）
- *   —— 不能「夹具没有所以没出现」；
- * - **如实缺口**：附件的三个地址、回放/直播的地址、成绩分项、真实姓名与学号**都不在**响应里
- *   （逐条断言）。
- */
+/** 思源学堂 / 教材中心 / 移动教务成绩 / 人脸识别签到的契约测试。 */
 class ServeLmsJiaocaiJwappIclassfaceTest {
 
     private var started: EmbeddedServer<CIOApplicationEngine, CIOApplicationEngine.Configuration>? = null
@@ -552,7 +524,6 @@ class ServeLmsJiaocaiJwappIclassfaceTest {
         assertEquals(day, envelopeData(one).optString("date"))
         assertEquals(day, fake.iclassface.lastDate)
 
-        // 「那天没有记录」= 空数组 + count 0（`:data` 的口径），不是错误页
         fake.iclassface.emptyRecords = true
         val empty = http.get("$ICLASSFACE_RECORDS_PATH?date=$day")
         assertEquals(200, empty.statusCode())
@@ -576,11 +547,7 @@ class ServeLmsJiaocaiJwappIclassfaceTest {
         const val JWAPP_PRECISE_SCORES_PATH = "/api/jwapp/precise-scores"
         const val ICLASSFACE_RECORDS_PATH = "/api/iclassface/records"
 
-        /**
-         * §5.2 的红线钉子组（全是夹具里的编造值，不是真人）：
-         * 登录学号、思源学堂的教师名与「本人姓名/学号」（`USER_INDEX_HTML` 里有）、
-         * 人脸签到表里的姓名与学号，以及几个一眼能认出来的身份键名。
-         */
+        /** §5.2 的红线钉子组（全是夹具里的编造值，不是真人） */
         val IDENTITY = listOf(
             "username",
             "studentId",
@@ -594,10 +561,7 @@ class ServeLmsJiaocaiJwappIclassfaceTest {
             IclassfaceFakeUpstream.RECORD_STUDENT_NO,
         )
 
-        /**
-         * 思源学堂详情响应里**不许**出现的东西 —— 全部**在夹具里有值**（所以这几条断言有意义）：
-         * 那三个要站点会话的附件地址、回放/直播的地址与教师名单。
-         */
+        /** 思源学堂详情响应里不许出现的东西 —— 全部在夹具里有值（所以这几条断言有意义）： 那三个要站点会话的附件地址、回放/直播的地址与教师名单。 */
         val FORBIDDEN_LMS = listOf(
             "/api/uploads/${LmsFakeUpstream.UPLOAD_ID}/blob",
             "downloadUrl",

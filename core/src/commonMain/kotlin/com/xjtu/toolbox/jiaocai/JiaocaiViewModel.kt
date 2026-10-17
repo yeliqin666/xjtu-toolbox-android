@@ -12,10 +12,6 @@ import kotlinx.coroutines.launch
  * 教材中心的浏览态。
  *
  * 关键词和结果放 ViewModel：离开再回来（例如去读全文）不会把搜索结果冲掉。
- *
- * 搬进 `:core` 时只改了两处，编排一行未改：取数从 `JiaocaiApi(site)` 换成 [JiaocaiSource] 端口
- * （IO 由实现方包），会话失效从 `AuthExpiredException` 换成 [SessionExpiredFailure] 标记接口
- * （与 `Jiaocai1ViewModel` / `coupon` / `dormpower` 同一条写法）。
  */
 class JiaocaiViewModel : ViewModel() {
 

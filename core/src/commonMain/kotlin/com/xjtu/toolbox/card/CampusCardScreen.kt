@@ -104,21 +104,10 @@ private fun formatRangeChip(start: LocalDate, end: LocalDate): String {
     }
 }
 
-/**
- * 「加餐券」那条二级入口要的两行状态（值 + 说明）。
- *
- * 为什么不是 :app 的 `HomeStat`：那是首页自己的模型（连 `DataCache` 一起在 :app），
- * 而这个屏只需要「一行值 + 一行说明」两句话。宿主在自己的 lambda 里把 `HomeStat` 拆成这两句，
- * 屏就不必认识首页那一套。
- */
+/** 「加餐券」那条二级入口要的两行状态（值 + 说明）。 */
 data class CouponEntryStat(val value: String = "", val detail: String? = null)
 
-/**
- * 校园卡：概览 / 流水 / 分析三栏（宽屏左概览右「流水 / 分析」）。
- *
- * 从 `:app` 搬进 `:core`：屏与 [CampusCardViewModel] 是两端共用的同一份，只在**取数、落盘、
- * 宿主能力**上切缝。下面每个参数都是「这一端有什么」，而不是「这一端是不是 Android」。
- */
+/** 校园卡：概览 / 流水 / 分析三栏（宽屏左概览右「流水 / 分析」）。 */
 @Composable
 fun CampusCardScreen(
     /** 本端的取数 + 落盘（Android = `AppCampusCardSource`，Web = `CampusCardNetApi`）。 */
@@ -129,29 +118,13 @@ fun CampusCardScreen(
     // 接上设置项之前先按「经典」的不透明样式来，不在没接设置项的分支里提前显示玻璃。
     glass: Boolean = false,
     onOpenCoupon: () -> Unit = {},
-    /**
-     * 「余额和今日消费已落盘」——Android 用它给首页 tab 的缓存版本号 +1（首页 tab 一直留在组合里，
-     * 只认这个版本号：不递增的话充值后回到首页还是旧余额）；Web 没有那个首页缓存 ⇒ 空实现。
-     */
+    /** 「余额和今日消费已落盘」——Android 用它给首页 tab 的缓存版本号 +1（首页 tab 一直留在组合里，只认这个版本号：不递增的话充值后回到首页还是旧余额）；Web 没有那个首页缓存⇒ 空实现。 */
     onCacheUpdated: () -> Unit = {},
     /** 桌面小组件刷新（Android = `CampusCardWidgetUpdater.requestUpdate`）；Web 没有小组件 ⇒ 空。 */
     onBalanceChanged: () -> Unit = {},
-    /**
-     * 「加餐券」那条二级入口的两行状态（值 + 说明），**由宿主读自己那份首页摘要**
-     *（Android = `HomeStats.pushed(context, AppRoute.Coupon)`，读的是 DataCache/SharedPreferences）。
-     *
-     * 传 null = 本端没有这份摘要 ⇒ 整条入口不画。Web 正是这一支：它还没有加餐券那一屏，
-     * 画一条点进去落到「这一屏还没搬到 Web」的入口不如不画（与空闲教室不列本端没有的数据源同一条口径）。
-     */
+    /** 「加餐券」那条二级入口的两行状态（值 + 说明），由宿主读自己那份首页摘要（Android = `HomeStats.pushed(context, AppRoute.Coupon)`，读的是 DataCache/SharedPreferences）。 */
     couponStat: (suspend () -> CouponEntryStat?)? = null,
-    /**
-     * 宿主的 saved state（「选的时间范围」在进程被回收后要还在）。
-     *
-     * 为什么要宿主给：Android 走 `createSavedStateHandle()`（与搬迁前同一个，范围照旧能恢复），
-     * 而**浏览器里没有 SavedStateRegistryOwner** —— 在 Web 上调它会直接抛（`:core` 里已有前例：
-     * community 那个屏的注释就记着这一条），所以 Web 传内存版 `SavedStateHandle()`：
-     * 刷新页面范围回到默认值，如实降级，不假装记住了。
-     */
+    /** 宿主的 saved state（「选的时间范围」在进程被回收后要还在）。 */
     savedState: CreationExtras.() -> SavedStateHandle = { SavedStateHandle() },
 ) {
     val snackbarHostState = remember { SnackbarHostState() }
@@ -1122,8 +1095,6 @@ private fun CustomRangeDialog(
     AppDatePickerDialog(
         show = picking != null,
         title = if (picking == "end") "结束日期" else "开始日期",
-        // `AppDatePickerDialog` 是 `:core` 的 expect（三端各有实现），本来就用 kotlinx-datetime 的
-        // `LocalDate` —— 搬进 :core 后省掉了 `toKx()` / `toJavaTime()` 这一对来回转换。
         date = if (picking == "end") draftEnd else draftStart,
         minDate = earliest,
         maxDate = today,

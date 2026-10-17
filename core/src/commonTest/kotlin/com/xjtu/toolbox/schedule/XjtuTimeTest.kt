@@ -5,14 +5,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
 
-/**
- * [XjtuTime] 的学年/学期换算。
- *
- * 原文件在 `app/src/test/java/com/xjtu/toolbox/schedule/XjtuTimeTest.kt`：`XjtuTime` 搬进
- * commonMain、`java.time` 换成 `kotlinx-datetime` 之后，那边按 `java.time.LocalDate`
- * 编译出的调用在运行期 `NoSuchMethodError`（交接文档 §1.1 的 10 个失败之一）。
- * 断言逐条原样搬来，只换了壳（kotlin.test + kotlinx.datetime）。
- */
+/** [XjtuTime] 的学年/学期换算。 */
 class XjtuTimeTest {
 
     @Test

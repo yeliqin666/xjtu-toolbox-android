@@ -1,12 +1,6 @@
 package com.xjtu.toolbox.agent
 
-/**
- * `app_guide` 的内容：App 功能与入口。
- *
- * 以前常驻在系统提示里（约 600 字），可只有「去哪办」「App 能不能做」这类问题才用得上，
- * 其余每轮都白付这些 token，所以挪到工具后面按需取。
- * 这是 App 页面的一份手写副本，**加减页面时记得同步**——以前写错过（日程「导出图片」其实走不到）。
- */
+/** `app_guide` 的内容：App 功能与入口。 */
 const val APP_GUIDE = """App 功能与入口：
 - 日程（底栏）：课表与教材、考试安排、自建日程；可切学期、导出日历（ICS）。
 - 成绩查询：各学期成绩、GPA、成绩报表。电子成绩单另有一页：一键向学校申请并下载 PDF。
@@ -31,11 +25,7 @@ const val XINGQING_GUIDE = """兴庆校区：
 - 食堂：A 区和鸣苑、B 区惠风苑、C 区朗清苑，另有涵英楼食堂、同和苑，都在各自的宿舍园区里。
 - 供餐时间：早餐 6:30–9:30，午餐 11:00–13:30，晚餐 17:00–19:30；部分档口有夜宵到 23:00。"""
 
-/**
- * `app_guide` 的三种取法：只要功能入口、只要食堂与开放时间、或两者都给（[topic] 不认识时）。
- *
- * 判据逐字来自 `:app` 的 `AgentToolRegistry`（`topic` 去空白、转小写后比对）。
- */
+/** `app_guide` 的三种取法：只要功能入口、只要食堂与开放时间、或两者都给（[topic] 不认识时）。 */
 fun agentGuideText(topic: String?): String = when (topic?.trim()?.lowercase()) {
     "app" -> APP_GUIDE
     "campus", "xingqing" -> XINGQING_GUIDE

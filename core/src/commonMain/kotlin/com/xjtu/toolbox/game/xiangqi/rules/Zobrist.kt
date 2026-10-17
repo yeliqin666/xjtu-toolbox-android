@@ -1,15 +1,6 @@
 package com.xjtu.toolbox.game.xiangqi.rules
 
-/**
- * 局面哈希（Zobrist）。
- *
- * 从 :app 的 `rules/Zobrist.java` 逐字搬过来 —— **数据表一个字节都没改**：
- * 这张表是从华弈2022的开局库提取的，`XiangqiGame` 拿它做重复局面（长将/长捉）判定，
- * 换成自己现生成的一张表虽然也是「合法哈希」，但那是行为变化，不是搬位置。
- *
- * 原文件里 `coordMap` 是 `HashMap<Integer, String>`；这里换成 `Map<Int, String>`，
- * 键值一字不变（`getMoveFromVmove` 只有上游的 vmove 编码在用它）。
- */
+/** 局面哈希（Zobrist）。 */
 object Zobrist {
 
     fun getMoveFromVmove(vmove: Int): String {
@@ -66,10 +57,7 @@ object Zobrist {
         for (i in 0 until 90) put(c90[i], san90[i])
     }
 
-    // 下面这些数据是从华弈2022的开局库中提取的，用于计算局面的Zobrist哈希值。
-    // ⚠️ 用 ULong 字面量（`uL`）而不是 `L`：Java 的十六进制 Long 字面量允许把最高位当符号位用
-    // （`0xA0CE...L` 在 Java 里合法），Kotlin 不允许超过 Long.MAX_VALUE 的字面量（会报 Value out of range）。
-    // 取值时 `.toLong()`，位模式与 Java 版逐位相同 —— 哈希值一个都没变。
+    // 数据取自华弈2022开局库。⚠️ 用 `uL` 字面量：Kotlin 不允许超过 Long.MAX_VALUE 的 `L` 字面量，取值时 `.toLong()` 位模式不变。
     private const val zobristPlayer = 0xA0CE2AF90C452F58uL
     private val zobristTable = ulongArrayOf(
             0x7130B4BD8F138026uL, 0x451A5F875056AE15uL, 0x9023211DB6E216DDuL, 0x8176B9AB5178BE31uL, 0x9CA65525FE49D1F0uL,

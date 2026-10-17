@@ -17,21 +17,7 @@ import kotlinx.coroutines.test.setMain
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
 
-/**
- * 考勤**编排**（[AttendanceViewModel]）在 JVM 上的口径。
- *
- * ## 它钉的是什么
- *
- * 屏与 VM 搬进 `:core` 时，取数从 `AttendanceApi(site)` + `LeaveApi(site)` 换成了 [AttendanceSource]
- * 端口（IO 由实现方自己包），会话失效从 `AuthExpiredException` 换成了 [SessionExpiredFailure] 标记
- * —— **加载顺序 / 选学期重载 / 打卡流水拉不到不连累其它栏 / 撤回与销假的成败文案**的编排一行未改。
- * 这里用一个记账用的假 [AttendanceSource] 把这些行为钉住。
- *
- * ## 为什么在 jvmTest
- *
- * `viewModelScope` 要一个 Main 调度器，`Dispatchers.setMain` 只在 JVM 侧稳定（与
- * `CouponViewModelTest` / `TranscriptViewModelTest` 同一条理由）。
- */
+/** 考勤编排（[AttendanceViewModel]）在 JVM 上的口径。 */
 class AttendanceViewModelTest {
 
     @BeforeTest

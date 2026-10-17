@@ -16,18 +16,7 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import kotlinx.coroutines.runBlocking
 
-/**
- * 会话标题那一次模型调用（`:app` → `:data`）。
- *
- * 本地服务器当真服务商，断言的是**请求体的形状与服务端的契约**：
- *
- * - 关思考的两个字段一起发（`thinking` 是 DeepSeek 侧、`reasoning_effort` 是 OpenAI 兼容侧）；
- * - 后端不认（400）时**去掉这两个字段重试一次**——线上看到的思考链标题多半出在这儿；
- * - 只认 `content`，不拿 `reasoning_content` 当标题；
- * - 模型的「转述请求」输出（「用户询问…」）一律判废，退回「首条消息截断」。
- *
- * 密钥全是编造的。
- */
+/** 会话标题那一次模型调用。 */
 class AgentTitleGenJvmTest {
 
     private lateinit var server: HttpServer
@@ -41,10 +30,6 @@ class AgentTitleGenJvmTest {
 
     @BeforeTest
     fun setUp() {
-        // 与 `AgentModelFetcherJvmTest` 同由：先把**共享**的两件进程级前置装好，再碰
-        // `HttpClients.base`（它在 `build()` 那一刻把当时的 selector 与 trust manager 抄进配置），
-        // 并把端口设回 0（本测试直连 127.0.0.1）。不装的话，`:data:jvmTest` 里那批「真登录」
-        // 用例会跟着一起红（见 `FakeCampusProxy.installFakeUpstreams` 的 KDoc）。
         FakeCampusProxy.installFakeUpstreams()
         FakeUpstreamProxySelector.port = 0
         bodies.clear()

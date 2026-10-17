@@ -11,33 +11,7 @@ import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
-/**
- * 内置浏览器（`AppRoute.Browser`）在桌面端的**装配验收**。
- *
- * 这一条路由的屏在 `:app` 是 `browser/BrowserScreen.kt`（629 行）：WebView + 自己的顶栏
- * （地址栏 / 前进后退 / 复制 / 分享 / 在外部浏览器打开）+ cookie 注入 + `then=` 那一跳 + 夜间模式。
- * 桌面端没有 WebView 这一层，等于物是**外链中转页**（`DesktopBrowser.kt`：目标网址 + 交给系统浏览器 +
- * 复制），所以这里钉的是四件装配事实：
- *
- *  1. **进得了、列得出**：`AppRoute.Browser` 在 `DESKTOP_SUPPORTED_ROUTES` 里（索引页那一栏
- *     「真能用」会列出它），名字照 `:app` 那一屏自己的标题（`BrowserScreen` 的 `pageTitle` 初值
- *     「浏览器」）；它也不落 `NotPortedScreen`（`DesktopPage` 的顶层 `when` 有 `is AppRoute.Browser ->`
- *     真分支 —— 分支覆盖的静态对比见提交说明，渲染那半边由证据运行 `browser.png` 的 `hasText` 钉住）。
- *  2. **交出去的地址是同一份口径**：桌面点「在系统浏览器打开」用的是 `:app` 顶栏那颗
- *     「在外部浏览器打开」同一条规则 —— `:core` 的 `browser/ShareableUrl.kt`（本轮按五步法从
- *     `:app` 搬进来），注入的实现是 `:data` 的 [WebVpnUtil]（Android 与桌面**同一份**）。
- *  3. **带 `then` 的跳转交出去的是第二跳**：「去支付」那一枪（`VenueScreen.onOpenBrowser(登录站, 支付页)`）
- *     `:app` 是在内置浏览器里串两跳，而 `openInBrowser` 一次只交一个地址、也收不到任何回调 ⇒
- *     桌面按 [desktopBrowserTarget] 的判据交 `then`（支付页）出去，见底下那一条用例。
- *  4. **同一个判据也用在另外三处**：日程 / 消息收纳 / 通知公告里那三处 `is AppRoute.Browser ->`
- *     今天写的是 `desktopBrowserTarget(r.url, r.then)?.let { … }`（不是又写一遍 `r.url.isNotBlank()`）——
- *     那三处当前收到的路由 `then` 都是空串（行为不变），但口径只有一份；底下那条源码断言就是防它
- *     又被写回去。
- *
- * ⚠️ 夹具全是编造的：域名用 `.invalid`（保留 TLD，永远解析不出来），一个请求都不发 ——
- * 这一条链只做字符串改写，`openInBrowser` 那一枪（`java.awt.Desktop.browse` / `xdg-open`）在
- * 测试里不点，绝不真去弹一台浏览器。
- */
+/** 内置浏览器（`AppRoute.Browser`）在桌面端的装配验收。 */
 class DesktopBrowserJvmTest {
 
     @Test
@@ -72,9 +46,6 @@ class DesktopBrowserJvmTest {
         assertNotEquals(original, gateway, "夹具网址应当编得出网关地址（否则这一支什么都没测到）")
         assertTrue(gateway.startsWith("https://webvpn.xjtu.edu.cn/"), "网关地址形状不对：$gateway")
 
-        // 网关链路对方没有会话打不开、也看不出是哪个网站 ⇒ 交出去的是还原后的原始地址。
-        // 比到「路径结尾的那个 /」为止：根路径的尾斜杠会掉，那是搬迁前就有的口径（见
-        // `DesktopWebVpnCodecJvmTest` 里那条同样的说明）。
         assertEquals(
             original.trimEnd('/'),
             shareableUrl(gateway, WebVpnUtil).trimEnd('/'),
@@ -93,20 +64,13 @@ class DesktopBrowserJvmTest {
             "`:app` 是两跳（先 OAuth 入口，`isAuthHop` 判完再 loadUrl(支付页)）；" +
                 "`openInBrowser` 只交一个地址、收不到回调 ⇒ 桌面的等价物是第二跳那个地址",
         )
-        // 没有 then 时才回第一站：只剩登录站可去时也得有个动作（把这一枪吞掉就是静默没动作）
         assertEquals(login, desktopBrowserTarget(login, ""))
         // 两个都空 ⇒ null：本端不编一个假地址，也不假弹一次浏览器（调用方自己决定怎么办）
         assertNull(desktopBrowserTarget("", ""))
         assertNull(desktopBrowserTarget("   ", "\t"))
     }
 
-    /**
-     * 四处 `is AppRoute.Browser ->` 用的是同一个判据（纯源码断言：这一条不渲染、不弹浏览器）。
-     *
-     * 判据是「那份 `then` 不许被丢掉」：三处 `onNavigate` 把它交给 [desktopBrowserTarget]，
-     * 顶层那一支把整个路由交给 `DesktopBrowserScreen`（那个屏自己在页上如实说明本端做不到两跳）。
-     * 写成 `if (r.url.isNotBlank()) openInBrowser(r.url)` 就是丢 `then` —— 那正是 f38c2fc8 修掉的偏差。
-     */
+    /** 四处 `is AppRoute.Browser ->` 用的是同一个判据（纯源码断言：这一条不渲染、不弹浏览器）。 */
     @Test
     fun `四处都用同一个判据 —— 没有哪一处又写回 r_url_isNotBlank`() {
         val sites = Regex("""is AppRoute\.Browser ->[^\n]*""")
@@ -121,9 +85,6 @@ class DesktopBrowserJvmTest {
                 "（日程 / 消息收纳 / 通知公告那三处 onNavigate + 顶层那条挂 `DesktopBrowserScreen` 的分支），" +
                 "现在是 ${sites.size} 处：$sites",
         )
-        // 三处 onNavigate 走 `desktopBrowserTarget(url, then)`（`then` 非空交第二跳）；顶层那一支把
-        // 整个路由（含 `then`）交给 `DesktopBrowserScreen`（它自己在页上如实说明本端做不到两跳）。
-        // 两边都不是「只把 r.url 交出去」—— f38c2fc8 修的就是那种写法丢 `then` 的偏差。
         val offenders = sites.filterNot { it.contains("desktopBrowserTarget(") || it.contains("DesktopBrowserScreen(") }
         assertTrue(
             offenders.isEmpty(),
@@ -132,10 +93,7 @@ class DesktopBrowserJvmTest {
         )
     }
 
-    /**
-     * 仓库根目录：从工作目录往上找 `settings.gradle.kts`（Gradle 的 Test 任务以**模块目录**为工作目录）。
-     * 与 `DesktopRouteCoverageJvmTest.repoRoot()` 同一个口径。
-     */
+    /** 仓库根目录：从工作目录往上找 `settings.gradle.kts`（Gradle 的 Test 任务以模块目录为工作目录）。 */
     private fun repoRoot(): File {
         var dir: File? = File(".").absoluteFile
         while (dir != null) {

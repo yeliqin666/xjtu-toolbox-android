@@ -29,15 +29,7 @@ import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
-/**
- * 后端自检 —— 交接文档 §3「第 2 步」要求的那个 **CORS 探针**，做成了页面上看得见的结果。
- *
- * 结论先写在这里，页面只是把它复现出来：
- *  1. **同源 `/api/...` 可用**（开发期由 webpack dev-server 反代、生产由 nginx 反代到 `:3099`）；
- *  2. **跨源直连 `http://127.0.0.1:3099` 在浏览器里必失败** —— campus-api 刻意不给零鉴权端点
- *     发 `Access-Control-Allow-Origin`（否则任意网页都能读个人数据）。所以「Web 端必须同源反代」
- *     不是选型偏好，而是硬约束；这也解释了为什么 `:core` 的 `CampusApi` 把 `baseUrl` 留成参数。
- */
+/** 后端自检：CORS 检查。 */
 @Composable
 fun ProbeScreen() {
     val cs = MiuixTheme.colorScheme
@@ -134,9 +126,6 @@ fun ProbeScreen() {
                 )
             }
         }
-        // ── 浏览器能力（D12 ③）：三样（相机扫码 / 剪贴板 / WebCrypto）在**这一份部署里**到底在不在 ──
-        // 它们跟地址栏里的地址走（安全上下文），所以只在文档里写没用：这里现场列出来，
-        // 而且每一行都带「本端谁在用 / 差的是什么」—— 见 `WebBrowserCapabilities` 的 KDoc。
         Spacer(Modifier.height(8.dp))
         Card(
             modifier = Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 4.dp),
@@ -168,9 +157,6 @@ fun ProbeScreen() {
                 }
             }
         }
-        // ── PWA（D12 ④）：manifest / Service Worker / 系统通知各自到哪一步 ──────────────────────
-        // 三条都跟地址走（Service Worker 与 Notification 都只在安全上下文里能用），所以得现场列；
-        // 两颗按钮各自是一次**真动作**（要权限 / 发一条通知）—— 不画办不到的按钮。
         Spacer(Modifier.height(8.dp))
         Card(
             modifier = Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 4.dp),
@@ -252,11 +238,7 @@ fun ProbeScreen() {
     }
 }
 
-/**
- * PWA 那张卡里的一行：✓/✗ + 一句「这一份部署里它到哪一步了」（文案由调用方给，见 [WebPwa] 的 KDoc）。
- *
- * 与「浏览器能力」那张卡同一套画法（`WebBrowserCapabilities`）—— 两边都是「现场事实 + 本端谁在用」。
- */
+/** PWA 那张卡里的一行：✓/✗ + 一句「这一份部署里它到哪一步了」（文案由调用方给，见 [WebPwa] 的 KDoc）。 */
 @Composable
 private fun pwaRow(label: String, present: Boolean, note: () -> String) {
     val cs = MiuixTheme.colorScheme

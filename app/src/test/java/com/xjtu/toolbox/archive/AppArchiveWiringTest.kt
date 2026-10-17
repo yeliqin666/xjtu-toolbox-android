@@ -16,17 +16,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-/**
- * S4：`:app` 侧接线点的验收 —— 断言「导出/导入入口存在且默认不动数据」这类可断言的事实。
- *
- * 覆盖：
- *  - Room 三表行适配器调 `:core` 的 [ArchiveFileRows] 排序（§2.3）；
- *  - [AppArchiveHost] 的纯组装（accounts/stores/files → [StoreArchive.export]）+ 落盘只写目标目录；
- *  - SAF 通道的 zip 运输形态（§2.0）；
- *  - 导入触发点默认不动数据（§6.2，合并语义排在后续工单 ⇒ 本工单只做入口与通道）。
- *
- * 全部用例不依赖真 Context / Room 库：`InMemorySharedPreferences` + 临时目录驱动。
- */
+/** `:app` 侧接线点的验收 —— 断言「导出/导入入口存在且默认不动数据」这类可断言的事实。 */
 class AppArchiveWiringTest {
 
     private fun newTempDir(prefix: String): File {
@@ -118,7 +108,6 @@ class AppArchiveWiringTest {
             root.deleteRecursively()
         }
 
-        // 默认不动数据：导出只读端内 store，键值逐字不变
         assertEquals("dark", prefs.getString("dark_mode", null))
     }
 
@@ -161,7 +150,6 @@ class AppArchiveWiringTest {
             AppArchiveUx.maybeImportPendingArchive(listOf(staging))
             assertEquals(emptyList<File>(), staging.listFiles()?.toList().orEmpty())
 
-            // 有档案也只是判读，不 merge、不删、不写（合并语义在后续工单）
             val pending = File(staging, "pending.zip")
             pending.writeText("staged")
             AppArchiveUx.maybeImportPendingArchive(listOf(staging))
@@ -202,7 +190,7 @@ class AppArchiveWiringTest {
 
         val archiveRoot = newTempDir("xjtu-archive-root")
         try {
-            // 空目录 / 截断的 manifest：坏档案不能让端内 store 动一个键（§7 A7）
+            // 空目录 / 截断的 manifest：坏档案不能让端内 store 动一个键
             File(archiveRoot, "empty").mkdirs()
             val broken = File(archiveRoot, "broken")
             broken.mkdirs()

@@ -16,31 +16,11 @@ import okhttp3.Request
 import org.jsoup.Jsoup
 
 // ══════ 数据类 ══════
-//
-// SeatInfo / AreaStats / BookResult / MyBookingInfo / SeatResult 与那两个判据集合
-//（INACTIVE_BOOKING_STATUSES / URGENT_BOOKING_ACTIONS）都搬进了 :core（`com.xjtu.toolbox.library.LibraryModels.kt`）：
-// 共享屏与共享 ViewModel 要用同一份形状；本类（抓 `rg.lib.xjtu.edu.cn` 的那一套 okhttp 取数）
-// 现在在 `:data`：它只认 [LibrarySession] 这个缝，不再认识 `SiteSession` 与 `android.util.Log`
-// （JSON 也换成 `:core` 的 `AppJson`/`kotlinx.serialization`，不再用 Android 平台那份 `org.json`）。
-// 同一个包里，这里直接用，一行 import 都不用加。
 
 
 // ══════ LibraryApi ══════
 
-/**
- * 图书馆座位系统（`rg.lib.xjtu.edu.cn:8086`）的**取数实现**：读（校区/区域/座位/平面图/我的预约）
- * 与写（预约/换座/签到/取消/切校区）都在这里，一行逻辑没改，只是从 `:app` 搬进了 `:data`
- * ——把 Android 的三处依赖换成缝：
- *
- * | 原来 | 现在 |
- * |---|---|
- * | `SiteSession`（客户端 + 重认证重放） | [LibrarySession]（`:app` 包 `SiteSession`，桌面直连） |
- * | `android.util.Log` | `:core` 的 `com.xjtu.toolbox.platform.Log` |
- * | `org.json`（Android 平台自带） | `:core` 的 `AppJson` + `kotlinx.serialization`（JVM 上也真能跑） |
- *
- * 两件留在宿主侧、**不属于本类**：平面图字节的磁盘缓存（需要 `cacheDir`）与「切回原校区」那个
- * 不随页面取消的作用域（见 `AppLibrarySource`）。本类只负责「取/改图书馆的数据」。
- */
+/** 图书馆座位系统（`rg.lib.xjtu.edu.cn:8086`）的取数：读（校区/区域/座位/平面图/我的预约）与写（预约/换座/签到/取消/切校区）。 */
 class LibraryApi(private val session: LibrarySession) {
 
     companion object {
@@ -123,8 +103,6 @@ class LibraryApi(private val session: LibrarySession) {
         private fun isJpeg(b: ByteArray) = b[0] == 0xFF.toByte() && b[1] == 0xD8.toByte()
         private fun isPng(b: ByteArray) = b[0] == 0x89.toByte() && b[1] == 'P'.code.toByte()
 
-        // 判据集合（INACTIVE_BOOKING_STATUSES / URGENT_BOOKING_ACTIONS）搬进了 :core，
-        // 因为共享屏与 `:app` 的 LibraryPages/LibraryStatus 都要用同一份。
 
 
         /**
@@ -141,7 +119,6 @@ class LibraryApi(private val session: LibrarySession) {
             return raw.filterKeys { it in allow }
         }
 
-        // guessAreaCode 搬进了 :core（共享 ViewModel 用它做「不知道为什么区域时」的兜底）。
     }
 
     @Volatile
@@ -362,10 +339,7 @@ class LibraryApi(private val session: LibrarySession) {
         return cachedAreaStats
     }
 
-    /**
-     * 解析 `scount`：`{区域码: [总数, 空位]}`（原 `org.json` 版逐条对齐 —— 认不出的值取 0，
-     * 缺数组的键跳过）。
-     */
+    /** 解析 `scount`：`{区域码: [总数, 空位]}`；认不出的值取 0，缺数组的键跳过。 */
     private fun parseAreaStats(scountObj: JsonObject?): Map<String, AreaStats> {
         if (scountObj == null) return emptyMap()
         val result = mutableMapOf<String, AreaStats>()
@@ -439,7 +413,7 @@ class LibraryApi(private val session: LibrarySession) {
 
             val seatList = mutableListOf<SeatInfo>()
             for ((seatId, value) in seatObj) {
-                // 与原来 `optInt(seatId, -1)` 同一口径：认不出的值当 -1（既不等于 0，也就不是空位）
+                // 认不出的值当 -1（既不等于 0，也就不是空位）
                 val status = value.safeInt(-1)
                 seatList.add(SeatInfo(seatId, status == 0))
             }

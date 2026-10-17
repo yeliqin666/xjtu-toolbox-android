@@ -30,10 +30,7 @@ class LoginLandingTest {
         assertFalse(landing("https://jwxt.xjtu.edu.cn/login"))
     }
 
-    /**
-     * 字符串/Ktor 版必须与 HttpUrl 版逐条一致 —— 新的 Ktor 出口（`SiteSession.sendWithReAuth`）
-     * 靠它判断「是不是被网关打回登录前页」，两边判得不一样就会有一半路径重登、一半不重登。
-     */
+    /** 字符串/Ktor 版必须与 HttpUrl 版逐条一致。 */
     @Test
     fun gatewayLoginLandingStringMatchesHttpUrlVersion() {
         val samples = listOf(

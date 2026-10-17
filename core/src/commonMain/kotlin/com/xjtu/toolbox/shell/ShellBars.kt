@@ -41,12 +41,7 @@ import kotlin.math.abs
 import kotlin.math.round
 
 /*
- * 三块底栏 + 一块侧栏。这一层原本在 `:app` 的 `main/MainNavigationBars.kt` 里（随 `MainScreen` 一起
- * 搬进 `:core`）：它们只认 miuix 与 `:core` 自己的玻璃件，一行 Android 专属的东西都没有 ——
- * 唯一的例外是「屁岱那一格」的画法，它走 [ShellTabArt] 这条缝（见那个接口的 KDoc）。
- *
- * 行为逐字未改：三块底栏的参数、间距、动画规格、角标位置，以及侧栏那条自己算的弹簧，都与
- * `:app` 里那一份一一对应。
+ * 三块底栏 + 一块侧栏；「屁岱那一格」的画法走 [ShellTabArt] 这条缝。
  */
 
 /** 经典底栏（界面风格选「经典」时，手机 / 平板竖屏用）。格数与顺序由 [ShellNavState.tabs] 说。 */
@@ -91,12 +86,7 @@ fun ClassicBottomBar(
     }
 }
 
-/**
- * 手机竖屏的玻璃胶囊底栏，可以拖动切 tab。
- *
- * @param iconBox 图标统一放进这么高的框里，五格文字基线才对齐
- * @param exportedBackdrop 底栏导出的一层，供屁岱气泡采样
- */
+/** 手机竖屏的玻璃胶囊底栏，可以拖动切 tab。 */
 @Composable
 fun GlassBottomBar(
     nav: ShellNavState,
@@ -199,11 +189,7 @@ fun FloatingBottomBar(
     }
 }
 
-/**
- * 宽屏可展开侧栏。自己处理 inset，外面不要再补 padding。
- *
- * @param railState 内容区也要读它，动画期间按终点宽度排版（[railSettledWidth]）
- */
+/** 宽屏可展开侧栏。 */
 @Composable
 fun ShellNavigationRail(
     nav: ShellNavState,

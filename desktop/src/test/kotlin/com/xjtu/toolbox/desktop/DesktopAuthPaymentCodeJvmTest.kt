@@ -28,26 +28,7 @@ import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 import kotlinx.coroutines.runBlocking
 
-/**
- * 付款码（`AppRoute.PaymentCode`，第 26 条真数据路由）在桌面端的**装配验收**。
- *
- * 这一条路由的屏（`:core` 的 `PaymentCodeScreen`）与取数（`:data` 的 `PaymentCodeApi`）本轮
- * 才搬完 —— 搬迁前两边都在 `:app`，桌面只能落 `NotPortedScreen`。这里验的是**桌面这一端的
- * 三件事**：
- *
- *  1. **取数真通**：桌面自己登校园卡（ncard，https 站点、CAS 回跳后换 JWT），用那份会话
- *     `authenticate()` / `getBarCode()` / `getVouchers()`，拿到夹具那串码与那两张券；
- *  2. **真出码**：拿回来的那串数字编成二维码模块阵列，再用 zxing 的**低层解码器**
- *     （`Decoder().decode(BitMatrix)`，不需要静默区、不走找定位块那条路）解回**同一串数字**
- *     —— 这一条是「付款码真出码」的判据：掩码、RS 纠错、格式信息、数据排布全都得对，
- *     否则解不出来；
- *  3. **勾选真落盘**：`PaymentSelectionStore(secureKeyValueStore("payment_code"))` 写进去之后，
- *     磁盘上那份 Properties 里就是那些键值，把内存实例抹掉再打开还是同一份勾选。
- *
- * 与 `:data` 的 `CampusCardApiJvmTest` / `CampusCardLoginTestHarness` 的分工：那边验卡面与
- * 流水的字段口径；这里验付款码这一条路由在**桌面**上跑得通。假上游里那串码与那两张券都是
- * **编出来的值**（见 `CampusCardFakeUpstream` 的常量区），不是任何人的付款码。
- */
+/** 付款码（`AppRoute.PaymentCode`）在桌面端的装配验收。 */
 class DesktopAuthPaymentCodeJvmTest {
 
     private lateinit var fake: FakeCampusProxy
@@ -164,7 +145,6 @@ class DesktopAuthPaymentCodeJvmTest {
 
         store.save(setOf(CampusCardFakeUpstream.VOUCHER_MILK_ID, CampusCardFakeUpstream.VOUCHER_CANTEEN_ID))
 
-        // ① 磁盘上真有这个文件，键名与 `:app` 那份 `payment_code` 的 SharedPreferences 逐字相同
         assertTrue(file.exists(), "落盘文件应当真的建出来：${file.absolutePath}")
         val props = Properties().apply { file.inputStream().use { load(it) } }
         assertEquals(
@@ -173,7 +153,6 @@ class DesktopAuthPaymentCodeJvmTest {
         )
         assertEquals("true", props.getProperty("voucher_selection_configured"))
 
-        // ② 抹掉内存实例（连文件一起删掉的是 wipe，这里只丢缓存那份）再打开：还是同一份勾选
         val reopened = PaymentSelectionStore(secureKeyValueStore("payment_code"))
         assertEquals(
             setOf(CampusCardFakeUpstream.VOUCHER_MILK_ID, CampusCardFakeUpstream.VOUCHER_CANTEEN_ID),
@@ -182,13 +161,7 @@ class DesktopAuthPaymentCodeJvmTest {
         assertTrue(reopened.isConfigured(), "「用户动过这份勾选」也要落盘（没动过就不往上游同步）")
     }
 
-    /**
-     * 用 zxing 的**低层解码器**把模块阵列解回文本。
-     *
-     * 为什么不用 `MultiFormatReader`：那条路要先**找定位块**，而模块阵列是「不含静默区」的
-     * 纯格子（静默区是渲染方补的）—— 没有白边时定位块那条路本来就不该被依赖。`Decoder`
-     * 直接读格式信息、版本、纠错码字，正是「编码对不对」的判据。
-     */
+    /** 用 zxing 的低层解码器把模块阵列解回文本。 */
     private fun decodeQrModules(matrix: CodeMatrix): String {
         val bits = BitMatrix(matrix.width, matrix.height)
         for (y in 0 until matrix.height) {

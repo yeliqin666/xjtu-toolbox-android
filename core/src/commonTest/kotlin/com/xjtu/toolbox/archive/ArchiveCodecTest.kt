@@ -8,16 +8,9 @@ import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
-/**
- * codec + 纯函数门面的验收（§7）：
- *  - **A2** 值逐字相等（六种类型标签、`set` 空数组 ≠ 键不存在、`putString(key,null)` = 删键）；
- *  - **A3** 导出字节稳定（注入固定时钟后两次导出字节相同，`keys`/`set`/`stores[]`/`files[]` 全升序）；
- *  - **A8** 凭据默认不出现（对 `export()` 产物断言禁止路径 + `redacted` 字段）；
- *  - **A10** `#written_at` 归一化成 `at`，`keys` 里永不出现 `*#written_at`。
- */
+/** codec + 纯函数门面的验收（§7）。 */
 class ArchiveCodecTest {
 
-    // ── A2 ──
 
     @Test
     fun `A2 六种类型标签 s b i l f set 往返逐字相等`() {
@@ -75,7 +68,6 @@ class ArchiveCodecTest {
         assertEquals(StoreValue.S(""), emptyStr.snapshot.keys["dark_mode"])
     }
 
-    // ── A10 ──
 
     @Test
     fun `A10 旁挂 written_at 折进 at，keys 里永不出现 written_at 键`() {
@@ -94,7 +86,6 @@ class ArchiveCodecTest {
         assertTrue(encoded.contains(""""at":1760000000000"""), "该时间应出现在 at：$encoded")
     }
 
-    // ── A3 ──
 
     @Test
     fun `A3 注入固定时钟后两次导出字节相同，且 keys set stores files 全部升序`() {
@@ -124,7 +115,6 @@ class ArchiveCodecTest {
         assertTrue(libraryJson.contains(""""favorite_seats":{"t":"set","v":["A-1","B-2"]}"""))
     }
 
-    // ── A8 ──
 
     @Test
     fun `A8 凭据族默认不进档案且列进 redacted，显式开关后写出且 redacted 为空`() {
@@ -157,7 +147,6 @@ class ArchiveCodecTest {
         // serve 是端内私有（§2.4）：既不写、也不进 redacted
         assertFalse(manifest.redacted.any { it.contains("serve") })
 
-        // 显式开关：凭据族写出，redacted 为空（A8「此时 redacted 字段为空」）
         val withCred = StoreArchive.export(
             ArchiveFixture.accounts, "android", "x", stores, emptyList(),
             ExportOptions(includeCredentials = true, now = { ArchiveFixture.FIXED_NOW }),

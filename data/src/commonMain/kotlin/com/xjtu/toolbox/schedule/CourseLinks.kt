@@ -23,13 +23,6 @@ private const val TAG = "CourseLinks"
  * 只管解析，不管展示——两套日程布局共用同一份结果。每一项独立可失败，调用方按项渲染。
  * 所有登录都走 `silent = true`：点开课程详情不该让用户收到短信验证码。
  *
- * ## 为什么搬进 `:data`
- *
- * 它要的每一样都在这一层：会话内核（`SessionManager` / `ensureSite`）、考勤取数与落盘
- * （`AttendanceApi` / `AttendanceRecordStore`）。搬动只换了两处：`android.util.Log` →
- * `:core` 的 `Log`；`attachContext(Context)` → [attachStorage]（原来那个 `Context` 唯一的
- * 用途就是「宿主落盘接上了没有」这个判断）。
- *
  * ## 教材那半按能力切走了
  *
  * `textbooksFor` 是**纯匹配**（吃一份教材表 + 课名/课程号，不碰会话、网络、落盘）
@@ -148,10 +141,9 @@ object CourseLinks {
         userInitiated: Boolean,
     ): AttendanceIndex? {
         // 先看落盘缓存能不能免掉这次请求。存储和刷新策略在 AttendanceRecordStore，
-        // 考勤页和课表角标共用同一份——原来两边各拉各的、各存各的。
+        // 考勤页和课表角标共用同一份。
         val pg = accountType == AccountType.POSTGRADUATE
-        // `AttendanceRecordStore` 搬进 `:data` 后不再收 Context（落盘走 :core 键值缝，同名同键）；
-        // 原来「没挂过宿主落盘就不读缓存」的闸门照旧保留（日程页 `attachStorage` 在首次调用前设好）。
+        // 没挂过宿主落盘（`attachStorage`）就不读缓存。
         val shard = if (storageAttached) AttendanceRecordStore.load(pg, termCode, c.accountId) else null
         val plan = AttendanceRecordStore.planFor(
             shard = shard,

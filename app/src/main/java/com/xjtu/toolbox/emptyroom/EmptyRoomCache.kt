@@ -23,15 +23,6 @@ import com.xjtu.toolbox.util.safeParseJsonObject
  *
  * **账号隔离**：cache 名后缀随 [AccountContext.activeAccountId] 动态计算，
  * 切换账号后访问落到新账号命名空间，旧账号数据不会被读到（也不会被新账号覆盖）。
- *
- * 取数（`EmptyRoomApi` / `EmptyRoomDirectQuery` / `LiveRoomApi` / `AppEmptyRoomSource`）已经搬进
- * `:data`（桌面端第 10 条真数据路由：桌面自己登智慧教室、自己取数），这里只剩**唯一离不开
- * `Context` 的那一档**：按账号命名空间的 SharedPreferences。搬迁前它就已经是这几个类的落盘去处，
- * 现在只是被抽成 [EmptyRoomStore] 那条缝（本类实现它，方法体逐字未动）——**一个文件名、一个键、
- * 一个 TTL、一次 `.commit()` 都没改**，`AgentTool` 与空教室屏读的还是同一份。
- *
- * ⚠️ 常量（[EmptyRoomStore.CODE_TTL_DAYS] 等）跟着缝走了：它们是「这份缓存怎么用」的契约的一部分，
- * 原来写在下面的 companion 里，现在由 [EmptyRoomStore] 声明。
  */
 class EmptyRoomCache(context: Context) : EmptyRoomStore {
     private val appContext = context.applicationContext

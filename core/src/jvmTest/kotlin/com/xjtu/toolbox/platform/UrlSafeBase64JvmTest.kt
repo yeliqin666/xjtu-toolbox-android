@@ -7,14 +7,7 @@ import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
-/**
- * **纯 Kotlin 那份 URL-safe Base64（[UrlSafeBase64]）与 `java.util.Base64` 的 URL 编解码器同结果**。
- *
- * Base64 这一步与压缩不同：它**没有**「字节可以不同」的余地（它是双射），所以判据就是逐字节相同 ——
- * 编码一致，解码的宽松边界也一致（对方发来的码可能带填充、末端可能有多余的位）。
- * 解码那一侧拿 **JDK 当基准**：这一份与它「同时 null 或同时同结果」才算对上
- *（JDK 用 `IllegalArgumentException` 表示不合法，这里用 null）。
- */
+/** 纯 Kotlin 那份 URL-safe Base64（[UrlSafeBase64]）与 `java.util.Base64` 的 URL 编解码器同结果。 */
 class UrlSafeBase64JvmTest {
 
     @Test

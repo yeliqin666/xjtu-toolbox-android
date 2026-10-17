@@ -12,15 +12,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlinx.coroutines.test.runTest
 
-/**
- * `CampusFitnessApi`（Web 端的体测取数）的**口径测试**。
- *
- * 为什么值得写：体测是「同一个屏、两端两套取数」的第一批屏之一，最容易出的事故不是崩，
- * 而是**两端算出的数不一样**（分项名随性别换、`--`/`未测`/`缺项` 三个占位、总分两位小数）。
- * 这里用 MockEngine 喂 campus-api 的**文档形状**（`modules/fitness.js` 的 `parseYears`/`parseScore`），
- * 把映射逐条钉死，不需要真服务器 —— 也不会因为学校体测系统 502 就失去回归保护
- * （2026-10-08 实测：`/api/fitness/years` 直接回 `HTTP 502`，上游应用自身故障，与账号无关）。
- */
+/** `CampusFitnessApi`（Web 端的体测取数）的测试。 */
 class CampusFitnessApiTest {
 
     private val yearsPayload = """
@@ -99,7 +91,6 @@ class CampusFitnessApiTest {
         assertEquals("良好", score.totalGrade)
         assertEquals("已审核", score.reportStatus)
         assertEquals("女", score.sex)
-        // 隐私口径：campus-api 不投影姓名/学号
         assertEquals("", score.studentName)
         assertEquals("", score.studentNumber)
         // 分项：按共享表定序（7 项）、按性别换名、三个占位各就各位
@@ -119,9 +110,7 @@ class CampusFitnessApiTest {
 
     @Test
     fun sexNamesUseTheSameBranchAsApp() = runTest {
-        // ⚠️ 这条是两端一致性的关键：campus-api 在 sex 缺失时会给中性名
-        //（「力量（引体向上/仰卧起坐）」），但 :app 老实现是 `if (sex == "女") … else …`。
-        // 这里钉住「缺失 = 默认支」，否则同一个人的同一项在两端会叫两个名字。
+        // sex 缺失时用默认支（campus-api 给中性名），否则同一项在两端名字不同。
         assertEquals("引体向上", fitnessItemName("pull_and_sit", ""))
         assertEquals("仰卧起坐", fitnessItemName("pull_and_sit", "女"))
         assertEquals("1000 米", fitnessItemName("run", ""))

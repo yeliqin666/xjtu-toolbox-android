@@ -8,14 +8,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 
-/**
- * 黄页解析的跨端回归网。
- *
- * 这一轮的改动是「把 :app 的 okhttp 版搬进 :core 并换成 Ktor」——传输层换了，
- * 但**解析口径必须逐字不变**。所以这里直接钉住 [YellowPageApi.parseListBody] /
- * [YellowPageApi.parseUpdateTime]（它们被从网络路径里抽出来，正是为了让这件事可测），
- * 同一份断言在 :core:jvmTest 与 wasm 目标上都能编。
- */
+/** 黄页解析的跨端回归网。 */
 class YellowPageApiTest {
 
     // 纯解析用，不需要真的发请求；MockEngine 只是给 HttpClient 一个合法构造。
@@ -75,7 +68,6 @@ class YellowPageApiTest {
 
     @Test
     fun updateTime_garbage_throws() {
-        // getData 用 runCatching 把它变成 ""——与搬迁前 java.time 的行为一致
         assertFailsWith<Exception> {
             api().parseUpdateTime(parse("""{"e":0,"d":{"page_update_time":"不是时间"}}"""))
         }

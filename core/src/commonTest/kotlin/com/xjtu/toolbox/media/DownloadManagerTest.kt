@@ -12,17 +12,7 @@ import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 
-/**
- * `:core` 的 [DownloadManager]（队列 / 状态机）在**两个假端口**上的行为 —— 执行器与存储都是假的，
- * 所以这些用例钉的是搬迁时最该守住的那部分：命名/消毒、状态迁移、暂停=取消不写 failed、
- * 取消与删除的文件处置、启动自愈、统计口径。
- *
- * 与搬迁前的对位：那套状态机原先写在 `:app`（`media/DownloadManager.kt`）里、直接调 Room，
- * 没有可测的缝；切成端口之后它在 `:core` 里跑同一份 commonTest（Android 与桌面共用）。
- *
- * 真搬运（HTTP / `Range` / 落盘）由另外两层钉：`:data:jvmTest` 的 `JvmDownloadEngineJvmTest`
- * 与 `:desktop:test` 的端到端那条。
- */
+/** `:core` 的 [DownloadManager]（队列 / 状态机）在两个假端口上的行为。 */
 class DownloadManagerTest {
 
     @Test
@@ -47,7 +37,6 @@ class DownloadManagerTest {
         advanceUntilIdle()
 
         assertEquals(listOf(1L, 2L), ids, "两条任务各拿到一个自增 id")
-        // `sanitizeFileName` 的原样口径：非法字符换 `_`、连续空白压成一个空格、收尾 trim
         assertEquals(
             setOf(
                 "/fake/ClassReplay/数据结构_示例_课/第 3 讲 回放_教师直播.mp4",
@@ -74,9 +63,7 @@ class DownloadManagerTest {
     fun `执行器抛异常：状态落 failed 且写进 errorMessage，不吞进度事件`() = runBlocking {
         val store = FakeStore()
         val engine = FakeEngine { _, _ -> throw IllegalStateException("HTTP 500: boom") }
-        // 这一条不用 `runTest`：进度流是 `MutableSharedFlow(replay = 0)`，收集器必须**在发出之前**
-        // 真的订上，而虚拟调度器下「订阅」与「投递」的先后不好赌（实测拿到过空列表）。
-        // `Dispatchers.Unconfined`：订阅与投递都同步发生在当前调用栈里，恰好就是这条用例要的东西。
+        // 不用 `runTest`：进度流 replay = 0，收集器必须在发出前订上；Unconfined 让订阅与投递同步发生。
         val scope = CoroutineScope(Dispatchers.Unconfined)
         val manager = DownloadManager(store, engine, FakeFileSystem(), scope = scope)
 
@@ -173,7 +160,6 @@ class DownloadManagerTest {
         assertTrue(store.rows.isEmpty())
         assertTrue(fs.deleted.isEmpty(), "deleteFile = false 时不该碰文件")
 
-        // 暂停中的任务：无论 deleteFile 传什么都要删文件（搬迁前就是这么写的）
         val id3 = manager.enqueueDownloads("课", "活动", 1, listOf(DownloadItem("instructor", "u3"))).single()
         advanceUntilIdle()
         manager.pauseDownload(id3)
@@ -240,7 +226,7 @@ class DownloadManagerTest {
         assertEquals(DownloadStatus.FAILED, store.rows.single().status, "只删了已完成那条")
     }
 }
-/** 内存存储：语义照 [DownloadTaskStore] 的 KDoc（排序/计数口径与 Android 那条 SQL 一致）。 */
+/** 内存存储：语义照 [DownloadTaskStore] 的 KDoc。 */
 private class FakeStore : DownloadTaskStore {
 
     val rows = mutableListOf<DownloadTask>()

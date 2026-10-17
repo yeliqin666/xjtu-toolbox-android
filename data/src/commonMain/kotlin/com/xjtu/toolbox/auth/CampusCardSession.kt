@@ -7,18 +7,7 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.Response
 
-/**
- * 校园卡会话。流程独立于标准 CAS：访问入口 → org.xjtu.edu.cn → login.xjtu.edu.cn → ticket → JWT。
- * 用 CasSiteSession 套壳——XJTULogin 状态机仍负责走完 CAS 部分，[CampusCardLogin.postLogin] 接管 ticket 兑换。
- *
- * 与它的 [CampusCardLogin] 一起从 `:app/auth/Sites.kt` 剪出来搬进 `:data`（桌面端第 9 条真数据路由：
- * 桌面要自己登 ncard，用 `:data` 的 [com.xjtu.toolbox.card.AppCampusCardSource] 取卡面与流水）。
- * 类名与包路径都没变 ⇒ `:app` 的 `AppLoginState` 里那处 `register(CampusCardSession())` 一行不用改。
- *
- * 搬出来时被替换的写法只有一处：`Sites.kt` 那个文件私有的 `withIo { }`
- * （= `withContext(Dispatchers.IO)`）换成本文件的 `withContext(Dispatchers.IO)` ——
- * 与 `JwxtSession` / `GsteSession` / `FitnessSession` 搬迁时同一条做法。
- */
+/** 校园卡会话。 */
 class CampusCardSession : CasSiteSession("campus_card", "校园卡", mustUseWebVpn = false) {
     override fun createLogin(client: OkHttpClient, visitorId: String?, cachedRsaKey: String?): XJTULogin =
         CampusCardLogin(existingClient = client, visitorId = visitorId)

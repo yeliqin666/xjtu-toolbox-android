@@ -12,47 +12,7 @@ import com.xjtu.toolbox.util.safeString
 import io.ktor.client.HttpClient
 import kotlinx.serialization.json.JsonObject
 
-/**
- * 电子成绩单（`dzpz.xjtu.edu.cn`）的 **serve 版取数**：给 `:web` 用，实现 [TranscriptSource]。
- *
- * | 端点 | 本类实现的方法 |
- * |---|---|
- * | `GET /api/dzpz/transcript` | [loadCreateForm]（七步里的第一步） |
- *
- * 契约 §5.5；`:server` 那一侧是 `DzpzRoutes.kt`（薄包装 `:data` 的 `AppTranscriptSource`）。
- *
- * ## 七步里只端了第一步（这张屏的**如实缺口**）
- *
- * `:core` 的 [TranscriptSource] 有七个方法，serve 契约只端了第 1 步：
- *
- * | 步骤 | 方法 | 端不端 |
- * |---|---|---|
- * | 1 建单表单（类型选项 / 默认日期 / 默认请求名） | [loadCreateForm] | **端** |
- * | 2 学籍联动 | [getLinkageData] | 不端：返回值里有**学号**（红线） |
- * | 3 生成预览 PDF | [generatePreviewPdf] | 不端：写路径 |
- * | 4 / 5 两次提交（含签章） | [submitCreate] / [reloadAndForward] | 不端：写路径 |
- * | 6 取下载链接 | [getDownloadInfo] | 不端：它吃的 `SubmitResult` 只能由第 4/5 步产生 |
- * | 7 下载 PDF 字节 | [downloadPdf] | 不端：写路径的输出，而且「存到哪儿」是宿主能力 |
- *
- * 所以 [canRunWorkflow] 报 `false`：`TranscriptScreen` 那边**不画**「一键申请成绩单」与那五步的
- * 步骤预览（点了必然失败的东西不摆出来），改画一张写清缺口的卡。
- *
- * ## 那六个「不投影」的字段：如实留空，不编一份假表单
- *
- * `FormContext` 里有六格是**提交表单的原料**：三个 JSON（`params` / `submitParams` / `maindata`）
- * 与三把签章密钥（`linkageUUID` / `signatureAttributesStr` / `signatureSecretKey`）。契约 §5.5
- * 刻意不投影它们（`signatureSecretKey` 端出去等于把签章密钥交给浏览器）⇒ 这里**留空**
- *（`JsonObject(emptyMap())` 与空串），而不是编一份看起来像真的表单体。因为第 2~7 步没有端点，
- * 这六格也永远走不进上游 —— 屏上那半条链是不画的。
- *
- * ## 默认形态（campus-api）
- *
- * 成绩单在 campus-api 里**没有对应端点**（`:app` 与桌面是走 `:data` 的 okhttp 抓的）⇒ 非 serve
- * 分支一律 [serveOnly]（抛错，不返回一份空数据）。`:web` 的装配也只在 serve 模式下 new 这个类。
- *
- * @param baseUrl 留空 ⇒ 相对路径即**同源**（`:web` 由 `:server` 托管，必须是空）
- * @param mode 见 [ApiMode]：serve 支才走本契约的端点
- */
+/** 电子成绩单（`dzpz.xjtu.edu.cn`）的 serve 版取数：给 `:web` 用，实现 [TranscriptSource]。 */
 class CampusTranscriptApi(
     private val client: HttpClient,
     private val baseUrl: String = "",
@@ -60,7 +20,7 @@ class CampusTranscriptApi(
     private val mode: ApiMode = ApiMode.CAMPUS_API,
 ) : TranscriptSource {
 
-    /** 见类 KDoc：七步里只端了第一步 ⇒ 出 PDF 那半条链在本端不存在。 */
+    /** 见类 KDoc：七步里只端了第一步。 */
     override val canRunWorkflow: Boolean get() = false
 
     override suspend fun loadCreateForm(workflowId: Int): FormContext {
@@ -77,7 +37,6 @@ class CampusTranscriptApi(
         }
         return FormContext(
             workflowId = served,
-            // 见类 KDoc：这六格刻意不投影 ⇒ 如实留空（不是编一份假表单）
             params = JsonObject(emptyMap()),
             submitParams = JsonObject(emptyMap()),
             maindata = JsonObject(emptyMap()),

@@ -24,32 +24,7 @@ import com.xjtu.toolbox.ui.components.LoadingState
 import io.ktor.client.HttpClient
 import kotlinx.coroutines.CancellationException
 
-/**
- * 账号管理（`AppRoute.Accounts`）在浏览器这一端的**宿主**（工单 S7a / D9，契约 §5.10）。
- *
- * ## 屏是 `:core` 的那一份，本文件只做两件事
- *
- * 1. **取数**：[CampusAccountsApi] 打 `GET /api/accounts`，把打码后的账号表与「serve 当前是哪个账号」
- *    读回来，再映射成 `:core` 的 [Account]（共享屏认的那个模型）；
- * 2. **动作**：一个都不做 —— 见下。
- *
- * ## 为什么四个写动作都如实失败（而不是假装能切）
- *
- * D9 的口径是「浏览器上切换账号 = 让 serve 换一套凭据」，而 serve 这一侧换凭据就是它自己的登录态
- * 迁移（命名空间 + 凭据 + 站点快照一起换）。本批按工单的「只读优先」**只端了读那一半**：
- * 服务端那一条端点的能力开关 `readOnly` 如实报 `true`（§5.10），这一端也就照它如实说 ——
- * [switchTo] / [addAccount] / [updatePassword] / [removeAccount] 一律抛 [WebAccountsNotWritable]
- * 或返回失败，文案是**给用户看的中文短句**（`FriendlyError` 对 [UserFacingFailure] 原样透出），
- * 告诉人「去 App 或桌面端做」，并说明为什么。屏上另有一行 [WebGapNote] 说同一件事。
- *
- * 这比画一个点了没反应的按钮诚实，也比把这一屏落成「还没搬到 Web」准确：**屏真在这里**
- * （同一份 `AccountManagerScreen`），能看见的东西（账号表、当前账号）是真数据。
- *
- * ## 那一行 note 为什么不写死
- *
- * `readOnly` 是**服务端如实答的**（§4 的能力开关）。服务端哪天端出写动作、这一端却还没接线，
- * note 会换成另一句（[gapNote]）而不是继续把「服务端不能」挂在自己头上。
- */
+/** 账号管理（`AppRoute.Accounts`）在浏览器这一端的宿主（契约 §5.10）。 */
 internal class WebAccountsController(private val api: CampusAccountsApi) : AccountsController {
 
     /** 首次加载中（屏上那张加载态）。 */
@@ -64,7 +39,7 @@ internal class WebAccountsController(private val api: CampusAccountsApi) : Accou
     var activeAccountId by mutableStateOf<String?>(null)
         private set
 
-    /** 服务端如实答的能力开关（§5.10）；加载完成前按**只读**（保守那一侧）。 */
+    /** 服务端答的能力开关（§5.10）；加载完成前按只读。 */
     var readOnly by mutableStateOf(true)
         private set
 
@@ -113,11 +88,7 @@ internal class WebAccountsController(private val api: CampusAccountsApi) : Accou
 
     override suspend fun removeAccount(accountId: String, deleteCache: Boolean): Boolean = notWritable()
 
-    /**
-     * 页顶那一行如实说明（内容随服务端的能力开关走，见类 KDoc）。
-     *
-     * 给共享屏用（`:core` 那份屏不知道浏览器与 serve 的分工）。
-     */
+    /** 页顶那一行说明（随服务端的能力开关走）。 */
     fun gapNote(): String = if (readOnly) {
         "账号表由 serve 进程读（与桌面端共用同一份 xjtu_accounts，见 docs/agent-web-spec.md 那一条）。" +
             "这一端只读：切换 / 新增 / 删除 / 改密要在 App 或桌面端做 —— 服务端那条端点把能力开关 " +
@@ -136,23 +107,10 @@ internal class WebAccountsController(private val api: CampusAccountsApi) : Accou
     private fun notWritable(): Nothing = throw WebAccountsNotWritable(hint())
 }
 
-/**
- * 「这一端没有写动作」——[UserFacingFailure] 让 `FriendlyError` 把中文短句**原样**交给屏上的 toast
- * （不实现它的话，`FriendlyError` 会按网络/兜底分类，把 [hint] 里那句「去哪儿做」丢掉）。
- */
+/** 「这一端没有写动作」：实现 [UserFacingFailure] 让 `FriendlyError` 把 [hint] 原样交给 toast。 */
 private class WebAccountsNotWritable(message: String) : IllegalStateException(message), UserFacingFailure
 
-/**
- * 账号管理那一屏（serve 形态）。**屏本体是 `:core` 的 [AccountManagerScreen]** ——
- * 三端同一份屏、同一套层级；这里只做「先取数，再把它画出来，并在页顶写清这一端的缺口」。
- *
- * 加载中 / 取数失败两张态是本端自己画的（与 `WebDormPowerScreen` 那两张同一套组件），
- * 不拿一张空账号表冒充 ——「读不到」与「真的一个账号都没有」在屏上完全不同。
- *
- * @param client 这一份 `:web` 的 HTTP 客户端（带 serve 令牌，见 [ServeTokenHolder]）
- * @param mode 只该在 serve 形态下进来（campus-api 形态由 `AppPage` 落 `WebServeOnlyScreen`）
- * @param onBack 返回上一屏（壳给的导航；共享屏的返回箭头就是它）
- */
+/** 账号管理那一屏（serve 形态）。 */
 @Composable
 internal fun WebAccountsScreen(
     client: HttpClient,

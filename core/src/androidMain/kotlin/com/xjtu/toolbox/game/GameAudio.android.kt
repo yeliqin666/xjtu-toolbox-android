@@ -11,13 +11,6 @@ import java.io.File
 import java.io.RandomAccessFile
 import java.util.concurrent.ConcurrentHashMap
 
-/**
- * Android 侧的真实现 —— 与搬迁前 :app `GameSound` 的播放部分**逐字一致**：
- * 首次用到时把 [Synth] 合成的 WAV 写进 `cacheDir/game_sound`，交给 `SoundPool`（最多 6 路流）播放。
- *
- * 平台句柄从 `androidPlatformContext()` 取（:app 在 `Application.onCreate` 注入），
- * 所以不再需要 `GameSound.init(context)` 这个入口。
- */
 private object AndroidGameAudio : GameAudio {
     /** 改了合成参数就加一，旧缓存文件不再被读到。 */
     private const val VERSION = 1

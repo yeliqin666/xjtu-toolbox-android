@@ -6,56 +6,14 @@ import java.net.URLDecoder
 import java.net.URLEncoder
 import java.util.concurrent.atomic.AtomicInteger
 
-/**
- * 假的「校园卡（ncard）」上游 —— 扮演 `ncard.xjtu.edu.cn`（校园卡这条真数据路由的学校那一侧）。
- *
- * ## 它扮演到什么程度
- *
- * 完整那条链，一环不省：
- *
- * ```
- * GET  <HOME_URL>                         →（不带 ticket）302 到统一认证（service = HOME_URL）
- * POST http://login.xjtu.edu.cn/cas/login →（凭据表单，由 LibraryFakeUpstream 扮演 CAS）
- * GET  <HOME_URL>&ticket=ST-n             → 200 首页 —— 登录链的最后一跳（`postLogin` 在这里接管）
- * POST <TOKEN_URL>                        → JWT：`{"access_token":…}`（Basic Auth + 表单里带 ticket）
- * GET  <USER_URL>                         → 用户资料 `data.cardAccount / name / sno`
- * GET  <CARD_URL>                         → 卡面     `data.card[0].elec_accamt / unsettle_amount / barflag / …`
- * GET  <TURNOVER_URL>?size=&current=&…    → 流水一页 `data.total / data.records[]`
- * ```
- *
- * ## 统一认证那一半为什么不在这个文件里
- *
- * `login.xjtu.edu.cn` 是**所有站点共用**的一台 CAS，`FakeCampusProxy` 把它分派给
- * [LibraryFakeUpstream]（它完整扮演了登录页 / 表单 POST / 签 ticket / TGC）。这个夹具只负责
- * `ncard.xjtu.edu.cn` 那一半：**CAS 回跳之后**的事。
- *
- * 真站点那条链还夹着 `org.xjtu.edu.cn` 开放平台的两跳，这里**直接 302 到统一认证**：夹具要演的是
- * 「CAS 回跳之后客户端拿到的那个 URL 与页面」（`CampusCardLogin.postLogin` 只判「ticket 在不在、
- * 落地是不是 ncard」），中间那两跳对被测代码没有可观察差别。这条省略写在这里，
- * 免得被读成「真站点就两跳」。
- *
- * ## 契约：逐字段对着 `:data` 里的解析函数写
- *
- * - 站点是 **https**，所以 `FakeCampusProxy` 的 `HTTPS_HOSTS` 里有它（走 CONNECT + 自签证书）。
- * - 用户资料 / 卡面 / 流水的键，就是 `CampusCardLogin.fetchUserInfo` 与 `CampusCardApi` 真正读的那些；
- *   `code` 给的是**数字** 200（`CampusCardContract.businessCode` 的 intValue 那一支）。
- * - `cardname` 两侧**带空格**、`unsettle_amount` 是**字符串** `"5000"` —— 解析的 `trim()` 与
- *   `requireLong` 的字符串分支因此都有人钉着。
- * - 七条流水把 `signedAmountCents` 的每条分支各摆一条（表在下方的常量区）：`typeFrom` 权威判据、
- *   关键词兜底、`toAccount` 兜底、服务端已经给了负数、以及 `toMerchant` 是空串时退回 `resume`。
- *
- * ## 认不出的路径要响亮
- *
- * 路径不认识 → 404，**body 里带着完整 URL**；认识的路径但形体不对（该 POST 的用了 GET、
- * 少了 ticket / 少了分页参数 / 没带 bearer）→ 400，body 里带着实际收到的样子。URL 一漂就该一眼看出来。
- */
+/** 假的「校园卡（ncard）」上游。 */
 class CampusCardFakeUpstream {
 
     companion object {
         const val HOST = "ncard.xjtu.edu.cn"
         const val ORIGIN = "https://$HOST"
 
-        /** 登录入口 —— 与 `CampusCardLogin.LOGIN_URL` 必须逐字相同（有断言钉着）。 */
+        /** 登录入口，必须与 `CampusCardLogin.LOGIN_URL` 相同（有断言钉着）。 */
         const val HOME_URL = "$ORIGIN/berserker-base/redirect?type=login&loginFrom=h5&synAccessSource=h5"
 
         /** ticket 换 JWT（`CampusCardLogin.TOKEN_URL`）。 */
@@ -149,11 +107,6 @@ class CampusCardFakeUpstream {
         /** 服务端总数 = 七条（夹具只有一页）。 */
         const val TOTAL = 7
 
-        // ── 付款码（`AppRoute.PaymentCode`，同一个站点的另一条路由）──
-        //
-        // 付款码借的就是**校园卡这个会话**（`AppRoute.PaymentCode.loginType = CAMPUS_CARD`），
-        // 业务请求带同一个 `Synjones-Auth: bearer <JWT>`（见 `PaymentCodeApi.authRequest`），
-        // 所以它扮在同一个夹具里：同 host、同 JWT、同一条登录链。
 
         /** 付款码取数（`PaymentCodeApi.BAR_CODE_URL` 的路径）。 */
         const val BAR_CODE_PATH = "/berserker-app/authCode/batchGetBarCodeGet"
@@ -167,10 +120,7 @@ class CampusCardFakeUpstream {
         /** [voucherUpdateRejected] 打开时上游给的那句 msg（一眼假的）。 */
         const val VOUCHER_UPDATE_REJECTED_MSG = "当前不允许修改加餐券选择（夹具）"
 
-        /**
-         * **编出来的**付款码号（20 位十进制，形状像真码，值与任何人的付款码无关）。
-         * 证据图与测试都拿它当「这一串真从上游取回来了」的判据。
-         */
+        /** 编出来的付款码号（20 位十进制，形状像真码，值与任何人的付款码无关）。 */
         const val BAR_CODE = "60041234000000000001"
 
         /** 两张加餐券的 `showCardId`（同样编的）。 */
@@ -241,12 +191,7 @@ class CampusCardFakeUpstream {
         }}
     """.trimIndent()
 
-    /**
-     * 卡面：`card` 是**数组**，解析取第 0 个。
-     *
-     * `cardname` 两侧刻意带空格（`trim()` 的判据）、`unsettle_amount` 刻意是字符串
-     * （`requireLong` 的字符串分支）、`barflag`/`freezeflag` 是数字 0（不是布尔）。
-     */
+    /** 卡面：`card` 是数组，解析取第 0 个。 */
     val cardJson = """
         {"code":200,"message":"成功","data":{"card":[
           {"elec_accamt":$BALANCE_CENTS,"unsettle_amount":"$PENDING_CENTS",
@@ -281,21 +226,12 @@ class CampusCardFakeUpstream {
            "typeFrom":"1","toAccount":88003,"fromAccount":"$CARD_ACCOUNT","cardBalance":$TX_REFUND_BALANCE_CENTS}
         ]}}
     """.trimIndent()
-    /**
-     * 付款码：`PaymentCodeApi.getBarCode` 只读 `success` → `data.barCodeVo.barcode[0]`。
-     *
-     * `barcode` 刻意是**数组**（真接口就是这个形体，屏取第 0 个）——夹具只摆一个元素。
-     */
+    /** 付款码：`PaymentCodeApi.getBarCode` 只读 `success` → `data.barCodeVo.barcode[0]`。 */
     val barCodeJson = """
         {"success":true,"msg":"成功","data":{"barCodeVo":{"barcode":["$BAR_CODE"]}}}
     """.trimIndent()
 
-    /**
-     * 可用加餐券两张：`data` 是数组，逐项读 `showCardId`/`voucherName`/`typeName`/`tranamt`/`endDate`/`flag`。
-     *
-     * 两张而不是一张：屏上「已选 N 张」那一档要 N 才有意义（证据运行会勾一张）。
-     * 两张券的面额不同（¥5.00 / ¥3.00）⇒ `formatYuan` 那条手写的分转元真有人钉着。
-     */
+    /** 可用加餐券两张：`data` 是数组，逐项读 `showCardId`/`voucherName`/`typeName`/`tranamt`/`endDate`/`flag`。 */
     val vouchersJson = """
         {"success":true,"msg":"成功","data":[
           {"showCardId":"$VOUCHER_CANTEEN_ID","voucherName":"$VOUCHER_CANTEEN_NAME",
@@ -308,11 +244,7 @@ class CampusCardFakeUpstream {
     /** 同步券选择成功（`PaymentCodeApi.updateVoucherStatus` 只看 `success`）。 */
     val voucherUpdateJson = """{"success":true,"msg":"成功"}"""
 
-    /**
-     * 打开后同步券选择回 `{"success":false,...}` —— 演「上游到了、上游说不给改」。
-     *
-     * 与「校园卡没登录」（到不了上游）不是一回事：它到了上游，是上游说的不行。
-     */
+    /** 打开后同步券选择回 `{"success":false,...}` —— 演「上游到了、上游说不给改」。 */
     @Volatile
     var voucherUpdateRejected: Boolean = false
 
@@ -355,10 +287,7 @@ class CampusCardFakeUpstream {
         }
     }
 
-    /**
-     * 登录入口页：带 ticket ⇒ 给首页（ticket 由 `postLogin` 从落地 URL 里读）；否则 302 到统一认证
-     * （`service` 就是本页地址，真站点也是这么把票据交回来的）。
-     */
+    /** 登录入口页：带 ticket ⇒ 给首页（ticket 由 `postLogin` 从落地 URL 里读） */
     private fun handleEntry(exchange: HttpExchange, query: String) {
         if ("ticket=" in query) {
             ticketLandings.incrementAndGet()
@@ -391,10 +320,7 @@ class CampusCardFakeUpstream {
         respondJson(exchange, tokenJson)
     }
 
-    /**
-     * 流水：分页参数与日期区间一个不能少（夹具只认这套查询），`current > 1` 回空表 ——
-     * 夹具只有一页，翻页翻过头要响亮地失败，而不是编几行出来。
-     */
+    /** 流水：分页参数与日期区间一个不能少（夹具只认这套查询），`current > 1` 回空表 —— 夹具只有一页，翻页翻过头要响亮地失败，而不是编几行出来。 */
     private fun handleTurnover(exchange: HttpExchange, query: String) {
         lastTurnoverQuery = query
         val params = formFields(query)
@@ -416,11 +342,7 @@ class CampusCardFakeUpstream {
         turnoverCalls.incrementAndGet()
         respondJson(exchange, if (current == 1) turnoverJson else emptyPageJson)
     }
-    /**
-     * 同步券选择：必须是 POST、请求体是 JSON 数组（`PaymentCodeApi.updateVoucherStatus` 用
-     * `buildJsonArray` 拼的），且每一项都是非空的 `showCardId` —— 形状不对就 400，
-     * 免得「勾选根本没发出去」也能通过。
-     */
+    /** 同步券选择：必须是 POST、请求体是 JSON 数组（`PaymentCodeApi.updateVoucherStatus` 用`buildJsonArray` 拼的），且每一项都是非空的 `showCardId` ——形状不对就 400，免得「勾选根本没发出去」也能通过。 */
     private fun handleVoucherUpdate(exchange: HttpExchange) {
         val body = readBody(exchange)
         if (exchange.requestMethod != "POST") {

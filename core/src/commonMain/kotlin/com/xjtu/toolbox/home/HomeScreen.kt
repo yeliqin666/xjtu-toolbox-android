@@ -70,39 +70,8 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.utils.SinkFeedback
 import top.yukonga.miuix.kmp.utils.overScrollVertical
 
-// ══════════════════════════════════════════
-//  首页（共享层）
-// ══════════════════════════════════════════
 
-/**
- * 首页屏 —— 从 `:app` 的 `main/HomeTab.kt` 搬进 `:core`，**画法与文案逐字未动**。
- *
- * ## 搬迁的口径：屏是排版，数据全是宿主的
- *
- * 搬走的是「首页长什么样」：Hero 卡（问候 → 下一项安排 → 速览格 → 常用入口）、分类卡（有状态的
- * 出数据格、其余收成一排图标入口）、宽窄两种摆法、以及那一串进入动画。留下的是「数据从哪来」：
- * 问候里的名字、日期文案、教学周、下节课、余额、各功能此刻的状态、有哪些常用入口、Hero 右上角那张
- * 插画 —— 全部由 [HomeHost] 递进来。于是「首页在这一端画得出什么」这件事，在各端是一个能读的清单
- * （[HomeHost.honoredCards]），而不是散在屏里的 `if (Android)`。
- *
- * ## 三处形态调整（判定与画法未动）
- *
- * 1. **`homeTheme` 从 `CredentialStore.THEME_*` 换成宿主给的字符串**：那两个值来自设置项
- *    `SettingsStore.homeTheme`，`CredentialStore` 那两行本来就是转发（同一个键、同一个值）。
- * 2. **`heroStatus` 那一行改说 [HomeTone]**：原来它在屏里直接算「校园网/校外 + 3/14 就绪」，
- *    现在由宿主算好（桌面没有校内外判定）；配色表仍在屏里（那是画法）。
- * 3. **「下一项安排」不再自己扫 15 天课表**：那段判定搬进 [HomeHero]（纯函数，三端同一份），
- *    宿主把结果装进 [HomeNextUp]。四种「说不出来」的说法（没登录 / 正在读 / 课表没同步 /
- *    这两周没课）仍由宿主挑 [HomeNextUp.icon] 与文案，屏只负责画。
- *
- * ## 没搬进来的
- *
- * - **公告条与「子系统连接状态」弹窗**：公告条本体在 `:core`（`BulletinNoticePanel`，
- *   [HomeCard.BULLETIN_BAR]），弹窗是各端自己的画法（`:app` 那份读 `AppLoginState` 的
- *   `sessionManager`）⇒ 这里只有 [HomeHost.onOpenStatus] 这个动作；
- * - **主动刷新（`HomeStatsRefresher`）与提醒评估**：那是 `:app` 的落盘缓存与网络那一半
- *   （设计文档 §5.1 的桥），屏一个网络请求都不发 —— 与搬迁前同一条纪律。
- */
+/** 首页屏。 */
 @Composable
 fun HomeScreen(
     host: HomeHost,
@@ -114,11 +83,9 @@ fun HomeScreen(
     contentTopPadding: Dp = 0.dp,
 ) {
     val honored = host.honoredCards
-    // 目录全量（不过滤「本端能不能打开」）：图标主题的配色按**它在目录里的位置**取，
-    // 与搬迁前 `serviceColor(index, allServices.size)` 同一个下标口径 —— 过滤会把这套配色挪位。
+    // 用目录全量：图标配色按它在目录里的下标取，过滤会让配色挪位。
     val catalog = remember(host.audience) { AppServices.homeFor(host.audience) }
-    // `serviceColor` / `legacyColor` 都是 @Composable（要读深浅主题）⇒ 不能在 `remember` 里算，
-    // 只能在这里逐条取好（与搬迁前那段 `for (index in allServices.indices)` 同一个口径）。
+    // `serviceColor` / `legacyColor` 是 @Composable，不能放进 `remember`。
     val iconColorByKey = catalog.mapIndexed { index, svc -> svc.route.id to serviceColor(index, catalog.size) }.toMap()
     val legacyColorByKey = catalog.associate { it.route.id to legacyColor(it.route.id) }
     val isIconTheme = host.homeTheme == SettingsStore.THEME_ICON
@@ -227,13 +194,7 @@ fun HomeScreen(
     }
 }
 
-/**
- * 首页的「今日」卡：一张卡装下此刻最该看的全部东西。
- *
- * 以前从上到下是 Hero、一排网络/子系统小胶囊、「常用功能」标题 + 一条宫格，三块各管各的，
- * Hero 里的余额和下节课又在下面的分类卡里再出现一遍。现在收成一张：
- * 问候与状态 → 下一项安排（整条可点）→ 余额 / 社区 / 考试三格速览 → 常用入口。
- */
+/** 首页的「今日」卡：一张卡装下此刻最该看的全部东西。 */
 @Composable
 private fun HomeHeroCard(
     modifier: Modifier = Modifier,
@@ -543,13 +504,7 @@ private fun HeroGlance(
     }
 }
 
-/**
- * 「待办与消息」那一格。
- *
- * `:app` 的首页不画它（消息角标在玻璃顶栏上，见 `InboxBell`），桌面端没有那个顶栏 ⇒ 这一格是
- * 「谁在办、还差几件」在首页唯一的落点。数据是 [HomeCards.inboxSummary] 从 `InboxStore` 的快照
- * 算出来的（不联网），所以它和消息收纳那一页永远是同一个数。
- */
+/** 「待办与消息」那一格。 */
 @Composable
 private fun HomeInboxCard(summary: HomeInboxSummary, onClick: () -> Unit) {
     val accent = MiuixTheme.colorScheme.primary
@@ -612,13 +567,7 @@ private fun HomeInboxCard(summary: HomeInboxSummary, onClick: () -> Unit) {
     }
 }
 
-/**
- * 分类卡的排布。
- *
- * 窄屏：一列竖排、卡间留 [spacing]，与改造前的 `forEachIndexed { card; Spacer }` 逐行等价
- * （这个函数本身不建布局节点，卡片仍然是外层 Column 的直接孩子）。
- * 宽屏：两列，偶数下标进左列、奇数进右列——按顺序填一列到底会让左边长得离谱。
- */
+/** 分类卡的排布。 */
 @Composable
 private fun CategoryCards(
     count: Int,
@@ -649,12 +598,7 @@ private fun CategoryCards(
     }
 }
 
-/**
- * 两个主题共用的服务条目数据。
- *
- * [stat] / [statDetail] 是卡片主题的核心：**有实时状态可展示的服务才配大卡**。
- * 图标主题忽略这两个字段——它的定位是等分入口宫格。
- */
+/** 两个主题共用的服务条目数据。 */
 private data class HomeServiceRow(
     val key: String,
     val icon: ImageVector,
@@ -669,13 +613,7 @@ private data class HomeServiceRow(
     val hasStat: Boolean get() = !stat.isNullOrBlank()
 }
 
-/**
- * 彩虹主题的分类卡。
- *
- * 图标做成实心渐变 + 白色字形的 App 图标，而不是浅色底上的彩色字形——后者一排排摆出来
- * 像网页上的功能列表；前者一眼就是「手机上的一屏应用」。卡片本身只在左上角晕一团分类色，
- * 没有描边、没有色条，让彩色图标自己说话。
- */
+/** 彩虹主题的分类卡。 */
 @Composable
 private fun HomeCategoryCard(
     title: String,
@@ -769,15 +707,7 @@ private fun HomeServiceTile(
     }
 }
 
-/**
- * 卡片主题的分类卡：上面是有实时状态的功能（数据格），下面是其余功能的紧凑入口。
- *
- * 以前是左缘一条色条 + 双列「名称 / 数值」纯文字，没有任何面，像网页表格；
- * 没数据的功能只剩一行灰字，点都不好点。现在：
- * - 有状态的做成淡染分类色的圆角数据格，数值加粗，一眼扫出「哪里有事」；
- * - 没状态的收成一排图标入口，和彩虹主题同一套手感；
- * - 标题用浅色底的图标徽记做识别，去掉色条。
- */
+/** 卡片主题的分类卡：上面是有实时状态的功能（数据格），下面是其余功能的紧凑入口。 */
 @Composable
 private fun HomeSceneCard(
     title: String,
@@ -932,8 +862,6 @@ private fun HomeQuickAction(
             )
             .padding(horizontal = 4.dp, vertical = 6.dp)
     ) {
-        // 唯一的调用方是首页「常用功能」，气泡搬到底栏后这里不再需要向外报告图标坐标，
-        // 那个 onIconGloballyPositioned 参数已随之删掉。
         if (solidIcon) GradientAppIcon(icon, color, size = iconSize, iconSize = iconSize * 0.5f)
         else ExpressiveIcon(icon = icon, color = color, size = iconSize, iconSize = iconSize * 0.5f)
         Spacer(Modifier.height(6.dp))
@@ -953,22 +881,13 @@ private val HERO_ART_SIZE = 104.dp
 private val STATUS_GREEN = Color(0xFF2E7D32)
 private val STATUS_BLUE = Color(0xFF1565C0)
 
-/**
- * `¥42.50` —— 自己拼两位小数。
- *
- * 搬迁前这里是 `"¥%.2f".format(it)`，而 `String.format` 是 **JVM 专属**（`:core` 的 commonMain
- * 要编到 wasmJs，那里没有它）—— 与课表搬迁时那几处同一个坑。金额只会是非负数（余额、日均），
- * 所以 `+ 0.5` 截断就是 `%.2f` 的进位口径。
- */
+/** `¥42.50` —— 自己拼两位小数。 */
 private fun yuanText(value: Float): String {
     val cents = (value * 100 + 0.5).toLong()
     return "¥${cents / 100}.${(cents % 100).toString().padStart(2, '0')}"
 }
 
-/**
- * 首页 Hero 卡 Mesh 渐变的 3x3 顶点：每格是「主题色混进卡片底色的比例」。
- * 右上角最浓，往下渐淡，底部几乎就是卡片底色，给下面的面板留出干净的底。
- */
+/** 首页 Hero 卡 Mesh 渐变的 3x3 顶点：每格是「主题色混进卡片底色的比例」。 */
 private val HeroMeshWeights = listOf(
     listOf(0.15f, 0.08f, 0.22f),
     listOf(0.07f, 0.11f, 0.08f),

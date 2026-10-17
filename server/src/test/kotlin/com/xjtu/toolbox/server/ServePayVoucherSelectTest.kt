@@ -9,31 +9,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
-/**
- * `POST /api/pay/vouchers/select` 的契约测试（`docs/api-contract.md` §5.7 的**加餐券勾选同步**，
- * 2026-10-15 批③-b / D7 ④）。
- *
- * 与 [ServePayFeedbackMatchWebvpnTest] 同一条脚手架（[withFakeProxy] + [startEndpointServer]）；
- * 夹具是 `:testkit` 的 `CampusCardFakeUpstream`（`ncard.xjtu.edu.cn` —— 付款码借的就是校园卡
- * 那条会话），本批新加的是 `voucherUpdateRejected` 开关。
- *
- * ## 这一组钉的是什么
- *
- * - **闸门**：未登录 `401`，而且那一枪**不打上游**（`voucherUpdateCalls == 0`）；
- * - **参数**：body 不是 JSON / 缺 `showCardIds` / 那一格不是字符串数组 ⇒ `400`；
- * - **请求形状**：上游收到的是**裸 JSON 数组**（`:data` 的 `updateVoucherStatus` 用 `buildJsonArray`
- *   拼的）、顺序取调用方的先后、去重去空白 —— 与两端同一条链；
- * - **成功**：`200` + `{ok, message}`（`data` 只有那两格）；
- * - **上游拒收**：`502` + 上游那句中文（`:data` 只看 `success` 这一个布尔）；
- * - **红线**：响应体过 [assertNoIdentity]。
- *
- * ## 本批**做不到**的那件（D7 ④ 的结论，写在契约里）
- *
- * 「付款码**支付**」这一档**上游客户端本来就没有**：`:data` 的 `PaymentCodeApi` 上只有
- * `authenticate` / `getBarCode` / `getVouchers` / `updateVoucherStatus` 四个方法，一个扣款/支付
- * 动作都没有（钱是商户扫了那串号之后在学校那边扣的）⇒ 没有东西可端，这一组端的是这一族**唯一**
- * 的写。
- */
+/** `POST /api/pay/vouchers/select` 的契约测试（`docs/api-contract.md` §5.7）。 */
 class ServePayVoucherSelectTest {
 
     private var started: EmbeddedServer<CIOApplicationEngine, CIOApplicationEngine.Configuration>? = null
@@ -66,9 +42,7 @@ class ServePayVoucherSelectTest {
             "not json at all" to "请求体不是 JSON",
             """{"ids":["${CampusCardFakeUpstream.VOUCHER_CANTEEN_ID}"]}""" to "少了 showCardIds（只认契约那一格）",
             """{"showCardIds":"${CampusCardFakeUpstream.VOUCHER_CANTEEN_ID}"}""" to "那一格不是数组",
-            // ⚠️ 故意**不**把 `{"showCardIds":[1,2]}` 当 400：kotlinx 的 JsonDecoder 把数字
-            // primitive 当字符串解出来（`decodeString` 收非字符串 primitive），所以它会变成 `["1","2"]`
-            // —— 这是 JSON 那一层的既有行为，不是本层新编的判据；对着它写一条「必 400」的断言才是假的。
+            // 故意不把 `{"showCardIds":[1,2]}` 当 400：kotlinx JsonDecoder 会把数字 primitive 解成字符串。
             """{}""" to "整格缺了（缺格与空表不是一回事 —— 写端点上这一条最要紧）",
         )
         for ((body, why) in badCases) {

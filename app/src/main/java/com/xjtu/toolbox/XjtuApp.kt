@@ -54,29 +54,20 @@ class XjtuApp : Application() {
             com.xjtu.toolbox.account.AccountStore.FILE_NAME,
             com.xjtu.toolbox.data.CredentialStore.FILE_NAME,
         )
-        // 统一存档层的一次性导入触发点（S4 接线点）：有档案才跑 —— 自校验 → 行数组预检 →
-        // :core 的 StoreArchive.import 按 §6.4 合并 → 落「已导入」标记（filesDir/archive 下）。
-        // 坏档案在写第一笔之前就明确失败，端内零改动（§6.2 / §8.7，顺序在换包清理之后）。
+        // 统一存档的一次性导入：有档案才跑；坏档案写第一笔之前就失败，顺序必须在换包清理之后。
         com.xjtu.toolbox.archive.AppArchiveUx.maybeImportPendingArchive(base)
     }
 
     override fun onCreate() {
         super.onCreate()
-        // 把进程级 Context 交给 :core 的平台层。所有需要平台句柄的家族（键值/偏好、
-        // 后台任务、分享……）都通过这一个入口拿句柄 —— :core 的 commonMain 不认识 Context。
-        // 放在 onCreate 最前面：任何用到 :core 平台能力的代码都晚于它。
         com.xjtu.toolbox.platform.initAndroidPlatform(this)
         // 同一件事的 :data 版：会话内核要的密文存储（cookie / 站点快照）按名字从
         // `:data` 的平台缝取，Android 那份 actual 同样需要进程级 Context。
         com.xjtu.toolbox.platform.initDataPlatform(this)
-        // 反馈后端的凭据：搬进 `:data` 的 FeedbackApi 不再读 BuildConfig（`:data` 是 JVM/Android
+        // 反馈后端的凭据：`:data` 的 FeedbackApi 不读 BuildConfig（`:data` 是 JVM/Android
         // 共用的模块）⇒ 宿主在这里注入一次。必须在下面那发 CrashReporter 上传之前。
         com.xjtu.toolbox.feedback.AppFeedback.install()
         CrashReporter.install(this)
-        // CourseColors 不再需要 init：它已搬进 :core 的 commonMain，存储走 keyValueStore
-        // （Android actual 仍是同一份 SharedPreferences 文件）。
-        // InboxStore 也不再需要 init：它已搬进 :core 的 commonMain，存储走 keyValueStore
-        // （Android actual 仍是同一份 SharedPreferences 文件、同一个 "data" 键）。
         // 桌面小组件那条缝：InboxStore 在 :core，写一次收纳就该重画一次小组件，
         // 而重画要 Context 与 AppWidgetManager（都在 :app）⇒ 用回调挂上去（见 InboxWidgetHook）。
         com.xjtu.toolbox.inbox.InboxWidgetHook.onTodosChanged = {

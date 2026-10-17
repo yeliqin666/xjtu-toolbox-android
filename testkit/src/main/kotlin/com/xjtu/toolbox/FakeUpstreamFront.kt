@@ -21,46 +21,11 @@ import java.util.concurrent.Executors
 import javax.net.ssl.KeyManagerFactory
 import javax.net.ssl.SSLContext
 
-/**
- * 假上游**对外的那个端口**：一个裸 TCP 前置 + 两个 `com.sun.net.httpserver` 后端（明文 / TLS）。
- *
- * ## 为什么不能只有一个 `HttpServer`（假上游原来那样）
- *
- * 原来假上游自己就是「代理」：走代理时请求行是 absolute-form，`requestURI.host` 就是目标域名。
- * 这一套对 **http** 站点成立（图书馆座位系统 `rg.lib.xjtu.edu.cn:8086`、统一认证都是 http），
- * 对 **https** 站点不成立 —— okhttp 对 https 先说 `CONNECT host:443 HTTP/1.1`，隧道打通后
- * 才在隧道里做 TLS。`com.sun.net.httpserver` 不认 CONNECT（实测：客户端在隧道里读不到响应，
- * 10 秒后 `SocketTimeoutException`）。于是：
- *
- * ```
- *   客户端 ──TCP──▶ [前置：裸 ServerSocket]  ── CONNECT tyxylp…:443 ──▶ [HttpsServer + 自签证书]
- *                        │                                              （同一张 host 分派表）
- *                        └────────── 其余（absolute-form http）─────────▶ [HttpServer]
- * ```
- *
- * 两个后端跑**同一个** `handler`：分派表只有一份，https 与 http 的差别只在传输。
- *
- * ## 自签证书与信任库（[installTrustStore]）
- *
- * 证书由 `keytool` 现生成（`:testkit` 只用 JDK，不加任何依赖），SAN 就是 [httpsHost]。
- * 客户端要信任它，就得在 `javax.net.ssl.trustStore` 上指一份「系统 cacerts 的副本 + 这枚证书」
- * ——**只增加**一个受信任的主机，其余真实站点照旧。
- *
- * ⚠️ 它必须在**建任何 `OkHttpClient` 之前**装好：`OkHttpClient.Builder.build()` 那一刻就把
- * 平台默认的 trust manager 抄进客户端（实测：晚一步就 `PKIX path building failed`，
- * 而且 `SSLContext.setDefault` 也救不回来 —— okhttp 抄的是 trust manager 实例，不是默认上下文）。
- * 所以它是 `FakeCampusProxy.installFakeUpstreams()` 的两件前置之一。
- */
+/** 假上游对外的那个端口：一个裸 TCP 前置 + 两个 `com.sun.net.httpserver` 后端（明文 / TLS）。 */
 class FakeUpstreamFront(
     /** 明文与 TLS 两条入口共用的那一张 host 分派表。 */
     private val handler: (HttpExchange) -> Unit,
-    /**
-     * 用自签证书扮演的那些 https 域名 —— CONNECT 只认它们，别的目标响亮地 502。
-     *
-     * 收一个**集合**而不是单个域名：一枚证书可以带多个 SAN，而信任库是**单个**系统属性
-     * （`javax.net.ssl.trustStore`）—— 每个 https 站点各装一份的话，后装的那份会把前一份顶掉，
-     * 先来的那个站点直接 PKIX 失败。所以几个 https 站点共用这一枚证书，信任库只装一次。
-     */
+    /** 用自签证书扮演的那些 https 域名 —— CONNECT 只认它们，别的目标响亮地 502。 */
     private val httpsHosts: Set<String>,
 ) : AutoCloseable {
 
@@ -177,10 +142,7 @@ class FakeUpstreamFront(
         }
     }
 
-    /**
-     * 读一个请求的头（读到空行为止）。只读到头的末尾，**不越过**：POST 的 body 之后靠透传。
-     * 对端直接关掉（什么都没读到）返回 null。
-     */
+    /** 读一个请求的头（读到空行为止）。 */
     private fun readHead(input: InputStream): ByteArray? {
         val head = ByteArrayOutputStream()
         var state = 0
@@ -213,16 +175,7 @@ class FakeUpstreamFront(
     }
 }
 
-/**
- * 自签证书那一套（keytool + `javax.net.ssl`），按**域名集合**缓存一份。
- *
- * 一个进程里只会为同一个集合生成一次：生成要走 `keytool`（约 1 秒），而每个测试类都要用同一个
- * 生成结果 —— 信任库与 TLS 服务端必须来自**同一对**密钥。
- *
- * 为什么要收集合：信任库是**单个**系统属性（`javax.net.ssl.trustStore`），两个 https 站点各装一份
- * 的话后装的那份会把前一份顶掉。所以扮演多个 https 站点时只签**一枚带多个 SAN 的证书**、
- * 只装一次信任库（`FakeCampusProxy` 里的 `HTTPS_HOSTS`）。
- */
+/** 自签证书那一套（keytool + `javax.net.ssl`），按域名集合缓存一份。 */
 internal object FakeUpstreamTls {
 
     private const val ALIAS = "fake-upstream"
@@ -232,10 +185,7 @@ internal object FakeUpstreamTls {
 
     fun sslContext(hosts: Set<String>): SSLContext = material(hosts).sslContext
 
-    /**
-     * 把 [hosts] 那枚自签证书装进进程的信任库（系统 cacerts 的副本 + 这枚证书）。
-     * 幂等；**必须在建任何 `OkHttpClient` 之前**调（见 [FakeUpstreamFront] 的类 KDoc）。
-     */
+    /** 把 [hosts] 那枚自签证书装进进程的信任库（系统 cacerts 的副本 + 这枚证书）。 */
     fun installTrustStore(hosts: Set<String>) {
         val trust = material(hosts).trustStore
         System.setProperty("javax.net.ssl.trustStore", trust.toString())

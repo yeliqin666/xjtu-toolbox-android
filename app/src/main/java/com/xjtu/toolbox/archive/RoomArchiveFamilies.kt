@@ -15,18 +15,7 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 
-/**
- * Room 三张表的**行适配器**（S4，`:app` 侧接线点）：把表行投影成 §2.3 的行数组 [ArchiveFile]，
- * 排序统一交给 `:core` 的 [ArchiveFileRows]（不依赖 DB 的返回顺序）。
- *
- * 红线（§8.3）：**只读** DAO 的既有查询、只写 JSON 行数组，不许加表 / 加列 / 加迁移。
- * 列名逐字照三个 Room 实体；值类型逐字照列类型（Long→number / Int→number / String→string，
- * 可空列 null 写 `null` —— 与桌面 `DesktopDownloadTaskStore` / `DesktopJiaocai1Storage` 的
- * JSON 口径一致）。
- *
- * 三张表都是 global（无账号后缀，[ArchiveRegistry] 标 `Scope.GLOBAL` + `Carrier.ROOM_ROWS`），
- * 所以产出 [ArchiveFile] 的 `suffix` 恒为 `""`。
- */
+/** Room 三张表的行适配器（`:app` 侧接线点） */
 object RoomArchiveFamilies {
     /** §2.3：`files/courses/custom_courses.json`。 */
     const val CUSTOM_COURSES_REL = "courses/custom_courses.json"
@@ -65,11 +54,7 @@ object RoomArchiveFamilies {
 
     // ── DAO 只读投影（suspend；接线点在 AppArchiveHost） ──
 
-    /**
-     * 只读 DAO 读**所有账号**的 `custom_courses` 行。既有查询只有按 `accountId` 的
-     * [CustomCourseDao.getAll]，所以按账号并集（并补上迁移前的 `accountId = ""` 遗留行）。
-     * 导入侧的反向枚举（[com.xjtu.toolbox.archive.AppRoomRows]）同样用这份并集 —— 端内账号表 + 档案里的账号表。
-     */
+    /** 只读 DAO 读所有账号的 `custom_courses` 行。 */
     suspend fun readCustomCourses(dao: CustomCourseDao, accountIds: List<String>): List<CustomCourseEntity> {
         val seen = mutableSetOf<Long>()
         val out = mutableListOf<CustomCourseEntity>()
@@ -84,13 +69,8 @@ object RoomArchiveFamilies {
 
     /** 只读 DAO 读 `jiaocai1_shelf` 全表（既有查询 [Jiaocai1ShelfDao.observeAll] 取当前值）。 */
     suspend fun readJiaocaiShelf(dao: Jiaocai1ShelfDao): List<Jiaocai1ShelfEntity> = dao.observeAll().first()
-    // ── 档案行数组 → 表行（导入写侧；与上面三个 `…File` 逐字段互为反向） ──
 
-    /**
-     * `files/courses/custom_courses.json` → 表行。列名逐字照 [CustomCourseEntity]，
-     * 缺失字段回落到实体的默认值（§8.6 的「按声明的读法容错，绝不抛」）；**不是 JSON 数组就抛** ——
-     * 导入侧在写第一笔之前会先用 [checkRows] 预检，所以那个「抛」等于「坏档案明确失败、端内零改动」。
-     */
+    /** `files/courses/custom_courses.json` → 表行。 */
     fun customCoursesFrom(content: String): List<CustomCourseEntity> =
         rowsOf(content).map { o ->
             CustomCourseEntity(
@@ -111,7 +91,7 @@ object RoomArchiveFamilies {
             )
         }
 
-    /** `files/media/download_tasks.json` → 表行（可空列 `null` 逐字还原）。 */
+    /** `files/media/download_tasks.json` → 表行（可空列还原为 `null`）。 */
     fun downloadTasksFrom(content: String): List<DownloadTaskEntity> =
         rowsOf(content).map { o ->
             DownloadTaskEntity(
@@ -148,11 +128,7 @@ object RoomArchiveFamilies {
             )
         }
 
-    /**
-     * 导入前的**行数组预检**（§6.1 第 3 条）：解不开就直接抛，由调用方翻译成
-     * [ImportResult.Failed] —— 这样「坏档案不动端」跑到这里就结束了，端内一笔都没写（A7）。
-     * 不是这三条相对路径 ⇒ 什么都不做。
-     */
+    /** 导入前的行数组预检（§6.1 第 3 条）：解不开就直接抛，由调用方翻译成 [ImportResult.Failed]。 */
     fun checkRows(relPath: String, content: String) {
         when (relPath) {
             CUSTOM_COURSES_REL -> customCoursesFrom(content)
@@ -161,7 +137,6 @@ object RoomArchiveFamilies {
         }
     }
 
-    // ── 行数组解析（列名逐字；缺字段回落默认值） ──
 
     private fun rowsOf(content: String): List<JsonObject> {
         val array = AppJson.parseToJsonElement(content) as? JsonArray
@@ -182,7 +157,6 @@ object RoomArchiveFamilies {
     private fun JsonObject.longOrNull(key: String): Long? = (this[key] as? JsonPrimitive)?.content?.toLongOrNull()
 }
 
-// ── 列名逐字（§8.3）的实体 → JSON 行；插入序固定，保证同一份数据两次导出字节稳定（A3） ──
 
 private fun CustomCourseEntity.toArchiveJson(): JsonObject = buildJsonObject {
     put("id", id)

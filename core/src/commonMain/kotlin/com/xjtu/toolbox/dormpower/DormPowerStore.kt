@@ -13,27 +13,10 @@ import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import kotlin.time.Clock
 
-/**
- * 本机记下的宿舍和最近一次电量：首页卡片、屁岱提醒不用每次登录就有得说，
- * 也让后台只在绑过宿舍的账号上才去碰这个系统。按账号一份。
- *
- * - **落盘**：原来收 `android.content.Context` 自己开 `SharedPreferences`，现在走 `:core` 的
- *   平台键值缝 [keyValueStore] —— Android 侧的 actual 就是**同一个文件名的
- *   `SharedPreferences`**（`dorm_power<suffix>`，键名 `readings` / `used` 逐个相同）⇒ 老读数与
- *   「进过这一页」那个标记一个不丢，不需要迁移代码。`:app` 的 `initAndroidPlatform(context)`
- *   已经在 `Application.onCreate` 里调过（见 `platform/KeyValueStore.android.kt`）。
- * - **刷新**：`refresh` 原来收 `DormPowerApi`（`:data` 的类），现在收 [DormPowerSource] 端口
- *   —— `:core` 不认识 okhttp，而 `:data` 的 `DormPowerApi` 正好实现这个端口，所以调用点只少了
- *   那个 `Context` 参数，编排一行未改（房间以服务器上绑定的为准，某间查失败就沿用上次的读数）。
- */
+/** 本机记下的宿舍和最近一次电量：首页卡片、屁岱提醒不用每次登录就有得说，也让后台只在绑过宿舍的账号上才去碰这个系统。 */
 object DormPowerStore {
 
-    /**
-     * 按账号分命名空间，与搬迁前**同一个文件名**。
-     *
-     * 每次调用现取（而不是 `by lazy`）：名字里带着当前账号，切账号要立刻换一份 —— 与原来的
-     * `prefs(context)` 每次现算同名同义。
-     */
+    /** 按账号分命名空间。 */
     private fun store() = keyValueStore("dorm_power" + AccountContext.suffixFor(AccountContext.activeAccountId))
 
     fun readings(): List<DormReading> {

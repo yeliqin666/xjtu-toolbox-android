@@ -2,19 +2,7 @@ package com.xjtu.toolbox.schedule
 
 import androidx.room.*
 
-/**
- * 自定义课程实体（Room 数据库）—— **表还是这一张**：`custom_courses`，列名一个未改。
- *
- * ## 与 `:core` 的 `CustomCourse` 是什么关系
- *
- * 屏与 ViewModel 进了 `:core`，而 Room 注解是 Android 专属的 ⇒ `:core` 那边放**领域模型**
- * （`CustomCourse`，字段与这里一个不差），这里留实体与两张之间的逐字段映射。
- * 读写那条路由 `RoomCustomCourseStore` 收成 `:core` 的 `CustomCourseStore` 缝
- * （同一个库、同一张表、同一批列名 —— 老用户的自建日程一条都不会丢）。
- *
- * 谁仍直接用这一份：`ScheduleWidgetProvider` / `HomeTab` / `AgentTool` / `AccountManager`
- * 四处（它们本来就在 `:app`），一行未改。
- */
+/** 自定义课程实体（Room 表 `custom_courses`）。 */
 @Entity(tableName = "custom_courses")
 data class CustomCourseEntity(
     @PrimaryKey(autoGenerate = true)
@@ -58,7 +46,7 @@ data class CustomCourseEntity(
         endMinuteOfDay = endMinuteOfDay
     )
 
-    /** 表行 → 领域模型（逐字段，一个不漏）。 */
+    /** 表行 → 领域模型。 */
     fun toCustomCourse(): CustomCourse = CustomCourse(
         id = id,
         accountId = accountId,
@@ -116,10 +104,7 @@ interface CustomCourseDao {
     @Query("SELECT * FROM custom_courses WHERE accountId = :accountId ORDER BY termCode DESC, dayOfWeek, startSection, startMinuteOfDay")
     suspend fun getAll(accountId: String): List<CustomCourseEntity>
 
-    /**
-     * 查询同一学期内、同星期、且节次有交集的课程。**只是粗筛**：不看周次，
-     * 结果必须再经 [CustomCourseConflicts.conflicts] 精判，否则不同周的同一时段会被误判为冲突。
-     */
+    /** 查询同一学期内、同星期、且节次有交集的课程。 */
     @Query("""
         SELECT * FROM custom_courses
         WHERE accountId = :accountId

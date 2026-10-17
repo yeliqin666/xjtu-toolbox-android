@@ -16,22 +16,7 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import kotlinx.coroutines.test.runTest
 
-/**
- * serve 契约 §5.5（成绩单 / 考勤 / 加餐券 / 宿舍电费）的**客户端那一侧**。
- *
- * 为什么值得写：这四个域是 2026-10-13 才接进 `:web` 的，屏是 `:core` 的共享屏、取数是这四个新
- * `Campus*Api` —— 它们只能靠「真 `:server` + 真会话」在浏览器里验证，而这里用 MockEngine 喂
- * **服务端实现出来的形状**（`server/…/DzpzRoutes.kt` / `AttendanceRoutes.kt` / `CouponRoutes.kt` /
- * `DormPowerRoutes.kt` 的 DTO 就是这些字段），把三件事钉死：
- *
- *  1. **错误信封的读法**：`code != 0` → 显示 `message`（不读旧路的 `msg`/`error`，不拿 HTTP 状态码分支）；
- *  2. **字段形状**：改名（`startSection ← startTime`）、单位（金额是**分**）、空与缺失的区别；
- *  3. **缺字段时不编造**：不投影的那六格（成绩单的表单体与签章密钥）留空、`teacher` 留空、
- *     `kwh` 缺失是**错误**而不是「没有表」，能力开关一律报 `false`（屏按它不画）。
- *
- * 默认形态（[ApiMode.CAMPUS_API]）不由这里管：这四个域在 campus-api 里**没有**端点，最后一条用例
- * 钉的就是「非 serve 分支抛错，而不是悄悄返回一份空数据」。
- */
+/** serve 契约 §5.5（成绩单 / 考勤 / 加餐券 / 宿舍电费）的客户端那一侧。 */
 class ServeReadonlyFourDomainsApiTest {
 
     /** 一个只按路径答夹具的 MockEngine（与 `ServeModeApiTest` 同一套写法）。 */
@@ -48,11 +33,7 @@ class ServeReadonlyFourDomainsApiTest {
         }
     }
 
-    /**
-     * 契约 §5.5：`GET /api/dzpz/transcript` 只端七步里的第一步。这条钉住**拿得到的四格**
-     * （`workflowId` / `typeOptions` / `defaultDate` / `defaultRequestName`）、**拿不到的那六格
-     * 如实留空**（不是编一份假表单），以及 `canRunWorkflow = false` + 第 2~7 步抛错。
-     */
+    /** 契约 §5.5：`GET /api/dzpz/transcript` 只端七步里的第一步。 */
     @Test
     fun serveTranscriptReadsFirstStepOnly() = runTest {
         val body = """
@@ -75,7 +56,6 @@ class ServeReadonlyFourDomainsApiTest {
         assertEquals("成绩单申请", form.defaultRequestName)
         assertFalse(form.typeOptions.single().cancelled)
 
-        // 契约刻意不投影的六格：三个 JSON 与三把签章密钥 ⇒ 如实留空（不是编一份假表单）
         assertTrue(form.params.isEmpty(), "params 不投影 ⇒ 空对象")
         assertTrue(form.submitParams.isEmpty(), "submitParams 不投影 ⇒ 空对象")
         assertTrue(form.maindata.isEmpty(), "maindata 不投影 ⇒ 空对象")
@@ -108,10 +88,7 @@ class ServeReadonlyFourDomainsApiTest {
         assertTrue(e.message?.contains("请先登录") == true, "失败文案要能直接给用户看，实际：${e.message}")
     }
 
-    /**
-     * 考勤：两个端点、三处映射（`startSection ← startTime`、`status: -1 → UNKNOWN`「未知」、
-     * `teacher` 不投影留空）、三栏拿不到（能力开关全 `false`），以及**当前学期不自己算**。
-     */
+    /** 考勤：两个端点、三处映射（`startSection ← startTime`、`status: -1 → UNKNOWN`「未知」、`teacher` 不投影留空）、三栏拿不到（能力开关全 `false`），以及当前学期不自己算。 */
     @Test
     fun serveAttendanceOnlyHasTermsAndRecords() = runTest {
         val termsBody = """
@@ -145,7 +122,6 @@ class ServeReadonlyFourDomainsApiTest {
         assertEquals("2026-2027 第一学期", term.name)
         assertEquals("2026-2027-1", term.code)
 
-        // 「当前学期」的口径在 :data —— 本端不带 ?term= 问一发，读响应里的 term（不自己按日期算）
         assertEquals("646", api.getTermBh(), "当前学期要听服务端的")
         assertEquals(2, calls.size, "问当前学期就一发：不带任何参数的 /records")
         assertTrue(calls[1].isEmpty(), "那一发不许自己带参数（带上自己算的学期就是第二份口径），实际：${calls[1]}")
@@ -167,8 +143,6 @@ class ServeReadonlyFourDomainsApiTest {
         assertEquals("2026-09-01", calls[2]["from"])
         assertEquals("2026-09-30", calls[2]["to"])
 
-        // 只剩统计 / 打卡流水两栏没有端点（`leave` 已于批③-b / D7 ② 翻 true）：
-        // 屏据此不画「暂无…」而是写「本端拿不到 …」。
         assertEquals(
             com.xjtu.toolbox.attendance.AttendanceCapabilities(stats = false, streams = false, leave = true),
             api.capabilities,
@@ -179,14 +153,7 @@ class ServeReadonlyFourDomainsApiTest {
         assertTrue(api.getStudentInfo().isEmpty(), "姓名那格不端 ⇒ 空表（屏上姓名那一行自然不画）")
     }
 
-    /**
-     * 请假那一半（批③-b / D7 ②）：三读 + 三写都真走；附件上传仍然没有端点。
-     *
-     * 钉的四件事：① 窗口 / 预览 / 列表三格逐格投影（含两类姓名按 §5.2 例外 ④ **真投影**）；
-     * ② 提交真发一枪、`requestId` 空串时本端补一枚（幂等键），而且**不发** `evidenceFiles`；
-     * ③ 撤回 / 销假各一枪，body 只有契约那三格 / 两格；④ `uploadEvidence` 照旧抛错（屏上那个槽位
-     * 给的是空表，不会调到这里）。
-     */
+    /** 请假那一半：三读 + 三写都真走；附件上传仍然没有端点。 */
     @Test
     fun serveAttendanceLeaveReadsAndWritesFollowContract() = runTest {
         val windowBody =
@@ -283,14 +250,11 @@ class ServeReadonlyFourDomainsApiTest {
 
         // 附件上传：本端没有端点（屏上那个槽位给的是空表，不会调到这里）
         assertFailsWith<UnsupportedOperationException> { api.uploadEvidence("a.pdf", "application/pdf", byteArrayOf()) }
-        // 打卡流水那一栏不是「抛错」而是「如实空表」（屏按 `capabilities.streams` 不画那一栏）
+        // 打卡流水那一栏是空表而不是抛错（屏按 `capabilities.streams` 不画那一栏）
         assertTrue(api.getStreams("2026-09-01", "2026-09-30").isEmpty())
     }
 
-    /**
-     * 加餐券：金额一律是**分**（不换算）、封面图**不发那一枪**（直连会拿到登录页）、
-     * 领券（写路径）已经端了：`POST /api/coupon/activate`（`canActivate = true`）。
-     */
+    /** 加餐券：金额一律是分（不换算）、封面图不发那一枪（直连会拿到登录页）、领券（写路径）已经端了：`POST /api/coupon/activate`（`canActivate = true`）。 */
     @Test
     fun serveCouponKeepsFenAndSkipsLoginPageImage() = runTest {
         val listBody = """
@@ -340,7 +304,6 @@ class ServeReadonlyFourDomainsApiTest {
         assertEquals("五元加餐券", detail.title)
         assertEquals("https://egc.xjtu.edu.cn/c.jpg", detail.closedPacketImageUrl)
 
-        // 封面图：那张图要带 egc 的 Authorization 才取得到 ⇒ 如实 null（屏退化成图标），不去拉登录页
         assertNull(api.loadImage(coupon.imageUrl), "取不到图就不画图，不拿登录页当封面")
         assertEquals(2, calls.size, "loadImage 不许发请求")
 
@@ -352,10 +315,7 @@ class ServeReadonlyFourDomainsApiTest {
         assertEquals("""{"showCardId":"C1"}""", activateBodies.single(), "body 只有契约那一格")
     }
 
-    /**
-     * 宿舍电费：`rooms` 的空 id 行不列；`kwh` 的 **`null`（没有表）与「字段缺失」（形状不对）**
-     * 是两件事；缴费页入口（`freshPayUrl`）不端。
-     */
+    /** 宿舍电费：`rooms` 的空 id 行不列。 */
     @Test
     fun serveDormPowerDistinguishesMissingKwhFromNoMeter() = runTest {
         val roomsBody = """
@@ -395,10 +355,7 @@ class ServeReadonlyFourDomainsApiTest {
         assertTrue(payUrl.message?.contains("§5.5") == true, "理由要写在错误里，实际：${payUrl.message}")
     }
 
-    /**
-     * 这四个域在 campus-api 里**没有端点**（它们是 `:app` / 桌面直接走 `:data` 的 okhttp 抓的）
-     * ⇒ 非 serve 分支抛错，**不许**悄悄返回一份空数据（那会把「形态不对」说成「真没有数据」）。
-     */
+    /** 这四个域在 campus-api 里没有端点（它们是 `:app` / 桌面直接走 `:data` 的 okhttp 抓的）。 */
     @Test
     fun campusApiModeThrowsInsteadOfFakingEmptyData() = runTest {
         val engine = engineFor("/api/dzpz/transcript" to """{"code":0,"data":{}}""")

@@ -6,29 +6,11 @@ import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 import kotlinx.coroutines.runBlocking
 
-/**
- * 移动教务取数（`AppJwappScoreSource` 包住的两个上游）的**字段级口径**：对着 `:testkit` 的
- * [JwappFakeUpstream]（jwapp 那一站）与 `JwxtFakeUpstream` 的 `cjcx` 应用（教务那一站）逐行读。
- *
- * ## 为什么在 `:data` 而不是 `:app`
- *
- * 第 19 条真数据路由把 jwapp 的取数（`JwappApi` / `CjcxApi` + `AppJwappScoreSource`）与站点
- * （`JwappSession` / `JwappLogin`）从 `:app` 搬进了 `:data`。搬之前先用夹具把**搬之前**的口径钉住 ——
- * 这些断言全部来自**夹具原文**与**搬迁前的代码语义**：`termScore` 的学期分组与粗分、`scoreDetail`
- * 的分项百分比（带 `%` 的字符串）、`xscjcx.do` 的精确总评/绩点与「按学期 + 课名替换」的键。
- *
- * ## 两个站点、两个上游
- *
- * 登录链是**开放平台 appId=1370 → CAS → 带 token 回 `jwapp.xjtu.edu.cn/app/index`**（`JwappLogin`
- * 从回调 URL 里抠令牌，之后每个业务请求带 `Authorization`）；成绩屏的第二条上游是**教务**的
- * `jwapp/sys/cjcx/modules/cjcx/xscjcx.do`（`CjcxApi`，走手写的 `jwxt` 会话）。两者各自独立：
- * 一个挂了另一个还在，屏上显示的正是「替换后」的那一份。
- */
+/** 移动教务取数（`AppJwappScoreSource` 包住的两个上游）的字段级口径。 */
 class JwappScoreSourceJvmTest {
 
     @Test
     fun `登录：开放平台 appId=1370 转统一认证，令牌从回跳 URL 里抠出来当 Authorization`() {
-        // 入口 URL 与夹具逐字相同（改一个字，这条链就会在真站点上悄悄走错）
         assertEquals(JwappFakeUpstream.OAUTH_URL, com.xjtu.toolbox.auth.JwappLogin.JWAPP_URL)
 
         withJwappLogin { jwapp, _, fake ->
@@ -68,7 +50,6 @@ class JwappScoreSourceJvmTest {
             assertTrue(course.passFlag, "夹具那条是及格")
             assertEquals(ScoreSource.JWAPP, course.source)
 
-            // 请求体就是「所有学期」那一个（与搬迁前 `getGrade(null)` 同一个 body）
             assertEquals("""{"termCode":"*"}""", fake.jwapp.lastGradeBody)
         }
     }

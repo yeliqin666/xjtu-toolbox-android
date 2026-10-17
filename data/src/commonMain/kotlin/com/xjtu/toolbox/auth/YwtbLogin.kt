@@ -14,9 +14,6 @@ private const val TAG = "YwtbLogin"
  * 登录后从重定向 URL 中提取 CAS ticket（JWT），解码提取 idToken。
  * 过期后由站点会话层（[SiteSession.executeWithReAuth]）整体重登。
  *
- * 它从 `:app/auth/` 搬进同包的 `:data/auth/`（桌面端第 12 条真数据路由：消息收纳 —— 桌面要自己登
- * 一网通办才拿得到那四路数据），**类名与包路径一字未改**，被替换的写法只有两处：
- *
  *  1. `android.util.Log` → `:core` 的 [Log]；
  *  2. `android.util.Base64.decode(…, URL_SAFE or NO_WRAP)` → `java.util.Base64.getUrlDecoder()`
  *     —— 同一个解码器语义（JWT payload 是 base64url），补齐 padding 那两句照旧；`:data` 只发

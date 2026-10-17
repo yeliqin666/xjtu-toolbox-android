@@ -1,15 +1,6 @@
 package com.xjtu.toolbox.game.xiangqi.rules
 
-/**
- * 兵种常量与三个查表（字符 / 中文名 / 字符→编号）。
- *
- * 从 :app 的 `rules/Piece.java` 逐字搬过来。原文件顶部那段 GPL 头是上游 zfdang 的
- * DroidFish 衍生声明，**保留在 :app 的那份里**（这里只搬常量与查表，不搬注释头）。
- * https://www.xqbase.com/protocol/cchess_move.htm
- *
- * 红方（白方）棋子以大写字母表示，黑方以小写字母表示：
- * PABNCRK = 兵仕相马炮车帅，小写对应卒士象马炮车将。
- */
+/** 兵种常量与三个查表（字符 / 中文名 / 字符→编号）。 */
 object Piece {
     const val EMPTY = 0
     const val EMPTY_CHAR = ' '

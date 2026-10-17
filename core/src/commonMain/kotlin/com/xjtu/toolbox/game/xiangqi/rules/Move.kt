@@ -2,14 +2,7 @@ package com.xjtu.toolbox.game.xiangqi.rules
 
 import kotlin.math.abs
 
-/**
- * 一步棋：起点、终点、（可选的）棋盘与走子前的兵种。
- *
- * 从 :app 的 `rules/Move.java` 搬过来。两处**必须**改的 JVM 专属写法（`String.format` 在
- * commonMain 不存在，且是默认导入、grep import 抓不到），改法都是等价拼接、输出逐字不变：
- * - `String.format("%c%d%c%d", …)` → 模板字符串（UCCI 串）；
- * - `String.format("%d"/"%s", …)` → 模板字符串（中文着法）。
- */
+/** 一步棋：起点、终点、（可选的）棋盘与走子前的兵种。 */
 class Move {
     var board: Board? = null
 
@@ -43,10 +36,6 @@ class Move {
         this.board = Board(board)
     }
 
-    // Java 版这里有个 `setBoard(Board)`：给 board 换一份**副本**。Kotlin 里 `board` 是属性，
-    // 自动生成的 setter 与它同 JVM 签名（setBoard(Board)）会直接撞名编不过；而仓库里没有任何
-    // 调用方，所以这个重载就不搬了 —— 要副本就写 `move.board = Board(b)`（构造器里就是这么做的），
-    // `setPositions` 仍然保留（它没有撞名问题，也是原 API 的一部分）。
 
     fun setPositions(fromPosition: Position, toPosition: Position) {
         this.fromPosition = fromPosition
@@ -87,12 +76,7 @@ class Move {
         return "$s${9 - from.y}$e${9 - to.y}"
     }
 
-    /**
-     * 从一个位置移动到另一个位置的中文描述，例如：车一进六、炮七退七、相七进九、帅四平五。
-     *
-     * 规则见 https://www.xqbase.com/protocol/cchess_move.htm —— 逐字照搬 Java 版的分支，
-     * 包括「同一纵线多个同种子的前后/一二三标记」那一段（含它对其他纵线的已知假设）。
-     */
+    /** 从一个位置移动到另一个位置的中文描述，例如：车一进六、炮七退七、相七进九、帅四平五。 */
     fun getChsString(): String {
         val b = board ?: return "未知动作"
         val piece = b.getPieceByPosition(fromPosition!!)
@@ -196,7 +180,6 @@ class Move {
             return if (index == 1) "前" else "后"
         }
 
-        // 兵卒的情况：三条纵线以内的标记照 Java 版逐字搬（含它对「其他纵线没有多于一个兵」的假设）
         if (index == 1 && count <= 3) return "前"
         if (index == count && count <= 3) return "后"
         if (index == 2 && count == 3) return "中"

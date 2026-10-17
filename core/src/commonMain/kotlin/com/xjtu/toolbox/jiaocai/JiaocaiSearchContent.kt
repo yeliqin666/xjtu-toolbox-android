@@ -48,10 +48,7 @@ import top.yukonga.miuix.kmp.utils.overScrollVertical
 internal fun JiaocaiSearchContent(
     source: JiaocaiSource,
     termTextbooks: JiaocaiTermTextbooks,
-    /**
-     * 全文库那一半的取数（「读全文 / 阅读全文」要它）。**null = 本端没有这一档** ⇒ 那些入口一个都不画：
-     * serve 形态就是这样（契约 §5.6：`jiaocai1` 是另一个域名、另一套会话，本轮不碰）。
-     */
+    /** 全文库那一半的取数（「读全文 / 阅读全文」要它）。 */
     jiaocai1: Jiaocai1Source?,
     vm: JiaocaiViewModel,
     onOpenFullText: (ssno: String, title: String) -> Unit,

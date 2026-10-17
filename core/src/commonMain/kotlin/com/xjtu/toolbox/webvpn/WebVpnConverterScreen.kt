@@ -32,11 +32,7 @@ import top.yukonga.miuix.kmp.basic.rememberTopAppBarState
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.utils.overScrollVertical
 
-/**
- * Android / 桌面那条路：本端有**同步**实现（`:data` 的 `WebVpnUtil`，纯字符串运算）⇒ 包一层
- * [asAsyncCodec] 交给下面那个实现。两端（`:app` 的 `AppNavHost` / 桌面的装配）与两个测试
- * （`RenderScreens` / `DesktopBrowserJvmTest`）的调用点**一个字都没改**。
- */
+/** Android / 桌面那条路：本端有同步实现（`:data` 的 `WebVpnUtil`，纯字符串运算）⇒包一层 [asAsyncCodec] 交给下面那个实现。 */
 @Composable
 fun WebVpnConverterScreen(
     codec: WebVpnCodec,

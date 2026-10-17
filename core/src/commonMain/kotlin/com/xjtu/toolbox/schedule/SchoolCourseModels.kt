@@ -1,25 +1,6 @@
 package com.xjtu.toolbox.schedule
 
-/**
- * 全校课表（开课任务级）的**模型 + 取数端口**。
- *
- * 从 :app 的 `SchoolCourseApi.kt` 里切出来的：上游解析（`querySetting` 那个 JSON 数组、
- * okhttp POST）留在 :app，模型与端口两端共用。
- *
- * ## 哪些字段是「可选」的，为什么
- *
- * :app 直连 `jwxt.xjtu.edu.cn` 的 `qxfbkccx.do`，行里 97 个键什么都有；
- * Web 端只能走 campus-api 的 `/api/jwxt/school-courses`，而它对**人数类字段刻意不投影**
- * （`KRL` 课容量 / `XKZRS` 选课人数 / `SKXS` 授课学时：语义未经证实，按「不猜」原则不对外，
- * 见 campus-api 手册 §全校课表的两条口径）。
- *
- * 所以这几个字段在模型里是**可空**的：`null` = 这一端不知道，屏上不画那一块，
- * 而不是拿 0 冒充（0/0 的容量条、`总学时 0` 都是在骗人）。`:app` 端上游一直有值 ⇒ 行为逐字不变。
- *
- * 另外 campus-api 给的是 `weekday`/`fromSection`/`toSection`/`weekText`/`roomCode`（上游原始列），
- * 而 :app 用的是上游预拼好的 `YPSJDD`（[scheduleLocation]）——两者形状不同，**不互相伪造**：
- * Web 端的 [scheduleLocation] 是空串，屏上那一行自然不出现。
- */
+/** 全校课表（开课任务级）的模型 + 取数端口。 */
 
 /** 学期选项 */
 data class TermOption(
@@ -45,7 +26,7 @@ data class ElectiveCategoryOption(
     val name: String    // e.g. "基础通识类选修课"
 )
 
-/** 两端共用的校区表（数据稳定，:app 原本就硬编码在这一层）。 */
+/** 两端共用的校区表。 */
 val SCHOOL_COURSE_CAMPUSES: List<CampusOption> = listOf(
     CampusOption("1", "兴庆校区"),
     CampusOption("2", "雁塔校区"),
@@ -135,29 +116,12 @@ data class SchoolCourseQuery(
     val endSection: Int = 0,
 )
 
-/**
- * 全校课表的取数端口。
- *
- * - `:app` = 原来的 `SchoolCourseApi`（okhttp POST `qxfbkccx.do`，自己拼 `querySetting`）；
- * - `:web` = campus-api 的 `/api/jwxt/school-courses`。
- *
- * [departments] 与 [query] 的**筛选项能力不同**（campus-api 不传开课单位、公选类别：
- * 前者要那张 id 表、后者是 `m_value_equal` 条件），见各自实现的 KDoc。
- */
+/** 全校课表的取数端口。 */
 interface SchoolCourseSource {
-    /**
-     * 能不能按**开课单位**筛。
-     *
-     * false 时屏上**不出现**那一档下拉 —— 比「出现了却筛不动」诚实。
-     * campus-api 不提供那张 id 表 ⇒ Web 端 false；:app 默认 true。
-     */
+    /** 能不能按开课单位筛。 */
     val supportsDepartmentFilter: Boolean get() = true
 
-    /**
-     * 能不能按**是否公选课 / 公选类别**筛。
-     *
-     * 同上：campus-api 的 `buildQuerySetting` 不放行这两个条件 ⇒ Web 端 false。
-     */
+    /** 能不能按是否公选课 / 公选类别筛。 */
     val supportsElectiveFilter: Boolean get() = true
 
     /** 学期列表（按学期倒序）。 */

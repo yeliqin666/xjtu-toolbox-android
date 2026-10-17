@@ -85,13 +85,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 
 @Composable
 fun ScheduleScreen(
-    /**
-     * 宿主槽位（见 [ScheduleHost]）：本地落盘、教务会话、分享面板，以及
-     * 考勤 / 思源学堂 / 教室座位数那几档「只有某些端才有」的能力。
-     *
-     * 搬迁前这一屏自己摸 `AppDatabase` / `DataCache` / `CredentialStore` / `LocalAppLoginState` /
-     * `ConnectivityManager` / 小组件与首页信号 —— 那几样都在 `:app`，屏进 `:core` 之后一律从这条缝走。
-     */
+    /** 宿主槽位（见 [ScheduleHost]）：本地落盘、教务会话、分享面板，以及考勤 / 思源学堂 / 教室座位数那几档「只有某些端才有」的能力。 */
     host: ScheduleHost,
     onBack: () -> Unit = {},  // 用于 catch AuthExpired 时退出
     onSubtitleChange: (String) -> Unit = {},

@@ -6,12 +6,6 @@ package com.xjtu.toolbox.schedule
  * 以前只看「同学期 + 同星期 + 节次有交集」，不看周次：第 4 周周四 14–18 点的实验
  * 和第 8 周同一时段的实验被当成冲突，旧的被直接删掉。实验课、答疑这种一周一条单独加的
  * 日程几乎必中。现在三样都要重叠才算：周次有交集、同星期、时间有交集。
- *
- * 从 :app 搬进 commonMain 时只改了入参类型：原来直接吃 Room 实体 `CustomCourseEntity`
- * （那是 Android 的落库形状，必须留在 :app），现在吃模型 [CourseItem]——调用方用
- * `entity.toCourseItem()` 转一下。**学期相同与否也改成显式入参**：`termCode` 只存在于实体上，
- * 与其搬一个半拉子模型过来，不如让调用方把「同学期」这个已经查过的条件传进来（没有默认值，
- * 免得漏传时把跨学期的两条也判成冲突）。逻辑本身一行未动。
  */
 object CustomCourseConflicts {
 

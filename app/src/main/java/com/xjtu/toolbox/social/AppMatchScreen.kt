@@ -40,28 +40,7 @@ import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextButton
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
-/**
- * 匹配交友在 Android 上的**装配**：屏（`:core` 的 [MatchScreen]）本体一行没改，
- * 这里只交三件端上的东西 —— 宿主面 [AppMatchHost] 与扫码那一档 [MatchScanner]。
- *
- * ## 两处「怎么拿到对方的码」都还是原来那份实现
- *
- * | 那一档 | 原来在哪 | 现在在哪 |
- * |---|---|---|
- * | 相机实时取景（`QrScannerView` + 相机权限） | `MatchScreen.kt` 里的 `ScannerOverlay` | 本文件的 [ScannerOverlay]（**逐字未动**，含「权限就地要、失败就说一句」那套） |
- * | 从相册选图（`ImageDecoder` + `QrBitmap.read`） | `MatchScreen.kt` 里的 `rememberLauncherForActivityResult` 回调 | 本文件的 [readCodeFromImage] 与那个 launcher（同样是软件位图 + 长边缩到 1600 + 定位块破损也能读的那个解码器） |
- *
- * 为什么这两件不进 `:core`：它们长在 Android 的类型上（`android.graphics.ImageDecoder`、
- * `androidx.activity` 的 launcher、`QrScannerView` 的相机预览），commonMain 里没有也不该有。
- * 所以 `:core` 那一屏把它们收成 [MatchScanner]，没有这一档的端（桌面）就不传 ——
- * 那两颗按钮一个字都不画，并把「这一端没有相机」写在屏上。
- *
- * ## 为什么取景是一层覆盖而不是一个挂起函数直接返回
- *
- * 相机取景要一直画着（用户对准、扫到才结束），所以 [MatchScanner.scan] 挂起在
- * [CompletableDeferred] 上，由这一层覆盖把结果（或「取消」）交回去。`fromImage` 同理
- * ——系统图库是一个 Activity 结果，那条 launcher 的回调就是「结果回来」的那一刻。
- */
+/** 匹配交友在 Android 上的装配：给 `:core` 的 [MatchScreen] 交三件端上的东西。 */
 @Composable
 fun AppMatchScreen(onBack: () -> Unit) {
     val context = LocalContext.current
@@ -99,7 +78,6 @@ fun AppMatchScreen(onBack: () -> Unit) {
                 } finally {
                     picking = null
                 }
-                // 用户取消：什么都不说（与搬迁前「uri == null 直接 return」同一条口径）。
                 if (uri == null) return MatchScanOutcome()
                 val scanned = withContext(Dispatchers.IO) {
                     runCatching { readCodeFromImage(context, uri) }.getOrNull()
@@ -123,13 +101,7 @@ fun AppMatchScreen(onBack: () -> Unit) {
     }
 }
 
-/**
- * 从一张相册截图里读二维码（搬迁前那段 `ImageDecoder` 的回调逐字搬到这里）。
- *
- * 相册里的图动辄四千像素宽，整张丢给 zxing 又慢又容易被噪点带偏，所以先按长边缩一遍
- * （`QrBitmap.read` 里还会再兜一次 1600）；`getPixels` 读不了硬件位图，所以解码时就得要
- * 一张软件位图。返回 null = 这张图里没读到码（由调用方给用户一句话）。
- */
+/** 从一张相册截图里读二维码。 */
 private fun readCodeFromImage(context: Context, uri: Uri): String? {
     val source = ImageDecoder.createSource(context.contentResolver, uri)
     val bitmap = ImageDecoder.decodeBitmap(source) { decoder, info, _ ->

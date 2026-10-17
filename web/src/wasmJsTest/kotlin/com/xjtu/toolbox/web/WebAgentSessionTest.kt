@@ -10,17 +10,7 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import kotlinx.serialization.json.JsonObject
 
-/**
- * 「SSE 帧 → 屏状态」的逐条用例（D14 清单第 ② 条）。
- *
- * 断言对象是 [AgentStreamState]（`WebAgentSession` 里那一半，**不碰网络**）加上两个纯函数
- * （[agentStreamFailureMessage] / [configViewOf]）—— 于是这一族在 `:web` 侧不需要 serve、
- * 不需要浏览器之外的任何东西，也不打任何服务商。
- *
- * 判据来自 `docs/agent-web-spec.md` §4.2 的逐成员表与 `AgentViewModel` 的同名分支
- *（逐一对照写的那一份在 [AgentStreamState] 的 KDoc 里）。**红线**那一条（`apiKey` 不许被读进配置）
- * 也在这里钉了一下。
- */
+/** 「SSE 帧 → 屏状态」的逐条用例。 */
 class WebAgentSessionTest {
 
     private fun json(text: String): JsonObject = AppJson.parseToJsonElement(text) as JsonObject
@@ -210,13 +200,12 @@ class WebAgentSessionTest {
                 """{"kind":"http","status":409,"body":"{\"code\":409,\"message\":\"上一轮还在生成，先点停止或等它结束\"}"}""",
             ),
         )
-        // 信封都读不出来：如实报 HTTP 码，不编一句「服务器错误」
+        // 信封都读不出来：报 HTTP 码
         assertEquals("HTTP 502", agentStreamFailureMessage("""{"kind":"http","status":502,"body":"<html>"}"""))
         // 网络断：把原因原样带出来
         assertEquals("Failed to fetch", agentStreamFailureMessage("""{"kind":"network","message":"Failed to fetch"}"""))
         // 我方主动取消（切会话 / 新建 / 点停止）：**不是错误** ⇒ null，调用方走「（已停止）」
         assertNull(agentStreamFailureMessage("""{"kind":"abort","message":"The user aborted a request."}"""))
-        // 载荷根本不是 JSON：也如实说，不静默
         assertTrue(agentStreamFailureMessage("boom").orEmpty().startsWith("读取回复失败："))
     }
 
@@ -235,7 +224,6 @@ class WebAgentSessionTest {
         )
         assertTrue(view.config.keyConfigured)
         assertTrue(view.config.isConfigured)
-        // 即使响应里天上掉下来一把 key（现实中不会：红线是「字段不存在」），这一端也不读它
         assertEquals("", view.config.apiKey)
         // `minimal` 是 DeepSeek 的别名：归一到本地那一档（与 `:core` 的 `normalizeReasoningEffort` 同源）
         assertEquals(AgentConfig.REASONING_LOW, view.config.reasoningEffort)

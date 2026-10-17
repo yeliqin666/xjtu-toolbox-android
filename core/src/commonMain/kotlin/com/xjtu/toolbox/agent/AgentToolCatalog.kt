@@ -3,24 +3,7 @@ package com.xjtu.toolbox.agent
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 
-/**
- * 送给模型的**工具清单**（OpenAI function calling 的那一份 JSON 串）。
- *
- * 从 `:app` 的 `AgentToolRegistry.buildToolDefinitions()` 逐字搬来，是**纯数据 + 纯构造**：
- * 一行网络、一行 Android 都没有。留在 `:app` 的唯一理由是它以前是注册表的私有方法。
- *
- * ## 谁决定画哪些档
- *
- * `honored` 是**这一端真会照着办**的那几档（见 [AgentCapability]）。没列进来的档
- * **一个字都不画** —— 与 `SettingsHost.honoredRows` / `ScheduleHost.honored` 同一条纪律：
- * 画了就得能用。`:app` 声明全部三档（闹钟、应用设置、自建日程写入都是它本来就有的能力），
- * 桌面端与将来的第三端声明它真接得上的那部分。
- *
- * ## 怎么改
- *
- * 描述只写「返回什么、参数怎么填、前置条件」。何时该调、怎么答由系统提示和模型自己定，
- * 不在这里举例、劝说或解释。新增/修改工具：在下面加一行 [agentTool]。
- */
+/** 送给模型的工具清单（OpenAI function calling 的那一份 JSON 串）。 */
 fun agentToolDefinitions(honored: Set<AgentCapability>): String {
     val arr = mutableListOf<JsonObject>()
     // 描述只写「返回什么、参数怎么填、前置条件」。何时该调、怎么答由系统提示和模型自己定，

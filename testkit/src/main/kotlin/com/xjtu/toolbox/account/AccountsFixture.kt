@@ -1,17 +1,6 @@
 package com.xjtu.toolbox.account
 
-/**
- * 多账号页那一族的**夹具常量**（`docs/api-contract.md` §5.10，工单 S7a / D9）。
- *
- * 这一族与其余族有一点不同：它**不打上游**（`/api/accounts` 读的是本机账号表 `xjtu_accounts`
- * 与 serve 自己的登录态）⇒ 夹具不是一份假上游的页面原文，而是**两个编造的账号**：
- * `:server:test` 把它们塞进 `AccountStore`，再断言响应里只有**打码**形式 —— 红线断言因此才成立
- * （「夹具里明明有完整学号/密码/姓名，响应里一个都不许有」，不是「夹具没有所以没出现」）。
- *
- * 与 `:testkit` 其余夹具同一条纪律：**只有 JDK 自己的东西、不依赖任何工程模块**
- * （所以这里是纯字符串常量，不是 `Account` 对象 —— `Account` 在 `:core`，而 `:testkit` 一个
- * 工程依赖都没有，`testkit/build.gradle.kts` 的 KDoc 记着这条）。
- */
+/** 多账号页那一族的夹具常量（`docs/api-contract.md` §5.10）。 */
 object AccountsFixture {
 
     /** 主账号（10 位，够长 ⇒ 打码时留前 4 后 4）。 */

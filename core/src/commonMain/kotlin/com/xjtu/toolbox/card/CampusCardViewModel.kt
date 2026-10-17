@@ -59,24 +59,7 @@ internal sealed interface CampusCardEvent {
     data class Message(val text: String, val long: Boolean = false) : CampusCardEvent
 }
 
-/**
- * 校园卡的 ViewModel。从 `:app` 搬进 `:core` 时**编排逻辑一行未改**，只换了四处"住址"：
- *
- *  - 取数从 `CampusCardApi(site)` 换成端口 [CampusCardSource]（卡面 / 流水 / 落盘快照，
- *    见那个接口的 KDoc）—— 屏不再认识 `SiteSession`，也不再自己挑 `Dispatchers.IO`；
- *  - 落盘从 `CampusCardCache`（Android 的 SharedPreferences）换成端口上的
- *    [CampusCardSource.persistCard] / [CampusCardSource.persist]；
- *  - `java.time` 换成 kotlinx-datetime（"今天"统一用 [todayInSystemZone]）；
- *  - 会话失效由 `:core` 的标记接口 [SessionExpiredFailure] 认领（`:app` 的 `AuthExpiredException`
- *    实现了它）——`catch` 抓不了接口，所以先抓 `Exception` 再判，与评教/成绩同一条缝。
- *
- * 还有两处**宿主能力**走参数而不是直接调（`:core` 里没有它们）：
- *  - [onBalanceChanged]：余额/今日消费刚写进缓存，桌面小组件要刷一下。Android 传
- *    `CampusCardWidgetUpdater.requestUpdate(context)`；Web 没有小组件，传空。
- *    为什么不写在端口里：小组件是 Android 的宿主能力（RemoteViews + AppWidgetManager），
- *    端口是「这一端怎么取数与落盘」，戳小组件是「这一端还有什么要跟着动」——两件事，分开注入。
- *  - `android.util.Log` 那两行本地排障日志删掉了（`:core` 没有 `Log`，它不参与任何可观测行为）。
- */
+/** 校园卡的 ViewModel。 */
 internal class CampusCardViewModel(
     /** 本端的取数 + 落盘实现（Android = `AppCampusCardSource`，Web = `CampusCardNetApi`）。 */
     private val source: CampusCardSource,
@@ -135,13 +118,7 @@ internal class CampusCardViewModel(
         load(silent = true)
     }
 
-    /**
-     * 换上新流水：统计在后台算好再一次性换上。
-     *
-     * [cardToPersist] 非 null = 这次是联网取到的新数据，要把「首页/小组件那份摘要」与「下次进屏的快照」
-     * 写下去（原来是 `persist: Boolean` + 从状态里读 cardInfo；现在由调用方把刚取到的卡面直接带进来 ——
-     * 写快照要用**这一次**取到的卡面，而不是状态里可能已被别处改过的那个）。
-     */
+    /** 换上新流水：统计在后台算好再一次性换上。 */
     private suspend fun show(
         all: List<Transaction>,
         accountId: String? = AccountContext.activeAccountId,
@@ -152,8 +129,6 @@ internal class CampusCardViewModel(
         transactions = all
         stats = computed
         if (cardToPersist != null) {
-            // 搬迁前这里是两段：`cardPrefs.edit().putTodaySummary(...).putDailyRate(...)`（+ 戳小组件）
-            // 与 `CampusCardCache.save(...)`。现在合成端口上的一次 persist：同一组 key、同一份快照。
             source.persist(cardToPersist, all, start, end, accountId)
             onBalanceChanged()
         }
@@ -186,15 +161,12 @@ internal class CampusCardViewModel(
             try {
                 // 卡信息和流水互不依赖，一起发；余额先到先显示
                 val (info, all) = coroutineScope {
-                    // 原来是 `async(Dispatchers.IO)`：阻塞式 okhttp 由端口实现自己包 IO（见 CampusCardSource
-                    // 的 KDoc），这里只剩「把拉回来的列表和缓存合并/去重/排序」那点纯计算 —— 放到 Default，
-                    // 与统计计算同一档，不占主线程。
+                    // 阻塞式 IO 由端口实现自己包，这里只剩合并/去重/排序的纯计算。
                     val txs = async(Dispatchers.Default) { fetchRange(start, end, accountId) }
                     val info = source.card()
                     if (!switched()) {
                         cardInfo = info
-                        // 余额先到先写：首页与小组件下一次读就能看到新余额（搬迁前这三行就写在这里，
-                        // 早于流水；流水失败时它照样落盘）
+                        // 余额先写：流水失败时它照样落盘。
                         source.persistCard(info, accountId)
                     }
                     info to txs.await()
@@ -205,8 +177,7 @@ internal class CampusCardViewModel(
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                // 会话失效判 :core 的标记接口（:app 的 AuthExpiredException 实现了它）——
-                // `catch` 抓不了接口，所以先抓 Exception 再判。这一支与搬迁前一样：不设 errorMessage。
+                // `catch` 抓不了接口 ⇒ 先抓 Exception 再判；会话失效不设 errorMessage。
                 if (e is SessionExpiredFailure) {
                     eventChannel.send(CampusCardEvent.AuthExpired)
                 } else {

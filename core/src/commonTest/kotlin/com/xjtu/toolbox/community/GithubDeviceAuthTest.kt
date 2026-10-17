@@ -8,14 +8,7 @@ import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
-/**
- * 设备码登录里**与 HTTP 无关**的那一半（随 `GithubDeviceAuth` 搬进 :core）的测试。
- *
- * 这些断言以前不存在：那份实现（改编自 Etoile）本来就是可注入的 —— `nowEpochMillis` 与
- * `delayMillis` 都是构造参数，所以「轮询 → 慢下来 → 授权」「超时」「被拒」这几条路径可以
- * 拿假时钟一次跑完，不必真的等。搬迁时把默认时钟从 `System.currentTimeMillis()` 换成
- * `Clock.System.now().toEpochMilliseconds()`，这几条断言正是「换时钟没换语义」的凭据。
- */
+/** 设备码登录里与 HTTP 无关的那一半的测试。 */
 class GithubDeviceAuthTest {
 
     private class FakeRepo(

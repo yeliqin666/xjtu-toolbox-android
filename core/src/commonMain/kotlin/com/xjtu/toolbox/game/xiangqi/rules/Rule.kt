@@ -1,14 +1,6 @@
 package com.xjtu.toolbox.game.xiangqi.rules
 
-/**
- * 走法生成、合法走法、将死/困毙判定。
- *
- * 从 :app 的 `rules/Rule.java` 搬过来（Java 的 `switch` 换成 `when`，`List`/`Iterator`
- * 遍历换成 `for`/`any`，其余分支、常量表、判据一字未改）。原文件顶部的改动说明保留在
- * :app 那份里，两条结论在这里同样成立：
- * 1. 没有 `android.util.Log`（三处调用本来就被注释掉了），所以规则引擎能跑 JVM 单测；
- * 2. 文件末尾那组「困毙」方法是本仓库补的，原库只做到将死。
- */
+/** 走法生成、合法走法、将死/困毙判定。 */
 object Rule {
 
     private val area = arrayOf(
@@ -352,12 +344,7 @@ object Rule {
         return false
     }
 
-    /**
-     * 将帅是否被将死（原库口径：把自己一方的每个棋子的每个落点都试一遍，全都被将军就算死）。
-     *
-     * 注意它要求调用方先自己确认「正在被将军」，且内部漏了将帅照面那一路 —— 新代码请用
-     * [isCheckmate] / [isStalemate]（它们按 [isLegalMove] 的统一口径重判）。
-     */
+    /** 将帅是否被将死：己方每个棋子的每个落点都试一遍，全都被将军就算死。 */
     fun isJiangShuaiDead(piece: Int, bosspos: Position, b: Board): Boolean {
         val board = Board(b)
         val red = piece == Piece.WSHUAI
@@ -546,11 +533,7 @@ object Rule {
 
     // ==================== 以下为本仓库新增（原库没有困毙这一条） ====================
 
-    /**
-     * 将帅照面。原库把这条规则塞在 [PossibleToPositions] 里，只在「将帅自己动」时才查，
-     * 因此「挪开中间挡着的子，把自己的将暴露给对方的帅」这种自杀走法漏掉了。
-     * 这里单独提出来，任何一步走完都要过一遍。
-     */
+    /** 将帅照面。 */
     fun isKingFaceToFace(board: Board): Boolean {
         val red = findJiangShuaiPos(Piece.WSHUAI, board)
         val black = findJiangShuaiPos(Piece.BJIANG, board)
@@ -565,10 +548,7 @@ object Rule {
         return true
     }
 
-    /**
-     * side 一方此刻是否被将军。side 取 [Piece.WSHUAI]（红）或 [Piece.BJIANG]（黑）——
-     * 用将帅的 pieceId 当阵营标记，是为了直接喂给原库那几个同样以 piece 区分红黑的方法。
-     */
+    /** side 一方此刻是否被将军。 */
     fun isInCheck(side: Int, board: Board): Boolean {
         val pos = findJiangShuaiPos(side, board) ?: return false
         return isJiangShuaiInDanger(side, pos, board) || isKingFaceToFace(board)

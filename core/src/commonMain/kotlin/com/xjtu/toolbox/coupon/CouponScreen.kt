@@ -63,32 +63,13 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.utils.overScrollVertical
 import com.xjtu.toolbox.nav.AppRoute
 
-/**
- * 加餐券：四个分类的分段页签 + 瀑布流券卡 + 领取，翻页触底自动加载。
- *
- * 本屏从 `:app` 搬进 `:core`（桌面端第 15 条真数据路由），屏与 [CouponViewModel] 是两端
- * 共用的同一份，只在**取数**与**宿主能力**上切缝（表格即「原来」→「现在」）：
- *
- * | 原来 | 现在 |
- * |---|---|
- * | `site: SiteSession` | [source]（`:data` 的 `AppCouponSource`；Web 以后接 campus-api） |
- * | `LocalAppLoginState.handleAuthExpired(...)` | `:core` 的 [LocalAuthExpiry] |
- * | 屏上自己发 okhttp 取券图 + `BitmapFactory` | [CouponSource.loadImage] + `:core` 的图片缝 [decodeImageFull] |
- * | `HomeStats.push(appContext, AppRoute.Coupon, …)` | [onSummary]（首页摘要回写槽位） |
- * | `"¥%.2f".format(...)`（JVM 专属） | [formatYuan]（与 `:core` 既有先例同一条手写口径） |
- * | `System.identityHashCode(site)` 当 VM key | 固定 key `"coupon"`（`identityHashCode` 是 JVM 专属，`:core` 还要编到 wasm） |
- *
- * 屏自己的画法、文案、状态走向**一行未改**。
- */
+/** 加餐券：四个分类的分段页签 + 瀑布流券卡 + 领取，翻页触底自动加载。 */
 @Composable
 fun CouponScreen(
     /** 本端的取数（Android / 桌面 = `:data` 的 `AppCouponSource`；serve 模式 = `:core` 的 `CampusCouponApi`）。 */
     source: CouponSource,
     onBack: () -> Unit,
-    /**
-     * 首页摘要回写（见 [CouponViewModel.onSummary]）：Android = `HomeStats.push(…, AppRoute.Coupon, …)`
-     *（与搬迁前那一行逐字一致）；桌面/Web 没有那份首页摘要 ⇒ 默认空实现。
-     */
+    /** 首页摘要回写（见 [CouponViewModel.onSummary]）：Android = `HomeStats.push(…, AppRoute.Coupon, …)` ；桌面/Web 没有那份首页摘要⇒ 默认空实现。 */
     onSummary: (summary: String, detail: String?) -> Unit = { _, _ -> },
 ) {
     val authExpiry = LocalAuthExpiry.current
@@ -444,8 +425,6 @@ private fun CouponImage(source: CouponSource, url: String) {
     LaunchedEffect(url) {
         imageBytes = null
         if (url.isBlank()) return@LaunchedEffect
-        // 取图原来在这屏上直接发 okhttp —— 现在收进取数端口（实现自己包 IO），
-        // 屏只做「要字节、拿不到就算了」这一件事
         imageBytes = source.loadImage(url)
     }
 
@@ -476,10 +455,7 @@ private fun CouponImage(source: CouponSource, url: String) {
     }
 }
 
-/**
- * 分转元的显示口径（原来那个 `"¥%.2f".format(x / 100.0)` 是 JVM 专属写法，`:core` 还要编到
- * wasm，按既有先例手写 —— 幂等：`500` 分 → `5.00`，`505` 分 → `5.05`，`999` → `9.99`）。
- */
+/** 分转元的显示口径。 */
 private fun formatYuan(fen: Long): String {
     val sign = if (fen < 0) "-" else ""
     val abs = if (fen < 0) -fen else fen

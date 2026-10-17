@@ -76,14 +76,6 @@ import kotlinx.datetime.toLocalDateTime
 /**
  * 社区各页的外壳：App 自己的玻璃小标题栏，内容铺到顶栏下面做采样源。
  * [content] 拿到的 top 是要放进滚动内容里的顶部留白。
- *
- * 从 :app 的 `community/CommunityChrome.kt` 搬进 commonMain（交接文档 §5 里「挡住 23 屏」
- * 的那个阻挡者）。搬迁时只动了三处：
- *   - `communityTime` 的 `java.time` → `kotlinx-datetime`（见它的 KDoc）；
- *   - Coil 的 `ImageRequest.Builder(LocalContext.current)` → `LocalPlatformContext.current`
- *     （coil3 的多平台形状；Android 上它本来就是 `LocalContext.current`，行为不变）；
- *   - [communitySlide] / [mentionQuery] / [MentionSuggestions] 的 `internal` 提成 public ——
- *     `internal` 按模块生效，:app 的社区页看不见 :core 的 internal。
  */
 @Composable
 fun CommunityPage(
@@ -382,15 +374,7 @@ fun CommunityAction(
     }
 }
 
-/**
- * 相对时间：刚刚 / N 分钟前 / N 小时前 / 昨天 HH:mm / MM-dd / yyyy-MM-dd。解析不了返回空串。
- *
- * 从 :app 搬进 commonMain 时把 `java.time` 换成了 `kotlinx-datetime`：`DateTimeFormatter` 在
- * 多平台上没有对应物，而且它也不是「同一件事」——它按 JVM 默认 Locale 取数字。所以
- * `HH:mm` / `MM-dd` / `yyyy-MM-dd` 这三个固定形状改成手写补零；「昨天」改成比 `toEpochDays()`
- * （等价于 `today.minusDays(1)`，不去构造那个日期）。**分支顺序与文案逐字未动**，包括看上去
- * 奇怪的 `minutes < 1` —— 上游给未来时间时（服务器时钟快几秒）也该显示「刚刚」。
- */
+/** 相对时间：刚刚 / N 分钟前 / N 小时前 / 昨天 HH:mm / MM-dd / yyyy-MM-dd。 */
 fun communityTime(iso: String): String =
     communityTimeOf(iso, Clock.System.now(), TimeZone.currentSystemDefault())
 

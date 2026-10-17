@@ -18,22 +18,7 @@ import kotlinx.datetime.LocalDate
 import kotlinx.datetime.LocalDateTime
 import kotlinx.datetime.LocalTime
 
-/**
- * 首页 Hero 里那两项**本地推算**：「第 N 周」与「下一项安排」。
- *
- * ## 为什么它在 `:core` 而不是在某一端的屏里
- *
- * 它俩的输入只有三样：课表缓存里的课程、教务下发的开学日期、节假日表 —— 三样都已经在共享层
- * （`ScheduleCache` / `TermWeeks` / `HolidaySource`）。搬迁前这一百来行写在 `:app` 的 `HomeTab`
- * 里，别端要用就得整段抄一遍，而「同一个开学日期在两端口径不同」这种事一旦发生只会显得诡异。
- * 屏（[HomeScreen]）只负责把算出来的东西排版，这里一行判定都没改。
- *
- * ## 两处形态调整（判定未动）
- *
- *  - `java.time` → `kotlinx-datetime`（与 `TermWeeks` / `ScheduleCache` 同一条搬迁口径）；
- *  - 原来它内联在 `LaunchedEffect` 里，现在收成纯函数：输入是课程表与「现在」，输出是
- *    [HomeNextUp] —— 于是宿主只需要把课表缓存读出来，不必自己再写一遍 15 天扫描。
- */
+/** 首页 Hero 里那两项本地推算：「第 N 周」与「下一项安排」。 */
 object HomeHero {
 
     /** 首页 Hero 里「第 N 周」认的周次范围：1..25 之外一律当作算不出来（0）。 */
@@ -58,28 +43,13 @@ object HomeHero {
     /** 考试倒计时那一格用的图标（与 `HomeIcons.of(AppRoute.SchoolCalendar)` 同一个）。 */
     val EXAM_ICON: ImageVector get() = Icons.AutoMirrored.Filled.EventNote
 
-    /**
-     * 教学周。开学日期锚到那一周的周一（见 [TermWeeks.weekOf]），落在
-     * [WEEK_MIN]..[WEEK_MAX] 之外（开学前、学期早已结束、教务给的日期离谱）算不出来，返回 0。
-     */
+    /** 教学周。 */
     fun weekNumber(startOfTerm: LocalDate?, today: LocalDate = todayInSystemZone()): Int {
         val start = startOfTerm ?: return 0
         return TermWeeks.weekOf(start, today).takeIf { it in WEEK_MIN..WEEK_MAX } ?: 0
     }
 
-    /**
-     * 从 [courses] 里挑出「从现在起还没开始」的那一节。
-     *
-     * 判定与搬迁前逐条一致：
-     *  - 只看今天起 [days] 天（默认 [LOOKAHEAD_DAYS]）；
-     *  - 周次从 [startOfTerm] 算（`<= 0` 的日期跳过）；
-     *  - 节假日停的是**教务排的课**，自建日程照常（`isUserCreated`）；
-     *  - 开始时间：自建日程给的是分钟（`startMinuteOfDay`），教务课程按当天是夏季/冬季作息表换算；
-     *  - 同一天里按开始时间排序，第一个「还没开始」的就是下一项。
-     *
-     * [startOfTerm] 为 null（学期代码 / 开学日期缺失）时返回 null —— 那是「算不出来」，
-     * 与「这两周真没课」不是一件事，屏上那两句话不同。
-     */
+    /** 从 [courses] 里挑出「从现在起还没开始」的那一节。 */
     fun find(
         courses: List<CourseItem>,
         startOfTerm: LocalDate?,
@@ -114,7 +84,6 @@ object HomeHero {
                     icon = EMPTY_ICON,
                     title = course.courseName,
                     timeLabel = clock(safeStartMinute),
-                    // 跨零点那一节（自建日程可能给到 24:00 之后）与搬迁前一致：右边写「至 00:00」
                     timeCaption = when {
                         endMinute == null -> dayLabel
                         endMinute >= 24 * 60 -> "至 00:00"
@@ -147,7 +116,7 @@ object HomeHero {
         return endTime.hour * 60 + endTime.minute
     }
 
-    /** `HH:MM`。与搬迁前 `formatMinuteClock` 逐字对应（`24:00` 是上限那一条）。 */
+    /** `HH:MM`（`24:00` 是上限）。 */
     fun clock(minuteOfDay: Int): String = when {
         minuteOfDay >= 24 * 60 -> "24:00"
         minuteOfDay < 0 -> "00:00"
@@ -168,7 +137,7 @@ object HomeHero {
         return if (remainHours == 0L) "${days}天后" else "${days}天${remainHours}小时后"
     }
 
-    /** 「今天 / 明天 / 后天 / 周三 / 10月12日」。与搬迁前 `formatScheduleReminderDateLabel` 同一套说法。 */
+    /** 「今天 / 明天 / 后天 / 周三 / 10月12日」。 */
     fun dateLabel(targetDate: LocalDate, today: LocalDate): String =
         when ((targetDate.toEpochDays() - today.toEpochDays()).toInt()) {
             0 -> "今天"
@@ -186,11 +155,7 @@ object HomeHero {
     private fun LocalDate.plusDays(days: Int): LocalDate =
         civilFromEpochDay(toEpochDays().toLong() + days)
 
-    /**
-     * 「距 1970 的分钟数」：差值只需要用到「分」，所以不必把 `LocalDateTime` 送去带时区换算
-     *（commonMain 的 `LocalDateTime` 上没有 `toEpochSeconds`，那要一个 `TimeZone`）。
-     * 与搬迁前 `Duration.between(now, startAt).toMinutes()` 同一个数。
-     */
+    /** 「距 1970 的分钟数」（commonMain 的 `LocalDateTime` 没有不带时区的 `toEpochSeconds`）。 */
     private fun LocalDateTime.minutesFromEpoch(): Long =
         date.toEpochDays().toLong() * 24L * 60L + hour * 60L + minute
 }

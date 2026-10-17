@@ -26,22 +26,7 @@ import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 import kotlinx.coroutines.runBlocking
 
-/**
- * 思源学堂取数（`LmsApi`）的**字段级口径**：对着 `:testkit` 的 [LmsFakeUpstream] 逐行读。
- *
- * ## 为什么在 `:data` 而不是 `:app`
- *
- * 这一轮把 lms 的取数（[LmsApi]）与站点（[com.xjtu.toolbox.auth.LmsSession] +
- * [com.xjtu.toolbox.lms.LmsLogin]）从 `:app` 搬进了 `:data`（桌面端第 18 条真数据路由）。
- * 搬之前先用夹具把**搬之前**的口径钉住 —— 这些断言全部来自**夹具原文**与**搬迁前的代码语义**：
- * `user/index` 里 globalData 的 JS 形状、课程/活动的列表字段、详情接口**没有 deadline 键**
- *（只能靠列表那条并进来）、作业提交态（`user_submit_count` 只在详情）、正文的两种载体
- *（作业/课件 `data.description`、页面型 `data.content`）、已结束作业的 /blob 403 → Forbidden
- *（LmsSession 把它认成业务拒绝，不重登）。
- *
- * 模型与 `mergeBrief`/`lmsActivityBody` 一并随搬（`LmsApi` 同包同类型名），所以这套断言
- * 在搬动前后是同一份 —— 这就是「先钉住再搬」。
- */
+/** 思源学堂取数（`LmsApi`）的字段级口径：对着 `:testkit` 的 [LmsFakeUpstream] 逐行读。 */
 class LmsApiJvmTest {
 
     @Test
@@ -50,9 +35,6 @@ class LmsApiJvmTest {
             assertTrue(site.hasLogin, "真登录应当成功")
             // 真打过一次统一认证的凭据表单（不是靠别处缓存直通）
             assertTrue(fake.library.credentialPosts.get() > 0, "应当真提交过一次凭据")
-            // 登录那一刻**不会**额外摸 /user/index：CAS 回跳落点就在 lms 根路径（带 ticket 的那次
-            // 200 种下会话 cookie）⇒ `LmsLogin.postLogin` 判到「最终 URL 已在 lms 上」就早返回。
-            // /user/index 那份 200 是下面 `getUserInfo()` 拉的 —— 计数放到它后面断。
 
             val api = LmsApi(site)
             val info = runBlocking { api.getUserInfo() }

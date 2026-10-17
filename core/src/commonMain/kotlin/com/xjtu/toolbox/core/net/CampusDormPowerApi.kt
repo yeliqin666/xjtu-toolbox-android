@@ -8,44 +8,7 @@ import com.xjtu.toolbox.util.safeString
 import io.ktor.client.HttpClient
 import kotlinx.serialization.json.JsonObject
 
-/**
- * 宿舍电费（`ssn.xjtu.edu.cn/cems`）的 **serve 版取数**：给 `:web` 用，实现 [DormPowerSource]。
- *
- * | 端点 | 本类实现的方法 |
- * |---|---|
- * | `GET /api/dorm/rooms` | [rooms]（已绑定的宿舍列表） |
- * | `GET /api/dorm/reading` | [kwh]（`?roomId=`） |
- *
- * 契约 §5.5；`:server` 那一侧是 `DormPowerRoutes.kt`（薄包装 `:data` 的 `DormPowerApi`）。
- *
- * ## 「缴费页入口」没有端点（这一屏最大的缺口）
- *
- * [freshPayUrl] **不端**：它每次都要重走一遍 OAuth、拦下带 code 的那一跳，而且顺手记下
- *「用户进过这一页」（`DormPowerStore.markUsed`）—— 那是宿主侧状态，serve 这一层不替浏览器记。
- * 所以浏览器里那个「去缴费」跳不过去（[freshPayUrl] 抛错，`:web` 的读数页也不画那一跳）。
- * 绑定 / 解绑 / 充值同理：那几件事发生在缴费页里，是浏览器端的事。
- *
- * ## `kwh` 的 `null` 与「字段缺失」是两件事（§4）
- *
- * - `kwh: null` = **上游明确说这间房没有表**（不是 `0`，也不是「查不到」）⇒ 原样给 `null`；
- * - `kwh` **字段缺失** = 这个端点没按契约答 ⇒ 抛错（不拿 `null` 冒充「没有表」，那是把形状错误
- *   说成一个业务事实）。
- *
- * ## 没有时间戳
- *
- * 响应里**没有**「这张读数是什么时候的」：`:core` 的 `DormReading.at` 是 `DormPowerStore` 在
- * 本机记的 ⇒ 本层不编一个（§4：时间一律 ISO-8601，编一个反而是第二个口径）。要那一格由消费方
- * 在**自己拿到响应的那一刻**记（`:web` 的读数页就是这么做的）。
- *
- * ## 默认形态（campus-api）
- *
- * 宿舍电费在 campus-api 里有**另一个**端点（`GET /api/dorm/kwh?roomId=`，一个端点把列表与读数
- * 混在一处；见契约 §5.5），但本类不是它的客户端 —— 非 serve 分支一律 [serveOnly]（抛错，
- * 不返回一份空数据）。
- *
- * @param baseUrl 留空 ⇒ 相对路径即**同源**（`:web` 由 `:server` 托管，必须是空）
- * @param mode 见 [ApiMode]：serve 支才走本契约的端点
- */
+/** 宿舍电费（`ssn.xjtu.edu.cn/cems`）的 serve 版取数：给 `:web` 用，实现 [DormPowerSource]。 */
 class CampusDormPowerApi(
     private val client: HttpClient,
     private val baseUrl: String = "",

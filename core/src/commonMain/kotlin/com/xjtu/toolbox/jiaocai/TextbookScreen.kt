@@ -56,17 +56,7 @@ import com.xjtu.toolbox.nav.AppRoute
 fun TextbookScreen(
     source: JiaocaiSource,
     termTextbooks: JiaocaiTermTextbooks,
-    /**
-     * 全文库那一半（页图取数 + 书架 + 分类树缓存）。**null = 本端没有这一档** ⇒ 只画「查教材」一栏，
-     * 各处的「读全文 / 阅读全文」入口一个都不画。
-     *
-     * serve 形态就是这样（`docs/api-contract.md` §5.6）：那八个端点里没有 `jiaocai1` 那条链
-     *（另一个域名、另一套会话）—— 拿不到的东西不摆入口，而不是摆一个点了没反应的
-     *（与 `LmsScreen.videoPlayer` / `AttendanceScreen.onOpenIclassface` 同一条 idiom）。
-     * 两个都给齐了才算有：只给一个画不了那一栏。
-     *
-     * Android / 桌面两处调用点都给，所以那两端的屏一行未变。
-     */
+    /** 全文库那一半（页图取数 + 书架 + 分类树缓存）。 */
     jiaocai1Source: Jiaocai1Source? = null,
     jiaocai1Shelf: Jiaocai1ShelfStore? = null,
     jiaocai1Cache: Jiaocai1Cache? = null,
@@ -105,8 +95,7 @@ fun TextbookScreen(
         }
     }
 
-    // 会话过期交给导航层（`:core` 的 [LocalAuthExpiry]）：两个 ViewModel 各走各的，
-    // 和搬迁前一样（那时是 `LocalAppLoginState.handleAuthExpired`）。
+    // 会话过期交给导航层（[LocalAuthExpiry]），两个 ViewModel 各走各的。
     if (jiaocaiVm.authExpired) {
         LaunchedEffect(Unit) {
             jiaocaiVm.authExpired = false

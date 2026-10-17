@@ -301,10 +301,7 @@ private fun boardGpa(board: Board): String {
     return format2(values.average())
 }
 
-/**
- * 两位小数 —— `String.format("%.2f", …)` 不是多平台的（Kotlin/Wasm 没有），
- * 手写一份：四舍五入到分位，并保证小数部分补齐两位。
- */
+/** 两位小数—— `String.format("%.2f", …)` 不是多平台的（Kotlin/Wasm 没有），手写一份：四舍五入到分位，并保证小数部分补齐两位。 */
 private fun format2(value: Double): String {
     val negative = value < 0
     val scaled = kotlin.math.round(kotlin.math.abs(value) * 100).toLong()

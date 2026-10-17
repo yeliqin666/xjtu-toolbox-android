@@ -56,10 +56,7 @@ import top.yukonga.miuix.kmp.utils.overScrollVertical
 
 @Composable
 internal fun ChatPanel(
-    /**
-     * 驱动这一屏的那一份会话状态：Android / 桌面是 [AgentViewModel]，浏览器是 `WebAgentSession`
-     *（循环在 serve）。屏只认识它们的公共面（见 [AgentChatSession]）。
-     */
+    /** 驱动这一屏的那一份会话状态：Android / 桌面是 [AgentViewModel]，浏览器是 `WebAgentSession` （循环在 serve）。 */
     vm: AgentChatSession,
     config: AgentConfig,
     /** 端装配与端上资源（见 `:core` 的 [AgentHost]）。 */
@@ -73,14 +70,8 @@ internal fun ChatPanel(
     bottomReserve: Dp = 0.dp,
     /** 玻璃顶栏的高度，放进对话列表的顶部留白（列表铺到顶栏下面）。 */
     listTopPadding: Dp = 0.dp,
-    /**
-     * 「戳一下底栏屁岱」的回应气泡（输入框正上方那颗小气泡）：`:app` 交 `AndroidPokeWhisper`
-     * （它认 `ProactiveBubbleHost` 与形象外观，都还在那一端）；没有形象的端默认什么都不画。
-     */
-    /**
-     * 首屏那个「屁岱形象 + 问候」：`:app` 交 `AndroidPidaiHero`；没有形象的端用
-     * [AgentWelcome] 的默认实现（纯文字问候）。
-     */
+    /** 「戳一下底栏屁岱」的回应气泡（输入框正上方那颗小气泡）：`:app` 交 `AndroidPokeWhisper` （它认 `ProactiveBubbleHost` 与形象外观，都还在那一端）；没有形象的端默认什么都不画。 */
+    /** 首屏那个「屁岱形象 + 问候」：`:app` 交 `AndroidPidaiHero`；没有形象的端用 [AgentWelcome] 的默认实现（纯文字问候）。 */
     hero: @Composable (title: String, facts: WelcomeFacts, now: kotlinx.datetime.LocalDateTime) -> Unit =
         { title, f, n -> agentWelcomePlainHero(title, f, n) },
     pokeWhisper: @Composable (Modifier) -> Unit = {},

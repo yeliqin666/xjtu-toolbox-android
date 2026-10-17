@@ -8,17 +8,7 @@ import kotlin.test.assertFalse
 import kotlin.test.assertSame
 import kotlin.test.assertTrue
 
-/**
- * 保护器缝本身的两件事：**平台分派**（Windows 给 DPAPI，其余平台什么都不给）与
- * **真 DPAPI 的行为**。
- *
- * 分派那几条在 Linux 上就能验（判据是纯函数，`os.name` 是参数），DPAPI 那两条只在
- * `os.name` 是 Windows 时执行 —— 本机（Linux）跳过，CI 的 `windows-latest` 会真跑
- *（见 `docs/windows-delivery.md` §7「未验证项」：那两条是**留给 CI 验**的，不是不验）。
- *
- * 「密文落盘 → 读回解密 → 篡改/换用户解不开」这套**存储层**语义在
- * [ProtectedKeyValueStoreJvmTest] 里用假保护器钉住（那几条在任何平台都能跑）。
- */
+/** 保护器缝本身的两件事：平台分派（Windows 给 DPAPI，其余平台什么都不给）与 真 DPAPI 的行为。 */
 class SecretProtectorJvmTest {
 
     private fun isWindows() = System.getProperty("os.name").orEmpty().startsWith("Windows", ignoreCase = true)
@@ -30,7 +20,6 @@ class SecretProtectorJvmTest {
         assertSame(DpapiSecretProtector, secretProtectorForPlatform("Windows Server 2022"))
         assertEquals("dpapi", DpapiSecretProtector.id)
 
-        // 没有原生保护就是没有：不造一个「身份保护器」出来假装有（设计文档 §5.1 的 Linux 口径）
         listOf("Linux", "Mac OS X", "FreeBSD", "").forEach { os ->
             assertEquals(null, secretProtectorForPlatform(os), "「$os」上不该有保护器")
         }

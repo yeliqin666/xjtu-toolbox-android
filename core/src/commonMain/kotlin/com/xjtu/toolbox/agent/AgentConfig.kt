@@ -6,8 +6,6 @@ package com.xjtu.toolbox.agent
  * DeepSeek 的别名（`minimal`→low、`medium`/`xhigh`→high）也认：用户可能在别处见过这些
  * 写法，或者以后服务端改口径。认不出的一律回落到「自动」——下发一个服务端不认的值，
  * 整个请求会 400，表现是屁岱一句话都不说。
- *
- * 跨模块可见性：原来是 `internal`，`:data` 的 `AgentConfigStore` 在用它。
  */
 fun normalizeReasoningEffort(raw: String?): String = when (raw?.trim()?.lowercase()) {
     "minimal", AgentConfig.REASONING_LOW -> AgentConfig.REASONING_LOW
@@ -16,12 +14,7 @@ fun normalizeReasoningEffort(raw: String?): String = when (raw?.trim()?.lowercas
     else -> AgentConfig.REASONING_AUTO
 }
 
-/**
- * 屁岱的配置：服务商、密钥、模型、助手名、联网搜索源、思考开关。
- *
- * 这里只有**模型与口径**，没有存取（落在 `:data` 的 `AgentConfigStore`）：桌面端的配置面板
- * 与 Android 共用同一批默认值、同一批标签、同一套「认不出的值怎么回落」的判据。
- */
+/** 屁岱的配置：服务商、密钥、模型、助手名、联网搜索源、思考开关。 */
 data class AgentConfig(
     val provider: String = PROVIDER_DEEPSEEK,
     val apiKey: String = "",
@@ -32,17 +25,7 @@ data class AgentConfig(
     val thinkingEnabled: Boolean = true,
     val reasoningEffort: String = REASONING_AUTO,
     val showReasoning: Boolean = true,
-    /**
-     * 「这一端**知道** key 配好了，但 key 不在我手上」这一格（默认 `false` ⇒ 三端行为一字不变）。
-     *
-     * 为什么需要它：浏览器那一端永远拿不到 key（它在 serve 上，见 `docs/agent-web-spec.md` §5.3 的红线），
-     * 而面板与提示条要回答「配好了没」这件事 —— 今天只有 [apiKey] 这一个真源。浏览器拿到的配置里
-     * `apiKey` 恒为空串，`isConfigured` 就永远是 false，屏上会一直说「先填一下模型」。
-     * 所以多一格**非密文信道**：serve 侧投影过来的 `keyConfigured`（`GET /api/agent/config` 的同一格）。
-     *
-     * ⚠️ **不进 `AgentConfigStore.save()`**：落盘多一个键会破 `docs/storage-layout.md` §7 的
-     * A1/A2 键集合判据，也会让「配置是否配好」这件事多出一份要同步的盘上状态。
-     */
+    /** 「这一端知道 key 配好了，但 key 不在我手上」这一格。 */
     val keyConfigured: Boolean = false
 ) {
     val effectiveName: String get() = sanitizeAgentTitle(assistantName, DEFAULT_ASSISTANT_NAME)

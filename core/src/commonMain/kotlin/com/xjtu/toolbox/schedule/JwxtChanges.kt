@@ -79,11 +79,6 @@ data class JwxtChange(
  * - 调课、停课：从原课挖掉那几周的那几节，一节大课只调走其中两小节时剩下的照常上；
  * - 调课、补课：在新位置加一节，课程名、性质、教室、教师缺的从同教学班的课补。
  * 按申请时间依次应用，先调走再停的也能对上。
- *
- * 从 :app 的 `schedule/JwxtChanges.kt` 搬进 commonMain：它**一行逻辑都没碰**（本来就不带
- * android/java.time/okhttp），只把三个顶层声明从 `internal` 提成 public（跨模块看不见 internal）。
- * 交接文档 §8 把它标成「改数据源前必须先看」的权威实现 —— 这类口径放共享层，
- * Android 与 Web 才会算出同一张课表；测试（真实 `xsdkkc.do` 报文形状的 8 例）也跟着搬来了。
  */
 object JwxtChanges {
 

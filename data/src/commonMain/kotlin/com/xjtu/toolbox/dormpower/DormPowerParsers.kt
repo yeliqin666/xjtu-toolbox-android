@@ -14,14 +14,7 @@ import java.nio.ByteBuffer
 import java.nio.charset.CharacterCodingException
 import java.nio.charset.CodingErrorAction
 
-/**
- * 宿舍电费接口响应的解析（`:app` 的 `dormpower/DormPowerModels.kt` 里那一半，整份搬进 `:data`，
- * 对象名与函数名一字未改）：文件位置变了，字段口径一行没改。
- *
- * 为什么解析留在 `:data` 而不是跟着模型进 `:core`：它要用 `java.nio` 的 `ByteBuffer` /
- * `CodingErrorAction` 做「先严格 UTF-8、不行再 GBK」的兜底，而 `:core` 还要编到 wasm
- *（commonMain 里没有 `java.nio`）。模型（`DormRoom` / `DormReading` / `LOW_KWH`）已经进 `:core`。
- */
+/** 宿舍电费接口响应的解析。 */
 object DormPowerParsers {
     /** 系统对同一个接口有时发 UTF-8、有时发 GBK，先严格按 UTF-8 解，不行再按 GBK。 */
     fun decode(bytes: ByteArray): String {

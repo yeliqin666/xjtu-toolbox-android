@@ -6,25 +6,7 @@ import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
 
-/**
- * 图书馆座位系统（`rg.lib.xjtu.edu.cn:8086`）的站点会话。
- *
- * ## 为什么在 `:data` 而不是留在 `:app` 的 `Sites.kt` 里
- *
- * 它是「`Sites.kt` 里的站点逐个接上 `:data`」的第一个：类体只用到 [CasSiteSession] +
- * [LibraryLogin] + [WebVpnUtil]，这三样都已在 `:data`，于是它**零改动**就能编过 ——
- * 而桌面端正需要它才能「自己登录」（`docs/desktop-port-plan.md` Stage A 的验收：
- * 用自己登录的会话跑通图书馆那条竖切）。
- *
- * 类名与包路径都没变（`com.xjtu.toolbox.auth.LibrarySession`）⇒ `:app` 侧
- * `register(com.xjtu.toolbox.auth.LibrarySession())` 一行不用改。
- *
- * `createLogin` 把会话管家缓存的 `cachedRsaKey` 一路传到 [LibraryLogin]（与其余站点同型）——
- * 搬迁前这里是漏传的，见 [LibraryLogin] 的 KDoc。
- *
- * `mustUseWebVpn = true`：座位系统的端口对公网不开放，校外必须经网关，故跟随全局
- * [AccessMode] 判定；判定结果由 [SessionManager.backendFor] 决定绑定哪个 backend。
- */
+/** 图书馆座位系统（`rg.lib.xjtu.edu.cn:8086`）的站点会话。 */
 class LibrarySession : CasSiteSession("library", "图书馆", mustUseWebVpn = true) {
     override fun createLogin(client: OkHttpClient, visitorId: String?, cachedRsaKey: String?): XJTULogin =
         LibraryLogin(existingClient = client, visitorId = visitorId, cachedRsaKey = cachedRsaKey)

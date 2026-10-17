@@ -213,16 +213,7 @@ object InboxRules {
             .lines().joinToString("\n") { it.trim() }.trim()
 }
 
-/**
- * 「待办数据变了，请重画桌面小组件」这一枪的宿主槽位。
- *
- * 上游这份直接写在 `:app` 的 `InboxStore.update()` 里 —— 那里手上就有 `Context`，一句话够了。
- * `InboxStore` 搬进 `:core` 的 commonMain 之后没有 `Context` 可给（`:core` 不认识这个类型），
- * 所以换成注入：`:app` 在 `XjtuApp.onCreate` 里把 `TodoWidgetUpdater.requestUpdate` 挂上来；
- * Web / jvm 没有桌面小组件，不挂就是空转（与 `platform/Toast.kt` 那类槽位同一条规矩）。
- *
- * 回调不带参数：宿主自己拿得到 `Context`，共享层不必认识它。
- */
+/** 「待办数据变了，请重画桌面小组件」这一枪的宿主槽位。 */
 object InboxWidgetHook {
     /** null = 本端没有桌面小组件。 */
     var onTodosChanged: (() -> Unit)? = null
@@ -238,13 +229,7 @@ object InboxStore {
     var version by mutableIntStateOf(0)
         private set
 
-    /**
-     * 持久化：`keyValueStore("inbox<账号后缀>")`。
-     *
-     * Android 上就是原来那个 `getSharedPreferences("inbox" + suffix)` 文件、同一个 `"data"` 键
-     * （见 :core 的 `platform/KeyValueStore.android.kt`）⇒ **老数据无缝沿用**，不需要迁移代码。
-     * Web 上是 localStorage 里的同名空间。
-     */
+    /** 持久化：`keyValueStore("inbox<账号后缀>")`。 */
     private fun prefs(account: String?) = keyValueStore("inbox${AccountContext.suffixFor(account)}")
 
     // `@Synchronized` 是 JVM 专属（默认导入，import 判据抓不到）⇒ 换成 :core 的平台缝：

@@ -6,45 +6,13 @@ import com.xjtu.toolbox.social.MatchScanner
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.delay
 
-/**
- * 浏览器这一端的匹配交友**扫码那一档**（D12 ③）：`MatchScreen` 的 [MatchScanner] 在这个端的实现。
- *
- * ## 两档各自走到哪
- *
- * | 那一档 | 这一端 | 与 `:app` 的关系 |
- * |---|---|---|
- * | 「从相册选图」[fromImage] | **真能扫**：`<input type=file>` → `createImageBitmap` → canvas → ARGB → `:core` 的解码器（本批搬进 commonMain 的那份纯 Kotlin 链） | 与 Android 同一件事（`ImageDecoder` + `QrBitmap.read`），差异见下 |
- * | 「扫一扫」[scan] | **真开相机**：`getUserMedia` → `<video>` → 每 250ms 拉一帧 → 同一份解码器 | 与 Android 同一件事（`QrScannerView`），覆盖层是 DOM 画的（见 [WebQrCamera] 的 KDoc 第 1 条） |
- *
- * 「没找到码」那一句与 `:app` 的 `AppMatchScreen` **逐字相同**（`图里没找到二维码。换一张完整点、清楚点的截图试试。`）
- * —— 两端要么解出码、要么说同一句话。取消（用户没选图 / 点了取消）什么都不说，与 Android
- *「相册返回 null 直接 return」同一条口径。
- *
- * `scan()` 的循环是**这一端按自己的节拍拉**，不是 JS 推（`IntArray` 不能当 JS 回调的参数类型 ——
- * 实测，见 [WebQrCamera] 的 KDoc）。
- *
- * ## 三处**如实**差异（都不在屏幕上骗人）
- *
- * 1. **「补定位块」那一档没有** —— `:app` 的 `QrFrameDecoder` 在常规解码失败后还能补一个磨掉的定位块
- *    再解一次（图书馆那种被磨掉一角的码）。解码链搬进 `:core` 时**没搬那一手**（要 `FinderCandidates`
- *    那一整套），所以那种码在这一端**扫不出来**（Android 能）。依据在 `:core` 的 `platform/QrDecode.kt` 的 KDoc。
- * 2. **中日文那一档可能解不出来** —— 码里写的是 KANJI / HANZI 段、或 BYTE 段被猜成 Shift_JIS 时，这一端
- *    没有那些码表 ⇒ 解不出来（返回 null ⇒ 落到「没找到码」那句）。依据在 `platform/qr/QrCharset.kt` 的边界表。
- *    匹配交友的分享码是 base64url（纯 ASCII）⇒ 这一屏**不受影响**。
- * 3. **失败态多两条** —— 浏览器还会「这一份部署不是安全上下文」与「没允许用相机」，各自一句人话
- *    （见 [WebQrCamera.cameraFailureReason] / [WebQrCamera.cameraUnavailableReason]）。
- *
- * 哪些验过、哪些没验过，逐条写在 `WebMatchScanTest` 的 KDoc 里（不在这里许愿）。
- */
+/** 浏览器这一端的匹配交友扫码那一档：`MatchScreen` 的 [MatchScanner] 在这个端的实现。 */
 internal class WebMatchScanner : MatchScanner {
 
     /** 逐路取景的 key（`@JsFun` 传不出对象句柄，就用一个 key 换手）。 */
     private var scanSeq = 0
 
-    /**
-     * 拉帧用的复用缓冲（按 [WebQrCamera.ANALYSIS_MAX_EDGE] 的平方给足：4 fps 下每帧新分配一块
-     * 一百多万个 int 的数组没有意义）。宽高变了就换一块更大的。
-     */
+    /** 拉帧用的复用缓冲（按 [WebQrCamera.ANALYSIS_MAX_EDGE] 的平方给足）。 */
     private var frameBuffer = IntArray(0)
 
     override suspend fun scan(): MatchScanOutcome {
@@ -66,7 +34,6 @@ internal class WebMatchScanner : MatchScanner {
             },
         )
         try {
-            // 一直抓到「扫到码 / 用户取消 / 出错」为止：与 Android 那边「取景层一直画着」同一条口径
             while (true) {
                 ended.takeIf { it.isCompleted }?.let { return it.await() }
                 val width = WebQrCamera.frameWidth(key)
@@ -94,7 +61,6 @@ internal class WebMatchScanner : MatchScanner {
         WebQrCamera.pickImage { width, height, error ->
             when {
                 error != null -> waiter.complete(MatchScanOutcome(reason = error))
-                // 用户取消：什么都不说（与 :app「相册返回 null 直接 return」同一条口径）
                 width <= 0 || height <= 0 -> waiter.complete(MatchScanOutcome())
                 else -> {
                     val needed = width * height
@@ -107,7 +73,6 @@ internal class WebMatchScanner : MatchScanner {
                     }
                     waiter.complete(
                         if (code == null) {
-                            // 与 :app 的 AppMatchScreen 逐字相同的一句
                             MatchScanOutcome(reason = "图里没找到二维码。换一张完整点、清楚点的截图试试。")
                         } else {
                             MatchScanOutcome(code = code)

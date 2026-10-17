@@ -23,57 +23,7 @@ import com.xjtu.toolbox.util.safeString
 import io.ktor.client.HttpClient
 import kotlinx.datetime.LocalDate
 
-/**
- * Web 这一端的日程页宿主面 —— **如实声明这一端有什么**（`:core` 的 `ScheduleHost`）。
- *
- * ## 真接上的（三条缝都是真的）
- *
- * | 槽位 | Web 这一端 |
- * |---|---|
- * | [cache] / [customCourses] | `:core` 的键值缝：**wasm 上是 `localStorage`**（不是内存！见 `core/src/wasmJsMain/.../KeyValueStore.wasmJs.kt`，前缀 `xjtu-toolbox.`）⇒ 课表缓存与自建日程都真落盘，刷新页面还在 |
- * | `login` | 见下面那段：这一端没有账号，三个问题的答案是"由服务端答" |
- * | `session` | [WebScheduleSource]（服务端契约里真有的那四个端点）+ [SettingsStore.SCHEDULE_SOURCE_JWXT] 作为来源键 |
- *
- * [cache] 没有按账号分文件：这一端没有账号（凭据在 campus-api / serve 进程里），
- * `:app` / 桌面那份按账号加后缀是为了多账号互不串数据，本端只有一个"当前"。
- *
- * ## [honored]：自建日程 + 课表变更气泡（两种形态都有）+ serve 形态下的座位数
- *
- * - [ScheduleCapability.CUSTOM_COURSE_EDIT]：`KeyValueCustomCourseStore` 真落盘 ⇒ 工具栏那个
- *   「+」与「编辑日程」是真能干的事（两种形态都一样）；
- * - [ScheduleCapability.SEAT_COUNT]：**只在 serve 形态列出** —— 它读的是 §5.8 的
- *   `GET /api/emptyroom/seat-count?room=`（[roomSeatCount] 接的就是那一发）；campus-api 形态下
- *   没有这条端点，本端的座位数取数只剩「自己拉过的那一份当天 CDN」那一档，而课表详情页与空闲教室
- *   那一屏是两个实例 ⇒ 永远查不到 ⇒ 不列它（列了做不到的就是假开关：`ScheduleScreen` 只按这张表
- *   决定画不画「N座」）。
- * - [ScheduleCapability.SCHEDULE_CHANGE_BUBBLE]：调课/停课的气泡写进 `:core` 的 `InboxStore`
- *   （[postScheduleChange] 就是 `InboxStore.post(OwnInbox.scheduleChange(…))`，与 `:app` 那一手
- *   逐字同一行）—— 它要的工厂 `OwnInbox` 2026-10-14 已搬进 `:core`（`docs/desktop-port-plan.md`
- *   §16.5 的第 2 条），而收纳那一份 `InboxStore` 早就在 `:core`（wasm 上落 `localStorage`）；
- *   首页那一格（`HomeCard.INBOX`）与消息收纳那一屏读的就是同一份 ⇒ 两种形态下都真会照着办。
- *
- * 没列的都是这一端**没有**的东西，屏上**一个字都不画**：
- * - `SHARE_FILE` —— 浏览器里没有系统分享面板（`:app` 是 `Intent.ACTION_SEND`、桌面是
- *   `Desktop.browse`）。ICS 生成那一半（`:core` 的 `ScheduleExport`）本来就能用，缺的是"交给谁"
- *   ⇒ 「导出日历 (ICS)」那一行不画（不是画了点了没反应）；
- * - `LMS_LINK` / `ATTENDANCE` —— 课程详情里那两项下钻要会话内核 + `LmsApi` + 考勤记录
- *   （`:data` 的 `CourseLinks`）⇒ [courseLinks] 传 null，两档都不画；
- * - `DUE_HOMEWORK` —— 思源作业截止那份落盘缓存（`:app` 的 `LmsDueStore`）本端没有
- *   ⇒ 今日栏的「接下来」只有考试；
- * - `WIDGET_REFRESH` / `HOME_SIGNALS` —— 浏览器里没有桌面小组件；而首页那一格（`WebHomeScreen`）
- *   每次进屏都重读一次 `localStorage`（浏览器里每次刷新页面本来就是一次冷启动）⇒ 课表落地后
- *   没有谁要通知；
- * - `ONLINE_CHECK` —— 浏览器没有"校内外"判定 ⇒ 走默认 `true`（真发请求失败自然会被当成失败）；
- *
- * ## 还剩什么缺口（同一份判断，写在屏幕上那份是 `WebScheduleGapNote`）
- *
- * 学期 / 课表（**已合过调停补课**）/ 考试 / 教材四条在 **serve 形态**下都真取数（[WebScheduleSource]）；
- * campus-api 形态里那三条端点的字段面本端不认（契约 §7 第 2 条）⇒ 考试与教材两栏空着、格子仍是
- * 排课原样、座位数那一格也不画。日程页顶部那行说明把两种形态分开写明了。
- *
- * @param client 与整页同一个客户端（serve 模式下它带着 `Authorization` 头）
- * @param mode 这一份 `:web` 在对谁说话（[ApiMode]）—— 决定 [WebScheduleSource] 的信封读法
- */
+/** Web 端的日程页宿主面（`ScheduleHost`）。 */
 internal class WebScheduleHost(
     private val client: HttpClient,
     private val mode: ApiMode,
@@ -87,14 +37,7 @@ internal class WebScheduleHost(
         if (mode == ApiMode.SERVE) add(ScheduleCapability.SEAT_COUNT)
     }
 
-    /**
-     * 课表变更（调课/停课/换教室）冒一条气泡 —— 与 `:app` 的 `AppScheduleHost` **逐字同一行**：
-     * `InboxStore.post(OwnInbox.scheduleChange(message))`。
-     *
-     * 落点是这一端真有的那份收纳：`InboxStore` 在 wasm 上是 `localStorage`（前缀 `xjtu-toolbox.`），
-     * 首页那一格（`HomeCard.INBOX`）与消息收纳那一屏读的就是它 —— 所以这条气泡在本端**看得见**，
-     * 不是写进一份没人读的存储（那种“列了做不到”的开关不发：见类 KDoc 的 [honored] 那一段）。
-     */
+    /** 课表变更（调课/停课/换教室）冒一条气泡。 */
     override fun postScheduleChange(message: String) {
         InboxStore.post(OwnInbox.scheduleChange(message))
     }
@@ -105,22 +48,11 @@ internal class WebScheduleHost(
     override val customCourses: CustomCourseStore =
         KeyValueCustomCourseStore(keyValueStore(CUSTOM_COURSE_STORE))
 
-    /**
-     * 这一端没有账号：`accountId` / `studentId` 都给空串（`:app` 那边是登录态里的学号）。
-     *
-     * 空串让教材那一条在 campus-api 形态下落成「未获取到学号」（那确实是真的：那一头没有教材端点，
-     * 屏上写的就是这句话，不是空白）；而 serve 形态下教材那条端点**不要学号**
-     *（`/api/jwxt/textbooks` 由服务端从会话里取）⇒ [WebScheduleSource.textbooksWithoutStudentId] 报
-     * `true`，空串不再拦取数。**编一个假的学号更糟**：它会去请求别人的数据。
-     */
+    /** 这一端没有账号：`accountId` / `studentId` 都给空串（`:app` 那边是登录态里的学号）。 */
     override val login: ScheduleLogin = object : ScheduleLogin {
         override val accountId: String = ""
         override val studentId: String = ""
-        /**
-         * `true`：本端能不能取数**由服务端答**（campus-api 的会话 / serve 的令牌）。
-         * 答成 `false` 会让屏永远走「没凭据就不取数」那一支 —— 那是真的坏（页面开了什么都不显示），
-         * 而真正的失败（401 / 令牌不对）会以错误页的形式回到屏上，用户看得见。
-         */
+        /** `true`：本端能不能取数由服务端答（campus-api 的会话 / serve 的令牌）。 */
         override val hasCredentials: Boolean = true
     }
 
@@ -128,7 +60,7 @@ internal class WebScheduleHost(
 
     override val holidays: HolidaySource = WebHolidaySource
 
-    /** 课程详情里那两项下钻（思源学堂 / 本次考勤）本端没有 ⇒ 不画（见类 KDoc）。 */
+    /** 课程详情的两项下钻本端没有 ⇒ 不画。 */
     override val courseLinks: CourseLinkAccess? = null
 
     /** 详情里「N座」那一格的取数：serve 形态是 §5.8 的 `seat-count`（见类 KDoc 的 `honored`）。 */
@@ -145,20 +77,7 @@ internal class WebScheduleHost(
     }
 }
 
-/**
- * 教务会话那一格：本端**没有登录这回事**，会话在服务端进程里。
- *
- * 三条回答都按这一条事实来：
- * - [source]：一直是同一个 [WebScheduleSource]（`ScheduleViewModel` 靠对象身份判断"会话换了没有"
- *   ⇒ 每次新建一个会让它反复重载）；
- * - [isLoggedIn]：`true`（"能不能用"由服务端答；答 `false` 会让屏一直等一次永远不会发生的登录）；
- * - [ensureLogin] / [reAuthenticate]：**空操作**返回同一个取数口 —— 会话本就在对面，
- *   重认证的语义只对"页面上持有凭据"的端成立。
- *
- * [fetchSchedule] 不走 `:data` 的 `ScheduleSourceRouter`（那是"按用户选的来源取，非教务源出问题退回教务"）：
- * 本端只有教务这一个来源 ⇒ 直接取，来源键用 [SettingsStore.SCHEDULE_SOURCE_JWXT]
- *（与设置页里那一项的键值同一个，`:app` / 桌面也用它当快照键）。
- */
+/** 教务会话那一格：本端没有登录这回事，会话在服务端进程里。 */
 internal class WebScheduleSession(private val webSource: WebScheduleSource) : ScheduleSession {
 
     override val source: JwxtScheduleSource get() = webSource
@@ -179,16 +98,7 @@ internal class WebScheduleSession(private val webSource: WebScheduleSource) : Sc
     )
 }
 
-/**
- * 节假日那一格：**只读落盘的那一份，不联网**。
- *
- * `:app` 与桌面用的是 `:data` 的 `DataHolidaySource`（okhttp 打两个公开接口，`HolidayApi`）——
- * 那一份挂着 okhttp，进不了浏览器；而且那两个源在浏览器里也没被反代（`shuyz.com` 不给 CORS 头）。
- *
- * 于是本端**如实**只读同一份落盘缓存（键名 `holiday_dates` 与 `:data` 逐字相同，格式也一样，
- * 所以将来服务端把它端出来、或本端接了直连，这个读法不用改）。读不到就是空表 ⇒ 课表里
- * **没有一天会被当成放假**：这是"少画"，不是"画错"（`ScheduleCache.filterByHolidays` 对空表是空操作）。
- */
+/** 节假日那一格：只读落盘的那一份，不联网。 */
 private object WebHolidaySource : HolidaySource {
 
     private const val CACHE_KEY = "holiday_dates"

@@ -1,10 +1,6 @@
 package com.xjtu.toolbox.auth
 
-/**
- * 随被测代码从 `:app` 搬进 `:data:jvmTest`：被测的是 `internal` 的纯判据，跨模块看不见
- * （`SiteSnapshots.Companion.encode/decode`、`PersistentCookieJar.Companion.hostMatches`）。
- * 判据只留一份，测试跟着代码走。断言逐条保留，只把 JUnit4 的注解/断言换成 `kotlin.test`。
- */
+/** 被测的是 `internal` 的纯判据，所以测试放在 `:data:jvmTest`。 */
 
 import kotlin.test.Test
 import kotlin.test.assertEquals

@@ -6,27 +6,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
-/**
- * 公告的本地状态（[BulletinStore]）—— 搬进 `:core` 时 `Context` + `SharedPreferences` 换成
- * 平台键值缝的那一段，逐条钉住。
- *
- * ## 它钉的是什么
- *
- * 「同名同键」这件事是**用户可见**的：Android 那份键值缝就是 `getSharedPreferences(name)`，
- * 所以只要有一样东西搬歪了（store 名、三个键名、集合类型），已经在用的用户就会发现自己的
- * 「已关掉的公告」「已确认的投票」全回来了。这里的断言就写在那条缝上：
- *
- *  - store 名逐字 `bulletin_store`，三个键逐字 `cached_json` / `dismissed_ids` / `acked_ids`；
- *  - 集合那一档是 `StringSet`（不是拼成一行的字符串）—— 与搬迁前同一个值类型；
- *  - `peekCached()` 走的还是 [BulletinRules.parsePayload]（坏 JSON 给空表，不抛）；
- *  - `snooze` 只在进程内（`sessionSnoozedIds`），不落盘 —— 这是搬迁前就有的语义。
- *
- * ## 为什么在 jvmTest
- *
- * 键值缝的 JVM 实现是**进程内单例**的（同名的 store 是同一个实例），所以这里的 setUp 要先
- * `clear()`；落盘语义由 jvm 那份 actual（`<name>.properties`，0600）与 Android 的
- * `getSharedPreferences` 各端自己的测试钉着。
- */
+/** 公告的本地状态（[BulletinStore]） */
 class BulletinStoreJvmTest {
 
     @BeforeTest
@@ -91,7 +71,7 @@ class BulletinStoreJvmTest {
     }
 
     private companion object {
-        /** 与搬迁前 `BulletinStore.PREFS` 同一个名字（Android 上就是那个 SharedPreferences 文件）。 */
+        /** 与 `BulletinStore.PREFS` 同名（Android 上就是那个 SharedPreferences 文件）。 */
         const val STORE_NAME = "bulletin_store"
 
         val PAYLOAD = """

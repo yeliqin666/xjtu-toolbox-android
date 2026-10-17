@@ -6,9 +6,6 @@ import androidx.room.*
  * 下载任务实体（Room 表 `download_tasks`）—— **只用来落盘**，业务模型是 `:core` 的
  * `media/DownloadTask`（字段与这里逐列同名同序），两者之间由 `AppDownloadTaskStore` 的两个
  * 私有扩展函数映射。
- *
- * 状态的派生值（`progress` / `statusLabel` / `isActive`）已经随业务搬进 `:core` 的模型了 ——
- * 一张表行不需要知道「已暂停」在屏上怎么措辞。列本身一个没动 ⇒ 老数据照旧读得出来。
  */
 @Entity(tableName = "download_tasks")
 data class DownloadTaskEntity(

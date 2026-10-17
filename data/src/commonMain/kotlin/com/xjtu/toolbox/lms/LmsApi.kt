@@ -389,11 +389,7 @@ class LmsApi(private val site: SiteSession) {
         return token
     }
 
-    /**
-     * 取 URL 的 query 参数值（`android.net.Uri.getQueryParameter` 的等价物，百分号编码照解）。
-     * 搬迁前那行是 `android.net.Uri.parse(playerUrl).getQueryParameter("token")` ——
-     * `android.net` 进不了 `:data`（见 §5.1 那批「真硬耦合」的 Lms），换成这个手写版，语义不变。
-     */
+    /** 取 URL 的 query 参数值（`android.net.Uri.getQueryParameter` 的等价物，百分号编码照解）。 */
     private fun queryParameter(url: String, name: String): String? {
         val queryStart = url.indexOf('?')
         if (queryStart < 0) return null

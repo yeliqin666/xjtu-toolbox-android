@@ -91,16 +91,9 @@ import top.yukonga.miuix.kmp.utils.overScrollVertical
 @Composable
 fun AccountManagerScreen(
     accountManager: AccountsController,
-    /**
-     * 当前激活账号（`AccountContext.activeAccountId` 的那个值）。**从入参来**而不是屏自己去读：
-     * 用户在「我的」页改信息、或者别处切了账号时，宿主重新组合就会把新值递进来（与搬迁前
-     * 读 `loginState.accountId` 是同一条数据流，只是不再依赖 `:app` 的 `AppLoginState`）。
-     */
+    /** 当前激活账号（`AccountContext.activeAccountId` 的那个值）。 */
     activeAccountId: String?,
-    /**
-     * 头像照片那一格。不传就画首字母圆（桌面端就传 null —— 学工系统的证件照缓存是 Android 侧的
-     * `HelloProfileStore`，见 [AccountPhotoSource]）。
-     */
+    /** 头像照片那一格。 */
     accountPhoto: AccountPhotoSource? = null,
     onBack: () -> Unit,
 ) {
@@ -623,9 +616,7 @@ private fun AccountAvatar(
     )
     val label = account?.let { accountTitle(it).take(1).uppercase() }
 
-    // 学工系统证件照：照片那一格是**宿主缝**（见 [AccountPhotoSource]）。`:app` 传它原来的
-    // `HelloProfileStore` 缓存（要 `Context` 与 android Bitmap）；其余端不传 ⇒ 走下面的首字母/图标
-    // 那一档 —— 没登录过 hello 的账号本来就取不到照片，这是画法里本来就有的一条分支。
+    // 证件照走宿主缝 [AccountPhotoSource]；没有就落到首字母/图标那一档。
     val photo = if (accountPhoto != null && account != null) accountPhoto.photo(account.accountId) else null
 
     Box(
@@ -973,14 +964,7 @@ private fun lastUsedText(ts: Long): String {
     }
 }
 
-/**
- * 时间戳 → `MM-dd`。**只为这一行文案服务**：超过一个月的「上次使用」不再精确到分钟。
- *
- * 为什么手写而不是 `java.text.SimpleDateFormat`：这一屏在 `:core` 的 commonMain（含 wasmJs），
- * `java.text` 在那里不存在。写法照优先例（`inbox/InboxScreen` 的 `localDateOf`、
- * `feedback/FeedbackScreen` 的日期文案）：`Instant.fromEpochMilliseconds + 系统默认时区`，
- * 输出格式与搬迁前那行 `SimpleDateFormat("MM-dd")` 一致。
- */
+/** 时间戳→ `MM-dd`。 */
 private fun monthDayText(ts: Long): String {
     val date = Instant.fromEpochMilliseconds(ts).toLocalDateTime(TimeZone.currentSystemDefault()).date
     fun pad(v: Int) = v.toString().padStart(2, '0')

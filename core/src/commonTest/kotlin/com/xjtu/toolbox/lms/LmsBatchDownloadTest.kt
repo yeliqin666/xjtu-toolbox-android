@@ -4,11 +4,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
-/**
- * 批量下载的**纯编排**钉住测试 —— 从 `:app` 搬到 `:core` 之后，这三段（文件名消毒 / 收集 /
- * 重名去重）要能在三端编过、能离开 MediaStore 单测。逻辑与搬迁前逐字同构；「落到哪儿」由
- * [LmsDownloadSink] 的宿主实现负责，这里不碰。
- */
+/** 批量下载的纯编排钉住测试。 */
 class LmsBatchDownloadTest {
 
     @Test
@@ -44,15 +40,12 @@ class LmsBatchDownloadTest {
             ),
         )
 
-        // 默认档（`marked = false`）：题目附件 + 我提交的 —— 批阅版要用户自己勾（与搬迁前同一个默认）
         val defaults = mutableListOf<LmsDownloadJob>()
         LmsBatchDownload.collect(homework, "数据结构", LmsBatchDownload.Options(), defaults)
         assertEquals(2, defaults.size, "附件 + 我的提交")
         assertEquals(LmsDownloadJob("题目.pdf", "application/pdf", "数据结构", upload = homework.uploads[0]), defaults[0])
         assertEquals("提交_我交的.zip", defaults[1].name)
 
-        // 勾上「批阅版」才多出的那一条：upload 为空、url 是批阅附件直链 ——
-        // 搬迁前这批的 mime 是「按扩展名猜」，所以传空串
         val marked = mutableListOf<LmsDownloadJob>()
         LmsBatchDownload.collect(homework, "数据结构", LmsBatchDownload.Options(marked = true), marked)
         assertEquals(3, marked.size, "附件 + 我的提交 + 批阅版")

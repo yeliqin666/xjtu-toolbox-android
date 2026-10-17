@@ -2,13 +2,7 @@ package com.xjtu.toolbox.schedule
 
 import kotlinx.serialization.Serializable
 
-/**
- * 一条教材信息（教务的帆软报表 `frReport2/show.do` 解析结果）。
- *
- * 从 `:app` 的 `schedule/ScheduleApi.kt` 原样切出来；解析本体（jsoup + 报表分页）搬到了
- * `:data`（`JwxtScheduleApi.textbooks`）。与 [ExamItem] 同理：它也是落盘缓存的形状
- * （`ScheduleCache` 的 `textbooks_<学期>` 键），字段名不能动。
- */
+/** 一条教材信息（教务的帆软报表 `frReport2/show.do` 解析结果）。 */
 @Serializable
 data class TextbookItem(
     val courseName: String = "",

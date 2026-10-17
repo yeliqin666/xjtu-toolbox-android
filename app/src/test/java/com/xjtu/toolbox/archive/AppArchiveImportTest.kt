@@ -11,26 +11,9 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-/**
- * S4 收尾：**导入写侧真的接到 `:core` 的 [StoreArchive.import]**（§6.4）之后，`:app` 侧该成立的那几条。
- *
- * 断言对象一律是**端内原来的读法**（A4，[SettingsStore] 经 [PrefsKeyValueStore]）与**解析后的键值**
- * （§6.4 的「本端胜 / 写进来」逐键看得到），不比 `.xml` 字节。
- *
- * 覆盖：
- *  - **A4**：导入之后 `SettingsStore(prefs).darkMode` 这类原读法读到档案里那条；`set` 值按 §8.4 走
- *    `putStringSet`（读回来还是集合，不是逗号串）；
- *  - **A6**：档案没有的键（端内独有）一个字不变，档案有的写进来；
- *  - **A7**（表驱动）：空目录 / 缺 manifest / `version=99` / manifest 截断 / store 截断 / 行数组解不开
- *    ⇒ 明确失败，**端内键集合与值零变化且不落「已导入」标记**；
- *  - **标记**：成功才写，写在档案落地目录里（目录形态 `<dir>/.imported`），身份一致 ⇒ 再导一次只跳过；
- *  - **`files/` 层**：Room 三表的行数组真写回（§2.3 排序照 [ArchiveFileRows]，本端已有那一族则不动）、
- *    `agent_sessions<suffix>/` 与 `data_cache<suffix>/` 两族真文件写回（§8.8 原子写、不留 `.tmp`）；
- *  - **通道发现**：根目录/zip/子目录三种形态认得出来，zip 往返逐字相同。
- */
+/** 导入写侧接到 `:core` 的 [StoreArchive.import]（§6.4）后 `:app` 侧该成立的几条。 */
 class AppArchiveImportTest {
 
-    // ── A4 往返可读 ─────────────────────────────────────────────────────────
 
     @Test
     fun `A4 导入之后原来的读法读得到档案里那条`() {
@@ -65,7 +48,6 @@ class AppArchiveImportTest {
         assertEquals(setOf("A-101", "B-2"), local.of("library_favorites").getStringSet("favorite_seats", null))
     }
 
-    // ── A6 不丢键 + 不覆盖本机 ──────────────────────────────────────────────
 
     @Test
     fun `A6 端内独有的键不变 档案有的写进来 缺 at 时本端胜`() {
@@ -89,9 +71,6 @@ class AppArchiveImportTest {
 
     @Test
     fun `Android 侧已有的键一律本端胜（端内没有 writtenAt）`() {
-        // Android 的 prefs 没有 mtime，`AndroidPrefsBackend` 也不产出 `writtenAt`（也不会写
-        // `#written_at` 旁挂键 —— 那是桌面/web 的约定，见 `ArchiveImportTarget` 的 KDoc）
-        // ⇒ 档案里哪怕带了 `at`，端内已有的那个键依然本端胜（§6.4 的字面读法）。
         val local = Prefs()
         local.of("schedule_cache_2253415556").edit().putString("schedule_current_term", "2026-2027-1").commit()
         val entries = archiveOf(
@@ -108,7 +87,6 @@ class AppArchiveImportTest {
         assertEquals("2026-2027-1", local.of("schedule_cache_2253415556").getString("schedule_current_term", null))
     }
 
-    // ── A7 坏档案不动端（表驱动） ───────────────────────────────────────────
 
     @Test
     fun `A7 坏档案端内零改动且不落已导入标记`() {
@@ -242,9 +220,7 @@ class AppArchiveImportTest {
 
         assertEquals(ImportResult.Ok(keysWritten = 0, keysKept = 0, filesWritten = 1), (outcome as ArchiveImportOutcome.Imported).result)
         val written = room.written.getValue(RoomArchiveFamilies.CUSTOM_COURSES_REL)
-        // 写回的是档案那一份行数组逐字（行序对表没有意义），§2.3 的排序在「再导出一次」那一头成立：
         assertEquals(listOf(3L, 1L, 2L), RoomArchiveFamilies.customCoursesFrom(written).map { it.id })
-        // §2.3 的六键升序 + 逐字段往返（再导出一次与「先解再编」逐字相同）
         val reexported = RoomArchiveFamilies.customCoursesFile(RoomArchiveFamilies.customCoursesFrom(written)).content
         assertEquals(reexported, RoomArchiveFamilies.customCoursesFile(RoomArchiveFamilies.customCoursesFrom(reexported)).content)
         assertEquals(listOf("1", "2", "3"), idsOf(reexported))
@@ -305,13 +281,10 @@ class AppArchiveImportTest {
         val outer = newTempDir("xjtu-roots")
         val empty = newTempDir("xjtu-empty")
         try {
-            // ① 根就是档案（`adb push` 解开的形态）
             val self = File(outer, "self").apply { mkdirs() }
             File(self, "manifest.json").writeText(MINIMAL_MANIFEST)
-            // ② 根下的 zip（含 SAF 通道推进 archive_staging 的那一份）
             val zipRoot = File(outer, "zip").apply { mkdirs() }
             File(zipRoot, "b.zip").writeBytes(AppArchiveUx.zipArchive(mapOf("manifest.json" to MINIMAL_MANIFEST)))
-            // ③ 根下的一层子目录是档案
             val subRoot = File(outer, "sub").apply { mkdirs() }
             File(subRoot, "dropped").apply { mkdirs() }
             File(File(subRoot, "dropped"), "manifest.json").writeText(MINIMAL_MANIFEST)
@@ -333,7 +306,7 @@ class AppArchiveImportTest {
 
     // ── 夹具 ────────────────────────────────────────────────────────────────
 
-    /** 一份**真的**档案（走 `:core` 的 [StoreArchive.export]，注入固定时钟 ⇒ 逐字节可复现）。 */
+    /** 一份真的档案（走 [StoreArchive.export]，注入固定时钟 ⇒ 逐字节可复现）。 */
     private fun archiveOf(
         vararg stores: StoreSnapshot,
         files: List<ArchiveFile> = emptyList(),
@@ -346,7 +319,7 @@ class AppArchiveImportTest {
         options = ExportOptions(now = { FIXED_NOW }),
     )
 
-    /** 走本工单那条编排：自校验 → 行数组预检 → §6.4 合并 → 标记。 */
+    /** 自校验 → 行数组预检 → §6.4 合并 → 标记。 */
     private fun importInto(
         prefs: Prefs,
         entries: Map<String, String>,
@@ -383,11 +356,7 @@ class AppArchiveImportTest {
     }
 }
 
-/**
- * 端内的那几个 store（按名字各一份 `InMemorySharedPreferences`，**:app 单测里没有真 `Context`**）。
- *
- * 名字与值类型都逐字是端内的那几份（`app_settings` / `library_favorites` / `schedule_cache<suffix>`）。
- */
+/** 端内的那几个 store（按名字各一份 `InMemorySharedPreferences`，:app 单测里没有真 `Context`）。 */
 private class Prefs {
 
     private val stores = mutableMapOf<String, InMemorySharedPreferences>()
@@ -398,15 +367,12 @@ private class Prefs {
     val backend: ArchiveStoreBackend
         get() = AndroidPrefsBackend(prefsOf = ::of, namesOf = { stores.keys.sorted() })
 
-    /** 端内现状的快照（A7 的「键集合与值零变化」比的就是它）。 */
+    /** 端内现状的快照。 */
     fun snapshot(): Map<String, Map<String, Any?>> =
         stores.mapValues { (_, prefs) -> prefs.all.mapValues { (_, value) -> value } }
 }
 
-/**
- * Room 三表那一半的**记账实现**（真 DAO 要真 SQLite，`:app:testDebugUnitTest` 里没有）：
- * 写入被记下来，供断言「行数组真的写回了哪一族、内容是不是 §2.3 那一份」。
- */
+/** Room 三表那一半的记账实现（真 DAO 要真 SQLite，`:app:testDebugUnitTest` 里没有） */
 private class RecordingRoomRows(private val local: MutableMap<String, String> = mutableMapOf()) : RoomRowWriter {
 
     val written = mutableMapOf<String, String>()
@@ -418,13 +384,7 @@ private class RecordingRoomRows(private val local: MutableMap<String, String> = 
     }
 }
 
-/**
- * `:app` 单测里没有真 `Context`（`keyValueStore(name)` 的 android actual 要 `initAndroidPlatform`
- * 先把 `Context` 交进来），所以把**同一串调用**（`getString` / `putBoolean` / `getStringSet` …）
- * 架在 `InMemorySharedPreferences` 上：读法就是端内那一份 `AndroidKeyValueStore`，落点是同一个 prefs 文件。
- *
- * 这样 A4 的断言对象才是**原来的读法**（`SettingsStore(prefs).darkMode`），而不是另写一个读法。
- */
+/** `:app` 单测没有真 `Context`，把 `AndroidKeyValueStore` 的同一串调用架在 `InMemorySharedPreferences` 上。 */
 private class PrefsKeyValueStore(private val prefs: SharedPreferences) : KeyValueStore {
 
     override fun getString(key: String): String? = prefs.getString(key, null)

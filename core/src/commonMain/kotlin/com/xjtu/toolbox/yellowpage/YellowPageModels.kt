@@ -3,12 +3,7 @@ package com.xjtu.toolbox.yellowpage
 import com.xjtu.toolbox.util.toDialableTel
 import kotlinx.serialization.Serializable
 
-/**
- * 黄页（部门/机构通讯录）的数据模型。字段名即服务端 JSON 的键，直接解码接口原始数组。
- *
- * 从 :app 的 `yellowpage/YellowPageApi.kt` 原样搬进 commonMain（同一文件里的 HTTP 部分
- * 换成了 Ktor，见 [YellowPageApi]）。
- */
+/** 黄页（部门/机构通讯录）的数据模型。 */
 @Serializable
 data class YellowPageCategory(val id: Int = 0, val name: String = "", val status: Int = 0, val sort: Int = 0)
 

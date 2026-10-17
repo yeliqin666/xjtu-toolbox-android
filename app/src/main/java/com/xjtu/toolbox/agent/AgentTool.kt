@@ -80,9 +80,8 @@ class AgentToolRegistry(
     /** 端上的能力槽位（见 `:core` 的 [AgentHost]）：闹钟、应用设置那几档由它接。 */
     private val host: AgentHost,
 ) : AgentTools {
-    // 跨模块：[AgentTools] 是 `:core` 的调度循环（[AgentRunner]）要的三件事（工具清单 / 限流分组键 /
-    // 执行一次调用），下面那三个成员同名同形状，各只多一个 `override` —— 循环搬进 `:core` 之后
-    // 那一侧不再认识本类。`memoryBlock()` 不在这三个里：它是系统提示那一侧要的，调用方是 ViewModel。
+    // [AgentTools] 是 `:core` 调度循环（[AgentRunner]）要的三件事：工具清单 / 限流分组键 / 执行一次调用。
+    // `memoryBlock()` 不在其中：它是系统提示那一侧要的，调用方是 ViewModel。
 
     /**
      * 限流分组键：同一个后端系统的两次调用之间要隔开一点，别连着猛打学校服务器。
@@ -356,10 +355,7 @@ class AgentToolRegistry(
     // （纯数据 + 纯构造），这里只把端上声明的能力递过去 —— 没列进 `honored` 的档一个字都不画。
     override val toolDefinitions: String = agentToolDefinitions(host.honored)
 
-    /**
-     * 这一档这一端会不会照着办（见 [AgentCapability]）：不在清单里的工具名（纯逻辑与取数）
-     * 一律放行，[AgentCapability] 里有名字的只有宿主声明了才放过去。
-     */
+    /** 这一档这一端会不会照着办（见 [AgentCapability]）：不在清单里的工具名（纯逻辑与取数）一律放行，[AgentCapability] 里有名字的只有宿主声明了才放过去。 */
     private fun honors(name: String): Boolean =
         AgentCapability.ofTool(name)?.let { it in host.honored } ?: true
 
@@ -513,9 +509,6 @@ class AgentToolRegistry(
         } catch (e: Exception) {
             return ToolReply.failed("find_faculty", e.message)
         }
-        // 学院只能在客户端筛：检索接口的学院参数要的是数字 id，而模型手上只有名字。
-        // 筛空了就退回不筛，宁可多给几条也别因为学院名写法不同（"电信学部"/"电信学院"）
-        // 把正确结果全滤掉。
         val members = college?.takeIf { it.isNotBlank() }
             ?.let { c -> all.filter { it.collegeName.contains(c) }.ifEmpty { all } }
             ?: all
@@ -622,16 +615,12 @@ class AgentToolRegistry(
      */
     private fun cachedTermCode(): String? = ScheduleCache.readCurrentTerm(dataCache)
 
-    // 开学日期在 :core 那边改说 kotlinx-datetime（`ScheduleCache` 进了 `:core`），
-    // 这里仍在 java.time 口径上算天数差与周次，过一道 `TimeBridge`。
     private fun cachedStartDate(term: String): LocalDate? = ScheduleCache.readStartDate(dataCache, term)?.toJavaTime()
 
     private suspend fun getSchoolCalendar(term: String?): String {
         return try {
-            // 模型与解析已搬进 :core（见 calendar/UpstreamSchoolCalendar.kt），这里只取数。
             val terms = com.xjtu.toolbox.calendar.SchoolCalendarApi().terms()
             if (terms.isEmpty()) return ToolReply.empty("school_calendar")
-            // 「今天」用 :core 的 kotlinx-datetime 口径：下面比的是 :core 的 SchoolTerm 日期。
             val today = com.xjtu.toolbox.util.todayInSystemZone()
             val selected = if (term.isNullOrBlank()) {
                 terms.firstOrNull { today in it.startDate..it.endDate }
@@ -779,8 +768,7 @@ class AgentToolRegistry(
                     if (course.department.isNotBlank()) append(" · ${course.department}")
                     if (course.campus.isNotBlank()) append(" · ${course.campus}")
                     if (course.scheduleLocation.isNotBlank()) append("\n  ${course.scheduleLocation}")
-                    // 人数类字段现在是可空的（:core 的 SchoolCourse；campus-api 不投影它们）——
-                    // 这里本来就只在有值时输出，行为不变。
+                    // 人数类字段可空（campus-api 不投影它们），只在有值时输出。
                     val capacity = course.capacity
                     val enrolled = course.enrollCount
                     val remaining = course.remaining
@@ -866,9 +854,6 @@ class AgentToolRegistry(
             cachedStartDate(termCode)
         }.getOrNull() ?: return ToolReply.failed("get_schedule", "no_term_start_date")
 
-        // 法定假日：课表照排，但那天停课。数据源只有放假日，没有调休补课日，所以只标停课
-        // 节假日表也跟着改说 kotlinx 日期了（HolidayApi 在 :data，屏与 VM 在 :core），
-        // 这一处仍按 java.time 取键 —— 逐字段转一次，只有几十个日期。
         val holidays = runCatching { com.xjtu.toolbox.schedule.HolidayApi.getHolidayDates(com.xjtu.toolbox.data.DataCache(context)) }
             .getOrDefault(emptyMap())
             .mapKeys { it.key.toJavaTime() }
@@ -961,9 +946,6 @@ class AgentToolRegistry(
             val buildings = CAMPUS_BUILDINGS[targetCampus]
                 ?: return ToolReply.notFound("campus", targetCampus, CAMPUS_BUILDINGS.keys)
 
-            // 问的是"现在"：今天、没给节次或给的就是当前节 → 先用实时状态。
-            // 实时状态比课表多一层信息（没排课但有人、有几个人），正是"现在去哪自习"要的。
-            // 用户在页面里明确切到了课表数据源，就尊重他的选择。
             val sourcePref = context.getSharedPreferences("empty_room", Context.MODE_PRIVATE)
                 .getString("empty_room_source", null)
             val nowSection = currentPeriodIndex() + 1
@@ -1160,9 +1142,7 @@ class AgentToolRegistry(
                 if (days != null) {
                     val d = days.coerceIn(1, 180)   // 放宽：用户可能要看整月/整学期账单
                     runCatching {
-                        // 分页编排（allTransactions）搬进了 :core，是 CampusCardSource 上的扩展函数；
-                        // 这里走 AppCampusCardSource —— 与校园卡页同一条取数路径（同一个 ncard 接口、
-                        // 同样的 80 页上限与 allowIncomplete=false），结果与搬迁前一致。
+                        // 与校园卡页同一条取数路径（同一个 ncard 接口、80 页上限、allowIncomplete=false）。
                         AppCampusCardSource(site, appCampusCardStore(context)).allTransactions(
                             // :core 那条分页编排收 kotlinx-datetime 的日期，这里从 java.time 转过去
                             //（本文件其余地方仍是 java.time，边界转换用 `:app` 的 toKx()，见 util/TimeBridge.kt）

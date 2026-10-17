@@ -18,32 +18,7 @@ import io.ktor.server.routing.get
 import io.ktor.server.routing.post
 import io.ktor.server.routing.route
 
-/**
- * `/api/agent/…` —— 屁岱（Agent）在浏览器上那一族**十四个端点**（`docs/api-contract.md` §5.11）。
- *
- * 形状、事件、红线、与 `:app` / `:desktop` 的差异都以 `docs/agent-web-spec.md`（D10 设计稿）为准；
- * 本文件只负责「HTTP 形状 ↔ `:core`/`:data` 的模型」这一层，**循环与落盘都在 [ServeAgent] 里**。
- *
- * ## 三条口径
- *
- * 1. **全部挂在令牌闸门里面**（`ServeModule` 把这一族接在 `route(API_PREFIX)` 之内），
- *    所以「没带令牌 ⇒ 401」是自动的、不需要每个端点各写一遍；
- * 2. **信封照 §4**：`code == HTTP 状态码`、`data` 是这一族自己的形状、`message` 永远是能给人看的中文短句。
- *    唯一的例外是 `POST /api/agent/chat` —— 它成功时是 `text/event-stream`（不是信封），
- *    而**开门阶段**的失败（400/401/404/409）仍然是信封。这一条写进了契约，**不是** §4 的第三条例外：
- *    §4 管的是「响应长什么样」，这里开门阶段就是信封、开流之后才不是；
- * 3. **任何响应（含 SSE 的每一帧）都不含 API Key** —— 不是掩码，是**字段不存在**。
- *    `keyConfigured` 是这一族唯一的「key 相关」投影（红线，见契约 §5.11）。
- *
- * ## 与 `:app` 的两处**有意**差别（如实，不偷偷对齐）
- *
- * - **并发发消息**：Android 是 `if (isLoading) return`（静默忽略）；这里答 `409` + 一句中文，
- *   页面上能显示「上一轮还在生成」；
- * - **没有配 API Key**：Android 的入口本来就在配置面板后面；serve 上「配没配」与「谁来配」是两件事，
- *   所以这里给 `409` + 指路文案（**不静默失败**，工单的拍板项之二）。
- *
- * @param agent serve 侧的驱动与三份落盘（[ServeAgent.forServe] 是生产装配）。
- */
+/** `/api/agent/…` —— 屁岱（Agent）在浏览器上那一族十四个端点（`docs/api-contract.md` §5.11）。 */
 internal fun Route.agentRoutes(agent: ServeAgent) {
     route(AGENT_SEGMENT) {
 
@@ -68,7 +43,6 @@ internal fun Route.agentRoutes(agent: ServeAgent) {
                         toolAllowlist = agent.toolAllowlist(config.searchEngine),
                         // 端能力：浏览器与 serve 都**没有**闹钟 / 应用设置 / 自建日程 / 相册 / 存下载
                         honored = AGENT_HONORED,
-                        // 本端收 apiKey（写进 serve 那台机器的密文存储）⇒ 能力开关如实报 true
                         canEditKey = true,
                     ),
                 ),
@@ -119,7 +93,6 @@ internal fun Route.agentRoutes(agent: ServeAgent) {
                     thinkingEnabled = body.thinkingEnabled ?: current.thinkingEnabled,
                     reasoningEffort = normalizeReasoningEffort(effort),
                     showReasoning = body.showReasoning ?: current.showReasoning,
-                    // 缺省 = **保留**原来那一把；给了（哪怕是空串）= 按给的写（空串就是清掉）
                     apiKey = body.apiKey ?: current.apiKey,
                 ),
             )
@@ -231,7 +204,7 @@ internal fun Route.agentRoutes(agent: ServeAgent) {
             call.respond(ApiEnvelope.ok(AgentOkData(message = "偏好已清空")))
         }
 
-        // ── 12. 一轮对话（**SSE**；开门阶段的失败仍是信封）─────────────────────
+        // ── 12. 一轮对话（SSE；开门阶段的失败仍是信封）──
         post(AGENT_CHAT) {
             val body = call.receiveOrNull<AgentChatBody>()
                 ?: return@post call.respondBadRequestMessage(AGENT_CHAT_BODY_MESSAGE)
@@ -256,7 +229,7 @@ internal fun Route.agentRoutes(agent: ServeAgent) {
             }
             try {
                 call.response.header(HttpHeaders.CacheControl, "no-store")
-                // 反代别把这条流缓冲起来（不然「逐字上屏」看起来就是「憋 30 秒一次给」）
+                // 反代别缓冲这条流
                 call.response.header("x-accel-buffering", "no")
                 call.respondBytesWriter(AGENT_SSE_CONTENT_TYPE, HttpStatusCode.OK) {
                     agent.runTurn(sessionId, text) { frame ->
@@ -275,7 +248,6 @@ internal fun Route.agentRoutes(agent: ServeAgent) {
             val asked = body?.sessionId?.trim().orEmpty()
             val stopped = agent.stop()
             val running = agent.runningSession()
-            // 指了别的会话却没在跑它：**如实说没停到**（`ok:false`），不假装成功
             val target = if (asked.isEmpty() || asked == running) stopped else false
             call.respond(
                 ApiEnvelope.ok(
@@ -312,19 +284,7 @@ private suspend fun ApplicationCall.respondAgentBusy() = respond(
     ApiEnvelope<Unit>(ApiErrors.ACTION_REJECTED, message = "上一轮还在生成，先点停止或等它结束"),
 )
 
-/**
- * `GET /api/agent/config` 的 `data`。
- *
- * @param model **存下来的那一格**（可能是空串 = 用服务商的默认型号）。
- * @param effectiveModel 真会发给服务商的那个型号（`AgentConfig.effectiveModel`）—— 页面上要显示的就是它。
- * @param keyConfigured 这一份部署配没配 API Key。**唯一的「key 相关」投影**（bool）。
- * @param toolAllowlist 这一份部署真给模型的工具名（从工具定义里读，见 [ServeAgent.toolAllowlist]）。
- *   S-c（白名单工具层）落地前它是**空数组** —— 如实，不是漏。
- * @param honored **端能力**那几档（[com.xjtu.toolbox.agent.AgentCapability]）：浏览器与 serve 两边都没有
- *   系统闹钟 / 应用设置 / 自建日程写 / 相册 / 存下载 ⇒ 恒为空集（与桌面端同值）。
- * @param canEditKey 本端收不收 `apiKey`（`POST /api/agent/config`）。常量 `true`：Key 写在
- *   **serve 那台机器**上，浏览器不保存它。
- */
+/** `GET /api/agent/config` 的 `data`。 */
 @kotlinx.serialization.Serializable
 internal data class AgentConfigData(
     val provider: String,
@@ -346,7 +306,7 @@ internal data class AgentConfigData(
 @kotlinx.serialization.Serializable
 internal data class AgentOkData(val ok: Boolean = true, val message: String)
 
-/** `POST /api/agent/models` 的 `data`：已去重升序的型号列表（`AgentModelFetcher` 的口径）。 */
+/** `POST /api/agent/models` 的 `data`：已去重升序的型号列表。 */
 @kotlinx.serialization.Serializable
 internal data class AgentModelsData(val models: List<String>)
 
@@ -358,13 +318,7 @@ internal data class AgentSessionsData(val sessions: List<AgentSessionDto>)
 @kotlinx.serialization.Serializable
 internal data class AgentSessionData(val session: AgentSessionDto)
 
-/**
- * 一行会话。
- *
- * ⚠️ `createdAt` / `updatedAt` 是 **epoch 毫秒**（**有意**偏离契约 §4 的 ISO 口径，
- * 见 §5.11 的声明）：它们是 `:core` 模型 [AgentSession] 的 `Long` 字段，浏览器那一端要把它们
- * 原样放回同一个模型（抽屉自己会格式化）。转成字符串等于逼两端各写一遍转换。
- */
+/** 一行会话。 */
 @kotlinx.serialization.Serializable
 internal data class AgentSessionDto(
     val id: String,
@@ -386,14 +340,7 @@ internal data class AgentConversationBody(
     val contextExhausted: Boolean,
 )
 
-/**
- * 落盘消息的对外形状：与 [StoredMessage] 逐字段相同，**只差一格 `images`**。
- *
- * 为什么把 `images` 去掉：那是**这条对话所在的机器**上的文件路径。serve 这一端不接附件
- * （没有相册，`IMAGE_INPUT` 不画），所以它本该恒为 null；但「本该」不是一条判据 ——
- * 一个绝对路径里可能带用户名，而浏览器拿它毫无用处（它读不到那台机器的盘）。
- * [StoredMessage.timestamp] 同理保留 epoch 毫秒（见 [AgentSessionDto] 的说明）。
- */
+/** 落盘消息的对外形状：同 [StoredMessage]，多一格 `images`。 */
 @kotlinx.serialization.Serializable
 internal data class StoredMessageDto(
     val role: String,
@@ -471,20 +418,10 @@ private fun StoredMessage.dto() = StoredMessageDto(
     toolError = toolError,
 )
 
-/**
- * 端能力那几档：[com.xjtu.toolbox.agent.AgentCapability] 里 serve / 浏览器**真会照着办**的那些。
- *
- * 空集是**如实**的（与 `DesktopAgentHost.honored` 同值）：系统闹钟、应用设置、自建日程写入、
- * 相册、存进下载，这一端一件都没有 —— 工具表据此少画那几行。
- */
+/** 端能力那几档：[com.xjtu.toolbox.agent.AgentCapability] 里 serve / 浏览器真会照着办的那些。 */
 private val AGENT_HONORED: List<String> = emptyList()
 
-/**
- * `reasoningEffort` 认得的写法：本地那四档 + DeepSeek 的别名（`minimal` / `medium` / `xhigh`）。
- *
- * 别名收进来的理由与 `normalizeReasoningEffort` 的 KDoc 同源（用户可能在别处见过这些写法）。
- * 认不出的**不静默落回自动**：那种「我传了但没生效」是最难查的一类问题，所以这里给 400 + 说清。
- */
+/** `reasoningEffort` 认得的写法：本地那四档 + DeepSeek 的别名（`minimal` / `medium` / `xhigh`）。 */
 private val AGENT_REASONING_EFFORTS: Set<String> =
     (AgentConfig.REASONING_EFFORTS + listOf("minimal", "medium", "xhigh")).toSet()
 
@@ -501,12 +438,7 @@ private const val AGENT_FORGET_BODY_MESSAGE = "请求体需要 JSON：{\"key\":\
 
 private const val AGENT_CHAT_BODY_MESSAGE = "请求体需要 JSON：{\"sessionId\":\"…\",\"text\":\"…\"}"
 
-/**
- * `/api/agent` 那一族的路由段与各端点路径。
- *
- * 与其余各族同一条规矩：段名（相对 [API_PREFIX]）与对外的完整路径都由常量拼出来，
- * 所以两者永远对得上 —— 测试里请求用的就是 `*_PATH` 这一组。
- */
+/** `/api/agent` 那一族的路由段与各端点路径。 */
 internal const val AGENT_SEGMENT = "agent"
 internal const val AGENT_PATH = "$API_PREFIX/$AGENT_SEGMENT"
 internal const val AGENT_CONFIG = "config"

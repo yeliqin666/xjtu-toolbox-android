@@ -36,35 +36,7 @@ import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextButton
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
-/**
- * 屁岱（`AppRoute.Agent`）在浏览器上的那一屏（D10 的 S-d；设计真源 `docs/agent-web-spec.md` §4）。
- *
- * ## 「同一屏、两种驱动」在这里的落法
- *
- * 屏还是 `:core` 那一屏（[AgentScreen]），这一端只交三样：
- *
- * 1. **驱动** —— `session = WebAgentSession(…)`（循环在 serve，这个类只做「事件 → 状态」）；
- * 2. **宿主面** —— [WebAgentHost]：配置走 `/api/agent/config`（Key 那一格**只读**，见下）、
- *    其余槽位全是「这一端没有」（`honored` 空集、没有相册、没有落盘、没有工具表、没有传输 ——
- *    与桌面同值，逐条见 [WebAgentHost] 的 KDoc）；
- * 3. **顶栏** —— 共享壳在这端的 `topBar` 是 null（「这一端每一屏自己画头部」，见 `AppShell` 的签名注释），
- *    而 [AgentScreen] 自己**不画**顶栏（它把标题与两个按钮交给宿主）⇒ 这里画一条最简的表头：
- *    会话抽屉按钮 + 标题 + 设置按钮。按钮本体还是屏给的那两个 composable（一个字没重写）。
- *
- * ## 面板两槽位按端上传（§4.3）
- *
- * - `apiKeySection`：这一端**只读徽标** —— 「Key 存在运行 serve 的那台机器上」。不画输入框的理由是
- *   最强口径那一条：D11 之前 serve 默认明文 HTTP，在这里输入等于把 Key 明文传一次；而且「输入也是持有」；
- * - `memorySection`：**模型用的那一份记忆在 serve**（`/api/agent/memory*`）。不收口的话面板显示的记忆
- *   与模型读到的不是一份（§4.3 第 3 条，那一处是必改项）—— 所以那一块整个由本端画。
- *
- * ## 保存之后 `keyConfigured` 不许丢
- *
- * 面板的「即改即存」走的是 `AgentHost.saveConfig`，而它拼出来的那份 [AgentConfig] **不带**
- * `keyConfigured`（那一格是宿主提供的非密文信道）⇒ 保存一次之后页面就会当「没配 Key」显示。
- * 收口方式：写完之后**重新读一次** `/api/agent/config`（[WebAgentHost.reload]），并把这一格
- * 顺着 `AgentScreen` 的保存路径透传回去（见那个屏里 `onSave` 那一行）。
- */
+/** 屁岱（`AppRoute.Agent`）在浏览器上的那一屏（设计真源 `docs/agent-web-spec.md` §4）。 */
 @Composable
 internal fun WebAgentScreen(
     client: HttpClient,
@@ -77,8 +49,7 @@ internal fun WebAgentScreen(
     var reloadNonce by remember { mutableStateOf(0) }
     LaunchedEffect(session, reloadNonce) { host.reload() }
 
-    // 还没读到 serve 上的配置之前**不画屏**：那一份默认值（deepseek / 空 key）一碰面板就会被写回 serve，
-    // 等于把人家机器上的配置覆盖成默认值。读失败就如实说读不到 + 给一次重试。
+    // 读到 serve 上的配置之前不画屏：否则默认值会被写回 serve 覆盖掉真实配置。
     if (host.config == null) {
         WebUnavailableScreen(
             title = "屁岱（Web 这一端）",
@@ -137,22 +108,7 @@ internal fun WebAgentScreen(
     }
 }
 
-/**
- * 浏览器这一端的**宿主面**（设计稿 §4.1 的逐槽位表；与 `DesktopAgentHost` 同形）。
- *
- * | 槽位 | 这一端 |
- * |---|---|
- * | `honored` | **空集**（系统闹钟 / 应用设置 / 自建日程写 / 相册 / 存下载，这一端一件都没有 —— 同桌面） |
- * | `loadConfig` / `saveConfig` | HTTP（`GET` / `POST /api/agent/config`）；**Key 那一格只读且不回写** |
- * | `fetchModels` | HTTP（`POST /api/agent/models`，那一枪在 serve 上打） |
- * | `sessions` | `AgentSessionPersistence.None` —— 会话落在 serve，本端不落盘（屏会把这一格交给驱动，
- *   而 [WebAgentSession.bind] 用不上它） |
- * | `tools` / `transport` | `AgentTools.None` / `AgentTransport.None` —— 工具层与模型那一枪都在 serve |
- * | `accountId` / `greetingName` / `welcomeFacts` / `images` / 附件四件 | 默认值（空 / 不接）：学号与姓名是红线，
- *   首屏卡片与相册这一端没有（读不到就不出，与桌面同形） |
- *
- * 唯一**不是**默认值的三格就是 config 那一组，理由在下面每个成员上。
- */
+/** 浏览器这一端的宿主面（设计稿 §4.1 的逐槽位表；与 `DesktopAgentHost` 同形）。 */
 internal class WebAgentHost(
     private val session: WebAgentSession,
     private val scope: CoroutineScope,
@@ -166,11 +122,11 @@ internal class WebAgentHost(
     var toolAllowlist by mutableStateOf<List<String>>(emptyList())
         private set
 
-    /** 本端收不收 `apiKey`：serve 如实报 `canEditKey`；这一端**不画**输入框、也不发那一格。 */
+    /** 本端收不收 `apiKey`：serve 报 `canEditKey`；这一端不画输入框、也不发那一格。 */
     var canEditKey by mutableStateOf(true)
         private set
 
-    /** 读 / 写配置失败时那句中文短句（面板上那一格显示它 —— 不吞掉，与「如实」同一条纪律）。 */
+    /** 读 / 写配置失败时那句中文短句。 */
     var configError by mutableStateOf<String?>(null)
         private set
 
@@ -188,14 +144,7 @@ internal class WebAgentHost(
 
     override fun loadConfig(): AgentConfig = config ?: AgentConfig()
 
-    /**
-     * 存配置（面板的「即改即存」）。两条如实：
-     *
-     * 1. **不带 `apiKey`**：本端永远拿不到它（红线），而服务端的语义是「给了这一格就按给的写」
-     *    ⇒ 带一个空串就等于把 serve 上的 Key 清掉；
-     * 2. 写完**重读一次**（[reload]）：`reasoningEffort` 这类会被服务端归一的取值，页面上要跟着变，
-     *    而 `keyConfigured` 也靠这一读回来（见 [WebAgentScreen] 的 KDoc）。
-     */
+    /** 存配置（面板的「即改即存」）。 */
     override fun saveConfig(config: AgentConfig) {
         scope.launch {
             session.saveConfig(config)
@@ -207,17 +156,11 @@ internal class WebAgentHost(
     /** 拉模型列表（`POST /api/agent/models`）：失败抛，面板那一格显示 `e.message`（与 Android 同一条路）。 */
     override suspend fun fetchModels(config: AgentConfig): List<String> = session.models(config)
 
-    /** 会话落在 serve：这一格如实报「本端不落盘」（屏把这一格交给驱动，而驱动用不上它）。 */
+    /** 会话落在 serve：本端不落盘。 */
     override fun sessions(): AgentSessionPersistence = AgentSessionPersistence.None
 }
 
-/**
- * API Key 那一行（`ConfigPanel` 的 `apiKeySection`）：**只读徽标 + 一句指路**。
- *
- * 为什么不画输入框（设计稿 §9 未决 #1 的口径，v1 就这么定）：D11 之前 serve 默认明文 HTTP，
- * 在浏览器里输入等于把 Key 明文传一次；而且「输入也是持有」，会破坏「一个字都不拿到」的最强口径。
- * 这一格因此只回答「配好了没」—— 真源是 serve 投影过来的 `keyConfigured`（不是掩码、不是前后缀）。
- */
+/** API Key 那一行（`ConfigPanel` 的 `apiKeySection`）：只读徽标 + 一句指路。 */
 @Composable
 private fun WebAgentKeySection(host: WebAgentHost) {
     val cs = MiuixTheme.colorScheme
@@ -246,14 +189,7 @@ private fun WebAgentKeySection(host: WebAgentHost) {
     }
 }
 
-/**
- * 「记住的偏好」那一块（`ConfigPanel` 的 `memorySection`）：读的是 **serve 上那一份**
- * （`GET /api/agent/memory`），删 / 清空也走 serve（`/api/agent/memory/forget`、`/clear`）。
- *
- * 为什么必须换成这一块（§4.3 第 3 条，**必改项**）：模型读的记忆在 serve，若这里画本端
- * `AgentMemory`（浏览器上就是 localStorage 那一份），面板显示的东西与模型实际记住的东西**不是一份** ——
- * 那既骗用户也骗自己。没有条目时整块不出（与内置那一块同形：不画一个空的「记住的偏好」）。
- */
+/** 「记住的偏好」那一块（`ConfigPanel` 的 `memorySection`） */
 @Composable
 private fun WebAgentMemorySection(session: WebAgentSession) {
     val cs = MiuixTheme.colorScheme
@@ -318,16 +254,7 @@ private fun WebAgentMemorySection(session: WebAgentSession) {
 
 // 记忆条数上限用 `:core` 的 `AgentMemory.MAX_ITEMS`（serve 侧落盘的那一份说了算）—— 本文件不另写一个数
 
-/**
- * 「这一份部署的屁岱能做什么」——**页面说明与白名单同源**。
- *
- * [allowlist] 就是 `GET /api/agent/config` 的 `toolAllowlist`，也**就是** serve 真下发给模型的那批工具名
- *（同一份定义两个消费者，见 `ServeAgent.toolAllowlist` 的 KDoc）⇒ 这一段不可能与「模型真能调什么」漂开。
- * 本文件刻意**不另写一份**「能干什么」的清单：那种第二份真相正是漏的来源（设计稿 §6 末段）。
- *
- * 顺带把三件**如实**写在用户面前（不写就成了「看起来跟 App 一样」）：
- * 不开的那几档为什么不开、App 里加的自建日程这一端看不见、「改上一条重发」在这一端只是再发一次。
- */
+/** 「这一份部署的屁岱能做什么」——页面说明与白名单同源。 */
 internal fun agentToolNote(allowlist: List<String>): String = buildString {
     append("这一份部署的屁岱：模型调用、工具取数、会话与记忆、API Key 都在**运行 serve 的那台机器**上，")
     append("浏览器这一端只发消息、只画屏（所以另一台设备改了会话，这一页刷新后看到的是同一份）。")
@@ -349,12 +276,7 @@ internal fun agentToolNote(allowlist: List<String>): String = buildString {
     append("「屏幕上换掉 + 再发一次」—— serve 契约里没有「替换上一轮」的入口。")
 }
 
-/**
- * 一行工具：名字 + `:core` 那份文案表里的话（`agentToolLabel`）。
- *
- * 认不出的名字**照原样报认不出**，不编一句功能描述 —— 契约将来加了工具而这一端还没跟上时，
- * 页面说的是「我没有它的说明」，而不是一句假话。
- */
+/** 一行工具：名字 + `:core` 那份文案表里的话（`agentToolLabel`）。 */
 internal fun agentToolLine(name: String): String {
     val label = agentToolLabel(name)
     return if (label == "调用工具 $name…") "`$name`（这一端没有它的说明）" else "`$name`（${label.trimEnd('…')}）"
@@ -363,11 +285,7 @@ internal fun agentToolLine(name: String): String {
 /** 「为什么不开」的一组工具（设计稿 §6.2 的逐条理由，这里只留一句话级）。 */
 internal class AgentClosedToolGroup(val title: String, val why: String, val names: List<String>)
 
-/**
- * 白名单**之外**的那几档，按「为什么不开」分组（`docs/agent-web-spec.md` §6.2）。
- *
- * 名字必须是 `:core` 那份目录里真有的工具名 —— 否则这一段就成了编的名字（`WebAgentNoteTest` 钉这一条）。
- */
+/** 白名单之外的那几档，按「为什么不开」分组（`docs/agent-web-spec.md` §6.2）。 */
 internal val AGENT_CLOSED_TOOL_GROUPS: List<AgentClosedToolGroup> = listOf(
     AgentClosedToolGroup(
         title = "写路径",

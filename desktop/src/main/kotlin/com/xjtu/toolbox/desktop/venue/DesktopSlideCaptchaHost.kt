@@ -31,14 +31,7 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 private const val TAG = "DesktopSlideCaptchaHost"
 
-/**
- * 场馆滑块验证码的**桌面宿主**（`:desktop`，Stage B 新写的实现）：
- *
- *  - [CaptchaView]：自己的滑块 UI —— 图片用 `:core` 的 [decodeImageFull]（桌面侧是 skiko）
- *    解码、拖动手势产出一条与 Android 同协议（260 坐标系 + down/move/up + ISO 时刻）的
- *    [SliderResult]；**不搬 Android 的 Bitmap 渲染**；
- *  - [solve]：识别/盖章/等待编排在 `:data`（共享），这里整段委托 [VenueSlideCaptchaHost]。
- */
+/** 场馆滑块验证码的桌面宿主。 */
 object DesktopSlideCaptchaHost : SlideCaptchaHost {
 
     @Composable
@@ -59,11 +52,7 @@ object DesktopSlideCaptchaHost : SlideCaptchaHost {
         VenueSlideCaptchaHost.solve(data, shownAtMillis)
 }
 
-/**
- * 桌面端的滑块面板：与 `:data` 的 `SliderCaptchaView` 同协议（260 显示坐标系、track
- * 的 down/move/up、ISO_INSTANT 两个时刻），但是**新写的宿主实现** —— 除了 Compose 的
- * `ImageBitmap` 之外不走任何 Android 渲染路径。
- */
+/** 桌面端的滑块面板：与 `:data` 的 `SliderCaptchaView` 同协议（260 显示坐标系、down/move/up 轨迹、ISO_INSTANT 时刻）。 */
 @Composable
 private fun SliderCaptchaPanel(
     backgroundImageBase64: String,
@@ -86,7 +75,7 @@ private fun SliderCaptchaPanel(
 
     val density = LocalDensity.current
 
-    // 尺寸兜底与 `:data` 那份同一条口径：服务端字段只在位图不可用时顶上（除数不能是 0）。
+    // 服务端尺寸字段只在位图不可用时顶上（除数不能是 0）。
     val bgW = bgOriginalWidth.takeIf { it > 0 } ?: bgBitmap.width
     val bgH = bgOriginalHeight.takeIf { it > 0 } ?: bgBitmap.height
     val slW = sliderOriginalWidth.takeIf { it > 0 } ?: sliderBitmap.width
@@ -219,13 +208,7 @@ private fun SliderCaptchaPanel(
     }
 }
 
-/**
- * 把一次手动拖动的原始状态合成服务端 [SliderResult] —— 与 `:data` 的 `SliderCaptchaView` 的
- * `onDragEnd` 同一个协议：260 坐标系、up 点带位移、两个时刻是 ISO_INSTANT 的真实时刻。
- * 单独抽出来是为了让 :desktop 的测试能**不点开窗口**就钉住这条编码路径。
- *
- * @param trackPoints 已按 260 坐标系记录好的 down/move 点（不含 up 点）。
- */
+/** 把一次手动拖动的原始状态合成服务端 [SliderResult]。 */
 internal fun encodeDesktopSlideResult(
     serverSliderHeight: Int,
     offsetXPx: Float,

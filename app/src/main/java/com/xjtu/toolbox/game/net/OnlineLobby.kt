@@ -48,10 +48,7 @@ import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextButton
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
-/**
- * 给 NavHost 用的便利函数：把当前 Context 装进 [AppOnlineLobby] 并记住它。
- * 棋盘屏（在 :core）只认 [OnlineLobby]，拿不到 Context。
- */
+/** 给 NavHost 用的便利函数：把当前 Context 装进 [AppOnlineLobby] 并记住它。 */
 @Composable
 fun rememberAppOnlineLobby(): OnlineLobby {
     val context = LocalContext.current

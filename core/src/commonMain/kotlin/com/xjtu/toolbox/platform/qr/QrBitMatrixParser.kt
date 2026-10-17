@@ -1,28 +1,6 @@
 package com.xjtu.toolbox.platform.qr
 
-/**
- * 从**采样出来的位矩阵**里读出格式信息、版本信息与码字 —— zxing 3.5.4
- * `com.google.zxing.qrcode.decoder.BitMatrixParser` 的**逐字对照**。
- *
- * ## 它做三件事（顺序就是依赖顺序）
- *
- * 1. `readFormatInformation`：左上那一圈 + 右上/左下那一圈，各读 15 位，交给 [QrFormatInformation] 挑；
- * 2. `readVersion`：维度 `<= 6` 版时直接由「一边多少个模块」算出版本；否则读那 18 位版本信息（先右上、
- *    再左下）；
- * 3. `readCodewords`：先按格式信息里的掩码号 `unmaskBitMatrix`，再用 `Version.buildFunctionPattern`
- *    把功能图案盖住、从右下角起**两列一叠蛇形**扫出全部码字。
- *
- * ## 镜像那一支
- *
- * `Decoder.decode` 在常规读失败之后会试一次**镜像**读（`setMirror(true)` → `readVersion` →
- * `readFormatInformation` → `mirror()`）。那三件在这里都在（`mirror` 标志、`mirror()` 的就地转置、
- * `remask()`），逐条与 zxing 相同 —— 屏幕反光/前置摄像头镜像出来的码就靠它。
- *
- * | zxing | 这里 | 备注 |
- * |---|---|---|
- * | `readFormatInformation` / `readVersion` / `readCodewords` / `remask` / `setMirror` / `mirror` / `copyBit` | 同名 | 逐行相同，含版本信息「右上不通就试左下」那一段 |
- * | 构造器里那句 `dimension < 21 || (dimension & 0x03) != 1` 的检查 | 一样抛 [QrFormatException] | |
- */
+/** 从采样出来的位矩阵里读出格式信息、版本信息与码字。 */
 internal class QrBitMatrixParser(private val bitMatrix: QrBitMatrix) {
 
     private var parsedVersion: QrVersion? = null
@@ -162,12 +140,7 @@ internal class QrBitMatrixParser(private val bitMatrix: QrBitMatrix) {
     }
 }
 
-/**
- * 把扫出来的码字按版本+等级的块划分**拆回各块** —— zxing 3.5.4 `DataBlock` 的逐字对照。
- *
- * 二维码的码字是**交织**着放的：先按「每块的第 1 个数据字节」逐个块轮一遍，再轮第 2 个……最后才是各块的
- * 纠错字节。所以纠错要先把每一块单独拆出来（`getDataBlocks` 那两段循环就是这件事），纠完再拼回去。
- */
+/** 把扫出来的码字按版本+等级的块划分拆回各块 —— zxing 3.5.4 `DataBlock` 的移植。 */
 internal class QrDataBlock private constructor(val numDataCodewords: Int, val codewords: ByteArray) {
 
     companion object {

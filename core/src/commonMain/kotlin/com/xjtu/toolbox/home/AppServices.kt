@@ -1,9 +1,5 @@
 package com.xjtu.toolbox.home
 
-// 服务目录 —— 从 `:app` 的 `home/AppServices.kt` 搬进 `:core`（**同包同名**，整体逐字未动；
-// 它本来就只依赖 `:core` 的这两个类型）。搬走之后 `:app` 的首页（`main/HomeTab.kt`）与全局搜索
-// （`home/GlobalSearchIndex`）一行引用都不用改，桌面端筛选出「自己真能打开的入口」也用这一份
-// —— 三端对「有哪些功能」只有一个说法。
 import com.xjtu.toolbox.auth.AccountType
 import com.xjtu.toolbox.nav.AppRoute
 

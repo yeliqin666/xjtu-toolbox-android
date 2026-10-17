@@ -32,25 +32,7 @@ import top.yukonga.miuix.kmp.basic.TextField
 import top.yukonga.miuix.kmp.overlay.OverlayDialog
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
-/**
- * serve 模式的会话屏（契约 §5.1）：登录 / 短信二验 / 登出。
- *
- * 为什么要专门一屏：serve 模式的**取数全部要求「有会话 + 有令牌」**
- *（`/api/status` 是唯一例外）。页面上没有别的入口能建立这个会话 —— campus-api 那套是
- * 「凭据托管在反代进程里、回环零鉴权」，而这里是浏览器自己登进 `:server`。
- *
- * ## 三条交互口径（都照 §5.1）
- *
- * 1. **令牌只在内存里**（见 [WebServeSession] 的 KDoc）：`GET /api/session` 那一发才需要它，
- *    它顺手把 cookie 换来；贴一次之后同一浏览器会话内不用再贴（cookie 是会话 cookie）；
- * 2. **登录那一发会挂起**（最长 150 秒，等服务端那条 CAS + 短信流程跑完）⇒ 它跑在 `async` 里，
- *    同时**并发轮询** `GET /api/session/mfa` 拿挂起的那条询问（轮询间隔见 [MFA_POLL_INTERVAL_MS]）；
- * 3. **弹窗里的三格如实显示** `siteName` / `rejections` / `attemptsLeft`；绑定手机号契约**不投影**
- *    （§5.1 的 TODO ①）⇒ 那句「验证码已发送到 138\*\*\*\*0000」写不出来，如实不写。
- *
- * ⚠️ 非 serve 模式（同源反代 campus-api）**不该看这一屏**：那边页面上没有「登录」这回事，
- * 底栏也不会长出这一格（见 `ToolboxWebApp` 的 `WebBottomBar`）。
- */
+/** serve 模式的会话屏（契约 §5.1）：登录 / 短信二验 / 登出。 */
 @Composable
 fun WebServeSessionScreen(session: WebServeSession, onBack: () -> Unit) {
     val colors = MiuixTheme.colorScheme
@@ -240,13 +222,5 @@ private fun mfaSummary(state: MfaState): String {
     return listOfNotNull(site, rejections, attempts).joinToString("；")
 }
 
-/**
- * 轮询 `GET /api/session/mfa` 的间隔。
- *
- * 契约 §5.1 只写了「MFA 是**轮询**」（不是 SSE），**没有定间隔** —— 2 秒是这里取的：一次挂起最长
- * 150 秒 ⇒ 最多 75 发请求，对一个人的浏览器与服务端都不算什么，而弹窗上的「被拒次数」也够及时。
- *
- * TODO（与 `:server` 一起定）：把这个数写进契约 §5.1，并考虑退避（例如每 10 秒后拉长到 5 秒）——
- * 现在两边各有一个「凭感觉」的值就是将来漂移的起点。
- */
+/** 轮询 `GET /api/session/mfa` 的间隔。 */
 private const val MFA_POLL_INTERVAL_MS = 2_000L

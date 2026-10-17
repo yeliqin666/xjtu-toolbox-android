@@ -15,20 +15,7 @@ import kotlin.test.assertFailsWith
 import kotlin.test.assertNotEquals
 import kotlin.test.assertNull
 
-/**
- * `FriendlyError` 的**策略**测试：类型分类、状态码、中文短句、兜底。
- *
- * 原文件在 `app/src/test/java/com/xjtu/toolbox/error/FriendlyErrorTest.kt`，随 `FriendlyError`
- * 一起搬进 :core —— 断言逐条保留，只换了壳（JUnit → kotlin.test、
- * `assertThrows` → `assertFailsWith`）。
- *
- * 两个刻意的差异：
- *  1. 放在 `jvmTest` 而不是 `commonTest`：要真的构造 `java.net.*` / `javax.net.ssl.*` 异常，
- *     那是这一族在 JVM 侧的取值来源（wasmJs 侧如实返回 null，见 `platform/NetworkFailure.wasmJs.kt`）。
- *  2. :app 的认证异常类换成了本文件里的假实现（:core 不能依赖 :app）：会话过期与「自带中文提示」
- *     这两种归类由标记接口表达，真实类是否认领它们另有 :app 的接线测试
- *     （`app/src/test/.../error/AuthFailureWiringTest.kt`）盯着。
- */
+/** `FriendlyError` 的策略测试：类型分类、状态码、中文短句、兜底。 */
 
 /** 替代 :app 的 `AuthExpiredException`：只保留「会话过期」这一条契约。 */
 private class FakeSessionExpired : IOException("登录态已失效"), SessionExpiredFailure
@@ -66,7 +53,7 @@ class FriendlyErrorTest {
 
     @Test
     fun `消息里恰好带关键字不再误判`() {
-        // 以前只要消息里有 token / 401 / 404 / gateway 就会被当成登录过期或服务故障
+        // 消息里含 token / 401 / 404 / gateway 不应被当成登录过期或服务故障
         assertNotEquals(expired, FriendlyError.of(RuntimeException("invalid token in json"), "解析数据"))
         assertEquals("解析数据失败，请稍后重试", FriendlyError.of(RuntimeException("invalid token in json"), "解析数据"))
         assertEquals("解析数据失败，请稍后重试", FriendlyError.of(RuntimeException("payment gateway offline"), "解析数据"))
@@ -84,10 +71,7 @@ class FriendlyErrorTest {
         assertFailsWith<CancellationException> { FriendlyError.of(CancellationException("cancel")) }
     }
 
-    /**
-     * 分支顺序的守卫：自带中文提示的异常**也是** IOException，先被标记接口接走，
-     * 不能因为「它是个 IO 失败」就变成「网络异常」。
-     */
+    /** 分支顺序的守卫：自带中文提示的异常也是 IOException，先被标记接口接走，不能因为「它是个 IO 失败」就变成「网络异常」。 */
     @Test
     fun `标记接口优先于网络分类`() {
         val e = FakeUserFacing("账号或密码无效")

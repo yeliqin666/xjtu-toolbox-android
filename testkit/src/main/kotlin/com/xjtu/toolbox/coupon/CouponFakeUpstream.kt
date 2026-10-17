@@ -5,37 +5,7 @@ import java.net.URLDecoder
 import java.util.Base64
 import java.util.concurrent.atomic.AtomicInteger
 
-/**
- * 假的**加餐券系统**（`egc.xjtu.edu.cn`）＋它登录链上游的开放平台那一跳
- * （`org.xjtu.edu.cn/openplatform/oauth/authorizesw`）。
- *
- * ## 它扮的是哪条链
- *
- * 与 [`CouponLogin`] + [`CouponSession`] 一起，把**搬进 `:data` 之后**的登录与取数原样演一遍：
- *
- * ```
- * GET  https://login.xjtu.edu.cn/cas/oauth2.0/authorize?client_id=1596&redirect_uri=<org 开放平台>
- *        （没 TGC → 302 /cas/login?service=<authorize>，登录页在 LibraryFakeUpstream 那半台 CAS 里）
- * GET  https://org.xjtu.edu.cn/openplatform/oauth/authorizesw?...&code=OC-fake-1
- *       → 解 base64 的 redirect_uri → 302 https://egc.xjtu.edu.cn/page/cas/receiveCas.html?...&code=…&userType=…&employeeNo=…
- * GET  https://egc.xjtu.edu.cn/page/cas/receiveCas.html?...  → 200（CouponLogin 从这一跳的 finalUrl 里解参数）
- * POST https://egc.xjtu.edu.cn/sso/login?code=…&userType=…&employeeNo=…  → 返回 JWT（auth_token）
- *
- * POST /app/voucher/query.page.list  → 按 status 给两批不同的券卡
- * POST /app/voucher/query.details    → 详情（destitle / tranamt / …）
- * POST /app/voucher/activate         → {code:200}
- * GET  /coupon-fake/usable.png       → 一张真 1×1 PNG（封面图那一枪）
- * ```
- *
- * 与其余夹具同一条理由待在 `:testkit`：`:data:jvmTest` 与 `:desktop` 要看到同一批响应，
- * CAS 那半台不在这个文件里（`login.xjtu.edu.cn` 按 host 分派，属于 `LibraryFakeUpstream`，
- * 这一份只用它的 OAuth2 授权入口）。
- *
- * ## 夹具值全是编造的
- *
- * 券卡号 `CARD-假-…`、面额 `500` 分、日期 `2026-05-01` 起 —— 与 `LibraryFakeUpstream.USERNAME`
- * 一致只是为了「同一个假账号贯穿几条链」。
- */
+/** 假的加餐券系统（`egc.xjtu.edu.cn`）＋它登录链上游的开放平台那一跳（`org.xjtu.edu.cn/openplatform/oauth/authorizesw`）。 */
 class CouponFakeUpstream {
 
     companion object {
@@ -105,13 +75,7 @@ class CouponFakeUpstream {
     /** 打开后 `query.page.list` 回 `{"code":401,...}`（auth token 失效的那条路）。 */
     var forceCode401 = false
 
-    /**
-     * 打开后 `activate` 回一个 `{"code":400,...}` 的业务拒收（券领完了 / 不能领那一档）——
-     * 演「到了上游、上游说不给领」。
-     *
-     * ⚠️ serve 那一层现在把它当 `502` 报（`:data` 的 `CouponApi.activateCoupon` 只有「抛一句
-     * 上游原文」这一种失败），这份夹具正是用来钉住那条口径的。
-     */
+    /** 打开后 `activate` 回一个 `{"code":400,...}` 的业务拒收（券领完了 / 不能领那一档）—— 演「到了上游、上游说不给领」。 */
     @Volatile
     var activateRejected: Boolean = false
 
@@ -168,18 +132,13 @@ class CouponFakeUpstream {
         }
     }
 
-    /**
-     * 开放平台那一跳：`redirect_uri` 是 base64 的 egc 接收页，解出来后**原封不动**带
-     * `code/userType/employeeNo` 回它 —— 这就是 `CouponLogin.postLogin` 从 finalUrl 里解参数的那一跳。
-     */
+    /** 开放平台那一跳：`redirect_uri` 是 base64 的 egc 接收页，解出来后原封不动带`code/userType/employeeNo` 回它——这就是 `CouponLogin.postLogin` 从 finalUrl 里解参数的那一跳。 */
     fun handleOrg(exchange: HttpExchange) {
         orgCallbacks.incrementAndGet()
         val query = exchange.requestURI.query.orEmpty()
         val code = param(query, "code") ?: OAUTH_CODE
 
-        // `openplatform/oauth/authorizesw` 的 `redirect_uri` 是 **`base64` 前缀 + base64 内容**
-        //（`CouponLogin.ORG_REDIRECT` 就是那个形状）—— 去掉前缀再解，别把 `base64` 四个字符
-        // 也当成 base64 字母表算进去（那会解出一串乱码，实测 `Illegal character found in header`）。
+        // `redirect_uri` 是 `base64` 前缀 + base64 内容：先去掉前缀再解。
         val encoded = param(query, "redirect_uri").orEmpty()
             .removePrefix("base64")
         val redirectUri = runCatching {

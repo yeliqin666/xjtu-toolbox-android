@@ -36,12 +36,7 @@ private val TERM_CODE = Regex("""\d{4}-\d{4}-\d""")
 /** 学期切换里最多列多少个学期：每学年四个（秋、春、夏季小学期、暑假），约五年。 */
 private const val MAX_TERMS = 20
 
-/**
- * [term] 是不是一个学期号（`2026-2027-1`）。
- *
- * 与 `:app` 的 `schedule/ScheduleApi.kt` 里那个私有 `TERM_CODE` **同一形状**（搬过来的就是它）；
- * `:server` 用它把「`?term=` 给的是一条学期号」判在 400 那一层（口径见契约 §5.2 的错误码）。
- */
+/** [term] 是不是一个学期号（`2026-2027-1`）。 */
 fun isTermCode(term: String): Boolean = TERM_CODE.matches(term)
 
 /**
@@ -53,24 +48,11 @@ fun isTermCode(term: String): Boolean = TERM_CODE.matches(term)
  * `:core` 的 commonMain。`:server`（serve 模式）与桌面端各自消费同一份，Android 也是 ——
  * 「两个仓库各算一遍」的课表口径到此为止。
  *
- * | 方法 | 上游 | 搬迁前 `:app` 的对应 |
- * |---|---|---|
- * | [rows] | `POST <wdkb>/modules/xskcb/xskcb.do`（表单 `XNXQDM=<学期>`） | `ScheduleApi.getSchedule` 的原始行那一步（`wdkbRows`） |
- * | [termStart] | `POST <wdkb>/modules/jshkcb/cxjcs.do`（表单 `XN=<学年>&XQ=<学期序>`） | `ScheduleApi.getStartOfTerm` |
- * | [schedule] | 上面那条 + `xskcb/xsdkkc.do` 经 `JwxtChanges.apply` | `ScheduleApi.getSchedule` |
- * | [changes] | `POST <wdkb>/modules/xskcb/xsdkkc.do` | `ScheduleApi.getChanges`（私有） |
- * | [examSchedule] | `POST <studentWdksapApp>/modules/wdksap/wdksap.do` | `ScheduleApi.getExamSchedule` |
- * | [termList] | 全校课表应用（`kcbcx`）的学期列表 | `ScheduleApi.getTermList` |
- * | [textbooks] | 帆软报表 `frReport2/show.do`（jsoup 解析 + 分页） | `ScheduleApi.getTextbooks` |
- * | [currentTerm] | `POST <wdkb>/modules/jshkcb/dqxnxq.do` | `ScheduleApi.getCurrentTerm` |
- *
  * ## [rows] 与 [schedule] 的区别（**别混用**）
  *
  * [rows] 给的是**排课原样**：上游 `xskcb.do` 不反映调课/停课/补课，而 `:server` 的
  * `/api/jwxt/schedule` 端出去的就是它（契约面，逐字冻结）。[schedule] 才把
  * `xskcb/xsdkkc.do` 的记录经 [JwxtChanges] 合进去 —— Android 与桌面端的课表屏走的都是这一条。
- * 搬迁前 `:data` 只有前一半，`:server` 的 KDoc 里为此挂着一条 TODO；现在两条都在这里，
- * 缺口关闭的是**消费方**能不能拿到合并后的课表，`:server` 发出去的那条端点一个字都没动。
  *
  * ## 返回值为什么是 `:core` 的那些类
  *
@@ -103,14 +85,7 @@ class JwxtScheduleApi(private val site: SiteSession) : JwxtScheduleSource {
             response.body?.string() ?: throw RuntimeException("空响应")
         }
 
-    /**
-     * 当前学期号（`dqxnxq.do`）。
-     *
-     * 服务端登录态失效时会返回 HTML 跳转页（CAS / Safety Verify），这里提前拦掉；
-     * 否则下游 `safeParseJsonObject` 会抛出无意义的 MalformedJsonException。
-     * 接口偶发给回空行，也不能把空串当学期代码传下去 —— 那样课表、考试、开学日期全按空学期去查，
-     * 页面一片空白还没有任何报错。抛出去让调用方走兜底。
-     */
+    /** 当前学期号（`dqxnxq.do`）。 */
     override suspend fun currentTerm(): String {
         cachedTermCode?.let { return it }
         val request = Request.Builder()
@@ -135,15 +110,7 @@ class JwxtScheduleApi(private val site: SiteSession) : JwxtScheduleSource {
         return code
     }
 
-    /**
-     * 整学期课表，调课、停课、补课已合进去（见 [JwxtChanges]）。
-     *
-     * 两条请求并行发：[rows] 那一份原始排课与 [changes] 那一份调停课记录。合并落在这一层
-     * （`:data`），所以 Android 与桌面端拿到的是同一张表 —— 这是搬迁前 `:data` 缺的那一半。
-     *
-     * 课程性质优先 `KCXZMC`（课程性质名称），回退 `KCXZDM_DISPLAY` / `KCFLMC`：这是搬迁前
-     * `:app` 的口径，逐字保留。
-     */
+    /** 整学期课表，调课、停课、补课已合进去（见 [JwxtChanges]）。 */
     override suspend fun schedule(term: String?): SourceSchedule = coroutineScope {
         val termCode = term ?: currentTerm()
         val changes = async { rawChanges(termCode) }
@@ -171,12 +138,7 @@ class JwxtScheduleApi(private val site: SiteSession) : JwxtScheduleSource {
         JwxtChanges.apply(rows, changes.await())
     }
 
-    /**
-     * 这学期最近一次拉到的调课/停课/补课记录，形状是给人看的那一种（[ScheduleChangeEvent]）。
-     *
-     * 与 [schedule] 同一份报文、同一个解析口径（[rawChanges] → [JwxtChanges.apply]），
-     * 只是不掺课表：给「屁岱回答最近调了什么课」这类调用方用。
-     */
+    /** 这学期最近一次拉到的调课/停课/补课记录，形状是给人看的那一种（[ScheduleChangeEvent]）。 */
     override suspend fun changes(term: String): List<ScheduleChangeEvent> =
         JwxtChanges.apply(emptyList(), rawChanges(term)).changes
 
@@ -190,24 +152,7 @@ class JwxtScheduleApi(private val site: SiteSession) : JwxtScheduleSource {
         emptyList()
     }
 
-    /**
-     * 整学期课表行（`wdkb` 的 `xskcb.do`）。
-     *
-     * 逐字段：**:core** [ScheduleRow] 钉住的那 8 列，键名就是上游列名 ——
-     * `KCM`（课程名）/ `SKJS`（教师）/ `JASMC`（教室）/ `SKXQ`（星期）/ `KSJC`（起始节）/
-     * `JSJC`（结束节）/ `ZCMC`（周次文本）/ `JXBID`（教学班号）。
-     * 上游给的是数字的几格（`SKXQ`/`KSJC`/`JSJC`）按 `safeString` 的既有口径读成文本，
-     * 缺键就是空串（与 `:app` 的 `obj.get("KSJC").safeString()` 同一个读法）。
-     *
-     * ⚠️ **周次必须看 `ZCMC`**（`1-3周,5-7周(单)`），不要用 `SKZC` 位串 —— 上游位宽 16/18 不齐，
-     * 两个端都不能踩（钉在 [ScheduleRow] 的 KDoc 上）。
-     *
-     * 上游把 `datas.xskcb.rows` 换掉（而不是报错）时给空表：与 `:app` 的 `wdkbRows`
-     * （`?: return emptyList()`）同一个口径，页面上的表现是「这一学期没有课」。
-     *
-     * ⚠️ **这一条是排课原样**，调停补课没有合进来（`:server` 的 `/api/jwxt/schedule` 端出去的就是
-     * 它，契约面逐字冻结）。要合并后的课表用 [schedule]。
-     */
+    /** 整学期课表行（`wdkb` 的 `xskcb.do`）。 */
     suspend fun rows(term: String): List<ScheduleRow> {
         val request = Request.Builder()
             .url("$BASE_URL/jwapp/sys/wdkb/modules/xskcb/xskcb.do")
@@ -239,14 +184,12 @@ class JwxtScheduleApi(private val site: SiteSession) : JwxtScheduleSource {
      * 默认值 —— 上游偶发给 `0` 或一个荒唐的大数，拿它画周次条会画到天上）。顺带记进
      * [termWeeksOf] 的缓存（`saveTermStart` 与桌面小组件都要这一格）。
      *
-     * 上游没给 `XQKSRQ` 时**抛错**而不是编一个日期：课表的「今天是第几周」全靠这一天
-     *（`:app` 侧对空值同样是抛 `IllegalStateException`，见 `getCurrentTerm` 的空行处理）。
+     * 上游没给 `XQKSRQ` 时**抛错**而不是编一个日期：课表的「今天是第几周」全靠这一天。
      *
      * @param term 学期号；形状不对（[isTermCode] 为假）直接抛 —— `:server` 在更外层已经判过 400。
      *
      * ⚠️ **serve 模式契约面**（`:server` 的 `/api/jwxt/term-start` 直接调它）：参数、返回类型、
-     * 抛错条件全部冻结。搬进 `:data` 时只多了一个 `override` 修饰符（它现在也是
-     * [JwxtScheduleSource] 的一员）—— 调用的形状与行为一个字未变。
+     * 抛错条件全部冻结。
      */
     override suspend fun termStart(term: String): TermStartData {
         if (!isTermCode(term)) throw IllegalStateException("学期号形状不对：$term")
@@ -317,14 +260,7 @@ class JwxtScheduleApi(private val site: SiteSession) : JwxtScheduleSource {
         }
     }
 
-    /**
-     * 可选学期，新的在前，如 ["2025-2026-2", "2025-2026-1", ...]。
-     *
-     * 取自「全校课表」应用（kcbcx）的学期列表。课表应用（wdkb）的 `cxxnxqgl.do` 现在校内校外、
-     * 进没进过应用都回 403，而 403 会被当成登录失效、教务整站重登一次。
-     * 列表含已开放选课的未来学期和暑假（重修要用），都保留。全校列表有十几年，只留最近 [MAX_TERMS] 个；
-     * 拿不到就按当前学期推算，保证不为空。
-     */
+    /** 可选学期，新的在前，如 ["2025-2026-2", "2025-2026-1", ...]。 */
     override suspend fun termList(): List<String> = try {
         val terms = SchoolCourseApi(site).getTermList()
             .filter { TERM_CODE.matches(it.code) }
@@ -367,7 +303,7 @@ class JwxtScheduleApi(private val site: SiteSession) : JwxtScheduleSource {
      *
      * 上游是帆软报表：先 POST 初始化拿到带 `BBKEY` 的自动提交表单页，OkHttp 不执行 JS，
      * 所以手动提取隐藏域重新 POST；再从 HTML 直接解析，或拿 `sessionID` 走 `page_content`
-     * 流程翻页。三段解析策略（标准 table / 绝对定位 div / 放弃）与搬迁前逐行相同。
+     * 流程翻页。三段解析策略：标准 table / 绝对定位 div / 放弃。
      *
      * @param studentId 学号
      * @param term 学期代码；为空取当前学期

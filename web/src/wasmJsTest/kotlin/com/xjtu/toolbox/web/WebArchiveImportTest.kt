@@ -15,17 +15,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
-/**
- * S6 收尾：Web 这一端的**导入写侧**真的接到 `:core` 的 [StoreArchive.import]（§6.4）之后该成立的那几条。
- *
- * 这一端跑在**真浏览器**里（`:web:wasmJsBrowserTest` = karma + chromium，见 `web/build.gradle.kts`）
- * ⇒ `localStorage` 是真的，所以 A4 的断言对象就是**端内原来的读法**
- * （`SettingsStore(keyValueStore(...)).darkMode`、`ScheduleCache.readCurrentTerm(cache)`、
- * `keyValueStore("library_favorites").getStringSet(...)`），不是另写一个读法。
- *
- * 每个用例前后把碰到的 store 清一遍：karma 里所有用例共用同一个页面的 `localStorage`。
- * 夹具是 `:core` 的 `commonTest` 那一份（[ArchiveFixture]，A5 要求三端同一份）。
- */
+/** Web 端导入写侧接到 [StoreArchive.import]（§6.4）后该成立的几条。 */
 class WebArchiveImportTest {
 
     /** 与 `ArchiveInteropTest` 同参：同一份夹具、同一个 `export` 调用。 */
@@ -51,7 +41,6 @@ class WebArchiveImportTest {
         TOUCHED_STORES.forEach { keyValueStore(it).clear() }
     }
 
-    // ── A5 / A4：夹具真落进 localStorage，端内原来的读法读得到 ────────────────
 
     @Test
     fun `A5 同一份夹具真落进 localStorage，本端原读法读得到`() {
@@ -66,7 +55,6 @@ class WebArchiveImportTest {
             assertEquals("dark", settings.darkMode)
             assertTrue(settings.showQuickActions)
             assertEquals(4, keyValueStore(SettingsStore.APP_SETTINGS_FILE).getInt("eula_accepted_version", 0))
-            // A10 的 web 形态：夹具里的 `at` 落成旁挂键，读回来时又折进 `writtenAt`
             assertEquals(
                 setOf("A-1", "B-2"),
                 keyValueStore("library_favorites").getStringSet("favorite_seats"),
@@ -107,7 +95,6 @@ class WebArchiveImportTest {
             assertEquals("dark", settings.darkMode)
             assertTrue(settings.showQuickActions)
             assertEquals("cards", settings.homeTheme)
-            // 课表族：`at` 落成旁挂键 ⇒ 原来的读法（`ScheduleCache.readCurrentTerm`）真的读得回来
             val cache = KeyValueScheduleCacheStore(keyValueStore("schedule_cache${ArchiveFixture.SUFFIX}"))
             assertEquals("2026-2027-1", ScheduleCache.readCurrentTerm(cache))
         } finally {
@@ -115,7 +102,6 @@ class WebArchiveImportTest {
         }
     }
 
-    // ── A6 不丢键 + 不覆盖本机 ──────────────────────────────────────────────
 
     @Test
     fun `A6 本机独有的键不变，档案有的写进来`() {
@@ -142,7 +128,6 @@ class WebArchiveImportTest {
         }
     }
 
-    // ── A7 坏档案不动端（表驱动） ───────────────────────────────────────────
 
     @Test
     fun `A7 坏档案本机零改动`() {

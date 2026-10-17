@@ -22,19 +22,7 @@ import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 import kotlinx.coroutines.runBlocking
 
-/**
- * 思源学堂在桌面端的**装配验收**（第 18 条真数据路由）：桌面用自己的 [DesktopAuth] 真登一次，
- * 走 `DesktopSiteGate` 那条路把 `lms` 会话建起来，再用自己的 `AppLmsSource`（+ `DesktopLmsSaver`）
- * 读出夹具样本；以及桌面落盘写进用户下载目录并按活动分文件夹。
- *
- * 与 `:data` 的 `LmsApiJvmTest` 的分工：那边验**会话内核 + 取数**本身；这里验**桌面的装配**
- *（`DesktopAuth` 登录、`DesktopAuth.LMS_SITE_KEY` 注册进 `SESSION_SITE_KEYS`、路由进门建会话、
- * 落盘槽位是桌面那份）。
- *
- * 手法同 `DesktopAuthLibraryJvmTest`：`:testkit` 假上游（`FakeCampusProxy` 一个本地代理按 host
- * 分派）+ URL 一个字符不改；`:app` 测试里那条「RSA 公钥预置」的口径照抄（假上游给不了
- * `https://login.xjtu.edu.cn/cas/jwt/publicKey`，见那个类的注释）。
- */
+/** 思源学堂在桌面端的装配验收。 */
 class DesktopAuthLmsJvmTest {
 
     private lateinit var fake: FakeCampusProxy
@@ -106,7 +94,6 @@ class DesktopAuthLmsJvmTest {
         assertNotNull(homework, "活动列表应当读出夹具那条作业")
         assertEquals(LmsFakeUpstream.HOMEWORK_DEADLINE, homework.deadline)
 
-        // 详情把列表的截止时间并进来（mergeBrief 的口径，与 :data 那条钉的是同一份）
         val detail = runBlocking { source.activityDetail(homework.id, homework) }
         assertEquals(LmsFakeUpstream.HOMEWORK_DEADLINE, detail.deadline)
         assertEquals(1, detail.userSubmitCount)

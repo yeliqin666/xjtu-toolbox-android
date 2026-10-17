@@ -1,33 +1,6 @@
 package com.xjtu.toolbox.platform.qr
 
-/**
- * 字符集那一小片 —— zxing 3.5.4 `com.google.zxing.common.CharacterSetECI` 与
- * `StringUtils.guessCharset` 的**逐字对照**，但**只留下能在 commonMain 里真解出来的那几个**。
- *
- * ## 为什么不是一个完整的字符集库
- *
- * zxing 那一份靠 `java.nio.charset.Charset` 解码（JDK 自带全部码表）。Kotlin 的 commonMain **没有**
- * 字符集表（`ByteArray.decodeToString()` 只有 UTF-8），`kotlinx-io` 也没有。所以这一份的能力边界是：
- *
- * | 情况 | 这里 | 与 Android 的差别 |
- * |---|---|---|
- * | 没有 ECI 标注、字节全是 ASCII（**这正是匹配交友分享码那一路**：base64url 字母表） | [guessCharset] 判成 ISO-8859-1 ⇒ 逐字节映射 | 与 zxing **逐字相同**（`String(bytes, ISO_8859_1)` 就是这个映射） |
- * | 带 BOM 的 UTF-8 / UTF-16 | 认出来并按相应编码解 | 逐字相同 |
- * | 带 ECI 且指向 UTF-8 / ISO-8859-1 / US-ASCII / UTF-16BE | 解出来 | 逐字相同 |
- * | 猜出来是 Shift_JIS（`StringUtils` 那条启发式） | **认得出、解不出来** ⇒ 整个解码失败 | ⚠️ **如实差异**：zxing 会真用 SJIS 解出一串日文 |
- * | ECI 指向别的编码（CP437 / ISO-8859-2…16 / CP1250/1251/1252/1256 / Big5 / GB18030 / EUC-KR） | 同上：认得出名字、解不出来 ⇒ 整个解码失败 | ⚠️ 同上 |
- * | KANJI / HANZI 模式的数据段 | 一样解不出来（见 [QrDecodedBitStreamParser]） | ⚠️ 同上 |
- *
- * 也就是说：**中文/日文的二维码文本**在这一端可能解不出来（取决于出码方用的是 BYTE+UTF-8 还是
- * KANJI/HANZI/Shift_JIS）—— 如实记录，不假装能解。真要用得上那些码表就得再搬一份进来（那是一份
- * 更大的活，与「把解码链搬进共享层」不是一件事）。
- *
- * ## `ASSUME_SHIFT_JIS` 为什么在这里是常量 false
- *
- * zxing 的那个常量是「**运行时的平台默认编码**是不是 SJIS / EUC_JP」—— 在桌面 JVM（UTF-8 默认）与
- * Android 上都是 false。`:core:jvmTest` 的 `QrDecodeParityJvmTest` 拿这一份与 zxing 对着跑，所以这里
- * 写死 false 才是与它**同一份口径**（不是偷懒，是照抄事实）。
- */
+/** 字符集那一小片—— zxing 3.5.4 `com.google.zxing.common.CharacterSetECI` 与`StringUtils.guessCharset` 的移植，但只留下能在 commonMain 里真解出来的那几个。 */
 internal object QrCharset {
 
     /** ECI 值 → 编码名（zxing 的 `VALUE_TO_ECI` 那张表，逐个值抄过来）。 */
@@ -64,12 +37,7 @@ internal object QrCharset {
         put(30, "EUC-KR")
     }
 
-    /**
-     * ECI 值 → 编码名（`CharacterSetECI.getCharacterSetECIByValue`）。
-     *
-     * zxing 那一份在 `value < 0 || value >= 900` 时抛 `FormatException`、查不到就返回 **null**
-     * （于是调用方抛 `FormatException`）—— 这里也返回 null，由调用方抛。
-     */
+    /** ECI 值 → 编码名（`CharacterSetECI.getCharacterSetECIByValue`）。 */
     fun eciNameFor(value: Int): String? {
         if (value < 0 || value >= 900) return null
         return ECI_NAMES[value]
@@ -85,11 +53,7 @@ internal object QrCharset {
         else -> false
     }
 
-    /**
-     * 按编码名解一段字节；解不出来（见文件头的边界表）返回 null，由调用方抛 `FormatException`。
-     *
-     * `ISO-8859-1` 是**逐字节映射**（每个字节就是同号的码位）—— 与 `new String(bytes, ISO_8859_1)` 逐字相同。
-     */
+    /** 按编码名解一段字节；解不出来（见文件头的边界表）返回 null，由调用方抛 `FormatException`。 */
     fun decode(name: String, bytes: ByteArray): String? = when (name) {
         "ISO-8859-1" -> bytes.map { (it.toInt() and 0xFF).toChar() }.joinToString("")
         "UTF-8", "UTF8" -> bytes.decodeToString()
@@ -123,16 +87,7 @@ internal object QrCharset {
         return sb.toString()
     }
 
-    /**
-     * 猜一段字节是哪个编码 —— zxing 3.5.4 `StringUtils.guessCharset(bytes, null)` 的逐字对照。
-     *
-     * 调用方（[QrDecodedBitStreamParser.decodeByteSegment]）在**没有 ECI 标注**时用它。`StringUtils` 的
-     * 第一个分支是「hints 里给了 `CHARACTER_SET`」—— 本端没有那个 hint（见 [QrReader] 的 KDoc），所以
-     * 那一支不存在。
-     *
-     * @return 编码名（`ISO-8859-1` / `UTF-8` / `UTF-16` / `Shift_JIS`）；猜成 `Shift_JIS` 时调用方会
-     *   因为解不出来而让整个解码失败（见文件头的边界表）。
-     */
+    /** 猜一段字节是哪个编码 —— zxing 3.5.4 `StringUtils.guessCharset(bytes, null)` 的移植。 */
     fun guessCharset(bytes: ByteArray): String {
         // 先试 UTF-16：带它那个 BOM 的就算 UTF-16
         if (bytes.size > 2 &&
@@ -241,10 +196,7 @@ internal object QrCharset {
         if (canBeShiftJis && (sjisMaxKatakanaWordLength >= 3 || sjisMaxDoubleBytesWordLength >= 3)) {
             return "Shift_JIS"
         }
-        // 短词上分 SJIS 与 ISO-8859-1 有点难。粗暴的启发式是：
-        //  - 整段里只有两个连着的片假名，或者
-        //  - 至少 10% 的字节是「像是大写」的非字母数字 Latin-1，
-        // 就判 SJIS，否则判 ISO-8859-1
+        // SJIS / ISO-8859-1 启发式：只有两个连着的片假名，或 ≥10% 字节是「像大写」的非字母数字 Latin-1 ⇒ SJIS。
         if (canBeIso88591 && canBeShiftJis) {
             return if ((sjisMaxKatakanaWordLength == 2 && sjisKatakanaChars == 2) || isoHighOther * 10 >= length) {
                 "Shift_JIS"

@@ -26,34 +26,13 @@ import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 
-/**
- * 屁岱在桌面端的**装配验收**（最后一条点亮的路由 `AppRoute.Agent`）。
- *
- * 四条钉子：
- *  1. **夹具传输端到端**：`AgentViewModel` 发一条 → [FixtureAgentTransport] 分段回一条 →
- *     助手气泡里就是那句夹具回复（夹具**不连任何 LLM**，见 `AgentFixture.kt`）；
- *  2. **配置真落盘**：`saveConfig` 之后，那份值在**数据根目录的文件里**（`agent_config*.properties`），
- *     另一份 `DesktopAgentHost` 也读得回来（密钥那一半在 `agent_config_secure*`）；
- *  3. **会话真落盘**：那一轮对话落到 `agent_sessions<账号后缀>/convo_*.json`，另一份宿主也列得出来；
- *  4. **工具层只画接得上的五件**：工具表就是 [DESKTOP_AGENT_TOOLS]，没接的档一个字都不画
- *     （`get_schedule` 那种调过来回 `not_found`），而 `honored` 是**空集** —— 这三条一起
- *     钉住「honored 如实」这件事：改了就会红，提醒把那一档的宿主面接上再放它进表。
- *
- * 另外两条是工具本体真的跑起来：纯逻辑三件（算术 / 功能引导 / 偏好）+ 两件免登录取数
- * （黄页 / 教师检索，走 `FakeClients.kt` 里那两台夹具上游）—— 即「画了的都能用」。
- *
- * 落盘一律在**临时数据根目录**里（`dataRootOverride`），绝不碰用户真实的
- * `~/.local/share/xjtu-toolbox`。
- */
+/** 屁岱在桌面端的装配验收。 */
 class DesktopAgentJvmTest {
 
     private val root: File = Files.createTempDirectory("xjtu-desktop-agent-test").toFile()
 
     init {
-        // 这个类按类名排在 `DesktopAccountsJvmTest` **之前**，而它自己的 `newHost()` 会构造
-        // `DesktopAuth`（⇒ 建会话 ⇒ 碰 `HttpClients`）—— 不在前面先装上那两件常驻前置，
-        // 后面所有「假上游」用例会直连真站点（整批红成「登录验证检测返回了异常数据」）。
-        // 幂等，而且只装「读可变端口的 selector」，不依赖哪个假上游先跑。
+        // ⚠️ 先装常驻前置：本类按名排在前面且会碰 `HttpClients`，否则后面的假上游用例会直连真站点。
         com.xjtu.toolbox.FakeCampusProxy.installFakeUpstreams()
         // 这一端没有登录：命名空间是 `default`（见 `AccountContext.suffixFor(null)`）
         AccountContext.activeAccountId = null
@@ -109,21 +88,18 @@ class DesktopAgentJvmTest {
         waitFor("夹具回复上屏") { vm.messages.any { it.role == "assistant" && it.content.contains(AGENT_FIXTURE_REPLY) } }
         waitFor("这一轮结束（不再 loading）") { !vm.isLoading }
 
-        // ① 真发出去了：请求体里是这条用户消息（夹具那一枪收到的就是它）
         val body = assertNotNull(transport.lastBody, "夹具传输没被调用 —— 这一轮根本没发出去")
         waitFor("会话落盘") { fileContaining(AGENT_FIXTURE_REPLY) != null }
         assertTrue(
             body.toString().contains(userText),
             "请求体里没有这条用户消息：$body",
         )
-        // ② 流式：分段回调了多次，而且气泡内容是完整那句（不是只收到第一段）
         assertTrue(transport.deltas > 1, "夹具是分段回调的，只收到 ${transport.deltas} 段")
         assertEquals(
             AGENT_FIXTURE_REPLY,
             vm.messages.last { it.role == "assistant" && it.content.isNotBlank() }.content,
         )
 
-        // ③ 配置真落盘：文件在数据根目录里，另一份宿主读得回来（含密钥那一半）
         val plain = File(root, "agent_config${AccountContext.safeSuffix()}.properties")
         assertTrue(plain.isFile, "配置的非敏感那半没落盘：${plain.absolutePath}")
         assertTrue(plain.readText().contains("fixture-model"), "配置里没有刚存的模型：${plain.readText()}")
@@ -133,7 +109,6 @@ class DesktopAgentJvmTest {
         assertEquals("fixture-model", reread.model)
         assertEquals("fixture-key", reread.apiKey)
 
-        // ④ 会话真落盘：另一份宿主列得出这个会话，载出来的内容里就是那一轮对话
         val sessions = newHost().sessions().list()
         assertTrue(sessions.isNotEmpty(), "会话表是空的 —— 那一轮没落盘")
         val stored = sessions.firstNotNullOfOrNull { newHost().sessions().load(it.id) }
@@ -170,7 +145,6 @@ class DesktopAgentJvmTest {
             )
         }
 
-        // honored 如实：五档一个都不列（闹钟 / 应用设置 / 自建日程写入这一端都没有对应实现）
         assertTrue(host.honored.isEmpty(), "honored 不该有值：${host.honored}")
     }
 
@@ -220,7 +194,6 @@ class DesktopAgentJvmTest {
             assertTrue(!byCategory.contains("已撤销的科室"), "停用的科室不该出现：$byCategory")
             assertTrue(byCategory.contains("更新于2026年08月01日"), "更新时间的格式化断了：$byCategory")
 
-            // 认不出的类别回 not_found，并把可选值列出来（与 `:app` 逐字同一条）
             assertEquals(
                 "error: not_found; category: 不存在的机构; options: 教务处, 学生工作部（处）",
                 tools.execute("search_yellow_page", """{"category":"不存在的机构"}"""),
@@ -234,35 +207,21 @@ class DesktopAgentJvmTest {
         }
     }
 
-    /**
-     * 密钥那一半的落盘口径 —— `docs/agent-web-spec.md` §5.1 「缺口 A」的**桌面那一半**。
-     *
-     * 三条钉子：
-     *  1. **旧明文读得回**：这一轮之前那份 `agent_config_secure<suffix>.properties` 里是明文
-     *     （Windows 上也是），换用凭据保护器之后它必须原样读得回来 —— 否则老用户一升级就丢 key；
-     *  2. **文件名与键名一字未改**：写的还是同一个文件、同一个 `api_key`，而且本机没有保护器
-     *     时落盘的字节就是那个值本身（Linux / macOS 的现状，与搬迁前逐字相同）；
-     *  3. **有保护器时落的是信封**：拿一份夹具保护器把 Windows 那条路就地钉住 —— 盘上没有明文，
-     *     同一个保护器读得回来，换了保护器（换用户 / 换机器 / 跨平台拷过来）**明确抛**，
-     *     而不是把密文当密码交出去。
-     */
+    /** 密钥那一半的落盘（`docs/agent-web-spec.md` §5.1）。 */
     @Test
     fun `密钥那一半：旧明文读得回、文件名不变、有保护器时落信封`() {
         val secureFile = File(root, "agent_config_secure${AccountContext.safeSuffix()}.properties")
 
-        // ① 手工搭一份「这一轮之前」的明文文件（键名与搬迁前逐字相同）
         secureFile.parentFile?.mkdirs()
         secureFile.writeText("api_key=sk-fake-legacy-plaintext\n")
         assertEquals("sk-fake-legacy-plaintext", newHost().loadConfig().apiKey, "老明文必须原样读得回来")
 
-        // ② 存一次：还是同一个文件、同一个键；本机没有保护器 ⇒ 落的就是明文本身
         newHost().saveConfig(AgentConfig(apiKey = "sk-fake-desktop-001", model = "fixture-model"))
         val plainText = secureFile.readText()
         assertTrue(plainText.contains("api_key"), "键名一字未改：$plainText")
         assertTrue(plainText.contains("sk-fake-desktop-001"), "本机没有保护器 ⇒ 与今天逐字相同：$plainText")
         assertEquals("sk-fake-desktop-001", newHost().loadConfig().apiKey)
 
-        // ③ 真有保护器（Windows）时的那条路
         DesktopAgentHost(DesktopAuth(), FixtureSecretProtector())
             .saveConfig(AgentConfig(apiKey = "sk-fake-desktop-002", model = "fixture-model"))
         val sealedText = secureFile.readText()
@@ -280,13 +239,7 @@ class DesktopAgentJvmTest {
     }
 }
 
-/**
- * 夹具凭据保护器：把明文倒过来当密文（**必须真的改变字节**，见 `SecretProtector` 的契约）。
- *
- * 为什么要它：Linux / macOS 上 `secretProtectorForPlatform()` 是 `null`，而 Windows 那条
- * 「写了就是信封、解不开就抛」的路在本机跑不到 —— 拿这一份替掉就能把**桌面宿主的那一份装配**
- * （`DesktopAgentHost` 的 `protector` 参数）在 Linux 上钉住。
- */
+/** 夹具凭据保护器：把明文倒过来当密文（必须真的改变字节，见 `SecretProtector` 的契约）。 */
 private class FixtureSecretProtector(private val name: String = "fixture") : SecretProtector {
 
     override val id: String get() = name

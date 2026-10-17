@@ -154,12 +154,7 @@ object OnlineController {
     }
 }
 
-/**
- * :core 的 [OnlineLobbyHost] 的 Android 实现 —— 就是上面那个 BLE 编排。
- *
- * 这一层存在的唯一理由是「BLE 只有 Android 有」：把 [Context] 挡在共享层之外，
- * 共享层的棋盘屏只认 [OnlineLobbyHost]。Web 端不提供这个实现，联机入口整个不出现。
- */
+/** :core 的 [OnlineLobbyHost] 的 Android 实现 —— 就是上面那个 BLE 编排。 */
 class BleOnlineLobbyHost(private val context: Context) : OnlineLobbyHost {
 
     override fun canHost(): Boolean = OnlineController.bluetoothReady(context)

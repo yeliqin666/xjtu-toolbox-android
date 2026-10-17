@@ -26,8 +26,6 @@ data class RangeSpendSummary(
     val changeCaption: String?,
 )
 
-// 从 :app 搬进 commonMain：`java.time` 换成了 kotlinx-datetime（commonMain 没有 `java.time`）。
-// 逐处对应见下面各处注释与 [MonthlyStats] 的 KDoc；日期/金额的格式化也换成了本文件里的手写实现。
 object CampusCardAnalysis {
     fun calendarDays(start: LocalDate, end: LocalDate): Int =
         // `ChronoUnit.DAYS.between(start, end)` → `start.daysUntil(end)`（同一个含头不含尾的天数）
@@ -136,10 +134,7 @@ object CampusCardAnalysis {
         }
     }
 
-    /**
-     * 吃饭画像：从主食构成、各餐天数、每顿均价里挑几个够显著的特征，最多四个。
-     * 阈值都偏保守——宁可少贴一个标签，也别给只吃过两次夜宵的人贴「夜宵常客」。
-     */
+    /** 吃饭画像：从主食构成、各餐天数、每顿均价里挑几个够显著的特征，最多四个。 */
     fun personaTags(
         food: Map<String, Double>,
         meals: Map<String, MealTimeStats>,
@@ -221,11 +216,7 @@ object CampusCardAnalysis {
     }
 }
 
-// ==================== 从 `CampusCardApi` 搬来的纯统计 ====================
-//
-// 下面这一批原来挂在 :app 的 `CampusCardApi` 上（它自己也只用这些函数算东西，不碰网络），
-// 但**屏与 ViewModel 在 :core**，所以它们必须跟过来 —— 留在 :app 就等于「取数在两端、算数只有
-// Android 会算」。搬过来时一行逻辑未改，只换了「住址」：`CampusCardApi.xxx(...)` → `CampusCardAnalysis.xxx(...)`。
+// ==================== 纯统计 ====================
 
 /** 食堂档口/品牌名碎片。顺序不重要；「超市」类必须在 classify 里先判。 */
 private val FOOD_MERCHANT_KEYS = arrayOf(
@@ -243,17 +234,7 @@ private val FOOD_MERCHANT_KEYS = arrayOf(
     "风味", "拉面", "米皮", "凉粉", "胡辣汤", "砂锅", "麻食",
 )
 
-/**
- * 餐饮内部的主食分类。
- *
- * 顶层分类（餐饮/超市/洗浴/水电）对食堂党没有信息量——实测一份 600 条的流水里
- * 餐饮占 97.7%，那张饼图等于只有一块。真正有区分度的是「今天吃面还是吃饭」，
- * 所以在餐饮内部再切一层。
- *
- * 顺序即优先级，从上往下第一个命中的生效：
- * 「临沂炒鸡拌饭」既有「炒」也有「饭」，归米饭比归小吃贴切，所以米饭排在前面；
- * 「丸子粉丝汤」有「粉」也有「汤」，它是汤粉不是拌面，靠汤羹在面食之前拦下。
- */
+/** 餐饮内部的主食分类。 */
 private val FOOD_SUB_RULES: List<Pair<String, Array<String>>> = listOf(
     "饮品" to arrayOf("水吧", "吧台", "咖啡", "奶茶", "茶", "果汁", "豆浆", "饮"),
     "汤粥" to arrayOf("粥", "汤", "瓦罐", "砂锅", "胡辣", "馄饨", "丸子"),
@@ -269,9 +250,7 @@ private val FOOD_SUB_RULES: List<Pair<String, Array<String>>> = listOf(
     ),
 )
 
-/**
- * 这笔餐饮属于哪类主食。不是餐饮、或认不出来时返回 null，调用方自行归入「其他」。
- */
+/** 这笔餐饮属于哪类主食。 */
 fun foodSubCategory(tx: Transaction): String? {
     if (classifyMerchant(tx.displayMerchant, tx.description, tx.time) != "餐饮") return null
     val m = tx.displayMerchant.lowercase()
@@ -289,10 +268,7 @@ fun breakdownFood(transactions: List<Transaction>): Map<String, Double> {
     return out.toList().sortedByDescending { it.second }.toMap()
 }
 
-/**
- * 按月汇总。传入查询起止日后：日均按该月落在区间内的天数摊，
- * 区间内没有流水的月份也会占一位（支出为 0），避免跨年趋势把空月藏掉。
- */
+/** 按月汇总。 */
 fun calculateMonthlyStats(
     transactions: List<Transaction>,
     rangeStart: LocalDate? = null,
@@ -357,9 +333,7 @@ fun calculateMonthlyStats(
     }.toList().sortedByDescending { it.month }
 }
 
-/**
- * 消费类别分析（根据商户名 + 交易描述智能分类）
- */
+/** 消费类别分析（根据商户名 + 交易描述智能分类） */
 fun categorizeSpending(transactions: List<Transaction>): Map<String, Double> {
     val categories = mutableMapOf<String, Double>()
     for (tx in transactions) {
@@ -382,11 +356,7 @@ fun hourlyMeals(transactions: List<Transaction>): List<Int> {
     return out.toList()
 }
 
-/**
- * 用餐时段分析（早/中/晚/夜宵）
- * 返回每个时段的次数由【天数】统计（同一天同时段多笔交易算一天）
- * 同时返回"在校天数"——至少有一顿正餐记录的自然日数（用于早餐率分母）
- */
+/** 用餐时段分析（早/中/晚/夜宵），按天数统计次数，并返回在校天数。 */
 fun analyzeMealTimes(transactions: List<Transaction>): Pair<Map<String, MealTimeStats>, Int> {
     // 先按时段收集所有交易，再按日期聚合
     val rawMeals = mutableMapOf<String, MutableMap<String, MutableList<Double>>>()
@@ -435,9 +405,7 @@ fun analyzeMealTimes(transactions: List<Transaction>): Pair<Map<String, MealTime
     return mealStats to activeCampusDays
 }
 
-/**
- * 工作日 vs 周末消费分析
- */
+/** 工作日 vs 周末消费分析 */
 fun analyzeWeekdayVsWeekend(transactions: List<Transaction>): Pair<DayTypeStats, DayTypeStats> {
     val weekday = mutableListOf<Pair<LocalDate, Double>>()
     val weekend = mutableListOf<Pair<LocalDate, Double>>()
@@ -459,13 +427,7 @@ fun analyzeWeekdayVsWeekend(transactions: List<Transaction>): Pair<DayTypeStats,
     return DayTypeStats.from("工作日", weekday) to DayTypeStats.from("周末", weekend)
 }
 
-/**
- * 没有商户名的「电子账户消费」按时段判。
- *
- * 扫码点餐这类不回传档口名，只给一句「电子账户消费」，名字里没有任何餐饮特征词，
- * 全部落进「其他」。但它们清一色出现在饭点、金额也在一餐的量级，当成餐饮比当成
- * 「其他」贴近事实。落在饭点之外的仍旧算不出来，保持「其他」。
- */
+/** 没有商户名的「电子账户消费」按时段判。 */
 private fun mealHour(time: String): Boolean {
     val h = time.substringAfter(" ").substringBefore(":").toIntOrNull() ?: return false
     return h in 6..9 || h in 11..13 || h in 17..19
@@ -493,18 +455,10 @@ private fun classifyMerchant(merchant: String, description: String, time: String
     }
 }
 
-// ==================== 从 `CampusCardCache` 搬来的纯计算 ====================
 
 private val UTILITY_KEYS = listOf("电控", "水控", "能源", "电量", "电费", "水费")
 
-/**
- * 从流水里算今天的消费汇总。流水时间形如 `2026-09-18 12:03:45`，支出金额为负。
- *
- * 首页卡片刷新（refreshCampusCardCache）和校园卡页各算一遍、各写一遍同一组缓存 key，
- * 以前是两段一字不差的复制粘贴，改一处漏一处小组件就对不上，现在都走这里。
- *
- * 「今天」的默认值从 `LocalDate.now()` 换成 [todayInSystemZone]（同一个系统默认时区）。
- */
+/** 从流水里算今天的消费汇总。 */
 fun todaySummaryOf(transactions: List<Transaction>, today: LocalDate = todayInSystemZone()): TodaySpendSummary {
     val todayStr = today.toString()
     val spends = transactions.filter { it.time.startsWith(todayStr) && it.amount < 0 }
@@ -519,15 +473,7 @@ fun todaySummaryOf(transactions: List<Transaction>, today: LocalDate = todayInSy
     )
 }
 
-/**
- * 近 30 天的在校日均：支出 ÷ 有消费的天数。
- *
- * 分母只数刷过卡的日子——放假整周不刷卡，那些天摊进来日均会被压低、可用天数被高估，
- * 正好在快没钱的时候给出最乐观的数。水电一次充几十上百，不是「吃法」，不算进来。
- * 有消费的天数不足 7 天时样本太少，返回 null。
- *
- * 首页、概览、分析三处的「约够几天」都从这里来，数字才对得上。
- */
+/** 近 30 天的在校日均：支出 ÷ 有消费的天数。 */
 fun dailySpendRate(transactions: List<Transaction>, today: LocalDate = todayInSystemZone()): Double? {
     val since = today.minus(29, DateTimeUnit.DAY).toString()
     val until = today.toString()
@@ -549,11 +495,6 @@ fun runwayDays(balance: Double, rate: Double?): Int? =
 fun runwayText(days: Int): String =
     if (days <= 2) "照现在的吃法撑不过 3 天" else "照现在的吃法约够 $days 天"
 
-// ── `String.format("%.Nf")` 的跨端等价实现（JVM 专属，且是默认导入，import 判据看不见） ──
-//
-// 原实现遍布 `"%.2f".format(x)` / `"%.0f%%".format(x)`。这里手写，口径与原实现逐个对齐：
-// 四舍五入到分位（`round` 是「远离零」的半数进位，与 `String.format` 的 HALF_UP 同）、
-// 负零照样给 `-0`（Java 的 `"%.0f".format(-0.4)` 就是 `-0`）。非有限值原样给出。
 
 /** `"%.2f".format(value)` —— 金额两位小数。 */
 fun money2(value: Double): String = fixed(value, 2)

@@ -18,14 +18,7 @@ import okhttp3.FormBody
 import okhttp3.Request
 
 /**
- * 体测取数（`:app` 端）。模型（[FitnessYear] / [FitnessScore] / [FitnessItem]）、
- * 学年排序与解析（`orderedFitnessYears` / `pickFitnessYear` / `parseFitnessAcademicYear`）、
- * 分数格式化（[formatFitnessScore]）已全部搬进 `:core`（见 `fitness/FitnessModels.kt`），
- * 屏幕也搬走了（`fitness/FitnessScreen.kt`）—— 这个文件只剩**取数**：v3 加密协议优先，
- * 失败退回 legacy PHP 路径（两条都是 okhttp，行为与搬迁前一致）。
- *
- * 唯一被替换的写法：`String.format(java.util.Locale.US, "%.2f", it)` 换成共享的
- * [formatFitnessScore]（`String.format` 是 JVM 专属，且在 JVM 上是默认导入）。
+ * 体测取数：v3 加密协议优先，失败退回 legacy PHP 路径。模型与格式化在 `:core` 的 `fitness/FitnessModels.kt`。
  */
 class FitnessApi(private val site: SiteSession) : FitnessSource {
     private val refererUrl

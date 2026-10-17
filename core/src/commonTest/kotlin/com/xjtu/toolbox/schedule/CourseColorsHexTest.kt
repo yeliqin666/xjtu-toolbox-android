@@ -5,22 +5,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
 
-/**
- * [CourseColors] 的十六进制解析/回写，以及「设过色 / 没设过」的判定。
- *
- * 原文件在 `app/src/test/java/com/xjtu/toolbox/schedule/CourseColorsHexTest.kt`：`CourseColors`
- * 搬进 commonMain 后一并搬来（留在 :app 只会重演交接文档 §1.1 那 10 个 `NoSuchMethodError`）。
- * 换壳：JUnit → kotlin.test；`assertNull(message, actual)` 的参数序在 kotlin.test 里是
- * `(actual, message)`。
- *
- * 后两个用例是**为了让搬迁后的改写有覆盖**才加的：
- *  - `toHex` 原来的 `"%06X".format(...)` 是 JVM 专有（且在 JVM 上是默认导入，import 判据看不见它），
- *    改成了手写补零 —— 只有 RGB 高位为 0 的颜色（如 `#0000FF`）能区分这两种写法；
- *  - `of()` 的判定从 `prefs.contains` 换成了 `KeyValueStore.contains`，而它存在的理由就是
- *    「用户正好把颜色设成某个默认值」时也不能被当成「没设过」。
- *
- * 这两个用例跑在 `:core:jvmTest`（jvm 的落盘 KeyValueStore）里，Android 侧走同名 SharedPreferences。
- */
+/** [CourseColors] 的十六进制解析/回写，以及「设过色 / 没设过」的判定。 */
 class CourseColorsHexTest {
 
     @Test

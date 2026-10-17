@@ -15,18 +15,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
-/**
- * S2：桌面（jvm）store 投影的验收（§7 A1 / A2 / A13 前半）。
- *
- *  - **A1** 键集合相等：`archiveStoreBackend().storeNames()` 能枚举出端内 store，`readStore` 的
- *    `keys == 端内键`；
- *  - **A2** 带类型值读出来与端内一致：`s`/`b`/`i`/`set` 走端内 `keyValueStore(name)` 真写、投影真读；
- *    `l`/`f` 走 §6.3 的反推（Properties 只有字符串），并顺带钉 `#written_at` 折进 `at`（A10 的投影半）；
- *  - **A13 前半** `archiveDataRoot()` 与 `:data` 的 `dataFilesDir()` 同值。
- *
- * 隔离口径：每条用例各指一个临时根（[keyValueStoreRootOverride] / [dataRootOverride]），
- * `finally` 复位；store 名按用例唯一，避开 `keyValueStore(name)` 的进程内 memo 跨用例串根。
- */
+/** 桌面（jvm）store 投影的验收（§7）。 */
 class ArchiveStoreBackendJvmTest {
 
     private fun withRoot(block: (File) -> Unit) {
@@ -72,8 +61,6 @@ class ArchiveStoreBackendJvmTest {
 
     @Test
     fun `A2 l f 靠反推，written_at 折进 at 不出现在 keys`() = withRoot { root ->
-        // l/f 在 jvm 的 KeyValueStore 上没有写入口（Properties 只有字符串），按 §6.3 直接写一份
-        // .properties 钉「反推」；顺带把 KeyValueScheduleCacheStore 的旁挂时间戳键折进 at（A10 投影半）。
         File(root, "s2_a2_infer.properties").outputStream().use { out ->
             Properties().apply {
                 setProperty("last_auto_update_check_at", "1760000000000")

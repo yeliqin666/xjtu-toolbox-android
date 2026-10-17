@@ -55,13 +55,7 @@ internal object HeadlessSessions {
         }
     }
 
-    /**
-     * 后台临时会话。
-     *
-     * 不再收 `Context`：账号表（`AccountStore`）本轮搬进 `:data`，它现在走 `:data` 的密文键值缝
-     *（Android 的 actual 仍是同一个 `SecurePrefs` 文件），不需要宿主的句柄了 —— 那两个调用点
-     *（两个 Worker）与这一处一起改掉，免得留一个没人用的参数。
-     */
+    /** 后台临时会话。 */
     suspend fun manager(): SessionManager? {
         SessionManager.active?.let { return it }
 

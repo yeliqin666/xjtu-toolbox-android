@@ -27,19 +27,7 @@ import kotlinx.coroutines.launch
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
-/**
- * 联机大厅：**流程**在这里（与棋种无关），**界面**在平台侧。
- *
- * 为什么界面不能一起搬进来：大厅 UI 要用到三样平台专属的东西 —— 运行时权限弹窗
- * （`rememberLauncherForActivityResult`）、扫码控件（`QrScannerView`，是个 Android View）、
- * 以及把二维码字符串画成图片（`android.graphics.Bitmap`）。浏览器里这三样都不存在，
- * 而且**浏览器没有 BLE**，Web 端根本不可能开房/加入 ⇒ Web 的做法是「整个联机入口不出现」
- * （`OnlineLobby` 传 null），而不是做一个假大厅。
- *
- * 所以这条缝的粒度是「联机这件事」：`:core` 出 [OnlineLobbyState] + [OnlineLobbyHost] +
- * [OnlineLobby]，`:app` 用蓝牙实现 [OnlineLobbyHost]、用 Android 控件实现 [OnlineLobby.Content]，
- * 棋盘屏只认 [OnlineLobby]。**Android 的行为逐字不变**（大厅 UI 一行没改，只是从屏内挪到了接口后面）。
- */
+/** 联机大厅：流程在这里（与棋种无关），界面在平台侧。 */
 
 enum class LobbyStage { CHOOSE, HOST_WAITING, JOIN_SCANNING, JOIN_CONNECTING, FAILED }
 
@@ -63,12 +51,7 @@ sealed class JoinAttempt {
     data class Success(val session: OnlineGameSession) : JoinAttempt()
 }
 
-/**
- * 联机大厅的宿主能力（**只有 Android 有实现**，因为只有 Android 有 BLE）。
- *
- * 三个方法各自返回「能不能做」而不是抛异常：权限没给、蓝牙没开都是正常状态，
- * 要变成一句用户能照着做的提示，不是崩溃。
- */
+/** 联机大厅的宿主能力（只有 Android 有实现，因为只有 Android 有 BLE）。 */
 interface OnlineLobbyHost {
     /** 现在能不能开房（蓝牙开着 + 权限齐）。 */
     fun canHost(): Boolean
@@ -88,11 +71,7 @@ interface OnlineLobbyHost {
     )
 }
 
-/**
- * 平台提供的联机入口：一个 [OnlineLobbyHost] + 一段大厅界面。
- *
- * 棋盘屏只认这个接口；Web 传 null ⇒ 模式切换里**没有**「联机对战」这一格。
- */
+/** 平台提供的联机入口：一个 [OnlineLobbyHost] + 一段大厅界面。 */
 interface OnlineLobby {
     val host: OnlineLobbyHost
 
@@ -110,14 +89,7 @@ interface OnlineLobby {
     )
 }
 
-/**
- * 联机大厅的状态：放在**棋盘页**（而不是大厅组件）里记住。
- *
- * 以前这些都是大厅组件自己的 remember，外加一个组件自己的协程作用域：用户在「联机对战」
- * 等人时切到「人机对战」看一眼，大厅离开组合，房间被关、等人的协程被取消，切回来又是一张新码。
- * 现在状态和协程都挂在 [scope]（棋盘页的作用域）上，切 tab 不丢；离开整个棋盘页时由
- * [rememberOnlineLobbyState] 统一收尾。
- */
+/** 联机大厅的状态：放在棋盘页（而不是大厅组件）里记住。 */
 @Stable
 class OnlineLobbyState(
     val scope: CoroutineScope,
@@ -233,12 +205,7 @@ fun rememberOnlineLobbyState(scope: CoroutineScope, host: OnlineLobbyHost): Onli
     return state
 }
 
-/**
- * 大厅里的一行选项：左边名称，右边一排互斥的小块。
- *
- * 从 :app 的 `OnlineLobby.kt` 搬进 commonMain：围棋屏要在房主开房前画「棋盘路数」，
- * 那段 `hostOptions` 是共享屏自己拼的，所以这两个小组件必须跟它同侧。
- */
+/** 大厅里的一行选项：左边名称，右边一排互斥的小块。 */
 @Composable
 fun LobbyOptionRow(label: String, content: @Composable () -> Unit) {
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {

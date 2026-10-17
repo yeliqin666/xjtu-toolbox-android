@@ -14,14 +14,6 @@ import com.xjtu.toolbox.web.ToolboxWebApp
 @OptIn(ExperimentalComposeUiApi::class)
 fun main() {
     ComposeViewport(viewportContainerId = "composeApp") {
-        // 与 Android 端**同一个主题包裹**（`:core` 的 XJTUToolBoxTheme：深浅色覆盖 + 系统栏切口）。
-        // 上一版这里是裸的 `MiuixTheme(ThemeController(ColorSchemeMode.System))` —— MIUIX 虽然同源，
-        // 但少了 :core 那层包裹，界面风格选项（浅色/深色/跟随系统）与系统栏处理就跟 App 不是一条路。
-        //
-        // 深色模式跟着 `:core` 的 `SettingsStore` 走（wasm 上落 localStorage，键与 :app 的
-        // `app_settings` 逐字相同）：设置屏（底栏第五格「我的」→ 共享设置屏）改完会调
-        // `onAppearanceChanged`，这里重新读一次 —— 键值缝没有监听器，所以由这一戳叫醒，
-        // 与 `:desktop` 那份（`ToolboxDesktopApp` 的 `appearanceTick`）同一个写法。
         var appearanceTick by remember { mutableIntStateOf(0) }
         val settings = remember { SettingsStore() }
         XJTUToolBoxTheme(

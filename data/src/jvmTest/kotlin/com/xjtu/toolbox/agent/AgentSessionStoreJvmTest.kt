@@ -12,18 +12,7 @@ import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
-/**
- * 屁岱的多会话落盘（`:app` → `:data` 的那一条）。
- *
- * 会话是**一会话一文件**（`index.json` + `convo_<id>.json`），所以「搬迁不许改落盘口径」这件事
- * 只能靠文件名与 JSON 指向钉：老用户的会话全在这些文件里，换格式就等于会话全丢。
- * 这份测试因此逐条钉住：
- *
- * 1. 目录与文件名（`agent_sessions<suffix>/index.json`、`convo_<id>.json`）与搬迁前逐字相同；
- * 2. 索引里的字段名（`id/title/createdAt/updatedAt/locked`）与旧文件读得回来；
- * 3. 老会话缺新字段（`images`、`contextExhausted`）时仍能反序列化；
- * 4. 切账号即换目录，两个账号的会话互相看不见。
- */
+/** 屁岱的多会话落盘。 */
 class AgentSessionStoreJvmTest {
 
     private lateinit var root: File

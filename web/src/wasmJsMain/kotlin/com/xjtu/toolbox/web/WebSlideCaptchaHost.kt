@@ -43,36 +43,7 @@ import kotlin.time.Instant
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
-/**
- * 场馆滑块验证码的 **Web（Kotlin/Wasm）宿主** —— serve 模式下场馆下单要的就是它。
- *
- * ## 它为什么必须存在
- *
- * serve 模式下屏幕上的写路径要走出这两步：`GET /api/venue/captcha`（服务端把挑战**按值**端出来）
- * + `POST /api/venue/book`（把 `captchaId` 与轨迹原文带回去）。**画滑块**这一步没有别的地方能干：
- * `:data` 的 `SliderCaptchaView` 与那把自动识别器（`VenueCaptchaSolver`）都长在 jvm/android 两个
- * 目标上（`:data` 至今只有这两个目标）—— 浏览器里**引用不到**它们。所以与本仓其余三端同一条规矩：
- * 画滑块由宿主端各出一份，轨迹协议只有一套（下面那条 [SliderResult]）。
- *
- * ## 与 Android/桌面同一条协议
- *
- * 与 `:data` 的 `SliderCaptchaView` / `:desktop` 的 `DesktopSlideCaptchaHost` 逐项一致：
- *
- * - 显示宽度固定 `260dp`（与网页端 CSS 像素那一套对齐），高度按背景图比例；
- * - 轨迹点一律换算成 **260 坐标系**（`x`/`y` 都乘 `260 / displayWidthPx`），形状是
- *   `down`（起点）→ 若干个 `move` → `up`（松手位置，**带位移**）；
- * - `t` 是「验证码出现在屏上之后过了多久」（第一个点是 `captchaViewDelay`，与两端同一条
- *   「先看一下再拖」的节奏口径）；
- * - `startSlidingTime` / `entSlidingTime` 是真实时刻的 ISO-8601 UTC 字符串（`ISO_INSTANT` 的形状）——
- *   这是**写进请求的线上格式**，服务端 `:data` 的 `submitBooking` 只把它拼进 `yzm`，不再解析它。
- *
- * ## 自动识别这一半：浏览器里如实没有
- *
- * [solve] 恒返回 `null`（=「识别不出来，请手动滑动」那一档）：`:core` 的 `decodeImagePixels`
- * 在 wasm 上本来就恒 `null`（skiko 没有那条路，见那条缝的 KDoc），本端也没有「自动识别验证码」
- * 那个设置项 —— 屏传下来的 `autoSolveCaptcha` 是默认的 `{ false }` ⇒ 这一段根本不会被调到。
- * 返回 null 而不是假装解出来了：解不出就是解不出。
- */
+/** 场馆滑块验证码的 Web（Kotlin/Wasm）宿主 —— serve 模式下场馆下单要的就是它。 */
 object WebSlideCaptchaHost : SlideCaptchaHost {
 
     @Composable
@@ -88,17 +59,11 @@ object WebSlideCaptchaHost : SlideCaptchaHost {
         )
     }
 
-    /**
-     * 见类 KDoc：浏览器里没有识别器（也没有那个设置项），如实 null。
-     */
+    /** 浏览器里没有识别器 ⇒ null。 */
     override suspend fun solve(data: CaptchaData, shownAtMillis: Long): SolvedCaptcha? = null
 }
 
-/**
- * 浏览器里的滑块面板（新写的宿主实现，不是搬 Android 的渲染）：图用 `:core` 的 [decodeImageFull]
- * （wasm 侧是 skiko）、base64 用 `kotlin.io.encoding.Base64`（`java.util.Base64` 在 wasm 上没有），
- * 拖动用 Compose 的 `detectDragGestures`（与桌面宿主同一套手势）。
- */
+/** 浏览器里的滑块面板。 */
 @Composable
 private fun SliderCaptchaPanel(
     backgroundImageBase64: String,
@@ -122,7 +87,7 @@ private fun SliderCaptchaPanel(
 
     val density = LocalDensity.current
 
-    // 尺寸兜底与 `:data` 那份同一条口径：服务端字段只在位图不可用时顶上（下面每一处布局都要拿 bgW 做除数）
+    // 服务端尺寸只在位图不可用时顶上（下面布局都拿 bgW 做除数）
     val bgW = bgOriginalWidth.takeIf { it > 0 } ?: bgBitmap.width
     val bgH = bgOriginalHeight.takeIf { it > 0 } ?: bgBitmap.height
     val slW = sliderOriginalWidth.takeIf { it > 0 } ?: sliderBitmap.width
@@ -256,13 +221,7 @@ private fun SliderCaptchaPanel(
     }
 }
 
-/**
- * 把一次手动拖动的原始状态合成服务端 [SliderResult] —— 与 `:data` 的 `SliderCaptchaView`
- * 的 `onDragEnd`、`:desktop` 的 `encodeDesktopSlideResult` 同一个协议：260 坐标系、up 点带位移、
- * 两个时刻是 ISO-8601 UTC 的真实时刻。单独抽出来是为了让这条编码路径能被测到（不需要点开浏览器）。
- *
- * @param trackPoints 已按 260 坐标系记录好的 down/move 点（不含 up 点）。
- */
+/** 把一次手动拖动的原始状态合成服务端 [SliderResult]。 */
 internal fun encodeWebSlideResult(
     serverSliderHeight: Int,
     offsetXPx: Float,

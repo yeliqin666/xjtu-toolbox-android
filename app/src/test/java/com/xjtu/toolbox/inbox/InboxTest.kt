@@ -160,8 +160,6 @@ class InboxTest {
         val borrow = InboxItem(id = "b", category = InboxCategories.school("图书馆借阅系统"), source = "图书馆借阅系统", title = "图书即将到期", time = now - hour)
         val merged = InboxRules.merge(InboxData(messages = listOf(seat, borrow)), emptyList(), now)
         assertEquals(listOf("b"), merged.messages.map { it.id })
-        // 「解析阶段就该把座位类消息丢掉」那半（`SchoolInbox.parseMessages`）跟着取数搬进 `:data` 了，
-        // 断言在 `:data:jvmTest` 的 `InboxApiJvmTest`（`internal` 跨不了模块边界）。
     }
 
     @Test
@@ -195,6 +193,4 @@ class InboxTest {
         assertEquals("图书馆预约系统", InboxRules.signature(body))
         assertNull(InboxRules.signature("没有落款的正文"))
     }
-    // 解析学校消息 / 事务中心待办 的两条用例跟着 `SchoolInbox` 搬进 `:data:jvmTest`（`InboxApiJvmTest`）：
-    // 那两个函数是 `internal`，跨不了模块边界。
 }

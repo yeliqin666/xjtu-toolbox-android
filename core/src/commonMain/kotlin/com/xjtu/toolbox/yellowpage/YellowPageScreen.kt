@@ -62,11 +62,7 @@ import top.yukonga.miuix.kmp.basic.rememberTopAppBarState
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.utils.overScrollVertical
 
-/**
- * 校园黄页。屏幕本身不再持有任何 Android 依赖：取数走注入的 [api]（缓存由宿主用
- * [YellowPageCache] 提供），拨号走平台能力 [rememberPhoneDialer]，错误文案由宿主注入
- * [errorText]（:app 传的是 `FriendlyError.of(it, "加载")`，行为与搬迁前逐字一致）。
- */
+/** 校园黄页。 */
 @Composable
 fun YellowPageScreen(
     api: YellowPageSource,

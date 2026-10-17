@@ -43,15 +43,7 @@ import top.yukonga.miuix.kmp.overlay.OverlayDialog
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.utils.overScrollVertical
 
-/**
- * 评教列表的共享壳：两个 Tab（未评/已评）+ 课程卡。
- *
- * **数据源由调用方给**（[JudgeViewModel] 包着一个 [JudgeSource]）：本科走教务、研究生走 gste+gmis，
- * 这两条都在 :app；Web 端走 campus-api 的 `/api/jwxt/evaluations`（只读）。
- *
- * 提交相关的那两处 UI（「一键全部好评」与撤回）由 [JudgeSource.canSubmit] 控制：
- * Web 端是**只读**的（campus-api 的 evaluations 模块永不实现提交/撤销评教）⇒ 不画一个点了会失败的按钮。
- */
+/** 评教列表的共享壳：两个 Tab（未评/已评）+ 课程卡。 */
 @Composable
 fun <Q> JudgeListScreen(title: String, vm: JudgeViewModel<Q>, onBack: () -> Unit) {
     // 会话失效：与校历/体测/成绩同一条缝（:app 注入 AppLoginState.handleAuthExpired）

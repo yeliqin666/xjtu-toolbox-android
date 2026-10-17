@@ -9,19 +9,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 import kotlinx.coroutines.runBlocking
 
-/**
- * 全校课表取数的**字段级口径**：`SchoolCourseApi` 对着 `:testkit` 的 `JwxtFakeUpstream` 逐字段读。
- *
- * ## 这些断言从哪来
- *
- * 全部来自**夹具原文**（`JwxtFakeUpstream` 里那些 JSON 字符串）与 `:core` 里已经钉过的口径
- * （`safeInt/safeDouble` 的默认值、`TermOption` 的 `MC ?: DM` 兜底、按名字排序），
- * **不是从跑通的实现里抄回来的** —— 夹具第二、三行刻意缺几个键，就是为了让「缺字段给什么」
- * 有一个写在明面上的答案。
- *
- * 请求那一侧的断言（`lastQueryForm` 里的 `querySetting`）同样对着夹具反查：夹具只认带
- * `*order=-DM` / `querySetting=` 的请求，而那些条件该不该出现、以什么形状出现，在这里钉住。
- */
+/** 全校课表取数的字段级口径：`SchoolCourseApi` 对着 `:testkit` 的 `JwxtFakeUpstream` 逐字段读。 */
 class SchoolCourseApiJvmTest {
 
     /** 夹具与生产必须指同一个站点：URL 漂了的话，下面这些断言测的就不是真协议。 */

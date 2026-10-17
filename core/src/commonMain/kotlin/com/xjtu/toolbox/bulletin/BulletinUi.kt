@@ -1,13 +1,5 @@
 package com.xjtu.toolbox.bulletin
 
-// 校园公告的两个**宿主面**（首页顶部那条堆叠条 + 冷启动弹框）—— 从 `:app` 搬进 `:core`
-// （同包同名）。理由是它们是「公告的消费侧」：模型与规则（`Bulletin` / `BulletinRules`）、
-// 本地状态（`BulletinStore`）与取数（`:data` 的 `BulletinApi`）都已在共享层，只留这层 UI 在
-// `:app` 的话，别的端要点亮公告条/冷启动弹框就得抄第二份。搬入时**一行未改**，只有两处对齐：
-//  1. `internal` → 公开：`internal` 是**模块内**可见性，`:core` 的 internal 对 `:app` 不可见，
-//     而两个消费点（`main/HomeTab.kt` 的公告条与 `main/LaunchNotices.kt` 的启动弹框）要跨模块用它；
-//  2. `import com.xjtu.toolbox.auth.*` 那一行删掉 —— 它在 `:app` 里就没被用到，搬进来会变成
-//     一条没用的通配 import。除这两处，画法与文案逐字未动。
 
 import com.xjtu.toolbox.platform.BackHandler
 import androidx.compose.animation.*

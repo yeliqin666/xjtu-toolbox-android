@@ -80,85 +80,7 @@ import kotlin.system.exitProcess
 import kotlinx.coroutines.runBlocking
 import kotlinx.datetime.LocalDate
 
-/**
- * `./gradlew :desktop:renderScreens` —— 把屏**离屏**渲染成 PNG，作为桌面端的可视化证据。
- *
- * ## 它回答哪几条验收
- *
- * | 图 | 内容 | 证明什么 |
- * |---|---|---|
- * | `login.png` | 登录页（空输入框） | `:core` 的共享登录屏在桌面真画得出来；**不预填学号**（红线） |
- * | `library-after-login.png` | 图书馆座位屏，**用刚输入的凭据真登进去**之后的 | Stage A 的验收本体：桌面端自己登录、自己取数（`:data` 的会话内核 + `LibraryApi`） |
- * | `shell-after-login.png` | 整个外壳（底栏 + 图书馆屏；首屏显式给图书馆） | 外壳与底栏在登录后正确切换。外壳的**默认**首屏是首页（见 `home.png` / `main.png`）—— 这一张显式给图书馆，因为要拍的正是「外壳 + 某一屏」这件事本身 |
- * | `fitness.png` | 体测屏（真路由：外壳 → `AppRoute.Fitness` → `FitnessApi`） | 第五条真数据路由：https 站点、CAS 回跳后的 launch 会话、v3 取数 |
- * | `schoolcourse.png` | 全校课表屏（真路由 + 真查询：外壳 → `AppRoute.SchoolCourse` → `AppSchoolCourseSource`） | 第六条真数据路由：登录后的学期 / 开课单位 / 课程卡片都是夹具样本（屏不会自己发查询，这张图靠 semantics 点一下「搜索」，见 [clickByLabel]） |
- * | `scorereport.png` | 成绩报表屏（真路由：外壳 → `AppRoute.ScoreReport` → `scoreReportSource`） | 第七条真数据路由：学号取自登录时的 `AccountContext.activeAccountId`，图上按学期分组的成绩是夹具样本 |
- * | `judge.png` | 学生评教屏（真路由：外壳 → `AppRoute.Judge` → `UndergraduateJudgeSource`） | 第八条真数据路由：与课表/成绩同一个教务站点（同一份会话），上游是 `wspjyyapp`；图上未评那三张卡片的课名/教师/标签都是夹具样本 |
- * | `campuscard.png` | 校园卡屏（真路由：外壳 → `AppRoute.CampusCard` → `AppCampusCardSource`） | 第九条真数据路由：**https** 站点（ncard）、CAS 回跳那一跳上换 JWT，缓存传 `null`；图上余额 / 待入账 / 今日三餐与流水都是夹具样本 |
- * | `payment_code.png` | 付款码屏（真路由：外壳 → `AppRoute.PaymentCode` → `DesktopSiteGate(校园卡)` → `PaymentCodeApi`） | 第二十六条真数据路由：站点就是**校园卡**（付款码借它的 JWT，不另建会话），屏与取数本轮才搬进 `:core`/`:data`；图上那串码（`60041234000000000001`）与两张加餐券都是夹具样本，二维码/条形码是拿那串码**现场编出来的**（判据见 `DesktopAuthPaymentCodeJvmTest` 里那个「解回同一串数字」） |
- * | `emptyroom.png` | 空闲教室屏（真路由：外壳 → `AppRoute.EmptyRoom` → `AppEmptyRoomSource`） | 第十条真数据路由：三档数据源里那一档「实时状态」要智慧教室站点（https，CAS 回跳后把票换成 `TOKEN-AUTH`）—— 会话由**源自己 ensure**（所以不套 `DesktopSiteGate`）；图上楼分组、四间教室、空闲/上课中/「其它使用」与「实时 · HH:MM」都是夹具样本 |
- * | `venue.png` | 体育场馆屏（真路由：外壳 → `AppRoute.Venue` → `DesktopSiteGate` → `AppVenueSource`） | 第十一条真数据路由：登录要先过 `org.xjtu.edu.cn` 的 OAuth2 → CAS → 回跳（场馆站本身是明文 http）；图上九个场馆名（两页拼起来）都是夹具样本。这一端 `canBook = false`（滑块控件搬不到桌面）⇒ 只有读的那一半 |
- * | `inbox.png` | 消息收纳屏（真路由：外壳 → `AppRoute.Inbox` → `AppInboxSource`） | 第十二条真数据路由：一网通办那四路（消息 / 事务中心 / 预约 / 校车），会话由**源自己 ensure**（不套 Gate）；图上待办那两栏的条目与「预约中心 有 3 个…」都是夹具样本 |
- * | `notification.png` | 通知公告屏（真路由：外壳 → `AppRoute.Notification` → `AppNoticeSource`） | 第十三条真数据路由：29 个公开的公告页里夹具扮了 3 个（教务处 / 化工学院 / OA），这是最后一条 pending 路 —— 图上那三条教务处通知（默认来源）的标题/日期/标签都是夹具样本，不是错误页或转圈 |
- * | `transcript.png` | 电子成绩单屏（真路由：外壳 → `AppRoute.Transcript` → `DesktopSiteGate` → `AppTranscriptSource`） | 第十四条真数据路由：`dzpz` **有自己的独立登录页**（`Login.jsp` → CAS OAuth2 → 回跳换 `loginidweaver`），屏与七步流程都在 `:core`，PDF 落盘在桌面上写用户的下载目录；图上那一条成绩单类型、申请日期与「一键申请成绩单」按钮都是夹具样本 |
- * | `coupon.png` | 加餐券屏（真路由：外壳 → `AppRoute.Coupon` → `DesktopSiteGate` → `AppCouponSource`） | 第十五条真数据路由：`egc.xjtu.edu.cn` **有自己的独立登录页**（CAS OAuth2 `client_id=1596` → `org.xjtu.edu.cn` 开放平台 → 回落到 receiveCas.html 换 `auth_token`），屏与分页/领取的编排都在 `:core`；图上「可使用」那两批券卡与摘要行都是夹具样本 |
- * | `dormpower.png` | 宿舍电费屏（真路由：外壳 → `AppRoute.DormPower` → `DesktopSiteGate` → `DormPowerApi`） | 第十七条真数据路由：`ssn.xjtu.edu.cn/cems` **有自己的独立登录链**（`org.xjtu.edu.cn` 开放平台 OAuth2 `appId=1759` → CAS → 带 `code` 回缴费页换会话），屏在 `:core`；桌面端没有内置浏览器，`browser` 槽位用系统浏览器打开、本窗给一句去向（图上那句「缴费页已交给系统浏览器打开…」就是夹具样本） |
- * | `browser.png` | 内置浏览器的**桌面等价物**：外链中转页（真路由：外壳 → `AppRoute.Browser("https://notice.example.invalid/…")` → 本端 `DesktopBrowser.kt`） | 这条路由的屏在 `:app` 是 `browser/BrowserScreen.kt`（629 行的 WebView + 自己的顶栏地址栏 / 前进后退 / 复制 / 「在外部浏览器打开」 + 往 WebView 里注 App 的校园会话 + `then=` 那一跳 + 夜间模式）；桌面端没有 WebView 这一层 ⇒ 这一端只做那条路由**真交出去**的那件事：把地址交给系统浏览器，本窗只给去向（与 `DesktopPayPage`、`DesktopVideoPlayerHost` 同一套口径）。图上那个网址是 `.invalid` 夹具（永远解析不出来）；交出去的地址与 `:app` 顶栏那颗「在外部浏览器打开」用的是**同一份** `shareableUrl`（本轮按五步法搬进 `:core`，判据在 `:core:commonTest` 的 `ShareableUrlTest` 与 `DesktopBrowserJvmTest`）。这一枪**只画不点**（那两颗按钮一颗会真去弹系统浏览器、一颗会碰系统剪贴板），断言三条：那句如实说明在、网址在、**`NotPortedScreen` 的标题不在** |
- * | `attendance.png` | 考勤屏（真路由：外壳 → `AppRoute.Attendance` → `DesktopSiteGate` → `AppAttendanceSource`） | 第十六条真数据路由：`bk-kq.xjtu.edu.cn` **有自己的独立登录入口**（`AttendanceLogin` 直连业务站的 CAS `student-pc` 入口 → 回调带 loginRequestId+ticket 换业务令牌），屏/VM 与取数端口都在 `:core`，桌面端没有 SAF 文件选择器 ⇒ `pickEvidenceFiles` 用默认；图上「流水」那一栏的夹具课名（光电子学（假））与姓名行都是夹具样本 |
- * | `lms.png` | 思源学堂屏（真路由：外壳 → `AppRoute.Lms` → `DesktopSiteGate` → `AppLmsSource`） | 第十八条真数据路由：`lms.xjtu.edu.cn` **直接 CAS 回跳**（`LmsLogin.loginUrl` = lms 根路径，与教务同型、没有独立登录页），屏在 `:core`，落盘是 `DesktopLmsSaver`；图上课程列表那门夹具课（数据结构（示例课））与老师名都是夹具样本 |
- * | `jwapp.png` | 成绩屏（真路由：外壳 → `AppRoute.JwappScore` → `DesktopSiteGate` → `AppJwappScoreSource`） | 第十九条真数据路由：`jwapp.xjtu.edu.cn` **有自己的独立登录链**（开放平台 `appId=1370` → CAS → 回跳带 `token`，令牌从回调 URL 里抠出来当 `Authorization`）；这一屏的上游是**两个站点**（jwapp 那份粗分 + 教务 `xscjcx` 的精确总评，各自一份会话）；图上那门课（高等数学（上））与精确成绩都是夹具样本 |
- * | `iclassface.png` | 快速考勤流水屏（真路由：外壳 → `AppRoute.Iclassface` → `DesktopSiteGate` → `AppIclassfaceSource`） | 第二十条真数据路由：`iclassface.xjtu.edu.cn` 走 CAS OAuth2 `client_id=1543` → 开放平台 `authorizesw` 中转 → 回落 `/oauth/callback/xjtu_new`（凭据就是 `PHPSESSID`）；图上那行签到记录（姓名 / 时间 / 地点 / 类型）是夹具样本 |
- * | `community.png` | 社区屏（真路由：外壳 → `AppRoute.Community`；登录态与取数都是 `:data` 的实现） | 第二十一条真数据路由：上游是 GitHub（`github.com/login` 的设备码 + `api.github.com` 的 GraphQL），不套 `DesktopSiteGate`（没有学校会话可建）；这张图先把一份夹具令牌写进 `SecureGithubSession`（同一个存储名与键），于是图上那条帖子（示例讨论…）与分类都是从假 GitHub 拉回来的 |
- * | `feedback.png` | 反馈屏（真路由：外壳 → `AppRoute.Feedback` → `AppFeedbackSource`） | 第二十二条真数据路由，也是唯一一条**没有校园站点会话**的：上游是飞书开放平台（`open.feishu.cn`），凭据是宿主注入的 `app_id` + `app_secret` 换一张租户令牌；屏与本地账本在 `:core`（键值缝，与 Android 同一份 `feedback` 存储），取数在 `:data`。图上那张工单与那句开发者回复、两条公开问答都是从假飞书拉回来的（证据运行先往本地账本补一张工单） |
- * | `jiaocai1.png` | 教材全文库屏（真路由：外壳 → `AppRoute.Jiaocai1` → `DesktopSiteGate(教材中心)` → `AppJiaocai1Source`） | 第二十三条真数据路由：站点是**教材中心**（`jiaocai.lib`）—— 全文库借它的会话（`/entry/login` → CAS → 超星 SSO），业务侧那张 `var logoutUrl=…` 的跳转页由 `PortalRedirect` 自己跟；屏（书架 + 全文库）在 `:core`，取数与页字节在 `:data`，书架落盘在 `:desktop`。图上那本书是证据运行点两下分类树检索出来的夹具书目 |
- * | `jiaocai1-reader.png` | 教材阅读器（同一条路由的参数形态：`AppRoute.Jiaocai1Reader(ssno, title)`） | 同一条真数据路由的**页加载**那一半：页图是夹具现场画的 JPEG（700×1050，程序生成、不是截图），解码走 `:core` 的图片缝、磁盘缓存在 `:data`；底栏那个「1 / 34」就是夹具那本书的线性页表 |
- * | `jiaocai.png` | 教材查询屏（真路由：外壳 → `AppRoute.Jiaocai` → `DesktopSiteGate(教材中心)` → `AppJiaocaiSource`） | 第二十四条真数据路由：同一个站点（教材中心）的**另一条路由** —— `jiaocai` 域的合并页 `TextbookScreen` 现在也在 `:core`，桌面这一支默认落在「查教材」栅（与 `:app` 的 `initialTab = 0` 同一条口径）。这个栅进屏时关键词是空的，证据运行点了一下搜索建议（`高等数学`）才发起检索；图上那本教材与「本地全文」那个标志都是从假教材中心拉回来的。**「本学期我的教材」那一段在桌面上不显示**（桌面还没有教务课表缓存 ⇒ 端口回空表），这是如实的降级 |
- * | `settings.png` | 设置屏（真路由：外壳 → `AppRoute.Settings` → `:core` 的 `SettingsScreen`） | 第二十七条真数据路由：屏与偏好存储（`SettingsStore`，键值缝）本轮才搬进 `:core`，这一端把偏好落到 0600 的 `app_settings.properties`（与 `:app` 同一批键）。图上是**深色**的 —— 外壳按「深色模式」偏好套主题，所以那一项不只是存下来、这一端真照着办了；拍的过程中还点了一下「跟随系统取色」并断言它落盘。桌面没有的那三组（通知与提醒 / 数据与隐私 / 更新）与那几行（默认启动 Tab / 课表来源 / 触感 / 连接模式）**一个字都不画** —— 见 `DesktopSettingsHost` 的表与 TODO |
- * | `webvpn_converter.png` | WebVPN 转换器屏（真路由：外壳 → `AppRoute.WebVpnConverter` → `:core` 的 `WebVpnConverterScreen`） | 第二十八条真数据路由：屏本轮才搬进 `:core`，转换本体是 `:data` 的 `WebVpnUtil`（`:core` 的 `WebVpnCodec` 缝，与 Android **同一份实现**）。图上的输入与结果都是拍的时候现场做的：往输入框里塞 `https://jwxt.xjtu.edu.cn/`（夹具网址，公开站点名、无凭据）再点「转换」，结果里那串密文域名（`…fae05988692862446b468ca88d1b203b`）就是 AES-128-CFB 真算出来的 —— 与 `DesktopWebVpnCodecJvmTest` 里那一条同值 |
- * | `accounts.png` | 账号管理屏（真路由：外壳 → `AppRoute.Accounts` → `:core` 的 `AccountManagerScreen`） | 第二十九条真数据路由：多账号。屏本轮才搬进 `:core`，动作本体是 `:desktop` 的 `DesktopAccounts`（`:core` 的 `AccountsController` 缝）。拍之前**真切了一次**：上面那次真登录把夹具账号写进了账号表（`AccountStore`），再加一条夹具账号（值都是编的），然后 `switchTo` 第二条 ⇒ 图上的「当前账号」卡与列表高亮都是第二条（`2021000002`），列表里还有第一条（`2021000001`）。头像那一格不传（画首字母圆）、昵称一直为空 —— 两处如实降级见 `DesktopAccounts` 的 KDoc |
- * | `game_merge.png` | 合成西交大的**如实说明页**（`AppRoute.GameMerge`） | 这条路由卡的是**载体**：游戏本体是 `:app` 的 `assets/games/merge/`（HTML + 776 行 JS + Matter.js 物理引擎），跑在 Android 的 WebView 里；桌面端没有 WebView、依赖里也没有 JVM 上的 JS 引擎 ⇒ 这一端没有能执行它的地方。这张图就是那张说明页本身（**不进** `DESKTOP_SUPPORTED_ROUTES`），不是「没搬过来」那个通用页 —— 卡的不是取数 |
- * | `schedule_match.png` | 匹配交友屏（真路由：外壳 → `AppRoute.Match` → `:core` 的 `MatchScreen` + 本端 `DesktopMatchHost`） | 第三十三条真数据路由，也是**最后一条**从「如实说明页」变真屏的路由：算法与模型（`MatchProfile` 一族 / `MatchData` / `DiningHabit`）与屏本轮按五步法搬进 `:core`，deflate/inflate 与 URL-safe Base64 切成 `:core` 的两条平台缝（Android / jvm 是**原来那份实现**；wasmJs 的 D12 ② 之后由 commonMain 里那两份纯 Kotlin 实现顶），扫码与相册那两条收成 `MatchScanner`。这一端一条请求都不发：自己的课表/考试从**本端键值缓存**来（与「我的课表」「首页」同一份），对方的码是拍之前用同一套算法编出来的夹具档案 —— 图上「翻到的交集」里那条「一起上 1 门课」与那个夹具课名就是**离线算出来的**（同一条链在 `DesktopMatchJvmTest` 里逐条钉住）。两处如实降级：桌面没有相机/相册 ⇒「扫一扫」「从相册选图」一个字都不画、只留粘文字码那一条（图上那句说明就是它）；学工档案与校园卡消费这一端没有 ⇒「吃」与「人」那两维在「分享哪些」里是禁用态 |
- * | `schedule.png` | 我的课表屏（真路由：外壳 → `AppRoute.Schedule` → `DesktopSiteGate(教务)` → `:core` 的 `ScheduleScreen` + 本端 `DesktopScheduleHost`） | 第三十条真数据路由，也是本批的主角：屏与 ViewModel 按五步法搬进 `:core`（模型 / `CustomCourseStore` 端口 / 宿主槽位 / `CourseLinks` 按能力切开），这一端只提供宿主面（键值落盘 / 教务会话 / 节假日 / 思源入口）。图上的课名与教室都是夹具样本，而且**是格子画出来的**（`CourseCell` 那两行文本节点），不是只有一段说明文字 |
- * | `agent.png` | 屁岱（真路由：外壳 → `AppRoute.Agent` → `:core` 的 `AgentScreen` + 本端 `DesktopAgentHost`） | 最后一条点亮的路由：屏、调度循环（`AgentRunner`）、工具层的纯逻辑都在 `:core`，这一端交宿主面（配置 / 会话 / 记忆三份**真落盘**、`:data` 的 `SseAgentTransport`、五件接得上的工具）。那一枪的「发一条」走 `:core` 的 `AgentPendingPrompt`（与 `:app` 从提醒气泡进来同一条路），模型那一侧换成夹具传输（`FixtureAgentTransport`，**不连任何 LLM**，回复是写死的常量）—— 图上那条助手气泡就是它，而配置与那轮会话是**真落在临时数据根目录里的文件** |
- * | `agent_welcome.png` | 屁岱的**未配置欢迎页**（同一个 `AppRoute.Agent` 真路由，只把夹具传输换成空配置下的状态） | 与 `agent.png` 同一屏的另一个入口：没接模型时先落在「先接一个模型」那张欢迎页上。这一枪只断言「真路由接上宿主面之后确实落在这张页上」，对话流与落盘由 `agent.png`（及 `DesktopAgentJvmTest`）钉住 |
- * | `home.png` | 首页（真路由：外壳 → `AppRoute.Main` → `:core` 的 `HomeScreen` + 本端 `DesktopHomeScreen`） | 第三十一条真数据路由，也是 Stage C 「宿主机能族」的第一条：首页就是底栏的第一格（不另造一套壳）。这张图上的**第 4 周**、**下周那节课（夹具课名 + 教室）**、**考试倒计时（还有 5 天 · 主楼B-201）**与顶部那条**公告条**都是从**本端键值缓存**算出来的（`HomeHero` / `HomeScheduleStats` / `BulletinFeed` 都是 `:core` 的）；课表/考试/教材是拍之前写进去的夹具（值都是编的），公告那一枪注入的是夹具公告（`.invalid` 域名）。首页一个网络请求都不发 |
- * | `main.png` | 主壳（同一个 `AppRoute.Main`，宽窗 900×900） | 首页接进**现有导航壳**之后的形态：底栏六格（首页 / 校历 / 图书馆 / 黄页 / 游戏 / 全部）都在，第一格「首页」是当前页；同一份夹具缓存与同一条夹具公告。外壳的**默认首屏**这一轮也改成了首页（与 `:app` 落在「Tab 1」同一条口径）—— 原来那个默认（图书馆）的理由是「它是这一端唯一有真数据的屏」，首页点亮之后这条不再成立。**桌面小组件这一端没有**（设计文档 §6 Stage C 的口径是「用系统通知替代」，那条路还没做）—— 它不在这一端任何一个宿主面里，不是「画不出来」 |
- * | `home-dark.png` | 首页，**深色**（同一个 `AppRoute.Main`，与 `home.png` 同一份夹具缓存 / 同一条夹具公告） | 共享壳现在会铺 Scaffold 的 `containerColor`（= `MiuixTheme.colorScheme.surface`）—— 这是一处**看得见的变化**（旧桌面壳那些像素是**透明**的，见 §14 里那一行）。这一对（含 `main-dark.png`）把「换主题时底栏 / 侧栏 / 页面三层是不是都跟着换」变成落在 PNG 像素上的断言，判据见 `bandOf` 那段 |
- * | `main-dark.png` | 主壳（宽窗 900×900），**深色**（与 `main.png` 同一枪） | 宽窗下底栏换成**侧栏**，所以那一条也得单独核：三层里没有哪一层留在浅色主题上 |
- * | `routes.png` | 「全部页面」索引页 | 如实列出「真能用 / 还没有数据源」，并给出退出登录入口 |
- * | `library-demo.png` | 同一屏 + 固定假数据 | 布局与组件本身可复现（不依赖网络/会话，改屏时用它对比） |
- *
- * ## 「真登进去」是怎么在没有真账号的机器上做到的
- *
- * 用 [LibraryFakeUpstream]（`:testkit`）扮演学校那一侧：座位系统 → 302 到统一认证 →
- * **表单 POST 凭据（密码 RSA 加密）** → 种 TGC → 签 ticket 回跳 → 座位系统会话。
- * 本地 HTTP 服务器当 **代理**（`ProxySelector`），URL 一个字符都不改 —— 会话内核里有一批
- * 按 host 判断的判据（`XJTULogin.casPath` 只认 `login.xjtu.edu.cn`、`LibrarySession.validateLogin`
- * 认 `rg.lib.xjtu.edu.cn`），重写 URL 会让它们全部落空，那测的就不是真内核
- * （这条与 `:data:jvmTest` 的 `LibraryLoginSessionJvmTest` 是同一条口径）。
- *
- * ⚠️ 两个坑（都是实测踩到的，注释在代码里）：
- * 1. `HttpClients.base` 是进程级 `by lazy`，会把当时的默认 `ProxySelector` **抄进自己的配置** ⇒
- *    selector 必须**常驻**、读一个可变端口，且在**建任何会话之前**装上；
- * 2. `XJTULogin` 取 RSA 公钥那一枪硬编码 `https://login.xjtu.edu.cn/cas/jwt/publicKey`，
- *    本地假上游给不了（要 CONNECT+TLS）⇒ 照真实路径预置一份缓存公钥（真机上那份由首次登录
- *    自动取回并存进凭据文件，见 [JvmCredentialStore.rsaPublicKey]）。
- *
- * ## ⚠️ 为什么这里**不画** MFA 弹窗
- *
- * `:core` 的 `MfaCodeDialog` 用的是 miuix 的 `WindowDialog`，它在桌面上的实现是
- * `androidx.compose.ui.window.Dialog` ⇒ **一个独立的 AWT 窗口**（`DialogWindow`）。
- * 离屏场景（[ImageComposeScene]）画不进另一扇窗，而没有显示服务器时连创建它都不行。
- * 所以二验那一屏的证据只能由 `:desktop:run` 在真窗口里给（也是它与 `:app` 那份逐条对齐的原因：
- * 同一个组件、同一套文案）。
- *
- * ## 为什么它在 test 源集里
- *
- * 它要 [LibraryFakeUpstream]（`:testkit`）——「任何密码都收」的假统一认证绝不能出现在交付物里。
- * 见 `desktop/build.gradle.kts` 的文件头。
- *
- * `exitProcess(0)` 是必要的：skiko 与 AWT 的事件线程不是守护线程，不主动退出这个 JavaExec 会挂着。
- */
+/** `./gradlew :desktop:renderScreens` —— 把屏离屏渲染成 PNG，作为桌面端的可视化证据。 */
 @OptIn(ExperimentalComposeUiApi::class)
 fun main(args: Array<String>) {
     val outDir = File(args.firstOrNull() ?: "build/screenshots").apply { mkdirs() }
@@ -166,17 +88,11 @@ fun main(args: Array<String>) {
     // 时代的证据，已经不对应今天的实现 —— 留着只会被当成「现在的桌面端长这样」。
     outDir.listFiles { f -> f.isFile && f.name.endsWith(".png") }?.forEach { it.delete() }
 
-    // ── 两个进程级前置，顺序都不能换 ──────────────────────────────────────────
-    //
-    // ① 落盘存储指到临时目录：证据运行绝不碰用户真实数据（`~/.local/share/xjtu-toolbox`），
-    //    也绝不会把「假登录」产生的 cookie 留在一个真账号旁边。必须在任何
-    //    `secureKeyValueStore` / `PersistentCookieJar` 被碰之前设。
+    // ── 两个进程级前置，顺序不能换 ──
+    // ① 落盘存储指到临时目录（必须在碰 `secureKeyValueStore` / `PersistentCookieJar` 之前）。
     val shotsRoot = Files.createTempDirectory("xjtu-desktop-shots").toFile()
     dataRootOverride = shotsRoot
-    // ② 常驻代理 selector（此刻端口 0 = 不走代理）+ 假上游那枚自签 https 证书的信任库。
-    //    两者都必须在 `HttpClients.base` 第一次被初始化**之前**装：它抄下的是「没有代理」，
-    //    而客户端建出来那一刻就把平台 trust manager 也抄走了（体测是 https）。
-    //    详见文件头第 1 条坑与 `:testkit` 的 `FakeUpstreamFront`。
+    // ② 常驻代理 selector + 假上游自签证书的信任库，必须在 `HttpClients.base` 初始化之前装。
     FakeCampusProxy.installFakeUpstreams()
 
     fun shot(
@@ -226,13 +142,7 @@ fun main(args: Array<String>) {
         return root.children.firstNotNullOfOrNull { findNode(it, predicate) }
     }
 
-    /**
-     * 在离屏场景里「点一下」写着 [label] 的那个控件 —— 靠 **semantics** 找它、直接调它的 `OnClick`，
-     * **不靠坐标**：坐标会随布局漂，而 semantics 是屏自己声明的（`clickable`/`Button` 都会带上）。
-     *
-     * 为什么需要它：全校课表那一屏**不会**自己发查询 —— 那一枪要用户点「搜索」，而离屏场景没有鼠标。
-     * 没有语义树（或按钮那时候还是 `enabled = false`）时返回 false，调用方下一帧再试。
-     */
+    /** 在离屏场景里「点一下」写着 [label] 的那个控件。 */
     fun clickByLabel(scene: ImageComposeScene, label: String): Boolean {
         val root = scene.semanticsOwners.firstOrNull()?.rootSemanticsNode ?: return false
         val target = findNode(root) { node ->
@@ -243,24 +153,14 @@ fun main(args: Array<String>) {
         return target.config.getOrNull(SemanticsActions.OnClick)?.action?.invoke() ?: false
     }
 
-    /**
-     * 往**唯一那个带 `SetText` 能力的输入框**里塞一段文本（靠 semantics，不靠坐标）。
-     *
-     * 为什么不是「按 label 找」：`TextField` 的 label 是旁边另一个 `Text` 节点，不在输入框自己的
-     * 语义里（只有占位符/当前文本在）。调用方都在**只有一个输入框**的屏上用（WebVPN 转换器那张图），
-     * 所以按能力找是确定的；多输入框的屏要再写一份按序号的。
-     */
+    /** 往唯一那个带 `SetText` 能力的输入框里塞一段文本（靠 semantics，不靠坐标）。 */
     fun setTextOnFirstField(scene: ImageComposeScene, text: String): Boolean {
         val root = scene.semanticsOwners.firstOrNull()?.rootSemanticsNode ?: return false
         val target = findNode(root) { it.config.getOrNull(SemanticsActions.SetText) != null } ?: return false
         return target.config.getOrNull(SemanticsActions.SetText)?.action?.invoke(AnnotatedString(text)) ?: false
     }
 
-    /**
-     * 语义树里有没有写着（含）[text] 的节点 —— 用作「这一枪真打到屏上了」的判据。
-     * 消息收纳那一屏用它：它的第一枪是**外壳**打的（屏自己只在「下拉刷新」里调 `refresh`），
-     * 没拉到数据时屏上就是一个空列表 —— 那种图不能当「真数据路由」的证据交出去。
-     */
+    /** 语义树里有没有写着（含）[text] 的节点 —— 用作「这一枪真打到屏上了」的判据。 */
     fun hasText(scene: ImageComposeScene, text: String): Boolean {
         val root = scene.semanticsOwners.firstOrNull()?.rootSemanticsNode ?: return false
         return findNode(root) { node ->
@@ -269,12 +169,9 @@ fun main(args: Array<String>) {
     }
 
 
-    // ── ① 登录页（空输入框 · 红线：不预填学号）────────────────────────────────
-    // 走真外壳：没登录 ⇒ 它自己落在 LoginScreen 上，这张图同时证明「壳的切换」是对的。
-    // 单给一个 DesktopAuth（临时数据目录里没有任何凭据 ⇒ 不会被 restore 静默带走）。
+    // ── ① 登录页（空输入框，不预填学号）──
     shot("login.png", frames = 4) { ToolboxDesktopApp(DesktopAuth()) }
 
-    // ── ② 图书馆屏 + 固定假数据：布局/组件本身可复现，与网络无关 ────────────────
     shot("library-demo.png", frames = 4) {
         LibraryScreen(
             source = DemoLibrarySource(),
@@ -285,9 +182,7 @@ fun main(args: Array<String>) {
     }
 
 
-    // ── ③ 黄页（免登录；Ktor 接口 ⇒ MockEngine 喂假响应，不需要服务器/代理）────────
-    // 这张图要的是「有数据时屏长什么样」：类别标签、部门行、可拨号码。
-    // 它**不走** FakeCampusProxy —— 黄页根本不需要会话（见 FakeKtorClients.kt 的 KDoc）。
+    // ── ③ 黄页（免登录；MockEngine 喂假响应）──
     shot("yellowpage.png", frames = 8) {
         YellowPageScreen(
             api = YellowPageApi(mockYellowPageClient()),
@@ -296,7 +191,7 @@ fun main(args: Array<String>) {
         )
     }
 
-    // ── ④ 教师检索（免登录；OkHttpClient 可注入 ⇒ 拦截器喂假上游，不需要服务器/代理）────
+    // ── ④ 教师检索（免登录；拦截器喂假上游）──
     shot("faculty.png", frames = 12) {
         FacultyScreen(
             source = FacultyApiSource(FacultyApi(mockFacultyClient())),
@@ -305,11 +200,9 @@ fun main(args: Array<String>) {
         )
     }
 
-    // ── ⑤⑥⑦⑧⑨ 真登录之后（同一份假上游：图书馆与体测要登录、校历不要）──────────────
+    // ── ⑤⑥⑦⑧⑨ 真登录之后 ──
     withFakeCampus { auth ->
-        // 「用户在登录页敲了字」这一步：用的是假上游那组**编出来的**账号密码
-        //（`LibraryFakeUpstream.USERNAME` = 2021000001，不是任何人的学号）。
-        // 真窗口里这两个值来自键盘，这里来自夹具 —— 除此之外与 `:desktop:run` 走的是同一条路。
+        // 假上游那组编出来的账号密码（不是任何人的学号）。
         auth.username = LibraryFakeUpstream.USERNAME
         auth.password = LibraryFakeUpstream.PASSWORD
         val ok = runBlocking { auth.login() }
@@ -334,25 +227,17 @@ fun main(args: Array<String>) {
         // 所以首屏显式给图书馆 —— 外壳的默认首屏现在是**首页**（`AppRoute.Main`，见 `home.png`）。
         shot("shell-after-login.png", frames = 20) { ToolboxDesktopApp(auth, DesktopTarget.App(AppRoute.Library)) }
 
-        // 体测（第五条真数据路由）：这张图走**外壳 + 真路由**（`AppRoute.Fitness` → `FitnessApi`），
-        // 所以它同时证明「路由真接上了」与「数据是真的」（学年胶囊 / 姓名 / 总分 / 七个分项）。
-        // 站点是 **https**：假上游为此自带 CONNECT 前置与一枚自签证书（见 `:testkit` 的
-        // `FakeUpstreamFront`）—— 这是「URL 一个字符都不改」那条口径在 https 站点的代价。
+        // 体测：走外壳 + 真路由；站点是 https，假上游自带 CONNECT 前置与自签证书。
         shot("fitness.png", frames = 20) { ToolboxDesktopApp(auth, DesktopTarget.App(AppRoute.Fitness)) }
 
-        // 校历：**免登录**的公开门户接口 —— 与上面那张不同，它不需要任何会话。
-        // 这是「屏在 :core + 取数在 :data」的直接报偿：搬一个 35 行的 IO 适配器就多一屏。
-        // 基址指向假上游（`SchoolCalendarApi` 的基址本来就是构造参数）：真机那条是 https，
-        // 而这里只需要「取数链路是真的」—— 直接指过来最省事，也不用为它再签一枚证书。
+        // 校历：免登录，基址指向假上游。
         shot("calendar.png", frames = 12) {
             SchoolCalendarScreen(
                 source = SchoolCalendarApi(SchoolCalendarFakeUpstream.URL),
                 onBack = {},
             )
         }
-        // 全校课表（第六条真数据路由）：也是**真路由**（外壳 → `DesktopSiteGate` → `AppSchoolCourseSource`）。
-        // ⚠️ 这一屏**不会**自己发查询 —— 那一枪要用户点「搜索」，所以这里用 semantics 点一下
-        // （见 [clickByLabel]）：点不到就多试几帧，因为「搜索」按钮要等当前学期加载完才 `enabled`。
+        // 全校课表：屏不会自己查询，要点「搜索」（等当前学期加载完才 enabled，所以多试几帧）。
         var searched = false
         shot(
             "schoolcourse.png",
@@ -368,20 +253,10 @@ fun main(args: Array<String>) {
         // 所以这张图里是真能取到数据的；真取不到学号时屏会画「要一个学号」那张说明页（不是崩）。
         shot("scorereport.png", frames = 20) { ToolboxDesktopApp(auth, DesktopTarget.App(AppRoute.ScoreReport)) }
 
-        // 评教（第八条）：假账号默认是本科生（`credentials.accountType` 的默认值）⇒ 走的是本科那一条
-        // （与课表/成绩同一个教务站点、同一份会话）。图上应是**未评那三张卡片**（过程评教一行 + 期末评教
-        // 两行，标签由 `PGLXDM` 换算），而不是错误页/转圈 —— 这是拿屏当证据时最容易糊过去的一格。
         shot("judge.png", frames = 20) { ToolboxDesktopApp(auth, DesktopTarget.App(AppRoute.Judge)) }
 
-        // 校园卡（第九条）：走**真路由**（外壳 → `AppRoute.CampusCard` → `DesktopSiteGate` →
-        // `AppCampusCardSource`，缓存传 `null`）。图上应是夹具那张家底：余额/待入账/今日三餐 +
-        // 七条流水的商户与金额，而不是错误页或转圈。
         shot("campuscard.png", frames = 20) { ToolboxDesktopApp(auth, DesktopTarget.App(AppRoute.CampusCard)) }
 
-        // 付款码（第二十六条）：走**真路由**（外壳 → `AppRoute.PaymentCode` → `DesktopSiteGate`
-        // → `:data` 的 `PaymentCodeApi`）。它借的就是上面那条校园卡会话（`loginType = CAMPUS_CARD`），
-        // 所以这一屏进门不需要再走一趟 CAS。图上应当是夹具那串**编出来的**付款码号 + 两张加餐券
-        // —— 不是错误页、也不是转圈。`hasText` 钉的就是那串号（屏上它是纯文本那一行）。
         var paymentShown = false
         shot(
             "payment_code.png",
@@ -393,20 +268,13 @@ fun main(args: Array<String>) {
         check(paymentShown) {
             "payment_code.png：屏上没有夹具那串付款码（${CampusCardFakeUpstream.BAR_CODE}）—— 多半没取到数"
         }
-        // 顺带把「真出码」这一半也在这里响亮地钉一下：屏幕那一发刷新会把取回的码编成模块阵列，
-        // 这里拿同一份夹具码再编一次，编不出来就当场失败（「解回同一串数字」那条判据在
-        // `DesktopAuthPaymentCodeJvmTest` 里）。
+        // 顺带确认夹具码真能编成模块阵列。
         val codeMatrix = requireNotNull(qrCodeModules(CampusCardFakeUpstream.BAR_CODE)) {
             "付款码在桌面这一端应当真编得出二维码"
         }
         println("付款码模块阵列：${codeMatrix.width}x${codeMatrix.height}（解回来见 DesktopAuthPaymentCodeJvmTest）")
 
-        // 空闲教室（第十条）：走**真路由**（外壳 → `AppRoute.EmptyRoom` → `AppEmptyRoomSource`）——
-        // 这一屏的会话由源自己 ensure，所以这张图里智慧教室 `js` 那一发 CAS + 换令牌是**屏**自己登的
-        // （其余需要会话的屏走 `DesktopSiteGate`，由外壳先建）。屏一进来按默认档筛「空闲」
-        // （`LIVE_FILTERS` 的第一档）⇒ 图上只有空闲那两间；这里用 semantics 点一下「全部 N」，
-        // 把四间都摆出来（含「上课中」那一间的课程/教师与「其它使用」那一间的人数）——
-        // 点不到就响亮地失败（见 [clickByLabel]），别把只画了一半的图当证据交出去。
+        // 空闲教室：会话由源自己 ensure；默认只筛「空闲」，点「全部 N」把四间都摆出来。
         var pickedAll = false
         shot(
             "emptyroom.png",
@@ -415,18 +283,9 @@ fun main(args: Array<String>) {
             onFrame = { frame, scene -> if (!pickedAll && frame >= 6) pickedAll = clickByLabel(scene, "全部 4") },
         ) { ToolboxDesktopApp(auth, DesktopTarget.App(AppRoute.EmptyRoom)) }
         check(pickedAll) { "emptyroom.png：没点到「全部 4」这个筛选（semantics 里没找到）" }
-        // 体育场馆（第十一条）：走**真路由**（外壳 → `AppRoute.Venue` → `DesktopSiteGate` →
-        // `AppVenueSource`）。这一端 `canBook = false`（没有滑块控件 ⇒ 下单那一步走不完，见
-        // `ToolboxDesktopApp` 那一段的注释），所以图上只有**读**的那一半：场馆列表（夹具那 9 个，
-        // `id=0` 那一行被跳过）—— 不是错误页，也不是转圈。
         shot("venue.png", frames = 20) { ToolboxDesktopApp(auth, DesktopTarget.App(AppRoute.Venue)) }
 
-        // 消息收纳（第十二条）：也是**真路由**（外壳 → `AppRoute.Inbox` → `AppInboxSource`）。
-        // 这一屏**没有 ViewModel**（数据在 `:core` 的 `InboxStore` 里），屏自己只在「下拉刷新」里
-        // 调 `refresh` ⇒ 进屏那一发由外壳打（见 `ToolboxDesktopApp` 那一段的注释）。
-        // 图上应当是夹具那两条事务中心待办 + 「预约中心 有 3 个待使用的预约」那一行，
-        // 而不是空列表、错误页或转圈 —— 空列表正是「不该把没取到数的屏当证据」那种假绿。
-        // 图上必须有夹具那两条待办里的一条 —— 拿不到就是「没拉到数据」，响亮地失败（见 [hasText]）。
+        // 消息收纳：屏没有 VM，进屏那一发由外壳打；图上必须有夹具那条待办。
         var inboxShown = false
         shot(
             "inbox.png",
@@ -437,11 +296,7 @@ fun main(args: Array<String>) {
         ) { ToolboxDesktopApp(auth, DesktopTarget.App(AppRoute.Inbox)) }
         check(inboxShown) { "inbox.png：屏上没有夹具那条待办（${YwtbFakeUpstream.TODO_TITLE}）—— 多半没拉到数据" }
 
-        // 通知公告（第十三条，也是最后一条 pending 路）：走**真路由**（外壳 → `AppRoute.Notification`
-        // → `AppNoticeSource`，由 `:data` 的 `NotificationApi` 爬 29 个公开的公告页）。这一屏**不需要
-        // 登录**，屏一进门就取数；默认来源就是教务处（夹具覆盖面里的第一个）⇒ 不必点任何筛选。
-        // 图上应当是夹具那几条教务处通知（标题 + 日期 + 「通知」标签），而不是空列表、错误页或转圈；
-        // 拿不到夹具那条标题就是「没取到数」，响亮地失败（见 [hasText]）。
+        // 通知公告：免登录，默认来源是教务处；拿不到夹具那条标题就失败。
         var noticeShown = false
         shot(
             "notification.png",
@@ -454,10 +309,6 @@ fun main(args: Array<String>) {
             "notification.png：屏上没有夹具那条通知（${NotificationFakeUpstream.JWC_TITLE_1}）—— 多半没取到数"
         }
 
-        // 加餐券（第十五条真数据路由）：走**真路由**（外壳 → `AppRoute.Coupon` → `DesktopSiteGate`
-        // → `AppCouponSource`）。登录链里有 `org.xjtu.edu.cn` 开放平台那一跳（与场馆共用一台 host，
-        // 按路径分派）。图上应当是「可使用」那两批券卡中的一张（标题 + 面额 + 日期，那行
-        // 「剩余 / 面额 ¥5.00」）+ 顶栏的分段页签 —— 不是转圈，也不是错误页。
         var couponShown = false
         shot(
             "coupon.png",
@@ -470,11 +321,6 @@ fun main(args: Array<String>) {
             "coupon.png：屏上没有夹具那张券卡（${CouponFakeUpstream.USABLE_NAME}）—— 多半没取到数"
         }
 
-        // 电子成绩单（第十四条真数据路由）：走**真路由**（外壳 → `AppRoute.Transcript` →
-        // `DesktopSiteGate` → `AppTranscriptSource`）。站点 `dzpz.xjtu.edu.cn` **有自己的独立登录页**
-        // （`Login.jsp` → CAS OAuth2 `client_id=new9940` → 回跳换 `loginidweaver`），登录页那一步已经把
-        // 它预热好（`SESSION_SITE_KEYS` 里有它）。图上应当是**表单那一档**：成绩单类型（夹具那条）+
-        // 申请信息（日期 / 所属单位 / 份数）+「一键申请成绩单」按钮 —— 不是转圈，也不是错误页。
         var transcriptFormShown = false
         shot(
             "transcript.png",
@@ -488,10 +334,6 @@ fun main(args: Array<String>) {
         }
 
 
-        // 宿舍电费（第十七条真数据路由）：走**真路由**（外壳 → `AppRoute.DormPower` →
-        // `DesktopSiteGate` → `DormPowerApi`）。登录链里有 `org.xjtu.edu.cn` 开放平台那一跳
-        //（与场馆共用一台 host，按 appId 分派）。图上应当是「缴费页已交给系统浏览器打开」那句
-        // 去向说明 —— 不是转圈卡住，也不是错误页（`freshPayUrl` 真拿到带 code 的回调地址）。
         var payShown = false
         shot(
             "dormpower.png",
@@ -504,10 +346,6 @@ fun main(args: Array<String>) {
             "dormpower.png：屏上没有「缴费页已交给系统浏览器打开」—— 多半没取到缴费页入口"
         }
 
-        // 考勤（第十六条真数据路由）：走**真路由**（外壳 → `AppRoute.Attendance` →
-        // `DesktopSiteGate` → `AppAttendanceSource`）。登录链直连本科生业务站（bk-kq 的
-        // student-pc 入口，不经过门户）。图上应当是「流水」那一栏的夹具课名（`光电子学（假）`）
-        // —— 不是转圈，也不是错误页。
         var attendanceShown = false
         shot(
             "attendance.png",
@@ -520,12 +358,7 @@ fun main(args: Array<String>) {
             "attendance.png：屏上没有夹具那条课名（${AttendanceFakeUpstream.COURSE_NAME}）—— 多半没取到数"
         }
 
-        // 思源学堂（第十八条真数据路由）：走**真路由**（外壳 → `AppRoute.Lms` → `DesktopSiteGate`
-        // → `AppLmsSource`）。登录链直连 lms 根路径 → 统一认证 CAS 回跳（与教务同型，没有独立
-        // 登录页；那台 CAS 仍由 [LibraryFakeUpstream] 扮演）。图上应当是课程列表：夹具那门课
-        //（数据结构（示例课））的课程卡 —— 不是错误页，也不是转圈。
-        // ⚠️ 先把「功能说明弹过了没」置成已读：lms 的说明弹窗用的是 WindowDialog（在离屏场景里
-        // 是独立 AWT 窗口，建不出来 —— 见文件头那条坑），置已读就不会弹。
+        // 思源学堂：⚠️ 先把功能说明置成已读，它的 WindowDialog 在离屏场景里建不出来。
         keyValueStore("feature_hints").putBoolean("lms_hint_shown", true)
         var lmsShown = false
         shot(
@@ -534,23 +367,13 @@ fun main(args: Array<String>) {
             onFrame = { frame, scene ->
                 if (!lmsShown && frame >= 5) lmsShown = hasText(scene, LmsFakeUpstream.COURSE_NAME)
             },
-        // ⚠️ `Lms` 是带 `courseId` 的 data class（`@Serializable` ⇒ 它有一个合成的 Companion）
-        // ⇒ 这里必须写默认实例 `AppRoute.Lms()`；只写 `AppRoute.Lms` 拿到的是那个 Companion，
-        // 类型对不上（而且不会报在报错看得见的地方）。
+        // ⚠️ 必须写 `AppRoute.Lms()`：只写 `AppRoute.Lms` 拿到的是 @Serializable 合成的 Companion。
         ) { ToolboxDesktopApp(auth, DesktopTarget.App(AppRoute.Lms())) }
         check(lmsShown) {
             "lms.png：屏上没有夹具那门课（${LmsFakeUpstream.COURSE_NAME}）—— 多半没取到数"
         }
 
-        // 成绩（移动教务，第十九条真数据路由）：走**真路由**（外壳 → `AppRoute.JwappScore` →
-        // `DesktopSiteGate(JWAPP_SITE_KEY)` → `AppJwappScoreSource`）。登录链走开放平台
-        // `appId=1370` → 统一认证 → 带 `token` 回 `jwapp.xjtu.edu.cn/app/index`（那台 CAS 仍由
-        // [LibraryFakeUpstream] 扮演）；这一屏的第二条上游是**教务**（`xscjcx` 的精确总评），
-        // 它的会话在登录页那一步已经预热过。图上是那门夹具课（高等数学（上））：屏上显示的总评是
-        // jwapp 的粗分（86），**绩点 3.9 是教务精确成绩那一份**（`withPreciseScores` 换的是
-        // scoreValue/gpa，不动 `score` 那个字符串 —— 搬迁前的行为就是这样）。下面「报表·…」那一栏
-        // 是第三条上游（未评教名单 + 成绩报表）补上来的同名课 —— 三条上游都真的走了，不是转圈也
-        // 不是错误页。
+        // 成绩：三条上游（jwapp 粗分、教务精确成绩、未评教名单 + 报表）都要真走一遍。
         var scoreShown = false
         shot(
             "jwapp.png",
@@ -563,10 +386,6 @@ fun main(args: Array<String>) {
             "jwapp.png：屏上没有夹具那门课（${JwappFakeUpstream.COURSE_NAME}）—— 多半没取到数"
         }
 
-        // 快速考勤流水（第二十条真数据路由）：走**真路由**（外壳 → `AppRoute.Iclassface` →
-        // `DesktopSiteGate(ICLASSFACE_SITE_KEY)` → `AppIclassfaceSource`）。登录链是 CAS OAuth2
-        // `client_id=1543` → 开放平台 `authorizesw` 中转 → 回落本域的 `/oauth/callback/xjtu_new`
-        //（凭据就是 `PHPSESSID`）。图上应当是那行夹具签到记录（地点「中3-2306」）。
         var iclassfaceShown = false
         shot(
             "iclassface.png",
@@ -581,10 +400,7 @@ fun main(args: Array<String>) {
             "iclassface.png：屏上没有夹具那条记录（${IclassfaceFakeUpstream.RECORD_LOCATION}）—— 多半没取到数"
         }
 
-        // 社区（第二十一条真数据路由）：**不套 `DesktopSiteGate`**（上游是 GitHub，没有学校会话要建）。
-        // 这一屏是「登录之后才看得到帖子」的：先把一份夹具令牌写进同一份登录态（`SecureGithubSession`
-        // 的存储名与键与搬迁前逐字相同），`signIn` 会先用它查一次用户名（那一枪也打向假 GitHub）——
-        // 于是图上那条夹具帖子、分类与作者都是从假 API 拉回来的，而不是登录页。
+        // 社区：先写一份夹具令牌进登录态，`signIn` 会用它向假 GitHub 查一次用户名。
         val communityLogin = runBlocking {
             SecureGithubSession.get().signIn(
                 GithubDeviceAccessToken(
@@ -611,14 +427,7 @@ fun main(args: Array<String>) {
             "community.png：屏上没有夹具那条帖子（${CommunityFakeUpstream.DISCUSSION_TITLE}）—— 多半没取到数"
         }
 
-        // 反馈（第 22 条真数据路由）：走**真路由**（外壳 → `AppRoute.Feedback` → `AppFeedbackSource`
-        // → 搬进 `:data` 的 `FeedbackApi`）。它**不套 `DesktopSiteGate`** —— 反馈没有校园站点会话，
-        // 上游是飞书开放平台（`open.feishu.cn`，https，由 [FeedbackFakeUpstream] 扮）。
-        //
-        // 两件事先摆好这张图才看得出东西：
-        //  ① 注入一份指向夹具的凭据（真机上那五个值由构建期烘进 `DesktopBuildConfig`，见 `DesktopFeedback`）；
-        //  ② 往本地账本里补一张工单（真机上那是用户自己提的）—— 不然屏上只有表单与公开问答，
-        //    「我提过的」那一栏空空，看不出「开发者的回复真的从上游回来了」。
+        // 反馈：注入指向夹具的凭据，并往本地账本补一张工单，图上才看得到开发者回复。
         FeedbackApi.config = FeedbackApi.Config(
             appId = FeedbackFakeUpstream.APP_ID,
             appSecret = FeedbackFakeUpstream.APP_SECRET,
@@ -640,9 +449,7 @@ fun main(args: Array<String>) {
         var feedbackShown = false
         shot(
             "feedback.png",
-            // 比其余图高：这一屏从上到下是「表单 → 大家在问 → 我提过的」，
-            // 那张工单下面的开发者回复（就是 [FeedbackFakeUpstream.REPLY_TEXT]）一定要框进来，
-            // 否则「回复真从上游回来了」这条判据就只剩折叠着的「点开看回复」。
+            // 比其余图高：要把工单下面的开发者回复框进来。
             height = 1400,
             frames = 20,
             onFrame = { frame, scene ->
@@ -655,19 +462,10 @@ fun main(args: Array<String>) {
             "feedback.png：屏上没有夹具那条回复（${FeedbackFakeUpstream.REPLY_TEXT}）—— 多半没取到数"
         }
 
-        // ⚠️ 先把「使用声明读过了没」置成已读：那个弹窗用的是 miuix 的 `WindowDialog`，在离屏场景里
-        // 是独立 AWT 窗口（建不出来 —— 与 lms 的说明弹窗同一条坑）。置已读就不会弹，图上才是屏本身。
-        // 桌面那份键值缝现在真落盘（证据运行的根由 Gradle 系统属性隔离）⇒ 置值只活在这一次证据运行里。
+        // ⚠️ 先把使用声明置成已读：miuix 的 `WindowDialog` 在离屏场景里建不出来。
         keyValueStore("feature_hints").putBoolean("jiaocai1_hint_shown", true)
 
-        // 教材全文库（第 22 批里的 `jiaocai1`）：走**真路由**（外壳 → `AppRoute.Jiaocai1` →
-        // `DesktopSiteGate(教材中心)` → `AppJiaocai1Source`）。全文库借教材中心的会话（`/entry/login`
-        // → CAS），而**业务侧还有一段**：会话没建立时上游返回一张 `var logoutUrl=…` 的跳转页，
-        // 由 `PortalRedirect` 自己跟（夹具把那一跳也扮了，所以这张图里那条链真跑过）。
-        //
-        // 图上要有夹具那本书：一进屏默认是**分类树**（关键词为空且没选分类），所以这里用 semantics
-        // 点两下 —— 先展开一级分类，再点子类（叶子）⇒ 那一发触发检索（与 `:app` 同一段编排）。
-        // 点不到就是「这张图里没有书目」，响亮地失败。
+        // 教材全文库：借教材中心的会话，`PortalRedirect` 跟那张跳转页；点两下分类树触发检索。
         var jiaocaiCategoryOpened = false
         var jiaocaiSearched = false
         var jiaocaiBookShown = false
@@ -692,9 +490,6 @@ fun main(args: Array<String>) {
             "jiaocai1.png：屏上没有夹具那本书（${Jiaocai1FakeUpstream.BOOK_TITLE}）—— 多半没取到数"
         }
 
-        // 阅读器：直接进那条参数路由（`AppRoute.Jiaocai1Reader(ssno, title)`）。这一张证明的是
-        // **页真的加载、解码、画上去了**：页图是夹具现场画的 JPEG（不是截图），底栅报的是夹具
-        // 那本书的线性页表（34 页）。屏上没拿到「1 / 34」就是没打开成功。
         var readerShown = false
         shot(
             "jiaocai1-reader.png",
@@ -709,12 +504,7 @@ fun main(args: Array<String>) {
             )
         }
         check(readerShown) { "jiaocai1-reader.png：屏上没有「1 / 34」—— 多半没打开那本书" }
-        // 教材查询（`jiaocai` 域，第 24 条真数据路由）：同一个站点（教材中心）、同一个外壳，
-        // 走的是那个合并页的**第一栅**（`AppRoute.Jiaocai` → `initialTab = 0`）。
-        // 图上要有夹具那本书：进屏时搜索框是空的（先看「搜索建议」那行词），所以用 semantics
-        // 点一下建议词 ⇒ 触发教材中心检索。点不到、或结果里没有那本书就是响亮地失败。
-        // 「本学期我的教材」那一段在桌面上不显示（没有教务课表缓存 ⇒ 端口回空表，见
-        // `DesktopJiaocaiTermTextbooks`）—— 这张图会如实把它拍成「没有那一段」。
+        // 教材查询：点一下搜索建议词触发检索；桌面上没有「本学期我的教材」那一段。
         var jiaocaiSuggestTapped = false
         var jiaocaiSearchBookShown = false
         shot(
@@ -779,21 +569,10 @@ fun main(args: Array<String>) {
         check(downloadShown) {
             "download_manager.png：屏上没有夹具那场活动（${DownloadFakeUpstream.ACTIVITY_TITLE}）—— 多半没取到队列"
         }
-        // ── 首页 / 主壳（`AppRoute.Main`，第三十一条真数据路由）─────────────────────────
-        // 走**真路由**：外壳 → `AppRoute.Main` → 本端 `DesktopHomeScreen` → `:core` 的 `HomeScreen`。
-        // 首页这一端**一个请求都不发**（它只读本机课表缓存），所以「真数据」是**写进本端键值缓存**
-        // 的一份夹具课表/考试/教材（值都是编的）—— 与 `schedule.png` 那张读的是同一份缓存
-        //（`DesktopScheduleHost.cache`，0600 的 properties 文件）。
-        //
-        // 公告那一枪注入夹具：证据运行不该去打真站点，更不该把真公告画进图里（与 `library-demo.png`
-        // 注入 `DemoLibrarySource` 同一条口径）。`url` 用 `.invalid` 保留域，点了也不会真打开什么。
         val homeTerm = "2026-2027-1"
         val homeToday = todayInSystemZone()
         val homeCache = DesktopScheduleHost(auth).cache(AccountContext.activeAccountId)
-        // 两节课同名字同教室，分放「今天晚些」与「明天早八」：不论证据运行在一天里的哪个钟点跑，
-        // 「下一项安排」都有东西可画（否则 22:00 之后跑就变成「接下来两周都没课」了）。
-        // `courseCode` 用自建日程那个前缀：节假日停的是教务排的课，自建日程照常 ——
-        // 这张图不该因为「今天恰好是夹具里的假期」而少一格。
+        // 两节课分放「今天晚些」与「明天早八」：任何钟点跑都有「下一项安排」；用自建日程前缀，不受节假日影响。
         fun homeFixtureCourse(dayOfWeek: Int, startMinute: Int, endMinute: Int) = CourseItem(
             courseName = "示例课程（夹具）",
             teacher = "示例老师（夹具）",
@@ -884,11 +663,6 @@ fun main(args: Array<String>) {
         check(mainHomeTabShown) { "main.png：底栏上没有「首页」那一格 —— 首页没接进现有壳？" }
         check(mainBulletinShown) { "main.png：顶部没有夹具那条公告" }
 
-        // 屁岱（最后一条点亮的路由 `AppRoute.Agent`）：屏与调度循环在 `:core`，这一端只给宿主面
-        //（`DesktopAgentHost`：配置/会话/记忆真落盘）。模型那一侧注入夹具传输
-        //（`FixtureAgentTransport`）⇒ 这一枪一个 LLM 请求都不发；配置是空的 ⇒ 落在 `:core` 屏自己的
-        //「先接一个模型」欢迎页上（那句话不是本端画的）。「发一条 → 流式回一条」的端到端判据在
-        // `DesktopAgentJvmTest` 里（断言的就是 `AGENT_FIXTURE_REPLY`）。
         var agentWelcomeShown = false
         shot(
             "agent_welcome.png",
@@ -912,14 +686,6 @@ fun main(args: Array<String>) {
         // 而这一轮要证明的正是那个 0。把整页都框进来，免得拿半张图交差。
         shot("routes.png", height = 1900, frames = 4) { ToolboxDesktopApp(auth, DesktopTarget.Routes) }
 
-        // 设置（第二十七条真数据路由）：走**真路由**（外壳 → `AppRoute.Settings` → `:core` 的
-        // `SettingsScreen` + 本端那份落盘 store）。
-        //
-        // 这张图要证明两件事，所以先做两件事再拍：
-        //  ① 先往落盘的 store 里写 `dark_mode=dark` —— 外壳按这两个外观偏好套主题，于是图上
-        //    是**深色**的：设置项不只是存下来了，这一端真照着办了；
-        //  ② 拍的过程中用 semantics 点一下「跟随系统取色」那个开关 ⇒ 断言它落到了磁盘上
-        //    （`dynamic_color=true`）—— 「设置项真能读写落盘」的判据。
         secureKeyValueStore(SettingsStore.APP_SETTINGS_FILE).putString("dark_mode", SettingsStore.DARK_MODE_DARK)
         var settingsShown = false
         var settingsToggled = false
@@ -949,14 +715,6 @@ fun main(args: Array<String>) {
         check(settingsFile.exists()) { "settings.png：落盘文件不存在：${settingsFile.absolutePath}" }
         println("设置落盘：${settingsFile.absolutePath}")
 
-        // ── WebVPN 转换器（第二十八条真数据路由）────────────────────────────────────
-        // 走**真路由**（外壳 → `AppRoute.WebVpnConverter` → `:core` 的 `WebVpnConverterScreen`），
-        // 注入的是 `:data` 的 `WebVpnUtil`（`:core` 的 `WebVpnCodec` 缝，与 Android 同一份实现）。
-        //
-        // 这张图要证明的是「真能转」，所以拍之前做两件事（都在屏上看得见）：
-        //  ① 往唯一的那个输入框里塞 `https://jwxt.xjtu.edu.cn/`（夹具网址，公开站点名、无凭据）；
-        //  ② 用 semantics 点一下「转换」—— 断言结果里出现了**密文域名那一段的定值**
-        //     （`fae05988692862446b468ca88d1b203b`，与 `DesktopWebVpnCodecJvmTest` 里那一条同值）。
         var vpnTyped = false
         var vpnConverted = false
         shot(
@@ -972,18 +730,7 @@ fun main(args: Array<String>) {
         check(vpnTyped) { "webvpn_converter.png：没找到那个输入框（semantics 里没有 SetText）" }
         check(vpnConverted) { "webvpn_converter.png：没点到「转换」" }
 
-        // ── 内置浏览器（`AppRoute.Browser`，桌面端等价物 = 外链中转页）────────────────────
-        // 走**真路由**：外壳 → `AppRoute.Browser("https://notice.example.invalid/2026/summer-camp")`
-        // → 本端的 `DesktopBrowserScreen`。这条路由在 `:app` 是 WebView 里的内置浏览器（629 行），
-        // 桌面端没有那一层 ⇒ 这一端的等价物是「把地址交给系统浏览器」的中转页。
-        //
-        // 这一枪**只画不点**：「在系统浏览器打开」真会去 `Desktop.browse` / `xdg-open`（这台机器上
-        // 会真弹一个窗口），「复制链接」会碰 AWT 系统剪贴板（离屏无显示服务器时是 `HeadlessException`）。
-        // 那两颗按钮的装配由 `DesktopBrowserJvmTest` 钉，这里只钉「真路由落在了这一屏上」。
-        //
-        // 判据三条（全在 semantics 上）：① 那句如实说明在屏上（这条路由在桌面上的形态就是它）；
-        // ② 路由带的那个网址在屏上（`.invalid` 夹具 —— 证明参数真传到了屏上，不是一页空壳）；
-        // ③ **`NotPortedScreen` 那句标题不在**（这一条路由再也不会落到那张占位页）。
+        // ── 内置浏览器（桌面端 = 外链中转页）：只画不点（按钮会真开浏览器 / 碰剪贴板）──
         val browserUrl = "https://notice.example.invalid/2026/summer-camp"
         var browserShown = false
         var browserUrlShown = false
@@ -1003,17 +750,7 @@ fun main(args: Array<String>) {
         check(browserUrlShown) { "browser.png：屏上没有路由带的那个网址（$browserUrl）—— 参数没传到屏上" }
         check(!notPortedShown) { "browser.png：落到了 `NotPortedScreen` 那张占位页 —— 这一条路由本该有真分支" }
 
-        // ── 我的课表（第三十条真数据路由，本批主角）───────────────────────────────
-        // 走**真路由**：外壳 → `AppRoute.Schedule` → `DesktopSiteGate(教务)` → `:core` 的
-        // `ScheduleScreen` + 本端 `DesktopScheduleHost`（键值落盘 / 教务会话 / 节假日）。
-        //
-        // ⚠️ 这一段必须排在「账号管理」之前：那一块会**真切账号**（换绑命名空间），
-        // 而课表的缓存、会话都按激活账号走。
-        //
-        // 这张图要证明的不是「有一屏」，而是**课表真画出来了**，所以断言分两层：
-        //  ① 夹具那门课的名字（`高等数学（上）`）出现在屏上 —— 教务会话建起来了、课表取到了；
-        //  ② 夹具那个教室（`主楼A-101`，`CourseCell` 画成 `@主楼A-101` 那一行）也在 ——
-        //     说明**格子真渲染**了（只有名字出现的话，也可能是哪行说明文字里带的）。
+        // ── 我的课表 ── ⚠️ 必须排在「账号管理」之前（那一块会真切账号）。
         var scheduleCourseShown = false
         var scheduleCellShown = false
         shot(
@@ -1033,25 +770,11 @@ fun main(args: Array<String>) {
         ) { ToolboxDesktopApp(auth, DesktopTarget.App(AppRoute.Schedule)) }
         check(scheduleCourseShown) { "schedule.png：屏上没出现夹具的课名 —— 多半没取到课表（会话或取数断了）" }
         check(scheduleCellShown) { "schedule.png：课名在、教室不在 —— 课程格子没画出来？" }
-        // 顺手确认上屏的数据真落到了本端那份缓存里（逐条钉落盘的是 `DesktopScheduleJvmTest`）。
         check(
             com.xjtu.toolbox.schedule.ScheduleCache.readCurrentTerm(
                 DesktopScheduleHost(auth).cache(AccountContext.activeAccountId),
             ) != null,
         ) { "schedule.png：拍完了但课表缓存是空的 —— 上屏的数据没落盘" }
-        // ── 屁岱（`AppRoute.Agent`，最后一条点亮的路由）─────────────────────────────
-        // 走**真路由**：外壳 → `AppRoute.Agent` → `:core` 的 `AgentScreen` + 本端 `DesktopAgentHost`
-        //（配置 / 会话 / 记忆三份**真落盘**、`:data` 的 `SseAgentTransport`、五件接得上的工具）。
-        //
-        // 这条链上唯一的外部依赖是「发一次 chat/completions」：这一枪把它换成夹具传输
-        //（`FixtureAgentTransport`，见 `AgentFixture.kt`）—— **不连任何 LLM**，回复是写死的常量。
-        // 「发一条」走 `:core` 的 `AgentPendingPrompt`（与 `:app` 从提醒气泡点进来同一条路；
-        // 离屏场景里没有鼠标，点不到输入栏那颗发送圆键）。
-        //
-        // 拍之前先落一份夹具配置（`saveConfig`，与配置面板同一个动作本体）：没有 key 时屏上
-        // 是「先去设置里配一下」那条提示，根本没有对话可拍。
-        // 图上的判据是**那条夹具回复**（`hasText`）：助手气泡里出现了它，就说明
-        // 「待发消息 → 装配工具层与传输 → 流式回调 → 上屏」整条真的跑通了。
         val agent = fixtureAgentHost(auth, FixtureAgentTransport())
         agent.saveConfig(AgentConfig(apiKey = "fixture-key", model = "fixture-model"))
         AgentPendingPrompt.set("帮我看一下桌面这一端接上了没有")
@@ -1075,15 +798,6 @@ fun main(args: Array<String>) {
         println("屁岱落盘：${agentConfigFile.absolutePath}")
 
 
-        // ── 账号管理（多账号，第二十九条真数据路由）────────────────────────────────
-        // 走**真路由**（外壳 → `AppRoute.Accounts` → `:core` 的 `AccountManagerScreen`），注入的是
-        // `DesktopAccounts`（切/增/删真落盘：账号表在 `AccountStore`，凭据与会话按账号后缀分文件）。
-        //
-        // 拍之前做两件事，让这张图同时是「多账号真能用」的证据：
-        //  ① 上面那次「真登录」已经把夹具账号写进了账号表；这里再**加一条夹具账号**（值都是编的）
-        //     —— 于是列表里是两条，「已保存的账号（2）」；
-        //  ② **真切一次**到第二条（走 `DesktopAccounts.switchTo`，与窗口里点「切换」是同一个动作本体）
-        //     ⇒ 顶部那张「当前账号」卡与列表里的高亮都会变成第二条 —— 图上看得见，代码里也断言。
         val secondAccountId = "2021000002"
         AccountStore().upsert(
             Account(
@@ -1110,9 +824,6 @@ fun main(args: Array<String>) {
             "accounts.png：夹具账号不在账号表里（真登录那一步应当把它写进去）"
         }
 
-        // ── 合成西交大（`game_merge`）：如实说明它为什么跑不了 ───────────────────
-        // 这条路由卡的是**载体**（WebView + Matter.js 物理引擎），不是取数。这张图是那张说明页
-        // 本身 —— 它**不进** `DESKTOP_SUPPORTED_ROUTES`（那里只放真能用的），见 `HostUnavailableScreen`。
         var mergeShown = false
         shot(
             "game_merge.png",
@@ -1123,20 +834,6 @@ fun main(args: Array<String>) {
         ) { ToolboxDesktopApp(auth, DesktopTarget.App(AppRoute.GameMerge)) }
         check(mergeShown) { "game_merge.png：没画到那张说明页" }
 
-        // ── 匹配交友（`schedule_match`，第三十三条真数据路由）─────────────────────────────────
-        // 走**真路由**：外壳 → `AppRoute.Match` → `:core` 的 `MatchScreen` + 本端 `DesktopMatchHost`。
-        //
-        // 这一条路由**一条请求都不发**，所以「真数据」只能是本机缓存：自己的课表/考试由拍之前写进
-        // 本端键值缓存（与 `schedule.png` / `home.png` 同一份 `DesktopScheduleHost.cache`），
-        // 对方的码就是「朋友把那串文字发过来」那件事 —— 同一套算法在别处编的一段夹具档案。
-        //
-        // 图和断言分两层（离屏场景没有鼠标，所以走 semantics）：
-        //  ① 往唯一的输入框里塞对方那段码、点一下「算一算」；
-        //  ② 断言屏上出现**夹具算出来的交集**：「一起上 1 门课」与那门课的名字。课名只会来自
-        //     解出来的那段码（这一屏别处不画课名），所以它出现就说明「Base64+inflate → 逐维比较」真跑了。
-        //
-        // 窗口给得高：桌面这一端没有 `LocalIsWideLayout`（只有 `:app` 在导航根部提供它）
-        // ⇒ 屏走的是**单栏**排版，结果卡就在两张码下面；窗口矮了 LazyColumn 不会组合它。
         val matchTerm = "2026-2027-1"
         val matchCourseName = "大学物理（夹具）"
         val matchPeerName = "小张（夹具）"
@@ -1206,19 +903,8 @@ fun main(args: Array<String>) {
         check(matchIntersectionShown) {
             "schedule_match.png：屏上没有夹具算出来的交集 —— 解码或逐维比较断了"
         }
-        // ── 深色下的外壳：`home-dark.png` / `main-dark.png`（与 `home.png` / `main.png` 同一枪）──────
-        //
-        // 为什么要这一对：共享壳现在会铺 Scaffold 的 `containerColor`（= `MiuixTheme.colorScheme.surface`）
-        // —— 旧桌面壳那些像素是**透明**的，所以这是一处「看得见的变化」。只拍浅色答不了「换主题时
-        // 三层（底栏 / 侧栏 / 页面）是不是都跟着换」；深浅并排、判据落在**落盘的那两张 PNG** 上才有话说。
-        //
-        // ⚠️ 顺序：必须在**所有其它图之后** —— `dark_mode` 是写进进程级那份 store 的，写在中间会把
-        // 后面的图一起带成深色（`webvpn_converter.png` / `browser.png` 今天就是被 `settings.png` 那
-        // 一枪带成深色的，那是既有现象，本轮没动它）。
-        // 与 `home.png` / `main.png` 是**同一条路由、同一份公告夹具**。⚠️ 课表/考试那两格别指望与那两张
-        // 逐像素一样：这一枪在最末尾，缓存里已经是 `schedule_match.png` 那一枪写进去的夹具了（图上会
-        // 看到另一门课），而深浅对照要的是**外壳那三层**的像素 —— 那几层与页里画了什么无关。
-        // 账号管理那一枪把当前账号切到了第二条，而首页读的是**本账号**的缓存 ⇒ 先切回来。
+        // ── 深色外壳：`home-dark.png` / `main-dark.png` ──
+        // ⚠️ 必须在所有其它图之后：`dark_mode` 写进进程级 store，会把后面的图带成深色；先切回本账号。
         runBlocking { DesktopAccounts(auth).switchTo(LibraryFakeUpstream.USERNAME) }
         secureKeyValueStore(SettingsStore.APP_SETTINGS_FILE)
             .putString("dark_mode", SettingsStore.DARK_MODE_DARK)
@@ -1229,10 +915,7 @@ fun main(args: Array<String>) {
             ToolboxDesktopApp(auth, DesktopTarget.App(AppRoute.Main), homeBulletinFetch)
         }
 
-        // 三条判据（浅 → 深），每条都读**落盘的 PNG**：
-        //  ① 底栏那一条（520×900 里六格下面那一段）：浅色那边是最亮的 247，深色这张必须是深色；
-        //  ② 侧栏那一条竖带（900×900 里 x=2..6 整列）：宽窗下底栏换侧栏，同样得跟着主题走；
-        //  ③ 页面那一层（内容区整块）：「亮像素」占比 —— 深色下要小、浅色下要大（页面也没留在浅色上）。
+        // 三条判据都读落盘的 PNG：底栏、侧栏、页面亮像素占比都要跟着主题走。
         val lightBar = bandOf(outDir, "home.png", 60, 888, 460, 898)
         val darkBar = bandOf(outDir, "home-dark.png", 60, 888, 460, 898)
         check(lightBar.maxLuma >= 200) { "home.png：底栏那一条不是浅色（$lightBar）—— 底栏没按主题铺色？" }
@@ -1255,28 +938,14 @@ fun main(args: Array<String>) {
     exitProcess(0)
 }
 
-/**
- * 「查教材」栅那行搜索建议里的一个词（与 `JiaocaiSearchContent` 里的字面量一致）。
- * 证据图点它一下就会发起那一发检索 —— 点的是夹具认得的任意关键词都行（夹具对
- * `MISS_SEARCH_KEYWORD` 之外的关键词都回同一行书目）。
- */
+/** 「查教材」栅那行搜索建议里的一个词（与 `JiaocaiSearchContent` 里的字面量一致）。 */
 private const val JIAOCAI_SUGGESTION = "高等数学"
 
 /** 假上游：`withFakeCampus` 期间有效（把端口灌给常驻 selector 的就是它）。 */
 private lateinit var fake: FakeCampusProxy
 
-/**
- * 把假的校园上游起起来（`:testkit` 的 [FakeCampusProxy]：一个本地 HTTP 代理，按 host 分派
- * 图书馆与校历），并在里面跑 [block]。
- *
- * 与 `:data:jvmTest` 的 `LibraryLoginSessionJvmTest.withFakeCas` 是同一套手法，
- * 差别有两处：那边每条测试自己清理落盘存储（这边整个进程只有一次，所以前置在 `main` 里）；
- * 这边的代理同时扮两个域名（校历那张图要一次跑通两条链路）。
- */
+/** 把假的校园上游起起来（`:testkit` 的 [FakeCampusProxy]）。 */
 private fun withFakeCampus(block: (DesktopAuth) -> Unit) {
-    // 下载队列（`:desktop` 那份 0600 的 JSON）也清一下：`DesktopDownloads.manager` 是进程级单例，
-    // 它那份存储的根与**端内名**都在第一次碰它时定下来（S7b 之后名里带账号后缀 ⇒ 两个可能的
-    // 命名空间都清，跑两次仍是同一种起点；见下面 `download_manager.png` 那一段）。
     wipeSecureStore(accountScopedStoreName(DesktopDownloadTaskStore.STORE_NAME, null))
     wipeSecureStore(accountScopedStoreName(DesktopDownloadTaskStore.STORE_NAME, LibraryFakeUpstream.USERNAME))
     // 账号表（`AccountStore`，存储名 `xjtu_accounts`）同样清一下：多账号之后它会在「真登录」那一步
@@ -1300,9 +969,7 @@ private fun withFakeCampus(block: (DesktopAuth) -> Unit) {
         PersistentCookieJar(name).clear()
     }
 
-    // 预置一份缓存的 RSA 公钥（照真机的路径：首次登录取回后存进凭据文件，之后复用）。
-    // 没有它，`XJTULogin` 会去 `https://login.xjtu.edu.cn/cas/jwt/publicKey` 取 —— https，
-    // 本地假上游给不了（见文件头第 2 条坑）。
+    // 预置 RSA 公钥：否则 `XJTULogin` 会去 https 取，假上游给不了。
     val credentials = JvmCredentialStore()
     credentials.rsaPublicKey = TestRsaKey.publicKeyBase64
 
@@ -1314,18 +981,7 @@ private fun withFakeCampus(block: (DesktopAuth) -> Unit) {
     }
 }
 
-/**
- * 在 AWT 事件队列上执行并等结果（**所有 Compose 调用都必须落在 EDT 上**）。
- *
- * 为什么：`:core` 的屏一律用 `viewModel { }` + `viewModelScope`，而 viewModelScope 跑在
- * `Dispatchers.Main.immediate` 上 —— 桌面端的 Main 就是 AWT 事件队列。真窗口里这没问题
- * （Compose Desktop 的渲染循环本身就在 EDT 上），但离屏场景是在**调用线程**上渲染的，
- * 不在 EDT 就会出现「VM 在 EDT 上更新状态、渲染线程同时在 measure/layout」⇒ Skia 直接抛
- * `performMeasureAndLayout called during measure layout`（实测踩到，且表现为「屏上永远没有数据」）。
- *
- * `SwingUtilities.invokeAndWait` 自己会把异常包进 `InvocationTargetException`，
- * 这里解开一层，好让失败的堆栈指到真正的出错位置。
- */
+/** 在 AWT 事件队列上执行并等结果（所有 Compose 调用都必须落在 EDT 上）。 */
 private fun <T> onEdt(block: () -> T): T {
     var result: T? = null
     var failure: Throwable? = null
@@ -1341,17 +997,7 @@ private fun <T> onEdt(block: () -> T): T {
     return result as T
 }
 
-/**
- * 从**落盘的那张证据图**上量一块矩形区域：最亮值（0..255）与「亮像素」（任一通道 > 200）的占比。
- *
- * 为什么读文件、而不是读内存里那份位图：`ImageComposeScene.render()` 返回的是**同一块 surface**
- * 的包装，下一次 render 会把它覆盖掉（场景关掉之后更是不能用）⇒ 判据落在真正交出去的那份 PNG 上，
- * 顺便也把「写出来的字节是对的」一起核了。
- *
- * 这一对数是给深 / 浅两套外壳对照用的（`home-dark.png` / `main-dark.png` 那一段）：外壳那几条
- * 结构带（底栏 / 侧栏）与页面那一层，浅色主题下是浅色、深色主题下必须是深色 —— 任何一层留在
- * 另一套主题上，就是「层次错位」。
- */
+/** 从落盘的那张证据图上量一块矩形区域：最亮值（0..255）与「亮像素」（任一通道 > 200）的占比。 */
 private class BandStats(val maxLuma: Int, val brightRatio: Float) {
     override fun toString(): String = "最亮=$maxLuma 亮占比=${(brightRatio * 100).toInt()}%"
 }

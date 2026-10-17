@@ -31,17 +31,6 @@ import java.util.Locale
  * 7. downloadPdf() → 下载 PDF 二进制文件
  *
  * ## 它现在住哪儿、为什么
- *
- * 本类从 `:app` 搬进 `:data`（**同一个包名、同一个类名**，桌面端要自己登 `dzpz` 站、自己取数）：
- * `:app` 那处 `TranscriptApi(site)` 一个字都不用改，桌面端用同一份实现。搬动只动了三处：
- *  1. `android.util.Log` → `:core` 的 [Log]（其余日志调用逐字不变）；
- *  2. 那五个嵌套数据类 → `:core` 的 [TranscriptTypeOption] / [FormContext] / [LinkageResult] /
- *     [SubmitResult] / [DownloadInfo]（同包顶层声明，屏与 VM 也要认这些形状）；
- *  3. 会话仍是 `:data` 的 [SiteSession]，一行未改 —— 站点类（[com.xjtu.toolbox.auth.DzpzSession]
- *     与 [com.xjtu.toolbox.auth.DzpzLogin]）同批搬进 `:data`。
- *
- * 取数口径（表单/联动的字段号、两次提交的表单体、`checksubmit` 的兜底值、下载链接的两条分支）
- * **一行未改**：`:data:jvmTest` 的 `TranscriptApiJvmTest` 用 `:testkit` 的夹具把搬之前的口径钉住了。
  */
 class TranscriptApi(private val site: SiteSession) {
 

@@ -1,29 +1,6 @@
 package com.xjtu.toolbox.platform
 
-/**
- * Code128 条形码的**编码器**（纯 Kotlin，三端同一份）—— 与 Android / jvm 那两份 zxing actual
- * 编出**逐模块相同**的条纹阵列。
- *
- * ## 为什么要有这一份
- *
- * 与 [QrCodec] 同一个理由：那条缝的 androidMain / jvmMain 两份 actual 用的是 zxing 的
- * `Code128Writer`（`encode(text, CODE_128, 0, 1)`，不带任何 hint），而 zxing 进不了 wasmJs。
- * 浏览器那一端原先如实返回 null ⇒ 付款码屏上那条条形码画不出来。这个对象补上它，
- * **纯 Kotlin、放 commonMain**（`:web` 里一行都没有，wasmJs 的 actual 只是转调）。
- *
- * ## 搬过来的范围（与 zxing 3.5.4 的对应关系）
- *
- * | 这里 | zxing |
- * |---|---|
- * | [encode] | `Code128Writer.encode(contents, hints=null)` → `check` + `encodeFast` |
- * | [chooseCode] / [findCType] | 同名私有函数（**不带** `FORCE_CODE_SET` hint 时的那条路；`CODE128_COMPACT` 也不开，与 actual 一致） |
- * | [produceResult] | 同名函数（校验位 = Σ 模式值 × 权重，再补停止符） |
- * | 条纹渲染 | `OneDimensionalCodeWriter.renderResult(code, width=0, height=1, sidesMargin=10)`：两边各留 5 个模块的静默区、高度 1（渲染方拉伸） |
- * | 107 张条纹图案表 | `Code128Reader.CODE_PATTERNS`（标准表，逐字抄） |
- *
- * 与 [QrCodec] 一样，「逐模块相同」由 `:core:jvmTest` 的 `CodeMatrixParityJvmTest` 逐格钉住，
- * 并且用 zxing 的**解码器**把这一份的条纹扫回原文。
- */
+/** Code128 条形码的纯 Kotlin 编码器，与 zxing actual 编出逐模块相同的条纹阵列。 */
 internal object Code128Codec {
 
     private const val CODE_START_A = 103
@@ -157,13 +134,7 @@ internal object Code128Codec {
         intArrayOf(2, 3, 3, 1, 1, 1, 2),
     )
 
-    /**
-     * 把一段文本编成 Code128 的**条纹阵列**（宽度 = 模块数，高度 1；静默区已经含在里面）。
-     *
-     * 空串、或出现 ASCII 127 以上的字符（zxing 在这种输入上直接抛 `IllegalArgumentException`，
-     * 那四个 FNC 占位符除外）时返回 null —— 与那两份 actual 的 `runCatching { … }.getOrNull()`
-     * 同一条口径。
-     */
+    /** 把一段文本编成 Code128 的条纹阵列（宽度 = 模块数，高度 1；静默区已经含在里面）。 */
     fun encode(text: String): CodeMatrix? = runCatching { render(encodeModules(text)) }.getOrNull()
 
     /** zxing 的 `Code128Writer.encodeFast`：边挑码集边攒图案，返回一条 [BooleanArray] 模块串。 */
@@ -311,11 +282,7 @@ internal object Code128Codec {
         return if (lookahead == CType.TWO_DIGITS) CODE_CODE_C else CODE_CODE_B
     }
 
-    /**
-     * zxing 的 `OneDimensionalCodeWriter.renderResult(code, width=0, height=1, sidesMargin=10)`：
-     * 静默区按**一个** margin 参数算（两侧加起来 10 个模块 ⇒ 每侧 5 个），高度取 1
-     *（渲染方按可用宽度拉伸，见 `PaymentCodeScreen` 那条 `FillBounds` 的口径）。
-     */
+    /** zxing 的 `renderResult(code, width=0, height=1, sidesMargin=10)`：每侧 5 个模块的静默区，高度 1。 */
     private fun render(modules: BooleanArray): CodeMatrix {
         val sidesMargin = 10
         val inputWidth = modules.size

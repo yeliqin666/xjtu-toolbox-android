@@ -38,14 +38,7 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
 // ══════════════════════════════════════════
 
 /**
- * 首页在 `:app` 这一端剩下的全部 —— **画法一行都没有了**。
- *
- * 「首页长什么样」（Hero、分类卡、宽窄两种摆法、进入动画）已经搬进 `:core` 的 [HomeScreen]；
- * 这里做两件事：把本机的数据与动作交成 [HomeHost]（[rememberAppHome]），再把这一端特有的那一层
- * 「子系统连接状态」弹窗挂上去 —— 它是唯一还留在这边的画法，理由是它读的是登录态的
- * `sessionManager` 里各子系统的登录情况（`:core` 的屏拿不到 `AppLoginState`）。
- *
- * 参数与搬迁前逐字一致（`MainScreen` 那一处调用点一行未改）。
+ * 首页在 `:app` 的宿主：画法在 `:core` 的 [HomeScreen]，这里只接 [HomeHost] 并挂「子系统连接状态」弹窗（它要读 `AppLoginState`）。
  */
 @Composable
 internal fun HomeTab(

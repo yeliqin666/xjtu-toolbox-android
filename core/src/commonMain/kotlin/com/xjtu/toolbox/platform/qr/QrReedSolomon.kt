@@ -1,21 +1,6 @@
 package com.xjtu.toolbox.platform.qr
 
-/**
- * GF(256) 上的 Reed-Solomon 解码 —— zxing 3.5.4 `com.google.zxing.common.reedsolomon`
- * 那三个类的**逐字对照**（`GenericGF` / `GenericGFPoly` / `ReedSolomonDecoder`）。
- *
- * 只搬了二维码要用的那一档：`QR_CODE_FIELD_256 = GF(2^8)`、本原多项式 `0x11D`、`generatorBase = 0`。
- * zxing 那一份里的 Aztec / DataMatrix / MaxiCode 那几个域**没搬**（这一条链一个都不碰）。
- *
- * | zxing | 这里 | 备注 |
- * |---|---|---|
- * | `GenericGF.QR_CODE_FIELD_256` | [QrGenericGf.QR_CODE_FIELD_256] | 指数表/对数表按同一段循环生成 |
- * | `GenericGF.multiply / inverse / exp / log / buildMonomial / addOrSubtract` | 同名 | `addOrSubtract` 就是异或 |
- * | `GenericGFPoly`（系数首位归零、`evaluateAt`、加减乘、`multiplyByMonomial`、`divide`） | [QrGenericGfPoly] | `divide` 在 RS 解码里用不到，但它与 `evaluateAt` 的分支是同一份口径，一起搬了 |
- * | `ReedSolomonDecoder.decodeWithECCount` | [QrReedSolomonDecoder.decodeWithEcCount] | 返回「纠了几个错」，与 zxing 一样 |
- * | `findErrorMagnitudes` 里那段「看着古怪」的写法 | 原样照抄 | 那是 zxing 为绕过某些 JDK 上 Hotspot 的 bug 写的（`term & 0x1` 那两行），数学上等价于 `1 ^ term`；**照抄**是为了与它逐位相同 |
- * | `ReedSolomonEncoder` | **没搬** | 编码器在 D12 ① 已经有一份纯 Kotlin 的（`QrCodec` 里的纠错块生成），不在这一批 |
- */
+/** GF(256) 上的 Reed-Solomon 解码。 */
 /** 一个有限域（见 [QrReedSolomonDecoder] 的 KDoc）。 */
 internal class QrGenericGf(private val primitive: Int, private val size: Int, private val generatorBase: Int) {
 
@@ -171,7 +156,7 @@ internal class QrGenericGfPoly(private val field: QrGenericGf, coefficients: Int
         return QrGenericGfPoly(field, product)
     }
 
-    /** 长除：返回 `[商, 余数]`（RS 解码用不到，与 [evaluateAt] 同一份口径一起搬过来）。 */
+    /** 长除：返回 `[商, 余数]`。 */
     fun divide(other: QrGenericGfPoly): Array<QrGenericGfPoly> {
         require(!other.isZero) { "除以 0" }
         var quotient = field.zero
@@ -192,9 +177,7 @@ internal class QrGenericGfPoly(private val field: QrGenericGf, coefficients: Int
 /** 纠错解不出来（zxing 的 `ReedSolomonException`）。 */
 internal class QrReedSolomonException : Exception()
 
-/**
- * Reed-Solomon 解码（Berlekamp-Massey 走欧几里得算法那一版）——见 [QrGenericGf] 的 KDoc。
- */
+/** Reed-Solomon 解码（Berlekamp-Massey 走欧几里得算法那一版）——见 [QrGenericGf] 的 KDoc。 */
 internal class QrReedSolomonDecoder(private val field: QrGenericGf) {
 
     /** 解 [received]（原地改），`twoS` 是纠错字的个数。返回**纠正了几个错**。 */
@@ -293,8 +276,7 @@ internal class QrReedSolomonDecoder(private val field: QrGenericGf) {
             var denominator = 1
             for (j in 0 until s) {
                 if (i != j) {
-                    // 数学上就是 `1 ^ field.multiply(errorLocations[j], xiInverse)`；
-                    // zxing 用下面这种「看着古怪」的写法绕开某些 JDK 上 Hotspot 的 bug —— 逐字照抄。
+                    // 即 `1 ^ field.multiply(errorLocations[j], xiInverse)`；zxing 这样写是为绕开某些 JDK 的 Hotspot bug，别改。
                     val term = field.multiply(errorLocations[j], xiInverse)
                     val termPlus1 = if ((term and 0x1) == 0) term or 1 else term and (1.inv())
                     denominator = field.multiply(denominator, termPlus1)

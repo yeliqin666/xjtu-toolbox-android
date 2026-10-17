@@ -4,10 +4,7 @@ import kotlinx.datetime.LocalTime
 import kotlin.test.Test
 import kotlin.test.assertEquals
 
-/**
- * 打招呼的分档边界。首页「今日」卡与屁岱首屏共用这一份，边界错一格就会出现
- * 「13:00 还说上午好」这类不自然的文案，所以每个分档的**首尾**都钉住。
- */
+/** 打招呼的分档边界。 */
 class GreetingTest {
 
     @Test

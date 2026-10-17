@@ -18,23 +18,7 @@ import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 import kotlinx.coroutines.runBlocking
 
-/**
- * 反馈在桌面端的**装配验收**（第 22 条真数据路由）：桌面注入凭据（[DesktopFeedback] 那一份，
- * 或测试里这份指向夹具的），再用**两端共用的** `AppFeedbackSource` 走完真实 HTTP 链。
- *
- * 与 `:data` 的 `FeedbackApiJvmTest` 的分工：那边验 JSON 字段口径与令牌缓存；这里验**桌面这一端
- * 的装配** —— 凭据从哪来（构建期注入的 `DesktopBuildConfig`）、展示字段是不是桌面口径、
- * 以及「没配凭据就整条链降级回外链」这条与 Android 逐字同一条的口径。
- *
- * ## 这条链路没有「校园登录」
- *
- * 反馈**不套 `DesktopSiteGate`**（没有学校会话可建）：会话形态是 `app_id` + `app_secret` 换一张
- * 租户令牌，见 `:core` 的 `FeedbackSource` KDoc。所以这个文件里没有 CAS、没有 cookie jar，
- * 只有 `:testkit` 的 [FeedbackFakeUpstream]（扮演 `open.feishu.cn`，https ⇒ 自带 CONNECT 隧道）。
- *
- * ⚠️ 令牌缓存是进程级的：**冷缓存那一发**的请求形状就钉在这个文件里（`:data:jvmTest` 因为同 JVM
- * 里跑了一堆用例，只能钉「第二次不再取」那一半，见那边的注释）。
- */
+/** 反馈在桌面端的装配验收：桌面注入凭据（[DesktopFeedback] 那一份，或测试里这份指向夹具的），再用两端共用的 `AppFeedbackSource` 走完真实 HTTP 链。 */
 class DesktopFeedbackJvmTest {
 
     @Test
@@ -49,9 +33,6 @@ class DesktopFeedbackJvmTest {
         )
         assertTrue(cfg.deviceLabel.isNotBlank(), "机型列要报宿主机（不假装是手机）：${cfg.deviceLabel}")
         assertTrue(cfg.osLabel.contains("Java"), "系统列带 Java 版本：${cfg.osLabel}")
-        // 凭据来自构建期烘焙进来的 `feedback.properties` / 环境变量。本机大概率没有它 ⇒
-        // isConfigured 为 false、反馈页只剩 GitHub 外链；有它时两者同时为真。这条断言把
-        // 「isConfigured 跟着凭据走」钉住，而不是钉「这台机器上有没有凭据」。
         assertEquals(
             DesktopBuildConfig.FEEDBACK_APP_ID.isNotBlank() &&
                 DesktopBuildConfig.FEEDBACK_APP_SECRET.isNotBlank() &&
@@ -81,7 +62,6 @@ class DesktopFeedbackJvmTest {
             val source = AppFeedbackSource
             assertTrue(source.isConfigured, "注入凭据之后桌面这一条路应当可用")
 
-            // ① 冷缓存：第一发提交要换一张租户令牌，请求体里带的是这一端的 app_id / app_secret
             runBlocking {
                 source.submit(TICKET, "功能坏了", "示例反馈：桌面端的按钮点不动", "", "anon01")
             }
@@ -97,11 +77,9 @@ class DesktopFeedbackJvmTest {
                 "版本列应当是桌面口径：${fake.feedback.lastSubmitFields}",
             )
 
-            // ② 回复：富文本片段数组 → 纯文本（解析在 :data，屏在 :core，这里验的是整条链通）
             val replies = runBlocking { source.replies(listOf(TICKET)) }
             assertEquals(REPLY_TEXT, replies.getValue(TICKET).text)
 
-            // ③ 公开问答同样从假的飞书拉得回来
             val qa = runBlocking { source.publicQa() }
             assertEquals(QA_QUESTION, qa.single().question)
         } finally {

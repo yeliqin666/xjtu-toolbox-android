@@ -9,14 +9,6 @@ import okhttp3.Response
  *
  * `org` 开放平台 OAuth（appId=1759）→ CAS → 带 code 回 `/cems/index/mobile/pay`，站点下发会话 cookie。
  * 页面 HTML 里内嵌一个 `cid`，绑定、解绑、宿舍列表都要带它；页面服务端渲染时没登录会把 `loginUrl` 写成非空。
- *
- * 与 [SsnSession] 一起从 `:app` 的 `auth/SsnLogin.kt` / `Sites.kt` 剪出来搬进 `:data`（桌面端第 17 条
- * 真数据路由：桌面要自己登 `ssn`、自己走完这条 OAuth + CAS 链，再由 `:data` 的 `DormPowerApi` 取数）。
- * 类名与包路径一字未改 ⇒ `:app` 的 `AppLoginState` 里那处 `register(SsnSession())` 一行不用改。
- *
- * 搬迁时被替换的写法只有一处：`android.util.Log.w` → `:core` 的 [Log].w（桌面/JVM 上落到标准输出，
- * 日志内容与级别未改）。`BASE_URL` / `PAY_PAGE_URL` / `SSN_OAUTH_URL` 与两个正则在原文里就是
- * `companion object` 上的公开（或同文件私有）常量，一个字符都没动。
  */
 open class SsnLogin(
     session: OkHttpClient? = null,

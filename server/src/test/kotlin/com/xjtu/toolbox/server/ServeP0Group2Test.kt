@@ -24,29 +24,7 @@ import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 
-/**
- * **P0 端点组二（需登录六域）的契约测试**：`/api/jwxt*`、`/api/library*`、`/api/card*`、
- * `/api/venue*` 共 16 个端点（`docs/api-contract.md` §5）。
- *
- * ## 独立 wiring（不动 `ServeModule.kt`）
- *
- * 与组一同一套脚手架（[startEndpointServer]）：`embeddedServer` + `route("/api")` +
- * `accessTokenGate` + 四个扩展函数（`sessionRoutes` / `jwxtRoutes` / `libraryRoutes` /
- * `cardRoutes` / `venueRoutes`）—— serve 进程的真装配（`ServeSession`：九站点注册 + 落盘凭据
- * + 冷启动恢复）照用，HTTP 外壳在测试里现搭。
- *
- * ## 手法与纪律
- *
- * - **真登录**：`POST /api/session/login` 走完整 CAS（`:testkit` 的 `FakeCampusProxy` 当代理），
- *   全部站点随登录链预热（`SESSION_SITE_KEYS`）—— 这些端点吃的站点会话是**真的**；
- * - **期望值全部来自夹具原文**（`:testkit` 的 `JwxtFakeUpstream` / `LibraryFakeUpstream` /
- *   `CampusCardFakeUpstream` / `VenueFakeUpstream` 的常量），不是编的；
- * - **红线**：每一个响应都过 [assertNoIdentity]（学号/姓名/账号/手机号/令牌一律不许出现）。
- *   卡面那三个身份字段（`account`/`name`/`studentNo`）要在**夹具里明明有**的前提下证明
- *   没被投影出来 —— 不能「夹具没有所以没出现」；
- * - **令牌闸门**：无令牌 401 / 错令牌 401 / 对令牌放行 / 无会话（登出后）401；
- * - **错误码**：400 参数形状不对、502 上游故障 —— 都走信封（`code == HTTP 状态码`）。
- */
+/** 需登录六域的契约测试。 */
 class ServeP0Group2Test {
 
     private var started: EmbeddedServer<CIOApplicationEngine, CIOApplicationEngine.Configuration>? = null
@@ -90,12 +68,7 @@ class ServeP0Group2Test {
 
     // ── jwxt：term-start / schedule（2026-10-11 补的两个读端点）────────────
 
-    /**
-     * `/api/jwxt/term-start`：`TermStartData` 三格逐字段。
-     *
-     * 两条口径在这里被钉住：`?term=` 省略时用**当前学期**（与 `/api/jwxt/term` 同一个来源），
-     * 以及上游给到秒的 `XQKSRQ` 只取日期那一段（`startDate` 是第 1 周周一，不是时间戳）。
-     */
+    /** `/api/jwxt/term-start`：`TermStartData` 三格。 */
     @Test
     fun `jwxt term-start：逐字段 + term 形状 400`() = withServe { serve ->
         val http = serve.http
@@ -133,12 +106,7 @@ class ServeP0Group2Test {
         assertEquals(2, serve.fake.jwxt.termStartCalls.get(), "400 那一枪没到取数层")
     }
 
-    /**
-     * `/api/jwxt/schedule`：行就是 `ScheduleRow` 钉住的那 8 列（键名 = 上游列名）。
-     *
-     * 三件容易漂的事都被钉住：① 上游给 JSON 数字的三格投影成**文本**（`:core` 的 `ScheduleRow`
-     * 读的是字符串）；② 缺键是**空串**（不是 null、不是字段缺失）；③ 周次只看 `ZCMC`，`SKZC` 位串不投影。
-     */
+    /** `/api/jwxt/schedule`：行就是 `ScheduleRow` 钉住的那 8 列（键名 = 上游列名）。 */
     @Test
     fun `jwxt schedule：8 列投影 + 缺键空串 + 未登录 401`() = withServe { serve ->
         val http = serve.http
@@ -484,7 +452,6 @@ class ServeP0Group2Test {
         assertEquals(false, (rows[1] as JsonObject).optBoolean("available"))
         assertEquals(true, (rows[2] as JsonObject).optBoolean("available"))
 
-        // my：有预约 ⇒ 逐字段（actionUrls 投影 —— 写端点已落地，屏上的按钮要它们，§5.3.1）
         val my = http.get("/api/library/my")
         assertEquals(200, my.statusCode())
         assertEquals(ApiEnvelope.CODE_OK, envelopeCode(my))
@@ -644,7 +611,6 @@ class ServeP0Group2Test {
         assertEquals(20.0, early.optString("price")?.toDouble())
         assertEquals(9101L, early.optLong("stockId"))
 
-        // all==used 仍可订 ⇒ surplus 兜到 1（不是旧口径的 0）
         val full = slotRows[1] as JsonObject
         assertEquals("场地2", full.optString("areaName"))
         assertEquals(10, full.optInt("usingNum"))
@@ -661,7 +627,6 @@ class ServeP0Group2Test {
         assertEquals(false, occupied.optBoolean("isAvailable"))
         assertEquals(0, (slotRows[6] as JsonObject).optInt("surplus"))
 
-        // 订单：分页 + 逐字段
         val orders = http.get("/api/venue/orders?page=1&size=20")
         assertEquals(200, orders.statusCode())
         assertEquals(ApiEnvelope.CODE_OK, envelopeCode(orders))
@@ -699,7 +664,6 @@ class ServeP0Group2Test {
         assertEquals(2, pending.getValue("details").jsonArray.size, "第二条订单两个明细（第二个只有场地名）")
     }
 
-    // ── 令牌闸门 / 会话闸门（组二共用的安全口径）────────────────────────
 
     @Test
     fun `令牌与会话两重闸门：无令牌 401、无会话 401、登出后 401`() = withServe { serve ->
@@ -730,15 +694,7 @@ class ServeP0Group2Test {
 
     // ── 脚手架 ─────────────────────────────────────────────────────────
 
-    /**
-     * 组二的通用脚手架：假上游 + 临时数据根 + 真 serve（四组扩展全挂）+ 真登录一次。
-     *
-     * 顺序上的三个坑与组一/[ServeSessionTest] 一样：
-     * 1. `installFakeUpstreams` 必须在构造 [ServeSession] 之前（它一构造就建 OkHttpClient）；
-     * 2. cookie jar 与凭据存储是**进程级**缓存 ⇒ 上一轮测试留下的 TGC/凭据要先清掉，
-     *    否则「真登录」会变成 SSO 直通（这一轮不数 credentialPosts，但断言更稳）；
-     * 3. 数据根一律临时目录，绝不碰 `~/.local/share/xjtu-toolbox/` 里那份真的。
-     */
+    /** 组二的通用脚手架：假上游 + 临时数据根 + 真 serve（四组扩展全挂）+ 真登录一次。 */
     private fun withServe(block: (Serve) -> Unit) {
         FakeCampusProxy.installFakeUpstreams()
         dataRootOverride = Files.createTempDirectory("xjtu-serve-g2").toFile()
@@ -763,7 +719,7 @@ class ServeP0Group2Test {
         }
     }
 
-    /** 进程级落盘态清一遍（与 [ServeSessionTest] 同口径）。 */
+    /** 进程级落盘态清一遍。 */
     private fun wipeStoredSession() {
         val suffix = AccountContext.suffixFor(LibraryFakeUpstream.USERNAME)
         for (base in listOf("cookies_normal", "cookies_webvpn", "sites_normal", "sites_webvpn")) {

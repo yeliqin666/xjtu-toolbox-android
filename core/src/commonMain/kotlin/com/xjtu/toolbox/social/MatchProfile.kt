@@ -37,21 +37,7 @@ import kotlinx.datetime.daysUntil
  * 没读到课表时照样塞一张全空的网格出去，对方算出来是"共同空闲 100%"——
  * 一个纯属虚构的满分。现在两个条件都要满足，见 [build]。
  *
- * ## 这个对象不碰 Android（也不碰 JVM）
- *
- * 它原先在 `:app`：编解码直接用 `java.util.zip` 的 deflate 与 `java.util.Base64`，
- * 日期用 `java.time`。搬进 `:core` 的 commonMain 之后（要编到 wasmJs）三处都换掉了：
- * - deflate / inflate → `:core` 的平台缝 `platform/Deflate.kt`（Android 与 jvm 是**原来那两份**
- *   实现，逐字相同；wasmJs 2026-10-15 起接上了 `ZlibCodec` 那份纯 Kotlin 实现，见 D12 ②）；
- * - URL-safe Base64 → `platform/Base64Url.kt`（同上，wasmJs 是 `UrlSafeBase64`）；
- * - `java.time.LocalDate` → `kotlinx-datetime` 的 `LocalDate`（`:core` 早就在用它，
- *   差异只有 `monthValue`→`monthNumber`、`ChronoUnit.DAYS.between`→`daysUntil`，都同义）。
- *
- * 取数交给 [MatchData]（读哪种缓存由 [MatchHost] 说），打分逻辑因此仍能在普通 JVM
- * 单元测试里跑，见 `:app` 的 `MatchProfileTest`（它一条断言都没改）。
- *
- * [codecAvailable] 是「这一端能不能出码」的判据：**三端今天都是 true**（2026-10-15 的 D12 ②
- * 把两条缝补进了 commonMain；在那之前 wasmJs 是 false，那里 [encode] 只能给空串）。
+ * 编解码走 `platform/Deflate.kt` 与 `platform/Base64Url.kt` 两条平台缝，[codecAvailable] 为 false 时 [encode] 只给空串。
  */
 object MatchProfile {
 
@@ -86,25 +72,13 @@ object MatchProfile {
     /** 解压上限。分享码来自别人，别让一段几百字节的输入膨胀成几十兆。 */
     private const val MAX_INFLATED = 256 * 1024
 
-    /**
-     * 这个长度以内的码，隔一臂远随手一扫就出。
-     *
-     * 与 `:app` 的 `QrBitmap.COMFORTABLE` **同值**（那个对象留在 `:app`：屏与 `OnlineLobby`
-     * 都在用它出位图）。搬进 `:core` 的这一份是给**分享码**用的长度预算：二维码只在
-     * [CODE_MAX_SCANNABLE] 以内才画，超过就让用户复制文字。
-     */
+    /** 这个长度以内的码，隔一臂远随手一扫就出。 */
     const val CODE_COMFORTABLE = 1200
 
     /** 再长就得凑近、对准。超过这个值不如别给二维码，省得用户在那对半天。 */
     const val CODE_MAX_SCANNABLE = 1800
 
-    /**
-     * 这一端会不会出分享码：要 deflate 与 Base64 两件都在（见两个平台缝的 KDoc）。
-     *
-     * **三端今天都是 true**（wasmJs 在 2026-10-15 的 D12 ② 之前是 false：那里两件都没有，
-     * 浏览器上整屏用不了）。这一格仍是屏的判据：屏据它**如实说明**，
-     * 而不是把 [encode] 的空串当成"算出错了"。
-     */
+    /** 这一端会不会出分享码：要 deflate 与 Base64 两件都在（见两个平台缝的 KDoc）。 */
     val codecAvailable: Boolean get() = deflateAvailable && base64Available
 
     val DAY_NAMES = listOf("周一", "周二", "周三", "周四", "周五", "周六", "周日")
@@ -404,7 +378,7 @@ object MatchProfile {
             if (entry.isBlank()) null else map(entry.split("~"))
         }
 
-    /** 与搬迁前 `MatchProfile.deflate` 同一件事，缓冲区那一半现在在平台侧（见 `platform/Deflate.kt`）。 */
+    /** deflate；缓冲区那一半在平台侧（见 `platform/Deflate.kt`）。 */
     private fun deflate(raw: String): ByteArray? = deflateBytes(raw.encodeToByteArray())
 
     /** 解压 + UTF-8 解码；上限就是 [MAX_INFLATED]（`platform/Deflate.kt` 里那条循环判据）。 */
@@ -771,7 +745,6 @@ object MatchProfile {
     private fun lastExamNote(mine: Profile, theirs: Profile, them: String): String? {
         val a = mine.exams.mapNotNull { parseDate(it.date) }.maxOrNull() ?: return null
         val b = theirs.exams.mapNotNull { parseDate(it.date) }.maxOrNull() ?: return null
-        // 搬迁前是 `ChronoUnit.DAYS.between(a, b)`；`daysUntil` 是同一个含头不含尾的天数。
         val gap = a.daysUntil(b)
         return when {
             gap == 0 -> "同一天考完，${prettyDate(a.toString())}一起放假"

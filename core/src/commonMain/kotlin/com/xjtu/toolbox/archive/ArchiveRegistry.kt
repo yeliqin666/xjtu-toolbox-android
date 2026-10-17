@@ -1,16 +1,6 @@
 package com.xjtu.toolbox.archive
 
-/**
- * store 名 → 分类表（§2.4 / §3.2 / §5.2 第 7 条 / §8.10）。
- *
- * 这是**唯一**允许在共享层里出现的「store 知识」，S1 建表、S2 用表；新增 store 只改这张表。
- * 同名不得同时是 plain 与 secure（否则两端写同一个 `.properties` 文件会互相覆盖 —— 有守卫测试）。
- *
- * TTL 档：§5.2 第 7 条的档位是**键级**粒度，store 级只作提示（§2.1 `ttlClass` 可缺省），
- * 且规格未决 #10 那几格（`score_cursor` / `schedule_diff` / `course_colors` / `home_usage` /
- * `pidai_appearance` / `schedule_widget_prefs` / `empty_room_cache`）未核对 ⇒ 一律 [Ttl.UNKNOWN]，
- * 不猜（见 `docs/storage-layout-plan.md` §7 第 9 项）。
- */
+/** store 名 → 分类表（§2.4 / §3.2 / §5.2 第 7 条 / §8.10）。 */
 object ArchiveRegistry {
 
     enum class Scope { GLOBAL, ACCOUNT }
@@ -29,16 +19,10 @@ object ArchiveRegistry {
         val rebuildable: Boolean = false,
     )
 
-    /**
-     * 凭据族前缀（§8.10 / A8）：`cookies_*` / `sites_*` / `agent_config_secure*`。
-     * 用前缀而不是精确名：这些 store 名尾部还有账号 suffix，且 `cookies_`/`sites_` 有
-     * `normal`/`webvpn` 两种 mode。`agent_config`（非 secure）不会命中 —— 前缀是 `agent_config_secure`。
-     */
+    /** 凭据族前缀（§8.10）：`cookies_*` / `sites_*` / `agent_config_secure*`。 */
     private val credentialPrefixes = listOf("cookies_", "sites_", "agent_config_secure")
 
-    /**
-     * 端内私有、永不进档案（§2.4）。凭据族之外的一类：换包判据 / 门禁令牌 / 迁移残留。
-     */
+    /** 端内私有、永不进档案（§2.4）。 */
     private val excludedNames = setOf("data_cache_meta", "serve", "agent_config_fallback")
 
     private val table: Map<String, Entry> = buildMap {
@@ -50,7 +34,6 @@ object ArchiveRegistry {
         // xjtu_cookies：旧单账号迁移残留池，密文。
         put("xjtu_cookies", Entry(Scope.GLOBAL, Carrier.SECURE_KV, credential = true))
         put("github_community", Entry(Scope.GLOBAL, Carrier.SECURE_KV, credential = true))
-        // serve 的 access_token 是 serve 进程门禁令牌：既是凭据族（A8）又是端内私有（§2.4）。
         put("serve", Entry(Scope.GLOBAL, Carrier.SECURE_KV, credential = true, excluded = true))
 
         put("library_favorites", Entry(Scope.GLOBAL, Carrier.PLAIN_KV))
@@ -108,14 +91,13 @@ object ArchiveRegistry {
         put("attendance_records_ug", Entry(Scope.ACCOUNT, Carrier.PLAIN_KV))
         put("attendance_records_pg", Entry(Scope.ACCOUNT, Carrier.PLAIN_KV))
         put("score_cursor", Entry(Scope.ACCOUNT, Carrier.PLAIN_KV))
-        // schedule_cache：桌面带账号后缀、web 不带（§3.2 #51 / §3.5④），记桌面基准 ACCOUNT；课表族缓存标可重建（§8.7）。
         put("schedule_cache", Entry(Scope.ACCOUNT, Carrier.PLAIN_KV, rebuildable = true))
     }
 
     /** 查分类；没登记的名字默认按全局 plain KV 对待（不猜、不拦）。 */
     fun entryFor(base: String): Entry = table[base] ?: Entry(Scope.GLOBAL, Carrier.PLAIN_KV)
 
-    /** 是否凭据族（§8.10 / A8）：默认不进档案，除非显式开关。 */
+    /** 是否凭据族（§8.10）：默认不进档案，除非显式开关。 */
     fun isCredential(base: String): Boolean =
         entryFor(base).credential || credentialPrefixes.any { base.startsWith(it) }
 

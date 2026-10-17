@@ -64,23 +64,7 @@ import top.yukonga.miuix.kmp.basic.rememberTopAppBarState
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.utils.overScrollVertical
 
-/**
- * 成绩报表 —— 从 `:app/score/ScoreReportScreen.kt` 搬进 `:core`（347 行，逐字搬）。
- *
- * 搬迁时被替换掉的写法（其余逐字保留）：
- *  1. `SiteSession` + `studentId` → 注入的 [source]（`:app` 的适配器把学号闭在里面，
- *     见 `:app/score/ScoreReportApp.kt`）；
- *  2. `LocalAppLoginState.handleAuthExpired(...)` → [LocalAuthExpiry]（见 `:core/auth/AuthExpiry.kt`）；
- *  3. `DataCache(context, accountId)`（SWR 缓存）→ 注入的 [cache] 端口（`:app` 仍用 `DataCache`，
- *     Web 用 localStorage，行为各自保持原样）；
- *  4. `"%.2f".format(...)` / `"%.1f".format(...)`（`String.format` 是 JVM 专属且是默认导入）
- *     → [formatTwoDecimals] / [formatOneDecimal]；
- *  5. `groupBy { it.term }.toSortedMap(compareByDescending { it })` —— `toSortedMap` 是
- *     **JVM 专属**扩展，换成「按学期代码降序的 `List<Pair>`」（同一个顺序：代码是 `2025-2026-1`
- *     这种零填充形式，字典序降序就是时间降序，与原实现一致）。
- *
- * @param cache 传 null = 这一端不缓存（屏幕每次都真拉）。`:app` 与 Web 都传实现。
- */
+/** 成绩报表。 */
 @Composable
 fun ScoreReportScreen(
     source: ScoreReportSource,
@@ -205,8 +189,6 @@ fun ScoreReportScreen(
                 }
 
                 else -> {
-                    // 宽屏学期卡分两三列（见 AdaptiveRowGrid：卡片会竖着展开，按行对齐，展开一张别的卡不挪位置）；GPA、说明、搜索横跨全宽。
-                    // 以前一列学期卡横跨整个平板宽度，一门课的名字和分数隔着大半个屏幕。
                     AdaptiveRowGrid(
                         modifier = Modifier.fillMaxSize().overScrollVertical(),
                         spacing = 12.dp,
@@ -329,13 +311,7 @@ private fun ScoreStat(value: String, label: String, color: Color) {
     }
 }
 
-/**
- * 成绩行。
- *
- * 原来每门课是一张独立 Card + 12dp 间距，几十门课就是几十个悬浮小方块，
- * 读起来全是边框和空隙。现在同一学期的课合并进一张卡里，逐行排列 + 细分隔线，
- * 成绩靠右等宽对齐，扫一列就能比大小。
- */
+/** 成绩行。 */
 @Composable
 private fun ReportGradeRow(grade: ReportedGrade) {
     Column(Modifier.fillMaxWidth()) {

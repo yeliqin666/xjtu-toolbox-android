@@ -21,29 +21,7 @@ import top.yukonga.miuix.kmp.basic.MiuixScrollBehavior
 import top.yukonga.miuix.kmp.basic.Scaffold
 import top.yukonga.miuix.kmp.basic.rememberTopAppBarState
 
-/**
- * 宿舍电费：学校的缴费页本身就是完整界面（绑定、查询、充值都在里面），不再自己画一套。
- * 这里只负责换一张能直接登录缴费页的入口地址，交给 [browser] 用内置浏览器铺满；
- * 地址还在路上时 [browser] 收到 null，先出浏览器外壳，不另画一页加载中。
- * 用过一次就记下来，首页才会后台查电量、低电提醒。
- *
- * 本屏从 `:app` 搬进 `:core`（桌面端第 17 条真数据路由，与考勤同一批），屏是两端共用的同一份，
- * 只在**取数**与**宿主能力**上切缝（表格即「原来」→「现在」）：
- *
- * | 原来 | 现在 |
- * |---|---|
- * | `site: SiteSession` + 屏上 `(site as SsnSession).freshPayUrl()` | [source]（`:data` 的 `DormPowerApi`） |
- * | 屏上 `DormPowerStore.markUsed(context)` | 收进 `freshPayUrl()` 的实现里（同一个时机：拿到地址之后） |
- * | `LocalAppLoginState.handleAuthExpired(...)` | `:core` 的 [LocalAuthExpiry] |
- * | `DisposableEffect` 里 `HomeStats.invalidate(context, …)` | [onLeave]（宿主的首页缓存作废槽位） |
- *
- * 屏自己的画法、文案、状态走向**一行未改**：`browser(url)` 与错误页二选一，
- * 「重试」只是把 [attempt] 加一，`error` 文案仍是异常消息（拿不到就用「打开缴费页失败」）。
- *
- * @param browser 内置浏览器外壳（收 null = 地址还在路上）。桌面端没有内置浏览器，宿主用系统浏览器打开。
- * @param onLeave 离开这一屏时回调一次：`:app` 用它让首页把这一路的缓存作废（在页面里绑定、充值后
- *   下一轮首页刷新要马上重查一次电量）；桌面端没有那份首页摘要 ⇒ 默认空实现。
- */
+/** 宿舍电费：学校的缴费页本身就是完整界面（绑定、查询、充值都在里面），不再自己画一套。 */
 @Composable
 fun DormPowerScreen(
     /** 本端的取数（Android / 桌面 = `:data` 的 [DormPowerApi]）。 */

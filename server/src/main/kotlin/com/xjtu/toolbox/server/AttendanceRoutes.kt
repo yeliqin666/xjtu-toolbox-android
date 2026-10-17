@@ -20,74 +20,7 @@ import io.ktor.server.routing.route
 import io.ktor.server.routing.post
 import kotlinx.serialization.Serializable
 
-/**
- * `/api/attendance*` —— 考勤的**两个只读端点**（`docs/api-contract.md` §5.5），走 `:data` 的
- * [AppAttendanceSource]（包住 `AttendanceApi`，解析口径一行不重做）。
- *
- * | 端点 | 对应端口方法 |
- * |---|---|
- * | `GET /api/attendance/terms` | `AttendanceSource.getTermList()`（`TermInfo`） |
- * | `GET /api/attendance/records` | `AttendanceSource.getTermBh()` + `getWaterRecords(bh, from, to)` |
- * | `GET /api/attendance/leave/window` | `AttendanceSource.getSemesterWindow()` |
- * | `GET /api/attendance/leave/preview?type=` | `AttendanceSource.getFlowPreview(type)` |
- * | `GET /api/attendance/leave/records?page=&size=&status=&type=` | `AttendanceSource.getLeavePage(…)` |
- * | `POST /api/attendance/leave` | `AttendanceSource.createLeave(…)`（**写**） |
- * | `POST /api/attendance/leave/withdraw` | `AttendanceSource.withdrawLeave(id, reason)`（**写**） |
- * | `POST /api/attendance/leave/cancel` | `AttendanceSource.cancelLeave(id)`（**写**） |
- *
- * ## 端了什么、刻意不端什么
- *
- * | 端口方法 | 本轮端不端 |
- * |---|---|
- * | `getTermList` / `getTermBh` / `getWaterRecords` | **端**（两个端点） |
- * | `getStudentInfo` | 不端：它要 `name` 那格是**姓名**（登录用户本人）——契约 §5.2 红线，例外清单里没有它 |
- * | `getKqtjCurrentWeek` / `getKqtjByTime` / `computeCourseStatsFromRecords` | 不端：屏上「按课程统计」那一栏（TODO，见下） |
- * | `getStreams` | 不端：打卡原始流水那一栏（TODO，见下） |
- * | 请假那一半 | ✅ **已端**（2026-10-15，批③-b / D7 ②）：窗口 / 流程预览 / 列表三格读 + 提交 / 撤回 / 销假三个写 |
- * | `uploadEvidence` | 不端：它是 `multipart/form-data`，而 `:web` 那一端没有文件选择宿主（`AttendanceScreen` 的 `pickEvidenceFiles` 默认就是空）⇒ 与桌面同一条：不发附件 |
- * | 请求体里的 `evidenceFiles` | 固定空表（见上一行）—— serve 这一层没有地方接受文件字节，也不把「没传附件」说成「传了一个空的」 |
- * | `requestId`（幂等键） | ✅ 由**调用方**给（与两端的接口签名一致）；缺了 ⇒ `400`（重发两次不该变成两条请假） |
- *
- * ## 逐字段映射（判据是真源：`:data` 的解析 + `:core` 的模型）
- *
- * - **terms**：`TermInfo(bh, name, code, startDate, endDate)` 原样投影，顺序 = `:data` 的顺序
- *   （`sortedByDescending { startDate }`，当前学期在第一个 —— `getTermBh` 的取法就是「第 0 个」）；
- *   `name` 是 `:data` 拼好的人类可读名（`"$year $semesterName"` 那一套）、`code` 是它算的
- *   教务风格学期码（`2026-2027-1`，`TermCodeMapper`），本层不再拼第二份；
- * - **records**：命中 `AttendanceWaterRecord` 的第一批字段。两处刻意的改名（与契约里
- *   `amount ← signed` 同一种做法）：`startSection ← startTime`、`endSection ← endTime`
- *   —— `:core` 那两个字段名里的 `Time` 其实是**节次**（`Int`，`1..11`），照抄会让消费方以为
- *   是时刻；`term ← termString`（学期码，取不到码时 `:data` 兜底成学期名）。
- * - `status` 是 `WaterType.value`（1 正常 / 2 迟到 / 3 缺勤 / 5 请假），`statusText` 是它配套的
- *   中文。⚠️ **`-1` = 未识别的状态码，必须按 `statusText` 的「未知」显示** —— `:data` 的
- *   `WaterType` KDoc 把这条写死了（不许悄悄算成正常，那会把统计数字做成好看的假数字）。
- * - ⚠️ **`teacher` 不投影**：考勤记录里的上课教师名是**姓名**，而契约 §5.2 的例外清单里没有它
- *   （例外只有 ① `fitness/score` 本人姓名/学号 ② 黄页/教师检索的通讯录 ③ `emptyroom/rooms`
- *   实时档的上课教师名 ④ 请假这一族的两类姓名，见下一行）⇒ 本层按红线不端。`:web` 的考勤屏
- *   若要显示教师名，得先拍板把它加进例外清单（那是改契约，不是改这一层）。
- * - ✅ **请假这一族的两个姓名（例外④）已于 2026-10-15 拍板、真投影**：`leave/preview` 的
- *   `nextApprovers[].name` / `nodes[].approvers[].name`（**我自己的申请上的审批人姓名**）与
- *   `leave/records` 的 `courses[].teacherNames`（**我自己的课的任课教师姓名**）。理由与 ③ 同
- *   性质（都是「我自己的申请 / 我自己的课」上的真人名；不加这一条，屏上那个审批人下拉框就
- *   退化成一行 `userId`）。除了这两类，其余姓名一律仍不投影。
- *
- * ## 请求参数与错误码
- *
- * - `?term=`（省略 = 当前学期，`getTermBh()`，与 `:app`/桌面同一条取法）——**学期号**（`bh`，
- *   形如 `646`，取自 `/api/attendance/terms`）；给了但不是纯数字 ⇒ 400；
- * - `?from=&to=`（省略时用 `:data` 的兜底：`from` = 该学期起、`to` = 今天）——`YYYY-MM-DD`；
- *   给了但不成形 ⇒ 400。**响应不回这两格**：兜底口径在 `:data`（`AttendanceApi.getWaterRecords`），
- *   本层不复制一份（要范围就看行的 `date`）；
- * - 401 令牌对但没会话 · 502 上游 / 网络故障（`FriendlyError` 中文短句）。
- *
- * ## TODO（本轮未端，下一批要就先说）
- *
- * `getStudentInfo`（姓名那格过不了红线）/ 统计栏（`getKqtjCurrentWeek` 与
- * `computeCourseStatsFromRecords`）/ 打卡流水（`getStreams`）三块都还没有端点：serve 模式下
- * 考勤屏目前只有「学期选择 + 流水表」。
- *
- * @param session 会话装配；考勤站点（`new_attendance`）从它那里取。
- */
+/** `/api/attendance*`。 */
 internal fun Route.attendanceRoutes(session: ServeSession) {
     route(ATTENDANCE_SEGMENT) {
 
@@ -133,12 +66,7 @@ internal fun Route.attendanceRoutes(session: ServeSession) {
             }
         }
 
-        // ── 请假 / 销假（2026-10-15，批③-b / D7 ②）──────────────────────────
-        //
-        // 六条端点 = `:core` 那张请假屏真正要的那几样：**窗口**（表单上的上限与日期范围）、
-        // **流程预览**（选审批人）、**列表**（那一栏的卡）+ 提交 / 撤回 / 销假三个写。
-        // 三个写的**二次确认在屏上**（撤回 / 销假各有一次 `OverlayDialog`，提交前有一整套表单校验），
-        // 本层不再加一层 —— 服务端没有「用户按了确定」这个信号，编一个只会变成第二个口径。
+        // ── 请假 / 销假：二次确认在屏上，本层不再加一层 ──
 
         // 请假学期窗口（读）
         get(ATTENDANCE_LEAVE_WINDOW) {
@@ -300,18 +228,13 @@ internal data class AttendanceTermDto(
 /** `GET /api/attendance/records` 的 `data`。 */
 @Serializable
 internal data class AttendanceRecordsData(
-    /** 本次查询用的学期号（请求没给就是 `:data` 算出来的当前学期）。 */
+    /** 本次查询用的学期号（请求没给就是当前学期）。 */
     val term: String,
     val count: Int,
     val records: List<AttendanceRecordDto>,
 )
 
-/**
- * 一条考勤流水的线上形状。
- *
- * 改名两处（`startSection ← startTime`、`endSection ← endTime`）与**不投影 `teacher`** 的理由
- * 见文件头 KDoc。
- */
+/** 一条考勤流水的线上形状。 */
 @Serializable
 internal data class AttendanceRecordDto(
     val id: String,
@@ -371,14 +294,8 @@ internal const val ATTENDANCE_PARAM_TO = "to"
 /** `?term=` 的形状（学期号 = `bh`，形如 `646`；不是就 400）。 */
 private const val ATTENDANCE_TERM_SHAPE_MESSAGE = "term 需要是学期号，形如 646（取自 /api/attendance/terms 的 bh）"
 
-// ── 请假 / 销假（批③-b / D7 ②）──────────────────────────────────────
 
-/**
- * `GET /api/attendance/leave/window` 的 `data`：`LeaveSemesterWindow` 的六格原样投影。
- *
- * 屏拿它做三件事：日期范围（`startDate` / `endDate`）、`maxStudentLeaveMinutes` 那一条校验
- *（超过单次上限 ⇒ 表单不提交）。它是 `:data` 的解析结果，本层不再拼第二份。
- */
+/** `GET /api/attendance/leave/window` 的 `data`：`LeaveSemesterWindow` 的六格原样投影。 */
 @Serializable
 internal data class AttendanceLeaveWindowData(
     val semesterId: String,
@@ -398,23 +315,11 @@ internal data class AttendanceLeavePreviewData(
     val nodes: List<AttendanceLeaveFlowNodeDto>,
 )
 
-/**
- * 一个审批人（`LeaveApprover` 的两格）。
- *
- * ✅ `name` 是**学校工作人员的真实姓名**，2026-10-15 上一级拍板把它加进了 §5.2 的例外清单 ④
- * —— **我自己的申请上的审批人姓名**（与 ③ `emptyroom/rooms` 实时档的上课教师名同性质：都是
- * 「我自己的那条记录」上的真人名），所以本层**真投影**它（原来是空串）。
- *
- * 不加这一条例外的代价写在屏上：`:core` 写的是 `it.name.ifBlank { it.userId }` ⇒ 留空不丢功能，
- * 但那个下拉框会退化成一行 `userId`（提交要的就是那个 `userId`）。
- *
- * `userId` 为空的那一条在 `:core` 那一层丢掉（它是那个下拉框的**句柄**，提交时要原样带回）；
- * `name` 空着不影响功能 —— 屏上有 `ifBlank` 兜底。
- */
+/** 一个审批人（`LeaveApprover` 的两格）。 */
 @Serializable
 internal data class AttendanceLeaveApproverDto(val userId: String, val name: String)
 
-/** 流程上的一个节点（`configured = false` 时上游还没配好，屏上那一栏应当如实说）。 */
+/** 流程上的一个节点（`configured = false` 时上游还没配好）。 */
 @Serializable
 internal data class AttendanceLeaveFlowNodeDto(
     val nodeNo: Int,
@@ -482,18 +387,7 @@ internal data class AttendanceLeaveNodeDto(
     val autoReason: String,
 )
 
-/**
- * 这条请假涉及的一节课（六格）。
- *
- * ✅ `teacherNames` 是**任课教师姓名**，2026-10-15 上一级拍板把它加进了 §5.2 的例外清单 ④：
- * **我自己的课的任课教师姓名**，所以本层**真投影**它（原来是空串）。
- *
- * ⚠️ 这一条例外**只覆盖这一格**：它的根据是「这是我自己的请假单涉及的那节课」——
- * 考勤流水里那个 `teacher`（当堂上课的教师名）**不在这条例外里**，仍然不投影（§5.5）。
- *
- * 画不画仍由屏说了算：`:core` 的屏至今没读 `teacherNames`（`grep` 可证）—— 本层端的是数据，
- * 不是版面。
- */
+/** 这条请假涉及的一节课（六格）。 */
 @Serializable
 internal data class AttendanceLeaveCourseDto(
     val courseId: String,
@@ -557,7 +451,6 @@ private fun LeaveFlowPreview.toDto() = AttendanceLeavePreviewData(
 )
 
 private fun LeaveApprover.toDto() =
-    // 见 [AttendanceLeaveApproverDto] 的 KDoc：审批人姓名在 §5.2 例外④里 ⇒ 真投影
     AttendanceLeaveApproverDto(userId = userId, name = name)
 
 private fun LeaveFlowNode.toDto() = AttendanceLeaveFlowNodeDto(
@@ -605,7 +498,6 @@ private fun LeaveRecord.toDto() = AttendanceLeaveRecordDto(
             courseDate = it.courseDate,
             startSection = it.startSection,
             endSection = it.endSection,
-            // 见上面那条 KDoc：任课教师姓名在 §5.2 例外④里 ⇒ 真投影
             teacherNames = it.teacherNames,
         )
     },

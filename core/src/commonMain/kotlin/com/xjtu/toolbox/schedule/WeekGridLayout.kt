@@ -12,10 +12,6 @@ package com.xjtu.toolbox.schedule
  * 所以节次课总是正好盖住对应的行；5/1、10/1 所在那周两套作息并存，也各自对齐，左轴两套时间都标。
  *
  * 位置用「行刻度」：第 i 行 = `[i, i+1)`，小数部分 = 行内按钟点的比例。
- *
- * 从 :app 搬进 commonMain 时**只改了可见性**：原来这些东西是 `internal`（只有 :app 自己
- * 用得上），跨模块的 `internal` 看不见，所以类、[GridRow]、[PlacedSlot]、[ConflictGroup]、
- * [MIN_SLOT_MINUTES] 与两个顶层函数都提成 public。逻辑一行未动。
  */
 class WeekGridLayout(
     val rows: List<GridRow>,

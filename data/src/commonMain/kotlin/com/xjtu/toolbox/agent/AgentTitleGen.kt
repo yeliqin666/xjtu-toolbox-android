@@ -22,11 +22,6 @@ import java.util.concurrent.TimeUnit
  * 仿 opencode：首轮对话后用一次轻量 LLM 调用，把对话概括成 ≤12 字的会话标题。
  * 失败返回 null（调用方退回首条消息截断）。
  *
- * 从 `:app` 搬进 `:data`：它是**一次真的模型取数**（跟 [AgentModelFetcher] 同一条缝），
- * 用的是 `:data` 已有的 `HttpClients.base`；除包名外**一个字符未改**。
- * 会话落盘（[AgentSessionStore] 的 `rename(id, title, lock = true)`）在同一个模块，
- * 所以「首轮结束后自动起标题」这一条链路整段都在共享层。
- *
  * 要点：
  * 1. 显式禁掉思考。DeepSeek 侧 thinking **默认是开的**，必须显式传
  *    `thinking:{"type":"disabled"}` 才关得掉。原来这个参数只在 provider == deepseek 时才发，

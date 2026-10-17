@@ -20,17 +20,7 @@ import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.setMain
 import kotlinx.serialization.json.JsonObject
 
-/**
- * 流式传输（[SseAgentTransport]）—— `:app` 的 `AgentRunner.streamOnce` 搬进 `:data` 之后的那一份。
- *
- * 本地服务器当真服务商（真发 HTTP、真按 SSE 回），断言的是三件事：
- *
- *  - **聚合口径**：正文 / 思维链 / tool_calls（分片下发按 index 拼） / finish_reason / usage；
- *  - **请求的形状**：URL 由 `effectiveBaseUrl` 拼、三条 header、请求体逐字就是循环给的那一份；
- *  - **失败口径**：非 2xx 抛的是 [agentHttpErrorText] 那一句（与设置页同源，两端必须一致）。
- *
- * 密钥全是编造的（ASCII：OkHttp 会校 header 值，非 ASCII 直接抛），从不发往真服务商。
- */
+/** 流式传输（[SseAgentTransport]）。 */
 class SseAgentTransportJvmTest {
 
     private lateinit var server: HttpServer
@@ -48,13 +38,8 @@ class SseAgentTransportJvmTest {
 
     @BeforeTest
     fun setUp() {
-        // 与 `AgentModelFetcherJvmTest` 同由：先把**共享**的两件进程级前置装好，再碰
-        // `HttpClients.base`（它在 `build()` 那一刻把当时的 selector 与 trust manager 抄进配置），
-        // 并把端口设回 0（本测试直连 127.0.0.1）。不装的话，`:data:jvmTest` 里那批「真登录」
-        // 用例会跟着一起红（见 `FakeCampusProxy.installFakeUpstreams` 的 KDoc）。
         FakeCampusProxy.installFakeUpstreams()
         FakeUpstreamProxySelector.port = 0
-        // 传输层把增量回调派发到 `Dispatchers.Main.immediate`（上屏口径）；JVM 单测里那份要自己装。
         Dispatchers.setMain(UnconfinedTestDispatcher())
         port = 0
         server = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0)
@@ -123,7 +108,6 @@ class SseAgentTransportJvmTest {
         assertEquals("/v1/chat/completions", path.get())
         assertEquals("Bearer $FAKE_KEY", authHeader.get())
         assertEquals("text/event-stream", acceptHeader.get())
-        // OkHttp 会给 media type 补上 charset（搬迁前就是这一串）
         assertEquals("application/json; charset=utf-8", contentTypeHeader.get())
         // 循环拼好的那一份原样发出去（传输层不改请求体）
         assertEquals(reqBody.toString(), postedBody.get())

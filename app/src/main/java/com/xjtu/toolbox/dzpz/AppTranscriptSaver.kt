@@ -8,17 +8,7 @@ import com.xjtu.toolbox.error.FriendlyError
 import com.xjtu.toolbox.lms.LmsDownloadRecord
 import com.xjtu.toolbox.lms.LmsDownloadStore
 
-/**
- * 成绩单 PDF 的**落盘实现**（本端宿主能力）—— `:core` 的 [TranscriptSaveSink] 在 Android 侧的填法。
- *
- * 方法体是搬屏时从 `:app/dzpz/TranscriptScreen.kt` 的 `savePdfToDownloads(context, …)` **原样搬出来**的
- * （MediaStore 写进 `Download/岱宗盒子/`、记进「我的 · 下载管理」、Toast 文案三处逐字一致），
- * 三句界面文案（按钮字、「将保存到 X」的位置、按钮下那句说明）也一起搬到这里 —— 它们说的都是
- * 本端存到哪儿、怎么打开，不属于共享屏。
- *
- * 这样 `:core` 的屏编到 wasm/JVM 都没有 `MediaStore` 的影子，而 Android 侧的行为一行未变。
- * 桌面端另有一份（写用户的下载目录，见 `:desktop` 的 `DesktopTranscriptSaver`）。
- */
+/** 成绩单 PDF 的落盘实现（本端宿主能力）—— `:core` 的 [TranscriptSaveSink] 在 Android 侧的填法。 */
 class AppTranscriptSaver(context: Context) : TranscriptSaveSink {
 
     private val appContext = context.applicationContext

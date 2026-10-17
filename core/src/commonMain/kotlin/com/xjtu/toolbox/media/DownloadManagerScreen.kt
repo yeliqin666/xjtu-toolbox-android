@@ -91,20 +91,6 @@ import top.yukonga.miuix.kmp.utils.overScrollVertical
 /**
  * 下载管理页面（共享屏）。
  *
- * 搬迁前它在 `:app`（`media/DownloadManagerScreen.kt`），画法/文案/交互一条未改；切开的缝只有四处：
- *
- * | 原来 | 现在 |
- * |---|---|
- * | `DownloadManager.getInstance(context)` + `manager.dao.getAll()`（Room 是 `internal`） | [manager]（`:core` 的状态机，`getAllTasks()`） |
- * | `LmsDownloadStore.getAll(context)`（MediaStore 登记 + 发现） | [files]（宿主端口） |
- * | `contentResolver.delete(...)` + `LmsDownloadStore.remove(...)` | [DownloadedFilesHost.delete] |
- * | `Intent.ACTION_VIEW` 打开文件/回放（`openDownloadedFile` / `openReplayFile`） | [DownloadedFilesHost.open] / [onPlayTask] |
- * | 下载目录说明弹窗里那两句位置与那几条说明（`LmsDownloadStore.publicDisplayPath()` / `Context`） | [dirInfo] + `manager.videoDirPath` |
- *
- * 也就是说：**这一屏不再认识 `Context`、MediaStore、`Intent`、Room** —— 它只说「要什么数据、
- * 用户点了什么」，Android 那一侧由 `AppDownloadManagerScreen` 把宿主能力填上
- * （与 `AppLmsSink` / `AppTranscriptSaver` 同一个口径）。
- *
  * @param files 另一类下载（成绩单 / 思源课件 / 资料站文件）。桌面端没有那张登记表
  *   ⇒ 传 null，屏上只列排队下载的回放视频（如实，不是列表被吞了）。
  * @param onPlayTask 播放一个**已下载完**的回放文件：Android = 外部播放器（Media3 那套只播流，
@@ -137,8 +123,7 @@ fun DownloadManagerScreen(
     // 批量管理模式下换成 SmallTopAppBar，同样要玻璃化。
     val glass = rememberPageGlass()
 
-    // 加载任务列表。搬迁前这两发各自 `withContext(Dispatchers.IO)`：Room 的挂起查询
-    // 本来就在自己的查询线程上跑，文件类下载那半已归宿主（见类 KDoc）。
+    // 加载任务列表（Room 的挂起查询自带线程，无需切 IO）。
     fun loadTasks() {
         scope.launch {
             allTasks = manager.getAllTasks()

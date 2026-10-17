@@ -6,10 +6,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
-/**
- * 用**真实抓到的**响应做夹具（2026-10-06，本机 campus-api）。
- * 不是编的样例——这正是探针要钉住的东西：换 Ktor 之后解析口径不能变脆。
- */
+/** 用真实抓到的响应做夹具（2026-10-06，本机 campus-api）。 */
 class PayloadShapeTest {
 
     @Test

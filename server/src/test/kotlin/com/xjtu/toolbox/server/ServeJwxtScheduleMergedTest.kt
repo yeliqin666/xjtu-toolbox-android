@@ -10,37 +10,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 import kotlinx.serialization.json.JsonObject
 
-/**
- * `GET /api/jwxt/schedule?merged=1` 的契约测试（`docs/api-contract.md` §5.9）——
- * **批①收尾**（2026-10-14）新开的那一档：端出 `:data` 的 `JwxtScheduleApi.schedule()`
- * 已经合过调停补课的课表（Android / 桌面端课表屏吃的那一张）。
- *
- * ## 为什么这一批要它
- *
- * `:web` 的日程屏此前给的是**排课原样**（接线批如实不合并，缺口写在页顶）：`/api/jwxt/changes`
- * 端的是说明面的 `ScheduleChangeEvent`，而 `:core` 的合并入口 `JwxtChanges.apply` 吃的是带
- * `jxbid`（认原课）与 `appliedAt`（定先后）的 `JwxtChange` ⇒ 消费方拿到那一条也合不了
- * （`docs/desktop-port-plan.md` §16.5 的第 1 条）。本批按那一条决策**不新增语义面字段**，
- * 而是让这个端点多一档 `?merged=1`。
- *
- * ## 这一组钉的是什么
- *
- * - **默认那一档一字未改**：不带 `merged` 时形状仍是 `{term, rows, count}`、行仍是上游那八列
- *   （`ZCMC` 文本给的是**排课原样**），而且**一次 `xsdkkc.do` 都不打**（`changesCalls == 0`）
- *   —— 「默认行为不变」这条不靠读代码，靠这一条断言；
- * - **`merged=1` 是真合并**：`:data` 的 `JwxtChanges.apply` 拿 [JwxtFakeUpstream.CHANGE_JXBID]
- *   那条调课记录把 `SCHEDULE_1` 第 [JwxtFakeUpstream.CHANGE_WEEK] 周从 [SCHEDULE_1_ROOM] 挖掉，
- *   并在 [CHANGE_NEW_ROOM] 多出一条只上那一周的课 ⇒ `count` 从 3 变 4，两边的 `weekBits` 逐位
- *   可对（不是「多了一条」就算过）；
- * - **形状**：`courses` 是 `:core` `CourseItem` 的**九格**（那两格分钟级时间不投影，§4），
- *   `changes` 与 `/api/jwxt/changes` 同一族十二格；
- * - **参数形状**：`merged` 给了但不是 `1`（含空白串）⇒ 400，且不打上游；
- * - **红线**：响应过 [assertNoIdentity]（调停补课报文里的上课教师名 `SCHEDULE_1_TEACHER`
- *   明明在夹具里，但它进的是 `teacher` 那一格 —— 那是**课程**的教师名，不是身份）。
- *
- * 夹具是 `:testkit` 里早就有的那份 `JwxtFakeUpstream`（`xskcb.do` + `xsdkkc.do` 两个样本），
- * **本批一个常量都没加、一个都没改**。
- */
+/** `GET /api/jwxt/schedule?merged=1` 的契约测试（`docs/api-contract.md` §5.9） */
 class ServeJwxtScheduleMergedTest {
 
     private var started: EmbeddedServer<CIOApplicationEngine, CIOApplicationEngine.Configuration>? = null
@@ -89,9 +59,6 @@ class ServeJwxtScheduleMergedTest {
                 )
             }
 
-            // 整张表逐条对：行序是 `JwxtChanges.apply` 给的（先 remove 原课再 append 拆出来的那几条，
-            // 新位置那一条最后 append）。第三、四条正是同门课被拆成的两半 —— 一条在原教室上剩下的周，
-            // 一条只在新教室上第 CHANGE_WEEK 周。
             assertEquals(
                 listOf(
                     Triple(JwxtFakeUpstream.SCHEDULE_2_COURSE, JwxtFakeUpstream.SCHEDULE_2_ROOM, "1010101010101010"),
@@ -149,7 +116,6 @@ class ServeJwxtScheduleMergedTest {
             started = server
             assertEquals(200, http.postJson(SESSION_PATH + "/login", LOGIN_BODY).statusCode())
 
-            // ── 默认那一档：与 §5.3 / ServeP0Group2Test 钉的同一形状，一行未改 ──
             val plain = http.get(JWXT_SCHEDULE_PATH)
             assertEquals(200, plain.statusCode())
             assertEquals(ApiEnvelope.CODE_OK, envelopeCode(plain))

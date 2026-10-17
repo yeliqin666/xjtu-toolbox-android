@@ -426,7 +426,6 @@ object HomeStatsRefresher {
                 // 首页评教统计走的是本科教务评教；研究生评教在 gste，要单独登录，不在后台刷
                 if (s.route == AppRoute.Judge && accountType != AccountType.UNDERGRADUATE) continue
                 // 没进过宿舍电费页就不去登录那个系统：绑宿舍在页面里，之后这里才有得查。
-                //（`isUsed` 搬进 `:core` 之后不再收 `Context` —— 落盘走平台键值缝，同名同键。）
                 if (s.route == AppRoute.DormPower && !com.xjtu.toolbox.dormpower.DormPowerStore.isUsed()) continue
                 val last = stamps[s.route.id] ?: 0L
                 val hasContent = s.route.id in existing

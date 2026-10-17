@@ -1,23 +1,10 @@
-// :data —— **数据层**：从 `:app` 摘出来的取数与会话代码，JVM 与 Android 共用同一份。
-//
-// 为什么必须是一个独立模块（不能塞进 :core）：业务取数用的是 okhttp + jsoup —— okhttp 只发布
-// jvm / android 变体，jsoup 更是只有一份 JVM jar，两者都进不了 :core（它有三个目标，含 wasm）。
-// 而 :core 的屏/ViewModel 又必须能在不碰网络实现的前提下被三端复用，所以切在「网络与解析」
-// 这一层：`:core`（屏 / 逻辑 / 端口）+ `:data`（取数与解析）+ 三种承载。
-//
-// 当前（Stage 0 探针）里面只有**图书馆一条竖切**：`LibraryApi` / `LibraryPages`（读 + 写 +
-// 解析 + 会话缝）。目的是回答「同一份 Kotlin 数据层能不能在 JVM 上跑通、输出与 Android 一致」——
-// 答案由 `src/jvmTest` 里那份夹具契约测试给出。其余模块（33 个 *Api、会话内核、存储宿主实现）
-// 按同样的五步法逐条搬，见 docs/desktop-port-plan.md §5.1。
+// :data —— 取数与会话（okhttp + jsoup，只有 JVM / Android 变体，所以不能进 :core）。
 plugins {
     id("org.jetbrains.kotlin.multiplatform")
     id("com.android.kotlin.multiplatform.library")
-    // 解析用 `:core` 的 `AppJson`（kotlinx.serialization）—— 不用 Android 平台那份 `org.json`：
-    // 它在 JVM 单测里是 android.jar 的桩，一调就抛（`LibraryPages.parseSeatLayout` 早就踩过）。
+    // 不用 `org.json`：JVM 单测里它是 android.jar 的桩，一调就抛。
     alias(libs.plugins.kotlin.serialization)
-    // 场馆滑块验证码（`SliderCaptchaView`）从 `:app` 搬进这里（Stage B：滑块共享化）：
-    // 那份是 @Composable，所以数据层第一次需要 Compose 编译器与 UI 依赖。
-    // ⚠️ `:data` 只有 jvm+android 两个目标（加 wasm/ios 会全线崩），这与 Compose 不冲突。
+    // 场馆滑块验证码是 @Composable，需要 Compose；⚠️ `:data` 只能有 jvm + android 两个目标。
     alias(libs.plugins.compose.multiplatform)
     alias(libs.plugins.kotlin.compose)
 }
@@ -25,7 +12,6 @@ plugins {
 kotlin {
     jvmToolchain(21)
 
-    // Android 目标：`:app` 消费这一份（同一份取数代码，行为不变）。
     android {
         namespace = "com.xjtu.toolbox.data"
         compileSdk {
@@ -34,74 +20,47 @@ kotlin {
         minSdk = 31
     }
 
-    // 桌面目标：窗口模式与 serve 模式都跑在这上面（`docs/desktop-port-plan.md` §3）。
     jvm()
 
     sourceSets {
         commonMain.dependencies {
-            // api 而不是 implementation：这两个库的类型出现在**公开签名**里 ——
-            // `LibrarySession` 收发 okhttp 的 Request/Response，`LibraryPages.parseBookingCard`
-            // 收 jsoup 的 Document。消费方必须能在自己的编译类路径上看到它们。
+            // api：okhttp 与 jsoup 的类型出现在公开签名里。
             api(libs.okhttp)
             api(libs.jsoup)
-            // 同样是 api：`SessionExpiredException` 实现的 `SessionExpiredFailure` 在 :core，
-            // 消费方按它判断「要不要静默重登」，得看得见这个父类型。
+            // api：`SessionExpiredFailure` 在 :core，消费方要看得见这个父类型。
             api(project(":core"))
             implementation(libs.kotlinx.serialization.json)
             implementation(libs.kotlinx.coroutines.core)
-            // `SessionBackend` 的 BrotliInterceptor（校园网某些接口只发 br 压缩）。
+            // BrotliInterceptor（校园网某些接口只发 br）。
             implementation(libs.okhttp.brotli)
             implementation(libs.okhttp.java.net.cookiejar)
-            // 会话内核的「Ktor 写法」出口（`SiteSession.sendWithReAuth` →
-            // `asToolboxKtorClient`）。引擎是 OkHttp（预置实例），所以这里是 JVM/Android
-            // 都有的那份；`:data` 只有这两个目标，放 commonMain 是安全的（与 jsoup 同理：
-            // ⚠️ 一旦给 `:data` 加 wasm/ios 目标，这两条立刻编不过）。
+            // ⚠️ OkHttp 引擎只有 JVM/Android；给 `:data` 加 wasm/ios 目标这里就编不过。
             implementation(libs.ktor.client.okhttp)
             implementation(libs.ktor.client.content.negotiation)
             implementation(libs.ktor.serialization.kotlinx.json)
-            // ── 场馆滑块验证码（Stage B）：`SliderCaptchaView` 是 @Composable，且用 miuix
-            //    的 Text/主题 —— 与 `:core` 同一套坐标（CMP 的 android 变体转发到
-            //    androidx.compose，与 :app 不重复类）。公开签名只涉及 :core 的模型，
-            //    所以这里 implementation 就够（消费方经由 api(project(":core")) 已经有 compose）。
             implementation(compose.runtime)
             implementation(compose.foundation)
             implementation(compose.ui)
             implementation(libs.miuix.ui.kmp)
-            // 识别器与滑块视图都要解 base64 → 原始像素/可绘制位图：两条缝在 :core
-            // 的 `platform/ImageDecode.kt`（JVM 用 ImageIO、Android 用 BitmapFactory）。
         }
         commonTest.dependencies {
             implementation(kotlin("test"))
             implementation(libs.kotlinx.coroutines.test)
         }
         jvmMain.dependencies {
-            // **Windows 上的凭据保护**（DPAPI · CryptProtectData/CryptUnprotectData）靠 JNA 调
-            // Crypt32：`com.sun.jna.platform.win32.Crypt32Util` 是那两个调用的直接封装。
-            // 只给 jvmMain：Android 那份凭据存储是 `EncryptedSharedPreferences`（见下面 androidMain），
-            // 两端各用各的系统原生能力，互不影响。
-            //
-            // 为什么不是别的：JDK 里没有 DPAPI 的绑定（`SunMSCAPI` 是 CryptoAPI 的密钥库/签名，
-            // 不含 DPAPI），而 FFM API 在 JDK 21 还是 preview（本工程的工具链就是 21）。
-            // Linux 上这份依赖只是躺在类路径上：`secretProtectorForPlatform` 在非 Windows 上
-            // 返回 null（不加密，见 `SecretProtector` 的 KDoc），永远不会走到 Crypt32。
             implementation(libs.jna.platform)
         }
 
         jvmTest.dependencies {
-            // 假上游（图书馆座位系统 + 可选的统一认证）从这里**搬走了**：它现在是 `:testkit`
-            // 这个独立模块——因为桌面端的离屏渲染证据也要看同一批页面原文，而跨模块共享不了
-            // test 源集（见 testkit/build.gradle.kts 的 KDoc）。搬动本身零成本：两份夹具只依赖 JDK。
+            // 假上游在 `:testkit`（桌面端离屏渲染也要用，test 源集跨模块共享不了）。
             implementation(project(":testkit"))
         }
         androidMain.dependencies {
-            // Android 侧的密文存储：`SecurePrefs`（EncryptedSharedPreferences）就靠它。
             implementation(libs.security.crypto)
         }
     }
 }
 
-// S0：jvm 的 `keyValueStore` 现在真落盘 ⇒ 每次跑测试前清空隔离根，并把根指到 build 目录下，
-// 免得测试互染 / 污染 `~/.local/share/xjtu-toolbox/` 里的真数据（系统属性 `xjtu.toolbox.keyValueRoot`）。
 tasks.named<Test>("jvmTest") {
     val root = layout.buildDirectory.dir("testStoreRoot")
     doFirst { root.get().asFile.deleteRecursively() }

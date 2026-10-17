@@ -40,9 +40,6 @@ import com.xjtu.toolbox.error.UserFacingFailure
  * 父类型仍是 `java.io.IOException`（经 `:data` 的 `SessionExpiredException`）：站点层是按 IOException
  * 记「本次登录失败、进冷却」的，换父类型会改掉重认证的走向。`SessionExpiredFailure` 只用来认领文案
  * （见 :core 的 `error/FriendlyError.kt`）。
- *
- * 构造参数、文案与类名**一字未改**；变的是父类型从 `IOException` 换成了 `:data` 的那个共享基类
- * —— 图书馆那条数据层搬进 `:data` 后要能按类型认出「会话失效」，而它不认识 `:app` 的类。
  */
 class AuthExpiredException(
     siteName: String = "",
@@ -1036,11 +1033,6 @@ open class XJTULogin(
     companion object {
         /**
          * 判断 HTML 是否为统一认证返回的「Safety Verify」二次认证页面。
-         *
-         * 判据本身（检测条件：fm1 表单含 secState/execution/_eventId 三个字段，且文档标题含
-         * "Safety Verify" 或文档体含 "/cas/sec/initByType"、「选择安全认证」、「二次认证」）搬到了
-         * `:data` 的 `CasLoginPages` —— 图书馆那条数据层也要认登录页，而它不认识 `:app`。
-         * 这里只留一行转发，行为逐字不变。
          */
         @JvmStatic
         fun isSafetyVerifyPage(html: String): Boolean = CasLoginPages.isSafetyVerifyPage(html)

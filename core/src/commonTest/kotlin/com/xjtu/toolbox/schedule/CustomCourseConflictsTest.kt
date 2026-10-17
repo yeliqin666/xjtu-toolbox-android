@@ -5,16 +5,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
-/**
- * 随 `CustomCourseConflicts` 搬进 :core 的断言（原来在 :app，JUnit → kotlin.test）。
- *
- * 两处随搬迁调整：
- * - 造数据从 `CustomCourseEntity`（Room 实体，留在 :app）换成 [CourseItem]，
- *   并**显式带上 `custom_` 前缀的 courseCode** —— `clockMinutes` 对「自建日程」与
- *   「教务排的课」走两条不同的路径，前缀少了，`sectionsFallback_whenMinutesMissing`
- *   测的就不是同一件事了；
- * - 「同学期」从实体的 `termCode` 变成显式入参 `sameTerm`。
- */
+/** `CustomCourseConflicts` 的断言。 */
 class CustomCourseConflictsTest {
 
     private fun weeks(vararg w: Int, total: Int = 20): String =

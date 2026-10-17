@@ -281,9 +281,6 @@ private fun PlainPidaiIcon(
     }
 }
 
-// `PidaiBeat` 与 `holdMs` 搬去了 `:core`（`core/.../agent/PidaiBeat.kt`）：那一对画屁岱的
-// 组件（`BloubBotIcon` / `CastIcon`）在那边，节拍就是它们认的类型。这里只留按钮本体与
-// `PidaiPokes`（要 `SystemClock.uptimeMillis()`，Android 的单调钟）。
 
 /** 连戳计数：[COMBO_TAPS] 下落在 [COMBO_WINDOW_MS] 内就放彗星彩蛋。 */
 internal class PidaiPokes {

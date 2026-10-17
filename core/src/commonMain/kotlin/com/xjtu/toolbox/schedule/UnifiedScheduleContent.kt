@@ -380,7 +380,7 @@ fun buildUpcoming(
                 title = e.courseName,
                 subtitle = "还有 $days 天 · $subtitle",
                 // 考完时刻只精确到分钟（`ExamCountdown.startTimeOf` 正则也只抓 hh:mm），
-                // 拿不到时刻的排到当天最后一刻（原来是 `LocalTime.MAX`，口径不变）。
+                // 拿不到时刻的排到当天最后一刻。
                 at = LocalDateTime(
                     date.year, date.monthNumber, date.dayOfMonth,
                     time?.hour ?: 23, time?.minute ?: 59, 59,

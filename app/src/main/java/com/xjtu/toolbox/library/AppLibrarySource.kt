@@ -8,36 +8,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-/**
- * `:core` 的 [LibrarySource] 在 Android 侧的实现。
- *
- * ## 搬迁后它还剩什么（以及为什么只剩这些）
- *
- * 取数与解析（`LibraryApi` + `LibraryPages`，okhttp 抓 `rg.lib.xjtu.edu.cn`）已经搬进 `:data`，
- * **实现一行未改**（只把 `SiteSession`/`android.util.Log`/`org.json` 三处换成缝，见那个类的 KDoc）。
- * 本类因此只包住**真正属于 Android 宿主**的三件事：
- *
- *  1. **把每个取数调用包进 `Dispatchers.IO`**：原来的 VM 是 `withContext(Dispatchers.IO) { api.xxx() }`，
- *     现在 VM 不再替实现挑调度器（见 [LibrarySource] 的 KDoc），所以由本类自己包 —— 同一层、同一个调度器；
- *  2. **平面图的字节**：原来 VM 里那两处「先查磁盘缓存、没有再下载」（`PlanImageDiskCache` +
- *     `LibraryPages.planImageNames`）留在这里 —— 缓存写的是 `Context.cacheDir` 下的文件，
- *     共享侧只该看见「底图字节」「状态图字节」。分成 [planBase] / [planTiles] 两次取也是
- *     **照抄原来 VM 的顺序**：底图先到就能画，四张状态图随后补；
- *  3. **[restoreCampus] 那个作用域**：离开页面时把校区切回去这一枪，页面作用域那时已经取消了，
- *     所以它自带一个进程级作用域（原来是 `LibraryApi.restoreScope`，现在是本类的 `restoreScope`）
- *     —— 「不随页面取消」是宿主的编排，不是图书馆数据层的事。
- *
- * ## 收藏不在这里了
- *
- * 座位收藏以前是本类里的一对重写（`SharedPreferences.getStringSet`）。`:core` 的 `KeyValueStore`
- * 现在有集合那一档，于是它搬进了共享的 [LibraryFavorites]：**同一个文件（`library_favorites`）、
- * 同一个键（`favorite_seats`）、同一个值类型（`StringSet`）** ⇒ 老收藏不丢，而代码只剩一份。
- *
- * ## 会话失效
- *
- * [AppLibrarySession] 把 `SiteSession` 包成 `:data` 要的那个缝，并原样给回 `AuthExpiredException`
- * —— `:app` 里按那个类分支的调用点（屁岱的图书馆工具、`AppInboxSource`…）行为不变。
- */
+/** `:core` 的 [LibrarySource] 在 Android 侧的实现。 */
 class AppLibrarySource(
     site: SiteSession,
     private val context: Context,
@@ -47,13 +18,10 @@ class AppLibrarySource(
     private val session = AppLibrarySession(site)
     private val api = LibraryApi(session)
 
-    /**
-     * 离开页面时把校区切回去用的作用域。页面的协程作用域那时已经取消了，
-     * 切回原校区这一枪必须打完，否则用户看一眼别的校区，账号资料就一直停在那儿。
-     */
+    /** 离开页面时把校区切回去用的作用域。 */
     private val restoreScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
-    /** Android 直连图书馆站点：能预约、能换座、能签到/退座、能切校区（写路径一行未改）。 */
+    /** Android 直连图书馆站点：能预约、换座、签到/退座、切校区。 */
     override val canBook: Boolean get() = true
 
     /** 学校 `/qseatuist` 的座位布局 + `/static/images/ui10/` 的底图/状态图都在，平面图照旧。 */

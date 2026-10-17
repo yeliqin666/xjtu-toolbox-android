@@ -52,16 +52,7 @@ import top.yukonga.miuix.kmp.basic.*
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.utils.overScrollVertical
 
-/**
- * 「戳一下底栏屁岱」的回应气泡 —— `:core` 的 `ChatPanel` 用 `pokeWhisper` 槽位把它插进来。
- *
- * 它认三件还在这一端的东西：提醒气泡的中转站（`ProactiveBubbleHost.heroPokes` / `heroLine`）、
- * 形象外观（`pidaiNavAppearance()`）、以及迷你屁岱（`BloubBotIcon`，节拍由 `PidaiBeat` 驱动）。
- * 桌面上没有底栏屁岱、没有形象设置、也没有提醒气泡 ⇒ 那边这一格是空的（默认实现什么都不画），
- * 因为**根本没有可戳的形象** —— 如实降级，不是画出来点了没反应。
- *
- * 搬迁口径：从 `AgentChat.kt` **整段搬来**，只改了函数名（`PokeWhisper` → [AndroidPokeWhisper]）。
- */
+/** 「戳一下底栏屁岱」的回应气泡 —— `:core` 的 `ChatPanel` 用 `pokeWhisper` 槽位把它插进来。 */
 @Composable
 internal fun AndroidPokeWhisper(modifier: Modifier = Modifier) {
     val host = ProactiveBubbleHost

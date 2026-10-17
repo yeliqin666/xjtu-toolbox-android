@@ -3,14 +3,7 @@ package com.xjtu.toolbox.fitness
 import com.xjtu.toolbox.schedule.XjtuTime
 import kotlin.math.round
 
-/**
- * 体测模型 + 学年排序/解析工具 —— 从 `:app/fitness/FitnessApi.kt` 里切出来的**纯**那一段
- * （数据类 + 四个工具函数），跟着屏幕一起进 `:core`。
- *
- * 为什么值得切：这些函数是「哪一学年该显示、选中项怎么排、没成绩与未开放怎么区分」的口径，
- * 两端各抄一份迟早会算岔（`orderedFitnessYears` 的注释里记着原来那个 bug：
- * 体测系统把还没开测的下一学年排在最前）。`FitnessApi`（okhttp / v3 加密协议）继续留在 `:app`。
- */
+/** 体测模型 + 学年排序/解析工具。 */
 
 data class FitnessYear(
     val yearNum: String,
@@ -47,10 +40,7 @@ fun FitnessYear.yearValue(): Int? =
     Regex("""\d{4}""").find(yearNum)?.value?.toIntOrNull()
         ?: Regex("""\d{4}""").find(name)?.value?.toIntOrNull()
 
-/**
- * 体测系统会把尚未开测的下一学年也列在最前，[checked] 也经常指到那一档。
- * 按当前学年（9 月起算）往前排，丢掉还没考的年份。
- */
+/** 体测系统会把尚未开测的下一学年也列在最前，[checked] 也经常指到那一档。 */
 fun orderedFitnessYears(
     years: List<FitnessYear>,
     academicYear: Int = XjtuTime.currentAcademicYear(),
@@ -60,10 +50,7 @@ fun orderedFitnessYears(
     return eligible.ifEmpty { ranked }
 }
 
-/**
- * 从用户/模型传入的学年参数里取出起始年。
- * `2025`、`2025-2026`、`2025-2026-1` 都表示 2025-2026 学年。
- */
+/** 从用户/模型传入的学年参数里取出起始年。 */
 fun parseFitnessAcademicYear(raw: String?): Int? {
     val s = raw?.trim().orEmpty()
     if (s.isBlank()) return null
@@ -87,11 +74,7 @@ fun pickFitnessYear(
         }
 }
 
-/**
- * 分项名（随性别）：上游 `sex` 是中文 `男`/`女`，缺失时按**原实现的默认支**给名
- * （不是中性名 —— `:app` 的 `FitnessApi` 就是 `if (sex == "女") … else …`，
- * 两端必须同一支，否则同一个人的同一项在两端会叫两个名字）。
- */
+/** 分项名（随性别）：上游 `sex` 是中文 `男`/`女`。 */
 fun fitnessItemName(base: String, sex: String): String = when (base) {
     "pull_and_sit" -> if (sex == "女") "仰卧起坐" else "引体向上"
     "run" -> if (sex == "女") "800 米" else "1000 米"
@@ -109,13 +92,7 @@ val FITNESS_ITEM_DEFS: List<Pair<String, String>> = listOf(
     "run" to "耐力（1000 米/800 米）",
 )
 
-/**
- * 上游的分数是 `74.400000000000006` 这种浮点噪声 ⇒ 统一两位小数。
- *
- * 原实现是 `String.format(Locale.US, "%.2f", it)`（**JVM 专属**，且在 JVM 上是默认导入，
- * 任何基于 import 的判据都看不见它）。手写等价实现：四舍五入到分位并补齐两位小数。
- * 不是数字（`--`、`未测`）就原样返回。
- */
+/** 上游的分数是 `74.400000000000006` 这种浮点噪声 ⇒ 统一两位小数。 */
 fun formatFitnessScore(raw: String): String {
     val trimmed = raw.trim()
     val number = trimmed.toDoubleOrNull() ?: return trimmed
@@ -128,15 +105,7 @@ fun formatFitnessScore(raw: String): String {
 /** 同上，但入参是**已经是数字**的值（campus-api 的 `value` 可能是 number 也可能是 string）。 */
 fun formatFitnessScore(value: Double): String = formatFitnessScore(value.toString())
 
-/**
- * 体测的**取数端口**。屏幕只认这个；两端各自注入实现：
- *  - `:app` = `FitnessApi`（v3 加密协议 + legacy PHP 两条路，okhttp，行为与搬迁前一致）；
- *  - Web    = [com.xjtu.toolbox.core.net.CampusFitnessApi]（campus-api 同源反代）。
- *
- * ⚠️ 两端拿到的**学生姓名/学号**不同：campus-api 按隐私口径**不返回**这两项
- * （见其 `modules/fitness.js` 的 `parseScore`），所以 Web 端英雄卡的标题会落到兜底文案
- * 「体测成绩」。分数、等级、七个分项与性别换名口径完全一致。
- */
+/** 体测的取数端口。 */
 interface FitnessSource {
     suspend fun years(): List<FitnessYear>
 

@@ -13,13 +13,7 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import kotlinx.coroutines.runBlocking
 
-/**
- * 滑块识别器的**解算口径钉住**（Stage B 先钉住再搬：期望值来自搬迁前在独立的 Python 复刻里
- * 按同一算法在 [VenueCaptchaFixture] 上推出的数值，见那个夹具的 KDoc）。
- *
- * 识别器从 `:app` 搬进 `:data` 时**一行语义都没改**，这些断言就是「没改」的证据；
- * 走的是 `:core` 的图片缝（JVM 侧 = ImageIO）解出的像素。
- */
+/** 滑块识别器的解算口径钉住。 */
 class VenueCaptchaSolverJvmTest {
 
     private fun captchaData() = CaptchaData(

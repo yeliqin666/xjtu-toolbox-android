@@ -4,14 +4,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
 
-/**
- * [encodeUrlComponent] / [decodeUrlComponentOrNull] 里**与平台无关**的那部分断言：
- * 编码规则的关键几条（空格 → `+`、`*`/`.`/`-`/`_` 不转义、`~` 转义、十六进制大写）、
- * 非 ASCII 按 UTF-8 逐字节转义、往返无损、非法转义返回 null。
- *
- * 与 `java.net` 的逐字节等价性由 :app 侧的差分测试盯着（`nav/UrlCodecParityTest.kt`，
- * 那一条只能在 JVM 上跑）—— 这里只保证「在 Wasm 上也说得通」。
- */
+/** [encodeUrlComponent] / [decodeUrlComponentOrNull] 里与平台无关的那部分断言。 */
 class UrlCodecTest {
 
     @Test

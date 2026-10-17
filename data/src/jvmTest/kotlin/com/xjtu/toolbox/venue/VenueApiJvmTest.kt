@@ -42,31 +42,7 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import kotlinx.coroutines.runBlocking
 
-/**
- * 体育场馆取数的**字段级口径**：对着 `:testkit` 的 [VenueFakeUpstream] 夹具逐字段读。
- *
- * ## 为什么在 `:data` 而不是 `:app`
- *
- * 这一轮把场馆的取数（`VenueApi`）、收藏与站点（`VenueSession` + `VenueLogin`）从 `:app` 搬进了
- * `:data`（桌面端第 11 条真数据路由）。搬之前先用夹具把**搬之前**的口径钉住：`:app` 那边一行逻辑
- * 没改，只是文件换了地方、`Context` 换成了 `:core` 的 `VenueFavorites` —— 但「没改」这句话得有证据，
- * 这些断言就是那个证据。手法与空闲教室 / 校园卡 / 教务那几条（`EmptyRoomApiJvmTest` /
- * `CampusCardApiJvmTest` / `SchoolCourseApiJvmTest`）逐条对齐：要登录的那几条走**真登录链**
- *（`withVenueLogin`），URL 一个字符都不改。
- *
- * ## 这些断言从哪来
- *
- * 全部来自**夹具原文**（[VenueFakeUpstream] 里那些常量与 JSON），**不是从跑通的实现里抄回来的**。
- * 夹具刻意摆了一批「不完整 / 坏形状」的行，好让每条默认值都写在明面上：`id` 为 0 的场馆、
- * 缺 `name` 的场馆、负数与字符串形式的 `advanceday`、GBK 编码那一页、`status=1` 但已满的时段、
- * 空 `sname`、带 `¥` 的价格、订单里空 `orderid` 的行与不是对象的数组元素。
- *
- * ## 写路径为什么在有剧本之后才在这里
- *
- * 下单要先解滑块；夹具默认关着（[VenueFakeUpstream.captchaScript] = false，`tobook` 仍是 404）。
- * 打开剧本后（Stage B 两条写路径用例），这里钉住「识别 → 提交 → 成功」与「拖错被拒」——
- * 轨迹把关、返回形状都与真站点对齐（见那个夹具的「写路径」一节）。
- */
+/** 体育场馆取数的字段级口径：对着 `:testkit` 的 [VenueFakeUpstream] 夹具逐字段读。 */
 class VenueApiJvmTest {
 
     /** 夹具与生产必须指同一个站点、同一批路径 —— 漂了的话，下面这些断言测的就不是真协议。 */
@@ -86,13 +62,7 @@ class VenueApiJvmTest {
         assertEquals("${VenueLogin.BASE_URL}/gen", VenueFakeUpstream.CAPTCHA_URL)
     }
 
-    /**
-     * 场馆列表：第一页正好 8 条 ⇒ 客户端必须再要一页；第二页 2 条 ⇒ 停（共两枪）。
-     *
-     * 同一批数据里钉住的默认值：`id<=0` 的行被跳过、缺 `name` 读成空串、`advanceday/advancenum`
-     * 缺 / 为 0 / 为负都落回 7 / 8、数字写成字符串照样读得出；第二页那份按 GBK 发而声明 latin-1，
-     * 中文名字要由 `fixGbk` 修回来，纯 ASCII 的名字不许被它动到。
-     */
+    /** 场馆列表：第一页正好 8 条 ⇒ 客户端必须再要一页；第二页 2 条 ⇒ 停（共两枪）。 */
     @Test
     fun `真登录之后：场馆列表分两页拉完，坏 id 与缺字段都按口径落`() = withVenueLogin { site, fake ->
         // 登录链真的走完了（OAuth 入口 → CAS → 回跳 → 首页 userno）
@@ -163,10 +133,7 @@ class VenueApiJvmTest {
         assertEquals(venues, runBlocking { AppVenueSource(site).venues() })
     }
 
-    /**
-     * 某天的时段：可订与已占用**两路合并后按 (时段, 场地名) 排序** —— 只拿可订那一半，屏上就分不出
-     * 「满了」和「没有这个时段」。同一条登录顺带把「没有时段的场馆给空表」与验证码那一条读了。
-     */
+    /** 某天的时段：可订与已占用两路合并后按 (时段, 场地名) 排序 —— 只拿可订那一半，屏上就分不出「满了」和「没有这个时段」。 */
     @Test
     fun `真登录之后：时段是两路合并后排序的，全满的时段不是零剩余`() = withVenueLogin { site, fake ->
         val api = VenueApi(site)
@@ -241,10 +208,7 @@ class VenueApiJvmTest {
         assertEquals(0, fake.venue.lockCalls.get(), "失败那一枪不该记成成功过")
     }
 
-    /**
-     * 订单列表：`rows` 包装、两条明细（一条字段齐全、一条只有场地名）、以及两个该被丢掉的行
-     *（`orderid` 为空的那条、数组里不是对象的那个元素）。第二页给空数组 ⇒ 空页。
-     */
+    /** 订单列表：`rows` 包装、两条明细（一条字段齐全、一条只有场地名）、以及两个该被丢掉的行（`orderid` 为空的那条、数组里不是对象的那个元素）。 */
     @Test
     fun `真登录之后：订单两条，空 orderid 与不是对象的行都丢掉`() = withVenueLogin { site, fake ->
         val api = VenueApi(site)
@@ -279,7 +243,6 @@ class VenueApiJvmTest {
             paid.details,
         )
 
-        // 第二条：明细两条，第二条**没有** service / stock ⇒ 那几个字段如实留空（不是猜一个）
         val pending = page.orders[1]
         assertEquals(0, pending.status)
         assertEquals("预订中", pending.statusText)
@@ -321,18 +284,11 @@ class VenueApiJvmTest {
             "${VenueLogin.PAY_BASE_URL}/pay/show.html?id=$ORDER_PAID_ID",
             api.paymentUrl(ORDER_PAID_ID),
         )
-        // 订单号里的特殊字符要转义（`java.net.URLEncoder` 的老口径：空格变 `+`、`/` 变 `%2F`）
+        // 订单号里的特殊字符要转义（URLEncoder 风格：空格变 `+`、`/` 变 `%2F`）
         assertEquals("${VenueLogin.PAY_BASE_URL}/pay/show.html?id=A%2F1+2", api.paymentUrl("A/1 2"))
     }
 
-    /**
-     * 端口那一层的能力开关与收藏。
-     *
-     * `canBook` 由构造参数决定（Android 默认 true；桌面端传 false —— 它没有滑块控件，下单那一步
-     * 走不完），`canCancel` 与实现一起是 true（取消不需要滑块）。收藏走 `:core` 共享的
-     * [VenueFavorites]（`KeyValueStore`，JVM 侧现在真落盘）—— 这里钉住「翻转返回的是
-     * **切换后**的状态」与「再翻一次回到原位」。
-     */
+    /** 端口那一层的能力开关与收藏。 */
     @Test
     fun `端口的能力开关由构造参数决定，收藏走共享实现`() {
         val android = AppVenueSource(VenueSession())
@@ -353,15 +309,8 @@ class VenueApiJvmTest {
         assertEquals(before, runBlocking { android.favorites() }, "翻两次回到原位")
     }
 
-    // ══════ Stage B：滑块剧本下的写路径（`captchaScript = true` 才打开）══════
 
-    /**
-     * 登录 → 拿滑块挑战 → **自动识别** → 提交 → 下单成功。
-     *
-     * `captchaScript = true` 时 `/gen` 发的是 [VenueCaptchaFixture] 的程序生成真图，识别器
-     * 解出位移 141，`tobook` 校验轨迹最终 x 落在缺口（±3）才回成功 —— 这一条把「识别器 →
-     * 提交 → 成功」的整条写路径钉在同一份夹具上。
-     */
+    /** 登录 → 拿滑块挑战 → 自动识别 → 提交 → 下单成功。 */
     @Test
     fun `真登录之后：滑块剧本下识别并提交，下单成功`() = withVenueLogin { site, fake ->
         fake.venue.captchaScript = true
@@ -390,10 +339,7 @@ class VenueApiJvmTest {
         assertTrue(fake.venue.lastBookingParam.orEmpty().contains("\"stockdetail\""), "param 是服务端参数信封")
     }
 
-    /**
-     * 拖**错**位置的轨迹被夹具按真站点那句「验证码有误」拒绝（result 100 ⇒ [VenueApi.submitBooking]
-     * 原样重试同一份请求三次，全失败）。写路径的拒绝对齐到真站点的语义。
-     */
+    /** 拖错位置的轨迹被夹具按真站点那句「验证码有误」拒绝（result 100）。 */
     @Test
     fun `真登录之后：拖错位置的轨迹被按验证码有误拒绝`() = withVenueLogin { site, fake ->
         fake.venue.captchaScript = true

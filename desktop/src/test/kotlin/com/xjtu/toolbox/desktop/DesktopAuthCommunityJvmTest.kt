@@ -17,19 +17,7 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import kotlinx.coroutines.runBlocking
 
-/**
- * 社区（GitHub）在桌面端的**装配验收**（第 21 条真数据路由）：桌面用的是**同一份 `:data` 实现**
- * —— 设备码登录 `GithubOAuthDeviceAuthRepository(GithubNetwork.client, CommunityRepo.CLIENT_ID)`
- * （就是 `ToolboxDesktopApp` 的 `AppRoute.Community` 那三行注入里的那一个构造）、登录态
- * `SecureGithubSession.get()`、取数 `session.repository`。
- *
- * 与 `:data` 的 `GithubCommunityJvmTest` 的分工：那边验**报文与解析口径**；这里验**桌面的装配**——
- * 尤其要紧的是 `GithubNetwork.client` 是**进程级 `by lazy`**（从 `HttpClients.base` 派生），
- * 所以「它到底有没有走本地假上游」只能在桌面这条进程里验一次（`:data` 那边验的是同一个对象，
- * 但装配顺序不同）。
- *
- * ⚠️ 桌面端没有校园 CAS 参与这条链：设备码是 GitHub 那边的流程，所以这个类不登录 `DesktopAuth`。
- */
+/** 社区（GitHub）在桌面端的装配验收：桌面用的是同一份 `:data` 实现。 */
 class DesktopAuthCommunityJvmTest {
 
     private lateinit var fake: FakeCampusProxy
@@ -38,9 +26,7 @@ class DesktopAuthCommunityJvmTest {
         fake = FakeCampusProxy(casEnabled = false)
 
         dataRootOverride = Files.createTempDirectory("xjtu-desktop-community-test").toFile()
-        // 登录态是进程级缓存的（单例 + 存储），先把两个键清掉，免得受别的用例影响。
-        // ⚠️ 刻意**不** `wipeSecureStore("github_community")`：`SecureGithubSession` 是进程级单例，
-        // 它记着当时那份存储实例；换一份只会让「单例写的」与「这里读的」变成两个文件。
+        // ⚠️ 只清键，不 `wipeSecureStore`：`SecureGithubSession` 单例记着那份存储实例。
         val store = secureKeyValueStore("github_community")
         store.remove("token")
         store.remove("login")
@@ -94,8 +80,6 @@ class DesktopAuthCommunityJvmTest {
 
         session.signOut()
         assertNull(session.login.value)
-        // 「旧版反馈」在桌面还没搬（那是 `:app` 的 WebView 页）⇒ 路由把它跳去如实说明页；
-        // 这条链本身与它无关，这里只是把退出登录后的状态复位。
         assertTrue(secureKeyValueStore("github_community").getString("token") == null)
     }
 

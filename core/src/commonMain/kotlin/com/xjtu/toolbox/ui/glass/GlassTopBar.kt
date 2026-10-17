@@ -110,15 +110,7 @@ private class TopBarFollow(initial: Dp) {
     fun current(): Dp = padding?.calculateTopPadding() ?: stable
 }
 
-/**
- * 顶栏跟随状态。`glassSource` 是普通 Modifier 扩展、拿不到 composition，所以只能放一张全局表；
- * 由 [PaddingValues.glassTop]（可组合）建，并在同一次组合的 `DisposableEffect` 里回收 ——
- * 页面离开组合就删掉。
- *
- * 原来用 `java.util.WeakHashMap` 靠 GC 兜底，但 weak 表在 commonMain 不存在（JVM 的
- * `WeakReference` / JS 的 `WeakRef` 都没有跨端 API）。改成显式回收其实更稳：不会像弱表那样
- * 在页面还活着时被清掉，也不会像普通表那样把 skia 采样层永久钉住。
- */
+/** 顶栏跟随状态。 */
 private val topBarFollows = mutableMapOf<LayerBackdrop, TopBarFollow>()
 
 /** 二级页的标准顶栏：玻璃（经典风格下不透明）、大标题随滚动折叠、左上角返回。 */

@@ -8,30 +8,9 @@ import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonObject
 
-/**
- * 屁岱**两端共用**的一小撮文案与映射：工具行标签、回复下方的跳转建议、上下文阈值。
- *
- * ## 为什么在这里（原来在 `AgentViewModel` 里）
- *
- * 工具行（「查询课表…」）与跳转按钮（「查看课表」）**在浏览器上也要画** —— 而浏览器那一端
- * 不跑 `AgentViewModel`（`docs/agent-web-spec.md` §4.2：它只是「事件 → 状态」的消费者，
- * 循环在 serve 侧）。同一句话在两处各写一份必然漂开，所以这两张表上提到 `:core` 的顶层：
- * Android / 桌面 / serve / 浏览器**四种消费者读的是同一份**（设计稿 §4.4 第 2 条）。
- *
- * `AgentViewModel` 的**行为一字未变**：它现在调的就是下面这几个函数，`when` 的分支与返回串
- * 逐字照搬（那份 `when` 原本写在这个类的私有方法里）。
- *
- * ## 语义边界
- *
- * - [agentToolLabel] 是**执行中**那句话（末尾那串 `…` 是「正在做」的形状）；
- * - [agentCompleteToolLabel] 把它转成**收尾**的形状（`已` 前缀），已经带 `已` 的原样返回；
- * - [agentNavSuggestions] 只认**真画得出来的**功能页（[AppRoute.id] 是落盘/出网用的句柄），
- *   认不出工具就**不画按钮**（点了会失败的按钮一个都不画）。
- */
+/** 屁岱两端共用的一小撮文案与映射：工具行标签、回复下方的跳转建议、上下文阈值。 */
 
-/**
- * 一次工具调用的执行中文案。认不出的工具如实报名字（`调用工具 X…`），不猜它是干什么的。
- */
+/** 一次工具调用的执行中文案。 */
 fun agentToolLabel(name: String): String = when (name) {
     "get_calendar"          -> "查询时间与校历…"
     "get_schedule"          -> "查询课表…"
@@ -63,23 +42,13 @@ fun agentToolLabel(name: String): String = when (name) {
     else                    -> "调用工具 $name…"
 }
 
-/**
- * 工具执行结束后的收尾文案：`查询课表…` → `已查询课表`。
- *
- * 先把末尾那几个「还在跑」的标点去掉，再补 `已`；本来就以 `已` 开头的（模型自己写的状态行）
- * 原样返回，免得变成「已已…」。
- */
+/** 工具执行结束后的收尾文案：`查询课表…` → `已查询课表`。 */
 fun agentCompleteToolLabel(running: String): String {
     val base = running.trimEnd('…', '.', '。', ' ')
     return if (base.startsWith("已")) base else "已$base"
 }
 
-/**
- * 本轮涉及的工具 → 回复下方那排跳转按钮，`List<Pair<显示文字, [AppRoute.id]>>`。
- *
- * 存的是**路由 id 而不是路由对象**：聊天记录要落盘（`StoredMessage.nav` 就是 `[[label, route]]`），
- * 点按钮时再用 `appRouteOf` 解析回来。同一个页面被多个工具点到只留一条（`distinctBy`）。
- */
+/** 本轮涉及的工具 → 回复下方那排跳转按钮，`List<Pair<显示文字, [AppRoute.id]>>`。 */
 fun agentNavSuggestions(calledTools: List<String>): List<Pair<String, String>> =
     calledTools.mapNotNull { toolName ->
         when (toolName) {
@@ -101,30 +70,13 @@ fun agentNavSuggestions(calledTools: List<String>): List<Pair<String, String>> =
         }?.let { (label, route) -> label to route.id }
     }.distinctBy { it.second }
 
-/**
- * 「这一轮把上下文烧到了上限」的 token 阈值。
- *
- * `AgentViewModel` 与 serve 侧各判一次，但**判定用的是这一个数**：服务端在 `done` 事件里带出
- * `contextExhausted`，消费者只管「由 false 变 true 时弹一次窗」（设计稿 §3.5 的分工表）。
- */
+/** 「这一轮把上下文烧到了上限」的 token 阈值。 */
 const val AGENT_CONTEXT_TOKEN_LIMIT = 800_000L
 
-/** 上下文耗尽时那句文案，两端逐字相同（`AgentViewModel.CONTEXT_EXHAUSTED_MESSAGE` 就是它）。 */
+/** 上下文耗尽时那句文案。 */
 const val AGENT_CONTEXT_EXHAUSTED_MESSAGE = "本对话上下文已达到上限，请新建对话后继续。"
 
-/**
- * 修复 LLM 历史的完整性：丢弃「带 `tool_calls` 却没有(完整) tool 回应」的 assistant 残体，以及孤儿 tool 消息。
- *
- * 用途只有一条：自愈此前因取消 / 掉线 / 进程被杀而损坏的会话。不修的话下一轮会被服务商
- * 永久拒绝（`assistant message with tool_calls must be followed by tool messages`）——
- * 会话从此打不开，只能新建。
- *
- * 为什么提到顶层（原来在 `AgentViewModel` 的私有方法里）：serve 侧也是同一条缝 ——
- * 它才是真正会碰上「进程被杀在一个 tool 调用正中间」的那一端。两处一份实现，判据不会漂。
- *
- * 【注意】它原有的语义一字未改：**只有真的删掉了东西才换回一个新列表**
- *（`out.size == items.size` 时原样返回输入的那个列表），所以调用方「内容没坏就没变动」的假设仍然成立。
- */
+/** 修复 LLM 历史的完整性：丢弃「带 `tool_calls` 却没有(完整) tool 回应」的 assistant 残体，以及孤儿 tool 消息。 */
 fun agentSanitizeHistory(history: MutableList<JsonElement>): MutableList<JsonElement> {
     val items = (0 until history.size).map { history[it].jsonObject }
     val out = ArrayList<JsonObject>()

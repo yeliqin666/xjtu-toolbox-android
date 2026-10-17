@@ -19,12 +19,6 @@ private const val TAG = "CjcxApi"
 /**
  * JWXT 精确成绩查询 (xscjcx.do)
  * ZCJ/XFJD 对所有课程（含等级制）均有精确数值，优于 JWAPP termScore
- *
- * 从 `:app` 的 `jwapp/CjcxApi.kt` 搬进 `:data`（桌面端第 19 条真数据路由：桌面要自己登教务、
- * 自己取精确成绩好替换 jwapp 的粗分）。类名与包路径一字未改，两处跟着走：
- *  - `CjcxScore` 与课程名归一化搬到了 **:core** 的 `jwapp/ScoreModels.kt`
- *    （`CjcxScore` 是 `:core` 那个 VM 的输入模型；归一化在那边有第二个消费方）；
- *  - `android.util.Log` → `:core` 的 `Log`（tag 与级别不变）。
  */
 class CjcxApi(private val site: SiteSession) {
 

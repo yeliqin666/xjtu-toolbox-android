@@ -100,16 +100,7 @@ class CredentialStore(context: Context) {
             appPrefs.edit().putLong(KEY_LAST_AUTO_UPDATE_CHECK_AT, value).apply()
         }
 
-    // ── 设置页持久化（搬进 `:core` 的 `SettingsStore`，这里只留转发）──
-    //
-    // 这十项连同它们的**键名 / 默认值 / 取值常量**都搬到了 `:core/settings/SettingsStore.kt`：
-    // 共享设置屏（`:core` 的 `SettingsScreen`）与 `:app` 必须读同一份实现，否则「键名漂了」
-    // 这种错只有在用户重装后才看得见。`:app` 这一侧保留**同名属性转发** ⇒ 其余 40 处调用点
-    // 一行未改（C1：只搬走 + 引用改名）。
-    //
-    // 存储仍是同一个 `app_settings` 文件：`:core` 的键值缝在 Android 上就是
-    // `getSharedPreferences("app_settings", MODE_PRIVATE)`（同一个实例）⇒ 老用户设过的
-    // 每一项一个不丢，`AppearanceSettings` 那个 `OnSharedPreferenceChangeListener` 照旧会被叫醒。
+    // ── 设置页持久化：实现在 `:core` 的 `SettingsStore`（同一个 `app_settings` 文件），这里只留转发 ──
     private val settings by lazy { SettingsStore(keyValueStore(SettingsStore.APP_SETTINGS_FILE)) }
 
 
@@ -244,7 +235,6 @@ class CredentialStore(context: Context) {
          */
         const val CURRENT_EULA_VERSION = 4
 
-        // ── 设置页键（搬到 `:core` 的 `SettingsStore` 里了，这里不再各存一份）──
         private const val KEY_UPDATE_CHANNEL = "update_channel"
         private const val KEY_RECEIVE_PREVIEW = "receive_preview_updates"
         private const val KEY_ROLLOUT_ID = "rollout_id"
@@ -256,13 +246,6 @@ class CredentialStore(context: Context) {
         private const val KEY_RECENT_SITES = "recent_site_keys"
         private const val KEY_SITE_USAGE = "site_usage"
 
-        // ── 设置值常量（值住在 `:core` 的 `SettingsStore`，这里保留同名转发）──
-        //
-        // `:app` 里 40 处 `CredentialStore.XXX` 引用点因此一行未改（C1：只搬走 + 引用改名）；
-        // 值只存一份 ⇒ 不会出现「:app 改了、:core 没改」那种漂。
-        //
-        // 两项仍然只有这一份定义（它们本来就不在设置屏里）：`SCHEDULE_SOURCE_ATTENDANCE`
-        // 那条「值沿用旧版考勤」的注释随之搬进 `SettingsStore`。
         const val SCHEDULE_SOURCE_JWXT = SettingsStore.SCHEDULE_SOURCE_JWXT
         const val SCHEDULE_SOURCE_ATTENDANCE = SettingsStore.SCHEDULE_SOURCE_ATTENDANCE
         const val NAV_STYLE_FLOATING = SettingsStore.NAV_STYLE_FLOATING

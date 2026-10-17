@@ -5,20 +5,7 @@ import android.content.SharedPreferences
 import com.xjtu.toolbox.platform.androidPlatformContext
 import java.io.File
 
-/**
- * Android 侧的 store 投影（S2，只读）。
- *
- * 落点就是 `getSharedPreferences(name, MODE_PRIVATE)` 的 `prefs.all` —— **同一批文件名、同一批键、
- * 同一批值类型**，一个字不改（§8.1）；不新建任何 archive 专属 prefs 文件。
- *
- * 类型投影逐字照 `SharedPreferences` 的 `getAll()` 返回类型（§6.3 的 Android 行）：
- * `String→s` / `Boolean→b` / `Int→i` / `Long→l` / `Float→f` / `Set<String>→set`。
- * Android 普通 prefs 没有 mtime ⇒ `writtenAt` 恒为空（§2.2 缺省）。
- *
- * 设计成「注入 provider」的形状（plan §1.4）：`:app:testDebugUnitTest` 没有真 `Context`，
- * 但 `:data` 的 [com.xjtu.toolbox.data.InMemorySharedPreferences]（实现 `SharedPreferences` 接口）
- * 可以直接注入进来做 A1/A2 断言。[archiveStoreBackend] 只是默认装配。
- */
+/** Android 侧的 store 投影（只读）。 */
 class AndroidPrefsBackend(
     private val prefsOf: (String) -> SharedPreferences,
     private val namesOf: () -> List<String>,

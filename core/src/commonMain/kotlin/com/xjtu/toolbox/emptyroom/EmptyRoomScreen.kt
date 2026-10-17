@@ -168,14 +168,9 @@ private fun getSmartTags(room: RoomInfo, currentPeriod: Int): List<Pair<String, 
 
 @Composable
 fun EmptyRoomScreen(
-    /**
-     * 本端的三档取数（见 [EmptyRoomSource]）。屏只画 [EmptyRoomSource.availableSources] 里列出的档位 ——
-     * Web 只有 CDN，那两档“点了会失败”的选项根本不出现；Android 三档齐全，照旧。
-     */
+    /** 本端的三档取数（见 [EmptyRoomSource]）。 */
     source: EmptyRoomSource,
-    /**
-     * 身份。沿用原来的限制：研究生不提供直查教务。Web 端没有身份这回事 ⇒ 传 null。
-     */
+    /** 身份。 */
     accountType: AccountType?,
     onBack: () -> Unit,
     /**

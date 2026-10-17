@@ -4,10 +4,6 @@ import com.xjtu.toolbox.auth.SiteSession
 import okhttp3.Request
 import org.jsoup.Jsoup
 
-// `ReportedGrade` 已搬进 :core（见 score/ScoreReportModels.kt）—— 屏幕与模型都在共享层，
-// 这个文件只剩「帆软报表的取数 + HTML 解析」。它与 `JwxtSession` 一起从 `:app` 搬进 `:data`
-// （同一个包名，`:app` 的 `AgentTool` / `JwappScoreViewModel` 一个字未改）；解析口径由
-// `:data:jvmTest` 的 `ScoreReportApiJvmTest` 对着 `:testkit` 的 `JwxtFakeUpstream` 钉住。
 
 /**
  * 教务系统成绩报表查询 (FR Report)

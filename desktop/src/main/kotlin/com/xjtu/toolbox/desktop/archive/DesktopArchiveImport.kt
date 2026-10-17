@@ -19,45 +19,13 @@ import com.xjtu.toolbox.platform.Log
 import com.xjtu.toolbox.platform.secureKeyValueStore
 import java.io.File
 
-/**
- * 桌面端的**导入写侧**（S5 收尾）：`:core` 的 [ArchiveImportTarget] 在 jvm 上的落点。
- *
- * 合并语义一个字都不在这里 —— §6.4 的裁决（`at` 新者胜 / 任一方缺 `at` 本端胜 / 本端有档案没有 ⇒
- * 保持不变 / `set` 覆盖不并集 / `format`·`version` 不认识 ⇒ 明确失败）全在 [StoreArchive.import]。
- * 这一份只做它写下来的那几笔，按接口 KDoc 的三条「实现负责」：
- *
- *  1. **按声明类型落地**（§6.3 的桌面行）：Properties 只有字符串，`b`/`i` 走 [KeyValueStore] 的
- *     `putBoolean`/`putInt`，`l`/`f` 写成字符串（读回来由 `inferValue` 的
- *     `toLongOrNull`/`toFloatOrNull` 反推成同一档），`set` 走 `putStringSet`（`\u0000` join ——
- *     与 `SecureStore.jvm.kt` 同一套落盘形状，绝不能写成逗号串）；
- *  2. **旁挂时间戳**：[ArchiveImportTarget.putKey] 的 `at` 非空时同时写
- *     `<key>#written_at`（§5.2 第 5 条）—— 不写的话，导进来的那一份下次就被判成「没有年龄」，
- *     再导入一份更新的档案也永远赢不了（A10 的同一个键，反方向）；
- *  3. **原子写**（§8.8）：`files/` 那一层走 [DesktopArchiveIo.writeFile]（先 `.tmp` 再 `ATOMIC_MOVE`）。
- *
- * ## 写哪个句柄（`plain` 还是 `secure`）
- *
- * 落点逐字照 §1.2：`<数据根>/<端内名>.properties` —— `keyValueStore` 与 `secureKeyValueStore`
- * **指向同一个文件**（`KeyValueStore.jvm.kt` 与 `SecureStore.jvm.kt` 的数据根是同一个 XDG 字面量），
- * 所以选哪一个都不改变字节落点。这里一律走 [secureKeyValueStore]，理由两条：桌面把整个数据根都当私有
- * （设置 / 课表 / 下载 / 教材 / agent 全走它，见 `DesktopSettings` 那一段 KDoc），且它覆盖了端上
- * 绝大多数 store。导入是**启动时**的一次性动作（`Main.kt`，早于任何屏建句柄）⇒ 另一族的句柄
- * 之后第一次用时从磁盘读到的是导入后的文件。
- *
- * ## 只写 `agent_sessions<suffix>/` 这一族文件
- *
- * §2.3 里桌面的 `files/` 层只有 `agent_sessions<suffix>/`（S3 的读侧 `JvmFileBackend` 就只枚举这一族），
- * 课表族在 KV 店（store 投影）。Android 那三族行数组（`files/courses` / `files/media` / `files/jiaocai`）
- * 在桌面上是**另外几个动作的 KV 店**（`KeyValueCustomCourseStore` / `DesktopDownloadTaskStore` /
- * `DesktopJiaocai1Storage`），形状不是行数组 —— §6.3 那条「拆成行数组」的转换是另一件事，
- * 这里**不假装**做了：不是这两族的 `files/` 条目一律不落地。
- */
+/** 桌面端的导入写侧：`:core` 的 [ArchiveImportTarget] 在 jvm 上的落点。 */
 class DesktopArchiveImportTarget(
-    /** 写侧：按**端内名逐字**取那个已有句柄（默认 [secureKeyValueStore]）。 */
+    /** 写侧：按端内名取那个已有句柄（默认 [secureKeyValueStore]）。 */
     private val storeOf: (String) -> KeyValueStore = { secureKeyValueStore(it) },
-    /** 读侧现状（S2 的缝 A：`<数据根>/<name>.properties`）。 */
+    /** 读侧现状（`<数据根>/<name>.properties`）。 */
     private val storeBackend: ArchiveStoreBackend = archiveStoreBackend(),
-    /** `files/` 那一层的读侧现状（S3 的缝 B）。 */
+    /** `files/` 那一层的读侧现状。 */
     private val files: ArchiveFileBackend? = archiveFileBackend(),
     /** 数据根（`<数据根>/agent_sessions<suffix>/…` 的父目录）。 */
     private val dataRoot: File? = archiveDataRootOrNull(),
@@ -94,21 +62,7 @@ class DesktopArchiveImportTarget(
     }
 }
 
-/**
- * 桌面端的一次性导入**编排**（S5 收尾）：自校验 → §6.4 合并 → 落「已导入」标记。
- *
- * 与 `:app` 侧（`AppArchiveImport`）是同一条顺序、同一条标记规则，理由也一样（§6.1 第 3 条）：
- * 自校验在写第一笔之前返回 ⇒ 坏档案端内零改动（A7）。
- *
- * ## 「已导入」标记的落点（§8.7：不写进 `data_cache*`；这里也没有 prefs 可写）
- *
- * 标记是**档案落地目录里的一个文件**，跟着那份档案走：
- *  - 目录形态（`<数据根>/archive/`）⇒ `<数据根>/archive/.imported`；
- *  - zip 形态（`<数据根>/archive.zip`）⇒ `<数据根>/archive.zip.imported`（旁挂一个同名文件）。
- *
- * 第一行是那份档案的身份（`createdAt` + `createdBy` + `version`）⇒ 同一份档案再导一次只跳过
- * （§6.1 第 1 条的幂等）；其余几行是这次落地的计数。
- */
+/** 桌面端的一次性导入编排：自校验 → §6.4 合并 → 落「已导入」标记。 */
 object DesktopArchiveImport {
 
     /** 标记文件名（档案目录里的一份点文件；[DesktopArchiveIo.readDirectory] 读档案时会跳过点文件）。 */
@@ -194,7 +148,7 @@ sealed interface DesktopImportOutcome {
     /** 这份档案的身份与标记一致 ⇒ 什么都不做（§6.1 第 1 条：导入幂等）。 */
     data class AlreadyImported(val archive: File, val identity: String) : DesktopImportOutcome
 
-    /** 明确失败，端内**零改动**（原因逐字来自自校验 / [StoreArchive.import]）。 */
+    /** 明确失败，端内零改动。 */
     data class Failed(val reason: String) : DesktopImportOutcome
 }
 

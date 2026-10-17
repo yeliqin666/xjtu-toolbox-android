@@ -44,34 +44,7 @@ import top.yukonga.miuix.kmp.basic.TextButton
 import top.yukonga.miuix.kmp.basic.rememberTopAppBarState
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
-/**
- * 宿舍电费的**读数页**（`:web` 自己的一张屏，不在 `:core` 里）。
- *
- * ## 为什么不是 `:core` 那张 `DormPowerScreen`
- *
- * `:core` 的 `DormPowerScreen` 的**全部内容**是「缴费页浏览器」：它只做一件事 —— 向取数端口要
- * `freshPayUrl()`，然后把地址交给宿主的内置浏览器（App）/ 系统浏览器（桌面）。绑定、查询、充值
- * 都在那一页里，屏自己不画读数。
- *
- * serve 契约 §5.5 **不端 `freshPayUrl`**（它每次要重走一遍 OAuth、拦下带 code 的那一跳，还顺手
- * 记「用户进过这一页」——那是宿主侧状态），也不端绑定 / 充值 ⇒ 这张屏在 serve 模式下**画不出来**
- *（照旧用它会落到一张 ErrorState 上）。而契约真端了另外两个只读端点：`/api/dorm/rooms` 与
- * `/api/dorm/reading`。所以这一端按拿得到的两个端点画一份**只读读数页**，把「去缴费那一跳
- * 在浏览器里不可达」写在页顶。
- *
- * ## 如实处理的几处
- *
- * | 处 | 本端怎么处理 |
- * |---|---|
- * | 读数的时间戳 | 上游**不给**（§5.5）⇒ 本页记「本机拿到响应那一刻」，并标明是**本机时刻**，不编一个上游时间 |
- * | `kwh == null` | = 上游明确说「这间房没有表」（**不是 0**，也不是「查不到」）⇒ 单独一句话说清楚 |
- * | 某一间查失败 | 与「没有表」分开说（失败给重试，不给一个 0 或「没有表」） |
- * | 「去缴费」/ 绑定 / 充值 | 没有端点 ⇒ 不画按钮，只在页顶写清理由（不跳、不假装跳得过去） |
- *
- * @param source 取数（serve 模式 = `:core` 的 `CampusDormPowerApi`）：只用它拿得到的两格
- *   （`rooms()` / `kwh(roomId)`）—— `freshPayUrl()` 在那一份实现里是抛错的，这里不碰。
- * @param onBack 返回上一屏（壳给的导航）
- */
+/** 宿舍电费的读数页（`:web` 自己的一张屏，不在 `:core` 里）。 */
 @Composable
 internal fun WebDormPowerScreen(
     source: DormPowerSource,
@@ -90,8 +63,7 @@ internal fun WebDormPowerScreen(
         try {
             val list = source.rooms()
             rooms = list
-            // 读数是**一间一发**（契约把列表与读数拆成两个端点）：某间失败只影响那一间，
-            // 别让整页变成错误页 —— 与 `DormPowerStore.refresh` 的容错口径一致（但这里不写盘）。
+            // 读数一间一发：某间失败只影响那一间。
             readings = list.associate { room ->
                 room.id to queryReading(source, room)
             }
@@ -143,10 +115,7 @@ internal fun WebDormPowerScreen(
 /** 一间宿舍这一次查到的读数：`kwh == null && error == null` = 上游说这间房没有表。 */
 private data class RoomReading(val kwh: Double?, val at: Long, val error: String?)
 
-/**
- * 查一间的读数。**「什么时候查到的」由本页记**：上游不给时间戳（契约 §5.5），所以这里取
- * 「拿到响应那一刻」的本机时间 —— 编一个上游时间反而是第二个口径。
- */
+/** 查一间的读数。 */
 private suspend fun queryReading(source: DormPowerSource, room: DormRoom): RoomReading = try {
     val kwh = source.kwh(room.id)
     RoomReading(kwh = kwh, at = Clock.System.now().toEpochMilliseconds(), error = null)
@@ -156,7 +125,7 @@ private suspend fun queryReading(source: DormPowerSource, room: DormRoom): RoomR
     RoomReading(kwh = null, at = 0L, error = FriendlyError.of(e, "查询电量"))
 }
 
-/** 页顶那一张**如实缺口**卡（见这一屏的 KDoc）。 */
+/** 页顶那一张缺口卡。 */
 @Composable
 private fun DormPowerGapCard() {
     val cs = MiuixTheme.colorScheme
@@ -223,10 +192,7 @@ private fun DormRoomCard(room: DormRoom, reading: RoomReading?, onRetry: () -> U
     }
 }
 
-/**
- * 度数的显示口径：一位小数，四舍五入（`"%.1f".format(...)` 是 JVM 专属写法，`:core` 还要编到
- * wasm ⇒ 按既有先例手写）。幂等：`12.34` → `12.3`，`12.35` → `12.4`，`0.05` → `0.1`。
- */
+/** 度数显示：一位小数，四舍五入（`:core` 要编到 wasm，不能用 `String.format`）。 */
 private fun formatKwh(kwh: Double): String {
     val tenths = round(kwh * 10).toLong()
     val sign = if (tenths < 0) "-" else ""

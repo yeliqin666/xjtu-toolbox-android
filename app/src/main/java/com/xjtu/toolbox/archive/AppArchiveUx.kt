@@ -12,20 +12,7 @@ import java.util.zip.ZipEntry
 import java.util.zip.ZipInputStream
 import java.util.zip.ZipOutputStream
 
-/**
- * `:app` 侧的**导入/导出入口与通道**（S4 接线点）：SAF 通道 + 导出动作 + 一次性导入触发点。
- *
- * 这里只有「入口与通道」（plan §2 的 S4 条目 / §3 的红线四类）——**合并语义一行都不在这里**：
- * §6.4 的裁决逐字来自 `:core` 的 [StoreArchive.import]（S1b），本文件负责的是：
- *  - **导出**：真的组装 + 落盘（`AppArchiveHost.buildArchive` 只读端内）；
- *  - **导入通道**：把选中的档案复制进 `filesDir/archive_staging/`（SAF）或让用户 `adb push`
- *    到 `filesDir/archive/`（§1.1 未决 #3）；
- *  - **一次性导入**：`XjtuApp.attachBaseContext` 里扫这两个目录，交给 [AppArchiveImport] 跑
- *    「自校验 → 行数组预检 → §6.4 合并 → 落「已导入」标记」，失败时端内零改动（A7）。
- *
- * 无 Context 的那一个重载（[maybeImportPendingArchive] 带 `roots`）刻意只做**判读**：门禁用它断言
- * 「没有写入缝时一个字节都不动」，真合并只在宿主那一条路径上。
- */
+/** `:app` 侧的导入/导出入口与通道：SAF 通道 + 导出动作 + 一次性导入触发点。 */
 object AppArchiveUx {
     private const val TAG = "AppArchive"
 
@@ -60,10 +47,7 @@ object AppArchiveUx {
         return out
     }
 
-    /**
-     * 一份**待导入档案** → 档案字节映射：目录按目录读（[AppArchiveHost.readDirectory]）、
-     * `.zip` 按 zip 解（§2.0 的两种形态）。读不出来 / 不是 zip ⇒ null（由调用方当成一次明确失败）。
-     */
+    /** 一份待导入档案 → 档案字节映射。 */
     fun readArchive(path: File): Map<String, String>? = runCatching {
         if (path.isDirectory) AppArchiveHost.readDirectory(path) else unzipArchive(path.readBytes())
     }.getOrNull()
@@ -100,14 +84,7 @@ object AppArchiveUx {
         return target
     }
 
-    /**
-     * 一次性导入的**触发点**（§6.2，`XjtuApp.attachBaseContext` 里调用，顺序在
-     * `DataCache.clearIfPackageChanged` 之后，§8.7）：扫两个落地目录，把找到的那份档案交给
-     * [AppArchiveImport]（自校验 → 行数组预检 → §6.4 合并 → 落「已导入」标记）。
-     *
-     * 没有待导入档案 ⇒ `null`（什么都不做）；已经导过的那一份 ⇒ [ArchiveImportOutcome.AlreadyImported]；
-     * 坏档案 ⇒ [ArchiveImportOutcome.Failed] 且**端内零改动**（A7：自校验在写第一笔之前就返回）。
-     */
+    /** 一次性导入的触发点（§6.2，`XjtuApp.attachBaseContext` 里调用，顺序在`DataCache.clearIfPackageChanged` 之后，§8.7）：扫两个落地目录，把找到的那份档案交给 [AppArchiveImport]（自校验→ 行数组预检→ §6.4 合并→ 落「已导入」标记）。 */
     fun maybeImportPendingArchive(context: Context): ArchiveImportOutcome? {
         val archive = pendingArchiveCandidates(pendingArchiveRoots(context)).firstOrNull() ?: return null
         val entries = readArchive(archive) ?: return log(
@@ -133,31 +110,16 @@ object AppArchiveUx {
         return outcome
     }
 
-    /**
-     * §6.2 的检查点：档案落地目录（`files/archive/`）与 SAF 导入通道的暂存区
-     * （`files/archive_staging/`）—— 二者都是「把档案放进端内」的入口位置。
-     */
+    /** §6.2 的检查点：档案落地目录（`files/archive/`）与 SAF 导入通道的暂存区（`files/archive_staging/`） */
     fun pendingArchiveRoots(context: Context): List<File> =
         listOf(AppArchiveHost.archiveRoot(context), AppArchiveHost.stagingRoot(context))
 
-    /**
-     * 同 [maybeImportPendingArchive]（带 Context 的那一个），把根目录列表参数化以便单测驱动
-     * （无真 Context）。它刻意只做**判读**：不建写入缝、不合并、不落标记 —— 于是「没有写入缝时
-     * 一个字节都不动」在门禁里是可断言的事实。
-     */
+    /** 同 [maybeImportPendingArchive]（带 Context 的那一个），把根目录列表参数化以便单测驱动（无真 Context）。 */
     fun maybeImportPendingArchive(roots: List<File>) {
         pendingArchiveCandidates(roots)
     }
 
-    /**
-     * 根目录列表里真正**待导入的那一份**（§6.2 的「有档案才跑」）：每个根下按三种形态找 ——
-     *
-     *  1. 根本身就是档案（`<root>/manifest.json` 在，§2.0 的「目录即档案本体」）；
-     *  2. 根下的 `.zip`（运输形态，含 SAF 通道推进 `archive_staging/` 的那一份）；
-     *  3. 根下某个子目录是档案（`adb push` 解到一层子目录里也认）。
-     *
-     * 已在同一根里排过序（码点升序）⇒ 结果稳定；根与根的次序按调用方给的那一份。
-     */
+    /** 根目录列表里真正待导入的那一份（§6.2 的「有档案才跑」）：每个根下按三种形态找 —— */
     fun pendingArchiveCandidates(roots: List<File>): List<File> = roots.flatMap { root ->
         when {
             !root.isDirectory -> emptyList()

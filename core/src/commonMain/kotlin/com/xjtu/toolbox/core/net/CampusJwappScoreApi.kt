@@ -20,48 +20,7 @@ import io.ktor.client.HttpClient
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.decodeFromJsonElement
 
-/**
- * 移动教务成绩（`jwapp.xjtu.edu.cn`）的 **serve 版取数**：给 `:web` 用，一个类实现两个端口 ——
- * [JwappScoreSource] 与 [JwxtScoreSupplement]（与 `:data` 的 `AppJwappScoreSource` 同一条分工）。
- *
- * | 端点 | 站点 | 本类实现的方法 |
- * |---|---|---|
- * | `GET /api/jwapp/scores?term=` | `jwapp` | [getGrade] |
- * | `GET /api/jwapp/precise-scores` | **`jwxt`（教务）** | [preciseScores] |
- * | `GET /api/jwapp/score-detail?courseId=` | `jwapp` | [getScoreDetail]（2026-10-14 第四批，§5.8） |
- *
- * 契约 §5.6 / §5.8；`:server` 那一侧是 `JwappRoutes.kt`。⚠️ **前两条端点各自打一个站点**（不是笔误）：
- * `scores` 没会话时 502、`precise-scores` 没会话时也 502 —— 而 `:core` 的 `JwappScoreViewModel`
- * 对后者是**容忍**的（`catch` 住就用 jwapp 那一份），所以后者的 502 **不会让整屏失败**。
- * 本类把异常如实抛出去就行（[serveData] 那一层已经把 `message` 拼成一句中文），对齐不做合并：
- * 合并是屏上的事（`JwappScoreViewModel` 按「学期 + 课程名」替换，`normalizeCjcxCourseName` 在 `:core`）。
- *
- * ## 端了什么、刻意不端什么
- *
- * | 端口方法 | 端不端 |
- * |---|---|
- * | [getGrade] / [preciseScores] | **端**（上表前两条端点） |
- * | [getScoreDetail] | **端**（§5.8 的 `score-detail`，2026-10-14 第四批）：一门课的分项成绩 ⇒ serve 形态下 [canFetchScoreDetail] 报 `true`，卡片点了真能展开；「这门课没有分项」= `detail:null` ⇒ 本类抛 [NoScoreDetailException]（与 `:data` 的 `JwappApi.getDetail` 同一个异常）—— 屏拿它走「自己拼一份空明细」那条老分支 |
- * | [unevaluatedCourseNames] | 不端：那是**评教**那一侧的名单 |
- * | [reportedGrades] | **不端**：它**要学号**（§5.2 红线）。本端 [JwappScoreSource] 的 `studentId` 传空串 ⇒ VM 根本不会调它（`if (studentId.isNotEmpty())` 那一行）；真调到了也是这一条抛错（VM 容忍，成绩照旧） |
- * | [reAuthenticate] / 落盘缓存 | 不端：前者是宿主凭据的写动作（本类用端口上的默认实现 = 什么都不做），后者是宿主的缓存（屏那边 `cache = null`） |
- *
- * ## `-1.0` 那个哨兵值：**服务端那一侧就归一了**
- *
- * 上游对「没这一格」的写法是 `-1.0`（不是 `null`）：`pscj` / `qmcj` 那两格在 `:data` 里就是
- * `safeDouble(-999.0).takeIf { it > -100 }`（契约 §5.6 引的就是这一行）⇒ 端出来时已经是 `null`。
- * 本端**不再判一次**（同一个判据起第二个写法就是分叉的开始），也不拿 `0` 顶上。
- * `zcj` / `xfjd` / `xf` 三格在 `CjcxScore` 上是**非空** Double（没有「缺」那一档）⇒ 原样透传 ——
- * 与 `:core` 的 VM 同一条口径（它也是直接吃 `p.zcj` / `p.xfjd`）。
- *
- * ## 默认形态（campus-api）
- *
- * 移动教务在 campus-api 里没有对应端点（`:app` / 桌面走 `:data` 的 okhttp）⇒ 非 serve 分支一律
- * [serveOnly]（抛错，不返回一份空数据）。
- *
- * @param baseUrl 留空 ⇒ 相对路径即**同源**（`:web` 由 `:server` 托管，必须是空）
- * @param mode 见 [ApiMode]：serve 支才走本契约的端点
- */
+/** 移动教务成绩（`jwapp.xjtu.edu.cn`）的 serve 版取数：给 `:web` 用，一个类实现两个端口。 */
 class CampusJwappScoreApi(
     private val client: HttpClient,
     private val baseUrl: String = "",
@@ -69,10 +28,7 @@ class CampusJwappScoreApi(
     private val mode: ApiMode = ApiMode.CAMPUS_API,
 ) : JwappScoreSource, JwxtScoreSupplement {
 
-    /**
-     * 本端能不能拿分项成绩：**serve 形态能**（§5.8 端了 `score-detail`），campus-api 形态不能
-     * （移动教务在 campus-api 里没有对应端点，那个上游就没有这条）⇒ 屏在那形态下不展开那一格。
-     */
+    /** 本端能不能拿分项成绩：serve 形态能（§5.8 端了 `score-detail`），campus-api 形态不能（移动教务在 campus-api 里没有对应端点，那个上游就没有这条）⇒屏在那形态下不展开那一格。 */
     override val canFetchScoreDetail: Boolean get() = mode == ApiMode.SERVE
 
     override suspend fun getGrade(termCode: String?): List<TermScore> {
@@ -99,16 +55,7 @@ class CampusJwappScoreApi(
         }
     }
 
-    /**
-     * 分项成绩（§5.8 的 `GET /api/jwapp/score-detail?courseId=`）。
-     *
-     * 三件事在这里定死：
-     *  - `courseId` 取自 [getGrade] 那一行的 `id`，缺了就抛（服务端同样 400）—— 不猜一个课程 id；
-     *  - ⚠️ **「这门课没有分项」写成 `detail:null`**（§4：上游明确说没有）⇒ 本类抛
-     *    [NoScoreDetailException]（与 `:data` 的 `JwappApi.getDetail` 同一个异常），屏据此拼空明细；
-     *  - `itemPercent` 已经是**比例**（`0.3` = 30%）：`:data` 早把上游那个 `"30%"` 除过 100 了，
-     *    本端不除第二次（屏上乘 100 再显示）。
-     */
+    /** 分项成绩（§5.8 的 `GET /api/jwapp/score-detail?courseId=`）。 */
     override suspend fun getScoreDetail(courseId: String): ScoreDetail {
         requireServe()
         val id = courseId.trim()
@@ -132,7 +79,7 @@ class CampusJwappScoreApi(
             "（docs/api-contract.md §5.6）—— 本端的 studentId 传空串，VM 不会调它",
     )
 
-    /** 见类 KDoc：它**要学号**（§5.2 红线）。 */
+    /** 见类 KDoc：它要学号（§5.2）。 */
     override suspend fun reportedGrades(studentId: String): List<ReportedGrade> = throw UnsupportedOperationException(
         "serve 契约不端「按学号取成绩报表」：它要学号（契约 §5.2 红线，例外清单里没有这一族）" +
             "—— 本端的 studentId 传空串，VM 不会调它（docs/api-contract.md §5.6）",
@@ -143,13 +90,7 @@ class CampusJwappScoreApi(
     }
 }
 
-/**
- * 教务 `xscjcx.do` 的一行：字段名就是**教务的列名**（本端不翻译成「好看的名字」——同一个字段名
- * 不在这两处各起一个）。缩写对照见契约 §5.6 与 `JwappRoutes.kt`。
- *
- * 课名与课程号都空的那一行不列：VM 是按「学期 + 课程名」（退一步按课程号）替换的，两样都没有就
- * 对不上任何一门课 —— 列出来只会多一条永远匹配不上的记录。
- */
+/** 教务 `xscjcx.do` 的一行：字段名就是教务的列名（本端不翻译成「好看的名字」——同一个字段名不在这两处各起一个）。 */
 private fun JsonObject.toCjcxScore(): CjcxScore? {
     val courseName = this["courseName"].safeString().trim()
     val kch = this["kch"].safeString().trim()
@@ -175,12 +116,7 @@ private fun JsonObject.toCjcxScore(): CjcxScore? {
     )
 }
 
-/**
- * `detail` 对象（[ScoreDetail] 的线上形状，字段名一个不改）→ `:core` 的模型。
- *
- * `ScoreDetail` 不在 `:core` 的 `@Serializable` 那一族里（它是屏与 `:data` 共用的模型，
- * 形状不能在服务端那一层被注解钉住）⇒ 逐字段抄下来，与 `toCjcxScore` 同一个写法。
- */
+/** `detail` 对象（[ScoreDetail] 的线上形状，字段名一个不改）→ `:core` 的模型。 */
 private fun JsonObject.toScoreDetail(): ScoreDetail = ScoreDetail(
     courseName = this["courseName"].safeString(),
     coursePoint = this["coursePoint"].safeDouble(),

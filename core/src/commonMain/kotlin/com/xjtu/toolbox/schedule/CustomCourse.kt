@@ -3,20 +3,7 @@ package com.xjtu.toolbox.schedule
 import kotlinx.serialization.Serializable
 import kotlin.time.Clock
 
-/**
- * 用户自建的一条日程/课程（手动添加的实验课、临时排课，以及屁岱代加的日程）。
- *
- * ## 与 `:app` 的 `CustomCourseEntity` 是什么关系
- *
- * 字段**一个不差**，差的是注解：那张表是 Room 的实体（`@Entity(tableName = "custom_courses")`），
- * 而 Room 注解是 Android 专属的 —— 屏与 ViewModel 进了 `:core` 之后就看不见它了。
- * 所以这里放**领域模型**，`:app` 留 Room 实体与两张之间的逐字段映射
- * （见 `:app` 的 `CustomCourseEntity.toCustomCourse()` / `CustomCourse.toEntity()`）：
- * **同一张表、同一批列名、同一份数据**，只是「屏说什么」与「表怎么存」分成两件事。
- *
- * 谁能直接读写表：`ScheduleWidgetProvider` / `HomeTab` / `AgentTool` / `AccountManager` 四处
- * 仍走 `CustomCourseDao`（一行未改，它们本来就在 `:app`）。屏与 VM 走 [CustomCourseStore] 这条缝。
- */
+/** 用户自建的一条日程/课程（手动添加的实验课、临时排课，以及屁岱代加的日程）。 */
 @Serializable
 data class CustomCourse(
     /** 表里的自增主键；0 = 还没落库（新增）。 */
@@ -70,10 +57,7 @@ fun encodeAgendaNote(note: String): String {
 
 fun decodeAgendaNote(note: String): String = note.removePrefix(AGENDA_NOTE_PREFIX).trim()
 
-/**
- * 将诸如 "第1-4，6-16周"、"1,2,4-10" 等不规则字符串解析为周次列表
- * 自建课程落库模型。
- */
+/** 将诸如 "第1-4，6-16周"、"1,2,4-10" 等不规则字符串解析为周次列表自建课程落库模型。 */
 fun parseWeeksString(weeksStr: String): List<Int> {
     if (weeksStr.isBlank()) return emptyList()
     var s = weeksStr.trim().replace("第", "").replace("周", "")

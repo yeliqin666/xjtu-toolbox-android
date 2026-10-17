@@ -15,12 +15,7 @@ import java.util.UUID
  *
  * 单机本地存储，无需 SQLite；每会话一个 JSON 文件的方案对标 opencode 早期实现，足够规范。
  *
- * ## 搬迁（`:app` → `:data`）
- *
- * 形状只改了一处：原来是 `class AgentSessionStore(context: Context)` 抓 `context.filesDir`，
- * 现在根目录走 [dataFilesDir] 缝（Android 那份就是**同一个** `filesDir`，桌面那份是数据根目录），
- * 并允许宿主传入另一个根（单测与多实例用）。**目录名、文件名、JSON 字段一个字符未改**，
- * 老用户的会话与 LLM 历史照旧读得回来。
+ * 根目录走 [dataFilesDir] 缝（可由宿主另传）；目录名、文件名、JSON 字段不能改，否则老会话读不回来。
  */
 class AgentSessionStore(
     /** 数据根目录（**每次调用重新解析**，默认取本端的 `dataFilesDir()`）。 */

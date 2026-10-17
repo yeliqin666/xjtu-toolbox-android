@@ -6,20 +6,7 @@ package com.xjtu.toolbox.community
 import kotlinx.coroutines.delay
 import kotlin.time.Clock
 
-/**
- * 社区登录（GitHub App 设备码流程）里**与 HTTP 无关**的那一半：模型、轮询结果、端口接口，
- * 以及那个「按 interval 轮询直到授权/过期」的用例。
- *
- * 从 :app 的 `community/GithubDeviceAuth.kt` 切出来 —— 同一个文件里还坐着 okhttp 版实现
- * `GithubOAuthDeviceAuthRepository`（现在在 :app 的 `community/GithubOAuthDeviceAuthRepository.kt`）。
- *
- * 这一半之所以值得切，是因为它**本来就是可测的**：用例的 `nowEpochMillis` / `delayMillis`
- * 都是注入的，搬进 commonMain 后可以拿假时钟跑「慢下来 / 过期 / 被拒」三条路径，
- * 不必等真的轮询（:core 里已经有这套测试）。
- *
- * 只有一处替换：默认时钟从 `System.currentTimeMillis()` 换成 `Clock.System.now().toEpochMilliseconds()`
- * （同一件事：UTC 墙上时钟的毫秒数），因为 `System` 在 commonMain 不存在。
- */
+/** 社区登录（GitHub App 设备码流程）里与 HTTP 无关的那一半：模型、轮询结果、端口接口，以及那个「按 interval 轮询直到授权/过期」的用例。 */
 
 data class GithubDeviceAuthorization(
     val deviceCode: String,
@@ -56,22 +43,10 @@ sealed interface GithubDevicePollResult {
 interface GithubDeviceAuthRepository {
     val isConfigured: Boolean
 
-    /**
-     * 这个端能不能用「粘贴一个自己的 token」代替设备码流程。
-     *
-     * 为什么需要它：设备码流程要求浏览器直连 `github.com/login/device`，而那边**不给 CORS 头**
-     * ⇒ Web 端走不通（`:app` 走 okhttp，没这个限制）。粘贴 token 不需要任何服务端配合，
-     * 所以浏览器端多这一条路；界面也放在共享屏自己的登录页里（见 `CommunityLoginScreen`），
-     * 不是 Web 端的私有分支 —— **`:app` 不实现它，默认值就是 false，行为零变化**。
-     */
+    /** 这个端能不能用「粘贴一个自己的 token」代替设备码流程。 */
     val supportsManualToken: Boolean get() = false
 
-    /**
-     * 粘贴 token 登录：**先用它查一次用户名，查得到才算成功** —— 与设备码那条路同一套判据
-     * （查不到就落盘只会让界面以为已登录、随后每个请求都 401）。
-     *
-     * 默认不支持：设备码流程能用的端不需要这条退路。
-     */
+    /** 粘贴 token 登录：先用它查一次用户名，查得到才算成功。 */
     suspend fun signInWithToken(token: String): Result<String> =
         Result.failure(GithubDeviceFlowNotConfiguredException())
 

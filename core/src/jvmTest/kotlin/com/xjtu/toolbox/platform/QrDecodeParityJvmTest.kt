@@ -10,41 +10,7 @@ import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
-/**
- * 「浏览器那一端的二维码**解码**（`:core` commonMain 里那份纯 Kotlin 链）与 Android/jvm 那一端
- * （zxing）**从同一批像素解出同一段文本**」这件事的机器可验版本。
- *
- * ## 为什么要有它
- *
- * wasmJs 上没有 zxing（JVM/Android 的 jar）⇒ 浏览器原先**没有二维码解码器**：匹配交友那一屏的
- * 「从相册选一张图」与相机取景两档在 `:web` 上都做不了（D12 ③ 的结论）。本批把解码链按「三端一份」
- * 搬进 commonMain（`platform/qr/`），**androidMain / jvmMain 两份 actual 一行未改**（红线：Android
- * 行为逐字不变 —— `:app` 还走它自己那份 `qrlogin/QrFrameDecoder`）。于是「浏览器认得出 Android 认得
- * 出的那张码」不能靠嘴说：这里拿**同一批 ARGB 像素**同时跑两份实现，逐字断言解出来的是同一段文本。
- *
- * ## 两侧分别是谁（别把这条测试读反了）
- *
- * | 一侧 | 是谁 | 用在哪 |
- * |---|---|---|
- * | [qrDecodeArgb] | jvmMain 的 actual = zxing（`PlanarYUVLuminanceSource` + `HybridBinarizer` + `QRCodeReader`，与 `:app` 的 `QrFrameDecoder` 同参数） | 桌面 / serve 模式 |
- * | [QrReader.decodeArgb] | 本批新增的纯 Kotlin 解码链（`platform/qr/`） | wasmJs（浏览器） |
- *
- * ## 摆图：为什么有两档密度，以及一个**实测**的坑
- *
- * 图的几何按屏幕/相机的真实形状给（每个模块 [CELL_PIXELS] 或 [COARSE_CELL_PIXELS] 像素 + 静默区），
- * 像素用 `0xFF000000` / `0xFFFFFFFF`（不透明黑/白，就是 `Bitmap.getPixels` 那批 int 的语义）——
- * 与 `CodeMatrixParityJvmTest.decode` 同一个理由（「一个模块一个像素 + 有白边」那种图任何相机与屏幕
- * 都不会产生，`FinderPatternFinder` 在它上面找不到定位图案）。
- *
- * ⚠️ **实测挖出来的一个坑**：**21 版（101 个模块）在每模块 4 像素时，zxing 自己也认不出来**（同一条
- * 载荷在每模块 2 像素时两端都解得对；其它版本如 13 版 69 模块、28 版 129 模块在两档密度下都解得对）。
- * 那是**参考实现的脾气**，不是这一份的差异（两端在任何一档密度下的结论都一致）⇒ 所以「必须解回原文」
- * 那一档按**每模块 2 像素**摆图（[COARSE_CELL_PIXELS]），另一档（每模块 4 像素）只断言**两端一致**。
- * 这不是放宽判据，是把「谁的脾气」分开：前者钉「解得出来且解的是原文」，后者钉「两端同结论」。
- *
- * ⚠️ 夹具全是编造的：数字串是编的 20 位（与 `testkit` 那一串同形状但**不是**它），分享码那一档按
- * base64url 字母表造（`Random(20261016)` ⇒ 每次一样）—— 没有真实课表 / 姓名 / 学号。
- */
+/** 纯 Kotlin 二维码解码与 zxing 从同一批像素解出同一段文本的机器验证。 */
 class QrDecodeParityJvmTest {
 
     // ── 解出来的是同一段文本，而且就是原文 ──────────────────
@@ -85,17 +51,14 @@ class QrDecodeParityJvmTest {
 
     @Test
     fun `图里没有码时两端都返回 null`() {
-        // ① 一整片白（对比度太低：HybridBinarizer / 全局直方图那一步就该放弃）
         val plainWhite = IntArray(200 * 200) { WHITE_PIXEL }
         assertNull(qrDecodeArgb(plainWhite, 200, 200), "一片白里不该解出码（zxing）")
         assertNull(QrReader.decodeArgb(plainWhite, 200, 200), "一片白里不该解出码（纯 Kotlin）")
 
-        // ② 一整片黑
         val plainBlack = IntArray(200 * 200) { BLACK_PIXEL }
         assertNull(qrDecodeArgb(plainBlack, 200, 200), "一片黑里不该解出码（zxing）")
         assertNull(QrReader.decodeArgb(plainBlack, 200, 200), "一片黑里不该解出码（纯 Kotlin）")
 
-        // ③ 单像素级噪声（有对比度，但没有任何 1:1:3:1:1 的定位图案）
         val random = Random(20261016)
         val noise = IntArray(200 * 200) { if (random.nextBoolean()) BLACK_PIXEL else WHITE_PIXEL }
         assertEquals(
@@ -104,12 +67,10 @@ class QrDecodeParityJvmTest {
             "噪声图两端该给同一个结论（都不该认出码）",
         )
 
-        // ④ 太小的一张图（进的是 HybridBinarizer 的「退回全局直方图」那一支）
         val tiny = IntArray(10 * 10) { BLACK_PIXEL }
         assertNull(qrDecodeArgb(tiny, 10, 10), "10x10 里不该解出码（zxing）")
         assertNull(QrReader.decodeArgb(tiny, 10, 10), "10x10 里不该解出码（纯 Kotlin）")
 
-        // ⑤ 参数就不对
         assertNull(qrDecodeArgb(IntArray(0), 0, 0), "宽高为 0 该返回 null（zxing）")
         assertNull(QrReader.decodeArgb(IntArray(0), 0, 0), "宽高为 0 该返回 null（纯 Kotlin）")
         assertNull(qrDecodeArgb(IntArray(4), 100, 100), "像素不够 `width*height` 个该返回 null（zxing）")
@@ -126,7 +87,6 @@ class QrDecodeParityJvmTest {
         for (cell in intArrayOf(COARSE_CELL_PIXELS, CELL_PIXELS)) {
             val base = render(matrix, cell, quietZoneModules = 4)
 
-            // ① 轻伤：中心擦掉一个 1~2 个模块见方的小补丁 —— Reed-Solomon 应当能纠回来
             for (patchModules in intArrayOf(1, 2)) {
                 val damaged = base.copy()
                 patch(damaged, patchModules * cell)
@@ -140,7 +100,7 @@ class QrDecodeParityJvmTest {
                 )
             }
 
-            // ② 重伤：把右半边整片涂白 —— 纠错救不回来，两端都不该编出什么来（结论必须一致，且都为空）
+            // ② 重伤：右半边整片涂白，纠错救不回来，两端都应为空
             val heavy = base.copy()
             whitenColumns(heavy, fromX = heavy.width / 2, toX = heavy.width - 1)
             val byZxing = qrDecodeArgb(heavy.pixels, heavy.width, heavy.height)
@@ -199,11 +159,7 @@ class QrDecodeParityJvmTest {
 
     // ── 夹具与工具 ──────────────────────────────────────────
 
-    /**
-     * 真会喂给这条缝的那几档：付款码形状的纯数字、字母数字模式、字节模式（含 ECI 26 的 UTF-8）、
-     * 以及按长度铺开的（版本选择 / 纠错分块 / 交织 / 版本信息都随长度变，只测一个长度会漏掉
-     * 多块交织与版本信息那两段）。
-     */
+    /** 真会喂给这条缝的那几档：付款码形状的纯数字、字母数字模式、字节模式（含 ECI 26 的 UTF-8）、以及按长度铺开的（版本选择 / 纠错分块 / 交织 / 版本信息都随长度变，只测一个长度会漏掉多块交织与版本信息那两段）。 */
     private fun payloads(): List<String> = listOf(
         // 付款码那一档的形状：20 位十进制（编造的，不是 testkit 里那一串）
         "12345678901234567890",
@@ -230,10 +186,7 @@ class QrDecodeParityJvmTest {
         return buildString { repeat(length) { append(alphabet[random.nextInt(alphabet.length)]) } }
     }
 
-    /**
-     * 把 [CodeMatrix] 摆成一张按像素渲染的图（每个模块 `cell` 像素、四周各 `quietZoneModules`
-     * 个模块的静默区）。理由见类 KDoc。
-     */
+    /** 把 [CodeMatrix] 摆成一张按像素渲染的图（每个模块 `cell` 像素、四周各 `quietZoneModules`个模块的静默区）。 */
     private fun render(matrix: CodeMatrix, cell: Int, quietZoneModules: Int): Rendered {
         val width = (matrix.width + 2 * quietZoneModules) * cell
         val height = (matrix.height + 2 * quietZoneModules) * cell

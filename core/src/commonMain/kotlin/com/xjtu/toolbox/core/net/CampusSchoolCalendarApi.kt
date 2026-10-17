@@ -19,27 +19,7 @@ import kotlinx.datetime.LocalDate
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonObject
 
-/**
- * 校历的 **campus-api 版取数**：给 Web 端用（Android 端直连学校，见 `:app` 的 `SchoolCalendarApi`）。
- *
- * 为什么 Web 不能直连学校：浏览器对 `workflow.xjtu.edu.cn` 的响应没有
- * `Access-Control-Allow-Origin`，campus-api 也不给零鉴权端点发 CORS 头。所以 Web 的唯一数据路径是
- * 同源反代到 campus-api —— 与黄页（[CampusYellowPageApi]）同一条理由、同一个形状。
- *
- * **上游是同一个门户接口**（campus-api 的 `source` 字段就是那个 URL），所以这里做的是
- * 「信封拆包 + 口径对齐」，不是重新实现一套解析：
- *  - 学期结束日同样取 `examEnd → termEndDate → endDate` 第一个有效的（`:core` 里
- *    [com.xjtu.toolbox.calendar.parseUpstreamSchoolCalendar] 对学校响应也是这个次序）；
- *  - `termName` = `"${year}学年${name}"`；
- *  - 假期备注同样按标题在 `specialEvents[]` 里找（上游就是这么关联的）；
- *  - 事件/学期的排序同样按 `startDate` 升序 —— **顺序是屏幕「学期切换」的前提**。
- *
- * campus-api 一次只回一个学期（`semester`），但它同时给出 `availableTerms[]`，所以这里把每个
- * 可查学期各拉一次拼成完整列表；取不到的学期（上游还没发布）按校历模块自己的口径
- * `code:1 / msg:"not-found"` 返回，直接跳过、不影响别的学期。
- *
- * @param baseUrl 留空 ⇒ 相对路径即**同源**（Web 端必须这样）。
- */
+/** 校历的 campus-api 版取数：给 Web 端用（Android 端直连学校，见 `:app` 的 `SchoolCalendarApi`）。 */
 class CampusSchoolCalendarApi(
     private val client: HttpClient,
     private val baseUrl: String = "",
@@ -48,7 +28,6 @@ class CampusSchoolCalendarApi(
 ) : SchoolCalendarSource {
 
     override suspend fun terms(): List<SchoolTerm> {
-        // serve 一次给全部学期（见 serveTerms 的 KDoc）⇒ 不走旧路那个「一个学期一拉、拼起来」的循环
         if (mode == ApiMode.SERVE) return serveTerms()
         val first = fetch(term = null)
         val current = first.semester ?: error("campus-api 校历返回缺少 semester")
@@ -58,16 +37,7 @@ class CampusSchoolCalendarApi(
         return (listOf(current) + others).distinctBy { it.id }.sortedBy { it.startDate }
     }
 
-    /**
-     * serve 模式（契约 §5.2）：`{terms:[{id,startDate,endDate,termName,yearName,totalWeeks,workDays,
-     * events:[{id,startDate,endDate,name,remark,days,colorHex}]}]}`（开学日起序）。
-     *
-     * 与旧路**不是同一份投影**：campus-api 一次只回一个学期（`semester`）外加一串可查学期号，
-     * 要客户端拿每个学期号再拉 N 次拼起来；`:server` 一次给全（`SchoolCalendarSource.terms()` 就是
-     * 这份数据），而且结束日、总周数、工作日数、事件的 `remark`/`days` 都已在 `:data` 算好 ⇒
-     * 这里**不重算**那几条口径（`examEnd → termEndDate → endDate` 的次序、`specialEvents` 的关联），
-     * 也不做 `distinctBy`/排序。
-     */
+    /** serve 模式（契约 §5.2） */
     private suspend fun serveTerms(): List<SchoolTerm> {
         val data = client.serveData("加载校历", baseUrl, "/api/calendar/school")
         return data.arr("terms").orEmpty().mapNotNull { element ->
@@ -122,10 +92,7 @@ class CampusSchoolCalendarApi(
 
     private data class Payload(val term: String, val availableTerms: List<String>, val semester: SchoolTerm)
 
-    /**
-     * 把 campus-api 的 `semester` 映射成共享模型。字段名与黄页那套一样，**不做重命名**：
-     * 上游怎么叫就怎么读，映射关系写在 [SchoolTerm] 的构造里，一眼能对回去。
-     */
+    /** 把 campus-api 的 `semester` 映射成共享模型。 */
     private fun parseSemester(obj: JsonObject): SchoolTerm? {
         val start = parseDateOrNull(obj["startDate"].safeString()) ?: return null
         val end = firstValidDate(obj, "examEnd", "termEndDate", "endDate") ?: return null

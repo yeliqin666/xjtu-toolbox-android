@@ -38,11 +38,7 @@ enum class ScheduleSource(val key: String, val label: String, val summary: Strin
 
         fun fromKey(key: String?): ScheduleSource = entries.firstOrNull { it.key == key } ?: DEFAULT
 
-        /**
-         * 用户在设置里选的那一个。读的就是 `:core` 的 `SettingsStore`（文件 `app_settings`、
-         * 键 `schedule_source`，与 `CredentialStore.scheduleSource` **同一个来源**）⇒
-         * 搬迁前传 `Context` 只是为了让 `CredentialStore` 找到那个文件，参数因此去掉了。
-         */
+        /** 用户在设置里选的那一个。 */
         fun of(): ScheduleSource = fromKey(SettingsStore().scheduleSource)
     }
 }
@@ -149,12 +145,7 @@ object ScheduleSourceRouter {
         prefs(PREFS_SERVED).putString(KEY_SERVED, source.key)
     }
 
-    /**
-     * 这两份记录随账号走：换账号后别拿上一个人的来源和调课理由去比。
-     *
-     * 从 `SharedPreferences` 换成 `:core` 的 [KeyValueStore] 缝：Android 那份就是**同一个文件、
-     * 同一批键**（`schedule_source<suffix>` / `schedule_changes<suffix>`），换账号后照样各读各的。
-     */
+    /** 这两份记录随账号走：换账号后别拿上一个人的来源和调课理由去比。 */
     private fun prefs(name: String): KeyValueStore =
         keyValueStore(name + AccountContext.safeSuffix())
 

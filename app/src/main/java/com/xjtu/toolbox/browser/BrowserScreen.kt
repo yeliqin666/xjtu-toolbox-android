@@ -592,9 +592,6 @@ private fun displayHost(url: String): String {
     return runCatching { URI(real).host.orEmpty() }.getOrDefault("").removePrefix("www.")
 }
 
-// 「对外（复制、分享、外部打开）用的地址」这条规则本轮按五步法搬进了 `:core`
-//（`browser/ShareableUrl.kt`，判据 `:core:commonTest` 的 `ShareableUrlTest`）——
-// 桌面端的外链中转页用的是**同一份**：那边没有内嵌浏览器，交给系统浏览器的就是它。
 
 private fun normalizeUrl(input: String): String {
     val trimmed = input.trim()

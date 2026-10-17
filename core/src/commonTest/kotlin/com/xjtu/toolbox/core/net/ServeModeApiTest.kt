@@ -15,17 +15,7 @@ import kotlin.test.assertFailsWith
 import kotlin.test.assertTrue
 import kotlinx.coroutines.test.runTest
 
-/**
- * serve 模式的解析（[ApiMode.SERVE]）—— 契约 `docs/api-contract.md` §4/§5 的**客户端那一侧**。
- *
- * 为什么值得写：serve 模式把信封口径改了（`code` 就是 HTTP 状态码）、把「要改」的那批字段补齐了，
- * 而 serve 模式的取数在浏览器里只能用真 `:server` 验证 —— 这里用 MockEngine 喂**服务端实现
- * 的形状**（`server/src/main/kotlin/com/xjtu/toolbox/server/` 的 DTO 就是这些字段），
- * 把「错误信封怎么读、新字段怎么接、能力开关怎么消费」钉死，不依赖真服务器。
- *
- * 默认形态（[ApiMode.CAMPUS_API]）由既有测试钉着（`CampusEmptyRoomApiTest` 等），
- * 这里最后一条再补一个回归：**不传 mode 时还吃得下旧的 campus-api 形状**。
- */
+/** serve 模式的解析（[ApiMode.SERVE]）—— 契约 `docs/api-contract.md` §4/§5 的客户端那一侧。 */
 class ServeModeApiTest {
 
     /** 一个只按路径答夹具的 MockEngine（与既有测试同一套写法）。 */
@@ -42,11 +32,7 @@ class ServeModeApiTest {
         }
     }
 
-    /**
-     * 契约 §4 最要紧的一条：失败时 `code` **就是 HTTP 状态码**（这里是 401），
-     * `message` 是能直接给用户看的中文短句。这条钉的是「不许把 HTTP 状态码当业务码解」：
-     * `code != 0` → 失败并显示 `message`（旧路是 `code != 0` + 读 `msg`/`error` 两个字段）。
-     */
+    /** 契约 §4 最要紧的一条：失败时 `code` 就是 HTTP 状态码（这里是 401），`message` 是能直接给用户看的中文短句。 */
     @Test
     fun serveErrorEnvelopeCodeIsHttpStatusAndMessageIsShown() = runTest {
         val engine = engineFor(
@@ -63,10 +49,7 @@ class ServeModeApiTest {
         )
     }
 
-    /**
-     * 契约 §5.2 例外①：`fitness/score` 是**本人的数据**，姓名/学号可投影 —— 旧路两行写死的空串
-     * 是 campus-api 隐私口径的降级。另外分项**直接用服务端给的名字**（不再按 key + sex 重推一遍）。
-     */
+    /** 契约 §5.2 例外①：`fitness/score` 是本人的数据，姓名/学号可投影。 */
     @Test
     fun serveFitnessScoreCarriesStudentNameAndNumber() = runTest {
         val body = """
@@ -84,11 +67,7 @@ class ServeModeApiTest {
         assertEquals("身高 / 体重", score.items.single().name)
     }
 
-    /**
-     * 契约 §5「要改」的 school-courses：人数/学时、`YPSJDD`（[SchoolCourse.scheduleLocation]）补齐；
-     * 两个能力开关（`supportsDepartmentFilter` / `supportsElectiveFilter`）进响应 —— 但客户端报的是
-     * 「能力 true × 选项表端点不在契约里」的**与** ⇒ 还是 false（见 CampusSchoolCourseApi 的 KDoc）。
-     */
+    /** 契约 §5「要改」的 school-courses：人数/学时、`YPSJDD`（[SchoolCourse.scheduleLocation]）补齐。 */
     @Test
     fun serveSchoolCourseReadsNewFieldsAndSwitches() = runTest {
         val body = """
@@ -115,15 +94,11 @@ class ServeModeApiTest {
         assertEquals(98, course.enrollCount)
         assertEquals(100, course.capacity)
         assertEquals("兴庆校区 主楼A-404 周一1-2节", course.scheduleLocation)  // YPSJDD
-        // 开关读进了响应（能力 true），但那一张 id 表端点不在契约里 ⇒ 客户端仍报 false（如实降级）
         assertEquals(false, api.supportsDepartmentFilter)
         assertEquals(false, api.supportsElectiveFilter)
     }
 
-    /**
-     * 契约 §5「要改」的 emptyroom：`availableSources` 是**响应的一部分**（未登录 [cdn]、登录后
-     * [live,cdn,direct]）⇒ 客户端的档位表随响应更新，不再是硬编码的 [CDN]。
-     */
+    /** 契约 §5「要改」的 emptyroom。 */
     @Test
     fun serveEmptyRoomReadsAvailableSourcesAndRooms() = runTest {
         val body = """
@@ -165,12 +140,7 @@ class ServeModeApiTest {
         assertEquals("国庆节", term.events.single().name)
     }
 
-    /**
-     * 契约 §5.3 的两个课表端点（2026-10-11 落地）：`:server` 给的 `data` 与 campus-api 的
-     * `ScheduleData` / `TermStartData` **形状相同**（差别只在信封怎么读）⇒ 两边都能解码进同一批模型。
-     *
-     * 这里同时钉住失败那一支：`code != 0` 时读 `message`（不是 `msg`/`error`），并把「请先登录」原样给用户。
-     */
+    /** 契约 §5.3 的两个课表端点（2026-10-11 落地） */
     @Test
     fun serveScheduleAndTermStart() = runTest {
         val scheduleBody = """
@@ -225,10 +195,7 @@ class ServeModeApiTest {
         assertTrue(e.message?.contains("请先登录") == true, "实际：${e.message}")
     }
 
-    /**
-     * C1 红线：课表那两条端点不传 [ApiMode] 时，老形状（campus-api 的上游 47 列）**一字不改**地照旧解析 ——
-     * 多给的列被 `ignoreUnknownKeys` 忽略。
-     */
+    /** 课表那两条端点不传 [ApiMode] 时按 campus-api 的老形状解析。 */
     @Test
     fun defaultModeStillReadsLegacyScheduleShape() = runTest {
         val body = """
@@ -245,7 +212,7 @@ class ServeModeApiTest {
         assertEquals("1-16周", rows[0].weeksText)
     }
 
-    /** C1 红线：不传 [ApiMode] 时，老形状（campus-api）**一字不改**地照旧解析。 */
+    /** 不传 [ApiMode] 时，老形状（campus-api）照旧解析。 */
 
     @Test
     fun defaultModeStillReadsLegacyCampusShape() = runTest {

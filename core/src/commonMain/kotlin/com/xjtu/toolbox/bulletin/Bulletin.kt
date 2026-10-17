@@ -238,15 +238,7 @@ object BulletinRules {
         return p.stringValue.trim().toIntOrNull()
     }
 
-    /**
-     * 时间窗那两种写法：带时区的 ISO 8601（`2026-08-19T08:00:00Z` / `+08:00`），
-     * 或者**不带时区**的本地时间（`2026-08-19T08:00:00` / `2026-08-19`）—— 后者按北京时间理解。
-     *
-     * 搬进 `:core` 时把 `java.time` 换成了 `kotlinx-datetime`（`:core` 的既有依赖），逐条对应：
-     * `Instant.parse` 与 `OffsetDateTime.parse` 两条在 kotlinx 里就是**一条**（它的 `Instant.parse`
-     * 本来就认 `+08:00` 这种偏移）；`LocalDateTime` / `LocalDate` 那两条改走
-     * `toInstant(beijing)` / `atStartOfDayIn(beijing)`。
-     */
+    /** 时间窗那两种写法：带时区的 ISO 8601（`2026-08-19T08:00:00Z` / `+08:00`），或者不带时区的本地时间（`2026-08-19T08:00:00` / `2026-08-19`）——后者按北京时间理解。 */
     fun parseInstant(raw: String?): Instant? {
         val text = raw?.trim().orEmpty()
         if (text.isEmpty()) return null

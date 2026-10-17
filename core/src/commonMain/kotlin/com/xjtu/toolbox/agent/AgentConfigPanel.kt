@@ -37,22 +37,11 @@ internal fun ConfigPanel(
     config: AgentConfig,
     /** 端装配（拉模型列表是 `:data` 的一次真取数，见 [AgentHost.fetchModels]）。 */
     host: AgentHost,
-    /**
-     * 「形象选择」那一块（形状 + 颜色）：`:app` 交 `PidaiAppearancePanel`。
-     * 没有形象这一档的端（桌面 / Web）传 null ⇒ 那一整块不画。
-     */
+    /** 「形象选择」那一块（形状 + 颜色）：`:app` 交 `PidaiAppearancePanel`。 */
     appearanceSection: (@Composable () -> Unit)? = null,
-    /**
-     * API Key 那一行。默认 = 下面那个可输入的框（Android / 桌面**逐字不变**）；
-     * 浏览器那一端拿不到 key（它存在运行 serve 的那台机器上）⇒ 宿主交一格「只读徽标 + 一句指路」，
-     * 整行换掉（`docs/agent-web-spec.md` §4.3 第 2 条）。
-     */
+    /** API Key 那一行。 */
     apiKeySection: (@Composable () -> Unit)? = null,
-    /**
-     * 「记住的偏好」那一块。默认 = 本端 [AgentMemory]（Android / 桌面逐字不变）；
-     * 浏览器上模型用的记忆在 **serve** ⇒ 宿主把那一块整块交进来（`/api/agent/memory*` 那份视图）。
-     * **这一条是必改项**：不收口的话面板显示的记忆与模型用的记忆不是一份（§4.3 第 3 条）。
-     */
+    /** 「记住的偏好」那一块。 */
     memorySection: (@Composable () -> Unit)? = null,
     scrollBehavior: ScrollBehavior,
     onSave: (AgentConfig) -> Unit,
@@ -369,12 +358,7 @@ internal fun ConfigPanel(
     }
 }
 
-/**
- * 「记住的偏好」那一块的内置实现：读**本端**的 [AgentMemory]（落盘在本端数据根目录里）。
- *
- * 单独拎成一个函数只为一件事：让宿主可以把这一整块换掉（[ConfigPanel] 的 `memorySection`）——
- * 浏览器那一端模型用的记忆在 serve，读本端存储的那一份画出来就是**谎话**。
- */
+/** 「记住的偏好」那一块的内置实现：读本端的 [AgentMemory]（落盘在本端数据根目录里）。 */
 @Composable
 private fun AgentMemorySection() {
     val memory = remember { AgentMemory() }

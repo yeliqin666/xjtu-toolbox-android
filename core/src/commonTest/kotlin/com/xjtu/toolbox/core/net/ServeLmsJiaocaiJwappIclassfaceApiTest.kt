@@ -20,32 +20,9 @@ import kotlin.test.assertTrue
 import kotlinx.coroutines.test.runTest
 import kotlinx.datetime.LocalDate
 
-/**
- * serve 契约 §5.6（思源学堂 / 教材中心 / 移动教务成绩 / 人脸识别签到）的**客户端那一侧**。
- *
- * 为什么值得写：这四个域是 2026-10-14 接进 `:web` 的（`server/…/LmsRoutes.kt` 等四个路由文件），
- * 屏是 `:core` 的共享屏、取数是这四个新 `Campus*Api` —— 它们只能靠「真 `:server` + 真会话」在
- * 浏览器里验证，而这里用 MockEngine 喂**服务端实现出来的形状**（那些路由的 DTO 就是这些字段），
- * 把四件事钉死：
- *
- *  1. **错误信封的读法**：`code != 0` → 显示 `message`（不读旧路的 `msg`/`error`，不拿 HTTP 状态码分支）；
- *  2. **字段形状**：`type` 是小写字符串（[LmsActivityType.fromString] 零转换）、嵌套四格与
- *     `terms` 那一层直接按 `:core` 模型解码、`precise-scores` 的字段名就是教务列名；
- *  3. **不投影的字段如实留空**（不是编一个默认值）：教师名（`instructors` 不在响应里 ⇒ `instructorNames`
- *     显示「未知」）、附件的三个地址、回放/直播地址、提交记录（`submissionList`）、签到表的姓名与学号；
- *  4. **能力开关与抛错**：serve 形态下 `supportsDownload` / `supportsSubmissionList` /
- *     `supportsVideoQueue` / `canFetchScoreDetail` 全 `false`（屏按它们不画），而那几个方法本身抛错 ——
- *     绝不悄悄给一份空数据。
- *
- * 默认形态（[ApiMode.CAMPUS_API]）不由这里细管：这四个域在 campus-api 里**没有**端点，最后一条用例
- * 钉的就是「非 serve 分支抛错，而不是悄悄返回一份空数据」。
- */
+/** serve 契约 §5.6（思源学堂 / 教材中心 / 移动教务成绩 / 人脸识别签到）的客户端那一侧。 */
 
-/**
- * 一发请求的快照：`路径 to 参数表`（与 `ServeReadonlyFourDomainsApiTest` 同一套读法）。
- *
- * ⚠️ 类型别名只能放文件层（Kotlin 不支持类里嵌套 typealias）。
- */
+/** 一发请求的快照：`路径 to 参数表`（与 `ServeReadonlyFourDomainsApiTest` 同一套读法）。 */
 private typealias Call = Pair<String, Map<String, String>>
 
 class ServeLmsJiaocaiJwappIclassfaceApiTest {
@@ -70,13 +47,7 @@ class ServeLmsJiaocaiJwappIclassfaceApiTest {
             request.url.parameters.names().associateWith { request.url.parameters[it].orEmpty() }
     }
 
-    /**
-     * 学堂的课程与活动：嵌套四格**直接按 `:core` 模型解码**（服务端的 DTO 用的就是它们自己），
-     * `type` 是小写字符串零转换，`deadline` 用服务端并进来的那一个。
-     *
-     * ⚠️ `instructors` 不在响应里（教师姓名是红线）⇒ `instructorNames` 落到模型自己的兜底文案
-     * 「未知」—— 这是如实缺口，不是 bug。
-     */
+    /** 学堂的课程与活动：嵌套四格直接按 `:core` 模型解码（服务端的 DTO 用的就是它们自己），`type` 是小写字符串零转换，`deadline` 用服务端并进来的那一个。 */
     @Test
     fun serveLmsCoursesAndActivitiesFollowCoreModels() = runTest {
         val coursesBody = """
@@ -134,10 +105,7 @@ class ServeLmsJiaocaiJwappIclassfaceApiTest {
         assertTrue(activities[1].isClosed)
     }
 
-    /**
-     * 学堂的活动详情：三个块按类型摊回扁平模型（homework / lesson / live），**不投影的那几格
-     * 如实留空**（附件只有元数据、回放与直播的地址没有、提交记录没有），三个开关报 `false`。
-     */
+    /** 学堂的活动详情：三个块按类型摊回扁平模型，不投影的那几格留空，三个开关报 `false`。 */
     @Test
     fun serveLmsActivityDetailLeavesUnprojectedCellsEmpty() = runTest {
         val detailBody = """
@@ -193,10 +161,7 @@ class ServeLmsJiaocaiJwappIclassfaceApiTest {
         assertFailsWith<UnsupportedOperationException> { api.userSubmitCount(9001) }
     }
 
-    /**
-     * `?courseId=` 是**必需**的（服务端要靠它把列表里那条 `deadline` 并进来）：拿不到 brief 就
-     * **不猜**一个课程号 —— 猜错会把另一个活动的截止时间画到这一页上。
-     */
+    /** `?courseId=` 是必需的（服务端要靠它把列表里那条 `deadline` 并进来）：拿不到 brief 就 不猜一个课程号。 */
     @Test
     fun serveLmsActivityDetailWithoutBriefRefusesToGuessCourseId() = runTest {
         val engine = engineFor("/api/lms/activity" to """{"code":0,"data":{}}""")
@@ -205,11 +170,7 @@ class ServeLmsJiaocaiJwappIclassfaceApiTest {
         assertTrue(e.message?.contains("courseId") == true, "理由要写在错误里，实际：${e.message}")
     }
 
-    /**
-     * 正文那半：契约**刻意不端** `htmlToPlainText` 这个纯函数（`:data` 那份用 jsoup，wasm 编不过）
-     * ⇒ 本端自己去掉标签。这里钉的就是搬迁时留下的那四个形状（与 `:app` 的 `LmsHtmlTextTest`
-     * 逐字相同）—— 它们是「降级读法」的最低保证。
-     */
+    /** 正文那半：契约刻意不端 `htmlToPlainText` 这个纯函数（`:data` 那份用 jsoup，wasm 编不过） ⇒ 本端自己去掉标签。 */
     @Test
     fun serveLmsHtmlToPlainTextKeepsTheFourPinnedShapes() = runTest {
         val api = CampusLmsApi(createToolboxClient(engine = engineFor("unused" to "{}")), "", ApiMode.SERVE)
@@ -238,10 +199,7 @@ class ServeLmsJiaocaiJwappIclassfaceApiTest {
         assertTrue(e.message?.contains("学堂暂时连不上") == true, "实际：${e.message}")
     }
 
-    /**
-     * 教材检索：九格照 §5.6（`fields` 是上游原文的键值对，键名不翻译），`ssno` 在检索里恒 `null`、
-     * 要它得对那本书再打一枪（三格参数全部带出去）；没有 `id` 的行不列（打不通详情页）。
-     */
+    /** 教材检索：九格照§5.6（`fields` 是上游原文的键值对，键名不翻译），`ssno` 在检索里恒 `null`、要它得对那本书再打一枪（三格参数全部带出去）；没有 `id` 的行不列（打不通详情页）。 */
     @Test
     fun serveJiaocaiSearchKeepsUpstreamFieldsAndSsnoNeedsASecondCall() = runTest {
         val searchBody = """
@@ -281,9 +239,7 @@ class ServeLmsJiaocaiJwappIclassfaceApiTest {
         assertEquals("同济大学数学系", book.author)
         assertEquals("978-7-04-039663-4", book.fields["ISBN号"], "fields 是上游原文的键值对，键名不翻译")
         assertNull(book.ssno, "检索结果里 ssno 恒 null（链接只在详情页里）")
-        // 服务端那个 `hasFullText` 与 `:core` 模型现算的是**同一条判据**（ssno 非空，或 fields 的
-        // 值里含「本地全文」——`:data` 就是把描述里那行「获取方式一：本地全文」拆成 fields 的）
-        // ⇒ 这里把文本放 fields 里（真实形状），两边算出来都是 true；本类不把这一格塞进模型。
+        // `hasFullText` 两边判据相同（ssno 非空或 fields 含「本地全文」），这里把文本放 fields 里。
         assertTrue(book.hasFullText, "fields 里那句「本地全文」⇒ 模型现算出来是 true")
 
         // 要全文号就得对这本书再打一枪：三格参数取自检索结果
@@ -301,11 +257,7 @@ class ServeLmsJiaocaiJwappIclassfaceApiTest {
         assertNull(missing.fetchSsno(book))
     }
 
-    /**
-     * 成绩那两发：`scores`（移动教务，`terms` 直接按 `:core` 的 `TermScore` 解码）与
-     * `precise-scores`（**教务**那一站，字段名就是教务列名）。两个端点的失败各自抛出：
-     * 后者被 `:core` 的 VM **容忍**（拿不到就只出 jwapp 那一份），所以整屏不会因此失败。
-     */
+    /** 成绩那两发：`scores`（移动教务，`terms` 直接按 `:core` 的 `TermScore` 解码）与`precise-scores`（教务那一站，字段名就是教务列名）。 */
     @Test
     fun serveJwappScoresAndPreciseScoresAreTwoEndpoints() = runTest {
         val scoresBody = """
@@ -383,8 +335,7 @@ class ServeLmsJiaocaiJwappIclassfaceApiTest {
         assertFailsWith<UnsupportedOperationException> { api.unevaluatedCourseNames() }
         assertFailsWith<UnsupportedOperationException> { api.reportedGrades("20260001") }
 
-        // ⚠️ 第二条端点 502 是**可容忍**的（`:core` 的 VM 对它是 catch 住就用 jwapp 那一份）：
-        // 本层如实抛出，抛出的是服务端那句中文
+        // ⚠️ 第二条端点 502 可容忍（VM catch 住就用 jwapp 那一份）；本层照实抛出服务端那句中文
         val failing = CampusJwappScoreApi(
             createToolboxClient(
                 engine = engineFor(
@@ -399,10 +350,7 @@ class ServeLmsJiaocaiJwappIclassfaceApiTest {
         assertTrue(e.message?.contains("教务会话已失效") == true, "实际：${e.message}")
     }
 
-    /**
-     * 签到流水：三格（时刻/地点/类型）原样 —— ⚠️ `time` 是**服务端时区的墙上时间**，本端不 parse、
-     * 不本地化（转一次只会整体平移）；姓名与学号不投影 ⇒ 空串；空表 = 那天确实没有记录。
-     */
+    /** 签到流水：三格（时刻/地点/类型）原样 —— ⚠️ `time` 是服务端时区的墙上时间，本端不 parse、不本地化（转一次只会整体平移） */
     @Test
     fun serveIclassfaceKeepsWallClockTimeAndDropsNameAndStudentNo() = runTest {
         val recordsBody = """
@@ -432,10 +380,7 @@ class ServeLmsJiaocaiJwappIclassfaceApiTest {
         assertTrue(api.fetchRecords(LocalDate(2026, 10, 13)).isEmpty())
     }
 
-    /**
-     * 这四个域在 campus-api 里**没有端点**（它们是 `:app` / 桌面直接走 `:data` 的 okhttp 抓的）
-     * ⇒ 非 serve 分支抛错，**不许**悄悄返回一份空数据（那会把「形态不对」说成「真没有数据」）。
-     */
+    /** 这四个域在 campus-api 里没有端点（它们是 `:app` / 桌面直接走 `:data` 的 okhttp 抓的）。 */
     @Test
     fun campusApiModeThrowsInsteadOfFakingEmptyData() = runTest {
         val engine = engineFor(

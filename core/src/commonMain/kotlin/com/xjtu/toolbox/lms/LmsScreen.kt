@@ -39,23 +39,7 @@ import top.yukonga.miuix.kmp.basic.*
 import top.yukonga.miuix.kmp.window.WindowDialog
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
-/**
- * 思源学堂（课程学习平台）的路由外壳与课程列表 —— 屏从 `:app` 搬进 `:core`（桌面端第 18 条真数据
- * 路由），取数与落盘都切了缝（下表即「原来」→「现在」）：
- *
- * | 原来 | 现在 |
- * |---|---|
- * | `site: SiteSession` + 屏上 `LmsApi(site)` | [source]（`:data` 的 `AppLmsSource`，包住搬进 `:data` 的 `LmsApi`） |
- * | `LocalAppLoginState.handleAuthExpired(...)` | `:core` 的 [LocalAuthExpiry] |
- * | `DataCache(context, accountId)` 落盘 | [LmsCacheStore] 端口（`:app` 按账号建、桌面传 null = 不缓存） |
- * | `context.getSharedPreferences("feature_hints")` | [showFirstUseHint] / [onFirstUseHintRead] 槽位 |
- * | `media.DirectVideoPlayerScreen(...)`（Android 的 ExoPlayer 全屏页） | [videoPlayer] 端口（`:core` 的 [VideoPlayerHost]）；不传就是如实说明页 |
- * | 课件落盘走 `MediaStore` + 下载管理 | `source.saveDownload(...)`（`:app` = `AppLmsSink`，桌面 = `DesktopLmsSaver`） |
- * | `"%.1f".format(...)` / `java.time` 格式化时间 | 手写格式化（[formatLmsTime]；`java.time` 是 JVM 专属，`:core` 还要编到 wasm） |
- *
- * **画法与文案一行未改**：三个页面（课程列表 / 活动列表 / 活动详情）、深链占位、返回栈口径、
- * 学期与类型筛选、提交态补查、批量下载的编排都照搬。
- */
+/** 思源学堂的路由外壳与课程列表。 */
 /**
  * 页面数据缓存。
  *
@@ -63,8 +47,7 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
  * 返回上一层不再请求、也不丢筛选。课程列表和活动列表另外落盘：下次进来先显示上次的，
  * 联网拿到再换上，不用对着转圈等登录和请求。
  *
- * 落盘那一半是宿主缝（[LmsCacheStore]）：搬迁前这里写的是 `DataCache`（Android 的按账号
- * SharedPreferences），现在由调用方传进来；`null` = 本端没有那份存储（桌面端），不缓存。
+ * 落盘走宿主缝 [LmsCacheStore]；`null` = 本端不缓存。
  */
 internal class LmsPageCache(private val disk: LmsCacheStore?) {
     var courses by mutableStateOf<List<LmsCourseSummary>>(emptyList())
@@ -106,8 +89,7 @@ internal class LmsPageCache(private val disk: LmsCacheStore?) {
         if (todo.isEmpty()) return
         val gate = Semaphore(4)
         val found = coroutineScope {
-            // 只限并发，不挑调度器：IO 由取数实现自己包（搬迁前这里是 Dispatchers.IO，
-            // 而 `:core` commonMain 连它都没有 —— wasm 没有 IO 调度器）。
+            // 只限并发，不挑调度器：IO 由取数实现自己包（wasm 没有 IO 调度器）。
             todo.map { a ->
                 async { gate.withPermit { runCatching { a.id to (source.userSubmitCount(a.id) > 0) }.getOrNull() } }
             }.awaitAll().filterNotNull()
@@ -115,7 +97,7 @@ internal class LmsPageCache(private val disk: LmsCacheStore?) {
         submittedById.putAll(found)
     }
 
-    /** 落盘失败只记日志，不影响这一次取数的结果（与搬迁前的 `writeSafe` 逐字同义）。 */
+    /** 落盘失败只记日志，不影响这一次取数的结果。 */
     private inline fun writeSafe(block: () -> Unit) {
         runCatching { block() }.onFailure { Log.w("LmsPageCache", "write lms cache failed", it) }
     }
@@ -155,19 +137,12 @@ fun LmsScreen(
      * 用户到了他要去的系统，只是少了一跳。
      */
     initialCourseId: Int? = null,
-    /**
-     * 课程列表 / 活动列表的落盘缓存：[LmsCacheStore] 已在**按账号分命名空间**那一层建好
-     *（`:app` 的 `AppLmsCache` 用 `remember(accountId)` 包；桌面传 null = 不缓存，取数照常）。
-     */
+    /** 课程列表 / 活动列表的落盘缓存：[LmsCacheStore] 已在按账号分命名空间那一层建好（`:app` 的 `AppLmsCache` 用 `remember(accountId)` 包；桌面传 null = 不缓存，取数照常）。 */
     cacheStore: LmsCacheStore? = null,
     /** 「功能说明」弹过了没。`:app` 与原实现同一个 pref 文件、同一个键（`feature_hints` / `lms_hint_shown`）。 */
     showFirstUseHint: Boolean = false,
     onFirstUseHintRead: () -> Unit = {},
-    /**
-     * 视频播放槽位：`:app` 传内置播放器的全屏页（`AndroidVideoPlayerHost` → `media/VideoPlayer.kt`
-     * 那页 ExoPlayer）；桌面端传 `DesktopVideoPlayerHost`（交给系统播放器，如实降级）；
-     * 都不传时屏上给一句如实说明页。
-     */
+    /** 视频播放槽位：`:app` 传 ExoPlayer 全屏页，桌面交给系统播放器；都不传时给一句说明页。 */
     videoPlayer: VideoPlayerHost? = null,
 ) {
     val authExpiry = LocalAuthExpiry.current
@@ -425,16 +400,7 @@ internal fun downloadToast(result: LmsDownloadResult): String = when (result) {
     LmsDownloadResult.Failed -> "下载失败"
 }
 
-/*
- * 视频播放那两件事（`LmsVideoRequest` 与播放槽位）已经收成 `:core/media` 的端口：
- * [VideoPlayRequest]（要播什么）+ [VideoPlayerHost]（谁来播）。搬动的原因与各端实现写在
- * `media/VideoPlayerHost.kt` 的 KDoc 里 —— 那个类型本身与「哪一屏发起播放」无关。
- */
-
-/**
- * 没有播放器槽位时的如实说明页（桌面端）：视频播放器是 Android 专属组件（ExoPlayer 全屏页），
- * 这一轮没搬 —— 不假装能播，把「这一端做不到什么」写在脸上。TODO 见 [LmsScreen] 的 KDoc。
- */
+/** 没有播放器槽位时的说明页（桌面端）。 */
 @Composable
 private fun LmsVideoUnavailable(request: VideoPlayRequest, onBack: () -> Unit) {
     Column(
@@ -495,11 +461,7 @@ fun lmsActivityTimeLine(activity: LmsActivity): String {
  * 格式化 LMS 时间字符串 (ISO 8601 → 友好显示)
  */
 fun formatLmsTime(raw: String): String {
-    // 上游给的是带偏移量的 ISO 串（`2026-09-16T00:38:21Z` 或 `…+08:00[Asia/Shanghai]`）。
-    // 搬迁前用 `java.time.ZonedDateTime.parse(...).format(...)` —— 输出就是字符串里写着的
-    // 年月日时分（偏移量只有被显式写在串里时才换算，写 `Z`/`+08:00` 都是原样打印）。
-    // `java.time` 是 JVM 专属进不了 `:core`（wasm 编不过），所以这里直接取时间数字段 ——
-    // 对上面两种形状输出逐字一致（`:app` 的 `LmsActivityTimeLineTest` 钉着）。
+    // 上游是带偏移量的 ISO 串，原样取年月日时分、不换算时区（`:app` 的 `LmsActivityTimeLineTest` 钉着）。
     val m = Regex("""(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})""").find(raw)
     if (m != null) {
         val (y, mo, d, h, mi) = m.destructured

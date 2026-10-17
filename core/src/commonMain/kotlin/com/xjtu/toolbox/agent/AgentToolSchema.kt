@@ -7,17 +7,7 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import com.xjtu.toolbox.util.safeStringOrNull
 
-/**
- * 工具清单那两个构造器（[agentTool] / [agentParams] 与它们的参数类型）和三个取参访问器。
- *
- * 从 `:app` 的 `AgentToolRegistry` 逐字搬来：全是 `kotlinx.serialization.json` 的拼装，
- * 没有一处平台能力。**用 JSON 构建器生成（自动转义）**，description 里有引号也不会截断整串。
- *
- * 取参的注释说的是模型的实际行为：它偶尔把数字写成字符串，所以 [argInt] 按内容解析。
- *
- * 先 [agentTool] 构造单个 function-calling 工具对象（`params` 省略时为无参），再用
- * [agentParams] / `agent*Prop` 拼它的参数表。
- */
+/** 工具清单那两个构造器（[agentTool] / [agentParams] 与它们的参数类型）和三个取参访问器。 */
 fun agentTool(name: String, description: String, params: JsonObject = agentEmptyParams()): JsonObject =
     buildJsonObject {
         put("type", "function")

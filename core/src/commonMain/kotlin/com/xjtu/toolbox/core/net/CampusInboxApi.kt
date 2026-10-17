@@ -24,21 +24,7 @@ import kotlinx.serialization.json.jsonObject
 import kotlin.time.Clock
 import kotlin.time.Instant
 
-/**
- * 消息收纳的 **campus-api 版取数**：给 Web 端用（Android 端走 `:app` 的 `SchoolInbox`）。
- *
- * 四路都在 `/api/inbox` 里（campus-api 手册 §M21 统一消息/待办：四路共用同一个 `idToken`）：
- * 消息 / 事务中心待办 / 预约中心 / 校车。与 `:app` 的两处**能力差异**（不猜、不伪造）：
- * 1. **预约与校车只给计数、不给条目**（campus-api 的 `reservations`/`bus` 只有 `total`）
- *    ⇒ 与 `:app` 的 `SchoolInbox.bookingTodo` **同一句话**（「X 有 N 个待使用的预约」）。
- *    这一条恰好两端一致，不是降级。
- * 2. **图书馆座位那一路没有**（`:app` 的 `afterRefresh` 现查图书馆）⇒ 保持 [InboxSource] 的默认空实现。
- *
- * ⚠️ campus-api 把若干字段**字符串化**了（实测 `'url': 'None'`、`'read': 'False'`、`'timeOut': '0'`）
- * ⇒ 这里按「字符串里的 None/空串都当没有」处理，不直接信它的类型。
- *
- * @param baseUrl 留空 ⇒ 相对路径即**同源**（Web 端必须这样）。
- */
+/** 消息收纳的 campus-api 版取数：给 Web 端用（Android 端走 `:app` 的 `SchoolInbox`）。 */
 class CampusInboxApi(
     private val client: HttpClient,
     private val baseUrl: String = "",
@@ -50,7 +36,6 @@ class CampusInboxApi(
     private val ttlMs: Long = 30L * 60 * 1000
 
     override suspend fun refresh(account: String?) {
-        // serve 的四路聚合已经在服务端做完了（见 serveRefresh 的 KDoc）⇒ 旧路那四段解析一行都不跑
         if (mode == ApiMode.SERVE) return serveRefresh(account)
         val sources = getData("/api/inbox")["sources"] as? JsonObject ?: return
         val now = Clock.System.now().toEpochMilliseconds()
@@ -133,23 +118,11 @@ class CampusInboxApi(
     private fun raw(value: kotlinx.serialization.json.JsonElement?): String = value?.safeString().orEmpty()
 
 
-    /**
-     * serve 模式（契约 §5.2）：`{messages:[…], todos:{分类:[…]}, finished:[…], readAt:{…}, seenTodos:[…],
-     * ignored:[…], off:[…], schoolFetchedAt:…, bubbled:[…]}`。
-     *
-     * 与旧路的本质差别：campus-api 给的是**四路原始投影**（`sources.messages/todos/reservations/bus`），
-     * 聚合与筛选在客户端做；`:server` 给的是 `:data` 的 [com.xjtu.toolbox.inbox.InboxData]
-     * —— 同一份聚合已经在服务端落过盘，所以这里把「学校那几路」的两块（消息、待办）写进
-     * [InboxStore] 就够了。
-     *
-     * ⚠️ `finished` / `readAt` / `seenTodos` / `ignored` / `off` / `bubbled` **不写**：那几个是
-     * **用户态**（读了哪条、关了哪类），它们的真源是**这个浏览器**的 [InboxStore]（localStorage）；
-     * 服务端那份是另一个进程里的另一份用户态，拿它覆盖等于把用户在页面上的操作回惹。
-     */
+    /** serve 模式（契约 §5.2） */
     private suspend fun serveRefresh(account: String?) {
         val data = client.serveData("刷新消息收纳", baseUrl, "/api/inbox")
         val now = Clock.System.now().toEpochMilliseconds()
-        // 与旧路同一条：各接口互不影响（失败的保留上次结果）
+        // 各接口互不影响（失败的保留上次结果）
         runCatching { InboxStore.post(parseServeItems(data.arr("messages")), account) }
         runCatching {
             (data["todos"] as? JsonObject)?.forEach { (category, items) ->

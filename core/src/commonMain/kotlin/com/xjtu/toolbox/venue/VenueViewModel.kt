@@ -28,30 +28,7 @@ internal sealed interface VenueEvent {
     data class Message(val text: String) : VenueEvent
 }
 
-/**
- * 场馆预订：列表 → 选时段 → 验证码 → 下单，外加订单分页和取消。
- *
- * 从 `:app` 搬进 `:core` 时**编排逻辑一行未改**，只换了五处「住址」：
- *
- *  - 取数从 `VenueApi(site)` 换成端口 [VenueSource]（读那三路 + 写那四路 + 收藏，见那个接口的 KDoc）——
- *    屏不再认识 `SiteSession`，也不再自己挑 `Dispatchers.IO`（实现方包）；
- *  - `java.time` 换成 kotlinx-datetime（「今天」用 [todayInSystemZone]，日期串用
- *    `LocalDate.toString()`，就是 `ISO_LOCAL_DATE` 那个形状）；
- *  - `android.util.Log` 那几行本地排障日志删掉（`:core` 没有 `Log`，它不参与任何可观测行为）；
- *  - `System.currentTimeMillis()` 换成 kotlinx 的 `Clock`（`:core` 的公共代码里没有 `java.lang.System`）；
- *  - 会话失效由 `:core` 的标记接口 [SessionExpiredFailure] 认领（`:app` 的 `AuthExpiredException`
- *    实现了它）——`catch` 抓不了接口，所以先抓 `Exception` 再判，与评教/成绩/校园卡同一条缝。
- *
- * ## 两个只在写路径上用的参数
- *
- * [autoSolveCaptcha] 与 [captchaHost] 是「自动识别验证码」这一段的两个宿主输入：
- * 前者是设置项（Android 读 `CredentialStore.venueAutoSolveCaptchaEnabled`，是个 lambda 而不是
- * 布尔值 —— 搬之前 VM 就是这么**每次现读**的，用户在设置里关掉后下一次预订立刻生效），
- * 后者是整个滑块宿主（`:data` = `VenueSlideCaptchaHost`，桌面 = `DesktopSlideCaptchaHost`，
- * Web = null）。宿主为 null 时这一整段直接跳过，
- * 停在「请手动滑动」那一档 —— 与只读端（[VenueSource.canBook] = false）的入口封条互相印证：
- * 没有验证码这条路，也不会有验证码弹窗。
- */
+/** 场馆预订：列表→ 选时段→ 验证码→ 下单，外加订单分页和取消。 */
 internal class VenueViewModel(
     /** 本端的取数 + 收藏实现（Android = `AppVenueSource`，Web = `CampusVenueApi`）。 */
     private val source: VenueSource,
@@ -124,11 +101,7 @@ internal class VenueViewModel(
         }
     }
 
-    /**
-     * 收藏读一次。搬迁前是 `VenueFavorites(context)` 在构造时同步读 `SharedPreferences`；
-     * 现在读这件事在端口上（各端各自落盘，见 [VenueSource.favorites]），所以是挂起的一次读。
-     * 读失败只当没有收藏，不让整屏起不来。
-     */
+    /** 收藏读一次。 */
     private fun loadFavorites() {
         viewModelScope.launch {
             favoriteIds = try {
@@ -141,12 +114,7 @@ internal class VenueViewModel(
         }
     }
 
-    /**
-     * 切换收藏。
-     *
-     * 次序与搬迁前一致：点击那一刻**内存里的那份先变**（原来是 `VenueFavorites` 的 StateFlow
-     * 同步变、心形动画立刻起来），落盘随后；落盘方返回的状态才是最终值，所以再用它对账一次。
-     */
+    /** 切换收藏。 */
     fun toggleFavorite(venue: Venue) {
         val nowFavorite = venue.id !in favoriteIds
         favoriteIds = if (nowFavorite) favoriteIds + venue.id else favoriteIds - venue.id

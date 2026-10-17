@@ -1,25 +1,6 @@
 package com.xjtu.toolbox.platform
 
-/**
- * zlib 流的**压缩**那一半（纯 Kotlin）—— 与 [ZlibCodec.inflate] 配套，只给浏览器那一端用。
- *
- * ## 做法（以及为什么够用）
- *
- * 一个**固定 Huffman 块**（`BFINAL=1`、`BTYPE=01`）+ 贪心 LZ77（哈希表找 3 字节前缀、链上找最长匹配），
- * 最后按 zlib 规格包上头（`0x78 0xDA`：32K 窗口 + 最高压缩档）与 Adler-32（RFC 1950 §2.2 / §9）。
- *
- * 为什么不做动态 Huffman（zlib 的做法）：分享码的明文只有几 KB（私聊里粘得下、二维码扫得动），
- * 固定 Huffman 的压缩率损失在这一档看不出来（差别是「码长几十个字符」的量级），而动态 Huffman
- * 要多写一份码长表构造与建树逻辑 —— 那部分正是最容易写出「自己编的能解开、别人的解不开」的地方。
- * 代价如实写在 [ZlibCodec] 文件头那张表里：**同一个输入的压缩字节与 zlib 不同**（两端的互认靠
- * 「互相解得开」，不是「字节相同」）。
- *
- * ## 局限（都写在这里，免得有人指望它通用）
- *
- * - 只发一个块（不分块）：几 KB 到几十 MB 都合法，只是没有「边压边发」那种流式行为；
- * - 贪心匹配、不惰性（zlib 的 level 9 是惰性匹配）⇒ 压缩率略低；
- * - 链长上限 [MAX_CHAIN]：找匹配最多沿哈希链走这么多步（防止在病态输入上退化）。
- */
+/** zlib 流的压缩那一半（纯 Kotlin）—— 与 [ZlibCodec.inflate] 配套，只给浏览器那一端用。 */
 internal class ZlibDeflater(private val raw: ByteArray) {
 
     fun run(): ByteArray {
@@ -115,10 +96,7 @@ internal class ZlibDeflater(private val raw: ByteArray) {
         }
     }
 
-    /**
-     * 长度那一对（长度 + 距离）：长度先查 [LENGTH_CODE_BY_LENGTH] 拿到长度码，附加位用**低位在前**写；
-     * 距离码是 5 位固定 Huffman，附加位同样是低位在前。
-     */
+    /** 长度那一对（长度 + 距离）：长度先查 [LENGTH_CODE_BY_LENGTH] 拿到长度码，附加位用低位在前写。 */
     private fun writeLengthDistance(writer: ZlibBitWriter, length: Int, distance: Int) {
         val lengthIndex = LENGTH_CODE_BY_LENGTH[length]
         require(lengthIndex >= 0) { "长度 $length 没有对应的长度码" }
@@ -157,12 +135,7 @@ internal class ZlibDeflater(private val raw: ByteArray) {
     }
 }
 
-/**
- * 写 deflate 的位流。
- *
- * 两套位序**不能混**，这也是 deflate 最容易写错的地方：Huffman **码字**是「高位先写」，
- * 而长度/距离的**附加位**与块头是「低位先写」（RFC 1951 §3.1.1）。
- */
+/** 写 deflate 的位流。 */
 private class ZlibBitWriter {
 
     private var buffer = ByteArray(256)

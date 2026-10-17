@@ -30,9 +30,6 @@ import kotlinx.datetime.LocalDateTime
  * 一张考试卡片，按 [ExamCountdown.ExamPhase] 决定底色、强调色、状态标签和座位号角标，
  * 见 plan2 §1.3 的对照表。
  *
- * 从 `:app` 的 `schedule/ExamCard.kt` 搬进 commonMain（`java.time` → `kotlinx.datetime`，
- * `%02d` → `formatTwoDigits`），画法与文案一行未改。
- *
  * 取代旧版的两份实现：学期栏的 `ExamRowCard`（一律红色、排序也没管已结束）和
  * 经典布局的 `ExamCard`（有状态判断但没人跟学期栏共用），统一成这一份，
  * 学期栏、考试列表弹窗都用它。

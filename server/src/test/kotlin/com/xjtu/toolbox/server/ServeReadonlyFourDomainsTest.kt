@@ -16,30 +16,7 @@ import kotlin.test.assertTrue
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonArray
 
-/**
- * **只读四域**（成绩单 / 考勤 / 加餐券 / 宿舍电费）的契约测试 ——
- * `GET /api/dzpz/transcript` · `GET /api/attendance/{terms,records}` ·
- * `GET /api/coupon/{list,detail}` · `GET /api/dorm/{rooms,reading}`
- * （`docs/api-contract.md` §5.5）。
- *
- * ## 脚手架
- *
- * 与 [ServeFitnessTest] / [ServeVenueActionTest] 同一条（[withFakeProxy] + [startEndpointServer]）：
- * 真 socket（端口 0）、真令牌闸门、真 `ServeSession`，四个 `*Routes` 扩展挂进 `route("/api")`。
- * 夹具是 `:testkit` 的四份假上游（`DzpzFakeUpstream` / `AttendanceFakeUpstream` /
- * `CouponFakeUpstream` / `DormPowerFakeUpstream`），期望值全部来自它们的常量。
- *
- * ## 这一组钉的是什么
- *
- * - **闸门**：四个域各自进门先判会话 ⇒ 未登录 401（不是让取数拿 502 蒙混）；
- * - **形状**：每个 `data` 的键集合逐格钉住（多一格少一格都算投影漂了）；
- * - **两处如实缺口**（不是 bug，是这一批的边界）：
- *   ① `dzpz` 只端了七步里的**第一步**（建单表单）—— 出 PDF 那半条链没有端点；
- *   ② 考勤的 `teacher`、成绩单的 `params`/签章密钥、券的 `amountYuan` **不投影**；
- * - **红线**：每个响应都过 [assertNoIdentity]，而且是在**夹具里明明有那些值**的前提下证明的
- *   （学号 `2021000001` 出现在成绩单/加餐券的登录链与表单里，教师名出现在考勤流水里）——
- *   不能「夹具没有所以没出现」。
- */
+/** 只读四域（成绩单 / 考勤 / 加餐券 / 宿舍电费）的契约测试。 */
 class ServeReadonlyFourDomainsTest {
 
     private var started: EmbeddedServer<CIOApplicationEngine, CIOApplicationEngine.Configuration>? = null
@@ -50,7 +27,6 @@ class ServeReadonlyFourDomainsTest {
         started = null
     }
 
-    // ── 成绩单（dzpz）：只有第一步 ──────────────────────────────────────
 
     @Test
     fun `dzpz transcript：未登录 401 + 逐字段（四格，且不投影 params 与签章密钥）`() = withFakeProxy { fake ->
@@ -376,7 +352,6 @@ class ServeReadonlyFourDomainsTest {
             "available 那一档的请求体 status 该是 0，实际：${fake.coupon.pageBodies.last()}",
         )
 
-        // ── detail：十二格逐字段 ──
         val detailResponse = http.get("$COUPON_DETAIL_PATH?showCardId=${CouponFakeUpstream.USABLE_CARD_ID}")
         assertEquals(200, detailResponse.statusCode())
         assertEquals(ApiEnvelope.CODE_OK, envelopeCode(detailResponse))
@@ -526,10 +501,7 @@ class ServeReadonlyFourDomainsTest {
             CouponFakeUpstream.AUTH_TOKEN,
         )
 
-        /**
-         * 成绩单响应**不许**出现的东西 —— 全部**在夹具里有值**（所以这条断言是有意义的）：
-         * 联动/重载表单里的学号、提交表单体与那串**签章密钥**（端出去等于把密钥交给浏览器）。
-         */
+        /** 成绩单响应不许出现的东西 —— 全部在夹具里有值（所以这条断言是有意义的）： 联动/重载表单里的学号、提交表单体与那串签章密钥（端出去等于把密钥交给浏览器）。 */
         val FORBIDDEN_DZPZ = listOf(
             DzpzFakeUpstream.STUDENT_ID,
             DzpzFakeUpstream.LINKAGE_UUID,

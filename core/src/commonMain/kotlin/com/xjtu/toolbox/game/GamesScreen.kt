@@ -80,12 +80,7 @@ import com.xjtu.toolbox.nav.AppRoute
 fun GamesScreen(
     onBack: () -> Unit,
     onNavigate: (AppRoute) -> Unit,
-    /**
-     * 本端能不能联机（Android 有 BLE ⇒ true；Web 没有 ⇒ false）。
-     *
-     * 只影响棋类那几行的「联机」小标签与副标题 —— 免得在一台根本开不了房的设备上
-     * 许诺一个点了会失败的模式。:app 不传 = 默认 true，Android 行为逐字不变。
-     */
+    /** 本端能不能联机（Android 有 BLE ⇒ true；Web 没有⇒ false）。 */
     supportsOnline: Boolean = true,
 ) {
     val scrollBehavior = MiuixScrollBehavior(rememberTopAppBarState())

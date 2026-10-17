@@ -1,45 +1,6 @@
 package com.xjtu.toolbox.platform
 
-/**
- * 二维码的**编码器**（纯 Kotlin，三端同一份）—— 与 Android / jvm 那两份 zxing actual
- * 编出**逐模块相同**的矩阵。
- *
- * ## 为什么要有这一份
- *
- * `platform/CodeMatrix.kt` 那条缝的 androidMain / jvmMain 两份 actual 用的是 zxing
- * （`QRCodeWriter`：`CHARACTER_SET=UTF-8`、纠错 `L`、`MARGIN=0`）。zxing 是 JVM/Android 的 jar，
- * 进不了 wasmJs ⇒ 浏览器这一端原先的两个 actual **如实返回 null**（付款码屏只画数字、
- * 分享码二维码那一格画不出来）。这个对象就是补上那一端的编码器：**纯 Kotlin、放 commonMain**，
- * 不是「在 web 侧另写一份」（`:web` 里一行编码逻辑都没有，wasmJs 的 actual 只是转调它）。
- *
- * 参数与 zxing 那条路逐字对齐（都写死在这份文件里）：
- *
- * | 参数 | 值 | zxing 那一侧的来源 |
- * |---|---|---|
- * | 字符集 | UTF-8（BYTE 模式下会带 ECI 26） | `EncodeHintType.CHARACTER_SET` |
- * | 纠错等级 | L | `ErrorCorrectionLevel.L` |
- * | 静默区 | **不在这里**（矩阵本体不留白） | `MARGIN=0`，白边由渲染方补（`CodeMatrixView`） |
- * | 模式选择 | 整段**一个**模式（数字 / 字母数字 / 字节） | `Encoder.chooseMode`（不开 `QR_COMPACT`） |
- *
- * 「逐模块相同」不是口头承诺：`:core:jvmTest` 的 `CodeMatrixParityJvmTest` 拿同一批输入同时跑
- * 这一份与 zxing 那份 actual，逐格断言相等（还顺手用 zxing 的**解码器**把这一份的矩阵扫回原文，
- * 证明它不是一张画得好看的假矩阵）。
- *
- * ## 搬过来的范围（与 zxing 3.5.4 的对应关系）
- *
- * | 这里 | zxing |
- * |---|---|
- * | [encode] | `qrcode.encoder.Encoder.encode`（不开 GS1 / QR_COMPACT / QR_VERSION / QR_MASK_PATTERN 四条 hint） |
- * | [recommendVersion] / [willFit] / [chooseVersion] | 同名私有函数 |
- * | [terminateBits] / [interleaveWithEcBytes] / [appendBytes] | 同名函数 |
- * | [rsEncode] | `common.reedsolomon.ReedSolomonEncoder`（GF(256)，本原多项式 0x011d，generator base 0） |
- * | 排布与掩码 | [QrLayout] / [QrMaskUtil]（`MatrixUtil` / `MaskUtil`） |
- * | 版本表 | [QR_VERSIONS]（`Version.buildVersions()` 的 L 那一列） |
- *
- * 为了编出**同一个结果**，那里几处「看着多余」的地方在这里也保留着：模式选择的判据只看
- * ASCII（`>= 128` 直接字节模式）、版本先按「假定是第 1 版」猜一次再算一次、
- * 掩码从 0 到 7 依次算罚分**严格小于**才换（同分取小的那种）。
- */
+/** 二维码的编码器（纯 Kotlin，三端同一份）—— 与 Android / jvm 那两份 zxing actual 编出逐模块相同的矩阵。 */
 internal object QrCodec {
 
     /** zxing 的 `ALPHANUMERIC_TABLE`（只有 ASCII 0x00..0x5f 这一段有值）。 */
@@ -55,13 +16,7 @@ internal object QrCodec {
     /** UTF-8 的 ECI 编号（zxing 的 `CharacterSetECI.UTF8.getValue()`）。 */
     private const val UTF8_ECI = 26
 
-    /**
-     * 把一段文本编成二维码矩阵（**不含静默区**）。装不下、或者内容超出这条缝的能力时返回 null。
-     *
-     * 「超出能力」只有一种：zxing 在 `Encoder.encode` 里会抛 `WriterException`（数据装不进最大版本），
-     * 这里同样如实给 null —— 与 androidMain / jvmMain 两份 actual 的 `runCatching { … }.getOrNull()`
-     * 同一条口径（调用方拿 null 时说的话写在屏上，不是这里)。
-     */
+    /** 把一段文本编成二维码矩阵（不含静默区）。 */
     fun encode(text: String): CodeMatrix? = runCatching { encodeOrThrow(text) }.getOrNull()
 
     private fun encodeOrThrow(content: String): CodeMatrix {
@@ -120,13 +75,7 @@ internal object QrCodec {
         }
     }
 
-    /**
-     * zxing 的 `Encoder.chooseMode`：整段**只有一个**模式。
-     *
-     * ⚠️ 与 zxing 一致的地方：判据只看 ASCII —— 出现任何一个 `>= 128` 的字符就整段走字节模式
-     * （不做「ASCII 段用字母数字模式、汉字段用字节模式」那种切分，那是 `QR_COMPACT` 那条
-     * 另一条路的事，这条缝不开它）。
-     */
+    /** zxing 的 `Encoder.chooseMode`：整段只有一个模式。 */
     private fun chooseMode(content: String): QrMode {
         var hasNumeric = false
         var hasAlphanumeric = false
@@ -248,10 +197,7 @@ internal object QrCodec {
         bits.appendBits(numLetters, numBits)
     }
 
-    /**
-     * zxing 的 `Encoder.terminateBits`（JISX0510:2004 8.4.8 / 8.4.9）：先补 0000 终止符、
-     * 再补齐到字节边界、剩下的用 `0xEC` / `0x11` 交替填满。
-     */
+    /** zxing 的 `Encoder.terminateBits`（JISX0510:2004 8.4.8 / 8.4.9） */
     private fun terminateBits(numDataBytes: Int, bits: QrBitBuffer) {
         val capacity = numDataBytes * 8
         require(bits.size <= capacity) {
@@ -273,10 +219,7 @@ internal object QrCodec {
         require(bits.size == capacity) { "补完不是整容量：${bits.size} != $capacity" }
     }
 
-    /**
-     * zxing 的 `Encoder.interleaveWithECBytes`（JISX0510:2004 8.6）：数据按块切开、
-     * 每块算出纠错码，再按「先数据后纠错、逐字节轮转」交织回一串。
-     */
+    /** zxing 的 `Encoder.interleaveWithECBytes`（JISX0510:2004 8.6） */
     private fun interleaveWithEcBytes(
         bits: QrBitBuffer,
         numTotalBytes: Int,
@@ -322,10 +265,7 @@ internal object QrCodec {
 
     private class BlockSize(val dataBytes: Int, val ecBytes: Int)
 
-    /**
-     * zxing 的 `Encoder.getNumDataBytesAndNumECBytesForBlockID`：把「总字节 / 数据字节 / 块数」
-     * 摊到每一块上（两块之间只差 1 个字节，且纠错字节数相同）。
-     */
+    /** zxing 的 `Encoder.getNumDataBytesAndNumECBytesForBlockID`。 */
     private fun numDataBytesAndEcBytesForBlockId(
         numTotalBytes: Int,
         numDataBytes: Int,
@@ -358,10 +298,7 @@ internal object QrCodec {
 
     // ── Reed-Solomon（GF(256)） ─────────────────────────────
 
-    /**
-     * GF(256)：本原多项式 `0x011d`（`x^8 + x^4 + x^3 + x^2 + 1`）、generator base `0`
-     * —— 与 zxing 的 `GenericGF.QR_CODE_FIELD_256` 同一个域（见 `GenericGF` 的构造器）。
-     */
+    /** GF(256)：本原多项式 `0x011d`（`x^8 + x^4 + x^3 + x^2 + 1`）、generator base `0`。 */
     private val EXP_TABLE = IntArray(256)
     private val LOG_TABLE = IntArray(256)
 
@@ -383,11 +320,7 @@ internal object QrCodec {
         return EXP_TABLE[(LOG_TABLE[a] + LOG_TABLE[b]) % 255]
     }
 
-    /**
-     * 生成多项式 `g(x) = (x + a^0)(x + a^1)…(x + a^(ecBytes-1))`，返回**从高次到常数**的系数
-     * （首项系数恒为 1）。与 zxing 的 `ReedSolomonEncoder.buildGenerator` 是同一个多项式
-     * （所以余数逐字节相同）。
-     */
+    /** 生成多项式 `g(x) = (x + a^0)(x + a^1)…(x + a^(ecBytes-1))`，返回从高次到常数的系数（首项系数恒为 1）。 */
     private fun rsGeneratorPoly(ecBytes: Int): IntArray {
         var generator = intArrayOf(1)
         for (d in 0 until ecBytes) {
@@ -451,12 +384,7 @@ private fun QrByteMatrix.toCodeMatrix(): CodeMatrix {
     return CodeMatrix(width, height, bits)
 }
 
-/**
- * 二维码编码里那串**位** —— zxing 的 `common.BitArray` 里这一份实现用到的那几个操作。
- *
- * 内部按 `Int` 打包（与 zxing 的 `int[] bits` 同一个位序：第 i 位在 `bits[i / 32]` 的
- * `i and 0x1F` 位上），这样「按位取值 / 取字节」两条路的语义与那边逐字一致。
- */
+/** 二维码编码里那串位 —— zxing 的 `common.BitArray` 里这一份实现用到的那几个操作。 */
 internal class QrBitBuffer {
 
     private var bits = IntArray(64)

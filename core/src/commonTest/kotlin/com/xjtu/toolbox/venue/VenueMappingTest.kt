@@ -16,21 +16,7 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import kotlinx.coroutines.test.runTest
 
-/**
- * `CampusVenueApi`（Web 端的场馆取数）的**字段映射测试**。
- *
- * 为什么值得写：campus-api 是**白名单投影**，字段名既不是 `:app` 解析的那套、也有几样干脆没有。
- * 光在浏览器里看一眼「有场馆、有时段」看不出这些差别：
- *  - `id`/`areaDetailId`/`stockId` 上游是**字符串**，而 `:app` 的模型是 `Int`/`Long`；
- *  - `advanceday` 变成 `advanceDays`、`advancenum` 变成 `advanceSlots`（`:app` 的兜底 7/8 得跟着走）；
- *  - 订单明细的 `areaName`（上游 `stockdetail.sname`）与 `serviceName`（上游 `service.name`）
- *    **白名单里没有** ⇒ 必须留空、屏上不画那两段（`merchant:"体育中心"` 是商户名，不是场馆名，不能顶替）；
- *  - 订单的 `date`/`startTime`/`endTime` **实测常年是 null** ⇒ 留空；
- *  - campus-api 的 `count` 是**这一页的条数**而不是总数 ⇒ `OrderPage.total` 必须留 null。
- *
- * 键名与形状照抄真机 `tests/fixtures/venue-{products,slots-ok,orders}.json` 的**投影后**形状，
- * 值自己编（不抄任何真实姓名/订单号/手机号）。
- */
+/** `CampusVenueApi`（Web 端的场馆取数）的字段映射测试。 */
 class VenueMappingTest {
 
     /** `/api/venue/products` 第 1 页：两行正常 + 一行没有 id（`:app` 会跳过它）。 */
@@ -54,12 +40,7 @@ class VenueMappingTest {
             "serviceType":1,"advanceDays":5,"advanceSlots":1,"maxPeople":8,"minPeople":1,"status":1,"viewName":null}]}}
     """.trimIndent()
 
-    /**
-     * `/api/venue/slots`：两行可订 + 一行已占用。
-     *
-     * 第二行（`allCount=1, usingNum=1`）是**故意**的：campus-api 的 `surplus` 是 `max(all-used,0)=0`，
-     * 而 `:app` 的口径是「上游说可订（status==1）就至少算 1 个剩余」⇒ 这里钉住 `:app` 那个口径。
-     */
+    /** `/api/venue/slots`：两行可订 + 一行已占用。 */
     private val slotsPayload = """
         {"code":0,"error":null,"data":{"source":"http://202.117.17.144:8080/web/product/findOkArea.html",
           "serviceId":42,"date":"2026-10-09",
@@ -76,11 +57,7 @@ class VenueMappingTest {
           "bookableCount":2,"lockedCount":1,"lockedError":null}}
     """.trimIndent()
 
-    /**
-     * `/api/venue/orders`：一条明细全 null（本账号真实形态）、一条两个时刻都在、一条只有起点。
-     *
-     * `page`/`rows` 按请求回显 —— campus-api 就是把请求参数原样回显的（它的 `count` 则是**这一页的条数**）。
-     */
+    /** `/api/venue/orders`：一条明细全 null（本账号真实形态）、一条两个时刻都在、一条只有起点。 */
     private fun ordersPayload(page: String, rows: String) = """
         {"code":0,"error":null,"data":{"source":"http://202.117.17.144:8080/web/yyuser/searchorder.html",
           "page":$page,"rows":$rows,"shape":"array","count":2,
@@ -182,8 +159,7 @@ class VenueMappingTest {
         assertEquals("42", early.serviceid)
         assertEquals(1, early.allCount)
         assertEquals(1, early.usingNum)
-        // ⚠️ campus-api 对这一行给的 surplus 是 0（max(all-used,0)），这里按 `:app` 的口径给 1：
-        // 上游说可订（status==1）就至少算一个剩余，否则 Web 会把 App 上可订的格子画成「已满」
+        // ⚠️ campus-api 给 surplus 0，但上游 status==1 就至少算一个剩余，否则可订的格子会画成「已满」
         assertEquals(1, early.surplus)
         assertTrue(early.isAvailable)
 
@@ -224,7 +200,6 @@ class VenueMappingTest {
         assertEquals("18:00-19:00", second.details[0].timeSlot)
         assertEquals("19:00", second.details[1].timeSlot)
         assertEquals(0, second.status)
-        // status == 0 才是「待支付」——模型口径与 :app 一致
         assertTrue(second.canPay)
     }
 

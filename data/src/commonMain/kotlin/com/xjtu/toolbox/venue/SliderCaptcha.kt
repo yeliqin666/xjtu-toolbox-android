@@ -32,12 +32,6 @@ private const val TAG = "SliderCaptcha"
  * base64 图与尺寸，拖动完成时产出一条 [SliderResult]。数据模型（[TrackPoint]、[SliderResult]）
  * 在 `:core`，产它的控件在这里。
  *
- * 被替换的 Android 专属依赖只有三处（语义一行未改）：
- *  - `BitmapFactory.decodeByteArray` → `:core` 的 [decodeImageFull]（Android 侧实际就是
- *    同一段 `BitmapFactory`，ARGB_8888 全尺寸，见那条缝的 KDoc）；
- *  - `android.util.Base64` → `java.util.Base64`（`:data` 只有 JVM/Android 两个目标）；
- *  - `android.util.Log` → `:core` 的 [Log]（Android 侧 actual 就是同一个 `android.util.Log`）。
- *
  * @param backgroundImageBase64 背景图 data URI (data:image/jpeg;base64,...)
  * @param sliderImageBase64 滑块图 data URI (data:image/png;base64,...)
  * @param bgOriginalWidth 背景图原始宽度 (px)

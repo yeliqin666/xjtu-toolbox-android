@@ -8,14 +8,6 @@ import kotlinx.serialization.json.JsonObject
 /**
  * 考勤课表的一行（门户合并课表与业务站课表同一套字段，见 [KqPortal]）。
  * 同一门课跨越不同周段时会拆成多行，`weekRanges` 只覆盖这一行自己的周次。
- *
- * 从 :app 的 `attendance/KqTimetable.kt` 搬进 commonMain：只把取值从 `KqHttp.str/int`
- * （:app 的门户 HTTP 小工具）换成 :core `util/JsonExt` 的 `safeString/safeInt`。两者语义一致：
- * 缺字段/null → 默认值、非标量 → 默认值、字符串数字（`"4"` 这种真实报文形状）都能解析
- * —— `safeInt` 内部就是 `toLongOrNull() ?: toDoubleOrNull()?.toLong()`，与 `KqHttp.int` 同一套回退。
- * `KqHttp` 的多键名查找（`str(row, "a", "b")`）这里用不到（每个字段只取一个键）。
- * 本文件自带 `KqWeekRanges`（周次区间解析与合并），两个测试（`KqWeekRangesTest` / `KqPortalTest`，
- * 报文形状取自 2026-09 门户真实响应）也跟着搬过来了。
  */
 data class KqTimetableRow(
     val courseName: String,
@@ -73,8 +65,7 @@ object KqWeekRanges {
     /** "1-8,10-16" -> {1,2,...,8,10,...,16}。格式不对的片段直接跳过，不整体失败。 */
     fun parse(text: String): Set<Int> {
         if (text.isBlank()) return emptySet()
-        // 用 mutableSetOf + sorted()（迭代顺序与原来的 TreeSet 一致）：`sortedSetOf` 是 JVM 专属，
-        // Wasm 上编不过 —— 这是搬进 commonMain 后才暴露的（JVM 编译完全绿）
+        // `sortedSetOf` 是 JVM 专属，Wasm 上编不过 ⇒ mutableSetOf + sorted()。
         val result = mutableSetOf<Int>()
         for (part in text.split(',')) {
             val seg = part.trim()

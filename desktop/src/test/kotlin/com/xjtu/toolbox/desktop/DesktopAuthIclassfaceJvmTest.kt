@@ -19,15 +19,7 @@ import kotlin.test.assertTrue
 import kotlinx.coroutines.runBlocking
 import kotlinx.datetime.LocalDate
 
-/**
- * 快速考勤流水（人脸识别签到）在桌面端的**装配验收**（第 20 条真数据路由）：桌面用自己的
- * [DesktopAuth] 真登一次，走 `DesktopSiteGate` 那条路把 `iclassface` 会话建起来，再用自己的
- * `AppIclassfaceSource` 读出夹具记录。
- *
- * 与 `:data` 的 `IclassfaceApiJvmTest` 的分工：那边验**会话内核 + 解析口径**；这里验**桌面的装配**
- * （`DesktopAuth.ICLASSFACE_SITE_KEY` 注册进 `SESSION_SITE_KEYS`、路由进门建会话 —— 这一条尤其要紧：
- * `IclassfaceSession.mustUseWebVpn = true`，桌面端也必须能靠会话内核把它登起来）。
- */
+/** 快速考勤流水（人脸识别签到）在桌面端的装配验收。 */
 class DesktopAuthIclassfaceJvmTest {
 
     private lateinit var fake: FakeCampusProxy

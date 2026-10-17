@@ -10,19 +10,7 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 
-/**
- * 工具层的**纯逻辑那半边**：工具清单（[agentToolDefinitions]）、它按 [AgentCapability] 做的取舍、
- * 参数访问器（[argStr] / [argInt] / [argBool]）、闹钟判据（[agentAlarmPlan]）、算术（[agentCalculate]）、
- * 引导文案（[agentGuideText]）与缓存年龄文案（[agentCacheAgeText]）。
- *
- * 这一份是「工具层切分」的验收：这些以前是 `:app` `AgentToolRegistry` 里的私有成员（只有 Android
- * 单测看得见），现在在 `:core`，四端共用、且**逐档钉住**：
- *
- *  - 27 个工具的**名单**逐字钉死（改名/漏画/多画都会红）；
- *  - 其中 3 档（闹钟、应用设置、自建日程写入）是「只有某些端才真会照着办」的，按 `honored` 决定画不画
- *    —— 这正是 `SettingsHost.honoredRows` / `ScheduleHost.honored` 那条纪律在工具表上的同一份判据；
- *  - 纯逻辑与取数那 24 档**任何端都画**（`:core` 里没有 `Context` 也能画，因为它们本来就不碰端）。
- */
+/** 工具层的纯逻辑那半边：工具清单（[agentToolDefinitions]）、它按 [AgentCapability] 做的取舍、参数访问器（[argStr] / [argInt] / [argBool]）、闹钟判据（[agentAlarmPlan]）、算术（[agentCalculate]）、引导文案（[agentGuideText]）与缓存年龄文案（[agentCacheAgeText]）。 */
 class AgentToolCatalogTest {
 
     /** 工具清单里画出来的工具名，按画出来的顺序。 */

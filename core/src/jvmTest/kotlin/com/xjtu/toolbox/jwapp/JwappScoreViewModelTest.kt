@@ -15,28 +15,7 @@ import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.setMain
 
-/**
- * 成绩屏**编排**（[JwappScoreViewModel]）在 JVM 上的口径 —— 第 19 条真数据路由搬屏时钉住的那一半。
- *
- * ## 它钉的是什么
- *
- * 屏与 VM 搬进 `:core` 时，取数从 `JwappApi(site)` / `CjcxApi(jwxtSite)` / `JudgeApi` /
- * `ScoreReportApi` 换成了两个端口（[JwappScoreSource] + [JwxtScoreSupplement]，IO 由实现方自己包），
- * 缓存换成 [JwappScoreCache]，会话失效从 `AuthExpiredException` 换成了 [SessionExpiredFailure]
- * 标记 —— **编排一行未改**：缓存先秒显 → jwapp 粗分 → 教务精确总评替换（按学期 + 课名，退而求其次
- * 按课程号）→ 通核/通选分组 → 未评教的课从报表补上 → 出错时「有缓存就提示、没缓存就报错」，
- * 以及「重试先强制重登一枪」。
- *
- * 这些行为各有它的消费方：替换决定屏上显示的是 86 还是 88，报表补充决定「未评教的课也能看到分数」，
- * 缓存决定断网时屏上有没有东西 —— 所以它们是行为，不是实现细节。
- *
- * ## 为什么在 jvmTest
- *
- * `viewModelScope` 要一个 Main 调度器，`Dispatchers.setMain` 只在 JVM 侧稳定（与
- * `AttendanceViewModelTest` / `TranscriptViewModelTest` 同一条理由）。VM 内部会
- * `withContext(Dispatchers.IO)`（实现方那一层），所以断言前统一用 [awaitIdle] 等它落地 ——
- * 不靠「跑得够快刚好过」。
- */
+/** 成绩屏编排（[JwappScoreViewModel]）在 JVM 上的口径。 */
 class JwappScoreViewModelTest {
 
     @BeforeTest

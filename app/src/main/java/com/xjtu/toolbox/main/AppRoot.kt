@@ -195,8 +195,6 @@ fun AppRoot(
     val navStyle by AppearanceSettings.get(context).navBarStyle.collectAsStateWithLifecycle()
     CompositionLocalProvider(
         LocalAppLoginState provides loginState,
-        // 共享层屏幕的「会话失效」入口 —— 语义与原来的 handleAuthExpired(route, onBack) 一致
-        // （标记站点缓存失效 + 退回本页，由导航根部按需静默重登）。见 :core 的 auth/AuthExpiry.kt。
         com.xjtu.toolbox.auth.LocalAuthExpiry provides com.xjtu.toolbox.auth.AuthExpiryHandler { route, onBack ->
             loginState.handleAuthExpired(route, onBack)
         },

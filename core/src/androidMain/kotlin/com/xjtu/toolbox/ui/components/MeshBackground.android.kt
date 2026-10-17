@@ -30,15 +30,7 @@ import kotlinx.coroutines.delay
 import kotlin.math.cos
 import kotlin.math.sin
 
-/**
- * Android 侧的 Mesh 渐变实现 —— 与搬迁前 :app 的 `MeshBackground` **逐字一致**（只把
- * light/dark 的选取与 2x2 校验挪到了 commonMain 的包装上）。
- *
- * Android 13+ 的 3x3 网格用 AGSL 着色器按像素算颜色：CPU 每帧只算中心顶点的一个偏移、
- * 作为 uniform 传进去，其余全在 GPU 上。Android 12 没有 RuntimeShader（以及非 3x3 的网格），
- * 退回 MeshGradientPainter 画一张**静止**的渐变。两条路都给自己一个独立图层（graphicsLayer）：
- * 页面滚动时只挪位置，不重画内容。
- */
+/** Android 侧的 Mesh 渐变实现。 */
 @Composable
 internal actual fun PlatformMeshBackground(
     modifier: Modifier,
@@ -83,15 +75,7 @@ internal actual fun PlatformMeshBackground(
 private const val TWO_PI = (2 * Math.PI).toFloat()
 private const val MESH_FRAME_MS = 33L
 
-/**
- * 3x3 网格的 Mesh 渐变：先按中心顶点的漂移把坐标平滑地扭一下（扭曲量在四边为 0，
- * 所以边框上的顶点纹丝不动、四周不露底色），再在网格里做平滑的双线性插值。
- * 每个像素只取 4 个颜色，没有循环、没有 pow，全程单精度。
- *
- * 上一版用「反距离加权」：每个像素对 9 个顶点求幂，平板上 GPU 每帧多花约 6ms；
- * 顶点附近的权重用半精度存会溢出，卡面上出现亮点，中心还有一圈聚光灯似的光斑，不像 Mesh 渐变。
- * SkSL 不允许用算出来的下标取 uniform 数组，所以按所在的四个象限分支取色。
- */
+/** 3x3 网格的 Mesh 渐变：先按中心顶点的漂移把坐标平滑地扭一下（扭曲量在四边为 0，所以边框上的顶点纹丝不动、四周不露底色），再在网格里做平滑的双线性插值。 */
 private const val MESH_AGSL = """
 uniform float2 size;
 uniform float2 drift;
@@ -155,11 +139,7 @@ private fun ShaderMesh(
     )
 }
 
-/**
- * Android 12：没有 RuntimeShader，画一张静止的 Mesh 渐变。
- * 顶点位置是像素坐标，尺寸在绘制时读（onSizeChanged 写、block 里读），不引起重组；
- * 独立图层保证它只在尺寸或颜色变化时才重新细分一次。
- */
+/** Android 12：没有 RuntimeShader，画一张静止的 Mesh 渐变。 */
 @Composable
 private fun StaticMesh(modifier: Modifier, colors: List<List<Color>>) {
     val rows = colors.size

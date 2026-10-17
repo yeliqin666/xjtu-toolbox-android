@@ -5,29 +5,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
-/**
- * 「逐字搬」的钉子（`docs/agent-web-spec.md` §9 未决 #3 的第 3 条）：[ServeAgentTools] 里那几段
- * 与 `:app` 的 `AgentToolRegistry` **逐行同源** —— 差异只有下面 [seams] 里声明的那几处端上缝。
- *
- * ## 为什么是「读源码比对」而不是跑两份实现
- *
- * `:server` 编不到 `:app`（那是一个 Android 应用模块，测试跑不了它的 `Context` / Room），
- * 而这几段的**文案**必须两端一致（丙口径：同一句话）。所以这里比的是**源文件的那几行**：
- * 两个文件里同名函数的函数体逐行比一遍，除了 [seams] 声明的差异必须一字不差。
- *
- * ⚠️ 这条测试**能红**，而且红了就是实事：改了 serve 那份（或 `:app` 那份）而没改另一边 ⇒ 当场红。
- * 反过来，如果某一处差异以后不再需要（比如自建日程也搬进了共享层），那一条 [seams] 就**没人用**，
- * 下面那条「每条差异都得真的用上」的断言会红 —— 逼着把清单删干净，而不是留一堆空话。
- *
- * ## 它比的是什么、不比什么
- *
- * - **比**：从 `fun` 那一行到函数收尾大括号，逐行 `trim()` 之后逐行比（缩进两侧都是 4 空格，
- *   trim 只是让比对不依赖它）；
- * - **不比**：函数上面的 KDoc（两边各写各的）、以及文件里其余的函数；
- * - 参与比对的函数清单写在 [copied]：`get_calendar` / `get_schedule` / `get_exam_schedule` /
- *   `get_empty_rooms` 这四条工具用到的那几段，加上黄页与教师检索那两段
- *  （那两段也是「同一句话」，只是 `:app` 那一头多了 `context`）。
- */
+/** 工具文案两端一致的钉子（`docs/agent-web-spec.md` §9 #3） */
 class ServeAgentToolCopyDriftTest {
 
     /** 一对「`:app` 这么写 / serve 那么写」的行块（块内可以多行，逐行 trim 后比）。 */
@@ -54,11 +32,7 @@ class ServeAgentToolCopyDriftTest {
         "findFaculty",
     )
 
-    /**
-     * **允许的全部差异**（类 KDoc 里那张 1~5 的清单，逐条落成行）。
-     *
-     * 每一条都必须真的在两个文件里对得上（末条断言），否则它是一条空话。
-     */
+    /** 允许的全部差异（类 KDoc 里那张 1~5 的清单，逐条落成行）。 */
     private val seams = listOf(
         // 1. 会话那一格：serve 的会话在内核里，没有 `loginState` 那半层
         Seam(
@@ -138,11 +112,7 @@ class ServeAgentToolCopyDriftTest {
         ),
     )
 
-    /**
-     * 两个文件里同名函数的函数体逐行比 —— 差异只允许是 [seams]。
-     *
-     * 顺带钉两件「这条测试不是空对空」的事：所有函数两边都找得到、而且总行数是个像样的量。
-     */
+    /** 两个文件里同名函数的函数体逐行比 —— 差异只允许是 [seams]。 */
     @Test
     fun `逐字搬的那几段与 app 那份逐行同源，差异只有清单里声明过的那几处`() {
         val app = functionBodies(appSource(), copied)
@@ -164,12 +134,7 @@ class ServeAgentToolCopyDriftTest {
         )
     }
 
-    /**
-     * 逐行比一段，返回比过的行数。
-     *
-     * 算法：两条游标同步前进；当前位置上先试「某条差异的行块是否两边同时命中」，命中就一起跳过；
-     * 否则要求这一行的 trim 结果相同。
-     */
+    /** 逐行比一段，返回比过的行数。 */
     private fun assertSameExceptSeams(
         name: String,
         app: List<String>,
@@ -213,10 +178,7 @@ class ServeAgentToolCopyDriftTest {
     private fun serveSource(): String =
         File(repoRoot(), "server/src/main/kotlin/com/xjtu/toolbox/server/ServeAgentTools.kt").readText()
 
-    /**
-     * 仓库根目录：从工作目录往上找 `settings.gradle.kts`（Gradle 的测试工作目录按模块而变，
-     * 写死相对路径在别的跑法下会红 —— 与 `:desktop:test` 的 `DesktopRouteCoverageJvmTest` 同一手法）。
-     */
+    /** 仓库根目录：从工作目录往上找 `settings.gradle.kts`（Gradle 的测试工作目录按模块而变，写死相对路径在别的跑法下会红）。 */
     private fun repoRoot(): File {
         var dir: File? = File(".").absoluteFile
         while (dir != null && !File(dir, "settings.gradle.kts").isFile) dir = dir.parentFile

@@ -21,26 +21,7 @@ import kotlinx.datetime.LocalDate
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonObject
 
-/**
- * 通知的 **campus-api 版取数**：给 Web 端用（Android 端走 `:app` 的 jsoup 爬虫）。
- *
- * 与黄页/校历/体测同一条理由：浏览器直连那 29 个站拿不到 CORS 头，Web 的唯一数据路径是
- * 同源反代到 campus-api。**campus-api 的 notification 模块覆盖同样 29 个源**
- * （`/api/notification/sources` 实测 `specs:29`，code 与 [NotificationSource] 的枚举名逐个相同），
- * 所以两端拿到的是同一批通知 —— 差别只在「谁去爬」。
- *
- * 字段对齐（campus-api 的行 → [Notification]）：
- * `title` → `title`；`url` → `link`；`source`(code) → `source`(枚举)；
- * `summary` → `description`；`tags` → `tags`；`date`(YYYY-MM-DD) → `date`。
- *
- * 两处**刻意降级**（campus-api 的能力边界，不猜）：
- * 1. **没有站内检索端点** ⇒ [search] 返回空结果集（`skipped` 为空），界面只用已加载列表里的
- *    标题匹配顶着 —— 这正是 `:app` 端「站点没有检索入口时」的同一条退路。
- * 2. **分页语义不同**：`:app` 是「逐页翻」，campus-api 是 `page`（起页）+ `pages`（取几页），
- *    所以这里把 `page` 透传成起页、每次只取 1 页，`hasMore` 直接用响应里的 `hasMore`。
- *
- * @param baseUrl 留空 ⇒ 相对路径即**同源**（Web 端必须这样）。
- */
+/** 通知的 campus-api 版取数：给 Web 端用（Android 端走 `:app` 的 jsoup 爬虫）。 */
 class CampusNoticeApi(
     private val client: HttpClient,
     private val baseUrl: String = "",
@@ -73,13 +54,7 @@ class CampusNoticeApi(
         )
     }
 
-    /**
-     * campus-api 没有检索端点 ⇒ 照实返回「没搜到」而不是抛错。
-     *
-     * 不抛错的理由：ViewModel 把异常映射成「站内搜索失败，下面只是已加载通知里的匹配」，
-     * 而这里根本不是失败，是**这一端没有这个能力**。返回空结果集时界面直接展示本地匹配，
-     * 不会多一句误导性的提示。
-     */
+    /** campus-api 没有检索端点 ⇒ 照实返回「没搜到」而不是抛错。 */
     override suspend fun search(sources: List<NotificationSource>, keyword: String): MergedNotificationPage =
         MergedNotificationPage(emptyList(), emptySet(), false)
 
@@ -105,7 +80,7 @@ class CampusNoticeApi(
         val envelope = AppJson.parseToJsonElement(text) as? JsonObject
             ?: error("campus-api 通知返回不是 JSON 对象")
         if (envelope["code"]?.let { !it.isNull } == true && envelope["code"].safeString() != "0") {
-            // need-login 也走这一支：Web 端没有 CAS 会话可重登，照实报错（与体测同口径）。
+            // need-login 也照实报错：Web 端没有 CAS 会话可重登。
             error("campus-api 通知失败：${envelope["msg"].safeString().ifBlank { envelope["error"].safeString() }}")
         }
         return envelope["data"] as? JsonObject
@@ -118,8 +93,6 @@ class CampusNoticeApi(
             val item = element.jsonObject
             val source = sourceOf(item["source"].safeString()) ?: return@mapNotNull null
             val title = item["title"].safeString().trim()
-            // serve（§5.2）投影的是已归一的 `link`/`description`（`:core` 的 [Notification] 字段名）；
-            // 旧路是 campus-api 的 `url`/`summary`
             val link = item[if (mode == ApiMode.SERVE) "link" else "url"].safeString().trim()
             if (title.isEmpty() || link.isEmpty()) return@mapNotNull null
             Notification(

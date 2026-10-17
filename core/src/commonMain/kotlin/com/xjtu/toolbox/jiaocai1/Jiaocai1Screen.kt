@@ -99,8 +99,7 @@ import com.xjtu.toolbox.nav.AppRoute
  * ## 它与 `:app` 那个 `Jiaocai1Screen` 是什么关系
  *
  * `:app` 的 `AppRoute.Jiaocai1` 落在 `jiaocai.TextbookScreen`（合并了「查教材 / 书架 /
- * 全文库」三栏的页面）的**第三栏**，那个页面属于 `jiaocai` 域（它的取数与那两栏的搬迁是另一条
- * 竖切）。`jiaocai1` 域自己要交付的是**这一屏**：
+ * 全文库」三栏的页面）的**第三栏**，那个页面属于 `jiaocai` 域。`jiaocai1` 域自己要交付的是**这一屏**：
  *
  * - 书架（含阅读进度与「移出」）；
  * - 全文库（关键词检索 / 中图法分类浏览交替）。
@@ -176,8 +175,7 @@ fun Jiaocai1LibraryScreen(
 
 /**
  * 「书架 + 全文库（检索/分类合一）」内容区，不带 Scaffold / TopAppBar，
- * 供 `:app` 的 `com.xjtu.toolbox.jiaocai.TextbookScreen` 的对应栏调用（**公开**：那个合并页
- * 在 `:app`，`internal` 它看不见；而那一页的搬迁是另一条竖切）。
+ * 供 `:app` 的 `jiaocai.TextbookScreen` 对应栏调用（所以是 public）。
  */
 @Composable
 fun Jiaocai1ShelfContent(
@@ -940,8 +938,6 @@ private fun CategoryMark(label: String, tinted: Boolean = false) {
     }
 }
 
-// `SimpleDateFormat("M月d日", Locale.CHINA)` 是 JVM 专属 ⇒ 手写（`:core` 的既有做法，见
-// `feedback/FeedbackScreen.monthDayCn`）。用系统默认时区，与搬迁前那个 `SimpleDateFormat` 同一条口径。
 private fun monthDayCn(epochMs: Long): String {
     val date = Instant.fromEpochMilliseconds(epochMs)
         .toLocalDateTime(TimeZone.currentSystemDefault()).date

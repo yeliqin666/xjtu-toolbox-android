@@ -19,13 +19,6 @@ import kotlin.time.Instant
 /**
  * 空教室：数据源（实时状态 / CDN 课表 / 直查教务）× 校区 × 楼 × 日期，任一变化就取消旧查询重查。
  * 实时状态一个校区一次请求，楼只在本地筛；课表数据按楼查，单楼结果当天内存缓存。
- *
- * 从 `:app` 搬进 `:core` 时**编排逻辑一行未改**，只换了三处"住址"：
- *  - 三档取数（含"实时状态要哪个站点会话""直查要不要先登教务"）从 [source] 来 —— 那些是各端能力，
- *    不是屏的逻辑（原来写在 `queryLive`/`queryRooms` 里，现在在 `AppEmptyRoomSource`）；
- *  - 偏好（上次的校区 / 楼 / 数据源）走平台键值缝 [keyValueStore]：Android 侧仍是同一个
- *    SharedPreferences 文件 `empty_room`（键名逐字未动，`AgentTool` 与屏读的还是同一份），Web 侧是 localStorage；
- *  - `java.time` 换成 kotlinx-datetime（"今天"统一用 [todayInSystemZone]），`java.text.SimpleDateFormat` 手写补零。
  */
 internal class EmptyRoomViewModel(
     /** 本端的三档取数实现；屏只画 [EmptyRoomSource.availableSources] 里的那几档。 */
@@ -73,13 +66,7 @@ internal class EmptyRoomViewModel(
 
     init { query() }
 
-    /**
-     * 上次记住的档；没记住过就是实时状态（历史默认值）。
-     *
-     * 两处限制：研究生身份不提供直查教务（沿用原来的判断）；本端没有这一档时落到
-     * [EmptyRoomSource.availableSources] 的第一档 —— Web 只有 CDN，于是 Web 一进来就是 CDN；
-     * Android 三档齐全，这行不改变任何现有取值。
-     */
+    /** 上次记住的档；没记住过就是实时状态（历史默认值）。 */
     private fun initialSource(): RoomSource {
         val saved = RoomSource.entries.firstOrNull { it.key == prefs.getString(SOURCE_PREF_KEY) }
         val wanted = when {
@@ -264,8 +251,6 @@ internal class EmptyRoomViewModel(
                         merged.addAll(rows)
                     } catch (_: NoDataException) {
                         // 这栋楼教务那边查不到（楼名对不上、当天没有教室数据）⇒ 跳过它。
-                        // 原来这里还有一行 Log.w：搬进 :core 后 VM 不再认识 android.util.Log，
-                        // 而这条信息只是排障用的，不值得为它把日志缝也拉进来。
                     }
                 }
                 merged.sortedBy { it.name } to fetchedRows

@@ -6,14 +6,7 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-/**
- * S2：Android store 投影的验收（§7 A1 / A2）。
- *
- * Android 单测没有真 `Context`，但 `:data` 的 [InMemorySharedPreferences] 实现了
- * `android.content.SharedPreferences` 接口 ⇒ 把它注入 [AndroidPrefsBackend] 的 provider，
- * 就能跑「投影能枚举出 store」「带类型值读出来与端内一致」这两条断言（plan §1.4 / §6.3 A1、A2）。
- * 值类型逐字照 `SharedPreferences.getAll()`：`String/Boolean/Int/Long/Float/Set<String>`。
- */
+/** Android store 投影的验收（§7）。 */
 class AndroidPrefsBackendTest {
 
     private fun backendOf(vararg names: String): Pair<Map<String, InMemorySharedPreferences>, AndroidPrefsBackend> {

@@ -18,21 +18,7 @@ import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 import kotlinx.coroutines.runBlocking
 
-/**
- * 教材查询（`jiaocai`）在桌面端的**装配验收**（第 24 条真数据路由）：
- * 桌面用自己的 [DesktopAuth] 真登一次，走 `DesktopSiteGate` 那条路把**教材中心**的会话建起来，
- * 再用自己的 `AppJiaocaiSource` 检索、进详情补 `ssno`。
- *
- * 与 `:data` 的 `JiaocaiApiJvmTest` 的分工：那边验字段解析（`content` 里的键值对、`ssno` 的
- * 正则口径）；这里验**桌面这一端的装配** —— `DesktopAuth` 注册了教材中心站点、会话能建起来、
- * 取数实现（`:data` 的 `AppJiaocaiSource`，两端共用）在桌面真的能跑通。
- *
- * 另一条钉住的是**如实降级**：[DesktopJiaocaiTermTextbooks] 回空表（桌面还没有教务课表缓存，
- * 「本学期我的教材」那一段在桌面上不显示）。这条断言就是那个降级的形状 —— 哪天桌面接上了课表
- * 缓存，它会红，提醒把这一段补上。
- *
- * 手法同 `DesktopAuthJiaocai1JvmTest`：`:testkit` 假上游 + URL 一个字符不改。
- */
+/** 教材查询（`jiaocai`）在桌面端的装配验收。 */
 class DesktopAuthJiaocaiJvmTest {
 
     private lateinit var fake: FakeCampusProxy

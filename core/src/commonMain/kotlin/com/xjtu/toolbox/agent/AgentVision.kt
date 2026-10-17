@@ -30,7 +30,7 @@ import com.xjtu.toolbox.util.stringValue
  *
  * ## 这里只有「拿到路径之后怎么用」
  *
- * 搬进 `:core` 的时界就是这一条：**压缩落盘那一步是平台的事**（`:app` = `ImageDecoder` +
+ * 压缩落盘是平台的事（`:app` = `ImageDecoder` +
  * `Bitmap` + `contentResolver`，见那个模块的 `AndroidAgentHost.attachImage`），
  * 而「这个模型认不认图」「怎么拼成 content 数组」「什么时候把老图摘掉」是纯逻辑。
  * [userContent] 要读文件字节时问 [AgentHost.imageDataUri]（`:core` 没有文件 API）。

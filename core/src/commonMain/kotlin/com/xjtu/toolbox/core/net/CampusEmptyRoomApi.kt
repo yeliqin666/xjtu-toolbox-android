@@ -25,39 +25,7 @@ import kotlinx.serialization.json.JsonObject
 import kotlin.time.Clock
 import kotlin.time.Instant
 
-/**
- * 空闲教室的 **campus-api 版取数**：给 Web 端用（Android 端走 `:app` 的 `AppEmptyRoomSource`）。
- *
- * ## 为什么 Web 只有 CDN 那一档
- * `:app` 有三档：智慧教室实时状态 / CDN 预生成课表 / 直查教务。campus-api 只归一了其中一档：
- * - `/api/emptyroom/cdn` —— 一次给全校区当天的**全部**教室（`{campus, building, room, seats, status[11], free[]}`），
- *   这正是 [RoomInfo]（`name`/`size`/`status`）的形状，一一对应，不用再解析 ⇒ 本类实现它；
- * - 直查教务那一档用的是 `/api/emptyroom/rooms`，可它是「某节次范围内空闲」的**投影**
- *   （`freeSections: "1-2节"`），**拿不到逐节的 `status[11]`**（要 11 次请求/楼）⇒ Web 不做这一档，
- *   屏上那一档也不出现（[availableSources]）；
- * - 智慧教室实时状态 campus-api **没有对应端点** ⇒ 同样不做。
- *
- * 所以这里 [liveSnapshot] / `direct=true` 抛异常、[readStaleLive] 返回 null ——
- * **不是"先占个位"，而是"本端确实没有这条数据"**：屏靠 [availableSources] 只画 CDN 那一档，
- * 根本不会调它们；真被调到（说明屏那边的心智模型坏了）就报一句能看懂的话，而不是给一份编的数据。
- *
- * ## 与 :app 的 CDN 档等价、且更省请求
- * `:app` 是「按楼查询 + 单楼缓存」（每天每楼一次请求）；campus-api 已经把整天全校区归一好了，
- * 所以本类**一次拉全天全校区、按日期内存缓存、楼的筛选在本地做**（[rooms]）—— 结果一样，
- * 请求数是 1 而不是 N。
- *
- * ## 座位数缺失用 0，与 :app 同口径
- * 上游偶有教室没有 `seats`（实测 948 间里 3 间），campus-api 原样投影成 `null`。
- * `:app` 的 CDN 解析对 `size` 缺失/为 null 就是落 0（`obj.get("size")?.let { … } ?: 0`），
- * 这里照抄同一条口径 —— 两端看同一份上游数据时显示的座位数必须一致，而不是一端空着、一端写 0。
- * （[RoomInfo] 是 `@Serializable`、形状不能改，也没有"未知座位"这一档，所以这不是新决定。）
- *
- * ⚠️ 这条口径管的是**教室列表那一档**（`rooms[]` 里的 `seats`）。[seatCount]（课表详情里「N座」
- * 那一格）不是它：serve 形态下它读的是 `GET /api/emptyroom/seat-count?room=`，那里 `null` =
- * 「这间房查不到」⇒ 如实回 `null`，**不拿 0 顶**（见那个方法的 KDoc）。两件事不能混。
- *
- * @param baseUrl 留空 ⇒ 相对路径即**同源**（Web 端必须这样）。
- */
+/** 空闲教室的 campus-api 版取数：给 Web 端用（Android 端走 `:app` 的 `AppEmptyRoomSource`）。 */
 class CampusEmptyRoomApi(
     private val client: HttpClient,
     private val baseUrl: String = "",
@@ -65,27 +33,14 @@ class CampusEmptyRoomApi(
     private val mode: ApiMode = ApiMode.CAMPUS_API,
 ) : EmptyRoomSource {
 
-    /**
-     * 本端能提供哪几档，屏据此画「数据源」菜单（见 [EmptyRoomSource.availableSources]）。
-     *
-     * - campus-api（默认）：**只有 CDN 那一档**，写死 —— 它没有智慧教室实时端点，
-     *   直查教务那一档也拿不到逐节的 `status[11]`（见类 KDoc）⇒ 那两项整个不画，
-     *   它们在这端不是"暂时失败"，是"根本没有这条数据"；
-     * - serve（契约 §5.2/§5）：`:server` **如实报** —— 没登录 `[cdn]`、登录后 `[live,cdn,direct]`
-     *   （顺序照屏上的菜单），所以这张表改成随响应变（[refreshServeSources]）。
-     *   首屏还没发过任何请求时按契约里**最保守**的那一档 `[cdn]` 起步：屏用
-     *   `availableSources.first()` 选默认档（见 `EmptyRoomViewModel`），空表会让它没档可选；
-     *   拉到第一个响应后这张表就与 `:server` 报的一致了。
-     *
-     * ⚠️ 它是个普通属性（不是 Compose 状态）：多出来的两档在**下一次重组**（数据到位）时进菜单。
-     */
+    /** 本端能提供哪几档，屏据此画「数据源」菜单（见 [EmptyRoomSource.availableSources]）。 */
     override val availableSources: List<RoomSource>
         get() = if (mode == ApiMode.SERVE) serveSources else listOf(RoomSource.CDN)
 
     /** serve 模式最后一次响应报的档位；默认是最保守的那一档（见 [availableSources]）。 */
     private var serveSources: List<RoomSource> = listOf(RoomSource.CDN)
 
-    /** CDN 是预生成的按天快照，只有今天/明天两档（与 `EmptyRoomApi.getAvailableDates()` 同口径）。 */
+    /** CDN 是预生成的按天快照，只有今天/明天两档。 */
     override fun availableDates(): List<String> {
         val today = todayInSystemZone()
         return listOf(today.toString(), today.plus(1, DateTimeUnit.DAY).toString())
@@ -144,11 +99,7 @@ class CampusEmptyRoomApi(
             .sortedBy { it.name }
     }
 
-    /**
-     * 联网失败时的兜底：把**本次会话已经拉过的那一份**当缓存给它（带上当初拿到的时刻，
-     * 屏上写"缓存于 HH:mm"）。Web 端没有磁盘缓存（`localStorage` 里不放这种一天一换的大块数据），
-     * 所以刷新页面后就没有兜底了 —— 如实降级，而不是造一个"缓存"。
-     */
+    /** 联网失败时的兜底：本次会话已经拉过的那一份（带当初拿到的时刻）。 */
     override fun readStaleRooms(
         campus: String,
         buildings: Set<String>,
@@ -165,20 +116,7 @@ class CampusEmptyRoomApi(
         return if (rooms.isEmpty()) null else rooms to cachedAt
     }
 
-    /**
-     * 教室名 → 座位数（课表详情里「N座」那一格）。
-     *
-     * 两种形态的取数**不同**，各自是实话：
-     *
-     * - **serve（契约 §5.8）**：`GET /api/emptyroom/seat-count?room=` 一发一个数 —— 服务端读的就是
-     *   当天那份**免登录**的 CDN 课表（与 `/cdn` 同一档）⇒ 这一格不跟着「先登录」那条路走。
-     *   ⚠️ `seats` **显式为 `null`** = 这间房查不到（名字对不上 / 当天 CDN 拉不到 / 那间房没有座位数）
-     *   ⇒ 如实回 `null`，**不拿 0 顶**（屏按 `null` 不画那一块，写 0 会画出一排「0座」）；
-     *   而 `seats` **字段缺失**是「形状没对上」⇒ 抛错（§4：`null` 与字段缺失是两件事）；
-     * - **campus-api（默认，旧行为一字不改）**：只查已经拉过的那一份当天数据，不为一个座位数再打
-     *   一次请求（`:app` 那边为它单开了一次全校拉取 + 一年的座位缓存，是因为课表详情页每次点开都要用；
-     *   Web 的课表是另一条切片，这里按"拿得到就给、拿不到就 null"处理）。
-     */
+    /** 教室名 → 座位数（课表详情里「N座」那一格）。 */
     override suspend fun seatCount(roomName: String): Int? {
         if (roomName.isBlank()) return null
         if (mode == ApiMode.SERVE) {
@@ -194,11 +132,7 @@ class CampusEmptyRoomApi(
         if (direct) throw RuntimeException("本端只有 CDN 课表可用，没有直查教务这一档")
     }
 
-    /**
-     * 某天全校区全楼的教室行（[cachedDate] 命中就不重复请求，[force] 绕过）。
-     * 越出今天/明天（campus-api 拿不到数据）时按 [NoDataException] 报 —— 与 `:app` 的 CDN 404 同义：
-     * "这一天没有数据"（直接报错、不兜底缓存），而不是"请求失败"（那才回退缓存）。
-     */
+    /** 某天全校区全楼的教室行（[cachedDate] 命中就不重复请求，[force] 绕过）。 */
     private suspend fun dayRooms(date: String, force: Boolean): List<RoomRow> {
         if (!force && date == cachedDate && cachedAt > 0L) return cachedRooms
         val data = getData("/api/emptyroom/cdn", "date" to date)
@@ -216,7 +150,6 @@ class CampusEmptyRoomApi(
                 campus = obj["campus"].safeString(),
                 building = obj["building"].safeString(),
                 room = room,
-                // 见类 KDoc：座位缺失落 0，与 :app 的 CDN 解析同口径
                 seats = obj["seats"]?.let { if (it.isNull) 0 else it.intValue } ?: 0,
                 status = status,
             )
@@ -259,17 +192,7 @@ class CampusEmptyRoomApi(
 
     // ─── serve 模式（契约 §5.2）────────────────────────────────────────────
 
-    /**
-     * CDN / 直查两档（实时那一档见 [liveSnapshot]）：一次请求拿到整天（CDN）或整批楼（直查）。
-     *
-     * 与旧路的两处差别：
-     *  - `campus` 是**必填参数**（`:server` 按校区查），而旧路是「拉整天全校区再本地筛」⇒ 传下去；
-     *  - 楼名单一次用逗号传完（`:server` 的 `building` 就收逗号分隔；缺省 = 该校区全部楼）
-     *    ⇒ 两档都是**一次请求**，所以不逐楼报进度（只报一次「全做完」）。
-     *
-     * 没有数据不当成失败：CDN 那天没文件 / 校区认不出时服务端给 `noData:true` + `note`，
-     * 这里翻成 [NoDataException]（与旧路 CDN 404 同义：「这一天没有数据」，不兜底缓存）。
-     */
+    /** CDN / 直查两档（实时那一档见 [liveSnapshot]）：一次请求拿到整天（CDN）或整批楼（直查）。 */
     private suspend fun serveRooms(
         campus: String,
         buildings: Set<String>,
@@ -320,7 +243,6 @@ class CampusEmptyRoomApi(
                 campus = row["campus"].safeString(),
                 building = row["building"].safeString(),
                 room = room,
-                // 座位缺失落 0：与旧路 CDN 那一档同口径（见类 KDoc）
                 seats = row["seats"]?.let { if (it.isNull) 0 else it.intValue } ?: 0,
                 status = status,
             )
@@ -332,7 +254,6 @@ class CampusEmptyRoomApi(
             val key = (element as? JsonObject)?.get("key").safeString()?.trim()
             RoomSource.entries.firstOrNull { it.key == key }
         }
-        // 空表不当成「一档都没有」（那会让屏的档位菜单空掉）：拿不到就保持现状，如实降级
         if (keys.isNotEmpty()) serveSources = keys
     }
 

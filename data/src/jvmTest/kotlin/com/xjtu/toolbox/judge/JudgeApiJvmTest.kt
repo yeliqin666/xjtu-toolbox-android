@@ -10,25 +10,7 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import kotlinx.coroutines.runBlocking
 
-/**
- * 本科评教取数的**字段级口径**：`JudgeApi` 对着 `:testkit` 的 `JwxtFakeUpstream` 逐字段读。
- *
- * ## 为什么在 `:data` 而不是 `:app`
- *
- * 「评教」这一轮把取数从 `:app` 搬进了 `:data`（桌面端第 8 条真数据路由）。搬之前先用夹具把
- * **搬之前**的口径钉住：`:app` 那边一行逻辑没改，只是文件换了地方 —— 但「没改」这句话得有证据，
- * 这些断言就是那个证据。手法与全校课表那次（`SchoolCourseApiJvmTest`）逐条对齐：走**真登录链**
- * （[withJwxtLogin]：CAS 表单 POST → TGC → 签 ticket → 回跳教务），URL 一个字符都不改。
- *
- * ## 这些断言从哪来
- *
- * 全部来自**夹具原文**（`JwxtFakeUpstream` 里那些 JSON）与 `:core` 已钉过的口径（`safeInt`/
- * `safeString` 的默认值），**不是从跑通的实现里抄回来的** —— 夹具刻意留空几格（未评第二行缺
- * `DBRS/JSSJ/KCH`、已评那行缺 `BPJS`、主观题缺 `FZ`），「缺字段给什么」因此写在明面上。
- *
- * 请求那一侧的断言同样对着夹具反查：夹具只认带 `PJXNXQ` 的学期查询、带六个 `querySetting`
- * 条件的选项查询，而那些条件该不该出现、以什么形状出现，在这里钉住。
- */
+/** 本科评教取数的字段级口径：`JudgeApi` 对着 `:testkit` 的 `JwxtFakeUpstream` 逐字段读。 */
 class JudgeApiJvmTest {
 
     /** 参评人（`CPR`）：真机上就是登录那个学号，夹具只认它。 */
@@ -56,7 +38,6 @@ class JudgeApiJvmTest {
                 unfinished.map { it.KCM },
             )
 
-            // ── 第一行（过程评教）：夹具把 14 个键都给全了，逐字段对齐 ──
             val mid = unfinished[0]
             assertEquals("示例丁", mid.BPJS)
             assertEquals("示例丁", mid.BPR)
@@ -134,7 +115,6 @@ class JudgeApiJvmTest {
             assertEquals(JwxtFakeUpstream.JUDGE_OPTION_DADM_BEST, first.DADM)
             assertEquals("1", first.SFBT)
             assertEquals("100", first.FZ)
-            // 这几项不来自响应，而是**由问卷本身补齐**（参评人 / 被评人 / 评估内容 / 批次 / 教学班）
             assertEquals(username, first.CPR)
             assertEquals(q.BPR, first.BPR)
             assertEquals(q.PGNR, first.PGNR)

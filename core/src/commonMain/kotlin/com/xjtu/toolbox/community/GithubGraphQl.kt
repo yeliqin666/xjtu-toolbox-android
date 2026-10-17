@@ -8,23 +8,8 @@ import kotlinx.serialization.json.*
 // 改编自 JoyinJoester/Etoile（GPL-3.0）：github/domain/GithubDiscussion.kt、
 // github/data/GithubDiscussionsRepositoryImpl.kt。补了头像、时间、表情回应、楼中楼、分类筛选、
 // 置顶展示、关闭 / 锁定 / 折叠、投票；401（授权被撤销）时回调 onUnauthorized。
-//
-// ⚠️ 本文件是「社区那半个域」的**共享实现**：从 :app 的 `community/GithubDiscussions.kt`
-// 搬进 commonMain，并把它与 okhttp 的唯一接触点（构造请求体 + `newCall().execute()`）
-// 抽成 [GithubHttpTransport]。这样查询字符串、JSON 解析、限流/错误的判定只有一份，
-// 两端各自只提供一次「把字节发出去」：Android = okhttp（`OkHttpGithubTransport`），
-// Web = Ktor（`KtorGithubTransport`）。搬的时候**查询与解析逐字未动**。
 
-/**
- * 一次 GraphQL 往返的原始结果 —— [GithubHttpTransport] 的返回值。
- *
- * 为什么不是直接把 `HttpClient` 传进来：`Request` / `Response` 这两种类型在 okhttp 与 Ktor 里
- * 各有一套，谁进来谁就把另一个端挡在门外。收成这个纯粹的数据类之后，**查询与解析只有一份**，
- * 两端各自只提供一次「把字节发出去」。
- *
- * 三个字段都有出处：`status` 判 401/成功，`retryAfter` 与 `rateLimitRemaining` 是限流判定要看的
- * 两个头（搬迁前写在 `GithubApiException.of(response)` 里）。
- */
+/** 一次 GraphQL 往返的原始结果—— [GithubHttpTransport] 的返回值。 */
 class GithubHttpResponse(
     val status: Int,
     val body: String,
@@ -37,7 +22,7 @@ fun interface GithubHttpTransport {
     suspend fun post(url: String, headers: Map<String, String>, jsonBody: String): GithubHttpResponse
 }
 
-/** 两端共用的请求头（搬迁前写在 `:app` 的 `GithubNetwork.builder` 里，一字未改）。 */
+/** 两端共用的请求头。 */
 fun githubHeaders(token: String?): Map<String, String> = buildMap {
     put("Accept", "application/vnd.github+json")
     put("X-GitHub-Api-Version", "2022-11-28")
@@ -56,9 +41,7 @@ fun githubApiExceptionOf(response: GithubHttpResponse): GithubApiException {
 /**
  * GitHub Discussions 的 GraphQL 实现（唯一一份）。
  *
- * @param dispatcher 阻塞式传输要用的调度器。Android 传 `Dispatchers.IO`（与搬迁前一致）；
- *   Web 传默认值即可 —— 那边 Ktor 的 fetch 本身是异步的，没有阻塞要躲。
- *   **`Dispatchers.IO` 是 JVM 专有的**，所以默认值只能是 [Dispatchers.Default]。
+ * @param dispatcher 阻塞式传输的调度器；`Dispatchers.IO` 是 JVM 专有，所以默认 [Dispatchers.Default]。
  */
 class GraphQlGithubDiscussionsRepository(
     private val token: () -> String?,
@@ -209,12 +192,7 @@ class GraphQlGithubDiscussionsRepository(
         execute("mutation(\$input:$inputType!){$mutation(input:\$input){clientMutationId}}",
             buildJsonObject { put("input", input) }) { Unit }
 
-    /**
-     * 一次 GraphQL 往返：鉴权头、401 回调、限流/错误判定、`data` 的取出——全在这一处。
-     *
-     * 与搬迁前**唯一的差别**是「发出去」这一步走了 [transport]（而不是 okhttp 的
-     * `GithubNetwork.client.newCall(...)`），以及调度器由构造参数给（:app 传 `Dispatchers.IO`）。
-     */
+    /** 一次 GraphQL 往返：鉴权头、401 回调、限流/错误判定、`data` 的取出——全在这一处。 */
     private suspend fun <T> execute(query: String, variables: JsonObject, decode: (JsonObject) -> T): Result<T> = withContext(dispatcher) {
         githubRunCatching {
             val accessToken = token() ?: throw GithubSignedOutException()

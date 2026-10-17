@@ -9,27 +9,7 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import kotlinx.coroutines.runBlocking
 
-/**
- * 教材中心取数（[JiaocaiApi]，搬进 `:data` 之后）在 JVM 上的口径。
- *
- * ## 它钉的是什么
- *
- * 搬迁前这个类长在 `:app`，搬进 `:data` 时只换了两处（`android.util.Log` → `:core` 的 `Log`、
- * 数据模型切去 `:core`），取数的形状一行未改。这里用 `:testkit` 的假上游（教材中心那半台）
- * 把三条口径钉住：
- *
- *  - **真登录链**：`/entry/login` → CAS → 落会话（`withJiaocaiLogin` 里那句 `check(site.hasLogin)`）；
- *  - **字段口径**：`content` 那段富文本怎么变成 `summary` / `fields` / `hasFullText`
- *    （`<br>` 换行、全角分号拆键值、`<b>` 标签剥掉）；
- *  - **`ssno` 的两段路**：列表接口**不给**（真站点上那段 `<a>` 已被服务端剥掉），
- *    要进 `/engine2/d/…` 详情才补得出来 —— 这正是屏上「本地全文」徽标与「阅读全文」按钮
- *    之间那一跳的依据。
- *
- * ## 为什么是「真登录」而不是给会话打桩
- *
- * 与 `Jiaocai1ApiJvmTest` 同一条理由（见 `JiaocaiLoginTestHarness` 的 KDoc）：
- * `SiteSession.executeWithReAuth` 是 `final`，打不了桩。
- */
+/** 教材中心取数（[JiaocaiApi]）在 JVM 上的口径。 */
 class JiaocaiApiJvmTest {
 
     @Test

@@ -139,29 +139,13 @@ class SessionManager {
 
     val activeSiteCount: Int get() = sites.values.count { it.hasLogin }
 
-    /**
-     * 切账号时清掉**宿主侧**与账号绑定的共享缓存。由宿主注入：
-     * `:app` 设成 `CampusProbe.ywtbToken = null`（一网通办令牌）；桌面端没有这一份，留空即可。
-     *
-     * 只在「真换了账号」时调用（冷启动从匿名恢复到当前账号不算），与搬迁前的判断逐条一致。
-     */
+    /** 切账号时清掉宿主侧与账号绑定的共享缓存。 */
     @Volatile var onAccountSwitched: (() -> Unit)? = null
 
-    /**
-     * 一网通办登录成功后把令牌交给宿主。由宿主注入，`:app` 设成 `CampusProbe.ywtbToken = it`
-     * （网络判定要拿它问服务端「我在不在校内」，而那份缓存绑着 `ConnectivityManager`，属宿主能力）。
-     *
-     * 为什么也是一条缝而不是直接调 `CampusProbe`：一网通办站点（[YwtbSession]）搬进了 `:data`
-     * （桌面端第 12 条真数据路由：消息收纳），而 `CampusProbe` 与其余宿主能力一样没跟着搬。
-     * 会话内核里需要它的只有这一处，所以缝就照这一处切（与 [onAccountSwitched] 同型）。
-     * 桌面端没有这份缓存，留空即可。
-     */
+    /** 一网通办登录成功后把令牌交给宿主。 */
     @Volatile var onYwtbToken: ((String) -> Unit)? = null
 
-    /**
-     * 会话诊断：走 `:core` 的跨端日志门面（Android 仍落到 logcat 的 [TAG]，桌面落到标准输出）。
-     * 级别口径与搬迁前逐条对齐：ERROR / WARN / DEBUG / 其余按 INFO。
-     */
+    /** 会话诊断：走 `:core` 的跨端日志门面（Android 仍落到 logcat 的 [TAG]，桌面落到标准输出）。 */
     fun recordDiagnostic(level: String, siteKey: String, message: String) {
         val line = "[$siteKey] ${message.take(240)}"
         when (level) {
@@ -463,10 +447,6 @@ class SessionManager {
         AccountContext.switchEpoch++
         // 真换了账号才让宿主丢掉它自己那份与账号绑定的缓存（`:app` = 一网通办令牌
         // CampusProbe.ywtbToken）；冷启动从匿名恢复到当前账号不算。
-        //
-        // 为什么是个钩子而不是直接调 CampusProbe：那个对象要 `ConnectivityManager`（模拟器 / 桌面
-        // 都没有），属于宿主能力，不该跟着会话内核一起搬进 `:data`。会话内核需要它的**只有这一处**，
-        // 所以缝就照这一处切。
         if (backendSuffix != null && backendSuffix != accountSuffix) onAccountSwitched?.invoke()
         backendSuffix = accountSuffix
         // 挂着的 MFA 是旧账号的：验证码发到了旧账号手机上，填了也只会登进旧账号

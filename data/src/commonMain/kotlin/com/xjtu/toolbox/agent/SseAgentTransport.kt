@@ -26,44 +26,10 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 
-/**
- * [AgentTransport] 的实现：`POST {baseUrl}/chat/completions`，按 SSE 边收边回调，聚合 tool_calls。
- *
- * 这一份是从 `:app` 的 `AgentRunner.streamOnce` **逐行搬出来的**（连同它用的两格成员：共享的
- * `httpClient` 与 `application/json` media type）—— [AgentRunner] 搬进 `:core` 时唯一不跟着走的
- * 就是这段网络代码。搬动本身零成本：Android 与桌面**共用同一份实现**（两端都依赖 `:data`，
- * 而 `:data` 的网络栈就是 `HttpClients.base`，与搬迁前是同一个 OkHttpClient 配置：
- * connect 30s / read 120s、UA、连接池），所以 Android 的行为逐字未变。
- *
- * ## 为什么不是 `:core` 里的一份实现
- *
- * `:core` 有三个目标（含 wasmJs），okhttp 只发布 jvm/android 变体 —— 进不去。这也是
- * [AgentTransport] 这一步缝存在的原因：循环侧的签名里不出现任何 HTTP 客户端类型。
- *
- * ## 责任（与 [AgentTransport] 的 KDoc 对齐）
- *
- *  - 增量当场回调（不是攒完再一次给），回调派发到 [callbackDispatcher]；
- *  - 协程被取消时 `call.cancel()`（[cancellationWatcher]），别让连接在后台把 token 烧完；
- *  - IO 由这一层自己包（循环侧不再 `withContext(Dispatchers.IO)`）—— 网络边界的调度是传输层的事。
- *
- * ## 增量回调派发到哪（[callbackDispatcher]）
- *
- * Android / 桌面有主线程（`Dispatchers.Main`）⇒ 回调就派发到它（上屏的写法在 UI 线程，**行为一字未改**）。
- * `:server` 的 serve 进程**没有主线程**（它只依赖 `kotlinx-coroutines-core`，不引 coroutines-swing /
- * coroutines-android），直接写 `Dispatchers.Main.immediate` 会在第一个增量上抛
- * 「Module with the Main dispatcher had failed to initialize」—— 屁岱在浏览器上根本跑不起来。
- * 所以这一格按「有主线程就用、没有就用当前端自己的后台派发器」选一次：两端的字节与顺序都没变。
- */
+/** [AgentTransport] 的实现。 */
 class SseAgentTransport : AgentTransport {
 
-    /**
-     * 增量回调用哪个派发器（见类 KDoc 的「增量回调派发到哪」）：先试 `Dispatchers.Main.immediate`
-     *（Android / 桌面今天就是它），拿不到就用 [Dispatchers.Default]。
-     *
-     * 【本机实测】没有 Main 时 `Dispatchers.Main.immediate` 取属性就抛 `IllegalStateException`
-     *（「Module with the Main dispatcher had failed to initialize」），所以这里必须包住：
-     * 它不是「延迟到某个时刻」的错，是**取的那一刻**就错。
-     */
+    /** 增量回调派发器：优先 `Dispatchers.Main.immediate`；没有 Main 时取属性就抛，所以包住并退回 [Dispatchers.Default]。 */
     private val callbackDispatcher: CoroutineDispatcher =
         runCatching { Dispatchers.Main.immediate }.getOrElse { Dispatchers.Default }
 
@@ -176,10 +142,7 @@ class SseAgentTransport : AgentTransport {
     }
 
     companion object {
-        /**
-         * 共享连接池：每次 sendMessage 重用同一 OkHttpClient，避免泄漏。
-         * 与 `:app` 时代同一份配置（同一个 `HttpClients.base` 派生），一个字未改。
-         */
+        /** 共享连接池：每次 sendMessage 重用同一 OkHttpClient，避免泄漏。 */
         private val httpClient = HttpClients.base.newBuilder()
             .connectTimeout(30, TimeUnit.SECONDS)
             .readTimeout(120, TimeUnit.SECONDS)   // 流式期间连接需保持更久

@@ -81,11 +81,6 @@ import kotlin.time.Clock
  * 学校给的是「底图 + 每种状态一张整图」：已预约、使用中、中途离开的座位各自从对应那张图上
  * 裁自己那一块贴上去，和网页版 `/seatui` 一个画法。坐标都是底图原始像素（[origWidth]×[origHeight]），
  * 解码时为省内存做过降采样，画的时候按各图自己的比例换算。
- *
- * 从 `:app` 搬进 `:core` 时这个类一个字没改：它本来就是纯数据 + 纯算术。
- * 唯一离开的是「怎么把一张 JPEG 变成像素」——那是平台缝（`platform/ImageDecode.kt`），
- * Android 是 `BitmapFactory`、桌面/Web 是 skiko；「底图字节从哪儿来」留在了取数端口
- *（`LibrarySource.planBase` / `planTiles`，Android 那份还带着磁盘缓存）。
  */
 class PlanImages(
     val base: ImageBitmap,
@@ -419,11 +414,8 @@ private fun planStatusLabel(status: Int): String = when (status) {
  * @param freeText 当前区域的空闲统计，如「空闲 23 / 120」，放在信息条的区域名后面
  * @param canBook 本端能不能预约（见 [LibrarySource.canBook]）。false 时选中座位也不出「预约」按钮
  *   —— 只读端连这一档 UI 都不出现（[LibrarySource.hasSeatPlan]），这里是第二层兜底
- * @param landscapeLock 全屏看座位图时的方向锁定槽位：Android = 把 Activity 转横屏、离开时恢复原来的
- *   方向（`:app` 注入的就是搬迁前那段 `DisposableEffect`）；Web = null（浏览器没有屏幕方向这回事）
- * @param fullscreenDialogProperties 全屏那个 `Dialog` 的窗口属性：**由宿主给**，因为 Android 的
- *   `DialogProperties` 多一个 `decorFitsSystemWindows`（桌面/浏览器那一档没有这个参数，写死在 `:core` 就编不过），
- *   而搬迁前那行写的就是 `usePlatformDefaultWidth = false, decorFitsSystemWindows = false`，Android 侧照旧
+ * @param landscapeLock 全屏看座位图时的方向锁定槽位（Web = null）
+ * @param fullscreenDialogProperties 全屏 `Dialog` 的窗口属性，由宿主给：Android 多一个 `decorFitsSystemWindows`，写死在 `:core` 编不过
  */
 @Composable
 fun SeatPlanPanel(
@@ -553,15 +545,7 @@ private fun PlanCornerButton(icon: ImageVector, description: String, modifier: M
     }
 }
 
-/**
- * 全屏看座位图：宽图转横屏，关掉时恢复原来的方向。
- *
- * 「转屏幕方向」是宿主能力（Android 的 `Activity.requestedOrientation`），`androidx.activity`
- * 的 `LocalActivity` 在 `:core` 里不存在 ⇒ 走 [landscapeLock] 槽位，由 `:app` 注入搬迁前那段
- * `DisposableEffect`（连「进全屏前是什么方向」都记在那边，离开组合时按原值恢复）。
- * 传 null 的语义是「本端没有屏幕方向这回事」（浏览器），不是"调用会抛"。
- * [properties] 由宿主给（见 [SeatPlanPanel] 的 `fullscreenDialogProperties`）。
- */
+/** 全屏看座位图：宽图转横屏，关掉时恢复原来的方向。 */
 @Composable
 private fun PlanFullscreen(
     landscape: Boolean,
@@ -588,7 +572,7 @@ private fun PlanFullscreen(
  * @param canBook 本端能不能预约（见 [LibrarySource.canBook]）：false 时连按钮都不画 ——
  *   只读端不留一个点了会失败的入口（而 [LibrarySource.hasSeatPlan] = false 时这整个平面图都不出现，
  *   这里是第二层兜底）
- * @param enabled 现在能不能按：不在提交中、平面图不在加载中（搬迁前那个 `canBook` 的语义）
+ * @param enabled 现在能不能按：不在提交中、平面图不在加载中
  */
 @Composable
 private fun PlanInfoBar(

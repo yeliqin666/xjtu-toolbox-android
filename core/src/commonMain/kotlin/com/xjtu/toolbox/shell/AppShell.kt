@@ -35,54 +35,7 @@ import top.yukonga.miuix.kmp.basic.Scaffold
 import top.yukonga.miuix.kmp.basic.rememberNavigationRailState
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
-/**
- * **共享壳**：三端同壳的那一层 —— 顶栏 + 当前页 + 底栏/侧栏 + 壳级插槽。
- *
- * ## 它管什么（共享）
- *
- * 1. **形态**：屏形状 × 界面风格 → 底栏画哪一种（[ShellForm]，判据见 [shellForm]）；
- * 2. **占位**：底栏占掉多少、内容要让开多少、玻璃风格下内容要不要铺到顶栏下面（[ShellLayout]）；
- * 3. **当前页那一层**：只画当前这一页，还是把进过的 tab 留在组合里（[ShellTabHost]，见 [ShellPageHost]）；
- * 4. **底栏 / 侧栏本身**：三块底栏与侧栏（[ClassicBottomBar] / [GlassBottomBar] /
- *    [FloatingBottomBar] / [ShellNavigationRail]）；
- * 5. **页脚横幅**：恢复登录中（[ShellRestoreBanner]），它压在底栏上方，位置只有壳知道。
- *
- * ## 各端注入什么
- *
- * | 参数 | `:app`（Android） | `:desktop` / `:web` |
- * |---|---|---|
- * | [page] | 五格各自的屏 + 各自的宿主面（`HomeTab` / `AgentScreen` / `ScheduleScreen` / …） | 路由表里那一屏（43 条分支） |
- * | [pageHost] | [ShellPageHost.VISITED_TABS]（切回来不重新取数） | [ShellPageHost.CURRENT_ONLY]（导航模型是路由） |
- * | [topBar] | `MainTopBar`（带 Android 的扫一扫图标与每 tab 表头槽位） | null：这一端每一屏自己画头部 |
- * | [contentWindowInsets] | 有状态栏 / 小白条，要按宽窄两套写法 | 没有系统栏，给 `WindowInsets(0)` |
- * | [bottomInset] | 读 `WindowInsets.navigationBars` | 0 |
- * | [glassStyle] | 设置里的「界面风格」位 | 本端自己的外观设置 |
- * | [tabArt] | `AndroidShellTabArt`（屁岱那一格画机器人） | 不注入（[ShellTabArt.None]） |
- * | [barBubble] / [railOverlay] | 屁岱的主动提醒气泡 | null |
- * | [overlays] | 搜索 / 扫一扫（盖满整屏） | 本端有的浮层 |
- * | [sheets] | 反馈弹窗 / 密码失效弹窗 | 本端有的弹层 |
- * | [onBack] | 双击退出 + 关浮层 | 本端的返回（桌面没有返回栈，传 null） |
- * | [snackbarHost] | `SnackbarHost(router.messages)` | 本端的消息条 |
- * | [rootModifier] | 喂屁岱手指位置 + 记覆盖层原点 | 空 |
- *
- * ## 哪些是各端的裁剪权利
- *
- * **裁剪的是集合与页面，不是壳**：哪几格（[ShellTabs]）、每格画什么（[page]）、顶栏有没有
- * （[topBar]）、有没有某一档弹层（可空插槽）——这些都是端上的权利；但**底栏怎么画、当前页怎么摆
- * 是共享的**，任何端都不许再各写一套壳（那正是这一阶段要终止的事）。
- *
- * ## 主题包裹不在这一层
- *
- * Android 的主题在 `MainActivity` 里套（要读用户的外观设置并管系统栏），桌面在
- * `ToolboxDesktopApp` 里套 —— 壳**不**再包一层：多包一层会把 [XJTUToolBoxTheme]
- * [com.xjtu.toolbox.ui.theme.XJTUToolBoxTheme] 的参数重置成默认值（深色覆盖就丢了）。
- *
- * @param contentWindowInsets miuix Scaffold 的内容窗口 inset（系统栏 / 刘海）。这是**窗口 chrome**
- *   那一档：Android 的写法（宽屏吃掉起始侧、手机把内容铺到屏幕底边）只对 Android 有意义，
- *   所以它由端上算好传进来，壳不猜。
- * @param bottomInset 系统导航条那一格的高度（量不到就传 0）。桌面 / web 没有系统栏。
- * @param restoring 正在恢复登录（横幅的开关）。⚠️ 见 [ShellRestoreBanner]：**别在外面加 if**。
- */
+/** 共享壳：三端同壳的那一层 —— 顶栏 + 当前页 + 底栏/侧栏 + 壳级插槽。 */
 @Composable
 fun AppShell(
     nav: ShellNavState,
@@ -189,8 +142,6 @@ fun AppShell(
                     }
                 },
             ) { padding ->
-                // 玻璃风格下内容铺到顶栏下面，顶部留白交给各 tab 的滚动内容。顶栏高度折叠时每帧在变，
-                // 各 tab 只拿稳定的最大值，差额由 followTopBar 在布局阶段补，避免每帧重组
                 val stableTopBar = rememberStableTopPadding(padding)
                 val tabTopPadding = if (glassStyle) stableTopBar.value else 0.dp
                 val layoutDirection = LocalLayoutDirection.current
@@ -246,11 +197,7 @@ fun AppShell(
     }
 }
 
-/**
- * 共享壳算给当前页的那几格留白 —— 页自己拿去补（壳不知道页面内部怎么排版）。
- *
- * 三格全部是搬迁前 `MainScreen` 里算完直接塞给各 tab 的那三个值，名字也照着叫。
- */
+/** 共享壳算给当前页的那几格留白 —— 页自己拿去补（壳不知道页面内部怎么排版）。 */
 class ShellPageInsets(
     /** 玻璃风格下顶栏（折叠时会变矮）稳定最大高度；经典风格恒为 0。 */
     val contentTopPadding: Dp,
@@ -260,14 +207,7 @@ class ShellPageInsets(
     val scaffoldBottomPadding: Dp,
 )
 
-/**
- * 共享壳交给端上插槽的那几样把手。
- *
- * 为什么要有它：玻璃顶栏与浮层**必须采到内容区那一层**（`:app` 的 `MainTopBar(backdrop = ...)`
- * 与搜索浮层都这样），而那一层只有壳建得出来；屁岱的气泡还要「页面 + 底栏」的合成层
- * （尖角伸到底栏上时采的是两份）。与其让端上自己再建一层（那就不是同一个采样源了），
- * 不如把壳手里那几层交出去。
- */
+/** 共享壳交给端上插槽的那几样把手。 */
 class ShellHandles(
     /** 内容区那一层（壳在 tab 内容根上挂了 `Modifier.layerBackdrop`）。 */
     val contentBackdrop: LayerBackdrop,

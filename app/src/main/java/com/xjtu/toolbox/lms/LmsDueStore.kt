@@ -5,9 +5,6 @@ import com.xjtu.toolbox.data.DataCache
 import java.time.Duration
 import java.time.Instant
 
-// `data class LmsDue` 搬进 `:core`（`com.xjtu.toolbox.lms`，同一个包名）—— 日程页要把
-// 它摆进「接下来」那一列，而屏已经在 `:core`。落盘这一半（下面的 `LmsDueStore`）仍在 `:app`：
-// 它读的是 `DataCache` 里那份 JSON（键 `lms_due_items` 逐字未动）。
 
 /**
  * 作业截止时间的落盘缓存。

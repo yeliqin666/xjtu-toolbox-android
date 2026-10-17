@@ -25,10 +25,7 @@ import java.io.IOException
  * 门户认自己的 HttpOnly cookie 会话，不认业务令牌。会话没有或过期时，用考勤站点同一个
  * cookie 存储从门户入口走一轮统一认证（考勤站点刚登录过，免密），在门户回调上换票建立会话。
  *
- * 从 `:app` 的 `attendance/KqPortal.kt` 整份搬进 `:data`（它是机关登录链的一部分：门户
- * 这条换票路径与 `AttendanceLogin` 共用同一个 cookie 存储）。`:app` 的课表源
- *（`schedule/ScheduleSource.kt`）还在用 `currentSemester`，所以本对象与 `parse` 从
- * `internal` 放开为 public —— 跨模块可见性被迫放宽，字段口径一行未改。
+ * public 是因为 `:app` 的课表源（`schedule/ScheduleSource.kt`）在用 `currentSemester`。
  */
 object KqPortal {
 

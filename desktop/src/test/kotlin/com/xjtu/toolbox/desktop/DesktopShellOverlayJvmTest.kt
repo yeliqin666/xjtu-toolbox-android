@@ -39,55 +39,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
-/**
- * 共享壳是**根 Scaffold** ⇒ 页里的 miuix `Overlay*` 弹窗画在整窗范围里（含底栏），页框不裁它。
- *
- * ## 为什么要钉这一条
- *
- * `shell-after-login.png` 的底部一条与旧桌面壳的基线对不上：库页那条「首次使用提示」弹窗整体
- * **下移 64px**（正好是底栏的高度），底栏那一块被压暗。当年一度被当成「页拿到了整窗高度、
- * `bottomBar` 的槽被判空」的退化 —— 这对用例就是来证伪它的：读**语义树 bounds**（底栏 / 页框）
- * 与**像素**（弹窗卡片那几行）。
- *
- * 真相在 miuix 那条契约上（`miuix-ui` 的 `overlay/OverlayDialog.kt` + `layout/DialogContentLayout.kt`）：
- *
- *  - `OverlayDialog(renderInRootScaffold = true)`（**默认值**）把弹窗挂到**最外层 Scaffold** 的
- *    `MiuixPopupHost` 上，KDoc 原文就是「When true (default), the dialog covers the full screen」；
- *  - 定位是 `Alignment.BottomCenter` + `outsideMargin.height`（`DialogDefaults` = 12dp）——
- *    于是**弹窗底 = 宿主底 − 12dp**；
- *  - 变暗那一层（`MiuixTheme.colorScheme.windowDimming`，浅色下是 30% 黑）`.fillMaxSize()` 也画在宿主里。
- *
- * 旧桌面壳（`6283fad2` 之前那一份 `ToolboxDesktopApp`）的结构是
- * `Column { Box(Modifier.weight(1f)) { 当前页 }; NavigationBar { … } }` —— **一个 Scaffold 都没有**，
- * 于是「最外层 Scaffold」落在**页自己**身上：弹窗被页框（520×836）裁在底栏上方、底栏也不在变暗范围内。
- * 共享壳 `AppShell` 本身就是一个 `Scaffold`（`:app` 的 `MainScreen.kt` 从第一天起就是这样），
- * 于是宿主变成 520×900 的整窗。
- *
- * 一句话：**变的是弹窗的宿主（页 → 壳），不是页的高度**；三端共用同一份壳，`:app` 一直是「弹窗铺满整窗」。
- *
- * ## 这一对用例怎么钉
- *
- * 同一份夹具（[FixtureLibrarySource]，`canBook = true` ⇒ 那两条提示会弹）+ 同一个页（[LibraryScreen]），
- * 只换外面那层容器：
- *
- * | 容器 | 最外层 Scaffold | 底栏那一格（语义树） | 弹窗卡片底（像素） |
- * |---|---|---|---|
- * | `AppShell`（这一端现在的壳） | 壳（520×900） | top = 836 | **888 = 900 − 12** |
- * | `Column { Box(weight 1f) { 页 }; 64dp 那一条 }`（旧壳的结构） | 页自己（836 高） | （没有底栏可读） | **824 = 836 − 12** |
- *
- * 两者相差正好 64 = 那条底栏的高度。⚠️ 「页内容到不到底」与这条差**无关**：差的那 64 是宿主的底
- * 从 836 变成 900，与页里画了多少东西无关。
- *
- * ## 为什么弹窗的位置要从像素上量
- *
- * miuix 的 `Overlay*` 画在自己的 popup 宿主里，那一层**不进离屏场景的语义树**（实测：同一个场景
- * 的 PNG 上明明有那张卡，`图书馆座位预约` 在合并树与未合并树里都找不到）⇒ 位置只能量像素
- * （见 [cardRows]）。底栏与页框那一侧仍然走语义树（[nodesOf]），两侧互为对照。
- *
- * ⚠️ 所有 Compose 调用都走 [onEdt]（与 `RenderScreens` 同一条纪律）：`:core` 的屏一律用
- * `viewModel { }` + `viewModelScope`，而它在桌面上跑 `Dispatchers.Main` = AWT 事件队列 ——
- * 不在 EDT 上渲染，取数协程不推进、`animateTo` 那条进场动画也不动，测出来会是一张空白页。
- */
+/** 共享壳是根 Scaffold ⇒ 页里的 miuix `Overlay*` 弹窗画在整窗范围里（含底栏），页框不裁它。 */
 @OptIn(ExperimentalComposeUiApi::class)
 class DesktopShellOverlayJvmTest {
 
@@ -100,13 +52,7 @@ class DesktopShellOverlayJvmTest {
     /** 库页那条「首次使用提示」的标题 —— 就是 `shell-after-login.png` 底部那条差里那张卡。 */
     private val dialogTitleLabel = "图书馆座位预约"
 
-    /**
-     * 夹具取数：一份**能预约**的 [DemoLibrarySource]（`canBook = true`）。
-     *
-     * `DemoLibrarySource` 自己是只读口径（`canBook = false` / `hasSeatPlan = false`），库页那两条「首次
-     * 使用提示」在它上面**整个不弹**（见 `LibraryScreen`：`if (showHint && hintTips.isNotEmpty())`）。
-     * 委托出去只改 `canBook`，座位数据（24 个）照旧 —— 提示要弹，这条链才动得起来。
-     */
+    /** 夹具取数：一份能预约的 [DemoLibrarySource]（`canBook = true`）。 */
     private class FixtureLibrarySource : LibrarySource by DemoLibrarySource() {
         override val canBook: Boolean get() = true
     }
@@ -134,13 +80,7 @@ class DesktopShellOverlayJvmTest {
     private fun List<SemanticsNode>.withText(label: String): SemanticsNode? =
         firstOrNull { label in it.texts() }
 
-    /**
-     * 弹窗卡片占了哪几行（闭区间；末行 + 1 就是卡片的底边）。
-     *
-     * 判据：某一行里有一段 **≥ 200px 的亮色连续段**（`alpha` 与三通道都 `> 230`）。弹窗卡片是屏上
-     * 唯一那样的东西 —— 页面与底栏都被它那层 30% 黑压暗了（浅色主题下 247 → 172），卡片底圆角 /
-     * 抗锯齿只影响最上 / 最下 1~2 行。
-     */
+    /** 弹窗卡片占了哪几行（闭区间；末行 + 1 就是卡片的底边）。 */
     private fun Image.cardRows(): IntRange {
         val pixels = requireNotNull(peekPixels()) { "弹窗那一层读不回来（peekPixels 给了 null）" }
         fun brightChannel(argb: Int, shift: Int) = ((argb shr shift) and 0xFF) > 230
@@ -164,11 +104,7 @@ class DesktopShellOverlayJvmTest {
         return first..last
     }
 
-    /**
-     * 渲染给定的内容并量出 [Probe]：520×900（与 `Main.kt` 的默认窗口同比例 ⇒ 经典底栏那一档），
-     * 渲染到「那条约 300ms 的进场 tween 停下来」为止（时基靠 `render` 的 nanoTime 推进，
-     * 真实时间留给 ViewModel 的取数协程）。
-     */
+    /** 渲染给定的内容并量出 [Probe]：520×900（与 `Main.kt` 的默认窗口同比例）。 */
     private fun probe(content: @Composable () -> Unit): Probe {
         val owner = object : ViewModelStoreOwner {
             override val viewModelStore = ViewModelStore()
@@ -234,7 +170,6 @@ class DesktopShellOverlayJvmTest {
         println("PROBE[shell] 弹窗卡片 rows=${probe.cardRows.first}..${probe.cardRows.last}")
         println("PROBE[shell] 语义树文字=${probe.texts}")
 
-        // ① 底栏在下边那一条带里（语义树）：与证据图里量到的 y=836..900 同一条
         val bar = assertNotNull(probe.bar, "底栏第一格不在语义树里")
         assertTrue(
             bar.top >= 900f - classicBarHeight,
@@ -242,10 +177,8 @@ class DesktopShellOverlayJvmTest {
         )
         assertTrue(bar.bottom <= 900f + 0.5f, "底栏第一格的底是 ${bar.bottom} —— 越出窗口了")
 
-        // ② 页里的弹窗确实弹了（语义树里有它那个标题）
         val title = assertNotNull(probe.dialogTitle, "弹窗标题不在语义树里 —— 提示没弹？")
 
-        // ③ 弹窗卡片（像素）：它**越过了页框**（页框底 = 底栏顶 = 836）
         val card = probe.cardRows
         val cardBottom = card.last + 1f
         assertTrue(
@@ -260,7 +193,6 @@ class DesktopShellOverlayJvmTest {
                 "两边量的不是同一个东西？",
         )
 
-        // ④ 卡片底 = **窗口**底 − outsideMargin，不是页框底 − outsideMargin
         assertEquals(
             900f - dialogOutsideMargin,
             cardBottom,
@@ -274,10 +206,7 @@ class DesktopShellOverlayJvmTest {
         val inShell = probe { shellWithLibraryPage() }
         val inShellShape = inShell.cardRows.last + 1f
 
-        // 旧桌面壳的结构（`6283fad2` 之前的 `ToolboxDesktopApp`）：Column + weight(1f) 的内容 Box
-        // + 下面那一条 64dp 的 NavigationBar。**一个 Scaffold 都没有** —— 页自己就是最外层那一个。
-        // 那一条画成中灰：这里要的是「页框只有 836 高」这件事，不是复刻底栏的画法（顺带也不会被
-        // 上面那条「亮色连续段」判据误当成弹窗卡片）。
+        // 模拟没有 Scaffold 的壳：内容 Box + 64dp 底栏（画成中灰，避免被误当成弹窗卡片）。
         val oldShape = probe {
             Column(Modifier.fillMaxSize()) {
                 Box(Modifier.weight(1f)) { libraryPage() }
@@ -319,14 +248,7 @@ class DesktopShellOverlayJvmTest {
     }
 }
 
-/**
- * 在 AWT 事件队列上执行并等结果（与 `RenderScreens.onEdt` 同一份纪律）。
- *
- * 为什么必须有它：`:core` 的屏一律用 `viewModel { }` + `viewModelScope`，而 viewModelScope 跑在
- * `Dispatchers.Main.immediate` 上 —— 桌面端的 Main 就是 AWT 事件队列。离屏场景在**调用线程**上渲染，
- * 不在 EDT 就会出现「VM 在 EDT 上更新状态、渲染线程同时在 measure/layout」⇒ Skia 直接抛
- * `performMeasureAndLayout called during measure layout`（实测踩到，且表现为「屏上永远没有数据」）。
- */
+/** 在 AWT 事件队列上执行并等结果（与 `RenderScreens.onEdt` 同一份纪律）。 */
 private fun <T> onEdt(block: () -> T): T {
     var result: T? = null
     var failure: Throwable? = null

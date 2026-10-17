@@ -42,14 +42,7 @@ class DataCache(
 
     /** per-key 锁对象，不同 key 之间互不阻塞 */
     private val locks = ConcurrentHashMap<String, Any>()
-    /**
-     * ── [ScheduleCacheStore] 的五个一行转发 ──
-     *
-     * 课表那一族的键（`schedule_<学期>` / `exams_<学期>` / …）搬进 `:data` 的 `ScheduleCache`
-     * 之后，它只要「读一段 JSON + TTL」这两个动作。这里**只转发、不改行为**：目录名、
-     * 文件名、账号后缀、per-key 锁、`.tmp` 原子写入全是原来这一份，所以老用户的缓存
-     * 与升级前逐字节相同（这也是不把 `ScheduleCache` 自己复制到两处的原因）。
-     */
+    /** ── [ScheduleCacheStore] 的五个一行转发 ── */
     override fun readJson(key: String, ttlMs: Long): String? = get(key, ttlMs)
 
     override fun writeJson(key: String, json: String) = put(key, json)

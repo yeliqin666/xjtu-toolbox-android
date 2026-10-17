@@ -1,20 +1,6 @@
 /*
- * 西交工具箱（Web）的 Service Worker —— D12 ④ 的最小可行方案里那一段（2026-10-16）。
- *
- * 只做三件**看得见**的事，别的一概不碰：
- *
- *  1. **离线壳**：网络优先（在线时永远拿新的 —— 这一条最要紧，Compose/wasm 的产物一旦被钉在缓存里
- *     就是「装成 App 之后再也收不到更新」），拿不到时才回落到最近一次成功抓到的那一份；
- *  2. **`notificationclick`**：点系统通知 → 把已经开着的那个窗口拉到前台（没有就开一个）。
- *     没有它，`showNotification` 发出去的通知点了什么都不发生；
- *  3. **换代**：`install` 里 `skipWaiting()`、`activate` 里清旧缓存 + `clients.claim()` ——
- *     免得旧 SW 把新产物挡在外面。
- *
- * 不缓存 `/api/…`（那是 serve 的接口：会话、令牌、真支付都在上面，缓存一份毫无意义且危险），
- * 也不碰跨域的请求。
- *
- * ⚠️ 这个文件只在**安全上下文**里跑得起来（HTTPS 或 localhost）—— 注册那一枪在 `pwa.js` 里，
- * 不在安全上下文时它连注册都不试（`docs/desktop-port-plan.md` §16.12）。
+ * Service Worker：网络优先的离线壳（在线永远拿新产物）、`notificationclick` 拉起窗口、换代清旧缓存。
+ * 不缓存 `/api/…`，不碰跨域请求；只在安全上下文里跑。
  */
 
 const CACHE_NAME = 'xjtu-toolbox-shell-v1';

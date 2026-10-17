@@ -48,76 +48,7 @@ import kotlinx.serialization.json.jsonPrimitive
 import java.time.LocalDate
 import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
-/**
- * serve 侧的**白名单工具层**（`docs/agent-web-spec.md` §6）—— 浏览器那一端的屁岱能用哪些工具，
- * 就是这一份说了算，`/api/agent/config` 的 `toolAllowlist` 也从这里的**真工具表**里读出来
- *（[ServeAgent.toolAllowlist]：同一份定义两个消费者，不可能对不上）。
- *
- * ## 为什么是「裁一张表」而不是另画一张
- *
- * 与 `:desktop` 的 [com.xjtu.toolbox.desktop.desktopAgentToolDefinitions] 同一条纪律：
- * `:core` 的 [agentToolDefinitions] 是四端唯一一份描述表（描述文案、参数 schema 都在那里），
- * 这里只做一件事 —— **按名字留下 serve 真答得上来的那几档**，其余一个字都不画。
- * 画了就得能用：模型看见一档就会调，调了只拿到 `error: not_found`，用户看到的就是
- * 「这功能时灵时不灵」，比不画它更坏。
- *
- * ## 第一批九件（§6.1 逐条对应的落点）
- *
- * | 工具 | 这一端拿什么办 |
- * |---|---|
- * | `calculate` | `:core` 的 [agentCalculate]（纯逻辑，一行端代码都没有） |
- * | `app_guide` | `:core` 的 [agentGuideText]（同上，与 Android 逐字同源） |
- * | `preference` | [AgentMemory]（**serve 侧落盘**：浏览器上的记忆与模型用的是同一份） |
- * | `get_calendar` | `:data` 的 [SchoolCalendarApi]（免登录、公开）+ `:core` 的作息/周次纯逻辑 |
- * | `search_yellow_page` | [YellowPageSource]（`:core` 的端口；公开通讯录） |
- * | `find_faculty` | `:data` 的 [FacultyApi]（与教师检索那一屏同一份实现） |
- * | `get_schedule` | `:data` 的 [JwxtScheduleApi.schedule]（**已合并调停补课那一份**）+ 自建日程 |
- * | `get_empty_rooms` | `:data` 的 [EmptyRoomApi]（课表那一档）+ 智慧教室平台的实时状态 |
- * | `get_exam_schedule` | `:data` 的 [JwxtScheduleApi.examSchedule]（§5.8 的 `/api/jwxt/exams` 同一个来源） |
- *
- * §6.2 那一长串「不开放」的档（闹钟 / 应用设置 / 自建日程写入 / 成绩 / 体测 / 考勤 / 校园卡 /
- * 加餐券 / 通知 / 全校课表 / 图书馆 / 学辅 / 教材 / 思源学堂 / 联网搜索）**一个字都不画** ——
- * 理由逐条写在设计稿里，这里不重复。
- *
- * ## 四件是**逐字搬** `:app` 的（`get_calendar` / `get_schedule` / `get_exam_schedule` / `get_empty_rooms`）
- *
- * 丙口径要求「同一句话」：这几档给模型看的文案（以及卡片、周末/节假日/调课那几处判据）在浏览器
- * 上必须与 Android 逐字相同。所以下面那一段（从 [currentPeriodIndex] 到 [parseToolDate]）是
- * `:app` 的 `AgentToolRegistry` 里那几段**逐字复制**过来的，只有「端上资源那几处缝」不一样：
- *
- *  1. `loginState.sessionManager?.ensureSite(…)` → `session.sessionManager.ensureSite(…)`
- *  （serve 的会话在内核里，`null` 那半层不存在：拿不到站点就是拿不到，见各自 KDoc）；
- *  2. 自建日程那一格：`:app` 读 Room（`AppDatabase`），serve 读 **`:core` 的
- *  [CustomCourseStore]**（桌面那份 `custom_courses` 键值文件 —— 所以「桌面加了自建日程、
- *  浏览器这边看得到」，而 Android 加的那些**看不到**，页面按设计稿 §8 如实说明）；
- *  3. 节假日与课表缓存那一格：`:app` 传 `DataCache(context)`，serve 传自己的 [dataCache]
- *  （`secureKeyValueStore` 上那份，设计稿 §9 未决 #5 的口径）；
- *  4. 空教室那一格：`:app` 传 `EmptyRoomCache(context)`、并读它那一屏的「数据源」偏好
- *  （`empty_room` prefs），serve **不缓存**（与桌面同形）、也没有那个偏好（一律走默认那一档）；
- *  5. 校历那一格：`:app` 直接 `new` 一个 `SchoolCalendarApi()`，serve 收一格 [calendar]
- *  （默认就是同一份 `SchoolCalendarApi()`，只是让测试能把基址指到假上游）。
- *
- * ⚠️ 这几处差异**不是靠约定**：`ServeAgentToolCopyDriftTest` 把两个文件里同名函数的函数体
- * 逐行比一遍（上面那几条差异是它唯一允许的），改了一边不改另一边当场红。
- *
- * ## 这一层**没有**的两处（如实）
- *
- * - `userContext`（用户画像那段系统提示）不接：它的原料（`CredentialStore` 的昵称、
- *   `HelloProfileStore` 的学籍档案）都还在 `:app` ⇒ 这一格是 `:core` 的默认空串，
- *   模型只是少一段上下文，工具本身不受影响；
- * - `toolDefinitions` 里没有端能力那三档（闹钟 / 应用设置 / 自建日程写入）：
- *   `honored` 恒为空集（浏览器与 serve 都没有那三样端上资源）。
- *
- * @param session serve 的会话装配。工具要的站点会话从这里拿（教务 / 智慧教室），
- *   一切 `silent = true`（模型自己调工具时**不许**在用户不知情的情况下发一条短信验证码）。
- * @param memory 记忆（`agent_memory<suffix>`，与模型读写的是同一份）。
- * @param dataCache 课表族缓存那一份键值存储（节假日、`agent_exam` 那条兜底也走它）。
- * @param customCourses 自建日程（桌面那份 `custom_courses` 键值文件，见上）。
- * @param calendar 校历取数（`:core` 的 [SchoolCalendarSource]；生产是 [SchoolCalendarApi]，
- *   测试把基址指到假上游 —— 与 `/api/calendar/school` 那一条路由同一个注入缝）。
- * @param yellowPage 黄页取数（`:core` 的端口；放这里是为了单测能注入那台假上游）。
- * @param faculty 教师检索取数（`:data` 的类；单测注入假上游客户端）。
- */
+/** serve 侧的白名单工具层（`docs/agent-web-spec.md` §6） */
 internal class ServeAgentTools(
     private val session: ServeSession,
     private val memory: AgentMemory,
@@ -128,13 +59,7 @@ internal class ServeAgentTools(
     private val faculty: FacultyApi,
 ) : AgentTools {
 
-    /**
-     * 这一端真给模型的九件（顺序与 `:core` 那份目录里的顺序一致 —— 那一份是**唯一**一份顺序定义，
-     * 这里只是筛子）。
-     *
-     * ⚠️ 它只决定「裁哪几刀」；`/api/agent/config` 的 `toolAllowlist` 是 [ServeAgent.toolAllowlist]
-     * 从裁完之后**真下发的定义**里读出来的，不读这个清单（两处不可能漂）。
-     */
+    /** 这一端真给模型的九件（顺序与 `:core` 那份目录里的顺序一致 —— 那一份是唯一一份顺序定义，这里只是筛子）。 */
     companion object {
         val NAMES: List<String> = listOf(
             "get_calendar",
@@ -149,11 +74,7 @@ internal class ServeAgentTools(
         )
     }
 
-    /**
-     * 最近一次 [ensureSite] 失败的原因。给 [loginHint] 用（逐字搬自 `:app` 的同名字段：
-     * 单字段的理由也一样 —— 保住 `ensureSite(X) ?: return ...` 这个已经用了几十处的调用形状，
-     * 而工具调用是严格串行的（见 `AgentRunner`），不存在两次 ensureSite 交叉覆盖这个字段的情况）。
-     */
+    /** 最近一次 [ensureSite] 失败的原因。 */
     private var lastSiteError: Throwable? = null
 
     /** 这一轮的工具执行产出的卡片（课表 / 空教室 / 考试）；[ServeAgent] 在一轮结束时 drain 走。 */
@@ -166,10 +87,7 @@ internal class ServeAgentTools(
     /** 记住的用户偏好，拼进系统提示。走工具层是因为 `ServeAgent` 手上只有这一格缝。 */
     override fun memoryBlock(): String = memory.promptBlock()
 
-    /**
-     * 限流分组键：同一个后端系统的两次调用之间要隔开一点，别连着猛打学校服务器。
-     * 分组与 `:app` 的 `toolSites` 逐条相同（这一端只有那几档），纯本地工具返回 null。
-     */
+    /** 限流分组键：同一个后端系统的两次调用之间要隔开一点，别连着猛打学校服务器。 */
     override fun rateLimitKeyOf(toolName: String): String? = when (toolName) {
         "get_calendar", "get_schedule", "get_exam_schedule", "get_empty_rooms" -> "schedule"
         "search_yellow_page" -> "yellow_page"
@@ -214,19 +132,12 @@ internal class ServeAgentTools(
             // 工具表里没画的档回 not_found：模型可能凭旧对话里的记忆调过来（那段历史是在别的端上生成的）
             else -> ToolReply.notFound("tool", name)
         }
-        // 这次调用生成了卡片（课表、空教室、考试……）就明确告诉模型：用户已经看到了
         if (pendingWidgets.size > widgetsBefore) result + "\n" + ToolReply.CARD_SHOWN else result
     }
 
     // ── 取数（这一端自己的那几件：黄页 / 教师检索，与 DesktopAgentTools 同形）────────────
 
-    /**
-     * 校园黄页：机构总机电话，不含个人号码。
-     *
-     * 判据与文案逐条对齐 `:app` 的 `AgentToolRegistry.searchYellowPage` 与桌面的
-     * `DesktopAgentTools.searchYellowPage`（三处同一句话）；差别只有一处：serve 与桌面都没有
-     * 宿主缓存（`:core` 的黄页缓存缝要一份按账号隔离的落盘实现）⇒ 这一档**不缓存、每次现拉**。
-     */
+    /** 校园黄页：机构总机电话，不含个人号码。 */
     private suspend fun searchYellowPage(query: String?, category: String?, limit: Int): String {
         return try {
             val data = yellowPage.getData()
@@ -263,15 +174,7 @@ internal class ServeAgentTools(
         }
     }
 
-    /**
-     * 教师主页检索：只给本校在职教师，不含学生 / 行政人员 / 校外人士。
-     *
-     * 判据与文案逐条对齐 `:app` 的 `AgentToolRegistry.findFaculty` 与桌面的同一条：
-     * 学院只能在客户端筛（检索接口的学院参数要的是数字 id，而模型手上只有名字），筛空了退回不筛。
-     *
-     * ⚠️ 这一档**不传** `contacts=1`（与桌面同一口径，设计稿 §9 未决 #4）：`contacts` 那一格
-     * 现在两端都是 `false`，所以这里也不额外要联系方式。
-     */
+    /** 教师主页检索：只给本校在职教师，不含学生 / 行政人员 / 校外人士。 */
     private suspend fun findFaculty(name: String, college: String?, limit: Int): String {
         if (name.isBlank()) return ToolReply.missing("name")
         val n = limit.coerceIn(1, 8)
@@ -283,9 +186,6 @@ internal class ServeAgentTools(
         } catch (e: Exception) {
             return ToolReply.failed("find_faculty", e.message)
         }
-        // 学院只能在客户端筛：检索接口的学院参数要的是数字 id，而模型手上只有名字。
-        // 筛空了就退回不筛，宁可多给几条也别因为学院名写法不同（"电信学部"/"电信学院"）
-        // 把正确结果全滤掉。
         val members = college?.takeIf { it.isNotBlank() }
             ?.let { c -> all.filter { it.collegeName.contains(c) }.ifEmpty { all } }
             ?: all
@@ -331,7 +231,6 @@ internal class ServeAgentTools(
         }.trim()
     }
 
-    // ── 以下**逐字搬自** `:app` 的 `AgentToolRegistry`（差异清单见类 KDoc），不许改文案 ────
     private fun currentPeriodIndex(): Int {
         val now = java.time.LocalDateTime.now()
         val isSummer = XjtuTime.isSummerTime(now.monthValue)
@@ -470,10 +369,8 @@ internal class ServeAgentTools(
     private fun cachedStartDate(term: String): LocalDate? = ScheduleCache.readStartDate(dataCache, term)?.toJavaTime()
     private suspend fun getSchoolCalendar(term: String?): String {
         return try {
-            // 模型与解析已搬进 :core（见 calendar/UpstreamSchoolCalendar.kt），这里只取数。
             val terms = calendar.terms()
             if (terms.isEmpty()) return ToolReply.empty("school_calendar")
-            // 「今天」用 :core 的 kotlinx-datetime 口径：下面比的是 :core 的 SchoolTerm 日期。
             val today = com.xjtu.toolbox.util.todayInSystemZone()
             val selected = if (term.isNullOrBlank()) {
                 terms.firstOrNull { today in it.startDate..it.endDate }
@@ -566,9 +463,6 @@ internal class ServeAgentTools(
             cachedStartDate(termCode)
         }.getOrNull() ?: return ToolReply.failed("get_schedule", "no_term_start_date")
 
-        // 法定假日：课表照排，但那天停课。数据源只有放假日，没有调休补课日，所以只标停课
-        // 节假日表也跟着改说 kotlinx 日期了（HolidayApi 在 :data，屏与 VM 在 :core），
-        // 这一处仍按 java.time 取键 —— 逐字段转一次，只有几十个日期。
         val holidays = runCatching { com.xjtu.toolbox.schedule.HolidayApi.getHolidayDates(dataCache) }
             .getOrDefault(emptyMap())
             .mapKeys { it.key.toJavaTime() }
@@ -656,9 +550,6 @@ internal class ServeAgentTools(
             val buildings = CAMPUS_BUILDINGS[targetCampus]
                 ?: return ToolReply.notFound("campus", targetCampus, CAMPUS_BUILDINGS.keys)
 
-            // 问的是"现在"：今天、没给节次或给的就是当前节 → 先用实时状态。
-            // 实时状态比课表多一层信息（没排课但有人、有几个人），正是"现在去哪自习"要的。
-            // 用户在页面里明确切到了课表数据源，就尊重他的选择。
             // serve 没有 App 那一屏的数据源偏好（`empty_room` prefs 在 :app）⇒ 一律走默认那一档
             val sourcePref: String? = null
             val nowSection = currentPeriodIndex() + 1
@@ -760,14 +651,7 @@ internal class ServeAgentTools(
         java.time.LocalDate.of(year, month.ordinal + 1, day)
 }
 
-/**
- * 这一端送给模型的工具表：`:core` 那份描述表按 [ServeAgentTools.NAMES] 裁一刀。
- *
- * `honored` 传**空集**：端能力那三档（闹钟 / 应用设置 / 自建日程写入）serve 一样都没有对应实现
- *（与桌面同一条纪律），所以裁完之后与 `NAMES` 一一对应、逐档可数。裁的动作与桌面那份
- * `desktopAgentToolDefinitions` 逐字同形：解析 → 按 `function.name` 过滤 → 再序列化回去，
- * **顺序**仍是 `:core` 那份定义的顺序。
- */
+/** 这一端送给模型的工具表：`:core` 那份描述表按 [ServeAgentTools.NAMES] 裁一刀。 */
 internal fun serveAgentToolDefinitions(): String {
     val drawn = (AppJson.parseToJsonElement(agentToolDefinitions(emptySet())) as JsonArray)
         .filter { element ->

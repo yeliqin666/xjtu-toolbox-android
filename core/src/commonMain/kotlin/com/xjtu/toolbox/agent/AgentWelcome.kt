@@ -89,12 +89,7 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
  */
 
 /** 首屏要用的本地数据快照。 */
-/**
- * 首屏要用的本地数据快照（`:app` 从 `DataCache` + 校园卡偏好 + 聊天事实里读，见 `AndroidAgentHost`）。
- *
- * 公开类型：它是 `:core` 的 [AgentHost.welcomeFacts] 的返回值 —— 读不到的端回空快照，
- * 那几张卡片就**直接不出**（不放空壳）。
- */
+/** 首屏要用的本地数据快照（`:app` 从 `DataCache` + 校园卡偏好 + 聊天事实里读，见 `AndroidAgentHost`）。 */
 data class WelcomeFacts(
     val chatter: ChatterFacts = ChatterFacts(),
     /** 今天还没开始的下一节课。 */
@@ -241,12 +236,7 @@ internal fun AgentWelcome(
     onAsk: (String) -> Unit,
     onFill: (String) -> Unit,
     onOpenConfig: () -> Unit,
-    /**
-     * 首屏那个「屁岱形象 + 问候」的槽位。`:app` 交 `AndroidPidaiHero`（形象、瞟眼、
-     * 戳一下换一句话、连戳彩蛋都在那一端）；没有形象这一档的端（桌面 / Web）用默认实现
-     * [agentWelcomePlainHero]：同一个标题、同一句闲话，只是没有那颗可以戳的形象 —— **如实降级**，
-     * 不是「画出来点了没反应」。
-     */
+    /** 首屏那个「屁岱形象 + 问候」的槽位。 */
     hero: @Composable (title: String, facts: WelcomeFacts, now: LocalDateTime) -> Unit =
         { title, f, n -> agentWelcomePlainHero(title, f, n) },
 ) {
@@ -324,10 +314,7 @@ internal fun AgentWelcome(
     }
 }
 
-/**
- * 没有屁岱形象的端（桌面 / Web）的问候头：同一个标题 + 同一句闲话，只是没有那颗可以戳的形象。
- * 文案来源与 `:app` 那份一致（`ChatterPool` + `Greeting`），所以两端读起来是同一个屁岱在说话。
- */
+/** 没有屁岱形象的端（桌面 / Web）的问候头：同一个标题 + 同一句闲话，只是没有那颗可以戳的形象。 */
 @Composable
 internal fun agentWelcomePlainHero(title: String, facts: WelcomeFacts, now: LocalDateTime) {
     val primary = MiuixTheme.colorScheme.primary

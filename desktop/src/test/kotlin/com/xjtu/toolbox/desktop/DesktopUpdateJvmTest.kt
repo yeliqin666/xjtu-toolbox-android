@@ -6,17 +6,7 @@ import kotlin.test.assertFalse
 import kotlin.test.assertIs
 import kotlin.test.assertTrue
 
-/**
- * 更新骨架的两半：**纯函数那半**（挑发布、比版本）用固定夹具喂进去，**那条 HTTP GET** 用注入的
- * 假实现替掉（`DesktopUpdate.check` 的 `fetch` 参数）。
- *
- * 这份测试要钉的不是「网络能用」，而是三件容易做错的事：
- *
- *  1. **不许把 APK 的发布当成桌面版**：仓库里现在只有 `app-release.apk`，桌面产物还只在 CI 的
- *     artifact 里 ⇒ 只有带 `.msi` / `.exe` 的发布才算数（没有就如实说没有）；
- *  2. **失败不许说成「已是最新」**：断网 / 500 / 空响应 / 坏 JSON 都是 `Failed`，带一句人话；
- *  3. **这一端没有自动更新**：[DesktopUpdate.canInstallAutomatically] 是 `false`（UI 不许假装有）。
- */
+/** 更新骨架的两半：纯函数那半（挑发布、比版本）用固定夹具喂进去，那条 HTTP GET 用注入的假实现替掉（`DesktopUpdate.check` 的 `fetch` 参数）。 */
 class DesktopUpdateJvmTest {
 
     /** 一份照着 GitHub `releases?per_page=30` 的形状写的夹具（只留这个骨架读的几个字段）。 */
@@ -97,8 +87,6 @@ class DesktopUpdateJvmTest {
     fun `本机版本不低于最新桌面版就是「已是最新」，dev 版则会拿到同号正式版`() {
         assertEquals(DesktopUpdate.CheckResult.UpToDate, DesktopUpdate.compare(fixture, currentVersion = "5.1.2"))
         assertEquals(DesktopUpdate.CheckResult.UpToDate, DesktopUpdate.compare(fixture, currentVersion = "5.2.0"))
-        // 预发布号比同号正式版小（`:core` 的 compareVersions 口径）：5.1.2-dev.1 < 5.1.2
-        // ⇒ 拿着 dev 版的人**应该**收到「有 5.1.2 正式版」这个结论（不是「已是最新」）
         assertEquals(
             "5.1.2",
             assertIs<DesktopUpdate.CheckResult.Available>(

@@ -7,14 +7,7 @@ import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 
-/**
- * 档案的 **codec**（S1 纯函数）：`manifest.json` 与 `stores/<store>.json` 的读写，
- * 以及 §2.2 的排序稳定性、§5.2 第 5 条的 `#written_at` 归一化（A10）。
- *
- * 形状逐字照 `docs/storage-layout.md` §2；JSON 实例复用 [AppJson]（
- * `ignoreUnknownKeys=true` / `coerceInputValues=true` / `encodeDefaults=true` / `explicitNulls=false`，
- * 见 `util/JsonExt.kt`），不新造一个 Json。
- */
+/** 档案的 codec：`manifest.json` 与 `stores/<store>.json` 的读写，以及 §2.2 的排序稳定性、§5.2 第 5 条的 `#written_at` 归一化。 */
 object ArchiveCodec {
 
     /** §3.3：桌面/web 的 `KeyValueScheduleCacheStore` 旁挂时间戳键的后缀。 */
@@ -64,13 +57,7 @@ object ArchiveCodec {
 
     // ── `stores/<store>.json`（§2.2） ──
 
-    /**
-     * 把一个 store 快照编成 `stores/<store>.json` 的**字节**。
-     *
-     * `keys` 按 key 的 UTF-8 码点升序写出（[StoreSnapshot.keys] 是 Map，排序在这里做）；
-     * `store` 字段 = base、`suffix` 字段 = suffix（照目录名，§2.2）；
-     * `at` 从 [StoreSnapshot.writtenAt] 折出（§5.2 第 5 条）。
-     */
+    /** 把一个 store 快照编成 `stores/<store>.json` 的字节。 */
     fun encodeStore(snapshot: StoreSnapshot, base: String, suffix: String): String {
         val keys = snapshot.keys.entries.sortedBy { it.key }.map { (k, v) ->
             k to encodeValue(v, snapshot.writtenAt[k])
@@ -170,15 +157,8 @@ object ArchiveCodec {
         )
     }
 
-    // ── A10：`#written_at` 归一化（§5.2 第 5 条） ──
 
-    /**
-     * 把端内旁挂的 `<key>#written_at` 折进 [StoreSnapshot.writtenAt]，并把它从 [StoreSnapshot.keys]
-     * 里**去掉** —— 档案的 `keys` 里永不出现 `*#written_at`，该时间出现在 `at`（A10）。
-     *
-     * `#written_at` 的端内值是 long-as-string（§3.3），也可能是 `l`；解析不了就丢弃旁挂时间
-     * （TTL 是消费方的属性，不是数据的属性，§5.2 第 2 条）。
-     */
+    /** 把端内旁挂的 `<key>#written_at` 折进 [StoreSnapshot.writtenAt]，并把它从 [StoreSnapshot.keys] 里去掉——档案的 `keys` 里永不出现 `*#written_at`，该时间出现在 `at`。 */
     fun normalizeWrittenAt(rawName: String, rawKeys: Map<String, StoreValue>): StoreSnapshot {
         val keys = linkedMapOf<String, StoreValue>()
         val writtenAt = mutableMapOf<String, Long>()

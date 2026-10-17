@@ -4,9 +4,6 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
 
-// 原文件在 `app/src/test/java/com/xjtu/toolbox/faculty/FacultyApiTest.kt`，随 [FacultyApi] 一起搬进
-// `:data:jvmTest`（`normalizeHomepage` / `siteOf` 是 `internal`，模块边界挡着 ⇒ 测试跟着代码走）。
-// 断言逐条保留，只把 JUnit4 的注解/断言换成 `kotlin.test`（`:data` 的测试壳统一是这个）。
 class FacultyApiTest {
 
     @Test

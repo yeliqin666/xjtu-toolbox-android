@@ -21,28 +21,7 @@ import io.ktor.client.statement.bodyAsText
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonObject
 
-/**
- * 体测的 **campus-api 版取数**：给 Web 端用（Android 端走 `:app` 的 `FitnessApi`）。
- *
- * 与黄页/校历同一条理由：浏览器直连 `tyxylp.xjtu.edu.cn` 拿不到 CORS 头，
- * Web 的唯一数据路径是同源反代到 campus-api。上游是同一个体测系统
- * （campus-api 响应里的 `source` 字段），所以这里是「信封拆包 + 口径对齐」。
- *
- * ## 与 `:app` 端的**两处刻意差异**（都写在 `FitnessSource` 的 KDoc 里，这里给出处）
- *
- * 1. **姓名/学号拿不到**：campus-api 按隐私口径不投影这两个字段
- *    （`modules/fitness.js` 的 `parseScore` 只回 `score.studentYear/sex/grade` 那几项），
- *    所以 `studentName` / `studentNumber` 一律是空串；英雄卡会落到兜底文案「体测成绩」。
- * 2. **分项名两端必须同支**：campus-api 在 `sex` 缺失时给的是中性名
- *    （「力量（引体向上/仰卧起坐）」），而 `:app` 老实现是 `if (sex == "女") … else …` ⇒
- *    这里**不用** campus-api 给的名字，一律用共享的 [fitnessItemName] 重新定名，
- *    保证同一个人的同一项在两端叫同一个名字。（数据本身照 campus-api 给的用。）
- *
- * 「没成绩」与「未开放」两态的区分：campus-api 已经把上游的 `status:-4` 归一成
- * `reason:"year-not-open"`，这里映射成与 `:app` 同一句话给用户。
- *
- * @param baseUrl 留空 ⇒ 相对路径即**同源**（Web 端必须这样）。
- */
+/** 体测的 campus-api 版取数：给 Web 端用（Android 端走 `:app` 的 `FitnessApi`）。 */
 class CampusFitnessApi(
     private val client: HttpClient,
     private val baseUrl: String = "",
@@ -99,7 +78,6 @@ class CampusFitnessApi(
         }
 
         return FitnessScore(
-            // campus-api 不投影这两个字段（隐私口径），见 KDoc。
             studentNumber = "",
             studentName = "",
             totalScore = formatFitnessScore(score?.get("total").safeString()).ifBlank { "--" },
@@ -112,21 +90,7 @@ class CampusFitnessApi(
         )
     }
 
-    /**
-     * serve 模式（契约 §5.2）：**扁平的**一份
-     * `{studentNumber,studentName,totalScore,totalGrade,reportType,reportStatus,sex,grade,
-     *   items:[{name,value,grade,tone}]}`。
-     *
-     * 与旧路的两处**实质升级**（契约 §5 把体测标成「要改」的就是这两条）：
-     *  1. **姓名/学号有值了**：§5.2 的红线例外①把「本人数据」放行，而旧路那两行写死的空串是
-     *     campus-api 隐私口径造成的降级（见类 KDoc 第 1 条）⇒ 这里如实带上；
-     *  2. **分项不再按 key 重定名**：`:server` 投影的是 `:data` 已定好名的
-     *     [com.xjtu.toolbox.fitness.FitnessItem]（同一个 [fitnessItemName] 口径），所以用服务端给的名字 ——
-     *     旧路那条「按 sex 自己再推一遍」在新契约里没有输入（它不投影 key）。
-     *
-     * 「该学年没有成绩」在新契约里**是取数失败**（服务端给 `502` + 中文短句，由 `serveData` 抛出），
-     * 旧路那个 `hasScore:false` 分支在新形状里不存在 —— 不猜一个「暂无体测数据」出来。
-     */
+    /** serve 模式（契约 §5.2） */
     private suspend fun serveScore(yearNum: String): FitnessScore {
         val data = client.serveData("查询体测成绩", baseUrl, "/api/fitness/score", listOf("year" to yearNum))
         val items = data.arr("items").orEmpty().mapNotNull { element ->

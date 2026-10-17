@@ -14,32 +14,9 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import kotlinx.coroutines.test.runTest
 
-/**
- * serve 契约 §5.7（付款码 / 反馈 / WebVPN）的**客户端那一侧**。
- *
- * 为什么值得写：这三族是 2026-10-14 接进 `:web` 的（`server/…/PayRoutes.kt` 等三个路由文件），屏是
- * `:core` 的共享屏、取数是这三个新 `Campus*Api` —— 它们只能靠「真 `:server` + 真会话」在浏览器里
- * 验证，而这里用 MockEngine 喂**服务端实现出来的形状**（那些路由的 DTO 就是这些字段），把四件事
- * 钉死：
- *
- *  1. **错误信封的读法**：`code != 0` → 显示 `message`（不读旧路的 `msg`/`error`，不拿 HTTP 状态码分支）；
- *  2. **字段形状**：`barCode` 是一串字符串、券的五格、`replies` 是**数组**而 `public-qa` 的
- *     `items` 三条原文、`POST /api/webvpn/convert` 的请求体就是 `{url, direction}` 两个字段；
- *  3. **缺字段 / 缺端点不编造**：空白 `barCode` 抛错（不画一张空卡）、没有 `showCardId` 的行不列、
- *     `serverFlag` 如实留空串、归不到工单上的回复不列、`ticket` 空白不列、只问到的那些才回；
- *     两个写路径（提交反馈 / 勾选同步）都已端、方法真发一枪；
- *     「无法解析此 WebVPN 网址」），而 `401` 抛错 —— 不把「没登录」说成「网址格式不对」。
- *
- * 默认形态（[ApiMode.CAMPUS_API]）不由这里细管：这三族在 campus-api 里**没有**端点，最后一条用例
- * 钉的就是「非 serve 分支抛错，而不是悄悄返回一份空数据」。
- */
+/** serve 契约 §5.7（付款码 / 反馈 / WebVPN）的客户端那一侧。 */
 
-/**
- * 一发请求的快照：`路径 to 参数表`（与 `ServeReadonlyFourDomainsApiTest` 同一套读法；
- * 名字不与别的测试文件共用 —— `private typealias` 在同一个包里**仍会重名冲突**）。
- *
- * ⚠️ 类型别名只能放文件层（Kotlin 不支持类里嵌套 typealias）。
- */
+/** 一发请求的快照：`路径 to 参数表`（与 `ServeReadonlyFourDomainsApiTest` 同一套读法）。 */
 private typealias ServeCall = Pair<String, Map<String, String>>
 
 private val JSON_HEADERS = headersOf(HttpHeaders.ContentType to listOf("application/json"))
@@ -62,13 +39,7 @@ class ServePayFeedbackWebvpnApiTest {
             request.url.parameters.names().associateWith { request.url.parameters[it].orEmpty() }
     }
 
-    /**
-     * 付款码：`authenticate()` 在 serve 这一端是**本地什么都不做**（会话在服务端进程里，页面上没有
-     * 可看的东西）⇒ 它一发请求都不打；`barCode` 就是服务端端出来的那一串（**字符串**，不是数字）。
-     *
-     * 加餐券那一半同一条用例：五格逐一投影、`amountFen` 是**分**、`serverFlag` **不投影** ⇒ 空串，
-     * `showCardId` 为空的那一行不列；而勾选**已端**（`POST /api/pay/vouchers/select`，契约 §5.7）。
-     */
+    /** 付款码：`authenticate()` 在 serve 这一端是本地什么都不做（会话在服务端进程里，页面上没有可看的东西）⇒ 它一发请求都不打。 */
     @Test
     fun servePayCodeAndVouchersFollowContract() = runTest {
         val codeBody = """{"code":0,"data":{"barCode":"62123456789012345678"}}"""
@@ -125,12 +96,7 @@ class ServePayFeedbackWebvpnApiTest {
         )
     }
 
-    /**
-     * 付款码空了就**如实报错** —— `getBarCode()` 只在拿到非空那一串时才回来。
-     *
-     * 为什么这条要紧：屏拿到空串会画一张「只有框、没有码」的卡，用户对着它扫半天；而 §5.7 的
-     * `data.barCode` 是必填那一格，空了说明服务端 / 上游不对劲，不是「这次没有码」。
-     */
+    /** 付款码空了就报错。 */
     @Test
     fun servePayCodeRefusesToDrawAnEmptyCode() = runTest {
         val api = CampusPayApi(
@@ -145,11 +111,7 @@ class ServePayFeedbackWebvpnApiTest {
         )
     }
 
-    /**
-     * 失败时只读 `message`：`code != 0` 就是失败，`message` 是能直接给用户看的中文短句；
-     * 旧路的 `msg` / `error` 在新契约里**不存在**（读它们等于永远拿到空串）—— 所以夹具里故意
-     * 塞了一个 `msg`，断言它**没有**被读出来。
-     */
+    /** 失败时只读 `message`：`code != 0` 就是失败，`message` 是能直接给用户看的中文短句。 */
     @Test
     fun serveErrorsReadMessageOnly() = runTest {
         val engine = MockEngine {
@@ -165,11 +127,7 @@ class ServePayFeedbackWebvpnApiTest {
         assertFalse(failure.message!!.contains("旧路"), "不许读旧路的 msg 字段：${failure.message}")
     }
 
-    /**
-     * 反馈回复：`?tickets=` 去空白、去重、逗号分隔（顺序 = 请求给的先后）；响应里 `replies` 是**数组**，
-     * 本类把它收成 `工单号 → 回复`；**没人回过的工单不在响应里**（`count` = 真取到几条）⇒
-     * 本类如实只回那一张**小表**，屏上那句「处理中」就是它。
-     */
+    /** 反馈回复：`?tickets=` 去空白、去重、逗号分隔（顺序 = 请求给的先后） */
     @Test
     fun serveFeedbackRepliesFollowContract() = runTest {
         val repliesBody = """
@@ -221,10 +179,7 @@ class ServePayFeedbackWebvpnApiTest {
         assertTrue(api.canSubmit, "提交端了（POST /api/feedback/submit）⇒ 屏上那块表单照旧画")
     }
 
-    /**
-     * WebVPN 正向：请求体就是契约那**两个字段**（`direction=to_vpn`），响应里的地址原样交回；
-     * 已经是网关地址的输入由服务端原样返回（`:data` 的老口径，本层不改）—— 本类不自己判形状。
-     */
+    /** WebVPN 正向：请求体就是契约那两个字段（`direction=to_vpn`），响应里的地址原样交回。 */
     @Test
     fun serveWebVpnConvertsToVpnOverHttp() = runTest {
         val vpnUrl = "https://webvpn.xjtu.edu.cn/https/77726476706e69737468656265737421" +
@@ -248,15 +203,7 @@ class ServePayFeedbackWebvpnApiTest {
         )
     }
 
-    /**
-     * WebVPN 反向，两种失败**刻意分开**：
-     *
-     *  - `400`（不是网关地址 / 路径不成形）⇒ **如实返回 `null`**：契约 §5.7 明确这一档不是
-     *    `data:null`，屏自己那句「无法解析此 WebVPN 网址，请确认格式正确」说的正是这件事；
-     *  - `401`（令牌闸门）⇒ **抛错**，消息用服务端那句「请先登录」。把它也翻成 `null` 就是把
-     *    「没登录」说成「网址格式不对」—— 一句假话；
-     *  - 成功但 `data.url` 是空的 ⇒ 抛错（不编一个默认地址出来）。
-     */
+    /** WebVPN 反向，两种失败刻意分开。 */
     @Test
     fun serveWebVpnFromVpnKeepsFourHundredAndUnauthorizedApart() = runTest {
         val notGateway = """{"code":400,"message":"url 不是 WebVPN 网关地址：形如 https://webvpn.xjtu.edu.cn/..."}"""
@@ -287,11 +234,7 @@ class ServePayFeedbackWebvpnApiTest {
         assertFailsWith<IllegalStateException> { api.fromVpnUrl("empty") }
     }
 
-    /**
-     * 这三族在 campus-api 里**没有端点**（付款码走 `:data` 的 okhttp 借校园卡会话、反馈直连飞书、
-     * WebVPN 是本地的纯函数）⇒ 非 serve 分支抛错，**不许**悄悄返回一份空数据（那会把「形态不对」
-     * 说成「真没有」）。
-     */
+    /** 这三族在 campus-api 里没有端点（付款码走 `:data` 的 okhttp 借校园卡会话、反馈直连飞书、 WebVPN 是本地的纯函数） */
     @Test
     fun campusApiModeThrowsInsteadOfFakingEmptyData() = runTest {
         val engine = engineFor(
@@ -324,13 +267,7 @@ class ServePayFeedbackWebvpnApiTest {
         assertFailsWith<UnsupportedOperationException> { CampusWebVpnApi(client, "").toVpnUrl("https://a.b/") }
         assertFailsWith<UnsupportedOperationException> { CampusWebVpnApi(client, "").fromVpnUrl("https://a.b/") }
     }
-    /**
-     * 反馈提交（**写**）：请求体就是契约那五格（`ticket` / `category` / `content` / `contact` / `anonId`），
-     * `version` **不进请求体**（服务端拿自己那份 `Config` 顶）；`data.ticket` 是服务端收下的那个号。
-     *
-     * 两种失败都要**抛错**（不是静默成功）：`400`（形状不对）与 `502`（凭据没配全 / 上游故障）——
-     * 屏那一侧接的是「发送失败」那条降级文案，而 `message` 要原样读出来（便于排障）。
-     */
+    /** 反馈提交（写）：请求体就是契约那五格（`ticket` / `category` / `content` / `contact` / `anonId`），`version` 不进请求体（服务端拿自己那份 `Config` 顶）；`data.ticket` 是服务端收下的那个号。 */
     @Test
     fun serveFeedbackSubmitPostsFiveFieldsAndKeepsFailuresLoud() = runTest {
         val posted = mutableListOf<String>()

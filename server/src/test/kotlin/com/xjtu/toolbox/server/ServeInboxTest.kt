@@ -15,17 +15,7 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 
-/**
- * 消息收纳的契约测试（`GET /api/inbox`，四路聚合的投影）。
- *
- * 轻登录：先 `POST /api/session/login`（一网通办站点随登录链预热），`AppInboxSource.refresh`
- * 会打四个假上游域（消息 / 事务中心 / 预约 / 校车，`:testkit` 的 `YwtbFakeUpstream`）。
- *
- * **红线**：响应里只有收纳条目（本人数据），**不出现学号** —— 账号是会话里的
- * `AccountContext`，响应不回显它。
- *
- * 时间断言：`time`/`schoolFetchedAt` 是 ISO-8601 **带时区**的字符串（契约 §4，不是 epoch）。
- */
+/** 消息收纳的契约测试（`GET /api/inbox`，四路聚合的投影）。 */
 class ServeInboxTest {
 
     private var started: EmbeddedServer<CIOApplicationEngine, CIOApplicationEngine.Configuration>? = null
@@ -46,7 +36,7 @@ class ServeInboxTest {
         }
         started = server
 
-        // ── 未登录：也要走到「未登录」的如实失败（401 中文短句），不许 200 空数据 ──
+        // ── 未登录：401 中文短句，不许 200 空数据 ──
         val anonymous = http.get("/api/inbox")
         assertEquals(401, anonymous.statusCode())
         assertTrue(envelopeMessage(anonymous).orEmpty().any { it.code in 0x4e00..0x9fff }, "401 也要中文短句")

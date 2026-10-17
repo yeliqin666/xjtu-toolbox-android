@@ -37,25 +37,7 @@ import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 
-/**
- * `/api/agent/…` 的契约验收（`docs/api-contract.md` §5.11，D10 设计稿）。
- *
- * ## 它验的是哪一层
- *
- * `:core` / `:data` 各自测「循环 / 落盘 / 解析」；这里验**服务端怎么答**：十四个端点的逐字段形状、
- * 开门阶段的错误码（400 / 401 / 404 / 409 / 502）、SSE 的十一类事件，以及**红线**
- *（夹具里明明有一把 API Key，任何响应体 —— 含 SSE 的每一帧 —— 都不许出现它）。
- *
- * ## 手法与纪律
- *
- * - **真 socket**（CIO + JDK `java.net.http`）+ **真落盘**（`:data` 的三个 store，数据根指到临时目录）；
- * - **模型那一枪、拉型号那一枪、起标题那一枪都是夹具**（[FixtureTransport] / `models` / `generateTitle`
- *   三个槽位）：这一族**绝不许**在测试里真打第三方服务商（既没意义，也是花钱）；
- * - ⚠️ **每个用例第一件事是 [FakeCampusProxy.installFakeUpstreams]**：`ServeSession` 一构造就建
- *   `HttpClients.base`，而那个客户端在**建出来那一刻**把当时的 `ProxySelector` 与信任库抄走。
- *   本类按类名排在最前 ⇒ 少了这一步，**后面**那些测试类会拿到一个没装假上游的客户端而整批 401/502
- *  （同一条教训见 `ServeAccountsTest` 的 KDoc）。
- */
+/** `/api/agent/…` 的契约验收（`docs/api-contract.md` §5.11）。 */
 class ServeAgentTest {
 
     @AfterTest
@@ -64,10 +46,7 @@ class ServeAgentTest {
         AccountContext.activeAccountId = null
     }
 
-    /**
-     * 起一个只挂 `/api/agent*` 的真 serve（端口 0）+ 临时数据根，把夹具的配置 / 记忆 / 工具表 /
-     * 传输 / 起标题都塞进 [ServeAgent]，跑 [block]。
-     */
+    /** 起一个只挂 `/api/agent*` 的真 serve（端口 0）+ 临时数据根，把夹具的配置 / 记忆 / 工具表 / 传输 / 起标题都塞进 [ServeAgent]，跑 [block]。 */
     private fun withAgentServer(
         config: AgentConfig? = null,
         memory: List<Pair<String, String>> = emptyList(),
@@ -93,8 +72,6 @@ class ServeAgentTest {
         )
         memory.forEach { memoryStore.remember(it.first, it.second) }
 
-        // 与生产同一条装配（`ServeAgent.forServe`）：非敏感半走 0600 文件、密钥半套凭据保护器
-        // （Linux / macOS 上没有保护器 ⇒ 与今天逐字相同）。
         val configStore = AgentConfigStore(
             plainStoreOf = { secureKeyValueStore(it) },
             secureStoreOf = { suffix ->
@@ -143,7 +120,7 @@ class ServeAgentTest {
         wipeSecureStore(AgentMemory.STORE)
     }
 
-    /** 断言一串响应体里没有那把夹具的 Key（红线 §5.11）：**不是掩码，是根本不出现**。 */
+    /** 断言响应体里根本不出现那把夹具 Key（不是掩码）。 */
     private fun assertNoKey(body: String, where: String) {
         assert(!body.contains(AgentFixture.FAKE_API_KEY)) { "$where 的响应体里不该出现 API Key" }
     }
@@ -159,10 +136,7 @@ class ServeAgentTest {
 
     // ── 1 / 2. 读配置、写配置 ────────────────────────────────────────────────
 
-    /**
-     * 没配过 key 的部署：逐字段如实（空型号 → 真发出去的是服务商默认那个、`keyConfigured:false`、
-     * `toolAllowlist` 就是夹具工具表里那一个、`honored` 空集），并且**没令牌仍是 401**。
-     */
+    /** 没配过 key 的部署：逐字段如实（空型号→ 真发出去的是服务商默认那个、`keyConfigured:false`、`toolAllowlist` 就是夹具工具表里那一个、`honored` 空集），并且没令牌仍是 401。 */
     @Test
     fun configReportsHonestDefaultsAndTheGateStillApplies() {
         withAgentServer { h ->
@@ -192,10 +166,7 @@ class ServeAgentTest {
         }
     }
 
-    /**
-     * 写配置再读回来：逐字段对得上、`keyConfigured` 翻 true，而**两边的响应体里都没有那把 key**
-     * —— 并且它是真被写进密文存储的那一份（夹具里明明有它，不是「没有所以不出现」）。
-     */
+    /** 写配置再读回来：字段对得上、`keyConfigured` 为 true，响应体里都没有 key。 */
     @Test
     fun writingConfigRoundTripsAndNeverProjectsTheKey() {
         withAgentServer { h ->
@@ -240,10 +211,7 @@ class ServeAgentTest {
         }
     }
 
-    /**
-     * 认不出的取值一律 400 + 说清（**不静默落回**），且**一个字段都不落盘**；
-     * `apiKey` 不给 = 保留原来那一把；显式给空串 = 清掉。
-     */
+    /** 认不出的取值一律 400 且不落盘；`apiKey` 不给 = 保留原值，给空串 = 清掉。 */
     @Test
     fun writingConfigRejectsUnknownValuesAndTreatsApiKeyAsOptional() {
         withAgentServer { h ->
@@ -293,10 +261,7 @@ class ServeAgentTest {
 
     // ── 3. 拉模型列表 ────────────────────────────────────────────────────────
 
-    /**
-     * **没配 key ⇒ 409 + 指路文案，而且一个请求都不打出去**（夹具那一枪的计数为 0）。
-     * 这是工单拍板的那一条：不许静默失败。
-     */
+    /** 没配 key ⇒ 409 + 指路文案，而且一个请求都不打出去（夹具那一枪的计数为 0）。 */
     @Test
     fun modelsWithoutKeySaysSoExplicitlyAndCallsNothing() {
         var called = 0
@@ -315,7 +280,7 @@ class ServeAgentTest {
         }
     }
 
-    /** 配了 key：型号列表逐字段照夹具给的回；服务商 / 网络失败 ⇒ 502 + 服务商原文。 */
+    /** 配了 key：型号列表照夹具回；服务商 / 网络失败 ⇒ 502 + 服务商原文。 */
     @Test
     fun modelsReturnsTheProvidersListAndMapsFailuresToBadGateway() {
         var seen: AgentConfig? = null
@@ -361,7 +326,6 @@ class ServeAgentTest {
             assertEquals(AgentFixture.DEFAULT_SESSION_TITLE, first.optString("title"))
             assertEquals(false, first.optBoolean("locked"))
             assertTrue(first.optString("id")!!.isNotBlank())
-            // epoch 毫秒（**有意**偏离 §4 的 ISO 口径：那是 `:core` 模型的 Long 字段，见契约 §5.11）
             assertEquals(first.optLong("createdAt"), first.optLong("updatedAt"))
             assertTrue(first.optLong("createdAt")!! > 0)
 
@@ -461,7 +425,7 @@ class ServeAgentTest {
         }
     }
 
-    /** 忘掉一条：`message` 是 store 的原话、`ok` 如实说这条到底有没有；清空之后一条不剩。 */
+    /** 忘掉一条：`message` 是 store 原话、`ok` 说这条有没有；清空之后一条不剩。 */
     @Test
     fun forgettingAndClearingMemoryIsHonest() {
         withAgentServer(memory = listOf(AgentFixture.MEMORY_KEY to AgentFixture.MEMORY_VALUE)) { h ->
@@ -518,10 +482,7 @@ class ServeAgentTest {
         }
     }
 
-    /**
-     * 一轮正常对话：`delta`（逐段，不是一次给全）→ `usage` → `widget` → `nav` → `done`，
-     * 且**每一帧里都没有那把 key**；结束后那条会话的内容也落了盘。
-     */
+    /** 一轮正常对话：`delta`（逐段，不是一次给全）→ `usage` → `widget` → `nav` → `done`，且每一帧里都没有那把 key。 */
     @Test
     fun chatStreamsDeltasUsageAndDoneAndPersistsTheTurn() {
         withAgentServer(config = configuredConfig()) { h ->
@@ -548,7 +509,6 @@ class ServeAgentTest {
             assertEquals(false, done.optBoolean("contextExhausted"))
             assertEquals(AgentFixture.TOTAL_TOKENS, done.optLong("totalTokens"))
 
-            // 落盘：两条消息（用户 + 助手）；跑完之后 status 如实说没有在跑
             val convo = envelopeData(h.get(agentSessionPath(id))).getValue("conversation").jsonObject
             val messages = convo.arrOf("messages").map { it.jsonObject }
             assertEquals(listOf("user", "assistant"), messages.map { it.optString("role") })
@@ -562,10 +522,7 @@ class ServeAgentTest {
         }
     }
 
-    /**
-     * 思维链与工具那一族：`reasoning` / `tool_call` / `tool_result` 三帧 + 工具行落盘成「已查询课表」
-     * + `nav` 给出跳转建议 —— 工具名用的是**真名字** `get_schedule`，验的就是那两张共享表。
-     */
+    /** 思维链与工具那一族：`reasoning` / `tool_call` / `tool_result` 三帧 + 工具行落盘成「已查询课表」 + `nav` 给出跳转建议——工具名用的是真名字 `get_schedule`，验的就是那两张共享表。 */
     @Test
     fun chatEmitsToolAndReasoningFramesWithTheSharedLabels() {
         val transport = FixtureTransport(
@@ -682,10 +639,7 @@ class ServeAgentTest {
         }
     }
 
-    /**
-     * 同时只允许一轮：第一轮还挂着时第二发拿 409（Android 是静默忽略，这里有意更清楚）；
-     * `GET /api/agent/status` 在跑的时候如实报是哪个会话。
-     */
+    /** 同时只允许一轮：第一轮还挂着时第二发拿 409（Android 是静默忽略，这里有意更清楚） */
     @Test
     fun chatIsBusyWhileATurnIsRunning() {
         val hold = CompletableDeferred<Unit>()
@@ -712,10 +666,7 @@ class ServeAgentTest {
         }
     }
 
-    /**
-     * 停止那一发：`POST /api/agent/stop` 幂等（没有在跑也 200，`ok` 如实说没停到）；
-     * 真停掉时流**干净地结束**（没有 done 也没有 error）、落盘末尾写「（已停止）」。
-     */
+    /** `POST /api/agent/stop` 幂等（没在跑也 200，`ok` 为 false） */
     @Test
     fun stoppingEndsTheStreamCleanlyAndMarksTheTurn() {
         val hold = CompletableDeferred<Unit>()
@@ -833,7 +784,7 @@ class ServeAgentTest {
         }
     }
 
-    /** 没人问的时候 status 如实说空；没实现的那条路径仍走尾卡兜底 404。 */
+    /** 没人问时 status 为空；未实现路径走 404 兜底。 */
     @Test
     fun statusDefaultsToIdleAndUnknownAgentPathsAre404() {
         withAgentServer { h ->
@@ -848,16 +799,7 @@ class ServeAgentTest {
 
     // ── 生产装配（`forServe`）本身 ───────────────────────────────────────────
 
-    /**
-     * `ServeAgent.forServe` 那一份装配真的可用，而且落的**就是那两份文件**（store 名与账号后缀按
-     * `docs/storage-layout.md` §2/§3 与设计稿 §5.1）。
-     *
-     * 这条用例存在的理由：其余用例用的都是测试自己拼的那份装配（为了塞夹具），如果只靠它们，
-     * 生产那一行（`plainStoreOf` / `secureStoreOf` / 记忆两份）就没有任何用例真走过。
-     *
-     * 另一条要钉的实事：**未登录时账号后缀是 `default`（无前导下划线）** —— 设计稿里叫「缺口 B」，
-     * 它直接决定文件名（`agent_config_secure_default.properties`，而不是 `agent_config_secure_.properties`）。
-     */
+    /** `ServeAgent.forServe` 的装配真的可用，且落的就是那两份文件。 */
     @Test
     fun forServeWiringUsesTheProductionStoresAndTheDefaultAccountSuffix() {
         FakeCampusProxy.installFakeUpstreams()
@@ -880,10 +822,7 @@ class ServeAgentTest {
 
             agent.saveConfig(AgentConfig(apiKey = AgentFixture.FAKE_API_KEY, model = AgentFixture.MODEL))
             assertEquals(true, agent.keyConfigured())
-            // 真落在**当前数据根**里的两份文件（0600 properties），不是进程内存。
-            // ⚠️ 文件名是 `agent_config_secure` + 后缀拼出来的：登录后后缀是 `_2253…`（带下划线），
-            //    匿名时是 `default`（**无前导下划线**）⇒ 匿名那份叫 `agent_config_securedefault.properties`。
-            //    这就是设计稿 §0 「缺口 B」那条口径的落点（本用例把它钉住）。
+            // ⚠️ 匿名时后缀是 `default`（无前导下划线）⇒ 文件名是 `agent_config_securedefault.properties`。
             assertTrue(
                 Files.exists(root.toPath().resolve("agent_config_securedefault.properties")),
                 "临时根里应该是 [${root.list()?.joinToString()}]",
@@ -1005,12 +944,7 @@ class ServeAgentTest {
         val failWith: Throwable? = null,
     )
 
-    /**
-     * 夹具的「发一次请求」：按剧本一枪一枪地回（第 N 次 `stream` 用第 N 个 [Step]）。
-     *
-     * @param hold 非 null 时每一枪先挂在这里等 —— 用来把一轮**按住在半路**
-     *（验并发 409 / 停止 / MFA / 保活那几条）。
-     */
+    /** 夹具的「发一次请求」：按剧本一枪一枪地回（第 N 次 `stream` 用第 N 个 [Step]）。 */
     private class FixtureTransport(
         private val steps: List<Step>,
         private val hold: CompletableDeferred<Unit>? = null,
@@ -1045,7 +979,7 @@ class ServeAgentTest {
         private val fail: Boolean = false,
     ) : AgentTools {
 
-        /** 纯本地工具 ⇒ 不限流（照 `AgentTools.rateLimitKeyOf` 的口径：null = 不需要间隔）。 */
+        /** 纯本地工具 ⇒ 不限流。 */
         override fun rateLimitKeyOf(toolName: String): String? = null
 
         override val toolDefinitions: String =

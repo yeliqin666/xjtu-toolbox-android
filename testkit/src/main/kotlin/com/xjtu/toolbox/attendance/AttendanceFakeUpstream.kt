@@ -3,52 +3,7 @@ package com.xjtu.toolbox.attendance
 import com.sun.net.httpserver.HttpExchange
 import java.util.concurrent.atomic.AtomicInteger
 
-/**
- * 假的**考勤系统**（`bk-kq.xjtu.edu.cn/sa`，本科生业务站）。
- *
- * ## 它扮的是哪条链
- *
- * 与 [`AttendanceLogin`](com.xjtu.toolbox.auth.AttendanceLogin) + [`AttendanceSession`](com.xjtu.toolbox.auth.AttendanceSession)
- * 一起，把**搬进 `:data` 之后**的登录与取数原样演一遍（第 16 条真数据路由）。账号类型已知
- *（桌面端默认本科生）⇒ 登录直接打业务站，跳过门户那三次往返：
- *
- * ```
- * GET  https://bk-kq.xjtu.edu.cn/sa/auth/cas/login/student-pc
- *       → 302 http://login.xjtu.edu.cn/cas/login?service=<上面的入口>（登录页在 LibraryFakeUpstream 那半台 CAS 里）
- * POST http://login.xjtu.edu.cn/cas/login?service=… → 种 TGC → 302 回入口?ticket=ST-n
- * GET  https://bk-kq.xjtu.edu.cn/sa/auth/cas/login/student-pc?ticket=ST-n
- *       → 302 https://bk-kq.xjtu.edu.cn/sa/auth/cas/login/student-pc?loginRequestId=REQ-fake-1&ticket=ST-n
- *          （`AttendanceLogin.consumeLanding` 要两个参数齐了才去换票；真站点就是回调带这两样）
- * POST https://bk-kq.xjtu.edu.cn/sa/auth/cas/exchange   {"loginRequestId":…,"ticket":…}
- *       → {"code":0,"data":{"tokenValue":"KQ-假-business-token"}}（`onLoginSuccess` 把它存进 localToken）
- * GET  https://bk-kq.xjtu.edu.cn/sa/student/home          → 探活（validateLogin）
- * GET  /sa/student/profile /service/timetable/semesters /student/pc/home/attendance-statistics
- * POST /sa/student/pc/attendance-records/page /student/pc/attendance-streams/page
- * GET/POST /sa/student/leaves/…（窗口 / 流程预览 / 分页 / 附件上传 / 提交 / 撤回 / 销假）
- * ```
- *
- * ## 直连业务站登录（本夹具只演这一条）
- *
- * 账号类型已知 → `AttendanceLogin.entryUrlFor` 直接打业务站（这里是本科生那一套）。若登录失败，
- * `postLogin` 会退回门户流程（`kq.xjtu.edu.cn`）—— 本夹具**没有**门户那一面，真回退会 404
- *（夹具要钉的正是「直连业务站用对了」：本科生账号不该再走门户）。
- *
- * ## 写路径做成可以断言的
- *
- * 请假提交 / 撤回 / 销假 / 附件上传都是**写路径**，但它们是这条路由的验收面（桌面上「请假」那
- * 一栏要能提交）—— 不像场馆/评教那样刻意留空，而是回固定成功并把请求体记下来供断言
- *（夹具值全是编造的，不会真的在谁那里请上假）。
- *
- * ## 头部口径
- *
- * 业务请求必须带 `X-Business-Token`（`AttendanceSession.decorateRequest`）+ `X-System: WEB`
- *（网页端同款）—— 缺一个，请求会落在「没有业务令牌」那条路上；夹具把最后一批头记下来供钉。
- *
- * ## 夹具值全是编造的
- *
- * 姓名「示例同学（假）」、课名「光电子学（假）」、学期 646 —— 与 `LibraryFakeUpstream.USERNAME`
- * 一致只是为了让同一个假账号贯穿几条链。
- */
+/** 假的考勤系统（`bk-kq.xjtu.edu.cn/sa`，本科生业务站）。 */
 class AttendanceFakeUpstream {
 
     companion object {
@@ -85,17 +40,10 @@ class AttendanceFakeUpstream {
         const val LEAVE_ID = "L-假-0001"
         const val LEAVE_REASON = "发烧（假样例）"
 
-        /**
-         * 请假流程预览里那位审批人的**姓名**（编造）。`leave/preview` 的 `name` 格按契约 §5.2 的
-         * 例外④**真投影**（2026-10-15 上一级拍板）—— 契约测试拿它当钉子。
-         */
+        /** 请假流程预览里那位审批人的姓名（编造）。 */
         const val LEAVE_APPROVER_NAME = "辅导员甲（假）"
 
-        /**
-         * 请假单里那节课的**任课教师姓名**（编造；与考勤流水那条 `TEACHER_NAME` 是两个不同的人）。
-         * `leave/records` 的 `courses[].teacherNames` 按契约 §5.2 的例外④**真投影** ——
-         * 契约测试拿它当钉子（流水那一格的 `TEACHER_NAME` 仍然不许出现）。
-         */
+        /** 请假单里那节课的任课教师姓名（编造；与考勤流水那条 `TEACHER_NAME` 是两个不同的人）。 */
         const val LEAVE_COURSE_TEACHER = "李四（假）"
 
         const val EVIDENCE_ID = "E-假-0001"
@@ -104,13 +52,7 @@ class AttendanceFakeUpstream {
         const val LEAVE_CREATE_REJECTED_MSG = "当前不在可请假时段（夹具）"
     }
 
-    /**
-     * 打开后：提交请假那一发回 `{"code":500,"message":…}`（HTTP 仍是 200）—— 演「到了上游、
-     * 上游说不给提」（比如不在可请假时段 / 审批人已失效）。
-     *
-     * `KqHttp.execute` 看的是 JSON 里那个 `code`（不是 HTTP 码）⇒ 它抛成 `RuntimeException(message)`
-     * ⇒ serve 那一层按 502 报。
-     */
+    /** 打开后：提交请假那一发回 `{"code":500,"message":…}`（HTTP 仍是 200） */
     @Volatile
     var leaveCreateRejected: Boolean = false
 

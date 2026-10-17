@@ -8,10 +8,6 @@ import kotlinx.datetime.LocalTime
  * 西安交通大学作息时间表
  * 冬季（10月-次年4月）和夏季（5月-9月）时间不同
  * 移植自 XJTUToolBox 的 xjtu_time.py
- *
- * 从 :app 搬进 commonMain 时只做了一件事：`java.time.LocalTime/LocalDate` 换成
- * `kotlinx-datetime`，取值逐条不变（两套作息表的每一行都照抄）。这样课表网格、Agent、
- * 小部件、Web 端算的是同一份作息 —— 交接文档把它列成第一刀的理由正在于此。
  */
 object XjtuTime {
 

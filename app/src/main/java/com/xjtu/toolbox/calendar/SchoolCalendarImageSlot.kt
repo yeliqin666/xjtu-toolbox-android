@@ -11,16 +11,7 @@ import com.xjtu.toolbox.util.redactUrl
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
-/**
- * 校历屏的**原图槽**（平台能力）—— 粘到 `:core` 的 [SchoolCalendarScreen] 上的那一半。
- *
- * 为什么要有它：共享屏知道「该画哪一年的校历原图、画在流程里的哪个位置」，但把一张 4600×2000
- * 的原图变成屏幕上能缩放的大图，是平台的事（Android = `BitmapFactory` + 那套缓存/保存逻辑，
- * Web 会是 Coil）。所以屏幕留一个 `@Composable (selectedYear) -> Unit` 的槽，`:app` 把原来
- * **一模一样**的实现挂上去 —— `SchoolCalendarImageApi`（教务处页面解析 + cacheDir 缓存）、
- * `decodeCalendarBitmap`（按目标尺寸采样）、`SchoolCalendarImageCard`、`SchoolCalendarImageViewer`
- * 全部保持原样，**行为与搬迁前逐字一致**。
- */
+/** 校历屏的原图槽（平台能力）—— 粘到 `:core` 的 [SchoolCalendarScreen] 上的那一半。 */
 @Composable
 fun AppSchoolCalendarImage(selectedYear: String?) {
     val context = LocalContext.current

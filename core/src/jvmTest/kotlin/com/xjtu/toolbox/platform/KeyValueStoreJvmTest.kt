@@ -7,17 +7,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
-/**
- * S0（桌面落盘 0 号前置）的守卫：`keyValueStore(name)` 的 jvm actual 从「进程内内存」改成「真落盘」后，
- * 钉住三条 ——
- *  1. **真的落盘了**：写进去之后，用 [newJvmFileKeyValueStore] 开一个**第二实例**（不查 memo）能读回同一批值；
- *  2. 文件权限是 `0600`（与密文存储同一套口径）；
- *  3. **同名 store 不得同时以 plain 与 secure 打开**：两边现在都写 `<根>/<name>.properties`，
- *     同名 = 互相覆盖。这里把桌面这一族 plain / secure 的**基础名**各列一份，断言无交集（显式报错，不静默）。
- *
- * 隔离口径：每条用例各指一个临时根（[keyValueStoreRootOverride]），互不污染；`finally` 里复位，
- * 其余用例靠 Gradle 注入的 `xjtu.toolbox.keyValueRoot` 系统属性兜底。
- */
+/** `keyValueStore(name)` 的 jvm actual 真落盘的守卫。 */
 class KeyValueStoreJvmTest {
 
     private fun withTempRoot(block: (File) -> Unit) {
@@ -53,9 +43,7 @@ class KeyValueStoreJvmTest {
 
         val file = File(root, "$name.properties")
         assertTrue(file.exists(), "应当真的在临时根里写出 $name.properties")
-        // 0600：本用户可读可写，其余位全部为 0。POSIX 上直接断言；Windows 上 setPosixFilePermissions
-        // 会抛 UnsupportedOperationException（那一步在 persist() 里是 runCatching 降级），所以这里
-        // 只在能读到权限时才断言。
+        // 0600 只在能读到权限时断言：Windows 上 setPosixFilePermissions 抛 UnsupportedOperationException。
         runCatching {
             val perms = Files.getPosixFilePermissions(file.toPath())
             assertEquals(
@@ -67,8 +55,7 @@ class KeyValueStoreJvmTest {
 
     @Test
     fun `同名 store 不得同时以 plain 与 secure 打开`() {
-        // 基础名（去掉账号后缀）。两份清单的真源是 `docs/storage-layout.md` §3.2 与 grep 到的实际调用点；
-        // 今天（S0）核实过无交集 —— 一旦有人把某个 store 换成另一条缝，这条会响亮地失败而不是静默覆盖。
+        // 两份清单必须无交集：有人把某个 store 换到另一条缝时这里会失败而不是静默覆盖。
         val plainStoreNames = setOf(
             "venue_favorites",
             "library_favorites",

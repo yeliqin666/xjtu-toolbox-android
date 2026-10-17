@@ -49,8 +49,6 @@ fun currentWindowSize(): WindowSize {
 @Composable
 fun calculateIsWideLayout(): Boolean {
     val windowInfo = LocalWindowInfo.current
-    // 唯一一行 Android 专属的判断，已抽成平台切口（见 :core 的 platform/SmallestScreenWidth.kt）：
-    // Android 读 Configuration 的真值（行为与搬迁前逐字一致），其他端用窗口短边近似。
     if (smallestScreenWidthDp() < 600) return false
     return with(LocalDensity.current) {
         val widthDp = windowInfo.containerSize.width.toDp()

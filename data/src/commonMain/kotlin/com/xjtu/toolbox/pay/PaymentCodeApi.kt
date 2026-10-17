@@ -30,15 +30,6 @@ import okhttp3.RequestBody.Companion.toRequestBody
  *   - synjones-auth: bearer <JWT>  （由 CampusCardLogin 登录后持有）
  *   - synAccessSource: h5
  *   - Referer: https://ncard.xjtu.edu.cn/plat/pay?lite=1&payacc=000&payid=0
- * 从 `:app` 的 `pay/PaymentCodeApi.kt` **同包同名搬进 `:data`**（付款码这条真数据路由）。
- * 三处改动：
- *  1. `android.util.Log` → `:core` 的 `platform.Log`（三端同一份日志缝）；
- *  2. 模型 `PaymentVoucher` 切出去住 `:core`（屏要用它，而 `:core` 看不见 `:data`）；
- *  3. 实现 `:core` 的取数端口 [com.xjtu.toolbox.pay.PaymentCodeSource] —— Android 与桌面
- *     两端都直接拿这个类当端口，取数只有这一份。
- *
- * 取数形状一行未改：三段 URL、三段 header、`success`/`data`/`barCodeVo`/`barcode` 的取值口径、
- * 加餐券那份字段映射，以及 `executeWithReAuth`（okhttp 那一半本来就在 `:data` 的会话内核里）。
  */
 class PaymentCodeApi(private val site: SiteSession) : PaymentCodeSource {
 

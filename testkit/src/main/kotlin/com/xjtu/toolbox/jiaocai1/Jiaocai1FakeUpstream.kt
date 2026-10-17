@@ -11,40 +11,7 @@ import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicInteger
 import javax.imageio.ImageIO
 
-/**
- * 假的**教材全文库**上游（`jiaocai1.lib.xjtu.edu.cn`，第 22 批真数据路由里 `jiaocai1` 那一条）。
- *
- * ## 它扮的是哪条链（两个域名，一个夹具）
- *
- * ```
- * GET  https://jiaocai.lib.xjtu.edu.cn/entry/login →（无会话）302 http://login.xjtu.edu.cn/cas/login?service=…（登录页那半台在 LibraryFakeUpstream）
- * POST http://login.xjtu.edu.cn/cas/login?service=… → 种 TGC → 302 回 https://jiaocai.lib.xjtu.edu.cn/entry/login?ticket=ST-n
- * GET  https://jiaocai.lib.xjtu.edu.cn/entry/login?ticket=ST-n → 200 + Set-Cookie SESSION（教材中心的会话落下来）
- *      ── 以上是 `JiaocaiLogin`（借统一认证，入口是 /entry/login → CAS → 超星 SSO）
- *
- * GET  https://jiaocai1.lib.xjtu.edu.cn/front/book/search/index →（无会话）200 + 一张**只有一行 `var logoutUrl=…` 的跳转页**
- * GET  https://jiaocai1.lib.xjtu.edu.cn/front/user/portalLogin → 种会话 cookie，返回不带 logoutUrl 的页面（登录链到此走完）
- *      ── 以上两跳由 `:data` 的 `Jiaocai1Api.fetch` + `PortalRedirect` 自己跟（OkHttp 不跑 JS）
- *
- * GET  https://jiaocai1.lib.xjtu.edu.cn/front/classify/info?channeltype=100 → {"classifyList":[…]}
- * POST https://jiaocai1.lib.xjtu.edu.cn/front/book/search/index               → 检索结果 HTML
- * GET  https://jiaocai1.lib.xjtu.edu.cn/front/reader/goRead?ssno=…&jpgread=1  → reader.shtml（jpgPath / pages / bookPages / title）
- * GET  https://jiaocai1.lib.xjtu.edu.cn/jpath/<jpgPath><fileName>.jpg?zoom=0  → 一页 **程序生成的 JPEG**
- * ```
- *
- * ## 页图是程序生成的小图（不是截图、不是真人资料）
- *
- * 每一页都现场画：白底、居中一行大字（页型名 + 页号）、右下角一行小字（`示例教材`）。
- * 700×1050 与真站点的扫描页同比例，但字节只有几十 KB —— 阅读器那几屏的证据图既能看出
- * 「页真的解出来并画上去了」，又不用往仓库里塞真书的扫描件（红线：夹具不许真人数据）。
- * 生成结果按文件名缓存（同一个进程里同一页只画一次）。
- *
- * ## 统一认证那一半为什么不在这个文件里
- *
- * `login.xjtu.edu.cn` 是所有站点共用的一台 CAS，`FakeCampusProxy` 把它分派给
- * [LibraryFakeUpstream]（它会给任意 `service=` 签票）；本夹具只负责两个 jiaocai 域名上
- * 「CAS 回跳之后」的那一段。
- */
+/** 假的教材全文库上游（`jiaocai1.lib.xjtu.edu.cn`）。 */
 class Jiaocai1FakeUpstream {
 
     companion object {
@@ -149,7 +116,7 @@ class Jiaocai1FakeUpstream {
     /** 检索被 POST 了几次。 */
     val searchCalls = AtomicInteger(0)
 
-    /** 最近一次检索表单的请求体（断言字段口径用）。 */
+    /** 最近一次检索表单的请求体。 */
     @Volatile
     var lastSearchBody: String? = null
 
@@ -178,9 +145,6 @@ class Jiaocai1FakeUpstream {
                     redirect(exchange, casLogin("https://$JIAOCAI_HOST$path"))
                 }
             }
-            // 「查教材」栏那两个端点（`JiaocaiApi`）：检索与书目详情。
-            // 真站点上它们也受同一套 JS 跳转登录链保护 ⇒ 会话没建立时同样只发一张跳转页；
-            // 登录链跑完后（CAS 已种下会话 cookie）重新发原始请求就能拿到数据。
             path == "/engine2/search/search-list" -> {
                 if (SESSION_COOKIE in cookie) {
                     jiaocaiSearchCalls.incrementAndGet()
@@ -237,9 +201,7 @@ class Jiaocai1FakeUpstream {
                 searchCalls.incrementAndGet()
                 val raw = exchange.requestBody.readBytes().toString(Charsets.UTF_8)
                 lastSearchBody = raw
-                // 夹具认一个「查不到」的关键词，好让用例钉住「没有匹配的书目」那一屏；
-                // 第二页（`cpage=2`）另给一本下限，这样「加载更多」那一发不会拉回同一条 ssno
-                //（屏上 `items(books, key = { it.ssno })` 会因重键报错）。
+                // 认一个「查不到」的关键词；第二页另给一本，避免 `key = { it.ssno }` 重键。
                 val miss = formValue(raw, "sw") == MISS_KEYWORD
                 val page = formValue(raw, "cpage")?.toIntOrNull() ?: 1
                 respond(
@@ -268,11 +230,7 @@ class Jiaocai1FakeUpstream {
         }
     }
 
-    /** 跳转页：内容形状照真站点（只有一行 `var logoutUrl = "…"`，路径带转义的 `/`）。
-     *
-     * 两个域名共用一张形状 —— 教材中心那边业务接口的跳转页也指向全文库的 `portalLogin`
-     * （真站点上它就是同一个门户），所以 `PortalRedirect.follow` 那一套在这边一样能跑完。
-     */
+    /** 跳转页：内容形状照真站点（只有一行 `var logoutUrl = "…"`，路径带转义的 `/`）。 */
     private fun jumpPage(): String = """
         <html><head><script>
         var logoutUrl = "https:\/\/$JIAOCAI1_HOST\/front\/user\/portalLogin?channel=$CHANNEL";
@@ -285,11 +243,7 @@ class Jiaocai1FakeUpstream {
         respond(exchange, 200, "text/html; charset=utf-8", jumpPage().toByteArray())
     }
 
-    /**
-     * `search-list` 的响应，形状照真站点：一行书目在 `data.dataList` 里，`content` 是
-     * `<br>` 分行的富文本 —— 里面**没有** `<a>`，只有「获取方式一：本地全文」这句文字
-     * （与真站一致：链接与 ssno 得进详情才拿得到，见 `JiaocaiApi.fetchSsno`）。
-     */
+    /** `search-list` 的响应，形状照真站点：一行书目在 `data.dataList` 里，`content` 是`<br>` 分行的富文本。 */
     private fun searchListJson(): String = """
         {"data":{"dataList":[{
           "id":"general_55258665",
@@ -387,10 +341,7 @@ class Jiaocai1FakeUpstream {
             out.toByteArray()
         }
     }
-    /**
-     * 画一页（程序生成，不是截图）：白底 + 居中的页型/页号大字 + 右下角一行小字。
-     * 同一个文件名只画一次。
-     */
+    /** 画一页（程序生成，不是截图）：白底 + 居中的页型/页号大字 + 右下角一行小字。 */
     private fun pageJpeg(fileName: String): ByteArray = pageCache.computeIfAbsent(fileName) { name ->
         val image = BufferedImage(PAGE_WIDTH, PAGE_HEIGHT, BufferedImage.TYPE_INT_RGB)
         val g = image.createGraphics()

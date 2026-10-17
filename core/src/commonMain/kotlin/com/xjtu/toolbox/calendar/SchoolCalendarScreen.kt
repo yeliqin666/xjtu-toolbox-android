@@ -69,25 +69,13 @@ import top.yukonga.miuix.kmp.basic.TopAppBar
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 /**
- * 校历屏 —— 从 `:app/calendar/SchoolCalendarScreen.kt` 搬进 `:core`。
+ * 校历屏。
  *
  * 「完全一致」里最容易做到真一致的一屏：模型（[SchoolTerm]/[CalendarEvent]）与全部换算
  * （进度、周次、剩余天数）都在共享层，**两端跑同一份代码同一份算法**，只有取数实现不同
  * （见 [SchoolCalendarSource]）。
  *
- * 搬迁时被替换掉的四处 Android 专属写法（其余逐字保留）：
- *  1. `java.time.LocalDate.now()` → [todayInSystemZone]；
- *  2. `DateTimeFormatter.ofPattern("yyyy年M月d日 EEEE")` / `"MM/dd"` / `"M月d日"` →
- *     本文件底部的三个手写格式化函数（`kotlinx-datetime` 0.8 虽带 format API，但 `EEEE`
- *     这种**本地化**字段要自己给星期名表，手写更短且口径可读）；
- *  3. `"%.0f%%".format(...)`（`String.format` 是 JVM 专属）→ [percent0] / [int0]；
- *  4. `android.graphics.Color.parseColor` → `:core` 的 [CourseColors.parseHex]（同一套
- *     `#RRGGBB` 口径，解析失败同样回退主题色）。
- *
- * @param calendarImage 学年校历原图的展示槽（**平台能力**）：`:core` 决定「显示在哪、什么时候
- *   显示」，把「把字节变成一张能缩放的大图」留给宿主 —— `:app` 传的是原来那套
- *   `SchoolCalendarImageApi`（okhttp+BitmapFactory）+ `SchoolCalendarImageViewer`，
- *   **行为与搬迁前逐字一致**；Web 传一个 Coil 版（或 null = 这一端没有原图能力）。
+ * @param calendarImage 学年校历原图的展示槽（平台能力，null = 本端没有原图）；
  *   槽的实现方自己知道该画哪一年的图（参数就是当前选中学期的 `yearName`）。
  */
 @Composable

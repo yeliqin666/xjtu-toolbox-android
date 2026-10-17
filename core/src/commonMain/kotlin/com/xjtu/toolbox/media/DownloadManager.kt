@@ -17,40 +17,15 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withLock
 
-/** 并发上限：最多同时下载 3 个（搬迁前的 `Semaphore(3)`，不改）。 */
+/** 并发上限：最多同时下载 3 个。 */
 private const val MAX_CONCURRENT_DOWNLOADS = 3
 
-/**
- * 下载管理器 —— **任务队列 / 状态机 / 进度广播**这一半，搬迁前它在 `:app`（`media/DownloadManager.kt`），
- * 现在三端同一份。
- *
- * ## 搬动时切开的三个缝
- *
- * | 原来 | 现在 |
- * |---|---|
- * | Room 的 `DownloadTaskDao`（`Context` + `androidx.room`） | [store]（`:core` 的 [DownloadTaskStore]；Android = 同一张表的转发，桌面 = 一份 JSON） |
- * | 内联在 `executeDownload` 里那段 okhttp 搬运循环 | [engine]（[DownloadEngine]；Android = 原样搬出的那份，桌面 = `:data` 的 `JvmDownloadEngine`） |
- * | `Context.getExternalFilesDir(...)` / `File(...).mkdirs()` / `File(...).delete()` | [fileSystem]（[DownloadFileSystem]；Android 拿 `Context`，桌面看 `$HOME`） |
- * | `Dispatchers.IO` | 构造参数 [scope]（Android 传 `Dispatchers.IO`，与搬迁前同一个调度器） |
- *
- * **状态机逐句照搬**：排队时的命名与消毒、`pending → downloading → completed/failed` 的迁移、
- * 启动时把残留的 `downloading` 置成 `paused`、并发上限、进度 500 ms / 速度 1 s 的节流口径、
- * 「暂停 = 取消协程，不写 failed」「取消 = 取消 + 删文件 + 删记录」「删除记录默认顺手删文件」——
- * 一条都没改。
- *
- * ## 一处刻意的差异（可移植性）
- *
- * 搬迁前 `activeDownloads` 是 `java.util.concurrent.ConcurrentHashMap`（JVM 专属）。
- * `:core` 还要编到 wasm，所以这里换成 **`Mutex` 保护的一张普通 Map**（`:core` 既有做法）。
- * 语义相同（读改都在锁里、`cancel()` 在锁外调用以免与任务自己的清理互相等待），
- * 代价是 `launchDownload` 变成挂起函数、`resumeDownload` 用 `scope.launch` 起它 ——
- * 屏上「点继续」的观感与搬迁前一致（那本来就是后台的一件事）。
- */
+/** 下载管理器：任务队列 / 状态机 / 进度广播。 */
 class DownloadManager(
     private val store: DownloadTaskStore,
     private val engine: DownloadEngine,
     private val fileSystem: DownloadFileSystem,
-    /** 跑下载任务的作用域。Android 传 `Dispatchers.IO + SupervisorJob()`（与搬迁前一致）。 */
+    /** 跑下载任务的作用域（Android 传 `Dispatchers.IO + SupervisorJob()`）。 */
     private val scope: CoroutineScope = CoroutineScope(Dispatchers.Default + SupervisorJob()),
 ) {
 
@@ -80,9 +55,7 @@ class DownloadManager(
     /** 全表（屏上那个列表读的就是它，创建时间倒序）。 */
     suspend fun getAllTasks(): List<DownloadTask> = store.getAll()
 
-    /**
-     * 批量创建下载任务。
-     */
+    /** 批量创建下载任务。 */
     suspend fun enqueueDownloads(
         courseName: String,
         activityTitle: String,
@@ -114,9 +87,6 @@ class DownloadManager(
                 activityTitle = activityTitle,
                 cameraType = videoInfo.cameraType,
                 videoUrl = videoUrl,
-                // 每个机位本身就是独立 mp4、自带音轨，分开下载时「选音源」没有落点，
-                // 该能力从未实现（此字段过去只写库、从不参与下载）。这里保留列名并填占位，
-                // 与 Android 那条 Room 记录逐字一致（避免动 schema 触发迁移）。
                 audioSource = videoInfo.cameraType,
                 filePath = filePath,
                 fileSize = -1,
@@ -138,9 +108,7 @@ class DownloadManager(
         return taskIds
     }
 
-    /**
-     * 启动单个下载任务。
-     */
+    /** 启动单个下载任务。 */
     private suspend fun launchDownload(taskId: Long) {
         if (activeJob(taskId)?.isActive == true) return
         // 先登记再启动：任务瞬间结束时，它自己的清理不会赶在登记之前
@@ -161,9 +129,7 @@ class DownloadManager(
         job.start()
     }
 
-    /**
-     * 执行实际下载逻辑（断点续传）—— 搬运本身交给 [engine]，这里只管状态与进度。
-     */
+    /** 执行实际下载逻辑（断点续传）—— 搬运本身交给 [engine]，这里只管状态与进度。 */
     private suspend fun executeDownload(taskId: Long) {
         val task = store.getAll().find { it.id == taskId } ?: return
 
@@ -202,24 +168,18 @@ class DownloadManager(
         }
     }
 
-    /**
-     * 暂停下载。
-     */
+    /** 暂停下载。 */
     suspend fun pauseDownload(taskId: Long) {
         store.updateStatus(taskId, DownloadStatus.PAUSED)
         cancelActive(taskId)
     }
 
-    /**
-     * 恢复下载。
-     */
+    /** 恢复下载。 */
     fun resumeDownload(taskId: Long) {
         scope.launch { launchDownload(taskId) }
     }
 
-    /**
-     * 取消下载（删除文件）。
-     */
+    /** 取消下载（删除文件）。 */
     suspend fun cancelDownload(taskId: Long) {
         cancelActive(taskId)
 
@@ -230,9 +190,7 @@ class DownloadManager(
         }
     }
 
-    /**
-     * 暂停所有下载。
-     */
+    /** 暂停所有下载。 */
     suspend fun pauseAll() {
         val activeTasks = store.getActiveTasks()
         activeTasks.forEach { task ->
@@ -242,9 +200,7 @@ class DownloadManager(
         }
     }
 
-    /**
-     * 恢复所有下载。
-     */
+    /** 恢复所有下载。 */
     fun resumeAll() {
         scope.launch {
             val pausedTasks = store.getActiveTasks()
@@ -255,29 +211,21 @@ class DownloadManager(
         }
     }
 
-    /**
-     * 取消所有下载。
-     */
+    /** 取消所有下载。 */
     suspend fun cancelAll() {
         store.getActiveTasks().forEach { task ->
             cancelDownload(task.id)
         }
     }
 
-    /**
-     * 删除已完成的任务记录（**不动文件**）。
-     */
+    /** 删除已完成的任务记录（不动文件）。 */
     suspend fun deleteCompleted() {
         store.getCompletedTasks().forEach { task ->
             store.deleteById(task.id)
         }
     }
 
-    /**
-     * 删除单个任务记录。
-     *
-     * @param deleteFile 是否同时删除视频文件，默认 true
-     */
+    /** 删除单个任务记录。 */
     suspend fun deleteTask(taskId: Long, deleteFile: Boolean = true) {
         val task = store.getAll().find { it.id == taskId }
         if (task != null && task.status != DownloadStatus.DOWNLOADING) {
@@ -295,9 +243,7 @@ class DownloadManager(
         }
     }
 
-    /**
-     * 获取下载统计信息。
-     */
+    /** 获取下载统计信息。 */
     suspend fun getDownloadStats(): DownloadStats {
         val downloading = store.getDownloadingCount()
         val completed = store.getCompletedCount()

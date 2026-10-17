@@ -6,17 +6,7 @@ import kotlinx.datetime.toInstant
 import kotlin.test.Test
 import kotlin.test.assertEquals
 
-/**
- * `beijingEpochMs` 是 :core 里**唯一**解析「校园上游东八区时间串」的地方。
- *
- * 这个测试守两件事：
- * 1. 具体数值（不是拿同一套 API 自证）：`2026-10-07 20:00:02` +08:00 就是
- *    `2026-10-07T12:00:02Z`，epoch 毫秒固定；
- * 2. **与 :app 的口径逐字同值** —— :app 的 `SchoolInbox` 用
- *    `LocalDateTime.parse(...).atZone(ZoneId.of("Asia/Shanghai"))`。这里在 JVM 上
- *    直接比一遍（JVM 自带 tzdb，能跑）；Web 上 `TimeZone.of` 会抛，所以实现里用的是
- *    固定 +08:00 —— 中国大陆 1991 年后无夏令时，两者对这些时间戳同值。
- */
+/** `beijingEpochMs` 是 :core 里唯一解析「校园上游东八区时间串」的地方。 */
 class BeijingTimeTest {
 
     @Test

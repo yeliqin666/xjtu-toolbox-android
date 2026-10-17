@@ -20,42 +20,15 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.put
 
-/**
- * 书架的桌面实现（`:core` 的 [Jiaocai1ShelfStore] 在桌面侧的填法）。
- *
- * ## 为什么不是 Room
- *
- * 搬迁前书架是 Room（`androidx.room` + `Context`），桌面端没有那一套。这里用**一份 JSON 落盘**：
- * 把行数组序列化成一个字符串，存进 `:data` 的密文键值缝 [com.xjtu.toolbox.platform.secureKeyValueStore]
- * —— 它在本端就是 `<数据根>/jiaocai1_shelf<账号后缀>.properties`（S7b；权限 0600，与 cookie /
- * 凭据同一处。加后缀之前那份旧名 `jiaocai1_shelf` 只会被**只读**读一次，见构造器的 `legacyStore`），
- * 写入是同步的，所以「离开阅读器时那一发」不需要额外的协程。
- *
- * 行数很少（书架 = 我读过的那几本），所以每次写整份重写；JSON 手写而不是给模型加
- * `@Serializable`：`:core` 的 [Jiaocai1ShelfRecord] 是界面模型，不为了某一端的存储去改它的形状。
- *
- * ## 与 Android 的差异（如实）
- *
- * | | Android | 桌面 |
- * |---|---|---|
- * | 存储 | Room 表 `jiaocai1_shelf`（升级不丢） | 一份 0600 的 Properties 文件 |
- * | 观察 | DAO 的 `Flow`（数据库变化推送） | 进程内 `MutableStateFlow`（本进程写完就推） |
- *
- * 也就是说：桌面上**别的进程**改这份文件不会被感知（单实例应用的正常取舍），
- * 而 Android 那条 Room 路径一个字都没动。
- */
+/** 书架的桌面实现（`:core` 的 [Jiaocai1ShelfStore] 在桌面侧的填法）。 */
 class DesktopJiaocai1ShelfStore(
     /** 存储；生产装配给的是那份 0600 的落盘文件（测试可传内存版做隔离）。 */
     private val store: KeyValueStore,
-    /**
-     * S7b 之前那份旧名（[STORE_NAME]，无账号后缀）的**只读**兜底：新名里没有行时读它一次
-     * （§6.1 第 2 条「旧形状只读」—— 只读，不往回写、也不删旧文件）。默认 null：测试注入 [store]
-     * 时不该顺带读到隔离根之外的旧文件。
-     */
+    /** 旧名（[STORE_NAME]，无账号后缀）的只读兜底：新名里没有时读它一次。 */
     private val legacyStore: KeyValueStore? = null,
 ) : Jiaocai1ShelfStore {
 
-    /** 生产装配（S7b）：端内名 = `jiaocai1_shelf<账号后缀>` + 旧名的只读兜底。 */
+    /** 生产装配：端内名 = `jiaocai1_shelf<账号后缀>` + 旧名的只读兜底。 */
     constructor(accountId: String? = AccountContext.activeAccountId) : this(
         store = com.xjtu.toolbox.platform.secureKeyValueStore(storeName(accountId)),
         legacyStore = com.xjtu.toolbox.platform.secureKeyValueStore(STORE_NAME),
@@ -94,14 +67,12 @@ class DesktopJiaocai1ShelfStore(
     }
 
     private fun write(next: List<Jiaocai1ShelfRecord>) {
-        // 排序口径与 Android 那条 SQL 一致：最近读的在前
         val sorted = next.sortedByDescending { it.lastReadAt }
         store.putString(KEY_ROWS, encode(sorted))
         rows.value = sorted
     }
 
     private fun read(): List<Jiaocai1ShelfRecord> {
-        // S7b：新名里没有行时，读一次旧名那份（旧形状只读）
         val raw = store.getString(KEY_ROWS) ?: legacyStore?.getString(KEY_ROWS) ?: return emptyList()
         val array = runCatching { AppJson.parseToJsonElement(raw).jsonArray }.getOrNull() ?: return emptyList()
         return array.mapNotNull { element ->
@@ -138,7 +109,7 @@ class DesktopJiaocai1ShelfStore(
         }
     }.toString()
 
-    /** 缺字段 / JSON null 都当空串（与 `:data` / `:core` 里那几处 `optString` 同一条宽缺口径）。 */
+    /** 缺字段 / JSON null 都当空串。 */
     private fun JsonObject.text(key: String): String {
         val v = this[key] ?: return ""
         if (v is JsonNull) return ""
@@ -146,10 +117,10 @@ class DesktopJiaocai1ShelfStore(
     }
 
     companion object {
-        /** 端内 store 名的基础部分；完整端内名见 [storeName]（S7b：带账号后缀）。 */
+        /** 端内 store 名的基础部分；完整端内名见 [storeName]。 */
         const val STORE_NAME = "jiaocai1_shelf"
 
-        /** 端内名（`jiaocai1_shelf<账号后缀>`）—— 测试清场与「落盘文件在哪儿」共用这一处口径。 */
+        /** 端内名（`jiaocai1_shelf<账号后缀>`）。 */
         fun storeName(accountId: String? = AccountContext.activeAccountId): String =
             accountScopedStoreName(STORE_NAME, accountId)
 
@@ -157,14 +128,7 @@ class DesktopJiaocai1ShelfStore(
     }
 }
 
-/**
- * 教材页图的**缓存根目录**（`:data` 的 `Jiaocai1PageLoader` 收到的那个 `File`；
- * 它下面固定再建 `jiaocai1/` 子目录）。
- *
- * 桌面 = XDG 缓存目录（`$XDG_CACHE_HOME` 或 `~/.cache`）下的 `xjtu-toolbox` —— 与 Android 的
- * `context.cacheDir` 同义（「可以随时删」的那一类）。证据运行与测试把
- * [dataRootOverride] 指到临时目录时**跟着它走**，免得假登录时顺手往用户真实缓存里写页图。
- */
+/** 教材页图的缓存根目录（`:data` 的 `Jiaocai1PageLoader` 收到的那个 `File`）。 */
 internal fun jiaocai1CacheRoot(): File {
     val override = dataRootOverride
     if (override != null) return File(override, "cache")

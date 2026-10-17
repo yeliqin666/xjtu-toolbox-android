@@ -2,54 +2,16 @@ package com.xjtu.toolbox.platform
 
 import com.xjtu.toolbox.auth.XJTULogin
 
-/**
- * **JVM（窗口模式 / serve 模式）的凭据存储**：账号 + 密码 + 设备指纹 + 缓存的 RSA 公钥。
- *
- * ## 它为什么在 `:data` 而不是 `:desktop`
- *
- * 设计文档 §5.1 把「凭据存储」列在**必须新写的宿主实现**里，与 `KeyValueStore` 的 JVM 落盘版
- * （就是同目录的 `SecureStore.jvm.kt`）并列 —— 这两件事是同一层的东西：一个存会话 cookie，
- * 一个存登录凭据，都落在同一个数据目录、同一套 `0600` 权限上。serve 模式（同一个 JVM 模块的
- * 另一个入口）将来也要用它，留在 `:desktop` 就得搬第二次。
- *
- * ## 存的是什么、为什么这么存
- *
- * 直接复用 [secureKeyValueStore]：Android 的 actual 是 `EncryptedSharedPreferences`，JVM 的
- * actual 是**权限 0600 的 Properties 文件**（`java.util.Properties` 自带转义，密码里出现
- * `=`、换行、非 ASCII 都不会坏）。文件名与键名**与 `:app` 的 `CredentialStore` 逐字相同**
- * （`xjtu_credentials` / `username` / `password` / `fp_visitor_id` / `rsa_public_key` / `rsa_key_time`）
- * —— 桌面端没有「老数据」要继承，保持一致是为了让两端的语义能一眼对上，也免得将来做
- * 「从 Android 迁一个账号过来」时又对一遍键名。
- *
- * ⚠️ **落盘的字节受谁保护，是这一端唯一分平台的地方**（见 [SecretProtector] 与
- * [ProtectedKeyValueStore]）：Windows 走系统原生的 **DPAPI**（当前用户作用域：只有本机本用户
- * 能解开），Linux / macOS **没有**原生保护 —— 就是「文件 + `0600` 权限」，与 campus-api 现有
- * 做法同口径（设计文档 §5.1 明确接受了这一档；真正的 Linux 原生保护要 Secret Service，属 §5.4）。
- *
- * 分平台那一层是**注入进来的**（[protector] 默认由 [secretProtectorForPlatform] 按 `os.name` 挑）：
- * 测试与多实例可以换一份 —— 测试就靠一个假保护器钉住「密文落盘 → 读回解密 → 篡改/换用户解不开」
- * 的口径，与同目录的 `dataRootOverride` 是同一条思路。
- * 前端一旦有真账号，凭据就是分发的代价（§8 第 3 条）：退出登录必须调 [clear]。
- *
- * ## 键/值类型
- *
- * 全部走字符串：`:core` 的 `KeyValueStore` 没有 `getLong`（三端接口里没有那一档，也一直没需要），
- * 所以 `rsa_key_time` 存成十进制字符串，读的时候解析。**不要**改成别的类型 —— 类型变了
- * 老文件就读不出来（这条与 `SecureStore` 那批文件是同一条纪律）。
- */
+/** JVM（窗口模式 / serve 模式）的凭据存储：账号 + 密码 + 设备指纹 + 缓存的 RSA 公钥。 */
 class JvmCredentialStore(
     private val storeName: String = FILE_NAME,
     protector: SecretProtector? = secretProtectorForPlatform(),
 ) {
 
-    /**
-     * 落盘那一层（[secureKeyValueStore]）外面再套一层**保护器**：Windows 上的值写下去是
-     * `xjtu-sealed:1:dpapi:…`（DPAPI 密文），Linux / macOS 上没有保护器 ⇒ 字节与这一轮之前
-     * 一模一样（读老文件也还认得）。两者合并的地方就是这一行。
-     */
+    /** 落盘层外再套保护器：Windows 上写 DPAPI 密文，其余平台原样。 */
     private val store: KeyValueStore = ProtectedKeyValueStore(secureKeyValueStore(storeName), protector)
 
-    /** 账号与密码。**任一为空都算没有**（与 `:app` 的 `CredentialStore.load` 同口径）。 */
+    /** 账号与密码，任一为空都算没有。 */
     fun load(): Pair<String, String>? {
         val username = store.getString(KEY_USERNAME) ?: return null
         val password = store.getString(KEY_PASSWORD) ?: return null
@@ -62,12 +24,7 @@ class JvmCredentialStore(
         store.putString(KEY_PASSWORD, password)
     }
 
-    /**
-     * 整份本次凭据抹掉（退出登录 / 删账号）。
-     *
-     * **不**删 cookie 与站点快照：那两样按账号命名空间分文件（`cookies_*_<后缀>`），
-     * 由 `SessionBackend.wipe` / [wipeSecureStore] 负责 —— 与 `:app` 的登录/登出分工一致。
-     */
+    /** 整份本次凭据抹掉（退出登录 / 删账号）。 */
     fun clear() {
         store.remove(KEY_USERNAME)
         store.remove(KEY_PASSWORD)
@@ -81,13 +38,7 @@ class JvmCredentialStore(
         get() = store.getString(KEY_FP_VISITOR_ID)
         set(value) = store.putString(KEY_FP_VISITOR_ID, value)
 
-    /**
-     * 缓存的 RSA 公钥（学校统一认证那把静态公钥），**24 小时内有效**。
-     *
-     * 缓存它不是为了省流量，是为了省一次**必发**的请求：`XJTULogin.encryptPassword` 没有缓存
-     * 公钥时会去 `https://login.xjtu.edu.cn/cas/jwt/publicKey` 取一份（那条路是 https，
-     * 也是 `LibraryLogin` 那批站点唯一会多出来的往返）。过期后返回 null ⇒ 内核照常自己去取。
-     */
+    /** 缓存的 RSA 公钥（学校统一认证那把静态公钥），24 小时内有效。 */
     var rsaPublicKey: String?
         get() {
             val time = store.getString(KEY_RSA_KEY_TIME)?.toLongOrNull() ?: return null

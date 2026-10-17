@@ -7,9 +7,6 @@ import com.xjtu.toolbox.nav.AppRoute
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
-// 值对象 `HomeStat` 与键名 `EXAM_KEY` 已搬进 `:core`（同包同名，见 `core` 的
-// `home/HomeStat.kt`）：它们的消费方跨端（卡片模型），而下面这套采集器仍然是 Android 专属的
-// —— 它读的是 `DataCache`（SharedPreferences + Room）与 `CampusCardCache`，属 §5.1 那座桥。
 /**
  * 首页各功能的「当前状态」采集器（`:app` 这一端：读本机缓存）。
  *
@@ -248,11 +245,6 @@ object HomeStats {
 
             if (termCode.isNullOrBlank()) return@withContext out
 
-            // ── 课表族缓存里那几格（教学周 / 最近一场考试 / 本学期课数 / 教材册数）──
-            // 判定搬进 `:core` 的 [HomeScheduleStats]：它读的三样（课表、考试、教材）都在共享层的
-            // 同一份课表族缓存里（`:app` 这一端那份的实现就是上面的 [DataCache]），于是桌面首页
-            // 与这里**同一份算法**、同一批键名。留在本文件的是剩下两段：各功能页推送的摘要
-            //（`DataCache` 的 `home_stat_*` 键）与校园卡余额（`CampusCardCache`），属 §5.1 那座桥。
             out.putAll(HomeScheduleStats.of(cache, termCode))
 
             out

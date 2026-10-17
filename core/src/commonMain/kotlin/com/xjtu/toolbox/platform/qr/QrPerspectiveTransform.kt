@@ -2,22 +2,7 @@ package com.xjtu.toolbox.platform.qr
 
 import kotlin.math.sqrt
 
-/**
- * 透视变换与网格采样 —— zxing 3.5.4 `com.google.zxing.common.PerspectiveTransform` /
- * `GridSampler` / `DefaultGridSampler` 的**逐字对照**（后两个类合成一个对象）。
- *
- * 这一对是「定位图案找出来之后，把那个**歪着的**四边形里的模块一个一个读出来」那一步：三个定位图案
- * （外加一个校正图案）给出四个角，`quadrilateralToQuadrilateral` 算出「码坐标 → 图像像素」的 3×3 矩阵，
- * 再按整数格心 `(x + 0.5, y + 0.5)` 反查像素。
- *
- * | zxing | 这里 | 备注 |
- * |---|---|---|
- * | `PerspectiveTransform`（九个系数、`transformPoints` 两个重载、`squareToQuadrilateral`、`quadrilateralToSquare`、`buildAdjoint`、`times`） | [QrPerspectiveTransform] | 逐行相同；参数顺序（a11,a21,a31,a12,…）也相同，别照着直觉改 |
- * | `GridSampler.getInstance()` / `setGridSampler` | **没搬** | 那是给「换一个采样器」留的全局开关，本端没有第二个实现 |
- * | `DefaultGridSampler.sampleGrid(image, dimX, dimY, transform)` | [QrGridSampler.sampleGrid] | 只这一条重载（另一条十二个浮点的重载只是先算矩阵，`Detector` 用的是这一条） |
- * | `checkAndNudgePoints` | [QrGridSampler.checkAndNudgePoints] | 逐条相同：两端各扫一遍、`-1`/`width` 就地拽回界内，其余越界直接抛 `NotFound` |
- * | 越界时抛 `ArrayIndexOutOfBoundsException` 再包成 `NotFoundException` | 同样在采样循环里捉 [IndexOutOfBoundsException] | zxing 那段注释写得很清楚：变换偶尔会「拧」成两端在界内、中间跑到界外的形状 —— 逐字照抄它的处置 |
- */
+/** 透视变换与网格采样—— zxing 3.5.4 `com.google.zxing.common.PerspectiveTransform` / `GridSampler` / `DefaultGridSampler` 的移植（后两个类合成一个对象）。 */
 internal class QrPerspectiveTransform(
     private val a11: Float,
     private val a21: Float,
@@ -158,9 +143,7 @@ internal object QrGridSampler {
                     x2 += 2
                 }
             } catch (_: IndexOutOfBoundsException) {
-                // 这看着不对劲，但：定位图案认错的时候，算出来的变换偶尔会被「拧」成一条直线上的点
-                // 两端在界内、中间却跑到界外。上面那道检查过不了这种形状，于是扔出一个难看的运行时异常。
-                // zxing 的处置就是「捉住它、包成 NotFound」—— 逐字照抄。
+                // 定位图案认错时变换可能退化，中间点越界抛异常；按 zxing 的做法包成 NotFound。
                 throw QrNotFoundException()
             }
         }
@@ -223,12 +206,7 @@ internal object QrGridSampler {
     }
 }
 
-/**
- * 「这一帧里没有码」（zxing 的 `NotFoundException`）。
- *
- * 这一条链在几条不同的路上都用抛它来「快速失败」（zxing 自己的注释也一样：连续扫码要的是尽早失败），
- * 所以留在 commonMain 的三条异常都长得跟 zxing 那三条一样、只是不带消息。
- */
+/** 「这一帧里没有码」（zxing 的 `NotFoundException`）。 */
 internal class QrNotFoundException : Exception()
 
 /** 「找到了码，但版本/格式信息读不通」（zxing 的 `FormatException`）。 */

@@ -182,12 +182,8 @@ baselineProfile {
 }
 
 dependencies {
-    // 三端共用的业务与平台抽象（KMP）。目前里面只有传输层探针，
-    // 后续按「一屏一提交」往里搬；:core 必须能编过 wasmJs（CI 门禁在守这条）。
+    // 三端共用的业务与平台抽象（KMP）；:core 必须能编过 wasmJs（CI 门禁在守）。
     implementation(project(":core"))
-    // 数据层（从 :app 摘出来的取数与会话，jvm/android 共用）。目前里面是图书馆一条竖切
-    // （LibraryApi / LibraryPages / 会话缝），其余模块按 docs/desktop-port-plan.md §5.1 逐条搬。
-    // Android 侧走的是同一份实现，只多一个 AppLibrarySession 适配器（把 SiteSession 包成缝）。
     implementation(project(":data"))
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.core.splashscreen)
@@ -247,10 +243,7 @@ dependencies {
     implementation(libs.kyant.backdrop)
     // 形状形变（加载动画）
     implementation(libs.androidx.graphics.shapes)
-    // ── Ktor：为「用 Ktor 的 API 包在现有 OkHttpClient 上」而接（见 network/KtorOnOkHttp.kt）──
-    // 关键点：**不换引擎**。ktor-client-okhttp 的 OkHttp 引擎允许预置一个已有的 OkHttpClient
-    // （preconfigured），所以 cookie jar、UA 拦截器、brotli、超时、TLS、连接池全部沿用，
-    // 只把「构造请求 / 读响应」的写法换成 Ktor —— 这是把 78 个 okhttp 文件搬进共享层的前置。
+    // Ktor 的 OkHttp 引擎预置现有 OkHttpClient：cookie jar、UA 拦截器、超时、TLS、连接池全部沿用。
     implementation(libs.ktor.client.core)
     implementation(libs.ktor.client.okhttp)
     implementation(libs.ktor.client.content.negotiation)

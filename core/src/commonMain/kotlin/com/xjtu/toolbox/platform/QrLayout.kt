@@ -1,11 +1,6 @@
 package com.xjtu.toolbox.platform
 
-/**
- * 二维码的**格子**（`-1` = 还没填、`0` = 白、`1` = 黑）。
- *
- * 与 zxing 的 `qrcode.encoder.ByteMatrix` 同一个形状：x 是列、y 是行，
- * `get(x, y)` / `set(x, y, v)` 的先后与那份 Java 源码逐字一致（那里的 `bytes[y][x]`）。
- */
+/** 二维码的格子（`-1` = 还没填、`0` = 白、`1` = 黑）。 */
 internal class QrByteMatrix(val width: Int, val height: Int) {
     private val cells = Array(height) { IntArray(width) { EMPTY } }
 
@@ -29,20 +24,7 @@ internal class QrByteMatrix(val width: Int, val height: Int) {
     }
 }
 
-/**
- * 二维码**框架**的排布 —— 定位图案、分隔符、校正图案、时序图案、格式信息、版本信息、数据位。
- *
- * 逐字对照 zxing 3.5.4（Apache-2.0）的 `com.google.zxing.qrcode.encoder.MatrixUtil`：
- * 每个函数名、每个坐标、每张表的取值都与那份 Java 源码一一对应（`embedBasicPatterns` /
- * `embedTypeInfo` / `maybeEmbedVersionInfo` / `embedDataBits` 四步的先后也一样）。
- * 这样做的**目的**只有一个：与 Android/jvm 那两份 zxing actual 编出**逐模块相同**的矩阵
- * （由 `:core:jvmTest` 的 `CodeMatrixParityJvmTest` 逐格钉住）。
- *
- * 两条**没有**搬过来的东西，都在调用方已经排除掉的前提下：
- * - **矩形码**（`SymbolShapeHint.FORCE_RECTANGLE`）：那条缝从来不传它（只传字符集 / 纠错等级 / 静默区）；
- * - **KANJI 模式**：只有字符集是 Shift_JIS 时才可能选到（zxing 的 `chooseMode` 判据），
- *   而这条缝恒定传 `UTF-8`（见 `QrCodec`）⇒ 那一条分支在这里够不着，不搬。
- */
+/** 二维码框架的排布 —— 定位图案、分隔符、校正图案、时序图案、格式信息、版本信息、数据位。 */
 internal object QrLayout {
 
     /** 定位图案（7×7），zxing 的 `POSITION_DETECTION_PATTERN`。 */
@@ -65,10 +47,7 @@ internal object QrLayout {
         intArrayOf(1, 1, 1, 1, 1),
     )
 
-    /**
-     * 校正图案中心坐标表（按版本），zxing 的 `POSITION_ADJUSTMENT_PATTERN_COORDINATE_TABLE`
-     * （JISX0510:2004 附录 E 表 1）。`-1` = 这一行没有更多坐标。
-     */
+    /** 校正图案中心坐标表（按版本），zxing 的 `POSITION_ADJUSTMENT_PATTERN_COORDINATE_TABLE`（JISX0510:2004 附录 E 表 1）。 */
     private val POSITION_ADJUSTMENT_PATTERN_COORDINATE_TABLE = arrayOf(
         intArrayOf(-1, -1, -1, -1, -1, -1, -1),
         intArrayOf(6, 18, -1, -1, -1, -1, -1),
@@ -138,11 +117,7 @@ internal object QrLayout {
     private const val TYPE_INFO_POLY = 0x537
     private const val TYPE_INFO_MASK_PATTERN = 0x5412
 
-    /**
-     * 纠错等级 L 在格式信息里的两位（zxing 的 `ErrorCorrectionLevel.L.getBits()`）。
-     *
-     * 这一份实现只支持 L —— 那也正是三端那条缝唯一用到的等级，见 `QrVersionTable.kt` 的文件头。
-     */
+    /** 纠错等级 L 在格式信息里的两位（zxing 的 `ErrorCorrectionLevel.L.getBits()`）。 */
     private const val EC_LEVEL_L_BITS = 0x01
 
     /** 按 zxing 的四步铺满整张矩阵（`MatrixUtil.buildMatrix`）。 */

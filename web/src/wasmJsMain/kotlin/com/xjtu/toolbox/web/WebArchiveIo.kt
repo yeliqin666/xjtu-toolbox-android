@@ -6,51 +6,21 @@ import com.xjtu.toolbox.util.AppJson
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 
-/**
- * Web 这一端档案的**传输那一半**（S6；`docs/storage-layout-plan.md` 的 S6 行）。
- *
- * 浏览器没有文件系统（`localStorage` 已由 store 投影覆盖，`files` 那一层在这一端根本不存在），
- * 所以这一端的「落地通道」只有两条浏览器 API：
- *
- *  - **导出**：档案字节映射 → zip → `Blob` + `URL.createObjectURL` + `<a download>`（点击即下载）；
- *  - **导入**：`<input type=file>` 选一份 zip → 在**内存里**解成「档案内相对路径 → 字节」
- *    （§6.1 web 那一行说的「内存里解」）。
- *
- * zip 的读写**都在 JS 那一侧**（`@JsFun` 里的那两段）：`DecompressionStream('deflate-raw')` 是浏览器
- * 自带的 inflate（Android/桌面的 zip 是 deflate 压的，必须解得开），而写出去的那一份用 **stored**
- * （不压缩）并且时间戳固定 ⇒ 同一份档案两次导出字节可复现。Kotlin 这一侧只做两件纯事：把
- * `Map<String, String>` 与 JSON 互转（走 `:core` 的 [AppJson]，不新造一套转义）。
- *
- * ⚠️ **本批跑不了运行时证明**：`:web` 现在没有测试源集（D14 = S8），`:core` 也刻意没声明 wasm 测试
- * 环境（`core/build.gradle.kts` 的注释：nodejs 下 Compose 的 `skiko.mjs` 会 `ERR_MODULE_NOT_FOUND`）。
- * 所以这两段 JS 只吃 `:web:compileKotlinWasmJs` 的**编译门禁**，运行时证明要等 S8 或真浏览器里手点
- * —— 这一点如实记在这里，不假装它被验过。
- */
+/** Web 这一端档案的传输那一半。 */
 internal object WebArchiveIo {
 
-    /** 与 `:app` 的 `AppArchiveUx.ARCHIVE_MIME` 同一个口径：zip 是档案的运输形态（§2.0）。 */
+    /** 与 `:app` 的 `AppArchiveUx.ARCHIVE_MIME` 一致（§2.0）。 */
     const val ARCHIVE_MIME = "application/zip"
 
-    /** 下载的文件名（与 `:app` 的 `exportLauncher.launch("xjtu-toolbox-archive.zip")` 逐字相同）。 */
+    /** 下载的文件名（与 `:app` 一致）。 */
     const val DEFAULT_FILE_NAME = "xjtu-toolbox-archive.zip"
 
-    /**
-     * 档案字节映射 → 浏览器下载（同步：把映射交给 JS 那一侧组装 zip 并点一次下载锚点）。
-     *
-     * 同步是有意为之：浏览器要求「下载」由用户手势发起，所以这条调用必须落在设置页那一行的
-     * `onClick` 里（不能先 `suspend` 再下载）。
-     */
+    /** 档案字节映射 → 浏览器下载（同步：把映射交给 JS 那一侧组装 zip 并点一次下载锚点）。 */
     fun download(entries: Map<String, String>, fileName: String = DEFAULT_FILE_NAME) {
         downloadZip(fileName, entriesToJson(entries))
     }
 
-    /**
-     * `<input type=file>` 选一份 zip → 内存里解 → [PickedArchive]。
-     *
-     * 异步：浏览器的文件读取与 `DecompressionStream` 都是 Promise ⇒ 结果从 [onPicked] 出来
-     * （设置页那一行把结果写进自己那行文本里）。用户没选文件 / 选了一份不是 zip 的东西 / 解不开，
-     * 都给 [PickedArchive.Failed] 带一句如实的原因 —— 不抛、不静默。
-     */
+    /** `<input type=file>` 选一份 zip → 内存里解 → [PickedArchive]。 */
     fun pick(onPicked: (PickedArchive) -> Unit) {
         pickArchiveFile(ARCHIVE_MIME) { fileName, payload ->
             onPicked(decodePicked(fileName, payload))
@@ -73,7 +43,7 @@ internal object WebArchiveIo {
     }
 }
 
-/** 选一份档案的结果：解出条目，或一句如实的原因。 */
+/** 选一份档案的结果：解出条目，或原因。 */
 internal sealed interface PickedArchive {
 
     /** 解出来的档案：`entries` 就是「档案内相对路径 → 字节」（含 `manifest.json`）。 */
@@ -83,14 +53,7 @@ internal sealed interface PickedArchive {
     data class Failed(val fileName: String, val reason: String) : PickedArchive
 }
 
-/**
- * 组装 zip 并下载（浏览器 API 全在这一段里）。
- *
- * 为什么用 **stored**（不压缩）而不是 `CompressionStream`：档案里全是 JSON 文本、体积本来就小，
- * 换来的是「解出来的字节与写进去的逐字相同」这条最好核的性质；时间戳固定成 1980-01-01
- * （DOS 时间的下界）⇒ 同一份档案两次导出的 zip 字节相同（A3 的口径在 `:core` 的 `export` 上，
- * 这里不引入第二处不稳定源）。
- */
+/** 组装 zip 并下载（浏览器 API 全在这一段里）。 */
 @JsFun(
     """
 (fileName, entriesJson) => {
@@ -179,12 +142,7 @@ internal sealed interface PickedArchive {
 )
 external fun downloadZip(fileName: String, entriesJson: String)
 
-/**
- * 选一份 zip 并在内存里解开（`<input type=file>` + 中央目录解析 + `DecompressionStream`）。
- *
- * 结果从回调的 `(name, payload)` 出来：`payload` = `{"entries": {"<路径>": "<字节>"}}`，
- * 或 `{"error": "..."}`。任何异常都在 JS 里被接住并变成 `error`（不让异常穿过 wasm 边界）。
- */
+/** 选一份 zip 并在内存里解开（`<input type=file>` + 中央目录解析 + `DecompressionStream`）。 */
 @JsFun(
     """
 (accept, onPicked) => {

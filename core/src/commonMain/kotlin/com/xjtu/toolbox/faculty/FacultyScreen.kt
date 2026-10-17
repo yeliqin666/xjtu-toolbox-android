@@ -85,11 +85,7 @@ fun FacultyScreen(
     source: FacultySource,
     onBack: () -> Unit,
     onOpenUrl: (String) -> Unit,
-    /**
-     * 头像槽位。[FacultyMember.picUrl] 是 `gr.xjtu.edu.cn` 上的相对路径，取图要平台本事：
-     * `:app` 传原来的 `FacultyAvatar`（BitmapFactory + LruCache），其余端用
-     * [InitialsFacultyAvatar]（首字圆，不给 CORS 的站点也至少不是空白）。
-     */
+    /** 头像槽位。 */
     avatar: @Composable (FacultyMember, Int) -> Unit = { member, size -> InitialsFacultyAvatar(member, size) },
 ) {
     val vm: FacultyViewModel = viewModel { FacultyViewModel(source) }

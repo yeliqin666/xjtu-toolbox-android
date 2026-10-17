@@ -85,13 +85,7 @@ class SessionBackend(
     }
 
     companion object {
-        /**
-         * 建一套 backend（cookie + 快照 + WebVPN 拦截器）。
-         *
-         * 参数里**没有 `Context`**：存储由 `:data` 的平台缝 [secureKeyValueStore] 按名字给出
-         * （Android 上是原来的 `SecurePrefs` 同名文件，桌面是 `0600` 文件）。这样会话内核
-         * 在两端是同一份代码，文件名/键名/值类型一字未变 —— 老会话不丢。
-         */
+        /** 建一套 backend（cookie + 快照 + WebVPN 拦截器）。 */
         fun create(mode: AccessMode, accountSuffix: String): SessionBackend =
             SessionBackend(
                 mode,
@@ -100,12 +94,7 @@ class SessionBackend(
                 webVpnInterceptor = if (mode == AccessMode.WEBVPN) WebVpnInterceptor() else null,
             )
 
-        /**
-         * 删掉某账号两边的会话存储，不需要 backend 实例（删账号时用）。
-         *
-         * 从 `wipe(context, suffix)` 换成按名字的 [wipeSecureStore]：口径不变 ——
-         * **文件不存在就什么都不做**，不为了清它去创建一份新的加密存储。
-         */
+        /** 删掉某账号两边的会话存储，不需要 backend 实例（删账号时用）。 */
         fun wipe(accountSuffix: String) {
             AccessMode.entries.forEach { mode ->
                 runCatching { PersistentCookieJar(cookiePrefs(mode, accountSuffix)).clear() }

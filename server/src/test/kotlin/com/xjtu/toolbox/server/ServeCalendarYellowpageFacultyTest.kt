@@ -23,18 +23,7 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonPrimitive
 
-/**
- * 免登录三域的契约测试（`/api/calendar/school` · `/api/info/yellowpage` · `/api/info/faculty`）。
- *
- * 各自的假上游形态（`:testkit`）：
- * - 校历：走 [FakeCampusProxy]（假代理按 host 分派 `workflow.xjtu.edu.cn`），源注入
- *   `SchoolCalendarApi(SchoolCalendarFakeUpstream.URL)`（http 基址，绕开 TLS 隧道那半台）；
- * - 黄页：`:core` 的 [YellowPageApi] 收 Ktor 客户端 ⇒ `MockEngine` 喂两条夹具响应；
- * - 教师检索：`:data` 的 [FacultyApi] 收 OkHttp 客户端 ⇒ 拦截器按路径分派夹具。
- *
- * 断言形状逐字段；expected 值全部来自夹具原文（`:testkit` 的常量 / 页面样本），
- * 不从实现输出里抄。三条红线（闸门 401 / 信封 / 不含登录身份）每条都过一遍。
- */
+/** 免登录三域的契约测试（`/api/calendar/school` · `/api/info/yellowpage` · `/api/info/faculty`）。 */
 class ServeCalendarYellowpageFacultyTest {
 
     private var started: EmbeddedServer<CIOApplicationEngine, CIOApplicationEngine.Configuration>? = null
@@ -66,7 +55,6 @@ class ServeCalendarYellowpageFacultyTest {
         val data = envelopeData(response)
         val terms = data.arrOf("terms")
 
-        // 逐字段：第一学期（夹具原文的 id/日期/名字；结束日 = exam_end 优先）
         val term1 = terms[0].let { it as JsonObject }
         assertEquals("2026-2027-1", term1.optString("id"))
         assertEquals("2026-09-07", term1.optString("startDate"))
@@ -81,7 +69,6 @@ class ServeCalendarYellowpageFacultyTest {
         val workDays = workDayCount("2026-09-07", "2027-01-15")
         assertEquals(workDays, term1.optInt("workDays"), "workDays 是闭区间内的工作日数（:core 同口径）")
 
-        // 事件逐字段：中秋 / 国庆 / 元旦（按开始日期升序），国庆带 remark（specialEvents 关联）
         val events1 = term1.arrOf("events")
         assertEquals(3, events1.size)
         val midAutumn = events1[0] as JsonObject
@@ -236,7 +223,6 @@ class ServeCalendarYellowpageFacultyTest {
         // 第 4 行：站外主页地址原样透出（normalizeHomepage 认不出 ORCID）
         assertEquals("https://orcid.org/0000-0000-0000-0000", (members[3] as JsonObject).optString("homepageUrl"))
 
-        // ★ 红线：一个联系方式字段都不许出现（contactsAvailable=false 的投影面）
         val memberKeys = m1.keys
         for (contactKey in listOf("email", "contact", "phone", "mobilePhone", "officeLocation", "address")) {
             assertFalse(contactKey in memberKeys, "members 里不该有「$contactKey」字段")

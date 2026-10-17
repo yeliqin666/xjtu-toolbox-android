@@ -4,51 +4,7 @@ import com.sun.net.httpserver.HttpExchange
 import com.xjtu.toolbox.library.LibraryFakeUpstream
 import java.util.concurrent.atomic.AtomicInteger
 
-/**
- * 假的**思源学堂**上游（`lms.xjtu.edu.cn`，第 18 条真数据路由的学校那一侧）。
- *
- * ## 它扮的是哪条链
- *
- * 与 [`LmsLogin`](com.xjtu.toolbox.lms.LmsLogin) + [`LmsSession`](com.xjtu.toolbox.auth.LmsSession)
- * 一起，把**搬进 `:data` 之后**的登录与取数原样演一遍：
- *
- * ```
- * GET  https://lms.xjtu.edu.cn/  →（无会话、无 ticket）302 http://login.xjtu.edu.cn/cas/login?service=https://lms.xjtu.edu.cn/
- * POST http://login.xjtu.edu.cn/cas/login?service=… → 种 TGC → 302 回 https://lms.xjtu.edu.cn/?ticket=ST-n（登录页那半台在 LibraryFakeUpstream）
- * GET  https://lms.xjtu.edu.cn/?ticket=ST-n → 200 + Set-Cookie LMS_SESSION（会话落下来）
- * GET  https://lms.xjtu.edu.cn/user/index → 200（HTML 里内嵌 globalData.user——`getUserInfo` 从它解析学号）
- * POST https://lms.xjtu.edu.cn/api/my-courses   → {"courses":[…]}
- * GET  https://lms.xjtu.edu.cn/api/courses/7/activities → {"activities":[…]}
- * GET  https://lms.xjtu.edu.cn/api/activities/101 → 详情（**没有 deadline 键**——钉 `mergeBrief` 从列表并进来）
- * GET  https://lms.xjtu.edu.cn/api/activities/101/students/1/submission_list → 提交列表
- * GET  https://lms.xjtu.edu.cn/api/uploads/501/blob → 附件字节
- * GET  https://lms.xjtu.edu.cn/api/uploads/666/blob → 403 + 「没有权限」——活动结束后学堂关闭下载那支
- * ```
- *
- * ## 刻意不演的那一档
- *
- * 课堂（lesson）/ 直播（lecture_live）的**回放**在 `rms-v5.xjtu.edu.cn` 上
- *（embed-token 交换 + captures 拉取，又是一台 https 服务），夹具的样本只给
- * homework / material / page 三类 —— 回放那两支的解析仍在 `:data:jvmTest` 里由
- * `LmsApiJvmTest` 之外的实测口径守着。不给假回放 = 那张图里不出现「回放」区块，
- * 这是如实，不是缺块。
- *
- * ## 统一认证那一半为什么不在这个文件里
- *
- * `login.xjtu.edu.cn` 是所有站点共用的一台 CAS，`FakeCampusProxy` 把它分派给
- * [LibraryFakeUpstream]；本夹具只负责 `lms.xjtu.edu.cn` 那一半 —— CAS 回跳之后的事。
- *
- * ## 业务端点不验会话
- *
- * 夹具要钉的是**解析与请求形状**；会话失效由 `SiteSession.executeWithReAuth` 那条路负责
- *（已由图书馆/教务那几条钉子守着），这里直接给数据。
- *
- * ## 夹具值全是编造的
- *
- * 课程名「数据结构（示例课）」、教师「李老师」、作业「第十三次作业」，皆非真人真课；
- * 学号与 `LibraryFakeUpstream.USERNAME` 无关（思源站内没有学号），但保持一致的人生观：
- * 同一套假身份贯穿几条链。
- */
+/** 假的思源学堂上游（`lms.xjtu.edu.cn`）。 */
 class LmsFakeUpstream {
 
     companion object {
@@ -90,14 +46,7 @@ class LmsFakeUpstream {
         /** 已结束作业的下载（/blob）→ 403 + 「没有权限」：LmsSession 把它认成业务拒绝，不重登。 */
         const val CLOSED_UPLOAD_ID = 666
 
-        /**
-         * `/user/index` 里那个登录者本人的**姓名**。
-         *
-         * 单独提成常量（值没变，2026-10-14）：契约 §5.6 里 `GET /api/lms*` 的红线断言要引用它
-         * ——「响应里不该出现本人姓名」必须是在**夹具里有这个值**的前提下证明的，
-         * 内联在 HTML 里就只能手抄一遍字符串（与上一批 `AttendanceFakeUpstream.TEACHER_NAME` 同一种做法）。
-         * 编造值，非真人。
-         */
+        /** `/user/index` 里那个登录者本人的姓名。 */
         const val USER_INDEX_NAME = "张三"
 
         /** `/user/index` 里那个登录者本人的**学号**（值没变，同上；与 `LibraryFakeUpstream.USERNAME` 同一个人）。 */
@@ -237,9 +186,6 @@ window.__TI_GLOBAL_DATA__ = {
         val query = exchange.requestURI.query.orEmpty()
         val hasSession = SESSION_COOKIE in cookieHeader(exchange)
         when {
-            // 登录链：
-            //  无会话、无 ticket → 302 到统一认证（service = 本域入口，CAS 签完票会带着 ticket= 回来）；
-            //  带 ticket 回来 → 种会话 cookie，给 /user/index 那份 200（`LmsLogin.postLogin` 的落点判据）。
             !hasSession && "ticket=" !in query -> {
                 redirect(
                     exchange,

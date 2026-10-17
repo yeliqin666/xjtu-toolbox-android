@@ -13,25 +13,7 @@ import okhttp3.Request
 import okhttp3.Response
 import okhttp3.ResponseBody.Companion.toResponseBody
 
-/**
- * 教师检索的**解析口径** —— 在 `FacultyApi` 搬进 `:data`（`org.json` → `:core` 的 `AppJson`）
- * **之前**先把搬之前的行为钉住，搬完逐条仍然过。
- *
- * 夹具是 `:testkit` 的 [FacultyFixture]（纯字符串样本，不起服务器）；取数用**一条 OkHttp 拦截器**
- * 喂响应 —— 于是 `search()` / `loadFilters()` 的整条链路都是真跑（建 URL、`looksLikeJson` 判据、
- * `fetchPage` 的按因数拆页、`parseMember` 逐字段、英文接口补主页地址），却不需要网络，
- * 也不受「纯 HTTP 假代理给不了 CONNECT+TLS」那条限制。
- *
- * **断言里的 expected 值不是从搬完的代码抄来的**：它们来自两份参考实现，各自把搬之前的
- * `parseMember` / `parseOptions` 照抄一遍跑夹具 ——
- * 1. 真 `org.json`（`json-20240303`，`optInt`/`optLong` 的字符串解析与 `optJSONArray`/`optJSONObject`
- *    的 null 语义与 Android libcore 逐条相同；只有 `optString` 对 JSON `null` 那一格两边不一样：
- *    Android 走 `JSON.toString(JSONObject.NULL)` ⇒ 字面量 `"null"`，上游 json.org 给 fallback。
- *    **:app 跑在 Android 上**，所以这里按 `"null"` 钉，见 [FacultyFixture.searchJson] 第 3 行）；
- * 2. 真 `jsoup` 1.23.2（`ownText()` / `text()` / `attr()` 的行为）。
- *
- * 主页地址那套规整规则（`normalizeHomepage` / `siteOf`）在 [FacultyApiTest] 里钉着，两者同一个测试源集。
- */
+/** 教师检索的解析口径。 */
 class FacultyApiParsingTest {
 
     /** 一条只喂夹具、不出网的 OkHttp 客户端；[requests] 留着给断言数「打了几枪、带了什么参数」。 */
@@ -53,10 +35,7 @@ class FacultyApiParsingTest {
             .build()
     }
 
-    /**
-     * 按路径分派夹具。**认不出的路径回一个写着 URL 的错误页** —— 夹具要是把地址搞错了，
-     * 报错里能一眼看回是哪条 URL（别让它长得像解析器坏了）。
-     */
+    /** 按路径分派夹具。 */
     private fun fixtureUpstream(searchBody: String = FacultyFixture.searchJson): FakeUpstream =
         FakeUpstream { request ->
             val url = request.url
@@ -72,7 +51,6 @@ class FacultyApiParsingTest {
     private fun search(fake: FakeUpstream, page: Int = 1, pageSize: Int = FacultyApi.DEFAULT_PAGE_SIZE) =
         runBlocking { FacultyApi(fake.client).search(page = page, pageSize = pageSize) }
 
-    // ══════ parseMember：逐字段 ══════
 
     @Test
     fun `字段全给时逐字段取到值`() {

@@ -7,34 +7,10 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
-/**
- * 「**页面说明与白名单同源**」的机器可验版本（D14 清单第 ③ 条；D10 的 S-d）。
- *
- * ## 它钉的是什么
- *
- * 屁岱那一屏顶上那段「这一份部署能做什么」是**按 `toolAllowlist` 现生成**的（`agentToolNote`），
- * 而 `toolAllowlist` 的源头是 `:server` 的 `ServeAgentTools.NAMES` —— 也就是**真下发给模型的那批工具**
- * （`ServeAgent.toolAllowlist` 从真定义里读出来，不是另维护一份）。同一个概念如果有两份清单，
- * 迟早会出现「页面上说能查成绩、模型却调不到」这种最难查的不一致 —— 所以这一段必须是同一份。
- *
- * 做法（与 `WebRouteCoverageTest` 同型）：`:server` 那份源文件由构建期读进
- * [WebSourceSnapshot]（浏览器里没有文件系统，测试读不到盘上的文件），本用例把它解析成名单，
- * 再对着本端的页面说明逐条核。**改了一边不改另一边，这里当场红。**
- *
- * ## 三条断言各管一件事
- *
- * 1. **真下发的每一件都在页面说明里**（一件不许漏说）；
- * 2. **不在白名单里的那几档与白名单不重叠**（页面上「不开的那几档」不许把一件真能用的工具说成不开）；
- * 3. **页面说明里出现的工具名都是 `:core` 那份目录里真有的**（不许编名字 —— `agentToolLabel` 认不出
- *    就返回兜底句，这里拿它当「这个名字不在目录里」的判据）。
- */
+/** 「页面说明与白名单同源」的机器可验版本。 */
 class WebAgentNoteTest {
 
-    /**
-     * `:server` 的真白名单：从 `ServeAgentTools.kt` 的 `val NAMES: List<String> = listOf(…)` 里读。
-     *
-     * 只解析那一段（见文件头：浏览器里读不到文件，只有构建期生成的源码快照）。
-     */
+    /** `:server` 的真白名单。 */
     private val serveWhitelist: List<String> = run {
         val source = WebSourceSnapshot.SERVE_AGENT_TOOLS
         val start = source.indexOf("val NAMES: List<String> = listOf(")
@@ -84,7 +60,6 @@ class WebAgentNoteTest {
             unknown.isEmpty(),
             "这些名字在 `:core` 的工具文案表里认不出来（页面说明不许编名字）：$unknown",
         )
-        // 反过来：认不出的名字页面会**如实说认不出**，不编一句功能描述
         assertEquals("`no_such_tool`（这一端没有它的说明）", agentToolLine("no_such_tool"))
         assertEquals("`get_schedule`（查询课表）", agentToolLine("get_schedule"))
     }

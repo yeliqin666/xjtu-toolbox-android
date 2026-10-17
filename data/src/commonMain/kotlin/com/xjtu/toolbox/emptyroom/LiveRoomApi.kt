@@ -18,13 +18,6 @@ import kotlinx.coroutines.withContext
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Request
 
-// ⚠️ 这里的 `LiveRoom` / `LiveRoomStatus` / `LiveSnapshot` / `LIVE_CAMPUSES` / `liveBuildingName`
-// 已搬进 `:core` 的 `com.xjtu.toolbox.emptyroom`（`EmptyRoomModels.kt`）—— 屏与 ViewModel 进了
-// `:core`，两端必须共用同一份模型。本文件只剩**实时状态的取数实现**，与 `EmptyRoomApi` /
-// `AppEmptyRoomSource` 一起从 `:app` 搬进 `:data`（桌面端第 10 条真数据路由）——
-// 搬迁时只把构造参数上的 `EmptyRoomCache?` 换成 `:core` 的 [EmptyRoomStore]（宿主存储缝）；
-// **取数一行未改**。
-
 /**
  * 实时状态查询。只有"此刻"：接口虽然有 dayTime 参数，但网页从不赋值，给的永远是当前快照，
  * 所以今天/明天、指定节次仍走 CDN / 直查教务。

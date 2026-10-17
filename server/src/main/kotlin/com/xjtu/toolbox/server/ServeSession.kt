@@ -33,9 +33,7 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 
-/**
- * 一次登录尝试的结果（[ServeSession.login] 的返回值 → `/api/session/login` 的响应）。
- */
+/** 一次登录尝试的结果（[ServeSession.login] 的返回值 → `/api/session/login` 的响应）。 */
 sealed interface LoginOutcome {
 
     /** 成功 —— 也包含「本来就已经登录」（幂等：再登一次不会把已有会话搅掉）。 */
@@ -44,59 +42,11 @@ sealed interface LoginOutcome {
     /** 另一次登录正在跑（含挂起的短信二验）⇒ HTTP 409。 */
     data object Busy : LoginOutcome
 
-    /**
-     * 没登上去。[message] 是给用户看的中文短句（**不含学号/姓名**）。
-     *
-     * @param retryable true = 上游/网络的故障，同样的请求稍后重试可能就成功（HTTP 502）；
-     *   false = 凭据或验证被拒，重发同样的请求没有意义（HTTP 401）。
-     */
+    /** 没登上去。 */
     data class Failed(val message: String, val retryable: Boolean) : LoginOutcome
 }
 
-/**
- * serve 进程的**会话装配**：`:data` 的 [SessionManager] + 落盘凭据 + MFA 宿主。
- *
- * ## 它与桌面端那份是什么关系
- *
- * 形态照 `:desktop` 的 `DesktopAuth`（登录 / 登出 / 冷启动恢复三件事逐条同源），**去掉 Compose 状态**：
- * serve 没有界面，登录页那两个输入框、`loggedIn`、`LoginUiState` 在这里都不存在 ——
- * 它们的位置由 HTTP（`/api/session*`）与浏览器的那个页面顶上。所以这里只剩三样东西：
- *
- * 1. **会话内核**（[sessionManager]）：注册 serve 模式**能取数**的站点，与桌面端同一个清单；
- * 2. **MFA 宿主**（[mfaHostKeepAlive]）：serve 进程一直挂着（见下）；
- * 3. **凭据**（[JvmCredentialStore]，落盘 `0600`）—— 登录成功才写，登出即清。
- *
- * ## 登录（与 `DesktopAuth.login` 逐条对齐）
- *
- * 1. `AccountContext.activeAccountId = 学号` + `reconfigureForAccount(suffix)` ⇒ backends 绑到该账号
- *    的 cookie / 快照文件（`cookies_normal_<学号>` …，与其余端同一套命名）；
- * 2. `setCredentials` + **硬要求主站（图书馆）登上去** —— 它证明这组凭据真能过统一认证；
- * 3. 其余站点 `runCatching` **尽力预热**（失败只记不抛）：某个子系统自己挂了（体测历史上真返回过
- *    502）**绝不能**变成「整个登录失败」；
- * 4. **全都过了才落盘**（学号密码 + 设备指纹 + 缓存的 RSA 公钥）；
- * 5. 失败退回 [SessionManager.reconfigureForAnonymous]（否则所有按账号分目录的存储会开始写一个
- *    不存在的账号），并把 [FriendlyError] 的中文短句交回调用方。
- *
- * ⚠️ **短信二验（MFA）在 serve 上是一条「服务端主动问用户要验证码」的流程**：内核挂起
- * `verifyMfaWithUser`（最长 150 秒）等验证码，浏览器侧轮询 `/api/session/mfa`、把用户敲的码
- * `submit` 回来。为了让那条路真的能走通，这里必须做两件事（少一件 MFA 就永远失败）：
- *
- * - [mfaHostKeepAlive]：`attachMfaHost()` **一次并保持挂载**。计数为 0 时 `verifyMfaWithUser`
- *   直接抛 IOException（「现在没有可以输入验证码的界面」）—— 浏览器就是那个「界面」；
- * - [prepareMfaDialog]：弹窗出现的那一刻去取绑定手机号（`MFAContext.getPhoneNumber()`）。
- *   它**不只是为了显示**：`MFAContext.verifyCode` 要拿 `getPhoneNumber()` 顺手设下的 `gid` 去校验
- *   验证码，不调它的话每一次提交都会被判「必须先发送验证码」。两个窗口端（`:app` 的 `MfaDialogHost`、
- *   `:desktop` 的 `DesktopMfaDialog`）在弹窗的 `LaunchedEffect` 里做的就是这一下。
- *
- * ## 并发
- *
- * 同一时刻只允许一个登录流程（[loginMutex]）：第二个并发 `POST /api/session/login` 立刻拿 409，
- * 而不是排队等一个可能 150 秒的 MFA。**不能**让两个登录并存：它们会互相
- * `reconfigureForAccount` / `setCredentials`，把 backends 与命名空间搅成半新半旧的状态。
- *
- * @param credentials 凭据存储。默认就是 `:data:jvmMain` 那份（`~/.local/share/xjtu-toolbox/xjtu_credentials`，
- *   权限 `0600`）；测试通过 `dataRootOverride` 换数据根，**绝不碰**用户真实的那一份。
- */
+/** serve 进程的会话装配：`:data` 的 [SessionManager] + 落盘凭据 + MFA 宿主。 */
 class ServeSession(private val credentials: JvmCredentialStore = JvmCredentialStore()) {
 
     /** 会话管家：站点注册中心、站点级 60 秒冷却、MFA 状态机宿主。 */
@@ -117,9 +67,7 @@ class ServeSession(private val credentials: JvmCredentialStore = JvmCredentialSt
         register(JsSession())
         register(VenueSession())
         register(YwtbSession())
-        // 成绩单（`dzpz`）：电子凭证引擎，`/api/dzpz/transcript` 要它。它**有自己的独立登录页**
-        // （`DzpzSession` + `DzpzLogin`：CAS OAuth2 `client_id=new9940` 回跳换 `loginidweaver`），
-        // 不借别的站点会话。与校园卡/场馆一样，「登录那一步」只是尽力预热（失败只记不抛）。
+        // 成绩单（dzpz）有自己的独立登录（CAS OAuth2 `client_id=new9940`），登录时只尽力预热。
         register(DzpzSession())
         // 加餐券（`coupon`）：`/api/coupon/{list,detail}` 要它。同样是独立登录页
         // （`CouponLogin`：CAS OAuth2 `client_id=1596` → 开放平台 → 回 egc 换 `auth_token`）。
@@ -133,9 +81,6 @@ class ServeSession(private val credentials: JvmCredentialStore = JvmCredentialSt
         // 思源学堂（`lms`）：`/api/lms/{courses,activities,activity}` 要它。它直连本域根路径 → 302 到
         // 统一认证（与教务同型，不经过开放平台/OAuth 授权页，见 `LmsLogin`），不借别的站点会话。
         register(LmsSession())
-        // 教材中心（`jiaocai`）：`/api/jiaocai/{search,ssno}` 要它。登录入口在 `/entry/login`
-        // （CAS → 超星 SSO），业务接口受「JS 跳转登录链」保护、由 `PortalRedirect` 自己跟完那几跳。
-        // `mustUseWebVpn = true`：真机上校外要走 WebVPN，与 `:desktop` 同一个站点、同一个开关。
         register(JiaocaiSession())
         // 移动教务（`jwapp`）：`/api/jwapp/scores` 要它；同一族的 `/api/jwapp/precise-scores` 要的是
         // **教务**（`jwxt`，上面的站点已经注册过）。它的登录链走开放平台 `appId=1370` 那一跳。
@@ -145,13 +90,7 @@ class ServeSession(private val credentials: JvmCredentialStore = JvmCredentialSt
         register(IclassfaceSession())
     }
 
-    /**
-     * MFA 宿主的**常驻**挂载凭据。
-     *
-     * 返回的 lambda 是卸载函数，本进程**永不调用**：serve 没有「窗口开着/关了」这回事，进程活着
-     * 就一定能接住验证码询问。为什么要把返回值存下来：它同时是「挂载计数不会掉回 0」的凭据 ——
-     * 计数回 0 之后 [SessionManager.verifyMfaWithUser] 会直接抛 IOException，浏览器那条 MFA 桥就断了。
-     */
+    /** MFA 宿主的常驻挂载凭据。 */
     private val mfaHostKeepAlive: () -> Unit = sessionManager.attachMfaHost()
 
     /** 登录互斥（见类 KDoc 的「并发」）。 */
@@ -167,25 +106,11 @@ class ServeSession(private val credentials: JvmCredentialStore = JvmCredentialSt
     @Volatile
     private var restored = false
 
-    /**
-     * 「有身份」的真值（[authenticated] 读它）—— 与 `DesktopAuth.loggedIn` 同义。
-     *
-     * 置 true 的只有两处：登录**跑完**（[login] 的最后一步）、冷启动恢复成功。
-     * 置 false 的也是两处：登录失败（命名空间已退回匿名）与 [logout]。
-     */
+    /** 「有身份」的真值（[authenticated] 读它）—— 与 `DesktopAuth.loggedIn` 同义。 */
     @Volatile
     private var loggedIn = false
 
-    /**
-     * 有没有一个可用的会话 —— 「有身份」= 登录**跑完了**（或冷启动从落盘凭据恢复过）。
-     *
-     * ⚠️ 两个容易写错的地方：
-     * - **不**是读 `sessionManager.credentials`：内核在登录一开始就 `setCredentials`，于是
-     *   「正在等短信验证码」那一段也会看起来像已登录 —— 而它随时可能失败，且那时扔该让第二发
-     *   登录拿 409（见 [loginMutex]）；
-     * - 读它会先做一次 [ensureRestored]（幂等、纯本地）—— 这就是「冷启动恢复」的入口：
-     *   `GET /api/session` 与 `GET /api/status` 读的都是这一个属性。
-     */
+    /** 有没有一个可用的会话 —— 「有身份」= 登录跑完了（或冷启动从落盘凭据恢复过）。 */
     val authenticated: Boolean
         get() {
             ensureRestored()
@@ -195,16 +120,7 @@ class ServeSession(private val credentials: JvmCredentialStore = JvmCredentialSt
     /** 当前挂起的 MFA 询问（没有就是 null）。浏览器侧轮询的就是它。 */
     val activeMfaRequest: MfaRequest? get() = sessionManager.activeMfaRequest.value
 
-    /**
-     * 冷启动静默恢复：落盘凭据还在就直接进「已登录」态，**不联网验证**（与 `DesktopAuth.restore` 同口径）。
-     *
-     * 为什么不验证：恢复本身只是把内存里的会话装配回账号命名空间（backends / 凭据 / 设备指纹 /
-     * 缓存公钥），站点会话是「从快照恢复、待确认」态；第一次真取数时会自己探活，失效就凭 TGC 免密
-     * 或凭据重登。在这里多打一次网络只会让第一个请求变慢（而且 serve 可能根本没人来取数）。
-     *
-     * 幂等且只尝试一次：失败（比如数据目录不可读）如实报「没有会话」，只记一条诊断 ——
-     * 一个 HTTP 端点不该因为读盘失败而 500。
-     */
+    /** 冷启动静默恢复：落盘凭据还在就直接进「已登录」态，不联网验证。 */
     fun ensureRestored() {
         if (restored) return
         synchronized(restoreLock) {
@@ -219,12 +135,7 @@ class ServeSession(private val credentials: JvmCredentialStore = JvmCredentialSt
         }
     }
 
-    /**
-     * 用这组凭据真登一次（走完整 CAS）。成功返回 [LoginOutcome.Success]。
-     *
-     * 失败时：命名空间退回匿名、**不落盘任何东西**、把 [FriendlyError] 的中文短句交回去。
-     * 已在登录态时直接成功（幂等）—— 想换账号请先 `POST /api/session/logout`。
-     */
+    /** 用这组凭据真登一次（走完整 CAS）。 */
     suspend fun login(username: String, password: String): LoginOutcome {
         if (authenticated) return LoginOutcome.Success
 
@@ -283,15 +194,7 @@ class ServeSession(private val credentials: JvmCredentialStore = JvmCredentialSt
         }
     }
 
-    /**
-     * 退出登录：**凭据、cookie、站点快照一起删**（与 `DesktopAuth.logout` 逐条同源）。
-     *
-     * 为什么不是「只删凭据」：serve 也可能跑在一台共用的机器上，磁盘上留一个 TGC 等于下一个人
-     * 直接登进上一个人的账号（设计文档 §8 第 3 条把这条列为分发的代价之一）。
-     *
-     * ⚠️ 正在挂起的 MFA 询问会被一并取消（`reconfigureForAnonymous` 里 kernel 会 cancel 它）——
-     * 那一发登录请求会以 4xx 收尾，这是对的：验证码发到了「已经没有人在等」的那一边。
-     */
+    /** 退出登录：凭据、cookie、站点快照一起删（与 `DesktopAuth.logout` 逐条同源）。 */
     fun logout() {
         val suffix = AccountContext.suffixFor(AccountContext.activeAccountId)
         sessionManager.clearCredentials()
@@ -303,16 +206,7 @@ class ServeSession(private val credentials: JvmCredentialStore = JvmCredentialSt
         loggedIn = false
     }
 
-    /**
-     * 弹窗出现的那一刻：把这次询问的绑定手机号取回来（顺带设下 `verifyCode` 要用的 `gid`）。
-     *
-     * 调用点只有一个 —— `GET /api/session/mfa` 报 `pending:true` 的时候。那一刻正是浏览器里
-     * 「弹窗真的显示出来了」，与两个窗口端在弹窗 `LaunchedEffect` 里做的事逐条同型。
-     *
-     * 取不到只记一条诊断（`getPhoneNumber` 是网络调用）：弹窗照旧显示，用户提交的验证码会因为
-     * 缺 `gid` 被判「必须先发送验证码」—— 与窗口端「取不到号码就报错、不假装有一个号码」一致。
-     * 同一个 [MfaRequest] 只取一次（`phoneNumber` 在 `MFAContext` 里本来就缓存）。
-     */
+    /** 弹窗出现时取回绑定手机号（顺带设下 `verifyCode` 要用的 `gid`）。 */
     suspend fun prepareMfaDialog(request: MfaRequest) {
         if (mfaReadyFor === request) return
         mfaReadyMutex.withLock {
@@ -358,12 +252,7 @@ class ServeSession(private val credentials: JvmCredentialStore = JvmCredentialSt
         /** 思源学堂（`lms`）。`/api/lms*` 进门时用它（与 `:desktop` 的 `DesktopAuth.LMS_SITE_KEY` 同一个值）。 */
         const val LMS_SITE_KEY = LmsSession.SITE_KEY
 
-        /**
-         * 教材中心（`jiaocai`）。`/api/jiaocai*` 进门时用它。
-         *
-         * ⚠️ key 是 **`jiaocai`（教材中心）**，不是 `jiaocai1` —— 全文库借的就是教材中心的会话
-         *（`:desktop` 的 `DesktopAuth.JIAOCAI_SITE_KEY` 与 `:app` 导航层那句 `WithSite("jiaocai")` 同源）。
-         */
+        /** 教材中心（`jiaocai`）。 */
         const val JIAOCAI_SITE_KEY = JiaocaiSession.SITE_KEY
 
         /** 移动教务（`jwapp`）。`/api/jwapp/scores` 进门时用它（`jwxt` 那个站点是同一族的第二条上游）。 */
@@ -372,24 +261,7 @@ class ServeSession(private val credentials: JvmCredentialStore = JvmCredentialSt
         /** 人脸识别签到（`iclassface`）。`/api/iclassface/records` 进门时用它。 */
         const val ICLASSFACE_SITE_KEY = IclassfaceSession.SITE_KEY
 
-        /**
-         * 登录那一步一次建起会话的站点（与 `:desktop` 的 `DesktopAuth.SESSION_SITE_KEYS` 同一份清单）。
-         *
-         * ⚠️ `js`（智慧教室平台）**刻意不在**表里：只有空闲教室那一屏的三档里的「实时状态」要它，
-         * 为了一屏的一档让每一次登录都多走一趟 CAS 不划算 —— 进屏时由那个源自己 ensure。
-         *
-         * `dzpz` / `coupon` / `ssn` / `new_attendance` 四个在表里（2026-10-13 补）：四组只读域的
-         * 端点（`/api/dzpz*` `/api/attendance*` `/api/coupon*` `/api/dorm*`）各自要自己的站点，
-         * 而它们的域名互相独立（没有哪个站点能替另一个建会话）；`ssn` 更是**必须**登录 ——
-         * `cid` 是登录时从缴费页里取出来写进会话的，不预热就到了取数那一步才发现要重登。
-         *
-         * `lms` / `jwapp` / `iclassface` / `jiaocai` 四个也在（2026-10-14 补，第二批只读域 §5.6）：
-         * 它们与 `:desktop` 的 `DesktopAuth.SESSION_SITE_KEYS` 是**同一份清单**（四个 key 逐字相同）。
-         * 四个都是独立登录页（`lms` 直连 CAS、`jwapp` 走开放平台 `appId=1370`、
-         * `iclassface` 走 CAS OAuth2 + `authorizesw`、`jiaocai` 走 `/entry/login` → 超星 SSO），
-         * 没有哪个能替另一个建会话 —— 少了预热的后果就是「第一次取数才发现要重登」。
-         * 与 `js` 那条例外不冲突：那四屏的取数**只有**一个站点（不像空闲教室是三档里的一档）。
-         */
+        /** 登录那一步一次建起会话的站点（与 `:desktop` 的 `DesktopAuth.SESSION_SITE_KEYS` 同一份清单）。 */
         private val SESSION_SITE_KEYS = listOf(
             LIBRARY_SITE_KEY,
             FITNESS_SITE_KEY,
@@ -409,13 +281,7 @@ class ServeSession(private val credentials: JvmCredentialStore = JvmCredentialSt
             JIAOCAI_SITE_KEY,
         )
 
-        /**
-         * MFA 一共允许几次验证码（`SessionManager.MFA_MAX_ATTEMPTS` 的**对外投影**）。
-         *
-         * ⚠️ 那边是 `private`，所以这里是同一个数字的第二份写法：它只用来算 `/api/session/mfa`
-         * 回给浏览器的 `attemptsLeft`（= 这个数 - `rejections`）。改了内核那个值就得改这里 ——
-         * 两边都动才算改完（契约 §5 里记着这条）。
-         */
+        /** MFA 一共允许几次验证码（`SessionManager.MFA_MAX_ATTEMPTS` 的对外投影）。 */
         const val MFA_MAX_ATTEMPTS = 3
     }
 }

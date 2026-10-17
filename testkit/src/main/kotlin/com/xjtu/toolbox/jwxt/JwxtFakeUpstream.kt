@@ -8,122 +8,14 @@ import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.atomic.AtomicInteger
 
-/**
- * 假的「教务系统」上游 —— 扮演 `jwxt.xjtu.edu.cn`（全校课表 + 成绩报表两条真数据路由的学校那一侧）。
- *
- * ## 它扮演到什么程度
- *
- * ```
- * GET  <HOME_URL>                      →（不带 ticket/jwxt 会话）302 到统一认证（service = HOME_URL）
- * POST http://login.xjtu.edu.cn/cas/login →（凭据表单，由 LibraryFakeUpstream 扮演 CAS）
- * GET  <HOME_URL>?ticket=ST-n          → 200 首页（会话 cookie 落下来）—— 登录链的最后一跳
- * GET  <KCB_CX> 的 `*default/index.do`  → 200（`SchoolCourseApi.ensureAppInitialized` 的预热）
- * POST <KCB_CX>/modules/bjkcb/dqxnxq.do   → 当前学期
- * POST <KCB_CX>/modules/bjkcb/xnxqcx.do   → 学期列表（请求里必须带 `*order=-DM`）
- * POST <DEPARTMENTS_URL>               → 开课单位（`/jwapp/code/…` 那张 id 表）
- * POST <KCB_CX>/modules/qxkcb/qxfbkccx.do → 全校课表一页（请求里必须带 `querySetting`）
- * POST <WDKB>/modules/xskcb/xskcb.do    → 学生课表整学期（请求里必须带 `XNXQDM`）—— `:app` 的 `ScheduleApi`
- * POST <WDKB>/modules/jshkcb/cxjcs.do   → 学期起点 `XQKSRQ`/`ZZC`（请求里必须带 `XN` 与 `XQ`）
- * GET  <REPORT_URL>?reportlet=…&xh=…    → 帆软报表初始页（`FR.SessionMgr.register`）
- * GET  <REPORT_URL>?…&op=page_content&sessionID=…&pn=N → 第 N 页表格
- * POST <REPORT_URL>（body `reportlets=[{'xh':…,'xnxqdm':…,'reportlet':'jcgl/wdjc.cpt'}]`）
- *                                    → 教材报表初始页（**内联表格**；见 [handleTextbookReport]）
- * ```
- *
- * ## 评教（本科那一条 = 第 8 条真数据路由）也在这个 host 上
- *
- * 评教应用 `wspjyyapp` 与课表 `kcbcx` 在**同一个域名**下，所以它没有自己的夹具类：端点直接加在
- * 这个文件里，分派仍然只按 host。「一个 host 一个夹具」是这套夹具的规矩 —— 多开一个类只会让
- * `FakeCampusProxy` 去猜「同一个域名的两条路径该给谁」。它演的是（`JudgeApi` 真打的那些请求）：
- *
- * ```
- * GET  <JUDGE_INDEX_URL>    → 200（`JudgeApi.ensureAppInitialized` 的预热）
- * POST <JUDGE_TERM_URL>     → 当前学期 `datas.cxxtcs.rows[0].CSZA`（请求必须带 `PJXNXQ`）
- * POST <JUDGE_LIST_URL>     → 问卷列表 `datas.cxdwpj.rows`（按 `PGLXDM` + `SFPG` 挑样本）
- * POST <JUDGE_QUESTION_URL> → 某问卷的题目 `datas.cxwjzb.rows`
- * POST <JUDGE_OPTION_URL>   → 某问卷的选项 `datas.cxxswjzbxq.rows`（六个 querySetting 条件一个不能少）
- * ```
- * 形状逐字段对着 `JudgeApi` 的解析写：
- * `PCDM/PGLXDM/PGNR/WJDM/WJMC/XNXQDM`，其中 `DBRS` 走 `safeInt`）、题目的 7 个键、选项的 7 个键
- * （注意选项的答案值读的是 **`DAFXDM`**，所以夹具在行里塞了一个错的 `DA`：读错键就会现形）。
- * 刻意留空了几格：未评的第二行缺 `DBRS/JSSJ/KCH`（`safeInt`/`safeString` 的默认值）、
- * 已评那行缺 `BPJS`（空串）、主观题不缺 —— 缺字段给什么因此写在明面上。
- *
- * **提交 / 撤回那两条（`WspjwjController` 下的 `*.do`）没有夹具**：这一轮的验收只看列表与「填卷」的取数，
- * 任何一次误提交都会以 404 响亮地失败，而不是被一个假的成功页糊过去。
- * 真实站点那条登录链还夹着 `org.xjtu.edu.cn` 的 OAuth 三跳（`client_id=1675` →
- * `callbackAuthorize` → 教务）。这里**直接 302 到统一认证**：夹具要演的是「CAS 回跳之后
- * 客户端拿到的那个 URL 与页面」，OAuth 中间那几跳对被测代码没有可观察差别
- * （`JwxtLogin.postLogin` 只判「最终停在 jwxt 上」）。这条省略写在这里，免得被读成「真站点就两跳」。
- *
- * ## 空闲教室「直查教务」那一档（第 10 条真数据路由的第三档）也在这个 host 上
- *
- * 它跑在 `kxjas` 应用里，与课表/评教同一个域名 ⇒ 端点直接加在这个文件里（`EmptyRoomApi` 的
- * `EmptyRoomDirectQuery` 真打的那些请求）：
- *
- * ```
- * GET  <CURRENT_USER_URL>              → `datas.userGroups`（已经是学生 ⇒ 不换角色）
- * POST <EMPTY_ROOM_CAMPUS_CODE_URL>    → 校区名→代码（`datas.code.rows`，最后一行只给 MC/DM）
- * POST <EMPTY_ROOM_BUILDING_CODE_URL>  → 教学楼名→代码
- * POST <EMPTY_ROOM_QUERY_URL>          → 某楼某天某节空闲的教室（KSJC/JSJC 都为 0 = 全楼名录）
- * ```
- *
- * 逐节的 11 次查询由夹具按 `KSJC..JSJC` 现算：主楼A-101 第 6-11 节空闲、主楼A-102 全天空闲、
- * 主楼A-103 全天占用。另有两行**噪声**（`JASLXDM` 为 null 的「幻觉教室」与名字含「测试专用」的）
- * 每枪都回、且必须被生产代码滤掉 —— 少了它们，「过滤」那两条分支就没人钉了。
- *
- * ## 统一认证那一半为什么不在这个文件里
- *
- * `login.xjtu.edu.cn` 是所有站点共用的一台 CAS，`FakeCampusProxy` 把它分派给
- * [LibraryFakeUpstream]（它完整扮演了登录页 / 表单 POST / 签 ticket / TGC，外加短信二次验证
- * 的「取手机号」与「校验验证码」两枪）。这个夹具只负责 `jwxt.xjtu.edu.cn` 那一半：**CAS 回跳之后**的事。
- *
- * ## 短信二次认证（CAS Safety Verify）那一幕也在这一半
- *
- * 真站点上它是 **jwxt 独有**的：`client_id=1675` 这个高敏感 OAuth 客户端即使在 TGC 已下发之后
- * 也会被 CAS 拦到「Safety Verify」页（`JwxtLogin.postLogin` 的注释与 `CasLoginPages.isSafetyVerifyPage`
- * 都是为它写的）。而**那一页要落在 jwxt 域名下才拦得到这条链** ⇒ 由这个夹具发它
- *（页面原文在 [CasSafetyVerifyPage]，只有那一份）。整条剧本是：
- *
- * ```
- * 开 requireSafetyVerify
- * GET  <HOME_URL>?ticket=ST-n  → 200 二次认证页（**不是**首页）   ← XJTULogin 认出来 ⇒ REQUIRE_MFA
- * GET  <CAS>/cas/sec/initByType/securephone?state=<secState> → gid + 屏蔽手机号
- * POST <CAS>/attest/api/guard/securephone/valid  {gid,code}    → code==123456 才过
- * POST <HOME_URL>?ticket=ST-n  （secState/execution/_eventId/submit） → 200 首页 + 会话 cookie
- * ```
- * 默认**关着**（既有用例要的是「一步登进去」）；`:server` 的 MFA 桥测试开它。
- *
- * ## 契约：逐字段对着 `:data` 里的解析函数写
- *
- * - 学期 / 开课单位 / 课表行的键，就是 `SchoolCourseApi` 真正读的那些
- *   （`datas.xnxqcx.rows[].DM/MC`、`datas.code.rows[].id/name`、`datas.qxfbkccx.rows[]` 的
- *   `KCH/KCM/KXH/SKJS/KKDWDM_DISPLAY/XF/XS/SKXS/SYXS/SJXS/XKZRS/KRL/SKBJ/YPSJDD/XXXQDM_DISPLAY/`
- *   `SFXGXK/XGXKLBDM_DISPLAY/KNZXS/NSXKRS/NVSXKRS/JXBID/XNXQDM`）；
- *   **刻意留空几个键**（第二、三行）—— 缺字段的默认值（`safeInt/safeDouble` → 0）就是这么钉住的。
- * - 学期列表的**行序就是上游的序**（真实站点按 `*order=-DM` 排好才回）：解析只做映射不排序，
- *   所以夹具按 DM 倒序给，并**校验请求里真带了 `*order=-DM`** —— 少一个断言，「上游排序」这条
- *   口径漂了都没人知道。
- * - 开课单位**故意乱序给**：`getDepartments` 自己按名字排（断言里就是排好的序）。
- * - 成绩报表的页数、会话 id、学期标题与课程行都照 `ScoreReportApi` 的判据写：
- *   `FR.SessionMgr.register('<id>'`、`FR._p.reportTotalPage = <n>`、单列表格行 = 学期标题、
- *   三列行 = 课程（课程名 / 学分 / 成绩），表头与学分行不是数字的行会被跳过。
- * - 教材报表的列头与 `JwxtScheduleApi.parseTableRows` 的列映射一一对得上
- *   （课程号 / 课程名 / 书名 / 主编 / 出版社 / ISBN号 / 定价 / 版次），第二行就是「无教材」那一档
- *   （带占位 ISBN）—— `hasSubstantiveTextbook` 为假就是靠这两行钉住的。
- *
- * ## 认不出的路径要响亮
- *
- * 路径不认识 → 404，**body 里带着完整 URL**；认识的路径但形体不对（该 POST 的用了 GET、
- * 请求里少了必备字段）→ 400，body 里带着实际收到的样子。URL 一漂就该一眼看出来。
- */
+/** 假的「教务系统」上游（`jwxt.xjtu.edu.cn`）。 */
 class JwxtFakeUpstream {
 
     companion object {
         const val HOST = "jwxt.xjtu.edu.cn"
         const val ORIGIN = "https://$HOST"
 
-        /** 登录入口页 —— 与 `XJTULogin.JWXT_URL` 必须逐字相同（有断言钉着）。 */
+        /** 登录入口页，必须与 `XJTULogin.JWXT_URL` 相同（有断言钉着）。 */
         const val HOME_URL = "$ORIGIN/jwapp/sys/homeapp/index.do"
 
         /** 课表查询应用（`SchoolCourseApi` 的 `appBase`）。 */
@@ -139,12 +31,7 @@ class JwxtFakeUpstream {
         const val SCHEDULE_URL = "$WDKB/modules/xskcb/xskcb.do"
         const val TERM_START_URL = "$WDKB/modules/jshkcb/cxjcs.do"
 
-        /**
-         * 课表应用（`wdkb`）自己的「当前学期」与「调停补课」两条端点。
-         *
-         * ⚠️ [CURRENT_TERM_URL] 那条是**全校课表应用**（`kcbcx`）的，两条不是同一个 URL：
-         * `:data` 的 `JwxtScheduleApi.currentTerm` 打的是下面这条，而 `termList` 走的是 kcbcx。
-         */
+        /** 课表应用（`wdkb`）自己的「当前学期」与「调停补课」两条端点。 */
         const val WDKB_CURRENT_TERM_URL = "$WDKB/modules/jshkcb/dqxnxq.do"
 
         /** 调停补课记录（`xskcb/xsdkkc.do`）—— 课表合并那一半的数据源，请求里必须带 `XNXQDM`。 */
@@ -169,7 +56,6 @@ class JwxtFakeUpstream {
         /** 第三行**只有 DM**：解析的兜底是「没有 MC 就拿 DM 当名字」，这条就是钉它的。 */
         const val TERM_BARE = "2024-2025-1"
 
-        // ── 精确成绩（`cjcx` 应用）的端点与样本（成绩屏的第二条上游，第 19 条真数据路由）──
 
         /** `CjcxApi.baseUrl` 就是它。 */
         const val CJCX = "$ORIGIN/jwapp/sys/cjcx"
@@ -178,11 +64,7 @@ class JwxtFakeUpstream {
         const val CJCX_INDEX_URL = "$ORIGIN$CJCX_INDEX_PATH"
         const val CJCX_QUERY_URL = "$ORIGIN$CJCX_QUERY_PATH"
 
-        /**
-         * `xscjcx.do` 的两行：第一行与 [com.xjtu.toolbox.jwapp.JwappFakeUpstream] 那门课
-         * **同学期同课名**（屏上显示的就是它替换后的精确总评），第二行是另一个学期的课
-         *（jwapp 没有对应行）—— 「按学期 + 课名对得上才替换」这条口径就是靠这两行钉住的。
-         */
+        /** `xscjcx.do` 的两行。 */
         const val CJCX_KCM = com.xjtu.toolbox.jwapp.JwappFakeUpstream.COURSE_NAME
         const val CJCX_TERM = com.xjtu.toolbox.jwapp.JwappFakeUpstream.TERM_CODE
         const val CJCX_ZCJ = 88.0
@@ -205,10 +87,7 @@ class JwxtFakeUpstream {
         const val COURSE_3_NAME = "艺术导论"
         const val TOTAL_SIZE = 3
 
-        // ── 学生课表样本（`wdkb`：`xskcb.do` 的行 + `cxjcs.do` 的学期起点）──
-        //
-        // 行的键名就是上游列名；`SKXQ`/`KSJC`/`JSJC` 三格**故意给 JSON 数字** ——
-        // 解析按 `safeString` 读成文本（「数字也按文本投影」那条口径就是这么钉住的）。
+        // ── 学生课表样本：`SKXQ`/`KSJC`/`JSJC` 故意给 JSON 数字，解析要读成文本 ──
 
         /** 第一行：整学期课（`ZCMC` = `1-16周`）。 */
         const val SCHEDULE_1_COURSE = "高等数学（上）"
@@ -230,19 +109,14 @@ class JwxtFakeUpstream {
         const val SCHEDULE_2_START = 3
         const val SCHEDULE_2_END = 4
 
-        /** 第三行只有 `KCM`：缺的键读成空串（「缺键 = 空串」那条口径由它钉住）。 */
+        /** 第三行只有 `KCM`：缺的键读成空串。 */
         const val SCHEDULE_3_COURSE = "艺术导论"
 
         /** 学期起点：`XQKSRQ` 给到秒（解析只取日期那一段），`ZZC` = 总周数（含考试周）。 */
         const val TERM_START_DATE = "2026-09-14"
         const val TERM_TOTAL_WEEKS = 18
 
-        // ── 调停补课样本（`xsdkkc.do`）—— 全部是**编造值**，只要形状与真站点一样 ──
-        //
-        // 一条 MOVED（`TKLXDM` = `1`）：第 5 周、周一第 1-2 节的高等数学（上）从 [SCHEDULE_1_ROOM]
-        // 换到 [CHANGE_NEW_ROOM]。挑第 1 行那条课是因为它整学期都上（`ZCMC` = `1-16周`），
-        // 合并后应当表现为「原行被挖掉第 5 周」+「多出一条只在第 5 周、在新教室的行」——
-        // 两边的差别在断言里是逐字段看的（改错一格就现形）。
+        // ── 调停补课样本（编造值）：一条 MOVED，第 5 周的高等数学（上）从 [SCHEDULE_1_ROOM] 换到 [CHANGE_NEW_ROOM] ──
 
         /** 调课记录的被调课教学班：必须等于 [SCHEDULE_1_JXBID]，否则合不上任何一门课。 */
         const val CHANGE_JXBID = SCHEDULE_1_JXBID
@@ -263,12 +137,6 @@ class JwxtFakeUpstream {
         const val EXAM_TIME = "14:30-16:30"
         const val EXAM_ROOM = "主楼A-101"
         const val EXAM_SEAT = "27"
-        // ── 教材报表样本（`frReport2/show.do` 的 `jcgl/wdjc.cpt`；`:data` 的 `JwxtScheduleApi.textbooks`）──
-        //
-        // 与成绩报表**同一个 show.do**、同一台假教务：差别只在「怎么问」——成绩报表是 GET + `?reportlet=…&xh=…`
-        // （成绩那一族已经在钉），教材报表是 POST + 请求体里的 `reportlets=[{…}]`（见 [handleTextbookReport]）。
-        // 表头写的是真站点的列名（课程号 / 课程名 / 书名 / 主编 / 出版社 / ISBN号 / 定价 / 版次），
-        // 因为 `parseTableRows` 的列映射认的就是这些词 —— 值全是编的。
 
         /** 教材报表的 reportlet 与它那个表单字段名（`:data` 里那两处字面量）。 */
         const val TEXTBOOK_REPORTLET = "jcgl/wdjc.cpt"
@@ -284,11 +152,7 @@ class JwxtFakeUpstream {
         const val TEXTBOOK_PRICE = "39.00"
         const val TEXTBOOK_EDITION = "第7版"
 
-        /**
-         * 第二行：「无教材」那一档 —— 书名就是「无教材」，ISBN 是报表那串**占位号**
-         * （[TEXTBOOK_PLACEHOLDER_ISBN]）。`TextbookItem.hasSubstantiveTextbook` 为假就是判这一行，
-         * 而占位号刻意留着：`:core` 的 `realIsbn` 才是滤它的那一处，本夹具不替它滤。
-         */
+        /** 第二行：「无教材」那一档 —— 书名就是「无教材」，ISBN 是报表那串占位号 （[TEXTBOOK_PLACEHOLDER_ISBN]）。 */
         const val TEXTBOOK_NONE_COURSE = "大学物理"
         const val TEXTBOOK_NONE_COURSE_CODE = "PHYS1002"
         const val TEXTBOOK_NONE_NAME = "无教材"
@@ -314,7 +178,6 @@ class JwxtFakeUpstream {
         const val SCORE_2_NAME = "大学物理"
         const val SCORE_3_NAME = "工程训练"
 
-        // ── 评教（`wspjyyapp` 应用）：本科评教的全部端点（第 8 条真数据路由）──
 
         /** 评教应用前缀（`JudgeApi` 里那些 URL 的共同前半截）。 */
         const val WSPJ_APP = "$ORIGIN/jwapp/sys/wspjyyapp"
@@ -325,10 +188,7 @@ class JwxtFakeUpstream {
         const val JUDGE_QUESTION_URL = "$WSPJ_APP/modules/wj/cxwjzb.do"
         const val JUDGE_OPTION_URL = "$WSPJ_APP/modules/wj/cxxswjzbxq.do"
 
-        /**
-         * 评教的当前学期（`CSZA`）。与课表那条**是同一个学期**：同一个教务系统不该就
-         * 「现在是什么学期」给出两个答案，所以它就是 [TERM_NEW]。
-         */
+        /** 评教的当前学期（`CSZA`）。 */
         const val JUDGE_TERM = TERM_NEW
 
         /** `cxxswjzbxq.do` 的 `querySetting` 里必须出现的六个条件（少一个就可能领回别人的卷子）。 */
@@ -357,11 +217,7 @@ class JwxtFakeUpstream {
 
         // ── 评教题目与选项的样本（`ZB-01` 是唯一带选项的题）──
 
-        /**
-         * 选项的两个编号：`DADM` 是**答案代码**（`QuestionnaireOptionData.DADM`），`DA` 是
-         * **要填回问卷的选项编号**（服务端字段名是 `DAFXDM`）。两个都得对上：`DADM` 是选值
-         * 匹配用的，`DA` 才是提交时写进卷子的那个值。
-         */
+        /** 选项的两个编号：`DADM` 是答案代码（`QuestionnaireOptionData.DADM`），`DA` 是 要填回问卷的选项编号（服务端字段名是 `DAFXDM`）。 */
         const val JUDGE_OPTION_DADM_BEST = "DA-ZB01-100"
         const val JUDGE_OPTION_DA_BEST = "100"
         const val JUDGE_OPTION_DADM_SECOND = "DA-ZB01-80"
@@ -369,10 +225,7 @@ class JwxtFakeUpstream {
         const val JUDGE_OPTION_DADM_THIRD = "DA-ZB01-60"
         const val JUDGE_OPTION_DA_THIRD = "60"
 
-        // ── 空闲教室「直查教务」那一档（第 10 条真数据路由的第三档）──
-        //
-        // 这一档在 `kxjas` 应用里（`EmptyRoomApi` 的 `EmptyRoomDirectQuery`）。四条 URL 都是它真打的；
-        // 那两个 UUID 是上游 `jwxt/empty_room.py` 里写死的编号，改了就等于换了接口。
+        // ── 空闲教室「直查教务」：那两个 UUID 是上游写死的接口编号 ──
 
         const val EMPTY_ROOM_QUERY_URL = "$ORIGIN/jwapp/sys/kxjas/modules/kxjscx/cxkxjs.do"
         const val EMPTY_ROOM_CAMPUS_CODE_URL = "$ORIGIN/jwapp/code/83a986fc-e677-400e-99a4-c7bb39c2ca35.do"
@@ -418,12 +271,7 @@ class JwxtFakeUpstream {
     /** CAS 回跳（带 ticket）落在本站的次数 —— 用户级「登录真的走完了」。 */
     val ticketLandings = AtomicInteger()
 
-    /**
-     * 二次认证剧本的开关：开上之后，**带 ticket 的回跳给的不是首页而是 [safetyVerifyPage]**。
-     *
-     * 什么时候开：测「登录链上撞到短信二验」时（`:server` 的 MFA 桥）。默认关 —— 其余用例要的是
-     * 「一步登进去」。
-     */
+    /** 二次认证剧本的开关：开上之后，带 ticket 的回跳给的不是首页而是 [safetyVerifyPage]。 */
     val requireSafetyVerify = AtomicBoolean(false)
 
     /** 二次认证页被给出去几次（= 登录链真的在那一步被拦住了）。 */
@@ -457,10 +305,7 @@ class JwxtFakeUpstream {
     /** 成绩报表的翻页请求打过几次（`totalPages=2` ⇒ 一次 `pn=1` + 一次 `pn=2`）。 */
     val reportPageCalls = AtomicInteger()
 
-    /**
-     * 精确成绩（`cjcx` 应用的 `xscjcx.do`）与它的预热请求打过几次 —— 第 19 条真数据路由
-     * （移动教务成绩屏）的**第二条上游**，与校课表/报表共用这台假教务。
-     */
+    /** 精确成绩（`cjcx` 应用的 `xscjcx.do`）与它的预热请求打过几次。 */
     val cjcxIndexCalls = AtomicInteger()
     val cjcxCalls = AtomicInteger()
 
@@ -499,12 +344,7 @@ class JwxtFakeUpstream {
     var lastExamForm: String? = null
         private set
 
-    /**
-     * 教材报表初始化那一枪打过几次，以及**最近一次 `reportlets` 字段的原文**（URL 解码之后）。
-     *
-     * 断言用：这一格里有学号与学期号 —— 「学号只在请求里、不进响应」这条红线全靠它证明
-     * （响应里没有那个值，但夹具明明收到了它）。
-     */
+    /** 教材报表初始化那一枪打过几次，以及最近一次 `reportlets` 字段的原文（URL 解码之后）。 */
     val textbookReportCalls = AtomicInteger()
 
     @Volatile
@@ -521,7 +361,6 @@ class JwxtFakeUpstream {
     var lastReportSessionId: String? = null
         private set
 
-    // ── 评教（第 8 条真数据路由）：动作打进来时计数/记录 ──
 
     /** 预热 `index.do` / 当前学期 / 列表 / 题目 / 选项 各打过几次。 */
     val judgeIndexCalls = AtomicInteger()
@@ -549,9 +388,8 @@ class JwxtFakeUpstream {
     var lastJudgeOptionForm: String? = null
         private set
 
-    // ── 空闲教室直查（第 10 条真数据路由的第三档）：动作打进来时计数/记录 ──
 
-    /** `currentUser.do` 打过几次（`ensureRoleStudent` 的第一步；已经是学生就不换角色）。 */
+    /** `currentUser.do` 打过几次。 */
     val currentUserCalls = AtomicInteger()
 
     /** `changeAppRole.do` 打过几次 —— 夹具扮的就是学生身份 ⇒ 正常应当一直是 0。 */
@@ -578,13 +416,7 @@ class JwxtFakeUpstream {
         </body></html>
     """.trimIndent()
 
-    /**
-     * CAS 的「Safety Verify」二次认证页 —— 只有 [requireSafetyVerify] 打开时才会被给出去。
-     *
-     * ⚠️ 页面原文在 [CasSafetyVerifyPage]（**只有那一份**：它不属于任何一个业务站，真站点上是 CAS
-     * 渲染的）。这里只负责「在回跳那一步发给客户端」—— 与图书馆那条链（CAS 自己在凭据 POST 的落点
-     * 发它）的差别，见那个对象的 KDoc。
-     */
+    /** CAS 的「Safety Verify」二次认证页 —— 只有 [requireSafetyVerify] 打开时才会被给出去。 */
     val safetyVerifyPage: String get() = CasSafetyVerifyPage.HTML
 
     /** `kcbcx` 应用的首页（预热用，客户端只 close 不解析）。 */
@@ -601,12 +433,7 @@ class JwxtFakeUpstream {
         </body></html>
     """.trimIndent()
 
-    /**
-     * `xscjcx.do`：`datas.xscjcx.rows` 两行（`totalSize` 也是 2）。
-     *
-     * 键名就是上游列名（解析按 `safeString` / `safeDouble` 读）；第一行的 `DJCJMC` / `PSCJXS` /
-     * `QMCJXS` 刻意留空（空串 ⇒ 解析成 null）—— 等级制那几格的默认值就是这么钉住的。
-     */
+    /** `xscjcx.do`：`datas.xscjcx.rows` 两行（`totalSize` 也是 2）。 */
     val cjcxJson = """
         {"code":"0","datas":{"xscjcx":{"totalSize":2,"rows":[
           {"KCM":"$CJCX_KCM","XNXQDM":"$CJCX_TERM","ZCJ":$CJCX_ZCJ,"XFJD":$CJCX_XFJD,"XF":$CJCX_XF,
@@ -625,12 +452,7 @@ class JwxtFakeUpstream {
         {"datas":{"dqxnxq":{"rows":[{"DM":"$TERM_NEW","MC":"$TERM_NEW_NAME"}]}}}
     """.trimIndent()
 
-    /**
-     * 学生课表的整学期行（`datas.xskcb.rows`）：三行。
-     *
-     * 第一行整学期、第二行单周（`ZCMC` 的 `(单)` 写法）、第三行**只有 `KCM`** —— 缺的键读成空串。
-     * 三格里 `SKXQ`/`KSJC`/`JSJC` 给的是 **JSON 数字**（真站点就是这么给的），解析成文本是它的口径。
-     */
+    /** 学生课表的整学期行（`datas.xskcb.rows`）：三行。 */
     val scheduleJson = """
         {"datas":{"xskcb":{"rows":[
           {"JXBID":"$SCHEDULE_1_JXBID","KCH":"MATH1001","KCM":"$SCHEDULE_1_COURSE",
@@ -653,13 +475,7 @@ class JwxtFakeUpstream {
         {"datas":{"dqxnxq":{"rows":[{"DM":"$TERM_NEW","MC":"$TERM_NEW_NAME"}]}}}
     """.trimIndent()
 
-    /**
-     * 调停补课：一条 MOVED（第 [CHANGE_WEEK] 周的高等数学换到 [CHANGE_NEW_ROOM]）。
-     *
-     * 键名全是上游列名：`TKLXDM` 1/2/3 = 调课/停课/补课（`JwxtChange.of` 就认这三个数字，
-     * 所以我在这里写成 `"1"` 而不是 `"01"` —— 它自己会 `trimStart('0')`，两种都行）；
-     * `YSKJS`/`XSKJS` 是 `"姓名/工号"` 拼起来的写法，解析要把工号切掉。
-     */
+    /** 调停补课：一条 MOVED（第 [CHANGE_WEEK] 周的高等数学换到 [CHANGE_NEW_ROOM]）。 */
     val changesJson = """
         {"datas":{"xsdkkc":{"rows":[
           {"TKLXDM":"1","JXBID":"$CHANGE_JXBID","KCM":"$CHANGE_COURSE","KCH":"$EXAM_CODE",
@@ -677,14 +493,7 @@ class JwxtFakeUpstream {
            "KSSJMS":"$EXAM_DATE $EXAM_TIME","JASMC":"$EXAM_ROOM","ZWH":"$EXAM_SEAT"}
         ]}}}
     """.trimIndent()
-    /**
-     * 教材报表的**初始页**（`:data` 的 `JwxtScheduleApi.textbooks` Step 1/3 那一枪）。
-     *
-     * 只给内联 `<table>`：`parseTextbookTable` 的**策略 1**（标准表格）就能解析出来 ⇒ 走不到
-     * Step 4/5 那条 `FR.SessionMgr.register` + `op=page_content` 的翻页链（成绩报表那一族已经在钉它）。
-     * ⚠️ 页面里**不能**出现 `login` / `openplatform` 两个词：`:data` 把「有 login 又没有 SessionMgr」
-     * 当成会话失效（`AuthExpiredException`），那会把这一条端点的测试变成另一件事。
-     */
+    /** 教材报表的初始页（`:data` 的 `JwxtScheduleApi.textbooks` Step 1/3 那一枪）。 */
     val textbookReportPage = """
         <html><head><title>教材使用情况</title></head><body>
         <table><tbody>
@@ -714,12 +523,7 @@ class JwxtFakeUpstream {
         ]}}}
     """.trimIndent()
 
-    /**
-     * 全校课表一页。
-     *
-     * 第二行缺 `XKZRS`/`SJXS`/`NSXKRS`/`NVSXKRS`、第三行缺 `YPSJDD`/`KNZXS`
-     * —— `safeInt/safeDouble` 的默认值（0）与「空串」就是靠这几格钉住的。
-     */
+    /** 全校课表一页。 */
     val queryJson = """
         {"datas":{"qxfbkccx":{"totalSize":$TOTAL_SIZE,"rows":[
           {"KCH":"MATH1001","KCM":"$COURSE_1_NAME","KXH":"01","SKJS":"示例甲",
@@ -742,28 +546,14 @@ class JwxtFakeUpstream {
         ]}}}
     """.trimIndent()
 
-    /**
-     * 成绩报表的初始页：只给会话 id（`extractFrSessionId` 的第一条判据）。
-     *
-     * ⚠️ **不能**带 `FR._p.reportTotalPage`：初始页没有它，页数只从第一页表格里读
-     * （少了这条，`extractTotalPages` 的兜底 1 就永远测不到）。
-     */
+    /** 成绩报表的初始页：只给会话 id（`extractFrSessionId` 的第一条判据）。 */
     val reportInitPage = """
         <html><head><title>学生成绩报表</title>
         <script>FR.SessionMgr.register('$FR_SESSION_ID', {bookID:'bkdsglxjtu/XAJTDX_BDS_CJ.cpt'});</script>
         </head><body><div id="fr-container"></div></body></html>
     """.trimIndent()
 
-    /**
-     * 成绩报表第 1 页。
-     *
-     * 四类行**各来一条**，把 `parseCoursesFromHtml` 的判据全钉住：
-     *  1. 两列行（`tds.size < 3`）→ 跳过；
-     *  2. 三列但在学期标题**之前** → 跳过（`currentTerm == null`）；
-     *  3. 表头（课程名是「课程」）→ 跳过；
-     *  4. 学分行不是数字（`—`）→ 跳过。
-     * 真正成行的两条：数字成绩（95 → 4.3）与等级制（优秀 → 不参与 GPA ⇒ `gpa == null`）。
-     */
+    /** 成绩报表第 1 页。 */
     val reportPage1 = """
         <html><body>
         <script>FR._p.reportTotalPage = $REPORT_TOTAL_PAGES;</script>
@@ -786,12 +576,7 @@ class JwxtFakeUpstream {
         </body></html>
     """.trimIndent()
 
-    /**
-     * 评教的当前学期：`datas.cxxtcs.rows[0].CSZA`。
-     *
-     * 夹具行里只给 `CSZA`（`JudgeApi` 只读这个键）—— 服务器还会给一堆别的列，这里刻意不给：
-     * 「服务端多给了几个键也不会读错」这件事不该靠夹具替它兜着。
-     */
+    /** 评教的当前学期：`datas.cxxtcs.rows[0].CSZA`。 */
     val judgeTermJson = """{"datas":{"cxxtcs":{"rows":[{"CSZA":"$JUDGE_TERM"}]}}}"""
 
     /** 未评 · 过程评教（`PGLXDM=05`、`SFPG=0`）：一行。 */
@@ -805,11 +590,7 @@ class JwxtFakeUpstream {
         ]}}}
     """.trimIndent()
 
-    /**
-     * 未评 · 期末评教（`PGLXDM=01`、`SFPG=0`）：两行。
-     *
-     * 第二行**刻意缺 `DBRS`/`JSSJ`/`KCH`** —— `safeInt` 的 0 与 `safeString` 的空串就是这么钉住的。
-     */
+    /** 未评 · 期末评教（`PGLXDM=01`、`SFPG=0`）：两行。 */
     val judgeUnfinishedFinalJson = """
         {"datas":{"cxdwpj":{"rows":[
           {"BPJS":"$JUDGE_TEACHER_FINAL","BPR":"$JUDGE_BPR_FINAL","DBRS":"2",
@@ -837,18 +618,7 @@ class JwxtFakeUpstream {
         ]}}}
     """.trimIndent()
 
-    /**
-     * 某问卷的题目（`datas.cxwjzb.rows`）：六道题把三种题型与三种匹配路径都摆出来。
-     *
-     * | 题 | 题型 | 这道题钉的是 |
-     * |---|---|---|
-     * | `ZB-01` | 客观 | 正常路径：选项表里有同名 `ZBDM` |
-     * | `ZB-02` | 主观 | **缺 `FZ`** ⇒ `safeStringOrNull()` 给 null |
-     * | `ZB-03` | 分值 | `getMaxScore()` 读的就是 `FZ` |
-     * | `ZB-04` | 客观 | `SFBT=0` 且选项表里没有 ⇒ 非必填题允许跳过 |
-     * | `ZB-05` | 客观 | `ZBDM` 不在选项表，靠 `DADM` 兜底 |
-     * | `ZB-06` | 客观 | 靠**题名**兜底（`ZBMC` 比 `ZB-01` 多一个冒号，归一化后就相等） |
-     */
+    /** 某问卷的题目（`datas.cxwjzb.rows`）：六道题把三种题型与三种匹配路径都摆出来。 */
     val judgeQuestionJson = """
         {"datas":{"cxwjzb":{"rows":[
           {"WJDM":"$JUDGE_WJDM_FINAL","ZBDM":"ZB-01","ZBMC":"教学态度","TXDM":"01",
@@ -866,12 +636,7 @@ class JwxtFakeUpstream {
         ]}}}
     """.trimIndent()
 
-    /**
-     * 某问卷的选项（`datas.cxxswjzbxq.rows`）：只给 `ZB-01` 三道，且**按 `DAPX` 倒序给**。
-     *
-     * 两件事因此被钉住：选值是**按 `DAPX` 精确匹配**（不是「取第一行」），以及答案值读的是
-     * `DAFXDM` —— 夹具特意在行里塞了一个错的 `DA`（`所写非所读`）。
-     */
+    /** 某问卷的选项（`datas.cxxswjzbxq.rows`）：只给 `ZB-01` 三道，且按 `DAPX` 倒序给。 */
     val judgeOptionJson = """
         {"datas":{"cxxswjzbxq":{"rows":[
           {"ZBDM":"ZB-01","ZBMC":"教学态度","DADM":"$JUDGE_OPTION_DADM_THIRD","DAFXDM":"$JUDGE_OPTION_DA_THIRD",
@@ -1042,17 +807,7 @@ class JwxtFakeUpstream {
         }
     }
 
-    /**
-     * 登录入口页：带 ticket 或已经握着本站会话 cookie ⇒ 给首页；否则 302 到统一认证
-     * （`service` 就是本页地址，真站点也是这么把票据交回来的）。
-     *
-     * 二次认证剧本（[requireSafetyVerify] 开着）多两条分支：
-     * - **带 ticket 的回跳不给首页，给 [safetyVerifyPage]** —— 真站点正是这样：TGC 已下发、
-     *   CAS 仍把 jwxt（`client_id=1675`）拦到二次认证（`XJTULogin.open` 的 `initialSafetyVerify`
-     *   分支认的就是这一页）；
-     * - **`POST` 回本页** = 二次认证页的隐藏表单回提（`MFAContext.verifyCode` 的最后一步），
-     *   校验通过就回到正常形态：首页 + 本站会话 cookie。
-     */
+    /** 登录入口页：带 ticket 或已经握着本站会话 cookie ⇒ 给首页。 */
     private fun handleHome(exchange: HttpExchange, query: String) {
         if (exchange.requestMethod == "POST") {
             handleSafetyVerifySubmit(exchange)
@@ -1077,12 +832,7 @@ class JwxtFakeUpstream {
         redirect(exchange, "http://${LibraryFakeUpstream.CAS_HOST}/cas/login?service=${encode(HOME_URL)}")
     }
 
-    /**
-     * 二次认证页的隐藏表单回提：字段对不上就 400 + 原文，合格就把回跳走完（首页 + 本站会话 cookie）。
-     *
-     * 字段契约只写在 [CasSafetyVerifyPage.rejection] 一处 —— 图书馆那条链（CAS 自己发的页）
-     * 走的是同一个校验，那是「页面原文只有一份」的直接后果。
-     */
+    /** 二次认证页的隐藏表单回提：字段对不上就 400 + 原文，合格就把回跳走完（首页 + 本站会话 cookie）。 */
     private fun handleSafetyVerifySubmit(exchange: HttpExchange) {
         val form = readBody(exchange)
         lastSafetyVerifyForm = form
@@ -1098,10 +848,7 @@ class JwxtFakeUpstream {
         respondHtml(exchange, homePage)
     }
 
-    /**
-     * 帆软报表：成绩报表（初始页 `reportlet=` / 翻页 `op=page_content`，两条都是 **GET**）、
-     * 教材报表（**POST** + 请求体里的 `reportlets=[…]`，见 [handleTextbookReport]），认不出就响亮地失败。
-     */
+    /** 帆软报表：成绩报表（初始页 `reportlet=` / 翻页 `op=page_content`，两条都是 GET）、教材报表（POST + 请求体里的 `reportlets=[…]`，见 [handleTextbookReport]），认不出就响亮地失败。 */
     private fun handleReport(exchange: HttpExchange, query: String) {
         // 教材报表那一枪**没有 query**：参数全在请求体里 ⇒ 先按方法分，再按 query 分。
         if (exchange.requestMethod == "POST") {
@@ -1145,12 +892,7 @@ class JwxtFakeUpstream {
         badRequest(exchange, "认不出的报表请求：$query")
     }
 
-    /**
-     * 教材报表的初始页：`reportlets` 里那三个键（`xh` / `xnxqdm` / `reportlet`）都要在，
-     * 而且 reportlet 必须是教材那一张 —— 少了任何一格，问的就是别的东西（与其余端点同一条规矩）。
-     *
-     * 记的是**解码之后**的 `reportlets`：`:data` 用 `FormBody` 发，原文里 `'` `{` `}` 全是百分号编码。
-     */
+    /** 教材报表的初始页：`reportlets` 里那三个键（`xh` / `xnxqdm` / `reportlet`）都要在，而且 reportlet 必须是教材那一张——少了任何一格，问的就是别的东西（与其余端点同一条规矩）。 */
     private fun handleTextbookReport(exchange: HttpExchange) {
         val body = readBody(exchange)
         val reportlets = formFields(body)[TEXTBOOK_REPORT_PARAM].orEmpty()
@@ -1168,12 +910,7 @@ class JwxtFakeUpstream {
         respondHtml(exchange, textbookReportPage)
     }
 
-    /**
-     * 评教问卷列表：按 `PGLXDM`（01 期末 / 05 过程）＋`SFPG`（1 已评）挑样本。
-     *
-     * 五个必备字段缺一个、或 `SFKF`/`SFFB` 不是 1（「只给开放中且已发布」的问卷），回 400——
-     * 与真站点的请求形体一致，顺带把「少发一个条件也照样成」这类退化搭住。
-     */
+    /** 评教问卷列表：按 `PGLXDM`（01 期末 / 05 过程）＋`SFPG`（1 已评）挑样本。 */
     private fun handleJudgeList(exchange: HttpExchange, form: String) {
         lastJudgeListForm = form
         judgeListForms += form
@@ -1200,10 +937,7 @@ class JwxtFakeUpstream {
         else -> """{"datas":{"cxdwpj":{"rows":[]}}}"""
     }
 
-    /**
-     * 评教问卷的选项：`querySetting` 里那六个定位条件（`BPR`/`CPR`/`JXBID`/`PGNR`/`WJDM`/`PCDM`）
-     * 一个都不能少 —— 少一个就可能把别人的卷子领回来。
-     */
+    /** 评教问卷的选项：`querySetting` 里那六个定位条件（`BPR`/`CPR`/`JXBID`/`PGNR`/`WJDM`/`PCDM`）一个都不能少。 */
     private fun handleJudgeOptions(exchange: HttpExchange, form: String) {
         lastJudgeOptionForm = form
         val fields = formFields(form)
@@ -1264,10 +998,7 @@ class JwxtFakeUpstream {
         ]}}}
     """.trimIndent()
 
-    /**
-     * 一行教室。`typeDisplay = null` = **不给** `JASLXDM_DISPLAY` 这个键（钉 `DirectRoomRow.type`
-     * 的 null）；[hallucinated] = `JASLXDM` 给 JSON null —— 生产代码按它过滤掉「接口幻觉教室」。
-     */
+    /** 一行教室。 */
     private data class EmptyRoomRow(
         val name: String,
         val seats: Int,
@@ -1293,10 +1024,7 @@ class JwxtFakeUpstream {
         EmptyRoomRow(EMPTY_ROOM_TEST_NAME, 20, EMPTY_ROOM_TYPE, EMPTY_ROOM_A102_FREE_PERIODS),
     )
 
-    /**
-     * 逐节查询：`KSJC`/`JSJC` 都是 0 = 「无过滤，给全楼所有教室」（`queryDay` 拿它当教室名录），
-     * 否则只给**那一（几）节空闲**的教室。两条噪声行每次都回，好让「过滤掉它们」的断言有意义。
-     */
+    /** 逐节查询：`KSJC`/`JSJC` 都是 0 = 「无过滤，给全楼所有教室」（`queryDay` 拿它当教室名录），否则只给那一（几）节空闲的教室。 */
     private fun handleEmptyRoomQuery(exchange: HttpExchange, form: String) {
         lastEmptyRoomForm = form
         val fields = formFields(form)

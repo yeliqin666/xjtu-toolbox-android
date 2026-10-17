@@ -6,22 +6,12 @@ import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
-/**
- * S1b：`StoreArchive.import` 的逐键裁决（§6.4）与坏档案不动端（§7 的 **A6 / A7**）。
- *
- * 为什么这两条在**内存 source/sink** 上跑（规格 A7 那行的口径）：`import` 是纯函数门面 ——
- * 字节从 [ArchiveSource] 进来、要写的那些键从 [ArchiveImportTarget] 出去；两头都在内存里，
- * 「端内零变化」才能逐字比（`Map` 的相等），不依赖任何端的内核文件。
- *
- * 端内现状由 [MemoryTarget] 持有；档案那半一律走 [StoreArchive.export] 现编（顺带把
- * 「导出 → 导入」这条必经之路也跑一遍）；只有「store 路径读不出来」那一条需要手写一个 [ArchiveSource]。
- */
+/** `StoreArchive.import` 的逐键裁决（§6.4）与坏档案不动端。 */
 class StoreArchiveImportTest {
 
     private val suffix = ArchiveFixture.SUFFIX
     private val now = ArchiveFixture.FIXED_NOW
 
-    // ── A6：不丢键 + 不覆盖本机（表驱动，逐条钉 §6.4 的裁决） ──────────────────
 
     @Test
     fun `A6 逐键裁决：at 新者胜、任一方缺 at 本端胜、本端独有保持不变、set 覆盖不并集`() {
@@ -35,7 +25,6 @@ class StoreArchiveImportTest {
             val after = assertNotNull(target.store(case.archive.rawName), "用例：${case.name}：导入后该 store 应当在")
             assertEquals(case.expected, after, "用例：${case.name}")
 
-            // A6 的前半：「导入前后端内键集合 ⊇ 档案键集合」
             case.archive.keys.keys.forEach { key ->
                 assertTrue(after.keys.containsKey(key), "用例：${case.name}：少了档案里的键 $key")
             }
@@ -122,7 +111,6 @@ class StoreArchiveImportTest {
         assertEquals(afterFirst, target.state(), "两次导入之后的端内状态逐字相同")
     }
 
-    // ── A7：坏档案不动端（表驱动） ──────────────────────────────────────────
 
     @Test
     fun `A7 每个坏档案都明确失败，且端内键集合与值零变化`() {
@@ -141,7 +129,6 @@ class StoreArchiveImportTest {
         }
     }
 
-    // ── 自校验（S5/S6 那两份判定收口到 :core 之后） ────────────────────────
 
     @Test
     fun `自校验：自编的档案通过，条目按 stores 那一层列出来（码点升序）`() {
@@ -156,7 +143,6 @@ class StoreArchiveImportTest {
         assertEquals(ARCHIVE_FORMAT, inspection.manifest.format)
         assertEquals(ARCHIVE_VERSION, inspection.manifest.version)
 
-        // 凭据族默认不写（A8）⇒ 只剩三个非凭据 store
         assertEquals(
             listOf(
                 "accounts/$suffix/stores/schedule_cache.json",
@@ -385,12 +371,7 @@ class StoreArchiveImportTest {
         )
 }
 
-/**
- * 内存里的「一端」：既是导入的落点（[ArchiveImportTarget]），也保有端内现状供断言。
- *
- * 写入语义刻意照端内的键级写：`putKey` 只动这一个键（其余键与旁挂时间戳原样留着），
- * 所以「本端胜的键一个都没被碰」这件事在 [state] 里看得见。
- */
+/** 内存里的「一端」：既是导入的落点（[ArchiveImportTarget]），也保有端内现状供断言。 */
 private class MemoryTarget : ArchiveImportTarget {
 
     private val stores = linkedMapOf<String, StoreSnapshot>()
@@ -429,6 +410,6 @@ private class MemoryTarget : ArchiveImportTarget {
 
     fun file(suffix: String, relPath: String): String? = files[suffix to relPath]
 
-    /** 端内现状的**副本**（A7 的「零变化」就是比它）。 */
+    /** 端内现状的副本。 */
     fun state(): Pair<Map<String, StoreSnapshot>, Map<Pair<String, String>, String>> = stores.toMap() to files.toMap()
 }

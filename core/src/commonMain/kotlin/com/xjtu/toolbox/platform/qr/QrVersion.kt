@@ -1,27 +1,6 @@
 package com.xjtu.toolbox.platform.qr
 
-/**
- * 版本表与纠错等级/模式 —— zxing 3.5.4 `com.google.zxing.qrcode.decoder` 的 `Version`（含
- * `ECBlocks` / `ECB`）/ `ErrorCorrectionLevel` / `Mode` 的**逐字对照**。
- *
- * ## 这些数字从哪来（别手抄，抄错一位就解不出码）
- *
- * 下面那张 `VERSIONS` 表是**从 zxing 3.5.4 的 `Version.java` 里逐条抽出来**的（40 个版本 ×
- * 4 个纠错等级 × 每级的纠错字/块划分），抽取脚本一次跑完、每一条都对着 zxing 那份源码数过一遍。
- * `QrVersion` 的 `totalCodewords` 也与 zxing 一样**由这张表算出来**（`count * (dataCodewords +
- * ecCodewordsPerBlock)` 逐块求和），不是另抄一列。
- *
- * D12 ① 那份**编码器**（`QrVersionTable.kt`）只有 **L** 那一列（`QrCodec` 出码只用 L 级）；
- * 解码这一侧必须四列都有 —— 屏对屏扫出来的码可能是 M/Q/H。两份表**互不覆盖**：编码那份是
- * `int` 数组，这份是带对齐图案中心与块划分的对象表。
- *
- * | zxing | 这里 | 备注 |
- * |---|---|---|
- * | `Version`（版本号、对齐图案中心、四级 `ECBlocks`、`totalCodewords`、`getDimensionForVersion`、`getProvisionalVersionForDimension`、`getVersionForNumber`、`decodeVersionInformation`、`buildFunctionPattern`） | [QrVersion] | 逐条相同 |
- * | `Version.ECBlocks` / `ECB`（`getNumBlocks`、`getTotalECCodewords` 那两条算出来的 getter 一并） | [QrEcBlocks] / [QrEcb] | |
- * | `ErrorCorrectionLevel`（`L/M/Q/H` 的序、`bits`、`forBits` 的 `{M, L, H, Q}` 查表） | [QrErrorCorrectionLevel] | **序不能改**：`ECBlocks[ecLevel.ordinal()]` 就靠它 |
- * | `Mode`（十种模式、`characterCountBitsForVersions` 三档、`forBits`、`getCharacterCountBits`） | [QrMode] | |
- */
+/** 版本表与纠错等级/模式—— zxing 3.5.4 `com.google.zxing.qrcode.decoder` 的 `Version`（含`ECBlocks` / `ECB`）/ `ErrorCorrectionLevel` / `Mode` 的移植。 */
 internal class QrVersion(
     val versionNumber: Int,
     val alignmentPatternCenters: IntArray,
@@ -499,9 +478,7 @@ internal class QrEcBlocks(val ecCodewordsPerBlock: Int, vararg val ecBlocks: QrE
 /** 一组「若干个同样大小的块」。 */
 internal class QrEcb(val count: Int, val dataCodewords: Int)
 
-/**
- * 纠错等级。**序不能改**：[QrVersion.ecBlocksForLevel] 直接按下标取（zxing 一样）。
- */
+/** 纠错等级。 */
 internal enum class QrErrorCorrectionLevel(val bits: Int) {
     L(0x01),
     M(0x00),

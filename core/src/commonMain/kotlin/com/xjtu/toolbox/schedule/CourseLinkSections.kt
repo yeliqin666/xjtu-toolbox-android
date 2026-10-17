@@ -105,8 +105,7 @@ fun CourseLinkSections(
         val week = occurrence?.week ?: return@LaunchedEffect
         if (!attendanceEnabled) return@LaunchedEffect
         // 用户点开了详情正在等，豁免站点级失败冷却。
-        // 详情面板说不出「哪些学期已结束」（那是周视图按学期起止算的），传空表 = 不新增封存标记，
-        // 与搬迁前一致（原来这一处也只是直接读那层已有的封存集合）。
+        // 传空表 = 不新增封存标记（详情面板不知道哪些学期已结束）。
         record = host.courseLinks
             ?.attendanceMarks(termCode, finishedTerms = emptyList(), userInitiated = true)
             ?.recordOn(course, week)

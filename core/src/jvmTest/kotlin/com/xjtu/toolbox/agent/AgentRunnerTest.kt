@@ -16,17 +16,7 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 
-/**
- * 调度循环（[AgentRunner]）—— 它从 `:app` 搬进 `:core` 时，把两处接线收成了缝：
- * 「发一次请求」是 [AgentTransport]、「工具表」是 [AgentTools]。
- *
- * 这一份测试**就是那两格缝的验收**：循环在完全不认识 okhttp、也不认识任何 `*Api` 的前提下
- * 跑完整（假传输给结果、假工具表返回文本），所以桌面端那个 `AgentHost` / 真实传输才有得接；
- * 而循环自己的行为（请求体、续写、熔断、限流分组、工具结果的原子提交、结果截断）逐条钉在这儿，
- * 搬动它时不会漂。
- *
- * 密钥全是编造的，从不出网。
- */
+/** 调度循环（[AgentRunner]） */
 class AgentRunnerTest {
 
     // ── 假的缝 ────────────────────────────────────────────────────────────────
@@ -109,7 +99,7 @@ class AgentRunnerTest {
         assertEquals(listOf("user", "assistant"), messages.map { it.role() })
         assertEquals("你好", messages[1].jsonObject.text("content"))
         assertEquals(listOf(12L), usage)
-        // 增量是当场回调的（上屏口径），顺序 = 服务端下发顺序
+        // 增量当场回调，顺序 = 服务端下发顺序
         assertEquals(listOf("你好"), transport.deltas)
         // 这一轮的请求体：模型、工具清单、流式开关
         assertEquals("deepseek-flash", transport.bodies[0].text("model"))

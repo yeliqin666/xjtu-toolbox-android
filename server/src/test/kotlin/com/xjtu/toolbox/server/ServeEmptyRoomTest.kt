@@ -13,16 +13,7 @@ import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonArray
 
-/**
- * 空闲教室两端点的契约测试（`/api/emptyroom/cdn` · `/api/emptyroom/rooms`）。
- *
- * 三档（实时 / CDN / 直查）的假上游都在 `:testkit`（`EmptyRoomFakeUpstream` 的
- * 智慧教室平台 + CDN 两个域、`JwxtFakeUpstream` 的直查教务四条 URL）。能力开关
- * `availableSources` 随会话如实变：未登录只有 CDN，登录后 [live, cdn, direct]。
- *
- * **红线**：`teacher` 字段是教室**当前这堂课**的教师名（公开课堂信息），夹具值
- * `示例丙` 是编造的 —— 断言它就等于夹具常量，同时响应绝不含登录学号。
- */
+/** 空闲教室两端点的契约测试（`/api/emptyroom/cdn` · `/api/emptyroom/rooms`）。 */
 class ServeEmptyRoomTest {
 
     private var started: EmbeddedServer<CIOApplicationEngine, CIOApplicationEngine.Configuration>? = null
@@ -60,8 +51,6 @@ class ServeEmptyRoomTest {
             assertEquals(false, data.optBoolean("noData"))
             assertEquals(null, data.optString("note"))
 
-            // 五间房（junk 键被滤掉 / 缺 status 的被丢），按教室名排序，status[11] 与座位数逐字段；
-            // 无容量房有 status 没有 size ⇒ size 落 0（:data 的 CDN 解析口径）
             val rooms = data.arrOf("rooms")
             assertEquals(5, rooms.size)
             assertRoomRow(rooms[0] as JsonObject, "兴庆校区", "主楼A", "203", 24, listOf(0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1))
@@ -110,7 +99,6 @@ class ServeEmptyRoomTest {
         assertEquals(200, login.statusCode())
         assertTrue(envelopeData(login).optBoolean("authenticated") == true)
 
-        // ── 直查教务档：与 CDN 同形状（status[11]），逐字段 ──
         val direct = http.get("/api/emptyroom/rooms?source=direct&campus=兴庆校区&building=主楼A&date=${EmptyRoomFakeUpstream.DATE}")
         assertEquals(200, direct.statusCode())
         assertNoIdentity(direct.body(), "GET /api/emptyroom/rooms（direct）", LOGIN_IDENTITY)
@@ -130,7 +118,6 @@ class ServeEmptyRoomTest {
         assertRoomRow(directRooms[2] as JsonObject, "兴庆校区", "主楼A", EmptyRoomFakeUpstream.ROOM_A103, EmptyRoomFakeUpstream.SEATS_A103,
             List(11) { 1 })
 
-        // ── 实时档：live 快照逐字段（状态码 / 人数 / 课程 / 教师都是夹具编造值）──
         val live = http.get("/api/emptyroom/rooms?source=live&campus=兴庆校区")
         assertEquals(200, live.statusCode())
         val liveData = envelopeData(live)
@@ -161,7 +148,6 @@ class ServeEmptyRoomTest {
         assertEquals(1, inUse.optInt("status"), "其它使用")
         assertEquals(EmptyRoomFakeUpstream.LIVE_IN_USE_PEOPLE, inUse.optInt("people"))
 
-        // 红线：live 响应里有教室上课的教师名（公开信息），但绝不含登录学号/密码/手机号键
         val liveBody = live.body()
         assertFalse(liveBody.contains(LibraryFakeUpstream.USERNAME), "响应体不该出现学号")
         assertFalse(liveBody.contains("password"))

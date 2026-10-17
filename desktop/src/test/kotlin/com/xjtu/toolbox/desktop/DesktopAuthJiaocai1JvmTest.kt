@@ -25,20 +25,7 @@ import kotlin.test.assertTrue
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 
-/**
- * 教材全文库（`jiaocai1`）在桌面端的**装配验收**（与 feedback 同一批的真数据路由）：
- * 桌面用自己的 [DesktopAuth] 真登一次，走 `DesktopSiteGate` 那条路把**教材中心**的会话建起来
- * （全文库借它的会话），再用自己的 `AppJiaocai1Source` 读出夹具那本书、取一页的字节；以及
- * 书架在桌面这份落盘实现上的往返。
- *
- * 与 `:data` 的 `Jiaocai1ApiJvmTest` 的分工：那边验字段解析与页字节的缓存口径；这里验**桌面这一端
- * 的装配** —— `DesktopAuth` 注册了教材中心站点、`JIAOCAI_SITE_KEY` 进 `SESSION_SITE_KEYS`、
- * 缓存根目录走 XDG（证据/测试里跟着 `dataRootOverride`）、书架是那份 0600 的 JSON 落盘。
- *
- * 手法同 `DesktopAuthLmsJvmTest`：`:testkit` 假上游（`FakeCampusProxy` 一个本地代理按 host 分派）
- * + URL 一个字符不改；`:app` 测试里那条「RSA 公钥预置」的口径照抄（假上游给不了
- * `https://login.xjtu.edu.cn/cas/jwt/publicKey`，见那个类的注释）。
- */
+/** 教材全文库（`jiaocai1`）在桌面端的装配验收 */
 class DesktopAuthJiaocai1JvmTest {
 
     private lateinit var fake: FakeCampusProxy
@@ -53,7 +40,6 @@ class DesktopAuthJiaocai1JvmTest {
             wipeSecureStore("$base$suffix")
         }
         wipeSecureStore(JvmCredentialStore.FILE_NAME)
-        // S7b：书架的端内名带账号后缀 ⇒ 两个可能的命名空间都清（未登录与夹具账号）
         wipeSecureStore(accountScopedStoreName(DesktopJiaocai1ShelfStore.STORE_NAME, null))
         wipeSecureStore(accountScopedStoreName(DesktopJiaocai1ShelfStore.STORE_NAME, LibraryFakeUpstream.USERNAME))
         for (name in listOf(
@@ -133,7 +119,6 @@ class DesktopAuthJiaocai1JvmTest {
                     totalPages = 20, lastReadIndex = 3, lastReadAt = 200L, addedAt = 200L,
                 ),
             )
-            // 最近读的在前（与 Android 那条 `ORDER BY lastReadAt DESC` 同口径）
             assertEquals(listOf("B", "A"), store.observeAll().first().map { it.ssno })
 
             store.updateProgress("A", index = 4, at = 300L, totalPages = 10)
@@ -160,8 +145,7 @@ class DesktopAuthJiaocai1JvmTest {
         val vm = Jiaocai1ViewModel(source, shelf, cache = null)
         vm.bind()
         vm.loadCategories()
-        // 屏上那条路是「加载完再读 categoryRoots」：VM 的请求跑在 viewModelScope（EDT）上，
-        // 单测里没有主线程循环 ⇒ 直接等状态（这与 RenderScreens 的帧循环是同一条口径）。
+        // 单测里没有主线程循环 ⇒ 直接等状态。
         val deadline = System.currentTimeMillis() + 10_000
         while (vm.categoryRoots.isEmpty() && vm.categoryError == null && System.currentTimeMillis() < deadline) {
             Thread.sleep(50)

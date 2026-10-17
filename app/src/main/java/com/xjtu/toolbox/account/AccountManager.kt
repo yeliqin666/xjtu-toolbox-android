@@ -28,23 +28,8 @@ import java.io.File
  * 「切换模式」：同一时刻仅一个账号在线，其余账号的 cookies/缓存静默躺在磁盘命名空间里，
  * 切回时由步骤 2 的 cookieJar 实例化直接复用，无需重新登录（除非服务端 session 已过期）。
  *
- * ## 本轮的变化（屏幕与接口搬走后）
- *
- * 多账号页（`AccountManagerScreen`）与它认的那条缝（`AccountsController`）本轮搬进了 `:core`，
- * 而**动作本体留在这一端** —— 它要宿主能力：`Context`（清 SharedPreferences / Room / 头像 /
- * agent 配置）、WebView 存储、以及 `AppLoginStateHolder`。本类实现 `:core` 那条缝，
- * 方法名与语义与搬走前**逐字相同**。
- */
-/**
- * 多账号编排器。统一处理切换、新增、删除、登出。
- *
- * ## 本轮的变化（屏幕与接口搬走后）
- *
- * 多账号页（`AccountManagerScreen`）与它认的那条缝（`AccountsController`）本轮搬进了 `:core`，
- * 而**动作本体留在这一端** —— 它要宿主能力：`Context`（清 SharedPreferences / Room / 头像 /\
- * agent 配置）、WebView 存储、以及 `AppLoginStateHolder`。本类实现 `:core` 那条缝，
- * 方法名与语义与搬走前**逐字相同**（`switchTo` / `addAccount` / `updatePassword` /
- * `removeAccount` / `accountList`）。
+ * 实现 `:core` 的 `AccountsController`：动作本体要宿主能力（`Context` 清 SharedPreferences / Room /
+ * 头像 / agent 配置、WebView 存储、`AppLoginStateHolder`），所以留在 `:app`。
  */
 class AccountManager(
     private val context: Context,

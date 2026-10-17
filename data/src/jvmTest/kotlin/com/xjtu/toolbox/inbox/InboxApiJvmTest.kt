@@ -12,42 +12,14 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import kotlinx.coroutines.runBlocking
 
-/**
- * 消息收纳取数的**字段级口径**：一网通办那四路（消息 / 事务中心 / 预约 / 校车）对着 `:testkit` 的
- * [YwtbFakeUpstream] 逐字段读。
- *
- * ## 为什么在 `:data` 而不是 `:app`
- *
- * 这一轮把消息收纳的取数与站点从 `:app` 搬进了 `:data`（桌面端第 12 条真数据路由）。搬之前先用
- * 夹具把**搬之前**的口径钉住：`:app` 那边一行逻辑没改，只是文件换了地方、`Context` 换成一条构造参数
- * —— 但「没改」这句话得有证据，这些断言就是那个证据。手法与空闲教室 / 校园卡 / 教务那几条
- *（`EmptyRoomApiJvmTest` / `CampusCardApiJvmTest` / `SchoolCourseApiJvmTest`）逐条对齐：
- * 要登录的那几路走**真登录链**（[withYwtbLogin]），URL 一个字符都不改。
- *
- * 从 `:app` 的 `InboxTest` 迁过来两条纯解析用例（`SchoolInbox.parseMessages`/`parseTodos` 是
- * `internal`，模块边界挡着 ⇒ 测试跟着代码走，见那里与 `ScoreReportTermTest` 同一条注释）。
- *
- * ## 这些断言从哪来
- *
- * 全部来自**夹具原文**（`YwtbFakeUpstream` 里那些常量与 JSON），**不是从跑通的实现里抄回来的**。
- * 夹具摆的四组样本把该被滤掉的东西也摆在了明面上：事务中心推来的消息（`appId` 那个常量）、
- * 座位类的消息（落款「图书馆预约系统」）、校车那边的 0 条预约 —— 「过滤与回落给什么」因此写在明面上。
- */
+/** 消息收纳取数的字段级口径：一网通办那四路（消息 / 事务中心 / 预约 / 校车）对着 `:testkit` 的 [YwtbFakeUpstream] 逐字段读。 */
 class InboxApiJvmTest {
 
     /** 取数按账号分命名空间（`InboxStore` 的 key 里带它）—— 这里就用假上游那组账号。 */
     private val account = LibraryFakeUpstream.USERNAME
 
-    // ══════ ① 真登录之后：四路取数写进 store ══════
 
-    /**
-     * 走的是**真登录链**：一网通办门户 → 302 到统一认证 → 凭据表单 POST（密码 RSA 加密）→ 种 TGC
-     * → 302 回跳门户（`ticket=` 是一枚 **JWT**）→ 门户页 200 → `idToken` 落进站点令牌；然后
-     * `AppInboxSource.refresh` 拿它去打那四路。
-     *
-     * 四路的 URL 与生产代码里那四条**逐字相同**（夹具按「路径 + 查询串」逐字比对，不认识就 404）
-     * ⇒ URL 漂了这里会因为「夹具没被打到 / 条目为空」而红，而不是「换了域名但夹具照答」。
-     */
+    /** 走的是真登录链：一网通办门户→ 302 到统一认证→ 凭据表单 POST（密码 RSA 加密）→种 TGC → 302 回跳门户（`ticket=` 是一枚 JWT）→门户页 200 → `idToken` 落进站点令牌；然后`AppInboxSource.refresh` 拿它去打那四路。 */
     @Test
     fun `真登录之后：四路取数写进 store，消息与待办都读得出夹具样本`() {
         withYwtbLogin { manager, fake ->
@@ -133,13 +105,8 @@ class InboxApiJvmTest {
         }
     }
 
-    // ══════ ② 图书馆座位那条补拉的缝 ══════
 
-    /**
-     * `afterRefresh` 只在**有座位待办**时才叫本端那件事（`:app` = 现查一次座位系统 + `LibraryStatus.publish`；
-     * 桌面传 null ⇒ 什么都不做）。这一条把搬迁前那个早返回逐条钉住：它搬进 `:data` 之后仍然是
-     * 「没有座位待办就不打扰宿主」，而不是「每次刷新都现查一次图书馆」。
-     */
+    /** `afterRefresh` 只在有座位待办时才叫本端那件事（`:app` = 现查一次座位系统 + `LibraryStatus.publish`）。 */
     @Test
     fun `座位待办存在时才补拉图书馆（本端没有那一路就什么都不做）`() {
         var requeries = 0
@@ -148,7 +115,7 @@ class InboxApiJvmTest {
         val homework = InboxItem(id = "lms:4:1", category = InboxCategories.LMS, source = "数学物理方法", title = "作业一")
 
         runBlocking {
-            // 没有管家 ⇒ `refresh` 直接返回（搬迁前那一句 `sessionManager ?: return`），不抛
+            // 没有管家 ⇒ `refresh` 直接返回，不抛
             local.refresh(account)
             // 空数据、以及「只有别的类别的待办」⇒ 都不补拉
             local.afterRefresh(InboxData())
@@ -164,7 +131,6 @@ class InboxApiJvmTest {
         }
     }
 
-    // ══════ ③ 解析口径（从 `:app` 的 `InboxTest` 迁来）══════
 
     @Test
     fun `解析学校消息：按落款当来源，事务中心的推送跳过`() {

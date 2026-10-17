@@ -22,17 +22,6 @@ import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 import java.util.concurrent.TimeUnit
 
-// ⚠️ 这里的 `RoomInfo` / `CAMPUS_BUILDINGS` / `NoDataException` 早已搬进 `:core`
-// 的 `com.xjtu.toolbox.emptyroom`（`EmptyRoomModels.kt`）—— 屏与 ViewModel 进了 `:core`，两端
-// 必须共用同一份模型。本文件（CDN + 直查教务两条取数）与 `LiveRoomApi` / `AppEmptyRoomSource`
-// 一起从 `:app` 搬进 `:data`（桌面端第 10 条真数据路由：桌面自己登智慧教室、自己取数）。
-//
-// 搬迁时被替换的写法只有两类：
-//  1. `android.util.Log` → `:core` 的 `com.xjtu.toolbox.platform.Log`；
-//  2. 构造参数上的 `Context`（原来只拿去 new 一个 `EmptyRoomCache`）→ `:core` 的
-//     [EmptyRoomStore]（宿主存储缝，`:app` 那份 `EmptyRoomCache` 就是它的实现）。
-// **取数一行未改**：同一个类名、同一个包名、同一串 URL、同一套解析。
-
 /**
  * 空闲教室查询 API — 从 Cloudflare CDN 获取预生成数据
  *

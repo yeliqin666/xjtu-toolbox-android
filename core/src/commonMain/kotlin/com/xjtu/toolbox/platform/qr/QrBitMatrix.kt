@@ -1,29 +1,6 @@
 package com.xjtu.toolbox.platform.qr
 
-/**
- * 一个可改的位矩阵 —— zxing 3.5.4 `com.google.zxing.common.BitMatrix` 的**逐字对照**。
- *
- * ## 为什么不能复用 `CodeMatrix`
- *
- * `CodeMatrix` 是**只读**的（一个 `BooleanArray` + 一个 `get`）：它是「编出来的码长什么样」那一侧的口径，
- * 渲染方只读。解码这一侧要的是别名物：二值化要往里**写**、`DataMask.unmaskBitMatrix` 要 `flip`、
- * `BitMatrixParser.mirror()` 要在原地交换、`Detector` 的网格采样是一格一格 `set` 出来的。所以这一份
- * 单独存在，`CodeMatrix` 一个字未改。
- *
- * ## 与 zxing 那一份的对照表（只列搬过来的那些方法）
- *
- * | zxing | 这里 | 备注 |
- * |---|---|---|
- * | `BitMatrix(int width, int height)` | `QrBitMatrix(width, height)` | 同样的 `rowSize = (width + 31) / 32` 与 `int[]` 打包 |
- * | `get/set/unset/flip(x, y)` | 同名 | 位运算逐条相同 |
- * | `flip()`（全取反）、`setRegion` | 同名 | `setRegion` 是 `Version.buildFunctionPattern` 用的 |
- * | `getWidth/getHeight/getRowSize` | `width/height/rowSize` | |
- * | `parse(boolean[][])`、`parse(String, …)`、`toString`、`equals/hashCode`、`getRow`、`getTopLeftOnBit`、`getBottomRightOnBit`、`getEnclosingRectangle`、`rotate180`、`xor` | **没搬** | 这一条解码链一个都不调：`parse` 那两条只给测试与「纯条码」分支用，`getRow`/`getTopLeftOnBit`/`getBottomRightOnBit` 只给 `QRCodeReader.extractPureBits`（`PURE_BARCODE` 那一支，本端不传那个 hint），`rotate180`/`getEnclosingRectangle` 只给 1D 与调试用 |
- *
- * ⚠️ 与 zxing 一样，`get/set/unset/flip` **不做边界检查**（越界会抛下标异常，或悄悄写到邻行）—— 调用方
- * 保证坐标在界内：`FinderPatternFinder` / `AlignmentPatternFinder` 那一圈 `while` 都带着 `>= 0` 与
- * `< maxI` 的条件，`GridSampler` 那一条有 `checkAndNudgePoints` 兜底。
- */
+/** 一个可改的位矩阵 —— zxing 3.5.4 `com.google.zxing.common.BitMatrix` 的移植。 */
 internal class QrBitMatrix(val width: Int, val height: Int) {
 
     private val rowSize: Int = (width + 31) / 32

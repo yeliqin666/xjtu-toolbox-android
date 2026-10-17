@@ -10,13 +10,7 @@ import kotlin.test.assertTrue
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.jsonObject
 
-/**
- * `POST /api/library/action` 的契约测试（`docs/api-contract.md` §5.3.1 的写路径）……
- *
- * 与组二的 library 只读测试同一条脚手架（真 serve + 假上游代理，`LibraryFakeUpstream` 的写路径剧本
- * 默认就是活的）；这一组钉的是**写**：动作码 → 身体字段、结果信封（成功 `{ok,message}`、业务拒绝 `409`）、
- * 参数校验（`400`）、未登录（`401`）、切校区那一枪真提交了表单。
- */
+/** `POST /api/library/action` 的契约测试（`docs/api-contract.md` §5.3.1 的写路径）…… */
 class ServeLibraryActionTest {
 
     private var started: EmbeddedServer<CIOApplicationEngine, CIOApplicationEngine.Configuration>? = null

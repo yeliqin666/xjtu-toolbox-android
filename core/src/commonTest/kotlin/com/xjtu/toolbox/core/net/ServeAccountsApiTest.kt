@@ -14,21 +14,7 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import kotlinx.coroutines.test.runTest
 
-/**
- * serve 契约 §5.10 的**客户端那一侧**：多账号页的那一条只读端点
- * （`GET /api/accounts`，[CampusAccountsApi]）。
- *
- * 这一格要钉住四件事：
- *
- *  1. **形状**：`authenticated` / `readOnly` / `accounts[]` 四格逐字段；打码 id 就是显示名与句柄
- *     （空的那一行丢掉 —— 它没法用）；
- *  2. **时间**：`lastUsedAt` 是 ISO-8601 带时区（§4），本端解成 epoch 毫秒；`null` = 服务端明确说
- *     没有 ⇒ 如实留 `null`（**不编一个时刻**，屏上会画「未使用」那一档）；
- *  3. **能力开关的默认值必须保守**：`readOnly` 缺了按**只读**（`true`）处理 —— 猜成可写会让屏上
- *     长出一堆点了必失败的按钮（§4：客户端不得靠猜）；
- *  4. **形态**：campus-api 那一头没有这一族（账号与凭据都在它自己的进程里）⇒ 非 serve 分支抛错，
- *     不发请求（悄悄回一份空表会把「形态不对」说成「这台机器一个账号都没有」）。
- */
+/** serve 契约 §5.10 的客户端那一侧：多账号页的那一条只读端点（`GET /api/accounts`，[CampusAccountsApi]）。 */
 class ServeAccountsApiTest {
 
     private class Call(val path: String, val url: String)
@@ -81,11 +67,7 @@ class ServeAccountsApiTest {
         assertTrue(fromSession.active)
     }
 
-    /**
-     * `readOnly` 缺了 / 认不出 ⇒ **只读**；打码 id 为空的那一行丢掉；`accounts` 缺了就是空表。
-     *
-     * 三条都是「保守 + 不编」：能力开关猜成可写会长出点了必失败的按钮，空 id 的行点了也不知道点的是谁。
-     */
+    /** `readOnly` 缺了 / 认不出 ⇒ 只读；打码 id 为空的那一行丢掉；`accounts` 缺了就是空表。 */
     @Test
     fun missingCapabilityMeansReadOnlyAndBlankRowsAreDropped() = runTest {
         val api = CampusAccountsApi(

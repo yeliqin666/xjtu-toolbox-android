@@ -63,8 +63,6 @@ class LmsDeadlineWorker(
             return Result.retry()
         }
 
-        // 时刻算法用 :core 的 kotlin.time.Instant（[remaining] / [deadlineInstant] 都是这个类型）：
-        // 上游这里用 java.time，搬进 :core 时统一换掉了 —— 比较与措辞都只此一套。
         val now = Clock.System.now()
         val horizon = now + AHEAD_HOURS.hours
         val fresh = due

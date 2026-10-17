@@ -14,18 +14,7 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonArray
 
-/**
- * `POST /api/venue/book` / `POST /api/venue/cancel` / `GET /api/venue/captcha` 的契约测试
- * （`docs/api-contract.md` §5.3.2 的写路径）……
- *
- * 与 `ServeLibraryActionTest` 同一条脚手架（真 serve + 假上游代理），差别是这里的写路径要吃**滑块
- * 挑战**：夹具的下单剧本（[VenueFakeUpstream.captchaScript]）打开后才校验轨迹并把关，取消剧本
- * （[VenueFakeUpstream.cancelScript]）单独一个开关（取消不需要滑块）。
- *
- * 这一组钉的是：写端点闸门（401）、参数形状（400 逐项）、下单成功（`data{ok,orderId,price,message}`
- * 与上游真收到的 `param`/`yzm`）、轨迹对不上（上游说「验证码有误」⇒ 409，且 `:data` 那份重试没被
- * 改掉）、取消成功与「上游说不行」（409）。
- */
+/** `POST /api/venue/book` / `POST /api/venue/cancel` / `GET /api/venue/captcha` 的契约测试（`docs/api-contract.md` §5.3.2 的写路径）…… */
 class ServeVenueActionTest {
 
     private var started: EmbeddedServer<CIOApplicationEngine, CIOApplicationEngine.Configuration>? = null
@@ -233,7 +222,6 @@ class ServeVenueActionTest {
         }
         started = server
 
-        // 令牌闸门照旧（这一条虽然不取数，但它是场馆那一族的口径）：没带令牌 401 + 指路那句中文短句
         val noToken = http.get("$PAY_PATH?orderId=${VenueFakeUpstream.ORDER_PAID_ID}", bearer = null)
         assertEquals(401, noToken.statusCode())
         assertEquals(ApiErrors.UNAUTHORIZED, envelopeCode(noToken))
@@ -290,7 +278,6 @@ class ServeVenueActionTest {
         assertEquals(302, trickyHop.statusCode())
         assertEquals(VenueFakeUpstream.paymentPageUrl(tricky), trickyHop.headers().firstValue("Location").orElse(""))
 
-        // 红线（§3.4）：这一条只回一个 Location，但试体里也不许出现身份
         assertNoIdentity(hop.body(), "GET $PAY_PATH", IDENTITY)
     }
 
@@ -313,20 +300,13 @@ class ServeVenueActionTest {
         /** 拖对了的那条轨迹（最终 x = 识别器会算出的那个位移）。 */
         fun solvedTrack(): String = track(VenueCaptchaFixture.EXPECTED_SOLVE_TARGET_X)
 
-        /**
-         * 一条与 `:data`/各宿主同协议的轨迹原文（260 坐标系 + down/up 两点）。
-         * 服务端只把它当字符串转交，所以这里不必过 `SliderResult` 的序列化器 —— 反而是**故意**
-         * 按线上原文拼：它同时钉住「轨迹是字符串、不被本层解析」这件事。
-         */
+        /** 一条与 `:data`/各宿主同协议的轨迹原文（260 坐标系 + down/up 两点）。 */
         fun track(finalX: Int): String =
             """{"bgImageWidth":260,"bgImageHeight":0,"sliderImageWidth":0,"sliderImageHeight":50,""" +
                 """"startSlidingTime":"2026-10-13T08:05:00Z","entSlidingTime":"2026-10-13T08:05:01Z",""" +
                 """"trackList":[{"x":0,"y":0,"type":"down","t":900},{"x":$finalX,"y":0,"type":"up","t":1500}]}"""
 
-        /**
-         * `POST /api/venue/book` 的身体：`sliderTrack = null` 或 [withCaptchaId] = false 的字段**不发**
-         * —— 缺哪一项就是哪一项的 400 用例。字符串值走序列化器转义（轨迹是字符串字段）。
-         */
+        /** `POST /api/venue/book` 的身体：`sliderTrack = null` 或 [withCaptchaId] = false 的字段不发。 */
         fun bookBody(sliderTrack: String? = null, withCaptchaId: Boolean = true): String = buildJsonObject {
             put("serviceId", VenueFakeUpstream.SERVICE_ID)
             putJsonArray("selections") {

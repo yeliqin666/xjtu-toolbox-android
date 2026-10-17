@@ -13,13 +13,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
 
-/**
- * 探针的第一等公民：**会话（Cookie）链路**。
- *
- * 为什么它比「能不能发请求」重要：App 现在是 okhttp + `okhttp-java-net-cookiejar`，
- * 而 Ktor 的会话模型完全不同（`CookiesStorage` 接口）。这条链路断了，登录全废，
- * 而且**只有在真机上才会发现**。用 MockEngine 把它钉成离线测试，就能进 CI 门禁。
- */
+/** 会话（Cookie）链路。 */
 class CookieRoundTripTest {
 
     private val termPayload = """{"code":0,"data":{"term":"2026-2027-1"}}"""

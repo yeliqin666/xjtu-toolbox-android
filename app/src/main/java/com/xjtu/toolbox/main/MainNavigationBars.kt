@@ -49,10 +49,6 @@ import kotlin.math.abs
 /*
  * Android 这一端**只剩下来**的那几件：屁岱那一格（会动的机器人 + 它认的那几样宿主面）、
  * 宽屏侧栏里它那一格、以及旁边那只气泡。
- *
- * 底栏 / 侧栏的画法已经搬进 `:core` 的 `com.xjtu.toolbox.shell`（`ShellBars.kt`），
- * 这里只是把「自绘那一格」接到那条缝上（`ShellTabArt`）。行为逐字未改：几何、动画、
- * 瞟眼判据、气泡锚点全是原来那几行。
  */
 
 /**
@@ -92,11 +88,7 @@ internal fun Modifier.feedPidaiTouch(origin: () -> Offset): Modifier = pointerIn
  * 点了别的 tab 它会朝那边瞟一眼（横排栏往左右看并眨那一侧的眼，竖排侧栏 [vertical] 往上下看）；
  * 在别的 tab 上看手指按的地方，在自己那页只看底栏附近的手指（拖底栏）。
  *
- * 搬迁前这一格的参数是「整个底栏状态」（`MainNavState`）；现在底栏状态在共享壳里
- * （`ShellNavState`），所以这里改成只收它真读的四样：当前选中的那一格、它自己那一格、
- * 那一格的序号（瞟眼往哪边看）、以及点击。**判据与画法一个字没改。**
- *
- * @param tabs 这一端的 tab 集合（只为取序号：原来用的是 `BottomTab.ordinal`）
+ * @param tabs 这一端的 tab 集合（只为取序号）
  * @param current 当前页落的那一格；**null = 不属于任何一格**（底栏一格都不高亮，见 `ShellNavState.selected`）
  * @param tab 屁岱那一格
  * @param onClick 点这一格（共享壳接的是 `ShellNavState.onSelect`）
@@ -229,12 +221,7 @@ private fun RailPidaiItem(
     }
 }
 
-/**
- * Android 那一份 [ShellTabArt]：屁岱那一格自己画（`PidaiNavButton`），其余格交给共享壳。
- *
- * 「哪一格自绘」按 id 认（`BottomTab.PIDAI.name`）；`onPidaiBoundsChange` 是宽屏气泡的锚点，
- * 由主界面传进来（它才知道覆盖层原点）。
- */
+/** Android 那一份 [ShellTabArt]：屁岱那一格自己画（`PidaiNavButton`），其余格交给共享壳。 */
 internal class AndroidShellTabArt(
     private val tabs: ShellTabs,
     private val pidai: ShellTab,

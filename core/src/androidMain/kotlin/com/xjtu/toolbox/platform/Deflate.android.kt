@@ -4,11 +4,7 @@ import java.io.ByteArrayOutputStream
 import java.util.zip.Deflater
 import java.util.zip.Inflater
 
-/**
- * Android 侧：`java.util.zip` —— 与搬迁前 `:app` 的 `MatchProfile.deflate` / `inflate`
- * **逐字相同**（同一个 `Deflater(BEST_COMPRESSION)`、同一个 4KB 分块循环、同一条
- * 「`inflate` 返回 0 且需要更多输入就停」的判据），只把缓冲区搬到了两端各自一份。
- */
+/** Android 侧：`java.util.zip`。 */
 actual fun deflateBytes(raw: ByteArray): ByteArray? = runCatching {
     val deflater = Deflater(Deflater.BEST_COMPRESSION)
     deflater.setInput(raw)

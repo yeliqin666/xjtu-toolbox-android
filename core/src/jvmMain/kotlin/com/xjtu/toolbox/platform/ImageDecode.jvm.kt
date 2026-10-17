@@ -5,16 +5,7 @@ import androidx.compose.ui.graphics.toComposeImageBitmap
 import androidx.compose.ui.unit.IntSize
 import org.jetbrains.skia.Image
 
-/**
- * 桌面（jvm）侧真实现：skiko 解码。
- *
- * ⚠️ 与 Android 的一处**如实差异**：skiko 没有 `BitmapFactory.inSampleSize` 那样的「按比例少解一点」
- * 开关 —— 它一次解出全尺寸。所以 [maxDim] 在这一端只被忽略（不假装做了内存优化），
- * 解出来的像素数比 Android 多。绘制口径不受影响：`PlanImages` 记录的是**原始**尺寸，
- * 全尺寸底图按原始尺寸画，与 Android 的「降采样后放大回原始尺寸」落在同一个坐标系里。
- *
- * 这一端没有业务屏会真的加载座位图（桌面只跑 :core 的单测/预览），所以不做缩放也不影响谁。
- */
+/** 桌面（jvm）侧真实现：skiko 解码。 */
 actual fun decodeImageSize(bytes: ByteArray): IntSize? = runCatching {
     val image = Image.makeFromEncoded(bytes)
     IntSize(image.width, image.height)
@@ -24,13 +15,7 @@ actual fun decodeImage(bytes: ByteArray, size: IntSize, maxDim: Int): ImageBitma
     Image.makeFromEncoded(bytes).toComposeImageBitmap()
 }.getOrNull()
 
-/**
- * JVM 侧真实现：javax.imageio 解出**非预乘 ARGB** int —— 与 Android 的
- * `Bitmap.getPixels` 语义一致（识别器按像素比较，预乘与否会改掉半透明边缘的 RGB）。
- *
- * 用 ImageIO 而不是 skiko：skiko 只能按 skia 的 RGBA8888（预乘）读像素，而
- * `BufferedImage.getRGB` 给的就是 ARGB8888 非预乘，与 `BitmapFactory.getPixels` 逐位同构。
- */
+/** JVM 侧真实现：javax.imageio 解出非预乘 ARGB int。 */
 actual fun decodeImagePixels(bytes: ByteArray): ImagePixels? = runCatching {
     val source = javax.imageio.ImageIO.read(java.io.ByteArrayInputStream(bytes)) ?: return null
     val w = source.width
@@ -61,5 +46,5 @@ actual fun decodeImageDownToWidth(
     halveSample: Boolean,
 ): ImageBitmap? = decodeImageFull(bytes)
 
-/** JVM 侧：没有「这个进程能拿多少内存」的等价口径 ⇒ 固定 32MB（偏保守，不假装能算）。 */
+/** JVM 侧：拿不到进程可用内存 ⇒ 固定 32MB。 */
 actual fun imageMemoryCacheBudgetBytes(): Int = 32 * 1024 * 1024

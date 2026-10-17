@@ -50,13 +50,7 @@ internal class ScheduleViewModel(private val host: ScheduleHost) : ViewModel() {
     // 缓存按账号绑（`:app` 是 DataCache，在构造时就绑好那个账号），切账号后换一份
     private var cache = host.cache(accountId.ifEmpty { null })
 
-    /**
-     * 现在绑着的那一个教务取数口。
-     *
-     * 搬迁前这里是两份状态：`activeSite: SiteSession?`（在 `:data`，屏看不见）与
-     * `api: JwxtScheduleApi?`。现在会话与取数口一起交给 [ScheduleSession]，它的 `source` 在同一个
-     * 会话期间返回**同一个实例**、换会话才换对象 —— 与原来 `site === activeSite` 同一条判据。
-     */
+    /** 现在绑着的那一个教务取数口。 */
     var activeSource by mutableStateOf<JwxtScheduleSource?>(null); private set
     private var studentId = ""
 
@@ -282,13 +276,7 @@ internal class ScheduleViewModel(private val host: ScheduleHost) : ViewModel() {
     // ── 课表 ──
 
     /** 课表走用户选的来源；历史学期和非教务源取不到时退回教务，见 ScheduleSourceRouter。 */
-    /**
-     * 最近一次课表**实际**来自哪个系统（`ScheduleSourceRouter` 记的那个键）。
-     *
-     * 搬迁前 `ScheduleDiff.diffAndStore` 直接读 `ScheduleSourceRouter.servedSource().key` ——
-     * 那是个进程级偏好，读到的就是「最近一次取数是哪个源」；屏进 `:core` 之后读不到那个偏好，
-     * 于是把它挂在每一次 [fetchSchedule] 的返回上，语义与原来逐字相同（含「探一下别的学期」那种取数）。
-     */
+    /** 最近一次课表实际来自哪个系统（`ScheduleSourceRouter` 记的那个键）。 */
     private var lastServedSourceKey = ""
 
     /** 按用户选的来源取整学期课表；「这一次实际来自哪个系统」由 [ServedSchedule] 带回。 */

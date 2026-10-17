@@ -9,8 +9,7 @@ import kotlin.math.sin
 import kotlin.random.Random
 
 /**
- * 卡通音效的**纯合成器**（从 :app `GameSound.kt` 里的 `Synth` 原样搬来，只去掉写 WAV 文件
- * 那一段——那是平台 IO，留在 androidMain 的 actual 里）。全部现场合成，不带素材文件。
+ * 卡通音效的纯合成器，全部现场合成，不带素材文件（写 WAV 在 androidMain 的 actual 里）。
  *
  * 纯 Kotlin + `kotlin.math`，所以能进 commonMain，也就能在 any target 上跑与测。
  */

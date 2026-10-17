@@ -4,14 +4,7 @@ import kotlinx.coroutines.runBlocking
 import kotlin.test.Test
 import kotlin.test.assertTrue
 
-/**
- * 真服务器打通测试（本机 campus-api `127.0.0.1:3099`，无凭据直连可读）。
- *
- * 默认**跳过**，因为它依赖本机服务，不能进 CI：
- *   `TOOLBOX_PROBE_LIVE=1 ./gradlew :core:jvmTest`
- *
- * 用 runBlocking 而不是 runTest：这里跑的是真 IO，不要虚拟时钟掺和（会假死）。
- */
+/** 真服务器打通测试（本机 campus-api `127.0.0.1:3099`，无凭据直连可读）。 */
 class CampusApiLiveTest {
 
     private val enabled: Boolean = System.getenv("TOOLBOX_PROBE_LIVE") == "1"

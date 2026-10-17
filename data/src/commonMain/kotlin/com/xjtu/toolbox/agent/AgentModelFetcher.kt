@@ -16,10 +16,6 @@ import java.util.concurrent.TimeUnit
  * 供配置页一键选择填入，免去用户手敲模型名。
  *
  * DeepSeek / OpenAI / 绝大多数自定义服务商都实现了该接口；不支持时抛异常由调用方降级为手填。
- *
- * 从 `:app` 搬进 `:data`：okhttp 只发布 jvm / android 变体，进不了 `:core`（三个目标），
- * 而这里要的又正是那一个真实客户端（用 `:data` 已有的 `HttpClients.base`，与其余取数同一套
- * cookie / 代理口径），所以它落在 `:data`。**行为一行未改**（超时、路径、错误提取都是原样）。
  */
 object AgentModelFetcher {
 

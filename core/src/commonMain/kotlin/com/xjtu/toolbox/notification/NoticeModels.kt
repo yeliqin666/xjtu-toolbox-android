@@ -3,17 +3,7 @@ package com.xjtu.toolbox.notification
 import kotlinx.datetime.LocalDate
 import com.xjtu.toolbox.util.todayInSystemZone
 
-/**
- * 通知/公告的**数据层**（模型 + 来源枚举 + 取数端口）。
- *
- * 从 :app 的 `NotificationApi.kt` 里拆出来的一半：那 1137 行里，
- * 「29 个来源是谁」（本文件）与「怎么把某个站的 HTML 抠成条目」（:app 的爬虫类，用 jsoup）
- * 是两件事。前者两端要共用（屏按它分组、筛来源），后者只有 Android 需要
- * —— Web 端的解析在 campus-api 里（它覆盖同样 29 个源）。
- *
- * 唯一的类型替换：`date` 从 `java.time.LocalDate` 换成 `kotlinx.datetime.LocalDate`
- * （commonMain 没有 java.time）。:app 侧在三个构造点用已有的 `java.time.LocalDate.toKx()` 转换。
- */
+/** 通知/公告的数据层（模型 + 来源枚举 + 取数端口）。 */
 
 // ==================== 数据类 ====================
 
@@ -96,13 +86,7 @@ enum class NotificationSource(
         fun byCategory(cat: SourceCategory): List<NotificationSource> =
             entries.filter { it.category == cat }
 
-        /**
-         * 学院 / 书院全称（学籍档案、校园卡、一网通办里的写法，如「电子与信息学部」「公共政策与管理学院」）
-         * 对应到通知来源；对不上返回 null。
-         *
-         * 顺序有讲究：「公共政策与管理学院」含「管理学院」、「化学工程与技术学院」含「化学」，
-         * 长的、特指的放前面先匹配。
-         */
+        /** 学院 / 书院全称（学籍档案、校园卡、一网通办里的写法，如「电子与信息学部」「公共政策与管理学院」）对应到通知来源；对不上返回 null。 */
         fun forOrg(name: String?): NotificationSource? {
             val n = name?.trim().orEmpty()
             if (n.isEmpty()) return null
@@ -140,13 +124,7 @@ enum class NotificationSource(
 
 // ==================== 取数端口 ====================
 
-/**
- * 通知的取数端口。屏只认这个接口，两端各自实现：
- * - `:app` = 原来的 `NotificationApi`（okhttp + jsoup 爬 29 个站，含反爬挑战）；
- * - `:web` = campus-api 的 `/api/notification/list`（它已经把这 29 个站爬好并归一了）。
- *
- * 三个方法都是 suspend：`:app` 的实现内部自己 `withContext(Dispatchers.IO)`。
- */
+/** 通知的取数端口。 */
 interface NoticeSource {
     /** 单个来源的一页。 */
     suspend fun page(source: NotificationSource, page: Int): NotificationPage
@@ -154,9 +132,6 @@ interface NoticeSource {
     /** 多来源合并；[MergedNotificationPage.skipped] 是这次没拉到的源（域名级失败）。 */
     suspend fun merged(sources: List<NotificationSource>, page: Int): MergedNotificationPage
 
-    /**
-     * 站内检索。**允许「做不到」**：返回 `MergedNotificationPage(emptyList(), emptySet(), false)`
-     * 时界面只用已加载列表里的匹配顶着（campus-api 没有检索端点，Web 就是这么降级的）。
-     */
+    /** 站内检索。 */
     suspend fun search(sources: List<NotificationSource>, keyword: String): MergedNotificationPage
 }

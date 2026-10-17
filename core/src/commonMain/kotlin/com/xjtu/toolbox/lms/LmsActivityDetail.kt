@@ -438,12 +438,7 @@ private fun InfoChip(text: String, icon: ImageVector) {
 @Composable
 private fun UploadCard(
     upload: LmsUpload,
-    /**
-     * 取数与落盘（可空性照搬迁前：null = 只有展示、不能预览/下载那一档）。
-     *
-     * serve 形态就是 null（`LmsSource.supportsDownload = false`，契约 §5.6）：附件只有元数据，
-     * 三个地址与字节都没有端点 ⇒ 这一张卡只展示名字与大小，连那个下载/放大图标也不画。
-     */
+    /** 取数与落盘。 */
     source: LmsSource? = null,
     activityClosed: Boolean = false,
 ) {
@@ -632,12 +627,7 @@ private fun formatScore1f(value: Double): String {
     return "${tenths / 10}.${tenths % 10}"
 }
 
-/**
- * 距截止还剩多久；已过返回「已过期」。解析失败返回 null，不猜。
- *
- * 用 `kotlin.time`（`:core` commonMain 可用的那份）：`java.time` 是 JVM 专属。口径与搬迁前
- * 逐字一致（`分钟 < 60 → 剩 N 分钟 / < 24 小时 → 剩 N 小时 / 否则剩 N 天`）。
- */
+/** 距截止还剩多久；已过返回「已过期」。 */
 private fun remainingLabel(deadlineRaw: String): String? {
     val deadline = lmsInstant(deadlineRaw) ?: return null
     val now = Clock.System.now()

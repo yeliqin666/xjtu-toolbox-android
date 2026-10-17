@@ -22,15 +22,7 @@ import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 
-/**
- * `CampusVenueApi` 的 **serve 模式**（`ApiMode.SERVE`，契约 §5.3.2）写路径测试。
- *
- * 默认（campus-api）那一侧的只读行为在 [VenueMappingTest.webIsReadOnly] 钉着（`canBook`/`canCancel`
- * 都是 false、四个写方法抛）；这一份钉的是 serve 那一条新路：两个开关翻 true、`captcha()` 读挑战那七格、
- * `prepareOrder` 把选中项原样带成 `selections[]`、`submitBooking` 把 `captchaId` + 轨迹原文发出去并把
- * `orderId`/`price`/`message` 读回来、业务拒绝（409）原样变成 `BookingResult(false, …)` / 取消同理，
- * 以及支付那一跳（`paymentUrl` 给 serve 的代跳地址 `GET /api/venue/pay`，契约 §5.3.2 第 6 条）。
- */
+/** `CampusVenueApi` 的 serve 模式（`ApiMode.SERVE`，契约 §5.3.2）写路径测试。 */
 class CampusVenueServeWriteTest {
 
     /** 一个把「打出去的请求体」记下来的假 serve 后端。 */
@@ -72,7 +64,7 @@ class CampusVenueServeWriteTest {
         assertTrue(api.canBook, "写端点已落地（SERVE_WRITE_ENDPOINTS_READY=true）⇒ 屏上真能下单")
         assertTrue(api.canCancel, "取消是一条普通 POST ⇒ 同样如实 true")
 
-        // 挑战：七格逐字段（captchaId ← 上游那个验证码号；图与尺寸原样）
+        // 挑战：七格逐字段（captchaId ← 上游验证码号）
         val captcha = api.captcha(serviceId = 101)
         assertEquals("cap-1", captcha.id)
         assertEquals(260, captcha.bgWidth)
@@ -82,10 +74,7 @@ class CampusVenueServeWriteTest {
         assertTrue(captcha.backgroundImage.startsWith("data:image/jpeg;base64,"), "图是 data URI 原文")
         assertTrue(captcha.sliderImage.startsWith("data:image/png;base64,"))
 
-        // 支付那一跳：serve 给的是**它自己的代跳地址**（302 → 80 端口那台站上的支付页地址，§5.3.2 第 6 条）
-        // —— 不再是那个空串（从前点下去无声无息），也不抛：屏上的「去支付」真能把浏览器送到那一跳。
-        // ⚠️ 这一格只钉「地址长什么样」：302 一定被跟随，但那页要不要再登录/能不能直接付**不在本端担保里**
-        // （理由写在 `CampusVenueApi.paymentUrl` 的 KDoc 与契约 §5.3.2 第 6 条）。
+        // 支付那一跳是 serve 自己的代跳地址（§5.3.2 第 6 条）；这里只钉地址形状。
         assertEquals("/api/venue/pay?orderId=VT20261013001", api.paymentUrl("VT20261013001"))
         // 订单号原样进 query（与 `:data` 拼支付页同一套 `java.net.URLEncoder` 编码：`/`→`%2F`、`+`→`%2B`）
         assertEquals("/api/venue/pay?orderId=A%2F1%2B2", api.paymentUrl("A/1+2"))

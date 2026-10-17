@@ -7,27 +7,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 
-/**
- * 「自建日程那张表」这条缝 —— 读写收成一组动作，怎么存由各端自己定。
- *
- * ## 为什么是缝
- *
- * 那张表是 `:app` 的 Room 表（`custom_courses`，10 个消费方：小组件、首页、通知、
- * 删除账号、屁岱工具……）。屏与 ViewModel 进 `:core` 之后不能再认 `AppDatabase` 与
- * `CustomCourseEntity`（Room 注解是 Android 专属的），但**数据必须还是同一张表里的同一批行**：
- * 用户在旧版本里加的日程，升级后一条都不能丢。
- *
- * 所以按「能力」切这一刀：
- *  - `:app` —— `RoomCustomCourseStore` 一行行转发给原来的 `CustomCourseDao`（同一个库、同一张表、
- *    同一批列名，老数据逐字节照旧读得出来）；
- *  - `:desktop` —— [KeyValueCustomCourseStore]（`:core` 自带，落在一份键值文件里）。
- *
- * ## 语义债
- *
- * 每一个方法的名字、过滤条件、排序与搬迁前 `CustomCourseDao` 上那一条**逐字相同** —— 包括
- * [getConflicts] 那句「只按星期与节次粗筛，周次要再由 `CustomCourseConflicts` 精判」
- * （SQL 里就是 `NOT (endSection < :startSection OR startSection > :endSection)`）。
- */
+/** 「自建日程那张表」这条缝 —— 读写收成一组动作，怎么存由各端自己定。 */
 interface CustomCourseStore {
 
     /** 某账号某学期的全部日程，按「星期、开始节次、分钟级开始」排序。表一变就重发。 */
@@ -36,10 +16,7 @@ interface CustomCourseStore {
     /** 同上的一次性读。 */
     suspend fun getByTerm(accountId: String, termCode: String): List<CustomCourse>
 
-    /**
-     * 同一学期内、同星期、且节次有交集的课程。**只是粗筛**：不看周次，
-     * 结果必须再经 [CustomCourseConflicts.conflicts] 精判，否则不同周的同一时段会被误判为冲突。
-     */
+    /** 同一学期内、同星期、且节次有交集的课程。 */
     suspend fun getConflicts(
         accountId: String,
         termCode: String,
@@ -62,16 +39,7 @@ interface CustomCourseStore {
     suspend fun deleteByAccount(accountId: String)
 }
 
-/**
- * 键值缝上的那份实现 —— 桌面端用（这一端没有 Room）。
- *
- * 数据形状与 Room 那张表对齐：**一份清单装下所有账号的行**（Room 里也是一张表，
- * 按 `accountId` 过滤），自增主键就是清单里 `max(id) + 1`。所以
- * 「切账号后看见上一个人的日程」这类偏差不会出现，`id` 也不会在两端重号。
- *
- * 键名 `custom_courses`：桌面端把它落在 0600 的键值文件里（`:data` 的 `secureKeyValueStore`），
- * Android 一份都不用存（那边是 Room）。
- */
+/** 键值缝上的那份实现 —— 桌面端用（这一端没有 Room）。 */
 class KeyValueCustomCourseStore(private val store: KeyValueStore) : CustomCourseStore {
 
     /** 写一次就 +1：`observeByTerm` 靠它把新表推出去（键值缝本身没有监听器）。 */

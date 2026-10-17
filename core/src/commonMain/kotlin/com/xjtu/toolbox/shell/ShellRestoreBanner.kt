@@ -20,16 +20,7 @@ import top.yukonga.miuix.kmp.basic.Surface
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
-/**
- * 「正在恢复登录...」那条页脚横幅：**由壳画，因为它压在底栏上方**（`bottomBarReserve` 那一格）。
- *
- * 这一段原本在 `:app` 的 `main/MainScreen.kt` 里（`RestoreBanner` / `RestoreBannerContent`），
- * 与三端共有的东西只有「什么时候该显示、显示什么字」——那两样由端上注入（见 [AppShell] 的
- * `restoring` / `restoreStep`），横幅本身一个字都没改。
- *
- * ⚠️ 调用方**必须一直调用它**（用 `visible` 开关），不要在外面写 `if (restoring) {...}`：
- * AnimatedVisibility 的退场动画只在它还在树上时才播（`:app` 是从「恢复中」切回 false 时滑下去的）。
- */
+/** 「正在恢复登录...」那条页脚横幅：由壳画，因为它压在底栏上方（`bottomBarReserve` 那一格）。 */
 @Composable
 fun ShellRestoreBanner(visible: Boolean, step: String, modifier: Modifier = Modifier) {
     AnimatedVisibility(

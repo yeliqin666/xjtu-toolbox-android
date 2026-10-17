@@ -4,22 +4,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
-/**
- * 教材全文库的**页面命名规则**（[Jiaocai1Paging]，移植自阅读器的 `pagetypeutil.js`）在 JVM 上的口径。
- *
- * ## 它钉的是什么
- *
- * 这三条规则决定了「打开一本书之后能不能把页面取回来」，而且它们**全是纯字符串/下标运算**，
- * 一旦搬错就表现为「书打开是空的」或「页序错位」，屏上看不出来是取数还是命名的问题：
- *
- * - [Jiaocai1Paging.fileName]：页型前缀 + 补零到 6 位（正文无前缀、目录 `!`、封面/封底共用 `cov`）；
- * - [Jiaocai1Paging.flatten]：把 `reader.shtml` 给的 8 组 `[起, 止]` 展开成线性页表，`起 > 止`
- *   或 `起 <= 0` 的页型跳过（「没有这类页」的约定），`index` 由展开顺序重排；
- * - [Jiaocai1Paging.sectionStarts]：跳章导航用的「各页型首页下标」。
- *
- * 值全部照搬迁前 `:app` 的 `Jiaocai1PageLoader` 逐条核对（`fileName(1, 5) == "000001"`、
- * `fileName(1, 4) == "!00001"`、封底 `cov002` 那三句注释就是搬迁前写的原文）。
- */
+/** 教材全文库的页面命名规则（[Jiaocai1Paging]，移植自阅读器的 `pagetypeutil.js`）在 JVM 上的口径。 */
 class Jiaocai1PagingTest {
 
     @Test
@@ -86,11 +71,7 @@ class Jiaocai1PagingTest {
     }
 
     private companion object {
-        /**
-         * 一本书的 8 组页型区间（下标即页型，见 [Jiaocai1Paging.TYPE_NAMES]）：
-         * 封面 1 页、书名页 1 页、版权页没有（`0..-1`）、前言倒置区间（`2..1`）、
-         * 目录 2 页、正文 3 页、附录没有、封底 1 页（编号从 2 起）。
-         */
+        /** 一本书的 8 组页型区间（下标即页型，见 [Jiaocai1Paging.TYPE_NAMES]） */
         val JIAOCAI1_TEST_RANGES = listOf(
             1..1,
             1..1,

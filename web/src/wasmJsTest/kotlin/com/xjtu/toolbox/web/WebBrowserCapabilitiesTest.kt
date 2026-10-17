@@ -5,21 +5,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
-/**
- * D12 ③ 那三样「在 `:web` 上到底能不能用」的**机器可验那一半**（事实侧；理由与最小可行方案在
- * `docs/desktop-port-plan.md` §16.11）。
- *
- * 这个测试跑在**真浏览器**里（karma + webpack，见 `web/build.gradle.kts` 的 `testTask`），
- * 而 karma 的服务地址是 `localhost` —— `localhost` 属**安全上下文**，于是这里能断言：
- *
- *  - 剪贴板那条路（CMP 在 wasm 上的 `ClipboardManager` 就是 `navigator.clipboard.writeText`）
- *    在这份部署里**真的在**（D11 的 `--https` 之外，`127.0.0.1` 也满足这一条）；
- *  - `crypto.subtle` 同样只在安全上下文里存在（本端没有消费方，见 [WebBrowserCapabilities.webCrypto]）；
- *  - **桌面 Chrome 到今天没有 `BarcodeDetector`** —— 这一端**不靠它**：2026-10-16 起解码器已按 D12 ③
- *    搬进 `:core` 的 commonMain（见 [WebQrCamera] / [WebMatchScanner]）；
- * 最后那一条是**探针**（canary）：哪天桌面 Chrome 真长出了这个 API，它会红 —— 那时该做的是回去
- * 重读 §16.11 里那份「最小可行方案」并评估要不要改用它，**不是**把断言删掉。
- */
+/** 浏览器能力在 `:web` 上能不能用的机器可验那一半。 */
 class WebBrowserCapabilitiesTest {
 
     @Test

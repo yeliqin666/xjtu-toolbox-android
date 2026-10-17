@@ -49,17 +49,9 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
 @Composable
 fun AgentScreen(
     host: AgentHost,
-    /**
-     * 驱动这一屏的那一份会话状态。**不给就用本端的 [AgentViewModel]**（Android / 桌面，与搬迁前同一处、
-     * 同一个 `key = "agent"`）；浏览器那一端交的是它自己的 `WebAgentSession`（循环在 serve，
-     * 见 [AgentChatSession] 与 `docs/agent-web-spec.md` §4.2）。
-     */
+    /** 驱动这一屏的那一份会话状态。 */
     session: AgentChatSession? = null,
-    /**
-     * 系统相册挑图的适配器（`:app` 用 `rememberLauncherForActivityResult` 实现，
-     * 见那个模块的 `rememberAndroidAgentImagePicker`）。默认 = 这一端没有相册，
-     * 而 [AgentCapability.IMAGE_INPUT] 会把那颗回形针整颗不画。
-     */
+    /** 系统相册挑图的适配器（`:app` 用 `rememberLauncherForActivityResult` 实现，见那个模块的 `rememberAndroidAgentImagePicker`）。 */
     imagePicker: AgentImagePicker = AgentImagePicker.None,
     onNavigate: (AppRoute) -> Unit = {},
     /** tab 模式下需要额外空出的底部高度（悬浮胶囊底栏不占宿主 contentPadding，见调用处）。 */
@@ -70,20 +62,14 @@ fun AgentScreen(
     onTitleChange: (String) -> Unit = {},
     onActionsChange: ((@Composable RowScope.() -> Unit)?) -> Unit = {},
     onNavIconChange: ((@Composable () -> Unit)?) -> Unit = {},
-    /**
-     * 首屏那个「屁岱形象 + 问候」：`:app` 交 `AndroidPidaiHero`（形象、瞟眼、戳一下换一句话）；
-     * 没有形象的端用默认实现（纯文字问候，见 [agentWelcomePlainHero]）。
-     */
+    /** 首屏那个「屁岱形象 + 问候」：`:app` 交 `AndroidPidaiHero`（形象、瞟眼、戳一下换一句话）；没有形象的端用默认实现（纯文字问候，见 [agentWelcomePlainHero]）。 */
     hero: @Composable (title: String, facts: WelcomeFacts, now: kotlinx.datetime.LocalDateTime) -> Unit =
         { title, f, n -> agentWelcomePlainHero(title, f, n) },
     /** 「戳一下底栏屁岱」的回应气泡：`:app` 交 `AndroidPokeWhisper`；没有形象的端默认不画。 */
     pokeWhisper: @Composable (Modifier) -> Unit = {},
     /** 「形象选择」那一整块：`:app` 交 `PidaiAppearancePanel`；没有形象设置的端传 null。 */
     appearanceSection: (@Composable () -> Unit)? = null,
-    /**
-     * 配置面板里那两格要交给宿主的（见 [ConfigPanel] 的 `apiKeySection` / `memorySection`）：
-     * 浏览器那一端拿不到 key（它在 serve 上）、模型用的记忆也在 serve ⇒ 这两块得由它自己画。
-     */
+    /** 配置面板里那两格要交给宿主的（见 [ConfigPanel] 的 `apiKeySection` / `memorySection`）：浏览器那一端拿不到 key（它在 serve 上）、模型用的记忆也在 serve ⇒ 这两块得由它自己画。 */
     apiKeySection: (@Composable () -> Unit)? = null,
     memorySection: (@Composable () -> Unit)? = null,
     /**
@@ -95,12 +81,10 @@ fun AgentScreen(
     var config by remember { mutableStateOf(host.loadConfig()) }
     // 不要 rememberSaveable：冷启动第一帧可能读到空 key，之后会把设置页钉死。
     var showConfig by remember { mutableStateOf(false) }
-    // 与 `:app` 原来挂在导航项上的那颗 ViewModel 同位（切 tab 不丢）；宿主在宿主侧 remember，
-    // 所以 key 固定成 "agent" 就够（两个宿主形态、一个实例）。
+    // 宿主侧 remember，key 固定即可（切 tab 不丢）。
     val vm: AgentChatSession = session ?: viewModel(key = "agent") { AgentViewModel(host) }
 
     // 多会话持久化：绑定一次，加载会话列表并恢复最近会话。
-    // 存储本体在 `:data`（`AgentSessionStore`），根目录由那边的缝解析（Android 就是原来的 filesDir）。
     LaunchedEffect(Unit) { vm.bind(host.sessions()) }
 
     LaunchedEffect(host.accountId) {
@@ -233,7 +217,6 @@ fun AgentScreen(
                             host.saveConfig(newConfig)
                             // 「这一端配没配 Key」是宿主提供的一格（浏览器上 Key 在 serve 侧，本端拿不到）：
                             // 面板自己拼的那份不带它 ⇒ 保存后按宿主那份补回来，否则页面会当「没配」显示
-                            // （Android / 桌面的默认实现恒为 false ⇒ 这一行与搬迁前逐字同值）
                             config = newConfig.copy(
                                 keyConfigured = newConfig.keyConfigured || host.loadConfig().keyConfigured,
                             )

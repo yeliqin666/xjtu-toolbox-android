@@ -1,42 +1,14 @@
 package com.xjtu.toolbox.library
 
-/**
- * 图书馆座位二维码的**数据形状**（从 `:app` 的 `LibrarySeatQr.kt` 搬进来）。
- *
- * 为什么只搬这三样、`parse` 留在 `:app`：这个文件本来装着三件事 ——
- * ① 纯数据（本文件）、② 二维码链接的解析（用 okhttp 的 `HttpUrl`）、③ `/qavail/` 座位状态查询
- * （okhttp + Jsoup）。②③ 都长在 Android/JVM 独有的库上（`:core` 的 commonMain 只有 ktor），
- * 所以它们留在 `:app`（`LibrarySeatAvailability` 与 `parseLibrarySeatQr`）——
- * 那也正是「扫码这条路的取数」该待的地方：App 侧的屏要用它；
- * 需要跨模块共享的只有「座位号 + 区域码 + 这个区域属于哪个校区」这几个字段，就是下面这些。
- */
+/** 图书馆座位二维码的数据形状。 */
 
-/**
- * 图书馆桌面二维码：`http://rg.lib.xjtu.edu.cn:8086/qavail/?seat=056&sp=north4southwest`。
- *
- * 2026-09-22 实测：
- * - `seat` 就是座位表里的键，也就是预约接口 `/seat/?kid=` 要的值，原样用。
- *   不能补零、去零、加减字母前缀——`56`、`Q056`、`004`（本该是 `D004`）都查不到座位；
- *   字母大小写不敏感（`d004` 也认），但预约还是按座位表里的写法发。
- * - 同一个号在好几个区都有（`100` 到处都是），必须连着 `sp` 一起用。
- * - `/qavail/` 和 `/qseatqr?sp=` 不需要登录：前者显示单个座位的状态，后者只列区域里的空位。
- *
- * 扫到码不在扫码页里约：交给图书馆页（[LibraryFocus] 带上座位号），
- * 那边有平面图、我的预约、换座和跨校区处理，扫码只负责认码。
- */
+/** 图书馆桌面二维码：`http://rg.lib.xjtu.edu.cn:8086/qavail/?seat=056&sp=north4southwest`。 */
 data class LibrarySeatQr(val seat: String, val areaCode: String) {
     val area: LibraryQrArea? get() = LibraryQrArea.byCode(areaCode)
     val areaName: String get() = area?.displayName ?: areaCode
 }
 
-/**
- * 三个校区全部区域。2026-09-22 在网页上逐校区、逐楼层 `/qspace` 实测得到。
- *
- * 图书馆页的区域列表仍然现拉 `/qspace`（见 [LibraryCampus] 的说明），这张表只给扫码用：
- * 扫到码的那一刻要知道这个区在哪个校区、哪一层，而 `/qspace` 只返回账号当前校区，
- * 拿它查别的校区得先改用户资料——不能为了显示一个名字就去切校区。
- * 表里查不到的新区域照样能预约，只是显示区域码、按区域码前缀推校区。
- */
+/** 三个校区全部区域。 */
 enum class LibraryQrArea(val code: String, val campus: LibraryCampus, val floorCode: String, val areaLabel: String) {
     NORTH2_EAST("north2east", LibraryCampus.XINGQING, "xingqing2floor", "北楼二层外文库（东）"),
     NORTH2_ELIAN("north2elian", LibraryCampus.XINGQING, "xingqing2floor", "二层连廊及流通大厅"),
@@ -88,10 +60,7 @@ enum class LibraryQrArea(val code: String, val campus: LibraryCampus, val floorC
     }
 }
 
-/**
- * 图书馆页里「扫码要约的座位」确认框的状态。
- * @param status 查到的状态；null 且 [checking] 为 false 表示没查到（照样允许预约）
- */
+/** 图书馆页里「扫码要约的座位」确认框的状态。 */
 internal data class ScanSeatPrompt(
     val qr: LibrarySeatQr,
     val status: LibrarySeatStatus? = null,

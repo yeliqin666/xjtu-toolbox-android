@@ -7,24 +7,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
-/**
- * 反馈的**本地账本**（[FeedbackStore]）在 JVM 上的口径 —— 它这一轮从 `:app`（`Context` +
- * `SharedPreferences`）搬进 `:core`（`KeyValueStore` 键值缝），这份测试钉住的就是「搬完还是同一件事」。
- *
- * 钉住四类事：
- *  1. **落盘位置与类型一字未改**：存储名 `feedback`、键名 `tickets` / `read_replies` /
- *     `reply_fetch_at` / `reply_cache` / `public_qa` / `prompt_last_at` / `prompt_done_version` /
- *     `anon_id` —— Android 侧的 actual 就是同一个文件名的 `SharedPreferences`，老工单不丢；
- *  2. **工单账本**：最新在前、只留最近 20 条（`addTicket` 的 `take(20)`）；
- *  3. **回复/公开问答的缓存**：键值对往返、空字段过滤；
- *  4. **两处节流的判据**：`shouldFetchReplies`（force 绕过 / pending 档）与
- *     `shouldPrompt`（三重闸门，其中 `isConfigured=false` 直接 false —— 这一档搬迁前读的是
- *     `FeedbackApi.isConfigured`，现在由调用方传进来）。
- *
- * 放在 `jvmTest` 而不是 `commonTest`：jvm 的 `KeyValueStore` 是**进程内单例**（落盘文件），
- * 用例之间会互相看见，所以每个用例前显式清一次；commonTest 会在 wasm 上跑，而 wasm 那份落的是
- * `localStorage`，不适合放这里（与 `LibraryFavoritesJvmTest` 同一条口径）。
- */
+/** 反馈的本地账本（[FeedbackStore]）在 JVM 上的口径。 */
 class FeedbackStoreJvmTest {
 
     private val raw = keyValueStore("feedback")

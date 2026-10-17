@@ -16,25 +16,7 @@ import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
-/**
- * 匹配交友（`AppRoute.Match`）在桌面端的**装配验收**（第 33 条真数据路由）。
- *
- * 这一条路由一条请求都不发，所以「真数据」只能是**本机缓存**：屏与算法本轮按五步法搬进了
- * `:core`（`MatchProfile` 一族 + `MatchData` + `DiningHabit` + `MatchScreen`），这一端交的是
- * [DesktopMatchHost] —— 它的课表族缓存就是「我的课表」「首页」读的那一份 0600 键值文件。
- *
- * 三条钉子：
- *  1. **真出数**：把一份夹具课表/考试写进本端缓存（值都是编的），`MatchData.read` 就得从它读出
- *     学期、课、考试；`MatchProfile.encode` 出一段真码（jvm 上 deflate + Base64 那两条缝是
- *     **搬迁前那份实现**，见 `:core:jvmTest` 的 `MatchShareCodeJvmTest`）；
- *  2. **离线算交集**：拿「对方」那段码（同一套算法在别处编的夹具档案）解回来比 —— 同课、同楼、
- *     同场考试都得真算出来，`overall` 也得真出分（不是说明页、不是空壳）；
- *  3. **如实降级**：学工档案与校园卡消费这一端**没有**（[DesktopMatchHost.identity] /
- *     [DesktopMatchHost.transactions] 就是 `null` / 空表）⇒ 屏上那两维禁用，分享码里也不会出现
- *     它们（`MatchProfile.build` 要求「开关开着 **且** 有数据」）。
- *
- * 它**一个网络请求都不发**：`:testkit` 的假上游、`DesktopAuth` 都用不上（没有会话要建）。
- */
+/** 匹配交友（`AppRoute.Match`）在桌面端的装配验收。 */
 class DesktopMatchJvmTest {
 
     private val term = "2026-2027-1"

@@ -1,20 +1,6 @@
 package com.xjtu.toolbox.platform.qr
 
-/**
- * 格式信息与数据掩码 —— zxing 3.5.4 `com.google.zxing.qrcode.decoder` 的 `FormatInformation` /
- * `DataMask` 的**逐字对照**。
- *
- * 格式信息那 15 位（纠错等级 2 位 + 掩码号 3 位 + BCH 校验 10 位）会在码里写两遍，解码时两边各读一遍、
- * 取「汉明距离最小的那一个」（两张表之间距离至少是 7，所以容 3 位错）。掩码那八种是
- * ISO 18004:2006 6.8.1 里那八条取模公式 —— `unmaskBitMatrix` 就是把该翻的格子翻回来。
- *
- * | zxing | 这里 | 备注 |
- * |---|---|---|
- * | `FormatInformation.FORMAT_INFO_DECODE_LOOKUP`（32 条）、`FORMAT_INFO_MASK_QR = 0x5412` | 原样 | 包括「有些码没掩这一层、那就再拿掩过的值试一次」那一步 |
- * | `numBitsDiffering` | [QrFormatInformation.numBitsDiffering] | `Integer.bitCount(a ^ b)` ⇒ `(a xor b).countOneBits()` |
- * | `DataMask` 八条 `isMasked` 与 `unmaskBitMatrix` | [QrDataMask] | 八条公式逐条相同（`i` 是行、`j` 是列） |
- * | `FormatInformation.equals/hashCode` | **没搬** | 这一条链只用 `errorCorrectionLevel` 与 `dataMask` 两个 getter |
- */
+/** 格式信息与数据掩码 —— zxing 3.5.4 `com.google.zxing.qrcode.decoder` 的 `FormatInformation` / `DataMask` 的移植。 */
 internal class QrFormatInformation private constructor(formatInfo: Int) {
 
     val errorCorrectionLevel: QrErrorCorrectionLevel = QrErrorCorrectionLevel.forBits((formatInfo shr 3) and 0x03)

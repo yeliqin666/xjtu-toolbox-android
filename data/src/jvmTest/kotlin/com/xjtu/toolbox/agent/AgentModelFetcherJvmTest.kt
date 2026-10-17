@@ -16,16 +16,7 @@ import kotlin.test.assertFailsWith
 import kotlin.test.assertTrue
 import kotlinx.coroutines.runBlocking
 
-/**
- * 模型列表取数（`:app` → `:data` 的那一条）。
- *
- * 与 `LibraryDataLayerJvmTest` 同一条纪律：**真跑**，不 mock 取数本身 ——
- * 起一个本地 HTTP 服务器当真服务商，让 `AgentModelFetcher` 自己拼 `{baseUrl}/models`、
- * 带上 `Authorization`、读响应、解析 `data[].id`。断言的是模型 id 的去重与排序、
- * 以及三种失败各自抛出可读的话（配置页靠这句话降级成手填）。
- *
- * ⚠️ 密钥全是编造的，从不发往真服务商。
- */
+/** 模型列表取数。 */
 class AgentModelFetcherJvmTest {
 
     private lateinit var server: HttpServer
@@ -38,14 +29,7 @@ class AgentModelFetcherJvmTest {
 
     @BeforeTest
     fun setUp() {
-        // ⚠️ 进程级的两件前置，顺序不能错（见 `FakeCampusProxy.installFakeUpstreams` 的 KDoc）：
-        // `HttpClients.base` 是进程级 `by lazy`，它在 `build()` 那一刻把**当时的**默认 selector 与
-        // 平台 trust manager 都抄进配置。`:data:jvmTest` 里那一大批「真登录」用例靠的就是那两份
-        // **共享**前置（它们自己起假上游、再改 `FakeUpstreamProxySelector.port`）。本测试类姓
-        // `agent`，按类名序排在 attendance/venue/card 之前，又是这个模块里**第一个**碰
-        // `HttpClients.base` 的（下面 `AgentModelFetcher` 的 `private val client`）—— 不先装的话，
-        // 抄进去的是系统默认 selector 与系统 CA，那一批用例随后全部指不到假上游
-        //（selector 不对 ⇒“登录验证检测返回了异常数据”，信任库不对 ⇒ PKIX 失败），一次红一大片。
+        // ⚠️ 必须先装假上游前置：本类按名排序最先碰到进程级 `HttpClients.base`，它在 build() 时抄走 selector 与 trust manager。
         FakeCampusProxy.installFakeUpstreams()
         // 本测试直连 127.0.0.1，把端口设回 0（进程默认状态，不走假上游代理）
         FakeUpstreamProxySelector.port = 0
@@ -88,7 +72,6 @@ class AgentModelFetcherJvmTest {
     fun `列表里的条目缺 id 时单独丢掉，不连累整份`() {
         body.set("""{"data":[{"id":"a"},{"object":"model"},{"id":""},{"id":"b"}]}""")
 
-        // 「没有 id 字段」的条目丢掉；申明成空串的照搬（与搬迁前一致：只过滤前者）
         assertEquals(listOf("", "a", "b"), runBlocking { AgentModelFetcher.fetch(config()) })
     }
 

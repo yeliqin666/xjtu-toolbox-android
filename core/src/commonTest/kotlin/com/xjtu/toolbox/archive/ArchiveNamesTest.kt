@@ -3,10 +3,7 @@ package com.xjtu.toolbox.archive
 import kotlin.test.Test
 import kotlin.test.assertEquals
 
-/**
- * 账号后缀纯函数的验收（§4 / A9）：
- * `suffixFor` 五档逐字、多对一碰撞必须被检测、端内名拆 base+suffix 最长后缀优先。
- */
+/** 账号后缀纯函数的验收（§4）。 */
 class ArchiveNamesTest {
 
     @Test
@@ -17,9 +14,7 @@ class ArchiveNamesTest {
         assertEquals("_", ArchiveNames.suffixFor(""))
         // 纯数字
         assertEquals("_2253415556", ArchiveNames.suffixFor("2253415556"))
-        // 非字母数字逐字符换 _
         assertEquals("_2_2534", ArchiveNames.suffixFor("2-2534"))
-        // 逐字符（不是整串），长度不塌缩
         assertEquals("_a_b", ArchiveNames.suffixFor("a-b"))
     }
 

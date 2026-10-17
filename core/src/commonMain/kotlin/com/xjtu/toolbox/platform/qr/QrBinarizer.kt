@@ -1,24 +1,6 @@
 package com.xjtu.toolbox.platform.qr
 
-/**
- * 二值化那一段 —— zxing 3.5.4 `LuminanceSource` / `PlanarYUVLuminanceSource` / `Binarizer` /
- * `GlobalHistogramBinarizer` / `HybridBinarizer` 的**逐字对照**。
- *
- * 「一张灰度图」→「黑/白两态的位矩阵」这一步。二维码走的是**局部阈值**那一版（[QrHybridBinarizer]：
- * 8×8 的块算局部黑色点，再对 5×5 的邻块平均），`GlobalHistogramBinarizer` 那一版是它的兜底
- * （图太小的时候）与 1D 条码用的那一版。
- *
- * | zxing | 这里 | 备注 |
- * |---|---|---|
- * | `LuminanceSource`（抽象基类） | [QrLuminanceSource] | 只留 `getRow`/`getMatrix` 与宽高 |
- * | `PlanarYUVLuminanceSource` | [QrPlanarYuvLuminanceSource] | 同一个 `dataWidth/dataHeight/left/top`，`getMatrix` 的「整幅就返回原数组」那一条捷径也照抄 |
- * | `PlanarYUVLuminanceSource.reverseHorizontal` / `crop` / `renderThumbnail` | **没搬** | 前两件分别给前置摄像头的镜像帧与「框选一小块再解」用；本端喂进来的是**整幅已经缩过**的帧（见 `QrReader.decodeArgb`），一件都不碰 |
- * | `Binarizer` | [QrBinarizer] | 只留 `getBlackMatrix` |
- * | `GlobalHistogramBinarizer.getBlackMatrix` / `estimateBlackPoint` | [QrGlobalHistogramBinarizer] | 四行采样 + 双峰找谷，逐行相同 |
- * | `GlobalHistogramBinarizer.getBlackRow` | **没搬** | 那是 **1D** 条码（`MultiFormatOneDReader`）用的那一版；这一端只解二维码 |
- * | `HybridBinarizer.getBlackMatrix` / `calculateBlackPoints` / `calculateThresholdForBlock` / `thresholdBlock` / `cap` | [QrHybridBinarizer] | 逐行相同，含 `MIN_DYNAMIC_RANGE = 24` 那条短路与「邻居黑点」那条修正 |
- * | `BinaryBitmap`（`getBlackMatrix` 的按需缓存、`crop`、`rotateCounterClockwise`） | **没搬** | 只解一帧、只解一次，缓存这一层没有意义（`QrReader` 直接调 [QrBinarizer.blackMatrix]） |
- */
+/** 二值化那一段—— zxing 3.5.4 `LuminanceSource` / `PlanarYUVLuminanceSource` / `Binarizer` / `GlobalHistogramBinarizer` / `HybridBinarizer` 的移植。 */
 internal abstract class QrLuminanceSource(val width: Int, val height: Int) {
 
     /** 第 [y] 行的灰度，前 [width] 个字节有效（[row] 可复用以省分配）。 */
@@ -77,9 +59,7 @@ internal abstract class QrBinarizer(val source: QrLuminanceSource) {
     abstract fun blackMatrix(): QrBitMatrix
 }
 
-/**
- * 全局直方图那一版二值化：整幅一个黑点。见 [QrLuminanceSource] 的对照表。
- */
+/** 全局直方图那一版二值化：整幅一个黑点。 */
 internal open class QrGlobalHistogramBinarizer(source: QrLuminanceSource) : QrBinarizer(source) {
 
     private var luminances: ByteArray = EMPTY
@@ -313,16 +293,9 @@ internal class QrHybridBinarizer(source: QrLuminanceSource) : QrGlobalHistogramB
                     // 默认估的就是块里的平均值
                     var average = sum shr (BLOCK_SIZE_POWER * 2)
                     if (max - min <= MIN_DYNAMIC_RANGE) {
-                        // 块里变化很小时，认为这一块只有亮的或只有暗的像素。这时不能用平均值 ——
-                        // 那会把这片低对比度的地方劈成黑白两色，等于从噪声里造数据出来。
-                        //
-                        // 默认认为这一块是亮的（背景）。本地没有暗像素的估计，就取最小值的一半。
+                        // 块内对比度太低时不用平均值（会从噪声里劈出黑白），默认当亮背景，取最小值的一半。
                         average = min / 2
                         if (y > 0 && x > 0) {
-                            // 「背景是亮的」这个假设，对有邻居的块要修正：拿这一块的像素与已经算出来的
-                            // 邻居黑点比。依据是条码的深色符号周围总有一圈亮背景，那边界的黑点估计是可用的，
-                            // 内部就用边界那一份。
-                            // 「min < bp」这条是拍出来的，但比试过的其它启发式好。
                             val averageNeighborBlackPoint =
                                 (blackPoints[y - 1][x] + (2 * blackPoints[y][x - 1]) + blackPoints[y - 1][x - 1]) / 4
                             if (min < averageNeighborBlackPoint) average = averageNeighborBlackPoint

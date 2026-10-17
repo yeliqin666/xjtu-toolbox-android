@@ -29,20 +29,7 @@ import kotlin.test.assertFailsWith
 import kotlin.test.assertTrue
 import kotlinx.coroutines.runBlocking
 
-/**
- * 加餐券取数的**字段级口径**：`CouponApi` 对着 `:testkit` 的 [CouponFakeUpstream] 逐行读。
- *
- * ## 为什么在 `:data` 而不是 `:app`
- *
- * 这一轮把加餐券的取数（`CouponApi`）与站点（`CouponSession` + `CouponLogin`）从 `:app` 搬进了
- * `:data`（桌面端第 15 条真数据路由）。搬之前先用夹具把**搬之前**的口径钉住 —— 这些断言
- * 全部来自**夹具原文**与**搬迁前的代码语义**（`Content-Type` / `Origin` / `Referer` 那三个头、
- * 「响应是 HTML 就当会话失效」、`code != 200` 就抛、401/403/含「令牌」抛 `AuthExpiredException`、
- * 图片 URL 相对路径拼 `BASE`）。
- *
- * 模型与 `CouponJsonParser` 已经在 `:core`（`CouponModels.kt`，上一批就搬过去了），这里钉的是
- * **请求怎么打 + 响应怎么认**那半。
- */
+/** 加餐券取数的字段级口径：`CouponApi` 对着 `:testkit` 的 [CouponFakeUpstream] 逐行读。 */
 class CouponApiJvmTest {
 
     @Test
@@ -153,7 +140,6 @@ class CouponApiJvmTest {
         withCouponLogin { site, fake ->
             val api = CouponApi(site)
 
-            // ① HTML：`executeRaw` 看见 <html 就当 AuthExpired
             fake.coupon.htmlMode = true
             assertFailsWith<AuthExpiredException> { runBlocking { api.queryCoupons(CouponFilter.USABLE) } }
 
@@ -170,8 +156,7 @@ class CouponApiJvmTest {
             val source = AppCouponSource(site)
             val bytes = runBlocking { source.loadImage("https://$HOST$PIC_PATH") }
             assertEquals(PIC_BYTES.toList(), bytes!!.toList())
-            // ⚠️ 取图**不带** Authorization：搬迁前的屏就是 `site.client` 直接 GET（券图是公开
-            // 对象存储，不需要业务令牌）—— 保持原样，只在业务三枪上断言那个头（见上面那个用例）。
+            // 取图不带 Authorization（券图是公开对象存储）
 
             // 空串 / 取不到的图 ⇒ null（屏上退化成图标）
             assertEquals(null, runBlocking { source.loadImage("") })

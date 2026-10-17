@@ -68,21 +68,7 @@ import top.yukonga.miuix.kmp.basic.rememberTopAppBarState
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.utils.overScrollVertical
 
-/**
- * 体测查询 —— 从 `:app/fitness/FitnessScreen.kt` 搬进 `:core`。
- *
- * 搬迁时被替换掉的四处写法（其余逐字保留）：
- *  1. `SiteSession` + `LocalAppLoginState` → 注入的 [FitnessSource] 与
- *     [LocalAuthExpiry]（后者是这一步新立的平台缝，见 `auth/AuthExpiry.kt`）；
- *  2. `withContext(Dispatchers.IO)` → 去掉：取数已是挂起调用，自己处理 IO
- *     （`Dispatchers.IO` 在 wasm 上根本不存在）；
- *  3. `"%.1f".format(...)` / `"%.0f".format(...)`（`String.format` 是 JVM 专属，
- *     而且在 JVM 上是默认导入 —— import 判据看不见它）→ [oneDecimal] / [int0]；
- *  4. `FriendlyError.of(e, "查询体测")` 保持原样（`FriendlyError` 本来就在 `:core`）。
- *
- * @param source 取数端口。`:app` 传 `FitnessApi`（v3+legacy 两条路），
- *   Web 传 `CampusFitnessApi`。两者产出的都是本文件这套模型。
- */
+/** 体测查询。 */
 @Composable
 fun FitnessScreen(
     source: FitnessSource,
@@ -222,8 +208,6 @@ fun FitnessScreen(
                     EmptyState("暂无可查询的体测学年", modifier = Modifier.fillMaxSize())
                 }
                 else -> {
-                    // 宽屏两栏：左边学年 + 总分，右边各项目成绩。以前一列卡片横跨整个平板，
-                    // 项目名在最左、分数在最右，中间隔着大半个屏幕。
                     val wide = isWideLayout()
                     val itemsCard: androidx.compose.foundation.lazy.LazyListScope.() -> Unit = {
                         score?.let { result ->
@@ -263,9 +247,6 @@ fun FitnessScreen(
                             verticalArrangement = Arrangement.spacedBy(12.dp)
                         ) {
                             item {
-                                // 用 LazyRow 而非 horizontalScroll 的 Row：学年多起来时选中项常在最右侧，
-                                // 普通 Row 没法定位到某一项，用户看到的就是一排全未选中的胶囊
-                                // ——数据其实是对的，只是选中的那枚在屏幕外。
                                 LazyRow(
                                     state = yearListState,
                                     modifier = Modifier.enterOnce(0).fillMaxWidth(),
@@ -311,14 +292,7 @@ fun FitnessScreen(
     }
 }
 
-/**
- * 会话失效的判据。
- *
- * `:app` 的 `AuthExpiredException` 在 `:core` 不存在，所以靠 [com.xjtu.toolbox.error.UserFacingFailure]
- * 之外的第二条线索识别：`:app` 的 `AuthExpiredException` 实现了
- * `com.xjtu.toolbox.error.SessionExpiredFailure` 标记接口（`:core` 定义），
- * `FriendlyError` 也是按它给出「登录态已失效」那句话的 —— 两边同一份判据。
- */
+/** 会话失效的判据。 */
 private fun Throwable.isAuthExpiry(): Boolean =
     this is com.xjtu.toolbox.error.SessionExpiredFailure
 
@@ -346,7 +320,6 @@ private fun ScoreHero(score: FitnessScore) {
         colors = CardDefaults.defaultColors(color = Color.Transparent)
     ) {
         Box(Modifier.fillMaxWidth()) {
-            // 蓝绿两色的流动底色（原来的静态渐变改成 Mesh），6 秒后停：这张卡在玻璃顶栏下面
             MeshBackground(
                 modifier = Modifier.matchParentSize(),
                 lightVertexColors = FitnessHeroMesh,

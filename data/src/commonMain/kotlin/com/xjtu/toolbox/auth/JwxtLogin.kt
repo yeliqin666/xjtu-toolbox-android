@@ -4,12 +4,7 @@ import com.xjtu.toolbox.platform.Log
 import com.xjtu.toolbox.util.redactUrl
 import okhttp3.OkHttpClient
 
-/**
- * 教务系统登录（CAS Cookie-based）。
- *
- * 与 `JwxtSession` 一起从 `:app` 的 `auth/` 搬进 `:data`（同一个包名，`:app` 侧一个字未改）。
- * 唯一被替换的写法：`android.util.Log` → `:core` 的 `com.xjtu.toolbox.platform.Log`。
- */
+/** 教务系统登录（CAS Cookie-based）。 */
 class JwxtLogin(
     session: OkHttpClient? = null,
     visitorId: String? = null,

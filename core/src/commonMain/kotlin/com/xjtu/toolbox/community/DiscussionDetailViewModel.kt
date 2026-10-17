@@ -149,9 +149,7 @@ fun failureText(action: String, error: Throwable): String {
             else -> "GitHub 返回 HTTP ${error.statusCode}"
         }
         is GithubDiscussionException -> error.message
-        // 与搬迁前的 `is java.io.IOException` 等价：平台家族对 JVM 上任何 IOException 都返回非 null
-        // 落在最后：与搬迁前的 `is java.io.IOException ->` 同位置、同语义
-        // （平台家族对 JVM 上任何 IOException 都返回非 null；when 的 subject 是异常，条件分支放不进来）
+        // 网络失败放最后：when 的 subject 是异常，条件分支放不进来。
         else -> if (classifyNetworkFailure(error) != null) "网络不通，检查网络后重试" else null
     }
     return if (reason.isNullOrBlank()) "${action}没成功，稍后再试" else "${action}没成功：$reason"

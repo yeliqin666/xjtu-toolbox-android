@@ -16,21 +16,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 
-/**
- * 桌面那份执行器（[JvmDownloadEngine]）在**真 HTTP** 上的行为 —— 上游是本地起的一个
- * `com.sun.net.httpserver.HttpServer`（不是假接口对象：这一层要验的就是套接字、`Range`、
- * 响应码与落盘之间的那几件事）。
- *
- * 钉住的四条与端口契约逐条对应：
- *  1. 全新下载：字节逐字节落到文件，进度先报起点（0, total）再报推进；
- *  2. 续传：带 `Range` ⇒ 服务器 206 ⇒ 从断点接着写（不是从头覆盖）；
- *  3. 服务器不认 `Range`（回 200 整份）⇒ 从头写（**不能**接在旧内容后面）；
- *  4. 本地已完整（`Range` 越界）⇒ 416 ⇒ 判成完成，文件不动；
- * 外加失败（404 抛异常）与取消（协程取消真能中断搬运）。
- *
- * 与 `:desktop:test` 的分工：那边验的是「桌面这一端的装配 + 假校园上游那个夹具文件」，
- * 这边验的是搬运循环本身（含取消与三种响应码）。
- */
+/** 桌面那份执行器（[JvmDownloadEngine]）在真 HTTP 上的行为。 */
 class JvmDownloadEngineJvmTest {
 
     private lateinit var server: HttpServer
@@ -117,8 +103,6 @@ class JvmDownloadEngineJvmTest {
         assertContentEquals(body, target.readBytes(), "磁盘上的字节要与上游逐字节相同")
         assertEquals(0L to body.size.toLong(), progress.first(), "第一发是起点（搬迁前那句写库就在这个位置）")
         assertTrue(progress.all { it.second == body.size.toLong() }, "每一发都带着总大小：$progress")
-        // 进度是 500 ms 节流的（与 Android 那份同一个口径）—— 本地这份跑得比 500 ms 快，
-        // 所以除了起点只可能再报几发；**整份字节数由返回值给**（状态机拿它写 completed）
         assertTrue(progress.last().first in 1..body.size.toLong(), "进度单调落在 [1, 总大小] 里：$progress")
         assertTrue(seenRanges.isEmpty(), "全新下载不该带 Range")
     }

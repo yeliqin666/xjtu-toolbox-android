@@ -95,16 +95,6 @@ import top.yukonga.miuix.kmp.utils.overScrollVertical
  * 后者才是好玩的地方——同一栋楼擦肩而过、同一场考试、同一个老师、同一本教材，
  * 都是本机缓存里本来就有、只是从没被拿出来对过的东西。
  *
- * ## 搬进 `:core` 之后变的三处（都是「宿主能力」那一类，不是业务）
- *
- * | 搬迁前（`:app`） | 这里 |
- * |---|---|
- * | `MatchData.read(context, term)` / `DiningHabit` / `HelloProfileStore` | [MatchHost]（课表族缓存 / 校园卡流水 / 学工档案三件由端上给；桌面端后两件如实没有） |
- * | `QrBitmap.generate` + `Image(asImageBitmap)` | `:core` 的码阵缝 [qrCodeModules] + [CodeMatrixView]（与付款码**同一份画法**，白边与格子尺寸逐像素同源） |
- * | 相机取景（`QrScannerView`）与「从相册选图」（`ImageDecoder` + `QrBitmap.read`） | [MatchScanner]（Android 那两份实现在 `:app` 的适配里**原样**；桌面没有相机 ⇒ 不传，那两颗按钮一个字都不画） |
- *
- * 画法与文案与搬迁前一行未改（除了上面那三处），`Dispatchers.IO` 换成 [MatchHost.io]。
- *
  * @param host 这一端有什么（见 [MatchHost]）
  * @param scanner 扫码那一档；`null` = 这一端没有相机 / 相册（桌面）⇒ 只留「粘一段文字」那条路
  */
@@ -196,7 +186,6 @@ fun MatchScreen(
                 theirCode = outcome.code
                 match(outcome.code)
             }
-            // 取消（两个都空）什么都不说，与搬迁前「相册返回 null 直接 return」同一条口径。
             outcome.reason.isNotEmpty() -> {
                 decodeError = outcome.reason
                 result = null
@@ -377,7 +366,7 @@ fun MatchScreen(
 private sealed interface QrState {
     data object Loading : QrState
 
-    /** [CodeMatrix] 就是格阵本身（画法见 [CodeMatrixView]）——搬迁前这里是一张 `Bitmap`。 */
+    /** [CodeMatrix] 就是格阵本身（画法见 [CodeMatrixView]）。 */
     data class Ready(val matrix: CodeMatrix) : QrState
     /** [reason] 直接显示给用户，得是一句能照着做的话。 */
     data class Failed(val reason: String) : QrState
@@ -401,9 +390,7 @@ private fun MyCodeCard(
         // 不显式写一次的话，新码没画出来之前显示的还是上一张旧码。
         value = QrState.Loading
         value = when {
-            // 这一端没有压缩（zlib）或 Base64：这**不是**"出错了"，是这一端做不到。
-            // 说清是哪一件缺了，而不是让人反复退出重进一个永远好不了的状态。
-            // 三端今天都走不到这一支（D12 ② 把两条缝补进了 :core 的 commonMain）。
+            // 本端没有 zlib / Base64：说清缺了什么，不当成「出错了」。
             !MatchProfile.codecAvailable -> QrState.Failed(
                 "这一端还没有分享码要用的压缩（zlib）与 Base64，生成不了码。" +
                     "Android、桌面与浏览器三端都已经能用（见 :core 的 platform/Deflate.kt " +
@@ -449,9 +436,6 @@ private fun MyCodeCard(
                         .padding(10.dp),
                     Alignment.Center,
                 ) {
-                    // 与付款码同一份画法、同一个静默区（1 个模块，与搬迁前 `QrBitmap` 的
-                    // `MARGIN=1` 同宽）；那个 10dp 的白边与搬迁前的 `padding(10.dp)` 同一宽度，
-                    // 所以这一块在 Android 上看起来与搬迁前逐像素一致（码本体 212dp）。
                     CodeMatrixView(
                         matrix = s.matrix,
                         quietZoneModules = 1,

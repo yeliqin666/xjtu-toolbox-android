@@ -95,24 +95,7 @@ import top.yukonga.miuix.kmp.preference.SwitchPreference
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.utils.overScrollVertical
 
-/**
- * Android 侧的设置页**宿主**：`:core` 那份共享设置屏（`SettingsScreen`）里 Android 独有的三组，
- * 加上「这一端真会照着办」的行清单。
- *
- * ## 为什么这三组留在 `:app`
- *
- * | 组 | 卡的是什么 |
- * |---|---|
- * | 通知与提醒 | `NotificationManager` 的通知权限（`POST_NOTIFICATIONS`）+ WorkManager 排程（`NoticeWatchWorker` / `ReminderNotifier`）+ 系统电池优化设置页 |
- * | 数据与隐私 | `Context.cacheDir` 的清理（还有桌面小组件刷新）与 `CrashReporter`（Android 的崩溃上报） |
- * | 更新 | `AppUpdater`：下载并**安装 APK**（`PackageInstaller` / `FileProvider`）—— 桌面是 `.deb`/tar.gz，没有这条路 |
- *
- * 这三组整份走 [SettingsHost] 的三个槽位（`noticeSection` / `dataPrivacySection` / `updateSection`），
- * 桌面传 `null` ⇒ 整组不画（不是画一堆点了没用的开关）。
- *
- * 三组里的每一行、每一句文案、每一个弹层都与搬迁前的 `settings/SettingsScreen.kt` **逐字相同**
- * （搬迁 = 把这三段从共享屏里切出来，行为零变化）。
- */
+/** Android 侧的设置页宿主。 */
 @Composable
 fun rememberAppSettingsHost(
     credentialStore: CredentialStore,
@@ -120,8 +103,6 @@ fun rememberAppSettingsHost(
 ): SettingsHost {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    // 打开外链仍是搬迁前那一句 `LocalUriHandler.current.openUri(...)`：屏里不再读这个
-    // CompositionLocal（各端不是同一件事，而且离屏渲染场景根本没提供），改由宿主给。
     val uriHandler = LocalUriHandler.current
     return remember(credentialStore, context, scope, uriHandler) {
         AppSettingsHost(context, credentialStore, scope, onNetworkModeChanged) { uriHandler.openUri(it) }
@@ -163,10 +144,7 @@ private class AppSettingsHost(
 
     override val onNetworkModeChanged: () -> Unit = { scope.launch { notifyNetworkModeChanged() } }
 
-    /**
-     * 打开外链：Android 这边就是搬迁前那一句 `LocalUriHandler.current.openUri(...)`
-     *（`:app` 的导航树里这个 CompositionLocal 是提供好的）—— 行为一字未改，只是从屏里挪到了宿主。
-     */
+    /** 打开外链。 */
     override val onOpenUrl: (String) -> Unit = { openUri(it) }
 }
 
@@ -665,10 +643,7 @@ private fun NoticeSourceSheet(
     }
 }
 
-/**
- * 设置页的「一行一图标」——与共享屏里的私有 `SettingsIcon` 视觉一致（同样的圆形色块 + 18dp 图标），
- * 但那是共享屏里的私有 composable，跨文件用不了 ⇒ 这里自己起一份（`:app` 的通知组也用它）。
- */
+/** 设置页的「一行一图标」，与共享屏的 `SettingsIcon` 视觉一致。 */
 @Composable
 private fun SettingsIcon(icon: androidx.compose.ui.graphics.vector.ImageVector) {
     val color = MiuixTheme.colorScheme.primary
@@ -687,7 +662,7 @@ private fun SettingsIcon(icon: androidx.compose.ui.graphics.vector.ImageVector) 
     Spacer(Modifier.width(12.dp))
 }
 
-/** 设置页里每个分组卡片的外壳（与共享屏里的私有 `SettingsCard` 同一条口径）。 */
+/** 设置页分组卡片的外壳（与共享屏的私有 `SettingsCard` 一致）。 */
 @Composable
 private fun SettingsCard(content: @Composable androidx.compose.foundation.layout.ColumnScope.() -> Unit) {
     top.yukonga.miuix.kmp.basic.Card(

@@ -42,12 +42,7 @@ import kotlinx.coroutines.withContext
 import java.time.LocalDate
 import java.util.Locale
 
-/**
- * 首页在 `:app` 这一端的两半：宿主面（[host]）+ 它自己的那一层弹窗（[showStatusSheet]）。
- *
- * 弹窗一起交出来，是因为它是**这一端**的画法（读 `AppLoginState.sessionManager` 里各子系统的登录
- * 态）：屏（`:core` 的 [HomeScreen]）只有一个 `onOpenStatus` 动作，开关握在调用方手里。
- */
+/** 首页在 `:app` 这一端的两半：宿主面（[host]）+ 它自己的那一层弹窗（[showStatusSheet]）。 */
 @Stable
 internal class AppHome(
     val host: HomeHost,
@@ -55,32 +50,7 @@ internal class AppHome(
     val showStatusSheet: MutableState<Boolean>,
 )
 
-/**
- * 首页的**宿主面**（`:app` 这一端）—— 把「首页要的数据从哪来」收成一个对象。
- *
- * 搬迁前这一百来行散在 `main/HomeTab.kt` 里：读本机缓存的课表、算下一节课与教学周、从
- * `CampusCardCache` 的 prefs 里取余额、按点击习惯排常用入口、算那一行「校园网 · 3/14 就绪」。
- * 它们每一件都离不开 Android（`DataCache` 的 SharedPreferences + Room、`LocalContext`、
- * `R.drawable`），所以按五步法留在这一端；屏（`:core` 的 [HomeScreen]）只认 [HomeHost]。
- *
- * ## 这一端声明自己有什么（[HomeHost.honoredCards]）
- *
- * 九块里它**全都会画**：公告条（冷启动那一份由 `LaunchNotices` 喂进来）、问候与日期、教学周、
- * 下一项安排、速览三格、常用入口、分类卡的状态与宫格。唯一不列的是 `HomeCard.INBOX` ——
- * `:app` 的消息角标在玻璃顶栏上（`InboxBell`），首页不再画第二遍。
- *
- * ## 两处与搬迁前逐字对齐的地方
- *
- * 1. **一个网络请求都不发**：全部只读本机缓存（`DataCache` / `CampusCardCache` / Room 的自建
- *    日程 / `HolidayApi.peekCached`）。首页是启动第一屏，为了几行状态去打十几个校园系统既慢
- *    又容易把会话打挂 —— 主动刷新在 `MainScreen` 层的 `HomeStatsRefresher` 里跑，它落盘之后
- *    用 `HomeSignals.statsVersion` / `campusCardCacheVersion` 把这里叫醒。
- * 2. **下一节课算好之后还要交给 `HomeSignals`**：提醒评估（「几分钟后上课」）挂在 MainScreen
- *    而不是首页上（tab 是懒加载的，用户不点首页提醒就一次都不会跑），它读的就是这条信号。
- *
- * 唯一改说法的两处：下一节课那 15 天扫描搬进了 `:core` 的 [HomeHero]（三端同一份判定），
- * 这里只把「课表 + 开学日期 + 节假日」三样递进去；那一行状态改成 [HomeStatusLine]（屏只取色）。
- */
+/** 首页的宿主面（`:app` 这一端）—— 把「首页要的数据从哪来」收成一个对象。 */
 @Composable
 internal fun rememberAppHome(
     loginState: AppLoginState,
@@ -166,9 +136,6 @@ internal fun rememberAppHome(
         HomeSignals.scheduleReminder = focus?.startAt?.let { HomeSignals.ScheduleFocus(focus.title, it.toJavaTime()) }
     }
 
-    // 各功能的当前状态：Hero 的考试倒计时、卡片主题的数据格都读它。
-    // 全部读**本地缓存**，首页不发任何网络请求（详见 HomeStats）。刷新在 MainScreen 层跑，
-    // 这里跟着 statsVersion 走：每跑完一轮就自增，拿到的永远是刚落盘的那份。
     var homeStats by remember { mutableStateOf<Map<String, HomeStat>>(emptyMap()) }
     LaunchedEffect(
         loginState.accountId,

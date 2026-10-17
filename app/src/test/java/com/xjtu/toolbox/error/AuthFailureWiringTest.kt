@@ -10,17 +10,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-/**
- * `FriendlyError` 搬到 :core 之后，**:app 侧的接线测试**：真实的认证异常类必须认领 :core 的
- * 标记接口，串起来之后的文案与搬迁前逐字一致。
- *
- * 为什么这条测试必须在 :app：那 6 个异常类留在 :app —— 它们继承 `java.io.IOException` 是有语义的
- * （站点层按 IOException 记「本次登录失败、进冷却」），所以「谁实现了哪个标记」这件事只有
- * :app 能看见。:core 的策略测试用的是同构的假实现（`core/src/jvmTest/.../FriendlyErrorTest.kt`）。
- *
- * 这一条同时是交接文档 §1.1 那类事故的探针：跨模块搬迁后，只有「真实类型 + 真实策略」串一遍
- * 才能发现编译期解析到新类、运行期找不到旧方法的错位。
- */
+/** `:app` 侧认证异常的接线测试。 */
 class AuthFailureWiringTest {
 
     @Test

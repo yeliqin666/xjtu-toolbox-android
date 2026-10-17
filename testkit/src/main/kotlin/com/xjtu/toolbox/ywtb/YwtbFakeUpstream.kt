@@ -7,55 +7,7 @@ import java.time.format.DateTimeFormatter
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicReference
 
-/**
- * 假的「一网通办 + 消息收纳那四路」上游 —— 桌面端第 12 条真数据路由（消息收纳 / 统一收件箱）。
- *
- * ## 它扮演哪五个域名
- *
- * 收纳在真实站点上是**一个站点（一网通办）的四路取数**：四路都只认 CAS 回跳里那颗
- * `x-id-token`，但**各自的域名不同** ⇒ 一个夹具扮五个 host（`FakeCampusProxy` 按 host 分派，
- * 五个都进 `HTTPS_HOSTS`，一枚证书五个 SAN）：
- *
- * ```
- * GET  https://ywtb.xjtu.edu.cn/?path=…&ticket=<JWT>       → 门户页 200（登录链的终点）
- * GET  https://message-service.xjtu.edu.cn/…getAppMessageList/new?pageIndex=0&pageSize=30
- * GET  https://transaction.xjtu.edu.cn/…center-list/getToDoList?pageIndex=1&pageSize=30
- * GET  https://reservation.xjtu.edu.cn/api/myreservation/my?state=1&useState=0&current=1&size=20
- * GET  https://xjbus.xjtu.edu.cn/api/school/bus/user/pageReservationUsers?status=1&current=1&size=20
- * ```
- *
- * 四条取数的 URL 与 `:data` 的 `SchoolInbox` 里那些**逐字相同**（测试里有一条断言钉着）：
- * 换域名、改分页参数都会让断言红，而不是「夹具照答、口径悄悄漂了」。
- *
- * ## 统一认证那一半为什么不在这个文件里
- *
- * `login.xjtu.edu.cn` 是所有站点共用的一台 CAS，`FakeCampusProxy` 把它分派给
- * `LibraryFakeUpstream`（它完整扮演了登录页 / 表单 POST / 签 ticket / TGC）。一网通办这条链
- * 与别处的**唯一**差别是：CAS 回跳时那颗 ticket 是**一枚 JWT**（`YwtbLogin` 从它的 payload 里
- * 读出 `idToken`），所以那个夹具按 `service` 认得出一网通办、照真实形状签一枚 JWT ——
- * 见 `LibraryFakeUpstream` 里的 `ticketFor`。
- *
- * ## 夹具摆的东西：四条取数各摆一组样本
- *
- * - **消息**（`data` 是数组）：四条 —— ① 正文末尾带落款（来源取落款）且 `mobileUrl` 非空；
- *   ② `appId` = 事务中心那个常量（**必须被滤掉**：它在事务中心那一路里已经收过了）；
- *   ③ 落款是「图书馆预约系统」（**必须被滤掉**：座位那类消息活几分钟，见 `InboxRules.isShortLived`）；
- *   ④ 没有落款且 `title` 为空 ⇒ 来源取 `appName`、标题回落成来源。
- * - **事务中心待办**（`data.items`）：两条 —— ① 有 `taskId`、`appName`、`mHandleUrl`（办理链接成路由）；
- *   ② 没有 `taskId`（id 回落成 `todo:标题@addTime`）、`timeOut` 为 `true`（正文尾上「已超时」）、
- *   `appName`/`custom1` 都空 ⇒ 来源回落成「事务中心」、标题取 `transactionName`。
- * - **预约中心 / 校车**：只报数量（两个接口的条目字段没有样本，生产代码也只读 `data.total`）。
- *   预约中心回 3 ⇒ 出一条「预约中心 有 3 个待使用的预约」；校车回 0 ⇒ **一条都不该出**
- *   （把 `total <= 0` 那条分支钉住）。
- *
- * ⚠️ 时间戳按**当下**算（`yyyy-MM-dd HH:mm:ss`，北京时区）：收纳有条 30 天的保留期
- * （`InboxRules.KEEP_MS`），写死日期的话过一个多月这些条目都会被 `InboxRules.merge` 清掉，
- * 「真数据」那条断言与那张证据图会凭白变空 —— 那种红看不出是环境还是代码引起的。
- *
- * ## 认不出的路径要响亮
- *
- * 五个 host 上不认识的路径 → 404，body 里带着完整 URL。URL 一漂就该一眼看出来。
- */
+/** 假的「一网通办 + 消息收纳那四路」上游。 */
 class YwtbFakeUpstream {
 
     companion object {
@@ -68,10 +20,7 @@ class YwtbFakeUpstream {
         const val RESERVATION_HOST = "reservation.xjtu.edu.cn"
         const val BUS_HOST = "xjbus.xjtu.edu.cn"
 
-        /**
-         * 四条取数 URL —— 与 `:data` 的 `SchoolInbox` 里那四个常量**逐字相同**（测试有断言钉着）。
-         * 分页/状态参数也是生产代码真发的那些：夹具要验的是「客户端发的就是这一条」。
-         */
+        /** 四条取数 URL，与 `SchoolInbox` 里那四个常量相同（有断言钉着）。 */
         const val MESSAGES_URL =
             "https://$MESSAGE_HOST/center/api/v1/instantMessage/getAppMessageList/new?pageIndex=0&pageSize=30"
         const val TODOS_URL =
@@ -170,10 +119,7 @@ class YwtbFakeUpstream {
         </body></html>
     """.trimIndent()
 
-    /**
-     * 消息那一路：四条样本（见类 KDoc）。`data` 是**数组** —— 这是 `SchoolInbox.parseMessages`
-     * 认的第一种形状（另一种是 `data.list`，那条回落留在 `:data:jvmTest` 的解析用例里钉住）。
-     */
+    /** 消息那一路：四条样本（见类 KDoc）。 */
     fun messagesJson(now: Long = System.currentTimeMillis()): String = """
         {"code":0,"data":[
           {"id":"$MESSAGE_SIGNED_ID","title":"$MESSAGE_SIGNED_TITLE","appId":"ycz7pmawmfpksprtio309vow",
@@ -252,10 +198,7 @@ class YwtbFakeUpstream {
         respondJson(exchange, busJson())
     }
 
-    /**
-     * 业务请求的形体检查：**路径与查询串都要与生产代码发的逐字相同**（多一个少一个参数都 404），
-     * 并把 `x-id-token` 记下来（四路都只认它 —— 少了它就等于没登录）。
-     */
+    /** 业务请求检查：路径与查询串必须与生产代码完全相同，并记下 `x-id-token`。 */
     private fun matches(exchange: HttpExchange, expectedPathAndQuery: String): Boolean {
         val actual = exchange.requestURI.path + "?" + exchange.requestURI.query.orEmpty()
         lastBusinessUrl.set("https://" + exchange.requestHeaders.getFirst("Host") + actual)
@@ -285,7 +228,7 @@ class YwtbFakeUpstream {
     }
 
 
-    /** 把取数 URL 剪成「路径 + 查询串」（夹具按这一串逐字比对，见 [matches]）。 */
+    /** 把取数 URL 剪成「路径 + 查询串」。 */
     private fun pathAndQuery(url: String): String = "/" + url.removePrefix("https://").substringAfter('/')
 
     private val PORTAL_PATH = "/"

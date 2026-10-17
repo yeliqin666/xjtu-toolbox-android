@@ -24,9 +24,6 @@ import org.junit.Test
  */
 class LegacyJsonCompatTest {
 
-    // `accounts_badEntryOnlyDropsItself` 本轮**搬走了**：`AccountStore` 进了 `:data`，而它的
-    // `decodeAccounts` 是 internal（模块级）—— 这一支现在在 `:data:jvmTest` 的
-    // `account/AccountStoreJvmTest.kt` 里，用例本体一行未改、又多补了三支（见那边的 KDoc）。
 
     @Test
     fun courses_oldCacheWithoutMinuteFields() {

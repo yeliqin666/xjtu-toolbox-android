@@ -15,20 +15,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
-/**
- * 屁岱配置的存取（`:app` → `:data` 的那一条）。
- *
- * 这一份要钉住的是**搬迁不许改落盘口径**：
- *
- * | 钉住的 | 靠什么 |
- * |---|---|
- * | 明文那一半的文件名/键名 | 断言 `agent_config_default.properties` 与 `agent_config<suffix>` 这两个名字就是搬迁前那两个（`AccountContext.safeSuffix()` 逐字未改） |
- * | 密文那一半 | 断言 API Key **只**落在 `agent_config_secure<suffix>` 里，明文那份里没有 `api_key` 这个键 |
- * | 老配置迁移 | 已下线的搜索源、认不出的值、超长助手名在 `load()` 时按老判据收敛 |
- * | 账号隔离 | 切账号后读到的是另一个命名空间（看不到上一个人的配置） |
- *
- * 值全是编造的（`sk-fake-…`），真 key 只走密文存储，见 `AgentConfigStore` 的 KDoc。
- */
+/** 屁岱配置的存取。 */
 class AgentConfigStoreJvmTest {
 
     private lateinit var root: File
@@ -80,11 +67,7 @@ class AgentConfigStoreJvmTest {
         assertEquals(AgentConfig(), store().load())
     }
 
-    /**
-     * `keyConfigured` 是 `:core` 模型上的一格**非密文信道**（浏览器那一端拿不到 key）：
-     * 它**不进落盘** —— 存了也不写键，读回来恒为 `false`，否则 `docs/storage-layout.md` §7
-     * 的 A1/A2 键集合判据就会多出一个键。
-     */
+    /** `keyConfigured` 是 `:core` 模型上的一格非密文信道（浏览器那一端拿不到 key）： 它不进落盘。 */
     @Test
     fun `keyConfigured 不落盘：存了也不写键，读回来恒为 false`() {
         store().save(AgentConfig(apiKey = "sk-fake-config-003", keyConfigured = true))
@@ -115,9 +98,6 @@ class AgentConfigStoreJvmTest {
     fun `两个存储的文件名与搬迁前逐字相同`() {
         store().save(AgentConfig(apiKey = "sk-fake-config-003"))
 
-        // 无账号时 `safeSuffix()` 是 "default"（**没有下划线**，这是搬迁前就在用的口径，
-        // 所以那两个存储名分别是 `agent_config_securedefault` / `agent_configdefault`，
-        // 有账号时才是 `…_2210000001`）。这里按同一套拼法验，不写死字面量。
         val suffix = AccountContext.safeSuffix()
         assertEquals("default", suffix)
         assertTrue(

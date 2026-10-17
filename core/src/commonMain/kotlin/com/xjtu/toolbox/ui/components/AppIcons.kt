@@ -17,13 +17,7 @@ import androidx.compose.ui.unit.dp
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.squircle.squircleClip
 
-/**
- * App 式图标：分类色的对角渐变铺满超椭圆，上半截一层柔和高光，字形用白色。
- * 不加投影：一屏二十几个图标，每个一层 dropShadow，滚动时帧率会掉。
- *
- * 从 :app 的 `home/HomeTab.kt` 搬进 commonMain：首页与游戏合集页都要用同一枚图标，
- * 搬屏之后不能只留 :app 那一份（跨模块同名同包会静默遮蔽）。
- */
+/** App 式图标：分类色的对角渐变铺满超椭圆，上半截一层柔和高光，字形用白色。 */
 @Composable
 fun GradientAppIcon(
     icon: ImageVector,

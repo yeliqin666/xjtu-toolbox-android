@@ -24,38 +24,16 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.runBlocking
 
-/**
- * 下载管理在**桌面端的装配验收** —— 与 `DesktopAuthJiaocai1JvmTest` 同一批的宿主能力，也是这一轮
- * 唯一「端到端」的那条：**真发 HTTP、真把字节落到磁盘**。
- *
- * 上游是 `:testkit` 的 [DownloadFakeUpstream]（`video-download.xjtu.edu.cn`，明文 http，
- * 一个几十 KB 的假 mp4），走 `FakeCampusProxy` 那个按 host 分派的本地代理 ⇒ **URL 一个字符不改**，
- * 下载用的是 `:data` 里那份真实现（`JvmDownloadEngine`，同一个 `HttpClients.base`）。
- *
- * 三条用例各钉一件事：
- *  1. 全新下载：状态 `pending → completed`、文件落盘且**与夹具逐字节相同**、记录真的写进那份 0600 的 JSON；
- *  2. 断点续传：本地已有前半段时那一枪带 `Range`、服务器回 206，最终字节仍是整份（不是叠加）；
- *  3. 存储语义：状态/进度/速度的窄更新、创建时间倒序、四个计数口径（与 Android 那几条 SQL 同义）。
- *
- * ⚠️ 落盘位置：`dataRootOverride` 指到临时目录 ⇒ 下载根是 `<临时根>/Downloads/ClassReplay`，
- * **绝不碰用户真实的 `~/Downloads`**（这条断言写在用例里，而不是靠「我记得」）。
- */
+/** 下载管理在桌面端的装配验收。 */
 class DesktopDownloadsJvmTest {
 
     private lateinit var fake: FakeCampusProxy
     private lateinit var root: File
 
-    /**
-     * 起假上游 + 把落盘存储指到临时目录。
-     *
-     * `installFakeUpstreams()` 必须在碰 `HttpClients` 之前调（`JvmDownloadEngine` 那个客户端是
-     * `HttpClients.base` 派生的、进程级 `by lazy`，它会把当时的 selector 抄走）—— 与
-     * `DesktopAuthLmsJvmTest` / `RenderScreens` 是同一条口径。
-     */
+    /** 起假上游 + 把落盘存储指到临时目录。 */
     private fun withFakeCampus(block: () -> Unit) {
         root = Files.createTempDirectory("xjtu-desktop-download-test").toFile()
         dataRootOverride = root
-        // S7b：队列的端内名带账号后缀 ⇒ 先把命名空间钉成「未登录」（后缀 `default`，无前导下划线）
         AccountContext.activeAccountId = null
         wipeSecureStore("download_tasksdefault")
         FakeCampusProxy.installFakeUpstreams()
@@ -108,7 +86,6 @@ class DesktopDownloadsJvmTest {
         val task = awaitFinished(manager, id)
         assertEquals(DownloadStatus.COMPLETED, task.status, "夹具那条直链应当真下得下来")
 
-        // 落盘位置：本端下载根 + 课程目录 + 「活动名_机位.mp4」（与 Android 命名口径逐字一致）
         assertTrue(
             manager.videoDirPath.startsWith(root.absolutePath),
             "下载根要落在临时数据根下（绝不碰用户真实的 ~/Downloads）：${manager.videoDirPath}",
@@ -134,8 +111,7 @@ class DesktopDownloadsJvmTest {
         val raw = stored.readText()
         assertTrue(raw.contains("\"activityTitle\""), "落盘的 JSON 里要有任务记录：${raw.take(120)}")
         assertTrue(raw.contains("\"filePath\""), "而且路径与体积也要在里面（屏与续传都靠它）")
-        // ⚠️ `java.util.Properties` 会把非 ASCII 字符转义成 unicode 转义序列（与 cookie / 凭据
-        // 同一套落盘口径），所以中文标题要按**转义后**的形状找 —— 这不是「没写进去」。
+        // ⚠️ `Properties` 会把非 ASCII 转义成 unicode 序列，中文标题要按转义后的形状找。
         assertTrue(
             raw.contains(propertiesEscaped(DownloadFakeUpstream.ACTIVITY_TITLE)),
             "落盘的 JSON 里要有这场活动：${raw.take(200)}",

@@ -32,23 +32,7 @@ import kotlinx.datetime.LocalDate
 import kotlinx.datetime.LocalDateTime
 import kotlinx.datetime.LocalTime
 
-/**
- * 首页（`AppRoute.Main`）在桌面端的**装配验收** —— 这一端不另造一套壳，首页就是底栏的第一格，
- * 屏是 `:core` 的 `HomeScreen`，这里验的是**这一端交出来的那一份数据与那一份声明**。
- *
- * 三条钉子：
- *  1. **真出数**：把一份夹具课表/考试/教材写进本端的课表缓存（键值文件，与日程页同一份），
- *     首页那几格（教学周 / 下一项安排 / 考试倒计时 / 课数 / 教材册数）就得从它算出来 ——
- *     算的是 `:core` 的 `HomeHero` 与 `HomeScheduleStats`（本轮从 `:app` 的 `HomeStats` 搬过来的）。
- *  2. **如实声明**：[DesktopHomeHost.honoredCards] 只列它真会照着办的八块（`QUICK_ACTIONS`
- *     不在其中 —— 桌面没有点击记录），拿不到的槽位是 `null`/空表，宫格按
- *     [DESKTOP_OPENABLE_ROUTE_IDS] 把「点了会落占位页」的入口**不画**。
- *  3. **公告**：`DesktopBulletins` 走的是共享层那三件（`BulletinStore` / `BulletinRules` /
- *     `BulletinFeed`）—— 冷启动挑中哪一条弹、关掉一条按等级怎么记账，都在这里钉住。
- *
- * 它**一个网络请求都不发**：课表缓存是本机键值文件，公告那一枪注入夹具（与 `RenderScreens`
- * 同一条口径 —— 证据/测试不该去打真站点，更不该把真公告画进图里）。
- */
+/** 首页（`AppRoute.Main`）在桌面端的装配验收。 */
 class DesktopHomeJvmTest {
 
     private val term = "2026-2027-1"
@@ -133,7 +117,6 @@ class DesktopHomeJvmTest {
             ),
         )
 
-        // ── ① 各功能此刻的状态（`:core` 的 HomeScheduleStats，键名与 `:app` 同一批）──
         val stats = HomeScheduleStats.of(cache, term, today)
         assertEquals("第 4 周", stats[AppRoute.SchoolCalendar.id]?.value, "教学周由开学日期本地推算")
         assertEquals(term + " 学期", stats[AppRoute.SchoolCalendar.id]?.detail)
@@ -143,7 +126,6 @@ class DesktopHomeJvmTest {
         assertEquals("1 门课", stats[AppRoute.Schedule.id]?.value)
         assertEquals("2 本", stats[AppRoute.Jiaocai.id]?.value)
 
-        // ── ② 下一项安排（同一段 15 天扫描，`:core` 的 HomeHero）──
         val next = assertNotNull(
             HomeHero.find(
                 courses = listOf(course),
@@ -160,7 +142,6 @@ class DesktopHomeJvmTest {
         assertEquals("主楼A-101", next.detail)
         assertEquals(AppRoute.Schedule, next.route)
 
-        // ── ③ 宿主面把同一份数据交出去（屏读的就是它）──
         val state = DesktopHomeState().apply {
             this.nextUp = next
             isLoaded = true
@@ -222,7 +203,6 @@ class DesktopHomeJvmTest {
         assertEquals(emptyList(), host.quickRoutes, "常用入口那一排没接")
         assertEquals(listOf("社区"), host.glances.map { it.label }, "没有校园卡缓存、也没有考试表 ⇒ 只剩社区那一格")
 
-        // 「说不出来」的三种说法分开（与 `:app` 的四分支同一套口径）
         assertEquals("正在读取本机课表…", host.nextUp?.title)
         state.isLoaded = true
         state.scheduleDataMissing = true

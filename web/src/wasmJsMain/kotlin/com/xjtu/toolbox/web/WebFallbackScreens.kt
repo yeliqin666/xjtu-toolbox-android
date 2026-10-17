@@ -26,37 +26,9 @@ import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextButton
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
-/**
- * Web 这一端**做不到的那几格**的落点，以及「学辅」那一格自己的页。
- *
- * ## 为什么要单写一张降级页（而不是藏掉格子）
- *
- * 阶段 C 的验收点是「三端同壳」：web 的底栏与 `:app` 的 `BottomTab` **逐字一致**（见 `WebShell.kt`）。
- * 一致之后仍然有格子在这一端**没有对应的屏**（例：`Accounts` 只有只读那一半），而壳里认不出的自定义
- * 目标也总要一个落点。把格子藏掉就又变成"另一套层级"，所以照桌面 `HostUnavailableScreen` /
- * `NotPortedScreen` 的口径**落一张写清原因与缺哪一件的页**：用户看得见这一格、也看得见为什么。
- * （屁岱曾经是这张页的第一个用户：D10 的 S-d（`WebAgentScreen.kt`）之后它真能用了 —— 那一屏是 `:core`
- * 的 `AgentScreen` 本身，循环与工具层在 serve。）
- *
- * 五张页的分工：
- * - [WebUnavailableScreen]：通用降级页（壳里认不出的自定义目标；屁岱自 D10 的 S-d 起不再用它）；
- * - [WebSupportMismatchScreen]：**这一端的 bug 页** —— 支持清单说有、`AppPage` 却没有分支时画它
- *   （见 `WebSupport` 的 KDoc：清单与分支必须同时改）；
- * - [WebServicesScreen]：「学辅」那一格 —— **可点目录**（`:app` 那格是学业服务目录 + 每项此刻的
- *   状态摘要，本端没有后一半，于是列同一份目录里本端真能点开的那些，点一行进一屏）；
- * - [WebScheduleGapNote]：**日程页顶部那一行**。日程是本端真接上的共享屏，但它残余的缺口
- *（排课原样、campus-api 形态下那两栏）不能只写在代码注释里 —— 这一行把它写在屏幕上；
- * （原来这里还有一张「匹配交友说明页」`WebMatchGapScreen`：那一屏的落点。2026-10-15（D12 ②）把 deflate 与
- * URL-safe Base64 两条缝补进 `:core` 的 commonMain 之后，那一屏在浏览器里**真能用**了 ⇒ 那张说明页删掉，
- * `AppPage` 直接挂 `:core` 的 `MatchScreen` + 本端 `WebMatchHost`。）
- */
+/** Web 这一端做不到的那几格的落点，以及「学辅」那一格自己的页。 */
 
-/**
- * 「这一端没有这一屏」——标题 + 为什么 + 缺哪几件 + 可选的动作。
- *
- * 口径与桌面那两张插屏一致：宁可写清楚，也不拿别的屏冒充（搬迁前 `?route=notification` 会静默
- * 显示课表 —— 看着像 bug，也分不清「没实现」与「坏了」）。
- */
+/** 「这一端没有这一屏」——标题 + 为什么 + 缺哪几件 + 可选的动作。 */
 @Composable
 internal fun WebUnavailableScreen(
     title: String,
@@ -90,14 +62,7 @@ internal fun WebUnavailableScreen(
     }
 }
 
-/**
- * 「支持清单上有这一条、`AppPage` 却没有它的分支」—— **这一端的 bug 页**（不是降级页）。
- *
- * 为什么要单写一张：上一轮的漏正是「入口与分屏各说各的」那一类 —— 十几条路由的屏一直在
- * `AppPage` 里，而它们唯一的入口（首页宫格 / 学辅目录）当时是降级页。现在那份清单只有一处
- * （[WebSupport]），而 `AppPage` 的 `else ->` 会拿它当场对一次账：对不上就画这一页，
- * **指名道姓地说要改哪两处**。落一张「还没搬到 Web」会把自家漏掉的屏说成"本来就搬不过来"。
- */
+/** 「支持清单上有这一条、`AppPage` 却没有它的分支」—— 这一端的 bug 页（不是降级页）。 */
 @Composable
 internal fun WebSupportMismatchScreen(route: AppRoute, onNavigate: (WebTarget) -> Unit) {
     val name = route::class.simpleName ?: "?"
@@ -119,23 +84,7 @@ internal fun WebSupportMismatchScreen(route: AppRoute, onNavigate: (WebTarget) -
     }
 }
 
-/**
- * 「学辅」那一格：**web 这一端的可点目录**。
- *
- * `:app` 的第四格是学业服务目录（`:core` 的 `AppServices` 宫格 + 每个功能此刻的状态摘要）。
- * 本端没有「每项此刻的状态摘要」那一半，于是这一格列的是**同一份目录里本端真能点开的那些**：
- * 一行一屏，点进去就是那一屏 —— 与首页宫格共用同一个真源（[WebSupport]，宫格再按
- * `showOnHome` 筛一道），所以两处不会各说各的。
- *
- * 目录里有、本端还没有屏的那些**也如实列出来**（一行小字，点不动）：用户分得清「本端没有这一屏」
- * 与「这一屏坏了」—— 那正是把清单写在同一处的意义。
- *
- * 已登录还想登出（serve 模式）：会话屏是 Web 专有的一屏，不进五格（见 `WebShell.kt` 的 KDoc），
- * 这里的按钮就是它的一条明路（它不是 `:core` 的路由，所以不在上面那份清单里）。
- *
- * @param serveMode 这一份 `:web` 在对 serve（`:server`）说话 —— 决定会话那一行画不画
- *   （campus-api 那套没有「页面上登录」这回事，画了只会点进一个用不到的屏）。
- */
+/** 「学辅」那一格：web 这一端的可点目录。 */
 @Composable
 internal fun WebServicesScreen(serveMode: Boolean, onNavigate: (WebTarget) -> Unit) {
     val cs = MiuixTheme.colorScheme
@@ -214,13 +163,7 @@ private fun ServiceEntryRow(service: AppService, onNavigate: (WebTarget) -> Unit
     }
 }
 
-/**
- * 一屏顶部的**如实缺口**说明（通用那张；日程那一张 [WebScheduleGapNote] 就是它的第一个用户）。
- *
- * 为什么要有它：这一端接上共享屏之后，缺的往往是**服务端契约**里的东西（某几个端点没端、某几格
- * 刻意不投影）。那些话不能只写在代码注释里 —— 用户看着一屏少了半截，得能分清「本端/契约没有」
- * 与「真没有数据」，这两件事在屏幕上的说法完全不同（后者是「暂无…」，前者必须指名道姓）。
- */
+/** 一屏顶部的缺口说明。 */
 @Composable
 internal fun WebGapNote(text: String) {
     val cs = MiuixTheme.colorScheme
@@ -229,20 +172,7 @@ internal fun WebGapNote(text: String) {
     }
 }
 
-/**
- * 「这一屏要有 serve 模式才有取数链」—— 只读四域（成绩单 / 考勤 / 加餐券 / 宿舍电费，§5.5）与
- * 第二批那四屏（思源学堂 / 教材查询 / 成绩 / 快速考勤流水，§5.6）在 **campus-api 形态**下的落点。
- *
- * 为什么不是 `NotPortedScreen`：那些屏本端**有**（就是 `:core` 的共享屏），本端也有取数
- *（`:core` 的四个 `Campus*Api`），只是它们只认 serve 契约 —— campus-api 里没有对应端点
- *（`:app` / 桌面是走 `:data` 的 okhttp 抓的）。所以这里写的是「切到 serve 模式就能用」，
- * 而不是「这一屏还没搬到 Web」—— 后者是假话。
- *
- * @param title 那一屏的名字（“考勤”那种）
- * @param endpoints 它在 serve 契约里的端点（照 §5.5 / §5.6 的表写）
- * @param why 为什么这一端只能走 serve（一句话：哪个站/哪条会话）
- * @param section 这些端点在哪一节（`"§5.5"` / `"§5.6"` / `"§5.7"` —— 这一页三批共用一个）
- */
+/** 「这一屏要有 serve 模式才有取数链」。 */
 @Composable
 internal fun WebServeOnlyScreen(
     title: String,
@@ -276,24 +206,7 @@ internal fun WebServeOnlyScreen(
     }
 }
 
-/**
- * 日程页顶部那一行**如实说明**（不是装饰：它写的是这一页此刻真正拿不到的东西）。
- *
- * 为什么要有它：日程是本端接上共享屏的一格，`ScheduleHost` 的缝里 `cache` / `customCourses` /
- * `login` / `session` 都是真的（前两条用 `:core` 的 `keyValueStore` 缝，在 wasm 上是
- * **localStorage**，见 `core/src/wasmJsMain/.../KeyValueStore.wasmJs.kt`），`source`（教务取数）靠
- * **服务端契约里的端点**拼。2026-10-14（§5.8 接线与批①收尾）之后它要说的是两件事，**两种形态各说各的**：
- *
- * - **serve 形态**：格子里的课**已经合过调课 / 停课 / 补课**（`?merged=1` 那一档端的就是 `:data`
- *   的 `JwxtScheduleApi.schedule()`，契约 §5.9），考试与教材两栏也真取数 —— 与 Android / 桌面同口径；
- * - **campus-api 形态**：那三条端点在这一头没有（本端也不认它的字段名，契约 §7 第 2 条），而且
- *   那一头不认 `merged` ⇒ 考试与教材两栏空着、详情里「N座」也不画，格子仍是排课原样。
- *
- * 两种形态下还有**同样做不到的三处**（能力级，与取数无关），屏上一个都不画 —— 逐条理由写在
- * `WebScheduleHost` 的 `honored` 那一段；这几句不写在屏幕上，用户看着一张比 App 短的日程页只能猜。
- *
- * 这一句不能只写在代码里 —— 用户看着一张"没有调课的课表"会以为教务就长这样。
- */
+/** 日程页顶部那一行缺口说明。 */
 @Composable
 internal fun WebScheduleGapNote(mode: ApiMode) {
     WebGapNote(

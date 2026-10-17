@@ -18,27 +18,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 import java.io.File
 
-/**
- * Android 侧的日程页宿主面：`:core` 的 `ScheduleScreen` 只认 [ScheduleHost]，这里把
- * `:app` 那几样平台能力接上。**每一个动作的本体与搬迁前逐字相同**，只是从「屏自己摸」变成「宿主给」。
- *
- * | 槽位 | 这一端的实现 |
- * |---|---|
- * | [cache] | `DataCache`（目录名 / 文件名 / 账号后缀 / 原子写入全是原来那一份） |
- * | [customCourses] | [RoomCustomCourseStore] —— **同一张表** `custom_courses`、同一个 DAO |
- * | [login] | `LocalAppLoginState`（`AppLoginState` 里那一份） |
- * | [session] | `:data` 的 [DataScheduleSession]（`SessionManager` + `JwxtScheduleApi`） |
- * | [holidays] / [courseLinks] | `:data` 的 [DataHolidaySource] / [DataCourseLinkAccess] |
- * | [dueHomeworks] | `LmsDueStore.load` |
- * | [roomSeatCount] | `:data` 的 `EmptyRoomApi.getRoomSeatCount` |
- * | [shareFile] | 写进 `cacheDir/exports` 再用 `FileProvider` + `ACTION_SEND`（原 `ScheduleExport.shareTextFile`） |
- * | [onScheduleSynced] | `HomeSignals.scheduleVersion++` + `ScheduleWidgetUpdater.requestUpdate` |
- * | [postScheduleChange] | `InboxStore.post(OwnInbox.scheduleChange(...))` |
- * | [isOnline] | `ConnectivityManager` 的 `NET_CAPABILITY_INTERNET` |
- * | [attendanceBadgeEnabled] | `CredentialStore.scheduleAttendanceBadge` |
- *
- * [honored] 列的是**这一端真会照着办**的全部 11 项（每一项都有上面那张表里的宿主面在读）。
- */
+/** Android 侧的日程页宿主面。 */
 internal class AppScheduleHost(
     private val context: Context,
     private val loginState: AppLoginState,
@@ -46,7 +26,7 @@ internal class AppScheduleHost(
 
     private val app get() = context.applicationContext
 
-    /** 与搬迁前同一个池：日程页的缓存读写一直是 `Dispatchers.IO`。 */
+    /** 日程页的缓存读写走 `Dispatchers.IO`。 */
     override val io: kotlinx.coroutines.CoroutineDispatcher = kotlinx.coroutines.Dispatchers.IO
 
     override val honored: Set<ScheduleCapability> = ScheduleCapability.entries.toSet()
@@ -89,8 +69,6 @@ internal class AppScheduleHost(
     }
 
     override fun onScheduleSynced() {
-        // 首页 Hero 的「下一项安排」直接读课表缓存，只认这个版本号；
-        // 桌面小组件自己不会醒 —— 搬迁前这两句就在日程页里，一行未变。
         HomeSignals.scheduleVersion++
         ScheduleWidgetUpdater.requestUpdate(app)
     }
@@ -111,7 +89,6 @@ internal class AppScheduleHost(
             app.startActivity(Intent.createChooser(intent, "导出 $fileName"))
             true
         } catch (e: Exception) {
-            // 原来这一句就是「导出日历」失败时的那条提示（`FriendlyError.of(e, "导出日历")`）。
             com.xjtu.toolbox.platform.showBriefMessage(FriendlyError.of(e, "导出日历"))
             false
         }
@@ -122,12 +99,7 @@ internal class AppScheduleHost(
     }
 }
 
-/**
- * `CustomCourseStore` 的 Android 实现 —— 一行行转发给原来的 `CustomCourseDao`。
- *
- * **同一个库、同一张表 `custom_courses`、同一批列名**（`:app` 的 `AppDatabase` 注册的还是
- * `CustomCourseEntity`），所以老用户的自建日程一条都不会丢；DAO 那句 SQL 的过滤与排序也逐字未动。
- */
+/** `CustomCourseStore` 的 Android 实现，转发给 `CustomCourseDao`。 */
 internal class RoomCustomCourseStore(private val dao: CustomCourseDao) : CustomCourseStore {
 
     override fun observeByTerm(accountId: String, termCode: String): Flow<List<CustomCourse>> =

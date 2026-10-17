@@ -26,11 +26,6 @@ import kotlinx.serialization.json.put
  *
  * 多轮会话：调用方负责维护 messages（含 system prompt），run() 在原数组上追加
  * assistant/tool 消息，返回后 messages 即为完整历史，可供下一轮复用。
- *
- * 跨模块：这一份在 `:core` 的 commonMain（三端同一份循环）。它曾经在 `:app`，搬动的只有两处接线：
- * 「发一次请求」收成 [AgentTransport] 缝（原来这里是 `HttpClients.base` 的 okhttp 调用），
- * 「工具表」收成 [AgentTools]（原来写死 `AgentToolRegistry`）。**循环内部一行未改**：
- * 请求体的字段、`length` 续写、熔断、限流分组、工具结果的原子提交、截断策略全是原样。
  */
 class AgentRunner(
     private val tools: AgentTools,
@@ -48,10 +43,7 @@ class AgentRunner(
         private const val SEARCH_TOOL_RESULT_CHARS = 8000
         private const val FETCH_TOOL_RESULT_CHARS = 12_000
 
-        /**
-         * 跨模块可见性：原来是 `internal`，`:app` 的 `AgentWebTest` 那 4 条用例
-         *（结果截断 / 保险丝提示）还在按原样调它 —— 搬到 `:core` 之后 `internal` 就看不见了。
-         */
+        /** public 而不是 internal：`:app` 的 `AgentWebTest` 要调它。 */
         fun toolResultCap(toolName: String): Int = when (toolName) {
             "web_fetch" -> FETCH_TOOL_RESULT_CHARS
             "web_search", "search_school_courses" -> SEARCH_TOOL_RESULT_CHARS
@@ -100,8 +92,6 @@ class AgentRunner(
          */
         const val TOOL_CALL_FUSE = 20
 
-        // HTTP 错误码的文案搬到了 [agentHttpErrorText]（它跟着 [AgentTransport] 缝走：
-        // 非 2xx 是传输层抛的，桌面与 Android 的那句话必须同源）。
 
         /** 只在熔断那一刻告诉模型，平时不提次数，免得它束手束脚。 */
         fun remainingToolHint(used: Int): String? =

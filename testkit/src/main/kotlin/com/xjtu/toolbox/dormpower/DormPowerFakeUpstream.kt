@@ -4,54 +4,7 @@ import com.sun.net.httpserver.HttpExchange
 import java.net.URLDecoder
 import java.util.concurrent.atomic.AtomicInteger
 
-/**
- * 假的**宿舍电费系统**（`ssn.xjtu.edu.cn/cems`）＋它登录链上游的开放平台那一跳
- * （`org.xjtu.edu.cn/openplatform/oauth/authorize?appId=1759`）。
- *
- * ## 它扮的是哪条链
- *
- * 与 [`SsnLogin`](com.xjtu.toolbox.auth.SsnLogin) + [`SsnSession`](com.xjtu.toolbox.auth.SsnSession)
- * 一起，把**搬进 `:data` 之后**的登录、缴费页入口与取数原样演一遍（第 17 条真数据路由）：
- *
- * ```
- * GET  https://org.xjtu.edu.cn/openplatform/oauth/authorize?appId=1759&redirectUri=http://ssn.xjtu.edu.cn/cems/index/mobile/pay&…
- *       → 302 http://login.xjtu.edu.cn/cas/login?service=<上面的 authorize 地址>（登录页在 LibraryFakeUpstream 那半台 CAS 里）
- * POST http://login.xjtu.edu.cn/cas/login?service=… → 种 TGC → 302 回 authorize?…&ticket=ST-n
- * GET  https://org.xjtu.edu.cn/openplatform/oauth/authorize?…&ticket=ST-n → 302 http://ssn.xjtu.edu.cn/cems/index/mobile/pay?code=SSN-fake-1
- * GET  http://ssn.xjtu.edu.cn/cems/index/mobile/pay?code=… → 200（HTML 里内嵌 cid；`freshPayUrl` 的网络拦截器把这跳记下来后剥掉 query 再放行）
- * GET  https://ssn.xjtu.edu.cn/cems/mobile/addr/list?cid=…        → {"code":0,"data":[房间]}
- * GET  https://ssn.xjtu.edu.cn/cems/mobile/meterAccount/electricity?roomId=… → {"code":0,"data":12.5}
- * ```
- *
- * ## 为什么一个夹具扮两个域名
- *
- * 与 `VenueFakeUpstream` 同一条规矩（「一个 host 只能由一个夹具答」）：`org.xjtu.edu.cn` 与
- * `ssn.xjtu.edu.cn` 属于**同一条路由的同一条登录链**，所以放在一个文件里、两个入口
- * （[handleOauth] / [handle]）。`org.xjtu.edu.cn` 同时被场馆（appId=1659）、加餐券（authorizesw）
- * 用着 —— `FakeCampusProxy` 按路径 / `appId` 分派，本夹具只答 `appId=1759` 那一支。
- *
- * ## 登录链被省略的那一跳
- *
- * 真站点上 OAuth 回调回来的是 `?code=` 换站点会话；这里**直接让 CAS 签的 `?ticket=` 回到
- * authorize 页，再由 authorize 以 `?code=` 跳到缴费页**。对被测代码没有可观察差别
- *（`SsnLogin.postLogin` 只判「最终落在缴费页且页面里有 `cid`」；`freshPayUrl` 只认「路径是
- * `/cems/index/mobile/pay` 且带 `code` 的那一跳」）。这条省略写在这里，免得被读成「真站点就这两跳」。
- *
- * ## 写路径刻意没有夹具
- *
- * 绑定 / 解绑 / 充值都发生在缴费页里（浏览器端的事），本夹具没有那些端点：真被打到就是 404。
- *
- * ## 业务端点不验会话
- *
- * 夹具要钉的是**解析与请求形状**：`/cems/mobile/…` 直接给数据（真站点会先判会话，那时走的是
- * `SiteSession.executeWithReAuth` 那条路，已由图书馆/教务/校园卡那几条钉子守着了）。
- *
- * ## 夹具值全是编造的
- *
- * `cid` 是 32 位十六进制（满足真站点 `[0-9a-fA-F]{16,64}` 的形状）、宿舍名「示例园区/1栋/101」
- *（不许出现真人/真楼宇）、电量 `12.5` 度 —— 与 `LibraryFakeUpstream.USERNAME` 一致只是为了
- *「同一个假账号贯穿几条链」。
- */
+/** 假的宿舍电费系统（`ssn.xjtu.edu.cn/cems`）＋它登录链上游的开放平台那一跳（`org.xjtu.edu.cn/openplatform/oauth/authorize?appId=1759`）。 */
 class DormPowerFakeUpstream {
 
     companion object {
@@ -110,17 +63,7 @@ class DormPowerFakeUpstream {
     var lastListCid: String? = null
         private set
 
-    /**
-     * 开放平台那一跳（`/openplatform/oauth/authorize?appId=1759`）。
-     *
-     * - **第一次**（没带票）：302 到统一认证，`service` = 这个 authorize 地址**原样**
-     *   （CAS 签完票会带着 `ticket=` 回到这里）；
-     * - **带票回来**：302 到 `redirectUri`（缴费页）并附上一次性 `code` —— 这就是
-     *   `SsnLogin.postLogin` 落点、`freshPayUrl` 网络拦截器抓的那一跳。
-     *
-     * ⚠️ 用 `rawQuery`（百分号编码原文）而不是 `query`：`URI.getQuery` 已解码，`redirectUri`
-     * 里若带 `&` 会被截断 —— 和 `LibraryFakeUpstream` 那条 OAuth2 入口同一个坑（见它的 KDoc）。
-     */
+    /** 开放平台那一跳（`/openplatform/oauth/authorize?appId=1759`）。 */
     fun handleOauth(exchange: HttpExchange) {
         val path = exchange.requestURI.path
         val raw = exchange.requestURI.rawQuery.orEmpty()

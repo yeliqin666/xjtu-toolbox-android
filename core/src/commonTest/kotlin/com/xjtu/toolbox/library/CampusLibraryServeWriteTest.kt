@@ -21,13 +21,7 @@ import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 
-/**
- * `CampusLibraryApi` 的 **serve 模式**（`ApiMode.SERVE`，契约 §5.3 / §5.3.1）写路径测试。
- *
- * 默认（campus-api）那一侧的行为在 [CampusLibraryMappingTest] 钉着（`canBook=false`、写方法抛）；
- * 这一份钉的是 serve 那一条新路：`canBook` 翻 true、`my.actionUrls` 投影、`action(url)` 把地址认成
- * 动作码、四个写方法真的 POST 到 `/api/library/action`、业务拒绝（409）原样变成 `BookResult(false, …)`。
- */
+/** `CampusLibraryApi` 的 serve 模式（`ApiMode.SERVE`，契约 §5.3 / §5.3.1）写路径测试。 */
 class CampusLibraryServeWriteTest {
 
     /** 一个会把「打出去的动作请求体」记下来的假 serve 后端。 */
@@ -61,7 +55,7 @@ class CampusLibraryServeWriteTest {
         val mock = ServeMock()
         val api = CampusLibraryApi(mock.client, mode = ApiMode.SERVE)
 
-        // canBook 翻 true：campus() 拉到服务端如实报的开关后，两件事的「与」就是 true
+        // canBook 翻 true：campus() 拉到服务端的开关后，两件事的「与」为 true
         assertEquals(LibraryCampus.XINGQING, api.campus())
         assertTrue(api.canBook, "写端点已落地（SERVE_WRITE_ENDPOINTS_READY=true）⇒ canBook 随服务端亮")
         assertFalse(api.hasSeatPlan, "布局/底图端点不在 §5 ⇒ hasSeatPlan 仍是 false")

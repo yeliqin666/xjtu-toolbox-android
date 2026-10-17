@@ -5,55 +5,10 @@ import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 import java.util.concurrent.atomic.AtomicInteger
 
-/**
- * 假的「空闲教室」上游 —— 扮演**这一屏三档数据源里的两档**（第三档「直查教务」在
- * [com.xjtu.toolbox.jwxt.JwxtFakeUpstream] 里，因为那本来就是教务那个域名的事）：
- *
- * ```
- * ① 智慧教室平台 js.xjtu.edu.cn（https，「实时状态」那一档）
- *    GET  https://login.xjtu.edu.cn/cas/login?service=https%3A%2F%2Fjs.xjtu.edu.cn%2F
- *                                        → CAS 那半台由 LibraryFakeUpstream 扮演
- *    GET  https://js.xjtu.edu.cn/?ticket=ST-n    → 200（落地页只是个壳，不验票）
- *    POST https://js.xjtu.edu.cn/server/cas/loginCas
- *                                        → 票据换令牌（校验 ticket 与 serviceUrl，回 TOKEN-AUTH）
- *    GET  https://js.xjtu.edu.cn/server/classroomStatus/classroomStatusList?campusName=&dayTime=
- *                                        → 实时状态快照（校验 TOKEN-AUTH / X-System 两个头）
- *
- * ② 课表 CDN gh-release.xjtutoolbox.com（https，「CDN 课表」那一档）
- *    GET  https://gh-release.xjtutoolbox.com/?file=static/empty_room/{日期}.json
- *                                        → 当天各校区 → 楼 → 教室 的 11 节状态
- * ```
- *
- * ## 为什么一个夹具扮两个域名
- *
- * 这套夹具的规矩是「**一个 host 只能由一个夹具答**」（`FakeCampusProxy.dispatch` 按 host 分派，
- * 同一个域名让两个夹具抢才会出歧义）。这两个域名属于**同一条路由的两档取数**，各自都很小、
- * 又共用同一批教室样本（屏上「实时状态 + 当天课表」要按教室名对得上），所以放在一个文件里、
- * 两个入口（[handleJs] / [handleCdn]）—— **一个 host 仍然只有一个夹具在答**。
- *
- * ## 教室样本与「教室名对得上」这条
- *
- * 两档给的是同一批楼与教室（[BUILDING_A] / [BUILDING_E] 下那几间，座位数也一致）：
- * 实时状态只有「此刻」的信息（在不在上课、有几个人），CDN 那份给 11 节的占用表。
- * 屏把两者按**教室全名**对上，所以夹具也必须同名 —— 名字漂了，钉住的就不是真协议了。
- *
- * ## 日期
- *
- * 真站的 CDN 是**一天一个文件**。夹具只区分「有数据」与 [NO_DATA_DATE]（404），
- * 其余日期一律当有数据给同一份 JSON：它的用途是钉住**解析与错误分支**，不是钉住日历
- * （写死某一天会让桌面端那张连实时状态一起出的图只在当天成立）。
- *
- * ⚠️ 正因为如此，[NO_DATA_DATE] 是**相对今天算的**（今天 + [NO_DATA_OFFSET_DAYS] 天），
- * 不是写死某个日历日：`EmptyRoomApi.getRoomSeatCount` 查的是**今天**（它只有 `LocalDate.now()`
- * 这一档，容量跟日期无关却要从那天那份 JSON 里顺带读）—— 写死的那一天一旦真排在今天，
- * 整个 `:data:jvmTest` / `:desktop:test` 就会在到点的那一天红（曾经用 `"2026-10-12"`，到 2026-10-12 就红了）。
- * 相对值把这条日期炸弹拆了，同时也让 [DATE] 可以继续是任选的一天（夹具对除 [NO_DATA_DATE]
- * 以外的任何日期都回同一份，与「今天」无关）。
- */
+/** 假的「空闲教室」上游 —— 扮演这一屏三档数据源里的两档（第三档「直查教务」在 [com.xjtu.toolbox.jwxt.JwxtFakeUpstream] 里，因为那本来就是教务那个域名的事）。 */
 class EmptyRoomFakeUpstream {
 
     companion object {
-        // ── ① 智慧教室平台（https）──
 
         const val JS_HOST = "js.xjtu.edu.cn"
         const val JS_ORIGIN = "https://$JS_HOST"
@@ -81,7 +36,6 @@ class EmptyRoomFakeUpstream {
         /** 夹具只扮演这一个校区（`LIVE_CAMPUSES` 里的名字就是它）。 */
         const val LIVE_CAMPUS = "兴庆校区"
 
-        // ── ② 课表 CDN（https）──
 
         const val CDN_HOST = "gh-release.xjtutoolbox.com"
         const val CDN_ORIGIN = "https://$CDN_HOST"
@@ -89,21 +43,13 @@ class EmptyRoomFakeUpstream {
         /** CDN 的取法就是这一个 query：`?file=static/empty_room/{日期}.json`。 */
         const val CDN_FILE_PREFIX = "static/empty_room/"
 
-        /**
-         * 断言里用的那一天。它是**任选**的一天（夹具对除 [NO_DATA_DATE] 以外的任何日期都回同一份），
-         * 与「今天」无关 —— 所以不需要跟着日历走。
-         */
+        /** 断言里用的那一天。 */
         const val DATE = "2026-10-10"
 
         /** 「这一天还没生成」与今天相隔多少天：相对值，见类 KDoc 的「日期」一节。 */
         const val NO_DATA_OFFSET_DAYS = 120L
 
-        /**
-         * 这一天的文件不在夹具里 ⇒ 404（`EmptyRoomApi` 该抛 `NoDataException`）。
-         *
-         * **相对今天算**（今天 + [NO_DATA_OFFSET_DAYS] 天），不是写死的日历日 —— 写死会让它有一天
-         * 撞上「今天」，而 `getRoomSeatCount` 恰好看的是今天（那时门禁必红）。
-         */
+        /** 这一天的文件不在夹具里 ⇒ 404（`EmptyRoomApi` 该抛 `NoDataException`）。 */
         val NO_DATA_DATE: String =
             LocalDate.now().plusDays(NO_DATA_OFFSET_DAYS).format(DateTimeFormatter.ISO_LOCAL_DATE)
 
@@ -124,10 +70,7 @@ class EmptyRoomFakeUpstream {
         const val SEATS_E303 = 30
         const val SEATS_E305 = 32
 
-        /**
-         * 只出现在 CDN 那份里的三个坑（键是 `"null"` 与空串、值是 null、以及缺 `status`）——
-         * `EmptyRoomApi.getEmptyRoomsMulti` 的过滤与 `mapNotNull` 就靠它们钉住。
-         */
+        /** 只出现在 CDN 那份里的三个坑（键是 `"null"` 与空串、值是 null、以及缺 `status`） */
         const val ROOM_NULL_KEY = "null"
         const val ROOM_BLANK_KEY = "无容量房"
         const val ROOM_BAD_JSON = "坏数据房"
@@ -162,12 +105,7 @@ class EmptyRoomFakeUpstream {
     var lastCdnDate: String? = null
         private set
 
-    /**
-     * 这一天夹具有没有数据（除 [NO_DATA_DATE] 之外都有）。
-     *
-     * 给断言用：让「查的是哪一天」与夹具**同一份判据**，而不是在测试里再写一次 `LocalDate.now()`
-     * 对着写死的日期比 —— 那正是日期炸弹的写法（见类 KDoc 的「日期」一节）。
-     */
+    /** 这一天夹具有没有数据（除 [NO_DATA_DATE] 之外都有）。 */
     fun hasDataOn(date: String): Boolean = date != NO_DATA_DATE
 
     /** 最近一次 loginCas 的表单原文 / 实时状态请求的 query，错了也好一眼看出来。 */
@@ -188,10 +126,7 @@ class EmptyRoomFakeUpstream {
          "tokenTimeout":$TOKEN_TIMEOUT_SECONDS}}
     """.trimIndent()
 
-    /**
-     * `classroomStatusList` 的响应，结构照 2026-09-22 抓包（内容是编的）。
-     * 四间教室把四种状态摆齐：空闲两间、上课中一间（带课程与人数）、「其它使用」一间（有人、没课）。
-     */
+    /** `classroomStatusList` 的响应，结构照 2026-09-22 抓包（内容是编的）。 */
     val liveJson = """
         {"code":0,"data":{
           "campusStatusData":{"使用中":1,"上课中":1,"空闲":2},
@@ -210,12 +145,7 @@ class EmptyRoomFakeUpstream {
         }}
     """.trimIndent()
 
-    /**
-     * CDN 那份当天数据：校区 → 楼 → 教室 → `{status(11 节), size}`。
-     *
-     * 四个「坑」刻意摆在 [BUILDING_A] 里：键为 `"null"` 与空串的两间、值为 null 的一间、
-     * 缺 `status` 的一间 —— 前两间与 null 那间该被滤掉，缺 status 的那间该被 `mapNotNull` 丢掉。
-     */
+    /** CDN 那份当天数据：校区 → 楼 → 教室 → `{status(11 节), size}`。 */
     val dayJson = """
         {"$LIVE_CAMPUS":{
           "$BUILDING_A":{
@@ -236,12 +166,8 @@ class EmptyRoomFakeUpstream {
         },"创新港校区":{"1号巨构":{"1-2050":{"status":[0,0,0,0,0,0,0,0,0,0,0],"size":50}}}}
     """.trimIndent()
 
-    // ── ① 智慧教室平台 ─────────────────────────────────────────────
 
-    /**
-     * `js.xjtu.edu.cn` 那一半。三条路径都是 `JsLogin` / `LiveRoomApi` 真打的，认不出的一律 404
-     * （body 里带着完整 URL）；形体不对（换令牌少 `ticket`/`serviceUrl`、实时状态没带令牌头）→ 400。
-     */
+    /** `js.xjtu.edu.cn` 那一半。 */
     fun handleJs(exchange: HttpExchange) {
         val path = exchange.requestURI.path
         val query = exchange.requestURI.query.orEmpty()
@@ -298,14 +224,8 @@ class EmptyRoomFakeUpstream {
         respondJson(exchange, liveJson)
     }
 
-    // ── ② 课表 CDN ────────────────────────────────────────────────
 
-    /**
-     * `gh-release.xjtutoolbox.com` 那一半：只认 `GET /?file=static/empty_room/{日期}.json`。
-     *
-     * [NO_DATA_DATE] 那天回 **404**（不是空表）—— `EmptyRoomApi.fetchDayData` 把 404 当成
-     * 「这天还没生成」抛 `NoDataException`，与「请求失败」是两条不同的分支，夹具得能分开这两者。
-     */
+    /** `gh-release.xjtutoolbox.com` 那一半：只认 `GET /?file=static/empty_room/{日期}.json`。 */
     fun handleCdn(exchange: HttpExchange) {
         val path = exchange.requestURI.path
         val query = exchange.requestURI.query.orEmpty()

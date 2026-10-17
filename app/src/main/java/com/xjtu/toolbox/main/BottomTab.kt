@@ -40,13 +40,7 @@ enum class BottomTab(
     PROFILE("我的", Icons.Filled.Person, 27.dp),
 }
 
-/**
- * 把这一格交给共享壳。
- *
- * 三个能对上路由的 tab 指向它对应的 [AppRoute]（`AppRouter.go` 把这三条路由落成切 tab，见那一段）；
- * 「学辅」「我的」这两格是这一端自己的页（不是共享路由表里的一条），走 [ShellTarget.Custom]。
- * 「我的」那一格带账号角标（多账号显示数字，未登录一个红点）。
- */
+/** 把这一格交给共享壳。 */
 fun BottomTab.shellTab(): ShellTab = ShellTab(
     id = name,
     label = label,

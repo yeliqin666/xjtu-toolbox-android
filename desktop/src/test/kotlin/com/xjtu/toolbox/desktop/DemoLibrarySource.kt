@@ -11,17 +11,7 @@ import com.xjtu.toolbox.library.SeatInfo
 import com.xjtu.toolbox.library.SeatLayout
 import com.xjtu.toolbox.library.SeatResult
 
-/**
- * **只为离屏渲染证据存在的**假数据源（`./gradlew :desktop:renderScreens`）。
- *
- * 为什么不用真数据：渲染证据要的是「这一屏在桌面上真画出来了」——真数据依赖本机 campus-api 的
- * 会话与网络，画出来的可能是转圈或错误页，那样的 PNG 证明不了布局与组件。
- * 这个实现给一份固定的、小而全的数据（三个区域、十几个座位、一条「我的预约」），
- * 于是同一张 PNG 在任何机器上都能复现。
- *
- * ⚠️ 它**不是**第三种取数实现、也**不进交付物**：桌面的真取数按设计文档是 `:data`（Stage A）。
- * 谁要是想拿它当「桌面端的数据层」用，请先读 `docs/desktop-port-plan.md` 的 D1/D2。
- */
+/** 只为离屏渲染证据存在的假数据源（`./gradlew :desktop:renderScreens`）。 */
 internal class DemoLibrarySource : LibrarySource {
 
     override val canBook: Boolean get() = false

@@ -14,37 +14,7 @@ import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
-/**
- * A5（`docs/storage-layout.md` §7）：**同一份档案夹具在本端 `import` 一次，读出的值与另外两端同一批**。
- * 这是 D14「存档层互认测试」在本端的落点（工单 S8）。
- *
- * ## 夹具是同一份文件，不是各端抄一遍
- *
- * [ArchiveFixture] 住在 `:core` 的 commonTest（`core/src/commonTest/.../archive/ArchiveFixture.kt`），
- * 由 `:core:jvmTest`（`StoreArchiveImportTest` / `ArchiveCodecTest`）与这里的 wasmJsTest **同时**消费 ——
- * 规格明写它不能放 `:testkit`（那个模块是 `kotlin.jvm`，wasm 消费不了）。本端怎么拿到那份测试 klib
- * 见 `web/build.gradle.kts` 里 `wasmJsTestKlib` 那段与 `core/build.gradle.kts` 的只读出口。
- *
- * 三端口径如实记一笔：今天真在跑的是 **jvm（`:core` 自己）+ web（这里）** 两份；Android 那一端
- * 还要 Robolectric/instrumented（本批不做），桌面那一端用 `:data` 的落盘根另测
- * （`desktop/src/test/.../DesktopArchiveJvmTest.kt`）—— 见 `docs/storage-layout-plan.md` §7 的 A5 行。
- *
- * ## 断言对象是**档案层**，落点在内存里（这一条是有意为之）
- *
- * A5 要证的是「同一份字节被这一端的代码读懂、值逐字对上」，所以端内落点用一张内存表
- * （[MemoryTarget]，与 `:core` 那份 A6 用例同型）。
- *
- * 这一端**生产上的写侧**（`WebArchiveImportTarget`）在 `WebArchiveImportTest` 里单独验：那边拿
- * `archiveStoreBackend()`（`localStorage` 的真投影）当断言对象；这里用内存表，是为了让 A5 只考
- * 「同一份字节被这一端的代码读懂、值逐字对上」这一件事，不被下面那条槽位差异干扰：
- * `:web` 的端内键值缝只有 s/b/i/set 四档（`KeyValueStore.wasmJs.kt`），`l`（long）与 `f`（float）
- * 在这端按字符串落、读回来反推成 `s`（端上的形状如此，与导入无关）—— 混进来会把「这一端
- * 还没有那两档槽位」读成「夹具错了」。
- *
- * 于是两个用例都在**内存端内**上跑：第一个断言「导进来之后的值与夹具逐条相同」，第二个断言
- * 「本端把导进来的那份再导出回去，`stores/` 与 `files/` 的字节与原来那份逐字相同」（同一批字节
- * 在这一端进出都认）。
- */
+/** 同一份档案夹具在本端 `import` 一次，读出的值与另外两端同一批（`docs/storage-layout.md` §7）。 */
 class ArchiveInteropTest {
 
     /** 与 `:core` 的 `StoreArchiveImportTest.sourceOfArchive` 同参：同一份夹具、同一个 `export` 调用。 */
@@ -63,15 +33,11 @@ class ArchiveInteropTest {
 
         val result = StoreArchive.import(archiveSourceOf(archiveFromFixture()), target)
 
-        // 凭据族按 A8 不进档案 ⇒ 三份非凭据 store：app_settings 5 键 + schedule_cache 1 键 +
-        // library_favorites 1 键 = 7 个键；files 那一层两条（账号档 + 全局档各一个）
         assertEquals(ImportResult.Ok(keysWritten = 7, keysKept = 0, filesWritten = 2), result)
 
-        // A1：键集合相等（app_settings 是**全体键**，不只 `SettingsStore` 那 10 个）
         val appSettings = assertNotNull(target.store("app_settings"), "app_settings 应当落下来了")
         assertEquals(ArchiveFixture.appSettings.keys, appSettings.keys)
 
-        // A2：值逐字相等（这份夹具覆盖 s / b / i / l / f 五种标签）
         assertEquals(StoreValue.S("dark"), appSettings.keys["dark_mode"])
         assertEquals(StoreValue.B(true), appSettings.keys["show_quick_actions"])
         assertEquals(StoreValue.I(4), appSettings.keys["eula_accepted_version"])
@@ -91,8 +57,6 @@ class ArchiveInteropTest {
             "`keys` 里永不出现旁挂时间戳键（A10）：${scheduleCache.keys.keys}",
         )
 
-        // `library_favorites`：A1 那一半是键集合相等（不整张 map 比 —— `set` 的顺序与重复是 codec 的事）；
-        // A2 那一半按**元素集合**比（夹具里是乱序 + 重复的 `B-2 / A-1 / A-1`，codec 去重升序）
         val favorites = assertNotNull(target.store("library_favorites"))
         assertEquals(ArchiveFixture.libraryFavorites.keys.keys, favorites.keys.keys)
         assertEquals(
@@ -100,7 +64,6 @@ class ArchiveInteropTest {
             (favorites.keys["favorite_seats"] as StoreValue.SetValue).v.toSet(),
         )
 
-        // A8 在导入侧的另一半：凭据族不在这份档案里 ⇒ 端上也不该凭空多出它
         assertNull(target.store("xjtu_credentials"), "凭据族不进档案（A8），导入也不该写它")
 
         // files 那一层：两条都带着自己的命名空间落下来（§2.3）
@@ -123,10 +86,7 @@ class ArchiveInteropTest {
             ArchiveFixture.fixedClock(),
         )
 
-        // manifest 里的 createdAt/createdBy/appVersion 是导的那一端自己的事 ⇒ 只比 stores/ 与 files/ 的字节。
-        // 这一比顺带钉住 wasm 上的 JSON 转义与排序：`12.5f` 与 int64 的十进制写法、set 的去重升序、
-        // 路径的码点升序 —— 任何一处与 JVM 端不同，这里就会红。
-        // 路径集合（`set` 不比顺序：本端是按端内名排的，夹具那一份是按夹具自己的顺序）
+        // manifest 元数据各端不同 ⇒ 只比 stores/ 与 files/ 的字节；路径集合不比顺序。
         assertEquals(
             archive.keys.filterNot { it == "manifest.json" }.toSet(),
             again.keys.filterNot { it == "manifest.json" }.toSet(),
@@ -138,13 +98,7 @@ class ArchiveInteropTest {
     }
 }
 
-/**
- * 内存里的「本端」：A5 的落点（[ArchiveImportTarget]），也保有导入后的现状供断言。
- *
- * 与 `:core` 的 `StoreArchiveImportTest` 里那份 `MemoryTarget` 同一套语义：`putKey` 只动这一个键
- * （同 store 的其余键与旁挂时间戳原样留着）、`putFile` 按 `(suffix, relPath)` 落。
- * 为什么在本端用的是内存表而不是 `localStorage`：见文件头那段。
- */
+/** 内存里的「本端」：导入落点，也保有导入后的现状供断言。 */
 private class MemoryTarget : ArchiveImportTarget {
 
     private val stores = linkedMapOf<String, StoreSnapshot>()

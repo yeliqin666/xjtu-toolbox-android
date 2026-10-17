@@ -18,10 +18,7 @@ import java.time.temporal.ChronoUnit
 import java.time.temporal.TemporalAdjusters
 
 /**
- * 考勤（kq.xjtu.edu.cn）接口。site 应当是 `ensureSite(LoginType.ATTENDANCE)` 拿到的会话。 *
- * 从 `:app` 的 `attendance/AttendanceApi.kt` 整份搬进 `:data`（桌面端第 16 条真数据路由：桌面要
- * 自己登 kq、自己取数）。文件位置变了，字段口径一行未改；`TermInfo` 等模型与 `TermCodeMapper`
- * 早就在 `:core`（`attendance/AttendanceModels.kt` 等）。
+ * 考勤（kq.xjtu.edu.cn）接口。site 应当是 `ensureSite(LoginType.ATTENDANCE)` 拿到的会话。
  */
 class AttendanceApi(private val site: SiteSession) {
 

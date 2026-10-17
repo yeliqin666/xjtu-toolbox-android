@@ -22,9 +22,6 @@ import androidx.graphics.shapes.RoundedPolygon
 import androidx.graphics.shapes.toPath
 
 /**
- * Android 侧的真形变实现 —— 与搬迁前 :app 的 `MorphingLoader` **逐字一致**（只把默认值
- * 从函数签名挪到了 commonMain 的包装上，Kotlin 规则：actual 不允许带默认值）。
- *
  * graphics-shapes 1.1.0 只能在多边形之间形变，形变本身通过 [Morph] 完成，画到屏幕上要先
  * 转成 `android.graphics.Path`（[toPath]）再转成 Compose 的 Path（[asComposePath]）——
  * 这个库不依赖 Compose，没有直接产出 Compose Path 的 API。也正因为 `android.graphics.Path`

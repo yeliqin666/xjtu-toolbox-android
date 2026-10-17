@@ -23,21 +23,8 @@ private const val TAG = "Jiaocai1Page"
  * 服务端给的是干净的标准 JPEG：阅读器网页上那层水印是 reader.js 用 canvas 叠的，
  * 不在图像数据里。
  *
- * ## 从 `:app` 搬进 `:data` 时改了什么（两处，都是「谁来做那一半」的搬家）
- *
- * 1. **`Context` → `cacheRoot: File`**：原来它只为 `cacheDir` 收一个 `Context`。现在由宿主把
- *    缓存根目录传进来（Android = `context.cacheDir`，桌面 = 用户缓存目录）—— 类里仍然按原样
- *    再建一个 `jiaocai1/` 子目录、按 ssno 分目录、同名 `.img` 文件、同一套 trim 策略
- *    ⇒ **Android 上已有页缓存继续被认**，也照旧会被「清除缓存」清掉。
- * 2. **解码搬去 `:core`**：原来的 `load()` 解出 `Bitmap` 并进 `android.util.LruCache`；
- *    现在这里**只到字节为止**（`pageBytes` / `coverBytes`），解码与内存 LRU 在
- *    `:core` 的 [Jiaocai1PageImages]（走 `:core` 的图片缝）。所以这个类里不再有
- *    `Bitmap` / `BitmapFactory` / `LruCache` —— `:data` 是 JVM/Android 共用的模块，
- *    位图那种平台类型进不了它的公共代码；而 `java.io.File`、`Semaphore`、`Dispatchers.IO`
- *    在这里都能用（与搬迁前同一层、同一个调度器）。
- *
- * `looksLikeImage`（令牌失效时上游给 200 + 空体，只能靠图片魔数判成败）、`prime`（先给首页
- * 发一枪带 `pi=2` 的请求把令牌用起来）、`trim`（超过 160MB 按最久未动整本删）逐字沿用。
+ * 缓存在 `cacheRoot/jiaocai1/<ssno>/` 下的 `.img`（Android 上沿用旧页缓存）；这里只到字节，解码在 `:core` 的 [Jiaocai1PageImages]。
+ * 令牌失效时上游给 200 + 空体，只能靠图片魔数（`looksLikeImage`）判成败。
  */
 class Jiaocai1PageLoader(
     site: SiteSession,

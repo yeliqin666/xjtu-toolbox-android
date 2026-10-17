@@ -10,28 +10,9 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
-/**
- * S1b：**A4**（往返可读）在 jvm 上的可跑部分 —— 断言对象一律是端内**原来的读法**：
- * `SettingsStore.darkMode` / `SettingsStore.showQuickActions`、`LibraryFavorites.all()`、
- * `ScheduleCache.readCurrentTerm(cache)` / `readLastTerm(cache)`（`KeyValueScheduleCacheStore`
- * 就是桌面/web 的课表族缓存实现）。
- *
- * 三条用例各钉一件事：
- *  1. `import(export(端))` 之后，原读法读出的每条**逐字相同**，而且**一个键都不用写**
- *     （自导出那份在 §6.4 下全是「本端胜」）；
- *  2. 档案里那条比端内新时，导入**真写进端内**，原读法立刻读到档案里那条；
- *  3. 归档不覆盖本机：端内独有 / 端内更旧的键在导入后一字未变。
- *
- * ## 隔离口径
- *
- * 与 `LibraryFavoritesJvmTest` 同一条：jvm 的 `keyValueStore(name)` 是**进程内 memo**（真落盘），
- * 根由 `core/build.gradle.kts` 的 `jvmTest` 指到 build 目录（不碰 `~/.local/share/xjtu-toolbox`）；
- * 本文件用到的三个 store 名在前后各清一次，用例之间不互染。`import` 的读现状走
- * [archiveStoreBackend]（同一个数据根、逐文件读），落点由 [LocalStoreTarget] 填。
- */
+/** 往返可读在 jvm 上的可跑部分。 */
 class StoreArchiveImportJvmTest {
 
-    // ── A4 ──────────────────────────────────────────────────────────────────
 
     @Test
     fun `A4 往返可读：import(export(端)) 之后原读法逐字相同，且一个键都不用写`() = withLocalStores {
@@ -48,7 +29,6 @@ class StoreArchiveImportJvmTest {
 
         val before = readsOf(settings, cache)
 
-        // 端内投影（S2 的 jvm 实现）：三个 store 各自的带类型键值 + 旁挂时间戳
         val backend = archiveStoreBackend()
         val stores = listOf(SettingsStore.APP_SETTINGS_FILE, LIBRARY_FAVORITES_STORE, SCHEDULE_CACHE_STORE + suffix)
             .mapNotNull { backend.readStore(it) }
@@ -138,7 +118,7 @@ class StoreArchiveImportJvmTest {
 
     // ── 夹具 ────────────────────────────────────────────────────────────────
 
-    /** 端内**原来的读法**读一遍（A4 的断言对象）。 */
+    /** 用端内原本的读法读一遍。 */
     private fun readsOf(settings: SettingsStore, cache: KeyValueScheduleCacheStore): List<Pair<String, String>> = listOf(
         "darkMode" to settings.darkMode,
         "showQuickActions" to settings.showQuickActions.toString(),
@@ -183,12 +163,7 @@ class StoreArchiveImportJvmTest {
     }
 }
 
-/**
- * 端内写入缝（`ArchiveImportTarget`）在 jvm 上的落点。
- *
- * 本文件里那三个 store 都走**普通**键值缝（`:core:jvmTest` 够不着 `:data` 的密文缝），
- * 读现状交给 [archiveStoreBackend]（同一个数据根、逐文件读）。
- */
+/** 端内写入缝（`ArchiveImportTarget`）在 jvm 上的落点。 */
 private class LocalStoreTarget : ArchiveImportTarget {
 
     override fun readStore(rawName: String): StoreSnapshot? = archiveStoreBackend().readStore(rawName)

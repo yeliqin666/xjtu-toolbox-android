@@ -13,22 +13,7 @@ import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 import kotlinx.coroutines.test.runTest
 
-/**
- * serve 契约 §5.9 的**客户端那一侧**：`GET /api/jwxt/schedule?merged=1`
- *（[CampusJwxtScheduleApi.mergedSchedule]，2026-10-14 批①收尾）。
- *
- * 为什么值得写：这一档的消费方是 `:web` 的日程屏（`WebScheduleSource.schedule`），而 `:web`
- * **没有测试源集**（D14 才建）⇒ 形状与纪律只能在这里钉（与 [ServeJwxtScheduleExtraEndpointsApiTest]
- * 同一条理由）。MockEngine 喂的是 `:server` 实现出来的形状（`server/…/JwxtRoutes.kt` 的
- * `MergedScheduleData` / `MergedCourseDto` 就是这些字段），钉三件事：
- *
- *  1. **一行不多一行不少地解回 `:core` 的模型**：`courses` 是 [com.xjtu.toolbox.schedule.CourseItem]
- *     （九格；那两格分钟级时间服务端**不投影** ⇒ 本端拿到的是模型的默认值 `-1`，不是第二个口径），
- *     `changes` 与 `/api/jwxt/changes` 同一族十二格（`kind` 是枚举名）；
- *  2. **参数**：`merged=1` 一定发；`?term=` 与其余端点同一个读法（给了就带、空/空白就整个不发）；
- *  3. **形状没对上就抛错**（缺 `courses` / 缺 `changes`）—— 不拿空表冒充「这学期没课」；
- *     非 serve 形态直接抛 [UnsupportedOperationException]（campus-api 那一头不认 `merged`）。
- */
+/** serve 契约 §5.9 的客户端那一侧。 */
 class ServeJwxtScheduleMergedApiTest {
 
     /** 一条发出去的请求：路径 + 完整 URL（判参数有没有发出去靠它）。 */
@@ -118,10 +103,7 @@ class ServeJwxtScheduleMergedApiTest {
         assertTrue(calls[1].url.contains("merged=1"))
     }
 
-    /**
-     * 形状没对上 **抛错**，不是回一份空课表 —— 「这学期没课」与「后端给的不是这一档」是两件事
-     * （§4 的空值口径）。非 serve 形态同理：campus-api 那一头不认 `merged`（§7 第 2 条）。
-     */
+    /** 形状没对上就抛错，不是回一份空课表。 */
     @Test
     fun missingListsAndCampusApiModeThrow() = runTest {
         // 少了 `courses` 那一格（服务端换形状 / 打到了别的端点）

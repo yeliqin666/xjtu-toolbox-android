@@ -1,14 +1,6 @@
 package com.xjtu.toolbox.feedback
 
-/**
- * `:core` 的 [FeedbackSource] 在 `:data` 里的实现 —— 包住 [FeedbackApi]（飞书开放平台
- * 多维表格）。Android 与桌面**用同一份**：反馈没有校园站点会话、也不收 `SiteSession`
- * （见 [FeedbackSource] 的 KDoc），所以这里连一行宿主能力都不需要 —— 两端只差"凭据从哪来"
- * （`AppFeedback.install()` / 桌面构建期注入的那份常量）。
- *
- * 为什么不是让屏直接用 [FeedbackApi]：屏在 `:core`，看不见 `:data`
- * （`FeedbackApi` 收发 okhttp、还用 `:data` 的 `HttpClients`）。
- */
+/** `:core` 的 [FeedbackSource] 在 `:data` 里的实现 —— 包住 [FeedbackApi]（飞书开放平台多维表格）。 */
 object AppFeedbackSource : FeedbackSource {
 
     override val isConfigured: Boolean

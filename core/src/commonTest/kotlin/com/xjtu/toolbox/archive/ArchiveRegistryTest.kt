@@ -4,12 +4,7 @@ import kotlin.test.Test
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
-/**
- * 分类表（§2.4 / §8.10）的验收：
- *  - 凭据族（A8 那六类）标得对、非凭据不误标；
- *  - 端内私有（§2.4）标得对；
- *  - **守卫**：没有任何 store 名同时被 plain 与 secure 两类使用（否则两端写同一个 `.properties` 会互相覆盖）。
- */
+/** 分类表（§2.4 / §8.10）的验收。 */
 class ArchiveRegistryTest {
 
     @Test

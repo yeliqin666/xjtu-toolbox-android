@@ -28,34 +28,7 @@ import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
-/**
- * S5：桌面（jvm）**档案宿主**的验收（规格 §7 的 A13 / A11，外加 A7 / A8 / A3 的桌面形态）。
- *
- * ## A13：`档案路径 ⇄ 数据根文件名`是纯字符串拼接
- *
- * `accounts/_2253415556/stores/schedule_cache.json` ⇄ `<数据根>/schedule_cache_2253415556.properties`
- * —— 端内名 = `base + suffix`、桌面再加 `.properties`（规格 §2.0 的唯一映射规则）。
- * 三个方向都钉：端内真写 → 档案里真出现那条路径；档案路径 → 数据根文件名（[DesktopArchiveIo.dataRootTarget]）；
- * 数据根文件名 → 档案路径（[DesktopArchiveIo.storeArchivePath]）。
- * 隔离一律走 [dataRootOverride]（外加 [keyValueStoreRootOverride]：S0 起 `keyValueStore` 与
- * `secureKeyValueStore` 是同一个数据根上的同名文件，测试里两根都指到临时目录，理由见
- * `ArchiveStoreBackendJvmTest`）。
- *
- * ## A11：断言对象只能是**解析后的键值**
- *
- * 数据根下的 `<store>.properties` 首行是 `Properties.store` 写的时间戳注释（本机实测
- * `#Wed Oct 14 08:10:56 CST 2026`），`Properties.store` 还会把所有非 ASCII 转成 `\uXXXX`
- * ⇒ **文件字节不可比**。所以这里一律比 [StoreValue] 与档案的**字节映射**（`Map<String, String>`），
- * 不比 `.properties` 的字节。
- *
- * ## 没有做的那一步（如实记一笔）
- *
- * 规格 A13 括号里写的「`cp -r` + import + 读值三连」中的 `import` 那一步**本工单做不到**：
- * `:core` 的 `StoreArchive` 目前只有 `export`（逐 store 合并的 §6.4 还没落地，`AppArchiveUx` 的
- * KDoc 记着同一件事）。所以这里钉的是「映射是纯字符串拼接」+「档案里那份值是解析后读得懂的原值」
- * 两条，**不假装** import 之后端内值被改过 —— `DesktopArchiveHost.maybeImportPendingArchive` 跑完
- * 端内一个键都不动，这一点由下面那条 A7 用例反向钉住。
- */
+/** 桌面（jvm）档案宿主的验收（§7）。 */
 class DesktopArchiveJvmTest {
 
     private fun withRoot(block: (File) -> Unit) {
@@ -76,7 +49,6 @@ class DesktopArchiveJvmTest {
         return backend.storeNames().associateWith { backend.readStore(it) }
     }
 
-    // ── A13 ─────────────────────────────────────────────────────────────────
 
     @Test
     fun `A13 端内 store 名与档案路径是纯字符串拼接（正向）`() = withRoot { root ->
@@ -119,7 +91,6 @@ class DesktopArchiveJvmTest {
             File(root, "app_settings.properties"),
             DesktopArchiveIo.dataRootTarget(root, "global/stores/app_settings.json"),
         )
-        // 不是 stores 那一层的路径：`files/` 那一层是 S3 缝 B 的落点，不在这里
         assertNull(DesktopArchiveIo.dataRootTarget(root, "manifest.json"))
         assertNull(DesktopArchiveIo.dataRootTarget(root, "global/files/agent_sessions/index.json"))
 
@@ -154,7 +125,6 @@ class DesktopArchiveJvmTest {
         )
         val cache = KeyValueScheduleCacheStore(
             secureKeyValueStore(DesktopScheduleHost.SCHEDULE_CACHE_STORE + suffix),
-            // 固定时钟：A10 的那条断言要的是「档案里的 at 就是端内旁挂的时间戳」
             nowMs = { FIXED_NOW },
         )
         ScheduleCache.writeCurrentTerm(cache, "2026-2027-1")
@@ -169,7 +139,6 @@ class DesktopArchiveJvmTest {
         val fromStore = ScheduleCache.readCurrentTerm(cache)
         assertEquals("2026-2027-1", fromStore)
 
-        // 档案里那条路径上的值：解析后的键值（A11），且 `#written_at` 折进了 `at`（A10）
         val path = "accounts/$suffix/stores/${DesktopScheduleHost.SCHEDULE_CACHE_STORE}.json"
         val record = ArchiveCodec.decodeStore(outcome.directory.resolve(path).readText())
         assertEquals(DesktopScheduleHost.SCHEDULE_CACHE_STORE + suffix, record.snapshot.rawName)
@@ -182,7 +151,6 @@ class DesktopArchiveJvmTest {
         )
     }
 
-    // ── A11（写法约束）+ A3 的桌面形态 ──────────────────────────────────────
 
     @Test
     fun `A11 断言对象是解析后的键值：properties 字节不可比，档案两次导出逐字相同`() = withRoot { root ->
@@ -192,23 +160,19 @@ class DesktopArchiveJvmTest {
         store.putInt("eula_accepted_version", 4)
         store.putStringSet("favorite_seats", setOf("B-2", "A-1"))
 
-        // ① 值比的是解析后的带类型值（不是 properties 里的字符串）
         val snap = archiveStoreBackend().readStore("s5_a11_plain")!!
         assertEquals(StoreValue.S("dark"), snap.keys["dark_mode"])
         assertEquals(StoreValue.B(true), snap.keys["show_quick_actions"])
         assertEquals(StoreValue.I(4), snap.keys["eula_accepted_version"])
-        // A2：set 按**元素集合**比（不比顺序；档案写出时才会去重 + 升序）
         assertEquals(
             setOf("A-1", "B-2"),
             (snap.keys["favorite_seats"] as StoreValue.SetValue).v.toSet(),
         )
         assertEquals(setOf("dark_mode", "show_quick_actions", "eula_accepted_version", "favorite_seats"), snap.keys.keys)
 
-        // ② 那条 .properties 的首行是时间戳注释 ⇒ 它的字节本来就不可比（这条断言钉住「为什么不比字节」）
         val firstLine = File(root, "s5_a11_plain.properties").readLines().first()
         assertTrue(firstLine.startsWith("#"), "首行应当是 Properties.store 的时间戳注释，实际：$firstLine")
 
-        // ③ 稳定的断言对象是档案字节：注入固定时钟后两次导出逐字相同（A3 的桌面形态）
         val first = DesktopArchiveHost.buildArchive(emptyList(), listOf(snap), emptyList(), now = { FIXED_NOW })
         val second = DesktopArchiveHost.buildArchive(emptyList(), listOf(snap), emptyList(), now = { FIXED_NOW })
         assertEquals(first.entries.toList(), second.entries.toList(), "两次导出逐条相同（含顺序）")
@@ -277,7 +241,6 @@ class DesktopArchiveJvmTest {
         store.putBoolean("show_quick_actions", true)
         val before = storesNow()
 
-        // ① 缺 manifest.json
         val missingManifest = File(root, "missing-manifest")
         File(missingManifest, "global/stores/app_settings.json").apply { parentFile.mkdirs() }.writeText("{}")
         assertTrue(DesktopArchiveHost.checkArchive(missingManifest) is ArchiveCheck.Failed)
@@ -290,19 +253,16 @@ class DesktopArchiveJvmTest {
         )
         assertTrue(DesktopArchiveHost.checkArchive(badVersion) is ArchiveCheck.Failed)
 
-        // ③ JSON 截断
         val truncated = File(root, "truncated")
         File(truncated, "manifest.json").apply { parentFile.mkdirs() }.writeText("""{"format":"xjtu-toolbox-archive",""")
         assertTrue(DesktopArchiveHost.checkArchive(truncated) is ArchiveCheck.Failed)
 
-        // ④ 档案可用，但跑完「一次性导入的闸门」还是端内零变化 —— 合并（§6.4）本工单不落地
         DesktopArchiveHost.exportToDataRoot(now = { FIXED_NOW })
         val pending = DesktopArchiveHost.maybeImportPendingArchive()
         assertTrue(pending?.check is ArchiveCheck.Ok, "这一份是自家导出的，应当自校验通过：$pending")
         assertEquals(before, storesNow(), "端内每个 store 的键集合与值逐字未变（A7）")
     }
 
-    // ── A8（桌面形态）：凭据族默认不进档案 ──────────────────────────────────
 
     @Test
     fun `A8 凭据族默认不进档案、点名列进 redacted，noAccount 如实置位`() = withRoot {

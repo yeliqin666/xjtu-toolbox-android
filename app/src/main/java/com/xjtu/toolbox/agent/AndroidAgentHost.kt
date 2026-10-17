@@ -38,28 +38,7 @@ import java.io.File
 import java.util.UUID
 import com.xjtu.toolbox.network.HttpClients
 
-/**
- * Android 侧的屁岱宿主面：`:core` 的 [AgentHost] 收的那些「这一端有什么」在这边各自是谁。
- *
- * **每一个动作的本体都与搬迁前逐字相同**，只是从 `AgentToolRegistry` / `AgentViewModel` /
- * `AgentVision` / `AgentWidget` 的私有实现变成这里的一个 `override`。
- *
- * | 槽位 | 这一端的实现 |
- * |---|---|
- * | [honored] | 五档全有（闹钟、应用设置、自建日程写入、相册挑图、存进下载） |
- * | [tools] / [transport] | `AgentToolRegistry`（取数那些 `*Api`）+ `:data` 的 `SseAgentTransport` |
- * | [setAlarm] | `AlarmClock.ACTION_SET_ALARM` 的 Intent（原 `AgentToolRegistry.setAlarm`） |
- * | [readAppSettings] / [writeAppSetting] | `CredentialStore` 那几项白名单 |
- * | [sessions] / [loadConfig] / [saveConfig] | `:data` 的 `AgentSessionStore` / `AgentConfigStore` |
- * | [fetchModels] / [generateTitle] | `:data` 的 `AgentModelFetcher` / `AgentTitleGen` |
- * | [welcomeFacts] | [AndroidWelcomeFactsLoader]（`DataCache` + 校园卡偏好 + 聊天事实，全在 `:app`） |
- * | [images] | [AndroidAgentImages]（OkHttp + `BitmapFactory`，原 `AgentMarkdown` 里的 `MdImageLoader`） |
- * | 附件那几件 | `filesDir/agent_images<账号后缀>/` 的读、写、转 data URI、删（原 `AgentVision`） |
- * | [readPlanImage] / [saveZyxfFile] | 图书馆平面图缓存 + `ZyxfApi.download`（原 `AgentWidget` 那两张卡） |
- *
- * 闹钟那一条的判据（参数范围、重复星期）搬去了 `:core` 的 [agentAlarmPlan]：`java.util.Calendar`
- * 是 JVM 类型，那边用 ISO 星期号（周一 = 1），这里翻回 `Calendar.*`（它那儿周日在第 1 位）。
- */
+/** Android 侧的屁岱宿主面：`:core` 的 [AgentHost] 收的那些「这一端有什么」在这边各自是谁。 */
 internal class AndroidAgentHost(
     private val context: Context,
     private val loginState: AppLoginState,
@@ -67,7 +46,7 @@ internal class AndroidAgentHost(
 
     override val honored: Set<AgentCapability> = AgentCapability.entries.toSet()
 
-    /** 阻塞 IO 仍走与搬迁前同一个池（`:core` 的默认值是 `Dispatchers.Default`）。 */
+    /** 阻塞 IO 走 `Dispatchers.IO`（`:core` 的默认值是 `Dispatchers.Default`）。 */
     override val io: kotlinx.coroutines.CoroutineDispatcher = Dispatchers.IO
 
     // ── 端装配 ────────────────────────────────────────────────────────────────
@@ -87,7 +66,7 @@ internal class AndroidAgentHost(
 
     override val accountId: String get() = loginState.accountId
 
-    /** 打招呼用缓存昵称，退一站通姓名 —— 与搬迁前 `ChatPanel` 里那两行同一条判据。 */
+    /** 打招呼用缓存昵称，退一站通姓名。 */
     override val greetingName: String
         get() = loginState.cachedNickname.orEmpty()
             .ifBlank { loginState.ywtbUserInfo?.userName.orEmpty() }
@@ -310,16 +289,7 @@ internal class AndroidAgentHost(
 
 // ── 相册挑图（`:core` 的 AgentImagePicker 在这一端的实现）──────────────────────
 
-/**
- * 系统相册挑图：`:app` 用 `rememberLauncherForActivityResult` 实现 `:core` 的那格缝。
- *
- * 为什么挑图要单独一格、而不是 [AgentHost] 的成员：`ActivityResultLauncher` 只能从 Composable
- * 里拿，而 [AgentHost] 是给 ViewModel 用的普通对象（见 `AgentImagePicker` 的 KDoc）。
- *
- * 挑完**立即压好落盘**（[attachAgentImage]），回调给的是本地路径 —— 与搬迁前
- * `AgentChat` 里那段一模一样：`PickMultipleVisualMedia` 走系统相册选择器，
- * **不需要读存储权限**，用户在系统 UI 里挑哪张就授权哪张。
- */
+/** 系统相册挑图：`:app` 用 `rememberLauncherForActivityResult` 实现 `:core` 的那格缝。 */
 @Composable
 internal fun rememberAndroidAgentImagePicker(): AgentImagePicker {
     val context = LocalContext.current
@@ -361,15 +331,7 @@ private fun agentImageDir(context: Context): File =
     File(context.filesDir, "$AGENT_IMAGE_DIR${AccountContext.safeSuffix()}")
         .apply { mkdirs() }
 
-/**
- * 把用户选中的图片压好存进私有目录，返回文件绝对路径；失败返回 null。
- *
- * 必须在 IO 线程调用。**与搬迁前 `AgentVision.attach` 逐字相同**：用 [ImageDecoder] 而不是
- * `BitmapFactory` —— `setTargetSize` 在**解码阶段**就采样（不会先把 5000 万像素整张读进内存再缩，
- * 那一步就能 OOM），而且它会自己按 EXIF 摆正方向（竖着拍的照片在文件里常常是横着存的，
- * 不转的话模型看到的是躺倒的课表）。
- * `ALLOCATOR_SOFTWARE` 是必须的：默认可能给出 HARDWARE bitmap，那种读不到像素，`compress` 会失败。
- */
+/** 把用户选中的图片压好存进私有目录，返回文件绝对路径；失败返回 null。 */
 private fun attachAgentImage(context: Context, uri: Uri): String? = try {
     val source = decodeAgentImageScaled(context, uri)
     if (source == null) {
@@ -401,18 +363,9 @@ private fun decodeAgentImageScaled(context: Context, uri: Uri): Bitmap? = runCat
     }
 }.onFailure { Log.w(AGENT_IMAGE_TAG, "decode failed: $uri", it) }.getOrNull()
 
-// ── 回复里的远程图（原 `AgentMarkdown` 的 `MdImageLoader`）─────────────────────
+// ── 回复里的远程图─────────────────────
 
-/**
- * 回复里的远程图。做法照搬教师证件照（`FacultyPhotoLoader`）：项目里没有 Coil / Glide，
- * 用 OkHttp + `BitmapFactory` 自己加载，按屏宽采样解码、内存 LRU 缓存。
- *
- * 只认 https，且单张不超过 8MB：图片地址是模型给的（可能来自搜到的网页），
- * 不能让它随手拉一个巨型文件或明文地址。加载失败就退成一行可点的链接。
- *
- * 它原来在 `AgentMarkdown.kt` 里是私有的 `MdImageLoader`，搬进 `:core` 的那份屏只认
- * [AgentImageLoader] 那三个动作（`:core` 编不出 okhttp：它只有 jvm / android 变体）。
- */
+/** 回复里的远程图。 */
 private object AndroidAgentImages : AgentImageLoader {
     private const val MAX_BYTES = 8L * 1024 * 1024
     private const val TARGET_PX = 1080
@@ -455,15 +408,9 @@ private object AndroidAgentImages : AgentImageLoader {
     }
 }
 
-// ── 首屏那几张卡片的本地数据快照（原 `AgentWelcome.WelcomeFactsLoader`）────────
+// ── 首屏那几张卡片的本地数据快照────────
 
-/**
- * 首屏要用的本地数据快照。数据只读磁盘缓存，不联网：首屏要秒开，读不到的卡片直接不出。
- *
- * 它原来在 `AgentWelcome.kt` 里（`internal object WelcomeFactsLoader`），搬进 `:core` 的屏
- * 只认 [AgentHost.welcomeFacts]；快照里那几件（`DataCache` / 校园卡偏好 / 聊天事实）都还在
- * 这一端，所以本体留在这儿，只把时间类型在边界上转一次（`:core` 用 kotlinx 的 `LocalDateTime`）。
- */
+/** 首屏要用的本地数据快照。 */
 private object AndroidWelcomeFactsLoader {
 
     fun load(ctx: Context, now: java.time.LocalDateTime = java.time.LocalDateTime.now()): WelcomeFacts = runCatching {

@@ -1,16 +1,5 @@
 /*
- * 注册 Service Worker —— D12 ④（PWA）里那一步。
- *
- * 为什么单独一个 `.js` 文件而不是塞进 wasm 那一侧：**注册要趁早**（页面一加载就注册，用户在装成
- * App 之前的那几秒里也该有这一层），而且这一段完全不碰 Kotlin 的状态 —— 它只把「注册好没好」写进
- * `globalThis.__xjtuToolboxPwa`，屏上那张 PWA 卡（`?route=probe`）读的就是这几个字段。
- *
- * 三条如实：
- *  - **只在安全上下文里注册**（HTTPS 或 localhost）：不满足时连试都不试，把原因写进 `error`；
- *  - **离线壳在网络优先那一侧**（见 `sw.js`）：在线时永远拿新的产物，不然「装成 App」就等于「再也
- *    收不到更新」；
- *  - **`beforeinstallprompt` 只是抓住事件**（一起写进这个全局），装不装由用户点浏览器自己的那一下
- *    说了算 —— 我们不做自定义的安装按钮（假入口）。
+ * 注册 Service Worker（只在安全上下文里），结果写进 `globalThis.__xjtuToolboxPwa` 给 `?route=probe` 读。
  */
 (function () {
   'use strict';

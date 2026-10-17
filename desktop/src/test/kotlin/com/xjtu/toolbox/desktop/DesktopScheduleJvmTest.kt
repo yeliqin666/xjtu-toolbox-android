@@ -22,28 +22,7 @@ import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 import kotlinx.coroutines.runBlocking
 
-/**
- * 我的课表在桌面端的**装配验收**（第 30 条真数据路由）：
- * 桌面用自己的 `DesktopAuth` 真登一次，走 `DesktopSiteGate` 那条路把**教务**会话建起来
- * （与全校课表 / 成绩同一个站点），再用本端的 `DesktopScheduleHost` 取课表。
- *
- * 与 `:data` 的 `JwxtScheduleApiJvmTest` 的分工：那边验取数口径（`rows()` 的排课原样、
- * `schedule()` 合过调停补课、`termStart()` 的周数）；这里验**桌面这一端的装配** ——
- * 宿主槽位接对了、会话按需建起来了、课表真取到了、**自建日程真落盘**。
- *
- * 三条钉子：
- *  1. **真登录链**跑出课表：夹具那门课（`高等数学（上）`）与教室（`主楼A-101`）都在取回的结果里；
- *  2. **真落盘**：课表写进本端的键值文件（`schedule_cache<账号后缀>.properties`），
- *     文件里真的出现那个学期的键 —— 不是只躺在内存里；
- *  3. **自定义课落盘**：`DesktopScheduleHost.customCourses` 写一条，同一个文件里读得回来，
- *     而且 `id` 是自增分配的（`insert` 返回的就是它）。
- *
- * 另一条钉住的是**如实降级**：[DesktopScheduleHost.honored] 只列它真接的那几档
- *（自建日程、思源入口），分享面板 / 座位数 / 作业截止 / 小组件与首页信号那几档**都不列**
- *（屏上也就一个字都不画）。这条断言改了就会红，提醒把那一档的宿主面接上。
- *
- * 手法同 `DesktopAuthJiaocaiJvmTest`：`:testkit` 假上游 + URL 一个字符不改。
- */
+/** 我的课表在桌面端的装配验收。 */
 class DesktopScheduleJvmTest {
 
     private lateinit var fake: FakeCampusProxy
@@ -173,9 +152,6 @@ class DesktopScheduleJvmTest {
         assertEquals(1, runBlocking { store.getConflicts(account, "2026-2027-1", 3, 9, 10) }.size)
         assertEquals(0, runBlocking { store.getConflicts(account, "2026-2027-1", 4, 9, 10) }.size)
 
-        // **真落盘**：键值文件的写入是同步的（`FileKeyValueStore.putString` 返回时已经落盘），
-        // 所以「文件里有这一行」就是「写进磁盘了」的判据。`secureKeyValueStore` 对同名返回同一个
-        // 实例（进程内一份），所以这里不靠「另开一个 store」来证明，而是直接看文件。
         val file = File(requireNotNull(dataRootOverride), "${DesktopScheduleHost.CUSTOM_COURSE_STORE}.properties")
         assertTrue(file.exists(), "自建日程的落盘文件不存在：${file.absolutePath}")
         assertTrue(file.readText().contains("custom_courses"), "文件里应当有那个键")
@@ -210,9 +186,6 @@ class DesktopScheduleJvmTest {
             "桌面只有「自建日程」与「思源入口」这两档（见 DesktopScheduleHost 的表与 TODO）—— " +
                 "改这里就等于屏上多画一档，先确认那一档的宿主面真接上了",
         )
-        // 首页信号那一档要在行为上真的会响：课表落地 → 版本号加一（首页据此重读缓存）。
-        // `WIDGET_REFRESH` 则相反 —— 桌面没有桌面小组件，所以它既不在 honored 里、
-        // `onScheduleSynced()` 也只做首页那件事。
         assertFalse(ScheduleCapability.WIDGET_REFRESH in host.honored, "桌面没有桌面小组件")
         val before = DesktopHomeSignals.scheduleVersion
         host.onScheduleSynced()
@@ -225,12 +198,12 @@ class DesktopScheduleJvmTest {
     }
 }
 
-/** 按落盘那条缝自己的读法把一个键读回来（`Properties.load`，与 `FileKeyValueStore` 同一个口径）。 */
+/** 用 `Properties.load` 把一个键读回来。 */
 private fun readStoreValue(file: File, key: String): String {
     val props = java.util.Properties().apply { file.inputStream().use { load(it) } }
     return props.getProperty(key).orEmpty()
 }
 
-/** `secureKeyValueStore` 的落盘文件名（`SecureStore.jvm` 的口径：`<name>.properties`）。 */
+/** `secureKeyValueStore` 的落盘文件名（`<name>.properties`）。 */
 private fun cacheFileName(accountId: String?): String =
     DesktopScheduleHost.SCHEDULE_CACHE_STORE + AccountContext.suffixFor(accountId)

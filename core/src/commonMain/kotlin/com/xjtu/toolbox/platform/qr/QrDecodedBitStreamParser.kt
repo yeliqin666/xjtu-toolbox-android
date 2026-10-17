@@ -1,19 +1,6 @@
 package com.xjtu.toolbox.platform.qr
 
-/**
- * 把解出来的一串码字按**分段模式**拼成文本 —— zxing 3.5.4
- * `com.google.zxing.qrcode.decoder.DecodedBitStreamParser` 的**逐字对照**。
- *
- * | zxing | 这里 | 备注 |
- * |---|---|---|
- * | `TERMINATOR` / `FNC1_FIRST_POSITION` / `FNC1_SECOND_POSITION` / `STRUCTURED_APPEND` / `ECI` | 同名分支 | 逐条相同，含 FNC1 那两条对 `%`/`%%` 的改写（6.4.8.1 / 6.4.8.2） |
- * | `NUMERIC`（10 位三个数字、7 位两个、4 位一个） | 同名 | 逐条相同 |
- * | `ALPHANUMERIC`（11 位两个字符、6 位一个、那 45 个字符表） | 同名 | 逐条相同 |
- * | `BYTE`（`currentCharacterSetECI` 有就用它，没有就 [QrCharset.guessCharset]） | 同名 | 见 [QrCharset] 的边界表：解不出来的编码**整体解码失败** |
- * | `KANJI` / `HANZI` 两个数据段 | **认得出、解不出来** | ⚠️ 如实差异：那两个要 Shift_JIS / GB2312 码表（commonMain 没有）。分支留着、先按同样的位数把模式与字符数读掉，再抛 `FormatException` —— 与「这一段本实现解不了」是同一件事，而不是静默当成空串 |
- * | `DecoderResult` 里的 `rawBytes` / `byteSegments` / `ecLevel` / `structuredAppend*` / `symbologyModifier` | **没搬** | 这一条缝只交「文本」出去（见 [QrReader] 的 KDoc）；纠了几个错由 [QrDecoder] 那一层带回来 |
- * | `hints`（`CHARACTER_SET` / `ASSUMED_CHARSET` 那两张表） | **没搬** | 唯一的消费方（`:app` 的 `QrFrameDecoder`）只传 `POSSIBLE_FORMATS` + `TRY_HARDER`，从没传过字符集 hint |
- */
+/** 把解出来的一串码字按分段模式拼成文本。 */
 internal object QrDecodedBitStreamParser {
 
     private val ALPHANUMERIC_CHARS = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ $%*+-./:".toCharArray()
@@ -194,19 +181,7 @@ internal object QrDecodedBitStreamParser {
     }
 }
 
-/**
- * 码字 → 文本：拆块、纠错、再交给 [QrDecodedBitStreamParser] —— zxing 3.5.4
- * `com.google.zxing.qrcode.decoder.Decoder` 的**逐字对照**。
- *
- * | zxing | 这里 | 备注 |
- * |---|---|---|
- * | `decode(BitMatrix, hints)`（含「常规读失败就试一次镜像读」那一段） | [QrDecoder.decode] | 逐条相同：`remask` → `setMirror(true)` → 先读版本再读格式 → `mirror()` → 重解；失败时抛**第一次**那个异常 |
- * | `decode(BitMatrixParser)` 私有那一层（读版本/格式、拆块、逐块纠错、拼回数据字节） | 同名 | 逐行相同，`errorsCorrected` 是各块之和 |
- * | `correctErrors` | 同名 | `ReedSolomonException` ⇒ `ChecksumException` |
- * | `QRCodeDecoderMetaData`（镜像标志，给 `ResultPoint` 用的） | **没搬** | 这一条缝只交文本出去，没有 `ResultPoint` 要修正（见 [QrReader] 的 KDoc） |
- * | `DecoderResult`（`rawBytes` / `byteSegments` / `ecLevel` / `structuredAppend*` / `symbologyModifier`） | **没搬** | 同上 |
- * | `decode(boolean[][] image, hints)` | **没搬** | 那是给「已经是纯黑白矩阵」的调用方用的（`BitMatrix.parse`），这一端从像素来 |
- */
+/** 码字 → 文本：拆块、纠错、再交给 [QrDecodedBitStreamParser]。 */
 internal class QrDecoder {
 
     private val rsDecoder = QrReedSolomonDecoder(QrGenericGf.QR_CODE_FIELD_256)

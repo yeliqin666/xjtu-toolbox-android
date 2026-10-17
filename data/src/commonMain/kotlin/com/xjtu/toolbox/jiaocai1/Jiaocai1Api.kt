@@ -17,10 +17,6 @@ import java.nio.charset.Charset
 
 private const val TAG = "Jiaocai1Api"
 
-// 模型（`Jiaocai1Category` / `Jiaocai1Book` / `Jiaocai1SearchResult` / `Jiaocai1SearchField` /
-// `Jiaocai1BookHandle`）已在搬进共享内核时拆到 `:core` 的 `jiaocai1/Jiaocai1Models.kt` ——
-// 屏要用它们，而 `:core` 看不见 `:data`。同包同名 ⇒ 本文件里一行 `import` 都不用加。
-// （`Jiaocai1Page` / `Jiaocai1Paging` 早就在 `:core`。）
 
 // ── API ──────────────────────────────────────────────────────────────
 
@@ -33,11 +29,6 @@ private const val TAG = "Jiaocai1Api"
  *
  * 编码随访问路径变化（经 WebVPN 是 UTF-8，直连是 GBK），见 [decodeSmart]。
  *
- * ## 从 `:app` 搬进 `:data` 时改了什么（一处）
- *
- * `android.util.Log` → `:core` 的 [Log]（同一套级别、同样的 tag）。取数/解析的每一句
- * （包括 `decodeSmart` 那个「先按 UTF-8 宽松解、出现 U+FFFD 再按 GB18030 解」的判据）
- * 逐字未动 —— 它本来就没碰 `Context` 与 `BuildConfig`，所以搬动本身是零口径变化的。
  */
 class Jiaocai1Api(private val site: SiteSession) {
 

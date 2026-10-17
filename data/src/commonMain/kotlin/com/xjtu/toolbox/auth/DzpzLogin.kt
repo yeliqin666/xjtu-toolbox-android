@@ -30,11 +30,6 @@ import okhttp3.Response
  * cookies: oauth2_access_token, loginidweaver, ecology_JSessionid, JSESSIONID
  *
  * ## 它现在住哪儿
- *
- * 本类从 `:app/auth/DzpzLogin.kt` 搬进 `:data`（**同一个包名、同一个类名**），与站点类
- * [DzpzSession] 一起 —— 桌面端要自己登 `dzpz`（成绩单那条路由）。搬动只换了一处写法：
- * `android.util.Log` → `:core` 的 [Log]（其余日志调用逐字不变）。`PersistentCookieJar` /
- * `redactUrl` / `redactBody` 本来就在 `:data` / `:core`。
  */
 class DzpzLogin(
     session: OkHttpClient? = null,

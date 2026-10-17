@@ -89,13 +89,7 @@ private fun hint(game: HopGame): String = when {
     else -> ""
 }
 
-/**
- * 远景地标的名字，按出场顺序；分数每涨 [LANDMARK_EVERY] 换一座。
- *
- * **图不在这一层**：[HopScreen] 收 `landmarkImages`（与这张表同序）。
- * Android 用 `R.drawable.hop_landmark_*` 解出来的那份（逐字未变），Web 用 :core 的
- * `composeResources` 里那 9 张同样的 webp —— 两边读的是同一份图，只是取图的途径不同。
- */
+/** 远景地标的名字，按出场顺序；分数每涨 [LANDMARK_EVERY] 换一座。 */
 val LANDMARK_NAMES = listOf(
     "钱学森图书馆",
     "交大北门",
@@ -117,12 +111,7 @@ private const val PREF_SKIN = "hop_skin"
 @Composable
 fun HopScreen(
     onBack: () -> Unit,
-    /**
-     * 远景地标的图，顺序与 [LANDMARK_NAMES] 一致。
-     *
-     * 取图是平台的事（Android = `R.drawable.hop_landmark_*`，Web = :core 的 composeResources），
-     * 屏本身只认 [ImageBitmap] —— 空列表 = 本端没图，就不画远景（游戏照常可玩）。
-     */
+    /** 远景地标的图，顺序与 [LANDMARK_NAMES] 一致。 */
     landmarkImages: List<ImageBitmap> = emptyList(),
 ) {
     val haptics = rememberHaptics()

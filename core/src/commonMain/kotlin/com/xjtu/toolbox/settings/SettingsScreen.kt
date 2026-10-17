@@ -77,30 +77,7 @@ import top.yukonga.miuix.kmp.preference.SwitchPreference
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.utils.overScrollVertical
 
-/**
- * 设置屏（`AppRoute.Settings` / `:app/settings`）—— 从 `:app` 同包同名搬进 `:core`，
- * Android 与桌面画**同一份**（八组设置、宽屏两栏、各处弹层，文案与排版逐字未动）。
- *
- * ## 搬进来的改动只有三类（都是「宿主能力」，不是业务）
- *
- * 1. **偏好的存储**：`CredentialStore`（`Context` + `SharedPreferences`）→ [SettingsStore]
- *    （键值缝；Android 那份就是同一个 `app_settings` 文件 ⇒ 老用户设过的一项不丢）；
- * 2. **Android 专属的整组设置走宿主槽位**（[SettingsHost]）：
- *    「通知与提醒」（系统通知权限 + WorkManager 排程）、「数据与隐私」（清 `cacheDir` + 崩溃上报）、
- *    「更新」（`AppUpdater` 下载安装 APK）—— 这三组整份留在 `:app`（`settings/AppSettings.kt`），
- *    桌面没有对应能力 ⇒ `null` ⇒ **整组不画**（不是画一堆点了没用的开关）；
- * 3. **只有某些端真会照着办的行**由 [SettingsHost.honoredRows] 声明（见 [SettingsRow] 的 KDoc），
- *    没列进来的不画。`:app` 声明全部；桌面只声明它真接得上的（深色模式 / 取色），
- *    其余（首页主题 / 常用功能 / 界面风格 / 默认 Tab / 触感 / 连接模式 / 课表 / 场馆）
- *    桌面还没有对应的宿主面 —— 那是**如实降级**，TODO 写在 `:desktop` 的 `DesktopSettingsHost` 里。
- *
- * 剩下的全在共享屏里：外观与通用的下拉/开关、关于与致谢、更新日志与用户协议的弹层、
- * 宽屏左栏分组、玻璃顶栏、以及每一处文案。
- *
- * @param store 设置偏好的读写（Android = `app_settings` 那份 SharedPreferences；桌面 = 落盘文件）
- * @param host 宿主槽位（见 [SettingsHost]）
- * @param onBack 返回
- */
+/** 设置屏。 */
 @Composable
 fun SettingsScreen(
     store: SettingsStore,
@@ -200,9 +177,6 @@ fun SettingsScreen(
     ) { padding ->
         val glassTop = padding.glassTop(glass)
 
-        // 各组的正文抽成一个 lambda（状态全在 SettingsScreen 函数体里，窄屏与宽屏捕获的是同一份）。
-        // 哪些组合出现由上面那几个 `showXxx` 决定：**没列进 honoredRows 的行不画**，
-        // 一组里一行都不剩就整组不画（连同它的小标题）。
         val appearanceGroup: @Composable () -> Unit = {
             SmallTitle("外观")
             SettingsCard {
@@ -278,8 +252,6 @@ fun SettingsScreen(
             }
         }
 
-        // 分组按「这一项管的是什么」来分，不按「它长什么样」：原来的「外观」里混着课表来源、
-        // 课表考勤、触感和默认启动 Tab，「网络」「场馆」各只有孤零零一项，崩溃日志上报藏在「关于」里。
         val generalGroup: @Composable () -> Unit = {
             SmallTitle("通用")
             SettingsCard {
@@ -533,9 +505,7 @@ fun SettingsScreen(
             }
         }
 
-        // ── 弹层（必须在 Scaffold 内，MIUIX MiuixPopupHost 才能渲染）──
-        // 宿主那三组（通知与提醒 / 数据与隐私 / 更新）自己的弹层在各自的 section 里，
-        // 它们渲染在上面那个组列表里 ⇒ 同样在 Scaffold 内。
+        // ── 弹层（必须在 Scaffold 内，MiuixPopupHost 才能渲染）──
         ChangelogSheet(show = showChangelog, entries = host.changelog, onDismiss = { showChangelog = false })
         EulaSheet(show = showEula, onDismiss = { showEula = false })
     }
@@ -619,9 +589,6 @@ private fun EulaSheet(show: Boolean, onDismiss: () -> Unit) {
         title = "用户协议与隐私政策",
         onDismissRequest = onDismiss
     ) {
-        // 正文来自 legal/Eula.kt —— 和首次启动时要求同意的那一份是同一份。
-        // 这里原来是另外手写的两段摘要，措辞和范围都跟首启页对不上，
-        // 等于用户在设置里读到的不是他当初同意的东西。
         Column(
             modifier = Modifier
                 .fillMaxWidth()

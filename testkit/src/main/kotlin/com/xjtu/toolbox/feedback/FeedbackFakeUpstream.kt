@@ -3,39 +3,7 @@ package com.xjtu.toolbox.feedback
 import com.sun.net.httpserver.HttpExchange
 import java.util.concurrent.atomic.AtomicInteger
 
-/**
- * 假的**飞书开放平台**（`open.feishu.cn`，反馈那一条链的上游）。
- *
- * ## 它扮的是哪条链
- *
- * 与 [`FeedbackApi`](com.xjtu.toolbox.feedback.FeedbackApi) 一起，把搬进 `:data` 之后的
- * 「反馈后端」原样演一遍：
- *
- * ```
- * POST https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal
- *      → {"code":0,"tenant_access_token":"t-fake","expire":7200}   （凭据就是 app_id + app_secret）
- * POST https://open.feishu.cn/open-apis/bitable/v1/apps/{base}/tables/{submit}/records
- *      → {"code":0}                                                 （提交一条反馈）
- * POST https://open.feishu.cn/open-apis/bitable/v1/apps/{base}/tables/{reply}/records/search?page_size=100
- *      → {"code":0,"data":{"items":[…]}}                            （回复 / 公开问答，靠请求体的 filter 分派）
- * ```
- *
- * ## 两处刻意演的「多维表格脾气」（这是这条夹具真正要钉的东西）
- *
- * 1. **多行文本字段在响应里是富文本片段数组**：`"回复": [{"type":"text","text":"…"}]`
- *    而不是纯字符串 —— 搬迁前那段 `plainText` 的注释就是为它写的（直接 `optString` 会把整个
- *    数组 `toString()` 成非空垃圾，工单号永远对不上）；
- * 2. **filter 会 1254018**：工单号字段若是「查找引用」，飞书拒绝把它当筛选条件。夹具用
- *    [rejectFilter] 开关把这一档演出来 —— 打开后带 filter 的 search 一律回 1254018，
- *    让实现在「去掉 filter 拉表再本地匹配」那条兜底路径上跑通（见 `FeedbackApi.replies`）。
- *
- * CAS / 校园站点**一个都不涉及**：反馈没有学校会话（见 `:core` 的 `FeedbackSource` KDoc）。
- *
- * ## 夹具值全是编造的
- *
- * 工单号 `TEXAMPLE01`、正文「示例反馈：页面上的按钮点不动」、回复「示例回复：下个版本修」——
- * 皆非真人真事；`appId` / `appSecret` 是 `fake-app-id` / `fake-app-secret` 这种一眼假的字面量。
- */
+/** 假的飞书开放平台（`open.feishu.cn`，反馈那一条链的上游）。 */
 class FeedbackFakeUpstream {
 
     companion object {
@@ -90,7 +58,7 @@ class FeedbackFakeUpstream {
         respond(exchange, 200, "application/json; charset=utf-8", json.toByteArray())
 
 
-    /** 打开后：**带 filter 的 search 一律回 1254018**（演「工单号是查找引用」那一档）。 */
+    /** 打开后：带 filter 的 search 一律回 1254018。 */
     @Volatile
     var rejectFilter: Boolean = false
 
@@ -103,16 +71,11 @@ class FeedbackFakeUpstream {
     /** search 被 POST 了几次（含带 filter 与不带 filter 两种）。 */
     val searchCalls = AtomicInteger(0)
 
-    /**
-     * 打开后：提交那一发回一个 `code != 0` —— 演「上游拒收这次写」。
-     *
-     * 这一档与「凭据没配全」（那个在 serve 启动时就定了，根本到不了上游）**不是一回事**：
-     * 它到得了上游，是上游说的不行 ⇒ `:data` 的 `submit` 把 msg 抛成异常 ⇒ serve 按 502 报。
-     */
+    /** 打开后：提交回 `code != 0`（上游拒收）。 */
     @Volatile
     var submitRejected: Boolean = false
 
-    /** 最近一次提交请求体里的 `fields` 原文（断言字段口径用）。 */
+    /** 最近一次提交请求体里的 `fields` 原文。 */
     @Volatile
     var lastSubmitFields: String? = null
 
@@ -130,8 +93,6 @@ class FeedbackFakeUpstream {
         when {
             path == "/open-apis/auth/v3/tenant_access_token/internal" -> {
                 tokenCalls.incrementAndGet()
-                // 租户令牌那一发不校验 app_id / app_secret（夹具要钉的是请求形状与缓存，
-                // 凭据口径由 `:data:jvmTest` 直接断言 lastTokenBody）
                 lastTokenBody = body
                 respondJson(exchange, """{"code":0,"msg":"ok","tenant_access_token":"$TENANT_TOKEN","expire":7200}""")
             }
@@ -158,7 +119,6 @@ class FeedbackFakeUpstream {
                 when {
                     // 公开问答那一档：`{"公开": "is" ["true"]}`
                     "\"公开\"" in body -> respondJson(exchange, publicQaResponse())
-                    // 回复那一档（带工单号 filter 或去掉 filter 之后的全表）
                     else -> respondJson(exchange, repliesResponse())
                 }
             }
@@ -171,16 +131,13 @@ class FeedbackFakeUpstream {
         }
     }
 
-    /** 最近一次取令牌的请求体（断言 app_id / app_secret 口径）。 */
+    /** 最近一次取令牌的请求体。 */
     @Volatile
     var lastTokenBody: String? = null
 
         private set
 
-    /**
-     * 回复表的记录：**工单号是富文本数组、回复也是**（真人手填的多行文本字段就是这形状），
-     * 另外塞一条「不在 wanted 里」的记录，钉住「只认本地工单号」那条判据。
-     */
+    /** 回复表的记录：工单号与回复都是富文本数组，另有一条不在 wanted 里的记录。 */
     private fun repliesResponse(): String = """
         {"code":0,"msg":"ok","data":{"has_more":false,"items":[
           {"record_id":"recA","fields":{

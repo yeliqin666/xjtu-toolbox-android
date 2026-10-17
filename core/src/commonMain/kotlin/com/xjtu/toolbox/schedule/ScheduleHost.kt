@@ -8,19 +8,7 @@ import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.datetime.LocalDate
 
-/**
- * 日程页里那些**只有某些端才真会照着办**的能力。
- *
- * ## 为什么要有这张清单
- *
- * 同 `SettingsHost.honoredRows` 那条纪律：屏上有一档东西，如果这一端**根本没有**，就不该画
- * （「点了会失败的按钮一个都不画」）。日程页上比较隐蔽的几档是：
- * 「导出日历 (ICS)」（要一个系统分享面板）、「本次考勤」与格子上的考勤角标（要考勤站点会话）、
- * 「N 座」（要空闲教室那套取数）、今日栏的「接下来」里的作业（要思源那份落盘缓存）。
- *
- * 桌面端这几档多数没有 ⇒ 它只把真接上的列进 [ScheduleHost.honored]，其余**一个字都不画**
- * （见 `:desktop` 的 `DesktopScheduleHost` 里那张表与 TODO）。
- */
+/** 日程页里那些只有某些端才真会照着办的能力。 */
 enum class ScheduleCapability {
 
     /** 能加/改/删自建日程（决定工具栏的「+」与「编辑日程」入口画不画）。 */
@@ -54,46 +42,16 @@ enum class ScheduleCapability {
     SCHEDULE_CHANGE_BUBBLE,
 }
 
-/**
- * 日程页的**宿主槽位** —— 「这一端有什么」，而不是「这一端是不是 Android」。
- *
- * ## 三类东西走这里（其余一律留在共享屏里）
- *
- * 1. **只有某些端真会照着办的能力**：[honored]（见 [ScheduleCapability]）；
- * 2. **平台专属的动作**：本地落盘（[cache] / [customCourses]）、教务会话与取数（[session]）、
- *    系统分享（[shareFile]）、联网判定（[isOnline]）、课表落地后的通知（[onScheduleSynced]）；
- *    （「会话过期」不在这条缝上 —— 那是 `:core` 既有的 `LocalAuthExpiry`，见 [ScheduleLogin]。）
- * 3. **宿主才知道的数据**：哪些课在思源学堂、这一次课考勤记的是什么（[courseLinks]）、
- *    教室座位数（[roomSeatCount]）。
- *
- * ## 语义债
- *
- * 这些动作的本体与搬迁前逐字相同，只是从「直接摸 `Context` / `AppDatabase`」变成「问宿主」。
- * 每一个成员都**不是**新语义：`shareFile` 就是 `ScheduleExport.shareTextFile`、
- * `onScheduleSynced` 就是 `HomeSignals.scheduleVersion++` 加 `ScheduleWidgetUpdater.requestUpdate`、
- * `dueHomeworks` 就是 `LmsDueStore.load`。
- */
+/** 日程页的宿主槽位 —— 「这一端有什么」，而不是「这一端是不是 Android」。 */
 interface ScheduleHost {
 
     /** 这一端**真会照着办**的那些能力（见 [ScheduleCapability]）。 */
     val honored: Set<ScheduleCapability>
 
-    /**
-     * 本地落盘那一族（[cache] / [customCourses]）的调度器。
-     *
-     * 为什么要有这一格：`ScheduleCacheStore` 是**同步**的（读一段 JSON、写一段 JSON），
-     * 而 `:core` 的 commonMain 里没有 `Dispatchers.IO`（wasm 目标更没有）。所以「谁去跑阻塞
-     * 文件 IO」只能由端上来说：`:app` 与桌面传 `Dispatchers.IO`（与搬迁前同一个池），
-     * 没接的端走 `Dispatchers.Default` —— 与 `DownloadManager` 的 `scope` 同一条口径。
-     */
+    /** 本地落盘那一族（[cache] / [customCourses]）的调度器。 */
     val io: CoroutineDispatcher get() = Dispatchers.Default
 
-    /**
-     * 按账号开一份课表族缓存。[accountId] 为 null 表示「当前账号」。
-     *
-     * `:app` = `DataCache`（目录名、文件名、账号后缀、原子写入全是原来那一份）；
-     * 桌面 = 一份键值文件（没有 `cacheDir`）。
-     */
+    /** 按账号开一份课表族缓存。 */
     fun cache(accountId: String?): ScheduleCacheStore
 
     /** 自建日程那张表（见 [CustomCourseStore]）：`:app` = Room，桌面 = 键值文件。 */
@@ -126,23 +84,14 @@ interface ScheduleHost {
     /** 课表落地之后要通知的事：首页信号 + 小组件刷新。 */
     fun onScheduleSynced() {}
 
-    /**
-     * 把一份文件交给系统（ICS 导出）。返回 false = 这一端没接 —— 调用点本来就不该画那一行
-     * （见 [ScheduleCapability.SHARE_FILE]）。
-     */
+    /** 把一份文件交给系统（ICS 导出）。 */
     fun shareFile(content: String, fileName: String, mimeType: String): Boolean = false
 
     /** 课表变更（调课/停课/换教室）冒一条气泡给用户。 */
     fun postScheduleChange(message: String) {}
 }
 
-/**
- * 登录态那一格。`:app` 包的是 `AppLoginState`（`LocalAppLoginState` 里那一份）。
- *
- * ⚠️ 「会话过期怎么办」**不**在这一格里：`:core` 早就有那条缝了（`auth/AuthExpiry.kt` 的
- * `LocalAuthExpiry`，`:app` 在 `AppRoot` 顶层注入一次），本屏跟其余共享层屏幕走同一条路。
- * 这里只留三样「屏自己说不出来」的事实。
- */
+/** 登录态那一格。 */
 interface ScheduleLogin {
 
     /** 当前激活账号 ID（学号/手机号）；空串 = 还没登录。 */
@@ -155,13 +104,7 @@ interface ScheduleLogin {
     val hasCredentials: Boolean
 }
 
-/**
- * 教务会话与取数那一格。
- *
- * ⚠️ [source] 在**同一个会话期间必须返回同一个实例**：ViewModel 靠对象身份判断「会话换了没有」
- * （与搬迁前的 `site === activeSite` 同一条判据），每次新建一个 `JwxtScheduleApi` 会让
- * 每次重组都当成换了个会话、反复重载。
- */
+/** 教务会话与取数那一格。 */
 interface ScheduleSession {
 
     /** 现在的教务取数口；会话还没建起来时为 null。 */
@@ -176,11 +119,7 @@ interface ScheduleSession {
     /** 用户点「重试」：强制重新认证一次（可能弹短信二验）。 */
     suspend fun reAuthenticate(userInitiated: Boolean = true): JwxtScheduleSource
 
-    /**
-     * 按用户选的来源取整学期课表（`:data` 的 `ScheduleSourceRouter`：历史学期与非教务源
-     * 取不到时都退回教务），连同「这一次实际来自哪个系统」一起给出来 ——
-     * 课表变更检测按后者分开存快照。
-     */
+    /** 按用户选的来源取整学期课表（`:data` 的 `ScheduleSourceRouter`）。 */
     suspend fun fetchSchedule(source: JwxtScheduleSource, termCode: String, userInitiated: Boolean = false): ServedSchedule
 }
 
@@ -197,21 +136,10 @@ interface HolidaySource {
     suspend fun refresh(cache: ScheduleCacheStore, force: Boolean = false): Map<LocalDate, String>
 }
 
-/**
- * 课程详情里那两项下钻（`:data` 的 `CourseLinks`：要会话内核、`LmsApi` 与 `AttendanceRecordStore`）。
- *
- * 抠成槽位而不是把 `CourseLinks` 整个塞进 `:core`：它一步都进不了 commonMain
- * （`SessionManager` 在 `:data`）。教材那一半是**纯匹配**，按能力切走后留在 `:core`
- * （[TextbookLinks]），不占这一格。
- */
+/** 课程详情里那两项下钻（`:data` 的 `CourseLinks`：要会话内核、`LmsApi` 与 `AttendanceRecordStore`）。 */
 interface CourseLinkAccess {
 
-    /**
-     * 拉一学期考勤并建索引。失败返回 null，界面当作没有角标。
-     *
-     * [finishedTerms] 是「已结束、不会再变的学期」，由屏按学期自己的起止算出来灌进去 ——
-     * 这一层拿不到教务会话，自己判断不了，没灌就当所有学期都还活着。
-     */
+    /** 拉一学期考勤并建索引。 */
     suspend fun attendanceMarks(
         termCode: String,
         finishedTerms: Collection<String>,

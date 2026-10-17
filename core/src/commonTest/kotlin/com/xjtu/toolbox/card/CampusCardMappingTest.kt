@@ -14,15 +14,7 @@ import kotlin.test.assertTrue
 import kotlinx.coroutines.test.runTest
 import kotlinx.datetime.LocalDate
 
-/**
- * `CampusCardNetApi`（Web 端的校园卡取数）的**字段映射测试**。
- *
- * 为什么值得写：campus-api 是**白名单投影**，字段名跟 ncard 的原始键对不上（`amount` 是绝对值、
- * 方向在 `signed` 里；App 解析的 `resume` 在这里叫 `channel`；`cardType` 是编号 `800`，
- * 屏上要显示的是 `cardName`）。这些映射在浏览器里跑一次只能看出"有余额、有流水"，
- * 看不出"支出是不是负的、商户名对不对"。这里用 MockEngine 喂 campus-api 的**实测形状**
- *（2026-10-08 实测 `/api/card/balance` 与 `/api/card/transactions?page=1&size=3`），值自己编，键名照抄。
- */
+/** `CampusCardNetApi`（Web 端的校园卡取数）的字段映射测试。 */
 class CampusCardMappingTest {
 
     /** `/api/card/balance` 的实测形状（身份字段一律是编的）。 */
@@ -90,7 +82,6 @@ class CampusCardMappingTest {
         assertEquals("2033-01-21", card.expireDate)
         assertEquals("100000", card.account)
         assertEquals("同学甲", card.name)
-        // campus-api 的学生号是掩码的，如实照收；学院它不投影 ⇒ 留空，不编
         assertEquals("9********1", card.studentNo)
         assertEquals("", card.department)
     }
@@ -100,12 +91,9 @@ class CampusCardMappingTest {
         val (total, rows) = apiFor().transactions(LocalDate(2026, 7, 10), LocalDate(2026, 10, 8), 1, 50)
         assertEquals(96, total)
         assertEquals(2, rows.size)
-        // ⚠️ **为什么不是 `amount`**：campus-api 的 `amount` 是上游 `tranamt` 的绝对值（恒为正数），
-        // 方向在 `signed` 里（上游 `typeFrom` 推出来的）。取 `amount` 的话这一笔 ¥0.02 的浴室消费
-        // 会显示成收入 +0.02，整个屏的"总支出 / 分类占比 / 今日三餐"全反。
+        // ⚠️ 不能用 `amount`：它是上游 `tranamt` 的绝对值，方向在 `signed` 里。
         assertEquals(-0.02, rows[0].amount, 0.0)
         assertEquals(100.0, rows[1].amount, 0.0)
-        // 展示与统计一律走 displayMerchant / amount，与 :app 同一个口径
         assertTrue(rows[0].amount < 0)
     }
 
@@ -138,14 +126,12 @@ class CampusCardMappingTest {
         val card = api.card()
         val (_, rows) = api.transactions(LocalDate(2026, 7, 10), LocalDate(2026, 10, 8), 1, 50)
 
-        // 还没落过盘 ⇒ 没有"上次那份"（Web 没有磁盘缓存，如实返回 null 让屏走一次完整加载）
         assertNull(api.snapshot(LocalDate(2026, 7, 10), LocalDate(2026, 10, 8)))
 
         api.persist(card, rows, LocalDate(2026, 7, 10), LocalDate(2026, 10, 8))
         val held = api.snapshot(LocalDate(2026, 7, 10), LocalDate(2026, 10, 8))
         assertEquals(22.54, held?.cardInfo?.balance ?: 0.0, 0.0)
         assertEquals(2, held?.transactions?.size)
-        // 区间元信息是"这份快照覆盖到哪儿"，屏靠它判断缓存覆盖没覆盖住这次要的范围
         assertEquals("2026-07-10", held?.rangeStart)
         assertEquals("2026-10-08", held?.rangeEnd)
         assertTrue((held?.savedAt ?: 0L) > 0L)

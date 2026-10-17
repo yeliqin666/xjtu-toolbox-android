@@ -6,24 +6,7 @@ import kotlinx.coroutines.withContext
 import java.util.UUID
 import kotlinx.serialization.json.JsonObject
 
-/**
- * `:core` 的 [AttendanceSource] 在 `:data` 里的实现（Android 与桌面侧共用）—— 包住原来的
- * [AttendanceApi] + [LeaveApi]（okhttp 抓 `kq.xjtu.edu.cn` 考勤系统）。
- *
- * 它从 `:app` 搬进 `:data`（桌面端第 16 条真数据路由：桌面要自己登 `kq` 站、自己取考勤流水与请假）。
- * 取数的类名与包路径一字未改，两件事各动一半：
- *
- * 1. **调度器**：搬迁前是 ViewModel 每次调用自己 `withContext(Dispatchers.IO)`，现在 VM 不再替
- *    实现挑调度器（见 [AttendanceSource] 的 KDoc），由本类自己包 —— **同一层、同一个调度器，
- *    行为不变**；
- * 2. **幂等键**：`createLeave` / `withdrawLeave` / `cancelLeave` 的 `requestId` 在 `:core` 的端口
- *    上是空串默认（commonMain 没有 `java.util.UUID`），这里补回 `UUID.randomUUID()` —— 与搬迁前
- *    `LeaveApi` 的默认值同一语义，实际打出去的请求体一个字没变。
- *
- * 会话仍然是 `:data` 的 [SiteSession]（`new_attendance`，见 `AttendanceSession` 与
- * `AttendanceLogin`）：业务令牌与 `X-System` 头由 `AttendanceSession.decorateRequest` 自动带上，
- * 与搬迁前逐字相同。
- */
+/** `:core` 的 [AttendanceSource] 在 `:data` 里的实现（Android 与桌面侧共用） */
 class AppAttendanceSource(private val site: SiteSession) : AttendanceSource {
 
     private val api = AttendanceApi(site)

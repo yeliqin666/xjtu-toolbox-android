@@ -23,19 +23,7 @@ import kotlin.test.assertTrue
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 
-/**
- * S7b：桌面端那三处「按账号分的落盘」的**端内名**与**旧名一次性读入**。
- *
- * 这个类只钉两件事（其余行为仍由各 Store 自己的验收钉）：
- *
- *  1. 端内名 = `base + AccountContext.suffixFor(accountId)`（规格 §3.5④ / 审计 #09 的端侧那半）——
- *     下载队列、教材书架、成绩报表三处与课表族（`DesktopScheduleHost.cache`）现在是**同一条规则**；
- *  2. 加后缀之前那份旧名**只被只读读一次**（§6.1 第 2 条「旧形状只读」）：新名里没有数据时读到旧数据，
- *     而且旧名那份一个字节都不变（不往回写、也不删）；新名里已经有时旧名不干扰。
- *
- * 隔离口径：`dataRootOverride` + `keyValueStoreRootOverride` 都指到临时目录（前者是密文缝，
- * 后者是普通键值缝），账号 id 用本类专属的一个，避开 `keyValueStore(name)` 的进程内 memo 串根。
- */
+/** 桌面端那三处「按账号分的落盘」的端内名与旧名一次性读入。 */
 class DesktopStoreSuffixJvmTest {
 
     private lateinit var root: File
@@ -49,8 +37,6 @@ class DesktopStoreSuffixJvmTest {
         dataRootOverride = root
         keyValueStoreRootOverride = root
         AccountContext.activeAccountId = null
-        // 密文缝是**进程内 memo**（同一个名字的实例绑在它第一次创建时的根上）⇒ 本类用到的名字先清掉，
-        // 让它们绑到本用例的临时根（与 `DesktopDownloadsJvmTest` 同一条口径）。
         for (name in listOf(
             DesktopDownloadTaskStore.STORE_NAME,
             DesktopDownloadTaskStore.storeName(account),
@@ -72,8 +58,6 @@ class DesktopStoreSuffixJvmTest {
 
     @Test
     fun `端内名 = base + 账号后缀，三档后缀逐字来自 AccountContext`() {
-        // `null` ⇒ `"default"`（**无前导下划线**，与 `schedule_cachedefault` / `data_cachedefault` 逐字一致）；
-        // `""` ⇒ `"_"`（空串不是 null）
         assertEquals("download_tasksdefault", accountScopedStoreName("download_tasks", null))
         assertEquals("download_tasks_", accountScopedStoreName("download_tasks", ""))
         assertEquals("download_tasks_2990000001", accountScopedStoreName("download_tasks", account))

@@ -68,13 +68,6 @@ private val CATEGORIES = listOf("功能坏了", "有点难用", "想要新功能
  *
  * 凭据没配时（[FeedbackSource.isConfigured]）表单整块隐藏，只剩外链，别人 clone
  * 下来照样能编译出可用的包。
- *
- * ## 搬进 `:core` 时改了什么（三处，语义一行未改）
- *
- * 1. `FeedbackApi` → [FeedbackSource] 端口：屏不再写死飞书那一条链（`:core` 看不见 `:data`）；
- * 2. `LocalContext` → 参数：落盘全走 `:core` 的 [FeedbackStore]（键值缝，不需要 Context），
- *    外链交给宿主（`onOpenUrl`）——桌面没有 `Intent`，Android 侧那份嵌的就是搬迁前那两行；
- * 3. `SimpleDateFormat("M月d日")` → 手写（JVM 专属写法，:core 的既有做法）。
  */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -145,8 +138,6 @@ fun FeedbackScreen(
     // 打开了却给一份可能几小时前的缓存，等于白开。
     LaunchedEffect(Unit) { reload(force = true) }
 
-    // 外链交给宿主：Android 是 `Intent.ACTION_VIEW` + `FLAG_ACTIVITY_NEW_TASK`（搬迁前那两行
-    // 原样挪进 `AppNavHost`），桌面交给系统浏览器（见 `ToolboxDesktopApp.openInBrowser`）。
     fun open(url: String) = onOpenUrl(url)
 
     fun submit() {
@@ -525,8 +516,6 @@ fun FeedbackScreen(
     }
 }
 
-// `SimpleDateFormat("M月d日", Locale.CHINA)` 是 JVM 专属 ⇒ 手写（`:core` 的既有做法，见
-// `inbox/InboxScreen.dayText`）。用系统默认时区，与搬迁前那个 `SimpleDateFormat` 同一条口径。
 private fun monthDayCn(epochMs: Long): String {
     val date = Instant.fromEpochMilliseconds(epochMs)
         .toLocalDateTime(TimeZone.currentSystemDefault()).date

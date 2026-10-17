@@ -3,14 +3,7 @@ package com.xjtu.toolbox.desktop.media
 import java.awt.Desktop
 import java.io.File
 
-/**
- * 把一个**地址或本地文件路径**交给系统的默认程序打开（Linux `xdg-open` / macOS `open` /
- * Windows `start`）。
- *
- * 返回「有没有把这件事交出去」，**不是**「打开成功」—— 后面那半由用户机器上的关联程序说了算。
- * 与 `:desktop` 的 `openInBrowser` 同一条口径：平台做不到就静默失败，屏上如实说明
- * （下载管理那一屏的「播放」与视频播放降级页都用它）。
- */
+/** 把一个地址或本地文件路径交给系统的默认程序打开（Linux `xdg-open` / macOS `open` / Windows `start`）。 */
 internal fun openWithSystemProgram(target: String): Boolean = runCatching {
     val os = System.getProperty("os.name").orEmpty().lowercase()
     val command = when {

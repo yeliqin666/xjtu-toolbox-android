@@ -368,6 +368,4 @@ object LibraryPages {
     )
 }
 
-// 平面图上的座位（PlanSeat）与 SeatLayout 也搬进了 :core —— 它们要与共享屏挨着（同包），
-// 而本对象（:app 的页面解析）与 [LibraryApi] 一样留在 Android 侧。
 

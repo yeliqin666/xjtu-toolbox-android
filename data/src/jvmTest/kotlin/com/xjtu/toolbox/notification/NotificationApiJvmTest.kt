@@ -53,42 +53,10 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import kotlinx.coroutines.runBlocking
 
-/**
- * 通知公告取数的**字段级口径**：两条爬虫族（通用学院 / OA）与动态挑战那一路，对着 `:testkit` 的
- * 夹具逐字段读。
- *
- * ## 为什么在 `:data` 而不是 `:app`
- *
- * 这一轮把 `NotificationApi` 与 `AppNoticeSource` 从 `:app` 搬进了 `:data`（桌面端第 13 条真数据
- * 路由）。搬之前先用夹具把**搬之前**的口径钉住：原来那边一行逻辑没改，只是文件换了地方、两处
- * 写法替换（`android.util.Log` → `:core` 的 `Log`、`toKx()` 换成同语义的本地实现）——
- * 但「没改」这句话得有证据，这些断言就是那个证据。手法与校园卡 / 空闲教室那几条
- * （`CampusCardApiJvmTest` / `EmptyRoomApiJvmTest`）逐条对齐：URL 一个字符都不改，全部走真取数链。
- * `:app` 那两条纯解析用例（`SiteSearchParseTest`）也随代码迁到了这里 —— `SiteSearch` 是
- * `internal`，跨不了模块边界。
- *
- * ## 这些断言从哪来
- *
- * 全部来自**夹具原文**（`NotificationFakeUpstream` 里那些常量与 HTML）与**响应形状**
- * （`a[title="…"]` / `span.time` / `span.p_next` / `gotodetail('…')` / `td.timedate1` /
- * `页次: 1/2 页` / `newskeycode2`），**不是从跑通的实现里抄回来的**。
- *
- * ## 覆盖率（诚实的一条）
- *
- * 夹具只扮了 29 个源里的 3 个（教务处 / 化工学院 / OA），另 26 个没被覆盖；站内检索里
- * 「站点没有博达检索 ⇒ 退回本地筛」那条降级、`extractItems` 的日期密度兜底与 `bruteForceExtract`
- * 也没有夹具。夹具能证明的是「这两条爬虫族与挑战解在真实响应形状上是对的」，
- * **不能**说成「29 个源都验过了」。
- */
+/** 通知公告取数的字段级口径：两条爬虫族（通用学院 / OA）与动态挑战那一路，对着 `:testkit` 的夹具逐字段读。 */
 class NotificationApiJvmTest {
 
-    /**
-     * 起假上游并在里面跑 [block]。
-     *
-     * ⚠️ 顺序要紧：[FakeCampusProxy.installFakeUpstreams] 必须在**碰 `HttpClients` 之前**调
-     * （`NotificationApi` 默认那个客户端是从它派生出来的，而它会抄下当时的 `ProxySelector` 与
-     * 平台 trust manager）。这一条与其余取数测试是同一条口径。
-     */
+    /** 起假上游并在里面跑 [block]。 */
     private fun withFakeNotification(block: (FakeCampusProxy) -> Unit) {
         val fake = FakeCampusProxy()
         FakeCampusProxy.installFakeUpstreams()
@@ -100,7 +68,6 @@ class NotificationApiJvmTest {
         }
     }
 
-    // ══════ ① 教务处：通用学院爬虫的主路 ══════
 
     /** 列表页的标题 / 日期 / 标签 / 链接逐字段读出来，`span.p_next` 那条还真把人带到第二页。 */
     @Test
@@ -128,17 +95,8 @@ class NotificationApiJvmTest {
             assertTrue(!second.hasMore, "第二页没有「下页」⇒ hasMore 为假")
         }
 
-    // ══════ ② 动态挑战：新版挑战页 ══════
 
-    /**
-     * 化工学院那一枪先被拦到挑战页：页面只给 `challengeId` / `a` / `b` / `operator`，
-     * 客户端自己算答案、附上 hash，POST 换 `client_id`，再带 cookie 把列表取回来。
-     *
-     * 挑战页里那句 `var answer = 999;` 是**诱饵**：新版那一段必须优先走 `a`/`b`/`operator`
-     * ⇒ 上去的 `answer` 是 [CHALLENGE_ANSWER]（17-25），不是 999。
-     * body 里其余字段（`browser_info` 那几项、`hash` 的算法）由夹具逐个验过 ——
-     * 任何一项不对它就回 `{"success":false,…}`，`client_id` 拿不到，下面的条目断言必红。
-     */
+    /** 化工学院那一枪先被拦到挑战页。 */
     @Test
     fun `动态挑战：新版页面自己算答案并附 hash，通过后才读到化工学院的列表`() =
         withFakeNotification { fake ->
@@ -179,10 +137,7 @@ class NotificationApiJvmTest {
 
     // ══════ ③ 动态挑战：服务端偶发拒绝 ⇒ 重取一次再解一轮 ══════
 
-    /**
-     * 真站点会偶发 `{"success":false,"message":"Invalid challenge"}`（浏览器里刷新一下就好），
-     * 而 `challengeId` 是一次性的 ⇒ 客户端必须**重新取页面**拿一个新 id 再解一轮，不能拿旧 id 重试。
-     */
+    /** 真站点会偶发 `{"success":false,"message":"Invalid challenge"}`（浏览器里刷新一下就好），而 `challengeId` 是一次性的⇒ 客户端必须重新取页面拿一个新 id 再解一轮，不能拿旧 id 重试。 */
     @Test
     fun `挑战被服务端偶发拒绝：重取页面拿新 challengeId 再解一轮，仍然读得到列表`() =
         withFakeNotification { fake ->
@@ -201,7 +156,6 @@ class NotificationApiJvmTest {
             assertEquals(CLET_TITLE_1, page.items.first().title)
         }
 
-    // ══════ ④ 动态挑战：旧版挑战页（页面直接给 answer）══════
 
     /** 旧版页面直接给 `answer`，那一支不附 hash，`browser_info` 也是另一套字段（由夹具验）。 */
     @Test
@@ -218,7 +172,6 @@ class NotificationApiJvmTest {
             assertEquals(CLET_TITLE_1, page.items.first().title)
         }
 
-    // ══════ ⑤ OA：另一族爬虫（表格行 + 页次）══════
 
     /** OA 的条目是表格行：标题取 `a[title]`、作者取 `td.timedate1` 里的部门、链接由 `gotodetail` 的 id 拼。 */
     @Test
@@ -242,7 +195,6 @@ class NotificationApiJvmTest {
             assertTrue(fake.notification.oaListCalls.get() >= 2, "两页都被请求过")
         }
 
-    // ══════ ⑥ 合并：三个源一起 ══════
 
     /** 合并按日期倒序；三个源都取得到 ⇒ 没有谁被静默跳过（`skipped` 为空）。 */
     @Test
@@ -271,13 +223,8 @@ class NotificationApiJvmTest {
         assertEquals(1, fake.notification.oaListCalls.get())
     }
 
-    // ══════ ⑦ 站内检索：博达 CMS 的全文检索 ══════
 
-    /**
-     * 检索走站点自己的检索表单：客户端在首页上认出那个 `search.jsp?wbtreeid=…` 的表单，
-     * 把关键词 **Base64 后放进 `newskeycode2`**（夹具解回来逐字比对），结果按相关度排的那几行里
-     * 只收**带完整日期**的 —— 只写「09-28」的那一行没法按时间排，丢掉（所以它不在结果里）。
-     */
+    /** 检索走站点自己的检索表单：客户端在首页上认出那个 `search.jsp?wbtreeid=…` 的表单，把关键词 Base64 后放进 `newskeycode2`，结果按相关度排的那几行里只收带完整日期的——只写「09-28」的那一行没法按时间排，丢掉（所以它不在结果里）。 */
     @Test
     fun `站内检索：关键词 Base64 发过去，只收带完整日期的结果行`() = withFakeNotification { fake ->
         val result = runBlocking { NotificationApi().search(listOf(NotificationSource.JWC), SEARCH_KEYWORD) }

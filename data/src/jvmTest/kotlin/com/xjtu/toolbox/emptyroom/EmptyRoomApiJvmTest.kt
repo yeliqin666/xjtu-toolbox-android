@@ -25,25 +25,7 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import kotlinx.coroutines.runBlocking
 
-/**
- * 空闲教室取数的**字段级口径**：三档（CDN / 直查教务 / 实时状态）对着 `:testkit` 的夹具逐字段读。
- *
- * ## 为什么在 `:data` 而不是 `:app`
- *
- * 这一轮把空闲教室的取数与站点从 `:app` 搬进了 `:data`（桌面端第 10 条真数据路由）。搬之前先用
- * 夹具把**搬之前**的口径钉住：`:app` 那边一行逻辑没改，只是文件换了地方、`Context` 换成
- * `:core` 的 [EmptyRoomStore] 缝 —— 但「没改」这句话得有证据，这些断言就是那个证据。
- * 手法与校园卡 / 教务那几条（`CampusCardApiJvmTest` / `SchoolCourseApiJvmTest`）逐条对齐：
- * 要登录的两档走**真登录链**（[withJwxtLogin] / [withJsLogin]），URL 一个字符都不改；
- * CDN 那一档本来就免登录，只要假上游在。
- *
- * ## 这些断言从哪来
- *
- * 全部来自**夹具原文**（`EmptyRoomFakeUpstream` / `JwxtFakeUpstream` 里那些常量与 JSON），
- * **不是从跑通的实现里抄回来的** —— 两档刻意摆了同一批教室名与座位数（屏按教室名把「实时状态 +
- * 当天课表」对上），CDN 那份还摆了四个坑（键为 `"null"` / 空串、值为 null、缺 `status`），
- * 教务那份摆了两条该被滤掉的噪声行。「过滤与兜底给什么」因此写在明面上。
- */
+/** 空闲教室取数的字段级口径：三档（CDN / 直查教务 / 实时状态）对着 `:testkit` 的夹具逐字段读。 */
 class EmptyRoomApiJvmTest {
 
     /** CDN 那一档的假上游：**不需要任何会话**（这个接口是公开的预生成 JSON）。 */
@@ -58,12 +40,8 @@ class EmptyRoomApiJvmTest {
         }
     }
 
-    // ══════ ① CDN 课表（免登录那一档）══════
 
-    /**
-     * 一次问两个楼：结果是**按教室名排好的一份**（`getEmptyRoomsMulti` 的 merge 语义），
-     * 四个坑（`"null"` 键、空键、值为 null、缺 `status`）一个都不该出现。
-     */
+    /** 一次问两个楼：结果是按教室名排好的一份（`getEmptyRoomsMulti` 的 merge 语义），四个坑（`"null"` 键、空键、值为 null、缺 `status`）一个都不该出现。 */
     @Test
     fun `CDN：免登录就读得出教室列表与 11 节占用（空键、null、坏数据都滤掉）`() {
         withFakeCdn { fake ->
@@ -109,10 +87,7 @@ class EmptyRoomApiJvmTest {
         }
     }
 
-    /**
-     * 两条错误分支要分得开：**404 = 这天还没生成**（`NoDataException`，屏上直接报错、不兜底缓存），
-     * **校区不存在**（也是 `NoDataException`，但文案不同）。夹具把这两条摆成两种响应。
-     */
+    /** 两条错误分支要分得开：404 = 这天还没生成（`NoDataException`，屏上直接报错、不兜底缓存）， 校区不存在（也是 `NoDataException`，但文案不同）。 */
     @Test
     fun `CDN：404 与查不到的校区都抛 NoDataException（不是 RuntimeException）`() {
         withFakeCdn {
@@ -128,15 +103,7 @@ class EmptyRoomApiJvmTest {
         }
     }
 
-    /**
-     * 座位数（课表页的课程详情要显示「XX座」）：上游同一份 JSON 里既有全名键、也有纯房间号键，
-     * 两条查找路径都要走通；查不到的记成 null 且**不重复拉全校数据**（同一次进程只打一枪）。
-     *
-     * ⚠️ 这一条问的是**今天**（`getRoomSeatCount` 只有 `LocalDate.now()` 这一档），所以它必须确认
-     * 「问的那一天夹具有数据」，而不是在测试里写死一个日历日 —— 夹具那边 [NO_DATA_DATE] 本身就是
-     * 相对值（今天 + 120 天，见它的 KDoc），下面那行断言就是拆日期炸弹的那道哨兵：
-     * 夹具哪天把「没有数据的那天」又撞回今天，这里会直接说出原因。
-     */
+    /** 座位数（课表页的课程详情要显示「XX座」）：上游同一份 JSON 里既有全名键、也有纯房间号键，两条查找路径都要走通。 */
     @Test
     fun `座位数：全名与「楼名-房间号」两种写法都查得到，查不到返回 null 且不再多打上游`() {
         withFakeCdn { fake ->
@@ -157,15 +124,8 @@ class EmptyRoomApiJvmTest {
         }
     }
 
-    // ══════ ② 直查教务（第三档：逐楼逐节问教务）══════
 
-    /**
-     * 真登录链（[withJwxtLogin]：CAS 表单 POST → TGC → 签 ticket → 回跳教务）之后直查「主楼A」：
-     * `queryDay` = 先问一次全楼名录（`KSJC=JSJC=0`）、再逐节问 11 次，命中即把那一节标成空闲。
-     *
-     * 夹具把三条分支摆齐：第 6-11 节空闲 / 全天空闲 / 全天占用；另有两行**噪声**（`JASLXDM` 为 null
-     * 的「幻觉教室」与名字含「测试专用」的）每枪都回，必须被生产代码滤掉。
-     */
+    /** 真登录链（[withJwxtLogin]）。 */
     @Test
     fun `直查教务：逐节问出 11 节状态，两条噪声行被滤掉`() {
         withJwxtLogin { site, fake ->
@@ -207,10 +167,7 @@ class EmptyRoomApiJvmTest {
         }
     }
 
-    /**
-     * 单次查询那一层（`queryRooms`）的**逐字段**口径：`DirectRoomRow` 的六个字段与两条过滤，
-     * 以及缺 `JASLXDM_DISPLAY` 时 `type` 是 null（不是空串、不编一个）。
-     */
+    /** 单次查询那一层（`queryRooms`）的逐字段口径。 */
     @Test
     fun `直查教务：单次查询逐字段对得上（缺的键留 null）`() {
         withJwxtLogin { site, fake ->
@@ -231,15 +188,8 @@ class EmptyRoomApiJvmTest {
     }
 
 
-    // ══════ ③ 实时状态（智慧教室平台那一档）══════
 
-    /**
-     * 真登录链（[withJsLogin]：CAS → 回跳 js 入口 → 用票换 `TOKEN-AUTH`）之后拉一个校区：
-     * 楼顺序就是平台给的顺序，四种状态、人数、课程与教师都逐字段对。
-     *
-     * 顺带钉住「没有宿主存储时的那条口径」：`LiveRoomApi` 的 60 秒新鲜度缓存**是存到磁盘的**
-     * （`cache?.writeJson`）⇒ 桌面端（`store = null`）第二枪照样打平台。
-     */
+    /** 真登录链（[withJsLogin]）。 */
     @Test
     fun `实时状态：真登录链之后读得出夹具样本（store 为 null 时不吃新鲜度缓存）`() {
         withJsLogin { site, fake ->
@@ -281,20 +231,13 @@ class EmptyRoomApiJvmTest {
                 "实时状态那一枪要带上平台认识的校区名：${fake.emptyRoom.lastLiveQuery}",
             )
 
-            // 没有宿主存储 ⇒ 新鲜度缓存无处可存，第二枪再打一次（这是桌面端那条口径的代价）
             runBlocking { api.fetchCampus(LIVE_CAMPUS) }
             assertEquals(2, fake.emptyRoom.liveCalls.get())
         }
     }
 
-    // ══════ ④ 端口实现（`AppEmptyRoomSource`）在「没有宿主存储」时的那条口径 ══════
 
-    /**
-     * 桌面端传的就是 `(sessionManager, store = null)`：三档能力照报（会话由它自己 ensure），
-     * 但两处磁盘兜底都只能是 null（「缓存里什么都没有」），CDN 说明与日期口径与 Android 同源。
-     *
-     * 这一条**不碰网络**：没有会话时实时状态那一档抛的就是搬进 `:core` 之前那一句文案。
-     */
+    /** 桌面端传的就是 `(sessionManager, store = null)`。 */
     @Test
     fun `端口：store 为 null 时两处磁盘兜底都是 null，三档能力照报`() {
         val source = AppEmptyRoomSource(sessionManager = null)
@@ -311,10 +254,7 @@ class EmptyRoomApiJvmTest {
         assertEquals("实时状态暂不可用，可在右上角切换到课表数据", e.message)
     }
 
-    /**
-     * 夹具与生产必须指同一批 URL 与同一批教室名：「实时状态 + 当天课表」在屏上按**教室全名**对上，
-     * 两档名字与座位数各写一份，漂了就该有人喊。
-     */
+    /** 夹具与生产必须指同一批 URL 与同一批教室名：「实时状态 + 当天课表」在屏上按教室全名对上，两档名字与座位数各写一份，漂了就该有人喊。 */
     @Test
     fun `夹具与生产：两档教室名与座位数指同一批`() {
         // 楼名得是屏上真列得出的（`CAMPUS_BUILDINGS` 里就有）

@@ -22,13 +22,7 @@ import kotlinx.coroutines.withContext
 
 // ══════ 本地偏好 ══════
 
-/**
- * 图书馆那几项本地偏好所在的存储：Android 上就是搬迁前那个 `SharedPreferences` 文件
- *（文件名、键名逐字未动 ⇒ 老用户的收藏、上次看的校区、视图模式都还在）。
- *
- * 收藏也是这个文件里的一个键，但它现在归共享的 [LibraryFavorites] 管（以前 `KeyValueStore`
- * 没有集合那一档，所以推给了实现方；现在有了）。
- */
+/** 图书馆本地偏好所在的存储（Android 上就是那个 SharedPreferences 文件，名字不能改）。 */
 private const val PREF_NAME = "library_favorites"
 private const val KEY_CAMPUS = "library_campus"
 
@@ -64,8 +58,6 @@ internal sealed interface LibraryEvent {
  *
  * 看别的校区要改账号资料里的 rplace；离开页面（[onCleared]）时切回进页面时的校区，
  * 在别的校区约成了座位就改认那个校区。
- *
- * 从 `:app` 搬进 `:core` 时**编排逻辑一行未改**，只换了四处「住址」：
  *
  *  - 取数从 `LibraryApi(site)` 换成端口 [LibrarySource]（读那几路 + 写那三路 + 收藏，见那个接口的 KDoc）——
  *    屏不再认识 `SiteSession`，也不再自己挑 `Dispatchers.IO`（实现方包）；
@@ -113,10 +105,7 @@ internal class LibraryViewModel(private val source: LibrarySource) : ViewModel()
     }
     var isLoadingBooking by mutableStateOf(false); private set
 
-    /**
-     * 收藏。同步读一次（搬迁前就是在构造时同步读 `SharedPreferences.getStringSet` 的那一份），
-     * 之后由 [toggleFavorite] 自己维护 —— 落盘也在共享层（[LibraryFavorites]），不再是实现方的事。
-     */
+    /** 收藏。 */
     var favorites by mutableStateOf(LibraryFavorites.all()); private set
 
     /** 首屏先按上次用的校区画，进页面后以账号实际的 rplace 为准。 */
@@ -262,7 +251,7 @@ internal class LibraryViewModel(private val source: LibrarySource) : ViewModel()
     }
 
     fun toggleFavorite(seatId: String) {
-        // 落盘那份说了算：与搬迁前「内存先变、随后写回读出来的那一份」同一个次序
+        // 以落盘那份为准。
         favorites = LibraryFavorites.toggle(seatId)
     }
 

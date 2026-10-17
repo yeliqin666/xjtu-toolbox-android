@@ -46,21 +46,7 @@ import okhttp3.Protocol
 import okhttp3.Response
 import okhttp3.ResponseBody.Companion.toResponseBody
 
-/**
- * P0 取数端点组一的**契约测试脚手架**（`:server:test`）：起真 serve（端口 0）+ 令牌闸门 +
- * 各测试把要验的 Route 扩展挂进 `route("/api")`，用 JDK 的 `java.net.http` 打真请求。
- *
- * 与 [ServeServerTest] / [ServeSessionTest] 同一条口径：
- * - **真 socket**（CIO + JDK 客户端），不做内存引擎；
- * - 端口 0（系统挑），绝不抢 8123（那是用户在用的 serve-same-origin.py）；
- * - 数据根指到临时目录（`dataRootOverride`），绝不碰 `~/.local/share/xjtu-toolbox/` 里那份真的；
- * - 会话/客户端是**进程级懒加载**的（`HttpClients.base` 建出来的那一刻把当时的 ProxySelector
- *   与信任库抄走）⇒ [withFakeProxy] 必须在**建任何源 / 会话之前**先把假上游装好。
- *
- * 取数实现怎么注入：[ServeEndpointRoutes] 的每个域都有"源 = 参数 + 默认值"这一层，
- * 测试把假客户端从参数塞进来 —— 黄页用 `MockEngine`（[mockYellowPageClient]）、
- * 教师检索用 okhttp 拦截器（[mockFacultyClient]）、其余走假上游代理（[FakeCampusProxy]）。
- */
+/** P0 取数端点组一的契约测试脚手架（`:server:test`） */
 
 /** 装好进程级假上游（selector + 信任库）并起假代理，跑 [block]。收尾关代理、复位数据根。 */
 internal fun withFakeProxy(casEnabled: Boolean = true, block: (FakeCampusProxy) -> Unit) {
@@ -80,7 +66,7 @@ internal fun withFakeProxy(casEnabled: Boolean = true, block: (FakeCampusProxy) 
     }
 }
 
-/** 清一遍进程级的会话态（照 [ServeSessionTest.wipeStoredSession] 的口径 + 收纳的内存存储）。 */
+/** 清一遍进程级的会话态（含收纳的内存存储）。 */
 private fun wipeSharedServeState() {
     val suffix = AccountContext.suffixFor(LibraryFakeUpstream.USERNAME)
     AccountContext.activeAccountId = null
@@ -104,10 +90,7 @@ private fun wipeSharedServeState() {
     }
 }
 
-/**
- * 起一个真 serve 实例的 HTTP 外壳（内容协商 + `route("/api")` + 令牌闸门 + [routes]），
- * 端口 0（系统挑）。返回 (起好的 server, 真 HTTP 客户端)。
- */
+/** 起一个真 serve 实例的 HTTP 外壳（内容协商 + `route("/api")` + 令牌闸门 + [routes]），端口 0（系统挑）。 */
 internal fun startEndpointServer(
     token: String,
     routes: Route.() -> Unit,
@@ -220,13 +203,7 @@ internal fun JsonObject.optInt(key: String): Int? = optString(key)?.toIntOrNull(
 
 internal fun JsonObject.optLong(key: String): Long? = optString(key)?.toLongOrNull()
 
-/**
- * §3.4 那条红线的实现：响应体**不许出现**登录用户本人相关的身份。
- *
- * 允许的例外（新契约明确要求投影本人数据/公开课堂信息的端点）：`/api/fitness/score` 的学号姓名
- * 与 `/api/emptyroom/rooms?source=live` 的教师名 —— 那两条的断言在各自测试里单独写
- * （expected 值来自夹具的编造常量，不是真人）。
- */
+/** §3.4 那条红线的实现：响应体不许出现登录用户本人相关的身份。 */
 internal fun assertNoIdentity(body: String, where: String, forbidden: List<String>) {
     for (needle in forbidden) {
         if (needle.isBlank()) continue

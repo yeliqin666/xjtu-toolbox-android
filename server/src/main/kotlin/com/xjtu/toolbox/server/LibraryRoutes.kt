@@ -18,46 +18,7 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.Response
 
-/**
- * `/api/library*` —— 五个端点（`docs/api-contract.md` §5 的 P0 读 + §5.3.1 的写），全部走 `:data` 的
- * [LibraryApi]（通过 [ServerLibrarySession] 这个缝接到会话内核）：取数/解析一行不重做。
- *
- * | 端点 | 对应端口方法 |
- * |---|---|
- * | `GET /api/library/campus` | `LibraryApi.getCurrentCampus()`（`LibraryCampus`） |
- * | `GET /api/library/areas` | `LibraryApi.getFloorAreas()` + `cachedAreaStats`（`AreaStats`） |
- * | `GET /api/library/seats` | `LibraryApi.getSeats()`（`SeatResult`） |
- * | `GET /api/library/my` | `LibraryApi.fetchMyBooking()`（`Result<MyBookingInfo?>`） |
- * | `POST /api/library/action` | `LibraryApi.bookSeat` / `swapSeat` / `executeAction` / `switchCampus`（**写**，动作表见 §5.3.1） |
- *
- * ## 逐字段映射（判据是 `CampusLibraryApi` 的 KDoc 表 + `:data` 的实现）
- *
- * - **campus**：`current{code,name}`（`code`= `LibraryCampus.id`，`name`= `displayName`；认不出 =
- *   null，不猜）`+ campuses[]`（三校区表 `LibraryCampus.entries`）`+ queryableFloors[]`
- *   （当前校区的 `floorCodes`；current 为 null 时 null）`+ canBook/hasSeatPlan`（能力开关，§4/§2）；
- * - **areas**：`?campus=&floor=`（`campus` 当前不参与查询：座位系统跟着账号的 `rplace` 走，
- *   与 campus-api 同一条限制；`floor` 缺省 = 当前校区全部楼层，逐层拉一次）。每行
- *   `{code, name, floor, available, total}`；`scount` 只把**有统计**的区域填 total/available
- *   （`:data` 的 `filterScount` 就是这条判据 —— 「统计没到」的区域 available/total 为 null，
- *   不拿 0 冒充）。`totals{}` 与 `areas[]` 同源（同一份 `cachedAreaStats`）；
- * - **seats**：`?area=` 必填 ⇒ 400。`SeatResult.Success` → `{area, total, available, seats[]}`；
- *   `AuthError` / `Error` → 502（上游问题，`FriendlyError` 文案）。`time` 参数**收下但不传给
- *   上游**：`:data` 的 `getSeats` 只有 `area` 一维（`qseat?sp=`），时间维度是 TODO（见返回报告）；
- * - **my**：`{my: MyBookingInfo|null}`。`success(null)` = 页面明确说「没有预约」⇒ `my: null`
- *   （§4：null = 上游明确说没有，≠ 空对象）；`failure` = 502。
- *   `actionUrls` = 页面上那几个动作**→ 上游那条地址**（`LibraryApi.MyBookingInfo.actionUrls` 原样投影）。
- *   客户端只把它当**不透明句柄**（认得出自己刚拿到的那一条）；「要执行哪个动作」说的是 `action` 码，
- *   地址由服务端自己从当前预约页上取 —— 这一层不让客户端指定「拿我的会话去打哪个地址」（§5.3.1）。
- *
- * ## 能力开关
- *
- * `canBook = true`：`/api/library/action` 是本层实现的**真**写端点（约座 / 换座 / 签到 / 中途离开 /
- * 中途返回 / 退座 / 切校区），写路径一行未改地走 `:data`。`hasSeatPlan = true`：布局与底图在 `:data`
- * 里都在 —— 但**布局/底图端点不在 §5 的 library 那几条里**，所以那一档还是 P2（`:web` 侧据此报
- * `false`，见 §5.4）：`canBook` 说的是「能约座」，不是「能看平面图」，两件事各报各的。
- *
- * @param session 会话装配；图书馆站点从 `session.sessionManager` 取。
- */
+/** `/api/library*`。 */
 internal fun Route.libraryRoutes(session: ServeSession) {
     route(LIBRARY_SEGMENT) {
 
@@ -188,10 +149,7 @@ internal fun Route.libraryRoutes(session: ServeSession) {
             }
         }
 
-        // ── 写：约座 / 换座 / 签到 / 中途离开 / 中途返回 / 退座 / 切校区 ────────
-        //
-        // 一个端点、一条动作轴（`data.action`），不是七个路径：这些动作共用同一条会话、同一套失败码、
-        // 同一份信封，拆开只会多六处要同步的形状。动作表与请求/响应例子在契约 §5.3.1。
+        // ── 写：约座 / 换座 / 签到 / 中途离开 / 中途返回 / 退座 / 切校区，一个端点按 `data.action` 分（契约 §5.3.1）──
         post(LIBRARY_ACTION) {
             if (!session.authenticated) return@post call.respondLoginRequired()
             val body = call.receiveOrNull<LibraryActionRequest>()
@@ -268,12 +226,7 @@ internal fun Route.libraryRoutes(session: ServeSession) {
 
 // ── 写路径的数据模型（客户端形状）───────────────────────────────────────────
 
-/**
- * `POST /api/library/action` 的请求体。
- *
- * 七个动作共用这一个形状（动作表与例子见契约 §5.3.1）：[action] 说「做什么」，其余字段按动作取用。
- * 未知的 [action] 或缺了这个动作要的字段 ⇒ 400。
- */
+/** `POST /api/library/action` 的请求体。 */
 @Serializable
 internal data class LibraryActionRequest(
     /** 动作码：`seat` / `change` / `signin` / `leave` / `back` / `cancel` / `switch_campus`。 */
@@ -291,12 +244,9 @@ internal data class LibraryActionRequest(
 /** `POST /api/library/action` 成功时的 `data`。 */
 @Serializable
 internal data class LibraryActionResult(
-    /**
-     * 动作做成了没有。**成功响应里恒为 `true`** —— 失败走 4xx + 信封的 `message`（§4：一条信息不出现
-     * 两种写法）。留着这个字段是让「写动作的结果」在 `data` 里显式可见，客户端不用从 HTTP 码反推。
-     */
+    /** 动作做成了没有。 */
     val ok: Boolean,
-    /** `:data` 的 `BookResult.message` 原样转发（「✓ 座位 A01 预约成功！」这种，已是中文短句）。 */
+    /** `:data` 的 `BookResult.message` 原样转发（已是中文短句）。 */
     val message: String,
 )
 
@@ -326,13 +276,7 @@ private suspend fun ApplicationCall.respondLibraryAction(what: String, action: s
 
 // ── 动作码（契约 §5.3.1）────────────────────────────────────────────────
 
-/**
- * 四个 `/my/` 页面动作 → 「我的预约」页上那个按钮的**文案**。
- *
- * 这批文案不是这里发明的：`:data` 的 `LibraryPages.labelOfActionUrl` / `actionVerdict` 用的就是它们
- *（「入馆签到」从页面上消失 = 签到成功），`MyBookingInfo.actionUrls` 的键也是它们。所以这张表就是把
- * 线上词表接到 `:data` 词表上的那一处 —— 别再起第二套名字。
- */
+/** 四个 `/my/` 页面动作 → 「我的预约」页上那个按钮的文案。 */
 private val LIBRARY_PAGE_ACTION_LABELS = mapOf(
     LIBRARY_ACTION_SIGNIN to "入馆签到",
     LIBRARY_ACTION_LEAVE to "中途离开",
@@ -373,7 +317,7 @@ internal data class LibraryCampusData(
     val current: LibraryCampusDto? = null,
     val campuses: List<LibraryCampusDto>,
     val queryableFloors: List<String>? = null,
-    /** 能力开关：本部署能预约/换座/执行动作（写端点是 P1，能力如实报）。 */
+    /** 能力开关：本部署能预约/换座/执行动作。 */
     val canBook: Boolean,
     /** 能力开关：布局与平面图端点都在（P0 不投影，P1 接）。 */
     val hasSeatPlan: Boolean,
@@ -429,20 +373,13 @@ internal data class MyBookingInfoDto(
     val seatId: String? = null,
     val area: String? = null,
     val statusText: String? = null,
-    /**
-     * 「取消预约」「入馆签到」… → **上游那条动作地址**（见文件头：客户端只当不透明句柄，
-     * 「要做什么」由 `/api/library/action` 的 `action` 说）。
-     */
+    /** 「取消预约」「入馆签到」… → 上游那条动作地址（见文件头）。 */
     val actionUrls: Map<String, String> = emptyMap(),
 )
 
 // ── 会话缝与常量 ─────────────────────────────────────────────────────
 
-/**
- * 把会话内核的 [SiteSession] 包成 `:data` 的 [LibrarySession] 缝 —— 与桌面端的
- * `SiteBackedLibrarySession` 同一段代码（`:server` 是独立模块，那里的是 private，这里重写一份；
- * 三行转发、每一行的理由都在 [LibrarySession] 的 KDoc）。
- */
+/** 把会话内核的 [SiteSession] 包成 `:data` 的 [LibrarySession] 缝。 */
 private class ServerLibrarySession(private val site: SiteSession) : LibrarySession {
 
     override val client: OkHttpClient get() = site.client

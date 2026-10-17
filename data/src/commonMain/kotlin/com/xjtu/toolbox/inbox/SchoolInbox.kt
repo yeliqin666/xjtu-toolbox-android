@@ -23,17 +23,7 @@ import java.time.format.DateTimeFormatter
 /**
  * 学校的消息、事务中心待办、预约中心和校车预约。四个服务都只认一网通办的 `x-id-token`，
  * 所以全挂在一网通办站点上发请求，token 失效时由它自动重登。
- *
- * 它从 `:app` 搬进同包的 `:data`（桌面端第 12 条真数据路由：消息收纳 —— 桌面要自己登一网通办、
- * 自己去这四路取数），**类名与包路径一字未改**：`:app` 的 `HomeStatsRefresher` 与 `AppInboxSource`
- * 里那些引用一行都不用改。被替换的写法只有两处：
- *
- *  1. `android.util.Log` → `:core` 的 [Log]；
- *  2. [bookingTodo] 原来借 `:app` 的 `OwnInbox.todo(...)` 造条目 —— 当时那个对象在 `:app`，所以这里把
- *     那一行**逐字段摊开**成同一个 [InboxItem]（id/分类/来源/标题/时刻/无路由，一字不差）。
- *     ⚠️ `OwnInbox` 已于 2026-10-14 搬进 `:core`（`docs/desktop-port-plan.md` §16.5 的第 2 条），
- *     但**这里不改成调它**：本次是重构收尾，`:data` 这一处的行为一字未动 —— 两处现在是同一套口径的
- *     两份写法（搬 `OwnInbox` 那次也没把这一行收回去）。
+ * ⚠️ [bookingTodo] 与 `:core` 的 `OwnInbox.todo(...)` 是同一口径的两份写法，改一处要同步另一处。
  */
 object SchoolInbox {
     private const val TAG = "SchoolInbox"

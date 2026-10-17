@@ -8,24 +8,7 @@ import kotlin.test.assertFailsWith
 import kotlin.test.assertTrue
 import kotlinx.coroutines.runBlocking
 
-/**
- * `:data` 的 `JwxtScheduleApi`（三端唯一的课表取数）对着 `:testkit` 的 `JwxtFakeUpstream` 逐字段读。
- *
- * ## 这一份钉的是什么
- *
- * 搬迁前课表取数有**两份**：`:app` 的 `schedule/ScheduleApi.kt`（全的，含调停补课合并）与
- * `:data` 的 `JwxtScheduleApi`（只有 `rows()`/`termStart()` 的减法版，`:server` 的 serve 端点用）。
- * 合并之后一个类两条路都在，这份测试钉住的是**它们各自的口径**：
- *
- * - [JwxtScheduleApi.rows] 仍是**排课原样**：夹具给 3 行就回 3 行，教室还是调课前的那个 ——
- *   它是 `/api/jwxt/schedule` 的契约面，多合一层就等于偷偷改了 `:server` 发出去的 JSON。
- * - [JwxtScheduleApi.schedule] 才是**合过调停补课**的那一份：第 5 周那节课换到新教室，
- *   于是多出一条只在第 5 周、在新教室的行，原行少掉第 5 周。
- *
- * 断言里的字符串全部来自夹具常量（`JwxtFakeUpstream.SCHEDULE_1_*` / `CHANGE_*` / `EXAM_*`），
- * 不是从实现里抄回来的：夹具那三行刻意留了缺键与「数字给成 JSON number」的形状，
- * 所以「缺键读空串」「数字按文本投影」这两条口径在断言里是看得见的。
- */
+/** `:data` 的 `JwxtScheduleApi`（三端唯一的课表取数）对着 `:testkit` 的 `JwxtFakeUpstream` 逐字段读。 */
 class JwxtScheduleApiJvmTest {
 
     private fun apiUnder(site: com.xjtu.toolbox.auth.SiteSession) = JwxtScheduleApi(site)
@@ -65,7 +48,6 @@ class JwxtScheduleApiJvmTest {
         }
     }
 
-    // ── schedule()：合并调停补课（搬迁前 :data 缺的那一半）────────────
 
     @Test
     fun `schedule 把调课合进课表：原行挖掉那一周、新位置另起一条`() {
@@ -79,7 +61,6 @@ class JwxtScheduleApiJvmTest {
             assertEquals(JwxtFakeUpstream.SCHEDULE_1_COURSE, moved.courseName)
             assertEquals(JwxtFakeUpstream.SCHEDULE_1_DAY, moved.dayOfWeek)
             assertEquals(JwxtFakeUpstream.SCHEDULE_1_START, moved.startSection)
-            // 只在被调的那一周上：位串就是夹具的 `XSKZC`，逐字符相等（第 5 位为 1，其余 0）
             assertEquals(JwxtFakeUpstream.CHANGE_BITS, moved.weekBits)
             assertEquals(
                 1,

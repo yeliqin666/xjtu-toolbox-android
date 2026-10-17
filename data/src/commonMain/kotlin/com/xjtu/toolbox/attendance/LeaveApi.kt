@@ -13,12 +13,7 @@ import okhttp3.RequestBody.Companion.toRequestBody
 import java.net.URLEncoder
 import java.util.UUID
 
-/**
- * 请假（`kq.xjtu.edu.cn` 学生请假）：学期窗口 / 流程预览 / 分页 / 附件上传 / 提交 / 撤回 / 销假。
- *
- * 从 `:app` 的 `attendance/LeaveApi.kt` 整份搬进 `:data`（与 `AttendanceApi` 同一批）：文件位置
- * 变了，字段口径一行未改；`LeaveType` / `LeaveRecord` 等模型与 `leaveStatusLabel` 早就在 `:core`。
- */
+/** 请假（`kq.xjtu.edu.cn` 学生请假）：学期窗口 / 流程预览 / 分页 / 附件上传 / 提交 / 撤回 / 销假。 */
 class LeaveApi(private val site: SiteSession) {
 
     private val jsonType = "application/json".toMediaType()

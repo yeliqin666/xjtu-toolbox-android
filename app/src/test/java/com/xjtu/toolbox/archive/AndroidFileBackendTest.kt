@@ -4,13 +4,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Test
 import java.io.File
-/**
- * S3：Android `files` 层投影的验收（§2.3 / §8.7 的 `data_cache*` 位置解析）。
- *
- * Android 单测没有真 `Context`，但 [AndroidFileBackend] 只吃两个 `java.io.File` 根 ⇒ 注入临时目录
- * 就能跑「`files/agent_sessions/…` ⇄ `filesDir/…`」「`files/schedule/<key>.json` ⇄
- * `cacheDir/data_cache<suffix>/<key>.json`」与「`.tmp` 残片被忽略」三条断言。
- */
+/** Android `files` 层投影的验收（§2.3 / §8.7 的 `data_cache*` 位置解析）。 */
 class AndroidFileBackendTest {
 
     private fun newTempDir(prefix: String): File {

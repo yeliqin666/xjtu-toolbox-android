@@ -12,13 +12,6 @@ import kotlinx.datetime.LocalTime
  * 独立出来是因为消费者很多：日程页的考试卡片和列表、常驻的倒计时横幅、
  * 屁岱的倒计时气泡、今日栏的「接下来」。日期、时间的解析容错和「快考试了」的阈值
  * 都只该有一份，否则会出现气泡说「还有 3 天」、卡片却还没变红这种前后不一。
- *
- * 从 `:app` 的 `schedule/ExamCountdown.kt` 搬进 commonMain —— **逻辑一行没改**，只换了两样：
- *  1. `java.time` → `kotlinx.datetime`（`LocalDate`/`LocalTime`/`LocalDateTime`，
- *     `ChronoUnit.DAYS.between(a, b)` → `(b.toEpochDays() - a.toEpochDays())`）；
- *  2. 「此刻/今天」的默认值走 `:core` 的 [nowInSystemZone] / [todayInSystemZone]
- *     （与 `java.time.*.now()` 同一个系统默认时区）。
- *     原来的 `fromCache(ctx)` 要去读 `DataCache`，留在 `:data`（见 `ExamCountdownCache.kt`）。
  */
 object ExamCountdown {
 
@@ -60,10 +53,7 @@ object ExamCountdown {
      * 教务的 `examDate` 有 `2026-01-05` 和 `2026年1月5日` 两种写法，都见过，都要认。
      * 认不出的当作没有日期直接丢掉——宁可少提醒一场，也不能把日期算错了去催用户。
      *
-     * 月、日必须按一位或两位都接受：以前直接用 `LocalDate.parse`，它只认两位，
-     * `2026年1月5日` 换成横杠以后是 `2026-1-5`，解析失败，这场考试就被悄悄当成没有日期，
-     * 倒计时和提醒都会漏掉它。搬迁前这条是 `DateTimeFormatter("uuuu-M-d")` + `STRICT`，
-     * 现在手写三个数字（口径相同：段数不对、数字不对、或日期本身不合法都返回 null）。
+     * 月、日一位两位都要认（`LocalDate.parse` 只认两位，`2026-1-5` 会被当成没日期）；不合法返回 null。
      */
     fun parseDate(raw: String): LocalDate? {
         val s = raw.replace("年", "-").replace("月", "-").replace("日", "").trim()

@@ -12,16 +12,7 @@ import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
 import okhttp3.Request
 
-/**
- * 下载执行器在 **Android 侧的填法** —— `:core` 的 [DownloadEngine] 实现。
- *
- * 方法体是搬屏时从 `:app/media/DownloadManager.kt` 的 `executeDownload` **原样搬出来的**：
- * 同一个 `HttpClients.base` 派生客户端（连接 30 s、读写不设超时）、同样三个请求头、
- * `Range` 续传、416「本地已完整」判成完成、服务器不认 Range 回 200 就从头写、
- * `Content-Range` → 总大小、8 KB 缓冲、`ensureActive()` 让暂停/取消真能中断、
- * 进度每 500 ms 报一次。**只把「写库 / 发进度流」换成 `onProgress` 回调**（它们现在在
- * `:core` 的状态机里），其余一行未改。
- */
+/** 下载执行器在 Android 侧的填法 —— `:core` 的 [DownloadEngine] 实现。 */
 class AppDownloadEngine : DownloadEngine {
 
     // OkHttp 客户端（不设置超时以支持大文件下载）
@@ -62,7 +53,6 @@ class AppDownloadEngine : DownloadEngine {
                 ?.substringAfter('/', "")?.toLongOrNull()
                 ?: response.body.contentLength().takeIf { it >= 0 }?.let { startBytes + it }
                 ?: -1L
-            // 先报一次起点：屏上进度条的初始值来自它（搬迁前是这一句写库 + 发流）
             onProgress(startBytes, totalSize)
 
             RandomAccessFile(file, "rw").use { output ->
@@ -94,23 +84,12 @@ class AppDownloadEngine : DownloadEngine {
     }
 }
 
-/**
- * 下载落盘能力在 **Android 侧的填法** —— `:core` 的 [DownloadFileSystem] 实现。
- *
- * 目录口径与搬迁前逐字一致（见下面那段注释）：应用专属外部目录下的 `ClassReplay/`，
- * 不需要存储权限。要落到公共目录的走 MediaStore（那是 `AppLmsSink` / `AppTranscriptSaver`
- * 的事，与这条队列无关）。
- */
+/** 下载落盘能力在 Android 侧的填法 —— `:core` 的 [DownloadFileSystem] 实现。 */
 class AppDownloadFileSystem(context: Context) : DownloadFileSystem {
 
     private val appContext = context.applicationContext
 
-    // 下载目录：应用专属外部目录，不需要存储权限。
-    //
-    // 不能用 Environment.getExternalStoragePublicDirectory(DIRECTORY_DOWNLOADS)：
-    // 分区存储（Android 10+）下 App 无权往公共 Downloads 写，而清单里只有 INTERNET
-    // 权限，mkdirs() 会静默失败、写文件抛异常。
-    // 需要落到公共目录的走 MediaStore（见 LmsDownloadStore）。
+    // 应用专属外部目录：Android 10+ 分区存储下没有权限写公共 Downloads（mkdirs 会静默失败）。
     private val downloadDir: File by lazy {
         val base = appContext.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS)
             ?: File(appContext.filesDir, "Download")

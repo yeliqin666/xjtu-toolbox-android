@@ -6,18 +6,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertNull
 import kotlin.time.Instant
 
-/**
- * 随 `CommunityChrome` 搬进 :core 的这一批纯逻辑断言。
- *
- * 这三件事以前**没有测试**：帖子/楼层的相对时间（`communityTime`）、@提及的链接化
- * （`linkMentions`）、以及输入框里的 @前缀识别（`mentionQuery`）。搬进 commonMain 时
- * `java.time` 换成了 `kotlinx-datetime`（`DateTimeFormatter` 改手写补零、「昨天」改比
- * `toEpochDays()`），属于「改写」而不是「搬家」，所以这里把每个分支和几条边界钉住 ——
- * 搬迁把文案或分支顺序改坏了，这里先红。
- *
- * `communityTimeOf` 收 `now`/`zone` 两个参数就是为了这个：不然「今天是哪天」「哪个时区的今天」
- * 只能靠真实时钟，测不了跨日/跨年/跨时区。
- */
+/** `CommunityChrome` 的纯逻辑断言。 */
 class CommunityTimeTest {
 
     private val shanghai = TimeZone.of("Asia/Shanghai")
@@ -27,7 +16,7 @@ class CommunityTimeTest {
 
     @Test
     fun `刚刚：未来时间与不到一分钟都算刚刚`() {
-        // 服务器时钟快几秒时上游会给「未来」的时间戳，旧实现用 minutes < 1 接住，必须保留
+        // 服务器时钟快几秒时上游会给「未来」的时间戳，必须当「刚刚」
         assertEquals("刚刚", time("2026-10-07T12:00:30+08:00"))
         assertEquals("刚刚", time("2026-10-07T11:59:30+08:00"))
         assertEquals("刚刚", time("2026-10-07T11:59:01+08:00"))

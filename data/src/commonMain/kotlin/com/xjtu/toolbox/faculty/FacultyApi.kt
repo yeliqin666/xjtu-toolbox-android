@@ -46,12 +46,6 @@ import java.util.concurrent.TimeUnit
  * 6. 主页打不开一律走 [HomepageResult] 降级，不抛异常。
  *
  * ## 它为什么能在 `:data`
- *
- * 两个站点都**免登录** ⇒ 不碰任何会话内核，只做「发请求 + 解析」这一件事：把两处 Android 依赖
- * 换成缝就能整块搬进 `:data`（`:app` 侧引用一个字未改）——
- * `android.util.Log` → `:core` 的 `com.xjtu.toolbox.platform.Log`；
- * 平台自带的 `org.json` → `:core` 的 `AppJson` + kotlinx.serialization。
- * 取值口径逐条对齐（`optString` 那一格是唯一需要自己写助手的地方，见文件末尾的 `orgJsonString`）。
  */
 class FacultyApi(
     private val client: OkHttpClient = defaultClient
@@ -277,7 +271,7 @@ class FacultyApi(
             Log.e(TAG, "advancesearch 未返回 JSON, preview=${body.redactBody(500)}")
             throw RuntimeException("教师检索返回了异常数据，请稍后重试")
         }
-        // 原来这一行是 `JSONObject(body)`：不是 JSON 对象（数组、垃圾体）就抛，别改成静默降级
+        // 不是 JSON 对象（数组、垃圾体）就抛，别改成静默降级
         val json = AppJson.parseToJsonElement(body).jsonObject
         json.arr("teacherData")?.let { arr ->
             return json.safeGet("totalnum").safeInt(arr.size) to
@@ -720,25 +714,7 @@ class FacultyApi(
 
 // ══════ `org.json` 口径的取值助手（搬迁前就是这个口径，别顺手换成「更好看的」） ══════
 
-/**
- * `org.json` 的 `optString(key)` —— **搬迁前的取值口径**，不是「更干净的写法」：
- *
- * | 上游给什么 | 这个函数 | `:core` 的 `safeString` / `safeStringOrNull` |
- * |---|---|---|
- * | 缺字段 | `""` | `""` |
- * | 字符串 | 原样 | 原样 |
- * | 数字 / 布尔 | 文本形式（`5`、`true`） | 同样 |
- * | **JSON null** | **字面量 `"null"`** | `""` |
- * | 对象 / 数组 | 它的 JSON 文本 | `""` |
- *
- * 最后一列就是**不能**直接换成 `:core` 那两个助手的原因：Android 的 `optString` 走
- * `JSON.toString(JSONObject.NULL)` ⇒ `String.valueOf(JSONObject.NULL)` ⇒ `"null"`
- *（AOSP `libcore/org/json/JSON.java`；上游 json.org 那份实现在这一格给的是 fallback，两边不一样，
- * 而 `:app` 跑在 Android 上）。上游确实会夹 null，所以这一格照抄旧行为。
- *
- * 数值那两个不用自己写：`:core` 的 `safeInt` / `safeLong` 与 `optInt` / `optLong` 逐条等价
- *（字符串数字会解析、布尔/对象/数组/JSON null 一律落回默认值），见本类 `parseMember` 的用法。
- */
+/** Android `org.json` 的 `optString(key)` 语义：⚠️ JSON null 给字面量 `"null"`（`:core` 的 `safeString` 给 `""`），所以不能换成 `safeString`。 */
 private fun JsonElement?.orgJsonString(): String = when (this) {
     null -> ""
     // JsonNull 也是 JsonPrimitive，它的 content 就是 "null" —— 正是要的那一格

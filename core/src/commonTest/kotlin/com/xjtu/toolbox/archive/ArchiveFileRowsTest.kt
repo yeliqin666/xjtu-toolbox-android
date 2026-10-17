@@ -7,12 +7,7 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlin.test.Test
 import kotlin.test.assertEquals
 
-/**
- * S3：`files` 层行数组排序的验收（§2.3 的三条排序口径 + `agent_sessions` 的 index）。
- *
- * 这些用例是纯函数断言：喂一个**乱序**的 [JsonArray]，断言排回来的顺序逐字等于 §2.3 给的排序键，
- * 且排序**只重排不改列名**（列名逐字 = 行内键集合原样保留）。
- */
+/** `files` 层行数组排序的验收（§2.3）。 */
 class ArchiveFileRowsTest {
 
     private fun rowsOf(json: String): JsonArray = AppJson.parseToJsonElement(json) as JsonArray
@@ -47,7 +42,6 @@ class ArchiveFileRowsTest {
         )
         val sorted = ArchiveFileRows.sortCustomCourses(rows)
         val keys = (sorted[0] as JsonObject).keys
-        // 逐字照 CustomCourseEntity 的列名（§2.3 只排序，不改键名/值/字段集合）。
         assertEquals(
             setOf(
                 "id", "accountId", "courseName", "teacher", "location", "weekBits", "dayOfWeek",

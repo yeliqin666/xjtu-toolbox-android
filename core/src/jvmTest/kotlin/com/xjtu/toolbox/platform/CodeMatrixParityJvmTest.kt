@@ -13,37 +13,7 @@ import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
-/**
- * 「浏览器那一端的码阵（`:core` commonMain 的 [QrCodec] / [Code128Codec]）与 Android/jvm 那一端的码阵
- * （zxing）**逐模块相同**」这件事的机器可验版本。
- *
- * ## 为什么要有它
- *
- * wasmJs 上没有 zxing（JVM/Android 的 jar）⇒ 浏览器原先画不出矩阵（付款码只画数字、分享码二维码那一格空着）。
- * 本批把编码器按「三端一份」搬进 commonMain，**androidMain / jvmMain 两份 actual 一行未改**
- * （红线：Android 行为逐字不变）。于是「同一串数在两端看起来是同一张码」不能靠嘴说：
- * 这里拿**同一批输入**同时跑两份实现（jvm 那份 actual 就是 zxing），逐格断言 `width` / `height` / 每一个格子。
- *
- * ## 两侧分别是谁（别把这条测试读反了）
- *
- * | 一侧 | 是谁 | 用在哪 |
- * |---|---|---|
- * | [qrCodeModules] / [code128Modules] | jvmMain 的 actual = zxing（与 androidMain 那份**同一份源码**） | Android / 桌面 / serve 模式 |
- * | [QrCodec] / [Code128Codec] | 本批新增的纯 Kotlin 实现 | wasmJs（浏览器） |
- *
- * 所以这条测试通过 = **三端画出来的矩阵是同一张**（Android 与浏览器的付款码/分享码逐模块一致）。
- *
- * ## 还钉了两件「不是假矩阵」
- *
- * ## 还钉了两件「不是假矩阵」
- *
- * 用 zxing 的**解码器**（`MultiFormatReader`）把这一份纯 Kotlin 编出来的矩阵扫回原文 ——
- * 一张「看着像码、扫不出来」的图在解码器面前是过不去的（那是本批明确不许出现的东西）。
- * 扫的这一侧按**屏幕/相机**的真实形状摆图（每个模块 4 像素 + 静默区），判据是「扫回来逐字等于原文」，
- * 一个字都没放宽 —— 为什么不能按「一个模块一个像素」摆，见 [decode] 的 KDoc（那是解码器的一个死角，不是矩阵的问题）。
- * ⚠️ 夹具全是编造的：付款码那一档按 20 位十进制的形状造一串（与 `testkit` 的 `BAR_CODE` 同长度，
- * 但**不是**那一串），分享码那一档用 base64url 字母表随机造 —— 没有真实课表 / 姓名 / 学号。
- */
+/** 浏览器端码阵（[QrCodec] / [Code128Codec]）与 zxing 逐模块相同的机器验证。 */
 class CodeMatrixParityJvmTest {
 
     // ── 二维码：两实现逐格相同 ──────────────────────────────
@@ -110,10 +80,7 @@ class CodeMatrixParityJvmTest {
 
     // ── 夹具与工具 ──────────────────────────────────────────
 
-    /**
-     * 二维码的输入：三端真会喂给这条缝的那几档，加上按长度铺开的一串（版本选择 / 纠错分块 / 交织
-     * 都随长度变；只测一个长度会漏掉多块交织那段）。
-     */
+    /** 二维码的输入：三端真会喂给这条缝的那几档，加上按长度铺开的一串（版本选择 / 纠错分块 / 交织都随长度变；只测一个长度会漏掉多块交织那段）。 */
     private fun qrCorpus(): List<String> {
         val fixed = listOf(
             // 付款码那一档的形状：20 位十进制（夹具是编造的，不是 testkit 里那一串）
@@ -171,26 +138,7 @@ class CodeMatrixParityJvmTest {
         }
     }
 
-    /**
-     * 把 [CodeMatrix] 摆成一张**按像素渲染**的图交给 zxing 的解码器。
-     *
-     * ⚠️ 图的几何按**屏幕/相机**的真实形状给（每个模块 [CELL_PIXELS] 像素 + 静默区），**不是**
-     * 「一个模块一个像素」。这不是为了让它容易过 —— 本批实测（就是这条测试第一次红的真因）：
-     *
-     * | 每模块像素 | 静默区 | zxing 解码 |
-     * |---|---|---|
-     * | 1 | 无 | 通过 |
-     * | 1 | 1~4 个模块 | **失败**（`FinderPatternFinder` 找不到定位图案） |
-     * | 2 / 4 | 1~4 个模块 | 通过 |
-     *
-     * 也就是说失败在**解码器的找定位图案那一步**，与矩阵本身无关（同一个矩阵不留静默区反而扫得出来），
-     * 而这种「一个模块一个像素 + 有白边」的图**任何相机与屏幕都不会产生**。所以这里按 4 px/模块 +
-     * 4 个模块静默区（扫码器要求的下限）摆图；那时二维码与条形码在 1~4 个模块静默区、2~4 px/模块的
-     * 全部组合下都能扫回来 —— 判据一个字没改：扫回来的必须**逐字等于**原文。
-     *
-     * 按进程内的像素数组（`RGBLuminanceSource`）而不是自己写一个 `LuminanceSource`：与 `:app` 侧
-     * zxing 的常规用法同一条路（`RGBLuminanceSource` + `HybridBinarizer`）。
-     */
+    /** 把 [CodeMatrix] 摆成一张按像素渲染的图交给 zxing 的解码器。 */
     private fun decode(matrix: CodeMatrix, format: BarcodeFormat, quietZoneModules: Int): String {
         val cell = CELL_PIXELS
         // 两个方向都要留静默区：条形码那个阵列只有 1 个模块高（渲染方拉伸），上下同样要留白，

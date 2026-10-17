@@ -5,32 +5,7 @@ import java.io.ByteArrayOutputStream
 import java.util.Base64
 import javax.imageio.ImageIO
 
-/**
- * 滑块验证码用的**程序生成夹具图**（`:testkit`，不是任何真人截图）。
- *
- * ## 图长什么样
- *
- * 背景 260x160：平灰（200），左上偏上有一个「缺口」—— 一块 32x32 的深灰（120）区域，
- * 里面再放两个更暗（60）的小块（12x12 方 + 12x6 横条）作为**内部纹理**。滑块 50x50：
- * 透明边 9px，不透明内容与缺口内容逐像素一致。于是「把滑块拖到缺口」= 纹理完全重合。
- *
- * ## 为什么背景图也发 PNG（而不是真站点用的 JPEG）
- *
- * 识别器只吃解码后的字节（`BitmapFactory`/`ImageIO` 都是按文件头嗅探格式），
- * 传输格式不改语义。夹具用 **lossless 的 PNG** 是为了让下面的期望值是**精确**的
- * （JPEG 是有损的，会把边缘磨糊，期望值就得按实际编码再跑一遍才拿得到）。
- *
- * ## 期望值从哪来（先钉住再搬的口径）
- *
- * 搬迁前先在独立的 numpy/纯 Python 复刻里按 `VenueCaptchaSolver` 的算法（alpha 轮廓 →
- * 二值 Sobel → NCC）在这两张图上跑过一遍，数值与下列坐标一致；`:data` 的
- * `VenueCaptchaSolverJvmTest` 把它们钉成断言。关键几何：
- *
- *  - 滑块 alpha bbox 是 `[9,41)`² ⇒ `left = 9`；
- *  - 缺口左边缘在背景 x = [GAP_X] = 150；
- *  - 识别器的 `bestX` = 模板左边缘对齐处 = 150，`moveX = bestX - left = 141`，260 坐标系
- *    下 `targetX` 就是 141（背景宽正好 260）。
- */
+/** 滑块验证码用的程序生成夹具图（`:testkit`，不是任何真人截图）。 */
 object VenueCaptchaFixture {
 
     // ── 几何（与 `VenueFakeUpstream` 的验证码字段对齐：260x160 / 50x50）──

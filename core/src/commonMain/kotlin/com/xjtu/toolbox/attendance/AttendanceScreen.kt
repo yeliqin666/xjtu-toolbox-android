@@ -96,24 +96,11 @@ fun AttendanceScreen(
     /** 本端的取数（Android / 桌面 = `:data` 的 `AppAttendanceSource`；serve 模式 = `:core` 的 `CampusAttendanceApi`，三栏拿不到）。 */
     source: AttendanceSource,
     onBack: () -> Unit,
-    /**
-     * 「快速考勤流水」（`AppRoute.Iclassface`）那一屏的入口。**null = 本端没有那一屏**
-     * （`:web` 的 serve 形态：它的屏在 `:core` 有（`IclassfaceScreen`），但取数端口要
-     * `iclassface` 站点的会话，而契约里没有它的端点）⇒ 顶栏那个图标**不画**
-     *（点了会落到降级页的按钮不摆出来）。
-     */
+    /** 「快速考勤流水」（`AppRoute.Iclassface`）那一屏的入口。 */
     onOpenIclassface: (() -> Unit)? = null,
-    /**
-     * 宿主的 saved state（「上次选的学期」在进程被回收后要还在）。
-     *
-     * Android 走 `createSavedStateHandle()`（与搬迁前同一个，范围照旧能恢复）；桌面没有
-     * SavedStateRegistryOwner ⇒ 内存版 `SavedStateHandle()`（与校园卡 / 社区同一条前例）。
-     */
+    /** 宿主的 saved state（「上次选的学期」在进程被回收后要还在）。 */
     savedState: CreationExtras.() -> SavedStateHandle = { SavedStateHandle() },
-    /**
-     * 请假表单「添加附件」的取文件槽位：Android = 系统多选文件（SAF，与搬迁前同一套，
-     * 读不到的 URI 照旧丢掉）；桌面还没有文件选择宿主 ⇒ 默认返回空（不发附件，表单其余功能照旧）。
-     */
+    /** 请假表单「添加附件」的取文件槽位：Android = 系统多选文件；桌面还没有文件选择宿主⇒ 默认返回空（不发附件，表单其余功能照旧）。 */
     pickEvidenceFiles: suspend () -> List<Pair<String, ByteArray>> = { emptyList() },
 ) {
     val authExpiry = LocalAuthExpiry.current
@@ -434,10 +421,7 @@ private fun RecordList(
 @Composable
 private fun StreamList(
     streams: List<AttendanceStream>,
-    /**
-     * 本端这一份取数真拿得到打卡流水吗（见 [AttendanceCapabilities.streams]）。
-     * `false` 时那张空页说的是「本端拿不到」而不是「暂无」—— 后者会把缺口说成事实。
-     */
+    /** 本端这一份取数真拿得到打卡流水吗（见 [AttendanceCapabilities.streams]）。 */
     supported: Boolean,
     topPadding: androidx.compose.ui.unit.Dp,
     header: @Composable () -> Unit,

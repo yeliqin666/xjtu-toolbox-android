@@ -5,12 +5,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertNull
 import kotlinx.datetime.LocalDate
 
-/**
- * 从 :app 搬进 :core 时只换了壳（JUnit → kotlin.test、`LocalDate.of(y,m,d)` → `LocalDate(y,m,d)`、
- * `dayOfWeek.value` → `dayOfWeek.ordinal + 1`），断言逐条未动 —— 它们钉的是 issue #44 的两层成因
- * （负数向零截断、周次没锚到周一）与「课表没拉到时不得判学期已结束」。
- * 改 :core 的 [TermWeeks] 之前先看这里。
- */
+/** 钉住 issue #44 的两层成因（负数向零截断、周次没锚到周一）与「课表没拉到时不得判学期已结束」。 */
 class TermWeeksTest {
 
     /** 2026 秋季学期，开学日期是周一。 */

@@ -18,25 +18,7 @@ import kotlin.test.assertTrue
 import kotlinx.coroutines.runBlocking
 import kotlinx.io.readByteArray
 
-/**
- * [ReAuthCall] 与 [toKtorReply] 的机制测试 —— 这两件事都是「搬了才敢动 60 个调用点」的前提：
- *
- * 1. **重认证重放**：401 → 回调重认证 → 原样重放一次 → 仍 401 就交给会话抛
- *    （原 `executeWithReAuth` 的 `retried` 语义）；
- * 2. **peek 语义**：okhttp 有 `peekBody(8192)`，Ktor 没有 —— 文本类整读进内存并留前缀；
- *    二进制类不读、保持流式（下载几十 MB 的 PDF 不能整份进堆）。
- *
- * 用 JDK 自带的 `com.sun.net.httpserver.HttpServer`（真 socket、不引依赖），
- * 因为这两件事都发生在「连接与流的层面」，MockEngine 层面测不出来。
- *
- * 原文件在 `app/src/test/java/com/xjtu/toolbox/network/ReAuthCallTest.kt`，随 [ReAuthCall] /
- * [KtorReply] 一起搬进 `:core:jvmTest`。两处刻意的差异：
- *  1. JUnit → `kotlin.test`（:core 的测试壳统一是这个，断言逐条保留；kotlin.test 的
- *     断言信息是**最后一个参数**，所以下面一律用具名 `message =`，与 JUnit 的参数序无关）；
- *  2. 客户端从 `HttpClients.base.asToolboxKtorClient()`（:app 的生产 OkHttpClient）换成
- *     [createToolboxClient] —— 它用的还是同一个 OkHttp 引擎（`ToolboxEngine.jvm.kt`），
- *     而本测试要验的是**重放与 peek 两件事本身**，不依赖 :app 那套 UA/WebVPN 拦截器。
- */
+/** [ReAuthCall] 与 [toKtorReply] 的机制测试。 */
 class ReAuthCallTest {
 
     private lateinit var server: HttpServer

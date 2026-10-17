@@ -5,12 +5,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
-/**
- * 屁岱配置的**模型与口径**（`AgentConfig` 那一份，存取在 `:data` 的 `AgentConfigStore`）。
- *
- * 这些判据以前散在 `:app` 的 `AgentConfigStore.kt` 里、只能靠 Android 单测覆盖；搬进 `:core`
- * 之后三端共用同一份默认值与标签 —— 桌面端的配置页显示的就是这里算出来的字。
- */
+/** 屁岱配置的模型（存取在 `:data` 的 `AgentConfigStore`）。 */
 class AgentConfigTest {
 
     @Test
@@ -36,7 +31,6 @@ class AgentConfigTest {
             "https://example.invalid/v1",
             AgentConfig(provider = AgentConfig.PROVIDER_CUSTOM, baseUrl = "https://example.invalid/v1//").effectiveBaseUrl,
         )
-        // 自定义但没填地址 ⇒ 退回 DeepSeek 的默认（与搬迁前一致：不填就是官方）
         assertEquals("https://api.deepseek.com", AgentConfig(provider = AgentConfig.PROVIDER_CUSTOM).effectiveBaseUrl)
     }
 
@@ -91,10 +85,7 @@ class AgentConfigTest {
         assertTrue("bing" in AgentConfig.RETIRED_SEARCH_ENGINES)
     }
 
-    /**
-     * 浏览器那一端的「配好了没」：key 在 **serve** 上，这一端一个字都拿不到 ⇒ 靠 `keyConfigured` 这一格。
-     * 默认 `false`，所以 Android / 桌面（`apiKey` 就在手边）的判据与搬迁前**逐字相同**。
-     */
+    /** 浏览器那一端的「配好了没」：key 在 serve 上，这一端一个字都拿不到 ⇒ 靠 `keyConfigured` 这一格。 */
     @Test
     fun `keyConfigured：key 不在手上也算配好了，默认 false 时一字不变`() {
         // 本端有 key：这一格从来用不上（`AgentConfigStore.save` 也不会写它）
@@ -107,7 +98,6 @@ class AgentConfigTest {
         assertTrue(onBrowser.apiKey.isEmpty())
         assertTrue(onBrowser.isConfigured)
 
-        // 两边都没配：还是 false（与搬迁前逐字相同的那一条）
         assertFalse(AgentConfig().isConfigured)
     }
 }

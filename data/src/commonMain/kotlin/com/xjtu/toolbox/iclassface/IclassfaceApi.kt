@@ -16,22 +16,6 @@ import org.jsoup.Jsoup
  * 只做「今天刷没刷上卡」这一件事：POST /checkin/records 提交日期，解析返回的
  * 服务端渲染 HTML 表格。不涉及 /wifi/location（教室定位，依赖真实校园网 WiFi
  * 环境，客户端无法稳定复刻，详见 PLAN.md）。
- *
- * ## 它为什么搬进 `:data`
- *
- * 从 `:app` 的 `iclassface/IclassfaceApi.kt` 搬进 `:data`（桌面端第 20 条真数据路由：桌面要自己登
- * `iclassface`、自己查记录）。类名与包路径一字未改，三处跟着走：
- *
- *  - `CheckinRecord` 搬到了 **:core** 的 `iclassface/IclassfaceSource.kt`（它是屏要画的模型；
- *    同名同字段，只是从嵌套类变成顶层类）—— 本文件与 `:core` 的屏在同一个包名下，不需要 import；
- *  - `java.time.LocalDate` → `kotlinx.datetime.LocalDate`（`:data` 只有 jvm/android 两个目标，
- *    两种都编得过；收共享层的类型是为了让端口签名两端一致。`toString()` 同为 ISO `yyyy-MM-dd`，
- *    所以打出去的 `date=` 一个字没变）；
- *  - `android.util.Log` → `:core` 的 `Log`（tag 与级别不变）。
- *
- * 会话失效抛的是 **`SessionExpiredException`**（`:app` 的 `AuthExpiredException` 的子类
- * `SessionExpiredFailure` 在 `:core`）：搬迁前这里抛 `AuthExpiredException`，那时它还在 `:app`。
- * 两端认的都是同一个 `SessionExpiredFailure`，所以屏上那条走向逐字相同。
  */
 class IclassfaceApi(private val site: SiteSession) {
 

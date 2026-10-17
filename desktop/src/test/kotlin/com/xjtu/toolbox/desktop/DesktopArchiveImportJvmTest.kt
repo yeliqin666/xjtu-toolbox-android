@@ -25,16 +25,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
-/**
- * S5 收尾：桌面端的**导入写侧**真的接到 `:core` 的 `StoreArchive.import`（§6.4）之后该成立的那几条。
- *
- * 隔离与 [DesktopArchiveJvmTest] 同一条：`dataRootOverride` + `keyValueStoreRootOverride` 指到临时目录
- * （两个句柄是同一个数据根上的同名文件），每个用例碰过的 store 前后各 `wipeSecureStore` 一次
- * （它同时清掉进程内的实例 memo，否则用例之间会互染）。
- *
- * 断言对象是**解析后的键值**（A11：`.properties` 首行是时间戳注释，字节不可比）与**原来的读法**
- * （A4：`SettingsStore(...).darkMode`、`ScheduleCache.readCurrentTerm(cache)`）。
- */
+/** 桌面端导入写侧接到 `StoreArchive.import`（§6.4）后该成立的几条。 */
 class DesktopArchiveImportJvmTest {
 
     private fun withRoot(block: (File) -> Unit) {
@@ -49,7 +40,7 @@ class DesktopArchiveImportJvmTest {
         }
     }
 
-    /** 一份**真的**档案（走 `:core` 的 `StoreArchive.export`，注入固定时钟 ⇒ 逐字节可复现）。 */
+    /** 一份真的档案（走 `StoreArchive.export`，注入固定时钟 ⇒ 逐字节可复现）。 */
     private fun archiveOf(
         stores: List<StoreSnapshot>,
         files: List<ArchiveFile> = emptyList(),
@@ -59,17 +50,16 @@ class DesktopArchiveImportJvmTest {
     private fun dropArchiveDir(root: File, entries: Map<String, String>): File =
         File(root, DesktopArchiveHost.ARCHIVE_DIR).also { DesktopArchiveIo.writeDirectory(entries, it) }
 
-    /** 端内现状（A7 的「键集合与值零变化」比的就是它）。 */
+    /** 端内现状快照。 */
     private fun storesNow(): Map<String, StoreSnapshot?> {
         val backend = archiveStoreBackend()
         return backend.storeNames().associateWith { backend.readStore(it) }
     }
 
-    /** 数据根下一份 `.properties` 的**解析后键值**（A11：不比字节）。 */
+    /** 数据根下一份 `.properties` 的解析后键值（不比字节）。 */
     private fun props(root: File, name: String): Properties =
         Properties().apply { File(root, "$name.properties").inputStream().use { load(it) } }
 
-    // ── A4 往返可读 ─────────────────────────────────────────────────────────
 
     @Test
     fun `A4 导入之后原来的读法读得到档案里那条`() = withRoot { root ->
@@ -89,7 +79,6 @@ class DesktopArchiveImportJvmTest {
         val settings = SettingsStore(secureKeyValueStore(SettingsStore.APP_SETTINGS_FILE))
         assertEquals("dark", settings.darkMode)
         assertEquals("cards", settings.homeTheme)
-        // 落点就是端内那份文件（A11：比解析后的键值）
         assertEquals("dark", props(root, SettingsStore.APP_SETTINGS_FILE).getProperty("dark_mode"))
         wipeSecureStore(SettingsStore.APP_SETTINGS_FILE)
     }
@@ -118,7 +107,6 @@ class DesktopArchiveImportJvmTest {
             FIXED_NOW.toString(),
             props(root, storeName).getProperty("schedule_current_term${ArchiveCodec.WRITTEN_AT_SUFFIX}"),
         )
-        // 投影读回来时又被折进 writtenAt（A10 的桌面形态）
         assertEquals(FIXED_NOW, archiveStoreBackend().readStore(storeName)!!.writtenAt["schedule_current_term"])
         wipeSecureStore(storeName)
     }
@@ -164,16 +152,11 @@ class DesktopArchiveImportJvmTest {
 
         val older = archiveOf(
             listOf(
-                // 端内更旧的那条：档案里的 at 比端内小 ⇒ 本端胜
                 StoreSnapshot(
                     storeName,
                     mapOf("schedule_current_term" to StoreValue.S("\"2025-2026-2\"")),
                     mapOf("schedule_current_term" to FIXED_NOW - 1),
                 ),
-                // 端内没有的键（另一个 store）⇒ 写进来
-                // 端内没有的键（另一个 store）⇒ 写进来。用两个元素：Properties 的 `\u0000` join
-                // 在**只有一个元素时看不出它是集合**（那条读侧反推的局限在 `JvmStoreBackend.inferValue` 里，
-                // 与导入无关，见报告）
                 StoreSnapshot(
                     "library_favorites",
                     mapOf("favorite_seats" to StoreValue.SetValue(listOf("A-101", "B-2"))),
@@ -199,7 +182,6 @@ class DesktopArchiveImportJvmTest {
         wipeSecureStore("library_favorites")
     }
 
-    // ── A7 坏档案不动端（表驱动） ───────────────────────────────────────────
 
     @Test
     fun `A7 坏档案端内零改动且不落已导入标记`() = withRoot { root ->
@@ -320,7 +302,6 @@ class DesktopArchiveImportJvmTest {
         assertTrue(pending?.check is com.xjtu.toolbox.desktop.archive.ArchiveCheck.Ok)
         assertEquals("list", SettingsStore(secureKeyValueStore(SettingsStore.APP_SETTINGS_FILE)).homeTheme)
 
-        // 第二次（设置页那一行）：标记一致 ⇒ 跳过，措辞也如实
         val text = importStatusText()
         assertTrue(text.startsWith("发现待导入档案 ${DesktopArchiveHost.ARCHIVE_DIR}"), text)
         assertTrue(text.contains("已经导过"), text)

@@ -4,21 +4,10 @@ import com.xjtu.toolbox.schedule.TextbookItem
 import kotlin.test.Test
 import kotlin.test.assertEquals
 
-/**
- * [toJiaocaiTermTextbooks]（`:web` 那一端「本学期我的教材」的映射）的两条钉子。
- *
- * 为什么在这一层测：那一段的数据在**教务**（serve 契约 §5.8 的 `GET /api/jwxt/textbooks`，
- * `:core` 的 [TextbookItem]），而 `TextbookScreen` 的宿主端口吃的是 [JiaocaiTermTextbook]
- * ⇒ 中间这个映射是 `:web` 侧那段代码里**唯一的逻辑**（其余都是把两个端口接起来）。
- * `:web` 现在还没有测试源集（D14 才建），所以把这一层放在 `:core`（两端同一个判据、同一份代码）。
- *
- * 两条与 `:app` 的 `AppJiaocaiTermTextbooks`（读同一份教务数据的落盘缓存）**逐字同口径**：
- * ① 滤掉「无教材」那些行（[TextbookItem.hasSubstantiveTextbook]，与屏上断言的是同一个判据）；
- * ② 只搬那五格（`courseCode` / `price` / `edition` 不进 DTO —— 那一段用不上），顺序原样。
- */
+/** [toJiaocaiTermTextbooks]（`:web` 那一端「本学期我的教材」的映射）的两条钉子。 */
 class TermTextbooksTest {
 
-    /** 正常教材留下、两档「算不上教材」的行被滤掉，五格逐字段搬。 */
+    /** 正常教材留下、两档「算不上教材」的行被滤掉。 */
     @Test
     fun substantiveRowsSurviveAndNonSubstantiveOnesAreDropped() {
         val real = TextbookItem(
@@ -55,10 +44,7 @@ class TermTextbooksTest {
         )
     }
 
-    /**
-     * 映射本身**不添判据、也不滤 ISBN**（占位号是屏那一侧 `realIsbn` 的事），顺序也原样 ——
-     * 顺带钉住「读不到就是空表」（`TextbookScreen` 拿空表就整段不显示，不画一行假数据）。
-     */
+    /** 映射本身不添判据、也不滤 ISBN（占位号是屏那一侧 `realIsbn` 的事），顺序也原样。 */
     @Test
     fun mappingCopiesFiveFieldsInOrderAndKeepsEmptyAsEmpty() {
         val placeholderIsbn = TextbookItem(

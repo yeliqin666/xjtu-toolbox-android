@@ -27,12 +27,6 @@ import top.yukonga.miuix.kmp.window.WindowDialog
 /**
  * 课程自定义颜色：按课程名存、按账号分开。课表和思源学堂共用，同名课程改一处两处生效。
  *
- * 从 :app 搬进 commonMain 的改动只有存储这一处：`Context.getSharedPreferences(...)`
- * 换成 [keyValueStore] —— Android actual 仍是**同名同文件**的 SharedPreferences
- * （`"course_colors" + AccountContext.safeSuffix()`，与搬迁前逐字一致），jvm 走内存、
- * Web 走 localStorage。因此 `init(context)` 连同那个 `lateinit var app: Context` 一起没有了
- * （这正是它能进 commonMain 的原因），`XjtuApp` 里的 `CourseColors.init(this)` 已删。
- *
  * `of()` 用 `contains` 而不是「getInt 的默认值」来区分「用户设过色」与「没设过、按课名哈希
  * 取默认色」—— 后者区分不出来（用户完全可能正好把颜色设成默认色）。
  *
@@ -82,13 +76,7 @@ object CourseColors {
     }
 }
 
-/**
- * 课程集合或用户改色（[CourseColors.revision]）变化时重算；课格只查表，不用每格读一次存储。
- *
- * 从 :app 的 `ScheduleComponents.kt` 搬进 commonMain：它只依赖 [CourseColors.revision] 与
- * [AccountContext]（两个都在 :core），而 :core 的收纳页（作业按科目取课表课程色）也要用它；
- * :app 那份同名声明已删。
- */
+/** 课程集合或用户改色（[CourseColors.revision]）变化时重算；课格只查表，不用每格读一次存储。 */
 @Composable
 fun rememberCourseColors(names: List<String>): Map<String, Color> {
     val revision = CourseColors.revision

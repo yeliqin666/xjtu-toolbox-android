@@ -7,13 +7,7 @@ import com.google.zxing.oned.Code128Writer
 import com.google.zxing.qrcode.QRCodeWriter
 import com.google.zxing.qrcode.decoder.ErrorCorrectionLevel
 
-/**
- * jvm（桌面 / serve 模式）侧的码阵实现：**同一份 zxing**。
- *
- * zxing 的 `core` 是一份纯 Java jar（没有平台绑定），所以桌面这一端与 Android 那一支
- * 逐模块同源：参数、纠错等级、静默区都相同（见 androidMain 那份 actual 的对照表）。
- * 这也是「付款码在桌面真出码」的编码侧 —— 渲染在 `:core` 的 `CodeMatrixView`。
- */
+/** jvm（桌面 / serve 模式）侧的码阵实现：同一份 zxing。 */
 actual fun qrCodeModules(text: String): CodeMatrix? = runCatching {
     QRCodeWriter().encode(
         text, BarcodeFormat.QR_CODE, 0, 0,

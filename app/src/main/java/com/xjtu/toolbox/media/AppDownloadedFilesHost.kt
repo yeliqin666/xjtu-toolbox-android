@@ -11,17 +11,7 @@ import kotlinx.coroutines.withContext
 
 private const val TAG = "AppDownloads"
 
-/**
- * 「文件类下载」那一半在 **Android 侧的填法** —— `:core` 的 [DownloadedFilesHost] 实现。
- *
- * 三句话就是搬迁前下载管理屏里那三处 Android 调用，方法体原样搬出：
- *  - 列表 = `LmsDownloadStore.getAll(context)`（SharedPreferences 登记 + MediaStore 里发现真实文件）；
- *  - 打开 = `Intent.ACTION_VIEW` + `FileProvider` 兜底（`openDownloadedFile`）；
- *  - 删除 = `contentResolver.delete(...)` + `LmsDownloadStore.remove(...)`（原来写在屏上）。
- *
- * 这一层之所以必须留在 `:app`：MediaStore、`Intent`、`ContentResolver` 都是 Android 专属，
- * `:core` 还要编到 wasm。
- */
+/** 「文件类下载」那一半在 Android 侧的填法 —— `:core` 的 [DownloadedFilesHost] 实现。 */
 class AppDownloadedFilesHost(context: Context) : DownloadedFilesHost {
 
     private val appContext = context.applicationContext
@@ -42,12 +32,7 @@ class AppDownloadedFilesHost(context: Context) : DownloadedFilesHost {
     }
 }
 
-/**
- * 下载目录信息弹窗里那两句位置与几条说明（**Android 的口径**）。
- *
- * 搬迁前它们写在屏上；第 2 条说的是「应用专属外部目录」的性质（卸载 App 一并清除），
- * 桌面端没有这条性质 ⇒ 这类文案跟着**实现**走、不跟着屏走，见 [DownloadDirInfo]。
- */
+/** 下载目录信息弹窗里的位置与说明（Android）。 */
 fun appDownloadDirInfo(): DownloadDirInfo = DownloadDirInfo(
     filesLocation = LmsDownloadStore.publicDisplayPath(),
     notes = listOf(
@@ -58,9 +43,7 @@ fun appDownloadDirInfo(): DownloadDirInfo = DownloadDirInfo(
     ),
 )
 
-/**
- * 打开一个**文件类下载**（搬迁前 `DownloadManagerScreen.openDownloadedFile`，逐字搬出）。
- */
+/** 打开一个文件类下载。 */
 private fun openDownloadedFile(context: Context, record: DownloadedFile) {
     runCatching {
         val intent = Intent(Intent.ACTION_VIEW).apply {
@@ -76,10 +59,7 @@ private fun openDownloadedFile(context: Context, record: DownloadedFile) {
     }
 }
 
-/**
- * 播放一个**已下载完的回放文件**（搬迁前 `DownloadManagerScreen.openReplayFile`，逐字搬出）：
- * 先按文件 `Uri` 交给系统选播放器，失败再走 `FileProvider` 给一个能授权的 content Uri。
- */
+/** 播放一个已下载完的回放文件。 */
 fun openReplayFile(context: Context, task: DownloadTask) {
     try {
         val file = File(task.filePath)

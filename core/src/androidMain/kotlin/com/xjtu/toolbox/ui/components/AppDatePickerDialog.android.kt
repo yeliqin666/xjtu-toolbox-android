@@ -10,20 +10,6 @@ import kotlinx.datetime.LocalDate
 import kotlinx.datetime.TimeZone
 import kotlinx.datetime.atStartOfDayIn
 
-/**
- * Android 侧真实现 —— 与搬迁前 :app 的 `ui/components/AppDatePickerDialog.kt` **逐字一致**：
- * 同样的系统月历、同样的深浅色主题选择（`Theme_DeviceDefault_(Light_)Dialog_Alert`）、
- * 同样的 `minDate`/`maxDate` 毫秒换算、同样的 `DisposableEffect` 收尾与「已经关掉的弹窗再
- * dismiss 是空操作」。
- *
- * 三处随搬迁做的替换（都只是类型层面）：
- * - 入口/出口的 `java.time.LocalDate` → `kotlinx.datetime.LocalDate`；
- * - `minDate.atStartOfDay(zone).toInstant().toEpochMilli()` → `minDate.atStartOfDayIn(zone)
- *   .toEpochMilliseconds()`（同为「该日 00:00 的墙上时刻」）；
- * - `ZoneId.systemDefault()` → `TimeZone.currentSystemDefault()`。
- * `initial.monthValue - 1` 变成 `initial.month.ordinal`：都是 0 基月份，与系统的
- * `DatePickerDialog(..., monthOfYear, ...)` 参数一致。
- */
 @Composable
 actual fun AppDatePickerDialog(
     show: Boolean,

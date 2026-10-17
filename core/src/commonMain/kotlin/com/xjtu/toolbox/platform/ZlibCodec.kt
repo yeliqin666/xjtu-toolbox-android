@@ -1,69 +1,12 @@
 package com.xjtu.toolbox.platform
 
-/**
- * **zlib 格式的压缩 / 解压**（纯 Kotlin，三端同一份）—— 浏览器端靠它把分享码那条链走通。
- *
- * ## 这个格式到底是什么（先纠一处旧说法）
- *
- * 分享码那条链一直是「压缩 → URL-safe Base64」，而那里的「压缩」**不是**原始 deflate：它是
- * `new java.util.zip.Deflater(Deflater.BEST_COMPRESSION)` 产出的 **zlib 流** ——
- * 两字节头（`0x78 0xDA` = 32K 窗口 + 最高压缩档）+ deflate 数据 + 4 字节大端 Adler-32。
- * 实测（`:core:jvmTest` 的 `ShareCodeInteropJvmTest` 与 `ZlibCodecJvmTest` 都钉着这条）：
- *
- * ```
- * zlib level 9: 78 DA 33 AD 79 39 63 FF ... 00 E0 63 1E F3   ← 尾 4 字节 = adler32(E0631EF3)
- * ```
- *
- * `platform/Deflate.kt` 的 KDoc 原先写「原始 deflate，无 zlib 头 / 无 gzip 头」，**那句是错的**
- * （默认构造器就是带 zlib 头的那一种；也正因为如此，喂给它一串随便的字节会得到
- * `DataFormatException: incorrect header check`，而不是「解出一堆乱码」）。这一份实现按**真实格式**
- * 写：解压时认 zlib 头与 Adler-32，压缩时照样加上。旧说法这一次一并改正（`Deflate.kt` 那份 KDoc）。
- *
- * ## 为什么要有这一份
- *
- * `platform/Deflate.kt` 那条缝的 androidMain / jvmMain 两份 actual 用的是 `java.util.zip`
- * （`Deflater` / `Inflater`），`:core` 的 commonMain 里没有 ⇒ wasmJs 那一端原先**如实返回 null**。
- * 这一份就是补上浏览器那一端：**纯 Kotlin、放 commonMain**，不是在 `:web` 里另写一份。
- *
- * ## 与 `java.util.zip` 的关系（逐条对齐的地方与**不**对齐的地方）
- *
- * | 这一格 | 这一份 | `java.util.zip` | 是否一致 |
- * |---|---|---|---|
- * | 格式 | zlib（头 + deflate + Adler-32） | 同 | **一致**（所以两端互相解得开） |
- * | 压缩**字节** | 固定 Huffman（`BTYPE=01`）+ 贪心 LZ77 | 动态 Huffman（`BTYPE=10`）+ zlib 的惰性匹配 | **不一致**（同输入压出来的字节不同；压缩率略低） |
- * | 解压能力 | 存储块 / 固定 Huffman / 动态 Huffman 三种块都认 | 同 | **一致** |
- * | 头部不对 / 数据损坏 | null | `DataFormatException`（由 `runCatching` 变成 null） | 一致 |
- * | 输入被截断 | 返回已经解出来的那一段 | 同（`inflate` 返回 0 且 `needsInput` 就停） | 一致 |
- * | 输出上限 [inflate] 的 `maxBytes` | 到上限**正好**停下 | 按 4KB 分块，最多**多解** 4095 字节 | 更严（两边都会被上层按字段形状拒掉） |
- *
- * 「压缩字节不同」这件事为什么不算互认失败：分享码的语义是**两端都能解开同一份档案**，
- * 而不是「同一份档案压出来的字节必须一样」。所以 ① 那边（矩阵）要求逐模块相同，
- * ② 这边要求的是**互相解得开** —— 两个方向都在 `ShareCodeInteropJvmTest` 里钉住了。
- *
- * ## 算法出处
- *
- * 压缩与解压的格式、块类型、长度/距离表、固定 Huffman 的码长、Adler-32 都来自 RFC 1950 / 1951
- * （deflate 规范）；「按码长正整数字典序解码」用的是规范描述的那套经典做法（先按栈式累加码值，
- * 再与每个长度的首码比较）。没有引任何第三方压缩库（树外依赖只多了一份标准表的常数）。
- */
+/** zlib 格式的压缩 / 解压（纯 Kotlin，三端同一份）—— 浏览器端靠它把分享码那条链走通。 */
 internal object ZlibCodec {
 
-    /**
-     * 压一段字节（zlib 流）。与 `java.util.zip.Deflater(Deflater.BEST_COMPRESSION)` 同一种封装、
-     * 但**压缩出来的字节不一定相同**（见文件头那张表）。
-     *
-     * @return null = 压缩过程中出错（正常输入不会走到；与两份 actual 的 `runCatching` 同一条口径）
-     */
+    /** 压一段字节（zlib 流）。 */
     fun deflate(raw: ByteArray): ByteArray? = runCatching { ZlibDeflater(raw).run() }.getOrNull()
 
-    /**
-     * 解压一段 zlib 流。
-     *
-     * @param maxBytes 输出上限：分享码来自别人，别让一段几百字节的输入膨胀成几十兆。
-     *   达到上限就停下并返回已经解出来的那一部分（与 `java.util.zip` 那条循环的判据同义，
-     *   只是这里**正好**停在上限，不像它按 4KB 分块最多多解 4KB）。
-     * @return null = 头部不对 / 数据损坏（与 `DataFormatException` 同一档），或输出为 null 以外的错误
-     */
+    /** 解压一段 zlib 流。 */
     fun inflate(bytes: ByteArray, maxBytes: Int): ByteArray? = runCatching {
         ZlibInflater(bytes, maxBytes).run()
     }.getOrNull()
@@ -90,14 +33,7 @@ internal fun adler32(bytes: ByteArray, from: Int = 0, to: Int = bytes.size): Int
     return (b shl 16) or a
 }
 
-/**
- * 解压一个 zlib 流（RFC 1951 的三种块 + RFC 1950 的头与尾巴）。
- *
- * 输入被截断时**不**当错误：返回已经解出来的那一段（与 `java.util.zip.Inflater` 的行为一致，
- * 也是那条缝 KDoc 里「达到上限就停下并返回已经解出来的那一部分」的同一条口径）。真正的
- * 结构错误（头部、Huffman 表、块类型、距离越界、Adler-32 对不上）一律抛异常，由 [ZlibCodec.inflate]
- * 变成 null。
- */
+/** 解压一个 zlib 流（RFC 1951 的三种块 + RFC 1950 的头与尾巴）。 */
 private class ZlibInflater(private val input: ByteArray, private val maxBytes: Int) : DeflateBitSource {
 
     private var pos: Int
@@ -127,7 +63,6 @@ private class ZlibInflater(private val input: ByteArray, private val maxBytes: I
     fun run(): ByteArray = try {
         decodeStream()
     } catch (_: TruncatedInput) {
-        // 输入被截断不是错误（与 `java.util.zip` 同一条口径）：把已经解出来的那一段交出去
         takeOutput()
     }
 
@@ -292,20 +227,11 @@ private class ZlibInflater(private val input: ByteArray, private val maxBytes: I
         out[outSize++] = byte.toByte()
     }
 
-    /**
-     * 输入被截断的信号（换成「返回已经解出来的那一段」，不是错误）。
-     *
-     * 刻意**不**覆盖 `fillInStackTrace`（JVM 上有这个成员，wasm 上没有 —— 实测 wasm 目标直接报
-     * 「overrides nothing」）。这条信号每读一位都可能抛，代价是有的，但它只在**被截断的**输入上出现，
-     * 正常分享码一次也不会抛。
-     */
+    /** 输入被截断的信号（换成「返回已经解出来的那一段」，不是错误）。 */
     private object TruncatedInput : RuntimeException()
 
     private companion object {
-        /**
-         * RFC 1951 §3.2.6 的固定 Huffman 表：字面/长度码的码长是 0-143→8、144-255→9、256-279→7、280-287→8，
-         * 距离码是 32 个 5 位的码。两张表都在流里**不出现**（规范定死的），所以直接建好放在这里。
-         */
+        /** RFC 1951 §3.2.6 的固定 Huffman 表。 */
         val FIXED_LITERAL = Huffman(
             IntArray(288) { i ->
                 when {
@@ -358,12 +284,7 @@ internal val DIST_EXTRA = intArrayOf(
     7, 7, 8, 8, 9, 9, 10, 10, 11, 11, 12, 12, 13, 13,
 )
 
-/**
- * 一张 Huffman 表（按码长表建出来），解码时用「按码长累加码值」的经典做法。
- *
- * 为什么不用查表（快表）：这里解的是几百字节到几十 KB 的分享码，逐位走那 15 层循环的开销可以忽略；
- * 少一张表就少一处可能与规范不一致的地方。
- */
+/** 一张 Huffman 表（按码长表建出来），解码时用「按码长累加码值」的经典做法。 */
 internal class Huffman(lengths: IntArray, private val numSymbols: Int) {
 
     private val counts = IntArray(MAX_BITS + 1)

@@ -7,13 +7,6 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.unit.IntSize
 import kotlin.math.max
 
-/**
- * Android 侧真实现 —— 与搬迁前 `:app/library/LibrarySeatPlan.kt` 里那两段**逐字同构**
- * （`inJustDecodeBounds` 读原始尺寸；按 [maxDim] 取 2 的幂 `inSampleSize`；`RGB_565`）。
- *
- * 这里只差一处：原来尺寸是在 `decodePlanImages` 里读的，现在由那个纯逻辑函数调 [decodeImageSize]。
- * 每个文件被解析一次的次数、解码参数、返回的位图完全没变。
- */
 actual fun decodeImageSize(bytes: ByteArray): IntSize? {
     val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
     BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
@@ -31,11 +24,6 @@ actual fun decodeImage(bytes: ByteArray, size: IntSize, maxDim: Int): ImageBitma
     return BitmapFactory.decodeByteArray(bytes, 0, bytes.size, opts)?.asImageBitmap()
 }
 
-/**
- * Android 侧真实现 —— 与搬迁前 `:app/venue/VenueCaptchaSolver.kt` 里那段
- * `BitmapFactory.decodeByteArray` + `getPixels` 逐字同构：全尺寸、ARGB_8888、非预乘。
- * 位图在函数内即时回收（识别器只拿像素，不画）—— 与搬迁前 `solve` 的 finally 同一件事。
- */
 actual fun decodeImagePixels(bytes: ByteArray): ImagePixels? {
     val bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size) ?: return null
     return try {
@@ -47,14 +35,10 @@ actual fun decodeImagePixels(bytes: ByteArray): ImagePixels? {
     }
 }
 
-/** Android 侧：全尺寸 ARGB_8888 解码（默认配置）—— `SliderCaptchaView` 搬迁前的原样路径。 */
+/** Android 侧：全尺寸 ARGB_8888 解码。 */
 actual fun decodeImageFull(bytes: ByteArray): ImageBitmap? =
     BitmapFactory.decodeByteArray(bytes, 0, bytes.size)?.asImageBitmap()
 
-/**
- * Android 侧真实现 —— 与搬迁前 `:app/jiaocai1/Jiaocai1PageLoader.decode` 里那段**逐字同构**
- * （按 `bounds.outWidth` 选 2 的幂 `inSampleSize`、`RGB_565`、DETAIL 档再降一档）。
- */
 actual fun decodeImageDownToWidth(
     bytes: ByteArray,
     size: IntSize,
@@ -73,6 +57,5 @@ actual fun decodeImageDownToWidth(
     return BitmapFactory.decodeByteArray(bytes, 0, bytes.size, opts)?.asImageBitmap()
 }
 
-/** Android 侧：与搬迁前 `Jiaocai1PageLoader` 那个 `LruCache` 的容量表达式**同一句话**。 */
 actual fun imageMemoryCacheBudgetBytes(): Int =
     (Runtime.getRuntime().maxMemory() / 8).coerceAtMost(64L * 1024 * 1024).toInt()

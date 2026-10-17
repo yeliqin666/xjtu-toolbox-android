@@ -15,21 +15,7 @@ import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.setMain
 
-/**
- * 加餐券**编排**（[CouponViewModel]）在 JVM 上的口径 —— 搬屏之前先钉住，搬完一个字不改。
- *
- * ## 它钉的是什么
- *
- * 屏搬进 `:core` 时，取数从 `CouponApi(site)` 换成了 [CouponSource] 端口（IO 由实现方自己包），
- * 首页摘要从 `HomeStats.push(appContext, …)` 换成了 [CouponViewModel] 的 `onSummary` 槽位
- * —— **分页 / 换分类取消上一条 / 翻页失败只提示不丢列表 / 领取先查详情再激活**的编排一行未改。
- * 这里用一个记账用的假 [CouponSource] 把这些行为钉住。
- *
- * ## 为什么在 jvmTest
- *
- * 与 `TranscriptViewModelTest` 同一条理由：`viewModelScope` 要一个 Main 调度器，
- * `Dispatchers.setMain` 只在 JVM 侧稳定。
- */
+/** 加餐券编排（[CouponViewModel]）在 JVM 上的口径。 */
 class CouponViewModelTest {
 
     @BeforeTest
@@ -137,17 +123,10 @@ class CouponViewModelTest {
         kotlinx.coroutines.withTimeoutOrNull(1_000L) { vm.authExpired.first() } != null
 }
 
-/**
- * 「站点登录态已失效」的假异常：只实现 `:core` 的标记接口（内容是 `:app` 的
- * `AuthExpiredException` 那一族的形状，而 `:core` 看不见它们）。
- */
+/** 「站点登录态已失效」的假异常。 */
 private class FakeSessionExpired : RuntimeException("登录态已失效"), SessionExpiredFailure
 
-/**
- * 记账用的假取数实现：把**调用顺序**记下来，并允许在某一步注入失败。
- *
- * 不碰网络、不碰 Android —— 它存在的意义只有一个：让「搬屏时编排一行没改」这句话可验证。
- */
+/** 记账用的假取数实现：把调用顺序记下来，并允许在某一步注入失败。 */
 private class FakeCouponSource : CouponSource {
 
     val calls: MutableList<String> = mutableListOf()

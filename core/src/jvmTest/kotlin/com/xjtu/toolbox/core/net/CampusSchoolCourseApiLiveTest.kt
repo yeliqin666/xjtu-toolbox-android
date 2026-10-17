@@ -5,16 +5,7 @@ import kotlinx.coroutines.runBlocking
 import kotlin.test.Test
 import kotlin.test.assertTrue
 
-/**
- * 全校课表的 campus-api 映射**真数据**验证（本机 campus-api `127.0.0.1:3099`）。
- *
- * 默认**跳过**（依赖本机服务，不能进 CI）：
- *   `TOOLBOX_PROBE_LIVE=1 ./gradlew :core:jvmTest`
- *
- * 为什么值得有：Web 端的 `SchoolCourse` 是从 campus-api 的**归一投影**拼出来的，
- * 字段名与 :app 用的上游原始键**不同**（`classNo`/`classGroup`/`courseKind`/`id`…）。
- * 这段映射没有别的东西盯着 —— 上游或投影一改，只有这条断言会红。
- */
+/** 全校课表的 campus-api 映射真数据验证（本机 campus-api `127.0.0.1:3099`）。 */
 class CampusSchoolCourseApiLiveTest {
 
     private val enabled: Boolean = System.getenv("TOOLBOX_PROBE_LIVE") == "1"

@@ -5,13 +5,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertNull
 import kotlin.time.Instant
 
-/**
- * `deadlineInstant()` / `remaining()` 的口径测试。
- *
- * 这两条是**通知文案**的源头（「[课程] 作业 · 剩 1 天 3 小时」），错一小时就会让人以为
- * 还有时间。搬进 :core 时把 `java.time` 换成了 `kotlin.time`，所以这里同时钉住
- * **三种上游时间形状**（Z / 偏移量 / 带时区名）解析成同一个时刻。
- */
+/** `deadlineInstant()` / `remaining()` 的口径测试。 */
 class LmsDueFormatTest {
 
     private fun at(iso: String) = Instant.parse(iso)
@@ -24,8 +18,6 @@ class LmsDueFormatTest {
         // 带偏移量
         assertEquals(z, LmsActivity(deadline = "2026-09-14T08:00:00+08:00").deadlineInstant())
 
-        // 带时区名（java.time.ZonedDateTime 的形状）：ISO 的 Instant.parse 不认 `[Asia/Shanghai]`，
-        // 剥掉之后偏移量还在，所以仍是同一时刻 —— 这条就是搬过来时唯一要补的行为。
         assertEquals(z, LmsActivity(deadline = "2026-09-14T08:00:00+08:00[Asia/Shanghai]").deadlineInstant())
     }
 

@@ -15,22 +15,7 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import kotlinx.coroutines.test.runTest
 
-/**
- * `CampusLibraryApi`（Web 端的图书馆取数）的**字段映射测试**。
- *
- * 为什么值得写：campus-api 是**白名单投影**，字段名既不是 `:app` 解析的那套、也有几样干脆没有，
- * 光在浏览器里看一眼「有校区、有座位」看不出这些差别：
- *  - 只认 `current.code`（`east`/`west`/`inno`）才是 `LibraryCampus`，`queryableFloors` 是它自己写死的兴庆三层；
- *  - `scount` 里那个区域没有统计时它给 `total: null` ⇒ 不能当成 `total=0`（那会把区域判成「已关闭」）；
- *  - 座位顺序上游是对象键序 ⇒ 要按 `:app` 的「字母 + 数字」重排，否则两端「哪个座位在旁边」对不上；
- *  - 「我的预约」的 `area` 上游**没有**（只有一个整行 `seatLine`），要靠座位号从行尾反推，抠不出来就留空；
- *  - `actions[]` 只有按钮文案、没有地址 ⇒ `actionUrls` 必须留空（`:app` 那份是拿 `ri` 现拼的，
- *    campus-api 没投影 `ri`）；
- *  - 只读：写方法与没有端点的读方法都必须**抛**，不能静默返回假成功。
- *
- * 键名与形状照抄真机 `http://127.0.0.1:3099/api/library/{campus,areas,seats,my}` 的**投影后**形状
- *（2026-10-09 实测），值自己编（不抄任何真实姓名/学号/座位号）。
- */
+/** `CampusLibraryApi`（Web 端的图书馆取数）的字段映射测试。 */
 class CampusLibraryMappingTest {
 
     private val campusPayload = """
@@ -139,7 +124,7 @@ class CampusLibraryMappingTest {
         assertEquals(listOf("north2east", "north2elian", "ghost"), areas.keys.toList())
         assertEquals("北楼二层外文库（东）", areas["north2east"])
 
-        // 统计：total/available 照搬；⚠️ total:null 的那一行**不进表**（等效于 :app 的 scount 里没有这个键）
+        // ⚠️ total:null 的那一行不进表
         assertEquals(AreaStats(available = 206, total = 330), api.areaStats()["north2east"])
         assertEquals(AreaStats(available = 35, total = 156), api.areaStats()["north2elian"])
         assertNull(api.areaStats()["ghost"])
@@ -182,7 +167,7 @@ class CampusLibraryMappingTest {
 
         // ⚠️ 与 :app 的 getSeats 同一个排序（首个字母 → 数字部分），不是上游的对象键序
         assertEquals(listOf("C9", "C38", "C39", "C100"), result.seats.map { it.seatId })
-        // 没有座位号的那一行丢掉；available 直接照搬（上游 0 = 空闲，campus-api 已翻过）
+        // 没有座位号的那一行丢掉；available 直接照搬（campus-api 已翻过）
         assertEquals(listOf(false, true, false, true), result.seats.map { it.available })
         // 附带的就是本端已经学到的那份区域统计
         assertEquals(AreaStats(available = 29, total = 108), result.areaStatsMap["south2"])
@@ -193,7 +178,6 @@ class CampusLibraryMappingTest {
         // 明确没有预约 ⇒ success(null)
         assertNull(apiFor("/api/library/my" to myNonePayload).myBooking().getOrThrow())
 
-        // 有预约：座位号、状态照搬；区域名从 seatLine 行尾抠掉座位号得到
         val booked = apiFor("/api/library/my" to myBookedPayload).myBooking().getOrThrow()!!
         assertEquals("056", booked.seatId)
         assertEquals("使用中", booked.statusText)
@@ -241,7 +225,4 @@ class CampusLibraryMappingTest {
         assertTrue("图书馆 qspace status=500" in error.message.orEmpty())
     }
 
-    // 收藏那一条测试不在这里了：它原本钉的是本类的两个重写（`favorites()` / `toggleFavorite()`），
-    // 现在这两个方法搬进了共享的 `LibraryFavorites`（`:core/library/LibraryFavorites.kt`）——
-    // 落盘位置、键名、值类型一字未变，验收在 `:core:jvmTest` 的 `LibraryFavoritesJvmTest`。
 }

@@ -19,19 +19,6 @@ import kotlinx.datetime.minus
 
 private const val TAG = "CampusCardApi"
 
-// ==================== ncard 取数（网络 + 解析） ====================
-//
-// 这个文件原来是「模型 + 纯统计 + 分页编排 + 网络」一锅端。屏与 ViewModel 搬进 :core 之后前三样跟着走了：
-// 模型在 `CampusCardModels.kt`、纯统计在 `CampusCardAnalysis.kt`、分页编排（allTransactions /
-// transactionsUntilKnown）是 `CampusCardSource` 上的扩展函数。这里**只剩网络与解析**：登 ncard 抓
-// HTML/JSON、按 `CampusCardContract` 的约定判成功与收支方向 —— 抓到的数据由 `AppCampusCardSource`
-// 交给 :core 的屏（那才是端口 `CampusCardSource` 在 Android / 桌面两侧的实现，现在就在同包的
-// `AppCampusCardSource.kt` 里）。
-//
-// 后来又跟着 `AppCampusCardSource` 从 `:app` 搬进 `:data`（桌面端第 9 条真数据路由：桌面要自己登 ncard
-// 取这两组数）：类名与包路径一字未改 ⇒ `:app` 里 `CampusCardApi(site)` 那些调用点一行不用改。
-// 搬迁时被替换的写法只有一处 —— `android.util.Log` → `:core` 的 `com.xjtu.toolbox.platform.Log`
-//（那两行 `Log.d` 与两个 `allowRetry` 包装本身一行未改）。
 
 class CampusCardApi(private val site: SiteSession) {
 
@@ -42,9 +29,7 @@ class CampusCardApi(private val site: SiteSession) {
             response.body?.string() ?: throw RuntimeException("空响应")
         }
 
-    /**
-     * 获取校园卡信息（余额、状态等）
-     */
+    /** 获取校园卡信息（余额、状态等） */
     suspend fun getCardInfo(): CardInfo {
         return getCardInfoInternal(allowRetry = true)
     }
@@ -104,17 +89,7 @@ class CampusCardApi(private val site: SiteSession) {
             "风味", "拉面", "米皮", "凉粉", "胡辣汤", "砂锅", "麻食",
         )
 
-        /**
-         * 餐饮内部的主食分类。
-         *
-         * 顶层分类（餐饮/超市/洗浴/水电）对食堂党没有信息量——实测一份 600 条的流水里
-         * 餐饮占 97.7%，那张饼图等于只有一块。真正有区分度的是「今天吃面还是吃饭」，
-         * 所以在餐饮内部再切一层。
-         *
-         * 顺序即优先级，从上往下第一个命中的生效：
-         * 「临沂炒鸡拌饭」既有「炒」也有「饭」，归米饭比归小吃贴切，所以米饭排在前面；
-         * 「丸子粉丝汤」有「粉」也有「汤」，它是汤粉不是拌面，靠汤羹在面食之前拦下。
-         */
+        /** 餐饮内部的主食分类。 */
         private val FOOD_SUB_RULES: List<Pair<String, Array<String>>> = listOf(
             "饮品" to arrayOf("水吧", "吧台", "咖啡", "奶茶", "茶", "果汁", "豆浆", "饮"),
             "汤粥" to arrayOf("粥", "汤", "瓦罐", "砂锅", "胡辣", "馄饨", "丸子"),
@@ -131,14 +106,7 @@ class CampusCardApi(private val site: SiteSession) {
         )
     }
 
-    /**
-     * 获取交易流水（分页）
-     * @param startDate 开始日期
-     * @param endDate 结束日期
-     * @param page 页码（从1开始）
-     * @param pageSize 每页条数
-     * @return Pair<总条数, 当页交易列表>
-     */
+    /** 获取交易流水（分页） */
     suspend fun getTransactions(
         // 日期参数是 kotlinx-datetime 的（:core 的屏与端口都用它）；默认值与原 `LocalDate.now()`
         // 同一个"本机时区的今天"，减三个月也一样是日历减法。
@@ -160,7 +128,6 @@ class CampusCardApi(private val site: SiteSession) {
         }
         val url = "$baseUrl/berserker-search/search/personal/turnover" +
             "?size=$pageSize&current=$page" +
-            // `LocalDate.toString()` 就是 ISO-8601 的 `yyyy-MM-dd`，与原来 `DateTimeFormatter.ofPattern("yyyy-MM-dd")` 逐字相同
             "&timeFrom=$startDate&timeTo=$endDate" +
             "&synAccessSource=h5"
 
@@ -192,9 +159,7 @@ class CampusCardApi(private val site: SiteSession) {
             val icon = rec.get("icon")?.stringValue ?: ""
             val turnoverType = rec.get("turnoverType")?.stringValue?.trim() ?: ""
             val resume = rec.get("resume")?.stringValue?.trim() ?: ""
-            // takeIf 不能省：toMerchant 常常是**空字符串而不是 null**（扫码点餐、充值都这样），
-            // 只写 `?:` 的话兜底永远不触发，商户名就是一串空白——分析页的排行、流水列表里
-            // 都会出现没有名字的行。实测 600 条里有 22 条是这种（12 笔消费 + 10 笔充值）。
+            // takeIf 不能省：toMerchant 常常是空字符串而不是 null（扫码点餐、充值）。
             val merchant = rec.get("toMerchant")?.stringValue?.trim()?.takeIf { it.isNotBlank() }
                 ?: merchantFromResume(resume)
             val typeFrom = CampusCardContract.typeFromOf(rec.get("typeFrom"))

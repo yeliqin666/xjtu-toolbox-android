@@ -12,35 +12,10 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import kotlinx.coroutines.runBlocking
 
-/**
- * 社区（GitHub）那条链的**字段级口径**：设备码登录（`GithubOAuthDeviceAuthRepository`）、
- * 登录态落盘（`SecureGithubSession`）与 GraphQL 取数（`HttpGithubDiscussionsRepository`）——
- * 都对着 `:testkit` 的 [CommunityFakeUpstream] 逐行读。
- *
- * ## 为什么在 `:data` 而不是 `:app`
- *
- * 第 21 条真数据路由把社区那三件（设备码 okhttp、GraphQL 传输、登录态存储）从 `:app` 搬进了
- * `:data`。搬之前先用夹具把**搬之前**的口径钉住：
- *
- *  - `PrefsGithubSession` 的两个键名与存储名（`github_community` / `token` / `login`）**逐字不变**
- *    ⇒ 老登录态无缝沿用（Android 的 actual 仍是同一个 `SecurePrefs.open`）；
- *  - `signIn` 先用 token 查一次用户名、**查得到才落盘**（查不到就落盘只会让界面以为已登录、
- *    随后每个请求都 401）；`signOut` 只清本机（GitHub 那边的授权要用户自己去撤销）；
- *  - 设备码报文那套长度/主机/区间校验、以及「未授权完不算登录」的 `authorization_pending` 分支。
- *
- * ## 进程级的那个坑
- *
- * `secureKeyValueStore` 是**进程级**缓存的（Android 上正是靠这一点让前台/后台看到同一份登录态），
- * 而 `SecureGithubSession.get()` 是进程级单例 ⇒ 每个用例前后都要把那两个键清掉，
- * 否则上一条用例的「已登录」会漏进下一条。
- */
+/** 社区（GitHub）那条链的字段级口径。 */
 class GithubCommunityJvmTest {
 
-    /**
-     * 直接照**搬迁前那个存储名**开一份（`PrefsGithubSession` 的 `SecurePrefs.open(context,
-     * "github_community")`）—— 刻意写字符串而不是引用实现里的常量：`SecureGithubSession`
-     * 若把存储名改掉，老登录态就读不出来了，这条断言就是拦它的。
-     */
+    /** 按老存储名 `github_community` 直接开一份：刻意写字符串而不引用常量，存储名被改时这条断言会拦住。 */
     private val store = secureKeyValueStore("github_community")
 
     private lateinit var fake: FakeCampusProxy
@@ -119,7 +94,6 @@ class GithubCommunityJvmTest {
         assertEquals(CommunityFakeUpstream.VIEWER_LOGIN, name)
         assertEquals(name, session.login.value)
 
-        // 落盘的键与搬迁前逐字相同（`github_community` 那份存储里的 `token` / `login`）
         assertEquals(CommunityFakeUpstream.ACCESS_TOKEN, store.getString("token"))
         assertEquals(CommunityFakeUpstream.VIEWER_LOGIN, store.getString("login"))
 

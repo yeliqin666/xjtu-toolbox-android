@@ -7,14 +7,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
-/**
- * 屁岱记住的用户偏好（[AgentMemory]）—— 从 `:app` 搬进 `:core` 的那一份。
- *
- * 存储换成 [KeyValueStore] 缝之后，这里能**在 jvm 上**把「上限挤旧、键序、迁移、prompt 片段」
- * 逐条钉住（以前只有 Android 单测能覆盖）。用一份假存储，不碰任何平台文件。
- *
- * ⚠️ 迁移那两条要动 [AccountContext.activeAccountId]（进程级全局），用例自己负责还原。
- */
+/** 屁岱记住的用户偏好（[AgentMemory]）。 */
 class AgentMemoryTest {
 
     /** 进程内的假键值存储：语义与 `SharedPreferences` 对齐（写 null 等于删键）。 */
@@ -153,7 +146,6 @@ class AgentMemoryTest {
 
     @Test
     fun `当前账号已经有偏好时，旧版只被清掉、不覆盖`() = withAccount("2210000001") {
-        // 这个账号自己已经记过偏好（键序也在），迁移不该把旧版的键混进来
         val current = FakeStore().apply {
             map["__order"] = "口味"
             map["口味"] = "清淡"

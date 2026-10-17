@@ -11,28 +11,7 @@ import java.util.zip.ZipEntry
 import java.util.zip.ZipInputStream
 import java.util.zip.ZipOutputStream
 
-/**
- * 桌面端档案的**传输那一半**（§1.4 的 `ArchiveSource` / `ArchiveSink` 在这一端的落点）。
- *
- * 只有两件事：档案字节映射（`档案内相对路径 → 字节`，`StoreArchive.export` 的产物）与
- * **目录形态 / zip 形态**之间的搬运，以及「档案路径 ⇄ 数据根文件名」这条唯一映射规则（A13）。
- *
- * | 形态 | 是什么 | 证据 |
- * |---|---|---|
- * | 目录 | 档案本体，可整拷（§2.0「目录即档案本体，zip 只是运输形态」） | [writeDirectory] / [readDirectory] |
- * | zip | 给「拷给另一台机器 / 给 Android」用的运输形态 | [zip] / [unzip] |
- *
- * ## A11：这里**不**是断言对象
- *
- * 数据根下的 `<store>.properties` 首行是 `Properties.store` 写的时间戳注释
- * （本机实测 `#Wed Oct 14 08:10:56 CST 2026`）⇒ **文件字节不稳定**，桌面门禁的断言一律比
- * [com.xjtu.toolbox.archive.StoreValue]（解析后的键值），不比 `.properties` 的字节。
- *
- * ## 落地是原子的（§8.8）
- *
- * 写目录形态时每个条目先写 `<name>.tmp` 再 `ATOMIC_MOVE` 换名：新代码没有理由继承
- * `KeyValueScheduleCacheStore` 那份「没有原子写」的降级（那条降级是端内旧实现的如实声明）。
- */
+/** 桌面端档案的传输那一半（§1.4 的 `ArchiveSource` / `ArchiveSink` 在这一端的落点）。 */
 object DesktopArchiveIo {
 
     /** 桌面数据根下的文件名后缀（§1.2：`<name>.properties`）。 */
@@ -41,10 +20,7 @@ object DesktopArchiveIo {
     /** zip 运输形态的扩展名（§2.0）。 */
     const val ZIP_SUFFIX = ".zip"
 
-    /**
-     * zip 条目的固定时间戳：`ZipEntry` 不设时间会写「现在」，两次导出的字节就不一样了。
-     * `0` 会被 `java.util.zip` 夹到 DOS 时间的下界（1980-01-01）。
-     */
+    /** zip 条目的固定时间戳：`ZipEntry` 不设时间会写「现在」，两次导出的字节就不一样了。 */
     private const val FIXED_ZIP_TIME_MS = 0L
 
     // ── zip 形态（运输） ────────────────────────────────────────────────────
@@ -53,8 +29,6 @@ object DesktopArchiveIo {
     fun zip(archive: Map<String, String>): ByteArray {
         val bos = ByteArrayOutputStream()
         ZipOutputStream(bos).use { zos ->
-            // stored（不压缩）：档案里全是 JSON 文本、体积小，换来的是「解出来的字节与写进去的逐字相同」
-            // 这条最好核的性质（A3 的口径在 :core 的 export 上，这里不引入第二处压缩差异）。
             zos.setLevel(Deflater.NO_COMPRESSION)
             archive.forEach { (rel, content) ->
                 val entry = ZipEntry(rel)
@@ -101,13 +75,7 @@ object DesktopArchiveIo {
         }
     }
 
-    /**
-     * 目录 → 档案字节映射（相对路径用 `/` 连接，按码点升序；空目录 = 空映射）。
-     *
-     * 跳过两类**不是档案内容**的东西：点开头的名字（「已导入」标记 [DesktopArchiveImport.MARKER_NAME]）
-     * 与 `.tmp` 换名残片 —— 它们与档案在同一个目录里，但不该被当成档案的条目（[writeDirectory] 写出去的
-     * 那份没有这两类，所以写读往返仍逐字相等）。
-     */
+    /** 目录 → 档案字节映射（相对路径用 `/` 连接，按码点升序；空目录 = 空映射）。 */
     fun readDirectory(root: File): Map<String, String> {
         if (!root.isDirectory) return emptyMap()
         val out = linkedMapOf<String, String>()
@@ -141,17 +109,8 @@ object DesktopArchiveIo {
         else -> emptyMap()
     }
 
-    // ── A13：档案路径 ⇄ 数据根文件名（纯字符串拼接） ────────────────────────
 
-    /**
-     * 档案里 `stores/` 的相对路径 → 数据根下的**文件**（§2.0 的唯一映射规则，A13）：
-     *
-     *  - `global/stores/app_settings.json`            ⇄ `<数据根>/app_settings.properties`
-     *  - `accounts/_2253415556/stores/schedule_cache.json` ⇄ `<数据根>/schedule_cache_2253415556.properties`
-     *
-     * 不是 `stores/` 那一层的路径（`manifest.json`、`files/` 下那几族）⇒ `null`：
-     * `files/` 那一层的落点是 [com.xjtu.toolbox.archive.ArchiveFileBackend] 的事（S3），不在这里。
-     */
+    /** 档案里 `stores/` 的相对路径 → 数据根下的文件（§2.0 的唯一映射规则）。 */
     fun dataRootTarget(dataRoot: File, archivePath: String): File? {
         val segments = archivePath.split('/').filter { it.isNotEmpty() }
         val suffix = when {
@@ -163,17 +122,10 @@ object DesktopArchiveIo {
         if (!fileName.endsWith(".json")) return null
         val base = fileName.removeSuffix(".json")
         if (base.isEmpty()) return null
-        // 「端内名 = base + suffix；桌面再加 .properties」——逐字照 §2.0 的映射规则，纯字符串拼接。
         return File(dataRoot, ArchivePaths.rawStoreName(base, suffix) + STORE_FILE_SUFFIX)
     }
 
-    /**
-     * 反向：数据根下的 store 文件名（**不含** `.properties`）→ 档案里 `stores/` 的相对路径。
-     *
-     * `suffixes` 由调用方给（来自 `manifest.accounts[].suffix` + 两个匿名档，与
-     * [com.xjtu.toolbox.archive.ArchiveNames.split] 同一口径）—— base 与 suffix 的边界只能靠
-     * 「后缀清单」判，没有它就没法把 `schedule_cache_2253415556` 拆开（§2.0）。
-     */
+    /** 反向：数据根下的 store 文件名（不含 `.properties`）→ 档案里 `stores/` 的相对路径。 */
     fun storeArchivePath(rawName: String, suffixes: List<String>): String {
         val id = ArchiveNames.split(listOf(rawName), suffixes).first()
         return ArchivePaths.storePath(id.base, id.suffix)

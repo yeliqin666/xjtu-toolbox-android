@@ -2,26 +2,7 @@ package com.xjtu.toolbox.calendar
 
 import com.sun.net.httpserver.HttpExchange
 
-/**
- * 假的**校历门户**（`workflow.xjtu.edu.cn`）—— 学校那个选人 widget 接口的两个消费方共用同一份响应。
- *
- * ## 为什么它和 `LibraryFakeUpstream` 放在同一层
- *
- * 两者面对的是**同一个会话内核**：校历接口虽然免登录，但它走的是同一个 `HttpClients.base`
- * （同一个 okhttp 实例、同一套 cookie jar 与拦截器）。桌面端的离屏证据要一次跑通两条链路
- * （图书馆要登录、校历不要），所以两个假上游由 `:testkit` 的 [com.xjtu.toolbox.FakeCampusProxy]
- * 按 **host** 分派到这一个本地服务器上。
- *
- * ## 响应形状
- *
- * 逐字段对着 [parseUpstreamSchoolCalendar]（`：core`）写：
- * 外层 `{e, m, d}`（`e == 0` 才算成功），`d.semesters[]` 每项一个学期，学期里
- * `start_date` 是开学日，结束日按 `exam_end` → `term_end_date` → `end_date` 的次序取第一个合法的，
- * `holidays[]` 是带起止日期的假期，`specialEvents[]` 是按标题对应的说明文字。
- *
- * 日期刻意跨过「今天」（2026-10-09 落在第一学期第 5 周），好让离屏截图里的进度条、周次、
- * 「今天所在的事件」都不是空状态 —— 空状态的图证明不了那些组件。
- */
+/** 假的校历门户（`workflow.xjtu.edu.cn`）—— 学校那个选人 widget 接口的两个消费方共用同一份响应。 */
 class SchoolCalendarFakeUpstream {
 
     companion object {
@@ -31,13 +12,7 @@ class SchoolCalendarFakeUpstream {
         /** 上游路径，`SchoolCalendarApi` 里硬编码的那一条（路径漂了夹具会 404）。 */
         const val PATH = "/selectpage/site/calendar/getData"
 
-        /**
-         * 消费者要传给 `SchoolCalendarApi(url)` 的**完整**地址（含路径）。
-         *
-         * **是 http**：真机上的 `workflow.xjtu.edu.cn` 是 https，而本地假代理是纯 HTTP 代理，
-         * 给不了 CONNECT+TLS 隧道 ⇒ 离屏证据与 `:desktop:test` 把基址指到这里。
-         * 校历解析不看 URL（只看 JSON 形状），所以这一改不影响「测的是不是真解析链路」。
-         */
+        /** 消费者要传给 `SchoolCalendarApi(url)` 的完整地址（含路径）。 */
         const val URL = "http://$HOST$PATH"
     }
 

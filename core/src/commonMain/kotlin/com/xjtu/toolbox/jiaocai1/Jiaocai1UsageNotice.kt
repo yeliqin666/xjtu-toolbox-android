@@ -28,10 +28,6 @@ private const val KEY = "jiaocai1_hint_shown"
  * 点弹窗外部不关闭（[WindowDialog] 的 onDismissRequest 传 null 即为空操作），
  * 返回键等同于「不同意」——退出功能，且不写入已读标记，下次进来照旧弹。
  *
- * 搬进 `:core` 时换了一件事：`Context` + `SharedPreferences` → 平台键值缝 [keyValueStore]
- * （**同一个文件 `feature_hints`、同一个键 `jiaocai1_hint_shown`** ⇒ Android 上「已同意过」
- * 这个标记照旧管用；两处平台的键值实现的差异见 `KeyValueStore` 的 KDoc）。
- *
  * @param onDecline 用户拒绝或按返回时调用，应当把用户带离本功能。
  */
 @Composable

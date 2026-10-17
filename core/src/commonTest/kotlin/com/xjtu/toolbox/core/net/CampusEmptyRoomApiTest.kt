@@ -14,14 +14,7 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import kotlinx.coroutines.test.runTest
 
-/**
- * `CampusEmptyRoomApi`（Web 端的空闲教室取数）的**口径测试**。
- *
- * 为什么值得写：Web 端这一档的取数没有第二个地方能验证（浏览器里跑一次只能看出"有列表"，
- * 看不出"楼筛对没对、座位缺失算不算 0、这一天没数据会不会被当成请求失败"）。这里用 MockEngine
- * 喂 campus-api 的**实测形状**（2026-10-08 实测 948 间：`{campus, building, room, seats, status[11], free[]}`，
- * `seats` 偶有 null、无数据那天是 `noData:true` + `note`），把映射钉死，不依赖真服务器。
- */
+/** `CampusEmptyRoomApi`（Web 端的空闲教室取数）的测试。 */
 class CampusEmptyRoomApiTest {
 
     private val date = "2026-10-08"
@@ -68,7 +61,6 @@ class CampusEmptyRoomApiTest {
         val rooms = apiFor(payload).rooms("兴庆校区", setOf("主楼A"), date, direct = false, force = false) { _, _ -> }
         // 只留 兴庆校区 + 主楼A（另外两个校区的、中2 的都不算），按教室名排序
         assertEquals(listOf("主楼A-101", "主楼A-102"), rooms.map { it.name })
-        // status 原样搬过来（屏上的节次条靠它）
         assertEquals(listOf(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0), rooms[0].status)
         assertEquals(listOf(1, 1, 0, 0, 1, 1, 1, 1, 1, 1, 1), rooms[1].status)
     }
@@ -147,10 +139,7 @@ class CampusEmptyRoomApiTest {
         return CampusEmptyRoomApi(createToolboxClient(engine = engine), "", ApiMode.SERVE)
     }
 
-    /**
-     * serve 形态（契约 §5.8）：座位数走它自己那一条端点 —— 一次一个数、**不套会话**（与 `/cdn` 同档），
-     * 而 `seats: null` = 「这间房查不到」⇒ 如实回 `null`（拿 0 顶会让屏上出现一排「0座」）。
-     */
+    /** serve 形态（契约 §5.8）：座位数走它自己那一条端点。 */
     @Test
     fun serveSeatCountReadsItsOwnEndpointAndNullStaysNull() = runTest {
         val api = seatCountApiFor("""{"code":0,"data":{"room":"主楼A-101","seats":96}}""")
@@ -169,11 +158,7 @@ class CampusEmptyRoomApiTest {
         assertFailsWith<IllegalStateException> { api.seatCount("主楼A-101") }
     }
 
-    /**
-     * campus-api 形态（旧行为一字未改）：座位数只查**已经拉过的那一份当天数据**，
-     * 不为一个座位数再打一次请求（`:app` 那一份为它单开了一次全校拉取 + 一年的座位缓存，
-     * 是因为课表详情页每次点开都要用；Web 的课表是另一条切片）。
-     */
+    /** campus-api 形态。 */
     @Test
     fun campusApiSeatCountStaysLocal() = runTest {
         val recorder = Recorder()

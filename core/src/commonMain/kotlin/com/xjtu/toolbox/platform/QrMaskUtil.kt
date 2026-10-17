@@ -1,16 +1,6 @@
 package com.xjtu.toolbox.platform
 
-/**
- * 二维码的**数据掩码**与**掩码评分** —— zxing 3.5.4（Apache-2.0）的
- * `com.google.zxing.qrcode.encoder.MaskUtil` 逐字对照。
- *
- * 八种掩码各铺一遍整张矩阵、再按同一条罚分公式（JISX0510:2004 表 21 的四条规则）打分，
- * 取分最低的那一种 —— 这一步决定了码的**观感**，也决定了「逐模块相同」这件事，
- * 所以公式里的每一处**反直觉**的细节都照抄了（例如规则 3 那两个越界判据
- * `from < 0 || row.size < to`，以及规则 1 在两个方向各算一遍）。
- *
- * 常数 3 / 3 / 40 / 10 就是那四条规则的权重（zxing 的 `N1`..`N4`）。
- */
+/** 二维码的数据掩码与掩码评分。 */
 internal object QrMaskUtil {
 
     private const val N1 = 3

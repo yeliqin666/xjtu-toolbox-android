@@ -7,14 +7,7 @@ import java.nio.file.attribute.PosixFilePermission
 import java.util.Properties
 import java.util.concurrent.ConcurrentHashMap
 
-/**
- * 桌面端的密文存储落点。
- *
- * 放哪儿：`~/.local/share/xjtu-toolbox/`（XDG 的口径；Windows 上会落到用户主目录下同名目录 ——
- * 真正按平台分目录是打包形态定下来之后的事，见 `docs/desktop-port-plan.md` §7）。
- *
- * 测试与多实例场景可以改 [dataRootOverride]（`LibraryLoginSessionJvmTest` 就是这么隔离的）。
- */
+/** 桌面端的密文存储落点。 */
 @Volatile
 var dataRootOverride: File? = null
 
@@ -22,27 +15,12 @@ var dataRootOverride: File? = null
 internal fun dataRoot(): File =
     dataRootOverride ?: File(System.getProperty("user.home") ?: "/tmp", ".local/share/xjtu-toolbox")
 
-/**
- * 数据根目录的**对外**形态：宿主拿它下面的子目录。
- *
- * 今天只有一个消费者：`:server` 的 serve 模式（HTTPS 的证书默认落在它下面的 `tls/` ——
- * 与访问令牌那份 `serve.properties` 同一个根，见 `ServeConfig` 的 KDoc）。
- * 口径与 [dataRoot] 逐字相同（[dataRootOverride] 优先）；**不**新建目录，只是算路径。
- */
+/** 数据根目录的对外形态：宿主拿它下面的子目录。 */
 fun dataRootDir(): File = dataRoot()
 
 private val stores = ConcurrentHashMap<String, KeyValueStore>()
 
-/**
- * 文件版键值存储：一份 `java.util.Properties` 文件，权限 `0600`。
- *
- * 为什么是 Properties 而不是自己拼 JSON：cookies 与站点快照的值是任意字符串（引号、换行、
- * `=`、非 ASCII 都有），`Properties.store/load` 自带转义，是唯一不用手写转义规则的选择。
- *
- * 写入是**同步**的（`putString` 返回时已经落盘）。`SiteSnapshots` 与 `PersistentCookieJar`
- * 都自带「排在专用线程上」的调度，同步写只是把它们的后台线程变成阻塞点，不影响任何调用点
- * 的语义；反而让「清凭据 / 删账号」这类操作不再有「写完就退出、防抖没来得及落盘」的窗口。
- */
+/** 文件版键值存储：一份 `java.util.Properties` 文件，权限 `0600`。 */
 private class FileKeyValueStore(private val file: File) : KeyValueStore {
 
     private val lock = Any()
@@ -60,7 +38,6 @@ private class FileKeyValueStore(private val file: File) : KeyValueStore {
         val dir = file.parentFile
         if (dir != null && !dir.exists()) dir.mkdirs()
         FileOutputStream(file).use { props.store(it, null) }
-        // 与「同一批文件的口径」对齐：凭据 / cookie / 快照都只给本用户读。
         runCatching {
             Files.setPosixFilePermissions(
                 file.toPath(),

@@ -2,10 +2,7 @@ package com.xjtu.toolbox.agent
 
 import kotlinx.serialization.Serializable
 
-/**
- * 一个会话的元数据（用于抽屉列表）。
- * 会话是带 id/title/时间戳的持久实体，标题由首条消息自动生成。
- */
+/** 一个会话的元数据（用于抽屉列表）。 */
 @Serializable
 data class AgentSession(
     val id: String = "",
@@ -45,23 +42,7 @@ data class StoredConversation(
 /** 新对话的默认标题（`AgentSessionStore.DEFAULT_TITLE` 与 `sanitizeAgentTitle` 的那份兜底同源）。 */
 const val AGENT_SESSION_DEFAULT_TITLE = "新对话"
 
-/**
- * 多会话落盘 —— 屁岱这一屏与 ViewModel 认的**那一格缝**。
- *
- * ## 为什么是缝
- *
- * 会话要落成一堆 JSON 文件（`index.json` + 每会话一个 `convo_{id}.json`），而**文件 API 不是
- * 多平台的**（`:core` 的 commonMain 里没有 `java.io.File`，也没有 okio/kotlinx-io）。
- * 这份存储因此在 `:data`（`AgentSessionStore`，Android 与桌面同一份），
- * 这里只留它对外的那几个动作 —— 与 `ScheduleHost.cache`（交一个 `ScheduleCacheStore`）
- * 是同一条路子：**屏与 ViewModel 不碰文件，只碰这个接口**。
- *
- * ## 语义
- *
- * 方法的语义与 `:data` 的 `AgentSessionStore` **逐个相同**（那边 `override` 的就是这几个）：
- * [create] 会登记进 index 并落一份空会话、[save] 会顺带刷新标题与时间、[isLocked] 决定
- * 「首轮结束后要不要自动改标题」。目录名、文件名、JSON 字段一个字符未动。
- */
+/** 多会话落盘 —— 屁岱这一屏与 ViewModel 认的那一格缝。 */
 interface AgentSessionPersistence {
 
     /** 全部会话，按最近更新降序。 */
@@ -84,10 +65,7 @@ interface AgentSessionPersistence {
     fun isLocked(id: String): Boolean
 
     companion object {
-        /**
-         * 什么都不存：`:core` 自己的测试与「不落盘」的临时端用它。
-         * 列表永远是空的 ⇒ 屏上第一次进来只有一个新会话（纯内存那份）。
-         */
+        /** 什么都不存：`:core` 自己的测试与「不落盘」的临时端用它。 */
         val None: AgentSessionPersistence = object : AgentSessionPersistence {
             override fun list(): List<AgentSession> = emptyList()
             override fun create(title: String): AgentSession =

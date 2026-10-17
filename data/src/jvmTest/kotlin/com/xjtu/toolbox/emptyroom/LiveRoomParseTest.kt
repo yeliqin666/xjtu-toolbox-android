@@ -6,15 +6,7 @@ import kotlin.test.assertFailsWith
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
-/**
- * `parseLiveSnapshot` / `liveBuildingName` 的**纯解析口径**：平台给的键（`status`/`studentNum`
- * 是字符串、`seatNum` 也是字符串）与楼顺序都是上游的事，这里不碰网络。
- *
- * 它原本在 `:app/src/test`。这一轮把实时状态的取数（`LiveRoomApi`）从 `:app` 搬进 `:data`
- * （桌面端第 10 条真数据路由），`parseLiveSnapshot` 是 `internal` —— 模块级可见性 ⇒ **测试跟着代码走**
- * （与 `SiteSnapshotsTest` 那次同一条）。断言值全部来自下面那段**编造的**响应原文，
- * 与搬动前逐字相同；只把 JUnit4 的断言换成 `kotlin.test`（`:data` 其余测试用的那一套）。
- */
+/** `parseLiveSnapshot` / `liveBuildingName` 的纯解析口径：平台给的键（`status`/`studentNum` 是字符串、`seatNum` 也是字符串）与楼顺序都是上游的事，这里不碰网络。 */
 class LiveRoomParseTest {
     // 结构照 2026-09-22 抓包的 classroomStatusList 响应，内容是编的
     private val body = """

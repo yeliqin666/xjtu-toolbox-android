@@ -5,32 +5,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
-/**
- * 「`AppRoute` 的每一条声明在 `DesktopPage` 的顶层 `when` 里都有分支」这件事的机器可验版本。
- *
- * ## 为什么要有它（这一段是怎么来的）
- *
- * Stage C 收口时，「43/43 顶层分支 + 兜底的 `else -> NotPortedScreen` 不可命中」是**人工**把两边各自
- * 提取再求差得出的（`docs/desktop-port-plan.md` §12.3 / §14.5）。人工那一份会腐坏：删掉一条分支、
- * 或新加一条 `AppRoute` 声明而不加分支，**42 张证据图与 85 例测试里一张都不会红** —— 那种回归只有
- * 真进那一屏才会被发现，而且看起来像「屏坏了」而不是「这条路由没搬」。
- *
- * 所以这里改成断言。判据取源码（不靠反射：`AppRoute` 是 sealed interface 加一堆 `data object` /
- * `data class`，没有一份「全部声明」的清单可枚举）：
- *
- * - 声明侧：`core/.../nav/AppRoute.kt` 里的 `@Serializable data object|class Xxx`；
- * - 分支侧：`DesktopPage(...)` 里那个 `when (route) {` 的**顶层**分支（缩进比 `when` 深一级的那些行；
- *   嵌在分支体里的 `when`，例如 `AppRoute.Notification` 里那个 `when (r) { is AppRoute.Browser -> … }`，
- *   不算顶层分支）。
- *
- * ⚠️ 口径与 §14.5 一致：这是**分支覆盖**，不是「43 条都是真实现」。`GameMerge` 那一支仍是如实说明页
- *（`HostUnavailableScreen`：卡的是 WebView 这个载体），它也**不在** `DESKTOP_SUPPORTED_ROUTES` 里。
- *
- * ## 每条失败信息里都有那句话
- *
- * 文案统一带 `criterion`（「这条判据是 docs/desktop-port-plan.md §12.3/§14.5 的验收项」）并说清
- * **哪一边**变了（少了分支 / 多了声明 / 兜底又能命中了），好让下一个人一眼知道该改哪儿。
- */
+/** 「`AppRoute` 的每一条声明在 `DesktopPage` 的顶层 `when` 里都有分支」这件事的机器可验版本。 */
 class DesktopRouteCoverageJvmTest {
 
     /** 见文件头：每条断言都带上它。 */
@@ -39,10 +14,7 @@ class DesktopRouteCoverageJvmTest {
 
     // ── 读源码 ──
 
-    /**
-     * 仓库根目录：从工作目录往上找 `settings.gradle.kts`。
-     * Gradle 的 Test 任务以**模块目录**（`desktop/`）为工作目录，所以这里要往上走一层。
-     */
+    /** 仓库根目录：从工作目录往上找 `settings.gradle.kts`。 */
     private fun repoRoot(): File {
         var dir: File? = File(".").absoluteFile
         while (dir != null) {

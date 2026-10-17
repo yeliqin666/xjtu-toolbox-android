@@ -7,17 +7,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
-/**
- * 桌面这一端接共享壳的那条缝（`DesktopShell.kt`）：六格、以及「当前页」两个方向的换算。
- *
- * 为什么要有它：底栏 / 侧栏 / 当前页那一层搬进 `:core` 之后，**这一端剩下的判据就只有这三样**，
- * 而它们全都出自动画与网络之外 —— 42 张证据图只拍得到「长什么样」，拍不到「六格的 id 是哪几个、
- * 「全部」那一格有没有混进路由 tab 里、两个方向的换算是不是可逆」。这三样在这里钉住。
- *
- * 六格的顺序 / 文字 / id 都按**字面量**钉（不写 `AppRoute.Main.id`）：它们是底栏从左到右的身份，
- * 改一个就该有人在这里看见 —— 与 `:core` 的 `AppRouteTest` 里那条「持久化过的字符串 ID 一个都不能变」
- * 同一条纪律。
- */
+/** 桌面这一端接共享壳的那条缝（`DesktopShell.kt`）：六格、以及「当前页」两个方向的换算。 */
 class DesktopShellJvmTest {
 
     @Test

@@ -10,21 +10,7 @@ import kotlinx.datetime.LocalDate
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonObject
 
-/**
- * 校历上游（`workflow.xjtu.edu.cn/selectpage/site/calendar/getData`）的**纯解析**。
- *
- * 原先是 `:app/calendar/SchoolCalendarApi.kt` 里的私有方法，跟着模型一起搬进 `:core`：
- * 解析口径是「同一个门户接口的两个消费方必须一致」的那种东西（哪一天算学期结束、周数怎么算、
- * `0000-00-00` 怎么处理），放在共享层就不会两端漂。
- *
- * 这个接口**免登录**：不需要 CAS / SSO —— 原来那套走 EIP 门户（`one2020.xjtu.edu.cn`）的方案，
- * 实测证明 jwxt 的登录态没法 SSO 到 EIP，接口没会话时也照样答 `code=200 data=[]`，
- * 逼用户重登完全没用。这个接口从抓包直接对上：响应外层 `{e, d, m}`（e=0 成功），
- * `d.semesters[]` 每项一个学期，`holidays[]` 是有起止日期的假期/节点，
- * `specialEvents[]` 是按标题对应的详细说明文字（不是所有 holiday 都有对应的 specialEvent）。
- *
- * @throws IllegalStateException 外层 `e != 0`（上游报错）或缺少 `d`。
- */
+/** 校历上游（`workflow.xjtu.edu.cn/selectpage/site/calendar/getData`）的纯解析。 */
 fun parseUpstreamSchoolCalendar(body: String): List<SchoolTerm> {
     val json = AppJson.parseToJsonElement(body).jsonObject
     val code = json.get("e")?.intValue ?: -1
@@ -79,10 +65,7 @@ private fun parseSemester(obj: JsonObject): SchoolTerm? {
     )
 }
 
-/**
- * `start..end`（闭区间）里的工作日数。
- * 原实现是 `generateSequence(start) { it.plusDays(1) }.takeWhile { !it.isAfter(end) }` —— 同一件事。
- */
+/** `start..end`（闭区间）里的工作日数。 */
 internal fun countWorkDays(start: LocalDate, end: LocalDate): Int {
     var day = start
     var count = 0

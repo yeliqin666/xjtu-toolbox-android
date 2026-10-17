@@ -23,29 +23,8 @@ data class ScoreMessage(val text: String, val long: Boolean = false)
  * 成绩：jwapp 的学期成绩为底，教务的 xscjcx 替换成精确的总评和绩点，
  * 再从成绩报表补上未评教（jwapp 不显示）的课程。加工后的结果整份缓存，下次先秒显。
  *
- * 从 `:app` 的 `jwapp/JwappScoreViewModel.kt` 搬进 `:core`（桌面端第 19 条真数据路由），
- * **编排逻辑一行未改**（三路并行、各自容忍失败、缓存先显后刷、失败与提示文案），只换了四处「住址」：
- *
- *  - `JwappApi(site)` → 端口 [source]（`:data` 的 `AppJwappScoreSource`）；
- *  - `jwxtSite`（`SiteSession?`）→ 端口 [jwxt]（[JwxtScoreSupplement]）—— 两个站点各自的会话
- *    不进共享层，但「教务拿不到就只出 jwapp 那一份」这条早退分支照原样留着；
- *  - `DataCache(context, accountId)` → 端口 [cache]（App 那一份还是 `DataCache`，同一个 key）；
- *  - `AppLoginState` 那一枪强制重登 → 端口上的 [JwappScoreSource.reAuthenticate]；
- *  - 会话失效由 `:core` 的标记接口 [SessionExpiredFailure] 认领（`:app`/`:data` 的
- *    `AuthExpiredException` 实现了它）—— `catch` 抓不了接口，先抓 `Exception` 再判，与考勤/成绩同一条缝。
- *
- * `android.util.Log` 换成了 `:core` 的 [Log]（tag 与级别不变）。
- *
- * 还有一处**必须**跟着搬的替换：搬迁前那五处 `withContext(Dispatchers.IO)`（缓存读、整表拉取、
- * 缓存写、强制重登、拉分项）拿掉了 —— `Dispatchers.IO` 是 JVM 专属，`:core` 有 wasm 目标
- *（实测 `:core:compileKotlinWasmJs` 报 `Unresolved reference 'IO'`）。阻塞都在**端口实现方**那一层包：
- * `:data` 的 `AppJwappScoreSource` 五个方法自己 `withContext(Dispatchers.IO)`；缓存端口
- * [JwappScoreCache] 的两个方法也是挂起的，`:app` 那份实现自己包 IO（与 `lms/LmsSource.kt` 的
- * `LmsCacheStore` 同一条口径）。所以在 Android / 桌面上这些阻塞调用**依旧在 IO 线程上**，
- * 只是挑调度器的人从 VM 换成了实现方。
- *
  * @param source 传 null = 这一端没有 jwapp 会话（`canRefresh` 为 false，只读缓存）；
- * @param jwxt 传 null = 这一端没有教务会话（只出 jwapp 那一份，与搬迁前同一条分支）；
+ * @param jwxt 传 null = 这一端没有教务会话（只出 jwapp 那一份）；
  * @param cache 传 null = 这一端不落盘（每次都真拉）。
  */
 class JwappScoreViewModel(

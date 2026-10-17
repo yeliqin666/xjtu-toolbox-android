@@ -62,12 +62,7 @@ abstract class SiteSession(
     /** 当前 backend 的快照还没读过：换绑、[forget] 后为 true；恢复过、登录过或 [invalidateLogin] 后为 false。 */
     @Volatile private var restorePending = true
 
-    /**
-     * 由 [SessionManager.register] 注入，用于报告凭据失效、弹 MFA、取凭据等跨站点动作。
-     *
-     * 现在还是 `var` 而非 `internal`：站点子类（`Sites.kt`）暂时留在 `:app`，跨模块看不见
-     * `internal`。等站点子类连同它们的 `*Login` 一起搬进 `:data` 之后，这里应收回 `internal`。
-     */
+    /** 由 [SessionManager.register] 注入，用于报告凭据失效、弹 MFA、取凭据等跨站点动作。 */
     @Volatile var manager: SessionManager? = null
 
     /** 同站点串行保护：同一时刻仅一个 ensureLogin 流程进行。 */
@@ -363,37 +358,17 @@ abstract class SiteSession(
             ktorClient ?: client.asToolboxKtorClient().also { ktorClient = it }
         }
 
-    /**
-     * [decorateRequest] 的 Ktor 对应物。
-     *
-     * ⚠️ **迁移某个站点时必须成对改**：这个站点在 [decorateRequest] 里加的 header（Referer、
-     * `x-id-token` 之类）要在这里加一遍，否则走 [sendWithReAuth] 的请求会少了本站特有的头。
-     * 目前 `Sites.kt` 里有 8 处 `decorateRequest` 重写待逐个对应。
-     */
+    /** [decorateRequest] 的 Ktor 对应物。 */
     open fun decorateKtorRequest(builder: io.ktor.client.request.HttpRequestBuilder): io.ktor.client.request.HttpRequestBuilder = builder
 
-    /**
-     * [isAuthFailureResponse] 的 Ktor 对应物，默认复刻基类 okhttp 版的三条判断：
-     * 401/403 → CAS 登录页 URL → 响应体像登录页。
-     *
-     * ⚠️ 同上：重写过 [isAuthFailureResponse] 的站点（`Sites.kt` 里 8 处）迁移时要把本站规则也搬过来。
-     */
+    /** [isAuthFailureResponse] 的 Ktor 对应物，默认复刻基类 okhttp 版的三条判断： 401/403 → CAS 登录页 URL → 响应体像登录页。 */
     open fun isAuthFailureReply(reply: com.xjtu.toolbox.core.net.KtorReply): Boolean {
         if (reply.status == 401 || reply.status == 403) return true
         if (WebVpnUtil.isLoginLanding(reply.finalUrl)) return true
         return reply.peek?.let { XJTULogin.isAuthFailureResponse(it) } ?: false
     }
 
-    /**
-     * **Ktor 形状的业务请求出口** —— [executeWithReAuth] 的等价物，区别只是不带 okhttp 类型。
-     *
-     * 为什么要多一个出口而不是直接改旧的：旧出口有 **60 处调用点 + 16 处子类重写**，
-     * 一次性换掉就没法「一批一批走」。两个出口并存期间：
-     * - 两者跑在**同一个 OkHttpClient** 上（cookie jar / UA 拦截器 / brotli / 超时 / WebVPN 改写全沿用）；
-     * - 重认证、重放、判据日志、`AuthExpiredException` 的语义与旧出口逐条对齐
-     *   （重放循环本身在 `:core` 的 `core/net/ReAuthCall.kt`，有单测钉着）；
-     * - 每迁一个站点的调用点，就把它的 [decorateKtorRequest] / [isAuthFailureReply] 对应补齐。
-     */
+    /** Ktor 形状的业务请求出口—— [executeWithReAuth] 的等价物，区别只是不带 okhttp 类型。 */
     @Throws(IOException::class, AuthExpiredException::class)
     override suspend fun sendWithReAuth(
         request: io.ktor.client.request.HttpRequestBuilder.() -> Unit,

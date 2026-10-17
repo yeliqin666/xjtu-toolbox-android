@@ -12,12 +12,6 @@ import com.xjtu.toolbox.card.Transaction
  * 时段是"这个小时常去/不常去"一个比特，食堂是归并到楼号之后的名字
  * （「一食堂」而不是「一食堂三层清真档口 07 号窗」）。消费明细是敏感信息，
  * 不该因为一个社交小功能流出去。
- *
- * ## 搬迁记
- *
- * 原先在 `:app`，两个入口各带一个 `android.content.Context` 并自己 `CampusCardCache.load(ctx)`。
- * 搬进 `:core` 时把「读哪儿」交给 [MatchHost]（桌面端没有那份缓存 ⇒ 空表 ⇒ 界面上那两维禁用），
- * 三个纯函数一行未改（关键词表、归并正则、2 次以上的阈值都还是原来的）。
  */
 object DiningHabit {
 

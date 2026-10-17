@@ -46,21 +46,7 @@ private const val AUTH_TIMEOUT_MS = 20_000L
 private const val FETCH_TIMEOUT_MS = 10_000L
 
 /**
- * 付款码屏（`AppRoute.PaymentCode` / `:app/pay`）—— 从 `:app` 同包同名搬进 `:core`，
- * Android 与桌面画**同一份**。
- *
- * ## 搬进来的改动只有五处（都是「宿主能力」那一类，不是业务）
- *
- * | 搬迁前（`:app`） | 这里 |
- * |---|---|
- * | `PaymentCodeApi(site)`（okhttp + `SiteSession`） | [PaymentCodeSource] 端口（实现仍在 `:data` 的 `PaymentCodeApi`，两端共用同一份） |
- * | `WindowManager`：窗口满亮 + `FLAG_KEEP_SCREEN_ON` | [KeepScreenOn]（`:core` 既有缝，Android actual 就是同一个「屏幕常亮」）+ **窗口亮度那一半留在 `:app` 的适配里**（见 `:app` 的 `pay/AppPaymentCode.kt`：Android 专属的 `WindowManager` 不该进 commonMain） |
- * | `Bitmap` + `QrBitmap`/`Code128Writer` | `:core` 的码阵缝（[qrCodeModules] / [code128Modules]），渲染是这里那 20 行 `Canvas` |
- * | `context.getSharedPreferences("payment_code")` | [PaymentSelectionStore]（同一个存储名、同一批键） |
- * | `withContext(Dispatchers.IO)`（3 处） | 删（实现方自己负责 IO，见 [PaymentCodeSource] 的 KDoc） |
- *
- * 其余逐字未动：12 秒一轮的刷新与倒计时、三档加载文案、错误分档（网络/认证/超时）、
- * 点击重试、加餐券勾选与「同步失败，请重试」、以及每一处排版与文案。
+ * 付款码屏，Android 与桌面同一份。
  *
  * ## 两端各自的入口
  *
@@ -103,8 +89,7 @@ fun PaymentCodeScreen(
         onDismiss()
     }
 
-    // 「向商家出示」时屏幕不该自己黑掉。搬迁前是在 `WindowManager` 上打
-    // FLAG_KEEP_SCREEN_ON，现在走 `:core` 的既有缝（Android 的 actual 就是同一个标记）。
+    // 出示付款码时保持亮屏。
     KeepScreenOn(true)
 
     LaunchedEffect(refreshTrigger) {
@@ -249,11 +234,7 @@ fun PaymentCodeScreen(
 
                         Spacer(Modifier.height(16.dp))
 
-                        // 这一端到底有没有编码器：`qrCodeModules` / `code128Modules` 编不出来时给 null
-                        //（比如文本超出最大版本）。三端今天都编得出（D12 ① 把纯 Kotlin 的编码器搬进了
-                        // commonMain，wasmJs 那一端也在内）⇒ 这一支走不到；留着是**如实降级**那条规矩：
-                        // 一个真编不出来的端上只画下面那串数字（纯文本，不依赖编码器），不画假的、也不留
-                        // 两块空白让人以为图挂了。
+                        // 编码器编不出（null）时只画下面那串数字，不画假码。
                         if (qrMatrix == null && barMatrix == null) {
                             Text(
                                 "本端没有条码 / 二维码编码器，画不出可扫的码；下面这串数字就是付款码本身。",
@@ -264,8 +245,7 @@ fun PaymentCodeScreen(
                         } else {
                             CodeMatrixView(
                                 matrix = qrMatrix,
-                                // 与搬迁前那张 600×600 的位图同一个口径：外边留 1 个模块的白边
-                                //（`QrBitmap.generate` 的 `MARGIN=1`），码本身居于正中。
+                                // 外边留 1 个模块的白边。
                                 quietZoneModules = 1,
                                 modifier = Modifier.size(200.dp),
                             )
@@ -274,8 +254,7 @@ fun PaymentCodeScreen(
 
                             CodeMatrixView(
                                 matrix = barMatrix,
-                                // 静默区已经含在 Code128 的条纹阵列里（writer 默认留 10 个模块，
-                                // 与搬迁前那 800 像素宽的位图同一个比例）⇒ 这里不再另留。
+                                // Code128 阵列已含静默区。
                                 quietZoneModules = 0,
                                 modifier = Modifier
                                     .fillMaxWidth()
@@ -356,14 +335,7 @@ fun PaymentCodeScreen(
 }
 
 
-/**
- * 加餐券那一栏。
- *
- * [canSelect] = `false` 时是**只读展示**（`PaymentCodeSource.canSelectVouchers` 报 false —— serve 契约
- * 没有「同步这一轮用哪几张」的写端点，契约 §5.7）⇒ 不画勾选框、整行也不可点，标题右边那一格写
- * 「共 N 张 · 本端只读」而不是「未使用 / 已选 N 张」（后者在只读这一档是编话：本端根本不知道
- * 上游那一头此刻勾了哪几张）。
- */
+/** 加餐券那一栏。 */
 @Composable
 private fun VoucherSelectorCard(
     vouchers: List<PaymentVoucher>,
@@ -489,11 +461,7 @@ private fun VoucherSelectorCard(
     }
 }
 
-/**
- * 分转元（`"¥%.2f".format(fen / 100.0)` 那一句是 JVM 专属写法，`:core` 还要编到 wasm）。
- * 与 `:core` 既有先例（`coupon/CouponScreen.kt` 的 `formatYuan`）同一口径：整数分算，
- * 不经过 double —— `500` 分 → `¥5.00`，`505` 分 → `¥5.05`。
- */
+/** 分转元（`"¥%.2f".format(fen / 100.0)` 那一句是 JVM 专属写法，`:core` 还要编到 wasm）。 */
 private fun formatYuan(fen: Long): String {
     val sign = if (fen < 0) "-" else ""
     val abs = if (fen < 0) -fen else fen

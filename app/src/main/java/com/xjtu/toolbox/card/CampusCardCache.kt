@@ -6,12 +6,7 @@ import com.xjtu.toolbox.util.AppJson
 import kotlinx.datetime.LocalDate
 
 // ==================== 校园卡在 Android 上的落盘 ====================
-//
-// 这个文件原来还带着两个模型（`TodaySpendSummary` / `CampusCardSnapshot`）与三处纯计算
-//（`todaySummaryOf` / `dailySpendRate` / `runwayDays`+`runwayText`）。屏与 ViewModel 搬进 :core 后
-// 那些跟着走了（模型在 `CampusCardModels.kt`、计算在 `CampusCardAnalysis.kt`），这里**只剩落盘**：
-// 两份 SharedPreferences（`campus_card_data_cache*` 存快照、`campus_card*` 存首页/小组件读的那组 key），
-// 文件与键名**逐字未动**（首页卡片、桌面小组件、AgentTool、DiningHabit 读的还是同一份）。
+// 首页卡片、桌面小组件、AgentTool、DiningHabit 读同一份，文件与键名不能改。
 
 /** 写进 [CampusCardCache.cardPrefs]，首页读；算不出来时保留上一次的值。 */
 fun android.content.SharedPreferences.Editor.putDailyRate(rate: Double?): android.content.SharedPreferences.Editor =
@@ -23,7 +18,6 @@ fun android.content.SharedPreferences.Editor.putTodaySummary(s: TodaySpendSummar
         .putFloat("card_today_breakfast_cache", s.breakfast.toFloat())
         .putFloat("card_today_lunch_cache", s.lunch.toFloat())
         .putFloat("card_today_dinner_cache", s.dinner.toFloat())
-        // 以前还写一份最近 5 条流水的 JSON，全仓没有任何地方读，顺手清掉旧值
         .remove("card_recent_tx_cache")
 
 
@@ -45,7 +39,7 @@ object CampusCardCache {
         cardInfo: CardInfo,
         transactions: List<Transaction>,
         // kotlinx-datetime 的日期（端口与屏都用它）；这里只 `toString()` 存成 `yyyy-MM-dd`，
-        // 与原来 java.time 的 `LocalDate.toString()` 逐字相同 ⇒ 落盘格式不变。
+        // 与 java.time 的 `LocalDate.toString()` 同一格式 ⇒ 老数据照样能读。
         rangeStart: LocalDate,
         rangeEnd: LocalDate,
         accountId: String? = AccountContext.activeAccountId,

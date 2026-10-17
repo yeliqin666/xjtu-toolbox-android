@@ -21,20 +21,7 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import kotlinx.coroutines.runBlocking
 
-/**
- * 成绩报表（`AppRoute.ScoreReport`，第 7 条真数据路由）在桌面端的**装配验收**。
- *
- * 这条路由的屏（`:core` 的 `ScoreReportScreen`）与取数（`:data` 的 `scoreReportSource`）
- * 早就搬完了，本轮补的是它一直缺的那一半：**SWR 缓存**。搬迁前 `:app` 侧的
- * `appScoreReportCache` 是那条路由唯一的宿主依赖，桌面这一端一直是 `cache = null`
- * （没有秒显）—— 现在填上 [DesktopScoreReportCache]（与 `:app` **同一个键**）。
- *
- * 与 `:data` 的 `ScoreReportApiJvmTest` 的分工：那边验帆软报表逐页解析的字段口径（三行成课、
- * 四类噪声行被跳过）；这里验**桌面这一端的装配** —— 桌面自己登教务、拉一份成绩、把它写进
- * 缓存再读回来（同一批行、同一个键），以及那条缓存的四种边界（过期 / 坏值 / 换学号 / 空）。
- *
- * 手法同 `DesktopAuthJiaocai1JvmTest`：`:testkit` 假上游 + URL 一个字符不改。
- */
+/** 成绩报表（`AppRoute.ScoreReport`）在桌面端的装配验收。 */
 class DesktopAuthScoreReportJvmTest {
 
     private lateinit var fake: FakeCampusProxy
@@ -97,7 +84,6 @@ class DesktopAuthScoreReportJvmTest {
         assertEquals(3, grades.size, "夹具那两页报表里三行成课")
         assertEquals(JwxtFakeUpstream.STUDENT_ID, fake.jwxt.lastReportStudentId)
 
-        // 桌面这份缓存：键与 `:app` 的 `appScoreReportCache` 逐字相同
         val store = keyValueStore("score_report_unit_test").apply { clear() }
         val cache = DesktopScoreReportCache(JwxtFakeUpstream.STUDENT_ID, store = store)
         assertNull(cache.read(), "还没写过 ⇒ 读不到（屏幕据此直接去拉）")

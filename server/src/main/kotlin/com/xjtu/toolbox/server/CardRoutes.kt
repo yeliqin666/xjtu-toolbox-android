@@ -10,38 +10,7 @@ import io.ktor.server.routing.route
 import kotlinx.datetime.LocalDate
 import kotlinx.serialization.Serializable
 
-/**
- * `/api/card*` —— 两个端点（`docs/api-contract.md` §5 的 P0），走 `:data` 的
- * [AppCampusCardSource]（包住 `CampusCardApi` 的 ncard 抓取，解析口径一行不重做）。
- *
- * | 端点 | 对应端口方法 |
- * |---|---|
- * | `GET /api/card/balance` | `CampusCardSource.card()`（`CardInfo`） |
- * | `GET /api/card/transactions` | `CampusCardSource.transactions(from, to, page, pageSize)` |
- *
- * ## ⚠️ 挂失口径（契约 §5 要「明确选一个」的那条）
- *
- * `CardInfo.lostFlag` 在 `:data` 的 `CampusCardApi.getCardInfo` 里取的是上游 **`barflag`**
- * （`ncard` 的 `queryCard` 返回 `barflag`/`freezeflag` 两个号；`:app` 的老实现写的就是
- * `barflag`，`CampusCardNetApi` 的 KDoc 记着「`:app` 的 `lostFlag` 取的是 `barflag`」）。
- * 本层沿用它 —— 不另选 `lostflag`（那是 campus-api 的映射，两边的读法在异常卡上才可能分叉，
- * 本端只对 `:data` 负责）。
- *
- * ## ⚠️ 红线：卡面的 `account` / `name` / `studentNo` **不投影**
- *
- * `CardInfo` 那三个字段是卡账号 / 姓名 / 学号（登录用户本人）—— 与 `/api/status`
- * 那条红线同口径，任何响应不许出现。`balance` / `pendingAmount` / `lostFlag` / `frozenFlag` /
- * `expireDate` / `cardType` / `department` 是卡面形状（`cardType` ← 上游 `cardname`，`amount`/`merchant`
- * 等流水字段 ← `signed`/`channel` 的解析在 `:data` 已经做掉了，这里只投影结果）。
- *
- * ## 分页与查询
- *
- * 流水按页取（`:data` 的 `transactions` 本来就带分页与总数）：`?from=&to=`（必填，`YYYY-MM-DD`）
- * + `?page=`（默认 1）`?size=`（默认 50）。响应 `{page, size, total, transactions[]}`（§4）。
- *
- * @param session 会话装配；校园卡站点从 `session.sessionManager` 取。桌面端那份传 `store = null`
- *   （不缓存）—— serve 这里同样是 `null`：没有宿主磁盘快照那一档（P2 宿主能力）。
- */
+/** `/api/card*`。 */
 internal fun Route.cardRoutes(session: ServeSession) {
     route(CARD_SEGMENT) {
 
@@ -103,7 +72,7 @@ internal fun Route.cardRoutes(session: ServeSession) {
 
 // ── 数据模型（客户端形状）──────────────────────────────────────────
 
-/** `GET /api/card/balance` 的 `data`。⚠️ 没有 `account`/`name`/`studentNo`（红线，见文件头）。 */
+/** `GET /api/card/balance` 的 `data`。⚠️ 不含 `account`/`name`/`studentNo`。 */
 @Serializable
 internal data class CardBalanceData(
     val balance: Double,
@@ -126,10 +95,7 @@ internal data class TransactionsData(
     val transactions: List<TransactionDto>,
 )
 
-/**
- * 一笔流水的投影。`amount` 是**带符号**的（负 = 支出，正 = 收入）—— `:data` 的解析把
- * 上游 `tranamt` 无符号绝对值 + `signedAmountCents` 的方向判据合成好了，这里只投影结果。
- */
+/** 一笔流水的投影。 */
 @Serializable
 internal data class TransactionDto(
     val time: String,

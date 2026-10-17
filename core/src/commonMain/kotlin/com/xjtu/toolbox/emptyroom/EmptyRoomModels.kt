@@ -1,18 +1,6 @@
 package com.xjtu.toolbox.emptyroom
 
-/**
- * 空闲教室的**模型与常量**：从 `:app` 的 `EmptyRoomApi.kt` / `LiveRoomApi.kt` / `EmptyRoomScreen.kt`
- * 原样搬进 `:core`，一行业务逻辑都没改，只是换了住址 —— 因为两端（Android / Web）现在共用同一份
- * 屏与 ViewModel，它们必须共用同一份模型。
- *
- * **为什么取数没跟着搬**：`:app` 那几份取数是 okhttp + `Context` + SharedPreferences
- * （CDN 第三方源、直查教务、智慧教室实时状态、磁盘缓存），在 commonMain 里编不过。
- * 取数改成端口（见 [EmptyRoomSource]）：Android 侧 `AppEmptyRoomSource` 包住原来那几个类，
- * Web 侧见 `com.xjtu.toolbox.core.net.CampusEmptyRoomApi`。
- *
- * ⚠️ [RoomInfo] 是 `@Serializable`，**形状不能动**：Android 的磁盘缓存（`EmptyRoomCache` 写出的
- * JSON 数组）是照这个形状存的，改字段名/类型会让老缓存读不出来。
- */
+/** 空闲教室的模型与常量。 */
 
 /** 空闲教室的数据源。[key] 存进偏好，改名别动它。 */
 enum class RoomSource(val key: String) {
@@ -24,19 +12,10 @@ enum class RoomSource(val key: String) {
     DIRECT("direct"),
 }
 
-/**
- * 记住"上次选的是哪一档"的偏好键。
- *
- * 新键：旧的 empty_room_use_direct_query 是 CDN/直查二选一时代的，实时状态上线后默认改回实时，不沿用。
- *
- * ⚠️ `:app` 的 `AgentTool` 也直接读这个键（同一个 SharedPreferences 文件、同一个键名），
- * 挪动它等于让屏和屁岱对"现在用哪档"的看法不一致。
- */
+/** 记住"上次选的是哪一档"的偏好键。 */
 internal const val SOURCE_PREF_KEY = "empty_room_source"
 
-/**
- * 教室信息（来自 CDN 缓存）
- */
+/** 教室信息（来自 CDN 缓存） */
 @kotlinx.serialization.Serializable
 data class RoomInfo(
     val name: String = "",      // 教室名称，如 "主楼A-101"
@@ -44,9 +23,7 @@ data class RoomInfo(
     val status: List<Int> = emptyList(),  // 11 个元素，对应 1-11 节课的占用情况：0=空闲, 1=占用
 )
 
-/**
- * 校区-教学楼映射（来自 XJTUToolBox）
- */
+/** 校区-教学楼映射（来自 XJTUToolBox） */
 val CAMPUS_BUILDINGS = mapOf(
     "兴庆校区" to listOf(
         "主楼A", "主楼B", "主楼C", "主楼D", "中2", "中3",
@@ -68,19 +45,10 @@ val CAMPUS_BUILDINGS = mapOf(
     "苏州校区" to listOf("公共学院5号楼")
 )
 
-/**
- * 无数据异常（CDN 上没有该天的数据）。
- *
- * 必须住在 `:core`：ViewModel（现在是共享的）要 `catch (e: NoDataException)` 把「这一天没数据」
- * 与「请求失败」分开处理（前者直接报错不兜底缓存，后者才回退磁盘缓存），而抛它的是各端的取数实现。
- */
+/** 无数据异常（CDN 上没有该天的数据）。 */
 class NoDataException(message: String) : Exception(message)
 
-/**
- * 实时状态里的一间教室，来自智慧教室平台 `classroomStatus/classroomStatusList`。
- *
- * 会随屁岱的卡片（`:app` 的 `agent/LiveRoomWidget`）存进会话记录，字段名即存盘格式。
- */
+/** 实时状态里的一间教室，来自智慧教室平台 `classroomStatus/classroomStatusList`。 */
 @kotlinx.serialization.Serializable
 data class LiveRoom(
     /** 教室全名，如 "东1东-303"、"1-2050"，和 CDN / 教务的教室名同一套写法。 */
@@ -100,13 +68,7 @@ data class LiveRoom(
     val isInClass: Boolean get() = status == LiveRoomStatus.IN_CLASS
 }
 
-/**
- * 平台的 status 取值（前端 chunk 里写死的）：
- * - 1 使用中：没排课，但有人（平台给出人数，实测大多 1–2 人；平台不区分自习、社团借用还是活动，界面上叫「其它使用」）
- * - 2 空闲
- * - 3 上课中：有课程名、教师、这门课的人数
- * - 0 前端有对应样式但抓包里没出现过，按"未知"处理，不当成空闲。
- */
+/** 平台的 status 取值（前端 chunk 里写死的）。 */
 object LiveRoomStatus {
     const val UNKNOWN = 0
     const val IN_USE = 1
@@ -128,30 +90,14 @@ data class LiveSnapshot(
     val inClassCount: Int get() = rooms.count { it.isInClass }
 }
 
-/**
- * App 校区名 → 平台校区名。平台只有这三个校区（getBuildingByType 返回的就是这三个），
- * 曲江、苏州没有实时数据。
- */
+/** App 校区名 → 平台校区名。 */
 val LIVE_CAMPUSES: Map<String, String> = linkedMapOf(
     "兴庆校区" to "兴庆校区",
     "雁塔校区" to "雁塔校区",
     "创新港校区" to "创新港",
 )
 
-/**
- * 平台楼名 → App 楼名。
- *
- * 2026-09-22 同一天对照 CDN 数据的结果（写在这里免得以后再比一遍）：
- * - 教室名两边一致（"东1东-303"、"1-2050"），可以直接按名字对上课表；
- * - 兴庆、雁塔楼名一致；创新港平台叫 "1"、"2"、"18"，App 叫 "1号巨构"……；
- * - 平台比 CDN 少：兴庆 328/453 间、创新港 311/341、雁塔 108/129。仲英楼、中1、主楼E座、
- *   计教中心、田家炳、工程坊，创新港的 9/21 号巨构、图书馆、绿楔和运动场，雁塔的附院教学楼、
- *   卫法楼都不在平台上；曲江、苏州整个校区没有。都是特殊场地，接受；
- * - 平台多出来的：国防中心、西1楼、音乐教室，以及 CDN 里没有的十几间（如 1-2054、3-2026）；
- * - 两边都有的教室里座位数不同的：兴庆 6 间、创新港 14 间，雁塔一致——以平台为准；
- * - 状态对得上：平台"上课中"和 CDN 当节占用吻合（兴庆 100/100、创新港 30/32），
- *   平台多出来的信息是"使用中"——课表上是空的，但实际有人（当时兴庆 92 间）。
- */
+/** 平台楼名 → App 楼名。 */
 fun liveBuildingName(campus: String, raw: String): String {
     val trimmed = raw.trim()
     if (campus == "创新港校区" && trimmed.isNotEmpty() && trimmed.all { it.isDigit() }) return "${trimmed}号巨构"

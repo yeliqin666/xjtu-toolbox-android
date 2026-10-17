@@ -17,14 +17,6 @@ import kotlinx.serialization.json.jsonArray
  *
  * 线程安全：读写均 synchronized(this)。
  *
- * ## 本轮为什么从 `:app` 搬到 `:data`
- *
- * 它是多账号的**持久化**那一半（列表 / 激活指针 / upsert / remove），与「谁来登、谁来切会话」
- * 无关，本来就只需要一个键值存储。搬迁前它拿 `Context` 去开 `SecurePrefs`——那一步换成了
- * `:data` 自己的密文键值缝 `secureKeyValueStore`（**Android 上的 actual 就是同一个 `SecurePrefs`、
- * 同一个 `xjtu_accounts` 文件名、同一批键** ⇒ 老用户的账号列表与激活指针一个字不变；桌面上
- * 那份落在一个 0600 的文件里）。于是 `:desktop` 也能用这同一份实现。
- *
  * ⚠️ 文件名与键名一个都不能改，改了所有人要重登（与 `secureKeyValueStore` 那条红线同源）。
  */
 class AccountStore {
@@ -103,11 +95,7 @@ class AccountStore {
                 .filter { it.accountId.isNotBlank() }
 
         private const val TAG = "AccountStore"
-        /**
-         * 密文存储的文件名。**是存储契约的一部分**：Android 侧的 actual 就是
-         * `SecurePrefs.open(context, "xjtu_accounts")`，`XjtuApp.attachBaseContext` 靠这个常量
-         * 在首帧前 `SecurePrefs.prewarm` 它（换一个字符，老用户的账号列表就找不到了）。
-         */
+        /** 密文存储的文件名。 */
         const val FILE_NAME = "xjtu_accounts"
         private const val KEY_ACCOUNTS = "accounts"
         private const val KEY_ACTIVE = "active_account"

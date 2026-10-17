@@ -13,27 +13,7 @@ import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
 import okhttp3.Request
 
-/**
- * 下载执行器在 **JVM（桌面）侧的填法** —— `:core` 的 [DownloadEngine] 实现。
- *
- * ## 与 Android 那份（`AppDownloadEngine`）的差异（如实）
- *
- * | | Android（`:app`） | 桌面（这里） |
- * |---|---|---|
- * | 客户端 | `HttpClients.base.newBuilder()` + 连接 30 s、读写不设超时 | **同左，逐字一致** |
- * | 请求头 | `Accept`（任意类型）+ `User-Agent: XJTUToolbox/1.0` | **同左** |
- * | 续传判定 | `Range` ⇒ 206 续写；200 就从头；416 = 本地已完整 | **同左**（与假上游那份夹具对得上） |
- * | 总大小 | `Content-Range` → 否则 `contentLength + 起点` → 否则 -1 | **同左** |
- * | 落盘 | `RandomAccessFile` + `setLength(0)` / `seek` | `FileChannel` + `truncate(0)` / `position`（语义相同，走 `java.nio.file`） |
- * | 缓冲 / 节流 | 8 KB / 500 ms | **同左** |
- * | 取消 | 每块检查协程取消 | **同左** |
- *
- * 为什么**不**合成一份放 `:data/commonMain`（okhttp 与 `java.io` 在 android/jvm 两个目标上都有，
- * 技术上做得到）：Android 那份的职责是「**一个字节的行为都不变**」，它是从屏上原样搬出来的，
- * 任何实现替换（哪怕只是把 `RandomAccessFile` 换成 `FileChannel`）都要重新论证一遍；
- * 而桌面这份要按桌面的落盘口径（`$HOME/Downloads`、`java.nio.file`）。两份都遵守端口契约
- * （见 [DownloadEngine] 的 KDoc），所以「哪一份」对状态机与屏都是透明的。
- */
+/** 下载执行器在 JVM（桌面）侧的填法 —— `:core` 的 [DownloadEngine] 实现。 */
 class JvmDownloadEngine : DownloadEngine {
 
     private val httpClient by lazy {
@@ -121,13 +101,7 @@ class JvmDownloadEngine : DownloadEngine {
     }
 }
 
-/**
- * 下载落盘能力在 **JVM（桌面）侧的填法** —— `:core` 的 [DownloadFileSystem] 实现。
- *
- * 目录：`$HOME/Downloads/ClassReplay`（目录名与 Android 那条 **同一个字** —— 它是 class 课程回放
- * 时代定下的，改名只会让两端的说明文案各说一套）。测试与证据运行会把 `dataRootOverride` 指到
- * 临时目录，那时落在 `<临时根>/Downloads/ClassReplay` ⇒ **绝不碰用户真实的 `~/Downloads`**。
- */
+/** 下载落盘能力在 JVM（桌面）侧的填法 —— `:core` 的 [DownloadFileSystem] 实现。 */
 class JvmDownloadFileSystem(
     private val root: File = defaultDownloadRoot(),
 ) : DownloadFileSystem {
@@ -153,12 +127,7 @@ class JvmDownloadFileSystem(
     }
 }
 
-/**
- * 桌面端的下载根目录。
- *
- * `~/Downloads/ClassReplay` —— Linux 上 `xdg-user-dir DOWNLOAD` 的默认值就是 `~/Downloads`
- * （与 `DesktopLmsSaver` 的落脚点同一个父目录，不额外查 xdg 配置）。
- */
+/** 桌面端的下载根目录。 */
 internal fun defaultDownloadRoot(): File {
     val override = dataRootOverride
     if (override != null) return File(File(override, "Downloads"), "ClassReplay")

@@ -84,12 +84,7 @@ private fun blendPose(a: Pose, b: Pose, t: Double): Pose {
     )
 }
 
-/**
- * 单眼眨：0.12s 合上、停一下、0.2s 睁开，共约 0.4s。
- *
- * 公开可见是为了让 :app 的角色动作（`agent/bot/cast/`，上游新加的 5 个角色）用同一份眨眼表 ——
- * 上游那边引擎和角色在同一个模块，`internal` 就够了；引擎搬进 :core 之后必须 public。
- */
+/** 单眼眨：0.12s 合上、停一下、0.2s 睁开，共约 0.4s。 */
 fun winkLid(t: Double): Double = when {
     t < 0.0 || t > 0.4 -> 1.0
     t < 0.12 -> 1.0 - t / 0.12

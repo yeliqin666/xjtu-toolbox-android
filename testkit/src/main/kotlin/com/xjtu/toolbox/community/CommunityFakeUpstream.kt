@@ -3,42 +3,7 @@ package com.xjtu.toolbox.community
 import com.sun.net.httpserver.HttpExchange
 import java.util.concurrent.atomic.AtomicInteger
 
-/**
- * 假的 **GitHub**（第 21 条真数据路由：社区三屏的取数与登录都在 `api.github.com` +
- * `github.com/login` 上）。
- *
- * ## 它扮的是哪条链
- *
- * 与 [`GithubOAuthDeviceAuthRepository`](com.xjtu.toolbox.community.GithubOAuthDeviceAuthRepository) /
- * [`HttpGithubDiscussionsRepository`](com.xjtu.toolbox.community.HttpGithubDiscussionsRepository) /
- * [`SecureGithubSession`](com.xjtu.toolbox.community.SecureGithubSession) 一起，把**搬进 `:data`
- * 之后**的设备码登录与取数原样演一遍：
- *
- * ```
- * POST https://github.com/login/device/code        （form: client_id=…）
- *      → {"device_code":"…","user_code":"…","verification_uri":"https://github.com/login/device","expires_in":900,"interval":5}
- * POST https://github.com/login/oauth/access_token （form: client_id/device_code/grant_type）
- *      → 前 [pendingPolls] 次回 {"error":"authorization_pending"}，之后回 {"access_token":"…","token_type":"bearer","scope":"…"}
- * POST https://api.github.com/graphql              （body: {"query":"query{viewer{login}}",…}）
- *      → {"data":{"viewer":{"login":"…"}}}
- * POST https://api.github.com/graphql              （body 里是 `repository(owner:…,name:…){…discussions…}`）
- *      → {"data":{"repository":{"id":…,"pinnedDiscussions":{…},"discussions":{…}}}}
- * ```
- *
- * 真站点那两个 host 都是 https，所以两个都在 `FakeCampusProxy.HTTPS_HOSTS` 里（要隧道）；
- * `verification_uri` 必须是 https 且 host 与配置的登录 host 一致 —— `toDomain` 就是这么校验的，
- * 所以这里给的是 `https://github.com/login/device`（**不会被请求**：用户是自己在浏览器里打开的）。
- *
- * ## 报文校验照实现里的判据
- *
- * `GithubOAuthDeviceAuthRepository.toDomain` 对两个报文有一整套长度/主机/区间检查（设备码 20..255、
- * 用户码 4..32、`expires_in` 60..86400、`interval` 1..300、`token_type` 必须能被认成 bearer）。
- * 夹具给的样本**刻意卡在正中间**，任何一条判据收紧都会在这里响。
- *
- * ## 夹具值全是编造的
- *
- * 用户名 `fixture-user`、帖子标题「示例讨论：桌面端怎么用」（假）、分类「Ideas」—— 不是真账号真帖子。
- */
+/** 假的 GitHub。 */
 class CommunityFakeUpstream {
 
     companion object {
@@ -48,7 +13,7 @@ class CommunityFakeUpstream {
         /** GraphQL 那个 host。 */
         const val API_HOST = "api.github.com"
 
-        /** `GithubOAuthDeviceAuthRepository` 的默认 `baseUrl`（逐字相同，有断言钉着）。 */
+        /** `GithubOAuthDeviceAuthRepository` 的默认 `baseUrl`（有断言钉着）。 */
         const val LOGIN_BASE = "https://$LOGIN_HOST/login/"
 
         const val DEVICE_CODE_PATH = "/login/device/code"
@@ -181,11 +146,7 @@ class CommunityFakeUpstream {
 
     // ── 报文 ─────────────────────────────────────────────────────
 
-    /**
-     * 列表查询的响应。`pinned` 那一支只在第一页出现 —— 与查询里的 `@include(if:$top)` 对应；
-     * 夹具按「**变量**里带 `"top":true` 才给置顶」来答（查询文本里只有 `@include(if:$top)`,
-     * 真正决定要不要置顶的是 variables），免得客户端漏传 `top` 也看起来正常。
-     */
+    /** 列表查询的响应。 */
     private fun discussionsJson(body: String): String {
         val withPinned = """"top":true""" in body || """"top": true""" in body
         val pinned = if (withPinned) {

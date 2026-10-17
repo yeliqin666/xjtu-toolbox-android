@@ -83,26 +83,7 @@ import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
-/**
- * 首屏那个「屁岱形象 + 问候」—— `:core` 的 `AgentWelcome` 用 `hero` 槽位把它插进来。
- *
- * ## 为什么这一块留在 `:app`
- *
- * 它认的四件事都还在这一端：屁岱形象本体（`bot/`、`bot/cast/` 在 `:core`，但**节拍驱动的
- * 那颗按钮** `PidaiNavButton` 与连戳计数 `PidaiPokes` 在 `:app`，后者要 `SystemClock`）、
- * 形象外观（`pidaiNavAppearance()` 读的是本机的形象设置）、提醒气泡的中转站
- * （`ProactiveBubbleHost.heroLine` / `heroPokes`：气泡、通知、小组件那几条路都在这一端），
- * 以及「戳一下换一句话」的连戳彩蛋。
- *
- * 桌面上这四件都没有（没有底栏屁岱、没有形象设置、没有提醒气泡）⇒ 那边用 `:core` 的
- * 默认实现（`AgentWelcome` 的 `PlainHero`）：一句纯文字的问候 + 同样的建议卡片。
- * 这是**如实降级**：桌面不是「画出来点了没反应」，而是根本没有形象可画。
- *
- * ## 搬迁口径
- *
- * 下面两个函数是从 `AgentWelcome.kt` **整段搬来**的，只改了函数名
- * （`Hero` → [AndroidPidaiHero]）—— 一行逻辑都没动。
- */
+/** 首屏那个「屁岱形象 + 问候」—— `:core` 的 `AgentWelcome` 用 `hero` 槽位把它插进来。 */
 /** 挑一句闲话当问候的第二行；避开推广句和带动作的句子，也避开刚说过的那句。 */
 private fun pickLine(facts: WelcomeFacts, now: LocalDateTime, avoid: String?): String? {
     repeat(6) {
@@ -151,7 +132,6 @@ internal fun AndroidPidaiHero(title: String, facts: WelcomeFacts, now: LocalDate
             }
         }
     }
-    // 打字机：新的一句逐字出现
     var shown by remember(line) { mutableStateOf(0) }
     LaunchedEffect(line) {
         shown = 0
@@ -226,7 +206,6 @@ internal fun AndroidPidaiHero(title: String, facts: WelcomeFacts, now: LocalDate
             )
             Spacer(Modifier.height(4.dp))
             Box {
-                // 先用整句占住高度，逐字出现时气泡不跟着一跳一跳地长
                 Text(line, style = MiuixTheme.textStyles.body2, color = Color.Transparent)
                 Text(
                     line.take(shown),

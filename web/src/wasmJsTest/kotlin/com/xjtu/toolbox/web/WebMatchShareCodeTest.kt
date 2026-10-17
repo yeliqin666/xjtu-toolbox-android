@@ -12,29 +12,10 @@ import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
-/**
- * **浏览器这一端的分享码真能用**（D12 ②）在真浏览器里的证明 —— 跑在 `:web:wasmJsBrowserTest` 的
- * karma + Chromium 里（`./gradlew :web:wasmJsBrowserTest`），用的是 wasmJs 的三份 actual。
- *
- * 2026-10-14 那一轮这一端是「整屏用不了」：deflate 与 URL-safe Base64 两条缝在 wasmJs 上都如实返回
- * null ⇒ `MatchProfile.codecAvailable == false` ⇒ 出码与解码都不行，`:web` 上落的是如实说明页。
- * 2026-10-15（D12 ②）两条缝搬进 `:core` 的 commonMain（`ZlibCodec` / `UrlSafeBase64`，wasmJs 的
- * actual 转调它们）⇒ 这个文件把「真能用」钉在**真浏览器**里，而不是只吃编译门禁：
- *
- * 1. `codecAvailable` 在 wasm 上是 **true**（曾经是这条链的总闸）；
- * 2. **Android 那一端编出来的那条真码，这里解得回同一份档案** —— [ANDROID_MADE_SHARE_CODE] 是
- *    2026-10-15 用 `java.util.zip` + `java.util.Base64`（也就是 `:app` / `:desktop` 那两份 actual
- *    的同一份源码）编出来的，常数在 `:core` 的 `ShareCodeInteropJvmTest` 里也解了一遍
- *    （那份测试源集看不到本文件，所以两处各存一份、都注明了出处）；
- * 3. 这一端自己编出来的码，这一端解得回来（生成与解析都在这端真跑一遍）；
- * 4. 分享码的**二维码**在这一端真能编出来（`qrCodeModules` 在 wasm 上是纯 Kotlin 的 `QrCodec`）
- *    —— 也就是「扫一下加好友」那条路上，浏览器这一侧的两步（出码 + 画码）都通。
- *
- * ⚠️ 夹具全是**编造**的（没有真实课表 / 姓名 / 学号）。
- */
+/** 浏览器这一端的分享码真能用在真浏览器里的证明。 */
 class WebMatchShareCodeTest {
 
-    /** 与 `:core` 的 `ShareCodeInteropJvmTest` 里那份夹具**逐字段相同**（编造）。 */
+    /** 与 `ShareCodeInteropJvmTest` 里那份夹具相同（编造）。 */
     private val fixture = MatchProfile.Profile(
         nickname = "阿离",
         busyGrid = "111" + "0".repeat(74),
@@ -95,14 +76,7 @@ class WebMatchShareCodeTest {
     }
 
     private companion object {
-        /**
-         * 2026-10-15 用 Android/jvm 那条实现（`java.util.zip` 的 `Deflater(BEST_COMPRESSION)` +
-         * `java.util.Base64` 的 URL 编码器）对上面那份夹具编出来的**真码**。
-         *
-         * 同一份常数在 `:core` 的 `ShareCodeInteropJvmTest`（`:core:jvmTest`）里也有一个副本并解过一遍 ——
-         * 两处各存一份是因为 `:web` 的测试源集看不到 `:core` 的 jvmTest 源码（见 `web/build.gradle.kts`
-         * 里那段「:core 的 commonTest 整体在 wasmJs 上编不过」的说明）。
-         */
+        /** 用 Android/jvm 实现对上面那份夹具编出的真码。 */
         const val ANDROID_MADE_SHARE_CODE =
             "eNqtkEkKwkAQRS8UpbtFL-ARvE4RRFEMiigoJkSx4xAViagoxCSQy_SQXnkFGwWHjav8RVFU_V88qgzKTqUfA8YY5Sao1nTFptrbMrDE" +
                 "-MgD_550WFi_J5bxXBKTrzZ6LK2dHLQB4WJ-AhYGxGBhLNYJ8ISy0DLErM9d9wX2n88kiFQKCBcwgm9G3RjfAXajamErV8O_9ftE0K6sO1TLO" +

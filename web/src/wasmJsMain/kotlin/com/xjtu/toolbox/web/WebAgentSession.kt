@@ -35,38 +35,7 @@ import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonObject
 
-/**
- * 浏览器侧的屁岱**驱动**（D10 的 S-d；`docs/agent-web-spec.md` §4.2 的逐成员对应表）。
- *
- * ## 它不是 `AgentViewModel` 的替代实现
- *
- * 循环（工具层 / 传输层 / 落盘 / 自动标题）全在 **serve**：这一端只做两件事 ——
- * ①「事件 → 状态」（[AgentStreamState]，与 `AgentViewModel` 逐条同判据）；
- * ②「会话 / 记忆 / 配置走 HTTP」（`/api/agent` 那一族十四条，契约 §5.11）。
- *
- * 屏那一侧看不出来驱动换了人：`AgentScreen(session = …)` 收的是 `:core` 的 `AgentChatSession`
- * 那条缝（S-b 抽的），成员名与类型**一个字没改**。
- *
- * ## 一轮对话怎么走（与契约 §5.11 的 SSE 逐条对上）
- *
- * 1. `POST /api/agent/chat`（[AgentSseBridge] 的 fetch 桥，**不走 Ktor**）——
- *    开门阶段的失败是**信封**（`400/401/404/409/502`），流开始之后才是帧；
- * 2. 每一块字节交给 [AgentSseParser]（可能停在半帧上，缓冲器管这件事），吐出来的帧进通道；
- * 3. 消费循环一帧一帧写状态，正文增量按 `STREAM_FLUSH_MS`（50ms，**与 `AgentViewModel` 同一个数**）
- *    合流后才落到气泡上 —— 不这么做每个分片都要重组一次 + 重解析一遍 Markdown，长回复是 O(n²)；
- * 4. `done` / `error` 之后服务端关流 ⇒ [TurnSignal.Ended] ⇒ 熄加载态并刷新会话表（标题变了）；
- *    **没见到终止事件就把流关了** = 被停止 / 客户端断开 ⇒ 走「（已停止）」那一档（契约第 9 条）；
- * 5. 切会话 / 新建 / 点停止 ⇒ `AbortController.abort()` 之外还 `POST /api/agent/stop`
- *   （契约 §3.4：停止与断开是同一条路，显式 stop 让服务端**立刻**回一句）。
- *
- * ## 三处「这一端做不到」的（如实，不假装）
- *
- * - `replaceLastUserAndSend`：契约里没有「替换上一轮」的入口（设计稿 §9 未决 #7）⇒ 这一端做的是
- *   「屏幕上那条用户气泡换掉 + 以新的一句**再发一次**」，serve 那一侧的历史仍留着上一轮；
- * - `bind(store)` 的 `store` 用不上：会话落在 serve，本端不落盘（参数留着是为了「同一屏、两种驱动」）；
- * - `sendMessage` 的 `llmAnnex`（提醒快照）与 `images`（相册）：前者是 `:app` 的活，后者这一端没有相册
- *   （`AgentCapability.IMAGE_INPUT` 不列 ⇒ 那颗回形针整颗不画）。
- */
+/** 浏览器侧的屁岱驱动（`docs/agent-web-spec.md` §4.2 的逐成员对应表）。 */
 internal class WebAgentSession(
     private val client: HttpClient,
     private val scope: CoroutineScope,
@@ -107,23 +76,12 @@ internal class WebAgentSession(
     /** 流 key 的自增量（同一页里可能连开好几轮）。 */
     private var streamSeq = 0
 
-    /**
-     * 「这一轮」的代数：取消 / 切走 / 新开都 +1 ⇒ 旧那一轮的消费者**一个字都不再写**。
-     *
-     * 为什么不是拿会话 id 比（`AgentViewModel` 的 `turnSid` 判据）：那一端「取消」是取消协程，
-     * 取消之后回调不再进来；而这一端的取消是 **abort fetch**，回调还会把「已停止」送回来 ——
-     * 而这时用户可能已经切到别的会话了。代数比会话 id 稳。
-     */
+    /** 「这一轮」的代数：取消 / 切走 / 新开都 +1 ⇒ 旧那一轮的消费者一个字都不再写。 */
     private var turnGeneration = 0
 
     // ── 会话表 ──────────────────────────────────────────────────────────────
 
-    /**
-     * 屏进来时调一次（`AgentChatSession.bind` 的语义）：拉会话表，接上最近那一条（没有就新建一条）。
-     *
-     * [store] 用不上 —— 会话落在 serve（`/api/agent/sessions*`），本端不落盘。参数留着是为了
-     * 「同一屏、两种驱动」：屏那一侧调的就是同一个方法。
-     */
+    /** 屏进来时调一次（`AgentChatSession.bind` 的语义）：拉会话表，接上最近那一条（没有就新建一条）。 */
     override fun bind(store: AgentSessionPersistence) {
         if (bound) return
         bound = true
@@ -215,8 +173,6 @@ internal class WebAgentSession(
     override fun replaceLastUserAndSend(newText: String, config: AgentConfig) {
         val text = newText.trim()
         if (text.isBlank()) return
-        // 契约里没有「替换上一轮」的入口（设计稿 §9 未决 #7）⇒ 这一端只能做到「屏幕上换掉 + 再发一次」。
-        // 与 `AgentViewModel` 的差别如实留在这里：那一边会把 LLM 历史里那一轮摘掉，这一边摘不掉。
         cancelTurn()
         state.dropLastUserTurn()
         sendMessage(text, config)
@@ -325,16 +281,11 @@ internal class WebAgentSession(
 
     // ── 配置 / 模型 / 记忆（配置面板那两格与「能做什么」那一段用）────────────────
 
-    /** `GET /api/agent/config`：这一端认的那几格（**没有 key**，红线）。 */
+    /** `GET /api/agent/config`：这一端认的那几格（没有 key）。 */
     suspend fun configView(): Result<AgentConfigView> =
         agentCall(AGENT_CONFIG_PATH, null).map { configViewOf(it) }
 
-    /**
-     * `POST /api/agent/config`：**整份覆盖，但那一格 `apiKey` 整个不出现**。
-     *
-     * 为什么：本端永远拿不到 key（红线），而服务端的语义是「给了 `apiKey`（哪怕空串）就按给的写」
-     * ⇒ 带上一个空串就等于**把 serve 上那把 Key 清掉**。这一格只有运行 serve 的那台机器能改。
-     */
+    /** `POST /api/agent/config`：整份覆盖，但那一格 `apiKey` 整个不出现。 */
     suspend fun saveConfig(config: AgentConfig): Result<Unit> = agentCall(
         AGENT_CONFIG_PATH,
         AppJson.encodeToString(
@@ -383,11 +334,7 @@ internal class WebAgentSession(
 
     // ── HTTP 那一层 ─────────────────────────────────────────────────────────
 
-    /**
-     * 一次 `/api/agent` 那一族的调用：读 §4 的信封（规矩与 `WebServeSession.call` 一字不差 ——
-     * **成功只看 `code == 0`**，失败时 `message` 是能直接给用户看的中文短句；`Result` 而不是抛，
-     * 因为这几处都要把话说在屏上）。`CancellationException` 照旧往外抛。
-     */
+    /** 一次 `/api/agent` 那一族的调用：读 §4 的信封（规矩与 `WebServeSession.call` 一字不差）。 */
     private suspend fun agentCall(path: String, body: String?): Result<JsonObject> = try {
         val response = client.request {
             method = if (body == null) HttpMethod.Get else HttpMethod.Post
@@ -414,17 +361,7 @@ internal class WebAgentSession(
     }
 }
 
-/**
- * 桥递回来的失败载荷 → 屏上那句如实的话（**纯函数**，有 `:web` 的用例）。
- *
- * 三种形状（见 [AgentSseBridge] 的 KDoc）：
- * - `http` —— **开门阶段的失败是信封**（不是 SSE，契约 §5.11）⇒ 读它那句 `message`
- *   （服务端写好的中文短句）；连信封都读不出来就如实报 `HTTP <码>`；
- * - `abort` —— 我方主动取消（切会话 / 新建 / 点停止）⇒ `null`：**不要说这是错误**，
- *   调用方走「（已停止）」那一档（照 `AgentViewModel` 的取消路径）；
- * - 其余（网络断 / 读流失败）—— 把原因原样带出来（`fetch` 的 `TypeError` 原文只有英文，也照原样，
- *   不编一句「网络异常」糊过去）。
- */
+/** 桥递回来的失败载荷 → 屏上那句话。 */
 internal fun agentStreamFailureMessage(payload: String): String? {
     val obj = runCatching { AppJson.parseToJsonElement(payload) as? JsonObject }.getOrNull()
         ?: return "读取回复失败：$payload"
@@ -442,13 +379,7 @@ internal fun agentStreamFailureMessage(payload: String): String? {
     }
 }
 
-/**
- * `GET /api/agent/config` 的那几格（契约 §5.11 第 1 条）。
- *
- * @param config 这一端能认的配置（`apiKey` 恒为空串 —— 响应里没有那一格；`keyConfigured` 才是真源）；
- * @param toolAllowlist 这一份部署**真给模型**的工具名（同一份定义两个消费者：工具表与页面说明）；
- * @param canEditKey 这一端收不收 `apiKey`（本端不画输入框，也不发那一格 —— 见 [WebAgentSession.saveConfig]）。
- */
+/** `GET /api/agent/config` 的那几格（契约 §5.11 第 1 条）。 */
 internal data class AgentConfigView(
     val config: AgentConfig,
     val toolAllowlist: List<String>,
@@ -459,8 +390,7 @@ internal data class AgentConfigView(
 internal fun configViewOf(data: JsonObject): AgentConfigView = AgentConfigView(
     config = AgentConfig(
         provider = data["provider"].safeString().ifBlank { AgentConfig.PROVIDER_DEEPSEEK },
-        // ⚠️ **不读 key**：这一族的响应里根本没有那一格（红线）；`apiKey` 恒为空串，
-        // 「配好了没」由 `keyConfigured` 回答（`AgentConfig.isConfigured`）。
+        // ⚠️ 响应里没有 key；`apiKey` 恒为空串，「配好了没」看 `keyConfigured`。
         model = data["model"].safeString(),
         baseUrl = data["baseUrl"].safeString(),
         assistantName = data["assistantName"].safeString().ifBlank { AgentConfig.DEFAULT_ASSISTANT_NAME },
@@ -497,12 +427,7 @@ private sealed interface TurnSignal {
     /** 桥递回来的失败载荷（见 [agentStreamFailureMessage]）。 */
     data class Failed(val payload: String) : TurnSignal
 
-    /**
-     * 流干净地关了。
-     *
-     * **不一定跑完过**：被停止 / 客户端断开 / 写帧失败时，服务端**一个终止事件都不发**（契约 §5.11）
-     * ⇒ 消费端要把「没见到 `done` / `error` 就关了」读成「（已停止）」那一档。
-     */
+    /** 流干净地关了。 */
     data object Ended : TurnSignal
 }
 
@@ -521,7 +446,6 @@ private const val AGENT_STOP_PATH = "$AGENT_PATH/stop"
 private const val AGENT_MEMORY_FORGET_PATH = "$AGENT_MEMORY_PATH/forget"
 private const val AGENT_MEMORY_CLEAR_PATH = "$AGENT_MEMORY_PATH/clear"
 
-// ── 请求体（形状逐字照 `:server` 的 `Agent*Body`）─────────────────────────────
 
 /** `POST /api/agent/chat` 的请求体。 */
 @Serializable
@@ -531,12 +455,7 @@ private data class AgentChatBody(val sessionId: String, val text: String)
 @Serializable
 private data class AgentStopBody(val sessionId: String? = null)
 
-/**
- * `POST /api/agent/config` 的请求体：**故意没有 `apiKey` 那一格**（见 [WebAgentSession.saveConfig]）。
- *
- * `AppJson` 是 `explicitNulls = false`，所以没赋值的字段不会写成 `null` 发出去 ——
- * 这也正是「不带那一格」与「带一个空串」在服务端语义不同的地方（后者会清掉 Key）。
- */
+/** `POST /api/agent/config` 的请求体：故意没有 `apiKey` 那一格（见 [WebAgentSession.saveConfig]）。 */
 @Serializable
 private data class AgentConfigBody(
     val provider: String,

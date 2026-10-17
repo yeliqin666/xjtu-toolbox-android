@@ -69,9 +69,6 @@ import com.xjtu.toolbox.nav.AppRoute
  * 只回答一个问题——「今天刷没刷上卡」，不做课程级考勤统计（那是 bkkq 的事）。
  * 与本科/研究生考勤登录流程完全独立，互不影响。
  *
- * 从 `:app` 的 `iclassface/IclassfaceScreen.kt` 搬进 `:core`（桌面端第 20 条真数据路由），
- * 屏上画的东西（日期条 / 状态卡 / 记录列表 / 三档加载态）一个字没改，被换掉的写法只有五处：
- *
  *  1. `site`（`SiteSession`）+ `IclassfaceApi(site)` → 注入的 [source] 端口
  *     （`:data` 的 `AppIclassfaceSource` 包住 `IclassfaceApi`）；
  *  2. `LocalAppLoginState.handleAuthExpired(...)` → `:core` 的 [LocalAuthExpiry]

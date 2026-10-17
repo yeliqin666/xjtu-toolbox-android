@@ -85,22 +85,7 @@ import com.xjtu.toolbox.ui.components.ErrorState
 import com.xjtu.toolbox.ui.glass.*
 
 /**
- * 成绩查询 —— 从 `:app/jwapp/JwappScoreScreen.kt` 搬进 `:core`（978 行，逐字搬）。
- *
- * 屏上画的东西（GPA 卡、学期下拉、搜索/分组筛选、选课算 GPA、分项成绩展开、GPA 映射表）
- * 一个字没改；被换掉的写法只有开头这三件，与成绩报表/考勤那一批同型：
- *
- *  1. `site` / `jwxtSite`（`SiteSession?`）× 2 + `AppLoginState` → 注入的 [source] / [jwxt] 两个端口
- *     与一个 `studentId`（两个站点的会话与「过渡期借的凭据」都不进共享层）；
- *  2. `DataCache(context, accountId)` → 注入的 [cache] 端口（App 那一份仍是 `DataCache`：
- *     同一个 key、同一个 TTL，老缓存无缝沿用）；
- *  3. VM 的 key：原来用 `appLoginState.accountId` + `System.identityHashCode(site)`
- *     （`identityHashCode` 是 JVM 专属），改成 `studentId` —— 在 App 上它就是那个 `accountId`，
- *     所以「换账号 ⇒ 换一个 VM」的语义不变。
- *
- * 「成绩同步暂不可用」那条会话失效走向本来就在 VM 里（屏上不处理），所以这里没有
- * `LocalAuthExpiry` 这一档。
- *
+ * 成绩查询。
  * @param source 传 null = 这一端没有 jwapp 会话（只读缓存）；
  * @param jwxt 传 null = 这一端没有教务会话（只出 jwapp 那一份）；
  * @param cache 传 null = 这一端不落盘。

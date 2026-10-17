@@ -294,13 +294,7 @@ private fun CommunityLoginScreen(
     }
 }
 
-/**
- * 「粘贴 token」登录 —— 只有 [GithubDeviceAuthRepository.supportsManualToken] 的端会走到
- *（目前是 Web：浏览器直连 `github.com/login/device` 拿不到 CORS 头）。
- *
- * `:app` 不实现那条能力（默认 false），所以 Android 端的登录页与行为零变化。
- * 成败判据与设备码那条路完全一致：`signInWithToken` 内部先用 token 查一次用户名。
- */
+/** 「粘贴 token」登录——只有 [GithubDeviceAuthRepository.supportsManualToken] 的端会走到（目前是 Web：浏览器直连 `github.com/login/device` 拿不到 CORS 头）。 */
 @Composable
 private fun ManualTokenLogin(
     auth: GithubDeviceAuthRepository,

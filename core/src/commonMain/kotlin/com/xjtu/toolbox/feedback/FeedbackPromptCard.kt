@@ -38,14 +38,6 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
  *
  * 必须写在某个 Scaffold 的 content 里，OverlayBottomSheet 才找得到宿主。
  * 延迟弹出，给启动公告 / 更新框先走，避免两层叠在一起。
- *
- * ## 搬进 `:core` 时改了什么（三处，判定逻辑一行未改）
- *
- * 1. `FeedbackApi` → [FeedbackSource]（参数）；
- * 2. `BuildConfig.VERSION_CODE` / `VERSION_NAME` → 参数 —— `:core` 不认识 `:app` 的构建常量，
- *    Android 侧那个调用点把两个值传进来；
- * 3. `ServiceUsageTracker.counts(context, …)` → `keyValueStore("home_usage")` 逐键读同一个
- *    文件、同一批键（见 [usageCount]）—— 「这人用了多少」这个估算口径一字未改。
  */
 @Composable
 fun FeedbackPromptSheet(
@@ -162,14 +154,7 @@ fun FeedbackPromptSheet(
         }
     }
 }
-/**
- * 「这人到底用了多少」的估算：逐键读 `home_usage` 那份存储（搬迁前 `:app` 的
- * `ServiceUsageTracker.counts(context, TRACKED_KEYS).values.sum()`）。
- *
- * **同一个文件名、同一批键、同一个求和口径** —— `ServiceUsageTracker` 写进去的就是这些键，
- * 所以 `:core` 这一段读得到 `:app` 记下的次数（不需要让 `:app` 再把计数传进来）。
- * 它还留在 `:app/`：`record` / `topKeys` 是首页自己用得上的（快捷入口 top-4、卡片 hint）。
- */
+/** 「这人到底用了多少」的估算：逐键读 `home_usage` 那份存储（键名不能改）。 */
 private fun usageCount(): Int {
     val store = keyValueStore("home_usage")
     return TRACKED_KEYS.sumOf { store.getInt(it, 0) }

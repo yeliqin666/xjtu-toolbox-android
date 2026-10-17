@@ -19,31 +19,7 @@ import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
 
-/**
- * 教材阅读器**编排**（[Jiaocai1ReaderViewModel]）在 JVM 上的口径。
- *
- * ## 它钉的是什么
- *
- * 阅读器搬进 `:core` 时，取数从 `Jiaocai1Api(site)` 换成了 [Jiaocai1Source] 端口、书架从
- * `AppDatabase…jiaocai1ShelfDao()` 换成了 [Jiaocai1ShelfStore] 端口、`onCleared` 里那一发
- * 「页面作用域已取消之后仍要打完的进度」换成了 [Jiaocai1ShelfStore.saveProgressOnLeave]
- * —— **编排一行未改**。这里用两个记账用的假实现把那几处契约钉住：
- *
- * - 打开一本书：新建/对齐书架那一行的**字段口径**（标题 `ifBlank` 链、`totalPages` 取线性页表长度）；
- * - 已有书架行：**从存的页码接着读**，越界夹回页表范围；
- * - 翻页：预取窗口跟着当前页走；进度**防抖 400ms**、连翻只写最后一页；
- * - 令牌过期：`evictBook` + 重开，且**不再读书架**（不把进度拉回旧值）；
- * - 打不开 / 会话失效：分别落在 `error` 与 `authExpired` 两条流上。
- *
- * ## 为什么在 jvmTest
- *
- * `viewModelScope` 要一个 Main 调度器，`Dispatchers.setMain` 只在 JVM 侧稳定（与
- * `TranscriptViewModelTest` / `AttendanceViewModelTest` 同一条理由）。防抖那两条要能推进虚拟时间，
- * 所以这里用与 `runTest` 同一个 `testScheduler` 的 [StandardTestDispatcher]。
- *
- * 全仓库只有这一处要推虚拟时间（`advanceUntilIdle` 仍是实验 API）⇒ 就地开 opt-in，不往
- * `build.gradle.kts` 里塞一条全局开关。
- */
+/** 教材阅读器编排（[Jiaocai1ReaderViewModel]）在 JVM 上的口径。 */
 @OptIn(ExperimentalCoroutinesApi::class)
 class Jiaocai1ReaderViewModelTest {
 
@@ -288,10 +264,7 @@ class Jiaocai1ReaderViewModelTest {
     }
 }
 
-/**
- * 关掉一个 VM：`onCleared()` 是 protected，测试走不进去 ⇒ 借最小的一间 [ViewModelStore] 让它
- * 自己那条清场路径（`clear()` → `onCleared()`）跑一遍，与真机上导航出栈时同一条路。
- */
+/** 关掉一个 VM：`onCleared()` 是 protected，测试走不进去。 */
 private fun closeViewModel(vm: ViewModel) {
     val store = ViewModelStore()
     store.put("jiaocai1-reader", vm)
@@ -300,11 +273,7 @@ private fun closeViewModel(vm: ViewModel) {
 /** 会话失效的标记异常：与 `:app` / `:data` 那边的实现同一形态（见 [SessionExpiredFailure]）。 */
 private class FakeSessionExpired : RuntimeException("登录态已失效"), SessionExpiredFailure
 
-/**
- * 记账用的假取数实现：把取数三发与页字节那一半的调用记下来，并允许注入「打不开」与失败。
- *
- * 页字节一律返回 null（本类不测解码 —— 解码在 [Jiaocai1PageImages]，走的是平台图片缝）。
- */
+/** 记账用的假取数实现：把取数三发与页字节那一半的调用记下来，并允许注入「打不开」与失败。 */
 private class FakeJiaocai1Source : Jiaocai1Source {
 
     var title = "示例教材（假）"

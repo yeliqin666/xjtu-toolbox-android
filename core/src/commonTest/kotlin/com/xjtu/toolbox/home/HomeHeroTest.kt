@@ -8,17 +8,7 @@ import kotlin.test.assertNull
 import kotlinx.datetime.LocalDate
 import kotlinx.datetime.LocalDateTime
 
-/**
- * Hero 的两项本地推算（`:core` 的 [HomeHero]）—— 从 `:app` 的 `main/HomeTab.kt` 里那段内联的
- * `LaunchedEffect` 搬进来时判定一行未改（只换了日期类型），所以这里钉的是那几条判定：
- *
- * - 15 天窗口、周次从开学日期算、同一天里按开始时间排序；
- * - **放假停的是教务排的课，自建日程照常提醒**（`isUserCreated`）；
- * - 开学日期算不出来（null）时返回 null —— 那是「算不出来」，与「这两周真没课」不是一回事；
- * - 教学周只在 1..25 之间才算数。
- *
- * 改 `:core` 的 [HomeHero] 之前先看这里。
- */
+/** Hero 的两项本地推算（[HomeHero]）。 */
 class HomeHeroTest {
 
     /** 2026 秋季学期开学日：周一（教务下发的 XQKSRQ 就是周一）。 */
@@ -75,7 +65,7 @@ class HomeHeroTest {
         assertEquals(LocalDateTime(2026, 10, 12, 8, 0), next?.startAt)
     }
 
-    /** 放假停的是**教务排的课**；自建日程不受那一张节假日表影响（与搬迁前逐字一致）。 */
+    /** 放假停的是教务排的课；自建日程不受节假日表影响。 */
     @Test
     fun `节假日停教务的课，自建日程照常提醒`() {
         val holiday = setOf(LocalDate(2026, 10, 19))

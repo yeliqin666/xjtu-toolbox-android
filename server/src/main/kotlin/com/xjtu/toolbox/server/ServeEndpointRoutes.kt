@@ -52,52 +52,7 @@ import io.ktor.server.routing.route
 import kotlinx.coroutines.CancellationException
 import kotlinx.serialization.Serializable
 
-/**
- * **P0 取数端点组一（免登录 / 轻登录六域）** —— `docs/api-contract.md` §5 那批 P0 端点的实现。
- *
- * 十个端点，全部是 `:data` 对应 Source/端口的**薄包装**（契约 §1：解析与口径在 `:data`，
- * 本文件只做「把已解析的模型投影成线上形状」，不做二次解析）：
- *
- * | 端点 | 数据源（`:data` / `:core` 端口） |
- * |---|---|
- * | `GET /api/calendar/school` | [SchoolCalendarApi]（免登录） |
- * | `GET /api/info/yellowpage` | [YellowPageApi]（免登录，收 Ktor 客户端） |
- * | `GET /api/info/faculty` | [FacultyApiSource]（免登录，收 OkHttp 客户端） |
- * | `GET /api/fitness/years` `/api/fitness/score` | [FitnessApi]（轻登录：要有体测站点会话） |
- * | `GET /api/notification/sources` `/api/notification/list` | [AppNoticeSource]（免登录） |
- * | `GET /api/inbox` | [AppInboxSource]（轻登录：要有统一认证会话） |
- * | `GET /api/emptyroom/cdn` `/api/emptyroom/rooms` `/api/emptyroom/seat-count` | [AppEmptyRoomSource]（CDN 免登录；直查/实时轻登录 —— 座位数那一格也读 CDN） |
- *
- * ## 三个共同口径（与 [SessionRoutes] 同一套）
- *
- * 1. **挂载点**：这些扩展挂在 `route("/api")` 里 ⇒ 自动被 [accessTokenGate] 罩住（`/api/status`
- *    是闸门里那条**唯一**的豁免，这里没有第二条）；
- * 2. **形状**：一律 [ApiEnvelope] 信封（`code == HTTP 状态码`，成功 `code == 0` + HTTP 200），
- *    时间字段一律 ISO-8601 带时区的字符串（契约 §4，不用 epoch 秒/毫秒）；
- * 3. **红线**：响应体**绝不出现**登录用户本人相关的身份（学号 / 姓名 / 手机号 / 令牌）。
- *    —— `/api/fitness/score` 是新契约（§5「要改」）里**明确要带**本人姓名/学号的那一条，
- *    它是「本人的数据」：投影自 `:data` 的 [FitnessScore]（身份字段来自体测系统、不是本端拼的）。
- *
- * ## 失败码（契约 §4）
- *
- * - `401` 需要先登录 / 登录态失效（重发同样的请求没有意义），或闸门没收令牌；
- * - `502` 上游或网络的故障（稍后重试可能就成）；
- * - `400` 请求参数不对（该端点要的查询参数缺失 / 认不得的来源代码）；
- * - `404` 端点不存在（闸门里的兜底 handle，见 [ServeModule]）。
- * 文案一律是 [FriendlyError] 给的中文短句。
- *
- * ## 为什么取数实现写在**默认参数**里而不是文件里 new
- *
- * `:data` 那几份源大多收一个可注入的客户端（[YellowPageApi] 收 Ktor `HttpClient`、
- * [FacultyApi] 收 `OkHttpClient`）或本身就是无参构造 —— 用**构造参数 + 默认值**的形态，
- * 生产装配一行不写（默认就是真上游），`:server:test` 的夹具契约测试把假客户端从参数塞进来
- * （MockEngine / okhttp 拦截器 / 假上游代理，见 `:testkit`）。这也让「合并由主对话做」的那一步
- * 变成一行：`serveEndpointRoutes(session)`。
- *
- * @param session serve 进程的会话装配（[ServeSession]）：fitness / inbox / emptyroom 三族要
- *   它的 `SessionManager`（登录过的会话、站点注册）；calendar / yellowpage / faculty / notification
- *   不用会话，是纯免登录的公开接口。
- */
+/** P0 取数端点组一（免登录 / 轻登录六域） —— `docs/api-contract.md` §5 那批 P0 端点的实现。 */
 internal fun Route.serveEndpointRoutes(
     session: ServeSession,
     calendar: SchoolCalendarSource = SchoolCalendarApi(),
@@ -113,9 +68,6 @@ internal fun Route.serveEndpointRoutes(
     emptyRoomRoutes(session)
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// 校历：GET /api/calendar/school
-// ─────────────────────────────────────────────────────────────────────────────
 
 /** 校历。全部学期一起回（[SchoolCalendarSource.terms] 就是这份数据），顺序 = 开学日期升序。 */
 internal fun Route.calendarRoutes(source: SchoolCalendarSource = SchoolCalendarApi()) {
@@ -181,19 +133,11 @@ private fun CalendarEvent.toDto() = CalendarEventDto(
     colorHex = colorHex,
 )
 
-// ─────────────────────────────────────────────────────────────────────────────
-// 黄页 + 教师检索：GET /api/info/yellowpage · /api/info/faculty
-// ─────────────────────────────────────────────────────────────────────────────
 
 /** 「免登录公开信息」两屏：黄页（机构通讯录）+ 教师检索（院系主页查询）。 */
 internal fun Route.infoRoutes(yellowpage: YellowPageSource, faculty: FacultySource) {
     route(INFO_SEGMENT) {
-        /**
-         * 黄页。免登录（`:core` 的 [YellowPageApi] 一条凭据都不带）。
-         *
-         * `updateTime` 是 `:core` 解析出的「2026年08月01日」展示串（与 App 端同一份），
-         * 不是本端算的。
-         */
+        /** 黄页。 */
         get(INFO_YELLOWPAGE_SEGMENT) {
             val data = try {
                 yellowpage.getData()
@@ -205,17 +149,7 @@ internal fun Route.infoRoutes(yellowpage: YellowPageSource, faculty: FacultySour
             call.respond(ApiEnvelope.ok(dtoOf(data)))
         }
 
-        /**
-         * 教师检索。
-         *
-         * 查询参数：`q`（姓名，模糊）、`college`（学院 id）、`discipline`（学科 id）、
-         * `page`（1-based，默认 1）。职称/导师过滤是**客户端**的活（`:core` 的 `matches`，
-         * 服务端没有那两张表），与 campus-api 的检索端点同一套参数面。
-         *
-         * **能力开关**：`contactsAvailable` —— serve 模式默认**不投影任何联系方式**
-         * （email / 电话 / 手机 / 办公室 / 住址那几个字段一律不出现），所以永远报 `false`。
-         * 屏据此不画「联系方式」那一块；将来要开，先改契约（见本文件 TODO）。
-         */
+        /** 教师检索。 */
         get(INFO_FACULTY_SEGMENT) {
             val query = FacultySearchQuery(
                 name = call.request.queryParameters["q"].orEmpty().trim(),
@@ -256,13 +190,7 @@ internal data class YellowPageDepartmentDto(
     val phone: String,
 )
 
-/**
- * `GET /api/info/faculty` 的 `data`。
- *
- * [contactsAvailable]：serve 模式**只读不拉联系方式**（不传 `?contacts=1`，与旧 campus-api
- * 同一条隐私口径）——所以永远 `false`，且 members 里没有 email/电话/手机/办公地点/住址这几个字段
- * （契约 §4：字段缺失 = 本端不投影）。
- */
+/** `GET /api/info/faculty` 的 `data`。 */
 @Serializable
 internal data class FacultyPayload(
     val contactsAvailable: Boolean,
@@ -337,19 +265,8 @@ private fun dtoOf(data: YellowPageData) = YellowPagePayload(
     departments = data.departments.map { YellowPageDepartmentDto(it.id, it.categoryId, it.name, it.phone) },
 )
 
-// ─────────────────────────────────────────────────────────────────────────────
-// 体测：GET /api/fitness/years · /api/fitness/score
-// ─────────────────────────────────────────────────────────────────────────────
 
-/**
- * 体测（轻登录：要有体测站点会话）。
- *
- * 取数实现**每个请求 new 一个** [FitnessApi]（构造是纯本地的：只拿 `SiteSession`；
- * 取数时才联网）。站点先例：`ServeSession` 注册的 `FITNESS_SITE_KEY`。
- *
- * ⚠️ 新契约（§5「要改」）里这是**本人的数据**：score 响应带学号/姓名（投影自 `:data` 的
- * [FitnessScore]，不是本端拼的）。没登录（体测会话未初始化）→ 401。
- */
+/** 体测（轻登录：要有体测站点会话）。 */
 internal fun Route.fitnessRoutes(session: ServeSession) {
     val source: (ServeSession) -> FitnessSource = { s -> FitnessApi(s.sessionManager.getSite(ServeSession.FITNESS_SITE_KEY)) }
 
@@ -420,9 +337,6 @@ private fun FitnessScore.toDto() = FitnessScoreDto(
     items = items.map { FitnessItemDto(it.name, it.value, it.grade, it.tone) },
 )
 
-// ─────────────────────────────────────────────────────────────────────────────
-// 通知公告：GET /api/notification/sources · /api/notification/list
-// ─────────────────────────────────────────────────────────────────────────────
 
 /** 通知公告（免登录：29 个公开公告源，`AppNoticeSource` 不碰任何站点会话）。 */
 internal fun Route.notificationRoutes(source: NoticeSource = AppNoticeSource()) {
@@ -447,18 +361,7 @@ internal fun Route.notificationRoutes(source: NoticeSource = AppNoticeSource()) 
             )
         }
 
-        /**
-         * 通知列表。
-         *
-         * 参数：`sources` = 逗号分隔的来源代码（缺省 = `JWC`，与屏的默认来源一致；认不得的代码 400）、
-         * `page` = 上游页号（1-based，默认 1；**页大小由各站分页决定**，`:core` 端口没有页大小概念）、
-         * `all=1` = 从第 1 页开始把 `hasMore` 的页全拉完（上限 [MAX_NOTIFICATION_PAGES]）。
-         *
-         * 分页形状照契约 §4：`{page, size, total}`。通知的 `total` 是「本次响应带了多少条」
-         * （上游不报总数）：单页 = `size`，`all=1` = 全部拉到的条数。
-         *
-         * `skipped` = 这次没拉到的源代码（域名级失败/该源抓取抛错），界面据此显示「以下来源暂不可用」。
-         */
+        /** 通知列表。 */
         get(NOTIFICATION_LIST_SEGMENT) {
             val codes = call.request.queryParameters["sources"]
                 ?.split(',')
@@ -554,21 +457,8 @@ private suspend fun fetchAll(source: NoticeSource, sources: List<NotificationSou
     return MergedNotificationPage(items.distinctBy { it.link to it.title }, skipped, hasMore)
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// 消息收纳：GET /api/inbox
-// ─────────────────────────────────────────────────────────────────────────────
 
-/**
- * 消息收纳（轻登录：要有统一认证会话）。
- *
- * 四路聚合的形状照 [InboxData]（`:core` 的收纳模型）：消息 / 待办（按分类整块）／已读等
- * 用户态。时间全部投影成 ISO-8601 带时区（契约 §4），`0` / 缺省（没读过 / 没过期）→ `null`
- * （= 本端明确说没有，不是字段缺失）。
- *
- * 触发：`?force=1` 强制刷新（绕过 30 分钟 TTL）；否则按 [InboxSource.isDue] 的 TTL 决定要不要
- * 真去拉（与桌面端进门那一枪同一口径）。账号 = 会话里的当前账号（`AccountContext`），
- * 响应里**不出现**学号。
- */
+/** 消息收纳（轻登录：要有统一认证会话）。 */
 internal fun Route.inboxRoutes(session: ServeSession) {
     get(INBOX_SEGMENT) {
         val source = AppInboxSource(session.sessionManager)
@@ -588,7 +478,7 @@ internal fun Route.inboxRoutes(session: ServeSession) {
     }
 }
 
-/** `GET /api/inbox` 的 `data` —— [InboxData] 的逐字段投影（时间为 ISO-8601 带时区）。 */
+/** `GET /api/inbox` 的 `data`：[InboxData] 的投影（时间为带时区的 ISO-8601）。 */
 @Serializable
 internal data class InboxPayload(
     val messages: List<InboxItemDto>,
@@ -644,25 +534,8 @@ private fun InboxData.toDto() = InboxPayload(
     bubbled = bubbled,
 )
 
-// ─────────────────────────────────────────────────────────────────────────────
-// 空闲教室：GET /api/emptyroom/cdn · /api/emptyroom/rooms
-// ─────────────────────────────────────────────────────────────────────────────
 
-/**
- * 空闲教室（CDN 免登录；直查/实时轻登录）。第三条 `/seat-count` 也读免登录那一档的 CDN。
- *
- * 两个端点都带 **能力开关**（契约 §5「要改」）：`availableSources` 如实报**这一发请求时**
- * serve 能真取数的那几档 —— 会话没登录过只有 `[{key:cdn}]`；登录过就是 `[live, cdn, direct]`
- * 三档（顺序照屏上的菜单：默认第一档是实时）。开关随请求变，不硬编。
- *
- * 语义（照 `:core` 的 [EmptyRoomSource] KDoc）：
- * - `cdn` —— 预生成的课表快照，免登录，可看今天/明天；
- * - `direct` —— 登录教务实时查课表，结果和 CDN 同源（每楼 11+1 次请求）；
- * - `live` —— 智慧教室平台的此刻状态（含上课/有人，带人数），只覆盖兴庆/雁塔/创新港。
- *
- * 没有数据的日期（CDN 404 / 校区不认识）→ **不是错误**：`data.noData = true` + `note`
- * （照旧 campus-api 的 cdn 形状，沿用那一档的口径），`rooms` 为空。
- */
+/** 空闲教室（CDN 免登录；直查/实时轻登录）。 */
 internal fun Route.emptyRoomRoutes(session: ServeSession) {
     val sourceOf: (ServeSession) -> EmptyRoomSource = { s -> AppEmptyRoomSource(s.sessionManager) }
 
@@ -680,17 +553,7 @@ internal fun Route.emptyRoomRoutes(session: ServeSession) {
         call.respondRoomRows(source, session, campus, buildings, date, direct = false, force)
     }
 
-    /**
-     * 座位数（`:core` 的 `EmptyRoomSource.seatCount`）：**按教室名**取一个数字 —— 课表详情里
-     * 「XX座」那一格（`ScheduleScreen` 的 `SEAT_COUNT`）只要这一个数，不必把整校区的教室表拉回来。
-     *
-     * - **不套会话判据**：它与 `/cdn` 同一档取数（`EmptyRoomApi.getRoomSeatCount` 读的就是当天那份
-     *   CDN 课表，免登录）⇒ 没登录也答；
-     * - `room` **必填**（教室名，形如 `主楼A-101`）：缺 / 空白 ⇒ 400；
-     * - **拿不到就是 `null`**，不是 0、也不是错误：`:data` 那边「名字对不上 / 当天 CDN 拉不到 /
-     *   那间房没有座位数」三种情况都回 null（`EmptyRoomSource.seatCount` 的 KDoc 把这条写死了 ——
-     *   调用点按 null 处理，屏本来就不画那一块）。§4：`null` = 上游明确说没有。
-     */
+    /** 座位数（`:core` 的 `EmptyRoomSource.seatCount`）：按教室名取一个数字。 */
     get(EMPTY_ROOM_SEAT_COUNT_SEGMENT) {
         val room = call.request.queryParameters["room"]?.trim().orEmpty()
         if (room.isEmpty()) return@get call.respondBadRequest("参数 room 必填：教室名，如 主楼A-101")
@@ -704,13 +567,7 @@ internal fun Route.emptyRoomRoutes(session: ServeSession) {
         call.respond(ApiEnvelope.ok(SeatCountPayload(room = room, seats = seats)))
     }
 
-    /**
-     * 直查 / 实时那一档（`source` 参数二选一，缺省 `direct`）。
-     *
-     * `direct`：登录教务查课表（每楼 11+1 次请求），`rooms[]` 与 CDN 同一形状（`status[11]`）。
-     * `live`：智慧教室平台此刻快照，`rooms[]` 是 {name, building, status, people, seats, course, teacher}，
-     * `fetchedAt` 是这份快照的抓取时刻。两档都要先登录（未登录 → 401）。
-     */
+    /** 直查 / 实时那一档（`source` 参数二选一，缺省 `direct`）。 */
     get(EMPTY_ROOM_ROOMS_SEGMENT) {
         val source = sourceOf(session)
         val tier = call.request.queryParameters["source"]?.trim()?.lowercase() ?: "direct"
@@ -798,10 +655,7 @@ private suspend fun ApplicationCall.respondRoomRows(
     )
 }
 
-/**
- * 没有数据（CDN 那天没文件 / 直查校区不认识）——照旧 campus-api 的形状：`noData:true` + `note`，
- * `rooms` 空。这是「这一天/这个校区没有数据」，**不是**请求失败（失败走信封错误码）。
- */
+/** 没有数据（CDN 那天没文件 / 直查校区不认识）——照旧 campus-api 的形状：`noData:true` + `note`，`rooms` 空。 */
 private suspend fun ApplicationCall.respondRoomNoData(
     session: ServeSession,
     campus: String,
@@ -849,12 +703,7 @@ internal data class RoomRowDto(
     val status: List<Int>,
 )
 
-/**
- * `GET /api/emptyroom/seat-count` 的 `data`。
- *
- * `seats` 可空：`null` = 这间房查不到座位数（§4：null = 上游明确说没有，**不是** 0）——
- * `room` 原样回（消费方靠它把结果对回某一间教室）。
- */
+/** `GET /api/emptyroom/seat-count` 的 `data`。 */
 @Serializable
 internal data class SeatCountPayload(val room: String, val seats: Int?)
 
@@ -922,10 +771,7 @@ private fun queriedBuildings(campus: String, raw: String?): List<String> {
 // 小工具：失败码 / ISO 时间
 // ─────────────────────────────────────────────────────────────────────────────
 
-/**
- * 取数失败 → 信封（契约 §4）：`401` = 需要先登录 / 登录态失效（重发没意义），
- * `502` = 上游或网络的故障（稍后重试可能就成）。文案是 [FriendlyError] 的中文短句。
- */
+/** 取数失败 → 信封（契约 §4）：`401` = 需要先登录 / 登录态失效（重发没意义），`502` = 上游或网络的故障（稍后重试可能就成）。 */
 private suspend fun ApplicationCall.respondFetchError(e: Throwable, action: String) {
     if (e is CancellationException) throw e
     val message = FriendlyError.of(e, action)

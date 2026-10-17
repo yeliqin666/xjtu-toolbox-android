@@ -13,20 +13,7 @@ import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.OkHttpClient
 import okhttp3.Request
 
-/**
- * [GithubDeviceAuthRepository] 的 okhttp 实现。
- *
- * 原来它和模型 / 用例同在一个 `:app` 的 `GithubDeviceAuth.kt` 里；那一半（模型、结果、接口、用例、
- * 两个 token 校验函数）早就在 `:core` 的 `community/GithubDeviceAuth.kt`。**这一份（真正碰 okhttp
- * 的部分：两个 OAuth 端点 + GitHub 那两个报文的形状校验）从 `:app` 搬进 `:data`**（桌面端第 20 条
- * 真数据路由：社区登录页要在桌面上也能走设备码流程）。类名与包路径一字未改，内容一字未改。
- *
- * 校验逻辑（`toDomain` 里的长度/主机/区间检查）与搬迁前逐字相同 —— 它挡的是畸形的 OAuth 报文，
- * 换库也不该放松。
- *
- * ⚠️ `baseUrl` 允许注入是为了测试：真站点只认 `https://github.com/login/`，而
- * `LOCAL_TEST_HOSTS` 那一条只在本地假上游（loopback）上放行。
- */
+/** [GithubDeviceAuthRepository] 的 okhttp 实现。 */
 class GithubOAuthDeviceAuthRepository(
     private val client: OkHttpClient,
     clientId: String,

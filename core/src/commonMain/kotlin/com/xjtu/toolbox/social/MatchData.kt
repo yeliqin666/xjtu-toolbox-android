@@ -20,8 +20,6 @@ import com.xjtu.toolbox.schedule.ScheduleCacheStore
  *
  * 课表、考试、教材在课表族缓存里（与日程页**同一份**：`:app` 是 `DataCache` 的目录、
  * 桌面是 0600 的键值文件）；学工档案与校园卡消费只有 `:app` 有，桌面端返回 null / 空表。
- * 这份类原先带一个 `android.content.Context` 参数，搬进 `:core` 时换成了 [MatchHost]，
- * 读的键、过的学期、算的裁剪一行未改。
  */
 object MatchData {
 
@@ -112,8 +110,6 @@ object MatchData {
 
         val exams = current?.let { ScheduleCache.readExams(dc, it) }.orEmpty()
 
-        // 校园卡那份快照读一次、两处用（饭点与食堂）。搬迁前两处各自读一次同一份快照，
-        // 读出来的是同一个结果；这里只是不再读第二遍。
         val transactions = runCatching { host.transactions() }.getOrDefault(emptyList())
 
         return Local(

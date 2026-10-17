@@ -14,13 +14,7 @@ import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
-/**
- * 壳模型（[ShellTab] / [ShellTabs] / [ShellNavState] / [ShellLayout] / [ShellLaunchLayer]）。
- *
- * 这些是共享壳里**没有 Compose 就没有别的办法验证**的那部分：形态判据、底栏占位、
- * 角标规则、弹层优先级。搬进 `:core` 之后它们第一次有了单测 —— 在此之前这些数字只在
- * `:app` 的 `MainScreen` 里算过一遍，谁也没有钉住它们。
- */
+/** 壳模型（[ShellTab] / [ShellTabs] / [ShellNavState] / [ShellLayout] / [ShellLaunchLayer]）。 */
 class ShellModelTest {
 
     private fun tab(id: String, target: ShellTarget = ShellTarget.Custom(id), badge: Boolean = false) = ShellTab(
@@ -42,10 +36,7 @@ class ShellModelTest {
         ),
     )
 
-    /**
-     * 桌面那一份 tab 集合的**形状**（最后一格是「全部」）：钉「非 tab 路由不高亮任何一格」用它。
-     * 真表在 `:desktop` 的 `desktopTabs()`，这里只要「一格指向共享路由、一格指向 [ShellTarget.AllPages]」。
-     */
+    /** 桌面那一份 tab 集合的形状（最后一格是「全部」）：钉「非 tab 路由不高亮任何一格」用它。 */
     private val routeTabs = ShellTabs(
         listOf(
             tab("home", ShellTarget.App(AppRoute.Main)),
@@ -90,9 +81,7 @@ class ShellModelTest {
 
     @Test
     fun `非 tab 路由不高亮任何一格`() {
-        // 桌面那 43 条路由里有 37 条不属于底栏任何一格（体测 / 成绩 / 屁岱……）。
-        // 这一步之前只能表达「选中某一格」⇒ 这种页会被画成第一格高亮（首页）——
-        // 而且 42 张证据图与 85 例测试都不会红（底栏每张图都长得一样）。
+        // 不属于底栏任何一格的路由不能被画成第一格高亮。
         val offTab = ShellNavState(tabs = routeTabs, target = ShellTarget.App(AppRoute.Fitness), onSelect = {})
         assertNull(offTab.selected)
         // 一格都不高亮时序号是 -1（底栏 / 侧栏按它判「没有一格是选中态」）
@@ -187,7 +176,6 @@ class ShellModelTest {
     fun `底栏占位与槽位补偿`() {
         val glassBar = ShellLayout(ShellForm.GLASS_BAR, glass = true, bottomInset = 24.dp)
         assertTrue(glassBar.glassBarPresent)
-        // 58 + 有导航条的空隙 8 + 24（与搬迁前 MainScreen 里那一行逐字一致）
         assertEquals(GLASS_BAR_HEIGHT + 8.dp + 24.dp, glassBar.bottomBarReserve)
         // 塞进 floatingToolbar 槽位时要扣掉 miuix 私有的 4dp
         assertEquals(28.dp, glassBar.glassBarSlotBottomPadding)

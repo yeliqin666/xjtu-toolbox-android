@@ -13,19 +13,7 @@ import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 import kotlinx.coroutines.test.runTest
 
-/**
- * serve 契约 §5.8 的**客户端那一侧**：「我的课表」那三条只读端点
- *（`/api/jwxt/changes` + `/exams` + `/textbooks`，[CampusJwxtScheduleApi]）。
- *
- * 为什么值得写：这三条是 2026-10-14 才接进 `WebScheduleSource` 的，而 `:web` **没有测试源集**
- * （D14 才建）⇒ 形状与纪律只能在这里钉。MockEngine 喂的是 `:server` 实现出来的形状
- *（`server/…/JwxtRoutes.kt` 的 DTO 就是这些字段），钉三件事：
- *
- *  1. **行就是 `:core` 的模型**：`kind` 是枚举名、`weeks` 是周次数组、教材九格里的 `hasTextbook`
- *     就是 `TextbookItem.hasSubstantiveTextbook`（不是第二份判据）；
- *  2. **`?term=` 的读法与 `/api/jwxt/schedule` 同一条**：显式传就带上、空/空白就整个不发；
- *  3. **不编也不滤**：占位 ISBN 原样透传（滤它是屏的事）、失败只读 `message`、非 serve 分支抛错。
- */
+/** serve 契约 §5.8 的客户端那一侧。 */
 class ServeJwxtScheduleExtraEndpointsApiTest {
 
     /** 一条发出去的请求：路径 + 完整 URL（判参数有没有发出去靠它）。 */
@@ -81,10 +69,7 @@ class ServeJwxtScheduleExtraEndpointsApiTest {
         ApiMode.SERVE,
     )
 
-    /**
-     * 三条端点各自的行形状：调停补课的十二格（`kind` 枚举名 / 周次数组 / 换到的那间教室）、
-     * 考试的六格、教材的八格 + `hasTextbook`（占位 ISBN **原样**透传，滤它是屏的事）。
-     */
+    /** 三条端点各自的行形状：调停补课的十二格（`kind` 枚举名 / 周次数组 / 换到的那间教室）、考试的六格、教材的八格 + `hasTextbook`（占位 ISBN 原样透传，滤它是屏的事）。 */
     @Test
     fun serveThreeEndpointsFollowCoreModels() = runTest {
         val calls = mutableListOf<Call>()
@@ -133,7 +118,7 @@ class ServeJwxtScheduleExtraEndpointsApiTest {
         assertFalse(calls[2].url.contains("term="))
     }
 
-    /** 失败只读 `message`（旧路的 `msg` 在新契约里不存在），抛的是能直接给用户看的那句中文。 */
+    /** 失败只读 `message`，抛的是能直接给用户看的那句中文。 */
     @Test
     fun serveFailureReadsMessageOnly() = runTest {
         val engine = engineFor(
@@ -145,11 +130,7 @@ class ServeJwxtScheduleExtraEndpointsApiTest {
         assertTrue(e.message?.contains("教务会话已失效") == true, "实际：${e.message}")
     }
 
-    /**
-     * 非 serve 分支抛错而不是编一份空数据：这三条在 campus-api 里没有（那一头的字段名本端也不认，
-     * 契约 §7 第 2 条）—— 空表会把「形态不对」说成「真没有」。调用方（`WebScheduleSource`）自己
-     * 在这一形态下回空表，并在日程页顶部写明那两栏为什么是空的。
-     */
+    /** 非 serve 分支抛错而不是编一份空数据：这三条在 campus-api 里没有（那一头的字段名本端也不认，契约 §7 第 2 条） */
     @Test
     fun campusApiModeThrowsInsteadOfFakingEmptyData() = runTest {
         val engine = engineFor(

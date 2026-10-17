@@ -75,8 +75,6 @@ private const val DEFAULT_ASPECT = 700f / 1050f
  * 不用 WebView：原站水印是 reader.js 在图片加载后用 canvas 叠的，走 WebView 会把这段
  * 脚本一起跑了。这里按页取 JPEG 自己渲染，也便于做缓存和预取。
  *
- * ## 搬进 `:core` 时改了什么（四处，画法与文案一行未改）
- *
  * 1. `site: SiteSession` → [Jiaocai1Source]（取数，含页字节与预取）；书架落盘 → [Jiaocai1ShelfStore]；
  * 2. `Jiaocai1PageLoader.load`（`Bitmap`）→ [Jiaocai1PageImages.load]（`ImageBitmap`）——
  *    解码走 `:core` 的图片缝，所以屏上画的是公共类型的位图（`Image(bitmap = …)` 不再需要

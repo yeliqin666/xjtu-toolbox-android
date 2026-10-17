@@ -21,29 +21,7 @@ import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 
-/**
- * serve 侧白名单工具层的**逐档验收**（`docs/agent-web-spec.md` §6；D10 的 S-c）。
- *
- * ## 它验的是哪一层
- *
- * `ServeAgentTest` 验的是「HTTP 端点怎么答」（其中一条已经钉住 `toolAllowlist` 来自真下发的定义）；
- * 这里验的是**工具本体**：九件工具逐个至少一例，答复里的字与 `:app` 同一句话（那几段是逐字搬的，
- * 见 `ServeAgentToolCopyDriftTest`），以及**没开放的那一串一个都不在工具表里**。
- *
- * ## 手法与纪律
- *
- * - 上游一律是**夹具**：教务 / 智慧教室 / 空闲教室 CDN / 校历 / 黄页 / 教师检索全走 `:testkit`
- *   那几台假上游（`withFakeProxy` 装的那张 host 分派表），**绝不打真站点**；
- * - 不打第三方模型：这一层压根不碰模型（模型那一枪由 `ServeAgentTest` 的夹具传输负责）；
- * - 落盘一律在**临时数据根**里（`withFakeProxy` 指过去的那个），绝不碰用户真实的
- *   `~/.local/share/xjtu-toolbox`；
- * - 课表缓存 / 自建日程用的是 `keyValueStore`（jvm 上的进程内那一档）⇒ 每条用例先按名字清一遍，
- *   否则上一条用例的课表缓存会被下一条读成「已经有缓存了」。
- *
- * ⚠️ **每个用例第一件事是进 [withFakeProxy]**：`ServeSession` 一构造就建 `HttpClients.base`，
- * 而那个客户端在建出来那一刻把当时的 `ProxySelector` 与信任库抄走 —— 少了这一步，
- * 这一整个类会直连真站点（同一条教训见 `ServeAgentTest` 的类 KDoc）。
- */
+/** serve 侧白名单工具层的逐档验收（`docs/agent-web-spec.md` §6）。 */
 class ServeAgentToolsTest {
 
     /** 白名单九件，逐条与 `/api/agent/config` 的 `toolAllowlist` 同一份定义。 */
@@ -70,11 +48,7 @@ class ServeAgentToolsTest {
         }
     }
 
-    /**
-     * 一份工具层：真取数（假上游）+ 真落盘（临时根 / 进程内键值）。
-     *
-     * @param session 需要登录态的用例自己传一个已登录的（见各用例）。
-     */
+    /** 一份工具层：真取数（假上游）+ 真落盘（临时根 / 进程内键值）。 */
     private fun newTools(session: ServeSession = ServeSession()): ServeAgentTools = ServeAgentTools(
         session = session,
         memory = AgentMemory(
@@ -158,7 +132,6 @@ class ServeAgentToolsTest {
         wipeToolStores()
         val reply = runBlocking { newTools().execute("get_calendar", "{}") }
 
-        // 前半段是 `:app` 的 getCurrentTime（逐字搬来的那段），后半段是校历
         assertTrue(reply.startsWith("当前："), "第一段应当是「当前：…」：$reply")
         assertTrue(reply.contains("作息（"), "少了今天那套作息：$reply")
         assertTrue(reply.contains("校历："), "少了校历那一段：$reply")
@@ -170,9 +143,7 @@ class ServeAgentToolsTest {
     @Test
     fun `get_schedule 走合并后的课表（调停补课已并进去）并按日期取那一天`() = withFakeProxy { _ ->
         wipeToolStores()
-        // 节假日那一格先塞一份缓存：不然 `HolidayApi` 会去撞两个**没被夹具扮演**的公开接口
-        //（假代理只认它那张 host 表，别的目标会走真网络直到超时）—— 这条用例验的是课表，不该把时间花在那上面。
-        // 格式就是 `HolidayApi` 自己那份缓存（`{"日期":"节日名"}`），值编造。
+        // 先塞一份节假日缓存：否则 `HolidayApi` 会撞没被夹具扮演的公开接口直到超时。
         keyValueStore(CACHE_STORE).putString("holiday_dates", """{"2026-10-01":"国庆节"}""")
         val tools = newTools(session = loggedInSession())
 
@@ -236,12 +207,7 @@ class ServeAgentToolsTest {
 
     // ── 7. 白名单之外的档：一个都不下发 ──────────────────────────────────────
 
-    /**
-     * 这条是设计稿 §6.2 那把尺子的落点：**没开放的档一个字都不画**（画了就得能用）。
-     *
-     * 名单逐条对着 §6.2 的表写（写 / 涉及钱 / 涉及学号姓名 / 要站点会话 / 联网搜索那几族），
-     * 不是从实现里抄回来的 —— 谁哪天偷偷放开一档，这一条会当场红。
-     */
+    /** 这条是设计稿 §6.2 那把尺子的落点：没开放的档一个字都不画（画了就得能用）。 */
     @Test
     fun `白名单之外的工具不会被下发，调过来也只会回 not_found`() = withFakeProxy(casEnabled = false) { _ ->
         wipeToolStores()

@@ -22,23 +22,7 @@ import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 import kotlinx.coroutines.runBlocking
 
-/**
- * 教材全文库取数（[Jiaocai1Api]）与页字节（[Jiaocai1PageLoader]）的**字段级口径**：对着
- * `:testkit` 的 [Jiaocai1FakeUpstream] 逐行读。
- *
- * ## 登录形态（这条路由与其余站点不同的一处）
- *
- * 全文库**借教材中心的会话**：`AppRoute.Jiaocai1` 的 `loginType` 是 `LoginType.JIAOCAI`，
- * 登录链是 `/entry/login` → CAS → 超星 SSO（见 [JiaocaiSession] 的 KDoc）。而**业务侧还有一段**：
- * 会话没建立时接口返回一张 `var logoutUrl=…` 的跳转页，由 `Jiaocai1Api.fetch` + `PortalRedirect`
- * 自己跟（OkHttp 不跑 JS）。这个文件里每条用例都要先过那一段，所以它一直被钉着。
- *
- * ## 断言都来自夹具原文与搬迁前的代码语义
- *
- * 检索 HTML 的 `<li>` / `<dd>` 口径、`goRead` 那四样（`jpgPath` / 8 组 `pages` / `bookPages` /
- * `<title>`）、分类树的 `pid`→`id` 建树、页图那条「先读磁盘、没有才下载」的缓存口径 ——
- * 搬动前它们长在 `:app`，本轮按同包同类型名搬进 `:data`，所以这些判据在搬动前后是同一份。
- */
+/** 教材全文库取数（[Jiaocai1Api]）与页字节（[Jiaocai1PageLoader]）的字段级口径。 */
 class Jiaocai1ApiJvmTest {
 
     @Test
@@ -87,7 +71,6 @@ class Jiaocai1ApiJvmTest {
         assertEquals(2, result.totalPages)
         assertTrue(result.hasMore, "1 < 2 ⇒ 还有下一页")
 
-        // 表单口径：cpage / stype / orderField / sw / searchField /（按分类时）cls
         val body = fake.jiaocai1.lastSearchBody.orEmpty()
         assertTrue(body.contains("stype=1"), body)
         assertTrue(body.contains("cpage=1"), body)
@@ -134,10 +117,7 @@ class Jiaocai1ApiJvmTest {
             first.size > 8 && first[0] == 0xFF.toByte() && first[1] == 0xD8.toByte(),
             "夹具给的是标准 JPEG（FF D8 开头）",
         )
-        // 第一发走网络：`download` 先 `prime` 一次（给首页发一枪 `pi=2&zoom=0` 把令牌用起来，
-        // 搬迁前就是这样），再取这一页 ⇒ 两次请求
         assertEquals(2, fake.jiaocai1.pageImageCalls.get(), "prime + 本页共两发")
-        // 落盘位置：`<cacheRoot>/jiaocai1/<ssno>/<fileName>.img`（与搬迁前同一个路径形状）
         assertTrue(
             java.io.File(java.io.File(java.io.File(cacheRoot, "jiaocai1"), SSNO), "cov001.img").isFile,
             "第一页应当落在磁盘上",

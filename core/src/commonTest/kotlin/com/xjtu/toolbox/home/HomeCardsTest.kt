@@ -9,17 +9,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
-/**
- * 首页的**卡片模型**（`:core` 的 [HomeCards]）—— 从 `:app` 的 `main/HomeTab.kt` 里那两段内联
- * 推导搬进来时，判定一行未改，所以这里钉的就是那几条判定本身：
- *
- * - 分类卡按 [ServiceCategory.entries] 的顺序出，空分类不下发（搬迁前那句 `if (items.isEmpty()) null`）；
- * - 分类卡与 Hero 的分工：校园卡与校历**不在**分类卡里带状态（它的数在 Hero）；
- * - 考勤那一格会带上「今日人脸刷卡」（快速考勤流水不再单列，今天刷过卡就借考勤这格露出来）；
- * - 「待办与消息」那一格算的就是 `InboxRules` 那两条规则，一个数都不自己编。
- *
- * 改 `:core` 的 [HomeCards] 之前先看这里。
- */
+/** 首页的卡片模型（[HomeCards]）。 */
 class HomeCardsTest {
 
     @Test

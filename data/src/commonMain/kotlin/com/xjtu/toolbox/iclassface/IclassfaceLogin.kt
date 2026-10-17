@@ -23,16 +23,6 @@ private const val TAG = "IclassfaceLogin"
  * 所有后续请求凭 cookie 发起即可，不需要额外头信息。
  *
  * 仅支持校园网：iclassface.xjtu.edu.cn 不开放校外访问，WebVPN 可作为校外备选。
- *
- * ## 它为什么搬进 `:data`
- *
- * 与它的站点类 [com.xjtu.toolbox.auth.IclassfaceSession] 一起从 `:app` 的
- * `iclassface/IclassfaceLogin.kt` / `auth/Sites.kt` 剪出来（桌面端第 20 条真数据路由：
- * 桌面要自己登 `iclassface`、自己查今天的刷卡/人脸记录）。类名与包路径一字未改 ⇒ `:app` 的
- * `AppLoginState` / `HeadlessSessions` 里那两处 `register(IclassfaceSession())` 一行不用改。
- *
- * 搬迁时被替换的写法只有两处：`android.util.Log` → `:core` 的 `Log`（tag 与级别不变）；
- * `com.xjtu.toolbox.webvpn.WebVpnUtil` 的全限定名换成顶部 import（同一个类，本来就在 `:data`）。
  */
 class IclassfaceLogin(
     session: OkHttpClient? = null,

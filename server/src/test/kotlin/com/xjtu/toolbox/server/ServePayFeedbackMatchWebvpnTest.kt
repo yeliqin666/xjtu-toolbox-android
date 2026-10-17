@@ -16,40 +16,7 @@ import kotlin.test.assertTrue
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonObject
 
-/**
- * **第三批端点**（付款码拿码 / 反馈读 / 匹配交友的消费统计 / WebVPN 纯转换）的契约测试 ——
- * `GET /api/pay/{code,vouchers}` · `GET /api/feedback/{replies,public-qa}` ·
- * `GET /api/match/dining` · `POST /api/webvpn/convert`（`docs/api-contract.md` §5.7）。
- *
- * ## 脚手架
- *
- * 与 [ServeReadonlyFourDomainsTest] / [ServeLmsJiaocaiJwappIclassfaceTest] 同一条
- *（[withFakeProxy] + [startEndpointServer]）：真 socket（端口 0）、真令牌闸门、真 `ServeSession`。
- * 夹具是 `:testkit` 里**早已存在**的两份假上游：
- *
- * - `CampusCardFakeUpstream`（`ncard.xjtu.edu.cn`）：付款码那一族与匹配交友的消费统计都打在它上面
- *   —— 付款码借的就是校园卡那个会话（同一 host、同一张 JWT、同一条登录链，见它的 KDoc）；
- * - `FeedbackFakeUpstream`（`open.feishu.cn`）：反馈那一族。
- *
- * WebVPN 那一族**不用夹具**：它是纯函数（不碰任何上游），期望值来自与 `:desktop:test` 的
- * `DesktopWebVpnCodecJvmTest` **同一个定值**（见那一族用例的注释）。
- *
- * ## 这一组钉的是什么
- *
- * - **闸门**：需要会话的三族（pay / match）未登录 401，而且**未登录那一枪不该到取数层**
- *   （夹具的调用计数为 0）；反馈与 WebVPN 两族**不套会话**（它们没有站点），只认令牌闸门；
- * - **拿码不是付钱**：`/api/pay/code` 与 `/api/pay/vouchers` 都是读 —— 夹具的
- *   `voucherUpdateCalls`（写路径那一条）**必须是 0**（照 `:data` 的 `updateVoucherStatus` 计数）；
- * - **形状**：每个 `data` 的键集合逐格钉住（多一格少一格都算投影漂了），
- *   包括「已选券的同步（写路径）」那一格**不在**响应里；
- * - **红线**：每个响应都过 [assertNoIdentity]，而且是在**夹具里明明有那些值**的前提下证明的
- *   （`USER_NAME` = 姓名、`STUDENT_NO` / `LibraryFakeUpstream.USERNAME` = 学号、`CARD_ACCOUNT` =
- *   卡账号）—— 不能「夹具没有所以没出现」；
- * - **统计口径在 `:core`**：`/api/match/dining` 的饭点阈值（该小时 ≥2 笔）与食堂名归并
- *   是 `DiningHabit` + `MatchProfile.build` 那一行判据的结果 —— 夹具里两条食堂消费在同一小时
- *   各只有一笔 ⇒ `diningHours` 是**空串**（没到阈值，如实），而食堂名归并成「学苑食堂」而不是
- *   商户全称「学苑食堂三楼」（那两个值夹具里都有，所以这两条断言有意义）。
- */
+/** 付款码拿码 / 反馈读 / 匹配交友消费统计 / WebVPN 纯转换的契约测试。 */
 class ServePayFeedbackMatchWebvpnTest {
 
     private var started: EmbeddedServer<CIOApplicationEngine, CIOApplicationEngine.Configuration>? = null
@@ -180,7 +147,6 @@ class ServePayFeedbackMatchWebvpnTest {
             val (server, http) = startEndpointServer(token) { feedbackRoutes() }
             started = server
 
-            // ── 回复：只认请求里那串工单号（夹具里还有一条别人的回复）──
             val unknown = "TUNKNOWN99"
             val replies = http.get(
                 "$FEEDBACK_REPLIES_PATH?$FEEDBACK_PARAM_TICKETS=${FeedbackFakeUpstream.TICKET},$unknown",
@@ -239,7 +205,6 @@ class ServePayFeedbackMatchWebvpnTest {
 
     @Test
     fun `反馈：凭据按环境变量注入（三个必填缺一个就如实「没配」）`() {
-        // 五个都在（名字与 desktop/build.gradle.kts 那段 cfg() 推导出来的逐字相同）
         ServeFeedback.install(feedbackEnv())
         val cfg = assertNotNull(FeedbackApi.config, "五个环境变量都在 ⇒ 必须有 config")
         assertEquals(FeedbackFakeUpstream.APP_ID, cfg.appId)
@@ -371,16 +336,12 @@ class ServePayFeedbackMatchWebvpnTest {
         val data = envelopeData(vpn)
         assertEquals(setOf("direction", "url"), data.keys)
         assertEquals(WEBVPN_TO_VPN, data.optString("direction"), "方向原样回，免得消费方猜这一次的语义")
-        // 定值：AES-128-CFB（iv = key = `wrdvpnisthebest!`）加密 "jwxt.xjtu.edu.cn" 的结果。
-        // 与 `:desktop:test` 的 `DesktopWebVpnCodecJvmTest` 钉的是**同一个值**（两端同一份实现，
-        // 所以这个值在两处各钉一次正是要证明的事）：换算法 / 换 key / 把 CFB 反馈写错，两处都会红。
         assertEquals(
             "https://webvpn.xjtu.edu.cn/https/77726476706e69737468656265737421" +
                 "fae05988692862446b468ca88d1b203b/",
             data.optString("url"),
         )
 
-        // 已经是网关地址的输入原样返回（`:data` 的老口径，本层不改）
         val again = http.postJson(
             WEBVPN_CONVERT_PATH,
             """{"url":"${data.optString("url")}","direction":"$WEBVPN_TO_VPN"}""",
@@ -395,8 +356,6 @@ class ServePayFeedbackMatchWebvpnTest {
         val (server, http) = startEndpointServer(token) { webVpnRoutes() }
         started = server
 
-        // 反向：网关地址解回原网址（尾斜杠那一格是 `:data` 的老口径 —— 只有根路径时它会掉，
-        // 与 `:desktop:test` 的同一条断言对齐）
         val vpnUrl = "https://webvpn.xjtu.edu.cn/https/77726476706e69737468656265737421" +
             "fae05988692862446b468ca88d1b203b/"
         val back = http.postJson(WEBVPN_CONVERT_PATH, """{"url":"$vpnUrl","direction":"$WEBVPN_FROM_VPN"}""")
@@ -466,10 +425,7 @@ class ServePayFeedbackMatchWebvpnTest {
             ServeFeedback.ENV_TABLE_REPLY to FeedbackFakeUpstream.REPLY_TABLE,
         )
 
-        /**
-         * §5.2 的红线钉子组（全是夹具里的编造值，不是真人）：登录学号、校园卡上的姓名与学号、
-         * 卡账号，以及几个一眼能认出来的身份键名。
-         */
+        /** §5.2 的红线钉子组（全是夹具里的编造值，不是真人）：登录学号、校园卡上的姓名与学号、卡账号，以及几个一眼能认出来的身份键名。 */
         val IDENTITY = listOf(
             "username",
             "studentId",

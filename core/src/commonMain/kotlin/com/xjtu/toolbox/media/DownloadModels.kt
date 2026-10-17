@@ -4,15 +4,7 @@ import kotlinx.datetime.TimeZone
 import kotlinx.datetime.toLocalDateTime
 import kotlin.time.Instant
 
-/**
- * 下载任务的**共享模型** —— 搬迁前它是 `:app` 的 Room 实体 `DownloadTaskEntity`（表 `download_tasks`），
- * 字段与列**逐列同名同序**，只是去掉了 `androidx.room` 的注解。
- *
- * 为什么把实体升成共享模型、而不是给 Room 的实体加一个「共享版」：
- * 「一条下载任务有哪些字段、它的状态标签是什么」本来就是业务口径，与「存在哪」无关。
- * 后端存储由 [DownloadTaskStore] 端口各自填（Android = Room 表，桌面 = 一份 JSON 落盘），
- * 屏与状态机只认这一个类型。
- */
+/** 下载任务的共享模型（字段与 Room 表 `download_tasks` 逐列同名同序）。 */
 data class DownloadTask(
     val id: Long = 0,
     val activityId: Int,
@@ -62,11 +54,7 @@ data class DownloadTask(
             status == DownloadStatus.PENDING
 }
 
-/**
- * 任务状态的字符串口径。**取值与搬迁前逐字相同**（它们直接写进 Room 列 / 桌面那份 JSON，
- * 改了就等于换了一套存储口径）：`pending` / `downloading` / `paused` / `completed` /
- * `failed` / `cancelled`。
- */
+/** 任务状态的字符串取值（直接落库，不能改）。 */
 object DownloadStatus {
     const val PENDING = "pending"
     const val DOWNLOADING = "downloading"
@@ -76,9 +64,7 @@ object DownloadStatus {
     const val CANCELLED = "cancelled"
 }
 
-/**
- * 下载进度数据类（[DownloadManager.progressFlow] 的事件）。
- */
+/** 下载进度数据类（[DownloadManager.progressFlow] 的事件）。 */
 data class DownloadProgress(
     val taskId: Long,
     val downloadedBytes: Long,
@@ -89,12 +75,7 @@ data class DownloadProgress(
     val status: String,
 )
 
-/**
- * 一条待下载的视频。
- *
- * 用中立类型（机位 + 直链），调用方负责拿到可下载的直链。原先 class 课程回放也共用这条队列，
- * class 平台已移除，现在只有思源学堂在用。
- */
+/** 一条待下载的视频。 */
 data class DownloadItem(
     /** "instructor" / "encoder"，用于命名与分类 */
     val cameraType: String,
@@ -109,25 +90,13 @@ data class DownloadStats(
     val activeCount: Int,
 )
 
-/**
- * 下载目录信息弹窗里要显示的两样东西 —— **各端事实不同**，所以由宿主填（见 [DownloadManagerScreen]）。
- *
- * [filesLocation] 是「文件类下载」的展示位置（Android = 公共下载目录，桌面 = `~/Downloads/`）；
- * [notes] 是下面那几句说明 —— 搬迁前它们写在屏上，其中「卸载 App 会一并清除」这种话说的是
- * **Android 的落盘位置**，桌面照抄就是假话，所以文案跟着实现走、不跟着屏走。
- */
+/** 下载目录信息弹窗里要显示的两样东西 —— 各端事实不同，所以由宿主填（见 [DownloadManagerScreen]）。 */
 data class DownloadDirInfo(
     val filesLocation: String,
     val notes: List<String>,
 )
 
-/**
- * 一条「文件类下载」（成绩单 / 思源课件 / 资料站文件）—— 与 [DownloadTask] 那种**排队下载的视频**
- * 不是一回事：它们下载完就落到公共下载目录、由系统文件管理器管，屏上只列出来。
- *
- * 搬迁前这个类型叫 `LmsDownloadRecord`（`:app` 的 `LmsDownloadStore` 里那份），
- * 因为它还有 MediaStore 的实现（`:app`）所以只把**模型**搬上来 —— 屏要画它，就得三端看得见。
- */
+/** 一条「文件类下载」（成绩单 / 思源课件 / 资料站文件） */
 data class DownloadedFile(
     val name: String,
     val mimeType: String,
@@ -155,20 +124,14 @@ data class DownloadedFile(
     }
 }
 
-/**
- * 时间戳 → `MM/dd HH:mm`（本地时区）。
- *
- * 搬迁前是 `SimpleDateFormat("MM/dd HH:mm", Locale.getDefault())` —— `java.text` 是 JVM 专属，
- * `:core` 还要编到 wasm。数字与顺序逐字一致（`InboxScreen` / `SchoolCalendarScreen` 那边
- * 也是这么手写的）。
- */
+/** 时间戳 → `MM/dd HH:mm`（本地时区）。 */
 internal fun formatDownloadTime(timestamp: Long): String {
     val at = Instant.fromEpochMilliseconds(timestamp).toLocalDateTime(TimeZone.currentSystemDefault())
     fun pad(value: Int) = value.toString().padStart(2, '0')
     return "${pad(at.monthNumber)}/${pad(at.dayOfMonth)} ${pad(at.hour)}:${pad(at.minute)}"
 }
 
-/** 文件大小的人类可读写法（搬迁前那份 `formatFileSize`，逐字搬）。 */
+/** 文件大小的人类可读写法。 */
 internal fun formatDownloadSize(bytes: Long): String = when {
     bytes < 1024 -> "$bytes B"
     bytes < 1024 * 1024 -> "${bytes / 1024} KB"

@@ -12,60 +12,7 @@ import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 
-/**
- * 付款码（`ncard.xjtu.edu.cn`）的 **serve 版取数**：给 `:web` 用，实现 [PaymentCodeSource]。
- *
- * | 端点 | 本类实现的方法 |
- * |---|---|
- * | `GET /api/pay/code` | [getBarCode]（`authenticate()` 那一枪由本类自己走，见下） |
- * | `GET /api/pay/vouchers` | [getVouchers] |
- * | `POST /api/pay/vouchers/select` | [updateVoucherStatus]（**写**，body `{showCardIds}`） |
- *
- * 契约 §5.7；`:server` 那一侧是 `PayRoutes.kt`（薄包装 `:data` 的 `PaymentCodeApi`，
- * 借的是**校园卡**那个会话 —— 付款码的业务请求带的就是校园卡登录时存下的那张 JWT）。
- *
- * ## 码图：三端都真画（2026-10-15，D12 ①）
- *
- * **`qrCodeModules` / `code128Modules` 在 Android / jvm / wasmJs 三端都编得出** —— 前两端的 zxing
- * 与浏览器那一端的纯 Kotlin 编码器（`QrCodec` / `Code128Codec`，在 `:core` 的 commonMain）
- * **编出来的矩阵逐模块相同**（`:core:jvmTest` 的 `CodeMatrixParityJvmTest` 逐格钉住）。
- * 本类只给那串数字，画图那一步在 [com.xjtu.toolbox.pay.PaymentCodeScreen]；
- * 那一屏的降级分支（编不出来时只画数字）留着，但三端今天都走不到它。
- *
- * ## 勾选加餐券：✅ 已经端了（2026-10-15，批③-b / D7 ④）
- *
- * `POST /api/pay/vouchers/select`（body 只有一格 `{showCardIds:[…]}`）—— [canSelectVouchers]
- * 不再覆写，就是基类那个 `true`（三端同一个值），屏上那几行券**照旧画勾选框**。
- * `:core` 那一份勾选落盘（`PaymentSelectionStore`）照旧由 `:web` 接上（wasm 上是 localStorage）。
- *
- * ⚠️ [getBarCode] 拿到的**就是能付钱的东西**（登录者本人的一次性凭据）：它不在 §5.2 那四个红线
- * 字段里，但敏感度不比它们低。serve 的默认姿势（只监听回环 + 令牌闸门）是它的前提 ——
- * `--host 0.0.0.0` 部署必须自己加反代与鉴权（契约 §3.3 / §5.7）。
- *
- * ## [authenticate] 在浏览器这一端**没有本地判据**
- *
- * 端口上那一枪的原意是「实现方在自己的会话里确认拿得到付款码的前置条件」（`:data` 的实现是
- * **本地**看一眼会话里有没有那张校园卡 JWT，不发请求）。serve 形态下那份会话在**服务端进程**里，
- * 页面上没有可看的东西 ⇒ 这里如实什么都不做：真正的判据是 `/api/pay/code` 那一枪本身
- *（没会话时服务端答 `401` + 「请先登录」），屏按 `.onFailure` 显示那句中文短句。
- * 编一个假的本地检查（比如恒真）只会让「认证失败」看起来像是本端已经确认过了。
- *
- * ## 缺字段不编造
- *
- * - `barCode` 缺失 / 空白 ⇒ [getBarCode] **抛错**（`data.barCodeVo.barcode` 那一串空了说明上游
- *   不对劲，画一个空码等于让用户对着空白扫 —— 屏会显示这句错，而不是显示一张空卡）；
- * - `showCardId` 为空的那几行券**不列**（它是勾选与后续动作的句柄，也与 §5.5 加餐券同一条口径）；
- * - `serverFlag`（上游 `flag`）**不投影**（§5.7：`:core` 的屏一处都没读它）⇒ 模型那一格给**空串**，
- *   不是编一个默认值。
- *
- * ## 默认形态（campus-api）
- *
- * 付款码在 campus-api 里没有对应端点（`:app` / 桌面走 `:data` 的 okhttp）⇒ 非 serve 分支一律
- * [serveOnly]（抛错，不返回一份空数据）。
- *
- * @param baseUrl 留空 ⇒ 相对路径即**同源**（`:web` 由 `:server` 托管，必须是空）
- * @param mode 见 [ApiMode]：serve 支才走本契约的端点
- */
+/** 付款码（`ncard.xjtu.edu.cn`）的 serve 版取数：给 `:web` 用，实现 [PaymentCodeSource]。 */
 class CampusPayApi(
     private val client: HttpClient,
     private val baseUrl: String = "",
@@ -73,12 +20,7 @@ class CampusPayApi(
     private val mode: ApiMode = ApiMode.CAMPUS_API,
 ) : PaymentCodeSource {
 
-    /**
-     * 见类 KDoc：勾选同步端了（`POST /api/pay/vouchers/select`，契约 §5.7）⇒ 屏上那几行券照旧可勾。
-     *
-     * 与 `:data` / 桌面那一份**逐字相同**的默认值（`PaymentCodeSource.canSelectVouchers` 默认
-     * `true`）：本类不再覆写它，否则这一端就会自己把自己画成只读 —— 而端点是有的。
-     */
+    /** 见类 KDoc：勾选同步端了（`POST /api/pay/vouchers/select`，契约 §5.7）⇒ 屏上那几行券照旧可勾。 */
     override val canSelectVouchers: Boolean get() = true
 
     /** 见类 KDoc：serve 这一端没有「本地会话」可查，真正的判据是 `/api/pay/code` 那一枪。 */
@@ -118,13 +60,7 @@ class CampusPayApi(
         }
     }
 
-    /**
-     * 见类 KDoc：端点是 `POST /api/pay/vouchers/select`，body 只有一格 `{showCardIds}`（顺序取**调用方
-     * 给的先后**，去重去空白；空表也照发 —— 取消全部勾选就是空表）。
-     *
-     * 失败（`400` 参数 / `401` 没会话 / `502` 上游拒或会话失效）一律**抛错** ——
-     * `PaymentCodeScreen` 接的是它自己那句「同步失败」，不能当成功静默过去。
-     */
+    /** 见类 KDoc：端点是 `POST /api/pay/vouchers/select`，body 只有一格 `{showCardIds}`（顺序取调用方给的先后，去重去空白；空表也照发——取消全部勾选就是空表）。 */
     override suspend fun updateVoucherStatus(selectedIds: Collection<String>) {
         requireServe()
         val ids = selectedIds.map { it.trim() }.filter { it.isNotEmpty() }.distinct()

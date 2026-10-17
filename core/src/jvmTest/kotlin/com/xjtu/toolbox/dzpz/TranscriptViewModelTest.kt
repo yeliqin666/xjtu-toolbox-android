@@ -17,27 +17,7 @@ import kotlinx.coroutines.test.setMain
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 
-/**
- * 成绩单**流程**（[TranscriptViewModel]）在 JVM 上的口径 —— 搬屏之前先钉住，搬完一个字不改。
- *
- * ## 它钉的是什么
- *
- * 屏搬进 `:core` 时，取数从 `TranscriptApi(site)` 换成了 [TranscriptSource] 端口，编排逻辑
- * （七步的顺序、每步亮出来的进度文案、成功与失败落到哪个状态）**一行未改**。这个类就用一个
- * 记账用的假 [TranscriptSource] 把那七步的顺序与参数钉住：
- *
- * ```
- * getLinkageData → generatePreviewPdf → submitCreate → reloadAndForward → getDownloadInfo → downloadPdf
- * ```
- *
- * 断言里那些进度文案（「正在获取学籍信息...」那一串）是**搬迁前 ViewModel 里的原文**
- * —— 它们会显示在屏上，所以它们是行为的一部分，不是可以随便改的实现细节。
- *
- * ## 为什么在 jvmTest
- *
- * `viewModelScope` 要一个 Main 调度器，`Dispatchers.setMain` 只在 JVM 侧稳定（wasm 上没有
- * 「主线程调度器」这一档）。所以这个类与 `LibraryFavoritesJvmTest` 一起留在 `core/src/jvmTest`。
- */
+/** 成绩单流程（[TranscriptViewModel]）在 JVM 上的口径。 */
 class TranscriptViewModelTest {
 
     @BeforeTest
@@ -145,10 +125,7 @@ class TranscriptViewModelTest {
         assertTrue(runBlocking { withTimeout0(vm) }, "authExpired 应当发出一枪")
     }
 
-    /**
- * 「站点登录态已失效」的假异常：只实现 `:core` 的标记接口（`:app` 的 `AuthExpiredException`
- * 与 `:data` 的 `SessionExpiredException` 都实现了它，而 `:core` 看不见那两个类）。
- */
+    /** 「站点登录态已失效」的假异常。 */
 private class FakeSessionExpired : RuntimeException("登录态已失效"), SessionExpiredFailure
 
 /** 收一枪 `authExpired`（CONFLATED 通道；用单测调度器时它已经发出来了）。 */
@@ -156,11 +133,7 @@ private class FakeSessionExpired : RuntimeException("登录态已失效"), Sessi
         kotlinx.coroutines.withTimeoutOrNull(1_000L) { vm.authExpired.first() } != null
 }
 
-/**
- * 记账用的假取数实现：把七步的**调用顺序与参数**记下来，并允许在某一步注入失败。
- *
- * 它不碰网络、不碰 Android —— 它存在的意义只有一个：让「搬屏时流程一行没改」这句话可验证。
- */
+/** 记账用的假取数实现：把七步的调用顺序与参数记下来，并允许在某一步注入失败。 */
 private class FakeTranscriptSource : TranscriptSource {
 
     val calls: MutableList<String> = mutableListOf()

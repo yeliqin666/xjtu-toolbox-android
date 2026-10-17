@@ -32,18 +32,7 @@ import androidx.compose.material.icons.filled.VpnKey
 import androidx.compose.ui.graphics.vector.ImageVector
 import com.xjtu.toolbox.nav.AppRoute
 
-/**
- * 首页「哪个功能配哪个图标」的那张表（从 `:app` 的 `main/HomeTab.kt` 原样搬来）：
- * 目录里没有图标字段 —— 图标是画出来的东西，而这张表由图标的**语义**决定（考勤用打勾、
- * 成绩用报表、电费用闪电…），所以它属于「卡片模型」这一层，而不是某一端的主题。
- *
- * 搬走之后两头共用：`:app` 的首页宫格与 `:core` 的共享首页 [HomeScreen] 都读它，
- * 于是「同一个功能在两端是不是同一个图标」不再靠人眼对齐。查不到的退回 `Icons.Default.Apps`
- * （与搬迁前 `homeIcons[route] ?: Icons.Default.Apps` 逐字对应）。
- *
- * [category] / [accentKey] 是同一次搬迁里跟着过来的那两个 `when`：分类卡的视觉标识，
- * 以及「这个分类借哪个功能的配色」。
- */
+/** 首页「哪个功能配哪个图标」的那张表（目录里没有图标字段）。 */
 object HomeIcons {
 
     fun of(route: AppRoute): ImageVector = when (route) {
@@ -77,11 +66,7 @@ object HomeIcons {
         else -> Icons.Default.Apps
     }
 
-    /**
-     * 分类卡的图标。用 `when` 而不是 `mapOf` + `getValue`（搬迁前那句注释仍在理）：
-     * 以后加分类漏写了，编译就不过 —— 不会像「课余」（PLAY）那次一样，到首页渲染分类卡时
-     * 才抛 `NoSuchElementException` 闪退。
-     */
+    /** 分类卡的图标。 */
     fun category(category: ServiceCategory): ImageVector = when (category) {
         ServiceCategory.CLASS -> Icons.Default.School
         ServiceCategory.STUDY -> Icons.Default.Assessment

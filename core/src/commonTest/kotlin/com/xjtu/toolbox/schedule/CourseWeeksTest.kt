@@ -6,15 +6,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
-/**
- * :core 的课表口径测试。
- *
- * 这些断言之所以值钱，是因为它们跑在 **CI 门禁**里（`wasmJsNodeTest` + `jvmTest`）：
- * 周次展开与学期日期换算一旦在某端漂移，这里先红，而不是等到 Web 与 Android 显示两张不同课表。
- *
- * ⚠️ 口径以 J1900 的 `jwxt2caldav.js::parseZcmc` 为准（交接文档 §7）：同一个 `ZCMC`
- * 在日历和 App 里必须展开成同一串周次，否则「同一个人的日历与课表互相打脸」。
- */
+/** 课表口径测试。 */
 class CourseWeeksTest {
 
     @Test
@@ -52,18 +44,11 @@ class CourseWeeksTest {
         assertEquals(2, termStart.weekOf("2026-09-21")) // 第 2 周周一
         assertEquals(1, termStart.weekOf("2026-09-01")) // 开学前 → 夹到第 1 周
         assertEquals(21, termStart.weekOf("2027-02-01")) // 由调用方按 totalWeeks 再夹
-        // dateOf 的 week 与 weekOf 一样是 **1-based**。这里原先是 2026-09-24 / 2026-10-01，
-        // 比正确值整整多一周（注释写「第 1 周周四」却给了第 2 周的日期），
-        // 而且与上面 1-based 的 weekOf 断言自相矛盾。
-        // 事实：2026-09-14 是**周一**（isoweekday=1，python 验过），所以第 1 周周四是 09-17。
         assertEquals(LocalDate.parse("2026-09-17"), termStart.dateOf(1, 4)) // 第 1 周周四
         assertEquals(LocalDate.parse("2026-09-24"), termStart.dateOf(2, 4)) // 第 2 周周四
     }
 
-    /**
-     * 拿**真实报文形状**（照 campus-api 实测响应截取：`"3"` 这种字符串数字、null 列）
-     * 走一遍上游行 → 共享模型的收敛。
-     */
+    /** 拿真实报文形状（照 campus-api 实测响应截取：`"3"` 这种字符串数字、null 列）走一遍上游行 → 共享模型的收敛。 */
     @Test
     fun realShapedRowBecomesCourseSlot() {
         val slot = ScheduleRow(

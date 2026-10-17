@@ -16,36 +16,7 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.util.concurrent.TimeUnit
 
-/**
- * 桌面端的**更新骨架**：查一次 GitHub 发布页，比一下版本；有新版就把发布页交出去。
- *
- * ## 为什么只有骨架，为什么**不能**做成「下载并安装」
- *
- * Android 那边能自更新，是因为有 `REQUEST_INSTALL_PACKAGES` + `FileProvider` 那套系统能力；
- * 桌面端没有：**.deb / tar.gz / .msi 都只能由用户自己装**（设计文档 §7 把「更新机制（没有商店）」
- * 明确列为待定项）。所以这一端**不做**自我替换可执行文件这种事（Windows 上那还得过 SmartScreen
- * 与 UAC），只做两件真做得到的事：
- *
- *  1. **查**：拉发布列表比版本（复用 `:core` 的 [BulletinRules.compareVersions]，与 Android 的公告 /
- *     更新域同一个比较器 —— 版本号语义只此一份）；
- *  2. **打开**：把发布页交给系统浏览器（[openInBrowser]，与教师检索那一屏同一条路）。
- *
- * [canInstallAutomatically] 是 `false`，写成常量而不是注释：UI 那一层要显示「检查更新」时，
- * 得能一眼看出这一端**没有**自动安装能力（不许假装有）。
- *
- * ## 为什么挑「带桌面产物的那次发布」
- *
- * 仓库的 Release 现在装的是 Android 的 `app-release.apk`（桌面产物还只在 CI 的 artifact 里，
- * 见 `docs/windows-delivery.md`）。所以这里挑的是**最新一个带 `.msi` / `.exe` 资产的发布**：
- * 没有这种发布时如实答「还没有桌面版安装包」，而不是把 APK 的版本号当成桌面的新版推给用户。
- *
- * ## 还没接的两件事（如实 TODO）
- *
- * 1. **调用点**：这一份还没有 UI 入口 —— `:core` 的设置页那一栏由 `DesktopSettingsHost.updateSection`
- *    提供，桌面端现在给的是 `null`（见 `DesktopSettings` 的 KDoc）；接线时就是「一个按钮 + 一句文案」；
- * 2. **发布通道**：桌面产物目前只在 CI artifact 里，`.github/workflows/desktop-windows.yml` 没有
- *    「发布到 Release」那一步（要不要发、发到哪个 tag，与 Android 的发版流程一起定）。
- */
+/** 桌面端的更新骨架：查一次 GitHub 发布页，比一下版本；有新版就把发布页交出去。 */
 internal object DesktopUpdate {
 
     /** 发布页 / 接口所在仓库（与 `:app` 的 `AppUpdater` 同一个）。 */
@@ -57,18 +28,10 @@ internal object DesktopUpdate {
     /** 发布列表接口（公开、不需要 token；30 条足够找到「最新一个带桌面产物的」）。 */
     const val RELEASES_API = "https://api.github.com/repos/$REPO/releases?per_page=30"
 
-    /**
-     * 这一端**没有**自动安装 / 自更新通道（见文件头）。UI 要按它决定「检查更新」点下去是
-     * 「告诉你新版在哪」还是「悄悄把包换掉」。
-     */
+    /** 这一端没有自动安装 / 自更新通道（见文件头）。 */
     const val canInstallAutomatically: Boolean = false
 
-    /**
-     * 一次检查的结果。
-     *
-     * 三种状态刻意分开：[Failed] **不是** [UpToDate] —— 断网时说「已是最新」是在骗人
-     *（与 `:core` 的公告 / 更新域「失败要如实说失败」同一条口径）。
-     */
+    /** 一次检查的结果。 */
     sealed interface CheckResult {
         /** 有比本机新的桌面版发布。 */
         data class Available(val release: DesktopRelease) : CheckResult
@@ -80,12 +43,7 @@ internal object DesktopUpdate {
         data class Failed(val reason: String) : CheckResult
     }
 
-    /**
-     * 一份发布的桌面端视图：只留这一端用得上的几个字段。
-     *
-     * [packageUrl] 是 `.msi` / `.exe` 的直链（用户点「下载」时用它）；[releaseUrl] 是发布页
-     *（看更新说明、找别的产物时用它）。
-     */
+    /** 一份发布的桌面端视图：只留这一端用得上的几个字段。 */
     internal data class DesktopRelease(
         val version: String,
         val notes: String,
@@ -94,13 +52,7 @@ internal object DesktopUpdate {
         val isPrerelease: Boolean,
     )
 
-    /**
-     * 那条 GET 用的客户端：进程级一份（与 `Main.kt` 里的 `yellowPageClient` 同一条纪律：
-     * 别每点一次「检查更新」就新建一个连接池）。
-     *
-     * 超时压得比 `:app` 的 `AppUpdater`（连接 15s / 读 120s）短：桌面端这是用户点一下才发生的事，
-     * 卡两分钟不如早点告诉他「连不上」。
-     */
+    /** 那条 GET 用的客户端：进程级一份（与 `Main.kt` 里的 `yellowPageClient` 同一条纪律： 别每点一次「检查更新」就新建一个连接池）。 */
     private val client: OkHttpClient by lazy {
         HttpClients.base.newBuilder()
             .connectTimeout(10, TimeUnit.SECONDS)
@@ -108,11 +60,7 @@ internal object DesktopUpdate {
             .build()
     }
 
-    /**
-     * 查一次更新。[currentVersion] 默认是本包的版本（构建期烘进 `DesktopBuildConfig`），
-     * [fetch] 是那条 HTTP GET（默认真的发请求；测试注入假响应 —— 与 `:core` 的黄页那条
-     * 「端口收一个 HttpClient」是同一条思路，只是这里只需要「给 URL 拿一段文本」）。
-     */
+    /** 查一次更新。 */
     internal fun check(
         currentVersion: String = DesktopBuildConfig.VERSION_NAME,
         fetch: (String) -> String? = ::fetchReleasesJson,
@@ -126,13 +74,7 @@ internal object DesktopUpdate {
         return compare(body, currentVersion)
     }
 
-    /**
-     * 纯函数那半（测试直接喂 JSON）：挑最新一个**带桌面产物**且比 [currentVersion] 新的发布。
-     *
-     * 两条筛子各有理由：
-     *  - `draft == true` 直接跳过（草稿不该被任何人看到）；
-     *  - 没有 `.msi` / `.exe` 资产的发布**不算桌面版**（仓库里现在装的是 APK 的发布，见文件头）。
-     */
+    /** 纯函数那半（测试直接喂 JSON）：挑最新一个带桌面产物且比 [currentVersion] 新的发布。 */
     internal fun compare(body: String, currentVersion: String): CheckResult {
         val releases = runCatching { AppJson.parseToJsonElement(body) as? JsonArray }.getOrNull()
             ?: return CheckResult.Failed("发布页返回的不是发布列表（接口变了？）")
@@ -171,10 +113,7 @@ internal object DesktopUpdate {
         }
     }
 
-    /**
-     * 打开发布页（系统的默认浏览器）。没有「成功/失败」可报：只能把网址交给系统，
-     * 交出去之后由用户的默认浏览器说了算（与 [openInBrowser] 同口径）。
-     */
+    /** 打开发布页（系统的默认浏览器）。 */
     internal fun openReleasesPage(url: String = RELEASES_PAGE) {
         openInBrowser(url)
     }

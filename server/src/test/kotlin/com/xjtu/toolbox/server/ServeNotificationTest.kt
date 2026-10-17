@@ -14,15 +14,7 @@ import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonArray
 
-/**
- * 通知公告两端点的契约测试（`/api/notification/sources` · `/api/notification/list`）。
- *
- * 免登录：`:data` 的 [AppNoticeSource]（okhttp + jsoup 爬 29 个站）不碰任何站点会话，
- * 三个代表性源（教务处 JWC / 化工学院 CLET / OA）由 `:testkit` 的 [NotificationFakeUpstream]
- * 扮演（https 域，走假代理的 CONNECT 隧道）。
- *
- * 断言形状逐字段；条目标题/日期/链接的 expected 值全部来自夹具常量。
- */
+/** 通知公告两端点的契约测试（`/api/notification/sources` · `/api/notification/list`）。 */
 class ServeNotificationTest {
 
     private var started: EmbeddedServer<CIOApplicationEngine, CIOApplicationEngine.Configuration>? = null
@@ -63,7 +55,6 @@ class ServeNotificationTest {
         assertEquals("教务处", jwc.optString("displayName"))
         assertEquals("综合", jwc.optString("category"))
 
-        // 红线 + 闸门
         assertNoIdentity(response.body(), "GET /api/notification/sources", LOGIN_IDENTITY)
         assertEquals(401, http.get("/api/notification/sources", bearer = null).statusCode())
         assertEquals(401, http.get("/api/notification/sources", bearer = "wrong").statusCode())
@@ -133,7 +124,6 @@ class ServeNotificationTest {
         assertEquals(ApiErrors.BAD_REQUEST, envelopeCode(bad))
         assertTrue(envelopeMessage(bad).orEmpty().any { it.code in 0x4e00..0x9fff })
 
-        // 红线 + 闸门
         assertNoIdentity(merged.body(), "GET /api/notification/list", LOGIN_IDENTITY)
         assertEquals(401, http.get("/api/notification/list", bearer = null).statusCode())
         assertEquals(401, http.get("/api/notification/list", bearer = "wrong").statusCode())

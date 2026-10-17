@@ -5,77 +5,7 @@ import com.xjtu.toolbox.library.LibraryFakeUpstream
 import java.util.concurrent.atomic.AtomicInteger
 import kotlin.math.abs
 
-/**
- * 假的「体育场馆预订系统」上游 —— 扮演这条路由的**两个域名**（第 11 条真数据路由）。
- *
- * ```
- * ① 开放平台 org.xjtu.edu.cn（https，登录入口那一跳）
- *    GET  https://org.xjtu.edu.cn/openplatform/oauth/authorize?…&redirectUri=<场馆回调>
- *                                        → 302 到统一认证（service = 地址里那个 redirectUri）
- * ② 场馆站 202.117.17.144:8080（**明文 http**，业务与登录探针）
- *    GET  /web/cas/oauth2url.html?ticket=ST-n
- *                                        → 种 SESSION cookie，302 到 `/web/index.html`（CAS 回跳那一跳）
- *    GET  /web/index.html                → 200 首页（`VenueLogin.postLogin` 靠页面里的 userno 认身份）
- *    GET  /web/product/productData.html?page=N&rows=8&merccode=100001&remark=defaultProList
- *                                        → 场馆列表一页（每页 8 条）
- *    GET  /web/product/findOkArea.html?s_date=<日期>&serviceid=<场馆>
- *                                        → 那天**可订**的时段与场地
- *    GET  /web/product/findLockArea.html?s_date=<日期>&serviceid=<场馆>
- *                                        → 那天**已被占**的时段与场地（两路合并后屏才分得清「满了」和
- *                                          「没有这个时段」）
- *    GET  /gen                           → 滑块验证码（注意在**根路径**，不在 `/web/` 下）
- *    GET  /web/yyuser/searchorder.html?page=N&rows=20&…
- *                                        → 我的订单一页
- * ```
- *
- * ## 为什么一个夹具扮两个域名
- *
- * 这套夹具的规矩是「**一个 host 只能由一个夹具答**」（`FakeCampusProxy.dispatch` 按 host 分派）。
- * `org.xjtu.edu.cn` 与 `202.117.17.144` 属于**同一条路由的同一条登录链**（OAuth → CAS → 场馆站），
- * 拆成两个类只会让「service 从哪来」变成两处各猜一遍，所以放在一个文件里、两个入口
- *（[handleOauth] / [handle]）—— 一个 host 仍然只有一个夹具在答。CAS 那半台
- *（`login.xjtu.edu.cn`）仍由 [LibraryFakeUpstream] 扮演，与其余站点共用同一台假统一认证。
- *
- * ## 登录链被省略的那一跳
- *
- * 真站点上 OAuth 回调回来的是 `?code=…`，场馆站拿 code 换 SESSION。这里**直接把 CAS 签的
- * `?ticket=` 交给 `/web/cas/oauth2url.html`**（CAS 夹具只会往 service 后面拼 `ticket=`）。
- * 夹具要演的是「CAS 回跳之后客户端拿到的那条链」，中间那一次 code 兑换对被测代码没有可观察差别
- *（`VenueLogin.postLogin` 只判「最终落在 `/web/index.html` 且页面里有 userno」）。这条省略写在这里，
- * 免得被读成「真站点就这两跳」。`202.117.17.144` 这个 IP 同时也是 80 端口那台**支付站**
- *（[PAY_ORIGIN]）—— 分派只看 host，所以两个端口都落进本夹具；支付页是浏览器那边的事：
- * 这里**没有** `/pay/…` 的路由（真被打到就是 404），只有 [paymentPageUrl] 说出它的**地址长什么样**
- * —— serve 的 `GET /api/venue/pay` 只回 302 + 这个地址，**不许真去取那一页**（取它等于替用户打支付站）。
- *
- * ## 写路径：默认没有夹具，要剧本才打开
- *
- * `POST /web/order/tobook.html`（下单）与 `POST /web/order/delorder.html`（取消）默认**不实现**：
- * 任何一次误提交都会以 404 响亮地失败，而不是被一个假的成功页糊过去 —— 与
- * `JwxtFakeUpstream` 留空评教提交端点同一条口径。
- *
- * 两个开关各自管一条（都**默认关**，现有一切断言与「写路径 404」的钉住都不受影响）：
- *
- * - [captchaScript]：Stage B（滑块共享化）给 `tobook` 加的剧本 —— 打开后 `/gen` 发
- *   [VenueCaptchaFixture] 的**程序生成**真图（背景带缺口、滑块带透明 alpha，不是任何真人截图），
- *   `tobook` 校验轨迹里的最终 x 是否落在缺口（±[VenueCaptchaFixture.BOOKING_X_TOLERANCE]）——
- *   对不上就回真站点那句「验证码有误」（识别器／手拖动对了才会下单成功）。
- * - [cancelScript]：serve 写路径（契约 §5.3.2 的 `POST /api/venue/cancel`）要的那一条 —— 取消不需要
- *   滑块，所以它单独一个开关；打开后 `delorder` 校验表单里有订单号，再回真站点那个成功信封
- *   （`{"result":"1","message":"取消成功"}`，`:data` 的 `success` 判据就认 `result == "1"`）。
- *   开关关着时它仍是 404（也就是「上游说不行」那一档：`:data` 把它读成 `success=false`）。
- *
- * ## 数据端点不验会话 cookie
- *
- * 夹具要钉的是**解析与请求形状**，不是会话判定：`/web/index.html` 与 `/web/cas/oauth2url.html`
- * 那两跳是真登录链必须走过的，其余端点直接给数据（真站点会先判 SESSION，那时走的是
- * `SiteSession.executeWithReAuth` 那条路，已由图书馆/教务/校园卡那几条钉子守着了）。
- *
- * ## 日期
- *
- * 真站点的时段是**按天**查的。夹具不写死某一天（那样桌面端那张图只在当天成立）：`s_date`
- * 只校验「带了、且是 YYYY-MM-DD」，内容照给。场馆这份样本里唯一带日期的字段就是
- * `AreaSlot.date`，它由调用方传进来 —— 断言里用的是「请求里那个日期」。
- */
+/** 假的「体育场馆预订系统」上游 —— 扮演这条路由的两个域名。 */
 class VenueFakeUpstream {
 
     companion object {
@@ -92,12 +22,7 @@ class VenueFakeUpstream {
         /** 80 端口那台支付站的支付页路径（`:data` 的 `VenueApi.paymentUrl` 拼的就是它）。 */
         const val PAYMENT_PAGE_PATH = "/pay/show.html"
 
-        /**
-         * 「某个订单号的真支付页地址」= serve 那条 302 的 `Location`。
-         *
-         * 编码与 `:data` 的 `VenueApi.paymentUrl` 逐字同一套（`java.net.URLEncoder`：空格成 `+`）
-         * —— 断言用它，就不用把那个拼法在测试里再写一遍（两处写就会漂）。
-         */
+        /** 「某个订单号的真支付页地址」= serve 那条 302 的 `Location`。 */
         fun paymentPageUrl(orderId: String): String =
             "$PAY_ORIGIN$PAYMENT_PAGE_PATH?id=" + java.net.URLEncoder.encode(orderId, "UTF-8")
 
@@ -108,20 +33,18 @@ class VenueFakeUpstream {
         const val MINI_LOGIN_PATH = "/web/cas/oauth2url.html"
         const val OAUTH_CALLBACK_URL = "$ORIGIN$MINI_LOGIN_PATH"
 
-        // ── ① 开放平台（https）──
 
         /** OAuth2 入口那一跳的 host（`VenueLogin.VENUE_OAUTH_URL` 在它上面）。 */
         const val OAUTH_HOST = "org.xjtu.edu.cn"
 
-        /** 与 `VenueLogin.VENUE_OAUTH_URL` **逐字相同**（有断言钉着）。 */
+        /** 与 `VenueLogin.VENUE_OAUTH_URL` 相同（有断言钉着）。 */
         const val OAUTH_URL =
             "https://$OAUTH_HOST/openplatform/oauth/authorize?" +
                 "responseType=code&scope=user_info&appId=1659&state=1&" +
                 "redirectUri=$OAUTH_CALLBACK_URL"
 
-        // ── ② 场馆站（8080 与 80 都落在这里）──
 
-        /** 登录探针：`VenueLogin.postLogin` 在这一页里找 userno。 */
+        /** 登录检查页：`VenueLogin.postLogin` 在这一页里找 userno。 */
         const val INDEX_URL = "$WEB/index.html"
 
         /** 场馆列表（`VenueApi.fetchVenueList`）。 */
@@ -147,11 +70,7 @@ class VenueFakeUpstream {
         /** 这个场馆**没有**时段（`object` 是空数组）—— 钉住「空表」那条分支。 */
         const val EMPTY_SERVICE_ID = 102
 
-        // ── 场馆样本 ──
-        //
-        // 名字、校区都是编的（不许出现真人/真实院系）。两页：第一页 8 条（正好一页 ⇒ 客户端必须再要
-        // 第二页），第二页 2 条（不足一页 ⇒ 停）。第一页里刻意摆了几种「不完整」：
-        // id<=0 的行、缺 name 的行、数字写成字符串、负数的 advanceday/advancenum。
+        // ── 场馆样本（编造）：第一页正好 8 条 ⇒ 客户端要再要第二页；含 id<=0、缺 name、数字串、负数等不完整行 ──
 
         const val VENUE_A_ID = 101
         const val VENUE_A_NAME = "示例场馆甲"
@@ -267,19 +186,11 @@ class VenueFakeUpstream {
     @Volatile
     var lockFails: Boolean = false
 
-    /**
-     * **默认关**的下单剧本开关（见类 KDoc 的「写路径」一节）：打开后 `/gen` 发
-     * [VenueCaptchaFixture] 的真图、`tobook` 校验轨迹并把关（拖对了才成功）。
-     * 默认关 ⇒ 现有一切读路径断言与「写路径 404」的钉住都不受影响。
-     */
+    /** 默认关的下单剧本开关（见类 KDoc 的「写路径」一节） */
     @Volatile
     var captchaScript: Boolean = false
 
-    /**
-     * **默认关**的取消剧本开关（见类 KDoc 的「写路径」一节）：打开后 `delorder` 校验表单里的 `orderid`
-     * 再回 [CANCEL_OK_RESULT] / [CANCEL_OK_MESSAGE]（一次普通 POST，不需要滑块 ⇒ 与 [captchaScript] 分开）。
-     * 默认关 ⇒ 取消仍是 404（`:data` 读成 `success=false`，也就是「上游说不行」那一档）。
-     */
+    /** 默认关的取消剧本开关（见类 KDoc 的「写路径」一节） */
     @Volatile
     var cancelScript: Boolean = false
 
@@ -304,13 +215,8 @@ class VenueFakeUpstream {
     var lastBookingParam: String? = null
         private set
 
-    // ── ① 开放平台 ────────────────────────────────────────────────
 
-    /**
-     * `org.xjtu.edu.cn` 那一半：只认那一条 authorize 路径（`GET`），把 `redirectUri` 原样当 CAS 的
-     * `service` 交出去 —— 与真站点「OAuth 授权页带你去统一认证」同一个形状（少了中间那一次 code 兑换，
-     * 见类 KDoc）。
-     */
+    /** `org.xjtu.edu.cn` 那一半。 */
     fun handleOauth(exchange: HttpExchange) {
         val path = exchange.requestURI.path
         val query = exchange.requestURI.query.orEmpty()
@@ -331,12 +237,8 @@ class VenueFakeUpstream {
         redirect(exchange, "http://${LibraryFakeUpstream.CAS_HOST}/cas/login?service=${encode(callback)}")
     }
 
-    // ── ② 场馆站 ──────────────────────────────────────────────────
 
-    /**
-     * `202.117.17.144`（8080 与 80 都落在这里）那一半。认不出的路径 → 404（body 里带着完整 URL）；
-     * 认识的路径但形体不对（缺 query、缺 ajax 头）→ 400（body 里带着实际收到的样子）。
-     */
+    /** `202.117.17.144`（8080 与 80 都落在这里）那一半。 */
     fun handle(exchange: HttpExchange) {
         val path = exchange.requestURI.path
         val query = exchange.requestURI.query.orEmpty()
@@ -380,7 +282,7 @@ class VenueFakeUpstream {
             path == CAPTCHA_PATH && exchange.requestMethod == "GET" -> {
                 requireAjax(exchange, query) ?: return
                 captchaCalls.incrementAndGet()
-                // 剧本打开时发**真图**（程序生成），否则发原来的占位 base64 —— 现有关断不受影响
+                // 剧本打开时发程序生成的真图，否则发占位 base64
                 respondJson(exchange, if (captchaScript) realCaptchaJson else captchaJson)
             }
 
@@ -434,12 +336,7 @@ class VenueFakeUpstream {
         }
     }
 
-    /**
-     * 下单剧本（[captchaScript] = true 才走到）：校验 `param`/`yzm` 的形状，再按轨迹的**最终 x**
-     * 把关 —— 落在缺口（±[VenueCaptchaFixture.BOOKING_X_TOLERANCE]）→ 成功订单，否则回真站点那句
-     * 「验证码有误」（身份与真站点的拒绝对齐：拖不对就是 100）。识别器/手拖动对的 x 来自
-     * [VenueCaptchaFixture.EXPECTED_SOLVE_TARGET_X]。
-     */
+    /** 下单剧本（[captchaScript] = true 才走到）：校验 `param`/`yzm` 的形状，再按轨迹的最终 x 把关。 */
     private fun handleTobook(exchange: HttpExchange) {
         tobookCalls.incrementAndGet()
         val body = runCatching { exchange.requestBody.readBytes().decodeToString() }.getOrDefault("")
@@ -482,13 +379,7 @@ class VenueFakeUpstream {
         }
     }
 
-    /**
-     * 取消剧本（[cancelScript] = true 才走到）：`delorder` 的表单里必须有 `orderid`（`:data` 的
-     * `VenueApi.cancelOrder` 拼的就是 `orderid` + `json=true`），然后回真站点那个信封 ——
-     * 因为它把 `result` 读成字符串（见那方法的 KDoc：「服务端成功码通常是 1」）。
-     *
-     * 表单形状不对时回 400（不编一个假的成功），与其余端点同一条口径。
-     */
+    /** 取消剧本（[cancelScript] = true 才走到） */
     private fun handleDelorder(exchange: HttpExchange) {
         val form = runCatching { exchange.requestBody.readBytes().decodeToString() }.getOrDefault("")
         lastCancelForm = form
@@ -512,23 +403,14 @@ class VenueFakeUpstream {
 
     // ── 页面与数据样本 ────────────────────────────────────────────
 
-    /**
-     * 首页：真站点在这张页面里带 userno（登录成功的唯一判据，见 [VenueLogin] 的 `hasUserNo`）。
-     * 这里放的是假统一认证那个账号，不是任何人的学号。
-     */
+    /** 首页：真站点在这张页面里带 userno（登录成功的唯一判据，见 [VenueLogin] 的 `hasUserNo`）。 */
     val indexPage = """
         <html><head><title>场馆预订</title></head><body>
         <input type="hidden" id="userno" value="${LibraryFakeUpstream.USERNAME}">
         </body></html>
     """.trimIndent()
 
-    /**
-     * 第一页：正好 8 条（⇒ 客户端必须再要一页）。
-     *
-     * 摆进去的几种「不完整」：`id` 为 0 的一行（该被跳过）、缺 `name` 的一行（读成空串）、
-     * `advanceday` 写成字符串的一行、`advanceday/advancenum` 为负的一行（落回 7 / 8）、
-     * 只有图标没有地址的一行。
-     */
+    /** 第一页：正好 8 条（⇒ 客户端必须再要一页）。 */
     val page1Json = """[
       {"id":$VENUE_A_ID,"name":"$VENUE_A_NAME","address":"$VENUE_A_ADDRESS","icon":"$VENUE_A_ICON","advanceday":$VENUE_A_ADVANCE_DAY,"advancenum":$VENUE_A_ADVANCE_NUM},
       {"id":$VENUE_B_ID,"name":"$VENUE_B_NAME","address":"$VENUE_B_ADDRESS","icon":"icon-tennis","advanceday":7,"advancenum":8},
@@ -555,10 +437,7 @@ class VenueFakeUpstream {
           "sliderImageWidth":"$CAPTCHA_SLIDER_WIDTH","sliderImageHeight":$CAPTCHA_SLIDER_HEIGHT}}
     """.trimIndent()
 
-    /**
-     * 剧本（[captchaScript] = true）里的验证码：id 不变、六个数不变，图片换成
-     * [VenueCaptchaFixture] 的**程序生成真图**（背景带缺口、滑块带透明 alpha）。
-     */
+    /** 剧本（[captchaScript] = true）里的验证码。 */
     val realCaptchaJson = """
         {"id":"$CAPTCHA_ID","captcha":{
           "backgroundImage":"${VenueCaptchaFixture.backgroundDataUri()}",
@@ -566,11 +445,7 @@ class VenueFakeUpstream {
           "backgroundImageWidth":"$CAPTCHA_BG_WIDTH","backgroundImageHeight":$CAPTCHA_BG_HEIGHT,
           "sliderImageWidth":"$CAPTCHA_SLIDER_WIDTH","sliderImageHeight":$CAPTCHA_SLIDER_HEIGHT}}
     """.trimIndent()
-    /**
-     * 我的订单：一页两条（一条已预订成功、一条预订中，明细逐条对着 `OrderDetail` 的字段摆），
-     * 另外两个坑：数组里夹了一个**不是对象**的元素（`mapNotNull` 该丢掉）、一条 `orderid` 为空的行
-     *（`filter { it.orderId.isNotBlank() }` 该丢掉）。`total` 一并给 2 ⇒ `hasMore` 为 false。
-     */
+    /** 我的订单：一页两条（一条已预订成功、一条预订中，明细逐条对着 `OrderDetail` 的字段摆），另外两个坑：数组里夹了一个不是对象的元素（`mapNotNull` 该丢掉）、一条 `orderid` 为空的行（`filter { it.orderId.isNotBlank() }` 该丢掉）。 */
     val ordersJson = """
         {"total":$ORDER_TOTAL,"rows":[
           {"orderid":"$ORDER_PAID_ID","status":1,"createdate":"2026-10-12 08:05:00","price":"20.00",
@@ -589,15 +464,7 @@ class VenueFakeUpstream {
         ]}
     """.trimIndent()
 
-    /**
-     * 某天 [SERVICE_ID] 的时段：可订那一路给三档价格与容量的坑，占用那一路给两条 `status != 1`。
-     *
-     * 摆在明面上的几条口径：
-     *  - `status == 1` 才是可订；`all_count == using_num` 时 `surplus` 兜到 **1**（不是 0）；
-     *  - `sname` 为空 ⇒ 名字退化成「预订」；`stock` 整个缺了 ⇒ 时间与价格读成空/0；
-     *  - 价格里的 `¥` 与逗号会被 strip 掉；
-     *  - 占用那一路的 `status` 不是 1 ⇒ `surplus` 恒为 0（屏据此把这一格画成已满/已占）。
-     */
+    /** 某天 [SERVICE_ID] 的时段：可订那一路给三档价格与容量的坑，占用那一路给两条 `status != 1`。 */
     fun slotsJson(ok: Boolean): String = if (ok) """
         {"object":[
           {"id":5101,"sname":"场地1","stockid":9101,"status":1,
@@ -622,10 +489,7 @@ class VenueFakeUpstream {
 
     // ── 响应小工具（与其余夹具同形）────────────────────────────────
 
-    /**
-     * `VenueApi` 的每一枪都带 ajax 头（`Referer` + `X-Requested-With`）。少了就 400 ——
-     * 「请求形状」这一条才有东西钉着，而不是随便一个 URL 都能拿到数据。
-     */
+    /** `VenueApi` 的每一枪都带 ajax 头（`Referer` + `X-Requested-With`）。 */
     private fun requireAjax(exchange: HttpExchange, query: String): Unit? {
         val referer = exchange.requestHeaders.getFirst("Referer")
         val requestedWith = exchange.requestHeaders.getFirst("X-Requested-With")

@@ -20,12 +20,7 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.sync.withPermit
 
 /**
- * 思源学堂批量下载 —— 编排从 `:app` 搬进 `:core`（活动列表页的「批量下载」按钮走它），
- * 两个动作切到 [LmsSource] 端口：拉详情/收集是取数（`:data` 的 `AppLmsSource`）、
- * 落盘与回放排队是宿主槽位（`:app` 的 `AppLmsSink` / 桌面 `DesktopLmsSaver`）。
- *
- * 流程照搬 yan-xiaoo/XJTUToolBox 的 `LMSBatchDownloadThread`（与搬迁前逐行同构）：
- * 选中若干活动 → 逐个拉详情收集附件 → 限并发下载（CONCURRENCY=3）。
+ * 思源学堂批量下载（活动列表页的「批量下载」按钮），取数与落盘走 [LmsSource] 端口。
  *
  * 和桌面版不同的地方（照旧）：
  * - 不让选目录。Android 上统一落在公共「下载/XJTUToolBox/课程名/」，按活动存放时再分一层活动名，
@@ -76,8 +71,7 @@ object LmsBatchDownload {
     private val _state = MutableStateFlow<State>(State.Idle)
     val state: StateFlow<State> = _state.asStateFlow()
 
-    // 进程级作用域。搬到 `:core` 后不能用 `Dispatchers.IO`（wasm 没有它）：编排在 Default 上跑，
-    // 阻塞式取数/落盘由端口实现各自包 IO（见 [LmsSource] 的 KDoc），行为不变。
+    // wasm 没有 `Dispatchers.IO`：编排在 Default 上跑，阻塞 IO 由端口实现各自包。
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private var job: Job? = null
 
@@ -179,8 +173,7 @@ object LmsBatchDownload {
                 }
                 if (options.marked && subs != null) {
                     subs.list.flatMap { it.uploads }.filter { it.attachmentUrl.isNotBlank() }.forEach {
-                        // 搬迁前这批的 mime 是「没有 upload ⇒ 按扩展名猜」，所以这里不把原类型带过去（mimeType 空，
-                        // 由落盘实现猜 —— 与 `LmsBatchDownload.save` 里的 `guessMime(f.name)` 同一个口径）。
+                        // 不带原类型（mimeType 空），由落盘实现按扩展名猜。
                         out += LmsDownloadJob(markedName(it.name), "", folder, url = it.attachmentUrl)
                     }
                 }

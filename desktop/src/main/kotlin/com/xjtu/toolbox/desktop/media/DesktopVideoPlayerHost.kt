@@ -22,25 +22,7 @@ import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextButton
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
-/**
- * 视频播放在 **桌面侧的填法** —— `:core` 的 [VideoPlayerHost] 实现。
- *
- * ## 结论：**播不了**（如实降级，不假装）
- *
- * Android 那份播放器是 Media3 / ExoPlayer 全屏页（`media/VideoPlayer.kt`），它依赖
- * `AndroidView` + `Activity.requestedOrientation` + Media3 的解码栈 —— 桌面端一样都没有，
- * 而**共享内核里也没有等价的播放器**（skiko 那套是绘制栈，不含媒体解码；`:core` 的依赖里
- * 没有媒体库，也不该为了这个加一个跨三端的解码依赖）。
- *
- * 所以这一端只做系统做得到的那件事：**把流地址交给系统的默认播放器**（Linux `xdg-open` /
- * macOS `open` / Windows `start`），页面本身把「交出去了没、交的是什么地址、为什么这里没有画面」
- * 写在脸上。直播那一路是 HLS（m3u8），能不能播取决于这台机器上装了什么播放器 —— 这是用户环境
- * 的事实，不是本端能许的承诺。
- *
- * TODO：**内嵌播放器**属《桌面端移植方案》§5.4 的宿主能力族（窗口模式下的媒体能力），
- * 本轮只把地址交出去、不假装能播。要做的话有两条路：VLCJ / JCEF（系统 WebView）之类的
- * 外部解码栈，或等 skiko 侧出现可用的媒体能力 —— 两条都不是「搬一份 Android 的实现」。
- */
+/** 视频播放在 桌面侧的填法 —— `:core` 的 [VideoPlayerHost] 实现。 */
 object DesktopVideoPlayerHost : VideoPlayerHost {
 
     @Composable

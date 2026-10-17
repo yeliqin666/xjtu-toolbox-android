@@ -63,31 +63,7 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
  *
  * 流程：场馆列表 → 选择场馆 → 日期选择 + 时段网格 → 确认 → 滑动验证码 → 预订结果。
  *
- * 从 `:app` 搬进 `:core`：屏与 [VenueViewModel] 两端共用同一份，只在**取数、落盘、宿主能力**上切缝
- * （[VenueSource] 的 KDoc 讲了为什么端口要暴露 `canBook`/`canCancel`）。下面每个参数都是
- * 「这一端有什么」，而不是「这一端是不是 Android」。
- *
- * ## 滑块验证码宿主槽位
- *
- * 画滑块与自动识别收进一个 [SlideCaptchaHost] 端口，由宿主端各实现一份：
- *  - Android（`:app`）= `:data` 的 `VenueSlideCaptchaHost`（就是搬迁前的 `SliderCaptchaView`
- *    + `VenueCaptchaSolver`，Bitmap/Base64 换成了 `:core` 的图片缝）；
- *  - 桌面（`:desktop`）= 新的 `DesktopSlideCaptchaHost`；
- *  - Web = null。
- *
- * 传 null 的语义是「本端没有这条路径」。它只在写路径上被用到，而写路径的入口由
- * [VenueSource.canBook] 封着 —— 两条缝对齐，只读端连验证码弹窗都不会出现。
- * ## Web 端（只读）如实降级的地方
- *
- * 1. **勾不了、订不了**：时段格子全部渲染成不可选态（[SlotSelectionContent] 的 `selectable`），
- *    底部「确认预订」栏整条不出现，验证码弹窗与预订结果弹窗都进不去；订单卡与订单详情里
- *    「去支付」「取消订单」也不出现（`canBook=false` / `canCancel=false`）。
- *    这不等于「删掉功能」——写路径的编排仍在共享代码里，Android 那一侧一行未改。
- * 2. **短提示**：收藏切换、取消订单结果这些原来用 `Toast` 说的话，改走 `:core` 的
- *    [showBriefMessage] 缝（Android 的 actual 就是同一个 Toast；Web 是空实现，只少了那句系统提示，
- *    收藏状态本身照样变）。
- * 3. **首次使用提示**的文案里「验证码默认自动识别」「支付在内置浏览器完成」两条只在能下单的那一端
- *    成立，按 [VenueSource.canBook] 少说这两句 —— 不拿做不到的事当说明。
+ * 写路径（下单、验证码、支付、取消）由 [VenueSource.canBook] / `canCancel` 与 [SlideCaptchaHost]（null = 本端没有）封着，只读端整条不出现。
  */
 @Composable
 fun VenueScreen(
@@ -96,18 +72,11 @@ fun VenueScreen(
     onBack: () -> Unit,
     /** 打开内置浏览器/浏览器：[url] 是第一站（站点登录页），[then] 是它之后要去的那一页（支付页）。 */
     onOpenBrowser: (url: String, then: String) -> Unit = { _, _ -> },
-    /**
-     * 「验证码自动识别」这个设置项的**现读**（不是布尔值）：搬迁前 VM 每次预订都现读一次
-     * `CredentialStore`，用户在设置里关掉后下一次预订立刻生效。宿主用 `remember` 稳住这个 lambda。
-     */
+    /** 「验证码自动识别」设置项每次预订现读，关掉后下一次立刻生效。 */
     autoSolveCaptcha: () -> Boolean = { false },
     /** 滑块验证码宿主槽位（见类 KDoc）：Android/桌面 = 各端宿主，只读端 = null。 */
     captchaHost: SlideCaptchaHost? = null,
-    /**
-     * 「功能说明」还没读过吗。**由宿主读自己那份持久化偏好**（Android = `feature_hints` 里那个
-     * `venue_hint_shown`，Web = `localStorage` 同一个键名）—— 屏不碰任何平台的存储实现，
-     * 它只知道「该不该弹」与「弹过了要回写」（与 `EmptyRoomScreen` 的 `showCdnTip` 同一套写法）。
-     */
+    /** 「功能说明」还没读过吗。 */
     showFirstUseHint: Boolean = false,
     onFirstUseHintRead: () -> Unit = {},
 ) {
@@ -668,7 +637,7 @@ fun VenueScreen(
     }
 }
 
-// ─── 金额格式（`String.format("%.2f", x)` 是 JVM 专属，:core 里手写；口径与原来对齐）───
+// ─── 金额格式（`String.format` 是 JVM 专属，手写）───
 //
 // 与 `card/CampusCardAnalysis.kt` 里那三个 money 助手同一套写法（那边的注释解释了为什么不能直接用
 // `"%.2f".format(...)`：它是 JVM 默认导入的扩展，`import` 判据看不见）。这里保持本地私有，
@@ -846,12 +815,7 @@ private fun SlotSelectionContent(
     onRetry: () -> Unit,
     onRefresh: () -> Unit,
     onConfirm: () -> Unit,
-    /**
-     * 本端能不能勾选时段（[VenueSource.canBook]）。
-     *
-     * false 时格子一律画成不可选（同一套置灰样式，与「已满」一致），底部「确认预订」栏整条不出现 ——
-     * 只读端点哪个格子都不会有反应，也不会走到那个必然失败的提交。
-     */
+    /** 本端能不能勾选时段（[VenueSource.canBook]）。 */
     selectable: Boolean,
     modifier: Modifier = Modifier,
     scrollBehavior: ScrollBehavior,

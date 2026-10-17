@@ -15,49 +15,14 @@ import kotlinx.coroutines.runBlocking
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.OkHttpClient
 
-/**
- * **阶段 0 · 图书馆这条竖切在 JVM 上跑通的证明**（`docs/desktop-port-plan.md` §6 Stage 0）。
- *
- * ## 它测的不是「解析函数」，而是整条链路
- *
- * 夹具是学校那几个页面/接口的**原文形状**（照 :app 原有单测与 HAR 记录写），流程是真的：
- * 起一个本地 HTTP 服务器 → `LibraryApi` 自己拼 URL、带 Referer、读响应、解析、判成功/失败 →
- * 断言模型逐字段。
- *
- * 于是这一条测试同时钉住四件在设计文档里被点名的事：
- *
- * | 要验的 | 在哪里 |
- * |---|---|
- * | **读**：校区 / 区域 / 座位 / 平面图 / 我的预约 | [读路径与 Android 端同一份解析] |
- * | **写**：预约、换座（含「换座后复核我的预约」）、取消（含动作后复核） | [写路径] |
- * | **会话失效**：响应体是登录页时抛 `:data` 的会话失效异常 | [会话失效被认出来] |
- * | **图片字节**：认文件头、不看 Content-Type（经 WebVPN 时类型头会没） | [平面图字节] |
- *
- * ## 为什么不用 `SiteSession`、也不用改生产代码
- *
- * 这一份数据层吃的是一条缝（[LibrarySession]）：`:app` 填 `SiteSession`，这里填
- * [DirectLibrarySession] + 一个**把图书馆域名重写到本地端口**的 okhttp 拦截器。
- * 生产代码里因此没有一行「为了测试而留的口子」——`LibraryPages.BASE_URL` 仍是学校的地址，
- * 重写发生在测试自己的客户端上。这也正是把数据层摘出 Android 的意义：同一份代码在 JVM 上
- * 能**真跑**，而不是只能编译。
- *
- * ⚠️ 页面原文与路由在 [LibraryFakeUpstream]（两条 JVM 测试共用一份）：另一条
- * `LibraryLoginSessionJvmTest` 把这里的**会话**换成真登录（`SessionManager` + 真 CAS），
- * 夹具一字不改 —— 否则「同一批断言」这句话就不成立。
- */
+/** 图书馆这条竖切在 JVM 上跑通的证明。 */
 class LibraryDataLayerJvmTest {
 
     private lateinit var server: HttpServer
     private lateinit var fake: LibraryFakeUpstream
     private lateinit var base: String
 
-    /**
-     * 起本地服务器 + 一个**把图书馆域名重写到本地**的客户端。
-     *
-     * 重写放在拦截器里而不是改 `LibraryPages.BASE_URL`：生产代码不该为测试留口子，
-     * 而「同一份代码在 JVM 上真跑」这条证明也不需要口子 —— 一个真实存在的 okhttp 客户端
-     * 配上一条 URL 重写就够了（这也顺便测了 okhttp 在桌面 JVM 上的可用性）。
-     */
+    /** 起本地服务器 + 一个把图书馆域名重写到本地的客户端。 */
     private fun <T> withLibraryServer(block: suspend (LibraryApi, OkHttpClient) -> T): T {
         server = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0)
         server.executor = Executors.newCachedThreadPool()
@@ -110,7 +75,6 @@ class LibraryDataLayerJvmTest {
         val success = assertIs<SeatResult.Success>(result)
         assertEquals(listOf("A01", "A02", "A10"), success.seats.map { it.seatId })
         assertEquals(listOf(true, false, true), success.seats.map { it.available })
-        // 附带的区域统计与 qspace 那份口径一致（filterScount 之后的）
         assertEquals(AreaStats(9, 24), success.areaStatsMap.getValue("north2east"))
     }
 
@@ -177,8 +141,7 @@ class LibraryDataLayerJvmTest {
     @Test
     fun `会话失效：响应体是登录页时抛共享基类的异常，且实现 SessionExpiredFailure`() {
         withLibraryServer { api, _ ->
-            // 让 /qspace 回一个登录页：`LibraryApi` 的请求包装层读了 body 就会判成「被弹到登录页了」，
-            // 于是抛会话失效异常（搬迁前那一行是 `throw AuthExpiredException("图书馆")`）。
+            // /qspace 回登录页 ⇒ `LibraryApi` 判成被弹回登录页，抛会话失效异常。
             fake.loginMode.set(true)
             val e = assertFailsWith<SessionExpiredException> { api.getFloorAreas("xingqing2floor") }
             assertEquals("图书馆", e.siteName)

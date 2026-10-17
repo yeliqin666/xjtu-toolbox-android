@@ -37,21 +37,6 @@ import com.xjtu.toolbox.nav.AppRoute
  * 流程：加载表单 → 选择类型 → 一键申请 → 自动提交 → 下载 PDF
  * UI 风格遵循项目 Miuix 风格，使用步骤进度条展示处理状态
  *
- * ## 它现在住哪儿、两端各填什么
- *
- * 本屏从 `:app` 搬进 `:core`（桌面端第 14 条真数据路由），屏与 [TranscriptViewModel] 是两端
- * 共用的同一份，只在**取数**与**宿主能力**上切缝：
- *
- * | 原来 | 现在 |
- * |---|---|
- * | `site: SiteSession` | [source]（`:data` 的 `AppTranscriptSource`；Web 以后接 campus-api） |
- * | `LocalAppLoginState.handleAuthExpired(...)` | `:core` 的 [LocalAuthExpiry] |
- * | `Intent`/`MediaStore`/`Toast` 存 PDF | [saveSink] + [TranscriptSaveSink]（宿主能力） |
- * | `LmsDownloadStore.publicDisplayPath()` | [TranscriptSaveSink.locationLabel]（Android = `Download/岱宗盒子/`） |
- * | `System.identityHashCode(site)` 当 VM key | [DzpzDocument.id]（`identityHashCode` 是 JVM 专属，`:core` 还要编到 wasm） |
- *
- * 屏自己的画法、文案、状态走向**一行未改**。
- *
  * ## serve 模式下的**如实缺口**（2026-10-13 那次接线）
  *
  * `:web` 那一份取数是 `:core` 的 `CampusTranscriptApi`（`ApiMode.SERVE`），它只填得了第一步
@@ -67,11 +52,7 @@ fun TranscriptScreen(
     // 现在只有成绩单一种文件，先把参数留出来；P2 接了文件列表页以后，
     // 调用方会传不同的 DzpzDocument 进来。
     document: DzpzDocument = DzpzDocuments.TRANSCRIPT,
-    /**
-     * 「把这份 PDF 存到本端该存的地方」—— 宿主能力（`:core` 不认识 MediaStore / 文件系统）。
-     * **null = 本端没有保存路径**（按钮与「将保存到 …」那一行都不画 —— 与「点了会失败的按钮，
-     * 一个都不画」同一条口径）；Android 传 [TranscriptSaveSink] 的 MediaStore 实现，桌面传写下载目录那份。
-     */
+    /** 「把这份 PDF 存到本端该存的地方」——宿主能力（`:core` 不认识 MediaStore / 文件系统）。 */
     saveSink: TranscriptSaveSink? = null,
 ) {
     val authExpiry = LocalAuthExpiry.current
@@ -326,11 +307,7 @@ private fun InfoCard(
     }
 }
 
-/**
- * serve 模式下替代 [WorkflowProgressCard] 的那张卡（见屏的 KDoc）：契约 §5.5 只端了七步里的
- * 第一步，第 2~7 步没有端点 —— 这里把**哪几步没有、为什么没有**写在屏幕上，
- * 而不是画一个点了会失败的按钮。
- */
+/** serve 模式下替代 [WorkflowProgressCard] 的那张卡（见屏的 KDoc）：契约§5.5 只端了七步里的第一步，第 2~7 步没有端点——这里把哪几步没有、为什么没有写在屏幕上，而不是画一个点了会失败的按钮。 */
 @Composable
 private fun TranscriptWorkflowGapCard() {
     Card(
@@ -524,10 +501,7 @@ private fun StepsPreview() {
 private fun DownloadSuccessCard(
     info: DownloadInfo,
     pdfBytes: ByteArray,
-    /**
-     * 见屏的 `saveSink` 槽位。**可以为 null**（本端没有保存路径时这张卡照旧画，只是不出现
-     * 「保存到下载」那个按钮 —— 卡上还有文件名与「成绩单已生成」这些必看的信息）。
-     */
+    /** 见屏的 `saveSink` 槽位。 */
     sink: TranscriptSaveSink?,
 ) {
     // 取成局部 val：`sink` 是函数参数，下面的 lambda（点击回调）里拿不到 smart cast
@@ -603,19 +577,7 @@ private fun DownloadSuccessCard(
 //  PDF 落盘端口
 // ══════════════════════════════════════
 
-/**
- * 「把这份 PDF 存到本端该存的地方」——**宿主能力坐位**（`:core` 不认识 `MediaStore`、磁盘路径、
- * `Intent`，也不应该在共享代码里编一个假的「下载目录」。
- *
- * 三端各自的实现：
- *  - Android：`TranscriptSaveSink` 的实现落在 `:app`（`app/.../dzpz/TranscriptPdfSaver.kt`）——
- *    `MediaStore` 写进 `Download/岱宗盒子/` 并记进「我的 · 下载管理」（与搬迁前逐字一致）；
- *  - 桌面：`:desktop` 写用户的下载目录（`:data`/`:core` 不碰文件系统）；
- *  - Web：不传（屏上就不出现「保存到下载」那个按钮）。
- *
- * [actionLabel] / [hint] 也放在这里，因为「存到哪儿、怎么打开」本来就是本端的事：
- * Android 是「保存到下载」+「保存在「我的 · 下载管理」…」，桌面是写进下载目录那份文案。
- */
+/** 「把这份 PDF 存到本端该存的地方」——宿主能力（`:core` 不认识 MediaStore / 文件系统）。 */
 interface TranscriptSaveSink {
     /** 按钮上的字（Android = 「保存到下载」）。 */
     val actionLabel: String

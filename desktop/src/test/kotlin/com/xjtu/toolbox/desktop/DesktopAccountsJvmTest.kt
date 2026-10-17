@@ -23,36 +23,12 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import kotlinx.coroutines.runBlocking
 
-/**
- * 多账号（`AppRoute.Accounts`，第 29 条真数据路由）在桌面端的**装配验收**。
- *
- * 这一条路由的屏（`:core` 的 `AccountManagerScreen`）本轮才搬完 —— 搬迁前它在 `:app`，桌面只能落
- * `NotPortedScreen`，而 `DesktopAuth` 的 KDoc 里那句「多账号 = 单账号，换账号 = 退出再登」
- * 就是这一轮要划掉的那一行。
- *
- * 这里钉住的是**动作本体**（`:app` 的 `AccountManager` 那一层在桌面的对应物 [DesktopAccounts]）：
- *
- *  1. **切账号真的换绑会话命名空间**：`SessionManager.reconfigureForAccount(suffix)` 之后
- *     backend 绑到 `cookies_*_<学号>`（与其余端同一套命名），凭据/指纹/公钥从账号表恢复，
- *     激活指针落盘，`lastUsedAt` 刷新；界面输入框**保持空**（红线：学号不上屏）；
- *  2. **新增账号的失败分支不发请求**：空学号/空密码、以及「该账号已存在」在探活之前就返回 ——
- *     这两条是可以在没有网络的机器上验的（探活那一段要真登一次，见下面那条注释）；
- *  3. **删账号的顺序**：删非激活的不动指针；删激活的切到剩下那条；删最后一条回匿名命名空间；
- *  4. **账号表就是 `:app` 那一份**：存储名 `xjtu_accounts`、键名 `accounts` / `active_account`
- *     逐字相同（Android 的 actual 是同一个 `SecurePrefs` 文件）—— 改一个字符老用户就找不到了。
- *
- * ## 哪些没在这里验（如实）
- *
- * - **新增成功那条路**要真过一遍统一认证（CAS 表单 POST + 教务/一网通办探活）⇒ 属于「有网络的
- *   机器 + 真账号」的验收，与其余站点登录同一处境（`:desktop` 那批 `DesktopAuth*JvmTest` 用
- *   `:testkit` 的假上游验登录，假上游里没有「第二条账号」这一档）。这里只钉住它**之前**的判据。
- * - 昵称（`:app` 用一网通办回填）在桌面端没有等价物 ⇒ 一直是 null，见 `DesktopAccounts` 的 KDoc。
- */
+/** 多账号（`AppRoute.Accounts`）在桌面端的装配验收。 */
 class DesktopAccountsJvmTest {
 
     private lateinit var dataRoot: File
 
-    /** 与 `AccountStore` 用的是同一个存储名（搬迁前 Android 那份 `SecurePrefs` 的文件名）。 */
+    /** 与 `AccountStore` 同一个存储名。 */
     private val rawStore get() = secureKeyValueStore("xjtu_accounts")
 
     @BeforeTest
@@ -61,11 +37,7 @@ class DesktopAccountsJvmTest {
         dataRootOverride = dataRoot
         rawStore.clear()
         AccountContext.activeAccountId = null
-        // ⚠️ 顺序要紧：`HttpClients.base` 是**进程级 `by lazy`**，它会把当时的默认 `ProxySelector`
-        // 与信任库抄进自己的配置。这个类会构造 `DesktopAuth`（⇒ 建会话 ⇒ 碰 `HttpClients`），
-        // 而它按类名排在 `DesktopAuth*JvmTest` 那一批**之前** —— 不在这里先装上那两件常驻前置，
-        // 后面那些「假上游」用例会直连真站点（RenderScreens 的 KDoc 里那条实测坑）。
-        // 幂等，而且它只装「读可变端口的 selector」，不依赖哪个假上游在跑。
+        // ⚠️ 先装常驻前置：`HttpClients.base` 是进程级 lazy，会抄走当时的 ProxySelector 与信任库，本类按名排在前面。
         com.xjtu.toolbox.FakeCampusProxy.installFakeUpstreams()
     }
 
@@ -100,16 +72,12 @@ class DesktopAccountsJvmTest {
         val switched = accounts.switchTo("2210000002")
 
         assertEquals("2210000002", switched?.accountId)
-        // ① 会话内核换到了这条账号的命名空间（凭据也换成了它的）
         assertEquals("2210000002" to "p-2210000002", auth.sessionManager.credentials)
-        // ② `AccountContext` 与这份对象的可观察镜像同刻写入
         assertEquals("2210000002", AccountContext.activeAccountId)
         assertEquals("2210000002", auth.activeAccountId)
-        // ③ 界面状态：进主界面，但两个输入框是空的（红线：学号不上屏）
         assertTrue(auth.loggedIn)
         assertEquals("", auth.username)
         assertEquals("", auth.password)
-        // ④ 激活指针与 lastUsedAt 落盘
         assertEquals("2210000002", AccountStore().activeAccountId())
         assertTrue(AccountStore().get("2210000002")!!.lastUsedAt > 0L)
 
@@ -152,7 +120,6 @@ class DesktopAccountsJvmTest {
         assertTrue(existing.isFailure)
         assertEquals("该账号已存在", existing.exceptionOrNull()?.message)
 
-        // 三条都没落库、也没动命名空间
         assertEquals(listOf("2210000001"), AccountStore().list().map { it.accountId })
         assertNull(AccountContext.activeAccountId)
         assertNull(auth.sessionManager.credentials)
@@ -201,10 +168,7 @@ class DesktopAccountsJvmTest {
         accounts.switchTo("2210000002")
         accounts.switchTo("2210000001")
 
-        // 两个账号各自有自己那份命名空间文件（cookie 罐 + 站点快照，名里带学号后缀）。
-        // ⚠️ 这里**自己把文件建出来**（而不是靠切账号产生）：空的 cookie 罐不写盘（没有任何 cookie
-        // 时 `PersistentCookieJar` 不会落文件），而这条用例要验的是「删账号会清掉**已存在**的那一份」，
-        // 用哪一条缝建出它不影响结论 —— 用的就是 `SessionBackend.wipe` 会清的那两个存储名。
+        // ⚠️ 自己把命名空间文件建出来：空 cookie 罐不落盘，而这里要验删账号会清掉已存在的那份。
         val suffix1 = AccountContext.suffixFor("2210000001")
         val suffix2 = AccountContext.suffixFor("2210000002")
         val file1 = File(dataRoot, "sites_normal$suffix1.properties")
@@ -227,7 +191,6 @@ class DesktopAccountsJvmTest {
         val accounts = DesktopAccounts(auth)
         accounts.switchTo("2210000001")
 
-        // S7b 之后这三处的端内名都带账号后缀：成绩报表 / 下载队列 / 教材书架
         val mine = "2210000001"
         val other = "2210000002"
         val myReport = accountScopedStoreName(DesktopScoreReportCache.STORE_NAME, mine)

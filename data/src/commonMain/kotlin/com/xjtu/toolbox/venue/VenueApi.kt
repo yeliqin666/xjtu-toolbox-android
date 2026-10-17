@@ -41,11 +41,6 @@ import org.jsoup.Jsoup
  * 支付页仍在 80 端口，要浏览器自身的会话：在内置浏览器里先走一遍 OAuth 登录再进支付页。
  *
  * ## 它在哪一端
- *
- * 从 `:app/venue/` 搬进 `:data`（桌面端第 11 条真数据路由：桌面要自己登场馆站、自己取数），
- * 类名与包路径一字未改；被替换的写法只有一处 —— `android.util.Log` → `:core` 的 [Log]。
- * 它自己不管收藏（那在 [AppVenueSource] 那一层，走 `:core` 的 `KeyValueStore`），
- * 所以这一份连同 `:data` 里其余取数都没有一行 `android.content`。
  */
 class VenueApi(private val site: SiteSession) {
 
@@ -116,9 +111,6 @@ class VenueApi(private val site: SiteSession) {
         return text.take(80).ifBlank { "服务暂时不可用" }
     }
 
-    // 数据模型（Venue / AreaSlot / CaptchaData / PendingOrder / BookingResult / OrderDetail /
-    // OrderInfo / OrderPage / OrderActionResult）已搬进 `:core`（`venue/VenueModels.kt`，包名不变）——
-    // 两端共用同一份屏与 ViewModel，模型就必须是共享类型。本类只剩「怎么把这个站点抓下来」。
 
     // ─── API 方法 ─────────────────────────────────────────
 
@@ -262,8 +254,6 @@ class VenueApi(private val site: SiteSession) {
         var lastMessage = "预订失败"
         repeat(3) { attempt ->
             val form = FormBody.Builder()
-                // `PendingOrder` 搬进 `:core` 后取值从 `rawParamJson()` 改成读属性
-                //（`:core` 的 `internal` 在 `:app` 里看不见），值就是原来那个原样带回的 JSON 串。
                 .add("param", pendingOrder.rawParamJson)
                 .add("yzm", yzm)
                 .add("json", "true")

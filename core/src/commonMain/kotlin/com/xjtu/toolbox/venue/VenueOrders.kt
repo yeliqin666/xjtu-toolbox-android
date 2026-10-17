@@ -50,10 +50,7 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
  * 列表本身只负责呈现和分页触发，详情、取消确认、支付引导由父页面统一持有，
  * 这样从场馆页切换 Tab 时不会丢失弹窗状态，也能复用同一套认证错误处理。
  *
- * 从 `:app` 搬进 `:core` 时加了 [canPay] / [canCancel] 两个参数：订单模型自己的
- * `canPay`/`canCancel` 只说「**服务端**允不允许」，而「**这一端**做不做得到」是另一端的事
- *（campus-api 的场馆模块只读 ⇒ Web 两条都是 false）。点了必然失败的按钮一个都不画，
- * 所以这里按两个开关关掉「去支付」「取消」。
+ * [canPay] / [canCancel] 是「这一端做不做得到」，与订单模型自己的同名字段（服务端允不允许）是两回事。
  *
  * 订单字段缺失时这块 UI 会如实留白：campus-api 的订单明细没有场地名与场馆名
  *（见 `CampusVenueApi` 的 KDoc），于是 [OrderCard] 的行摘要落到「暂无场地明细」、

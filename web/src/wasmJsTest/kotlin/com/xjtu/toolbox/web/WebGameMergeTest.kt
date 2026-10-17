@@ -9,21 +9,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
-/**
- * 「合成西交大」在浏览器上真能跑的那两块**本端自己的**逻辑（D12 ⑤，屏见 `WebGameMerge.kt`）：
- *
- * 1. [mergeFrameCssRect]：Compose 量出来的矩形 → iframe 用的 CSS px。这台机器上只跑得出**一种**
- *    density 形状，所以两种形状都用编造的数各钉一条 —— 真站点上的用户两种都可能碰上；
- * 2. [MergeGameScoreBridge]：与游戏页那份记录的对齐（进屏镜像、离屏收回）。它读写的是真
- *    localStorage（karma 跑在真浏览器里），所以钉的是**真的那条通道**，不是替身。
- *
- * 另外还钉一处**跨语言常量**：`MERGE_GAME_HIGHSCORE_KEY` 必须与游戏页 `index.js` 里的
- * `STORAGE_KEY` 逐字相同（那份 JS 也在源码快照里，见 `web/build.gradle.kts`）。
- *
- * ⚠️ 这一份**不**断言「游戏真的跑起来了」：那要一个真浏览器 + 静态根下那几份文件（`games/merge/`），
- * 而 karma 只发测试 bundle。那一半的证据是手工跑的（`:web:wasmJsBrowserDistribution` 出产物 →
- * serve 打开 → 玩一局），口径写在 `docs/desktop-port-plan.md` §16.11。
- */
+/** 「合成西交大」在浏览器上真能跑的那两块本端自己的逻辑（屏见 `WebGameMerge.kt`）。 */
 class WebGameMergeTest {
 
     // ── 1. 布局坐标 → CSS px ──
@@ -60,12 +46,7 @@ class WebGameMergeTest {
 
     // ── 2. 与游戏页那份记录的对齐 ──
 
-    /**
-     * App 侧那份记录的落盘键：`GameStore` 用的是 `keyValueStore("games")` 的 `best_<game>`，
-     * 而 wasm 那份键值缝加前缀 `xjtu-toolbox.`（`KeyValueStore.wasmJs.kt`）。
-     *
-     * 测试里要**把这一格清干净**再用（那些 API 没有「写 0 / 删除」这一档），所以键名只能自己拼。
-     */
+    /** App 侧那份记录的落盘键。 */
     private val appBestKey = "xjtu-toolbox.games.best_${GameIds.MERGE}"
 
     private fun withCleanScoreKeys(body: () -> Unit) {
@@ -117,7 +98,7 @@ class WebGameMergeTest {
         assertEquals(1200, GameStore.bestScore(GameIds.MERGE))
     }
 
-    // ── 3. 跨语言常量：那个键必须与游戏页的 STORAGE_KEY 逐字相同 ──
+    // ── 3. 那个键必须与游戏页的 STORAGE_KEY 相同 ──
 
     @Test
     fun `游戏页那个最高分键与 index.js 里的 STORAGE_KEY 逐字一致`() {

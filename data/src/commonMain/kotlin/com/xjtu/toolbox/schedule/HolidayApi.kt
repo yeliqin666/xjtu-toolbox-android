@@ -22,20 +22,7 @@ import java.util.concurrent.TimeUnit
 private const val TAG = "HolidayApi"
 private const val CACHE_KEY = "holiday_dates"
 
-/**
- * 全国节假日（免费公开接口：主源 shuyz 的 holidayAPI.json，后备 NateScarlet/holiday-cn）。
- * 课表拿它把「放假那天的课」隐掉（`ScheduleCache.filterByHolidays`）。
- *
- * 从 `:app` 的 `schedule/HolidayApi.kt` 搬进 `:data`（`:core` 的日程页与它都要用），改了四处：
- *  1. `android.util.Log` → `:core` 的 `Log`（既有先例）；
- *  2. 参数从 `Context?` 换成 [ScheduleCacheStore]? —— 它要的只是那份 JSON 落盘缓存。
- *     `:app` 传的就是原来那个 `DataCache`（键 `holiday_dates` 与存进去的 JSON 逐字未动），
- *     桌面端传键值文件那一份；
- *  3. 日期类型 `java.time.LocalDate` → `kotlinx.datetime.LocalDate`（屏与 VM 进了 `:core`）；
- *     解析从 `DateTimeFormatter` 换成 `LocalDate.parse`（ISO，两边对 `yyyy-MM-dd` 同口径），
- *     `toString()` 仍是 ISO ⇒ **老缓存逐字节读得回来**；
- *  4. `LocalDate.now()` → [todayInSystemZone]（`:core` 的「本机时区的今天」，同一个系统默认时区）。
- */
+/** 全国节假日（免费公开接口：主源 shuyz 的 holidayAPI.json，后备 NateScarlet/holiday-cn）。 */
 object HolidayApi {
     private val client = HttpClients.base.newBuilder()
         .connectTimeout(10, TimeUnit.SECONDS)

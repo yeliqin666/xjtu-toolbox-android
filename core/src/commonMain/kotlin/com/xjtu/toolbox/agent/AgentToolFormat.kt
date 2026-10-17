@@ -4,20 +4,9 @@ import com.xjtu.toolbox.lms.LmsActivity
 import com.xjtu.toolbox.lms.LmsActivityType
 import com.xjtu.toolbox.schedule.CourseItem
 import com.xjtu.toolbox.util.formatTwoDigits
-/**
- * 工具结果里那几段**纯格式化** —— 一行平台代码都没有，所以从 `:app` 的 `AgentToolRegistry`
- * 搬进 `:core`（逐字，只有一处接口适配：见 [agentCourseLine] 的 `isSummer`）。
- *
- * 与取数分开的理由很简单：这些是「拿到数据之后怎么写成给模型看的话」，四端的口径必须一致；
- * 而它们一旦留在 `:app`，将来桌面端点亮 Agent 时就要抄一份同样的文案。
- */
+/** 工具结果里那几段纯格式化。 */
 
-/**
- * 一条课一行。两处接口适配：原来的签名收 `java.time.LocalDate`（`:core` 没有这个类型），
- * 改收 `XjtuTime.isSummerTime` 已经判好的 `isSummer`（调用点那两处本来就是
- * `XjtuTime.isSummerTime(date.monthValue)`，换算一步都没多）；`"%02d".format(…)`（JVM 专属）
- * 换成 `:core` 既有的 [formatTwoDigits]，补零口径相同。
- */
+/** 一条课一行。 */
 fun agentCourseLine(c: CourseItem, isSummer: Boolean, withTeacher: Boolean = false): String {
     fun hhmm(min: Int) = "${formatTwoDigits(min / 60)}:${formatTwoDigits(min % 60)}"
     val (start, end) = c.clockMinutes(isSummer)
@@ -62,10 +51,7 @@ fun agentLmsTypeName(t: LmsActivityType): String = when (t) {
     else -> "其他"
 }
 
-/**
- * 活动的时间尾巴：作业报「截止」（优先上游 `deadline`，它才是老师设的那个时间，实测 4.6%
- * 与 `end_time` 不同，且都是 `end_time` 比它早），其余类型报「结束」（下课/回放结束，不是截止）。
- */
+/** 活动的时间尾巴：作业报「截止」（优先上游 `deadline`，它与 `end_time` 不总相同），其余报「结束」。 */
 fun agentLmsTimeSuffix(a: LmsActivity): String {
     val isHw = a.type == LmsActivityType.HOMEWORK
     val raw = if (isHw) (a.deadline ?: a.endTime) else a.endTime

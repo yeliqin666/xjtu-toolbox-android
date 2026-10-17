@@ -33,10 +33,6 @@ import java.util.concurrent.TimeUnit
 // 所以下面三个构造点要用本文件底下那条 `toKx()` 转一下。它逐字等于 `:app` 的
 // `util/TimeBridge.kt` 里那一条（年/月/日逐个搬、无时区参与），只是那份是 `:app` 的
 // `internal`、跳不过模块边界，而这一个只需要一个方向。
-//
-// 本次搬迁（:app → :data，类名与包路径一字未改）动的是四处：`android.util.Log` → `:core` 的
-// `Log`、[XjtuSiteFetcher] 由 `internal` 改为公开（它被 `:app` 的 `SchoolCalendarImageApi` 用着，
-// `internal` 跨不了模块边界）、`toKx()` 换成下面那条本地实现（原因同上），以及这段文件头注释。
 
 // ==================== 反爬虫处理 ====================
 
@@ -851,13 +847,7 @@ internal object SiteSearch {
 
 // ==================== 工具函数 ====================
 
-/**
- * `java.time.LocalDate` → `kotlinx.datetime.LocalDate`（`:core` 的模型说后者）。
- *
- * 与 `:app` 的 `util/TimeBridge.kt` 里那一条逐字等价：年/月/日逐个搬，没有时区参与。
- * 那份是 `:app` 的 `internal`（跨不了模块边界），所以这里带一份单向的最小实现。
- * 手写而不是用 kotlinx-datetime 的 `toKotlinLocalDate()`：那是 jvmMain 专属 API。
- */
+/** `java.time.LocalDate` → `kotlinx.datetime.LocalDate`（`:core` 的模型说后者）。 */
 private fun LocalDate.toKx(): kotlinx.datetime.LocalDate =
     kotlinx.datetime.LocalDate(year, monthValue, dayOfMonth)
 
@@ -903,8 +893,7 @@ private val notificationClient: OkHttpClient by lazy {
  * 学校站群（博达 CMS）上的非通知页面也挂着同一套人机验证，例如教务处校历页。
  * 复用这里的挑战求解和按域名缓存的 client_id，别在别处再实现一遍。
  *
- * ⚠️ 是公开的（不是 `internal`）：`:app` 的 `SchoolCalendarImageApi` 在用它，而 `internal`
- * 只在模块内可见 —— 搬到 `:data` 之后就跨不过那条边界了。搬动时只改了可见性，行为未变。
+ * public：`:app` 的 `SchoolCalendarImageApi` 在用它。
  */
 object XjtuSiteFetcher {
     fun document(url: String): Document = fetchDocumentWithChallenge(notificationClient, url)

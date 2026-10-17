@@ -19,39 +19,10 @@ import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import java.util.concurrent.TimeUnit
 
-/**
- * 飞书多维表格作为反馈后端。没有自建服务器，客户端直连开放平台。
- *
- * ## 安全模型（重要，改动前先读）
- *
- * `app_secret` 打进安装包，反编译必然能取到，所以按"泄露了也不痛"来设计权限：
- * - [Config.submitTable] 只给应用**写**权限。泄露的后果是被刷垃圾记录，可清理。
- * - [Config.replyTable] 只给应用**读**权限，且表里只放工单号/回复正文/回复时间，
- *   以及开发者手写的公开问答（见 [publicQa]）。不含任何用户填写的原文和设备信息。
- *
- * 绝对不要把回复字段并进反馈表——那等于给读权限开了整张反馈表。
- *
- * ## 从 `:app` 搬进 `:data` 时改了什么（三类，结论都是「口径不变」）
- *
- * 1. **凭据与那两条展示字段**（`版本` / `机型` / `系统`）原来直接读 `BuildConfig` 与
- *    `android.os.Build` —— `:data` 是 JVM/Android 共用的模块，不认识这两样。现在由宿主在启动时
- *    注入 [config]（Android = `:app` 的 `AppFeedback.install()`；桌面 = 构建期注入的那份常量），
- *    **拼串的口径一字未改**（preview 后缀也照旧由宿主拼进 [Config.versionLabel]）。
- * 2. **JSON** 原来是 Android 平台那份 `org.json`（`:data` 的 commonMain 里编不过，而且它在
- *    JVM 单测里是 android.jar 的桩，一调就抛）⇒ 换 `:core` 的 `AppJson` + `kotlinx.serialization`。
- *    [plainText] / [fieldChecked] 这两个「多维表格字段形状」的判据逐条照搬（多行文本在响应里是
- *    `[{type:text, text:"..."}]` 而不是纯字符串，这是这一条链最容易踩的地方）。
- * 3. **日志** `android.util.Log` → `:core` 的 [Log]（同一套级别、同样的 tag）。
- *
- * ⚠️ 反馈**没有校园站点会话**：它不认 `SiteSession`，也不走统一认证。"登录"是拿 `app_id` +
- * `app_secret` 换一张 `tenant_access_token`（见 [token]）—— 所以两端都不套 `DesktopSiteGate`。
- */
+/** 飞书多维表格作为反馈后端。 */
 object FeedbackApi {
 
-    /**
-     * 后端凭据 + 三个只用于展示的字段。搬迁前它们分别是 `BuildConfig.FEEDBACK_*` /
-     * `BuildConfig.VERSION_*` / `Build.MANUFACTURER` 之类，现在由宿主注入（见类 KDoc 第 1 条）。
-     */
+    /** 后端凭据 + 三个只用于展示的字段。 */
     data class Config(
         val appId: String,
         val appSecret: String,
@@ -60,11 +31,7 @@ object FeedbackApi {
         val submitTable: String,
         /** 只给应用**读**权限的那张表的 id。 */
         val replyTable: String,
-        /**
-         * 「版本」列的值：搬迁前是
-         * `"${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})"` + preview 时补 `" [preview]"`。
-         * 由宿主按自己的口径拼好整串传进来（提交崩溃日志时会被 [submit] 的 `version` 覆盖）。
-         */
+        /** 「版本」列的值。 */
         val versionLabel: String,
         /** 「机型」列：Android = `"${Build.MANUFACTURER} ${Build.MODEL}"`；桌面 = 宿主机说明。 */
         val deviceLabel: String,
@@ -119,11 +86,7 @@ object FeedbackApi {
         return t
     }
 
-    /**
-     * 提交一条反馈。成功返回工单号——由客户端生成而非服务端下发，
-     * 这样不需要账号体系也能让用户回来查自己那条。
-     * [version] 为空取当前版本；崩溃日志是下次启动才补报的，传崩溃时的版本，免得升级后记错。
-     */
+    /** 提交一条反馈。 */
     suspend fun submit(
         ticket: String,
         category: String,
@@ -154,22 +117,7 @@ object FeedbackApi {
         }
     }
 
-    /**
-     * 拉取这些工单号对应的回复。
-     *
-     * 走官方当前推荐的 [查询记录 search](https://open.feishu.cn/document/docs/bitable-v1/app-table-record/search)，
-     * 不走已标为历史接口的 GET list。
-     *
-     * 按文档：
-     * - 多行文本在响应里是 `[{type:text, text:"..."}]`，不是纯字符串
-     * - filter 的 value 必须是数组；多行文本的 `is`/`contains` 每次只能一个元素
-     * - **公式 / 查找引用不能做筛选条件**（筛选指南原文）。工单号若是查找引用，
-     *   filter 会 1254018 —— 那时这一版的做法是「记一行日志、去掉 filter 重来」，
-     *   ⚠️ 但 `continue` 在 `do/while` 里是**回到条件判断**，而那一发刚把 `pageToken` 置空
-     *   ⇒ 循环当场结束，那条兜底路径**实际跑不到**（`found` 会是空表）。
-     *   这是从 `:app` **原样搬过来**的既有行为（本轮一行未改，已由 `:data:jvmTest` 钉住）；
-     *   要不要把它改成真的重试，是产品决定，不在这次搬迁里。
-     */
+    /** 拉取这些工单号对应的回复。 */
     suspend fun replies(tickets: List<String>): Map<String, FeedbackReply> =
         withContext(Dispatchers.IO) {
             if (tickets.isEmpty()) return@withContext emptyMap()
@@ -222,17 +170,7 @@ object FeedbackApi {
             found
         }
 
-    /**
-     * 所有人都能看的问答。仍读回复表，由开发者勾选「公开」并填写脱敏后的「问题」。
-     *
-     * 飞书回复表需要两个字段（一次配好）：
-     * - **公开**：复选框。勾了才会进 App。
-     * - **问题**：多行文本。必须是你改写过的问法，不要原样粘用户原文。
-     * 回答继续用已有的「回复」。也可以单独加一行、不填工单号，当公共 FAQ。
-     *
-     * 筛选失败（字段还没建）就当没有公开条目，**绝不**退回整表拉取——
-     * 否则未公开的回复也会被所有人读到。
-     */
+    /** 所有人都能看的问答。 */
     suspend fun publicQa(): List<FeedbackPublicQa> = withContext(Dispatchers.IO) {
         val cfg = requireConfig()
         val filter = buildJsonObject {
@@ -303,7 +241,6 @@ object FeedbackApi {
                 append("&page_token=").append(java.net.URLEncoder.encode(pageToken, "UTF-8"))
             }
         }
-        // 搬迁前的请求体就是「有 filter 时 {"filter": …}，没有时 {}」
         val body = if (filter != null) {
             buildJsonObject { put("filter", filter) }
         } else {
@@ -347,14 +284,7 @@ object FeedbackApi {
         return ""
     }
 
-    /**
-     * 多维表格的文本字段在 API 里可能是字符串，也可能是
-     * `[{"type":"text","text":"..."}]` 这种富文本片段数组，还可能是 `{"text":…}` / `{"name":…}`。
-     *
-     * 不能先 `optString`：值是数组时它会（在 `org.json` 里）把整个 JSON 数组 `toString()`
-     * 成非空垃圾，工单号对不上本地 `Txxx`，回复就永远显示「处理中」。
-     * 搬迁前这段判据的每一个分支逐条照搬 —— 只有 JSON 库换了（见类 KDoc 第 2 条）。
-     */
+    /** 多维表格的文本字段在 API 里可能是字符串，也可能是`[{"type":"text","text":"..."}]` 这种富文本片段数组，还可能是 `{"text":…}` / `{"name":…}`。 */
     private fun JsonElement?.plainText(): String {
         val e = this ?: return ""
         return when (e) {
@@ -399,7 +329,6 @@ object FeedbackApi {
                 // 字符串那一档：`"true"` 或 `"是"`
                 if (p.content.equals("true", true) || p.content == "是") return true
             } else {
-                // 布尔：content 就是 `true`；数字：非 0 即勾上（搬迁前就是 `v.toInt() != 0`）
                 if (p.content.equals("true", true)) return true
                 if (p.content.toDoubleOrNull()?.toInt()?.let { it != 0 } == true) return true
             }
@@ -410,7 +339,7 @@ object FeedbackApi {
     private fun parse(raw: String): JsonObject =
         runCatching { AppJson.parseToJsonElement(raw) as? JsonObject }.getOrNull() ?: JsonObject(emptyMap())
 
-    /** 缺字段给 [default]；字符串数字也认（搬迁前 `optInt` 就是这么宽）。 */
+    /** 缺字段给 [default]；字符串数字也认。 */
     private fun JsonObject.intOr(key: String, default: Int): Int =
         (this[key] as? JsonPrimitive)?.takeUnless { it is JsonNull }
             ?.content?.trim()?.toIntOrNull() ?: default

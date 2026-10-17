@@ -1,18 +1,12 @@
 package com.xjtu.toolbox.archive
 
-/**
- * 档案夹具（S1，Kotlin 常量）。
- *
- * 为什么写成 Kotlin 常量而不是 test resources：KMP 的 test resources 是逐目标的，
- * 而 `:testkit` 是 `kotlin.jvm`（`testkit/build.gradle.kts`），wasm 消费不了 ——
- * 三端互认（A5）要同一份夹具，所以放 `:core:commonTest`。
- */
+/** 档案夹具（Kotlin 常量）。 */
 object ArchiveFixture {
 
     const val ACCOUNT_ID = "2253415556"
     const val SUFFIX = "_2253415556"
 
-    /** 固定时钟（A3 字节稳定用；也当 `lastUsedAt` / `at` 的值）。 */
+    /** 固定时钟（也当 `lastUsedAt` / `at` 的值）。 */
     const val FIXED_NOW = 1_760_000_000_000L
 
     val accounts = listOf(
@@ -38,13 +32,13 @@ object ArchiveFixture {
         writtenAt = mapOf("schedule_current_term" to FIXED_NOW),
     )
 
-    /** 全局档，集合值故意**乱序 + 重复**，codec 要去重升序（§2.2 / A3）。 */
+    /** 全局档，集合值故意乱序 + 重复，codec 要去重升序（§2.2）。 */
     val libraryFavorites = StoreSnapshot(
         rawName = "library_favorites",
         keys = mapOf("favorite_seats" to StoreValue.SetValue(listOf("B-2", "A-1", "A-1"))),
     )
 
-    /** 凭据族：默认不进档案（A8）。 */
+    /** 凭据族：默认不进档案。 */
     val credential = StoreSnapshot(
         rawName = "xjtu_credentials",
         keys = mapOf("password" to StoreValue.S("hunter2")),

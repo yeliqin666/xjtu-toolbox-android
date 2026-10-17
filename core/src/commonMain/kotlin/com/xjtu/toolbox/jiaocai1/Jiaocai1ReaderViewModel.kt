@@ -13,22 +13,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlin.time.Clock
 
-/**
- * 阅读器的状态：打开一本书、翻页、进度记账、预取窗口。
- *
- * ## 搬进 `:core` 时改了什么（四处，编排一行未改）
- *
- * 1. `Jiaocai1Api(site).openBook(...)` → [Jiaocai1Source.openBook]（实现方包 IO 调度器）；
- * 2. `loader: Jiaocai1PageLoader`（`Context` + `BitmapFactory`）→ [Jiaocai1PageImages]
- *    （解码走 `:core` 的图片缝，见那个类的 KDoc）；
- * 3. `AppDatabase…jiaocai1ShelfDao()` → [Jiaocai1ShelfStore]（方法逐个对应）；
- * 4. `onCleared()` 里那一发「页面作用域已取消之后仍要打完的进度」→ [Jiaocai1ShelfStore.saveProgressOnLeave]
- *    （实现方自带页面之外的作用域 —— 与 `LibrarySource.restoreCampus` 同一条规矩）。
- *
- * 另外 `System.currentTimeMillis()` → `Clock.System`（同一时刻、同一 epoch 毫秒，
- * `:core` 的既有写法）；400ms 的进度防抖、`(existing ?: 新行).copy(...)` 那套字段口径、
- * 令牌过期时 `evictBook` + 不恢复进度的分支，全部逐字沿用。
- */
+/** 阅读器的状态：打开一本书、翻页、进度记账、预取窗口。 */
 class Jiaocai1ReaderViewModel(
     private val source: Jiaocai1Source,
     private val shelfStore: Jiaocai1ShelfStore,
@@ -105,10 +90,7 @@ class Jiaocai1ReaderViewModel(
         }
     }
 
-    /**
-     * 打开一本书时对齐书架那一行：已有行就沿用它的书名（新拿到的标题为空时），
-     * 没有就新建一行；两种情况的进度都从**存的**那一页接着读。
-     */
+    /** 打开一本书时对齐书架那一行：已有行就沿用它的书名（新拿到的标题为空时），没有就新建一行；两种情况的进度都从存的那一页接着读。 */
     private suspend fun restoreShelfRow(h: Jiaocai1BookHandle) {
         val existing = shelfStore.get(h.ssno)
         val now = Clock.System.now().toEpochMilliseconds()

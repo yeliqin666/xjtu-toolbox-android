@@ -12,17 +12,7 @@ import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
-/**
- * **装上了保护器的真凭据存储**（`JvmCredentialStore` + `ProtectedKeyValueStore`）：
- * 这一轮 Windows 交付在 Linux 上能验到的最外一层。
- *
- * 与 [ProtectedKeyValueStoreJvmTest] 的分工：那边验信封的通用语义，这边验**凭据这一个 store**
- * 真的被保护了、且「用户看得见的契约」一条没变（账号/密码/指纹/账号类型/RSA 公钥的 24 小时窗口、
- * 退出登录即清除），以及 `:desktop` 那几条**手工写老明文凭据文件**的既有用例仍然成立。
- *
- * 用的还是假保护器（[XorSecretProtector]）—— 真 DPAPI 由 `SecretProtectorJvmTest` 里那两条
- * 「只在 Windows 上跑」的用例负责（本机 Linux 跳过，CI 的 `windows-latest` 会真跑）。
- */
+/** 装上了保护器的真凭据存储（`JvmCredentialStore` + `ProtectedKeyValueStore`） */
 class JvmCredentialStoreJvmTest {
 
     private val name = "xjtu_credentials_test"
@@ -115,8 +105,7 @@ class JvmCredentialStoreJvmTest {
         assertNull(store.load())
         assertNull(store.fpVisitorId)
         assertNull(store.rsaPublicKey)
-        // `clear()` 只删那五个键（账号/密码/指纹/RSA 公钥/RSA 时间），**不动** `account_type` ——
-        // 与这一轮之前的 `clear()` 逐字相同（这一端没有老数据要迁，行为也不改）
+        // `clear()` 只删那五个键，不动 `account_type`
         assertEquals(
             XJTULogin.AccountType.POSTGRADUATE,
             store.accountType,

@@ -7,29 +7,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
-/**
- * **分享码在两个实现之间互认**这件事的机器可验版本（D12 ②）。
- *
- * ## 两边的实现分别是谁
- *
- * | 一侧 | 是谁 | 用在哪 |
- * |---|---|---|
- * | `MatchProfile.encode` / `decode` 里的那两条缝 | jvmMain / androidMain 的 actual = `java.util.zip` + `java.util.Base64` | Android / 桌面 / serve 模式 |
- * | [ZlibCodec] + [UrlSafeBase64] | 本批新增的纯 Kotlin 实现（`:core` commonMain） | wasmJs（浏览器） |
- *
- * 于是这里跑的就是「Android 出的码浏览器解得开 / 浏览器出的码 Android 解得开」这两条**真的链路**，
- * 不是「两份实现看起来一样」。判据是**解得回同一个档案**（`MatchProfile.Profile` 逐字段相等），
- * **不是**「压缩字节相同」—— 后者做不到也不必要：一份用固定 Huffman、一份用动态 Huffman，
- * 压出来的字节本来就不同（见 `ZlibCodec` 文件头那张表）。
- *
- * ## 冻结的那条码
- *
- * [ANDROID_MADE_SHARE_CODE] 是 2026-10-15 用 Android/jvm 那条实现（此刻打在 `:app` 与 `:desktop`
- * 上的那一份）编出来的一段真码，夹具数据全是**编造**的（没有真实课表 / 姓名 / 学号）。
- * 它在这里解一遍、在 `:web:wasmJsBrowserTest` 的 `WebMatchShareCodeTest` 里再解一遍
- *（那份测试源集看不到本文件，所以那一边单独存了同一个常数，两处都注明了出处）——
- * 「同一条码两端都认」因此是**跨端**钉住的，不只是「同一份源码在两处跑」。
- */
+/** 分享码在两个实现之间互认这件事的机器可验版本。 */
 class ShareCodeInteropJvmTest {
 
     /** 夹具档案（编造）：20 个字段每一格都有值，且每一格的形状都过得了 `MatchProfile.decode` 的校验。 */
@@ -125,12 +103,7 @@ class ShareCodeInteropJvmTest {
     }
 
     private companion object {
-        /**
-         * 2026-10-15 用 Android/jvm 那条实现（`java.util.zip` 的 `Deflater(BEST_COMPRESSION)` +
-         * `java.util.Base64` 的 URL 编码器）对上面那份夹具编出来的**真码**。
-         *
-         * 它钉的是「老版本/另一端编出来的码，这一端照样认得」——格式一变这条就会红。
-         */
+        /** 用 Android/jvm 实现（`Deflater(BEST_COMPRESSION)` + URL Base64）对上面那份夹具编出的真码。 */
         const val ANDROID_MADE_SHARE_CODE =
             "eNqtkEkKwkAQRS8UpbtFL-ARvE4RRFEMiigoJkSx4xAViagoxCSQy_SQXnkFGwWHjav8RVFU_V88qgzKTqUfA8YY5Sao1nTFptrbMrDE" +
                 "-MgD_550WFi_J5bxXBKTrzZ6LK2dHLQB4WJ-AhYGxGBhLNYJ8ISy0DLErM9d9wX2n88kiFQKCBcwgm9G3RjfAXajamErV8O_9ftE0K6sO1TLO" +

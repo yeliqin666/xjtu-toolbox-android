@@ -2,15 +2,7 @@ package com.xjtu.toolbox.platform
 
 import kotlinx.browser.localStorage
 
-/**
- * Web：`localStorage`。
- *
- * 加 `xjtu-toolbox.` 前缀：同源下可能还有别的页面（campus-web 等），不加前缀会串键。
- *
- * 关于「Web 端要不要持久化」这件事的立场（照实说明，避免以后有人以为是漏了）：
- * 浏览器里**不存任何凭据** —— CAS 会话与各域会话都在 campus-api 里，页面只走同源反代。
- * 这里存的是纯偏好（主题、周次视图、上次选的学期之类），丢了不影响功能。
- */
+/** Web：`localStorage`。 */
 internal const val PREFIX = "xjtu-toolbox."
 
 private class WebKeyValueStore(private val name: String) : KeyValueStore {
@@ -37,14 +29,7 @@ private class WebKeyValueStore(private val name: String) : KeyValueStore {
         localStorage.setItem(k(key), value.toString())
     }
 
-    /**
-     * 集合那一档：`localStorage` 没有集合类型，存的是**逗号分隔的字符串**。
-     *
-     * 为什么偏偏是逗号串而不是 JSON 数组：图书馆收藏**已经**是这个格式了 —— 原来 Web 端的
-     * `CampusLibraryApi` 就把它写成 `joinToString(",")` 存到同一个键（`library_favorites` /
-     * `favorite_seats`）。改成新格式等于把浏览器里已有的收藏丢掉。所以这里沿用老格式，
-     * 与 Android 那份 `getStringSet` 语义对齐（同样是「一组 id」），只是落地形态不同。
-     */
+    /** 集合那一档：`localStorage` 没有集合类型，存的是逗号分隔的字符串。 */
     override fun getStringSet(key: String): Set<String>? =
         localStorage.getItem(k(key))
             ?.split(',')

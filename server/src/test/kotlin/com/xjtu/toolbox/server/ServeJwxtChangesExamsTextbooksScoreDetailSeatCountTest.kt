@@ -15,42 +15,7 @@ import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonPrimitive
 
-/**
- * **第四批端点**（我课表三端点 / 成绩分项 / 教室座位数）的契约测试 ——
- * `GET /api/jwxt/{changes,exams,textbooks}` · `GET /api/jwapp/score-detail` ·
- * `GET /api/emptyroom/seat-count`（`docs/api-contract.md` §5.8）。
- *
- * ## 脚手架
- *
- * 与 [ServeLmsJiaocaiJwappIclassfaceTest] / [ServePayFeedbackMatchWebvpnTest] 同一条
- *（[withFakeProxy] + [startEndpointServer]）：真 socket（端口 0）、真令牌闸门、真 `ServeSession`。
- * 夹具是 `:testkit` 里那三份假上游 —— 本批只往其中两份**加**了东西（既有常量一个没动）：
- *
- * - `JwxtFakeUpstream`：新增教材报表那一枪（POST + `reportlets=[…]`，见它的 [JwxtFakeUpstream.handleTextbookReport]）——
- *   `changes` / `exams` 两条端点用的是**早就在的** `xsdkkc.do` / `wdksap.do` 样本；
- * - `JwappFakeUpstream`：新增「这门课没有分项」那一档（[JwappFakeUpstream.DETAIL_MISSING_ID]）；
- * - `EmptyRoomFakeUpstream`：**零改动** —— `seatCount` 读的就是它早就有的那份当天 CDN 课表
- *   （教室名与座位数与 `/api/emptyroom/rooms` 同一批）。
- *
- * ## 这一组钉的是什么
- *
- * - **闸门**：需要会话的三族（jwxt 三端点 / jwapp）未登录 401，而且**未登录那一枪不该到取数层**
- *   （夹具的调用计数为 0）；`seat-count` 与 `/api/emptyroom/cdn` **同一档取数**（CDN 免登录）
- *   ⇒ 没登录也答得到那一格；
- * - **形状**：每个 `data` 的键集合逐格钉住（多一格少一格都算投影漂了）；
- * - **`?term=` 省略 = 当前学期**：三条 jwxt 端点省略时取的都是 `/api/jwxt/term` 那个来源，
- *   而且**真带进了上游请求**（`XNXQDM=` / reportlet 里的 `xnxqdm` 对着夹具断言）；
- * - **`textbooks` 的 `hasTextbook` 语义**：夹具第二行就是「无教材」那一档（书名 =「无教材」）⇒
- *   那一行 `hasTextbook:false`；同一条响应里第一行是 `true`（两个值都出现，断言才有意义）；
- *   占位 ISBN 原样投影（滤它是 `:core` 的 `realIsbn` 的事，本层不重写第二个判据）；
- * - **`score-detail` 的「暂无分项成绩」映射**：`NoScoreDetailException` ⇒ `200` + `detail:null`
- *   （§4：上游明确说没有），**不是** 502/404 —— 消费方按 `item.asEmptyDetail()` 那条老规矩接；
- * - **`seat-count` 拿不到 → `null`**（不是 0、也不是错误）：`:data` 的 `EmptyRoomSource.seatCount`
- *   三种情况都回 null；
- * - **红线**：每个响应都过 [assertNoIdentity]，而且是在**夹具里明明有那些值**的前提下证明的
- *   （调停补课报文里的上课教师名 `SCHEDULE_1_TEACHER`、教材报表请求里的学号）—— 不能
- *   「夹具没有所以没出现」。
- */
+/** 我课表三端点 / 成绩分项 / 教室座位数的契约测试。 */
 class ServeJwxtChangesExamsTextbooksScoreDetailSeatCountTest {
 
     private var started: EmbeddedServer<CIOApplicationEngine, CIOApplicationEngine.Configuration>? = null
@@ -242,7 +207,6 @@ class ServeJwxtChangesExamsTextbooksScoreDetailSeatCountTest {
         val response = http.get(JWXT_TEXTBOOKS_PATH)
         assertEquals(200, response.statusCode())
         assertEquals(ApiEnvelope.CODE_OK, envelopeCode(response))
-        // 学号进了请求（下面那条断言证明），但没有进响应 —— §5.2 红线
         assertNoIdentity(response.body(), "GET $JWXT_TEXTBOOKS_PATH", IDENTITY)
 
         val data = envelopeData(response)
@@ -487,13 +451,7 @@ class ServeJwxtChangesExamsTextbooksScoreDetailSeatCountTest {
         /** 夹具那两份样本里都没有这间教室 ⇒ `seatCount` 查不到（编造值）。 */
         const val UNKNOWN_ROOM = "主楼Z-999"
 
-        /**
-         * §5.2 红线的钉子组（编造值，非真人）：学号 / 姓名 / 教师名一律不许出现。
-         *
-         * `SCHEDULE_1_TEACHER` 是**调停补课报文里真有**的上课教师名（`YSKJS`/`XSKJS` 那两格，
-         * 形状是「姓名/工号」）—— 那一格没进 `ScheduleChangeEvent`，所以这条断言证明的是
-         * 「红线在，而不是夹具里没有」。
-         */
+        /** §5.2 红线的钉子组（编造值，非真人）：学号 / 姓名 / 教师名一律不许出现。 */
         val IDENTITY = listOf(
             "username",
             "studentId",

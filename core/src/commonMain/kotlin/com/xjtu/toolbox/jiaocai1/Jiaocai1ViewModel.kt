@@ -12,24 +12,11 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 
-/**
- * 教材全文库的浏览态：检索 / 分类树 / 书架列表。
- *
- * ## 搬进 `:core` 时改了什么（编排一行未改）
- *
- * 搬迁前它收 `Context` + `SiteSession`，自己做三件事：`Jiaocai1Api(site)` 取数、
- * `DataCache(context)` 缓存分类树、`AppDatabase` 读写书架。现在这三样都从外面注入：
- *  - 取数 → [Jiaocai1Source] 端口（实现方包 IO 调度器，所以这里不再有 `withContext(Dispatchers.IO)`）；
- *  - 分类树缓存 → [Jiaocai1Cache] 端口（`null` = 本端不缓存，屏上的语义不变，只是每次进程都要拉一遍）；
- *  - 书架 → [Jiaocai1ShelfStore] 端口。
- *
- * 错误文案、`FriendlyError.of(e, …)` 的那几个词、`AuthExpiredException` 的处理时机、
- * 分页的 `moreFailed` 判据、`clearCls()` 的两种分支，全部逐字沿用。
- */
+/** 教材全文库的浏览态：检索 / 分类树 / 书架列表。 */
 class Jiaocai1ViewModel(
     private val source: Jiaocai1Source,
     private val shelfStore: Jiaocai1ShelfStore,
-    /** 分类树的落盘缓存；本端没有就传 null（桌面/Web）—— 屏上的行为不变，只是每次都拉一遍。 */
+    /** 分类树的落盘缓存；没有就传 null（每次都拉一遍）。 */
     private val cache: Jiaocai1Cache? = null,
 ) : ViewModel() {
 
@@ -56,10 +43,7 @@ class Jiaocai1ViewModel(
     private var searchJob: Job? = null
     private var bound = false
 
-    /**
-     * 订阅书架（`observeAll()` 是热流，屏幕上一直挂着）。搬迁前这一步同时发生：
-     * `AppDatabase.getInstance(context).jiaocai1ShelfDao().observeAll().collect { … }`。
-     */
+    /** 订阅书架（`observeAll()` 是热流，屏幕上一直挂着）。 */
     fun bind() {
         if (bound) return
         bound = true
@@ -106,8 +90,6 @@ class Jiaocai1ViewModel(
             categoryLoading = true
             categoryError = null
             try {
-                // 缓存口径与搬迁前 `loadCategoryTree` 逐字同构：命中（且非空）就用，
-                // 拉到新的且非空才写回；30 天的 TTL 由实现方按 [Jiaocai1Cache.readCategories] 判。
                 val cached = cache?.readCategories(CATEGORY_TTL_MS)?.takeIf { it.isNotEmpty() }
                 if (cached != null) {
                     categoryRoots = cached
@@ -138,11 +120,7 @@ class Jiaocai1ViewModel(
         search(1)
     }
 
-    /**
-     * 取消分类限定。有关键词就照原关键词重新检索；关键词也是空的就直接退回分类树
-     * （跟「关键词为空、没有分类限定就显示分类树」用的是同一个判据），不必带着
-     * 一对空参数再打一次检索。
-     */
+    /** 取消分类限定。 */
     fun clearCls() {
         cls = ""
         clsName = ""
@@ -159,22 +137,14 @@ class Jiaocai1ViewModel(
         if (books.isNotEmpty() || keyword.isNotBlank() || cls.isNotBlank()) search(1)
     }
 
-    /** 移出书架：删行 + 把这本书的本地页缓存一起丢掉（搬迁前那两句，同一顺序）。 */
+    /** 移出书架：删行 + 丢掉这本书的本地页缓存。 */
     suspend fun removeFromShelf(ssno: String) {
         shelfStore.delete(ssno)
         source.evictBook(ssno)
     }
 }
 
-/**
- * 分类树的**落盘缓存端口**。
- *
- * 搬迁前这一块是 `:app` 的 `DataCache(context)`（`cacheDir/data_cache<suffix>/jiaocai1_classify_v2.json`，
- * 账号隔离、可被「清除缓存」清掉，TTL 30 天）。`:core` 里既没有 `Context` 也不能落盘 ⇒ 切成端口：
- *  - Android（`AppJiaocai1Cache`）= 原样包住 `DataCache`（同一个键、同一个 TTL、同一个目录）；
- *  - 桌面/Web = 不传（`null`）⇒ 分类树每个进程拉一次，屏上的文案与流程一字未改
- *    （这与 `EmptyRoomStore` 在 Web 上的那条缺口是同一种如实降级）。
- */
+/** 分类树的落盘缓存端口。 */
 interface Jiaocai1Cache {
 
     /** 命中且未超过 [maxAgeMs] 就给分类树；否则 null。 */

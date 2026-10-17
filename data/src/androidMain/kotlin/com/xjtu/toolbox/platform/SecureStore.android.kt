@@ -6,12 +6,7 @@ import android.os.SystemClock
 import com.xjtu.toolbox.data.SecurePrefs
 import java.io.File
 
-/**
- * `:app` 在 `Application.onCreate` 里调一次，把进程级的 `Context` 交给 `:data`。
- *
- * 与 `:core` 的 `initAndroidPlatform` 同形、同理由：`:data` 的 commonMain 不认识 `Context`，
- * 只有 androidMain 认识，而句柄只能由宿主进程注入。
- */
+/** `:app` 在 `Application.onCreate` 里调一次，把进程级的 `Context` 交给 `:data`。 */
 fun initDataPlatform(context: Context) {
     appContext = context.applicationContext
 }
@@ -25,11 +20,7 @@ private fun requireContext(): Context = appContext
 /** 同一个句柄给 `:data` 其余 Android actual 用（如 `DataFiles.android.kt` 的 `Context.filesDir`）。 */
 internal fun requireDataPlatformContext(): Context = requireContext()
 
-/**
- * Android 侧就是 `SecurePrefs`（`EncryptedSharedPreferences`）——**同名文件**，
- * 与搬迁前 `SessionBackend` / `PersistentCookieJar` / `SiteSnapshots` 用的是同一批
- * `cookies_normal_default` / `sites_normal_default` 之类。改名就会让所有人重登。
- */
+/** Android 侧就是 `SecurePrefs`（`EncryptedSharedPreferences`）。 */
 private class PrefsKeyValueStore(
     private val name: String,
     private val legacyFallbackName: String,
@@ -65,11 +56,7 @@ private class PrefsKeyValueStore(
 
     override fun contains(key: String): Boolean = prefs.contains(key)
 
-    /**
-     * 用 `commit()` 而不是 `apply()`：搬迁前 `PersistentCookieJar.clear()`（登出时走的那条）
-     * 就是同步落盘，退回 `apply()` 会留下「刚登出、进程被杀又登着」的窗口。
-     * 调用方都在后台线程（`SiteSnapshots` 的专用线程 / 会话管家的清理路径）。
-     */
+    /** 用 `commit()`：登出后进程被杀不能留下「又登着」的窗口。 */
     override fun clear() {
         prefs.edit().clear().commit()
     }
@@ -78,10 +65,7 @@ private class PrefsKeyValueStore(
 actual fun secureKeyValueStore(name: String, legacyFallbackName: String?): KeyValueStore =
     PrefsKeyValueStore(name, legacyFallbackName ?: "${name}_fallback")
 
-/**
- * 与搬迁前 `SessionBackend.wipe` 的口径一致：**文件不存在就什么都不做** ——
- * 不为了清一个已删账号去创建一份新的加密存储。
- */
+/** 文件不存在就什么都不做：不为清一个已删账号去新建一份加密存储。 */
 actual fun wipeSecureStore(name: String) {
     val app = requireContext()
     val file = File(app.applicationInfo.dataDir, "shared_prefs/$name.xml")
@@ -91,7 +75,7 @@ actual fun wipeSecureStore(name: String) {
 
 actual fun elapsedRealtimeMs(): Long = SystemClock.elapsedRealtime()
 
-/** Android：逐字沿用搬迁前的五项（顺序不能改，见 `:data` commonMain 的 KDoc）。 */
+/** Android：五项顺序不能改（见 `:data` commonMain 的 KDoc）。 */
 actual fun stableDeviceFingerprintFields(): List<String> = listOf(
     "android",
     android.os.Build.MANUFACTURER,

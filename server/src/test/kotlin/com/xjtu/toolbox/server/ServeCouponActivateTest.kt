@@ -9,25 +9,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
-/**
- * `POST /api/coupon/activate` 的契约测试（`docs/api-contract.md` §5.5 的**领券写路径**，
- * 2026-10-15 批③-b / D7 ③）。
- *
- * 与 [ServeReadonlyFourDomainsTest] 同一条脚手架（[withFakeProxy] + [startEndpointServer]）：
- * 真 socket（端口 0）、真令牌闸门、真 `ServeSession`，夹具是 `:testkit` 的 `CouponFakeUpstream`
- * （`egc.xjtu.edu.cn`；这一批新加的是 `activateRejected` / `activateExpired` 两个开关）。
- *
- * ## 这一组钉的是什么
- *
- * - **闸门**：未登录 `401`，而且那一枪**不打上游**（`activateBodies` 为空）；
- * - **参数**：body 不是 JSON / 缺 `showCardId` / 空白 ⇒ `400`，同样不打上游；
- * - **请求形状**：`{showCardId}` 被 `:data` 的 `CouponApi` 转成上游那一格 `cardId`（与两端同一条链）；
- * - **成功**：`200` + `{ok:true, message}`（`data` 只有那两格）；
- * - **两条失败口径**：上游业务拒收（`code:400` 那档）与会话失效（`code:401` 那档）**都落 `502`** ——
- *   `:data` 的 `activateCoupon` 返回 `Unit`，只有「抛一句上游原文」这一种失败，本层不编一个判据把
- *   它们分开（如实口径，契约 §5.5 写明了）；
- * - **红线**：响应体过 [assertNoIdentity]（夹具里明明有学号与姓名）。
- */
+/** `POST /api/coupon/activate` 的契约测试（`docs/api-contract.md` §5.5）。 */
 class ServeCouponActivateTest {
 
     private var started: EmbeddedServer<CIOApplicationEngine, CIOApplicationEngine.Configuration>? = null
@@ -131,7 +113,6 @@ class ServeCouponActivateTest {
         // ⚠️ 只断言「打了至少一枪」：`:data` 的 `executeWithReAuth` 自己会重试（重认证那一套），
         // 究竟几发是它那一层的策略 —— 这里要钉的是「到了上游」，不是那个数
         assertTrue(fake.coupon.activateBodies.size >= 1, "这一枪确实打到了上游")
-        // ② 领券时才发现会话失效：同样是 502（与只读那两条同一条口径）
         fake.coupon.activateRejected = false
         fake.coupon.activateExpired = true
         val expired = http.postJson(ACTIVATE_PATH, validBody())
@@ -140,7 +121,7 @@ class ServeCouponActivateTest {
         assertTrue(!envelopeMessage(expired).isNullOrBlank())
         assertTrue(fake.coupon.activateBodies.size >= 2, "第二枪也到了上游")
 
-        // ③ 夹具恢复 ⇒ 立刻能领（证明上两条是上游那一档，不是配置漂了）
+        // ③ 夹具恢复 ⇒ 立刻能领
         fake.coupon.activateExpired = false
         assertEquals(200, http.postJson(ACTIVATE_PATH, validBody()).statusCode())
         assertTrue(fake.coupon.activateBodies.size >= 3, "第三枪也到了上游，而且这次上游是好的")

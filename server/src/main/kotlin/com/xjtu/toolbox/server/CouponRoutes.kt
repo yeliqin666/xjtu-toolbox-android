@@ -12,53 +12,7 @@ import io.ktor.server.routing.post
 import io.ktor.server.routing.route
 import kotlinx.serialization.Serializable
 
-/**
- * `/api/coupon*` —— 加餐券的**三个端点**（`docs/api-contract.md` §5.5）：列表 + 详情两个只读，
- * 加上领券（写）。走 `:data` 的 [AppCouponSource]（包住 `CouponApi`，解析口径一行不重做）。
- *
- * | 端点 | 对应端口方法 |
- * |---|---|
- * | `GET /api/coupon/list` | `CouponSource.queryCoupons(filter, page, pageSize)` |
- * | `GET /api/coupon/detail` | `CouponSource.getCouponDetail(showCardId)` |
- * | `POST /api/coupon/activate` | `CouponSource.activateCoupon(showCardId)`（**写**） |
- *
- * ## 领券（写路径）✅ 已端（2026-10-15，批③-b / D7 ③）
- *
- * `CouponSource.activateCoupon`（`POST /app/voucher/activate`）**真会改上游状态**，所以它是一个
- * 写端点：`POST /api/coupon/activate`，body 只有一格 `{showCardId}`，成功回 `{ok:true, message}`。
- * 屏上的口径一字未改（`:core` 的 `CouponViewModel.receive` 仍是先查详情再领、领完重拉那一档）。
- *
- * ⚠️ **它区分不了「上游说不能领」与「上游坏了」**：`:data` 的 `CouponApi.activateCoupon` 返回
- * `Unit`，失败时只抛一句上游原文（`RuntimeException(msg)`），认不出「这张券领完了」这种业务结果
- * ⇒ 与只读那两条同一条口径，一律 `502`。要分出 `409` 得先改 `:data` 那一层（把失败细分，与
- * `/api/library/action` 的 `OrderActionResult` 同一个形状）—— 那是 `:data` 的改动，本轮不编一个
- * 判据出来（如实记在契约 §5.5）。
- *
- * ## 逐字段映射（判据是真源：`:data` 的解析 + `:core` 的 `CouponModels`）
- *
- * - 四档筛选：`?filter=` 取 `CouponFilter` 的**小写枚举名** ——
- *   `available`（可领取，status=0）· `usable`（可使用，status=1）· `used_up`（已用完）·
- *   `expired`（已过期）。**省略 = `usable`** —— 与 `:core` 的 `CouponViewModel` 初始档一致
- *   （`var filter by mutableStateOf(CouponFilter.USABLE)`），本层不另定一个默认档。
- *   中文名（`CouponFilter.label` =「可领取」那些）**不当参数收**：参数只认一套 ASCII 写法；
- * - 金额一律**单位是分**（`amountFen` / `leftAmountFen`，`:core` 模型的原字段名）。`CouponRecord`
- *   上那两个 `amountYuan` 属性是**换算便利属性**，不是模型字段 ⇒ 不进线上形状（除 100 是消费方
- *   的事，本层不做第二次舍入）；
- * - `imageUrl` 是 `:data` 的 `normalizeImageUrl` 拼好的**绝对地址**（`egc.xjtu.edu.cn` + 相对路径）。
- *   ⚠️ **已知缺口**：那张图要带 `egc` 的 `Authorization` 才取得到（`AppCouponSource.loadImage`
- *   就是走站点会话发的）⇒ 浏览器**直接打开这个 URL 会拿到登录页**。本层没有图片代理端点；
- *   下一批要做封面图就得开一个（如实记在契约 §5.5 的「保不住的字段」那一条）；
- * - `CouponDetail` 的十二格原样投影（`title ← destitle`、`description ← describes`、
- *   `leftAmountFen ← ltranamt` 那些映射在 `:data` 的 `CouponJsonParser` 已经做掉了，这里只投影结果）。
- *
- * ## 错误码
- *
- * 400 `filter` 不认识 / `showCardId` 缺失 / `page`、`size` 不是正整数 / `activate` 的 body 不是那一格 ·
- * 401 令牌对但没会话 · 502 上游 / 网络故障（`FriendlyError` 中文短句，含会话失效那档，也含「领券被
- * 上游拒」那一档 —— 见上）。
- *
- * @param session 会话装配；加餐券站点（`coupon`）从它那里取。
- */
+/** `/api/coupon*` —— 加餐券的三个端点（`docs/api-contract.md` §5.5）：列表 + 详情两个只读，加上领券（写）。 */
 internal fun Route.couponRoutes(session: ServeSession) {
     route(COUPON_SEGMENT) {
 
@@ -135,10 +89,10 @@ internal fun Route.couponRoutes(session: ServeSession) {
 
 // ── 数据模型（客户端形状）──────────────────────────────────────────
 
-/** `GET /api/coupon/list` 的 `data`：分页形状（§4）+ 本次用的档。 */
+/** `GET /api/coupon/list` 的 `data`：分页形状（§4）+ 所用的档。 */
 @Serializable
 internal data class CouponListData(
-    /** 本次用的档（ASCII 码，见 [CouponFilter.code]）—— 请求没给就是 `usable`。 */
+    /** 所用的档（见 [CouponFilter.code]），请求没给就是 `usable`。 */
     val filter: String,
     val page: Int,
     val size: Int,
@@ -147,11 +101,7 @@ internal data class CouponListData(
     val records: List<CouponRecordDto>,
 )
 
-/**
- * 一张券（`CouponRecord` 的线上形状）。
- *
- * ⚠️ 金额单位是**分**（不是元）；`imageUrl` 在浏览器里直接打不开（要 egc 会话）—— 见文件头 KDoc。
- */
+/** 一张券（`CouponRecord` 的线上形状）。 */
 @Serializable
 internal data class CouponRecordDto(
     val sendId: String,
@@ -190,9 +140,7 @@ internal data class CouponDetailDto(
 
 // ── 投影 helpers ─────────────────────────────────────────────────────
 
-/**
- * 档 → 线上码。用枚举名的小写（`AVAILABLE` → `available`）：一套 ASCII 写法，参数与响应同一个值。
- */
+/** 档 → 线上码。 */
 private val CouponFilter.code: String get() = name.lowercase()
 
 private fun CouponRecord.toDto() = CouponRecordDto(
@@ -249,16 +197,11 @@ private const val COUPON_FILTER_SHAPE_MESSAGE =
 @Serializable
 internal data class CouponActivateRequest(val showCardId: String = "")
 
-/**
- * `POST /api/coupon/activate` 的 `data`（与 §5.3.1 / §5.3.2 两个写端点同一个 `{ok, message}` 形状）。
- *
- * `:core` 的 `CouponSource.activateCoupon` 返回 `Unit`（它一个格都不读），所以 `message` 是给
- * curl / 排障看的 —— 屏上那句「已领取 …」是 `CouponViewModel` 自己按详情拼的，本层不替它拼。
- */
+/** `POST /api/coupon/activate` 的 `data`（与 §5.3.1 / §5.3.2 两个写端点同一个 `{ok, message}` 形状）。 */
 @Serializable
 internal data class CouponActionResult(val ok: Boolean, val message: String)
 
-/** 领券成功那一句（写端点的 `message` 口径：能直接给用户看的中文短句）。 */
+/** 领券成功的提示（给用户看的中文短句）。 */
 internal const val COUPON_ACTIVATED_MESSAGE = "✓ 已领取"
 
 internal const val COUPON_ACTIVATE_BODY_MESSAGE =

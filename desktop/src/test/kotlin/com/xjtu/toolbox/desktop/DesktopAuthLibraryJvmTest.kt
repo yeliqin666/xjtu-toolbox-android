@@ -87,50 +87,12 @@ import kotlin.test.assertTrue
 import kotlinx.coroutines.runBlocking
 import kotlinx.datetime.LocalDate
 
-/**
- * **Stage A 第二步的验收**（`docs/desktop-port-plan.md` §6 / 交接文档 §3.1）：
- * 桌面端**用窗口里输进来的凭据真登进去**，然后**用它自己那份取数**读图书馆；校历那条免登录的
- * 路也一并钉住。
- *
- * ## 它与 `:data:jvmTest` 那条是什么关系（不是重复）
- *
- * `LibraryLoginSessionJvmTest` 验的是**会话内核本身**（`:data`）：它自己拼一个
- * `SessionManager` + `SiteBackedLibrarySession`，证明「同一份数据层能在 JVM 上用真 CAS 会话跑」。
- *
- * 这一条验的是**桌面端自己的装配**（`:desktop` 的 `DesktopAuth` + `DesktopLibrarySource`）：
- * 用户在登录页敲的那些字，是不是真的能走完 CAS、把凭据落到 0600 的文件里、跨冷启动恢复、
- * 并在同一份会话上读出座位。装配错一步（少设凭据、少传缓存公钥、命名空间没切）这里就红，
- * 而那几条在 `:data:jvmTest` 里都不会被碰到 —— 那边根本没有 `DesktopAuth`。
- *
- * ## 手法
- *
- * 假上游（`:testkit` 的 `FakeCampusProxy`：一个本地 HTTP **代理**，按 host 分派图书馆与校历）+ URL
- * 一个字符都不改。进程级缓存（`HttpClients.base` 抄下的 ProxySelector、`PersistentCookieJar`、
- * `secureKeyValueStore`）的坑见 [withFakeCampus] 的注释。
- */
+/** 图书馆在桌面端的装配验收。 */
 class DesktopAuthLibraryJvmTest {
 
     private lateinit var fake: FakeCampusProxy
 
-    /**
-     * 起假上游（当代理用）+ 把落盘存储指到临时目录，并在里面跑 [block]。
-     *
-     * 返回类型固定 `Unit`：JUnit4 要求测试方法返回 void，而 `assertNotNull` 这类断言是**有返回值**的
-     * （Kotlin 的 Unit 协变只在期望类型是 Unit 时生效）。交接文档 §5.5 记着这条坑：
-     * 一旦方法返回了断言值，整个类直接 `InvalidTestClassError`，而 `gradlew` 只打一行
-     * `initializationError`。
-     *
-     * ⚠️ 顺序要紧，三条都不能换：
-     *  1. **两件进程级前置必须在碰 `HttpClients` 之前装**（也就建任何 [DesktopAuth] 之前，
-     *     见 [FakeCampusProxy.installFakeUpstreams]）：常驻 selector（`HttpClients.base` 会把当时的
-     *     默认 `ProxySelector` 抄进自己的配置）与假上游那枚自签 https 证书的信任库
-     *     （客户端一建出来就把平台 trust manager 抄走了）；
-     *  2. cookie jar 与 `secureKeyValueStore` 都是**进程级**缓存（App 里正是靠这一点让前台/后台
-     *     共用同一个 jar）⇒ 必须把上一轮留下的内存态与文件一起清掉，否则上一条测试的 cookie
-     *     会把「真登录」变成 SSO 直通；
-     *  3. 清 cookie 要连**账号命名空间**一起清（`cookies_normal_<学号>`）：桌面登录会把 backends
-     *     换到那边，只清 `_default` 等于什么都没清 —— 这个坑第一次跑就踩到了。
-     */
+    /** 起假上游（当代理用）+ 把落盘存储指到临时目录，并在里面跑 [block]。 */
     private fun withFakeCampus(block: () -> Unit) {
         fake = FakeCampusProxy(casEnabled = true)
 
@@ -142,9 +104,6 @@ class DesktopAuthLibraryJvmTest {
         }
         // 凭据文件也要清：它是进程级缓存的 KeyValueStore（`stores` 那张表）
         wipeSecureStore(JvmCredentialStore.FILE_NAME)
-        // 多账号之后**账号表**才是凭据的真相（`AccountStore`，存储名 `xjtu_accounts`）：它同样是
-        // 进程级缓存的 KeyValueStore ⇒ 不清的话上一条测试的账号会漏进下一条（`restore()` 会
-        // 直接把它恢复成已登录）。
         wipeSecureStore(AccountStore.FILE_NAME)
         // 清 in-memory：`PersistentCookieJar` 按文件名全进程共享一份内存表，只删文件不够
         for (name in listOf(
@@ -166,13 +125,7 @@ class DesktopAuthLibraryJvmTest {
         }
     }
 
-    /**
-     * 照真机的路径建一份「已经缓存过 RSA 公钥」的凭据存储 + 桌面装配。
-     *
-     * 为什么要预置公钥：`XJTULogin` 取公钥那一枪硬编码 `https://login.xjtu.edu.cn/cas/jwt/publicKey`，
-     * 本地假上游给不了（要 CONNECT+TLS）。真机上这份缓存由首次登录自动取回并写进凭据文件
-     * （[JvmCredentialStore.rsaPublicKey]），测试就是把那一步的结果直接摆好 —— 不为此在生产代码里开口子。
-     */
+    /** 照真机的路径建一份「已经缓存过 RSA 公钥」的凭据存储 + 桌面装配。 */
     private fun newAuth(): Pair<DesktopAuth, JvmCredentialStore> {
         val store = JvmCredentialStore()
         store.rsaPublicKey = TestRsaKey.publicKeyBase64
@@ -204,15 +157,11 @@ class DesktopAuthLibraryJvmTest {
         assertNotNull(jar.findCookieByName("TGC"), "统一认证的 TGC 应落在本端 cookie 存储里")
         assertNotNull(jar.findCookieByName("JSESSIONID"), "座位系统自己的会话 cookie 也应落盘")
 
-        // 凭据自己记下来了（下次冷启动靠它免登）：多账号之后它落在**账号表**里
-        //（`AccountStore`，存储名 `xjtu_accounts`），而 Stage A 那份单账号凭据文件已经不再写。
         assertEquals(LibraryFakeUpstream.PASSWORD, AccountStore().get(LibraryFakeUpstream.USERNAME)?.password)
         assertEquals(LibraryFakeUpstream.USERNAME, AccountStore().activeAccountId())
         assertEquals("", auth.password, "登录成功后界面上的密码字段应被清空")
         assertEquals("", auth.username, "登录成功后界面上的学号字段也应清空")
 
-        // 文件权限：0600（同目录的 `SecureStore.jvm.kt` 那条口径）。
-        // 存着密码明文的那一份从 `xjtu_credentials` 换成了 `xjtu_accounts`（账号表）。
         val root = requireNotNull(dataRootOverride)
         val file = File(root, "${AccountStore.FILE_NAME}.properties")
         assertTrue(file.exists(), "账号表应落成文件：$file")
@@ -224,7 +173,6 @@ class DesktopAuthLibraryJvmTest {
             Files.getPosixFilePermissions(file.toPath()),
             "账号表只该给本用户读写",
         )
-        // 反过来：Stage A 那份单账号凭据文件里**不该**再有账号密码（它降级成「只读一次做导入」）
         val legacy = File(root, "${JvmCredentialStore.FILE_NAME}.properties")
         val legacyText = if (legacy.exists()) legacy.readText() else ""
         assertTrue(
@@ -278,28 +226,12 @@ class DesktopAuthLibraryJvmTest {
         assertEquals("已预约", booking?.statusText)
         assertContains(booking?.actionUrls.orEmpty().keys, "取消预约")
 
-        // 桌面端能写：写路径的编排在 `:data` 的 `LibraryApi` 里，一行未改
         assertTrue(source.canBook, "桌面端直连站点 ⇒ 写路径是真的")
         assertTrue(source.hasSeatPlan, "座位布局与平面图端点都在")
     }
 
-    // ══════ 校历：免登录的那条路 ══════
-    // ══════ 体测：第五条真数据路由（要登录，而且这个站点是 https）══════
 
-    /**
-     * 走的是**真登录链**：桌面登录页那一步的 CAS 表单 POST（凭据 RSA 加密）之后，体测站点
-     * 靠同一份凭据/TGC 自己走完 CAS → `LOGIN_URL?ticket=` → launch 回调 → `UserInfo`，
-     * 会话参数落进站点快照；然后断言 `FitnessApi` 在那份快照上读出的东西。
-     *
-     * 期望值全部来自 `:testkit` 的夹具样本（`:testkit` 的 `FitnessFakeUpstream`），不是从跑通的
-     * 实现里抄的：分数还会过 `:core` 那两条共享口径（`formatFitnessScore` 两位小数、
-     * `fitnessItemName` 按 sex 换名），所以期望写法就是「夹具原文 + 那两条口径」。
-     *
-     * ⚠️ 这一条是**唯一**走 https 的用例：假上游为此自带 CONNECT 前置与一枚自签证书
-     *（见 `:testkit` 的 `FakeUpstreamFront`）。最后一段特意把 cookie（含 CAS 的 TGC）全清掉
-     * 再强制重登一次 —— 证明体测这条链自己就能从「CAS 表单 POST」一路走到 launch 回调，
-     * 而不是靠图书馆那次留下的 TGC 免密直通。
-     */
+    /** 走的是真登录链：桌面登录页那一步的 CAS 表单 POST（凭据 RSA 加密）之后，体测站点靠同一份凭据/TGC 自己走完 CAS → `LOGIN_URL?ticket=` → launch 回调→ `UserInfo`，会话参数落进站点快照；然后断言 `FitnessApi` 在那份快照上读出的东西。 */
     @Test
     fun `真登录之后：体测站点自己走完 CAS 回跳，快照里落着 launch，读得出学年与成绩`() = withFakeCampus {
         val (auth, _) = newAuth()
@@ -321,9 +253,7 @@ class DesktopAuthLibraryJvmTest {
         assertTrue(fake.fitness.userInfoCalls.get() >= 1, "postLogin 里那一枪 UserInfo 应当打到夹具")
         assertTrue(fake.library.tickets.get() >= 1, "统一认证应当真签过 ticket")
 
-        // 快照里的字段：取数要的那八个 `SESSION_FIELDS` 一个不能少；
-        // ⚠️ 七个必需字段里 `user_type` 是唯一被**消费掉**的 —— `extractLaunch` 拿它换算成 `role`
-        // 之后就不原样留着（`SESSION_FIELDS` 里也没有它），所以那一项按 `role` 断言（见下）。
+        // ⚠️ `user_type` 被 `extractLaunch` 换算成 `role` 后不保留，所以按 `role` 断言。
         for (field in FitnessProtocol.SESSION_FIELDS) {
             assertTrue(site.localToken[field]?.isNotBlank() == true, "快照里缺 $field：${site.localToken}")
         }
@@ -363,8 +293,6 @@ class DesktopAuthLibraryJvmTest {
         assertEquals(FitnessFakeUpstream.GRADE, score.grade)
         assertEquals(FitnessFakeUpstream.REPORT_STATUS, score.reportStatus)
 
-        // 七个分项：名字（按 sex 换名）、分数、等级、配色都是 `FitnessApi.loadScore` 的口径
-        // 夹具刻意没给 `50m_*` ⇒ 那一行落到「未测 / 缺项」
         assertEquals(
             listOf("身高 / 体重", "肺活量", "立定跳远", "坐位体前屈", "引体向上", "50 米", "1000 米"),
             score.items.map { it.name },
@@ -413,13 +341,7 @@ class DesktopAuthLibraryJvmTest {
 
     // ══════ 全校课表与成绩：同一个教务站点的两条路由 ══════
 
-    /**
-     * 从**真登录链**（窗口里输凭据 → CAS 表单 POST → 回跳教务）走到「全校课表」那一屏的取数。
-     *
-     * 期望值全部来自 `:testkit` 的 `JwxtFakeUpstream`（夹具）—— 不是从跑通的实现里抄的。
-     * 两条路由共用一个站点，所以这里连着把成绩报表也读一遍：会话只有一份（`auth.jwxtSite`），
-     * 只要一条链能站在同一个站点上取两种数，就说明站点注册与挂载都对。
-     */
+    /** 从真登录链（窗口里输凭据 → CAS 表单 POST → 回跳教务）走到「全校课表」那一屏的取数。 */
     @Test
     fun `真登录之后：教务自己走完 CAS，全校课表与成绩报表都读得出夹具样本`() = withFakeCampus {
         val (auth, _) = newAuth()
@@ -482,17 +404,13 @@ class DesktopAuthLibraryJvmTest {
             ),
             grades.map { it.courseName to it.score },
         )
-        // 学期分组口径：标题都读成了可比的学期代码，且夏季小学期得到 `-3`
         assertEquals(
             listOf(JwxtFakeUpstream.SCORE_TERM_SUMMER, JwxtFakeUpstream.SCORE_TERM_SPRING),
             grades.map { it.term }.distinct().sortedDescending(),
         )
     }
 
-    /**
-     * 两条路由**共用一份站点会话**：进门时那一发 `ensureSession("jwxt")` 是幂等的 ——
-     * 第二条路由（同一轮里已登过）不再多打一次 CAS。
-     */
+    /** 两条路由共用一份站点会话：进门时那一发 `ensureSession("jwxt")` 是幂等的 —— 第二条路由（同一轮里已登过）不再多打一次 CAS。 */
     @Test
     fun `教务那两条路由共用一份会话：第二条进门不再重登`() = withFakeCampus {
         val (auth, _) = newAuth()
@@ -507,19 +425,8 @@ class DesktopAuthLibraryJvmTest {
         assertEquals(posts, fake.library.credentialPosts.get(), "也不该再提交一次凭据")
     }
 
-    // ══════ 评教：第八条真数据路由（本科那条链路）══════
 
-    /**
-     * 真登录链之后走「评教」那一屏用的那个源（`UndergraduateJudgeSource`）—— 桌面端 `AppRoute.Judge`
-     * 本科那一条就是它（研究生那条是 `GraduateJudgeSource`，它自己 `ensureSite` 两个站点）。
-     *
-     * 期望值全部来自 `:testkit` 的 [JwxtFakeUpstream] 夹具：未评两份（过程在前、期末在后）、已评一份，
-     * 以及 `card()` 的三项口径（课程 / 教师 / 标签）—— 屏上画的就是这三个字段，标签由 `PGLXDM` 换算
-     * （01 期末 / 05 过程），key 是 `WJDM_JXBID_BPR`（撤回时按它定位）。
-     *
-     * ⚠️ 进门那一发走的是 `DesktopSiteGate` 干的事（`ensureSession("jwxt")`）：评教与全校课表 / 成绩
-     * 是**同一个站点、同一份会话**，所以这里顺带钉住「评教不会再多登一次」。
-     */
+    /** 真登录链之后走「评教」那一屏用的那个源（`UndergraduateJudgeSource`） */
     @Test
     fun `真登录之后：本科评教读出夹具样本，未评两份与卡片口径都对`() = withFakeCampus {
         val (auth, _) = newAuth()
@@ -581,18 +488,8 @@ class DesktopAuthLibraryJvmTest {
         assertEquals("，确定继续？", source.confirmText)
     }
 
-    // ══════ 校园卡：第九条真数据路由 ══════
 
-    /**
-     * 真登录链之后走「校园卡」那一屏用的那个源（`:data` 的 `AppCampusCardSource`，桌面端
-     * `AppRoute.CampusCard` 就是它，缓存传 `null` —— 桌面没有按账号分文件的宿主存储）。
-     *
-     * 期望值全部来自 `:testkit` 的 [CampusCardFakeUpstream]：卡号 / 姓名 / 学号 / 余额 / 待入账 /
-     * 有效期 / 卡类型，以及七条流水的金额、商户名、余额 —— 不是从跑通的实现里抄的。
-     *
-     * 进门那一发走的是 `DesktopSiteGate` 干的事（`ensureSession("campus_card")`）：这里顺带钉住
-     * 「登录页那一步已经尽力预热过它 ⇒ 进屏不会再登一次」。
-     */
+    /** 真登录链之后走「校园卡」那一屏用的那个源（`:data` 的 `AppCampusCardSource`，桌面端`AppRoute.CampusCard` 就是它，缓存传 `null` ——桌面没有按账号分文件的宿主存储）。 */
     @Test
     fun `真登录之后：校园卡自己走完 CAS，卡面与流水都读得出夹具样本`() = withFakeCampus {
         val (auth, _) = newAuth()
@@ -662,19 +559,8 @@ class DesktopAuthLibraryJvmTest {
         assertEquals(1, fake.campusCard.turnoverCalls.get(), "总数到齐 ⇒ 屏的首屏只打一页流水的枪")
     }
 
-    // ══════ 空闲教室：第十条真数据路由 ══════
 
-    /**
-     * 真登录链之后走「空闲教室」那一屏用的那个源（`:data` 的 `AppEmptyRoomSource`，桌面端
-     * `AppRoute.EmptyRoom` 就是它：落盘传 `null`）。
-     *
-     * 这条同时钉住**那个路由为什么不套 `DesktopSiteGate`**：`AppRoute.EmptyRoom.loginType` 是 null
-     * （三档数据源要登的站点不同）⇒ 会话由源自己 ensure。所以这里也顺手钉住「登录页那一步**没有**
-     * 预热这个站点」：`js` 刻意不在 `DesktopAuth.SESSION_SITE_KEYS` 里（只有这一屏的一档要它）。
-     *
-     * 期望值全部来自 `:testkit` 的 [EmptyRoomFakeUpstream]：楼顺序、四种状态、人数、课程与教师、
-     * 当天课表的 11 节占用与座位数 —— 不是从跑通的实现里抄的。
-     */
+    /** 真登录链之后走「空闲教室」那一屏用的那个源（`:data` 的 `AppEmptyRoomSource`，桌面端`AppRoute.EmptyRoom` 就是它：落盘传 `null`）。 */
     @Test
     fun `真登录之后：空闲教室自己把智慧教室会话登起来，三档里两档读得出夹具样本`() = withFakeCampus {
         val (auth, _) = newAuth()
@@ -762,20 +648,8 @@ class DesktopAuthLibraryJvmTest {
         )
     }
 
-    // ══════ 体育场馆：第十一条真数据路由 ══════
 
-    /**
-     * 真登录链之后走「体育场馆」那一屏用的那个源（`:data` 的 `AppVenueSource`，桌面端
-     * `AppRoute.Venue` 就是它）。Stage B 之后 `canBook = true`：桌面有滑块宿主
-     * （[DesktopSlideCaptchaHost]，新写的滑块 UI + 拖动回调），下单那一步走得完。
-     *
-     * 这条同时钉住那一条登录链：场馆站的入口不是它自己，而是 `org.xjtu.edu.cn` 的 OAuth2
-     *（appId=1659）→ CAS → 回跳 `/web/cas/oauth2url.html` → 首页 userno。场馆站本身是**明文 http**
-     *（不走 CONNECT 隧道）；只有 OAuth 入口那一跳是 https。
-     *
-     * 期望值全部来自 `:testkit` 的 [VenueFakeUpstream]：9 个场馆（两页拼起来，`id=0` 那行被跳过）、
-     * 某天七个时段（可订 + 已占两路合并后排序）、我的订单两条 —— 不是从跑通的实现里抄的。
-     */
+    /** 真登录链之后走「体育场馆」那一屏用的那个源（`:data` 的 `AppVenueSource`，桌面端`AppRoute.Venue` 就是它）。 */
     @Test
     fun `真登录之后：体育场馆走完 OAuth 与 CAS，读场馆列表时段，并拿到滑块剧本下的成功订单`() = withFakeCampus {
         val (auth, _) = newAuth()
@@ -862,7 +736,6 @@ class DesktopAuthLibraryJvmTest {
         assertTrue(VenueFakeUpstream.VENUE_A_ID in runBlocking { source.favorites() })
         assertTrue(!runBlocking { source.toggleFavorite(VenueFakeUpstream.VENUE_A_ID) }, "再翻一次回到原位")
 
-        // ── Stage B：登录 → 拿滑块挑战 → 模拟拖动提交 → 下单成功（剧本默认关，这里打开）──
         fake.venue.captchaScript = true
         val captcha = runBlocking { source.captcha(VenueFakeUpstream.VENUE_A_ID) }
         assertEquals(1, fake.venue.captchaCalls.get())
@@ -896,13 +769,8 @@ class DesktopAuthLibraryJvmTest {
         )
     }
 
-    // ══════ 桌面滑块宿主（Stage B）：拖动编码与识别委托 ══════
 
-    /**
-     * 不点开窗口也能钉住的宿主半边：拖动编码（[encodeDesktopSlideResult]）与识别委托
-     * （[DesktopSlideCaptchaHost.solve] 走 `:data` 的 `VenueSlideCaptchaHost`）。
-     * 期望值来自 `:data` 的 `SliderCaptchaView` 同一条协议（260 坐标系、up 点、ISO 时刻）。
-     */
+    /** 不点开窗口也能钉住的宿主半边。 */
     @Test
     fun `桌面滑块宿主：拖动编码合成为服务端协议，识别委托共享路径`() = withFakeCampus {
         // ── 拖动编码：260 坐标系 + ISO 时刻 + up 点 ──
@@ -941,26 +809,14 @@ class DesktopAuthLibraryJvmTest {
         assertTrue(solved.releaseAfterMillis > 0)
     }
 
-    // ══════ 消息收纳：第十二条真数据路由 ══════
 
-    /**
-     * 真登录之后走「消息收纳」那一屏用的那个源（`:data` 的 `AppInboxSource`，桌面端 `AppRoute.Inbox`
-     * 就是它：构造参数只有会话管家，图书馆座位那条补拉的缝传 `null` —— 桌面端没有任何东西写
-     * `LIBRARY` 那一类待办，早返回与空实现同义）。
-     *
-     * 它同时钉住那条登录链：一网通办门户 → CAS（凭据 RSA 加密）→ 回跳门户时 `ticket=` 是一枚
-     * **JWT**（`YwtbLogin` 从它的 payload 里读出 idToken）→ 四路取数都带 `x-id-token`。
-     * 四路 URL 与夹具**逐字相同**（夹具按「路径 + 查询串」逐字比对，不认识就 404）。
-     *
-     * 期望值全部来自 `:testkit` 的 [YwtbFakeUpstream]（两条消息 —— 四条样本里两条该被滤掉、两条事务
-     * 中心待办、预约中心 3 条与校车 0 条），不是从跑通的实现里抄的；屏上读的就是下面这些 store 投影。
-     */
+    /** 真登录之后走「消息收纳」那一屏用的那个源（`:data` 的 `AppInboxSource`，桌面端 `AppRoute.Inbox`就是它）。 */
     @Test
     fun `真登录之后：消息收纳自己登上一网通办，四路取数都读得出夹具样本`() = withFakeCampus {
         val (auth, _) = newAuth()
         assertTrue(login(auth), "用假下游的账号密码应当登得上：${auth.loginState}")
 
-        // 夹具与生产必须指同一个门户（登录入口的 service 参数就是它）；四路 URL 由夹具逐字比对
+        // 夹具与生产必须指同一个门户（登录入口的 service 参数就是它）
         assertTrue(
             YwtbLogin.YWTB_LOGIN_URL.contains(YwtbFakeUpstream.HOST),
             "一网通办登录入口回的就是夹具那个门户：${YwtbLogin.YWTB_LOGIN_URL}",
@@ -1028,23 +884,13 @@ class DesktopAuthLibraryJvmTest {
             "预约与校车只报数量（校车 0 条 ⇒ 一条都不出）",
         )
 
-        // 屏上那两栏的投影（`InboxRules` 是 :core 的口径，这里只验「真读得出东西」）
         val now = System.currentTimeMillis()
         assertEquals(2, InboxRules.groups(data, now).size, "两条消息两类")
         assertEquals(3, InboxRules.todos(data, now).size, "两条事务中心待办 + 一条预约")
     }
 
-    // ══════ 通知公告：第 13 条真数据路由 ══════
 
-    /**
-     * 通知公告那一屏**不需要登录**（29 个源全是公开的公告页，屏一进门就自己爬），所以这一段验的是
-     * 「外壳接的那条路真取得到数」：源来自 `:data` 的 [AppNoticeSource]，三个夹具源都读出夹具样本，
-     * 其中化工学院那一条要过**动态挑战**（纯 HTTP 解：页面给 `a`/`b`/`operator`，客户端自己算答案
-     * 并按那段 JS 的语义算 hash，POST `/dynamic_challenge` 换 `client_id`）。
-     *
-     * ⚠️ 诚实边界：夹具只扮了 29 个源里的 3 个（教务处 / 化工学院 / OA）—— 另 26 个没被覆盖。
-     * 它到此只能证明「这两条爬虫族 + 挑战解在真实响应形状上是对的」，**不是**「29 个源都验过了」。
-     */
+    /** 通知公告那一屏不需要登录（29 个源全是公开的公告页，屏一进门就自己爬），所以这一段验的是「外壳接的那条路真取得到数」。 */
     @Test
     fun `真登录之后：通知公告直连学校站点，教务处、化工学院（含挑战）与 OA 都读出夹具样本`() = withFakeCampus {
         val (auth, _) = newAuth()
@@ -1165,16 +1011,13 @@ class DesktopAuthLibraryJvmTest {
     // ══════ 校历：免登录的那条路 ══════
     @Test
     fun `校历：免登录就能取到学期与假期（桌面端第二条真能用的路由）`() = withFakeCampus {
-        // 注意：**没有任何登录**。这个接口是公开门户接口，`:data` 的 `SchoolCalendarApi` 直接用。
-        // 基址指向假上游：真机那条是 https，纯 HTTP 假代理给不了 CONNECT 隧道（见夹具的 KDoc）；
-        // 校历解析不看 URL，所以这不影响测的是不是真解析链路。
+        // 公开门户接口，不登录；基址指向假上游（假代理给不了 https 的 CONNECT 隧道）。
         val terms = runBlocking { SchoolCalendarApi(SchoolCalendarFakeUpstream.URL).terms() }
 
         assertEquals(2, terms.size, "假上游给了两个学期")
         val first = terms.first()
         assertEquals("2026-2027学年第一学期", first.termName)
         assertEquals(LocalDate.parse("2026-09-07"), first.startDate)
-        // 结束日取的是考试周结束（exam_end），不是 end_date —— 口径在 `:core` 的解析里
         assertEquals(LocalDate.parse("2027-01-15"), first.endDate)
         assertEquals(18, first.totalWeeks)
         assertEquals(listOf("中秋节", "国庆节", "元旦"), first.events.map { it.name })
@@ -1188,14 +1031,7 @@ class DesktopAuthLibraryJvmTest {
 
     // ══════ 「某个子系统挂了」不该把整个客户端挡在门外 ══════
 
-    /**
-     * 体测服务历史上真的返回过 502（见 `:data` 的 `FitnessSession` KDoc）。所以登录页那一步
-     * **只硬要求主站（图书馆）**，其余站点是「尽力预热、失败只记不抛」；那些站点在**自己那一屏**
-     * 进门时再补登（`ToolboxDesktopApp` 的 `DesktopSiteGate`）。
-     *
-     * 这一条就是那个设计的回归网：体测全站 503 时，登录必须照样成功、图书馆照样能读，
-     * 而体测那一屏自己报错（不是把登录态弄坏）。
-     */
+    /** 体测服务历史上真的返回过 502（见 `:data` 的 `FitnessSession` KDoc）。 */
     @Test
     fun `体测服务挂了也不阻塞登录（主站照常，进那一屏才报错）`() = withFakeCampus {
         fake.fitness.outage = true
@@ -1241,7 +1077,6 @@ class DesktopAuthLibraryJvmTest {
         assertEquals(postsAfterLogin, fake.library.credentialPosts.get(), "恢复 + 取数都不该再提交密码")
     }
 
-    // ══════ 会话失效：内核自己重登 + 重放（与 :data 那条同一口径）══════
 
     @Test
     fun `会话失效时内核自动重登并重放，调用方拿到正确结果`() = withFakeCampus {
@@ -1308,11 +1143,7 @@ class DesktopAuthLibraryJvmTest {
             !legacyText.contains(LibraryFakeUpstream.PASSWORD),
             "凭据文件里不应再残留密码明文",
         )
-        // 再登一次：会重新走完整 CAS（没有旧 cookie 可以 SSO 直通）
-        //
-        // 重新种一份 RSA 公钥：`logout()` 走的是 `clear()`，把公钥一并抹了（与 Android 把
-        // `rsaPublicKey` 绑在账号记录上同一条口径）⇒ 真机上这一次登录会去 https 取一遍公钥。
-        // 本地假上游给不了 https（要 CONNECT+TLS），所以把那次取回的结果直接摆好。
+        // 再登一次走完整 CAS；`logout()` 抹了 RSA 公钥，假上游给不了 https，所以直接摆好。
         store.rsaPublicKey = TestRsaKey.publicKeyBase64
         assertTrue(login(auth), "退出后应当还能重新登进来：${auth.loginState}")
         assertEquals(2, fake.library.credentialPosts.get(), "第二次登录应重新提交凭据（不是靠残留会话直通）")
@@ -1340,7 +1171,6 @@ class DesktopAuthLibraryJvmTest {
         )
         // 电话里的 `/` 拆成两条（`phoneItems`），屏上因此有两个可拨号码
         assertEquals(listOf("029-82668891", "029-82668892"), data.departments[1].phoneItems)
-        // 「数据更新于」的格式化口径（与 `:core` 那条单测同一个期望值）
         assertEquals("2026年08月01日", data.updateTime)
     }
 
@@ -1371,12 +1201,6 @@ class DesktopAuthLibraryJvmTest {
 
     // ══════ 电子成绩单（dzpz）：自己走 OAuth2 + CAS 的那条路 ══════
 
-    /**
-     * 第 14 条真数据路由。它与前面 13 条最大的不同是**登录入口**：`dzpz` 有自己的独立登录页
-     * （`Login.jsp` → CAS 的 OAuth2 授权入口 `client_id=new9940` → 回跳换 `loginidweaver`），
-     * 不借别的已搬站点的会话 —— 所以这条用例真跑一遍那趟 OAuth2（假 CAS 由 `LibraryFakeUpstream`
-     * 扮演，它为新端点多扮了 `/cas/oauth2.0/authorize`）。
-     */
     @Test
     fun `真登录之后：电子凭证自己走完 OAuth2 与 CAS，成绩单七步读出夹具样本`() = withFakeCampus {
         val (auth, _) = newAuth()
@@ -1393,7 +1217,6 @@ class DesktopAuthLibraryJvmTest {
             "OA id 来自 loginidweaver cookie（DzpzSession.onLoginSuccess 那两行）",
         )
 
-        // 桌面端取数走的就是 `:data` 的 `AppTranscriptSource`（包住搬过来的 `TranscriptApi`）
         val source = AppTranscriptSource(site)
         val (pdf, info) = runBlocking {
             val ctx = source.loadCreateForm(DzpzDocuments.TRANSCRIPT.workflowId)
@@ -1423,11 +1246,6 @@ class DesktopAuthLibraryJvmTest {
 
     // ══════ 加餐券（egc.xjtu.edu.cn）：自己走 OAuth2 + 开放平台那条路 ══════
 
-    /**
-     * 第 15 条真数据路由。登录入口**也有自己的独立登录页**：CAS OAuth2 `client_id=1596` →
-     * `org.xjtu.edu.cn` 开放平台（`authorizesw`，redirect_uri 是 base64 的 egc 接收页）→
-     * 回落到 `receiveCas.html` → 换 `auth_token`。这条用例真跑一遍那趟链，再读出夹具的券卡。
-     */
     @Test
     fun `真登录之后：加餐券自己走完 OAuth2 与开放平台，查券读出夹具样本`() = withFakeCampus {
         val (auth, _) = newAuth()
@@ -1443,7 +1261,6 @@ class DesktopAuthLibraryJvmTest {
             "auth_token 来自 SSO 换令牌那一枪（CouponSession.onLoginSuccess 那两行）",
         )
 
-        // 桌面端取数走的就是 `:data` 的 `AppCouponSource`（包住搬过来的 `CouponApi`）
         val source = AppCouponSource(site)
         val pages = runBlocking {
             listOf(
@@ -1470,11 +1287,6 @@ class DesktopAuthLibraryJvmTest {
 
     // ══════ 宿舍电费（ssn.xjtu.edu.cn）：自己走开放平台那条链 ══════
 
-    /**
-     * 第 17 条真数据路由。登录入口**也有自己的独立登录页**：`org.xjtu.edu.cn` 开放平台的
-     * OAuth2（appId=1759）→ 统一认证 → 带 `code` 回缴费页（站点点下会话、页面里内嵌 `cid`）。
-     * 这条用例真跑一遍那趟链，再取一次缴费页入口与电量（`:data` 的 `DormPowerApi`，假上游样本）。
-     */
     @Test
     fun `真登录之后：ssn 自己走完开放平台链，缴费页入口与电量读出夹具样本`() = withFakeCampus {
         val (auth, _) = newAuth()
@@ -1531,11 +1343,6 @@ class DesktopAuthLibraryJvmTest {
 
     // ══════ 考勤（bk-kq.xjtu.edu.cn）：自己走直连业务站那条链 ══════
 
-    /**
-     * 第 16 条真数据路由。登录入口**也有自己的独立登录页**：`AttendanceLogin` 直连本科生业务站
-     *（`bk-kq.xjtu.edu.cn/sa/auth/cas/login/student-pc`）→ CAS → 回调带 loginRequestId+ticket
-     * 换业务令牌。这条用例真跑一遍那趟链，再取一次学期与请假（`:data` 的 `AppAttendanceSource`）。
-     */
     @Test
     fun `真登录之后：考勤自己走完直连业务站链，学期与请假读出夹具样本`() = withFakeCampus {
         val (auth, _) = newAuth()

@@ -243,17 +243,10 @@ internal const val GLANCE_SECONDS = 1.1
 /** 引擎时钟：以本钟创建时为零点，帧回调和状态切换共用同一时间原点。 */
 internal class BotClock {
 
-    /**
-     * 单调时钟。`:core` 的 commonMain 没有 `System.nanoTime()`（JVM 专属），
-     * `kotlin.time.TimeSource.Monotonic` 是它的跨端等价 —— 同样是「单调、不受墙钟调整影响」的口径，
-     * 而且 Android 上底层就是 `System.nanoTime()`，所以这一端的动画节奏与搬迁前一致。
-     */
+    /** 单调时钟。 */
     private val start = kotlin.time.TimeSource.Monotonic.markNow()
 
-    /**
-     * `withFrameNanos` 给的纳秒数用的是**它自己那套原点**，第一次拿到它时对齐到本钟，
-     * 此后 [now] 与 [at] 才是同一把尺子（状态切换的时刻与采样时刻必须同源）。
-     */
+    /** `withFrameNanos` 给的纳秒数用的是它自己那套原点，第一次拿到它时对齐到本钟，此后 [now] 与 [at] 才是同一把尺子（状态切换的时刻与采样时刻必须同源）。 */
     private var frameOrigin: Long = Long.MIN_VALUE
 
     /** 最近一次状态切换的时刻，供静止态的保活节流判断入场形变是否已结束。 */

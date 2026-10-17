@@ -21,13 +21,7 @@ data class JudgeCard(val key: String, val course: String, val teacher: String, v
 
 /** 评教的数据来源：本科走教务，研究生走 gste + gmis。 */
 interface JudgeSource<Q> {
-    /**
-     * 这一端能不能**提交**评教。
-     *
-     * false 时屏上不出现「一键全部好评」与撤回按钮 —— 评教是写操作，Web 端
-     * （campus-api 的 evaluations 模块是**只读**的，它自己也写明「永不实现提交/撤销评教」）
-     * 只能看不能交，那就不要画一个点了会失败的按钮。:app 默认 true。
-     */
+    /** 这一端能不能提交评教。 */
     val canSubmit: Boolean get() = true
 
     /** 确认框里「将为 N 门课程全部提交好评」之后的话。 */

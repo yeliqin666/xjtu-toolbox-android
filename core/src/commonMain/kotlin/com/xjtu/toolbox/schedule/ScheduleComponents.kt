@@ -66,9 +66,7 @@ private val CELL_GAP: Dp = 3.dp
 // 纵轴按节次排版（节号与起止时间画在左轴，大空档插成「午休」「晚休」带），条目按真实钟点落位，
 // 见 WeekGridLayout。
 //
-// ⚠️ 小时语义的三个常量（DAY_START_HOUR / DAY_END_HOUR / MAX_SECTIONS）与课程色那一簇
-// （COURSE_COLORS / defaultCourseColor / courseColorMap / colorOf / rememberCourseColors）都搬进 :core 了
-// （schedule/CourseItems.kt、schedule/CourseColorMap.kt）—— 别在本文件里再声明一份。
+// ⚠️ 小时常量与课程色在 schedule/CourseItems.kt、schedule/CourseColorMap.kt，别在本文件再声明一份。
 
 // ── 周选择器（左右箭头式）────────────────
 

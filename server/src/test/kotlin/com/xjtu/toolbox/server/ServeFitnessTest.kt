@@ -12,17 +12,7 @@ import kotlin.test.assertTrue
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonArray
 
-/**
- * 体测两端点的契约测试（`/api/fitness/years` · `/api/fitness/score`）。
- *
- * 轻登录：serve 进程要先 `POST /api/session/login`（走**真 CAS**，`:testkit` 那半台），
- * 体测站点会随登录链预热好（`ServeSession` 的 `SESSION_SITE_KEYS` 含 fitness）。取数是 `:data`
- * 的 [FitnessApi]（v3 加密协议 + 失败退回 legacy），夹具把这整条链都扮演了。
- *
- * ⚠️ **身份字段**：新契约（§5「要改」）里这是**本人的数据**，`/api/fitness/score` 的响应带
- * 学号/姓名 —— expected 值是夹具的**编造常量**（`FitnessFakeUpstream.STUDENT_NUM` /
- * `STUDENT_NAME`，同一个假账号 "2021000001"/"示例同学"），不是任何真人的数据。
- */
+/** 体测两端点的契约测试（`/api/fitness/years` · `/api/fitness/score`）。 */
 class ServeFitnessTest {
 
     private var started: EmbeddedServer<CIOApplicationEngine, CIOApplicationEngine.Configuration>? = null
@@ -61,7 +51,6 @@ class ServeFitnessTest {
         assertEquals(200, login.statusCode())
         assertTrue(envelopeData(login).optBoolean("authenticated") == true, "登上了就该报 true")
 
-        // ── years：逐字段（夹具原文：2025 先、2026 checked）──
         val yearsResponse = http.get("/api/fitness/years")
         assertEquals(200, yearsResponse.statusCode())
         assertEquals(ApiEnvelope.CODE_OK, envelopeCode(yearsResponse))
@@ -71,7 +60,6 @@ class ServeFitnessTest {
         assertFitnessYear(years[0] as JsonObject, FitnessFakeUpstream.YEAR_OLD, FitnessFakeUpstream.YEAR_OLD_NAME, false)
         assertFitnessYear(years[1] as JsonObject, FitnessFakeUpstream.YEAR_NEW, FitnessFakeUpstream.YEAR_NEW_NAME, true)
 
-        // ── score?year=2026：逐字段（身份字段 = 夹具编造值，见类 KDoc）──
         val scoreResponse = http.get("/api/fitness/score?year=${FitnessFakeUpstream.YEAR_NEW}")
         assertEquals(200, scoreResponse.statusCode())
         assertEquals(ApiEnvelope.CODE_OK, envelopeCode(scoreResponse))
@@ -96,7 +84,6 @@ class ServeFitnessTest {
         assertFitnessItem(items[5] as JsonObject, "50 米", "未测", "缺项", "")
         assertFitnessItem(items[6] as JsonObject, "1000 米", "4.12", "良好", "good")
 
-        // 红线（身份字段之外）：响应里不许出现密码/令牌/手机号键，也不许出现查询账号之外的学号
         val body = scoreResponse.body()
         assertFalse(body.contains("password"), "响应体不该出现密码")
         for (key in listOf("username", "studentId", "手机号", "mobile")) {

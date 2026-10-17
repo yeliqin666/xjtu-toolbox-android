@@ -4,51 +4,7 @@ import com.sun.net.httpserver.HttpExchange
 import com.xjtu.toolbox.library.LibraryFakeUpstream
 import java.util.concurrent.atomic.AtomicInteger
 
-/**
- * 假的**移动教务**上游（`jwapp.xjtu.edu.cn`，第 19 条真数据路由的学校那一侧）＋它登录链上游的
- * 开放平台那一跳（`org.xjtu.edu.cn/openplatform/oauth/authorize?appId=1370`）。
- *
- * ## 它扮的是哪条链
- *
- * 与 [`JwappLogin`](com.xjtu.toolbox.auth.JwappLogin) / [`JwappSession`](com.xjtu.toolbox.auth.JwappSession)
- * 一起，把**搬进 `:data` 之后**的登录与取数原样演一遍：
- *
- * ```
- * GET  https://org.xjtu.edu.cn/openplatform/oauth/authorize?appId=1370&redirectUri=http://jwapp.xjtu.edu.cn/app/index&responseType=code&…&state=1234
- *        （没 TGC → 302 到 http://login.xjtu.edu.cn/cas/login?service=<这条 authorize 的原文>）
- * POST http://login.xjtu.edu.cn/cas/login?service=… → 种 TGC → 302 回 authorize?ticket=ST-n（登录页那半台在 LibraryFakeUpstream）
- * GET  https://org.xjtu.edu.cn/openplatform/oauth/authorize?…&ticket=ST-n
- *        → 302 http://jwapp.xjtu.edu.cn/app/index?token=<业务令牌>（**token 在回调 URL 里**，JwappLogin 从它抠出来）
- * GET  http://jwapp.xjtu.edu.cn/app/index?token=…      → 200（落点；此后每个业务请求带 `Authorization: <令牌>`）
- * GET  https://jwapp.xjtu.edu.cn/api/biz/v410/common/school/time   → 200（`validateLogin` 与首页成绩卡那一枪）
- * POST https://jwapp.xjtu.edu.cn/api/biz/v410/score/termScore      → 学期成绩（body 里是 {"termCode":"*"}）
- * POST https://jwapp.xjtu.edu.cn/api/biz/v410/score/scoreDetail    → 分项成绩（body 里是 {"id":"…"}）
- * ```
- *
- * ⚠️ 登录链的**第一个 host 是 `org.xjtu.edu.cn`**（与场馆 `appId=1659` / 宿舍电费 `appId=1759` 同一台
- * 开放平台，靠 `appId` 分流，见 [FakeCampusProxy][com.xjtu.toolbox.FakeCampusProxy] 的 dispatch）；
- * 回跳落在 **明文 http** 的 `jwapp.xjtu.edu.cn`（`JwappLogin.JWAPP_URL` 里那个 `redirectUri` 就是
- * http），而业务接口走 https —— 同一个 host 两种传输形态，所以 `jwapp.xjtu.edu.cn` 既在
- * `HTTPS_HOSTS`（要隧道）里，也要答明文代理过来的那一枪。
- *
- * ## 话痨一点的端点
- *
- * `school/time` 这一枪是给 `JwappSession.validateLogin()` 的：它**只判 200**，不解析正文，
- * 所以这里给的正文照真站点的形状（`{"code":200,"data":{"xnxqdm":…}}`）—— 形状对了，
- * `JwappApi.getCurrentTerm()`（首页成绩卡）将来也走这一条。
- *
- * ## 成绩样本与教务那份是**同一组课**
- *
- * `xscjcx.do`（`CjcxApi`，在 [com.xjtu.toolbox.jwxt.JwxtFakeUpstream] 里）给的是**精确总评**，
- * 屏幕上的最终成绩是它替换过的那一份 —— 所以两边的学期号与课名必须对得上（同一个学期
- * `2026-2027-1`、同一门「高等数学（上）」）。对不上不会报错，只会「精确成绩没替换成功」，
- * 那正是最难查的一种坏，所以样本刻意对齐。
- *
- * ## 夹具值全是编造的
- *
- * 「高等数学（上）」（借用本校真课名，但成绩、学分、绩点都是编的）、老师是谁不出现；
- * 学号与 `LibraryFakeUpstream.USERNAME` 一致只是为了「同一个假账号贯穿几条链」。
- */
+/** 假的移动教务上游（`jwapp.xjtu.edu.cn`）＋开放平台那一跳（`authorize?appId=1370`）。 */
 class JwappFakeUpstream {
 
     companion object {
@@ -62,10 +18,10 @@ class JwappFakeUpstream {
         const val OAUTH_PATH = "/openplatform/oauth/authorize"
         const val APP_ID = "1370"
 
-        /** 回跳地址 —— 与 `JwappLogin.JWAPP_URL` 里的 `redirectUri` **逐字相同**（有断言钉着）。 */
+        /** 回跳地址，与 `JwappLogin.JWAPP_URL` 里的 `redirectUri` 相同（有断言钉着）。 */
         const val APP_INDEX_URL = "$HTTP_ORIGIN/app/index"
 
-        /** 与 `JwappLogin.JWAPP_URL` 逐字相同的那条入口（有断言钉着）。 */
+        /** 与 `JwappLogin.JWAPP_URL` 相同的入口（有断言钉着）。 */
         const val OAUTH_URL =
             "https://$OAUTH_HOST$OAUTH_PATH?appId=$APP_ID&redirectUri=$APP_INDEX_URL" +
                 "&responseType=code&scope=user_info&state=1234"
@@ -104,14 +60,7 @@ class JwappFakeUpstream {
         const val ITEM_2_PERCENT = "70%"
         const val ITEM_2_SCORE = "90"
 
-        /**
-         * 「这门课没有分项」那一档的课程 id：拿它去问 `scoreDetail` 会得到一张
-         * `code=200` 但 `data=null` 的响应 —— `JwappApi.getDetail` 把它判成
-         * `NoScoreDetailException`（服务端在 `msg` 里说「该课程暂无分项成绩」）。
-         *
-         * 为什么要有这一档：那是**上游明确说没有**（不是故障），`:server` 的
-         * `/api/jwapp/score-detail` 靠它钉「`detail: null` 而不是 502/404」。
-         */
+        /** 「这门课没有分项」那一档的课程 id：拿它去问 `scoreDetail` 会得到一张`code=200` 但 `data=null` 的响应。 */
         const val DETAIL_MISSING_ID = "SCORE-NODETAIL"
         const val DETAIL_MISSING_JSON =
             """{"code":200,"msg":"该课程暂无分项成绩","data":null}"""
@@ -177,10 +126,7 @@ class JwappFakeUpstream {
     var lastAuthorization: String? = null
         private set
 
-    /**
-     * 开放平台那一跳：带 `ticket=` 回来就签一枚**业务令牌**塞进回跳 URL（`?token=`），
-     * 否则把这条 authorize 原文当 `service` 交给统一认证（真站点就是这么转的）。
-     */
+    /** 开放平台那一跳：带 `ticket=` 回来就签一枚业务令牌塞进回跳 URL（`?token=`），否则把这条 authorize 原文当 `service` 交给统一认证（真站点就是这么转的）。 */
     fun handleOauth(exchange: HttpExchange) {
         val path = exchange.requestURI.path
         val raw = exchange.requestURI.rawQuery.orEmpty()

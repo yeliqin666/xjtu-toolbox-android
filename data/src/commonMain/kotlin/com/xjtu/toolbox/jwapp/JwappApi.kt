@@ -29,14 +29,6 @@ private const val TAG = "JwappGPA"
 
 // ── 移动教务的 okhttp 取数 ────────────────────────────────────────────
 //
-// 从 `:app` 的 `jwapp/JwappApi.kt` 搬进 `:data`（桌面端第 19 条真数据路由：桌面要自己登 jwapp、
-// 自己取学期成绩与分项成绩）。类名与包路径一字未改，两件事跟着走：
-//
-//  - 成绩/GPA 的模型（`ScoreSource` / `CourseGroup` / `ScoreItem` / `ScoreDetail` / `TermScore` /
-//    `GpaInfo` / `NoScoreDetailException`）早就在 **:core** 的 `jwapp/ScoreModels.kt` 里；
-//  - `isNoScoreDetailMessage` 与 `CjcxApi.normalizeName` 也搬到了 **:core**（那边有第二个消费方：
-//    分居两个模块之后，判据与归一化都只能有一份）。
-//
 // `android.util.Log` → `:core` 的 `Log`（tag 与级别不变）。
 
 class JwappApi(private val site: SiteSession) {

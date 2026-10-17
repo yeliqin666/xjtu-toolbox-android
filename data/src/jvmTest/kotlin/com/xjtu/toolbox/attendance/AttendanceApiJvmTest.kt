@@ -19,18 +19,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 import kotlinx.coroutines.runBlocking
 
-/**
- * 考勤取数的**字段级口径**：`AttendanceApi` + `LeaveApi`（以及它们包的 `:core` 端口
- * [AttendanceSource]）对着 `:testkit` 的 [AttendanceFakeUpstream] 逐行读。
- *
- * ## 为什么在 `:data` 而不是 `:app`
- *
- * 这一轮把考勤的取数（`AttendanceApi` / `LeaveApi` / `KqHttp` / `KqPortal` / `AttendanceRecordStore`）
- * 与站点（`AttendanceSession` + `AttendanceLogin`）从 `:app` 搬进 `:data`（桌面端第 16 条真数据
- * 路由）。搬之前先把**搬之前**的口径钉住 —— 这些断言全部来自**夹具原文**与**搬迁前的代码语义**：
- * 业务令牌落在 `localToken`、换票请求的两个参数、业务请求带 `X-Business-Token` + `X-System`、
- * 学期/流水的字段读法、请假的字段口径。模型（`AttendanceWaterRecord` 等）早在 `:core`。
- */
+/** 考勤取数的字段级口径：`AttendanceApi` + `LeaveApi`（以及它们包的 `:core` 端口 [AttendanceSource]）对着 `:testkit` 的 [AttendanceFakeUpstream] 逐行读。 */
 class AttendanceApiJvmTest {
 
     @Test

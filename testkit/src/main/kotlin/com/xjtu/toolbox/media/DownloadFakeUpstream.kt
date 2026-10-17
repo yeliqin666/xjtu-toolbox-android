@@ -2,30 +2,7 @@ package com.xjtu.toolbox.media
 
 import com.sun.net.httpserver.HttpExchange
 
-/**
- * 假的**回放视频直链**（`video-download.xjtu.edu.cn`，**明文 http**）—— 给「真下载一个夹具文件并落盘」
- * 那条端到端测试与 `download_manager.png` 证据图用。
- *
- * ## 它为什么存在
- *
- * 下载管理这一屏在桌面端要证明的不是「屏画得出来」，而是**那条队列真能把一个文件搬下来**：
- * 发 HTTP、按 `Range` 续传、把字节写进本地文件、状态从 `pending` 走到 `completed`。
- * 真站点的回放直链动辄几百 MB、还要登录，所以这里造一个**几十 KB 的假 mp4**：
- * 字节是程序按固定公式生成的（不是截取任何真文件，也不是随机数 —— 每次跑都逐字节相同，
- * 测试才能断言「落到磁盘上的就是它」）。
- *
- * ## 支持 `Range`（这是关键）
- *
- * 共享状态机的续传语义只能靠真响应码来验：带 `Range` 且合法 ⇒ **206** + `Content-Range`；
- * 起点已经到文件尾 ⇒ **416**（「本地已完整」，不是失败）；不认 `Range` 的服务器回 200 整份 ——
- * 三种形态这里都能造（见 [handle]）。
- *
- * ## 为什么是 http
- *
- * 本地假代理是纯 HTTP 代理，给不了 CONNECT + TLS 隧道（见 [com.xjtu.toolbox.FakeUpstreamFront]）；
- * 桌面端下载走的是同一个 `HttpClients.base`（同一套 cookie/拦截器/代理），
- * 所以「取数链路是真的」这条性质不受影响。
- */
+/** 假的回放视频直链（`video-download.xjtu.edu.cn`，明文 http） */
 class DownloadFakeUpstream {
 
     companion object {
@@ -49,10 +26,7 @@ class DownloadFakeUpstream {
         /** 假视频的大小：够跨好几次 8 KB 缓冲与一次 500 ms 进度节流，又小到测试跑得快。 */
         const val SIZE_BYTES = 200_000
 
-        /**
-         * 假视频的字节。前 8 个字节是 MP4 的 `ftyp` box（只为「看起来像个 mp4」，
-         * 播放器能不能懵开不在这条链路的判据里），后面按固定公式填 —— 每次跑逐字节相同。
-         */
+        /** 假视频的字节。 */
         val BYTES: ByteArray get() = fileBytes
 
         private val fileBytes: ByteArray = ByteArray(SIZE_BYTES) { index ->
@@ -63,7 +37,6 @@ class DownloadFakeUpstream {
                 5 -> 0x74
                 6 -> 0x79
                 7 -> 0x70
-                // 其余：固定公式的伪内容（不是随机数，跑两次逐字节相同）
                 else -> ((index * 31 + 7) % 251).toByte()
             }
         }
@@ -74,11 +47,7 @@ class DownloadFakeUpstream {
     /** 其中几次带了 `Range` 头（断点续传那条路真的被走到过的证据）。 */
     val rangeRequests = java.util.concurrent.atomic.AtomicLong()
 
-    /**
-     * 按目标路径答一份字节流。
-     *
-     * ⚠️ 路径漂了就 404（不静默换成「随便给一份」）：那样「换了个 URL 但假上游照答」会被静默放过。
-     */
+    /** 按目标路径答一份字节流。 */
     fun handle(exchange: HttpExchange) {
         val path = exchange.requestURI.path
         if (path != INSTRUCTOR_PATH && path != ENCODER_PATH) {

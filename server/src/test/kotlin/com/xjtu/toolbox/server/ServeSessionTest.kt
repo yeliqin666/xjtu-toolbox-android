@@ -35,29 +35,7 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 
-/**
- * `/api/session*` 四个端点的契约测试（`docs/api-contract.md` §5 的「P0（新）」那一行）。
- *
- * ## 它验的是哪一层
- *
- * `:data:jvmTest` 验的是**会话内核**（登录状态机 / MFA 状态机 / 站点会话），`:desktop:test` 验的是
- * **桌面端自己的装配**。这一条验的是**同一份数据层 × HTTP 形状**：四个端点、信封、
- * 令牌换 cookie、409 互斥、以及**短信二验那条往返**（浏览器侧轮询 → 用户输码 → 内核校验 → 登录完成）。
- *
- * ## 手法与纪律
- *
- * - **真 socket**：CIO 起在端口 `0`（系统挑），客户端用 JDK 自带的 `java.net.http`
- *   —— 与 [ServeServerTest] 的既有 harness 同一条口径（那边那份只有 `get`，这里需要 POST 与
- *   异步请求，所以是本文件里的第二份小 harness：宁可少 20 行复用，也不去动已经钉住六条验收的旧文件）；
- * - **真上游**：`:testkit` 的 [FakeCampusProxy]（本地 HTTP 代理按 host 分派）。登录是**真的**
- *   走完 CAS（表单 POST + RSA 加密密码 + TGC + ticket 回跳），MFA 是**真的**走完
- *   「Safety Verify 页 → 取手机号 → 校验验证码 → secState 回提」四步（见 `:testkit` 的 `JwxtFakeUpstream` KDoc）；
- * - **数据根一律临时目录**（`dataRootOverride`）：凭据、cookie、站点快照、令牌都不落用户真实目录；
- * - **红线**：每一个 `/api/session*` 的响应体都过一遍 [assertNoIdentity]（不许出现学号/姓名）。
- *
- * ⚠️ 顺序上有一条不能换：[FakeCampusProxy.installFakeUpstreams] **必须在构造 [ServeSession] 之前**
- * （它一构造就会建 OkHttpClient，而客户端在建出来那一刻就把 trust manager 与 ProxySelector 抄走了）。
- */
+/** `/api/session*` 四个端点的契约测试（`docs/api-contract.md` §5 的「P0（新）」那一行）。 */
 class ServeSessionTest {
 
     private var started: EmbeddedServer<CIOApplicationEngine, CIOApplicationEngine.Configuration>? = null
@@ -94,7 +72,6 @@ class ServeSessionTest {
         // 错 cookie 照旧 401：这一步没有把闸门放松
         assertEquals(401, http.get(SESSION_PATH, bearer = null, cookie = "not-the-token").statusCode())
 
-        // 没有挂起的询问时如实报 pending:false（不是 404、也不是 500）
         assertEquals(false, mfaState(serve).pending)
 
         // 请求体形状不对 ⇒ 400 + **信封**（不是 Ktor 那个不带信封的 400）
@@ -154,13 +131,7 @@ class ServeSessionTest {
         assertEquals(false, authenticatedField(serve.http.get(SESSION_PATH)))
     }
 
-    /**
-     * 冷启动静默恢复：落盘凭据还在 ⇒ 新的 serve 实例一上来就是「有身份」，**且不联网**。
-     *
-     * 为什么把假上游先关掉：恢复那一步只允许做本地装配（重新绑命名空间 + 塞回凭据/指纹/公钥），
-     * 不许顺手探活 —— 那会让「打开页面」这个最该快的动作多等一次网络（契约 §5 的口径）。
-     * 关掉上游之后任何网络请求都会失败，于是「断言通过」本身就证明了它没联网。
-     */
+    /** 冷启动静默恢复：落盘凭据还在 ⇒ 新的 serve 实例一上来就是「有身份」，且不联网。 */
     @Test
     fun `冷启动静默恢复：落盘凭据让新实例直接是有身份，且不联网`() = withServeSession { serve ->
         assertEquals(200, serve.login().statusCode())
@@ -189,14 +160,7 @@ class ServeSessionTest {
         assertEquals(false, authenticatedField(serve.http.get(SESSION_PATH)))
     }
 
-    /**
-     * **短信二验的完整往返**（契约 §5 里那条轮询形态的验收）。
-     *
-     * 剧本在夹具那一侧（`:testkit` 的 `JwxtFakeUpstream` 那个 Safety Verify 页 + CAS 的取手机号/校验验证码两枪）：
-     * 教务站点在 TGC 已下发之后仍被拦到二次认证页 ⇒ `REQUIRE_MFA` ⇒ 内核挂起等验证码。
-     * 这里验的是**浏览器那一侧的四件事**：轮询看得到询问、挂起期间别的端点照常、错码 rejections 递增、
-     * 对码把登录跑完。
-     */
+    /** 短信二验的完整往返（契约 §5 里那条轮询形态的验收）。 */
     @Test
     fun `短信二验：挂起时其它端点照常，错码 rejections 递增，对码完成登录`() = withServeSession { serve ->
         fake.jwxt.requireSafetyVerify.set(true)
@@ -210,7 +174,6 @@ class ServeSessionTest {
 
         val pending = serve.http.postJsonAsync(SESSION_PATH + "/login", LOGIN_BODY)
 
-        // ── 轮询：询问挂上来了，形状逐字段对 ──
         val first = awaitMfa(serve) { it.pending }
         assertEquals("教务系统", first.siteName, "站点名是内核给的（屏上那句「…需要短信验证码」用它）")
         assertEquals(0, first.rejections)
@@ -266,16 +229,7 @@ class ServeSessionTest {
         assertEquals(false, awaitMfa(serve) { !it.pending }.pending)
     }
 
-    /**
-     * 短信二验**取消**：`POST {"cancel":true}` 之后，挂起的那一发登录以 4xx 收尾。
-     *
-     * ⚠️ 这一条必须打在**硬要求的主站（图书馆）**上，不能打在预热站点上：预热站点失败只记不抛
-     *（「单个子系统挂了不能把人挡在门外」是登录语义的一部分）⇒ 在教务上取消只会让教务那一站跳过，
-     * 整次登录照旧成功。所以这条剧本把二次认证页发在**凭据 POST 的落点**（图书馆那条链），
-     * 于是「用户取消了验证」= 这次登录没成 —— 这正是契约里 `cancel` 该有的语义。
-     *
-     * 不取消的话内核会一直等到 150 秒超时，那段时间里第二发登录只能拿 409 —— 用户看到的是「卡住了」。
-     */
+    /** 短信二验取消：`POST {"cancel":true}` 之后，挂起的那一发登录以 4xx 收尾。 */
     @Test
     fun `短信二验取消：POST cancel 之后挂起的那一发登录以 4xx 收尾`() = withServeSession { serve ->
         fake.library.requireSafetyVerify.set(true)
@@ -307,17 +261,7 @@ class ServeSessionTest {
 
     // ── 测试脚手架 ────────────────────────────────────────────────────────────────
 
-    /**
-     * 起假上游（当代理用）+ 把落盘存储指到临时目录，跑 [block]，收尾关上游。
-     *
-     * 与 `:desktop` 的 `DesktopAuthLibraryJvmTest.withFakeCampus` 逐条同源（三个坑都一样）：
-     *  1. **两件进程级前置必须在碰 `HttpClients` 之前装**（也就建任何 [ServeSession] 之前）：
-     *     常驻 selector 与假上游那枚自签 https 证书的信任库；
-     *  2. cookie jar 与 `secureKeyValueStore` 都是**进程级**缓存（App 里正是靠这一点让前后台共用
-     *     同一个 jar）⇒ 必须把上一轮留下的内存态与文件一起清掉，否则上一条测试的 TGC 会把
-     *     「真登录」变成 SSO 直通；
-     *  3. 清 cookie 要连**账号命名空间**一起清（`cookies_normal_<学号>`）：登录会把 backends 换到那边。
-     */
+    /** 起假上游（当代理用）+ 把落盘存储指到临时目录，跑 [block]，收尾关上游。 */
     private fun withServeSession(block: (Serve) -> Unit) {
         fake = FakeCampusProxy(casEnabled = true)
         dataRootOverride = Files.createTempDirectory("xjtu-serve-session").toFile()
@@ -410,9 +354,7 @@ class ServeSessionTest {
         private val client: HttpClient = HttpClient.newBuilder()
             // 明文 HTTP 上不必去试 h2c 升级：CIO 只讲 HTTP/1.1
             .version(HttpClient.Version.HTTP_1_1)
-            // ⚠️ 必须显式「不走代理」：假上游装的是**进程级** ProxySelector（见 `FakeUpstreamProxySelector`），
-            // 它把每个连接都指到那个端口 —— 连我们自己这台 `127.0.0.1` 上的 serve 也不例外
-            // （表现是假上游回一句 404 "nope"，看上去像路由没挂上）。JDK 的 HttpClient 也认那个默认值。
+            // ⚠️ 必须显式不走代理：进程级的假上游 ProxySelector 连 127.0.0.1 上的 serve 也会拦。
             .proxy(ProxySelector.of(null))
             .build()
 
@@ -428,10 +370,7 @@ class ServeSessionTest {
                 HttpResponse.BodyHandlers.ofString(),
             )
 
-        /**
-         * 异步发一发（MFA 那条链要它）：登录会挂起等验证码，测试得在它挂着的时候去轮询/取消。
-         * 刻意**不设**请求超时：挂起本身是这条验收的一部分（内核的等待上限是 150 秒）。
-         */
+        /** 异步发一发（MFA 那条链要它）：登录会挂起等验证码，测试得在它挂着的时候去轮询/取消。 */
         fun postJsonAsync(path: String, body: String): CompletableFuture<HttpResponse<String>> =
             client.sendAsync(
                 request(path, token, null)

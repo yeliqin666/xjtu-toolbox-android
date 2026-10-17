@@ -4,43 +4,7 @@ import com.sun.net.httpserver.HttpExchange
 import java.net.URLDecoder
 import java.util.concurrent.atomic.AtomicInteger
 
-/**
- * 假的**电子凭证系统**（`dzpz.xjtu.edu.cn` —— 成绩单只是这个工作流引擎的一个 `workflowId`）。
- *
- * ## 它扮的是哪条链
- *
- * 与 [`DzpzLogin`] + [`DzpzSession`] 一起，把**搬进 `:data` 之后**的那七步原样演一遍：
- *
- * ```
- * GET  /login/Login.jsp                     → 302 CAS OAuth2 authorize（client_id=new9940）
- * GET  https://login.xjtu.edu.cn/cas/oauth2.0/authorize
- *        （没 TGC → 302 /cas/login?service=<authorize>，登录页在 LibraryFakeUpstream 那半台 CAS 里）
- * GET  /login/Login.jsp?code=OC-fake-1      → 种 loginidweaver cookie（= userId）→ 200
- * GET  /api/system/info/getOSinfo           → {"resourceid":"72439"}（DzpzSession.validateLogin 的探针）
- *
- * POST /api/workflow/reqform/loadForm        （iscreate=1）→ 表单默认值 + 成绩单类型选项 + tableInfo
- * POST /api/workflow/linkage/reqDataInputResult ×2       → assignInfo_64 / assignInfo_43
- * POST /api/xjtuapi/procfiles                → "9001"（预览文档 id，纯文本）
- * POST /api/workflow/reqform/requestOperation（第一次，src=save）   → data.type=SUCCESS + requestid/sessionkey
- * POST /api/workflow/reqform/loadForm        （requestid=555）      → 重载后的 params/submitParams/maindata
- * POST /api/xjtuapi/checksubmit              → "1"
- * POST /api/workflow/reqform/requestOperation（第二次，src=submit） → 转发到下载节点成功
- * POST /api/workflow/reqform/loadForm        （isRefresh=1）       → field7564 里的 filedatas（下载链接）
- * GET  /weaver/weaver.file.FileDownload?fileid=9001…              → PDF 字节
- * ```
- *
- * ## 为什么在 `:testkit` 而不是 `:data:jvmTest`
- *
- * 与其余夹具同一条理由：`:data:jvmTest`（`TranscriptApiJvmTest`）与 `:desktop` 的
- * `DesktopAuthLibraryJvmTest`（桌面自己登 `dzpz` 那条路）要看到**同一批响应**，而 Gradle 跨模块
- * 共享不了 test 源集。CAS 那半台不在这个文件里 —— `login.xjtu.edu.cn` 按 host 分派，它属于
- * `LibraryFakeUpstream`（这一份只用它的 OAuth2 授权入口）。
- *
- * ## 夹具值全是编造的
- *
- * 学号 `2021000001`、OA id `72439`、文档 id `9001`、模板 `/CPT/transcript-fake.cpt` 都是编造值
- * （与 `LibraryFakeUpstream.USERNAME` 一致只是为了「同一个假账号贯穿几条链」）。
- */
+/** 假的电子凭证系统（`dzpz.xjtu.edu.cn` —— 成绩单只是这个工作流引擎的一个 `workflowId`）。 */
 class DzpzFakeUpstream {
 
     companion object {
@@ -50,7 +14,7 @@ class DzpzFakeUpstream {
         /** 登录入口页（`DzpzLogin.DZPZ_LOGIN_ENTRY` 的路径部分）。 */
         const val LOGIN_PATH = "/login/Login.jsp"
 
-        /** 登录态探针（`DzpzLogin.OS_INFO_URL` / `DzpzSession.validateLogin`）。 */
+        /** 登录态检查（`DzpzLogin.OS_INFO_URL` / `DzpzSession.validateLogin`）。 */
         const val OS_INFO_PATH = "/api/system/info/getOSinfo"
 
         /** OA id（= `loginidweaver` cookie 的值，也是每个请求体里的 `f_weaver_belongto_userid`）。 */
@@ -111,10 +75,7 @@ class DzpzFakeUpstream {
     val osInfoCalls = AtomicInteger(0)
     val loginEntryCalls = AtomicInteger(0)
 
-    /**
-     * 打开之后 `isRefresh` 那一枪**不给** `field7564`，只给 `field7244`（预览文档 id）
-     * —— 对应 `TranscriptApi.getDownloadInfo` 的 fallback 分支（拼 `FileDownload` 地址）。
-     */
+    /** 打开之后 `isRefresh` 那一枪不给 `field7564`，只给 `field7244`（预览文档 id） */
     var downloadInfoFallback = false
 
     // ── 路由 ─────────────────────────────────────────────────────
@@ -149,10 +110,7 @@ class DzpzFakeUpstream {
         }
     }
 
-    /**
-     * 登录入口页：`?code=` 回来（OAuth2 回调）就种 [OA_ID] 那枚 `loginidweaver` 并落到首页；
-     * 没有 code 就照真实站点 302 到 CAS 的 OAuth2 授权入口（`redirect_uri` 指回本页）。
-     */
+    /** 登录入口页：`?code=` 回来（OAuth2 回调）就种 [OA_ID] 那枚 `loginidweaver` 并落到首页。 */
     private fun handleLoginEntry(exchange: HttpExchange, query: String) {
         loginEntryCalls.incrementAndGet()
         if ("code=" in query) {
@@ -169,10 +127,7 @@ class DzpzFakeUpstream {
         redirect(exchange, authorize)
     }
 
-    /**
-     * `/api/workflow/reqform/loadForm` 三种形态（真站点是同一条路径，靠 body 区分）：
-     * `iscreate=1` = 建单表单；`isRefresh=1` = 取下载信息那一枪；其余 = 第一次提交后的重载。
-     */
+    /** `/api/workflow/reqform/loadForm` 三种形态（真站点是同一条路径，靠 body 区分）： `iscreate=1` = 建单表单。 */
     private fun handleLoadForm(exchange: HttpExchange) {
         val body = formBody(exchange)
         loadFormBodies += body
@@ -184,10 +139,7 @@ class DzpzFakeUpstream {
         }
     }
 
-    /**
-     * 联动那一枪：`linkageid=43,64` 要学号 + 入学年，`linkageid=43` 要模板路径 + 业务分类名。
-     * 分清这两种形态正是 `getLinkageData` 里那两段独立请求的依据。
-     */
+    /** 联动那一枪：`linkageid=43,64` 要学号 + 入学年，`linkageid=43` 要模板路径 + 业务分类名。 */
     private fun handleLinkage(exchange: HttpExchange) {
         val body = formBody(exchange)
         linkageBodies += body

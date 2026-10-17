@@ -5,19 +5,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
-/**
- * 设置偏好的读写：**键名与默认值与 `:app` 那份 `CredentialStore` 逐字相同**。
- *
- * 这一条为什么值得单独钉：`:app` 的老用户（以及桌面端已经设过的那几项）都是按**字面键名**
- * 存在 `app_settings` 里的，键名漂一个字符，用户重装/升级后就会看到「设置被重置了」——
- * 而那种错只有在真机上才发现得了。所以这里不测「行为」，测的是**契约**：
- *  - 每个键的名字（`dark_mode` / `nav_bar_style` / `schedule_attendance_badge` ……）；
- *  - 每个键的默认值（`system` / `floating` / `COURSES` / `true` 那一套，与搬迁前逐条对齐）；
- *  - 值常量的字面量（`"jwxt"` / `"bkkq"` / `"HOME"` ……）——它们已经写进用户数据，不能改。
- *
- * 存储用 `:core` 的键值缝（JVM 上现在真落盘）：这一层不关心落盘在哪儿，
- * 落盘那份由各端的宿主测（桌面的 `DesktopSettingsJvmTest` 钉的是 0600 的 Properties 文件）。
- */
+/** 设置偏好的键名与默认值。 */
 class SettingsStoreTest {
 
     private fun freshStore() = keyValueStore("settings_store_unit_test").apply { clear() }
@@ -68,7 +56,7 @@ class SettingsStoreTest {
         assertEquals("direct", SettingsStore.NETWORK_DIRECT)
         assertEquals("vpn", SettingsStore.NETWORK_VPN)
         assertEquals("jwxt", SettingsStore.SCHEDULE_SOURCE_JWXT)
-        // 旧版考勤（bkkq）时代的写法：不能改成 attendance 之类
+        // 旧版考勤（bkkq）的取值：不能改
         assertEquals("bkkq", SettingsStore.SCHEDULE_SOURCE_ATTENDANCE)
         assertEquals("app_settings", SettingsStore.APP_SETTINGS_FILE)
     }

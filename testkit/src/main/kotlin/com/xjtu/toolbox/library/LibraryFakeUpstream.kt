@@ -7,52 +7,7 @@ import java.util.Base64
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 
-/**
- * 假的「图书馆座位系统（可选：再扮演统一认证）」上游 —— 三个消费者**共用同一批页面原文**。
- *
- * ## 它为什么在 `:testkit`，而不是某个模块的 test 源集里
- *
- * 它曾经住在 `:data:jvmTest`。搬到独立模块的**唯一**原因是：桌面端的离屏证据
- *（`renderScreens` 要画出「用真会话登进去的图书馆」那张图）也必须看到同一批页面，
- * 而 Gradle 跨模块共享不了 test 源集（`java-test-fixtures` 对 KMP 不生效）。
- * 于是它成了一条谁都不会依赖进生产构件的编译单元 —— 详情见 `testkit/build.gradle.kts` 的 KDoc。
- * 两份夹具都只用 JDK（`com.sun.net.httpserver` / `java.security`），所以搬动零成本。
- *
- * ## 为什么是一个共享夹具
- *
- * - [LibraryDataLayerJvmTest]（Stage 0）：**直连会话**（`DirectLibrarySession`，没有登录内核），
- *   用 okhttp 拦截器把 `rg.lib.xjtu.edu.cn` 重写到本地端口，验的是「同一份数据层在 JVM 上真跑」。
- * - `LibraryLoginSessionJvmTest`（Stage A）：**真会话**（`SessionManager` + `SiteSession` +
- *   `XJTULogin` 真登录），用本地 HTTP 代理保住 URL 不变，验的是「数据层长了它自己的登录会话」。
- * - `:desktop` 的 `DesktopAuthLibraryJvmTest` / `renderScreens`（Stage A 第二步）：驱动的是
- *   **桌面端自己的装配**（`DesktopAuth` + `DesktopLibrarySource`）—— 验的是「用输入的凭据登进去
- *   之后，桌面端那份取数在这份会话上真读得出座位」。
- *
- * 三者的差别**只在传输、会话与装配**，页面/接口形状必须一模一样 —— 否则「同一批断言」这句话就不成立。
- * 所以夹具抽到这里：字符串只有一份，改一处三处一起动。
- *
- * ## 两种传输怎么共用它
- *
- * 夹具只认 `path`/`query`/`Cookie`，不关心请求怎么到达这里；页面上需要绝对地址的地方（如 302 的
- * `Location`）用构造参数 [base] 拼：
- * - 直连模式：[base] = 本地 `http://127.0.0.1:<port>`（拦截器已经把 URL 换掉了）；
- * - 代理模式：[base] = `http://rg.lib.xjtu.edu.cn:8086`（URL 保持原样，`Location` 也必须是原域名）。
- *
- * ## 写路径剧本（默认就是活的）
- *
- * 图书馆的写路径**不需要滑块**，所以这一份剧本默认开着（场馆那条相反 —— 它的下单默认关，要先解滑块）：
- * `/seat/?kid=` 落在 `/my/`（约座成功）、`/updateseat/?kid=` 换座并把「我的预约」的座位号翻过去、
- * `/my/?cancel=1` 让预约消失、`/my/?firstruguan=1` / `midleave=1` / `midreturn=1` 把页面上那个状态动作
- * 从「入馆签到」→「中途离开」→「中途返回」推着走（[myPage] 按状态渲染）。
- *
- * 需要「失败」那一侧时才开那三个开关：[seatTaken]（座位被占）、[cancelled]、[swapped] 用的是各自的状态。
- * `POST /modify` 也演了（[lastPostedRplace]）：切校区那一枪要证明表单真的提交了。
- *
- * ## [casEnabled]
- *
- * 打开后多出 `/cas/login` 两条路由，并且 `/seat/` 不带 `?ticket=` 时按真实站点那样 302 到统一认证。
- * 直连那条测试不开（它没有会话内核，走不到 CAS）。
- */
+/** 假的「图书馆座位系统（可选：再扮演统一认证）」上游 —— 三个消费者共用同一批页面原文。 */
 class LibraryFakeUpstream(
     /** 页面上绝对地址用的 base（见类 KDoc：直连模式给本地地址，代理模式给真实域名）。 */
     private val base: String,
@@ -69,26 +24,10 @@ class LibraryFakeUpstream(
         /** 统一认证主机名 —— `XJTULogin.casPath` 只认这个 host（端口不计）。 */
         const val CAS_HOST = "login.xjtu.edu.cn"
 
-        /**
-         * 统一认证签发密码加密用的 RSA 公钥。
-         *
-         * 真站点上这条路是 **https**（`XJTULogin.fetchRsaPublicKeyFromServer` 硬编码的
-         * `https://login.xjtu.edu.cn/cas/jwt/publicKey`）。绝大多数站点根本不走它
-         *（登录器把会话管家缓存的公钥传进来），但 `CampusCardLogin` 是唯一不收 `cachedRsaKey` 的那一个
-         *（见 `LibraryLogin` 的 KDoc），所以校园卡这条链每次登录都会真的取一次 ——
-         * 夹具因此也得能回答它：`FakeCampusProxy.HTTPS_HOSTS` 里有 [CAS_HOST]，
-         * 这一条路由给的正是 [TestRsaKey.publicKeyBase64]（与客户端那份同一个密钥对）。
-         */
+        /** 统一认证签发密码加密用的 RSA 公钥。 */
         const val PUBLIC_KEY_PATH = "/cas/jwt/publicKey"
 
-        /**
-         * CAS 的 **OAuth2 授权入口**（`/cas/oauth2.0/authorize?client_id=…&redirect_uri=…`）。
-         *
-         * 真站点上这是「某些子系统的登录入口」那一跳：子系统自己的入口页（如 `dzpz` 的
-         * `Login.jsp`）先 302 到这里，CAS 认完人以后再 302 回 `redirect_uri?code=OC-…`，
-         * 子系统拿 code 换它自己的会话。所以在同一个 CAS 上多扮这一个端点就够了 ——
-         * 门户与四路取数（一网通办）、开放平台那一跳（场馆）各有各的夹具，唯独 CAS 只有一台。
-         */
+        /** CAS 的 OAuth2 授权入口（`/cas/oauth2.0/authorize?client_id=…&redirect_uri=…`）。 */
         const val OAUTH_AUTHORIZE_PATH = "/cas/oauth2.0/authorize"
 
         const val USERNAME = "2021000001"
@@ -99,11 +38,6 @@ class LibraryFakeUpstream(
         /** 统一认证登录页上的 `execution`。 */
         private const val CAS_EXECUTION = "e1s1"
 
-        // ── 短信二次验证（MFA）那一半：Safety Verify 流程的两条端点 ───────────────────
-        //
-        // `MFAContext` 按流程选路径段：MFA_DETECT → `/cas/mfa/…`，SAFETY_VERIFY → `/cas/sec/…`
-        //（`MFAFlow.pathSegment`）。本夹具只演 **SAFETY_VERIFY** 这一条 —— 那一页的原文在
-        // `CasSafetyVerifyPage`（图书馆与教务两条链都会发它），这里只负责「取手机号」与「校验验证码」两枪。
 
         /** 取绑定手机号（`MFAContext.getPhoneNumber`）：`state` 就是二次认证页上的 `secState`。 */
         const val MFA_PHONE_PATH = "/cas/sec/initByType/securephone"
@@ -126,11 +60,7 @@ class LibraryFakeUpstream(
     val swapped = AtomicBoolean(false)
     val cancelled = AtomicBoolean(false)
 
-    // ── 写路径剧本 ─────────────────────────────────────────────────
-    //
-    // 与场馆那条（下单剧本默认**关**，要先解滑块）不同：图书馆的写路径没有滑块，**默认就是活的**
-    // 一份完整剧本 —— 约座落在 `/my/`、换座走 `/updateseat/`、退座/签到/中途离开/中途返回
-    // 都是 `/my/` 上的那一枪。下面这几个开关只用来把某一条支路掰到「失败」那一侧。
+    // ── 写路径剧本：默认全通，下面的开关把某一条支路掰到失败 ──
 
     /** 座位已被他人占：`/seat/?kid=` 回一个带提示的页面，`bookSeat` 的失败分支就是从它读原因。 */
     val seatTaken = AtomicBoolean(false)
@@ -174,13 +104,7 @@ class LibraryFakeUpstream(
     /** 二次认证：校验验证码那一枪打过几次（`MFAContext.verifyCode`）—— 错码也算（那是真打到服务端了）。 */
     val mfaVerifyCalls = AtomicInteger(0)
 
-    /**
-     * 二次认证剧本的开关：开上之后，**凭据 POST 的落点不是带 ticket 的回跳，而是 [CasSafetyVerifyPage]**。
-     *
-     * 什么时候开：测「登录链在**必登的那个站点**上撞到短信二验」（`:server` 的 MFA 桥要验
-     * 「取消必须让整次登录失败」—— 而只有硬要求的站点才有这个语义）。默认关 —— 其余用例要的是
-     * 「一步登进去」。
-     */
+    /** 二次认证剧本的开关：开上之后，凭据 POST 的落点不是带 ticket 的回跳，而是 [CasSafetyVerifyPage]。 */
     val requireSafetyVerify = AtomicBoolean(false)
 
     /** 二次认证页被给出去几次（= 密码对之后真被拦到了那一页）。 */
@@ -230,12 +154,7 @@ class LibraryFakeUpstream(
     /** 302 到「我的预约」页：`bookSeat` 正是按「最终落到 /my/」判成功的。 */
     private fun redirectToMy(exchange: HttpExchange) = redirect(exchange, "$base/my/")
 
-    /**
-     * `POST /modify`（切校区）：`LibraryApi.switchCampus` 靠 `csrf_token` 存在与否判「表单能不能提」，
-     * 所以缺了它这里要响亮地 400（照其余夹具的纪律）；`rplace` 记下来并真的翻 [currentRplace]，
-     * 于是紧接着的 `GET /modify`（`getCurrentCampus`）会跟着变 —— 切校区是个**可验证的写**，
-     * 不能只回一个 200。
-     */
+    /** `POST /modify`（切校区） */
     private fun handleModifyPost(exchange: HttpExchange) {
         val form = exchange.requestBody.readBytes().decodeToString()
         if (param(form, "csrf_token").isNullOrBlank()) {
@@ -255,12 +174,7 @@ class LibraryFakeUpstream(
     // ── 夹具：与学校页面同形状 ─────────────────────────────────────
 
     /** `/modify`：账号资料页，校区是 `select#rplace` 的选中项。 */
-    /**
-     * `/modify`：账号资料页，校区是 `select#rplace` 的选中项（[currentRplace]，`POST /modify` 会改它）。
-     *
-     * `csrf_token` / `email` / `tel` 不是装饰：`LibraryApi.switchCampus` 会把它们**原样回填**再提交
-     *（少一个字段服务端就会把它清空）—— 所以 `POST /modify` 那一支要校验到它们。
-     */
+    /** `/modify`：账号资料页，校区是 `select#rplace` 的选中项（[currentRplace]，`POST /modify` 会改它）。 */
     val modifyPage: String
         get() = """
         <html><body><form>
@@ -291,29 +205,13 @@ class LibraryFakeUpstream(
         {"A01":["10","20","30","40","2"],"cancel":["0","0","0","0","2"],"A02":["50","20","30","40","0"]}
     """.trimIndent()
 
-    /**
-     * 平面图**底图**（`区域码.jpg`）。
-     *
-     * 以前这里只有 8 个字节的 JPEG 文件头 —— `getPlanImage` 只认文件头、不解码，够用。
-     * Stage A 第二步加了一条「桌面端真登进去」的离屏证据，而平面图那一屏要把字节**解码**出来
-     *（`decodePlanImages` → skiko 的 `Image.makeFromEncoded`）⇒ 假数据立刻露馅：
-     * 屏上只剩一句「平面图解码失败」，看上去像个 bug。所以改成用 ImageIO 真画一张 JPEG。
-     *
-     * 尺寸必须比 [qseatuistJson] 里的矩形容得下（那里最大到 50+30 / 20+40），而且与
-     * [tileJpegBytes] **同比例** —— `decodePlanImages` 会拿比例筛掉尺寸对不上的状态图。
-     */
+    /** 平面图底图（`区域码.jpg`）。 */
     val jpegBytes: ByteArray = planJpeg(background = 0xE8EEF7, gridLine = 0x9AB4D8)
 
     /** 平面图**状态贴图**（`-book` / `-inside` / `-leave` / `blanket`）。同尺寸、同比例；颜色不同好在图上认得出。 */
     val tileJpegBytes: ByteArray = planJpeg(background = 0xFFF3D6, gridLine = 0xE0B860)
 
-    /**
-     * 画一张 [w]×[h] 的 JPEG：平淡底色 + 网格 + 边框。
-     *
-     * 刻意不用外部图片资源：夹具的整份页面原文都是**代码里的字符串**（改一处所有消费者一起动），
-     * 图片走同一套。AWT 的 `ImageIO` 在 headless JVM 下也能用（`:data:jvmTest` 与桌面端的测试
-     * 都是 headless）。
-     */
+    /** 画一张 [w]×[h] 的 JPEG：平淡底色 + 网格 + 边框。 */
     private fun planJpeg(background: Int, gridLine: Int): ByteArray {
         val image = java.awt.image.BufferedImage(200, 300, java.awt.image.BufferedImage.TYPE_INT_RGB)
         val g = image.createGraphics()
@@ -337,13 +235,7 @@ class LibraryFakeUpstream(
         else -> null
     }
 
-    /**
-     * 「我的预约」：`div.well` 是当前预约、`div.notwell` 是历史。座位行是第一个 `<hr>` 的尾随文本。
-     *
-     * 状态动作**按当前状态渲染**（真站点就是这样：签到之后「入馆签到」就没了、改给「中途离开」）——
-     * 于是读与写共用同一份页面原文：`LibraryApi.executeAction` 的「这一枪生效了没有」正是靠
-     * 重新拉到这张页面上还剩哪些按钮来判的（`LibraryPages.actionVerdict`）。
-     */
+    /** 「我的预约」：`div.well` 是当前预约、`div.notwell` 是历史。 */
     fun myPage(seat: String): String = """
         <html><body>
         <div class="well"><div class="row">
@@ -358,10 +250,7 @@ class LibraryFakeUpstream(
         </body></html>
     """.trimIndent()
 
-    /**
-     * 此刻页面上那一个状态动作（`showConfirmModal` 的第二个参数 = 页面 JS 的动作名）：
-     * 没签到 ⇒ `ruguan1`（入馆签到）；签到过、没离开 ⇒ `leave`；离开中 ⇒ `return`。
-     */
+    /** 此刻页面上那一个状态动作（`showConfirmModal` 的第二个参数 = 页面 JS 的动作名）： 没签到 ⇒ `ruguan1`（入馆签到） */
     private val stateAction: String
         get() = when {
             !signedIn.get() -> "ruguan1"
@@ -384,11 +273,7 @@ class LibraryFakeUpstream(
         </body></html>
     """.trimIndent()
 
-    /**
-     * 统一认证登录页，**形状照真页**：`id="fm1"` + `execution` 是 CAS 的表单判据
-     * （`CasLoginPages`），`name="execution"` 是 `XJTULogin` 提取防 CSRF 字段的判据，
-     * `mfaEnabled: false` 让状态机跳过短信检测（`XJTULogin.extractMfaEnabled`）。
-     */
+    /** 统一认证登录页，形状照真页。 */
     val casLoginPage = """
         <html><head><title>统一身份认证</title></head><body>
         <form id="fm1" action="/cas/login" method="post">
@@ -410,10 +295,7 @@ class LibraryFakeUpstream(
         val path = exchange.requestURI.path
         val query = exchange.requestURI.query.orEmpty()
         when {
-            // ⚠️ 用 `rawQuery`（百分号编码原文）而不是 `query`：`java.net.URI.getQuery()` 返回的是
-            // **解码后**的查询串，service 值里若有 `&`（encode 过的 redirect_uri 常见）会被当成
-            // 参数分隔符截断 —— 凭据 POST 后回跳的 authorize URL 就会丢参数（实测 400）。
-            // `param()` 自己会做一次 URLDecoder.decode，所以这里交给它编码原文正好合适。
+            // ⚠️ 用 `rawQuery`：`getQuery()` 已解码，service 里的 `&` 会被当成分隔符截断。
             casEnabled && path == "/cas/login" && exchange.requestMethod == "POST" ->
                 handleCasPost(exchange, exchange.requestURI.rawQuery.orEmpty())
             casEnabled && path == "/cas/login" -> handleCasGet(exchange, exchange.requestURI.rawQuery.orEmpty(), cookieHeader(exchange))
@@ -433,9 +315,7 @@ class LibraryFakeUpstream(
             // 会话失效那两条路：一次性失效优先（内核重登 + 重放），其次是一直失效（判据那条）
             path == "/qspace" -> when {
                 expireOnce.getAndSet(false) -> {
-                    // 业务站把这一枪拦回统一认证时，会顺手作废它自己那枚会话 cookie
-                    // （Max-Age=0 ⇒ okhttp 的 cookie jar 会把同名同 path 的那条删掉）。
-                    // 这样「重认证」就必须真的重走一趟 CAS —— 有 TGC 仍然免密，但会签新 ticket。
+                    // 业务站拦回统一认证时作废自己的会话 cookie（Max-Age=0），逼重认证真走一趟 CAS。
                     exchange.responseHeaders.add("Set-Cookie", "JSESSIONID=; Path=/; Max-Age=0")
                     respondHtml(exchange, casLoginPage)
                 }
@@ -450,9 +330,7 @@ class LibraryFakeUpstream(
                 seatTaken.get() && "kid=" in query -> respondHtml(exchange, takenSeatPage)
                 !casEnabled -> redirectToMy(exchange)
                 "ticket=" in query -> {
-                    // CAS 回跳：真站点在这里种下它自己的会话 cookie，并把页面给出来。
-                    // ⚠️ 不能再 302 回 /seat/（那样会少了 ticket 又被拦回 CAS，转圈到
-                    // OkHttp 的「Too many follow-up requests」）。
+                    // ⚠️ 不能再 302 回 /seat/：没有 ticket 会被拦回 CAS，转到「Too many follow-up requests」。
                     exchange.responseHeaders.add("Set-Cookie", "JSESSIONID=$LIBRARY_SESSION_VALUE; Path=/")
                     respondHtml(exchange, seatPage)
                 }
@@ -504,10 +382,7 @@ class LibraryFakeUpstream(
         redirect(exchange, "http://$CAS_HOST/cas/login?service=${encode(service)}")
     }
 
-    /**
-     * 统一认证入口：带 TGC 就直接签 ticket 回跳（SSO），否则给登录表单。
-     * 这条分支让「重认证」那条路走的是**同一条真实链路**（有 TGC 免密，没 TGC 才提交密码）。
-     */
+    /** 统一认证入口：带 TGC 就直接签 ticket 回跳（SSO），否则给登录表单。 */
     private fun handleCasGet(exchange: HttpExchange, query: String, cookie: String) {
         val service = param(query, "service") ?: "$base/seat/"
         if ("TGC=$TGC_VALUE" in cookie) {
@@ -517,14 +392,7 @@ class LibraryFakeUpstream(
         }
     }
 
-    /**
-     * OAuth2 授权入口：带 TGC 就签一个 `code` 回 `redirect_uri`，否则把**这个 authorize 地址本身**
-     * 当作 `service` 交给登录页（真 CAS 就是这么转的：`/cas/login?service=<authorize url>`）——
-     * 凭据 POST 后 `handleCasPost` 会把票据加回 authorize，再回来时 TGC 已在 jar 里，于是签 code。
-     *
-     * `redirect_uri` 缺失就响亮 400（漂了的话子系统会拿到一个没有 code 的回跳，看起来像"登录成功了
-     * 但换不到会话"，那正是最难查的一种坏）。
-     */
+    /** OAuth2 授权入口：带 TGC 就签一个 `code` 回 `redirect_uri`，否则把这个 authorize 地址本身当作 `service` 交给登录页（真 CAS 就是这么转的：`/cas/login?service=<authorize url>`）——凭据 POST 后 `handleCasPost` 会把票据加回 authorize，再回来时 TGC 已在 jar 里，于是签 code。 */
     private fun handleCasOauthAuthorize(exchange: HttpExchange, query: String, cookie: String) {
         val redirectUri = param(query, "redirect_uri")
         if (redirectUri.isNullOrBlank()) {
@@ -541,14 +409,7 @@ class LibraryFakeUpstream(
         }
     }
 
-    /**
-     * 把票据交回去：**塞进 query**，不能拼在字符串末尾。
-     *
-     * 一网通办那个 `service` 自己带一个 `#/Index` 片段（见 `YwtbLogin.YWTB_LOGIN_URL` 里那个 `path`），
-     * 拼在末尾的话票据会落进**片段**里 —— 客户端读的是 `response.request.url.queryParameter("ticket")`，
-     * 于是什么也读不到（实测：`YwtbLogin` 报「无法获取 YWTB ticket」）。真 CAS 也是把 ticket 放进
-     * query 的（片段照旧留在最后）。
-     */
+    /** 把票据交回去：塞进 query，不能拼在字符串末尾。 */
     private fun serviceWithTicket(service: String, ticket: String): String {
         val hash = service.indexOf('#')
         val head = if (hash >= 0) service.substring(0, hash) else service
@@ -565,15 +426,7 @@ class LibraryFakeUpstream(
         return "$head${if ('?' in head) '&' else '?'}$name=$value$fragment"
     }
 
-    /**
-     * 凭据表单：认用户名 + RSA 解出的密码，种 TGC，签 ticket 回跳业务站。
-     *
-     * 两个额外分支：
-     * - 表单里带 `secState` ⇒ 它是**二次认证页的隐藏表单回提**（`MFAContext.verifyCode` 的最后一步），
-     *   不是一次凭据提交（触发页就是上一次凭据 POST 的落点，所以两者打的是同一个 `/cas/login`）；
-     * - [requireSafetyVerify] 开着 ⇒ 密码对也不直接给 ticket，而是给 [CasSafetyVerifyPage]
-     *   （真站点上高敏感客户端就是这样被拦的）。
-     */
+    /** 凭据表单：认用户名 + RSA 解出的密码，种 TGC，签 ticket 回跳业务站。 */
     private fun handleCasPost(exchange: HttpExchange, query: String) {
         val form = exchange.requestBody.readBytes().decodeToString()
         // 回提优先：它是另一条形态的同名请求（见上面的 KDoc）
@@ -603,12 +456,7 @@ class LibraryFakeUpstream(
         redirect(exchange, serviceWithTicket(service, ticketFor(service)))
     }
 
-    /**
-     * 二次认证页的隐藏表单回提：字段对不上就 400 + 原文，合格就签 ticket 把登录链走完。
-     *
-     * 字段契约（哪些必须有、值该等于什么）只写在 [CasSafetyVerifyPage.rejection] 一处 ——
-     * 教务那条链的回提走的是同一个校验（那是「页面原文只有一份」的直接后果）。
-     */
+    /** 二次认证页的隐藏表单回提：字段对不上就 400 + 原文，合格就签 ticket 把登录链走完。 */
     private fun handleSafetyVerifySubmit(exchange: HttpExchange, query: String, form: String) {
         lastSafetyVerifyForm = form
         val rejection = CasSafetyVerifyPage.rejection(form)
@@ -622,15 +470,7 @@ class LibraryFakeUpstream(
         redirect(exchange, serviceWithTicket(service, ticketFor(service)))
     }
 
-    /**
-     * 签一张回跳票据。绝大多数站点拿到的是 `ST-n` 那种不透明票据；**一网通办例外**：
-     * `YwtbLogin.postLogin` 要从 `ticket=` 里解出一枚 JWT 的 payload（`idToken`），
-     * 真站点发的就是那个形状 ⇒ 夹具按 `service` 分得清，照真实形状签一枚。
-     *
-     * 为什么在这里而不是新开一个 host 的夹具：`login.xjtu.edu.cn` 是**所有站点共用**的一台 CAS，
-     * 按 host 分派的话它只能属于一个夹具（见 `FakeCampusProxy`）；一网通办那半台（门户与四路取数）
-     * 在 `YwtbFakeUpstream` 里。
-     */
+    /** 签一张回跳票据。 */
     private fun ticketFor(service: String): String {
         val n = tickets.incrementAndGet()
         if (YwtbFakeUpstream.HOST !in service) return "ST-$n"
@@ -640,13 +480,7 @@ class LibraryFakeUpstream(
         return "eyJhbGciOiJSUzI1NiJ9.$payload.sig"
     }
 
-    /**
-     * 取绑定手机号：`state` 必须**就是二次认证页上的 `secState`**，否则响亮地 400。
-     *
-     * 为什么这条要卡：`MFAContext.getPhoneNumber()` 拿这个 state 去问「往哪个号发验证码」，
-     * 漂了的话真站点会把别人的号给出来；夹具把它钉成「只能问那一个 state」，
-     * 于是「拿错 state 也照样过」这种退化在测试里不可能成立。
-     */
+    /** 取绑定手机号：`state` 必须就是二次认证页上的 `secState`，否则响亮地 400。 */
     private fun handleMfaPhone(exchange: HttpExchange, query: String) {
         val state = param(query, "state")
         if (state != CasSafetyVerifyPage.SEC_STATE) {
@@ -660,12 +494,7 @@ class LibraryFakeUpstream(
         )
     }
 
-    /**
-     * 校验短信验证码：只认 [MFA_CODE]，其余按真站点的失败响应回（`code:1` + 中文 message）。
-     *
-     * 形状逐字段对着 `MFAContext.verifyCode` 的读法写：先看 `code == 0`，再看 `data.status == "2"`。
-     * 所以成功响应**两样都给**（少了 `status`，成功那条分支就永远测不到）。
-     */
+    /** 校验短信验证码：只认 [MFA_CODE]，其余按真站点的失败响应回（`code:1` + 中文 message）。 */
     private fun handleMfaVerify(exchange: HttpExchange) {
         val body = exchange.requestBody.readBytes().decodeToString()
         val gid = jsonField(body, "gid")

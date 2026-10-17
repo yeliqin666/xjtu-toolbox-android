@@ -22,32 +22,7 @@ import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlin.time.Clock
 
-/**
- * 「SSE 帧 → 屏上的状态」这件事的**本体**（D10 的 S-d；`docs/agent-web-spec.md` §4.2 的逐成员对应表）。
- *
- * ## 它和 `AgentViewModel` 的关系
- *
- * 判据**逐条同源**，只是驱动不同：Android / 桌面那一份的循环在本端（工具层、传输层、落盘在手上），
- * 这一份的循环在 **serve**，它只是「事件 → 状态」的消费者。所以下面每一格都对着
- * `AgentViewModel` 的同一格写：
- *
- * | 这一格 | `AgentViewModel` 的那一格 |
- * |---|---|
- * | [messages] / [isLoading] / [errorMessage] / [contextExhausted] | 同名同型（`:core` 的 `AgentChatSession` 就是这条缝） |
- * | [setLoading] | 私有的 `applyLoading`（`isLoading` 与底栏思考动画**同一个信号**） |
- * | [beginTurn] / [flush] / [apply] | `sendMessage` 里那段流式回调（`STREAM_FLUSH_MS` 合流由调用方按同一间隔驱动） |
- * | [stopped] | 取消路径（`（已停止）` + 工具行标「已中断」） |
- * | [fail] / [applyError] | 两个 `catch` 分支（`出错了：$detail` 与「登录已失效…」那一整句） |
- * | [load] | `switchSession` 里那段「落盘消息 → 气泡」的映射 |
- * | [consumeContextExhaustedTrigger] | 同名同义（**只在 `false→true` 那一次**弹窗） |
- *
- * ## 有意与 `AgentViewModel` 不同的两处（都写在契约里的）
- *
- * 1. **800k 阈值这一端不判**：`contextExhausted` 由 **serve** 判（契约 §5.11 的 `usage` / `done`），
- *    这一端只在**由 false 变 true** 时弹一次窗 —— 同一个阈值、同一条判据，只是执行的人变了；
- * 2. **【已停止】不再由「取消异常」产生**：这一端的取消是「服务端一个终止事件都不发、直接把流关掉」，
- *    所以「流关了但没见到 `done` / `error`」就是那一档（见 [WebAgentSession] 的消费循环）。
- */
+/** 「SSE 帧 → 屏上的状态」这件事的本体（`docs/agent-web-spec.md` §4.2 的逐成员对应表）。 */
 internal class AgentStreamState {
 
     /** 屏上的消息（`delta` / `reasoning` / `tool_call` / `tool_result` 都往这里写）。 */
@@ -124,8 +99,6 @@ internal class AgentStreamState {
             }
 
             is AgentFrame.ToolCall -> {
-                // 本轮模型可能先输出思考 / 短回复，再请求工具；工具执行后下一次模型回复应新开气泡。
-                // 换气泡前先把攒着的分片落到旧气泡上（逐字照 `AgentViewModel` 的 `onToolCall`）。
                 flush()
                 streamIdx = -1
                 messages.add(ChatMessage("tool_event", agentToolLabel(frame.name), isToolCall = true))
@@ -178,10 +151,7 @@ internal class AgentStreamState {
         setLoading(false)
     }
 
-    /**
-     * 「这一轮没跑完就被停了」——照 `AgentViewModel` 的取消路径：工具行标「已中断」、
-     * 正文空的话写「（已停止）」。**不**说「正常结束」，也**不**说「出错了」。
-     */
+    /** 「这一轮没跑完就被停了」——照 `AgentViewModel` 的取消路径：工具行标「已中断」、正文空的话写「（已停止）」。 */
     fun stopped() {
         flush()
         toolBubbleIndices.forEach { settleToolAt(it, false, "已中断") }
@@ -194,7 +164,7 @@ internal class AgentStreamState {
         setLoading(false)
     }
 
-    /** 传输层的失败（开门阶段的信封 / 断线）：与 `AgentViewModel` 的兜底 `catch` 同一句话形。 */
+    /** 传输层的失败（开门阶段的信封 / 断线）。 */
     fun fail(message: String) {
         flush()
         errorMessage = message
@@ -279,7 +249,6 @@ internal class AgentStreamState {
     private fun applyMfa(frame: AgentFrame.Mfa) {
         if (frame.pending) {
             if (mfaBubbleIdx >= 0) return
-            // 文案与 `AgentViewModel` 的 MFA 气泡逐字同源；**只有站名，没有手机号**（§5.1 红线）
             messages.add(
                 ChatMessage(
                     role = "tool_event",
@@ -317,7 +286,7 @@ internal class AgentStreamState {
     private fun applyError(kind: String, message: String) {
         flush()
         if (kind == "session_expired") {
-            // 与 `AgentViewModel` 的 `SessionExpiredFailure` 分支逐字同源（服务端用的也是同一句文案）
+            // 与 `AgentViewModel` 的 `SessionExpiredFailure` 分支同一句文案
             messages.add(ChatMessage("assistant", message))
         } else {
             errorMessage = message

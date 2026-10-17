@@ -96,15 +96,7 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
  */
 private fun pieceText(piece: Int): String = Piece.getNameByValue(piece).toString()
 
-/**
- * 象棋。与 :app 同一份屏与引擎（:core/game/xiangqi），联机那一格切成平台缝：
- *
- * - `onlineLobby` 由平台注入（Android = 蓝牙大厅），Web 传 null ⇒ 模式切换里**没有**
- *   「联机对战」这一格（浏览器没有 BLE，不做假大厅）。
- * - 引擎（`engine/XiangqiGame`）与规则（`rules/` 下的几个类）本来就是纯逻辑，原样搬进 commonMain。
- *   规则里那 6 个 `.java` 翻成了 Kotlin（Java 编不了 commonMain），行为由原来那 3 个
- *   单测钉住 —— 它们也一起搬到了 :core:jvmTest。
- */
+/** 象棋。 */
 
 @Composable
 fun XiangqiScreen(onBack: () -> Unit, onlineLobby: OnlineLobby? = null) {

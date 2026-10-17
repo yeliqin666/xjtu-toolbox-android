@@ -6,12 +6,7 @@ import com.xjtu.toolbox.platform.keyValueStore
 
 private const val TAG = "ScheduleDiff"
 
-/**
- * 快照与待提醒随账号走，换账号后不会拿别人的课表来比。
- *
- * 从 `SharedPreferences` 换成 `:core` 的 [KeyValueStore] 缝：Android 那份就是**同一个文件、
- * 同一批键**（`schedule_diff<suffix>`），老用户的快照照旧读得出来；桌面那份落在键值文件里。
- */
+/** 快照与待提醒随账号走，换账号后不会拿别人的课表来比。 */
 fun scheduleDiffStore(): KeyValueStore = keyValueStore("schedule_diff" + AccountContext.safeSuffix())
 
 /**
@@ -25,12 +20,6 @@ fun scheduleDiffStore(): KeyValueStore = keyValueStore("schedule_diff" + Account
  *
  * 只在**网络拉到的新数据**上比，读缓存不比：缓存和快照本来就是同一份，
  * 比出来永远是"无变化"，白跑一趟。
- *
- * 搬迁：从 `:app` 的 `schedule/ScheduleDiff.kt` 搬进 commonMain，`Context` +
- * `SharedPreferences` 换成 `:core` 的 [KeyValueStore]（键名与值逐字未动，见 [scheduleDiffStore]）。
- * 唯一的行为差别在**清理旧版本快照**那一行：`SharedPreferences` 能枚举全部键，而这条缝只能
- * get/put/remove ⇒ 改成「记住自己写过的快照键，下次清掉不在当前集合里的」——
- * 代价是升级后头一次比完之前，旧版本留下的 `snap_*` 键会短暂留在文件里（几百字节，不影响结果）。
  */
 object ScheduleDiff {
 
@@ -87,9 +76,7 @@ object ScheduleDiff {
         // 键名带格式版本：教务课表合进调停课后数据形状变了，拿老快照来比会把没变的课报成"变了"。
         // 换版本等于重建一次基线。
         //
-        // ⚠️ 搬迁前这里还会顺手枚举 `SharedPreferences` 的全部键，把上一版格式（`snap_*`）的
-        // 快照删掉；`KeyValueStore` 没有枚举能力，所以那一行去掉了 —— 旧键留在存储里，
-        // 但**永远不会被读到**（读的只有 `snap3_` 开头的）。
+        // 旧格式（`snap_*`）的键会留在存储里但永远不被读到（`KeyValueStore` 无法枚举删除）。
         val storeKey = "${SNAPSHOT_PREFIX}${termCode}_$servedSourceKey"
         val old = prefs.getStringSet(storeKey)
 

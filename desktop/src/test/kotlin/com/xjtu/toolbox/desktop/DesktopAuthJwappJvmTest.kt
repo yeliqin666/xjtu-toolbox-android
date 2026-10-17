@@ -20,18 +20,7 @@ import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 import kotlinx.coroutines.runBlocking
 
-/**
- * 移动教务成绩在桌面端的**装配验收**（第 19 条真数据路由）：桌面用自己的 [DesktopAuth] 真登一次
- * （开放平台 `appId=1370` → 统一认证），走 `DesktopSiteGate` 那条路把 `jwapp` 会话建起来，
- * 再用自己的 `AppJwappScoreSource` 把两台上游（jwapp 一站 + 教务一站）都读出来。
- *
- * 与 `:data` 的 `JwappScoreSourceJvmTest` 的分工：那边验**会话内核 + 取数本身**；这里验
- * **桌面的装配**（`DesktopAuth` 登录、`DesktopAuth.JWAPP_SITE_KEY` 注册进 `SESSION_SITE_KEYS`、
- * 路由进门建会话、成绩屏要的**两个**站点各自都在）。
- *
- * 手法同 `DesktopAuthLmsJvmTest`：`:testkit` 假上游（一个本地代理按 host/appId 分派）+ URL 一个
- * 字符不改。
- */
+/** 移动教务成绩在桌面端的装配验收。 */
 class DesktopAuthJwappJvmTest {
 
     private lateinit var fake: FakeCampusProxy

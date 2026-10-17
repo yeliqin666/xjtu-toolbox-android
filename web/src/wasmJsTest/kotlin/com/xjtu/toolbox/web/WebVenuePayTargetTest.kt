@@ -4,19 +4,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
 
-/**
- * `WebVenueHost.venuePayTarget` 的判据测试 —— 场馆「去支付」在浏览器这一端**该打开哪个地址**
- * （契约 §5.3.2 第 6 条 + §5.4 的「点了有动作」）。
- *
- * 为什么这一格值得单独钉住：屏（`:core` 的 `VenueScreen`）把一个**两跳**的意图交给宿主 ——
- * 第一站是站点登录页、之后才是支付页。Android 的内置浏览器能自己串（`BrowserScreen` 的
- * `onPageFinished` + `isAuthHop`），浏览器**不能**（跨源跳转看不见、也接不住）⇒ 宿主必须自己定
- * 一个先后，而且**不许**在拿不到地址时什么都不做（从前 serve 形态就是把空串交给宿主，
- * 点下去无声无息 —— 那一格正是本工单要清掉的）。
- *
- * 三支的判据都在这里：serve 形态（`then` = `/api/venue/pay` 的代跳地址）优先支付页；
- * 只剩登录站时开登录站；两个都空时**返回 null**（由宿主在屏上如实写一句，不是静默）。
- */
+/** `WebVenueHost.venuePayTarget` 的判据测试。 */
 class WebVenuePayTargetTest {
 
     /** serve 形态：`CampusVenueApi.paymentUrl` 给的是 serve 自己的代跳地址（同源相对路径）。 */

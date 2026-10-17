@@ -3,26 +3,7 @@ package com.xjtu.toolbox.schedule
 import com.xjtu.toolbox.util.formatTwoDigits
 import kotlinx.datetime.LocalDate
 
-/**
- * ICS 日历文件的**文本生成**（纯逻辑，不落盘、不分享）。
- *
- * 从 `:app` 的 `schedule/ScheduleExport.kt` 搬进 `:core`：它原来是个「生成 + 分享」两件事的
- * `object`，而分享要 `Context` / `FileProvider` / `Intent`（Android 专属）。按能力切开之后：
- *  - 生成那一半（本文件）进共享层 —— 屏三端同一份，也好单测；
- *  - 分享那一半走宿主槽位 `ScheduleHost.shareFile`（`:app` 是 `FileProvider` + `ACTION_SEND`；
- *    桌面还没接 ⇒ 那一行菜单不画，见 `ScheduleCapability.SHARE_FILE`）。
- *
- * ## 与搬迁前的两处差别（如实记着）
- *
- *  1. `java.time` → `kotlinx.datetime`：`startOfTerm` 收 kotlinx 日期，时间戳用 `:core` 的
- *     `formatTwoDigits` 拼（原来那串 `DateTimeFormatter.ofPattern("yyyyMMdd'T'HHmmss")` 是 JVM 专属；
- *     拼出来的字符串**逐字相同**）。
- *  2. **事件 UID 换了算法**：原来是 `UUID.nameUUIDFromBytes(…)`（MD5 名字空间 UUID，JVM 专属），
- *     现在按「课程号 + 课名 + 日期 + 起始节次」拼一个**内容决定**的稳定串。两者都满足
- *     「同一条课重复导出得到同一个 UID」，但**换了算法就是换了 ID**：已经用旧版本把课表导进
- *     日历的人，再导一次会看到重复事件。要修得在 `:core` 里实现一份 MD5（commonMain 拿不到
- *     `MessageDigest`，三个目标都要各自一份），不值得 —— **这是本轮唯一的用户可见行为差异**。
- */
+/** ICS 日历文件的文本生成（纯逻辑，不落盘、不分享）。 */
 object ScheduleExport {
 
     // ════════════════════════════════════════════
@@ -119,7 +100,7 @@ object ScheduleExport {
         }
     }
 
-    /** `yyyyMMdd'T'HHmmss`（原来那串 `DateTimeFormatter` 的逐字等价物，秒按 0 补）。 */
+    /** `yyyyMMdd'T'HHmmss`（秒按 0 补）。 */
     private fun icsStamp(date: LocalDate, hour: Int, minute: Int): String =
         "${date.year}${formatTwoDigits(date.monthNumber)}${formatTwoDigits(date.dayOfMonth)}" +
             "T${formatTwoDigits(hour)}${formatTwoDigits(minute)}00"

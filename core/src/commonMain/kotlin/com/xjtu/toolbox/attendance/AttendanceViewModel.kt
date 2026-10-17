@@ -36,22 +36,7 @@ sealed interface AttendanceEvent {
 
 enum class LeaveAction { WITHDRAW, CANCEL }
 
-/**
- * 考勤（`kq.xjtu.edu.cn`）：姓名 / 学期 / 流水 / 打卡流水 / 统计 / 请假六件事的编排。
- *
- * 从 `:app` 的 `attendance/AttendanceViewModel.kt` 搬进 `:core`（桌面端第 16 条真数据路由），
- * **编排逻辑一行未改**（加载顺序、选学期重载、拉不到打卡流水不连累其它栏、撤回/销假的成败文案），
- * 只换了三处「住址」：
- *
- *  - 取数从 `AttendanceApi(site)` + `LeaveApi(site)` 换成端口 [AttendanceSource]（Android / 桌面 =
- *    `:data` 的 `AppAttendanceSource`）—— VM 不再认识 `SiteSession`，也不再自己挑 `Dispatchers.IO`；
- *  - 会话失效由 `:core` 的标记接口 [SessionExpiredFailure] 认领（`:app`/`:data` 的
- *    `AuthExpiredException` 实现了它）——`catch` 抓不了接口，先抓 `Exception` 再判，与评教/成绩同一条缝；
- *  - 学期选择的记忆（[saved]）由屏传入 `SavedStateHandle`（Android = `createSavedStateHandle()`，
- *    与搬迁前同一句；桌面/Web = 内存版）。
- *
- * `state` / `events` 的字段与类型一字未改。
- */
+/** 考勤（`kq.xjtu.edu.cn`）：姓名 / 学期 / 流水 / 打卡流水 / 统计 / 请假六件事的编排。 */
 class AttendanceViewModel(
     private val source: AttendanceSource,
     private val saved: SavedStateHandle,

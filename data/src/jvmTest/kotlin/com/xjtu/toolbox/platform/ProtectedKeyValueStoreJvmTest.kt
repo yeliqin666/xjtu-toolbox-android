@@ -12,22 +12,7 @@ import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
-/**
- * 凭据保护那层包装（`ProtectedKeyValueStore`）的语义 —— 这是这一轮 Windows 交付里唯一能
- * 在 Linux 上**真跑**的部分，所以每条判据都对着「Windows 上会怎样」写：
- *
- * | 用例 | 钉住的是 |
- * |---|---|
- * | 密文落盘 / 读回解密 | 有保护器的机器上，盘上不再有明文（Windows 的实际形状） |
- * | 明文直接落盘 | Linux / macOS **一个字没变**（没有原生保护就是没有） |
- * | 篡改、另一把钥匙 | 解不开时**抛**，不是返回密文原文、也不是当成「没有这个键」 |
- * | 别的保护器写的信封 | 换用户 / 换机器 / 跨平台复制数据目录 ⇒ 明确报错 |
- * | 老明文文件 | 这一轮之前的凭据文件仍读得回来（`:desktop` 的手工老文件用例同一口径） |
- * | 原生保护不可用 | **绝不静默降级成明文**：写路径直接失败，盘上不留痕迹 |
- *
- * 用的是真落盘的那一层（[secureKeyValueStore]，`<数据根>/<名字>.properties`）+ 假保护器
- *（[XorSecretProtector]）—— 所以「密文落盘」这几条断言的是**真文件字节**，不是替身的返回值。
- */
+/** 凭据保护那层包装（`ProtectedKeyValueStore`）的语义。 */
 class ProtectedKeyValueStoreJvmTest {
 
     private val name = "protected_kv_test"

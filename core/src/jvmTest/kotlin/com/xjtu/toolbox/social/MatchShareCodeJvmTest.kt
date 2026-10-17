@@ -13,22 +13,10 @@ import kotlin.test.assertEquals
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
-/**
- * 分享码本体在 **jvm** 上的三条钉子 —— 钉的是本轮新开的两条平台缝
- * （`:core` 的 `platform/Deflate.kt` 与 `platform/Base64Url.kt`），也就是「搬迁不该改线上格式」这件事。
- *
- * 1. **与搬迁前的实现逐字节相同**：测试里**重算一遍** `:app` 搬迁前那 20 行（`java.util.zip` 的
- *    `Deflater(BEST_COMPRESSION)` + 4KB 分块循环、`java.util.Base64` 的 URL 编码器无填充），
- *    断言两边结果一致。`:app`（Android actual）与 `:desktop`（jvm actual）那份是**同一份源码**，
- *    两边都拿这条基准对齐 ⇒ 「Android 行为逐字不变」在这里是可执行的。
- * 2. **线上格式没变**：一条真码解出来仍是「版本号 5 + 20 个 `|` 分隔字段」，且 `= + /` 都不出现
- *    （URL-safe、无填充）—— 老版本生成的码照样解得开，新生成的码老版本也认得出。
- * 3. **跨实现互通**：用测试里那份 java 实现编出来的码，`:core` 的 [MatchProfile.decode] 解得回原档案
- *    （对方手里的码就是在别处用同一套算法编的，这条是那条路的最小样本）。
- */
+/** 分享码本体在 jvm 上的三条钉子。 */
 class MatchShareCodeJvmTest {
 
-    /** 搬迁前 `:app` 的 `MatchProfile.deflate` —— 逐字抄在这里当基准。 */
+    /** `java.util.zip` 的 deflate，当基准。 */
     private fun jdkDeflate(raw: String): ByteArray {
         val deflater = Deflater(Deflater.BEST_COMPRESSION)
         deflater.setInput(raw.toByteArray(Charsets.UTF_8))
@@ -40,7 +28,7 @@ class MatchShareCodeJvmTest {
         return out.toByteArray()
     }
 
-    /** 搬迁前 `:app` 的 `MatchProfile.inflate`。 */
+    /** `java.util.zip` 的 inflate，当基准。 */
     private fun jdkInflate(bytes: ByteArray, maxInflated: Int = 256 * 1024): String {
         val inflater = Inflater()
         inflater.setInput(bytes)
@@ -80,7 +68,6 @@ class MatchShareCodeJvmTest {
     fun `inflate 与搬迁前的 java util zip 相同，而且解不开就返回 null 而不是抛异常`() {
         val raw = "5|阿离|" + "10".repeat(38) + "|CS001~高等数学"
         assertEquals(raw, inflateBytes(jdkDeflate(raw), 256 * 1024)?.decodeToString())
-        // 不是 deflate 的字节：搬迁前由外面那层 try/catch 兜住，现在由这条缝给 null。
         assertNull(inflateBytes(byteArrayOf(1, 2, 3, 4), 1024))
     }
 

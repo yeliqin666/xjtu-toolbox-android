@@ -4,15 +4,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
-/**
- * `AgentSseParser` 的逐条用例（D14 清单第 ① 条；`:web` 的测试源集在**真浏览器**里跑）。
- *
- * 断言对象是**纯函数**（喂字符串，吐帧），所以既不需要 serve 也不打任何服务商 ——
- * 这正是这一族最划算的一条：形状由契约 §5.11 钉住，改一边不改另一边当场红。
- *
- * 十二条覆盖：一帧 / 半帧 / 黏包 / 注释帧 / 注释与数据同块 / CRLF / `data:` 多行 /
- * 认不出的事件名 / 载荷不是 JSON / 十一类逐类形状 / 空块 / 只有认不出的字段。
- */
+/** `AgentSseParser` 的逐条用例（在真浏览器里跑）。 */
 class AgentSseParserTest {
 
     private fun frames(chunks: List<String>): List<AgentFrame> {

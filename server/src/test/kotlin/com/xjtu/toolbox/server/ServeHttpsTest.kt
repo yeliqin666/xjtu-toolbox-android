@@ -27,27 +27,7 @@ import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
-/**
- * serve 模式**内置 HTTPS**（`docs/desktop-port-plan.md` §16.1 的 D11 / §16.3 批④）的验收，
- * 契约见 `docs/api-contract.md` §3 / §3.2。
- *
- * ## 两条同样重要的判据
- *
- * 1. **不给新参数 = 明文，且逐字不变**：用户在用的那台 `0.0.0.0:40961` 的启动方式不能被这一批碰到
- *    —— 所以这里既有「默认值一个都不变」的断言，也有「明文那一档的 cookie 一个属性都不多」的断言。
- * 2. **给了 `--https` = 真 HTTPS，而且不许静默回落成明文**：真 socket（TLS 握手 + 建连 + 收发），
- *    测试侧**只信那一张自签证书**（不是 trust-all：那样连「证书没生效」都验不出来）；证书缺了、
- *    路径不存在、密码不对、文件不是证书库，四种情况各有一句明确报错。
- *
- * ## 手法与纪律
- *
- * - 起实例走的是**生产入口** [ServeHttps.start]（不是测试自造的等价物）—— 用户跑的就是这一条路；
- * - 端口一律 `0`（系统挑）：绝不抢 8123 / 40961（那两个端口上可能正跑着用户在用的 serve）；
- * - 数据根一律临时目录（`dataRootOverride`）：证书、密码、令牌都不落用户真实目录
- *   （证书默认路径就是「数据根 + `tls/`」，所以换根等于把整包材料一起隔离）；
- * - 明文那一档由 [ServeServerTest] 钉着（默认只绑回环、令牌闸门、静态托管），这里只管
- *   「明文形态的口径没有被 HTTPS 这条支路改动」。
- */
+/** serve 模式内置 HTTPS 的验收，契约见 `docs/api-contract.md` §3 / §3.2。 */
 class ServeHttpsTest {
 
     private var started: ServeHttps? = null
@@ -60,14 +40,12 @@ class ServeHttpsTest {
         dataRootOverride = null
     }
 
-    // ── ① 默认：明文，一字不改 ────────────────────────────────────────────────────
 
     @Test
     fun `不给新参数就是明文，默认值与 cookie 逐字不变`() {
         val root = Files.createTempDirectory("xjtu-serve-https-default").toFile()
         dataRootOverride = root
 
-        // 默认值就是对外承诺（契约 §3）：D11 一个都不许动
         val defaults = ServeConfig.parse(emptyArray())
         assertNull(defaults.tls, "不给 --https 就是明文形态")
         assertEquals("127.0.0.1", defaults.host)
@@ -87,7 +65,6 @@ class ServeHttpsTest {
         )
     }
 
-    // ── ② 给了 --https：真 HTTPS 往返 ──────────────────────────────────────────────
 
     @Test
     fun `给了 https 就是 HTTPS 监听，并且能完成一次真往返`() {
@@ -106,17 +83,14 @@ class ServeHttpsTest {
         assertTrue(https.port > 0, "--port 0 ⇒ 系统挑一个端口")
         val client = httpsClient(material)
 
-        // ① 免令牌端点：真 TLS 往返（握手 + 请求 + 响应），并如实报「没会话」
         val status = get(client, "https://127.0.0.1:${https.port}$API_STATUS_PATH")
         assertEquals(200, status.statusCode())
         assertContains(status.headers().firstValue("content-type").orElse(""), "application/json")
         assertContains(status.body(), "\"authenticated\":false")
 
-        // ② 令牌闸门还在（HTTPS 不等于免鉴权）：不带令牌 401、对令牌过闸门后 404（没实现的端点）
         assertEquals(401, get(client, "https://127.0.0.1:${https.port}/api/payment-code").statusCode())
         assertEquals(404, get(client, "https://127.0.0.1:${https.port}/api/payment-code", token).statusCode())
 
-        // ③ 静态托管也走同一条路（产物目录不存在时就如实 404/文案，不是 TLS 的问题）
         assertEquals(404, get(client, "https://127.0.0.1:${https.port}/missing.js").statusCode())
     }
 
@@ -159,7 +133,6 @@ class ServeHttpsTest {
         assertContains(setCookie, "SameSite=Lax")
         assertContains(setCookie, "Path=/")
         assertContains(setCookie, "Secure")
-        // 明文形态（默认参数）仍然是那一行**逐字**——收紧只发生在 HTTPS 形态
         assertEquals(
             "${AccessToken.COOKIE_NAME}=$token; Path=/; HttpOnly; SameSite=Lax",
             AccessToken.setCookieHeader(token, secure = false),
@@ -193,7 +166,6 @@ class ServeHttpsTest {
         }
     }
 
-    // ── ③ 自签生成这条路 ──────────────────────────────────────────────────────────
 
     @Test
     fun `自签证书能生成一条可用路径，而且第二次启动复用同一张`() {
@@ -205,7 +177,6 @@ class ServeHttpsTest {
         assertTrue(first.generated)
         assertTrue(settings.keyStore.isFile, "证书库要真落盘：${settings.keyStore}")
 
-        // 密码文件就在库旁边，两个文件都只有本用户可读写（与令牌那份 serve.properties 同一口径）
         val passwordFile = ServeTls.passwordFile(settings.keyStore)
         assertTrue(passwordFile.isFile, "密码要落盘（命令行上不接受密码）：$passwordFile")
         for (file in listOf(settings.keyStore, passwordFile)) {
@@ -264,7 +235,7 @@ class ServeHttpsTest {
         val root = Files.createTempDirectory("xjtu-serve-https-errors").toFile()
         dataRootOverride = root
 
-        // ① --cert 指向一个不存在的路径：报错，而且**不**在那儿捂着生成
+        // ① --cert 指向不存在的路径：报错，不生成
         val missing = File(root, "missing.p12")
         val absent = assertFailsWith<ServeTlsException> {
             ServeTls.prepare(TlsSettings(keyStore = missing, generateIfMissing = false), "127.0.0.1")
@@ -276,14 +247,12 @@ class ServeHttpsTest {
         val settings = TlsSettings(keyStore = ServeConfig.defaultTlsKeyStore(), generateIfMissing = true)
         val good = ServeTls.prepare(settings, "127.0.0.1")
 
-        // ② 别名不在库里：消息要点出别名与库里有的那几个
         val wrongAlias = assertFailsWith<ServeTlsException> {
             ServeTls.prepare(TlsSettings(keyStore = good.keyStore, alias = "nope"), "127.0.0.1")
         }
         assertContains(wrongAlias.message.orEmpty(), "nope")
         assertContains(wrongAlias.message.orEmpty(), ServeConfig.DEFAULT_TLS_ALIAS)
 
-        // ③ 文件在、密码也有、但它根本不是证书库（PKCS12 与 JKS 都读不了）
         val garbage = File(root, "garbage.p12")
         garbage.writeText("这不是一个证书库\n")
         ServeTls.passwordFile(garbage).writeText("whatever\n")
@@ -292,7 +261,6 @@ class ServeHttpsTest {
         }
         assertContains(notAKeyStore.message.orEmpty(), garbage.path)
 
-        // ④ 密码文件没了（也没设环境变量）：消息里要给得出下一步 —— 环境变量叫什么
         val passwordFile = ServeTls.passwordFile(good.keyStore)
         assertTrue(passwordFile.delete())
         val noPassword = assertFailsWith<ServeTlsException> {
@@ -303,13 +271,7 @@ class ServeHttpsTest {
 
     // ── 测试脚手架 ────────────────────────────────────────────────────────────────
 
-    /**
-     * 起一个 HTTPS 形态的 serve（生产入口 [ServeHttps.start]）。
-     *
-     * 两个进程级前置与 [ServeServerTest] 同口径：[FakeCampusProxy.installFakeUpstreams] 必须在
-     * 建 [ServeSession] **之前**（它一构造就把当时的 trust manager 与 ProxySelector 抄进客户端），
-     * 凭据存储要清一遍（同一个 JVM 里先跑过的测试类会留下登录态，`/api/status` 就不再说「没会话」了）。
-     */
+    /** 起一个 HTTPS 形态的 serve（生产入口 [ServeHttps.start]）。 */
     private fun startHttps(
         config: ServeConfig,
         token: String = AccessToken.newToken(),
@@ -320,12 +282,7 @@ class ServeHttpsTest {
         return ServeHttps.start(config, token, ServeSession(), material.context).also { started = it }
     }
 
-    /**
-     * 只信**这一张**自签证书的客户端。
-     *
-     * 不是 trust-all：那样「证书没生效 / 用了别的一张」也能过，等于把这一批要验的东西绕过去。
-     * 顺带必须显式「不走代理」—— 假上游装的是进程级 ProxySelector，它会把每个连接都指到假代理。
-     */
+    /** 只信这一张自签证书的客户端。 */
     private fun httpsClient(material: ServeTls.TlsMaterial): HttpClient =
         HttpClient.newBuilder()
             .version(HttpClient.Version.HTTP_1_1)

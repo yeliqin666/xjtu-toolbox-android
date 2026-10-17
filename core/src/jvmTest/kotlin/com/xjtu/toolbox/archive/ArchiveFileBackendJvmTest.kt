@@ -6,15 +6,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
 
-/**
- * S3：桌面（jvm）`files` 层投影的验收（§2.3 / A13 后半的位置解析）。
- *
- *  - `files/agent_sessions/…` ⇄ `<数据根>/agent_sessions<suffix>/…`，目录名在档案里不带 suffix；
- *  - 桌面课表族在 KV 店（store 投影），不在文件层 ⇒ `schedule` 前缀无投影；
- *  - `archiveCacheRoot()` 桌面为 null（没有 `cacheDir`）。
- *
- * 隔离口径：直接构造 [JvmFileBackend]（注入临时根），不碰 `keyValueStoreRoot()` 的全局状态。
- */
+/** 桌面（jvm）`files` 层投影的验收（§2.3）。 */
 class ArchiveFileBackendJvmTest {
 
     private fun withRoot(block: (File) -> Unit) {

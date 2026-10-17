@@ -28,65 +28,18 @@ import okhttp3.Request
 import okhttp3.Response
 import com.xjtu.toolbox.auth.LibrarySession as LibrarySiteSession
 
-/**
- * **Stage A 的验收**（`docs/desktop-port-plan.md` §6）：桌面端**用它自己登录的会话**跑通图书馆那条竖切。
- *
- * ## 与 `LibraryDataLayerJvmTest` 的关系
- *
- * 那一条验的是「同一份数据层在 JVM 上真跑」，会话是一条**脚手架**（`DirectLibrarySession`：不发登录、
- * 不重认证）。这一条把那半换成真的：[SessionManager] + [SiteSession] + `XJTULogin` +
- * `LibraryLogin` —— 也就是 Android 上跑的那一整条**会话内核**，现在它也在 `:data`。
- * 夹具、页面原文、断言口径全部与那一条相同（共用 [LibraryFakeUpstream]）。
- *
- * ## 传输：本地 HTTP 代理，而不是重写 URL
- *
- * 会话内核里有一批**按 host 判断**的判据（`XJTULogin.casPath` 只认 `login.xjtu.edu.cn`、
- * `LibraryLogin.looksLikeSeatPage` 与 `LibrarySession.validateLogin` 认 `rg.lib.xjtu.edu.cn`）。
- * 重写 URL 会让这些判据全部落空 —— 那测的就不是真内核了。
- *
- * 所以这一条用**代理**：`ProxySelector` 把所有连接指到本地夹具，URL 一个字符都不改。于是走的是
- * 完整真实链路：座位系统 → 302 到统一认证 → 表单 POST 凭据 → 种 TGC → 签 ticket 回跳 →
- * 站点会话 cookie。页面之外没有任何东西被「为测试而改」。
- *
- * ## 它钉住的四件事
- *
- * | 要验的 | 在哪条测试 |
- * |---|---|
- * | 真登录：凭据经 RSA 加密提交到 CAS，拿到 TGC 与站点会话 | [真登录] |
- * | 冷启动：换一个 SessionManager 从落盘快照 + cookie 恢复，不再重登 | [冷启动从落盘快照恢复] |
- * | 数据层在这份会话上读 / 写都对 | [读路径与 Android 端同一份解析] / [写路径] |
- * | 会话失效：内核自动重登（TGC 免密、新 ticket）并重放 | [会话失效时内核自动重登并重放] |
- */
+/** 桌面端用自己登录的会话跑通图书馆那条竖切。 */
 class LibraryLoginSessionJvmTest {
 
     private lateinit var server: HttpServer
     private lateinit var fake: LibraryFakeUpstream
 
-    /**
-     * 进程级的「把连接指到本测试的夹具」开关 —— 就是 `:testkit` 那一份 [FakeUpstreamProxySelector]。
-     *
-     * ⚠️ 为什么必须是**全进程共用同一个对象 + 可变端口**，而不是每条测试/每个测试类各装一个：
-     * `HttpClients.base` 是进程级 `by lazy`，**它会把当时的默认 ProxySelector 抄进自己的配置**
-     * （`OkHttpClient` 在 `build()` 那一刻就被抄走了），而 `SessionBackend.client` 又是从它
-     * `newBuilder()` 派生的。于是「各装一个」只有**先碰 `HttpClients.base` 的那个测试类**生效：
-     * 它那个对象被永远拿着，后面的类即使换了默认值也影响不到它 —— 表现就是端口不对
-     * （服务已停 ⇒ Connection refused）或者干脆不走代理。所以两处（这里与 `FakeCampusProxy`）
-     * 收敛到 `:testkit` 的同一份实现上：谁先初始化 `HttpClients.base` 都指向同一个可变端口。
-     */
+    /** 进程级的「把连接指到本测试的夹具」开关 —— 就是 `:testkit` 那一份 [FakeUpstreamProxySelector]。 */
     private val UpstreamProxy = FakeUpstreamProxySelector
 
-    /**
-     * 把上游夹具当**代理**起起来，并把进程的 ProxySelector 指过去（结束复原）。
-     *
-     * 返回类型固定 `Unit`：JUnit4 要求测试方法返回 void，而 `assertNotNull`/`assertIs`
-     * 这类断言是会返回值的（Kotlin 的 Unit 协变只在期望类型是 Unit 时生效）。
-     */
+    /** 把上游夹具当代理起起来，并把进程的 ProxySelector 指过去（结束复原）。 */
     private fun withFakeCas(block: () -> Unit) {
-        // 进程级前置，必须在建任何客户端**之前**：常驻 selector + 假上游那枚自签证书的信任库。
-        // 信任库这一条不止为体测/教务：JDK 的默认 trust store 与 OkHttp 的 trust manager 都是
-        // **进程级读一次**的（`Builder.build()` 那一刻就抄进客户端），所以同一 JVM 里只要有一个
-        // 测试类会走 https（`JwxtLoginTestHarness`），每个会建客户端的测试类都得先装它一遍 ——
-        // 否则先跑的那个类把「没有这枚证书」的 trust manager 定死了，后面的 https 链必然 PKIX 失败。
+        // 进程级前置，必须在建任何客户端之前：trust manager 在 `Builder.build()` 时就定死，晚装必然 PKIX 失败。
         FakeCampusProxy.installFakeUpstreams()
 
         server = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0)
@@ -95,11 +48,7 @@ class LibraryLoginSessionJvmTest {
         server.executor = Executors.newCachedThreadPool()
         server.start()
 
-        // 落盘存储指到临时目录：测试之间不互相污染，也不碰用户真实数据。
-        //
-        // ⚠️ 顺序要紧：cookie jar 与 `secureKeyValueStore` 都是**进程级**缓存的（App 里也正是
-        // 靠这一点让前台/后台共用同一个 jar），所以必须在建任何 SessionManager **之前**
-        // 把上一轮测试留下的内存态与文件一起清掉。
+        // ⚠️ cookie jar 与 `secureKeyValueStore` 是进程级缓存：必须在建 SessionManager 之前清掉上一轮的内存态与文件。
         dataRootOverride = Files.createTempDirectory("xjtu-data").toFile()
         for (name in listOf(
             "cookies_normal_default", "cookies_webvpn_default",
@@ -137,12 +86,7 @@ class LibraryLoginSessionJvmTest {
         setCredentials(LibraryFakeUpstream.USERNAME, LibraryFakeUpstream.PASSWORD)
     }
 
-    /**
-     * 跑一次真登录并返回站点会话。
-     *
-     * 站点实例是**全新**的（没有内存会话、cookie 也是刚清过的），所以 `ensureLogin` 的
-     * 「新鲜窗口」快路径不成立，这一趟必然走完整 CAS 链路 —— 不需要 `force = true` 去凑。
-     */
+    /** 跑一次真登录并返回站点会话。 */
     private fun login(manager: SessionManager): SiteSession = runBlocking {
         manager.ensureSite("library", userInitiated = true)
     }
@@ -285,8 +229,7 @@ class LibraryLoginSessionJvmTest {
         val site = login(newManager())
         val api = LibraryApi(SiteBackedLibrarySession(site))
 
-        // 与直连那条同一个口径：本端判到「被弹回登录页」就抛会话失效异常。
-        // 这里它可能由内核（重放仍失效）或数据层（认页面判据）抛出 —— 两者同属一个共享基类。
+        // 被弹回登录页就抛会话失效异常（内核或数据层抛，同属一个基类）。
         fake.loginMode.set(true)
         val e = assertFailsWith<SessionExpiredException> { runBlocking { api.getFloorAreas("xingqing2floor") } }
         assertEquals("图书馆", e.siteName)

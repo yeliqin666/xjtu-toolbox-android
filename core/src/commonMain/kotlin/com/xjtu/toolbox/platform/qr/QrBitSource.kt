@@ -1,10 +1,6 @@
 package com.xjtu.toolbox.platform.qr
 
-/**
- * 按位读一段字节流 —— zxing 3.5.4 `com.google.zxing.common.BitSource` 的**逐字对照**。
- *
- * 二维码的数据段是**按位**排的（比如数字模式 10 位表示三个数字），所以解出来的码字要一位一位读。
- */
+/** 按位读一段字节流 —— zxing 3.5.4 `com.google.zxing.common.BitSource` 的移植。 */
 internal class QrBitSource(private val bytes: ByteArray) {
 
     private var byteOffset = 0

@@ -1,32 +1,13 @@
 package com.xjtu.toolbox.platform.qr
 
-/**
- * 三个定位图案与一个校正图案 —— zxing 3.5.4 `com.google.zxing.qrcode.detector` 的
- * `FinderPattern` / `FinderPatternInfo` / `AlignmentPattern` / `ResultPoint` 的**逐字对照**。
- *
- * `ResultPoint` 在 zxing 里是「图上一个点」的通用父类（`getX/getY` + `orderBestPatterns` 那套排序）。
- * 这里把它并成 [QrResultPoint] 一个类，`FinderPattern` / `AlignmentPattern` 各自继承它加一个
- * 「估计的模块边长」—— 与 zxing 的继承关系一致。
- *
- * | zxing | 这里 | 备注 |
- * |---|---|---|
- * | `ResultPoint`（`x`/`y`、`equals`/`hashCode`/`toString`、`orderBestPatterns`、`distance`、`crossProductZ`） | [QrResultPoint] | `orderBestPatterns` 那套「谁离另外两个最近就是 B，再用叉积定 A/C」逐行相同 |
- * | `FinderPattern`（`estimatedModuleSize`、`count`、`aboutEquals`、`combineEstimate`） | [QrFinderPattern] | 逐行相同 |
- * | `FinderPatternInfo`（bottomLeft/topLeft/topRight 三个具名 getter） | [QrFinderPatternInfo] | 顺带把 zxing 那个「数组下标 0/1/2 = 左下/左上/右上」的口径也搬过来 |
- * | `AlignmentPattern`（`aboutEquals`、`combineEstimate`） | [QrAlignmentPattern] | 逐行相同 |
- * | `ResultPointCallback` / `DecodeHintType.NEED_RESULT_POINT_CALLBACK` | **没搬** | zxing 用它把「找到候选点了」实时报给一个回调（给取景框画提示用）。本端没有那个 hint（见 [QrReader] 的 KDoc），所以那一整条链不存在 |
- */
+/** 三个定位图案与一个校正图案。 */
 internal open class QrResultPoint(val x: Float, val y: Float) {
 
     override fun toString(): String = "($x,$y)"
 
     companion object {
 
-        /**
-         * 把三个定位图案排成 A（顶上那个）、B（直角）、C（另一个）。
-         *
-         * 离另外两个最近的那个是 B（直角顶点），另外两个先用叉积判断要不要换 —— 见 zxing 的注释。
-         */
+        /** 把三个定位图案排成 A（顶上那个）、B（直角）、C（另一个）。 */
         fun orderBestPatterns(patterns: Array<QrResultPoint>) {
             // 先量三个点两两之间的距离
             val zeroOneDistance = distance(patterns[0], patterns[1])
@@ -102,9 +83,7 @@ internal class QrFinderPattern(
     }
 }
 
-/**
- * 三个定位图案，且**已经排好序**（下标 0/1/2 = 左下/左上/右上）。见 [QrResultPoint] 的对照表。
- */
+/** 三个定位图案，且已经排好序（下标 0/1/2 = 左下/左上/右上）。 */
 internal class QrFinderPatternInfo(patternCenters: Array<QrResultPoint>) {
 
     val bottomLeft: QrResultPoint = patternCenters[0]
@@ -135,23 +114,7 @@ internal class QrAlignmentPattern(
     }
 }
 
-/**
- * 在一行一行的黑白游程里找那三个定位图案（1:1:3:1:1）—— zxing 3.5.4 的
- * `FinderPatternFinder` 的**逐字对照**。
- *
- * 这是整条链里最长的一段：按 [MIN_SKIP] 跳行扫、遇到 1:1:3:1:1 的游程就上下左右各交叉验证一次
- * （`crossCheckVertical` / `crossCheckHorizontal` / `crossCheckDiagonal`），确认过的点攒起来
- * （同一位置再看到就 `combineEstimate` 把 `count` 加一），最后从候选里挑「三个模块大小接近、
- * 又最接近等腰直角三角形」的那一组（`selectBestPatterns`）。
- *
- * | zxing | 这里 | 备注 |
- * |---|---|---|
- * | `find(hints)` 里那个 `tryHarder` | [find] 的参数 `tryHarder` | 唯一的 hint 消费（`iSkip` 那一档）|
- * | `MIN_SKIP = 3` / `MAX_MODULES = 97` / `CENTER_QUORUM = 2` | 同名常量 | `MAX_MODULES` 那句注释照抄：跑得动到 20 版 |
- * | `handlePossibleCenter` / `findRowSkip` / `haveMultiplyConfirmedCenters` / `selectBestPatterns` / `foundPatternCross` / `foundPatternDiagonal` / `centerFromEnd` / `doClearCounts` / `doShiftCounts2` / `EstimatedModuleComparator` | 同名 | 逐行相同，含 `selectBestPatterns` 里那段手写排序与「|c²-2b²|+|c²-2a²| 越小越像等腰直角」那条判据 |
- * | `resultPointCallback` | **没搬** | 见 [QrResultPoint] 的对照表 |
- * | `clearCounts` / `shiftCounts2`（`@Deprecated` 的两个壳） | **没搬** | 它们只是转调 `doClearCounts` / `doShiftCounts2`，没有人调 |
- */
+/** 在一行一行的黑白游程里找那三个定位图案（1:1:3:1:1）—— zxing 3.5.4 的`FinderPatternFinder` 的移植。 */
 internal class QrFinderPatternFinder(private val image: QrBitMatrix) {
 
     private val possibleCenters = mutableListOf<QrFinderPattern>()
@@ -161,9 +124,6 @@ internal class QrFinderPatternFinder(private val image: QrBitMatrix) {
     fun find(tryHarder: Boolean): QrFinderPatternInfo {
         val maxI = image.height
         val maxJ = image.width
-        // 我们在找黑/白/黑/白/黑 的 1:1:3:1:1 游程；这里数的是已经看到几段
-        // 假定支持的最大版本占图高的 1/4，再算上中心那块是 3 个模块宽 —— 这给出中心可能的最小像素数，
-        // 于是可以按这个间隔跳行。开 TRY_HARDER 时不跳，什么密度的版本都找。
         var iSkip = (3 * maxI) / (4 * MAX_MODULES)
         if (iSkip < MIN_SKIP || tryHarder) iSkip = MIN_SKIP
 
@@ -196,10 +156,6 @@ internal class QrFinderPatternFinder(private val image: QrBitMatrix) {
                                     } else {
                                         val rowSkip = findRowSkip()
                                         if (rowSkip > stateCount[2]) {
-                                            // 从「已经确认的中心」那一行跳到「第三个未确认中心」的上沿，
-                                            // 但往回退一点，好把定位图案中心那一整段都看到。
-                                            // 跳 rowSkip 行，但要退回 stateCount[2]（刚看到的那个中心的大小），
-                                            // 还要退回 iSkip（循环末尾会再加回来）
                                             i += rowSkip - stateCount[2] - iSkip
                                             j = maxJ - 1
                                         }
@@ -384,7 +340,6 @@ internal class QrFinderPatternFinder(private val image: QrBitMatrix) {
             i++
         }
         if (stateCount[4] >= maxCount) return Float.NaN
-        // 找是找到了一个像定位图案的截面，但要是比原来那个大出 40% 以上，就当它是误报
         val stateCountTotal = stateCount[0] + stateCount[1] + stateCount[2] + stateCount[3] + stateCount[4]
         if (5 * kotlin.math.abs(stateCountTotal - originalStateCountTotal) >= 2 * originalStateCountTotal) {
             return Float.NaN
@@ -428,7 +383,6 @@ internal class QrFinderPatternFinder(private val image: QrBitMatrix) {
             j++
         }
         if (stateCount[4] >= maxCount) return Float.NaN
-        // 同样：比原来那个大太多就是误报
         val stateCountTotal = stateCount[0] + stateCount[1] + stateCount[2] + stateCount[3] + stateCount[4]
         if (5 * kotlin.math.abs(stateCountTotal - originalStateCountTotal) >= originalStateCountTotal) {
             return Float.NaN
@@ -436,12 +390,7 @@ internal class QrFinderPatternFinder(private val image: QrBitMatrix) {
         return if (foundPatternCross(stateCount)) centerFromEnd(stateCount, j) else Float.NaN
     }
 
-    /**
-     * 一行里看到一段 1:1:3:1:1 ⇒ 上下左右各验一次；三个方向都过就把它记下来（同一个位置再看到就
-     * 把 `count` 加一）。
-     *
-     * @return 是否确认了一个中心（确认过之后外层会把跳行间隔改成 2）
-     */
+    /** 一行里看到一段 1:1:3:1:1 ⇒ 上下左右各验一次；三个方向都过就把它记下来（同一个位置再看到就把 `count` 加一）。 */
     private fun handlePossibleCenter(stateCount: IntArray, i: Int, j: Int): Boolean {
         val stateCountTotal = stateCount[0] + stateCount[1] + stateCount[2] + stateCount[3] + stateCount[4]
         var centerJ = centerFromEnd(stateCount, j)
@@ -470,10 +419,7 @@ internal class QrFinderPatternFinder(private val image: QrBitMatrix) {
         return false
     }
 
-    /**
-     * 已经确认过两个中心之后，往下最多能跳多少行还不至于漏掉第三个：最坏情形就是那两个中心
-     * 在 x/y 上的差之差。
-     */
+    /** 已经确认过两个中心之后，往下最多能跳多少行还不至于漏掉第三个：最坏情形就是那两个中心在 x/y 上的差之差。 */
     private fun findRowSkip(): Int {
         val max = possibleCenters.size
         if (max <= 1) return 0
@@ -575,10 +521,7 @@ internal class QrFinderPatternFinder(private val image: QrBitMatrix) {
                             c = temp
                         }
                     }
-                    // a² + b² = c²（勾股），且 a = b（等腰）。
-                    // 任何直角三角形都满足 c² - b² - a² = 0，所以两条腰要各查一次。
-                    // |c² - 2b²| + |c² - 2a²| 越大越不像等腰直角三角形。
-                    // zxing 的注释写着：下面这个式子实测更好（虽然他们已经说不清为什么了）。
+                    // |c² - 2b²| + |c² - 2a²| 越大越不像等腰直角三角形（zxing 的经验式）。
                     val d = kotlin.math.abs(c - 2 * b) + kotlin.math.abs(c - 2 * a)
                     if (d < distortion) {
                         distortion = d
@@ -606,15 +549,7 @@ internal class QrFinderPatternFinder(private val image: QrBitMatrix) {
     }
 }
 
-/**
- * 在校正图案该在的地方附近找 1:1:1 的中心 —— zxing 3.5.4 的 `AlignmentPatternFinder` 的
- * **逐字对照**（含「从中间往外一行一行试」与「没确认两次就把第一个候选交出去」那两条）。
- *
- * | zxing | 这里 | 备注 |
- * |---|---|---|
- * | `find` / `foundPatternCross` / `centerFromEnd` / `crossCheckVertical` / `handlePossibleCenter` | 同名 | 逐行相同 |
- * | `resultPointCallback` | **没搬** | 见 [QrResultPoint] 的对照表 |
- */
+/** 在校正图案该在的地方附近找 1:1:1 的中心。 */
 internal class QrAlignmentPatternFinder(
     private val image: QrBitMatrix,
     private val startX: Int,
@@ -753,18 +688,7 @@ internal class QrAlignmentPatternFinder(
     }
 }
 
-/**
- * 定位 → 网格采样 —— zxing 3.5.4 的 `Detector` 的**逐字对照**。
- *
- * | zxing | 这里 | 备注 |
- * |---|---|---|
- * | `detect(hints)`（`FinderPatternFinder.find` → `processFinderPatternInfo`） | [detect] | `hints` 只用到 `TRY_HARDER`，所以直接收一个布尔 |
- * | `processFinderPatternInfo`（算模块边长 → 算维度 → 临时版本 → 找校正图案「从半径 4 一路试到 16」→ 建变换 → 采样） | 同名 | 逐行相同 |
- * | `calculateModuleSize` / `calculateModuleSizeOneWay` / `sizeOfBlackWhiteBlackRunBothWays` / `sizeOfBlackWhiteBlackRun` | 同名 | 逐行相同，含那条「中点被算了两遍、减 1」的修正 |
- * | `createTransform` / `computeDimension` | 同名 | 逐行相同（`dimension & 0x03` 那个开关也照抄） |
- * | `findAlignmentInRegion`（含「区域比 3 个模块还窄就直接抛」两条检查） | 同名 | 逐行相同 |
- * | `DetectorResult`（`bits` + `points`） | **只交 [QrDetectorResult.bits]** | 这一条缝只交文本出去，`points` 只给 `Result` 的「结果点」用（见 [QrReader] 的 KDoc） |
- */
+/** 定位 → 网格采样 —— zxing 3.5.4 的 `Detector` 的移植。 */
 internal class QrDetector(private val image: QrBitMatrix) {
 
     fun detect(tryHarder: Boolean): QrDetectorResult {
