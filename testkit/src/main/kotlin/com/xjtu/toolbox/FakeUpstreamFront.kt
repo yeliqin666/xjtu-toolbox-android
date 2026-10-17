@@ -5,6 +5,7 @@ import com.sun.net.httpserver.HttpServer
 import com.sun.net.httpserver.HttpsConfigurator
 import com.sun.net.httpserver.HttpsServer
 import java.io.ByteArrayOutputStream
+import java.io.File
 import java.io.InputStream
 import java.net.InetAddress
 import java.net.InetSocketAddress
@@ -238,7 +239,7 @@ internal object FakeUpstreamTls {
         }
 
         private fun keytool(vararg args: String) {
-            val keytool = Paths.get(System.getProperty("java.home"), "bin", "keytool").toFile()
+            val keytool = Paths.get(System.getProperty("java.home"), "bin", if (File.separatorChar == '\\') "keytool.exe" else "keytool").toFile()
             check(keytool.canExecute()) { "假上游要生成自签证书，但 $keytool 不存在（测试用的 JDK 得带 keytool）" }
             val process = ProcessBuilder(listOf(keytool.absolutePath) + args).redirectErrorStream(true).start()
             val output = process.inputStream.readAllBytes().decodeToString()
