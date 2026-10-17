@@ -113,11 +113,6 @@ internal object DesktopUpdate {
         }
     }
 
-    /** 打开发布页（系统的默认浏览器）。 */
-    internal fun openReleasesPage(url: String = RELEASES_PAGE) {
-        openInBrowser(url)
-    }
-
     /** 真的发那条 GET。非 2xx 直接抛（[check] 会把它翻成 [CheckResult.Failed] 里的那句话）。 */
     private fun fetchReleasesJson(url: String): String? {
         val request = Request.Builder()

@@ -8,11 +8,6 @@ interface ArchiveSource {
     fun filePaths(): List<String>
     fun readFile(rel: String): String?
 }
-interface ArchiveSink {
-    fun writeManifest(json: String)
-    fun writeStore(name: String, json: String)
-    fun writeFile(rel: String, content: String)
-}
 
 /** 把「档案内相对路径 → 字节」的内存映射当成 [ArchiveSource]。 */
 fun archiveSourceOf(entries: Map<String, String>): ArchiveSource = InMemoryArchiveSource(entries)

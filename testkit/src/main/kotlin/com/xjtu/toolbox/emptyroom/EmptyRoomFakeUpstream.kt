@@ -38,7 +38,6 @@ class EmptyRoomFakeUpstream {
 
 
         const val CDN_HOST = "gh-release.xjtutoolbox.com"
-        const val CDN_ORIGIN = "https://$CDN_HOST"
 
         /** CDN 的取法就是这一个 query：`?file=static/empty_room/{日期}.json`。 */
         const val CDN_FILE_PREFIX = "static/empty_room/"

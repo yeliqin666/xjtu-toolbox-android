@@ -31,9 +31,7 @@ class JwappFakeUpstream {
 
         // ── jwapp 的端点 ──
 
-        const val TIME_URL = "$ORIGIN/api/biz/v410/common/school/time"
         const val GRADE_PATH = "/api/biz/v410/score/termScore"
-        const val GRADE_URL = "$ORIGIN$GRADE_PATH"
         const val DETAIL_PATH = "/api/biz/v410/score/scoreDetail"
         const val DETAIL_URL = "$ORIGIN$DETAIL_PATH"
 

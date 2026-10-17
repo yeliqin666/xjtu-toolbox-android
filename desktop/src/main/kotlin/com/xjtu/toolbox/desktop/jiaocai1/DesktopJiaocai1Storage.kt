@@ -136,6 +136,3 @@ internal fun jiaocai1CacheRoot(): File {
         ?: File(System.getProperty("user.home") ?: "/tmp", ".cache")
     return File(base, "xjtu-toolbox")
 }
-
-/** 测试用的落盘存储（桌面端的 `:core` 键值缝在本端现在也是落盘实现）。 */
-internal fun inMemoryJiaocai1ShelfStore(): KeyValueStore = keyValueStore("jiaocai1_shelf_test")

@@ -20,9 +20,6 @@ internal object WebPwa {
     /** `periodicSync` 这个 API 表面在不在 —— 不等于能用（所以不画成一行 ✓/✗）。 */
     fun periodicSyncApi(): Boolean = pwaHasPeriodicSync()
 
-    /** 浏览器报「这一个站点可安装」了吗（`beforeinstallprompt` 来过一次）。 */
-    fun installable(): Boolean = pwaInstallable()
-
     fun notificationSupported(): Boolean = pwaHasNotification()
 
     /** `Notification.permission`：`granted` / `denied` / `default`；不支持时是空串。 */
@@ -58,9 +55,6 @@ private external fun pwaRegistrationError(): String
 
 @JsFun("() => ('periodicSync' in (window.ServiceWorkerRegistration ? window.ServiceWorkerRegistration.prototype : {}))")
 private external fun pwaHasPeriodicSync(): Boolean
-
-@JsFun("() => { const s = globalThis.__xjtuToolboxPwa; return !!(s && s.installPrompt); }")
-private external fun pwaInstallable(): Boolean
 
 @JsFun("() => ('Notification' in window)")
 private external fun pwaHasNotification(): Boolean

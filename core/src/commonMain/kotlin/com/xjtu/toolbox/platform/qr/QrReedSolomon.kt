@@ -155,23 +155,6 @@ internal class QrGenericGfPoly(private val field: QrGenericGf, coefficients: Int
         for (i in coefficients.indices) product[i] = field.multiply(coefficients[i], coefficient)
         return QrGenericGfPoly(field, product)
     }
-
-    /** 长除：返回 `[商, 余数]`。 */
-    fun divide(other: QrGenericGfPoly): Array<QrGenericGfPoly> {
-        require(!other.isZero) { "除以 0" }
-        var quotient = field.zero
-        var remainder: QrGenericGfPoly = this
-        val inverseDenominatorLeadingTerm = field.inverse(other.coefficient(other.degree))
-        while (remainder.degree >= other.degree && !remainder.isZero) {
-            val degreeDifference = remainder.degree - other.degree
-            val scale = field.multiply(remainder.coefficient(remainder.degree), inverseDenominatorLeadingTerm)
-            val term = other.multiplyByMonomial(degreeDifference, scale)
-            val iterationQuotient = field.buildMonomial(degreeDifference, scale)
-            quotient = quotient.addOrSubtract(iterationQuotient)
-            remainder = remainder.addOrSubtract(term)
-        }
-        return arrayOf(quotient, remainder)
-    }
 }
 
 /** 纠错解不出来（zxing 的 `ReedSolomonException`）。 */

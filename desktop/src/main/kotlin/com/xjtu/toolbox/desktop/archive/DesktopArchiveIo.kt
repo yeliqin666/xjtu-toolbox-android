@@ -11,7 +11,7 @@ import java.util.zip.ZipEntry
 import java.util.zip.ZipInputStream
 import java.util.zip.ZipOutputStream
 
-/** 桌面端档案的传输那一半（§1.4 的 `ArchiveSource` / `ArchiveSink` 在这一端的落点）。 */
+/** 桌面端档案的传输那一半（§1.4 的 `ArchiveSource` 在这一端的落点）。 */
 object DesktopArchiveIo {
 
     /** 桌面数据根下的文件名后缀（§1.2：`<name>.properties`）。 */

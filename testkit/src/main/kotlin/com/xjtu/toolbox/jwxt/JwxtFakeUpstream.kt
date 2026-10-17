@@ -57,12 +57,8 @@ class JwxtFakeUpstream {
         const val TERM_BARE = "2024-2025-1"
 
 
-        /** `CjcxApi.baseUrl` 就是它。 */
-        const val CJCX = "$ORIGIN/jwapp/sys/cjcx"
         const val CJCX_INDEX_PATH = "/jwapp/sys/cjcx/*default/index.do"
         const val CJCX_QUERY_PATH = "/jwapp/sys/cjcx/modules/cjcx/xscjcx.do"
-        const val CJCX_INDEX_URL = "$ORIGIN$CJCX_INDEX_PATH"
-        const val CJCX_QUERY_URL = "$ORIGIN$CJCX_QUERY_PATH"
 
         /** `xscjcx.do` 的两行。 */
         const val CJCX_KCM = com.xjtu.toolbox.jwapp.JwappFakeUpstream.COURSE_NAME

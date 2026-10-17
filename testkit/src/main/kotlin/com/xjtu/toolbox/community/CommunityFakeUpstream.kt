@@ -13,15 +13,11 @@ class CommunityFakeUpstream {
         /** GraphQL 那个 host。 */
         const val API_HOST = "api.github.com"
 
-        /** `GithubOAuthDeviceAuthRepository` 的默认 `baseUrl`（有断言钉着）。 */
-        const val LOGIN_BASE = "https://$LOGIN_HOST/login/"
-
         const val DEVICE_CODE_PATH = "/login/device/code"
         const val ACCESS_TOKEN_PATH = "/login/oauth/access_token"
 
         /** GraphQL 端点（`HttpGithubDiscussionsRepository` 的默认 `endpoint`）。 */
         const val GRAPHQL_PATH = "/graphql"
-        const val GRAPHQL_URL = "https://$API_HOST$GRAPHQL_PATH"
 
         /** 用户码（`user_code`）里那个验证页 —— 只出现在报文里，客户端不会请求它。 */
         const val VERIFICATION_URI = "https://$LOGIN_HOST/login/device"

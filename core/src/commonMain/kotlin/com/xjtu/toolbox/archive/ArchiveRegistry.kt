@@ -106,14 +106,4 @@ object ArchiveRegistry {
 
     /** 全表（供守卫测试断言）。 */
     fun allEntries(): Map<String, Entry> = table
-
-    /** §2.1 `ttlClass` 的提示值；UNKNOWN ⇒ 不写。 */
-    fun ttlClassFor(base: String): String? = when (entryFor(base).ttl) {
-        Ttl.TERM -> "term"
-        Ttl.DAY -> "day"
-        Ttl.WEEK -> "week"
-        Ttl.FOREVER -> "forever"
-        Ttl.NONE -> "none"
-        Ttl.UNKNOWN -> null
-    }
 }

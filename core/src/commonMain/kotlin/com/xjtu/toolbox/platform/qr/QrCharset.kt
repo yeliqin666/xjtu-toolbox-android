@@ -43,16 +43,6 @@ internal object QrCharset {
         return ECI_NAMES[value]
     }
 
-    /** 这个编码名本实现解不解得出来（见文件头的边界表）。 */
-    fun canDecode(name: String): Boolean = when (name) {
-        "ISO-8859-1" -> true
-        "UTF-8", "UTF8" -> true
-        "US-ASCII", "ASCII" -> true
-        "UTF-16BE", "UnicodeBig" -> true
-        "UTF-16" -> true // 走 BOM
-        else -> false
-    }
-
     /** 按编码名解一段字节；解不出来（见文件头的边界表）返回 null，由调用方抛 `FormatException`。 */
     fun decode(name: String, bytes: ByteArray): String? = when (name) {
         "ISO-8859-1" -> bytes.map { (it.toInt() and 0xFF).toChar() }.joinToString("")
