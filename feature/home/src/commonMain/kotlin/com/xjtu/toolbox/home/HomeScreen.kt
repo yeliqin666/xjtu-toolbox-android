@@ -312,7 +312,8 @@ private fun HomeCollapsingBar(
         )
         EditorialRule(Modifier.align(Alignment.BottomStart).graphicsLayer { alpha = ramp(progress(), 0.7f) })
         Row(
-            Modifier.fillMaxWidth().padding(top = topInset).height(BAR_HEIGHT).padding(horizontal = 16.dp),
+            // 方印和刊头的竖长印、卡片里的文字落在同一条竖线上
+            Modifier.fillMaxWidth().padding(top = topInset).height(BAR_HEIGHT).padding(start = 36.dp, end = 16.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Image(
@@ -326,10 +327,14 @@ private fun HomeCollapsingBar(
                 },
             )
             Spacer(Modifier.weight(1f))
-            actions()
+            // 展开时圆钮贴着状态栏下沿，离问候远一点；折叠后回到细顶栏正中
+            Box(Modifier.graphicsLayer { translationY = -BUTTON_LIFT.toPx() * (1f - progress()) }) { actions() }
         }
     }
 }
+
+/** 展开时圆钮比顶栏正中上移的距离：顶栏里圆钮上方正好留这么多，不会顶进状态栏。 */
+private val BUTTON_LIFT get() = (BAR_HEIGHT - 36.dp) / 2 - 2.dp
 
 /** [p] 从 [start] 走到 1 时线性地从 0 升到 1。 */
 private fun ramp(p: Float, start: Float): Float = ((p - start) / (1f - start)).coerceIn(0f, 1f)
