@@ -115,7 +115,8 @@ class DesktopShellOverlayJvmTest {
                     LocalViewModelStoreOwner provides owner,
                     LocalIsWideLayout provides false,
                 ) {
-                    XJTUToolBoxTheme { content() }
+                    // 钉成浅色：像素探针找的是白卡片；跟系统走的话，Windows 深色模式下卡片是暗的，一行都量不到。
+                    XJTUToolBoxTheme(darkModeOverride = "light") { content() }
                 }
             }
         }
