@@ -4,7 +4,9 @@ import android.content.Context
 import android.util.Log
 import com.xjtu.toolbox.account.AccountContext
 import com.xjtu.toolbox.account.AccountStore
+import com.xjtu.toolbox.auth.AccessMode
 import com.xjtu.toolbox.auth.AccountType
+import com.xjtu.toolbox.auth.CampusProbe
 import com.xjtu.toolbox.auth.LoginType
 import com.xjtu.toolbox.auth.MfaRequiredException
 import com.xjtu.toolbox.auth.PasswordInvalidatedException
@@ -12,6 +14,7 @@ import com.xjtu.toolbox.auth.SessionManager
 import com.xjtu.toolbox.auth.SiteSession
 import com.xjtu.toolbox.auth.XJTULogin
 import com.xjtu.toolbox.auth.ensureSite
+import com.xjtu.toolbox.settings.SettingsStore
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
@@ -44,6 +47,7 @@ internal object HeadlessSessions {
      */
     suspend fun site(type: LoginType): SiteSession? {
         val manager = manager() ?: return null
+        if (manager !== SessionManager.active) pickAccessMode(manager)
         return try {
             manager.ensureSite(type, silent = true)
         } catch (e: MfaRequiredException) {
@@ -97,6 +101,18 @@ internal object HeadlessSessions {
         }
     }
 
+    /**
+     * 后台现建的会话也要分校内外：图书馆这类只在校内网可达的站点，人在路上用流量时只能走 WebVPN。
+     * 每轮都重判一次，两次后台任务之间可能换过网。判不出来（没网）就别动，按上次的走。
+     */
+    private suspend fun pickAccessMode(manager: SessionManager) {
+        val onCampus = when (SettingsStore().networkMode) {
+            SettingsStore.NETWORK_DIRECT -> true
+            SettingsStore.NETWORK_VPN -> false
+            else -> CampusProbe.detect(CampusProbe.ywtbToken).takeUnless { it.offline }?.onCampus ?: return
+        }
+        manager.onNetworkChanged(if (onCampus) AccessMode.NORMAL else AccessMode.WEBVPN)
+    }
     /** 有没有可用于后台自动登录的账号。没有就别排后台任务，省得空转（不收 `Context` 的理由见 [manager]）。 */
     fun hasAccount(): Boolean =
         AccountStore().activeAccount()?.password?.isNotBlank() == true

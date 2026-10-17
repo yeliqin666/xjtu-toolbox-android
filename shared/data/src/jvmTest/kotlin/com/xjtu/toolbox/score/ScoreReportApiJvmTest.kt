@@ -24,7 +24,8 @@ class ScoreReportApiJvmTest {
             assertEquals(
                 listOf(
                     ReportedGrade(JwxtFakeUpstream.SCORE_1_NAME, 5.0, "95", 4.3, JwxtFakeUpstream.SCORE_TERM_SPRING),
-                    ReportedGrade(JwxtFakeUpstream.SCORE_2_NAME, 4.0, "优秀", null, JwxtFakeUpstream.SCORE_TERM_SPRING),
+                    // 「优秀」和「优」同档（五级制双字写法），绩点 4.0
+                    ReportedGrade(JwxtFakeUpstream.SCORE_2_NAME, 4.0, "优秀", 4.0, JwxtFakeUpstream.SCORE_TERM_SPRING),
                     ReportedGrade(JwxtFakeUpstream.SCORE_3_NAME, 1.0, "88", 3.7, JwxtFakeUpstream.SCORE_TERM_SUMMER),
                 ),
                 grades,

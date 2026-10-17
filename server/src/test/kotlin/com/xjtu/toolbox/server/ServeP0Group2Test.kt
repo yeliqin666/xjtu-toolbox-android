@@ -196,7 +196,8 @@ class ServeP0Group2Test {
         val excellent = grades[1] as JsonObject
         assertEquals(JwxtFakeUpstream.SCORE_2_NAME, excellent.optString("courseName"))
         assertEquals("优秀", excellent.optString("score"))
-        assertNull(excellent.optString("gpa"), "等级制课程不参与绩点 ⇒ gpa:null（§4：null ≠ 字段缺失）")
+        // 五级制的双字写法「优秀」和「优」同档（dbba2700），绩点 4.0
+        assertEquals(4.0, excellent.optString("gpa")?.toDouble())
         assertEquals(4.0, excellent.optString("coursePoint")?.toDouble())
 
         val summer = grades[2] as JsonObject

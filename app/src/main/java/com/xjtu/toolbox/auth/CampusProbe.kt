@@ -172,9 +172,26 @@ object CampusProbe {
     }
 
     private fun reach(call: Call): Boolean = try {
-        call.execute().use { it.code < 500 }
+        call.execute().use { probeAnswered(it.request.url.isHttps, it.code, it.header("Location")) }
     } catch (_: Exception) {
         false
+    }
+
+    /**
+     * 探针的回应算不算「连上了校内机器」。https 有证书兜底，答了就算；明文 http 会被酒店、机场的认证页
+     * 和运营商透明代理截下来回 200/302，只认跳回学校域名（或站内相对路径）的跳转和 4xx。
+     */
+    internal fun probeAnswered(https: Boolean, code: Int, location: String?): Boolean {
+        if (code >= 500) return false
+        if (https) return true
+        return when (code) {
+            in 300..399 -> {
+                val host = location?.let { runCatching { java.net.URI(it).host }.getOrNull() }
+                location != null && (host == null || host == "xjtu.edu.cn" || host.endsWith(".xjtu.edu.cn"))
+            }
+            in 400..499 -> true
+            else -> false
+        }
     }
 
     private fun ask(call: Call, token: String?): Server = try {

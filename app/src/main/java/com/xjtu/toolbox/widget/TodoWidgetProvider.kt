@@ -1,5 +1,7 @@
 package com.xjtu.toolbox.widget
 
+import com.xjtu.toolbox.account.restoreIfNeeded
+
 import android.app.PendingIntent
 import android.appwidget.AppWidgetManager
 import android.appwidget.AppWidgetProvider
@@ -62,6 +64,7 @@ object TodoWidgetUpdater {
 
     fun update(context: Context, appWidgetManager: AppWidgetManager, appWidgetIds: IntArray) {
         if (appWidgetIds.isEmpty()) return
+        com.xjtu.toolbox.account.AccountContext.restoreIfNeeded()
 
         val now = System.currentTimeMillis()
         val todos = InboxRules.todos(InboxStore.load(), now)

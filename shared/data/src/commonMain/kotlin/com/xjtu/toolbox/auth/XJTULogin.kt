@@ -441,7 +441,8 @@ open class XJTULogin(
             // 无登录表单但状态码异常（如目标服务 404/5xx）：不能判定为 SSO 成功，
             // 也不应走"正常登录"流程（那是给账密表单场景用的，与此处无关）。
             Log.w(TAG, "init: SSO attempt got error status ${response.code}, not treating as success. Body preview: ${responseBody.redactBody(500)}")
-            ssoErrorMessage = "目标服务返回错误（HTTP ${response.code}），可能暂时不可用"
+            // 不带状态码：CasSiteSession 会把含「401」的失败当成密码错误，触发全局密码失效熔断
+            ssoErrorMessage = "目标服务返回错误，可能暂时不可用"
         } else if (executionInput.isEmpty() && existingClient == null) {
             // 无 existingClient 但页面不是登录表单 → 可能是错误页面
             Log.w(TAG, "init: No execution found and no existingClient! Body preview: ${responseBody.redactBody(500)}")

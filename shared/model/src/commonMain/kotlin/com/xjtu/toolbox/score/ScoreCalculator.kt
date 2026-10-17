@@ -48,11 +48,15 @@ object ScoreCalculator {
         val g = raw
             .replace('＋', '+')
             .replace('－', '-')
-            .replace(Regex("[^a-zA-Z0-9+\\-\\u4e00-\\u9fff]"), "")
+            .replace('．', '.')
+            .replace(Regex("[^a-zA-Z0-9.+\\-\\u4e00-\\u9fff]"), "")
             .uppercase()
+            // 五级制的双字写法和单字同档
+            .let { mapOf("优秀" to "优", "良好" to "良", "中等" to "中", "合格" to "通过", "不合格" to "不通过")[it] ?: it }
+        val numeric = g.toDoubleOrNull()
         return when {
             g.isEmpty() -> null
-            g.toDoubleOrNull() != null -> scoreToGpa(g.toDouble())
+            numeric != null -> if (numeric in 0.0..100.0) scoreToGpa(numeric) else null
             // 英文 11 级
             g == "A+" -> 4.3; g == "A" -> 4.0; g == "A-" -> 3.7
             g == "B+" -> 3.3; g == "B" -> 3.0; g == "B-" -> 2.7

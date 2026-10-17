@@ -71,7 +71,7 @@ class SessionManager {
     }
 
     /**
-     * 访问方式是否已判定。默认已定（后台任务的会话不做判定，按直连走）；前台冷启动、换了网络时由
+     * 访问方式是否已判定。默认已定（后台任务的会话由 HeadlessSessions 登录前自己判）；前台冷启动、换了网络时由
      * [unsettleAccessMode] 置为未定，[settleAccessMode] 放行。
      */
     private val accessModeSettled = MutableStateFlow(true)

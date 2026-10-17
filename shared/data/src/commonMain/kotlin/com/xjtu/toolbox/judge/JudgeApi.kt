@@ -154,7 +154,7 @@ data class QuestionnaireOptionData(
 class JudgeApi(private val site: SiteSession) {
 
     private var cachedTerm: String? = null
-    private var appInitialized = false
+    private var initializedEpoch = -1L
 
     private suspend fun execute(request: Request): String =
         site.executeWithReAuth(request).use { response ->
@@ -166,7 +166,8 @@ class JudgeApi(private val site: SiteSession) {
      * 否则后续业务 API 返回 `{"code":"404"}`。参见 SchoolCourseApi / CjcxApi 同款预热。
      */
     private suspend fun ensureAppInitialized() {
-        if (appInitialized) return
+        // 重登过就是新会话，得重新注册；预热失败也别记成已注册，下次调用再试
+        if (initializedEpoch == site.loginEpoch) return
         try {
             val req = Request.Builder()
                 .url("https://jwxt.xjtu.edu.cn/jwapp/sys/wspjyyapp/modules/xspj/index.do")
@@ -174,10 +175,11 @@ class JudgeApi(private val site: SiteSession) {
                 .get()
                 .build()
             site.executeWithReAuth(req).close()
-            appInitialized = true
+            initializedEpoch = site.loginEpoch
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
         } catch (_: Exception) {
             // 预热失败不阻塞业务，下游接口会自行报错
-            appInitialized = true
         }
     }
 

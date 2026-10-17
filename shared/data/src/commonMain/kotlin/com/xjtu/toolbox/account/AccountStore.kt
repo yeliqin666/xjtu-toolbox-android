@@ -102,3 +102,12 @@ class AccountStore {
         private const val KEY_MIGRATION_DONE = "migration_done"
     }
 }
+
+/**
+ * 小组件、后台广播拉起的进程不经过界面，[AccountContext.activeAccountId] 还是 null，读到的是匿名空间。
+ * 这类入口先调它从 [AccountStore] 恢复激活账号。
+ */
+fun AccountContext.restoreIfNeeded() {
+    if (activeAccountId != null) return
+    runCatching { AccountStore().activeAccountId()?.let { activeAccountId = it } }
+}

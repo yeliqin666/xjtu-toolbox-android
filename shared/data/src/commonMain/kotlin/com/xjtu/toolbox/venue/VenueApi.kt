@@ -64,13 +64,14 @@ class VenueApi(private val site: SiteSession) {
 
         /**
          * 服务端偶尔用 GBK 编码返回中文，OkHttp 按 latin-1 解会得到每个字节一个字符
-         * 的乱码。字符全落在 0x80..0xFF 时按 GBK 重解一次。
+         * 的乱码。没有超出 latin-1 的字符、又有高位字节时才按 GBK 重解：已经解对的中文
+         * 转 latin-1 会全变成问号。
          */
         private fun String.fixGbk(): String {
-            if (isEmpty() || none { it.code in 0x80..0xFF }) return this
+            if (isEmpty() || any { it.code > 0xFF } || none { it.code in 0x80..0xFF }) return this
             return runCatching {
-                String(toByteArray(Charsets.ISO_8859_1), charset("GBK"))
-            }.getOrDefault(this)
+                String(toByteArray(Charsets.ISO_8859_1), charset("GBK")).takeIf { '�' !in it }
+            }.getOrNull() ?: this
         }
     }
 

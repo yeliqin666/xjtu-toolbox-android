@@ -56,6 +56,18 @@ class ScoreCalculatorTest {
         assertEqualsD(2.0, ScoreCalculator.scoreToGpa("中"))
         assertEqualsD(1.3, ScoreCalculator.scoreToGpa("及格"))
         // "不及格" 在 ScoreCalculator 里返回 0.0，不算 null（与"通过/不通过"不同）
+        assertEqualsD(4.0, ScoreCalculator.scoreToGpa("优秀"))
+        assertEqualsD(3.0, ScoreCalculator.scoreToGpa("良好"))
+        assertEqualsD(2.0, ScoreCalculator.scoreToGpa("中等"))
+        assertNull(ScoreCalculator.scoreToGpa("合格"))
+    }
+
+    @Test
+    fun decimalScore_keepsDecimalPoint() {
+        assertEqualsD(0.0, ScoreCalculator.scoreToGpa("59.5"))
+        assertEqualsD(3.3, ScoreCalculator.scoreToGpa("84.5"))
+        assertEqualsD(4.0, ScoreCalculator.scoreToGpa("90．5"))
+        assertNull(ScoreCalculator.scoreToGpa("595"))
     }
 
     private fun assertEqualsD(expected: Double, actual: Double?, tolerance: Double = 0.001) {

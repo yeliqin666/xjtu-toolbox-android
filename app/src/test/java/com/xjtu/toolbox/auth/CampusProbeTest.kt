@@ -23,6 +23,17 @@ class CampusProbeTest {
     private val fail = Signal.Probe(false)
 
     @Test
+    fun `明文探针被认证页截下不算校内`() {
+        assertFalse(CampusProbe.probeAnswered(https = false, code = 302, location = "http://portal.hotel.example/login"))
+        assertFalse(CampusProbe.probeAnswered(https = false, code = 200, location = null))
+        assertTrue(CampusProbe.probeAnswered(https = false, code = 302, location = "https://login.xjtu.edu.cn/cas/login"))
+        assertTrue(CampusProbe.probeAnswered(https = false, code = 302, location = "/seat/"))
+        assertTrue(CampusProbe.probeAnswered(https = false, code = 404, location = null))
+        assertTrue(CampusProbe.probeAnswered(https = true, code = 200, location = null))
+        assertFalse(CampusProbe.probeAnswered(https = true, code = 502, location = null))
+    }
+
+    @Test
     fun `任一探针连上就是校内，不等服务器`() {
         val v = run(0L to fail, 0L to Signal.Probe(true))
         assertTrue(v.onCampus)

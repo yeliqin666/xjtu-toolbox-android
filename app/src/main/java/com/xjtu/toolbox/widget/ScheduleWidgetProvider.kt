@@ -1,5 +1,7 @@
 package com.xjtu.toolbox.widget
 
+import com.xjtu.toolbox.account.restoreIfNeeded
+
 import com.xjtu.toolbox.util.toJavaTime
 import com.xjtu.toolbox.util.toKx
 
@@ -313,7 +315,7 @@ object ScheduleWidgetUpdater {
      * 4x2 要的是"现在"。
      */
     internal fun loadTwoDayData(context: Context): WidgetTwoDayData {
-        ensureAccountContext(context)
+        com.xjtu.toolbox.account.AccountContext.restoreIfNeeded()
         val today = LocalDate.now()
         val tomorrow = today.plusDays(1)
         val header = { d: LocalDate ->
@@ -493,22 +495,9 @@ object ScheduleWidgetUpdater {
 
     private fun readStartDate(cache: DataCache, termCode: String): LocalDate? = ScheduleCache.readStartDate(cache, termCode)?.toJavaTime()
 
-    /**
-     * Widget 进程入口可能未经 MainActivity，AccountContext 未初始化；
-     * 从 AccountStore 恢复激活账号，保证 DataCache/Room 命名空间正确。
-     */
-    private fun ensureAccountContext(context: Context) {
-        if (com.xjtu.toolbox.account.AccountContext.activeAccountId == null) {
-            runCatching {
-                com.xjtu.toolbox.account.AccountStore().activeAccountId()?.let {
-                    com.xjtu.toolbox.account.AccountContext.activeAccountId = it
-                }
-            }
-        }
-    }
 
     internal fun loadScheduleData(context: Context): WidgetScheduleData {
-        ensureAccountContext(context)
+        com.xjtu.toolbox.account.AccountContext.restoreIfNeeded()
         dropStaleBrowseState(context)
         val nowAt = LocalDateTime.now()
         val nowDate = nowAt.toLocalDate()
