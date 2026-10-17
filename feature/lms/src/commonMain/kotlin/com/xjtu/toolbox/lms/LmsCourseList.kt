@@ -21,7 +21,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.xjtu.toolbox.ui.components.AppFilterChip
+import top.yukonga.miuix.kmp.overlay.OverlayListPopup
 import com.xjtu.toolbox.ui.components.rememberRetainedLazyStaggeredGridState
 import com.xjtu.toolbox.ui.adaptive.AdaptiveCardGrid
 import com.xjtu.toolbox.ui.adaptive.fullLineItem
@@ -92,6 +92,8 @@ internal fun CourseListPage(
         else courses.filter { it.semesterLabel == selectedSemester }
     }
 
+    var showSemesterMenu by remember { mutableStateOf(false) }
+
     Scaffold(
         topBar = {
             GlassTopAppBar(
@@ -99,6 +101,35 @@ internal fun CourseListPage(
                 glass = glass,
                 scrollBehavior = scrollBehavior,
                 onBack = onBack,
+                actions = {
+                    // 学期是整页的筛选，和校园卡的时间范围一样收进顶栏菜单，默认全部
+                    if (semesters.size > 1) Box {
+                        IconButton(onClick = { showSemesterMenu = true }) {
+                            Icon(Icons.Default.DateRange, contentDescription = "学期：${selectedSemester ?: "全部"}")
+                        }
+                        OverlayListPopup(
+                            show = showSemesterMenu,
+                            alignment = PopupPositionProvider.Align.End,
+                            onDismissRequest = { showSemesterMenu = false },
+                        ) {
+                            val options = listOf<String?>(null) + semesters
+                            ListPopupColumn {
+                                options.forEachIndexed { idx, sem ->
+                                    DropdownImpl(
+                                        text = sem ?: "全部学期",
+                                        optionSize = options.size,
+                                        isSelected = sem == selectedSemester,
+                                        onSelectedIndexChange = {
+                                            showSemesterMenu = false
+                                            selectedSemester = sem
+                                        },
+                                        index = idx,
+                                    )
+                                }
+                            }
+                        }
+                    }
+                },
             )
         }
     ) { padding ->
@@ -117,48 +148,12 @@ internal fun CourseListPage(
                         spacing = 0.dp,
                         horizontalSpacing = 0.dp,
                     ) {
-                        if (semesters.size > 1) {
-                            fullLineItem(key = "semester_filter") {
-                                Card(
-                                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp),
-                                    cornerRadius = 22.dp,
-                                    colors = CardDefaults.defaultColors(
-                                        color = MiuixTheme.colorScheme.surfaceVariant
-                                    )
-                                ) {
-                                    Column(Modifier.fillMaxWidth().padding(vertical = 14.dp)) {
-                                        Text(
-                                            "选择学期",
-                                            style = MiuixTheme.textStyles.subtitle,
-                                            fontWeight = FontWeight.Bold,
-                                            modifier = Modifier.padding(horizontal = 16.dp)
-                                        )
-                                        Text(
-                                            selectedSemester ?: "显示所有学期",
-                                            style = MiuixTheme.textStyles.footnote1,
-                                            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 3.dp)
-                                        )
-                                        Row(
-                                            Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())
-                                                .padding(horizontal = 12.dp, vertical = 7.dp),
-                                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                        ) {
-                                            AppFilterChip(selected = selectedSemester == null, onClick = { selectedSemester = null }, label = "全部")
-                                            semesters.forEach { sem ->
-                                                AppFilterChip(selected = selectedSemester == sem, onClick = { selectedSemester = sem }, label = sem)
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
                         fullLineItem(key = "count") {
                             Text(
-                                "共 ${filtered.size} 门课程" + if (selectedSemester != null) " ($selectedSemester)" else "",
+                                (selectedSemester ?: "全部学期") + " · 共 ${filtered.size} 门课程",
                                 fontSize = 12.sp,
                                 color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                                modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp)
+                                modifier = Modifier.padding(start = 20.dp, end = 20.dp, top = 8.dp, bottom = 4.dp)
                             )
                         }
                         items(filtered, key = { it.id }) { course ->

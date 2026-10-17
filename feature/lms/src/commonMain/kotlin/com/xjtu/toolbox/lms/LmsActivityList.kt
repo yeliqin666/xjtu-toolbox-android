@@ -24,7 +24,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.xjtu.toolbox.ui.components.AppFilterChip
+import com.xjtu.toolbox.ui.components.AppSegmentedTabs
 import com.xjtu.toolbox.ui.components.rememberRetainedLazyStaggeredGridState
 import com.xjtu.toolbox.ui.adaptive.AdaptiveCardGrid
 import com.xjtu.toolbox.ui.adaptive.fullLineItem
@@ -136,6 +136,13 @@ internal fun ActivityListPage(
     var pickColor by remember { mutableStateOf(false) }
     if (pickColor) CourseColorDialog(course.name, lmsAccent(course)) { pickColor = false }
 
+    // 分类：全部、公告（有才出）、各类活动
+    val filters = buildList {
+        add(CourseContentFilter.All)
+        if (bulletins.isNotEmpty()) add(CourseContentFilter.Bulletin)
+        types.forEach { add(CourseContentFilter.Activity(it)) }
+    }
+
     Scaffold(
         topBar = {
             GlassTopAppBar(
@@ -143,6 +150,28 @@ internal fun ActivityListPage(
                 glass = glass,
                 scrollBehavior = scrollBehavior,
                 onBack = onBack,
+                // 分类挂在顶栏底部，和顶栏一整块玻璃，列表从它下面滚过去（同校园卡的标签行）
+                bottomContent = {
+                    if (filters.size > 2) CompositionLocalProvider(com.xjtu.toolbox.ui.glass.LocalOnGlassBar provides (glass != null)) {
+                        AppSegmentedTabs(
+                            tabs = filters.map {
+                                when (it) {
+                                    CourseContentFilter.All -> "全部"
+                                    CourseContentFilter.Bulletin -> "公告"
+                                    is CourseContentFilter.Activity -> it.type.displayName()
+                                }
+                            },
+                            selectedTabIndex = filters.indexOf(filter).coerceAtLeast(0),
+                            onTabSelected = { i ->
+                                filter = filters[i]
+                                if (filter is CourseContentFilter.Bulletin) {
+                                    selecting = false
+                                    picked.clear()
+                                }
+                            },
+                        )
+                    }
+                },
                 actions = {
                     IconButton(onClick = { pickColor = true }) {
                         Icon(Icons.Default.Palette, contentDescription = "课程颜色", tint = lmsAccent(course))
@@ -197,63 +226,6 @@ internal fun ActivityListPage(
                         spacing = 0.dp,
                         horizontalSpacing = 0.dp,
                     ) {
-                        if (bulletins.isNotEmpty() || types.size > 1) {
-                            fullLineItem(key = "type_filter") {
-                                Card(
-                                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp),
-                                    cornerRadius = 22.dp,
-                                    colors = CardDefaults.defaultColors(color = MiuixTheme.colorScheme.surfaceVariant)
-                                ) {
-                                    Column(Modifier.fillMaxWidth().padding(vertical = 14.dp)) {
-                                        Text(
-                                            "课程内容",
-                                            style = MiuixTheme.textStyles.subtitle,
-                                            fontWeight = FontWeight.Bold,
-                                            modifier = Modifier.padding(horizontal = 16.dp)
-                                        )
-                                        Text(
-                                            when (filter) {
-                                                CourseContentFilter.All -> "全部内容"
-                                                CourseContentFilter.Bulletin -> "课程公告"
-                                                is CourseContentFilter.Activity -> (filter as CourseContentFilter.Activity).type.displayName()
-                                            },
-                                            style = MiuixTheme.textStyles.footnote1,
-                                            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 3.dp)
-                                        )
-                                        Row(
-                                            Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())
-                                                .padding(horizontal = 12.dp, vertical = 7.dp),
-                                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                        ) {
-                                            AppFilterChip(
-                                                selected = filter is CourseContentFilter.All,
-                                                onClick = { filter = CourseContentFilter.All },
-                                                label = "全部"
-                                            )
-                                            if (bulletins.isNotEmpty()) {
-                                                AppFilterChip(
-                                                    selected = filter is CourseContentFilter.Bulletin,
-                                                    onClick = {
-                                                        filter = CourseContentFilter.Bulletin
-                                                        selecting = false
-                                                        picked.clear()
-                                                    },
-                                                    label = "公告"
-                                                )
-                                            }
-                                            types.forEach { type ->
-                                                AppFilterChip(
-                                                    selected = (filter as? CourseContentFilter.Activity)?.type == type,
-                                                    onClick = { filter = CourseContentFilter.Activity(type) },
-                                                    label = type.displayName()
-                                                )
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
                         val batch = batchState
                         if (batch !is LmsBatchDownload.State.Idle) fullLineItem(key = "batch") {
                             BatchProgressCard(batch, source.publicPathLabel())
