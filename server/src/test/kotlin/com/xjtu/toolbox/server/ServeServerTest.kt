@@ -51,7 +51,7 @@ class ServeServerTest {
         val defaults = ServeConfig.parse(emptyArray())
         assertEquals("127.0.0.1", defaults.host)
         assertEquals(8123, defaults.port)
-        assertEquals("web/build/dist/wasmJs/productionExecutable", defaults.distDir.path)
+        assertEquals(File("web/build/dist/wasmJs/productionExecutable").path, defaults.distDir.path)
         assertFalse(defaults.exposed)
 
         val harness = start(distDir = tempDist())
@@ -228,7 +228,7 @@ class ServeServerTest {
 
     @Test
     fun `参数解析`() {
-        assertEquals("/tmp/x", ServeConfig.parse(arrayOf("--dist", "/tmp/x")).distDir.path)
+        assertEquals(File("/tmp/x").path, ServeConfig.parse(arrayOf("--dist", "/tmp/x")).distDir.path)
         assertEquals(18234, ServeConfig.parse(arrayOf("--port=18234")).port)
         assertEquals("0.0.0.0", ServeConfig.parse(arrayOf("--host", "0.0.0.0")).host)
         assertTrue(ServeConfig.parse(arrayOf("--host", "0.0.0.0")).exposed)

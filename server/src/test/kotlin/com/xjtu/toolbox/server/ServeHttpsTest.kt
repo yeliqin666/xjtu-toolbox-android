@@ -50,7 +50,7 @@ class ServeHttpsTest {
         assertNull(defaults.tls, "不给 --https 就是明文形态")
         assertEquals("127.0.0.1", defaults.host)
         assertEquals(8123, defaults.port)
-        assertEquals("web/build/dist/wasmJs/productionExecutable", defaults.distDir.path)
+        assertEquals(File("web/build/dist/wasmJs/productionExecutable").path, defaults.distDir.path)
         assertFalse(defaults.exposed)
 
         // 证书默认路径：**与访问令牌同一个数据根**（`tls/` 那一层），而且是算路径、不建目录

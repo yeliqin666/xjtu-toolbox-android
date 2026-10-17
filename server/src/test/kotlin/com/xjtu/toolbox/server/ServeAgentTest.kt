@@ -206,7 +206,7 @@ class ServeAgentTest {
             // 「不出现」的断言因此不是空的（写法见 `docs/api-contract.md` §5.2）。
             assertEquals(
                 AgentFixture.FAKE_API_KEY,
-                secureKeyValueStore(AgentConfigStore.STORE_SECURE + "default").getString("api_key"),
+                protectedSecureKeyValueStore(AgentConfigStore.STORE_SECURE + "default").getString("api_key"),
             )
         }
     }
@@ -829,7 +829,7 @@ class ServeAgentTest {
             )
             assertEquals(
                 AgentFixture.FAKE_API_KEY,
-                secureKeyValueStore(AgentConfigStore.STORE_SECURE + "default").getString("api_key"),
+                protectedSecureKeyValueStore(AgentConfigStore.STORE_SECURE + "default").getString("api_key"),
             )
             // 会话与记忆也落同一个根（同一套账号后缀）
             val session = agent.createSession(null)
