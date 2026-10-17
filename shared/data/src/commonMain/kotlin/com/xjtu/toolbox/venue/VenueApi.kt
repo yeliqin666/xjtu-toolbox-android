@@ -375,8 +375,13 @@ class VenueApi(private val site: SiteSession) {
         val root = try {
             AppJson.parseToJsonElement(body)
         } catch (e: Exception) {
-            val text = Jsoup.parse(body).text().trim()
-            throw RuntimeException(text.takeIf { it.isNotBlank() } ?: "订单接口返回格式异常", e)
+            // 订单接口只会回 JSON；拿到网页时只报页面标题，别把整页文字当错误信息给用户
+            val title = runCatching { Jsoup.parse(body).title().trim().fixGbk() }.getOrDefault("")
+            throw RuntimeException(
+                if (body.trimStart().startsWith("<")) "订单接口返回了网页而不是订单数据" + title.takeIf { it.isNotBlank() }?.let { "（$it）" }.orEmpty()
+                else "订单接口返回格式异常",
+                e,
+            )
         }
 
         val array = findOrderArray(root)
