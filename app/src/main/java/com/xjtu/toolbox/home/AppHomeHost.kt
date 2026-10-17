@@ -205,18 +205,26 @@ internal fun rememberAppHome(
     val today = LocalDate.now(com.xjtu.toolbox.util.CampusZoneId)
     val weekDay = today.dayOfWeek.getDisplayName(java.time.format.TextStyle.FULL, Locale.CHINESE)
 
+    // 杂志版式把待办与消息放进头版；彩虹主题仍只靠顶栏铃铛的角标
+    val inboxVersion = com.xjtu.toolbox.inbox.InboxStore.version
+    val inboxSummary = remember(inboxVersion, loginState.accountId) {
+        HomeCards.inboxSummary(com.xjtu.toolbox.inbox.InboxStore.load(), System.currentTimeMillis())
+            .takeUnless { it.isEmpty }
+    }
+
     val host = object : HomeHost {
-        // 九块里列了八块（`HomeCard.INBOX` 由顶栏那一枚角标负责，见这个函数的 KDoc）
-        override val honoredCards: Set<HomeCard> = setOf(
-            HomeCard.BULLETIN_BAR,
-            HomeCard.GREETING,
-            HomeCard.WEEK_NUMBER,
-            HomeCard.NEXT_UP,
-            HomeCard.GLANCE,
-            HomeCard.QUICK_ACTIONS,
-            HomeCard.CATEGORY_STATS,
-            HomeCard.SERVICE_GRID,
-        )
+        override val honoredCards: Set<HomeCard> = buildSet {
+            add(HomeCard.BULLETIN_BAR)
+            add(HomeCard.GREETING)
+            add(HomeCard.WEEK_NUMBER)
+            add(HomeCard.NEXT_UP)
+            add(HomeCard.GLANCE)
+            add(HomeCard.QUICK_ACTIONS)
+            add(HomeCard.CATEGORY_STATS)
+            add(HomeCard.SERVICE_GRID)
+            if (theme != com.xjtu.toolbox.settings.SettingsStore.THEME_ICON) add(HomeCard.INBOX)
+        }
+        override val inbox: HomeInboxSummary? get() = inboxSummary
 
         override val audience = loginState.accountType
         override val homeTheme: String = theme
@@ -279,7 +287,8 @@ internal fun rememberAppHome(
                             route = AppRoute.CampusCard,
                         )
                     )
-                    add(
+                    // 杂志版式的头版只放数据，这一格是入口不是数据
+                    if (theme == com.xjtu.toolbox.settings.SettingsStore.THEME_ICON) add(
                         HomeGlanceItem(
                             icon = Icons.Default.Forum,
                             label = "社区",
