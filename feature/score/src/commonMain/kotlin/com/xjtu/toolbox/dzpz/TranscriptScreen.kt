@@ -34,7 +34,7 @@ import com.xjtu.toolbox.nav.AppRoute
 /**
  * 电子成绩单下载页面
  *
- * 流程：加载表单 → 选择类型 → 一键申请 → 自动提交 → 下载 PDF
+ * 流程：加载表单 → 一键申请（类型沿用学校表单的第一项，不让用户选） → 自动提交 → 下载 PDF
  * UI 风格遵循项目 Miuix 风格，使用步骤进度条展示处理状态
  *
  * ## serve 模式下的**如实缺口**（2026-10-13 那次接线）
@@ -108,21 +108,12 @@ fun TranscriptScreen(
                     contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = glassTop + 12.dp, bottom = 12.dp),
                     verticalArrangement = Arrangement.spacedBy(16.dp)
                 ) {
-                    // ── 成绩单类型选择 ──
-                    item {
-                        TranscriptTypeSelector(
-                            options = ctx.typeOptions,
-                            selectedIndex = vm.selectedTypeIndex,
-                            enabled = vm.workflowState != WorkflowState.RUNNING,
-                            onSelect = { vm.selectedTypeIndex = it }
-                        )
-                    }
-
                     // ── 用户信息卡 ──
                     item {
                         InfoCard(
                             title = "申请信息",
-                            items = listOf(
+                            items = listOfNotNull(
+                                ctx.typeOptions.firstOrNull()?.let { "成绩单类型" to it.name },
                                 "申请日期" to ctx.defaultDate,
                                 "所属单位" to "西安交通大学",
                                 "份数" to "1"
@@ -172,95 +163,6 @@ enum class WorkflowState {
     RUNNING,    // 正在处理
     SUCCESS,    // 成功
     ERROR       // 失败
-}
-
-// ══════════════════════════════════════
-//  成绩单类型选择器
-// ══════════════════════════════════════
-
-@Composable
-private fun TranscriptTypeSelector(
-    options: List<TranscriptTypeOption>,
-    selectedIndex: Int,
-    enabled: Boolean,
-    onSelect: (Int) -> Unit
-) {
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.defaultColors(color = MiuixTheme.colorScheme.surfaceVariant)
-    ) {
-        Column(Modifier.padding(16.dp)) {
-            Text(
-                "选择成绩单类型",
-                fontSize = 15.sp,
-                fontWeight = FontWeight.SemiBold,
-                color = MiuixTheme.colorScheme.onSurface
-            )
-            Spacer(Modifier.height(12.dp))
-            options.forEachIndexed { index, option ->
-                TranscriptTypeSelectorItem(
-                    label = option.name,
-                    isSelected = index == selectedIndex,
-                    enabled = enabled,
-                    onClick = { onSelect(index) }
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun TranscriptTypeSelectorItem(
-    label: String,
-    isSelected: Boolean,
-    enabled: Boolean,
-    onClick: () -> Unit
-) {
-    Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(vertical = 3.dp),
-        colors = CardDefaults.defaultColors(
-            color = if (isSelected) MiuixTheme.colorScheme.primary.copy(alpha = 0.12f)
-                   else Color.Transparent
-        ),
-        cornerRadius = 10.dp,
-        onClick = if (enabled) {{ onClick() }} else null
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 12.dp, vertical = 10.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Box(
-                modifier = Modifier
-                    .size(20.dp)
-                    .clip(CircleShape)
-                    .background(
-                        if (isSelected) MiuixTheme.colorScheme.primary
-                        else MiuixTheme.colorScheme.outline.copy(alpha = 0.3f)
-                    ),
-                contentAlignment = Alignment.Center
-            ) {
-                if (isSelected) {
-                    Icon(
-                        Icons.Default.Check,
-                        contentDescription = null,
-                        modifier = Modifier.size(14.dp),
-                        tint = MiuixTheme.colorScheme.onPrimary
-                    )
-                }
-            }
-            Spacer(Modifier.width(12.dp))
-            Text(
-                label,
-                fontSize = 14.sp,
-                color = if (isSelected) MiuixTheme.colorScheme.primary
-                       else MiuixTheme.colorScheme.onSurface
-            )
-        }
-    }
 }
 
 // ══════════════════════════════════════

@@ -62,15 +62,14 @@ class CampusTranscriptApi(
     override suspend fun getLinkageData(ctx: FormContext, typeValue: Int): LinkageResult =
         noStep("学籍联动", "它的返回值里有**学号** —— 契约 §5.2 的红线，例外清单里没有它")
 
-    override suspend fun generatePreviewPdf(workflowId: Int, typeValue: Int): String =
-        noStep("生成预览 PDF", "写路径：它在上游建一份文档")
-
     override suspend fun submitCreate(
         ctx: FormContext,
         linkage: LinkageResult,
         typeValue: Int,
-        docId: String,
-    ): SubmitResult = noStep("第一次提交", "写路径：建流程（那半条链只服务于出 PDF）")
+    ): SubmitResult = noStep("保存申请", "写路径：建流程（那半条链只服务于出 PDF）")
+
+    override suspend fun generatePreviewPdf(workflowId: Int, typeValue: Int, requestId: Int): Unit =
+        noStep("生成成绩单文件", "写路径：它在上游建一份文档")
 
     override suspend fun reloadAndForward(
         ctx: FormContext,
@@ -90,7 +89,7 @@ class CampusTranscriptApi(
 
     private fun noStep(step: String, why: String): Nothing = throw UnsupportedOperationException(
         "serve 契约没有「第 ${step}」这一步的端点：$why（docs/api-contract.md §5.5）——" +
-            "这一屏只画得了第一步「选类型」（TranscriptSource.canRunWorkflow = false）",
+            "这一屏只画得了第一步「加载表单」（TranscriptSource.canRunWorkflow = false）",
     )
 }
 

@@ -15,16 +15,15 @@ class AppTranscriptSource(site: SiteSession) : TranscriptSource {
     override suspend fun getLinkageData(ctx: FormContext, typeValue: Int): LinkageResult =
         withContext(Dispatchers.IO) { api.getLinkageData(ctx, typeValue) }
 
-    override suspend fun generatePreviewPdf(workflowId: Int, typeValue: Int): String =
-        withContext(Dispatchers.IO) { api.generatePreviewPdf(workflowId, typeValue) }
-
     override suspend fun submitCreate(
         ctx: FormContext,
         linkage: LinkageResult,
         typeValue: Int,
-        docId: String,
     ): SubmitResult =
-        withContext(Dispatchers.IO) { api.submitCreate(ctx, linkage, typeValue, docId) }
+        withContext(Dispatchers.IO) { api.submitCreate(ctx, linkage, typeValue) }
+
+    override suspend fun generatePreviewPdf(workflowId: Int, typeValue: Int, requestId: Int) =
+        withContext(Dispatchers.IO) { api.generatePreviewPdf(workflowId, typeValue, requestId) }
 
     override suspend fun reloadAndForward(
         ctx: FormContext,

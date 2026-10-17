@@ -60,16 +60,18 @@ interface TranscriptSource {
     /** Step 2：联动查询 — 学号 / 入学年份 / 模板路径 / 业务分类名。 */
     suspend fun getLinkageData(ctx: FormContext, typeValue: Int): LinkageResult
 
-    /** Step 3：生成成绩单预览 PDF，返回文档 ID。 */
-    suspend fun generatePreviewPdf(workflowId: Int, typeValue: Int): String
-
-    /** Step 4：第一次提交（创建流程 → 拿到 `requestId` 与 `sessionKey`）。 */
+    /** Step 3：先保存（创建流程 → 拿到 `requestId` 与 `sessionKey`）。成绩单文档 ID 此时留空。 */
     suspend fun submitCreate(
         ctx: FormContext,
         linkage: LinkageResult,
-        typeValue: Int,
-        docId: String
+        typeValue: Int
     ): SubmitResult
+
+    /**
+     * Step 4：按 [requestId] 生成成绩单文件（必须在申请单保存之后）。学校只回 "ok"，
+     * 文档 ID 由学校写进申请单的 field7244，下一步重新加载时读。
+     */
+    suspend fun generatePreviewPdf(workflowId: Int, typeValue: Int, requestId: Int)
 
     /** Step 5：重新加载 → 提交前校验 → 第二次提交（转发到下载节点）。 */
     suspend fun reloadAndForward(

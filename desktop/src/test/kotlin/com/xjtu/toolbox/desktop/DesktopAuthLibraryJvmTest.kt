@@ -1222,8 +1222,8 @@ class DesktopAuthLibraryJvmTest {
             val ctx = source.loadCreateForm(DzpzDocuments.TRANSCRIPT.workflowId)
             val type = ctx.typeOptions.single().value
             val linkage = source.getLinkageData(ctx, type)
-            val docId = source.generatePreviewPdf(ctx.workflowId, type)
-            val first = source.submitCreate(ctx, linkage, type, docId)
+            val first = source.submitCreate(ctx, linkage, type)
+            source.generatePreviewPdf(ctx.workflowId, type, first.requestId)
             val second = source.reloadAndForward(ctx, first, type)
             val info = source.getDownloadInfo(second)
             source.downloadPdf(info.downloadUrl) to info

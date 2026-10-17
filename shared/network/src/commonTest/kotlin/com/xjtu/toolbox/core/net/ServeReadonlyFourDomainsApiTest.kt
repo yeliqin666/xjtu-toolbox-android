@@ -67,7 +67,7 @@ class ServeReadonlyFourDomainsApiTest {
         assertFalse(api.canRunWorkflow, "serve 只端了第一步 ⇒ 不许许诺「能走完七步」")
         val linkage = assertFailsWith<UnsupportedOperationException> { api.getLinkageData(form, 0) }
         assertTrue(linkage.message?.contains("学号") == true, "第 2 步不端的理由是学号（红线）：${linkage.message}")
-        assertFailsWith<UnsupportedOperationException> { api.generatePreviewPdf(29, 0) }
+        assertFailsWith<UnsupportedOperationException> { api.generatePreviewPdf(29, 0, 1) }
         assertFailsWith<UnsupportedOperationException> { api.downloadPdf("https://dzpz.xjtu.edu.cn/x.pdf") }
     }
 

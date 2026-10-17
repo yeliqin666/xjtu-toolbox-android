@@ -24,9 +24,9 @@ import java.util.Locale
  * 工作流程：
  * 1. loadCreateForm() → 获取表单默认值 + 字段定义（含成绩单类型选项）
  * 2. getLinkageData() → 根据选定类型获取关联字段（学号、入学年份、模板路径等）
- * 3. generatePreviewPdf() → 生成成绩单预览 PDF，返回文档 ID
- * 4. submitCreate() → 第一次提交（创建流程）
- * 5. reloadAndForward() → 重新加载 + 校验 + 第二次提交（自动转发到下载节点）
+ * 3. submitCreate() → 先保存：创建申请单，拿到 requestId
+ * 4. generatePreviewPdf() → 按 requestId 生成成绩单文件，学校把文档 ID 写进申请单的 field7244
+ * 5. reloadAndForward() → 重新加载（读到 field7244）+ 校验 + 提交（自动转发到下载节点）
  * 6. getDownloadInfo() → 获取最终的文件下载链接
  * 7. downloadPdf() → 下载 PDF 二进制文件
  *
@@ -213,42 +213,41 @@ class TranscriptApi(private val site: SiteSession) {
     }
 
     // ══════════════════════════════════════
-    //  Step 3: 生成成绩单预览 PDF
+    //  Step 4: 生成成绩单文件（必须在申请单保存之后）
     // ══════════════════════════════════════
 
-    suspend fun generatePreviewPdf(workflowId: Int, typeValue: Int): String {
-        Log.d(TAG, "generatePreviewPdf: wfId=$workflowId, type=$typeValue")
+    /** 学校只回 "ok"，文档 ID 不在响应里，要重新加载申请单从 field7244 读。 */
+    suspend fun generatePreviewPdf(workflowId: Int, typeValue: Int, requestId: Int) {
+        Log.d(TAG, "generatePreviewPdf: wfId=$workflowId, type=$typeValue, requestId=$requestId")
         val body = FormBody.Builder()
-            .add("reqid", "-1")
+            .add("reqid", requestId.toString())
             .add("wfid", workflowId.toString())
             .add("uid", userId)
             .add("fjmc", "dzcjdyl")
             .add("cjdwj", "")
-            .add("sfybc", "0")
+            .add("sfybc", "1")
             .add("cjdlx", typeValue.toString())
             .build()
 
-        val docId = execute(
+        val reply = execute(
             Request.Builder()
                 .url("$BASE/api/xjtuapi/procfiles")
                 .post(body)
                 .build()
         ).trim().ifEmpty { error("生成成绩单失败：服务器无响应") }
-        Log.d(TAG, "generatePreviewPdf: docId=$docId")
-        return docId
+        Log.d(TAG, "generatePreviewPdf: reply=${reply.take(60)}")
     }
 
     // ══════════════════════════════════════
-    //  Step 4: 第一次提交（创建流程 → 获取 requestId）
+    //  Step 3: 保存（创建流程 → 获取 requestId）
     // ══════════════════════════════════════
 
     suspend fun submitCreate(
         ctx: FormContext,
         linkage: LinkageResult,
-        typeValue: Int,
-        docId: String
+        typeValue: Int
     ): SubmitResult {
-        Log.d(TAG, "submitCreate: docId=$docId, typeValue=$typeValue")
+        Log.d(TAG, "submitCreate: typeValue=$typeValue")
 
         val token = ctx.submitParams.get("${userId}_${ctx.workflowId}_addrequest_submit_token")
             ?.longValue ?: System.currentTimeMillis()
@@ -304,12 +303,12 @@ class TranscriptApi(private val site: SiteSession) {
             .add("field7238", "")        // 电话
             .add("field7502", "")
             .add("field7536", linkage.enrollYear)
-            .add("field7244", docId)     // 成绩单预览文档 ID
+            .add("field7244", "")        // 成绩单文档 ID：保存后由 procfiles 写入
             .add("field7241", linkage.categoryName)
             .add("field7504", "")
             .add("field7247", linkage.templatePath)
             .add("field7245", linkage.workflowIdField)
-            .add("mainFieldUnEmptyCount", "12")
+            .add("mainFieldUnEmptyCount", "11")
             .add("detailFieldUnEmptyCount", "0")
             .add("signatureAttributesStr", ctx.signatureAttributesStr)
             .add("signatureSecretKey", ctx.signatureSecretKey)
@@ -408,6 +407,7 @@ class TranscriptApi(private val site: SiteSession) {
         fun fieldVal(fieldName: String): String {
             return newMaindata?.obj(fieldName)?.get("value")?.stringValue ?: ""
         }
+        if (fieldVal("field7244").isBlank()) error("生成成绩单失败：学校系统没有返回成绩单文件")
 
         val submitToken = newSubmitParams?.get("${userId}_${firstResult.requestId}_request_submit_token")
             ?.longValue ?: firstResult.submitToken

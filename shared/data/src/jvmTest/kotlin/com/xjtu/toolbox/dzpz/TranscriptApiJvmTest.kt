@@ -105,16 +105,17 @@ class TranscriptApiJvmTest {
                 val ctx = api.loadCreateForm(WORKFLOW_ID)
                 val type = ctx.typeOptions.single().value
                 val linkage = api.getLinkageData(ctx, type)
-                val docId = api.generatePreviewPdf(ctx.workflowId, type)
-                val first = api.submitCreate(ctx, linkage, type, docId)
+                // 先保存再生成文件（#109）：procfiles 带上保存拿到的 reqid、sfybc=1
+                val first = api.submitCreate(ctx, linkage, type)
+                api.generatePreviewPdf(ctx.workflowId, type, first.requestId)
                 val second = api.reloadAndForward(ctx, first, type)
-                api.getDownloadInfo(second) to Pair(docId, Pair(first, second))
+                api.getDownloadInfo(second) to Pair(first, second)
             }
-            val (info, steps) = result
-            val (docId, submissions) = steps
+            val (info, submissions) = result
             val (first, second) = submissions
 
-            assertEquals(DOC_ID, docId)
+            assertTrue("reqid=$REQUEST_ID" in fake.dzpz.procfilesBody.orEmpty(), "生成文件要带保存拿到的申请单号")
+            assertTrue("sfybc=1" in fake.dzpz.procfilesBody.orEmpty())
             assertTrue("fjmc=dzcjdyl" in fake.dzpz.procfilesBody.orEmpty(), "文件名那半是硬编码的")
             assertTrue("wfid=$WORKFLOW_ID" in fake.dzpz.procfilesBody.orEmpty())
             assertTrue("cjdlx=$TYPE_VALUE" in fake.dzpz.procfilesBody.orEmpty())
@@ -132,8 +133,8 @@ class TranscriptApiJvmTest {
             assertTrue("src=save" in firstBody && "iscreate=1" in firstBody)
             assertTrue("field7237=$STUDENT_ID" in firstBody, "第一次提交要带联动拿到的学号")
             assertTrue("field7536=$ENROLL_YEAR" in firstBody)
-            assertTrue("field7244=$DOC_ID" in firstBody, "第一次提交要带预览文档 id")
-            assertTrue("mainFieldUnEmptyCount=12" in firstBody)
+            assertTrue("field7244=&" in firstBody, "保存时成绩单文档 id 还没有，留空")
+            assertTrue("mainFieldUnEmptyCount=11" in firstBody)
             assertTrue("src=submit" in secondBody && "iscreate=0" in secondBody)
             assertTrue("field7249=$DEFAULT_DATE" in secondBody, "第二次提交回填的是重载后的字段值")
             assertTrue("field7244=$DOC_ID" in secondBody)
@@ -168,8 +169,8 @@ class TranscriptApiJvmTest {
                 val ctx = api.loadCreateForm(WORKFLOW_ID)
                 val type = ctx.typeOptions.single().value
                 val linkage = api.getLinkageData(ctx, type)
-                val docId = api.generatePreviewPdf(ctx.workflowId, type)
-                val first = api.submitCreate(ctx, linkage, type, docId)
+                val first = api.submitCreate(ctx, linkage, type)
+                api.generatePreviewPdf(ctx.workflowId, type, first.requestId)
                 val second = api.reloadAndForward(ctx, first, type)
                 api.getDownloadInfo(second)
             }

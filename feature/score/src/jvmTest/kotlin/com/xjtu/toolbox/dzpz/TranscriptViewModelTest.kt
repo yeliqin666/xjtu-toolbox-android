@@ -81,8 +81,8 @@ class TranscriptViewModelTest {
         assertEquals(
             listOf(
                 "getLinkageData($type)",
-                "generatePreviewPdf(${ctx.workflowId}, $type)",
-                "submitCreate($type, docId=9001)",
+                "submitCreate($type)",
+                "generatePreviewPdf(${ctx.workflowId}, $type, requestId=555)",
                 "reloadAndForward($type, first=555)",
                 "getDownloadInfo(second=555)",
                 "downloadPdf(https://dzpz.xjtu.edu.cn/weaver/file/download?fid=9001)",
@@ -103,9 +103,9 @@ class TranscriptViewModelTest {
         vm.start()
 
         assertEquals(WorkflowState.ERROR, vm.workflowState)
-        // 失败的那一步是 submitCreate（它记完账才抛），它后面的三步一步都没走到
+        // 失败的那一步是 submitCreate（它记完账才抛；先保存再生成文件，#109），它后面的四步一步都没走到
         assertEquals(
-            listOf("getLinkageData(0)", "generatePreviewPdf(29, 0)", "submitCreate(0, docId=9001)"),
+            listOf("getLinkageData(0)", "submitCreate(0)"),
             source.calls,
         )
         // 文案来自 FriendlyError（不是异常原文），且停在失败那一步的标签上
@@ -167,20 +167,18 @@ private class FakeTranscriptSource : TranscriptSource {
         return LinkageResult("2021000001", "2021", "/CPT/假.cpt", "电子证明（假）", ctx.workflowId.toString())
     }
 
-    override suspend fun generatePreviewPdf(workflowId: Int, typeValue: Int): String {
-        calls += "generatePreviewPdf($workflowId, $typeValue)"
-        return "9001"
-    }
-
     override suspend fun submitCreate(
         ctx: FormContext,
         linkage: LinkageResult,
         typeValue: Int,
-        docId: String,
     ): SubmitResult {
-        calls += "submitCreate($typeValue, docId=$docId)"
+        calls += "submitCreate($typeValue)"
         failSubmitWith?.let { throw it }
         return SubmitResult(555, "SK-假-1", 1L)
+    }
+
+    override suspend fun generatePreviewPdf(workflowId: Int, typeValue: Int, requestId: Int) {
+        calls += "generatePreviewPdf($workflowId, $typeValue, requestId=$requestId)"
     }
 
     override suspend fun reloadAndForward(
