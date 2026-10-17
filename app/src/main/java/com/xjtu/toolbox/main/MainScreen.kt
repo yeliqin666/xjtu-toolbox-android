@@ -43,6 +43,10 @@ import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
+import androidx.compose.foundation.layout.size
+import androidx.compose.ui.draw.clip
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.layout.positionInRoot
@@ -451,7 +455,8 @@ internal fun MainScreen(
                     onNavigate = router::open,
                     onNavigateToProfile = { tabs.selected = BottomTab.PROFILE },
                     onNavigateToCourses = { tabs.selected = BottomTab.COURSES },
-                    scrollBehavior = homeScrollBehavior,
+                    // 首页不要顶栏，也就没有大标题的展开折叠
+                    scrollBehavior = null,
                     extraBottomPadding = insets.bottomBarReserve,
                     homeTheme = homeTheme,
                     showQuickActions = showQuickActions,
@@ -459,6 +464,13 @@ internal fun MainScreen(
                     onBulletinTap = onHeroBulletinTap,
                     onBulletinDismiss = onHeroBulletinDismiss,
                     contentTopPadding = insets.contentTopPadding,
+                    topActions = {
+                        HomeTopActions(
+                            onInbox = { router.open(AppRoute.Inbox) },
+                            onScan = { showQrLogin = true },
+                            onSearch = { showGlobalSearch = true },
+                        )
+                    },
                 )
 
                 BottomTab.PIDAI.name -> AgentScreen(
@@ -517,6 +529,48 @@ internal fun MainScreen(
 private val OverlayEnter = fadeIn(tween(220)) + slideInVertically(tween(260)) { it / 16 }
 private val OverlayExit = fadeOut(tween(180)) + slideOutVertically(tween(200)) { it / 16 }
 
+/** 首页最上面一行：左边消息，右边扫一扫和搜索。不吸顶，跟着内容滚走。 */
+@Composable
+private fun HomeTopActions(onInbox: () -> Unit, onScan: () -> Unit, onSearch: () -> Unit) {
+    // 刊头右上角一组克制的小圆钮：淡底色、细图标，搜索、扫一扫、消息依次排开
+    val chip = MiuixTheme.colorScheme.onSurface.copy(alpha = 0.06f)
+    val tint = MiuixTheme.colorScheme.onSurface.copy(alpha = 0.78f)
+    Row(
+        horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(8.dp),
+        verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+    ) {
+        HomeRoundAction(chip, onSearch) {
+            Icon(Icons.Default.Search, contentDescription = "搜索", tint = tint, modifier = Modifier.size(19.dp))
+        }
+        HomeRoundAction(chip, onScan) {
+            Icon(
+                androidx.compose.ui.res.painterResource(com.xjtu.toolbox.R.drawable.ic_scan),
+                contentDescription = "扫一扫",
+                tint = tint,
+                modifier = Modifier.size(18.dp),
+            )
+        }
+        androidx.compose.foundation.layout.Box(
+            Modifier.size(36.dp).background(chip, androidx.compose.foundation.shape.CircleShape),
+            contentAlignment = androidx.compose.ui.Alignment.Center,
+        ) {
+            InboxBell(onInbox)
+        }
+    }
+}
+
+@Composable
+private fun HomeRoundAction(chip: Color, onClick: () -> Unit, icon: @Composable () -> Unit) {
+    androidx.compose.foundation.layout.Box(
+        Modifier
+            .size(36.dp)
+            .clip(androidx.compose.foundation.shape.CircleShape)
+            .background(chip)
+            .clickable(onClick = onClick),
+        contentAlignment = androidx.compose.ui.Alignment.Center,
+    ) { icon() }
+}
+
 /** 主界面顶栏，玻璃风格下采样 tab 内容区。 */
 @Composable
 private fun MainTopBar(
@@ -537,6 +591,8 @@ private fun MainTopBar(
     val tint = glassBarTint()
     val color = if (glassStyle) Color.Transparent else MiuixTheme.colorScheme.surface
     val modifier = if (glassStyle) Modifier.glassBarSurface(backdrop, tint) else Modifier
+    // 首页没有顶栏（标题「岱宗盒子」没有信息量）：按钮挪进首页内容里，状态栏留白由 Scaffold 的 insets 给
+    if (selectedTab == BottomTab.HOME) return
     // 屁岱是自下而上的聊天，只用小标题
     if (selectedTab == BottomTab.PIDAI) {
         SmallTopAppBar(
@@ -563,38 +619,8 @@ private fun MainTopBar(
         largeTitle = title,
         subtitle = if (selectedTab == BottomTab.COURSES) courseSubtitle else "",
         scrollBehavior = scrollBehavior,
-        // 折叠后的小标题在左右两组按钮之间居中，两边一样宽标题才在屏幕正中：
-        // 首页左边放消息、再留一格隐形占位，右边扫一扫和搜索，都是两格宽。
-        navigationIcon = {
-            if (selectedTab == BottomTab.HOME) {
-                Row {
-                    InboxBell(onInbox)
-                    IconButton(
-                        onClick = {},
-                        enabled = false,
-                        modifier = Modifier
-                            .alpha(0f)
-                            .clearAndSetSemantics {},
-                    ) {
-                        Icon(Icons.Default.Search, contentDescription = null)
-                    }
-                }
-            }
-        },
         actions = {
             if (selectedTab == BottomTab.COURSES) courseActions?.invoke(this)
-            if (selectedTab == BottomTab.HOME) {
-                IconButton(onClick = onScan) {
-                    Icon(
-                        androidx.compose.ui.res.painterResource(com.xjtu.toolbox.R.drawable.ic_scan),
-                        contentDescription = "扫一扫",
-                        tint = MiuixTheme.colorScheme.onSurface,
-                    )
-                }
-                IconButton(onClick = onSearch) {
-                    Icon(Icons.Default.Search, contentDescription = "搜索", tint = MiuixTheme.colorScheme.onSurface)
-                }
-            }
         },
         bottomContent = {
             if (selectedTab == BottomTab.COURSES) {
