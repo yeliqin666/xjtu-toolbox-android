@@ -580,10 +580,11 @@ private fun EditorialMasthead(
             }
             Column {
                 Text(
-                    greeting,
-                    style = TextStyle(fontFamily = Editorial.Serif, fontWeight = FontWeight.Black, fontSize = 34.sp, lineHeight = 40.sp, letterSpacing = 3.sp),
+                    if (name.isBlank()) greeting else "$greeting，$name",
+                    style = TextStyle(fontFamily = Editorial.Serif, fontWeight = FontWeight.Black, fontSize = 30.sp, lineHeight = 38.sp, letterSpacing = 2.sp),
                     color = MiuixTheme.colorScheme.onSurface,
                     maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
                 )
                 Box(Modifier.padding(top = 6.dp).width(24.dp).height(2.dp).background(HomeSeal.Red, RoundedCornerShape(1.dp)))
             }
@@ -594,16 +595,6 @@ private fun EditorialMasthead(
                     color = muted,
                     maxLines = 1,
                 )
-                if (name.isNotBlank()) {
-                    Text(
-                        "$name · ",
-                        style = TextStyle(fontFamily = Editorial.Serif, fontWeight = FontWeight.Medium, fontSize = 13.sp, lineHeight = 17.sp, letterSpacing = 1.sp),
-                        color = muted,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.weight(1f, fill = false),
-                    )
-                }
                 if (status != null) HeroStatusLine(status, onStatus, compact = true)
             }
         }
@@ -634,7 +625,7 @@ private fun Modifier.heroInset(radius: Dp = 18.dp): Modifier {
 private fun HeroStatusLine(
     status: HomeStatusLine,
     onClick: () -> Unit,
-    /** 只要色点和名称：说明（「连接中…」「8/8 就绪」）会随拉取变长短，放进刊头会让那一行来回跳。 */
+    /** 刊头那一行：小一号字，名称和子系统个数之间不留多余空隙。 */
     compact: Boolean = false,
 ) {
     val tint = when (status.tone) {
@@ -661,7 +652,14 @@ private fun HeroStatusLine(
         Row(click, verticalAlignment = Alignment.CenterVertically) {
             dot()
             Spacer(Modifier.width(5.dp))
-            Text(status.label, style = MiuixTheme.textStyles.footnote2, color = muted, maxLines = 1)
+            Text(
+                "${status.label} · ${status.detail}",
+                style = MiuixTheme.textStyles.footnote2,
+                color = muted,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f, fill = false),
+            )
             Icon(Icons.Default.ChevronRight, contentDescription = "查看子系统连接状态", tint = muted, modifier = Modifier.size(13.dp))
         }
         return
