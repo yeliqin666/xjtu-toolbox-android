@@ -35,12 +35,13 @@ package com.xjtu.toolbox.platform
  * `QrDecodeParityJvmTest` 拿同一批像素同时跑这一份与那份纯 Kotlin 实现，逐字断言相等
  * （包括「图里没有码」时两边都返回 null）。
  *
- * ## 两处**如实**的缺口（都在 wasmJs 那一侧，见 `QrReader` 的 KDoc 与 `QrCharset` 的边界表）
+ * ## 一处**如实**的缺口（见 `QrReader` 的 KDoc 与 `QrCharset` 的边界表）
  *
  * 1. 「补定位块」（`:app` 的 `decodeWithRepairedFinder`，为磨掉一角的码）**没搬** ⇒ 那种码在这一端
  *    可能读不出来；
- * 2. Shift_JIS / GB2312 那几套字符集**没有码表**（KANJI / HANZI 段、或猜成 Shift_JIS 的 BYTE 段）
- *    ⇒ 那种码在这一端读不出来。
+ * （字符集那一档本来也是缺口：Shift_JIS / GB2312 那几套码表 commonMain 里没有。这一批已补齐 ——
+ * KANJI 段、HANZI 段、ECI 20/28/29/30 与全部单字节那一族都解得出来了，剩下 ECI 12 / 16 两档
+ * 「连 zxing 自己也不认」的，见 `QrCharset` 的边界表。）
  *
  * 两条都是「本端没这个能力」，不是「读错了」—— 返回 `null`，由调用方给用户一句实话。
  */

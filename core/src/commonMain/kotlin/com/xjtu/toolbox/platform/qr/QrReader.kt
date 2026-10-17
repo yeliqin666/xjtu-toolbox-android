@@ -27,14 +27,17 @@ package com.xjtu.toolbox.platform.qr
  * | 7. 拆块 + Reed-Solomon 纠错 | [QrDataBlock] / [QrReedSolomonDecoder] | `DataBlock` / `ReedSolomonDecoder` |
  * | 8. 码字 → 文本 | [QrDecodedBitStreamParser] | `DecodedBitStreamParser` |
  *
- * ## 三处如实（都是「没搬」而不是「搬错了」，逐条写在各自文件的对照表里）
+ * ## 三处如实（第二处本批已补齐）
  *
  * 1. **「补定位块」那一档没有**：`:app` 的 `QrFrameDecoder` 在常规解码失败后还有一手
  *    `decodeWithRepairedFinder`（两个定位块推第三个、画上去再解一次，为图书馆那种磨掉一角的桌贴）。
  *    那一手要 `FinderCandidates` 那一整套候选配对与重画逻辑（`:app` 自己的一份），本批没搬 ⇒
  *    **磨掉一角的码在这一端可能扫不出来**（Android 能）。常规码不受影响。
- * 2. **字符集只留了四个**：见 [QrCharset] 的边界表 —— BYTE 段若猜成 Shift_JIS、或码里写了 KANJI/HANZI
- *    段，这一端**解不出来**（commonMain 没有那些码表）。分享码那一路是 base64url（纯 ASCII）⇒ 不受影响。
+ * 2. **字符集有码表了**（这一处本来是本端最大的缺口，已补齐）：中日韩那一族的码表按「三端一份」搬进了
+ *    commonMain（[QrCjkTables] 是 `tools/gen-qr-charset-tables.java` 从本机 JDK 枚举出来的纯数据），
+ *    BYTE 段猜成 Shift_JIS、或码里写的是 KANJI / HANZI 段，现在都解得出（见 [QrCharset] 的边界表：
+ *    剩下解不出来的只有 ECI 12 / 16 这两档 —— zxing 自己也不认）。分享码那一路是 base64url（纯 ASCII），
+ *    至始至终不受影响。
  * 3. **`hints` 一个都不收**：`PURE_BARCODE` / `CHARACTER_SET` / `NEED_RESULT_POINT_CALLBACK` 那几张表
  *    的消费方在这一端都不存在（本端只解一帧、不画取景点、不指定字符集），[QrDetector] 只留了
  *    `TRY_HARDER` 一个布尔 —— 那正是 `:app` 传的那一个。

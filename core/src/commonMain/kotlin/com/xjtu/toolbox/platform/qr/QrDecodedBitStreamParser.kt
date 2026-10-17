@@ -11,7 +11,7 @@ package com.xjtu.toolbox.platform.qr
  * | `ALPHANUMERIC`（11 位两个字符、6 位一个、那 45 个字符表） | 同名 | 逐条相同 |
  * | `BYTE`（`currentCharacterSetECI` 有就用它，没有就 [QrCharset.guessCharset]） | 同名 | 见 [QrCharset] 的边界表：解不出来的编码**整体解码失败** |
  * | `KANJI` / `HANZI` 两个数据段 | **认得出、解不出来** | ⚠️ 如实差异：那两个要 Shift_JIS / GB2312 码表（commonMain 没有）。分支留着、先按同样的位数把模式与字符数读掉，再抛 `FormatException` —— 与「这一段本实现解不了」是同一件事，而不是静默当成空串 |
- * | `DecoderResult` 里的 `rawBytes` / `byteSegments` / `ecLevel` / `structuredAppend*` / `symbologyModifier` | **没搬** | 这一条缝只交「文本」出去（见 [QrReader] 的 KDoc）；纠了几个错由 [QrDecoder] 那一层带回来 |
+ * | `KANJI` / `HANZI` 两个数据段 | **解出来**（[decodeKanjiSegment] / [decodeHanziSegment]） | 逐字相同：KANJI 用 Shift_JIS（zxing 那份是 `StringUtils.SHIFT_JIS_CHARSET`＝`Charset.forName("SJIS")`，就是 JDK 的 Shift_JIS）、HANZI 用 GB2312（`StringUtils.GB2312_CHARSET`），两张码表都在 [QrCjkTables] |
  * | `hints`（`CHARACTER_SET` / `ASSUMED_CHARSET` 那两张表） | **没搬** | 唯一的消费方（`:app` 的 `QrFrameDecoder`）只传 `POSSIBLE_FORMATS` + `TRY_HARDER`，从没传过字符集 hint |
  */
 internal object QrDecodedBitStreamParser {
@@ -60,8 +60,8 @@ internal object QrDecodedBitStreamParser {
                         val subset = bits.readBits(4)
                         val countHanzi = bits.readBits(mode.characterCountBits(version))
                         if (subset == GB2312_SUBSET) {
-                            // ⚠️ GB2312 码表在 commonMain 里没有 ⇒ 这一路解不出来（见文件头）
-                            throw QrFormatException()
+                            // 子集指示 = 1 就是 GB2312 那一档（别的子集按 zxing 的口径：什么都不加）
+                            decodeHanziSegment(bits, result, countHanzi)
                         }
                     }
                     else -> {
@@ -71,10 +71,8 @@ internal object QrDecodedBitStreamParser {
                             QrMode.NUMERIC -> decodeNumericSegment(bits, result, count)
                             QrMode.ALPHANUMERIC -> decodeAlphanumericSegment(bits, result, count, fc1InEffect)
                             QrMode.BYTE -> decodeByteSegment(bits, result, count, currentCharacterSetEci)
-                            QrMode.KANJI -> {
-                                // ⚠️ Shift_JIS 码表在 commonMain 里没有 ⇒ 这一路解不出来（见文件头）
-                                throw QrFormatException()
-                            }
+                            // 13 位一个字符 ⇒ Shift_JIS 的两个字节（见 decodeKanjiSegment）
+                            QrMode.KANJI -> decodeKanjiSegment(bits, result, count)
                             else -> throw QrFormatException()
                         }
                     }
@@ -101,6 +99,49 @@ internal object QrDecodedBitStreamParser {
         // ISO-8859-1 与 Shift_JIS 都见过。有 ECI 就按它，没有就只能猜。
         val encoding = currentCharacterSetEci ?: QrCharset.guessCharset(readBytes)
         result.append(QrCharset.decode(encoding, readBytes) ?: throw QrFormatException())
+    }
+
+    /**
+     * KANJI 段：13 位一个字符，先拼回 Shift_JIS 的两个字节，再整段按 Shift_JIS 解 —— zxing
+     * `DecodedBitStreamParser.decodeKanjiSegment` 的逐字对照（连 `0x8140` / `0xC140` 两个偏移都一样）。
+     */
+    private fun decodeKanjiSegment(bits: QrBitSource, result: StringBuilder, count: Int) {
+        // 别去读比手上还多的位
+        if (count * 13 > bits.available()) throw QrFormatException()
+        val buffer = ByteArray(2 * count)
+        var offset = 0
+        var remaining = count
+        while (remaining > 0) {
+            val twoBytes = bits.readBits(13)
+            var assembledTwoBytes = ((twoBytes / 0xC0) shl 8) or (twoBytes % 0xC0)
+            assembledTwoBytes += if (assembledTwoBytes < 0x1F00) 0x8140 else 0xC140
+            buffer[offset] = ((assembledTwoBytes shr 8) and 0xFF).toByte()
+            buffer[offset + 1] = (assembledTwoBytes and 0xFF).toByte()
+            offset += 2
+            remaining--
+        }
+        result.append(QrCharset.decode("Shift_JIS", buffer) ?: throw QrFormatException())
+    }
+
+    /**
+     * HANZI 段：13 位一个字符，先拼回 GB2312 的两个字节，再整段按 GB2312 解 —— zxing
+     * `DecodedBitStreamParser.decodeHanziSegment` 的逐字对照（两个偏移 `0xA1A1` / `0xA6A1` 与它一样）。
+     */
+    private fun decodeHanziSegment(bits: QrBitSource, result: StringBuilder, count: Int) {
+        if (count * 13 > bits.available()) throw QrFormatException()
+        val buffer = ByteArray(2 * count)
+        var offset = 0
+        var remaining = count
+        while (remaining > 0) {
+            val twoBytes = bits.readBits(13)
+            var assembledTwoBytes = ((twoBytes / 0x60) shl 8) or (twoBytes % 0x60)
+            assembledTwoBytes += if (assembledTwoBytes < 0xA00) 0xA1A1 else 0xA6A1
+            buffer[offset] = ((assembledTwoBytes shr 8) and 0xFF).toByte()
+            buffer[offset + 1] = (assembledTwoBytes and 0xFF).toByte()
+            offset += 2
+            remaining--
+        }
+        result.append(QrCharset.decode("GB2312", buffer) ?: throw QrFormatException())
     }
 
     private fun toAlphaNumericChar(value: Int): Char {
