@@ -188,6 +188,7 @@ internal class DesktopHomeHost(
                         icon = HomeHero.EXAM_ICON,
                         label = exam.detail?.substringBefore(" · ")?.ifBlank { null } ?: "下一场考试",
                         value = exam.value,
+                        caption = exam.detail?.substringAfter(" · ", "")?.ifBlank { null },
                         tone = HomeTone.ACCENT,
                         route = AppRoute.Schedule,
                     )

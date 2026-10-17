@@ -294,6 +294,8 @@ internal fun rememberAppHome(
                                 icon = Icons.AutoMirrored.Filled.EventNote,
                                 label = exam.detail?.substringBefore(" · ")?.ifBlank { null } ?: "下一场考试",
                                 value = exam.value,
+                                // 考试速览格多一行：时间、考场、座号
+                                caption = exam.detail?.substringAfter(" · ", "")?.ifBlank { null },
                                 tone = HomeTone.ACCENT,
                                 route = AppRoute.Schedule,
                             )

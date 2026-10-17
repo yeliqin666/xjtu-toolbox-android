@@ -1,5 +1,14 @@
 package com.xjtu.toolbox.home
 
+import androidx.compose.ui.unit.sp
+import com.xjtu.toolbox.ui.theme.Editorial
+import com.xjtu.toolbox.ui.theme.EditorialRule
+import com.xjtu.toolbox.ui.theme.EditorialSectionHeader
+import com.xjtu.toolbox.util.todayOnCampus
+import kotlinx.datetime.DayOfWeek
+import kotlinx.datetime.LocalDate
+import kotlinx.datetime.number
+
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -150,14 +159,14 @@ fun HomeScreen(
                     )
                 }
             } else {
-                // 卡片主题：有状态的功能出数据格，其余收成一排紧凑入口，回答「这一块现在怎么样」。
-                CategoryCards(count = groups.size, spacing = SECTION_GAP) { index ->
+                // 卡片主题（杂志版式）：有状态的功能出数据格，其余收成一排紧凑入口，回答「这一块现在怎么样」。
+                // 栏目之间靠留白分开，间距比卡片主题的卡间距大一倍
+                CategoryCards(count = groups.size, spacing = EDITORIAL_SECTION_GAP) { index ->
                     val group = groups[index]
                     HomeSceneCard(
+                        index = index + 1,
                         title = group.category.title,
                         subtitle = group.category.subtitle,
-                        icon = HomeIcons.category(group.category),
-                        accent = legacyColor(HomeIcons.accentKey(group.category)),
                         rows = group.rows.map { row ->
                             rowOf(
                                 row.service,
@@ -188,7 +197,7 @@ fun HomeScreen(
                 HomeInboxCard(summary) { host.onRoute(AppRoute.Inbox) }
             }
         }
-        Spacer(Modifier.height(SECTION_GAP))
+        Spacer(Modifier.height(if (isIconTheme) SECTION_GAP else EDITORIAL_SECTION_GAP))
         categorySection()
         Spacer(Modifier.height(SECTION_GAP + extraBottomPadding))
     }
@@ -205,6 +214,8 @@ private fun HomeHeroCard(
     isIconTheme: Boolean,
     onOpenCourses: () -> Unit,
 ) {
+    /** 卡片主题的杂志版式：去掉流动渐变和内嵌小面板，西文期号 + 宋体刊头，靠发丝线分栏。 */
+    val editorial = !isIconTheme
     val honored = host.honoredCards
     val greeting = Greeting.of()
     val headline = if (host.greetingName.isBlank()) greeting else "$greeting，${host.greetingName}"
@@ -224,7 +235,7 @@ private fun HomeHeroCard(
             .squircleClip(CARD_RADIUS)
             .background(AppCardColor),
     ) {
-        Box(Modifier.matchParentSize()) {
+        if (!editorial) Box(Modifier.matchParentSize()) {
             // 底色是缓慢流动的 Mesh 渐变，顶点颜色由主题色按不同浓度混进卡片底色，Monet 取色下也跟着走。
             val cardBase = AppCardColor
             val heroMesh = remember(primary, cardBase) {
@@ -243,8 +254,8 @@ private fun HomeHeroCard(
             if (HomeCard.GREETING in honored) {
                 Column(Modifier.padding(start = 6.dp, top = 8.dp, end = HERO_ART_SIZE)) {
                     Text(
-                        meta,
-                        style = MiuixTheme.textStyles.footnote1,
+                        if (editorial) editorialKicker(weekNumber) else meta,
+                        style = if (editorial) Editorial.kicker else MiuixTheme.textStyles.footnote1,
                         color = primary,
                         fontWeight = FontWeight.Bold,
                         maxLines = 1,
@@ -253,11 +264,20 @@ private fun HomeHeroCard(
                     Spacer(Modifier.height(6.dp))
                     Text(
                         headline,
-                        style = MiuixTheme.textStyles.title3,
+                        style = if (editorial) Editorial.masthead else MiuixTheme.textStyles.title3,
                         fontWeight = FontWeight.Bold,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
+                    if (editorial) {
+                        // 刊头下面补一行中文日期：期号是西文，中文读者还是看「星期五」顺眼
+                        Text(
+                            meta,
+                            style = MiuixTheme.textStyles.footnote2,
+                            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                            maxLines = 1,
+                        )
+                    }
                     if (status != null) {
                         Spacer(Modifier.height(8.dp))
                         HeroStatusLine(status, host::onOpenStatus)
@@ -265,20 +285,24 @@ private fun HomeHeroCard(
                 }
                 Spacer(Modifier.height(if (status != null) 18.dp else 30.dp))
             }
+            if (editorial) EditorialRule(Modifier.padding(horizontal = 6.dp))
             if (HomeCard.NEXT_UP in honored && nextUp != null) {
                 HeroNextUp(
                     nextUp = nextUp,
+                    editorial = editorial,
                     onClick = { nextUp.route?.let { route -> host.onRoute(route) } ?: host.onProfile() },
                 )
             }
             if (glances.isNotEmpty()) {
-                Spacer(Modifier.height(8.dp))
+                if (editorial) EditorialRule(Modifier.padding(horizontal = 6.dp)) else Spacer(Modifier.height(8.dp))
                 Row(
                     Modifier.fillMaxWidth().height(IntrinsicSize.Min),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(if (editorial) 0.dp else 8.dp),
                 ) {
-                    glances.forEach { glance ->
+                    glances.forEachIndexed { i, glance ->
+                        if (editorial && i > 0) GlanceDivider()
                         HeroGlance(
+                            editorial = editorial,
                             icon = glance.icon,
                             label = glance.label,
                             value = glance.value,
@@ -297,6 +321,7 @@ private fun HomeHeroCard(
                         )
                     }
                 }
+                if (editorial) EditorialRule(Modifier.padding(horizontal = 6.dp))
             }
             if (HomeCard.QUICK_ACTIONS in honored && quickRows.isNotEmpty()) {
                 Spacer(Modifier.height(12.dp))
@@ -317,6 +342,36 @@ private fun HomeHeroCard(
             }
         }
     }
+}
+
+/** 刊头的西文期号：「WEEK 07 — 10.17 FRI」。不在教学周里就只写日期（按校园时区的「今天」）。 */
+internal fun editorialKicker(weekNumber: Int, today: LocalDate = todayOnCampus()): String = buildString {
+    if (weekNumber in 1..25) append("WEEK ").append(weekNumber.toString().padStart(2, '0')).append(" — ")
+    append(today.month.number.toString().padStart(2, '0')).append('.')
+    append(today.day.toString().padStart(2, '0')).append(' ')
+    append(
+        when (today.dayOfWeek) {
+            DayOfWeek.MONDAY -> "MON"
+            DayOfWeek.TUESDAY -> "TUE"
+            DayOfWeek.WEDNESDAY -> "WED"
+            DayOfWeek.THURSDAY -> "THU"
+            DayOfWeek.FRIDAY -> "FRI"
+            DayOfWeek.SATURDAY -> "SAT"
+            DayOfWeek.SUNDAY -> "SUN"
+        }
+    )
+}
+
+/** 杂志版式里速览格之间的竖发丝线，上下各留一点不顶满。 */
+@Composable
+private fun GlanceDivider() {
+    Box(
+        Modifier
+            .fillMaxHeight()
+            .padding(vertical = 12.dp)
+            .width(Editorial.hairline)
+            .background(MiuixTheme.colorScheme.outline.copy(alpha = 0.22f))
+    )
 }
 
 /** Hero 里半透明的内嵌面板：叠在 Mesh 上像一层磨砂，比再套一张实心卡轻。 */
@@ -370,19 +425,25 @@ private fun HeroStatusLine(status: HomeStatusLine, onClick: () -> Unit) {
 
 /** 下一项安排：左边钟点，右边名称与倒计时，整条点进日程。 */
 @Composable
-private fun HeroNextUp(nextUp: HomeNextUp?, onClick: () -> Unit) {
+private fun HeroNextUp(
+    nextUp: HomeNextUp?,
+    /** 杂志版式：不套内嵌面板，钟点和课名用衬线，课名是这一页的「头条」。 */
+    editorial: Boolean = false,
+    onClick: () -> Unit,
+) {
     val primary = MiuixTheme.colorScheme.primary
     val muted = MiuixTheme.colorScheme.onSurfaceVariantSummary
     Row(
         Modifier
             .fillMaxWidth()
-            .heroInset()
+            .then(if (editorial) Modifier else Modifier.heroInset())
             .clickable(
                 interactionSource = remember { MutableInteractionSource() },
                 indication = SinkFeedback(),
                 onClick = onClick,
             )
-            .padding(horizontal = 14.dp, vertical = 12.dp),
+            // 杂志版式和刊头左边对齐
+            .padding(horizontal = if (editorial) 6.dp else 14.dp, vertical = if (editorial) 14.dp else 12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         // 屏只在宿主真给了内容时才画这一格（宿主把四种「说不出来」也当内容递进来）
@@ -393,7 +454,7 @@ private fun HeroNextUp(nextUp: HomeNextUp?, onClick: () -> Unit) {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 Text(
                     timeLabel,
-                    style = MiuixTheme.textStyles.title4,
+                    style = if (editorial) Editorial.figure else MiuixTheme.textStyles.title4,
                     fontWeight = FontWeight.Bold,
                     color = primary,
                 )
@@ -422,14 +483,16 @@ private fun HeroNextUp(nextUp: HomeNextUp?, onClick: () -> Unit) {
                 if (!tail.isNullOrBlank()) append((if (eta.isNullOrBlank()) "" else " · ") + tail)
             }
         } else {
-            ExpressiveIcon(icon = item.icon, color = primary, size = 38.dp, iconSize = 20.dp)
-            Spacer(Modifier.width(12.dp))
+            if (!editorial) {
+                ExpressiveIcon(icon = item.icon, color = primary, size = 38.dp, iconSize = 20.dp)
+                Spacer(Modifier.width(12.dp))
+            }
             item.detail?.takeIf { it.isNotBlank() }?.let { detail = AnnotatedString(it) }
         }
         Column(Modifier.weight(1f)) {
             Text(
                 item.title,
-                style = MiuixTheme.textStyles.body1,
+                style = if (editorial) Editorial.headline.copy(fontSize = 19.sp, lineHeight = 25.sp) else MiuixTheme.textStyles.body1,
                 fontWeight = FontWeight.Bold,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
@@ -462,17 +525,20 @@ private fun HeroGlance(
     number: Double? = null,
     /** 数值下面的一行小字，比如余额的「约够 4 天」。 */
     caption: String? = null,
+    /** 杂志版式：不套内嵌面板，数值用衬线数字，格与格之间由调用方画竖线。 */
+    editorial: Boolean = false,
 ) {
     val muted = MiuixTheme.colorScheme.onSurfaceVariantSummary
+    val valueStyle = if (editorial) Editorial.figure.copy(fontSize = 18.sp, lineHeight = 23.sp) else MiuixTheme.textStyles.body1
     Column(
         modifier
-            .heroInset(16.dp)
+            .then(if (editorial) Modifier else Modifier.heroInset(16.dp))
             .clickable(
                 interactionSource = remember { MutableInteractionSource() },
                 indication = SinkFeedback(),
                 onClick = onClick,
             )
-            .padding(horizontal = 12.dp, vertical = 10.dp),
+            .padding(horizontal = if (editorial) 6.dp else 12.dp, vertical = if (editorial) 12.dp else 10.dp),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Icon(icon, contentDescription = null, tint = muted, modifier = Modifier.size(12.dp))
@@ -484,14 +550,14 @@ private fun HeroGlance(
             RollingNumberText(
                 value = number,
                 format = { yuanText(it) },
-                style = MiuixTheme.textStyles.body1,
+                style = valueStyle,
                 fontWeight = FontWeight.Bold,
                 color = valueColor,
             )
         } else {
             Text(
                 value,
-                style = MiuixTheme.textStyles.body1,
+                style = valueStyle,
                 fontWeight = FontWeight.Bold,
                 color = valueColor,
                 maxLines = 1,
@@ -707,50 +773,28 @@ private fun HomeServiceTile(
     }
 }
 
-/** 卡片主题的分类卡：上面是有实时状态的功能（数据格），下面是其余功能的紧凑入口。 */
+/**
+ * 卡片主题的分类栏目，杂志版式：不套卡片、不加阴影，「01 上课」宋体栏目名加一道发丝线分区，
+ * 下面先是有实时状态的功能（数据格），再是其余功能的紧凑入口。
+ * 一列六七张同构大卡叠在一起看着像一摞盒子，没有重点；拿掉框以后分区靠标题和留白，Hero 这张封面才显出来。
+ */
 @Composable
 private fun HomeSceneCard(
+    index: Int,
     title: String,
     subtitle: String,
-    icon: ImageVector,
-    accent: Color,
     rows: List<HomeServiceRow>,
 ) {
     if (rows.isEmpty()) return
-    val dark = LocalIsDarkTheme.current
     val live = rows.filter { it.hasStat }
     val rest = rows.filterNot { it.hasStat }
 
     Column(
         Modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp)
-            .appCardShadow(shape = RoundedCornerShape(CARD_RADIUS))
-            .squircleClip(CARD_RADIUS)
-            .background(AppCardColor)
-            .padding(start = 16.dp, end = 16.dp, top = 16.dp, bottom = if (rest.isEmpty()) 16.dp else 8.dp)
+            .padding(horizontal = 20.dp)
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Box(
-                Modifier
-                    .size(32.dp)
-                    .squircleBackground(accent.copy(alpha = if (dark) 0.24f else 0.12f), 10.dp),
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(icon, contentDescription = null, tint = accent, modifier = Modifier.size(18.dp))
-            }
-            Spacer(Modifier.width(10.dp))
-            Column(Modifier.weight(1f)) {
-                Text(title, style = MiuixTheme.textStyles.headline1, fontWeight = FontWeight.Bold)
-                Text(
-                    subtitle,
-                    style = MiuixTheme.textStyles.footnote2,
-                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-            }
-        }
+        EditorialSectionHeader(index = index, title = title, note = subtitle)
         if (live.isNotEmpty()) {
             Spacer(Modifier.height(14.dp))
             live.chunked(2).forEachIndexed { i, pair ->
@@ -813,7 +857,7 @@ private fun ServiceStatCell(
         Spacer(Modifier.height(6.dp))
         Text(
             row.stat.orEmpty(),
-            style = MiuixTheme.textStyles.body1,
+            style = Editorial.figure.copy(fontSize = 17.sp, lineHeight = 22.sp),
             fontWeight = FontWeight.Bold,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis
@@ -871,6 +915,9 @@ private fun HomeQuickAction(
 
 /** 首页各卡之间统一的间距：Hero、公告、分类卡之间都是它，页面读起来是一整套而不是几截。 */
 private val SECTION_GAP = 14.dp
+
+/** 杂志版式的栏目间距：不靠框分区，就得靠留白。 */
+private val EDITORIAL_SECTION_GAP = 30.dp
 
 /** 分类卡圆角。超椭圆下这个值可以给得比普通圆角更大而不显得「胀」。 */
 private val CARD_RADIUS = 26.dp
