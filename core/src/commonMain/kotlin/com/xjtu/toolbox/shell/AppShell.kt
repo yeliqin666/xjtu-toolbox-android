@@ -25,6 +25,8 @@ import com.kyant.backdrop.backdrops.LayerBackdrop
 import com.kyant.backdrop.backdrops.layerBackdrop
 import com.kyant.backdrop.backdrops.rememberCombinedBackdrop
 import com.kyant.backdrop.backdrops.rememberLayerBackdrop
+import com.xjtu.toolbox.platform.smallestScreenWidthDp
+import com.xjtu.toolbox.ui.WindowSize
 import com.xjtu.toolbox.ui.currentWindowSize
 import com.xjtu.toolbox.ui.glass.followTopBar
 import com.xjtu.toolbox.ui.glass.rememberStableTopPadding
@@ -57,7 +59,10 @@ fun AppShell(
     restoreStep: String = "",
 ) {
     val isWide = isWideLayout()
-    val form = shellForm(isWide, currentWindowSize(), glassStyle)
+    // 手机按 Compact 算：窗口宽度会在横屏应用切回、强制旋转、小窗时短暂超过 600dp，
+    // 只看窗口宽度会让玻璃底栏一会儿变成不透明的悬浮胶囊、一会儿又变回来
+    val windowSize = if (smallestScreenWidthDp() < 600) WindowSize.Compact else currentWindowSize()
+    val form = shellForm(isWide, windowSize, glassStyle)
     val layout = ShellLayout(form, glassStyle, bottomInset)
 
     // 返回键：只有接了这一档的端才注册（`:app` 的双击退出与关浮层都在这条回调里）
