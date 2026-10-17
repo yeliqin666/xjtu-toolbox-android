@@ -13,6 +13,7 @@ import androidx.work.WorkerParameters
 import com.xjtu.toolbox.auth.LoginType
 import com.xjtu.toolbox.schedule.ExamCountdown
 import com.xjtu.toolbox.schedule.JwxtScheduleApi
+import com.xjtu.toolbox.schedule.ScheduleCache
 import com.xjtu.toolbox.schedule.ScheduleDiff
 import com.xjtu.toolbox.schedule.scheduleDiffStore
 import com.xjtu.toolbox.schedule.ScheduleSourceRouter
@@ -79,12 +80,21 @@ class ScheduleWatchWorker(
         }
     }
 
-    /** 同一场考试只提醒一次：游标记「课程名+日期」，改期算新的一场，会再提醒。 */
+    /**
+     * 拉到的考试表写回缓存：首页考试格、倒计时横幅、屁岱气泡都读缓存，不写的话老师改了考场，
+     * 没进日程页的人看到的一直是旧的。
+     *
+     * 快到的考试只提醒一次：游标记「课程名+日期」，改期算新的一场，会再提醒。
+     */
     private suspend fun checkUpcomingExam(context: Context, api: JwxtScheduleApi, term: String) {
         val exams = runCatching { api.examSchedule(term) }.getOrElse {
             Log.w(TAG, "考试表拉取失败：${it.message}")
             return
         }
+        val cache = com.xjtu.toolbox.data.DataCache(context)
+        val cached = ScheduleCache.readExams(cache, term)
+        // 空表不覆盖已有的：教务偶尔返回空表，别把还没考的场次清掉
+        if (exams.isNotEmpty() || cached.isNullOrEmpty()) ScheduleCache.writeExams(cache, term, exams)
         val next = ExamCountdown.next(exams) ?: return
         if (next.daysLeft > EXAM_AHEAD_DAYS) return
 
