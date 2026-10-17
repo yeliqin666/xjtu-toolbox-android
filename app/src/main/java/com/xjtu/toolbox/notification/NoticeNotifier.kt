@@ -45,7 +45,9 @@ internal object NoticeNotifier {
         shown.forEach { inbox.addLine("${it.source.displayName}  ${it.title}") }
 
         val launch = Intent(context, MainActivity::class.java).apply {
-            putExtra(MainActivity.EXTRA_LAUNCH_ROUTE, AppRoute.Notification.id)
+            // 只有一条时直接打开正文（#138），多条才进通知列表
+            val single = shown.singleOrNull()?.link?.takeIf { it.startsWith("http") }
+            putExtra(MainActivity.EXTRA_LAUNCH_ROUTE, single?.let { AppRoute.Browser(it).id } ?: AppRoute.Notification.id)
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
         }
         val pending = PendingIntent.getActivity(
