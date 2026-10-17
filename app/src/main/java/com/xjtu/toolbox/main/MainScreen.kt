@@ -279,6 +279,8 @@ internal fun MainScreen(
                 onOpen = {
                     ProactiveRules.markUseful(context, msg.id)
                     ProactiveBubbleHost.clear()
+                    // 气泡说的事收纳里也有一份：点开就是看过，别让收纳的红点还挂着
+                    com.xjtu.toolbox.inbox.InboxStore.acknowledge(msg.inboxIds, msg.inboxCategory)
                     val route = msg.openRoute
                     when {
                         route != null -> router.open(route)

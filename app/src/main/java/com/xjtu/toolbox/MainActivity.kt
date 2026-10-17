@@ -18,6 +18,7 @@ import com.xjtu.toolbox.agent.PidaiAppearanceHost
 import com.xjtu.toolbox.auth.SessionKeepAlive
 import com.xjtu.toolbox.data.AppearanceSettings
 import com.xjtu.toolbox.main.AppRoot
+import com.xjtu.toolbox.inbox.ofRoute
 import com.xjtu.toolbox.main.BottomTab
 import com.xjtu.toolbox.nav.AppRoute
 import com.xjtu.toolbox.nav.DeepLinkRouter
@@ -103,6 +104,12 @@ class MainActivity : ComponentActivity() {
         val deepLink = intent?.let(DeepLinkRouter::resolve)
         launchRoute.value = deepLink?.route
             ?: intent?.getStringExtra(EXTRA_LAUNCH_ROUTE)?.let(::appRouteOf)
+        // 从系统通知点进来：收纳里同一件事一并算看过，不然通知点了、收纳的红点还在
+        launchRoute.value?.takeIf { intent?.hasExtra(EXTRA_LAUNCH_ROUTE) == true }?.let { route ->
+            val ids = (route as? com.xjtu.toolbox.nav.AppRoute.Browser)?.url?.takeIf { it.isNotBlank() }
+                ?.let { listOf("notice:$it") }.orEmpty()
+            com.xjtu.toolbox.inbox.InboxStore.acknowledge(ids, com.xjtu.toolbox.inbox.InboxCategories.ofRoute(route))
+        }
         launchTab.value = intent?.getStringExtra(EXTRA_LAUNCH_TAB)
             ?.let { name -> BottomTab.entries.firstOrNull { it.name == name } }
         (deepLink?.prompt ?: intent?.getStringExtra(EXTRA_LAUNCH_PROMPT))

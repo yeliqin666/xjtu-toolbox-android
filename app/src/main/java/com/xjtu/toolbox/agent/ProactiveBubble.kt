@@ -86,6 +86,12 @@ data class ProactiveMessage(
      * 只说明「用户点的是哪件事」以及当时已知字段；缺的不要编，完整数据仍调工具。
      */
     val eventSnapshot: String? = null,
+    /**
+     * 这个气泡在说的、收纳里也有一份的那几条。点开气泡就等于看过，收纳里要跟着标已读，
+     * 否则红点还挂着、用户要再点一遍（见 [com.xjtu.toolbox.inbox.InboxStore.acknowledge]）。
+     */
+    val inboxIds: List<String> = emptyList(),
+    val inboxCategory: String? = null,
 ) {
     companion object {
         const val MAX_CHARS = 24
@@ -288,17 +294,17 @@ object ProactiveRules {
         globalCooldownMs: Long,
     ): ProactiveMessage? {
         if (now - lastAnyAt(ctx) < globalCooldownMs) return null
-        var inboxPick: com.xjtu.toolbox.inbox.InboxItem? = null
+        var inboxPick: com.xjtu.toolbox.inbox.InboxGroup? = null
         val candidates = buildList {
             // 课表变更排最前：调课停课换教室不知道就会白跑一趟，
             // 而学校改课表是不通知的，App 是唯一可能告诉他的地方。
             if (scheduleChange != null) {
-                add(ProactiveMessage("schedule_change", scheduleChange, openRoute = AppRoute.Schedule))
+                add(ProactiveMessage("schedule_change", scheduleChange, openRoute = AppRoute.Schedule, inboxCategory = InboxCategories.SCHEDULE))
             }
             // 只在异常**新增**时才有值（见 HomeStatsRefresher），所以到这里就直接报。
             // 措辞保持中性——按用户要求，成绩、体测、考勤这类事一律不调侃。
             if (attendanceAlert != null) {
-                add(ProactiveMessage("attendance", attendanceAlert, openRoute = AppRoute.Attendance))
+                add(ProactiveMessage("attendance", attendanceAlert, openRoute = AppRoute.Attendance, inboxCategory = InboxCategories.ATTENDANCE))
             }
             // 考试：新版分级布局没有独立考试页，点日程也落不到那层 sheet。
             // 进屁岱，并把这场考试的缓存字段当快照——对准「点的是哪场」，缺的仍调工具。
@@ -329,12 +335,13 @@ object ProactiveRules {
                         id = "library",
                         text = "图书馆座位该${libraryPendingAction}了",
                         openRoute = AppRoute.Library,
+                        inboxCategory = InboxCategories.LIBRARY,
                     )
                 )
             }
             // 加餐券排在余额前面：券不领不用就作废，而余额低了随时能充。
             if (couponAlert != null) {
-                add(ProactiveMessage("coupon", couponAlert, openRoute = AppRoute.Coupon))
+                add(ProactiveMessage("coupon", couponAlert, openRoute = AppRoute.Coupon, inboxCategory = InboxCategories.COUPON))
             }
             // 电用完宿舍就断电，排在校园卡余额前面。
             if (dormPowerAlert != null) {
@@ -360,6 +367,7 @@ object ProactiveRules {
                         id = "grade",
                         text = "有 $newGradeCount 门新成绩出了",
                         prompt = "帮我看看新出的成绩",
+                        inboxCategory = InboxCategories.GRADE,
                         eventSnapshot = eventFields(
                             "kind" to "grades",
                             "newCount" to newGradeCount.toString(),
@@ -387,6 +395,8 @@ object ProactiveRules {
                         } else {
                             AppRoute.Notification
                         },
+                        // 点开的就是这一条通知：收纳里同一条（id 见 OwnInbox.notice）一起标已读，不动别的
+                        inboxIds = listOfNotNull(latestNoticeLink?.takeIf { it.isNotBlank() }?.let { "notice:$it" }),
                     )
                 )
             }
@@ -395,13 +405,22 @@ object ProactiveRules {
             inboxPick = InboxRules.groups(inbox, now).firstOrNull {
                 it.unread && InboxCategories.isSchool(it.latest.category) &&
                     it.latest.id !in inbox.bubbled && now - it.latest.time < 24 * 60 * 60 * 1000L
-            }?.latest
-            inboxPick?.let { add(ProactiveMessage(INBOX_ID, "${it.source}：${it.title}", openRoute = AppRoute.Inbox)) }
+            }
+            inboxPick?.let { g ->
+                add(
+                    ProactiveMessage(
+                        INBOX_ID, "${g.latest.source}：${g.latest.title}",
+                        openRoute = AppRoute.Inbox,
+                        // 气泡念的是这一组（同来源同标题折叠成一条），点开就是看过这一组
+                        inboxIds = g.ids,
+                    )
+                )
+            }
         }
         return candidates.firstOrNull { m ->
             now - lastShownAt(ctx, m.id) >= cooldownFor(ctx, m.id)
         }?.also { m ->
-            if (m.id == INBOX_ID) inboxPick?.let { InboxStore.markBubbled(it.id) }
+            if (m.id == INBOX_ID) inboxPick?.let { InboxStore.markBubbled(it.latest.id) }
         }?.let { it.copy(text = it.text.take(ProactiveMessage.MAX_CHARS)) }
     }
 

@@ -211,6 +211,19 @@ object InboxRules {
             .replace(Regex("<[^>]+>"), "")
             .replace("&nbsp;", " ").replace("&lt;", "<").replace("&gt;", ">").replace("&amp;", "&")
             .lines().joinToString("\n") { it.trim() }.trim()
+
+    /**
+     * 用户已经在别处（屁岱气泡、系统通知）看过这件事：[ids] 和 [category] 下的消息标已读，
+     * [category] 下的待办标已看。气泡和收纳是同一件事的两个出口，不能各算各的已读。
+     */
+    fun acknowledge(data: InboxData, ids: Collection<String>, category: String?, now: Long): InboxData {
+        val read = ids.toSet() + data.messages.filter { it.category == category }.map { it.id }
+        val seen = category?.let { c -> data.todos[c].orEmpty().map { it.id } }.orEmpty()
+        return data.copy(
+            readAt = read.filter { it !in data.readAt }.associateWith { now } + data.readAt,
+            seenTodos = data.seenTodos + seen,
+        )
+    }
 }
 
 /** 「待办数据变了，请重画桌面小组件」这一枪的宿主槽位。 */
@@ -301,6 +314,12 @@ object InboxStore {
     fun ignoreTodo(id: String) = update(AccountContext.activeAccountId) { InboxRules.ignore(it, id, Clock.System.now().toEpochMilliseconds()) }
 
     fun markBubbled(id: String) = update(AccountContext.activeAccountId) { it.copy(bubbled = it.bubbled + id) }
+
+    /** 在收纳以外看过了（点了屁岱气泡等）：对应消息标已读、待办标已看。见 [InboxRules.acknowledge]。 */
+    fun acknowledge(ids: Collection<String> = emptyList(), category: String? = null) {
+        if (ids.isEmpty() && category == null) return
+        update(AccountContext.activeAccountId) { InboxRules.acknowledge(it, ids, category, Clock.System.now().toEpochMilliseconds()) }
+    }
 
     fun setEnabled(category: String, enabled: Boolean) =
         update(AccountContext.activeAccountId) { it.copy(off = if (enabled) it.off - category else it.off + category) }
