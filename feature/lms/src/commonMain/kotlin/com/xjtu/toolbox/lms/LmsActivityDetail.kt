@@ -40,6 +40,7 @@ import top.yukonga.miuix.kmp.basic.*
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.utils.PressFeedbackType
 import com.xjtu.toolbox.nav.AppRoute
+import com.xjtu.toolbox.html.HtmlContent
 
 private const val TAG = "LmsScreen"
 
@@ -189,15 +190,13 @@ internal fun ActivityDetailPage(
                         val desc = d.description.orEmpty()
                         if (desc.isNotBlank()) {
                             item(key = "desc") {
-                                // 正文转纯文本用的是 jsoup（在 :data 那边），实现方自己包 IO
-                                val plainText by produceState(initialValue = "", desc) {
-                                    value = source.htmlToPlainText(desc).orEmpty()
-                                }
+                                // 正文（富文本 HTML 原生渲染；配图走 `LmsSource.imageBytes` 带登录态）
                                 SectionHeader(if (d.type == LmsActivityType.HOMEWORK) "作业描述" else "内容")
                                 Card(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
-                                    Text(
-                                        plainText,
-                                        style = MiuixTheme.textStyles.body2,
+                                    HtmlContent(
+                                        html = desc,
+                                        imageLoader = rememberLmsImageLoader(source),
+                                        baseUrl = LMS_BASE_URL,
                                         modifier = Modifier.padding(16.dp)
                                     )
                                 }

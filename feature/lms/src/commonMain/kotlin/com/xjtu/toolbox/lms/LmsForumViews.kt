@@ -24,6 +24,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.xjtu.toolbox.html.HtmlContent
 import com.xjtu.toolbox.ui.adaptive.readableWidth
 import com.xjtu.toolbox.ui.components.rememberRetainedLazyListState
 import com.xjtu.toolbox.ui.glass.*
@@ -275,12 +276,14 @@ internal fun LmsForumReplyCard(
             Spacer(Modifier.height(8.dp))
 
             // 回复正文
-            val contentText = rememberLmsPlainText(source, reply.content)
-            Text(
-                contentText,
-                style = MiuixTheme.textStyles.body2,
-                fontSize = 14.sp
-            )
+            if (reply.content.isNotBlank()) {
+                HtmlContent(
+                    html = reply.content,
+                    imageLoader = rememberLmsImageLoader(source),
+                    baseUrl = LMS_BASE_URL,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
 
             // 楼中楼子评论
             if (reply.comments.isNotEmpty()) {
@@ -427,12 +430,12 @@ internal fun LmsForumTopicDetailPage(
                             Spacer(Modifier.height(12.dp))
 
                             // 正文
-                            val bodyText = rememberLmsPlainText(source, topic.content)
-                            if (bodyText.isNotBlank()) {
-                                Text(
-                                    bodyText,
-                                    style = MiuixTheme.textStyles.body1,
-                                    lineHeight = 22.sp
+                            if (topic.content.isNotBlank()) {
+                                HtmlContent(
+                                    html = topic.content,
+                                    imageLoader = rememberLmsImageLoader(source),
+                                    baseUrl = LMS_BASE_URL,
+                                    modifier = Modifier.fillMaxWidth()
                                 )
                             }
                         }

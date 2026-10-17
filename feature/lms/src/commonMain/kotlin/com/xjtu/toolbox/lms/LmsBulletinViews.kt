@@ -22,7 +22,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.Image
-import com.xjtu.toolbox.platform.decodeImageFull
+import com.xjtu.toolbox.html.HtmlContent
 import com.xjtu.toolbox.platform.showBriefMessage
 import com.xjtu.toolbox.ui.adaptive.readableWidth
 import com.xjtu.toolbox.ui.glass.*
@@ -135,11 +135,6 @@ internal fun BulletinDetailPage(
     val scrollBehavior = MiuixScrollBehavior(rememberTopAppBarState())
     val glass = rememberPageGlass()
 
-    // 正文转纯文本用的是 jsoup（在 :data 那边），实现方自己包 IO
-    val plainText by produceState(initialValue = "", bulletin.content) {
-        value = runCatching { source.htmlToPlainText(bulletin.content) }.getOrDefault("")
-    }
-    val imageUrls = remember(bulletin.content) { extractImageUrls(bulletin.content) }
 
     Scaffold(
         topBar = {
@@ -186,26 +181,20 @@ internal fun BulletinDetailPage(
                             .padding(vertical = 4.dp),
                         colors = CardDefaults.defaultColors(color = com.xjtu.toolbox.ui.components.AppCardColor)
                     ) {
-                        Column(Modifier.padding(16.dp)) {
-                            if (plainText.isNotBlank()) {
-                                Text(
-                                    text = plainText,
-                                    style = MiuixTheme.textStyles.body2,
-                                    color = MiuixTheme.colorScheme.onSurface,
-                                    modifier = Modifier.fillMaxWidth()
+                        Box(Modifier.padding(16.dp)) {
+                            if (bulletin.content.isNotBlank()) {
+                                HtmlContent(
+                                    html = bulletin.content,
+                                    imageLoader = rememberLmsImageLoader(source),
+                                    baseUrl = LMS_BASE_URL,
+                                    modifier = Modifier.fillMaxWidth(),
                                 )
-                            } else if (imageUrls.isEmpty()) {
+                            } else {
                                 Text(
                                     text = "（无正文描述）",
                                     style = MiuixTheme.textStyles.body2,
                                     color = MiuixTheme.colorScheme.onSurfaceVariantSummary
                                 )
-                            }
-
-                            // 富文本内嵌图片
-                            if (imageUrls.isNotEmpty()) {
-                                if (plainText.isNotBlank()) Spacer(Modifier.height(12.dp))
-                                imageUrls.forEach { url -> BulletinImage(source, url) }
                             }
                         }
                     }
@@ -350,35 +339,6 @@ private fun MetaRow(
             text = value,
             fontSize = 13.sp,
             color = MiuixTheme.colorScheme.onSurface
-        )
-    }
-}
-
-/** 正文里的一张配图：字节走 [LmsSource.imageBytes]（学堂的图带登录态），取不到就退化成一行链接。 */
-@Composable
-private fun BulletinImage(source: LmsSource, url: String) {
-    val bitmap by produceState<androidx.compose.ui.graphics.ImageBitmap?>(null, url) {
-        value = runCatching { source.imageBytes(url) }.getOrNull()?.let { decodeImageFull(it) }
-    }
-    val img = bitmap
-    if (img != null) {
-        Image(
-            bitmap = img,
-            contentDescription = "公告配图",
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(vertical = 4.dp)
-                .clip(RoundedCornerShape(8.dp)),
-            contentScale = ContentScale.FillWidth
-        )
-    } else {
-        Text(
-            text = "🖼 $url",
-            fontSize = 12.sp,
-            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.padding(vertical = 4.dp)
         )
     }
 }

@@ -1,5 +1,7 @@
 package com.xjtu.toolbox.lms
 
+import com.xjtu.toolbox.html.renderer.HtmlImageLoader
+
 import androidx.compose.material.icons.automirrored.filled.InsertDriveFile
 import androidx.compose.material.icons.automirrored.filled.HelpOutline
 import com.xjtu.toolbox.platform.BackHandler
@@ -390,6 +392,13 @@ internal fun BoxScope.EmptyState(icon: ImageVector, title: String, subtitle: Str
         Text(subtitle, fontSize = 12.sp, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
     }
 }
+/** 思源学堂站点根：富文本里 `/api/...` 这类相对地址按它补全。 */
+internal const val LMS_BASE_URL = "https://lms.xjtu.edu.cn"
+
+/** 富文本配图的取图函数：走 [LmsSource.imageBytes]（学堂自己的图带登录态，外站图不带）。 */
+@Composable
+internal fun rememberLmsImageLoader(source: LmsSource): HtmlImageLoader =
+    remember(source) { { url -> source.imageBytes(url) } }
 @Composable
 internal fun SectionHeader(title: String) {
     Text(
