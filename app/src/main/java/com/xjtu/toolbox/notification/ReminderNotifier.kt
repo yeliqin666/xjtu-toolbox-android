@@ -24,6 +24,7 @@ internal object ReminderNotifier {
     private const val ID_SCHEDULE = 3202
     private const val ID_EXAM = 3203
     private const val ID_LMS = 3204
+    private const val ID_EXAM_CHANGE = 3205
 
     fun canPost(context: Context): Boolean = NoticeNotifier.canPost(context)
 
@@ -63,6 +64,24 @@ internal object ReminderNotifier {
         text = detail,
         route = AppRoute.Schedule,
     )
+
+    /** 考试的时间、考场、座位被改了。和「快考试了」分开发，免得一条盖掉另一条。 */
+    fun notifyExamChange(context: Context, changes: List<String>): Boolean {
+        if (changes.isEmpty()) return false
+        val inbox = NotificationCompat.InboxStyle()
+        changes.take(5).forEach { inbox.addLine(it) }
+        return post(
+            context = context,
+            id = ID_EXAM_CHANGE,
+            requestCode = RequestCodes.REMINDER_EXAM_CHANGE,
+            channel = AppNotificationChannels.CHANNEL_APP,
+            icon = R.drawable.ic_notification_notice,
+            title = "考试安排有变",
+            text = changes.first(),
+            route = AppRoute.Schedule,
+            style = inbox,
+        )
+    }
 
     fun notifyLmsDeadlines(context: Context, items: List<String>): Boolean {
         if (items.isEmpty()) return false

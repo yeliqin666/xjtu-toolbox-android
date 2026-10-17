@@ -27,6 +27,11 @@ object OwnInbox {
         title = "课表有变动", body = text, time = Clock.System.now().toEpochMilliseconds(), route = "schedule",
     )
 
+    fun examChange(text: String) = InboxItem(
+        id = "exam_change:${todayInSystemZone()}:${text.hashCode()}", category = InboxCategories.SCHEDULE, source = "考试",
+        title = "考试安排有变", body = text, time = Clock.System.now().toEpochMilliseconds(), route = "schedule",
+    )
+
     fun notice(n: Notification) = InboxItem(
         id = "notice:${n.link}", category = InboxCategories.NOTICE, source = n.source.displayName,
         title = n.title, time = Clock.System.now().toEpochMilliseconds(), route = AppRoute.Browser(n.link).id,

@@ -82,7 +82,7 @@ class ScheduleWatchWorker(
 
     /**
      * 拉到的考试表写回缓存：首页考试格、倒计时横幅、屁岱气泡都读缓存，不写的话老师改了考场，
-     * 没进日程页的人看到的一直是旧的。
+     * 没进日程页的人看到的一直是旧的。和旧缓存比出改动就单发一条「考试安排有变」。
      *
      * 快到的考试只提醒一次：游标记「课程名+日期」，改期算新的一场，会再提醒。
      */
@@ -93,8 +93,14 @@ class ScheduleWatchWorker(
         }
         val cache = com.xjtu.toolbox.data.DataCache(context)
         val cached = ScheduleCache.readExams(cache, term)
+        val changes = ExamCountdown.changes(cached, exams)
         // 空表不覆盖已有的：教务偶尔返回空表，别把还没考的场次清掉
         if (exams.isNotEmpty() || cached.isNullOrEmpty()) ScheduleCache.writeExams(cache, term, exams)
+        if (changes.isNotEmpty()) {
+            com.xjtu.toolbox.inbox.InboxStore.post(com.xjtu.toolbox.inbox.OwnInbox.examChange(changes.joinToString("\n")))
+            ReminderNotifier.notifyExamChange(context, changes)
+            com.xjtu.toolbox.home.HomeSignals.bumpStatsVersion()
+        }
         val next = ExamCountdown.next(exams) ?: return
         if (next.daysLeft > EXAM_AHEAD_DAYS) return
 

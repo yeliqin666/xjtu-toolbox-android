@@ -130,4 +130,38 @@ object ExamCountdown {
     fun next(exams: List<ExamItem>, today: LocalDate = todayInSystemZone()): Next? =
         if (today == todayInSystemZone()) next(exams, nowInSystemZone())
         else next(exams, LocalDateTime(today, LocalTime(0, 0)))
+
+    /**
+     * 新拉到的考试表和上次缓存的比，还没考完的场次里谁改了什么，一场一句。
+     * 老师改时间、换考场是常事，只按日期比会漏掉「日期没变、考场换了」。
+     * 上次没有缓存（第一次拉）不算变化；新表是空的也不报「取消」，教务偶尔会抽风返回空表。
+     */
+    fun changes(old: List<ExamItem>?, new: List<ExamItem>, now: LocalDateTime = nowInSystemZone()): List<String> {
+        if (old.isNullOrEmpty()) return emptyList()
+        fun key(e: ExamItem) = e.courseCode.ifBlank { e.courseName }
+        fun name(e: ExamItem) = e.courseName.ifBlank { "考试" }
+        val before = old.associateBy(::key)
+        val out = mutableListOf<String>()
+        for (e in new) {
+            if (phaseOf(e, now) == ExamPhase.ENDED) continue
+            val o = before[key(e)]
+            if (o == null) {
+                out += "新增 ${name(e)}：" + listOf(e.examDate, e.examTime, e.location).filter { it.isNotBlank() }.joinToString(" ")
+                continue
+            }
+            val diffs = listOfNotNull(
+                "日期 ${o.examDate} → ${e.examDate}".takeIf { o.examDate != e.examDate },
+                "时间 ${o.examTime.ifBlank { "未定" }} → ${e.examTime.ifBlank { "未定" }}".takeIf { o.examTime != e.examTime },
+                "考场 ${o.location.ifBlank { "未定" }} → ${e.location.ifBlank { "未定" }}".takeIf { o.location != e.location },
+                "座位 ${o.seatNumber.ifBlank { "未定" }} → ${e.seatNumber.ifBlank { "未定" }}".takeIf { o.seatNumber != e.seatNumber },
+            )
+            if (diffs.isNotEmpty()) out += "${name(e)}：" + diffs.joinToString("，")
+        }
+        if (new.isNotEmpty()) {
+            val now0 = new.map(::key).toSet()
+            old.filter { key(it) !in now0 && phaseOf(it, now) != ExamPhase.ENDED }
+                .forEach { out += "${name(it)}：考试表里没有这场了，去日程页确认一下" }
+        }
+        return out
+    }
 }

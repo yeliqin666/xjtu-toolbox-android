@@ -122,7 +122,7 @@ class DesktopHomeJvmTest {
         assertEquals(term + " 学期", stats[AppRoute.SchoolCalendar.id]?.detail)
         val exam = assertNotNull(stats[EXAM_KEY], "缓存里有考试表，首页就该有考试倒计时")
         assertEquals("示例考试（夹具）", exam.value)
-        assertEquals("还有 5 天 · 主楼B-201", exam.detail)
+        assertEquals("还有 5 天 · 09:00 · 主楼B-201", exam.detail)
         assertEquals("1 门课", stats[AppRoute.Schedule.id]?.value)
         assertEquals("2 本", stats[AppRoute.Jiaocai.id]?.value)
 

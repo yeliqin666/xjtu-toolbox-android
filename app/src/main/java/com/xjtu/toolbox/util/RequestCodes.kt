@@ -27,6 +27,7 @@ object RequestCodes {
     const val REMINDER_LMS = 2104
     /** 所有自建待办的提醒都进收纳页，共用一个。 */
     const val REMINDER_TODO = 2105
+    const val REMINDER_EXAM_CHANGE = 2106
 
     // 5xxx 发给小组件自己的广播
     /** + WidgetSize.ordinal。沿用旧值：AlarmManager 里排着的闹钟要靠同一个码才取消得掉。 */
