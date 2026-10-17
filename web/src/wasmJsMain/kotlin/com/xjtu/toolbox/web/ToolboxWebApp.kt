@@ -682,6 +682,7 @@ private fun AppPage(
                         codec = remember(client, mode) { CampusWebVpnApi(client, API_BASE, mode) },
                         onOpenWithWebVpn = { openInNewTab(it) },
                         onBack = back,
+                        onOpenApply = { openInNewTab(com.xjtu.toolbox.webvpn.WebVpnDenied.APPLY_URL) },
                     )
                 }
             }

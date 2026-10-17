@@ -59,6 +59,10 @@ class CampusLmsApi(
     }
 
     override suspend fun activityDetail(activityId: Int, brief: LmsActivity?): LmsActivity {
+        // 测试（type=exam）的详情在 /api/exams/{id}，不是活动详情：和 `:shared:data` 的 LmsApi 一样只用列表那条并指路网页
+        if (brief?.type == LmsActivityType.EXAM) {
+            return brief.copy(description = "测试需要在思源学堂网页端作答，这里只显示时间安排。")
+        }
         requireServe()
         // `?courseId=` 必需且只能取自列表那条 brief：猜错会把别的活动的 `deadline` 画到这一页。
         val courseId = brief?.courseId?.takeIf { it > 0 }
