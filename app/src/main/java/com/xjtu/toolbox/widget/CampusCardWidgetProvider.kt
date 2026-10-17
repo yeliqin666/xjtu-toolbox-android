@@ -42,8 +42,7 @@ object CampusCardWidgetUpdater {
         val lunchText = formatMealMoney(lunch)
         val dinnerText = formatMealMoney(dinner)
         val updateTimeText = if (cacheTime == 0L) "--:--" else {
-            val cal = java.util.Calendar.getInstance().apply { timeInMillis = cacheTime }
-            "%02d:%02d".format(cal.get(java.util.Calendar.HOUR_OF_DAY), cal.get(java.util.Calendar.MINUTE))
+            com.xjtu.toolbox.util.campusClockText(cacheTime)
         }
 
         val launchIntent = Intent(context, MainActivity::class.java).apply {

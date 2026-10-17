@@ -17,10 +17,17 @@ import java.util.concurrent.TimeUnit
  * 课表、校园卡要等 30 分钟一次的周期更新，通知小组件没有周期更新，会一直空到用户打开 App。
  * 桌面此时还没重连小组件服务，立刻推的内容会被它随后的重新加载盖掉（实测十几秒后），
  * 所以 30 秒后再推一次。
+ *
+ * 本机改时区、改时间也重画一次：小组件内容一律按北京时间算，跨天刷新闹钟是绝对时刻，本不受影响，
+ * 但「已结束」标记和更新时刻要按新的此刻重算。
  */
 class WidgetRefreshReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
-        if (intent.action != Intent.ACTION_MY_PACKAGE_REPLACED) return
+        when (intent.action) {
+            Intent.ACTION_TIMEZONE_CHANGED, Intent.ACTION_TIME_CHANGED -> return refreshAll(context)
+            Intent.ACTION_MY_PACKAGE_REPLACED -> Unit
+            else -> return
+        }
         refreshAll(context)
         WorkManager.getInstance(context).enqueueUniqueWork(
             "widget_refresh_after_update",

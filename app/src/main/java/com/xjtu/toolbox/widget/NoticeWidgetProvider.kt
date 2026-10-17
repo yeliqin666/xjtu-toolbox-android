@@ -69,8 +69,7 @@ object NoticeWidgetUpdater {
 
         val (entries, updatedAt) = NoticeWidgetStore.read(context)
         val timeText = if (updatedAt == 0L) "" else {
-            val cal = java.util.Calendar.getInstance().apply { timeInMillis = updatedAt }
-            "更新 %02d:%02d".format(cal.get(java.util.Calendar.HOUR_OF_DAY), cal.get(java.util.Calendar.MINUTE))
+            "更新 " + com.xjtu.toolbox.util.campusClockText(updatedAt)
         }
         val today = java.time.LocalDate.now(com.xjtu.toolbox.util.CampusZoneId)
 

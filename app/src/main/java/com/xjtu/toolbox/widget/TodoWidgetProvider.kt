@@ -21,6 +21,7 @@ import com.xjtu.toolbox.nav.AppRoute
 import com.xjtu.toolbox.schedule.colorOf
 import com.xjtu.toolbox.schedule.courseColorMap
 import com.xjtu.toolbox.util.RequestCodes
+import com.xjtu.toolbox.util.CampusZoneId
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
@@ -45,7 +46,7 @@ object TodoWidgetUpdater {
     private val CLOCK = DateTimeFormatter.ofPattern("HH:mm")
 
     /** 截止时间：今天、明天带钟点，更远只给日期；没有截止时间给空串。 */
-    internal fun dueLabel(expiresAt: Long, now: Long, zone: ZoneId = ZoneId.systemDefault()): String {
+    internal fun dueLabel(expiresAt: Long, now: Long, zone: ZoneId = CampusZoneId): String {
         if (expiresAt <= 0) return ""
         val at = Instant.ofEpochMilli(expiresAt).atZone(zone)
         val today = Instant.ofEpochMilli(now).atZone(zone).toLocalDate()
