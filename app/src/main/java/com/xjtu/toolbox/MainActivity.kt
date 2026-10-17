@@ -5,6 +5,8 @@ import android.content.pm.ActivityInfo
 import android.content.res.Configuration
 import android.graphics.Color
 import android.os.Bundle
+import android.util.Log
+import android.view.KeyEvent
 import androidx.activity.ComponentActivity
 import androidx.activity.SystemBarStyle
 import androidx.activity.compose.setContent
@@ -126,5 +128,17 @@ class MainActivity : ComponentActivity() {
             ?.let { name -> BottomTab.entries.firstOrNull { it.name == name } }
         // 外部链接的话不能替用户发出去：发出去模型就能调全部工具，回复里的图片一渲染就把数据带走了
         deepLink?.prompt?.let { AgentPendingPrompt.set(it, draftOnly = true) }
+    }
+
+    /**
+     * 输入框里的文字刚被改短、排版还没跟上时按键，Compose 会抛 offset out of bounds，整个 App 闪退。
+     * 这一次按键丢掉就行，下一帧排版更新后输入照常。
+     */
+    override fun dispatchKeyEvent(event: KeyEvent): Boolean = try {
+        super.dispatchKeyEvent(event)
+    } catch (e: IllegalArgumentException) {
+        if (e.message?.contains("is out of bounds") != true) throw e
+        Log.w("MainActivity", "dropped key event on stale text layout", e)
+        true
     }
 }
