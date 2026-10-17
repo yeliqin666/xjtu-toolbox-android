@@ -8,6 +8,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Fullscreen
 import androidx.compose.material.icons.filled.FullscreenExit
+import androidx.compose.material.icons.filled.Whatshot
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.window.Dialog
@@ -292,6 +293,8 @@ private fun SeatPlanView(
     favorites: Set<String>,
     onSelect: (PlanSeat?) -> Unit,
     onToggleFavorite: (String) -> Unit,
+    /** 非空时画热力：有人的座位周围一圈红晕，空座按好坐程度从琥珀到绿，推荐的几个描边。 */
+    heat: SeatHeat? = null,
     modifier: Modifier = Modifier,
 ) {
     val haptic = androidx.compose.ui.platform.LocalHapticFeedback.current
@@ -376,6 +379,40 @@ private fun SeatPlanView(
                     drawRect(fallbackColor(seat.status).copy(alpha = 0.4f), topLeft, size)
                 }
             }
+            if (heat != null) {
+                for (seat in layout.seats) {
+                    val weight = when (seat.status) {
+                        PlanSeat.BOOKED, PlanSeat.INSIDE -> 1f
+                        PlanSeat.LEAVE -> 0.5f
+                        else -> continue
+                    }
+                    val c = Offset(seat.left + seat.width / 2, seat.top + seat.height / 2)
+                    val r = max(seat.width, seat.height) * 2.6f
+                    drawCircle(
+                        androidx.compose.ui.graphics.Brush.radialGradient(
+                            listOf(HEAT_WARM.copy(alpha = 0.34f * weight), Color.Transparent), center = c, radius = r,
+                        ),
+                        radius = r, center = c,
+                    )
+                }
+                for (seat in layout.seats) {
+                    if (!seat.available) continue
+                    val score = heat.comfort[seat.seatId]?.score ?: continue
+                    drawRect(
+                        androidx.compose.ui.graphics.lerp(HEAT_POOR, HEAT_GOOD, score).copy(alpha = 0.8f),
+                        Offset(seat.left, seat.top), Size(seat.width, seat.height),
+                    )
+                }
+                val pad = 1.5.dp.toPx() / s
+                heat.picks.forEach { seat ->
+                    drawRect(
+                        HEAT_GOOD,
+                        Offset(seat.left - pad, seat.top - pad),
+                        Size(seat.width + pad * 2, seat.height + pad * 2),
+                        style = Stroke(2.dp.toPx() / s),
+                    )
+                }
+            }
             layout.seats.firstOrNull { it.seatId == selectedSeatId }?.let { seat ->
                 val pad = 2.dp.toPx() / s
                 drawRect(
@@ -388,6 +425,13 @@ private fun SeatPlanView(
         }
     }
 }
+
+/** 热力模式要的数据：每个座位好不好坐，和最值得坐的几个空座。 */
+class SeatHeat(val comfort: Map<String, SeatComfort.Comfort>, val picks: List<PlanSeat>)
+
+private val HEAT_WARM = Color(0xFFE5534B)
+private val HEAT_POOR = Color(0xFFE3A33B)
+private val HEAT_GOOD = Color(0xFF1FA86A)
 
 private fun fallbackColor(status: Int): Color = when (status) {
     PlanSeat.BOOKED -> Color(0xFFF2A33A)
@@ -444,6 +488,13 @@ fun SeatPlanPanel(
     // 按区域记选中：刷新座位状态后选中不丢，状态按新数据重新取
     var selected by remember(selectedArea) { mutableStateOf<String?>(null) }
     val selectedSeat = layout?.seats?.firstOrNull { it.seatId == selected }
+    var heatOn by remember { mutableStateOf(false) }
+    val heat = remember(layout, heatOn) {
+        layout?.takeIf { heatOn }?.seats?.let { seats ->
+            val comfort = SeatComfort.of(seats)
+            SeatHeat(comfort, SeatComfort.best(seats, comfort))
+        }
+    }
     val floorBounds = remember(floor) { floor?.first?.seats?.takeIf { it.isNotEmpty() }?.let(::paddedBounds) }
 
     androidx.compose.foundation.layout.BoxWithConstraints(
@@ -489,17 +540,26 @@ fun SeatPlanPanel(
                     // 卡片里和全屏里是同一套：图 + 信息条，选中座位共用
                     @Composable
                     fun MapAndBar(mapModifier: Modifier, barOnlyForSeat: Boolean = false) {
-                        SeatPlanView(
-                            layout = layout,
-                            images = images,
-                            selectedSeatId = selected,
-                            favorites = favorites,
-                            onSelect = { selected = it?.seatId },
-                            onToggleFavorite = onToggleFavorite,
-                            modifier = mapModifier.clipToBounds().background(Color(0xFF8A6A45)),
-                        )
-                        // 全屏只看图，选了座才出预约条
-                        if (!barOnlyForSeat || selectedSeat != null) PlanInfoBar(
+                        androidx.compose.foundation.layout.Box(mapModifier) {
+                            SeatPlanView(
+                                layout = layout,
+                                images = images,
+                                selectedSeatId = selected,
+                                favorites = favorites,
+                                onSelect = { selected = it?.seatId },
+                                onToggleFavorite = onToggleFavorite,
+                                heat = heat,
+                                modifier = Modifier.fillMaxSize().clipToBounds().background(Color(0xFF8A6A45)),
+                            )
+                            PlanCornerButton(
+                                Icons.Default.Whatshot,
+                                if (heatOn) "关闭热力图" else "热力图：看哪里人少、靠墙",
+                                Modifier.align(Alignment.TopStart),
+                                active = heatOn,
+                            ) { heatOn = !heatOn }
+                        }
+                        // 全屏只看图，选了座（或开着热力有推荐）才出信息条
+                        if (!barOnlyForSeat || selectedSeat != null || heat != null) PlanInfoBar(
                             areaName = areaName,
                             freeText = freeText,
                             seat = selectedSeat,
@@ -508,6 +568,8 @@ fun SeatPlanPanel(
                             enabled = !isBooking && !loading,
                             isBooking = isBooking,
                             onBook = onBook,
+                            heat = heat,
+                            onPick = { selected = it },
                             modifier = Modifier.height(barHeight),
                         )
                     }
@@ -531,13 +593,19 @@ fun SeatPlanPanel(
 
 /** 叠在图角上的小圆按钮。 */
 @Composable
-private fun PlanCornerButton(icon: ImageVector, description: String, modifier: Modifier = Modifier, onClick: () -> Unit) {
+private fun PlanCornerButton(
+    icon: ImageVector,
+    description: String,
+    modifier: Modifier = Modifier,
+    active: Boolean = false,
+    onClick: () -> Unit,
+) {
     androidx.compose.foundation.layout.Box(
         modifier
             .padding(8.dp)
             .size(36.dp)
             .clip(CircleShape)
-            .background(Color.Black.copy(alpha = 0.35f))
+            .background(if (active) HEAT_GOOD else Color.Black.copy(alpha = 0.35f))
             .clickable(onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {
@@ -561,7 +629,7 @@ private fun PlanFullscreen(
             Modifier.fillMaxSize().background(com.xjtu.toolbox.ui.components.AppCardColor).systemBarsPadding(),
         ) {
             Column(Modifier.fillMaxSize(), content = content)
-            PlanCornerButton(Icons.Default.FullscreenExit, "退出全屏", Modifier.align(Alignment.TopEnd), onClose)
+            PlanCornerButton(Icons.Default.FullscreenExit, "退出全屏", Modifier.align(Alignment.TopEnd), onClick = onClose)
         }
     }
 }
@@ -584,6 +652,8 @@ private fun PlanInfoBar(
     enabled: Boolean,
     isBooking: Boolean,
     onBook: (String) -> Unit,
+    heat: SeatHeat? = null,
+    onPick: (String) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     Row(
@@ -591,7 +661,23 @@ private fun PlanInfoBar(
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Column(Modifier.weight(1f)) {
-            if (seat == null) {
+            val top = heat?.picks?.firstOrNull()
+            if (seat == null && top != null) {
+                // 热力模式没选座：直接给最好的那个，点一下选中
+                Text(
+                    "推荐 ${top.seatId}",
+                    style = MiuixTheme.textStyles.body1,
+                    fontWeight = FontWeight.Bold,
+                    color = HEAT_GOOD,
+                    modifier = Modifier.clickable { onPick(top.seatId) },
+                )
+                Text(
+                    heat?.comfort?.get(top.seatId)?.label.orEmpty() + " · 越绿越好坐，红晕是有人",
+                    style = MiuixTheme.textStyles.footnote1,
+                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                    maxLines = 1,
+                )
+            } else if (seat == null) {
                 Text(
                     areaName + (freeText?.let { " · $it" } ?: ""),
                     style = MiuixTheme.textStyles.body2,
@@ -600,10 +686,12 @@ private fun PlanInfoBar(
                 )
             } else {
                 Text(seat.seatId + if (favorite) " ★" else "", style = MiuixTheme.textStyles.body1, fontWeight = FontWeight.Bold)
+                val comfort = heat?.comfort?.get(seat.seatId)?.takeIf { seat.available }
                 Text(
-                    planStatusLabel(seat.status),
+                    planStatusLabel(seat.status) + (comfort?.let { " · ${it.label}" } ?: ""),
                     style = MiuixTheme.textStyles.footnote1,
                     color = if (seat.available) MiuixTheme.colorScheme.primary else MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                    maxLines = 1,
                 )
             }
         }
