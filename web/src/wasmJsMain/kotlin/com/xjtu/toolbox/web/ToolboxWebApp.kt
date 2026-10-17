@@ -1,6 +1,14 @@
 package com.xjtu.toolbox.web
 
 import androidx.compose.foundation.layout.Box
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.ui.Alignment
+import com.xjtu.toolbox.platform.WebBriefMessages
+import com.xjtu.toolbox.platform.showBriefMessage
+import kotlinx.coroutines.launch
+import top.yukonga.miuix.kmp.basic.SnackbarHost
+import top.yukonga.miuix.kmp.basic.SnackbarHostState
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
@@ -104,6 +112,23 @@ fun ToolboxWebApp(onAppearanceChanged: () -> Unit = {}) {
     val initial = remember { initialWebTarget() }
     var target: WebTarget by remember { mutableStateOf(initial) }
     val archiveActions = remember { WebArchiveActions() }
+    val snackbar = remember { SnackbarHostState() }
+    val scope = rememberCoroutineScope()
+    var afterLogin by remember { mutableStateOf<WebTarget>(WebTarget.App(AppRoute.Schedule)) }
+    DisposableEffect(Unit) {
+        WebBriefMessages.sink = { message -> scope.launch { snackbar.showSnackbar(message) } }
+        onDispose { WebBriefMessages.sink = null }
+    }
+    DisposableEffect(mode) {
+        WebAuthEvents.onUnauthorized = {
+            if (mode == ApiMode.SERVE && target != WebTarget.Serve) {
+                afterLogin = target
+                target = WebTarget.Serve
+                showBriefMessage("登录已过期，请重新登录")
+            }
+        }
+        onDispose { WebAuthEvents.onUnauthorized = null }
+    }
     LaunchedEffect(Unit) {
         browserSearchParam("token")?.let {
             serveSession.setToken(it)
@@ -132,6 +157,7 @@ fun ToolboxWebApp(onAppearanceChanged: () -> Unit = {}) {
     // 窗口形状喂给共享壳（`:app` 那边由 `AppNavigation` 算好往下提供）：窗口够宽时底栏换侧栏，
     // 判据就是 `:core` 那条 `calculateIsWideLayout` —— 与 Android 在宽屏 / 折叠屏上同一套。
     CompositionLocalProvider(LocalIsWideLayout provides calculateIsWideLayout()) {
+      Box(Modifier.fillMaxSize()) {
         AppShell(
             nav = navState,
             // 这一端的导航模型是**路由表**（`:core` 的路由里多数不属于底栏任何一格）⇒ 只画当前这一页，
@@ -170,7 +196,8 @@ fun ToolboxWebApp(onAppearanceChanged: () -> Unit = {}) {
                             WebRoutes.PROBE -> ProbeScreen()
                             WebRoutes.EULA -> EulaScreen(onAccept = { target = WebTarget.Probe })
                             WebRoutes.SERVE -> WebServeSessionScreen(serveSession) {
-                                target = WebTarget.App(AppRoute.Schedule)
+                                target = afterLogin
+                                afterLogin = WebTarget.App(AppRoute.Schedule)
                             }
 
                             WebRoutes.SERVICES -> WebServicesScreen(
@@ -197,6 +224,8 @@ fun ToolboxWebApp(onAppearanceChanged: () -> Unit = {}) {
                 }
             },
         )
+        SnackbarHost(snackbar, modifier = Modifier.align(Alignment.BottomCenter))
+      }
     }
 }
 

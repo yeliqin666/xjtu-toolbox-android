@@ -2,7 +2,9 @@
 
 package com.xjtu.toolbox.web
 
+import io.ktor.client.plugins.HttpResponseValidator
 import io.ktor.client.plugins.defaultRequest
+import io.ktor.http.HttpStatusCode
 import io.ktor.client.request.header
 import io.ktor.http.HttpHeaders
 import com.xjtu.toolbox.core.net.createToolboxClient
@@ -51,7 +53,24 @@ fun toolboxWebClient(token: ServeTokenHolder = serveToken): HttpClient =
         defaultRequest {
             token.token?.let { header(HttpHeaders.Authorization, "Bearer $it") }
         }
+        HttpResponseValidator {
+            validateResponse { response ->
+                if (response.status == HttpStatusCode.Unauthorized &&
+                    isSessionGuardedPath(response.call.request.url.encodedPath)
+                ) {
+                    WebAuthEvents.onUnauthorized?.invoke()
+                }
+            }
+        }
     }
+
+/** 业务接口回 401 时通知页面根部跳登录页；会话接口和探测接口自己处理 401，不算在内。 */
+object WebAuthEvents {
+    var onUnauthorized: (() -> Unit)? = null
+}
+
+internal fun isSessionGuardedPath(path: String): Boolean =
+    path.startsWith("/api/") && !path.startsWith("/api/session") && path != "/api/status"
 
 data class ProbeResult(
     val label: String,
