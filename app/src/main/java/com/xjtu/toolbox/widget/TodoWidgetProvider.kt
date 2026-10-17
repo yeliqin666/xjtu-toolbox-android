@@ -89,6 +89,11 @@ object TodoWidgetUpdater {
                     // 学校不少待办的标题就是系统名，这时拿正文当标题
                     views.setTextViewText(r.title, if (item.title == item.source && item.body.isNotBlank()) item.body else item.title)
                     views.setTextViewText(r.due, dueLabel(item.expiresAt, now))
+                    // 点单条直接进它自己的页面，没有专属页面的回收纳箱
+                    views.setOnClickPendingIntent(r.row, PendingIntent.getActivity(context, RequestCodes.TODO_WIDGET_ROW + i, Intent(context, MainActivity::class.java).apply {
+                        putExtra(MainActivity.EXTRA_LAUNCH_ROUTE, item.route ?: AppRoute.Inbox.id)
+                        flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+                    }, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE))
                 }
                 val empty = todos.isEmpty()
                 views.setViewVisibility(R.id.widget_todo_list, if (empty) View.GONE else View.VISIBLE)

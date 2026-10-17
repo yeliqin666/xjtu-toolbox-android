@@ -16,7 +16,7 @@ internal object NoticeWidgetStore {
     const val MAX_ENTRIES = 4
     private const val KEY_TIME = "updated_at"
 
-    data class Entry(val title: String, /** 发布日期（epochDay），不知道为 null。 */ val day: Long?)
+    data class Entry(val title: String, /** 发布日期（epochDay），不知道为 null。 */ val day: Long?, val link: String? = null)
 
     data class Snapshot(val entries: List<Entry>, val updatedAt: Long)
 
@@ -24,7 +24,7 @@ internal object NoticeWidgetStore {
         val p = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         val entries = (0 until MAX_ENTRIES).mapNotNull { i ->
             p.getString("title_$i", null)?.takeIf { it.isNotBlank() }
-                ?.let { Entry(it, p.getLong("day_$i", -1L).takeIf { d -> d >= 0 }) }
+                ?.let { Entry(it, p.getLong("day_$i", -1L).takeIf { d -> d >= 0 }, p.getString("link_$i", null)) }
         }
         return Snapshot(entries, p.getLong(KEY_TIME, 0L))
     }
@@ -37,8 +37,9 @@ internal object NoticeWidgetStore {
             if (entry != null) {
                 editor.putString("title_$i", entry.title)
                 if (entry.day != null) editor.putLong("day_$i", entry.day) else editor.remove("day_$i")
+                if (entry.link != null) editor.putString("link_$i", entry.link) else editor.remove("link_$i")
             } else {
-                editor.remove("title_$i").remove("day_$i")
+                editor.remove("title_$i").remove("day_$i").remove("link_$i")
             }
         }
         editor.putLong(KEY_TIME, System.currentTimeMillis())

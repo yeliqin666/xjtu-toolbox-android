@@ -97,7 +97,7 @@ internal object NoticeWatchSync {
         NoticeWatchStore.setLastTitles(app, titles)
         NoticeWidgetUpdater.publish(
             app,
-            items.take(NoticeWidgetStore.MAX_ENTRIES).map { NoticeWidgetStore.Entry(formatTitle(it, multi), it.date.toEpochDays()) },
+            items.take(NoticeWidgetStore.MAX_ENTRIES).map { NoticeWidgetStore.Entry(formatTitle(it, multi), it.date.toEpochDays(), it.link.takeIf { l -> l.startsWith("http") }) },
         )
 
         val newest = items.firstOrNull()?.title

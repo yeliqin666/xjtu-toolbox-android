@@ -46,6 +46,16 @@ object NoticeWidgetUpdater {
         }
     }
 
+    private fun rowIntent(context: Context, index: Int, route: String): PendingIntent = PendingIntent.getActivity(
+        context,
+        RequestCodes.NOTICE_WIDGET_ROW + index,
+        Intent(context, MainActivity::class.java).apply {
+            putExtra(MainActivity.EXTRA_LAUNCH_ROUTE, route)
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+        },
+        PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+    )
+
     fun requestUpdate(context: Context) {
         val manager = AppWidgetManager.getInstance(context)
         val ids = manager.getAppWidgetIds(
@@ -85,6 +95,8 @@ object NoticeWidgetUpdater {
                     views.setViewVisibility(rowId, if (entry == null) View.INVISIBLE else View.VISIBLE)
                     views.setTextViewText(dateId, dayLabel(entry?.day, today))
                     views.setTextViewText(titleId, entry?.title.orEmpty())
+                    // 点哪条进哪条的正文（#138），没有链接的行走整卡的通知列表
+                    entry?.link?.let { views.setOnClickPendingIntent(rowId, rowIntent(context, i, AppRoute.Browser(it).id)) }
                 }
                 val empty = entries.isEmpty()
                 views.setViewVisibility(R.id.widget_notice_list, if (empty) View.GONE else View.VISIBLE)
