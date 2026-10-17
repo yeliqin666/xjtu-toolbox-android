@@ -50,6 +50,8 @@ internal data class CardStats(
     /** 近 30 天在校日均，「约够几天」用。 */
     val dailyRate: Double? = null,
     val weekdayWeekend: Pair<DayTypeStats, DayTypeStats>? = null,
+    /** 干饭人账单，按当前选的时间范围算。 */
+    val mealReport: MealReport? = null,
 )
 
 internal sealed interface CampusCardEvent {
@@ -145,6 +147,7 @@ internal class CampusCardViewModel(
             hourly = hourlyMeals(all),
             dailyRate = dailySpendRate(all),
             weekdayWeekend = analyzeWeekdayVsWeekend(all),
+            mealReport = MealReport.build(all) { categoryOf(it) == "餐饮" },
         )
     }
 

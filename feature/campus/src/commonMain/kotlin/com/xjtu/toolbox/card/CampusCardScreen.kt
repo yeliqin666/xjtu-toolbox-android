@@ -126,6 +126,8 @@ fun CampusCardScreen(
     couponStat: (suspend () -> CouponEntryStat?)? = null,
     /** 宿主的 saved state（「选的时间范围」在进程被回收后要还在）。 */
     savedState: CreationExtras.() -> SavedStateHandle = { SavedStateHandle() },
+    /** 「干饭人账单」海报怎么存图（Android 分享、桌面存 PNG）；null（Web）就不显示这个入口。 */
+    mealReportExport: MealReportExport? = null,
 ) {
     val snackbarHostState = remember { SnackbarHostState() }
     val authExpiry = LocalAuthExpiry.current
@@ -344,6 +346,7 @@ fun CampusCardScreen(
                                                 stats.activeDays, rangeDates.first, rangeDates.second,
                                                 cardInfo?.balance ?: 0.0, stats.dailyRate, stats.food, stats.hourly,
                                                 topContentPadding = topContentPadding, rangeLabel = rangeLabel,
+                                                mealReport = stats.mealReport.takeIf { mealReportExport != null }, mealReportExport = mealReportExport,
                                             )
                                         }
                                     }
@@ -371,6 +374,7 @@ fun CampusCardScreen(
                                     stats.activeDays, rangeDates.first, rangeDates.second,
                                     cardInfo?.balance ?: 0.0, stats.dailyRate, stats.food, stats.hourly,
                                     topContentPadding = topContentPadding, rangeLabel = rangeLabel,
+                                    mealReport = stats.mealReport.takeIf { mealReportExport != null }, mealReportExport = mealReportExport,
                                 )
                             }
                         }
@@ -988,7 +992,13 @@ private fun AnalyticsTab(
     topContentPadding: Dp = 0.dp,
     /** 当前时间范围（如「近1个月」），见 [TransactionTab] 同名参数。 */
     rangeLabel: String = "",
+    mealReport: MealReport? = null,
+    mealReportExport: MealReportExport? = null,
 ) {
+    var showReport by remember { mutableStateOf(false) }
+    if (showReport && mealReport != null && mealReportExport != null) {
+        MealReportDialog(mealReport, mealReportExport) { showReport = false }
+    }
     val foodSpend = categorySpending["餐饮"] ?: 0.0
     val meals = mealTimeStats.values.sumOf { it.count }
     val totalSpend = monthlyStats.sumOf { it.totalSpend }
@@ -1021,6 +1031,9 @@ private fun AnalyticsTab(
                 Box(Modifier.enterOnce(0)) {
                     SpendingHeroCard(totalSpend, activeCampusDays, foodSpend, meals, tags, rangeLabel)
                 }
+            }
+            if (mealReport != null) {
+                item { Box(Modifier.enterOnce(1)) { MealReportEntry(mealReport) { showReport = true } } }
             }
             // 主食构成排在顶层类别之前：食堂党的钱 95% 以上都在「餐饮」那一块里
             if (foodBreakdown.isNotEmpty()) {

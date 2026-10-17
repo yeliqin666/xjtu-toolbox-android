@@ -433,6 +433,9 @@ private fun mealHour(time: String): Boolean {
     return h in 6..9 || h in 11..13 || h in 17..19
 }
 
+/** 单笔流水归哪一类（餐饮、超市……），和分类统计同一套规则。 */
+fun categoryOf(tx: Transaction): String = classifyMerchant(tx.displayMerchant, tx.description, tx.time)
+
 private fun classifyMerchant(merchant: String, description: String, time: String = ""): String {
     val m = merchant.lowercase()
     val d = description.lowercase()

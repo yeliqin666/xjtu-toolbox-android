@@ -501,6 +501,7 @@ private fun DesktopPage(
             CampusCardScreen(
                 source = remember(site) { AppCampusCardSource(site) },
                 onBack = back,
+                mealReportExport = DesktopMealReportExport,
             )
         }
 

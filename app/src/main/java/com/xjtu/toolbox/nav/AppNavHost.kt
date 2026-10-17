@@ -246,6 +246,7 @@ fun AppNavHost(
                     // 跟着设置实时变：直接读存储只在进页那一刻读一次，页面开着时切风格不会跟过来
                     glass = com.xjtu.toolbox.ui.glass.LocalGlassStyle.current,
                     onOpenCoupon = { router.open(AppRoute.Coupon) },
+                    mealReportExport = remember(cardContext) { com.xjtu.toolbox.card.appMealReportExport(cardContext) },
                     onCacheUpdated = { loginState.campusCardCacheVersion++ },
                     onBalanceChanged = {
                         com.xjtu.toolbox.widget.CampusCardWidgetUpdater.requestUpdate(cardContext)
