@@ -13,6 +13,7 @@ import androidx.compose.material.icons.filled.Layers
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.foundation.border
+import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.ui.draw.shadow
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -519,7 +520,8 @@ fun SeatPlanPanel(
         val peekHeight = 46.dp
         val overlap = 14.dp
         val floorFull = floorBounds?.let { (width * (it.height / it.width)).coerceIn(130.dp, 220.dp) } ?: 0.dp
-        val stackSpring = spring<Dp>(dampingRatio = 0.86f, stiffness = 420f)
+        // 临界阻尼：不回弹。欠阻尼的弹簧会冲过头，内边距一瞬间变成负数，Compose 直接抛异常
+        val stackSpring = spring<Dp>(dampingRatio = 1f, stiffness = 420f)
         val backHeight by androidx.compose.animation.core.animateDpAsState(
             when {
                 !hasFloor -> 0.dp
@@ -536,8 +538,8 @@ fun SeatPlanPanel(
         if (hasFloor) androidx.compose.foundation.layout.Box(
             Modifier
                 .fillMaxWidth()
-                .padding(horizontal = backInset)
-                .height(backHeight)
+                .padding(horizontal = backInset.coerceAtLeast(0.dp))
+                .height(backHeight.coerceAtLeast(0.dp))
                 .clip(cardShape)
                 .background(cardColor)
                 .background(primary.copy(alpha = 0.07f)),
@@ -581,7 +583,11 @@ fun SeatPlanPanel(
                         onPickArea(it)
                         floorOpen = false
                     },
-                    modifier = Modifier.fillMaxWidth().height(floorFull),
+                    // 展开动画途中卡片还没长到位，图按最终高度排版、被卡片裁掉，视野不会跟着动画抖
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .wrapContentHeight(Alignment.Top, unbounded = true)
+                        .height(floorFull),
                 )
             }
         }
