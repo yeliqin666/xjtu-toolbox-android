@@ -47,6 +47,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -90,6 +91,8 @@ fun HomeScreen(
     extraBottomPadding: Dp = 0.dp,
     /** 玻璃顶栏的高度：内容铺到顶栏下面，这段留白放进滚动内容里。经典风格为 0。 */
     contentTopPadding: Dp = 0.dp,
+    /** 首页没有顶栏：消息、扫一扫、搜索这几个按钮由宿主给，放在页面最上面跟着内容一起滚。 */
+    topActions: (@Composable () -> Unit)? = null,
 ) {
     val honored = host.honoredCards
     // 用目录全量：图标配色按它在目录里的下标取，过滤会让配色挪位。
@@ -190,6 +193,7 @@ fun HomeScreen(
             .verticalScroll(rememberScrollState())
     ) {
         Spacer(Modifier.height(contentTopPadding))
+        topActions?.let { Box(Modifier.fillMaxWidth().padding(horizontal = 8.dp)) { it() } }
         headerSection()
         host.inbox?.let { summary ->
             if (HomeCard.INBOX in honored) {
@@ -269,15 +273,6 @@ private fun HomeHeroCard(
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
-                    if (editorial) {
-                        // 刊头下面补一行中文日期：期号是西文，中文读者还是看「星期五」顺眼
-                        Text(
-                            meta,
-                            style = MiuixTheme.textStyles.footnote2,
-                            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                            maxLines = 1,
-                        )
-                    }
                     if (status != null) {
                         Spacer(Modifier.height(8.dp))
                         HeroStatusLine(status, host::onOpenStatus)
@@ -325,9 +320,18 @@ private fun HomeHeroCard(
             }
             if (HomeCard.QUICK_ACTIONS in honored && quickRows.isNotEmpty()) {
                 Spacer(Modifier.height(12.dp))
-                Row(Modifier.fillMaxWidth()) {
-                    quickRows.forEach { row ->
-                        HomeQuickAction(
+                Row(Modifier.fillMaxWidth().height(IntrinsicSize.Min), verticalAlignment = Alignment.CenterVertically) {
+                    quickRows.forEachIndexed { i, row ->
+                        // 杂志版式：快捷入口排成一行导航，条目之间一道细竖线
+                        if (editorial && i > 0) Box(
+                            Modifier
+                                .padding(vertical = 10.dp)
+                                .fillMaxHeight()
+                                .width(Editorial.hairline)
+                                .background(MiuixTheme.colorScheme.outline.copy(alpha = 0.22f))
+                        )
+                        if (editorial) EditorialQuickLink(row, Modifier.weight(1f))
+                        else HomeQuickAction(
                             row.icon,
                             row.title,
                             row.color,
@@ -796,68 +800,77 @@ private fun HomeSceneCard(
     ) {
         EditorialSectionHeader(index = index, title = title, note = subtitle)
         if (live.isNotEmpty()) {
-            Spacer(Modifier.height(14.dp))
+            Spacer(Modifier.height(16.dp))
             live.chunked(2).forEachIndexed { i, pair ->
-                if (i > 0) Spacer(Modifier.height(8.dp))
+                if (i > 0) Spacer(Modifier.height(14.dp))
                 Row(
                     Modifier.fillMaxWidth().height(IntrinsicSize.Min),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(20.dp),
                 ) {
                     pair.forEach { ServiceStatCell(it, Modifier.weight(1f).fillMaxHeight()) }
+                    if (pair.size == 1) Spacer(Modifier.weight(1f))
                 }
             }
+            Spacer(Modifier.height(10.dp))
         }
         if (rest.isNotEmpty()) {
-            Spacer(Modifier.height(if (live.isNotEmpty()) 8.dp else 10.dp))
-            rest.chunked(4).forEach { group ->
-                Row(Modifier.fillMaxWidth()) {
-                    group.forEach { HomeServiceTile(it, Modifier.weight(1f)) }
-                    repeat(4 - group.size) { Spacer(Modifier.weight(1f)) }
+            // 其余入口排成目录：两栏、宋体条目名、发丝线分行，不再是一格格彩色图标
+            if (live.isNotEmpty()) EditorialRule()
+            rest.chunked(2).forEach { pair ->
+                Row(Modifier.fillMaxWidth().height(IntrinsicSize.Min)) {
+                    ContentsEntry(pair[0], Modifier.weight(1f))
+                    Box(
+                        Modifier
+                            .fillMaxHeight()
+                            .padding(vertical = 12.dp)
+                            .width(Editorial.hairline)
+                            .background(MiuixTheme.colorScheme.outline.copy(alpha = 0.22f))
+                    )
+                    if (pair.size > 1) ContentsEntry(pair[1], Modifier.weight(1f).padding(start = 14.dp))
+                    else Spacer(Modifier.weight(1f))
                 }
+                EditorialRule()
             }
         }
     }
 }
 
-/** 数据格：功能色淡染的面，名称在上，数值加粗，说明一行。 */
+/** 数据栌：不铺底色，左边一道功能色细竖线，栏目名用小字，数值用衬线大字，像刊物里的数据栏。 */
 @Composable
 private fun ServiceStatCell(
     row: HomeServiceRow,
     modifier: Modifier = Modifier,
 ) {
-    val dark = LocalIsDarkTheme.current
     val origin = rememberExpandOriginSource()
     val density = androidx.compose.ui.platform.LocalDensity.current
-    Column(
+    Row(
         modifier = modifier
             .expandOriginSource(origin)
-            .squircleClip(18.dp)
-            .background(row.color.copy(alpha = if (dark) 0.14f else 0.07f))
+            .clip(RoundedCornerShape(4.dp))
             .clickable(
                 interactionSource = remember { MutableInteractionSource() },
                 indication = SinkFeedback(),
                 onClick = {
-                    origin.arm(row.key, 18.dp, density)
+                    origin.arm(row.key, 4.dp, density)
                     row.onClick()
                 }
             )
-            .padding(horizontal = 12.dp, vertical = 11.dp)
+            .padding(vertical = 4.dp)
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Icon(row.icon, contentDescription = null, tint = row.color, modifier = Modifier.size(14.dp))
-            Spacer(Modifier.width(5.dp))
-            Text(
-                row.title,
-                style = MiuixTheme.textStyles.footnote1,
-                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-        }
-        Spacer(Modifier.height(6.dp))
+        Box(Modifier.fillMaxHeight().width(2.dp).background(row.color))
+        Spacer(Modifier.width(10.dp))
+        Column(Modifier.weight(1f)) {
+        Text(
+            row.title,
+            style = Editorial.kicker.copy(fontSize = 11.sp, letterSpacing = 1.5.sp),
+            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
+        Spacer(Modifier.height(4.dp))
         Text(
             row.stat.orEmpty(),
-            style = Editorial.figure.copy(fontSize = 17.sp, lineHeight = 22.sp),
+            style = Editorial.figure.copy(fontSize = 22.sp, lineHeight = 27.sp),
             fontWeight = FontWeight.Bold,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis
@@ -872,6 +885,82 @@ private fun ServiceStatCell(
                 overflow = TextOverflow.Ellipsis
             )
         }
+        }
+    }
+}
+
+/** 杂志版式的快捷入口：功能色小图标在上，宋体名称在下，不带底色。 */
+@Composable
+private fun EditorialQuickLink(
+    row: HomeServiceRow,
+    modifier: Modifier = Modifier,
+) {
+    val origin = rememberExpandOriginSource()
+    val density = androidx.compose.ui.platform.LocalDensity.current
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        modifier = modifier
+            .expandOriginSource(origin)
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = SinkFeedback(),
+                onClick = {
+                    origin.arm(row.key, 0.dp, density)
+                    row.onClick()
+                }
+            )
+            .padding(vertical = 8.dp),
+    ) {
+        Icon(row.icon, contentDescription = null, tint = row.color, modifier = Modifier.size(18.dp))
+        Spacer(Modifier.height(6.dp))
+        Text(
+            row.title,
+            style = TextStyle(fontFamily = Editorial.Serif, fontWeight = FontWeight.Medium, fontSize = 13.sp, lineHeight = 17.sp, letterSpacing = 1.sp),
+            color = MiuixTheme.colorScheme.onSurface,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+    }
+}
+
+/** 目录里的一条：小号功能色线性图标 + 宋体条目名，右边一枚淡箭头。 */
+@Composable
+private fun ContentsEntry(
+    row: HomeServiceRow,
+    modifier: Modifier = Modifier,
+) {
+    val origin = rememberExpandOriginSource()
+    val density = androidx.compose.ui.platform.LocalDensity.current
+    Row(
+        modifier = modifier
+            .expandOriginSource(origin)
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = SinkFeedback(),
+                onClick = {
+                    origin.arm(row.key, 0.dp, density)
+                    row.onClick()
+                }
+            )
+            .padding(vertical = 14.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(row.icon, contentDescription = null, tint = row.color.copy(alpha = 0.85f), modifier = Modifier.size(15.dp))
+        Spacer(Modifier.width(10.dp))
+        Text(
+            row.title,
+            style = TextStyle(fontFamily = Editorial.Serif, fontWeight = FontWeight.Medium, fontSize = 16.sp, lineHeight = 21.sp, letterSpacing = 0.8.sp),
+            color = MiuixTheme.colorScheme.onSurface,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f),
+        )
+        Icon(
+            Icons.Filled.ChevronRight,
+            contentDescription = null,
+            tint = MiuixTheme.colorScheme.onSurfaceVariantSummary.copy(alpha = 0.45f),
+            modifier = Modifier.size(16.dp),
+        )
     }
 }
 
