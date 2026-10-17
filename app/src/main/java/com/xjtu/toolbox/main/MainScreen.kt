@@ -43,6 +43,10 @@ import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
+import androidx.compose.foundation.layout.size
+import androidx.compose.ui.draw.clip
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.layout.positionInRoot
@@ -528,20 +532,43 @@ private val OverlayExit = fadeOut(tween(180)) + slideOutVertically(tween(200)) {
 /** 首页最上面一行：左边消息，右边扫一扫和搜索。不吸顶，跟着内容滚走。 */
 @Composable
 private fun HomeTopActions(onInbox: () -> Unit, onScan: () -> Unit, onSearch: () -> Unit) {
-    Row(Modifier.fillMaxWidth(), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
-        InboxBell(onInbox)
-        androidx.compose.foundation.layout.Spacer(Modifier.weight(1f))
-        IconButton(onClick = onScan) {
+    // 刊头右上角一组克制的小圆钮：淡底色、细图标，搜索、扫一扫、消息依次排开
+    val chip = MiuixTheme.colorScheme.onSurface.copy(alpha = 0.06f)
+    val tint = MiuixTheme.colorScheme.onSurface.copy(alpha = 0.78f)
+    Row(
+        horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(8.dp),
+        verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+    ) {
+        HomeRoundAction(chip, onSearch) {
+            Icon(Icons.Default.Search, contentDescription = "搜索", tint = tint, modifier = Modifier.size(19.dp))
+        }
+        HomeRoundAction(chip, onScan) {
             Icon(
                 androidx.compose.ui.res.painterResource(com.xjtu.toolbox.R.drawable.ic_scan),
                 contentDescription = "扫一扫",
-                tint = MiuixTheme.colorScheme.onSurface,
+                tint = tint,
+                modifier = Modifier.size(18.dp),
             )
         }
-        IconButton(onClick = onSearch) {
-            Icon(Icons.Default.Search, contentDescription = "搜索", tint = MiuixTheme.colorScheme.onSurface)
+        androidx.compose.foundation.layout.Box(
+            Modifier.size(36.dp).background(chip, androidx.compose.foundation.shape.CircleShape),
+            contentAlignment = androidx.compose.ui.Alignment.Center,
+        ) {
+            InboxBell(onInbox)
         }
     }
+}
+
+@Composable
+private fun HomeRoundAction(chip: Color, onClick: () -> Unit, icon: @Composable () -> Unit) {
+    androidx.compose.foundation.layout.Box(
+        Modifier
+            .size(36.dp)
+            .clip(androidx.compose.foundation.shape.CircleShape)
+            .background(chip)
+            .clickable(onClick = onClick),
+        contentAlignment = androidx.compose.ui.Alignment.Center,
+    ) { icon() }
 }
 
 /** 主界面顶栏，玻璃风格下采样 tab 内容区。 */

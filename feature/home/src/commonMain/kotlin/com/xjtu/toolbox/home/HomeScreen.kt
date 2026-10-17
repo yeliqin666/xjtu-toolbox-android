@@ -3,7 +3,6 @@ package com.xjtu.toolbox.home
 import androidx.compose.ui.unit.sp
 import com.xjtu.toolbox.ui.theme.Editorial
 import com.xjtu.toolbox.ui.theme.EditorialRule
-import com.xjtu.toolbox.ui.theme.EditorialSectionHeader
 import com.xjtu.toolbox.util.todayOnCampus
 import kotlinx.datetime.DayOfWeek
 import kotlinx.datetime.LocalDate
@@ -143,6 +142,7 @@ fun HomeScreen(
                 quickRows = quickRows,
                 isIconTheme = isIconTheme,
                 onOpenCourses = { host.onRoute(AppRoute.Schedule) },
+                topActions = topActions,
             )
         }
     }
@@ -193,7 +193,7 @@ fun HomeScreen(
             .verticalScroll(rememberScrollState())
     ) {
         Spacer(Modifier.height(contentTopPadding))
-        topActions?.let { Box(Modifier.fillMaxWidth().padding(horizontal = 8.dp)) { it() } }
+        if (isIconTheme || HomeCard.GREETING !in honored) topActions?.let { Box(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp), contentAlignment = Alignment.CenterEnd) { it() } }
         headerSection()
         host.inbox?.let { summary ->
             if (HomeCard.INBOX in honored) {
@@ -217,6 +217,7 @@ private fun HomeHeroCard(
     quickRows: List<HomeServiceRow>,
     isIconTheme: Boolean,
     onOpenCourses: () -> Unit,
+    topActions: (@Composable () -> Unit)? = null,
 ) {
     /** 卡片主题的杂志版式：去掉流动渐变和内嵌小面板，西文期号 + 宋体刊头，靠发丝线分栏。 */
     val editorial = !isIconTheme
@@ -253,9 +254,12 @@ private fun HomeHeroCard(
                 runForMillis = 6_000L,
             )
         }
-        host.heroArt?.invoke(this)
+        if (!editorial) host.heroArt?.invoke(this)
         Column(Modifier.fillMaxWidth().padding(14.dp)) {
-            if (HomeCard.GREETING in honored) {
+            if (HomeCard.GREETING in honored && editorial) {
+                EditorialMasthead(headline = headline, weekNumber = weekNumber, status = status, onStatus = host::onOpenStatus, topActions = topActions)
+                Spacer(Modifier.height(14.dp))
+            } else if (HomeCard.GREETING in honored) {
                 Column(Modifier.padding(start = 6.dp, top = 8.dp, end = HERO_ART_SIZE)) {
                     Text(
                         if (editorial) editorialKicker(weekNumber) else meta,
@@ -364,6 +368,92 @@ internal fun editorialKicker(weekNumber: Int, today: LocalDate = todayOnCampus()
             DayOfWeek.SUNDAY -> "SUN"
         }
     )
+}
+
+/**
+ * 杂志版式的刊头：左边竖排宋体刊名「岱宗盒子」（主题色），右边年月、星期、教学周和一枚大号衬线日期，
+ * 日期下一道主题色细线，线下是问候语；再往下一道发丝线，接一条带色点的「要闻」（子系统状态）。
+ */
+@Composable
+private fun EditorialMasthead(
+    headline: String,
+    weekNumber: Int,
+    status: HomeStatusLine?,
+    onStatus: () -> Unit,
+    topActions: (@Composable () -> Unit)? = null,
+    today: LocalDate = todayOnCampus(),
+) {
+    val primary = MiuixTheme.colorScheme.primary
+    val muted = MiuixTheme.colorScheme.onSurfaceVariantSummary
+    Column(Modifier.fillMaxWidth().padding(start = 6.dp, end = 6.dp, top = 4.dp)) {
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Bottom) {
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                "岱宗盒子".forEach { ch ->
+                    Text(
+                        ch.toString(),
+                        style = TextStyle(fontFamily = Editorial.Serif, fontWeight = FontWeight.Black, fontSize = 34.sp, lineHeight = 37.sp),
+                        color = primary,
+                    )
+                }
+            }
+            Spacer(Modifier.weight(1f))
+            Column(horizontalAlignment = Alignment.End) {
+                if (topActions != null) {
+                    topActions()
+                    Spacer(Modifier.height(14.dp))
+                }
+                Text(
+                    "${today.year}年${today.month.number}月",
+                    style = TextStyle(fontFamily = Editorial.Serif, fontWeight = FontWeight.Medium, fontSize = 14.sp, lineHeight = 18.sp, letterSpacing = 1.sp),
+                    color = MiuixTheme.colorScheme.onSurface,
+                )
+                Row(verticalAlignment = Alignment.Bottom) {
+                    Column(horizontalAlignment = Alignment.End, modifier = Modifier.padding(bottom = 10.dp)) {
+                        if (weekNumber in 1..25) {
+                            Text("第${weekNumber}周", style = Editorial.kicker.copy(letterSpacing = 1.sp), color = primary)
+                            Spacer(Modifier.height(2.dp))
+                        }
+                        Text(
+                            chineseWeekday(today.dayOfWeek),
+                            style = TextStyle(fontFamily = Editorial.Serif, fontWeight = FontWeight.Bold, fontSize = 19.sp, lineHeight = 23.sp, letterSpacing = 1.sp),
+                            color = MiuixTheme.colorScheme.onSurface,
+                        )
+                    }
+                    Spacer(Modifier.width(8.dp))
+                    Text(
+                        today.day.toString(),
+                        style = Editorial.figure.copy(fontSize = 64.sp, lineHeight = 66.sp),
+                        color = MiuixTheme.colorScheme.onSurface,
+                    )
+                }
+                Box(Modifier.width(168.dp).height(1.2.dp).background(primary))
+                Spacer(Modifier.height(7.dp))
+                Text(
+                    headline,
+                    style = TextStyle(fontFamily = Editorial.Serif, fontWeight = FontWeight.Medium, fontSize = 15.sp, lineHeight = 20.sp, letterSpacing = 1.sp),
+                    color = muted,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+        }
+        if (status != null) {
+            Spacer(Modifier.height(14.dp))
+            EditorialRule()
+            Spacer(Modifier.height(10.dp))
+            HeroStatusLine(status, onStatus)
+        }
+    }
+}
+
+private fun chineseWeekday(day: DayOfWeek): String = when (day) {
+    DayOfWeek.MONDAY -> "星期一"
+    DayOfWeek.TUESDAY -> "星期二"
+    DayOfWeek.WEDNESDAY -> "星期三"
+    DayOfWeek.THURSDAY -> "星期四"
+    DayOfWeek.FRIDAY -> "星期五"
+    DayOfWeek.SATURDAY -> "星期六"
+    DayOfWeek.SUNDAY -> "星期日"
 }
 
 /** 杂志版式里速览格之间的竖发丝线，上下各留一点不顶满。 */
@@ -778,9 +868,9 @@ private fun HomeServiceTile(
 }
 
 /**
- * 卡片主题的分类栏目，杂志版式：不套卡片、不加阴影，「01 上课」宋体栏目名加一道发丝线分区，
- * 下面先是有实时状态的功能（数据格），再是其余功能的紧凑入口。
- * 一列六七张同构大卡叠在一起看着像一摞盒子，没有重点；拿掉框以后分区靠标题和留白，Hero 这张封面才显出来。
+ * 卡片主题的分类栏目：栏目头（序号 + 宋体栏目名 + 一句说明）在外，下面是一组大小参差的包裹瓷片。
+ * 有实时数据的功能做成大块数据片（单数时第一块通栏），其余入口按「宽窄一行 / 三方一行 / 窄宽一行」交替拼版，
+ * 每一块都是卡片底色 + 超椭圆 + 轻阴影，读起来有主次、有节奏，而不是一张平铺的列表。
  */
 @Composable
 private fun HomeSceneCard(
@@ -796,95 +886,282 @@ private fun HomeSceneCard(
     Column(
         Modifier
             .fillMaxWidth()
-            .padding(horizontal = 20.dp)
+            .padding(horizontal = 16.dp)
     ) {
-        EditorialSectionHeader(index = index, title = title, note = subtitle)
-        if (live.isNotEmpty()) {
-            Spacer(Modifier.height(16.dp))
-            live.chunked(2).forEachIndexed { i, pair ->
-                if (i > 0) Spacer(Modifier.height(14.dp))
+        BentoSectionHeader(index, title, subtitle)
+        Spacer(Modifier.height(12.dp))
+        // 数据片：单数时第一块通栏放大，其余两两并排
+        val liveRows = buildList {
+            if (live.size % 2 == 1) add(listOf(live.first()))
+            addAll(live.drop(live.size % 2).chunked(2))
+        }
+        liveRows.forEachIndexed { i, group ->
+            if (i > 0) Spacer(Modifier.height(TILE_GAP))
+            if (group.size == 1) {
+                StatTile(group[0], featured = true, modifier = Modifier.fillMaxWidth())
+            } else {
                 Row(
                     Modifier.fillMaxWidth().height(IntrinsicSize.Min),
-                    horizontalArrangement = Arrangement.spacedBy(20.dp),
+                    horizontalArrangement = Arrangement.spacedBy(TILE_GAP),
                 ) {
-                    pair.forEach { ServiceStatCell(it, Modifier.weight(1f).fillMaxHeight()) }
-                    if (pair.size == 1) Spacer(Modifier.weight(1f))
+                    group.forEach { StatTile(it, featured = false, modifier = Modifier.weight(1f).fillMaxHeight()) }
                 }
             }
-            Spacer(Modifier.height(10.dp))
         }
-        if (rest.isNotEmpty()) {
-            // 其余入口排成目录：两栏、宋体条目名、发丝线分行，不再是一格格彩色图标
-            if (live.isNotEmpty()) EditorialRule()
-            rest.chunked(2).forEach { pair ->
-                Row(Modifier.fillMaxWidth().height(IntrinsicSize.Min)) {
-                    ContentsEntry(pair[0], Modifier.weight(1f))
-                    Box(
-                        Modifier
-                            .fillMaxHeight()
-                            .padding(vertical = 12.dp)
-                            .width(Editorial.hairline)
-                            .background(MiuixTheme.colorScheme.outline.copy(alpha = 0.22f))
-                    )
-                    if (pair.size > 1) ContentsEntry(pair[1], Modifier.weight(1f).padding(start = 14.dp))
-                    else Spacer(Modifier.weight(1f))
+        if (live.isNotEmpty() && rest.isNotEmpty()) Spacer(Modifier.height(TILE_GAP))
+        bentoRows(rest).forEachIndexed { i, layout ->
+            if (i > 0) Spacer(Modifier.height(TILE_GAP))
+            when (layout) {
+                is BentoRow.Single -> Box(Modifier.fillMaxWidth().height(SPLIT_ROW_HEIGHT)) {
+                    WideTile(layout.row, Modifier.fillMaxSize())
                 }
-                EditorialRule()
+                is BentoRow.Split -> Row(
+                    Modifier.fillMaxWidth().height(SPLIT_ROW_HEIGHT),
+                    horizontalArrangement = Arrangement.spacedBy(TILE_GAP),
+                ) {
+                    if (layout.wideFirst) {
+                        WideTile(layout.a, Modifier.weight(1.45f).fillMaxHeight())
+                        MiniTile(layout.b, Modifier.weight(1f).fillMaxHeight())
+                    } else {
+                        MiniTile(layout.a, Modifier.weight(1f).fillMaxHeight())
+                        WideTile(layout.b, Modifier.weight(1.45f).fillMaxHeight())
+                    }
+                }
+                is BentoRow.Trio -> Row(
+                    Modifier.fillMaxWidth().height(TRIO_ROW_HEIGHT),
+                    horizontalArrangement = Arrangement.spacedBy(TILE_GAP),
+                ) {
+                    layout.rows.forEach { SquareTile(it, Modifier.weight(1f).fillMaxHeight()) }
+                }
             }
         }
     }
 }
 
-/** 数据栌：不铺底色，左边一道功能色细竖线，栏目名用小字，数值用衬线大字，像刊物里的数据栏。 */
+/** 拼版的一行。 */
+private sealed interface BentoRow {
+    data class Single(val row: HomeServiceRow) : BentoRow
+    data class Split(val a: HomeServiceRow, val b: HomeServiceRow, val wideFirst: Boolean) : BentoRow
+    data class Trio(val rows: List<HomeServiceRow>) : BentoRow
+}
+
+/** 按「宽窄 / 三方 / 窄宽 / 三方……」交替切行；尾巴剩一个就通栏，剩两个就宽窄。 */
+private fun bentoRows(rows: List<HomeServiceRow>): List<BentoRow> {
+    val out = mutableListOf<BentoRow>()
+    var i = 0
+    var step = 0
+    while (i < rows.size) {
+        val left = rows.size - i
+        val wantTrio = step % 2 == 1
+        when {
+            left == 1 -> { out += BentoRow.Single(rows[i]); i += 1 }
+            wantTrio && left >= 3 && left != 4 -> { out += BentoRow.Trio(rows.subList(i, i + 3)); i += 3 }
+            else -> { out += BentoRow.Split(rows[i], rows[i + 1], wideFirst = (step / 2) % 2 == 0); i += 2 }
+        }
+        step++
+    }
+    return out
+}
+
+/** 栏目头：主题色两位序号，宋体栏目名，右边一句淡说明。不画线，下面的瓷片就是分区。 */
 @Composable
-private fun ServiceStatCell(
+private fun BentoSectionHeader(index: Int, title: String, note: String?) {
+    Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp), verticalAlignment = Alignment.Bottom) {
+        Text(
+            index.toString().padStart(2, '0'),
+            style = Editorial.figure.copy(fontSize = 26.sp, lineHeight = 28.sp),
+            color = MiuixTheme.colorScheme.primary.copy(alpha = 0.85f),
+        )
+        Spacer(Modifier.width(10.dp))
+        Text(title, style = Editorial.section, color = MiuixTheme.colorScheme.onSurface, modifier = Modifier.padding(bottom = 1.dp))
+        if (!note.isNullOrBlank()) {
+            Spacer(Modifier.width(10.dp))
+            Text(
+                note,
+                style = MiuixTheme.textStyles.footnote2,
+                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f).padding(bottom = 3.dp),
+            )
+        }
+    }
+}
+
+/** 所有瓷片共用的包裹：卡片底色、超椭圆、轻阴影；`glow` 给一层从右上角渐隐的功能色。 */
+@Composable
+private fun BentoTile(
     row: HomeServiceRow,
     modifier: Modifier = Modifier,
+    glow: Float = 0f,
+    content: @Composable BoxScope.() -> Unit,
 ) {
     val origin = rememberExpandOriginSource()
     val density = androidx.compose.ui.platform.LocalDensity.current
-    Row(
-        modifier = modifier
+    val dark = LocalIsDarkTheme.current
+    val glowColor = row.color.copy(alpha = if (dark) glow * 1.6f else glow)
+    Box(
+        modifier
             .expandOriginSource(origin)
-            .clip(RoundedCornerShape(4.dp))
+            .appCardShadow(shape = RoundedCornerShape(TILE_RADIUS))
+            .squircleClip(TILE_RADIUS)
+            .background(AppCardColor)
+            .then(
+                if (glow > 0f) Modifier.drawBehind {
+                    drawRect(
+                        Brush.radialGradient(
+                            listOf(glowColor, Color.Transparent),
+                            center = Offset(size.width, 0f),
+                            radius = size.maxDimension * 0.9f,
+                        )
+                    )
+                } else Modifier
+            )
             .clickable(
                 interactionSource = remember { MutableInteractionSource() },
                 indication = SinkFeedback(),
                 onClick = {
-                    origin.arm(row.key, 4.dp, density)
+                    origin.arm(row.key, TILE_RADIUS, density)
                     row.onClick()
                 }
-            )
-            .padding(vertical = 4.dp)
+            ),
+        content = content,
+    )
+}
+
+/** 功能色的小图标底：圆角方块里一枚线性图标。 */
+@Composable
+private fun TileIcon(row: HomeServiceRow, size: Dp = 34.dp) {
+    val dark = LocalIsDarkTheme.current
+    Box(
+        Modifier.size(size).squircleBackground(row.color.copy(alpha = if (dark) 0.26f else 0.14f), size * 0.32f),
+        contentAlignment = Alignment.Center,
     ) {
-        Box(Modifier.fillMaxHeight().width(2.dp).background(row.color))
-        Spacer(Modifier.width(10.dp))
-        Column(Modifier.weight(1f)) {
-        Text(
-            row.title,
-            style = Editorial.kicker.copy(fontSize = 11.sp, letterSpacing = 1.5.sp),
-            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis
+        Icon(row.icon, contentDescription = null, tint = row.color, modifier = Modifier.size(size * 0.53f))
+    }
+}
+
+/** 数据片：右下角一枚放大的淡图标做底纹，左上功能名，中间衬线大数字，底下一行说明。 */
+@Composable
+private fun StatTile(row: HomeServiceRow, featured: Boolean, modifier: Modifier = Modifier) {
+    BentoTile(row, modifier, glow = if (featured) 0.16f else 0.12f) {
+        Icon(
+            row.icon,
+            contentDescription = null,
+            tint = row.color.copy(alpha = 0.10f),
+            modifier = Modifier
+                .align(Alignment.BottomEnd)
+                .padding(end = 10.dp, bottom = 8.dp)
+                .size(if (featured) 86.dp else 58.dp),
         )
-        Spacer(Modifier.height(4.dp))
-        Text(
-            row.stat.orEmpty(),
-            style = Editorial.figure.copy(fontSize = 22.sp, lineHeight = 27.sp),
-            fontWeight = FontWeight.Bold,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis
-        )
-        row.statDetail?.takeIf { it.isNotBlank() }?.let {
-            Spacer(Modifier.height(1.dp))
+        Column(Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 14.dp, bottom = 16.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                TileIcon(row, 26.dp)
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    row.title,
+                    style = MiuixTheme.textStyles.footnote1,
+                    fontWeight = FontWeight.Medium,
+                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f),
+                )
+                Icon(
+                    Icons.Filled.ChevronRight,
+                    contentDescription = null,
+                    tint = MiuixTheme.colorScheme.onSurfaceVariantSummary.copy(alpha = 0.45f),
+                    modifier = Modifier.size(16.dp),
+                )
+            }
+            Spacer(Modifier.height(if (featured) 14.dp else 10.dp))
             Text(
-                it,
-                style = MiuixTheme.textStyles.footnote2,
-                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                row.stat.orEmpty(),
+                style = if (featured) Editorial.figure.copy(fontSize = 30.sp, lineHeight = 36.sp)
+                else Editorial.figure.copy(fontSize = 21.sp, lineHeight = 26.sp),
+                color = MiuixTheme.colorScheme.onSurface,
                 maxLines = 1,
-                overflow = TextOverflow.Ellipsis
+                overflow = TextOverflow.Ellipsis,
+            )
+            row.statDetail?.takeIf { it.isNotBlank() }?.let {
+                Spacer(Modifier.height(3.dp))
+                Text(
+                    it,
+                    style = MiuixTheme.textStyles.footnote2,
+                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                    maxLines = if (featured) 2 else 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+        }
+    }
+}
+
+/** 宽片：图标块 + 宋体名称 + 淡箭头，横着排。 */
+@Composable
+private fun WideTile(row: HomeServiceRow, modifier: Modifier = Modifier) {
+    BentoTile(row, modifier, glow = 0.07f) {
+        Row(
+            Modifier.fillMaxSize().padding(horizontal = 14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            TileIcon(row)
+            Spacer(Modifier.width(12.dp))
+            Text(
+                row.title,
+                style = TextStyle(fontFamily = Editorial.Serif, fontWeight = FontWeight.Bold, fontSize = 16.sp, lineHeight = 21.sp, letterSpacing = 0.8.sp),
+                color = MiuixTheme.colorScheme.onSurface,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f),
+            )
+            Icon(
+                Icons.Filled.ChevronRight,
+                contentDescription = null,
+                tint = MiuixTheme.colorScheme.onSurfaceVariantSummary.copy(alpha = 0.45f),
+                modifier = Modifier.size(16.dp),
             )
         }
+    }
+}
+
+/** 窄片：图标在上、名称在下，居中，和旁边的宽片同高。 */
+@Composable
+private fun MiniTile(row: HomeServiceRow, modifier: Modifier = Modifier) {
+    BentoTile(row, modifier) {
+        Column(
+            Modifier.fillMaxSize().padding(horizontal = 8.dp, vertical = 10.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center,
+        ) {
+            Icon(row.icon, contentDescription = null, tint = row.color, modifier = Modifier.size(20.dp))
+            Spacer(Modifier.height(5.dp))
+            Text(
+                row.title,
+                style = TextStyle(fontFamily = Editorial.Serif, fontWeight = FontWeight.Medium, fontSize = 13.sp, lineHeight = 17.sp, letterSpacing = 0.6.sp),
+                color = MiuixTheme.colorScheme.onSurface,
+                textAlign = TextAlign.Center,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+    }
+}
+
+/** 方片：图标块在左上，宋体名称压在左下，三块一行。 */
+@Composable
+private fun SquareTile(row: HomeServiceRow, modifier: Modifier = Modifier) {
+    BentoTile(row, modifier, glow = 0.10f) {
+        Column(Modifier.fillMaxSize().padding(12.dp)) {
+            TileIcon(row, 30.dp)
+            Spacer(Modifier.weight(1f))
+            Text(
+                row.title,
+                style = TextStyle(fontFamily = Editorial.Serif, fontWeight = FontWeight.Bold, fontSize = 14.sp, lineHeight = 18.sp, letterSpacing = 0.6.sp),
+                color = MiuixTheme.colorScheme.onSurface,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
         }
     }
 }
@@ -919,47 +1196,6 @@ private fun EditorialQuickLink(
             color = MiuixTheme.colorScheme.onSurface,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
-        )
-    }
-}
-
-/** 目录里的一条：小号功能色线性图标 + 宋体条目名，右边一枚淡箭头。 */
-@Composable
-private fun ContentsEntry(
-    row: HomeServiceRow,
-    modifier: Modifier = Modifier,
-) {
-    val origin = rememberExpandOriginSource()
-    val density = androidx.compose.ui.platform.LocalDensity.current
-    Row(
-        modifier = modifier
-            .expandOriginSource(origin)
-            .clickable(
-                interactionSource = remember { MutableInteractionSource() },
-                indication = SinkFeedback(),
-                onClick = {
-                    origin.arm(row.key, 0.dp, density)
-                    row.onClick()
-                }
-            )
-            .padding(vertical = 14.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Icon(row.icon, contentDescription = null, tint = row.color.copy(alpha = 0.85f), modifier = Modifier.size(15.dp))
-        Spacer(Modifier.width(10.dp))
-        Text(
-            row.title,
-            style = TextStyle(fontFamily = Editorial.Serif, fontWeight = FontWeight.Medium, fontSize = 16.sp, lineHeight = 21.sp, letterSpacing = 0.8.sp),
-            color = MiuixTheme.colorScheme.onSurface,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.weight(1f),
-        )
-        Icon(
-            Icons.Filled.ChevronRight,
-            contentDescription = null,
-            tint = MiuixTheme.colorScheme.onSurfaceVariantSummary.copy(alpha = 0.45f),
-            modifier = Modifier.size(16.dp),
         )
     }
 }
@@ -1006,7 +1242,13 @@ private fun HomeQuickAction(
 private val SECTION_GAP = 14.dp
 
 /** 杂志版式的栏目间距：不靠框分区，就得靠留白。 */
-private val EDITORIAL_SECTION_GAP = 30.dp
+private val EDITORIAL_SECTION_GAP = 26.dp
+
+/** 拼版瓷片的圆角、间距和行高。 */
+private val TILE_RADIUS = 20.dp
+private val TILE_GAP = 10.dp
+private val SPLIT_ROW_HEIGHT = 66.dp
+private val TRIO_ROW_HEIGHT = 92.dp
 
 /** 分类卡圆角。超椭圆下这个值可以给得比普通圆角更大而不显得「胀」。 */
 private val CARD_RADIUS = 26.dp
