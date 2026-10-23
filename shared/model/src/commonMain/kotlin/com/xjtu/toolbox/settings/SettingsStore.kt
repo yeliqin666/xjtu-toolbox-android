@@ -41,7 +41,6 @@ class SettingsStore(private val store: KeyValueStore = keyValueStore(APP_SETTING
     var bottomBar: String?
         get() = store.getString(KEY_BOTTOM_BAR)
         set(value) = store.putString(KEY_BOTTOM_BAR, value)
-
     var networkMode: String
         get() = store.getString(KEY_NETWORK_MODE) ?: NETWORK_AUTO
         set(value) = store.putString(KEY_NETWORK_MODE, value)
@@ -123,11 +122,48 @@ class SettingsStore(private val store: KeyValueStore = keyValueStore(APP_SETTING
         const val DARK_MODE_SYSTEM = "system"
         const val DARK_MODE_LIGHT = "light"
         const val DARK_MODE_DARK = "dark"
+        const val THEME_CARD = "card"
+        const val THEME_ICON = "icon"
         const val TAB_HOME = "HOME"
         const val TAB_COURSES = "COURSES"
         const val TAB_PIDAI = "PIDAI"
         const val TAB_TOOLS = "TOOLS"
         const val TAB_PROFILE = "PROFILE"
+
+        /** 规范化落点：与任何一端的 tab id 都无关，各端自己映射（见 [defaultTab]）。 */
+        const val TAB_KEY_HOME = "home"
+        const val TAB_KEY_SCHEDULE = "schedule"
+        const val TAB_KEY_AGENT = "agent"
+        const val TAB_KEY_SERVICES = "services"
+        const val TAB_KEY_PROFILE = "profile"
+
+        /** 规范值全集，顺序 = 设置页「默认启动 Tab」那五格。 */
+        val DEFAULT_TAB_KEYS = listOf(
+            TAB_KEY_HOME,
+            TAB_KEY_SCHEDULE,
+            TAB_KEY_AGENT,
+            TAB_KEY_SERVICES,
+            TAB_KEY_PROFILE,
+        )
+
+        /** 没设过 / 认不出来时落到哪：日程（与 `:app` 一直以来的默认一致：课表是最常用的那一屏）。 */
+        const val TAB_KEY_DEFAULT = TAB_KEY_SCHEDULE
+
+        /**
+         * 任何写法 → 规范值。
+         *
+         * 认得出：规范值本身（大小写不敏感）、老写法 `HOME/COURSES/PIDAI/TOOLS/PROFILE`；
+         * 认不出（手工改过的文件、将来删掉的那一格）：退 [TAB_KEY_DEFAULT]——不抛、也不把脏值留在设置里。
+         */
+        fun normalizeDefaultTab(raw: String?): String = when (raw?.trim()?.lowercase()) {
+            TAB_KEY_HOME -> TAB_KEY_HOME
+            TAB_KEY_SCHEDULE, "courses" -> TAB_KEY_SCHEDULE
+            TAB_KEY_AGENT, "pidai" -> TAB_KEY_AGENT
+            TAB_KEY_SERVICES, "tools" -> TAB_KEY_SERVICES
+            TAB_KEY_PROFILE -> TAB_KEY_PROFILE
+            else -> TAB_KEY_DEFAULT
+        }
+
         const val NETWORK_AUTO = "auto"
         const val NETWORK_DIRECT = "direct"
         const val NETWORK_VPN = "vpn"

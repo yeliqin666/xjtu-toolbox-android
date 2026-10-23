@@ -26,6 +26,9 @@ object LmsDueCollector {
      *
      * 列表接口不给 `user_submit_count`，只能逐条查详情：只查没截止、之前也没查到已交的；
      * 查失败当没交——宁可多挂一条，也别把没交的当成交了。
+     *
+     * `ctx` 已经用不到了（截止缓存搬到 `:data` 的 `LmsDueStore`，不再要 `DataCache`），
+     * 留着只是为了不动两个调用方（`LmsDeadlineWorker` 与 `HomeStatsRefresher`）。
      */
     suspend fun collect(
         ctx: Context,
@@ -35,7 +38,7 @@ object LmsDueCollector {
         isCurrent: () -> Boolean,
     ): List<LmsDue> {
         val now = Instant.now()
-        val stored = LmsDueStore.load(ctx, account)
+        val stored = LmsDueStore.load(account)
         val known = stored.filter { it.submitted && !it.exam }.mapTo(HashSet()) { it.courseId to it.activityId }
         val items = dueItems(perCourse, System.currentTimeMillis()).map { d ->
             when {
@@ -48,7 +51,7 @@ object LmsDueCollector {
         }
         Log.d(TAG, "作业 ${items.size} 条，未交未截止 ${items.count { !it.submitted && !isPast(it, now) }} 条")
         val exams = examDues(api, perCourse, stored)
-        if (isCurrent()) LmsDueStore.save(ctx, items + exams, account)
+        if (isCurrent()) LmsDueStore.save(items + exams, account)
         return items
     }
 

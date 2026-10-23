@@ -68,7 +68,7 @@ class SettingsStoreTest {
         assertEquals("system", settings.darkMode, "深色模式默认跟随系统")
         assertTrue(!settings.dynamicColor, "取色默认关")
         assertEquals("floating", settings.navBarStyle, "界面风格默认玻璃")
-        assertEquals("COURSES", settings.defaultTab, "默认启动 Tab 是日程")
+        assertEquals("schedule", settings.defaultTab, "默认启动 Tab 是日程（规范化值）")
         assertEquals("auto", settings.networkMode, "连接模式默认自动检测")
         assertTrue(settings.showQuickActions, "常用功能默认显示")
         assertTrue(settings.scheduleAttendanceBadge, "考勤角标默认开")
@@ -106,5 +106,39 @@ class SettingsStoreTest {
         // 旧版考勤（bkkq）的取值：不能改
         assertEquals("bkkq", SettingsStore.SCHEDULE_SOURCE_ATTENDANCE)
         assertEquals("app_settings", SettingsStore.APP_SETTINGS_FILE)
+        // 规范化落点：B-2 起存的是这五个，与任何一端的 tab id 无关
+        assertEquals("home", SettingsStore.TAB_KEY_HOME)
+        assertEquals("schedule", SettingsStore.TAB_KEY_SCHEDULE)
+        assertEquals("agent", SettingsStore.TAB_KEY_AGENT)
+        assertEquals("services", SettingsStore.TAB_KEY_SERVICES)
+        assertEquals("profile", SettingsStore.TAB_KEY_PROFILE)
+        assertEquals("app_settings", SettingsStore.APP_SETTINGS_FILE)
+    }
+
+    @Test
+    fun `老值一次性读成规范值：存的是 BottomTab 名字，升级上来不用重设`() {
+        val raw = freshStore()
+        val settings = SettingsStore(raw)
+
+        // 老版本写下去的就是这五个名字（大写）——读的时候翻，不要求用户重设
+        raw.putString("default_tab", "HOME")
+        assertEquals("home", settings.defaultTab)
+        raw.putString("default_tab", "COURSES")
+        assertEquals("schedule", settings.defaultTab)
+        raw.putString("default_tab", "PIDAI")
+        assertEquals("agent", settings.defaultTab)
+        raw.putString("default_tab", "TOOLS")
+        assertEquals("services", settings.defaultTab)
+        raw.putString("default_tab", "PROFILE")
+        assertEquals("profile", settings.defaultTab)
+
+        // 写下去的一律是规范值（老名字不再落盘）
+        settings.defaultTab = "COURSES"
+        assertEquals("schedule", raw.getString("default_tab"))
+
+        // 认不出（手工改过的文件）：退日程，不抛也不留脏值
+        raw.putString("default_tab", "schedule_v2")
+        assertEquals("schedule", settings.defaultTab)
+        assertEquals("schedule", SettingsStore.normalizeDefaultTab(null))
     }
 }

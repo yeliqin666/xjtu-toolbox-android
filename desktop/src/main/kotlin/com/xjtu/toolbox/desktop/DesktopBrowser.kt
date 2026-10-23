@@ -98,8 +98,9 @@ internal fun DesktopBrowserScreen(
 
         if (then.isNotBlank()) {
             Text(
-                "这条路由还带了 then=…（:app 在页面加载完、走完登录之后自动跳下一站）。" +
-                    "那个动作发生在内置浏览器里 —— 本端没有那一层，跳不过去，如实说明。",
+                "这条路由还带了 then=…（:app 在内置浏览器里把上面那个地址加载完、走完登录之后自动跳下一站）。" +
+                    "这个动作要有内置浏览器那一层才做得到 —— 本端没有，所以**跳不过去**：交出去的只有上面那个地址。" +
+                    "要走到那一站，请先在那个站里登录，再自己点过去（本端不假装替你跳）。",
                 color = cs.onBackgroundVariant,
                 fontSize = 12.sp,
             )
@@ -113,9 +114,12 @@ internal fun DesktopBrowserScreen(
     }
 }
 
-/** 「带 then 的」跳转，该把哪一个地址交给系统浏览器（纯函数：宿主与单测同一份判据）。 */
-internal fun desktopBrowserTarget(url: String, then: String): String? = when {
-    then.isNotBlank() -> then
-    url.isNotBlank() -> url
-    else -> null
-}
+/**
+ * 「带 then 的」跳转，该把哪一个地址交给系统浏览器（纯函数：宿主与单测同一份判据）。
+ *
+ * **只交第一跳 `url`**：`then` 的约定是「先加载 url、走完登录，再自动跳到 then」——那第二跳只有内置浏览器
+ * 收得到回调（`:app` 的 `isAuthHop` 那条路）才成立。桌面把地址交给系统浏览器之后什么都没有了，若直开
+ * `then`（以前的写法）等于**跳过登录直接敲支付页**，正是 `then` 想避免的那件事。所以这里只给第一跳，
+ * 屏上如实说明「跳不过去，请先在该站登录」（`DesktopBrowserScreen` 里那段话）。
+ */
+internal fun desktopBrowserTarget(url: String): String? = url.takeIf { it.isNotBlank() }

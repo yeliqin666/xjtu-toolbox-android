@@ -16,9 +16,11 @@ import com.xjtu.toolbox.schedule.TextbookItem
 import com.xjtu.toolbox.schedule.isTermCode
 import com.xjtu.toolbox.score.ReportedGrade
 import com.xjtu.toolbox.score.scoreReportSource
+import io.ktor.http.HttpStatusCode
 import io.ktor.server.response.respond
 import io.ktor.server.routing.Route
 import io.ktor.server.routing.get
+import io.ktor.server.routing.post
 import io.ktor.server.routing.route
 import kotlinx.serialization.Serializable
 
@@ -257,8 +259,63 @@ internal fun Route.jwxtRoutes(session: ServeSession) {
         // ── 评教模块状态 ─────────────────────────────────────────────
         get(JWXT_EVALUATIONS_STATUS) {
             if (!session.authenticated) return@get call.respondLoginRequired()
-            // 只读投影：写端点（提交/撤回）是 P1，不实现 —— canSubmit 字段必须出现（契约 §5）
+            // 写端点在下面（提交）；撤回（undo）仍未实现。canSubmit 字段必须出现（契约 §5）
             call.respond(ApiEnvelope.ok(EvaluationsStatusData(canSubmit = EVALUATIONS_CAN_SUBMIT)))
+        }
+
+        // ── 评教提交（B-12；评教季有时间窗）──────────────────────────
+        //
+        // 幂等判据是**目标状态**：这门课这张问卷已经评过了（它出现在已评列表里）⇒ 回 `submitted=false`
+        // 的成功包，不再打提交那一枪。屏上的二次确认文案由消费方负责，本层不加一层确认。
+        post(JWXT_EVALUATIONS_SUBMIT) {
+            if (!session.authenticated) return@post call.respondLoginRequired()
+            val body = call.receiveOrNull<EvaluationSubmitRequest>()
+                ?: return@post call.respondBadRequestMessage(EVALUATION_SUBMIT_BODY_MESSAGE)
+            val term = body.term.trim()
+            val type = body.type.trim()
+            val wjdm = body.wjdm.trim()
+            val jxbid = body.jxbid.trim()
+            if (term.isEmpty()) {
+                return@post call.respondBadRequestMessage("term 必填（取自 /api/jwxt/evaluations 的 term）")
+            }
+            if (type !in setOf("01", "05")) {
+                return@post call.respondBadRequestMessage(EVALUATION_SUBMIT_TYPE_MESSAGE)
+            }
+            if (wjdm.isEmpty() || jxbid.isEmpty()) {
+                return@post call.respondBadRequestMessage("wjdm 与 jxbid 必填（取自 /api/jwxt/evaluations 的同名两格）")
+            }
+            // 参评人（学号）只在本层用来给自动填报那一枪（与 APP 端 UndergraduateJudgeSource 同一个用法），
+            // 一个字都不会进响应（契约 §5.2）。
+            val actor = AccountContext.activeAccountId?.trim().orEmpty()
+            if (actor.isEmpty()) return@post call.respondLoginRequired()
+            try {
+                val api = JudgeApi(session.jwxtSite())
+                val target = api.getQuestionnaires(type, term, finished = false)
+                    .firstOrNull { it.WJDM == wjdm && it.JXBID == jxbid }
+                if (target == null) {
+                    val alreadyDone = api.getQuestionnaires(type, term, finished = true)
+                        .any { it.WJDM == wjdm && it.JXBID == jxbid }
+                    if (alreadyDone) {
+                        return@post call.respond(
+                            ApiEnvelope.ok(EvaluationSubmitResult(submitted = false, message = EVALUATION_ALREADY_MESSAGE)),
+                        )
+                    }
+                    return@post call.respond(
+                        HttpStatusCode.NotFound,
+                        ApiEnvelope<Unit>(ApiErrors.NOT_FOUND, message = EVALUATION_NOT_FOUND_MESSAGE),
+                    )
+                }
+                val answers = api.autoFillQuestionnaire(target, actor)
+                val (ok, message) = api.submitQuestionnaire(target, answers)
+                if (!ok) {
+                    return@post call.respondActionRejected(message.ifBlank { EVALUATION_REJECTED_MESSAGE })
+                }
+                call.respond(
+                    ApiEnvelope.ok(EvaluationSubmitResult(submitted = true, message = EVALUATION_SUBMITTED_MESSAGE)),
+                )
+            } catch (e: Exception) {
+                call.respondUpstreamFailure(e, "提交评教")
+            }
         }
     }
 }
@@ -397,6 +454,23 @@ internal data class EvaluationsData(
     val items: List<EvaluationDto>,
 )
 
+/** `POST /api/jwxt/evaluations/submit` 的请求体：四格全取自 `/api/jwxt/evaluations` 的同名字段。 */
+@Serializable
+internal data class EvaluationSubmitRequest(
+    val term: String = "",
+    /** `01` 期末 / `05` 过程（与 `EvaluationDto.type` 同一个口径）。 */
+    val type: String = "",
+    val wjdm: String = "",
+    val jxbid: String = "",
+)
+
+/**
+ * `POST /api/jwxt/evaluations/submit` 的 `data`。
+ *
+ * [submitted] = 这一发真的打出了一枪；`false` = 幂等命中（这张问卷本来就已评过）。
+ */
+@Serializable
+internal data class EvaluationSubmitResult(val submitted: Boolean, val message: String)
 /** 一份问卷卡片的投影（字段名与 `Questionnaire` / `JudgeCard` 同源，不重起名）。 */
 @Serializable
 internal data class EvaluationDto(
@@ -507,13 +581,32 @@ internal const val JWXT_GRADES = "grades"
 internal const val JWXT_SCHOOL_COURSES = "school-courses"
 internal const val JWXT_EVALUATIONS = "evaluations"
 internal const val JWXT_EVALUATIONS_STATUS = "evaluations/status"
+internal const val JWXT_EVALUATIONS_SUBMIT = "evaluations/submit"
 internal const val JWXT_PARAM_TERM = "term"
 
 /** `?merged=`：只有 `1` 算数（`/api/jwxt/schedule` 那一条，见 §5.9）。 */
 internal const val JWXT_PARAM_MERGED = "merged"
 
-/** 本层有没有提交评教的能力。 */
-private const val EVALUATIONS_CAN_SUBMIT = false
+/** 本层有没有提交评教的能力（提交端点在下面；撤回 undo 仍未实现）。 */
+private const val EVALUATIONS_CAN_SUBMIT = true
+
+/** `POST /api/jwxt/evaluations/submit` 的形状不对。 */
+private const val EVALUATION_SUBMIT_BODY_MESSAGE =
+    "请求体需要 term / type / wjdm / jxbid 四格（都取自 /api/jwxt/evaluations 的同名字段）"
+
+/** `type` 只认两种（与只读的 `/api/jwxt/evaluations` 同一句口径）。 */
+private const val EVALUATION_SUBMIT_TYPE_MESSAGE = "type 只能是 01（期末）或 05（过程）"
+
+/** 幂等命中：这张问卷已经在已评列表里。 */
+internal const val EVALUATION_ALREADY_MESSAGE = "这张问卷已经评过了"
+
+/** 未评列表、已评列表里都没有它（学期/类型可能填错，或评教窗已关）。 */
+internal const val EVALUATION_NOT_FOUND_MESSAGE = "问卷不在该学期的未评名单里：可能已截止，或 term/type 传错了"
+
+/** 上游说 ok 但没给理由时的那句。 */
+internal const val EVALUATION_REJECTED_MESSAGE = "教务没有接受这次提交"
+
+internal const val EVALUATION_SUBMITTED_MESSAGE = "评教已提交"
 
 /** `?terms=` 的读法：逗号分隔、最多 4 个学期（与 :core 客户端先例同一个上限）；没给 = 空表。 */
 private fun io.ktor.http.Parameters.evalTerms(): List<String>? {

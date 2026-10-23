@@ -12,5 +12,10 @@ kotlin {
             api(project(":shared:designsystem"))
             api(project(":shared:network"))
         }
+        jvmTest.dependencies {
+            // 教材全文库那一族的 serve 支（`ServeJiaocai1Api`，契约 §5.14）要喂假响应；
+            // ⚠️ 放 jvmTest 而不是 commonTest：mock 引擎在 wasmJs 上没必要惊动
+            implementation(libs.ktor.client.mock)
+        }
     }
 }

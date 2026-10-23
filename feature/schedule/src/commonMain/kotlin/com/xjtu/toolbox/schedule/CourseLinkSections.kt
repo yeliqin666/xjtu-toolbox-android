@@ -42,6 +42,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.xjtu.toolbox.attendance.WaterType
+import com.xjtu.toolbox.ui.components.GapNote
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.theme.MiuixTheme
@@ -96,6 +97,13 @@ fun CourseLinkSections(
     // 而同名多版本无从分辨——《固体物理学》库里黄昆 2009 和陆栋 2010 并存，
     // 认错版本就是给人翻开另一本书。要读全文请走首页的「教材全文」自行检索。
 
+    // 本端没有考勤这一档（见 ScheduleCapability.ATTENDANCE）：「本次考勤」那一行本来就不会出现，
+    // 在它该在的位置说一句。学期总览（occurrence == null）本来就不说“本次”，那里也不提。
+    val attendanceGap = if (ScheduleCapability.ATTENDANCE !in host.honored && occurrence != null) {
+        host.gapNote(ScheduleCapability.ATTENDANCE)
+    } else {
+        null
+    }
     // 考勤跟角标共用开关：要单独登录一次考勤站点，没开的人不该为点开一门课付这个代价。
     val attendanceEnabled = ScheduleCapability.ATTENDANCE in host.honored && host.attendanceBadgeEnabled
     var record by remember(course.courseCode, occurrence?.week) {
@@ -123,11 +131,12 @@ fun CourseLinkSections(
     val hasBook = mine.isNotEmpty()
     // 教材没取到时要说一声，所以它也算"这一区有东西"。
     val bookProblem = textbooksProblem?.takeIf { !hasBook }
-    if (!hasBook && bookProblem == null && record == null && lmsCourse == null) return
+    if (!hasBook && bookProblem == null && record == null && lmsCourse == null && attendanceGap == null) return
 
     // 自成一列、行距统一 6dp。以前这些行和「间隔 + 分割线 + 间隔」直接散在外层 Column 里，
     // 外层每项之间又有 10dp，叠出一条莫名的分割线和大段空白。
     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+    attendanceGap?.let { GapNote(it) }
     // 本次考勤：一行一句话。
     record?.let { r ->
         LinkRow(

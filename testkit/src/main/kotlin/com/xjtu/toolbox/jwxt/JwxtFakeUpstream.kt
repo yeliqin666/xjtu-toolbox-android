@@ -14,6 +14,20 @@ class JwxtFakeUpstream {
     companion object {
         const val HOST = "jwxt.xjtu.edu.cn"
         const val ORIGIN = "https://$HOST"
+        /** 评教提交（`addXsPgysjg.do`）打过几次、最后一次的表单原文、以及「上游拒收」开关。 */
+        val judgeSubmitCalls = AtomicInteger()
+
+        @Volatile
+        var lastJudgeSubmitForm: String? = null
+            private set
+
+        /** 打开之后，提交那一枪回 `code=1`（上游拒收）—— 端点该回 409 `ACTION_REJECTED`。 */
+        val rejectJudgeSubmit = AtomicBoolean(false)
+
+        /** 钉住提交表单里的 `requestParamStr`（JSON 原文：`WJDM`/`PCDM`/`PGLY`/`SFTJ`/`WJYSJG`）。 */
+        @Volatile
+        var lastJudgeSubmitParam: String? = null
+            private set
 
         /** 登录入口页，必须与 `XJTULogin.JWXT_URL` 相同（有断言钉着）。 */
         const val HOME_URL = "$ORIGIN/jwapp/sys/homeapp/index.do"
@@ -183,6 +197,9 @@ class JwxtFakeUpstream {
         const val JUDGE_LIST_URL = "$WSPJ_APP/modules/xspj/cxdwpj.do"
         const val JUDGE_QUESTION_URL = "$WSPJ_APP/modules/wj/cxwjzb.do"
         const val JUDGE_OPTION_URL = "$WSPJ_APP/modules/wj/cxxswjzbxq.do"
+
+        /** 提交那一枪（`JudgeApi.submitQuestionnaire`）。 */
+        const val JUDGE_SUBMIT_URL = "$WSPJ_APP/WspjwjController/addXsPgysjg.do"
 
         /** 评教的当前学期（`CSZA`）。 */
         const val JUDGE_TERM = TERM_NEW
@@ -644,6 +661,13 @@ class JwxtFakeUpstream {
         ]}}}
     """.trimIndent()
 
+    /** 提交成功：`JudgeApi.submitQuestionnaire` 判的是 `code == "0" && datas.code == "0"` 两格。 */
+    val judgeSubmitOkJson = """{"code":0,"datas":{"code":0,"msg":"保存成功"}}"""
+
+    /** 上游拒收（[rejectJudgeSubmit] 打开时）：`code=1` ⇒ 端点该回 409 `ACTION_REJECTED`。 */
+    val judgeSubmitRejectedJson =
+        """{"code":1,"datas":{"code":1,"msg":"评教窗口已关闭（假样例）"}}"""
+
     /** 成绩报表第 2 页：换一个学期标题（夏季小学期 → 学期代码 `-3`），再给一条课程。 */
     val reportPage2 = """
         <html><body>
@@ -779,6 +803,7 @@ class JwxtFakeUpstream {
                 respondJson(exchange, judgeQuestionJson)
             }
             path == JUDGE_OPTION_PATH -> requirePost(exchange) { form -> handleJudgeOptions(exchange, form) }
+            path == JUDGE_SUBMIT_PATH -> requirePost(exchange) { form -> handleJudgeSubmit(exchange, form) }
 
             path == CURRENT_USER_PATH -> {
                 currentUserCalls.incrementAndGet()
@@ -957,6 +982,29 @@ class JwxtFakeUpstream {
         respondJson(exchange, judgeOptionJson)
     }
 
+    /** 评教提交：`requestParamStr` 里那五格（`WJDM`/`PCDM`/`PGLY`/`SFTJ`/`WJYSJG`）一个都不能少。 */
+    private fun handleJudgeSubmit(exchange: HttpExchange, form: String) {
+        lastJudgeSubmitForm = form
+        val fields = formFields(form)
+        val param = fields["requestParamStr"]
+        if (param.isNullOrEmpty()) {
+            badRequest(exchange, "addXsPgysjg.do 少了 requestParamStr，收到：$form")
+            return
+        }
+        lastJudgeSubmitParam = param
+        val absent = listOf("WJDM", "PCDM", "PGLY", "SFTJ", "WJYSJG").filter { "\"$it\"" !in param }
+        if (absent.isNotEmpty()) {
+            badRequest(exchange, "requestParamStr 里缺 ${absent.joinToString("/")}，收到：$param")
+            return
+        }
+        judgeSubmitCalls.incrementAndGet()
+        if (rejectJudgeSubmit.get()) {
+            respondJson(exchange, judgeSubmitRejectedJson)
+            return
+        }
+        respondJson(exchange, judgeSubmitOkJson)
+    }
+
     // ── 响应的形体检查 ────────────────────────────────────────────
 
     /** POST 端点：必须真带表单（GET 打过来就 400，免得「方法漂了照样通过」）。 */
@@ -1116,6 +1164,7 @@ class JwxtFakeUpstream {
     private val JUDGE_LIST_PATH = JUDGE_LIST_URL.removePrefix(ORIGIN)
     private val JUDGE_QUESTION_PATH = JUDGE_QUESTION_URL.removePrefix(ORIGIN)
     private val JUDGE_OPTION_PATH = JUDGE_OPTION_URL.removePrefix(ORIGIN)
+    private val JUDGE_SUBMIT_PATH = JUDGE_SUBMIT_URL.removePrefix(ORIGIN)
     private val CURRENT_USER_PATH = CURRENT_USER_URL.removePrefix(ORIGIN)
     private val CHANGE_ROLE_PATH = CHANGE_ROLE_URL.removePrefix(ORIGIN)
     private val EMPTY_ROOM_CAMPUS_CODE_PATH = EMPTY_ROOM_CAMPUS_CODE_URL.removePrefix(ORIGIN)

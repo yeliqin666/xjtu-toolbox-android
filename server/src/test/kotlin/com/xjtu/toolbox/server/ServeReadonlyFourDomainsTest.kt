@@ -145,7 +145,12 @@ class ServeReadonlyFourDomainsTest {
         val recordsResponse = http.get(ATTENDANCE_RECORDS_PATH)
         assertEquals(200, recordsResponse.statusCode())
         assertEquals(ApiEnvelope.CODE_OK, envelopeCode(recordsResponse))
-        assertNoIdentity(recordsResponse.body(), "GET $ATTENDANCE_RECORDS_PATH", IDENTITY)
+        assertNoIdentity(
+            recordsResponse.body(),
+            "GET $ATTENDANCE_RECORDS_PATH",
+            // 例外 ⑤：当堂教师名可以出现，其余钉子照旧
+            IDENTITY - AttendanceFakeUpstream.TEACHER_NAME,
+        )
         val recordsData = envelopeData(recordsResponse)
         assertEquals(
             setOf("term", "count", "records"),
@@ -160,9 +165,22 @@ class ServeReadonlyFourDomainsTest {
         // 按日期降序：最近那条（09-18 迟到）在前
         val late = rows[0] as JsonObject
         assertEquals(
-            setOf("id", "courseName", "courseCode", "term", "date", "week", "startSection", "endSection", "location", "status", "statusText"),
+            setOf(
+                "id",
+                "courseName",
+                "courseCode",
+                "term",
+                "date",
+                "week",
+                "startSection",
+                "endSection",
+                "location",
+                "teacher",
+                "status",
+                "statusText",
+            ),
             late.keys,
-            "`teacher` 刻意不投影（考勤记录里的教师名是姓名）",
+            "`teacher` 是契约 §5.2 例外 ⑤（2026-10-19 批准）：门课的老师名可以投影，其它姓名/学号/手机号照旧不行",
         )
         assertEquals("r-假-2", late.optString("id"))
         assertEquals(AttendanceFakeUpstream.COURSE_NAME, late.optString("courseName"))
@@ -175,7 +193,7 @@ class ServeReadonlyFourDomainsTest {
         assertEquals(AttendanceFakeUpstream.ROOM, late.optString("location"))
         assertEquals(2, late.optInt("status"), "LATE")
         assertEquals("迟到", late.optString("statusText"))
-
+        assertEquals(AttendanceFakeUpstream.TEACHER_NAME, late.optString("teacher"), "例外 ⑤：当堂教师名")
         val normal = rows[1] as JsonObject
         assertEquals("r-假-1", normal.optString("id"))
         assertEquals("2026-09-16", normal.optString("date"))
@@ -184,11 +202,94 @@ class ServeReadonlyFourDomainsTest {
         assertEquals(1, normal.optInt("status"), "NORMAL")
         assertEquals("正常", normal.optString("statusText"))
 
-        // 夹具每一行都带着 teacherName —— 它必须一个都没端出去（红线）
+        // 例外 ⑤ 之外的姓名/学号一格都不能漏（夹具里这两格有值）
         val body = recordsResponse.body()
-        assertFalse(body.contains(AttendanceFakeUpstream.TEACHER_NAME), "教师名（姓名）不该出现在考勤流水里")
+        assertTrue(body.contains(AttendanceFakeUpstream.TEACHER_NAME), "当堂教师名按例外 ⑤ 投影")
         assertFalse(body.contains(AttendanceFakeUpstream.NAME), "本人姓名不该出现")
         assertFalse(body.contains(AttendanceFakeUpstream.SNO), "本人学号不该出现")
+    }
+
+    @Test
+    fun `attendance stats 与 streams：统计按整学期记录算、打卡流水按学期起止日期取`() = withFakeProxy { fake ->
+        val token = AccessToken.newToken()
+        val session = ServeSession()
+        val (server, http) = startEndpointServer(token) {
+            sessionRoutes(session, token)
+            attendanceRoutes(session)
+        }
+        started = server
+
+        val anonymous = http.get(ATTENDANCE_STATS_PATH)
+        assertEquals(401, anonymous.statusCode())
+        assertEquals(ApiErrors.UNAUTHORIZED, envelopeCode(anonymous))
+        assertTrue(envelopeMessage(anonymous).orEmpty().contains("登录"), "401 要指路「先登录」")
+        assertEquals(401, http.get(ATTENDANCE_STREAMS_PATH).statusCode())
+        assertEquals(0, fake.attendance.recordsCalls.get(), "未登录那一枪不该到取数层")
+
+        assertEquals(200, http.postJson(SESSION_PATH + "/login", LOGIN_BODY).statusCode())
+
+        // term 不是纯数字 ⇒ 400（两条路同一句文案）
+        assertEquals(400, http.get("$ATTENDANCE_STATS_PATH?term=2026-2027-1").statusCode())
+        assertEquals(400, http.get("$ATTENDANCE_STREAMS_PATH?term=2026-2027-1").statusCode())
+        assertEquals(0, fake.attendance.recordsCalls.get(), "400 那两枪没到取数层")
+
+        // ── stats：省略 term ⇒ 当前学期；统计按整学期记录算（不是「本周」那个接口）──
+        val statsResponse = http.get(ATTENDANCE_STATS_PATH)
+        assertEquals(200, statsResponse.statusCode())
+        assertEquals(ApiEnvelope.CODE_OK, envelopeCode(statsResponse))
+        assertNoIdentity(statsResponse.body(), "GET $ATTENDANCE_STATS_PATH", IDENTITY)
+        val statsData = envelopeData(statsResponse)
+        assertEquals(setOf("term", "count", "stats"), statsData.keys)
+        assertEquals(AttendanceFakeUpstream.TERM_CURRENT_BH, statsData.optString("term"))
+        assertEquals(1, statsData.optInt("count"))
+        val stat = statsData.getValue("stats").jsonArray.single() as JsonObject
+        assertEquals(
+            setOf(
+                "courseName",
+                "courseCode",
+                "normalCount",
+                "lateCount",
+                "absenceCount",
+                "leaveEarlyCount",
+                "leaveCount",
+                "total",
+            ),
+            stat.keys,
+            "`actualCount`/`abnormalCount` 是 :core 的换算属性 ⇒ 不端（除出来的数由消费方算）",
+        )
+        assertEquals(AttendanceFakeUpstream.COURSE_NAME, stat.optString("courseName"))
+        assertEquals(AttendanceFakeUpstream.COURSE_CODE, stat.optString("courseCode"))
+        assertEquals(1, stat.optInt("normalCount"))
+        assertEquals(1, stat.optInt("lateCount"))
+        assertEquals(0, stat.optInt("absenceCount"))
+        assertEquals(0, stat.optInt("leaveEarlyCount"))
+        assertEquals(0, stat.optInt("leaveCount"))
+        assertEquals(2, stat.optInt("total"))
+        // 统计那一枪走的是流水接口：请求体里带的是**该学期的起止日期**（2026-09-14 ~ 2027-02-21）
+        val statsBody = fake.attendance.recordsBodies.last()
+        assertTrue(statsBody.contains("2026-09-14"), "要带学期起始日，实际：$statsBody")
+        assertTrue(statsBody.contains("2027-02-21"), "要带学期结束日，实际：$statsBody")
+
+        // ── streams：打卡原始流水 ──
+        val streamsResponse = http.get(ATTENDANCE_STREAMS_PATH)
+        assertEquals(200, streamsResponse.statusCode())
+        assertEquals(ApiEnvelope.CODE_OK, envelopeCode(streamsResponse))
+        assertNoIdentity(streamsResponse.body(), "GET $ATTENDANCE_STREAMS_PATH", IDENTITY)
+        val streamsData = envelopeData(streamsResponse)
+        assertEquals(setOf("term", "count", "streams"), streamsData.keys)
+        assertEquals(AttendanceFakeUpstream.TERM_CURRENT_BH, streamsData.optString("term"))
+        assertEquals(1, streamsData.optInt("count"))
+        val stream = streamsData.getValue("streams").jsonArray.single() as JsonObject
+        assertEquals(setOf("id", "location", "collectTime", "effective"), stream.keys)
+        assertEquals("s-假-1", stream.optString("id"))
+        assertEquals(AttendanceFakeUpstream.ROOM, stream.optString("location"))
+        assertEquals("2026-09-16 08:05:00", stream.optString("collectTime"), "上游给的时刻原样投影（同请假那几条）")
+        assertEquals(true, stream.optBoolean("effective"))
+
+        // 学期列表里没有那个学期 ⇒ streams 400（没法凑出起止日期，不用空日期凑）
+        val unknownTerm = http.get("$ATTENDANCE_STREAMS_PATH?term=999")
+        assertEquals(400, unknownTerm.statusCode())
+        assertTrue(envelopeMessage(unknownTerm).orEmpty().contains("term"), "400 要说出是哪一格")
     }
 
     @Test
@@ -397,6 +498,8 @@ class ServeReadonlyFourDomainsTest {
         const val DZPZ_TRANSCRIPT_PATH = "/api/dzpz/transcript"
         const val ATTENDANCE_TERMS_PATH = "/api/attendance/terms"
         const val ATTENDANCE_RECORDS_PATH = "/api/attendance/records"
+        const val ATTENDANCE_STATS_PATH = "/api/attendance/stats"
+        const val ATTENDANCE_STREAMS_PATH = "/api/attendance/streams"
         const val COUPON_LIST_PATH = "/api/coupon/list"
         const val COUPON_DETAIL_PATH = "/api/coupon/detail"
 

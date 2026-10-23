@@ -181,7 +181,7 @@ private fun convoFile(id: String) = File(dir, "convo_$id.json")     // ← 每�
 2. 回底栏点「屁岱」→ **实际**：屏上还是 A 的对话（含 A 的姓名/学号/辅导员电话）；
 3. 在 B 里再发一条消息 → `ls filesDir/agent_sessions_<B后缀>/` 出现 `convo_<A的会话 id>.json`，内容含 A 的完整历史（**期望**：B 只看到自己的会话，A 的文件不动）。
 
-**D7**：**改变 Android 现有可见行为**（切账号后屁岱展示新账号的会话列表/空会话）。修法建议与审计一致（`onAccountChanged()`：取消 `streamJob`、清 `messages/llmHistory/currentSessionId`、`store.list()` 重载），但**别**顺手改掉「一段对话只生成一次 system prompt」那条既有口径。
+**D7**：**改变 Android 现有可见行为**（切账号后屁岱展示新账号的会话列表/空会话）。修法建议与审计一致（取消 `streamJob`、清 `messages/llmHistory/currentSessionId`、`store.list()` 重载），但**别**顺手改掉「一段对话只生成一次 system prompt」那条既有口径。**2026-10-19 复核**：当时建议的 `onAccountChanged()` 槽位**从未实现**（全仓零命中），实际走的是 `:core` 自带的 `LaunchedEffect(host.accountId)` + 账号后缀守卫。
 
 ---
 

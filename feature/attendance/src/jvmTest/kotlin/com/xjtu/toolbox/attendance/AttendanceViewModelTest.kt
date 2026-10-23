@@ -164,7 +164,7 @@ class AttendanceViewModelTest {
             return listOf(AttendanceStream("s-1", "西2楼-假-307", "2026-09-16 08:05:00", true))
         }
 
-        override fun computeCourseStatsFromRecords(records: List<AttendanceWaterRecord>): List<CourseAttendanceStat> {
+        override suspend fun computeCourseStatsFromRecords(records: List<AttendanceWaterRecord>): List<CourseAttendanceStat> {
             calls += "computeCourseStatsFromRecords"
             return records.groupBy { it.courseName }.map { (name, recs) ->
                 CourseAttendanceStat(name, recs.first().courseCode, recs.size, 0, 0, 0, 0, recs.size)

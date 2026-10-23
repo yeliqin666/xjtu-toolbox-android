@@ -23,9 +23,13 @@ object AccessToken {
 
     private val random = SecureRandom()
 
+    /** 盘上已有的令牌（没有就是 `null`，**不生成、不写**）。只读档靠它判断这一份还开不开得起来。 */
+    fun existing(store: KeyValueStore = secureKeyValueStore(STORE_NAME)): String? =
+        store.getString(KEY)?.takeIf { it.isNotBlank() }
+
     /** 读回已有令牌，没有就生成一个并落盘。 */
     fun loadOrCreate(store: KeyValueStore = secureKeyValueStore(STORE_NAME)): String {
-        store.getString(KEY)?.takeIf { it.isNotBlank() }?.let { return it }
+        existing(store)?.let { return it }
         return newToken().also { store.putString(KEY, it) }
     }
 

@@ -65,11 +65,36 @@ object AppArchiveUx {
         )
     }
 
-    /** 把 zip 字节写进 SAF 选中的目标文档。 */
-    fun writeExportToUri(context: Context, uri: Uri, archive: Map<String, String>) {
+    /**
+     * 导出时同时落的那一份**目录副本**（B-15）：固定落 `<filesDir>/archive_export/`。
+     *
+     * SAF 的 `CreateDocument` 一次只能选一个**文件**（选整棵目录要另一套 `OpenDocumentTree` 与
+     * 树形 Uri 权限，本仓库没有那套依赖），所以“也能给出一棵目录”这件事只能落在端内自己的目录里：
+     * 用户用数据线 / 文件管理器把整个 `archive_export/` 拷走，它就是一份合法的目录形态档案
+     * （[AppArchiveHost.readDirectory] 能读、桌面端也认）。
+     *
+     * 每次导出**先清空**：否则上一份导出里才有的条目（比如那时还有的课程）会混进这一份里，
+     * 而拿到它的人无从分辨哪一条是新的。
+     */
+    fun exportToDirectory(context: Context, archive: Map<String, String>): File {
+        val root = AppArchiveHost.exportRoot(context)
+        runCatching { root.deleteRecursively() }
+        AppArchiveHost.writeToDirectory(archive, root)
+        return root
+    }
+
+    /**
+     * 把 zip 字节写进 SAF 选中的目标文档，并**同时**落一份目录副本（B-15）。
+     *
+     * 顺序有意如此：先落目录、再写 SAF。zip 那一步失败（用户选的 Uri 写不了、U 盘掉了）时，
+     * 目录副本已经在了 —— “导出了但没落地”这种空手而归少一种。返回目录副本的根（给提示文案用）。
+     */
+    fun writeExportToUri(context: Context, uri: Uri, archive: Map<String, String>): File {
+        val dir = exportToDirectory(context, archive)
         val bytes = zipArchive(archive)
         context.contentResolver.openOutputStream(uri)?.use { it.write(bytes) }
             ?: throw IllegalStateException("无法打开导出目标：$uri")
+        return dir
     }
 
     /** SAF 导入通道：把选中的文档复制进 `filesDir/archive_staging/`（不合并、不写端内数据）。 */
@@ -96,12 +121,33 @@ object AppArchiveUx {
         return log(outcome)
     }
 
+    /**
+     * 设置页那份导入的两步流第一步：把选中的 zip 读出来算差异，**端内一个字节不动**（§6.4）。
+     *
+     * 拿到 [AppArchivePlanOutcome.Planned] 后弹窗就用共享层那份话术：
+     * [ArchiveImportPrompt.TITLE] / [ArchiveImportPrompt.label] / [ArchiveImportPrompt.detail]，
+     * 差异那一行用 `planned.plan.summary`（或按当前选中的档位重新算：`ArchiveImportPrompt.diffSummary(mode, planned.plan.diff)`），
+     * 额外提醒用 [ArchiveImportPrompt.warning]。
+     */
+    fun planImport(context: Context, archive: File, mode: ArchiveImportMode): AppArchivePlanOutcome {
+        val entries = readArchive(archive)
+            ?: return AppArchivePlanOutcome.Failed("读不出来：${archive.absolutePath}")
+        return AppArchiveImport.plan(archive, entries, mode) { manifest ->
+            AppArchiveImportTarget.of(context, archiveAccountIds = manifest.accounts.map { it.accountId })
+        }
+    }
+
+    /** 第二步：用户点了 [ArchiveImportPrompt.CONFIRM] 之后才落地（镜像档失败已由共享层整体回滚）。 */
+    fun finishImport(planned: AppArchivePlanOutcome.Planned): ArchiveImportOutcome =
+        log(AppArchiveImport.apply(planned))
+
     private fun log(outcome: ArchiveImportOutcome): ArchiveImportOutcome {
         when (outcome) {
             is ArchiveImportOutcome.Imported -> Log.i(
                 TAG,
                 "导入 ${outcome.archive.name}：写入 ${outcome.result.keysWritten} 个键 /" +
-                    " 保持 ${outcome.result.keysKept} 个 / ${outcome.result.filesWritten} 个文件",
+                    " 保持 ${outcome.result.keysKept} 个 / ${outcome.result.filesWritten} 个文件" +
+                    (if (outcome.result.filesSkipped > 0) " / 跳过 ${outcome.result.filesSkipped} 条" else ""),
             )
             is ArchiveImportOutcome.AlreadyImported ->
                 Log.i(TAG, "${outcome.archive.name} 已经导过（标记与这份档案一致）—— 什么都不做")

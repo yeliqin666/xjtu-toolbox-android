@@ -158,6 +158,21 @@ internal class WebAgentHost(
 
     /** 会话落在 serve：本端不落盘。 */
     override fun sessions(): AgentSessionPersistence = AgentSessionPersistence.None
+
+    /**
+     * 「先填一下模型」那张卡的副标题：**Key 不在这一端**——它存在运行 serve 的那台机器上。
+     * 「配好就能聊」在浏览器里会把话说到一半（这一边没有输入框，用户也无从判断该去哪填）⇒ 说全。
+     */
+    override val configHint: String
+        get() = "API Key 配在运行 serve 的那台机器上，那边配好这边就能聊"
+
+    /**
+     * 「改上一条」：这一端改得动**页面上**那一轮（输入框回填 + 重发是一个真的动作），但 serve 那一侧
+     * 没有「替换上一轮」的入口（会话在服务端、契约里只有追加）⇒ 下一轮请求里上一轮仍然在，别让那三个字
+     * 暗示它被换掉了。
+     */
+    override val editLastLabel: String
+        get() = "改上一条（本端是重发：serve 那边上一轮还在）"
 }
 
 /** API Key 那一行（`ConfigPanel` 的 `apiKeySection`）：只读徽标 + 一句指路。 */

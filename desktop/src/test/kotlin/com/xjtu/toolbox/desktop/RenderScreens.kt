@@ -687,8 +687,9 @@ fun main(args: Array<String>) {
                     if (!settingsShown) settingsShown = hasText(scene, "版本号")
                     if (!settingsToggled) settingsToggled = clickByLabel(scene, "跟随系统取色")
                     if (settingsShown && settingsToggled && !settingsDegraded) {
-                        // 桌面没有的那三组 + 那几行：屏上**一个字都不该出现**
-                        settingsDegraded = listOf("新通知提醒", "立即检查更新", "默认启动 Tab", "课表显示考勤")
+                        // 桌面没有的那两组 + 那几行：屏上**一个字都不该出现**
+                        // （「默认启动 Tab」「场馆验证码」B-2 起接上、「课表显示考勤」W-B2 接上，均已从名单里拿掉）
+                        settingsDegraded = listOf("新通知提醒", "立即检查更新")
                             .none { hasText(scene, it) }
                     }
                 }
@@ -697,7 +698,7 @@ fun main(args: Array<String>) {
         check(settingsShown) { "settings.png：屏上没有「版本号」那一行 —— 多半没渲染出设置页" }
         check(settingsToggled) { "settings.png：没点到「跟随系统取色」那个开关（semantics 里没找到）" }
         check(settingsDegraded) {
-            "settings.png：屏上出现了桌面没有的那几项（通知提醒 / 检查更新 / 默认启动 Tab / 课表考勤）"
+            "settings.png：屏上出现了桌面没有的那几项（通知提醒 / 检查更新）"
         }
         check(desktopSettings.dynamicColor) { "settings.png：点了开关，但偏好没落盘" }
         val settingsFile = File(shotsRoot, "${SettingsStore.APP_SETTINGS_FILE}.properties")

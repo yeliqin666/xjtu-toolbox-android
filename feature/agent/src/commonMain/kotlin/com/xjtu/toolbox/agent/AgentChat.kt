@@ -65,6 +65,8 @@ internal fun ChatPanel(
     host: AgentHost,
     /** 系统相册挑图（`:app` 实现；没有相册的端那一档不画，见 [AgentCapability.IMAGE_INPUT]）。 */
     imagePicker: AgentImagePicker,
+    /** 「这一端的屁岱比手机朴素在哪」那段话（见 [AgentHost.gapNote]）：给文案就画在对话最上面，默认不画。 */
+    gapNote: String? = null,
     padding: PaddingValues,
     scrollBehavior: ScrollBehavior,
     onNavigate: (AppRoute) -> Unit,
@@ -169,6 +171,11 @@ internal fun ChatPanel(
                     contentPadding = PaddingValues(start = 24.dp, end = 24.dp, top = 16.dp + listTopPadding, bottom = 16.dp + composerHeight),
                     verticalArrangement = Arrangement.spacedBy(14.dp)
                 ) {
+            // 这一端的屁岱缺什么：说在最前面（用户一眼看到"这一端少的那几样"，
+            // 而不是点了一颗不存在的按钮或以为工具坏了）。
+            if (gapNote != null) {
+                item(key = "host-gap") { com.xjtu.toolbox.ui.components.GapNote(gapNote) }
+            }
             if (vm.messages.isEmpty()) {
                 item(key = "welcome") {
                     AgentWelcome(
@@ -265,7 +272,8 @@ internal fun ChatPanel(
                             fontWeight = FontWeight.Medium,
                         )
                         Text(
-                            "API Key 配好就能聊",
+                            // 文案槽位（默认就是原来那句）：Key 不在本机的端（浏览器）在自己的 host 里换掉。
+                            host.configHint,
                             style = MiuixTheme.textStyles.footnote2,
                             color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                         )
@@ -286,7 +294,8 @@ internal fun ChatPanel(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(
-                    "改上一条",
+                    // 同上：做不到「真把上一轮换掉」的端在这句话里如实说清它实际做了什么。
+                    host.editLastLabel,
                     style = MiuixTheme.textStyles.footnote1,
                     color = MiuixTheme.colorScheme.primary,
                     modifier = Modifier.weight(1f),

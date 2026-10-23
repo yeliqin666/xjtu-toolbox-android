@@ -1,6 +1,8 @@
 package com.xjtu.toolbox.server
 
 import com.xjtu.toolbox.feedback.FeedbackApi
+import com.xjtu.toolbox.platform.InstanceLock
+import com.xjtu.toolbox.platform.StoreWriteGate
 import java.io.IOException
 import java.util.concurrent.CountDownLatch
 import kotlin.system.exitProcess
@@ -20,6 +22,28 @@ fun main(args: Array<String>) {
         System.err.println(ServeConfig.USAGE)
         exitProcess(2)
     }
+
+    // ── 单实例闸门（B-13）──
+    //
+    // 键值存储是「整份读进内存、每次改动整份回写」的：桌面窗口 + 这一份 serve 同开就会互相覆盖
+    // （谁后写谁赢，另一个进程刚存的凭据 / 令牌整段消失）。所以启动先抢 `<数据根>/.lock`：
+    // 抢不到就把写闸合上，按只读跑 —— 但**只读的 serve 有一件事做不了**：访问令牌。
+    // 令牌是这道门唯一的钥匙，生成一枚却存不下来，等于这一份发给浏览器的票下一次启动就作废，
+    // 而用户看到的是「怎么又要重新授权」——所以盘上没有令牌时直接拒绝启动，让用户先关掉那一个。
+    val lock = InstanceLock.acquire("serve")
+    if (!lock.isOwner) {
+        StoreWriteGate.goReadOnly(lock.readOnlyReason.orEmpty())
+        System.err.println()
+        System.err.println("⚠️ ${lock.readOnlyReason}")
+        System.err.println("   下面这一份 serve 按只读跑：配置、令牌、归档一律不落盘（改了也不会存）。")
+        if (AccessToken.existing() == null) {
+            System.err.println("   而且盘上还没有访问令牌：这一份生成的那一枚存不下来（重启就换），没法开。")
+            System.err.println("   先关掉那一个实例，再启动这一份。")
+            exitProcess(2)
+        }
+        System.err.println("   沿用盘上已有的令牌（与那一个实例同一枚）。")
+    }
+    Runtime.getRuntime().addShutdownHook(Thread { lock.release() })
 
     val token = AccessToken.loadOrCreate()
     ServeFeedback.install()

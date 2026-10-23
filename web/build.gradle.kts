@@ -73,6 +73,10 @@ kotlin {
         wasmJsTest.dependencies {
             implementation(kotlin("test"))
             implementation(project(":core"))
+            implementation(libs.kotlinx.coroutines.test)
+            // 真浏览器里核 Ktor 的字节读（`bodyAsBytes`，成绩单 PDF 那一发用它）与 `serveData` 的信封：
+            // 这两条在 wasmJs 上只编过、没跑过，所以拿 MockEngine 在 Chrome 里真跑一遍。
+            implementation(libs.ktor.client.mock)
         }
     }
 }

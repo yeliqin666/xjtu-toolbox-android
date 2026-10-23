@@ -295,7 +295,7 @@ class ServeP0Group2Test {
     // ── jwxt：evaluations / status ─────────────────────────────────────
 
     @Test
-    fun `jwxt evaluations：未评逐字段 + canSubmit 恒 false + status`() = withServe { serve ->
+    fun `jwxt evaluations：未评逐字段 + canSubmit 如实 true + status`() = withServe { serve ->
         val http = serve.http
         assertEquals(200, serve.login().statusCode())
 
@@ -305,7 +305,7 @@ class ServeP0Group2Test {
         assertEquals(ApiEnvelope.CODE_OK, envelopeCode(response))
         assertNoIdentity(response.body(), "GET /api/jwxt/evaluations", IDENTITY)
         val data = envelopeData(response)
-        assertEquals(false, data.optBoolean("canSubmit"), "只读投影 ⇒ canSubmit 必须出现且为 false（契约 §5）")
+        assertEquals(true, data.optBoolean("canSubmit"), "提交端点已落地 ⇒ canSubmit 如实为 true（契约 §5）")
         val items = data.getValue("items").jsonArray
         assertEquals(3, items.size)
 
@@ -366,8 +366,97 @@ class ServeP0Group2Test {
             envelopeData(status).keys,
             "status 的 data 就该是这一个小巧的形状：{ canSubmit }",
         )
-        assertEquals(false, envelopeData(status).optBoolean("canSubmit"))
+        assertEquals(true, envelopeData(status).optBoolean("canSubmit"), "status 与列表页同一句口径")
     }
+
+    // ── jwxt：evaluations 提交（B-12）──────────────────────────────
+
+    @Test
+    fun `jwxt evaluations submit：真提交一枪 + 已评幂等 + 上游拒收 409`() = withServe { serve ->
+        val http = serve.http
+        assertEquals(200, serve.login().statusCode())
+
+        val path = "/api/jwxt/evaluations/submit"
+        // 未登录：该回 401（令牌对、但没会话）
+        assertEquals(401, http.postJson(path, submitBody(), bearer = null).statusCode())
+
+        // 形状：空体 / type 不认识 / 缺 wjdm 都是 400
+        assertEquals(400, http.postJson(path, "{}").statusCode())
+        assertEquals(400, http.postJson(path, submitBody(type = "99")).statusCode())
+        assertEquals(400, http.postJson(path, submitBody(wjdm = "")).statusCode())
+
+        // 既不在未评名单也不在已评名单 ⇒ 404
+        val missing = http.postJson(path, submitBody(wjdm = "WJ-查无此卷"))
+        assertEquals(404, missing.statusCode())
+        assertEquals(ApiErrors.NOT_FOUND, envelopeCode(missing))
+
+        // 真提交：期末那张（夹具的题目/选项就是给它的）
+        val before = JwxtFakeUpstream.judgeSubmitCalls.get()
+        val ok = http.postJson(
+            path,
+            submitBody(
+                type = "01",
+                wjdm = JwxtFakeUpstream.JUDGE_WJDM_FINAL,
+                jxbid = JwxtFakeUpstream.JUDGE_JXBID_FINAL,
+            ),
+        )
+        assertEquals(200, ok.statusCode())
+        assertEquals(ApiEnvelope.CODE_OK, envelopeCode(ok))
+        assertNoIdentity(ok.body(), "POST $path", IDENTITY)
+        assertEquals(true, envelopeData(ok).optBoolean("submitted"), "这一发真打出去了")
+        assertEquals(EVALUATION_SUBMITTED_MESSAGE, envelopeData(ok).optString("message"))
+        assertEquals(before + 1, JwxtFakeUpstream.judgeSubmitCalls.get(), "提交那一枪只打一发")
+        val param = JwxtFakeUpstream.lastJudgeSubmitParam.orEmpty()
+        assertTrue(param.contains(JwxtFakeUpstream.JUDGE_WJDM_FINAL), "requestParamStr 里该有 WJDM：$param")
+        assertTrue(param.contains("WJYSJG"), "requestParamStr 里该有 WJYSJG：$param")
+        // ⚠️ 学号**必须**在上游表单里（`CPR` 那格就是测评人 —— 学校要据此归属这次评教）。
+        // 红线管的是**响应**不含学号 / 姓名（见各条的 `assertNoIdentity`），不是「发出去的请求也不含」。
+        assertTrue(param.contains(LibraryFakeUpstream.USERNAME), "上游表单要带测评人（CPR）：$param")
+
+        // 幂等：已评名单里的那张（期末·已评）⇒ 成功但不打提交那一枪
+        val afterOk = JwxtFakeUpstream.judgeSubmitCalls.get()
+        val already = http.postJson(
+            path,
+            submitBody(
+                type = "01",
+                wjdm = JwxtFakeUpstream.JUDGE_WJDM_DONE,
+                jxbid = JwxtFakeUpstream.JUDGE_JXBID_DONE,
+            ),
+        )
+        assertEquals(200, already.statusCode())
+        assertEquals(false, envelopeData(already).optBoolean("submitted"), "已评过就不该再提交")
+        assertEquals(EVALUATION_ALREADY_MESSAGE, envelopeData(already).optString("message"))
+        assertEquals(afterOk, JwxtFakeUpstream.judgeSubmitCalls.get(), "幂等命中不得再打提交那一枪")
+
+        // 上游拒收 ⇒ 409 ACTION_REJECTED，且上游给的原因原样回给屏
+        JwxtFakeUpstream.rejectJudgeSubmit.set(true)
+        try {
+            val rejected = http.postJson(
+                path,
+                submitBody(
+                    type = "01",
+                    wjdm = JwxtFakeUpstream.JUDGE_WJDM_FINAL,
+                    jxbid = JwxtFakeUpstream.JUDGE_JXBID_FINAL,
+                ),
+            )
+            assertEquals(409, rejected.statusCode())
+            assertEquals(ApiErrors.ACTION_REJECTED, envelopeCode(rejected))
+            assertTrue(
+                envelopeMessage(rejected).orEmpty().contains("评教窗口"),
+                "上游拒收的理由该回给屏：${envelopeMessage(rejected)}",
+            )
+        } finally {
+            JwxtFakeUpstream.rejectJudgeSubmit.set(false)
+        }
+    }
+
+    /** 提交请求体的四种写法（默认值是「空」，让每个用例只改自己那一格）。 */
+    private fun submitBody(
+        term: String = JwxtFakeUpstream.JUDGE_TERM,
+        type: String = "05",
+        wjdm: String = JwxtFakeUpstream.JUDGE_WJDM_MID,
+        jxbid: String = JwxtFakeUpstream.JUDGE_JXBID_MID,
+    ): String = """{"term":"$term","type":"$type","wjdm":"$wjdm","jxbid":"$jxbid"}"""
 
     // ── library：campus / areas / seats / my ───────────────────────────
 

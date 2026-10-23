@@ -136,6 +136,15 @@ internal class WebHomeHost(
         HomeCard.SERVICE_GRID,
     )
 
+    /**
+     * 首页底部那一句（见 `HomeHost.gapNote`）：少的两块合成一句。
+     *
+     * 不列 QUICK_ACTIONS（常用功能）：那是丁批要做的事，做完这句自然过时——与其手改文案，不如不说。
+     */
+    override val gapNote: String =
+        "网页版首页少两块：公告堆叠条和速览小格。公告要读交大那边的公告接口（serve 端还没转发这一路），" +
+            "速览要各服务此刻的状态（本端只有课表族缓存算得出来）。这两块 App 首页有。"
+
     /** 目录按本科生那一份筛。 */
     override val audience: AccountType = AccountType.UNDERGRADUATE
 

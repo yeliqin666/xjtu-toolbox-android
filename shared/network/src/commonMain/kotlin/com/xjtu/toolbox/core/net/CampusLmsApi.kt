@@ -5,6 +5,7 @@ import com.xjtu.toolbox.lms.LmsActivityType
 import com.xjtu.toolbox.lms.LmsCourseSummary
 import com.xjtu.toolbox.lms.LmsDownloadJob
 import com.xjtu.toolbox.lms.LmsDownloadResult
+import com.xjtu.toolbox.lms.LmsDue
 import com.xjtu.toolbox.lms.LmsReplayVideo
 import com.xjtu.toolbox.lms.LmsSource
 import com.xjtu.toolbox.lms.LmsUpload
@@ -18,6 +19,7 @@ import com.xjtu.toolbox.util.safeIntOrNull
 import com.xjtu.toolbox.util.safeString
 import com.xjtu.toolbox.util.safeStringOrNull
 import io.ktor.client.HttpClient
+import kotlin.time.Instant
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.decodeFromJsonElement
 
@@ -120,10 +122,70 @@ class CampusLmsApi(
         "serve 契约没有落盘位置可报：本端不下载（LmsSource.supportsDownload = false，" +
             "docs/api-contract.md §5.6）",
     )
+    // ── B-5 / B-4：作业截止与思源课程配对（契约 §5.12）────────────────────
+
+    /**
+     * `GET /api/lms/due`：日程页「接下来」那一档要的作业截止。
+     *
+     * 服务端读的是它自己落盘的那一份（`LmsDueStore`）—— **本端不为此请求学堂**（契约 §5.12）。
+     * 读不到就是空表（服务端侧也是这套语义），不是错误。
+     */
+    suspend fun dueHomeworks(): List<LmsDue> {
+        requireServe()
+        val data = client.serveData("加载作业截止", baseUrl, DUE_PATH)
+        return data.arr("items").orEmpty().mapNotNull { element ->
+            val row = element as? JsonObject ?: return@mapNotNull null
+            LmsDue(
+                courseId = row["courseId"].safeInt(),
+                courseName = row["courseName"].safeString(),
+                activityId = row["activityId"].safeInt(),
+                title = row["title"].safeString(),
+                // 上游给的截止文本原样留（屏上自己按它排「接下来」的序，本层不编一个时刻）
+                deadline = row["deadline"].safeString(),
+                submitted = row["submitted"].safeBoolean(),
+                // 这一格是 ISO-8601（契约 §4 通则）；转不动就是 0（= 不知道什么时候拉的）
+                fetchedAt = row["fetchedAt"].safeString().trim().let { iso ->
+                    if (iso.isEmpty()) 0L
+                    else runCatching { Instant.parse(iso).toEpochMilliseconds() }.getOrDefault(0L)
+                },
+                exam = row["exam"].safeBoolean(),
+            )
+        }
+    }
+
+    /**
+     * `GET /api/lms/course-match`：这门课在思源学堂对应哪门（判据是 `:model` 那份纯函数，服务端跑）。
+     *
+     * `matched:false` ⇒ `null`（「没有对应」不是错误）；课程号与课程名不能都给空（服务端会回 `400`）。
+     */
+    suspend fun courseMatch(
+        courseCode: String,
+        courseName: String,
+        teacher: String = "",
+    ): LmsCourseSummary? {
+        requireServe()
+        val data = client.serveData(
+            "配思源课程",
+            baseUrl,
+            COURSE_MATCH_PATH,
+            listOf(
+                "courseCode" to courseCode,
+                "courseName" to courseName,
+                "teacher" to teacher,
+            ),
+        )
+        val course = data["course"] as? JsonObject ?: return null
+        return runCatching { AppJson.decodeFromJsonElement<LmsCourseSummary>(course) }.getOrNull()
+    }
+
+
 
     private fun requireServe() {
-        if (mode != ApiMode.SERVE) serveOnly("思源学堂取数", "$COURSES_PATH + $ACTIVITIES_PATH + $ACTIVITY_PATH")
+        if (mode != ApiMode.SERVE) {
+            serveOnly("思源学堂取数", "$COURSES_PATH + $ACTIVITIES_PATH + $ACTIVITY_PATH + $DUE_PATH + $COURSE_MATCH_PATH")
+        }
     }
+
 }
 
 // ── 投影（serve DTO → `:core` 模型）────────────────────────────────────
@@ -225,6 +287,12 @@ private fun serveHtmlToPlainText(html: String): String {
 
 /** 见 [serveHtmlToPlainText]：标换行用的哨兵（HTML 正文里不会出现的控制字符）。 */
 private const val NEWLINE_MARK = "\u0000"
+
+/** 作业截止（B-5，契约 §5.12）：服务端读它自己落盘的那一份，不为此请求学堂。 */
+private const val DUE_PATH = "/api/lms/due"
+
+/** 思源课程配对（B-4，契约 §5.12）。 */
+private const val COURSE_MATCH_PATH = "/api/lms/course-match"
 
 /** 我的课程列表（契约 §5.6 的三个 lms 端点之一）。 */
 private const val COURSES_PATH = "/api/lms/courses"

@@ -97,12 +97,15 @@ import top.yukonga.miuix.kmp.utils.overScrollVertical
  *
  * @param host 这一端有什么（见 [MatchHost]）
  * @param scanner 扫码那一档；`null` = 这一端没有相机 / 相册（桌面）⇒ 只留「粘一段文字」那条路
+ * @param gapNote 没有相机时要说明的那一句（桌面给文案；默认 `null` ⇒ 不多一行，
+ *   那两颗按钮本来就不画，见 [MatchScanner]）
  */
 @Composable
 fun MatchScreen(
     host: MatchHost,
     onBack: () -> Unit,
     scanner: MatchScanner? = null,
+    gapNote: String? = null,
 ) {
     val clipboard = LocalClipboardManager.current
     val scrollBehavior = MiuixScrollBehavior(rememberTopAppBarState())
@@ -278,6 +281,9 @@ fun MatchScreen(
                                 onEditShare = { showShareSettings = true },
                                 onCopy = { clipboard.setText(AnnotatedString(myCode)) },
                             )
+                        }
+                        if (gapNote != null) {
+                            item { com.xjtu.toolbox.ui.components.GapNote(gapNote) }
                         }
                         item {
                             TheirCodeCard(

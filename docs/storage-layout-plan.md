@@ -420,7 +420,7 @@ S0 与 S1 之间**没有**代码依赖（S0 改的是键值缝的 actual，S1 �
 
 | 审计条 | 「三端不一致侧」到底是什么（我核过的结论） | 挂到哪个工单 |
 |---|---|---|
-| **#02** 切账号不重置 `AgentViewModel`（A 的聊天/画像写进 B 的目录） | **真有侧可修，但它直撞 C1**：`AgentSessionStore`（`:data`）每次 IO 现取 `safeSuffix()` ⇒ **磁盘侧三端一致**；不一致在**内存态**：`core/.../agent/AgentViewModel.kt:201-208` 的 `bind()` 只跑一次（`:core` 共享代码，三端一起变）。端侧做法：在 `AgentHost` 上加一个**可选槽位**（`fun onAccountChanged() {}` 默认空实现）⇒ `:app` 不实现（Android 行为**逐字不变**），桌面/serve 实现（重载会话列表 + 清内存历史）。**Android 侧要不要顺手修 #02 需要拍板**（D15 vs D7-口径 的直接冲突，见 §7 第 5 项） | **S7a 的端侧隔离部分** + §7 拍板项 |
+| **#02** 切账号不重置 `AgentViewModel`（A 的聊天/画像写进 B 的目录） | **真有侧可修，但它直撞 C1**：`AgentSessionStore`（`:data`）每次 IO 现取 `safeSuffix()` ⇒ **磁盘侧三端一致**；不一致在**内存态**：`core/.../agent/AgentViewModel.kt:201-208` 的 `bind()` 只跑一次（`:core` 共享代码，三端一起变）。**2026-10-19 复核**：原提的「在 `AgentHost` 上加可选槽位 `onAccountChanged()`」**从未被实现**（全仓零命中，只在 docs 里）；实际等价物是 `AgentScreen.kt:96-99` 的 `LaunchedEffect(host.accountId)` + `AgentViewModel.kt:171-183` 的账号后缀守卫，**三端共用同一条** ⇒ 无需新槽位。**Android 侧要不要顺手修 #02 仍需拍板**（D15 vs D7-口径 的直接冲突，见 §7 第 5 项） | **S7a 的端侧隔离部分** + §7 拍板项 |
 | **#07** `payment_code` 未按账号隔离 | **没有「三端不一致侧」可修**：三端**今天都是**无后缀（`docs/audit-verify-1-correctness.md` #07 那节自己写着「三端同一存储名」；我复核了 `app/.../pay/AppPaymentCode.kt:48`、`desktop/.../ToolboxDesktopApp.kt:759`、`web/.../ToolboxWebApp.kt:824`）。**加后缀 = 三端同改 + 老用户重勾一次**，那正是规格未决 #2 的同一个取舍 ⇒ 整条属 (a) 类（Android 既有行为）。本次唯一可做且必须做的：档案 registry 里把 `payment_code` 标成 **`global/`（三端一致地 global）** ⇒ 这是一条**数据模型**声明，不改任何端的行为 | **S1（registry 分类）** + §7 拍板项（要不要加后缀） |
 | **#09** `download_tasks` 无 `accountId` | 不一致在「**本机公共文件 vs 任务列表归谁**」这条产品口径（`docs/audit-verify-1-correctness.md` #09 那节的结论：「先定产品口径再动手」）。档案侧可做的：行形状**逐字照端内列名**（不加 `accountId`，§8.3）、registry 标 `global` + `可重建`；端侧可做的：**桌面**给 store 加后缀（新代码、无老数据） | **S1（registry）+ S7b（桌面后缀）** + §7 拍板项 |
 
@@ -491,7 +491,7 @@ S0 与 S1 之间**没有**代码依赖（S0 改的是键值缝的 actual，S1 �
 4. **web 的档案落地与账号归属**（未决 #4）：D9 落地前只能 `global/` + `noAccount=true`；落地后 suffix 取 serve 的当前账号。
    **我建议 S6 先按 `noAccount` 做**，S7a 之后再切 —— 否则 S6 得等 S7a，批② 的"三端多账号"与"统一存档层"会串成一条链、失去可独立提交性。
 5. **#02 要不要顺手修 Android 的可见行为**（D15 / D16 的口径 vs D7-口径「三端全等」的**直接冲突**）：
-   `AgentViewModel` 在 `:core`，修它就是三端一起变；不修则 web/桌面靠 `AgentHost.onAccountChanged()` 这条**可选槽位**
+   `AgentViewModel` 在 `:core`，修它就是三端一起变；**2026-10-19 复核**：`AgentHost.onAccountChanged()` 这个槽位**从未实现**（全仓零命中），等价物是 `:core` 自带的 `LaunchedEffect(host.accountId)` + `AgentViewModel` 的账号后缀守卫，三端共用。
    做端侧隔离，而 Android 保持现状。**这条必须用户拍板**（它跟 #01 的性质一样：安卓既有行为）。
 6. **`payment_code` 要不要加账号后缀**（未决 #2 的邻位 / 审计 #07）：加 = 三端同改 + 老用户重勾一次；
    不加 = 保持现状并在档案里标 `global`。**建议本批不加**（且这也是"三端一致"的现状）。

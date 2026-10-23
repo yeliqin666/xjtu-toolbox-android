@@ -8,8 +8,10 @@ import com.xjtu.toolbox.archive.StoreSnapshot
 import com.xjtu.toolbox.archive.ArchiveInspection
 import com.xjtu.toolbox.archive.ArchiveFile
 import com.xjtu.toolbox.archive.ArchiveNames
+import com.xjtu.toolbox.archive.ArchiveScoreReport
 import com.xjtu.toolbox.archive.ArchiveStoreBackend
 import com.xjtu.toolbox.archive.ArchiveFileBackend
+import com.xjtu.toolbox.archive.ArchiveImportMode
 import com.xjtu.toolbox.archive.ExportOptions
 import com.xjtu.toolbox.archive.StoreArchive
 import com.xjtu.toolbox.archive.archiveSourceOf
@@ -17,8 +19,12 @@ import com.xjtu.toolbox.archive.archiveDataRoot
 import com.xjtu.toolbox.archive.archiveFileBackend
 import com.xjtu.toolbox.archive.archiveStoreBackend
 import com.xjtu.toolbox.desktop.DesktopBuildConfig
+import com.xjtu.toolbox.desktop.DesktopScheduleHost
+import com.xjtu.toolbox.desktop.score.DesktopScoreReportCache
 import com.xjtu.toolbox.platform.Log
 import com.xjtu.toolbox.platform.KeyValueStore
+import com.xjtu.toolbox.platform.keyValueStore
+import com.xjtu.toolbox.platform.keyValueStoreRoot
 import com.xjtu.toolbox.platform.secureKeyValueStore
 import java.io.File
 import kotlin.time.Clock
@@ -36,6 +42,12 @@ object DesktopArchiveHost {
 
     /** 两个匿名档：未登录 / 登出中间态在档案里也占目录（§4）。 */
     private val ANONYMOUS_SUFFIXES = listOf("default", "_")
+
+    /**
+     * 桌面 `files/` 层里要扫的族（B-9）：会话记录 + 课表缓存族。
+     * 三族行数组与成绩缓存族是另外两条路（[readRowFiles] / [readScoreFiles]），不在这里。
+     */
+    private val FILES_PREFIXES = listOf("agent_sessions", "schedule")
 
     /** §2.1 `createdBy`：`desktop-linux` / `desktop-windows`。 */
     val createdBy: String
@@ -73,12 +85,18 @@ object DesktopArchiveHost {
     fun readStores(backend: ArchiveStoreBackend): List<StoreSnapshot> =
         backend.storeNames().mapNotNull { backend.readStore(it) }
 
-    /** 读端内 `files` 那一层（缝 B）：只有 `agent_sessions<suffix>/`；三族行数组见 [readRowFiles]。 */
+    /**
+     * 读端内 `files` 那一层（缝 B）：`agent_sessions<suffix>/` 与课表缓存族 `schedule/` 下的 ` *.json`
+     * （B-9，桌面那一族的真身是键值店，`JvmFileBackend` 直接读 `schedule_cache<suffix>.properties`）；
+     * 三族行数组见 [readRowFiles]，成绩缓存族见 [readScoreFiles]。
+     */
     fun readFiles(backend: ArchiveFileBackend?, suffixes: List<String>): List<ArchiveFile> {
         val fb = backend ?: return emptyList()
         return suffixes.flatMap { suffix ->
-            fb.list(suffix, "agent_sessions").mapNotNull { rel ->
-                fb.read(suffix, rel)?.let { ArchiveFile(suffix, rel, it) }
+            FILES_PREFIXES.flatMap { prefix ->
+                fb.list(suffix, prefix).mapNotNull { rel ->
+                    fb.read(suffix, rel)?.let { ArchiveFile(suffix, rel, it) }
+                }
             }
         }
     }
@@ -92,7 +110,17 @@ object DesktopArchiveHost {
     ): Map<String, String> =
         StoreArchive.export(accounts, createdBy, appVersion, stores, files, ExportOptions(now = now))
 
-    /** 端内 → 完整档案字节映射（导出动作；只读端内，不写任何 store / 文件）。 */
+    /**
+     * 端内 → 完整档案字节映射（导出动作；只读端内，不写任何 store / 文件）。
+     *
+     * §6.3 逐族迁移（「成绩缓存」与「课表缓存」两族）：这两族端内都是键值店、档案里都是 `files/` 下的文件
+     * （`schedule/score_report.json`、`schedule/<key>.json`）⇒ **单一表示**：这两族的店**不进 `stores/`**
+     * （否则同一份缓存会在档案里出现两遍，Android 那边还会把 `schedule_cache` 当 prefs 店落下来）。
+     * 族名按 base 认，用的就是 [StoreArchive.export] 自己的拆分口径（[ArchiveNames.split]）。
+     *
+     * 代价（如实记一笔）：文件层没有逐键 `at`，课表缓存族在档案里的年龄就只剩「导入时刻」
+     * （见 [DesktopArchiveImport]）—— 这一族是 `rebuildable` 缓存，年龄丢了只是「重拉一次」，不丢用户数据。
+     */
     fun exportArchive(
         now: () -> Long = { Clock.System.now().toEpochMilliseconds() },
         storeOf: (String) -> KeyValueStore = { secureKeyValueStore(it) },
@@ -100,10 +128,21 @@ object DesktopArchiveHost {
     ): Map<String, String> {
         val accounts = accountsFrom(AccountStore().list())
         val suffixes = (accounts.map { it.suffix } + ANONYMOUS_SUFFIXES).distinct()
+        val stores = readStores(archiveStoreBackend())
+        // 以文件为规范表示的两族（成绩缓存 / 课表缓存）：端内那份店不进 `stores/`（理由见上面 KDoc）。
+        val fileFamilyBases = setOf(
+            DesktopScoreReportCache.STORE_NAME,
+            DesktopScheduleHost.SCHEDULE_CACHE_STORE,
+        )
+        val fileFamilyStores = ArchiveNames.split(stores.map { it.rawName }, suffixes)
+            .filter { it.base in fileFamilyBases }
+            .map { it.raw }
+            .toSet()
         return buildArchive(
             accounts = accounts,
-            stores = readStores(archiveStoreBackend()),
-            files = readFiles(archiveFileBackend(), suffixes) + readRowFiles(storeOf, accountId),
+            stores = stores.filterNot { it.rawName in fileFamilyStores },
+            files = readFiles(archiveFileBackend(), suffixes) + readRowFiles(storeOf, accountId) +
+                readScoreFiles(accounts.map { it.accountId }, now = now),
             now = now,
         )
     }
@@ -113,6 +152,36 @@ object DesktopArchiveHost {
         storeOf: (String) -> KeyValueStore = { secureKeyValueStore(it) },
         accountId: String? = AccountContext.activeAccountId,
     ): List<ArchiveFile> = DesktopArchiveRows.filesOf(storeOf, accountId)
+
+    /**
+     * §6.3 逐族迁移（「成绩缓存」那一族）：端内是键值店 `score_report<账号后缀>` 的 `score_report_<学号>`
+     * （[DesktopScoreReportCache]），档案里是**文件** `schedule/score_report.json`，值是 `{"at":<ms>,"grades":[…]}`，
+     * 名字里不带学号（账号维度由 `accounts/<suffix>/` 承担）。
+     *
+     * 读不到这一族的缓存 ⇒ 不出这一条。旧端内形状（裸数组）用那份 properties 的 mtime 补 `at`（§6.3「mtime → at」）；
+     * 连 mtime 也没有 ⇒ 用导出时刻。转不动的那份跳过（导出不报错，§8.6）。
+     */
+    fun readScoreFiles(
+        accountIds: List<String>,
+        now: () -> Long = { Clock.System.now().toEpochMilliseconds() },
+        storeOf: (String) -> KeyValueStore = { keyValueStore(it) },
+    ): List<ArchiveFile> = accountIds.mapNotNull { id ->
+        val rawName = DesktopScoreReportCache.storeName(id)
+        val key = DesktopScoreReportCache.keyFor(id)
+        val legacyName = DesktopScoreReportCache.STORE_NAME
+        val raw = runCatching { storeOf(rawName).getString(key) }.getOrNull()
+            ?: runCatching { storeOf(legacyName).getString(key) }.getOrNull()
+            ?: return@mapNotNull null
+        val at = scoreStoreMtime(rawName) ?: scoreStoreMtime(legacyName) ?: now()
+        ArchiveScoreReport.toCanonical(raw, at)?.let {
+            ArchiveFile(ArchiveNames.suffixFor(id), ArchiveScoreReport.CANONICAL_REL, it)
+        }
+    }
+
+    /** 端内那份店的落盘文件的 mtime（没有这一份 / 取不到 ⇒ null）。 */
+    private fun scoreStoreMtime(rawName: String): Long? = runCatching {
+        File(keyValueStoreRoot(), "$rawName.properties").takeIf { it.isFile }?.lastModified()
+    }.getOrNull()
 
     /** 导出到数据根：目录形态（`<数据根>/archive/`，可整拷）+ zip 形态（`<数据根>/archive.zip`，给另一台机器 / 给 Android）。 */
     fun exportToDataRoot(now: () -> Long = { Clock.System.now().toEpochMilliseconds() }): ExportOutcome {
@@ -137,6 +206,34 @@ object DesktopArchiveHost {
             ?: emptyList()
         return fromDirectory + fromZip
     }
+
+    /**
+     * 第一步：找到待导入档案并**只算差异**（端内零改动，§6.4「显式镜像档」）。
+     *
+     * 设置页拿 [PendingArchivePlan] 弹窗（话术全用 [com.xjtu.toolbox.archive.ArchiveImportPrompt]），
+     * 用户选完档位、点了确认之后调 [confirmImport] 落地。与 [maybeImportPendingArchive] 的区别只是多了一步
+     * “先看后写”：不弹窗的老路径（`Main.kt` 启动钩子）照旧直接合并。
+     */
+    fun planPendingArchive(mode: ArchiveImportMode = ArchiveImportMode.MERGE): PendingArchivePlan? {
+        val path = pendingArchives().firstOrNull() ?: return null
+        val entries = runCatching { DesktopArchiveIo.read(path) }.getOrElse {
+            Log.w(TAG, "待导入档案 ${path.name} 读不出来：${it.message ?: it::class.simpleName}（端内零变化）")
+            val reason = "读不出来：${it.message ?: it::class.simpleName}"
+            return PendingArchivePlan(path, ArchiveCheck.Failed(reason), DesktopArchivePlanOutcome.Failed(reason))
+        }
+        return when (val check = checkArchive(entries)) {
+            is ArchiveCheck.Failed -> PendingArchivePlan(path, check, DesktopArchivePlanOutcome.Failed(check.reason))
+            is ArchiveCheck.Ok -> PendingArchivePlan(
+                path = path,
+                check = check,
+                plan = DesktopArchiveImport.plan(path, archiveSourceOf(entries), DesktopArchiveImportTarget(), mode),
+            )
+        }
+    }
+
+    /** 第二步：用户确认后才落地（镜像档中途失败已在共享层整体回滚）。 */
+    fun confirmImport(planned: DesktopArchivePlanOutcome.Planned): DesktopImportOutcome =
+        DesktopArchiveImport.apply(planned)
 
     /** §6.2 的触发点（`Main.kt` 启动时调一次，设置页那一行也走它）：有档案才跑，没有就静默返回 `null`。 */
     fun maybeImportPendingArchive(): PendingArchive? {
@@ -191,6 +288,13 @@ data class PendingArchive(
     val path: File,
     val check: ArchiveCheck,
     val outcome: DesktopImportOutcome,
+)
+
+/** 数据根里发现的一份待导入档案 + 自校验结果 + **只有差异、还没落地**的结论（§6.4 镜像档）。 */
+data class PendingArchivePlan(
+    val path: File,
+    val check: ArchiveCheck,
+    val plan: DesktopArchivePlanOutcome,
 )
 
 /** 一份档案的自校验结果（§6.2 第 3 条的前半）。 */

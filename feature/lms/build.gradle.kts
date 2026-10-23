@@ -12,5 +12,9 @@ kotlin {
             api(project(":shared:designsystem"))
             api(project(":shared:network"))
         }
+        commonTest.dependencies {
+            // 下载那一族的 serve 支（`ServeDownloadsApi`，契约 §5.13）要喂假响应
+            implementation(libs.ktor.client.mock)
+        }
     }
 }

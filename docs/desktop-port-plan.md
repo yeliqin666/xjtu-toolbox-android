@@ -102,7 +102,7 @@
 **会话内核**：26 文件 / 5,293 行，其中 23 个碰 Android。耦合分布：`Context` 83 · `android.util.Log` 74 · `CredentialStore` 8 · `SharedPreferences` 6 · `SecurePrefs` 6 · `DataCache` 1。
 
 **必须新写的宿主实现**：
-- `keyValueStore` 的 JVM **落盘**版（现在 `jvmMain` 是纯内存 `MemoryKeyValueStore`）；
+- `keyValueStore` 的 JVM **落盘**版（**已落地**，2026-10-19 复核：`JvmFileKeyValueStore`，0600 的 `.properties`；`MemoryKeyValueStore` 已从全仓消失）；
 - 凭据存储（Windows：DPAPI / Credential Manager；Linux：Secret Service 或"文件 + 0600 权限"，与 campus-api 现有做法同口径）；
 - Room `DataCache` → 文件/SQLite。
 
@@ -167,7 +167,7 @@ serve 模式走的是**浏览器承载**，对应 `wasmJsMain` 那 18 个 actual
 - 40/40 **不是跨平台的前提**，跨平台的前提是"屏在 `:core` + 数据层可移植"。
 - 但**桌面端比浏览器端容易得多**：现在搬不动的十几条，卡的是 **campus-api 的能力**（只读/脱敏/没接模块），
   而不是平台 —— 桌面端自己登录、自己直连，**"中枢没数据"那 4 条（成绩单/考勤/加餐券/人脸考勤）重新可做**，
-  宿主机能族也都有桌面等价物。所以桌面的可达上限 ≈ 40，而不是浏览器的 ~27。
+  宿主机能族也都有桌面等价物。**2026-10-19 按事实重算（三个数分开写）**：`AppRoute` 声明 **43** 条 / 桌面**真实现 42** 条（唯一例外 `GameMerge` = 缺载体如实页）/ `DESKTOP_SUPPORTED_ROUTES` **40** 条是**宫格口径**（不含 `Settings`/`Main` 两条非宫格项与 `Jiaocai1Reader` 这条深链）。原「可达上限 ≈ 40」是把宫格口径当成了实现数。
 
 ---
 
@@ -598,9 +598,9 @@ Windows 的 `.msi`/DPAPI 真行为与 Linux 的真桌面启动都只有本机能
 | # | 存疑的事 | 为什么存疑 | 待谁 / 怎么核 |
 |---|---|---|---|
 | 1 | `RenderScreens.kt` 第 **98** / **415** 行仍写 `canBook = false` | `184bd527` 之后没跟着改（§12.2 已记原委；这两个行号是本轮跑 `grep -n 'canBook = false' desktop/src/test/…/RenderScreens.kt` 测出来的） | 下次动那个文件时改准（本轮只动 `docs/`） |
-| 2 | `AppRoute.Browser` 那一支够不够（等价物 = 外链中转页） | `76b0d530` 已单开一支（`DesktopBrowserScreen`）：只做那条路由真交出去的那件事（地址交系统浏览器），地址栏 / 前进后退 / cookie 注入 / 夜间模式 / `then=` 那一跳**一个字都不画**（`DesktopBrowser.kt` 的表列了这三处如实）。**要不要真的内嵌一个浏览器**（JCEF / JavaFX WebView）仍是产品决定 | 用户拍板（本轮只动 `docs/`） |
+| 2 | `AppRoute.Browser` 那一支够不够（等价物 = 外链中转页） | `76b0d530` 已单开一支（`DesktopBrowserScreen`）：只做那条路由真交出去的那件事（地址交系统浏览器），地址栏 / 前进后退 / cookie 注入 / 夜间模式 / `then=` 那一跳**一个字都不画**。**2026-10-19 调研并拍板（本轮不做，留给 owner）**：① 候选 = jcefmaven（JCEF：基线 ~1MB、natives 首次运行下载，或打包 ~100MB/平台）/ Kromium（Apache-2.0、专为 Compose Desktop，但 2026-09 才发布）/ 系统 WebView（WebView2 / WebKitGTK）；② KCEF **已归档**、JavaFX WebView「重且 Linux 有毛病」、JxBrowser **闭源收费**（GPL 项目不宜）、系统 WebView 在 JVM 上**无成熟跨平台库**且 Linux 的 WebKitGTK **不预装**（撞 C2 开箱即用），而“把原生窗口贴进 Compose”本身是未解坑（`ComposeNativeWebview` 同类 issue 长期挂着）；③ **推荐方案 = jcefmaven + 首次运行下载 natives + 薄封装** —— 它能一次解决三条（内嵌网页 / 合成西交大 / 场馆支付落点），但也是本轮**最重**的一个决定。⇒ **本轮定：不引入**；此决定在**下次 PR 里以「留给 owner 的决定」列出** | owner 拍板（2026-10-19 会议：甲） |
 | 3 | 桌面屁岱只跑到夹具传输：真 LLM 没连过（API key 由用户自填） | `997929be` 的证据图 `agent.png` 用的是夹具传输，`.github` 里也没有它的端到端记录 | 用户真填一次 key 跑一遍 |
-| 4 | §6.4 的「可达上限 ≈ 40」这个数目 | 它是**估计**（原文用「≈」），而今天 `AppRoute` 是 43 条声明 —— 口径不同 | 待用户确认要不要把 §6.4 重算一遍（本文档**不改** §6.4） |
+| 4 | §6.4 的「可达上限 ≈ 40」这个数目 | **2026-10-19 已按事实重算**（见 §6.4 那一行）：**43 声明 / 42 真实现 / 40 宫格口径**，三个数分开写 | 已收口 |
 | 5 | serve 模式的浏览器端到端 | 无记录、`:web` 无测试源集（§13.2 第 ④ 组第 1 条） | 见那一行 |
 | 6 | `docs/api-contract.md` §5.1 的 TODO ①②③④（MFA 绑定手机号不投影、`attemptsLeft` 的第二份写法、轮询间隔） | 契约自己标着，本轮只对齐了「已落地 / 未实现」这一层 | `:web` 那个弹窗真开始画时 / 契约改形状时一起收 |
 | 7 | Linux / Windows 两份交付文档里的未验证项 | 它们是那两批交付的事实记录，本文档不改它们 | 各自的「下一个决定」或 CI 真跑（§13.2 第 ② / ③ 组） |
@@ -848,6 +848,45 @@ current Scaffold's bounds.」；`layout/DialogContentLayout.kt` 里的定位是 
 **兼容性扩展**（`termStart(term: String? = null)`）与一批未跟踪的 `web/src/wasmJsMain/…` 文件参与了编译
 （它们仍在 `git status` 里 —— 本轮提交只 `git add` 了自己那三个路径）。
 
+### 14.8 门禁任务表与当前基线（2026-10-20 记，**以后照这张表抄**）
+
+⚠️ **教训**：2026-10-20 有一次“本机绿、CI 红”其实是**本机没跑** —— 本机门禁只跑了
+`:core` / `:data` / `:shared:data` / `:desktop` / `:feature:settings`，**漏了
+`:shared:{model,navigation,designsystem,network}:jvmTest` 与全部 20 个 `:feature:*:jvmTest`**，
+于是 `:shared:model:jvmTest` 里那条新测试从来没在本机跑过（CI 上它红了）。
+
+⇒ **本机门禁必须与 `.github/workflows/core-gate.yml` 的任务表一致**（照抄那两条 `run:`）：
+
+```
+:core:jvmTest
+:shared:model:jvmTest :shared:navigation:jvmTest :shared:designsystem:jvmTest :shared:network:jvmTest
+:feature:account:jvmTest :feature:agent:jvmTest :feature:attendance:jvmTest :feature:campus:jvmTest :feature:community:jvmTest :feature:game:jvmTest :feature:home:jvmTest :feature:jiaocai:jvmTest :feature:library:jvmTest :feature:lms:jvmTest :feature:notice:jvmTest :feature:schedule:jvmTest :feature:score:jvmTest :feature:settings:jvmTest :feature:webvpn:jvmTest
+:testkit:compileKotlin :shared:data:compileAndroidMain :shared:data:jvmTest :data:compileAndroidMain :data:jvmTest :desktop:compileKotlin :desktop:test
+:core:compileKotlinWasmJs :web:compileKotlinWasmJs :web:wasmJsBrowserTest
+```
+
+（本机另加 `:app:testDebugUnitTest` 与 `:server:test` —— 它们不在 core-gate 里，但受红线与契约保护。）
+
+**当前基线（2026-10-22：批6 + **#150 已 rebase 到 dev**（#142 合了之后；`dev@3e576195`，独占 + `--max-workers=1`，`BUILD SUCCESSFUL in 30m 32s`）：25 个测试任务 / 1813 条用例 / 0 失败**
+
+`:app` 450 · `:core` 18 · `:data` 17 · `:desktop` 141 · `:server` 170 · `:web` 70 ·
+`:shared:data` 274 · `:shared:model` 208 · `:shared:network` 120 · `:shared:designsystem` 25 · `:shared:navigation` 9 ·
+19 个 `:feature:*` 合计 311（`:feature:account` 是 `NO-SOURCE` —— 它没有测试）。
+
+⚠️ 历次测量（都对不齐，**以最新那一行为准**）：1721（§14.8 初版）→ 1754（session4 交接文件里）→
+1764（2026-10-21 白天，+10 全在 `:server`）→ 1769（同日晚上，+:server 1、`:feature:lms` 4）→
+**1783**（2026-10-22 批4，+14 全在 `:feature:jiaocai`，即新写的 `ServeJiaocai1ApiTest`）→
+**1789**（同日批5，+6 全在 `:shared:network`，即新写的 `ServeC2EndpointsApiTest`）→
+**1795**（同日批6，+:shared:network 5 = `ServeTranscriptWorkflowApiTest`、`:web` 1 = `WebServeBytesTest`）→
+**1813**（同日，#150 rebase 到 `dev` 之后：+18 全部来自 dev 那些新合进来的 PR —— `:feature:lms` 26→32、
+`:shared:model` 202→208、`:shared:data` 271→274、`:shared:navigation` 8→9、`:feature:schedule` 49→50、
+`:feature:settings` 44→45）。⚠️ 这一行以后要连「在哪个基底上量的」一起读：#142 已合并 ⇒ #150 的基底从
+`fix/dev-packaging-and-gates` 换成了 `dev`（PR base 也改成 `dev`）。
+⚠️ **本行的数字由脚本逐模块解析 `**/build/test-results/*/TEST-*.xml` 复算**（口径：用例数 = `tests` 属性之和）。
+
+⚠️ 另记：`:app` 的历史基线 **453 是过时数**（那是对着 kmp-tail 工作区测的）——
+**当前基线是 450**，差 3 条来自 dev 线的功能变更，不是重构丢的（见 `docs/storage-layout.md` 判据 A12）。
+
 
 ## 15. 阶段 C：`:web` 换成共享壳（2026-10-13 实做）
 
@@ -1015,7 +1054,7 @@ campus-api 那边虽然有 `/api/jwxt/changes` 与 `/api/jwxt/exams`，但本端
 |---|---|---|---|
 | **D7** | 写操作 | **三端全等，web 由 `:server` 代操作**（会话在服务端） | 图书馆约座/换座/签到/取消、场馆预订/取消、**含真支付**（见 D11b）、反馈提交、考勤请假/销假、领券、成绩单 PDF 落盘 —— 逐条端出写端点 |
 | **D11b** | 场馆「去支付」 | **serve 端一条真支付入口，浏览器里真能付款** | 用户明确「要真能付」。这条把 serve 从「只读代理」变成「有支付能力的远端」⇒ HTTPS + 鉴权（D11）从「加分项」变成**前提** |
-| **D8** | 持久化 | **键名逐字 + 统一存档层 + 三端互认** | 立一份「统一存档格式」当唯一真源（目录/文件名 + JSON 形状 + 键名 + 账号后缀 `safeSuffix()` + TTL），三端都能**导出/导入**这套档案、目录**可直接拷过去用**。**Android 内部仍走 SharedPreferences/Room**（不动 C1 红线：`:app` 429 条一条不减、行为逐字不变），但对外形状逐字一致 |
+| **D8** | 持久化 | **键名逐字 + 统一存档层 + 三端互认** | 立一份「统一存档格式」当唯一真源（目录/文件名 + JSON 形状 + 键名 + 账号后缀 `safeSuffix()` + TTL），三端都能**导出/导入**这套档案、目录**可直接拷过去用**。**Android 内部仍走 SharedPreferences/Room**（不动 C1 红线：`:app` 用例数**不低于当时基线** —— **2026-10-19 的基线是 450**，见 `docs/storage-layout.md` 判据 A12；行为逐字不变），但对外形状逐字一致 |
 | **D9** | 多账号 | **三端都支持** | Android 用现状（keystore）；桌面 DPAPI（`docs/windows-delivery.md` 那条缝）；**web = serve 进程**（DPAPI 保护），浏览器上「切换账号」= 让 serve 换一套凭据。账号页在 web 上要与 App 同一套层级（不再落「本端没有账号这回事」） |
 | **D10** | 屁岱（Agent）在浏览器上 | **key 存 serve 侧（DPAPI），浏览器只发消息，serve 转发 SSE** | 工具层按**白名单**开放（先只读口：黄页 / 教师检索 / 课表 / 空教室 / 校历…）；配置 / 会话 / 记忆三份落盘也归 serve，走 D8 的统一存档层。**⇒ 实做现状（2026-10-15，工单 **S-a → S-d 四件全部落地**）**：serve 侧的 **14 个端点 + SSE** 已落地（契约 **§5.11**），key 确实落在 serve 那一侧（`:data` 的 `protectedSecureKeyValueStore`，Windows = DPAPI；Linux/macOS 无保护器 ⇒ 仍是明文 `0600`，与今天逐字相同）；**白名单工具层（S-c）**交给模型的是那九件（`toolAllowlist` 从真下发的定义里读出来）；**`:web` 接线（S-d）**把浏览器那一格换成 `:core` 的 `AgentScreen` 本身（驱动是本端的 `WebAgentSession` + `@JsFun` 的 fetch/SSE 桥），**路由差集 5 → 4**。逐条现状与「还剩哪几件没做」写在契约 §5.11 |
 | **D11** | HTTPS / 部署 / 鉴权 | **serve 内置 HTTPS + 鉴权，开箱可启用** | 证书目录（含自签选项）+ 令牌鉴权 + 写进交付文档；反代仍可由用户自己接。**这是相机扫码 / 剪贴板 / WebCrypto / PWA 的前置**（HTTP 非 localhost = 非安全上下文，浏览器一律禁） |
@@ -1029,7 +1068,7 @@ campus-api 那边虽然有 `/api/jwxt/changes` 与 `/api/jwxt/exams`，但本端
    今天的差集是 7 条：`Agent`（D10 之后要变成真屏）/ `DownloadManager` / `Jiaocai1` / `Jiaocai1Reader`（D13 之后要做）/ `GameMerge`（D12-⑤）/ `Accounts`（D9 之后要做）/ `Browser`（它不是一屏，口径上不算差集）。**2026-10-15 起是 4 条**：`Accounts` 已由批② 的 S7b 落地、`GameMerge` 已由 D12 ⑤ 落地（§16.11）、`Agent` 已由 D10 的 S-d 落地（§16.1 那一行 + 契约 §5.11）⇒ 剩下 `DownloadManager` / `Jiaocai1` / `Jiaocai1Reader`，外加口径上不算差集的 `Browser` —— `:web` 的 `WebRouteCoverageTest` 钉的就是这 4 条（它同时钉住「差集里每一条在 `WebSupport` 文件头都有一句为什么」）。
 2. **存档全等**：统一存档格式是唯一真源 —— 文档 + 夹具 + 三端消费方，**遵 `docs/api-contract.md` §7 的「三处同改」**。
 3. **屏全等**：每屏的四种状态（加载 / 空 / 错误 / 降级）三端**同一套文案来源**（共享字符串与共享屏，不在各端各写一遍）。
-4. **数字回归网**：§5 那张表**只增不减**（`:app:testDebugUnitTest` **429 条一条不许减**）。
+4. **数字回归网**：§5 那张表**只增不减**（`:app:testDebugUnitTest` **基线 450 条不许减** —— 2026-10-19 实测 79 个 XML / 0 失败；交接文档里的 453 是对着 kmp-tail 工作区测的过时数，差 3 条来自 dev 线的功能变更，见 `docs/storage-layout.md` 判据 A12）。
 
 ### 16.3 下一批施工顺序（2026-10-14 定，与 §16.1 的 D 编号对应）
 
@@ -1102,7 +1141,7 @@ campus-api 那边虽然有 `/api/jwxt/changes` 与 `/api/jwxt/exams`，但本端
 | **R1** | 档案容器：JSON 目录 vs `.properties` 目录（规格未决 #1） | **JSON 目录** | wasm 没有 `java.util.Properties`，要在 commonMain 重写它的转义规则（`\uXXXX`、ISO-8859-1、行续接、`= : # !`）并与 JVM 逐字节往返一致 —— 一份新增的易错代码，而值类型标签（long/float/set）在 Properties 里还得另解决 |
 | **R2** | 规格未决 #2：「旧形状只读」在 Android 上做不到 | 口径定为 **「键名逐字 + 档案是端内 store 的投影」** | D8 已拍板 Android 内部仍走 SharedPreferences/Room（不动 `:app` 红线）；旧形状仍要能**读**（一次性导入），但端内**写**路径不变 |
 | **R3** | Android 档案落地通道（规格未决 #3） | **SAF**（零权限、零 manifest 改动） | 已核 `file_provider_paths.xml` 里没有 `archive/` 条目；若走分享导出则需追加 `archive/` |
-| **R4** | 审计 `#02`（切账号屁岱串号并写盘污染） | **Android 侧不改**（D15 (a) 类）；`:core` 只加可选槽位 `AgentHost.onAccountChanged()`（Android 空实现） | `AgentViewModel` 在 `:core`，真修就是三端一起变、直撞 C1 红线（D15 已明确：安卓侧行为一律不动） |
+| **R4** | 审计 `#02`（切账号屁岱串号并写盘污染） | **Android 侧不改**（D15 (a) 类）；**2026-10-19 复核：`:core` 其实不需要新槽位** —— 全仓 `grep -rn onAccountChanged --include=*.kt` **零命中**，这个槽位从未被实现；等价物是 `:core` 自带的 `AgentScreen.kt:96-99` 的 `LaunchedEffect(host.accountId)` + `AgentViewModel.kt:171-183` 的账号后缀守卫，**三端共用同一条** | `AgentViewModel` 在 `:core`，真修就是三端一起变、直撞 C1 红线（D15 已明确：安卓侧行为一律不动） |
 | **R5** | 审计 `#07` 的三端不一致侧 | **不存在** —— 三端今天**都是无后缀**（已复核 `AppPaymentCode.kt:48` / `ToolboxDesktopApp.kt:759` / `ToolboxWebApp.kt:824`）⇒ 整条归 (a) 类，本次只在 registry 里标 `global` | 回应文档 `docs/audit-response.md` 里 #07 的归类要按此更正 |
 | **R6** | `data_extraction_rules.xml` | **追加 `archive*` 排除** | 这是 `:app` 侧**唯一**必动的地方（纯安全排除，不改可见行为）：否则含学号的档案会进云备份 |
 | **R7** | `CredentialStore.cached_nickname` 不在规格键清单里 | **回写规格**（补进 `docs/storage-layout.md` §3.2） | 规格是唯一真源，漏键就是将来跨端丢东西 |

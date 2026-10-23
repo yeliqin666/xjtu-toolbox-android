@@ -34,6 +34,9 @@ internal class JvmFileKeyValueStore(private val file: File) : KeyValueStore {
     }
 
     private fun persist() {
+        // 只读（单实例锁被别人掌了 ⇒ `StoreWriteGate`）：**整份回写**会直接抹掉写者最近的改动，
+        // 所以一个字都不落盘（B-13）。读不受影响：内存那份就是这个文件 init 时读回来的。
+        if (!StoreWriteGate.allowsWrites) return
         val dir = file.parentFile
         if (dir != null && !dir.exists()) dir.mkdirs()
         FileOutputStream(file).use { props.store(it, null) }
@@ -93,10 +96,14 @@ internal class JvmFileKeyValueStore(private val file: File) : KeyValueStore {
     }
 }
 
-/** 建一个具名存储。同一 `name` 多次调用返回同一份实例（进程内 memo），同一根目录下同一份文件。 */
-actual fun keyValueStore(name: String): KeyValueStore = stores.computeIfAbsent(name) {
-    JvmFileKeyValueStore(File(keyValueStoreRoot(), "$name.properties"))
-}
+/** 建一个具名存储。同一 `(根目录, name)` 多次调用返回同一份实例（进程内 memo），同一根目录下同一份文件。
+ *
+ * ⚠️ memo 的键**含根目录**：测试会临时换 `keyValueStoreRootOverride`，只按 name 缓存会把第一个测试的
+ * 路径发给后面的测试（`DesktopStoreSuffixJvmTest` 就是这么被污染红的，2026-10-19）。 */
+actual fun keyValueStore(name: String): KeyValueStore =
+    stores.computeIfAbsent("${keyValueStoreRoot().absolutePath}/$name") {
+        JvmFileKeyValueStore(File(keyValueStoreRoot(), "$name.properties"))
+    }
 
 /** 不查 memo 直接开一个文件实例（测试「第二实例从磁盘读回」用）。 */
 internal fun newJvmFileKeyValueStore(name: String): KeyValueStore =

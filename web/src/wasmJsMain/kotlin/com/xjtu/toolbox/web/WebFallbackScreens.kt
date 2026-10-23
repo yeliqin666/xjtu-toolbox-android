@@ -47,12 +47,17 @@ internal fun WebUnavailableScreen(
         Text(title, color = cs.onSurface, fontSize = 18.sp, fontWeight = FontWeight.Bold)
         Text(why, color = cs.onSurface, fontSize = 13.sp)
         if (missing.isNotEmpty()) {
-            Text("暂不支持：", color = cs.primary, fontSize = 12.sp)
+            Text("这一端缺的东西：", color = cs.primary, fontSize = 12.sp)
             missing.forEach { line ->
                 Text("· $line", color = cs.onBackgroundVariant, fontSize = 12.sp)
             }
         }
-
+        Text(
+            "Web 只渲染 :core/commonMain 里的屏：一屏搬过来 = 屏 + 模型 + 取数端口进 :core，" +
+                "两端各自注入宿主面。搬过来的那些可以在底栏或 ?route= 里直接看。",
+            color = cs.onBackgroundVariant,
+            fontSize = 12.sp,
+        )
         actions()
     }
 }
@@ -62,9 +67,14 @@ internal fun WebUnavailableScreen(
 internal fun WebSupportMismatchScreen(route: AppRoute, onNavigate: (WebTarget) -> Unit) {
     val name = route::class.simpleName ?: "?"
     WebUnavailableScreen(
-        title = "页面暂时打不开",
-        why = "请返回首页重试；仍有问题可提交反馈。",
-        missing = emptyList(),
+        title = "这一屏的清单与分支对不上（Web 这一端的 bug）",
+        why = "`WebSupport.openableRouteIds` 里写着 AppRoute.$name（路由 id `${route.id}`）这一端能打开，" +
+            "但 `ToolboxWebApp.kt` 的 `AppPage(route, …)` 里没有它的分支，于是刚才那一跳落到了兜底。" +
+            "清单与 `when` 分支必须同时改 —— 见 `WebSupport` 的 KDoc「加一屏要改哪一行」。",
+        missing = listOf(
+            "`AppPage` 的 `when (route)` 里补一条分支：去渲染那一屏（它才是真画屏的地方）",
+            "或者把 AppRoute.$name 从 `WebSupport.openableRouteIds` 里去掉（本端确实没有这一屏）",
+        ),
     ) {
         TextButton(
             text = "回首页",
@@ -83,9 +93,10 @@ internal fun WebServicesScreen(serveMode: Boolean, onNavigate: (WebTarget) -> Un
             .padding(horizontal = 16.dp, vertical = 20.dp),
         verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
-        Text("学辅", color = cs.onSurface, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+        Text("学辅（Web 这一端）", color = cs.onSurface, fontSize = 18.sp, fontWeight = FontWeight.Bold)
         Text(
-            "选择要使用的功能。",
+            "这一格在 App 上是学业服务目录。本端没有「每项此刻的状态摘要」那一半，" +
+                "所以下面列的是同一份目录里**本端真能点开的屏** —— 点一行进那一屏。",
             color = cs.onSurface,
             fontSize = 13.sp,
         )
@@ -100,9 +111,9 @@ internal fun WebServicesScreen(serveMode: Boolean, onNavigate: (WebTarget) -> Un
         }
 
         if (WebSupport.unsupportedCatalog.isNotEmpty()) {
-            Text("请使用 App 或桌面版", color = cs.primary, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+            Text("本端还没有这一屏", color = cs.primary, fontSize = 12.sp, fontWeight = FontWeight.Bold)
             Text(
-                "以下功能暂未开放：" +
+                "目录里有、而这一端还没有屏的：" +
                     WebSupport.unsupportedCatalog.joinToString(" · ") { it.title },
                 color = cs.onBackgroundVariant,
                 fontSize = 12.sp,
@@ -110,21 +121,23 @@ internal fun WebServicesScreen(serveMode: Boolean, onNavigate: (WebTarget) -> Un
             Spacer(Modifier.height(6.dp))
         }
 
-        Text("账号登录", color = cs.primary, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+        Text("Web 专有的一屏", color = cs.primary, fontSize = 12.sp, fontWeight = FontWeight.Bold)
         if (serveMode) {
             Text(
-                "管理校园账号登录和短信验证。",
+                "会话（登录 / 短信二验 / 登出）：serve 模式的这一屏不进底栏（见 `WebShell.kt`），" +
+                    "过不了闸门时外壳会自动落到那里；从这里也能进。",
                 color = cs.onBackgroundVariant,
                 fontSize = 12.sp,
             )
             TextButton(
-                text = "登录管理",
+                text = "打开会话屏",
                 onClick = { onNavigate(WebTarget.Serve) },
                 minWidth = 128.dp,
             )
         } else {
             Text(
-                "当前服务由管理员管理登录信息。",
+                "会话屏要 serve 模式（`:server` 的 `GET /api/session`）才有意义；" +
+                    "当前是 campus-api 形态，凭据托管在反代进程里，页面上没有登录这回事。",
                 color = cs.onBackgroundVariant,
                 fontSize = 12.sp,
             )
@@ -175,15 +188,44 @@ internal fun WebServeOnlyScreen(
             .padding(24.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        Text(title, color = cs.onSurface, fontSize = 18.sp, fontWeight = FontWeight.Bold)
-        Text("当前服务暂不支持此功能，请使用 App 或桌面版。", color = cs.onSurface, fontSize = 13.sp)
-
+        Text("$title（Web 这一端：需要 serve 模式）", color = cs.onSurface, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+        Text(
+            "这一屏在本端**有**（`:core` 的共享屏 + `:web` 注入的 `:core` 取数），但它只认 serve 契约的端点：" +
+                "$endpoints（docs/api-contract.md $section）。$why 当前这一份 `:web` 探到的是 campus-api 形态" +
+                "（凭据托管在同源反代进程里），那几个端点不存在 ⇒ 这里写清楚，不拿别的屏冒充。",
+            color = cs.onSurface,
+            fontSize = 13.sp,
+        )
+        Text("这一端缺的东西：", color = cs.primary, fontSize = 12.sp)
+        listOf(
+            "serve 会话：起 `:server`（它同时托管这一份 `:web`），或用 `?backend=serve` 把模式钉死",
+            "campus-api 形态下这条取数链不存在 —— 这些域在 campus-api 里没有端点（不是本端没实现）",
+        ).forEach { line ->
+            Text("· $line", color = cs.onBackgroundVariant, fontSize = 12.sp)
+        }
     }
 }
 
 /** 日程页顶部那一行缺口说明。 */
 @Composable
 internal fun WebScheduleGapNote(mode: ApiMode) {
-    if (mode != ApiMode.SERVE) WebGapNote("课表暂不含调停课信息、考试和教材，请以教务系统为准。")
-
+    WebGapNote(
+        (if (mode == ApiMode.SERVE) {
+            "这一份日程与 Android / 桌面同口径：格子里的课**已经合过调课 / 停课 / 补课**" +
+                "（/api/jwxt/schedule?merged=1 端的就是 :data 已合并的那一份），考试与教材两栏也真取数。"
+        } else {
+            "这一份日程只有排课原样，而且后端不是 serve 模式：调停补课 / 考试 / 教材这三条端点" +
+                "本端只认 serve 契约里的那一种面（campus-api 的同名路径字段名不同，本端不认，§7 第 2 条）" +
+                "⇒ 考试与教材两栏空着、详情里的「N座」也不画；调课 / 停课 / 换教室同样不体现在格子上。"
+        }) +
+            (if (mode == ApiMode.SERVE) {
+                "课程详情里的「思源学堂」与「本次考勤」两项下钻与今日栏的作业截止都已接上" +
+                    "（/api/lms/course-match、/api/attendance/records、/api/lms/due）——" +
+                    "考勤角标还看设置里「课表显示考勤角标」那一格。"
+            } else {
+                "另外两处**这一端两种形态下都做不到**、屏上一个都不画：" +
+                    "① 课程详情里的「思源学堂」与「本次考勤」两项下钻 —— 要那两个站点的会话；" +
+                    "② 今日栏「接下来」的作业截止 —— 要思源那份落盘缓存。"
+            }),
+    )
 }

@@ -282,7 +282,7 @@ internal fun AttachmentThumb(path: String, host: AgentHost, size: Dp = 62.dp) {
     val bitmap = remember(path) {
         runCatching {
             // 读盘与解码都是平台的事（`:app` = `BitmapFactory.decodeFile`，全尺寸 ARGB_8888）；
-            // 桌面没有本地附件（相册那一档不画）⇒ 读不到就画下面那个占位。
+            // 读不到（文件被清掉、或这一端根本没有挑图那一档）就画下面那个占位。
             host.readImageBytes(path)?.let { decodeImageFull(it) }
         }.getOrNull()
     }

@@ -15,8 +15,15 @@ enum class AgentCapability(val tool: String?, val label: String) {
     /** 从系统相册挑图（视觉输入的入口）：`:app` 走 `PickMultipleVisualMedia` + 压缩落盘，桌面/Web 没有相册。 */
     IMAGE_INPUT(null, "相册挑图"),
 
-    /** 把工具查到的文件存进「下载」（资料卡那一行的动作）：`:app` = `ZyxfApi.download`。 */
-    FILE_SAVE(null, "存进下载"),
+    /**
+     * 把工具查到的文件存进「下载」（资料卡那一行的动作）：`:app` = `ZyxfApi.download`。
+     *
+     * [tool] 是 `save_file` 而不是 null：这一档既画一个工具、又画资料卡上那一行，
+     * 两处必须同一个开关（否则就是"工具能调、按钮不画"或反过来）。于是 `save_file` 也进了
+     * 工具表的门：没列这一档的端，模型调过来会被 `honors()` 挡成 not_found，
+     * 而不是半执行一遍再在某处抛错。
+     */
+    FILE_SAVE("save_file", "存进下载"),
 
     ;
     companion object {

@@ -46,12 +46,30 @@ object ApiErrors {
     /** 上游明确说这次写动作不成（座位已被他人预约 / 已有别的预约 / 不在开放时间 / 当前预约上没有这个操作）。 */
     const val ACTION_REJECTED = 409
 
+    /**
+     * 写账号要求在 HTTPS 下（`docs/parity-ledger.md` §6.1 #10 = 丙）。
+     *
+     * 与 [BAD_REQUEST] 分开单列：客户端靠这个码决定「把启用 HTTPS 的指引摆到用户面前」，
+     * 而 400 只意味着「这次请求本身写错了」。
+     */
+    const val HTTPS_REQUIRED = 403
+
+    /** 密码类写端点在明文 HTTP 上的拒绝文案：要说清怎么开 HTTPS / 怎么弄一张自签证书。 */
+    const val HTTPS_REQUIRED_MESSAGE =
+        "写账号必须在 HTTPS 下（明文 HTTP 上不收密码）：给 serve 加 --https 重启即会自动生成自签证书" +
+            "（<数据根>/tls/serve.p12）；想自己出一张就用 keytool -genkeypair -alias serve -keyalg RSA " +
+            "-keysize 2048 -validity 3650 -dname CN=localhost -ext SAN=dns:localhost,ip:127.0.0.1 " +
+            "-storetype PKCS12 -keystore serve.p12，再用 --https --cert serve.p12 指过去。读端点不受影响。"
+
     const val LOGIN_BODY_MESSAGE = "请求体需要 JSON：{\"username\":\"…\",\"password\":\"…\"}"
+
     const val MFA_BODY_MESSAGE = "请求体需要 JSON：{\"code\":\"…\"} 或 {\"cancel\":true}"
 
     fun unauthorized(): ApiEnvelope<Unit> = ApiEnvelope(UNAUTHORIZED, message = UNAUTHORIZED_MESSAGE)
 
     fun notFound(): ApiEnvelope<Unit> = ApiEnvelope(NOT_FOUND, message = NOT_FOUND_MESSAGE)
+
+    fun httpsRequired(): ApiEnvelope<Unit> = ApiEnvelope(HTTPS_REQUIRED, message = HTTPS_REQUIRED_MESSAGE)
 
     fun badRequest(message: String): ApiEnvelope<Unit> = ApiEnvelope(BAD_REQUEST, message = message)
 
