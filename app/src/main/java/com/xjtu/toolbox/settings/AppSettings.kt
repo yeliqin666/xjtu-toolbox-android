@@ -12,6 +12,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.ColumnScope
@@ -20,7 +21,6 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
@@ -96,7 +96,6 @@ import top.yukonga.miuix.kmp.preference.ArrowPreference
 import top.yukonga.miuix.kmp.preference.OverlayDropdownPreference
 import top.yukonga.miuix.kmp.preference.SwitchPreference
 import top.yukonga.miuix.kmp.theme.MiuixTheme
-import top.yukonga.miuix.kmp.utils.overScrollVertical
 
 /** Android 侧的设置页宿主。 */
 @Composable
@@ -572,6 +571,11 @@ private fun UpdateSection(context: Context, scope: CoroutineScope, credentialSto
     }
 }
 
+/**
+ * 推送来源：按分类勾选，每组可全选 / 清空；再加关键词过滤。
+ * 写法与「更新日志」等弹窗一致：内容整列滚动，高度交给弹窗自己。
+ * 选择和关键词都在关弹窗时一次写回，调用方的 [onDismiss] 随后按存储刷新摘要。
+ */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun NoticeSourceSheet(
@@ -579,88 +583,85 @@ private fun NoticeSourceSheet(
     onDismiss: () -> Unit,
 ) {
     val context = LocalContext.current
-    var selected by remember(show) {
-        mutableStateOf(NoticeWatchStore.sources(context))
-    }
+    var selected by remember(show) { mutableStateOf(NoticeWatchStore.sources(context)) }
     var keywords by remember(show) { mutableStateOf(NoticeWatchStore.keywordsRaw(context)) }
-    BackHandler(enabled = show) { onDismiss() }
+    fun close() {
+        NoticeWatchStore.setSources(context, selected)
+        NoticeWatchStore.setKeywords(context, keywords)
+        onDismiss()
+    }
+    BackHandler(enabled = show) { close() }
     OverlayBottomSheet(
         show = show,
         title = "推送来源",
-        onDismissRequest = onDismiss
+        onDismissRequest = ::close,
     ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .heightIn(max = 520.dp)
-                .overScrollVertical()
                 .verticalScroll(rememberScrollState())
                 .navigationBarsPadding()
         ) {
             Text(
-                "勾得越多越费电。",
-                style = MiuixTheme.textStyles.footnote1,
-                color = MiuixTheme.colorScheme.onSurfaceVariantSummary
-            )
-            Text(
-                if (selected.isEmpty()) "还没选来源" else "已选 ${selected.size} 个",
-                style = MiuixTheme.textStyles.footnote1,
-                color = if (selected.isEmpty()) {
-                    MiuixTheme.colorScheme.onSurfaceVariantSummary
-                } else {
-                    MiuixTheme.colorScheme.primary
-                },
-                modifier = Modifier.padding(top = 4.dp, bottom = 4.dp)
+                (if (selected.isEmpty()) "还没选来源" else "已选 ${selected.size} 个") + " · 选得越多越费电",
+                style = MiuixTheme.textStyles.body2,
+                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
             )
             SourceCategory.entries.forEach { category ->
-                Text(
-                    category.displayName,
-                    style = MiuixTheme.textStyles.subtitle,
-                    fontWeight = FontWeight.Medium,
-                    modifier = Modifier.padding(top = 12.dp, bottom = 8.dp)
-                )
+                val sources = NotificationSource.byCategory(category)
+                val all = selected.containsAll(sources)
+                Row(
+                    Modifier.fillMaxWidth().padding(top = 16.dp, bottom = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        category.displayName,
+                        style = MiuixTheme.textStyles.subtitle,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.weight(1f),
+                    )
+                    Text(
+                        if (all) "清空" else "全选",
+                        style = MiuixTheme.textStyles.body2,
+                        color = MiuixTheme.colorScheme.primary,
+                        modifier = Modifier.clickable { selected = if (all) selected - sources.toSet() else selected + sources },
+                    )
+                }
                 FlowRow(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    NotificationSource.byCategory(category).forEach { source ->
+                    sources.forEach { source ->
                         val checked = source in selected
                         AppFilterChip(
                             selected = checked,
-                            onClick = {
-                                selected = if (checked) selected - source else selected + source
-                                NoticeWatchStore.setSources(context, selected)
-                            },
+                            onClick = { selected = if (checked) selected - source else selected + source },
                             label = source.displayName
                         )
                     }
                 }
             }
 
-            // ── 关键词过滤 ──
             Text(
                 "只推含关键词的",
                 style = MiuixTheme.textStyles.subtitle,
-                fontWeight = FontWeight.Medium,
-                modifier = Modifier.padding(top = 16.dp, bottom = 4.dp)
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.padding(top = 20.dp, bottom = 4.dp)
             )
             Text(
                 "逗号分隔，留空则全推。",
-                style = MiuixTheme.textStyles.footnote1,
+                style = MiuixTheme.textStyles.body2,
                 color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                 modifier = Modifier.padding(bottom = 8.dp)
             )
             TextField(
                 value = keywords,
-                onValueChange = {
-                    keywords = it
-                    NoticeWatchStore.setKeywords(context, it)
-                },
+                onValueChange = { keywords = it },
                 label = "如：保研, 奖学金, 补考, 停电",
                 modifier = Modifier.fillMaxWidth(),
                 singleLine = true,
             )
-            Spacer(Modifier.height(8.dp))
+            Spacer(Modifier.height(16.dp))
         }
     }
 }
