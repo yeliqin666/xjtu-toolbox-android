@@ -29,8 +29,10 @@ internal fun ThemeColorDialog(
     onDismiss: () -> Unit,
     onConfirm: (lightHex: String, darkHex: String) -> Unit,
 ) {
+    // 先在 Composable 上下文中获取当前系统/App 的主题状态
+    val isSystemDark = LocalIsDarkTheme.current
     // 默认先摊开用户此刻正在看的那一档
-    var editingDark by remember { mutableStateOf(LocalIsDarkTheme.current) }
+    var editingDark by remember { mutableStateOf(isSystemDark) }
     var lightHex by remember { mutableStateOf(initialLightHex.ifEmpty { DEFAULT_HEX }) }
     // 深色没单独选过就继承浅色那个，别一进弹窗就变成另一个色
     var darkHex by remember { mutableStateOf(initialDarkHex.ifEmpty { initialLightHex.ifEmpty { DEFAULT_HEX } }) }
