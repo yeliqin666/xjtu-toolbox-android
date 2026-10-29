@@ -57,6 +57,21 @@ object CourseColors {
         version++
     }
 
+    /**
+     * 用户设过的课程色：去重后按色相排成一条彩带。
+     *
+     * 课表和思源学堂写的是同一个 store，所以「在思源学堂里给课程挑的色」也在这份里。
+     * 收纳给自建待办做快捷取色时就列它：有几个列几个，不拿按课名哈希的默认色来凑数
+     * （那些不是用户挑的）。
+     */
+    fun palette(): List<Color> {
+        val s = store()
+        return s.keys()
+            .mapNotNull { key -> s.getInt(key, 0).takeIf { v -> v != 0 }?.let { argb -> Color(argb) } }
+            .distinct()
+            .sortedBy(::hueOf)
+    }
+
     fun toHex(color: Color): String {
         val rgb = color.toArgb() and 0xFFFFFF
         return "#" + rgb.toString(16).uppercase().padStart(6, '0')
@@ -153,5 +168,19 @@ fun CourseColorPickerDialog(
             }
         }
     }
+}
+
+/** 色相（0..360）。只用来把 [CourseColors.palette] 那排色片按彩虹顺序排好，灰阶一律算 0。 */
+private fun hueOf(color: Color): Float {
+    val max = maxOf(color.red, color.green, color.blue)
+    val min = minOf(color.red, color.green, color.blue)
+    val d = max - min
+    if (d <= 0f) return 0f
+    val h = when (max) {
+        color.red -> ((color.green - color.blue) / d) % 6f
+        color.green -> (color.blue - color.red) / d + 2f
+        else -> (color.red - color.green) / d + 4f
+    }
+    return (h * 60f + 360f) % 360f
 }
 

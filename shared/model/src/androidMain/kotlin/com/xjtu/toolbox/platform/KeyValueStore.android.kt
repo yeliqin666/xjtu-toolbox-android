@@ -51,6 +51,9 @@ private class AndroidKeyValueStore(private val name: String) : KeyValueStore {
 
     override fun contains(key: String): Boolean = prefs.contains(key)
 
+    /** `SharedPreferences.all` 的一次拷贝（`getAll` 已经返回快照）。 */
+    override fun keys(): Set<String> = prefs.all.keys.toSet()
+
     override fun clear() {
         // 只清这个 store 的文件 —— 与现在 :app 里各 Store 自己 clear 自己那份的语义一致
         prefs.edit().clear().apply()

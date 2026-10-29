@@ -74,6 +74,12 @@ data class SelfTodo(
     val externalId: String? = null,
     /** 谁建的：`local` 用户手建，`agent` 屁岱代建，`dida` 从滴答同步来。 */
     val source: String = "local",
+    /**
+     * 用户给这条待办挑的图标色（ARGB）。null = 用收纳里「我的待办」那一类的默认绿。
+     *
+     * 本端自己加的字段（滴答那边没有），只影响收纳里这条的图标底色，不参与任何规则。
+     */
+    val colorArgb: Int? = null,
 ) {
     val done: Boolean get() = status == SelfTodoRules.STATUS_DONE
 }
@@ -205,6 +211,7 @@ object SelfTodoRules {
         time = now,
         expiresAt = dueMillis(todo),
         sticky = true,
+        colorArgb = todo.colorArgb,
     )
 
     /**
@@ -314,6 +321,12 @@ object SelfTodoStore {
     fun complete(id: String, account: String? = AccountContext.activeAccountId) {
         val now = nowMs()
         save(account, all(account).map { if (it.id == id) SelfTodoRules.complete(it, now) else it })
+    }
+
+    /** 给一条自建待办挑颜色（ARGB；null = 回到「我的待办」那一类的默认绿）。 */
+    fun setColor(id: String, colorArgb: Int?, account: String? = AccountContext.activeAccountId) {
+        val now = nowMs()
+        save(account, all(account).map { if (it.id == id) it.copy(colorArgb = colorArgb, modifiedTime = now) else it })
     }
 
     /** 删除：先按「忽略」记进收纳的已完成区（标已忽略），再从存储里去掉，免得显示成「已完成」。 */

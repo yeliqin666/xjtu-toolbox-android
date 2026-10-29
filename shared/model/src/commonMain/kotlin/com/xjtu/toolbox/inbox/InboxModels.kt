@@ -33,6 +33,12 @@ data class InboxItem(
      * 排序、「24 小时内截止」「已逾期」分组都靠它。也不受消息保留期约束。
      */
     val sticky: Boolean = false,
+    /**
+     * 用户自选的图标色（ARGB）。null = 用 [InboxCategories.argb] 给这一类的默认色。
+     *
+     * 只有「自建待办」会填：收纳里的其他条目都是学校 / 思源那边的投影，没有可挑色的地方。
+     */
+    val colorArgb: Int? = null,
 )
 
 /** 办完（或被用户忽略）的待办，灰着留 [InboxRules.FINISHED_KEEP_MS]。 */

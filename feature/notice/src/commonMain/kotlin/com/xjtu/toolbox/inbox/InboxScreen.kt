@@ -1,7 +1,10 @@
 package com.xjtu.toolbox.inbox
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.ui.draw.alpha
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -37,6 +40,7 @@ import androidx.compose.material.icons.filled.EditCalendar
 import androidx.compose.material.icons.filled.EmojiEvents
 import androidx.compose.material.icons.filled.EventSeat
 import androidx.compose.material.icons.filled.Notifications
+import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.RateReview
 import androidx.compose.material.icons.filled.Restaurant
 import androidx.compose.material.icons.filled.School
@@ -59,6 +63,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -66,6 +71,8 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.xjtu.toolbox.auth.LoginType
+import com.xjtu.toolbox.schedule.CourseColorPickerDialog
+import com.xjtu.toolbox.schedule.CourseColors
 import com.xjtu.toolbox.schedule.colorOf
 import com.xjtu.toolbox.schedule.rememberCourseColors
 import com.xjtu.toolbox.ui.adaptive.readableWidth
@@ -130,7 +137,11 @@ fun InboxScreen(
     // 作业按科目取课表里那门课的颜色，和课表、思源学堂一致
     val courseNames = remember(data) { (todos + finished.map { it.item }).filter { it.category == InboxCategories.LMS }.map { it.source }.distinct() }
     val courseColors = rememberCourseColors(courseNames)
-    fun accentOf(item: InboxItem) = if (item.category == InboxCategories.LMS) courseColors.colorOf(item.source) else null
+    // 自建待办可以自己挑色（存在 SelfTodo 上，投影到条目的 colorArgb）；没挑过就走分类色
+    fun accentOf(item: InboxItem): Color? = when {
+        item.category == InboxCategories.LMS -> courseColors.colorOf(item.source)
+        else -> item.colorArgb?.let { Color(it) }
+    }
     // 这次进来之前没看过的待办标个红点；一看到就记成看过，首页红点随之熄掉，这页的红点留到下次进来
     val seenAtOpen = remember { data.seenTodos }
     // 点开过的这次就算看了，返回时红点立刻熄掉
@@ -251,7 +262,11 @@ fun InboxScreen(
                                     onLongClick = {
                                         val selfId = SelfTodoRules.todoIdOf(it.id)
                                         actions = if (selfId != null) {
-                                            RowActions(it, listOf("标为完成" to { SelfTodoStore.complete(selfId) }, "删除" to { SelfTodoStore.delete(selfId) }))
+                                            RowActions(
+                                                it,
+                                                listOf("标为完成" to { SelfTodoStore.complete(selfId) }, "删除" to { SelfTodoStore.delete(selfId) }),
+                                                todoId = selfId,
+                                            )
                                         } else {
                                             RowActions(it, listOf("忽略这条待办" to { InboxStore.ignoreTodo(it.id) }))
                                         }
@@ -394,12 +409,21 @@ private class Entry(
 )
 
 /** 长按一条弹出的操作。 */
-private class RowActions(val item: InboxItem, val actions: List<Pair<String, () -> Unit>>)
+private class RowActions(
+    val item: InboxItem,
+    val actions: List<Pair<String, () -> Unit>>,
+    /** 自建待办在 `SelfTodoStore` 里的 id：只有这一种条目能在长按抽屉里改颜色。 */
+    val todoId: String? = null,
+)
 
 @Composable
 private fun RowActionsDialog(a: RowActions, onDismiss: () -> Unit) {
     WindowDialog(show = true, title = a.item.title, summary = a.item.source, onDismissRequest = onDismiss) {
         Column {
+            a.todoId?.let { id ->
+                TodoColorRow(todoId = id, currentArgb = a.item.colorArgb)
+                Spacer(Modifier.height(6.dp))
+            }
             a.actions.forEach { (label, run) ->
                 TextButton(
                     text = label,
@@ -411,6 +435,83 @@ private fun RowActionsDialog(a: RowActions, onDismiss: () -> Unit) {
             TextButton(text = "取消", onClick = onDismiss, modifier = Modifier.fillMaxWidth().padding(top = 8.dp))
         }
     }
+}
+
+/**
+ * 长按抽屉里的颜色块。
+ *
+ * 两处入口，各有分工：右上角「调色盘」进完整面板（色板 + Hex，和课程颜色同一个面板）；
+ * 下面那排快捷色片取自「课程颜色」那份设置（思源学堂里给课程挑的色也在里面），
+ * 有几个列几个，不拿按课名哈希的默认色来凑数。
+ */
+@Composable
+private fun TodoColorRow(todoId: String, currentArgb: Int?) {
+    var current by remember(todoId) { mutableStateOf(currentArgb) }
+    var showPalette by remember { mutableStateOf(false) }
+    // revision 变了说明课程颜色改过，跟着重读一遍
+    val quickColors = remember(CourseColors.revision) { CourseColors.palette() }
+    fun apply(argb: Int?) {
+        current = argb
+        SelfTodoStore.setColor(todoId, argb)
+    }
+    if (showPalette) {
+        CourseColorPickerDialog(
+            title = "待办颜色",
+            summary = "只改收纳里这一条的图标色",
+            initial = current?.let { Color(it) } ?: Color(InboxCategories.argb(InboxCategories.SELF)),
+            onDismiss = { showPalette = false },
+            onConfirm = { picked ->
+                apply(picked?.toArgb())
+                showPalette = false
+            },
+        )
+    }
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        Text("颜色", style = MiuixTheme.textStyles.footnote1, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
+        Spacer(Modifier.weight(1f))
+        Row(
+            Modifier.clip(RoundedCornerShape(12.dp)).clickable { showPalette = true }.padding(horizontal = 8.dp, vertical = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            Icon(
+                Icons.Default.Palette,
+                contentDescription = null,
+                tint = MiuixTheme.colorScheme.primary,
+                modifier = Modifier.size(16.dp),
+            )
+            Text("调色盘", style = MiuixTheme.textStyles.footnote1, color = MiuixTheme.colorScheme.primary)
+        }
+    }
+    if (quickColors.isNotEmpty()) {
+        Spacer(Modifier.height(8.dp))
+        FlowRow(
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            quickColors.forEach { color ->
+                val argb = color.toArgb()
+                Box(
+                    Modifier
+                        .size(28.dp)
+                        .clip(CircleShape)
+                        .background(color)
+                        .clickable { apply(argb) }
+                        .then(
+                            if (argb == current) Modifier.border(2.dp, MiuixTheme.colorScheme.primary, CircleShape)
+                            else Modifier
+                        ),
+                )
+            }
+        }
+    }
+    Spacer(Modifier.height(6.dp))
+    Text(
+        if (quickColors.isEmpty()) "还没在思源学堂 / 课表里设过课程颜色；点右上角「调色盘」挑一个（可填 Hex）"
+        else "点一个色片就用它；更细致的选择点右上角「调色盘」（可填 Hex）",
+        style = MiuixTheme.textStyles.footnote2,
+        color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+    )
 }
 
 /** 一个小标题加一张卡片，卡片里的条目用细线隔开。 */

@@ -87,6 +87,8 @@ internal class JvmFileKeyValueStore(private val file: File) : KeyValueStore {
 
     override fun contains(key: String): Boolean = synchronized(lock) { props.containsKey(key) }
 
+    override fun keys(): Set<String> = synchronized(lock) { props.stringPropertyNames().toSet() }
+
     override fun clear() = synchronized(lock) {
         props.clear()
         persist()
