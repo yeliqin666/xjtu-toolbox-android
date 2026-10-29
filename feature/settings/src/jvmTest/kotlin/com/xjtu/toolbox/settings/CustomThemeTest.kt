@@ -7,7 +7,6 @@ import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.ImageComposeScene
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
 import com.xjtu.toolbox.ui.theme.XJTUToolBoxTheme
@@ -19,18 +18,29 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 @OptIn(ExperimentalComposeUiApi::class)
 class CustomThemeTest {
+    /**
+     * 用户挑的色就是主题色本身：明暗两档各用各的，不再按种子色重新推一档色阶；
+     * 主题色上的字只看明暗（深色白字、浅色黑字），不按颜色亮度算对比度。
+     */
     @Test
-    fun customSeedsGenerateDistinctReadablePalettesInBothModes() {
+    fun customColorsAreUsedVerbatimInBothModes() {
         var failure: Throwable? = null
         SwingUtilities.invokeAndWait {
             try {
-                val palettes = mutableListOf<Color>()
                 for (mode in listOf("light", "dark")) {
                     for (hex in listOf("#B73945", "#208A77", "#000000", "#FFFFFF")) {
                         var primary: Color? = null
                         var foreground: Color? = null
+                        // 另一档给一个明显不同的色，用来确认两档不会互相串
+                        val lightHex = if (mode == "light") hex else "#208A77"
+                        val darkHex = if (mode == "dark") hex else "#B73945"
                         val scene = ImageComposeScene(320, 140, Density(1f)) {
-                            XJTUToolBoxTheme(darkModeOverride = mode, customColorHex = hex, applySystemBars = false) {
+                            XJTUToolBoxTheme(
+                                darkModeOverride = mode,
+                                customColorHex = lightHex,
+                                customDarkColorHex = darkHex,
+                                applySystemBars = false,
+                            ) {
                                 val colors = MiuixTheme.colorScheme
                                 SideEffect { primary = colors.primary; foreground = colors.onPrimary }
                                 Column(Modifier.fillMaxSize().background(colors.surface).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -43,18 +53,19 @@ class CustomThemeTest {
                         }
                         try {
                             val image = scene.render(0)
-                            val a = assertNotNull(primary).luminance()
-                            val b = assertNotNull(foreground).luminance()
-                            assertTrue((maxOf(a, b) + .05f) / (minOf(a, b) + .05f) >= 4.5f, "$mode $hex 的按钮文字应可读")
-                            if (hex == "#B73945" || hex == "#208A77") palettes += assertNotNull(primary)
+                            val expected = Color(0xFF000000 or hex.drop(1).toLong(16))
+                            assertEquals(expected, assertNotNull(primary), "$mode $hex 应当原样用作主题色")
+                            assertEquals(
+                                if (mode == "dark") Color.White else Color.Black,
+                                assertNotNull(foreground),
+                                "$mode 的主题色上，字色只跟明暗走",
+                            )
                             val out = File("build/reports/theme/${mode}-${hex.drop(1)}.png")
                             out.parentFile.mkdirs()
                             out.writeBytes(assertNotNull(image.encodeToData()).bytes)
                         } finally { scene.close() }
                     }
                 }
-                assertNotEquals(palettes[0], palettes[1], "选择不同种子色应改变主题")
-                assertNotEquals(palettes[0], palettes[2], "深色模式应调整色阶")
             } catch (error: Throwable) { failure = error }
         }
         failure?.let { throw it }

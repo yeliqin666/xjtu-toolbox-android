@@ -92,7 +92,13 @@ class MainActivity : ComponentActivity() {
             val darkMode by appearance.darkMode.collectAsStateWithLifecycle()
             val dynamicColor by appearance.dynamicColor.collectAsStateWithLifecycle()
             val customColorHex by appearance.customColorHex.collectAsStateWithLifecycle()
-            XJTUToolBoxTheme(darkModeOverride = darkMode, dynamicColor = dynamicColor, customColorHex = customColorHex) {
+            val customDarkColorHex by appearance.customDarkColorHex.collectAsStateWithLifecycle()
+            XJTUToolBoxTheme(
+                darkModeOverride = darkMode,
+                dynamicColor = dynamicColor,
+                customColorHex = customColorHex,
+                customDarkColorHex = customDarkColorHex,
+            ) {
                 AppRoot(
                     initialRoute = launchRoute.value,
                     onInitialRouteConsumed = { launchRoute.value = null },
