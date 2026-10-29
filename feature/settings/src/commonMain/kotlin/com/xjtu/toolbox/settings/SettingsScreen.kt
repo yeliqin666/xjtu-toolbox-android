@@ -313,11 +313,12 @@ private fun SettingsHome(
                             title = "自定义主题色",
                             summary = "浅色 $customLightHex · 深色 $customDarkHex",
                             startAction = {
-                                // 两个色点：左浅右深，一眼看出两档各设了什么
+                                // 两个色点：左浅右深，一眼看出两档各设了什么。
+                                // 尺寸照 SettingsIcon 那套（32dp 内容 + 12dp 间隔），标题才和上下行对齐。
                                 Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                                     listOf(customLightHex, customDarkHex).forEach { hex ->
                                         Box(
-                                            Modifier.size(18.dp)
+                                            Modifier.size(14.dp)
                                                 .background(
                                                     com.xjtu.toolbox.schedule.CourseColors.parseHex(hex) ?: cPink,
                                                     CircleShape,
@@ -330,6 +331,7 @@ private fun SettingsHome(
                                         )
                                     }
                                 }
+                                Spacer(Modifier.width(12.dp))
                             },
                             onClick = { showThemeColor = true },
                         )

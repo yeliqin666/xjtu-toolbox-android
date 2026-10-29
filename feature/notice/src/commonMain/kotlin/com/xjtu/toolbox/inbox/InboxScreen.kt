@@ -65,6 +65,9 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
@@ -468,6 +471,14 @@ private fun TodoColorRow(todoId: String, currentArgb: Int?) {
     }
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
         Text("颜色", style = MiuixTheme.textStyles.footnote1, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
+        // 现在用的是哪个色：自选色可能不在下面那排色片里，这里始终能看到
+        Spacer(Modifier.width(6.dp))
+        Spacer(
+            Modifier
+                .size(12.dp)
+                .clip(CircleShape)
+                .background(current?.let { Color(it) } ?: Color(InboxCategories.argb(InboxCategories.SELF))),
+        )
         Spacer(Modifier.weight(1f))
         Row(
             Modifier.clip(RoundedCornerShape(12.dp)).clickable { showPalette = true }.padding(horizontal = 8.dp, vertical = 4.dp),
@@ -500,7 +511,12 @@ private fun TodoColorRow(todoId: String, currentArgb: Int?) {
                         .then(
                             if (argb == current) Modifier.border(2.dp, MiuixTheme.colorScheme.primary, CircleShape)
                             else Modifier
-                        ),
+                        )
+                        // 色片没有字，读屏靠这句；选中的那个也标出来
+                        .semantics {
+                            contentDescription = "颜色 " + CourseColors.toHex(color)
+                            selected = argb == current
+                        },
                 )
             }
         }
