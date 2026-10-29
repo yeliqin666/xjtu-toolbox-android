@@ -90,6 +90,18 @@ class SettingsStore(private val store: KeyValueStore = keyValueStore(APP_SETTING
         get() = store.getString("hero_image_data").orEmpty()
         set(value) = store.putString("hero_image_data", value.ifEmpty { null })
 
+    /** 自定义背景的模糊半径（dp），0 = 不模糊。 */
+    var heroImageBlur: Int
+        get() = store.getInt("hero_image_blur", HERO_IMAGE_BLUR_MIN)
+            .coerceIn(HERO_IMAGE_BLUR_MIN, HERO_IMAGE_BLUR_MAX)
+        set(value) = store.putInt("hero_image_blur", value.coerceIn(HERO_IMAGE_BLUR_MIN, HERO_IMAGE_BLUR_MAX))
+
+    /** 自定义背景的亮度（百分比，20..100）；100 = 原图，越小越暗。 */
+    var heroImageBrightness: Int
+        get() = store.getInt("hero_image_brightness", HERO_IMAGE_BRIGHTNESS_MAX)
+            .coerceIn(HERO_IMAGE_BRIGHTNESS_MIN, HERO_IMAGE_BRIGHTNESS_MAX)
+        set(value) = store.putInt("hero_image_brightness", value.coerceIn(HERO_IMAGE_BRIGHTNESS_MIN, HERO_IMAGE_BRIGHTNESS_MAX))
+
     /** 场馆滑块验证码自动识别开关。 */
     var venueAutoSolveCaptchaEnabled: Boolean
         get() = store.getBoolean(KEY_VENUE_AUTO_SOLVE_CAPTCHA, true)
@@ -116,6 +128,11 @@ class SettingsStore(private val store: KeyValueStore = keyValueStore(APP_SETTING
         }
         /** 非敏感的应用设置（外观、协议、更新……），普通 SharedPreferences。 */
         const val APP_SETTINGS_FILE = "app_settings"
+
+        const val HERO_IMAGE_BLUR_MIN = 0
+        const val HERO_IMAGE_BLUR_MAX = 10
+        const val HERO_IMAGE_BRIGHTNESS_MIN = 20
+        const val HERO_IMAGE_BRIGHTNESS_MAX = 100
 
         private const val KEY_NAV_BAR_STYLE = "nav_bar_style"
         private const val KEY_DARK_MODE = "dark_mode"

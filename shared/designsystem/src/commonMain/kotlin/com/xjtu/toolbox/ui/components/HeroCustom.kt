@@ -23,12 +23,16 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.BlurredEdgeTreatment
+import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Canvas as GraphicsCanvas
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ColorFilter
+import androidx.compose.ui.graphics.ColorMatrix
 import androidx.compose.ui.graphics.FilterQuality
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.drawscope.CanvasDrawScope
@@ -65,7 +69,12 @@ val HeroCustomScrim: Brush = Brush.verticalGradient(
 
 @OptIn(ExperimentalEncodingApi::class)
 @Composable
-fun HeroCustomBackground(imageData: String, modifier: Modifier = Modifier) {
+fun HeroCustomBackground(
+    imageData: String,
+    modifier: Modifier = Modifier,
+    blur: Int = 0,
+    brightness: Int = 100,
+) {
     val image = remember(imageData) {
         if (imageData.isEmpty()) {
             null
@@ -74,11 +83,25 @@ fun HeroCustomBackground(imageData: String, modifier: Modifier = Modifier) {
         }
     }
     if (image != null) {
+        val colorFilter = remember(brightness) {
+            if (brightness >= 100) null else {
+                val scale = brightness / 100f
+                ColorFilter.colorMatrix(
+                    ColorMatrix().apply { setToScale(scale, scale, scale, 1f) }
+                )
+            }
+        }
         Image(
             bitmap = image,
             contentDescription = null,
             contentScale = ContentScale.Crop,
-            modifier = modifier.fillMaxSize(),
+            colorFilter = colorFilter,
+            modifier = modifier
+                .fillMaxSize()
+                .then(
+                    if (blur > 0) Modifier.blur(blur.dp, BlurredEdgeTreatment.Unbounded)
+                    else Modifier
+                ),
         )
     } else {
         Box(
