@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -42,10 +43,12 @@ import kotlinx.coroutines.withContext
 import kotlinx.datetime.LocalDateTime
 import top.yukonga.miuix.kmp.basic.ButtonDefaults
 import top.yukonga.miuix.kmp.basic.ColorPalette
+import top.yukonga.miuix.kmp.basic.Slider
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextButton
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.window.WindowDialog
+import kotlin.math.roundToInt
 
 /** 首页头卡的外观，落盘在 [SettingsStore] 的 `hero_*` 几项；默认值就是随时间和主题变化的自动外观。 */
 data class HeroAppearance(
@@ -56,6 +59,10 @@ data class HeroAppearance(
     val background: String = "liquid",
     /** 自定义背景裁好的图片（WebP Base64）；空串 = 还没选图。 */
     val imageData: String = "",
+    /** 自定义背景的模糊半径（dp）；0 = 不模糊。 */
+    val imageBlur: Int = 0,
+    /** 自定义背景的亮度（百分比，20..100）；100 = 原图。 */
+    val imageBrightness: Int = 100,
 ) {
     val solidColor: Color get() = CourseColors.parseHex(colorHex) ?: Color(0xFF2F7CFF)
 
@@ -69,7 +76,15 @@ data class HeroAppearance(
             "solid" -> "纯色 · $colorHex"
             "forest" -> "森林"
             "pixel" -> "像素"
-            "custom" -> if (imageData.isEmpty()) "自定义 · 未选图" else "自定义"
+            "custom" -> when {
+                imageData.isEmpty() -> "自定义 · 未选图"
+                imageBlur > 0 || imageBrightness < 100 ->
+                    "自定义 · " + listOfNotNull(
+                        imageBlur.takeIf { it > 0 }?.let { "模糊 $it dp" },
+                        imageBrightness.takeIf { it < 100 }?.let { "亮度 $it%" },
+                    ).joinToString(" · ")
+                else -> "自定义"
+            }
             else -> "液体 · ${paletteLabel(palette)} · ${motionLabel(motion)}"
         }
 
@@ -80,13 +95,21 @@ data class HeroAppearance(
         store.heroMotion = motion
         store.heroSeed = seed
         store.heroImageData = imageData
+        store.heroImageBlur = imageBlur
+        store.heroImageBrightness = imageBrightness
         HeroAppearanceRevision.bump()
     }
 
     companion object {
         fun read(store: SettingsStore, dark: Boolean) = HeroAppearance(
-            store.heroPalette, store.heroColorHex(dark), store.heroMotion, store.heroSeed, store.heroBackground,
-            store.heroImageData,
+            palette = store.heroPalette,
+            colorHex = store.heroColorHex(dark),
+            motion = store.heroMotion,
+            seed = store.heroSeed,
+            background = store.heroBackground,
+            imageData = store.heroImageData,
+            imageBlur = store.heroImageBlur,
+            imageBrightness = store.heroImageBrightness,
         )
     }
 }
@@ -183,7 +206,12 @@ fun HeroAppearanceDialog(
                         val bytes = withContext(Dispatchers.Default) { encodeHeroImage(cropped) }
                         imageBusy = false
                         if (bytes != null) {
-                            draft = draft.copy(background = "custom", imageData = Base64.Default.encode(bytes))
+                            draft = draft.copy(
+                                background = "custom",
+                                imageData = Base64.Default.encode(bytes),
+                                imageBlur = SettingsStore.HERO_IMAGE_BLUR_MIN,
+                                imageBrightness = SettingsStore.HERO_IMAGE_BRIGHTNESS_MAX,
+                            )
                         } else {
                             imageError = "保存图片失败"
                         }
@@ -220,7 +248,12 @@ fun HeroAppearanceDialog(
                                 Box(Modifier.matchParentSize().background(HeroPixelScrim))
                             }
                             "custom" -> {
-                                HeroCustomBackground(draft.imageData, Modifier.matchParentSize())
+                                HeroCustomBackground(
+                                    imageData = draft.imageData,
+                                    modifier = Modifier.matchParentSize(),
+                                    blur = draft.imageBlur,
+                                    brightness = draft.imageBrightness,
+                                )
                                 Box(Modifier.matchParentSize().background(HeroCustomScrim))
                             }
                             else -> {
@@ -263,6 +296,36 @@ fun HeroAppearanceDialog(
                                     imageError.orEmpty(),
                                     style = MiuixTheme.textStyles.footnote2,
                                     color = MiuixTheme.colorScheme.error,
+                                )
+                            }
+                        }
+                        if (draft.imageData.isNotEmpty()) {
+                            Text("模糊程度", style = MiuixTheme.textStyles.body2)
+                            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                                Slider(
+                                    value = draft.imageBlur.toFloat(),
+                                    onValueChange = { draft = draft.copy(imageBlur = it.roundToInt()) },
+                                    valueRange = SettingsStore.HERO_IMAGE_BLUR_MIN.toFloat()..SettingsStore.HERO_IMAGE_BLUR_MAX.toFloat(),
+                                    modifier = Modifier.weight(1f),
+                                )
+                                Text(
+                                    if (draft.imageBlur == 0) "无" else "${draft.imageBlur} dp",
+                                    style = MiuixTheme.textStyles.footnote2,
+                                    modifier = Modifier.width(48.dp),
+                                )
+                            }
+                            Text("亮度", style = MiuixTheme.textStyles.body2)
+                            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                                Slider(
+                                    value = draft.imageBrightness.toFloat(),
+                                    onValueChange = { draft = draft.copy(imageBrightness = it.roundToInt()) },
+                                    valueRange = SettingsStore.HERO_IMAGE_BRIGHTNESS_MIN.toFloat()..SettingsStore.HERO_IMAGE_BRIGHTNESS_MAX.toFloat(),
+                                    modifier = Modifier.weight(1f),
+                                )
+                                Text(
+                                    "${draft.imageBrightness}%",
+                                    style = MiuixTheme.textStyles.footnote2,
+                                    modifier = Modifier.width(48.dp),
                                 )
                             }
                         }

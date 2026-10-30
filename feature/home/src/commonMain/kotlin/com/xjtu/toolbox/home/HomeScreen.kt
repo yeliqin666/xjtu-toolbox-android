@@ -561,7 +561,12 @@ private fun EditorialFrontPage(
                         Box(Modifier.matchParentSize().background(HeroPixelScrim))
                     }
                     "custom" -> {
-                        HeroCustomBackground(appearance.imageData, Modifier.matchParentSize())
+                        HeroCustomBackground(
+                            imageData = appearance.imageData,
+                            modifier = Modifier.matchParentSize(),
+                            blur = appearance.imageBlur,
+                            brightness = appearance.imageBrightness,
+                        )
                         Box(Modifier.matchParentSize().background(HeroCustomScrim))
                     }
                     else -> {
