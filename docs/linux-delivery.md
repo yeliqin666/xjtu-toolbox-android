@@ -62,6 +62,11 @@ Windows 那一栏的 `windows.upgradeUuid`（MSI 的 UpgradeCode）**没有 Linu
 
 ### 2.1 桌面项图标的来源与生成（仓库内资源的转换，没有从网络下载任何东西）
 
+> **2026-10-30 更新**：App 图标已换成 Figma 设计的插画版，`drawable/ic_launcher_background.xml`
+> 与 `ic_launcher_foreground.xml` 两片矢量已删除，`mipmap-*/ic_launcher*.webp` 换成新图标，
+> `desktop/icons/linux.png` 与 `windows.ico` 也从同一份 Figma 导出重新生成。
+> 下面这段正文和 §3.x 里的 md5 是旧雪山图标的记录，只作历史参考。
+
 图标是**应用自己的图标**：仓库里那份自适应图标的两片矢量 ——
 `app/src/main/res/drawable/ic_launcher_background.xml`（`#87CEEB` 满幅）与 `ic_launcher_foreground.xml`
 （远山 `#7BAED4` / 主峰 `#2E6B9E` / 雪顶 `#FFFFFF` / 地面线 `#1B4F72`，viewport 都是 108×108），
@@ -70,7 +75,8 @@ Windows 那一栏的 `windows.upgradeUuid`（MSI 的 UpgradeCode）**没有 Linu
 
 ⚠️ **别拿 `mipmap-*/ic_launcher.webp` 当源**：本机把它解出来看过（§7 第 3 条），那是 Android Studio
 模板的**绿机器人占位图**，不是应用的图标 —— Windows 那份 `icons/windows.ico` 恰好就是拿它转的
-（见 `docs/windows-delivery.md` §7 第 10 条）。
+（见 `docs/windows-delivery.md` §7 第 10 条）。**（2026-10-30 起这一条已不成立：`mipmap-*` 里的
+位图已全部换成新图标，Windows 的 `.ico` 也一并重做了。）**
 
 本机没有 `rsvg-convert`（ImageMagick 的 SVG 委派就断在这里，`convert x.svg` 直接报 delegate failed），
 所以走的是**逐字转写 + 多边形直画**：那 5 个形状全是轴对齐的填充多边形（1 个矩形 + 4 个三角形/矩形），
