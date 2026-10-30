@@ -36,6 +36,7 @@ object AppChangelog {
     val ENTRIES: List<Pair<String, VersionChangelog>> = listOf(
         "5.2.2" to VersionChangelog(
             items = listOf(
+                "🎨" to "应用图标换成交小西形象（已获交小西制作组授权；图标形象版权归交小西制作组所有；本应用为开源项目，不由交小西制作组出品）",
                 "☁️" to "更新分发新增阿里云渠道，下载更快更稳；在设置里可以切换回 GitHub 或 Gitee",
                 "🔁" to "下载失败会自动尝试备用源，安装包继续做 SHA-256 校验",
                 "📢" to "公告和强制更新配置迁到阿里云，加载更稳定",

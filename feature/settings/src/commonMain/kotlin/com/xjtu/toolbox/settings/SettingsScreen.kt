@@ -23,11 +23,12 @@ import com.xjtu.toolbox.home.BottomBarTabs
 import com.xjtu.toolbox.ui.components.HeroAppearance
 import com.xjtu.toolbox.ui.components.HeroAppearanceRevision
 import com.xjtu.toolbox.ui.components.HomeHeroAppearanceDialog
+import com.xjtu.toolbox.ui.components.JiaoxiaoxiAvatar
 import com.xjtu.toolbox.ui.theme.LocalIsDarkTheme
 import com.xjtu.toolbox.platform.BackHandler
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.foundation.background
@@ -61,10 +62,14 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
+import com.xjtu.toolbox.nav.AppPageMotion
 import com.xjtu.toolbox.ui.HapticsSettingItem
 import com.xjtu.toolbox.ui.glass.*
 import top.yukonga.miuix.kmp.basic.BasicComponent
@@ -96,12 +101,31 @@ fun SettingsScreen(
     onBack: () -> Unit,
 ) {
     var showCredits by rememberSaveable { mutableStateOf(false) }
+    // 和压栈打开子页同一套转场（AppPageMotion）：新页从右侧整屏滑入，
+    // 被盖住的设置页向左让出 1/4 屏并轻微压暗，与「我的 → 设置」一致。
+    val cover by animateFloatAsState(
+        targetValue = if (showCredits) 1f else 0f,
+        animationSpec = tween(AppPageMotion.DurationMillis, easing = AppPageMotion.Easing),
+        label = "creditsCover",
+    )
+    val rtl = LocalLayoutDirection.current == LayoutDirection.Rtl
     Box(Modifier.fillMaxSize()) {
-        SettingsHome(store, host, onBack, onOpenCredits = { showCredits = true })
+        SettingsHome(
+            store, host, onBack,
+            onOpenCredits = { showCredits = true },
+            modifier = Modifier.graphicsLayer {
+                translationX = (if (rtl) 1f else -1f) * cover * size.width * 0.25f
+                alpha = 1f - 0.1f * cover
+            },
+        )
         AnimatedVisibility(
             visible = showCredits,
-            enter = slideInHorizontally { it / 3 } + fadeIn(),
-            exit = slideOutHorizontally { it / 3 } + fadeOut(),
+            enter = slideInHorizontally(
+                tween(AppPageMotion.DurationMillis, easing = AppPageMotion.Easing),
+            ) { if (rtl) -it else it },
+            exit = slideOutHorizontally(
+                tween(AppPageMotion.DurationMillis, easing = AppPageMotion.Easing),
+            ) { if (rtl) -it else it },
         ) {
             BackHandler { showCredits = false }
             CreditsScreen(host = host, onBack = { showCredits = false })
@@ -115,6 +139,7 @@ private fun SettingsHome(
     host: SettingsHost,
     onBack: () -> Unit,
     onOpenCredits: () -> Unit,
+    modifier: Modifier = Modifier,
 ) {
 
     val showDarkMode = SettingsRow.DARK_MODE in host.honoredRows
@@ -222,6 +247,7 @@ private fun SettingsHome(
     // 玻璃顶栏（经典风格下为 null，一切照旧），用法见 ui/glass/GlassTopBar.kt
     val glass = rememberPageGlass()
     Scaffold(
+        modifier = modifier,
         topBar = {
             TopAppBar(
                 title = "设置",
@@ -447,7 +473,7 @@ private fun SettingsHome(
                 )
                 ArrowPreference(
                     title = CREDITS_TITLE,
-                    summary = "贡献者、上游项目与许可证",
+                    summary = "图标形象、贡献者与许可证",
                     startAction = { SettingsIcon(Icons.Default.Star, cPurple) },
                     onClick = onOpenCredits
                 )
@@ -682,6 +708,31 @@ private fun CreditsScreen(host: SettingsHost, onBack: () -> Unit) {
                 .padding(padding.withoutTop(glass))
         ) {
             Spacer(Modifier.height(padding.glassTop(glass)))
+            // 交小西制作组的授权要求：版权归属与「非制作组出品」两句必须同时可见，
+            // 文案不要删减，出处见 THIRD_PARTY_NOTICES.md「美术素材」。
+            SmallTitle("图标形象")
+            SettingsCard {
+                BasicComponent(
+                    title = "交小西",
+                    summary = "图标形象版权归交小西制作组所有",
+                    startAction = {
+                        JiaoxiaoxiAvatar(Modifier.size(32.dp))
+                        Spacer(Modifier.width(12.dp))
+                    }
+                )
+                ArrowPreference(
+                    title = "B 站主页",
+                    summary = "space.bilibili.com/3494379805215567",
+                    startAction = { SettingsIcon(MiuixIcons.Forward, cBlue) },
+                    onClick = { host.onOpenUrl("https://space.bilibili.com/3494379805215567") }
+                )
+            }
+            Text(
+                text = "已获得交小西制作组授权使用该形象。本应用为开源项目，不由交小西制作组出品。",
+                style = MiuixTheme.textStyles.footnote1,
+                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                modifier = Modifier.padding(horizontal = 32.dp, vertical = 6.dp)
+            )
             SmallTitle("贡献者")
             SettingsCard {
                 ArrowPreference(
