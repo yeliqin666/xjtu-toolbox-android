@@ -210,7 +210,7 @@
 | 38 | `crash_reporter` | 无 | `CrashReporter.kt:32,33,41,44` | `enabled` | 全 |
 | 39 | `onboarding` | 无 | `OnboardingStore.kt:20,21,31` | `done` | 全 |
 | 40 | `notice_watch` | 无 | `NoticeWatchStore.kt:12-20,103,106` | `enabled` `sources` `sources_configured` `seen_links` `baselined_sources` `last_sync_at`(long) `last_titles` `push_keywords` | 全 |
-| 41 | `reminder_watch` | 无 | `ReminderStore.kt:29` | `schedule` `lms` `library` | 全 |
+| 41 | `reminder_watch` | 无 | `ReminderStore.kt:41` | 开关 `enabled_<kind>`（library / schedule / lms / community_reply / community_mention；**self_todo 只有游标、没有开关**）、去重游标 `seen_<kind>`、`baselined_<kind>` | 全 |
 | 42 | `session_keepalive` | 无 | `SessionKeepAlive.kt:68,75,76` | `enabled` `interval_min` | 全 |
 | 43 | `campus_probe` | 无 | `CampusProbe.kt:50` | `code` `data` `ywtb_token` | 全 |
 | 44 | `lms_downloads` | 无 | `LmsDownloadStore.kt:18,19,34,134` | `records` | 全 |

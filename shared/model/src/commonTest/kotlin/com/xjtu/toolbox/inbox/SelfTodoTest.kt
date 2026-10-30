@@ -172,4 +172,35 @@ class SelfTodoTest {
         assertTrue(Regex("^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$").matches(a), a)
         assertTrue(a != SelfTodoRules.newId())
     }
+
+    @Test
+    fun `抽屉里挑的日期和钟点，截止精确到分钟`() {
+        assertEquals("2026-10-16T08:05:00+0800", SelfTodoRules.dueAt(LocalDate(2026, 10, 16), 8, 5))
+        // 默认 23:59：选哪天就是那天的最后一分钟
+        assertEquals("2026-10-16T23:59:00+0800", SelfTodoRules.dueAt(LocalDate(2026, 10, 16), 23, 59))
+        // 越界的钟点夹到合法范围，不抛异常
+        assertEquals("2026-10-16T23:59:00+0800", SelfTodoRules.dueAt(LocalDate(2026, 10, 16), 99, 99))
+    }
+
+    @Test
+    fun `截止提醒的窗口，最后两天内才算，过时不推`() {
+        val hour = 3_600_000L
+        assertFalse(DueReminder.inWindow(nowMs + 30 * day, nowMs), "30 天后的事还早")
+        assertTrue(DueReminder.inWindow(nowMs + 47 * hour, nowMs))
+        // 刚好卡在 48 小时那一刻也算在窗口里
+        assertTrue(DueReminder.inWindow(nowMs + DueReminder.AHEAD_MS, nowMs))
+        assertFalse(DueReminder.inWindow(nowMs + DueReminder.AHEAD_MS + 1, nowMs))
+        // 到点那一刻、以及已经过时的都不推（省得半夜提醒或者事后添堵）
+        assertFalse(DueReminder.inWindow(nowMs, nowMs))
+        assertFalse(DueReminder.inWindow(nowMs - 1, nowMs))
+    }
+
+    @Test
+    fun `剩余时间的措辞，和作业截止通知那句一致`() {
+        val hour = 3_600_000L
+        assertEquals("剩 2 天", DueReminder.remainingText(nowMs + 2 * day, nowMs))
+        assertEquals("剩 1 天 5 小时", DueReminder.remainingText(nowMs + 29 * hour, nowMs))
+        assertEquals("剩 3 小时", DueReminder.remainingText(nowMs + 3 * hour, nowMs))
+        assertEquals("不到 1 小时", DueReminder.remainingText(nowMs + 30 * 60_000L, nowMs))
+    }
 }

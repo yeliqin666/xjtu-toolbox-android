@@ -1,10 +1,7 @@
 package com.xjtu.toolbox.inbox
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
-import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.ui.draw.alpha
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -40,7 +37,6 @@ import androidx.compose.material.icons.filled.EditCalendar
 import androidx.compose.material.icons.filled.EmojiEvents
 import androidx.compose.material.icons.filled.EventSeat
 import androidx.compose.material.icons.filled.Notifications
-import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.RateReview
 import androidx.compose.material.icons.filled.Restaurant
 import androidx.compose.material.icons.filled.School
@@ -63,19 +59,13 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.selected
-import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.xjtu.toolbox.auth.LoginType
-import com.xjtu.toolbox.schedule.CourseColorPickerDialog
-import com.xjtu.toolbox.schedule.CourseColors
 import com.xjtu.toolbox.schedule.colorOf
 import com.xjtu.toolbox.schedule.rememberCourseColors
 import com.xjtu.toolbox.ui.adaptive.readableWidth
@@ -262,6 +252,7 @@ fun InboxScreen(
                             section(title, list.map {
                                 Entry(
                                     it, it.id, unread = it.id !in seenAtOpen && it.id !in openedTodos, count = 1, accent = accentOf(it),
+                                    importance = InboxRules.importanceOf(data, it.id),
                                     onLongClick = {
                                         val selfId = SelfTodoRules.todoIdOf(it.id)
                                         actions = if (selfId != null) {
@@ -282,6 +273,7 @@ fun InboxScreen(
                             section("已完成", finished.map { f ->
                                 Entry(
                                     f.item, "done:${f.item.id}", unread = false, count = 1, dimmed = true, done = !f.ignored, accent = accentOf(f.item),
+                                    importance = InboxRules.importanceOf(data, f.item.id),
                                     timeText = (if (f.ignored) "已忽略 · " else "已完成 · ") + timeLabel(f.at),
                                 ) { open(f.item) }
                             })
@@ -317,81 +309,7 @@ fun InboxScreen(
         InboxDetailDialog(d, onAskPidai = ask) { detail = null }
     }
     actions?.let { a -> RowActionsDialog(a) { actions = null } }
-    if (showAdd) AddTodoDialog { showAdd = false }
-}
-
-/** 新建一条自建待办：标题必填，截止（今天 / 明天 / 本周日 / 不设）和优先级可选。 */
-@Composable
-private fun AddTodoDialog(onDismiss: () -> Unit) {
-    var title by remember { mutableStateOf("") }
-    var dueOffset by remember { mutableStateOf<Int?>(null) }
-    var priority by remember { mutableIntStateOf(SelfTodoRules.PRIORITY_NONE) }
-    var remind by remember { mutableStateOf(true) }
-    val today = remember { com.xjtu.toolbox.util.todayOnCampus() }
-    val dueChoices = listOf<Pair<String, Int?>>(
-        "不设" to null, "今天" to 0, "明天" to 1, "本周日" to SelfTodoRules.daysToSunday(today),
-    ).distinctBy { it.second }
-    val priorityChoices = listOf(
-        "无" to SelfTodoRules.PRIORITY_NONE, "低" to SelfTodoRules.PRIORITY_LOW,
-        "中" to SelfTodoRules.PRIORITY_MEDIUM, "高" to SelfTodoRules.PRIORITY_HIGH,
-    )
-    WindowDialog(show = true, title = "新建待办", summary = "记一件有截止、不占课表时段的事", onDismissRequest = onDismiss) {
-        Column {
-            top.yukonga.miuix.kmp.basic.TextField(
-                value = title,
-                onValueChange = { title = it.take(80) },
-                label = "要做什么",
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth(),
-            )
-            Spacer(Modifier.height(14.dp))
-            Text("截止", style = MiuixTheme.textStyles.footnote1, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
-            Spacer(Modifier.height(6.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                dueChoices.forEach { (label, offset) ->
-                    com.xjtu.toolbox.ui.components.AppFilterChip(selected = dueOffset == offset, onClick = { dueOffset = offset }, label = label)
-                }
-            }
-            if (dueOffset != null) {
-                Spacer(Modifier.height(12.dp))
-                Text("提醒", style = MiuixTheme.textStyles.footnote1, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
-                Spacer(Modifier.height(6.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    com.xjtu.toolbox.ui.components.AppFilterChip(selected = remind, onClick = { remind = true }, label = "当天 9 点")
-                    com.xjtu.toolbox.ui.components.AppFilterChip(selected = !remind, onClick = { remind = false }, label = "不提醒")
-                }
-            }
-            Spacer(Modifier.height(12.dp))
-            Text("优先级", style = MiuixTheme.textStyles.footnote1, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
-            Spacer(Modifier.height(6.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                priorityChoices.forEach { (label, value) ->
-                    com.xjtu.toolbox.ui.components.AppFilterChip(selected = priority == value, onClick = { priority = value }, label = label)
-                }
-            }
-            Spacer(Modifier.height(16.dp))
-            Row {
-                TextButton(text = "取消", onClick = onDismiss, modifier = Modifier.weight(1f))
-                Spacer(Modifier.width(12.dp))
-                TextButton(
-                    text = "添加",
-                    enabled = title.isNotBlank(),
-                    onClick = {
-                        SelfTodoStore.create(
-                            title = title,
-                            dueDate = SelfTodoRules.dueAt(dueOffset, Clock.System.now()),
-                            priority = priority,
-                            allDay = dueOffset != null,
-                            remind = remind && dueOffset != null,
-                        )
-                        onDismiss()
-                    },
-                    modifier = Modifier.weight(1f),
-                    colors = ButtonDefaults.textButtonColorsPrimary(),
-                )
-            }
-        }
-    }
+    if (showAdd) AddTodoSheet { showAdd = false }
 }
 
 private class Entry(
@@ -407,6 +325,8 @@ private class Entry(
     val timeText: String? = null,
     /** 作业按科目取课表里那门课的颜色，只给图标上色（课程色可自选，浅色当字色看不清）；为 null 用分类色。 */
     val accent: Color? = null,
+    /** 用户标的重要程度（[InboxRules.IMPORTANCE_*]）：只在标题旁画个角标，不参与排序。 */
+    val importance: Int = InboxRules.IMPORTANCE_NONE,
     val onLongClick: (() -> Unit)? = null,
     val onClick: () -> Unit,
 )
@@ -419,14 +339,29 @@ private class RowActions(
     val todoId: String? = null,
 )
 
+/**
+ * 长按抽屉：上半是「对这条待办的标注」（颜色、重要程度），下半是操作按钮。
+ *
+ * 颜色只有自建待办能改（存在 `SelfTodo` 上）；重要程度是所有待办都能标（存在
+ * `InboxData.importance`，学校推来的那几条也算）—— 两者都**不影响排序**。
+ */
 @Composable
 private fun RowActionsDialog(a: RowActions, onDismiss: () -> Unit) {
     WindowDialog(show = true, title = a.item.title, summary = a.item.source, onDismissRequest = onDismiss) {
-        Column {
-            a.todoId?.let { id ->
-                TodoColorRow(todoId = id, currentArgb = a.item.colorArgb)
-                Spacer(Modifier.height(6.dp))
+        Column(Modifier.heightIn(max = 460.dp).verticalScroll(rememberScrollState())) {
+            val todoId = a.todoId
+            if (todoId != null) {
+                var color by remember(todoId) { mutableStateOf(a.item.colorArgb) }
+                TodoColorField(current = color, onPick = {
+                    color = it
+                    SelfTodoStore.setColor(todoId, it)
+                })
+                Spacer(Modifier.height(12.dp))
             }
+            ImportanceRow(level = InboxRules.importanceOf(InboxStore.snapshot(), a.item.id)) {
+                InboxStore.setImportance(a.item.id, it)
+            }
+            Spacer(Modifier.height(12.dp))
             a.actions.forEach { (label, run) ->
                 TextButton(
                     text = label,
@@ -438,96 +373,6 @@ private fun RowActionsDialog(a: RowActions, onDismiss: () -> Unit) {
             TextButton(text = "取消", onClick = onDismiss, modifier = Modifier.fillMaxWidth().padding(top = 8.dp))
         }
     }
-}
-
-/**
- * 长按抽屉里的颜色块。
- *
- * 两处入口，各有分工：右上角「调色盘」进完整面板（色板 + Hex，和课程颜色同一个面板）；
- * 下面那排快捷色片取自「课程颜色」那份设置（思源学堂里给课程挑的色也在里面），
- * 有几个列几个，不拿按课名哈希的默认色来凑数。
- */
-@Composable
-private fun TodoColorRow(todoId: String, currentArgb: Int?) {
-    var current by remember(todoId) { mutableStateOf(currentArgb) }
-    var showPalette by remember { mutableStateOf(false) }
-    // revision 变了说明课程颜色改过，跟着重读一遍
-    val quickColors = remember(CourseColors.revision) { CourseColors.palette() }
-    fun apply(argb: Int?) {
-        current = argb
-        SelfTodoStore.setColor(todoId, argb)
-    }
-    if (showPalette) {
-        CourseColorPickerDialog(
-            title = "待办颜色",
-            summary = "只改收纳里这一条的图标色",
-            initial = current?.let { Color(it) } ?: Color(InboxCategories.argb(InboxCategories.SELF)),
-            onDismiss = { showPalette = false },
-            onConfirm = { picked ->
-                apply(picked?.toArgb())
-                showPalette = false
-            },
-        )
-    }
-    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-        Text("颜色", style = MiuixTheme.textStyles.footnote1, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
-        // 现在用的是哪个色：自选色可能不在下面那排色片里，这里始终能看到
-        Spacer(Modifier.width(6.dp))
-        Spacer(
-            Modifier
-                .size(12.dp)
-                .clip(CircleShape)
-                .background(current?.let { Color(it) } ?: Color(InboxCategories.argb(InboxCategories.SELF))),
-        )
-        Spacer(Modifier.weight(1f))
-        Row(
-            Modifier.clip(RoundedCornerShape(12.dp)).clickable { showPalette = true }.padding(horizontal = 8.dp, vertical = 4.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(4.dp),
-        ) {
-            Icon(
-                Icons.Default.Palette,
-                contentDescription = null,
-                tint = MiuixTheme.colorScheme.primary,
-                modifier = Modifier.size(16.dp),
-            )
-            Text("调色盘", style = MiuixTheme.textStyles.footnote1, color = MiuixTheme.colorScheme.primary)
-        }
-    }
-    if (quickColors.isNotEmpty()) {
-        Spacer(Modifier.height(8.dp))
-        FlowRow(
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            quickColors.forEach { color ->
-                val argb = color.toArgb()
-                Box(
-                    Modifier
-                        .size(28.dp)
-                        .clip(CircleShape)
-                        .background(color)
-                        .clickable { apply(argb) }
-                        .then(
-                            if (argb == current) Modifier.border(2.dp, MiuixTheme.colorScheme.primary, CircleShape)
-                            else Modifier
-                        )
-                        // 色片没有字，读屏靠这句；选中的那个也标出来
-                        .semantics {
-                            contentDescription = "颜色 " + CourseColors.toHex(color)
-                            selected = argb == current
-                        },
-                )
-            }
-        }
-    }
-    Spacer(Modifier.height(6.dp))
-    Text(
-        if (quickColors.isEmpty()) "还没在思源学堂 / 课表里设过课程颜色；点右上角「调色盘」挑一个（可填 Hex）"
-        else "点一个色片就用它；更细致的选择点右上角「调色盘」（可填 Hex）",
-        style = MiuixTheme.textStyles.footnote2,
-        color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-    )
 }
 
 /** 一个小标题加一张卡片，卡片里的条目用细线隔开。 */
@@ -745,14 +590,21 @@ private fun InboxRow(e: Entry) {
             }
             // 学校不少消息的标题就是系统名，和上面的来源重复，这时直接拿正文当标题
             val titleIsSource = item.title == item.source && item.body.isNotBlank()
-            Text(
-                if (titleIsSource) item.body else item.title,
-                style = MiuixTheme.textStyles.body1,
-                fontWeight = if (unread) FontWeight.SemiBold else FontWeight.Normal,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.padding(top = 2.dp),
-            )
+            Row(verticalAlignment = Alignment.Top) {
+                // 重要程度只画角标：顺序仍按截止时间，标签不插队
+                if (e.importance != InboxRules.IMPORTANCE_NONE) {
+                    Box(Modifier.padding(top = 5.dp)) { ImportanceBadge(e.importance) }
+                    Spacer(Modifier.width(6.dp))
+                }
+                Text(
+                    if (titleIsSource) item.body else item.title,
+                    style = MiuixTheme.textStyles.body1,
+                    fontWeight = if (unread) FontWeight.SemiBold else FontWeight.Normal,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f).padding(top = 2.dp),
+                )
+            }
             if (item.body.isNotBlank() && !titleIsSource) {
                 Text(
                     item.body,

@@ -61,6 +61,13 @@ data class InboxData(
     val finished: List<FinishedTodo> = emptyList(),
     /** 用户关掉的分类；默认全开，所以只记关掉的。 */
     val off: Set<String> = emptySet(),
+    /**
+     * 用户给某条待办标的重要程度：待办 id → 级别（见 [InboxRules.IMPORTANCE_*]）。
+     *
+     * 和 [ignored] 一样是「对某条待办的本地标注」，不跟着来源走：学校明天重新推一遍
+     * 同一条待办，标过的级别还在。**不参与排序**，只决定列表里的角标和通知的措辞。
+     */
+    val importance: Map<String, Int> = emptyMap(),
     val schoolFetchedAt: Long = 0L,
     /** 已经由屁岱冒过泡的消息，不重复念。 */
     val bubbled: Set<String> = emptySet(),
@@ -160,6 +167,32 @@ object InboxRules {
             .filter { visible(it, now) && it.id !in data.ignored }
             .sortedWith(compareBy<InboxItem> { it.expiresAt.takeIf { e -> e > 0 } ?: Long.MAX_VALUE }.thenByDescending { it.time })
 
+    /**
+     * 重要程度：沿用滴答任务模型的 0/1/3/5（不是连续数，和 `SelfTodo.priority` 同一套取值）。
+     *
+     * 这里是**用户给收纳里某条待办贴的标签**（手建的和学校推来的都能贴），
+     * 只决定列表角标与通知措辞，**不参与排序** —— 顺序一律看截止时间。
+     */
+    const val IMPORTANCE_NONE = 0
+    const val IMPORTANCE_LOW = 1
+    const val IMPORTANCE_MEDIUM = 3
+    const val IMPORTANCE_HIGH = 5
+
+    /** 一条待办的级别；没标过就是 [IMPORTANCE_NONE]。 */
+    fun importanceOf(data: InboxData, id: String): Int = data.importance[id] ?: IMPORTANCE_NONE
+
+    /** 改级别；选「普通」等于把标签摘掉。 */
+    fun setImportance(data: InboxData, id: String, level: Int): InboxData =
+        data.copy(importance = if (level == IMPORTANCE_NONE) data.importance - id else data.importance + (id to level))
+
+    /** 级别的字面：角标和通知共用这一套措辞。 */
+    fun importanceLabel(level: Int): String? = when (level) {
+        IMPORTANCE_LOW -> "次要"
+        IMPORTANCE_MEDIUM -> "重要"
+        IMPORTANCE_HIGH -> "紧急"
+        else -> null
+    }
+
     /** 最近办完或忽略的待办，新的在前。 */
     fun finished(data: InboxData, now: Long): List<FinishedTodo> =
         data.finished.filter { it.item.category !in data.off && now - it.at < FINISHED_KEEP_MS }.sortedByDescending { it.at }
@@ -182,11 +215,14 @@ object InboxRules {
         val activeIds = todos.values.flatten().mapTo(HashSet()) { it.id }
         val finished = (data.finished.filter { it.ignored || it.item.id !in newIds } + vanished.map { FinishedTodo(it, now) })
             .filter { now - it.at < FINISHED_KEEP_MS }
+        // 各种标注只留还在的 id：重要程度的标签跟着条目走，条目彻底消失（办完过完 7 天）才丢
+        val keptIds = activeIds + finished.map { it.item.id }
         return data.copy(
             todos = todos,
             finished = finished,
             seenTodos = data.seenTodos.filterTo(HashSet()) { it in activeIds },
             ignored = data.ignored.filterTo(HashSet()) { it in activeIds },
+            importance = data.importance.filterKeys { it in keptIds },
         )
     }
 
@@ -330,6 +366,10 @@ object InboxStore {
     }
 
     fun ignoreTodo(id: String) = update(AccountContext.activeAccountId) { InboxRules.ignore(it, id, Clock.System.now().toEpochMilliseconds()) }
+
+    /** 给一条待办标重要程度；只影响角标与通知措辞，不影响排序。 */
+    fun setImportance(id: String, level: Int) =
+        update(AccountContext.activeAccountId) { InboxRules.setImportance(it, id, level) }
 
     fun markBubbled(id: String) = update(AccountContext.activeAccountId) { it.copy(bubbled = it.bubbled + id) }
 

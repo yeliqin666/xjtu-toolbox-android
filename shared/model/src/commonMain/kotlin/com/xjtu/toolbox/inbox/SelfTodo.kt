@@ -44,13 +44,14 @@ import kotlin.time.Instant
  * | `tags` | `tags` | |
  * | `projectId` | `projectId` | 滴答的「清单」，本地没有清单概念时为 null |
  * | `repeatFlag` | `repeatFlag` | RRULE 串，**现在只存不解释** |
- * | `reminders` | `reminders` | `TRIGGER:` 串，解释见 [SelfTodoRules.nextReminderAt]：全天待办以截止那天 0 点为基准，其余以截止时刻为基准 |
+ * | `reminders` | `reminders` | `TRIGGER:` 串，解释见 [SelfTodoRules.nextReminderAt]。新建待办**不再写它**（提醒改由 [DueReminder] 按截止窗口统一判定），留着只为对齐滴答和读老数据 |
  * | `items` | `items` | 子任务 |
  * | `externalId` | 滴答的任务 id | 同步时回填，用来去重 |
  *
  * 暂时没做的（留好了字段，没写逻辑）：重复规则展开、子任务界面、滴答同步。
- * 到点提醒由宿主经 [SelfTodoHooks] 接（Android 是 WorkManager），屁岱的 `add_todo` / `get_todos` /
- * `complete_todo` 走 [SelfTodoStore]（工具本体在 `:feature:notice` 的 `SelfTodoAgentTools`）。
+ * 截止提醒走 [DueReminder] 那一套（和作业截止同一个窗口规则），宿主经 [SelfTodoHooks] 接排期
+ * （Android 是 WorkManager 的周期扫描）；屁岱的 `add_todo` / `get_todos` / `complete_todo` 走
+ * [SelfTodoStore]（工具本体在 `:feature:notice` 的 `SelfTodoAgentTools`）。
  */
 @Serializable
 data class SelfTodo(
@@ -61,6 +62,12 @@ data class SelfTodo(
     val dueDate: String? = null,
     val isAllDay: Boolean = false,
     val timeZone: String = CAMPUS_TIME_ZONE_ID,
+    /**
+     * 滴答的优先级字段，只为读老数据与将来接滴答同步保留。
+     *
+     * 界面和屁岱都不再写它：收纳里那条待办的「重要程度」是**用户对这条待办的标注**，
+     * 存在 [InboxData.importance]（学校推来的待办也能标），两者别混。
+     */
     val priority: Int = 0,
     val status: Int = 0,
     val completedTime: String? = null,
@@ -92,6 +99,10 @@ object SelfTodoRules {
     const val STATUS_OPEN = 0
     const val STATUS_DONE = 2
 
+    /**
+     * 优先级：**界面和屁岱都不再生产它**（待办一律按截止时间排，见 [open]），
+     * 常量与 [SelfTodo.priority] 字段只为对齐滴答的取值（0/1/3/5，不是连续数）与读老数据。
+     */
     const val PRIORITY_NONE = 0
     const val PRIORITY_LOW = 1
     const val PRIORITY_MEDIUM = 3
@@ -157,8 +168,11 @@ object SelfTodoRules {
     }
 
     /**
-     * 下一次要提醒的时刻（毫秒）；没有截止、没有提醒、都已过去的返回 null。
+     * 老数据的 `reminders` 串（`TRIGGER:`）换算成提醒时刻（毫秒）；没有截止、没有提醒、都已过去的返回 null。
      * 全天待办的基准是截止那天的 0 点（所以 `P0DT9H0M0S` 是当天 9 点），有具体时刻的基准是截止时刻本身。
+     *
+     * **现在的排期不再走它**：提醒由 [DueReminder] 的截止窗口统一判定（[SelfTodoStore] 写完之后由宿主
+     * 扫一遍）。留着是因为老待办里还有这些串，将来接滴答同步也还认这个格式。
      */
     fun nextReminderAt(todo: SelfTodo, now: Long): Long? {
         if (todo.done || todo.reminders.isEmpty()) return null
@@ -176,6 +190,13 @@ object SelfTodoRules {
             val day = now.toLocalDateTime(zone).date.plus(DatePeriod(days = it))
             format(LocalDateTime(day, LocalTime(23, 59)), zone)
         }
+
+    /**
+     * 用户在抽屉里挑的那一天、那个钟点（默认 23:59）换成的截止串。
+     * 这是**有具体时刻**的截止（不是全天），所以当天就没有「9 点提醒」那套换算。
+     */
+    fun dueAt(date: LocalDate, hour: Int, minute: Int, zone: TimeZone = CampusTimeZone): String =
+        format(LocalDateTime(date, LocalTime(hour.coerceIn(0, 23), minute.coerceIn(0, 59))), zone)
 
     private val DUE_AT = Regex("""^(\d{4})-(\d{1,2})-(\d{1,2}) (\d{1,2}):(\d{2})$""")
 
@@ -215,8 +236,9 @@ object SelfTodoRules {
     )
 
     /**
-     * @param allDay 截止只精确到天（用户选了「今天 / 明天」）：截止放当天 23:59，提醒按当天 9 点算。
-     * @param remind 要不要提醒；没有截止就无从提醒，忽略。
+     * @param allDay 截止只精确到天（全天待办）：截止放当天 23:59。
+     * @param remind 要不要提醒；没有截止就无从提醒，忽略。**界面不再问这一项**（新建的一律按 [DueReminder] 的窗口提醒），
+     *   留着是给读老数据与别的调用方用。
      */
     fun newTodo(
         title: String,
@@ -226,13 +248,14 @@ object SelfTodoRules {
         source: String = "local",
         allDay: Boolean = false,
         remind: Boolean = false,
+        colorArgb: Int? = null,
         now: Long,
     ): SelfTodo =
         SelfTodo(
             title = title.trim(), content = content.trim(), dueDate = dueDate, priority = priority,
             isAllDay = allDay && dueDate != null,
             reminders = if (remind && dueDate != null) listOf(if (allDay) REMIND_ALL_DAY_9AM else REMIND_AT_DUE) else emptyList(),
-            createdTime = now, modifiedTime = now, source = source,
+            createdTime = now, modifiedTime = now, source = source, colorArgb = colorArgb,
         )
 
     fun complete(todo: SelfTodo, now: Long): SelfTodo =
@@ -259,7 +282,12 @@ object SelfTodoRules {
     }
 }
 
-/** 宿主的到点提醒槽位：存储每次改动后对一遍（Android 用 WorkManager 排期；没接的端不提醒）。 */
+/**
+ * 宿主的截止提醒槽位：存储每次改动后喊一声（Android 顺手扫一遍刚改过的这批；没接的端不提醒）。
+ *
+ * 参数是改动前后的两份，留给将来要「只对变化的几条做增量」的端；现在 Android 那边整表扫一遍
+ * （待办本来就几十条，读一次本机 JSON 的代价可以忽略）。
+ */
 object SelfTodoHooks {
     var onChanged: ((account: String?, before: List<SelfTodo>, after: List<SelfTodo>) -> Unit)? = null
 }
@@ -310,10 +338,11 @@ object SelfTodoStore {
         source: String = "local",
         allDay: Boolean = false,
         remind: Boolean = false,
+        colorArgb: Int? = null,
         account: String? = AccountContext.activeAccountId,
     ): SelfTodo? {
         if (title.isBlank()) return null
-        val todo = SelfTodoRules.newTodo(title, content, dueDate, priority, source, allDay, remind, nowMs())
+        val todo = SelfTodoRules.newTodo(title, content, dueDate, priority, source, allDay, remind, colorArgb, nowMs())
         save(account, all(account) + todo)
         return todo
     }

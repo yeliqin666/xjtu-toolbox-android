@@ -3,88 +3,87 @@ package com.xjtu.toolbox.inbox
 import android.content.Context
 import android.util.Log
 import androidx.work.CoroutineWorker
-import androidx.work.Data
+import androidx.work.ExistingPeriodicWorkPolicy
 import androidx.work.ExistingWorkPolicy
 import androidx.work.OneTimeWorkRequestBuilder
+import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
+import com.xjtu.toolbox.notification.ReminderKind
 import com.xjtu.toolbox.notification.ReminderNotifier
+import com.xjtu.toolbox.notification.ReminderStore
 import java.util.concurrent.TimeUnit
 
 /**
- * 自建待办的到点提醒。
+ * 自建待办的截止提醒。
  *
- * 一条待办一个 WorkManager 唯一任务，延迟到它下一次要提醒的时刻再跑；WorkManager 自己负责跨重启、跨重启机器保留。
- * 精度是「几分钟内」，不是闹钟：Doze 下系统会把它并到下一个维护窗口。要准点到秒就得申请精确闹钟权限，
- * 待办提醒不值得为此多弹一个权限。
+ * 和作业截止（`LmsDeadlineWorker`）用的是同一套规则（[DueReminder]）：周期扫一遍，谁的截止落进
+ * 「最后两天」的窗口、又还没提醒过，就推一条；推过的记进去重游标，不再重复。
  *
- * 不登录任何学校系统，纯本地，所以不受后台提醒那三个开关约束；系统通知权限没给就不发（[ReminderNotifier.canPost]）。
+ * 以前这里是「每条待办一个 WorkManager 一次性任务，精确到截止那一刻」，改掉有两个原因：
+ * 1. 和作业截止同一口径 —— 两处各写一份「提前多久」，改一处忘一处就会变成「作业提前两天、
+ *    自己记的到点才响」；
+ * 2. 待办的截止多半是 23:59（「当天结束」的意思），精确到那一刻提醒会落在半夜。
+ *
+ * 纯本地、不登录任何学校系统，所以不受后台提醒那几个开关约束；系统通知权限没给就不发
+ * （[ReminderNotifier.canPost]）。扫描只是读一遍本机 JSON，代价极低，周期比作业那档更短。
+ *
+ * 只扫**当前账号**那份（[SelfTodoStore.open] 的默认账号）：通知点开进的是当前账号的收纳，
+ * 给别的账号的待办弹一条通知会跳错地方。
  */
 object SelfTodoReminders {
     private const val TAG = "SelfTodoRemind"
-    private const val KEY_ID = "id"
-    private const val KEY_ACCOUNT = "account"
-    private const val HAS_ACCOUNT = "has_account"
+    private const val PERIODIC = "self_todo_scan"
+    private const val SCAN_ONCE = "self_todo_scan_once"
 
-    private fun uniqueName(todoId: String) = "self_todo_remind_$todoId"
-
-    /** 存储变化后对一遍：还要提醒的重新排期（REPLACE，幂等），办完、删掉的取消。 */
-    internal fun sync(context: Context, account: String?, before: List<SelfTodo>, after: List<SelfTodo>) {
-        val now = System.currentTimeMillis()
-        val keep = after.mapTo(HashSet()) { it.id }
-        before.filter { it.id !in keep }.forEach { cancel(context, it.id) }
-        after.forEach { todo ->
-            val at = SelfTodoRules.nextReminderAt(todo, now)
-            if (at != null) schedule(context, account, todo.id, at, now) else cancel(context, todo.id)
-        }
-    }
-
-    internal fun schedule(context: Context, account: String?, todoId: String, at: Long, now: Long = System.currentTimeMillis()) {
-        val request = OneTimeWorkRequestBuilder<SelfTodoReminderWorker>()
-            .setInitialDelay((at - now).coerceAtLeast(0L), TimeUnit.MILLISECONDS)
-            .setInputData(
-                Data.Builder()
-                    .putString(KEY_ID, todoId)
-                    .putBoolean(HAS_ACCOUNT, account != null)
-                    .apply { account?.let { putString(KEY_ACCOUNT, it) } }
-                    .build(),
-            )
-            .build()
+    /** 应用启动时挂周期扫描。 */
+    internal fun apply(context: Context) {
+        val request = PeriodicWorkRequestBuilder<SelfTodoReminderWorker>(1, TimeUnit.HOURS, 30, TimeUnit.MINUTES).build()
         runCatching {
-            WorkManager.getInstance(context).enqueueUniqueWork(uniqueName(todoId), ExistingWorkPolicy.REPLACE, request)
-        }.onFailure { Log.w(TAG, "排期失败：${it.message}") }
+            WorkManager.getInstance(context.applicationContext)
+                .enqueueUniquePeriodicWork(PERIODIC, ExistingPeriodicWorkPolicy.UPDATE, request)
+        }.onFailure { Log.w(TAG, "周期排期失败：${it.message}") }
     }
 
-    internal fun cancel(context: Context, todoId: String) {
-        runCatching { WorkManager.getInstance(context).cancelUniqueWork(uniqueName(todoId)) }
+    /**
+     * 存储在改：刚建的待办可能已经落进窗口里，立刻扫一次，不必等下一个周期。
+     * 扫完发现窗口是空的也无所谓 —— 那只是一次本机文件读取。
+     */
+    internal fun sync(context: Context) {
+        runCatching {
+            WorkManager.getInstance(context.applicationContext)
+                .enqueueUniqueWork(SCAN_ONCE, ExistingWorkPolicy.REPLACE, OneTimeWorkRequestBuilder<SelfTodoReminderWorker>().build())
+        }.onFailure { Log.w(TAG, "立即扫描排期失败：${it.message}") }
     }
-
-    internal fun accountOf(data: Data): String? =
-        if (data.getBoolean(HAS_ACCOUNT, false)) data.getString(KEY_ACCOUNT) else null
-
-    internal fun idOf(data: Data): String? = data.getString(KEY_ID)
 }
 
 class SelfTodoReminderWorker(context: Context, params: WorkerParameters) : CoroutineWorker(context, params) {
 
     override suspend fun doWork(): Result {
         val app = applicationContext
-        val id = SelfTodoReminders.idOf(inputData) ?: return Result.success()
-        val account = SelfTodoReminders.accountOf(inputData)
-        val todo = SelfTodoStore.all(account).firstOrNull { it.id == id }
-        // 办完或删掉的，任务本该已经取消；没来得及取消的到这里也不发
-        if (todo == null || todo.done) return Result.success()
+        val now = System.currentTimeMillis()
+        val open = SelfTodoStore.open().mapNotNull { todo ->
+            SelfTodoRules.dueMillis(todo).takeIf { it > 0 }?.let { todo to it }
+        }
+        val fresh = open.filter { (todo, at) ->
+            DueReminder.inWindow(at, now) && !ReminderStore.hasSeen(app, ReminderKind.SELF_TODO, todo.id)
+        }
+        if (fresh.isEmpty()) return Result.success()
 
-        val allDay = todo.isAllDay
-        ReminderNotifier.notifyTodo(
-            context = app,
-            todoId = todo.id,
-            title = todo.title,
-            detail = if (allDay) "今天截止" else "到点了",
-        )
-        // 还有后面的提醒（比如「提前一天」之后又有「到点」）就接着排；没有就到此为止
-        SelfTodoRules.nextReminderAt(todo, System.currentTimeMillis())
-            ?.let { SelfTodoReminders.schedule(app, account, todo.id, it) }
+        // 重要程度是用户对「收纳里那条」的标注，所以从收纳那边读；标过的才在通知标题前带一句
+        val data = InboxStore.load()
+        fresh.forEach { (todo, at) ->
+            val level = InboxRules.importanceOf(data, SelfTodoRules.inboxId(todo.id))
+            val prefix = InboxRules.importanceLabel(level)?.let { "$it · " }.orEmpty()
+            val posted = ReminderNotifier.notifyTodo(
+                context = app,
+                todoId = todo.id,
+                title = prefix + todo.title,
+                detail = "${DueReminder.remainingText(at, now)}截止",
+            )
+            // 没发出去（通知权限没给）就不记游标：用户开了权限之后还该收到这一条
+            if (posted) ReminderStore.markSeen(app, ReminderKind.SELF_TODO, listOf(todo.id))
+        }
         return Result.success()
     }
 }

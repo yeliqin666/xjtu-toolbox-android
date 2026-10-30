@@ -3,7 +3,10 @@ package com.xjtu.toolbox.notification
 import android.content.Context
 
 /**
- * 后台提醒。互相独立，各自一个开关，也各自一份去重游标。
+ * 后台提醒。学校那几项互相独立，各自一个开关，也各自一份去重游标。
+ *
+ * [SELF_TODO] 是例外：它只用得到去重游标，**没有开关**（扫一遍本机待办是零代价，
+ * 不值得再让用户去设置里打开一次），所以设置页不列它。
  */
 enum class ReminderKind(val key: String, val title: String) {
     /** 图书馆预约后的签到 / 返座催办。 */
@@ -20,12 +23,15 @@ enum class ReminderKind(val key: String, val title: String) {
 
     /** 社区里任意帖子 @ 了自己。 */
     COMMUNITY_MENTION("community_mention", "被 @ 提及"),
+
+    /** 自建待办快截止。没有开关，只有去重游标（见类注释）。 */
+    SELF_TODO("self_todo", "自建待办截止提醒"),
 }
 
 /**
  * 后台提醒的开关与去重游标。
  *
- * 默认**全关**。学校的三项要在后台悄悄登录学校系统（图书馆 / 教务 / 思源学堂），
+ * 开关默认**全关**。学校的三项要在后台悄悄登录学校系统（图书馆 / 教务 / 思源学堂），
  * 社区两项要用 GitHub 令牌定时查询，都跟只抓公开页面的教务通知盯梢不是一回事——
  * 与「课表显示考勤」同理，有额外代价的功能由用户自己打开。
  *
