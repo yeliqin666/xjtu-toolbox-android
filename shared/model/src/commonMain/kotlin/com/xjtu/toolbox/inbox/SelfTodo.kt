@@ -44,14 +44,15 @@ import kotlin.time.Instant
  * | `tags` | `tags` | |
  * | `projectId` | `projectId` | 滴答的「清单」，本地没有清单概念时为 null |
  * | `repeatFlag` | `repeatFlag` | RRULE 串，**现在只存不解释** |
- * | `reminders` | `reminders` | `TRIGGER:` 串，解释见 [SelfTodoRules.nextReminderAt]。新建待办**不再写它**（提醒改由 [DueReminder] 按截止窗口统一判定），留着只为对齐滴答和读老数据 |
+ * | `reminders` | `reminders` | `TRIGGER:` 串，解释见 [SelfTodoRules.nextReminderAt]。新建待办**不再写它**（提醒时刻改由 [SelfTodoRules.reminderAt] 推算），留着只为对齐滴答和读老数据 |
  * | `items` | `items` | 子任务 |
  * | `externalId` | 滴答的任务 id | 同步时回填，用来去重 |
  *
  * 暂时没做的（留好了字段，没写逻辑）：重复规则展开、子任务界面、滴答同步。
- * 截止提醒走 [DueReminder] 那一套（和作业截止同一个窗口规则），宿主经 [SelfTodoHooks] 接排期
- * （Android 是 WorkManager 的周期扫描）；屁岱的 `add_todo` / `get_todos` / `complete_todo` 走
- * [SelfTodoStore]（工具本体在 `:feature:notice` 的 `SelfTodoAgentTools`）。
+ * 截止提醒由 [SelfTodoRules.reminderAt] 推算（截止前 48 小时，撞上 0–7 点顺延到 7 点），
+ * 宿主经 [SelfTodoHooks] 接排期（Android 是 WorkManager 的一条待办一个任务）；屁岱的
+ * `add_todo` / `get_todos` / `complete_todo` 走 [SelfTodoStore]（工具本体在 `:feature:notice`
+ * 的 `SelfTodoAgentTools`）。
  */
 @Serializable
 data class SelfTodo(
@@ -171,8 +172,8 @@ object SelfTodoRules {
      * 老数据的 `reminders` 串（`TRIGGER:`）换算成提醒时刻（毫秒）；没有截止、没有提醒、都已过去的返回 null。
      * 全天待办的基准是截止那天的 0 点（所以 `P0DT9H0M0S` 是当天 9 点），有具体时刻的基准是截止时刻本身。
      *
-     * **现在的排期不再走它**：提醒由 [DueReminder] 的截止窗口统一判定（[SelfTodoStore] 写完之后由宿主
-     * 扫一遍）。留着是因为老待办里还有这些串，将来接滴答同步也还认这个格式。
+     * **现在的排期不再走它**：提醒时刻由 [reminderAt] 按截止时间推算（宿主排期）。
+     * 留着是因为老待办里还有这些串，将来接滴答同步也还认这个格式。
      */
     fun nextReminderAt(todo: SelfTodo, now: Long): Long? {
         if (todo.done || todo.reminders.isEmpty()) return null
@@ -197,6 +198,36 @@ object SelfTodoRules {
      */
     fun dueAt(date: LocalDate, hour: Int, minute: Int, zone: TimeZone = CampusTimeZone): String =
         format(LocalDateTime(date, LocalTime(hour.coerceIn(0, 23), minute.coerceIn(0, 59))), zone)
+
+    /** 自建待办的提醒提前量：截止前 48 小时（和作业截止的那档窗口一样长）。 */
+    const val REMIND_AHEAD_MS = 48L * 60 * 60 * 1000
+
+    /** 静默时段到几点：算出来的提醒时刻落在 0 点到这个点之间，就顺延到这个点。 */
+    const val QUIET_END_HOUR = 7
+
+    /**
+     * 这条待办该在什么时候提醒（毫秒）；没截止、已办完、已经过了截止的返回 null。
+     *
+     * 推算：截止前 [REMIND_AHEAD_MS]；算出来的时刻若落在 0:00–[QUIET_END_HOUR]:00 之间，
+     * 顺延到当天 [QUIET_END_HOUR]:00 —— 半夜弹通知没人看，第二天早上再响也不迟。
+     * 算出来的时刻已经过去（待办建得晚，比如今晚建、明天下午截止）就取此刻，同样避开静默时段；
+     * 兜底再卡一次「不能晚于截止」。
+     *
+     * 只负责算，排期与去重交给宿主（Android 是 [SelfTodoHooks] 接的 WorkManager）。
+     */
+    fun reminderAt(todo: SelfTodo, now: Long): Long? {
+        if (todo.done) return null
+        val due = dueMillis(todo).takeIf { it > 0 } ?: return null
+        if (due <= now) return null
+        val zone = zoneOf(todo.timeZone)
+        // 落在静默时段就顺延到当天早上；其余原样
+        fun outOfQuiet(ms: Long): Long {
+            val local = Instant.fromEpochMilliseconds(ms).toLocalDateTime(zone)
+            if (local.hour >= QUIET_END_HOUR) return ms
+            return LocalDateTime(local.date, LocalTime(QUIET_END_HOUR, 0)).toInstant(zone).toEpochMilliseconds()
+        }
+        return outOfQuiet(maxOf(due - REMIND_AHEAD_MS, now)).takeIf { it < due }
+    }
 
     private val DUE_AT = Regex("""^(\d{4})-(\d{1,2})-(\d{1,2}) (\d{1,2}):(\d{2})$""")
 
@@ -237,7 +268,7 @@ object SelfTodoRules {
 
     /**
      * @param allDay 截止只精确到天（全天待办）：截止放当天 23:59。
-     * @param remind 要不要提醒；没有截止就无从提醒，忽略。**界面不再问这一项**（新建的一律按 [DueReminder] 的窗口提醒），
+     * @param remind 要不要提醒；没有截止就无从提醒，忽略。**界面不再问这一项**（新建的一律按 [reminderAt] 推算的时刻提醒），
      *   留着是给读老数据与别的调用方用。
      */
     fun newTodo(
@@ -283,10 +314,10 @@ object SelfTodoRules {
 }
 
 /**
- * 宿主的截止提醒槽位：存储每次改动后喊一声（Android 顺手扫一遍刚改过的这批；没接的端不提醒）。
+ * 宿主的截止提醒槽位：存储每次改动后对一遍（Android 按 [SelfTodoRules.reminderAt] 重排/取消那一条
+ * WorkManager 任务；没接的端不提醒）。
  *
- * 参数是改动前后的两份，留给将来要「只对变化的几条做增量」的端；现在 Android 那边整表扫一遍
- * （待办本来就几十条，读一次本机 JSON 的代价可以忽略）。
+ * 给的是改动前后的两份，方便宿主知道哪条没了、哪条是新的。
  */
 object SelfTodoHooks {
     var onChanged: ((account: String?, before: List<SelfTodo>, after: List<SelfTodo>) -> Unit)? = null

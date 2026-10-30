@@ -76,8 +76,8 @@ private const val MAX_DAYS_AHEAD = 365
  * 而不是一个窄弹窗 —— 日期、时间、颜色挤在弹窗里既看不清也点不准；抽屉还能一路往下滑。
  *
  * 与日程那面的差别是有意为之：待办**不占时段**（没有结束时间、没有周次、没有冲突判定），
- * 只需要一个截止；提醒也不在这里问 —— 截止提醒走 [DueReminder] 那一套（和作业截止同一个窗口），
- * 用户不用选，选了也没用。
+ * 只需要一个截止；提醒也不在这里问 —— 提醒时刻由 [SelfTodoRules.reminderAt] 推算
+ * （截止前 48 小时，撞上 0–7 点顺延到 7 点），用户不用选，选了也没用。
  */
 @Composable
 internal fun AddTodoSheet(onDismiss: () -> Unit) {

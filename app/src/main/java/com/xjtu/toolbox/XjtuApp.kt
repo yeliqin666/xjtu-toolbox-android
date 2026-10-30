@@ -73,10 +73,9 @@ class XjtuApp : Application() {
         com.xjtu.toolbox.inbox.InboxWidgetHook.onTodosChanged = {
             runCatching { com.xjtu.toolbox.widget.TodoWidgetUpdater.requestUpdate(this) }
         }
-        // 自建待办的截止提醒：存储在 :shared:model（各端共用），扫描排期要 WorkManager（只在 :app）
-        // ⇒ 同样挂回调。存储一改就立刻扫一次（刚建的待办可能在窗口里），周期扫描在下面挂。
-        com.xjtu.toolbox.inbox.SelfTodoHooks.onChanged = { _, _, _ ->
-            com.xjtu.toolbox.inbox.SelfTodoReminders.sync(this)
+        // 自建待办的截止提醒：存储在 :shared:model（各端共用），排期要 WorkManager（只在 :app）⇒ 同样挂回调。
+        com.xjtu.toolbox.inbox.SelfTodoHooks.onChanged = { account, before, after ->
+            com.xjtu.toolbox.inbox.SelfTodoReminders.sync(this, account, before, after)
         }
         // 小游戏全服榜的服务端地址（构建期可覆盖，见 app/build.gradle.kts；空串 = 不出现排行榜）
         com.xjtu.toolbox.game.board.LeaderboardApi.install(BuildConfig.LEADERBOARD_BASE_URL)
@@ -91,7 +90,6 @@ class XjtuApp : Application() {
             com.xjtu.toolbox.notification.ScheduleWatchScheduler.apply(this@XjtuApp)
             com.xjtu.toolbox.notification.LmsDeadlineScheduler.apply(this@XjtuApp)
             com.xjtu.toolbox.notification.CommunityWatchScheduler.apply(this@XjtuApp)
-            com.xjtu.toolbox.inbox.SelfTodoReminders.apply(this@XjtuApp)
             com.xjtu.toolbox.agent.PidaiJobScheduler.apply(this@XjtuApp)
         }
     }

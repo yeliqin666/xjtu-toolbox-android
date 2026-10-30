@@ -132,7 +132,8 @@ object SelfTodoAgentTools : AgentTools {
         ) ?: return ToolReply.failed("add_todo", "empty_title")
         if (level != InboxRules.IMPORTANCE_NONE) InboxStore.setImportance(SelfTodoRules.inboxId(todo.id), level)
         val dueText = SelfTodoRules.dueText(todo)
-        val reminder = if (dueText != null) "截止前两天起推一次" else "无（没有截止）"
+        // 如实说清提醒会落在什么时候（0–7 点会顺延），免得用户以为半夜也会响
+        val reminder = if (dueText != null) "截止前 48 小时推一次（撞上 0–7 点顺延到 7 点）" else "无（没有截止）"
         return "ok: added; title: ${todo.title}; due: ${dueText ?: "none"}; reminder: $reminder"
     }
 
