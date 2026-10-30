@@ -389,6 +389,20 @@ object SelfTodoStore {
         save(account, all(account).map { if (it.id == id) it.copy(colorArgb = colorArgb, modifiedTime = now) else it })
     }
 
+    /**
+     * 改截止。[dueDate] 为 null = 不设截止。
+     *
+     * 改完之后这条会按新的截止**重新提醒一次**：宿主在 [SelfTodoHooks.onChanged] 里看到
+     * 截止变了，就把「已提醒」的记录清掉再排期（Android 那边见 `SelfTodoReminders.sync`）。
+     */
+    fun setDue(id: String, dueDate: String?, account: String? = AccountContext.activeAccountId) {
+        val now = nowMs()
+        save(account, all(account).map {
+            // 抽屉里给的总是「某天某个钟点」，所以不算全天
+            if (it.id == id) it.copy(dueDate = dueDate, isAllDay = false, modifiedTime = now) else it
+        })
+    }
+
     /** 删除：先按「忽略」记进收纳的已完成区（标已忽略），再从存储里去掉，免得显示成「已完成」。 */
     fun delete(id: String, account: String? = AccountContext.activeAccountId) {
         InboxStore.ignoreTodo(SelfTodoRules.inboxId(id))

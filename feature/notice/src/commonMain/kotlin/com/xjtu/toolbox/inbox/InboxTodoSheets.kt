@@ -46,12 +46,15 @@ import com.xjtu.toolbox.schedule.CourseColorPickerDialog
 import com.xjtu.toolbox.schedule.CourseColors
 import com.xjtu.toolbox.ui.components.AppDatePickerDialog
 import com.xjtu.toolbox.ui.components.AppFilterChip
+import com.xjtu.toolbox.util.CampusTimeZone
 import com.xjtu.toolbox.util.formatTwoDigits
 import com.xjtu.toolbox.util.todayOnCampus
 import kotlinx.datetime.DateTimeUnit
 import kotlinx.datetime.LocalDate
 import kotlinx.datetime.isoDayNumber
 import kotlinx.datetime.plus
+import kotlinx.datetime.toLocalDateTime
+import kotlin.time.Instant
 import top.yukonga.miuix.kmp.basic.ButtonDefaults
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.NumberPicker
@@ -61,6 +64,7 @@ import top.yukonga.miuix.kmp.basic.TextField
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.utils.overScrollVertical
 import top.yukonga.miuix.kmp.window.WindowBottomSheet
+import top.yukonga.miuix.kmp.window.WindowDialog
 
 /** 新待办默认几点截止：当天结束。用户只改日期时不用再动时间。 */
 private const val DEFAULT_DUE_HOUR = 23
@@ -133,61 +137,15 @@ internal fun AddTodoSheet(onDismiss: () -> Unit) {
                 )
                 SheetCard {
                     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        // ── 日期：点一下开日历（Android 是系统的，桌面上是填 YYYY-MM-DD） ──
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clip(RoundedCornerShape(12.dp))
-                                .clickable(enabled = !noDue) { picking = true }
-                                .alpha(if (noDue) 0.45f else 1f)
-                                .padding(horizontal = 4.dp, vertical = 8.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            Text(
-                                "日期",
-                                style = MiuixTheme.textStyles.body1,
-                                color = MiuixTheme.colorScheme.onSurface,
-                            )
-                            Spacer(Modifier.weight(1f))
-                            Text(
-                                dateText(day),
-                                style = MiuixTheme.textStyles.body1,
-                                color = MiuixTheme.colorScheme.primary,
-                                fontWeight = FontWeight.Medium,
-                            )
-                        }
-                        // ── 时间：时 / 分两个轮盘，默认 23:59 ──
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .alpha(if (noDue) 0.45f else 1f),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            Text(
-                                "时间",
-                                style = MiuixTheme.textStyles.body1,
-                                color = MiuixTheme.colorScheme.onSurface,
-                                modifier = Modifier.width(52.dp),
-                            )
-                            WheelNumber(
-                                value = hour,
-                                range = 0..23,
-                                onValue = { hour = it },
-                                modifier = Modifier.weight(1f).alpha(if (noDue) 0f else 1f),
-                            )
-                            Text(
-                                ":",
-                                style = MiuixTheme.textStyles.title3,
-                                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                                modifier = Modifier.padding(horizontal = 2.dp),
-                            )
-                            WheelNumber(
-                                value = minute,
-                                range = 0..59,
-                                onValue = { minute = it },
-                                modifier = Modifier.weight(1f).alpha(if (noDue) 0f else 1f),
-                            )
-                        }
+                        DueEditor(
+                            day = day,
+                            hour = hour,
+                            minute = minute,
+                            enabled = !noDue,
+                            onPickDate = { picking = true },
+                            onHour = { hour = it },
+                            onMinute = { minute = it },
+                        )
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             AppFilterChip(selected = !noDue, onClick = { noDue = false }, label = "按时截止")
                             AppFilterChip(selected = noDue, onClick = { noDue = true }, label = "不设截止")
@@ -266,6 +224,149 @@ private val IMPORTANCE_CHOICES = listOf(
 /** 「10月30日 · 周五」。日期选择器回来的是 [LocalDate]，不引用 JVM 的日期格式化。 */
 internal fun dateText(date: LocalDate): String =
     "${date.monthNumber}月${date.dayOfMonth}日 · 周${"一二三四五六日"[date.dayOfWeek.isoDayNumber - 1]}"
+
+/**
+ * 日期 + 时间两行，新建抽屉和「改截止」共用：日期点开系统日历（桌面 / Web 是填 `YYYY-MM-DD`），
+ * 时、分是两个 miuix 轮盘。
+ *
+ * [enabled] 为 false（选了「不设截止」）时整块变淡、轮盘不可见，免得以为还能改。
+ */
+@Composable
+private fun DueEditor(
+    day: LocalDate,
+    hour: Int,
+    minute: Int,
+    enabled: Boolean,
+    onPickDate: () -> Unit,
+    onHour: (Int) -> Unit,
+    onMinute: (Int) -> Unit,
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(12.dp))
+                .clickable(enabled = enabled) { onPickDate() }
+                .alpha(if (enabled) 1f else 0.45f)
+                .padding(horizontal = 4.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text("日期", style = MiuixTheme.textStyles.body1, color = MiuixTheme.colorScheme.onSurface)
+            Spacer(Modifier.weight(1f))
+            Text(
+                dateText(day),
+                style = MiuixTheme.textStyles.body1,
+                color = MiuixTheme.colorScheme.primary,
+                fontWeight = FontWeight.Medium,
+            )
+        }
+        Row(
+            modifier = Modifier.fillMaxWidth().alpha(if (enabled) 1f else 0.45f),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                "时间",
+                style = MiuixTheme.textStyles.body1,
+                color = MiuixTheme.colorScheme.onSurface,
+                modifier = Modifier.width(52.dp),
+            )
+            WheelNumber(
+                value = hour,
+                range = 0..23,
+                onValue = onHour,
+                modifier = Modifier.weight(1f).alpha(if (enabled) 1f else 0f),
+            )
+            Text(
+                ":",
+                style = MiuixTheme.textStyles.title3,
+                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                modifier = Modifier.padding(horizontal = 2.dp),
+            )
+            WheelNumber(
+                value = minute,
+                range = 0..59,
+                onValue = onMinute,
+                modifier = Modifier.weight(1f).alpha(if (enabled) 1f else 0f),
+            )
+        }
+    }
+}
+
+/**
+ * 改一条自建待办的截止（长按抽屉里的「改截止」）。
+ *
+ * 改完之后这条会按新的截止**重新提醒一次**：[SelfTodoStore.setDue] 落盘后，宿主在
+ * [SelfTodoHooks.onChanged] 里看到截止变了，就把「已提醒」的记录清掉再按新时间排期。
+ */
+@Composable
+internal fun EditDueDialog(
+    title: String,
+    /** 现在的截止（毫秒）；null = 原来不设截止 */
+    currentDue: Long?,
+    onDismiss: () -> Unit,
+    onConfirm: (String?) -> Unit,
+) {
+    val today = remember { todayOnCampus() }
+    val current = remember(currentDue) {
+        currentDue?.let { Instant.fromEpochMilliseconds(it).toLocalDateTime(CampusTimeZone) }
+    }
+    // 原来的截止已经过了就不沿用那一天（日期选择器也不让选过去）
+    var day by remember(current, today) { mutableStateOf(current?.date?.takeIf { it >= today } ?: today) }
+    var hour by remember(current) { mutableIntStateOf(current?.hour ?: DEFAULT_DUE_HOUR) }
+    var minute by remember(current) { mutableIntStateOf(current?.minute ?: DEFAULT_DUE_MINUTE) }
+    var noDue by remember(currentDue) { mutableStateOf(currentDue == null) }
+    var picking by remember { mutableStateOf(false) }
+
+    BackHandler { onDismiss() }
+    WindowDialog(show = true, title = "改截止", summary = title, onDismissRequest = onDismiss) {
+        Column {
+            SheetSection(
+                title = "截止",
+                trailing = if (noDue) "不设截止" else "${dateText(day)} ${formatTwoDigits(hour)}:${formatTwoDigits(minute)}",
+            )
+            SheetCard {
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    DueEditor(
+                        day = day,
+                        hour = hour,
+                        minute = minute,
+                        enabled = !noDue,
+                        onPickDate = { picking = true },
+                        onHour = { hour = it },
+                        onMinute = { minute = it },
+                    )
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        AppFilterChip(selected = !noDue, onClick = { noDue = false }, label = "按时截止")
+                        AppFilterChip(selected = noDue, onClick = { noDue = true }, label = "不设截止")
+                    }
+                }
+            }
+            Spacer(Modifier.height(16.dp))
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                TextButton(text = "取消", onClick = onDismiss, modifier = Modifier.weight(1f))
+                TextButton(
+                    text = "保存",
+                    onClick = { onConfirm(if (noDue) null else SelfTodoRules.dueAt(day, hour, minute)) },
+                    modifier = Modifier.weight(1f),
+                    colors = ButtonDefaults.textButtonColorsPrimary(),
+                )
+            }
+        }
+    }
+
+    AppDatePickerDialog(
+        show = picking,
+        title = "截止日期",
+        date = day,
+        minDate = today,
+        maxDate = today.plus(MAX_DAYS_AHEAD, DateTimeUnit.DAY),
+        onDismiss = { picking = false },
+        onConfirm = { picked ->
+            day = picked
+            picking = false
+        },
+    )
+}
 
 /**
  * 待办颜色：一块显示当前色，右上角「调色盘」进完整面板（色板 + Hex，和课程颜色同一个面板），

@@ -78,6 +78,19 @@ internal object ReminderStore {
         prefs(context).edit().putString("seen_${kind.key}", merged.joinToString("\n")).apply()
     }
 
+    /**
+     * 忘掉某一条的提醒记录。
+     *
+     * 用户改了自建待办的截止时间就要清一次：同一件事按新时间重新提醒一回，而不是因为
+     * 「上次已经提醒过」就再也不响。
+     */
+    fun forget(context: Context, kind: ReminderKind, ids: Collection<String>) {
+        if (ids.isEmpty()) return
+        val gone = ids.toSet()
+        val kept = seen(context, kind).filterNot { it in gone }
+        prefs(context).edit().putString("seen_${kind.key}", kept.joinToString("\n")).apply()
+    }
+
     fun seen(context: Context, kind: ReminderKind): List<String> =
         prefs(context).getString("seen_${kind.key}", "").orEmpty()
             .split('\n')

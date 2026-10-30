@@ -58,9 +58,9 @@ class InboxImportanceTest {
         assertEquals(listOf("self:1"), finished.finished.map { it.item.id })
         assertEquals(InboxRules.IMPORTANCE_MEDIUM, InboxRules.importanceOf(finished, "self:1"))
 
-        // 8 天后连「已完成」都过了保留期，标注一起清掉（表不会无限涨）
-        val gone = InboxRules.replaceTodos(marked, InboxCategories.SELF, emptyList(), now + 8 * day)
-        assertTrue(gone.finished.isEmpty())
+        // 再过 8 天，「已完成」也过了保留期被丢掉（这时候才轮到标注一起清，表不会无限涨）
+        val gone = InboxRules.replaceTodos(finished, InboxCategories.SELF, emptyList(), now + 8 * day)
+        assertTrue(gone.finished.isEmpty(), "7 天前的已完成记录应当已经被丢弃")
         assertEquals(InboxRules.IMPORTANCE_NONE, InboxRules.importanceOf(gone, "self:1"))
     }
 }

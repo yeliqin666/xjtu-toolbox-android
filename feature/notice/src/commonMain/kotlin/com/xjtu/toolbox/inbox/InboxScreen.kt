@@ -147,6 +147,8 @@ fun InboxScreen(
     var showAdd by remember { mutableStateOf(false) }
     var detail by remember { mutableStateOf<InboxItem?>(null) }
     var actions by remember { mutableStateOf<RowActions?>(null) }
+    /** 正在改截止的那条自建待办（`SelfTodoStore` 里的 id）；null = 没在改 */
+    var editingDue by remember { mutableStateOf<String?>(null) }
 
     // 自建待办留在收纳里时靠时间戳判可见，进来时刷一次，别让它悄悄过期
     androidx.compose.runtime.LaunchedEffect(Unit) { SelfTodoStore.publish() }
@@ -258,7 +260,11 @@ fun InboxScreen(
                                         actions = if (selfId != null) {
                                             RowActions(
                                                 it,
-                                                listOf("标为完成" to { SelfTodoStore.complete(selfId) }, "删除" to { SelfTodoStore.delete(selfId) }),
+                                                listOf(
+                                                    "改截止" to { editingDue = selfId },
+                                                    "标为完成" to { SelfTodoStore.complete(selfId) },
+                                                    "删除" to { SelfTodoStore.delete(selfId) },
+                                                ),
                                                 todoId = selfId,
                                             )
                                         } else {
@@ -309,6 +315,21 @@ fun InboxScreen(
         InboxDetailDialog(d, onAskPidai = ask) { detail = null }
     }
     actions?.let { a -> RowActionsDialog(a) { actions = null } }
+    editingDue?.let { id ->
+        // 抽屉刚关掉时才读：改完截止这个 id 就置空了，不必订阅存储
+        val todo = remember(id, data) { SelfTodoStore.all().firstOrNull { it.id == id } }
+        if (todo != null) {
+            EditDueDialog(
+                title = todo.title,
+                currentDue = SelfTodoRules.dueMillis(todo).takeIf { it > 0 },
+                onDismiss = { editingDue = null },
+                onConfirm = { due ->
+                    SelfTodoStore.setDue(id, due)
+                    editingDue = null
+                },
+            )
+        }
+    }
     if (showAdd) AddTodoSheet { showAdd = false }
 }
 

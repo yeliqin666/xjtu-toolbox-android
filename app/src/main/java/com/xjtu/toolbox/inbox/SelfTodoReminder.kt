@@ -42,10 +42,16 @@ object SelfTodoReminders {
         val app = context.applicationContext
         val now = System.currentTimeMillis()
         val keep = after.mapTo(HashSet()) { it.id }
-        before.filter { it.id !in keep }.forEach { cancel(app, it.id) }
+        val gone = before.filter { it.id !in keep }
+        gone.forEach { cancel(app, it.id) }
+        // 删掉的、改了截止的，都把「已提醒」的记录清掉：改过截止的那条要按新时间再提醒一次
+        val beforeById = before.associateBy { it.id }
+        val changedDue = after.filter { beforeById[it.id]?.dueDate != it.dueDate }.map { it.id }
+        ReminderStore.forget(app, ReminderKind.SELF_TODO, gone.map { it.id } + changedDue)
+
         after.forEach { todo ->
             // 推过的那条不再排：reminderAt 对「该提醒的时刻已过」的待办会返回「此刻」，
-            // 不拦住的话改个颜色就会再推一遍
+            // 不拦住的话改个颜色就会再推一遍（改截止的刚在上面清过记录，会重新排）
             val at = if (ReminderStore.hasSeen(app, ReminderKind.SELF_TODO, todo.id)) null
             else SelfTodoRules.reminderAt(todo, now)
             if (at != null) schedule(app, account, todo.id, at, now) else cancel(app, todo.id)
