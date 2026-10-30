@@ -58,18 +58,19 @@ object CourseColors {
     }
 
     /**
-     * 用户设过的课程色：去重后按色相排成一条彩带。
+     * 日程里出现过的颜色：课表里那些课的颜色（自选色优先，没设过的按课名哈希取默认色），
+     * 再加上用户设过的课程色。去重、按色相排成一条彩带。
      *
-     * 课表和思源学堂写的是同一个 store，所以「在思源学堂里给课程挑的色」也在这份里。
-     * 收纳给自建待办做快捷取色时就列它：有几个列几个，不拿按课名哈希的默认色来凑数
-     * （那些不是用户挑的）。
+     * 收纳给自建待办做快捷取色时列它：有几个列几个，不拿整张默认色板来凑数。课名来自
+     * [ScheduleColorSeen]（读到课表缓存、用户改自建日程时记下的）；一次课表都没看过时
+     * 就只剩用户设过的那几个色。
      */
     fun palette(): List<Color> {
         val s = store()
-        return s.keys()
+        val custom = s.keys()
             .mapNotNull { key -> s.getInt(key, 0).takeIf { v -> v != 0 }?.let { argb -> Color(argb) } }
-            .distinct()
-            .sortedBy(::hueOf)
+        val inSchedule = ScheduleColorSeen.names().map { name -> of(name) ?: defaultCourseColor(name) }
+        return (custom + inSchedule).distinct().sortedBy(::hueOf)
     }
 
     fun toHex(color: Color): String {

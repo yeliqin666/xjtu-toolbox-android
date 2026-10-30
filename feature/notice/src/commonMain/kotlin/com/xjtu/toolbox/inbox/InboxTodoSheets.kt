@@ -370,7 +370,8 @@ internal fun EditDueDialog(
 
 /**
  * 待办颜色：一块显示当前色，右上角「调色盘」进完整面板（色板 + Hex，和课程颜色同一个面板），
- * 下面那排快捷色片取自「课程颜色」那份设置（思源学堂里给课程挑的色也在里面）。
+ * 下面那排快捷色片取自「日程里出现过的颜色」——课表与自建日程里那些课的颜色，
+ * 用户挑过的自选色和没挑过的默认色都算（见 `CourseColors.palette`）。
  *
  * 只负责「挑」，落盘交给 [onPick]：新建抽屉先记在本地状态里，长按抽屉直接写回那条待办。
  */
@@ -440,7 +441,7 @@ internal fun TodoColorField(current: Int?, onPick: (Int?) -> Unit) {
     }
     Spacer(Modifier.height(6.dp))
     Text(
-        if (quickColors.isEmpty()) "还没在思源学堂 / 课表里设过课程颜色；点右上角「调色盘」挑一个（可填 Hex）"
+        if (quickColors.isEmpty()) "日程里还没有课，暂时没有可挑的色片；点右上角「调色盘」直接挑一个（可填 Hex）"
         else "点一个色片就用它；更细致的选择点右上角「调色盘」（可填 Hex）",
         style = MiuixTheme.textStyles.footnote2,
         color = MiuixTheme.colorScheme.onSurfaceVariantSummary,

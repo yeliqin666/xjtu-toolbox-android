@@ -193,7 +193,7 @@
 | 21 | `schedule_source<suffix>` | 是 | `ScheduleSourceRouter.kt:159,161` | `served` | 全 |
 | 22 | `schedule_changes<suffix>` | 是 | `ScheduleSourceRouter.kt:181` | 键 = 学期码，值 = `ScheduleChangeEvent[]` | 全 |
 | 23 | `schedule_diff<suffix>` | 是 | `ScheduleDiff.kt:15` | `snap_*` + 记录用键 | **未逐条核对** |
-| 24 | `course_colors<suffix>` | 是 | `CourseColors.kt:49` | 键 = 课程标识 | **未逐条核对** |
+| 24 | `course_colors<suffix>` | 是 | `CourseColors.kt:49` | 键 = 课程标识；另 `course_colors_seen<suffix>` 存「日程里出现过的课名」：键 `names`，一行一个，上限 200（`ScheduleColorSeen.kt`；`ScheduleCache.readCourses` 与日程 VM 写入） | **未逐条核对** |
 | 25 | `attendance_records_ug<suffix>` / `_pg<suffix>` | 是 | `AttendanceRecordStore.kt:57` | 键 = 学期码，值 = `Shard{termCode,records,fetchedAt,fullScanAt}` | 全 |
 | 26 | `bulletin_store` | 无 | `BulletinStore.kt:20,55-58` | `cached_json` `dismissed_ids` `acked_ids` | 全 |
 | 27 | `feedback` | 无 | `FeedbackStore.kt:39-44,50,191-196` | `anon_id` `tickets` `read_replies` `prompt_last_at` `prompt_done_version` `reply_fetch_at` `reply_cache` `public_qa` `public_qa_at` | 全 |
