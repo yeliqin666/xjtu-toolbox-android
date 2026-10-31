@@ -247,6 +247,16 @@ class AgentViewModel(private val host: AgentHost) : ViewModel(), AgentChatSessio
         tools = null; errorMessage = null
     }
 
+    override fun reloadSession(id: String): Boolean {
+        val store = store ?: return false
+        if (isLoading || store.load(id) == null) return false
+        refreshSessions()
+        // 清掉当前 id，强制 switchSession 重读
+        if (id == currentSessionId) currentSessionId = null
+        switchSession(id)
+        return currentSessionId == id
+    }
+
     override fun deleteSession(id: String) {
         val store = store ?: return
         store.delete(id)
@@ -255,6 +265,13 @@ class AgentViewModel(private val host: AgentHost) : ViewModel(), AgentChatSessio
             val next = sessions.firstOrNull()
             if (next != null) switchSession(next.id) else newSession()
         }
+    }
+
+    override fun renameSession(id: String, title: String) {
+        val store = store ?: return
+        val clean = title.trim().take(40).ifEmpty { return }
+        store.rename(id, clean)
+        refreshSessions()
     }
 
     private fun refreshSessions() {
@@ -281,8 +298,17 @@ class AgentViewModel(private val host: AgentHost) : ViewModel(), AgentChatSessio
         val title = if (store.isLocked(id))
             sessions.firstOrNull { it.id == id }?.title ?: deriveTitle()
         else deriveTitle()
-        store.save(id, StoredConversation(stored, JsonArray(llmHistory).toString(), lastTotalTokens, contextExhausted), title)
+        val convo = StoredConversation(stored, JsonArray(llmHistory).toString(), lastTotalTokens, contextExhausted)
+        if (id != AgentPushFocus.SESSION_ID) {
+            store.save(id, convo, title)
+            refreshSessions()
+            return
+        }
+        // 推送记录：生成期间后台可能追加了推送，并回后再重读，免得整段覆盖掉
+        var merged = false
+        store.update(id, title) { disk -> mergeAppendedPushes(disk, convo).also { merged = it !== convo } }
         refreshSessions()
+        if (merged) reloadSession(id)
     }
 
     /**

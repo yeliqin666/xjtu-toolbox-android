@@ -27,6 +27,9 @@ interface Jiaocai1PageBytes {
     /** 取封面字节（书架与检索结果的小图）；[url] 为空或取不到返回 null。 */
     suspend fun coverBytes(url: String): ByteArray?
 
+    /** 本地缓存的首页字节，无缓存返回 null，不联网。 */
+    suspend fun cachedFirstPageBytes(ssno: String): ByteArray? = null
+
     /** 设置预取窗口：以 [center] 为中心 ±2 页，窗口外的预取任务取消。 */
     fun prefetchWindow(handle: Jiaocai1BookHandle, center: Int)
 

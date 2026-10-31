@@ -270,7 +270,7 @@
 | `GET /api/fitness/score` | `?year=` | `{studentNumber,studentName,totalScore,totalGrade,reportType,reportStatus,sex,grade,items:[…]}` | **本人数据**（例外①）：姓名/学号可投影，消费方 2026-10-11 带上 |
 | `GET /api/notification/list` | `?page=&size=&source=&all=1` | `{page,size,total,items:[…],skipped:[…],hasMore}` | `size`=本次响应条数（`NoticeSource` 无页大小概念，非服务端分页窗） | 
 | `GET /api/notification/sources` | —— | `{total,sources:[{code,displayName,category}]}` | 29 个源 |
-| `GET /api/inbox` | —— | `{messages,todos:{分类:[…]},finished,readAt,seenTodos,ignored,off,schoolFetchedAt,bubbled}` | `:data` 的 `InboxData` 投影（读侧；`markRead` 等写路径属 Stage B） |
+| `GET /api/inbox` | —— | `{messages,todos:{分类:[…]},finished,readAt,seenTodos,ignored,off,importance,schoolFetchedAt,bubbled}` | `:data` 的 `InboxData` 投影（读侧；`markRead` 等写路径属 Stage B）。`importance` = 待办 id → `0/1/3/5`，用户标的**重要程度**，只决定角标与通知措辞，**不参与排序** |
 | `GET /api/emptyroom/cdn` | `?campus=&date=&from=&to=` | `{availableSources:[{key,name}],source,campus,buildings,date,noData,note,rooms:[…]}` | CDN 档（`noData:true` + `note` = 那天没数据，不是错误） |
 | `GET /api/emptyroom/rooms` | `?campus=&date=&source=direct\|live` | 直查：同 CDN 档；实时：`{availableSources,…,fetchedAt,buildings,rooms:[{name,building,status,people,seats,course?,teacher?}]}` | `availableSources`：未登录 `[cdn]`；登录后 `[live,cdn,direct]` |
 

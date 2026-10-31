@@ -48,7 +48,8 @@ interface GithubDeviceAuthRepository {
 
     /** 粘贴 token 登录：先用它查一次用户名，查得到才算成功。 */
     suspend fun signInWithToken(token: String): Result<String> =
-        Result.failure(GithubDeviceFlowNotConfiguredException())
+        Result.failure(UnsupportedOperationException
+            ("manual token login is not implemented on this platform"))
 
     suspend fun start(): Result<GithubDeviceAuthorization>
     suspend fun poll(deviceCode: String): Result<GithubDevicePollResult>

@@ -172,6 +172,10 @@
         </receiver>
 
         <receiver
+            android:name=".notification.LibraryActionReceiver"
+            android:exported="false" />
+
+        <receiver
             android:name=".widget.WidgetRefreshReceiver"
             android:exported="false">
             <intent-filter>

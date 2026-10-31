@@ -26,6 +26,16 @@ class SettingsStoreTest {
         assertEquals("still", reopened.heroMotion)
         assertEquals(347, reopened.heroSeed)
         assertEquals("solid", reopened.heroBackground)
+        settings.heroBackground = "forest"
+        assertEquals("forest", SettingsStore(raw).heroBackground, "森林背景也要能落盘")
+        settings.heroBackground = "pixel"
+        assertEquals("pixel", SettingsStore(raw).heroBackground, "像素背景也要能落盘")
+        settings.heroBackground = "custom"
+        settings.heroImageData = "aGVsbG8="
+        assertEquals("custom", SettingsStore(raw).heroBackground, "自定义背景也要能落盘")
+        assertEquals("aGVsbG8=", SettingsStore(raw).heroImageData, "自定义图片要跟着背景一起落盘")
+        raw.putString("hero_background", "unknown")
+        assertEquals("liquid", SettingsStore(raw).heroBackground, "认不出的背景回退到液体")
         raw.putString("hero_palette", "unknown")
         raw.putString("hero_motion", "unknown")
         raw.putString("hero_color_hex", "not a color")
@@ -56,6 +66,39 @@ class SettingsStoreTest {
         }
         settings.customColorHex = "123aBC"
         assertEquals("#123ABC", settings.customColorHex)
+    }
+
+    @Test
+    fun `自选主题色按浅色与深色分开保存`() {
+        val raw = freshStore()
+        raw.putString("custom_color_hex", "#112233")
+        val settings = SettingsStore(raw)
+        settings.setCustomColorHex(dark = false, value = "#aabbcc")
+        settings.setCustomColorHex(dark = true, value = "#ddeeff")
+        val reopened = SettingsStore(raw)
+        assertEquals("#AABBCC", reopened.customColorHex(false))
+        assertEquals("#DDEEFF", reopened.customColorHex(true))
+        raw.remove("custom_color_hex_dark")
+        assertEquals("#112233", reopened.customColorHex(true), "没单独选过的深色回退到旧键")
+        reopened.customColorEnabled = true
+        assertEquals("#AABBCC", reopened.themeSeedHex(dark = false))
+        assertEquals("#112233", reopened.themeSeedHex(dark = true))
+        reopened.customColorEnabled = false
+        assertEquals("", reopened.themeSeedHex(dark = false), "没启用自定义就不喂种子色")
+    }
+
+    @Test
+    fun `头卡自选色按浅色与深色分开保存`() {
+        val raw = freshStore()
+        val settings = SettingsStore(raw)
+        raw.putString("hero_color_hex", "#112233")
+        settings.setHeroColorHex(dark = false, value = "#aabbcc")
+        settings.setHeroColorHex(dark = true, value = "#DDEEFF")
+        val reopened = SettingsStore(raw)
+        assertEquals("#AABBCC", reopened.heroColorHex(false))
+        assertEquals("#DDEEFF", reopened.heroColorHex(true))
+        raw.remove("hero_color_hex_dark")
+        assertEquals("#112233", reopened.heroColorHex(true), "没单独选过的深色回退到旧键")
     }
 
     private fun freshStore() = keyValueStore("settings_store_unit_test").apply { clear() }

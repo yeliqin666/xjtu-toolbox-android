@@ -486,15 +486,6 @@ fun LibraryScreen(
                 colors = CardDefaults.defaultColors(color = com.xjtu.toolbox.ui.components.AppCardColor)
             ) {
                 Column {
-                    val home = vm.homeCampus
-                    if (home != null && home != campus) {
-                        Text(
-                            "离开本页会切回${home.displayName}；在这里约了座位就留在${campus.displayName}",
-                            style = MiuixTheme.textStyles.footnote2,
-                            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                            modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 8.dp),
-                        )
-                    }
                     if (floors.isNotEmpty()) {
                         CompositionLocalProvider(LocalOnGlassBar provides (glass != null)) {
                             AppSegmentedTabs(

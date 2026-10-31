@@ -10,6 +10,11 @@ import kotlin.test.*
 import kotlinx.serialization.json.jsonObject
 
 class AgentWidgetPresentationTest {
+    @Test fun presentationSchemaIncludesAllSupportedViews() {
+        val views = AgentWidgetPresentation.schema()["properties"]!!.jsonObject["view"]!!.jsonObject["enum"].toString()
+        listOf("slots", "status", "both", "balance", "summary", "transactions", "plan", "booking", "places", "route")
+            .forEach { assertTrue("\"$it\"" in views) }
+    }
     private fun display(widget: AgentWidget, json: String): AgentWidget =
         AgentWidgetPresentation.apply(listOf(widget), AppJson.parseToJsonElement(json).jsonObject).single()
 

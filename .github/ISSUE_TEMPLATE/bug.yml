@@ -27,6 +27,15 @@ body:
     attributes:
       label: 机型与系统
       placeholder: 例如 小米 15，Android 16
+  - type: dropdown
+    id: priority
+    attributes:
+      label: 优先级
+      description: 可不选，仅供排期参考，以维护者标签为准。
+      options:
+        - 高：闪退或核心功能用不了
+        - 中：影响体验但能绕过
+        - 低：轻微显示或细节问题
   - type: textarea
     id: log
     attributes:

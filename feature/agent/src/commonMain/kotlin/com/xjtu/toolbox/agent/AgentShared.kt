@@ -57,7 +57,7 @@ fun agentCompleteToolLabel(running: String): String {
     return if (base.startsWith("已")) base else "已$base"
 }
 
-/** 本轮模型用 show 点名展示的工具 → 回复下方那排跳转按钮，`List<Pair<显示文字, [AppRoute.id]>>`。 */
+/** 选中的查询结果对应的页面入口。 */
 fun agentNavSuggestions(shownTools: List<String>): List<Pair<String, String>> =
     shownTools.mapNotNull { toolName ->
         when (toolName) {

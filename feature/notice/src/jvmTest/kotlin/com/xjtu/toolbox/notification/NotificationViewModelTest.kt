@@ -15,21 +15,35 @@ import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
+import com.xjtu.toolbox.platform.KeyValueStore
+import com.xjtu.toolbox.platform.keyValueStore
+import com.xjtu.toolbox.platform.keyValueStoreRootOverride
+import java.io.File
+import java.nio.file.Files
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class NotificationViewModelTest {
     private val dispatcher = StandardTestDispatcher()
     private val store = ViewModelStore()
+    private lateinit var preferences: KeyValueStore
+    private var previousRoot: File? = null
 
-    @BeforeTest fun setup() = Dispatchers.setMain(dispatcher)
+    @BeforeTest fun setup() {
+        Dispatchers.setMain(dispatcher)
+        previousRoot = keyValueStoreRootOverride
+        val root = Files.createTempDirectory("notice-selection-").toFile()
+        keyValueStoreRootOverride = root
+        preferences = keyValueStore(root.name)
+    }
     @AfterTest fun teardown() {
         store.clear()
+        keyValueStoreRootOverride = previousRoot
         Dispatchers.resetMain()
     }
 
     @Test fun selectedSourcesDriveBothTheFeedAndSearch() = runTest(dispatcher) {
         val source = FakeNotices()
-        val vm = NotificationViewModel(source).also { store.put("notices", it) }
+        val vm = NotificationViewModel(source, preferences).also { store.put("notices", it) }
         runCurrent()
         assertEquals(listOf(setOf(NotificationSource.JWC)), source.feedCalls)
 
@@ -50,7 +64,7 @@ class NotificationViewModelTest {
 
     @Test fun emptySelectionDoesNotReplaceTheCurrentFeed() = runTest(dispatcher) {
         val source = FakeNotices()
-        val vm = NotificationViewModel(source).also { store.put("notices", it) }
+        val vm = NotificationViewModel(source, preferences).also { store.put("notices", it) }
         runCurrent()
         vm.selectSources(emptySet())
         Snapshot.sendApplyNotifications()
@@ -60,9 +74,30 @@ class NotificationViewModelTest {
     }
 
     @Test fun failedSourceIsReportedInsteadOfAnEmptyFeed() = runTest(dispatcher) {
-        val vm = NotificationViewModel(FakeNotices(fail = true)).also { store.put("notices", it) }
+        val vm = NotificationViewModel(FakeNotices(fail = true), preferences).also { store.put("notices", it) }
         runCurrent()
         assertNotNull(vm.errorMessage)
+    }
+
+    @Test fun reopeningRestoresTheLastConfirmedSources() = runTest(dispatcher) {
+        val first = NotificationViewModel(FakeNotices(), preferences).also { store.put("notices", it) }
+        runCurrent()
+        val selected = setOf(NotificationSource.GS, NotificationSource.EE)
+        first.selectSources(selected)
+        store.clear()
+        val source = FakeNotices()
+        val restored = NotificationViewModel(source, preferences).also { store.put("notices", it) }
+        runCurrent()
+        assertEquals(selected, restored.selectedSources)
+        assertEquals(listOf(selected), source.feedCalls)
+        restored.selectSources(emptySet())
+        assertEquals(selected.map { it.name }.toSet(), preferences.getStringSet("sources"))
+    }
+
+    @Test fun unknownSavedSourcesAreIgnored() = runTest(dispatcher) {
+        preferences.putStringSet("sources", setOf("removed-source", NotificationSource.EE.name))
+        val vm = NotificationViewModel(FakeNotices(), preferences).also { store.put("notices", it) }
+        assertEquals(setOf(NotificationSource.EE), vm.selectedSources)
     }
 
     private class FakeNotices(val fail: Boolean = false) : NoticeSource {

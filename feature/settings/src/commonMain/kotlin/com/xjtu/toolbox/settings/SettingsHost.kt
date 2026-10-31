@@ -18,6 +18,9 @@ enum class SettingsRow {
     /** 界面风格（玻璃 / 经典）：`:app` 底栏与各处玻璃点。 */
     NAV_STYLE,
 
+    /** 首页头卡的背景与流动效果（首页和设置页共用 `:shared:designsystem` 的弹窗）。 */
+    HOME_HERO,
+
     /** 默认启动 Tab。 */
     DEFAULT_TAB,
 

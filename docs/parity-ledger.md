@@ -402,8 +402,8 @@ honored 的默认值是 `emptySet()`：`feature/agent/.../AgentHost.kt:21`。
 |---|---|---|---|---|
 | `updateSection`（更新组） | ✅ `AppSettings.kt:141` = `UpdateSection(...)`，本体 `:442`（渠道下拉 `:446`、预览开关 `:453`、检查更新 `:487-508`、`AutoUpdateDialog` `:546-554`） | ❌ 显式 `null` `DesktopSettings.kt:71`；测试钉死「桌面是 .deb/tar.gz，没有下载并安装 APK 那条路 ⇒ 整组不画」`DesktopSettingsJvmTest.kt:82` | ❌ 显式 `null` `WebSettingsHost.kt:61`（理由：更新 = 服务端换一份 dist） | — |
 | changelog | ✅ 唯一数据源 `AppChangelog.kt:36`（`ENTRIES`，629 行 / 约 67 个版本条目，`:629`/`:641` 取用），三处展示：设置页 `AppSettings.kt:126`、更新弹窗 `UpdateDialogs.kt:75-103`、启动 What's New `LaunchNotices.kt:254` | ❌ `emptyList()` `DesktopSettings.kt:63` | ❌ `emptyList()` `WebSettingsHost.kt:49` | 桌面/Web 的「关于」里连历史都没有 |
-| 更新渠道（`rollout_id` / `update_channel` / `receive_preview_updates`） | ✅ 三个键都在 `:app`：`CredentialStore.kt:238-240`；分桶 `AppUpdater.kt:139-153`（`isRolloutHit` = `SHA-256(rolloutId:tag) % 100`）；预览版选择 `AppUpdater.kt:204-210`；渠道 UI `AppSettings.kt:446`；屁岱可读写 `AndroidAgentHost.kt:131`/`:147-148`/`:220-232` | ❌ 无渠道/灰度概念；`DesktopUpdate.kt` 只读 GitHub releases 的 `browser_download_url`，`canInstallAutomatically=false`，且**全仓没有任何生产调用方**（只有 `DesktopUpdateJvmTest.kt` 引用）⇒ 现在是死骨架 | ❌ 无 | 渠道文档：`docs/preview-channel.md:20`；这三个键的归属：`docs/storage-layout.md:173`/`:245` 记成 `:app` 键 |
-| 安装包 SHA-256 校验（PR#145） | ❌ 没做 | ❌ 没做（连下载都没有） | ❌ 没做 | 「PR#145」在本仓库**没有对应提交**（`git log --all --grep=145` 只匹配到 147/CI 字体等无关提交）；实做状态是审计裁定「不改」：`docs/audit-response.md:100`（#20，中，**不改**）、`docs/audit-verify-2-security.md:400`/`:420`。⚠️ `AppUpdater.kt:142` 的 `MessageDigest.getInstance("SHA-256")` 是**灰度分桶**，不是摘要校验——别误读成已修 |
+| 更新渠道（`update_channel` / `receive_preview_updates`） | ✅ 两个键都在 `:app`：`CredentialStore.kt`；预览版全量推送、不做灰度分桶；预览版选择 `AppUpdater.kt`；渠道 UI `AppSettings.kt:446`；屁岱可读写 `AndroidAgentHost.kt:131`/`:147-148`/`:220-232` | ❌ 无渠道/灰度概念；`DesktopUpdate.kt` 只读 GitHub releases 的 `browser_download_url`，`canInstallAutomatically=false`，且**全仓没有任何生产调用方**（只有 `DesktopUpdateJvmTest.kt` 引用）⇒ 现在是死骨架 | ❌ 无 | 渠道文档：`docs/preview-channel.md`；这两个键的归属：`docs/storage-layout.md` 记成 `:app` 键 |
+| 安装包 SHA-256 校验（PR#145） | ✅ `AppUpdater.download()` 在 `sha256` 存在时校验，缺失时跳过 | ❌ 没做（连下载都没有） | ❌ 没做 | 「PR#145」在本仓库**没有对应提交**（`git log --all --grep=145` 只匹配到 147/CI 字体等无关提交）；⚠️ 灰度分桶已删除；`MessageDigest` 现在用于 `AppUpdater.download()` 的摘要校验与 GitHub digest 读取 |
 | （附）版本号那一行 | ✅ `AppSettings.kt:120`（`BuildConfig.VERSION_NAME`） | ✅ `DesktopSettings.kt:56`「v… (desktop)」 | 🔧 `WebSettingsHost.kt:43`「Web 构建（wasm）」（本端没有版本概念） | 三端都有 | 
 
 ---
@@ -452,7 +452,7 @@ Android 的 AppWidget：`app/src/main/java/com/xjtu/toolbox/widget/`（`Schedule
 ## 最贵的 3 项
 
 1. **账号写侧整条缺（serve 只有只读端点）** —— `AccountRoutes.kt:13-19`/`:59`。四端里 Android 与桌面各自维护了一套完整 CRUD，浏览器却一个写动作都没有：`WebAccountsHost.kt:79-89` 四个方法全是 `notWritable()`。这不是补 UI，是要在 serve 上真加 4 条写端点（切换要搬 live session、新增要搬密码、删除要清缓存、改密要重登），契约 §5.10 已经把「这一批没有写端点」写成事实了。
-2. **桌面更新整条链只有死骨架** —— `DesktopSettings.kt:63`/`:71` 两处 `emptyList()`/`null`，而 `DesktopUpdate.kt` 有 135 行的可用骨架（挑发布、比版本、pre-release 识别，测试 `DesktopUpdateJvmTest.kt` 全绿）却**没有任何生产调用方**；渠道/灰度/预览三个键是 `:app` 独有（`CredentialStore.kt:238-240`）。桌面用户拿不到「有新版本」这件事，而仓库里现成的零件足够接线。
+2. **桌面更新整条链只有死骨架** —— `DesktopSettings.kt:63`/`:71` 两处 `emptyList()`/`null`，而 `DesktopUpdate.kt` 有 135 行的可用骨架（挑发布、比版本、pre-release 识别，测试 `DesktopUpdateJvmTest.kt` 全绿）却**没有任何生产调用方**；渠道/预览两个键是 `:app` 独有（`CredentialStore.kt:238-240`）。桌面用户拿不到「有新版本」这件事，而仓库里现成的零件足够接线。
 3. **通知与提醒整组在桌面/Web 是空的，且「用通知替代」这条计划没落地** —— 桌面 `noticeSection`/`updateSection` 全 null、`desktop/` 下没有任何系统通知/托盘代码（grep 零命中），Web 同样 null 且后台定时被浏览器限死（`WebPwa.kt:41` 如实写）。桌面要真做，前置是 D6 那条「后台能力只放在 serve 模式」（`docs/desktop-port-plan.md:35`）——这不是一个页面的活，是一个常驻进程 + 通知载体 + 权限的活。
 
 ### 顺手可修的小账（成本极低，先记着）

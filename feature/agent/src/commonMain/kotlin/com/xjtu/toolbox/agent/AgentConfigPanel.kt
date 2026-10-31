@@ -3,6 +3,7 @@
 package com.xjtu.toolbox.agent
 
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.lazy.LazyColumn
@@ -14,7 +15,6 @@ import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.Key
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.runtime.*
-import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -25,6 +25,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import com.xjtu.toolbox.platform.keyValueStore
 import kotlinx.coroutines.launch
 import top.yukonga.miuix.kmp.basic.*
 import top.yukonga.miuix.kmp.basic.CardDefaults
@@ -66,6 +67,8 @@ internal fun ConfigPanel(
     var mcpToken by remember { mutableStateOf(config.mcpToken) }
     var mcpTesting by remember { mutableStateOf(false) }
     var mcpStatus by remember { mutableStateOf<String?>(null) }
+    val uiPrefs = remember { keyValueStore("agent_config_ui") }
+    var relayWarningDismissed by remember { mutableStateOf(uiPrefs.getBoolean("relay_warning_dismissed", false)) }
 
     // 辅助函数：立即保存当前所有配置
     fun saveNow() {
@@ -132,22 +135,6 @@ internal fun ConfigPanel(
         contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 12.dp + listTopPadding, bottom = 12.dp + listBottomPadding),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        item {
-            Card(colors = CardDefaults.defaultColors(color = MiuixTheme.colorScheme.errorContainer.copy(alpha = 0.35f).compositeOver(com.xjtu.toolbox.ui.components.AppCardColor))) {
-                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Text("首次使用前请确认", style = MiuixTheme.textStyles.title3, fontWeight = FontWeight.Bold)
-                    Text(
-                        "建议用 DeepSeek 官方 API；第三方中转能看到你的对话，风险自负。",
-                        style = MiuixTheme.textStyles.footnote1,
-                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary
-                    )
-                    TextButton(
-                        text = "去 DeepSeek 开放平台创建 Key",
-                        onClick = { uriHandler.openUri(AgentConfig.DEEPSEEK_KEYS_URL) },
-                    )
-                }
-            }
-        }
         // 服务商 + 助手名字/API Key/模型 + 思考参数：都是"怎么接到哪个模型、这个模型
         // 怎么想问题"这一件事，原来拆成三张卡片，合并成一张放最前面，改起来不用来回滚动。
         item {
@@ -194,6 +181,25 @@ internal fun ConfigPanel(
                         ),
                         keyboardActions = KeyboardActions(onDone = { saveNow() })
                     )
+                    // 贴在 Key 框下面的一行小字，填了 Key 就收起：整宽按钮夹在两个输入框中间像第三个表单项
+                    if (provider == AgentConfig.PROVIDER_DEEPSEEK && apiKey.isBlank() && apiKeySection == null) {
+                        Row(
+                            Modifier.padding(start = 12.dp, top = 2.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text(
+                                "还没有 Key？",
+                                style = MiuixTheme.textStyles.footnote1,
+                                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                            )
+                            Text(
+                                "去 DeepSeek 开放平台创建",
+                                style = MiuixTheme.textStyles.footnote1,
+                                color = MiuixTheme.colorScheme.primary,
+                                modifier = Modifier.clickable { uriHandler.openUri(AgentConfig.DEEPSEEK_KEYS_URL) },
+                            )
+                        }
+                    }
                     TextField(
                         value = model,
                         onValueChange = {
@@ -284,6 +290,22 @@ internal fun ConfigPanel(
                             style = MiuixTheme.textStyles.footnote1,
                             color = MiuixTheme.colorScheme.onSurfaceVariantSummary
                         )
+                        if (!relayWarningDismissed) {
+                            Text(
+                                "建议使用官方 API；第三方中转能看到你的对话，风险自负。",
+                                style = MiuixTheme.textStyles.footnote1,
+                                color = MiuixTheme.colorScheme.error
+                            )
+                            Text(
+                                "不再提示",
+                                style = MiuixTheme.textStyles.footnote1,
+                                color = MiuixTheme.colorScheme.primary,
+                                modifier = Modifier.clickable {
+                                    relayWarningDismissed = true
+                                    uiPrefs.putBoolean("relay_warning_dismissed", true)
+                                }
+                            )
+                        }
                     }
                     if (provider == AgentConfig.PROVIDER_DEEPSEEK) {
                         Text("思考", style = MiuixTheme.textStyles.title3, fontWeight = FontWeight.Bold)

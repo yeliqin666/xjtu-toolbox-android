@@ -100,12 +100,14 @@
   - `core/net/JwxtSchedule.kt`；
   - `MatchProfile`；
   - `DzpzDocuments`。
-- 测试跟着源码走。CI `core-gate` 已经改成逐个模块跑 `jvmTest`；桌面端两个 workflow 的路径过滤加上了 `shared/**`、`feature/**`、`build-logic/**`。
+- 测试跟着源码走。CI `core-gate` 已经改成逐个模块跑 `jvmTest`；`desktop-linux` 的路径过滤覆盖 `:desktop` 的全部依赖（`shared/**`、`feature/**`、`build-logic/**`），`desktop-windows` 只看 Windows 专属面（`desktop/**`、`data/**`、`shared/data/**`）。
 - 编译警告，不影响构建：
   - 各个 KMP 库有 `commonTest`，但没开 Android host test，AGP 会提示；
   - 约定插件里用了已弃用的 `compose.runtime` 等访问器；
   - `build-logic` 加了 `-Xskip-metadata-version-check`。
 - 任务清单里的 `SeatComfort` 在这个仓库的任何分支、任何历史里都搜不到，所以本次拆分没有涉及它。
+- **serve 模式联调**：`./gradlew :server:run` 后浏览器打开它打印的地址，页面上「会话」一格里先贴启动横幅里打印的访问令牌、再登录即可；数据源由 `?backend=serve` 钉死、否则自动探测（探 `/api/status` 有没有 `username` 字段区分 serve 与 campus-api；本地联调 campus-api 可用 `web/tools/serve-same-origin.py` 反代）。
+- **wasmJs 便携性判据**：`String.format`、`toSortedMap`、`java.time`、`Dispatchers.IO` 在 JVM 上是默认导入/标准库，光看 import 查不出来；只有把共享层真编到 wasmJs（如 `./gradlew :shared:model:compileKotlinWasmJs :feature:home:compileKotlinWasmJs`）才能全部拦下。
 
 ## 旧路径 → 新模块（目录级，按 `git diff -M 6f16e363 HEAD` 生成，只统计 .kt）
 

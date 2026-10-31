@@ -216,7 +216,8 @@ class AgentToolRegistry(
                 if (p.grade > 0) lines.add("- 年级：${p.grade} 级")
                 // 请假、证明、心情不好时最该找的人；「我辅导员电话多少」黄页里查不到
                 if (p.counselorName.isNotBlank()) {
-                    lines.add("- 辅导员：" + listOf(p.counselorName, p.counselorPhone, p.counselorOffice)
+                    val office = p.counselorOffice.takeIf { it.isNotBlank() }?.let { "辅导员办公室：$it" }
+                    lines.add("- 辅导员：" + listOfNotNull(p.counselorName, p.counselorPhone, office)
                         .filter { it.isNotBlank() }.joinToString("｜"))
                 }
                 if (p.classTeacherName.isNotBlank()) {
@@ -438,7 +439,7 @@ class AgentToolRegistry(
                 if (keyword.isNotBlank()) searchZyxf(keyword)
                 else browseZyxf(args.argInt("folder_id") ?: 0)
             }
-            "read_zyxf_file" -> readZyxfFile(args.argInt("file_id") ?: 0, args.argStr("pages"))
+            "read_zyxf_file" -> readZyxfFile(args.argInt("file_id") ?: 0, args.argStr("pages"), args.argStr("mode") ?: "auto", args.argInt("text_offset") ?: 0)
             "save_file" -> saveFile(
                 args.argStr("source"), args.argInt("file_id"),
                 args.argStr("course"), args.argStr("activity"), args.argStr("file"),
@@ -458,7 +459,7 @@ class AgentToolRegistry(
             }
             "get_lms_activity" -> {
                 val file = (args.argStr("file")).orEmpty()
-                if (file.isNotBlank()) readLmsAttachment(args.argStr("course"), args.argStr("activity"), file, args.argStr("pages"))
+                if (file.isNotBlank()) readLmsAttachment(args.argStr("course"), args.argStr("activity"), file, args.argStr("pages"), args.argStr("mode") ?: "auto", args.argInt("text_offset") ?: 0)
                 else getLmsActivityDetail(args.argStr("course"), args.argStr("activity"))
             }
             "get_fitness_score" -> getFitnessScore(args.argStr("year"))
@@ -1366,26 +1367,26 @@ class AgentToolRegistry(
 
     /** 这一轮工具读到的图（PDF 页面等），调度循环取走后交给模型看。 */
     private val pendingImages = mutableListOf<String>()
+    private val documentCache = AgentDocumentCache()
 
     override fun drainImages(): List<String> = pendingImages.toList().also { pendingImages.clear() }
 
     /** 读一份文档：转成文字或页面图（见 [AgentDocReader]），图先攒着等循环来取。 */
-    private fun readDoc(name: String, bytes: ByteArray, pages: String?): String {
-        val doc = AgentDocReader.read(context, name, bytes, pages)
+    private fun readDoc(name: String, bytes: ByteArray, pages: String?, mode: String = "auto", textOffset: Int = 0): String {
+        val doc = AgentDocReader.read(context, name, bytes, pages, mode, textOffset)
         pendingImages += doc.images
         return doc.text
     }
 
-    private suspend fun readZyxfFile(fileId: Int, pages: String?): String = withContext(Dispatchers.IO) {
+    private suspend fun readZyxfFile(fileId: Int, pages: String?, mode: String, textOffset: Int): String = withContext(Dispatchers.IO) {
         if (fileId <= 0) return@withContext ToolReply.missing("file_id")
         try {
-            val link = com.xjtu.toolbox.zyxf.ZyxfApi.fileLink(fileId)
-            if (!AgentDocReader.canRead(link.name)) {
-                return@withContext "result: unsupported_type; file: ${link.name}; url: ${link.url}; url_ttl: 30min"
-            }
-            val (name, bytes) = com.xjtu.toolbox.zyxf.ZyxfApi.readBytes(fileId)
-                ?: return@withContext ToolReply.failed("read_zyxf_file", "download_or_too_large; file: ${link.name}")
-            readDoc(name, bytes, pages)
+            val document = documentCache.getOrLoad("zyxf:$fileId") {
+                com.xjtu.toolbox.zyxf.ZyxfApi.readBytes(fileId)?.let { (name, bytes) -> AgentDocumentCache.Document(name, bytes) }
+            } ?: return@withContext ToolReply.failed("read_zyxf_file", "download_or_too_large")
+            readDoc(document.name, document.bytes, pages, mode, textOffset)
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
         } catch (e: Exception) {
             ToolReply.failed("read_zyxf_file", e.message)
         }
@@ -1739,7 +1740,7 @@ class AgentToolRegistry(
                 if (a.uploads.isNotEmpty()) {
                     append("附件：\n")
                     a.uploads.forEach { u ->
-                        append("• ${u.name}（${u.readableSize}）")
+                        append("• ${u.name}（${u.readableSize}；file=${u.id}）")
                         val url = u.downloadUrl.ifBlank { u.attachmentUrl.ifBlank { u.previewUrl } }
                         if (url.isNotBlank()) append(" $url")
                         append("\n")
@@ -1748,7 +1749,7 @@ class AgentToolRegistry(
                 a.submissionList?.list?.firstOrNull()?.let { s ->
                     append("提交状态：${s.statusLabel}，分数：${s.scoreDisplay}\n")
                     if (s.content.isNotBlank()) append("提交内容：${org.jsoup.Jsoup.parse(s.content).text().take(800)}\n")
-                    if (s.uploads.isNotEmpty()) append("我的提交附件：${s.uploads.joinToString("、") { it.name }}\n")
+                    if (s.uploads.isNotEmpty()) append("我的提交附件：${s.uploads.joinToString("、") { "${it.name}（file=${it.id}）" }}\n")
                     if (s.instructorComment.isNotBlank()) append("教师评语：${s.instructorComment}\n")
                 }
             }.trimEnd()
@@ -1766,29 +1767,46 @@ class AgentToolRegistry(
 
     /** 找到思源某个活动里的附件并下载字节。 */
     private suspend fun lmsAttachmentBytes(course: String?, activity: String?, file: String?): LmsFile {
+        var failure: String? = null
+        val key = listOf("lms", com.xjtu.toolbox.account.AccountContext.safeSuffix(), course.orEmpty().trim(), activity.orEmpty().trim(), file.orEmpty().trim()).joinToString("\n")
+        val document = documentCache.getOrLoad(key) {
+            when (val result = loadLmsAttachment(course, activity, file)) {
+                is LmsFile.Ok -> AgentDocumentCache.Document(result.name, result.bytes)
+                is LmsFile.Error -> { failure = result.reply; null }
+            }
+        }
+        return document?.let { LmsFile.Ok(it.name, it.bytes) }
+            ?: LmsFile.Error(failure ?: ToolReply.failed("get_lms_activity.file", "download"))
+    }
+
+    private suspend fun loadLmsAttachment(course: String?, activity: String?, file: String?): LmsFile {
         val site = ensureSite(LoginType.LMS) ?: return LmsFile.Error(loginHint(LoginType.LMS))
         val api = com.xjtu.toolbox.lms.LmsApi(site)
         val c = findLmsCourse(api, course) ?: return LmsFile.Error(ToolReply.notFound("course", course.orEmpty()))
         val brief = findLmsActivity(api, c.id, activity)
             ?: return LmsFile.Error(ToolReply.notFound("activity", "${c.name} / ${activity.orEmpty()}"))
         val detail = api.getActivityDetail(brief.id, brief)
-        val uploads = detail.uploads + detail.submissionList?.list.orEmpty().flatMap { it.uploads }
+        val uploads = (detail.uploads + detail.submissionList?.list.orEmpty().flatMap { it.uploads }).distinctBy { Triple(it.id, it.name, it.downloadUrl) }
         val key = file?.trim().orEmpty()
-        val upload = uploads.firstOrNull { key.isBlank() || it.name.contains(key, ignoreCase = true) }
-            ?: return LmsFile.Error(ToolReply.notFound("file", key, uploads.map { it.name }))
+        val exact = uploads.filter { it.id.toString() == key || it.name.equals(key, ignoreCase = true) }
+        val matches = exact.ifEmpty { uploads.filter { key.isBlank() || it.name.contains(key, ignoreCase = true) } }
+        if (matches.size > 1) return LmsFile.Error("result: ambiguous_file; matches: ${matches.joinToString("; ") { "${it.name} (file=${it.id})" }}")
+        val upload = matches.singleOrNull() ?: return LmsFile.Error(ToolReply.notFound("file", key, uploads.map { it.name }))
         val url = upload.downloadUrl.ifBlank { upload.attachmentUrl.ifBlank { upload.previewUrl } }
         if (url.isBlank()) return LmsFile.Error(ToolReply.failed("get_lms_activity.file", "no_download_url; file: ${upload.name}"))
         val bytes = api.downloadBytes(url) ?: return LmsFile.Error(ToolReply.failed("get_lms_activity.file", "download"))
         return LmsFile.Ok(upload.name, bytes)
     }
 
-    private suspend fun readLmsAttachment(course: String?, activity: String?, file: String?, pages: String?): String = try {
+    private suspend fun readLmsAttachment(course: String?, activity: String?, file: String?, pages: String?, mode: String, textOffset: Int): String = try {
         when (val r = lmsAttachmentBytes(course, activity, file)) {
             is LmsFile.Error -> r.reply
             is LmsFile.Ok ->
-                if (AgentDocReader.canRead(r.name)) withContext(Dispatchers.IO) { readDoc(r.name, r.bytes, pages) }
+                if (AgentDocReader.canRead(r.name)) withContext(Dispatchers.IO) { readDoc(r.name, r.bytes, pages, mode, textOffset) }
                 else "result: unsupported_type; file: ${r.name}; 可以用 save_file 存进下载"
         }
+    } catch (e: kotlinx.coroutines.CancellationException) {
+        throw e
     } catch (e: com.xjtu.toolbox.auth.AuthExpiredException) {
         throw e
     } catch (e: Exception) {

@@ -50,7 +50,11 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.draw.drawBehind
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 import com.xjtu.toolbox.ui.adaptive.readableWidth
 import top.yukonga.miuix.kmp.basic.*
 import top.yukonga.miuix.kmp.theme.MiuixTheme
@@ -159,7 +163,25 @@ internal fun ChatPanel(
                 val listState = rememberLazyListState()
                 val chatRows = groupAgentRows(vm.messages, config.showReasoning)
                 LaunchedEffect(chatRows.size, vm.isLoading) {
-                    if (chatRows.isNotEmpty()) listState.scrollToItem(chatRows.lastIndex)
+                    if (chatRows.isNotEmpty() && AgentPushFocus.highlight == null) listState.scrollToItem(chatRows.lastIndex)
+                }
+                // #194：滚到被定位的推送，闪完清掉标记
+                val flashAt = AgentPushFocus.highlight
+                val showReasoning = config.showReasoning
+                LaunchedEffect(flashAt) {
+                    val at = flashAt ?: return@LaunchedEffect
+                    try {
+                        val idx = withTimeoutOrNull(3000) {
+                            snapshotFlow {
+                                groupAgentRows(vm.messages, showReasoning)
+                                    .indexOfFirst { it is AgentRow.Assistant && it.msg.timestamp == at }
+                            }.first { it >= 0 }
+                        } ?: return@LaunchedEffect
+                        listState.animateScrollToItem(idx)
+                        delay(1800)
+                    } finally {
+                        AgentPushFocus.highlight = null
+                    }
                 }
                 val lastUser = vm.messages.lastOrNull { it.role == "user" }
                 LazyColumn(
@@ -205,16 +227,21 @@ internal fun ChatPanel(
                     is AgentRow.Tools -> Box(Modifier.padding(horizontal = 8.dp)) {
                         ToolCallNote(row.events)
                     }
-                    is AgentRow.Assistant -> MessageBubble(
-                        msg = row.msg,
-                        host = host,
-                        showReasoning = config.showReasoning,
-                        onNavigate = onNavigate,
-                        toolEvents = row.tools,
-                        streaming = vm.isLoading && row === chatRows.last() && row.msg.content.isBlank() &&
-                            vm.messages.lastOrNull()?.role?.let(::isToolRole) != true,
-                        onAskFromWidget = ::askFromWidget,
-                    )
+                    is AgentRow.Assistant -> PushFlash(
+                        active = flashAt != null && row.msg.timestamp == flashAt,
+                        card = vm.currentSessionId == AgentPushFocus.SESSION_ID,
+                    ) {
+                        MessageBubble(
+                            msg = row.msg,
+                            host = host,
+                            showReasoning = config.showReasoning,
+                            onNavigate = onNavigate,
+                            toolEvents = row.tools,
+                            streaming = vm.isLoading && row === chatRows.last() && row.msg.content.isBlank() &&
+                                vm.messages.lastOrNull()?.role?.let(::isToolRole) != true,
+                            onAskFromWidget = ::askFromWidget,
+                        )
+                    }
                 }
             }
             val last = vm.messages.lastOrNull()
@@ -360,6 +387,39 @@ private fun ThinkingDots() {
         }
     }
 }
+
+/**
+ * 被定位的推送气泡背景闪两下（#194）。
+ * [card]：推送记录里全是助手消息、中间没有用户气泡隔开，每条各包一张卡片，不然会连成一片字。
+ */
+@Composable
+private fun PushFlash(active: Boolean, card: Boolean = false, content: @Composable () -> Unit) {
+    val alpha = remember { androidx.compose.animation.core.Animatable(0f) }
+    LaunchedEffect(active) {
+        if (!active) { alpha.snapTo(0f); return@LaunchedEffect }
+        repeat(2) {
+            alpha.animateTo(0.16f, androidx.compose.animation.core.tween(260))
+            alpha.animateTo(0f, androidx.compose.animation.core.tween(440))
+        }
+    }
+    val color = MiuixTheme.colorScheme.primary
+    val cardModifier = if (card) {
+        Modifier
+            .padding(vertical = 6.dp)
+            .clip(RoundedCornerShape(16.dp))
+            .background(com.xjtu.toolbox.ui.components.AppCardColor)
+            .padding(vertical = 6.dp)
+    } else Modifier
+    Box(
+        Modifier.fillMaxWidth().then(cardModifier).drawBehind {
+            if (alpha.value > 0f) drawRoundRect(
+                color.copy(alpha = alpha.value),
+                cornerRadius = androidx.compose.ui.geometry.CornerRadius(16.dp.toPx()),
+            )
+        }
+    ) { content() }
+}
+
 private fun isToolRole(role: String) = role == "tool_event"
 private sealed class AgentRow {
     abstract val key: String

@@ -96,6 +96,8 @@ internal fun PidaiNavButton(
     ink: Color = MiuixTheme.colorScheme.onSurface,
     /** 用户选的角色；null = 经典屁岱。 */
     cast: CastCharacter? = null,
+    /** 经典屁岱的形状轮廓；null = 云朵。 */
+    shape: DoubleArray? = null,
     /** 眼神：一直盯着的方向与一次性的瞟眼，见 [BloubBotIcon]。 */
     gaze: () -> Offset? = { null },
     glance: PidaiGlance? = null,
@@ -169,7 +171,7 @@ internal fun PidaiNavButton(
             .selectable(
                 selected = false,
                 onClick = {
-                    beat = pokes.poke()
+                    beat = pokes.poke(beat)
                     scope.launch {
                         // 身体自己会被按扁，外层只轻轻一缩，免得两层缩放叠成一大下
                         bounce.snapTo(0.9f)
@@ -227,6 +229,7 @@ internal fun PidaiNavButton(
                     ink = ink,
                     paper = paper,
                     cast = cast,
+                    shape = shape,
                     gaze = gaze,
                     glance = glance,
                     pokeSerial = pokes.serial,
@@ -291,8 +294,9 @@ internal class PidaiPokes {
     var serial by mutableIntStateOf(0)
         private set
 
-    /** 记一次戳，返回这下该播的节拍。 */
-    fun poke(): PidaiBeat {
+    /** 记一次戳，返回这下该播的节拍。彩蛋正在播（[playing] 是 COMET）时不打断、也不重播，返回原节拍。 */
+    fun poke(playing: PidaiBeat? = null): PidaiBeat {
+        if (playing == PidaiBeat.COMET) return PidaiBeat.COMET
         val now = SystemClock.uptimeMillis()
         at[count % COMBO_TAPS] = now
         count++

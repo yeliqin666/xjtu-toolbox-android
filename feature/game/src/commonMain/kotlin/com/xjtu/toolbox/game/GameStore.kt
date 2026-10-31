@@ -1,5 +1,8 @@
 package com.xjtu.toolbox.game
 
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.setValue
 import com.xjtu.toolbox.platform.keyValueStore
 
 /**
@@ -17,6 +20,10 @@ object GameStore {
 
     private fun store() = keyValueStore(PREFS)
 
+    /** 战绩每变一次加一，合集页据此重读。 */
+    var version by mutableIntStateOf(0)
+        private set
+
     // ── 分数类（2048、合成西交大…）──
 
     fun bestScore(game: String): Int = store().getInt("best_$game", 0)
@@ -26,6 +33,7 @@ object GameStore {
         val s = store()
         if (score > s.getInt("best_$game", 0)) {
             s.putInt("best_$game", score)
+            version++
         }
     }
 
@@ -45,6 +53,7 @@ object GameStore {
         val key = "${game}_${suffix}_$difficulty"
         val s = store()
         s.putInt(key, s.getInt(key, 0) + 1)
+        version++
     }
 
 

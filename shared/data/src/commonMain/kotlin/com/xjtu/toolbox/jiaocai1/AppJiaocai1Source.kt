@@ -34,6 +34,8 @@ class AppJiaocai1Source(
 
     override suspend fun coverBytes(url: String): ByteArray? = pages.coverBytes(url)
 
+    override suspend fun cachedFirstPageBytes(ssno: String): ByteArray? = pages.cachedFirstPageBytes(ssno)
+
     override fun prefetchWindow(handle: Jiaocai1BookHandle, center: Int) =
         pages.prefetchWindow(handle, center)
 

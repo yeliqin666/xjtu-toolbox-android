@@ -64,6 +64,12 @@ interface AgentSessionPersistence {
     /** 当前标题是否已锁定（用于 ViewModel 决定是否自动改标题）。 */
     fun isLocked(id: String): Boolean
 
+    /** 读-改-写一个会话（后台追加推送与前台写盘合并用）。默认实现不加锁，落盘实现应在同一把锁里完成。 */
+    fun update(id: String, title: String, lockTitle: Boolean = false, transform: (StoredConversation) -> StoredConversation) {
+        save(id, transform(load(id) ?: StoredConversation()), title)
+        if (lockTitle && !isLocked(id)) rename(id, title, lock = true)
+    }
+
     companion object {
         /** 什么都不存：`:core` 自己的测试与「不落盘」的临时端用它。 */
         val None: AgentSessionPersistence = object : AgentSessionPersistence {

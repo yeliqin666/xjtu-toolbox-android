@@ -108,6 +108,7 @@ internal fun AndroidPidaiHero(title: String, facts: WelcomeFacts, now: LocalDate
     // 进来先眨个眼打招呼，之后回到待命；戳它一下换一句话，连戳放彩蛋
     var beat by remember { mutableStateOf(PidaiBeat.IDLE) }
     val pokes = remember { PidaiPokes() }
+    val gaze = rememberPidaiGaze()
     LaunchedEffect(pokes.serial) {
         delay(beat.holdMs(look.cast) ?: return@LaunchedEffect)
         beat = PidaiBeat.REST
@@ -118,7 +119,7 @@ internal fun AndroidPidaiHero(title: String, facts: WelcomeFacts, now: LocalDate
         if (host.heroPokes == seenPokes[0]) return@LaunchedEffect
         seenPokes[0] = host.heroPokes
         host.heroLine?.let { line = it }
-        beat = pokes.poke()
+        beat = pokes.poke(beat)
     }
     // 轻轻上下浮动：约 30 帧/秒推进相位，页面不可见就停（和底栏屁岱同一档开销）
     val visible = com.xjtu.toolbox.ui.components.LocalPageVisible.current
@@ -159,7 +160,7 @@ internal fun AndroidPidaiHero(title: String, facts: WelcomeFacts, now: LocalDate
                 .size(88.dp)
                 .clip(CircleShape)
                 .clickable {
-                    beat = pokes.poke()
+                    beat = pokes.poke(beat)
                     pickLine(facts, com.xjtu.toolbox.util.nowOnCampus(), line)?.let { line = it }
                 },
             contentAlignment = Alignment.Center,
@@ -169,8 +170,11 @@ internal fun AndroidPidaiHero(title: String, facts: WelcomeFacts, now: LocalDate
                 ink = look.ink,
                 paper = MiuixTheme.colorScheme.surface,
                 cast = look.cast,
+                shape = look.shape,
                 pokeSerial = pokes.serial,
+                gaze = gaze.look,
                 modifier = Modifier
+                    .then(gaze.track)
                     .size(72.dp)
                     .graphicsLayer { translationY = -4.dp.toPx() + kotlin.math.sin(floatPhase.floatValue) * 4.dp.toPx() },
             )

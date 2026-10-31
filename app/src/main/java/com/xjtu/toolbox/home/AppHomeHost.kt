@@ -181,10 +181,11 @@ internal fun rememberAppHome(
 
     // 一行要放在右上角插画旁边，写短：「校外 · 12/14 就绪」。走不走 WebVPN、哪些子系统没连上，点开看明细
     val heroStatus: HomeStatusLine? = if (isLoggedIn) {
-        val (netLabel, netTone) = when (loginState.isOnCampus) {
-            true -> "校园网" to HomeTone.NORMAL
-            false -> "非校园网" to HomeTone.ACCENT
-            null -> "检测中" to HomeTone.MUTED
+        val (netLabel, netTone) = when {
+            !loginState.hasNetwork -> "无网络连接" to HomeTone.ALERT
+            loginState.isOnCampus == true -> "校园网" to HomeTone.NORMAL
+            loginState.isOnCampus == false -> "非校园网" to HomeTone.ACCENT
+            else -> "检测中" to HomeTone.MUTED
         }
         val types = LoginType.entries
         val ok = types.count { loginState.sessionManager?.getSiteOrNull(it.siteKey())?.hasLogin == true }

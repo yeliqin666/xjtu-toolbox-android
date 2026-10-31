@@ -94,8 +94,7 @@ fun DiscussionReplies(
                         ReactionChips(reply.reactions, reply.canReact) { onReact(reply, it, apply) }
                     }
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        LikeAction(reply.reactions, reply.canReact, "") { onReact(reply, LIKE, apply) }
-                        ReactionButton(reply.reactions, reply.canReact) { onReact(reply, it, apply) }
+                        ReactionActions(reply.reactions, reply.canReact, likeEmpty = false) { onReact(reply, it, apply) }
                         if (canReply) CommunityAction(Icons.AutoMirrored.Outlined.Reply, "回复", onClick = { onReply(reply) })
                         Spacer(Modifier.weight(1f))
                         MoreMenu(menu(reply))

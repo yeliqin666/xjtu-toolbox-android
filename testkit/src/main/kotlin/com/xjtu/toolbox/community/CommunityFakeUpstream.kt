@@ -130,6 +130,13 @@ class CommunityFakeUpstream {
         when {
             "viewer{login}" in query -> respondJson(exchange, """{"data":{"viewer":{"login":"$VIEWER_LOGIN"}}}""")
             "discussions(" in query -> respondJson(exchange, discussionsJson(body))
+            // 按作者筛选时走 search，只回那条普通帖子。
+            "\$q:String" in query -> respondJson(
+                exchange,
+                """{"data":{"repository":{"id":"$REPO_ID","viewerPermission":"READ"},"search":{"nodes":[""" +
+                    """${discussionJson(DISCUSSION_ID, DISCUSSION_NUMBER, DISCUSSION_TITLE, pinned = false)}],""" +
+                    """"pageInfo":{"hasNextPage":false,"endCursor":null}}}}""",
+            )
             // 分类列表（列表页那个筛选器 + 发帖时选分类都要它）。
             "discussionCategories(" in query -> respondJson(
                 exchange,
@@ -150,7 +157,7 @@ class CommunityFakeUpstream {
         } else {
             """"pinnedDiscussions":{"nodes":[]},"""
         }
-        return """{"data":{"repository":{"id":"$REPO_ID",$pinned""" +
+        return """{"data":{"repository":{"id":"$REPO_ID","viewerPermission":"READ",$pinned""" +
             """"discussions":{"nodes":[${discussionJson(DISCUSSION_ID, DISCUSSION_NUMBER, DISCUSSION_TITLE, pinned = false)}],""" +
             """"pageInfo":{"hasNextPage":false,"endCursor":null}}}}}"""
     }

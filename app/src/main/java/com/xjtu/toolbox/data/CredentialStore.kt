@@ -140,7 +140,9 @@ class CredentialStore(context: Context) {
         get() = settings.darkMode
         set(value) { settings.darkMode = value }
 
-    val customColorHex: String get() = settings.themeSeedHex
+    /** 浅色 / 深色各自的自选主题色：未启用自定义时为空串。 */
+    val customColorHex: String get() = settings.themeSeedHex(dark = false)
+    val customDarkColorHex: String get() = settings.themeSeedHex(dark = true)
 
     /** 跟随系统壁纸 / 调色盘动态取色（Material You / Monet）。默认关闭。 */
     var dynamicColor: Boolean
@@ -161,24 +163,38 @@ class CredentialStore(context: Context) {
         set(value) { settings.networkMode = value }
 
     var updateChannel: String
-        get() = AppUpdater.normalizeChannel(appPrefs.getString(KEY_UPDATE_CHANNEL, CHANNEL_GITEE))
+        get() {
+            migrateUpdateChannelIfNeeded()
+            return AppUpdater.normalizeChannel(appPrefs.getString(KEY_UPDATE_CHANNEL, CHANNEL_ALIYUN))
+        }
         set(value) { appPrefs.edit().putString(KEY_UPDATE_CHANNEL, AppUpdater.normalizeChannel(value)).apply() }
 
-    /** 是否接收预览版更新。预览包自身默认开（否则装了预览包的人收不到下一个预览）。 */
+    /**
+     * 老版本默认渠道是 gitee；升级后第一次读设置时把旧默认值迁到阿里云。
+     * 迁移只做一次，之后用户手动选 Gitee 不会被再次覆盖。
+     */
+    private fun migrateUpdateChannelIfNeeded() {
+        if (appPrefs.getBoolean(KEY_UPDATE_CHANNEL_MIGRATED, false)) return
+        val stored = appPrefs.getString(KEY_UPDATE_CHANNEL, null)?.trim()?.lowercase()
+        val migrated = when (stored) {
+            // 空值、旧默认 gitee、旧版 stable/beta 都视为「没有主动选过」。
+            null, "", AppUpdater.CHANNEL_GITEE, "stable", "beta", "gitee_latest" -> CHANNEL_ALIYUN
+            AppUpdater.CHANNEL_GITHUB, "github_latest" -> CHANNEL_GITHUB
+            else -> AppUpdater.normalizeChannel(stored)
+        }
+        appPrefs.edit()
+            .putString(KEY_UPDATE_CHANNEL, migrated)
+            .putBoolean(KEY_UPDATE_CHANNEL_MIGRATED, true)
+            .apply()
+    }
+
+    /**
+     * 是否接收预览版更新。预览包自身默认开（否则装了预览包的人收不到下一个预览）。
+     * 开启后全量接收预览版，不再按灰度分桶过滤。
+     */
     var receivePreviewUpdates: Boolean
         get() = appPrefs.getBoolean(KEY_RECEIVE_PREVIEW, BuildConfig.IS_PREVIEW)
         set(value) { appPrefs.edit().putBoolean(KEY_RECEIVE_PREVIEW, value).apply() }
-
-    /**
-     * 灰度分桶用的本机随机 ID。只存在本地，不上传、不与账号关联。
-     * 首次读取时生成；清数据/重装会重新生成（等于重新抽签，可以接受）。
-     */
-    val rolloutId: String
-        // 各处都是现场 new 的 CredentialStore，锁实例没用，锁类。
-        get() = synchronized(CredentialStore::class.java) {
-            appPrefs.getString(KEY_ROLLOUT_ID, null) ?: java.util.UUID.randomUUID().toString()
-                .also { appPrefs.edit().putString(KEY_ROLLOUT_ID, it).commit() }
-        }
 
     var accountType: AccountType
         get() = AccountType.fromKey(appPrefs.getString(KEY_ACCOUNT_TYPE, AccountType.UNDERGRADUATE.key))
@@ -237,8 +253,8 @@ class CredentialStore(context: Context) {
         const val CURRENT_EULA_VERSION = 4
 
         private const val KEY_UPDATE_CHANNEL = "update_channel"
+        private const val KEY_UPDATE_CHANNEL_MIGRATED = "update_channel_migrated"
         private const val KEY_RECEIVE_PREVIEW = "receive_preview_updates"
-        private const val KEY_ROLLOUT_ID = "rollout_id"
         private const val KEY_LAST_RUN_VERSION = "last_run_version"
         private const val KEY_LAST_AUTO_UPDATE_CHECK_AT = "last_auto_update_check_at"
         private const val KEY_ACCOUNT_TYPE = "account_type"
@@ -262,6 +278,7 @@ class CredentialStore(context: Context) {
         const val NETWORK_AUTO = SettingsStore.NETWORK_AUTO
         const val NETWORK_DIRECT = SettingsStore.NETWORK_DIRECT
         const val NETWORK_VPN = SettingsStore.NETWORK_VPN
+        const val CHANNEL_ALIYUN = AppUpdater.CHANNEL_ALIYUN
         const val CHANNEL_GITEE = AppUpdater.CHANNEL_GITEE
         const val CHANNEL_GITHUB = AppUpdater.CHANNEL_GITHUB
     }

@@ -30,6 +30,8 @@ object RequestCodes {
     const val REMINDER_EXAM_CHANGE = 2106
     /** 屁岱简报与定时任务，都进收纳页。 */
     const val REMINDER_PIDAI = 2107
+    /** 图书馆提醒上的「签到」按钮，发给 LibraryActionReceiver 的广播。 */
+    const val REMINDER_LIBRARY_ACTION = 2108
 
     // 5xxx 发给小组件自己的广播
     /** + WidgetSize.ordinal。沿用旧值：AlarmManager 里排着的闹钟要靠同一个码才取消得掉。 */

@@ -4,14 +4,10 @@ import com.xjtu.toolbox.util.AppJson
 import com.xjtu.toolbox.util.safeStringOrNull
 import kotlinx.serialization.json.jsonObject
 
-/**
- * 工具的 `show` 参数：模型要把这次结果展示给用户时置 true，回答下方才出这次的卡片和页面入口（见 AgentRunner）。
- * 卡片由模型点名，不按调用历史收——它中途换名重查、试探好几次时，不会堆出一排卡。
- */
+/** 兼容旧历史中的 show 参数。新调用在查询后使用 present_result。 */
 object ToolShow {
     const val PARAM = "show"
-    const val DESCRIPTION = "true：在回答下方展示这次结果（有数据卡片的出卡片，并附对应页面入口）。" +
-        "只给最终要呈现给用户的那次调用设；探路、换名重试、中间查询不设。缺省 false。"
+    const val DESCRIPTION = "旧版展示参数。新调用使用 present_result。"
 
     fun requested(argsJson: String): Boolean = runCatching {
         AppJson.parseToJsonElement(argsJson).jsonObject[PARAM].safeStringOrNull().equals("true", ignoreCase = true)

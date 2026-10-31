@@ -83,6 +83,9 @@ internal object AgentWidgetPresentation {
                 })
             }
         }
+        if (kind == null) props["view"] = agentEnumProp("按结果类型选择展示视图。",
+            "auto", "slots", "status", "both", "all", "balance", "summary", "transactions", "plan", "booking", "places", "route")
+        if (kind == null) props["statuses"] = arrayProp("教室：free/in_use/in_class/unknown；考勤：normal/late/absence/leave/unknown。")
         val sorts = when (kind) {
             "grades" -> arrayOf("original", "score_asc", "score_desc", "credit_desc")
             "rooms" -> arrayOf("original", "seats_desc", "free_desc", "people_asc", "name")
@@ -97,18 +100,20 @@ internal object AgentWidgetPresentation {
         return buildJsonObject { put("type", "object"); put("properties", JsonObject(props)); put("additionalProperties", false) }
     }
 
-    fun decorate(definition: JsonObject): JsonObject {
+    fun supportsResult(tool: String): Boolean = tool in kinds || agentNavSuggestions(listOf(tool)).isNotEmpty()
+
+    fun queryDefinition(definition: JsonObject): JsonObject {
         val fn = definition["function"] as? JsonObject ?: return definition
-        val kind = kinds[fn["name"]?.jsonPrimitive?.content] ?: return definition
+        if (!supportsResult(fn["name"]?.jsonPrimitive?.content.orEmpty())) return definition
         val params = fn["parameters"] as? JsonObject ?: return definition
         val props = params["properties"] as? JsonObject ?: return definition
-        return JsonObject(definition + ("function" to JsonObject(fn + ("parameters" to JsonObject(params +
-            ("properties" to JsonObject(props + ("display" to schema(kind)))))))))
+        val parameters = JsonObject(params + ("properties" to JsonObject(props - setOf("show", "display"))))
+        return JsonObject(definition + ("function" to JsonObject(fn + ("parameters" to parameters))))
     }
 
     fun toolDefinition(ids: Set<String>) = agentTool(TOOL,
-        "从本轮已查询的 card_result_id 快照中挑选条目并展示卡片，不联网、不重查。再次展示同一结果会替换其旧卡片。",
-        agentParams("result_id" to agentEnumProp("本轮工具返回的 card_result_id。", *ids.toTypedArray()),
+        "先查看查询结果，再用本轮 result_id 展示。数据结果显示卡片和页面入口；仅有页面入口的结果显示入口。display 可筛选已有数据。重复展示替换旧卡。",
+        agentParams("result_id" to agentEnumProp("查询完成后返回的 result_id。", *ids.toTypedArray()),
             "display" to schema(), required = listOf("result_id")))
 
     fun options(args: String): JsonObject? {

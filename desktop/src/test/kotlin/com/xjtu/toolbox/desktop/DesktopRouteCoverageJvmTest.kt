@@ -10,7 +10,7 @@ class DesktopRouteCoverageJvmTest {
 
     /** 见文件头：每条断言都带上它。 */
     private val criterion = "这条判据是 docs/desktop-port-plan.md §12.3/§14.5 的验收项" +
-        "（42 条 AppRoute 声明 ↔ 42 条 DesktopPage 顶层分支，兜底的 NotPortedScreen 不可命中）"
+        "（43 条 AppRoute 声明 ↔ 43 条 DesktopPage 顶层分支，兜底的 NotPortedScreen 不可命中）"
 
     // ── 读源码 ──
 
@@ -68,15 +68,15 @@ class DesktopRouteCoverageJvmTest {
     // ── 断言 ──
 
     @Test
-    fun `42 条声明在 DesktopPage 的顶层 when 里各有分支`() {
+    fun `43 条声明在 DesktopPage 的顶层 when 里各有分支`() {
         val declared = declaredRoutes()
         val branches = desktopPageBranches()
 
-        assertEquals(42, declared.size, "AppRoute 的声明数不是 42 了（现在 ${declared.size}）：$criterion")
+        assertEquals(43, declared.size, "AppRoute 的声明数不是 43 了（现在 ${declared.size}）：$criterion")
         assertEquals(
-            42,
+            43,
             branches.size,
-            "DesktopPage 的顶层分支数不是 42 了（现在 ${branches.size}）：$criterion；" +
+            "DesktopPage 的顶层分支数不是 43 了（现在 ${branches.size}）：$criterion；" +
                 "分支是这些：$branches",
         )
         assertEquals(branches.size, branches.toSet().size, "有重复的顶层分支：$branches —— $criterion")

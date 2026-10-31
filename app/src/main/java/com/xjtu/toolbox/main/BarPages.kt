@@ -45,6 +45,7 @@ import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextButton
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import com.kyant.backdrop.backdrops.LayerBackdrop
+import com.xjtu.toolbox.agent.AgentOverlays
 import com.xjtu.toolbox.agent.AgentScreen
 import com.xjtu.toolbox.agent.AndroidAgentHost
 import com.xjtu.toolbox.agent.AndroidPidaiHero
@@ -176,8 +177,10 @@ internal fun AndroidAgentScreen(
     contentTopPadding: Dp,
     scrollBehavior: ScrollBehavior,
     onTitleChange: (String) -> Unit,
+    onSubtitleChange: (String) -> Unit,
     onActionsChange: ((@Composable RowScope.() -> Unit)?) -> Unit,
     onNavIconChange: ((@Composable () -> Unit)?) -> Unit,
+    overlays: AgentOverlays,
 ) {
     val context = LocalContext.current
     AgentScreen(
@@ -193,8 +196,10 @@ internal fun AndroidAgentScreen(
         hostBottomPadding = hostBottomPadding,
         scrollBehavior = scrollBehavior,
         onTitleChange = onTitleChange,
+        onSubtitleChange = onSubtitleChange,
         onActionsChange = onActionsChange,
         onNavIconChange = onNavIconChange,
+        overlays = overlays,
         onNavigate = onNavigate,
         contentTopPadding = contentTopPadding,
     )
@@ -204,13 +209,17 @@ internal fun AndroidAgentScreen(
 @Composable
 internal fun AgentRoutePage(loginState: AppLoginState, onNavigate: (AppRoute) -> Unit, onBack: () -> Unit) {
     var title by remember { mutableStateOf("屁岱") }
+    var subtitle by remember { mutableStateOf("") }
     var actions by remember { mutableStateOf<(@Composable RowScope.() -> Unit)?>(null) }
     var navIcon by remember { mutableStateOf<(@Composable () -> Unit)?>(null) }
+    val overlays = remember { AgentOverlays() }
     val scrollBehavior = MiuixScrollBehavior(rememberTopAppBarState())
+    Box(Modifier.fillMaxSize()) {
     StandalonePage(
         topBar = { glass ->
             SmallTopAppBar(
                 title = title,
+                subtitle = subtitle,
                 color = glassBarColor(glass),
                 modifier = Modifier.glassTopBar(glass),
                 scrollBehavior = scrollBehavior,
@@ -232,9 +241,13 @@ internal fun AgentRoutePage(loginState: AppLoginState, onNavigate: (AppRoute) ->
             contentTopPadding = topPadding,
             scrollBehavior = scrollBehavior,
             onTitleChange = { title = it },
+            onSubtitleChange = { subtitle = it },
             onActionsChange = { actions = it },
             onNavIconChange = { navIcon = it },
+            overlays = overlays,
         )
+    }
+    overlays.Content()
     }
 }
 

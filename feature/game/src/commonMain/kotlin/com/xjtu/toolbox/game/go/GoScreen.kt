@@ -1,6 +1,5 @@
 package com.xjtu.toolbox.game.go
 
-import com.xjtu.toolbox.ui.components.BackButton
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
@@ -13,10 +12,12 @@ import com.xjtu.toolbox.game.ui.Contender
 import com.xjtu.toolbox.game.ui.GameAction
 import com.xjtu.toolbox.game.ui.GameActionRow
 import com.xjtu.toolbox.game.ui.GameHint
+import com.xjtu.toolbox.game.ui.LeaveButton
 import com.xjtu.toolbox.game.ui.StonePaints
 import com.xjtu.toolbox.game.ui.VersusBar
 import com.xjtu.toolbox.game.ui.drawStone
 import com.xjtu.toolbox.game.ui.rememberDropProgress
+import com.xjtu.toolbox.game.ui.rememberLeaveGuard
 import com.xjtu.toolbox.game.ui.woodBoard
 import com.xjtu.toolbox.game.ui.woodColors
 import androidx.compose.foundation.background
@@ -99,13 +100,21 @@ fun GoScreen(onBack: () -> Unit, onlineLobby: OnlineLobby? = null) {
     // 收对方着法也放在整页：人在别的 tab 时对方落子不能丢（events 没有重放）。
     LaunchedEffect(match.session) { match.session?.let { match.collect(it) } }
 
+    // 已落过子且没分出胜负才算对局中；联机时退出要先断开连接
+    @Suppress("UNUSED_VARIABLE") val localVersion = state.version
+    val inProgress = if (online) {
+        match.session != null && match.result == null && match.resignedWinner == null &&
+            match.disconnectedReason == null && match.moveCount > 0
+    } else {
+        state.phase != GoPhase.FINISHED && state.board.canUndo()
+    }
+    val leave = rememberLeaveGuard(inProgress) { match.leave(); onBack() }
+
     Scaffold(
         topBar = {
             TopAppBar(
                 title = "围棋",
-                navigationIcon = {
-                    BackButton(onBack)
-                },
+                navigationIcon = { LeaveButton(inProgress, leave::request) },
                 color = MiuixTheme.colorScheme.background,
             )
         },
@@ -163,6 +172,10 @@ fun GoScreen(onBack: () -> Unit, onlineLobby: OnlineLobby? = null) {
             }
         }
 
+        leave.Menu(
+            if (online) "联机对局中，退出会断开连接" else "对局进行中",
+            onRestart = if (online) null else ({ state.newGame() }),
+        )
         if (state.phase == GoPhase.FINISHED) {
             GoResultDialog(state = state, onDismiss = { state.newGame() })
         }

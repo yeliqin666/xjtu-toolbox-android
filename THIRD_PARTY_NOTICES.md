@@ -3,7 +3,17 @@
 本文件记录 XJTUApp 中并入或参考的第三方代码、素材及其许可证。
 按来源分节，每节写清「用了什么、改了什么、许可证是什么」。
 
-目前的第三方内容集中在小游戏模块：
+## 美术素材
+
+### 应用图标中的「交小西」形象
+
+- **版权**：图标形象版权归交小西制作组所有（[B 站主页](https://space.bilibili.com/3494379805215567)）。
+- **授权**：已获得交小西制作组授权使用该形象。
+- **出品关系**：本应用为开源项目，不由交小西制作组出品。
+- **授权条件**：项目保持开源、免费、无广告、无内购；项目性质发生变更时授权不再适用，须与制作组重新协商。
+- **许可边界**：该形象**不属于**本仓库 GPL-3.0 的授权范围。下游 fork 或再分发不得沿用该图标，需自行取得授权或替换图标。
+
+代码类第三方内容集中在小游戏模块：
 
 | 小游戏 | 第三方来源 | 许可证 |
 | --- | --- | --- |
@@ -26,6 +36,13 @@
 | 社区页的讨论列表、详情、楼中楼、发帖、GitHub 设备码登录 | JoyinJoester/Etoile | GPL-3.0 |
 | 社区页的 Markdown 渲染 | mikepenz/multiplatform-markdown-renderer（核心模块 + coil3 模块） | Apache-2.0 |
 | 社区页的头像与帖子图片 | coil-kt/coil（coil-compose、coil-network-okhttp） | Apache-2.0 |
+
+屁岱（AI 助手）：
+
+| 用在哪 | 第三方来源 | 许可证 |
+| --- | --- | --- |
+| 屁岱回答的公式排版 | huarangmeng/latex 1.6.3（latex-renderer、latex-fonts-katex） | MIT |
+| 公式字体 | KaTeX 0.16.11 字体（Khan Academy，经 latex-fonts-katex 打包） | MIT |
 
 玻璃底栏和 C9 校徽素材的说明见文末。
 
@@ -291,3 +308,67 @@ SOFTWARE.
 楼中楼预览；界面全部用 MIUIX 按论坛样式重写（帖子卡片、楼层、楼主标记、楼中楼、底部回帖栏、编辑 / 预览），
 顶栏用本 App 的玻璃栏；登录只保留设备码方式，token 不过期、不做刷新。
 本项目自 2026-09-24 起以 GPL-3.0 发布，与之兼容。
+
+---
+
+## 屁岱公式排版
+
+### huarangmeng/latex 1.6.3 —— MIT License
+
+`feature/agent` 依赖 `io.github.huarangmeng:latex-renderer` 与 `latex-fonts-katex`（1.6.3）排版回答中的公式：
+
+```
+MIT License
+
+Copyright (c) 2026 huarangmeng
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+```
+
+仓库：<https://github.com/huarangmeng/latex>。
+
+### KaTeX 0.16.11 fonts —— MIT License
+
+`latex-fonts-katex` 打包了 KaTeX 0.16.11 的字体：
+
+```
+The MIT License (MIT)
+
+Copyright (c) 2013-2020 Khan Academy and other contributors
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+```
+
+项目主页：<https://katex.org/>，仓库：<https://github.com/KaTeX/KaTeX>。

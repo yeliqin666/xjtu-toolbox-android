@@ -57,6 +57,8 @@ internal fun HomeTab(
     onBulletinDismiss: (Bulletin) -> Unit = {},
     /** 玻璃顶栏的高度：内容铺到顶栏下面，这段留白放进滚动内容里。经典风格为 0。 */
     contentTopPadding: androidx.compose.ui.unit.Dp = 0.dp,
+    /** 壳把整页上移的量（见 `ShellPageInsets.contentTopShift`）；首页模糊带按它补回屏幕顶边。 */
+    contentTopShift: () -> androidx.compose.ui.unit.Dp = { 0.dp },
     topActions: (@Composable () -> Unit)? = null,
 ) {
     val home = rememberAppHome(
@@ -76,6 +78,7 @@ internal fun HomeTab(
         scrollBehavior = scrollBehavior,
         extraBottomPadding = extraBottomPadding,
         contentTopPadding = contentTopPadding,
+        contentTopShift = contentTopShift,
         topActions = topActions,
     )
 }

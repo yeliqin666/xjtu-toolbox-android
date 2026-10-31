@@ -34,7 +34,7 @@
 - 雁塔：基础医学实验教学中心。
 - 创新港：力行楼、敏行楼、泓理楼、躬行楼。
 
-坐标与轮廓来自 OpenStreetMap，生成方式见 `tools/gen_campus_map.py`；未凭空补坐标。曲江数据一并更新。
+坐标与轮廓来自 OpenStreetMap，生成方式见 `tools/gen-campus-map.py`；未凭空补坐标。曲江数据一并更新。
 
 ## 验证
 

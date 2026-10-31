@@ -64,6 +64,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.kyant.backdrop.backdrops.LayerBackdrop
 import com.xjtu.toolbox.account.AccountManager
+import com.xjtu.toolbox.agent.AgentOverlays
 import com.xjtu.toolbox.agent.AgentInsightEngine
 import com.xjtu.toolbox.agent.AgentInsightHub
 import com.xjtu.toolbox.agent.AgentPendingPrompt
@@ -194,6 +195,8 @@ internal fun MainScreen(
 
     // PIDAI tab 的标题与顶栏按钮，由屁岱页反向送上来
     var agentTitle by remember { mutableStateOf("屁岱") }
+    var agentSubtitle by remember { mutableStateOf("") }
+    val agentOverlays = remember { AgentOverlays() }
     var agentHeaderActions by remember { mutableStateOf<(@Composable RowScope.() -> Unit)?>(null) }
     var agentHeaderNavIcon by remember { mutableStateOf<(@Composable () -> Unit)?>(null) }
 
@@ -337,8 +340,7 @@ internal fun MainScreen(
     AppShell(
         nav = navState,
         rootModifier = Modifier
-            .onGloballyPositioned { overlayOrigin = it.positionInRoot() }
-            .feedPidaiTouch { overlayOrigin },
+            .onGloballyPositioned { overlayOrigin = it.positionInRoot() },
         glassStyle = glassStyle,
         // 系统导航条那一格：玻璃底栏的空隙与浮空占位都按它算（见 ShellLayout）
         bottomInset = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding(),
@@ -369,6 +371,7 @@ internal fun MainScreen(
                     BottomTab.PROFILE -> profileScrollBehavior
                 },
                 agentTitle = agentTitle,
+                agentSubtitle = agentSubtitle,
                 agentNavIcon = agentHeaderNavIcon,
                 agentActions = agentHeaderActions,
                 courseSubtitle = courseSubtitle,
@@ -400,6 +403,8 @@ internal fun MainScreen(
         },
         // 搜索、扫一扫是盖满整屏的浮层：共享壳把它们放在最外层，不放进 Scaffold 的内容区
         overlays = { handles ->
+            // 屁岱的历史对话侧栏和设置页：盖住顶栏和底栏
+            if (selectedTab == BottomTab.PIDAI) agentOverlays.Content()
             AnimatedVisibility(visible = showGlobalSearch, enter = OverlayEnter, exit = OverlayExit) {
                 CompositionLocalProvider(
                     LocalAppBackdrop provides if (glassStyle) handles.contentBackdrop else null,
@@ -414,6 +419,14 @@ internal fun MainScreen(
                             showGlobalSearch = false
                             AgentPendingPrompt.set(prompt)
                             router.selectTab(BottomTab.PIDAI)
+                        },
+                        onOpenUrl = { url ->
+                            showGlobalSearch = false
+                            router.open(AppRoute.Browser(url))
+                        },
+                        onOpenWithWebVpn = { vpnUrl ->
+                            showGlobalSearch = false
+                            pageDeps.onOpenWithWebVpn(vpnUrl)
                         },
                         accountType = loginState.accountType,
                     )
@@ -492,6 +505,7 @@ internal fun MainScreen(
                         onBulletinTap = onHeroBulletinTap,
                         onBulletinDismiss = onHeroBulletinDismiss,
                         contentTopPadding = insets.contentTopPadding,
+                        contentTopShift = insets.contentTopShift,
                         topActions = {
                             HomeTopActions(
                                 onInbox = { router.open(AppRoute.Inbox) },
@@ -510,8 +524,10 @@ internal fun MainScreen(
                         contentTopPadding = insets.contentTopPadding,
                         scrollBehavior = agentScrollBehavior,
                         onTitleChange = { agentTitle = it },
+                        onSubtitleChange = { agentSubtitle = it },
                         onActionsChange = { agentHeaderActions = it },
                         onNavIconChange = { agentHeaderNavIcon = it },
+                        overlays = agentOverlays,
                     )
 
                     BottomTab.COURSES.name -> CoursesTab(
@@ -639,6 +655,7 @@ private fun MainTopBar(
     backdrop: LayerBackdrop,
     scrollBehavior: ScrollBehavior,
     agentTitle: String,
+    agentSubtitle: String,
     agentNavIcon: (@Composable () -> Unit)?,
     agentActions: (@Composable RowScope.() -> Unit)?,
     courseSubtitle: String,
@@ -658,6 +675,7 @@ private fun MainTopBar(
     if (selectedTab == BottomTab.PIDAI) {
         SmallTopAppBar(
             title = agentTitle,
+            subtitle = agentSubtitle,
             color = color,
             modifier = modifier,
             scrollBehavior = scrollBehavior,

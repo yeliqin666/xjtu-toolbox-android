@@ -59,6 +59,7 @@ internal fun AndroidPokeWhisper(modifier: Modifier = Modifier) {
     val seen = remember { intArrayOf(host.heroPokes) }
     var text by remember { mutableStateOf<String?>(null) }
     var visible by remember { mutableStateOf(false) }
+    val gaze = rememberPidaiGaze()
     LaunchedEffect(host.heroPokes) {
         if (host.heroPokes == seen[0]) return@LaunchedEffect
         seen[0] = host.heroPokes
@@ -94,7 +95,9 @@ internal fun AndroidPokeWhisper(modifier: Modifier = Modifier) {
                 ink = look.ink,
                 paper = MiuixTheme.colorScheme.surfaceVariant,
                 cast = look.cast,
-                modifier = Modifier.size(26.dp),
+                shape = look.shape,
+                gaze = gaze.look,
+                modifier = Modifier.then(gaze.track).size(26.dp),
             )
             Spacer(Modifier.width(8.dp))
             Text(

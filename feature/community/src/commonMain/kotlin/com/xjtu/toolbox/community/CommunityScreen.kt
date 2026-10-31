@@ -7,6 +7,7 @@ import com.xjtu.toolbox.platform.BackHandler
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.Crossfade
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
@@ -28,6 +29,10 @@ import kotlinx.coroutines.launch
 import top.yukonga.miuix.kmp.basic.*
 import top.yukonga.miuix.kmp.overlay.OverlayDialog
 import androidx.compose.material.icons.filled.Info
+import androidx.compose.ui.text.style.TextDecoration
+import com.xjtu.toolbox.platform.Log
+import io.ktor.client.network.sockets.SocketTimeoutException
+import okio.IOException
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.utils.PressFeedbackType
 
@@ -139,6 +144,10 @@ private fun CommunityForum(
                 onCreate = { vm.setComposing(true) },
                 onOpen = { open = it },
                 onFilter = vm::selectFilter,
+                onState = vm::selectState,
+                onSort = vm::selectSort,
+                onAuthor = vm::selectAuthor,
+                me = signedIn,
                 onAccount = { accountDialog = true },
                 onLegacyFeedback = onOpenLegacyFeedback,
                 listState = listState,
@@ -191,6 +200,7 @@ private fun CommunityLoginScreen(
     var authorization by remember { mutableStateOf<GithubDeviceAuthorization?>(null) }
     var busy by remember { mutableStateOf(false) }
     var message by remember { mutableStateOf<String?>(null) }
+    var showManualToken by remember { mutableStateOf(false) }
     val colors = MiuixTheme.colorScheme
 
     val pending = authorization
@@ -232,11 +242,26 @@ private fun CommunityLoginScreen(
             )
             Spacer(Modifier.height(4.dp))
             when {
-                !auth.isConfigured && !auth.supportsManualToken -> Text("社区登录还没配置好，敬请期待。", color = colors.error, style = MiuixTheme.textStyles.body2)
+                !auth.isConfigured && !auth.supportsManualToken ->
+                    Text("社区登录还没配置好，敬请期待。",
+                        color = colors.error,
+                        style = MiuixTheme.textStyles.body2)
+
+                // 手机端：用户点了灰色链接，主动切到 token 登录
+                showManualToken && pending == null -> ManualTokenLogin(
+                    auth = auth,
+                    session = session,
+                    busy = busy,
+                    onBusyChange = { busy = it },
+                    onMessage = { message = it },
+                )
+
                 // 走不通设备码流程的端（Web）：同一个登录页多一条「粘贴 token」的路，
                 // 而不是在那一端另写一个登录界面 —— 用户看到的都是「社区 → 登录」。
+                // Web：平台本身不支持设备码，直接给 token 登录，不给取消
                 auth.supportsManualToken && pending == null -> ManualTokenLogin(
                     auth = auth,
+                    session = session,
                     busy = busy,
                     onBusyChange = { busy = it },
                     onMessage = { message = it },
@@ -244,6 +269,7 @@ private fun CommunityLoginScreen(
                 pending == null -> Button(
                     onClick = {
                         busy = true; message = null
+                        showManualToken = false
                         scope.launch {
                             auth.start().fold(
                                 onSuccess = { authorization = it },
@@ -291,7 +317,28 @@ private fun CommunityLoginScreen(
                 }
             }
             message?.let { Text(it, color = colors.error, style = MiuixTheme.textStyles.body2, textAlign = TextAlign.Center) }
-            TextButton(text = "没有 GitHub 账号？免费注册一个", onClick = { uriHandler.openUri("https://github.com/signup") })
+            Text(
+                text = "没有 GitHub 账号？免费注册一个",
+                style = MiuixTheme.textStyles.body2,
+                color = colors.primary,
+                textDecoration = TextDecoration.Underline,
+                modifier = Modifier.clickable { uriHandler.openUri("https://github.com/signup") },)
+
+            // 仅手机端：设备码 / token 两种方式互切，Web 端不显示
+            if (!auth.supportsManualToken && pending == null) {
+                val (label, onClick) = if (showManualToken) {
+                    "改用设备码登录" to { showManualToken = false }
+                } else {
+                    "手动输入token登录" to { showManualToken = true }
+                }
+                Text(
+                    text = label,
+                    style = MiuixTheme.textStyles.footnote1,
+                    color = colors.onSurfaceVariantSummary,
+                    modifier = Modifier.clickable(onClick = onClick),
+                )
+            }
+
             Spacer(Modifier.height(8.dp))
             LegacyFeedbackEntry(onOpenLegacyFeedback)
         }
@@ -302,6 +349,7 @@ private fun CommunityLoginScreen(
 @Composable
 private fun ManualTokenLogin(
     auth: GithubDeviceAuthRepository,
+    session: GithubSession,
     busy: Boolean,
     onBusyChange: (Boolean) -> Unit,
     onMessage: (String?) -> Unit,
@@ -334,9 +382,27 @@ private fun ManualTokenLogin(
                     onBusyChange(true)
                     onMessage(null)
                     scope.launch {
-                        auth.signInWithToken(raw).fold(
-                            onSuccess = { onMessage(null) },
-                            onFailure = { onMessage("这个 token 用不了，检查是否复制完整、是否有 discussions 写权限。") },
+                        // 手动 token 构造一个简单的 AccessToken 对象
+                        // 因为 PAT (Personal Access Token) 通常没有 refresh_token 和过期时间（除非 fine-grained 设了）
+                        val tokenObj = GithubDeviceAccessToken(
+                            accessToken = raw,
+                            tokenType = "bearer",
+                            scopes = emptySet()
+                        )
+
+                        session.signIn(accessToken = tokenObj).fold(
+                            onSuccess = {
+                                // 登录成功，session.login 变了，外层 Crossfade 会自动切界面
+                                onMessage(null)
+                            },
+                            onFailure = { e ->
+                                onMessage(when {
+                                    e is IOException -> "连不上 GitHub，检查网络后重试。"
+                                    e.message?.contains("401") == true -> "token 无效或已过期，重新创建一个。"
+                                    e.message?.contains("403") == true -> "token 权限不足：需要 public_repo + write:discussion。"
+                                    else -> "登录失败：${e.message}"
+                                })
+                            }
                         )
                         onBusyChange(false)
                     }

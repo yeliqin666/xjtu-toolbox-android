@@ -1,4 +1,4 @@
-name: Sync announce to Gitee
+name: Sync announce to OSS + Gitee
 
 on:
   push:
@@ -13,7 +13,64 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Install OSS SDK
+        id: oss_sdk
+        continue-on-error: true
+        timeout-minutes: 3
+        run: python3 -m pip install --quiet --disable-pip-version-check --timeout 30 --retries 3 --upgrade oss2
+
+      - name: Upload bulletin to OSS
+        id: oss_bulletin
+        if: steps.oss_sdk.outcome == 'success'
+        continue-on-error: true
+        env:
+          OSS_ACCESS_KEY_ID: ${{ secrets.OSS_ACCESS_KEY_ID }}
+          OSS_ACCESS_KEY_SECRET: ${{ secrets.OSS_ACCESS_KEY_SECRET }}
+          OSS_ENDPOINT: ${{ secrets.OSS_ENDPOINT }}
+          OSS_BUCKET: ${{ secrets.OSS_BUCKET }}
+          OSS_PUBLIC_BASE: ${{ secrets.OSS_PUBLIC_BASE }}
+        run: |
+          set -euo pipefail
+          test -f bulletin.json
+          python3 -m json.tool bulletin.json >/dev/null
+          python3 - <<'PY'
+          import os
+          import oss2
+
+          endpoint = os.environ["OSS_ENDPOINT"]
+          if not endpoint.startswith(("http://", "https://")):
+              endpoint = "https://" + endpoint
+          bucket = oss2.Bucket(
+              oss2.Auth(os.environ["OSS_ACCESS_KEY_ID"], os.environ["OSS_ACCESS_KEY_SECRET"]),
+              endpoint,
+              os.environ["OSS_BUCKET"],
+          )
+          bucket.put_object_from_file("xjtu-toolbox/bulletin.json", "bulletin.json")
+          print("bulletin uploaded")
+          PY
+          python3 - <<'PY'
+          import json
+          import os
+          import oss2
+
+          endpoint = os.environ["OSS_ENDPOINT"]
+          if not endpoint.startswith(("http://", "https://")):
+              endpoint = "https://" + endpoint
+          bucket = oss2.Bucket(
+              oss2.Auth(os.environ["OSS_ACCESS_KEY_ID"], os.environ["OSS_ACCESS_KEY_SECRET"]),
+              endpoint,
+              os.environ["OSS_BUCKET"],
+          )
+          local = json.load(open("bulletin.json", encoding="utf-8"))
+          remote = json.loads(bucket.get_object("xjtu-toolbox/bulletin.json").read())
+          assert local == remote, "bulletin mismatch"
+          print("bulletin OSS ok")
+          PY
+          curl -fsS --max-time 20 "$OSS_PUBLIC_BASE/bulletin.json" >/dev/null \
+            || echo "::warning::public CDN bulletin check timed out; OSS object is verified"
+
       - name: Push announce to Gitee
+        continue-on-error: true
         env:
           GITEE_TOKEN: ${{ secrets.GITEE_ACCESS_TOKEN }}
           GITEE_URL: https://gitee.com/yeliqin666/xjtu-toolbox-android.git
@@ -35,3 +92,9 @@ jobs:
             '!f() { echo "username=yeliqin666"; echo "password=$GITEE_TOKEN"; }; f'
           git push gitee HEAD:announce --force
           echo "announce branch synced to Gitee"
+
+      - name: Fail if OSS bulletin upload failed
+        if: steps.oss_bulletin.outcome != 'success'
+        run: |
+          echo "::error::OSS bulletin upload failed; Gitee fallback was updated. Re-run the workflow to fix OSS."
+          exit 1

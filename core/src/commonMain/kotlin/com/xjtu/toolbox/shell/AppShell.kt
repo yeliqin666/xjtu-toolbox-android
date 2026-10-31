@@ -149,9 +149,18 @@ fun AppShell(
             ) { padding ->
                 val stableTopBar = rememberStableTopPadding(padding)
                 val tabTopPadding = if (glassStyle) stableTopBar.value else 0.dp
+                // 壳把 tab 整页上移了 stable − 实际顶栏高度：页面里贴屏幕顶边的装饰要自己补回这段
+                val contentTopShift: () -> Dp = {
+                    if (glassStyle) {
+                        (stableTopBar.value - padding.calculateTopPadding()).coerceAtLeast(0.dp)
+                    } else {
+                        0.dp
+                    }
+                }
                 val layoutDirection = LocalLayoutDirection.current
                 val insets = ShellPageInsets(
                     contentTopPadding = tabTopPadding,
+                    contentTopShift = contentTopShift,
                     bottomBarReserve = layout.bottomBarReserve,
                     scaffoldBottomPadding = padding.calculateBottomPadding(),
                 )
@@ -216,6 +225,12 @@ class ShellPageInsets(
     val bottomBarReserve: Dp,
     /** Scaffold 那一层给的底部 padding（钉在底边的输入栏要让开）。 */
     val scaffoldBottomPadding: Dp,
+    /**
+     * 壳为了对齐 [contentTopPadding] 把这一页整体上移的量（稳定值 − 当前实际顶栏高度）。
+     * 页面里贴着屏幕顶边画的装饰（比如首页的渐进模糊带）要自己补回这段，不然会被顶出屏幕。
+     * 只在布局阶段读。
+     */
+    val contentTopShift: () -> Dp = { 0.dp },
 )
 
 /** 共享壳交给端上插槽的那几样把手。 */

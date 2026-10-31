@@ -170,7 +170,7 @@
 
 | # | store 名 | 账号后缀 | Android 文件 / 桌面文件 / web 键前缀 | 已核对的键 | 核对 |
 |---|---|---|---|---|---|
-| 1 | `app_settings` | 无 | `app_settings.xml` / `app_settings.properties` / `xjtu-toolbox.app_settings.*` | `nav_bar_style` `dark_mode` `dynamic_color` `default_tab` `network_mode` `home_theme` `show_quick_actions` `venue_auto_solve_captcha` `schedule_attendance_badge` `schedule_source`（`SettingsStore.kt` companion）+ `eula_accepted_version` `update_channel` `receive_preview_updates` `rollout_id` `last_run_version` `last_auto_update_check_at` `account_type` `empty_room_cdn_tip` `recent_site_keys` `site_usage` `update_notice_<ver>` `last_seen_changelog_version` `cached_nickname`（`:app` `CredentialStore.kt` companion；`cached_nickname` 由 2026-10-14 批②工单拆分补记，见 `docs/storage-layout-plan.md` §7 的裁定 R7） | 全 |
+| 1 | `app_settings` | 无 | `app_settings.xml` / `app_settings.properties` / `xjtu-toolbox.app_settings.*` | `nav_bar_style` `dark_mode` `dynamic_color` `default_tab` `network_mode` `home_theme` `show_quick_actions` `venue_auto_solve_captcha` `schedule_attendance_badge` `schedule_source`（`SettingsStore.kt` companion）+ `custom_color_hex` `custom_color_enabled` `custom_color_hex_light` `custom_color_hex_dark`（`SettingsStore.kt` 里的字面量键；自选主题色按浅色 / 深色分存，旧键 `custom_color_hex` 当两档的兜底）+ `eula_accepted_version` `update_channel` `receive_preview_updates` `last_run_version` `last_auto_update_check_at` `account_type` `empty_room_cdn_tip` `recent_site_keys` `site_usage` `update_notice_<ver>` `last_seen_changelog_version` `cached_nickname`（`:app` `CredentialStore.kt` companion；`cached_nickname` 由 2026-10-14 批②工单拆分补记，见 `docs/storage-layout-plan.md` §7 的裁定 R7） | 全 |
 | 2 | `xjtu_credentials` | 无 | 密文 xml / `xjtu_credentials.properties`（Windows 下值 = `xjtu-sealed:1:dpapi:…`）/ **web 无** | `username` `password` `fp_visitor_id` `rsa_public_key` `rsa_key_time` `account_type` | 全 |
 | 3 | `xjtu_accounts` | 无 | 密文 xml / `xjtu_accounts.properties` / **web 无** | `accounts` `active_account` `migration_done` | 全 |
 | 4 | `xjtu_cookies` | 无 | 密文 xml / `.properties` | `all_cookies` | 全（迁移残留池） |
@@ -193,7 +193,7 @@
 | 21 | `schedule_source<suffix>` | 是 | `ScheduleSourceRouter.kt:159,161` | `served` | 全 |
 | 22 | `schedule_changes<suffix>` | 是 | `ScheduleSourceRouter.kt:181` | 键 = 学期码，值 = `ScheduleChangeEvent[]` | 全 |
 | 23 | `schedule_diff<suffix>` | 是 | `ScheduleDiff.kt:15` | `snap_*` + 记录用键 | **未逐条核对** |
-| 24 | `course_colors<suffix>` | 是 | `CourseColors.kt:49` | 键 = 课程标识 | **未逐条核对** |
+| 24 | `course_colors<suffix>` | 是 | `CourseColors.kt:49` | 键 = 课程标识；另 `course_colors_seen<suffix>` 存「日程里出现过的课名」：键 `names`，一行一个，上限 200（`ScheduleColorSeen.kt`；`ScheduleCache.readCourses` 与日程 VM 写入） | **未逐条核对** |
 | 25 | `attendance_records_ug<suffix>` / `_pg<suffix>` | 是 | `AttendanceRecordStore.kt:57` | 键 = 学期码，值 = `Shard{termCode,records,fetchedAt,fullScanAt}` | 全 |
 | 26 | `bulletin_store` | 无 | `BulletinStore.kt:20,55-58` | `cached_json` `dismissed_ids` `acked_ids` | 全 |
 | 27 | `feedback` | 无 | `FeedbackStore.kt:39-44,50,191-196` | `anon_id` `tickets` `read_replies` `prompt_last_at` `prompt_done_version` `reply_fetch_at` `reply_cache` `public_qa` `public_qa_at` | 全 |
@@ -210,7 +210,7 @@
 | 38 | `crash_reporter` | 无 | `CrashReporter.kt:32,33,41,44` | `enabled` | 全 |
 | 39 | `onboarding` | 无 | `OnboardingStore.kt:20,21,31` | `done` | 全 |
 | 40 | `notice_watch` | 无 | `NoticeWatchStore.kt:12-20,103,106` | `enabled` `sources` `sources_configured` `seen_links` `baselined_sources` `last_sync_at`(long) `last_titles` `push_keywords` | 全 |
-| 41 | `reminder_watch` | 无 | `ReminderStore.kt:29` | `schedule` `lms` `library` | 全 |
+| 41 | `reminder_watch` | 无 | `ReminderStore.kt:41` | 开关 `enabled_<kind>`（library / schedule / lms / community_reply / community_mention；**self_todo 只有游标、没有开关**）、去重游标 `seen_<kind>`、`baselined_<kind>` | 全 |
 | 42 | `session_keepalive` | 无 | `SessionKeepAlive.kt:19-24`（**2026-10-19 更正**：原引 `:68,75,76` 越界 —— 该文件只有 55 行；也**没有** `enabled` / `interval_min` 这两个键，全仓只在本文档里出现过） | 无落盘键（只有“前台每 10 分钟预热一次”，启停挂在 `MainActivity.kt:97`/`:102`） | **更正**（原写「全」是错的） |
 | 43 | `campus_probe` | 无 | `CampusProbe.kt:50` | `code` `data` `ywtb_token` | 全 |
 | 44 | `lms_downloads` | 无 | `LmsDownloadStore.kt:18,19,34,134` | `records` | 全 |
@@ -243,7 +243,7 @@
 
 ### 3.4 `app_settings` 的双写者（这是最容易漏的一条）
 
-`:core` 的 `SettingsStore` 只读写 10 个设置键，但**同一个文件**还被 `:app` 的 `CredentialStore` 写 12 个非设置键（更新渠道 / 灰度 ID / 站点使用记录 / EULA 版本……），其 KDoc 明写「两个对象写同一个文件是安全的」（`SettingsStore.kt` 的类 KDoc；Android 侧 `getSharedPreferences` 按名字返回同一实例；`:app` 侧 `CredentialStore.kt:59,111-113`）。**档案导出 `app_settings` 必须是全体键**，否则跨端一拷就丢 `rollout_id` / `update_channel` / `site_usage`。
+`:core` 的 `SettingsStore` 只读写 10 个设置键，但**同一个文件**还被 `:app` 的 `CredentialStore` 写 12 个非设置键（更新渠道 / 站点使用记录 / EULA 版本……），其 KDoc 明写「两个对象写同一个文件是安全的」（`SettingsStore.kt` 的类 KDoc；Android 侧 `getSharedPreferences` 按名字返回同一实例；`:app` 侧 `CredentialStore.kt:59,111-113`）。**档案导出 `app_settings` 必须是全体键**，否则跨端一拷就丢 `update_channel` / `site_usage` 等键。
 
 ### 3.5 已发现的四处「同名不同形状」分歧（必须写进真源）
 

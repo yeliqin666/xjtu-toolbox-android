@@ -92,7 +92,6 @@ class LaunchNotices(
                 update = AppUpdater.check(
                     channel = credentialStore.updateChannel,
                     includePreview = credentialStore.receivePreviewUpdates,
-                    rolloutId = credentialStore.rolloutId,
                 )
                 credentialStore.lastAutoUpdateCheckAt = System.currentTimeMillis()
             } catch (e: Exception) {

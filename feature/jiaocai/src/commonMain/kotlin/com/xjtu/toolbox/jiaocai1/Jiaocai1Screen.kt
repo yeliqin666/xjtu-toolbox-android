@@ -358,6 +358,8 @@ private fun ShelfCard(
                 url = row.coverUrl,
                 images = images,
                 title = row.title,
+                ssno = row.ssno,
+                refreshKey = row.lastReadAt,
                 width = 64.dp,
                 height = 88.dp,
             )
@@ -650,9 +652,15 @@ private fun CoverThumb(
     title: String = "",
     width: Dp = 56.dp,
     height: Dp = 76.dp,
+    /** 无封面地址时用缓存首页 */
+    ssno: String? = null,
+    /** 变化时重取缩略图 */
+    refreshKey: Any? = null,
 ) {
-    var bitmap by remember(url) { mutableStateOf<androidx.compose.ui.graphics.ImageBitmap?>(null) }
-    LaunchedEffect(url) { bitmap = images.loadCover(url, 200) }
+    var bitmap by remember(url, ssno) { mutableStateOf<androidx.compose.ui.graphics.ImageBitmap?>(null) }
+    LaunchedEffect(url, ssno, refreshKey) {
+        bitmap = images.loadCover(url, 200) ?: ssno?.let { images.loadFirstPage(it, 200) }
+    }
     val (top, bottom) = remember(title) { coverPalette(title) }
     val initial = remember(title) { coverInitial(title) }
     val corner = 8.dp

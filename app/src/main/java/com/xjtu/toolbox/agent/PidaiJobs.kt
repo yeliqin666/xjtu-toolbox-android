@@ -86,7 +86,9 @@ class PidaiJobWorker(context: Context, params: WorkerParameters) : CoroutineWork
                 route = com.xjtu.toolbox.nav.AppRoute.Agent.id,
             ),
         )
-        ReminderNotifier.notifyPidai(context, key, title, body)
+        // 全文记入「推送记录」，通知栏只放预览（#194）
+        val pushAt = PidaiPushLog.append(title, body, PidaiPushLog.kindOf(key))
+        ReminderNotifier.notifyPidai(context, key, title, if (pushAt != null) PidaiPushLog.preview(body) else body, pushAt)
     }
 
     /** 本机缓存里能拿到的：今天（或明天）的课、未办待办、余额。 */

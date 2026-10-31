@@ -31,7 +31,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.xjtu.toolbox.agent.bot.BOT_COLORS
+import com.xjtu.toolbox.agent.bot.BOT_SHAPES
 import com.xjtu.toolbox.agent.bot.botColorById
+import com.xjtu.toolbox.agent.bot.botShapeById
 import com.xjtu.toolbox.agent.bot.cast.CAST
 import com.xjtu.toolbox.agent.bot.cast.CastCharacter
 import top.yukonga.miuix.kmp.basic.Card
@@ -58,6 +60,8 @@ fun PidaiAppearancePanel(modifier: Modifier = Modifier) {
     val characterId = PidaiAppearanceHost.characterId
     val colorId = PidaiAppearanceHost.colorId
     val plain = PidaiAppearanceHost.plain
+    // 经典屁岱那一格画用户选的形状
+    val shape = botShapeById(PidaiAppearanceHost.shapeId)?.radii
     val proactiveLevel = ProactiveRules.proactiveLevel
     // 面板一打开就把落盘的挡位读进内存缓存，保证显示的是用户上次实际选的那一档。
     LaunchedEffect(Unit) { ProactiveRules.loadProactiveLevel(context) }
@@ -101,6 +105,7 @@ fun PidaiAppearancePanel(modifier: Modifier = Modifier) {
                             selected = id == characterId,
                             ink = ink,
                             cast = cast,
+                            shape = shape,
                             enabled = !plain,
                             onClick = { PidaiAppearanceHost.set(context, character = id) },
                             modifier = Modifier.weight(1f),
@@ -109,6 +114,33 @@ fun PidaiAppearancePanel(modifier: Modifier = Modifier) {
                     // 补齐空位，保持每格等宽
                     repeat(3 - row.size) {
                         Box(Modifier.weight(1f))
+                    }
+                }
+            }
+
+            // 形状只对经典屁岱生效。4 列：8 种形状刚好两行，缩略图能看出眼睛有没有被轮廓啃掉
+            if (characterId == CLASSIC_ID && !plain) {
+                Text(
+                    "形状",
+                    style = MiuixTheme.textStyles.body2,
+                    fontWeight = FontWeight.Medium,
+                    modifier = Modifier.padding(top = 4.dp),
+                )
+                BOT_SHAPES.chunked(4).forEach { row ->
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        row.forEach { def ->
+                            CharacterTile(
+                                label = def.label,
+                                selected = def.id == PidaiAppearanceHost.shapeId,
+                                ink = ink,
+                                cast = null,
+                                shape = def.radii,
+                                kind = "形状",
+                                onClick = { PidaiAppearanceHost.set(context, shape = def.id) },
+                                modifier = Modifier.weight(1f),
+                            )
+                        }
+                        repeat(4 - row.size) { Box(Modifier.weight(1f)) }
                     }
                 }
             }
@@ -188,6 +220,8 @@ private fun CharacterTile(
     cast: CastCharacter?,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
+    shape: DoubleArray? = null,
+    kind: String = "角色",
     enabled: Boolean = true,
 ) {
     val paper = MiuixTheme.colorScheme.surfaceVariant
@@ -207,7 +241,7 @@ private fun CharacterTile(
                 enabled = enabled,
             ) { onClick() }
             .semantics {
-                contentDescription = "角色：$label"
+                contentDescription = "$kind：$label"
                 this.selected = selected
             }
             .padding(vertical = 8.dp),
@@ -219,6 +253,7 @@ private fun CharacterTile(
             ink = ink,
             paper = paper,
             cast = cast,
+            shape = shape,
             frozenAt = PREVIEW_AT,
             modifier = Modifier.size(46.dp),
         )

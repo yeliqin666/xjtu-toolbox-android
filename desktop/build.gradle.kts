@@ -7,7 +7,7 @@ import org.jetbrains.compose.desktop.application.dsl.TargetFormat
  * 桌面包的版本号（jpackage 的 `--app-version`）。⚠️ 必须与 `:app` 的 `versionName` 逐字相同：
  * 两个手抄本会漂（App 5.2.0 / 安装包 5.1.1 就是这么来的），`DesktopPackageVersionJvmTest` 盯着这件事。
  */
-val desktopPackageVersion = "5.2.0"
+val desktopPackageVersion = "5.2.2"
 
 /** 反馈后端的凭据（与 `:app` 同一份来源） */
 val desktopFeedbackConfig: Map<String, String> = run {

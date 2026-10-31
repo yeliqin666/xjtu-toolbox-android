@@ -9,7 +9,6 @@ local.properties
 /.vscode/
 /.github/copilot-instructions.md
 # Agent customization files added in this task
-/AGENTS.md
 /.github/AGENTS.md
 /.github/agents/
 /.github/instructions/*.md
@@ -44,12 +43,10 @@ NOTES*.md
 TODO*.md
 plan.md
 /tools/*
-# R8/Gson 模型检查脚本入库，维护者发版前顺手跑（见脚本头注释）
-!/tools/check_gson_signatures.py
 # 二维码中日韩码表的生成器入库（维护者改了字符集口径才跑；见脚本头注释）
 !/tools/gen-qr-charset-tables.java
 # 校区简图数据生成（OpenStreetMap → CampusMapsGenerated.kt），见脚本头注释
-!/tools/gen_campus_map.py
+!/tools/gen-campus-map.py
 
 # 不纳入 App 仓库（保留本地）
 /update_api.py
@@ -83,3 +80,7 @@ server/leaderboard/aliyun.env
 # （top.yukonga.miuix.kmp:miuix-*-android），并不编译这个目录——但它是整个仓库里
 # 最大的未跟踪目录（152MB / 7000+ 文件），不忽略的话一个 git add -A 就带进去了。
 miuix-ref/
+
+# Python 脚本（.github/scripts）在 CI 与本机跑过之后会留下字节码缓存
+__pycache__/
+*.pyc

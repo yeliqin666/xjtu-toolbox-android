@@ -15,14 +15,23 @@ import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.launch
+import com.xjtu.toolbox.account.AccountContext
+import com.xjtu.toolbox.platform.KeyValueStore
+import com.xjtu.toolbox.platform.keyValueStore
 
 /**
  * 通知：来源多选、合并分页与站内搜索。
  * 选择项由界面直接改，这里监听变化：来源变了重新加载，搜索词停手 0.5 秒后查全站。
  */
-internal class NotificationViewModel(private val api: NoticeSource) : ViewModel() {
+internal class NotificationViewModel(
+    private val api: NoticeSource,
+    private val preferences: KeyValueStore = keyValueStore("notification_sources" + AccountContext.safeSuffix()),
+) : ViewModel() {
 
-    var selectedSources by mutableStateOf(setOf(NotificationSource.JWC)); private set
+    var selectedSources by mutableStateOf(
+        preferences.getStringSet("sources").orEmpty().mapNotNull { name -> NotificationSource.entries.firstOrNull { it.name == name } }
+            .toSet().ifEmpty { setOf(NotificationSource.JWC) }
+    ); private set
     var searchQuery by mutableStateOf("")
 
     var notifications by mutableStateOf<List<Notification>>(emptyList()); private set
@@ -61,7 +70,10 @@ internal class NotificationViewModel(private val api: NoticeSource) : ViewModel(
     }
 
     fun selectSources(sources: Set<NotificationSource>) {
-        if (sources.isNotEmpty()) selectedSources = sources
+        if (sources.isNotEmpty()) {
+            preferences.putStringSet("sources", sources.map { it.name }.toSet())
+            selectedSources = sources.toSet()
+        }
     }
 
     /** 下拉刷新：丢掉这个组合的缓存重拉。 */

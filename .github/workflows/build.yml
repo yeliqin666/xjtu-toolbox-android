@@ -4,6 +4,11 @@ on:
   push:
     branches: [ main, dev ]
   workflow_dispatch:
+    inputs:
+      publish_preview:
+        description: "在 dev 上发布预览版（main 忽略此项）"
+        type: boolean
+        default: true
 
 concurrency:
   group: build-${{ github.ref }}
@@ -14,6 +19,10 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+    env:
+      # dev 推送默认发布预览版；head commit 带 [skip preview] 时只跑检查、不发布。
+      # 手动触发时用 publish_preview 输入控制，便于把之前跳过的改动补发成一个 beta。
+      PUBLISH_PREVIEW: ${{ github.ref == 'refs/heads/dev' && ((github.event_name == 'workflow_dispatch' && (github.event.inputs.publish_preview == true || github.event.inputs.publish_preview == 'true')) || (github.event_name == 'push' && !contains(github.event.head_commit.message, '[skip preview]'))) }}
 
     steps:
       - name: Checkout
@@ -45,11 +54,17 @@ jobs:
         # 单测不过就不出包
         run: ./gradlew :app:testDebugUnitTest
 
+      - name: Verify release shrinking
+        if: github.ref == 'refs/heads/dev'
+        run: ./gradlew :app:minifyReleaseWithR8
+
       - name: Extract version name
         id: version
         run: |
           VERSION=$(grep "versionName" app/build.gradle.kts | head -1 | sed "s/.*\"\(.*\)\".*/\1/")
+          VERSION_CODE=$(grep "versionCode" app/build.gradle.kts | head -1 | sed -E "s/.*=[[:space:]]*([0-9]+).*/\1/")
           echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "version_code=$VERSION_CODE" >> $GITHUB_OUTPUT
           echo "tag=v$VERSION" >> $GITHUB_OUTPUT
 
       - name: Decode Keystore
@@ -101,25 +116,6 @@ jobs:
           name: mapping-${{ steps.version.outputs.version }}-run${{ github.run_id }}
           path: app/build/outputs/mapping/release/mapping.txt
           retention-days: 90
-
-      - name: Delete existing tag (if any)
-        if: github.ref == 'refs/heads/main'
-        env:
-          TAG: ${{ steps.version.outputs.tag }}
-        run: |
-          git tag -d "$TAG" 2>/dev/null || true
-          git push origin ":refs/tags/$TAG" 2>/dev/null || true
-
-      - name: Create GitHub Release
-        if: github.ref == 'refs/heads/main'
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: ${{ steps.version.outputs.tag }}
-          name: ${{ steps.version.outputs.tag }}
-          files: app/build/outputs/apk/release/app-release.apk
-          generate_release_notes: true
-          make_latest: true
-          prerelease: ${{ contains(steps.version.outputs.version, 'alpha') || contains(steps.version.outputs.version, 'beta') }}
 
       - name: Generate release notes from AppChangelog.kt
         if: github.ref == 'refs/heads/main'
@@ -176,14 +172,144 @@ jobs:
           python3 -c "import json; print(json.dumps(open('/tmp/release_body.md', encoding='utf-8').read()))" > /tmp/release_body.json
           echo "body_json_path=/tmp/release_body.json" >> $GITHUB_OUTPUT
 
+      - name: Install OSS SDK
+        id: oss_sdk
+        if: github.ref == 'refs/heads/main' || env.PUBLISH_PREVIEW == 'true'
+        continue-on-error: true
+        timeout-minutes: 3
+        run: python3 -m pip install --quiet --disable-pip-version-check --timeout 30 --retries 3 --upgrade oss2
+
+      - name: Publish stable to OSS (primary)
+        id: oss_publish
+        if: github.ref == 'refs/heads/main' && steps.oss_sdk.outcome == 'success'
+        continue-on-error: true
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          VERSION_CODE: ${{ steps.version.outputs.version_code }}
+          OSS_ACCESS_KEY_ID: ${{ secrets.OSS_ACCESS_KEY_ID }}
+          OSS_ACCESS_KEY_SECRET: ${{ secrets.OSS_ACCESS_KEY_SECRET }}
+          OSS_ENDPOINT: ${{ secrets.OSS_ENDPOINT }}
+          OSS_BUCKET: ${{ secrets.OSS_BUCKET }}
+          OSS_PUBLIC_BASE: ${{ secrets.OSS_PUBLIC_BASE }}
+          GITHUB_REPO: yeliqin666/xjtu-toolbox-android
+        run: |
+          set -euo pipefail
+          APK=app/build/outputs/apk/release/app-release.apk
+          test -f "$APK"
+          APK_KEY="xjtu-toolbox/apk/$VERSION/app-release.apk"
+          echo "Uploading APK to OSS: $APK_KEY"
+          python3 .github/scripts/oss_upload.py "$APK" "$APK_KEY"
+
+          # 固定别名的「最新正式包」，给官网/文档一条不随版本变化的直链：
+          #   $OSS_PUBLIC_BASE/apk/latest/app-release.apk
+          # no-cache 让 CDN 每次回源校验，否则发版后仍可能下发上一版安装包。
+          LATEST_KEY="xjtu-toolbox/apk/latest/app-release.apk"
+          echo "Uploading APK to OSS (fixed alias): $LATEST_KEY"
+          python3 .github/scripts/oss_upload.py "$APK" "$LATEST_KEY" "no-cache"
+
+          python3 - <<'PY'
+          import datetime
+          import hashlib
+          import json
+          import os
+
+          version = os.environ["VERSION"]
+          base = os.environ["OSS_PUBLIC_BASE"].rstrip("/")
+          repo = os.environ["GITHUB_REPO"]
+          apk = "app/build/outputs/apk/release/app-release.apk"
+          notes = open("/tmp/release_body.md", encoding="utf-8").read()
+          manifest = {
+              "schema": 1,
+              "channel": "stable",
+              "versionName": version,
+              "versionCode": int(os.environ["VERSION_CODE"]),
+              "apkUrl": f"{base}/apk/{version}/app-release.apk",
+              "mirrors": [
+                  f"https://github.com/{repo}/releases/download/v{version}/app-release.apk",
+                  f"https://gitee.com/{repo}/releases/download/v{version}/app-release.apk",
+              ],
+              "sha256": hashlib.sha256(open(apk, "rb").read()).hexdigest(),
+              "size": os.path.getsize(apk),
+              "notes": notes,
+              "releaseUrl": f"https://github.com/{repo}/releases/tag/v{version}",
+              "publishedAt": datetime.datetime.now(datetime.timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z"),
+              "rollout": 100,
+          }
+          with open("/tmp/stable.json", "w", encoding="utf-8") as f:
+              json.dump(manifest, f, ensure_ascii=False, indent=2)
+          PY
+
+          echo "Uploading manifest last: stable.json"
+          python3 .github/scripts/oss_upload.py /tmp/stable.json "xjtu-toolbox/stable.json"
+          python3 .github/scripts/oss_upload.py /tmp/stable.json "xjtu-toolbox/history/stable-$VERSION.json"
+
+          echo "Verifying OSS manifest and APK via SDK"
+          python3 - <<'PY'
+          import json
+          import os
+          import oss2
+
+          endpoint = os.environ["OSS_ENDPOINT"]
+          if not endpoint.startswith(("http://", "https://")):
+              endpoint = "https://" + endpoint
+          bucket = oss2.Bucket(
+              oss2.Auth(os.environ["OSS_ACCESS_KEY_ID"], os.environ["OSS_ACCESS_KEY_SECRET"]),
+              endpoint,
+              os.environ["OSS_BUCKET"],
+          )
+          version = os.environ["VERSION"]
+          local = json.load(open("/tmp/stable.json", encoding="utf-8"))
+          remote = json.loads(bucket.get_object("xjtu-toolbox/stable.json").read())
+          assert remote["versionName"] == version, remote
+          assert remote["sha256"] == local["sha256"], remote
+          assert len(remote["sha256"]) == 64, remote
+          head = bucket.head_object(f"xjtu-toolbox/apk/{version}/app-release.apk")
+          assert head.content_length == local["size"], (head.content_length, local["size"])
+          latest = bucket.head_object("xjtu-toolbox/apk/latest/app-release.apk")
+          assert latest.content_length == local["size"], (latest.content_length, local["size"])
+          alias_headers = getattr(latest, "headers", None) or {}
+          cache_control = {k.lower(): v for k, v in alias_headers.items()}.get("cache-control", "")
+          if cache_control != "no-cache":
+              print(f"::warning::latest alias Cache-Control is {cache_control!r}, expected 'no-cache'")
+          print("manifest/APK ok:", remote["versionName"], remote["sha256"], remote["size"])
+          PY
+          # 公共 CDN 只做抽样；GitHub runner 跨境访问偶发超时不应阻断发布。
+          curl -fsS --max-time 20 "$OSS_PUBLIC_BASE/stable.json" >/dev/null \
+            || echo "::warning::public CDN manifest check timed out; OSS objects are verified"
+          # 固定别名带版本号查询串绕过 CDN 缓存，确认新包已经能被公网取到。
+          curl -fsSI --max-time 20 "$OSS_PUBLIC_BASE/apk/latest/app-release.apk?v=$VERSION" >/dev/null \
+            || echo "::warning::public CDN latest-apk check timed out; OSS objects are verified"
+          echo "OSS primary publish verified"
+
+      - name: Delete existing tag (if any)
+        if: github.ref == 'refs/heads/main'
+        env:
+          TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          git tag -d "$TAG" 2>/dev/null || true
+          git push origin ":refs/tags/$TAG" 2>/dev/null || true
+
+      - name: Create GitHub Release
+        if: github.ref == 'refs/heads/main'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.version.outputs.tag }}
+          name: ${{ steps.version.outputs.tag }}
+          files: app/build/outputs/apk/release/app-release.apk
+          generate_release_notes: true
+          make_latest: true
+          prerelease: ${{ contains(steps.version.outputs.version, 'alpha') || contains(steps.version.outputs.version, 'beta') }}
+
       - name: Sync to Gitee (code + tag + release)
         if: github.ref == 'refs/heads/main'
         continue-on-error: true
         env:
+          TAG: ${{ steps.version.outputs.tag }}
           GITEE_TOKEN: ${{ secrets.GITEE_ACCESS_TOKEN }}
           # 拿不到凭据就直接失败，不要在无人值守的 CI 上等输入框
           GIT_TERMINAL_PROMPT: "0"
         run: |
+          : "${TAG:?Release tag is required}"
           OWNER="yeliqin666"
           REPO="xjtu-toolbox-android"
           APK_PATH="app/build/outputs/apk/release/app-release.apk"
@@ -273,7 +399,17 @@ jobs:
           fi
 
       # ── dev 专属步骤：构建预览包并发布 GitHub Pre-release ──
-      - name: Compute preview version
+      # 默认发布；head commit 带 [skip preview] 时只做校验，不构建、不发布。
+      # 手动触发时由 publish_preview 输入控制。
+      - name: Decide preview publication
+        if: github.ref == 'refs/heads/dev'
+        run: |
+          echo "publish_preview=$PUBLISH_PREVIEW"
+          if [ "$PUBLISH_PREVIEW" != "true" ]; then
+            echo "::notice::本次跳过预览发布（[skip preview]）；改动会在下一次发布预览时进入 beta"
+          fi
+
+      - name: Validate dev version and compute preview version
         if: github.ref == 'refs/heads/dev'
         id: preview
         env:
@@ -281,16 +417,13 @@ jobs:
         run: |
           # dev 上的 versionName 不能已带后缀
           case "$BASE" in *-*) echo "::error::dev 的 versionName 不应带后缀: $BASE"; exit 1;; esac
-          # 防呆：dev 版本号不能低于最新正式 tag。**等于**是允许的：dev 预览继续用当前
-          # 正式版的号（如 5.0.7-dev.N），不占下一个版本号——下一个号等这批改动合到
-          # main 发正式版时才升。代价是预览包与同号正式版共用 versionCode，且
-          # 5.0.7-dev.N < 5.0.7，正式版用户「检查更新」收不到预览推送，预览用户之间
-          # 靠 dev.N 递增正常收更新；预览与正式版同签名，可手动覆盖安装。
+          # 防呆：dev 的核心版本号必须严格大于最新正式 tag。正式版发布后忘记在 dev
+          # 上升号时，下一次预览构建会在这里失败，避免发出号码不大于正式版的预览包。
           # 按创建时间取最新正式 tag，不能按版本号排序：仓库里有 v4.71 这类旧写法（=4.7.1），
-          # sort -V 会把它排在 4.9.x 前面。
-          LATEST=$(git tag -l 'v*' --sort=-creatordate | head -1 | sed 's/^v//')
-          if [ -n "$LATEST" ] && [ "$(printf '%s\n%s\n' "$LATEST" "$BASE" | sort -V | tail -1)" != "$BASE" ]; then
-            echo "::error::dev 的 versionName ($BASE) 低于最新正式版 ($LATEST)，请先发布正式版或在 dev 上升版本号"
+          # sort -V 会把它排在 4.9.x 前面；同时排除 beta/alpha/rc 等预发布 tag。
+          LATEST=$(git tag -l 'v*' --sort=-creatordate | { grep -vE -- '-(beta|alpha|rc)\.' || true; } | head -1 | sed 's/^v//')
+          if [ -n "$LATEST" ] && [ "$(printf '%s\n%s\n' "$LATEST" "$BASE" | sort -V | tail -1)" = "$LATEST" ]; then
+            echo "::error::dev 的 versionName ($BASE) 必须大于最新正式版 ($LATEST)，请在 dev 上升版本号"
             exit 1
           fi
           # 防呆：AppChangelog 启动时 require 当前版本（预览版按 X.Y.Z 匹配）有条目，
@@ -304,7 +437,7 @@ jobs:
           echo "tag=dev-${GITHUB_RUN_NUMBER}" >> $GITHUB_OUTPUT
 
       - name: Build Preview APK
-        if: github.ref == 'refs/heads/dev'
+        if: env.PUBLISH_PREVIEW == 'true'
         env:
           KEYSTORE_PATH: ${{ runner.temp }}/release.jks
           STORE_PASSWORD: ${{ secrets.STORE_PASSWORD }}
@@ -318,7 +451,7 @@ jobs:
         run: ./gradlew :app:assemblePreview
 
       - name: Verify preview APK
-        if: github.ref == 'refs/heads/dev'
+        if: env.PUBLISH_PREVIEW == 'true'
         env:
           VERSION: ${{ steps.preview.outputs.version }}
         run: |
@@ -334,8 +467,94 @@ jobs:
             || { echo "::error::APK 内 versionName 与预期 $VERSION 不一致"; exit 1; }
           cp "$APK" "xjtu-toolbox-$VERSION.apk"
 
+      - name: Publish preview to OSS (primary)
+        id: oss_preview_publish
+        if: env.PUBLISH_PREVIEW == 'true' && steps.oss_sdk.outcome == 'success'
+        continue-on-error: true
+        env:
+          VERSION: ${{ steps.preview.outputs.version }}
+          VERSION_CODE: ${{ steps.version.outputs.version_code }}
+          # 预览版已改为全量推送：rollout 固定 100，保留字段只为兼容旧客户端。
+          RUN_NUMBER: ${{ github.run_number }}
+          COMMIT_SHA: ${{ github.sha }}
+          OSS_ACCESS_KEY_ID: ${{ secrets.OSS_ACCESS_KEY_ID }}
+          OSS_ACCESS_KEY_SECRET: ${{ secrets.OSS_ACCESS_KEY_SECRET }}
+          OSS_ENDPOINT: ${{ secrets.OSS_ENDPOINT }}
+          OSS_BUCKET: ${{ secrets.OSS_BUCKET }}
+          OSS_PUBLIC_BASE: ${{ secrets.OSS_PUBLIC_BASE }}
+          GITHUB_REPO: yeliqin666/xjtu-toolbox-android
+        run: |
+          set -euo pipefail
+          APK="xjtu-toolbox-$VERSION.apk"
+          test -f "$APK"
+          APK_KEY="xjtu-toolbox/apk/preview/$VERSION/app-preview.apk"
+          echo "Uploading preview APK to OSS: $APK_KEY"
+          python3 .github/scripts/oss_upload.py "$APK" "$APK_KEY"
+
+          python3 - <<'PY'
+          import datetime
+          import hashlib
+          import json
+          import os
+
+          version = os.environ["VERSION"]
+          base = os.environ["OSS_PUBLIC_BASE"].rstrip("/")
+          repo = os.environ["GITHUB_REPO"]
+          run_number = os.environ["RUN_NUMBER"]
+          apk = f"xjtu-toolbox-{version}.apk"
+          manifest = {
+              "schema": 1,
+              "channel": "preview",
+              "versionName": version,
+              "versionCode": int(os.environ["VERSION_CODE"]),
+              "apkUrl": f"{base}/apk/preview/{version}/app-preview.apk",
+              "mirrors": [
+                  f"https://github.com/{repo}/releases/download/dev-{run_number}/xjtu-toolbox-{version}.apk",
+              ],
+              "sha256": hashlib.sha256(open(apk, "rb").read()).hexdigest(),
+              "size": os.path.getsize(apk),
+              "notes": f"预览版 {version}（提交 {os.environ['COMMIT_SHA']}）\n\n这是尚在测试的版本，仅推送给在设置中开启「接收预览版更新」的用户。",
+              "releaseUrl": f"https://github.com/{repo}/releases/tag/dev-{run_number}",
+              "publishedAt": datetime.datetime.now(datetime.timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z"),
+              "rollout": 100,
+          }
+          with open("/tmp/preview.json", "w", encoding="utf-8") as f:
+              json.dump(manifest, f, ensure_ascii=False, indent=2)
+          PY
+
+          echo "Uploading manifest last: preview.json"
+          python3 .github/scripts/oss_upload.py /tmp/preview.json "xjtu-toolbox/preview.json"
+
+          echo "Verifying OSS preview manifest and APK via SDK"
+          python3 - <<'PY'
+          import json
+          import os
+          import oss2
+
+          endpoint = os.environ["OSS_ENDPOINT"]
+          if not endpoint.startswith(("http://", "https://")):
+              endpoint = "https://" + endpoint
+          bucket = oss2.Bucket(
+              oss2.Auth(os.environ["OSS_ACCESS_KEY_ID"], os.environ["OSS_ACCESS_KEY_SECRET"]),
+              endpoint,
+              os.environ["OSS_BUCKET"],
+          )
+          version = os.environ["VERSION"]
+          local = json.load(open("/tmp/preview.json", encoding="utf-8"))
+          remote = json.loads(bucket.get_object("xjtu-toolbox/preview.json").read())
+          assert remote["versionName"] == version, remote
+          assert remote["sha256"] == local["sha256"], remote
+          assert len(remote["sha256"]) == 64, remote
+          head = bucket.head_object(f"xjtu-toolbox/apk/preview/{version}/app-preview.apk")
+          assert head.content_length == local["size"], (head.content_length, local["size"])
+          print("preview manifest/APK ok:", remote["versionName"], remote["sha256"], remote["size"])
+          PY
+          curl -fsS --max-time 20 "$OSS_PUBLIC_BASE/preview.json" >/dev/null \
+            || echo "::warning::public CDN manifest check timed out; OSS objects are verified"
+          echo "OSS preview publish verified"
+
       - name: Create GitHub Pre-release
-        if: github.ref == 'refs/heads/dev'
+        if: env.PUBLISH_PREVIEW == 'true'
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.preview.outputs.tag }}
@@ -349,11 +568,11 @@ jobs:
 
             这是尚在测试的版本，仅推送给在设置中开启「接收预览版更新」的用户。
 
-            rollout: ${{ vars.PREVIEW_DEFAULT_ROLLOUT || 20 }}
+            rollout: 100
           files: xjtu-toolbox-${{ steps.preview.outputs.version }}.apk
 
       - name: Prune old previews
-        if: github.ref == 'refs/heads/dev'
+        if: env.PUBLISH_PREVIEW == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -363,3 +582,28 @@ jobs:
           | while read -r t; do
               echo "delete $t"; gh release delete "$t" --yes --cleanup-tag || true
             done
+
+      - name: Prune old OSS previews
+        # 预览 APK 是按版本号分目录的独立 key，生命周期规则（只管同一 key 的历史版本）
+        # 清不到它们。这里与上一步 GitHub 的保留数对齐，只保留最近 5 个版本目录，
+        # 其余连同历史版本与删除标记一起删；失败不阻塞发布（发布本身已经成功）。
+        if: env.PUBLISH_PREVIEW == 'true' && steps.oss_sdk.outcome == 'success'
+        continue-on-error: true
+        env:
+          OSS_ACCESS_KEY_ID: ${{ secrets.OSS_ACCESS_KEY_ID }}
+          OSS_ACCESS_KEY_SECRET: ${{ secrets.OSS_ACCESS_KEY_SECRET }}
+          OSS_ENDPOINT: ${{ secrets.OSS_ENDPOINT }}
+          OSS_BUCKET: ${{ secrets.OSS_BUCKET }}
+        run: python3 .github/scripts/oss_prune_previews.py --keep 5
+
+      - name: Fail if OSS stable publish failed
+        if: github.ref == 'refs/heads/main' && steps.oss_publish.outcome != 'success'
+        run: |
+          echo "::error::OSS primary publish failed; GitHub/Gitee fallback was published. Re-run the workflow to fix OSS."
+          exit 1
+
+      - name: Fail if OSS preview publish failed
+        if: env.PUBLISH_PREVIEW == 'true' && steps.oss_preview_publish.outcome != 'success'
+        run: |
+          echo "::error::OSS preview publish failed; GitHub pre-release fallback was published. Re-run the workflow to fix OSS."
+          exit 1

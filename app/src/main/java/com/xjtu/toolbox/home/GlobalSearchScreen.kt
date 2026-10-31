@@ -55,6 +55,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.xjtu.toolbox.ui.components.FullScreenOverlay
 import com.xjtu.toolbox.auth.AccountType
+import com.xjtu.toolbox.webvpn.WebVpnUtil
 import com.xjtu.toolbox.ui.components.AppSearchBar
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.IconButton
@@ -137,6 +138,22 @@ internal object GlobalSearchIndex {
 
 private val QuickChips = listOf("课表", "空教室", "校园卡", "成绩", "付款码", "通知")
 
+private val UrlHost = Regex("""(?i)([a-z0-9]([a-z0-9-]*[a-z0-9])?\.)+[a-z]{2,}(:\d{1,5})?|(\d{1,3}\.){3}\d{1,3}(:\d{1,5})?""")
+
+/**
+ * 搜索词看起来像网址就补全成可访问的 URL，否则 null。
+ * 有 http(s):// 前缀的直接认；没有前缀的要求首段像域名（`xxx.xjtu.edu.cn/...`、`example.com`），补 https://。
+ */
+internal fun searchUrlOf(input: String): String? {
+    val text = input.trim()
+    if (text.isEmpty() || text.any { it.isWhitespace() }) return null
+    val scheme = Regex("""(?i)^https?://""").find(text)
+    val rest = text.substring(scheme?.value?.length ?: 0)
+    val host = rest.takeWhile { it != '/' && it != '?' && it != '#' }
+    if (scheme != null) return text.takeIf { host.isNotEmpty() }
+    return if (UrlHost.matches(host)) "https://$text" else null
+}
+
 /**
  * 全局搜索。盖在主界面最外层的整屏浮层（见 [FullScreenOverlay]），盖过首页大标题和悬浮底栏。
  */
@@ -146,6 +163,9 @@ fun GlobalSearchScreen(
     onBack: () -> Unit,
     onNavigate: (AppRoute) -> Unit,
     onAskAgent: (String) -> Unit,
+    onOpenUrl: (String) -> Unit,
+    /** 参数是已转成 WebVPN 域的网址。 */
+    onOpenWithWebVpn: (String) -> Unit,
     accountType: AccountType = AccountType.UNDERGRADUATE,
 ) {
     FullScreenOverlay {
@@ -222,6 +242,8 @@ fun GlobalSearchScreen(
                                 results = results,
                                 onNavigate = onNavigate,
                                 onAskAgent = onAskAgent,
+                                onOpenUrl = onOpenUrl,
+                                onOpenWithWebVpn = onOpenWithWebVpn,
                             )
                         }
                     }
@@ -298,7 +320,10 @@ private fun SearchResultList(
     results: List<SearchEntry>,
     onNavigate: (AppRoute) -> Unit,
     onAskAgent: (String) -> Unit,
+    onOpenUrl: (String) -> Unit,
+    onOpenWithWebVpn: (String) -> Unit,
 ) {
+    val url = remember(query) { searchUrlOf(query) }
     val screens = results.filterIsInstance<SearchEntry.Screen>()
     val prompts = results.filterIsInstance<SearchEntry.AgentPrompt>()
 
@@ -308,6 +333,19 @@ private fun SearchResultList(
         contentPadding = PaddingValues(top = 12.dp, bottom = 12.dp + bottomInset),
         verticalArrangement = Arrangement.spacedBy(6.dp)
     ) {
+        if (url != null) {
+            item(key = "url-direct") {
+                SearchResultRow(title = "直接访问", subtitle = url, showAiIcon = false, onClick = { onOpenUrl(url) })
+            }
+            item(key = "url-vpn") {
+                SearchResultRow(
+                    title = "通过 WebVPN 访问",
+                    subtitle = "校外访问校内网站",
+                    showAiIcon = false,
+                    onClick = { onOpenWithWebVpn(WebVpnUtil.toVpnUrl(url)) },
+                )
+            }
+        }
         if (screens.isNotEmpty()) {
             item(key = "hdr-screen") {
                 Text(

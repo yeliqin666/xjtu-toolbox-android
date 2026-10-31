@@ -46,6 +46,7 @@ class AgentRunner(
         /** public 而不是 internal：`:app` 的 `AgentWebTest` 要调它。 */
         fun toolResultCap(toolName: String): Int = when (toolName) {
             "web_fetch" -> FETCH_TOOL_RESULT_CHARS
+            "read_zyxf_file", "get_lms_activity" -> 20_000
             "web_search", "search_school_courses" -> SEARCH_TOOL_RESULT_CHARS
             else -> DEFAULT_TOOL_RESULT_CHARS
         }
@@ -101,7 +102,7 @@ class AgentRunner(
     /** 站点 -> 上次调用时刻，用于按站点限流。 */
     private val lastCallAt = mutableMapOf<String, Long>()
 
-    /** 模型用 [ToolShow] 点名展示的卡片，以及那几次调用的工具名（出页面入口用）。 */
+    /** 模型选中展示的卡片和页面入口。 */
     val shownWidgets = mutableListOf<AgentWidget>()
     val shownTools = mutableListOf<String>()
 
@@ -123,7 +124,7 @@ class AgentRunner(
         onUsage: (Long) -> Unit = {}
     ): String {
         val baseToolDefs = AppJson.parseToJsonElement(tools.toolDefinitions).jsonArray
-            .map { AgentWidgetPresentation.decorate(it.jsonObject) }
+            .map { AgentWidgetPresentation.queryDefinition(it.jsonObject) }
         data class Snapshot(val tool: String, val widgets: List<AgentWidget>)
         val snapshots = linkedMapOf<String, Snapshot>()
         val displayedSnapshots = mutableMapOf<String, List<AgentWidget>>()
@@ -266,20 +267,23 @@ class AgentRunner(
                         val snapshot = snapshots[id] ?: error("本轮不存在该结果，请先查询")
                         val selected = AgentWidgetPresentation.apply(snapshot.widgets, AgentWidgetPresentation.options(tc.arguments))
                         present(id, selected)
-                        AgentWidgetPresentation.receipt(selected)
+                        if (selected.isEmpty()) "page_entry: shown; tool: ${snapshot.tool}"
+                        else AgentWidgetPresentation.receipt(selected)
                     } else tools.execute(tc.name, tc.arguments)
                 }
-                // 这次调用顺手产出的卡片：模型点名 show 才留，否则丢掉
+                // 查询保留快照，展示在拿到结果后单独决定。
                 val made = if (tc.name == AgentWidgetPresentation.TOOL) emptyList() else tools.drainWidgets()
                 var result: String
                 val toolErrorMsg: String?
                 if (toolResult.isSuccess) {
                     result = toolResult.getOrThrow() as String
                     toolErrorMsg = null
-                    if (made.isNotEmpty()) {
+                    if (tc.name != AgentWidgetPresentation.TOOL && (made.isNotEmpty() || AgentWidgetPresentation.supportsResult(tc.name))) {
                         snapshots[tc.id] = Snapshot(tc.name, made)
-                        result += "\ncard_result_id: ${tc.id}\ncard_rows (original, 1-based):\n" + AgentWidgetPresentation.catalog(made)
+                        if (made.isNotEmpty()) result += "\ncard_rows (original, 1-based):\n" + AgentWidgetPresentation.catalog(made)
+                        result += "\nresult_id: ${tc.id}\npresentation: ready; not_shown; type: ${if (made.isEmpty()) "page_entry" else "data_card"}"
                     }
+                    // 兼容旧历史中的 show 参数；新工具表只提供后置展示。
                     if (tc.name != AgentWidgetPresentation.TOOL && ToolShow.requested(tc.arguments)) {
                         val presentation = runCatching { AgentWidgetPresentation.apply(made, AgentWidgetPresentation.options(tc.arguments)) }
                         if (presentation.isSuccess) {

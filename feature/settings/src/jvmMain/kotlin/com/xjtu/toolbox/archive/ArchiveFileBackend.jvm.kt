@@ -37,8 +37,9 @@ class JvmFileBackend(private val dataRoot: File) : ArchiveFileBackend {
     private val properties = HashMap<String, Properties?>()
 
     override fun list(suffix: String, prefix: String): List<String> = when (prefix) {
+        // 只导出 .json：原子写盘残留的 .tmp 不进备份（与 dev 那条口径一致）
         AGENT_SESSIONS_DIR -> agentSessionsDir(suffix)
-            .listFiles { f -> f.isFile }
+            .listFiles { f -> f.isFile && f.name.endsWith(".json") }
             ?.map { "$AGENT_SESSIONS_DIR/${it.name}" }
             ?.sorted()
             ?: emptyList()

@@ -177,8 +177,14 @@ internal fun ToolboxDesktopApp(
     // 界面风格（`nav_bar_style`）：与深色模式同一条路 —— 设置页改完走 `onAppearanceChanged`（appearanceTick++）重读
     val navBarStyle = remember(appearanceTick) { desktopSettings.navBarStyle }
 
-    val customColorHex = remember(appearanceTick) { desktopSettings.themeSeedHex }
-    XJTUToolBoxTheme(darkModeOverride = darkModeOverride, dynamicColor = dynamicColor, customColorHex = customColorHex) {
+    val customColorHex = remember(appearanceTick) { desktopSettings.themeSeedHex(dark = false) }
+    val customDarkColorHex = remember(appearanceTick) { desktopSettings.themeSeedHex(dark = true) }
+    XJTUToolBoxTheme(
+        darkModeOverride = darkModeOverride,
+        dynamicColor = dynamicColor,
+        customColorHex = customColorHex,
+        customDarkColorHex = customDarkColorHex,
+    ) {
 
     Column(Modifier.fillMaxSize()) {
         // 只读横幅：锁被别人拿走了就在最上面说一句（不遮不盖，也不假装写得了）
@@ -838,6 +844,8 @@ private fun DesktopPage(
                 "粘在下面那一格（粘进来的码照常能算，契合度是在本机算的）。",
         )
         AppRoute.Agent -> DesktopAgentScreen(agentHost, onNavigate)
+        // 资料站（zyxf）没有桌面端实现：显式给一条分支，不依赖 else。
+        AppRoute.Zyxf -> NotPortedScreen(route, onNavigate)
 
         // 其余路由显示「没搬过来」，不拿有数据的屏冒充。
         else -> NotPortedScreen(route, onNavigate)
@@ -846,7 +854,7 @@ private fun DesktopPage(
 /** 屁岱在桌面的宿主壳 —— `:core` 的 [AgentScreen] 自己不带顶栏。 */
 @Composable
 private fun DesktopAgentScreen(host: AgentHost, onNavigate: (DesktopTarget) -> Unit) {
-    // 屏把这三格送上来（见 AgentScreen 的 KDoc）：标题跟着助手名走，进配置面板时变成「配置」。
+    // 屏把这三格送上来（见 AgentScreen 的 KDoc）：标题跟着助手名走。
     var title by remember { mutableStateOf(AgentConfig.DEFAULT_ASSISTANT_NAME) }
     var actions by remember { mutableStateOf<(@Composable RowScope.() -> Unit)?>(null) }
     var navIcon by remember { mutableStateOf<(@Composable () -> Unit)?>(null) }

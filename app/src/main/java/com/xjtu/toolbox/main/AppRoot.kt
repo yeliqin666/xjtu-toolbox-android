@@ -7,11 +7,14 @@ import android.net.Network
 import android.net.NetworkCapabilities
 import android.util.Log
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.width
+import com.xjtu.toolbox.agent.feedPidaiTouch
 import androidx.compose.ui.text.font.FontWeight
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.theme.MiuixTheme
@@ -45,6 +48,7 @@ import com.xjtu.toolbox.auth.LocalAppLoginState
 import com.xjtu.toolbox.auth.LoginType
 import com.xjtu.toolbox.auth.MfaDialogHost
 import com.xjtu.toolbox.game.board.LeaderboardHost
+import com.xjtu.toolbox.home.HomeStatsRefresher
 import com.xjtu.toolbox.auth.handleAuthExpired
 import com.xjtu.toolbox.auth.ensureSite
 import com.xjtu.toolbox.card.refreshCampusCardCache
@@ -218,7 +222,9 @@ fun AppRoot(
         val pageDeps = remember(router, loginState, credentialStore) {
             AppPageDeps(router, loginState, credentialStore, viewModel.accountManager) { currentOpenWithWebVpn(it) }
         }
-        // 别在这里套 Scaffold 给弹窗当宿主：SubcomposeLayout 会让整棵导航树被丢弃重建
+        // 别在这里套 Scaffold 给弹窗当宿主：SubcomposeLayout 会让整棵导航树被丢弃重建。
+        // 外面这层 Box 只喂手指位置给屁岱的眼睛，全 App 所有页面都算
+        Box(Modifier.fillMaxSize().feedPidaiTouch()) {
         AppNavHost(backStack = backStack, deps = pageDeps) {
             MainScreen(
                 router = router,
@@ -234,6 +240,7 @@ fun AppRoot(
                 onHeroBulletinTap = notices::onHeroTap,
                 onHeroBulletinDismiss = notices::dismissHero,
             )
+        }
         }
 
         AutoLoginDialog(router)
@@ -457,7 +464,11 @@ private fun NetworkChangeWatcher(loginState: AppLoginState, navigator: AppNaviga
                 "${caps?.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)}:$addrs"
         }
         val last = java.util.concurrent.atomic.AtomicReference(fingerprint(cm?.activeNetwork))
-        fun onChange(reason: String) {
+        loginState.hasNetwork = HomeStatsRefresher.isOnline(context)
+        // online 取回调自带的网络状态：网络刚恢复时 activeNetwork 常还没更新，回读会误判没网
+        fun onChange(reason: String, online: Boolean) {
+            // 回调在后台线程，切回主线程改 Compose 状态
+            scope.launch { loginState.hasNetwork = online }
             val now = fingerprint(cm?.activeNetwork)
             val prev = last.getAndSet(now)
             if (now == prev) return
@@ -468,10 +479,11 @@ private fun NetworkChangeWatcher(loginState: AppLoginState, navigator: AppNaviga
             trigger(reason)
         }
         val callback = object : ConnectivityManager.NetworkCallback() {
-            override fun onAvailable(network: Network) = onChange("onAvailable")
-            override fun onLost(network: Network) = onChange("onLost")
-            override fun onCapabilitiesChanged(network: Network, caps: NetworkCapabilities) = onChange("onCapabilitiesChanged")
-            override fun onLinkPropertiesChanged(network: Network, properties: LinkProperties) = onChange("onLinkPropertiesChanged")
+            override fun onAvailable(network: Network) = onChange("onAvailable", true)
+            override fun onLost(network: Network) = onChange("onLost", false)
+            override fun onCapabilitiesChanged(network: Network, caps: NetworkCapabilities) =
+                onChange("onCapabilitiesChanged", caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET))
+            override fun onLinkPropertiesChanged(network: Network, properties: LinkProperties) = onChange("onLinkPropertiesChanged", true)
         }
         runCatching { cm?.registerDefaultNetworkCallback(callback) }
             .onFailure { Log.w("Network", "registerDefaultNetworkCallback failed: ${it.message}") }

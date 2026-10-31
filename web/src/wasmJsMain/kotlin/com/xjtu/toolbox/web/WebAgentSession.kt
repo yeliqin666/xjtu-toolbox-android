@@ -141,6 +141,17 @@ internal class WebAgentSession(
         }
     }
 
+    override fun renameSession(id: String, title: String) {
+        val clean = title.trim().take(40).ifEmpty { return }
+        scope.launch {
+            agentCall(
+                "$AGENT_SESSIONS_PATH/$id/rename",
+                AppJson.encodeToString(AgentRenameBody.serializer(), AgentRenameBody(clean)),
+            ).onFailure { errorMessage = it.message }
+            refreshSessions()
+        }
+    }
+
     override fun stop() {
         // 两条一起走（契约 §3.4：「停止」与「断开」是同一条路）：显式 stop 让服务端立刻回一句，
         // abort 保证本端这条流一定收摊（写帧失败 / 客户端断开也是同一条取消判据）。
@@ -483,6 +494,10 @@ private const val AGENT_MEMORY_CLEAR_PATH = "$AGENT_MEMORY_PATH/clear"
 /** `POST /api/agent/chat` 的请求体。 */
 @Serializable
 private data class AgentChatBody(val sessionId: String, val text: String)
+
+/** `POST /api/agent/sessions/{id}/rename` 的请求体（`lock` 缺省 = true）。 */
+@Serializable
+private data class AgentRenameBody(val title: String)
 
 /** `POST /api/agent/stop` 的请求体（`sessionId` 缺省 = 停正在跑的那一轮）。 */
 @Serializable

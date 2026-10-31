@@ -19,6 +19,9 @@
 # ── flexmark HTML→Markdown（web_fetch，对应 smolagents markdownify）──
 -dontwarn com.vladsch.flexmark.**
 
+# PDFBox 的 JPEG2000 解码器是可选依赖；页面图由系统 PdfRenderer 渲染。
+-dontwarn com.gemalto.jp2.JP2Decoder
+
 # ── Kotlin ────────────────────────────
 -keep class kotlin.Metadata { *; }
 -dontwarn kotlin.**

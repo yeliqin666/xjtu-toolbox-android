@@ -143,7 +143,11 @@ class FitnessApi(private val site: SiteSession) : FitnessSource {
             val root = text.safeParseJsonObject()
             if (root.get("status")?.intValue != 1) {
                 val message = root.get("info")?.stringValue ?: "体测查询失败"
-                if ("登录" in message || "验证" in message || "会话" in message) {
+                // legacy 接口的失败文案不可信：学校应用层故障时也会回「请重新验证」这类字样，
+                // 直接判过期会导致整页自动退出重登。必须探活确认会话真的失效才认。
+                if (("登录" in message || "验证" in message || "会话" in message) &&
+                    site.probeSessionValid() == false
+                ) {
                     throw AuthExpiredException("体测查询", message)
                 }
                 throw RuntimeException(message)

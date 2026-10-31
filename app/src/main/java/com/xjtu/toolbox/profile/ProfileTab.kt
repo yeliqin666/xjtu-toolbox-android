@@ -1,9 +1,5 @@
 package com.xjtu.toolbox.profile
 
-import android.content.ClipData
-import android.content.Intent
-import android.net.Uri
-import android.widget.Toast
 import com.xjtu.toolbox.platform.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
@@ -40,8 +36,6 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.platform.ClipEntry
-import androidx.compose.ui.platform.LocalClipboard
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
@@ -56,7 +50,12 @@ import com.xjtu.toolbox.ui.components.enterOnce
 import com.xjtu.toolbox.ui.components.pressHighlight
 import com.xjtu.toolbox.data.CredentialStore
 import com.xjtu.toolbox.error.FriendlyError
-import com.xjtu.toolbox.util.toDialableTel
+import com.xjtu.toolbox.platform.copyOnLongPress
+import com.xjtu.toolbox.platform.rememberCopyText
+import com.xjtu.toolbox.platform.rememberPhoneDialer
+import com.xjtu.toolbox.ui.components.AppDropdownMenu
+import com.xjtu.toolbox.ui.components.AppDropdownMenuItem
+import com.xjtu.toolbox.util.toDialableTels
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -139,7 +138,7 @@ private fun ProfileInfoCard(p: com.xjtu.toolbox.hello.HelloProfile, modifier: Mo
                     ).forEach { (label, name, phone) -> MentorLine(label, name, phone) }
                     p.counselorOffice.takeIf { it.isNotBlank() }?.let {
                         Spacer(Modifier.height(8.dp))
-                        InfoLine("办公室", it)
+                        InfoLine("辅导员办公室", it)
                     }
                 }
             }
@@ -150,22 +149,16 @@ private fun ProfileInfoCard(p: com.xjtu.toolbox.hello.HelloProfile, modifier: Mo
 /**
  * 辅导员 / 班主任一行：姓名 + 电话。
  *
- * 电话点一下进系统拨号盘，长按复制原文。原来号码只是被涂成 primary 色，没有任何点击
- * 处理，看着像链接、按下去没反应（issue #80）。现在只有 [toDialableTel] 真解析出号码
- * 时才画成可点的蓝色；解析不出来的（「见年级群」这类）保持普通文字，免得给出一个
- * 点了也拨不出去的假链接。
- *
- * 紧凑行高配号码周围的点击留白，避免两行联系人比上面的学籍信息高出一截。
- * 姓名加 weight 配省略号收尾，否则长名字会把号码顶出屏幕，能拨也点不着。
+ * 只有 [toDialableTels] 解析出号码时才画成可点的蓝色：一个号码直接拨，多个号码先弹菜单选；
+ * 长按复制原文（保留分机号）。姓名加 weight，长名字省略收尾而不把号码顶出屏幕。
  */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun MentorLine(label: String, name: String, phone: String) {
-    val context = LocalContext.current
-    val clipboard = LocalClipboard.current
-    val scope = rememberCoroutineScope()
-    // 显示原文（可能带分机号），拨的用解析出来的号码。
-    val number = remember(phone) { phone.toDialableTel() }
+    val dial = rememberPhoneDialer()
+    val copy = rememberCopyText()
+    val numbers = remember(phone) { phone.toDialableTels() }
+    var choosing by remember { mutableStateOf(false) }
 
     Row(
         Modifier.fillMaxWidth().heightIn(min = 32.dp),
@@ -183,62 +176,49 @@ private fun MentorLine(label: String, name: String, phone: String) {
             fontWeight = FontWeight.Medium,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
-            // weight 放在姓名上而不是「垫一个 Spacer」：Row 先量不加权的电话，
-            // 再把剩余宽度给姓名，于是电话始终右对齐，名字过长时省略号收尾而不是
-            // 把电话顶出屏幕。
-            modifier = Modifier.weight(1f)
+            modifier = Modifier.weight(1f).copyOnLongPress(name, copy)
         )
-        if (number.isNotBlank()) {
+        if (phone.isNotBlank()) {
             Spacer(Modifier.width(8.dp))
-            Text(
-                phone,
-                style = MiuixTheme.textStyles.footnote1,
-                color = MiuixTheme.colorScheme.primary,
-                maxLines = 1,
-                modifier = Modifier
-                    .clip(RoundedCornerShape(8.dp))
-                    .combinedClickable(
-                        onClickLabel = "拨打 $number",
-                        onLongClickLabel = "复制号码",
-                        onClick = {
-                            // 没装拨号器的设备（平板、部分精简系统）直接放弃：静默吞掉，
-                            // 与黄页 DepartmentCard 的行为保持一致。
-                            runCatching {
-                                context.startActivity(
-                                    Intent(Intent.ACTION_DIAL, Uri.parse("tel:$number"))
-                                )
-                            }
-                        },
-                        onLongClick = {
-                            // 复制屏幕上看到的原文而不是解析结果：「82668888-101」
-                            // 解析后只剩主号码，复制出去分机号就丢了。
-                            scope.launch {
-                                clipboard.setClipEntry(
-                                    ClipEntry(ClipData.newPlainText("tel", phone))
-                                )
-                                Toast.makeText(context, "已复制：$phone", Toast.LENGTH_SHORT).show()
-                            }
-                        },
-                    )
-                    .padding(horizontal = 8.dp, vertical = 6.dp)
-            )
-        } else if (phone.isNotBlank()) {
-            // 解析不出号码（「见年级群」这类）：原文照常显示，只是不画成可点的蓝色。
-            Spacer(Modifier.width(8.dp))
-            Text(
-                phone,
-                style = MiuixTheme.textStyles.footnote1,
-                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                maxLines = 1,
-                modifier = Modifier.padding(horizontal = 8.dp)
-            )
+            Box {
+                Text(
+                    phone,
+                    style = MiuixTheme.textStyles.footnote1,
+                    color = if (numbers.isEmpty()) MiuixTheme.colorScheme.onSurfaceVariantSummary
+                    else MiuixTheme.colorScheme.primary,
+                    maxLines = 1,
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(8.dp))
+                        .then(
+                            if (numbers.isEmpty()) Modifier.copyOnLongPress(phone, copy)
+                            else Modifier.combinedClickable(
+                                onClickLabel = if (numbers.size == 1) "拨打 ${numbers[0]}" else "选择号码拨打",
+                                onLongClickLabel = "复制号码",
+                                onLongClick = { copy(phone) },
+                            ) { if (numbers.size == 1) dial(numbers[0]) else choosing = true }
+                        )
+                        .padding(horizontal = 8.dp, vertical = 6.dp)
+                )
+                AppDropdownMenu(expanded = choosing, onDismissRequest = { choosing = false }) {
+                    numbers.forEach { number ->
+                        AppDropdownMenuItem(
+                            text = { Text("拨打 $number") },
+                            onClick = {
+                                choosing = false
+                                dial(number)
+                            },
+                        )
+                    }
+                }
+            }
         }
     }
 }
 
 @Composable
 private fun InfoLine(label: String, value: String) {
-    Row(Modifier.fillMaxWidth()) {
+    val copy = rememberCopyText()
+    Row(Modifier.fillMaxWidth().copyOnLongPress(value, copy)) {
         Text(
             label,
             style = MiuixTheme.textStyles.body2,
@@ -427,6 +407,7 @@ private fun ProfileHeroCard(
                             .align(Alignment.BottomEnd)
                             .size(24.dp)
                             .clip(CircleShape)
+                            .clickable(onClick = onAvatarClick)
                             .background(AppCardColor)
                             .padding(2.dp)
                             .clip(CircleShape)
@@ -679,8 +660,8 @@ internal fun ProfileTab(
         OverlayDialog(
             show = true,
             title = "更换头像",
-            summary = if (hasCustomAvatar) "可重新选择，或恢复为证件照。"
-                      else "默认使用学工系统证件照，可换成自己的图片。",
+            summary = if (hasCustomAvatar) "只保存在本机，不会修改学校系统里的照片。可重新选择，或恢复为证件照。"
+                      else "默认使用学工系统证件照。换成自己的图片只在本机生效，不会修改学校系统里的照片。",
             onDismissRequest = { if (!avatarSaving) showAvatarSheet = false }
         ) {
             Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(12.dp)) {

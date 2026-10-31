@@ -46,6 +46,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
+import com.xjtu.toolbox.util.recoverFromRendererGone
 import com.xjtu.toolbox.util.releaseSafely
 import com.xjtu.toolbox.lms.LmsDownloadStore
 import kotlinx.coroutines.Dispatchers
@@ -371,6 +372,11 @@ private fun WebOfficeView(
                             host.endsWith("aliyuncs.com") ||
                             host.endsWith("alicdn.com") ||
                             host.endsWith("aliyun.com"))
+                    }
+
+                    override fun onRenderProcessGone(view: WebView, detail: android.webkit.RenderProcessGoneDetail): Boolean {
+                        (view.tag as? Bridge)?.released = true
+                        return view.recoverFromRendererGone { onError("预览组件崩溃了，可以下载后用本机应用打开。") }
                     }
                 }
 

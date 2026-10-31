@@ -86,8 +86,9 @@ fun GamesScreen(
     val scrollBehavior = MiuixScrollBehavior(rememberTopAppBarState())
     androidx.compose.runtime.LaunchedEffect(Unit) { GameSound.prepare() }
 
-    // 战绩每次进页面读一次即可：玩完一局是 pop 回来，会重新组合。
-    val arcade = remember {
+    // 返回本页时 remember 还在，战绩靠 GameStore.version 失效重读
+    val version = GameStore.version
+    val arcade = remember(version) {
         listOf(
             GameEntry(
                 route = AppRoute.GameMerge,
@@ -127,7 +128,7 @@ fun GamesScreen(
             ),
         )
     }
-    val boards = remember {
+    val boards = remember(version) {
         listOf(
             GameEntry(
                 route = AppRoute.GameGomoku,

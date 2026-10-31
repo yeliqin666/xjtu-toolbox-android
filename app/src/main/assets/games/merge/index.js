@@ -302,6 +302,15 @@
     } catch (e) { /* 老版本客户端没有这个方法，忽略 */ }
   }
 
+  // 把当前分数和是否结束告诉原生壳：顶栏据此决定要不要二次确认
+  function progressToHost(score, over) {
+    try {
+      if (window.AndroidGameBridge && typeof window.AndroidGameBridge.progress === 'function') {
+        window.AndroidGameBridge.progress(Math.floor(score), over);
+      }
+    } catch (e) { /* 老版本客户端没有这个方法，忽略 */ }
+  }
+
   const GameStates = { READY: 0, DROP: 1, LOSE: 2 };
 
   const els = {
@@ -394,6 +403,7 @@
     setScore(v) {
       Game.score = v;
       els.score.innerText = v;
+      progressToHost(v, false);
       if (v > 0) {
         els.score.classList.add('bump');
         setTimeout(() => els.score.classList.remove('bump'), 120);
@@ -477,6 +487,7 @@
       sfx('SAD_TROMBONE');
       submitScoreToHost(Game.score);
       finishRunToHost(Game.score);
+      progressToHost(Game.score, true);
     },
 
     celebrate(text) {
@@ -718,11 +729,12 @@
     Game.drop(e.mouse.position.x);
   });
 
-  els.restart.addEventListener('click', () => {
+  function restartGame() {
     const bodies = Composite.allBodies(engine.world).filter((b) => !walls.includes(b));
     Composite.remove(engine.world, bodies);
     Game.start();
-  });
+  }
+  els.restart.addEventListener('click', restartGame);
 
   // Render.run 不防重入，连调两次就有两条绘制循环，所以自己记着开没开
   let rendering = false;
@@ -737,6 +749,12 @@
     if (!Game.textures.length) return; // 还没加载完，加载完会自己开
     startRender();
     if (Game.state !== GameStates.LOSE) Runner.run(runner, engine);
+  };
+  // 原生顶栏的「重新开始」：可能是暂停状态下调的，要把画面也接着跑起来
+  window.restartGame = function () {
+    if (!Game.textures.length) return;
+    restartGame();
+    startRender();
   };
 
   // ------------------------------------------------------------------

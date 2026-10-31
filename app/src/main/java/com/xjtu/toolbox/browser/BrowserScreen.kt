@@ -4,6 +4,7 @@ package com.xjtu.toolbox.browser
 
 import com.xjtu.toolbox.network.APP_UA
 import com.xjtu.toolbox.util.redactUrl
+import com.xjtu.toolbox.util.recoverFromRendererGone
 import com.xjtu.toolbox.util.releaseSafely
 import com.xjtu.toolbox.webvpn.WebVpnUtil
 import top.yukonga.miuix.kmp.theme.MiuixTheme
@@ -402,6 +403,13 @@ fun BrowserScreen(
 
                         /** 还没跳去 [thenUrl]：等首个页面加载完、且已经离开登录页（登录页上要用户自己输）。 */
                         private var thenPending = thenUrl.isNotBlank()
+
+                        override fun onRenderProcessGone(view: WebView, detail: android.webkit.RenderProcessGoneDetail): Boolean =
+                            view.recoverFromRendererGone {
+                                webViewRef = null
+                                android.widget.Toast.makeText(context, "网页崩溃了，已关闭", android.widget.Toast.LENGTH_SHORT).show()
+                                onBack()
+                            }
 
                         override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
                             super.onPageStarted(view, url, favicon)

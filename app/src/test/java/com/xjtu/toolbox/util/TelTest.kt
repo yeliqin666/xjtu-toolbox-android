@@ -65,4 +65,20 @@ class TelTest {
         // 位数不够，多半是房间号或分机，不该当成电话
         assertEquals("", "123456".toDialableTel())
     }
+
+    @Test
+    fun `多个号码按分隔符逐个取出`() {
+        assertEquals(listOf("13812345678", "82668888"), "138 1234 5678 / 029-82668888".toDialableTels())
+        assertEquals(listOf("82668888", "82668889"), "82668888、82668889".toDialableTels())
+        assertEquals(listOf("82668888", "13812345678"), "82668888；13812345678".toDialableTels())
+        assertEquals(listOf("82668888", "82668889"), "82668888或82668889".toDialableTels())
+    }
+
+    @Test
+    fun `多号码去重，分机号与空格分段不拆成多个`() {
+        assertEquals(listOf("82668888"), "82668888，029-82668888".toDialableTels())
+        assertEquals(listOf("82668888"), "82668888-101".toDialableTels())
+        assertEquals(listOf("13812345678"), "138 1234 5678".toDialableTels())
+        assertEquals(emptyList<String>(), "见年级群".toDialableTels())
+    }
 }

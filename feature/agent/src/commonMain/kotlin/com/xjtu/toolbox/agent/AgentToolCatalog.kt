@@ -110,7 +110,7 @@ fun agentToolDefinitions(honored: Set<AgentCapability>): String {
     if (AgentCapability.SCHEDULE_EVENT_WRITE in honored) {
         arr.add(agentTool("add_schedule_event",
             "往本 App 的日程里添加一条（占课表里的一段具体时间），只限当前学期。与课程或已有日程时间重叠时不添加，返回冲突；用户确认后带 force=true 重试。" +
-                "只写用户明确要求的事项，不额外安排活动；只有截止、没有具体几点的事用 add_todo。没说地点、结束时间就不填。",
+                "只写用户明确要求的事项，不额外安排活动；不占时段、只需在某个时刻前办完的事用 add_todo。没说地点、结束时间就不填。",
             agentParams(
                 "title" to agentStrProp("标题。"),
                 "date" to agentStrProp("yyyy-MM-dd；星期取这一天。"),
@@ -125,7 +125,7 @@ fun agentToolDefinitions(honored: Set<AgentCapability>): String {
             )))
     }
     arr.add(agentTool("get_library",
-        "图书馆：本人当前座位预约，以及各区域空座。给 area 时返回该区域空座，show 时附平面图卡片。需图书馆登录。" +
+        "图书馆：本人当前座位预约，以及各区域空座。给 area 时返回该区域空座和平面图快照。需图书馆登录。" +
             "推荐去哪自习时按用户所在校区选 campus，用户点名别的校区就用那个。",
         agentParams(
             "campus" to agentEnumProp("校区。缺省：账号在图书馆系统里当前的校区。", "兴庆", "雁塔", "创新港"),
@@ -140,10 +140,12 @@ fun agentToolDefinitions(honored: Set<AgentCapability>): String {
             agentShow(),
         )))
     arr.add(agentTool("read_zyxf_file",
-        "读仲英学辅资料站的文件：PDF 按页给你看页面图（一次最多 6 页，扫描版也行），docx/pptx/xlsx 给正文，图片直接看，文本给原文。老格式 doc/ppt 与压缩包读不了。",
+        "读学辅文件。PDF 可先用 mode=info 查看元数据与书签目录定位，再按页取文本或页面图。auto 优先文字，空文字页转图；同一附件复用缓存。docx/pptx/xlsx 取正文，图片直接看。",
         agentParams(
             "file_id" to agentIntProp("文件 ID，来自 list_zyxf。"),
-            "pages" to agentStrProp("PDF/pptx 的页码范围如 7-12；长文本是段号。缺省：开头。"),
+            "pages" to agentStrProp("PDF/pptx 实际页码，从 1 起。5 只读第5页；可用 3-5 或 1,3,7-8。缺省前2页。PDF 文本最多20页，页面图最多4页；长文本用段号。"),
+            "mode" to agentEnumProp("PDF：info=元数据和自带书签目录；text=只取文字；images=页面图（公式/图表/扫描页）；auto=文字优先，默认。", "auto", "info", "text", "images"),
+            "text_offset" to agentIntProp("PDF 单页文字过长时，按返回的 next 从此字符偏移续读；默认0。"),
             required = listOf("file_id"),
         )))
     if (AgentCapability.FILE_SAVE in honored) {
@@ -176,12 +178,14 @@ fun agentToolDefinitions(honored: Set<AgentCapability>): String {
             agentShow(),
         )))
     arr.add(agentTool("get_lms_activity",
-        "思源学堂某个活动的详情：说明、截止时间、提交状态、附件名；给 file 时读该附件（PDF 给页面图，docx/pptx/xlsx 给正文，同 read_zyxf_file）。需思源学堂登录。",
+        "思源活动详情、截止时间、提交状态和附件。给 file 读取附件：PDF 用 info 看元数据与书签目录，text 快速取文字，images 看指定页面；auto 文字优先。附件复用缓存，同 read_zyxf_file。需思源登录。",
         agentParams(
             "course" to agentStrProp("课程名，模糊。"),
             "activity" to agentStrProp("活动标题，模糊。"),
-            "file" to agentStrProp("附件名关键词，模糊。"),
-            "pages" to agentStrProp("读附件时的页码范围，同 read_zyxf_file。"),
+            "file" to agentStrProp("附件ID或完整名称优先，也可用唯一关键词；多项匹配会返回候选。"),
+            "pages" to agentStrProp("PDF/pptx 实际页码，从1起；5只读第5页，支持1,3,7-8。默认前2页；文本最多20页，图最多4页。"),
+            "mode" to agentEnumProp("PDF：info=元数据和书签目录；text=只取文字；images=页面图；auto=文字优先，空文字页转图（默认）。", "auto", "info", "text", "images"),
+            "text_offset" to agentIntProp("PDF 单页文本续读的字符偏移，使用结果中的 next；默认0。"),
             agentShow(),
             required = listOf("course", "activity"),
         )))
@@ -204,5 +208,5 @@ fun agentToolDefinitions(honored: Set<AgentCapability>): String {
     arr.add(agentTool("calculate",
         "计算表达式：+ - * / ^ 与括号。",
         agentParams("expression" to agentStrProp("如 (3.7*4+4.0*3)/(4+3)。"), required = listOf("expression"))))
-    return JsonArray(arr.map(AgentWidgetPresentation::decorate)).toString()
+    return JsonArray(arr.map(AgentWidgetPresentation::queryDefinition)).toString()
 }

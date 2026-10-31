@@ -43,7 +43,7 @@ class LibraryReminderWorker(
         val booking = try {
             // 需要短信验证 / 密码失效：这一轮直接放弃，别退避重试再提交一次密码
             val site = HeadlessSessions.site(LoginType.LIBRARY) ?: return Result.success()
-            withContext(Dispatchers.IO) { LibraryApi(AppLibrarySession(site)).getMyBooking() }
+            withContext(Dispatchers.IO) { LibraryApi(AppLibrarySession(site)).fetchMyBooking().getOrThrow() }
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
@@ -54,6 +54,7 @@ class LibraryReminderWorker(
         val stillPending = booking?.actionUrls?.keys?.contains(action) == true
         if (!stillPending) {
             Log.d(TAG, "「$action」已不在待办里，收工")
+            ReminderNotifier.cancelLibrary(app)
             return Result.success()
         }
 
@@ -100,10 +101,15 @@ object LibraryReminderScheduler {
         if (!ReminderStore.isEnabled(app, ReminderKind.LIBRARY)) {
             wm.cancelUniqueWork(UNIQUE_CHECK_IN)
             wm.cancelUniqueWork(UNIQUE_RETURN)
+            ReminderNotifier.cancelLibrary(app)
             return
         }
 
         val pending = booking?.actionUrls?.keys.orEmpty()
+        // #203：已无待签项，撤掉提醒
+        if (LibraryReminderWorker.ACTION_CHECK_IN !in pending && LibraryReminderWorker.ACTION_RETURN !in pending) {
+            ReminderNotifier.cancelLibrary(app)
+        }
         if (LibraryReminderWorker.ACTION_CHECK_IN in pending) {
             // KEEP 而不是 REPLACE：30 分钟是从预约那一刻起算的，页面每刷新一次就把
             // 倒计时重置一次，等于永远叫不响。

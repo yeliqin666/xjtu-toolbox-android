@@ -2,6 +2,7 @@ package com.xjtu.toolbox.agent.bot.cast
 
 import kotlin.math.abs
 import kotlin.math.cos
+import kotlin.math.min
 import kotlin.math.sin
 
 /**
@@ -11,12 +12,12 @@ import kotlin.math.sin
  * - 思考：毛线球绕着头转，整颗头跟着球歪来歪去、瞳孔放大成圆的，球转到前面时伸出肉垫爪子拍它；
  * - 提醒：耳朵唰地竖高、整颗头往上一弹；
  * - 被戳：「猫猫震惊」表情包：蹦起来、浑身炸毛成一圈尖刺、瞪圆眼、瞳孔缩成一点、小嘴「o」；
- * - 彩蛋：缩成一块猫猫面包，再化成一摊液体猫，最后弹回来。
+ * - 彩蛋：「猫猫拳」：眯眼蓄力，左右肉垫交替连打、越打越快，最后眯成 ^^ 收招。
  */
 object Cat : CastCharacter("cat", "喵") {
     override val microSec = 1.6
     override val pokeSec = 1.0
-    override val comboSec = 2.8
+    override val comboSec = 3.0
 
     private const val FUR = 0xFFF2A65A
     private const val STRIPE = 0xFFD97F2E
@@ -43,13 +44,15 @@ object Cat : CastCharacter("cat", "喵") {
         val shock = poke * window(tp, 0.0, 0.06, 0.6, 0.85)
         val poof = poke * window(tp, 0.02, 0.1, 0.55, 0.85)
         val hop = poke * 12 * bump(tp / 0.32)
-        // 面包 → 液体猫 → 弹回来
-        val loaf = combo * window(tc, 0.0, 0.4, 2.2, 2.6)
-        val melt = combo * window(tc, 0.9, 1.4, 1.8, 2.2)
-        val popBack = combo * wobble(tc - 2.3, 16.0, 6.0)
+        // 猫猫拳：眯眼蓄力 → 左右交替出拳、相位按 t² 走所以越打越快 → ^^ 收招
+        val fist = combo * window(tc, 0.25, 0.4, 2.2, 2.4)
+        val smug = combo * window(tc, 2.25, 2.45, 2.8, 3.0)
+        val squint = combo * window(tc, 0.0, 0.25, 2.2, 2.4)
+        val beat = (tc - 0.35).coerceAtLeast(0.0).let { 5.0 * it + 3.5 * it * it }
+        val jab = fist * sin(beat * Sketch.TAU / 2)
         // 提醒：往上一弹，耳朵竖高
         val spring = alert * wobble(ta, 15.0, 4.5)
-        val perk = maxOf(alert, shock) * (1 - loaf)
+        val perk = maxOf(alert, shock)
         val tilt = micro * bump(tm / 1.5)
 
         // 毛线球绕头转；转到前面时伸爪拍它
@@ -57,26 +60,27 @@ object Cat : CastCharacter("cat", "喵") {
         val ballX = cos(ang) * 94
         val ballY = 24 + 34 * sin(ang)
         val swipe = think * (if (sin(ang) > 0.55) bump((sin(ang) - 0.55) / 0.45) else 0.0)
-        val lookX = mix(p.lookX, cos(ang), think)
-        val lookY = mix(p.lookY, 0.5 * sin(ang), think)
+        val lookX = mix(p.lookX, cos(ang), think) * (1 - fist)
+        val lookY = mix(mix(p.lookY, 0.5 * sin(ang), think), 0.3, fist)
 
-        val rx = mix(100.0, 108.0, loaf) + 14 * melt
-        val ry = (mix(76.0, 58.0, loaf) - 16 * melt) * (1 + 0.012 * p.breath)
-        val cy = mix(24.0, 40.0, loaf) + 14 * melt
+        val rx = 100.0
+        val ry = 76.0 * (1 + 0.012 * p.breath)
+        val cy = 24.0
 
         if (think > 0.01 && sin(ang) < 0) yarn(s, ballX, ballY, ang, think)
 
         s.group {
             // 以下巴为支点
-            translate(think * cos(ang) * 8, cy + ry - hop)
-            scale(1 + 0.05 * shock - 0.06 * spring + 0.08 * popBack, 1 + 0.04 * shock + 0.1 * spring - 0.1 * popBack)
-            rotate(p.lookX * 4 * (1 - shock) + think * 11 * cos(ang) + 14 * tilt)
+            // 出拳时整颗头跟着左右晃
+            translate(think * cos(ang) * 8 + 6 * jab, cy + ry - hop)
+            scale(1 + 0.05 * shock - 0.06 * spring, 1 + 0.04 * shock + 0.1 * spring)
+            rotate(p.lookX * 4 * (1 - shock) + think * 11 * cos(ang) + 14 * tilt - 7 * jab)
             translate(0.0, -ry)
 
             val twL = 16 * wobble(twitchL.since(now), 30.0, 8.0)
             val twR = 16 * wobble(twitchR.since(now), 30.0, 8.0)
-            ear(s, -1, rx, ry, twL, perk, loaf + melt * 0.5)
-            ear(s, 1, rx, ry, twR, perk, loaf + melt * 0.5)
+            ear(s, -1, rx, ry, twL, perk)
+            ear(s, 1, rx, ry, twR, perk)
             // 炸毛：轮廓变成一圈尖刺
             s.blob(0.0, 0.0, 112) { th ->
                 val saw = 1 - abs(((th / Sketch.TAU * 14) % 1.0) * 2 - 1)
@@ -114,35 +118,55 @@ object Cat : CastCharacter("cat", "喵") {
             }
 
             val ex = lookX * 4 * (1 - shock)
-            val ey = -ry * 0.12 + 4 * loaf
+            val ey = -ry * 0.12
             when {
-                loaf > 0.3 -> s.joy(ex, ey, 1.0, 36.0, MOUTH)
+                smug > 0.3 -> s.joy(ex, ey, 1.0, 36.0, MOUTH)
                 else -> {
                     // 慢眨眼：慢慢闭上、停一下、慢慢睁开
                     val slow = micro * window(tm, 0.0, 0.5, 0.9, 1.4)
-                    // 瞳孔：平时竖条，兴奋（思考盯球、提醒）放大成圆，震惊缩成一点
-                    val dilate = maxOf(think, alert) * (1 - shock)
+                    // 瞳孔：平时竖条，兴奋（思考盯球、提醒、出拳）放大成圆，震惊缩成一点；出拳时眯眼较劲
+                    val dilate = maxOf(think, alert, squint) * (1 - shock)
                     for (i in 0..1) {
                         val side = if (i == 0) -1 else 1
-                        catEye(s, ex + side * 36.0, ey, p.eye[i] * (1 - slow), lookX, lookY, dilate, shock)
+                        catEye(s, ex + side * 36.0, ey, p.eye[i] * (1 - slow) * (1 - 0.5 * squint), lookX, lookY, dilate, shock)
                     }
                 }
             }
         }
 
         if (think > 0.01 && sin(ang) >= 0) yarn(s, ballX, ballY, ang, think)
-        // 肉垫爪子：从下面伸上来拍球
+        // 肉垫爪子：思考时从下面伸上来拍球；猫猫拳里左右两只轮流往前上方打
         if (swipe > 0.02) {
-            val px = mix(cos(ang).coerceIn(-0.6, 0.6) * 60, ballX * 0.9, swipe)
-            val py = mix(100.0, ballY + 16, swipe)
-            s.circle(px, py, 19.0)
-            s.fill(FUR)
-            s.ellipse(px, py + 3, 8.0, 6.5)
-            s.fill(BEAN)
-            for (k in -1..1) s.dot(px + k * 9.0, py - 9 - abs(k) * -2.0, 3.6, Tone.COLOR, 1.0, BEAN)
+            paw(s, mix(cos(ang).coerceIn(-0.6, 0.6) * 60, ballX * 0.9, swipe), mix(100.0, ballY + 16, swipe))
+        }
+        if (fist > 0.02) {
+            for (side in intArrayOf(-1, 1)) {
+                // 收回去的那只不画：只有打出来的那一拳，看得清是在出拳
+                val out = (side * jab).coerceAtLeast(0.0)
+                if (out <= 0.12) continue
+                val px = side * mix(46.0, 22.0, out)
+                val py = mix(104.0, 26.0, out)
+                // 奶白爪子：橘色爪子压在橘色脸上会糊成一片，只剩粉肉垫
+                paw(s, px, py, 1.35, MUZZLE)
+                // 打到头时迸三道短线
+                if (out > 0.85) for (k in -1..1) {
+                    val a = (-90.0 + side * 35.0 + k * 32.0) * Sketch.TAU / 360
+                    s.line(px + cos(a) * 32, py + sin(a) * 32, px + cos(a) * 46, py + sin(a) * 46)
+                    s.stroke(5.0, STRIPE)
+                }
+            }
         }
         s.badge(alert, ta)
     }
+
+    private fun paw(s: Sketch, x: Double, y: Double, k: Double = 1.0, fur: Long = FUR) {
+        s.circle(x, y, 19.0 * k)
+        s.fill(fur)
+        s.ellipse(x, y + 3 * k, 8.0 * k, 6.5 * k)
+        s.fill(BEAN)
+        for (i in -1..1) s.dot(x + i * 9.0 * k, y - (9 - abs(i) * -2.0) * k, 3.6 * k, Tone.COLOR, 1.0, BEAN)
+    }
+
 
     /** 猫眼：深色眼眶 + 黄绿虹膜 + 竖瞳 + 高光。[open] 太小就画成闭眼弧线。 */
     private fun catEye(s: Sketch, x: Double, y: Double, open: Double, lx: Double, ly: Double, dilate: Double, shock: Double) {
@@ -167,12 +191,12 @@ object Cat : CastCharacter("cat", "喵") {
         s.dot(px + pw * 0.4 + 2, py - ph * 0.45, 3.6, Tone.COLOR, 1.0, WHITE)
     }
 
-    /** 耳朵：底边贴在头顶，内侧一块粉。[twitch] 抖动角度，[perk] 竖高，[flat] 面包 / 液体猫时压平。 */
-    private fun ear(s: Sketch, side: Int, rx: Double, ry: Double, twitch: Double, perk: Double, flat: Double) {
+    /** 耳朵：底边贴在头顶，内侧一块粉。[twitch] 抖动角度，[perk] 竖高。 */
+    private fun ear(s: Sketch, side: Int, rx: Double, ry: Double, twitch: Double, perk: Double) {
         s.group {
             translate(side * rx * 0.54, -ry * 0.7)
-            rotate(side * (16 + 16 * flat) + twitch * side)
-            val h = (48 + 16 * perk) * (1 - 0.35 * flat.coerceAtMost(1.0))
+            rotate(side * 16.0 + twitch * side)
+            val h = 48 + 16 * perk
             s.poly(-30.0, 22.0, -4.0 * side, -h, 30.0, 22.0)
             s.fill(FUR)
             s.stroke(14.0, FUR)
@@ -183,7 +207,8 @@ object Cat : CastCharacter("cat", "喵") {
     }
 
     private fun yarn(s: Sketch, x: Double, y: Double, ang: Double, amount: Double) {
-        val r = 13.0 + 3 * sin(ang)
+        // 球在头侧（sin≈0）换前后层，那里还压在脸的轮廓里：缩到没有再换，不然会凭空闪一下
+        val r = (13.0 + 3 * sin(ang)) * min(1.0, abs(sin(ang)) / 0.3)
         s.circle(x, y, r * amount)
         s.fill(YARN)
     }

@@ -92,7 +92,13 @@ class MainActivity : ComponentActivity() {
             val darkMode by appearance.darkMode.collectAsStateWithLifecycle()
             val dynamicColor by appearance.dynamicColor.collectAsStateWithLifecycle()
             val customColorHex by appearance.customColorHex.collectAsStateWithLifecycle()
-            XJTUToolBoxTheme(darkModeOverride = darkMode, dynamicColor = dynamicColor, customColorHex = customColorHex) {
+            val customDarkColorHex by appearance.customDarkColorHex.collectAsStateWithLifecycle()
+            XJTUToolBoxTheme(
+                darkModeOverride = darkMode,
+                dynamicColor = dynamicColor,
+                customColorHex = customColorHex,
+                customDarkColorHex = customDarkColorHex,
+            ) {
                 AppRoot(
                     initialRoute = launchRoute.value,
                     onInitialRouteConsumed = { launchRoute.value = null },
@@ -133,6 +139,8 @@ class MainActivity : ComponentActivity() {
                 ?.let { listOf("notice:$it") }.orEmpty()
             com.xjtu.toolbox.inbox.InboxStore.acknowledge(ids, com.xjtu.toolbox.inbox.InboxCategories.ofRoute(route))
         }
+        extras?.getLongExtra(com.xjtu.toolbox.agent.AgentPushFocus.EXTRA_PUSH_AT, 0L)?.takeIf { it > 0 }
+            ?.let(com.xjtu.toolbox.agent.AgentPushFocus::set)
         launchTab.value = extras?.getStringExtra(EXTRA_LAUNCH_TAB)
             ?.let { name -> BottomTab.entries.firstOrNull { it.name == name } }
         if (deepLink?.imageUris?.isNotEmpty() == true) importSharedImages(deepLink)

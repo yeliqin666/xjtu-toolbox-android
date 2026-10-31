@@ -21,7 +21,9 @@ internal class WeChatSearchTools : AgentTools {
         listOf(
             agentTool(
                 "wechat_search",
-                "搜微信公众号文章（搜狗微信），返回标题、URL、摘要。学校、学院、书院的公众号推文用它；用 web_fetch 读原文。",
+                "搜微信公众号文章（搜狗微信），返回标题、URL、摘要；用 web_fetch 读原文。" +
+                    "局限：收录不全、偏旧（新推文常搜不到）、相关度一般，结果只作线索，日期要看原文核对。" +
+                    "书院、学院的通知和集体活动（讲座、志愿、晚会、报名）搜不到或不确定时，直接告诉用户去微信里搜对应公众号，别拿旧结果凑答案。",
                 agentParams(
                     "query" to agentStrProp("关键词。"),
                     "limit" to agentIntProp("条数，默认 8，上限 $MAX_RESULTS。"),

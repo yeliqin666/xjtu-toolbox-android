@@ -7,7 +7,8 @@ import androidx.compose.foundation.lazy.staggeredgrid.itemsIndexed
 import androidx.compose.foundation.lazy.itemsIndexed
 import com.xjtu.toolbox.ui.components.enterOnce
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -46,6 +47,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.xjtu.toolbox.ui.glass.*
+import com.xjtu.toolbox.platform.copyOnLongPress
+import com.xjtu.toolbox.platform.rememberCopyText
 import com.xjtu.toolbox.platform.rememberPhoneDialer
 import com.xjtu.toolbox.ui.components.AppFilterChip
 import com.xjtu.toolbox.ui.components.EmptyState
@@ -278,12 +281,14 @@ private fun YellowPageHero(departmentCount: Int, updateTime: String) {
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun DepartmentCard(
     department: YellowPageDepartment,
     onDial: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val copy = rememberCopyText()
     Card(
         modifier = modifier.fillMaxWidth().padding(horizontal = 16.dp),
         cornerRadius = 18.dp,
@@ -325,7 +330,14 @@ private fun DepartmentCard(
                         .fillMaxWidth()
                         .padding(top = 5.dp)
                         .clip(RoundedCornerShape(12.dp))
-                        .clickable(enabled = number.isNotBlank()) { onDial(number) }
+                        .then(
+                            if (number.isBlank()) Modifier.copyOnLongPress(item, copy)
+                            else Modifier.combinedClickable(
+                                onClickLabel = "拨打",
+                                onLongClickLabel = "复制号码",
+                                onLongClick = { copy(item) },
+                            ) { onDial(number) }
+                        )
                 ) {
                     Row(
                         Modifier.padding(horizontal = 12.dp, vertical = 9.dp),

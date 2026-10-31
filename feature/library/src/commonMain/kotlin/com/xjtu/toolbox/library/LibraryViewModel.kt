@@ -5,6 +5,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.xjtu.toolbox.account.AccountContext
 import com.xjtu.toolbox.error.FriendlyError
 import com.xjtu.toolbox.error.SessionExpiredFailure
 import com.xjtu.toolbox.platform.keyValueStore
@@ -29,8 +30,15 @@ private const val KEY_CAMPUS = "library_campus"
 /** 切去别的校区时记下原校区：进程被杀走不到 onCleared，下次进页面补切回去。 */
 private const val KEY_PENDING_HOME = "pending_home_campus"
 private const val KEY_VIEW_MODE = "seat_view_mode"
+/** 用户上次手动选的校区 / 楼层 / 区域（键名后缀账号）。 */
+private const val KEY_LAST_CAMPUS = "seat_last_campus"
+private const val KEY_LAST_FLOOR = "seat_last_floor"
+private const val KEY_LAST_AREA = "seat_last_area"
 internal const val VIEW_LIST = "列表"
 internal const val VIEW_PLAN = "平面图"
+
+/** 每开一次座位页加一，旧页的切回只在没有新页接手时生效；只在主线程递增，切回回调在后台线程只读。 */
+@Volatile private var screenGeneration = 0
 
 internal sealed interface LibraryEvent {
     data object AuthExpired : LibraryEvent
@@ -58,6 +66,8 @@ internal sealed interface LibraryEvent {
  */
 internal class LibraryViewModel(private val source: LibrarySource) : ViewModel() {
     private val prefs = keyValueStore(PREF_NAME)
+    private val account = AccountContext.safeSuffix()
+    private val generation = ++screenGeneration
     private val eventChannel = Channel<LibraryEvent>(Channel.BUFFERED)
     val events = eventChannel.receiveAsFlow()
 
@@ -92,7 +102,7 @@ internal class LibraryViewModel(private val source: LibrarySource) : ViewModel()
     var favorites by mutableStateOf(LibraryFavorites.all()); private set
 
     /** 首屏先按上次用的校区画，进页面后以账号实际的 rplace 为准。 */
-    var campus by mutableStateOf(LibraryCampus.byId(prefs.getString(KEY_CAMPUS)) ?: LibraryCampus.DEFAULT); private set
+    var campus by mutableStateOf(LibraryCampus.byId(prefs.getString(KEY_CAMPUS + account)) ?: LibraryCampus.DEFAULT); private set
     var campusSwitching by mutableStateOf(false); private set
     /** 进页面时账号所在的校区；null 表示没读到，不做切回。 */
     var homeCampus by mutableStateOf<LibraryCampus?>(null); private set
@@ -128,16 +138,20 @@ internal class LibraryViewModel(private val source: LibrarySource) : ViewModel()
 
     override fun onCleared() {
         val home = homeCampus
-        if (home != null && campus != home) {
+        if (home != null && campus != home && generation == screenGeneration) {
             // 页面作用域这时已经取消了，这一枪由实现方在页面之外的作用域里打完（见 LibrarySource.restoreCampus）
-            source.restoreCampus(home) { savePendingHome(null) }
+            source.restoreCampus(home) {
+                if (generation == screenGeneration && pendingHome() == home) savePendingHome(null)
+            }
             savePreferredCampus(home)
         }
     }
 
-    private fun savePreferredCampus(value: LibraryCampus) = prefs.putString(KEY_CAMPUS, value.id)
+    private fun savePreferredCampus(value: LibraryCampus) = prefs.putString(KEY_CAMPUS + account, value.id)
 
-    private fun savePendingHome(value: LibraryCampus?) = prefs.putString(KEY_PENDING_HOME, value?.id)
+    private fun pendingHome() = LibraryCampus.byId(prefs.getString(KEY_PENDING_HOME + account))
+
+    private fun savePendingHome(value: LibraryCampus?) = prefs.putString(KEY_PENDING_HOME + account, value?.id)
 
     private fun applyCampus(value: LibraryCampus) {
         campus = value
@@ -150,33 +164,63 @@ internal class LibraryViewModel(private val source: LibrarySource) : ViewModel()
     private fun bootstrap() = viewModelScope.launch {
         var actual = runCatching { source.campus() }.getOrNull()
         // 上次看别的校区时进程被杀，没来得及切回：先补上
-        val pending = LibraryCampus.byId(prefs.getString(KEY_PENDING_HOME))
+        val pending = pendingHome()
         if (pending != null && actual != null && actual != pending) {
             if (runCatching { source.switchCampus(pending) }.getOrDefault(false)) actual = pending
         }
-        if (pending != null && (actual == pending || actual == null)) savePendingHome(null)
-        homeCampus = actual
+        if (pending != null && actual == pending) savePendingHome(null)
+        homeCampus = pending ?: actual
         if (actual != null && actual != campus) {
             applyCampus(actual)
             savePreferredCampus(actual)
         }
         val focus = LibraryFocus.take()
-        if (focus != null) focus(focus, actual) else loadFloor(campus.floorCodes.first())
+        if (focus != null) focus(focus, actual) else restoreLastView(homeCampus)
         bootstrapped = true
         warmCampus()
         refreshFloorPlan()
+        if (focus != null) loadMyBooking()
+    }
+
+    /** 未预约时恢复上次的校区 / 楼层 / 区域；有预约或查不到则跟学校，用默认楼层。 */
+    private suspend fun restoreLastView(home: LibraryCampus?) {
         loadMyBooking()
+        if (!myBookingKnown) bookingResult = BookResult(false, "未能确认预约，已跟随学校当前校区")
+        val free = myBookingKnown && myBooking == null
+        val last = LibraryCampus.byId(prefs.getString(KEY_LAST_CAMPUS + account))
+        LibraryLastView.campusToRestore(free, last, campus)
+            ?.let { target -> home?.let { switchAway(target, it) } }
+        if (!free) return loadFloor(campus.floorCodes.first(), remember = false)
+        val floor = LibraryLastView.restore(prefs.getString(KEY_LAST_FLOOR + account), campus, campus.floorCodes)
+            ?: campus.floorCodes.first()
+        val area = LibraryLastView.decode(prefs.getString(KEY_LAST_AREA + account), campus)
+        loadFloor(floor, preferArea = area)
+    }
+
+    /** 先记下 [home] 再切：切到一半被取消也能补切回去；明确失败才清掉。 */
+    private suspend fun switchAway(target: LibraryCampus, home: LibraryCampus) {
+        savePendingHome(home)
+        when (trySwitch(target)) {
+            true -> applyCampus(target)
+            false -> savePendingHome(null)
+            null -> Unit
+        }
+    }
+
+    /** 切校区；出错时结果不明，返回 null 并按学校实际校区同步本地。 */
+    private suspend fun trySwitch(target: LibraryCampus): Boolean? = try {
+        source.switchCampus(target)
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Exception) {
+        runCatching { source.campus() }.getOrNull()?.takeIf { it != campus }?.let(::applyCampus)
+        null
     }
 
     /** 从屁岱的座位卡片或扫码进来：定位到那个区域，用平面图看。 */
     private suspend fun focus(focus: LibraryFocus.Target, actual: LibraryCampus?) {
         val target = LibraryCampus.byId(focus.campusId)
-        if (target != null && actual != null && target != actual) {
-            if (runCatching { source.switchCampus(target) }.getOrDefault(false)) {
-                applyCampus(target)
-                savePendingHome(actual)
-            }
-        }
+        if (target != null && actual != null && target != actual) switchAway(target, homeCampus ?: actual)
         // 扫码：预约只认账号当前校区，校区到位就能约；座位空不空另查一次，查到前按钮照样能点
         focus.seatId?.let { seatId ->
             if (target != null && target != campus) {
@@ -194,9 +238,9 @@ internal class LibraryViewModel(private val source: LibrarySource) : ViewModel()
             ?: LibraryQrArea.byCode(focus.areaCode)?.floorCode?.takeIf { it in campus.floorCodes }
         if (floor != null) {
             changeViewMode(VIEW_PLAN)
-            loadFloor(floor, preferArea = focus.areaCode)
+            loadFloor(floor, preferArea = focus.areaCode, remember = false)
         } else {
-            loadFloor(campus.floorCodes.first())
+            loadFloor(campus.floorCodes.first(), remember = false)
         }
     }
 
@@ -220,7 +264,10 @@ internal class LibraryViewModel(private val source: LibrarySource) : ViewModel()
     fun selectArea(code: String) {
         if (code == selectedAreaCode) return
         selectedAreaCode = code
-        if (code.isNotEmpty()) loadArea(code)
+        if (code.isNotEmpty()) {
+            prefs.putString(KEY_LAST_AREA + account, LibraryLastView.encode(campus, code))
+            loadArea(code)
+        }
     }
 
     /** 平面图的 qseatuist 自带座位状态，平面图模式下不再另查 qseat。 */
@@ -366,8 +413,9 @@ internal class LibraryViewModel(private val source: LibrarySource) : ViewModel()
     }
 
     /** 拉一层的区域列表并选中第一个可用区域；换校区、换楼层都走这里。 */
-    fun loadFloor(floorCode: String, preferArea: String? = null) {
+    fun loadFloor(floorCode: String, preferArea: String? = null, remember: Boolean = true) {
         selectedFloorCode = floorCode
+        if (remember) prefs.putString(KEY_LAST_FLOOR + account, LibraryLastView.encode(campus, floorCode))
         isLoading = true
         refreshFloorPlan()
         viewModelScope.launch {
@@ -418,10 +466,15 @@ internal class LibraryViewModel(private val source: LibrarySource) : ViewModel()
         if (target == campus || campusSwitching) return
         campusSwitching = true
         viewModelScope.launch {
-            if (runCatching { source.switchCampus(target) }.getOrDefault(false)) {
+            val home = homeCampus
+            val wasHome = campus == home
+            if (home != null && target != home) savePendingHome(home)
+            val ok = trySwitch(target)
+            if (ok == true || campus == target) {
                 applyCampus(target)
                 savePreferredCampus(target)
-                homeCampus?.let { home -> savePendingHome(if (target == home) null else home) }
+                prefs.putString(KEY_LAST_CAMPUS + account, target.id)
+                if (target == home) savePendingHome(null)
                 floorAreas = emptyMap()
                 selectedAreaCode = ""
                 seats = emptyList()
@@ -431,6 +484,7 @@ internal class LibraryViewModel(private val source: LibrarySource) : ViewModel()
                 warmCampus()
                 loadFloor(target.floorCodes.first())
             } else {
+                if (ok == false && wasHome) savePendingHome(null)
                 errorMessage = "切换到" + target.displayName + "失败，请稍后重试"
             }
             campusSwitching = false

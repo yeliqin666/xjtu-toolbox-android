@@ -46,7 +46,7 @@ fun NotificationScreen(
 ) {
     // 与 :app 同一个 ViewModel（只是取数换成了端口）；两端都用 androidx.lifecycle 的
     // `viewModel { }`（:core 里是 JetBrains 版，同 API、同版本）。
-    val vm: NotificationViewModel = viewModel { NotificationViewModel(source) }
+    val vm: NotificationViewModel = viewModel(key = "notifications" + com.xjtu.toolbox.account.AccountContext.safeSuffix()) { NotificationViewModel(source) }
     val notifications = vm.notifications
     val searching = vm.searching
     var showSourceSheet by remember { mutableStateOf(false) }

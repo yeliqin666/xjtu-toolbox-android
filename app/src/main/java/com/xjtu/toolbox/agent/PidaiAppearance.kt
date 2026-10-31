@@ -8,7 +8,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.graphics.Color
 import com.xjtu.toolbox.agent.bot.BOT_COLORS
 import com.xjtu.toolbox.agent.bot.DEFAULT_COLOR_ID
+import com.xjtu.toolbox.agent.bot.DEFAULT_SHAPE_ID
 import com.xjtu.toolbox.agent.bot.botColorById
+import com.xjtu.toolbox.agent.bot.botShapeById
 import com.xjtu.toolbox.agent.bot.cast.CastCharacter
 import com.xjtu.toolbox.agent.bot.cast.castById
 import top.yukonga.miuix.kmp.theme.MiuixTheme
@@ -18,7 +20,7 @@ import java.io.File
 const val CLASSIC_ID = "classic"
 
 /**
- * 屁岱形象（角色 + 经典屁岱的颜色）的全局入口。
+ * 屁岱形象（角色 + 经典屁岱的形状与颜色）的全局入口。
  *
  * 用 [mutableStateOf] 是为了让底栏能直接跟着设置页的选择重组：底栏常驻，设置页改一下
  * 就要立刻在底栏看到，而不是等下次冷启动。
@@ -28,6 +30,7 @@ const val CLASSIC_ID = "classic"
  */
 object PidaiAppearanceHost {
     var characterId by mutableStateOf(CLASSIC_ID)
+    var shapeId by mutableStateOf(DEFAULT_SHAPE_ID)
     var colorId by mutableStateOf(DEFAULT_COLOR_ID)
 
     /**
@@ -44,21 +47,23 @@ object PidaiAppearanceHost {
     fun load(context: Context) {
         val saved = PidaiAppearanceStore(context).load()
         characterId = saved.character
+        shapeId = saved.shape
         colorId = saved.color
         plain = saved.plain
     }
 
     /** 选择之后立即落盘 + 更新 host。 */
-    fun set(context: Context, character: String? = null, color: String? = null) {
+    fun set(context: Context, character: String? = null, shape: String? = null, color: String? = null) {
         if (character != null) characterId = character
+        if (shape != null) shapeId = shape
         if (color != null) colorId = color
-        PidaiAppearanceStore(context).save(characterId, colorId, plain)
+        PidaiAppearanceStore(context).save(characterId, shapeId, colorId, plain)
     }
 
     /** 「朴素图标」开关：角色仍然保留在存档里，只是暂时不画。 */
     fun setPlain(context: Context, value: Boolean) {
         plain = value
-        PidaiAppearanceStore(context).save(characterId, colorId, value)
+        PidaiAppearanceStore(context).save(characterId, shapeId, colorId, value)
     }
 }
 
@@ -74,29 +79,30 @@ class PidaiAppearanceStore(context: Context) {
      * [plain] 旧版本存档里没有这个字段，`getBoolean` 的默认值就是 `false`，
      * 老用户升级上来不会突然变成朴素图标。
      */
-    data class Saved(val character: String, val color: String, val plain: Boolean = false)
+    data class Saved(val character: String, val shape: String, val color: String, val plain: Boolean = false)
 
     fun load(): Saved {
         purgeLegacy()
         val character = prefs.getString("character", CLASSIC_ID)
             ?.takeIf { it == CLASSIC_ID || castById(it) != null }
             ?: CLASSIC_ID
+        val shape = prefs.getString("shape", DEFAULT_SHAPE_ID)
+            ?.takeIf { botShapeById(it) != null }
+            ?: DEFAULT_SHAPE_ID
         val color = prefs.getString("color", DEFAULT_COLOR_ID)
             ?.takeIf { id -> BOT_COLORS.any { it.id == id } }
             ?: DEFAULT_COLOR_ID
-        return Saved(character, color, prefs.getBoolean("plain", false))
+        return Saved(character, shape, color, prefs.getBoolean("plain", false))
     }
 
-    fun save(character: String, color: String, plain: Boolean) {
-        prefs.edit().putString("character", character).putString("color", color).putBoolean("plain", plain).apply()
+    fun save(character: String, shape: String, color: String, plain: Boolean) {
+        prefs.edit().putString("character", character).putString("shape", shape).putString("color", color)
+            .putBoolean("plain", plain).apply()
     }
 
-    /**
-     * 清掉已下线功能的残留：外部导入的皮肤包与选中记录、经典屁岱的形状选择
-     * （形状已固定为云朵）。
-     */
+    /** 清掉已下线功能的残留：外部导入的皮肤包与选中记录。 */
     private fun purgeLegacy() {
-        if (prefs.contains("skin") || prefs.contains("shape")) prefs.edit().remove("skin").remove("shape").apply()
+        if (prefs.contains("skin")) prefs.edit().remove("skin").apply()
         File(appContext.filesDir, "pidai_skins").takeIf { it.exists() }?.deleteRecursively()
     }
 }
@@ -106,10 +112,12 @@ data class PidaiNavStyle(
     val cast: CastCharacter?,
     /** 经典屁岱的身体墨色；新角色自带配色，用不到。 */
     val ink: Color,
+    /** 经典屁岱的形状轮廓；新角色用不到。 */
+    val shape: DoubleArray? = null,
 )
 
 /**
- * 底栏渲染需要的形象参数：角色 + 经典屁岱的墨色。
+ * 底栏渲染需要的形象参数：角色 + 经典屁岱的形状与墨色。
  *
  * 墨色在「跟随主题」时取 `onSurface`（底栏前景），深色底栏上仍然可见；用户选了具体
  * 颜色才用那个色值。这个取舍是必须的——写死一个墨色在深色模式会直接看不见。
@@ -119,5 +127,5 @@ fun pidaiNavAppearance(): PidaiNavStyle {
     val color = botColorById(PidaiAppearanceHost.colorId)?.argb
         ?.let { Color(it) }
         ?: MiuixTheme.colorScheme.onSurface
-    return PidaiNavStyle(PidaiAppearanceHost.cast, color)
+    return PidaiNavStyle(PidaiAppearanceHost.cast, color, botShapeById(PidaiAppearanceHost.shapeId)?.radii)
 }

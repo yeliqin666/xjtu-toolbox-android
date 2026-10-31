@@ -69,6 +69,9 @@ object LiquidPalettes {
     val Blossom = LiquidColors(Color(0xFF5A1670), Color(0xFFEF5BD8), Color(0xFFFFD1F3))
     val Lagoon = LiquidColors(Color(0xFF0A4A3A), Color(0xFF2FD6A6), Color(0xFFC9FFF0))
     val Honey = LiquidColors(Color(0xFF5C2A00), Color(0xFFFF8A2B), Color(0xFFFFE1C2))
+
+    /** 首页头卡最早那组固定蓝（原 `LiquidCardColors`），「午夜蓝」选项仍然用它。 */
+    val ClassicMidnight = LiquidColors(Color(0xFF070D33), Color(0xFF1F5FD6), Color(0xFF7DA4E0))
 }
 
 /** 平台切口本体：Android 走着色器，其余端走 [FallbackLiquidBackground]。 */

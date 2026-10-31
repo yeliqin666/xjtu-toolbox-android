@@ -7,12 +7,14 @@ import com.xjtu.toolbox.game.ui.Contender
 import com.xjtu.toolbox.game.ui.GameAction
 import com.xjtu.toolbox.game.ui.GameActionRow
 import com.xjtu.toolbox.game.ui.GameHint
+import com.xjtu.toolbox.game.ui.LeaveButton
 import com.xjtu.toolbox.game.ui.SjtuColor
 import com.xjtu.toolbox.game.ui.StonePaints
 import com.xjtu.toolbox.game.ui.VersusBar
 import com.xjtu.toolbox.game.ui.XjtuColor
 import com.xjtu.toolbox.game.ui.drawStone
 import com.xjtu.toolbox.game.ui.rememberDropProgress
+import com.xjtu.toolbox.game.ui.rememberLeaveGuard
 import com.xjtu.toolbox.game.ui.woodBoard
 import com.xjtu.toolbox.game.ui.woodColors
 import kotlin.math.abs
@@ -78,14 +80,10 @@ import top.yukonga.miuix.kmp.basic.Button
 import top.yukonga.miuix.kmp.basic.ButtonDefaults
 import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.CardDefaults
-import top.yukonga.miuix.kmp.basic.Icon
-import top.yukonga.miuix.kmp.basic.IconButton
 import top.yukonga.miuix.kmp.basic.Scaffold
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextButton
 import top.yukonga.miuix.kmp.basic.TopAppBar
-import top.yukonga.miuix.kmp.icon.MiuixIcons
-import top.yukonga.miuix.kmp.icon.extended.Back
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 /**
@@ -235,13 +233,22 @@ fun GomokuScreen(onBack: () -> Unit, onlineLobby: OnlineLobby? = null) {
         maybeTriggerAiMove()
     }
 
+    // 已落过子且没分出胜负才算对局中；联机时退出要先断开连接
+    @Suppress("UNUSED_VARIABLE") val onlineVersion = online.version
+    val isOnline = mode == GomokuMode.ONLINE
+    val inProgress = if (isOnline) {
+        online.session != null && online.outcome == GomokuOutcome.ONGOING && online.disconnectedReason == null && online.board.moveCount() > 0
+    } else {
+        ui.outcome == GomokuOutcome.ONGOING && ui.board.moveCount() > 0
+    }
+    val leave = rememberLeaveGuard(inProgress) { online.leave(); onBack() }
+    val leaveSubtitle = if (isOnline) "联机对局中，退出会断开连接" else "已下 ${ui.board.moveCount()} 手"
+
     Scaffold(
         topBar = {
             TopAppBar(
                 title = "五子棋",
-                navigationIcon = {
-                    IconButton(onClick = onBack) { Icon(MiuixIcons.Back, "返回") }
-                },
+                navigationIcon = { LeaveButton(inProgress, leave::request) },
                 color = MiuixTheme.colorScheme.background,
             )
         },
@@ -349,6 +356,7 @@ fun GomokuScreen(onBack: () -> Unit, onlineLobby: OnlineLobby? = null) {
                 }
             }
         }
+        leave.Menu(leaveSubtitle, onRestart = if (mode == GomokuMode.ONLINE) null else ::resetGame)
     }
 }
 

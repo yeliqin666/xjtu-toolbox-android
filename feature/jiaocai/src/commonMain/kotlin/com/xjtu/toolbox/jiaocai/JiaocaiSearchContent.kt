@@ -66,6 +66,19 @@ internal fun JiaocaiSearchContent(
 
     BackHandler(enabled = selected != null) { vm.selected = null }
 
+    // 在网格外读：网格项滚出屏幕会被销毁，放里面每次滚回都重读一遍。null = 还没读完。
+    var myTextbooks by remember { mutableStateOf<List<JiaocaiTermTextbook>?>(null) }
+    LaunchedEffect(termTextbooks) { myTextbooks = termTextbooks.currentTerm() }
+
+    // 搜索结果与教材区共用一个列表，二者切换时回到顶部
+    var shownSearched by remember { mutableStateOf(hasSearched) }
+    LaunchedEffect(hasSearched) {
+        if (hasSearched != shownSearched) {
+            shownSearched = hasSearched
+            listState.scrollToItem(0)
+        }
+    }
+
     Column(
         modifier
             .fillMaxSize()
@@ -99,13 +112,6 @@ internal fun JiaocaiSearchContent(
                     }
                 }
             }
-            // 搜索框为空、还没搜过：先看看本学期课程自己配的教材，不必非得手动搜。
-            MyTextbooksSection(
-                termTextbooks = termTextbooks,
-                jiaocai1 = jiaocai1,
-                onOpenFullText = onOpenFullText,
-                snackbarHostState = snackbarHostState,
-            )
         }
 
         AnimatedContent(
@@ -146,7 +152,17 @@ internal fun JiaocaiSearchContent(
                         spacing = 10.dp,
                         contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp)
                     ) {
-                        if (hasSearched) {
+                        // 放进可滚动网格，避免教材多时末卡被压扁（#205）
+                        if (!hasSearched) {
+                            fullLineItem {
+                                MyTextbooksSection(
+                                    textbooks = myTextbooks,
+                                    jiaocai1 = jiaocai1,
+                                    onOpenFullText = onOpenFullText,
+                                    snackbarHostState = snackbarHostState,
+                                )
+                            }
+                        } else {
                             fullLineItem {
                                 Text(
                                     "${books.size} 本",
@@ -351,16 +367,12 @@ private sealed class FullTextOutcome {
 
 @Composable
 private fun MyTextbooksSection(
-    termTextbooks: JiaocaiTermTextbooks,
+    /** null = 还没读完缓存，先不画，免得闪一下空态。 */
+    textbooks: List<JiaocaiTermTextbook>?,
     jiaocai1: Jiaocai1Source?,
     onOpenFullText: (ssno: String, title: String) -> Unit,
     snackbarHostState: SnackbarHostState,
 ) {
-    // null = 还没读完缓存；空列表是"读完了但没有"，跟"还没读"要分得开，否则一进来会闪一下空态。
-    var textbooks by remember { mutableStateOf<List<JiaocaiTermTextbook>?>(null) }
-    LaunchedEffect(Unit) {
-        textbooks = termTextbooks.currentTerm()
-    }
     val list = textbooks ?: return
     if (list.isEmpty()) {
         Card(Modifier.readableWidth().padding(16.dp).fillMaxWidth()) {

@@ -1,6 +1,6 @@
 package com.xjtu.toolbox.game.g2048
 
-import com.xjtu.toolbox.ui.components.BackButton
+import com.xjtu.toolbox.platform.BackHandler
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.Spring
@@ -61,6 +61,9 @@ import com.xjtu.toolbox.game.Sfx
 import com.xjtu.toolbox.game.board.Leaderboard
 import com.xjtu.toolbox.game.board.LeaderboardAskDialog
 import com.xjtu.toolbox.game.ui.GameMenu
+import com.xjtu.toolbox.game.ui.LeaveButton
+import com.xjtu.toolbox.game.ui.RestartConfirmMenu
+import com.xjtu.toolbox.game.ui.rememberLeaveGuard
 import com.xjtu.toolbox.game.ui.ScoreCard
 import com.xjtu.toolbox.ui.adaptive.readableWidth
 import com.xjtu.toolbox.ui.rememberHaptics
@@ -202,12 +205,18 @@ fun Gpa2048Screen(onBack: () -> Unit) {
     val focusRequester = remember { FocusRequester() }
     LaunchedEffect(Unit) { focusRequester.requestFocus() }
 
+    // 有分且没结束才算对局中：左上角是暂停，返回键先弹菜单；否则直接退出
+    var confirmRestart by remember { mutableStateOf(false) }
+    val inProgress = state.score > 0 && !state.isOver
+    val leave = rememberLeaveGuard(inProgress, onBack)
+    BackHandler(enabled = confirmRestart) { confirmRestart = false }
+
     Scaffold(
         topBar = {
             TopAppBar(
                 title = "GPA 2048",
                 navigationIcon = {
-                    BackButton(onBack)
+                    LeaveButton(inProgress, leave::request)
                 },
                 color = MiuixTheme.colorScheme.background,
                 actions = {
@@ -234,7 +243,8 @@ fun Gpa2048Screen(onBack: () -> Unit) {
                         else -> null
                     }
                     if (direction != null) {
-                        handleMove(direction); true
+                        if (!leave.menuOpen && !confirmRestart) handleMove(direction)
+                        true
                     } else false
                 }
                 .focusRequester(focusRequester)
@@ -269,7 +279,7 @@ fun Gpa2048Screen(onBack: () -> Unit) {
                         Text(" $undoLeft", style = MiuixTheme.textStyles.footnote1, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
                     }
                 }
-                IconButton(onClick = { restart() }) {
+                IconButton(onClick = { if (inProgress) confirmRestart = true else restart() }) {
                     Icon(Icons.Default.Refresh, contentDescription = "重新开始", modifier = Modifier.size(22.dp))
                 }
             }
@@ -280,6 +290,11 @@ fun Gpa2048Screen(onBack: () -> Unit) {
                 onSwipe = ::handleMove,
                 overlay = {
                     when {
+                        confirmRestart -> RestartConfirmMenu(
+                            onConfirm = { confirmRestart = false; restart() },
+                            onCancel = { confirmRestart = false },
+                        )
+                        leave.menuOpen -> leave.Menu("本局 ${state.score} 分", onRestart = ::restart)
                         state.isOver -> GameMenu(
                             title = Gpa2048Texts.gameOverTitle(boardGpa(state.board)),
                             subtitle = "本局 ${state.score} 分",

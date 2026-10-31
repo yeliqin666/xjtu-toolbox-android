@@ -12,6 +12,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.ColumnScope
@@ -20,7 +21,6 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
@@ -35,6 +35,8 @@ import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.CloudSync
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.EventSeat
+import androidx.compose.material.icons.filled.Forum
+import androidx.compose.material.icons.filled.AlternateEmail
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Star
@@ -57,6 +59,7 @@ import androidx.core.content.ContextCompat
 import com.xjtu.toolbox.BuildConfig
 import com.xjtu.toolbox.archive.AppArchiveUx
 import com.xjtu.toolbox.data.CredentialStore
+import com.xjtu.toolbox.notification.CommunityWatchScheduler
 import com.xjtu.toolbox.notification.LibraryReminderScheduler
 import com.xjtu.toolbox.notification.LmsDeadlineScheduler
 import com.xjtu.toolbox.notification.NoticeWatchScheduler
@@ -99,7 +102,6 @@ import top.yukonga.miuix.kmp.preference.ArrowPreference
 import top.yukonga.miuix.kmp.preference.OverlayDropdownPreference
 import top.yukonga.miuix.kmp.preference.SwitchPreference
 import top.yukonga.miuix.kmp.theme.MiuixTheme
-import top.yukonga.miuix.kmp.utils.overScrollVertical
 
 /** Android 侧的设置页宿主。 */
 @Composable
@@ -179,6 +181,8 @@ private fun NoticeAndReminderSection(context: Context, scope: CoroutineScope) {
     var reminderLibrary by remember { mutableStateOf(ReminderStore.isEnabled(context, ReminderKind.LIBRARY)) }
     var reminderSchedule by remember { mutableStateOf(ReminderStore.isEnabled(context, ReminderKind.SCHEDULE)) }
     var reminderLms by remember { mutableStateOf(ReminderStore.isEnabled(context, ReminderKind.LMS)) }
+    var reminderReply by remember { mutableStateOf(ReminderStore.isEnabled(context, ReminderKind.COMMUNITY_REPLY)) }
+    var reminderMention by remember { mutableStateOf(ReminderStore.isEnabled(context, ReminderKind.COMMUNITY_MENTION)) }
 
     /** 打开某类提醒后待补的通知权限申请；授权回调里再落盘排程。 */
     var pendingReminder by remember { mutableStateOf<ReminderKind?>(null) }
@@ -199,6 +203,12 @@ private fun NoticeAndReminderSection(context: Context, scope: CoroutineScope) {
                 reminderLms = enabled
                 LmsDeadlineScheduler.apply(context)
             }
+            ReminderKind.COMMUNITY_REPLY, ReminderKind.COMMUNITY_MENTION -> {
+                if (kind == ReminderKind.COMMUNITY_REPLY) reminderReply = enabled else reminderMention = enabled
+                CommunityWatchScheduler.apply(context)
+            }
+            // 自建待办没有开关（本地扫一遍零代价，设置页也不列它），枚举里存在只为复用去重游标
+            ReminderKind.SELF_TODO -> {}
         }
     }
 
@@ -311,6 +321,25 @@ private fun NoticeAndReminderSection(context: Context, scope: CoroutineScope) {
                     Toast.makeText(context, "这台设备没有电池优化设置页", Toast.LENGTH_SHORT).show()
                 }
             }
+        )
+    }
+
+    // 社区提醒只进消息收纳、不弹系统通知，所以不经 applyReminder 问通知权限
+    SmallTitle("社区")
+    SettingsCard {
+        SwitchPreference(
+            title = ReminderKind.COMMUNITY_REPLY.title,
+            summary = "自己发的帖子有新回复，需先登录社区",
+            checked = reminderReply,
+            startAction = { SettingsIcon(Icons.Default.Forum) },
+            onCheckedChange = { on -> commitReminder(ReminderKind.COMMUNITY_REPLY, on) }
+        )
+        SwitchPreference(
+            title = ReminderKind.COMMUNITY_MENTION.title,
+            summary = "任意帖子或评论里 @ 了我",
+            checked = reminderMention,
+            startAction = { SettingsIcon(Icons.Default.AlternateEmail) },
+            onCheckedChange = { on -> commitReminder(ReminderKind.COMMUNITY_MENTION, on) }
         )
     }
 
@@ -597,7 +626,7 @@ private fun UpdateSection(context: Context, scope: CoroutineScope, credentialSto
         )
         SwitchPreference(
             title = "接收预览版更新",
-            summary = if (receivePreviewUpdates && updateChannel != AppUpdater.CHANNEL_GITHUB) "预览版只在 GitHub 渠道发布" else null,
+            summary = if (receivePreviewUpdates) "预览版可能不稳定" else null,
             checked = receivePreviewUpdates,
             startAction = { SettingsIcon(Icons.Default.CloudSync) },
             onCheckedChange = { checked ->
@@ -622,7 +651,6 @@ private fun UpdateSection(context: Context, scope: CoroutineScope, credentialSto
                         AppUpdater.check(
                             channel = updateChannel,
                             includePreview = receivePreviewUpdates,
-                            rolloutId = credentialStore.rolloutId,
                         )
                     }
                     checkingUpdate = false
@@ -679,6 +707,11 @@ private fun UpdateSection(context: Context, scope: CoroutineScope, credentialSto
     }
 }
 
+/**
+ * 推送来源：按分类勾选，每组可全选 / 清空；再加关键词过滤。
+ * 写法与「更新日志」等弹窗一致：内容整列滚动，高度交给弹窗自己。
+ * 选择和关键词都在关弹窗时一次写回，调用方的 [onDismiss] 随后按存储刷新摘要。
+ */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun NoticeSourceSheet(
@@ -686,88 +719,85 @@ private fun NoticeSourceSheet(
     onDismiss: () -> Unit,
 ) {
     val context = LocalContext.current
-    var selected by remember(show) {
-        mutableStateOf(NoticeWatchStore.sources(context))
-    }
+    var selected by remember(show) { mutableStateOf(NoticeWatchStore.sources(context)) }
     var keywords by remember(show) { mutableStateOf(NoticeWatchStore.keywordsRaw(context)) }
-    BackHandler(enabled = show) { onDismiss() }
+    fun close() {
+        NoticeWatchStore.setSources(context, selected)
+        NoticeWatchStore.setKeywords(context, keywords)
+        onDismiss()
+    }
+    BackHandler(enabled = show) { close() }
     OverlayBottomSheet(
         show = show,
         title = "推送来源",
-        onDismissRequest = onDismiss
+        onDismissRequest = ::close,
     ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .heightIn(max = 520.dp)
-                .overScrollVertical()
                 .verticalScroll(rememberScrollState())
                 .navigationBarsPadding()
         ) {
             Text(
-                "勾得越多越费电。",
-                style = MiuixTheme.textStyles.footnote1,
-                color = MiuixTheme.colorScheme.onSurfaceVariantSummary
-            )
-            Text(
-                if (selected.isEmpty()) "还没选来源" else "已选 ${selected.size} 个",
-                style = MiuixTheme.textStyles.footnote1,
-                color = if (selected.isEmpty()) {
-                    MiuixTheme.colorScheme.onSurfaceVariantSummary
-                } else {
-                    MiuixTheme.colorScheme.primary
-                },
-                modifier = Modifier.padding(top = 4.dp, bottom = 4.dp)
+                (if (selected.isEmpty()) "还没选来源" else "已选 ${selected.size} 个") + " · 选得越多越费电",
+                style = MiuixTheme.textStyles.body2,
+                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
             )
             SourceCategory.entries.forEach { category ->
-                Text(
-                    category.displayName,
-                    style = MiuixTheme.textStyles.subtitle,
-                    fontWeight = FontWeight.Medium,
-                    modifier = Modifier.padding(top = 12.dp, bottom = 8.dp)
-                )
+                val sources = NotificationSource.byCategory(category)
+                val all = selected.containsAll(sources)
+                Row(
+                    Modifier.fillMaxWidth().padding(top = 16.dp, bottom = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        category.displayName,
+                        style = MiuixTheme.textStyles.subtitle,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.weight(1f),
+                    )
+                    Text(
+                        if (all) "清空" else "全选",
+                        style = MiuixTheme.textStyles.body2,
+                        color = MiuixTheme.colorScheme.primary,
+                        modifier = Modifier.clickable { selected = if (all) selected - sources.toSet() else selected + sources },
+                    )
+                }
                 FlowRow(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    NotificationSource.byCategory(category).forEach { source ->
+                    sources.forEach { source ->
                         val checked = source in selected
                         AppFilterChip(
                             selected = checked,
-                            onClick = {
-                                selected = if (checked) selected - source else selected + source
-                                NoticeWatchStore.setSources(context, selected)
-                            },
+                            onClick = { selected = if (checked) selected - source else selected + source },
                             label = source.displayName
                         )
                     }
                 }
             }
 
-            // ── 关键词过滤 ──
             Text(
                 "只推含关键词的",
                 style = MiuixTheme.textStyles.subtitle,
-                fontWeight = FontWeight.Medium,
-                modifier = Modifier.padding(top = 16.dp, bottom = 4.dp)
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.padding(top = 20.dp, bottom = 4.dp)
             )
             Text(
                 "逗号分隔，留空则全推。",
-                style = MiuixTheme.textStyles.footnote1,
+                style = MiuixTheme.textStyles.body2,
                 color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                 modifier = Modifier.padding(bottom = 8.dp)
             )
             TextField(
                 value = keywords,
-                onValueChange = {
-                    keywords = it
-                    NoticeWatchStore.setKeywords(context, it)
-                },
+                onValueChange = { keywords = it },
                 label = "如：保研, 奖学金, 补考, 停电",
                 modifier = Modifier.fillMaxWidth(),
                 singleLine = true,
             )
-            Spacer(Modifier.height(8.dp))
+            Spacer(Modifier.height(16.dp))
         }
     }
 }

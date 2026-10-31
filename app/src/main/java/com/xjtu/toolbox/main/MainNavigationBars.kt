@@ -42,6 +42,7 @@ import com.xjtu.toolbox.agent.PidaiNavButton
 import com.xjtu.toolbox.agent.ProactiveBubbleHost
 import com.xjtu.toolbox.agent.ProactiveMessage
 import com.xjtu.toolbox.agent.pidaiNavAppearance
+import com.xjtu.toolbox.agent.rememberPidaiGaze
 import com.xjtu.toolbox.shell.ShellTab
 import com.xjtu.toolbox.shell.ShellTabArt
 import com.xjtu.toolbox.shell.ShellTabVariant
@@ -57,41 +58,9 @@ import kotlin.math.roundToInt
  */
 
 /**
- * 主界面上手指最近按在哪（根坐标），屁岱拿来看。不是 State：只在它自己的帧循环里读，
- * 手指动不引起重组。松手后再看 [LINGER_MS] 才回正。
- */
-internal object PidaiTouch {
-    private const val LINGER_MS = 900L
-    private var x = 0f
-    private var y = 0f
-    private var down = false
-    private var upAt = Long.MIN_VALUE / 2
-
-    fun point(): Offset? =
-        if (down || android.os.SystemClock.uptimeMillis() - upAt < LINGER_MS) Offset(x, y) else null
-
-    fun record(p: Offset, pressed: Boolean) {
-        x = p.x
-        y = p.y
-        if (pressed) down = true
-        else if (down) { down = false; upAt = android.os.SystemClock.uptimeMillis() }
-    }
-}
-
-/** 挂在主界面最外层，只看不拦：Initial 阶段读位置，不消费事件。 */
-internal fun Modifier.feedPidaiTouch(origin: () -> Offset): Modifier = pointerInput(Unit) {
-    awaitPointerEventScope {
-        while (true) {
-            val change = awaitPointerEvent(PointerEventPass.Initial).changes.firstOrNull() ?: continue
-            PidaiTouch.record(change.position + origin(), change.pressed)
-        }
-    }
-}
-
-/**
  * 导航栏里的屁岱：同样是一个 tab，只是画成会动的机器人。
- * 点了别的 tab 它会朝那边瞟一眼（横排栏往左右看并眨那一侧的眼，竖排侧栏 [vertical] 往上下看）；
- * 在别的 tab 上看手指按的地方，在自己那页只看底栏附近的手指（拖底栏）。
+ * 点了别的 tab 它会朝那边瞟一眼（横排栏往左右看并眨那一侧的眼，竖排侧栏 [vertical] 往上下看），
+ * 平时眼睛跟着手指（[rememberPidaiGaze]）。
  *
  * @param tabs 这一端的 tab 集合（只为取序号）
  * @param current 当前页落的那一格；**null = 不属于任何一格**（底栏一格都不高亮，见 `ShellNavState.selected`）
@@ -124,20 +93,7 @@ private fun PidaiTabButton(
         }
         lastSelected = now
     }
-    // 自己的中心（根坐标），布局时写、帧循环里读
-    val center = remember { floatArrayOf(Float.NaN, 0f) }
-    val reach = with(LocalDensity.current) { 160.dp.toPx() }
-    val onOwnTab = current?.id == tab.id
-    val look = look@{
-        val p = PidaiTouch.point() ?: return@look null
-        if (center[0].isNaN()) return@look null
-        val dx = p.x - center[0]
-        val dy = p.y - center[1]
-        if (onOwnTab && abs(dy) > reach / 2) return@look null
-        // 近处按比例，远处只取方向
-        val k = 1f / maxOf(kotlin.math.hypot(dx, dy), reach)
-        Offset(dx * k, dy * k)
-    }
+    val gaze = rememberPidaiGaze()
     PidaiNavButton(
         onClick = onClick,
         excited = ProactiveBubbleHost.message != null,
@@ -148,13 +104,10 @@ private fun PidaiTabButton(
         paper = paper,
         ink = style.ink,
         cast = style.cast,
-        gaze = look,
+        shape = style.shape,
+        gaze = gaze.look,
         glance = glance,
-        modifier = modifier.onGloballyPositioned {
-            val c = it.boundsInRoot().center
-            center[0] = c.x
-            center[1] = c.y
-        },
+        modifier = modifier.then(gaze.track),
     )
 }
 

@@ -114,7 +114,22 @@ data class SchoolCourseQuery(
     val weekday: Int = 0,
     val startSection: Int = 0,
     val endSection: Int = 0,
-)
+) {
+    /** 除学期外已生效的筛选项数；节次范围算一项。 */
+    val activeFilterCount: Int
+        get() = listOf(
+            courseName.isNotBlank(),
+            courseCode.isNotBlank(),
+            teacher.isNotBlank(),
+            departmentCode.isNotBlank(),
+            className.isNotBlank(),
+            campusCode.isNotBlank(),
+            isPublicElective != null,
+            electiveCategoryCode.isNotBlank(),
+            weekday != 0,
+            startSection != 0 || endSection != 0,
+        ).count { it }
+}
 
 /** 全校课表的取数端口。 */
 interface SchoolCourseSource {

@@ -20,6 +20,14 @@ interface KeyValueStore {
     /** 键是否存在。 */
     fun contains(key: String): Boolean
 
+    /**
+     * 本 store 命名空间下的全部键。
+     *
+     * 只有真的能枚举的端会实现它（Android / 桌面 / Web 都实现了）；套壳实现（凭据保护、
+     * 加密存储）与测试替身可以不管，默认返回空集 —— 拿它列已有条目时，空集就当作「这一端不提供」。
+     */
+    fun keys(): Set<String> = emptySet()
+
     /** 只清本 store 命名空间下的键，不是清空整个平台的偏好。 */
     fun clear()
 }

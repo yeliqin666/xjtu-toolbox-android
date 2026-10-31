@@ -56,9 +56,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalClipboardManager
-import com.xjtu.toolbox.platform.showBriefMessage
-import androidx.compose.ui.text.AnnotatedString
+import com.xjtu.toolbox.platform.rememberCopyText
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -874,7 +872,7 @@ private fun SmartRoomCard(room: RoomInfo, currentPeriod: Int) {
         null
     }
     var expanded by rememberSaveable(room.name) { mutableStateOf(false) }
-    val clipboardManager = LocalClipboardManager.current
+    val copy = rememberCopyText()
 
     top.yukonga.miuix.kmp.basic.Card(
         modifier = Modifier
@@ -882,10 +880,7 @@ private fun SmartRoomCard(room: RoomInfo, currentPeriod: Int) {
             .animateContentSize()
             .combinedClickable(
                 onClick = { expanded = !expanded },
-                onLongClick = {
-                    clipboardManager.setText(AnnotatedString(room.name))
-                    showBriefMessage("已复制：${room.name}")
-                }
+                onLongClick = { copy(room.name) }
             ),
         colors = top.yukonga.miuix.kmp.basic.CardDefaults.defaultColors(color = if (isNowFree)
                 MiuixTheme.colorScheme.surfaceVariant
@@ -999,7 +994,7 @@ private val IN_USE_COLOR = Color(0xFFD9822B)
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun LiveRoomCard(room: LiveRoom, schedule: RoomInfo?, currentPeriod: Int) {
-    val clipboardManager = LocalClipboardManager.current
+    val copy = rememberCopyText()
     val seats = room.seats.takeIf { it > 0 } ?: schedule?.size ?: 0
     val seatText = if (seats > 0) "$seats 座" else "座位数未知"
     val status = schedule?.status.orEmpty()
@@ -1029,10 +1024,7 @@ private fun LiveRoomCard(room: LiveRoom, schedule: RoomInfo?, currentPeriod: Int
             .fillMaxWidth()
             .combinedClickable(
                 onClick = {},
-                onLongClick = {
-                    clipboardManager.setText(AnnotatedString(room.name))
-                    showBriefMessage("已复制：${room.name}")
-                }
+                onLongClick = { copy(room.name) }
             ),
         colors = top.yukonga.miuix.kmp.basic.CardDefaults.defaultColors(
             color = if (room.isFree) MiuixTheme.colorScheme.surfaceVariant

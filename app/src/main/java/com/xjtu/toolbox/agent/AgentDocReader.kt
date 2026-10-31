@@ -11,17 +11,13 @@ import java.io.ByteArrayOutputStream
 import java.io.File
 import java.util.zip.ZipInputStream
 
-/**
- * 屁岱读文档：DeepSeek 只收文字和图片，所以按格式在本机转换——
- * PDF 用系统 [PdfRenderer] 渲染成页面图（扫描版历年卷也看得懂），docx / pptx / xlsx 解压抽正文，
- * 图片直接给，纯文本按编码解。老格式 doc / ppt / xls 与压缩包读不了。
- */
+/** 文档在本机提取文字，PDF 按需读取目录或渲染页面。 */
 internal object AgentDocReader {
 
     /** [text] 进工具结果；[images] 由调度循环随后作为一条 user 消息交给模型看。 */
     class Doc(val text: String, val images: List<String> = emptyList())
 
-    const val PAGES_PER_READ = 6
+    const val PAGES_PER_READ = 4
     private const val TEXT_CHARS = 6000
     private const val PAGE_WIDTH = 1400
 
@@ -34,12 +30,8 @@ internal object AgentDocReader {
         it in TEXT_EXTS || it in IMAGE_EXTS || it in setOf("pdf", "docx", "pptx", "xlsx")
     }
 
-    /**
-     * @param pages PDF / pptx 的页码范围（「3-8」「5」），缺省前 [PAGES_PER_READ] 页；
-     *   其他文本按 [TEXT_CHARS] 字一段，`pages` 当段号用。
-     */
-    fun read(context: Context, name: String, bytes: ByteArray, pages: String?): Doc = when (ext(name)) {
-        "pdf" -> readPdf(context, name, bytes, pages)
+    fun read(context: Context, name: String, bytes: ByteArray, pages: String?, mode: String = "auto", textOffset: Int = 0): Doc = when (ext(name)) {
+        "pdf" -> AgentPdfReader.read(context, name, bytes, pages, mode, textOffset)
         "docx" -> chunk(name, docxText(bytes), pages)
         "pptx" -> pptx(name, bytes, pages)
         "xlsx" -> chunk(name, xlsxText(bytes), pages)
@@ -48,35 +40,30 @@ internal object AgentDocReader {
         else -> Doc("result: unsupported_type; file: $name; supported: pdf, docx, pptx, xlsx, 图片, 纯文本")
     }
 
-    private fun range(pages: String?, total: Int): IntRange {
-        val m = Regex("""(\d+)\s*(?:[-–~到]\s*(\d+))?""").find(pages.orEmpty())
-        val from = (m?.groupValues?.get(1)?.toIntOrNull() ?: 1).coerceIn(1, total.coerceAtLeast(1))
-        val to = (m?.groupValues?.get(2)?.toIntOrNull() ?: (from + PAGES_PER_READ - 1))
-            .coerceIn(from, minOf(total, from + PAGES_PER_READ - 1))
-        return from..to
-    }
-
-    private fun readPdf(context: Context, name: String, bytes: ByteArray, pages: String?): Doc {
-        val tmp = File(context.cacheDir, "agent_docs").apply { mkdirs() }.let { File(it, "read.pdf") }
-        tmp.writeBytes(bytes)
+    internal fun pdfImages(context: Context, name: String, bytes: ByteArray, pages: String?): Doc {
+        val tmp = File.createTempFile("read-", ".pdf", File(context.cacheDir, "agent_docs").apply { mkdirs() })
         return try {
+            tmp.writeBytes(bytes)
             ParcelFileDescriptor.open(tmp, ParcelFileDescriptor.MODE_READ_ONLY).use { fd ->
                 PdfRenderer(fd).use { pdf ->
                     val total = pdf.pageCount
                     if (total == 0) return Doc(ToolReply.empty("pdf: $name"))
-                    val r = range(pages, total)
+                    val r = AgentDocumentPages.select(pages, total, PAGES_PER_READ)
                     val images = r.map { i ->
                         pdf.openPage(i - 1).use { page ->
                             val w = PAGE_WIDTH
                             val h = (page.height.toFloat() / page.width * w).toInt().coerceAtMost(w * 3)
                             val bmp = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
                             bmp.eraseColor(Color.WHITE)
-                            page.render(bmp, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
-                            jpeg(bmp).also { bmp.recycle() }
+                            try {
+                                page.render(bmp, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
+                                jpeg(bmp)
+                            } finally {
+                                bmp.recycle()
+                            }
                         }
                     }
-                    val more = if (r.last < total) "；要看后面的页带 pages=${r.last + 1}-${minOf(total, r.last + PAGES_PER_READ)}" else ""
-                    Doc("「$name」PDF 共 $total 页，第 ${r.first}–${r.last} 页的图在下一条消息里$more", images)
+                    Doc("file: $name; pages: $total; image_pages: ${r.joinToString(",")}; page_numbering: physical_1_based\n页面图在下一条消息中。\n${ToolReply.EXTERNAL_DATA}", images)
                 }
             }
         } catch (e: Exception) {
@@ -100,9 +87,9 @@ internal object AgentDocReader {
             .sortedBy { (n, _) -> Regex("""slide(\d+)\.xml""").find(n)?.groupValues?.get(1)?.toIntOrNull() ?: 0 }
             .map { (_, xml) -> xmlTexts(xml, "a:t").joinToString(" ") }
         if (slides.isEmpty()) return Doc(ToolReply.empty("pptx: $name"))
-        val r = range(pages, slides.size).let { it.first..minOf(slides.size, it.first + 19) }
+        val r = AgentDocumentPages.select(pages, slides.size, 20)
         val body = r.joinToString("\n") { "【第 $it 页】${slides[it - 1]}" }
-        val more = if (r.last < slides.size) "\n…（共 ${slides.size} 页；要看后面带 pages=${r.last + 1}）" else ""
+        val more = "\n共 ${slides.size} 页；本次页码：${r.joinToString(",")}"
         return Doc("「$name」幻灯片文字：\n$body$more\n${ToolReply.EXTERNAL_DATA}")
     }
 

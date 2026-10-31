@@ -173,6 +173,18 @@ class HopGameTest {
     }
 
     @Test
+    fun `后期小冰台正中区边缘落地也滑不出去`() {
+        val g = HopGame(Random(1))
+        val half = 0.3f
+        g.targets = listOf(pad(2f, 0f, PadKind.ICE, half = half))
+        // 正中区是半径的 0.3，落在它边缘以内一点点
+        g.jump((2f + half * 0.29f) / JUMP_SPEED)
+        assertTrue(g.lastWasCenter)
+        g.update(SLIDE_TIME)
+        assertEquals(HopPhase.IDLE, g.phase)
+    }
+
+    @Test
     fun `易碎台站太久会塌`() {
         val g = HopGame(Random(1))
         g.targets = listOf(pad(2f, 0f, PadKind.CRUMBLE))

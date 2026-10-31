@@ -13,6 +13,7 @@ import androidx.compose.runtime.produceState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.style.TextOverflow
@@ -47,6 +48,10 @@ private sealed interface ImageState {
  * 嵌入式图片渲染器。
  * 字节由 [imageLoader] 取（思源学堂的图要带站点登录态，见 `LmsSource.imageBytes`），
  * 解码走各端的 [decodeImageFull]；加载中给一块占位，失败给一行说明文字。
+ *
+ * [colorFilter] 是整层反色用的像素滤镜（见 `HtmlStyle.imageColorFilter`）：深色模式下交给
+ * `ColorFilter.colorMatrix` 按 `invert(100%) hue-rotate(180deg)` 逐像素算，于是转成图片的公式、
+ * 白底的文档截图会翻成深底浅字 —— 公式在暗色下就是白色的。明亮模式下为 null（原样）。
  */
 @Composable
 fun HtmlImage(
@@ -55,6 +60,7 @@ fun HtmlImage(
     imageLoader: HtmlImageLoader? = null,
     baseUrl: String? = null,
     cornerRadius: Dp = 8.dp,
+    colorFilter: ColorFilter? = null,
     modifier: Modifier = Modifier,
 ) {
     if (url.isBlank()) return
@@ -71,6 +77,7 @@ fun HtmlImage(
         }
     }
 
+    // 占位底色始终跟随主题（图片会被滤镜反色，占位不需要）
     val placeholderColor = MiuixTheme.colorScheme.onSurface.copy(alpha = 0.04f)
 
     Box(
@@ -84,6 +91,8 @@ fun HtmlImage(
                 bitmap = s.bitmap,
                 contentDescription = alt ?: "图片",
                 contentScale = ContentScale.FillWidth,
+                // 深色模式下整层反色：白底黑字的公式图变黑底白字
+                colorFilter = colorFilter,
                 modifier = Modifier.fillMaxWidth(),
             )
             ImageState.Loading -> Box(Modifier.fillMaxWidth().height(120.dp))

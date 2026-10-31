@@ -65,7 +65,7 @@ class DesktopSettingsJvmTest {
     }
 
     @Test
-    fun `桌面宿主的如实降级：只声明真会照办的两行，没有的行与组是 null`() {
+    fun `桌面宿主的如实降级：只声明真会照办的三行，没有的行与组是 null`() {
         var ticked = 0
         val host = DesktopSettingsHost { ticked++ }
 
@@ -73,7 +73,7 @@ class DesktopSettingsJvmTest {
             setOf(
                 SettingsRow.DARK_MODE,
                 SettingsRow.DYNAMIC_COLOR,
-                SettingsRow.HOME_THEME,
+                SettingsRow.HOME_HERO,
                 SettingsRow.DEFAULT_TAB,
                 SettingsRow.VENUE_CAPTCHA,
                 SettingsRow.SCHEDULE_ATTENDANCE,

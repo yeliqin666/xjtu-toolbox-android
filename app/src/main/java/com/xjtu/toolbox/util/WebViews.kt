@@ -21,3 +21,15 @@ fun WebView.releaseSafely(jsInterfaceNames: Collection<String> = emptyList()) {
     runCatching { removeAllViews() }
     runCatching { destroy() }
 }
+
+/**
+ * 渲染进程崩了或被系统回收内存时调用，供 `WebViewClient.onRenderProcessGone` 直接返回。
+ *
+ * 不接这个回调（默认返回 false）系统会把整个 App 一起杀掉；卓易通这类内存紧的安卓容器里，
+ * WebOffice 这种重页面就是这样闪退的。死掉的 WebView 不能复用，照官方建议释放掉再交给 [onGone] 换界面。
+ */
+fun WebView.recoverFromRendererGone(onGone: () -> Unit): Boolean {
+    releaseSafely()
+    onGone()
+    return true
+}

@@ -8,10 +8,15 @@ kotlin {
     sourceSets {
         commonMain.dependencies {
             api(project(":shared:model"))
+            implementation(compose.components.resources)
         }
         androidMain.dependencies {
             implementation(libs.androidx.graphics.shapes)
             implementation(libs.androidx.core.ktx)
+            implementation(libs.androidx.activity.compose)
+        }
+        wasmJsMain.dependencies {
+            implementation(libs.kotlinx.browser)
         }
     }
 }

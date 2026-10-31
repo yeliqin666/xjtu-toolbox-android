@@ -157,9 +157,80 @@ class SelfTodoTest {
     }
 
     @Test
+    fun `自选颜色跟着收纳条目走，缺省不影响旧数据`() {
+        val withColor = todo("交报告", 0).copy(colorArgb = 0xFF1565C0.toInt())
+        assertEquals(0xFF1565C0.toInt(), SelfTodoRules.toInboxItem(withColor, 1_000L).colorArgb)
+        assertNull(SelfTodoRules.toInboxItem(todo("没挑色", 0), 1_000L).colorArgb, "没挑过色就是 null，走分类色")
+        // 老数据里没有这个字段，读出来应当是 null 而不是报错
+        val legacy = """[{"id":"1","title":"老数据"}]"""
+        assertNull(com.xjtu.toolbox.util.AppJson.decodeFromString<List<SelfTodo>>(legacy).single().colorArgb)
+    }
+
+    @Test
     fun `新 id 是 UUID 形状，不重复`() {
         val a = SelfTodoRules.newId()
         assertTrue(Regex("^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$").matches(a), a)
         assertTrue(a != SelfTodoRules.newId())
+    }
+
+    @Test
+    fun `抽屉里挑的日期和钟点，截止精确到分钟`() {
+        assertEquals("2026-10-16T08:05:00+0800", SelfTodoRules.dueAt(LocalDate(2026, 10, 16), 8, 5))
+        // 默认 23:59：选哪天就是那天的最后一分钟
+        assertEquals("2026-10-16T23:59:00+0800", SelfTodoRules.dueAt(LocalDate(2026, 10, 16), 23, 59))
+        // 越界的钟点夹到合法范围，不抛异常
+        assertEquals("2026-10-16T23:59:00+0800", SelfTodoRules.dueAt(LocalDate(2026, 10, 16), 99, 99))
+    }
+
+    @Test
+    fun `提醒时刻是截止前 48 小时，落在半夜就顺延到早上 7 点`() {
+        // 16 日 23:59 截止 ⇒ 14 日 23:59 提醒（不在静默时段，原样）
+        val evening = SelfTodoRules.newTodo(
+            "交报告", dueDate = SelfTodoRules.dueAt(LocalDate(2026, 10, 16), 23, 59), now = nowMs,
+        )
+        assertEquals(
+            LocalDateTime(2026, 10, 14, 23, 59).toInstant(zone).toEpochMilliseconds(),
+            SelfTodoRules.reminderAt(evening, nowMs),
+        )
+
+        // 17 日 03:00 截止 ⇒ 15 日 03:00 落在 0–7 点 ⇒ 顺延到 15 日 07:00
+        val night = SelfTodoRules.newTodo(
+            "发邮件", dueDate = SelfTodoRules.dueAt(LocalDate(2026, 10, 17), 3, 0), now = nowMs,
+        )
+        assertEquals(
+            LocalDateTime(2026, 10, 15, 7, 0).toInstant(zone).toEpochMilliseconds(),
+            SelfTodoRules.reminderAt(night, nowMs),
+        )
+
+        // 17 日 08:00 截止 ⇒ 15 日 08:00，已经过了 7 点，原样
+        val morning = SelfTodoRules.newTodo(
+            "开会材料", dueDate = SelfTodoRules.dueAt(LocalDate(2026, 10, 17), 8, 0), now = nowMs,
+        )
+        assertEquals(
+            LocalDateTime(2026, 10, 15, 8, 0).toInstant(zone).toEpochMilliseconds(),
+            SelfTodoRules.reminderAt(morning, nowMs),
+        )
+    }
+
+    @Test
+    fun `建得晚就此刻提醒，半夜照样顺延，过了截止不提醒`() {
+        val late = SelfTodoRules.newTodo("今晚才记的", dueDate = SelfTodoRules.dueAt(LocalDate(2026, 10, 15), 20, 0), now = nowMs)
+        // 截止前 48 小时早已过去 ⇒ 取此刻（14 日 10:00，白天）
+        assertEquals(nowMs, SelfTodoRules.reminderAt(late, nowMs))
+
+        // 此刻是凌晨 3 点 ⇒ 顺延到当天 7 点
+        val dawn = LocalDateTime(2026, 10, 14, 3, 0).toInstant(zone).toEpochMilliseconds()
+        assertEquals(
+            LocalDateTime(2026, 10, 14, 7, 0).toInstant(zone).toEpochMilliseconds(),
+            SelfTodoRules.reminderAt(late, dawn),
+        )
+
+        // 没截止、已办完、已经过了截止，都不提醒
+        assertNull(SelfTodoRules.reminderAt(SelfTodoRules.newTodo("没截止", now = nowMs), nowMs))
+        assertNull(SelfTodoRules.reminderAt(SelfTodoRules.complete(late, nowMs), nowMs))
+        val overdue = SelfTodoRules.newTodo(
+            "过期了", dueDate = SelfTodoRules.dueAt(LocalDate(2026, 10, 13), 20, 0), now = nowMs,
+        )
+        assertNull(SelfTodoRules.reminderAt(overdue, nowMs))
     }
 }

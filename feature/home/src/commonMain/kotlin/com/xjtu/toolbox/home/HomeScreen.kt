@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.requiredHeight
 import androidx.compose.foundation.layout.size
@@ -57,6 +58,7 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.kyant.backdrop.Backdrop
@@ -75,11 +77,21 @@ import com.xjtu.toolbox.ui.components.AppCardColor
 import com.xjtu.toolbox.ui.components.ExpressiveIcon
 import com.xjtu.toolbox.ui.components.GapNote
 import com.xjtu.toolbox.ui.components.GradientAppIcon
+import com.xjtu.toolbox.ui.components.HeroAppearance
+import com.xjtu.toolbox.ui.components.HeroAppearanceDialog
+import com.xjtu.toolbox.ui.components.HeroAppearanceRevision
+import com.xjtu.toolbox.ui.components.HeroCustomBackground
+import com.xjtu.toolbox.ui.components.HeroCustomScrim
+import com.xjtu.toolbox.ui.components.HeroForestBackground
+import com.xjtu.toolbox.ui.components.HeroForestScrim
+import com.xjtu.toolbox.ui.components.HeroPixelBackground
+import com.xjtu.toolbox.ui.components.HeroPixelScrim
 import com.xjtu.toolbox.ui.components.LiquidBackground
 import com.xjtu.toolbox.ui.components.MeshBackground
 import com.xjtu.toolbox.ui.components.RollingNumberText
 import com.xjtu.toolbox.ui.components.appCardShadow
 import com.xjtu.toolbox.ui.components.enterOnce
+import com.xjtu.toolbox.ui.components.rememberLiquidMood
 import com.xjtu.toolbox.ui.glass.LocalGlassStyle
 import com.xjtu.toolbox.ui.isWideLayout
 import com.xjtu.toolbox.ui.theme.Editorial
@@ -87,6 +99,7 @@ import com.xjtu.toolbox.ui.theme.EditorialRule
 import com.xjtu.toolbox.ui.theme.LocalIsDarkTheme
 import com.xjtu.toolbox.ui.theme.serviceColor
 import kotlin.math.abs
+import kotlin.math.roundToInt
 import kotlinx.coroutines.launch
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.ScrollBehavior
@@ -107,6 +120,8 @@ fun HomeScreen(
     extraBottomPadding: Dp = 0.dp,
     /** 玻璃顶栏的高度：内容铺到顶栏下面，这段留白放进滚动内容里。经典风格为 0。 */
     contentTopPadding: Dp = 0.dp,
+    /** 壳把整页上移的量（见 `ShellPageInsets.contentTopShift`）；模糊带按它补回屏幕顶边。 */
+    contentTopShift: () -> Dp = { 0.dp },
     /** 首页没有顶栏：消息、扫一扫、搜索这几个按钮由宿主给，放在页面最上面跟着内容一起滚。 */
     topActions: (@Composable () -> Unit)? = null,
 ) {
@@ -255,6 +270,7 @@ fun HomeScreen(
             HomeCollapsingBar(
                 progress = progress,
                 topInset = contentTopPadding,
+                bandShift = contentTopShift,
                 backdrop = if (glass) glassBackdrop else null,
                 onTapCollapsed = { scope.launch { scroll.animateScrollTo(0) } },
                 actions = topActions,
@@ -272,6 +288,7 @@ fun HomeScreen(
 private fun HomeCollapsingBar(
     progress: () -> Float,
     topInset: Dp,
+    bandShift: () -> Dp,
     backdrop: Backdrop?,
     onTapCollapsed: () -> Unit,
     actions: @Composable () -> Unit,
@@ -284,10 +301,13 @@ private fun HomeCollapsingBar(
             // 96dp 的模糊带比顶栏本身高，放在顶栏高度之外，才能往内容里多淡一段。
             // useplanes 的 progressive blur：七层不同半径的模糊，每层各自用一条
             // 从底边透明、到屏幕顶边最强的遮罩裁出一条带。
+            // 贴的是屏幕顶边而不是这一页的本地 0 点：壳会按 stable 顶栏高度把整页上移，
+            // 不补回 [bandShift] 的话整条带会被顶到屏幕外（切到过顶栏更高的 tab 再回来就复现）。
             Box(
                 Modifier
                     .fillMaxWidth()
-                    .requiredHeight(PROGRESSIVE_BLUR_BAND_HEIGHT),
+                    .requiredHeight(PROGRESSIVE_BLUR_BAND_HEIGHT)
+                    .offset { IntOffset(0, bandShift().roundToPx()) },
             ) {
                 ProgressiveBarBlur(backdrop, Modifier.matchParentSize())
                 // 表面色遮罩是 useplanes 的可选 tint；页面预览没有开，这里也保持关闭。
@@ -526,26 +546,46 @@ private fun EditorialFrontPage(
 
     val hasLead = nextUp != null || exam != null || inbox != null
     val appearanceStore = remember { SettingsStore() }
-    var appearance by remember { mutableStateOf(HeroAppearance.read(appearanceStore)) }
+    val dark = LocalIsDarkTheme.current
+    // 设置页与首页各读一份；靠 revision / 深浅模式在别处改完之后重新读盘。
+    val appearance = remember(HeroAppearanceRevision.current, dark) { HeroAppearance.read(appearanceStore, dark) }
     var showAppearance by remember { mutableStateOf(false) }
     val configure = { showAppearance = true }
     val ink = appearance.contentColor
     val muted = ink.copy(alpha = 0.78f)
     val accent = if (ink == Color.White) LiquidCardAccent else ink.copy(alpha = 0.8f)
     val rule = ink.copy(alpha = 0.18f)
-    val mood = rememberLiquidMood(nextUp, examSoon = exam != null, appearance = appearance)
+    val mood = rememberLiquidMood(nextUp?.startAt, examSoon = exam != null, appearance = appearance)
     Column(modifier.fillMaxWidth()) {
         if (hasLead) {
             Box(Modifier.fillMaxWidth().liquidPaper()) {
-                if (appearance.background == "solid") {
-                    Box(Modifier.matchParentSize().background(appearance.solidColor))
-                } else {
-                    LiquidBackground(
-                        colors = mood.colors, seed = mood.seed, speed = mood.speed, crease = mood.crease,
-                        animated = mood.animated && !showAppearance,
-                        modifier = Modifier.matchParentSize(),
-                    )
-                    Box(Modifier.matchParentSize().background(LiquidCardScrim))
+                when (appearance.background) {
+                    "solid" -> Box(Modifier.matchParentSize().background(appearance.solidColor))
+                    "forest" -> {
+                        HeroForestBackground(Modifier.matchParentSize())
+                        Box(Modifier.matchParentSize().background(HeroForestScrim))
+                    }
+                    "pixel" -> {
+                        HeroPixelBackground(Modifier.matchParentSize(), animated = !showAppearance)
+                        Box(Modifier.matchParentSize().background(HeroPixelScrim))
+                    }
+                    "custom" -> {
+                        HeroCustomBackground(
+                            imageData = appearance.imageData,
+                            modifier = Modifier.matchParentSize(),
+                            blur = appearance.imageBlur,
+                            brightness = appearance.imageBrightness,
+                        )
+                        Box(Modifier.matchParentSize().background(HeroCustomScrim))
+                    }
+                    else -> {
+                        LiquidBackground(
+                            colors = mood.colors, seed = mood.seed, speed = mood.speed, crease = mood.crease,
+                            animated = mood.animated && !showAppearance,
+                            modifier = Modifier.matchParentSize(),
+                        )
+                        Box(Modifier.matchParentSize().background(LiquidCardScrim))
+                    }
                 }
                 Column(Modifier.fillMaxWidth()) {
                     nextUp?.let {
@@ -599,12 +639,11 @@ private fun EditorialFrontPage(
     if (showAppearance) {
         HeroAppearanceDialog(
             current = appearance,
-            nextUp = nextUp,
+            nextStartAt = nextUp?.startAt,
             examSoon = exam != null,
             onDismiss = { showAppearance = false },
             onApply = {
-                it.save(appearanceStore)
-                appearance = it
+                it.save(appearanceStore, dark)
                 showAppearance = false
             },
         )

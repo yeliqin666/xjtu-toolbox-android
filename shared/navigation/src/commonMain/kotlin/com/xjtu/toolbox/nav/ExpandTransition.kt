@@ -1,5 +1,7 @@
 package com.xjtu.toolbox.nav
 
+import androidx.compose.animation.core.CubicBezierEasing
+import androidx.compose.animation.core.Easing
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.State
 import androidx.compose.runtime.mutableStateOf
@@ -226,6 +228,17 @@ private const val POP_FADE_START = 0.045f
 private const val POP_FADE_END = 0.04f
 
 /**
+ * 子页转场（程序化跳转）的节奏：420ms，ease-in-out(0.4, 0, 0.2, 1)。
+ *
+ * 页面内部的二级页如果自己做滑入（比如设置里的致谢页），也用这组值，
+ * 这样点进去和压栈打开子页是同一个手感。
+ */
+object AppPageMotion {
+    const val DurationMillis = 420
+    val Easing: Easing = CubicBezierEasing(0.4f, 0f, 0.2f, 1f)
+}
+
+/**
  * 格子放大 / 缩回的节奏。
  *
  * 用 420ms 的 ease-in-out：先在格子上淡入页面内容，中段加速放大，收尾再减速贴边。
@@ -233,8 +246,8 @@ private const val POP_FADE_END = 0.04f
  */
 private val ExpandMotion = top.yukonga.miuix.kmp.nav.transition.NavMotion(
     programmatic = top.yukonga.miuix.kmp.nav.transition.NavSettleSpec.Tween(
-        durationMillis = 420,
-        easing = androidx.compose.animation.core.CubicBezierEasing(0.4f, 0f, 0.2f, 1f),
+        durationMillis = AppPageMotion.DurationMillis,
+        easing = AppPageMotion.Easing,
     ),
 )
 

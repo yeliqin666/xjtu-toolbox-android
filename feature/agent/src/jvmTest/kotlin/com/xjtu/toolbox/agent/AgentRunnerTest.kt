@@ -33,7 +33,7 @@ class AgentRunnerTest {
             onDelta: suspend (String) -> Unit,
             onReasoningDelta: suspend (String) -> Unit,
         ): AgentStreamResult {
-            bodies += reqBody
+            bodies += com.xjtu.toolbox.util.AppJson.parseToJsonElement(reqBody.toString()).jsonObject
             val round = rounds[bodies.size - 1]
             // 真传输层是边收边回调的（一个字一个字上屏），这里也照那个形状来
             if (round.reasoningContent.isNotEmpty()) {
@@ -132,7 +132,7 @@ class AgentRunnerTest {
         assertEquals(1, runner.shownWidgets.size)
         assertEquals(listOf("get_grades"), runner.shownTools)
         val results = messages.filter { it.role() == "tool" }.map { it.jsonObject.text("content") }
-        assertTrue(results[0].contains("card_result_id: c1"))
+        assertTrue(results[0].contains("result_id: c1"))
         assertFalse(results[0].contains(ToolReply.CARD_SHOWN))
         assertTrue(results[1].endsWith(ToolReply.CARD_SHOWN))
     }
@@ -164,7 +164,8 @@ class AgentRunnerTest {
         assertEquals("""{"term":"2025-2026-1"}""", assistantCall["function"]!!.jsonObject.text("arguments"))
         val toolMsg = messages[2].jsonObject
         assertEquals("call_1", toolMsg.text("tool_call_id"))
-        assertEquals("""高等数学 90（get_grades {"term":"2025-2026-1"}）""", toolMsg.text("content"))
+        assertEquals("""高等数学 90（get_grades {"term":"2025-2026-1"}）""" +
+            "\nresult_id: call_1\npresentation: ready; not_shown; type: page_entry", toolMsg.text("content"))
         assertEquals(listOf("get_grades"), toolCalls)
         assertEquals(listOf(Triple<String, Boolean, String?>("get_grades", true, null)), toolResults)
         // 第二轮照旧带工具（保险丝没烧）
@@ -203,8 +204,8 @@ class AgentRunnerTest {
         assertTrue(content.length <= 4000, "截断后就该在预算内（实测 ${content.length} 字）")
         assertTrue(content.contains("已省略中间"))
         assertTrue(content.startsWith("第 1 行"))
-        // 尾巴取的是最后几条完整的行 —— 末行就是第 400 行
-        assertEquals("第 400 行：" + "x".repeat(40), content.substringAfterLast('\n'))
+        assertTrue(content.lines().contains("第 400 行：" + "x".repeat(40)))
+        assertTrue(content.contains("result_id: c1"))
     }
 
     @Test
@@ -393,22 +394,44 @@ class AgentRunnerTest {
                     com.xjtu.toolbox.score.ReportedGrade("甲", 1.0, "90", 4.0),
                     com.xjtu.toolbox.score.ReportedGrade("乙", 2.0, "80", 3.0),
                 ))
-                return "两门成绩"
+                return "两门成绩\n" + "明细\n".repeat(2000)
             }
             override fun drainWidgets() = pending.toList().also { pending.clear() }
         }
         val transport = FakeTransport(listOf(
-            reply("", listOf(call("r1", "get_grades", """{"show":true}""")), finish = "tool_calls"),
+            reply("", listOf(call("r1", "get_grades")), finish = "tool_calls"),
             reply("", listOf(call("r2", "present_result", """{"result_id":"r1","display":{"rows":[2],"summary":"selected"}}""")), finish = "tool_calls"),
             reply("好了"),
         ))
         val runner = AgentRunner(tools, transport)
         runner.run(messages(), AgentConfig())
         assertEquals(1, queries)
+        val firstResult = transport.bodies[1]["messages"]!!.jsonArray.last().jsonObject.text("content")
+        assertTrue(firstResult.contains("result_id: r1"))
+        assertTrue(firstResult.contains("presentation: ready; not_shown; type: data_card"))
+        assertFalse(firstResult.contains(ToolReply.CARD_SHOWN))
         assertEquals(listOf("get_grades"), runner.shownTools)
         val card = runner.shownWidgets.single() as GradeWidget
         assertEquals("乙", card.grades.single().courseName)
         assertEquals(3.0, card.gpa)
+    }
+
+    @Test fun 页面入口也在查询完成后选择展示() = runBlocking {
+        val tools = FakeTools { _, _ -> "没有加餐券" }
+        val history = messages()
+        val transport = FakeTransport(listOf(
+            reply("", listOf(call("coupons", "get_coupons")), finish = "tool_calls"),
+            reply("", listOf(call("show", "present_result", """{"result_id":"coupons"}""")), finish = "tool_calls"),
+            reply("查完了"),
+        ))
+        val runner = AgentRunner(tools, transport)
+        runner.run(history, AgentConfig())
+        assertEquals(1, tools.calls.size)
+        assertEquals(listOf("get_coupons"), runner.shownTools)
+        assertTrue(runner.shownWidgets.isEmpty())
+        val responses = history.map { it.jsonObject }.filter { it.text("role") == "tool" }.map { it.text("content") }
+        assertTrue(responses.first().contains("type: page_entry"))
+        assertEquals("page_entry: shown; tool: get_coupons", responses.last())
     }
 
     @Test

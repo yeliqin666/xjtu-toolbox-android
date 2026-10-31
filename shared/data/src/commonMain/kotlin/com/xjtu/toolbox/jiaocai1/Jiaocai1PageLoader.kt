@@ -46,6 +46,7 @@ class Jiaocai1PageLoader(
     override suspend fun pageBytes(handle: Jiaocai1BookHandle, page: Jiaocai1Page): ByteArray? =
         withContext(Dispatchers.IO) {
             readDisk(handle.ssno, page.fileName)
+                ?.also { if (page.index == 0) writeFirstPageName(handle.ssno, page.fileName) }
                 ?: gate.withPermit { download(handle, page) }
         }
 
@@ -56,13 +57,24 @@ class Jiaocai1PageLoader(
         }
     }
 
+    override suspend fun cachedFirstPageBytes(ssno: String): ByteArray? = withContext(Dispatchers.IO) {
+        // 优先按下载首页时记下的文件名查，与阅读器页表的真实首页一致
+        readFirstPageName(ssno)?.let { name -> readDisk(ssno, name)?.let { return@withContext it } }
+        // 兼容没有记录的旧缓存：按页型顺序查各页型第 1 页；封底与封面同为 cov001，跳过
+        (0 until Jiaocai1Paging.TYPE_COUNT - 1).firstNotNullOfOrNull { type ->
+            readDisk(ssno, Jiaocai1Paging.fileName(1, type))
+        }
+    }
+
     override fun prefetchWindow(handle: Jiaocai1BookHandle, center: Int) {
         val pages = handle.pages
         val keep = (center - 2..center + 2)
             .mapNotNull { pages.getOrNull(it)?.fileName }
             .toSet()
+        // 首页供书架缩略图（#206），滚出窗口也不取消，让它下完
+        val first = pages.firstOrNull()?.fileName
         prefetchJobs.entries.removeAll { (name, job) ->
-            if (name in keep) false else {
+            if (name in keep || (name == first && job.isActive)) false else {
                 job.cancel()
                 true
             }
@@ -71,7 +83,10 @@ class Jiaocai1PageLoader(
             val page = pages.getOrNull(i) ?: continue
             if (prefetchJobs[page.fileName]?.isActive == true) continue
             prefetchJobs[page.fileName] = prefetchScope.launch {
-                if (diskFile(handle.ssno, page.fileName).exists()) return@launch
+                if (diskFile(handle.ssno, page.fileName).exists()) {
+                    if (page.index == 0) writeFirstPageName(handle.ssno, page.fileName)
+                    return@launch
+                }
                 gate.withPermit { download(handle, page) }
             }
         }
@@ -79,7 +94,7 @@ class Jiaocai1PageLoader(
 
     override suspend fun evictBook(ssno: String) {
         withContext(Dispatchers.IO) {
-            runCatching { File(diskRoot, ssno).deleteRecursively() }
+            runCatching { File(diskRoot, ssno.sanitize()).deleteRecursively() }
         }
     }
 
@@ -96,6 +111,7 @@ class Jiaocai1PageLoader(
             "${Jiaocai1Api.BASE}/jpath/reader/reader.shtml",
         ) ?: return null
         writeDisk(handle.ssno, page.fileName, bytes)
+        if (page.index == 0) writeFirstPageName(handle.ssno, page.fileName)
         return bytes
     }
 
@@ -135,7 +151,7 @@ class Jiaocai1PageLoader(
     }
 
     private fun diskFile(ssno: String, fileName: String): File =
-        File(File(diskRoot, ssno).apply { mkdirs() }, fileName.sanitize() + ".img")
+        File(File(diskRoot, ssno.sanitize()), fileName.sanitize() + ".img")
 
     private fun readDisk(ssno: String, fileName: String): ByteArray? = try {
         diskFile(ssno, fileName).takeIf { it.isFile && it.length() > 0 }?.readBytes()
@@ -146,6 +162,7 @@ class Jiaocai1PageLoader(
     private fun writeDisk(ssno: String, fileName: String, bytes: ByteArray) {
         try {
             val target = diskFile(ssno, fileName)
+            target.parentFile.mkdirs()
             val tmp = File(target.parentFile, target.name + ".tmp")
             tmp.writeBytes(bytes)
             if (!tmp.renameTo(target)) tmp.delete()
@@ -155,6 +172,26 @@ class Jiaocai1PageLoader(
             }
         } catch (e: Exception) {
             Log.e(TAG, "writeDisk failed: ${e.message}")
+        }
+    }
+
+    /** 首页文件名记在书目录下，书架只凭 ssno 就能找到真实首页。 */
+    private fun firstPageMarker(ssno: String): File =
+        File(File(diskRoot, ssno.sanitize()), FIRST_PAGE_MARKER)
+
+    private fun readFirstPageName(ssno: String): String? = try {
+        firstPageMarker(ssno).takeIf { it.isFile }?.readText()?.trim()?.ifEmpty { null }
+    } catch (_: Exception) {
+        null
+    }
+
+    private fun writeFirstPageName(ssno: String, fileName: String) {
+        try {
+            val marker = firstPageMarker(ssno)
+            if (marker.isFile && marker.readText() == fileName) return
+            marker.writeText(fileName)
+        } catch (e: Exception) {
+            Log.e(TAG, "writeFirstPageName failed: ${e.message}")
         }
     }
 
@@ -180,6 +217,7 @@ class Jiaocai1PageLoader(
     companion object {
         private const val DISK_CAP_BYTES = 160L * 1024 * 1024
         private const val TRIM_EVERY = 40
+        private const val FIRST_PAGE_MARKER = "first-page"
 
         private fun ByteArray.looksLikeImage(): Boolean {
             if (size < 8) return false
