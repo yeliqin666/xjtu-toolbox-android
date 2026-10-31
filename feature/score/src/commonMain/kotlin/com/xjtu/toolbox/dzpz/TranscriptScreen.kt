@@ -42,12 +42,17 @@ import com.xjtu.toolbox.nav.AppRoute
  * 流程：加载表单 → 选择学校提供的类型 → 一键申请 → 自动提交 → 下载 PDF
  * UI 风格遵循项目 Miuix 风格，使用步骤进度条展示处理状态
  *
- * ## serve 模式下的**如实缺口**（2026-10-13 那次接线）
+ * ## 两端各一份取数，屏自己不区分（2026-10-22 批6 改写）
  *
- * `:web` 那一份取数是 `:core` 的 `CampusTranscriptApi`（`ApiMode.SERVE`），它只填得了第一步
- * （`GET /api/dzpz/transcript`）⇒ [TranscriptSource.canRunWorkflow] 报 `false`，于是这块「工作流状态」
- * 位置画的是 [TranscriptWorkflowGapCard]（说清缺哪几步、为什么缺），**不画**「一键申请成绩单」与
- * 那五步的步骤预览 —— 点了必然失败的东西不摆出来。
+ * 能走完七步的端（Android / 桌面 / **serve 模式下的 `:web`**——它在契约 §5.12 里是**两段式**，
+ * 七步里有几步是「同一发 HTTP」或空壳，见 `CampusTranscriptApi` 的 KDoc 表格）⇒
+ * [TranscriptSource.canRunWorkflow] 为 `true`，画「一键申请成绩单」与那五步的步骤预览。
+ *
+ * 走不完的端（campus-api 形态的 `:web` —— 那条老路只有建单表单）⇒ `canRunWorkflow` 为 `false`，
+ * 这块位置画的是 [TranscriptWorkflowGapCard]（说清缺哪几步、为什么缺）—— 点了必然失败的东西不摆出来。
+ *
+ * 「把 PDF 存到本端该存的地方」是宿主槽位 [TranscriptSaveSink]（Android = MediaStore / 桌面 = 文件选择框 /
+ * 浏览器 = Blob + 下载锚点），本端不给就不画那个按钮。
  */
 @Composable
 fun TranscriptScreen(

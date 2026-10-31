@@ -73,6 +73,7 @@ import com.xjtu.toolbox.ui.components.AppSegmentedTabs
 import com.xjtu.toolbox.ui.components.EmptyState
 import com.xjtu.toolbox.ui.components.LoadingState
 import com.xjtu.toolbox.ui.components.ErrorState
+import com.xjtu.toolbox.ui.components.GapNote
 import top.yukonga.miuix.kmp.basic.VerticalDivider
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.rememberScrollState
@@ -171,8 +172,14 @@ fun ScheduleScreen(
         filteredMergedCourses.map { it.courseName }.distinct().sorted()
     }
     // 「接下来」：今日两处 TodayTimeline（窄屏 tab、宽屏常驻栏）共用
+    // 取 dev 那一份（它把 `campusNow` 带进了 buildUpcoming / ExamCountdown），
+    // 并保留 parity 那一条新加的「作业截止没接就带一句缺口说明」
     val upcomingItems = remember(vm.exams, vm.homeworkDue, campusNow.date, campusNow.hour, campusNow.minute) {
         buildUpcoming(vm.exams, vm.homeworkDue, campusNow)
+    }
+    // 作业截止这一档没接的端，「接下来」里永远没有作业；把宿主的那一句带到时间轴底下。
+    val dueHomeworkGap = remember(host) {
+        if (ScheduleCapability.DUE_HOMEWORK in host.honored) null else host.gapNote(ScheduleCapability.DUE_HOMEWORK)
     }
     val nextExam = remember(vm.exams, campusNow.date, campusNow.hour, campusNow.minute) { ExamCountdown.next(vm.exams, campusNow) }
 
@@ -307,6 +314,10 @@ fun ScheduleScreen(
                                 }
                             }
                         )
+                    } else {
+                        // 这一端没有系统分享/导出面板（见 ScheduleCapability.SHARE_FILE）：
+                        // 在那一行本该出现的位置说一句，菜单看着才不是“少了点什么”。
+                        host.gapNote(ScheduleCapability.SHARE_FILE)?.let { GapNote(it) }
                     }
                 }
             }
@@ -679,6 +690,7 @@ fun ScheduleScreen(
                                     topPadding = listTopPadding,
                                     upcoming = upcomingItems,
                                     todayHomework = vm.homeworkDue,
+                                    dueHomeworkGap = dueHomeworkGap,
                                     onAddPlan = vm::addPlanItems,
                                 )
                             }
@@ -792,6 +804,7 @@ fun ScheduleScreen(
                             bottomPadding = contentBottomPadding,
                             upcoming = upcomingItems,
                             todayHomework = vm.homeworkDue,
+                            dueHomeworkGap = dueHomeworkGap,
                             onAddPlan = vm::addPlanItems,
                         )
                     }
@@ -1256,6 +1269,10 @@ private fun CourseDetailContent(
                 )
             }
             }
+            }
+            // 座位数是信息卡里的一行，不是下钻项：没这一档就在卡片下面交代一句。
+            if (ScheduleCapability.SEAT_COUNT !in host.honored) {
+                host.gapNote(ScheduleCapability.SEAT_COUNT)?.let { GapNote(it) }
             }
             // 下钻区：教材 → 全文、思源学堂、课程回放、本课考勤。见 CourseLinkSections。
             CourseLinkSections(

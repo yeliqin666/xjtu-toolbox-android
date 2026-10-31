@@ -62,12 +62,12 @@ class ServeReadonlyFourDomainsApiTest {
         assertEquals("", form.signatureAttributesStr)
         assertEquals("", form.signatureSecretKey)
 
-        // 出 PDF 那半条链没有端点：屏按 canRunWorkflow 不画那个按钮，方法本身也照旧抛错
-        assertFalse(api.canRunWorkflow, "serve 只端了第一步 ⇒ 不许许诺「能走完七步」")
-        val linkage = assertFailsWith<UnsupportedOperationException> { api.getLinkageData(form, 0) }
-        assertTrue(linkage.message?.contains("学号") == true, "第 2 步不端的理由是学号（红线）：${linkage.message}")
-        assertFailsWith<UnsupportedOperationException> { api.generatePreviewPdf(29, 0, 1) }
-        assertFailsWith<UnsupportedOperationException> { api.downloadPdf("https://dzpz.xjtu.edu.cn/x.pdf") }
+        // 出 PDF 那条链在 2026-10-22（批6）起**真接上了**（两段式，契约 §5.12）：
+        // 逐发的校在 `ServeTranscriptWorkflowApiTest` 里；这一例只看「屏会不会画那个按钮」。
+        assertTrue(api.canRunWorkflow, "serve 的两段式能走完七步 ⇒ 屏上那个按钮真画")
+        assertTrue(api.getLinkageData(form, 0).studentId.isEmpty(), "第 2 步是空壳（服务端在建单那一发里自己做，返回值里有学号）")
+        // 每一步的逐发校（两段式、幂等、票据过期、409）在 `ServeTranscriptWorkflowApiTest` 里 ——
+        // 这一例只关心「表单那一半 + 屏会不会画按钮」，不在这里重做一遍。
     }
 
     /** 契约 §4/§5.5 的错误信封：`code` 是 HTTP 状态码，失败文案只有 `message` 一处。 */
@@ -87,7 +87,7 @@ class ServeReadonlyFourDomainsApiTest {
         assertTrue(e.message?.contains("请先登录") == true, "失败文案要能直接给用户看，实际：${e.message}")
     }
 
-    /** 考勤：两个端点、三处映射（`startSection ← startTime`、`status: -1 → UNKNOWN`「未知」、`teacher` 不投影留空）、三栏拿不到（能力开关全 `false`），以及当前学期不自己算。 */
+    /** 考勤：五个端点、三处映射（`startSection ← startTime`、`status: -1 → UNKNOWN`「未知」、`teacher` 不投影留空）、三栏都在（能力开关三项 `true`，2026-10-22 批5 起），以及当前学期不自己算。 */
     @Test
     fun serveAttendanceOnlyHasTermsAndRecords() = runTest {
         val termsBody = """
@@ -102,7 +102,19 @@ class ServeReadonlyFourDomainsApiTest {
                "status":1,"statusText":"正常"},
               {"id":"1002","courseName":"大学物理","courseCode":"PHYS1001","term":"2026-2027-1",
                "date":"2026-10-10","week":4,"startSection":3,"endSection":4,"location":"中2-3201",
-               "status":-1,"statusText":"未知"}]}}
+              "status":-1,"statusText":"未知"}]}}
+        """.trimIndent()
+        // 统计那一栏（契约 §5.12，2026-10-22 批5）：服务端按整学期流水算出来的八格
+        val statsBody = """
+            {"code":0,"data":{"term":"646","count":1,"stats":[
+              {"courseName":"高等数学（上）","courseCode":"MATH1001","normalCount":12,
+               "lateCount":1,"absenceCount":2,"leaveEarlyCount":0,"leaveCount":1,"total":16}]}}
+        """.trimIndent()
+        // 打卡原始流水（四条原样投影）
+        val streamsBody = """
+            {"code":0,"data":{"term":"646","count":2,"streams":[
+              {"id":"S1","location":"主楼A-101","collectTime":"2026-09-16 08:05:00","effective":true},
+              {"id":"S2","location":"中2-3201","collectTime":"2026-09-16 14:05:00","effective":false}]}}
         """.trimIndent()
         val calls = mutableListOf<Map<String, String>>()
         val engine = MockEngine { request ->
@@ -110,6 +122,8 @@ class ServeReadonlyFourDomainsApiTest {
             val body = when {
                 request.url.encodedPath.endsWith("/api/attendance/terms") -> termsBody
                 request.url.encodedPath.endsWith("/api/attendance/records") -> recordsBody
+                request.url.encodedPath.endsWith("/api/attendance/stats") -> statsBody
+                request.url.encodedPath.endsWith("/api/attendance/streams") -> streamsBody
                 else -> error("没有为 ${request.url.encodedPath} 准备响应")
             }
             respond(body, HttpStatusCode.OK, headersOf(HttpHeaders.ContentType to listOf("application/json")))
@@ -142,13 +156,36 @@ class ServeReadonlyFourDomainsApiTest {
         assertEquals("2026-09-01", calls[2]["from"])
         assertEquals("2026-09-30", calls[2]["to"])
 
+        // 三栏都在（2026-10-22 批5 补齐了统计与打卡流水两条端点，契约 §5.12）
         assertEquals(
-            com.xjtu.toolbox.attendance.AttendanceCapabilities(stats = false, streams = false, leave = true),
+            com.xjtu.toolbox.attendance.AttendanceCapabilities(stats = true, streams = true, leave = true),
             api.capabilities,
         )
-        assertTrue(api.getKqtjCurrentWeek().isEmpty(), "统计不端 ⇒ 空表（不拿流水在本机算第二份口径）")
-        assertTrue(api.computeCourseStatsFromRecords(records).isEmpty())
-        assertTrue(api.getStreams("2026-09-01", "2026-09-30").isEmpty())
+
+        val stats = api.computeCourseStatsFromRecords(records)
+        assertEquals(1, stats.size)
+        val stat = stats.single()
+        assertEquals("高等数学（上）", stat.subjectName, "线上 `courseName` 就是模型里的 `subjectName`")
+        assertEquals("MATH1001", stat.subjectCode)
+        assertEquals(12, stat.normalCount)
+        assertEquals(1, stat.lateCount)
+        assertEquals(2, stat.absenceCount)
+        assertEquals(0, stat.leaveEarlyCount)
+        assertEquals(1, stat.leaveCount)
+        assertEquals(16, stat.total)
+        assertEquals(13, stat.actualCount, "actualCount 是换属性，不进线上形状")
+        assertEquals(3, stat.abnormalCount)
+        // 统计那一发带的是**学期号**（不是一对日期）：端点只认学期号，而 currentTermBh 由上一发流水记下了
+        assertEquals("646", calls[3]["term"])
+        assertEquals(1, api.getKqtjCurrentWeek().size, "本周那一格也走同一条端点（它只是同一份统计的另一条入口）")
+
+        val streams = api.getStreams("2026-09-01", "2026-09-30")
+        assertEquals(listOf("S1", "S2"), streams.map { it.id })
+        assertEquals("主楼A-101", streams[0].location)
+        assertEquals("2026-09-16 08:05:00", streams[0].collectTime, "上游原文原样投影（本层不编一个时区）")
+        assertTrue(streams[0].effective)
+        assertTrue(!streams[1].effective)
+        assertEquals("646", calls.last()["term"], "打卡流水那一发也只带学期号")
         assertTrue(api.getStudentInfo().isEmpty(), "姓名那格不端 ⇒ 空表（屏上姓名那一行自然不画）")
     }
 
@@ -249,8 +286,9 @@ class ServeReadonlyFourDomainsApiTest {
 
         // 附件上传：本端没有端点（屏上那个槽位给的是空表，不会调到这里）
         assertFailsWith<UnsupportedOperationException> { api.uploadEvidence("a.pdf", "application/pdf", byteArrayOf()) }
-        // 打卡流水那一栏是空表而不是抛错（屏按 `capabilities.streams` 不画那一栏）
-        assertTrue(api.getStreams("2026-09-01", "2026-09-30").isEmpty())
+        // ⚠️ 统计与打卡流水那一栏 2026-10-22（批5）起**都有端点**了：它们逐字段的核在
+        // `serveAttendanceOnlyHasTermsAndRecords` 里（那里准备了 stats / streams 两条夹具）；
+        // 这个用例只准备请假那几个端点，所以不再拿「空表」当它们的断言。
     }
 
     /** 加餐券：金额一律是分（不换算）、封面图不发那一枪（直连会拿到登录页）、领券（写路径）已经端了：`POST /api/coupon/activate`（`canActivate = true`）。 */

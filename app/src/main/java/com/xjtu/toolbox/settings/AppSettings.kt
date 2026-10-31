@@ -81,11 +81,17 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import com.xjtu.toolbox.archive.AppArchivePlanOutcome
+import com.xjtu.toolbox.archive.ArchiveImportMode
+import com.xjtu.toolbox.archive.ArchiveImportOutcome
+import com.xjtu.toolbox.archive.ArchiveImportPrompt
+import java.io.File
 import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.CardDefaults
 import top.yukonga.miuix.kmp.basic.Surface
 import top.yukonga.miuix.kmp.basic.ButtonDefaults
 import top.yukonga.miuix.kmp.basic.Icon
+import top.yukonga.miuix.kmp.basic.RadioButton
 import top.yukonga.miuix.kmp.basic.SmallTitle
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextButton
@@ -361,6 +367,13 @@ private fun DataPrivacySection(context: Context, scope: CoroutineScope) {
 
     var pendingExportArchive by remember { mutableStateOf<Map<String, String>?>(null) }
 
+    // §6.4 显式镜像档：导入那一刻先让用户选一次档位。默认恒为 MERGE（默认档行为一个字不变）。
+    // 镜像档只能由用户主动点出来，不会预先选中。
+    var pendingImportFile by remember { mutableStateOf<File?>(null) }
+    var pendingImportMode by remember { mutableStateOf(ArchiveImportMode.MERGE) }
+    var pendingImportPlan by remember { mutableStateOf<AppArchivePlanOutcome.Planned?>(null) }
+    var pendingImportNote by remember { mutableStateOf<String?>(null) }
+
     val exportLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.CreateDocument(AppArchiveUx.ARCHIVE_MIME),
     ) { uri ->
@@ -368,24 +381,40 @@ private fun DataPrivacySection(context: Context, scope: CoroutineScope) {
         pendingExportArchive = null
         if (uri != null && archive != null) {
             scope.launch(Dispatchers.IO) {
-                val ok = runCatching { AppArchiveUx.writeExportToUri(context, uri, archive) }.isSuccess
+                val dir = runCatching { AppArchiveUx.writeExportToUri(context, uri, archive) }.getOrNull()
                 withContext(Dispatchers.Main) {
-                    Toast.makeText(context, if (ok) "已导出数据存档" else "导出失败", Toast.LENGTH_SHORT).show()
+                    val message = if (dir == null) {
+                        "导出失败"
+                    } else {
+                        "已导出 zip，同时落了一份目录副本（${dir.path}）"
+                    }
+                    Toast.makeText(context, message, Toast.LENGTH_LONG).show()
                 }
             }
         }
     }
 
+    // 选完 zip：先复制进暂存区（不写任何 store），再按默认档 MERGE 算一次差异，弹窗默认就停在默认档上。
     val importLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) {
-            scope.launch(Dispatchers.IO) {
-                val ok = runCatching { AppArchiveUx.copyImportToStaging(context, uri) != null }.getOrDefault(false)
+            scope.launch {
+                val staged = withContext(Dispatchers.IO) {
+                    runCatching { AppArchiveUx.copyImportToStaging(context, uri) }.getOrNull()
+                }
                 withContext(Dispatchers.Main) {
-                    Toast.makeText(context, if (ok) "已放入待导入" else "导入失败", Toast.LENGTH_SHORT).show()
+                    if (staged == null) {
+                        Toast.makeText(context, "导入失败", Toast.LENGTH_SHORT).show()
+                    } else {
+                        pendingImportMode = ArchiveImportMode.MERGE
+                        pendingImportPlan = null
+                        pendingImportNote = null
+                        pendingImportFile = staged
+                    }
                 }
             }
         }
     }
+
 
     SmallTitle("数据与隐私")
     SettingsCard {
@@ -407,7 +436,7 @@ private fun DataPrivacySection(context: Context, scope: CoroutineScope) {
         )
         ArrowPreference(
             title = "导出数据存档",
-            summary = "把本机数据打包成 zip（不含密码等凭据）",
+            summary = "把本机数据导出成一份 zip（不含密码等凭据），同时在本机留一份目录副本",
             startAction = { SettingsIcon(Icons.Default.Upload) },
             onClick = {
                 scope.launch {
@@ -415,6 +444,7 @@ private fun DataPrivacySection(context: Context, scope: CoroutineScope) {
                     if (archive == null) {
                         Toast.makeText(context, "导出失败", Toast.LENGTH_SHORT).show()
                     } else {
+                        // 内存里先握一份完整档案：用户选完目录就把同一份数据写成 zip + 目录副本
                         pendingExportArchive = archive
                         exportLauncher.launch("xjtu-toolbox-archive.zip")
                     }
@@ -427,6 +457,110 @@ private fun DataPrivacySection(context: Context, scope: CoroutineScope) {
             startAction = { SettingsIcon(Icons.Default.Download) },
             onClick = { importLauncher.launch(arrayOf("*/*")) },
         )
+    }
+
+    val importFile = pendingImportFile
+    if (importFile != null) {
+        // 换档位就重算一次：算的只是「会发生什么」，端内一个字节不动（§6.4）。
+        // 首次进这个块时档位是 MERGE ⇒ 先算的就是默认档那一次（行为与以前一致）。
+        LaunchedEffect(importFile, pendingImportMode) {
+            pendingImportPlan = null
+            pendingImportNote = null
+            val outcome = withContext(Dispatchers.IO) {
+                runCatching { AppArchiveUx.planImport(context, importFile, pendingImportMode) }.getOrNull()
+            }
+            when (outcome) {
+                is AppArchivePlanOutcome.Planned -> pendingImportPlan = outcome
+                is AppArchivePlanOutcome.AlreadyImported ->
+                    pendingImportNote = "这份档案已经导过（标记与它一致），本次不会改动任何数据"
+                is AppArchivePlanOutcome.Failed -> pendingImportNote = "档案不可用：${outcome.reason}（本机数据未改动）"
+                null -> pendingImportNote = "读不出来这份档案（本机数据未改动）"
+            }
+        }
+
+        val planned = pendingImportPlan
+        // 取消 = 什么都不做：只把这次挑的 zip 从暂存区拿回来（不然下次启动会静默导它），store 一概不碰。
+        val cancelImport: () -> Unit = {
+            val file = pendingImportFile
+            pendingImportFile = null
+            pendingImportPlan = null
+            pendingImportNote = null
+            pendingImportMode = ArchiveImportMode.MERGE
+            if (file != null) {
+                scope.launch(Dispatchers.IO) { runCatching { file.delete() } }
+                Toast.makeText(context, "已取消导入，本机数据未改动", Toast.LENGTH_SHORT).show()
+            }
+        }
+        OverlayDialog(
+            show = true,
+            title = ArchiveImportPrompt.TITLE,
+            summary = planned?.plan?.summary ?: pendingImportNote ?: "正在读这份档案…",
+            onDismissRequest = cancelImport,
+        ) {
+            Column(Modifier.fillMaxWidth()) {
+                if (planned != null) {
+                    ArchiveImportMode.values().forEach { mode ->
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            RadioButton(
+                                selected = pendingImportMode == mode,
+                                onClick = { pendingImportMode = mode },
+                            )
+                            Column(Modifier.padding(start = 10.dp)) {
+                                Text(ArchiveImportPrompt.label(mode), style = MiuixTheme.textStyles.body1)
+                                Text(
+                                    ArchiveImportPrompt.detail(mode),
+                                    style = MiuixTheme.textStyles.footnote1,
+                                    color = MiuixTheme.colorScheme.onBackgroundVariant,
+                                )
+                            }
+                        }
+                    }
+                    ArchiveImportPrompt.warning(pendingImportMode, planned.plan.diff)?.let {
+                        Text(it, style = MiuixTheme.textStyles.footnote1, color = MiuixTheme.colorScheme.error)
+                    }
+                }
+                Row(Modifier.fillMaxWidth()) {
+                    TextButton(
+                        text = ArchiveImportPrompt.CANCEL,
+                        onClick = cancelImport,
+                        modifier = Modifier.weight(1f),
+                    )
+                    if (planned != null) {
+                        Spacer(Modifier.width(20.dp))
+                        TextButton(
+                            text = ArchiveImportPrompt.CONFIRM,
+                            onClick = {
+                                pendingImportFile = null
+                                pendingImportPlan = null
+                                pendingImportNote = null
+                                pendingImportMode = ArchiveImportMode.MERGE
+                                scope.launch {
+                                    val outcome = withContext(Dispatchers.IO) {
+                                        runCatching { AppArchiveUx.finishImport(planned) }.getOrNull()
+                                    }
+                                    withContext(Dispatchers.Main) {
+                                        val result = (outcome as? ArchiveImportOutcome.Imported)?.result
+                                        val message = when {
+                                            result != null -> "导入完成：写入 ${result.keysWritten} 个键，保持 ${result.keysKept} 个" +
+                                                if (result.filesSkipped > 0) "，${result.filesSkipped} 条转不到本机" else ""
+                                            outcome is ArchiveImportOutcome.AlreadyImported -> "这份档案已经导过，本次未改动任何数据"
+                                            outcome is ArchiveImportOutcome.Failed -> "导入没做成：${outcome.reason}（本机数据未改动）"
+                                            else -> "导入没做成（本机数据未改动）"
+                                        }
+                                        Toast.makeText(context, message, Toast.LENGTH_LONG).show()
+                                    }
+                                }
+                            },
+                            modifier = Modifier.weight(1f),
+                            colors = ButtonDefaults.textButtonColorsPrimary(),
+                        )
+                    }
+                }
+            }
+        }
     }
 
     if (showClearCacheDialog) {

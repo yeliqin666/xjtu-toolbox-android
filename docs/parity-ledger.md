@@ -334,9 +334,9 @@ honored 的默认值是 `emptySet()`：`feature/agent/.../AgentHost.kt:21`。
 
 | # | 枚举值（工具名） | Android `:app` | 桌面 `desktop` | Web `:web` | serve `:server` |
 |---|---|---|---|---|---|
-| 1 | `ALARM`（`set_alarm`） | ✅ honored 全量 `AndroidAgentHost.kt:47`；真实现 `AlarmClock.ACTION_SET_ALARM` `AndroidAgentHost.kt:94`；工具门 `AgentToolCatalog.kt:88` | ❌ `honored = emptySet()` `DesktopAgentHost.kt:37` ⇒ 走 `AgentHost.kt:46` 默认 `notFound`；工具表也裁掉 `DesktopAgentTools.kt:24-31` | ❌ `WebAgentHost` 不 override `honored`（`WebAgentScreen.kt:112-190`）⇒ `AgentHost.kt:21` 的 `emptySet` | ❌ `honored = AGENT_HONORED` `AgentRoutes.kt:46`，而 `AGENT_HONORED = emptyList()` `AgentRoutes.kt:426` |
+| 1 | `ALARM`（`set_alarm`） | ✅ honored 全量 `AndroidAgentHost.kt:47`；真实现 `AlarmClock.ACTION_SET_ALARM` `AndroidAgentHost.kt:94`；工具门 `AgentToolCatalog.kt:88` | ❌ `honored = emptySet()` `DesktopAgentHost.kt:51` ⇒ 走 `AgentHost.kt:46` 默认 `notFound`；工具表也裁掉 `DesktopAgentTools.kt:44-56` | ❌ `WebAgentHost` 不 override `honored`（`WebAgentScreen.kt:112-190`）⇒ `AgentHost.kt:21` 的 `emptySet` | ❌ `honored = AGENT_HONORED` `AgentRoutes.kt:46`，而 `AGENT_HONORED = emptyList()` `AgentRoutes.kt:426` |
 | 2 | `APP_SETTINGS`（`app_setting`） | ✅ `AndroidAgentHost.kt:47`；`readAppSettings` `:134` / `writeAppSetting` `:152`（白名单 `:131`）；工具门 `AgentToolCatalog.kt:172` | ❌ 同 #1；`AgentHost.kt:50`/`:54` 默认 `notFound` | ❌ 同 #1；且 Key 与设置都在 serve 那台机器上，浏览器只画只读徽标 `WebAgentScreen.kt:173-183` | ❌ 工具表自己列 9 件、不含它 `ServeAgentTools.kt:65-76` |
-| 3 | `SCHEDULE_EVENT_WRITE`（`add_schedule_event`） | ✅ `AndroidAgentHost.kt:47`；工具门 `AgentToolCatalog.kt:99`；实现 Room `custom_courses` `AgentTool.kt:424`/`:1820-1887` | ❌ `DesktopAgentHost.kt:37` + 白名单不含 `DesktopAgentTools.kt:24-31` | ❌ | ❌ |
+| 3 | `SCHEDULE_EVENT_WRITE`（`add_schedule_event`） | ✅ `AndroidAgentHost.kt:47`；工具门 `AgentToolCatalog.kt:99`；实现 Room `custom_courses` `AgentTool.kt:424`/`:1820-1887` | ❌ `DesktopAgentHost.kt:51` + 白名单不含 `DesktopAgentTools.kt:44-56` | ❌ | ❌ |
 | 4 | `IMAGE_INPUT`（`tool = null`） | ✅ 槽位在：`imagePicker = rememberAndroidAgentImagePicker()` `MainScreen.kt:490`，适配器 `AndroidAgentHost.kt:306-330`（`PickMultipleVisualMedia`） | ❌ `DesktopAgentScreen` 不传 `imagePicker`（`ToolboxDesktopApp.kt:843-850`）⇒ 默认 `AgentImagePicker.None` `AgentScreen.kt:55` | ❌ `WebAgentScreen.kt:95-110` 同样不传 | ❌ 没有相册这一档 |
 | 5 | `FILE_SAVE`（`tool = null`） | ✅ 槽位在：`saveZyxfFile` `AndroidAgentHost.kt:296`；`save_file` 工具 `AgentTool.kt:441`/`:1376`/`:1387` | ❌ `AgentHost.kt:96` 默认 `null`；`save_file` 被白名单裁掉 | ❌ | ❌ |
 
@@ -356,15 +356,15 @@ honored 的默认值是 `emptySet()`：`feature/agent/.../AgentHost.kt:21`。
 |---|---|---|---|---|
 | Android `:app` | 26 | `AgentTool.kt:349` `agentToolDefinitions(host.honored)`，honored = 全量 `AndroidAgentHost.kt:47` | `SelfTodoAgentTools`、`CampusMapAgentTools(locate=…)`、`PidaiTaskAgentTools`、`WeChatSearchTools`、`DeepSeekWebTools`（配 Key 时）：`AndroidAgentHost.kt:68-74` | 基准（含 `set_alarm`/`add_schedule_event`/`app_setting`/`save_file`） |
 | serve `:server` | 9 | `ServeAgentTools.kt:65-76`（`NAMES`），下发名从真定义读：`ServeAgent.kt:114-119`；端点投影见 `docs/api-contract.md` §5.11「S-d 落地实况」 | `CampusMapAgentTools()`（无 locate）、`DeepSeekWebTools`（配 Key 时）：`ServeAgent.kt:508-524` | **少 17 件** |
-| 桌面 `desktop` | 5 | `DesktopAgentTools.kt:24-31`（`DESKTOP_AGENT_TOOLS`），按它裁目录：`:35-41` | `CampusMapAgentTools()`（无 locate）、`DeepSeekWebTools`（配 Key 时）：`DesktopAgentHost.kt:47-56` | **少 21 件** |
+| 桌面 `desktop` | 9 | `DesktopAgentTools.kt:44-56`（`DESKTOP_AGENT_TOOLS`，与 serve `NAMES` **同档同顺序**），按它裁目录：`:59-63` | `CampusMapAgentTools()`（无 locate）、`DeepSeekWebTools`（配 Key 时）：`DesktopAgentHost.kt:80-95` | **少 17 件**（与 serve 同档；B-8 补上的四件：`get_calendar` 读 `SchoolCalendarApi`、`get_schedule`/`get_exam_schedule` 读本机 `ScheduleCache`（桌面不直连教务，缓存空时直说“先去日程页刷一次”）、`get_empty_rooms` 读 `EmptyRoomApi` 的 CDN 逐节空闲表、无智慧教室实时状态） |
 | Web `:web` | 0（不下发） | 浏览器不自带工具层：`WebAgentHost` 无 `tools()` override（`WebAgentScreen.kt:112-190`），工具在 serve 上跑 | 同 serve | 同 serve（**少 17 件**） |
 
 **差集明细**
 
 - serve ⊂ Android（少 17）：`add_schedule_event`、`app_setting`、`get_attendance`、`get_card_info`、`get_coupons`、`get_fitness_score`、`get_grades`、`get_library`、`get_lms`、`get_lms_activity`、`get_notifications`、`get_textbooks`、`list_zyxf`、`read_zyxf_file`、`save_file`、`search_school_courses`、`set_alarm`。
-- 桌面 ⊂ serve（少 4）：`get_calendar`、`get_schedule`、`get_exam_schedule`、`get_empty_rooms`。
+- 桌面 ⊂ serve：**已收平**（B-8 补上 `get_calendar`/`get_schedule`/`get_exam_schedule`/`get_empty_rooms`，两边的口径差异——serve 现拉、桌面读缓存——写在 `DesktopAgentHost.gapNote` 里）。
 - 三端都并进来的「外挂」：`campus_map`（全部）、`my_location`（**只有 Android**，因为只有它给了 `locate`：`MainScreen.kt` 侧的 `AgentLocation.current`，`CampusMapAgentTools.kt:62-75`）、`web_search`/`web_fetch`（三端都只在配了 `webSearchKey` 时并 `DeepSeekWebTools`）、`add_todo`/`get_todos`/`complete_todo`（`SelfTodoAgentTools.NAMES` `SelfTodoAgentTools.kt:25`，仅 Android）、`schedule_task`/`list_tasks`/`cancel_task`（`PidaiTasks.kt:87-98`，仅 Android）、`wechat_search`（`WeChatSearchTools.kt:23`，仅 Android）。
-- 合计真下发：Android 35（配 Key 37）/ serve 10（配 Key 12）/ 桌面 6（配 Key 8）/ Web = serve。
+- 合计真下发：Android 35（配 Key 37）/ serve 10（配 Key 12）/ 桌面 10（配 Key 12）/ Web = serve。
 
 ---
 
@@ -738,3 +738,461 @@ Web 侧自洽核对：`openableRouteIds` 39 条 = 26 真屏 + 13 serve-only；39
 3. **Android 缺席 `#written_at`（B-5）**：三端共用的逐键裁决「新者胜」在 Android 上退化为「本端有则本端胜」⇒ 用档案更新一台已有数据的 Android 机**基本改不动**任何键。这是隐蔽的语义漂移：导入会报 `Imported`、计数也好看（keysKept 大），但实质是「档案被本机覆盖」。
 
 （次贵但**季节性强**：C-5 评教提交 / C-4 卡挂失 —— 都是写端点缺口，评教季一到就没有替代路径。）
+
+---
+
+## 6. 2026-10-19 会议与 A 批落地记录（后续接手从这里看）
+
+### 6.1 会议定案（#1–#13）
+
+| # | 议题 | 定案 |
+|---|---|---|
+| 1 | 存档冲突语义 | **C**：不动 Android 落盘形状（**否掉**了 B「引入 `#written_at`」）⇒ 导入时给显式选择，**三端同一套**；选完文件弹一次，**默认「只补上本机没有的键」**；选「以档案为准」= **真镜像、不做备份**；镜像**只覆盖档案声明过的范围**、**红线清单永不删** |
+| 2 | 「旧形状只读」不成立 | **乙**：端内键名与值语义逐字不变；档案是投影；**端内形状不追求统一** |
+| 3 | web 成绩缓存 | **甲**：补 `at` + 7d TTL（旧裸数组仍可读、按无年龄当过期） |
+| 4 | `rsa_key_time` 同键两类型 | **甲**：导入端按目标端读法容错，**绝不抛** |
+| 5 | `venue_favorites` 两种编码 | **甲**：web 换共用 `VenueFavorites` + 档案按声明类型 |
+| 6 | 成绩报表三种形状 | **甲**：只在**档案层**统一（`files/schedule/score_report.json` + `{at,grades}`，不含学号） |
+| 7 | 桌面 store 只活在内存 | **已闭环**（`JvmFileKeyValueStore`，`MemoryKeyValueStore` 全仓消失） |
+| 8 | `DesktopDownloads` 单例串号 | **甲**：随账号重建；在跑的任务跑完落回原账号 |
+| 9 | web 缺三屏 | **丙**：全做（`DownloadManager` 按「serve 装真引擎」做，**不做影子版**） |
+| 10 | web 账号页写侧 | **丙**：全做，**HTTPS 变硬前提**（未启用 HTTPS 时写端点拒绝服务） |
+| 11 | 桌面内嵌浏览器 | **甲**：本轮不引入；调研结论写在 `desktop-port-plan.md` §13.3 第 2 条，**下次 PR 里以「留给 owner 的决定」列出**（推荐方案 = jcefmaven + 首次运行下载 natives） |
+| 12 | 40/43 口径 | **甲**：三个数分开写（43 声明 / 42 真实现 / 40 宫格口径） |
+| 13 | 设置页缺行 | **丁**：全补（含玻璃风、默认启动 Tab、考勤角标、场馆验证码、考勤当课表源）；其中 **3 格物理不可能**（web 取色、桌面/web 触感）**豁免** |
+| 附 | 缺口说明 | 走**共享层 `gapNotes` 槽位**（挂 Host 接口 + 默认空实现 + 逐条）；文案 18 条、豁免 6 条、等做 10 条 |
+
+### 6.2 A 批已落地（分支 `chore/parity-a-batch`，stacked 在 PR #142 头上）
+
+- `7e854fe2`：小修 8 条 + 视频鉴权头本地回环代理（`LoopbackStreamProxy`，Range/206 透传，jlink 加 `jdk.httpserver`）
+- 之后又落了：批 3（`GapNote` 槽位 + 6 条文案）、批 5（成绩族档案形状统一 + 键名归一 + 导入侧类型归一「绝不抛」）、批 1（文档 21 处）
+- **门禁**（独占、`--max-workers=1`）：全量 `BUILD SUCCESSFUL 56m11s`；`:app` 另单独 `--rerun` 复算
+
+### 6.3 基线更正：`:app` 453 → **450**
+
+本批**零改动 `app/`**。差异全部可解释（详见 `storage-layout.md` 判据 A12）：dev 线「联网改用 DeepSeek」删掉旧搜索解析代码 ⇒ `AgentWebTest` 少 5 条；新增公式测试 ⇒ `TexLiteTest` 多 2 条。**交接里的 453 是对着 kmp-tail 工作区测的过时基线。**
+
+### 6.4 本轮新增的“未验证 / 已知没做”（别当已验证用）
+
+| 项 | 状态 |
+|---|---|
+| 视频鉴权头代理 | **未验证**：真播放器 seek、打包后 `jdk.httpserver` 真在运行时里、真 LMS 回放地址；**已知没做**：HLS `.m3u8` 里的相对分片不走代理 |
+| `SecureRandom`（wasmJs） | `:shared:model` **没有 wasmJsTest 源集** ⇒ 无可跑测试（只有 node 复刻算法的旁证） |
+| 桌面 `DesktopDownloads` | 每账号留一份实例（会长留 N 份 scope）；下载页开着切账号列表不自动刷新 |
+| 桌面 `my_location` | **没补**：桌面无定位能力，硬塞 = 假实现（差集继续记在本台账） |
+| 批次 5 的不确定点 | ① 桌面 `at` 用店 `.properties` mtime 近似；② 桌面行族店名按当前账号解析这个旧问题同样影响成绩族；③ web 只有一个 `all` 键，多账号档案后落覆盖先落；④ 未给 `ArchiveFixture` 加成绩假数据；⑤ 导入侧未拒收旧档案里多出来的 `stores/score_report*.json` |
+| 缺口说明 | D21（桌面无主屏小组件）**无落点**（日程屏没有那一格）；**web 也不 honor `SHARE_FILE`**（导出菜单现在是空的）—— 后者已归入批 3b |
+
+### 6.5 还没做完
+
+- 批 3b + 4：剩余家族的缺口说明 + 4 条能力归位（共享文件登记/ICS/请假附件/屁岱存文件与挑图 + 工具门一致性）
+- **C 组**（已拍板、待排期）：C-1 = #13 丁（两端玻璃风 + 首页两块 + 8 行设置）；C-2 = #9 丙 三屏 + #10 丙 账号写侧（HTTPS 硬前提）；C-3 = 存档镜像档
+- 议程 **B 组**第一簇已提出（两进程互写 / `then` 口径 / 目录形态），**尚未收到答复**
+
+---
+
+## 7. 2026-10-20：B 组全部定案 + C 组排期 + 本轮进度
+
+### 7.1 B 组定案（全部）
+
+| 条 | 定案 |
+|---|---|
+| B-1 web Monet | **❌ 物理不可能**（已验：web 的 `Main.kt:19` 根本没读/传 `dynamicColor`；miuix 在非 Android 平台是按固定种子取色 ⇒ 开了就是假开关） |
+| B-2 默认启动 Tab | (a) 存规范化值 + 三端各一张映射表（已落地） |
+| B-3/B-11 端点 | **(c) 一次性全做**（13 屏 + 10 端点 + 考勤三栏） |
+| B-4 `CourseLinkAccess` | (a) 下沉 `:core` + 各端取数 |
+| B-5 `DUE_HOMEWORK` | (a) 下沉 `:data` + serve 端点 |
+| B-7 桌面通知/更新 | (a) 只做 `SystemTray`（**已落地**）；更新链保持如实说明 |
+| B-8 屁岱白名单 | (a) 桌面补到与 serve 同档（**已落地 5→9**）；做不到的如实写明 |
+| B-9 存档 files 家族 | **(a) 全补齐**（web 部分依赖 C-2） |
+| B-10 web 账号维度 | (a) 取 serve 当前账号 + 顺带收口未决 #8 |
+| B-12 写端点缺口 | (b) 卡挂失 + 评教提交都排进 C-2 |
+| B-13 两进程互写 | (a) 单实例闸门（**已落地**；含只读进程不回写的 guard） |
+| B-14 `then` | (a) 统一「不保证」+ 修桌面矛盾（**已落地**） |
+| B-15 目录形态 | (a) 不拉平 + Android 目录导出真接上（**已落地**） |
+| B-16 ① 成绩单 | **① = (b) 显式两段式提交**（开契约第三条例外 + 幂等；契约里那两句过期描述已更正） |
+| B-16 ②③ 文案 | 抽槽位（**已落地**；默认文案不动 ⇒ `:app` 零变化） |
+| B-16 ④ 场馆支付口径 | **无需修改**（文档已是最保守写法，代码一致） |
+
+### 7.2 C 组排期（已定）
+
+| 批 | 内容 | 状态 |
+|---|---|---|
+| C-1a | 接线类（B-2 / 考勤角标 / 场馆开关 / 白名单 / `SystemTray`） | **已完成** |
+| C-1b | 玻璃风（**一步到位 = 真模糊**） | 进行中（先技术验证再铺开） |
+| C-1c | 首页两块（`BULLETIN_BAR` + `GLANCE`，**对齐 Android**、不新增端点） | **等 #147 合**（那个第三方 PR 在重排首页） |
+| C-2 | 端点批（账号写侧 HTTPS 硬前提 → 高频屏 → 考勤三栏 → ①/B-4/B-5/B-12/B-9-web） | 进行中（第①步：账号写侧） |
+| C-3 | 存档镜像档（三端同框 + 先算差异 + 失败回滚） | 排最后（唯一会删用户数据） |
+
+### 7.3 本轮已落地（提交）
+
+- `9a0dde7c` A 批剩余（缺口说明槽位 / 档案成绩族 / 能力归位 / 文档 21 处）
+- `4ab162be` 批 1（跨端机制）+ C-1a（设置与能力接线）
+- `fe9f756e` **CI 修复**：`InstanceLock` 把「自己 pid 永远算活着」写进代码
+- 分支 `chore/parity-a-batch`，PR **#150**（draft / WIP，stacked 在 #142 上）
+
+### 7.4 门禁（重要）
+
+本机门禁**必须与 `.github/workflows/core-gate.yml` 一致**（清单与当前基线见 `docs/desktop-port-plan.md` §14.8）。
+2026-10-20 曾出现「本机绿、CI 红」—— 实为**本机没跑** `:shared:*:jvmTest` 与 `:feature:*:jvmTest`。
+当前基线（2026-10-21 复算，见 `docs/desktop-port-plan.md` §14.8）：**25 个测试任务 / 1764 条用例 / 0 失败**；
+`:app` 基线 **450**（453 是过时数）。本节原先记的 1721 是更早一次测量，§14.8 已就地更正。
+
+---
+
+## 8. 2026-10-21：W-E1 剩余两条里的 jiaocai1 + 下载契约（本节只记口径与结论）
+
+### 8.1 本次拍的两条口径（用户 2026-10-21 定）
+
+| 题 | 定案 |
+|---|---|
+| jiaocai1 的**页图 / 封面**怎么过 `/api` | **二进制端点直出 `image/jpeg`** —— 即 §4 的**第四条例外**（与成绩单那条 `application/pdf` 同一种东西）。理由：扫描页一张几百 KB，data URI 要乘 1.33 且整张进内存；而屏上就是一张位图，`serve_token` 是 `Path=/` 的 cookie ⇒ 直接当图片取即可。**不**用 `venue/captcha` 那条 data URI 先例。 |
+| **教材书架**落在哪一端 | **serve 侧、按账号**（店名 `serve_jiaocai1_shelf<账号后缀>`）—— 照会议 **#9**（下载队列）的先例「serve 装真的那一层、浏览器只当界面」，与桌面 `DesktopJiaocai1ShelfStore` 同性质：跟着账号、换浏览器还在。**代价如实记着**：web 的档案导出是同步的、读不到 serve 侧的东西 ⇒ `files/jiaocai/jiaocai1_shelf.json` 这一族在 web 的档案里仍不落地。 |
+
+### 8.2 落地（细节读契约，本节不复述）
+
+| 想知道的 | 读哪里 |
+|---|---|
+| jiaocai1 那一族九个端点、逐字段、不端什么 | `docs/api-contract.md` **§5.14** |
+| 下载那一族四条、逐字段、本批修的三处 | `docs/api-contract.md` **§5.13** |
+| §4 的例外清单（三条 → **四条**）与那句过时的「只有两条」 | `docs/api-contract.md` **§4** |
+| 用例与夹具那一处的核 | 两节末尾的「夹具与用例」段；`server/src/test/.../Serve{Jiaocai1,DownloadRoutes}Test.kt` |
+
+### 8.3 ⚠️ 本批的**重头**：补契约测试补出来的三处线上缺陷
+
+下载那一族上一轮**只落了实现、没写测试也没写契约**（交接文件里自己记着的「如实清单」）。本批补测试时
+逐条撞出来（均已修、均已在 `ServeDownloadRoutesTest` 里钉住）：
+
+1. **整族 404**：`DownloadRoutes` 把绝对路径 `/api/downloads` 又挂在 `route("/api")` 之下 ⇒ 实际注册成
+   `/api/api/downloads`。**在线上也是 404**，不是测试环境的差别。
+2. **回裸对象**：四条都 `respond(DTO)` ⇒ 没有 §4 的信封。客户端按 `code`/`data` 读会直接解不开。
+3. **删「正在下载」那一条是静默空操作**（`:data` 的 `deleteTask` 只在非 `downloading` 时真删），
+   旧代码照旧回 `200` + 成功形状 ⇒ 屏上点删除看起来成功、那一行还在。
+
+另补一条**进门条件**：这四条原本只挂令牌闸门、**不要求登录**（拿到令牌就能让那台机器去取任意 URL、
+往操作者的下载目录写文件；未登录时登记表还会落到 `_default` 命名空间）⇒ 本批与其余二十多族拉齐。
+
+### 8.4 仍未做完（下一轮的入口，别当已完成）
+
+1. **W-E1 剩下一条**：**账号 suffix 字段**（给 web 一个「serve 当前账号的 suffix」来源，B-10 要用）。
+   本批**有意不动** —— 「后缀要不要原样端给浏览器」牵到红线（`AccountContext.suffixFor` 就是 `_<学号>`）
+   与档案 `accounts/<后缀>/` 的跨端对得上对不上，要先把档案导入那一侧的匹配读清楚再拍，**不猜**。
+2. **W-E2（最大的一块）**：13 条 serve-only 屏真屏化 + `DownloadManager` / `Jiaocai1` / `Jiaocai1Reader` 三屏
+   + B-4/B-5 的 web 取数 + B-10。⚠️ 下载那一族**没有**暂停 / 恢复 / 取消三条端点 —— web 的下载管理屏
+   要么只画这四件，要么在 W-E2 里拍要不要补（已记在契约 §5.13）。
+3. **C-1c**：首页两块（等 **#147** 合）。
+4. 其余仍见 §6.4 与 §7.4。
+
+### 8.5 门禁（2026-10-21，独占 + `--max-workers=1`）
+
+清单照 `.github/workflows/core-gate.yml` 那两条 `run:`（§14.8 那张表），本机另加 `:app:testDebugUnitTest`
+与 `:server:test`：**`BUILD SUCCESSFUL in 15m 14s`**，635 个任务（130 executed / 505 up-to-date）。
+
+⚠️ 如实记：本批只动了 `:server`（main + test）与文档 ⇒ 其余 24 个测试任务 Gradle 判 `UP-TO-DATE`
+（输入哈希未变，不是「跳过」）；`:server:test` 是同一天真跑过的 **169 例 / 0 失败**（本批新增 10 例在内）。
+复算的逐模块数见 §14.8（总数 1721 → **1764**）。
+
+### 8.6 批 2（2026-10-21 晚）：下载族补齐三个动作动词
+
+**背景**：上一节那批把下载族修到「能用了」，但只有 列 / 建 / 进度 / 删 四件 —— 桌面那一屏本来就直调
+`DownloadManager` 的 `pauseDownload` / `resumeDownload` / `cancelDownload`，web 的下载管理屏要用就得有端点。
+
+**落地**：`POST /api/downloads/{id}/{pause,resume,cancel}`（契约 §5.13 已同步）。两条口径：
+
+1. **`{ok,id}` 不回状态** —— `:data` 的 `resumeDownload` 只丢一个协程（那一刻状态还没变）⇒ 报状态就是编事实；
+2. **与 `DELETE` 分工**：`DELETE` 是「删掉就没了」（幂等 200）；三个动词是「对这一条做一件事」⇒
+   目标不在表里、或状态不允许时一律 `409` + 中文短句。**两处状态闸门是必要的**：`:data` 的 `pauseDownload`
+   **不看当前状态**（拿一个已完成的任务调它会把那一行改回「已暂停」，之后 `resumeAll` 还会把它重新下一遍）；
+   同理对已完成的任务调 `resume` 会把那一集重下一遍。可暂停 = `downloading`/`pending`；可恢复 = `paused`/`pending`；
+   取消任意状态都行。
+
+**门禁**：`:server:test` **BUILD SUCCESSFUL in 7m 9s**，**170 例 / 0 失败**（`ServeDownloadRoutesTest` 4 → 5 例）。
+
+### 8.7 本次拍定的三条口径（2026-10-21，用户）
+
+| 题 | 定案 | 备注 |
+|---|---|---|
+| B-10：web 的账号命名空间 | **丙：端内数据搬到 serve 侧** | ⚠️ **有硬障碍**（见下） |
+| B-9：web 的档案带上 serve 侧那几族 | **丙：浏览器异步多走几跳**（导出前先 fetch） | 依赖上一条的形状 |
+| C-10：MFA 弹窗的手机号 | **端打码手机号**（`138****0000`） | 首次让手机号进响应 ⇒ §5.2 要加一条 |
+
+⚠️ **B-10 = 丙 的硬障碍（必须记着，别当成“还没做”）**：web 的端内数据全都压在 `keyValueStore(name)` 上，
+而 **`KeyValueStore` 是同步接口**（`getString` / `putString` / `getBoolean` …）—— 浏览器里只有 `localStorage`
+能同步实现它。搬到 serve 意味着每次读写都是 HTTP 往返 ⇒ **接口必须改异步** ⇒ 动的是 `:shared:model` 的
+公开面（三端 + 全部测试）。所以**可行的丙 = 只搬那些本来就是 `suspend` 接口的族**（例如 `CustomCourseStore`
+全家都是 suspend），同步接口支撑的那些（`ScheduleCacheStore` 等）留在浏览器并如实记账；
+要“连缓存也搬”，得单独拍一次 `KeyValueStore` 改异步（三端公开面）的代价表。
+本轮的施工顺序：先做与它无关的批 2–5（下载族 / 三屏 / C-2 web 半），B-10 与 B-9 的形状单独出代价表。
+
+### 8.8 批 3（2026-10-21 晚）：web 的下载管理屏真屏化（W-E2 的第一屏）
+
+**背景**：`DownloadManager` 是 web 那三条「门在、屏不在」里的一条（`NotPortedScreen`）。端点齐了（§8.6 补完三个动词），
+缺的是**屏**。
+
+**关键设计（会议 #9「不做影子版」的落地方式）**：屏原来直接收一个具体的 `DownloadManager` —— 那是「本机引擎 +
+本机登记表」的装配，浏览器里造不出来；在浏览器里造一个假引擎**恰恰就是影子版**。所以抽了一层窄接口
+**`DownloadsHost`**（`:feature:lms`）：
+
+- Android / 桌面：`DownloadManager` 自己实现它（语义一字未改；只有 `resumeDownload` / `resumeAll` 声明成 `suspend`，
+  它们本来仍是「丢一个协程就返回」）；
+- web：`WebDownloadsHost`（`:web`）走 §5.13 的 `/api/downloads`，取数用 `ServeDownloadsApi`
+  （住在 `:feature:lms`，因为这一族的模型就在那里，而 `:shared:network` 看不见 `:feature:*`）。
+
+**三处如实差异**（屏上按宿主能力画，不画假按钮）：没有推送 ⇒ 轮询；目录那一格要等第一次列表；**不画播放按钮**
+（文件在运行 serve 那台机器上）。另加一条**错误通道** `DownloadsHost.notices`（默认空流）：serve 那一份用它报
+`409` 与网络故障，屏弹一张一次性提示；**本机那一份永远不发**，所以那张弹窗在 App / 桌面上永不出现。
+
+**顺带修的两处**（都不改语义）：① 屏的 `loadTasks()` 原来分两发（任务 / 计数）—— 合成一次 `snapshot()`，
+任务与计数不会一前一后对不上，serve 那一侧也少一半请求；② 屏原来**没有任何错误面**（本机那份的取数几乎不会失败），
+web 上「点了没反应」不可接受 ⇒ 加了 `notices` + `DownloadNoticeDialog`。
+
+**门禁**：`:feature:lms:jvmTest` **22 → 26**（新增 `ServeDownloadsApiTest` 4 例，`MockEngine`）·
+`:web:wasmJsBrowserTest` **69 / 0**（`WebRouteCoverageTest` 的差集 4 → **3** 条）· `:shared:network:jvmTest` 109 / 0。
+
+### 8.9 批 4（2026-10-22）：web 的教材全文库两屏真屏化（W-E2 第二、三屏）
+
+**背景**：`Jiaocai1` / `Jiaocai1Reader` 是 web 那三条「门在、屏不在」里的另两条（`NotPortedScreen`）。
+端点上一批（§8.2）已经齐了九个（含两条二进制），缺的是**屏**：`:feature:jiaocai` 那两份屏与 Android /
+桌面是同一份，但它们要的 `Jiaocai1Source` / `Jiaocai1ShelfStore` 在浏览器里没有实现。
+
+**落地**（细节读 `docs/api-contract.md` §5.14 末尾那段「消费方」）：
+
+1. `ServeJiaocai1Api`（`:feature:jiaocai`，与它的模型同模块 —— 同 `ServeDownloadsApi` 那条）
+   包住七条 JSON 端点；`page` / `cover` 只给 `pagePath` / `coverPath`（路径构造），字节由 `:web` 取。
+   两处**刻意**：`nodes` 不是数组就报错（空分类树与形状漂了不是一件事）；页表不是 8 组也报错
+   （`Jiaocai1Paging` 会整体错位，宁可当场炸）。
+2. `WebJiaocai1Source` / `WebJiaocai1ShelfStore`（`:web`）：页图 / 封面走**同源 `fetch`**
+   （`ArrayBuffer` → URL-safe Base64 → `ByteArray`，复用 `:shared:model` 的 base64 缝，不写第二份）；
+   书架是**冷流**（收一次先拉一份），写端点回整份 ⇒ 直接覆盖。`prefetchWindow` / `evictBook` 空操作
+   （预取是「一台设备上本地磁盘 + 内存 LRU」的优化，本层不为它多开端点）。
+3. **顺带给 `Jiaocai1ShelfStore` 补了两个带默认实现的成员**（`refresh()` / `notices`）：
+   书架取数失败时屏上画 `ErrorState` + 重试，而不是「书架还是空的」（那四个字在 serve 形态下是**编事实** ——
+   库里有几本书只是这一发没读到）。Android / 桌面那两份**一个字节没改**（默认空实现 / 空流）。
+4. `AppRoute.Jiaocai` 那一屏也把全文库那一半真接上了（它原来那句「书架与全文库两栏不画」的说明随之改写）。
+
+**⚠️ 一处对交接文件预期的更正（如实记）**：交接文件 §3.1 写「`WebRouteCoverageTest` 的差集 3 → 1（只剩 Browser）」，
+**实际只到 2**：`AppRoute.Jiaocai1Reader` 的 `id` 恒带 ssno（`jiaocai1_reader/<ssno>?title=…`），没有定值形态，
+而 `openableRouteIds` 是一份**定值 id** 的清单（`AppRoute.Lms()` 能进清单正是因为它有「无参数」那一形态）
+⇒ 它的门在 `Jiaocai1` 那一屏内部（书架与检索结果的「阅读全文」），**不进清单**。所以：
+
+- 差集 = `[Browser, Jiaocai1Reader]`，两条都在 `WebSupport` 文件头里写了理由（前者「不是一屏」，
+  后者「清单只认定值 id」）；
+- 第 3 条断言顺带**换成了更紧的形态**：`AppPage` 里多出清单的分支必须**正好等于差集**
+  （原来写死 `listOf("Browser")`）—— 「每个分支要么有门、要么在差集里且写了理由」，比原来更不容易漏。
+
+**门禁（2026-10-22，独占 + `--max-workers=1`）**：照 `.github/workflows/core-gate.yml` 那张表 + `:app:testDebugUnitTest`
+与 `:server:test` 全量跑一遍 —— **`BUILD SUCCESSFUL in 10m 17s`**，635 个任务（101 executed / 534 up-to-date）；
+复算的逐模块数见 `docs/desktop-port-plan.md` §14.8：**25 个测试任务 / 1783 条用例 / 0 失败**（1769 → 1783，
++14 全在 `:feature:jiaocai`）。本批相关的那几项：`:feature:jiaocai:jvmTest` 16 → **30**（新增 14 例）·
+`:web:wasmJsBrowserTest` **69 / 0**（差集 3 → 2）· 三个编译面 `:core:compileKotlinWasmJs` / `:desktop:compileKotlin` /
+`:app:compileDebugKotlin` 全过。
+
+**仍未做完**（本批之后的入口，顺序不变）：C-2 的 web 半 + B-4/B-5（**下一批**，端点齐了而客户端一个引用都没有）、
+13 条 serve-only 屏的**真接线**（`WebScheduleHost` 那几格全是空的）、B-10/B-9 代价表、C-10（端打码手机号）。
+
+### 8.10 批 5（2026-10-22）：C-2 的 web 半 + B-4/B-5（W-E2 主体）
+
+**背景**：契约 §5.12（2026-10-20 落地的 C-2 端点批）那几条端点以前**一个客户端引用都没有**（grep 过：
+`attendance/{stats,streams}`、`POST jwxt/evaluations/submit`、`lms/{due,course-match}`），
+而 `WebScheduleHost` 那几格全是空的（`courseLinks = null`、没有 `dueHomeworks` / `attendanceMarks` /
+`lmsCourseFor` 覆写）⇒ 思源下钻 / 考勤角标 / 本次考勤 / 作业截止四格在 web 上一个都不画。
+
+**落地**（细节读 `docs/api-contract.md` §5.12 末尾那段「消费方」）：
+
+1. **考勤统计与打卡流水**（`CampusAttendanceApi`）：两条端点接上 ⇒ `AttendanceCapabilities` 三项全 `true`，
+   考勤屏的「统计」与「打卡流水」两栏**真画**。⚠️ 一处接口改动：`AttendanceSource.computeCourseStatsFromRecords`
+   **改成 `suspend`** —— 算路在 `:data`（只有 JVM/Android 变体，浏览器里拿不到），serve 那一份必须打端点；
+   本机那两份实现只是加一个关键字（调用方 `AttendanceViewModel` 本来就在协程里），语义一字未改。
+   两条端点只认学期号（不认一对日期）⇒ 用 `/records` 回显并缓存的那个 `term`。
+2. **评教提交**（`CampusJudgeApi`）：serve 形态下 `canSubmit = true` + `judge()` 走
+   `POST /api/jwxt/evaluations/submit` ⇒ 评教屏那个「一键评教」块真能用（标题从「学生评教（只读）」改回
+   「本科评教」）；`submitted:false`（已被评过）也是成功（契约写明那一档幂等）；`409` 被屏按「这一门失败」计数。
+3. **日程页四格**（`WebScheduleHost` + 新文件 `WebCourseLinkAccess`）：`courseLinks`（思源下钻走
+   `/api/lms/course-match`；考勤角标与「本次考勤」走 `/api/attendance/records` + `:model` 的 `attendanceMarksOf`）、
+   `dueHomeworks`（`/api/lms/due`）、`attendanceBadgeEnabled`（与 App/桌面同一个设置键，默认开）。
+   `honored` 里的考勤 / 思源下钻 / 作业截止三档**只在 serve 形态下给**（campus-api 没有这三族端点）。
+   学期代码→学期号要换一次（`/api/attendance/terms`）；下钻取数失败 = 那一格不画（屏上那两处在
+   `LaunchedEffect` 里裸调，不能抛）。
+
+**⚠️ 两处顺带的如实记账**：
+
+- 日程页顶那条缺口说明（`WebScheduleGapNote`）与考勤屏那条（`ToolboxWebApp` 里的 `WebGapNote`）都改掉了：
+  它们原来写着「这几栏本端拿不到」，现在按形态分了两段（serve = 已接上；campus-api = 那一形态没有端点）。
+- `:data` 的算路与 serve 的算路是同一份（服务端调的就是它）⇒ 统计那一栏不存在「第二份口径」。
+
+**仍未做完**（本批之后的入口）：成绩单两段式（`dzpz/transcript/{submit,preview,download}` —— **下一批**）·
+13 条 serve-only 屏里剩下的零碎接线 · B-10/B-9 代价表 · C-10（端打码手机号）· C-1c（等 #147）。
+
+**门禁（2026-10-22，独占 + `--max-workers=1`）**：照 `.github/workflows/core-gate.yml` 那张表 + `:app:testDebugUnitTest`
+与 `:server:test` 全量跑一遍 —— **`BUILD SUCCESSFUL in 15m 3s`**，631 个任务（136 executed / 495 up-to-date）；
+复算：**25 个测试任务 / 1789 条用例 / 0 失败**（1783 → 1789，+6 全在 `:shared:network`）·
+`:web:wasmJsBrowserTest` **69 / 0** · 三个编译面（`:core` wasmJs / `:desktop` / `:app`）全过。
+
+### 8.11 批 6（2026-10-22）：成绩单两段式（`dzpz/transcript/{submit,preview,download}`）
+
+**背景**：serve 契约 §5.12 的最后三条端点也是「端了没接」—— `CampusTranscriptApi` 只填得了第一步
+（`canRunWorkflow = false`），屏上那块于是画一张缺口卡，写「六步刻意不投影」。本批把它接完。
+
+**落地**（细节读 `docs/api-contract.md` §5.12 末尾那段「消费方」）：把三发 HTTP 映射到屏上那七步，
+**屏与 `TranscriptViewModel` 一行未改**：
+
+| 屏上的步骤 | serve 里对应什么 |
+|---|---|
+| Step 1 加载表单 | `GET /api/dzpz/transcript`（未变） |
+| Step 2 学籍联动 | **空壳**（服务端在建单那一发里自己跑，返回值里有学号 ⇒ 不投影；后续几步也不读它） |
+| Step 3 保存申请 | `POST …/submit`（第一段；`created:false` 也成功） |
+| Step 4 生成文件 | `POST …/preview`（第二段：生成 + 签章 + 取下载信息一口气做完，回一次性票据） |
+| Step 5 签章 / 第二次提交 | **没有单独的端点** ⇒ 原样交回上一步的结果，**不发请求** |
+| Step 6 取下载链接 | 交回 preview 存下的三格（上游 host / link 永不出现在响应里） |
+| Step 7 下载 PDF 字节 | `GET …/download?ticket=`（`application/pdf` 那条例外） |
+
+两处刻意：① Step 7 **先看状态码与内容类型** —— 失败那一半回的是信封（JSON），不把一段 JSON 当 PDF
+交上去（否则屏上会「成功」地存出一个假的 .pdf）；② 保存 PDF 交给**浏览器自己下**
+（新文件 `WebTranscriptSaveSink`：`Blob` + 下载锚点），目标位置是浏览器的下载目录 ⇒ 屏上那行
+「将保存到 X」不画（与 `WebArchiveActions` 同一条）。
+
+⚠️ 契约要求「消费方按钮文案必须写清这一步真的会在教务留一条待审批记录」—— `:web` 那一支的缺口说明
+与 `TranscriptScreen` 的 KDoc 都改了（原来那句「serve 只端了第一步」已不成立）。
+
+**⚠️ 一处「以前只编过、没跑过」的缝，本批真跑了**：Step 7 走的是 Ktor 的 `bodyAsBytes()` ——
+全仓此前没用过它，`:web` 那条线只编得过。本批给 `:web` 的 wasmJsTest 加上 `ktor-client-mock`
+（wasmJs 上可用），新写 `WebServeBytesTest` 在**真 Chrome** 里读回四格字节 ⇒ 这条缝现在有运行时证据
+（而不只是「编译过了」）。
+
+**用例**：`:shared:network` 新增 `ServeTranscriptWorkflowApiTest` **5** 例（两段式逐发、幂等、票据过期、
+409、campus-api 闸门）；`ServeReadonlyFourDomainsApiTest` 里那一条改成钉相反的事实；
+`:web` 新增 `WebServeBytesTest`（浏览器里真读字节）。
+
+**仍未做完**（本批之后的入口）：13 条 serve-only 屏里剩下的零碎接线 · B-10/B-9 代价表 ·
+C-10（端打码手机号）· C-1c（等 #147）。
+
+**门禁（2026-10-22，独占 + `--max-workers=1`）**：照 `.github/workflows/core-gate.yml` 那张表 + `:app:testDebugUnitTest`
+与 `:server:test` 全量跑一遍 —— **`BUILD SUCCESSFUL in 12m 37s`**，635 个任务（128 executed / 507 up-to-date）；
+复算：**25 个测试任务 / 1795 条用例 / 0 失败**（1789 → 1795：`:shared:network` +5、`:web` +1）·
+`:web:wasmJsBrowserTest` **70 / 0**（新增那条就是 `WebServeBytesTest`）· 三个编译面全过。
+
+### 8.12 #150 rebase 到 dev（2026-10-22，#142 合了之后的例行动作，但这次不是例行）
+
+**为什么做**：交接文件 §3.4 的发布链是「`#142` 合 → `#150` rebase 到 `dev` 并改 base → `dev→main` 出 5.2.0
+（顺序不能反）」。`#142` 已在 2026-10-21T09:42Z 合并（`7042ed41`），`#147` 也早就合了（09:23Z）⇒ 该做这一步了。
+
+**⚠️ 发现：分支被另一条线重写过（如实记）**。准备推送时 `ls-remote` 核对发现远端 `chore/parity-a-batch`
+的 tip 是 `f85c272a`，而它**与本地没有任何共同提交**（merge-base 就是 `dev` 的 `acd79744`）——
+即在我最后一次成功推送（`5c77dd97`）之后，有另一条会话/机器把这条分支重写成了 6 个新提交
+（`139fe96f` … `f85c272a`，committer 时间全是 2026-10-21 17:32），**我的推送被抹掉了**。
+
+核过两边的内容：那 6 个提交里，**与 A 批相关的文件与我那一版逐字节相同**（我四个提交涉及的文件逐个比过），
+另多出 21 个文件是**别的线的工作**（首页杂志版式、App 更新器、Windows 打包 workflow、lms 时间格式、
+`artwork/previews/home`）—— 也就是说：重写把 A 批的改动带过去了，另外拼了别的分支的活。
+
+**做法（没有 force-push 掉别人的东西）**：先把本地四个提交原样 rebase 到那一条的 tip 上（快进），
+再整体 rebase 到新的 `dev`。结果：`#150` 现在 = `dev` + 6 个 A 批提交 + 我的批 6（共 7 个）。
+
+**rebase 到 dev 时解了 3 处冲突**（dev 那 43 个提交里有两个跟 A 批改了同一块地方）：
+
+| 文件 | 两侧要的是什么 | 怎么解的 |
+|---|---|---|
+| `feature/schedule/.../ScheduleScreen.kt` | dev 把 `campusNow` 带进了 `buildUpcoming` / `ExamCountdown.next`；A 批新加了「作业截止没接就带一句缺口说明」 | 取 dev 的新签名 + 保留 A 批那三行（注释写清了） |
+| `shared/model/.../SettingsStore.kt` | dev 新加了自定义主题色三格（`customColorHex` / `customColorEnabled` / `themeSeedHex`）；A 批新加了 `defaultTab` 规范化的 KDoc 与实现 | 两边都留（主题色在前、`defaultTab` 那段 KDoc 在后） |
+| `web/.../WebSettingsHost.kt` | dev 多列了 `DYNAMIC_COLOR`；A 批多列了 `DEFAULT_TAB` / `NAV_STYLE` | 五条合并 |
+
+⚠️ **用了一个非默认的 merge 策略**：`git rebase -Xignore-all-space`。原因：A 批那个提交把 desktop 的
+`when(target)` 整块包进了 `Column { }`（整体多缩进一级），默认策略下 `ToolboxDesktopApp.kt` 报了一个
+「一侧看起来删了 95 行」的巨型冲突，而两边其实只是**缩进不同**。带 `-Xignore-all-space` 之后那处自动合上了，
+只留下上面那 3 处真冲突。风险已知：Kotlin 里空白不参与语义（原始字符串除外，而那几处逐字比过）。
+
+**门禁（基底已是 dev，独占 + `--max-workers=1`）**：`BUILD SUCCESSFUL in 35m 49s`，635 个任务
+（248 executed / 387 up-to-date）；复算：**25 个测试任务 / 1813 条用例 / 0 失败**（1795 → 1813，+18 全来自
+dev 新合进来的那些 PR）· `:web:wasmJsBrowserTest` **70 / 0** · 三个编译面全过。
+
+⚠️ **跑完上面那一遍之后 `dev` 又前进了一条**（`3e576195 feat(home): 常用功能可自定义（#161）`，改的是
+`:feature:home` 与 `SettingsStore`/`SettingsScreen`）⇒ 又 rebase 了一次（这次零冲突：两边改的
+是不同区域），并**再跑一遍全量门禁**：`BUILD SUCCESSFUL in 30m 32s`，631 个任务（218 executed /
+413 up-to-date）—— 基线一字不变（**1813 条**，dev 那一条新提交没带测试）。`#150` 的 tip 与 base
+（`dev`）至此都是最新。
+
+**给下一个人的两句话**：① 这条分支上**可能还有另一个会话在写**（这次的重写就是证据）：每次推之前先
+`git fetch` + `ls-remote` 比对，别拿本地旧 tip 直接推；② 如果要动这条分支的历史，用
+`--force-with-lease`，别用 `--force`。
+
+#### 8.12.1 谁是谁（仓库治理的事实，别把角色搞反）
+
+- **仓库主人是 `yeliqin666`**（`xjtu-toolbox-android` 的 owner），本工作区的协作者是 **`Triangle-GitHub`**
+  （本机 `git config user.name` 就是它，SSH 推上去也是它：`ssh -T git@github.com` → `Hi Triangle-GitHub!`）。
+- ⚠️ **`chore/parity-a-batch` 是 owner 仓库里的分支**（`gh pr view 150` 的 `headLabel` =
+  `yeliqin666:chore/parity-a-batch`），不是 fork 里的 —— 也就是说：它的历史归 **owner** 说了算；
+  协作者只有写权限，没有「这条分支归我」的默认位分。`#150` 的 **author 是 Triangle-GitHub**（本人），
+  base 原本是 `#142` 的分支，2026-10-22 已按交接文件 §3.4 改成 `dev`。
+- 两边 agent 的**提交身份都是 Triangle-GitHub**（重写那条线的 author 也是它）⇒ 光看 `%an` 分不出是谁推的，
+  只能靠 `ls-remote` 的 SHA 与 committer 时间。
+- 推论（写给下一个会话）：**不要与这条分支的另一个会话争** —— 新增工作默认放自己的分支；
+  要动 `chore/parity-a-batch` 就先 `ls-remote` 比对、用 `--force-with-lease`，并把
+「为什么动」写进提交信息。`#150` 何时合、`dev → main` 何时发版，属于 owner 的决定。
+
+### 8.13 换机器 + 把 #150 重新对到新 dev（2026-11-01，merge 路线）
+
+**背景（两次变化叠在一起）**
+
+1. **工作机换了**：j1900（NAS 上的 `/mnt/nas/data/works/*`）→ lptp。2.6G 的主工作树 + 1.2G 的
+   `xjtu-toolbox-fixes` 已 `scp` 到 lptp 并核对（98 个 ref 逐个 `cat-file -e` 齐全、`fsck --full` 干净、
+   三个关键分支 `git archive` 都能完整导出）⇒ 那两个目录发给 j1900 的交接里已写「可以删」。
+2. **上游跑远了**：`dev` 从 `3e576195` 到 `4050b036`（**+137 个提交**），`main` 到 `23b835c5`，
+   并且**已经打出 `v5.1.1` / `v5.2.0` / `v5.2.1`** —— 交接文件 §3.6 那条「`dev → main` 出 5.2.0」是
+   **owner 已经做完了**的事，不是待办（`main` 依旧不碰）。
+   上游还新增了根 `AGENTS.md`（代理按 issue 的 `State:*` 标签领活/报进度），治理方式变了。
+
+**分支当时的真状态（比交接写的更糟）**：远端 head 是 `0e23d825`（10-23 那条线加的 merge 提交），
+`ahead 9 / behind 112`；**而且它编不过** —— 上游 `bfca5155`（10-22「移除电费功能」）删掉了
+`CampusDormPowerApi` / `DormPowerScreen` 等 11 个文件，10-23 那次合并只删了文件、留着
+`ToolboxWebApp.kt` 里的引用 ⇒ `:web` 编译直接 `Unresolved reference`。
+
+**为什么用 merge 而不是 rebase**（用户拍的）：8 个语义提交重放到 112 个新提交上，同一批 21 个文件
+大概要解 8 轮，且中间每个提交都得能单独编译；这条分支还被另一条线动过（见 §8.12），
+rebase 要 `--force-with-lease`。merge 只解一轮、不动历史、push 是快进。**提交整洁度另开一轮再谈**
+（从新 dev 起、重组成 3–4 个提交）。
+
+**11 处冲突怎么解的**
+
+| 文件 | 两侧要什么 | 怎么解 |
+|---|---|---|
+| `web/.../WebSupport.kt` | dev：差集 5 条（`DownloadManager`/`Jiaocai1`/`Jiaocai1Reader`/`Zyxf`/`Browser`）；我们：后三条已经补了屏 | 取我们（差集 3 条），并把 `Zyxf` 的说明补回文件头（它没有屏，`AppPage` 画占位页） |
+| `web/.../WebRouteCoverageTest.kt` | 同上，两份断言不同 | 取我们的不变量（差集 == `AppPage` 多出来的分支），字面量补成 `["Browser","Jiaocai1Reader","Zyxf"]`（标题本来就写着「3 条」） |
+| `web/.../WebSettingsHost.kt`、`desktop/.../DesktopSettings.kt(+JvmTest)` | 我们的 honoredRows 里有 `HOME_THEME`；dev 把这个枚举项换成了 `HOME_HERO`（`bcf2f858` 首页卡片外观） | 取我们的行 + `HOME_THEME → HOME_HERO`；桌面的 `gapNote`（「桌面没有这些设置」那段）保留 |
+| `feature/home/.../HomeScreen.kt` | import 块两边各加各的 | 并集（`ExpressiveIcon`/`GapNote`/`GradientAppIcon` + dev 那 10 行 `Hero*`） |
+| `feature/agent/.../AgentScreen.kt` | dev 把配置改成二级页（单个 `ChatPanel` + `onOpenConfig`），我们的 `AnimatedContent(ConfigPanel ↔ ChatPanel)` 被取代 | 取 dev 的结构，只把 `gapNote = host.gapNote` 交回去（「这一端屁岱朴素在哪」那段话仍是我们要的） |
+| `feature/settings/.../ArchiveFileBackend.jvm.kt` | 我们换成了常量分支（`AGENT_SESSIONS_DIR` 等）；dev 加了「只导出 `.json`」 | 我们的结构 + dev 的 `.json` 过滤（原子写盘残留的 `.tmp` 不进备份） |
+| `docs/storage-layout.md` 第 41/42 行 | 我们 10-19 的「更正」；dev 的原文（`:68,75,76` + `enabled`/`interval_min`） | 41 取 dev（`reminder_watch` 现在真在 `ReminderStore.kt:41`，键列也更全）；42 取我们的（`SessionKeepAlive.kt` 只有 55 行、`interval_min` 全仓只在文档里出现过 ⇒ dev 那行是错的） |
+| `docs/storage-layout-plan.md`、`docs/audit-verify-1-correctness.md` | dev `d2551d1f` 删了（「已完成使命」），我们改过 3 行 | 接受删除。那 3 行是「`onAccountChanged()` 槽位从未实现」的复核结论，同一事实已记在本文档 §8 与 `docs/storage-layout.md`，不丢 |
+
+**顺手挖出来、必须记一笔的两件事**
+
+1. **`defaultTab` 的「存规范化值」是错的**：`default_tab` 在 `:app` 里可以存**任意一级功能的路由 id**
+   （`notification`、`library` …），不止那五个 `TAB_KEY_*`。把归一化放进 `SettingsStore.defaultTab`
+   读的时候，`BottomBarTabs` 的既有用例（`defaultTab("notification", bar) == "notification"`）立刻红。
+   ⇒ **改成：属性原样进出，翻译在各端读的地方做**（`:app` 的 `BottomBarTabs.defaultTab` 先认原样、
+   再认规范化值；桌面 `desktopStartTarget`、浏览器 `webStartTarget` 本来就这么做）。
+   B-2 的意图（老值 `HOME/COURSES/PIDAI…` 升级上来不用重设）不变，位置从 store 挪到端上。
+2. **`:web` 的路由差集不变量是「每一条差集都要有 `AppPage` 分支」**（这是我们这一版加的，dev 那版只要
+   「多出来的分支只有 `Browser`」）。合并后 `Zyxf` 既不进清单、也没有分支 ⇒ 补一条
+   `is AppRoute.Zyxf -> NotPortedScreen(...)`（理由：学辅资料站依赖 `:app` 的下载/预览/落盘）。
+
+**门禁（lptp，JDK 21 由 foojay 自动装、Android SDK 37）**
+
+- 任务表照 `.github/workflows/core-gate.yml` 抄（dev 上这四条 `run:` 没动），本机另加
+  `:desktop:test`、`:app:testDebugUnitTest`、`:server:test`。
+- **复算：25 个测试任务 / 1955 条用例 / 0 失败**（`:app` 469 · `:shared:data` 278 · `:shared:model` 239 ·
+  `:server` 169 · `:desktop` 140 · `:shared:network` 119 · `:web`(wasm, 真 Chrome) 70 …）。
+  ⚠️ 这条**不是** `dev@4050b036` 的基线：这是「`dev` + 我们这批」的树，且没有单独量过纯 dev；
+  上一行 1813 那个数属于 `dev@3e576195`，别混着引用。
+- 环境上两个坑（写进交接，别再踩）：
+  1. **离屏渲染的用例要 `env -u DISPLAY`**：本机 `DISPLAY=:0` 指向一个连不上的 X，`CustomThemeTest` /
+     `ExamCardLayoutTest` 会报 `java.awt.AWTError: Can't connect to X11 window server`（看着像代码坏了）；
+  2. **`:app` 要 `platforms;android-37.0`**（miuix 的 AAR metadata 要 `minCompileSdk = 37`），
+     `sdkmanager --install "platforms;android-37"` 名字对不上，实际装出来的是 `android-37.0` 这个目录。
+- lptp 上还有**别的会话在跑别的仓库的构建**，共用 gradle daemon：撞上 `./gradlew --stop` 会被连坐杀掉，
+  长任务用 `setsid nohup … &` + 轮询。
+
+⚠️ **中途插曲（如实记）**：merge 那个提交只带了「冲突消解的产物」—— 跑门禁时改的四处（电费残留引用、
+`default_tab` 归一化位置、`Zyxf` 分支、差集字面量）忘了再 `git add`，推上去之后 CI 在
+`:web:compileKotlinWasmJs` 上红了一次（`Unresolved reference CampusDormPowerApi`），补在下一个提交里。
+**教训**：`git add -A` 之后再改文件，提交前必须再 `git status` 一眼 —— 本地绿不等于提交里绿。

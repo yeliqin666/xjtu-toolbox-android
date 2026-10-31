@@ -111,7 +111,7 @@ class SettingsStoreTest {
         assertEquals("system", settings.darkMode, "深色模式默认跟随系统")
         assertTrue(!settings.dynamicColor, "取色默认关")
         assertEquals("floating", settings.navBarStyle, "界面风格默认玻璃")
-        assertEquals("COURSES", settings.defaultTab, "默认启动 Tab 是日程")
+        assertEquals("schedule", SettingsStore.normalizeDefaultTab(settings.defaultTab), "默认启动 Tab 是日程（规范化之后）")
         assertEquals("auto", settings.networkMode, "连接模式默认自动检测")
         assertTrue(settings.showQuickActions, "常用功能默认显示")
         assertTrue(settings.scheduleAttendanceBadge, "考勤角标默认开")
@@ -149,5 +149,37 @@ class SettingsStoreTest {
         // 旧版考勤（bkkq）的取值：不能改
         assertEquals("bkkq", SettingsStore.SCHEDULE_SOURCE_ATTENDANCE)
         assertEquals("app_settings", SettingsStore.APP_SETTINGS_FILE)
+        // 规范化落点：B-2 起存的是这五个，与任何一端的 tab id 无关
+        assertEquals("home", SettingsStore.TAB_KEY_HOME)
+        assertEquals("schedule", SettingsStore.TAB_KEY_SCHEDULE)
+        assertEquals("agent", SettingsStore.TAB_KEY_AGENT)
+        assertEquals("services", SettingsStore.TAB_KEY_SERVICES)
+        assertEquals("profile", SettingsStore.TAB_KEY_PROFILE)
+        assertEquals("app_settings", SettingsStore.APP_SETTINGS_FILE)
+    }
+
+    @Test
+    fun `老值一次性读成规范值：存的是 BottomTab 名字，升级上来不用重设`() {
+        // 规范化在**各端读的时候**做（`:app` 的 BottomBarTabs、桌面的 desktopStartTarget、浏览器的 webStartTarget）：
+        // 属性本身不翻译 —— 底栏格里还有 `notification`、`library` 这类路由 id，翻译在属性里做会把它们吃掉。
+        assertEquals("home", SettingsStore.normalizeDefaultTab("HOME"))
+        assertEquals("schedule", SettingsStore.normalizeDefaultTab("COURSES"))
+        assertEquals("agent", SettingsStore.normalizeDefaultTab("PIDAI"))
+        assertEquals("services", SettingsStore.normalizeDefaultTab("TOOLS"))
+        assertEquals("profile", SettingsStore.normalizeDefaultTab("PROFILE"))
+        // 规范化值本身也认（大小写不敏感）
+        assertEquals("schedule", SettingsStore.normalizeDefaultTab("Schedule"))
+
+        // 认不出（手工改过的文件 / 将来删掉的那一格）：退日程，不抛
+        assertEquals("schedule", SettingsStore.normalizeDefaultTab("schedule_v2"))
+        assertEquals("schedule", SettingsStore.normalizeDefaultTab(null))
+
+        // 属性原样进出：写什么读什么，别把路由 id 翻译掉
+        val raw = freshStore()
+        val settings = SettingsStore(raw)
+        raw.putString("default_tab", "notification")
+        assertEquals("notification", settings.defaultTab)
+        settings.defaultTab = "PROFILE"
+        assertEquals("PROFILE", raw.getString("default_tab"))
     }
 }

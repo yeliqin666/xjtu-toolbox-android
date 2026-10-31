@@ -74,6 +74,9 @@ import com.xjtu.toolbox.nav.expandOriginSource
 import com.xjtu.toolbox.nav.rememberExpandOriginSource
 import com.xjtu.toolbox.settings.SettingsStore
 import com.xjtu.toolbox.ui.components.AppCardColor
+import com.xjtu.toolbox.ui.components.ExpressiveIcon
+import com.xjtu.toolbox.ui.components.GapNote
+import com.xjtu.toolbox.ui.components.GradientAppIcon
 import com.xjtu.toolbox.ui.components.HeroAppearance
 import com.xjtu.toolbox.ui.components.HeroAppearanceDialog
 import com.xjtu.toolbox.ui.components.HeroAppearanceRevision
@@ -84,6 +87,8 @@ import com.xjtu.toolbox.ui.components.HeroForestScrim
 import com.xjtu.toolbox.ui.components.HeroPixelBackground
 import com.xjtu.toolbox.ui.components.HeroPixelScrim
 import com.xjtu.toolbox.ui.components.LiquidBackground
+import com.xjtu.toolbox.ui.components.MeshBackground
+import com.xjtu.toolbox.ui.components.RollingNumberText
 import com.xjtu.toolbox.ui.components.appCardShadow
 import com.xjtu.toolbox.ui.components.enterOnce
 import com.xjtu.toolbox.ui.components.rememberLiquidMood
@@ -253,6 +258,10 @@ fun HomeScreen(
                     },
                     modifier = Modifier.enterOnce(1),
                 )
+            }
+            host.gapNote?.let { note ->
+                Spacer(Modifier.height(SECTION_GAP))
+                GapNote(note)
             }
             Spacer(Modifier.height(SECTION_GAP + extraBottomPadding + 8.dp))
         }

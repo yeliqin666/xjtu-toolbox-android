@@ -54,7 +54,7 @@ internal class AppScheduleHost(
         accountType = loginState.accountType,
     )
 
-    override suspend fun dueHomeworks(accountId: String): List<LmsDue> = LmsDueStore.load(app, accountId)
+    override suspend fun dueHomeworks(accountId: String): List<LmsDue> = LmsDueStore.load(accountId)
 
     override suspend fun roomSeatCount(location: String): Int? =
         com.xjtu.toolbox.emptyroom.EmptyRoomApi().getRoomSeatCount(location)

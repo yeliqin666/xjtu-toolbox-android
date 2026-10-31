@@ -38,7 +38,8 @@ internal fun WebVenueScreen(
     onBack: () -> Unit,
 ) {
     // 「功能说明弹过了没」在 Web 存 localStorage（`:app` 存 feature_hints 那个 SharedPreferences），
-    // 键名与 `:app` 同一个；文案里那两条只在能下单那端成立的话，屏会自己按 canBook 少说。
+    // 键名与 `:app` 同一个；文案里那两条只在能下单那端成立的话，屏会自己按 canBook 少说，
+    // 而它们具体怎么说由本宿主传（见下面 `captchaHint` / `payHint`：默认那两句是 `:app` 的内置 WebView 写法）。
     val hintPrefs = remember { keyValueStore("feature_hints") }
     // 只有「点了却拿不到地址」那一档会写上（见 NO_PAY_TARGET_NOTE）。
     var payGap by remember { mutableStateOf<String?>(null) }
@@ -58,6 +59,10 @@ internal fun WebVenueScreen(
                 },
                 // 滑块宿主槽位（serve 模式下下单要它；campus-api 的 canBook=false ⇒ 验证码弹窗不出现）。
                 captchaHost = remember { WebSlideCaptchaHost },
+                // 本端两句换成本地事实：`WebSlideCaptchaHost.solve` 恒 null（浏览器里没识别器，
+                // 只停在手动滑动）；「去支付」是新标签页，不保证直接落成能付款的一页（见 PAY_HOP_NOTE）。
+                captchaHint = "验证码要自己滑：网页版没有自动识别",
+                payHint = "支付在新标签页里打开：本端收不到回调，登录那一跳按标签页自己的流程走",
                 showFirstUseHint = !hintPrefs.getBoolean("venue_hint_shown", false),
                 onFirstUseHintRead = { hintPrefs.putBoolean("venue_hint_shown", true) },
             )

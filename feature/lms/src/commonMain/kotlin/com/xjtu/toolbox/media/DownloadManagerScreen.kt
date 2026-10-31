@@ -91,18 +91,21 @@ import top.yukonga.miuix.kmp.utils.overScrollVertical
 /**
  * 下载管理页面（共享屏）。
  *
- * @param files 另一类下载（成绩单 / 思源课件 / 资料站文件）。桌面端没有那张登记表
- *   ⇒ 传 null，屏上只列排队下载的回放视频（如实，不是列表被吞了）。
+ * @param files 另一类下载（成绩单 / 思源课件 / 资料站文件）。传 null = 这一端没有落盘通道
+ *   ⇒ 屏上只列排队下载的回放视频（如实，不是列表被吞了）。桌面端传的是一份
+ *   **直接扫 `~/Downloads`** 的实现（见 `DesktopDownloadedFilesHost`）：那边没有登记表，目录本身就是登记表。
  * @param onPlayTask 播放一个**已下载完**的回放文件：Android = 外部播放器（Media3 那套只播流，
  *   播本地文件走的还是 `ACTION_VIEW`），桌面 = 系统播放器。
+ *   **传 `null` = 这一端播不了本机文件**（web：文件在**运行 serve 那台机器**上，浏览器打不开它）
+ *   ⇒ 那一格**不画**（与 `files = null` 同一条口径：不画假按钮）。
  */
 @Composable
 fun DownloadManagerScreen(
-    manager: DownloadManager,
+    host: DownloadsHost,
     onBack: () -> Unit,
     dirInfo: DownloadDirInfo,
     files: DownloadedFilesHost? = null,
-    onPlayTask: (DownloadTask) -> Unit = {},
+    onPlayTask: ((DownloadTask) -> Unit)? = null,
 ) {
     val scope = rememberCoroutineScope()
 
@@ -118,29 +121,42 @@ fun DownloadManagerScreen(
 
     // 显示下载目录信息弹窗
     val showDirInfo = remember { mutableStateOf(false) }
+
+    // 宿主报上来的一句「没做成」（serve 那一份的 409 / 网络故障）—— 一次性提示，看完就关
+    var notice by remember { mutableStateOf<String?>(null) }
     val scrollBehavior = MiuixScrollBehavior(rememberTopAppBarState())
     // 玻璃顶栏（经典风格下为 null，一切照旧），用法见 ui/glass/GlassTopBar.kt。
     // 批量管理模式下换成 SmallTopAppBar，同样要玻璃化。
     val glass = rememberPageGlass()
 
-    // 加载任务列表（Room 的挂起查询自带线程，无需切 IO）。
+    // 加载任务列表（一次拿一个快照：任务与计数来自同一发，不会一前一后对不上）。
     fun loadTasks() {
         scope.launch {
-            allTasks = manager.getAllTasks()
-            stats = manager.getDownloadStats()
+            val snap = host.snapshot()
+            allTasks = snap.tasks
+            stats = snap.stats
             fileDownloads = files?.list() ?: emptyList()
         }
     }
 
-    LaunchedEffect(Unit) {
+    // 首次进屏读一次；**换账号也要重读**：
+    // 桌面的 `DesktopDownloads.manager` 是按账号一份（换账号 = 换一份实例），`LaunchedEffect(Unit)`
+    // 的 key 不变就永远不会再跑 ⇒ 这一页会抱着上一个账号的任务列表不放。`files?.accountId` 兜另一头：
+    // 管理器由各账号共用的端，换账号时靠它也重读一次（默认 null ⇒ 行为与以前一样）。
+    LaunchedEffect(host, files?.accountId) {
         loadTasks()
     }
 
     // 监听下载进度
-    LaunchedEffect(manager) {
-        manager.progressFlow.collect { _ ->
+    LaunchedEffect(host) {
+        host.changes.collect { _ ->
             loadTasks()
         }
+    }
+
+    // 宿主报上来的话（见 [DownloadsHost.notices]）：本机那一份永远不发，serve 那一份会（409 / 网络）
+    LaunchedEffect(host) {
+        host.notices.collect { notice = it }
     }
 
     // 退出批量模式时清空两类选择
@@ -251,7 +267,7 @@ fun DownloadManagerScreen(
                             onClick = {
                                 scope.launch {
                                     selectedTaskIds.toList().forEach { id ->
-                                        manager.deleteTask(id, deleteFile = deleteFiles)
+                                        host.deleteTask(id, deleteFile = deleteFiles)
                                     }
                                     // 文件类下载的删除是宿主的事（Android = 删 MediaStore 那条 + 撤销登记）
                                     selectedFileUris.toList().forEach { uri ->
@@ -297,7 +313,7 @@ fun DownloadManagerScreen(
                         item(key = "global_controls") {
                             GlobalControls(
                                 stats = stats!!,
-                                manager = manager,
+                                host = host,
                                 onRefresh = { loadTasks() },
                             )
                         }
@@ -321,21 +337,23 @@ fun DownloadManagerScreen(
                                 },
                                 onPause = {
                                     scope.launch {
-                                        manager.pauseDownload(task.id)
+                                        host.pauseDownload(task.id)
                                         loadTasks()
                                     }
                                 },
                                 onResume = {
-                                    manager.resumeDownload(task.id)
-                                    loadTasks()
-                                },
-                                onCancel = {
                                     scope.launch {
-                                        manager.cancelDownload(task.id)
+                                        host.resumeDownload(task.id)
                                         loadTasks()
                                     }
                                 },
-                                onPlay = { onPlayTask(task) },
+                                onCancel = {
+                                    scope.launch {
+                                        host.cancelDownload(task.id)
+                                        loadTasks()
+                                    }
+                                },
+                                onPlay = onPlayTask?.let { play -> { play(task) } },
                             )
                         }
                     }
@@ -374,7 +392,10 @@ fun DownloadManagerScreen(
             // 必须在 Scaffold 的 content 内：OverlayBottomSheet 靠 Scaffold 提供的
             // LocalDialogStates 宿主渲染，写在 Scaffold 外面会静默不显示。
             // 下载目录信息弹窗
-            DownloadDirInfoDialog(show = showDirInfo, dirInfo = dirInfo, videoDir = manager.videoDirPath)
+            DownloadDirInfoDialog(show = showDirInfo, dirInfo = dirInfo, videoDir = host.videoDirPath)
+
+            // 「没做成」那一句（见 [DownloadsHost.notices]）
+            DownloadNoticeDialog(message = notice, onDismiss = { notice = null })
         }
     }
 }
@@ -513,7 +534,7 @@ private fun DownloadedFileCard(
 @Composable
 private fun GlobalControls(
     stats: DownloadStats,
-    manager: DownloadManager,
+    host: DownloadsHost,
     onRefresh: () -> Unit,
 ) {
     val scope = rememberCoroutineScope()
@@ -548,7 +569,7 @@ private fun GlobalControls(
                     text = "取消全部",
                     onClick = {
                         scope.launch {
-                            manager.cancelAll()
+                            host.cancelAll()
                             delay(300)
                             onRefresh()
                         }
@@ -561,7 +582,7 @@ private fun GlobalControls(
                 Button(
                     onClick = {
                         scope.launch {
-                            manager.pauseAll()
+                            host.pauseAll()
                             delay(300)
                             onRefresh()
                         }
@@ -573,7 +594,7 @@ private fun GlobalControls(
                 }
                 Button(
                     onClick = {
-                        manager.resumeAll()
+                        scope.launch { host.resumeAll() }
                         scope.launch {
                             delay(500)
                             onRefresh()
@@ -597,7 +618,7 @@ private fun DownloadTaskCard(
     onPause: () -> Unit = {},
     onResume: () -> Unit = {},
     onCancel: () -> Unit = {},
-    onPlay: () -> Unit = {},
+    onPlay: (() -> Unit)? = null,
 ) {
     val statusTint = when (task.status) {
         DownloadStatus.DOWNLOADING -> MiuixTheme.colorScheme.primary
@@ -608,7 +629,7 @@ private fun DownloadTaskCard(
     Card(
         onClick = if (isCleanupMode) onToggleSelection else {
             when (task.status) {
-                DownloadStatus.COMPLETED -> onPlay
+                DownloadStatus.COMPLETED -> onPlay ?: ({})
                 DownloadStatus.PAUSED, DownloadStatus.PENDING, DownloadStatus.FAILED -> onResume
                 DownloadStatus.DOWNLOADING -> onPause
                 else -> ({})
@@ -694,7 +715,8 @@ private fun DownloadTaskCard(
                                 )
                             }
                         }
-                        DownloadStatus.COMPLETED -> {
+                        // 这一端播不了本机文件时不画这个按钮（`onPlay` 为 null，见那一个参数的说明）
+                        DownloadStatus.COMPLETED -> if (onPlay != null) {
                             IconButton(onClick = onPlay) {
                                 Icon(
                                     Icons.Default.PlayArrow,
@@ -800,6 +822,45 @@ private fun DownloadDirInfoDialog(show: MutableState<Boolean>, dirInfo: Download
                 text = "知道了",
                 onClick = { show.value = false },
                 modifier = Modifier.fillMaxWidth()
+            )
+        }
+    }
+}
+
+/**
+ * 「没做成」那一句（见 [DownloadsHost.notices]）。
+ *
+ * 为什么屏自己画一个弹窗而不是只写日志：serve 那一份的动作会**正经被拒**（`409`：
+ * 「这条任务是『已完成』，现在这个动作对它没有意义」）—— 点了要有说法，不能像没反应一样。
+ * 本机那一份永远不发话（它没有会失败的远端动作），所以这一格在 App / 桌面上一辈子不出现。
+ */
+@Composable
+private fun DownloadNoticeDialog(message: String?, onDismiss: () -> Unit) {
+    val show = remember { mutableStateOf(false) }
+    LaunchedEffect(message) { show.value = message != null }
+    if (message == null) return
+    OverlayDialog(
+        show = show.value,
+        title = "没做成",
+        onDismissRequest = onDismiss,
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .overScrollVertical()
+                .verticalScroll(rememberScrollState()),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Text(
+                message,
+                style = MiuixTheme.textStyles.body2,
+                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+            )
+            Spacer(Modifier.height(4.dp))
+            TextButton(
+                text = "知道了",
+                onClick = onDismiss,
+                modifier = Modifier.fillMaxWidth(),
             )
         }
     }

@@ -131,6 +131,13 @@ internal class EndpointHarness(private val host: String, private val port: Int, 
             HttpResponse.BodyHandlers.ofString(),
         )
 
+    /** 二进制那几条（页图 / 封面 / 成绩单 PDF）：要**字节**，不能按字符串读。 */
+    fun getBytes(path: String, bearer: String? = token, cookie: String? = null): HttpResponse<ByteArray> =
+        client.send(request(path, bearer, cookie).GET().build(), HttpResponse.BodyHandlers.ofByteArray())
+
+    fun delete(path: String, bearer: String? = token, cookie: String? = null): HttpResponse<String> =
+        client.send(request(path, bearer, cookie).DELETE().build(), HttpResponse.BodyHandlers.ofString())
+
     private fun request(path: String, bearer: String?, cookie: String?): HttpRequest.Builder =
         HttpRequest.newBuilder(URI.create("http://$host:$port$path")).apply {
             bearer?.let { header("Authorization", "Bearer $it") }

@@ -113,6 +113,13 @@ compose.desktop {
             vendor = "XJTU ToolBox"
             copyright = "Copyright © XJTU ToolBox contributors"
 
+            // jlink 要收进运行时的那套 JDK 模块。插件自带的只有 java.base / java.desktop /
+            // java.logging / jdk.crypto.ec 四个，其余靠 jdeps 看完字节码去猜。
+            // 这里的回环代理直接用 `com.sun.net.httpserver.HttpServer`（media/LoopbackStreamProxy.kt），
+            // 不赌 jdeps 的自动建议 —— 漏了不会编译失败，只会在**装好的包**里「取不到流」，
+            // 而那台机器上没 JDK、看不到 stacktrace。重复点名无害（jlink 多给 --add-modules 是并集）。
+            modules("jdk.httpserver")
+
             linux {
                 // 应用自己的图标（由自适应图标矢量光栅化，见 docs/linux-delivery.md §2.1）；⚠️ 不要用 `mipmap-*/ic_launcher.webp`，那是模板占位图。
                 iconFile.set(project.file("icons/linux.png"))

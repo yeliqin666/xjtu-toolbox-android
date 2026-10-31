@@ -5,7 +5,12 @@ import com.xjtu.toolbox.lms.AppLmsSource
 import com.xjtu.toolbox.lms.LmsAcademicYear
 import com.xjtu.toolbox.lms.LmsActivity
 import com.xjtu.toolbox.lms.LmsActivityType
+import com.xjtu.toolbox.account.AccountContext
+import com.xjtu.toolbox.lms.LmsDue
+import com.xjtu.toolbox.lms.LmsDueStore
 import com.xjtu.toolbox.lms.LmsCourseAttributes
+import com.xjtu.toolbox.schedule.CourseItem
+import com.xjtu.toolbox.schedule.lmsCourseMatched
 import com.xjtu.toolbox.lms.LmsCourseSummary
 import com.xjtu.toolbox.lms.LmsDepartment
 import com.xjtu.toolbox.lms.LmsSemester
@@ -15,7 +20,7 @@ import io.ktor.server.routing.get
 import io.ktor.server.routing.route
 import kotlinx.serialization.Serializable
 
-/** `/api/lms*` —— 思源学堂的三个只读端点（`docs/api-contract.md` §5.6）。 */
+/** `/api/lms*` —— 思源学堂的五个只读端点（`docs/api-contract.md` §5.6；后两个是 B-5 作业截止与 B-4 课程配对）。 */
 internal fun Route.lmsRoutes(session: ServeSession) {
     route(LMS_SEGMENT) {
 
@@ -67,10 +72,51 @@ internal fun Route.lmsRoutes(session: ServeSession) {
                 call.respondUpstreamFailure(e, "加载学堂活动详情")
             }
         }
+
+        // ── 作业截止（B-5）：读 `:data` 那份落盘缓存，不为作业再发请求 ──
+        get(LMS_DUE) {
+            if (!session.authenticated) return@get call.respondLoginRequired()
+            val account = AccountContext.activeAccountId?.trim().orEmpty()
+            if (account.isEmpty()) return@get call.respondLoginRequired()
+            // `load` 自己吞错（读不到就是空表），所以这里不会因为存储没装而 502
+            val items = LmsDueStore.load(account)
+            call.respond(ApiEnvelope.ok(LmsDueData(count = items.size, items = items.map { it.toDto() })))
+        }
+
+        // ── 思源课程配对（B-4）：web 的课表下钻靠它（判据还是 `:model` 那份纯函数）──
+        get(LMS_COURSE_MATCH) {
+            if (!session.authenticated) return@get call.respondLoginRequired()
+            val params = call.request.queryParameters
+            val courseName = params[LMS_PARAM_COURSE_NAME]?.trim().orEmpty()
+            val courseCode = params[LMS_PARAM_COURSE_CODE]?.trim().orEmpty()
+            val teacher = params[LMS_PARAM_TEACHER]?.trim().orEmpty()
+            if (courseCode.isEmpty() && courseName.isEmpty()) {
+                return@get call.respondBadRequestMessage(LMS_COURSE_MATCH_QUERY_MESSAGE)
+            }
+            try {
+                val course = CourseItem(
+                    courseName = courseName,
+                    courseCode = courseCode,
+                    teacher = teacher,
+                )
+                val matched = lmsCourseMatched(session.lmsSource().myCourses(), course)
+                call.respond(
+                    ApiEnvelope.ok(
+                        LmsCourseMatchData(matched = matched != null, course = matched?.toDto()),
+                    ),
+                )
+            } catch (e: Exception) {
+                call.respondUpstreamFailure(e, "配学堂课程")
+            }
+        }
     }
 }
 
 // ── 数据模型（客户端形状）──────────────────────────────────────────
+
+/** `GET /api/lms/course-match` 的 `data`：配上的那门（`matched=false` ⇒ `course=null`）。 */
+@Serializable
+internal data class LmsCourseMatchData(val matched: Boolean, val course: LmsCourseDto?)
 
 /** `GET /api/lms/courses` 的 `data`。 */
 @Serializable
@@ -94,6 +140,36 @@ internal data class LmsCourseDto(
     val courseAttributes: LmsCourseAttributes,
 )
 
+/** `GET /api/lms/due` 的 `data`：日程页「接下来」那一栏（未提交 + 有截止）。 */
+@Serializable
+internal data class LmsDueData(val count: Int, val items: List<LmsDueDto>)
+
+/** 一条作业截止（`:model` 的 [LmsDue] 的线上形状；作业标题/课程名不是个人数据）。 */
+@Serializable
+internal data class LmsDueDto(
+    val courseId: Int,
+    val courseName: String,
+    val activityId: Int,
+    val title: String,
+    /** 上游给的截止文本，原样留（`:model` 的 `LmsDue.deadline`）。 */
+    val deadline: String,
+    val submitted: Boolean,
+    /** 学堂的「测试」：只进待办，不进日程。 */
+    val exam: Boolean,
+    /** 这一条是什么时候拉到的（ISO-8601；0 ⇒ null）。 */
+    val fetchedAt: String?,
+)
+
+internal fun LmsDue.toDto(): LmsDueDto = LmsDueDto(
+    courseId = courseId,
+    courseName = courseName,
+    activityId = activityId,
+    title = title,
+    deadline = deadline,
+    submitted = submitted,
+    exam = exam,
+    fetchedAt = fetchedAt.takeIf { it > 0L }?.let { java.time.Instant.ofEpochMilli(it).toString() },
+)
 /** `GET /api/lms/activities` 的 `data`。 */
 @Serializable
 internal data class LmsActivitiesData(
@@ -284,5 +360,13 @@ internal const val LMS_SEGMENT = "lms"
 internal const val LMS_COURSES = "courses"
 internal const val LMS_ACTIVITIES = "activities"
 internal const val LMS_ACTIVITY = "activity"
+internal const val LMS_DUE = "due"
+internal const val LMS_COURSE_MATCH = "course-match"
+internal const val LMS_PARAM_COURSE_NAME = "courseName"
+internal const val LMS_PARAM_COURSE_CODE = "courseCode"
+internal const val LMS_PARAM_TEACHER = "teacher"
 internal const val LMS_PARAM_COURSE_ID = "courseId"
 internal const val LMS_PARAM_ACTIVITY_ID = "activityId"
+
+/** 配对查询至少要给课程号或课名之一。 */
+internal const val LMS_COURSE_MATCH_QUERY_MESSAGE = "缺查询条件：至少给 courseCode 或 courseName"

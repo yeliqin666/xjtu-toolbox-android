@@ -77,6 +77,13 @@ class XjtuApp : Application() {
         com.xjtu.toolbox.inbox.SelfTodoHooks.onChanged = { account, before, after ->
             com.xjtu.toolbox.inbox.SelfTodoReminders.sync(this, account, before, after)
         }
+        // 作业截止缓存（LmsDueStore）搬去了 `:data`，存储换成 KeyValueStore；老值还在本模块的
+        // DataCache（`data_cache<后缀>/lms_due_items.json`）⇒ 交一个只读取数口，新 store 第一次
+        // 空着时自己读一次搬过去（幂等，老文件不删也不再写）。
+        com.xjtu.toolbox.lms.LmsDueStore.installLegacySource { account ->
+            com.xjtu.toolbox.data.DataCache(this, account.ifEmpty { null })
+                .readJson(com.xjtu.toolbox.lms.LmsDueStore.KEY, Long.MAX_VALUE)
+        }
         // 小游戏全服榜的服务端地址（构建期可覆盖，见 app/build.gradle.kts；空串 = 不出现排行榜）
         com.xjtu.toolbox.game.board.LeaderboardApi.install(BuildConfig.LEADERBOARD_BASE_URL)
         com.xjtu.toolbox.auth.CampusProbe.init(this)

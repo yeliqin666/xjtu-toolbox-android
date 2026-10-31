@@ -73,6 +73,14 @@ interface HomeHost {
     /** 这一端**真会照着办**的那些块（见 [HomeCard]）。 */
     val honoredCards: Set<HomeCard>
 
+    /**
+     * 首页底部那一句「这一端首页缺了哪几块」的汇总说明（`null` = 不画，也是默认值 ⇒ 不填的端行为不变）。
+     *
+     * 块与块之间在屏上并不相邻，逐条贴说明会变成满屏小字；首页的缺口本来就该一句话说完：
+     * 缺哪几块 / 为什么缺 / 想看那几块去哪儿。
+     */
+    val gapNote: String? get() = null
+
     /** 这一端当前身份。目录（[AppServices]）按它筛：研究生看不到成绩单那几项。 */
     val audience: AccountType
 

@@ -14,9 +14,21 @@ object AppArchiveHost {
     /** §6.1：SAF 选中的档案先落地 `filesDir/archive_staging/`，下次启动由导入触发点消费。 */
     const val STAGING_DIR = "archive_staging"
 
+    /**
+     * 导出的**目录副本**落在这里（B-15）。
+     *
+     * ⚠️ 不能复用 [ARCHIVE_DIR]：那个目录是**导入的投放口**（`pendingArchiveRoots` 会扫它，
+     * 见到 `manifest.json` 就当一份待导入档案），导出写进去 = 下次启动自己导自己一遍。
+     * 名字分开就不必指望「导入幂等」把这件事撮合过去。
+     */
+    const val EXPORT_DIR = "archive_export"
+
     fun archiveRoot(context: Context): File = File(context.filesDir, ARCHIVE_DIR)
 
     fun stagingRoot(context: Context): File = File(context.filesDir, STAGING_DIR)
+
+    /** 导出时落的那一份目录的根（[EXPORT_DIR]）。 */
+    fun exportRoot(context: Context): File = File(context.filesDir, EXPORT_DIR)
 
     /** `manifest.accounts[]`（§2.1）的纯映射：账号表 → [ArchiveAccount]。 */
     fun accountsFrom(accounts: List<Account>): List<ArchiveAccount> = accounts.map { a ->
@@ -67,13 +79,34 @@ object AppArchiveHost {
                     fb.list(suffix, "agent_sessions").forEach { rel ->
                         fb.read(suffix, rel)?.let { add(ArchiveFile(suffix, rel, it)) }
                     }
+                    // §6.3 逐族迁移：`schedule/` 之下的条目里，成绩缓存那一族要转形状 + 归一名字
+                    //（专到 [scheduleFileOf]）
                     fb.list(suffix, "schedule").forEach { rel ->
-                        fb.read(suffix, rel)?.let { add(ArchiveFile(suffix, rel, it)) }
+                        scheduleFileOf(fb, suffix, rel)?.let { add(it) }
                     }
                 }
             }
         }
         return assemble(accounts, stores, files, appVersion, now = now)
+    }
+
+    /**
+     * `files/schedule/` 之下的一个端内条目 → 档案条目（§6.3 逐族迁移）。
+     *
+     * 不属于迁移族的照原样搬（§2.3）；成绩缓存那一族（[ArchiveScoreReport]）端内是**裸数组 + mtime**，
+     * 档案里统一成 `{"at":<mtime>,"grades":[…]}` 与不含学号的规范名。转不动 ⇒ null（这一条不进档案，
+     * 与导入侧的「跳过并计数」同一句话；导出不因此抛）。
+     */
+    private fun scheduleFileOf(
+        filesBackend: ArchiveFileBackend,
+        suffix: String,
+        relPath: String,
+    ): ArchiveFile? {
+        val content = filesBackend.read(suffix, relPath) ?: return null
+        if (!ArchiveScoreReport.isFamily(relPath)) return ArchiveFile(suffix, relPath, content)
+        val canonical = ArchiveScoreReport.toCanonical(content, filesBackend.mtimeMs(suffix, relPath) ?: 0L)
+            ?: return null
+        return ArchiveFile(suffix, ArchiveScoreReport.CANONICAL_REL, canonical)
     }
 
     /** 把档案字节映射落盘到目录（目录即档案本体，§2.0；每个条目一个文件，父目录按需建）。 */

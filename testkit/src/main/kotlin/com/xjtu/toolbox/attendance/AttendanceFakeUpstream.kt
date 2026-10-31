@@ -33,7 +33,10 @@ class AttendanceFakeUpstream {
 
         const val COURSE_NAME = "光电子学（假）"
         const val COURSE_CODE = "PHYS999999"
-        /** 上课教师名（**姓名**）：考勤流水里带着它，而 `/api/attendance/records` 按 §5.2 红线**不投影**它 —— 契约测试拿它当钉子。 */
+        /**
+         * 上课教师名（**姓名**）：考勤流水里带着它。按契约 §5.2 例外 ⑤（2026-10-19 批准），
+         * `/api/attendance/records` 现在**投影**这一格；其余端点仍拿它当红线的钉子。
+         */
         const val TEACHER_NAME = "高宏（假）"
         const val ROOM = "西2楼-假-307"
 

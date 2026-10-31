@@ -66,9 +66,15 @@
   成功 `code == 0` 且 HTTP 200；失败时 `code` 与 HTTP 状态码**逐位相同** —— 一条信息不出现两种写法，
   客户端读哪一个都一样。已用的码：`400` 请求体形状不对 · `401` 无令牌 / 登录被拒 / 学校会话过期（重新登录） · `404` 端点不存在 ·
   `409` 另一次登录正在进行 / 上游明确拒绝一次写动作（§5.3.1） · `502` 上游或网络的故障（稍后重试可能就成）。
-- **例外（只有两条，不许再开第三条）**：① `/api/status` 是**裸对象**（历史遗留）；② `GET /api/venue/pay`
-  **不当信封答** —— 它是给浏览器点的**跳转**（`302` + `Location`，没有 `code`/`data`/`message`，见 §5.3.2 第 6 条）。
-  这两条之外，`/api/…` 的每个响应都是信封；要开新例外就写进这一条（那是契约变更，不是实现细节）。
+- **例外（现在是四条）**：① `/api/status` 是**裸对象**（历史遗留）；② `GET /api/venue/pay`
+  **不当信封答** —— 它是给浏览器点的**跳转**（`302` + `Location`，没有 `code`/`data`/`message`，见 §5.3.2 第 6 条）；
+  ③ `GET /api/dzpz/transcript/download?ticket=` 回 `application/pdf` 字节（2026-10-20 落地，见 §5.12）；
+  ④ `GET /api/jiaocai1/page` 与 `GET /api/jiaocai1/cover` 回 `image/jpeg` 字节（2026-10-21 落地，见 §5.14）。
+  ③④ 是同一种东西（**二进制载荷**）：成功那一半不是信封，**失败那一半仍是信封**（错误码与中文短句照旧），
+  而且都挂在令牌闸门内。这两条之外，`/api/…` 的每个响应都是信封；要开新例外就写进这一条（那是契约变更，
+  不是实现细节）。
+  ⚠️ 这一行原本写的是「只有两条，不许再开第三条」—— 那是**过期描述**：③ 在 §5.12 落地时就已开了，
+  但这一行没同步。2026-10-21 一并更正（顺带把 ④ 记进来）。
 - ⚠️ **时间一律 ISO-8601 带时区的字符串**（`2026-10-09T23:52:00+08:00`）。
   **不要用 epoch 秒/毫秒**：这是"静默漂移"的头号来源（秒 vs 毫秒、本地时区 vs UTC 在两端的表现不同，
   而两端的 UI 都会"看起来对"）。
@@ -102,7 +108,7 @@
 | `/api/card/balance` `/api/card/transactions` | `CampusCardSource` | 校园卡 | P0 | 沿用（`amount ← signed`、`description ← channel`、`cardType ← cardName`；⚠️ 挂失口径 `lostflag` vs `barflag` 要在本文档里明确选一个） |
 | `/api/venue/products` `/api/venue/slots` `/api/venue/orders` `/api/venue/status` | `VenueSource` | 体育场馆 | P0 | **部分沿用 + 补**：`slots` 的 `surplus` **不要用旧字段**（旧口径在 `all == used` 时给 0，而两端一致的读法是 `status == 1` ⇒ 可订） |
 | `/api/venue/captcha` `/api/venue/book` `/api/venue/cancel` `/api/venue/pay` | `VenueSource` | 体育场馆（写 + 支付那一跳） | **P1（写路径）· 已落地 2026-10-12 · `pay` 2026-10-15（D11b）** | 无旧形状：serve 侧新开的写路径（§5.3.2 逐字段；落地提交 `45a0e50`）＋支付那一跳 `pay`（**302 不当信封**，§4 的第二条例外；逐字段见 §5.3.2 第 6 条） |
-| `/api/dzpz/transcript` | `TranscriptSource`（`:data` 侧 `AppTranscriptSource` + `TranscriptApi`） | 电子成绩单 | **P0 · 已落地 2026-10-13** | **新形状**：只端七步里的**第一步**（建单表单）—— 出 PDF 那半条链没有端点，逐字段见 §5.5 |
+| `/api/dzpz/transcript` | `TranscriptSource`（`:data` 侧 `AppTranscriptSource` + `TranscriptApi`） | 电子成绩单 | **P0 · 已落地 2026-10-13** | **新形状**：只端七步里的**第一步**（建单表单）—— 出 PDF 那半条链 2026-10-22 起走 §5.12 的两段式 |
 | `/api/attendance/terms` `/api/attendance/records` `/api/attendance/leave/{window,preview,records}` `POST /api/attendance/leave{,/withdraw,/cancel}` | `AttendanceSource`（`AppAttendanceSource` + `AttendanceApi` / `LeaveApi`） | 考勤（**流水 + 请假 / 销假**） | **P0 读 · 2026-10-13 已落地**；**请假那一族（三读 + 三写）于 2026-10-15 批③-b / D7 ② 落地** | **要改**：`startSection ← startTime`、`endSection ← endTime`、`term ← termString` 三处改名（`:core` 那两个 `Time` 字段其实是节次）；**一处姓名不投影**（考勤流水里的 `teacher`）—— 请假单里的 `courses[].teacherNames` 与审批人的 `name` 于 2026-10-15 按 §5.2 例外 ④ **真投影**（见下与 §7 的 12g）；附件上传没有端点，见 §5.5.1 |
 | `/api/coupon/list` `/api/coupon/detail` `/api/coupon/activate` | `CouponSource`（`AppCouponSource` + `CouponApi`） | 加餐券（**读 + 领券**） | **P0 读 · 2026-10-13 已落地**；**领券（P1 写）于 2026-10-15 批③-b / D7 ③ 落地** | **新形状**（原来这一行是 P2 = Stage C 宿主能力）。金额单位是**分**；领券成功回 `{ok, message}`，上游拒收落 `502`（`:data` 那一层分不出业务拒绝，见 §5.5），会话失效落 `401` |
 | `/api/dorm/rooms` `/api/dorm/reading` | `DormPowerSource`（`:data` 的 `DormPowerApi` 本身就是端口实现） | 宿舍电费 | **P0 · 已落地 2026-10-13** | **要改**：旧的 `GET /api/dorm/kwh?roomId=` 一个端点把列表与读数混在一处 ⇒ 拆成两个；`reading` 不带时间戳，见 §5.5 |
@@ -170,6 +176,16 @@
 > 信封，见 §5.11）—— 逐字段、十一类事件、红线、白名单那九件、`:web` 那一屏接上之后**还剩什么没做**
 >（逐条：campus-api 形态下这一族没有端点、`suspend` 测试函数在 wasmJs 上不支持 ⇒ 异步那一支探针验不了）
 > 都写在 **§5.11**。绝不把「端出来了」当成「这一端真用得上」。
+>
+> **C-2 端点批（2026-10-20 新增）**：`attendance/{stats,streams}` · `POST jwxt/evaluations/submit` ·
+> `POST dzpz/transcript/{submit,preview}` + `GET dzpz/transcript/download?ticket=` · `lms/{due,course-match}`
+> —— 逐条见 **§5.12**（含契约第三条例外 `application/pdf`）。
+>
+> **下载那一族（2026-10-20 落地实现 · 2026-10-21 补测试与契约）**：`downloads{,/progress,/{id}}` —— 见 **§5.13**
+> （含本批顺手修的三处：路由挂成 `/api/api/downloads`、回裸对象、删下载中的静默空操作）。
+>
+> **教材全文库（2026-10-21 新增）**：`jiaocai1/{classify,search,book,page,cover,shelf…}` —— 见 **§5.14**
+> （含契约第四条例外 `image/jpeg`，会话借 `jiaocai` 站点，书架落在 serve 侧）。
 
 ### 5.1 `/api/session*`（P0「新」那一行的实测形状，2026-10-11 落地）
 
@@ -232,16 +248,17 @@
 `respondUpstreamFailure` 统一改回 `401`「请先登录」。
 能力开关一律**如实**：`canBook` / `canCancel` / `canSubmit` / `availableSources` / `contactsAvailable` 出现在各自响应里。
 
-**红线（四处刻意例外，均为公开数据或登录者本人数据，测试用编造夹具值钉住）**：
-「响应不含学号/姓名/手机号」对登录者本人成立；例外的四处是 ① `fitness/score` 的姓名/学号（本人数据），
+**红线（五处刻意例外，均为公开数据或登录者本人数据，测试用编造夹具值钉住）**：
+「响应不含学号/姓名/手机号」对登录者本人成立；例外的五处是 ① `fitness/score` 的姓名/学号（本人数据），
 ② `yellowpage`/`faculty` 的教师名与部门电话（公开通讯录），③ `emptyroom/rooms` 实时档的上课教师名，
 ④ **请假这一族的两个姓名**（2026-10-15 上一级拍板）：`/api/attendance/leave/preview` 的
 `nextApprovers[].name` 与 `nodes[].approvers[].name`（**我自己的申请上的审批人姓名**，学校工作人员），
 以及 `/api/attendance/leave/records` 的 `courses[].teacherNames`（**我自己的课的任课教师姓名**）。
-④ 的理由与 ③ 同性质 —— 都是「**我自己的那条记录**」上的真人名（不是别人的、也不是花名册）；
-不加它的代价是屏上那个审批人下拉框会退化成一行 `userId`（`:core` 写的是
-`it.name.ifBlank { it.userId }` ⇒ 留空不丢功能，但少了一个人名）。⚠️ **例外 ④ 只覆盖这两类**：
-考勤流水那一格的 `teacher`（当堂上课的教师名）、学生本人姓名/学号/手机号、通讯录仍一律不端；
+⑤ **考勤流水那一格的 `teacher`**（**当堂上课的教师名**，2026-10-19 会议批准）：与 ③④ 同性质 ——
+都是「**我自己的那条记录**」上的真人名；不加它，流水那一栏就只剩一节节次。
+④ 的理由与 ③ 同性质；不加 ④ 的代价是屏上那个审批人下拉框会退化成一行 `userId`
+（`:core` 写的是 `it.name.ifBlank { it.userId }` ⇒ 留空不丢功能，但少了一个人名）。
+⚠️ **仍然一律不端**：学生本人姓名/学号/手机号、通讯录（除 ② 已列的公开项）。
 拍板与落地记录见 §7 的 12g。
 
 | 端点 | 请求 | 响应 `data`（逐字段） | 备注 |
@@ -588,8 +605,7 @@ Location: http://202.117.17.144/pay/show.html?id=VT20261013001
 
 **D7 ⑤「成绩单 PDF 落盘」的结论（2026-10-15 批③-b，如实报告：本轮不做）**
 
-先回答“`:data` 侧到底有没有 PDF 能力”这个问题：**有**。`TranscriptApi` 上就有
-`generatePreviewPdf(workflowId, typeValue): String`（第 3 步，服务端生成预览 PDF、回一个 docId）
+先回答“`:data` 侧到底有没有 PDF 能力”这个问题：**有**。但 ⚠️ **下面这段写的是 `994e9c3b`（2026-10-17）之前的旧形状**（契约写于 10-16）：旧签名 `generatePreviewPdf(workflowId, typeValue): String`（第 3 步、不建单也能出预览、旧请求体 `reqid=-1&sfybc=0`）。**今天代码里不是这样**：预览是 **Step 4**、**必须传 Step 3（`submitCreate`，`src=save`，就是创建申请单）拿到的 `requestId`**、返回 `Unit`（`TranscriptModels.kt:70-74`、`TranscriptApi.kt:218-237`、`TranscriptViewModel.kt:68-69`）⇒ **「预览不产生申请记录」今天不成立**（2026-10-20 核实，把握高）。
 与 `downloadPdf(url): ByteArray`（第 7 步，下载字节）。**所以不是“做不到”，是“不能这么做”**，三条理由：
 
 1. **那是真的往学校提交一份申请，不是下载一个文件**：七步链的第 4、5 步是两次提交（`submitCreate`
@@ -607,13 +623,11 @@ Location: http://202.117.17.144/pay/show.html?id=VT20261013001
    `application/pdf` 的**第三条例外**是契约变更（§4 明文写的“要开新例外就写进这一条”）。
    而浏览器侧的**落盘**（`Content-Disposition: attachment`）与 Android 的「保存到下载目录」是两件事。
 
-**最小可行方案（分两步，本轮都不做，列在这里给下一批拍板）**：
+**方案（已按 2026-10-19 会议改为「显式两段式提交」）**：
 
-- **第一步（风险最小）**：只端「第 1~3 步」——即 `POST /api/dzpz/transcript/preview`（联动 + 生成预览
-  PDF），**不提交、不签章**：它不产生学校的申请记录，也有确定的尽头。它仍要开一次
-  `application/pdf` 的例外（或者用一个临时端点把 docId 换成一次性下载链接）；
-- **第二步（要先有产品决定）**：完整七步。它必须先是**两段式**（预览 → 确认提交），并且要在 §2 的
-  能力开关里加一格（`canSubmitApplication`）——“点了会失败的按钮一个都不画”那条口径在写路径上
+- ⚠️ **原「第一步（风险最小）：只端第 1~3 步、不提交不签章、不产生申请记录」已作废** —— 上一条已核实：今天代码里预览必然先建申请单。
+- **已拍板（① = b）**：做**显式两段式提交** —— 第一步按钮直接写「**提交成绩单申请**」+ 说明「会在教务留一条待审批记录」；第二步出预览 / 下载；配套**幂等**（重复点不建第二张单）与失败 / 重放处理。它必须**开契约第三条例外**（`application/pdf`，或者用一个临时端点把 docId 换成一次性下载链接），并在 §2 的能力开关里加一格（`canSubmitApplication`）——“点了会失败的按钮一个都不画”那条口径在写路径上同样成立。
+- **落地排期**：与 C-2 的端点批一起做（会议记录见 `docs/parity-ledger.md` §6）。
   就是它。没拍这个板之前，`:web` 的成绩单屏**保持现状**（只画「选类型」那一步 + 页顶那句“要出 PDF
   请在 App 或桌面端申请”）。
 
@@ -701,8 +715,8 @@ Location: http://202.117.17.144/pay/show.html?id=VT20261013001
 
 | 屏 | 端点 | `:web` 上真画了什么 | 如实不画（缺口） |
 |---|---|---|---|
-| 电子成绩单 | `GET /api/dzpz/transcript` | 类型选择 | 「一键申请」与那五步步骤预览：第 2~7 步没有端点（`TranscriptSource.canRunWorkflow = false`）；`params` / `submitParams` / `maindata` / `linkageUUID` / `signatureAttributesStr` / `signatureSecretKey` 六格**留空**（刻意不投影） |
-| 考勤 | `GET /api/attendance/terms` + `/records` + `/leave/{window,preview,records}` + `POST /leave{,/withdraw,/cancel}` | 学期选择器 + 流水表（节次 / 状态 / 地点 / 日期）；**「请假」那一栏真能用**（窗口上限与日期范围 / 审批人下拉（**画的是人名**）/ 记录卡 / 提交表单 / 撤回与销假两个确认弹窗） | 上课教师名（**流水那一栏**，不投影 —— 红线）；**请假那一族的两类姓名（审批人姓名、请假单里那节课的任课教师姓名）自 2026-10-15 起按 §5.2 例外 ④ 投影**（下拉框不再退化成一行 id）；姓名那一格（`getStudentInfo` 不端）、统计那一栏、打卡原始流水、请假附件（本端没有文件选择宿主 ⇒ 与桌面同一条，不发附件）。剩下那几栏在屏上写的是「本端拿不到 …」而不是「暂无 …」（`AttendanceCapabilities` 现在只剩 `stats` / `streams` 两档 `false`）；统计也不拿流水在本机重算 |
+| 电子成绩单 | `GET /api/dzpz/transcript` + `POST /transcript/{submit,preview}` + `GET /transcript/download?ticket=` | 类型选择 + 申请信息（「申请日期」就是 `defaultDate`）；**serve 形态下「一键申请」与那五步步骤预览都真能走**（两段式，见 §5.12）—— 真的会在教务留一条待审批记录、出完 PDF 还能存到本机 | `params` / `submitParams` / `maindata` / `linkageUUID` / `signatureAttributesStr` / `signatureSecretKey` 六格**留空**（刻意不投影）；⚠️ **campus-api 形态**仍只有第一步（那条老路没有写端点，`canRunWorkflow = false`）；学籍联动那一格在 serve 下是**空壳**（服务端在建单那一发里自己做，返回值里有学号 = 红线） |
+| 考勤 | `GET /api/attendance/{terms,records,stats,streams}` + `/leave/{window,preview,records}` + `POST /leave{,/withdraw,/cancel}` | 学期选择器 + 流水表（节次 / 状态 / 地点 / 日期）+ **按课统计那一栏（八格）** + **打卡原始流水那一栏（四格）**；**「请假」那一栏真能用**（窗口上限与日期范围 / 审批人下拉（**画的是人名**）/ 记录卡 / 提交表单 / 撤回与销假两个确认弹窗） | 上课教师名（**流水那一栏**，不投影 —— 红线）；**请假那一族的两类姓名（审批人姓名、请假单里那节课的任课教师姓名）自 2026-10-15 起按 §5.2 例外 ④ 投影**（下拉框不再退化成一行 id）；姓名那一格（`getStudentInfo` 不端）、请假附件（本端没有文件选择宿主 ⇒ 与桌面同一条，不发附件）。⚠️ **2026-10-22（批5）起三栏全在**（`AttendanceCapabilities` 三项都 `true`）：统计那一栏的数字是**服务端按同一算路算的**（算路在 `:data`，只有 JVM/Android 变体，浏览器里拿不到它 ⇒ 端口那一格改成 `suspend`，见 `AttendanceSource`） |
 | 加餐券 | `GET /api/coupon/list` + `/detail` + `POST /activate` | 四档 + 翻页 + 金额（分）+ 有效期；**「领取」按钮真画、真能领**（领完重拉当前那一档，与两端同一条编排） | 封面图（要 egc 会话 ⇒ `loadImage` 给 `null`、券卡退化成图标）；金额不换算成元（除 100 是屏的事）；领券**分不出「上游说不能领」与「上游坏了」**（都落 502，见上） |
 | 宿舍电费 | `GET /api/dorm/rooms` + `/reading` | 房间列表 + 剩余电量（`kwh: null` 单独说「没有电表」）+ **本机**查询时刻 | 「去缴费」/ 绑定 / 充值那一跳（`freshPayUrl` 不端）：本端画的是 `:web` 自己的读数页（`WebDormPowerScreen`），**不是** `:core` 那张只做缴费页浏览器的 `DormPowerScreen` |
 
@@ -1347,15 +1361,39 @@ Location: http://202.117.17.144/pay/show.html?id=VT20261013001
 - **不要求已登录**：未登录时 `authenticated:false`，账号表照旧列出来（那张表在磁盘上，与任何会话无关）。
   错误码只有 `401`（令牌闸门那一档：没带 / 令牌不对）。
 
-#### 这一批**没有**写端点（如实降级，不是漏）
+#### 写侧（2026-10-20 落地）：`/api/accounts/{switch,add,delete,password}` —— **HTTPS 是硬前提**
 
-D9 要的「浏览器上切换账号 = 让 serve 换一套凭据」，落到实现上就是 serve 自己的**登录态迁移**
-（账号命名空间 + 凭据 + 站点快照一起换）。本批按工单的「只读优先」只端**读**那一半 ⇒ 切换 / 新增 /
-删除 / 改密四个动作**一个端点都没有**，`readOnly:true` 就是这件事的能力开关（与
-`/api/jwxt/evaluations` 的 `canSubmit:false` 同型：客户端不得靠猜）。浏览器那一端照它如实说：
-页顶那一行（`WebGapNote`）与动作失败的 toast（`WebAccountsNotWritable`，中文短句、由 `FriendlyError`
-原样透出）都写「要去 App 或桌面端做」——不画一个点了没反应的「切换」按钮，也不把这一屏落成
-「还没搬到 Web」（屏真在这里，看见的是真数据）。
+**决策来源**：2026-10-19 会议 **#10 = 丙**（写侧全做；**HTTPS 变硬前提**）。
+⚠️ 下面这段旧文字（「这一批**没有**写端点」）**已作废**，保留作历史记录：
+
+> ~~D9 要的「浏览器上切换账号 = 让 serve 换一套凭据」，落到实现上就是 serve 自己的**登录态迁移**……
+> 本批按工单的「只读优先」只端**读**那一半 ⇒ 四个动作**一个端点都没有**，`readOnly:true` 就是这件事的能力开关……~~
+
+**现在的实现**（`server/.../AccountRoutes.kt`，2026-10-20）：
+
+| 端点 | 方法 | 请求体 | 响应 `data` |
+|---|---|---|---|
+| `POST /api/accounts/switch` | POST | `{"id":"2023****0001"}` | `{ok, changed, message, snapshot}` |
+| `POST /api/accounts/add` | POST | `{"username","password","accountType"?:"undergraduate|postgraduate","activate"?:false}` | 同上 |
+| `POST /api/accounts/delete` | POST | `{"id","confirm":true}`（缺 `confirm` ⇒ **400**） | 同上 |
+| `POST /api/accounts/password` | POST | `{"id","newPassword"}` | 同上 |
+
+- `snapshot` = 动作之后那一瞬间的 `GET /api/accounts` 形状（客户端不用补发一次读）。
+- `id` 接受**完整学号/手机号**或 `GET` 返回的**打码 id**；打码形式命中多条 ⇒ **409**（不猜）。
+- **HTTPS 硬前提**：判据只有一个 —— `ServeModule` 的 `config.tls != null`（与既有的 `secureCookie` 同一先例），
+  作为 `httpsEnabled` 往下传。每个 POST 的**第一句**先 `requireHttps`，**再**读 body ⇒ **明文链路上密码根本不会被收取**。
+  拒绝形态：**HTTP 403 + `code:403`（`ApiErrors.HTTPS_REQUIRED`）**，文案里带可操作信息（`--https` 会自动生成
+  `<数据根>/tls/serve.p12`，另附 `keytool -genkeypair … -storetype PKCS12` 的完整命令）。
+  **读端点不受影响**；明文下 `readOnly = !httpsEnabled` 如实报 `true`。
+- **幂等按目标态**（不使用 Idempotency-Key）：switch（「当前账号就是它」）/ add（「它在表里」）/ delete（「它不在表里」）/
+  password（「密码已经是新的」）的重复提交一律 `ok:true` + `changed:false`；**add 同 id 异密码 ⇒ 409 指向 `/password`**；
+  **绝不写第二行、不二次删、不二次清缓存**。四个动作共用一个 `Mutex` 串行执行。
+- 删除**当前**账号 ⇒ `session.logout()`（先放会话再删，避免 debounce 把 TGC 写回）；删除**其他**账号 ⇒ `SessionBackend.wipe(suffix)`；
+  改密且目标是当前账号 ⇒ 内存会话与落盘凭据一起替换（`ServeSession.rekeyAccount`）。
+- **switch / add 不联网、也不写 `AccountStore.active_account`**（那是桌面端的主键，上文已写明 serve 不写不读它）。
+- **add 不探活**：密码打错要到下一次取数才暴露（`401/502`）。理由：探活会触发短信二验，且违反「可重放」要求。
+
+**消费方（`:web`）**：`WebAccountsHost` 的四个写方法已接上（2026-10-20）；未启用 HTTPS 时页顶与失败 toast 说明「要开 HTTPS」。
 
 #### 消费方（`:web`）：**已落地**（2026-10-15，本批）
 
@@ -1536,6 +1574,305 @@ D9 要的「浏览器上切换账号 = 让 serve 换一套凭据」，落到实�
   **原有的 S8 快照机制**多用了一次：`:server` 的 `ServeAgentTools.kt` 也在构建期读进快照 ⇒ 它能把「页面说明
   盖了每一件真下发的工具」当场对一次（换了名单不改页面说明就红）；`web/build.gradle.kts` 里那份清单多一行。
 
+
+### 5.12 C-2 端点批（2026-10-20 落地）：考勤三栏 / 评教提交 / 成绩单两段式 / 作业截止 / 思源配对
+
+**决策来源**：2026-10-19 会议 **B-3/B-11 = (c) 一次性全做**、**B-12 = (b)**、**① = (b) 显式两段式提交**、**B-5 = (a)**、**B-4 = (a)**。
+统一口径照 §5.2（信封、`code == HTTP 状态码`、`401` 指路、`502` 上游/网络故障）。
+
+| 端点 | 方法 | 参数 / 请求体 | 响应 `data` | 说明 |
+|---|---|---|---|---|
+| `/api/attendance/stats` | GET | `term` | 整学期按课程的考勤统计 | 缺勤按学期全量算（不用「本周」接口） |
+| `/api/attendance/streams` | GET | `term` | 打卡流水（`id/location/collectTime/effective`） | 日期窗由学期起止推 |
+| `/api/attendance/records` | GET | `term&from&to` | **新增投影 `teacher`** | **红线例外 ⑤ 只覆盖这一个字段、只在这个端点**（2026-10-19 批准）；请假族仍不投影任何姓名 |
+| `POST /api/jwxt/evaluations/submit` | POST | `{term,type,wjdm,jxbid}` | `{submitted:bool}` | 自动填答后提交；**已在已评名单 ⇒ 200 + `submitted:false`（幂等）**；上游拒 ⇒ **409**；`/status` 的 `canSubmit` 改为如实 `true` |
+| `POST /api/dzpz/transcript/submit` | POST | `{type?}` | `{created,requestId,…}` | **① 两段式第一步**：建申请单（**真的会在教务留一条待审批记录** ⇒ 消费方按钮文案必须写清）；**幂等**：10 分钟内重复点 ⇒ `created:false` 同一个 `requestId` |
+| `POST /api/dzpz/transcript/preview` | POST | — | `{ok,filename,filesize,downloadPath}` | 第二步：生成预览 PDF + 取下载信息 |
+| `GET /api/dzpz/transcript/download?ticket=` | GET | 一次性内存票据 | `application/pdf`（RFC 5987 文件名） | **契约第三条例外**（`application/pdf`）落在这里；**上游 host / link 永不出现在响应里**；票据重放 ⇒ 404 |
+| `/api/lms/due` | GET | — | `{count,items[]}` | 作业截止：读 `:data` 的 `LmsDueStore` 落盘缓存，**不为作业发任何请求** |
+| `/api/lms/course-match` | GET | `courseCode?/courseName?/teacher?` | `{matched,course|null}` | 思源课程配对；判据复用 `:model` 的 `lmsCourseMatched`（与桌面/App 同一份） |
+
+**B-4 的说明（避免被当成漏做）**：日程屏那三格（考勤角标 / 思源下钻 / 本次考勤）在 web 上**不需要新端点** —— `/api/attendance/records` 已给 `week/startSection/date/status`，web 侧直接用 `:model` 的纯函数 `attendanceMarksOf` 建索引即可（匹配器已由 B-4 下沉到 `shared/model/.../schedule/CourseLinkMatching.kt`）。
+
+**B-12 的如实结论**：**卡挂失上报做不了** —— 全仓只有只读的 `CampusCardApi`（读 `barflag`），`:app` 与 legacy 都没有挂失写的 URL / 参数；**猜上游违反规矩** ⇒ 需要一次**真实抓包**才能端。评教提交已端（见上）。
+
+⚠️ **§5.5 里两句已过时**（以本节为准）：「考勤只投学期选择 + 流水表」（三栏已于 2026-10-20 补齐）、「请假族一律不端姓名」（2026-10-15 起真投影，见 §5.2 例外 ④）。
+
+#### 消费方（`:web`）：**已落地**（2026-10-22，批5）
+
+这一批的七个端点以前**一个客户端引用都没有**（端点先落地、屏没接），本批把它们全接上：
+
+| 端点 | 谁在用（`:web` 侧） | 屏上变成什么 |
+|---|---|---|
+| `/api/attendance/stats` · `/streams` | `CampusAttendanceApi`（`:shared:network`）的 `computeCourseStatsFromRecords` / `getKqtjCurrentWeek` / `getKqtjByTime` / `getStreams` | 考勤屏的「统计」与「打卡流水」两栏**真画**（`AttendanceCapabilities` 三项都 `true`） |
+| `POST /api/jwxt/evaluations/submit` | `CampusJudgeApi.judge`（serve 形态下 `canSubmit = true`） | 评教屏那个「一键评教」块**真能提交**（屏标题从「学生评教（只读）」改回「本科评教」）；上游拒 ⇒ `409` 被屏按「这一门失败」计数，不中断剩下几门 |
+| `/api/lms/due` | `CampusLmsApi.dueHomeworks` → `WebScheduleHost.dueHomeworks` | 日程页今日栏「接下来」的作业截止 |
+| `/api/lms/course-match` | `CampusLmsApi.courseMatch` → `WebCourseLinkAccess.lmsCourseFor` | 课程详情里的「思源学堂」入口 |
+| `/api/attendance/records`（已有） | `WebCourseLinkAccess.attendanceMarks` + `:model` 的 `attendanceMarksOf` | 课表格子上的**考勤角标**与详情里的「本次考勤」（后者还看设置里「课表显示考勤角标」那一格，与 App/桌面同一个键） |
+
+三处**如实差异**（都不是「还没做」）：
+
+1. **统计那一格是 `suspend` 了**：算路在 `:data`（只有 JVM/Android 变体），浏览器里拿不到它 ⇒ 把
+   `AttendanceSource.computeCourseStatsFromRecords` 改成 `suspend`，serve 那一份打 `/api/attendance/stats`
+   （服务端跑同一条算路，数字与拿那份流水自己算出来的逐格相同）。本机那两份实现只是加一个关键字，语义一字未改。
+2. **两条端点只认学期号**（不认一对日期）：`stats` / `streams` 的 `?term=` 由 serve 侧算好的学期号填
+   （`/records` 那一发回显的 `term`，已缓存）；屏上那两个日期参数是它用来算学期窗口的。
+3. **下钻取数失败 = 那一格不画**：屏上这两处在 `LaunchedEffect` 里裸调（`:data` 那一份自带站点级
+   失败冷却、不会抛），所以 `WebCourseLinkAccess` 自己吞掉错误回 `null` —— 「没配到课」与「这一发没取到」
+   在屏上是同一种表现：不给入口（给错课比不给更糟）。
+
+四格在 serve 形态下才算「有」（`ScheduleHost.honored` 按形态给：考勤 / 思源下钻 / 作业截止三档只在 serve 里）
+—— campus-api 那一形态没有这三族端点，屏照旧不画，日程页顶那条缺口说明也**按形态分了两段**。
+
+**用例**：`:shared:network:jvmTest` 新增 `ServeC2EndpointsApiTest` **5** 例（`MockEngine`）——
+`due` 八格逐字段（`fetchedAt` 的 ISO 真转成毫秒、`null` 回 0）· `course-match` 配上 / 没配上两档 +
+三个参数进 query · 评教提交的请求体四格、已被评过也是成功、`409` 是异常且文案原样带上 ·
+两个 campus-api 形态的闸门。另：`ServeReadonlyFourDomainsApiTest` 里考勤那一例改成**逐字段核**统计八格
+与流水四格（原来那句「统计不端 ⇒ 空表」已不成立）。
+
+#### 消费方（`:web`）：**成绩单两段式**（2026-10-22，批6）
+
+`CampusTranscriptApi`（`:shared:network`）以前只填得了第一步（`canRunWorkflow = false`）；现在把三发 HTTP
+映射到屏上那七步（屏与 ViewModel 一行未改）：
+
+| 屏上的步骤 | serve 里对应什么 |
+|---|---|
+| Step 1 加载表单 | `GET /api/dzpz/transcript`（§5.5，未变） |
+| Step 2 学籍联动 | **空壳**：服务端在建单那一发里自己跑（`DzpzRoutes` 的 `submit` 那一支），而它返回值里有**学号** —— 红线、例外清单里没有它 ⇒ 本端后续几步都不读它（屏上也一格不画） |
+| Step 3 保存申请 | `POST /api/dzpz/transcript/submit`（第一段；幂等：`created:false` 也成功） |
+| Step 4 生成文件 | `POST /api/dzpz/transcript/preview`（第二段：生成 + 签章 + 取下载信息一口气做完，回一张一次性票据） |
+| Step 5 签章 / 第二次提交 | **没有单独的端点**（就在上一发里）⇒ 原样交回上一步的结果，不发请求 |
+| Step 6 取下载链接 | 交回 `preview` 存下的三格（`filename` / `filesize` / `downloadPath`）—— 上游 host 与 link 永不出现在响应里 |
+| Step 7 下载 PDF 字节 | `GET /api/dzpz/transcript/download?ticket=`（`application/pdf` 那条例外） |
+
+两处**如实差异**：
+
+1. **Step 7 先看状态码与内容类型**：失败那一半回的是**信封（JSON）**（票据过期/重放是 `404` + 一句中文）——
+   不把一段 JSON 当 PDF 交上去（不然屏上会「成功」地存出一个假的 .pdf）；
+2. **保存交回给浏览器自己下**（`:web` 的 `WebTranscriptSaveSink`：`Blob` + 下载锚点）：目标位置是浏览器的
+   下载目录、本端不知道它在哪 ⇒ 屏上那行「将保存到 X」不画（与 `WebArchiveActions` 同一条路子）。
+
+⚠️ **第①步真的会在教务留一条待审批记录**（契约 §5.12 的要求：消费方按钮文案必须写清）—— 屏上那句
+缺口说明与这个按钮的语义都在 `:web` 的 `AppRoute.Transcript` 分支里写着。
+
+`:web` 的 `AppRoute.Transcript` 现在画的是与 App / 桌面**同一份屏、同一条链**；campus-api 形态仍只有第一步
+（`canRunWorkflow = false`，屏上画缺口卡）—— 两种形态在 `AppRoute` 那一支里分开。
+
+**用例**：`:shared:network:jvmTest` 新增 `ServeTranscriptWorkflowApiTest` **5** 例（`MockEngine`）——
+七步的两段式映射逐发核（包括「Step 5 不发请求」「请求体就一格 type」「票据与 ticket 参数」）·
+幂等命中（`created:false`）也成功 · 票据过期（`404` 回信封）要报错而不是交回 JSON · 上游拒 `409` 的文案 ·
+campus-api 形态的闸门。另修 `ServeReadonlyFourDomainsApiTest` 里那一例（它原来钉着「serve 只端了第一步」，
+现在钉的是相反的事实）。**真浏览器里核了字节读**：`:web:wasmJsBrowserTest` 新增 `WebServeBytesTest`
+（`bodyAsBytes` 在 Chrome 里真读回四格字节 —— 这条缝以前只编过没跑过）。
+
+
+### 5.13 下载那一族（2026-10-20 落地实现 · 2026-10-21 补契约测试与本节）：`/api/downloads`
+
+**决策来源**：`docs/parity-ledger.md` §6.1 会议 **#9 = 丙「做法①」** —— 浏览器里没有「App 管的下载队列」
+这一回事（用户点链接是浏览器自己在下，serve 不知情）。所以这一族**不是**「把登记表端出来给人看」的影子版，而是：
+
+> **serve 进程里装真的下载引擎**（`:feature:lms` 的 `DownloadManager` + `:data` 的 `JvmDownloadEngine` /
+> `JvmDownloadFileSystem`，与桌面窗口模式同一套），**浏览器只当界面**。
+
+于是队列、进度、删除、落盘（落到**那台机器**的 `~/Downloads`）都是真的。统一口径照 §5.2（信封、
+`code == HTTP 状态码`、`401` 指路、`409` 上游/本层明确拒绝一次写动作、`502` 上游/网络故障）。
+
+| 端点 | 方法 | 请求 / 参数 | 响应 `data` |
+|---|---|---|---|
+| `/api/downloads` | GET | —— | `{count,downloading,completed,active,dir:{location,notes[]},tasks:[…]}` |
+| `/api/downloads` | POST | `{url, cameraType?, courseName?, activityTitle?, activityId?}` | `{ids:[int]}`（登记表的自增主键） |
+| `/api/downloads/progress` | GET | —— | `{downloading,active,completed,tasks:[…]}`（**只列活跃任务**，屏上轮询它） |
+| `/api/downloads/{id}` | DELETE | `?deleteFile=false` 只删记录 | `{id,deletedFile}` |
+| `/api/downloads/{id}/pause` | POST | —— | `{ok:true,id}` |
+| `/api/downloads/{id}/resume` | POST | —— | `{ok:true,id}` |
+| `/api/downloads/{id}/cancel` | POST | —— | `{ok:true,id}` |
+
+一条任务在列表里（`tasks[]`）十二格：`id` · `title` · `courseName` · `cameraType` · `filePath` · `fileSize` ·
+`downloadedBytes` · `progress`(0~1) · `status` · `statusLabel`(中文短句) · `createTime`(ISO-8601) · `errorMessage`。
+进度那一条的一行八格：`id` · `title` · `downloadedBytes` · `totalBytes` · `progress` · `status` ·
+`statusLabel` · `errorMessage`。
+
+**进门条件（2026-10-21 补的）**：四条都**要求已登录**（未登录 `401` 指路）。上一轮落地时只挂了令牌闸门，
+后果是：拿到令牌就能让**那台机器**去取任意 URL 并往操作者的下载目录里写文件；而且
+`AccountContext.activeAccountId` 还是 null 时，登记表会落到 `serve_download_tasks_default` 那个命名空间。
+本批与其余二十多族拉齐。
+
+**本批顺手修的三处**（都是上一轮没测试所以没暴露的，逐条可核）：
+
+1. **路由挂错了**：原本写的是绝对路径 `/api/downloads`，而这棵子树已经挂在 `route("/api")` 之下 ⇒
+   实际注册成 `/api/api/downloads`，**整族在线上也是 404**。现在改挂相对段（与 SessionRoutes / AccountRoutes 同一条规矩）。
+2. **回的是裸对象**：四条都直接 `respond(DTO)` ⇒ 没有 §4 的信封。本批全部包上 `ApiEnvelope.ok(…)`
+   （这一族**不在** §4 的例外清单里）。
+3. **删「正在下载」那一条是静默空操作**：`:data` 的 `deleteTask` 只在非 `downloading` 时真删，而旧代码照旧回
+   `200` + 成功形状 ⇒ 屏上点删除看起来成功、那一行还在。现在**回查一次**再答：行还在 ⇒ `409` +
+   「这条任务还在下载中，删不掉」（不谎报成功）。
+
+**如实边界**：
+
+- 登记表用**自己的店名**（`serve_download_tasks<账号后缀>`，见 `ServeDownloadTaskStore`）⇒ **与桌面窗口的列表不共享**
+  （共用一个文件时两边的手工编码一旦不一致，就会「对方写的行读不出来 ⇒ 下一次整份回写把它抹掉」= 静默丢记录）；
+- 引擎只支持**可直接 GET 的直链**：HLS（`m3u8`）在这一层就拒（`400`，不交给引擎去失败）；
+- `dir.location` 是**运行 serve 那台机器**的下载目录（不是浏览器所在的设备）—— 那三条 `notes` 就是要把这件事说清；
+- **七个端点**（2026-10-21 晚补齐三个动作动词）：暂停 / 恢复 / 取消 —— 桌面那一屏本来就直调 `DownloadManager`
+  的这三个方法，web 的下载管理屏要用就得有端点。两条口径：
+  - **`{ok,id}` 不回状态**：`:data` 的 `resumeDownload` 只丢一个协程（那一刻状态还没变）⇒ 报状态就是编事实；
+    屏上照旧轮询 `/progress` 或重拉列表（与桌面那一屏同一步）。
+  - **与 `DELETE` 的分工**：`DELETE` 是「删掉就没了」（幂等，200）；三个动词是「**对这一条做一件事**」
+    ⇒ 目标不在表里、或状态不允许时一律 **`409` + 中文短句**（不谎报成功）。两处状态闸门是必要的：
+    `:data` 的 `pauseDownload` **不看当前状态**（拿一个已完成的任务调它会把那一行改回「已暂停」，
+    之后 `resumeAll` 还会把它重新下一遍）；同理对已完成的任务调 `resume` 会把那一集重下一遍。
+    可暂停 = `downloading` / `pending`；可恢复 = `paused` / `pending`；取消任意状态都行。
+
+#### 消费方（`:web`）：**已落地**（2026-10-21，批 3）
+
+屏就是 `:core` 那份 `DownloadManagerScreen`（三端同一份），但**屏不再直接收一个具体的 `DownloadManager`**
+—— 那一份是「本机引擎 + 本机登记表」的装配，浏览器里造不出来（会议 #9 又明说**不做影子版**）。
+所以抽了一层窄接口 **`DownloadsHost`**（`:feature:lms`，`media/DownloadsHost.kt`）：
+
+| 谁 | 实现 | 说明 |
+|---|---|---|
+| Android / 桌面 | `DownloadManager` 自己（`class DownloadManager(...) : DownloadsHost`） | 语义一字未改；只有 `resumeDownload` / `resumeAll` 声明成 `suspend`（它们本来仍是「丢一个协程就返回」），另加一个 `changes`（把真进度流摊平） |
+| web | `WebDownloadsHost`（`:web`，走本节的 `/api/downloads`） | 取数 `ServeDownloadsApi`（`:feature:lms`，与它的模型同模块） |
+
+三处**如实差异**（屏上按宿主能力画，不画假按钮）：
+
+1. **没有推送** ⇒ `changes` 是**轮询**（5 秒一发；契约给的就是「屏上轮询」那一档）；
+2. **目录那一格要等第一次列表回来**（它来自响应的 `dir`）⇒ `videoDirPath` 在首次列表前是空串
+   （屏进页就会拉一次，所以弹窗里实际看不到空的）；
+3. **不画播放按钮**（`onPlayTask = null`）：文件在**运行 serve 那台机器**上，浏览器打不开它；
+   同理 `files = null`（没有本机下载目录那一组）。
+
+另加一条**错误通道**：`DownloadsHost.notices`（默认空流）—— serve 那一份用它报 `409` 与网络故障，
+屏收到就弹一张一次性提示（`DownloadNoticeDialog`：「没做成」+ 中文短句）。
+**本机那一份永远不发**（它没有会失败的远端动作），所以那一张弹窗在 App / 桌面上永远不会出现。
+
+⚠️ 三个「全部」动作（全部暂停 / 继续 / 取消）**没有批量端点**（桌面那一屏本来也是本机循环调的）⇒
+web 那一份逐条调：好处是**失败只影响那一条**，坏处是 N 发请求。要不要开批量端点，留待下一步拍。
+
+**夹具与用例（2026-10-21）**：`:server:test` 新增 `ServeDownloadRoutesTest` **5** 例（进门条件七条逐条 401 +
+列表与目录那一格 + 新建→下载中→完成→删除的完整状态机 + `deleteFile` 开关与幂等 + 请求体与 `m3u8` 形状 +
+三个动作动词的完整往返（暂停 → 恢复 → 取消）与两处 409（目标不在表里 / 状态不对））。
+它**注入一份可控的 `DownloadManager`**（内存版登记表 + 卡在闸门上的引擎 + 临时目录版的落盘端口）：
+生产装配里的引擎会真发 HTTP、落盘端口会往操作者的 `~/Downloads` 写文件 —— 契约测试不该碰这两样。
+**客户端那一侧**：`:feature:lms` 新增 `ServeDownloadsApiTest` **4** 例（`MockEngine`）—— `list` 逐字段
+（十二格 + 三个计数 + 目录那一格，且 **`videoUrl` 不投影**、`createTime` 的 ISO→毫秒真转对了）·
+`enqueue` 的请求体就是契约那几格 · 三个动词走 `POST` 子路径、删除走 `DELETE` 带 `deleteFile`，
+且 **`409` 是结果不是异常**（`ok=false` + 中文短句原样交回）· campus-api 形态一律 `serveOnly`。
+`:web` 那一侧：`WebRouteCoverageTest` 的差集从 4 条降到 **3** 条（`DownloadManager` 出差集 ——
+「门在、屏不在」那一类少一条），`wasmJsBrowserTest` 69 例全绿。
+夹具那一处：`:testkit` **零改动**（这一族不打上游）。
+
+### 5.14 教材全文库那一族（2026-10-21 落地）：`/api/jiaocai1`
+
+教材全文库（`jiaocai1.lib.xjtu.edu.cn`）。与其余二十多族同一条做法：**`:data` 里早有取数实现**
+（`Jiaocai1Api` / `Jiaocai1PageLoader`，Android 与桌面直连在用），本层只做投影。
+
+**会话**：借的是**教材中心**那个站点（`jiaocai`）—— 全文库的会话由 `jiaocai.lib` 那一侧的
+`portalLogin` 桥接过来（`:data` 的 `PortalRedirect`），与桌面 `DesktopSiteGate(JIAOCAI_SITE_KEY)`
+走的是同一条，**一个新站点都没注册**。
+
+| 端点 | 方法 | 请求 / 参数 | 响应 |
+|---|---|---|---|
+| `/api/jiaocai1/classify` | GET | —— | `{count,nodes:[{id,name,level,parentId,nodeId,children:[…]}]}` |
+| `/api/jiaocai1/search` | GET | `keyword` 与 `cls` **至少给一个**；`field`（五选一，默认 `bookName`）；`page` | `{keyword,field,cls,page,totalRows,currentPage,totalPages,count,books:[…]}` |
+| `/api/jiaocai1/book` | GET | `ssno` **必填** | `{ssno, book:{title,pageRanges[8][2],bookPages,pageCount}\|null}` |
+| `/api/jiaocai1/page` | GET | `ssno` + `index`（阅读器页序，**从 0 起**） | `image/jpeg` 字节（**§4 第四条例外**） |
+| `/api/jiaocai1/cover` | GET | `url`（只认全文库自己的域名） | `image/jpeg` 字节（同上） |
+| `/api/jiaocai1/shelf` | GET | —— | `{count,rows:[…]}`（八格，见下） |
+| `/api/jiaocai1/shelf` | POST | `{ssno,title,author,coverUrl,totalPages,lastReadIndex,lastReadAt?,addedAt?}` | 同上（整份） |
+| `/api/jiaocai1/shelf/progress` | POST | `{ssno,lastReadIndex,totalPages,at?}` | 同上（整份） |
+| `/api/jiaocai1/shelf/{ssno}` | DELETE | —— | 同上（整份） |
+
+**分类树的节点就是 `:core` 的 `Jiaocai1Category`**（那个模型本来就是 `@Serializable`）⇒ 零转换、零漂移；
+`id` 即检索参数 `cls`。**一本书八格**：`ssno` · `title` · `author` · `publishDate` · `themeWord` ·
+`callNo` · `classifyPath` · `coverUrl`（要字节就打 `cover` 那一条）。
+
+**`book` 只回页表那一半**：`pageRanges` 是 8 种页型各自的 `[起, 止]`（`起 > 止` = 这本书没有这类页），
+顺序与 `:core` 的 `Jiaocai1Paging.TYPE_NAMES` 逐位对应；`pageCount` 是摊平之后的总页数（夹具那本书是 **34**）。
+⚠️ **`jpgPath` 不投影**：那是服务端按会话下发的**令牌路径**（`:core` 的 `Jiaocai1BookHandle` 自己就写着
+「不要持久化」）。客户端要的是页表，取字节走 `page` 那一条。打不开（没有开放全文 / 会话过期那一枪没补上）⇒
+`200` + `book:null`（与 `/api/lms/course-match` 的 `matched:false` 同一条：「没有」不是错误）。
+
+**书架**（一行八格，与 `:core` 的 `Jiaocai1ShelfRecord` 逐字同名）：`ssno` · `title` · `author` · `coverUrl` ·
+`totalPages` · `lastReadIndex` · `lastReadAt` · `addedAt`。
+
+- **落在 serve 侧、按账号**（店名 `serve_jiaocai1_shelf<账号后缀>`）：口径照会议 #9 的先例 ——
+  **serve 装真的那一层、浏览器只当界面**，与桌面的 `DesktopJiaocai1ShelfStore`（数据根下一个 JVM 文件）同性质：
+  **跟着账号、换浏览器还在**。
+- ⚠️ **两个时间是 epoch 毫秒，不是 ISO-8601**（§4 的通则在这里让位，与 `/api/agent/sessions` 的 `createdAt`
+  同一条理由）：这两格是 `:core` 模型 `Jiaocai1ShelfRecord` 的 `Long` 字段，浏览器要把它们原样放回**同一个模型**
+  （屏上自己算「3 天前」）。请求体里省略（或给 0）= 此刻。
+- 写端点每一条都**回整份书架**（与 `/api/accounts` 的写端点回快照同一条做法）；`shelf/progress` 只动已有的行
+  （不在书架里就是空操作，不是错误，也不会凭空长出一行）；`shelf/{ssno}` 与它一样幂等。
+- 移出书架时顺带丢掉那一本的**本地页缓存**（与 `:core` 的 `removeFromShelf` 同一步）。
+- **与桌面不共享**（各用自己的店名，理由同上那条：共用一个文件会互相写坏）。
+- ⚠️ **web 的档案导出读不到它**：浏览器的档案导出是**同步**的（在页面里拼 zip），读不到 serve 侧的东西 ⇒
+  `files/jiaocai/jiaocai1_shelf.json` 这一族在 web 的档案里仍**不落地**（`WebArchiveRows` 那句如实说明不变）。
+
+**页图与封面这两条（§4 第四条例外）**：成功那一半回 `image/jpeg` 字节，**失败那一半仍是信封**
+（取不到 ⇒ `502` + 中文短句；页序越界 ⇒ `400` 且文案里写出这本书有多少页）。为什么不塞 data URI
+（`venue/captcha` 那一条先例）：扫描页一张几百 KB，base64 是体积乘 1.33 且整张进内存；而屏上就是一张位图，
+`serve_token` 是 `Path=/` 的 cookie ⇒ 直接当图片取即可。
+
+**其余如实边界**：
+
+- **封面只认全文库自己的地址**（`jiaocai1.lib.xjtu.edu.cn`）：`?url=` 是客户端从检索结果里带回来的，
+  不校验就等于把 serve 变成一台谁都能用的取图代理（`file://` / 别的域名 / `127.0.0.1` 一律 `400`）；
+- **封面要在会话建立之后才拿得到**：`:data` 的 `Jiaocai1PageLoader.coverBytes` 走的是取字节那条路，
+  **不会**像 `classify` / `search` / `openBook` 那样自己跟一遍 `portalLogin` 跳转链 ⇒ 全新会话里先取封面
+  会拿回跳转页（按「取不到」回 `502`）。真实屏上的次序就是「先检索、再画封面」，所以这不算缺路；
+  页图那一侧因为要先 `book` 拿到句柄，天然满足；
+- **`prefetchWindow` 在这一端是空的**：预取是「一台设备上本地磁盘 + 内存 LRU」的优化（`:data` 的
+  `Jiaocai1PageLoader`），浏览器这一侧一页一发请求即可，本层不为它多开端点；
+- **取页图失败会重开一次**：`jpgPath` 是会话令牌，上游轮换之后旧路径会一直给空体（`:data` 那层靠图片魔数判成败），
+  本层在 `page` 那一条上「取不到 ⇒ 重开这本书 ⇒ 再取一次」，仍拿不到才回 `502`。
+
+
+#### 消费方（`:web`）：**已落地**（2026-10-22，批 4）
+
+两屏就是 `:feature:jiaocai` 那两份（`Jiaocai1LibraryScreen` / `Jiaocai1ReaderScreen`，与 Android / 桌面同一份），
+浏览器只当界面（会议 #9 = 丙「做法①」）：**检索、页表、页图、书架都真的发生在运行 serve 的那台机器上**。
+
+| 谁 | 实现 | 说明 |
+|---|---|---|
+| 取数（两屏共用） | `ServeJiaocai1Api`（`:feature:jiaocai`，与它的模型同模块） | 九条端点里的七条 JSON；`page` / `cover` 只给**路径构造**（`pagePath` / `coverPath`），字节由 `:web` 取 |
+| `Jiaocai1Source` | `WebJiaocai1Source`（`:web`） | 页图 / 封面走**同源 `fetch`**（`Jiaocai1Bytes`，`ArrayBuffer` → URL-safe Base64 → `ByteArray`）；`prefetchWindow` / `evictBook` / `closePages` 是**空操作** |
+| `Jiaocai1ShelfStore` | `WebJiaocai1ShelfStore`（`:web`） | `observeAll()` 是**冷流**（收一次先拉一份）；写端点回整份 ⇒ 直接覆盖本地那份 |
+
+四处**如实差异**（都已经想清楚理由，不是「还没做」）：
+
+1. **页图 / 封面是一发一发同源 fetch**，不是「本机磁盘缓存 + 预取窗口」那一套 —— 预取是「一台设备上本地磁盘 +
+   内存 LRU」的优化（本节上面那条「如实边界」已明说本层不为它多开端点），而 `serve_token` 是 `Path=/` 的
+   cookie ⇒ 同源请求自动带上，不必自己塞头；
+2. **取字节不产生 `:data` 的 `AuthExpiredException`** ⇒ 屏上那条 `authExpired` 通路在浏览器这一端走不到；
+   会话过期由 `/api/*` 的 `401` 与 `WebAuthEvents`（`Data.kt` 那个钩子）接住，与其余 serve 屏同一条；
+3. **书架取数失败会画 `ErrorState`**（不是「书架还是空的」——那是编事实）：为此刻意给 `Jiaocai1ShelfStore`
+   补了两个**带默认实现**的成员（`refresh()` / `notices`，默认空实现 / 空流），Android 与桌面那两份
+   一个字节都没改；屏上那句「取不到」与那条「重试」是同一份共享屏画的；
+4. **`jiaocai1` 的分类树缓存不传**（`jiaocai1Cache = null`）：浏览器这边没有 `DataCache` 的等价物，
+   不假装有 30 天缓存（与 `lms` 的 `cacheStore = null`、成绩那屏的 `cache = null` 同一条）。
+
+⚠️ **档案导出读不到书架**：浏览器那一侧的导出是**同步**的（在页面里拼 zip）⇒ `files/jiaocai/jiaocai1_shelf.json`
+这一族在 web 的档案里**仍不落地**（上面「书架」那一段已经写着，本批没有改变这一条）。
+
+**用例**：`:feature:jiaocai:jvmTest` 新增 `ServeJiaocai1ApiTest` **14** 例（`MockEngine`）—— 分类树两级递归
+与「`nodes` 不是数组就报错」· 检索八格 + 分页四格 + 四个参数都进 query（空 `cls` **不发**、中文关键词百分号编码）·
+空结果那一档与「两格分页缺了就按第一页」· `book` 的八组页型逐组 + 摊平 34 页 + **`jpgPath` 不投影** +
+`book:null` 与「页表不是八组」分开 · 书架一行八格（两个时间**是毫秒**、原样读）· `upsert` / `progress` 的请求体
+逐格、`delete` 走 `DELETE` 不带体 · 业务拒绝（`code != 0`）是异常且文案原样带上 · `pagePath` / `coverPath`
+的参数编码 · campus-api 形态一律 `serveOnly`。
+`:web` 那一侧：`WebRouteCoverageTest` 的差集从 3 条降到 **2** 条（`Jiaocai1` 出差集），
+`wasmJsBrowserTest` 全绿（见 `docs/parity-ledger.md` §8.9 里那条：`Jiaocai1Reader` 仍在差集里，
+但**不是「本端做不到」**——它是带参数的深链，门在 `Jiaocai1` 那一屏内部）。
+夹具那一处：`:testkit` **零改动**（这一族的假上游上一批已经齐了）。
+
+**夹具与用例（2026-10-21）**：`:server:test` 新增 `ServeJiaocai1Test` **6** 例 —— 分类树两级与检索八格逐字段
+（含第二页与空结果那一档）· 检索的参数形状（两个条件都空 `400` / `field` 认不出 `400` / `page` 不是正整数 `400`）·
+`book` 的八组页型与总页数 34 且 **`jpgPath` 不投影** · `page` 真回 JPEG 字节（Content-Type + 魔数）与页序越界 `400` ·
+`cover` 的域名白名单（五种坏 URL 逐条 `400`）与正主字节 · 书架的完整往返（空表 → 加一本 → 只改进度 → 移出，
+每一步回整份，且**全程不碰上游**）。
+夹具那一处：`:testkit` 的 `Jiaocai1FakeUpstream` **零改动**（分类树 / 检索 / reader / 页图 / 封面五条它早就齐了）；
+`ServeEndpointTestSupport` 新增两个小工具（`getBytes` 按字节读、`delete`）—— 二进制那几条不能按字符串读。
 
 ## 6. 夹具契约测试（D5 要求，不能只写文档）
 

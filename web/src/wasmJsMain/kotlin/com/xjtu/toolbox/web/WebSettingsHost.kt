@@ -18,6 +18,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
+import com.xjtu.toolbox.archive.ArchiveImportMode
 import com.xjtu.toolbox.settings.ChangelogEntry
 import com.xjtu.toolbox.settings.ScheduleSourceOption
 import com.xjtu.toolbox.settings.SettingsHost
@@ -31,19 +32,23 @@ import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.preference.ArrowPreference
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
-/** Web 这一端的设置页宿主面（`:core` 的 `SettingsScreen` 是共享屏）。 */
+/** Web 设置页宿主。 */
 internal class WebSettingsHost(
-    /** 外观改完之后戳一下外壳（`Main.kt` 重新读一次 `SettingsStore`）。 */
     private val notifyAppearanceChanged: () -> Unit,
-    /** 「数据与隐私」那两行归档动作 + 它的一行结果文本。 */
     private val archive: WebArchiveActions,
 ) : SettingsHost {
 
-    /** 版本那一行：本端没有版本号这个概念（页面是同一个 dist，服务端直接托管它）。 */
     override val versionText: String = "Web 构建（wasm）"
 
+    /** Web 端支持的设置项。 */
     override val honoredRows: Set<SettingsRow> =
-        setOf(SettingsRow.DARK_MODE, SettingsRow.DYNAMIC_COLOR, SettingsRow.HOME_HERO)
+        setOf(
+            SettingsRow.DARK_MODE,
+            SettingsRow.DYNAMIC_COLOR,
+            SettingsRow.HOME_HERO,
+            SettingsRow.DEFAULT_TAB,
+            SettingsRow.NAV_STYLE,
+        )
 
     /** 本端没有更新日志（`:app` 的 `AppChangelog` 在更新域里）⇒ 那一行不画。 */
     override val changelog: List<ChangelogEntry> = emptyList()
@@ -60,6 +65,14 @@ internal class WebSettingsHost(
     /** 「更新」整组：本端的更新就是服务端换一份 dist（刷新一次页面） ⇒ 整组不画。 */
     override val updateSection: (@Composable () -> Unit)? = null
 
+    /** Web 端暂不支持的设置说明。 */
+    override val gapNote: String =
+        "网页版没有这些设置（要调请用 App）：常用功能、连接模式、考勤角标、场馆验证码" +
+            "——常用功能是手机首页上的快捷入口，网页外壳另做了一层；场馆验证码要靠图片解码，" +
+            "而本端那个解码恒空（`WebSlideCaptchaHost`），停在手动滑动那一档。" +
+            "课表来源只有教务一个：考勤那一路要站点会话，serve 端还没有转发。" +
+            "这里也没有「通知与提醒」和「更新」两组——网页版随 serve 一起更新，没有单独的更新通道；" +
+            "提醒能不能弹，看这个站点有没有拿到浏览器通知权限。"
     override val onNetworkModeChanged: (() -> Unit)? = null
 
     override fun onAppearanceChanged() = notifyAppearanceChanged()
@@ -83,7 +96,10 @@ private fun WebDataPrivacySection(archive: WebArchiveActions) {
             title = "导入数据存档",
             summary = "选一份 zip 档案读进来（先自校验，默认不覆盖本机数据）",
             startAction = { WebSettingsIcon(Icons.Default.Download) },
-            onClick = { archive.import() },
+            onClick = {
+                archive.mode = ArchiveImportMode.MERGE
+                archive.choose()
+            },
         )
         archive.status?.let {
             Text(
@@ -94,6 +110,9 @@ private fun WebDataPrivacySection(archive: WebArchiveActions) {
             )
         }
     }
+
+    // 有待确认的导入 ⇒ 弹窗选档（默认档恒为 MERGE）；确认调 confirm()、取消调 cancel()。
+    if (archive.pending) WebArchiveImportDialog(archive)
 }
 
 /** 设置页一行左侧的图标（与 `:core` 设置屏的 `SettingsIcon` 同一视觉）。 */

@@ -37,10 +37,10 @@ class CampusAttendanceApi(
     private val mode: ApiMode = ApiMode.CAMPUS_API,
 ) : AttendanceSource {
 
-    /** 只剩统计 / 打卡流水两栏没端点。 */
+    /** 三栏都在（2026-10-22 批5：统计与打卡流水也端了，契约 §5.12）—— 请假那一栏更早就有。 */
     override val capabilities: AttendanceCapabilities = AttendanceCapabilities(
-        stats = false,
-        streams = false,
+        stats = true,
+        streams = true,
         leave = true,
     )
 
@@ -124,16 +124,63 @@ class CampusAttendanceApi(
 
     // ── 统计 / 打卡流水：契约 §5.5 没有端点 ────────────────────────────
 
-    override suspend fun getKqtjCurrentWeek(): List<CourseAttendanceStat> = noStats()
+    // ── 统计 / 打卡流水（契约 §5.12：两条端点都只认学期号）────────────────
 
-    override suspend fun getKqtjByTime(startDate: String, endDate: String): List<CourseAttendanceStat> = noStats()
+    override suspend fun getKqtjCurrentWeek(): List<CourseAttendanceStat> = statsOf(currentTermBh)
 
-    override fun computeCourseStatsFromRecords(records: List<AttendanceWaterRecord>): List<CourseAttendanceStat> =
-        noStats()
+    /**
+     * 端点只认学期号（不认一对日期）—— 这两个参数是屏上用来算学期窗口的，同一个学期算出来的是同一份统计。
+     */
+    override suspend fun getKqtjByTime(startDate: String, endDate: String): List<CourseAttendanceStat> =
+        statsOf(currentTermBh)
+
+    /**
+     * 按课程统计那一栏。
+     *
+     * [records] **不参与**：算路在 `:data`（只有 JVM/Android 变体，浏览器里没有它），所以 serve 这一份
+     * 让服务端按**同一个学期**跑同一条算路（`/api/attendance/stats` 与 `/records` 同一口径，见契约 §5.12
+     * 那句「缺勤按学期全量算」）。调用方总是刚拿完这个学期的流水（`currentTermBh` 于是已知），
+     * 所以这里不会再发一次学期发现请求。
+     */
+    override suspend fun computeCourseStatsFromRecords(records: List<AttendanceWaterRecord>): List<CourseAttendanceStat> =
+        statsOf(currentTermBh)
 
     override suspend fun getStreams(startDate: String, endDate: String): List<AttendanceStream> {
         requireServe()
-        return emptyList()
+        // 同样只认学期号：日期窗由服务端按该学期的起止推（契约 §5.12）。
+        val term = currentTermBh ?: getTermBh()
+        val data = client.serveData("加载打卡流水", baseUrl, STREAMS_PATH, listOf("term" to term))
+        return data.arr("streams").orEmpty().mapNotNull { element ->
+            val row = element as? JsonObject ?: return@mapNotNull null
+            AttendanceStream(
+                id = row["id"].safeString(),
+                location = row["location"].safeString(),
+                // 上游给的 `2026-09-16 08:05:00` 原样投影：本层不编一个时区（契约 §5.12）
+                collectTime = row["collectTime"].safeString(),
+                effective = row["effective"].safeBoolean(),
+            )
+        }
+    }
+
+    /** `GET /api/attendance/stats`（`?term=` 省略 = 服务端算当前学期）。 */
+    private suspend fun statsOf(term: String?): List<CourseAttendanceStat> {
+        requireServe()
+        val data = client.serveData("统计考勤", baseUrl, STATS_PATH, listOf("term" to term.orEmpty()))
+        return data.arr("stats").orEmpty().mapNotNull { element ->
+            val row = element as? JsonObject ?: return@mapNotNull null
+            val name = row["courseName"].safeString().trim()
+            if (name.isEmpty()) return@mapNotNull null
+            CourseAttendanceStat(
+                subjectName = name,
+                subjectCode = row["courseCode"].safeString(),
+                normalCount = row["normalCount"].safeInt(),
+                lateCount = row["lateCount"].safeInt(),
+                absenceCount = row["absenceCount"].safeInt(),
+                leaveEarlyCount = row["leaveEarlyCount"].safeInt(),
+                leaveCount = row["leaveCount"].safeInt(),
+                total = row["total"].safeInt(),
+            )
+        }
     }
 
     // ── 请假那一半（三读 + 三写；附件上传没有端点）────────────────────
@@ -265,11 +312,6 @@ class CampusAttendanceApi(
             )
         }
     }
-    /** 统计那一栏没有端点：不拿流水在本机另算一份。 */
-    private fun noStats(): List<CourseAttendanceStat> {
-        requireServe()
-        return emptyList()
-    }
 
     /** 一次性幂等键（`:core` 没有 `java.util.UUID`）：与 [FeedbackStore] 同一个字母表与长度。 */
     private fun newRequestId(): String = buildString {
@@ -288,6 +330,12 @@ private suspend fun HttpClient.serveLeaveAction(
     if (!outcome.ok) error("$what：${outcome.message}")
     return outcome.data ?: error("$what：服务端返回缺少 data（契约 §5.4）")
 }
+
+/** 按课程的考勤统计（`?term=`，契约 §5.12）。 */
+private const val STATS_PATH = "/api/attendance/stats"
+
+/** 打卡原始流水（`?term=`，契约 §5.12）。 */
+private const val STREAMS_PATH = "/api/attendance/streams"
 
 /** 幂等键的字母表（与 `:data` 那边同为十六进制大写 —— 一眼看得出是键不是正文）。 */
 private const val REQUEST_ID_ALPHABET = "0123456789ABCDEF"

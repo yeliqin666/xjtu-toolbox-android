@@ -57,6 +57,11 @@ import kotlinx.datetime.plus
 import top.yukonga.miuix.kmp.basic.*
 import top.yukonga.miuix.kmp.overlay.OverlayDialog
 import top.yukonga.miuix.kmp.theme.MiuixTheme
+/** 「功能说明」里验证码那一句的默认值（= `:app` 一直以来的文案；改一个字就是改 `:app` 的用户可见文案）。 */
+const val VENUE_CAPTCHA_HINT = "验证码默认自动识别，可在设置中关闭；失败仍可手滑"
+
+/** 「功能说明」里支付那一句的默认值（同上）。 */
+const val VENUE_PAY_HINT = "支付在内置浏览器里完成，登录一般自动通过"
 
 /**
  * 体育场馆预订主页面。
@@ -76,6 +81,22 @@ fun VenueScreen(
     autoSolveCaptcha: () -> Boolean = { false },
     /** 滑块验证码宿主槽位（见类 KDoc）：Android/桌面 = 各端宿主，只读端 = null。 */
     captchaHost: SlideCaptchaHost? = null,
+    /**
+     * 「功能说明」里验证码那一句（正文，不带 `• ` 与换行）：默认值 = [VENUE_CAPTCHA_HINT]
+     * （`:app` 一直以来的写法）。
+     *
+     * 为什么要抽出来：这三端都 `canBook = true`，所以这句三端都画；但**交得出去的方式不同**：
+     * 桌面有解算器也读设置，web 的图片解码恒空（停在手动滑动）。屏自己不知道，宿知道，
+     * 所以由宿主传自己的话。不传 = 旧文案（`:app` 一个字不变）。
+     */
+    captchaHint: String = VENUE_CAPTCHA_HINT,
+    /**
+     * 「功能说明」里支付那一句（正文，同上）：默认值 = [VENUE_PAY_HINT]。
+     *
+     * 桌面实际用**系统浏览器**开、web 用**新标签页**开，两者都收不到回调 ⇒ 都不能说
+     * 「内置浏览器」「登录自动通过」（那是 `:app` 的 WebView 才有的事）。
+     */
+    payHint: String = VENUE_PAY_HINT,
     /** 「功能说明」还没读过吗。 */
     showFirstUseHint: Boolean = false,
     onFirstUseHintRead: () -> Unit = {},
@@ -191,11 +212,12 @@ fun VenueScreen(
                 Column(Modifier.fillMaxWidth()) {
                     Text(
                         // 后两条只在能下单的那一端成立（只读端没有验证码弹窗、也没有支付入口）；
+                        // 它们的话由宿主传（`captchaHint` / `payHint`）：三端都能下单，但交得出去的方式不同。
                         // 只读端那一条再按 `canCancel` 分：能取消就说能取消。
                         buildString {
                             if (canBook) {
-                                append("• 验证码默认自动识别，可在设置中关闭；失败仍可手滑\n")
-                                append("• 支付在内置浏览器里完成，登录一般自动通过\n")
+                                append("• $captchaHint\n")
+                                append("• $payHint\n")
                             } else {
                                 // 「能不能取消」是**另一条**能力（`canCancel`），不要跟着 `canBook` 一起说死：
                                 // 桌面端就是「能取消、不能预订」（预订要滑块验证码，那个控件还是 Android 专属）。

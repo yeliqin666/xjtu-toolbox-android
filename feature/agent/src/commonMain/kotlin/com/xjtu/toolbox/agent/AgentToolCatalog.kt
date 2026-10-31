@@ -148,16 +148,18 @@ fun agentToolDefinitions(honored: Set<AgentCapability>): String {
             "text_offset" to agentIntProp("PDF 单页文字过长时，按返回的 next 从此字符偏移续读；默认0。"),
             required = listOf("file_id"),
         )))
-    arr.add(agentTool("save_file",
-        "把学辅资料或思源附件存进手机「下载」（我的 → 下载管理里能看到）。用户说要下载、要存时用。",
-        agentParams(
-            "source" to agentEnumProp("zyxf=学辅资料站；lms=思源附件。", "zyxf", "lms"),
-            "file_id" to agentIntProp("学辅文件 ID。"),
-            "course" to agentStrProp("思源课程名，模糊。"),
-            "activity" to agentStrProp("思源活动标题，模糊。"),
-            "file" to agentStrProp("思源附件名关键词。"),
-            required = listOf("source"),
-        )))
+    if (AgentCapability.FILE_SAVE in honored) {
+        arr.add(agentTool("save_file",
+            "把学辅资料或思源附件存进手机「下载」（我的 → 下载管理里能看到）。用户说要下载、要存时用。",
+            agentParams(
+                "source" to agentEnumProp("zyxf=学辅资料站；lms=思源附件。", "zyxf", "lms"),
+                "file_id" to agentIntProp("学辅文件 ID。"),
+                "course" to agentStrProp("思源课程名，模糊。"),
+                "activity" to agentStrProp("思源活动标题，模糊。"),
+                "file" to agentStrProp("思源附件名关键词。"),
+                required = listOf("source"),
+            )))
+    }
     arr.add(agentTool("get_textbooks",
         "本人课程教材（教务教材报表）。需教务登录。",
         agentParams(

@@ -46,6 +46,20 @@ class AndroidFileBackend(
         else -> null
     }
 
+    /** §6.3「mtime → `at`」：成绩缓存那一族的年龄就是文件 mtime（[ArchiveScoreReport]）。 */
+    override fun mtimeMs(suffix: String, relPath: String): Long? = when {
+        relPath.startsWith("agent_sessions/") -> {
+            val file = File(agentSessionsDir(suffix), relPath.removePrefix("agent_sessions/"))
+            if (file.isFile) file.lastModified().takeIf { it > 0L } else null
+        }
+        relPath.startsWith("schedule/") -> {
+            val dir = scheduleDir(suffix) ?: return null
+            val file = File(dir, relPath.removePrefix("schedule/"))
+            if (file.isFile) file.lastModified().takeIf { it > 0L } else null
+        }
+        else -> null
+    }
+
     private fun agentSessionsDir(suffix: String): File = File(dataRoot, "agent_sessions$suffix")
 
     private fun scheduleDir(suffix: String): File? = cacheRoot?.let { File(it, "data_cache$suffix") }

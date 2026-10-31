@@ -48,6 +48,20 @@ interface ScheduleHost {
     /** 这一端**真会照着办**的那些能力（见 [ScheduleCapability]）。 */
     val honored: Set<ScheduleCapability>
 
+    /**
+     * 缺的那几档能力各自一句说明（键 = [ScheduleCapability]）。
+     *
+     * 为空 = 本端没什么要交代的（三端都没有的、或显而易见的不写）——这是默认值，所以不填这一格的端
+     * 行为与本槽位出现之前**一模一样**：屏上不会多画一行字。
+     *
+     * 只对「这一端不干这件事」的能力有意义：不用 [honored] 里有的东西去配说明，屏上也只在
+     * `capability !in honored` 的分支里找它。文案要同时说清三件事：这一端没有什么 / 为什么 / 去哪儿能用。
+     */
+    val gapNotes: Map<ScheduleCapability, String> get() = emptyMap()
+
+    /** [capability] 的缺口说明；null = 本端不交代（有这一档，或没什么好说的）。 */
+    fun gapNote(capability: ScheduleCapability): String? = gapNotes[capability]
+
     /** 本地落盘那一族（[cache] / [customCourses]）的调度器。 */
     val io: CoroutineDispatcher get() = Dispatchers.Default
 
@@ -136,7 +150,13 @@ interface HolidaySource {
     suspend fun refresh(cache: ScheduleCacheStore, force: Boolean = false): Map<LocalDate, String>
 }
 
-/** 课程详情里那两项下钻（`:data` 的 `CourseLinks`：要会话内核、`LmsApi` 与 `AttendanceRecordStore`）。 */
+/**
+ * 课程详情里那两项下钻。
+ *
+ * 判据（配对 / 建索引）在共享层的 `CourseLinkMatching.kt`，各端只需要把数据取来：
+ * Android 与桌面用 `:shared:data` 的 `CourseLinks`（要会话内核、`LmsApi` 与 `AttendanceRecordStore`），
+ * web 等 serve 端点接上 `CourseLinkSource` 即可（driver 用 `SourceBackedCourseLinkAccess`）。
+ */
 interface CourseLinkAccess {
 
     /** 拉一学期考勤并建索引。 */
@@ -150,7 +170,7 @@ interface CourseLinkAccess {
     suspend fun lmsCourseFor(course: CourseItem): LmsCourseSummary?
 }
 
-/** 一学期的考勤流水按课表格子建的索引。`:data` 的 `CourseLinks.AttendanceIndex` 直接实现它。 */
+/** 一学期的考勤流水按课表格子建的索引。共享层的 [SlotAttendanceMarks] 直接实现它（wasm 也能编）。 */
 interface AttendanceMarks {
 
     /** 这一格记的是什么；查无此格（未来的课、或这门课不考勤）返回 null。 */

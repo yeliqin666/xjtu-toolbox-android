@@ -1,6 +1,7 @@
 package com.xjtu.toolbox.judge
 
 import com.xjtu.toolbox.core.net.ApiMode
+import com.xjtu.toolbox.core.net.serveAction
 import com.xjtu.toolbox.core.net.serveData
 import com.xjtu.toolbox.util.AppJson
 import com.xjtu.toolbox.util.arr
@@ -14,7 +15,9 @@ import io.ktor.client.request.get
 import io.ktor.client.request.parameter
 import io.ktor.client.statement.bodyAsText
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.put
 
 /** campus-api 的评教行 → 共享 [JudgeSource] 能吃的模型。 */
 data class CampusQuestionnaire(
@@ -36,8 +39,11 @@ class CampusJudgeApi(
     private val term: String? = null,
 ) : JudgeSource<CampusQuestionnaire> {
 
-    /** 只读（见类 KDoc）。 */
-    override val canSubmit: Boolean get() = false
+    /**
+     * serve 形态下**真能提交**（2026-10-22 批5：契约 §5.12 的 `POST /api/jwxt/evaluations/submit`）；
+     * campus-api 那一份仍然只读（那条老路没有提交端点）。屏上那个「一键评教」块按这一格画不画。
+     */
+    override val canSubmit: Boolean get() = mode == ApiMode.SERVE
 
     override val confirmText: String get() = "，确定继续？"
 
@@ -54,8 +60,23 @@ class CampusJudgeApi(
         tag = when (q.pgType) { "01" -> "期末评教"; "05" -> "过程评教"; else -> "评教" },
     )
 
-    /** 只读：见类 KDoc。不实现 [JudgeSource.judge] 就等于「这一端交不了」。 */
-    override suspend fun judge(q: CampusQuestionnaire): Unit = error("Web 端评教是只读的（campus-api 永不实现提交）")
+    /**
+     * 一键评教：一门课一发 `POST /api/jwxt/evaluations/submit`（契约 §5.12）。
+     *
+     * ⚠️ **`submitted:false` 不是失败**：契约写明「已在已评名单 ⇒ 200 + `submitted:false`」（幂等）
+     * —— 屏上那一门课于是依旧从「未评」里消失，与真提交同一条路。
+     */
+    override suspend fun judge(q: CampusQuestionnaire) {
+        if (mode != ApiMode.SERVE) error("Web 端评教是只读的（campus-api 永不实现提交）")
+        val body = buildJsonObject {
+            put("term", term.orEmpty())
+            put("type", q.pgType)
+            put("wjdm", q.wjdm)
+            put("jxbid", q.jxbid)
+        }.toString()
+        val outcome = client.serveAction(baseUrl, SUBMIT_PATH, body)
+        if (!outcome.ok) error("提交评教：${outcome.message}")
+    }
 
     private suspend fun fetchRows(term: String?): List<JsonObject> {
         if (mode == ApiMode.SERVE) {
@@ -98,3 +119,7 @@ class CampusJudgeApi(
             ?: error("campus-api 评教返回缺少 data：${text.take(120)}")
     }
 }
+
+/** 提交评教（契约 §5.12）：请求体 `{term,type,wjdm,jxbid}`，自动填答后提交。 */
+private const val SUBMIT_PATH = "/api/jwxt/evaluations/submit"
+

@@ -184,6 +184,10 @@ fun Jiaocai1ShelfContent(
     val shelf by vm.shelf.collectAsStateWithLifecycle()
     ShelfTab(
         items = shelf,
+        // 取数失败的一句话（只有 serve 那一份会发；Android / 桌面恒 null）：
+        // 空书架与「这一次没读到」在屏上必须是两件事，所以那一条走 ErrorState
+        error = vm.shelfError,
+        onRetry = { vm.reloadShelf() },
         images = images,
         onOpen = { onOpenBook(it.ssno, it.title) },
         onRemove = { ssno -> vm.removeFromShelf(ssno) },
@@ -240,6 +244,8 @@ fun Jiaocai1BrowseContent(
 @Composable
 private fun ShelfTab(
     items: List<Jiaocai1ShelfRecord>,
+    error: String?,
+    onRetry: () -> Unit,
     images: Jiaocai1PageImages,
     onOpen: (Jiaocai1ShelfRecord) -> Unit,
     onRemove: suspend (String) -> Unit,
@@ -275,6 +281,12 @@ private fun ShelfTab(
                 )
             }
         }
+    }
+
+    // 「没读到」优先于「空」：serve 那一侧会话过期 / 网络故障时，书架里明明可能有好几本书
+    if (error != null) {
+        ErrorState(error, onRetry = onRetry, modifier = Modifier.fillMaxSize())
+        return
     }
 
     if (items.isEmpty()) {

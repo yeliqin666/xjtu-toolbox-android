@@ -1,6 +1,7 @@
 package com.xjtu.toolbox.schedule
 
 import com.xjtu.toolbox.ui.components.enterOnce
+import com.xjtu.toolbox.ui.components.GapNote
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.foundation.background
@@ -87,6 +88,7 @@ fun TodayTimeline(
     upcoming: List<UpcomingItem> = emptyList(),
     /** 今天截止的作业，插进时间轴对应的时刻（不是「接下来」——那是给以后的）。 */
     todayHomework: List<LmsDue> = emptyList(),
+    dueHomeworkGap: String? = null,
     /** 屁岱排日程卡里的安排写进日程（见 [DayPlanCard]）。 */
     onAddPlan: ((LocalDate, List<PlanItem>) -> Unit)? = null,
 ) {
@@ -224,6 +226,7 @@ fun TodayTimeline(
             item { Box(Modifier.enterOnce(base)) { SectionLabel("接下来") } }
             itemsIndexed(upcoming) { i, item -> Box(Modifier.enterOnce(base + 1 + i)) { UpcomingRow(item) } }
         }
+        dueHomeworkGap?.let { gap -> item { GapNote(gap) } }
     }
 }
 

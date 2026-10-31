@@ -532,6 +532,128 @@ class ServeLmsJiaocaiJwappIclassfaceTest {
         assertTrue(envelopeData(empty).arrOf("records").isEmpty())
     }
 
+    // ── 作业截止（B-5）：读落盘缓存，不为作业再发请求 ──────────────────
+
+    @Test
+    fun `lms due：未登录 401 + 空缓存也给空表 + 缓存里有的逐字段`() = withFakeProxy { fake ->
+        val token = AccessToken.newToken()
+        val session = ServeSession()
+        val (server, http) = startEndpointServer(token) {
+            sessionRoutes(session, token)
+            lmsRoutes(session)
+        }
+        started = server
+
+        val root = java.nio.file.Files.createTempDirectory("xjtu-serve-lms-due").toFile()
+        val previousRoot = com.xjtu.toolbox.platform.keyValueStoreRootOverride
+        com.xjtu.toolbox.platform.keyValueStoreRootOverride = root
+        try {
+            val anonymous = http.get(LMS_DUE_PATH)
+            assertEquals(401, anonymous.statusCode())
+            assertEquals(ApiErrors.UNAUTHORIZED, envelopeCode(anonymous))
+
+            assertEquals(200, http.postJson(SESSION_PATH + "/login", LOGIN_BODY).statusCode())
+
+            // 缓存空 ⇒ 200 + 空表（不是 404、也不是 502）
+            val blank = http.get(LMS_DUE_PATH)
+            assertEquals(200, blank.statusCode())
+            assertEquals(ApiEnvelope.CODE_OK, envelopeCode(blank))
+            assertEquals(0, envelopeData(blank).optInt("count"))
+            assertTrue(envelopeData(blank).arrOf("items").isEmpty())
+
+            // 缓存里有两条 ⇒ 逐字段（并且一枪都不打到学堂）
+            val fetchedAt = 1_700_000_000_000L
+            com.xjtu.toolbox.lms.LmsDueStore.save(
+                listOf(
+                    com.xjtu.toolbox.lms.LmsDue(
+                        courseId = LmsFakeUpstream.COURSE_ID,
+                        courseName = LmsFakeUpstream.COURSE_NAME,
+                        activityId = LmsFakeUpstream.HOMEWORK_ID,
+                        title = LmsFakeUpstream.HOMEWORK_TITLE,
+                        deadline = "2099-01-01 23:59",
+                        submitted = false,
+                        fetchedAt = fetchedAt,
+                        exam = false,
+                    ),
+                ),
+                LibraryFakeUpstream.USERNAME,
+            )
+            val callsBefore = fake.lms.courseListCalls.get()
+
+            val response = http.get(LMS_DUE_PATH)
+            assertEquals(200, response.statusCode())
+            assertNoIdentity(response.body(), "GET $LMS_DUE_PATH", IDENTITY)
+            val data = envelopeData(response)
+            assertEquals(setOf("count", "items"), data.keys)
+            assertEquals(1, data.optInt("count"))
+            val item = data.arrOf("items")[0] as JsonObject
+            assertEquals(
+                setOf(
+                    "courseId", "courseName", "activityId", "title", "deadline",
+                    "submitted", "exam", "fetchedAt",
+                ),
+                item.keys,
+            )
+            assertEquals(LmsFakeUpstream.COURSE_ID, item.optInt("courseId"))
+            assertEquals(LmsFakeUpstream.COURSE_NAME, item.optString("courseName"))
+            assertEquals(LmsFakeUpstream.HOMEWORK_ID, item.optInt("activityId"))
+            assertEquals(LmsFakeUpstream.HOMEWORK_TITLE, item.optString("title"))
+            assertEquals(false, item.optBoolean("submitted"))
+            assertEquals(false, item.optBoolean("exam"))
+            assertEquals(java.time.Instant.ofEpochMilli(fetchedAt).toString(), item.optString("fetchedAt"))
+            assertEquals(callsBefore, fake.lms.courseListCalls.get(), "截止缓存不该为作业再发请求")
+        } finally {
+            com.xjtu.toolbox.platform.keyValueStoreRootOverride = previousRoot
+        }
+    }
+
+    // ── 思源课程配对（B-4）：web 的课表下钻靠它 ────────────────────────
+
+    @Test
+    fun `lms course-match：课程号精确配 + 配不上就是 null`() = withFakeProxy { fake ->
+        val token = AccessToken.newToken()
+        val session = ServeSession()
+        val (server, http) = startEndpointServer(token) {
+            sessionRoutes(session, token)
+            lmsRoutes(session)
+        }
+        started = server
+
+        assertEquals(401, http.get("$LMS_COURSE_MATCH_PATH?courseCode=${LmsFakeUpstream.COURSE_CODE}").statusCode())
+
+        assertEquals(200, http.postJson(SESSION_PATH + "/login", LOGIN_BODY).statusCode())
+
+        // 两个查询条件都不给 ⇒ 400
+        val bare = http.get(LMS_COURSE_MATCH_PATH)
+        assertEquals(400, bare.statusCode())
+        assertEquals(ApiErrors.BAD_REQUEST, envelopeCode(bare))
+
+        // 课程号精确配（两个系统用同一套教务课程号）
+        val byCode = http.get("$LMS_COURSE_MATCH_PATH?courseCode=${LmsFakeUpstream.COURSE_CODE}")
+        assertEquals(200, byCode.statusCode())
+        assertNoIdentity(byCode.body(), "GET $LMS_COURSE_MATCH_PATH", IDENTITY)
+        val hit = envelopeData(byCode)
+        assertEquals(setOf("matched", "course"), hit.keys)
+        assertEquals(true, hit.optBoolean("matched"))
+        val matched = hit.optObject("course")
+        assertNotNull(matched, "配上了就该把那一门给出来")
+        assertEquals(LmsFakeUpstream.COURSE_ID, matched.optInt("id"))
+        assertEquals(LmsFakeUpstream.COURSE_CODE, matched.optString("courseCode"))
+
+        // 只给课名也能配（归一化后完全相同）
+        val byName = http.get("$LMS_COURSE_MATCH_PATH?courseName=${encode(LmsFakeUpstream.COURSE_NAME)}")
+        assertEquals(200, byName.statusCode())
+        assertEquals(true, envelopeData(byName).optBoolean("matched"))
+
+        // 配不上 ⇒ 200 + matched=false + course=null（"没有"与"没投影"要分得开）
+        val miss = http.get("$LMS_COURSE_MATCH_PATH?courseCode=MATH999999")
+        assertEquals(200, miss.statusCode())
+        val missData = envelopeData(miss)
+        assertEquals(false, missData.optBoolean("matched"))
+        assertNull(missData.optObject("course"), "配不上就明说 null")
+        assertTrue(miss.body().contains("\"course\":null"), "null 要真出现在 JSON 里：${miss.body()}")
+    }
+
     // ── 脚手架 ─────────────────────────────────────────────────────────
 
     private companion object {
@@ -541,6 +663,8 @@ class ServeLmsJiaocaiJwappIclassfaceTest {
         const val LMS_COURSES_PATH = "/api/lms/courses"
         const val LMS_ACTIVITIES_PATH = "/api/lms/activities"
         const val LMS_ACTIVITY_PATH = "/api/lms/activity"
+        const val LMS_DUE_PATH = "/api/lms/due"
+        const val LMS_COURSE_MATCH_PATH = "/api/lms/course-match"
         const val JIAOCAI_SEARCH_PATH = "/api/jiaocai/search"
         const val JIAOCAI_SSNO_PATH = "/api/jiaocai/ssno"
         const val JWAPP_SCORES_PATH = "/api/jwapp/scores"
