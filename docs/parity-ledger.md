@@ -1128,3 +1128,66 @@ dev 新合进来的那些 PR）· `:web:wasmJsBrowserTest` **70 / 0** · 三个�
 - 推论（写给下一个会话）：**不要与这条分支的另一个会话争** —— 新增工作默认放自己的分支；
   要动 `chore/parity-a-batch` 就先 `ls-remote` 比对、用 `--force-with-lease`，并把
 「为什么动」写进提交信息。`#150` 何时合、`dev → main` 何时发版，属于 owner 的决定。
+
+### 8.13 换机器 + 把 #150 重新对到新 dev（2026-11-01，merge 路线）
+
+**背景（两次变化叠在一起）**
+
+1. **工作机换了**：j1900（NAS 上的 `/mnt/nas/data/works/*`）→ lptp。2.6G 的主工作树 + 1.2G 的
+   `xjtu-toolbox-fixes` 已 `scp` 到 lptp 并核对（98 个 ref 逐个 `cat-file -e` 齐全、`fsck --full` 干净、
+   三个关键分支 `git archive` 都能完整导出）⇒ 那两个目录发给 j1900 的交接里已写「可以删」。
+2. **上游跑远了**：`dev` 从 `3e576195` 到 `4050b036`（**+137 个提交**），`main` 到 `23b835c5`，
+   并且**已经打出 `v5.1.1` / `v5.2.0` / `v5.2.1`** —— 交接文件 §3.6 那条「`dev → main` 出 5.2.0」是
+   **owner 已经做完了**的事，不是待办（`main` 依旧不碰）。
+   上游还新增了根 `AGENTS.md`（代理按 issue 的 `State:*` 标签领活/报进度），治理方式变了。
+
+**分支当时的真状态（比交接写的更糟）**：远端 head 是 `0e23d825`（10-23 那条线加的 merge 提交），
+`ahead 9 / behind 112`；**而且它编不过** —— 上游 `bfca5155`（10-22「移除电费功能」）删掉了
+`CampusDormPowerApi` / `DormPowerScreen` 等 11 个文件，10-23 那次合并只删了文件、留着
+`ToolboxWebApp.kt` 里的引用 ⇒ `:web` 编译直接 `Unresolved reference`。
+
+**为什么用 merge 而不是 rebase**（用户拍的）：8 个语义提交重放到 112 个新提交上，同一批 21 个文件
+大概要解 8 轮，且中间每个提交都得能单独编译；这条分支还被另一条线动过（见 §8.12），
+rebase 要 `--force-with-lease`。merge 只解一轮、不动历史、push 是快进。**提交整洁度另开一轮再谈**
+（从新 dev 起、重组成 3–4 个提交）。
+
+**11 处冲突怎么解的**
+
+| 文件 | 两侧要什么 | 怎么解 |
+|---|---|---|
+| `web/.../WebSupport.kt` | dev：差集 5 条（`DownloadManager`/`Jiaocai1`/`Jiaocai1Reader`/`Zyxf`/`Browser`）；我们：后三条已经补了屏 | 取我们（差集 3 条），并把 `Zyxf` 的说明补回文件头（它没有屏，`AppPage` 画占位页） |
+| `web/.../WebRouteCoverageTest.kt` | 同上，两份断言不同 | 取我们的不变量（差集 == `AppPage` 多出来的分支），字面量补成 `["Browser","Jiaocai1Reader","Zyxf"]`（标题本来就写着「3 条」） |
+| `web/.../WebSettingsHost.kt`、`desktop/.../DesktopSettings.kt(+JvmTest)` | 我们的 honoredRows 里有 `HOME_THEME`；dev 把这个枚举项换成了 `HOME_HERO`（`bcf2f858` 首页卡片外观） | 取我们的行 + `HOME_THEME → HOME_HERO`；桌面的 `gapNote`（「桌面没有这些设置」那段）保留 |
+| `feature/home/.../HomeScreen.kt` | import 块两边各加各的 | 并集（`ExpressiveIcon`/`GapNote`/`GradientAppIcon` + dev 那 10 行 `Hero*`） |
+| `feature/agent/.../AgentScreen.kt` | dev 把配置改成二级页（单个 `ChatPanel` + `onOpenConfig`），我们的 `AnimatedContent(ConfigPanel ↔ ChatPanel)` 被取代 | 取 dev 的结构，只把 `gapNote = host.gapNote` 交回去（「这一端屁岱朴素在哪」那段话仍是我们要的） |
+| `feature/settings/.../ArchiveFileBackend.jvm.kt` | 我们换成了常量分支（`AGENT_SESSIONS_DIR` 等）；dev 加了「只导出 `.json`」 | 我们的结构 + dev 的 `.json` 过滤（原子写盘残留的 `.tmp` 不进备份） |
+| `docs/storage-layout.md` 第 41/42 行 | 我们 10-19 的「更正」；dev 的原文（`:68,75,76` + `enabled`/`interval_min`） | 41 取 dev（`reminder_watch` 现在真在 `ReminderStore.kt:41`，键列也更全）；42 取我们的（`SessionKeepAlive.kt` 只有 55 行、`interval_min` 全仓只在文档里出现过 ⇒ dev 那行是错的） |
+| `docs/storage-layout-plan.md`、`docs/audit-verify-1-correctness.md` | dev `d2551d1f` 删了（「已完成使命」），我们改过 3 行 | 接受删除。那 3 行是「`onAccountChanged()` 槽位从未实现」的复核结论，同一事实已记在本文档 §8 与 `docs/storage-layout.md`，不丢 |
+
+**顺手挖出来、必须记一笔的两件事**
+
+1. **`defaultTab` 的「存规范化值」是错的**：`default_tab` 在 `:app` 里可以存**任意一级功能的路由 id**
+   （`notification`、`library` …），不止那五个 `TAB_KEY_*`。把归一化放进 `SettingsStore.defaultTab`
+   读的时候，`BottomBarTabs` 的既有用例（`defaultTab("notification", bar) == "notification"`）立刻红。
+   ⇒ **改成：属性原样进出，翻译在各端读的地方做**（`:app` 的 `BottomBarTabs.defaultTab` 先认原样、
+   再认规范化值；桌面 `desktopStartTarget`、浏览器 `webStartTarget` 本来就这么做）。
+   B-2 的意图（老值 `HOME/COURSES/PIDAI…` 升级上来不用重设）不变，位置从 store 挪到端上。
+2. **`:web` 的路由差集不变量是「每一条差集都要有 `AppPage` 分支」**（这是我们这一版加的，dev 那版只要
+   「多出来的分支只有 `Browser`」）。合并后 `Zyxf` 既不进清单、也没有分支 ⇒ 补一条
+   `is AppRoute.Zyxf -> NotPortedScreen(...)`（理由：学辅资料站依赖 `:app` 的下载/预览/落盘）。
+
+**门禁（lptp，JDK 21 由 foojay 自动装、Android SDK 37）**
+
+- 任务表照 `.github/workflows/core-gate.yml` 抄（dev 上这四条 `run:` 没动），本机另加
+  `:desktop:test`、`:app:testDebugUnitTest`、`:server:test`。
+- **复算：25 个测试任务 / 1955 条用例 / 0 失败**（`:app` 469 · `:shared:data` 278 · `:shared:model` 239 ·
+  `:server` 169 · `:desktop` 140 · `:shared:network` 119 · `:web`(wasm, 真 Chrome) 70 …）。
+  ⚠️ 这条**不是** `dev@4050b036` 的基线：这是「`dev` + 我们这批」的树，且没有单独量过纯 dev；
+  上一行 1813 那个数属于 `dev@3e576195`，别混着引用。
+- 环境上两个坑（写进交接，别再踩）：
+  1. **离屏渲染的用例要 `env -u DISPLAY`**：本机 `DISPLAY=:0` 指向一个连不上的 X，`CustomThemeTest` /
+     `ExamCardLayoutTest` 会报 `java.awt.AWTError: Can't connect to X11 window server`（看着像代码坏了）；
+  2. **`:app` 要 `platforms;android-37.0`**（miuix 的 AAR metadata 要 `minCompileSdk = 37`），
+     `sdkmanager --install "platforms;android-37"` 名字对不上，实际装出来的是 `android-37.0` 这个目录。
+- lptp 上还有**别的会话在跑别的仓库的构建**，共用 gradle daemon：撞上 `./gradlew --stop` 会被连坐杀掉，
+  长任务用 `setsid nohup … &` + 轮询。
