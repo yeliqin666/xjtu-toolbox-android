@@ -201,6 +201,8 @@ private fun NoticeAndReminderSection(context: Context, scope: CoroutineScope) {
                 if (kind == ReminderKind.COMMUNITY_REPLY) reminderReply = enabled else reminderMention = enabled
                 CommunityWatchScheduler.apply(context)
             }
+            // 自建待办没有开关（本地扫一遍零代价，设置页也不列它），枚举里存在只为复用去重游标
+            ReminderKind.SELF_TODO -> {}
         }
     }
 

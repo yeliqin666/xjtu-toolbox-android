@@ -53,8 +53,10 @@ class ServeInboxTest {
         assertNoIdentity(response.body(), "GET /api/inbox", LOGIN_IDENTITY)
 
         val data = envelopeData(response)
-        assertEquals(setOf("messages", "todos", "finished", "readAt", "seenTodos", "ignored", "off", "schoolFetchedAt", "bubbled"),
-            data.keys, "data 就是 InboxData 的逐字段投影，不多不少")
+        assertEquals(
+            setOf("messages", "todos", "finished", "readAt", "seenTodos", "ignored", "off", "importance", "schoolFetchedAt", "bubbled"),
+            data.keys, "data 就是 InboxData 的逐字段投影，不多不少",
+        )
 
         // ── 消息：两条（事务中心的推送被去重、图书馆座位的短命消息被过滤）──
         val messages = data.arrOf("messages")

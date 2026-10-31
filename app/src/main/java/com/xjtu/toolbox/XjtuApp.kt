@@ -73,7 +73,7 @@ class XjtuApp : Application() {
         com.xjtu.toolbox.inbox.InboxWidgetHook.onTodosChanged = {
             runCatching { com.xjtu.toolbox.widget.TodoWidgetUpdater.requestUpdate(this) }
         }
-        // 自建待办的到点提醒：存储在 :shared:model（各端共用），排期要 WorkManager（只在 :app）⇒ 同样挂回调。
+        // 自建待办的截止提醒：存储在 :shared:model（各端共用），排期要 WorkManager（只在 :app）⇒ 同样挂回调。
         com.xjtu.toolbox.inbox.SelfTodoHooks.onChanged = { account, before, after ->
             com.xjtu.toolbox.inbox.SelfTodoReminders.sync(this, account, before, after)
         }

@@ -193,7 +193,7 @@
 | 21 | `schedule_source<suffix>` | 是 | `ScheduleSourceRouter.kt:159,161` | `served` | 全 |
 | 22 | `schedule_changes<suffix>` | 是 | `ScheduleSourceRouter.kt:181` | 键 = 学期码，值 = `ScheduleChangeEvent[]` | 全 |
 | 23 | `schedule_diff<suffix>` | 是 | `ScheduleDiff.kt:15` | `snap_*` + 记录用键 | **未逐条核对** |
-| 24 | `course_colors<suffix>` | 是 | `CourseColors.kt:49` | 键 = 课程标识 | **未逐条核对** |
+| 24 | `course_colors<suffix>` | 是 | `CourseColors.kt:49` | 键 = 课程标识；另 `course_colors_seen<suffix>` 存「日程里出现过的课名」：键 `names`，一行一个，上限 200（`ScheduleColorSeen.kt`；`ScheduleCache.readCourses` 与日程 VM 写入） | **未逐条核对** |
 | 25 | `attendance_records_ug<suffix>` / `_pg<suffix>` | 是 | `AttendanceRecordStore.kt:57` | 键 = 学期码，值 = `Shard{termCode,records,fetchedAt,fullScanAt}` | 全 |
 | 26 | `bulletin_store` | 无 | `BulletinStore.kt:20,55-58` | `cached_json` `dismissed_ids` `acked_ids` | 全 |
 | 27 | `feedback` | 无 | `FeedbackStore.kt:39-44,50,191-196` | `anon_id` `tickets` `read_replies` `prompt_last_at` `prompt_done_version` `reply_fetch_at` `reply_cache` `public_qa` `public_qa_at` | 全 |
@@ -210,7 +210,7 @@
 | 38 | `crash_reporter` | 无 | `CrashReporter.kt:32,33,41,44` | `enabled` | 全 |
 | 39 | `onboarding` | 无 | `OnboardingStore.kt:20,21,31` | `done` | 全 |
 | 40 | `notice_watch` | 无 | `NoticeWatchStore.kt:12-20,103,106` | `enabled` `sources` `sources_configured` `seen_links` `baselined_sources` `last_sync_at`(long) `last_titles` `push_keywords` | 全 |
-| 41 | `reminder_watch` | 无 | `ReminderStore.kt:29` | `schedule` `lms` `library` | 全 |
+| 41 | `reminder_watch` | 无 | `ReminderStore.kt:41` | 开关 `enabled_<kind>`（library / schedule / lms / community_reply / community_mention；**self_todo 只有游标、没有开关**）、去重游标 `seen_<kind>`、`baselined_<kind>` | 全 |
 | 42 | `session_keepalive` | 无 | `SessionKeepAlive.kt:68,75,76` | `enabled` `interval_min` | 全 |
 | 43 | `campus_probe` | 无 | `CampusProbe.kt:50` | `code` `data` `ywtb_token` | 全 |
 | 44 | `lms_downloads` | 无 | `LmsDownloadStore.kt:18,19,34,134` | `records` | 全 |

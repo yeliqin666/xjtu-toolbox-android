@@ -82,7 +82,7 @@ internal object ReminderNotifier {
         route = AppRoute.Schedule,
     )
 
-    /** 自建待办到点。一条待办一个通知 id，重复提醒时覆盖上一条而不是堆叠。 */
+    /** 自建待办快截止。一条待办一个通知 id，同一条重复提醒时覆盖上一条而不是堆叠。 */
     fun notifyTodo(context: Context, todoId: String, title: String, detail: String): Boolean = post(
         context = context,
         id = ("self_todo:$todoId").hashCode(),

@@ -85,6 +85,7 @@ class KeyValueStoreJvmTest {
             "inbox",
             "schedule_diff",
             "course_colors",
+            "course_colors_seen",
             "schedule_source",
             "schedule_changes",
             "attendance_records_ug",
