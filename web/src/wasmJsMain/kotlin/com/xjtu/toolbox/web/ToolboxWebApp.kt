@@ -48,7 +48,6 @@ import com.xjtu.toolbox.card.CampusCardScreen
 import com.xjtu.toolbox.core.net.CampusCardNetApi
 import com.xjtu.toolbox.core.net.CampusAttendanceApi
 import com.xjtu.toolbox.core.net.CampusCouponApi
-import com.xjtu.toolbox.core.net.CampusDormPowerApi
 import com.xjtu.toolbox.core.net.CampusTranscriptApi
 import com.xjtu.toolbox.core.net.CampusInboxApi
 import com.xjtu.toolbox.core.net.CampusEmptyRoomApi
@@ -534,19 +533,6 @@ private fun AppPage(
             }
         }
 
-        // 宿舍电费：用 `:web` 自己的读数页（`:core` 的 `DormPowerScreen` 只是缴费页浏览器，serve 没有那个端点）。
-        AppRoute.DormPower -> if (mode != ApiMode.SERVE) {
-            WebServeOnlyScreen(
-                title = "宿舍电费",
-                endpoints = "GET /api/dorm/rooms + /api/dorm/reading",
-                why = "宿舍电费走 `ssn` 站点的会话（`cid` 是登录时写进会话的）。",
-            )
-        } else {
-            WebDormPowerScreen(
-                source = remember(client, mode) { CampusDormPowerApi(client, API_BASE, mode) },
-                onBack = back,
-            )
-        }
 
         // ── 第二批只读域（契约 §5.6）：非 serve 形态画 `WebServeOnlyScreen` ── ⚠️ 必须写 `is AppRoute.Lms`。
         is AppRoute.Lms -> if (mode != ApiMode.SERVE) {
@@ -858,6 +844,10 @@ private fun AppPage(
             host = remember(onAppearanceChanged) { WebSettingsHost(onAppearanceChanged, archiveActions) },
             onBack = back,
         )
+
+        // 学辅资料站：下载 / 预览 / 落盘那一整档都在 `:app`（`ZyxfDownloader` 要 Context 与文件系统），
+        // 浏览器这一端没有对应屏 ⇒ 如实画占位页（这一条同时在 WebSupport 文件头的「什么不在清单里」里）
+        is AppRoute.Zyxf -> NotPortedScreen(route, onNavigate)
 
         // 兜底：清单说能开却没有分支 ⇒ 本端 bug，画指名道姓的页；其余路由显示「没搬过来」。
         else -> if (WebSupport.isOpenable(route)) WebSupportMismatchScreen(route, onNavigate)

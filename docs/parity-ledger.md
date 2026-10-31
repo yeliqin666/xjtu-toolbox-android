@@ -1191,3 +1191,8 @@ rebase 要 `--force-with-lease`。merge 只解一轮、不动历史、push 是�
      `sdkmanager --install "platforms;android-37"` 名字对不上，实际装出来的是 `android-37.0` 这个目录。
 - lptp 上还有**别的会话在跑别的仓库的构建**，共用 gradle daemon：撞上 `./gradlew --stop` 会被连坐杀掉，
   长任务用 `setsid nohup … &` + 轮询。
+
+⚠️ **中途插曲（如实记）**：merge 那个提交只带了「冲突消解的产物」—— 跑门禁时改的四处（电费残留引用、
+`default_tab` 归一化位置、`Zyxf` 分支、差集字面量）忘了再 `git add`，推上去之后 CI 在
+`:web:compileKotlinWasmJs` 上红了一次（`Unresolved reference CampusDormPowerApi`），补在下一个提交里。
+**教训**：`git add -A` 之后再改文件，提交前必须再 `git status` 一眼 —— 本地绿不等于提交里绿。

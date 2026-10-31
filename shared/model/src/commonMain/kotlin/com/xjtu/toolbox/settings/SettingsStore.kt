@@ -43,7 +43,13 @@ class SettingsStore(private val store: KeyValueStore = keyValueStore(APP_SETTING
     /** 主题实际采用的自选色（按当前明暗取那一档）：未启用自定义时为空串。 */
     fun themeSeedHex(dark: Boolean): String = if (customColorEnabled) customColorHex(dark) else ""
 
-    /** 默认启动 tab。不在底栏上时由读的一方回首页（`BottomBarTabs.defaultTab`）。 */
+    /**
+     * 默认启动 tab。**这里不翻译**：存的是哪一端的 id 就原样读出来 —— `:app` 的底栏格可以是任意一级功能的
+     * 路由 id（`notification`、`library` ……），不是只有那五个规范化值，翻译在这里做会把这些值吃掉。
+     *
+     * 翻译在各端读的时候做：`:app` = `BottomBarTabs.defaultTab`（先认原样、再认规范化值），
+     * 桌面 = `desktopStartTarget`，浏览器 = `webStartTarget`（都对 `TAB_KEY_*` 做映射，认不出退日程）。
+     */
     var defaultTab: String
         get() = store.getString(KEY_DEFAULT_TAB) ?: TAB_COURSES
         set(value) = store.putString(KEY_DEFAULT_TAB, value)

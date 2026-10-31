@@ -16,6 +16,8 @@ import com.xjtu.toolbox.nav.AppRoute
  *   那第二跳要有内置浏览器（`:app` 的 `isAuthHop`）才做得到。浏览器这一端把整个标签页交给目标站，
  *   之后就什么都不剩下了（没有回调、也无法跟地址栏对话）⇒ **不保证跳到 `then`，也不假装会**。
  *   用户会在那个站里看到登录页，登录完自行继续（与桌面端 `desktopBrowserTarget` 同一条口径：只交第一跳）。
+ * - `Zyxf`：学辅资料站依赖 `:app` 的下载 / 预览 / 落盘（`ZyxfDownloader` 要 Context 与文件系统），
+ *   本端没有对应屏 ⇒ `AppPage` 里那一条画的是「这一屏还没搬到 Web」的占位页。
  * - `Jiaocai1Reader`：**带参数的深链**（`jiaocai1_reader/<ssno>?title=…`），它的门在 `Jiaocai1` 那一屏
  *   内部（书架与检索结果里的「阅读全文」），首页宫格与学辅目录里**没有**这一条（`AppServices.all` 里
  *   只有不带参数的 `AppRoute.Jiaocai1`）。⚠️ 它进不了上面的清单**不是「本端做不到」**，而是这份清单

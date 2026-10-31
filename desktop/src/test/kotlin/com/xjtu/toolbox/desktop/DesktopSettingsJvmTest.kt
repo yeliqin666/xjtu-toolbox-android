@@ -38,7 +38,7 @@ class DesktopSettingsJvmTest {
         assertEquals(SettingsStore.DARK_MODE_SYSTEM, store.darkMode, "深色模式默认跟随系统")
         assertTrue(!store.dynamicColor, "取色默认关")
         assertEquals(SettingsStore.NAV_STYLE_FLOATING, store.navBarStyle, "界面风格默认玻璃")
-        assertEquals(SettingsStore.TAB_KEY_SCHEDULE, store.defaultTab, "默认启动 Tab 是日程（规范化值）")
+        assertEquals(SettingsStore.TAB_KEY_SCHEDULE, SettingsStore.normalizeDefaultTab(store.defaultTab), "默认启动 Tab 是日程（规范化之后）")
         assertEquals(SettingsStore.NETWORK_AUTO, store.networkMode, "连接模式默认自动检测")
         assertTrue(store.scheduleAttendanceBadge, "考勤角标默认开")
         assertTrue(store.venueAutoSolveCaptchaEnabled, "场馆验证码自动识别默认开")

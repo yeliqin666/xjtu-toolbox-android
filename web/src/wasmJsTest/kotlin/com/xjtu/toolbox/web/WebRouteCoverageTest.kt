@@ -79,7 +79,7 @@ class WebRouteCoverageTest {
                 "加/删一条声明要同时看这里与 desktop 那份 DesktopRouteCoverageJvmTest",
         )
         assertEquals(
-            listOf("Browser", "Jiaocai1Reader"),
+            listOf("Browser", "Jiaocai1Reader", "Zyxf"),
             notOpenableNames.sorted(),
             "差集变了（现在 ${notOpenableNames}）：$criterion；" +
                 "新补上一屏就把它从差集里拿掉（同时改 AppPage 的分支与 WebSupport 的文件头说明），" +
