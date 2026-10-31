@@ -9,6 +9,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import com.xjtu.toolbox.schedule.CourseColors
+import com.xjtu.toolbox.ui.components.AppColorPicker
 import com.xjtu.toolbox.ui.components.AppFilterChip
 import com.xjtu.toolbox.ui.theme.LocalIsDarkTheme
 import com.xjtu.toolbox.ui.theme.XJTUToolBoxTheme
@@ -52,7 +53,7 @@ internal fun ThemeColorDialog(
                 AppFilterChip(selected = editingDark, onClick = { editingDark = true }, label = "深色")
             }
             // 色板和输入框只认当前这一档，切按钮就把它们换成那一档的颜色
-            ColorPalette(color = color, onColorChanged = { setHex(CourseColors.toHex(it)) })
+            AppColorPicker(color = color, onColorChanged = { setHex(CourseColors.toHex(it)) })
             TextField(
                 value = hex,
                 onValueChange = setHex,
