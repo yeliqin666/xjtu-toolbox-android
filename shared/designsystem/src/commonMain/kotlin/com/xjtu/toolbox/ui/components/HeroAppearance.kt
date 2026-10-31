@@ -42,7 +42,6 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.datetime.LocalDateTime
 import top.yukonga.miuix.kmp.basic.ButtonDefaults
-import top.yukonga.miuix.kmp.basic.ColorPalette
 import top.yukonga.miuix.kmp.basic.Slider
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextButton
@@ -345,7 +344,7 @@ fun HeroAppearanceDialog(
                         }
                     }
                     if (draft.background == "solid" || (draft.background == "liquid" && draft.palette == "custom")) {
-                        ColorPalette(
+                        AppColorPicker(
                             color = CourseColors.parseHex(draft.colorHex) ?: Color(0xFF2F7CFF),
                             onColorChanged = { draft = draft.copy(colorHex = CourseColors.toHex(it)) },
                         )

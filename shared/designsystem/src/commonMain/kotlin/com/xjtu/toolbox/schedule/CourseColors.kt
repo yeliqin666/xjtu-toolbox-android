@@ -18,8 +18,9 @@ import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.unit.dp
 import com.xjtu.toolbox.account.AccountContext
 import com.xjtu.toolbox.platform.keyValueStore
+import com.xjtu.toolbox.ui.components.AppColorPicker
+import com.xjtu.toolbox.ui.components.hsvComponents
 import top.yukonga.miuix.kmp.basic.ButtonDefaults
-import top.yukonga.miuix.kmp.basic.ColorPalette
 import top.yukonga.miuix.kmp.basic.TextButton
 import top.yukonga.miuix.kmp.basic.TextField
 import top.yukonga.miuix.kmp.window.WindowDialog
@@ -133,7 +134,7 @@ fun CourseColorPickerDialog(
     var hex by remember { mutableStateOf(CourseColors.toHex(initial)) }
     WindowDialog(show = true, title = title, summary = summary, onDismissRequest = onDismiss) {
         Column {
-            ColorPalette(
+            AppColorPicker(
                 color = color,
                 onColorChanged = {
                     color = it.copy(alpha = 1f)
@@ -171,17 +172,11 @@ fun CourseColorPickerDialog(
     }
 }
 
-/** 色相（0..360）。只用来把 [CourseColors.palette] 那排色片按彩虹顺序排好，灰阶一律算 0。 */
-private fun hueOf(color: Color): Float {
-    val max = maxOf(color.red, color.green, color.blue)
-    val min = minOf(color.red, color.green, color.blue)
-    val d = max - min
-    if (d <= 0f) return 0f
-    val h = when (max) {
-        color.red -> ((color.green - color.blue) / d) % 6f
-        color.green -> (color.blue - color.red) / d + 2f
-        else -> (color.red - color.green) / d + 4f
-    }
-    return (h * 60f + 360f) % 360f
-}
+/**
+ * 色相（0..360）。只用来把 [CourseColors.palette] 那排色片按彩虹顺序排好，灰阶一律算 0。
+ *
+ * 复用 [hsvComponents] 而不是再写一遍同一套 RGB→HSV 算术：取色器那边也用它，
+ * 两份一旦各自演化，色片排序和取色器的色相就会对不上。
+ */
+private fun hueOf(color: Color): Float = color.hsvComponents().first
 
