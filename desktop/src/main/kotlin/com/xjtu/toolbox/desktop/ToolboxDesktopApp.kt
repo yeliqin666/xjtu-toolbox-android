@@ -166,8 +166,14 @@ internal fun ToolboxDesktopApp(
     val darkModeOverride = remember(appearanceTick) { desktopSettings.darkMode }
     val dynamicColor = remember(appearanceTick) { desktopSettings.dynamicColor }
 
-    val customColorHex = remember(appearanceTick) { desktopSettings.themeSeedHex }
-    XJTUToolBoxTheme(darkModeOverride = darkModeOverride, dynamicColor = dynamicColor, customColorHex = customColorHex) {
+    val customColorHex = remember(appearanceTick) { desktopSettings.themeSeedHex(dark = false) }
+    val customDarkColorHex = remember(appearanceTick) { desktopSettings.themeSeedHex(dark = true) }
+    XJTUToolBoxTheme(
+        darkModeOverride = darkModeOverride,
+        dynamicColor = dynamicColor,
+        customColorHex = customColorHex,
+        customDarkColorHex = customDarkColorHex,
+    ) {
 
     // 冷启动：有落盘凭据就直接进主界面（幂等，重复组合无害）
     LaunchedEffect(auth) { auth.restore() }

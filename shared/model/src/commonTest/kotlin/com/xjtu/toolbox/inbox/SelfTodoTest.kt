@@ -157,6 +157,16 @@ class SelfTodoTest {
     }
 
     @Test
+    fun `自选颜色跟着收纳条目走，缺省不影响旧数据`() {
+        val withColor = todo("交报告", 0).copy(colorArgb = 0xFF1565C0.toInt())
+        assertEquals(0xFF1565C0.toInt(), SelfTodoRules.toInboxItem(withColor, 1_000L).colorArgb)
+        assertNull(SelfTodoRules.toInboxItem(todo("没挑色", 0), 1_000L).colorArgb, "没挑过色就是 null，走分类色")
+        // 老数据里没有这个字段，读出来应当是 null 而不是报错
+        val legacy = """[{"id":"1","title":"老数据"}]"""
+        assertNull(com.xjtu.toolbox.util.AppJson.decodeFromString<List<SelfTodo>>(legacy).single().colorArgb)
+    }
+
+    @Test
     fun `新 id 是 UUID 形状，不重复`() {
         val a = SelfTodoRules.newId()
         assertTrue(Regex("^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$").matches(a), a)

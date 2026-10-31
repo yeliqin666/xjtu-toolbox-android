@@ -69,6 +69,25 @@ class SettingsStoreTest {
     }
 
     @Test
+    fun `自选主题色按浅色与深色分开保存`() {
+        val raw = freshStore()
+        raw.putString("custom_color_hex", "#112233")
+        val settings = SettingsStore(raw)
+        settings.setCustomColorHex(dark = false, value = "#aabbcc")
+        settings.setCustomColorHex(dark = true, value = "#ddeeff")
+        val reopened = SettingsStore(raw)
+        assertEquals("#AABBCC", reopened.customColorHex(false))
+        assertEquals("#DDEEFF", reopened.customColorHex(true))
+        raw.remove("custom_color_hex_dark")
+        assertEquals("#112233", reopened.customColorHex(true), "没单独选过的深色回退到旧键")
+        reopened.customColorEnabled = true
+        assertEquals("#AABBCC", reopened.themeSeedHex(dark = false))
+        assertEquals("#112233", reopened.themeSeedHex(dark = true))
+        reopened.customColorEnabled = false
+        assertEquals("", reopened.themeSeedHex(dark = false), "没启用自定义就不喂种子色")
+    }
+
+    @Test
     fun `头卡自选色按浅色与深色分开保存`() {
         val raw = freshStore()
         val settings = SettingsStore(raw)

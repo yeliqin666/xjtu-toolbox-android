@@ -24,7 +24,8 @@ import top.yukonga.miuix.kmp.utils.SinkFeedback
 /**
  * 互斥单选用的胶囊，和屁岱卡片里的胶囊同一套样子。
  *
- * 选中是主题色实底：自定义主题色走 Monet，tertiary 是种子转过色相的「第三色」，不跟主题色，不能用。
+ * 选中是主题色实底（primary + onPrimary，自选色时就是用户挑的那个色）。tertiary 是 Monet
+ * 转过色相的「第三色」，不跟主题色，不能用。
  * 未选中是一层浅的前景色，白卡片和灰页面上都看得出，不用描边。
  */
 @Composable

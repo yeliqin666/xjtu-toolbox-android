@@ -32,6 +32,7 @@ import androidx.compose.animation.core.tween
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -160,7 +161,9 @@ private fun SettingsHome(
     var darkMode by remember { mutableStateOf(store.darkMode) }
     var dynamicColor by remember { mutableStateOf(store.dynamicColor) }
     var customColorEnabled by remember { mutableStateOf(store.customColorEnabled) }
-    var customColorHex by remember { mutableStateOf(store.customColorHex) }
+    // 浅色 / 深色各存一份自选色，弹窗里分别设置
+    var customLightHex by remember { mutableStateOf(store.customColorHex(dark = false)) }
+    var customDarkHex by remember { mutableStateOf(store.customColorHex(dark = true)) }
     var showThemeColor by remember { mutableStateOf(false) }
     var showHomeHeroDialog by remember { mutableStateOf(false) }
     val accountType = com.xjtu.toolbox.account.AccountContext.activeAccountType
@@ -176,13 +179,18 @@ private fun SettingsHome(
     var showEula by remember { mutableStateOf(false) }
     if (showThemeColor) {
         ThemeColorDialog(
-            initialHex = customColorHex,
+            initialLightHex = customLightHex,
+            initialDarkHex = customDarkHex,
             onDismiss = { showThemeColor = false },
-            onConfirm = { hex ->
-                customColorHex = hex
+            onConfirm = { light, dark ->
+                customLightHex = light
+                customDarkHex = dark
                 customColorEnabled = true
                 dynamicColor = false
-                store.customColorHex = hex
+                // 旧键（单色）跟着浅色走：万一被没升到这版的端读到，也还是用户挑过的那个色
+                store.customColorHex = light
+                store.setCustomColorHex(dark = false, value = light)
+                store.setCustomColorHex(dark = true, value = dark)
                 store.customColorEnabled = true
                 store.dynamicColor = false
                 host.onAppearanceChanged()
@@ -289,7 +297,7 @@ private fun SettingsHome(
                         selectedIndex = if (customColorEnabled) 2 else if (dynamicColor) 1 else 0,
                         startAction = { SettingsIcon(Icons.Default.Palette, cPink) },
                         onSelectedIndexChange = { idx ->
-                            if (idx == 2 && customColorHex.isEmpty()) {
+                            if (idx == 2 && customLightHex.isEmpty() && customDarkHex.isEmpty()) {
                                 showThemeColor = true
                             } else {
                                 customColorEnabled = idx == 2
@@ -303,12 +311,27 @@ private fun SettingsHome(
                     if (customColorEnabled) {
                         ArrowPreference(
                             title = "自定义主题色",
-                            summary = customColorHex,
+                            summary = "浅色 $customLightHex · 深色 $customDarkHex",
                             startAction = {
-                                Box(Modifier.size(24.dp).background(
-                                    com.xjtu.toolbox.schedule.CourseColors.parseHex(customColorHex) ?: cPink,
-                                    CircleShape,
-                                ))
+                                // 两个色点：左浅右深，一眼看出两档各设了什么。
+                                // 尺寸照 SettingsIcon 那套（32dp 内容 + 12dp 间隔），标题才和上下行对齐。
+                                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                    listOf(customLightHex, customDarkHex).forEach { hex ->
+                                        Box(
+                                            Modifier.size(14.dp)
+                                                .background(
+                                                    com.xjtu.toolbox.schedule.CourseColors.parseHex(hex) ?: cPink,
+                                                    CircleShape,
+                                                )
+                                                .border(
+                                                    1.dp,
+                                                    MiuixTheme.colorScheme.onSurface.copy(alpha = 0.12f),
+                                                    CircleShape,
+                                                )
+                                        )
+                                    }
+                                }
+                                Spacer(Modifier.width(12.dp))
                             },
                             onClick = { showThemeColor = true },
                         )

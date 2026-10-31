@@ -57,6 +57,21 @@ object CourseColors {
         version++
     }
 
+    /**
+     * 用户设过的课程色：去重后按色相排成一条彩带。
+     *
+     * 课表和思源学堂写的是同一个 store，所以「在思源学堂里给课程挑的色」也在这份里。
+     * 收纳给自建待办做快捷取色时就列它：有几个列几个，不拿按课名哈希的默认色来凑数
+     * （那些不是用户挑的）。
+     */
+    fun palette(): List<Color> {
+        val s = store()
+        return s.keys()
+            .mapNotNull { key -> s.getInt(key, 0).takeIf { v -> v != 0 }?.let { argb -> Color(argb) } }
+            .distinct()
+            .sortedBy(::hueOf)
+    }
+
     fun toHex(color: Color): String {
         val rgb = color.toArgb() and 0xFFFFFF
         return "#" + rgb.toString(16).uppercase().padStart(6, '0')
@@ -86,15 +101,36 @@ fun rememberCourseColors(names: List<String>): Map<String, Color> {
 
 @Composable
 fun CourseColorDialog(courseName: String, current: Color, agenda: Boolean = false, onDismiss: () -> Unit) {
-    var color by remember { mutableStateOf(current) }
-    var hex by remember { mutableStateOf(CourseColors.toHex(current)) }
-    WindowDialog(
-        show = true,
+    CourseColorPickerDialog(
         title = if (agenda) "日程颜色" else "课程颜色",
         // 按名称存，同名日程一起换
         summary = if (agenda) "课表里所有「$courseName」一起换" else "课表和思源学堂里的「$courseName」一起换",
-        onDismissRequest = onDismiss,
-    ) {
+        initial = current,
+        onDismiss = onDismiss,
+        onConfirm = { picked ->
+            CourseColors.set(courseName, picked)
+            onDismiss()
+        },
+    )
+}
+
+/**
+ * 选色面板本体：色板 + Hex 输入 + 「恢复默认 / 确定」。
+ *
+ * 课程颜色与自建日程颜色共用这一个面板，差别只在标题、说明，以及确定之后由谁落盘
+ * （`onConfirm(null)` 表示用户点了「恢复默认」，由调用方决定默认色是什么）。
+ */
+@Composable
+fun CourseColorPickerDialog(
+    title: String,
+    initial: Color,
+    summary: String? = null,
+    onDismiss: () -> Unit,
+    onConfirm: (Color?) -> Unit,
+) {
+    var color by remember { mutableStateOf(initial) }
+    var hex by remember { mutableStateOf(CourseColors.toHex(initial)) }
+    WindowDialog(show = true, title = title, summary = summary, onDismissRequest = onDismiss) {
         Column {
             ColorPalette(
                 color = color,
@@ -110,7 +146,7 @@ fun CourseColorDialog(courseName: String, current: Color, agenda: Boolean = fals
                     hex = text
                     CourseColors.parseHex(text)?.let { color = it }
                 },
-                label = "Hex 色值",
+                label = "Hex 色值（#RRGGBB）",
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth(),
             )
@@ -118,13 +154,13 @@ fun CourseColorDialog(courseName: String, current: Color, agenda: Boolean = fals
             Row {
                 TextButton(
                     text = "恢复默认",
-                    onClick = { CourseColors.set(courseName, null); onDismiss() },
+                    onClick = { onConfirm(null) },
                     modifier = Modifier.weight(1f),
                 )
                 Spacer(Modifier.width(12.dp))
                 TextButton(
                     text = "确定",
-                    onClick = { CourseColors.set(courseName, color); onDismiss() },
+                    onClick = { onConfirm(color) },
                     enabled = CourseColors.parseHex(hex) != null,
                     modifier = Modifier.weight(1f),
                     colors = ButtonDefaults.textButtonColorsPrimary(),
@@ -133,3 +169,18 @@ fun CourseColorDialog(courseName: String, current: Color, agenda: Boolean = fals
         }
     }
 }
+
+/** 色相（0..360）。只用来把 [CourseColors.palette] 那排色片按彩虹顺序排好，灰阶一律算 0。 */
+private fun hueOf(color: Color): Float {
+    val max = maxOf(color.red, color.green, color.blue)
+    val min = minOf(color.red, color.green, color.blue)
+    val d = max - min
+    if (d <= 0f) return 0f
+    val h = when (max) {
+        color.red -> ((color.green - color.blue) / d) % 6f
+        color.green -> (color.blue - color.red) / d + 2f
+        else -> (color.red - color.green) / d + 4f
+    }
+    return (h * 60f + 360f) % 360f
+}
+

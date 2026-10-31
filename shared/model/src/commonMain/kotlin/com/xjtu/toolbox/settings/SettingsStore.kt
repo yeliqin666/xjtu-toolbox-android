@@ -20,7 +20,7 @@ class SettingsStore(private val store: KeyValueStore = keyValueStore(APP_SETTING
         get() = store.getBoolean(KEY_DYNAMIC_COLOR, false)
         set(value) = store.putBoolean(KEY_DYNAMIC_COLOR, value)
 
-    /** 自定义主题种子色；空串表示未选择。保持独立，切换取色来源时保留上次选择。 */
+    /** 自定义主题色（浅色模式那一档）；空串表示未选择。保持独立，切换取色来源时保留上次选择。 */
     var customColorHex: String
         get() = normalizeThemeColor(store.getString("custom_color_hex").orEmpty())
         set(value) = store.putString("custom_color_hex", normalizeThemeColor(value))
@@ -29,8 +29,19 @@ class SettingsStore(private val store: KeyValueStore = keyValueStore(APP_SETTING
         get() = store.getBoolean("custom_color_enabled", false)
         set(value) = store.putBoolean("custom_color_enabled", value)
 
-    /** 主题实际采用的种子色：未启用自定义时为空串。 */
-    val themeSeedHex: String get() = if (customColorEnabled) customColorHex else ""
+    /**
+     * 浅色 / 深色各存一份自选主题色。没单独选过的那一档回退到旧键 [customColorHex]：
+     * 老版本只存了一个色，升级后两档都该还是那个色，而不是深色突然跑回默认配色。
+     */
+    fun customColorHex(dark: Boolean): String =
+        normalizeThemeColor(store.getString(if (dark) "custom_color_hex_dark" else "custom_color_hex_light").orEmpty())
+            .ifEmpty { customColorHex }
+
+    fun setCustomColorHex(dark: Boolean, value: String) =
+        store.putString(if (dark) "custom_color_hex_dark" else "custom_color_hex_light", normalizeThemeColor(value))
+
+    /** 主题实际采用的自选色（按当前明暗取那一档）：未启用自定义时为空串。 */
+    fun themeSeedHex(dark: Boolean): String = if (customColorEnabled) customColorHex(dark) else ""
 
     /** 默认启动 tab。不在底栏上时由读的一方回首页（`BottomBarTabs.defaultTab`）。 */
     var defaultTab: String
