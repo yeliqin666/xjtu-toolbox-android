@@ -39,7 +39,10 @@ class HtmlDarkInvertTest {
     }
 
     private fun assertSame(expected: Triple<Float, Float, Float>, actual: Color, label: String) {
-        val tol = 2f / 255f // 一个 8 位色阶
+        // 容差要覆盖两层误差：① 参考实现走纯 float、生产代码的结果又被 Color 量化回 8 位
+        // （最多半个色阶）；② 浮点乘加的尾差。实测最大偏差约 0.0015，这里给到 2.5 个色阶，
+        // 既不放过真正的系数错误（那是 0.07 量级），也不会因端上的浮点差异踩线。
+        val tol = 2.5f / 255f
         assertTrue(abs(expected.first - actual.red) <= tol, "$label 红：期望 ${expected.first}，实际 ${actual.red}")
         assertTrue(abs(expected.second - actual.green) <= tol, "$label 绿：期望 ${expected.second}，实际 ${actual.green}")
         assertTrue(abs(expected.third - actual.blue) <= tol, "$label 蓝：期望 ${expected.third}，实际 ${actual.blue}")
@@ -80,7 +83,9 @@ class HtmlDarkInvertTest {
     @Test
     fun testAlphaIsPreserved() {
         val semi = Color(0xFF000000).copy(alpha = 0.5f)
-        assertEquals(0.5f, cssInvertHueRotate180(semi).alpha, 0.001f)
+        // 容差取一个 8 位色阶：sRGB 的 Color 把 alpha 存成 0..255 的字节，0.5 落成 127 或 128
+        // （0.498 / 0.502），比 0.001 松、比 1/255 紧，正好只容许这一个量化误差。
+        assertEquals(0.5f, cssInvertHueRotate180(semi).alpha, 1f / 255f)
         // 全透明的样式位不该被动（它表示「没有这个样式」）
         assertEquals(Color.Unspecified, cssInvertHueRotate180(Color.Unspecified))
     }
@@ -135,8 +140,10 @@ class HtmlDarkInvertTest {
             val rf = r.toFloat()
             val gf = g.toFloat()
             val bf = b.toFloat()
+            // 输入按矩阵自己的量纲（0..255）喂进去，平移列 m[i + 4] 本身就是 255 这个量级的
+            // 常数、直接相加即可 —— 再乘一次 255 会把它放大到 65025，结果全部饱和成 255。
             fun row(i: Int): Float =
-                (m[i] * rf + m[i + 1] * gf + m[i + 2] * bf + m[i + 4] * 255f).coerceIn(0f, 255f)
+                (m[i] * rf + m[i + 1] * gf + m[i + 2] * bf + m[i + 4]).coerceIn(0f, 255f)
             return Triple(row(0), row(5), row(10))
         }
         // 中性灰 + 三原色：既覆盖「补色」性质，也能发现矩阵系数抄错行
