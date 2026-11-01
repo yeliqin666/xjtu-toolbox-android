@@ -19,6 +19,8 @@ import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.lifecycleScope
 import com.xjtu.toolbox.agent.AgentPendingPrompt
+import com.xjtu.toolbox.account.AccountContext
+import com.xjtu.toolbox.account.restoreIfNeeded
 import com.xjtu.toolbox.agent.PidaiAppearanceHost
 import com.xjtu.toolbox.agent.attachAgentImage
 import com.xjtu.toolbox.auth.SessionKeepAlive
@@ -130,6 +132,7 @@ class MainActivity : ComponentActivity() {
     private fun consumeLaunchIntent(intent: Intent?) {
         incomingImages?.cancel()
         val deepLink = intent?.let(DeepLinkRouter::resolve)
+        if (deepLink?.sharedMaterial == true) AccountContext.restoreIfNeeded()
         val extras = intent?.takeIf { it.data == null && it.component?.className != DeepLinkRouter.PIDAI_LINK_ALIAS }
         launchRoute.value = deepLink?.route
             ?: extras?.getStringExtra(EXTRA_LAUNCH_ROUTE)?.let(::appRouteOf)
@@ -144,10 +147,14 @@ class MainActivity : ComponentActivity() {
         launchTab.value = extras?.getStringExtra(EXTRA_LAUNCH_TAB)
             ?.let { name -> BottomTab.entries.firstOrNull { it.name == name } }
         if (deepLink?.imageUris?.isNotEmpty() == true) importSharedImages(deepLink)
-        else deepLink?.prompt?.let { AgentPendingPrompt.set(it, draftOnly = !deepLink.autoSend) }
+        else deepLink?.prompt?.let {
+            if (deepLink.sharedMaterial) com.xjtu.toolbox.agent.receiveAgentShare(it)
+            else AgentPendingPrompt.set(it, draftOnly = !deepLink.autoSend)
+        }
     }
 
     private fun importSharedImages(target: DeepLinkRouter.DeepLinkTarget) {
+        val account = AccountContext.activeAccountId
         incomingImages = lifecycleScope.launch {
             val paths = mutableListOf<String>()
             var delivered = false
@@ -159,15 +166,19 @@ class MainActivity : ComponentActivity() {
                     }
                 }
                 ensureActive()
-                if (paths.isEmpty()) {
+                if (account != AccountContext.activeAccountId) return@launch
+                if (target.sharedMaterial && (paths.isNotEmpty() || !target.prompt.isNullOrBlank())) {
+                    com.xjtu.toolbox.agent.receiveAgentShare(target.prompt.orEmpty(), paths)
+                    delivered = true
+                } else if (paths.isEmpty()) {
                     Toast.makeText(this@MainActivity, "图片读取失败，请重新分享", Toast.LENGTH_SHORT).show()
                 } else {
-                    AgentPendingPrompt.set(target.prompt.orEmpty(), images = paths)
+                    AgentPendingPrompt.set(target.prompt.orEmpty(), images = paths, draftOnly = !target.autoSend)
                     delivered = true
-                    if (target.imageCount > paths.size) Toast.makeText(this@MainActivity,
-                        if (target.imageCount > 4) "已接收前 ${paths.size} 张图片，每次最多 4 张"
-                        else "已接收 ${paths.size} 张图片，其余图片读取失败", Toast.LENGTH_SHORT).show()
                 }
+                if (delivered && target.imageCount > paths.size) Toast.makeText(this@MainActivity,
+                    if (target.imageCount > 4) "已接收前 ${paths.size} 张图片，每次最多 4 张"
+                    else "已接收 ${paths.size} 张图片，其余图片读取失败", Toast.LENGTH_SHORT).show()
             } finally {
                 if (!delivered) paths.forEach { File(it).delete() }
             }

@@ -85,6 +85,15 @@ internal fun ChatPanel(
     modifier: Modifier = Modifier
 ) {
     var input by rememberSaveable { mutableStateOf("") }
+    val sharedMaterials = remember(host.accountId) { host.sharedMaterials() }
+    val pageVisible = com.xjtu.toolbox.ui.components.LocalPageVisible.current
+    var showSharedMaterials by remember(host.accountId) { mutableStateOf(false) }
+    LaunchedEffect(host.accountId, AgentShareInbox.generation, pageVisible) {
+        if (pageVisible && sharedMaterials != null && AgentShareInbox.pendingOpen) {
+            showSharedMaterials = true
+            AgentShareInbox.consumeOpen()
+        }
+    }
     LaunchedEffect(vm.draft) {
         vm.draft?.let { input = it; vm.draft = null }
     }
@@ -137,6 +146,24 @@ internal fun ChatPanel(
     }
 
     val glass = LocalGlassStyle.current
+    if (showSharedMaterials && pageVisible && sharedMaterials != null) AgentShareSheet(
+        store = sharedMaterials, host = host, canSend = config.isConfigured && !vm.isLoading,
+        canSendCurrent = vm.currentSessionId != AgentPushFocus.SESSION_ID && !vm.contextExhausted,
+        supportsImages = visionEnabled,
+        sendHint = when { !config.isConfigured -> "尚未配置 AI 服务，请先在小岱设置中配置。"; vm.isLoading -> "正在生成，完成后可发送。"; else -> null },
+        onDismiss = { showSharedMaterials = false },
+        onSend = { material, newChat ->
+            val images = host.copySharedImages(material.images)
+            if (images.size != material.images.size) {
+                host.deleteImageFiles(images)
+                showBriefMessage("图片已失效，请重新分享")
+            } else {
+                if (newChat) vm.newSession()
+                showSharedMaterials = false
+                vm.sendMessage(material.text, config, images = images)
+            }
+        },
+    )
     val chatBackdrop = rememberLayerBackdrop()
     var composerHeightPx by remember { mutableIntStateOf(0) }
     val composerHeight = with(LocalDensity.current) { composerHeightPx.toDp() }
@@ -344,6 +371,7 @@ internal fun ChatPanel(
                 host.deleteImageFiles(listOf(path))
             },
             backdrop = if (glass) chatBackdrop else null,
+            onOpenShared = if (sharedMaterials != null) ({ showSharedMaterials = true }) else null,
         )
         }
     }

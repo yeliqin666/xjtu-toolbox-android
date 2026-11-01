@@ -190,6 +190,7 @@ internal fun AndroidAgentScreen(
         host = remember { AndroidAgentHost(context, loginState) },
         // 系统相册挑图（`:app` 的适配器）：`:core` 拿不到 ActivityResultLauncher
         imagePicker = rememberAndroidAgentImagePicker(),
+        contentModifier = com.xjtu.toolbox.agent.rememberAgentDropTarget(),
         // 小岱形象那三块（首屏问候头、戳一下的回应气泡、形象选择）认 `ProactiveBubbleHost` / 形象设置 / `PidaiPokes`
         hero = { title, facts, now -> AndroidPidaiHero(title, facts, now) },
         pokeWhisper = { AndroidPokeWhisper(it) },

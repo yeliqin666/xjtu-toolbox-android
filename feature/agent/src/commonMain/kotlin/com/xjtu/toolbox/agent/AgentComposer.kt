@@ -36,6 +36,7 @@ import androidx.compose.runtime.*
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.filled.Image
+import androidx.compose.material.icons.filled.Inbox
 import com.xjtu.toolbox.platform.decodeImageFull
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -71,6 +72,7 @@ internal fun AgentComposer(
     onRemoveAttachment: (String) -> Unit = {},
     /** 玻璃模式下的采样源：聊天内容层。null 时退回原来的实底输入框。 */
     backdrop: Backdrop? = null,
+    onOpenShared: (() -> Unit)? = null,
 ) {
     // 只发图不打字是合理的（「这是什么」「帮我看看这张课表」）。
     val canSend = (input.isNotBlank() || attachments.isNotEmpty()) && !contextExhausted
@@ -189,6 +191,11 @@ internal fun AgentComposer(
                 .padding(start = 6.dp, end = 6.dp, top = 6.dp, bottom = 6.dp),
             verticalAlignment = Alignment.Bottom,
         ) {
+            onOpenShared?.let { open ->
+                IconButton(onClick = open, modifier = Modifier.size(36.dp)) {
+                    Icon(Icons.Default.Inbox, "分享材料", modifier = Modifier.size(20.dp), tint = MiuixTheme.colorScheme.onSurfaceVariantSummary)
+                }
+            }
             if (visionEnabled) {
                 Box(
                     Modifier

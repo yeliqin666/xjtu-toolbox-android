@@ -277,6 +277,12 @@ internal class AndroidAgentHost(
         paths.forEach { runCatching { File(it).delete() } }
     }
 
+    override fun sharedMaterials(): AgentShareStore = androidAgentShareStore()
+
+    override fun copySharedImages(paths: List<String>): List<String> = paths.mapNotNull { path ->
+        runCatching { File(path).copyTo(File(agentImageDir(context), "${UUID.randomUUID()}.jpg")).absolutePath }.getOrNull()
+    }
+
     override suspend fun readPlanImage(name: String): DecodedPlanImage? = withContext(Dispatchers.IO) {
         runCatching {
             val file = File(File(context.cacheDir, "library_plan"), name.replace('/', '_'))
