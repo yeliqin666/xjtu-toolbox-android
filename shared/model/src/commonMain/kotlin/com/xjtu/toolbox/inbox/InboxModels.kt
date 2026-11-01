@@ -39,6 +39,8 @@ data class InboxItem(
      * 只有「自建待办」会填：收纳里的其他条目都是学校 / 思源那边的投影，没有可挑色的地方。
      */
     val colorArgb: Int? = null,
+    /** 开始后才进入待办；0 表示立即可见。 */
+    val availableAt: Long = 0L,
 )
 
 /** 办完（或被用户忽略）的待办，灰着留 [InboxRules.FINISHED_KEEP_MS]。 */
@@ -164,7 +166,7 @@ object InboxRules {
     /** 还没办的待办（忽略的除外），快截止的排前面。 */
     fun todos(data: InboxData, now: Long): List<InboxItem> =
         data.todos.filterKeys { it !in data.off }.values.flatten()
-            .filter { visible(it, now) && it.id !in data.ignored }
+            .filter { it.availableAt <= now && visible(it, now) && it.id !in data.ignored }
             .sortedWith(compareBy<InboxItem> { it.expiresAt.takeIf { e -> e > 0 } ?: Long.MAX_VALUE }.thenByDescending { it.time })
 
     /**
