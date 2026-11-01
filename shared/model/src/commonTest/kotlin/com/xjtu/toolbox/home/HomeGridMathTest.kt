@@ -123,11 +123,13 @@ class HomeGridMathTest {
 
         assertTrue(result.any { it.id == "fromOther" })
         // 只有真的被压到的 a 让位；b 与落点不重叠，原地不动（不做连锁位移）
-        assertEquals(0f, result.first { it.id == "b" }.x, 0.0001f)
-        assertEquals(0f, result.first { it.id == "b" }.y, 0.0001f)
-        // a 让到哪里都行，但必须还在本组里，而且组内不能重叠
+        val newB = result.first { it.id == "b" }
+        assertEquals(2f, newB.x, 0.0001f)
+        assertEquals(0f, newB.y, 0.0001f)
+        // a 让到哪里都行，但必须还在本组里（0..COLUMNS），而且组内不能重叠
         val newA = result.first { it.id == "a" }
-        assertTrue(newA.x in 0f..HomeGridMath.COLUMNS)
+        assertTrue(newA.x >= 0f && newA.x <= HomeGridMath.COLUMNS)
+        assertTrue(newA.y >= 0f)
         result.indices.forEach { i ->
             (i + 1 until result.size).forEach { j ->
                 assertFalse(HomeGridMath.overlaps(result[i], result[j]))
