@@ -3,7 +3,6 @@ package com.xjtu.toolbox.home
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.Crossfade
 import androidx.compose.animation.core.Animatable
-import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.VectorConverter
 import androidx.compose.animation.core.animateDpAsState
@@ -24,8 +23,6 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
-import androidx.compose.foundation.gestures.detectDragGestures
-import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -49,7 +46,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.OpenInFull
 import androidx.compose.material.icons.filled.Remove
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -58,7 +54,6 @@ import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -73,7 +68,18 @@ import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.awaitLongPressOrCancellation
+import androidx.compose.foundation.gestures.awaitTouchSlopOrCancellation
+import androidx.compose.foundation.gestures.drag
+import androidx.compose.foundation.gestures.scrollBy
+import androidx.compose.foundation.ScrollState
+import androidx.compose.runtime.snapshotFlow
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.semantics.CustomAccessibilityAction
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.customActions
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.platform.LocalDensity
@@ -105,7 +111,6 @@ import com.xjtu.toolbox.ui.theme.LocalIsDarkTheme
 import kotlin.math.roundToInt
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.launch
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextButton
@@ -126,6 +131,10 @@ internal fun HomeWidgetGrid(
     paymentCode: suspend () -> String?,
     onLink: (String) -> Unit,
     modifier: Modifier = Modifier,
+    /** 首页的滚动状态：拖到屏幕边缘时自动滚动用；null = 不自动滚。 */
+    scroll: ScrollState? = null,
+    /** 编辑态工具条上的「主页设置」。 */
+    onOpenSettings: (() -> Unit)? = null,
 ) {
     val store = remember { SettingsStore() }
     val byId = rows.associateBy { it.key }
@@ -158,6 +167,7 @@ internal fun HomeWidgetGrid(
                     store.homeWidgets = null
                     widgets = HomeWidgetLayout.defaults(rows.map { it.key }) { byId[it]?.stat != null }
                 },
+                onSettings = onOpenSettings,
                 onDone = { editing = false },
             )
         }
@@ -172,6 +182,7 @@ internal fun HomeWidgetGrid(
             onEdit = { editing = true },
             onReorder = ::save,
             onAdd = { adding = true },
+            scroll = scroll,
             modifier = Modifier.padding(horizontal = 16.dp),
         )
     }
@@ -210,12 +221,16 @@ internal fun HomeWidgetGrid(
 }
 
 @Composable
-private fun EditToolbar(ink: Color, onReset: () -> Unit, onDone: () -> Unit) {
+private fun EditToolbar(ink: Color, onReset: () -> Unit, onSettings: (() -> Unit)?, onDone: () -> Unit) {
     Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 8.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text("拖右下角缩放 · 长按拖动排序", fontSize = 11.sp, color = ink.copy(alpha = 0.7f), modifier = Modifier.weight(1f))
             Text("复原", fontSize = 13.sp, color = ink,
                 modifier = Modifier.clip(RoundedCornerShape(8.dp)).clickable(onClick = onReset).padding(8.dp))
+            onSettings?.let {
+                Text("设置", fontSize = 13.sp, color = ink,
+                    modifier = Modifier.clip(RoundedCornerShape(8.dp)).clickable(onClick = it).padding(8.dp))
+            }
             Text("完成", fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = ink,
                 modifier = Modifier.clip(RoundedCornerShape(8.dp)).clickable(onClick = onDone).padding(8.dp))
         }
@@ -278,6 +293,7 @@ private fun WidgetCanvas(
     onEdit: () -> Unit,
     onReorder: (List<HomeWidgetSpec>) -> Unit,
     onAdd: () -> Unit,
+    scroll: ScrollState?,
     modifier: Modifier = Modifier,
 ) {
     BoxWithConstraints(modifier.fillMaxWidth()) {
@@ -300,89 +316,143 @@ private fun WidgetCanvas(
             spring(stiffness = Spring.StiffnessMediumLow), label = "widgetGridHeight",
         )
         var dragging by remember { mutableStateOf<String?>(null) }
-        var dragOrigin by remember { mutableStateOf(Offset.Zero) }
-        var dragDelta by remember { mutableStateOf(Offset.Zero) }
+        // 手指记在根坐标里：被拖的格子 = 手指 − 网格原点 − 抓取点。页面自动滚动时网格原点在变，
+        // 格子自然跟住手指；也不逐次累加位移，免得缩放、摆动这些视觉变换把位移放大或吃掉
+        var fingerRoot by remember { mutableStateOf(Offset.Zero) }
+        var grab by remember { mutableStateOf(Offset.Zero) }
+        var gridRoot by remember { mutableStateOf(Offset.Zero) }
+        var dragSize by remember { mutableStateOf(Offset.Zero) }
         // 上一次换位的目标：换完它挪走、别的格子滑到手指下时不会立刻再换，避免来回抖
         var lastHover by remember { mutableStateOf<String?>(null) }
         val density = LocalDensity.current
         val step = with(density) { (cell + GAP).toPx() }
         val haptic = LocalHapticFeedback.current
-        val scope = rememberCoroutineScope()
-        // 拖动手势只在开始时装一次，里面读到的列表和排位得是最新的
+        // 手势只在进入编辑时装一次，里面读到的列表和排位得是最新的
         val latestWidgets by rememberUpdatedState(widgets)
         val latestPlaced by rememberUpdatedState(placed)
+        val dragPos = { fingerRoot - gridRoot - grab }
 
-        Box(Modifier.fillMaxWidth().height(height)) {
-            placed.forEachIndexed { index, p ->
+        fun rectOf(p: PlacedWidget) = androidx.compose.ui.geometry.Rect(
+            Offset(p.col * step, p.row * step),
+            androidx.compose.ui.geometry.Size(p.spec.size.cols * step - GAP.value * density.density, p.spec.size.rows * step - GAP.value * density.density),
+        )
+
+        fun updateHover() {
+            val id = dragging ?: return
+            val center = dragPos() + dragSize / 2f
+            val hover = latestPlaced.firstOrNull { o -> o.spec.routeId != id && o.spec.routeId != ADD_KEY && rectOf(o).contains(center) }
+            if (hover == null) { lastHover = null; return }
+            if (hover.spec.routeId == lastHover) return
+            lastHover = hover.spec.routeId
+            val list = latestWidgets
+            val from = list.indexOfFirst { it.routeId == id }
+            val to = list.indexOfFirst { it.routeId == hover.spec.routeId }
+            if (from >= 0 && to >= 0 && from != to) {
+                onReorder(list.toMutableList().apply { add(to, removeAt(from)) })
+                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+            }
+        }
+
+        // 拖到屏幕上下边缘时自动滚动：越靠边越快
+        val windowHeight = androidx.compose.ui.platform.LocalWindowInfo.current.containerSize.height.toFloat()
+        LaunchedEffect(dragging != null, scroll) {
+            val page = scroll ?: return@LaunchedEffect
+            if (dragging == null) return@LaunchedEffect
+            val edge = with(density) { AUTO_SCROLL_EDGE.toPx() }
+            val maxStep = with(density) { AUTO_SCROLL_MAX_STEP.toPx() }
+            while (true) {
+                androidx.compose.runtime.withFrameNanos { }
+                val y = fingerRoot.y
+                val delta = when {
+                    y < edge -> -(1f - (y / edge).coerceIn(0f, 1f)) * maxStep
+                    y > windowHeight - edge -> ((y - (windowHeight - edge)) / edge).coerceIn(0f, 1f) * maxStep
+                    else -> 0f
+                }
+                if (delta != 0f && page.scrollBy(delta) != 0f) updateHover()
+            }
+        }
+
+        // 编辑态一个手势层管所有格子：落在某格右下角把手热区 → 越过触摸斜坡就缩放；
+        // 其余位置要长按才拖，普通上下滑照常交给页面滚动
+        val gestures = if (editing) Modifier.pointerInput(cell) {
+            val handle = RESIZE_HANDLE_TOUCH.toPx()
+            awaitEachGesture {
+                val down = awaitFirstDown(requireUnconsumed = false)
+                val hit = latestPlaced.lastOrNull { it.spec.routeId != ADD_KEY && rectOf(it).contains(down.position) }
+                    ?: return@awaitEachGesture
+                val rect = rectOf(hit)
+                if (down.position.x >= rect.right - handle && down.position.y >= rect.bottom - handle) {
+                    val start = awaitTouchSlopOrCancellation(down.id) { c, _ -> c.consume() } ?: return@awaitEachGesture
+                    resizing = hit.spec.routeId
+                    resizeSize = hit.spec.size
+                    resizeOrigin = IntOffset(rect.left.roundToInt(), rect.top.roundToInt())
+                    resizeStart = Offset(rect.width, rect.height)
+                    resizeDelta = Offset.Zero
+                    val done = drag(start.id) { c ->
+                        resizeDelta += c.position - c.previousPosition
+                        val next = WidgetSize.fromExtent((resizeStart.x + resizeDelta.x + GAP.toPx()) / step,
+                            (resizeStart.y + resizeDelta.y + GAP.toPx()) / step)
+                        if (next != resizeSize) {
+                            resizeSize = next
+                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                        }
+                        c.consume()
+                    }
+                    if (done) onReorder(latestWidgets.map { if (it.routeId == hit.spec.routeId) it.copy(size = resizeSize) else it })
+                    resizing = null
+                } else {
+                    val press = awaitLongPressOrCancellation(down.id) ?: return@awaitEachGesture
+                    grab = press.position - rect.topLeft
+                    dragSize = Offset(rect.width, rect.height)
+                    fingerRoot = gridRoot + press.position
+                    lastHover = null
+                    dragging = hit.spec.routeId
+                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                    drag(press.id) { c ->
+                        fingerRoot = gridRoot + c.position
+                        updateHover()
+                        c.consume()
+                    }
+                    dragging = null
+                }
+            }
+        } else Modifier
+
+        Box(
+            Modifier.fillMaxWidth().height(height)
+                .onGloballyPositioned { gridRoot = it.positionInRoot() }
+                .then(gestures),
+        ) {
+            placed.forEach { p ->
                 key(p.spec.routeId) {
                     val target = IntOffset((p.col * step).roundToInt(), (p.row * step).roundToInt())
                     val w = cell * p.spec.size.cols + GAP * (p.spec.size.cols - 1)
                     val h = cell * p.spec.size.rows + GAP * (p.spec.size.rows - 1)
                     val isDragged = dragging == p.spec.routeId
                     val isResizing = resizing == p.spec.routeId
-                    val raw = (dragOrigin + dragDelta).let { IntOffset(it.x.roundToInt(), it.y.roundToInt()) }
                     val pos = remember { Animatable(target, IntOffset.VectorConverter) }
+                    // 拖动中每帧把位置同步给 pos，松手后从手指处弹回格子
                     LaunchedEffect(target, isDragged) {
-                        if (isDragged) return@LaunchedEffect
-                        if (pos.value != target) pos.animateTo(target, spring(dampingRatio = 0.82f, stiffness = Spring.StiffnessMediumLow))
+                        if (isDragged) {
+                            snapshotFlow { dragPos() }.collect { pos.snapTo(IntOffset(it.x.roundToInt(), it.y.roundToInt())) }
+                        } else if (pos.value != target) {
+                            pos.animateTo(target, spring(dampingRatio = 0.82f, stiffness = Spring.StiffnessMediumLow))
+                        }
                     }
                     val width by animateDpAsState(w, spring(dampingRatio = 0.85f, stiffness = Spring.StiffnessMediumLow), label = "w")
                     val heightAnim by animateDpAsState(h, spring(dampingRatio = 0.85f, stiffness = Spring.StiffnessMediumLow), label = "h")
                     val lift by animateFloatAsState(if (isDragged) 1.05f else 1f, label = "lift")
-                    val wobble = if (editing && !isDragged && !isResizing) rememberWobble(index) else 0f
+                    val shake = rememberShake(editing && !isDragged && !isResizing && p.spec.routeId != ADD_KEY, p.spec.routeId)
                     val resizeWidth = with(density) { (resizeStart.x + resizeDelta.x).coerceIn(cell.toPx(), (cell * 2 + GAP).toPx()).toDp() }
                     val resizeHeight = with(density) { (resizeStart.y + resizeDelta.y).coerceIn(cell.toPx(), (cell * 2 + GAP).toPx()).toDp() }
 
                     Box(
                         Modifier
-                            .offset { if (isResizing) resizeOrigin else if (isDragged) raw else pos.value }
+                            .offset { if (isResizing) resizeOrigin else pos.value }
                             .zIndex(if (isDragged || isResizing) 2f else 0f)
                             .size(if (isResizing) resizeWidth else width, if (isResizing) resizeHeight else heightAnim)
-                            .graphicsLayer { scaleX = lift; scaleY = lift; rotationZ = wobble }
-                            .then(
-                                // 编辑态要先长按一下才拖：普通上下滑交给页面滚动
-                                if (editing && p.spec.routeId != ADD_KEY) Modifier.pointerInput(p.spec.routeId) {
-                                    detectDragGesturesAfterLongPress(
-                                        onDragStart = {
-                                            dragging = p.spec.routeId
-                                            dragOrigin = Offset(pos.value.x.toFloat(), pos.value.y.toFloat())
-                                            dragDelta = Offset.Zero
-                                            lastHover = null
-                                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                        },
-                                        onDragEnd = {
-                                            val r = dragOrigin + dragDelta
-                                            // 先停在手指位置，再交给上面的 LaunchedEffect 弹回格子
-                                            scope.launch {
-                                                pos.snapTo(IntOffset(r.x.roundToInt(), r.y.roundToInt()))
-                                                dragging = null
-                                            }
-                                        },
-                                        onDragCancel = { dragging = null },
-                                        onDrag = { change, amount ->
-                                            change.consume()
-                                            dragDelta += amount
-                                            val center = dragOrigin + dragDelta + Offset(width.toPx() / 2, heightAnim.toPx() / 2)
-                                            val hover = latestPlaced.firstOrNull { o ->
-                                                o.spec.routeId != p.spec.routeId && o.spec.routeId != ADD_KEY &&
-                                                    center.x in (o.col * step)..(o.col * step + o.spec.size.cols * step) &&
-                                                    center.y in (o.row * step)..(o.row * step + o.spec.size.rows * step)
-                                            }
-                                            if (hover == null) lastHover = null
-                                            if (hover != null && hover.spec.routeId != lastHover) {
-                                                lastHover = hover.spec.routeId
-                                                val list = latestWidgets
-                                                val from = list.indexOfFirst { it.routeId == p.spec.routeId }
-                                                val to = list.indexOfFirst { it.routeId == hover.spec.routeId }
-                                                if (from >= 0 && to >= 0 && from != to) {
-                                                    onReorder(list.toMutableList().apply { add(to, removeAt(from)) })
-                                                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                                }
-                                            }
-                                        },
-                                    )
-                                } else Modifier,
-                            ),
+                            // 摆动只改绘制层，不触发重组
+                            .graphicsLayer { scaleX = lift; scaleY = lift; rotationZ = shake() },
                     ) {
                         if (p.spec.routeId == ADD_KEY) {
                             AddTile(ink, onAdd)
@@ -401,6 +471,7 @@ private fun WidgetCanvas(
                             EditBadges(
                                 visible = editing && !isDragged,
                                 onRemove = { onReorder(widgets.filterNot { it.routeId == row.key }) },
+                                // 把手只画记号，手势在网格那一层按热区判定；读屏可直接切尺寸
                                 resizeModifier = Modifier.semantics {
                                     customActions = WidgetSize.entries.map { size ->
                                         CustomAccessibilityAction(size.key) {
@@ -408,33 +479,6 @@ private fun WidgetCanvas(
                                             true
                                         }
                                     }
-                                }.pointerInput(row.key, cell) {
-                                    detectDragGestures(
-                                        onDragStart = {
-                                            resizing = row.key
-                                            resizeSize = latestWidgets.first { it.routeId == row.key }.size
-                                            resizeOrigin = pos.value
-                                            resizeStart = Offset(width.toPx(), heightAnim.toPx())
-                                            resizeDelta = Offset.Zero
-                                        },
-                                        onDragCancel = { resizing = null },
-                                        onDragEnd = {
-                                            onReorder(latestWidgets.map { if (it.routeId == row.key) it.copy(size = resizeSize) else it })
-                                            resizing = null
-                                        },
-                                        onDrag = { change, amount ->
-                                            change.consume()
-                                            resizeDelta += amount
-                                            val next = WidgetSize.fromExtent(
-                                                (resizeStart.x + resizeDelta.x + GAP.toPx()) / step,
-                                                (resizeStart.y + resizeDelta.y + GAP.toPx()) / step,
-                                            )
-                                            if (next != resizeSize) {
-                                                resizeSize = next
-                                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                            }
-                                        },
-                                    )
                                 },
                             )
                         }
@@ -445,16 +489,20 @@ private fun WidgetCanvas(
     }
 }
 
-/** 编辑时的轻微摆动：每格周期略错开，不会整齐划一地晃。 */
+/**
+ * 编辑态的慢摆：2.4 秒一周、±0.9°，相位按 id 错开，各格朝不同方向。
+ * 只在 [active] 时挂无限动画；退出编辑直接归零，不做复位动画。返回值在绘制阶段读。
+ */
 @Composable
-private fun rememberWobble(index: Int): Float {
-    val t = rememberInfiniteTransition(label = "wobble")
-    val angle by t.animateFloat(
-        initialValue = -0.7f, targetValue = 0.7f,
-        animationSpec = infiniteRepeatable(tween(240 + (index % 4) * 30), RepeatMode.Reverse),
-        label = "wobbleAngle",
+private fun rememberShake(active: Boolean, id: String): () -> Float {
+    if (!active) return { 0f }
+    val phase = remember(id) { ((id.hashCode() % 360 + 360) % 360) / 360f * 2f * kotlin.math.PI.toFloat() }
+    val angle by rememberInfiniteTransition(label = "shake").animateFloat(
+        initialValue = 0f, targetValue = 2f * kotlin.math.PI.toFloat(),
+        animationSpec = infiniteRepeatable(tween(SHAKE_PERIOD_MS, easing = androidx.compose.animation.core.LinearEasing)),
+        label = "shakeAngle",
     )
-    return angle
+    return { kotlin.math.sin(angle + phase) * SHAKE_DEGREES }
 }
 
 /** 尺寸变化时重排内容，文字和背景共用同一套对比度规则。 */
@@ -661,10 +709,16 @@ private fun BoxScope.EditBadges(
     AnimatedVisibility(visible, Modifier.align(Alignment.TopStart).padding(5.dp), enter = enter, exit = exit) {
         Badge(Icons.Filled.Remove, "移除", onRemove)
     }
-    AnimatedVisibility(visible, Modifier.align(Alignment.BottomEnd).padding(5.dp), enter = enter, exit = exit) {
-        Box(resizeModifier.size(36.dp), contentAlignment = Alignment.BottomEnd) {
-            Icon(Icons.Filled.OpenInFull, "拖动调整大小", tint = Color.White,
-                modifier = Modifier.size(24.dp).background(Color(0xF02B2B2E), CircleShape).padding(5.dp))
+    AnimatedVisibility(visible, Modifier.align(Alignment.BottomEnd), enter = fadeIn(), exit = fadeOut()) {
+        // 两道斜杠像「可拉伸」的角标；热区（RESIZE_HANDLE_TOUCH）由网格手势层判定
+        val grip = MiuixTheme.colorScheme.primary
+        Box(resizeModifier.size(RESIZE_HANDLE_TOUCH).semantics { contentDescription = "拖动调整大小" }, contentAlignment = Alignment.Center) {
+            androidx.compose.foundation.Canvas(Modifier.size(13.dp)) {
+                val side = size.width
+                val stroke = side * 0.16f
+                drawLine(grip, Offset(side * 0.22f, side * 0.95f), Offset(side * 0.95f, side * 0.22f), stroke, androidx.compose.ui.graphics.StrokeCap.Round)
+                drawLine(grip, Offset(side * 0.22f, side * 0.48f), Offset(side * 0.48f, side * 0.22f), stroke, androidx.compose.ui.graphics.StrokeCap.Round)
+            }
         }
     }
 }
@@ -723,6 +777,11 @@ private fun Modifier.glassTile(wall: Backdrop, ink: Color): Modifier {
 private fun Color.luminanceApprox(): Float = 0.2126f * red + 0.7152f * green + 0.0722f * blue
 
 private val GAP = 10.dp
+private val RESIZE_HANDLE_TOUCH = 44.dp
+private val AUTO_SCROLL_EDGE = 104.dp
+private val AUTO_SCROLL_MAX_STEP = 14.dp
+private const val SHAKE_PERIOD_MS = 2400
+private const val SHAKE_DEGREES = 0.9f
 private val TILE_RADIUS = 20.dp
 private const val ADD_KEY = "__add__"
 private const val PAYMENT_REFRESH_MS = 30_000L

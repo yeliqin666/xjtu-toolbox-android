@@ -132,4 +132,10 @@ interface HomeHost {
 
     /** 当前付款码（大尺寸付款码小组件直接画二维码）；null = 这一端拿不到或还没登录校园卡。 */
     suspend fun paymentCode(): String? = null
+
+    /** 小组件编辑态里点「设置」：打开主页设置抽屉；默认空实现 = 这一端不提供。 */
+    fun onOpenHomeSettings() {}
+
+    /** 是否接了 [onOpenHomeSettings]，没接就不显示那个入口。 */
+    val hasHomeSettings: Boolean get() = false
 }

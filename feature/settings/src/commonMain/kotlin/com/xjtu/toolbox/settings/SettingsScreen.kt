@@ -378,21 +378,15 @@ private fun SettingsHome(
                         startAction = { SettingsIcon(Icons.Default.Wallpaper, cPurple) },
                         onClick = { showHomeHeroDialog = true },
                     )
-                    HomeBackgroundPreference(store, startAction = { SettingsIcon(Icons.Default.Wallpaper, cPurple) })
-                    val layoutKeys = listOf(SettingsStore.HOME_LAYOUT_CLASSIC, SettingsStore.HOME_LAYOUT_WIDGETS)
-                    var homeLayout by remember(HomeLayoutRevision.current) { mutableStateOf(store.homeLayout) }
-                    OverlayDropdownPreference(
-                        title = "首页功能区",
-                        summary = if (homeLayout == SettingsStore.HOME_LAYOUT_WIDGETS) "长按编辑，拖右下角调整大小" else null,
-                        items = listOf("分类卡", "小组件"),
-                        selectedIndex = layoutKeys.indexOf(homeLayout).coerceAtLeast(0),
+                    var showHomeSettings by remember { mutableStateOf(false) }
+                    val homeSummary = remember(HomeLayoutRevision.current) { homeSettingsSummary(store) }
+                    ArrowPreference(
+                        title = "主页设置",
+                        summary = homeSummary,
                         startAction = { SettingsIcon(Icons.Default.Dashboard, cPurple) },
-                        onSelectedIndexChange = { idx ->
-                            homeLayout = layoutKeys[idx]
-                            store.homeLayout = homeLayout
-                            HomeLayoutRevision.bump()
-                        },
+                        onClick = { showHomeSettings = true },
                     )
+                    HomeSettingsSheet(show = showHomeSettings, onDismiss = { showHomeSettings = false })
                 }
                 if (showBottomTabs) {
                     ArrowPreference(

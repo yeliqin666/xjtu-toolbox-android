@@ -73,6 +73,7 @@ internal fun HomeTab(
         onBulletinDismiss = onBulletinDismiss,
     )
     SubsystemStatusSheet(loginState, home.showStatusSheet)
+    com.xjtu.toolbox.settings.HomeSettingsSheet(home.showSettingsSheet.value, onDismiss = { home.showSettingsSheet.value = false })
     HomeScreen(
         host = home.host,
         scrollBehavior = scrollBehavior,

@@ -38,6 +38,8 @@ internal class AppHome(
     val host: HomeHost,
     /** 「子系统连接状态」弹窗的开关，由调用方（[HomeTab]）在组合里读并画那个弹窗。 */
     val showStatusSheet: MutableState<Boolean>,
+    /** 「主页设置」抽屉的开关（首页编辑态里点「设置」）。 */
+    val showSettingsSheet: MutableState<Boolean>,
 )
 
 /** 首页的宿主面（`:app` 这一端）—— 把「首页要的数据从哪来」收成一个对象。 */
@@ -152,6 +154,7 @@ internal fun rememberAppHome(
     val audience = loginState.accountType
     val isLoggedIn = loginState.isLoggedIn
     val showStatusSheet = remember { mutableStateOf(false) }
+    val showSettingsSheet = remember { mutableStateOf(false) }
 
     // 常用入口：用户置顶过就按置顶的来，否则按使用频率取 4 个。它是**额外**的入口，分类里照常保留。
     val settings = remember { com.xjtu.toolbox.settings.SettingsStore() }
@@ -344,9 +347,13 @@ internal fun rememberAppHome(
         override fun onOpenStatus() {
             showStatusSheet.value = true
         }
+        override fun onOpenHomeSettings() {
+            showSettingsSheet.value = true
+        }
+        override val hasHomeSettings get() = true
     }
 
-    return AppHome(host, showStatusSheet)
+    return AppHome(host, showStatusSheet, showSettingsSheet)
 }
 
 /** 「10月12日」那一段。`:app` 这一端读的是 `java.time` 的月份与日。 */

@@ -599,7 +599,7 @@ private fun HomeTopActions(onInbox: () -> Unit, onScan: () -> Unit, onSearch: ()
 private val HomeTopActionSize = 44.dp
 
 /**
- * 顶栏圆钮：半透明白底 + 常驻白色高光，直接透出下面的顶栏模糊，不再单独采样/模糊。
+ * 顶栏圆钮：半透明底色 + 柔和投影，直接透出下面的顶栏模糊，不再单独采样/模糊；不描边，和底栏的玻璃一致。
  * 按压用共享的 [pressScale]（小圆钮压深一点）；onClick 为 null 时只画底，不接管点击。
  */
 @Composable
@@ -611,11 +611,6 @@ private fun HomeRoundAction(
     val interaction = remember { MutableInteractionSource() }
     val isDark = LocalIsDarkTheme.current
     val fill = MiuixTheme.colorScheme.surfaceContainerHigh.copy(alpha = if (isDark) 0.52f else 0.6f)
-    val ring = Brush.verticalGradient(
-        0f to Color.White.copy(alpha = 1f),
-        0.55f to Color.White.copy(alpha = 0.5f),
-        1f to Color.White.copy(alpha = 0.2f),
-    )
     Box(
         Modifier
             .size(size)
@@ -628,11 +623,6 @@ private fun HomeRoundAction(
                 spotColor = Color.White.copy(alpha = if (isDark) 0.28f else 0.6f),
             )
             .background(fill, CircleShape)
-            // 高光圈画在内容底下：铃铛角标要压在圈上，不能被圈盖住
-            .drawBehind {
-                val stroke = 1.5.dp.toPx()
-                drawCircle(ring, radius = this.size.minDimension / 2 - stroke / 2, style = Stroke(stroke))
-            }
             .then(
                 if (onClick != null) {
                     Modifier.clickable(interactionSource = interaction, indication = null, onClick = onClick)

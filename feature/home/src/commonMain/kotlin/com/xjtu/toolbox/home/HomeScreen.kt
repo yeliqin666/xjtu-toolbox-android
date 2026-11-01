@@ -259,6 +259,8 @@ fun HomeScreen(
                     paymentCode = host::paymentCode,
                     onLink = host::onOpenLink,
                     modifier = Modifier.enterOnce(1),
+                    scroll = scroll,
+                    onOpenSettings = if (host.hasHomeSettings) host::onOpenHomeSettings else null,
                 )
             } else if (HomeCard.SERVICE_GRID in honored && groups.isNotEmpty()) {
                 Spacer(Modifier.height(20.dp))
