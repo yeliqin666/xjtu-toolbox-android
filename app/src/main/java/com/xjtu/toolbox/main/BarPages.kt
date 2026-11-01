@@ -194,6 +194,7 @@ internal fun AndroidAgentScreen(
         hero = { title, facts, now -> AndroidPidaiHero(title, facts, now) },
         pokeWhisper = { AndroidPokeWhisper(it) },
         appearanceSection = { PidaiAppearancePanel() },
+        pushPreferences = { com.xjtu.toolbox.agent.PidaiPushPreferences() },
         extraBottomPadding = extraBottomPadding,
         hostBottomPadding = hostBottomPadding,
         scrollBehavior = scrollBehavior,
