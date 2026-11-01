@@ -44,6 +44,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.xjtu.toolbox.auth.*
+import com.xjtu.toolbox.home.EnrollmentCertificate
 import com.xjtu.toolbox.ui.components.AppCardColor
 import com.xjtu.toolbox.ui.components.appCardShadow
 import com.xjtu.toolbox.ui.components.enterOnce
@@ -70,6 +71,9 @@ import top.yukonga.miuix.kmp.basic.ScrollBehavior
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextButton
 import top.yukonga.miuix.kmp.basic.TextField
+import top.yukonga.miuix.kmp.basic.SmallTitle
+import top.yukonga.miuix.kmp.overlay.OverlayBottomSheet
+import top.yukonga.miuix.kmp.preference.ArrowPreference
 import top.yukonga.miuix.kmp.overlay.OverlayDialog
 import top.yukonga.miuix.kmp.squircle.squircleBackground
 import top.yukonga.miuix.kmp.squircle.squircleClip
@@ -891,6 +895,33 @@ internal fun ProfileTab(
                 helloProfile?.takeIf { it.hasContent() }?.let { p ->
                     ProfileInfoCard(p, Modifier.enterOnce(1))
                     Spacer(Modifier.height(PROFILE_GAP))
+                }
+
+                if (loginState.accountType == AccountType.UNDERGRADUATE) {
+                    var showCertificate by remember { mutableStateOf(false) }
+                    SmallTitle("学业材料")
+                    MenuGroup {
+                        ProfileMenuRow(Icons.Outlined.Description, TINT_TEAL, "电子成绩单", onClick = { onNavigate(AppRoute.Transcript) })
+                        MenuDivider()
+                        ProfileMenuRow(Icons.Outlined.School, TINT_TEAL, "在读证明", subtitle = "中文或中英文",
+                            onClick = { showCertificate = true })
+                    }
+                    Spacer(Modifier.height(PROFILE_GAP))
+                    if (showCertificate) OverlayBottomSheet(
+                        show = true, title = "在读证明", onDismissRequest = { showCertificate = false },
+                    ) {
+                        Column(Modifier.navigationBarsPadding()) {
+                            EnrollmentCertificate.entries.forEach { certificate ->
+                                ArrowPreference(
+                                    title = certificate.label, summary = "在学校电子凭证平台申请与下载",
+                                    onClick = {
+                                        showCertificate = false
+                                        onNavigate(AppRoute.Browser(certificate.url))
+                                    },
+                                )
+                            }
+                        }
+                    }
                 }
 
                 MenuGroup(Modifier.enterOnce(2)) {

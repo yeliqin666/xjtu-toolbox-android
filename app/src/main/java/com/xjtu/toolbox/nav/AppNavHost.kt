@@ -685,6 +685,7 @@ fun AwaitSite(
 
 /** 内置浏览器打开某个站点时带哪套登录会话的 cookie。 */
 private fun siteKeyForHost(host: String): String = when {
+    host == "dzpz.xjtu.edu.cn" -> "dzpz"
     "tyxylp.xjtu.edu.cn" in host -> "fitness"
     "rg.lib.xjtu.edu.cn" in host -> "library"
     "jwapp.xjtu.edu.cn" in host -> "jwapp"
