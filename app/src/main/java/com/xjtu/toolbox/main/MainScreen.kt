@@ -195,7 +195,6 @@ internal fun MainScreen(
 
     // PIDAI tab 的标题与顶栏按钮，由小岱页反向送上来
     var agentTitle by remember { mutableStateOf("小岱") }
-    var agentSubtitle by remember { mutableStateOf("") }
     val agentOverlays = remember { AgentOverlays() }
     var agentHeaderActions by remember { mutableStateOf<(@Composable RowScope.() -> Unit)?>(null) }
     var agentHeaderNavIcon by remember { mutableStateOf<(@Composable () -> Unit)?>(null) }
@@ -371,7 +370,6 @@ internal fun MainScreen(
                     BottomTab.PROFILE -> profileScrollBehavior
                 },
                 agentTitle = agentTitle,
-                agentSubtitle = agentSubtitle,
                 agentNavIcon = agentHeaderNavIcon,
                 agentActions = agentHeaderActions,
                 courseSubtitle = courseSubtitle,
@@ -524,7 +522,6 @@ internal fun MainScreen(
                         contentTopPadding = insets.contentTopPadding,
                         scrollBehavior = agentScrollBehavior,
                         onTitleChange = { agentTitle = it },
-                        onSubtitleChange = { agentSubtitle = it },
                         onActionsChange = { agentHeaderActions = it },
                         onNavIconChange = { agentHeaderNavIcon = it },
                         overlays = agentOverlays,
@@ -655,7 +652,6 @@ private fun MainTopBar(
     backdrop: LayerBackdrop,
     scrollBehavior: ScrollBehavior,
     agentTitle: String,
-    agentSubtitle: String,
     agentNavIcon: (@Composable () -> Unit)?,
     agentActions: (@Composable RowScope.() -> Unit)?,
     courseSubtitle: String,
@@ -675,7 +671,6 @@ private fun MainTopBar(
     if (selectedTab == BottomTab.PIDAI) {
         SmallTopAppBar(
             title = agentTitle,
-            subtitle = agentSubtitle,
             color = color,
             modifier = modifier,
             scrollBehavior = scrollBehavior,

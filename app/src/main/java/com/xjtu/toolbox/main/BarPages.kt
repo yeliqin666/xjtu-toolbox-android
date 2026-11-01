@@ -177,7 +177,6 @@ internal fun AndroidAgentScreen(
     contentTopPadding: Dp,
     scrollBehavior: ScrollBehavior,
     onTitleChange: (String) -> Unit,
-    onSubtitleChange: (String) -> Unit,
     onActionsChange: ((@Composable RowScope.() -> Unit)?) -> Unit,
     onNavIconChange: ((@Composable () -> Unit)?) -> Unit,
     overlays: AgentOverlays,
@@ -196,7 +195,6 @@ internal fun AndroidAgentScreen(
         hostBottomPadding = hostBottomPadding,
         scrollBehavior = scrollBehavior,
         onTitleChange = onTitleChange,
-        onSubtitleChange = onSubtitleChange,
         onActionsChange = onActionsChange,
         onNavIconChange = onNavIconChange,
         overlays = overlays,
@@ -209,7 +207,6 @@ internal fun AndroidAgentScreen(
 @Composable
 internal fun AgentRoutePage(loginState: AppLoginState, onNavigate: (AppRoute) -> Unit, onBack: () -> Unit) {
     var title by remember { mutableStateOf("小岱") }
-    var subtitle by remember { mutableStateOf("") }
     var actions by remember { mutableStateOf<(@Composable RowScope.() -> Unit)?>(null) }
     var navIcon by remember { mutableStateOf<(@Composable () -> Unit)?>(null) }
     val overlays = remember { AgentOverlays() }
@@ -219,7 +216,6 @@ internal fun AgentRoutePage(loginState: AppLoginState, onNavigate: (AppRoute) ->
         topBar = { glass ->
             SmallTopAppBar(
                 title = title,
-                subtitle = subtitle,
                 color = glassBarColor(glass),
                 modifier = Modifier.glassTopBar(glass),
                 scrollBehavior = scrollBehavior,
@@ -241,7 +237,6 @@ internal fun AgentRoutePage(loginState: AppLoginState, onNavigate: (AppRoute) ->
             contentTopPadding = topPadding,
             scrollBehavior = scrollBehavior,
             onTitleChange = { title = it },
-            onSubtitleChange = { subtitle = it },
             onActionsChange = { actions = it },
             onNavIconChange = { navIcon = it },
             overlays = overlays,

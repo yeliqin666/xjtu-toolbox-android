@@ -36,8 +36,8 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
  * 屁岱主界面。
  *
  * 作为底栏的 0 级 tab 嵌在 MainScreen 的 Scaffold 里，自己**不**渲染 Scaffold / TopAppBar /
- * 返回箭头——顶栏归宿主，标题、副标题（当前会话）和「历史 / 新对话 / 设置」按钮通过
- * [onTitleChange] / [onSubtitleChange] / [onActionsChange] / [onNavIconChange] 反向送上去。
+ * 返回箭头——顶栏归宿主，标题（当前对话）和「历史 / 新对话 / 设置」按钮通过
+ * [onTitleChange] / [onActionsChange] / [onNavIconChange] 反向送上去。
  * 侧栏和设置页是全屏层：宿主给了 [overlays] 就画在宿主最外层（盖住顶栏和底栏），否则盖在本页内容区。
  */
 @Composable
@@ -54,7 +54,6 @@ fun AgentScreen(
     hostBottomPadding: Dp = 0.dp,
     scrollBehavior: ScrollBehavior? = null,
     onTitleChange: (String) -> Unit = {},
-    onSubtitleChange: (String) -> Unit = {},
     onActionsChange: ((@Composable RowScope.() -> Unit)?) -> Unit = {},
     onNavIconChange: ((@Composable () -> Unit)?) -> Unit = {},
     overlays: AgentOverlays? = null,
@@ -202,11 +201,10 @@ fun AgentScreen(
         }
     }
 
-    // 标题是助手名（用户可改名），副标题是当前对话。
-    val hostTitle = config.effectiveName
+    // 标题是当前对话的名字；新对话还没名字时用助手名（用户可改名）
+    val hostTitle = vm.sessions.firstOrNull { it.id == vm.currentSessionId }?.title
+        ?.takeIf { it.isNotBlank() } ?: config.effectiveName
     LaunchedEffect(hostTitle) { onTitleChange(hostTitle) }
-    val hostSubtitle = vm.sessions.firstOrNull { it.id == vm.currentSessionId }?.title.orEmpty()
-    LaunchedEffect(hostSubtitle) { onSubtitleChange(hostSubtitle) }
     DisposableEffect(Unit) {
         onActionsChange(headerActions)
         onNavIconChange(headerNavIcon)
