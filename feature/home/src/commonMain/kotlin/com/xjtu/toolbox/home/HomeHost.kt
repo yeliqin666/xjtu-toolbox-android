@@ -115,7 +115,6 @@ interface HomeHost {
 
     /** 打开某个入口。 */
     fun onRoute(route: AppRoute) {}
-
     /** 「我的」那一屏。 */
     fun onProfile() {}
     /** 点一下公告条里的某条公告。 */
@@ -126,4 +125,11 @@ interface HomeHost {
 
     /** 点开「子系统连接状态」的明细（那一层弹窗是各端自己的画法，所以是槽位）。 */
     fun onOpenStatus() {}
+
+    /**
+     * 首页编辑态里点「齿轮」：打开全局设置并**直接定位到「主页设置」面板**（需求 §1.3）。
+     *
+     * 默认空实现 = 这一端没有设置页，点了就在原地不动（桌面、Web 各自决定接不接）。
+     */
+    fun onOpenHomeSettings() {}
 }
