@@ -4,6 +4,7 @@ import androidx.compose.material.icons.automirrored.filled.Assignment
 import androidx.compose.material.icons.automirrored.filled.FactCheck
 import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.DarkMode
+import androidx.compose.material.icons.filled.GridView
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.Star
@@ -20,6 +21,7 @@ import top.yukonga.miuix.kmp.icon.extended.Recent
 import top.yukonga.miuix.kmp.icon.extended.Settings
 import top.yukonga.miuix.kmp.icon.extended.Theme
 import com.xjtu.toolbox.home.BottomBarTabs
+import com.xjtu.toolbox.home.HomeLayoutStore
 import com.xjtu.toolbox.ui.components.HeroAppearance
 import com.xjtu.toolbox.ui.components.HeroAppearanceRevision
 import com.xjtu.toolbox.ui.components.HomeHeroAppearanceDialog
@@ -54,6 +56,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -102,10 +105,16 @@ fun SettingsScreen(
     onBack: () -> Unit,
 ) {
     var showCredits by rememberSaveable { mutableStateOf(false) }
+    var showHomeSettings by rememberSaveable { mutableStateOf(false) }
+    // 首页编辑态的「齿轮」会先置一次性旗标再打开设置页：这里读到就自动展开「主页设置」面板
+    LaunchedEffect(Unit) {
+        if (remember { HomeLayoutStore() }.consumePendingHomeSettings()) showHomeSettings = true
+    }
     // 和压栈打开子页同一套转场（AppPageMotion）：新页从右侧整屏滑入，
     // 被盖住的设置页向左让出 1/4 屏并轻微压暗，与「我的 → 设置」一致。
+    val overlayOpen = showCredits || showHomeSettings
     val cover by animateFloatAsState(
-        targetValue = if (showCredits) 1f else 0f,
+        targetValue = if (overlayOpen) 1f else 0f,
         animationSpec = tween(AppPageMotion.DurationMillis, easing = AppPageMotion.Easing),
         label = "creditsCover",
     )
@@ -114,13 +123,14 @@ fun SettingsScreen(
         SettingsHome(
             store, host, onBack,
             onOpenCredits = { showCredits = true },
+            onOpenHomeSettings = { showHomeSettings = true },
             modifier = Modifier.graphicsLayer {
                 translationX = (if (rtl) 1f else -1f) * cover * size.width * 0.25f
                 alpha = 1f - 0.1f * cover
             },
         )
         AnimatedVisibility(
-            visible = showCredits,
+            visible = overlayOpen,
             enter = slideInHorizontally(
                 tween(AppPageMotion.DurationMillis, easing = AppPageMotion.Easing),
             ) { if (rtl) -it else it },
@@ -128,8 +138,13 @@ fun SettingsScreen(
                 tween(AppPageMotion.DurationMillis, easing = AppPageMotion.Easing),
             ) { if (rtl) -it else it },
         ) {
-            BackHandler { showCredits = false }
-            CreditsScreen(host = host, onBack = { showCredits = false })
+            if (showHomeSettings) {
+                BackHandler { showHomeSettings = false }
+                HomeSettingsScreen(onBack = { showHomeSettings = false })
+            } else {
+                BackHandler { showCredits = false }
+                CreditsScreen(host = host, onBack = { showCredits = false })
+            }
         }
     }
 }
@@ -140,6 +155,7 @@ private fun SettingsHome(
     host: SettingsHost,
     onBack: () -> Unit,
     onOpenCredits: () -> Unit,
+    onOpenHomeSettings: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
 
@@ -148,6 +164,7 @@ private fun SettingsHome(
     val showQuickActions = SettingsRow.QUICK_ACTIONS in host.honoredRows
     val showNavStyle = SettingsRow.NAV_STYLE in host.honoredRows
     val showHomeHero = SettingsRow.HOME_HERO in host.honoredRows
+    val showHomeSettings = SettingsRow.HOME_SETTINGS in host.honoredRows
     val showDefaultTab = SettingsRow.DEFAULT_TAB in host.honoredRows
     val showBottomTabs = SettingsRow.BOTTOM_TABS in host.honoredRows
     val showHaptics = SettingsRow.HAPTICS in host.honoredRows
@@ -377,6 +394,15 @@ private fun SettingsHome(
                         onClick = { showHomeHeroDialog = true },
                     )
                 }
+                if (showHomeSettings) {
+                    // 二级页：背景壁纸、卡片材质、网格开关、恢复默认分组和布局（首页编辑态的齿轮也落到这）
+                    ArrowPreference(
+                        title = "主页设置",
+                        summary = "背景、卡片材质、网格与分组布局",
+                        startAction = { SettingsIcon(Icons.Default.GridView, cBlue) },
+                        onClick = onOpenHomeSettings,
+                    )
+                }
                 if (showBottomTabs) {
                     ArrowPreference(
                         title = "底栏",
@@ -510,7 +536,9 @@ private fun SettingsHome(
 
         // 组的顺序与标题（宽屏左栏就是这一列）。宿主没有那一组时整条不出现。
         val groups = buildList {
-            if (showDarkMode || showDynamicColor || showQuickActions || showNavStyle || showBottomTabs) {
+            if (showDarkMode || showDynamicColor || showQuickActions || showNavStyle || showBottomTabs ||
+                showHomeHero || showHomeSettings
+            ) {
                 add(SettingsGroup("外观", Icons.Default.Palette, cPurple, appearanceGroup))
             }
             if (showDefaultTab || showHaptics || showNetworkMode) {

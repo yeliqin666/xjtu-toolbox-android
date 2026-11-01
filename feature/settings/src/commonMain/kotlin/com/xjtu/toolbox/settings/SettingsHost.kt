@@ -21,6 +21,9 @@ enum class SettingsRow {
     /** 首页头卡的背景与流动效果（首页和设置页共用 `:shared:designsystem` 的弹窗）。 */
     HOME_HERO,
 
+    /** 「主页设置」二级页：背景壁纸、卡片材质、网格开关、恢复默认分组和布局。 */
+    HOME_SETTINGS,
+
     /** 默认启动 Tab。 */
     DEFAULT_TAB,
 
