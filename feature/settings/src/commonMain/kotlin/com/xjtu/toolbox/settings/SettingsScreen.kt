@@ -21,7 +21,6 @@ import top.yukonga.miuix.kmp.icon.extended.Recent
 import top.yukonga.miuix.kmp.icon.extended.Settings
 import top.yukonga.miuix.kmp.icon.extended.Theme
 import com.xjtu.toolbox.home.BottomBarTabs
-import com.xjtu.toolbox.home.HomeLayoutStore
 import com.xjtu.toolbox.ui.components.HeroAppearance
 import com.xjtu.toolbox.ui.components.HeroAppearanceRevision
 import com.xjtu.toolbox.ui.components.HomeHeroAppearanceDialog
@@ -56,7 +55,6 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -106,12 +104,6 @@ fun SettingsScreen(
 ) {
     var showCredits by rememberSaveable { mutableStateOf(false) }
     var showHomeSettings by rememberSaveable { mutableStateOf(false) }
-    // store 要在组合里取（remember 是 @Composable），effect 里只做「读一次旗标」这件事
-    val homeLayoutStore = remember { HomeLayoutStore() }
-    // 首页编辑态的「齿轮」会先置一次性旗标再跳到设置页：这里读到就直接把「主页设置」抽屉弹出来
-    LaunchedEffect(Unit) {
-        if (homeLayoutStore.consumePendingHomeSettings()) showHomeSettings = true
-    }
     // 和压栈打开子页同一套转场（AppPageMotion）：新页从右侧整屏滑入，
     // 被盖住的设置页向左让出 1/4 屏并轻微压暗，与「我的 → 设置」一致。
     // 「主页设置」不再是二级页，是底部抽屉（补充 §29），所以这里只算致谢那一页

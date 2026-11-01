@@ -143,24 +143,6 @@ class HomeLayoutStore(
             value.coerceIn(BACKGROUND_OPACITY_MIN, BACKGROUND_OPACITY_MAX),
         )
 
-    /**
-     * 「打开设置页并直接定位到主页设置」的一次性信号。
-     *
-     * 首页编辑态的齿轮不是新路由（`AppRoute.Settings` 是个 data object，加参数会动到
-     * 返回栈存盘和旧深链），所以走这个旗标：首页置位后照常打开设置页，
-     * 设置页读一次、读到就展开主页设置面板并清掉。
-     */
-    var pendingHomeSettings: Boolean
-        get() = store.getBoolean(KEY_PENDING_HOME_SETTINGS, false)
-        set(value) = store.putBoolean(KEY_PENDING_HOME_SETTINGS, value)
-
-    /** 设置页进来时读一次：读到 true 就清掉，避免下次进设置又自动展开。 */
-    fun consumePendingHomeSettings(): Boolean {
-        val pending = pendingHomeSettings
-        if (pending) pendingHomeSettings = false
-        return pending
-    }
-
     companion object {
         const val BACKGROUND_BLUR_MIN = 0
         const val BACKGROUND_BLUR_MAX = 10
@@ -174,7 +156,6 @@ class HomeLayoutStore(
         private const val KEY_BACKGROUND_IMAGE = "home_background_image"
         private const val KEY_BACKGROUND_BLUR = "home_background_blur"
         private const val KEY_BACKGROUND_OPACITY = "home_background_opacity"
-        private const val KEY_PENDING_HOME_SETTINGS = "home_settings_pending"
     }
 }
 

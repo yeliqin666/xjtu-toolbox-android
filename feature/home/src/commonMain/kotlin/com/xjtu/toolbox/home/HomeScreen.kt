@@ -486,6 +486,15 @@ fun HomeScreen(
             }
         }
 
+        // 长按进编辑态：记住那一刻的滚动位置，编辑态布局稳定后若被改动就拉回去。
+        // 编辑态会多出空组 / 标题行，内容变高，但滚动本身不该跳（§17 补充）
+        LaunchedEffect(editing.on) {
+            if (!editing.on) return@LaunchedEffect
+            val anchor = scroll.value
+            withFrameNanos { }
+            if (scroll.value != anchor) scroll.scrollTo(anchor)
+        }
+
         // ── 组名 / 颜色、删除组、往组里加功能这几个弹窗 ──
         editing.editGroup?.let { group ->
             val current = layout.group(group.id) ?: group
