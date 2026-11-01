@@ -35,7 +35,9 @@ import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -52,7 +54,6 @@ import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.TileMode
-import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -71,14 +72,16 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
 import com.kyant.backdrop.Backdrop
 import com.kyant.backdrop.backdrops.layerBackdrop
-import com.kyant.backdrop.backdrops.rememberCanvasBackdrop
-import com.kyant.backdrop.backdrops.rememberCombinedBackdrop
 import com.kyant.backdrop.backdrops.rememberLayerBackdrop
 import com.kyant.backdrop.drawBackdrop
 import com.kyant.backdrop.effects.blur
+import com.kyant.backdrop.effects.lens
+import com.kyant.backdrop.effects.vibrancy
+import com.kyant.backdrop.highlight.Highlight
 import com.xjtu.toolbox.bulletin.BulletinNoticePanel
 import com.xjtu.toolbox.nav.AppRoute
 import com.xjtu.toolbox.settings.SettingsStore
+import com.xjtu.toolbox.ui.components.AppColorPicker
 import com.xjtu.toolbox.ui.components.HeroAppearance
 import com.xjtu.toolbox.ui.components.HeroAppearanceDialog
 import com.xjtu.toolbox.ui.components.HeroAppearanceRevision
@@ -99,8 +102,10 @@ import com.xjtu.toolbox.ui.theme.LocalIsDarkTheme
 import com.xjtu.toolbox.ui.theme.serviceColor
 import kotlin.math.roundToInt
 import kotlinx.coroutines.launch
+import top.yukonga.miuix.kmp.basic.ButtonDefaults
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.ScrollBehavior
+import top.yukonga.miuix.kmp.basic.Switch
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextField
 import top.yukonga.miuix.kmp.basic.TextButton
@@ -215,19 +220,12 @@ fun HomeScreen(
     // 刊头先让出一栏高度、再画在顶栏下面，所以滑完整个刊头才算折叠完成
     val rangePx = if (masthead && mastheadPx > 0) mastheadPx.toFloat().coerceAtLeast(barPx) else barPx
     val progress = { (scroll.value / rangePx).coerceIn(0f, 1f) }
-    // 顶栏的玻璃采这一页自己的滚动层：顶栏本身在壳的采样层里，采壳的层会采到自己
-    val pageBackdrop = rememberLayerBackdrop()
-    // 采样层本身没有页面底色：先垫一层不透明 surface 再采样，否则模糊把透明当黑色，
-    // 字周围会出一圈脏黑边（和参考图里干净的模糊差在这里）。
+    // 背景层的主题底色（没有壁纸时顶栏与卡片透出来的就是它）
     val barSurface = MiuixTheme.colorScheme.surface
-    val surfaceDraw: DrawScope.() -> Unit = remember(barSurface) { { drawRect(barSurface) } }
-    val glassBackdrop = rememberCombinedBackdrop(
-        rememberCanvasBackdrop(surfaceDraw),
-        pageBackdrop,
-    )
     val glass = LocalGlassStyle.current && collapsible
 
-    // 液态玻璃组件采的是「只有背景」的那一层：采整页会把自己也采进去，形成回环
+    // 顶栏模糊带、卡片与顶栏按钮的液态玻璃，采的都是这**同一层背景**（主题底色 + 壁纸）：
+    // 壁纸铺满全屏含顶栏（§1.1），玻璃透出来的统一是它；采整页会把组件自己采进去，形成回环
     val tileBackdrop = rememberLayerBackdrop()
 
     val session = remember { HomeDragSession() }
@@ -283,7 +281,6 @@ fun HomeScreen(
         Column(
             Modifier
                 .fillMaxSize()
-                .then(if (glass) Modifier.layerBackdrop(pageBackdrop) else Modifier)
                 .then(if (scrollBehavior != null) Modifier.nestedScroll(scrollBehavior.nestedScrollConnection) else Modifier)
                 .overScrollVertical()
                 .verticalScroll(scroll)
@@ -339,7 +336,7 @@ fun HomeScreen(
                     onOpen = { it.onClick() },
                     onStartEdit = { editing.begin(stored) },
                     onEditGroup = { editing.editGroup = group },
-                    onAddTile = { editing.addTo = group },
+                    onDeleteGroup = { editing.confirmDeleteGroup = group },
                     onDropDrag = {
                         val id = session.tileId
                         val pointer = session.pointer
@@ -412,29 +409,31 @@ fun HomeScreen(
         // 编辑态顶栏（取消 / 设置 / 保存）不需要宿主给按钮，所以这一端没有 topActions 也要画，
         // 否则桌面、Web 长按进了编辑态就出不来了
         if (collapsible || editing.on) {
-            HomeCollapsingBar(
-                progress = progress,
-                topInset = contentTopPadding,
-                bandShift = contentTopShift,
-                backdrop = if (glass) glassBackdrop else null,
-                onTapCollapsed = { scope.launch { scroll.animateScrollTo(0) } },
-                editing = editing.on,
-                leading = topLeading,
-                actions = topActions,
-                onCancelEdit = { editing.cancel() },
-                onSaveEdit = {
-                    editing.draft?.let { layoutStore.save(it) }
-                    editing.cancel()
-                },
-                onHomeSettings = {
-                    // 齿轮是「去改外观」：先把手上的草稿落盘再走，回来时改动还在（§31 不丢未保存状态）。
-                    // 不能像叉号那样直接丢——用户是去调背景/材质，不是要放弃刚摆好的东西。
-                    editing.draft?.let { layoutStore.save(it) }
-                    editing.cancel()
-                    host.onOpenHomeSettings()
-                },
-                alignWithGreeting = masthead,
-            )
+            // 把首页背景层通过 Local 递给顶栏按钮（含宿主给的扫码 / 搜索 / 通知）做液态玻璃
+            CompositionLocalProvider(LocalHomeTileBackdrop provides tileBackdrop.takeIf { liquid }) {
+                HomeCollapsingBar(
+                    progress = progress,
+                    topInset = contentTopPadding,
+                    bandShift = contentTopShift,
+                    backdrop = if (glass) tileBackdrop else null,
+                    tileLiquidBackdrop = tileBackdrop.takeIf { liquid },
+                    onTapCollapsed = { scope.launch { scroll.animateScrollTo(0) } },
+                    editing = editing.on,
+                    leading = topLeading,
+                    actions = topActions,
+                    onCancelEdit = { editing.cancel() },
+                    onSaveEdit = {
+                        editing.draft?.let { layoutStore.save(it) }
+                        editing.cancel()
+                    },
+                    onHomeSettings = {
+                        // 齿轮 = 在原地打开「主页设置」抽屉：不跳设置页、编辑态不关闭，
+                        // 手上的草稿原样留着，关掉抽屉接着摆（§31）
+                        host.onOpenHomeSettings()
+                    },
+                    alignWithGreeting = masthead,
+                )
+            }
         }
 
         // ── 拖拽幽灵块：跟手画在最上层，落点由「哪个组接着它」决定 ──
@@ -463,7 +462,7 @@ fun HomeScreen(
             }
         }
 
-        // ── 组名 / 颜色、往组里加功能这两个弹窗 ──
+        // ── 组名 / 颜色、删除组、往组里加功能这几个弹窗 ──
         editing.editGroup?.let { group ->
             val current = layout.group(group.id) ?: group
             GroupEditDialog(
@@ -473,13 +472,16 @@ fun HomeScreen(
                     update { it.renameGroup(current.id, title).tintGroup(current.id, colorHex) }
                     editing.editGroup = null
                 },
-                onDelete = if (current.id in defaultGroupIds()) {
-                    null
-                } else {
-                    {
-                        update { it.removeGroup(current.id) }
-                        editing.editGroup = null
-                    }
+            )
+        }
+        // 组标题行删除按钮点出来的二次确认：默认组不许删（删了就回不来）
+        editing.confirmDeleteGroup?.let { group ->
+            DeleteGroupDialog(
+                group = group,
+                onDismiss = { editing.confirmDeleteGroup = null },
+                onConfirm = {
+                    update { it.removeGroup(group.id) }
+                    editing.confirmDeleteGroup = null
                 },
             )
         }
@@ -516,6 +518,8 @@ private class HomeEditState {
     var draft by mutableStateOf<HomeLayout?>(null)
     var editGroup by mutableStateOf<HomeGroup?>(null)
     var addTo by mutableStateOf<HomeGroup?>(null)
+    /** 等着二次确认删除的那一组（组标题行右侧的删除按钮点出来的）。 */
+    var confirmDeleteGroup by mutableStateOf<HomeGroup?>(null)
 
     fun begin(stored: HomeLayout) {
         if (on) return
@@ -528,6 +532,7 @@ private class HomeEditState {
         draft = null
         editGroup = null
         addTo = null
+        confirmDeleteGroup = null
     }
 }
 
@@ -540,6 +545,12 @@ private fun defaultGroupIds(): Set<String> =
     ServiceCategory.entries.mapTo(mutableSetOf(HomeLayoutDefaults.QUICK_GROUP)) { it.name }
 
 private fun newGroupId(): String = "custom-" + kotlin.random.Random.nextInt(100000, 999999)
+
+/**
+ * 首页背景层（主题底色 + 壁纸）的采样源：顶栏按钮——包括宿主给的扫码 / 搜索 / 通知——
+ * 读它做液态玻璃。首页在顶栏这一层 provide（液态开关关的时候是 null，按钮退回非液态）。
+ */
+val LocalHomeTileBackdrop = compositionLocalOf<Backdrop?> { null }
 
 // ── 顶栏 ──
 
@@ -556,6 +567,8 @@ private fun HomeCollapsingBar(
     topInset: Dp,
     bandShift: () -> Dp,
     backdrop: Backdrop?,
+    /** 顶栏圆钮液态玻璃的采样源（首页背景层）；null = 退回半透明圆钮。 */
+    tileLiquidBackdrop: Backdrop?,
     onTapCollapsed: () -> Unit,
     editing: Boolean,
     leading: (@Composable () -> Unit)?,
@@ -570,8 +583,7 @@ private fun HomeCollapsingBar(
     Box(Modifier.fillMaxWidth().height(topInset + BAR_HEIGHT)) {
         if (backdrop != null) {
             // 96dp 的模糊带比顶栏本身高，放在顶栏高度之外，才能往内容里多淡一段。
-            // useplanes 的 progressive blur：七层不同半径的模糊，每层各自用一条
-            // 从底边透明、到屏幕顶边最强的遮罩裁出一条带。
+            // 采的是首页**背景层**：壁纸的模糊一直铺到屏幕顶边（§1.1 背景铺满含顶栏）。
             // 贴的是屏幕顶边而不是这一页的本地 0 点：壳会按 stable 顶栏高度把整页上移，
             // 不补回 [bandShift] 的话整条带会被顶到屏幕外。
             Box(
@@ -586,10 +598,10 @@ private fun HomeCollapsingBar(
                 }
             }
         }
+        // 顶栏本体透明：背景图（或背景层的主题底色）从下面透上来，按钮浮在上面
         Box(
             Modifier
                 .matchParentSize()
-                .then(if (backdrop == null) Modifier.background(surface) else Modifier)
                 .then(
                     if (collapsed && !editing) {
                         Modifier.clickable(interactionSource = null, indication = null, onClick = onTapCollapsed)
@@ -631,7 +643,7 @@ private fun HomeCollapsingBar(
                 },
             ) {
                 if (editing) {
-                    HomeBarIconButton(Icons.Default.Close, "取消编辑", onCancelEdit)
+                    HomeBarIconButton(Icons.Default.Close, "取消编辑", tileLiquidBackdrop, onCancelEdit)
                 } else {
                     leading?.invoke()
                 }
@@ -644,8 +656,8 @@ private fun HomeCollapsingBar(
             ) {
                 if (editing) {
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                        HomeBarIconButton(Icons.Default.Settings, "主页设置", onHomeSettings)
-                        HomeBarIconButton(Icons.Default.Check, "保存布局", onSaveEdit)
+                        HomeBarIconButton(Icons.Default.Settings, "主页设置", tileLiquidBackdrop, onHomeSettings)
+                        HomeBarIconButton(Icons.Default.Check, "保存布局", tileLiquidBackdrop, onSaveEdit)
                     }
                 } else {
                     actions?.invoke()
@@ -656,17 +668,36 @@ private fun HomeCollapsingBar(
 }
 
 /**
- * 顶栏圆钮：半透明底色 + 常驻高光，**没有白边框**（需求 §1.2：统一成底栏那种玻璃拟态）。
+ * 顶栏圆钮：液态玻璃（采首页背景层，和卡片同一套 `drawBackdrop`）；[liquid] 为 null 时
+ * 退回半透明底色圆钮（需求 §1.2）。
  */
 @Composable
-private fun HomeBarIconButton(icon: ImageVector, label: String, onClick: () -> Unit) {
+private fun HomeBarIconButton(icon: ImageVector, label: String, liquid: Backdrop?, onClick: () -> Unit) {
     val dark = LocalIsDarkTheme.current
-    val fill = MiuixTheme.colorScheme.surfaceContainerHigh.copy(alpha = if (dark) 0.52f else 0.6f)
+    val fill = if (dark) Color.White.copy(alpha = 0.08f) else Color.White.copy(alpha = 0.4f)
+    val material = if (liquid != null) {
+        Modifier.drawBackdrop(
+            backdrop = liquid,
+            shape = { CircleShape },
+            effects = {
+                padding = maxOf(padding, 8.dp.toPx())
+                vibrancy()
+                blur(6.dp.toPx())
+                lens(8.dp.toPx(), 10.dp.toPx())
+            },
+            highlight = { Highlight.Default.copy(alpha = 0.65f) },
+            shadow = null,
+            onDrawSurface = { drawRect(fill) },
+        )
+    } else {
+        Modifier
+            .clip(CircleShape)
+            .background(MiuixTheme.colorScheme.surfaceContainerHigh.copy(alpha = if (dark) 0.52f else 0.6f))
+    }
     Box(
         Modifier
             .size(BAR_BUTTON_SIZE)
-            .clip(CircleShape)
-            .background(fill)
+            .then(material)
             .clickable(
                 interactionSource = remember { MutableInteractionSource() },
                 indication = SinkFeedback(),
@@ -1260,67 +1291,85 @@ private fun HomeDragGhost(
     }
 }
 
-/** 改一个组的名字与标题颜色。标题允许留空——留空就整行不画（需求 §2.3）。 */
+/**
+ * 改一个组的名字与标题颜色（§2.3）：标题留空就整行不画。
+ * 颜色用全应用同一套调色盘（`AppColorPicker`），「跟随主题」就是存空串。
+ */
 @Composable
 private fun GroupEditDialog(
     group: HomeGroup,
     onDismiss: () -> Unit,
     onConfirm: (title: String, colorHex: String) -> Unit,
-    onDelete: (() -> Unit)?,
 ) {
     var title by remember(group.id) { mutableStateOf(group.title) }
-    var colorHex by remember(group.id) { mutableStateOf(group.colorHex) }
+    // 空串 = 跟随主题
+    var followTheme by remember(group.id) { mutableStateOf(group.colorHex.isEmpty()) }
+    var picked by remember(group.id) {
+        mutableStateOf(CourseColors.parseHex(group.colorHex) ?: MiuixTheme.colorScheme.primary)
+    }
     WindowDialog(show = true, title = "分组设置", onDismissRequest = onDismiss) {
-        Column(Modifier.fillMaxWidth().padding(horizontal = 4.dp)) {
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 4.dp),
+        ) {
             TextField(
                 value = title,
                 onValueChange = { title = it.take(20) },
-                label = "分组标题（留空则不显示）",
+                label = "分组标题（留空则不显示标题）",
                 modifier = Modifier.fillMaxWidth(),
             )
-            Spacer(Modifier.height(12.dp))
-            Text("标题颜色", fontSize = 13.sp, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
-            Spacer(Modifier.height(8.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                // 空串 = 跟随主题
-                ColorDot(Color.Unspecified, selected = colorHex.isEmpty()) { colorHex = "" }
-                GROUP_TITLE_COLORS.forEach { hex ->
-                    ColorDot(CourseColors.parseHex(hex) ?: Color.Gray, selected = colorHex == hex) { colorHex = hex }
-                }
+            Spacer(Modifier.height(14.dp))
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Text("标题颜色", fontSize = 15.sp)
+                Spacer(Modifier.weight(1f))
+                Text("跟随主题", fontSize = 13.sp, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
+                Spacer(Modifier.width(6.dp))
+                Switch(checked = followTheme, onCheckedChange = { followTheme = it })
+            }
+            if (!followTheme) {
+                Spacer(Modifier.height(10.dp))
+                AppColorPicker(
+                    color = picked,
+                    onColorChanged = { picked = it },
+                    modifier = Modifier.fillMaxWidth(),
+                )
             }
             Spacer(Modifier.height(16.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                if (onDelete != null) {
-                    TextButton(text = "删除这一组", onClick = onDelete, modifier = Modifier.weight(1f))
-                }
                 TextButton(
                     text = "确定",
-                    onClick = { onConfirm(title.trim(), colorHex) },
+                    onClick = { onConfirm(title.trim(), if (followTheme) "" else CourseColors.toHex(picked)) },
                     modifier = Modifier.weight(1f),
+                    colors = ButtonDefaults.textButtonColorsPrimary(),
                 )
             }
         }
     }
 }
 
+/** 删除分组的二次确认（§2.4）：整组连同里面的组件一起删，没法撤销。 */
 @Composable
-private fun ColorDot(color: Color, selected: Boolean, onClick: () -> Unit) {
-    Box(
-        Modifier
-            .size(26.dp)
-            .clip(CircleShape)
-            .background(if (color == Color.Unspecified) MiuixTheme.colorScheme.onSurface.copy(alpha = 0.12f) else color)
-            .border(
-                width = if (selected) 2.dp else 1.dp,
-                color = if (selected) MiuixTheme.colorScheme.primary else MiuixTheme.colorScheme.onSurface.copy(alpha = 0.15f),
-                shape = CircleShape,
+private fun DeleteGroupDialog(group: HomeGroup, onDismiss: () -> Unit, onConfirm: () -> Unit) {
+    WindowDialog(show = true, title = "删除分组", onDismissRequest = onDismiss) {
+        Column(Modifier.fillMaxWidth()) {
+            Text(
+                "「${group.title.ifBlank { "未命名分组" }}」和里面的 ${group.tiles.size} 个组件都会一起删掉，这一步没法撤销。",
+                style = MiuixTheme.textStyles.body2,
             )
-            .clickable(
-                interactionSource = remember { MutableInteractionSource() },
-                indication = SinkFeedback(),
-                onClick = onClick,
-            ),
-    )
+            Spacer(Modifier.height(16.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                TextButton(text = "取消", onClick = onDismiss, modifier = Modifier.weight(1f))
+                TextButton(
+                    text = "删除",
+                    onClick = onConfirm,
+                    modifier = Modifier.weight(1f),
+                    colors = ButtonDefaults.textButtonColorsPrimary(),
+                )
+            }
+        }
+    }
 }
 
 /** 往一个组里放功能：列出还没在这一组里的入口。 */
@@ -1396,11 +1445,6 @@ private fun AddGroupRow(onClick: () -> Unit) {
         Text("新建分组", fontSize = 14.sp, color = MiuixTheme.colorScheme.primary)
     }
 }
-
-/** 分组标题可选的颜色：都是主题色系里挑出来的，深浅色都压得住。 */
-private val GROUP_TITLE_COLORS = listOf(
-    "#2F7CFF", "#34C759", "#FF9500", "#FF3B30", "#AF52DE", "#00A6A6",
-)
 
 /** 首页服务条目。 */
 internal data class HomeServiceRow(

@@ -75,6 +75,11 @@ internal fun HomeTab(
         onBulletinDismiss = onBulletinDismiss,
     )
     SubsystemStatusSheet(loginState, home.showStatusSheet)
+    // 「主页设置」抽屉：首页编辑态的齿轮直接在原地打开它（不跳设置页、不关编辑态）
+    com.xjtu.toolbox.settings.HomeSettingsSheet(
+        show = home.showHomeSettings.value,
+        onDismiss = { home.showHomeSettings.value = false },
+    )
     HomeScreen(
         host = home.host,
         scrollBehavior = scrollBehavior,

@@ -29,10 +29,8 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.DragHandle
-import androidx.compose.material.icons.filled.MoreHoriz
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Stable
@@ -51,7 +49,6 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.lerp
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.onGloballyPositioned
@@ -282,10 +279,10 @@ internal fun HomeGroupSection(
     onOpen: (HomeServiceRow) -> Unit,
     onStartEdit: () -> Unit,
     onEditGroup: () -> Unit,
-    onAddTile: () -> Unit,
     onDropDrag: () -> Unit,
     onDropResize: (tileId: String, w: Float, h: Float) -> Unit,
     onRemoveTile: (tileId: String) -> Unit,
+    onDeleteGroup: () -> Unit,
     onReorderMove: () -> Unit,
     modifier: Modifier = Modifier,
     cellHeight: Dp = HomeCellHeight,
@@ -319,10 +316,12 @@ internal fun HomeGroupSection(
             GroupHeader(
                 group = group,
                 editing = editing,
+                liquid = liquid,
+                backdrop = backdrop,
                 session = session,
                 onStartEdit = onStartEdit,
                 onEditGroup = onEditGroup,
-                onAddTile = onAddTile,
+                onDeleteGroup = onDeleteGroup,
                 onReorderMove = onReorderMove,
             )
             Spacer(Modifier.height(8.dp))
@@ -417,15 +416,17 @@ internal fun HomeGroupSection(
     }
 }
 
-/** 组标题行：编辑态可按住排序（拖手柄那一段），右侧是「改组名/颜色」「加功能」。 */
+/** 组标题行：编辑态左侧按住排序，**点组名**打开「分组设置」抽屉，右侧一个删除按钮。 */
 @Composable
 private fun GroupHeader(
     group: HomeGroup,
     editing: Boolean,
+    liquid: Boolean,
+    backdrop: Backdrop?,
     session: HomeDragSession,
     onStartEdit: () -> Unit,
     onEditGroup: () -> Unit,
-    onAddTile: () -> Unit,
+    onDeleteGroup: () -> Unit,
     onReorderMove: () -> Unit,
 ) {
     val dark = LocalIsDarkTheme.current
@@ -434,6 +435,12 @@ private fun GroupHeader(
     val titleColor = CourseColors.parseHex(group.colorHex)
         ?.let { if (dark) lerp(it, Color.White, 0.25f) else it }
         ?: ink
+    // 编辑态下点组名打开「分组设置」抽屉
+    val titleTap = if (editing) {
+        Modifier.pointerInput(group.id) { detectTapGestures(onTap = { onEditGroup() }) }
+    } else {
+        Modifier
+    }
 
     Row(
         Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 2.dp),
@@ -477,41 +484,66 @@ private fun GroupHeader(
         if (group.title.isNotBlank()) {
             Text(
                 group.title,
-                fontSize = 16.sp,
+                fontSize = 18.sp,
                 fontWeight = FontWeight.Bold,
                 color = titleColor,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.weight(1f, fill = false),
+                modifier = Modifier.weight(1f, fill = false).then(titleTap),
             )
         } else if (editing) {
             Text(
                 "未命名分组",
-                fontSize = 16.sp,
+                fontSize = 18.sp,
                 fontWeight = FontWeight.Bold,
                 color = muted.copy(alpha = 0.6f),
+                modifier = titleTap,
             )
         }
         Spacer(Modifier.weight(1f))
         if (editing) {
-            HeaderButton(Icons.Default.MoreHoriz, "改组名与颜色", onEditGroup)
-            Spacer(Modifier.width(4.dp))
-            HeaderButton(Icons.Default.Add, "往这一组添加功能", onAddTile)
+            GroupDeleteButton(liquid = liquid, backdrop = backdrop, onClick = onDeleteGroup)
         }
     }
 }
 
+/** 组标题行右侧的删除按钮：液态玻璃小圆钮（§2.4）。 */
 @Composable
-private fun HeaderButton(icon: ImageVector, label: String, onClick: () -> Unit) {
-    Box(
+private fun GroupDeleteButton(liquid: Boolean, backdrop: Backdrop?, onClick: () -> Unit) {
+    val dark = LocalIsDarkTheme.current
+    val fill = if (dark) Color.White.copy(alpha = 0.07f) else Color.White.copy(alpha = 0.42f)
+    val material = if (liquid && backdrop != null) {
+        Modifier.drawBackdrop(
+            backdrop = backdrop,
+            shape = { CircleShape },
+            effects = {
+                padding = maxOf(padding, 8.dp.toPx())
+                vibrancy()
+                blur(6.dp.toPx())
+                lens(6.dp.toPx(), 8.dp.toPx())
+            },
+            highlight = { Highlight.Default.copy(alpha = 0.6f) },
+            shadow = null,
+            onDrawSurface = { drawRect(fill) },
+        )
+    } else {
         Modifier
-            .size(28.dp)
             .clip(CircleShape)
             .background(MiuixTheme.colorScheme.onSurface.copy(alpha = 0.07f))
-            .pointerInput(label) { detectTapGestures(onTap = { onClick() }) },
+    }
+    Box(
+        Modifier
+            .size(30.dp)
+            .then(material)
+            .pointerInput("deleteGroup") { detectTapGestures(onTap = { onClick() }) },
         contentAlignment = Alignment.Center,
     ) {
-        Icon(icon, contentDescription = label, tint = MiuixTheme.colorScheme.onSurfaceVariantSummary, modifier = Modifier.size(17.dp))
+        Icon(
+            Icons.Default.Close,
+            contentDescription = "删除这一组",
+            tint = MiuixTheme.colorScheme.error,
+            modifier = Modifier.size(16.dp),
+        )
     }
 }
 

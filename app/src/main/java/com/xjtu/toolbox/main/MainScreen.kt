@@ -63,6 +63,11 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.kyant.backdrop.backdrops.LayerBackdrop
+import com.kyant.backdrop.drawBackdrop
+import com.kyant.backdrop.effects.blur
+import com.kyant.backdrop.effects.lens
+import com.kyant.backdrop.effects.vibrancy
+import com.kyant.backdrop.highlight.Highlight
 import com.xjtu.toolbox.account.AccountManager
 import com.xjtu.toolbox.agent.AgentOverlays
 import com.xjtu.toolbox.agent.AgentInsightEngine
@@ -86,6 +91,7 @@ import com.xjtu.toolbox.home.HomeSignals
 import com.xjtu.toolbox.home.HomeStats
 import com.xjtu.toolbox.home.HomeStatsRefresher
 import com.xjtu.toolbox.home.HomeTab
+import com.xjtu.toolbox.home.LocalHomeTileBackdrop
 import com.xjtu.toolbox.library.LibraryFocus
 import com.xjtu.toolbox.library.LibraryQrArea
 import com.xjtu.toolbox.nav.AppRoute
@@ -621,7 +627,9 @@ private fun HomeRoundAction(
 ) {
     val interaction = remember { MutableInteractionSource() }
     val isDark = LocalIsDarkTheme.current
-    val fill = MiuixTheme.colorScheme.surfaceContainerHigh.copy(alpha = if (isDark) 0.52f else 0.6f)
+    // 首页背景层（壁纸）由首页通过 Local 递过来：液态开关开着时圆钮采它做液态玻璃
+    val liquid = LocalHomeTileBackdrop.current
+    val fill = if (isDark) Color.White.copy(alpha = 0.08f) else Color.White.copy(alpha = 0.4f)
     Box(
         Modifier
             .size(size)
@@ -633,7 +641,28 @@ private fun HomeRoundAction(
                 ambientColor = Color.White.copy(alpha = if (isDark) 0.28f else 0.6f),
                 spotColor = Color.White.copy(alpha = if (isDark) 0.28f else 0.6f),
             )
-            .background(fill, CircleShape)
+            .then(
+                if (liquid != null) {
+                    Modifier.drawBackdrop(
+                        backdrop = liquid,
+                        shape = { CircleShape },
+                        effects = {
+                            padding = maxOf(padding, 8.dp.toPx())
+                            vibrancy()
+                            blur(6.dp.toPx())
+                            lens(8.dp.toPx(), 10.dp.toPx())
+                        },
+                        highlight = { Highlight.Default.copy(alpha = 0.65f) },
+                        shadow = null,
+                        onDrawSurface = { drawRect(fill) },
+                    )
+                } else {
+                    Modifier.background(
+                        MiuixTheme.colorScheme.surfaceContainerHigh.copy(alpha = if (isDark) 0.52f else 0.6f),
+                        CircleShape,
+                    )
+                },
+            )
             .then(
                 if (onClick != null) {
                     Modifier.clickable(interactionSource = interaction, indication = null, onClick = onClick)

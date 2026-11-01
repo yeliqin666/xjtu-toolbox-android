@@ -31,12 +31,14 @@ import java.time.LocalDate
 import java.util.Locale
 import com.xjtu.toolbox.util.todayOnCampus
 
-/** 首页在 `:app` 这一端的两半：宿主面（[host]）+ 它自己的那一层弹窗（[showStatusSheet]）。 */
+/** 首页在 `:app` 这一端的两半：宿主面（[host]）+ 它自己的那两层弹窗（[showStatusSheet]、[showHomeSettings]）。 */
 @Stable
 internal class AppHome(
     val host: HomeHost,
     /** 「子系统连接状态」弹窗的开关，由调用方（[HomeTab]）在组合里读并画那个弹窗。 */
     val showStatusSheet: MutableState<Boolean>,
+    /** 「主页设置」抽屉的开关：首页编辑态的齿轮直接在原地打开它，不跳设置页、不关编辑态。 */
+    val showHomeSettings: MutableState<Boolean>,
 )
 
 /** 首页的宿主面（`:app` 这一端）—— 把「首页要的数据从哪来」收成一个对象。 */
@@ -148,6 +150,7 @@ internal fun rememberAppHome(
     val audience = loginState.accountType
     val isLoggedIn = loginState.isLoggedIn
     val showStatusSheet = remember { mutableStateOf(false) }
+    val showHomeSettings = remember { mutableStateOf(false) }
 
     // 常用入口：用户置顶过就按置顶的来，否则按使用频率取 4 个。它是**额外**的入口，分类里照常保留。
     val settings = remember { com.xjtu.toolbox.settings.SettingsStore() }
@@ -317,15 +320,14 @@ internal fun rememberAppHome(
             showStatusSheet.value = true
         }
 
-        // 首页编辑态的齿轮：先置一次性旗标，设置页读到就直接展开「主页设置」面板。
-        // 不走 `AppRoute.Settings` 带参数的写法——那会动到返回栈存盘与旧深链的解析。
+        // 首页编辑态的齿轮：直接在原地打开「主页设置」抽屉——不跳设置页、编辑态不关闭，
+        // 手上的草稿原样留着，关掉抽屉接着摆（§31）。抽屉由 HomeTab 挂，这里只翻开关。
         override fun onOpenHomeSettings() {
-            HomeLayoutStore().pendingHomeSettings = true
-            onNavigate(AppRoute.Settings)
+            showHomeSettings.value = true
         }
     }
 
-    return AppHome(host, showStatusSheet)
+    return AppHome(host, showStatusSheet, showHomeSettings)
 }
 
 /** 「10月12日」那一段。`:app` 这一端读的是 `java.time` 的月份与日。 */
