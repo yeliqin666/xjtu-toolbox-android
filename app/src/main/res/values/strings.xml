@@ -1,6 +1,7 @@
 <resources>
     <string name="app_name">岱宗盒子</string>
     <string name="pidai_reader_name">小岱</string>
+    <string name="pidai_share_name">小岱收纳</string>
     <string name="schedule_widget_2x2_name">日程（2x2）</string>
     <string name="schedule_widget_4x2_name">日程（4x2）</string>
     <string name="schedule_widget_desc">显示今日日程与下一项安排</string>

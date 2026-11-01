@@ -10,6 +10,7 @@ import androidx.core.content.IntentCompat
 object DeepLinkRouter {
     private const val SCHEME = "xjtu"
     const val PIDAI_LINK_ALIAS = "com.xjtu.toolbox.agent.ReadWithPidai"
+    const val PIDAI_SHARE_ALIAS = "com.xjtu.toolbox.agent.ShareWithPidai"
 
     data class DeepLinkTarget(
         val route: AppRoute,
@@ -18,9 +19,21 @@ object DeepLinkRouter {
         val autoSend: Boolean = false,
         val imageUris: List<String> = emptyList(),
         val imageCount: Int = imageUris.size,
+        val sharedMaterial: Boolean = false,
     )
 
     fun resolve(intent: Intent): DeepLinkTarget? {
+        if (intent.component?.className == PIDAI_SHARE_ALIAS && intent.action in setOf(Intent.ACTION_SEND, Intent.ACTION_SEND_MULTIPLE)) {
+            val streams = if (intent.action == Intent.ACTION_SEND_MULTIPLE)
+                IntentCompat.getParcelableArrayListExtra(intent, Intent.EXTRA_STREAM, Uri::class.java).orEmpty()
+            else listOfNotNull(IntentCompat.getParcelableExtra(intent, Intent.EXTRA_STREAM, Uri::class.java))
+            val clips = intent.clipData?.let { data -> (0 until data.itemCount).map { data.getItemAt(it) } }.orEmpty()
+            val text = intent.getCharSequenceExtra(Intent.EXTRA_TEXT) ?: intent.getStringExtra(Intent.EXTRA_HTML_TEXT)?.let {
+                android.text.Html.fromHtml(it, android.text.Html.FROM_HTML_MODE_LEGACY).toString()
+            }
+            val texts = listOfNotNull(text) + clips.mapNotNull { it.text }
+            return sharedTarget(texts.map { it.toString() }, (streams + clips.mapNotNull { it.uri }).map { it.toString() })
+        }
         if (intent.component?.className == PIDAI_LINK_ALIAS) {
             if (intent.type?.startsWith("image/", ignoreCase = true) == true) {
                 val streams = when (intent.action) {
@@ -52,6 +65,15 @@ object DeepLinkRouter {
             "score", "grade" -> DeepLinkTarget(AppRoute.JwappScore)
             else -> null
         }
+    }
+
+    internal fun sharedTarget(texts: List<String>, uris: List<String>): DeepLinkTarget? {
+        val text = (texts + uris.filter { it.startsWith("https://") || it.startsWith("http://") })
+            .map { it.trim() }.filter { it.isNotBlank() }.distinct().joinToString("\n\n").take(30_000)
+        val images = uris.distinct().filter { it.startsWith("content://") }
+        if (text.isEmpty() && images.isEmpty()) return null
+        return DeepLinkTarget(AppRoute.Agent, text, imageUris = images.take(AgentVision.MAX_IMAGES_PER_MESSAGE),
+            imageCount = images.size, sharedMaterial = true)
     }
 
     internal fun articleTarget(component: String?, action: String?, data: String?, texts: List<CharSequence> = emptyList()): DeepLinkTarget? {

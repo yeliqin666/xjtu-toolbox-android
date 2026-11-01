@@ -47,6 +47,7 @@ fun AgentScreen(
     session: AgentChatSession? = null,
     /** 系统相册挑图的适配器（`:app` 用 `rememberLauncherForActivityResult` 实现，见那个模块的 `rememberAndroidAgentImagePicker`）。 */
     imagePicker: AgentImagePicker = AgentImagePicker.None,
+    contentModifier: Modifier = Modifier,
     onNavigate: (AppRoute) -> Unit = {},
     /** tab 模式下需要额外空出的底部高度（悬浮胶囊底栏不占宿主 contentPadding，见调用处）。 */
     extraBottomPadding: Dp = 0.dp,
@@ -277,6 +278,7 @@ fun AgentScreen(
                 onOpenConfig = { showConfig = true },
                 onPushPreferences = { if (pushPreferences != null) showPushPreferences = true else showConfig = true },
                 bottomReserve = extraBottomPadding,
+                modifier = contentModifier,
             )
 
             if (showPushPreferences && pushPreferences != null) {
