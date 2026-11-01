@@ -1,5 +1,6 @@
 package com.xjtu.toolbox.iclassface
 
+import com.xjtu.toolbox.ui.glass.tabContentPadding
 import com.xjtu.toolbox.error.SessionExpiredFailure
 
 import com.xjtu.toolbox.ui.components.AppPullToRefresh
@@ -167,7 +168,7 @@ fun IclassfaceScreen(
                 modifier = Modifier
                     .fillMaxSize()
                     .overScrollVertical(),
-                contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = glassTop + 12.dp, bottom = 12.dp),
+                contentPadding = tabContentPadding(PaddingValues(start = 16.dp, end = 16.dp, top = glassTop + 12.dp, bottom = 12.dp)),
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 item {

@@ -4,6 +4,7 @@ import androidx.compose.material.icons.automirrored.filled.ScreenShare
 import androidx.compose.material.icons.automirrored.filled.Comment
 import androidx.compose.material.icons.automirrored.filled.TrendingDown
 import androidx.compose.material.icons.automirrored.filled.TrendingUp
+import com.xjtu.toolbox.ui.glass.tabContentPadding
 import com.xjtu.toolbox.platform.Log
 import com.xjtu.toolbox.platform.showBriefMessage
 import androidx.compose.foundation.Image
@@ -179,7 +180,7 @@ internal fun ActivityDetailPage(
                         state = listState,
                         // 活动详情是一篇从上往下读的内容，宽屏限宽居中，不拉满整个平板
                         modifier = Modifier.fillMaxSize().readableWidth(),
-                        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = glassTop + 12.dp, bottom = 12.dp)
+                        contentPadding = tabContentPadding(PaddingValues(start = 16.dp, end = 16.dp, top = glassTop + 12.dp, bottom = 12.dp))
                     ) {
                         // 基本信息卡
                         item(key = "info") { ActivityInfoCard(d) }

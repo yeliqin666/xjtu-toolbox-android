@@ -37,6 +37,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.xjtu.toolbox.ui.glass.tabContentPadding
 import com.xjtu.toolbox.auth.LocalAuthExpiry
 import com.xjtu.toolbox.error.FriendlyError
 import com.xjtu.toolbox.nav.AppRoute
@@ -249,7 +250,7 @@ fun FitnessScreen(
                                 .then(if (wide) Modifier.width(460.dp) else Modifier.weight(1f))
                                 .fillMaxHeight()
                                 .overScrollVertical(),
-                            contentPadding = PaddingValues(top = glassTop + 16.dp, bottom = 28.dp),
+                            contentPadding = tabContentPadding(PaddingValues(top = glassTop + 16.dp, bottom = 28.dp)),
                             verticalArrangement = Arrangement.spacedBy(12.dp)
                         ) {
                             item {
@@ -285,7 +286,7 @@ fun FitnessScreen(
                         if (wide) {
                             LazyColumn(
                                 modifier = Modifier.weight(1f).fillMaxHeight().overScrollVertical(),
-                                contentPadding = PaddingValues(top = glassTop + 16.dp, bottom = 28.dp),
+                                contentPadding = tabContentPadding(PaddingValues(top = glassTop + 16.dp, bottom = 28.dp)),
                                 verticalArrangement = Arrangement.spacedBy(12.dp)
                             ) {
                                 itemsCard()
