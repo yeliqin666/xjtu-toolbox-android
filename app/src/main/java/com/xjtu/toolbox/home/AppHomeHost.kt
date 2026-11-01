@@ -18,6 +18,7 @@ import com.xjtu.toolbox.account.AccountContext
 import com.xjtu.toolbox.auth.AppLoginState
 import com.xjtu.toolbox.auth.LoginType
 import com.xjtu.toolbox.auth.siteKey
+import com.xjtu.toolbox.auth.ensureSite
 import com.xjtu.toolbox.bulletin.Bulletin
 import com.xjtu.toolbox.card.CampusCardCache
 import com.xjtu.toolbox.data.DataCache
@@ -334,8 +335,9 @@ internal fun rememberAppHome(
         }
 
         override suspend fun paymentCode(): String? {
-            val site = loginState.sessionManager?.getSiteOrNull("campus_card") ?: return null
-            return runCatching { com.xjtu.toolbox.pay.PaymentCodeApi(site).getBarCode() }.getOrNull()
+            val manager = loginState.sessionManager ?: return null
+            val site = manager.ensureSite("campus_card", silent = true)
+            return com.xjtu.toolbox.pay.PaymentCodeApi(site).getBarCode()
         }
         override fun onBulletinTap(bulletin: Bulletin) = onBulletinTap(bulletin)
         override fun onBulletinDismiss(bulletin: Bulletin) = onBulletinDismiss(bulletin)
