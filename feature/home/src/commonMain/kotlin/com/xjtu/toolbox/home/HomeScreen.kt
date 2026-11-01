@@ -377,7 +377,9 @@ fun HomeScreen(
             Spacer(Modifier.height(SECTION_GAP + extraBottomPadding + 8.dp))
         }
 
-        if (collapsible) {
+        // 编辑态顶栏（取消 / 设置 / 保存）不需要宿主给按钮，所以这一端没有 topActions 也要画，
+        // 否则桌面、Web 长按进了编辑态就出不来了
+        if (collapsible || editing.on) {
             HomeCollapsingBar(
                 progress = progress,
                 topInset = contentTopPadding,
