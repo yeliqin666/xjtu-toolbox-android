@@ -128,7 +128,7 @@ class SettingsStore(private val store: KeyValueStore = keyValueStore(APP_SETTING
 
     /** 首页功能区：classic = 分类卡，widgets = 可调尺寸的小组件。 */
     var homeLayout: String
-        get() = store.getString("home_layout")?.takeIf { it == HOME_LAYOUT_WIDGETS } ?: HOME_LAYOUT_CLASSIC
+        get() = store.getString("home_layout")?.takeIf { it == HOME_LAYOUT_WIDGETS || it == HOME_LAYOUT_CLASSIC } ?: HOME_LAYOUT_WIDGETS
         set(value) = store.putString("home_layout", value.takeIf { it == HOME_LAYOUT_WIDGETS } ?: HOME_LAYOUT_CLASSIC)
 
     /** 小组件的排列与尺寸，一行一个 `路由id:尺寸`；null = 没编辑过，用默认布局。 */
