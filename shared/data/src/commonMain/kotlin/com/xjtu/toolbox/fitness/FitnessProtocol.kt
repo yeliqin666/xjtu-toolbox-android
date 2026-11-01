@@ -132,10 +132,15 @@ object FitnessProtocol {
             .build()
         return client.newCall(request).execute().use { response ->
             checkNotServerError(response.code)
+            val body = response.body.string()
+            com.xjtu.toolbox.platform.Log.d("Fitness", "checkLogin: code=${response.code} body=${body.take(120)}")
             response.isSuccessful &&
-                runCatching { response.body.string().safeParseJsonObject() }.getOrNull()?.get("status")?.intValue == 1
+                runCatching { body.safeParseJsonObject() }.getOrNull()?.get("status")?.intValue == 1
         }
     }
+
+    /** legacy 接口说 PHP 会话没了（没建过或 token 过期）。 */
+    fun isLegacySessionLost(body: String): Boolean = "登录信息失效" in body
 
     fun sessionFromTokens(tokens: Map<String, String>): LinkedHashMap<String, Any>? {
         val session = linkedMapOf<String, Any>()
