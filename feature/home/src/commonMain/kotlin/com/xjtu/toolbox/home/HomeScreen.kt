@@ -134,7 +134,13 @@ fun HomeScreen(
             onClick = { host.onRoute(service.route) },
             stat = stat?.value,
             statDetail = stat?.detail,
-            lines = stat?.lines.orEmpty(),
+            lines = stat?.lines.orEmpty().ifEmpty {
+                if (service.route == AppRoute.Agent) listOf(
+                    HomeLine("安排今天", "agent:看看我今天的课表和待办，帮我安排今天。"),
+                    HomeLine("找自习教室", "agent:帮我找现在适合自习的空闲教室。"),
+                    HomeLine("收纳一件事", "agent:帮我把下面的事情整理成日程或待办："),
+                ) else emptyList()
+            },
         )
     }
 
@@ -159,15 +165,11 @@ fun HomeScreen(
     val widgetMode = remember(HomeLayoutRevision.current) {
         layoutStore.homeLayout == SettingsStore.HOME_LAYOUT_WIDGETS
     }
-    // 小组件选液态玻璃时整页铺壁纸（固定不动，内容在上面滚），玻璃格子采它模糊
-    val wallpaper = remember(HomeLayoutRevision.current) {
-        layoutStore.homeWallpaperImage.takeIf {
-            widgetMode && layoutStore.homeWidgetMaterial == SettingsStore.WIDGET_MATERIAL_GLASS
-        }
-    }
+    val background = remember(HomeLayoutRevision.current) { layoutStore.homeBackground }
+    val wallpaper = remember(HomeLayoutRevision.current) { layoutStore.homeWallpaperImage.takeIf { background == "image" }.orEmpty() }
     val wall = rememberLayerBackdrop()
     // 自定义图片上用白字；渐变很浅，照常用正文色
-    val pageInk = if (wallpaper?.isNotEmpty() == true) Color.White else MiuixTheme.colorScheme.onSurface
+    val pageInk = if (wallpaper.isNotEmpty()) Color.White else MiuixTheme.colorScheme.onSurface
     val frontInbox = host.inbox.takeIf { HomeCard.INBOX in honored }
 
     // 功能状态就地附在分类行里，不另设展示区。
@@ -176,10 +178,10 @@ fun HomeScreen(
             ?.firstOrNull { it.route?.id == service.route.id && it.route != AppRoute.Schedule }
         val value = if (HomeCard.CATEGORY_STATS in honored) {
             stat ?: glance?.let { g -> g.number?.let { yuanText(it.toFloat()) } ?: g.value }
-                ?: HomeCards.statOf(service.route.id, host.stats)?.value
+                ?: host.stats[service.route.id]?.value
         } else null
-        return rowOf(service, value?.let { HomeStat(it, detail ?: glance?.caption) })
-            .copy(tone = glance?.tone ?: HomeTone.NORMAL, lines = host.stats[service.route.id]?.lines.orEmpty())
+        return rowOf(service, value?.let { HomeStat(it, detail ?: glance?.caption ?: host.stats[service.route.id]?.detail) })
+            .let { row -> row.copy(tone = glance?.tone ?: HomeTone.NORMAL, lines = host.stats[service.route.id]?.lines?.takeIf { it.isNotEmpty() } ?: row.lines) }
     }
 
     val scroll = rememberScrollState()
@@ -198,9 +200,7 @@ fun HomeScreen(
     Box(modifier.fillMaxSize()) {
         // 壁纸和滚动内容一起录进顶栏的采样层，顶栏模糊里也有壁纸
         Box(Modifier.matchParentSize().then(if (glass) Modifier.layerBackdrop(pageBackdrop) else Modifier)) {
-        if (wallpaper != null) {
-            HomeWallpaper(wallpaper, Modifier.matchParentSize().layerBackdrop(wall))
-        }
+        HomeWallpaper(background, wallpaper, Modifier.matchParentSize().layerBackdrop(wall))
         Column(
             Modifier
                 .fillMaxSize()
@@ -252,8 +252,7 @@ fun HomeScreen(
                 Spacer(Modifier.height(20.dp))
                 HomeWidgetGrid(
                     rows = groups.flatMap { g -> g.rows.map { indexRow(it.service, it.stat, it.statDetail) } },
-                    features = { id -> catalog.firstOrNull { it.route.id == id }?.features.orEmpty() },
-                    wall = wall.takeIf { wallpaper != null },
+                    wall = wall,
                     ink = pageInk,
                     paymentCode = host::paymentCode,
                     onLink = host::onOpenLink,

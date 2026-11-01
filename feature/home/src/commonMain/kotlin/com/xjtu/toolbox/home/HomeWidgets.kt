@@ -9,11 +9,11 @@ enum class WidgetSize(val cols: Int, val rows: Int, val key: String, val label: 
     TALL(1, 2, "1x2", "竖条"),
     LARGE(2, 2, "2x2", "大");
 
-    /** 编辑时点角标按这个顺序轮换。 */
-    fun next(): WidgetSize = entries[(ordinal + 1) % entries.size]
-
     companion object {
         fun of(key: String): WidgetSize? = entries.firstOrNull { it.key == key }
+        fun fromExtent(width: Float, height: Float): WidgetSize = entries.first {
+            it.cols == (if (width >= 1.5f) 2 else 1) && it.rows == (if (height >= 1.5f) 2 else 1)
+        }
     }
 }
 
@@ -45,6 +45,7 @@ object HomeWidgetLayout {
         routeIds.map { id ->
             val size = when {
                 id in FEATURED -> WidgetSize.LARGE
+                id in INFORMATIONAL -> WidgetSize.WIDE
                 hasStat(id) -> WidgetSize.WIDE
                 else -> WidgetSize.SMALL
             }
@@ -85,4 +86,7 @@ object HomeWidgetLayout {
 
     /** 默认就放大的功能：最常看、内容也最多。 */
     private val FEATURED = setOf(AppRoute.CampusCard.id, AppRoute.Library.id)
+    private val INFORMATIONAL = setOf(AppRoute.Schedule.id, AppRoute.SchoolCalendar.id, AppRoute.Lms().id,
+        AppRoute.Attendance.id, AppRoute.EmptyRoom.id, AppRoute.Notification.id, AppRoute.Community.id,
+        AppRoute.Games.id, AppRoute.Agent.id, AppRoute.YellowPage.id)
 }

@@ -117,7 +117,7 @@ object HomeStats {
     fun pushed(context: Context, route: AppRoute): HomeStat? = readPushed(DataCache(context), route.id)
 
     private fun readPushed(cache: DataCache, routeKey: String): HomeStat? =
-        cache.read<HomeStat>(PUSHED_PREFIX + routeKey, PUSHED_TTL_MS)
+        cache.read<HomeStat>(PUSHED_PREFIX + routeKey, if (routeKey == AppRoute.EmptyRoom.id) 10 * 60 * 1000L else PUSHED_TTL_MS)
 
     /**
      * 各功能页推送过摘要的路由。加新功能时只要在这里登记，首页即可显示。
@@ -136,6 +136,8 @@ object HomeStats {
         AppRoute.JwappScore,    // 成绩门数 / 新增门数
         AppRoute.Notification,  // 教务处最新通知
         AppRoute.EmptyRoom,     // 此刻各楼空教室
+        AppRoute.Community,
+        AppRoute.SchoolCalendar,
     ).map { it.id }
 
     // ── 屁岱主动提醒用的两个游标 ────────────────────────────────────────
@@ -251,9 +253,7 @@ object HomeStats {
                 )
             }
 
-            if (termCode.isNullOrBlank()) return@withContext out
-
-            out.putAll(HomeScheduleStats.of(cache, termCode))
+            if (!termCode.isNullOrBlank()) out.putAll(HomeScheduleStats.of(cache, termCode))
             withDetailLines(context, cache, out)
 
             out
@@ -289,15 +289,30 @@ object HomeStats {
             val common = listOf("保卫处", "校医院", "教务处", "学生处", "后勤")
             val picks = common.mapNotNull { name ->
                 data.departments.firstOrNull { name in it.name && it.phoneItems.isNotEmpty() }
-            }.distinct().take(4)
+            }.distinct().ifEmpty { data.departments.filter { it.phoneItems.isNotEmpty() }.take(4) }
             out.lines(AppRoute.YellowPage.id, "", null,
                 picks.map { d -> HomeLine("${d.name.take(8)}  ${d.phoneItems.first()}", "tel:" + d.dialNumber(d.phoneItems.first())) })
         }
+        val games = com.xjtu.toolbox.game.GameStore.recentRoutes().mapNotNull { id ->
+            com.xjtu.toolbox.game.GameStore.titles[id]?.let { HomeLine(it, "app:$id") }
+        }
+        if (games.isNotEmpty()) out[AppRoute.Games.id] = HomeStat("继续玩 ${games.first().text}", "最近玩过", games)
         withScheduleLines(context, cache, out)
     }
 
     private fun withScheduleLines(context: Context, cache: DataCache, out: MutableMap<String, HomeStat>) {
         val today = com.xjtu.toolbox.util.todayOnCampus()
+        val schedule = com.xjtu.toolbox.schedule.ScheduleCache.readCurrentTermSchedule(cache)
+        val week = schedule?.start?.let { com.xjtu.toolbox.schedule.TermWeeks.weekOf(it, today) }
+        val calendarKey = AppRoute.SchoolCalendar.id
+        val calendar = out[calendarKey]
+        val weekdays = listOf("星期一", "星期二", "星期三", "星期四", "星期五", "星期六", "星期日")
+        out[calendarKey] = calendar?.let {
+            if (week != null && week > 0) it.copy(value = "第 $week 周") else it
+        } ?: HomeStat(
+            week?.takeIf { it > 0 }?.let { "第 $it 周" } ?: "${today.monthNumber}月${today.dayOfMonth}日",
+            "${today.monthNumber}月${today.dayOfMonth}日 · ${weekdays[today.dayOfWeek.isoDayNumber - 1]}",
+        )
         runCatching {
             val holidays = com.xjtu.toolbox.schedule.HolidayApi.peekCached(DataCache(context))
             // 假期表逐日展开，只取每段的第一天
@@ -308,11 +323,10 @@ object HomeStats {
                 val days = (d.toEpochDays() - today.toEpochDays()).toInt()
                 "${holidays[d]}  ${d.monthNumber}-${d.dayOfMonth} · ${days} 天后"
             }
-            out.lines(AppRoute.SchoolCalendar.id, lines.firstOrNull()?.substringBefore("  ").orEmpty(), "下一个假期",
-                lines.map { HomeLine(it) })
+            if (calendar?.lines.isNullOrEmpty()) out.lines(calendarKey, "", "下一个假期", lines.map { HomeLine(it) })
         }
         runCatching {
-            val schedule = com.xjtu.toolbox.schedule.ScheduleCache.readCurrentTermSchedule(cache) ?: return@runCatching
+            val schedule = schedule ?: return@runCatching
             val start = schedule.start ?: return@runCatching
             if (com.xjtu.toolbox.schedule.HolidayApi.peekCached(DataCache(context)).containsKey(today)) return@runCatching
             val week = com.xjtu.toolbox.schedule.TermWeeks.weekOf(start, today)

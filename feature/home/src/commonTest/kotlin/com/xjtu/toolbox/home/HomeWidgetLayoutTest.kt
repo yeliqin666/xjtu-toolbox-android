@@ -47,8 +47,11 @@ class HomeWidgetLayoutTest {
     }
 
     @Test
-    fun `尺寸按小、横条、竖条、大轮换`() {
-        assertEquals(WidgetSize.WIDE, WidgetSize.SMALL.next())
-        assertEquals(WidgetSize.SMALL, WidgetSize.LARGE.next())
+    fun `横向和纵向独立吸附，可以一次拖成任意尺寸`() {
+        assertEquals(WidgetSize.SMALL, WidgetSize.fromExtent(1.49f, 1.49f))
+        assertEquals(WidgetSize.WIDE, WidgetSize.fromExtent(1.5f, 1f))
+        assertEquals(WidgetSize.TALL, WidgetSize.fromExtent(1f, 1.5f))
+        assertEquals(WidgetSize.LARGE, WidgetSize.fromExtent(2f, 2f))
+        assertEquals(WidgetSize.SMALL, WidgetSize.fromExtent(-1f, 0f))
     }
 }

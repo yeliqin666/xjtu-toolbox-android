@@ -134,7 +134,10 @@ internal fun rememberAppHome(
         loginState.accountId,
         loginState.campusCardCacheVersion,
         HomeSignals.statsVersion,
+        com.xjtu.toolbox.game.GameStore.version,
         campusNow.date,
+        campusNow.hour,
+        campusNow.minute,
     ) {
         val term = withContext(Dispatchers.IO) {
             runCatching { ScheduleCache.readCurrentTerm(DataCache(context)) }.getOrNull()
@@ -313,7 +316,12 @@ internal fun rememberAppHome(
         override fun onProfile() = onNavigateToProfile()
 
         override fun onOpenLink(link: String) {
-            if (link.startsWith("tel:")) {
+            if (link.startsWith("app:")) {
+                com.xjtu.toolbox.nav.appRouteOf(link.removePrefix("app:"))?.let(::onRoute)
+            } else if (link.startsWith("agent:")) {
+                com.xjtu.toolbox.agent.AgentPendingPrompt.set(link.removePrefix("agent:"), draftOnly = true)
+                onRoute(AppRoute.Agent)
+            } else if (link.startsWith("tel:")) {
                 runCatching {
                     context.startActivity(
                         android.content.Intent(android.content.Intent.ACTION_DIAL, android.net.Uri.parse(link))
