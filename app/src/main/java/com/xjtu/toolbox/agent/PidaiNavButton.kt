@@ -46,7 +46,7 @@ import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 /**
- * 底栏正中的屁岱按钮。
+ * 底栏正中的小岱按钮。
  *
  * 它现在**也是**一个 tab（点击会把 `selectedTabOrdinal` 切到 `BottomTab.PIDAI`，
  * 有选中态），只是点击时还会顺带触发一句气泡（见 `ProactiveRules.pickOnTap`）。
@@ -80,7 +80,7 @@ internal fun PidaiNavButton(
     thinking: Boolean = false,
     /**
      * 整体上移量。经典底栏里邻居的图标压在 64dp 项高的上半部（顶部内边距 8dp + 26dp 图标），
-     * 文字在下半部；屁岱没有文字，纯居中会显得**整个沉下去**，和一排图标不在一条视觉线上。
+     * 文字在下半部；小岱没有文字，纯居中会显得**整个沉下去**，和一排图标不在一条视觉线上。
      * 上移一点让它的重心回到图标那条线附近，同时仍比邻居大一圈、略微探进文字区。
      */
     liftUp: Dp = 0.dp,
@@ -94,9 +94,9 @@ internal fun PidaiNavButton(
      * 用户选了具体颜色则由调用方换成该色。
      */
     ink: Color = MiuixTheme.colorScheme.onSurface,
-    /** 用户选的角色；null = 经典屁岱。 */
+    /** 用户选的角色；null = 经典小岱。 */
     cast: CastCharacter? = null,
-    /** 经典屁岱的形状轮廓；null = 云朵。 */
+    /** 经典小岱的形状轮廓；null = 云朵。 */
     shape: DoubleArray? = null,
     /** 眼神：一直盯着的方向与一次性的瞟眼，见 [BloubBotIcon]。 */
     gaze: () -> Offset? = { null },
@@ -122,7 +122,7 @@ internal fun PidaiNavButton(
             beat = if (excited) PidaiBeat.ALERT else PidaiBeat.REST
         }
     }
-    // 提醒态跟着 excited 走，但**不允许打断进行中的点击反馈和思考**：点进屁岱页的
+    // 提醒态跟着 excited 走，但**不允许打断进行中的点击反馈和思考**：点进小岱页的
     // 瞬间气泡常会重新弹出，excited 翻转若直接改写 beat，戳的反应刚开始就被腰斩。
     LaunchedEffect(excited) {
         if (excited) {
@@ -167,7 +167,7 @@ internal fun PidaiNavButton(
 
     Box(
         modifier = modifier
-            .semantics { contentDescription = "屁岱助手" }
+            .semantics { contentDescription = "小岱助手" }
             .selectable(
                 selected = false,
                 onClick = {

@@ -34,8 +34,8 @@ enum class BottomTab(
     HOME("首页", Icons.Filled.Home, 24.dp, null),
     COURSES("日程", Icons.Filled.CalendarMonth, 23.dp, AppRoute.Schedule),
 
-    /** 屁岱，画成机器人（PidaiNavButton），[icon] 用不上。 */
-    PIDAI("屁岱", Icons.Filled.SmartToy, 27.dp, AppRoute.Agent),
+    /** 小岱，画成机器人（PidaiNavButton），[icon] 用不上。 */
+    PIDAI("小岱", Icons.Filled.SmartToy, 27.dp, AppRoute.Agent),
     TOOLS("学辅", Icons.AutoMirrored.Filled.MenuBook, 22.dp, AppRoute.Zyxf),
     PROFILE("我的", Icons.Filled.Person, 27.dp, null);
 
@@ -92,5 +92,5 @@ data class BarTab(
 /** Android 那一份 tab 集合（顺序 = 底栏从左到右）。 */
 fun androidShellTabs(bar: List<BarTab>): ShellTabs = ShellTabs(bar.map { it.shellTab() })
 
-/** 屁岱那一格（共享壳只按 id 认；自绘由 `AndroidShellTabArt` 接）。 */
+/** 小岱那一格（共享壳只按 id 认；自绘由 `AndroidShellTabArt` 接）。 */
 val PIDAI_TAB: ShellTab = BarTab.of(BottomTab.PIDAI).shellTab()

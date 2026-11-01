@@ -189,7 +189,7 @@ fun agentToolDefinitions(honored: Set<AgentCapability>): String {
                 )))
     }
     arr.add(agentTool("app_guide",
-        "查询本 App 的完整功能与操作入口，包括屁岱配置、MCP 扩展工具、日程、下载与隐私；以及兴庆、创新港的食堂和开放时间。回答 App 能力或设置问题时先查此工具。",
+        "查询本 App 的完整功能与操作入口，包括小岱配置、MCP 扩展工具、日程、下载与隐私；以及兴庆、创新港的食堂和开放时间。回答 App 能力或设置问题时先查此工具。",
         agentParams("topic" to agentEnumProp("app：功能与入口；campus：食堂与开放时间。缺省：两者都给。", "app", "campus"))))
     arr.add(agentTool("calculate",
         "计算表达式：+ - * / ^ 与括号。",

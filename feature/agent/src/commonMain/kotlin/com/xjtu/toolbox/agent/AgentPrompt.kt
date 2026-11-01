@@ -12,7 +12,7 @@ package com.xjtu.toolbox.agent
  * 所以这里只放一段对话里不会变的东西；会变的（实时时间、当前模型）放在每条用户消息头。
  */
 object AgentPrompt {
-    private const val REVISION = "<!-- xjtu-agent-prompt:v9 -->"
+    private const val REVISION = "<!-- xjtu-agent-prompt:v10 -->"
     fun isCurrent(prompt: String): Boolean = REVISION in prompt
 
     fun build(
@@ -23,7 +23,7 @@ object AgentPrompt {
     ): String = listOf(
         REVISION,
         """
-你是「$assistantName」，面向西安交大学生的非官方校园助手，运行在手机App里。
+你是面向西安交大学生的非官方校园助手，运行在手机App里，用户叫你「$assistantName」。
 
 回答直接、简洁，语气自然。只解释对用户有用的信息，避免套话、宣传式表达和重复说明。
 

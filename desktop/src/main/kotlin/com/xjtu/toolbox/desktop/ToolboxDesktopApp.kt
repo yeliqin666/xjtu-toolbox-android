@@ -148,13 +148,13 @@ internal fun ToolboxDesktopApp(
     initialTarget: DesktopTarget = DesktopTarget.App(AppRoute.Main),
     /** 公告取数那一枪（[DesktopBulletins.fetch]）。 */
     bulletinFetch: suspend (String) -> BulletinApi.FetchResult? = { BulletinApi.fetch(it) },
-    /** 屁岱的宿主面（`:core` 的 [AgentHost]）。 */
+    /** 小岱的宿主面（`:core` 的 [AgentHost]）。 */
     agentHost: AgentHost? = null,
 ) {
     var target by remember { mutableStateOf(initialTarget) }
     val scope = rememberCoroutineScope()
 
-    // 屁岱的宿主面：进程内一份（与 `:app` 把屁岱挂在导航项上同位 —— 切页不丢会话）。
+    // 小岱的宿主面：进程内一份（与 `:app` 把小岱挂在导航项上同位 —— 切页不丢会话）。
     val agent = agentHost ?: remember(auth) { DesktopAgentHost(auth) }
 
 
@@ -309,7 +309,7 @@ internal val DESKTOP_SUPPORTED_ROUTES = listOf(
 
     AppRoute.Accounts to "账号管理",
 
-    AppRoute.Agent to "屁岱",
+    AppRoute.Agent to "小岱",
 
     AppRoute.Match to "匹配交友",
 )
@@ -385,7 +385,7 @@ private fun DesktopPage(
     route: AppRoute,
     /** 公告宿主面（只有首页用得上：顶部那条堆叠条）。 */
     bulletins: DesktopBulletins,
-    /** 屁岱的宿主面（只有 `AppRoute.Agent` 用得上；外壳持有，切页不丢会话）。 */
+    /** 小岱的宿主面（只有 `AppRoute.Agent` 用得上；外壳持有，切页不丢会话）。 */
     agentHost: AgentHost,
     /** 外观设置改完之后戳一下外壳（设置屏通过 `DesktopSettingsHost` 回调过来，见 `ToolboxDesktopApp`）。 */
     onAppearanceChanged: () -> Unit,
@@ -807,7 +807,7 @@ private fun DesktopPage(
         else -> NotPortedScreen(route, onNavigate)
     }
 }
-/** 屁岱在桌面的宿主壳 —— `:core` 的 [AgentScreen] 自己不带顶栏。 */
+/** 小岱在桌面的宿主壳 —— `:core` 的 [AgentScreen] 自己不带顶栏。 */
 @Composable
 private fun DesktopAgentScreen(host: AgentHost, onNavigate: (DesktopTarget) -> Unit) {
     // 屏把这三格送上来（见 AgentScreen 的 KDoc）：标题跟着助手名走。

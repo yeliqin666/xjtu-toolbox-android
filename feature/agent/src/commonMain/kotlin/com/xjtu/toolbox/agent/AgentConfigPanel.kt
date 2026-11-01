@@ -156,7 +156,7 @@ internal fun ConfigPanel(
                             assistantName = sanitizeAgentTitle(it, "")
                             scheduleSave()
                         },
-                        label = "助手名字（默认 屁岱，新对话生效）",
+                        label = "助手名字（默认 小岱，新对话生效）",
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth(),
                         keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
@@ -454,7 +454,7 @@ internal fun ConfigPanel(
                 }
             }
         }
-        // 页面上的屁岱卡只有挂了屁岱的端才有（见 AgentInsightHub）
+        // 页面上的小岱卡只有挂了小岱的端才有（见 AgentInsightHub）
         if (AgentInsightHub.insights.available) item { PidaiCardsSection() }
         // 形象选择：形状 + 颜色。即时生效、设备级持久化，不参与 AgentConfig 的存取
         //（见 `PidaiAppearanceHost`）。**只有有形象的端才画**：`:app` 交 `PidaiAppearancePanel`，
@@ -470,13 +470,13 @@ internal fun ConfigPanel(
     }
 }
 
-/** 各页面屁岱卡的开关，见 [PidaiCards]。 */
+/** 各页面小岱卡的开关，见 [PidaiCards]。 */
 @Composable
 private fun PidaiCardsSection() {
     val off by PidaiCards.off.collectAsState()
     Card(colors = CardDefaults.defaultColors(color = com.xjtu.toolbox.ui.components.AppCardColor)) {
         Column(Modifier.padding(vertical = 16.dp)) {
-            Text("页面里的屁岱卡", style = MiuixTheme.textStyles.title3, fontWeight = FontWeight.Bold,
+            Text("页面里的小岱卡", style = MiuixTheme.textStyles.title3, fontWeight = FontWeight.Bold,
                 modifier = Modifier.padding(horizontal = 16.dp))
             Text(
                 "关掉的卡不再出现，也不会调用模型。",

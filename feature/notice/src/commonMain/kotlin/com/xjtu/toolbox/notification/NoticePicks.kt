@@ -37,7 +37,7 @@ import kotlinx.serialization.json.jsonObject
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
-/** 通知页顶上的「屁岱精选」：按身份（或用户自选的来源）和关注主题挑出跟这个人有关的几条。 */
+/** 通知页顶上的「小岱精选」：按身份（或用户自选的来源）和关注主题挑出跟这个人有关的几条。 */
 internal val NOTICE_PICKS = InsightSpec(
     id = "notice_picks",
     tools = setOf("get_notifications"),
@@ -84,7 +84,7 @@ internal fun NoticePicksCard(onOpen: (String) -> Unit, modifier: Modifier = Modi
     }
     val state = rememberInsight(NOTICE_PICKS, input)
     PidaiInsightCard(
-        title = "屁岱精选",
+        title = "小岱精选",
         state = state,
         modifier = modifier,
         subtitle = if (sources.isEmpty()) "按你的身份挑" else "从 ${sources.size} 个来源里挑",

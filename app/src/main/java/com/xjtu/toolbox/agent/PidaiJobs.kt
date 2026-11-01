@@ -31,7 +31,7 @@ import kotlin.time.Clock
 private const val TAG = "PidaiJobs"
 
 /**
- * 屁岱的主动任务：早上一份今日简报、晚上一份明日预告（「主动提醒」为「少」时只有早报），
+ * 小岱的主动任务：早上一份今日简报、晚上一份明日预告（「主动提醒」为「少」时只有早报），
  * 外加用户在对话里交代的定时任务（[PidaiTaskStore]）。结果进「消息收纳」并发通知。
  *
  * 后台**不登录学校系统**：课表、余额读本机缓存，工具只给不用登录的那几件（公开通知、联网、校园地图）。
@@ -80,7 +80,7 @@ class PidaiJobWorker(context: Context, params: WorkerParameters) : CoroutineWork
             InboxItem(
                 id = "pidai:$key:${nowOnCampus().date}",
                 category = InboxCategories.PIDAI,
-                source = "屁岱",
+                source = "小岱",
                 title = title,
                 body = body,
                 time = at,

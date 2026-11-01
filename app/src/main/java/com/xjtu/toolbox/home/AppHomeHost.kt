@@ -262,7 +262,7 @@ internal fun rememberAppHome(
                 else -> HomeNextUp(
                     icon = HomeHero.EMPTY_ICON,
                     title = HomeHero.NOTHING_TITLE,
-                    detail = "问问屁岱怎么安排",
+                    detail = "问问小岱怎么安排",
                     route = AppRoute.Schedule,
                 )
             }

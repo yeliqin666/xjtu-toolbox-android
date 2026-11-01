@@ -57,7 +57,7 @@ object Eula {
             Section(
                 "三、AI 与第三方服务",
                 buildAnnotatedString {
-                    append("屁岱等 AI 功能由用户自行配置模型服务与 API Key。使用这些功能时，您的问题、上下文、工具查询结果、上传附件摘要等内容可能会发送给您选择的模型服务商或中转服务。")
+                    append("小岱等 AI 功能由用户自行配置模型服务与 API Key。使用这些功能时，您的问题、上下文、工具查询结果、上传附件摘要等内容可能会发送给您选择的模型服务商或中转服务。")
                     pushStyle(boldStyle); append("请优先选择可信服务商，妥善保管 API Key，避免提交不希望第三方处理的个人信息。"); pop()
                 }
             ),
