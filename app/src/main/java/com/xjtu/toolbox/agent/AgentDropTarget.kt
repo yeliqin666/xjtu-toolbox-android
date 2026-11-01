@@ -12,10 +12,8 @@ import androidx.compose.ui.draganddrop.toAndroidDragEvent
 import androidx.compose.ui.platform.LocalContext
 import com.xjtu.toolbox.nav.DeepLinkRouter
 import com.xjtu.toolbox.account.AccountContext
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 import java.io.File
 
 @Composable
@@ -34,22 +32,21 @@ internal fun rememberAgentDropTarget(): Modifier {
                 val permission = activity?.requestDragAndDropPermissions(drop)
                 val account = AccountContext.activeAccountId
                 scope.launch {
-                    val images = mutableListOf<String>()
+                    var imported: ImportedAgentShare? = null
                     var saved = false
                     try {
-                        withContext(Dispatchers.IO) {
-                            data.imageUris.forEach { uri ->
-                                ensureActive()
-                                attachAgentImage(context, android.net.Uri.parse(uri))?.let(images::add)
-                            }
-                        }
+                        val material = importAgentShare(context, data.prompt.orEmpty(), data.imageUris, null)
+                        imported = material
                         ensureActive()
                         if (account != AccountContext.activeAccountId) return@launch
-                        receiveAgentShare(data.prompt.orEmpty(), images)
-                        saved = true
+                        if (material.text.isNotBlank() || material.images.isNotEmpty()) {
+                            receiveAgentShare(material.text, material.images)
+                            saved = true
+                        }
+                        if (material.unsupported) com.xjtu.toolbox.platform.showBriefMessage("部分内容暂不支持，请分享文字、链接或图片")
                     } finally {
                         permission?.release()
-                        if (!saved) images.forEach { File(it).delete() }
+                        if (!saved) imported?.images?.forEach { File(it).delete() }
                     }
                 }
                 return true

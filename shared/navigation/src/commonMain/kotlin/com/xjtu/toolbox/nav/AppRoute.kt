@@ -153,6 +153,8 @@ sealed interface AppRoute : NavKey {
     /** 消息收纳：待办与消息。 */
     @Serializable data object Inbox : AppRoute { override val id get() = "inbox" }
     @Serializable data object Community : AppRoute { override val id get() = "community" }
+    /** 直达社区里的某一帖（首页卡片、链接）；返回时直接退出社区。 */
+    @Serializable data class CommunityPost(val number: Int) : AppRoute { override val id get() = "community/$number" }
 
     /** 教师主页检索，公开站点。 */
     @Serializable data object Faculty : AppRoute { override val id get() = "faculty" }
@@ -204,6 +206,7 @@ fun appRouteOf(id: String): AppRoute? {
             param("activityId")?.toIntOrNull()?.takeIf { it > 0 },
         )
         path == "browser" -> AppRoute.Browser(param("url").orEmpty(), param("then").orEmpty())
+        path.startsWith("community/") -> path.removePrefix("community/").toIntOrNull()?.takeIf { it > 0 }?.let(AppRoute::CommunityPost)
         path.startsWith("jiaocai1_reader/") -> {
             val ssno = path.removePrefix("jiaocai1_reader/")
             if (ssno.isBlank()) null else AppRoute.Jiaocai1Reader(ssno, param("title").orEmpty())

@@ -128,7 +128,7 @@ fun AgentScreen(
             vm.draft = pending.text
             return@LaunchedEffect
         }
-        vm.sendMessage(pending.text, config, llmAnnex = pending.snapshot, images = pending.images)
+        vm.sendMessage(pending.text, config, llmAnnex = pending.snapshot?.let(AgentAnnex::snapshot), images = pending.images)
     }
 
     // 点屁岱推送的通知进来：切到「推送记录」，定位并闪一下那一条（#194）

@@ -553,6 +553,14 @@ fun NavEntryBuilder.appPageEntries(
                 onBack = back,
             )
         }
+        entry<AppRoute.CommunityPost>(transition = expand(AppRoute.CommunityPost::class)) { route ->
+            CommunityScreen(
+                session = remember { SecureGithubSession.get() },
+                deviceAuth = remember { GithubOAuthDeviceAuthRepository(GithubNetwork.client, CommunityRepo.CLIENT_ID) },
+                onBack = back,
+                discussionNumber = route.number,
+            )
+        }
         entry<AppRoute.Faculty>(transition = expand(AppRoute.Faculty::class)) {
             FacultyScreen(
                 source = remember { FacultyApiSource() },

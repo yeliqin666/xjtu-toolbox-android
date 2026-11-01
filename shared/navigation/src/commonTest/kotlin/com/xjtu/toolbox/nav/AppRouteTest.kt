@@ -27,6 +27,13 @@ class AppRouteTest {
     }
 
     @Test
+    fun `社区帖子编号来回一致`() {
+        assertEquals(AppRoute.CommunityPost(42), appRouteOf(AppRoute.CommunityPost(42).id))
+        assertNull(appRouteOf("community/0"))
+        assertNull(appRouteOf("community/abc"))
+    }
+
+    @Test
     fun `思源学堂带不带课程号都认`() {
         assertEquals(AppRoute.Lms(null), appRouteOf("lms"))
         assertEquals(AppRoute.Lms(123), appRouteOf("lms?courseId=123"))

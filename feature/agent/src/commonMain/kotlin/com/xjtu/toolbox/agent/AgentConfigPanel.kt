@@ -14,6 +14,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.Key
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.outlined.DeleteOutline
 import androidx.compose.runtime.*
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
@@ -519,13 +520,15 @@ private fun AgentMemorySection() {
                                 color = MiuixTheme.colorScheme.onSurfaceVariantSummary
                             )
                         }
-                        TextButton(
-                            text = "删除",
-                            onClick = {
+                        IconButton(
+                            modifier = Modifier.size(32.dp), onClick = {
                                 memory.forget(k)
                                 memories = memory.all()
                             },
-                        )
+                        ) {
+                            Icon(Icons.Outlined.DeleteOutline, "删除偏好：$k", modifier = Modifier.size(18.dp),
+                                tint = MiuixTheme.colorScheme.onSurfaceVariantSummary)
+                        }
                     }
                 }
                 TextButton(

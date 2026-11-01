@@ -32,6 +32,7 @@ import top.yukonga.miuix.kmp.overlay.OverlayDialog
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.ui.text.style.TextDecoration
 import com.xjtu.toolbox.platform.Log
+import com.xjtu.toolbox.platform.showBriefMessage
 import io.ktor.client.network.sockets.SocketTimeoutException
 import okio.IOException
 import top.yukonga.miuix.kmp.theme.MiuixTheme
@@ -48,10 +49,12 @@ fun CommunityScreen(
     /** 设备码登录的实现（okhttp，留在 :app）。由导航层注入，界面不再自己造。 */
     deviceAuth: GithubDeviceAuthRepository,
     onBack: () -> Unit,
+    /** 非空时直接打开这一帖，从帖子返回即退出社区。 */
+    discussionNumber: Int? = null,
 ) {
     // MIUIX 的 OverlayDialog 只在某个 Scaffold 底下才渲染得出来：账号弹窗、删除确认、放弃编辑这些
     // 都写在各页 Scaffold 的外面，这一层外壳给它们兜底，弹窗也就铺满全屏
-    Scaffold { _ -> CommunityContent(session, deviceAuth, onBack) }
+    Scaffold { _ -> CommunityContent(session, deviceAuth, onBack, discussionNumber) }
 }
 
 @Composable
@@ -59,6 +62,7 @@ private fun CommunityContent(
     session: GithubSession,
     deviceAuth: GithubDeviceAuthRepository,
     onBack: () -> Unit,
+    discussionNumber: Int?,
 ) {
     val login by session.login.collectAsStateWithLifecycle()
     // 登录 / 退出时两套界面淡入淡出地换
@@ -66,7 +70,7 @@ private fun CommunityContent(
         if (signedIn == null) {
             CommunityLoginScreen(session, deviceAuth, onBack)
         } else {
-            CommunityForum(session, signedIn, onBack)
+            CommunityForum(session, signedIn, onBack, discussionNumber)
         }
     }
 }
@@ -84,6 +88,7 @@ private fun CommunityForum(
     session: GithubSession,
     signedIn: String,
     onBack: () -> Unit,
+    discussionNumber: Int?,
 ) {
     val repo = session.repository
     val vm: DiscussionsViewModel = viewModel(key = "community-$signedIn") {
@@ -100,6 +105,17 @@ private fun CommunityForum(
     LaunchedEffect(state.created) {
         state.created?.let { open = it; vm.consumeCreated() }
     }
+    // 直达某帖：拉到详情就进；取不到就留在列表并说一声
+    LaunchedEffect(discussionNumber) {
+        val number = discussionNumber ?: return@LaunchedEffect
+        repo.detail(CommunityRepo.OWNER, CommunityRepo.NAME, number)
+            .onSuccess { open = it }
+            .onFailure { showBriefMessage("帖子加载失败，已打开社区列表") }
+    }
+    val closeDetail: () -> Unit = {
+        if (discussionNumber != null) onBack() else open = null
+        Unit
+    }
 
     val page: ForumPage = when {
         open != null -> ForumPage.Detail(open!!)
@@ -115,13 +131,13 @@ private fun CommunityForum(
     ) { shown ->
         when (shown) {
             is ForumPage.Detail -> {
-                BackHandler { open = null }
+                BackHandler(onBack = closeDetail)
                 DiscussionDetailScreen(
                     initial = shown.discussion,
                     repo = repo,
                     onChanged = vm::replace,
-                    onDeleted = { vm.remove(shown.discussion.id); open = null },
-                    onBack = { open = null },
+                    onDeleted = { vm.remove(shown.discussion.id); closeDetail() },
+                    onBack = closeDetail,
                 )
             }
             ForumPage.Compose -> {

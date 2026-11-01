@@ -136,6 +136,7 @@ internal object AgentWidgetPresentation {
             is ZyxfWidget -> w.items.map { "${it.name}｜id=${it.id}" }
             is LibraryWidget -> if (w.areas.isNotEmpty()) w.areas.map { "${it.name}｜${it.free}/${it.total}" } else w.seats.map { it.seatId }
             is CampusMapWidget -> w.places
+            is PlanWidget -> w.items.map { "${it.date} ${it.start}｜${it.title}" }
         }
         val scope = when (w) {
             is LiveRoomWidget -> "snapshot: realtime_only; slots: unavailable; continuous_vacancy: unknown\n"
@@ -166,6 +167,7 @@ internal object AgentWidgetPresentation {
         require(options.keys.all { it in known }) { "不支持的展示选项：${(options.keys - known).joinToString()}" }
         return widgets.map { w ->
             val kind = when (w) {
+                is PlanWidget -> return@map w   // 由 propose_plan 直接出卡，没有筛选项
                 is NoticeWidget -> "notices"
                 is GradeWidget -> "grades"; is ScheduleWidget -> "schedule"; is ExamWidget -> "exams"
                 is RoomWidget, is LiveRoomWidget -> "rooms"; is AttendanceWidget -> "attendance"
@@ -288,6 +290,7 @@ internal object AgentWidgetPresentation {
                     val areas = if (w.areas.isEmpty()) w.areas else o.select(w.areas)
                     w.copy(areas = areas, highlightedSeats = ids, display = o.display(w.seats.size, view = view))
                 }
+                is PlanWidget -> w
                 is CampusMapWidget -> {
                     val names = o.strings("place_names")
                     require(names == null || names.all { it in w.places }) { "place_names 只能选择本次结果已有地点" }

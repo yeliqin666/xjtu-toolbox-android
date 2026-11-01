@@ -147,10 +147,37 @@ class MainActivity : ComponentActivity() {
             ?.let(com.xjtu.toolbox.agent.AgentPushFocus::set)
         launchTab.value = extras?.getStringExtra(EXTRA_LAUNCH_TAB)
             ?.let { name -> BottomTab.entries.firstOrNull { it.name == name } }
-        if (deepLink?.imageUris?.isNotEmpty() == true) importSharedImages(deepLink)
-        else deepLink?.prompt?.let {
-            if (deepLink.sharedMaterial) com.xjtu.toolbox.agent.receiveAgentShare(it)
-            else AgentPendingPrompt.set(it, draftOnly = !deepLink.autoSend)
+        when {
+            deepLink == null -> Unit
+            deepLink.sharedMaterial -> importSharedMaterial(deepLink)
+            deepLink.imageUris.isNotEmpty() -> importSharedImages(deepLink)
+            else -> deepLink.prompt?.let { AgentPendingPrompt.set(it, draftOnly = !deepLink.autoSend) }
+        }
+    }
+
+    private fun importSharedMaterial(target: DeepLinkRouter.DeepLinkTarget) {
+        val account = AccountContext.activeAccountId
+        incomingImages = lifecycleScope.launch {
+            var imported: com.xjtu.toolbox.agent.ImportedAgentShare? = null
+            var delivered = false
+            try {
+                val material = com.xjtu.toolbox.agent.importAgentShare(this@MainActivity, target.prompt.orEmpty(), target.imageUris, target.mimeType)
+                imported = material
+                ensureActive()
+                if (account != AccountContext.activeAccountId) return@launch
+                if (material.text.isNotBlank() || material.images.isNotEmpty()) {
+                    com.xjtu.toolbox.agent.receiveAgentShare(material.text, material.images)
+                    delivered = true
+                }
+                val notice = when {
+                    material.unsupported -> if (delivered) "已导入可读取内容，部分附件暂不支持" else "暂不支持此文件，请分享文字、链接或图片"
+                    target.imageCount > target.imageUris.size -> "已接收前 ${target.imageUris.size} 张图片，每次最多 ${target.imageUris.size} 张"
+                    else -> null
+                }
+                notice?.let { Toast.makeText(this@MainActivity, it, Toast.LENGTH_SHORT).show() }
+            } finally {
+                if (!delivered) imported?.images?.forEach { File(it).delete() }
+            }
         }
     }
 
@@ -168,10 +195,7 @@ class MainActivity : ComponentActivity() {
                 }
                 ensureActive()
                 if (account != AccountContext.activeAccountId) return@launch
-                if (target.sharedMaterial && (paths.isNotEmpty() || !target.prompt.isNullOrBlank())) {
-                    com.xjtu.toolbox.agent.receiveAgentShare(target.prompt.orEmpty(), paths)
-                    delivered = true
-                } else if (paths.isEmpty()) {
+                if (paths.isEmpty()) {
                     Toast.makeText(this@MainActivity, "图片读取失败，请重新分享", Toast.LENGTH_SHORT).show()
                 } else {
                     AgentPendingPrompt.set(target.prompt.orEmpty(), images = paths, draftOnly = !target.autoSend)

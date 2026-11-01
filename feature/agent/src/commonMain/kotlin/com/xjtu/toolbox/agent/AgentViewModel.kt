@@ -488,14 +488,11 @@ class AgentViewModel(private val host: AgentHost) : ViewModel(), AgentChatSessio
                 }
 
                 // 每条 user 消息携带实时时间，杜绝"今天/明天"按会话起始日的陈旧判断。
-                // 提醒快照只给模型看：对准「点的是哪件事」，不当完整事实，也不进气泡。
+                // annex 只给模型看、不进气泡，自带说明（见 AgentAnnex）。
                 val llmUser = buildString {
                     append(nowTag(config.effectiveModel))
                     append('\n')
                     if (!llmAnnex.isNullOrBlank()) {
-                        append("[App 快照]\n")
-                        append("用户从 App 里的提醒或小岱卡片点进来，快照是他当时在看的东西，接着它聊。")
-                        append("快照够用就直接用，别再查一遍；用户要最新情况、完整清单或快照里没有的内容时才调工具。缺的字段不要编。\n")
                         append(llmAnnex.trim())
                         append("\n\n")
                     }

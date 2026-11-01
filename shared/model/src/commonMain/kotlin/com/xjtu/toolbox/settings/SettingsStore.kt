@@ -149,6 +149,16 @@ class SettingsStore(private val store: KeyValueStore = keyValueStore(APP_SETTING
         get() = store.getString("home_wallpaper_image").orEmpty()
         set(value) = store.putString("home_wallpaper_image", value.ifEmpty { null })
 
+    /** 首页背景图的模糊与亮度，取值范围同首页大卡的自定义背景。 */
+    var homeWallpaperBlur: Int
+        get() = store.getInt("home_wallpaper_blur", HERO_IMAGE_BLUR_MIN).coerceIn(HERO_IMAGE_BLUR_MIN, HERO_IMAGE_BLUR_MAX)
+        set(value) = store.putInt("home_wallpaper_blur", value.coerceIn(HERO_IMAGE_BLUR_MIN, HERO_IMAGE_BLUR_MAX))
+
+    var homeWallpaperBrightness: Int
+        get() = store.getInt("home_wallpaper_brightness", HERO_IMAGE_BRIGHTNESS_MAX)
+            .coerceIn(HERO_IMAGE_BRIGHTNESS_MIN, HERO_IMAGE_BRIGHTNESS_MAX)
+        set(value) = store.putInt("home_wallpaper_brightness", value.coerceIn(HERO_IMAGE_BRIGHTNESS_MIN, HERO_IMAGE_BRIGHTNESS_MAX))
+
     /** 场馆滑块验证码自动识别开关。 */
     var venueAutoSolveCaptchaEnabled: Boolean
         get() = store.getBoolean(KEY_VENUE_AUTO_SOLVE_CAPTCHA, true)

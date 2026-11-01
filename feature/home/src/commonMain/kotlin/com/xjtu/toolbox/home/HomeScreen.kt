@@ -167,6 +167,7 @@ fun HomeScreen(
     }
     val background = remember(HomeLayoutRevision.current) { layoutStore.homeBackground }
     val wallpaper = remember(HomeLayoutRevision.current) { layoutStore.homeWallpaperImage.takeIf { background == "image" }.orEmpty() }
+    val wallpaperTone = remember(HomeLayoutRevision.current) { layoutStore.homeWallpaperBlur to layoutStore.homeWallpaperBrightness }
     val wall = rememberLayerBackdrop()
     // 自定义图片上用白字；渐变很浅，照常用正文色
     val pageInk = if (wallpaper.isNotEmpty()) Color.White else MiuixTheme.colorScheme.onSurface
@@ -200,7 +201,8 @@ fun HomeScreen(
     Box(modifier.fillMaxSize()) {
         // 壁纸和滚动内容一起录进顶栏的采样层，顶栏模糊里也有壁纸
         Box(Modifier.matchParentSize().then(if (glass) Modifier.layerBackdrop(pageBackdrop) else Modifier)) {
-        HomeWallpaper(background, wallpaper, Modifier.matchParentSize().layerBackdrop(wall))
+        HomeWallpaper(background, wallpaper, Modifier.matchParentSize().layerBackdrop(wall),
+            blur = wallpaperTone.first, brightness = wallpaperTone.second)
         Column(
             Modifier
                 .fillMaxSize()

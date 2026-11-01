@@ -145,22 +145,24 @@ internal fun ChatPanel(
         vm.sendMessage(text, config)
     }
 
+    // 卡片按钮（加入日程、待办）走和模型同一套工具，校验与冲突检测一致
+    val widgetTools = remember(config) { host.interactiveTools(config) }
     val glass = LocalGlassStyle.current
     if (showSharedMaterials && pageVisible && sharedMaterials != null) AgentShareSheet(
         store = sharedMaterials, host = host, canSend = config.isConfigured && !vm.isLoading,
-        canSendCurrent = vm.currentSessionId != AgentPushFocus.SESSION_ID && !vm.contextExhausted,
         supportsImages = visionEnabled,
-        sendHint = when { !config.isConfigured -> "尚未配置 AI 服务，请先在小岱设置中配置。"; vm.isLoading -> "正在生成，完成后可发送。"; else -> null },
+        sendHint = when { !config.isConfigured -> "尚未配置 AI 服务，请先在小岱设置中配置"; vm.isLoading -> "正在生成，完成后可发送"; else -> null },
         onDismiss = { showSharedMaterials = false },
-        onSend = { material, newChat ->
+        // 材料各自成一段对话，不接在手头的话题后面
+        onSend = { material ->
             val images = host.copySharedImages(material.images)
             if (images.size != material.images.size) {
                 host.deleteImageFiles(images)
                 showBriefMessage("图片已失效，请重新分享")
             } else {
-                if (newChat) vm.newSession()
+                vm.newSession()
                 showSharedMaterials = false
-                vm.sendMessage(material.text, config, images = images)
+                vm.sendMessage(material.text, config, llmAnnex = AgentAnnex.SHARED_MATERIAL, images = images)
             }
         },
     )
@@ -258,6 +260,7 @@ internal fun ChatPanel(
                             streaming = vm.isLoading && row === chatRows.last() && row.msg.content.isBlank() &&
                                 vm.messages.lastOrNull()?.role?.let(::isToolRole) != true,
                             onAskFromWidget = ::askFromWidget,
+                            onWidgetTool = { name, args -> widgetTools.execute(name, args) },
                             onPushPreferences = onPushPreferences.takeIf { vm.currentSessionId == AgentPushFocus.SESSION_ID },
                         )
                     }
@@ -575,6 +578,8 @@ private fun MessageBubble(
     streaming: Boolean = false,
     /** 卡片替用户问一句（如资料卡上点"打开目录"）。 */
     onAskFromWidget: (String) -> Unit = {},
+    /** 卡片上的操作（加入日程等）转给工具执行。 */
+    onWidgetTool: (suspend (String, String) -> String)? = null,
     onPushPreferences: (() -> Unit)? = null,
 ) {
     // 与 `:core` 其余几屏同一套写法（`community` / `emptyroom`）：
@@ -657,7 +662,10 @@ private fun MessageBubble(
                     )
                 }
                 onPushPreferences?.let { open ->
-                    TextButton(text = "减少此类推送…", onClick = open)
+                    Text("减少此类推送…", style = MiuixTheme.textStyles.footnote1, color = MiuixTheme.colorScheme.primary,
+                        modifier = Modifier.padding(top = 4.dp).clip(RoundedCornerShape(6.dp))
+                            .clickable(role = androidx.compose.ui.semantics.Role.Button, onClick = open)
+                            .padding(horizontal = 4.dp, vertical = 6.dp))
                 }
                 msg.widgets.forEach { widget ->
                     AgentWidgetView(
@@ -670,6 +678,7 @@ private fun MessageBubble(
                         // 历史、限流、工具预算全都照常。
                         onAsk = onAskFromWidget,
                         onNavigate = onNavigate,
+                        onTool = onWidgetTool,
                     )
                 }
                 if (msg.navSuggestions.isNotEmpty()) {

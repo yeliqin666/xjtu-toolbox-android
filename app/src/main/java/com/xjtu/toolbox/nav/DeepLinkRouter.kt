@@ -9,6 +9,7 @@ import androidx.core.content.IntentCompat
 /** xjtu 深链与“用屁岱阅读”入口。 */
 object DeepLinkRouter {
     private const val SCHEME = "xjtu"
+    private val BARE_URL = Regex("""https?://\S+""")
     const val PIDAI_LINK_ALIAS = "com.xjtu.toolbox.agent.ReadWithPidai"
     const val PIDAI_SHARE_ALIAS = "com.xjtu.toolbox.agent.ShareWithPidai"
 
@@ -20,6 +21,7 @@ object DeepLinkRouter {
         val imageUris: List<String> = emptyList(),
         val imageCount: Int = imageUris.size,
         val sharedMaterial: Boolean = false,
+        val mimeType: String? = null,
     )
 
     fun resolve(intent: Intent): DeepLinkTarget? {
@@ -31,8 +33,10 @@ object DeepLinkRouter {
             val text = intent.getCharSequenceExtra(Intent.EXTRA_TEXT) ?: intent.getStringExtra(Intent.EXTRA_HTML_TEXT)?.let {
                 android.text.Html.fromHtml(it, android.text.Html.FROM_HTML_MODE_LEGACY).toString()
             }
-            val texts = listOfNotNull(text) + clips.mapNotNull { it.text }
-            return sharedTarget(texts.map { it.toString() }, (streams + clips.mapNotNull { it.uri }).map { it.toString() })
+            val texts = listOfNotNull(text) +
+                (if (text == null) intent.getCharSequenceArrayListExtra(Intent.EXTRA_TEXT).orEmpty() else emptyList()) + clips.mapNotNull { it.text }
+            return sharedTarget(texts.map { it.toString() }, (streams + clips.mapNotNull { it.uri }).map { it.toString() },
+                intent.getCharSequenceExtra(Intent.EXTRA_SUBJECT)?.toString())?.copy(mimeType = intent.type)
         }
         if (intent.component?.className == PIDAI_LINK_ALIAS) {
             if (intent.type?.startsWith("image/", ignoreCase = true) == true) {
@@ -67,9 +71,15 @@ object DeepLinkRouter {
         }
     }
 
-    internal fun sharedTarget(texts: List<String>, uris: List<String>): DeepLinkTarget? {
-        val text = (texts + uris.filter { it.startsWith("https://") || it.startsWith("http://") })
-            .map { it.trim() }.filter { it.isNotBlank() }.distinct().joinToString("\n\n").take(30_000)
+    /**
+     * [subject] 是邮件主题式的元数据（EXTRA_SUBJECT）：正文只是一条链接时当它的标题；
+     * 否则正文自己说得清，拼进去只会重复（微信转发聊天记录就是邮件式分享，主题与正文首行同义）。
+     */
+    internal fun sharedTarget(texts: List<String>, uris: List<String>, subject: String? = null): DeepLinkTarget? {
+        val body = (texts + uris.filter { it.startsWith("https://") || it.startsWith("http://") })
+            .map { it.trim() }.filter { it.isNotBlank() }.distinct()
+        val title = subject?.trim()?.takeIf { it.isNotEmpty() && body.singleOrNull()?.matches(BARE_URL) == true }
+        val text = (listOfNotNull(title) + body).joinToString("\n\n").take(30_000)
         val images = uris.distinct().filter { it.startsWith("content://") }
         if (text.isEmpty() && images.isEmpty()) return null
         return DeepLinkTarget(AppRoute.Agent, text, imageUris = images.take(AgentVision.MAX_IMAGES_PER_MESSAGE),

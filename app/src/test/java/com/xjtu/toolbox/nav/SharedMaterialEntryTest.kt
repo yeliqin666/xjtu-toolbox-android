@@ -14,6 +14,17 @@ class SharedMaterialEntryTest {
         assertFalse(target.autoSend)
     }
 
+    @Test fun subjectTitlesBareLinksOnly() {
+        // 微信转发聊天记录：主题与正文首行同义，丢掉
+        val chat = DeepLinkRouter.sharedTarget(listOf("立冬 在微信上的聊天记录如下，请查收。\n\n立冬 22:57\n明天开会"), emptyList(),
+            subject = "文件传输助手 和 立冬 的聊天记录")!!
+        assertFalse(chat.prompt!!.contains("的聊天记录\n"))
+        assertTrue(chat.prompt!!.startsWith("立冬 在微信上"))
+        // 浏览器分享网页：正文只有链接，主题就是标题
+        val link = DeepLinkRouter.sharedTarget(listOf("https://example.org/a"), emptyList(), subject = "教务通知")!!
+        assertEquals("教务通知\n\nhttps://example.org/a", link.prompt)
+    }
+
     @Test fun oversizedImageSharesKeepOriginalCountAndLimitImportedImages() {
         val target = DeepLinkRouter.sharedTarget(emptyList(), (1..8).map { "content://gallery/$it" })!!
         assertEquals(8, target.imageCount)

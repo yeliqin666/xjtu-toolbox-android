@@ -118,8 +118,7 @@ android {
                 ?.let { signingConfig = it }
             // 带 -PdebugSuffix 构建时包名加 .debug 后缀，与设备上已装的正式版共存。
             // 场景：没有 release.jks 的机器（签名必然与正式版不同，覆盖安装会被拒，
-            // 又不想卸载正式版丢数据）。代价：res/xml/shortcuts.xml 的
-            // targetPackage 硬编码了主包名，共存包的长按快捷方式会失效。
+            // 又不想卸载正式版丢数据）。动态快捷方式会使用当前包名。
             if (project.hasProperty("debugSuffix")) {
                 applicationIdSuffix = ".debug"
             }

@@ -227,7 +227,7 @@ private fun EditToolbar(ink: Color, onReset: () -> Unit, onDone: () -> Unit) {
  * 顶部和底部各压一段暗色，刊头白字和底栏都看得清。
  */
 @Composable
-internal fun HomeWallpaper(mode: String, imageData: String, modifier: Modifier = Modifier) {
+internal fun HomeWallpaper(mode: String, imageData: String, modifier: Modifier = Modifier, blur: Int = 0, brightness: Int = 100) {
     val dark = LocalIsDarkTheme.current
     val surface = MiuixTheme.colorScheme.surface
     val primary = MiuixTheme.colorScheme.primary
@@ -235,7 +235,7 @@ internal fun HomeWallpaper(mode: String, imageData: String, modifier: Modifier =
         if (mode == "solid") {
             Box(Modifier.matchParentSize().background(lerp(surface, primary, if (dark) 0.10f else 0.06f)))
         } else if (imageData.isNotEmpty()) {
-            HeroCustomBackground(imageData = imageData, modifier = Modifier.matchParentSize(), blur = 0, brightness = 100)
+            HeroCustomBackground(imageData = imageData, modifier = Modifier.matchParentSize(), blur = blur, brightness = brightness)
             Box(
                 Modifier.matchParentSize().background(
                     Brush.verticalGradient(
