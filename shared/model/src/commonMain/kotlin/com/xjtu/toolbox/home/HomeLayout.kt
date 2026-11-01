@@ -128,6 +128,17 @@ data class HomeLayout(val groups: List<HomeGroup> = emptyList()) {
         return replaceGroup(group.copy(tiles = group.tiles + tile))
     }
 
+    /**
+     * 往 [groupId] 组的**指定格** `(x, y)` 放一个功能（从添加面板拖出来落到这里）：
+     * 新块按 2×1 进组，落点照样挤开邻居；组里已有同路由就不加。
+     */
+    fun addTileAt(groupId: String, routeId: String, tileId: String, x: Float, y: Float, grid: Boolean = true): HomeLayout {
+        val group = group(groupId) ?: return this
+        if (group.tiles.any { it.routeId == routeId }) return this
+        val placed = HomeGridMath.placeInGroup(group.tiles, HomeTile(tileId, routeId, x, y, 2f, 1f), grid)
+        return replaceGroup(group.copy(tiles = if (grid) HomeGridMath.compactEmptyRows(placed) else placed))
+    }
+
     fun removeTile(tileId: String): HomeLayout = copy(
         groups = groups.map { group -> group.copy(tiles = group.tiles.filter { it.id != tileId }) },
     )

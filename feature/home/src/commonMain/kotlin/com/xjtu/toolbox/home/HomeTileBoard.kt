@@ -148,6 +148,9 @@ internal class HomeDragSession {
     /** 被拖这一块的尺寸（格），画幽灵块用。 */
     var sizeCells by mutableStateOf(Offset(2f, 1f))
 
+    /** 这次拖拽是不是「从添加面板拖出来的新块」：松手时走 addTileAt，而不是 moveTile。 */
+    var fromPalette by mutableStateOf(false)
+
     /** 手指当前位置（页面局部坐标）：判定落进哪个组、边缘自动滚动都按它算。 */
     var pointer by mutableStateOf(Offset.Zero)
 
@@ -230,6 +233,23 @@ internal class HomeDragSession {
         tileId = null
         routeId = null
         fromGroupId = null
+        fromPalette = false
+    }
+
+    /**
+     * 从添加面板拖出一个新功能：没有源组、没有「原块」。幽灵块跟手 [pointerPageLocal]（手指
+     * 的页面局部位置），抓取点取卡片中心（[board] 只是借它的格宽格高换算）；松手由首页
+     * addTileAt 落到目标格。
+     */
+    fun beginDragPalette(routeId: String, w: Float, h: Float, pointerPageLocal: Offset, board: HomeBoardMetrics) {
+        tileId = "palette/$routeId"
+        this.routeId = routeId
+        fromGroupId = null
+        fromPalette = true
+        sizeCells = Offset(w, h)
+        grab = Offset(w * board.colUnit / 2f, h * board.rowUnit / 2f)
+        ghostOrigin = pointerPageLocal - grab
+        pointer = pointerPageLocal
     }
 
     fun beginResize(tileId: String, size: Offset) {

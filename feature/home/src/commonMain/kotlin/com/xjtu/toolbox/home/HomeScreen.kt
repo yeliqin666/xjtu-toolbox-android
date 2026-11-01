@@ -445,6 +445,29 @@ fun HomeScreen(
             cellHeight = cellHeight,
         )
 
+        // ── 编辑态右侧的「添加卡片」悬浮球：展开成长条，长按功能拖出来放到组里 ──
+        if (editing.on) {
+            HomeAddTileOrb(
+                faces = faces,
+                catalog = catalog,
+                liquid = liquid,
+                backdrop = tileBackdrop.takeIf { liquid },
+                session = session,
+                onDropPalette = { routeId ->
+                    val pointer = session.pointer
+                    val target = session.boards.entries.firstOrNull { it.value.contains(pointer) }
+                    if (target != null) {
+                        val m = target.value
+                        val x = m.toCellX(pointer.x - session.grab.x)
+                        val y = m.toCellY(pointer.y - session.grab.y)
+                        val newId = "palette/$routeId#${layout.group(target.key)?.tiles?.size ?: 0}"
+                        update { it.addTileAt(target.key, routeId, newId, x, y, grid) }
+                    }
+                },
+                modifier = Modifier.matchParentSize(),
+            )
+        }
+
         // ── 拖到屏幕上下边缘时自动滚动（带阻尼：越靠边越快） ──
         LaunchedEffect(session.dragging) {
             if (!session.dragging) return@LaunchedEffect
@@ -1262,7 +1285,10 @@ private fun HomeDragGhost(
 ) {
     if (!session.dragging) return
     val face = session.routeId?.let { faces[it] } ?: return
-    val board = session.fromGroupId?.let { session.boards[it] } ?: return
+    // 从添加面板拖出来的块没有源组：格宽格高都一样，借任意一个 board 换算就行
+    val board = session.fromGroupId?.let { session.boards[it] }
+        ?: session.boards.values.firstOrNull()
+        ?: return
     val density = LocalDensity.current
     val gapPx = with(density) { HomeTileGap.toPx() }
     val wPx = (session.sizeCells.x * board.colUnit - gapPx).coerceAtLeast(1f)
