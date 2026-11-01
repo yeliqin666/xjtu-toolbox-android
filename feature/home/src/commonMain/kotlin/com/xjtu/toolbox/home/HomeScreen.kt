@@ -442,6 +442,7 @@ fun HomeScreen(
             faces = faces,
             liquid = liquid,
             backdrop = tileBackdrop.takeIf { liquid },
+            cellHeight = cellHeight,
         )
 
         // ── 拖到屏幕上下边缘时自动滚动（带阻尼：越靠边越快） ──
@@ -1257,6 +1258,7 @@ private fun HomeDragGhost(
     faces: Map<String, HomeServiceRow>,
     liquid: Boolean,
     backdrop: Backdrop?,
+    cellHeight: Dp,
 ) {
     if (!session.dragging) return
     val face = session.routeId?.let { faces[it] } ?: return
@@ -1286,6 +1288,7 @@ private fun HomeDragGhost(
             h = session.sizeCells.y,
             liquid = liquid,
             backdrop = backdrop,
+            cellHeight = cellHeight,
             modifier = Modifier.fillMaxSize(),
         )
     }

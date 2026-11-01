@@ -81,10 +81,13 @@ import top.yukonga.miuix.kmp.squircle.squircleClip
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 /**
- * 一格的基准高度。组件的实际高度 = 格数 ×（这个高度 + [HomeTileGap]）− [HomeTileGap]；
- * 1 格高就是「纯图标模式」那一档，62dp 放得下一个 30dp 的图标。
+ * 一格的基准高度（开着「网格下留出文字空间」时）。组件的实际高度 = 格数 ×（这个高度
+ * + [HomeTileGap]）− [HomeTileGap]。
+ *
+ * 88dp 让 1×1 是个**高长方形**（§13）：图标在上、名称在下正好放下，而不是过去那种
+ * 只塞得下图标的「胖方块」——这一档的名字就叫「在图标下留出文字空间」。
  */
-internal val HomeCellHeight = 62.dp
+internal val HomeCellHeight = 88.dp
 
 /**
  * 关掉「网格下留出文字空间」之后的一格高度（补充 §12）。
@@ -404,6 +407,7 @@ internal fun HomeGroupSection(
                         colUnit = colUnit,
                         rowUnit = rowUnit,
                         gapPx = gapPx,
+                        cellHeight = cellHeight,
                         onOpen = { onOpen(face) },
                         onStartEdit = onStartEdit,
                         onDropDrag = onDropDrag,
@@ -563,6 +567,7 @@ private fun HomeTileItem(
     colUnit: Float,
     rowUnit: Float,
     gapPx: Float,
+    cellHeight: Dp,
     onOpen: () -> Unit,
     onStartEdit: () -> Unit,
     onDropDrag: () -> Unit,
@@ -687,6 +692,7 @@ private fun HomeTileItem(
             h = animH,
             liquid = liquid,
             backdrop = backdrop,
+            cellHeight = cellHeight,
             modifier = Modifier.fillMaxSize(),
         )
 
@@ -754,6 +760,8 @@ internal fun HomeTileFaceBox(
     liquid: Boolean,
     backdrop: Backdrop?,
     modifier: Modifier = Modifier,
+    /** 一格的实际高度：决定 1 格高的卡片够不够装「图标 + 名称」（§13）。 */
+    cellHeight: Dp = HomeCellHeight,
 ) {
     val dark = LocalIsDarkTheme.current
     val ink = MiuixTheme.colorScheme.onSurface
@@ -804,11 +812,12 @@ internal fun HomeTileFaceBox(
         contentAlignment = Alignment.Center,
     ) {
         // 形态按**实时**格数选（§10）：拖动把手缩放时逐帧判断，不等松手才重排。
-        // 阈值用内容模型推：1 格高只放得下图标 → 纯图标；1.6 格以下竖排会挤成两行字 →
-        // 改成横排；再高才回到「图标 / 名称 / 状态」三段。
+        // 高单元格（「网格下留出文字空间」）时 1 格就装得下「图标 + 名称」，1×1 也竖排；
+        // 矮单元格（紧凑）时 1 格只剩图标。明显宽扁的块横排，其余竖排（§13 的阈值联动）。
+        val tallCell = cellHeight >= 76.dp
         val mode = when {
-            w < 1.2f || h < 1.2f -> 0
-            h < 1.6f -> 1
+            (w < 1.2f || h < 1.2f) && !tallCell -> 0
+            w > h * 1.5f && h < 1.6f -> 1
             else -> 2
         }
         Crossfade(targetState = mode, animationSpec = tween(140)) { shape ->

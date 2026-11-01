@@ -222,7 +222,7 @@ private fun HomeSettingsBody() {
             SwitchPreference(
                 title = "网格下留出文字空间",
                 summary = if (textSpace) {
-                    "单元高 62dp：卡片放得下图标、名称与状态"
+                    "单元高 88dp：高长方形，1×1 也放得下图标与名称"
                 } else {
                     "单元高 46dp：网格更紧凑，1 格高的卡片只剩图标"
                 },
