@@ -188,7 +188,7 @@ class AgentViewModel(private val host: AgentHost) : ViewModel(), AgentChatSessio
     private var boundSuffix: String? = null
 
     /**
-     * 绑定持久化存储并加载会话列表，空则自动建首个会话。同一账号只做一次；换了账号要重来，
+     * 绑定持久化存储并加载会话列表。同一账号只做一次；换了账号要重来，
      * 不然上一个账号的对话还摆在屏幕上，再发一条就整段写进新账号的目录。
      */
     override fun bind(store: AgentSessionPersistence) {
@@ -199,6 +199,11 @@ class AgentViewModel(private val host: AgentHost) : ViewModel(), AgentChatSessio
         boundSuffix = suffix
         currentSessionId = null
         messages.clear(); llmHistory = mutableListOf(); userContextProbe = null
+        store.list().filter { session ->
+            session.id != AgentPushFocus.SESSION_ID && !session.locked && store.load(session.id)?.let {
+                it.messages.isEmpty() && it.llmHistory.trim().let { history -> history.isEmpty() || history == "[]" }
+            } == true
+        }.forEach { store.delete(it.id) }
         sessions.clear()
         sessions.addAll(store.list())
         val first = sessions.firstOrNull()
@@ -207,10 +212,9 @@ class AgentViewModel(private val host: AgentHost) : ViewModel(), AgentChatSessio
 
     override fun newSession() {
         pendingInputs.clear()
-        val store = store ?: return
+        if (store == null) return
         currentJob?.cancel(); applyLoading(false)   // 取消进行中的生成，避免写入新会话造成错乱
-        val s = store.create()
-        currentSessionId = s.id
+        currentSessionId = null
         messages.clear(); llmHistory = mutableListOf(); tools = null; errorMessage = null
         lastTotalTokens = null; contextExhausted = false; contextExhaustedJustTriggered = false
         refreshSessions()
@@ -373,9 +377,10 @@ class AgentViewModel(private val host: AgentHost) : ViewModel(), AgentChatSessio
             errorMessage = CONTEXT_EXHAUSTED_MESSAGE
             return
         }
-        if (currentSessionId == null) newSession()
+        if (currentSessionId == null) currentSessionId = store?.create()?.id
         errorMessage = null
         messages.add(ChatMessage("user", userText, images = images))
+        persist()
         applyLoading(true)
 
         val turnSid = currentSessionId   // 本轮所属会话；切走后不再写当前 messages，避免串台
