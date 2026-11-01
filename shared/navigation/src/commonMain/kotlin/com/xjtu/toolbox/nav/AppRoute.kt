@@ -90,10 +90,6 @@ sealed interface AppRoute : NavKey {
         override val id get() = "coupon"
         override val loginType get() = LoginType.COUPON
     }
-    @Serializable data object ScoreReport : AppRoute {
-        override val id get() = "score_report"
-        override val loginType get() = LoginType.JWXT
-    }
     @Serializable data object Transcript : AppRoute {
         override val id get() = "transcript"
         override val loginType get() = LoginType.DZPZ
@@ -180,7 +176,7 @@ private val simpleRoutes: Map<String, AppRoute> = listOf(
     AppRoute.Main, AppRoute.Schedule, AppRoute.Agent, AppRoute.Zyxf, AppRoute.PaymentCode,
     AppRoute.EmptyRoom, AppRoute.Notification, AppRoute.Attendance, AppRoute.Judge,
     AppRoute.JwappScore, AppRoute.Library, AppRoute.CampusCard, AppRoute.Coupon,
-    AppRoute.ScoreReport, AppRoute.Transcript, AppRoute.Venue, AppRoute.DownloadManager,
+    AppRoute.Transcript, AppRoute.Venue, AppRoute.DownloadManager,
     AppRoute.Jiaocai, AppRoute.Jiaocai1, AppRoute.SchoolCourse, AppRoute.SchoolCalendar,
     AppRoute.YellowPage, AppRoute.Fitness, AppRoute.Iclassface, AppRoute.Settings, AppRoute.Inbox,
     AppRoute.Community, AppRoute.Faculty, AppRoute.Accounts,

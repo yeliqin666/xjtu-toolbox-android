@@ -68,10 +68,7 @@ import com.xjtu.toolbox.game.hop.HopScreen
 import com.xjtu.toolbox.schedule.AppSchoolCourseSource
 import com.xjtu.toolbox.schedule.ScheduleScreen
 import com.xjtu.toolbox.schedule.SchoolCourseScreen
-import com.xjtu.toolbox.score.ScoreReportScreen
-import com.xjtu.toolbox.score.scoreReportSource
 import com.xjtu.toolbox.game.xiangqi.XiangqiScreen
-import com.xjtu.toolbox.desktop.score.DesktopScoreReportCache
 import com.xjtu.toolbox.inbox.AppInboxSource
 import com.xjtu.toolbox.inbox.InboxScreen
 import com.xjtu.toolbox.jiaocai.AppJiaocaiSource
@@ -263,7 +260,6 @@ internal val DESKTOP_SUPPORTED_ROUTES = listOf(
     AppRoute.SchoolCourse to "全校课表",
 
     AppRoute.Schedule to "我的课表",
-    AppRoute.ScoreReport to "成绩",
     AppRoute.Judge to "学生评教",
     AppRoute.CampusCard to "校园卡",
     AppRoute.EmptyRoom to "空闲教室",
@@ -451,27 +447,6 @@ private fun DesktopPage(
                 },
             )
         }
-        AppRoute.ScoreReport -> DesktopSiteGate(auth, DesktopAuth.JWXT_SITE_KEY, "教务") { site ->
-            val studentId = AccountContext.activeAccountId?.takeIf { it.isNotBlank() }
-            if (studentId == null) {
-                MissingIdentityPage(
-                    onNavigate = onNavigate,
-                    title = "成绩报表要一个学号，现在取不到",
-                    lines = listOf(
-                        "成绩报表按学号取数，学号来自这次登录。取不到通常是登录还没走完，或者这一份装配是" +
-                            "从落盘凭据恢复的 —— 重新登录一次即可。",
-                        "教务那边的会话本身是好的（能进这一屏就说明它建起来了）。",
-                    ),
-                )
-            } else {
-                ScoreReportScreen(
-                    source = remember(site, studentId) { scoreReportSource(site, studentId) },
-                    cache = remember(studentId) { DesktopScoreReportCache(studentId) },
-                    onBack = back,
-                )
-            }
-        }
-
         AppRoute.Judge -> if (AccountContext.activeAccountType == AccountType.POSTGRADUATE) {
             val source = remember { GraduateJudgeSource(auth.sessionManager) }
             val vm: JudgeViewModel<GraduateQuestionnaire> =
@@ -633,7 +608,6 @@ private fun DesktopPage(
                 source = source,
                 studentId = AccountContext.activeAccountId.orEmpty(),
                 onBack = back,
-                onOpenReport = { onNavigate(DesktopTarget.App(AppRoute.ScoreReport)) },
                 onOpenTranscript = if (AccountContext.activeAccountType == AccountType.UNDERGRADUATE) {
                     { onNavigate(DesktopTarget.App(AppRoute.Transcript)) }
                 } else null,

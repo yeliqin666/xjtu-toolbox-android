@@ -105,10 +105,7 @@ import com.xjtu.toolbox.notification.AppNoticeSource
 import com.xjtu.toolbox.notification.NotificationScreen
 import com.xjtu.toolbox.schedule.AppSchoolCourseSource
 import com.xjtu.toolbox.schedule.SchoolCourseScreen
-import com.xjtu.toolbox.score.ScoreReportScreen
 import com.xjtu.toolbox.platform.keyValueStore
-import com.xjtu.toolbox.score.appScoreReportCache
-import com.xjtu.toolbox.score.scoreReportSource
 import com.xjtu.toolbox.settings.SettingsScreen
 import com.xjtu.toolbox.settings.SettingsStore
 import com.xjtu.toolbox.settings.rememberAppSettingsHost
@@ -246,7 +243,6 @@ fun NavEntryBuilder.appPageEntries(
                 source = scoreSource,
                 studentId = loginState.activeUsername,
                 onBack = back,
-                onOpenReport = { router.open(AppRoute.ScoreReport) },
                 // 成绩单只有本科生的流程，研究生不显示入口
                 onOpenTranscript = if (loginState.accountType == AccountType.UNDERGRADUATE) { { router.open(AppRoute.Transcript) } } else null,
                 jwxt = scoreSource,
@@ -328,19 +324,6 @@ fun NavEntryBuilder.appPageEntries(
                     source = remember(site) { AppCouponSource(site) },
                     onBack = back,
                     onSummary = { value, detail -> HomeStats.push(couponContext, AppRoute.Coupon, value, detail) },
-                )
-            }
-        }
-        entry<AppRoute.ScoreReport>(transition = expand(AppRoute.ScoreReport::class)) {
-            WithSite("jwxt") { site ->
-                val scoreContext = LocalContext.current
-                val studentId = loginState.activeUsername
-                ScoreReportScreen(
-                    source = remember(site, studentId) { scoreReportSource(site, studentId) },
-                    onBack = back,
-                    cache = remember(loginState.accountId, studentId) {
-                        appScoreReportCache(scoreContext, loginState.accountId.takeIf { it.isNotEmpty() }, studentId)
-                    },
                 )
             }
         }

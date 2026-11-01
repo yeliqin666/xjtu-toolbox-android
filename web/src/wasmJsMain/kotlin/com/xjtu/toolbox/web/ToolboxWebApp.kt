@@ -61,13 +61,11 @@ import com.xjtu.toolbox.core.net.CampusFitnessApi
 import com.xjtu.toolbox.core.net.CampusSchoolCourseApi
 import com.xjtu.toolbox.core.net.CampusFacultyApi
 import com.xjtu.toolbox.core.net.CampusNoticeApi
-import com.xjtu.toolbox.core.net.CampusGradesApi
 import com.xjtu.toolbox.core.net.CampusSchoolCalendarApi
 import com.xjtu.toolbox.core.net.CampusYellowPageApi
 import com.xjtu.toolbox.error.FriendlyError
 import com.xjtu.toolbox.faculty.FacultyScreen
 import com.xjtu.toolbox.fitness.FitnessScreen
-import com.xjtu.toolbox.score.ScoreReportScreen
 import com.xjtu.toolbox.game.GamesScreen
 import com.xjtu.toolbox.game.gomoku.GomokuScreen
 import com.xjtu.toolbox.game.go.GoScreen
@@ -315,13 +313,6 @@ private fun AppPage(
             source = remember(client, mode) { CampusFitnessApi(client, API_BASE, mode) },
             onBack = back,
         )
-        // 成绩：与 Android 同一个屏与模型（:core/score），取数换成 campus-api 的精确成绩。
-        // 两个端上游不是同一个接口（:app 解析帆软报表 HTML），字段对齐写在 CampusGradesApi 的 KDoc 里。
-        AppRoute.ScoreReport -> ScoreReportScreen(
-            source = remember(client, mode) { CampusGradesApi(client, API_BASE, mode) },
-            onBack = back,
-            cache = remember { WebScoreReportCache() },
-        )
         AppRoute.YellowPage -> YellowPageScreen(
             api = remember(client, mode) { CampusYellowPageApi(client, API_BASE, mode) },
             onBack = back,
@@ -535,7 +526,6 @@ private fun AppPage(
                         source = scoreSource,
                         studentId = "",
                         onBack = back,
-                        onOpenReport = { onNavigate(WebTarget.App(AppRoute.ScoreReport)) },
                         // 成绩单只有本科生的流程，而「是不是本科生」要身份才知道（本端没有那条链）
                         // ⇒ 不画那个入口（成绩单在首页宫格里本来就有入口，见 WebSupport）。
                         onOpenTranscript = null,

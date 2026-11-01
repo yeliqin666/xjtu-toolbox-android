@@ -58,7 +58,7 @@ object AppServices {
         AppService(AppRoute.Attendance, "考勤", "出勤统计与请假", ServiceCategory.CLASS, listOf("考勤", "考勤查询", "出勤", "迟到", "缺勤", "新考勤", "请假", "病假", "私事假", "销假", "kq")),
         AppService(AppRoute.Iclassface, "快速考勤流水", "课堂人脸考勤记录", ServiceCategory.CLASS, listOf("人脸考勤", "刷脸", "iclassface"), showOnHome = false, audience = AccountType.UNDERGRADUATE),
 
-        AppService(AppRoute.JwappScore, "成绩", "学期成绩与绩点", ServiceCategory.CLASS, listOf("成绩查询", "分数", "gpa", "绩点")),
+        AppService(AppRoute.JwappScore, "成绩", "学期成绩与绩点", ServiceCategory.CLASS, listOf("成绩查询", "分数", "gpa", "绩点", "报表", "成绩报表", "历年成绩", "未评教成绩")),
         AppService(AppRoute.Judge, "评教", "课程评教", ServiceCategory.CLASS, listOf("问卷", "打分", "本科评教", "研究生评教")),
         AppService(AppRoute.Jiaocai, "教材", "查课程教材、读全文", ServiceCategory.STUDY, listOf("课本", "教材中心", "全文", "电子书", "在线阅读")),
         // 已并进「教材」的全文库栏；首页不单列，全局搜「教材全文」仍能直达那一栏
@@ -103,7 +103,6 @@ object AppServices {
         AppService(AppRoute.Games, "小游戏", "合成方块与棋类", ServiceCategory.PLAY, listOf("游戏", "小游戏", "五子棋", "围棋", "象棋", "2048", "合成", "方块", "俄罗斯方块", "跳一跳", "摸鱼")),
         AppService(AppRoute.Match, "匹配交友", "课表匹配找同伴", ServiceCategory.PLAY, listOf("匹配", "交友", "契合", "一起自习", "共同空闲", "扫码匹配", "同楼", "偶遇", "同课", "课表匹配")),
 
-        AppService(AppRoute.ScoreReport, "成绩报表", "历年成绩明细", ServiceCategory.CLASS, listOf("报表", "历年成绩"), showOnHome = false),
         AppService(AppRoute.DownloadManager, "下载管理", "课件与回放下载", ServiceCategory.TOOL, listOf("下载", "已下载"), showOnHome = false),
         AppService(AppRoute.Settings, "设置", "外观、校园网与通知", ServiceCategory.TOOL, listOf("偏好", "主题"), showOnHome = false),
         AppService(AppRoute.Accounts, "账号管理", "管理校园账号", ServiceCategory.TOOL, listOf("切换账号", "多账号"), showOnHome = false),

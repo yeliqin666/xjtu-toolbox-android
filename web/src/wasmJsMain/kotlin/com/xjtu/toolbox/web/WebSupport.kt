@@ -25,7 +25,6 @@ internal object WebSupport {
         // 下面这几条就是被上一轮关在门后的那批（它们的屏一直在，门没了）
         AppRoute.SchoolCalendar,
         AppRoute.Fitness,
-        AppRoute.ScoreReport,
         AppRoute.YellowPage,
         AppRoute.Notification,
         AppRoute.Faculty,

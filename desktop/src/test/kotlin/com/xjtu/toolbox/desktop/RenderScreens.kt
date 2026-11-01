@@ -246,10 +246,6 @@ fun main(args: Array<String>) {
         // 点不到就是「这张图里没有课程」，响亮地失败 —— 别把空屏当证据交出去
         check(searched) { "schoolcourse.png：没点到「搜索」按钮（semantics 里没找到）" }
 
-        // 成绩（第七条）：学号取自登录时写进 `AccountContext.activeAccountId` 的那个（屏上就是这么取的），
-        // 所以这张图里是真能取到数据的；真取不到学号时屏会画「要一个学号」那张说明页（不是崩）。
-        shot("scorereport.png", frames = 20) { ToolboxDesktopApp(auth, DesktopTarget.App(AppRoute.ScoreReport)) }
-
         shot("judge.png", frames = 20) { ToolboxDesktopApp(auth, DesktopTarget.App(AppRoute.Judge)) }
 
         shot("campuscard.png", frames = 20) { ToolboxDesktopApp(auth, DesktopTarget.App(AppRoute.CampusCard)) }
