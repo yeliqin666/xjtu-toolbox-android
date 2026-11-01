@@ -1,5 +1,6 @@
 package com.xjtu.toolbox.schedule
 
+import com.xjtu.toolbox.ui.glass.tabContentBottomPadding
 import com.xjtu.toolbox.platform.BackHandler
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
@@ -857,7 +858,7 @@ private fun CourseDetailSheet(
             Modifier
                 .fillMaxWidth()
                 .overScrollVertical()
-                .verticalScroll(rememberScrollState())
+                .verticalScroll(rememberScrollState()).tabContentBottomPadding()
                 .navigationBarsPadding()
         ) {
             Card(

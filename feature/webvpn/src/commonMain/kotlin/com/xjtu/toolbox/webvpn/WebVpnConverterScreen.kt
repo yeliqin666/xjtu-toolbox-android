@@ -1,5 +1,6 @@
 package com.xjtu.toolbox.webvpn
 
+import com.xjtu.toolbox.ui.glass.tabContentBottomPadding
 import com.xjtu.toolbox.util.redactUrl
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -126,7 +127,7 @@ fun WebVpnConverterScreen(
                 .glassSource(glass)
                 .nestedScroll(scrollBehavior.nestedScrollConnection)
                 .overScrollVertical()
-                .verticalScroll(rememberScrollState())
+                .verticalScroll(rememberScrollState()).tabContentBottomPadding()
                 .padding(horizontal = 16.dp, vertical = 12.dp),
         ) {
             Spacer(Modifier.height(glassTop))

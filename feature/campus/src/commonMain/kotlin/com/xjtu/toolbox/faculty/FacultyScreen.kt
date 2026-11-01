@@ -2,6 +2,7 @@
 
 package com.xjtu.toolbox.faculty
 
+
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.background
@@ -49,6 +50,8 @@ import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.xjtu.toolbox.ui.glass.tabContentPadding
+import com.xjtu.toolbox.ui.glass.tabContentBottomPadding
 import com.xjtu.toolbox.ui.components.AppSearchBar
 import com.xjtu.toolbox.ui.components.EmptyState
 import com.xjtu.toolbox.ui.components.ErrorState
@@ -194,7 +197,7 @@ fun FacultyScreen(
             LazyColumn(
                 state = listState,
                 modifier = Modifier.fillMaxSize().overScrollVertical(),
-                contentPadding = PaddingValues(start = 12.dp, end = 12.dp, top = padding.glassTop(glass), bottom = 24.dp),
+                contentPadding = tabContentPadding(PaddingValues(start = 12.dp, end = 12.dp, top = padding.glassTop(glass), bottom = 24.dp)),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 item(key = "search") { searchBar() }
@@ -439,7 +442,7 @@ private fun FacultyDetailPane(
         Modifier
             .fillMaxSize()
             .overScrollVertical()
-            .verticalScroll(rememberScrollState())
+            .verticalScroll(rememberScrollState()).tabContentBottomPadding()
             .padding(horizontal = 20.dp),
     ) {
         Spacer(Modifier.height(topPadding + 12.dp))

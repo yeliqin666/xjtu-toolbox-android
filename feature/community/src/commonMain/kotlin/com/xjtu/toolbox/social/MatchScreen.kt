@@ -2,6 +2,9 @@
 
 package com.xjtu.toolbox.social
 
+
+import com.xjtu.toolbox.ui.glass.tabContentPadding
+import com.xjtu.toolbox.ui.glass.tabContentBottomPadding
 import com.xjtu.toolbox.platform.BackHandler
 import com.xjtu.toolbox.platform.CodeMatrix
 import com.xjtu.toolbox.platform.qrCodeModules
@@ -244,7 +247,7 @@ fun MatchScreen(
                             .then(if (wide) Modifier.width(440.dp) else Modifier.weight(1f))
                             .fillMaxHeight()
                             .overScrollVertical(),
-                        contentPadding = listPadding,
+                        contentPadding = tabContentPadding(listPadding),
                         verticalArrangement = Arrangement.spacedBy(12.dp),
                     ) {
                         loadError?.let { msg ->
@@ -297,7 +300,7 @@ fun MatchScreen(
                     if (wide) {
                         LazyColumn(
                             Modifier.weight(1f).fillMaxHeight().overScrollVertical(),
-                            contentPadding = listPadding,
+                            contentPadding = tabContentPadding(listPadding),
                             verticalArrangement = Arrangement.spacedBy(12.dp),
                         ) {
                             if (result != null) {
@@ -591,7 +594,7 @@ private fun ShareSettingsDialog(
             Column(
                 Modifier
                     .heightIn(max = 400.dp)
-                    .verticalScroll(rememberScrollState())
+                    .verticalScroll(rememberScrollState()).tabContentBottomPadding()
             ) {
                 TextField(
                     value = nickname,

@@ -15,6 +15,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.runtime.*
+import com.xjtu.toolbox.ui.glass.tabContentPadding
 import com.xjtu.toolbox.auth.LocalAuthExpiry
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -110,7 +111,7 @@ fun TranscriptScreen(
                         .padding(padding.withoutTop(glass))
                         .glassSource(glass)
                         .nestedScroll(scrollBehavior.nestedScrollConnection),
-                    contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = glassTop + 12.dp, bottom = 12.dp),
+                    contentPadding = tabContentPadding(PaddingValues(start = 16.dp, end = 16.dp, top = glassTop + 12.dp, bottom = 12.dp)),
                     verticalArrangement = Arrangement.spacedBy(16.dp)
                 ) {
                     item {

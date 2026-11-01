@@ -41,6 +41,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.xjtu.toolbox.ui.glass.tabContentPadding
 import com.xjtu.toolbox.error.FriendlyError
 import com.xjtu.toolbox.schedule.CourseColors
 import com.xjtu.toolbox.ui.components.AnimatedBar
@@ -313,7 +314,7 @@ private fun TermContent(
         LazyColumn(
             state = listState,
             modifier = Modifier.fillMaxSize().nestedScrollToTopAppBar(scrollBehavior),
-            contentPadding = PaddingValues(top = glassTop, bottom = 24.dp)
+            contentPadding = tabContentPadding(PaddingValues(top = glassTop, bottom = 24.dp))
         ) {
             statusItems()
             timelineItems()
@@ -322,14 +323,14 @@ private fun TermContent(
         Row(Modifier.fillMaxSize().nestedScrollToTopAppBar(scrollBehavior)) {
             LazyColumn(
                 modifier = Modifier.width(440.dp).fillMaxHeight(),
-                contentPadding = PaddingValues(top = glassTop, bottom = 24.dp)
+                contentPadding = tabContentPadding(PaddingValues(top = glassTop, bottom = 24.dp))
             ) {
                 statusItems()
             }
             LazyColumn(
                 state = listState,
                 modifier = Modifier.weight(1f).fillMaxHeight(),
-                contentPadding = PaddingValues(top = glassTop, bottom = 24.dp)
+                contentPadding = tabContentPadding(PaddingValues(top = glassTop, bottom = 24.dp))
             ) {
                 timelineItems()
             }

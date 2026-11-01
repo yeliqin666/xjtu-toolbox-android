@@ -20,6 +20,7 @@ import top.yukonga.miuix.kmp.icon.extended.Info
 import top.yukonga.miuix.kmp.icon.extended.Recent
 import top.yukonga.miuix.kmp.icon.extended.Settings
 import top.yukonga.miuix.kmp.icon.extended.Theme
+import com.xjtu.toolbox.ui.glass.tabContentBottomPadding
 import com.xjtu.toolbox.home.BottomBarTabs
 import com.xjtu.toolbox.ui.components.HeroAppearance
 import com.xjtu.toolbox.ui.components.HeroAppearanceRevision
@@ -562,7 +563,7 @@ private fun SettingsHome(
                         Modifier
                             .fillMaxSize()
                             .overScrollVertical()
-                            .verticalScroll(rememberScrollState())
+                            .verticalScroll(rememberScrollState()).tabContentBottomPadding()
                     ) {
                         Spacer(Modifier.height(glassTop + 8.dp))
                         SettingsCard {
@@ -584,7 +585,7 @@ private fun SettingsHome(
                             .fillMaxSize()
                             .nestedScroll(scrollBehavior.nestedScrollConnection)
                             .overScrollVertical()
-                            .verticalScroll(rememberScrollState())
+                            .verticalScroll(rememberScrollState()).tabContentBottomPadding()
                     ) {
                         Spacer(Modifier.height(glassTop))
                         groups[selectedGroup.coerceIn(groups.indices)].body()
@@ -603,7 +604,7 @@ private fun SettingsHome(
                     .background(MiuixTheme.colorScheme.surface)
                     .nestedScroll(scrollBehavior.nestedScrollConnection)
                     .overScrollVertical()
-                    .verticalScroll(rememberScrollState())
+                    .verticalScroll(rememberScrollState()).tabContentBottomPadding()
                     .padding(padding.withoutTop(glass))
             ) {
                 Spacer(Modifier.height(glassTop))

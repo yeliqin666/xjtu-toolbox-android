@@ -1,5 +1,6 @@
 package com.xjtu.toolbox.jiaocai
 
+import com.xjtu.toolbox.ui.glass.tabContentBottomPadding
 import com.xjtu.toolbox.jiaocai1.Jiaocai1Source
 import com.xjtu.toolbox.platform.BackHandler
 import androidx.compose.animation.AnimatedContent
@@ -288,7 +289,7 @@ private fun JiaocaiBookSheet(
             Modifier
                 .fillMaxWidth()
                 .overScrollVertical()
-                .verticalScroll(rememberScrollState())
+                .verticalScroll(rememberScrollState()).tabContentBottomPadding()
                 .navigationBarsPadding()
                 .padding(bottom = 8.dp)
         ) {

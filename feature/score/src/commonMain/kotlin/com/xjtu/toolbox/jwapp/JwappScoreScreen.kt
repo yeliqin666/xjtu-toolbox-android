@@ -1,5 +1,6 @@
 package com.xjtu.toolbox.jwapp
 
+import com.xjtu.toolbox.ui.glass.tabContentBottomPadding
 import com.xjtu.toolbox.ui.components.AppPullToRefresh
 import com.xjtu.toolbox.ui.components.FullPageState
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -837,7 +838,7 @@ fun GpaMappingDialog(show: MutableState<Boolean>) {
         onDismissRequest = { show.value = false }
     ) {
             Column(
-                modifier = Modifier.overScrollVertical().verticalScroll(rememberScrollState()),
+                modifier = Modifier.overScrollVertical().verticalScroll(rememberScrollState()).tabContentBottomPadding(),
                 verticalArrangement = Arrangement.spacedBy(6.dp)
             ) {
                 Text("4.3 绩点制", style = MiuixTheme.textStyles.body1, fontWeight = FontWeight.Bold)

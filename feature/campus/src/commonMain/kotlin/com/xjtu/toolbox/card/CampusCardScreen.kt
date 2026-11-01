@@ -1,6 +1,7 @@
 package com.xjtu.toolbox.card
 
 import androidx.compose.material.icons.automirrored.filled.MenuBook
+import com.xjtu.toolbox.ui.glass.tabContentPadding
 import com.xjtu.toolbox.ui.components.AppPullToRefresh
 import com.xjtu.toolbox.ui.components.BackButton
 import com.xjtu.toolbox.platform.BackHandler
@@ -410,7 +411,7 @@ private fun OverviewTab(
         // 列表外面留白的话，列表的边界就在卡片边上，投影左右两侧会被切掉。
         modifier = Modifier.fillMaxSize().overScrollVertical(),
         verticalArrangement = Arrangement.spacedBy(12.dp),
-        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = topContentPadding + 12.dp, bottom = 12.dp)
+        contentPadding = tabContentPadding(PaddingValues(start = 16.dp, end = 16.dp, top = topContentPadding + 12.dp, bottom = 12.dp))
     ) {
         // 整页依次登场：余额 → 今天 → 区间消费 → 最近交易，每块错开一拍
         item {
@@ -854,7 +855,7 @@ private fun TransactionTab(
     LazyColumn(
         modifier = Modifier.fillMaxSize().overScrollVertical().padding(horizontal = 16.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
-        contentPadding = PaddingValues(top = topContentPadding + 12.dp, bottom = 12.dp)
+        contentPadding = tabContentPadding(PaddingValues(top = topContentPadding + 12.dp, bottom = 12.dp))
     ) {
         item {
             Card(
@@ -1019,7 +1020,7 @@ private fun AnalyticsTab(
     LazyColumn(
         modifier = Modifier.fillMaxSize().overScrollVertical().padding(horizontal = 16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
-        contentPadding = PaddingValues(top = topContentPadding + 12.dp, bottom = 12.dp)
+        contentPadding = tabContentPadding(PaddingValues(top = topContentPadding + 12.dp, bottom = 12.dp))
     ) {
         if (categorySpending.isEmpty() && monthlyStats.isEmpty() && mealTimeStats.isEmpty()) {
             item {

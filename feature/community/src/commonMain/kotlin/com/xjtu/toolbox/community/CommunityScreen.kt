@@ -3,6 +3,7 @@ package com.xjtu.toolbox.community
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.text.AnnotatedString
+import com.xjtu.toolbox.ui.glass.tabContentBottomPadding
 import com.xjtu.toolbox.platform.BackHandler
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.Crossfade
@@ -221,7 +222,7 @@ private fun CommunityLoginScreen(
         Column(
             Modifier
                 .fillMaxSize()
-                .verticalScroll(rememberScrollState())
+                .verticalScroll(rememberScrollState()).tabContentBottomPadding()
                 .padding(horizontal = 16.dp)
                 .padding(top = top + 24.dp, bottom = 24.dp),
             horizontalAlignment = Alignment.CenterHorizontally,

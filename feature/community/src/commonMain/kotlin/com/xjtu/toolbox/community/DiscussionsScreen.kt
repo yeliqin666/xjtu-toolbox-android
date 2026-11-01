@@ -3,6 +3,8 @@ package com.xjtu.toolbox.community
 // 改编自 JoyinJoester/Etoile（GPL-3.0）：github/feature/discussions/DiscussionsScreen.kt。
 // 界面改用 MIUIX，按论坛帖子列表重排：作者头像、时间、分类、回复数、点赞、状态标签，分类筛选，下拉刷新，滑到底自动翻页。
 
+import com.xjtu.toolbox.ui.glass.tabContentPadding
+import com.xjtu.toolbox.ui.glass.tabContentBottomPadding
 import com.xjtu.toolbox.ui.components.AppPullToRefresh
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
@@ -122,7 +124,7 @@ fun DiscussionsScreen(
             LazyColumn(
                 state = listState,
                 modifier = Modifier.fillMaxSize().overScrollVertical(),
-                contentPadding = PaddingValues(start = 12.dp, end = 12.dp, top = top + 8.dp, bottom = 96.dp),
+                contentPadding = tabContentPadding(PaddingValues(start = 12.dp, end = 12.dp, top = top + 8.dp, bottom = 96.dp)),
                 verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
                 if (state.categories.isNotEmpty()) item(key = "filters") {
@@ -337,7 +339,7 @@ fun DiscussionComposer(
             Modifier
                 .fillMaxSize()
                 .imePadding()
-                .verticalScroll(rememberScrollState())
+                .verticalScroll(rememberScrollState()).tabContentBottomPadding()
                 .padding(horizontal = 16.dp)
                 .padding(top = top + 8.dp, bottom = 24.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
