@@ -232,8 +232,6 @@ fun HomeScreen(
 
     val session = remember { HomeDragSession() }
     val density = LocalDensity.current
-    // 幽灵块要按根坐标摆，才知道自己该画在屏幕哪一格上
-    var pageOrigin by remember { mutableStateOf(Offset.Zero) }
     var pageSize by remember { mutableStateOf(Offset.Zero) }
 
     val scope = rememberCoroutineScope()
@@ -242,10 +240,8 @@ fun HomeScreen(
         modifier
             .fillMaxSize()
             .onGloballyPositioned {
-                val topLeft = it.boundsInRoot().topLeft
-                pageOrigin = topLeft
-                // 拖拽会话也要这份原点：组的坐标和手指坐标都是根坐标，幽灵块要换回页面坐标
-                session.pageOrigin = topLeft
+                // 拖拽会话的坐标基准：所有组 / 块的 boundsInRoot 都减它，统一成页面局部坐标
+                session.pageOrigin = it.boundsInRoot().topLeft
                 pageSize = Offset(it.size.width.toFloat(), it.size.height.toFloat())
             }
             .then(
@@ -357,13 +353,44 @@ fun HomeScreen(
                     },
                     onDropResize = { tileId, w, h -> update { it.resizeTile(tileId, w, h, grid) } },
                     onRemoveTile = { tileId -> update { it.removeTile(tileId) } },
-                    onReorderDrop = {
+                    onReorderMove = {
+                        // 实时交换（§16）：手指越过相邻组的中线就立刻与之换序，被拖组跟手、
+                        // 列表始终保持堆叠。换序吃掉 / 吐出的高度记进会话，跟手位移才连续
                         val groupId = session.reorderGroupId
                         if (groupId != null) {
-                            // 插入序号 = 比多少个「其它组」的中点更靠下；被拖组自己不参与，
-                            // 算出来正好是删掉它之后那一档的下标（与 moveGroup 的语义一致）
-                            val target = reorderTarget(session, layout.groups, groupId)
-                            update { it.moveGroup(groupId, target) }
+                            val order = layout.groups
+                            val index = order.indexOfFirst { it.id == groupId }
+                            if (index >= 0) {
+                                val gapPx = with(density) { GROUP_GAP.toPx() }
+                                val nextMid = if (index < order.lastIndex) {
+                                    val next = order[index + 1]
+                                    session.groupTops[next.id]?.let { t ->
+                                        session.groupHeights[next.id]?.let { h -> t + h / 2f }
+                                    }
+                                } else {
+                                    null
+                                }
+                                val prevMid = if (index > 0) {
+                                    val prev = order[index - 1]
+                                    session.groupTops[prev.id]?.let { t ->
+                                        session.groupHeights[prev.id]?.let { h -> t + h / 2f }
+                                    }
+                                } else {
+                                    null
+                                }
+                                when {
+                                    nextMid != null && session.reorderY > nextMid -> {
+                                        val nextId = order[index + 1].id
+                                        update { it.moveGroup(groupId, index + 1) }
+                                        session.absorbReorderShift((session.groupHeights[nextId] ?: 0f) + gapPx)
+                                    }
+                                    prevMid != null && session.reorderY < prevMid -> {
+                                        val prevId = order[index - 1].id
+                                        update { it.moveGroup(groupId, index - 1) }
+                                        session.absorbReorderShift(-((session.groupHeights[prevId] ?: 0f) + gapPx))
+                                    }
+                                }
+                            }
                         }
                     },
                     // 和头卡同一套左右留白（标题行内部再各让 4dp，所以这里就写 16dp）；
@@ -418,9 +445,6 @@ fun HomeScreen(
             backdrop = tileBackdrop.takeIf { liquid },
         )
 
-        // ── 组排序的插入指示线：松手会落到哪一道缝，拖动中一直看得见 ──
-        HomeReorderIndicator(session = session, groups = layout.groups, pageOrigin = { pageOrigin })
-
         // ── 拖到屏幕上下边缘时自动滚动（带阻尼：越靠边越快） ──
         LaunchedEffect(session.dragging) {
             if (!session.dragging) return@LaunchedEffect
@@ -428,7 +452,8 @@ fun HomeScreen(
             val maxStep = with(density) { 14.dp.toPx() }
             while (true) {
                 withFrameNanos { }
-                val y = session.pointer.y - pageOrigin.y
+                // pointer 已是页面局部坐标，直接和页面尺寸比
+                val y = session.pointer.y
                 val step = when {
                     y < edge -> -(1f - (y / edge).coerceIn(0f, 1f)) * maxStep
                     y > pageSize.y - edge -> ((y - (pageSize.y - edge)) / edge).coerceIn(0f, 1f) * maxStep
@@ -574,23 +599,22 @@ private fun HomeCollapsingBar(
                 ),
         )
 
-        // 标题绝对居中：不参与左右两排按钮的排布，所以两边按钮多少都不影响它
-        if (!editing) {
-            Box(
-                Modifier
-                    .matchParentSize()
-                    .padding(top = topInset)
-                    .height(BAR_HEIGHT),
-                contentAlignment = Alignment.Center,
-            ) {
-                Text(
-                    "岱宗盒子",
-                    fontSize = 17.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    color = MiuixTheme.colorScheme.onSurface,
-                    maxLines = 1,
-                )
-            }
+        // 标题绝对居中：不参与左右两排按钮的排布，所以两边按钮多少都不影响它。
+        // 编辑态换成「首页调整设置」，让人一眼知道现在在摆桌面
+        Box(
+            Modifier
+                .matchParentSize()
+                .padding(top = topInset)
+                .height(BAR_HEIGHT),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text(
+                if (editing) "首页调整设置" else "岱宗盒子",
+                fontSize = 17.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = MiuixTheme.colorScheme.onSurface,
+                maxLines = 1,
+            )
         }
 
         Row(
@@ -1234,46 +1258,6 @@ private fun HomeDragGhost(
             modifier = Modifier.fillMaxSize(),
         )
     }
-}
-
-/** 组排序的插入序号：比多少个「其它组」的纵向中点更靠下。被拖组自己不参与判定。 */
-private fun reorderTarget(session: HomeDragSession, groups: List<HomeGroup>, groupId: String): Int =
-    groups
-        .filter { it.id != groupId }
-        .count { group ->
-            session.boards[group.id]?.let { it.top + it.height / 2f < session.reorderY } == true
-        }
-
-/**
- * 组排序的插入指示线（§16）：被拖组跟手浮起时，它会落到哪一道缝用一条横线标出来。
- * 位置与松手落位用同一套算法（[reorderTarget]），指示的就是将要插入的那一缝。
- */
-@Composable
-private fun HomeReorderIndicator(
-    session: HomeDragSession,
-    groups: List<HomeGroup>,
-    pageOrigin: () -> Offset,
-) {
-    val groupId = session.reorderGroupId ?: return
-    val others = groups.filter { it.id != groupId }
-    if (others.isEmpty()) return
-    val target = reorderTarget(session, groups, groupId)
-    val gapPx = with(LocalDensity.current) { GROUP_GAP.toPx() }
-    // 线落在「第 target 条缝」：下面那一组的顶边；越过了所有组就落在末组底边之下
-    val anchor = others.getOrNull(target)?.let { session.boards[it.id]?.top }
-        ?: others.lastOrNull()?.let { session.boards[it.id]?.let { b -> b.top + b.height + gapPx } }
-        ?: return
-    val y = anchor - pageOrigin().y - gapPx / 2f
-    Box(
-        Modifier
-            .fillMaxWidth()
-            .offset { IntOffset(0, y.roundToInt()) }
-            .padding(horizontal = 20.dp)
-            .height(3.dp)
-            .clip(RoundedCornerShape(2.dp))
-            .background(MiuixTheme.colorScheme.primary.copy(alpha = 0.9f))
-            .zIndex(5f),
-    )
 }
 
 /** 改一个组的名字与标题颜色。标题允许留空——留空就整行不画（需求 §2.3）。 */
