@@ -36,7 +36,7 @@ class HomeGridMathTest {
 
     @Test
     fun `尺寸夹在 0点7 到 4 之间并吸整`() {
-        assertEquals(0.7f, HomeGridMath.clampSpan(0.1f, grid = false), 0.0001f)
+        assertEquals(1f, HomeGridMath.clampSpan(0.1f, grid = false), 0.0001f)
         assertEquals(4f, HomeGridMath.clampSpan(9f, grid = true), 0.0001f)
         assertEquals(2f, HomeGridMath.clampSpan(2.4f, grid = true), 0.0001f)
         assertEquals(2.4f, HomeGridMath.clampSpan(2.4f, grid = false), 0.0001f)

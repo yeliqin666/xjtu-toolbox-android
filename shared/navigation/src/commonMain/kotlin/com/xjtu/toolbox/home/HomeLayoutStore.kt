@@ -111,6 +111,16 @@ class HomeLayoutStore(
         get() = store.getBoolean(KEY_LIQUID_CARD, false)
         set(value) = store.putBoolean(KEY_LIQUID_CARD, value)
 
+    /**
+     * 网格单元要不要给文字留位置（补充 §12）。
+     *
+     * 打开（默认）：单元 62dp，装得下「图标 + 名称 + 状态」；
+     * 关闭：单元 46dp，趋近紧凑方块，1 格高的卡片自动落进纯图标形态（§13 的阈值联动）。
+     */
+    var leaveTextSpace: Boolean
+        get() = store.getBoolean(KEY_TEXT_SPACE, true)
+        set(value) = store.putBoolean(KEY_TEXT_SPACE, value)
+
     /** 主页背景图（裁好的 WebP Base64）；空串 = 没有背景图，用主题底色。 */
     var backgroundImage: String
         get() = store.getString(KEY_BACKGROUND_IMAGE).orEmpty()
@@ -160,6 +170,7 @@ class HomeLayoutStore(
         private const val KEY_LAYOUT = "home_layout"
         private const val KEY_GRID = "home_grid"
         private const val KEY_LIQUID_CARD = "home_liquid_card"
+    private const val KEY_TEXT_SPACE = "home_text_space"
         private const val KEY_BACKGROUND_IMAGE = "home_background_image"
         private const val KEY_BACKGROUND_BLUR = "home_background_blur"
         private const val KEY_BACKGROUND_OPACITY = "home_background_opacity"
