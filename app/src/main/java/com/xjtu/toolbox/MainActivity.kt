@@ -115,6 +115,7 @@ class MainActivity : ComponentActivity() {
     override fun onStart() {
         super.onStart()
         SessionKeepAlive.start()
+        lifecycleScope.launch(Dispatchers.IO) { com.xjtu.toolbox.shortcuts.LauncherShortcuts.sync(this@MainActivity) }
     }
 
     override fun onStop() {

@@ -137,6 +137,7 @@ private class AppSettingsHost(
         ScheduleSource.entries.map { ScheduleSourceOption(it.key, it.label) }
 
     override val noticeSection: @Composable () -> Unit = { NoticeAndReminderSection(context, scope) }
+    override val launcherShortcutPreference: @Composable () -> Unit = { com.xjtu.toolbox.shortcuts.LauncherShortcutPreference() }
 
     override val dataPrivacySection: @Composable () -> Unit = { DataPrivacySection(context, scope) }
 
