@@ -15,7 +15,7 @@
 | # | 决定 | 落点 | 状态 |
 |---|---|---|---|
 | 1 | 液态玻璃**只用** App 内现成实现：`com.kyant.backdrop` 的 `drawBackdrop`（底栏、玻璃顶栏、头卡同一套），三要素齐全——`blur + vibrancy` 之外还有 `lens` 折射（边缘弯光 + 色散）、`Highlight` 轮廓高光、`floatingGlassShadow` 环境光投影；毛玻璃是另一条独立路径：`squircleClip + background + squircleBorder + appCardShadow`。两者靠 `liquidCard` 开关切换，**不允许**用毛玻璃调参去"模拟"液态玻璃 | `HomeTileBoard.kt` · `HomeTileFaceBox` | 已实现 |
-| 2 | 顶栏、卡片组、组件、底栏共用一套玻璃语言：0.7dp 高光细边 + 白填充（浅色 62% / 深色 10%），圆角按尺寸插值；顶栏按钮的白描边已删除，改成与底栏同一套玻璃拟态 | `HomeScreen.kt` · `HomeCollapsingBar`、`app/main/MainScreen.kt` · `HomeRoundAction` | 已实现 |
+| 2 | 背景图**铺满全屏含顶栏**：顶栏模糊带与按钮改采首页**背景层**（之前采滚动内容层，不透背景）；非玻璃风格顶栏透明。顶栏按钮（编辑态按钮 + 宿主的扫码 / 搜索 / 通知）经 `LocalHomeTileBackdrop` 采背景层做液态玻璃，无白描边 | `HomeScreen.kt` · `HomeCollapsingBar`、`app/main/MainScreen.kt` · `HomeRoundAction` | 已实现（本批修） |
 | 3 | 背景图**固定** `ContentScale.Crop` 居中铺满（不变形、不重复），**不开放**用户缩放 / 移动取景——它和页面滚动、双击手势会抢指针，收益远小于冲突；可调项只有两个滑条：模糊 0–10dp、不透明度 20–100% | `HomeSettingsScreen.kt` · `HomeSettingsBody` | 已实现（取景按此决定不开放） |
 | 4 | 背景变化后**不做**卡片对比度联动补偿。理由：壁纸太花是用户的审美选择，自动压暗会让"液态玻璃透出壁纸"这个卖点消失。保底只做两件事：文字恒用主题 `onSurface`、液态玻璃内部 blur 恒为 8dp 保证可读 | `HomeTileBoard.kt` · `HomeTileFaceBox` | 已实现 |
 | 5 | 组标题颜色默认 = `colorHex` 为空 → 主题 `onSurface`；可选范围 = 课表同一套 8 色板（`GROUP_TITLE_COLORS`）；深色模式把颜色向白 `lerp 0.25` 提亮，浅色原样使用 | `HomeTileBoard.kt` · `GroupHeader` | 已实现 |
@@ -30,8 +30,8 @@
 | 9 | 排版规则按格数分三档（表见下），长条形横排、方块以上竖向堆叠；大尺寸靠"多一行信息"提密度，**不是**等比放大 | `HomeTileBoard.kt` · `HomeTileFaceBox` | 已实现 |
 | 10 | 形态由**实时**格数决定（`animW`/`animH`，缩放过程中逐帧判断），切档时 140ms `Crossfade` 过渡，不等松手 | 同上 | 已实现 |
 | 11 | 阈值由内容模型推：单元 62dp − 竖向内边距 12dp = 50dp 可用高，放不下"图标 + 两行字"→ 1 格高只能是纯图标；竖排两行字至少要多 1 行 ≈ 0.6 格 → 1.6 格起竖排。**不写死全局像素** | `HomeTileBoard.kt` · `mode` 的 `when` | 已实现 |
-| 12 | 「网格下留出文字空间」是**网格基础单元**的开关：开（默认）单元 62dp；关 → 单元 46dp，趋近紧凑方块。存 `home_text_space` | `HomeLayoutStore.leaveTextSpace`、`HomeSettingsScreen.kt` | 已实现 |
-| 13 | 与纯图标阈值联动：单元一矮，1 格高的卡片可用高只剩 34dp，自动落进纯图标形态。切换后**数据不动**——槽位存的是格数，重算的是"格 → 像素"的比例，所以按新语义重排是自动的 | `HomeScreen.kt` · `cellHeight` | 已实现 |
+| 12 | 「网格下留出文字空间」是**网格基础单元**的开关：开（默认）单元 **88dp**——1×1 是高长方形，装得下「图标 + 名称」；关 → 单元 46dp，趋近紧凑方块。存 `home_text_space` | `HomeLayoutStore.leaveTextSpace`、`HomeSettingsScreen.kt` | 已实现 |
+| 13 | 与形态阈值联动：高单元格时 1 格就装得下「图标 + 名称」，1×1 竖排不落进纯图标；矮单元格时 1 格只剩图标。切换后**数据不动**——槽位存的是格数，重算的是"格 → 像素"的比例，所以按新语义重排是自动的 | `HomeTileBoard.kt` · `HomeTileFaceBox` 的 `mode` | 已实现 |
 
 **形态阈值表（§9/§11）**
 
@@ -45,11 +45,11 @@
 
 | # | 决定 | 落点 | 状态 |
 |---|---|---|---|
-| 14 | 跟手：起手时记下"这一块真被画在哪"（页面坐标），之后**只累加手指位移**，不用"手指位置 − 抓取偏移"反算。抓取偏移全程恒定。手势层挂在 `graphicsLayer` **之前**——lifted 的缩小、编辑态抖动都画在 `graphicsLayer` 里，手势挂里面会被这些视觉变换把位移反向放大（被拖块 scale 0.94 → 位移放大 1/0.94，越拖越偏） | `HomeTileBoard.kt` · `HomeDragSession.beginDrag/dragBy`、`HomeTileItem.gesture` | 已实现（本批修） |
-| 15 | 每个卡片右下角恒有可见缩放把手（两条斜杠记号），热区统一 44dp。把手只画记号、**不接手势**：它与移动拖拽共用挂在 `graphicsLayer` 之前的那一层手势，按下时按「是否落在右下角热区」分流成缩放 / 移动——之前把手是挂在会跟着右下角移动的子节点上的独立 `pointerInput`，位移被自己的移动吃掉一半，缩放只有手指速度的一半 | `HomeTileBoard.kt` · `HomeTileItem` | 已实现（本批修） |
-| 16 | 位置变化用 `spring(0.62, 520)`，尺寸变化用同一参数，禁止瞬移。组上下排序：**被拖组跟手浮起**（`translationY` = 手指位移，只动绘制层），目标缝画一条插入指示线，**松手才 `moveGroup` 落位**——拖动过程列表不反复重排，插入序号 = 比多少个其它组的纵向中点更靠下 | `HomeTileSpring`、`HomeTileBoard.kt` · `HomeGroupSection`、`HomeScreen.kt` · `HomeReorderIndicator` | 已实现（本批修） |
-| 17 | 长按阈值不自定义，用系统 `ViewConfiguration.longPressTimeoutMillis`。手势竞争：编辑态内卡片拖拽 `consume` 掉指针；页面滚动在外层 `verticalScroll`，不禁止滚动，拖到边缘由自动滚动接管 | `HomeScreen.kt`、`HomeTileBoard.kt` | 已实现 |
-| 18 | 编辑态持续抖动：周期 2.4s、±0.9°，相位按 `tile.id` 哈希（各块不同步）；正在拖的那块、正在缩的那块暂停；退出编辑 `rotationZ` 立刻归 0，不做复位动画 | `HomeTileBoard.kt` · `HomeTileItem` | 已实现（本批新增） |
+| 14 | 跟手：**坐标全程只用一套——页面根节点的局部坐标**；每块在 `onGloballyPositioned` 登记自己的**视觉**左上角（含滚动 / 动画 / 壳偏移），幽灵块起手就压在上面，之后只累加手指位移。不靠「组坐标 + 格数」反算（那套式子几套坐标系错开一像素，幽灵块就整块跳走）；手势层挂在 `graphicsLayer` 之前，位移不被 lifted 缩小反向放大 | `HomeTileBoard.kt` · `HomeDragSession`、`HomeTileItem.gesture` | 已实现（本批修） |
+| 15 | 每个卡片右下角恒有缩放把手——**把右下角那段圆弧染成主题色**当把手，热区 30dp。把手只画记号、不接手势：与移动拖拽共用挂在 `graphicsLayer` 之前的那一层手势，按下时按「是否落在右下角热区」分流；位移用手动 drag 循环逐帧累加，不依赖 `drag()` 的返回值，手指正常抬起就一定落位（修「缩放改动没存进去、松手回弹」） | `HomeTileBoard.kt` · `HomeTileItem` | 已实现（本批修） |
+| 16 | 位置变化用 `spring(0.62, 520)`，尺寸变化用同一参数，禁止瞬移。组上下排序：**被拖组跟手浮起 + 越过相邻组中线就实时交换**，列表始终保持堆叠不留空，不用插入指示线；交换吃掉 / 吐出的高度记进会话，跟手位移连续 | `HomeTileSpring`、`HomeTileBoard.kt` · `HomeGroupSection`、`HomeScreen.kt` · `onReorderMove` | 已实现（本批修） |
+| 17 | 长按阈值不自定义，用系统 `ViewConfiguration.longPressTimeoutMillis`。手势竞争：编辑态内卡片拖拽 `consume` 掉指针；页面滚动在外层 `verticalScroll`，不禁止滚动，拖到边缘由自动滚动接管。**长按进编辑态保持滚动位置**：记住那一刻的 scroll，编辑态布局稳定后若被改动就拉回 | `HomeScreen.kt`、`HomeTileBoard.kt` | 已实现 |
+| 18 | 编辑态**不做抖动**（按 2026-11 复核决定去掉了）：只有被拖那块原地淡出、被缩那块跟手，其余静止 | `HomeTileBoard.kt` · `HomeTileItem` | 已实现（本批改） |
 | 19 | 跨组接收指示：手指点落进某个**非源组**的矩形时，该组画一圈 1.5dp、55% 的 primary 圆角环。触发方式 = 手指（不是幽灵块中心）进入该组 | `HomeTileBoard.kt` · `HomeGroupSection` | 已实现（本批新增） |
 | 20 | 边缘自动滚动：上下各 104dp 触发区，速度从 0 线性升到 14dp/帧（越靠边越快），只做纵向 | `HomeScreen.kt` · 自动滚动 effect | 已实现 |
 | 21 | 碰撞只挤开**占据目标矩形**的块，无关块一律不动（模型层 `placeInGroup` 只遍历重叠者） | `HomeGridMath.placeInGroup` | 已实现，单测覆盖 |
@@ -57,7 +57,7 @@
 | 23 | 组件之间恒留标准缝隙：格坐标上贴边，渲染时每块四面各内缩半个 `HomeTileGap`(8dp)，所以肉眼看永远是 8dp | `HomeTileBoard.kt` · 宽高计算 | 已实现 |
 | 24 | 跨组拖拽**永不**交换：被挤的块只能在本组找空位或落本组最下方，绝不跨组转移 | `HomeGridMath.placeAcross` | 已实现，单测覆盖 |
 | 25 | 空位搜索顺序：按阅读顺序逐行扫（先上后下、先左后右），步进 = 网格 1 / 自由 0.5；**最下方仍无空位 → 追加一行**，永不拒绝放置 | `HomeGridMath.firstFreeSlot/bottomSlot` | 已实现 |
-| 26 | 边界联动只在**网格关闭**时启用，容差 0.28 格；两侧边不等长、或移动方向会越界 → 只吸附不联动；**不递归**（一次拖动只推一层） | `HomeGridMath.snapToNeighbors` | 已实现 |
+| 26 | 自由拖拽（网格关闭）的碰撞处理是**联动压缩**而不是挤走：被压到的邻居往某一侧收拢边界让出空间（四种缩法里挑面积损失最小的），**收拢到最小尺寸还不够才挤到本组最下方**；落点前的边界吸附（`snapToNeighbors`，容差 0.28 格、不递归）保持不变 | `HomeGridMath.placeInGroup`（自由分支）、`compressToAvoid` | 已实现（本批修），单测覆盖 |
 | 27 | 吸附阈值 0.28 格（≈34dp）**大于**正常缝隙 8dp，所以"进入阈值"不会和"贴边"混淆；吸附后继续拖，两侧边界一起走，中间保持 8dp | 同上 | 已实现 |
 | 28 | 联动只平移不改尺寸，因此不会让任何块超 4×4 或小于 1×1；松手后各自独立 | 同上 | 已实现 |
 
@@ -66,8 +66,8 @@
 | # | 决定 | 落点 | 状态 |
 |---|---|---|---|
 | 29 | 「主页设置」是**底部抽屉**（`OverlayBottomSheet`），复用设置页里"更新日志 / 用户协议"那一套抽屉范式，不再是二级页 | `HomeSettingsScreen.kt` · `HomeSettingsSheet` | 已实现（本批改） |
-| 30 | 全局设置里的那一行和编辑态齿轮打开的是**同一个** `HomeSettingsSheet`（同一份 `HomeLayoutStore`、同一套内容）。齿轮走一次性旗标 `home_settings_pending` 定位 | `SettingsScreen.kt`、`AppHomeHost.kt` | 已实现 |
-| 31 | 编辑态打开抽屉不丢改动：齿轮 = **先把草稿落盘再走**（等价"保存并去设置"），返回首页读到的是保存后的布局。返回键优先关抽屉（`BackHandler(enabled = show)`） | `HomeScreen.kt`、`HomeSettingsSheet` | 已实现 |
+| 30 | 全局设置里的那一行和编辑态齿轮打开的是**同一个** `HomeSettingsSheet`（同一份 `HomeLayoutStore`、同一套内容）。齿轮**直接在原地打开抽屉**：不跳设置页、不走一次性旗标（`home_settings_pending` 机制已随本批删除） | `SettingsScreen.kt`、`HomeTab.kt`、`AppHomeHost.kt` | 已实现（本批修） |
+| 31 | 编辑态打开抽屉**不丢改动、也不关编辑态**：齿轮只是把抽屉盖上来，手上的草稿原样留着，关掉抽屉接着摆；返回键优先关抽屉（`BackHandler(enabled = show)`） | `HomeScreen.kt`、`HomeSettingsSheet` | 已实现（本批修） |
 | 32 | 网格开关**立即**影响下一次拖动 / 缩放的吸附步进；已经摆好的组件**不重排**（避免开关一按满屏跳位），只在新操作时按新步进吸附 | `HomeScreen.kt` · `grid` | 已实现 |
 | 33 | 「恢复默认分组和布局」：二次确认弹窗；重置范围 = 分组结构、顺序、标题、标题颜色、组件尺寸 / 位置、网格开关。**不含**背景图与材质开关——按钮文案写的是"分组和布局"，顺手清掉壁纸属于超出授权的破坏 | `HomeLayoutStore.reset`、`HomeSettingsScreen.kt` | 已实现（范围按此决定） |
 | 34 | 液态玻璃开关与背景模糊**独立生效**：前者管卡片材质，后者管壁纸；液态玻璃内部的 blur（8dp）**不读**背景模糊值，否则两层模糊叠起来会糊成一片 | `HomeTileBoard.kt` · `HomeTileFaceBox` | 已实现 |
@@ -102,6 +102,17 @@
 | 48 | 性能降级：抖动只在编辑态挂动画；掉帧交给 Compose 的帧调度，不额外做降级开关。液态玻璃的 `drawBackdrop` 用 `remember` 按圆角 / 填充 / 阴影缓存（只有圆角随尺寸动画变时才重建），静止与位置动画不重复采样；纯色背景下折射不可见但高光仍在，故不做「无背景图退化」 | `HomeTileItem`、`HomeTileFaceBox` | 已实现（本批修） |
 | 49 | 基准来源：材质 = App 内 `drawBackdrop` + 底栏玻璃；抽屉 = 设置页既有 `OverlayBottomSheet` 范式；动画 = Compose 官方 spring；手势 = `detectDragGestures` 系统语义。**不自创** | 全文 | 按此决定 |
 | 50 | 参数不写死：格数阈值由内容模型推（§11），dp 由单元高度推（§9），时长沿用 App 既有弹簧参数（§43） | 全文 | 按此决定 |
+
+## 八、本轮（2026-11 复核）新增交互
+
+| # | 决定 | 落点 | 状态 |
+|---|---|---|---|
+| A1 | 空行压缩：网格模式下 `moveTile` / `resizeTile` 之后，中间出现的全空行自动删掉，下面的块整体上移补上（后面所有卡片动画跟上来）；自由模式允许留空隙，不压 | `HomeGridMath.compactEmptyRows`、`HomeLayout.moveTile/resizeTile` | 已实现，单测覆盖 |
+| A2 | 添加卡片用**右侧悬浮球**：进编辑态时球自动展开成液态玻璃长条（连续动画，不停顿）；把手（圆形，示意可拖拽）升到长条最上方，按住它整条收成球跟手，松手自动吸回最近的侧边；长条内是圆形功能图标（液态玻璃、可滚动），**长按拖出来**放到组里 | `HomeAddTileOrb.kt` | 已实现 |
+| A3 | 从悬浮球拖出的新块落到**指定格**（`addTileAt`）：2×1 进组、照样挤开、网格模式收空行；松手位置由「手指 − 抓取点（卡片中心）」换算成格 | `HomeLayout.addTileAt` | 已实现 |
+| A4 | 组标题行：右侧两个圆钮（改名 / 加功能）改成**一个液态玻璃删除按钮**（点出二次确认，默认组不给删）；**点组名**打开「分组设置」（不再走三点）；组名放大到 18sp | `HomeTileBoard.kt` · `GroupHeader/GroupDeleteButton`、`HomeScreen.kt` · `DeleteGroupDialog` | 已实现 |
+| A5 | 「分组设置」的标题颜色改用全应用同一套 `AppColorPicker`（色板 + Hex），「跟随主题」存空串；分组标题输入框括号写明「留空则不显示标题」 | `HomeScreen.kt` · `GroupEditDialog` | 已实现 |
+| A6 | 组里「加功能」的入口统一收进悬浮球（不再有每组一个 ＋），圆形功能图标可滚动、长按拖出 | `HomeAddTileOrb.kt` | 已实现 |
 
 ---
 
