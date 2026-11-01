@@ -62,11 +62,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.kyant.backdrop.Backdrop
 import com.kyant.backdrop.backdrops.layerBackdrop
-import com.kyant.backdrop.backdrops.rememberCanvasBackdrop
-import com.kyant.backdrop.backdrops.rememberCombinedBackdrop
 import com.kyant.backdrop.backdrops.rememberLayerBackdrop
-import com.kyant.backdrop.drawBackdrop
-import com.kyant.backdrop.effects.blur
+import com.xjtu.toolbox.ui.glass.progressiveBlurBar
 import com.xjtu.toolbox.bulletin.BulletinNoticePanel
 import com.xjtu.toolbox.nav.AppRoute
 import com.xjtu.toolbox.nav.expandOriginSource
@@ -181,14 +178,6 @@ fun HomeScreen(
     val progress = { (scroll.value / rangePx).coerceIn(0f, 1f) }
     // 顶栏的玻璃采这一页自己的滚动层：顶栏本身在壳的采样层里，采壳的层会采到自己
     val pageBackdrop = rememberLayerBackdrop()
-    // 采样层本身没有页面底色：先垫一层不透明 surface 再采样，否则模糊把透明当黑色，
-    // 字周围会出一圈脏黑边（和参考图里干净的模糊差在这里）。
-    val barSurface = MiuixTheme.colorScheme.surface
-    val surfaceDraw: DrawScope.() -> Unit = remember(barSurface) { { drawRect(barSurface) } }
-    val glassBackdrop = rememberCombinedBackdrop(
-        rememberCanvasBackdrop(surfaceDraw),
-        pageBackdrop,
-    )
     val glass = LocalGlassStyle.current && collapsible
 
     Box(modifier.fillMaxSize()) {
@@ -261,7 +250,7 @@ fun HomeScreen(
                 progress = progress,
                 topInset = contentTopPadding,
                 bandShift = contentTopShift,
-                backdrop = if (glass) glassBackdrop else null,
+                backdrop = if (glass) pageBackdrop else null,
                 onTapCollapsed = { scope.launch { scroll.animateScrollTo(0) } },
                 actions = topActions,
                 alignWithGreeting = masthead,
@@ -299,11 +288,7 @@ private fun HomeCollapsingBar(
                     .requiredHeight(PROGRESSIVE_BLUR_BAND_HEIGHT)
                     .offset { IntOffset(0, bandShift().roundToPx()) },
             ) {
-                ProgressiveBarBlur(backdrop, Modifier.matchParentSize())
-                // 表面色遮罩是 useplanes 的可选 tint；页面预览没有开，这里也保持关闭。
-                if (SHOW_TINT_WASH) {
-                    Box(Modifier.matchParentSize().background(tintWash(surface)))
-                }
+                Box(Modifier.matchParentSize().progressiveBlurBar(backdrop, surface, titled = false))
             }
         }
         Box(
@@ -336,97 +321,11 @@ private fun HomeCollapsingBar(
     }
 }
 
-/**
- * useplanes 的 progressive blur：七层不同半径的模糊叠在一起。
- * 每层都从同一份 backdrop 采样，再用各自的渐变遮罩只留下一段：
- * 最弱的一层在底边淡出，最强的一层在屏幕顶边达到满强度，中间没有硬边。
- */
-@Composable
-private fun ProgressiveBarBlur(
-    backdrop: Backdrop,
-    modifier: Modifier = Modifier,
-) {
-    Box(modifier) {
-        ProgressiveBlurRadii.forEachIndexed { index, radius ->
-            val layer = remember(backdrop, index) {
-                Modifier.drawBackdrop(
-                    backdrop = backdrop,
-                    shape = { RoundedCornerShape(0.dp) },
-                    effects = {
-                        blur(radius.dp.toPx(), TileMode.Decal)
-                    },
-                    highlight = null,
-                    shadow = null,
-                    onDrawFront = {
-                        drawRect(
-                            brush = ProgressiveBlurMasks[index],
-                            blendMode = BlendMode.DstIn,
-                        )
-                    },
-                )
-            }
-            Box(Modifier.matchParentSize().then(layer))
-        }
-    }
-}
-
 /** 展开时圆钮比顶栏正中上移的距离：顶栏里圆钮上方正好留这么多，不会顶进状态栏。 */
 private val BUTTON_LIFT get() = (BAR_HEIGHT - 36.dp) / 2 - 2.dp
 
-/** useplanes 的可选 tint：表面色从顶部 1.0 线性淡到底边 0。 */
-private const val SHOW_TINT_WASH = true
-
 /** useplanes 页面预览的顶部模糊带高度：96px。 */
 private val PROGRESSIVE_BLUR_BAND_HEIGHT = 96.dp
-
-/** useplanes 页面预览顶部带的七层模糊半径（默认 ramp × 1.5）。 */
-private val ProgressiveBlurRadii = listOf(0.75f, 1.5f, 3f, 4.5f, 7.5f, 12f, 18f)
-
-/**
- * 每层遮罩占整条带的比例：useplanes 的层与层之间错开 12.5%，
- * 每层是「透明 → 不透明 → 不透明 → 透明」的一条带。
- */
-private const val PROGRESSIVE_BLUR_STEP = 0.125f
-
-/**
- * 顶栏的模糊从屏幕顶边往下递减，所以遮罩按从底边往上数的位置生成：
- * 第 0 层（0.75dp）在底边附近淡出，第 6 层（18dp）在顶边满强度。
- */
-private val ProgressiveBlurMasks: List<Brush> = ProgressiveBlurRadii.indices.map { index ->
-    val stops = listOf(
-        (1f - (index + 3) * PROGRESSIVE_BLUR_STEP) to 0f,
-        (1f - (index + 2) * PROGRESSIVE_BLUR_STEP) to 1f,
-        (1f - (index + 1) * PROGRESSIVE_BLUR_STEP) to 1f,
-        (1f - index * PROGRESSIVE_BLUR_STEP) to 0f,
-    ).clipToUnitRange()
-    Brush.verticalGradient(
-        *stops.map { (position, alpha) ->
-            position to Color.Black.copy(alpha = alpha)
-        }.toTypedArray(),
-    )
-}
-
-/** 把越出 [0, 1] 的渐变端点裁掉，并在边界上按原斜率补一个端点。 */
-private fun List<Pair<Float, Float>>.clipToUnitRange(): List<Pair<Float, Float>> {
-    fun alphaAt(position: Float): Float {
-        val before = lastOrNull { it.first <= position } ?: first()
-        val after = firstOrNull { it.first >= position } ?: last()
-        if (before.first == after.first) return after.second
-        val t = (position - before.first) / (after.first - before.first)
-        return before.second + (after.second - before.second) * t
-    }
-
-    val visible = filter { it.first in 0f..1f }.toMutableList()
-    if (first().first > 0f) visible.add(0, 0f to alphaAt(0f))
-    if (last().first < 1f) visible.add(1f to alphaAt(1f))
-    return visible.sortedBy { it.first }
-}
-
-/** 顶栏表面色遮罩：顶部完全不透明，到底边线性归零。 */
-private fun tintWash(surface: Color): Brush = Brush.verticalGradient(
-    0f to surface.copy(alpha = 1f),
-    1f to surface.copy(alpha = 0f),
-)
 
 // ── 首页版式 ──
 
