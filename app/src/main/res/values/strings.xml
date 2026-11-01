@@ -1,6 +1,6 @@
 <resources>
     <string name="app_name">岱宗盒子</string>
-    <string name="pidai_reader_name">屁岱</string>
+    <string name="pidai_reader_name">小岱</string>
     <string name="schedule_widget_2x2_name">日程（2x2）</string>
     <string name="schedule_widget_4x2_name">日程（4x2）</string>
     <string name="schedule_widget_desc">显示今日日程与下一项安排</string>
@@ -8,8 +8,8 @@
     <string name="campus_card_widget_desc">显示校园卡余额与今日消费</string>
 
     <!-- 启动器长按快捷入口：shortLabel 限 12 字符，longLabel 限 25 字符 -->
-    <string name="shortcut_agent_short">屁岱</string>
-    <string name="shortcut_agent_long">问屁岱</string>
+    <string name="shortcut_agent_short">小岱</string>
+    <string name="shortcut_agent_long">问小岱</string>
     <string name="shortcut_schedule_short">课表</string>
     <string name="shortcut_schedule_long">我的课表</string>
     <string name="shortcut_card_short">校园卡</string>

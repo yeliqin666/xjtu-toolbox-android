@@ -24,9 +24,9 @@ import top.yukonga.miuix.kmp.icon.MiuixIcons
 import top.yukonga.miuix.kmp.icon.extended.Back
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
-private const val SETTINGS_TITLE = "屁岱设置"
+private const val SETTINGS_TITLE = "小岱设置"
 
-/** 屁岱设置二级页：自带大标题顶栏和返回箭头，盖在聊天上面（聊天状态不丢）。 */
+/** 小岱设置二级页：自带大标题顶栏和返回箭头，盖在聊天上面（聊天状态不丢）。 */
 @Composable
 internal fun AgentSettingsPage(
     config: AgentConfig,

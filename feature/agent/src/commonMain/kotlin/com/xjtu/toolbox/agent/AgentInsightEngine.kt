@@ -20,7 +20,7 @@ import kotlinx.serialization.json.longOrNull
 import kotlinx.serialization.json.put
 
 /**
- * 屁岱卡的实现：和对话同一份配置、工具、画像、记忆，跑一轮不流式的调度循环，只收一个 JSON 对象。
+ * 小岱卡的实现：和对话同一份配置、工具、画像、记忆，跑一轮不流式的调度循环，只收一个 JSON 对象。
  *
  * 结果按「卡片 id + 输入」缓存在本机（按账号分开），TTL 内同样的输入不再调模型。
  * 一张卡同时只跑一轮（页面反复进出不会叠请求）。
@@ -59,7 +59,7 @@ class AgentInsightEngine(
             try {
                 val log = StringBuilder()
                 val json = withContext(host.io) { generate(spec, input, config, log, onProgress) }
-                    ?: return@withLock InsightOutcome.Failed("屁岱没给出能用的结果")
+                    ?: return@withLock InsightOutcome.Failed("小岱没给出能用的结果")
                 store.putString(cacheKey(spec, input), buildJsonObject {
                     put("at", now)
                     put("out", json)
@@ -69,7 +69,7 @@ class AgentInsightEngine(
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
             } catch (e: Exception) {
-                InsightOutcome.Failed(e.message ?: "屁岱这会儿没连上")
+                InsightOutcome.Failed(e.message ?: "小岱这会儿没连上")
             }
         }
     }
@@ -135,7 +135,7 @@ fun parseInsightJson(reply: String): JsonObject? {
 
 /**
  * 只把 [allow] 里的工具交给模型；卡片画不了数据卡，runner 收下的控件不用。
- * 每次调用和结果记进 [log]（每条、总长都截断），给「接着问屁岱」用。
+ * 每次调用和结果记进 [log]（每条、总长都截断），给「接着问小岱」用。
  */
 private class FilteredAgentTools(
     private val inner: AgentTools,

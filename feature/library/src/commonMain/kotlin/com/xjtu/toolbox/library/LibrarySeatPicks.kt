@@ -32,7 +32,7 @@ import kotlin.math.max
 import kotlin.math.min
 
 /**
- * 屁岱荐座：本地热力（[SeatComfort]）先挑候选，再把平面图上候选所在那块按原分辨率裁给视觉模型，
+ * 小岱荐座：本地热力（[SeatComfort]）先挑候选，再把平面图上候选所在那块按原分辨率裁给视觉模型，
  * 让它看窗、门、柱子、过道和座位号，结合偏好挑三个。只建议，预约仍由用户自己点。
  */
 internal fun seatPicksSpec(images: () -> List<String>) = InsightSpec(
@@ -51,7 +51,7 @@ internal fun seatPicksSpec(images: () -> List<String>) = InsightSpec(
     card = PidaiCard.LIBRARY,
 )
 
-/** 交给屁岱的文字快照：区域、空座数、候选及本地评分。 */
+/** 交给小岱的文字快照：区域、空座数、候选及本地评分。 */
 internal fun seatPicksInput(
     areaName: String,
     layout: SeatLayout,
@@ -102,7 +102,7 @@ internal fun seatPicksImages(images: PlanImages, candidates: List<PlanSeat>): Li
     }
 }
 
-/** 屁岱挑中的座位号（给平面图描边）。 */
+/** 小岱挑中的座位号（给平面图描边）。 */
 internal fun seatPickIds(state: InsightState): List<String> =
     ((state.outcome as? InsightOutcome.Ok)?.json?.get("picks") as? JsonArray).orEmpty()
         .mapNotNull { runCatching { it.jsonObject["seat"].safeStringOrNull() }.getOrNull() }
@@ -126,12 +126,12 @@ internal fun LibrarySeatPicksCard(
     modifier: Modifier = Modifier,
 ) {
     PidaiInsightCard(
-        title = "屁岱荐座",
+        title = "小岱荐座",
         state = state,
         modifier = modifier,
         subtitle = "看平面图，按你的偏好挑三个座",
-        idleHint = "选几个偏好，屁岱对着「$areaName」的平面图帮你挑。",
-        idleAction = "让屁岱挑座",
+        idleHint = "选几个偏好，小岱对着「$areaName」的平面图帮你挑。",
+        idleAction = "让小岱挑座",
         askPrompt = { "图书馆「$areaName」你推荐的座位，再说说理由，还有别的区域更合适吗？" },
         controls = {
             com.xjtu.toolbox.ui.components.PidaiChipRow {

@@ -286,9 +286,9 @@ private fun AppPage(
 
         AppRoute.Agent -> if (mode != ApiMode.SERVE) {
             WebServeOnlyScreen(
-                title = "屁岱",
+                title = "小岱",
                 endpoints = "GET/POST /api/agent/{config,models,sessions*,memory*} + POST /api/agent/chat（SSE） + /stop",
-                why = "屁岱的模型调用、工具取数、会话与记忆、API Key 全在 serve 那一侧（campus-api 形态下这几个域没有端点）。",
+                why = "小岱的模型调用、工具取数、会话与记忆、API Key 全在 serve 那一侧（campus-api 形态下这几个域没有端点）。",
                 section = "§5.11",
             )
         } else {

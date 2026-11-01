@@ -167,7 +167,7 @@ private fun TabLoginGate(type: LoginType, title: String, loginState: AppLoginSta
 /** 与 AppRouter 自动登录同一档：多跳 OAuth 的站点也够用。 */
 private const val TAB_LOGIN_TIMEOUT_MS = 120_000L
 
-/** 屁岱页（两种宿主共用）：Android 这一端的端装配与形象那几块。 */
+/** 小岱页（两种宿主共用）：Android 这一端的端装配与形象那几块。 */
 @Composable
 internal fun AndroidAgentScreen(
     loginState: AppLoginState,
@@ -184,11 +184,11 @@ internal fun AndroidAgentScreen(
 ) {
     val context = LocalContext.current
     AgentScreen(
-        // 端装配与端上资源：`:core` 的屁岱只认这条缝（见 AgentHost）
+        // 端装配与端上资源：`:core` 的小岱只认这条缝（见 AgentHost）
         host = remember { AndroidAgentHost(context, loginState) },
         // 系统相册挑图（`:app` 的适配器）：`:core` 拿不到 ActivityResultLauncher
         imagePicker = rememberAndroidAgentImagePicker(),
-        // 屁岱形象那三块（首屏问候头、戳一下的回应气泡、形象选择）认 `ProactiveBubbleHost` / 形象设置 / `PidaiPokes`
+        // 小岱形象那三块（首屏问候头、戳一下的回应气泡、形象选择）认 `ProactiveBubbleHost` / 形象设置 / `PidaiPokes`
         hero = { title, facts, now -> AndroidPidaiHero(title, facts, now) },
         pokeWhisper = { AndroidPokeWhisper(it) },
         appearanceSection = { PidaiAppearancePanel() },
@@ -205,10 +205,10 @@ internal fun AndroidAgentScreen(
     )
 }
 
-/** 移出底栏的屁岱：自带小标题顶栏，屏送上来的导航钮排在返回键后面。 */
+/** 移出底栏的小岱：自带小标题顶栏，屏送上来的导航钮排在返回键后面。 */
 @Composable
 internal fun AgentRoutePage(loginState: AppLoginState, onNavigate: (AppRoute) -> Unit, onBack: () -> Unit) {
-    var title by remember { mutableStateOf("屁岱") }
+    var title by remember { mutableStateOf("小岱") }
     var subtitle by remember { mutableStateOf("") }
     var actions by remember { mutableStateOf<(@Composable RowScope.() -> Unit)?>(null) }
     var navIcon by remember { mutableStateOf<(@Composable () -> Unit)?>(null) }

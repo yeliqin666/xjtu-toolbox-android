@@ -57,7 +57,7 @@ internal fun DesktopBrowserScreen(
             Text("这条路由没带目标网址", color = cs.onSurface, fontSize = 13.sp, fontWeight = FontWeight.Bold)
             Text(
                 "AppRoute.Browser 的 url 是空的（深链里没写 url=、或从索引页直接点进来）。" +
-                    "正常进来的路是通知里的外链、教师主页的「查看主页原网页」、消息与屁岱里的链接。",
+                    "正常进来的路是通知里的外链、教师主页的「查看主页原网页」、消息与小岱里的链接。",
                 color = cs.onBackgroundVariant,
                 fontSize = 12.sp,
             )

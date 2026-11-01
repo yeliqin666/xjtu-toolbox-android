@@ -47,7 +47,7 @@ data class ChatMessage(
 )
 
 /**
- * Agent 是否正在思考/生成——底栏屁岱的「思考」动画读这里（见 PidaiNavButton）。
+ * Agent 是否正在思考/生成——底栏小岱的「思考」动画读这里（见 PidaiNavButton）。
  * 与 [AgentViewModel.isLoading] 由同一个 setter 同步；单独拎出来是因为 ViewModel
  * 挂在导航项上，而底栏常驻，需要全局可观察（同 ProactiveBubbleHost 的路子）。
  */
@@ -489,7 +489,7 @@ class AgentViewModel(private val host: AgentHost) : ViewModel(), AgentChatSessio
                     append('\n')
                     if (!llmAnnex.isNullOrBlank()) {
                         append("[App 快照]\n")
-                        append("用户从 App 里的提醒或屁岱卡片点进来，快照是他当时在看的东西，接着它聊。")
+                        append("用户从 App 里的提醒或小岱卡片点进来，快照是他当时在看的东西，接着它聊。")
                         append("快照够用就直接用，别再查一遍；用户要最新情况、完整清单或快照里没有的内容时才调工具。缺的字段不要编。\n")
                         append(llmAnnex.trim())
                         append("\n\n")

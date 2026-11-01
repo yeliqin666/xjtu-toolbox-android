@@ -15,7 +15,7 @@ import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 
 /**
- * 屁岱的待办工具：`add_todo` / `get_todos` / `complete_todo`，本体是 [SelfTodoStore]。
+ * 小岱的待办工具：`add_todo` / `get_todos` / `complete_todo`，本体是 [SelfTodoStore]。
  *
  * 只实现 `:shared:model` 的 [AgentTools]，不依赖 `:feature:agent`：端的入口（`AgentHost.tools`）用
  * [com.xjtu.toolbox.agent.CompositeAgentTools] 把它和主工具层并在一起。和 `add_schedule_event` 的分界写在描述里：
@@ -71,7 +71,7 @@ object SelfTodoAgentTools : AgentTools {
                     ),
                     tool(
                         "get_todos",
-                        "用户自己记的、还没办完的待办（含屁岱代记的）。不含学校事务、作业截止、评教等，那些在各自工具里。",
+                        "用户自己记的、还没办完的待办（含小岱代记的）。不含学校事务、作业截止、评教等，那些在各自工具里。",
                         params(),
                     ),
                     tool(

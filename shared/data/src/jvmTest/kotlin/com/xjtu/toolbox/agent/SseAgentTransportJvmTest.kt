@@ -125,7 +125,7 @@ class SseAgentTransportJvmTest {
         var msg = assertFailsWith<RuntimeException> {
             SseAgentTransport().stream(config(), JsonObject(emptyMap()), {}, {})
         }.message
-        assertEquals("API Key 无效，请到屁岱设置里检查。", msg)
+        assertEquals("API Key 无效，请到小岱设置里检查。", msg)
 
         response = 429 to "{}"
         msg = assertFailsWith<RuntimeException> {

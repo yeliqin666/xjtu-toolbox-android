@@ -158,7 +158,7 @@ internal fun MainScreen(
     val pidaiInBar = bar.any { it.core == BottomTab.PIDAI }
     LaunchedEffect(bar) { tabs.bar = bar }
 
-    // 各页的屁岱卡（通知精选、荐座……）都走这一个入口；「接着问屁岱」切到屁岱 tab
+    // 各页的小岱卡（通知精选、荐座……）都走这一个入口；「接着问小岱」切到小岱 tab
     remember(loginState) {
         AgentInsightHub.insights = AgentInsightEngine(AndroidAgentHost(context.applicationContext, loginState)) { prompt, snapshot ->
             AgentPendingPrompt.set(prompt, snapshot)
@@ -193,8 +193,8 @@ internal fun MainScreen(
     var courseHeaderActions by remember { mutableStateOf<(@Composable RowScope.() -> Unit)?>(null) }
     var courseHeaderBottomContent by remember { mutableStateOf<(@Composable () -> Unit)?>(null) }
 
-    // PIDAI tab 的标题与顶栏按钮，由屁岱页反向送上来
-    var agentTitle by remember { mutableStateOf("屁岱") }
+    // PIDAI tab 的标题与顶栏按钮，由小岱页反向送上来
+    var agentTitle by remember { mutableStateOf("小岱") }
     var agentSubtitle by remember { mutableStateOf("") }
     val agentOverlays = remember { AgentOverlays() }
     var agentHeaderActions by remember { mutableStateOf<(@Composable RowScope.() -> Unit)?>(null) }
@@ -242,7 +242,7 @@ internal fun MainScreen(
 
     ProactiveReminderLoop(loginState)
 
-    // 在屁岱页时不自动冒泡（会遮输入框）
+    // 在小岱页时不自动冒泡（会遮输入框）
     LaunchedEffect(selectedTab) {
         ProactiveBubbleHost.autoSuppressed = selectedTab == BottomTab.PIDAI
     }
@@ -250,7 +250,7 @@ internal fun MainScreen(
     // 只有手动点 tab 才震动，程序切 tab 不震
     val haptics = rememberHaptics()
 
-    // 点屁岱：切 tab，并让它在首屏说句闲话（底栏上的闲话气泡收掉，正事气泡保留）
+    // 点小岱：切 tab，并让它在首屏说句闲话（底栏上的闲话气泡收掉，正事气泡保留）
     val onPidaiTap: () -> Unit = {
         if (selectedTab != BottomTab.PIDAI) haptics.tick()
         tabs.select(BottomTab.PIDAI)
@@ -261,7 +261,7 @@ internal fun MainScreen(
             ProactiveBubbleHost.heroPokes++
         }
     }
-    // 共享壳点某一格只走这一条回调（它不认哪一格是谁）：屁岱那一格顺带冒气泡，其余格只切 + 震一下
+    // 共享壳点某一格只走这一条回调（它不认哪一格是谁）：小岱那一格顺带冒气泡，其余格只切 + 震一下
     val onSelectTab: (ShellTab) -> Unit = { tab ->
         if (tab.id == BottomTab.PIDAI.name) {
             onPidaiTap()
@@ -272,7 +272,7 @@ internal fun MainScreen(
         }
     }
 
-    // 屁岱那一格的自绘（会动的机器人 + 气泡的锚点）；屁岱不在栏上时锚点作废
+    // 小岱那一格的自绘（会动的机器人 + 气泡的锚点）；小岱不在栏上时锚点作废
     var pidaiAnchor by remember { mutableStateOf<Rect?>(null) }
     val tabArt = remember(shellTabs) {
         AndroidShellTabArt(
@@ -296,7 +296,7 @@ internal fun MainScreen(
         if (bubbleId != null) haptics.lowTick()
     }
 
-    // 屁岱提醒气泡，底栏版和侧栏版共用这一份，各自只管定位。玻璃采样层从共享壳手里拿
+    // 小岱提醒气泡，底栏版和侧栏版共用这一份，各自只管定位。玻璃采样层从共享壳手里拿
     // （见 `ShellHandles`）：尖角伸到底栏上时采「页面 + 底栏」的合成层。
     val bubbleView: @Composable (ShellHandles, ProactiveMessage, BubbleArrowSide, Dp, Dp?) -> Unit =
         { handles, msg, arrowSide, maxWidth, arrowFromStart ->
@@ -334,7 +334,7 @@ internal fun MainScreen(
             )
         }
 
-    // 宽屏气泡定位用：侧栏屁岱的根坐标，减去覆盖层自己的根坐标（转场平移时两者会不同）
+    // 宽屏气泡定位用：侧栏小岱的根坐标，减去覆盖层自己的根坐标（转场平移时两者会不同）
     var overlayOrigin by remember { mutableStateOf(Offset.Zero) }
 
     AppShell(
@@ -386,14 +386,14 @@ internal fun MainScreen(
             val msg = ProactiveBubbleHost.message
             if (msg != null && selectedTab != BottomTab.PIDAI) {
                 val screenWidth = with(LocalDensity.current) { LocalWindowInfo.current.containerSize.width.toDp() }
-                // 屁岱不在底栏上时没有可指的，气泡不画尖角
+                // 小岱不在底栏上时没有可指的，气泡不画尖角
                 val side = if (pidaiInBar) BubbleArrowSide.Bottom else BubbleArrowSide.None
                 BarBubbleSlot(anchorX = pidaiAnchor?.center?.x?.takeIf { pidaiInBar }) { arrowFromStart ->
                     bubbleView(handles, msg, side, (screenWidth - 32.dp).coerceAtLeast(200.dp), arrowFromStart)
                 }
             }
         },
-        // 宽屏侧栏屁岱旁的气泡（侧栏内部会裁掉溢出内容，所以做成并列的覆盖层）
+        // 宽屏侧栏小岱旁的气泡（侧栏内部会裁掉溢出内容，所以做成并列的覆盖层）
         railOverlay = { handles ->
             RailProactiveBubble(
                 anchor = { pidaiAnchor?.takeIf { pidaiInBar } },
@@ -403,7 +403,7 @@ internal fun MainScreen(
         },
         // 搜索、扫一扫是盖满整屏的浮层：共享壳把它们放在最外层，不放进 Scaffold 的内容区
         overlays = { handles ->
-            // 屁岱的历史对话侧栏和设置页：盖住顶栏和底栏
+            // 小岱的历史对话侧栏和设置页：盖住顶栏和底栏
             if (selectedTab == BottomTab.PIDAI) agentOverlays.Content()
             AnimatedVisibility(visible = showGlobalSearch, enter = OverlayEnter, exit = OverlayExit) {
                 CompositionLocalProvider(
@@ -671,7 +671,7 @@ private fun MainTopBar(
     // 首页没有顶栏（标题「岱宗盒子」没有信息量）：按钮挪进首页内容里，状态栏留白由 Scaffold 的 insets 给；
     // 放到底栏上的子页自带顶栏
     if (selectedTab == null || selectedTab == BottomTab.HOME) return
-    // 屁岱是自下而上的聊天，只用小标题
+    // 小岱是自下而上的聊天，只用小标题
     if (selectedTab == BottomTab.PIDAI) {
         SmallTopAppBar(
             title = agentTitle,
@@ -711,7 +711,7 @@ private fun MainTopBar(
 }
 
 /**
- * 屁岱主动提醒：定时用本地缓存算一条提醒塞进 [ProactiveBubbleHost]，不发请求。
+ * 小岱主动提醒：定时用本地缓存算一条提醒塞进 [ProactiveBubbleHost]，不发请求。
  * 节流由 [ProactiveRules.pick] 的冷却负责。
  */
 @Composable
