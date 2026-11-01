@@ -138,7 +138,9 @@ object HomeGridMath {
 
     /**
      * 从上往下、从左往右扫第一个放得下 `w×h` 的空位；放不下返回 null。
-     * 网格模式按整格扫，自由模式按半格扫（否则自由模式的空位永远扫不到）。
+     *
+     * 扫的步长看块本身：整格尺寸按 1 格扫（网格模式的常态），带小数的按半格扫，
+     * 否则自由模式留下的空档永远扫不到。
      */
     fun firstFreeSlot(tiles: List<HomeTile>, w: Float, h: Float): Pair<Float, Float>? {
         val step = if (w % 1f == 0f && h % 1f == 0f) 1f else 0.5f
