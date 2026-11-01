@@ -311,6 +311,24 @@ internal fun rememberAppHome(
         }
 
         override fun onProfile() = onNavigateToProfile()
+
+        override fun onOpenLink(link: String) {
+            if (link.startsWith("tel:")) {
+                runCatching {
+                    context.startActivity(
+                        android.content.Intent(android.content.Intent.ACTION_DIAL, android.net.Uri.parse(link))
+                            .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK),
+                    )
+                }
+            } else {
+                onNavigate(AppRoute.Browser(link))
+            }
+        }
+
+        override suspend fun paymentCode(): String? {
+            val site = loginState.sessionManager?.getSiteOrNull("campus_card") ?: return null
+            return runCatching { com.xjtu.toolbox.pay.PaymentCodeApi(site).getBarCode() }.getOrNull()
+        }
         override fun onBulletinTap(bulletin: Bulletin) = onBulletinTap(bulletin)
         override fun onBulletinDismiss(bulletin: Bulletin) = onBulletinDismiss(bulletin)
         override fun onOpenStatus() {

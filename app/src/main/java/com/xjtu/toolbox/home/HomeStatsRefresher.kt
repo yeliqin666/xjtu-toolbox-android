@@ -101,8 +101,33 @@ object HomeStatsRefresher {
     private val runOrder: List<AppRoute> = listOf(
         AppRoute.JwappScore, AppRoute.Lms(), AppRoute.Library, AppRoute.CampusCard,
         AppRoute.Judge, AppRoute.Attendance, AppRoute.Fitness, AppRoute.Notification,
-        AppRoute.Iclassface, AppRoute.Coupon,
+        AppRoute.Iclassface, AppRoute.Coupon, AppRoute.EmptyRoom,
     )
+
+    /**
+     * 兴庆校区此刻（当前或下一节）各楼空着几间，取空得最多的三栋。只认 CDN 的当天表；
+     * 晚上 22 点后没有节次可看就不出。
+     */
+    private fun emptyRoomOverview(): HomeStat? {
+        val now = com.xjtu.toolbox.util.nowOnCampus()
+        val minute = now.hour * 60 + now.minute
+        val section = com.xjtu.toolbox.schedule.XjtuTime.getAllTimes()
+            .firstOrNull { (_, t) -> t.end.hour * 60 + t.end.minute > minute }?.first ?: return null
+        val campus = "兴庆校区"
+        val buildings = com.xjtu.toolbox.emptyroom.CAMPUS_BUILDINGS[campus].orEmpty()
+        val rooms = runCatching {
+            com.xjtu.toolbox.emptyroom.EmptyRoomApi().getEmptyRoomsMulti(campus, buildings.toSet())
+        }.getOrNull() ?: return null
+        val free = rooms.filter { it.status.getOrNull(section - 1) == 0 }
+        if (free.isEmpty()) return null
+        val byBuilding = free.groupBy { r -> buildings.firstOrNull { r.name.startsWith(it) } ?: r.name.substringBefore('-') }
+            .entries.sortedByDescending { it.value.size }.take(3)
+        return HomeStat(
+            "${free.size} 间",
+            "第 $section 节 · $campus",
+            byBuilding.map { (b, list) -> com.xjtu.toolbox.home.HomeLine("$b  空 ${list.size} 间") },
+        )
+    }
 
     private val sources: List<Source> = listOf(
         // 评教：一周一次。开没开评教窗口在一周内不会反复变。
@@ -220,11 +245,14 @@ object HomeStatsRefresher {
                     ?: com.xjtu.toolbox.schedule.ScheduleCache.readCurrentTerm(com.xjtu.toolbox.data.DataCache(ctx, roundAccount))
                 val shown = if (currentTerm != null) terms.firstOrNull { it.termCode == currentTerm } else terms.maxByOrNull { it.termCode }
                 val shownCount = shown?.scoreList?.size ?: 0
+                // 小组件明细：最近出分的几门（取不到本学期就用有成绩的最新学期）
+                val recent = (shown ?: terms.maxByOrNull { it.termCode })?.scoreList.orEmpty()
+                    .take(4).map { com.xjtu.toolbox.home.HomeLine("${it.courseName.take(10)}  ${it.score}") }
                 when {
-                    newCount > 0 -> HomeStat("$newCount 门新成绩", "共 $total 门 · 有更新")
-                    shownCount > 0 -> HomeStat("$shownCount 门", "${shown?.termName.orEmpty()} 学期")
-                    currentTerm != null -> HomeStat("暂无", "本学期成绩未出")
-                    else -> HomeStat("$total 门", "共 $total 门")
+                    newCount > 0 -> HomeStat("$newCount 门新成绩", "共 $total 门 · 有更新", recent)
+                    shownCount > 0 -> HomeStat("$shownCount 门", "${shown?.termName.orEmpty()} 学期", recent)
+                    currentTerm != null -> HomeStat("暂无", "本学期成绩未出", recent)
+                    else -> HomeStat("$total 门", "共 $total 门", recent)
                 }
             }
         },
@@ -279,6 +307,11 @@ object HomeStatsRefresher {
                     ).joinToString(" · ").ifBlank { null },
                 )
             }
+        },
+
+        // 空教室：读 CDN 的当天占用表（不用登录），算出此刻各楼空着几间。不必及时，两小时一次。
+        Source(AppRoute.EmptyRoom, 2 * 60 * 60 * 1000L, null) { _, _ ->
+            withContext(Dispatchers.IO) { emptyRoomOverview() }
         },
 
         // 教务通知：来源跟用户在设置里勾的一致，小组件和系统通知共用。
@@ -354,14 +387,18 @@ object HomeStatsRefresher {
                 .ifBlank { a.deadline.orEmpty() }
                 .ifBlank { a.endTime.orEmpty() }
                 .ifBlank { a.startTime.orEmpty() }
-        }.take(2)
+        }.take(4)
 
         fun label(triple: Triple<Int, String, com.xjtu.toolbox.lms.LmsActivity>): String {
             val (_, course, a) = triple
             val kind = if (a.type == com.xjtu.toolbox.lms.LmsActivityType.HOMEWORK) "作业" else "资料"
             return "$kind · ${a.title.ifBlank { course }.take(14)}"
         }
-        return HomeStat(label(latest[0]), latest.getOrNull(1)?.let(::label))
+        return HomeStat(
+            label(latest[0]),
+            latest.getOrNull(1)?.let(::label),
+            latest.map { t -> com.xjtu.toolbox.home.HomeLine("${t.second.take(6)} · ${t.third.title.ifBlank { "未命名" }.take(14)}") },
+        )
     }
 
     /** 手机当前连着能上网的网络。不要求系统验证通过：校园网没过认证页时也算有网，失败照常计。 */
@@ -440,7 +477,7 @@ object HomeStatsRefresher {
                         Log.d(TAG, "abort round: account switched during ${s.route.id}")
                         return
                     }
-                    HomeStats.push(context, s.route, stat?.value, stat?.detail, roundAccount)
+                    HomeStats.push(context, s.route, stat?.value, stat?.detail, roundAccount, stat?.lines.orEmpty())
                     if (stat == null) HomeStats.markEmpty(context, s.route, s.ttlMs, roundAccount)
                     else HomeStats.markFetched(context, s.route, roundAccount)
                     Log.d(TAG, "${s.route.id} -> ${stat?.value ?: "无数据（1 小时后重试）"}")

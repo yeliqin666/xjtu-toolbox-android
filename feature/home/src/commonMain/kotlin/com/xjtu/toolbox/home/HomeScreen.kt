@@ -68,6 +68,7 @@ import com.xjtu.toolbox.bulletin.BulletinNoticePanel
 import com.xjtu.toolbox.nav.AppRoute
 import com.xjtu.toolbox.nav.expandOriginSource
 import com.xjtu.toolbox.nav.rememberExpandOriginSource
+import com.xjtu.toolbox.settings.HomeLayoutRevision
 import com.xjtu.toolbox.settings.SettingsStore
 import com.xjtu.toolbox.ui.components.AppCardColor
 import com.xjtu.toolbox.ui.components.HeroAppearance
@@ -133,6 +134,7 @@ fun HomeScreen(
             onClick = { host.onRoute(service.route) },
             stat = stat?.value,
             statDetail = stat?.detail,
+            lines = stat?.lines.orEmpty(),
         )
     }
 
@@ -153,6 +155,19 @@ fun HomeScreen(
             }
         } else null
     val groups = HomeCards.groups(host.audience, host.stats, host.openableRouteIds)
+    val layoutStore = remember { SettingsStore() }
+    val widgetMode = remember(HomeLayoutRevision.current) {
+        layoutStore.homeLayout == SettingsStore.HOME_LAYOUT_WIDGETS
+    }
+    // 小组件选液态玻璃时整页铺壁纸（固定不动，内容在上面滚），玻璃格子采它模糊
+    val wallpaper = remember(HomeLayoutRevision.current) {
+        layoutStore.homeWallpaperImage.takeIf {
+            widgetMode && layoutStore.homeWidgetMaterial == SettingsStore.WIDGET_MATERIAL_GLASS
+        }
+    }
+    val wall = rememberLayerBackdrop()
+    // 自定义图片上用白字；渐变很浅，照常用正文色
+    val pageInk = if (wallpaper?.isNotEmpty() == true) Color.White else MiuixTheme.colorScheme.onSurface
     val frontInbox = host.inbox.takeIf { HomeCard.INBOX in honored }
 
     // 功能状态就地附在分类行里，不另设展示区。
@@ -164,7 +179,7 @@ fun HomeScreen(
                 ?: HomeCards.statOf(service.route.id, host.stats)?.value
         } else null
         return rowOf(service, value?.let { HomeStat(it, detail ?: glance?.caption) })
-            .copy(tone = glance?.tone ?: HomeTone.NORMAL)
+            .copy(tone = glance?.tone ?: HomeTone.NORMAL, lines = host.stats[service.route.id]?.lines.orEmpty())
     }
 
     val scroll = rememberScrollState()
@@ -181,10 +196,14 @@ fun HomeScreen(
     val glass = LocalGlassStyle.current && collapsible
 
     Box(modifier.fillMaxSize()) {
+        // 壁纸和滚动内容一起录进顶栏的采样层，顶栏模糊里也有壁纸
+        Box(Modifier.matchParentSize().then(if (glass) Modifier.layerBackdrop(pageBackdrop) else Modifier)) {
+        if (wallpaper != null) {
+            HomeWallpaper(wallpaper, Modifier.matchParentSize().layerBackdrop(wall))
+        }
         Column(
             Modifier
                 .fillMaxSize()
-                .then(if (glass) Modifier.layerBackdrop(pageBackdrop) else Modifier)
                 .then(if (scrollBehavior != null) Modifier.nestedScroll(scrollBehavior.nestedScrollConnection) else Modifier)
                 .overScrollVertical()
                 .verticalScroll(scroll)
@@ -200,6 +219,7 @@ fun HomeScreen(
                     weekNumber = if (HomeCard.WEEK_NUMBER in honored) host.weekNumber else 0,
                     status = host.statusLine,
                     onStatus = host::onOpenStatus,
+                    ink = pageInk,
                     modifier = Modifier.enterOnce(0).onSizeChanged { mastheadPx = it.height },
                 )
             } else if (collapsible) {
@@ -228,7 +248,18 @@ fun HomeScreen(
                 )
             }
 
-            if (HomeCard.SERVICE_GRID in honored && groups.isNotEmpty()) {
+            if (HomeCard.SERVICE_GRID in honored && groups.isNotEmpty() && widgetMode) {
+                Spacer(Modifier.height(20.dp))
+                HomeWidgetGrid(
+                    rows = groups.flatMap { g -> g.rows.map { indexRow(it.service, it.stat, it.statDetail) } },
+                    features = { id -> catalog.firstOrNull { it.route.id == id }?.features.orEmpty() },
+                    wall = wall.takeIf { wallpaper != null },
+                    ink = pageInk,
+                    paymentCode = host::paymentCode,
+                    onLink = host::onOpenLink,
+                    modifier = Modifier.enterOnce(1),
+                )
+            } else if (HomeCard.SERVICE_GRID in honored && groups.isNotEmpty()) {
                 Spacer(Modifier.height(20.dp))
                 HomeIndexCard(
                     sections = groups.map { group ->
@@ -243,6 +274,7 @@ fun HomeScreen(
                 )
             }
             Spacer(Modifier.height(SECTION_GAP + extraBottomPadding + 8.dp))
+        }
         }
         if (topActions != null) {
             val scope = rememberCoroutineScope()
@@ -368,10 +400,10 @@ private fun EditorialMasthead(
     weekNumber: Int,
     status: HomeStatusLine?,
     onStatus: () -> Unit,
+    ink: Color = MiuixTheme.colorScheme.onSurface,
     modifier: Modifier = Modifier,
 ) {
-    val ink = MiuixTheme.colorScheme.onSurface
-    val muted = MiuixTheme.colorScheme.onSurfaceVariantSummary
+    val muted = if (ink == MiuixTheme.colorScheme.onSurface) MiuixTheme.colorScheme.onSurfaceVariantSummary else ink.copy(alpha = 0.78f)
     val headline = if (name.isBlank()) greeting else "$greeting，$name"
     Row(
         modifier.fillMaxWidth()
@@ -446,34 +478,7 @@ private fun EditorialFrontPage(
     Column(modifier.fillMaxWidth()) {
         if (hasLead) {
             Box(Modifier.fillMaxWidth().liquidPaper()) {
-                when (appearance.background) {
-                    "solid" -> Box(Modifier.matchParentSize().background(appearance.solidColor))
-                    "forest" -> {
-                        HeroForestBackground(Modifier.matchParentSize())
-                        Box(Modifier.matchParentSize().background(HeroForestScrim))
-                    }
-                    "pixel" -> {
-                        HeroPixelBackground(Modifier.matchParentSize(), animated = !showAppearance)
-                        Box(Modifier.matchParentSize().background(HeroPixelScrim))
-                    }
-                    "custom" -> {
-                        HeroCustomBackground(
-                            imageData = appearance.imageData,
-                            modifier = Modifier.matchParentSize(),
-                            blur = appearance.imageBlur,
-                            brightness = appearance.imageBrightness,
-                        )
-                        Box(Modifier.matchParentSize().background(HeroCustomScrim))
-                    }
-                    else -> {
-                        LiquidBackground(
-                            colors = mood.colors, seed = mood.seed, speed = mood.speed, crease = mood.crease,
-                            animated = mood.animated && !showAppearance,
-                            modifier = Modifier.matchParentSize(),
-                        )
-                        Box(Modifier.matchParentSize().background(LiquidCardScrim))
-                    }
-                }
+                HeroWallpaper(appearance, mood, animated = !showAppearance, modifier = Modifier.matchParentSize())
                 Column(Modifier.fillMaxWidth()) {
                     nextUp?.let {
                         EditorialNextUpLead(it, ink, muted, accent, onLongClick = configure) { it.route?.let(host::onRoute) ?: host.onProfile() }
@@ -534,6 +539,46 @@ private fun EditorialFrontPage(
                 showAppearance = false
             },
         )
+    }
+}
+
+/** 头卡的背景（含承字的暗色罩）；小组件的玻璃壁纸也用它，两处始终同款。 */
+@Composable
+internal fun HeroWallpaper(
+    appearance: HeroAppearance,
+    mood: com.xjtu.toolbox.ui.components.LiquidMood,
+    animated: Boolean,
+    modifier: Modifier = Modifier,
+) {
+    Box(modifier) {
+        when (appearance.background) {
+            "solid" -> Box(Modifier.matchParentSize().background(appearance.solidColor))
+            "forest" -> {
+                HeroForestBackground(Modifier.matchParentSize())
+                Box(Modifier.matchParentSize().background(HeroForestScrim))
+            }
+            "pixel" -> {
+                HeroPixelBackground(Modifier.matchParentSize(), animated = animated)
+                Box(Modifier.matchParentSize().background(HeroPixelScrim))
+            }
+            "custom" -> {
+                HeroCustomBackground(
+                    imageData = appearance.imageData,
+                    modifier = Modifier.matchParentSize(),
+                    blur = appearance.imageBlur,
+                    brightness = appearance.imageBrightness,
+                )
+                Box(Modifier.matchParentSize().background(HeroCustomScrim))
+            }
+            else -> {
+                LiquidBackground(
+                    colors = mood.colors, seed = mood.seed, speed = mood.speed, crease = mood.crease,
+                    animated = mood.animated && animated,
+                    modifier = Modifier.matchParentSize(),
+                )
+                Box(Modifier.matchParentSize().background(LiquidCardScrim))
+            }
+        }
     }
 }
 
@@ -961,6 +1006,8 @@ internal data class HomeServiceRow(
     val stat: String? = null,
     val statDetail: String? = null,
     val tone: HomeTone = HomeTone.NORMAL,
+    /** 大尺寸小组件里列的明细（最近几笔、今天的课……）。 */
+    val lines: List<HomeLine> = emptyList(),
 )
 
 /** 点开功能页，并让功能页从这一块放大出来。 */

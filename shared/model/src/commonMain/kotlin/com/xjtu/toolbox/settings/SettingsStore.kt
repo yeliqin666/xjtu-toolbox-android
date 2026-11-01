@@ -1,7 +1,20 @@
 package com.xjtu.toolbox.settings
 
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.setValue
 import com.xjtu.toolbox.platform.KeyValueStore
 import com.xjtu.toolbox.platform.keyValueStore
+
+/** 首页功能区设置落盘后的进程内信号：设置页与首页各读一份，改完靠它一起重读。 */
+object HomeLayoutRevision {
+    var current by mutableIntStateOf(0)
+        private set
+
+    fun bump() {
+        current++
+    }
+}
 
 /** 设置页那些偏好的读写。 */
 class SettingsStore(private val store: KeyValueStore = keyValueStore(APP_SETTINGS_FILE)) {
@@ -113,6 +126,26 @@ class SettingsStore(private val store: KeyValueStore = keyValueStore(APP_SETTING
             .coerceIn(HERO_IMAGE_BRIGHTNESS_MIN, HERO_IMAGE_BRIGHTNESS_MAX)
         set(value) = store.putInt("hero_image_brightness", value.coerceIn(HERO_IMAGE_BRIGHTNESS_MIN, HERO_IMAGE_BRIGHTNESS_MAX))
 
+    /** 首页功能区：classic = 分类卡，widgets = 可调尺寸的小组件。 */
+    var homeLayout: String
+        get() = store.getString("home_layout")?.takeIf { it == HOME_LAYOUT_WIDGETS } ?: HOME_LAYOUT_CLASSIC
+        set(value) = store.putString("home_layout", value.takeIf { it == HOME_LAYOUT_WIDGETS } ?: HOME_LAYOUT_CLASSIC)
+
+    /** 小组件的排列与尺寸，一行一个 `路由id:尺寸`；null = 没编辑过，用默认布局。 */
+    var homeWidgets: List<String>?
+        get() = store.getString("home_widgets")?.split('\n')?.filter { it.isNotBlank() }
+        set(value) = store.putString("home_widgets", value?.joinToString("\n"))
+
+    /** 小组件材质：glass = 液态玻璃（底下铺头卡同款背景），paper = 白色奶满。 */
+    var homeWidgetMaterial: String
+        get() = store.getString("home_widget_material")?.takeIf { it == WIDGET_MATERIAL_PAPER } ?: WIDGET_MATERIAL_GLASS
+        set(value) = store.putString("home_widget_material", value.takeIf { it == WIDGET_MATERIAL_PAPER } ?: WIDGET_MATERIAL_GLASS)
+
+    /** 液态玻璃材质下整页铺的壁纸：裁好的图片（WebP）Base64；空串 = 用主题色大渐变。 */
+    var homeWallpaperImage: String
+        get() = store.getString("home_wallpaper_image").orEmpty()
+        set(value) = store.putString("home_wallpaper_image", value.ifEmpty { null })
+
     /** 场馆滑块验证码自动识别开关。 */
     var venueAutoSolveCaptchaEnabled: Boolean
         get() = store.getBoolean(KEY_VENUE_AUTO_SOLVE_CAPTCHA, true)
@@ -139,6 +172,10 @@ class SettingsStore(private val store: KeyValueStore = keyValueStore(APP_SETTING
         }
         /** 非敏感的应用设置（外观、协议、更新……），普通 SharedPreferences。 */
         const val APP_SETTINGS_FILE = "app_settings"
+        const val HOME_LAYOUT_CLASSIC = "classic"
+        const val HOME_LAYOUT_WIDGETS = "widgets"
+        const val WIDGET_MATERIAL_GLASS = "glass"
+        const val WIDGET_MATERIAL_PAPER = "paper"
 
         const val HERO_IMAGE_BLUR_MIN = 0
         const val HERO_IMAGE_BLUR_MAX = 10
