@@ -73,6 +73,7 @@ internal fun ChatPanel(
     scrollBehavior: ScrollBehavior,
     onNavigate: (AppRoute) -> Unit,
     onOpenConfig: () -> Unit,
+    onPushPreferences: () -> Unit = onOpenConfig,
     bottomReserve: Dp = 0.dp,
     /** 玻璃顶栏的高度，放进对话列表的顶部留白（列表铺到顶栏下面）。 */
     listTopPadding: Dp = 0.dp,
@@ -230,6 +231,7 @@ internal fun ChatPanel(
                             streaming = vm.isLoading && row === chatRows.last() && row.msg.content.isBlank() &&
                                 vm.messages.lastOrNull()?.role?.let(::isToolRole) != true,
                             onAskFromWidget = ::askFromWidget,
+                            onPushPreferences = onPushPreferences.takeIf { vm.currentSessionId == AgentPushFocus.SESSION_ID },
                         )
                     }
                 }
@@ -545,6 +547,7 @@ private fun MessageBubble(
     streaming: Boolean = false,
     /** 卡片替用户问一句（如资料卡上点"打开目录"）。 */
     onAskFromWidget: (String) -> Unit = {},
+    onPushPreferences: (() -> Unit)? = null,
 ) {
     // 与 `:core` 其余几屏同一套写法（`community` / `emptyroom`）：
     // 已废弃的 [LocalClipboardManager] 在共享 UI 里是**唯一**能用的一份（新的 `LocalClipboard`
@@ -624,6 +627,9 @@ private fun MessageBubble(
                             onNavigate(AppRoute.Browser(url))
                         }
                     )
+                }
+                onPushPreferences?.let { open ->
+                    TextButton(text = "减少此类推送…", onClick = open)
                 }
                 msg.widgets.forEach { widget ->
                     AgentWidgetView(

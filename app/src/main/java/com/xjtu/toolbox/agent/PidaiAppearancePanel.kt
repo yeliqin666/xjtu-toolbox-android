@@ -62,9 +62,6 @@ fun PidaiAppearancePanel(modifier: Modifier = Modifier) {
     val plain = PidaiAppearanceHost.plain
     // 经典小岱那一格画用户选的形状
     val shape = botShapeById(PidaiAppearanceHost.shapeId)?.radii
-    val proactiveLevel = ProactiveRules.proactiveLevel
-    // 面板一打开就把落盘的挡位读进内存缓存，保证显示的是用户上次实际选的那一档。
-    LaunchedEffect(Unit) { ProactiveRules.loadProactiveLevel(context) }
     // 选中的墨色：跟随主题时用底栏前景色，深浅色都有对比度
     val ink = pidaiInk(colorId)
 
@@ -173,6 +170,17 @@ fun PidaiAppearancePanel(modifier: Modifier = Modifier) {
             }
             }
 
+            PidaiPushPreferences()
+        }
+    }
+}
+
+@Composable
+fun PidaiPushPreferences() {
+    val context = LocalContext.current
+    val proactiveLevel = ProactiveRules.proactiveLevel
+    LaunchedEffect(Unit) { ProactiveRules.loadProactiveLevel(context) }
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Text(
                 "主动提醒",
                 style = MiuixTheme.textStyles.body2,
@@ -203,7 +211,6 @@ fun PidaiAppearancePanel(modifier: Modifier = Modifier) {
                 style = MiuixTheme.textStyles.footnote1,
                 color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
             )
-        }
     }
 }
 

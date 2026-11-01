@@ -64,6 +64,7 @@ fun AgentScreen(
     pokeWhisper: @Composable (Modifier) -> Unit = {},
     /** 「形象选择」那一整块：`:app` 交 `PidaiAppearancePanel`；没有形象设置的端传 null。 */
     appearanceSection: (@Composable () -> Unit)? = null,
+    pushPreferences: (@Composable () -> Unit)? = null,
     /** 配置面板里那两格要交给宿主的（见 [ConfigPanel] 的 `apiKeySection` / `memorySection`）：浏览器那一端拿不到 key（它在 serve 上）、模型用的记忆也在 serve ⇒ 这两块得由它自己画。 */
     apiKeySection: (@Composable () -> Unit)? = null,
     memorySection: (@Composable () -> Unit)? = null,
@@ -76,6 +77,7 @@ fun AgentScreen(
     var config by remember { mutableStateOf(host.loadConfig()) }
     // 不要 rememberSaveable：冷启动第一帧可能读到空 key，之后会把设置页钉死。
     var showConfig by remember { mutableStateOf(false) }
+    var showPushPreferences by remember { mutableStateOf(false) }
     // 宿主侧 remember，key 固定即可（切 tab 不丢）。
     val vm: AgentChatSession = session ?: viewModel(key = "agent") { AgentViewModel(host) }
 
@@ -273,9 +275,19 @@ fun AgentScreen(
                 scrollBehavior = effectiveScrollBehavior,
                 onNavigate = onNavigate,
                 onOpenConfig = { showConfig = true },
+                onPushPreferences = { if (pushPreferences != null) showPushPreferences = true else showConfig = true },
                 bottomReserve = extraBottomPadding,
             )
 
+            if (showPushPreferences && pushPreferences != null) {
+                top.yukonga.miuix.kmp.window.WindowDialog(
+                    show = true, title = "推送设置", onDismissRequest = { showPushPreferences = false },
+                ) {
+                    Column(Modifier.heightIn(max = 440.dp).verticalScroll(androidx.compose.foundation.rememberScrollState())) {
+                        pushPreferences()
+                    }
+                }
+            }
             // OverlayDialog 必须在 Scaffold content 里：靠 Scaffold 提供的弹窗宿主渲染。
             // 写在 Scaffold 外面会注册进空列表，点了没反应。
             actionTarget?.let { target ->
