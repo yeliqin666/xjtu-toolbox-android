@@ -90,7 +90,7 @@ import com.xjtu.toolbox.ui.components.LiquidBackground
 import com.xjtu.toolbox.ui.components.enterOnce
 import com.xjtu.toolbox.ui.components.rememberLiquidMood
 import com.xjtu.toolbox.ui.glass.LocalGlassStyle
-import com.xjtu.toolbox.ui.theme.CourseColors
+import com.xjtu.toolbox.schedule.CourseColors
 import com.xjtu.toolbox.ui.theme.Editorial
 import com.xjtu.toolbox.ui.theme.EditorialRule
 import com.xjtu.toolbox.ui.theme.LocalIsDarkTheme
