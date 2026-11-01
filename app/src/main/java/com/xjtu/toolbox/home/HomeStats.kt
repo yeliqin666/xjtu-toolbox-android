@@ -6,6 +6,10 @@ import com.xjtu.toolbox.data.DataCache
 import com.xjtu.toolbox.nav.AppRoute
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import com.xjtu.toolbox.home.HomeLine
+import kotlinx.coroutines.flow.first
+import kotlinx.datetime.isoDayNumber
+import kotlinx.datetime.minus
 
 /**
  * 首页各功能的「当前状态」采集器（`:app` 这一端：读本机缓存）。
@@ -38,12 +42,14 @@ object HomeStats {
         detail: String? = null,
         /** 这条摘要属于哪个账号。异步拉取的调用方应传发起时的账号，见 [DataCache] 类注释。 */
         accountId: String? = com.xjtu.toolbox.account.AccountContext.activeAccountId,
+        /** 小组件里列的明细。 */
+        lines: List<HomeLine> = emptyList(),
     ) {
         runCatching {
             val cache = DataCache(context, accountId)
             val k = PUSHED_PREFIX + route.id
             if (value.isNullOrBlank()) cache.invalidate(k)
-            else cache.write(k, HomeStat(value, detail))
+            else cache.write(k, HomeStat(value, detail, lines))
         }
     }
 
@@ -129,6 +135,7 @@ object HomeStats {
         AppRoute.Fitness,       // 最近学年体测总分
         AppRoute.JwappScore,    // 成绩门数 / 新增门数
         AppRoute.Notification,  // 教务处最新通知
+        AppRoute.EmptyRoom,     // 此刻各楼空教室
     ).map { it.id }
 
     // ── 屁岱主动提醒用的两个游标 ────────────────────────────────────────
@@ -239,14 +246,89 @@ object HomeStats {
                         balance < 20.0 -> "只剩这些了，记得充值"
                         last != null -> "最近 ${last.merchant.take(8)} ${"%+.2f".format(last.amount)}"
                         else -> "校园卡余额"
-                    }
+                    },
+                    lines = snap.transactions.take(4).map { t -> HomeLine("${t.merchant.take(10)}  ${"%+.2f".format(t.amount)}") },
                 )
             }
 
             if (termCode.isNullOrBlank()) return@withContext out
 
             out.putAll(HomeScheduleStats.of(cache, termCode))
+            withDetailLines(context, cache, out)
 
             out
         }
+
+    /** 已有状态就补上明细，没有就新建一条（[value] 当大字，空串时小组件只列明细）。 */
+    private fun MutableMap<String, HomeStat>.lines(key: String, value: String, detail: String?, lines: List<HomeLine>) {
+        if (lines.isEmpty()) return
+        this[key] = (this[key] ?: HomeStat(value, detail)).copy(lines = lines)
+    }
+
+    /**
+     * 给小组件补明细，全部只读缓存：校历列最近的假期，日程列今天还没上的课，
+     * 通知列最近几条（带原文链接），教材列书架上最近读的书，黄页列常用电话。
+     */
+    private suspend fun withDetailLines(context: Context, cache: DataCache, out: MutableMap<String, HomeStat>) {
+        runCatching {
+            val notices = com.xjtu.toolbox.widget.NoticeWidgetStore.read(context).entries
+            out.lines(AppRoute.Notification.id, notices.firstOrNull()?.title.orEmpty(), null,
+                notices.map { HomeLine(it.title, it.link) })
+        }
+        runCatching {
+            val books = com.xjtu.toolbox.jiaocai1.AppJiaocai1ShelfStore(context).observeAll().first()
+                .sortedByDescending { maxOf(it.lastReadAt, it.addedAt) }
+            out.lines(AppRoute.Jiaocai.id, "${books.size} 本", "书架",
+                books.take(4).map { b ->
+                    HomeLine(b.title + if (b.totalPages > 0 && b.lastReadIndex > 0) "  ${b.lastReadIndex + 1}/${b.totalPages} 页" else "")
+                })
+        }
+        runCatching {
+            val data = cache.readStale<com.xjtu.toolbox.yellowpage.YellowPageData>(com.xjtu.toolbox.yellowpage.YellowPageApi.CACHE_KEY)
+                ?: return@runCatching
+            val common = listOf("保卫处", "校医院", "教务处", "学生处", "后勤")
+            val picks = common.mapNotNull { name ->
+                data.departments.firstOrNull { name in it.name && it.phoneItems.isNotEmpty() }
+            }.distinct().take(4)
+            out.lines(AppRoute.YellowPage.id, "", null,
+                picks.map { d -> HomeLine("${d.name.take(8)}  ${d.phoneItems.first()}", "tel:" + d.dialNumber(d.phoneItems.first())) })
+        }
+        withScheduleLines(context, cache, out)
+    }
+
+    private fun withScheduleLines(context: Context, cache: DataCache, out: MutableMap<String, HomeStat>) {
+        val today = com.xjtu.toolbox.util.todayOnCampus()
+        runCatching {
+            val holidays = com.xjtu.toolbox.schedule.HolidayApi.peekCached(DataCache(context))
+            // 假期表逐日展开，只取每段的第一天
+            val starts = holidays.keys.sorted().filter { d ->
+                d > today && holidays[d.minus(1, kotlinx.datetime.DateTimeUnit.DAY)] != holidays[d]
+            }.take(3)
+            val lines = starts.map { d ->
+                val days = (d.toEpochDays() - today.toEpochDays()).toInt()
+                "${holidays[d]}  ${d.monthNumber}-${d.dayOfMonth} · ${days} 天后"
+            }
+            out.lines(AppRoute.SchoolCalendar.id, lines.firstOrNull()?.substringBefore("  ").orEmpty(), "下一个假期",
+                lines.map { HomeLine(it) })
+        }
+        runCatching {
+            val schedule = com.xjtu.toolbox.schedule.ScheduleCache.readCurrentTermSchedule(cache) ?: return@runCatching
+            val start = schedule.start ?: return@runCatching
+            if (com.xjtu.toolbox.schedule.HolidayApi.peekCached(DataCache(context)).containsKey(today)) return@runCatching
+            val week = com.xjtu.toolbox.schedule.TermWeeks.weekOf(start, today)
+            val nowMin = com.xjtu.toolbox.util.nowOnCampus().let { it.hour * 60 + it.minute }
+            val left = schedule.courses
+                .filter { it.dayOfWeek == today.dayOfWeek.isoDayNumber && it.isInWeek(week) }
+                .mapNotNull { c ->
+                    val t = com.xjtu.toolbox.schedule.XjtuTime.getClassTime(c.startSection)?.start ?: return@mapNotNull null
+                    if (t.hour * 60 + t.minute < nowMin) null
+                    else "${t.hour.toString().padStart(2, '0')}:${t.minute.toString().padStart(2, '0')}  ${c.courseName}"
+                }
+                .sorted()
+            val key = AppRoute.Schedule.id
+            out[key] = (out[key] ?: HomeStat("今天", null)).copy(
+                lines = left.ifEmpty { listOf("今天的课都上完了") }.map { HomeLine(it) },
+            )
+        }
+    }
 }

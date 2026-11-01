@@ -4,6 +4,7 @@ import androidx.compose.material.icons.automirrored.filled.Assignment
 import androidx.compose.material.icons.automirrored.filled.FactCheck
 import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.DarkMode
+import androidx.compose.material.icons.filled.Dashboard
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.Star
@@ -375,6 +376,20 @@ private fun SettingsHome(
                         summary = heroAppearance.summary,
                         startAction = { SettingsIcon(Icons.Default.Wallpaper, cPurple) },
                         onClick = { showHomeHeroDialog = true },
+                    )
+                    val layoutKeys = listOf(SettingsStore.HOME_LAYOUT_CLASSIC, SettingsStore.HOME_LAYOUT_WIDGETS)
+                    var homeLayout by remember(HomeLayoutRevision.current) { mutableStateOf(store.homeLayout) }
+                    OverlayDropdownPreference(
+                        title = "首页功能区",
+                        summary = if (homeLayout == SettingsStore.HOME_LAYOUT_WIDGETS) "长按小组件可拖动排序、改尺寸、换材质" else null,
+                        items = listOf("分类卡", "小组件"),
+                        selectedIndex = layoutKeys.indexOf(homeLayout).coerceAtLeast(0),
+                        startAction = { SettingsIcon(Icons.Default.Dashboard, cPurple) },
+                        onSelectedIndexChange = { idx ->
+                            homeLayout = layoutKeys[idx]
+                            store.homeLayout = homeLayout
+                            HomeLayoutRevision.bump()
+                        },
                     )
                 }
                 if (showBottomTabs) {

@@ -126,4 +126,10 @@ interface HomeHost {
 
     /** 点开「子系统连接状态」的明细（那一层弹窗是各端自己的画法，所以是槽位）。 */
     fun onOpenStatus() {}
+
+    /** 点小组件里带链接的一条明细：网址打开原文，`tel:` 拨号。 */
+    fun onOpenLink(link: String) {}
+
+    /** 当前付款码（大尺寸付款码小组件直接画二维码）；null = 这一端拿不到或还没登录校园卡。 */
+    suspend fun paymentCode(): String? = null
 }
