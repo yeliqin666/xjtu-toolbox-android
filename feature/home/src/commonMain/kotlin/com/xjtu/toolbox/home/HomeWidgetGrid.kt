@@ -93,6 +93,7 @@ import com.xjtu.toolbox.nav.AppRoute
 import com.xjtu.toolbox.nav.expandOriginSource
 import com.xjtu.toolbox.nav.rememberExpandOriginSource
 import com.xjtu.toolbox.platform.qrCodeModules
+import com.xjtu.toolbox.platform.BackHandler
 import com.xjtu.toolbox.settings.HomeLayoutRevision
 import com.xjtu.toolbox.settings.SettingsStore
 import com.xjtu.toolbox.ui.components.CodeMatrixView
@@ -134,6 +135,9 @@ internal fun HomeWidgetGrid(
     }
     var editing by remember { mutableStateOf(false) }
     var adding by remember { mutableStateOf(false) }
+    BackHandler(enabled = editing || adding) {
+        if (adding) adding = false else editing = false
+    }
     fun save(next: List<HomeWidgetSpec>) {
         widgets = next
         store.homeWidgets = HomeWidgetLayout.encode(next)
@@ -497,6 +501,26 @@ private fun WidgetTile(
 
 @Composable
 private fun WidgetContent(row: HomeServiceRow, size: WidgetSize, ink: Color, onLink: ((String) -> Unit)?) {
+    if (size == WidgetSize.TALL || size == WidgetSize.LARGE) {
+        if (row.stat.isNullOrBlank() && row.lines.isEmpty()) {
+            Column(Modifier.fillMaxSize().padding(12.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
+                WidgetIcon(row, if (size == WidgetSize.LARGE) 42.dp else 30.dp, ink)
+                Spacer(Modifier.height(8.dp))
+                Text(row.title, fontSize = 11.sp, lineHeight = 14.sp, color = ink, maxLines = 2)
+                Spacer(Modifier.height(5.dp))
+                Text(row.subtitle, fontSize = 10.sp, lineHeight = 14.sp, color = ink.copy(alpha = 0.65f), maxLines = 3, overflow = TextOverflow.Ellipsis)
+            }
+            return
+        }
+        if (row.key == AppRoute.Games.id && row.lines.isNotEmpty()) {
+            GamesWidgetContent(row, size, ink, onLink)
+            return
+        }
+        if (row.key == AppRoute.Fitness.id && row.stat != null) {
+            FitnessWidgetContent(row, size, ink, onLink)
+            return
+        }
+    }
     val muted = ink.copy(alpha = 0.68f)
     val stat = row.stat?.takeIf { it.isNotBlank() }
     val figure = stat != null && stat.length <= FIGURE_MAX_CHARS && row.key !in LIST_WIDGETS
@@ -531,7 +555,10 @@ private fun WidgetContent(row: HomeServiceRow, size: WidgetSize, ink: Color, onL
                 Text(stat ?: lines.firstOrNull()?.text ?: row.subtitle,
                     style = if (figure) Editorial.figure.copy(fontSize = 19.sp, lineHeight = 23.sp)
                         else MiuixTheme.textStyles.body2.copy(fontSize = 12.sp, lineHeight = 16.sp),
-                    color = figureColor, maxLines = if (figure) 1 else 2, overflow = TextOverflow.Ellipsis)
+                    color = figureColor, maxLines = if (figure || lines.firstOrNull()?.detail != null) 1 else 2, overflow = TextOverflow.Ellipsis)
+                (if (figure) row.statDetail else lines.firstOrNull()?.detail)?.let {
+                    Text(it, fontSize = 9.5.sp, lineHeight = 12.sp, color = muted, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
             }
         }
         WidgetSize.TALL, WidgetSize.LARGE -> {
@@ -571,42 +598,9 @@ private fun WidgetContent(row: HomeServiceRow, size: WidgetSize, ink: Color, onL
                     }
                     if (detailLines.isNotEmpty()) {
                         FittedLines(detailLines, ink, onLink, actions, timeline = row.key == AppRoute.Schedule.id,
+                            wrap = !large || row.key == AppRoute.Community.id,
                             modifier = Modifier.weight(1f).fillMaxWidth())
                     }
-                }
-            }
-        }
-    }
-}
-
-/** 按实际剩余高度及系统字号计算行数，避免大字和明细互相挤出卡片。 */
-@Composable
-private fun FittedLines(
-    lines: List<HomeLine>, ink: Color, onLink: ((String) -> Unit)?, actions: Boolean, timeline: Boolean, modifier: Modifier,
-) {
-    BoxWithConstraints(modifier) {
-        val density = LocalDensity.current
-        val textHeight = with(density) { 16.sp.toDp() }
-        val padding = if (actions) 7.dp else 4.dp
-        val lineHeight = textHeight + padding * 2 + 1.dp
-        val count = (maxHeight / lineHeight).toInt().coerceAtLeast(0)
-        Column(verticalArrangement = Arrangement.spacedBy(1.dp)) {
-            lines.take(count).forEachIndexed { index, line ->
-                val clickable = line.link != null && onLink != null
-                Row(
-                    Modifier.fillMaxWidth()
-                        .clip(RoundedCornerShape(if (actions) 9.dp else 4.dp))
-                        .then(if (actions) Modifier.background(ink.copy(alpha = 0.075f)) else Modifier)
-                        .then(if (clickable) Modifier.clickable { onLink(line.link) } else Modifier)
-                        .padding(horizontal = if (actions) 8.dp else 0.dp, vertical = padding),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    if (timeline) {
-                        Box(Modifier.padding(end = 7.dp).size(4.dp).background(ink.copy(alpha = if (index == 0) 0.8f else 0.3f), CircleShape))
-                    }
-                    Text(line.text, fontSize = 11.5.sp, lineHeight = 16.sp, color = ink.copy(alpha = 0.9f),
-                        maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
-                    if (actions && clickable) Text("↗", fontSize = 12.sp, lineHeight = 16.sp, color = ink.copy(alpha = 0.6f))
                 }
             }
         }

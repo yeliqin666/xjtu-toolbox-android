@@ -29,6 +29,28 @@ object GameStore {
 
     fun recentRoutes(): List<String> = store().getString("recent_routes").orEmpty().split('|').filter { it in titles }
 
+    fun summary(routeId: String): String? {
+        val game = when (routeId) {
+            AppRoute.GameMerge.id -> GameIds.MERGE
+            AppRoute.Game2048.id -> GameIds.G2048
+            AppRoute.GameBlocks.id -> GameIds.BLOCKS
+            AppRoute.GameHop.id -> GameIds.HOP
+            AppRoute.GameGomoku.id -> GameIds.GOMOKU
+            AppRoute.GameGo.id -> GameIds.GO
+            AppRoute.GameXiangqi.id -> GameIds.XIANGQI
+            else -> return null
+        }
+        if (game in listOf(GameIds.GOMOKU, GameIds.GO, GameIds.XIANGQI)) {
+            val modes = listOf("easy", "hard", "hell", "local", "online")
+            val wins = modes.sumOf { wins(game, it) }
+            val losses = modes.sumOf { losses(game, it) }
+            val draws = modes.sumOf { draws(game, it) }
+            return if (wins + losses + draws > 0) "$wins 胜 · $losses 负 · $draws 和" else "继续对弈"
+        }
+        val best = if (game == GameIds.BLOCKS) com.xjtu.toolbox.game.blocks.BlocksMode.entries.maxOf { bestScore(com.xjtu.toolbox.game.blocks.blocksRecordId(it)) } else bestScore(game)
+        return if (best > 0) "最高 $best" else "继续挑战"
+    }
+
     fun recordOpened(routeId: String) {
         if (routeId !in titles) return
         store().putString("recent_routes", (listOf(routeId) + recentRoutes()).distinct().take(4).joinToString("|"))

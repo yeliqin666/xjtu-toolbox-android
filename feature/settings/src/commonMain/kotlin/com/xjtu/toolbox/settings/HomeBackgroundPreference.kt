@@ -10,6 +10,11 @@ import com.xjtu.toolbox.platform.decodeImage
 import com.xjtu.toolbox.platform.decodeImageSize
 import com.xjtu.toolbox.ui.components.encodeHeroImage
 import com.xjtu.toolbox.ui.components.rememberHeroImagePicker
+import com.xjtu.toolbox.ui.components.ImageCropContent
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.platform.LocalWindowInfo
+import top.yukonga.miuix.kmp.window.WindowDialog
+import top.yukonga.miuix.kmp.basic.Text
 import kotlin.io.encoding.Base64
 import kotlin.io.encoding.ExperimentalEncodingApi
 import kotlinx.coroutines.Dispatchers
@@ -23,17 +28,15 @@ import top.yukonga.miuix.kmp.preference.OverlayDropdownPreference
 internal fun HomeBackgroundPreference(store: SettingsStore, startAction: @Composable () -> Unit) {
     var mode by remember(HomeLayoutRevision.current) { mutableStateOf(store.homeBackground) }
     val scope = rememberCoroutineScope()
+    var cropSource by remember { mutableStateOf<ImageBitmap?>(null) }
+    var busy by remember { mutableStateOf(false) }
+    var error by remember { mutableStateOf<String?>(null) }
     val pickImage = rememberHeroImagePicker { bytes ->
         scope.launch {
-            val encoded = withContext(Dispatchers.Default) {
-                decodeImageSize(bytes)?.let { decodeImage(bytes, it, maxDim = 1600) }?.let(::encodeHeroImage)
+            cropSource = withContext(Dispatchers.Default) {
+                decodeImageSize(bytes)?.let { decodeImage(bytes, it, maxDim = 2048) }
             }
-            if (encoded != null) {
-                store.homeWallpaperImage = Base64.Default.encode(encoded)
-                store.homeBackground = "image"
-                mode = "image"
-                HomeLayoutRevision.bump()
-            }
+            error = if (cropSource == null) "这张图片读不出来，换一张试试" else null
         }
     }
     val modes = listOf("solid", "gradient", "image")
@@ -55,4 +58,29 @@ internal fun HomeBackgroundPreference(store: SettingsStore, startAction: @Compos
     if (mode == "image") {
         ArrowPreference(title = "更换背景图片", onClick = pickImage)
     }
+    val source = cropSource
+    if (source != null) {
+        val window = LocalWindowInfo.current.containerSize
+        WindowDialog(show = true, title = "截取主页壁纸", onDismissRequest = { if (!busy) cropSource = null }) {
+            ImageCropContent(
+                image = source, busy = busy, aspect = window.width.toFloat() / window.height.coerceAtLeast(1), maxOutput = 1600,
+                onCancel = { cropSource = null },
+                onCrop = { cropped ->
+                    busy = true
+                    scope.launch {
+                        val encoded = withContext(Dispatchers.Default) { encodeHeroImage(cropped) }
+                        busy = false
+                        if (encoded != null) {
+                            store.homeWallpaperImage = Base64.Default.encode(encoded)
+                            store.homeBackground = "image"
+                            mode = "image"
+                            cropSource = null
+                            HomeLayoutRevision.bump()
+                        } else error = "保存图片失败，请重试"
+                    }
+                },
+            )
+            error?.let { Text(it) }
+        }
+    } else error?.let { Text(it) }
 }

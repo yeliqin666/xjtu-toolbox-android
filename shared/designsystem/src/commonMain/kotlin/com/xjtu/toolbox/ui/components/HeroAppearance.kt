@@ -194,7 +194,7 @@ fun HeroAppearanceDialog(
     ) {
         val source = cropSource
         if (source != null) {
-            HeroCropContent(
+            ImageCropContent(
                 image = source,
                 busy = imageBusy,
                 onCancel = { cropSource = null },
