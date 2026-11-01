@@ -186,27 +186,29 @@ private fun DiscussionCard(discussion: GithubDiscussion, onClick: () -> Unit, mo
         onClick = onClick,
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            CommunityAvatar(discussion.authorAvatar, discussion.author, 22.dp)
-            Spacer(Modifier.width(8.dp))
-            Text(
-                discussion.author ?: "已注销用户",
-                style = MiuixTheme.textStyles.footnote1,
-                fontWeight = FontWeight.Medium,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.weight(1f, fill = false),
-            )
-            if (discussion.authorIsAdmin) {
-                Spacer(Modifier.width(4.dp))
-                AdminTag()
+            // 作者一组独占剩余宽度，分类标签才贴右；和 Spacer 各占 weight 会平分空白
+            Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
+                CommunityAvatar(discussion.authorAvatar, discussion.author, 22.dp)
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    discussion.author ?: "已注销用户",
+                    style = MiuixTheme.textStyles.footnote1,
+                    fontWeight = FontWeight.Medium,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f, fill = false),
+                )
+                if (discussion.authorIsAdmin) {
+                    Spacer(Modifier.width(4.dp))
+                    AdminTag()
+                }
+                Text(
+                    " · " + communityTime(discussion.updatedAt.ifEmpty { discussion.createdAt }),
+                    style = MiuixTheme.textStyles.footnote1,
+                    color = colors.onSurfaceVariantSummary,
+                    maxLines = 1,
+                )
             }
-            Text(
-                " · " + communityTime(discussion.updatedAt.ifEmpty { discussion.createdAt }),
-                style = MiuixTheme.textStyles.footnote1,
-                color = colors.onSurfaceVariantSummary,
-                maxLines = 1,
-            )
-            Spacer(Modifier.weight(1f))
             Spacer(Modifier.width(8.dp))
             CommunityTag(discussion.category.name)
         }

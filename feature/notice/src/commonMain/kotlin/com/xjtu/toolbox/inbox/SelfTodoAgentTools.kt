@@ -3,7 +3,6 @@ package com.xjtu.toolbox.inbox
 import androidx.compose.ui.graphics.toArgb
 import com.xjtu.toolbox.agent.AgentTools
 import com.xjtu.toolbox.agent.ToolReply
-import com.xjtu.toolbox.agent.ToolShow
 import com.xjtu.toolbox.schedule.CourseColors
 import com.xjtu.toolbox.util.AppJson
 import kotlinx.serialization.json.JsonArray
@@ -30,8 +29,6 @@ object SelfTodoAgentTools : AgentTools {
         put("type", type)
         put("description", description)
     }
-
-    private val show = ToolShow.PARAM to prop("boolean", ToolShow.DESCRIPTION)
 
     private fun enumProp(description: String, vararg values: String) = buildJsonObject {
         put("type", "string")
@@ -69,19 +66,18 @@ object SelfTodoAgentTools : AgentTools {
                             "note" to prop("string", "备注。"),
                             "priority" to enumProp("重要程度，只在列表标题旁标一下，不改变排序。缺省：none。", "none", "low", "medium", "high"),
                             "color" to prop("string", "这条待办在列表里的图标色，#RRGGBB。缺省：默认绿。"),
-                            show,
                             required = listOf("title"),
                         ),
                     ),
                     tool(
                         "get_todos",
                         "用户自己记的、还没办完的待办（含屁岱代记的）。不含学校事务、作业截止、评教等，那些在各自工具里。",
-                        params(show),
+                        params(),
                     ),
                     tool(
                         "complete_todo",
                         "把用户自己的一条待办标为已完成。title 模糊匹配；匹配到多条时返回候选，让用户选。",
-                        params("title" to prop("string", "待办标题或其中的关键词。"), show, required = listOf("title")),
+                        params("title" to prop("string", "待办标题或其中的关键词。"), required = listOf("title")),
                     ),
                 ),
             ),

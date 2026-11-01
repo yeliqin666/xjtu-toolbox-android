@@ -266,6 +266,18 @@ object InboxRules {
             .replace("&nbsp;", " ").replace("&lt;", "<").replace("&gt;", ">").replace("&amp;", "&")
             .lines().joinToString("\n") { it.trim() }.trim()
 
+    /** 屁岱推送在通知栏和收件箱里按纯文本显示：去掉模型偶尔带出的 Markdown 标记。 */
+    fun markdownToPlain(md: String): String =
+        md.lines().filterNot { it.trim().matches(Regex("""[-*_=|:\s]{3,}""")) }.joinToString("\n") { line ->
+            line.trim()
+                .replace(Regex("""^#{1,6}\s+"""), "")
+                .replace(Regex("""^>\s?"""), "")
+                .replace(Regex("""^[-*+]\s+"""), "· ")
+                .replace(Regex("""!?\[([^\]]*)]\([^)]*\)"""), "$1")
+                .replace(Regex("""(\*\*|__|~~|`)"""), "")
+                .replace(Regex("""(?<![\w*])\*(?!\s)([^*\n]+?)\*(?!\w)"""), "$1")
+        }.replace(Regex("\n{3,}"), "\n\n").trim()
+
     /**
      * 用户已经在别处（屁岱气泡、系统通知）看过这件事：[ids] 和 [category] 下的消息标已读，
      * [category] 下的待办标已看。气泡和收纳是同一件事的两个出口，不能各算各的已读。

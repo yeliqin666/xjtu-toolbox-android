@@ -33,6 +33,11 @@ class FitnessLogin(
             lastLaunch = null
             throw RuntimeException("体测会话初始化失败")
         }
+        // 学年、成绩还走 legacy PHP，要先建会话；失败不挡登录，取数时会再补。
+        runCatching {
+            val tokens = mutableMapOf<String, String>().also { FitnessProtocol.writeTokens(it, extracted) }
+            FitnessProtocol.checkLogin(client, tokens)
+        }
     }
 
     private fun extractOrRetry(callbackUrl: String): FitnessLaunch {

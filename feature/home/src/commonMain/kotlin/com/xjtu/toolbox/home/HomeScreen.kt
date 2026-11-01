@@ -1,6 +1,5 @@
 package com.xjtu.toolbox.home
 
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -320,11 +319,9 @@ private fun HomeCollapsingBar(
             Modifier.fillMaxWidth().padding(top = topInset).height(BAR_HEIGHT).padding(start = 20.dp, end = 16.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Image(
-                HomeSeal.Square,
-                contentDescription = "岱宗盒子",
-                modifier = Modifier.size(26.dp).graphicsLayer {
-                    // 红印不跟着玻璃瞬现，随着上滑慢慢淡入、放大
+            com.xjtu.toolbox.ui.components.JiaoxiaoxiAvatar(
+                Modifier.size(28.dp).graphicsLayer {
+                    // 头像不跟着玻璃瞬现，随着上滑慢慢淡入、放大
                     val f = progress()
                     alpha = f
                     scaleX = 0.78f + 0.22f * f
@@ -502,7 +499,7 @@ private fun EditorialMasthead(
                 if (weekNumber in 1..MAX_TEACHING_WEEK) {
                     Text("  ", fontSize = 12.sp, color = muted.copy(alpha = 0.5f))
                     Text("第 $weekNumber 周", fontSize = 12.sp,
-                        color = if (LocalIsDarkTheme.current) lerp(HomeSeal.Red, ink, 0.35f) else HomeSeal.Red,
+                        color = if (LocalIsDarkTheme.current) lerp(WeekRed, ink, 0.35f) else WeekRed,
                         maxLines = 1)
                 }
                 if (status != null) {
@@ -1091,6 +1088,9 @@ private fun Modifier.opensRow(
 
 /** 首页各卡之间统一的间距。 */
 private val SECTION_GAP = 14.dp
+
+/** 刊头「第 N 周」的朱红。 */
+private val WeekRed = Color(0xFFB2362B)
 
 /** 液体卡上承托白字的暗色罩：顶部稍重、中间最透、底部再压回来。 */
 private val LiquidCardScrim = Brush.verticalGradient(

@@ -14,6 +14,7 @@ import com.xjtu.toolbox.account.restoreIfNeeded
 import com.xjtu.toolbox.auth.AppLoginState
 import com.xjtu.toolbox.inbox.InboxCategories
 import com.xjtu.toolbox.inbox.InboxItem
+import com.xjtu.toolbox.inbox.InboxRules
 import com.xjtu.toolbox.inbox.InboxStore
 import com.xjtu.toolbox.inbox.SelfTodoRules
 import com.xjtu.toolbox.inbox.SelfTodoStore
@@ -71,8 +72,8 @@ class PidaiJobWorker(context: Context, params: WorkerParameters) : CoroutineWork
     private suspend fun runBrief(context: Context, engine: AgentInsightEngine, spec: InsightSpec, key: String, input: String) {
         if (key == "morning" || key == "evening") PidaiJobBudget.take(context, nowOnCampus().date.toString())
         val ok = engine.run(spec, input, force = true) as? InsightOutcome.Ok ?: return
-        val title = ok.json["title"].safeStringOrNull()?.trim().orEmpty()
-        val body = ok.json["body"].safeStringOrNull()?.trim().orEmpty()
+        val title = InboxRules.markdownToPlain(ok.json["title"].safeStringOrNull().orEmpty())
+        val body = InboxRules.markdownToPlain(ok.json["body"].safeStringOrNull().orEmpty())
         if (title.isEmpty() || body.isEmpty()) return
         val at = Clock.System.now().toEpochMilliseconds()
         InboxStore.post(
@@ -131,7 +132,7 @@ class PidaiJobWorker(context: Context, params: WorkerParameters) : CoroutineWork
 - 只说今天要知道、要做的事；先说最要紧的。余额不多才提余额。
 - 语气是朋友提醒，不要客套。
 只输出：{"title":"不超过 16 字","body":"不超过 120 字，2–4 行，每行一件事"}
-            """.trimIndent(),
+            """.trimIndent() + PLAIN_TEXT,
         )
 
         private val EVENING_BRIEF = InsightSpec(
@@ -141,7 +142,7 @@ class PidaiJobWorker(context: Context, params: WorkerParameters) : CoroutineWork
             instruction = """
 任务：写一条晚上的「明日预告」推送：明天第一节几点在哪、要带什么、哪些待办快到期。明天没课就说一声，提醒一件最该做的事。
 只输出：{"title":"不超过 16 字","body":"不超过 100 字，2–3 行"}
-            """.trimIndent(),
+            """.trimIndent() + PLAIN_TEXT,
         )
 
         private fun taskSpec(prompt: String) = InsightSpec(
@@ -152,8 +153,11 @@ class PidaiJobWorker(context: Context, params: WorkerParameters) : CoroutineWork
 任务：执行用户交给你的定时任务，结果会作为推送发给他。后台没有登录学校系统，只能用给你的工具。
 没发现值得告诉他的，就输出 {"title":"","body":""}，不要硬凑。
 只输出：{"title":"不超过 16 字","body":"不超过 150 字"}
-            """.trimIndent(),
+            """.trimIndent() + PLAIN_TEXT,
         )
+
+        /** 推送在通知栏按纯文本显示。 */
+        private const val PLAIN_TEXT = "\ntitle 和 body 都是纯文本：不用 Markdown（**、#、-、反引号、[链接](…)），分行直接换行。"
     }
 }
 

@@ -127,7 +127,15 @@ class FitnessApi(private val site: SiteSession) : FitnessSource {
         return dataElement.jsonObject
     }
 
-    private suspend fun postLegacy(url: String, body: FormBody) =
+    /** legacy 会话没建立或过期时先用 token 补一次 checkLogin 再重试。 */
+    private suspend fun postLegacy(url: String, body: FormBody): JsonObject =
+        runCatching { postLegacyOnce(url, body) }.getOrElse { e ->
+            if (e is AuthExpiredException || e is FitnessServiceUnavailableException || e is kotlinx.coroutines.CancellationException) throw e
+            if (!FitnessProtocol.checkLogin(site.client, site.localToken)) throw e
+            postLegacyOnce(url, body)
+        }
+
+    private suspend fun postLegacyOnce(url: String, body: FormBody) =
         site.executeWithReAuth(
                 Request.Builder()
                     .url(url)
