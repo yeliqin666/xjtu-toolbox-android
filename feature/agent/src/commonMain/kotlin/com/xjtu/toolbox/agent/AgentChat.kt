@@ -159,7 +159,7 @@ internal fun ChatPanel(
             Box(Modifier.fillMaxSize().clipToBounds()) {
             key(vm.currentSessionId) {
                 val listState = rememberLazyListState()
-                val chatRows = groupAgentRows(vm.messages, config.showReasoning)
+                val chatRows = groupAgentRows(vm.messages, config.showReasoning, vm.isLoading)
                 LaunchedEffect(chatRows.size, vm.isLoading) {
                     if (chatRows.isNotEmpty() && AgentPushFocus.highlight == null) listState.scrollToItem(chatRows.lastIndex)
                 }
@@ -171,7 +171,7 @@ internal fun ChatPanel(
                     try {
                         val idx = withTimeoutOrNull(3000) {
                             snapshotFlow {
-                                groupAgentRows(vm.messages, showReasoning)
+                                groupAgentRows(vm.messages, showReasoning, vm.isLoading)
                                     .indexOfFirst { it is AgentRow.Assistant && it.msg.timestamp == at }
                             }.first { it >= 0 }
                         } ?: return@LaunchedEffect
@@ -217,9 +217,6 @@ internal fun ChatPanel(
                             editingLast = true
                         },
                     )
-                    is AgentRow.Tools -> Box(Modifier.padding(horizontal = 8.dp)) {
-                        ToolCallNote(row.events)
-                    }
                     is AgentRow.Assistant -> PushFlash(
                         active = flashAt != null && row.msg.timestamp == flashAt,
                         card = vm.currentSessionId == AgentPushFocus.SESSION_ID,
@@ -235,19 +232,6 @@ internal fun ChatPanel(
                             onAskFromWidget = ::askFromWidget,
                         )
                     }
-                }
-            }
-            val last = vm.messages.lastOrNull()
-            // 还没有任何在动的东西可看时给一条「思考中」占位：刚发出去，或者模型在想但思考不显示
-            val showThinking = vm.isLoading && when {
-                last == null || last.role == "user" -> true
-                isToolRole(last.role) -> false
-                last.content.isBlank() -> last.reasoningContent.isBlank() || !config.showReasoning
-                else -> false
-            }
-            if (showThinking) {
-                item {
-                    ReasoningBar(text = "", streaming = true)
                 }
             }
                 }
@@ -414,82 +398,6 @@ private fun PushFlash(active: Boolean, card: Boolean = false, content: @Composab
     ) { content() }
 }
 
-private fun isToolRole(role: String) = role == "tool_event"
-private sealed class AgentRow {
-    abstract val key: String
-    data class User(val msg: ChatMessage, override val key: String) : AgentRow()
-    data class Tools(val events: List<ChatMessage>, override val key: String) : AgentRow()
-    data class Assistant(
-        val msg: ChatMessage,
-        override val key: String,
-        val tools: List<ChatMessage> = emptyList(),
-    ) : AgentRow()
-}
-/**
- * 把消息流排成聊天行：连续的思考合并成一条挂在下一段正文上（有正文才分段），
- * 不显示思考时纯思考消息不出行；工具记录、结果小卡、跳转按钮归到该轮最后一行。
- */
-private fun groupAgentRows(messages: List<ChatMessage>, showReasoning: Boolean): List<AgentRow> {
-    val out = mutableListOf<AgentRow>()
-    var i = 0
-    while (i < messages.size) {
-        val m = messages[i]
-        if (m.role == "user") {
-            out += AgentRow.User(m, "u-${m.timestamp}-$i")
-            i++
-            continue
-        }
-        val start = i
-        val tools = mutableListOf<ChatMessage>()
-        val block = mutableListOf<ChatMessage>()
-        while (i < messages.size && messages[i].role != "user") {
-            if (isToolRole(messages[i].role)) tools += messages[i] else block += messages[i]
-            i++
-        }
-        val allWidgets = block.flatMap { it.widgets }
-        val allNav = block.flatMap { it.navSuggestions }.distinctBy { it.second }
-
-        // key 取段内第一条消息：思考变长、正文出来时仍是同一行，不闪
-        val rows = mutableListOf<AgentRow.Assistant>()
-        val reasoning = mutableListOf<String>()
-        var segmentStart: ChatMessage? = null
-        fun mergedReasoning() = if (showReasoning) reasoning.joinToString("\n\n") else ""
-        for (a in block) {
-            val first = segmentStart ?: a.also { segmentStart = it }
-            if (a.reasoningContent.isNotBlank()) reasoning += a.reasoningContent.trim()
-            if (a.content.isNotBlank()) {
-                rows += AgentRow.Assistant(
-                    a.copy(reasoningContent = mergedReasoning()),
-                    "a-${first.timestamp}-$start-${rows.size}",
-                )
-                reasoning.clear()
-                segmentStart = null
-            }
-        }
-        val tailStart = segmentStart
-        if (tailStart != null && mergedReasoning().isNotBlank()) {
-            rows += AgentRow.Assistant(
-                block.last().copy(content = "", reasoningContent = mergedReasoning()),
-                "a-${tailStart.timestamp}-$start-${rows.size}",
-            )
-        }
-        if (rows.isEmpty() && (allWidgets.isNotEmpty() || allNav.isNotEmpty())) {
-            val last = block.last()
-            rows += AgentRow.Assistant(last.copy(content = "", reasoningContent = ""), "a-w-${last.timestamp}-$start")
-        }
-        if (rows.isNotEmpty()) {
-            val last = rows.last()
-            rows[rows.lastIndex] = last.copy(
-                msg = last.msg.copy(widgets = allWidgets, navSuggestions = allNav),
-                tools = tools,
-            )
-            out += rows
-        } else if (tools.isNotEmpty()) {
-            out += AgentRow.Tools(tools, "t-${tools.first().timestamp}-$start")
-        }
-    }
-    return out
-}
 /** 思考、工具调用共用的过程小卡：收起时一行摘要，点开看全部。 */
 @Composable
 private fun AgentTraceCard(
@@ -689,14 +597,17 @@ private fun MessageBubble(
                     .padding(horizontal = 8.dp),
                 horizontalAlignment = Alignment.Start
             ) {
-                if (showReasoning && msg.reasoningContent.isNotBlank()) {
+                if (showReasoning && msg.reasoningContent.isNotBlank() || streaming && msg.content.isBlank()) {
                     ReasoningBar(
-                        text = msg.reasoningContent,
+                        text = if (showReasoning) msg.reasoningContent else "",
                         streaming = streaming,
                         onNavigate = onNavigate,
                         images = host.images,
                     )
-                    if (msg.content.isNotBlank()) Spacer(Modifier.height(6.dp))
+                    if (msg.content.isNotBlank() && toolEvents.isEmpty()) Spacer(Modifier.height(6.dp))
+                }
+                if (toolEvents.isNotEmpty()) {
+                    ToolCallNote(toolEvents, Modifier.padding(top = 6.dp, bottom = if (msg.content.isNotBlank()) 8.dp else 0.dp))
                 }
                 if (msg.content.isNotBlank()) {
                     MarkdownText(
@@ -760,9 +671,6 @@ private fun MessageBubble(
                             }
                         }
                     }
-                }
-                if (toolEvents.isNotEmpty()) {
-                    ToolCallNote(toolEvents, Modifier.padding(top = 8.dp))
                 }
             }
         }
