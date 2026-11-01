@@ -61,7 +61,6 @@ fun DiscussionsScreen(
     /** 当前登录的 GitHub 用户名，「我发的」用。 */
     me: String,
     onAccount: () -> Unit,
-    onLegacyFeedback: () -> Unit,
     /** 由外层持有：进帖子时这一页会被换掉，回来要停在原来的位置。 */
     listState: LazyListState = rememberLazyListState(),
 ) {
@@ -134,7 +133,6 @@ fun DiscussionsScreen(
                         }
                     }
                 }
-                item(key = "legacy") { LegacyFeedbackEntry(onLegacyFeedback) }
                 when {
                     state.items.isEmpty() && state.loading -> item(key = "loading") {
                         LoadingState("正在加载帖子…", Modifier.fillMaxWidth().padding(vertical = 48.dp))

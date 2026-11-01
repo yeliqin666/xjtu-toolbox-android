@@ -47,11 +47,10 @@ fun CommunityScreen(
     /** 设备码登录的实现（okhttp，留在 :app）。由导航层注入，界面不再自己造。 */
     deviceAuth: GithubDeviceAuthRepository,
     onBack: () -> Unit,
-    onOpenLegacyFeedback: () -> Unit,
 ) {
     // MIUIX 的 OverlayDialog 只在某个 Scaffold 底下才渲染得出来：账号弹窗、删除确认、放弃编辑这些
     // 都写在各页 Scaffold 的外面，这一层外壳给它们兜底，弹窗也就铺满全屏
-    Scaffold { _ -> CommunityContent(session, deviceAuth, onBack, onOpenLegacyFeedback) }
+    Scaffold { _ -> CommunityContent(session, deviceAuth, onBack) }
 }
 
 @Composable
@@ -59,15 +58,14 @@ private fun CommunityContent(
     session: GithubSession,
     deviceAuth: GithubDeviceAuthRepository,
     onBack: () -> Unit,
-    onOpenLegacyFeedback: () -> Unit,
 ) {
     val login by session.login.collectAsStateWithLifecycle()
     // 登录 / 退出时两套界面淡入淡出地换
     Crossfade(targetState = login, animationSpec = tween(300), label = "communityLogin") { signedIn ->
         if (signedIn == null) {
-            CommunityLoginScreen(session, deviceAuth, onBack, onOpenLegacyFeedback)
+            CommunityLoginScreen(session, deviceAuth, onBack)
         } else {
-            CommunityForum(session, signedIn, onBack, onOpenLegacyFeedback)
+            CommunityForum(session, signedIn, onBack)
         }
     }
 }
@@ -85,7 +83,6 @@ private fun CommunityForum(
     session: GithubSession,
     signedIn: String,
     onBack: () -> Unit,
-    onOpenLegacyFeedback: () -> Unit,
 ) {
     val repo = session.repository
     val vm: DiscussionsViewModel = viewModel(key = "community-$signedIn") {
@@ -149,7 +146,6 @@ private fun CommunityForum(
                 onAuthor = vm::selectAuthor,
                 me = signedIn,
                 onAccount = { accountDialog = true },
-                onLegacyFeedback = onOpenLegacyFeedback,
                 listState = listState,
             )
         }
@@ -189,7 +185,6 @@ private fun CommunityLoginScreen(
     session: GithubSession,
     auth: GithubDeviceAuthRepository,
     onBack: () -> Unit,
-    onOpenLegacyFeedback: () -> Unit,
 ) {
     val uriHandler = LocalUriHandler.current
     val scope = rememberCoroutineScope()
@@ -338,9 +333,6 @@ private fun CommunityLoginScreen(
                     modifier = Modifier.clickable(onClick = onClick),
                 )
             }
-
-            Spacer(Modifier.height(8.dp))
-            LegacyFeedbackEntry(onOpenLegacyFeedback)
         }
     }
 }
@@ -426,11 +418,4 @@ private fun ManualTokenLogin(
 private const val GITHUB_NEW_TOKEN_URL =
     "https://github.com/settings/tokens/new?scopes=public_repo,write:discussion&description=XJTU%20Toolbox%20community"
 
-/** 旧的页内反馈（飞书多维表格）挪到社区里当二级入口，准备停用。 */
-@Composable
-fun LegacyFeedbackEntry(onClick: () -> Unit) =
-    com.xjtu.toolbox.ui.components.SecondaryEntry(
-        androidx.compose.material.icons.Icons.Default.Info, MiuixTheme.colorScheme.onSurfaceVariantSummary,
-        "旧版反馈", "不用登录的页内反馈，建议改到社区发帖", status = "即将停用", onClick = onClick,
-    )
 

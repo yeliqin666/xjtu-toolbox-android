@@ -32,7 +32,6 @@ import com.xjtu.toolbox.core.net.CampusFeedbackApi
 import com.xjtu.toolbox.core.net.CampusPayApi
 import com.xjtu.toolbox.core.net.CampusWebVpnApi
 import com.xjtu.toolbox.core.net.CampusJwxtScheduleApi
-import com.xjtu.toolbox.feedback.FeedbackScreen
 import com.xjtu.toolbox.pay.PaymentCodeScreen
 import com.xjtu.toolbox.pay.PaymentSelectionStore
 import com.xjtu.toolbox.social.MatchScreen
@@ -589,26 +588,6 @@ private fun AppPage(
             }
         }
 
-        AppRoute.Feedback -> if (mode != ApiMode.SERVE) {
-            WebServeOnlyScreen(
-                title = "反馈与建议",
-                endpoints = "GET /api/feedback/replies + /api/feedback/public-qa + POST /api/feedback/submit",
-                why = "反馈没有校园站点会话：凭据由 serve 进程启动时读 FEEDBACK_* 环境变量注入。",
-                section = "§5.7",
-            )
-        } else {
-            Column(Modifier.fillMaxSize()) {
-                WebGapNote("反馈记录保存在当前浏览器，清除浏览器数据后将无法查看。")
-                Box(Modifier.weight(1f)) {
-                    FeedbackScreen(
-                        source = remember(client, mode) { CampusFeedbackApi(client, API_BASE, mode) },
-                        onOpenUrl = { openInNewTab(it) },
-                        onBack = back,
-                    )
-                }
-            }
-        }
-
         // 匹配交友：共享屏 + `WebMatchHost`，只读本机缓存；扫码走 `WebMatchScanner`。
         AppRoute.Match -> MatchScreen(
             host = remember { WebMatchHost() },
@@ -644,7 +623,6 @@ private fun AppPage(
             // 登录页本身是共享屏，输入框由 supportsManualToken 长出来，:app 那边不会出现。
             deviceAuth = remember(session) { WebGithubDeviceAuth(session) },
             onBack = back,
-            onOpenLegacyFeedback = {},
         )
 
         AppRoute.Accounts -> if (mode != ApiMode.SERVE) {

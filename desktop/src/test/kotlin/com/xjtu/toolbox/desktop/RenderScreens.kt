@@ -32,9 +32,6 @@ import com.xjtu.toolbox.error.FriendlyError
 import com.xjtu.toolbox.faculty.FacultyApi
 import com.xjtu.toolbox.faculty.FacultyApiSource
 import com.xjtu.toolbox.faculty.FacultyScreen
-import com.xjtu.toolbox.feedback.FeedbackApi
-import com.xjtu.toolbox.feedback.FeedbackFakeUpstream
-import com.xjtu.toolbox.feedback.FeedbackStore
 import com.xjtu.toolbox.jiaocai1.Jiaocai1FakeUpstream
 import com.xjtu.toolbox.library.LibraryFakeUpstream
 import com.xjtu.toolbox.library.LibraryScreen
@@ -414,41 +411,6 @@ fun main(args: Array<String>) {
         ) { ToolboxDesktopApp(auth, DesktopTarget.App(AppRoute.Community)) }
         check(communityShown) {
             "community.png：屏上没有夹具那条帖子（${CommunityFakeUpstream.DISCUSSION_TITLE}）—— 多半没取到数"
-        }
-
-        // 反馈：注入指向夹具的凭据，并往本地账本补一张工单，图上才看得到开发者回复。
-        FeedbackApi.config = FeedbackApi.Config(
-            appId = FeedbackFakeUpstream.APP_ID,
-            appSecret = FeedbackFakeUpstream.APP_SECRET,
-            baseToken = FeedbackFakeUpstream.BASE_TOKEN,
-            submitTable = FeedbackFakeUpstream.SUBMIT_TABLE,
-            replyTable = FeedbackFakeUpstream.REPLY_TABLE,
-            versionLabel = "${DesktopBuildConfig.VERSION_NAME} (desktop)",
-            deviceLabel = "Linux amd64（证据运行）",
-            osLabel = "Linux / Java（证据运行）",
-        )
-        FeedbackStore.addTicket(
-            FeedbackStore.Ticket(
-                id = FeedbackFakeUpstream.TICKET,
-                category = "功能坏了",
-                content = "示例反馈：桌面端的按钮点不动（证据运行自己写进账本的那一条）",
-                createdAt = java.lang.System.currentTimeMillis(),
-            ),
-        )
-        var feedbackShown = false
-        shot(
-            "feedback.png",
-            // 比其余图高：要把工单下面的开发者回复框进来。
-            height = 1400,
-            frames = 20,
-            onFrame = { frame, scene ->
-                if (!feedbackShown && frame >= 5) {
-                    feedbackShown = hasText(scene, FeedbackFakeUpstream.REPLY_TEXT)
-                }
-            },
-        ) { ToolboxDesktopApp(auth, DesktopTarget.App(AppRoute.Feedback)) }
-        check(feedbackShown) {
-            "feedback.png：屏上没有夹具那条回复（${FeedbackFakeUpstream.REPLY_TEXT}）—— 多半没取到数"
         }
 
         // ⚠️ 先把使用声明置成已读：miuix 的 `WindowDialog` 在离屏场景里建不出来。
