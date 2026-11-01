@@ -1342,8 +1342,11 @@ private fun GroupEditDialog(
     var title by remember(group.id) { mutableStateOf(group.title) }
     // 空串 = 跟随主题
     var followTheme by remember(group.id) { mutableStateOf(group.colorHex.isEmpty()) }
+    // 主题色要在组合上下文取好再喂给 remember——remember 的 calculation lambda 不是
+    // @Composable 上下文，里面直接读 MiuixTheme 会编译报错
+    val defaultTint = MiuixTheme.colorScheme.primary
     var picked by remember(group.id) {
-        mutableStateOf(CourseColors.parseHex(group.colorHex) ?: MiuixTheme.colorScheme.primary)
+        mutableStateOf(CourseColors.parseHex(group.colorHex) ?: defaultTint)
     }
     WindowDialog(show = true, title = "分组设置", onDismissRequest = onDismiss) {
         Column(
