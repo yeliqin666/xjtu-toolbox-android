@@ -108,13 +108,14 @@ fun SettingsScreen(
     var showHomeSettings by rememberSaveable { mutableStateOf(false) }
     // store 要在组合里取（remember 是 @Composable），effect 里只做「读一次旗标」这件事
     val homeLayoutStore = remember { HomeLayoutStore() }
-    // 首页编辑态的「齿轮」会先置一次性旗标再打开设置页：这里读到就自动展开「主页设置」面板
+    // 首页编辑态的「齿轮」会先置一次性旗标再跳到设置页：这里读到就直接把「主页设置」抽屉弹出来
     LaunchedEffect(Unit) {
         if (homeLayoutStore.consumePendingHomeSettings()) showHomeSettings = true
     }
     // 和压栈打开子页同一套转场（AppPageMotion）：新页从右侧整屏滑入，
     // 被盖住的设置页向左让出 1/4 屏并轻微压暗，与「我的 → 设置」一致。
-    val overlayOpen = showCredits || showHomeSettings
+    // 「主页设置」不再是二级页，是底部抽屉（补充 §29），所以这里只算致谢那一页
+    val overlayOpen = showCredits
     val cover by animateFloatAsState(
         targetValue = if (overlayOpen) 1f else 0f,
         animationSpec = tween(AppPageMotion.DurationMillis, easing = AppPageMotion.Easing),
@@ -126,6 +127,8 @@ fun SettingsScreen(
             store, host, onBack,
             onOpenCredits = { showCredits = true },
             onOpenHomeSettings = { showHomeSettings = true },
+            showHomeSettingsSheet = showHomeSettings,
+            onDismissHomeSettingsSheet = { showHomeSettings = false },
             modifier = Modifier.graphicsLayer {
                 translationX = (if (rtl) 1f else -1f) * cover * size.width * 0.25f
                 alpha = 1f - 0.1f * cover
@@ -140,13 +143,8 @@ fun SettingsScreen(
                 tween(AppPageMotion.DurationMillis, easing = AppPageMotion.Easing),
             ) { if (rtl) -it else it },
         ) {
-            if (showHomeSettings) {
-                BackHandler { showHomeSettings = false }
-                HomeSettingsScreen(onBack = { showHomeSettings = false })
-            } else {
-                BackHandler { showCredits = false }
-                CreditsScreen(host = host, onBack = { showCredits = false })
-            }
+            BackHandler { showCredits = false }
+            CreditsScreen(host = host, onBack = { showCredits = false })
         }
     }
 }
@@ -158,6 +156,8 @@ private fun SettingsHome(
     onBack: () -> Unit,
     onOpenCredits: () -> Unit,
     onOpenHomeSettings: () -> Unit,
+    showHomeSettingsSheet: Boolean,
+    onDismissHomeSettingsSheet: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
 
@@ -631,6 +631,8 @@ private fun SettingsHome(
         // ── 弹层（必须在 Scaffold 内，MiuixPopupHost 才能渲染）──
         ChangelogSheet(show = showChangelog, entries = host.changelog, onDismiss = { showChangelog = false })
         EulaSheet(show = showEula, onDismiss = { showEula = false })
+        // 主页设置：和首页编辑态齿轮打开的是同一个抽屉（同一份 HomeLayoutStore）
+        HomeSettingsSheet(show = showHomeSettingsSheet, onDismiss = onDismissHomeSettingsSheet)
     }
 }
 
