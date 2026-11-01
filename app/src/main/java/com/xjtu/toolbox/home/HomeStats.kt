@@ -57,6 +57,7 @@ object HomeStats {
     // v4：空结果退避由 6 小时收到 1 小时，同时作废旧戳立即重拉一轮。
     // （升版号是让设备上已有的退避戳失效的唯一手段——戳存在 DataCache 里，重装不清。）
     private const val STAMP_PREFIX = "home_stat_at4_"
+    private fun stampKey(routeId: String) = STAMP_PREFIX + routeId + if (routeId == AppRoute.Lms().id) "_start_time" else ""
 
     fun stamps(
         context: Context,
@@ -65,13 +66,13 @@ object HomeStats {
     ): Map<String, Long> {
         val cache = DataCache(context, accountId)
         return routes.map { it.id }.associateWith { k ->
-            cache.get(STAMP_PREFIX + k, Long.MAX_VALUE)?.toLongOrNull() ?: 0L
+            cache.get(stampKey(k), Long.MAX_VALUE)?.toLongOrNull() ?: 0L
         }
     }
 
     /** 让这个源在下一轮刷新里过期（戳归零）。 */
     fun invalidate(context: Context, route: AppRoute, accountId: String? = com.xjtu.toolbox.account.AccountContext.activeAccountId) {
-        runCatching { DataCache(context, accountId).put(STAMP_PREFIX + route.id, "0") }
+        runCatching { DataCache(context, accountId).put(stampKey(route.id), "0") }
     }
 
     /** 失败后的重试间隔。见 [markFailed]。 */
@@ -81,7 +82,7 @@ object HomeStats {
     const val EMPTY_RETRY_MS = 1L * 60 * 60 * 1000L
 
     fun markFetched(context: Context, route: AppRoute, accountId: String? = com.xjtu.toolbox.account.AccountContext.activeAccountId) {
-        runCatching { DataCache(context, accountId).put(STAMP_PREFIX + route.id, System.currentTimeMillis().toString()) }
+        runCatching { DataCache(context, accountId).put(stampKey(route.id), System.currentTimeMillis().toString()) }
     }
 
     /**
@@ -95,7 +96,7 @@ object HomeStats {
     fun markFailed(context: Context, route: AppRoute, ttlMs: Long, accountId: String? = com.xjtu.toolbox.account.AccountContext.activeAccountId) {
         runCatching {
             val fakeLast = System.currentTimeMillis() - ttlMs + FAILURE_RETRY_MS
-            DataCache(context, accountId).put(STAMP_PREFIX + route.id, fakeLast.toString())
+            DataCache(context, accountId).put(stampKey(route.id), fakeLast.toString())
         }
     }
 
@@ -109,7 +110,7 @@ object HomeStats {
     fun markEmpty(context: Context, route: AppRoute, ttlMs: Long, accountId: String? = com.xjtu.toolbox.account.AccountContext.activeAccountId) {
         runCatching {
             val fakeLast = System.currentTimeMillis() - ttlMs + EMPTY_RETRY_MS
-            DataCache(context, accountId).put(STAMP_PREFIX + route.id, fakeLast.toString())
+            DataCache(context, accountId).put(stampKey(route.id), fakeLast.toString())
         }
     }
 
