@@ -54,7 +54,6 @@ internal object WebSupport {
         AppRoute.JwappScore,
         AppRoute.Iclassface,
         AppRoute.PaymentCode,
-        AppRoute.Feedback,
         AppRoute.Match,
         AppRoute.WebVpnConverter,
         // 游戏：合集 + 合集里那六屏（它们在目录里只有「小游戏」一条，子路由由合集屏自己往下走）

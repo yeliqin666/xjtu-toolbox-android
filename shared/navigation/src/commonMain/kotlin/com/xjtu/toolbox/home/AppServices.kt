@@ -101,7 +101,6 @@ object AppServices {
         AppService(AppRoute.DownloadManager, "下载管理", "课件与回放下载", ServiceCategory.TOOL, listOf("下载", "已下载"), showOnHome = false),
         AppService(AppRoute.Settings, "设置", "外观、校园网与通知", ServiceCategory.TOOL, listOf("偏好", "主题"), showOnHome = false),
         AppService(AppRoute.Accounts, "账号管理", "管理校园账号", ServiceCategory.TOOL, listOf("切换账号", "多账号"), showOnHome = false),
-        AppService(AppRoute.Feedback, "反馈与建议", "报问题提建议", ServiceCategory.TOOL, listOf("反馈", "bug", "issue"), showOnHome = false),
     )
 
     val home: List<AppService> = all.filter { it.showOnHome }

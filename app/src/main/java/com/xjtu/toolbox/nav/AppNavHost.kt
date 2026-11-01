@@ -65,7 +65,6 @@ import com.xjtu.toolbox.faculty.FacultyApiSource
 import com.xjtu.toolbox.faculty.FacultyAvatar
 import com.xjtu.toolbox.faculty.FacultyScreen
 import com.xjtu.toolbox.feedback.AppFeedbackSource
-import com.xjtu.toolbox.feedback.FeedbackScreen
 import com.xjtu.toolbox.fitness.FitnessScreen
 import com.xjtu.toolbox.game.GamesScreen
 import com.xjtu.toolbox.game.g2048.Gpa2048Screen
@@ -542,22 +541,6 @@ fun NavEntryBuilder.appPageEntries(
                         GithubNetwork.client,
                         CommunityRepo.CLIENT_ID,
                     )
-                },
-                onBack = back,
-                onOpenLegacyFeedback = { router.open(AppRoute.Feedback) },
-            )
-        }
-        entry<AppRoute.Feedback>(transition = expand(AppRoute.Feedback::class)) {
-            val feedbackContext = LocalContext.current
-            FeedbackScreen(
-                source = AppFeedbackSource,
-                onOpenUrl = { url ->
-                    runCatching {
-                        feedbackContext.startActivity(
-                            Intent(Intent.ACTION_VIEW, Uri.parse(url))
-                                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                        )
-                    }
                 },
                 onBack = back,
             )
