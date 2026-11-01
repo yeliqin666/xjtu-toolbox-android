@@ -402,6 +402,7 @@ private fun SettingsHome(
                         onClick = { showBottomBarDialog = true },
                     )
                 }
+                host.launcherShortcutPreference?.invoke()
             }
         }
 
