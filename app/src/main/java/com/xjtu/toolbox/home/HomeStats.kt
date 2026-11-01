@@ -291,10 +291,10 @@ object HomeStats {
                 data.departments.firstOrNull { name in it.name && it.phoneItems.isNotEmpty() }
             }.distinct().ifEmpty { data.departments.filter { it.phoneItems.isNotEmpty() }.take(4) }
             out.lines(AppRoute.YellowPage.id, "", null,
-                picks.map { d -> HomeLine("${d.name.take(8)}  ${d.phoneItems.first()}", "tel:" + d.dialNumber(d.phoneItems.first())) })
+                picks.map { d -> HomeLine(d.name, "tel:" + d.dialNumber(d.phoneItems.first()), d.phoneItems.first()) })
         }
         val games = com.xjtu.toolbox.game.GameStore.recentRoutes().mapNotNull { id ->
-            com.xjtu.toolbox.game.GameStore.titles[id]?.let { HomeLine(it, "app:$id") }
+            com.xjtu.toolbox.game.GameStore.titles[id]?.let { HomeLine(it, "app:$id", com.xjtu.toolbox.game.GameStore.summary(id)) }
         }
         if (games.isNotEmpty()) out[AppRoute.Games.id] = HomeStat("继续玩 ${games.first().text}", "最近玩过", games)
         withScheduleLines(context, cache, out)

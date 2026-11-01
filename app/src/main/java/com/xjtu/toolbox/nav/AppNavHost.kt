@@ -464,10 +464,18 @@ fun NavEntryBuilder.appPageEntries(
             )
         }
         entry<AppRoute.Fitness>(transition = expand(AppRoute.Fitness::class)) {
+            val fitnessContext = LocalContext.current
+            val account = loginState.accountId.takeIf { it.isNotEmpty() }
             WithSite("fitness") { site ->
                 FitnessScreen(
                     source = remember(site) { com.xjtu.toolbox.fitness.FitnessApi(site) },
                     onBack = back,
+                    onScoreLoaded = { year, score ->
+                        val stat = com.xjtu.toolbox.home.fitnessHomeStat(year.name, score)
+                        HomeStats.push(fitnessContext, AppRoute.Fitness, stat.value, stat.detail, account, stat.lines)
+                        HomeStats.markFetched(fitnessContext, AppRoute.Fitness, account)
+                        com.xjtu.toolbox.home.HomeSignals.bumpStatsVersion()
+                    },
                 )
             }
         }

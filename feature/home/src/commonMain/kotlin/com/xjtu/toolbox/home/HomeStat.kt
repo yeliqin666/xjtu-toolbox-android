@@ -8,7 +8,7 @@ data class HomeStat(val value: String = "", val detail: String? = null, val line
 
 /** 小组件里的一条明细；[link] 非空时点这一行直接打开它（如某条通知的原文）。 */
 @Serializable
-data class HomeLine(val text: String, val link: String? = null)
+data class HomeLine(val text: String, val link: String? = null, val detail: String? = null)
 
 /** 最近一场考试（名称 + 倒计时）在 `HomeStats.collect` 结果里的键。 */
 const val EXAM_KEY = "exam_next"

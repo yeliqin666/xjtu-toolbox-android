@@ -36,6 +36,10 @@ fun FitnessScore.hasUsableTotal(): Boolean {
     return s.isNotEmpty() && s != "--" && s != "未测"
 }
 
+fun FitnessScore.hasResults(): Boolean = hasUsableTotal() || items.any {
+    it.value.isNotBlank() && it.value !in listOf("--", "未测") && it.grade != "缺项"
+}
+
 fun FitnessYear.yearValue(): Int? =
     Regex("""\d{4}""").find(yearNum)?.value?.toIntOrNull()
         ?: Regex("""\d{4}""").find(name)?.value?.toIntOrNull()

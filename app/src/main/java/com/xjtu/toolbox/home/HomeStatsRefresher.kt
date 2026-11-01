@@ -8,7 +8,7 @@ import com.xjtu.toolbox.auth.SessionManager
 import com.xjtu.toolbox.auth.SiteSession
 import com.xjtu.toolbox.auth.ensureSite
 import com.xjtu.toolbox.auth.siteKey
-import com.xjtu.toolbox.fitness.hasUsableTotal
+import com.xjtu.toolbox.fitness.hasResults
 import com.xjtu.toolbox.fitness.orderedFitnessYears
 import com.xjtu.toolbox.inbox.InboxCategories
 import com.xjtu.toolbox.inbox.InboxStore
@@ -76,8 +76,8 @@ object HomeStatsRefresher {
      * （刷卡记录）靠后；加餐券最后。不在表里的排最末。
      */
     private val runOrder: List<AppRoute> = listOf(
-        AppRoute.CampusCard, AppRoute.Attendance, AppRoute.JwappScore, AppRoute.Library, AppRoute.Lms(),
-        AppRoute.Judge, AppRoute.Fitness, AppRoute.Notification,
+        AppRoute.CampusCard, AppRoute.Attendance, AppRoute.Fitness, AppRoute.JwappScore, AppRoute.Library, AppRoute.Lms(),
+        AppRoute.Judge, AppRoute.Notification,
         AppRoute.Iclassface, AppRoute.Coupon, AppRoute.EmptyRoom,
     )
 
@@ -132,7 +132,7 @@ object HomeStatsRefresher {
                 com.xjtu.toolbox.community.DiscussionQuery(sort = com.xjtu.toolbox.community.DiscussionSort.CREATED)).getOrThrow()
             val posts = page.items.sortedByDescending { it.createdAt }.take(4)
             posts.firstOrNull()?.let { first -> HomeStat(first.title, "社区最新发布",
-                posts.map { HomeLine(it.title, it.url) }) }
+                posts.map { HomeLine(it.title, it.url, listOfNotNull(it.author, "${it.comments} 回复").joinToString(" · ")) }) }
         },
         // 评教：一周一次。开没开评教窗口在一周内不会反复变。
         Source(AppRoute.Judge, 7 * DAY, LoginType.JWXT) { _, site ->
@@ -158,7 +158,7 @@ object HomeStatsRefresher {
         },
 
         // 体测：一周一次。成绩一学期才更新一次，一周已经很勤了。
-        Source(AppRoute.Fitness, 7 * DAY, LoginType.FITNESS) { ctx, site ->
+        Source(AppRoute.Fitness, 2 * 60 * 60 * 1000L, LoginType.FITNESS) { ctx, site ->
             site ?: return@Source null
             withContext(Dispatchers.IO) {
                 val api = com.xjtu.toolbox.fitness.FitnessApi(site)
@@ -169,16 +169,10 @@ object HomeStatsRefresher {
                 for ((i, y) in ordered.take(3).withIndex()) {
                     if (i > 0) delay(GAP_MS)
                     val s = runCatching { api.score(y.yearNum) }.getOrNull() ?: continue
-                    if (s.hasUsableTotal()) { picked = y.name to s; break }
+                    if (s.hasResults()) { picked = y.name to s; break }
                 }
                 picked?.let { (name, s) ->
-                    HomeStat(
-                        s.totalScore,
-                        listOfNotNull(
-                            name.takeIf { it.isNotBlank() },
-                            s.totalGrade.takeIf { it.isNotBlank() }
-                        ).joinToString(" · ")
-                    )
+                    fitnessHomeStat(name, s)
                 }
             }
         },
