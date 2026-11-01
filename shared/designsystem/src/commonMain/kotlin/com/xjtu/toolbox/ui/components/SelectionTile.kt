@@ -1,28 +1,44 @@
 package com.xjtu.toolbox.ui.components
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import top.yukonga.miuix.kmp.basic.Surface
+import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.utils.SinkFeedback
 
-/** 底部弹窗里的多选块：整块可点，左边 miuix 原生复选框，选中只靠底色区分。空闲教室选楼、消息收纳选类别共用。 */
+/**
+ * 底部弹窗里的多选块：整块可点。未选是一层很淡的底；选中换成主题色淡底、主题色字和右侧小勾，
+ * 颜色渐变过去。空闲教室选楼、通知来源、消息收纳选类别共用。
+ */
 @Composable
 fun SelectionTile(
     text: String,
@@ -31,47 +47,44 @@ fun SelectionTile(
     maxLines: Int = 1,
     onClick: () -> Unit,
 ) {
-    // 原来手绘了一圈蓝色 border + 自绘圆点勾选，不是 miuix 原生语言。
-    // 改用 miuix 原生 Checkbox 表达多选状态，去掉描边，选中态只靠底色区分。
-    val shape = RoundedCornerShape(14.dp)
-    // 选中底色跟主题色（primaryContainer）；tertiary 在自定义主题色下是另一个色相
-    val containerColor = if (selected) {
-        MiuixTheme.colorScheme.primaryContainer
-    } else {
-        MiuixTheme.colorScheme.surfaceVariant
-    }
-    val contentColor = if (selected) MiuixTheme.colorScheme.onPrimaryContainer else MiuixTheme.colorScheme.onSurface
-    Surface(
-        modifier = modifier
-            .heightIn(min = 48.dp)
+    val shape = RoundedCornerShape(12.dp)
+    val primary = MiuixTheme.colorScheme.primary
+    val ink = MiuixTheme.colorScheme.onSurface
+    val container by animateColorAsState(
+        if (selected) primary.copy(alpha = 0.12f) else ink.copy(alpha = 0.045f), tween(160), label = "tileBg",
+    )
+    val edge by animateColorAsState(
+        if (selected) primary.copy(alpha = 0.45f) else Color.Transparent, tween(160), label = "tileEdge",
+    )
+    val content by animateColorAsState(if (selected) primary else ink, tween(160), label = "tileInk")
+    Row(
+        modifier
+            .heightIn(min = 44.dp)
             .clip(shape)
+            .background(container)
+            .border(0.8.dp, edge, shape)
             .clickable(
                 interactionSource = remember { MutableInteractionSource() },
                 indication = SinkFeedback(),
-                onClick = onClick
-            ),
-        shape = shape,
-        color = containerColor
+                onClick = onClick,
+            )
+            .padding(horizontal = 12.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
     ) {
-        Row(
-            Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 6.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            top.yukonga.miuix.kmp.basic.Checkbox(
-                state = if (selected) androidx.compose.ui.state.ToggleableState.On
-                    else androidx.compose.ui.state.ToggleableState.Off,
-                onClick = onClick
-            )
-            Spacer(Modifier.width(4.dp))
-            Text(
-                text,
-                style = MiuixTheme.textStyles.body2,
-                fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
-                color = contentColor,
-                maxLines = maxLines,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.weight(1f)
-            )
+        Text(
+            text,
+            style = MiuixTheme.textStyles.body2,
+            fontWeight = if (selected) FontWeight.Medium else FontWeight.Normal,
+            color = content,
+            maxLines = maxLines,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f),
+        )
+        AnimatedVisibility(selected, enter = scaleIn() + fadeIn(), exit = scaleOut() + fadeOut()) {
+            Row {
+                Spacer(Modifier.width(6.dp))
+                Icon(Icons.Filled.Check, contentDescription = "已选", tint = primary, modifier = Modifier.size(16.dp))
+            }
         }
     }
 }
