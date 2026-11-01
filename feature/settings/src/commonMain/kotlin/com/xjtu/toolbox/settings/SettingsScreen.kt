@@ -106,9 +106,11 @@ fun SettingsScreen(
 ) {
     var showCredits by rememberSaveable { mutableStateOf(false) }
     var showHomeSettings by rememberSaveable { mutableStateOf(false) }
+    // store 要在组合里取（remember 是 @Composable），effect 里只做「读一次旗标」这件事
+    val homeLayoutStore = remember { HomeLayoutStore() }
     // 首页编辑态的「齿轮」会先置一次性旗标再打开设置页：这里读到就自动展开「主页设置」面板
     LaunchedEffect(Unit) {
-        if (remember { HomeLayoutStore() }.consumePendingHomeSettings()) showHomeSettings = true
+        if (homeLayoutStore.consumePendingHomeSettings()) showHomeSettings = true
     }
     // 和压栈打开子页同一套转场（AppPageMotion）：新页从右侧整屏滑入，
     // 被盖住的设置页向左让出 1/4 屏并轻微压暗，与「我的 → 设置」一致。
