@@ -59,6 +59,8 @@ internal fun HomeTab(
     contentTopPadding: androidx.compose.ui.unit.Dp = 0.dp,
     /** 壳把整页上移的量（见 `ShellPageInsets.contentTopShift`）；首页模糊带按它补回屏幕顶边。 */
     contentTopShift: () -> androidx.compose.ui.unit.Dp = { 0.dp },
+    /** 顶栏最左边那个按钮（扫码）。 */
+    topLeading: (@Composable () -> Unit)? = null,
     topActions: (@Composable () -> Unit)? = null,
 ) {
     val home = rememberAppHome(
@@ -79,6 +81,7 @@ internal fun HomeTab(
         extraBottomPadding = extraBottomPadding,
         contentTopPadding = contentTopPadding,
         contentTopShift = contentTopShift,
+        topLeading = topLeading,
         topActions = topActions,
     )
 }

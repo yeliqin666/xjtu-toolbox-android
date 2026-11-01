@@ -316,6 +316,13 @@ internal fun rememberAppHome(
         override fun onOpenStatus() {
             showStatusSheet.value = true
         }
+
+        // 首页编辑态的齿轮：先置一次性旗标，设置页读到就直接展开「主页设置」面板。
+        // 不走 `AppRoute.Settings` 带参数的写法——那会动到返回栈存盘与旧深链的解析。
+        override fun onOpenHomeSettings() {
+            HomeLayoutStore().pendingHomeSettings = true
+            onNavigate(AppRoute.Settings)
+        }
     }
 
     return AppHome(host, showStatusSheet)
