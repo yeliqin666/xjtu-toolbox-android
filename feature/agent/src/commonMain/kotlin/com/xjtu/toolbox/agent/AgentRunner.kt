@@ -140,7 +140,7 @@ class AgentRunner(
 
         while (true) {
             val toolDefs = JsonArray(baseToolDefs + if (snapshots.isEmpty()) emptyList() else
-                listOf(AgentWidgetPresentation.toolDefinition(snapshots.keys)))
+                listOf(AgentWidgetPresentation.toolDefinition(snapshots.mapValues { it.value.tool })))
             // 保险丝烧了，这一轮不带 tools，逼模型直接作答
             val allowTools = toolCallCount < TOOL_CALL_FUSE && toolDefs.isNotEmpty()
             val reqBody = buildJsonObject {
