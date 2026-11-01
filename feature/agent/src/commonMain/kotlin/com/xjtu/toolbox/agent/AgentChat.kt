@@ -330,7 +330,10 @@ internal fun ChatPanel(
             }
         }
         val composerHint = remember { COMPOSER_HINTS.random() }
-        AgentComposer(
+        // 推送记录只收小岱推来的消息，不在这里对话：换成一行说明和开新对话的入口
+        if (vm.currentSessionId == AgentPushFocus.SESSION_ID) {
+            PushLogFooter(bottomReserve = bottomReserve, onNewChat = { vm.newSession() })
+        } else AgentComposer(
             host = host,
             placeholder = composerHint,
             input = input,

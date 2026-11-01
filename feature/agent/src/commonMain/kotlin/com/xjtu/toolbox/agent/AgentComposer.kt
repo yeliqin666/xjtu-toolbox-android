@@ -311,3 +311,31 @@ internal fun AttachmentThumb(path: String, host: AgentHost, size: Dp = 62.dp) {
         }
     }
 }
+
+/** 推送记录的底栏：只读说明 + 开新对话，底部让位与 [AgentComposer] 一致。 */
+@Composable
+internal fun PushLogFooter(bottomReserve: Dp, onNewChat: () -> Unit) {
+    val resting = if (bottomReserve > 0.dp) WindowInsets(bottom = bottomReserve) else WindowInsets.navigationBars
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .windowInsetsPadding(resting)
+            .padding(horizontal = 20.dp, vertical = 14.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            "这里只收小岱的推送，不能回复",
+            style = MiuixTheme.textStyles.footnote1,
+            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+            modifier = Modifier.weight(1f),
+        )
+        Text(
+            "开新对话",
+            style = MiuixTheme.textStyles.footnote1,
+            fontWeight = androidx.compose.ui.text.font.FontWeight.Medium,
+            color = MiuixTheme.colorScheme.primary,
+            modifier = Modifier.clip(RoundedCornerShape(8.dp)).clickable(onClick = onNewChat)
+                .padding(horizontal = 8.dp, vertical = 6.dp),
+        )
+    }
+}
