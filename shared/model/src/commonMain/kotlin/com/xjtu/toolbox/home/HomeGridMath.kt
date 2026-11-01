@@ -84,6 +84,19 @@ object HomeGridMath {
         val hit = rest.filter { overlaps(it, placed) }
         if (hit.isEmpty()) return (rest + placed).sortInReadingOrder()
 
+        // 自由模式：被压到的邻居优先「联动压缩」——往某一侧收拢边界让出空间，而不是直接
+        // 挤走；收拢到最小尺寸还是摆不下，才把它挤到本组最下方（需求 §26 补充）
+        if (!grid) {
+            val work = rest.toMutableList()
+            hit.sortedBy { area(it) }.forEach { victim ->
+                val index = work.indexOfFirst { it.id == victim.id }
+                if (index < 0) return@forEach
+                val others = work.filter { it.id != victim.id } + placed
+                work[index] = compressToAvoid(victim, placed, others) ?: bottomSlot(others, victim)
+            }
+            return (work + placed).sortInReadingOrder()
+        }
+
         // 工作副本里**同时放着拖拽块自己**：被挤开的块算「最下方」时不能压到它身上，
         // 算「原位置还能不能用」时也要把它的新位置算进去
         val work = (rest + placed).toMutableList()
@@ -140,6 +153,67 @@ object HomeGridMath {
     /** 这一块装得下 [victim] 吗（原位置通常比被挤开的块大，但也可能更窄）。 */
     private fun fits(victim: HomeTile, slot: HomeTile): Boolean =
         victim.w <= slot.w + EPSILON && victim.h <= slot.h + EPSILON
+
+    /**
+     * 自由模式的「联动压缩」：被 [placed] 压到的 [victim] 不直接挤走，而是往某一侧收拢
+     * 边界让出空间。四种缩法里挑「面积损失最小」且缩完不与 [placed]、不与 [others] 重叠、
+     * 不小于最小尺寸的那一版；找不到（被完全盖住、或一缩就和别人撞）就返回 null，
+     * 调用方把它挤到本组最下方（需求 §26：到最小不能再小时才允许挤掉）。
+     */
+    private fun compressToAvoid(victim: HomeTile, placed: HomeTile, others: List<HomeTile>): HomeTile? {
+        val candidates = mutableListOf<HomeTile>()
+        // placed 从左侧插进 victim：victim 左边界收拢到 placed 右边界
+        if (placed.x + placed.w > victim.x && placed.x + placed.w < victim.x + victim.w) {
+            val nx = placed.x + placed.w
+            candidates += victim.copy(x = nx, w = victim.x + victim.w - nx)
+        }
+        // placed 从右侧插进 victim：victim 右边界收拢到 placed 左边界
+        if (placed.x > victim.x && placed.x < victim.x + victim.w) {
+            candidates += victim.copy(w = placed.x - victim.x)
+        }
+        // placed 从上侧插进 victim：victim 上边界收拢到 placed 下边界
+        if (placed.y + placed.h > victim.y && placed.y + placed.h < victim.y + victim.h) {
+            val ny = placed.y + placed.h
+            candidates += victim.copy(y = ny, h = victim.y + victim.h - ny)
+        }
+        // placed 从下侧插进 victim：victim 下边界收拢到 placed 上边界
+        if (placed.y > victim.y && placed.y < victim.y + victim.h) {
+            candidates += victim.copy(h = placed.y - victim.y)
+        }
+        return candidates
+            .filter { it.w >= MIN_SPAN - EPSILON && it.h >= MIN_SPAN - EPSILON }
+            .filter { cand -> !overlaps(cand, placed) && others.none { overlaps(it, cand) } }
+            .minByOrNull { victim.area - it.area }
+    }
+
+    /**
+     * 把「全空行」删掉：拖走 / 缩小之后中间空出一整行时，下面的块整体上移补上
+     * （需求 §4.3 补充：后面所有卡片动画跟上来）。只服务网格模式——自由模式允许留空隙。
+     * 所有块统一下移，相对顺序与相对位置不变。
+     */
+    fun compactEmptyRows(tiles: List<HomeTile>): List<HomeTile> {
+        if (tiles.size < 2) return tiles
+        val bottom = contentBottom(tiles).toInt()
+        if (bottom < 1) return tiles
+        // 每个整数行有没有块占据（块可能跨行，整段都算占）
+        val occupied = BooleanArray(bottom + 1)
+        tiles.forEach { t ->
+            val from = t.y.toInt().coerceAtLeast(0)
+            val to = (t.y + t.h).toInt()
+            for (y in from until to) if (y <= bottom) occupied[y] = true
+        }
+        // 每行之上有多少个全空行，就是要上移的格数
+        var shift = 0
+        val shiftAt = IntArray(bottom + 1)
+        for (y in 0..bottom) {
+            if (!occupied[y]) shift++
+            shiftAt[y] = shift
+        }
+        if (shift == 0) return tiles
+        return tiles.map { t ->
+            t.copy(y = (t.y - shiftAt[t.y.toInt().coerceIn(0, bottom)]).coerceAtLeast(0f))
+        }
+    }
 
     /**
      * 从上往下、从左往右扫第一个放得下 `w×h` 的空位；放不下返回 null。

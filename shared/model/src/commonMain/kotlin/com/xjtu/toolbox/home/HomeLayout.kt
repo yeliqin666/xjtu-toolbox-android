@@ -85,7 +85,9 @@ data class HomeLayout(val groups: List<HomeGroup> = emptyList()) {
             } else {
                 moved
             }
-            return replaceGroup(from.copy(tiles = HomeGridMath.placeInGroup(from.tiles, adjusted, grid)))
+            val placed = HomeGridMath.placeInGroup(from.tiles, adjusted, grid)
+            // 网格模式下把拖走留下的全空行收掉，下面的块跟上来
+            return replaceGroup(from.copy(tiles = if (grid) HomeGridMath.compactEmptyRows(placed) else placed))
         }
 
         // 跨组：先把它从原来那组摘掉（原位置留下空档，不压缩别的块），再放进目标组
@@ -94,8 +96,9 @@ data class HomeLayout(val groups: List<HomeGroup> = emptyList()) {
         return copy(
             groups = groups.map {
                 when (it.id) {
-                    fromAfter.id -> fromAfter
-                    targetAfter.id -> targetAfter
+                    // 网格模式下，源组少了一块可能空出行，目标组挤开后也可能：都收一收
+                    fromAfter.id -> if (grid) fromAfter.copy(tiles = HomeGridMath.compactEmptyRows(fromAfter.tiles)) else fromAfter
+                    targetAfter.id -> if (grid) targetAfter.copy(tiles = HomeGridMath.compactEmptyRows(targetAfter.tiles)) else targetAfter
                     else -> it
                 }
             },
@@ -106,7 +109,8 @@ data class HomeLayout(val groups: List<HomeGroup> = emptyList()) {
     fun resizeTile(tileId: String, w: Float, h: Float, grid: Boolean = true): HomeLayout {
         val (group, tile) = locate(tileId) ?: return this
         val moved = tile.copy(w = w, h = h)
-        return replaceGroup(group.copy(tiles = HomeGridMath.resizeInGroup(group.tiles, moved, grid)))
+        val placed = HomeGridMath.resizeInGroup(group.tiles, moved, grid)
+        return replaceGroup(group.copy(tiles = if (grid) HomeGridMath.compactEmptyRows(placed) else placed))
     }
 
     /** 往 [groupId] 组里加一个功能；组里已经有同一个路由就不重复加。 */

@@ -152,6 +152,50 @@ class HomeGridMathTest {
     // ── 自由拖拽的边界联动 ──
 
     @Test
+    fun `自由拖拽压到邻居时邻居被压缩而不是挤走`() {
+        val a = tile("a", 0f, 0f, w = 2f, h = 1f)
+        val b = tile("b", 2f, 0f, w = 2f, h = 1f)
+        // a 向右拖到压住 b 的左半：b 的左边界被收拢让出空间，而不是被挤到最下方
+        val result = HomeGridMath.placeInGroup(listOf(a, b), a.copy(x = 1f), grid = false)
+        val newA = result.first { it.id == "a" }
+        val newB = result.first { it.id == "b" }
+        assertFalse(HomeGridMath.overlaps(newA, newB))
+        // b 还在原来那一行，只是宽度被压缩
+        assertEquals(0f, newB.y, 0.0001f)
+        assertTrue(newB.w < 2f, "b 应该被压缩：$newB")
+    }
+
+    @Test
+    fun `自由拖拽把邻居整个盖住时才挤走`() {
+        val a = tile("a", 0f, 0f, w = 2f, h = 1f)
+        val b = tile("b", 2f, 0f, w = 2f, h = 1f)
+        // a 拖到和 b 完全同位（2,0）：b 没有任何一侧能收拢，只能去最下方
+        val result = HomeGridMath.placeInGroup(listOf(a, b), a.copy(x = 2f), grid = false)
+        val newB = result.first { it.id == "b" }
+        assertTrue(newB.y >= 1f, "b 被整个盖住，应该被挤到下面：$newB")
+    }
+
+    // ── 空行压缩 ──
+
+    @Test
+    fun `拖走后全空行被删掉下面的块跟上来`() {
+        val tiles = listOf(
+            tile("a", 0f, 0f),
+            tile("b", 2f, 0f),
+            tile("c", 0f, 2f), // 第 1 行是空的
+        )
+        val compacted = HomeGridMath.compactEmptyRows(tiles)
+        assertEquals(1f, compacted.first { it.id == "c" }.y, 0.0001f)
+        assertEquals(0f, compacted.first { it.id == "a" }.y, 0.0001f)
+    }
+
+    @Test
+    fun `没有空行时压缩不动任何块`() {
+        val tiles = listOf(tile("a", 0f, 0f), tile("b", 2f, 0f))
+        assertEquals(tiles, HomeGridMath.compactEmptyRows(tiles))
+    }
+
+    @Test
     fun `自由拖拽贴近邻居的边就吸过去`() {
         val anchor = tile("anchor", 0f, 0f)
         // 右边差 0.05 格；容差 0.28 之内 → 吸到 2f
