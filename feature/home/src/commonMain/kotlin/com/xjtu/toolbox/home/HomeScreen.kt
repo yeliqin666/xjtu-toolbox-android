@@ -362,8 +362,9 @@ fun HomeScreen(
                             }
                         }
                     },
-                    // 和头卡同一套左右留白（标题行内部再各让 4dp，所以这里就写 16dp）
-                    modifier = Modifier.padding(horizontal = 16.dp),
+                    // 和头卡同一套左右留白（标题行内部再各让 4dp，所以这里就写 16dp）；
+                    // 入场沿用全 App 那套「错峰淡入上浮」，只播一次
+                    modifier = Modifier.padding(horizontal = 16.dp).enterOnce(index),
                 )
             }
 
