@@ -594,11 +594,14 @@ private fun HomeTileItem(
                 if (resize) {
                     session.beginResize(tile.id, Offset(tile.w, tile.h))
                     val completed = drag(dragStart.id) { change ->
+                        // 位移直接用两次事件的位置差（PointerInputChange 的两个公共属性），
+                        // 不走需要额外 import 的扩展函数，跨端解析最稳
+                        val delta = change.position - change.previousPosition
                         val current = session.liveSize ?: Offset(tile.w, tile.h)
                         session.liveSize = Offset(
-                            (current.x + change.positionChange().x / colUnit)
+                            (current.x + delta.x / colUnit)
                                 .coerceIn(HomeGridMath.MIN_SPAN, HomeGridMath.MAX_SPAN),
-                            (current.y + change.positionChange().y / rowUnit)
+                            (current.y + delta.y / rowUnit)
                                 .coerceIn(HomeGridMath.MIN_SPAN, HomeGridMath.MAX_SPAN),
                         )
                         change.consume()
@@ -613,7 +616,7 @@ private fun HomeTileItem(
                         // 斜坡那一段手指已经挪开了一截，用按下点会让幽灵块全程落后一个斜坡
                         session.beginDrag(tile, groupId, board, dragStart.position)
                         val completed = drag(dragStart.id) { change ->
-                            session.dragBy(change.positionChange())
+                            session.dragBy(change.position - change.previousPosition)
                             change.consume()
                         }
                         if (completed) onDropDrag()
