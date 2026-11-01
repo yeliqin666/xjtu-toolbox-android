@@ -98,10 +98,13 @@ import com.xjtu.toolbox.settings.HomeLayoutRevision
 import com.xjtu.toolbox.settings.SettingsStore
 import com.xjtu.toolbox.ui.components.CodeMatrixView
 import com.xjtu.toolbox.ui.components.HeroCustomBackground
+import com.xjtu.toolbox.ui.components.LocalPageVisible
+import com.xjtu.toolbox.ui.rememberCampusNow
 import com.xjtu.toolbox.ui.theme.Editorial
 import com.xjtu.toolbox.ui.theme.LocalIsDarkTheme
 import kotlin.math.roundToInt
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.Text
@@ -607,18 +610,20 @@ private fun WidgetContent(row: HomeServiceRow, size: WidgetSize, ink: Color, onL
     }
 }
 
-/** 2×2 付款码：直接画二维码，停在首页时每 30 秒自动换一张；拿不到（没登录校园卡）就退回普通内容。 */
 @Composable
 private fun PaymentCodeContent(row: HomeServiceRow, ink: Color, live: Boolean, paymentCode: suspend () -> String?) {
-    val code by produceState<String?>(null, live) {
-        while (live) {
-            value = runCatching { paymentCode() }.getOrNull()
+    val now = rememberCampusNow()
+    val active = live && LocalPageVisible.current && isMealPaymentTime(now.time)
+    val code by produceState<String?>(null, active) {
+        value = null
+        while (active) {
+            value = try { paymentCode() } catch (e: CancellationException) { throw e } catch (_: Exception) { null }
             delay(PAYMENT_REFRESH_MS)
         }
     }
-    val matrix = remember(code) { code?.let { qrCodeModules(it) } }
+    val matrix = remember(code, active) { code?.takeIf { active }?.let { qrCodeModules(it) } }
     if (matrix == null) {
-        WidgetContent(row.copy(lines = listOf(HomeLine("点开出示付款码"))), WidgetSize.LARGE, ink, onLink = null)
+        WidgetContent(row.copy(lines = listOf(HomeLine("点按出示付款码"))), WidgetSize.LARGE, ink, onLink = null)
         return
     }
     Column(Modifier.fillMaxSize().padding(10.dp), horizontalAlignment = Alignment.CenterHorizontally) {
