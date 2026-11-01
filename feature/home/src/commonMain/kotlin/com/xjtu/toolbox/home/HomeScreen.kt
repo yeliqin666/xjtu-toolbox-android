@@ -357,17 +357,13 @@ fun HomeScreen(
                     },
                     onDropResize = { tileId, w, h -> update { it.resizeTile(tileId, w, h, grid) } },
                     onRemoveTile = { tileId -> update { it.removeTile(tileId) } },
-                    onReorderDrag = {
+                    onReorderDrop = {
                         val groupId = session.reorderGroupId
                         if (groupId != null) {
-                            val order = layout.groups
-                            val target = order.indexOfLast { g ->
-                                val mid = session.boards[g.id]?.let { it.top + it.height / 2f } ?: Float.MAX_VALUE
-                                mid < session.reorderY
-                            }.coerceIn(0, order.lastIndex)
-                            if (target != order.indexOfFirst { it.id == groupId }) {
-                                update { it.moveGroup(groupId, target) }
-                            }
+                            // 插入序号 = 比多少个「其它组」的中点更靠下；被拖组自己不参与，
+                            // 算出来正好是删掉它之后那一档的下标（与 moveGroup 的语义一致）
+                            val target = reorderTarget(session, layout.groups, groupId)
+                            update { it.moveGroup(groupId, target) }
                         }
                     },
                     // 和头卡同一套左右留白（标题行内部再各让 4dp，所以这里就写 16dp）；
@@ -422,6 +418,9 @@ fun HomeScreen(
             backdrop = tileBackdrop.takeIf { liquid },
         )
 
+        // ── 组排序的插入指示线：松手会落到哪一道缝，拖动中一直看得见 ──
+        HomeReorderIndicator(session = session, groups = layout.groups, pageOrigin = { pageOrigin })
+
         // ── 拖到屏幕上下边缘时自动滚动（带阻尼：越靠边越快） ──
         LaunchedEffect(session.dragging) {
             if (!session.dragging) return@LaunchedEffect
@@ -449,7 +448,7 @@ fun HomeScreen(
                     update { it.renameGroup(current.id, title).tintGroup(current.id, colorHex) }
                     editing.editGroup = null
                 },
-                onDelete = if (current.id == HomeLayoutDefaults.QUICK_GROUP || current.id in defaultGroupIds()) {
+                onDelete = if (current.id in defaultGroupIds()) {
                     null
                 } else {
                     {
@@ -507,9 +506,13 @@ private class HomeEditState {
     }
 }
 
-/** 默认布局里的组 id：这些组不许删（删了就再也回不来了）。 */
+/**
+ * 默认组的 id：「常用功能」+ 各分类名（默认组的 id 就是分类名，见 `HomeLayoutDefaults`）。
+ * 不许删（删了就再也回不来）。直接按分类枚举判定，不再为拿 id 重新生成一遍目录——
+ * 那样既低效，又依赖「研究生组集 ⊆ 本科生」这个偶然事实。
+ */
 private fun defaultGroupIds(): Set<String> =
-    HomeLayoutDefaults.of(com.xjtu.toolbox.auth.AccountType.UNDERGRADUATE).groups.map { it.id }.toSet()
+    ServiceCategory.entries.mapTo(mutableSetOf(HomeLayoutDefaults.QUICK_GROUP)) { it.name }
 
 private fun newGroupId(): String = "custom-" + kotlin.random.Random.nextInt(100000, 999999)
 
@@ -1231,6 +1234,46 @@ private fun HomeDragGhost(
             modifier = Modifier.fillMaxSize(),
         )
     }
+}
+
+/** 组排序的插入序号：比多少个「其它组」的纵向中点更靠下。被拖组自己不参与判定。 */
+private fun reorderTarget(session: HomeDragSession, groups: List<HomeGroup>, groupId: String): Int =
+    groups
+        .filter { it.id != groupId }
+        .count { group ->
+            session.boards[group.id]?.let { it.top + it.height / 2f < session.reorderY } == true
+        }
+
+/**
+ * 组排序的插入指示线（§16）：被拖组跟手浮起时，它会落到哪一道缝用一条横线标出来。
+ * 位置与松手落位用同一套算法（[reorderTarget]），指示的就是将要插入的那一缝。
+ */
+@Composable
+private fun HomeReorderIndicator(
+    session: HomeDragSession,
+    groups: List<HomeGroup>,
+    pageOrigin: () -> Offset,
+) {
+    val groupId = session.reorderGroupId ?: return
+    val others = groups.filter { it.id != groupId }
+    if (others.isEmpty()) return
+    val target = reorderTarget(session, groups, groupId)
+    val gapPx = with(LocalDensity.current) { GROUP_GAP.toPx() }
+    // 线落在「第 target 条缝」：下面那一组的顶边；越过了所有组就落在末组底边之下
+    val anchor = others.getOrNull(target)?.let { session.boards[it.id]?.top }
+        ?: others.lastOrNull()?.let { session.boards[it.id]?.let { b -> b.top + b.height + gapPx } }
+        ?: return
+    val y = anchor - pageOrigin().y - gapPx / 2f
+    Box(
+        Modifier
+            .fillMaxWidth()
+            .offset { IntOffset(0, y.roundToInt()) }
+            .padding(horizontal = 20.dp)
+            .height(3.dp)
+            .clip(RoundedCornerShape(2.dp))
+            .background(MiuixTheme.colorScheme.primary.copy(alpha = 0.9f))
+            .zIndex(5f),
+    )
 }
 
 /** 改一个组的名字与标题颜色。标题允许留空——留空就整行不画（需求 §2.3）。 */

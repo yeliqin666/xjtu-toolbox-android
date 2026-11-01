@@ -170,7 +170,7 @@ class HomeLayoutStore(
         private const val KEY_LAYOUT = "home_layout"
         private const val KEY_GRID = "home_grid"
         private const val KEY_LIQUID_CARD = "home_liquid_card"
-    private const val KEY_TEXT_SPACE = "home_text_space"
+        private const val KEY_TEXT_SPACE = "home_text_space"
         private const val KEY_BACKGROUND_IMAGE = "home_background_image"
         private const val KEY_BACKGROUND_BLUR = "home_background_blur"
         private const val KEY_BACKGROUND_OPACITY = "home_background_opacity"

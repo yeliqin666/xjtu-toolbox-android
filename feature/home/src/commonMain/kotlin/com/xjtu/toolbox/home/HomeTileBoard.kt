@@ -13,8 +13,12 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.awaitTouchSlopOrCancellation
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.drag
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
@@ -63,13 +67,17 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.zIndex
 import com.kyant.backdrop.Backdrop
 import com.kyant.backdrop.drawBackdrop
 import com.kyant.backdrop.effects.blur
+import com.kyant.backdrop.effects.lens
 import com.kyant.backdrop.effects.vibrancy
+import com.kyant.backdrop.highlight.Highlight
 import com.xjtu.toolbox.schedule.CourseColors
 import com.xjtu.toolbox.ui.components.ExpressiveIcon
 import com.xjtu.toolbox.ui.components.appCardShadow
+import com.xjtu.toolbox.ui.glass.floatingGlassShadow
 import com.xjtu.toolbox.ui.theme.LocalIsDarkTheme
 import kotlin.math.PI
 import kotlin.math.roundToInt
@@ -113,6 +121,9 @@ internal val HomeTileSpring = spring<Float>(dampingRatio = 0.62f, stiffness = 52
  */
 private const val TILE_SHAKE_PERIOD_MS = 2400
 private const val TILE_SHAKE_DEG = 0.9f
+
+/** 右下角缩放把手的热区边长（§15）：视觉只是两条斜杠，热区给到指尖好按的大小。 */
+private val RESIZE_HANDLE_TOUCH = 44.dp
 
 /** 一个卡片组渲染出来的位置与单位换算，拖拽落点要用它把手指坐标换回格坐标。 */
 internal data class HomeBoardMetrics(
@@ -167,18 +178,33 @@ internal class HomeDragSession {
     /** 首页根节点在窗口里的位置：组坐标和手指坐标都是根坐标，幽灵块要换回页面坐标。 */
     var pageOrigin by mutableStateOf(Offset.Zero)
 
-    /** 正在缩放的块与它的实时尺寸：跟手反馈，松手才落盘。 */
+    /** 正在缩放的那一块与它的实时尺寸：跟手反馈，松手才落盘。 */
     var resizingId by mutableStateOf<String?>(null)
     var liveSize by mutableStateOf<Offset?>(null)
 
-    /** 正在拖动排序的那一组，以及手指在根坐标里的纵向位置。 */
+    /** 正在拖动排序的那一组。 */
     var reorderGroupId by mutableStateOf<String?>(null)
+        private set
+
+    /** 手指当前的根坐标 y：跟手位移与插入位置都按它算。 */
     var reorderY by mutableStateOf(0f)
+        private set
+
+    /** 起手那一刻手指的根坐标 y：被拖组的跟手位移 = [reorderY] − 它。 */
+    var reorderStartY by mutableStateOf(0f)
+        private set
+
+    /** 把手自己的全局顶边（根坐标）：`onDragStart` 的 down 是相对把手的，要换成根坐标。 */
+    val reorderHandleTops = mutableStateMapOf<String, Float>()
 
     /** 每个卡片组在根坐标里的位置；各自在 `onGloballyPositioned` 里登记。 */
     val boards = mutableStateMapOf<String, HomeBoardMetrics>()
 
     val dragging: Boolean get() = tileId != null
+    val reordering: Boolean get() = reorderGroupId != null
+
+    /** 被拖那一组相对其布局位置的跟手位移（§16：组排序也要跟手，不是松手才跳）。 */
+    val reorderShift: Float get() = reorderY - reorderStartY
 
     fun beginDrag(tile: HomeTile, groupId: String, board: HomeBoardMetrics, local: Offset) {
         tileId = tile.id
@@ -214,6 +240,20 @@ internal class HomeDragSession {
         resizingId = null
         liveSize = null
     }
+
+    fun beginReorder(groupId: String, pointerRootY: Float) {
+        reorderGroupId = groupId
+        reorderStartY = pointerRootY
+        reorderY = pointerRootY
+    }
+
+    fun reorderBy(dy: Float) {
+        reorderY += dy
+    }
+
+    fun endReorder() {
+        reorderGroupId = null
+    }
 }
 
 /**
@@ -238,7 +278,7 @@ internal fun HomeGroupSection(
     onDropDrag: () -> Unit,
     onDropResize: (tileId: String, w: Float, h: Float) -> Unit,
     onRemoveTile: (tileId: String) -> Unit,
-    onReorderDrag: () -> Unit,
+    onReorderDrop: () -> Unit,
     modifier: Modifier = Modifier,
     cellHeight: Dp = HomeCellHeight,
 ) {
@@ -248,7 +288,18 @@ internal fun HomeGroupSection(
     val tiles = group.tiles
     val rows = HomeGridMath.contentBottom(tiles).coerceAtLeast(1f)
 
-    Column(modifier.fillMaxWidth()) {
+    // 被拖排序的这一组跟手浮起（§16）：只动绘制层，松手才由首页 moveGroup 落位。
+    // 跟手期间它的 bounds 会带上这段位移，但插入位置只看**其它组**（它们不动），不受影响
+    val reordering = session.reorderGroupId == group.id
+    Column(
+        modifier
+            .fillMaxWidth()
+            .zIndex(if (reordering) 6f else 0f)
+            .graphicsLayer {
+                translationY = if (reordering) session.reorderShift else 0f
+                alpha = if (reordering) 0.94f else 1f
+            },
+    ) {
         if (editing || group.title.isNotBlank()) {
             GroupHeader(
                 group = group,
@@ -257,7 +308,7 @@ internal fun HomeGroupSection(
                 onStartEdit = onStartEdit,
                 onEditGroup = onEditGroup,
                 onAddTile = onAddTile,
-                onReorderDrag = onReorderDrag,
+                onReorderDrop = onReorderDrop,
             )
             Spacer(Modifier.height(8.dp))
         }
@@ -361,7 +412,7 @@ private fun GroupHeader(
     onStartEdit: () -> Unit,
     onEditGroup: () -> Unit,
     onAddTile: () -> Unit,
-    onReorderDrag: () -> Unit,
+    onReorderDrop: () -> Unit,
 ) {
     val dark = LocalIsDarkTheme.current
     val ink = MiuixTheme.colorScheme.onSurface
@@ -369,7 +420,6 @@ private fun GroupHeader(
     val titleColor = CourseColors.parseHex(group.colorHex)
         ?.let { if (dark) lerp(it, Color.White, 0.25f) else it }
         ?: ink
-    var grabbed by remember(group.id) { mutableStateOf(0f) }
 
     Row(
         Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 2.dp),
@@ -379,22 +429,34 @@ private fun GroupHeader(
             Box(
                 Modifier
                     .size(22.dp)
+                    .onGloballyPositioned { coords ->
+                        val top = coords.boundsInRoot().top
+                        if (session.reorderHandleTops[group.id] != top) {
+                            session.reorderHandleTops[group.id] = top
+                        }
+                    }
                     .pointerInput(group.id) {
                         detectDragGestures(
                             onDragStart = { down ->
                                 onStartEdit()
-                                grabbed = session.boards[group.id]?.let { it.top + down.y } ?: 0f
-                                session.reorderGroupId = group.id
-                                session.reorderY = grabbed
+                                // down 是相对这枚把手的坐标，要换算成根坐标才是手指的真实位置。
+                                // 之前误用了「组网格的顶边 + down.y」——把手在标题行里，比网格
+                                // 顶边高出一整行标题，于是按下去那一瞬间 reorderY 就偏了三十来 dp，
+                                // 排序目标立刻算错、组跟着乱跳
+                                val top = session.reorderHandleTops[group.id] ?: return@detectDragGestures
+                                session.beginReorder(group.id, top + down.y)
                             },
                             onDrag = { change, delta ->
                                 change.consume()
-                                grabbed += delta.y
-                                session.reorderY = grabbed
-                                onReorderDrag()
+                                session.reorderBy(delta.y)
                             },
-                            onDragEnd = { session.reorderGroupId = null },
-                            onDragCancel = { session.reorderGroupId = null },
+                            // 排序**松手才落位**：拖动过程只有被拖组跟手与插入指示线，
+                            // 列表不反复重排（§16）
+                            onDragEnd = {
+                                onReorderDrop()
+                                session.endReorder()
+                            },
+                            onDragCancel = { session.endReorder() },
                         )
                     },
                 contentAlignment = Alignment.Center,
@@ -514,10 +576,65 @@ private fun HomeTileItem(
     }
     val shakeAngle by shakeAngleState
 
+    // 移动 / 缩放共用一个手势层，挂在 graphicsLayer **之前**（lifted 的缩小、编辑态抖动都画在
+    // graphicsLayer 里）：手势拿到的位移才不会被这些视觉变换反向放大。之前手势挂在
+    // graphicsLayer 内部——被拖块一缩小（scale 0.94），位移就被逆变换放大 1/0.94，
+    // 幽灵块越跑越偏离手指；缩放把手又挂在会跟着右下角移动的子节点上，位移被自己
+    // 的移动吃掉一半，缩放只有手指速度的一半（§14 跟手、§15 缩放）。
+    val gesture = when {
+        editing -> Modifier.pointerInput(tile.id, groupId, colUnit, rowUnit) {
+            awaitEachGesture {
+                val down = awaitFirstDown(requireUnconsumed = false)
+                // 落在右下角把手热区里，这次手势就是缩放；否则是移动（§15）
+                val handlePx = RESIZE_HANDLE_TOUCH.toPx()
+                val resize = down.position.x >= size.width - handlePx &&
+                    down.position.y >= size.height - handlePx
+                val dragStart = awaitTouchSlopOrCancellation(down.id) { change, _ -> change.consume() }
+                if (dragStart == null) return@awaitEachGesture
+                if (resize) {
+                    session.beginResize(tile.id, Offset(tile.w, tile.h))
+                    val completed = drag(dragStart.id) { change ->
+                        val current = session.liveSize ?: Offset(tile.w, tile.h)
+                        session.liveSize = Offset(
+                            (current.x + change.positionChange().x / colUnit)
+                                .coerceIn(HomeGridMath.MIN_SPAN, HomeGridMath.MAX_SPAN),
+                            (current.y + change.positionChange().y / rowUnit)
+                                .coerceIn(HomeGridMath.MIN_SPAN, HomeGridMath.MAX_SPAN),
+                        )
+                        change.consume()
+                    }
+                    val size = session.liveSize ?: Offset(tile.w, tile.h)
+                    session.endResize()
+                    if (completed) onDropResize(tile.id, size.x, size.y)
+                } else {
+                    val board = session.boards[groupId]
+                    if (board != null) {
+                        // 抓取点用「越过触摸斜坡之后」的位置（dragStart），不是按下点：
+                        // 斜坡那一段手指已经挪开了一截，用按下点会让幽灵块全程落后一个斜坡
+                        session.beginDrag(tile, groupId, board, dragStart.position)
+                        val completed = drag(dragStart.id) { change ->
+                            session.dragBy(change.positionChange())
+                            change.consume()
+                        }
+                        if (completed) onDropDrag()
+                        session.endDrag()
+                    }
+                }
+            }
+        }
+        else -> Modifier.pointerInput(tile.id) {
+            detectTapGestures(
+                onTap = { onOpen() },
+                onLongPress = { onStartEdit() },
+            )
+        }
+    }
+
     Box(
         Modifier
             .offset { IntOffset((animX.value * colUnit).roundToInt(), (animY.value * rowUnit).roundToInt()) }
             .size(with(density) { widthPx.toDp() }, with(density) { heightPx.toDp() })
+            .then(gesture)
             .graphicsLayer {
                 // 被搬走的那一块淡下去，位置留给松手之后的挤开结果
                 alpha = if (lifted) 0.28f else 1f
@@ -533,36 +650,7 @@ private fun HomeTileItem(
             h = animH,
             liquid = liquid,
             backdrop = backdrop,
-            modifier = Modifier
-                .fillMaxSize()
-                .then(
-                    if (editing) {
-                        Modifier.pointerInput(tile.id, groupId, colUnit, rowUnit) {
-                            detectDragGestures(
-                                onDragStart = { down ->
-                                    val board = session.boards[groupId]
-                                    if (board != null) session.beginDrag(tile, groupId, board, down)
-                                },
-                                onDrag = { change, delta ->
-                                    change.consume()
-                                    session.dragBy(delta)
-                                },
-                                onDragEnd = {
-                                    onDropDrag()
-                                    session.endDrag()
-                                },
-                                onDragCancel = { session.endDrag() },
-                            )
-                        }
-                    } else {
-                        Modifier.pointerInput(tile.id) {
-                            detectTapGestures(
-                                onTap = { onOpen() },
-                                onLongPress = { onStartEdit() },
-                            )
-                        }
-                    },
-                ),
+            modifier = Modifier.fillMaxSize(),
         )
 
         if (editing) {
@@ -590,35 +678,13 @@ private fun HomeTileItem(
                     )
                 }
             }
-            // 右下角：缩放把手（§15）。**任何尺寸都要有**——之前拿「宽高都 ≥ 1.4 格」当门槛，
-            // 而默认卡片就是 2×1（高正好 1 格），等于所有默认卡片都没有把手。
-            // 热区是一层独立的 pointerInput，落在把手上的指针不会传给卡片的拖拽手势。
-            val handleHit = if (minOf(animW, animH) < 1.5f) 38.dp else 44.dp
+            // 右下角：缩放把手的**视觉**（§15）。热区在外层那一层手势里按右下角判定，
+            // 这里只画记号、不接手势——这样把手的视觉跟着右下角动，手势坐标却始终锚在
+            // 不动的外层上（见上面 gesture 的说明）
             Box(
                 Modifier
                     .align(Alignment.BottomEnd)
-                    .size(handleHit)
-                    .pointerInput(tile.id, colUnit, rowUnit) {
-                        detectDragGestures(
-                            onDragStart = { session.beginResize(tile.id, Offset(tile.w, tile.h)) },
-                            onDrag = { change, delta ->
-                                change.consume()
-                                val current = session.liveSize ?: Offset(tile.w, tile.h)
-                                session.liveSize = Offset(
-                                    (current.x + delta.x / colUnit)
-                                        .coerceIn(HomeGridMath.MIN_SPAN, HomeGridMath.MAX_SPAN),
-                                    (current.y + delta.y / rowUnit)
-                                        .coerceIn(HomeGridMath.MIN_SPAN, HomeGridMath.MAX_SPAN),
-                                )
-                            },
-                            onDragEnd = {
-                                val size = session.liveSize ?: Offset(tile.w, tile.h)
-                                session.endResize()
-                                onDropResize(tile.id, size.x, size.y)
-                            },
-                            onDragCancel = { session.endResize() },
-                        )
-                    },
+                    .size(RESIZE_HANDLE_TOUCH),
                 contentAlignment = Alignment.Center,
             ) {
                 // 抓手画两条斜杠（像右下角的「可拉伸」记号），比一个实心方块更像把手
@@ -669,19 +735,35 @@ internal fun HomeTileFaceBox(
     val fill = if (dark) Color.White.copy(alpha = 0.10f) else Color.White.copy(alpha = 0.62f)
     val hairline = if (dark) Color.White.copy(alpha = 0.10f) else Color.White.copy(alpha = 0.7f)
     val iconColor = if (dark) lerp(face.color, Color.White, 0.4f) else face.color
+    // 液态玻璃的填充要比毛玻璃更透：折射与高光是它的主角，填浓了就只剩一张白卡
+    val liquidFill = if (dark) Color.White.copy(alpha = 0.07f) else Color.White.copy(alpha = 0.42f)
+    // 和底栏胶囊同一套环境光阴影（remember：shadow lambda 捕获的对象变了会触发重采样）
+    val accent = MiuixTheme.colorScheme.primary
+    val liquidShadow = remember(accent, dark) { floatingGlassShadow(accent, dark) }
 
     val material = when {
-        liquid && backdrop != null -> Modifier.drawBackdrop(
-            backdrop = backdrop,
-            shape = { RoundedCornerShape(radius) },
-            effects = {
-                blur(8.dp.toPx())
-                vibrancy()
-            },
-            highlight = null,
-            shadow = null,
-            onDrawSurface = { drawRect(fill) },
-        )
+        liquid && backdrop != null -> remember(backdrop, radius, liquidFill, liquidShadow) {
+            Modifier.drawBackdrop(
+                backdrop = backdrop,
+                shape = { RoundedCornerShape(radius) },
+                effects = {
+                    // 采样范围往外扩一圈，折射与模糊在轮廓边上也有真实内容可混、不变弱
+                    // （和底栏胶囊、屁岱气泡同一手法）
+                    padding = maxOf(padding, 12.dp.toPx())
+                    vibrancy()
+                    blur(8.dp.toPx())
+                    // 折射才是「液态」和「毛玻璃」的分界：边缘把背景扭出透镜的弯光，
+                    // 带一点色散。带宽与位移用固定的物理宽度（和底栏一致），不随卡片
+                    // 缩放——大小卡片的玻璃厚度本来就一样
+                    lens(10.dp.toPx(), 14.dp.toPx(), chromaticAberration = true)
+                },
+                // 玻璃被光打亮的那圈轮廓
+                highlight = { Highlight.Default.copy(alpha = 0.65f) },
+                // 卡片浮在壁纸上，该有一圈柔和的环境光投影
+                shadow = { liquidShadow },
+                onDrawSurface = { drawRect(liquidFill) },
+            )
+        }
         else -> Modifier
             .then(if (dark) Modifier else Modifier.appCardShadow(shape = RoundedCornerShape(radius)))
             .squircleClip(radius)

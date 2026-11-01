@@ -14,7 +14,7 @@
 
 | # | 决定 | 落点 | 状态 |
 |---|---|---|---|
-| 1 | 液态玻璃**只用** App 内现成实现：`com.kyant.backdrop` 的 `drawBackdrop`（底栏、玻璃顶栏、头卡同一套）；毛玻璃是另一条独立路径：`squircleClip + background + squircleBorder + appCardShadow`。两者靠 `liquidCard` 开关切换，**不允许**用毛玻璃调参去"模拟"液态玻璃 | `HomeTileBoard.kt` · `HomeTileFaceBox` | 已实现 |
+| 1 | 液态玻璃**只用** App 内现成实现：`com.kyant.backdrop` 的 `drawBackdrop`（底栏、玻璃顶栏、头卡同一套），三要素齐全——`blur + vibrancy` 之外还有 `lens` 折射（边缘弯光 + 色散）、`Highlight` 轮廓高光、`floatingGlassShadow` 环境光投影；毛玻璃是另一条独立路径：`squircleClip + background + squircleBorder + appCardShadow`。两者靠 `liquidCard` 开关切换，**不允许**用毛玻璃调参去"模拟"液态玻璃 | `HomeTileBoard.kt` · `HomeTileFaceBox` | 已实现 |
 | 2 | 顶栏、卡片组、组件、底栏共用一套玻璃语言：0.7dp 高光细边 + 白填充（浅色 62% / 深色 10%），圆角按尺寸插值；顶栏按钮的白描边已删除，改成与底栏同一套玻璃拟态 | `HomeScreen.kt` · `HomeCollapsingBar`、`app/main/MainScreen.kt` · `HomeRoundAction` | 已实现 |
 | 3 | 背景图**固定** `ContentScale.Crop` 居中铺满（不变形、不重复），**不开放**用户缩放 / 移动取景——它和页面滚动、双击手势会抢指针，收益远小于冲突；可调项只有两个滑条：模糊 0–10dp、不透明度 20–100% | `HomeSettingsScreen.kt` · `HomeSettingsBody` | 已实现（取景按此决定不开放） |
 | 4 | 背景变化后**不做**卡片对比度联动补偿。理由：壁纸太花是用户的审美选择，自动压暗会让"液态玻璃透出壁纸"这个卖点消失。保底只做两件事：文字恒用主题 `onSurface`、液态玻璃内部 blur 恒为 8dp 保证可读 | `HomeTileBoard.kt` · `HomeTileFaceBox` | 已实现 |
@@ -45,9 +45,9 @@
 
 | # | 决定 | 落点 | 状态 |
 |---|---|---|---|
-| 14 | 跟手：起手时记下"这一块真被画在哪"（页面坐标），之后**只累加手指位移**，不用"手指位置 − 抓取偏移"反算。抓取偏移全程恒定 | `HomeTileBoard.kt` · `HomeDragSession.beginDrag/dragBy` | 已实现（本批修） |
-| 15 | 每个卡片右下角恒有可见缩放把手（两条斜杠记号），热区 38–44dp，是一层**独立** `pointerInput`，落在把手上的指针不会传给卡片主体的拖拽手势 | `HomeTileBoard.kt` · `HomeTileItem` | 已实现（本批修） |
-| 16 | 位置变化用 `spring(0.62, 520)`，尺寸变化用同一参数；组上下排序靠 `moveGroup` + 位置弹簧。禁止瞬移 | `HomeTileSpring` | 已实现 |
+| 14 | 跟手：起手时记下"这一块真被画在哪"（页面坐标），之后**只累加手指位移**，不用"手指位置 − 抓取偏移"反算。抓取偏移全程恒定。手势层挂在 `graphicsLayer` **之前**——lifted 的缩小、编辑态抖动都画在 `graphicsLayer` 里，手势挂里面会被这些视觉变换把位移反向放大（被拖块 scale 0.94 → 位移放大 1/0.94，越拖越偏） | `HomeTileBoard.kt` · `HomeDragSession.beginDrag/dragBy`、`HomeTileItem.gesture` | 已实现（本批修） |
+| 15 | 每个卡片右下角恒有可见缩放把手（两条斜杠记号），热区统一 44dp。把手只画记号、**不接手势**：它与移动拖拽共用挂在 `graphicsLayer` 之前的那一层手势，按下时按「是否落在右下角热区」分流成缩放 / 移动——之前把手是挂在会跟着右下角移动的子节点上的独立 `pointerInput`，位移被自己的移动吃掉一半，缩放只有手指速度的一半 | `HomeTileBoard.kt` · `HomeTileItem` | 已实现（本批修） |
+| 16 | 位置变化用 `spring(0.62, 520)`，尺寸变化用同一参数，禁止瞬移。组上下排序：**被拖组跟手浮起**（`translationY` = 手指位移，只动绘制层），目标缝画一条插入指示线，**松手才 `moveGroup` 落位**——拖动过程列表不反复重排，插入序号 = 比多少个其它组的纵向中点更靠下 | `HomeTileSpring`、`HomeTileBoard.kt` · `HomeGroupSection`、`HomeScreen.kt` · `HomeReorderIndicator` | 已实现（本批修） |
 | 17 | 长按阈值不自定义，用系统 `ViewConfiguration.longPressTimeoutMillis`。手势竞争：编辑态内卡片拖拽 `consume` 掉指针；页面滚动在外层 `verticalScroll`，不禁止滚动，拖到边缘由自动滚动接管 | `HomeScreen.kt`、`HomeTileBoard.kt` | 已实现 |
 | 18 | 编辑态持续抖动：周期 2.4s、±0.9°，相位按 `tile.id` 哈希（各块不同步）；正在拖的那块、正在缩的那块暂停；退出编辑 `rotationZ` 立刻归 0，不做复位动画 | `HomeTileBoard.kt` · `HomeTileItem` | 已实现（本批新增） |
 | 19 | 跨组接收指示：手指点落进某个**非源组**的矩形时，该组画一圈 1.5dp、55% 的 primary 圆角环。触发方式 = 手指（不是幽灵块中心）进入该组 | `HomeTileBoard.kt` · `HomeGroupSection` | 已实现（本批新增） |
@@ -99,7 +99,7 @@
 | 45 | 纯图标模式热区 = 整块卡片（1×1 ≈ 62×62dp ≥ 48dp），不额外缩小 | `HomeTileItem` 的 tap 手势 | 已实现 |
 | 46 | 字体放大降级：文字一律 `maxLines = 1` + `Ellipsis`，行高固定 dp 而非随字体无限涨；极端放大时先省略名称、再隐去状态行 | `HomeTileFaceBox` | 已实现 |
 | 47 | 深浅色参数**分开**：填充 浅 62% / 深 10% 白；细边 浅 0.7 / 深 0.1；标题色深色提亮 0.25；液态玻璃 blur 两档相同 | `HomeTileFaceBox`、`GroupHeader` | 已实现 |
-| 48 | 性能降级：抖动只在编辑态挂动画；液态玻璃在无背景图时（`backdrop == null`）自动退化成毛玻璃路径；掉帧交给 Compose 的帧调度，不额外做降级开关 | `HomeTileItem`、`HomeTileFaceBox` | 已实现 |
+| 48 | 性能降级：抖动只在编辑态挂动画；掉帧交给 Compose 的帧调度，不额外做降级开关。液态玻璃的 `drawBackdrop` 用 `remember` 按圆角 / 填充 / 阴影缓存（只有圆角随尺寸动画变时才重建），静止与位置动画不重复采样；纯色背景下折射不可见但高光仍在，故不做「无背景图退化」 | `HomeTileItem`、`HomeTileFaceBox` | 已实现（本批修） |
 | 49 | 基准来源：材质 = App 内 `drawBackdrop` + 底栏玻璃；抽屉 = 设置页既有 `OverlayBottomSheet` 范式；动画 = Compose 官方 spring；手势 = `detectDragGestures` 系统语义。**不自创** | 全文 | 按此决定 |
 | 50 | 参数不写死：格数阈值由内容模型推（§11），dp 由单元高度推（§9），时长沿用 App 既有弹簧参数（§43） | 全文 | 按此决定 |
 
