@@ -1,4 +1,4 @@
-﻿# 三端能力台账（Android 基准 → 桌面 / web 差集）
+# 三端能力台账（Android 基准 → 桌面 / web 差集）
 
 > 生成：2026-10-19 ｜ 扫描对象：`c02011d1`（= `dev` + PR #142 的 12 个文件）
 
@@ -128,7 +128,7 @@ W = `web/src/wasmJsMain/kotlin/com/xjtu/toolbox/web/WebSettingsHost.kt`（3 项�
 | 10. `SCHEDULE_SOURCE` 课表来源 | ✅ | 🔧 | 🔧 | `AppSettings.kt:124,134` · `ScheduleSourceRouter.kt:32-43`（`of()` 读设置）、`:65-66`（`manager == null` 时短路成教务） · `SettingsScreen.kt:291-293` · `DesktopSettings.kt:65`（空表 → 不画） · `WebSettingsHost.kt:52`（空表） · 两端无 `ScheduleSourceRouter` 调用（`grep` 只命中 `:app`/`:server`） | 两端：先得有第二个来源 —— 考勤系统那条路要校园会话（`manager`），现在两头都传不进 |
 | 11. `SCHEDULE_ATTENDANCE` 考勤角标 | ✅ | 🔧 | 🔧 | `AppSettings.kt:124` · `AppScheduleHost.kt:62` · `feature/schedule/.../ScheduleScreen.kt:908` 与 `CourseLinkSections.kt:100`（`ATTENDANCE in honored && attendanceBadgeEnabled`） · 共享默认 `shared/model/.../schedule/ScheduleHost.kt:79`（false） · 桌面 `DesktopScheduleHost.kt:24-32`（无 `ATTENDANCE`） · web `WebScheduleHost.kt:33-38`（无 `ATTENDANCE`） | 两端：先要有考勤取数口，再给宿主 `honored` 加 `ATTENDANCE`（设置行才有意义） |
 | 12. `VENUE_CAPTCHA` 场馆验证码自动识别 | ✅ | 🔧 | 🔧 | `AppSettings.kt:124` · `AppNavHost.kt:310`（读 `venueAutoSolveCaptchaEnabled` 喂识别器） · `SettingsScreen.kt:110,327-331` · `DesktopSettings.kt:61`（未列） · `WebSettingsHost.kt:46`（未列） · web 已有滑块识别器 `web/src/wasmJsMain/kotlin/com/xjtu/toolbox/web/WebSlideCaptchaHost.kt`（无设置读取者） | web：把恒开的识别器改成受设置控制（读完即一行 honored）；桌面：要先有场馆预约那条路 |
-| 12b. `HOME_SETTINGS` 主页设置二级页 | ✅ | ✅ | ✅ | 声明 `feature/settings/.../SettingsHost.kt`（`HOME_SETTINGS`）· 面板 `feature/settings/.../HomeSettingsScreen.kt` · 入口 `feature/settings/.../SettingsScreen.kt`（外观组「主页设置」）+ 首页齿轮经 `HomeLayoutStore.pendingHomeSettings` 直达 · 落盘 `shared/navigation/.../HomeLayoutStore.kt` | 无（三端共用同一份面板与首页）；桌面 / web 的首页顶栏没有齿轮入口，从设置页进 |
+| 12b. `HOME_SETTINGS` 主页设置抽屉 | ✅ | ✅ | ✅ | 声明 `feature/settings/.../SettingsHost.kt`（`HOME_SETTINGS`）· 抽屉 `feature/settings/.../HomeSettingsScreen.kt`（`HomeSettingsSheet`，`OverlayBottomSheet` 范式，与其他设置抽屉一致）· 入口 `feature/settings/.../SettingsScreen.kt`（外观组「主页设置」）+ 首页编辑态齿轮经 `HomeLayoutStore.pendingHomeSettings` 直达同一抽屉 · 落盘 `shared/navigation/.../HomeLayoutStore.kt`（含 2026-11 新增的 `home_text_space`）| 无（三端共用同一份抽屉与首页）；桌面 / web 的首页顶栏没有齿轮入口，从设置页进。行为规格见 `docs/home-interaction-spec.md` |
 
 ## ② `SettingsHost` 其它槽位
 
