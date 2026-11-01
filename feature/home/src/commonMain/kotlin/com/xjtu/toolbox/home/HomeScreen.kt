@@ -153,6 +153,9 @@ fun HomeScreen(
     val backgroundImage = remember(revision) { layoutStore.backgroundImage }
     val backgroundBlur = remember(revision) { layoutStore.backgroundBlur }
     val backgroundOpacity = remember(revision) { layoutStore.backgroundOpacity }
+    // 网格单元要不要给文字留位置（§12）：关掉之后单元变矮，1 格高的卡片自动退成纯图标
+    val leaveTextSpace = remember(revision) { layoutStore.leaveTextSpace }
+    val cellHeight = if (leaveTextSpace) HomeCellHeight else HomeCompactCellHeight
 
     /** 改当前布局：编辑态改草稿（点「对勾」才落盘），其余情况直接落盘。 */
     fun update(block: (HomeLayout) -> HomeLayout) {
@@ -239,7 +242,10 @@ fun HomeScreen(
         modifier
             .fillMaxSize()
             .onGloballyPositioned {
-                pageOrigin = it.boundsInRoot().topLeft
+                val topLeft = it.boundsInRoot().topLeft
+                pageOrigin = topLeft
+                // 拖拽会话也要这份原点：组的坐标和手指坐标都是根坐标，幽灵块要换回页面坐标
+                session.pageOrigin = topLeft
                 pageSize = Offset(it.size.width.toFloat(), it.size.height.toFloat())
             }
             .then(
@@ -367,6 +373,7 @@ fun HomeScreen(
                     // 和头卡同一套左右留白（标题行内部再各让 4dp，所以这里就写 16dp）；
                     // 入场沿用全 App 那套「错峰淡入上浮」，只播一次
                     modifier = Modifier.padding(horizontal = 16.dp).enterOnce(index),
+                    cellHeight = cellHeight,
                 )
             }
 
@@ -397,6 +404,9 @@ fun HomeScreen(
                     editing.cancel()
                 },
                 onHomeSettings = {
+                    // 齿轮是「去改外观」：先把手上的草稿落盘再走，回来时改动还在（§31 不丢未保存状态）。
+                    // 不能像叉号那样直接丢——用户是去调背景/材质，不是要放弃刚摆好的东西。
+                    editing.draft?.let { layoutStore.save(it) }
                     editing.cancel()
                     host.onOpenHomeSettings()
                 },
@@ -410,7 +420,6 @@ fun HomeScreen(
             faces = faces,
             liquid = liquid,
             backdrop = tileBackdrop.takeIf { liquid },
-            origin = pageOrigin,
         )
 
         // ── 拖到屏幕上下边缘时自动滚动（带阻尼：越靠边越快） ──
@@ -1190,7 +1199,6 @@ private fun HomeDragGhost(
     faces: Map<String, HomeServiceRow>,
     liquid: Boolean,
     backdrop: Backdrop?,
-    origin: Offset,
 ) {
     if (!session.dragging) return
     val face = session.routeId?.let { faces[it] } ?: return
@@ -1202,11 +1210,9 @@ private fun HomeDragGhost(
 
     Box(
         Modifier
+            // 位置直接用会话里那条「从原块出发、只累加位移」的轨迹，和手指的相对位置恒定
             .offset {
-                IntOffset(
-                    (session.pointer.x - origin.x - session.grab.x).roundToInt(),
-                    (session.pointer.y - origin.y - session.grab.y).roundToInt(),
-                )
+                IntOffset(session.ghostOrigin.x.roundToInt(), session.ghostOrigin.y.roundToInt())
             }
             .size(with(density) { wPx.toDp() }, with(density) { hPx.toDp() })
             .zIndex(20f)

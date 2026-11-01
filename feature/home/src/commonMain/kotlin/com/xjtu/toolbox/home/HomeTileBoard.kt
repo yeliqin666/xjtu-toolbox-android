@@ -1,9 +1,16 @@
 package com.xjtu.toolbox.home
 
+import androidx.compose.animation.Crossfade
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.detectDragGestures
@@ -41,6 +48,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -51,6 +59,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -62,7 +71,9 @@ import com.xjtu.toolbox.schedule.CourseColors
 import com.xjtu.toolbox.ui.components.ExpressiveIcon
 import com.xjtu.toolbox.ui.components.appCardShadow
 import com.xjtu.toolbox.ui.theme.LocalIsDarkTheme
+import kotlin.math.PI
 import kotlin.math.roundToInt
+import kotlin.math.sin
 import kotlinx.coroutines.launch
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.Text
@@ -77,6 +88,14 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
 internal val HomeCellHeight = 62.dp
 
 /**
+ * 关掉「网格下留出文字空间」之后的一格高度（补充 §12）。
+ *
+ * 单元一矮，1 格高的卡片就装不下名称与状态，自动落进纯图标形态（§13 的阈值联动）；
+ * 组件的槽位是按格数存的，所以换单元高度只是换换算比例，数据不用动。
+ */
+internal val HomeCompactCellHeight = 46.dp
+
+/**
  * 组件之间、以及组件与组边界之间的标准缝隙。
  *
  * 这个缝隙是**渲染时**保证的：每个块都在自己的格矩形里四面各内缩一半，
@@ -87,6 +106,13 @@ internal val HomeTileGap = 8.dp
 
 /** 组件位置/尺寸变化的弹簧：阻尼偏低一点，才有液态玻璃那种「弹一下再停住」。 */
 internal val HomeTileSpring = spring<Float>(dampingRatio = 0.62f, stiffness = 520f)
+
+/**
+ * 编辑态抖动（§18）：跟着 App 里其它「可整理」的场景走，幅度小、周期长。
+ * 2.4s 一个来回、±0.9° 看着像在呼吸；再快就变成焦躁，再大就影响阅读。
+ */
+private const val TILE_SHAKE_PERIOD_MS = 2400
+private const val TILE_SHAKE_DEG = 0.9f
 
 /** 一个卡片组渲染出来的位置与单位换算，拖拽落点要用它把手指坐标换回格坐标。 */
 internal data class HomeBoardMetrics(
@@ -123,11 +149,23 @@ internal class HomeDragSession {
     /** 被拖这一块的尺寸（格），画幽灵块用。 */
     var sizeCells by mutableStateOf(Offset(2f, 1f))
 
-    /** 手指当前在根坐标里的位置。 */
+    /** 手指当前在根坐标里的位置：判定落进哪个组、边缘自动滚动都按它算。 */
     var pointer by mutableStateOf(Offset.Zero)
 
-    /** 按下时手指落在块内的位置（像素）：幽灵块按它跟手，不然会跳一下。 */
+    /** 按下时手指落在块内的位置（像素）：松手时减掉它，才知道把块摆到哪一格。 */
     var grab by mutableStateOf(Offset.Zero)
+
+    /**
+     * 幽灵块左上角在**页面内容坐标**里的位置。
+     *
+     * 这里刻意不用「手指位置 − 抓取偏移」反算：那个式子要求组坐标、抓取点、页面原点
+     * 三套坐标系严格对齐，只要壳多移了一像素（上移、内边距），幽灵块就整体偏出去。
+     * 改成「起手那一刻正好压在原块上，之后只累加手指位移」，跟手是构造上成立的（§14）。
+     */
+    var ghostOrigin by mutableStateOf(Offset.Zero)
+
+    /** 首页根节点在窗口里的位置：组坐标和手指坐标都是根坐标，幽灵块要换回页面坐标。 */
+    var pageOrigin by mutableStateOf(Offset.Zero)
 
     /** 正在缩放的块与它的实时尺寸：跟手反馈，松手才落盘。 */
     var resizingId by mutableStateOf<String?>(null)
@@ -148,11 +186,17 @@ internal class HomeDragSession {
         fromGroupId = groupId
         sizeCells = Offset(tile.w, tile.h)
         grab = local
-        pointer = Offset(board.left + tile.x * board.colUnit + local.x, board.top + tile.y * board.rowUnit + local.y)
+        // 起手位置 = 这一块真被画在哪：组的左上角（根坐标）+ 格数 × 格宽，再换到页面坐标
+        ghostOrigin = Offset(
+            board.left - pageOrigin.x + tile.x * board.colUnit,
+            board.top - pageOrigin.y + tile.y * board.rowUnit,
+        )
+        pointer = ghostOrigin + pageOrigin + local
     }
 
     fun dragBy(delta: Offset) {
         pointer += delta
+        ghostOrigin += delta
     }
 
     fun endDrag() {
@@ -196,10 +240,11 @@ internal fun HomeGroupSection(
     onRemoveTile: (tileId: String) -> Unit,
     onReorderDrag: () -> Unit,
     modifier: Modifier = Modifier,
+    cellHeight: Dp = HomeCellHeight,
 ) {
     val density = LocalDensity.current
     val gapPx = with(density) { HomeTileGap.toPx() }
-    val cellHeightPx = with(density) { HomeCellHeight.toPx() }
+    val cellHeightPx = with(density) { cellHeight.toPx() }
     val tiles = group.tiles
     val rows = HomeGridMath.contentBottom(tiles).coerceAtLeast(1f)
 
@@ -240,12 +285,30 @@ internal fun HomeGroupSection(
             val colUnit = (constraints.maxWidth + gapPx) / HomeGridMath.COLUMNS
             val rowUnit = cellHeightPx + gapPx
 
+            // 跨组拖动时，手指正压着的那一组给一圈接收高亮（§19）：
+            // 只有「别的组」才亮，这样「松手会落到哪」在按下那一刻就能看出来
+            val receiving = session.dragging &&
+                session.fromGroupId != null &&
+                session.fromGroupId != group.id &&
+                session.boards[group.id]?.contains(session.pointer) == true
+            if (receiving) {
+                Box(
+                    Modifier
+                        .matchParentSize()
+                        .border(
+                            1.5.dp,
+                            MiuixTheme.colorScheme.primary.copy(alpha = 0.55f),
+                            RoundedCornerShape(14.dp),
+                        ),
+                )
+            }
+
             if (tiles.isEmpty()) {
                 if (editing) {
                     Box(
                         Modifier
                             .fillMaxWidth()
-                            .height(HomeCellHeight)
+                            .height(cellHeight)
                             .squircleClip(18.dp)
                             .border(
                                 1.dp,
@@ -430,6 +493,27 @@ private fun HomeTileItem(
     val heightPx = (animH * rowUnit - gapPx).coerceAtLeast(1f)
     val lifted = session.tileId == tile.id
 
+    // 编辑态抖动：每块按 id 定一个相位（同一时刻各块朝不同方向），拖起来的那一块停住，
+    // 退出编辑 shaking 直接变 false、rotationZ 立刻回到 0，不需要复位动画。
+    // 只在编辑态才挂 InfiniteTransition，别让平时也白跑一个永不结束的动画。
+    val shaking = editing && !lifted && session.resizingId != tile.id
+    val shakePhase = remember(tile.id) {
+        ((tile.id.hashCode() % 360 + 360) % 360) / 360f * 2f * PI.toFloat()
+    }
+    val shakeAngleState: androidx.compose.runtime.State<Float> = if (shaking) {
+        rememberInfiniteTransition(label = "tileShake").animateFloat(
+            initialValue = 0f,
+            targetValue = 2f * PI.toFloat(),
+            animationSpec = infiniteRepeatable(
+                animation = tween(TILE_SHAKE_PERIOD_MS, easing = LinearEasing),
+            ),
+            label = "tileShakeAngle",
+        )
+    } else {
+        remember { mutableStateOf(0f) }
+    }
+    val shakeAngle by shakeAngleState
+
     Box(
         Modifier
             .offset { IntOffset((animX.value * colUnit).roundToInt(), (animY.value * rowUnit).roundToInt()) }
@@ -439,6 +523,8 @@ private fun HomeTileItem(
                 alpha = if (lifted) 0.28f else 1f
                 scaleX = if (lifted) 0.94f else 1f
                 scaleY = scaleX
+                // 旋转在 graphicsLayer 里算：抖动只改绘制层，不触发重组
+                rotationZ = if (shaking) sin(shakeAngle + shakePhase) * TILE_SHAKE_DEG else 0f
             },
     ) {
         HomeTileFaceBox(
@@ -480,58 +566,79 @@ private fun HomeTileItem(
         )
 
         if (editing) {
-            // 右上角：移除这一块
+            // 左上角：移除这一块。热区 32dp，视觉只有 18dp，所以点偏一点也点得到
             Box(
                 Modifier
-                    .align(Alignment.TopEnd)
-                    .padding(2.dp)
-                    .size(18.dp)
-                    .clip(CircleShape)
-                    .background(MiuixTheme.colorScheme.onSurface.copy(alpha = 0.5f))
+                    .align(Alignment.TopStart)
+                    .size(32.dp)
                     .pointerInput(tile.id) { detectTapGestures(onTap = { onRemoveTile(tile.id) }) },
-                contentAlignment = Alignment.Center,
+                contentAlignment = Alignment.TopStart,
             ) {
-                Icon(
-                    Icons.Default.Close,
-                    contentDescription = "移除${face.title}",
-                    tint = MiuixTheme.colorScheme.surface,
-                    modifier = Modifier.size(11.dp),
-                )
-            }
-            // 右下角：缩放把手。1×1 那一档放不下把手，先放大再缩回去
-            if (animW >= 1.4f && animH >= 1.4f) {
                 Box(
                     Modifier
-                        .align(Alignment.BottomEnd)
-                        .size(28.dp)
-                        .pointerInput(tile.id, colUnit, rowUnit) {
-                            detectDragGestures(
-                                onDragStart = { session.beginResize(tile.id, Offset(tile.w, tile.h)) },
-                                onDrag = { change, delta ->
-                                    change.consume()
-                                    val current = session.liveSize ?: Offset(tile.w, tile.h)
-                                    session.liveSize = Offset(
-                                        (current.x + delta.x / colUnit)
-                                            .coerceIn(HomeGridMath.MIN_SPAN, HomeGridMath.MAX_SPAN),
-                                        (current.y + delta.y / rowUnit)
-                                            .coerceIn(HomeGridMath.MIN_SPAN, HomeGridMath.MAX_SPAN),
-                                    )
-                                },
-                                onDragEnd = {
-                                    val size = session.liveSize ?: Offset(tile.w, tile.h)
-                                    session.endResize()
-                                    onDropResize(tile.id, size.x, size.y)
-                                },
-                                onDragCancel = { session.endResize() },
-                            )
-                        },
+                        .padding(2.dp)
+                        .size(18.dp)
+                        .clip(CircleShape)
+                        .background(MiuixTheme.colorScheme.onSurface.copy(alpha = 0.5f)),
                     contentAlignment = Alignment.Center,
                 ) {
-                    Box(
-                        Modifier
-                            .size(11.dp)
-                            .clip(RoundedCornerShape(3.dp))
-                            .background(MiuixTheme.colorScheme.primary.copy(alpha = 0.8f)),
+                    Icon(
+                        Icons.Default.Close,
+                        contentDescription = "移除${face.title}",
+                        tint = MiuixTheme.colorScheme.surface,
+                        modifier = Modifier.size(11.dp),
+                    )
+                }
+            }
+            // 右下角：缩放把手（§15）。**任何尺寸都要有**——之前拿「宽高都 ≥ 1.4 格」当门槛，
+            // 而默认卡片就是 2×1（高正好 1 格），等于所有默认卡片都没有把手。
+            // 热区是一层独立的 pointerInput，落在把手上的指针不会传给卡片的拖拽手势。
+            val handleHit = if (minOf(animW, animH) < 1.5f) 38.dp else 44.dp
+            Box(
+                Modifier
+                    .align(Alignment.BottomEnd)
+                    .size(handleHit)
+                    .pointerInput(tile.id, colUnit, rowUnit) {
+                        detectDragGestures(
+                            onDragStart = { session.beginResize(tile.id, Offset(tile.w, tile.h)) },
+                            onDrag = { change, delta ->
+                                change.consume()
+                                val current = session.liveSize ?: Offset(tile.w, tile.h)
+                                session.liveSize = Offset(
+                                    (current.x + delta.x / colUnit)
+                                        .coerceIn(HomeGridMath.MIN_SPAN, HomeGridMath.MAX_SPAN),
+                                    (current.y + delta.y / rowUnit)
+                                        .coerceIn(HomeGridMath.MIN_SPAN, HomeGridMath.MAX_SPAN),
+                                )
+                            },
+                            onDragEnd = {
+                                val size = session.liveSize ?: Offset(tile.w, tile.h)
+                                session.endResize()
+                                onDropResize(tile.id, size.x, size.y)
+                            },
+                            onDragCancel = { session.endResize() },
+                        )
+                    },
+                contentAlignment = Alignment.Center,
+            ) {
+                // 抓手画两条斜杠（像右下角的「可拉伸」记号），比一个实心方块更像把手
+                val gripColor = MiuixTheme.colorScheme.primary
+                Canvas(Modifier.size(13.dp)) {
+                    val side = size.width
+                    val stroke = side * 0.16f
+                    drawLine(
+                        color = gripColor,
+                        start = Offset(side * 0.22f, side * 0.95f),
+                        end = Offset(side * 0.95f, side * 0.22f),
+                        strokeWidth = stroke,
+                        cap = StrokeCap.Round,
+                    )
+                    drawLine(
+                        color = gripColor,
+                        start = Offset(side * 0.22f, side * 0.48f),
+                        end = Offset(side * 0.48f, side * 0.22f),
+                        strokeWidth = stroke,
+                        cap = StrokeCap.Round,
                     )
                 }
             }
@@ -586,51 +693,61 @@ internal fun HomeTileFaceBox(
         modifier.then(material).padding(horizontal = 8.dp, vertical = 6.dp),
         contentAlignment = Alignment.Center,
     ) {
-        when {
-            // 极值形态：纯图标
-            w < 1.2f || h < 1.2f -> ExpressiveIcon(
-                icon = face.icon,
-                color = iconColor,
-                size = (minOf(w, h) * 30f).coerceIn(24f, 34f).dp,
-                iconSize = (minOf(w, h) * 16f).coerceIn(13f, 19f).dp,
-            )
-            // 长条形：图标在左、字在右
-            h < 1.6f -> Row(verticalAlignment = Alignment.CenterVertically) {
-                ExpressiveIcon(icon = face.icon, color = iconColor, size = 30.dp, iconSize = 17.dp)
-                Spacer(Modifier.width(8.dp))
-                Column(Modifier.weight(1f)) {
+        // 形态按**实时**格数选（§10）：拖动把手缩放时逐帧判断，不等松手才重排。
+        // 阈值用内容模型推：1 格高只放得下图标 → 纯图标；1.6 格以下竖排会挤成两行字 →
+        // 改成横排；再高才回到「图标 / 名称 / 状态」三段。
+        val mode = when {
+            w < 1.2f || h < 1.2f -> 0
+            h < 1.6f -> 1
+            else -> 2
+        }
+        Crossfade(targetState = mode, animationSpec = tween(140)) { shape ->
+            when (shape) {
+                // 极值形态：纯图标
+                0 -> ExpressiveIcon(
+                    icon = face.icon,
+                    color = iconColor,
+                    size = (minOf(w, h) * 30f).coerceIn(24f, 34f).dp,
+                    iconSize = (minOf(w, h) * 16f).coerceIn(13f, 19f).dp,
+                )
+                // 长条形：图标在左、字在右
+                1 -> Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    ExpressiveIcon(icon = face.icon, color = iconColor, size = 30.dp, iconSize = 17.dp)
+                    Spacer(Modifier.width(8.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text(
+                            face.title,
+                            fontSize = 13.sp,
+                            lineHeight = 16.sp,
+                            fontWeight = FontWeight.Medium,
+                            color = ink,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                        StatLine(face, muted, centered = false)
+                    }
+                }
+                // 方块及以上：图标一行、名称与状态各一行
+                else -> Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    ExpressiveIcon(
+                        icon = face.icon,
+                        color = iconColor,
+                        size = (minOf(w, h) * 25f).coerceIn(30f, 40f).dp,
+                        iconSize = (minOf(w, h) * 14f).coerceIn(17f, 22f).dp,
+                    )
+                    Spacer(Modifier.height(6.dp))
                     Text(
                         face.title,
-                        fontSize = 13.sp,
-                        lineHeight = 16.sp,
+                        fontSize = 12.5.sp,
+                        lineHeight = 15.sp,
                         fontWeight = FontWeight.Medium,
                         color = ink,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
+                        textAlign = TextAlign.Center,
                     )
-                    StatLine(face, muted, centered = false)
+                    StatLine(face, muted, centered = true)
                 }
-            }
-            // 方块及以上：图标一行、名称与状态各一行
-            else -> Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                ExpressiveIcon(
-                    icon = face.icon,
-                    color = iconColor,
-                    size = (minOf(w, h) * 25f).coerceIn(30f, 40f).dp,
-                    iconSize = (minOf(w, h) * 14f).coerceIn(17f, 22f).dp,
-                )
-                Spacer(Modifier.height(6.dp))
-                Text(
-                    face.title,
-                    fontSize = 12.5.sp,
-                    lineHeight = 15.sp,
-                    fontWeight = FontWeight.Medium,
-                    color = ink,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    textAlign = TextAlign.Center,
-                )
-                StatLine(face, muted, centered = true)
             }
         }
     }
