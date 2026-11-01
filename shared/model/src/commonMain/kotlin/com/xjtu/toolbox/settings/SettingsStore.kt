@@ -136,12 +136,15 @@ class SettingsStore(private val store: KeyValueStore = keyValueStore(APP_SETTING
         get() = store.getString("home_widgets")?.split('\n')?.filter { it.isNotBlank() }
         set(value) = store.putString("home_widgets", value?.joinToString("\n"))
 
-    /** 小组件材质：glass = 液态玻璃（底下铺头卡同款背景），paper = 白色奶满。 */
-    var homeWidgetMaterial: String
-        get() = store.getString("home_widget_material")?.takeIf { it == WIDGET_MATERIAL_PAPER } ?: WIDGET_MATERIAL_GLASS
-        set(value) = store.putString("home_widget_material", value.takeIf { it == WIDGET_MATERIAL_PAPER } ?: WIDGET_MATERIAL_GLASS)
+    var homeBackground: String
+        get() = store.getString("home_background") ?: when {
+            store.getString("home_widget_material") == WIDGET_MATERIAL_PAPER -> "solid"
+            homeWallpaperImage.isNotEmpty() -> "image"
+            else -> "gradient"
+        }
+        set(value) = store.putString("home_background", value)
 
-    /** 液态玻璃材质下整页铺的壁纸：裁好的图片（WebP）Base64；空串 = 用主题色大渐变。 */
+    /** 首页自定义背景，WebP Base64。 */
     var homeWallpaperImage: String
         get() = store.getString("home_wallpaper_image").orEmpty()
         set(value) = store.putString("home_wallpaper_image", value.ifEmpty { null })
@@ -174,7 +177,6 @@ class SettingsStore(private val store: KeyValueStore = keyValueStore(APP_SETTING
         const val APP_SETTINGS_FILE = "app_settings"
         const val HOME_LAYOUT_CLASSIC = "classic"
         const val HOME_LAYOUT_WIDGETS = "widgets"
-        const val WIDGET_MATERIAL_GLASS = "glass"
         const val WIDGET_MATERIAL_PAPER = "paper"
 
         const val HERO_IMAGE_BLUR_MIN = 0

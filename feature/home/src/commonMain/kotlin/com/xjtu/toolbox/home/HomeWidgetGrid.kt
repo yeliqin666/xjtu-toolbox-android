@@ -24,6 +24,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
@@ -72,6 +73,9 @@ import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.semantics.CustomAccessibilityAction
+import androidx.compose.ui.semantics.customActions
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
@@ -88,26 +92,16 @@ import com.kyant.backdrop.effects.vibrancy
 import com.xjtu.toolbox.nav.AppRoute
 import com.xjtu.toolbox.nav.expandOriginSource
 import com.xjtu.toolbox.nav.rememberExpandOriginSource
-import com.xjtu.toolbox.platform.decodeImage
-import com.xjtu.toolbox.platform.decodeImageSize
 import com.xjtu.toolbox.platform.qrCodeModules
 import com.xjtu.toolbox.settings.HomeLayoutRevision
 import com.xjtu.toolbox.settings.SettingsStore
-import com.xjtu.toolbox.ui.components.AppCardColor
-import com.xjtu.toolbox.ui.components.AppFilterChip
 import com.xjtu.toolbox.ui.components.CodeMatrixView
 import com.xjtu.toolbox.ui.components.HeroCustomBackground
-import com.xjtu.toolbox.ui.components.encodeHeroImage
-import com.xjtu.toolbox.ui.components.rememberHeroImagePicker
 import com.xjtu.toolbox.ui.theme.Editorial
 import com.xjtu.toolbox.ui.theme.LocalIsDarkTheme
-import kotlin.io.encoding.Base64
-import kotlin.io.encoding.ExperimentalEncodingApi
 import kotlin.math.roundToInt
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextButton
@@ -117,14 +111,13 @@ import top.yukonga.miuix.kmp.window.WindowDialog
 
 /**
  * 小组件模式的首页功能区：四列正方格，每个功能可选 1×1 / 2×1 / 1×2 / 2×2，各尺寸放各自真实的内容。
- * 长按进入编辑：再长按一格才能拖（普通上下滑照常滚动），右下角换尺寸、左上角移除、末尾「添加」找回。
- * 材质二选一：液态玻璃（[wall] 是整页壁纸的采样层）或白色奶满（[wall] 为 null）。
+ * 长按进入编辑：再长按一格才能拖（普通上下滑照常滚动），拖右下角缩放、左上角移除、末尾「添加」找回。
+ * 背景在设置中选择，小组件统一使用随正文配色的玻璃表面。
  */
 @Composable
 internal fun HomeWidgetGrid(
     rows: List<HomeServiceRow>,
-    features: (String) -> List<String>,
-    wall: Backdrop?,
+    wall: Backdrop,
     ink: Color,
     paymentCode: suspend () -> String?,
     onLink: (String) -> Unit,
@@ -145,7 +138,6 @@ internal fun HomeWidgetGrid(
         widgets = next
         store.homeWidgets = HomeWidgetLayout.encode(next)
     }
-    val glass = wall != null
 
     Column(modifier.fillMaxWidth()) {
         AnimatedVisibility(
@@ -154,7 +146,6 @@ internal fun HomeWidgetGrid(
             exit = shrinkVertically(spring(stiffness = Spring.StiffnessMediumLow)) + fadeOut(),
         ) {
             EditToolbar(
-                store = store,
                 ink = ink,
                 onReset = {
                     store.homeWidgets = null
@@ -166,10 +157,9 @@ internal fun HomeWidgetGrid(
         WidgetCanvas(
             widgets = widgets,
             byId = byId,
-            features = features,
             editing = editing,
             wall = wall,
-            ink = if (glass) ink else MiuixTheme.colorScheme.onSurface,
+            ink = ink,
             paymentCode = paymentCode,
             onLink = onLink,
             onEdit = { editing = true },
@@ -195,7 +185,7 @@ internal fun HomeWidgetGrid(
                         }.padding(horizontal = 8.dp, vertical = 10.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        WidgetIcon(r, 32.dp, glass = false)
+                        WidgetIcon(r, 32.dp, MiuixTheme.colorScheme.onSurface)
                         Spacer(Modifier.width(12.dp))
                         Column(Modifier.weight(1f)) {
                             Text(r.title, style = MiuixTheme.textStyles.body1)
@@ -212,51 +202,16 @@ internal fun HomeWidgetGrid(
     }
 }
 
-/** 编辑态顶上那一排：材质、壁纸、复原、完成。材质和壁纸改完通知整页重读（壁纸铺在整页背后）。 */
-@OptIn(ExperimentalEncodingApi::class)
 @Composable
-private fun EditToolbar(store: SettingsStore, ink: Color, onReset: () -> Unit, onDone: () -> Unit) {
-    val scope = rememberCoroutineScope()
-    val glass = store.homeWidgetMaterial == SettingsStore.WIDGET_MATERIAL_GLASS
-    val customWall = store.homeWallpaperImage.isNotEmpty()
-    val pickImage = rememberHeroImagePicker { bytes ->
-        scope.launch {
-            val encoded = withContext(Dispatchers.Default) {
-                decodeImageSize(bytes)?.let { decodeImage(bytes, it, maxDim = 1600) }?.let { encodeHeroImage(it) }
-            }
-            if (encoded != null) {
-                store.homeWallpaperImage = Base64.Default.encode(encoded)
-                HomeLayoutRevision.bump()
-            }
+private fun EditToolbar(ink: Color, onReset: () -> Unit, onDone: () -> Unit) {
+    Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 8.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("拖右下角缩放 · 长按拖动排序", fontSize = 11.sp, color = ink.copy(alpha = 0.7f), modifier = Modifier.weight(1f))
+            Text("复原", fontSize = 13.sp, color = ink,
+                modifier = Modifier.clip(RoundedCornerShape(8.dp)).clickable(onClick = onReset).padding(8.dp))
+            Text("完成", fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = ink,
+                modifier = Modifier.clip(RoundedCornerShape(8.dp)).clickable(onClick = onDone).padding(8.dp))
         }
-    }
-    val muted = ink.copy(alpha = 0.7f)
-    Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 6.dp)) {
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            AppFilterChip(selected = glass, onClick = {
-                store.homeWidgetMaterial = SettingsStore.WIDGET_MATERIAL_GLASS; HomeLayoutRevision.bump()
-            }, label = "液态玻璃")
-            AppFilterChip(selected = !glass, onClick = {
-                store.homeWidgetMaterial = SettingsStore.WIDGET_MATERIAL_PAPER; HomeLayoutRevision.bump()
-            }, label = "白色奶满")
-            Spacer(Modifier.weight(1f))
-            Text("复原", fontSize = 13.sp, color = muted,
-                modifier = Modifier.clip(RoundedCornerShape(8.dp)).clickable(onClick = onReset).padding(horizontal = 6.dp, vertical = 4.dp))
-            Text("完成", fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = MiuixTheme.colorScheme.primary,
-                modifier = Modifier.clip(RoundedCornerShape(8.dp)).clickable(onClick = onDone).padding(horizontal = 6.dp, vertical = 4.dp))
-        }
-        if (glass) {
-            Spacer(Modifier.height(6.dp))
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("壁纸", fontSize = 13.sp, color = muted)
-                AppFilterChip(selected = !customWall, onClick = {
-                    store.homeWallpaperImage = ""; HomeLayoutRevision.bump()
-                }, label = "主题渐变")
-                AppFilterChip(selected = customWall, onClick = pickImage, label = if (customWall) "换一张图" else "选图片")
-            }
-        }
-        Spacer(Modifier.height(4.dp))
-        Text("长按一格可拖动排序", fontSize = 11.sp, color = muted)
     }
 }
 
@@ -265,12 +220,14 @@ private fun EditToolbar(store: SettingsStore, ink: Color, onReset: () -> Unit, o
  * 顶部和底部各压一段暗色，刊头白字和底栏都看得清。
  */
 @Composable
-internal fun HomeWallpaper(imageData: String, modifier: Modifier = Modifier) {
+internal fun HomeWallpaper(mode: String, imageData: String, modifier: Modifier = Modifier) {
     val dark = LocalIsDarkTheme.current
     val surface = MiuixTheme.colorScheme.surface
     val primary = MiuixTheme.colorScheme.primary
     Box(modifier) {
-        if (imageData.isNotEmpty()) {
+        if (mode == "solid") {
+            Box(Modifier.matchParentSize().background(lerp(surface, primary, if (dark) 0.10f else 0.06f)))
+        } else if (imageData.isNotEmpty()) {
             HeroCustomBackground(imageData = imageData, modifier = Modifier.matchParentSize(), blur = 0, brightness = 100)
             Box(
                 Modifier.matchParentSize().background(
@@ -283,15 +240,13 @@ internal fun HomeWallpaper(imageData: String, modifier: Modifier = Modifier) {
                 ),
             )
         } else {
-            val warm = if (dark) Color(0xFF6B3F8F) else Color(0xFFFFC7B2)
-            val cool = if (dark) Color(0xFF1E4D6B) else Color(0xFFB9E3F2)
             Box(
                 Modifier.matchParentSize().background(
                     Brush.linearGradient(
                         listOf(
                             lerp(surface, primary, if (dark) 0.30f else 0.22f),
-                            lerp(surface, warm, if (dark) 0.30f else 0.38f),
-                            lerp(surface, cool, if (dark) 0.28f else 0.42f),
+                            lerp(surface, primary, if (dark) 0.18f else 0.10f),
+                            lerp(surface, primary, if (dark) 0.08f else 0.04f),
                             surface,
                         ),
                         start = Offset.Zero,
@@ -308,9 +263,8 @@ internal fun HomeWallpaper(imageData: String, modifier: Modifier = Modifier) {
 private fun WidgetCanvas(
     widgets: List<HomeWidgetSpec>,
     byId: Map<String, HomeServiceRow>,
-    features: (String) -> List<String>,
     editing: Boolean,
-    wall: Backdrop?,
+    wall: Backdrop,
     ink: Color,
     paymentCode: suspend () -> String?,
     onLink: (String) -> Unit,
@@ -322,7 +276,14 @@ private fun WidgetCanvas(
     BoxWithConstraints(modifier.fillMaxWidth()) {
         val cols = HomeWidgetLayout.COLUMNS
         val cell = (maxWidth - GAP * (cols - 1)) / cols
-        val shown = widgets.filter { it.routeId in byId }
+        var resizing by remember { mutableStateOf<String?>(null) }
+        var resizeSize by remember { mutableStateOf(WidgetSize.SMALL) }
+        var resizeOrigin by remember { mutableStateOf(IntOffset.Zero) }
+        var resizeStart by remember { mutableStateOf(Offset.Zero) }
+        var resizeDelta by remember { mutableStateOf(Offset.Zero) }
+        val shown = widgets.filter { it.routeId in byId }.map {
+            if (it.routeId == resizing) it.copy(size = resizeSize) else it
+        }
         // 编辑时末尾多一个「添加」格，跟着一起排
         val withAdd = if (editing) shown + HomeWidgetSpec(ADD_KEY, WidgetSize.SMALL) else shown
         val placed = remember(withAdd) { HomeWidgetLayout.pack(withAdd) }
@@ -351,6 +312,7 @@ private fun WidgetCanvas(
                     val w = cell * p.spec.size.cols + GAP * (p.spec.size.cols - 1)
                     val h = cell * p.spec.size.rows + GAP * (p.spec.size.rows - 1)
                     val isDragged = dragging == p.spec.routeId
+                    val isResizing = resizing == p.spec.routeId
                     val raw = (dragOrigin + dragDelta).let { IntOffset(it.x.roundToInt(), it.y.roundToInt()) }
                     val pos = remember { Animatable(target, IntOffset.VectorConverter) }
                     LaunchedEffect(target, isDragged) {
@@ -360,13 +322,15 @@ private fun WidgetCanvas(
                     val width by animateDpAsState(w, spring(dampingRatio = 0.85f, stiffness = Spring.StiffnessMediumLow), label = "w")
                     val heightAnim by animateDpAsState(h, spring(dampingRatio = 0.85f, stiffness = Spring.StiffnessMediumLow), label = "h")
                     val lift by animateFloatAsState(if (isDragged) 1.05f else 1f, label = "lift")
-                    val wobble = if (editing && !isDragged) rememberWobble(index) else 0f
+                    val wobble = if (editing && !isDragged && !isResizing) rememberWobble(index) else 0f
+                    val resizeWidth = with(density) { (resizeStart.x + resizeDelta.x).coerceIn(cell.toPx(), (cell * 2 + GAP).toPx()).toDp() }
+                    val resizeHeight = with(density) { (resizeStart.y + resizeDelta.y).coerceIn(cell.toPx(), (cell * 2 + GAP).toPx()).toDp() }
 
                     Box(
                         Modifier
-                            .offset { if (isDragged) raw else pos.value }
-                            .zIndex(if (isDragged) 2f else 0f)
-                            .size(width, heightAnim)
+                            .offset { if (isResizing) resizeOrigin else if (isDragged) raw else pos.value }
+                            .zIndex(if (isDragged || isResizing) 2f else 0f)
+                            .size(if (isResizing) resizeWidth else width, if (isResizing) resizeHeight else heightAnim)
                             .graphicsLayer { scaleX = lift; scaleY = lift; rotationZ = wobble }
                             .then(
                                 // 编辑态要先长按一下才拖：普通上下滑交给页面滚动
@@ -420,7 +384,6 @@ private fun WidgetCanvas(
                             WidgetTile(
                                 row = row,
                                 size = p.spec.size,
-                                features = features(row.key),
                                 wall = wall,
                                 ink = ink,
                                 editing = editing,
@@ -431,8 +394,40 @@ private fun WidgetCanvas(
                             EditBadges(
                                 visible = editing && !isDragged,
                                 onRemove = { onReorder(widgets.filterNot { it.routeId == row.key }) },
-                                onResize = {
-                                    onReorder(widgets.map { if (it.routeId == row.key) it.copy(size = it.size.next()) else it })
+                                resizeModifier = Modifier.semantics {
+                                    customActions = WidgetSize.entries.map { size ->
+                                        CustomAccessibilityAction(size.key) {
+                                            onReorder(latestWidgets.map { if (it.routeId == row.key) it.copy(size = size) else it })
+                                            true
+                                        }
+                                    }
+                                }.pointerInput(row.key, cell) {
+                                    detectDragGestures(
+                                        onDragStart = {
+                                            resizing = row.key
+                                            resizeSize = latestWidgets.first { it.routeId == row.key }.size
+                                            resizeOrigin = pos.value
+                                            resizeStart = Offset(width.toPx(), heightAnim.toPx())
+                                            resizeDelta = Offset.Zero
+                                        },
+                                        onDragCancel = { resizing = null },
+                                        onDragEnd = {
+                                            onReorder(latestWidgets.map { if (it.routeId == row.key) it.copy(size = resizeSize) else it })
+                                            resizing = null
+                                        },
+                                        onDrag = { change, amount ->
+                                            change.consume()
+                                            resizeDelta += amount
+                                            val next = WidgetSize.fromExtent(
+                                                (resizeStart.x + resizeDelta.x + GAP.toPx()) / step,
+                                                (resizeStart.y + resizeDelta.y + GAP.toPx()) / step,
+                                            )
+                                            if (next != resizeSize) {
+                                                resizeSize = next
+                                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                            }
+                                        },
+                                    )
                                 },
                             )
                         }
@@ -455,14 +450,13 @@ private fun rememberWobble(index: Int): Float {
     return angle
 }
 
-/** 一格小组件：底（玻璃或纸面）+ 按尺寸排的内容，尺寸变化时内容淡入淡出。 */
+/** 尺寸变化时重排内容，文字和背景共用同一套对比度规则。 */
 @Composable
 @OptIn(ExperimentalFoundationApi::class)
 private fun WidgetTile(
     row: HomeServiceRow,
     size: WidgetSize,
-    features: List<String>,
-    wall: Backdrop?,
+    wall: Backdrop,
     ink: Color,
     editing: Boolean,
     paymentCode: suspend () -> String?,
@@ -472,7 +466,7 @@ private fun WidgetTile(
     val origin = rememberExpandOriginSource()
     val density = LocalDensity.current
     val shape = RoundedCornerShape(TILE_RADIUS)
-    val surface = if (wall != null) Modifier.glassTile(wall, ink) else Modifier.paperTile()
+    val surface = Modifier.glassTile(wall, ink)
     Box(
         Modifier
             .fillMaxSize()
@@ -493,160 +487,144 @@ private fun WidgetTile(
     ) {
         Crossfade(size, animationSpec = tween(220), label = "widgetContent") { s ->
             if (row.key == AppRoute.PaymentCode.id && s == WidgetSize.LARGE) {
-                PaymentCodeContent(row, ink, wall != null, live = !editing, paymentCode = paymentCode)
+                PaymentCodeContent(row, ink, live = !editing, paymentCode = paymentCode)
             } else {
-                WidgetContent(row, s, ink, wall != null, onLink = if (editing) null else onLink)
+                WidgetContent(row, s, ink, onLink = if (editing) null else onLink)
             }
         }
     }
 }
 
-/**
- * 各尺寸的内容，按「这一格最该说什么」排：
- * - 状态是短数字（¥8.49、3 门、第 9 周）才放大成主角；是一句话（通知标题、作业名）就当正文排，不硬撑大字。
- * - 有明细时，横条放第一条，竖条放两三条，大格放三四条；带链接的明细能直接点开（通知原文、黄页拨号）。
- * - 都没有时，只放名字和一句说明，不拿页内功能名凑数。
- */
 @Composable
-private fun WidgetContent(row: HomeServiceRow, size: WidgetSize, ink: Color, glass: Boolean, onLink: ((String) -> Unit)?) {
-    val muted = ink.copy(alpha = 0.62f)
+private fun WidgetContent(row: HomeServiceRow, size: WidgetSize, ink: Color, onLink: ((String) -> Unit)?) {
+    val muted = ink.copy(alpha = 0.68f)
     val stat = row.stat?.takeIf { it.isNotBlank() }
-    val figure = stat != null && stat.length <= FIGURE_MAX_CHARS
-    val alert = row.tone == HomeTone.ALERT
+    val figure = stat != null && stat.length <= FIGURE_MAX_CHARS && row.key !in LIST_WIDGETS
     val figureColor = when {
-        alert -> if (glass) Color(0xFFFF8A80) else MiuixTheme.colorScheme.error
-        glass -> ink
-        else -> lerp(row.color, ink, if (LocalIsDarkTheme.current) 0.45f else 0.15f)
+        row.tone == HomeTone.ALERT -> if (ink.luminanceApprox() > 0.5f) Color(0xFFFFB4AB) else MiuixTheme.colorScheme.error
+        else -> ink
     }
-    // 状态本身就是第一条明细时（通知：标题既是状态也是列表头）不重复
-    val lines = row.lines.filter { it.text != stat }
+    val lines = row.lines.distinctBy { it.text }
+    val actions = row.key == AppRoute.Agent.id
     when (size) {
-        WidgetSize.SMALL -> Box(Modifier.fillMaxSize()) {
-            Column(
-                Modifier.fillMaxSize().padding(6.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.Center,
-            ) {
-                WidgetIcon(row, 30.dp, glass)
-                Spacer(Modifier.height(5.dp))
-                Text(row.title, fontSize = 11.sp, lineHeight = 13.sp, color = ink, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                // 短数字放得下就露出来，一格也有信息
-                if (figure) Text(stat!!, fontSize = 10.sp, lineHeight = 12.sp, fontWeight = FontWeight.SemiBold,
-                    color = figureColor, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            }
-            if (alert) Box(
-                Modifier.align(Alignment.TopEnd).padding(9.dp).size(7.dp).background(Color(0xFFFF5A4E), CircleShape),
-            )
-        }
-        WidgetSize.WIDE -> Column(Modifier.fillMaxSize().padding(horizontal = 12.dp, vertical = 10.dp)) {
-            TitleRow(row, ink, glass, iconSize = 20.dp, fontSize = 12)
-            Spacer(Modifier.weight(1f))
-            when {
-                figure -> {
-                    Text(stat!!, style = Editorial.figure.copy(fontSize = 19.sp, lineHeight = 22.sp), color = figureColor,
-                        maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    (row.statDetail ?: lines.firstOrNull()?.text)?.let {
-                        Text(it, fontSize = 10.5.sp, lineHeight = 13.sp, color = muted, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    }
-                }
-                stat != null -> Text(stat, fontSize = 12.5.sp, lineHeight = 16.sp, fontWeight = FontWeight.Medium,
-                    color = ink, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                lines.isNotEmpty() -> LineList(lines.take(2), ink, onLink, fontSize = 11.5f, rules = false)
-                else -> Text(row.subtitle, fontSize = 12.sp, lineHeight = 15.sp, color = muted, maxLines = 2, overflow = TextOverflow.Ellipsis)
-            }
-        }
-        WidgetSize.TALL -> Column(Modifier.fillMaxSize().padding(11.dp)) {
-            WidgetIcon(row, 26.dp, glass)
-            Spacer(Modifier.height(6.dp))
-            Text(row.title, fontSize = 12.sp, fontWeight = FontWeight.Medium, color = ink, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            Spacer(Modifier.height(6.dp))
-            if (stat != null && !figure) {
-                Text(stat, fontSize = 11.5.sp, lineHeight = 15.sp, color = ink, maxLines = 3, overflow = TextOverflow.Ellipsis)
-                Spacer(Modifier.height(4.dp))
-            }
-            if (lines.isNotEmpty()) LineList(lines.take(if (figure) 2 else 3), ink, onLink, fontSize = 10.5f, rules = false)
-            else if (stat == null) Text(row.subtitle, fontSize = 10.5.sp, lineHeight = 14.sp, color = muted, maxLines = 4, overflow = TextOverflow.Ellipsis)
-            Spacer(Modifier.weight(1f))
+        WidgetSize.SMALL -> Column(
+            Modifier.fillMaxSize().padding(7.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center,
+        ) {
             if (figure) {
-                Text(stat!!, style = Editorial.figure.copy(fontSize = 17.sp, lineHeight = 20.sp), color = figureColor,
+                Text(stat!!, style = Editorial.figure.copy(fontSize = 19.sp, lineHeight = 23.sp), color = figureColor,
                     maxLines = 1, overflow = TextOverflow.Ellipsis)
-                row.statDetail?.let { Text(it, fontSize = 9.5.sp, lineHeight = 12.sp, color = muted, maxLines = 2, overflow = TextOverflow.Ellipsis) }
+            } else WidgetIcon(row, 34.dp, ink)
+            Spacer(Modifier.height(4.dp))
+            Text(row.title, fontSize = 10.5.sp, lineHeight = 13.sp, color = ink, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        }
+        WidgetSize.WIDE -> Row(
+            Modifier.fillMaxSize().padding(11.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            WidgetIcon(row, 30.dp, ink)
+            Column(Modifier.weight(1f)) {
+                Text(row.title, fontSize = 10.sp, lineHeight = 13.sp, color = muted, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Spacer(Modifier.height(3.dp))
+                Text(stat ?: lines.firstOrNull()?.text ?: row.subtitle,
+                    style = if (figure) Editorial.figure.copy(fontSize = 19.sp, lineHeight = 23.sp)
+                        else MiuixTheme.textStyles.body2.copy(fontSize = 12.sp, lineHeight = 16.sp),
+                    color = figureColor, maxLines = if (figure) 1 else 2, overflow = TextOverflow.Ellipsis)
             }
         }
-        WidgetSize.LARGE -> Column(Modifier.fillMaxSize().padding(14.dp)) {
-            TitleRow(row, ink, glass, iconSize = 24.dp, fontSize = 13)
-            Spacer(Modifier.height(10.dp))
-            when {
-                figure -> {
-                    Text(stat!!, style = Editorial.figure.copy(fontSize = 24.sp, lineHeight = 28.sp), color = figureColor,
-                        maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    row.statDetail?.takeIf { it.isNotBlank() }?.let {
-                        Text(it, fontSize = 11.sp, lineHeight = 14.sp, color = muted, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        WidgetSize.TALL, WidgetSize.LARGE -> {
+            val large = size == WidgetSize.LARGE
+            Box(Modifier.fillMaxSize()) {
+                if (large) Icon(row.icon, null, tint = ink.copy(alpha = 0.055f),
+                    modifier = Modifier.align(Alignment.TopEnd).padding(10.dp).size(64.dp))
+                Column(Modifier.fillMaxSize().padding(if (large) 14.dp else 10.dp)) {
+                    if (row.key == AppRoute.SchoolCalendar.id) {
+                        Box(Modifier.width(26.dp).height(3.dp).background(figureColor, RoundedCornerShape(2.dp)))
+                        Spacer(Modifier.height(7.dp))
+                    } else if (!large) {
+                        WidgetIcon(row, 25.dp, ink)
+                        Spacer(Modifier.height(7.dp))
                     }
-                    Spacer(Modifier.height(6.dp))
+                    Text(if (row.key == AppRoute.CampusCard.id) "校园卡 · 余额" else row.title,
+                        fontSize = 11.sp, lineHeight = 14.sp, color = muted, fontWeight = FontWeight.Medium,
+                        maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Spacer(Modifier.height(7.dp))
+                    if (!figure && large) row.statDetail?.let {
+                        Text(it, fontSize = 10.sp, lineHeight = 13.sp, color = muted, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Spacer(Modifier.height(5.dp))
+                    }
+                    if (figure) {
+                        Text(stat, style = Editorial.figure.copy(fontSize = if (large) 26.sp else 19.sp,
+                            lineHeight = if (large) 31.sp else 24.sp), color = figureColor, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        row.statDetail?.takeIf { it.isNotBlank() }?.let {
+                            Text(it, fontSize = 10.5.sp, lineHeight = 14.sp, color = muted, maxLines = if (large) 1 else 2, overflow = TextOverflow.Ellipsis)
+                        }
+                        Spacer(Modifier.height(7.dp))
+                    }
+                    val detailLines = when {
+                        lines.isNotEmpty() -> lines
+                        !figure && stat != null -> listOf(HomeLine(stat))
+                        !figure -> listOf(HomeLine(row.subtitle))
+                        else -> emptyList()
+                    }
+                    if (detailLines.isNotEmpty()) {
+                        FittedLines(detailLines, ink, onLink, actions, timeline = row.key == AppRoute.Schedule.id,
+                            modifier = Modifier.weight(1f).fillMaxWidth())
+                    }
                 }
-                // 一句话的状态：明细里已经有它（通知）就直接列明细，否则当一段正文
-                stat != null && lines.isEmpty() -> {
-                    Text(stat, fontSize = 14.sp, lineHeight = 19.sp, fontWeight = FontWeight.Medium, color = ink,
-                        maxLines = 3, overflow = TextOverflow.Ellipsis)
-                    row.statDetail?.let { Text(it, fontSize = 11.sp, lineHeight = 14.sp, color = muted, maxLines = 2, overflow = TextOverflow.Ellipsis) }
-                }
-                lines.isEmpty() -> Text(row.subtitle, fontSize = 12.sp, lineHeight = 16.sp, color = muted, maxLines = 3, overflow = TextOverflow.Ellipsis)
-            }
-            if (lines.isNotEmpty()) {
-                val shownLines = if (figure) lines.take(3) else (listOfNotNull(stat?.let { HomeLine(it, row.lines.firstOrNull { l -> l.text == it }?.link) }) + lines).take(4)
-                LineList(shownLines, ink, onLink, fontSize = 11.5f, rules = true)
             }
         }
     }
 }
 
-/** 明细列表：带链接的一行可以点（编辑时不可点），大格里行间加细线。 */
+/** 按实际剩余高度及系统字号计算行数，避免大字和明细互相挤出卡片。 */
 @Composable
-private fun LineList(lines: List<HomeLine>, ink: Color, onLink: ((String) -> Unit)?, fontSize: Float, rules: Boolean) {
-    val rule = ink.copy(alpha = 0.10f)
-    Column {
-        lines.forEachIndexed { i, l ->
-            if (rules && i > 0) Box(Modifier.fillMaxWidth().height(0.5.dp).background(rule))
-            val link = l.link?.takeIf { onLink != null }
-            Text(
-                l.text,
-                fontSize = fontSize.sp,
-                lineHeight = (fontSize + 3.5f).sp,
-                color = ink.copy(alpha = 0.86f),
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .then(if (link != null) Modifier.clip(RoundedCornerShape(6.dp)).clickable { onLink!!(link) } else Modifier)
-                    .padding(vertical = if (rules) 4.dp else 1.5.dp),
-            )
+private fun FittedLines(
+    lines: List<HomeLine>, ink: Color, onLink: ((String) -> Unit)?, actions: Boolean, timeline: Boolean, modifier: Modifier,
+) {
+    BoxWithConstraints(modifier) {
+        val density = LocalDensity.current
+        val textHeight = with(density) { 16.sp.toDp() }
+        val padding = if (actions) 7.dp else 4.dp
+        val lineHeight = textHeight + padding * 2 + 1.dp
+        val count = (maxHeight / lineHeight).toInt().coerceAtLeast(0)
+        Column(verticalArrangement = Arrangement.spacedBy(1.dp)) {
+            lines.take(count).forEachIndexed { index, line ->
+                val clickable = line.link != null && onLink != null
+                Row(
+                    Modifier.fillMaxWidth()
+                        .clip(RoundedCornerShape(if (actions) 9.dp else 4.dp))
+                        .then(if (actions) Modifier.background(ink.copy(alpha = 0.075f)) else Modifier)
+                        .then(if (clickable) Modifier.clickable { onLink(line.link) } else Modifier)
+                        .padding(horizontal = if (actions) 8.dp else 0.dp, vertical = padding),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    if (timeline) {
+                        Box(Modifier.padding(end = 7.dp).size(4.dp).background(ink.copy(alpha = if (index == 0) 0.8f else 0.3f), CircleShape))
+                    }
+                    Text(line.text, fontSize = 11.5.sp, lineHeight = 16.sp, color = ink.copy(alpha = 0.9f),
+                        maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+                    if (actions && clickable) Text("↗", fontSize = 12.sp, lineHeight = 16.sp, color = ink.copy(alpha = 0.6f))
+                }
+            }
         }
-    }
-}
-
-@Composable
-private fun TitleRow(row: HomeServiceRow, ink: Color, glass: Boolean, iconSize: Dp, fontSize: Int) {
-    Row(verticalAlignment = Alignment.CenterVertically) {
-        WidgetIcon(row, iconSize, glass)
-        Spacer(Modifier.width(7.dp))
-        Text(row.title, fontSize = fontSize.sp, fontWeight = FontWeight.Medium, color = ink.copy(alpha = 0.85f),
-            maxLines = 1, overflow = TextOverflow.Ellipsis)
     }
 }
 
 /** 2×2 付款码：直接画二维码，停在首页时每 30 秒自动换一张；拿不到（没登录校园卡）就退回普通内容。 */
 @Composable
-private fun PaymentCodeContent(row: HomeServiceRow, ink: Color, glass: Boolean, live: Boolean, paymentCode: suspend () -> String?) {
+private fun PaymentCodeContent(row: HomeServiceRow, ink: Color, live: Boolean, paymentCode: suspend () -> String?) {
     val code by produceState<String?>(null, live) {
         while (live) {
-            value = runCatching { paymentCode() }.getOrNull() ?: value
+            value = runCatching { paymentCode() }.getOrNull()
             delay(PAYMENT_REFRESH_MS)
         }
     }
     val matrix = remember(code) { code?.let { qrCodeModules(it) } }
     if (matrix == null) {
-        WidgetContent(row.copy(lines = listOf(HomeLine("点开出示付款码"))), WidgetSize.LARGE, ink, glass, onLink = null)
+        WidgetContent(row.copy(lines = listOf(HomeLine("点开出示付款码"))), WidgetSize.LARGE, ink, onLink = null)
         return
     }
     Column(Modifier.fillMaxSize().padding(10.dp), horizontalAlignment = Alignment.CenterHorizontally) {
@@ -662,21 +640,22 @@ private fun PaymentCodeContent(row: HomeServiceRow, ink: Color, glass: Boolean, 
 }
 
 @Composable
-private fun WidgetIcon(row: HomeServiceRow, size: Dp, glass: Boolean) {
+private fun WidgetIcon(row: HomeServiceRow, size: Dp, ink: Color) {
     val dark = LocalIsDarkTheme.current
-    val bg = if (glass) Color.White.copy(alpha = 0.24f) else row.color.copy(alpha = if (dark) 0.18f else 0.11f)
-    val tint = if (glass) Color.White else if (dark) lerp(row.color, Color.White, 0.4f) else row.color
+    val lightInk = ink.luminanceApprox() > 0.5f
+    val bg = if (lightInk) Color.White.copy(alpha = 0.20f) else row.color.copy(alpha = 0.14f)
+    val tint = if (lightInk) Color.White else if (dark) lerp(row.color, Color.White, 0.35f) else row.color
     Box(Modifier.size(size).background(bg, RoundedCornerShape(size * 0.32f)), contentAlignment = Alignment.Center) {
         Icon(row.icon, null, tint = tint, modifier = Modifier.size(size * 0.56f))
     }
 }
 
-/** 编辑态的角标：左上移除、右下换尺寸，弹入弹出。放在格子内侧：伸出格子的部分收不到点击。 */
+/** 角标位于卡片内侧，保证拖动触点可达。 */
 @Composable
 private fun BoxScope.EditBadges(
     visible: Boolean,
     onRemove: () -> Unit,
-    onResize: () -> Unit,
+    resizeModifier: Modifier,
 ) {
     val enter = scaleIn(spring(dampingRatio = 0.6f, stiffness = Spring.StiffnessMedium)) + fadeIn()
     val exit = scaleOut() + fadeOut()
@@ -684,7 +663,10 @@ private fun BoxScope.EditBadges(
         Badge(Icons.Filled.Remove, "移除", onRemove)
     }
     AnimatedVisibility(visible, Modifier.align(Alignment.BottomEnd).padding(5.dp), enter = enter, exit = exit) {
-        Badge(Icons.Filled.OpenInFull, "换尺寸", onResize)
+        Box(resizeModifier.size(36.dp), contentAlignment = Alignment.BottomEnd) {
+            Icon(Icons.Filled.OpenInFull, "拖动调整大小", tint = Color.White,
+                modifier = Modifier.size(24.dp).background(Color(0xF02B2B2E), CircleShape).padding(5.dp))
+        }
     }
 }
 
@@ -739,17 +721,6 @@ private fun Modifier.glassTile(wall: Backdrop, ink: Color): Modifier {
     return this then drawn then Modifier.border(0.7.dp, edge, RoundedCornerShape(TILE_RADIUS))
 }
 
-/** 纸面格子：与分类卡同一套白卡（深色下是卡片色），细描边。 */
-@Composable
-private fun Modifier.paperTile(): Modifier {
-    val dark = LocalIsDarkTheme.current
-    val border = MiuixTheme.colorScheme.onSurface.copy(alpha = if (dark) 0.09f else 0.065f)
-    return this
-        .clip(RoundedCornerShape(TILE_RADIUS))
-        .background(AppCardColor)
-        .border(0.6.dp, border, RoundedCornerShape(TILE_RADIUS))
-}
-
 private fun Color.luminanceApprox(): Float = 0.2126f * red + 0.7152f * green + 0.0722f * blue
 
 private val GAP = 10.dp
@@ -759,3 +730,5 @@ private const val PAYMENT_REFRESH_MS = 30_000L
 
 /** 状态不超过这么多字才当大号数字排（¥128.50、3 门新成绩），再长就是一句话。 */
 private const val FIGURE_MAX_CHARS = 8
+
+private val LIST_WIDGETS = setOf(AppRoute.EmptyRoom.id, AppRoute.Lms().id, AppRoute.Community.id, AppRoute.Games.id, AppRoute.Agent.id, AppRoute.Notification.id, AppRoute.YellowPage.id)

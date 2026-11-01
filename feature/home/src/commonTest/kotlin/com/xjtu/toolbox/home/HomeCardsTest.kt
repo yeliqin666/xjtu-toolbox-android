@@ -13,12 +13,12 @@ import kotlin.test.assertTrue
 class HomeCardsTest {
 
     @Test
-    fun fitnessSummaryShowsPassingScoresWithoutExposingOtherResults() {
+    fun fitnessSummaryPreservesSchoolResults() {
         fun summary(value: String) = HomeCards.statOf(AppRoute.Fitness.id,
             mapOf(AppRoute.Fitness.id to HomeStat(value, "学校返回的结果")))
-        assertNull(summary("59.9"))
-        assertNull(summary("--"))
-        assertNull(summary("未测"))
+        assertEquals("59.9", summary("59.9")?.value)
+        assertEquals("--", summary("--")?.value)
+        assertEquals("未测", summary("未测")?.value)
         assertEquals("60", summary("60")?.value)
         assertEquals("89.5", summary("89.5")?.value)
     }

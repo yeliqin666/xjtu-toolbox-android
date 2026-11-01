@@ -201,6 +201,10 @@ internal fun MainScreen(
 
     // 首页数据拉取挂在这里而不是 HomeTab：tab 懒加载，默认启动 tab 不是首页时也要拉
     LaunchedEffect(loginState.accountId, loginState.campusCardCacheVersion) {
+        launch {
+            HomeStatsRefresher.refreshDue(context, loginState.sessionManager, loginState.accountType)
+            HomeSignals.bumpStatsVersion()
+        }
         if (loginState.accountId.isEmpty()) return@LaunchedEffect
         // 校内外判定和刷新并行：跟随全局模式的站点在 SessionManager 里等判定落定，直连站点（教务等）不必等
         launch { runCatching { loginState.ensureCampusDetected() } }
@@ -223,15 +227,12 @@ internal fun MainScreen(
                 android.util.Log.w("MainScreen", "补课表缓存失败", e)
             }
         }
-        HomeStatsRefresher.refreshDue(context, loginState.sessionManager, loginState.accountType)
-        HomeSignals.bumpStatsVersion()
     }
     // 切回前台也跑一轮：各源按 TTL 决定拉不拉，图书馆签到这类有时效的状态不会停在上次打开时。
     // 和上面撞车时 refreshDue 自己会跳过后到的那次
     val resumeScope = rememberCoroutineScope()
     androidx.lifecycle.compose.LifecycleEventEffect(androidx.lifecycle.Lifecycle.Event.ON_RESUME) {
         com.xjtu.toolbox.widget.ScheduleWidgetUpdater.requestUpdate(context, resetToToday = false)
-        if (loginState.accountId.isEmpty()) return@LifecycleEventEffect
         resumeScope.launch {
             launch { runCatching { loginState.ensureCampusDetected() } }
             HomeStatsRefresher.refreshDue(context, loginState.sessionManager, loginState.accountType)

@@ -4,6 +4,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.setValue
 import com.xjtu.toolbox.platform.keyValueStore
+import com.xjtu.toolbox.nav.AppRoute
 
 /**
  * 小游戏的本地记录：最高分与胜负战绩。
@@ -19,6 +20,20 @@ object GameStore {
     private const val PREFS = "games"
 
     private fun store() = keyValueStore(PREFS)
+
+    val titles = mapOf(
+        AppRoute.GameMerge.id to "合成西交大", AppRoute.Game2048.id to "GPA 2048",
+        AppRoute.GameBlocks.id to "方块", AppRoute.GameHop.id to "跳一跳",
+        AppRoute.GameGomoku.id to "五子棋", AppRoute.GameGo.id to "围棋", AppRoute.GameXiangqi.id to "象棋",
+    )
+
+    fun recentRoutes(): List<String> = store().getString("recent_routes").orEmpty().split('|').filter { it in titles }
+
+    fun recordOpened(routeId: String) {
+        if (routeId !in titles) return
+        store().putString("recent_routes", (listOf(routeId) + recentRoutes()).distinct().take(4).joinToString("|"))
+        version++
+    }
 
     /** 战绩每变一次加一，合集页据此重读。 */
     var version by mutableIntStateOf(0)
