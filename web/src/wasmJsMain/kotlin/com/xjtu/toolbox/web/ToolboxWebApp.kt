@@ -615,6 +615,13 @@ private fun AppPage(
             onBack = back,
         )
 
+        is AppRoute.CommunityPost -> CommunityScreen(
+            session = session,
+            deviceAuth = remember(session) { WebGithubDeviceAuth(session) },
+            onBack = back,
+            discussionNumber = route.number,
+        )
+
         AppRoute.Accounts -> if (mode != ApiMode.SERVE) {
             WebServeOnlyScreen(
                 title = "账号管理",
