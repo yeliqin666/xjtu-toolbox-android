@@ -26,6 +26,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.DragHandle
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -34,6 +35,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.input.pointer.pointerInput
@@ -112,10 +114,26 @@ internal fun HomeAddTileOrb(
 
         // 球 ↔ 长条：把手拖动中也强制显示成球
         val showRail = expanded && !handleDragging
+        // 卸载时清掉登记的矩形：编辑态退出后手势层不该还挡着这一块
+        DisposableEffect(Unit) {
+            onDispose { session.paletteRect = null }
+        }
         Box(
             Modifier
                 .align(Alignment.TopStart)
-                .offset { IntOffset((center.x - ballPx / 2f).roundToInt(), (center.y - ballPx / 2f).roundToInt()) },
+                .offset { IntOffset((center.x - ballPx / 2f).roundToInt(), (center.y - ballPx / 2f).roundToInt()) }
+                .onGloballyPositioned { coords ->
+                    // 球或长条当前的视口矩形：手势层对落在这里的 down 一律放行，
+                    // 那条长条盖在组区右缘上，不排除就会把图标们的长按手势抢走。
+                    // 这一层从不做动画（拖动时整条一动不动），所以 bounds 是准的。
+                    val bounds = coords.boundsInRoot()
+                    session.paletteRect = Rect(
+                        left = bounds.left - session.pageOrigin.x,
+                        top = bounds.top - session.pageOrigin.y,
+                        right = bounds.right - session.pageOrigin.x,
+                        bottom = bounds.bottom - session.pageOrigin.y,
+                    )
+                },
         ) {
             AnimatedContent(
                 targetState = showRail,
@@ -295,8 +313,9 @@ private fun OrbTileIcon(
                     onDragStart = { offset -> onDragOut(iconTop + offset) },
                     onDrag = { change, _ ->
                         change.consume()
-                        // 绝对合成：图标位置 + 事件的图标相对坐标，滚动/动画都污染不了
-                        session.pointer = iconTop + change.position
+                        // 图标位置（视口）+ 事件的图标相对坐标 = 手指视口坐标。手势层不接管
+                        // 悬浮条，所以这一路自己更新 session.pointer；落点仍是首页按快照派生的
+                        session.move(iconTop + change.position)
                     },
                     onDragEnd = { onDrop() },
                     onDragCancel = { onCancel() },

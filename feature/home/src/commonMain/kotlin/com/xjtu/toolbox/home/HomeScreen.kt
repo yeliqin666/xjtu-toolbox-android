@@ -50,7 +50,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -243,122 +242,35 @@ fun HomeScreen(
 
     val scope = rememberCoroutineScope()
 
-    // ── 拖拽编排：几何表 → 预览 → 松手固化（设计根基见 HomeDragSession 类头） ──
+    // ── 拖拽编排：快照几何 → 每帧幂等重算 → 松手固化一次（根基见 HomeDragSession 类头） ──
     val tileGapPx = with(density) { HomeTileGap.toPx() }
     val cellHeightPx = with(density) { cellHeight.toPx() }
     val groupGapPx = with(density) { GROUP_GAP.toPx() }
     val headerPx = with(density) { GROUP_HEADER_HEIGHT.toPx() }
     val firstGapPx = with(density) { FIRST_GROUP_GAP.toPx() }
+    val handlePx = with(density) { RESIZE_HANDLE_TOUCH.toPx() }
+    val removePx = with(density) { REMOVE_TOUCH.toPx() }
 
-    // 几何表按**数据布局**构建：boardOrigin 随滚动每帧刷新（回读），组高是纯函数
-    val geometry = remember(
-        visibleGroups, editing.on, cellHeightPx,
-        session.boardOrigin, session.boardWidth,
-    ) {
-        buildBoardGeometry(
-            groups = visibleGroups,
-            editing = editing.on,
-            origin = session.boardOrigin,
-            width = session.boardWidth,
-            cellHeightPx = cellHeightPx,
-            gapPx = tileGapPx,
-            headerPx = headerPx,
-            groupGapPx = groupGapPx,
-            firstGapPx = firstGapPx,
-        )
-    }
-    val geometryState = rememberUpdatedState(geometry)
-    // derivedStateOf 的 lambda 只执行一次，布局与开关要经 State 读才能拿到最新值
+    // derivedStateOf 的 lambda 只在依赖的 State 变化时重跑；layout / grid / visibleGroups
+    // 都是普通局部值，直接读不会被追踪，所以经 rememberUpdatedState 读它们的**最新值**
+    // （旧代码同样这么做）。落盘、开关网格、改草稿时 liveLayout 才会跟着刷新。
     val currentLayout = rememberUpdatedState(layout)
     val gridState = rememberUpdatedState(grid)
 
-    // 目标组判定（带滞回）：手指移动或**自动滚动**（boardOrigin 变）时都重算；结算中停下
-    LaunchedEffect(Unit) {
-        snapshotFlow { session.pointer to session.boardOrigin }.collect { (p, _) ->
-            if (!session.dragging || session.settling) return@collect
-            val g = geometryState.value
-            session.targetGroupId = g.groupAt(
-                p, session.targetGroupId, groupGapPx / 2f,
-                session.boardOrigin.x, session.boardOrigin.x + session.boardWidth,
-            )
-        }
-    }
-
-    // 拖拽预览：落点由「幽灵块左上角」换算成格，挤开/联动压缩全部实时可见。
-    // 松手固化的就是这份——预览与落盘走的是同一个纯函数，结果必然一致
-    val dragPreview by remember {
-        derivedStateOf {
-            if (!session.dragging) return@derivedStateOf null
-            val target = session.targetGroupId ?: return@derivedStateOf null
-            val g = geometryState.value
-            val topLeft = g.cellAt(target, session.ghostOrigin, session.boardOrigin.x)
-                ?: return@derivedStateOf null
-            val current = currentLayout.value
-            if (session.dragFromPalette) {
-                current.addTileAt(target, session.dragRouteId!!, session.dragTileId!!, topLeft.x, topLeft.y, gridState.value)
-            } else {
-                current.moveTile(
-                    session.dragTileId!!, target, topLeft.x, topLeft.y,
-                    gridState.value, if (gridState.value) 0f else EDGE_LINK_CELLS,
-                )
-            }
-        }
-    }
-    val resizePreview by remember {
-        derivedStateOf {
-            val id = session.resizingId ?: return@derivedStateOf null
-            currentLayout.value.resizeTile(id, session.resizeCells.x, session.resizeCells.y, gridState.value)
-        }
-    }
-    /** 渲染用的布局：拖拽/缩放预览优先，否则是数据本身。 */
-    val renderLayout by remember {
-        derivedStateOf { dragPreview ?: resizePreview ?: currentLayout.value }
-    }
-
-    // 组排序：目标下标与让位表都是「组高表 + 跟手位移」的纯函数（拖动中不改数据）
-    val reorderTarget by remember {
-        derivedStateOf {
-            if (!session.reordering) return@derivedStateOf -1
-            val g = geometryState.value
-            val top = g.slots.getOrNull(session.reorderFromIndex)?.top ?: return@derivedStateOf -1
-            val offset = session.reorderPointerY - session.reorderGrabY - top
-            HomeGridMath.reorderTargetIndex(g.heights(groupGapPx), session.reorderFromIndex, offset)
-        }
-    }
-    val reorderShiftMap by remember {
-        derivedStateOf {
-            if (!session.reordering || reorderTarget < 0) return@derivedStateOf emptyMap<String, Float>()
-            val g = geometryState.value
-            val ids = g.slots.map { it.groupId }
-            HomeGridMath.reorderShifts(g.heights(groupGapPx), session.reorderFromIndex, reorderTarget)
-                .mapKeys { (i, _) -> ids[i] }
-        }
-    }
-
-    // ── 松手结算：幽灵块的吸附/回弹动画，与组排序的归位补偿 ──
-    var ghostSettling by remember { mutableStateOf(false) }
-    var ghostSettleEpoch by remember { mutableIntStateOf(-1) }
-    val ghostSettle = remember { Animatable(Offset.Zero, Offset.VectorConverter) }
-    var reorderSettleId by remember { mutableStateOf<String?>(null) }
-    val reorderSettleAnim = remember { Animatable(0f) }
-
     /**
-     * 卡片松手：预览固化成草稿，幽灵吸附到落点那一格；没有落点就飞回起手位置再消失。
-     * 固化与清场隔一帧：残影先瞬移到落点（藏在幽灵下面），真块接管时才不重新弹一遍。
+     * 组区几何表：命中与落点的唯一依据。拖拽中按**起手快照**算（`session.base` 是 State，
+     * derivedStateOf 自动追踪），空闲时按当前可见组算（供按下那一帧的命中）。
+     *
+     * `visibleGroups` 与单位换算常量都**不是 State**，derivedStateOf 追踪不到，所以放进
+     * remember 的 key：内容一变就重建这个 derivedStateOf（List 按内容相等比较，不会每帧重建）。
+     * 拖动中不写草稿 → visibleGroups 恒定 → key 恒定；落盘那一下它变，几何表随之刷新。
      */
-    fun settleTileDrop() {
-        val tileId = session.dragTileId ?: return
-        val preview = dragPreview
-        val placed = preview?.locate(tileId)
-        val destination = if (preview != null && placed != null) {
-            update { preview }
-            val (group, tile) = placed
-            // 固化会改变前面组的高度（比如从别的组拖走、源组收行），落点像素必须按
-            // **固化后的布局**重算，否则幽灵飞到的点和真块最终渲染的位置差一截
-            val settledGeometry = buildBoardGeometry(
-                groups = preview.groups.filter(::groupVisible),
-                editing = editing.on,
-                origin = session.boardOrigin,
+    val dragGeometry by remember(visibleGroups, cellHeightPx, tileGapPx, groupGapPx, headerPx, firstGapPx) {
+        derivedStateOf {
+            buildBoardGeometry(
+                groups = session.baseGroups.ifEmpty { visibleGroups },
+                left = session.boardLeft,
+                top = session.boardTopContent,
                 width = session.boardWidth,
                 cellHeightPx = cellHeightPx,
                 gapPx = tileGapPx,
@@ -366,80 +278,317 @@ fun HomeScreen(
                 groupGapPx = groupGapPx,
                 firstGapPx = firstGapPx,
             )
-            settledGeometry.cellOrigin(group.id, tile.x, tile.y, session.boardOrigin.x)
+        }
+    }
+
+    /**
+     * 手指的**内容坐标** = 视口坐标 + 当前滚动量。
+     *
+     * 这一个派生量就是「自动滚动不需要任何补偿特例」的全部原因：边缘自动滚动改的是
+     * `scroll.value`，它一变，下面所有依赖内容坐标的派生量（目标组、落点格、缩放尺寸、
+     * 组排序目标）自动重算。旧实现把计算塞进手势回调，就得为缩放专门补一次尺寸。
+     */
+    val pointerContent by remember {
+        derivedStateOf { session.pointer + Offset(0f, scroll.value.toFloat()) }
+    }
+
+    /**
+     * 目标组：纯函数。组间空隙对半分之后各组的命中区间**首尾相接不重叠**，
+     * 所以不需要「记住当前组」的滞回，也就不存在边界上来回切。
+     */
+    val targetGroup by remember(groupGapPx) {
+        derivedStateOf {
+            if (!session.draggingTile) null else dragGeometry.groupAt(pointerContent, groupGapPx / 2f)
+        }
+    }
+
+    /**
+     * 拖动中的**行数预算**：每组锁死成起手快照的行数。
+     *
+     * 这是「落点不飘」的物理保证——有了它，整场拖拽里没有任何一个组会变高，于是
+     * `dragGeometry`（按快照算的命中区间）与渲染出来的组位置**每一帧都严格相等**。
+     * 组一变高，下面的组就被推下去，而命中还按快照的旧位置算，手指与格子的对应关系
+     * 当场失效，然后落点改布局、布局改高度、高度又改落点——那就是旧实现振荡的回路。
+     *
+     * 缩放不吃预算（组跟着变高是用户的明确意图，而且缩放全程不需要命中判定）。
+     */
+    val rowBudget by remember {
+        derivedStateOf {
+            if (!session.draggingTile) {
+                null
+            } else {
+                session.baseGroups.associate { it.id to HomeGridMath.contentBottom(it.tiles).coerceAtLeast(1f) }
+            }
+        }
+    }
+
+    /** 缩放中的实时尺寸（格）：按「手指内容坐标 − 起手内容坐标」的**绝对差值**重算。 */
+    val resizeCells by remember {
+        derivedStateOf {
+            if (session.mode != HomeDragMode.RESIZE) return@derivedStateOf null
+            val g = dragGeometry
+            if (!g.ready) return@derivedStateOf null
+            val grid = gridState.value
+            val delta = pointerContent - session.resizeStartContent
+            Offset(
+                HomeGridMath.clampSpan(session.resizeStartCells.x + delta.x / g.colUnit, grid),
+                HomeGridMath.clampSpan(session.resizeStartCells.y + delta.y / g.rowUnit, grid),
+            )
+        }
+    }
+
+    /** 组排序：目标下标（越过相邻组中线才换序，中线按快照算，所以是静止的、不抖）。 */
+    val reorderTarget by remember(groupGapPx) {
+        derivedStateOf {
+            if (session.mode != HomeDragMode.GROUP) return@derivedStateOf -1
+            val g = dragGeometry
+            val top = g.slots.getOrNull(session.groupIndex)?.top ?: return@derivedStateOf -1
+            val offset = pointerContent.y - session.groupGrabY - top
+            HomeGridMath.reorderTargetIndex(g.heights(groupGapPx), session.groupIndex, offset)
+        }
+    }
+
+    /** 组排序：其它组各自要让位多少（px）。被拖组自己不在表里——它跟手。 */
+    val reorderShiftMap by remember(groupGapPx) {
+        derivedStateOf {
+            if (session.mode != HomeDragMode.GROUP || reorderTarget < 0) return@derivedStateOf emptyMap<String, Float>()
+            val g = dragGeometry
+            val ids = g.slots.map { it.groupId }
+            HomeGridMath.reorderShifts(g.heights(groupGapPx), session.groupIndex, reorderTarget)
+                .mapKeys { (i, _) -> ids[i] }
+        }
+    }
+
+    /**
+     * **渲染用的布局**：拖拽中每帧从快照重算，否则就是数据本身。
+     *
+     * 幂等（同一个手指位置反复算结果不变），而且**拖动中不写草稿**——草稿只在松手那
+     * 一次写入。所以手势被系统抢走时不需要「回退临时状态」：草稿根本没被碰过。
+     *
+     * 组排序不在这里换序：被拖组跟手浮起、其它组按 [reorderShiftMap] 让位，都是画出来的，
+     * 松手才 `moveGroupWithin` 落盘一次（Column 不是 Lazy 布局，没有 `animateItem()`
+     * 那种自动补位，让位只能自己算——但它算的是纯函数，不回读任何位置）。
+     */
+    val liveLayout by remember {
+        derivedStateOf {
+            val base = session.base
+            val current = currentLayout.value
+            val grid = gridState.value
+            when {
+                base == null -> current
+                session.mode == HomeDragMode.RESIZE -> {
+                    val id = session.tileId
+                    val cells = resizeCells
+                    if (id == null || cells == null) current else base.resizeTile(id, cells.x, cells.y, grid)
+                }
+                session.draggingTile -> {
+                    val id = session.tileId
+                    val route = session.routeId
+                    val target = targetGroup
+                    val cell = if (target == null) null else dragGeometry.cellAt(target, pointerContent)
+                    when {
+                        id == null || route == null || target == null || cell == null -> base
+                        session.fromPalette ->
+                            base.addTileAt(target, route, id, cell.x, cell.y, grid, rowBudget)
+                        else -> base.moveTile(
+                            id, target, cell.x, cell.y, grid,
+                            if (grid) 0f else EDGE_LINK_CELLS, rowBudget,
+                        )
+                    }
+                }
+                else -> current
+            }
+        }
+    }
+
+    // ── 松手结算：幽灵块的吸附/回弹动画，与组排序的归位补偿 ──
+    var ghostSettling by remember { mutableStateOf(false) }
+    var ghostEpoch by remember { mutableIntStateOf(0) }
+    val ghostSettle = remember { Animatable(Offset.Zero, Offset.VectorConverter) }
+    var reorderSettleId by remember { mutableStateOf<String?>(null) }
+    var reorderEpoch by remember { mutableIntStateOf(0) }
+    val reorderSettleAnim = remember { Animatable(0f) }
+
+    /**
+     * 卡片松手：**这一次**才写草稿，而且放开行数预算（允许在组末尾新增一行）并收掉空行。
+     *
+     * 幽灵吸附的落点像素按**固化后的布局**重算：收空行会让块整体上移，用拖动中的预览
+     * 几何算就会差一截。这一步不是打补丁——固化后的布局确实和预览不同（多了压缩），
+     * 而它同样是纯函数，不回读任何节点。
+     */
+    fun settleTileDrop() {
+        val id = session.tileId ?: return
+        val base = session.base ?: return
+        val route = session.routeId
+        val target = targetGroup
+        val cell = if (target == null) null else dragGeometry.cellAt(target, pointerContent)
+        val from = session.ghostOrigin
+        val startGhost = session.startGhost
+
+        val committed = if (target != null && cell != null && route != null) {
+            if (session.fromPalette) {
+                base.addTileAt(target, route, id, cell.x, cell.y, grid)
+            } else {
+                base.moveTile(id, target, cell.x, cell.y, grid, if (grid) 0f else EDGE_LINK_CELLS)
+            }
         } else {
             null
         }
-        // 同组落位时残影要先瞬移到落点（下一帧真块复用它的节点，位置才不重弹）；
-        // 跨组与悬浮条落位在目标组是全新节点（动画初值即落点），残影留在原地即可
-        val placedCell = placed
-            ?.takeIf { (group, _) -> group.id == session.dragFromGroup }
-            ?.second?.let { Offset(it.x, it.y) }
-        val epoch = session.dragEpoch
-        session.markSettling()
-        ghostSettling = true
-        ghostSettleEpoch = epoch
+
+        // 落点的内容坐标 → 视口坐标（幽灵画在不滚动的覆盖层上）
+        val destination = if (committed != null) {
+            val placed = committed.locate(id)
+            val settled = buildBoardGeometry(
+                groups = committed.groups.filter(::groupVisible),
+                left = session.boardLeft,
+                top = session.boardTopContent,
+                width = session.boardWidth,
+                cellHeightPx = cellHeightPx,
+                gapPx = tileGapPx,
+                headerPx = headerPx,
+                groupGapPx = groupGapPx,
+                firstGapPx = firstGapPx,
+            )
+            placed
+                ?.let { (g, t) -> settled.cellOrigin(g.id, t.x, t.y) }
+                ?.let { it - Offset(0f, scroll.value.toFloat()) }
+        } else {
+            null
+        }
+
+        val epoch = ++ghostEpoch
         scope.launch {
-            ghostSettle.snapTo(session.ghostOrigin)
-            ghostSettle.animateTo(destination ?: session.dragStartGhost, HomeTileSpringOffset)
-            if (session.dragEpoch == epoch) {
-                if (placedCell != null) {
-                    session.snapDraggedTileTo(placedCell.x, placedCell.y)
-                    withFrameNanos { }
-                }
-                session.endDrag()
+            // 被新手势顶掉就不做任何突变（否则会用上一场的 committed 污染这一场）
+            if (ghostEpoch != epoch) return@launch
+            // 第一个同步段：固化布局、切结算态、幽灵值就位，三步之间无挂起点、不插帧。
+            // 若把 release/ghostSettling 留在协程外（同步块），到 snapTo 之间会插一帧重组，
+            // 那一帧幽灵已可见却读着上一次的陈旧值 → 闪到错误位置。
+            if (committed != null) update { committed }
+            session.release()
+            ghostSettle.snapTo(from)
+            ghostSettling = true
+            ghostSettle.animateTo(destination ?: startGhost, HomeTileSpringOffset)
+            if (ghostEpoch == epoch) {
+                ghostSettling = false
+                session.finish()
             }
-            if (ghostSettleEpoch == epoch) ghostSettling = false
-            session.clearSettling(epoch)
         }
     }
 
-    /** 缩放松手：预览固化。没有幽灵块，也就没有收尾动画。 */
+    /** 缩放松手：固化实时尺寸。没有幽灵，也就没有收尾动画。 */
     fun settleResizeDrop() {
-        resizePreview?.let { preview -> update { preview } }
-        session.endResize()
+        val id = session.tileId
+        val base = session.base
+        val cells = resizeCells
+        if (id != null && base != null && cells != null) {
+            update { base.resizeTile(id, cells.x, cells.y, grid) }
+        }
+        session.finish()
     }
 
-    /** 组排序松手：按目标下标换序，被拖组的跟手位移补成「手指位置 − 新槽位」再弹回 0。 */
-    fun dropReorder() {
-        val id = session.reorderGroupId ?: return
-        val from = session.reorderFromIndex
+    /**
+     * 手势被系统抢走，或按下后没拖过 slop（其实是点击）：整场作废。
+     *
+     * 拖动中**从不写草稿**，所以这里不需要恢复任何数据——清掉会话就够了
+     * （AOSP Launcher3 要 `revertTempState()` 是因为它拖动中就改了 CellLayout）。
+     */
+    fun abandonDrag() {
+        session.abort()
+    }
+
+    /**
+     * 组排序松手：按目标下标换序，被拖组的跟手位移补成「手指位置 − 新槽位」再弹回 0。
+     *
+     * 三步（落盘、切成结算动画、值就位）都放在同一个协程步骤里，中间不会插入一帧——
+     * 否则会出现「已经换了序、但位移还是旧值」的一帧跳变。
+     */
+    fun settleGroupDrop() {
+        val id = session.groupId ?: return
+        val from = session.groupIndex
         val target = reorderTarget
-        val g = geometryState.value
+        val g = dragGeometry
         val heights = g.heights(groupGapPx)
         val groupTop = g.slots.getOrNull(from)?.top ?: 0f
-        val liftNow = session.reorderPointerY - session.reorderGrabY - groupTop
-        session.endReorder()
-        if (target < 0 || target == from || from !in heights.indices) return
-        // 几何下标是「可见组序列」的；落盘要映射回全量序列（被设置关掉的组原地不动）
-        update { it.moveGroupWithin(id, g.slots.map { slot -> slot.groupId }, target) }
-        val delta = if (target > from) {
-            heights.subList(from + 1, target + 1).sum()
-        } else {
-            -heights.subList(target, from).sum()
+        val liftNow = pointerContent.y - session.groupGrabY - groupTop
+        if (target < 0 || target == from || from !in heights.indices) {
+            cancelGroupDrop()
+            return
         }
-        val epoch = session.reorderEpoch
+        val delta = if (target > from) {
+            heights.subList(from + 1, target + 1).fold(0f) { a, b -> a + b }
+        } else {
+            -heights.subList(target, from).fold(0f) { a, b -> a + b }
+        }
+        // 几何下标是「可见组序列」的；落盘要映射回全量序列（被设置关掉的组原地不动）
+        val order = g.slots.map { it.groupId }
         reorderSettleId = id
+        val epoch = ++reorderEpoch
         scope.launch {
             reorderSettleAnim.snapTo(liftNow - delta)
+            update { it.moveGroupWithin(id, order, target) }
+            session.release()
             reorderSettleAnim.animateTo(0f, HomeTileSpring)
-            if (session.reorderEpoch == epoch) reorderSettleId = null
+            if (reorderEpoch == epoch) {
+                reorderSettleId = null
+                session.finish()
+            }
         }
     }
 
-    /** 组排序被取消：数据不动，跟手位移弹回原位。 */
-    fun cancelReorder() {
-        val id = session.reorderGroupId ?: return
-        val g = geometryState.value
-        val groupTop = g.slots.getOrNull(session.reorderFromIndex)?.top ?: 0f
-        val liftNow = session.reorderPointerY - session.reorderGrabY - groupTop
-        session.endReorder()
-        val epoch = session.reorderEpoch
+    /** 组排序被取消（含没拖过 slop 的点击）：数据不动，跟手位移弹回原位。 */
+    fun cancelGroupDrop() {
+        val id = session.groupId ?: run { session.abort(); return }
+        val g = dragGeometry
+        val groupTop = g.slots.getOrNull(session.groupIndex)?.top ?: 0f
+        val liftNow = pointerContent.y - session.groupGrabY - groupTop
         reorderSettleId = id
+        val epoch = ++reorderEpoch
         scope.launch {
             reorderSettleAnim.snapTo(liftNow)
+            session.release()
             reorderSettleAnim.animateTo(0f, HomeTileSpring)
-            if (session.reorderEpoch == epoch) reorderSettleId = null
+            if (reorderEpoch == epoch) {
+                reorderSettleId = null
+                session.finish()
+            }
+        }
+    }
+
+    /** 手势落点是拖拽目标：按种类起手（快照、身份、抓取偏移一次定死）。 */
+    fun beginGesture(hit: HomeHit, viewport: Offset, content: Offset) {
+        // 新手势顶掉上一场的结算动画
+        ghostEpoch++
+        reorderEpoch++
+        ghostSettling = false
+        reorderSettleId = null
+        session.finish()
+
+        val ids = visibleGroups.map { it.id }
+        when (hit) {
+            is HomeHit.Tile -> {
+                val tile = layout.tile(hit.tileId) ?: return
+                val origin = dragGeometry.tileOrigin(hit.groupId, tile) ?: return
+                session.beginTile(
+                    layout, ids, tile, hit.groupId,
+                    origin = origin - Offset(0f, scroll.value.toFloat()),
+                    startPointer = viewport,
+                )
+            }
+            is HomeHit.Resize -> {
+                val tile = layout.tile(hit.tileId) ?: return
+                val origin = dragGeometry.tileOrigin(hit.groupId, tile) ?: return
+                session.beginResize(
+                    layout, ids, tile,
+                    origin = origin - Offset(0f, scroll.value.toFloat()),
+                    startPointer = viewport,
+                    startContent = content,
+                )
+            }
+            is HomeHit.GroupHandle -> {
+                val top = dragGeometry.slot(hit.groupId)?.top ?: return
+                session.beginGroup(layout, ids, hit.groupId, hit.index, top, viewport, content)
+            }
+            HomeHit.Pass -> Unit
         }
     }
 
@@ -533,18 +682,31 @@ fun HomeScreen(
             }
 
             // ── 卡片组 ──
-            // 这一层容器是拖拽命中的唯一回读基准：padding 之后的网格区，origin/width 每帧新鲜
+            // 这一层容器是拖拽命中的唯一回读基准：padding 之后的网格区。
+            // boardLeft/boardWidth 是视口量（横向不滚动，恒定）；boardTopContent 存的是
+            // **内容坐标**（boundsInRoot().top − pageOrigin.y + scrollY：滚动时两项同步变、
+            // 和恒定），所以它在整场拖拽里是一个常数——这正是几何表能锁死的前提。
+            // 拖拽期间用 heightIn(min = 快照总高) 把页面总高钉住：否则拖走一块源组变矮、
+            // 页面变短，scrollY 被夹回上界，而 scrollY 又是内容坐标的唯一来源，落点会跟着跳。
+            val boardMinHeight = if (session.draggingTile || session.mode == HomeDragMode.RESIZE) {
+                with(density) { dragGeometry.totalHeight(groupGapPx, firstGapPx).toDp() }
+            } else {
+                Dp.Unspecified
+            }
             Column(
                 Modifier
                     .fillMaxWidth()
+                    .heightIn(min = boardMinHeight)
                     .padding(horizontal = 16.dp)
                     .onGloballyPositioned { coords ->
-                        session.boardOrigin = coords.boundsInRoot().topLeft - session.pageOrigin
-                        session.boardWidth = coords.size.width.toFloat()
+                        val bounds = coords.boundsInRoot()
+                        session.boardLeft = bounds.left - session.pageOrigin.x
+                        session.boardWidth = bounds.width.toFloat()
+                        session.boardTopContent = bounds.top - session.pageOrigin.y + scroll.value.toFloat()
                     },
             ) {
-                renderLayout.groups.filter(::groupVisible).forEachIndexed { index, group ->
-                    // key 定身份：组重排 / 预览换序时子树连同动画状态一起平移，不销毁重建
+                liveLayout.groups.filter(::groupVisible).forEachIndexed { index, group ->
+                    // key 定身份：组重排时子树连同动画状态一起平移，不销毁重建
                     key(group.id) {
                         Column {
                             Spacer(Modifier.height(if (index == 0) FIRST_GROUP_GAP else GROUP_GAP))
@@ -555,11 +717,15 @@ fun HomeScreen(
                                 liquid = liquid,
                                 backdrop = tileBackdrop.takeIf { liquid },
                                 session = session,
-                                grid = grid,
+                                budgetRows = rowBudget?.get(group.id),
+                                // 接收高亮：手指把这一组当落点，且它不是拖拽源组（§19）
+                                receiving = session.draggingTile &&
+                                    targetGroup == group.id &&
+                                    session.sourceGroupId != group.id,
                                 reorderLift = when {
-                                    session.reorderGroupId == group.id -> {
-                                        val top = geometry.slot(group.id)?.top ?: 0f
-                                        session.reorderPointerY - session.reorderGrabY - top
+                                    session.mode == HomeDragMode.GROUP && session.groupId == group.id -> {
+                                        val top = dragGeometry.slot(group.id)?.top ?: 0f
+                                        pointerContent.y - session.groupGrabY - top
                                     }
                                     reorderSettleId == group.id -> reorderSettleAnim.value
                                     else -> null
@@ -570,21 +736,6 @@ fun HomeScreen(
                                 onEditGroup = { editing.editGroup = group },
                                 onDeleteGroup = { editing.confirmDeleteGroup = group },
                                 onRemoveTile = { tileId -> update { it.removeTile(tileId) } },
-                                onTileDrop = { settleTileDrop() },
-                                onResizeDrop = { settleResizeDrop() },
-                                onReorderStart = { pointerY ->
-                                    // 新一轮拖拽顶掉进行中的归位动画
-                                    reorderSettleId = null
-                                    val g = geometryState.value
-                                    val from = g.slots.indexOfFirst { it.groupId == group.id }
-                                    val top = g.slots.getOrNull(from)?.top
-                                    if (from >= 0 && top != null) {
-                                        session.beginReorder(group.id, from, top, pointerY)
-                                    }
-                                },
-                                onReorderDrag = { session.reorderPointerY = it },
-                                onReorderDrop = { dropReorder() },
-                                onReorderCancel = { cancelReorder() },
                                 // 和头卡同一套左右留白由容器统一给；入场沿用「错峰淡入上浮」，只播一次
                                 modifier = Modifier.enterOnce(index),
                                 cellHeight = cellHeight,
@@ -633,6 +784,37 @@ fun HomeScreen(
             }
         }
 
+        // ── 编辑态的拖拽手势层：盖住整页、自己不滚动。所有拖拽手势只挂在这里这一个
+        // 从不销毁的节点上，被拖的块可以自由换组而不断手势（同 AOSP Launcher3 的 DragLayer）。
+        // 只在编辑态挂载；非编辑态卡片自己接点击/长按进编辑态，不需要这一层。──
+        if (editing.on) {
+            Box(
+                Modifier
+                    .matchParentSize()
+                    .homeDragLayer(
+                        session = session,
+                        geometry = { dragGeometry },
+                        scrollY = { scroll.value.toFloat() },
+                        handlePx = handlePx,
+                        removePx = removePx,
+                        onDown = { hit, viewport, content -> beginGesture(hit, viewport, content) },
+                        onMove = { viewport, _ -> session.move(viewport) },
+                        onUp = {
+                            when (session.mode) {
+                                HomeDragMode.TILE, HomeDragMode.PALETTE -> settleTileDrop()
+                                HomeDragMode.RESIZE -> settleResizeDrop()
+                                HomeDragMode.GROUP -> settleGroupDrop()
+                                HomeDragMode.IDLE -> Unit
+                            }
+                        },
+                        onCancel = {
+                            // 手势被系统抢走：整场作废（拖动中从不写草稿，所以不用恢复数据）
+                            if (session.mode == HomeDragMode.GROUP) cancelGroupDrop() else abandonDrag()
+                        },
+                    ),
+            )
+        }
+
         // ── 拖拽幽灵块：跟手画在最上层；松手时飞向落点（或飞回起手位置）再消失 ──
         HomeDragGhost(
             session = session,
@@ -640,9 +822,8 @@ fun HomeScreen(
             liquid = liquid,
             backdrop = tileBackdrop.takeIf { liquid },
             cellHeight = cellHeight,
-            geometry = geometry,
-            // 结算动画只对「同一个代次」的拖拽生效；被新拖拽顶掉时立刻回到跟手
-            settling = ghostSettling && ghostSettleEpoch == session.dragEpoch,
+            geometry = dragGeometry,
+            settling = ghostSettling,
             settleValue = { ghostSettle.value },
         )
 
@@ -655,11 +836,13 @@ fun HomeScreen(
                 backdrop = tileBackdrop.takeIf { liquid },
                 session = session,
                 onPaletteStart = { routeId, startPointer ->
-                    val g = geometryState.value
-                    if (g.colUnit > 0f) {
-                        session.beginPaletteDrag(
-                            tileId = layout.nextTileId("palette", routeId),
-                            routeId = routeId,
+                    val g = dragGeometry
+                    if (g.ready) {
+                        session.beginPalette(
+                            layout = layout,
+                            visibleIds = visibleGroups.map { it.id },
+                            newTileId = layout.nextTileId("palette", routeId),
+                            newRouteId = routeId,
                             w = 2f,
                             h = 1f,
                             startPointer = startPointer,
@@ -669,38 +852,27 @@ fun HomeScreen(
                     }
                 },
                 onPaletteDrop = { settleTileDrop() },
-                onPaletteCancel = { session.abort() },
+                onPaletteCancel = { abandonDrag() },
                 modifier = Modifier.matchParentSize(),
             )
         }
 
         // ── 拖到屏幕上下边缘时自动滚动（带阻尼：越靠边越快）；卡片、缩放、组排序共用 ──
+        // 只改 scroll.value：内容坐标是 (pointer + scrollY) 的派生量，滚动会自动触发命中与
+        // 落点重算，所以缩放/换组都自然跟上——不需要旧实现那种「按预估位置补算尺寸」的特例。
         LaunchedEffect(session.active) {
             if (!session.active) return@LaunchedEffect
             val edge = with(density) { 104.dp.toPx() }
             val maxStep = with(density) { 14.dp.toPx() }
             while (true) {
                 withFrameNanos { }
-                // 页面局部坐标，直接和页面尺寸比
-                val y = if (session.reordering) session.reorderPointerY else session.pointer.y
+                val y = session.pointer.y
                 val step = when {
                     y < edge -> -(1f - (y / edge).coerceIn(0f, 1f)) * maxStep
                     y > pageSize.y - edge -> ((y - (pageSize.y - edge)) / edge).coerceIn(0f, 1f) * maxStep
                     else -> 0f
                 }
-                if (step != 0f) {
-                    scroll.scrollBy(step)
-                    // 缩放中滚动 = 块左上角在挪而手指没动：按预估的新位置补算尺寸，
-                    // 拖着把手顶到屏幕底就能继续把块拉大
-                    val rid = session.resizingId
-                    if (rid != null) {
-                        val top = session.tileTops[rid]
-                        val g = geometryState.value
-                        if (top != null && g.colUnit > 0f) {
-                            session.updateResize(session.pointer, top - Offset(0f, step), g.colUnit, g.rowUnit, grid)
-                        }
-                    }
-                }
+                if (step != 0f) scroll.scrollBy(step)
             }
         }
 
@@ -757,36 +929,6 @@ private val GROUP_GAP = 20.dp
 
 /** 第一组与上方头卡之间的间距。 */
 private val FIRST_GROUP_GAP = 20.dp
-
-/**
- * 由**数据布局**推出组区几何表（纯函数）：每组高度 = 标题区（编辑态恒有）+ 格数 × 单元高。
- * 预览会临时改变组的格数，但命中表始终按数据算——不然预览搅动命中、命中又改写预览，
- * 拖到哪里都在振荡。
- */
-private fun buildBoardGeometry(
-    groups: List<HomeGroup>,
-    editing: Boolean,
-    origin: Offset,
-    width: Float,
-    cellHeightPx: Float,
-    gapPx: Float,
-    headerPx: Float,
-    groupGapPx: Float,
-    firstGapPx: Float,
-): HomeBoardGeometry {
-    val colUnit = (width + gapPx) / HomeGridMath.COLUMNS
-    val rowUnit = cellHeightPx + gapPx
-    val slots = mutableListOf<HomeBoardGeometry.Slot>()
-    var top = origin.y + firstGapPx
-    groups.forEach { group ->
-        val header = if (editing || group.title.isNotBlank()) headerPx else 0f
-        val rows = HomeGridMath.contentBottom(group.tiles).coerceAtLeast(1f)
-        val gridHeight = rows * rowUnit - gapPx
-        slots += HomeBoardGeometry.Slot(group.id, top, top + header, header + gridHeight)
-        top += header + gridHeight + groupGapPx
-    }
-    return HomeBoardGeometry(colUnit, rowUnit, slots)
-}
 
 /** 自由拖拽模式的边界联动容差（格）：离邻居的边不到这个距离就吸过去。 */
 private const val EDGE_LINK_CELLS = 0.28f
@@ -1537,7 +1679,13 @@ private fun HeroStatusLine(
 
 // ── 编辑态的弹窗与幽灵块 ──
 
-/** 拖拽幽灵块：跟手画一块「和真组件一模一样」的预览；松手结算中改由吸附/回弹动画驱动。 */
+/**
+ * 拖拽幽灵块：跟手画一块「和真组件一模一样」的预览；松手结算中改由吸附/回弹动画驱动。
+ *
+ * 只在拖**卡片**（移动 / 从悬浮条拖出）时出现；缩放没有幽灵（被缩那块自己跟手变大）。
+ * 结算期 [HomeDragSession.mode] 已是 IDLE，但 [HomeDragSession.settling] 为真、
+ * `base`/`tileId` 还留着——靠它们继续画到吸附动画播完。
+ */
 @Composable
 private fun HomeDragGhost(
     session: HomeDragSession,
@@ -1549,17 +1697,17 @@ private fun HomeDragGhost(
     settling: Boolean,
     settleValue: () -> Offset,
 ) {
-    if (!session.dragging) return
-    val face = session.dragRouteId?.let { faces[it] } ?: return
-    if (geometry.colUnit <= 0f || geometry.rowUnit <= 0f) return
+    if (!session.draggingTile && !settling) return
+    val face = session.routeId?.let { faces[it] } ?: return
+    if (!geometry.ready) return
     val density = LocalDensity.current
     val gapPx = with(density) { HomeTileGap.toPx() }
-    val wPx = (session.dragSizeCells.x * geometry.colUnit - gapPx).coerceAtLeast(1f)
-    val hPx = (session.dragSizeCells.y * geometry.rowUnit - gapPx).coerceAtLeast(1f)
+    val wPx = (session.sizeCells.x * geometry.colUnit - gapPx).coerceAtLeast(1f)
+    val hPx = (session.sizeCells.y * geometry.rowUnit - gapPx).coerceAtLeast(1f)
 
     Box(
         Modifier
-            // 跟手阶段：手指 − 抓取点；结算阶段：吸附/回弹动画的当前值
+            // 跟手阶段：手指 − 抓取点；结算阶段：吸附/回弹动画的当前值（都是视口坐标）
             .offset {
                 val p = if (settling) settleValue() else session.ghostOrigin
                 IntOffset(p.x.roundToInt(), p.y.roundToInt())
@@ -1574,8 +1722,8 @@ private fun HomeDragGhost(
     ) {
         HomeTileFaceBox(
             face = face,
-            w = session.dragSizeCells.x,
-            h = session.dragSizeCells.y,
+            w = session.sizeCells.x,
+            h = session.sizeCells.y,
             liquid = liquid,
             backdrop = backdrop,
             cellHeight = cellHeight,

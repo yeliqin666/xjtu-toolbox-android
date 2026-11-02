@@ -65,6 +65,16 @@ data class HomeLayout(val groups: List<HomeGroup> = emptyList()) {
     /**
      * 把一块挪到 [toGroupId] 组的 `(x, y)`。同组是重排，跨组是换组——
      * 两种情况共用同一套挤开规则，只是「被挤开的块能不能回到原位置」不同。
+     *
+     * [rowBudget]（组 id → 行数上限）只在**拖动中**传：传了就把落位夹进各组的行数预算，
+     * 于是整场拖拽里**没有任何一个组会变高**（渲染侧再把高度钉在预算那一档，见
+     * `HomeGroupSection`）。这是「落点不飘」的物理保证——命中区间由起手快照算出，渲染
+     * 也由同一份快照的高度排布，两者永远严格相等；组一变高，下面的组就被推下去，而命中
+     * 还按快照的旧位置算，手指与格子的对应关系当场失效（那是振荡的根源，AOSP Launcher3
+     * 拖拽期间 CellLayout 尺寸恒定，是同一个道理）。
+     *
+     * 传 null = 不限行数、且压掉空行：这是**松手那一次**用的。拖到组末尾想新增一行，
+     * 就是靠松手这一次放开预算才成立的；拖动中放开则会让落点跟着组高一起动。
      */
     fun moveTile(
         tileId: String,
@@ -73,6 +83,7 @@ data class HomeLayout(val groups: List<HomeGroup> = emptyList()) {
         y: Float,
         grid: Boolean = true,
         snapTolerance: Float = 0f,
+        rowBudget: Map<String, Float>? = null,
     ): HomeLayout {
         val (from, tile) = locate(tileId) ?: return this
         val target = group(toGroupId) ?: return this
@@ -85,33 +96,44 @@ data class HomeLayout(val groups: List<HomeGroup> = emptyList()) {
             } else {
                 moved
             }
-            val placed = HomeGridMath.placeInGroup(from.tiles, adjusted, grid)
-            // 网格模式下把拖走留下的全空行收掉，下面的块跟上来
-            return replaceGroup(from.copy(tiles = if (grid) HomeGridMath.compactEmptyRows(placed) else placed))
+            val placed = HomeGridMath.placeInGroup(from.tiles, adjusted, grid, rowBudget?.get(from.id))
+            return replaceGroup(from.copy(tiles = finishRows(placed, grid, rowBudget)))
         }
 
         // 跨组：先把它从原来那组摘掉（原位置留下空档，不压缩别的块），再放进目标组
         val fromAfter = from.copy(tiles = from.tiles.filter { it.id != tileId })
-        val targetAfter = target.copy(tiles = HomeGridMath.placeAcross(target.tiles, moved, grid))
+        val targetAfter = target.copy(tiles = HomeGridMath.placeAcross(target.tiles, moved, grid, rowBudget?.get(target.id)))
         return copy(
             groups = groups.map {
                 when (it.id) {
-                    // 网格模式下，源组少了一块可能空出行，目标组挤开后也可能：都收一收
-                    fromAfter.id -> if (grid) fromAfter.copy(tiles = HomeGridMath.compactEmptyRows(fromAfter.tiles)) else fromAfter
-                    targetAfter.id -> if (grid) targetAfter.copy(tiles = HomeGridMath.compactEmptyRows(targetAfter.tiles)) else targetAfter
+                    fromAfter.id -> fromAfter.copy(tiles = finishRows(fromAfter.tiles, grid, rowBudget))
+                    targetAfter.id -> targetAfter.copy(tiles = finishRows(targetAfter.tiles, grid, rowBudget))
                     else -> it
                 }
             },
         )
     }
 
-    /** 改一块的尺寸（右下角拖动）；挤开规则和拖拽一致。 */
-    fun resizeTile(tileId: String, w: Float, h: Float, grid: Boolean = true): HomeLayout {
+    /**
+     * 改一块的尺寸（右下角拖动）；挤开规则和拖拽一致，[rowBudget] 同 [moveTile]。
+     *
+     * 缩放**不吃行数预算**（[HomeScreen] 传 null）：把卡片拉高、组跟着变高是用户的明确
+     * 意图，而且缩放全程不需要命中判定——尺寸由「手指的内容坐标位移」绝对差值算出，
+     * 与组高无关。组高变化只影响页面总高，那由 `heightIn(min = 快照总高)` 钉住。
+     */
+    fun resizeTile(tileId: String, w: Float, h: Float, grid: Boolean = true, rowBudget: Map<String, Float>? = null): HomeLayout {
         val (group, tile) = locate(tileId) ?: return this
         val moved = tile.copy(w = w, h = h)
-        val placed = HomeGridMath.resizeInGroup(group.tiles, moved, grid)
-        return replaceGroup(group.copy(tiles = if (grid) HomeGridMath.compactEmptyRows(placed) else placed))
+        val placed = HomeGridMath.resizeInGroup(group.tiles, moved, grid, rowBudget?.get(group.id))
+        return replaceGroup(group.copy(tiles = finishRows(placed, grid, rowBudget)))
     }
+
+    /**
+     * 一次落位的收尾：给了行数预算（= 拖动中）就原样留着空行，没给（= 松手）就把这一组的
+     * 全空行收掉，下面的块整体上移补位（§A1）。自由模式允许留空隙，不压。
+     */
+    private fun finishRows(tiles: List<HomeTile>, grid: Boolean, rowBudget: Map<String, Float>?): List<HomeTile> =
+        if (grid && rowBudget == null) HomeGridMath.compactEmptyRows(tiles) else tiles
 
     /** 往 [groupId] 组里加一个功能；组里已经有同一个路由就不重复加。 */
     fun addTile(groupId: String, routeId: String, tileId: String): HomeLayout {
@@ -130,13 +152,21 @@ data class HomeLayout(val groups: List<HomeGroup> = emptyList()) {
 
     /**
      * 往 [groupId] 组的**指定格** `(x, y)` 放一个功能（从添加面板拖出来落到这里）：
-     * 新块按 2×1 进组，落点照样挤开邻居；组里已有同路由就不加。
+     * 新块按 2×1 进组，落点照样挤开邻居；组里已有同路由就不加。[rowBudget] 同 [moveTile]。
      */
-    fun addTileAt(groupId: String, routeId: String, tileId: String, x: Float, y: Float, grid: Boolean = true): HomeLayout {
+    fun addTileAt(
+        groupId: String,
+        routeId: String,
+        tileId: String,
+        x: Float,
+        y: Float,
+        grid: Boolean = true,
+        rowBudget: Map<String, Float>? = null,
+    ): HomeLayout {
         val group = group(groupId) ?: return this
         if (group.tiles.any { it.routeId == routeId }) return this
-        val placed = HomeGridMath.placeInGroup(group.tiles, HomeTile(tileId, routeId, x, y, 2f, 1f), grid)
-        return replaceGroup(group.copy(tiles = if (grid) HomeGridMath.compactEmptyRows(placed) else placed))
+        val placed = HomeGridMath.placeInGroup(group.tiles, HomeTile(tileId, routeId, x, y, 2f, 1f), grid, rowBudget?.get(groupId))
+        return replaceGroup(group.copy(tiles = finishRows(placed, grid, rowBudget)))
     }
 
     fun removeTile(tileId: String): HomeLayout = copy(
