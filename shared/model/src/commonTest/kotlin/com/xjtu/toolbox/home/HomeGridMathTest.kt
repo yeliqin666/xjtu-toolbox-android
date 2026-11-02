@@ -291,6 +291,58 @@ class HomeGridMathTest {
         assertEquals(0f to 1f, HomeGridMath.firstFreeSlot(tiles, 2f, 1f))
     }
 
+    // ── 行数预算（拖动中把组高钉死，见 §22b） ──
+
+    @Test
+    fun `空位扫描被行数上界挡住`() {
+        // 第 1 行有一个空位，但预算只有 1 行（y < 1），扫不到 → null
+        val tiles = listOf(tile("a", 0f, 0f), tile("b", 2f, 0f))
+        assertNull(HomeGridMath.firstFreeSlot(tiles, 2f, 1f, maxRows = 1f))
+        // 预算放宽到 2 行就能扫到第 1 行
+        assertEquals(0f to 1f, HomeGridMath.firstFreeSlot(tiles, 2f, 1f, maxRows = 2f))
+    }
+
+    @Test
+    fun `拖动中落位被夹进预算行数组高不变`() {
+        // 1×1 的组（预算 1 行），往里拖一块：落点被夹在 y < 1，组不会长高
+        val a = tile("a", 0f, 0f, w = 1f, h = 1f)
+        val moved = HomeGridMath.placeInGroup(listOf(a), a.copy(x = 3f), grid = true, maxRows = 1f)
+        assertTrue(HomeGridMath.contentBottom(moved) <= 1f + 0.0001f, "预算 1 行却长高了：$moved")
+        assertEquals(3f, moved.first { it.id == "a" }.x, 0.0001f)
+    }
+
+    @Test
+    fun `被挤开的块重插也受预算约束`() {
+        // 预算 1 行：a、b 同在第 0 行；把 a 拖到 b 上，b 被挤走但只能在预算内找空位
+        val a = tile("a", 0f, 0f, w = 2f, h = 1f)
+        val b = tile("b", 2f, 0f, w = 2f, h = 1f)
+        val moved = HomeGridMath.placeInGroup(listOf(a, b), a.copy(x = 2f), grid = true, maxRows = 1f)
+        assertTrue(HomeGridMath.contentBottom(moved) <= 1f + 0.0001f, "预算 1 行却长高了：$moved")
+        // 交换仍成立：b 回到 a 的原槽位
+        assertEquals(2f, moved.first { it.id == "a" }.x, 0.0001f)
+        assertEquals(0f, moved.first { it.id == "b" }.x, 0.0001f)
+    }
+
+    @Test
+    fun `预算比块还矮时夹无可夹允许溢出`() {
+        // 往一个 1 行的预算里放 2 行高的块：夹无可夹，原样放进去（松手压缩后自愈），
+        // 总比硬压成 1 行或丢掉诚实
+        val big = tile("big", 0f, 5f, w = 2f, h = 2f)
+        val moved = HomeGridMath.placeInGroup(emptyList(), big, grid = true, maxRows = 1f)
+        assertEquals(5f, moved.first { it.id == "big" }.y, 0.0001f)
+    }
+
+    @Test
+    fun `不给预算就是松手语义组可长高并压空行`() {
+        val tiles = listOf(tile("a", 0f, 0f), tile("b", 2f, 0f))
+        // maxRows = null：允许落到新行
+        assertEquals(0f to 1f, HomeGridMath.firstFreeSlot(tiles, 2f, 1f, maxRows = null))
+        val placed = HomeGridMath.placeInGroup(tiles, tile("c", 0f, 1f), grid = true, maxRows = null)
+        assertTrue(HomeGridMath.contentBottom(placed) >= 2f, "放开预算应能长高：$placed")
+    }
+
+    // ── 最下方落位与底部 ──
+
     @Test
     fun `最下方落位避开已有内容`() {
         val tiles = listOf(tile("a", 0f, 0f), tile("b", 0f, 2f))
