@@ -236,8 +236,6 @@ fun appRouteOf(id: String): AppRoute? {
             param("activityId")?.toIntOrNull()?.takeIf { it > 0 },
         )
         path == "browser" -> AppRoute.Browser(param("url").orEmpty(), param("then").orEmpty())
-<<<<<<< HEAD
-=======
         path.startsWith("notice_detail/") -> {
             val noticeId = path.removePrefix("notice_detail/")
             if (noticeId.isBlank()) {
@@ -253,7 +251,6 @@ fun appRouteOf(id: String): AppRoute? {
             }
         }
         path.startsWith("community/") -> path.removePrefix("community/").toIntOrNull()?.takeIf { it > 0 }?.let(AppRoute::CommunityPost)
->>>>>>> 4a42ecf9 (feat(home): 公告卡到公告详情接入金标联盟一镜到底，非支持 ROM 回落 Compose 转场)
         path.startsWith("jiaocai1_reader/") -> {
             val ssno = path.removePrefix("jiaocai1_reader/")
             if (ssno.isBlank()) null else AppRoute.Jiaocai1Reader(ssno, param("title").orEmpty())

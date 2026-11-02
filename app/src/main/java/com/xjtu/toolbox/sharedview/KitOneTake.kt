@@ -32,13 +32,33 @@ object KitOneTake {
     private const val TAG = "KitOneTake"
 
     /**
-     * 当前 ROM 是否声明支持。首次调用会反射探测 ROM 类并问 `isFeatureEnabled()`（毫秒级），
-     * AAR 内部有静态缓存；这里只决定「走哪条路」，不要在每次点击时反复问。
+     * KIT 协议版本；0 = 当前 ROM 不声明支持。首次调用会反射探测 ROM 类并问 `isFeatureEnabled()`
+     * （毫秒级），AAR 内部有静态缓存，这里也只读一次。
+     */
+    private val protocolVersion: Int by lazy {
+        runCatching { ViewAnimationManager.isViewAnimationSupported() }
+            .onFailure { Log.d(TAG, "probe SharedViewKit failed, fall back", it) }
+            .getOrDefault(0)
+    }
+
+    /**
+     * 当前 ROM 是否声明支持。首次调用会做 [protocolVersion] 的探测，
+     * 只决定「走哪条路」，不要在每次点击时反复问；启动时用 [prewarm] 提前问掉。
      */
     val supported: Boolean by lazy {
-        runCatching { ViewAnimationManager.isViewAnimationSupported() > 0 }
-            .onFailure { Log.d(TAG, "probe SharedViewKit failed, fall back", it) }
-            .getOrDefault(false)
+        val version = protocolVersion
+        if (version > 0) {
+            Log.i(TAG, "SharedViewKit supported, protocol=$version, extras=${declaredExtras?.keys?.joinToString()}")
+        } else {
+            Log.d(TAG, "SharedViewKit unsupported on this ROM, fall back to Compose transition")
+        }
+        version > 0
+    }
+
+    /** 启动时后台预热一次：首次探测要反射加载 ROM 类，提前问掉，点击时不再付这笔钱。 */
+    fun prewarm() {
+        @Suppress("UNUSED_EXPRESSION")
+        supported
     }
 
     /** ROM 声明支持哪些 extras（不支持时为空/ null）；用于决定写不写模糊这类参数。 */
@@ -154,6 +174,11 @@ object KitOneTake {
             }
 
             val kitBounds = kitCoordinateBounds(activity, windowBounds)
+            Log.i(
+                TAG,
+                "start KIT: protocol=$protocolVersion, windowRect=$windowBounds, kitBounds=$kitBounds, " +
+                    "radiusPx=$radiusPx, blur=${declaredExtras?.containsKey(ViewAnimationExtras.EXTRA_BLUR)}",
+            )
             val options = ViewAnimationManager.makeViewAnimationOptions(
                 bitmap,
                 kitBounds,
