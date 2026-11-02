@@ -2,6 +2,7 @@ package com.xjtu.toolbox.home
 
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.VectorConverter
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
