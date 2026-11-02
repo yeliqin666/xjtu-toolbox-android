@@ -146,6 +146,29 @@ class AppPageDeps(
 )
 
 /**
+ * 这个路由能不能在一镜到底的独立 Activity 宿主（`SeamlessPageActivity`）里单独画：
+ * 只有 [appPageEntries] 注册过 entry 的页面才行；`Main` 是栈底、`PaymentCode` 是 AppRoot 的覆盖层，都不算。
+ */
+fun isStandaloneHostable(route: AppRoute): Boolean = when (route) {
+    is AppRoute.Main, is AppRoute.PaymentCode, is AppRoute.Schedule, is AppRoute.Agent, is AppRoute.Zyxf -> false
+    is AppRoute.Lms, is AppRoute.Jiaocai1Reader, is AppRoute.Browser, is AppRoute.CommunityPost, is AppRoute.NoticeDetail -> true
+    else -> route in standaloneHostedRoutes
+}
+
+/** [appPageEntries] 里以 data object 形式注册过的页面（带参数的上面单独判断）。 */
+private val standaloneHostedRoutes: Set<AppRoute> = setOf(
+    AppRoute.EmptyRoom, AppRoute.Notification, AppRoute.Attendance, AppRoute.Judge,
+    AppRoute.JwappScore, AppRoute.Library, AppRoute.CampusCard, AppRoute.Coupon,
+    AppRoute.Transcript, AppRoute.Venue, AppRoute.DownloadManager, AppRoute.Jiaocai,
+    AppRoute.Jiaocai1, AppRoute.SchoolCourse, AppRoute.SchoolCalendar, AppRoute.YellowPage,
+    AppRoute.Fitness, AppRoute.Iclassface, AppRoute.Settings, AppRoute.Inbox,
+    AppRoute.Community, AppRoute.Faculty, AppRoute.Accounts, AppRoute.WebVpnConverter,
+    AppRoute.Games, AppRoute.Game2048, AppRoute.GameMerge, AppRoute.GameBlocks,
+    AppRoute.GameHop, AppRoute.GameGomoku, AppRoute.GameGo, AppRoute.GameXiangqi,
+    AppRoute.Match,
+)
+
+/**
  * 返回栈：栈底是主界面，其余子页见 [appPageEntries]。转场用 miuix-nav 默认，首页格子进来的页面从那一格放大。
  *
  * @param mainContent 栈底的主界面
@@ -616,7 +639,7 @@ fun NavEntryBuilder.appPageEntries(
  * 外层灰底和窗口尺寸继续按转场的进度缩到原位，所以看不到页面顶栏叠在目标元素上。
  */
 @Composable
-private fun ExpandOriginPopOverlay(screenCornerPx: Float) {
+internal fun ExpandOriginPopOverlay(screenCornerPx: Float) {
     val pop = ExpandOrigins.pop.value ?: return
     val origin = pop.origin
     val snapshot = origin.snapshot ?: return

@@ -117,6 +117,14 @@ interface HomeHost {
     /** 打开某个入口。 */
     fun onRoute(route: AppRoute) {}
 
+    /**
+     * 打开某个入口，并带上「从哪一块卡片/图标出发」的几何信息（一镜到底用）。
+     * 默认仍走 [onRoute]；Android 宿主在 ROM 支持 SharedViewKit 时改走独立 Activity 的系统转场。
+     */
+    fun onRouteSeamless(route: AppRoute, source: SeamlessCardSource?) {
+        onRoute(route)
+    }
+
     /** 「我的」那一屏。 */
     fun onProfile() {}
     /** 点一下公告条里的某条公告。 */

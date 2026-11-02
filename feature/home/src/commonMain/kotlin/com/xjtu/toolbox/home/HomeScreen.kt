@@ -42,6 +42,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -51,6 +52,8 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.layout.boundsInWindow
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.TextStyle
@@ -66,6 +69,7 @@ import com.kyant.backdrop.backdrops.rememberLayerBackdrop
 import com.xjtu.toolbox.ui.glass.progressiveBlurBar
 import com.xjtu.toolbox.bulletin.BulletinNoticePanel
 import com.xjtu.toolbox.nav.AppRoute
+import com.xjtu.toolbox.nav.SeamlessCardSource
 import com.xjtu.toolbox.nav.expandOriginSource
 import com.xjtu.toolbox.nav.rememberExpandOriginSource
 import com.xjtu.toolbox.settings.HomeLayoutRevision
@@ -132,6 +136,7 @@ fun HomeScreen(
             subtitle = service.subtitle,
             color = colorByKey[id] ?: Color.Unspecified,
             onClick = { host.onRoute(service.route) },
+            onSeamlessClick = { source -> host.onRouteSeamless(service.route, source) },
             stat = stat?.value,
             statDetail = stat?.detail,
             lines = stat?.lines.orEmpty(),
@@ -1004,6 +1009,8 @@ internal data class HomeServiceRow(
     val subtitle: String = "",
     val color: Color,
     val onClick: () -> Unit,
+    /** 这一块的几何起点交给宿主：ROM 支持 SharedViewKit 时走独立 Activity 的系统转场。 */
+    val onSeamlessClick: ((SeamlessCardSource) -> Unit)? = null,
     val stat: String? = null,
     val statDetail: String? = null,
     val tone: HomeTone = HomeTone.NORMAL,
@@ -1020,15 +1027,24 @@ private fun Modifier.opensRow(
 ): Modifier {
     val origin = rememberExpandOriginSource()
     val density = LocalDensity.current
+    // 非状态字段：整页滚动时 onGloballyPositioned 每帧回调，写 State 会把这一行每帧重组一次。
+    val bounds = remember { com.xjtu.toolbox.nav.CardBoundsRef() }
     return this
         .expandOriginSource(origin)
+        .onGloballyPositioned { bounds.value = it.boundsInWindow() }
         .clip(RoundedCornerShape(radius))
         .clickable(
             interactionSource = remember { MutableInteractionSource() },
             indication = SinkFeedback(),
             onClick = {
+                // 先登记 Compose 起点：KIT 走独立 Activity 时会被 KitOneTake 清掉，回落时正好用它做放大转场。
                 origin.arm(row.key, radius, density, snapshot)
-                row.onClick()
+                val seamless = row.onSeamlessClick
+                if (seamless != null && !bounds.value.isEmpty) {
+                    seamless(SeamlessCardSource(bounds.value, radius))
+                } else {
+                    row.onClick()
+                }
             },
         )
 }

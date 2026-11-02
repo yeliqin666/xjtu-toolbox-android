@@ -339,10 +339,41 @@ internal fun rememberAppHome(
             val route = AppRoute.NoticeDetail.of(bulletin)
             val host = context as? Activity
             if (source != null && host != null && KitOneTake.supported) {
-                KitOneTake.openBulletinDetail(host, route, source) { onNavigate(route) }
+                KitOneTake.openPage(host, route, source) { onNavigate(route) }
             } else {
                 onNavigate(route)
             }
+        }
+
+        // 首页常用功能 / 功能小组件 / 分类入口行：会话已就绪、页面可独立托管时走 KIT 一镜到底，
+        // 其余情况（需要登录、离线、覆盖层、底栏语义）原样交给 onRoute，保持之前的交互。
+        override fun onRouteSeamless(route: AppRoute, source: SeamlessCardSource?) {
+            val host = context as? Activity
+            if (source != null && host != null && KitOneTake.supported && canOpenWithKit(route)) {
+                KitOneTake.openPage(host, route, source) { onRoute(route) }
+            } else {
+                onRoute(route)
+            }
+        }
+
+        /** KIT 宿主能接的条件：页面可单独画、登录会话已就绪、需要联网时有网。 */
+        private fun canOpenWithKit(route: AppRoute): Boolean {
+            if (!com.xjtu.toolbox.nav.isStandaloneHostable(route)) return false
+            val type = route.loginType
+            if (type != null) {
+                val manager = loginState.sessionManager
+                if (manager?.getSiteOrNull(type.siteKey())?.hasLogin != true) return false
+            }
+            if (route.needsNetwork && !isOnline()) return false
+            return true
+        }
+
+        private fun isOnline(): Boolean {
+            val cm = context.getSystemService(android.content.Context.CONNECTIVITY_SERVICE)
+                as? android.net.ConnectivityManager ?: return false
+            val network = cm.activeNetwork ?: return false
+            return cm.getNetworkCapabilities(network)
+                ?.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_INTERNET) == true
         }
         override fun onBulletinDismiss(bulletin: Bulletin) = onBulletinDismiss(bulletin)
         override fun onOpenStatus() {

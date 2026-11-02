@@ -74,14 +74,14 @@ object KitOneTake {
     private var pendingBitmap: Bitmap? = null
 
     /**
-     * 从首页公告卡打开公告详情：ROM 支持时走 KIT 的系统级一镜到底，否则调 [fallback]。
+     * 从首页卡片打开任意可独立托管的页面：ROM 支持时走 KIT 的系统级一镜到底，否则调 [fallback]。
      *
-     * [fallback] 必须自己做完「压 AppRoute.NoticeDetail 路由」这件事；本方法保证它在失败路径上
-     * 恰好被调用一次，且在主线程。
+     * [fallback] 必须自己做完「压 Compose 路由」这件事；本方法保证它在失败路径上恰好被调用一次，
+     * 且在主线程。目标页面能否单独托管由调用方用 `isStandaloneHostable` 判断。
      */
-    fun openBulletinDetail(
+    fun openPage(
         activity: Activity,
-        notice: AppRoute.NoticeDetail,
+        route: AppRoute,
         source: SeamlessCardSource,
         fallback: () -> Unit,
     ) {
@@ -122,7 +122,7 @@ object KitOneTake {
                 { result ->
                     starting.set(false)
                     if (result == PixelCopy.SUCCESS && !activity.isFinishing && !activity.isDestroyed) {
-                        startWithKit(activity, notice, bitmap, bounds, source, fallback)
+                        startWithKit(activity, route, bitmap, bounds, source, fallback)
                     } else {
                         Log.d(TAG, "PixelCopy failed: result=$result, fall back")
                         fallback()
@@ -139,7 +139,7 @@ object KitOneTake {
 
     private fun startWithKit(
         activity: Activity,
-        notice: AppRoute.NoticeDetail,
+        route: AppRoute,
         bitmap: Bitmap,
         windowBounds: Rect,
         source: SeamlessCardSource,
@@ -176,8 +176,9 @@ object KitOneTake {
             val kitBounds = kitCoordinateBounds(activity, windowBounds)
             Log.i(
                 TAG,
-                "start KIT: protocol=$protocolVersion, windowRect=$windowBounds, kitBounds=$kitBounds, " +
-                    "radiusPx=$radiusPx, blur=${declaredExtras?.containsKey(ViewAnimationExtras.EXTRA_BLUR)}",
+                "start KIT: route=${route.id}, protocol=$protocolVersion, windowRect=$windowBounds, " +
+                    "kitBounds=$kitBounds, radiusPx=$radiusPx, " +
+                    "blur=${declaredExtras?.containsKey(ViewAnimationExtras.EXTRA_BLUR)}",
             )
             val options = ViewAnimationManager.makeViewAnimationOptions(
                 bitmap,
@@ -195,7 +196,7 @@ object KitOneTake {
 
             // 这条分支不再压 Compose 路由：把首页刚登记的 ExpandOrigins 起点清掉，免得落到别的页面上去。
             ExpandOrigins.clear()
-            activity.startActivity(NoticeDetailActivity.intent(activity, notice), options.toBundle())
+            activity.startActivity(SeamlessPageActivity.intent(activity, route), options.toBundle())
         } catch (e: Exception) {
             Log.w(TAG, "start KIT transition failed, fall back", e)
             pendingBitmap = null

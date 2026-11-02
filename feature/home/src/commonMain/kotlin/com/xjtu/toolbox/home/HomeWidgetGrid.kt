@@ -64,6 +64,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.TileMode
@@ -72,6 +73,21 @@ import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.awaitLongPressOrCancellation
+import androidx.compose.foundation.gestures.awaitTouchSlopOrCancellation
+import androidx.compose.foundation.gestures.drag
+import androidx.compose.foundation.gestures.scrollBy
+import androidx.compose.foundation.ScrollState
+import androidx.compose.runtime.snapshotFlow
+import androidx.compose.ui.layout.boundsInWindow
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInRoot
+import androidx.compose.ui.semantics.CustomAccessibilityAction
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.customActions
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
@@ -86,6 +102,7 @@ import com.kyant.backdrop.drawBackdrop
 import com.kyant.backdrop.effects.blur
 import com.kyant.backdrop.effects.vibrancy
 import com.xjtu.toolbox.nav.AppRoute
+import com.xjtu.toolbox.nav.SeamlessCardSource
 import com.xjtu.toolbox.nav.expandOriginSource
 import com.xjtu.toolbox.nav.rememberExpandOriginSource
 import com.xjtu.toolbox.platform.decodeImage
@@ -473,10 +490,13 @@ private fun WidgetTile(
     val density = LocalDensity.current
     val shape = RoundedCornerShape(TILE_RADIUS)
     val surface = if (wall != null) Modifier.glassTile(wall, ink) else Modifier.paperTile()
+    // 非状态字段：拖动/缩放/滚动时 onGloballyPositioned 每帧回调，写 State 会把每个格子每帧重组一次。
+    val tileBounds = remember { com.xjtu.toolbox.nav.CardBoundsRef() }
     Box(
         Modifier
             .fillMaxSize()
             .expandOriginSource(origin)
+            .onGloballyPositioned { tileBounds.value = it.boundsInWindow() }
             .then(surface)
             .clip(shape)
             .combinedClickable(
@@ -484,8 +504,14 @@ private fun WidgetTile(
                 indication = SinkFeedback(),
                 enabled = !editing,
                 onClick = {
+                    // 先登记 Compose 起点：KIT 走独立 Activity 时会被 KitOneTake 清掉，回落时正好用它做放大转场。
                     origin.arm(row.key, TILE_RADIUS, density, null)
-                    row.onClick()
+                    val seamless = row.onSeamlessClick
+                    if (seamless != null && !tileBounds.value.isEmpty) {
+                        seamless(SeamlessCardSource(tileBounds.value, TILE_RADIUS))
+                    } else {
+                        row.onClick()
+                    }
                 },
                 onLongClick = onLongClick,
                 onLongClickLabel = "编辑小组件",

@@ -19,3 +19,13 @@ data class SeamlessCardSource(
     /** 卡片圆角；宿主按屏幕密度换算成 px。 */
     val cornerRadius: Dp,
 )
+
+/**
+ * 卡片/图标矩形的“非 Compose 状态”记录器。
+ *
+ * 首页是整页滚动，`onGloballyPositioned` 在滚动/拖动时每帧都会回调；把这些矩形写进
+ * `mutableStateOf` 会让每张可见卡片每帧重组一次，明显的掉帧来源。这里只存普通字段，
+ * 点击时再读，不参与重组。
+ */
+class CardBoundsRef(var value: Rect = Rect.Zero)
+
