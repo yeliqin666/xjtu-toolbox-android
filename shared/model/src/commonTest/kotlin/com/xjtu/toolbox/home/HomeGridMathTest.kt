@@ -91,16 +91,19 @@ class HomeGridMathTest {
 
     @Test
     fun `多块被压时按阅读顺序依次重插且不重叠`() {
-        // 2×2 大块压到三块 1×1：三块按阅读顺序重插到最近的空位
+        // 2×2 大块往下挪一格，压到 a/b（c 与它贴边，不被压）
         val tiles = listOf(
             tile("big", 0f, 0f, w = 2f, h = 2f),
             tile("a", 0f, 2f, w = 1f, h = 1f),
             tile("b", 1f, 2f, w = 1f, h = 1f),
             tile("c", 2f, 2f, w = 1f, h = 1f),
         )
-        // big 往下挪一格，同时压到 a/b/c
         val moved = HomeGridMath.placeInGroup(tiles, tiles[0].copy(y = 2f), grid = true)
         assertEquals(2f, moved.first { it.id == "big" }.y, 0.0001f)
+        // a/b 按阅读顺序重插到最上方的空位；c 贴边不算被压，原地不动
+        assertEquals(0f, moved.first { it.id == "a" }.y, 0.0001f)
+        assertEquals(0f, moved.first { it.id == "b" }.y, 0.0001f)
+        assertEquals(2f, moved.first { it.id == "c" }.y, 0.0001f)
         moved.indices.forEach { i ->
             (i + 1 until moved.size).forEach { j ->
                 assertFalse(
@@ -109,8 +112,6 @@ class HomeGridMathTest {
                 )
             }
         }
-        // a/b/c 被挤到最上方（big 的原槽位空出来了），一个都不许沉到 big 下面更远处
-        assertTrue(moved.first { it.id == "a" }.y <= 2f)
     }
 
     @Test
