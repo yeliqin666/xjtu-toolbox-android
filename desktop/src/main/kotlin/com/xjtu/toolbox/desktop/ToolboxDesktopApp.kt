@@ -719,8 +719,8 @@ private fun DesktopPage(
         )
         // 设置：屏在 `:core`（`SettingsScreen`，与 `:app` 同一份），
         // 这一端只装配两样：落盘的偏好存储（`desktopSettings`）与宿主槽位（`DesktopSettingsHost`，
-        // 声明这一端**真会照着办**的行）。宿主没有的那几组（通知与提醒 / 数据与隐私 / 更新）
-        // 整组不画 —— 见那个类的 KDoc 里那张表与 TODO。
+        // 声明这一端**真会照着办**的行）。宿主没有的那几组（通知与提醒 / 更新）整组不画，
+        // 「数据与隐私」已接桌面归档（导出 / 导入数据存档）—— 见那个类的 KDoc 与 honoredRows。
         AppRoute.Settings -> SettingsScreen(
             store = desktopSettings,
             host = remember { DesktopSettingsHost(onAppearanceChanged) },
