@@ -151,7 +151,7 @@ class AppPageDeps(
  */
 fun isStandaloneHostable(route: AppRoute): Boolean = when (route) {
     is AppRoute.Main, is AppRoute.PaymentCode, is AppRoute.Schedule, is AppRoute.Agent, is AppRoute.Zyxf -> false
-    is AppRoute.Lms, is AppRoute.Jiaocai1Reader, is AppRoute.Browser, is AppRoute.CommunityPost, is AppRoute.NoticeDetail -> true
+    is AppRoute.Lms, is AppRoute.Jiaocai1Reader, is AppRoute.Browser, is AppRoute.NoticeDetail -> true
     else -> route in standaloneHostedRoutes
 }
 
@@ -159,7 +159,7 @@ fun isStandaloneHostable(route: AppRoute): Boolean = when (route) {
 private val standaloneHostedRoutes: Set<AppRoute> = setOf(
     AppRoute.EmptyRoom, AppRoute.Notification, AppRoute.Attendance, AppRoute.Judge,
     AppRoute.JwappScore, AppRoute.Library, AppRoute.CampusCard, AppRoute.Coupon,
-    AppRoute.Transcript, AppRoute.Venue, AppRoute.DownloadManager, AppRoute.Jiaocai,
+    AppRoute.ScoreReport, AppRoute.Transcript, AppRoute.Venue, AppRoute.DownloadManager, AppRoute.Jiaocai,
     AppRoute.Jiaocai1, AppRoute.SchoolCourse, AppRoute.SchoolCalendar, AppRoute.YellowPage,
     AppRoute.Fitness, AppRoute.Iclassface, AppRoute.Settings, AppRoute.Inbox,
     AppRoute.Community, AppRoute.Faculty, AppRoute.Accounts, AppRoute.WebVpnConverter,
