@@ -1025,7 +1025,7 @@ campus-api 那边虽然有 `/api/jwxt/changes` 与 `/api/jwxt/exams`，但本端
 
 ### 16.2 「全等」的判据怎么落地（工程口径，四条）
 
-1. **路由全等**：`WebSupport.openableRouteIds` 与 `AppRoute`（43 条）的差集，只允许剩「浏览器/这一端永远做不到」的条目，且**每条都在页面上有如实说明**。
+1. **路由全等**：`WebSupport.openableRouteTypes` 与 `AppRoute`（42 类）的差集，只允许剩「浏览器/这一端永远做不到」的条目，且**每条都在页面上有如实说明**。支持判定按类型，帖子号、课程号等参数不改变支持情况；首页服务入口 id 从这份类型清单推导。
    今天的差集是 7 条：`Agent`（D10 之后要变成真屏）/ `DownloadManager` / `Jiaocai1` / `Jiaocai1Reader`（D13 之后要做）/ `GameMerge`（D12-⑤）/ `Accounts`（D9 之后要做）/ `Browser`（它不是一屏，口径上不算差集）。**2026-10-15 起是 4 条**：`Accounts` 已由批② 的 S7b 落地、`GameMerge` 已由 D12 ⑤ 落地（§16.11）、`Agent` 已由 D10 的 S-d 落地（§16.1 那一行 + 契约 §5.11）⇒ 剩下 `DownloadManager` / `Jiaocai1` / `Jiaocai1Reader`，外加口径上不算差集的 `Browser` —— `:web` 的 `WebRouteCoverageTest` 钉的就是这 4 条（它同时钉住「差集里每一条在 `WebSupport` 文件头都有一句为什么」）。
 2. **存档全等**：统一存档格式是唯一真源 —— 文档 + 夹具 + 三端消费方，**遵 `docs/api-contract.md` §7 的「三处同改」**。
 3. **屏全等**：每屏的四种状态（加载 / 空 / 错误 / 降级）三端**同一套文案来源**（共享字符串与共享屏，不在各端各写一遍）。
