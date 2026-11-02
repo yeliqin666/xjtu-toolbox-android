@@ -88,8 +88,24 @@ object HomeLayoutCodec {
         }
 
         if (groups.isEmpty()) return null
+        // 块的 id 是全页的身份标识，旧版本可能落过撞号的快照（尾号按块数生成，删了再加就撞）。
+        // 读盘时把重复的 id 重编成没占用的——丢块会弄丢用户摆好的入口，重编只是换身份。
+        val seen = mutableSetOf<String>()
         return HomeLayout(
-            groups = groups.map { it.copy(tiles = tiles[it.id].orEmpty()) },
+            groups = groups.map { group ->
+                group.copy(
+                    tiles = tiles[group.id].orEmpty().map { tile ->
+                        if (seen.add(tile.id)) return@map tile
+                        var serial = 2
+                        var renamed = "${tile.id}#dup$serial"
+                        while (!seen.add(renamed)) {
+                            serial++
+                            renamed = "${tile.id}#dup$serial"
+                        }
+                        tile.copy(id = renamed)
+                    },
+                )
+            },
         )
     }
 

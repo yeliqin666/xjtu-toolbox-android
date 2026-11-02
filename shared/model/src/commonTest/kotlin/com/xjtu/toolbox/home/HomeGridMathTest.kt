@@ -65,7 +65,7 @@ class HomeGridMathTest {
     }
 
     @Test
-    fun `更大的被挤开块去本组最下方`() {
+    fun `更大的被挤开块就近挪到空位而不是沉底`() {
         val small = tile("small", 0f, 0f, w = 1f, h = 1f)
         val big = tile("big", 1f, 0f, w = 2f, h = 1f)
         val moved = HomeGridMath.placeInGroup(listOf(small, big), small.copy(x = 1f), grid = true)
@@ -73,10 +73,63 @@ class HomeGridMathTest {
         val newBig = moved.first { it.id == "big" }
         val newSmall = moved.first { it.id == "small" }
         assertEquals(1f, newSmall.x, 0.0001f)
-        // 大块比拖拽块原尺寸（1×1）大，只能去最下面一行
-        assertEquals(1f, newBig.y, 0.0001f)
-        assertEquals(0f, newBig.x, 0.0001f)
+        // 流式重排：big 被摘除后重插到最近的空位——(0,0) 会和 small 重叠，(2,0) 放得下
+        assertEquals(2f, newBig.x, 0.0001f)
+        assertEquals(0f, newBig.y, 0.0001f)
     }
+
+    @Test
+    fun `被挤开的块落回拖拽块留下的原槽位就是交换`() {
+        // A(0,0) B(2,0) 都是 2×1；把 A 拖到整行最右的下一行，B 不动，A 落新行
+        val a = tile("a", 0f, 0f)
+        val b = tile("b", 2f, 0f)
+        val moved = HomeGridMath.placeInGroup(listOf(a, b), a.copy(x = 0f, y = 1f), grid = true)
+        assertEquals(1f, moved.first { it.id == "a" }.y, 0.0001f)
+        assertEquals(2f, moved.first { it.id == "b" }.x, 0.0001f)
+        assertEquals(0f, moved.first { it.id == "b" }.y, 0.0001f)
+    }
+
+    @Test
+    fun `多块被压时按阅读顺序依次重插且不重叠`() {
+        // 2×2 大块压到三块 1×1：三块按阅读顺序重插到最近的空位
+        val tiles = listOf(
+            tile("big", 0f, 0f, w = 2f, h = 2f),
+            tile("a", 0f, 2f, w = 1f, h = 1f),
+            tile("b", 1f, 2f, w = 1f, h = 1f),
+            tile("c", 2f, 2f, w = 1f, h = 1f),
+        )
+        // big 往下挪一格，同时压到 a/b/c
+        val moved = HomeGridMath.placeInGroup(tiles, tiles[0].copy(y = 2f), grid = true)
+        assertEquals(2f, moved.first { it.id == "big" }.y, 0.0001f)
+        moved.indices.forEach { i ->
+            (i + 1 until moved.size).forEach { j ->
+                assertFalse(
+                    HomeGridMath.overlaps(moved[i], moved[j]),
+                    "${moved[i].id} 与 ${moved[j].id} 重叠了：$moved",
+                )
+            }
+        }
+        // a/b/c 被挤到最上方（big 的原槽位空出来了），一个都不许沉到 big 下面更远处
+        assertTrue(moved.first { it.id == "a" }.y <= 2f)
+    }
+
+    @Test
+    fun `拖到原位的落位是幂等的`() {
+        val tiles = listOf(
+            tile("a", 0f, 0f),
+            tile("b", 2f, 0f),
+            tile("c", 0f, 1f),
+        )
+        // 拖动中每一帧都会按当前落点重算预览：落点没越过格线时结果必须和输入一模一样
+        val same = HomeGridMath.placeInGroup(tiles, tiles[0].copy(), grid = true)
+        tiles.forEach { old ->
+            val new = moved(old.id, same)
+            assertEquals(old.x, new.x, 0.0001f)
+            assertEquals(old.y, new.y, 0.0001f)
+        }
+    }
+
+    private fun moved(id: String, tiles: List<HomeTile>): HomeTile = tiles.first { it.id == id }
 
     @Test
     fun `只挤开直接重叠的块，不连锁`() {
@@ -250,6 +303,43 @@ class HomeGridMathTest {
         assertEquals(0f, HomeGridMath.contentBottom(emptyList()), 0.0001f)
         assertEquals(3f, HomeGridMath.contentBottom(listOf(tile("a", 0f, 0f), tile("b", 0f, 2f))), 0.0001f)
     }
+
+    // ── 组排序的几何 ──
+
+    @Test
+    fun `组排序中心没过中线就不换序`() {
+        val heights = listOf(100f, 80f, 120f)
+        // 第 0 组往下拖 49px：中心 50+49=99，下一组中线 100+40=140，不换
+        assertEquals(0, HomeGridMath.reorderTargetIndex(heights, 0, 49f))
+        // 拖过下一组中线：中心 50+100=150 > 140，换到 1
+        assertEquals(1, HomeGridMath.reorderTargetIndex(heights, 0, 100f))
+        // 再拖过第 2 组中线（180+60=240）：中心 50+200=250 > 240，换到 2
+        assertEquals(2, HomeGridMath.reorderTargetIndex(heights, 0, 200f))
+    }
+
+    @Test
+    fun `组排序往上拖过中线就换序`() {
+        val heights = listOf(100f, 80f, 120f)
+        // 第 2 组往上拖：原中心 100+80+60=240；上一组中线 100+40=140，拖 -110 → 中心 130 < 140 换到 1
+        assertEquals(1, HomeGridMath.reorderTargetIndex(heights, 2, -110f))
+        // 继续越过第 0 组中线 50：中心 240-200=40 < 50，换到 0
+        assertEquals(0, HomeGridMath.reorderTargetIndex(heights, 2, -200f))
+        // 没越过就原地
+        assertEquals(2, HomeGridMath.reorderTargetIndex(heights, 2, -20f))
+    }
+
+    @Test
+    fun `让位表只动夹在中间的组`() {
+        val heights = listOf(100f, 80f, 120f, 90f)
+        // 0 → 2：第 1、2 组上移一个第 0 组的高度，第 3 组不动
+        val down = HomeGridMath.reorderShifts(heights, 0, 2)
+        assertEquals(mapOf(1 to -100f, 2 to -100f), down)
+        // 3 → 1：第 1、2 组下移一个第 3 组的高度（被拖组自己不在表里）
+        val up = HomeGridMath.reorderShifts(heights, 3, 1)
+        assertEquals(mapOf(1 to 90f, 2 to 90f), up)
+        // 不换序 = 空表
+        assertTrue(HomeGridMath.reorderShifts(heights, 1, 1).isEmpty())
+    }
 }
 
 /** 首页布局的增删改与落盘格式。 */
@@ -331,10 +421,55 @@ class HomeLayoutTest {
     }
 
     @Test
+    fun `新块 id 全局递增不与删过的块撞号`() {
+        // 尾号只涨不回退：删掉一块再加，新块也不会复用已存在的尾号
+        val withOne = layout().addTile("CLASS", "library", layout().nextTileId("CLASS", "library"))
+        val first = withOne.group("CLASS")!!.tiles.last().id
+        val withTwo = withOne.addTile("CLASS", "notice", withOne.nextTileId("CLASS", "notice"))
+        val second = withTwo.group("CLASS")!!.tiles.last().id
+        assertTrue(first != second, "连续添加的两块撞了 id：$first")
+        val removed = withTwo.removeTile(first)
+        val third = removed.addTile("CLASS", "library", removed.nextTileId("CLASS", "library"))
+        val ids = third.group("CLASS")!!.tiles.map { it.id }
+        assertEquals(ids.size, ids.distinct().size, "出现了重复 id：$ids")
+    }
+
+    @Test
+    fun `读盘时撞号的块被重编而不是弄丢`() {
+        val text = buildString {
+            append("v1\n")
+            append("g|quick||常用功能\n")
+            append("t|quick|a|schedule|0|0|2000|1000\n")
+            append("t|quick|a|library|2000|0|2000|1000\n")
+        }
+        val decoded = HomeLayoutCodec.decode(text)!!
+        val ids = decoded.group("quick")!!.tiles.map { it.id }
+        assertEquals(2, ids.size)
+        assertEquals(ids.size, ids.distinct().size)
+        // 两个功能都还在
+        assertTrue(decoded.group("quick")!!.tiles.any { it.routeId == "library" })
+    }
+
+    @Test
     fun `拖动组调顺序`() {
         val reordered = layout().moveGroup("CLASS", 0)
         assertEquals("CLASS", reordered.groups[0].id)
         assertEquals("quick", reordered.groups[1].id)
+    }
+
+    @Test
+    fun `组排序按可见序列挪位时不可见组原地不动`() {
+        // 全量序列 [quick(不可见), A, B, C]，可见序列 [A, B, C]：把 A 挪到可见序列末尾
+        val base = HomeLayout(
+            groups = listOf(
+                HomeGroup(id = "quick"),
+                HomeGroup(id = "A"),
+                HomeGroup(id = "B"),
+                HomeGroup(id = "C"),
+            ),
+        )
+        val moved = base.moveGroupWithin("A", listOf("A", "B", "C"), 2)
+        assertEquals(listOf("quick", "B", "C", "A"), moved.groups.map { it.id })
     }
 
     @Test

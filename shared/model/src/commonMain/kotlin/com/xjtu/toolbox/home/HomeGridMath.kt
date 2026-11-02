@@ -65,20 +65,19 @@ object HomeGridMath {
     fun isFree(tile: HomeTile, others: List<HomeTile>): Boolean =
         others.none { it.id != tile.id && overlaps(it, tile) }
 
-    private fun area(tile: HomeTile): Float = tile.w * tile.h
-
     /**
      * 组内拖拽的落位，返回这一组新的摆放（含 drag 自己）。
      *
-     * 规则（需求 §4.3）：
-     * - 只挤开**和落点直接重叠**的那几块，不做连锁位移；
-     * - 被挤开的块尺寸 ≤ 拖拽块**原尺寸**，就搬到拖拽块原来的位置；
-     * - 尺寸更大的，搬到本组最下方；
-     * - 原来那个位置只让给一块（多块重叠时按体积从小到大挑，先到先得），其余的直接去最下方，
-     *   免得两块挤到同一个坑里再连环挪。
+     * 网格模式是**流式重排**（需求 §4.3）：只动「和落点直接重叠」的那几块——把它们按原
+     * 阅读顺序依次从布局里摘除，各自用 [firstFreeSlot] 重新插到**离自己最近**的空位。
+     * 「交换」是这个规则的特例而不是分支：被挤走的块重插时，拖拽块留下的原槽位恰好是
+     * 空位，就近落进去就是交换。没有任何块会被「扔到最下方」，每一步位移都最小、可预期，
+     * 拖动过程中的实时预览因此是稳定的（同一落点反复计算结果不变）。
+     *
+     * 自由模式（网格关闭）是**联动压缩**（需求 §26）：被压到的邻居优先往某一侧收拢边界
+     * 让出空间，收拢到最小尺寸还不够才落本组最下方。
      */
     fun placeInGroup(tiles: List<HomeTile>, moved: HomeTile, grid: Boolean): List<HomeTile> {
-        val origin = tiles.firstOrNull { it.id == moved.id }
         val rest = tiles.filter { it.id != moved.id }
         val placed = clampToBoard(moved, grid)
         val hit = rest.filter { overlaps(it, placed) }
@@ -88,36 +87,18 @@ object HomeGridMath {
         // 挤走；收拢到最小尺寸还是摆不下，才把它挤到本组最下方（需求 §26 补充）
         if (!grid) {
             val work = rest.toMutableList()
-            hit.sortedBy { area(it) }.forEach { victim ->
+            hit.forEachReadingOrder { victim ->
                 val index = work.indexOfFirst { it.id == victim.id }
-                if (index < 0) return@forEach
+                if (index < 0) return@forEachReadingOrder
                 val others = work.filter { it.id != victim.id } + placed
                 work[index] = compressToAvoid(victim, placed, others) ?: bottomSlot(others, victim)
             }
             return (work + placed).sortInReadingOrder()
         }
 
-        // 工作副本里**同时放着拖拽块自己**：被挤开的块算「最下方」时不能压到它身上，
-        // 算「原位置还能不能用」时也要把它的新位置算进去
+        // 网格模式：工作副本里**始终放着拖拽块自己**，被挤开的块找空位时不能压到它身上
         val work = (rest + placed).toMutableList()
-        var originTaken = false
-        hit.sortedBy { area(it) }.forEach { victim ->
-            val index = work.indexOfFirst { it.id == victim.id }
-            if (index < 0) return@forEach
-            val others = work.filter { it.id != victim.id }
-            val slot = when {
-                origin == null -> null
-                originTaken -> null
-                area(victim) > area(origin) + EPSILON -> null
-                !fits(victim, origin) -> null
-                others.any { overlaps(it, origin) } -> null
-                else -> {
-                    originTaken = true
-                    victim.copy(x = origin.x, y = origin.y)
-                }
-            }
-            work[index] = slot ?: bottomSlot(others, victim)
-        }
+        work.reflow(hit)
         return work.sortInReadingOrder()
     }
 
@@ -125,7 +106,7 @@ object HomeGridMath {
      * 跨组拖拽的落位：把 [moved] 放进目标组 [targetTiles]，返回目标组的新摆放。
      *
      * 硬性约束（需求 §4.4）：被挤开的块**绝不跨组**。原位置在别的组里，所以这里
-     * 只有两种去向——本组的空位，或者本组最下方。
+     * 只有两种去向——本组的空位，或者本组最下方（空位实在没有时的兜底）。
      */
     fun placeAcross(targetTiles: List<HomeTile>, moved: HomeTile, grid: Boolean): List<HomeTile> {
         val rest = targetTiles.filter { it.id != moved.id }
@@ -134,25 +115,31 @@ object HomeGridMath {
         if (hit.isEmpty()) return (rest + placed).sortInReadingOrder()
 
         val work = (rest + placed).toMutableList()
-        hit.sortedBy { area(it) }.forEach { victim ->
-            val index = work.indexOfFirst { it.id == victim.id }
-            if (index < 0) return@forEach
-            val others = work.filter { it.id != victim.id }
-            val slot = firstFreeSlot(others, victim.w, victim.h)
-                ?.let { (x, y) -> victim.copy(x = x, y = y) }
-                ?: bottomSlot(others, victim)
-            work[index] = slot
-        }
+        work.reflow(hit)
         return work.sortInReadingOrder()
     }
+
+    /**
+     * 流式重排：把 [hit] 里被直接压到的块按**原阅读顺序**依次摘除，各自重插到
+     * 最近的空位（[firstFreeSlot] 全局扫不到才落最下方）。先重插的块先占位，
+     * 后面的块自然避开它——连锁反应以「一个空位传一个块」的方式收敛，不会雪崩。
+     */
+    private fun MutableList<HomeTile>.reflow(hit: List<HomeTile>) {
+        hit.forEachReadingOrder { victim ->
+            val index = indexOfFirst { it.id == victim.id }
+            if (index < 0) return@forEachReadingOrder
+            removeAt(index)
+            val slot = firstFreeSlot(this, victim.w, victim.h)
+            add(if (slot != null) victim.copy(x = slot.first, y = slot.second) else bottomSlot(this, victim))
+        }
+    }
+
+    private inline fun List<HomeTile>.forEachReadingOrder(block: (HomeTile) -> Unit) =
+        sortedWith(compareBy({ it.y }, { it.x }, { it.id })).forEach(block)
 
     /** 组内缩放：和拖拽同一套挤开规则，`moved` 已经是新的宽高。 */
     fun resizeInGroup(tiles: List<HomeTile>, moved: HomeTile, grid: Boolean): List<HomeTile> =
         placeInGroup(tiles, moved, grid)
-
-    /** 这一块装得下 [victim] 吗（原位置通常比被挤开的块大，但也可能更窄）。 */
-    private fun fits(victim: HomeTile, slot: HomeTile): Boolean =
-        victim.w <= slot.w + EPSILON && victim.h <= slot.h + EPSILON
 
     /**
      * 自由模式的「联动压缩」：被 [placed] 压到的 [victim] 不直接挤走，而是往某一侧收拢
@@ -290,4 +277,58 @@ object HomeGridMath {
      */
     private fun List<HomeTile>.sortInReadingOrder(): List<HomeTile> =
         sortedWith(compareBy({ it.y }, { it.x }, { it.id }))
+
+    // ── 卡片组上下排序的几何 ──
+
+    /**
+     * 组排序：被拖组跟手滑动了 [dragOffset] 像素（向下为正）之后，它应该落在哪个下标。
+     *
+     * [heights] 是**原顺序**下每一组占的高度（含组与组之间的间距）。判定用「被拖组的
+     * 中心越过相邻组的中线」：其它组的布局位置在拖动中不变（让位只是画出来的），所以
+     * 中线是静止的，来回各要越过一次中线才会来回换序——这就是天然的滞回，不会在
+     * 边界上抖。返回的下标夹在合法范围内。
+     */
+    fun reorderTargetIndex(heights: List<Float>, fromIndex: Int, dragOffset: Float): Int {
+        if (fromIndex !in heights.indices) return fromIndex
+        // 各组顶边（原坐标系）与被拖组中心
+        var selfTop = 0f
+        for (i in 0 until fromIndex) selfTop += heights[i]
+        val center = selfTop + heights[fromIndex] / 2f + dragOffset
+
+        var target = fromIndex
+        // 往下：中心越过下一组的中线就再往后挪一位
+        while (target < heights.lastIndex) {
+            var nextTop = 0f
+            for (i in 0..target) nextTop += heights[i]
+            if (center > nextTop + heights[target + 1] / 2f) target++ else break
+        }
+        // 往上：中心越过上一组的中线就再往前挪一位
+        while (target > 0) {
+            var prevTop = 0f
+            for (i in 0 until target - 1) prevTop += heights[i]
+            if (center < prevTop + heights[target - 1] / 2f) target-- else break
+        }
+        return target
+    }
+
+    /**
+     * 组排序的让位表：被拖组从 [fromIndex] 挪向 [targetIndex] 时，**其它组**各自需要在
+     * 视觉上平移多少（px，向下为正），才能始终堆叠不留空。被拖组自己不在表里——它跟手。
+     *
+     * 规则：被拖组抽走后，夹在 [targetIndex] 与 [fromIndex] 之间的组往它腾出来的那一侧
+     * 平移「被拖组高度」。和 [reorderTargetIndex] 搭配，松手时按目标下标落盘，让位偏移
+     * 恰好等于新布局位置，偏移归零时视觉连续、不跳。
+     */
+    fun reorderShifts(heights: List<Float>, fromIndex: Int, targetIndex: Int): Map<Int, Float> {
+        if (fromIndex !in heights.indices || fromIndex == targetIndex) return emptyMap()
+        val self = heights[fromIndex]
+        val shifts = mutableMapOf<Int, Float>()
+        if (targetIndex > fromIndex) {
+            // 往下挪：中间的组整体上移一个被拖组的高度
+            for (i in fromIndex + 1..targetIndex) shifts[i] = -self
+        } else {
+            for (i in targetIndex until fromIndex) shifts[i] = self
+        }
+        return shifts
+    }
 }

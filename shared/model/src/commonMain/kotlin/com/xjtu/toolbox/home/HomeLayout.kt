@@ -143,6 +143,19 @@ data class HomeLayout(val groups: List<HomeGroup> = emptyList()) {
         groups = groups.map { group -> group.copy(tiles = group.tiles.filter { it.id != tileId }) },
     )
 
+    /**
+     * 给新块分一个**全局唯一**的 id：尾号取整页现有 `#N` 尾号的最大值 +1。
+     *
+     * 不能用「组内块数」当尾号——删掉一块再加就会撞号，`key(tile.id)` 与 `locate`
+     * 都会错乱。尾号只保证唯一；前面的 `组/路由` 前缀只是让人读落盘数据时好认。
+     */
+    fun nextTileId(groupId: String, routeId: String): String {
+        val serial = groups.flatMap { it.tiles }
+            .mapNotNull { it.id.substringAfterLast('#', "").toIntOrNull() }
+            .maxOrNull() ?: -1
+        return "$groupId/$routeId#${serial + 1}"
+    }
+
     /** 改组名（允许空串 = 不显示标题）。 */
     fun renameGroup(groupId: String, title: String): HomeLayout =
         group(groupId)?.let { replaceGroup(it.copy(title = title)) } ?: this
@@ -165,6 +178,29 @@ data class HomeLayout(val groups: List<HomeGroup> = emptyList()) {
         val list = groups.toMutableList()
         list.add(target, list.removeAt(index))
         return copy(groups = list)
+    }
+
+    /**
+     * 拖拽排序的落盘版：组排序的几何（中线、让位）是在**可见组序列**里算的——
+     * 「常用功能」被设置里关掉时它不渲染，可见序列就是全量序列去掉它。
+     * 这里把「可见序列里挪到 [targetVisibleIndex]」映射回全量序列：可见槽位按新顺序
+     * 依次填回去，不可见的组原地不动。
+     */
+    fun moveGroupWithin(groupId: String, visibleIds: List<String>, targetVisibleIndex: Int): HomeLayout {
+        val order = visibleIds.toMutableList()
+        val from = order.indexOf(groupId)
+        if (from < 0) return this
+        val target = targetVisibleIndex.coerceIn(0, order.lastIndex)
+        if (from == target) return this
+        order.add(target, order.removeAt(from))
+        val byId = groups.associateBy { it.id }
+        val queue = order.mapNotNull { byId[it] }
+        val iterator = queue.iterator()
+        return copy(
+            groups = groups.map { group ->
+                if (group.id in visibleIds && iterator.hasNext()) iterator.next() else group
+            },
+        )
     }
 
     /** 组里所有块是否都不重叠（自检与单测用）。 */
