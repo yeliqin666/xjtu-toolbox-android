@@ -45,15 +45,15 @@
 
 | # | 决定 | 落点 | 状态 |
 |---|---|---|---|
-| 14 | 跟手：**坐标全程只用一套——页面根节点的局部坐标**；每块在 `onGloballyPositioned` 登记自己的**视觉**左上角（含滚动 / 动画 / 壳偏移），幽灵块起手就压在上面，之后只累加手指位移。不靠「组坐标 + 格数」反算（那套式子几套坐标系错开一像素，幽灵块就整块跳走）；手势层挂在 `graphicsLayer` 之前，位移不被 lifted 缩小反向放大 | `HomeTileBoard.kt` · `HomeDragSession`、`HomeTileItem.gesture` | 已实现（本批修） |
-| 15 | 每个卡片右下角恒有缩放把手——**把右下角那段圆弧染成主题色**当把手，热区 30dp。把手只画记号、不接手势：与移动拖拽共用挂在 `graphicsLayer` 之前的那一层手势，按下时按「是否落在右下角热区」分流；位移用手动 drag 循环逐帧累加，不依赖 `drag()` 的返回值，手指正常抬起就一定落位（修「缩放改动没存进去、松手回弹」） | `HomeTileBoard.kt` · `HomeTileItem` | 已实现（本批修） |
-| 16 | 位置变化用 `spring(0.62, 520)`，尺寸变化用同一参数，禁止瞬移。组上下排序：**被拖组跟手浮起 + 越过相邻组中线就实时交换**，列表始终保持堆叠不留空，不用插入指示线；交换吃掉 / 吐出的高度记进会话，跟手位移连续 | `HomeTileSpring`、`HomeTileBoard.kt` · `HomeGroupSection`、`HomeScreen.kt` · `onReorderMove` | 已实现（本批修） |
-| 17 | 长按阈值不自定义，用系统 `ViewConfiguration.longPressTimeoutMillis`。手势竞争：编辑态内卡片拖拽 `consume` 掉指针；页面滚动在外层 `verticalScroll`，不禁止滚动，拖到边缘由自动滚动接管。**长按进编辑态保持滚动位置**：记住那一刻的 scroll，编辑态布局稳定后若被改动就拉回 | `HomeScreen.kt`、`HomeTileBoard.kt` | 已实现 |
-| 18 | 编辑态**不做抖动**（按 2026-11 复核决定去掉了）：只有被拖那块原地淡出、被缩那块跟手，其余静止 | `HomeTileBoard.kt` · `HomeTileItem` | 已实现（本批改） |
-| 19 | 跨组接收指示：手指点落进某个**非源组**的矩形时，该组画一圈 1.5dp、55% 的 primary 圆角环。触发方式 = 手指（不是幽灵块中心）进入该组 | `HomeTileBoard.kt` · `HomeGroupSection` | 已实现（本批新增） |
-| 20 | 边缘自动滚动：上下各 104dp 触发区，速度从 0 线性升到 14dp/帧（越靠边越快），只做纵向 | `HomeScreen.kt` · 自动滚动 effect | 已实现 |
+| 14 | 跟手：**坐标全程只用一套——页面根节点的局部坐标**；手指位置 = 手势节点在 `onGloballyPositioned` 登记的页面局部位置 + 事件的节点相对坐标（**绝对合成**，不做差分累加，滚动与动画都污染不了）。拖拽全程是**预览驱动**：每一帧用纯函数算出预览布局，被拖块画成落点占位框、真身在源组起手位置画残影（手势节点同 key 复用、全程存活）、其它块弹簧让位；松手把预览固化，幽灵块弹簧吸附到落点（落空则飞回起手位置），视觉零跳变 | `HomeDragSession.kt`、`HomeScreen.kt` · `dragPreview`/`settleTileDrop`、`HomeTileBoard.kt` | 已实现（2026-11 拖拽重构） |
+| 15 | 每个卡片右下角恒有缩放把手——**把右下角那段圆弧染成主题色**当把手，热区 30dp。把手只画记号、不接手势：与移动拖拽共用一层 `detectDragGestures`，按下时按「是否落在右下角热区」分流。缩放尺寸 = 手指绝对坐标 − 块左上角 + 起手补偿，**缩放过程就是实时预览**（其它块同步让位），松手固化；拖到屏幕边缘时页面自动滚动、尺寸跟着手指继续变大 | `HomeTileBoard.kt` · `HomeTileItem`、`HomeDragSession.updateResize` | 已实现（2026-11 拖拽重构） |
+| 16 | 位置变化用 `spring(0.62, 520)`，尺寸变化用同一参数，禁止瞬移。组上下排序：**被拖组跟手浮起、其它组按「越过中线」纯函数让位**（`HomeGridMath.reorderTargetIndex/reorderShifts`），拖动中**不改数据**，列表始终堆叠不留空；松手一次性 `moveGroupWithin` 落盘（可见组序列 → 全量序列映射），被拖组补「手指位置 − 新槽位」的差值弹簧归位，让位组偏移随布局就位直接归零——全程无重组风暴、无动画状态重建 | `HomeTileSpring`、`HomeGridMath` · 组排序几何、`HomeScreen.kt` · `dropReorder` | 已实现（2026-11 拖拽重构） |
+| 17 | 长按阈值不自定义，用系统 `ViewConfiguration.longPressTimeoutMillis`。手势竞争：编辑态内卡片拖拽 `consume` 掉指针；页面滚动在外层 `verticalScroll`，不禁止滚动，拖到边缘由自动滚动接管（卡片 / 缩放 / 组排序共用，松手结算时停）。**长按进编辑态保持滚动位置**：记住那一刻的 scroll，编辑态布局稳定后若被改动就拉回 | `HomeScreen.kt`、`HomeTileBoard.kt` | 已实现 |
+| 18 | 编辑态**不做抖动**（按 2026-11 复核决定去掉了）：只有被拖那块原地淡出成残影、被缩那块跟手，其余静止（让位是预览驱动的弹簧位移，不是抖动） | `HomeTileBoard.kt` · `HomeTileItem` | 已实现（2026-11 拖拽重构） |
+| 19 | 跨组接收指示：手指点落进某个**非源组**的矩形时，该组画一圈 1.5dp、55% 的 primary 圆角环。目标组判定是纯几何（组高 = 数据的纯函数），组间空隙归上方组、带「保持当前组」的滞回，边界不来回切 | `HomeDragSession.kt` · `HomeBoardGeometry.groupAt`、`HomeTileBoard.kt` · `HomeGroupSection` | 已实现（2026-11 拖拽重构） |
+| 20 | 边缘自动滚动：上下各 104dp 触发区，速度从 0 线性升到 14dp/帧（越靠边越快），只做纵向；缩放中滚动时按预估的块位置补算尺寸（拖着把手顶到屏幕底能继续拉大） | `HomeScreen.kt` · 自动滚动 effect | 已实现（2026-11 拖拽重构） |
 | 21 | 碰撞只挤开**占据目标矩形**的块，无关块一律不动（模型层 `placeInGroup` 只遍历重叠者） | `HomeGridMath.placeInGroup` | 已实现，单测覆盖 |
-| 22 | 被挤去向：尺寸 ≤ 拖拽块**起手时**的尺寸 → 落到拖拽块原槽位；更大 → 本组最下方（`bottomSlot`） | `HomeGridMath.placeInGroup` | 已实现 |
+| 22 | 被挤去向（网格模式）= **流式重排**：被压到的块按原阅读顺序依次摘除，各自重插到**离自己最近**的空位（`firstFreeSlot` 全局扫，扫不到才落最下方兜底）。「交换」是它的特例：被挤走的块重插时，拖拽块留下的原槽位恰好是最近空位。没有任何块会被无条件扔到组底，每一步位移最小、可预期，同一落点反复计算结果不变（预览幂等） | `HomeGridMath.placeInGroup/reflow` | 已实现（2026-11 拖拽重构改语义），单测覆盖 |
 | 23 | 组件之间恒留标准缝隙：格坐标上贴边，渲染时每块四面各内缩半个 `HomeTileGap`(8dp)，所以肉眼看永远是 8dp | `HomeTileBoard.kt` · 宽高计算 | 已实现 |
 | 24 | 跨组拖拽**永不**交换：被挤的块只能在本组找空位或落本组最下方，绝不跨组转移 | `HomeGridMath.placeAcross` | 已实现，单测覆盖 |
 | 25 | 空位搜索顺序：按阅读顺序逐行扫（先上后下、先左后右），步进 = 网格 1 / 自由 0.5；**最下方仍无空位 → 追加一行**，永不拒绝放置 | `HomeGridMath.firstFreeSlot/bottomSlot` | 已实现 |
@@ -109,7 +109,8 @@
 |---|---|---|---|
 | A1 | 空行压缩：网格模式下 `moveTile` / `resizeTile` 之后，中间出现的全空行自动删掉，下面的块整体上移补上（后面所有卡片动画跟上来）；自由模式允许留空隙，不压 | `HomeGridMath.compactEmptyRows`、`HomeLayout.moveTile/resizeTile` | 已实现，单测覆盖 |
 | A2 | 添加卡片用**右侧悬浮球**：进编辑态时球自动展开成液态玻璃长条（连续动画，不停顿）；把手（圆形，示意可拖拽）升到长条最上方，按住它整条收成球跟手，松手自动吸回最近的侧边；长条内是圆形功能图标（液态玻璃、可滚动），**长按拖出来**放到组里 | `HomeAddTileOrb.kt` | 已实现 |
-| A3 | 从悬浮球拖出的新块落到**指定格**（`addTileAt`）：2×1 进组、照样挤开、网格模式收空行；松手位置由「手指 − 抓取点（卡片中心）」换算成格 | `HomeLayout.addTileAt` | 已实现 |
+| A3 | 从悬浮球拖出的新块落到**指定格**（`addTileAt`）：2×1 进组、照样挤开、网格模式收空行；拖动全程走同一份预览（落点占位框 + 让位），松手固化、幽灵吸附。新块 id 由 `HomeLayout.nextTileId` 分配——全局 `#N` 尾号只涨不回退，删了再加不撞号（撞号会让 `key` 与 `locate` 错乱）；旧快照里已撞号的块读盘时重编（`HomeLayoutCodec`） | `HomeLayout.addTileAt/nextTileId`、`HomeLayoutCodec` | 已实现（2026-11 拖拽重构） |
+| A7 | 拖拽手势一律用官方 `detectDragGestures` / `detectDragGesturesAfterLongPress`（自带 `onDragCancel` 兜底）：手势被系统抢走也会清场，旧实现手写事件循环卡死编辑态的问题不再存在。多指互斥：第二种手势开始时顶掉前一种；松手结算动画带代次（epoch）守卫，被新拖拽顶掉就不清场 | `HomeDragSession.kt`、`HomeTileBoard.kt`、`HomeAddTileOrb.kt` | 已实现（2026-11 拖拽重构） |
 | A4 | 组标题行：右侧两个圆钮（改名 / 加功能）改成**一个液态玻璃删除按钮**（点出二次确认，默认组不给删）；**点组名**打开「分组设置」（不再走三点）；组名放大到 18sp | `HomeTileBoard.kt` · `GroupHeader/GroupDeleteButton`、`HomeScreen.kt` · `DeleteGroupDialog` | 已实现 |
 | A5 | 「分组设置」的标题颜色改用全应用同一套 `AppColorPicker`（色板 + Hex），「跟随主题」存空串；分组标题输入框括号写明「留空则不显示标题」 | `HomeScreen.kt` · `GroupEditDialog` | 已实现 |
 | A6 | 组里「加功能」的入口统一收进悬浮球（不再有每组一个 ＋），圆形功能图标可滚动、长按拖出 | `HomeAddTileOrb.kt` | 已实现 |
@@ -119,6 +120,7 @@
 ## 排期
 
 - 本批（`feat/270-homepage-ui`）：§14、§15、§18、§19、§29–§33、§12、§13、§8、§10
+- 拖拽重构（2026-11，同分支）：§14–§16、§19、§20、§22 改写 + A3、A7；预览驱动、流式重排、绝对坐标合成
 - 下一批：§42 触感、§44 底栏联动、§9 大尺寸信息密度扩展（4×4 目前只多一行状态，还能放进度 / 次要指标）
 
 ## 已知取舍
