@@ -8,8 +8,8 @@ import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
-import androidx.compose.foundation.gestures.awaitLongPressOrCancellation
 import androidx.compose.foundation.gestures.awaitTouchSlopOrCancellation
+import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
@@ -28,7 +28,6 @@ import androidx.compose.material.icons.filled.DragHandle
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -85,7 +84,12 @@ internal fun HomeAddTileOrb(
     liquid: Boolean,
     backdrop: Backdrop?,
     session: HomeDragSession,
-    onDropPalette: (routeId: String) -> Unit,
+    /** 长按图标拖出一个新功能：[startPointer] 是手指的页面局部坐标（首页统一换算、开预览）。 */
+    onPaletteStart: (routeId: String, startPointer: Offset) -> Unit,
+    /** 拖出新块的手势松手：首页把预览固化、幽灵吸附到落点。 */
+    onPaletteDrop: () -> Unit,
+    /** 手势被系统抢走：清会话，不留卡住的幽灵块。 */
+    onPaletteCancel: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val density = LocalDensity.current
@@ -99,8 +103,6 @@ internal fun HomeAddTileOrb(
     var handleDragging by remember { mutableStateOf(false) }
     // 球（或收起的把手）中心在页面里的位置（页面局部坐标）；null = 还没拖过，用默认位
     var orbCenter by remember { mutableStateOf<Offset?>(null) }
-    // 每个功能图标的页面局部位置：长按从它开始拖出
-    val iconPositions = remember { mutableStateMapOf<String, Offset>() }
 
     BoxWithConstraints(modifier) {
         val pageW = constraints.maxWidth.toFloat()
@@ -127,8 +129,9 @@ internal fun HomeAddTileOrb(
                         liquid = liquid,
                         backdrop = backdrop,
                         session = session,
-                        iconPositions = iconPositions,
-                        onDropPalette = onDropPalette,
+                        onPaletteStart = onPaletteStart,
+                        onPaletteDrop = onPaletteDrop,
+                        onPaletteCancel = onPaletteCancel,
                         onHandleDrag = { delta ->
                             handleDragging = true
                             orbCenter = center + delta
@@ -188,16 +191,20 @@ private fun OrbHandle(
                         onTap()
                         return@awaitEachGesture
                     }
-                    // 拖起来了：整条收成球跟手，松手吸附侧边
-                    var last = drag.position
-                    while (true) {
-                        val change = awaitPointerEvent().changes.firstOrNull { it.id == drag.id } ?: break
-                        if (!change.pressed) break
-                        onDrag(change.position - last)
-                        last = change.position
-                        change.consume()
+                    // 拖起来了：整条收成球跟手，松手吸附侧边。finally 兜底：手势协程被
+                    // 取消（重组、系统抢走）时也要归位，不能让球卡在半中央
+                    try {
+                        var last = drag.position
+                        while (true) {
+                            val change = awaitPointerEvent().changes.firstOrNull { it.id == drag.id } ?: break
+                            if (!change.pressed) break
+                            onDrag(change.position - last)
+                            last = change.position
+                            change.consume()
+                        }
+                    } finally {
+                        onDrop()
                     }
-                    onDrop()
                 }
             },
         contentAlignment = Alignment.Center,
@@ -219,8 +226,9 @@ private fun OrbRail(
     liquid: Boolean,
     backdrop: Backdrop?,
     session: HomeDragSession,
-    iconPositions: MutableMap<String, Offset>,
-    onDropPalette: (routeId: String) -> Unit,
+    onPaletteStart: (routeId: String, startPointer: Offset) -> Unit,
+    onPaletteDrop: () -> Unit,
+    onPaletteCancel: () -> Unit,
     onHandleDrag: (Offset) -> Unit,
     onHandleDrop: () -> Unit,
 ) {
@@ -250,19 +258,9 @@ private fun OrbRail(
                     liquid = liquid,
                     backdrop = backdrop,
                     session = session,
-                    onPositioned = { topLeft -> iconPositions[service.route.id] = topLeft },
-                    onDragOut = { local ->
-                        val iconTopLeft = iconPositions[service.route.id] ?: return@OrbTileIcon
-                        val board = session.boards.values.firstOrNull() ?: return@OrbTileIcon
-                        session.beginDragPalette(
-                            routeId = service.route.id,
-                            w = 2f,
-                            h = 1f,
-                            pointerPageLocal = iconTopLeft + local,
-                            board = board,
-                        )
-                    },
-                    onDrop = { onDropPalette(service.route.id) },
+                    onDragOut = { startPointer -> onPaletteStart(service.route.id, startPointer) },
+                    onDrop = onPaletteDrop,
+                    onCancel = onPaletteCancel,
                 )
             }
         }
@@ -276,34 +274,33 @@ private fun OrbTileIcon(
     liquid: Boolean,
     backdrop: Backdrop?,
     session: HomeDragSession,
-    onPositioned: (Offset) -> Unit,
-    onDragOut: (local: Offset) -> Unit,
+    onDragOut: (startPointer: Offset) -> Unit,
     onDrop: () -> Unit,
+    onCancel: () -> Unit,
 ) {
+    // 图标的页面局部位置：每次回读存本地，合成手指坐标用（列表滚动后自动新鲜）
+    var iconTop by remember(face.key) { mutableStateOf(Offset.Zero) }
     Box(
         Modifier
             .padding(vertical = 5.dp)
             .size(ORB_TILE)
             .onGloballyPositioned { coords ->
                 // 换成页面局部坐标登记，拖出时从这里起算
-                onPositioned(coords.boundsInRoot().topLeft - session.pageOrigin)
+                iconTop = coords.boundsInRoot().topLeft - session.pageOrigin
             }
             .orbGlass(liquid, backdrop, CircleShape)
             .pointerInput(face.key) {
-                awaitEachGesture {
-                    val down = awaitFirstDown(requireUnconsumed = false)
-                    // 长按才拖出（普通点按留给「球展开」之外的场合，这里不做事）
-                    val longPress = awaitLongPressOrCancellation(down.id) ?: return@awaitEachGesture
-                    onDragOut(longPress.position)
-                    var last = longPress.position
-                    while (true) {
-                        val change = awaitPointerEvent().changes.firstOrNull { it.id == down.id } ?: break
-                        if (!change.pressed) break
-                        last = change.position
+                // 官方长按拖拽：onDragCancel 有兜底，手势被抢走不会卡死会话
+                detectDragGesturesAfterLongPress(
+                    onDragStart = { offset -> onDragOut(iconTop + offset) },
+                    onDrag = { change, _ ->
                         change.consume()
-                    }
-                    onDrop()
-                }
+                        // 绝对合成：图标位置 + 事件的图标相对坐标，滚动/动画都污染不了
+                        session.pointer = iconTop + change.position
+                    },
+                    onDragEnd = { onDrop() },
+                    onDragCancel = { onCancel() },
+                )
             },
         contentAlignment = Alignment.Center,
     ) {
