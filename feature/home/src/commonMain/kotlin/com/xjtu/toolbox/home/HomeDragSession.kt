@@ -93,8 +93,10 @@ internal class HomeDragSession {
     fun beginTileDrag(tile: HomeTile, groupId: String, tileTop: Offset, startPointer: Offset) {
         dragEpoch++
         settling = false
-        // 多指互斥：另一根手指开始拖卡片时，进行中的组排序直接结束（让位动画归位）
+        // A new operation always owns the session. No stale resize/reorder state
+        // may continue to update the same pointer stream.
         endReorder()
+        endResize()
         dragTileId = tile.id
         dragRouteId = tile.routeId
         dragFromGroup = groupId
@@ -120,6 +122,7 @@ internal class HomeDragSession {
         dragEpoch++
         settling = false
         endReorder()
+        endResize()
         dragTileId = tileId
         dragRouteId = routeId
         dragFromGroup = null
@@ -181,6 +184,7 @@ internal class HomeDragSession {
         resizeGrab = Offset(cells.x * colUnit, cells.y * rowUnit) - (startPointer - tileTop)
         pointer = startPointer
         settling = false
+        endDrag()
         endReorder()
     }
 
@@ -243,6 +247,7 @@ internal class HomeDragSession {
 
     /** 手势被系统抢走（取消）时的总兜底：清掉一切进行中的状态，不留卡住的幽灵块。 */
     fun abort() {
+        settling = false
         endDrag()
         endResize()
         endReorder()

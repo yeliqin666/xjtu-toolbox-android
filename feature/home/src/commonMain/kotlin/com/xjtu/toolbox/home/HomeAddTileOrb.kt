@@ -134,11 +134,11 @@ internal fun HomeAddTileOrb(
                         onPaletteCancel = onPaletteCancel,
                         onHandleDrag = { delta ->
                             handleDragging = true
-                            orbCenter = center + delta
+                            orbCenter = (orbCenter ?: center) + delta
                         },
                         onHandleDrop = {
                             handleDragging = false
-                            orbCenter = snapToSide(center, pageW, pageH, ballPx)
+                            orbCenter = snapToSide(orbCenter ?: center, pageW, pageH, ballPx)
                         },
                     )
                 } else {
@@ -148,11 +148,11 @@ internal fun HomeAddTileOrb(
                         onTap = { expanded = true },
                         onDrag = { delta ->
                             handleDragging = true
-                            orbCenter = center + delta
+                            orbCenter = (orbCenter ?: center) + delta
                         },
                         onDrop = {
                             handleDragging = false
-                            orbCenter = snapToSide(center, pageW, pageH, ballPx)
+                            orbCenter = snapToSide(orbCenter ?: center, pageW, pageH, ballPx)
                         },
                     )
                 }

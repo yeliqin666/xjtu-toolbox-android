@@ -238,13 +238,60 @@ internal fun HomeGroupSection(
                 }
             }
 
-            // 渲染每一块：被拖块在这个列表里的身份是**落点占位框**（预览位置，弹簧跟位）；
-            // 它的真身（手势载体）在源组起手位置画残影，见下面那段
-            tiles.forEach { tile ->
+            /*
+             * The source tile is deliberately kept in the source group for the
+             * whole gesture. Removing it here would dispose its pointerInput
+             * node as soon as the preview crosses a group, which cancels the
+             * gesture before the drop callback can run.
+             */
+            val dragId = session.dragTileId
+            val sourceTile = if (session.dragFromGroup == group.id && dragId != null) {
+                HomeTile(
+                    id = dragId,
+                    routeId = session.dragRouteId ?: "",
+                    x = session.dragStartCell.x,
+                    y = session.dragStartCell.y,
+                    w = session.dragSizeCells.x,
+                    h = session.dragSizeCells.y,
+                )
+            } else {
+                null
+            }
+            val renderTiles = if (sourceTile != null && tiles.none { it.id == sourceTile.id }) {
+                tiles + sourceTile
+            } else {
+                tiles
+            }
+
+            renderTiles.forEach { tile ->
                 val face = faces[tile.routeId] ?: return@forEach
-                key(if (tile.id == session.dragTileId) "drop:${tile.id}" else tile.id) {
-                    if (tile.id == session.dragTileId) {
+                key(tile.id) {
+                    if (tile.id == dragId && session.dragFromGroup != group.id) {
                         DropSlot(tile, colUnit, rowUnit, gapPx)
+                    } else if (tile.id == dragId && sourceTile != null) {
+                        // Keep the original gesture node unchanged. The drop
+                        // slot is rendered separately so recomposition cannot
+                        // cancel its pointerInput coroutine.
+                        HomeTileItem(
+                            tile = sourceTile,
+                            face = face,
+                            editing = editing,
+                            liquid = liquid,
+                            backdrop = backdrop,
+                            session = session,
+                            groupId = group.id,
+                            colUnit = colUnit,
+                            rowUnit = rowUnit,
+                            gapPx = gapPx,
+                            cellHeight = cellHeight,
+                            grid = grid,
+                            ghostSource = true,
+                            onOpen = {},
+                            onStartEdit = onStartEdit,
+                            onRemoveTile = onRemoveTile,
+                            onTileDrop = onTileDrop,
+                            onResizeDrop = onResizeDrop,
+                        )
                     } else {
                         HomeTileItem(
                             tile = tile,
@@ -268,43 +315,8 @@ internal fun HomeGroupSection(
                         )
                     }
                 }
-            }
-
-            // 被拖块的真身：钉在源组的起手位置画残影。它必须始终挂在**同一个父容器**里
-            // （key 不变、不随预览跨组搬家），拖拽手势的 pointerInput 协程才不会被重组打断
-            if (session.dragFromGroup == group.id) {
-                val dragTileId = session.dragTileId
-                val face = session.dragRouteId?.let { faces[it] }
-                if (dragTileId != null && face != null) {
-                    key(dragTileId) {
-                        HomeTileItem(
-                            tile = HomeTile(
-                                id = dragTileId,
-                                routeId = session.dragRouteId!!,
-                                x = session.dragStartCell.x,
-                                y = session.dragStartCell.y,
-                                w = session.dragSizeCells.x,
-                                h = session.dragSizeCells.y,
-                            ),
-                            face = face,
-                            editing = editing,
-                            liquid = liquid,
-                            backdrop = backdrop,
-                            session = session,
-                            groupId = group.id,
-                            colUnit = colUnit,
-                            rowUnit = rowUnit,
-                            gapPx = gapPx,
-                            cellHeight = cellHeight,
-                            grid = grid,
-                            ghostSource = true,
-                            onOpen = {},
-                            onStartEdit = onStartEdit,
-                            onRemoveTile = onRemoveTile,
-                            onTileDrop = onTileDrop,
-                            onResizeDrop = onResizeDrop,
-                        )
-                    }
+                if (tile.id == dragId && session.dragFromGroup == group.id) {
+                    DropSlot(tile, colUnit, rowUnit, gapPx)
                 }
             }
         }
