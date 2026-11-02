@@ -497,10 +497,36 @@ fun HomeScreen(
     }
 
     /**
+     * 组排序被取消（含没拖过 slop 的点击、或落点就是原位）：数据不动，跟手位移弹回原位。
+     *
+     * 声明在 [settleGroupDrop] **之前**——Kotlin 的局部函数必须先声明后使用（成员函数才
+     * 可以任意顺序），否则编译器报 `Unresolved reference`。
+     */
+    fun cancelGroupDrop() {
+        val id = session.groupId ?: run { session.abort(); return }
+        val g = dragGeometry
+        val groupTop = g.slots.getOrNull(session.groupIndex)?.top ?: 0f
+        val liftNow = pointerContent.y - session.groupGrabY - groupTop
+        reorderSettleId = id
+        val epoch = ++reorderEpoch
+        scope.launch {
+            reorderSettleAnim.snapTo(liftNow)
+            session.release()
+            reorderSettleAnim.animateTo(0f, HomeTileSpring)
+            if (reorderEpoch == epoch) {
+                reorderSettleId = null
+                session.finish()
+            }
+        }
+    }
+
+    /**
      * 组排序松手：按目标下标换序，被拖组的跟手位移补成「手指位置 − 新槽位」再弹回 0。
      *
      * 三步（落盘、切成结算动画、值就位）都放在同一个协程步骤里，中间不会插入一帧——
      * 否则会出现「已经换了序、但位移还是旧值」的一帧跳变。
+     *
+     * 落点无效（没越过任何中线 / 原位）就当作取消，复用 [cancelGroupDrop]。
      */
     fun settleGroupDrop() {
         val id = session.groupId ?: return
@@ -526,25 +552,6 @@ fun HomeScreen(
         scope.launch {
             reorderSettleAnim.snapTo(liftNow - delta)
             update { it.moveGroupWithin(id, order, target) }
-            session.release()
-            reorderSettleAnim.animateTo(0f, HomeTileSpring)
-            if (reorderEpoch == epoch) {
-                reorderSettleId = null
-                session.finish()
-            }
-        }
-    }
-
-    /** 组排序被取消（含没拖过 slop 的点击）：数据不动，跟手位移弹回原位。 */
-    fun cancelGroupDrop() {
-        val id = session.groupId ?: run { session.abort(); return }
-        val g = dragGeometry
-        val groupTop = g.slots.getOrNull(session.groupIndex)?.top ?: 0f
-        val liftNow = pointerContent.y - session.groupGrabY - groupTop
-        reorderSettleId = id
-        val epoch = ++reorderEpoch
-        scope.launch {
-            reorderSettleAnim.snapTo(liftNow)
             session.release()
             reorderSettleAnim.animateTo(0f, HomeTileSpring)
             if (reorderEpoch == epoch) {
