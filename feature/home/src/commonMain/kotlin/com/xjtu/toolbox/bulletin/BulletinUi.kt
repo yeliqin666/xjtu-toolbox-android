@@ -82,13 +82,11 @@ fun BulletinNoticePanel(
     // 「卡片 → 公告详情」的起点：KIT 走 Bitmap 源要矩形，Compose 回落的 ExpandOrigins 也要它。
     val origin = rememberExpandOriginSource()
     val density = LocalDensity.current
-    var panelBounds by remember { mutableStateOf(Rect.Zero) }
 
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .expandOriginSource(origin)
-            .onGloballyPositioned { panelBounds = it.boundsInWindow() },
+            .expandOriginSource(origin),
         cornerRadius = NOTICE_PANEL_RADIUS,
         colors = top.yukonga.miuix.kmp.basic.CardDefaults.defaultColors(color = AppCardColor),
     ) {
@@ -245,7 +243,12 @@ fun BulletinNoticePanel(
                                                     // 不支持时 AppNavigator 压栈会消费它，走 Compose 转场。
                                                     val route = AppRoute.NoticeDetail.of(bulletin)
                                                     origin.arm(route.id, NOTICE_PANEL_RADIUS, density, snapshot)
-                                                    onDetail(bulletin, SeamlessCardSource(panelBounds, NOTICE_PANEL_RADIUS))
+                                                    onDetail(
+                                                        bulletin,
+                                                        origin.boundsInWindow()?.let {
+                                                            SeamlessCardSource(it, NOTICE_PANEL_RADIUS)
+                                                        },
+                                                    )
                                                 },
                                             ),
                                         )

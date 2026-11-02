@@ -1027,11 +1027,8 @@ private fun Modifier.opensRow(
 ): Modifier {
     val origin = rememberExpandOriginSource()
     val density = LocalDensity.current
-    // 非状态字段：整页滚动时 onGloballyPositioned 每帧回调，写 State 会把这一行每帧重组一次。
-    val bounds = remember { com.xjtu.toolbox.nav.CardBoundsRef() }
     return this
         .expandOriginSource(origin)
-        .onGloballyPositioned { bounds.value = it.boundsInWindow() }
         .clip(RoundedCornerShape(radius))
         .clickable(
             interactionSource = remember { MutableInteractionSource() },
@@ -1040,8 +1037,9 @@ private fun Modifier.opensRow(
                 // 先登记 Compose 起点：KIT 走独立 Activity 时会被 KitOneTake 清掉，回落时正好用它做放大转场。
                 origin.arm(row.key, radius, density, snapshot)
                 val seamless = row.onSeamlessClick
-                if (seamless != null && !bounds.value.isEmpty) {
-                    seamless(SeamlessCardSource(bounds.value, radius))
+                val bounds = origin.boundsInWindow()
+                if (seamless != null && bounds != null) {
+                    seamless(SeamlessCardSource(bounds, radius))
                 } else {
                     row.onClick()
                 }

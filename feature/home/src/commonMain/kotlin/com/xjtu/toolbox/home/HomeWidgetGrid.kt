@@ -490,13 +490,10 @@ private fun WidgetTile(
     val density = LocalDensity.current
     val shape = RoundedCornerShape(TILE_RADIUS)
     val surface = if (wall != null) Modifier.glassTile(wall, ink) else Modifier.paperTile()
-    // 非状态字段：拖动/缩放/滚动时 onGloballyPositioned 每帧回调，写 State 会把每个格子每帧重组一次。
-    val tileBounds = remember { com.xjtu.toolbox.nav.CardBoundsRef() }
     Box(
         Modifier
             .fillMaxSize()
             .expandOriginSource(origin)
-            .onGloballyPositioned { tileBounds.value = it.boundsInWindow() }
             .then(surface)
             .clip(shape)
             .combinedClickable(
@@ -507,8 +504,9 @@ private fun WidgetTile(
                     // 先登记 Compose 起点：KIT 走独立 Activity 时会被 KitOneTake 清掉，回落时正好用它做放大转场。
                     origin.arm(row.key, TILE_RADIUS, density, null)
                     val seamless = row.onSeamlessClick
-                    if (seamless != null && !tileBounds.value.isEmpty) {
-                        seamless(SeamlessCardSource(tileBounds.value, TILE_RADIUS))
+                    val bounds = origin.boundsInWindow()
+                    if (seamless != null && bounds != null) {
+                        seamless(SeamlessCardSource(bounds, TILE_RADIUS))
                     } else {
                         row.onClick()
                     }

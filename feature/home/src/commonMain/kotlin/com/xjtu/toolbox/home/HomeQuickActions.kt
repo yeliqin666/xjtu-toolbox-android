@@ -238,8 +238,6 @@ private fun HomeQuickAction(
     val origin = rememberExpandOriginSource()
     val density = LocalDensity.current
     val iconRadius = iconSize * 0.31f
-    // 非状态字段：首页滚动时 onGloballyPositioned 每帧回调，写 State 会把图标每帧重组一次。
-    val iconBounds = remember { com.xjtu.toolbox.nav.CardBoundsRef() }
     val snapshot: @Composable (Modifier) -> Unit = { m ->
         Box(m, contentAlignment = Alignment.Center) {
             ExpressiveIcon(icon = icon, color = color, size = iconSize, iconSize = iconSize * 0.5f)
@@ -259,8 +257,9 @@ private fun HomeQuickAction(
                     // 先登记 Compose 起点：KIT 走独立 Activity 时会被 KitOneTake 清掉，回落时正好用它做放大转场。
                     originKey?.let { origin.arm(it, iconRadius, density, snapshot) }
                     val seamless = onSeamlessClick
-                    if (seamless != null && !iconBounds.value.isEmpty) {
-                        seamless(SeamlessCardSource(iconBounds.value, iconRadius))
+                    val bounds = origin.boundsInWindow()
+                    if (seamless != null && bounds != null) {
+                        seamless(SeamlessCardSource(bounds, iconRadius))
                     } else {
                         onClick()
                     }
@@ -270,9 +269,7 @@ private fun HomeQuickAction(
     ) {
         // 转场从图标本身长出来：坐标取图标方块，不含下面的名称。
         Box(
-            Modifier
-                .then(if (originKey != null) Modifier.expandOriginSource(origin) else Modifier)
-                .onGloballyPositioned { if (originKey != null) iconBounds.value = it.boundsInWindow() },
+            Modifier.then(if (originKey != null) Modifier.expandOriginSource(origin) else Modifier),
         ) {
             ExpressiveIcon(icon = icon, color = color, size = iconSize, iconSize = iconSize * 0.5f)
         }
