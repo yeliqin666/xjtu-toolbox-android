@@ -73,6 +73,19 @@
                 android:resource="@xml/shortcuts" />
         </activity>
 
+        <!-- 金标联盟 SharedViewKit 一镜到底的宿主：「公告卡 → 公告详情」在声明支持该协议的 ROM 上
+             由 KitOneTake 用系统级 Activity 转场启动本页；其余设备压 AppRoute.NoticeDetail 路由。
+             enableOnBackInvokedCallback=false：跨 Activity 的预测式返回会和 KIT 自己的关闭动画打架，
+             这里让系统走传统返回（finish() 仍会触发 ROM 的关闭动画）。 -->
+        <activity
+            android:name=".sharedview.NoticeDetailActivity"
+            android:exported="false"
+            android:launchMode="singleTop"
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|uiMode"
+            android:windowSoftInputMode="adjustResize"
+            android:enableOnBackInvokedCallback="false"
+            android:theme="@style/Theme.XJTUToolBox" />
+
         <activity-alias
             android:name=".agent.ReadWithPidai"
             android:targetActivity=".MainActivity"

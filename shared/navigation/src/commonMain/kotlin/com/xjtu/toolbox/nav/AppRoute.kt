@@ -3,6 +3,7 @@ package com.xjtu.toolbox.nav
 import com.xjtu.toolbox.account.AccountContext
 import com.xjtu.toolbox.auth.AccountType
 import com.xjtu.toolbox.auth.LoginType
+import com.xjtu.toolbox.bulletin.Bulletin
 import com.xjtu.toolbox.util.decodeUrlComponentOrNull
 import com.xjtu.toolbox.util.encodeUrlComponent
 import kotlinx.serialization.Serializable
@@ -153,6 +154,38 @@ sealed interface AppRoute : NavKey {
     @Serializable data object Inbox : AppRoute { override val id get() = "inbox" }
     @Serializable data object Community : AppRoute { override val id get() = "community" }
 
+    /**
+     * 站内公告详情。内容随路由带上（公告本身很短），所以进程被杀、深链进来都能恢复；
+     * 首页公告条「查看详情」在 ROM 支持金标联盟一镜到底时走独立 Activity，不支持时压这条路由。
+     */
+    @Serializable data class NoticeDetail(
+        val noticeId: String,
+        val level: String = "info",
+        val title: String = "",
+        val body: String = "",
+        val url: String = "",
+    ) : AppRoute {
+        override val id: String
+            get() = buildString {
+                append("notice_detail/").append(encode(noticeId))
+                append("?level=").append(encode(level))
+                append("&title=").append(encode(title))
+                if (body.isNotEmpty()) append("&body=").append(encode(body))
+                if (url.isNotEmpty()) append("&url=").append(encode(url))
+            }
+
+        companion object {
+            /** 首页/通知里的公告 → 详情路由。 */
+            fun of(bulletin: Bulletin): NoticeDetail = NoticeDetail(
+                noticeId = bulletin.id,
+                level = bulletin.level.name.lowercase(),
+                title = bulletin.title,
+                body = bulletin.body,
+                url = bulletin.url.orEmpty(),
+            )
+        }
+    }
+
     /** 教师主页检索，公开站点。 */
     @Serializable data object Faculty : AppRoute { override val id get() = "faculty" }
     @Serializable data object Accounts : AppRoute { override val id get() = "accounts" }
@@ -203,6 +236,24 @@ fun appRouteOf(id: String): AppRoute? {
             param("activityId")?.toIntOrNull()?.takeIf { it > 0 },
         )
         path == "browser" -> AppRoute.Browser(param("url").orEmpty(), param("then").orEmpty())
+<<<<<<< HEAD
+=======
+        path.startsWith("notice_detail/") -> {
+            val noticeId = path.removePrefix("notice_detail/")
+            if (noticeId.isBlank()) {
+                null
+            } else {
+                AppRoute.NoticeDetail(
+                    noticeId = noticeId,
+                    level = param("level").orEmpty().ifEmpty { "info" },
+                    title = param("title").orEmpty(),
+                    body = param("body").orEmpty(),
+                    url = param("url").orEmpty(),
+                )
+            }
+        }
+        path.startsWith("community/") -> path.removePrefix("community/").toIntOrNull()?.takeIf { it > 0 }?.let(AppRoute::CommunityPost)
+>>>>>>> 4a42ecf9 (feat(home): 公告卡到公告详情接入金标联盟一镜到底，非支持 ROM 回落 Compose 转场)
         path.startsWith("jiaocai1_reader/") -> {
             val ssno = path.removePrefix("jiaocai1_reader/")
             if (ssno.isBlank()) null else AppRoute.Jiaocai1Reader(ssno, param("title").orEmpty())

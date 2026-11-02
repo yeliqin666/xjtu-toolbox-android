@@ -41,6 +41,7 @@ import com.xjtu.toolbox.attendance.AppAttendanceSource
 import com.xjtu.toolbox.auth.AppLoginState
 import com.xjtu.toolbox.auth.SiteSession
 import com.xjtu.toolbox.browser.BrowserScreen
+import com.xjtu.toolbox.bulletin.NoticeDetailScreen
 import com.xjtu.toolbox.calendar.SchoolCalendarScreen
 import com.xjtu.toolbox.card.AppCampusCardSource
 import com.xjtu.toolbox.card.appCampusCardStore
@@ -531,6 +532,15 @@ fun NavEntryBuilder.appPageEntries(
                     )
                     router.open(AppRoute.Agent)
                 },
+            )
+        }
+        // 公告详情：首页公告条「查看详情」的落点。ROM 支持金标联盟一镜到底时由
+        // sharedview.NoticeDetailActivity 承载同一个屏；其余设备压这条路由，从公告卡放大进来。
+        entry<AppRoute.NoticeDetail>(transition = expand(AppRoute.NoticeDetail::class)) { route ->
+            NoticeDetailScreen(
+                notice = route,
+                onBack = back,
+                onOpenUrl = { url -> router.open(AppRoute.Browser(url)) },
             )
         }
         entry<AppRoute.Community>(transition = expand(AppRoute.Community::class)) {

@@ -4,6 +4,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import com.xjtu.toolbox.auth.AccountType
 import com.xjtu.toolbox.bulletin.Bulletin
 import com.xjtu.toolbox.nav.AppRoute
+import com.xjtu.toolbox.nav.SeamlessCardSource
 import kotlinx.datetime.LocalDateTime
 
 /** 首页上的每一块：各端声明自己那一份的词汇表。 */
@@ -120,6 +121,14 @@ interface HomeHost {
     fun onProfile() {}
     /** 点一下公告条里的某条公告。 */
     fun onBulletinTap(bulletin: Bulletin) {}
+
+    /**
+     * 点公告条里的「查看详情」：默认仍走 [onBulletinTap]（桌面 / Web 不接管），
+     * Android 宿主改成「卡片 → 公告详情」的无缝转场（ROM 支持走 KIT，其余走 Compose 转场）。
+     */
+    fun onBulletinDetail(bulletin: Bulletin, source: SeamlessCardSource?) {
+        onBulletinTap(bulletin)
+    }
 
     /** 关掉公告条里的某条公告。 */
     fun onBulletinDismiss(bulletin: Bulletin) {}

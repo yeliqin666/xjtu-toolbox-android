@@ -32,20 +32,29 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.boundsInWindow
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import com.xjtu.toolbox.nav.AppRoute
+import com.xjtu.toolbox.nav.SeamlessCardSource
+import com.xjtu.toolbox.nav.expandOriginSource
+import com.xjtu.toolbox.nav.rememberExpandOriginSource
 import com.xjtu.toolbox.ui.components.AppCardColor
 
-private fun bulletinAccent(level: BulletinLevel) = when (level) {
+internal fun bulletinAccent(level: BulletinLevel) = when (level) {
     BulletinLevel.WARN -> Color(0xFFE65100)
     BulletinLevel.CRITICAL, BulletinLevel.FORCE_UPDATE -> Color(0xFFC62828)
     BulletinLevel.UPDATE -> Color(0xFF1565C0)
     BulletinLevel.INFO -> null
 }
 
-private fun bulletinLevelLabel(level: BulletinLevel) = when (level) {
+internal fun bulletinLevelLabel(level: BulletinLevel) = when (level) {
     BulletinLevel.FORCE_UPDATE -> "必须更新"
     BulletinLevel.UPDATE -> "可更新"
     BulletinLevel.CRITICAL -> "重要"
@@ -53,10 +62,13 @@ private fun bulletinLevelLabel(level: BulletinLevel) = when (level) {
     BulletinLevel.INFO -> "通知"
 }
 
+private val NOTICE_PANEL_RADIUS = 18.dp
+
 @Composable
 fun BulletinNoticePanel(
     bulletins: List<Bulletin>,
     onTap: (Bulletin) -> Unit,
+    onDetail: (Bulletin, SeamlessCardSource?) -> Unit,
     onDismiss: (Bulletin) -> Unit,
 ) {
     if (bulletins.isEmpty()) return
@@ -67,9 +79,17 @@ fun BulletinNoticePanel(
         }
     }
 
+    // 「卡片 → 公告详情」的起点：KIT 走 Bitmap 源要矩形，Compose 回落的 ExpandOrigins 也要它。
+    val origin = rememberExpandOriginSource()
+    val density = LocalDensity.current
+    var panelBounds by remember { mutableStateOf(Rect.Zero) }
+
     Card(
-        modifier = Modifier.fillMaxWidth(),
-        cornerRadius = 18.dp,
+        modifier = Modifier
+            .fillMaxWidth()
+            .expandOriginSource(origin)
+            .onGloballyPositioned { panelBounds = it.boundsInWindow() },
+        cornerRadius = NOTICE_PANEL_RADIUS,
         colors = top.yukonga.miuix.kmp.basic.CardDefaults.defaultColors(color = AppCardColor),
     ) {
         Column(Modifier.fillMaxWidth()) {
@@ -82,6 +102,8 @@ fun BulletinNoticePanel(
                 }
                 val accent = bulletinAccent(bulletin.level) ?: MiuixTheme.colorScheme.primary
                 val expanded = expandedId == bulletin.id
+                // 返回转场的源元素快照：缩回时画在原位，和卡面同一套内容与底色。
+                val snapshot: @Composable (Modifier) -> Unit = { m -> NoticePanelSnapshot(bulletin, m) }
                 Column(Modifier.fillMaxWidth()) {
                     Row(
                         Modifier
@@ -209,7 +231,7 @@ fun BulletinNoticePanel(
                                     )
                                 }
                                 BulletinLevel.INFO, BulletinLevel.WARN -> {
-                                    if (!bulletin.url.isNullOrBlank()) {
+                                    if (!bulletin.url.isNullOrBlank() || bulletin.body.isNotBlank()) {
                                         Text(
                                             "查看详情",
                                             style = MiuixTheme.textStyles.body2,
@@ -218,7 +240,13 @@ fun BulletinNoticePanel(
                                             modifier = Modifier.clickable(
                                                 interactionSource = remember { MutableInteractionSource() },
                                                 indication = SinkFeedback(),
-                                                onClick = { onTap(bulletin) },
+                                                onClick = {
+                                                    // 先登记起点再跳：ROM 支持 KIT 时起点给 Bitmap 源用，
+                                                    // 不支持时 AppNavigator 压栈会消费它，走 Compose 转场。
+                                                    val route = AppRoute.NoticeDetail.of(bulletin)
+                                                    origin.arm(route.id, NOTICE_PANEL_RADIUS, density, snapshot)
+                                                    onDetail(bulletin, SeamlessCardSource(panelBounds, NOTICE_PANEL_RADIUS))
+                                                },
                                             ),
                                         )
                                     }
@@ -227,6 +255,39 @@ fun BulletinNoticePanel(
                         }
                     }
                 }
+            }
+        }
+    }
+}
+
+@Composable
+private fun NoticePanelSnapshot(bulletin: Bulletin, modifier: Modifier) {
+    val accent = bulletinAccent(bulletin.level) ?: MiuixTheme.colorScheme.primary
+    Card(
+        modifier = modifier.fillMaxSize(),
+        cornerRadius = NOTICE_PANEL_RADIUS,
+        colors = top.yukonga.miuix.kmp.basic.CardDefaults.defaultColors(color = AppCardColor),
+    ) {
+        Row(
+            Modifier.fillMaxWidth().padding(start = 14.dp, end = 8.dp, top = 12.dp, bottom = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Box(Modifier.size(8.dp).clip(CircleShape).background(accent))
+            Spacer(Modifier.width(10.dp))
+            Column(Modifier.weight(1f)) {
+                Text(
+                    if (bulletin.isPoll) "调查" else bulletinLevelLabel(bulletin.level),
+                    style = MiuixTheme.textStyles.footnote2,
+                    color = accent,
+                    fontWeight = FontWeight.Bold,
+                )
+                Text(
+                    bulletin.title,
+                    style = MiuixTheme.textStyles.body2,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
             }
         }
     }

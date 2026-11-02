@@ -236,6 +236,7 @@ fun HomeScreen(
                     BulletinNoticePanel(
                         bulletins = host.bulletins,
                         onTap = host::onBulletinTap,
+                        onDetail = host::onBulletinDetail,
                         onDismiss = host::onBulletinDismiss,
                     )
                     Spacer(Modifier.height(SECTION_GAP))
