@@ -1773,9 +1773,11 @@ private fun HomeDragGhost(
             .size(with(density) { wPx.toDp() }, with(density) { hPx.toDp() })
             .zIndex(20f)
             .graphicsLayer {
-                scaleX = 1.04f
-                scaleY = 1.04f
-                alpha = 0.96f
+                // 略小于占位框 + 半透明：底下的落点占位框（2dp 主题色边框）才能露出来。
+                // 之前放大到 1.04 且 96% 不透明，正好把占位框整个盖住，等于没有提示。
+                scaleX = 0.94f
+                scaleY = 0.94f
+                alpha = 0.88f
             },
     ) {
         HomeTileFaceBox(

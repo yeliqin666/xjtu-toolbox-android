@@ -388,18 +388,47 @@ private fun DropSlot(tile: HomeTile, colUnit: Float, rowUnit: Float, gapPx: Floa
     val y by animateFloatAsState(targetValue = tile.y, animationSpec = HomeTileSpring, label = "dropY")
     val w by animateFloatAsState(targetValue = tile.w, animationSpec = HomeTileSpring, label = "dropW")
     val h by animateFloatAsState(targetValue = tile.h, animationSpec = HomeTileSpring, label = "dropH")
-    val widthPx = (w * colUnit - gapPx).coerceAtLeast(1f)
-    val heightPx = (h * rowUnit - gapPx).coerceAtLeast(1f)
+    val frame = cellFrame(x, y, w, h, colUnit, rowUnit, gapPx)
     val radius = (minOf(w, h) * 12f).coerceIn(10f, 22f).dp
     val accent = MiuixTheme.colorScheme.primary
     Box(
         Modifier
-            .offset { IntOffset((x * colUnit).roundToInt(), (y * rowUnit).roundToInt()) }
-            .size(with(density) { widthPx.toDp() }, with(density) { heightPx.toDp() })
-            .background(accent.copy(alpha = 0.10f), RoundedCornerShape(radius))
-            .border(1.dp, accent.copy(alpha = 0.35f), RoundedCornerShape(radius)),
+            // 占位框必须压在同组其它块**之上**：它是"松手会落到这"的唯一提示，
+            // 被邻居盖住就等于没有。层级只有 2，仍然在顶层幽灵块（20）之下。
+            .zIndex(2f)
+            .offset { frame.leftTop }
+            .size(with(density) { frame.widthPx.toDp() }, with(density) { frame.heightPx.toDp() })
+            // 幽灵是半透明盖在它上面的，所以底色给足、边框加粗，透过幽灵也能看清这块"空位"
+            .background(accent.copy(alpha = 0.20f), RoundedCornerShape(radius))
+            .border(2.dp, accent.copy(alpha = 0.85f), RoundedCornerShape(radius)),
     )
 }
+
+/**
+ * 「格 → 像素」的唯一换算入口：块的左上角与尺寸都从这里出。
+ *
+ * 之前 DropSlot 和 HomeTileItem 各写一遍 `x * colUnit` / `w * colUnit - gap`，两处一旦
+ * 有一点不一致，占位框和真身就对不上（这也是「网格不对」最容易复发的地方）。收敛成
+ * 纯函数后，两者永远同一个矩形。
+ *
+ * 注意：块贴在格的左上角、宽高各少一个 gap，所以视觉上缝隙集中在右/下侧——这是既有
+ * 视觉，保持一致，不在这次重构里改动。
+ */
+private class CellFrame(val leftTop: IntOffset, val widthPx: Float, val heightPx: Float)
+
+private fun cellFrame(
+    x: Float,
+    y: Float,
+    w: Float,
+    h: Float,
+    colUnit: Float,
+    rowUnit: Float,
+    gapPx: Float,
+): CellFrame = CellFrame(
+    leftTop = IntOffset((x * colUnit).roundToInt(), (y * rowUnit).roundToInt()),
+    widthPx = (w * colUnit - gapPx).coerceAtLeast(1f),
+    heightPx = (h * rowUnit - gapPx).coerceAtLeast(1f),
+)
 
 /**
  * 一块组件。位置由格矩形算出，**位置变化用弹簧动画**（§6：挤开、重排都要 Q 弹）。
@@ -446,8 +475,8 @@ private fun HomeTileItem(
         label = "tileH",
     )
 
-    val widthPx = (animW * colUnit - gapPx).coerceAtLeast(1f)
-    val heightPx = (animH * rowUnit - gapPx).coerceAtLeast(1f)
+    // 与 DropSlot 共用同一个换算入口：真身和占位框永远同一个矩形
+    val frame = cellFrame(animX, animY, animW, animH, colUnit, rowUnit, gapPx)
 
     // 非编辑态：整块点击打开、长按进编辑态。编辑态这块不挂手势（交给手势层）。
     val tap = if (editing) {
@@ -460,8 +489,8 @@ private fun HomeTileItem(
 
     Box(
         Modifier
-            .offset { IntOffset((animX * colUnit).roundToInt(), (animY * rowUnit).roundToInt()) }
-            .size(with(density) { widthPx.toDp() }, with(density) { heightPx.toDp() })
+            .offset { frame.leftTop }
+            .size(with(density) { frame.widthPx.toDp() }, with(density) { frame.heightPx.toDp() })
             .then(tap),
     ) {
         HomeTileFaceBox(
