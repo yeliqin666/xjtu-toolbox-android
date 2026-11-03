@@ -250,6 +250,9 @@ fun HomeScreen(
     val firstGapPx = with(density) { FIRST_GROUP_GAP.toPx() }
     val handlePx = with(density) { RESIZE_HANDLE_TOUCH.toPx() }
     val removePx = with(density) { REMOVE_TOUCH.toPx() }
+    // 拖拽中幽灵块向上悬浮的高度：落点占位框就在幽灵正下方，不抬高会被整个盖住。
+    // iOS / Launcher 的做法都是把被拖物抬离手指一段距离，让底下的格子露出来。
+    val ghostDragLiftPx = with(density) { 64.dp.toPx() }
 
     // derivedStateOf 的 lambda 只在依赖的 State 变化时重跑；layout / grid / visibleGroups
     // 都是普通局部值，直接读不会被追踪，所以经 rememberUpdatedState 读它们的**最新值**
@@ -459,6 +462,8 @@ fun HomeScreen(
         }
 
         // 落点的内容坐标 → 视口坐标（幽灵画在不滚动的覆盖层上）
+        // 拖拽中幽灵块被抬高（GhostDragLift），松手时从「抬起位」落回真实格——吸附动画
+        // 的起点要跟拖拽中看到的抬起位一致，否则会瞬间下跳。
         val destination = if (committed != null) {
             val placed = committed.locate(id)
             val settled = buildBoardGeometry(
@@ -488,7 +493,7 @@ fun HomeScreen(
             // 那一帧幽灵已可见却读着上一次的陈旧值 → 闪到错误位置。
             if (committed != null) update { committed }
             session.release()
-            ghostSettle.snapTo(from)
+            ghostSettle.snapTo(from - Offset(0f, ghostDragLiftPx))
             ghostSettling = true
             ghostSettle.animateTo(destination ?: startGhost, HomeTileSpringOffset)
             if (ghostEpoch == epoch) {
@@ -864,10 +869,8 @@ fun HomeScreen(
                 session = session,
                 geometry = dragGeometry,
                 pointerBoard = pointerBoard,
-                handlePx = handlePx,
-                removePx = removePx,
-                groupGapPx = groupGapPx,
-                firstGapPx = firstGapPx,
+                liveLayout = liveLayout,
+                targetGroup = targetGroup,
             )
         }
 
@@ -881,6 +884,7 @@ fun HomeScreen(
             geometry = dragGeometry,
             settling = ghostSettling,
             settleValue = { ghostSettle.value },
+            liftPx = ghostDragLiftPx,
         )
 
         // ── 编辑态右侧的「添加卡片」悬浮球：展开成长条，长按功能拖出来放到组里 ──
@@ -1754,6 +1758,8 @@ private fun HomeDragGhost(
     geometry: HomeBoardGeometry,
     settling: Boolean,
     settleValue: () -> Offset,
+    /** 拖拽中向上悬浮的高度（露出底下的占位框）；结算动画的值里已含，不再重复抬。 */
+    liftPx: Float,
 ) {
     if (!session.draggingTile && !settling) return
     val face = session.routeId?.let { faces[it] } ?: return
@@ -1767,7 +1773,7 @@ private fun HomeDragGhost(
         Modifier
             // 跟手阶段：手指 − 抓取点；结算阶段：吸附/回弹动画的当前值（都是视口坐标）
             .offset {
-                val p = if (settling) settleValue() else session.ghostOrigin
+                val p = if (settling) settleValue() else session.ghostOrigin - Offset(0f, liftPx)
                 IntOffset(p.x.roundToInt(), p.y.roundToInt())
             }
             .size(with(density) { wPx.toDp() }, with(density) { hPx.toDp() })

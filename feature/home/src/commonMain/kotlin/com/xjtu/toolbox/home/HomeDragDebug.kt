@@ -1,122 +1,69 @@
 package com.xjtu.toolbox.home
 
-import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
-import top.yukonga.miuix.kmp.basic.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.foundation.layout.fillMaxSize
+import top.yukonga.miuix.kmp.basic.Text
 
 /**
- * 【临时诊断层 —— 定位完就删】只在编辑态显示，无手势、不参与命中。
+ * 【临时诊断读数 —— 定位完就删】编辑态显示在顶部，无手势、不参与命中。
  *
- * 为什么要有它：拖拽链上现在有 `pointer`、`boardOrigin`、`pointerBoard`、几何表、
- * `grab`/`ghostOrigin` 多个量，只靠读代码已经无法判断到底是哪一环错了。这一层把**实测值**
- * 摊在屏幕上，并对几何表画框：
- * - 红框 = 几何表认为的组区矩形
- * - 黄框 = 每个组的矩形
- * - 青框 = 每一块（命中测试用的矩形）
- * - 绿十字 = 手指位置；品红十字 = 幽灵块左上角
+ * 目的：把拖拽链上每个量的**实测值**摊出来，一次就能判断是哪一环错了：
+ * - `P` 手指（页面坐标）、`B` 手指（板内坐标）、`G` 幽灵左上角（板内坐标）
+ * - `O` 组区原点、`W` 组区宽
+ * - `mode`/`tile` 当前拖拽身份；`target`/`cell` 手指当前认定的目标组与落点格
+ * - `dragTile` 被拖那块在**实时预览布局**里的「组 @格位」（`--` = 预览里没它了，
+ *   那就是模型把块弄丢）
+ * - `base` 是否还持有起手快照；`settle` 是否在结算动画
  *
- * 判读方法：若青框**没有**正好压在真实卡片上，就是 `boardOrigin` 或几何表的问题，偏移量
- * 直接就是差值；若青框压得很准但幽灵不在手指下，就是 `grab` 算错。
+ * 判读：`P` 与 `G` 应只差一个固定的 `grab`；`dragTile` 若在拖动中变成 `--`，说明预览把
+ * 块弄丢了；松手后看 `dragTile` 落到哪一格、和预期是否一致、是否消失。
  */
-internal const val HOME_DRAG_DEBUG = false
+internal const val HOME_DRAG_DEBUG = true
 
 @Composable
 internal fun HomeDragDebugOverlay(
     session: HomeDragSession,
     geometry: HomeBoardGeometry,
     pointerBoard: Offset,
-    handlePx: Float,
-    removePx: Float,
-    groupGapPx: Float,
-    firstGapPx: Float,
+    liveLayout: HomeLayout,
+    targetGroup: String?,
 ) {
     if (!HOME_DRAG_DEBUG) return
     val board = session.boardOrigin
-    val ready = geometry.ready
-    val hit = if (ready) geometry.hit(pointerBoard, handlePx, removePx) else HomeHit.Pass
-    val hitText = when (hit) {
-        is HomeHit.Tile -> "Tile ${hit.groupId}/${hit.tileId}"
-        is HomeHit.Resize -> "Resize ${hit.groupId}/${hit.tileId}"
-        is HomeHit.GroupHandle -> "Handle ${hit.groupId}#${hit.index}"
-        HomeHit.Pass -> "Pass"
-    }
-    val ghost = session.ghostOrigin
-    // 必须在**组合期**读出来：Canvas 的 draw lambda 不订阅快照状态，在里面读会画出冻住的值
-    val pointer = session.pointer
-    val activeNow = session.active
-
-    // fillMaxSize：本函数不是 BoxScope 扩展，拿不到 matchParentSize
-    Canvas(Modifier.fillMaxSize()) {
-        if (!ready) return@Canvas
-        val total = geometry.totalHeight(groupGapPx, firstGapPx)
-        // 组区矩形（红）
-        drawRect(
-            Color.Red,
-            topLeft = board,
-            size = Size(geometry.width, total),
-            style = Stroke(2f),
-        )
-        geometry.slots.forEach { slot ->
-            // 组矩形（黄）
-            drawRect(
-                Color.Yellow,
-                topLeft = Offset(board.x, board.y + slot.top),
-                size = Size(geometry.width, slot.height),
-                style = Stroke(1.5f),
-            )
-            slot.tiles.forEach { tile ->
-                // 块矩形（青）：命中测试就是按这些矩形判的
-                drawRect(
-                    Color.Cyan,
-                    topLeft = Offset(
-                        board.x + tile.x * geometry.colUnit,
-                        board.y + slot.gridTop + tile.y * geometry.rowUnit,
-                    ),
-                    // 与 hit() 判定的矩形逐字一致（不减 gap：命中区比视觉块大一圈）
-                    size = Size(tile.w * geometry.colUnit, tile.h * geometry.rowUnit),
-                    style = Stroke(1.5f),
-                )
-            }
-        }
-        // 手指（绿）
-        if (activeNow) {
-            val p = pointer
-            drawLine(Color.Green, Offset(p.x - 24f, p.y), Offset(p.x + 24f, p.y), 3f)
-            drawLine(Color.Green, Offset(p.x, p.y - 24f), Offset(p.x, p.y + 24f), 3f)
-            // 幽灵左上角（品红）
-            drawLine(Color.Magenta, Offset(ghost.x - 16f, ghost.y), Offset(ghost.x + 16f, ghost.y), 3f)
-            drawLine(Color.Magenta, Offset(ghost.x, ghost.y - 16f), Offset(ghost.x, ghost.y + 16f), 3f)
-        }
-    }
+    val gBoard = pointerBoard - session.grab
+    val hitTile = session.tileId
+    val inPreview = hitTile
+        ?.let { liveLayout.locate(it) }
+        ?.let { (g, t) -> "${g.id} @(${t.x.round1()},${t.y.round1()})" }
+        ?: "--"
+    val cell = targetGroup?.let { geometry.cellAt(it, gBoard) }
 
     Column(
         Modifier
-            .padding(top = 72.dp, start = 8.dp)
-            .background(Color.Black.copy(alpha = 0.72f), RoundedCornerShape(6.dp))
-            .padding(6.dp),
+            .fillMaxWidth()
+            .padding(top = 84.dp, start = 8.dp, end = 8.dp)
+            .background(Color.Black.copy(alpha = 0.78f), RoundedCornerShape(8.dp))
+            .padding(horizontal = 10.dp, vertical = 6.dp),
+        horizontalAlignment = Alignment.Start,
     ) {
-        val lines = listOf(
-            "O=(${board.x.round1()},${board.y.round1()}) W=${geometry.width.round1()}",
-            "P=(${session.pointer.x.round1()},${session.pointer.y.round1()})",
-            "B=(${pointerBoard.x.round1()},${pointerBoard.y.round1()})",
-            "hit=$hitText",
-            "mode=${session.mode} tile=${session.tileId ?: "-"}",
-            "grab=(${session.grab.x.round1()},${session.grab.y.round1()})",
-            "gO=(${ghost.x.round1()},${ghost.y.round1()})",
-        )
-        lines.forEach { Text(it, color = Color.White, fontSize = 10.sp) }
+        listOf(
+            "P=(${session.pointer.x.round1()},${session.pointer.y.round1()})  B=(${pointerBoard.x.round1()},${pointerBoard.y.round1()})",
+            "G=(${gBoard.x.round1()},${gBoard.y.round1()})  grab=(${session.grab.x.round1()},${session.grab.y.round1()})",
+            "O=(${board.x.round1()},${board.y.round1()})  W=${session.boardWidth.round1()}  ready=${geometry.ready}",
+            "mode=${session.mode}  tile=${hitTile ?: "-"}  fromPalette=${session.fromPalette}",
+            "target=${targetGroup ?: "-"}  cell=${cell?.let { "(${it.x.round1()},${it.y.round1()})" } ?: "-"}",
+            "dragTile in preview = $inPreview",
+            "base=${if (session.base != null) "Y" else "N"}  settle=${session.settling}",
+        ).forEach { Text(it, color = Color.White, fontSize = 11.sp) }
     }
 }
 
