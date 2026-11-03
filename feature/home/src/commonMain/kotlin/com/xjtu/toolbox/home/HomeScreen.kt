@@ -1347,7 +1347,7 @@ private fun HomeCollapsingBar(
                     .requiredHeight(PROGRESSIVE_BLUR_BAND_HEIGHT)
                     .offset { IntOffset(0, bandShift().roundToPx()) },
             ) {
-                ProgressiveBarBlur(backdrop, Modifier.matchParentSize())
+                HomeBarBlurBand(backdrop, Modifier.matchParentSize())
                 if (SHOW_TINT_WASH) {
                     Box(Modifier.matchParentSize().background(tintWash(surface)))
                 }
@@ -1466,37 +1466,36 @@ private fun HomeBarIconButton(icon: ImageVector, label: String, liquid: Backdrop
 }
 
 /**
- * useplanes 的 progressive blur：七层不同半径的模糊叠在一起。
- * 每层都从同一份 backdrop 采样，再用各自的渐变遮罩只留下一段：
- * 最弱的一层在底边淡出，最强的一层在屏幕顶边达到满强度，中间没有硬边。
+ * 顶部模糊带：把滚到顶栏底下的内容模糊**一层**，再用一条纵向渐变遮罩让它在底边淡出。
+ *
+ * 这里原来是 useplanes 的 progressive blur——七层不同半径叠起来，做出「越靠顶边越糊」的
+ * 强度渐变。代价是滚动时**每一帧七次离屏采样 + 七次高斯模糊**，而这条带横跨整个屏宽，
+ * 是首页滚动最贵的两处之一（另一处是卡片玻璃）。
+ *
+ * 收成一层之后模糊强度恒定，过渡全靠遮罩的透明度渐变：上段满强度、往下淡到全透明，
+ * 底边同样没有硬边。区别只在「模糊变淡的坡度」上略钝一点，滚动开销降到原来的七分之一。
  */
 @Composable
-private fun ProgressiveBarBlur(
+private fun HomeBarBlurBand(
     backdrop: Backdrop,
     modifier: Modifier = Modifier,
 ) {
-    Box(modifier) {
-        ProgressiveBlurRadii.forEachIndexed { index, radius ->
-            val layer = remember(backdrop, index) {
-                Modifier.drawBackdrop(
-                    backdrop = backdrop,
-                    shape = { RoundedCornerShape(0.dp) },
-                    effects = {
-                        blur(radius.dp.toPx(), TileMode.Decal)
-                    },
-                    highlight = null,
-                    shadow = null,
-                    onDrawFront = {
-                        drawRect(
-                            brush = ProgressiveBlurMasks[index],
-                            blendMode = BlendMode.DstIn,
-                        )
-                    },
-                )
-            }
-            Box(Modifier.matchParentSize().then(layer))
-        }
+    val layer = remember(backdrop) {
+        Modifier.drawBackdrop(
+            backdrop = backdrop,
+            shape = { RoundedCornerShape(0.dp) },
+            effects = {
+                blur(BAR_BLUR_RADIUS.toPx(), TileMode.Decal)
+            },
+            highlight = null,
+            shadow = null,
+            onDrawFront = {
+                drawRect(brush = BarBlurMask, blendMode = BlendMode.DstIn)
+            },
+        )
     }
+    // 带本身没有子内容：模糊与遮罩都由 drawBackdrop 这一层画
+    Box(modifier.then(layer)) {}
 }
 
 /** 展开时圆钮比顶栏正中上移的距离：顶栏里圆钮上方正好留这么多，不会顶进状态栏。 */
@@ -1508,45 +1507,23 @@ private const val SHOW_TINT_WASH = true
 /** useplanes 页面预览的顶部模糊带高度：96px。 */
 private val PROGRESSIVE_BLUR_BAND_HEIGHT = 96.dp
 
-/** useplanes 页面预览顶部带的七层模糊半径（默认 ramp × 1.5）。 */
-private val ProgressiveBlurRadii = listOf(0.75f, 1.5f, 3f, 4.5f, 7.5f, 12f, 18f)
-
-/** 每层遮罩占整条带的比例：useplanes 的层与层之间错开 12.5%。 */
-private const val PROGRESSIVE_BLUR_STEP = 0.125f
+/**
+ * 模糊半径。原来七层里最强的那层是 18dp：单层取 12dp，顶栏下面那块观感最接近它，
+ * 又不至于把壁纸纹理整个抹平（模糊带的高度只有 96dp，半径给大了会糊成一片色）。
+ */
+private val BAR_BLUR_RADIUS = 12.dp
 
 /**
- * 顶栏的模糊从屏幕顶边往下递减，所以遮罩按从底边往上数的位置生成：
- * 第 0 层（0.75dp）在底边附近淡出，第 6 层（18dp）在顶边满强度。
+ * 模糊带的淡出遮罩：上段保持满强度，往下线性淡到全透明。
+ *
+ * 有遮罩才不会在带的底边看到一条「清晰 / 模糊」的硬边——尾部那一段是模糊像素逐渐变透明，
+ * 底下未模糊的内容慢慢透出来，和原来七层堆出来的过渡是同一个思路，只是强度不再随高度变。
  */
-private val ProgressiveBlurMasks: List<Brush> = ProgressiveBlurRadii.indices.map { index ->
-    val stops = listOf(
-        (1f - (index + 3) * PROGRESSIVE_BLUR_STEP) to 0f,
-        (1f - (index + 2) * PROGRESSIVE_BLUR_STEP) to 1f,
-        (1f - (index + 1) * PROGRESSIVE_BLUR_STEP) to 1f,
-        (1f - index * PROGRESSIVE_BLUR_STEP) to 0f,
-    ).clipToUnitRange()
-    Brush.verticalGradient(
-        *stops.map { (position, alpha) ->
-            position to Color.Black.copy(alpha = alpha)
-        }.toTypedArray(),
-    )
-}
-
-/** 把越出 [0, 1] 的渐变端点裁掉，并在边界上按原斜率补一个端点。 */
-private fun List<Pair<Float, Float>>.clipToUnitRange(): List<Pair<Float, Float>> {
-    fun alphaAt(position: Float): Float {
-        val before = lastOrNull { it.first <= position } ?: first()
-        val after = firstOrNull { it.first >= position } ?: last()
-        if (before.first == after.first) return after.second
-        val t = (position - before.first) / (after.first - before.first)
-        return before.second + (after.second - before.second) * t
-    }
-
-    val visible = filter { it.first in 0f..1f }.toMutableList()
-    if (first().first > 0f) visible.add(0, 0f to alphaAt(0f))
-    if (last().first < 1f) visible.add(1f to alphaAt(1f))
-    return visible.sortedBy { it.first }
-}
+private val BarBlurMask: Brush = Brush.verticalGradient(
+    0f to Color.Black,
+    0.45f to Color.Black,
+    1f to Color.Transparent,
+)
 
 /** 顶栏表面色遮罩：顶部完全不透明，到底边线性归零。 */
 private fun tintWash(surface: Color): Brush = Brush.verticalGradient(
