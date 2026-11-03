@@ -7,7 +7,6 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.layout.LayoutCoordinates
 
 /**
  * 编辑态的拖拽手势层，挂成**页面根 Box 自己的修饰符**（祖先，不是盖在上面的兄弟覆盖层——
@@ -21,8 +20,8 @@ import androidx.compose.ui.layout.LayoutCoordinates
  *    就是因为在 down 那一刻就把手势抢走了）。缩放把手、组排序把手同样走长按，规则统一。
  *
  * 2. **坐标在起手那一刻现场问，不用缓存值**。组区左上角由
- *    `rootCoords.localPositionOf(boardCoords, Offset.Zero)` 现算——`LayoutCoordinates` 是
- *    活对象，读的时候就是当前值。之前把 `onGloballyPositioned` 回填的 Offset 存在 session 里，
+ *    `boardCoords.boundsInWindow() − rootCoords.boundsInWindow()` 现算——`boundsInWindow`
+ *    是屏幕上的绝对位置，滚动与动画都如实反映。之前把回填的 Offset 存进 session 当基准，
  *    页面一滚动它就过期，命中全落空、抓取点也跟着偏几百 dp（「按住没反应」「一拖就跳到远处」
  *    都是这一个原因）。
  */
@@ -94,14 +93,4 @@ internal fun Modifier.homeDragLayer(
             },
         )
     }
-}
-
-/** 组区左上角在页面根局部坐标里的位置（现场查询用，见 [HomeDragSession.boardCoords]）。 */
-internal fun layoutPosition(
-    root: LayoutCoordinates?,
-    child: LayoutCoordinates?,
-): Offset? {
-    if (root == null || child == null) return null
-    if (!root.isAttached || !child.isAttached) return null
-    return root.localPositionOf(child, Offset.Zero)
 }

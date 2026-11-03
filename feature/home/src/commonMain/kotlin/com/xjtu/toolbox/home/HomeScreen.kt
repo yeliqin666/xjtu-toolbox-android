@@ -484,21 +484,25 @@ fun HomeScreen(
             null
         }
 
+        // 落盘与切结算态**同步**执行，不进协程、不被 epoch 守卫跳过——松手落盘是这一刻
+        // 就该发生的事。之前把它们放进协程、顶部一个 `ghostEpoch != epoch` 提前 return，
+        // 实测这条路径根本没走到（release 从未被调，卡片直接消失）。
+        session.lastEvent = "settle target=" + target + " committed=" + (committed != null)
+        if (committed != null) update { committed }
+        session.release()
+
+        // 剩下只是幽灵的吸附/回弹动画（可被打断；打断就交给下一场手势的 finish 清场）。
         val epoch = ++ghostEpoch
         scope.launch {
-            // 被新手势顶掉就不做任何突变（否则会用上一场的 committed 污染这一场）
-            if (ghostEpoch != epoch) return@launch
-            // 第一个同步段：固化布局、切结算态、幽灵值就位，三步之间无挂起点、不插帧。
-            // 若把 release/ghostSettling 留在协程外（同步块），到 snapTo 之间会插一帧重组，
-            // 那一帧幽灵已可见却读着上一次的陈旧值 → 闪到错误位置。
-            if (committed != null) update { committed }
-            session.release()
             ghostSettle.snapTo(from - Offset(0f, ghostDragLiftPx))
             ghostSettling = true
-            ghostSettle.animateTo(destination ?: startGhost, HomeTileSpringOffset)
-            if (ghostEpoch == epoch) {
-                ghostSettling = false
-                session.finish()
+            try {
+                ghostSettle.animateTo(destination ?: startGhost, HomeTileSpringOffset)
+            } finally {
+                if (ghostEpoch == epoch) {
+                    ghostSettling = false
+                    session.finish()
+                }
             }
         }
     }
@@ -613,21 +617,25 @@ fun HomeScreen(
         when (hit) {
             is HomeHit.Tile -> {
                 val tile = layout.tile(hit.tileId) ?: return
-                val tileOrigin = dragGeometry.tileOrigin(hit.groupId, tile) ?: return
+                // 抓取点优先用「这一块实测的位置」（起手那一刻的绝对真相）；组区原点那一瞬
+                // 可能还是旧值（容器位置没变则回调不触发），几何推算会整体偏移、幽灵上跳。
+                val origin = session.tileTopLeft(hit.tileId)
+                    ?: dragGeometry.tileOrigin(hit.groupId, tile)?.let { it + session.boardOrigin }
+                    ?: return
                 session.beginTile(
                     layout, ids, tile, hit.groupId,
-                    // 块原点是板内坐标，加 boardOrigin 换成页面坐标——grab 是两者之差，
-                    // 所以它天然与页面坐标/板内坐标无关，幽灵块绝不会因为基准偏差而跳。
-                    origin = tileOrigin + session.boardOrigin,
+                    origin = origin,
                     startPointer = viewport,
                 )
             }
             is HomeHit.Resize -> {
                 val tile = layout.tile(hit.tileId) ?: return
-                val tileOrigin = dragGeometry.tileOrigin(hit.groupId, tile) ?: return
+                val origin = session.tileTopLeft(hit.tileId)
+                    ?: dragGeometry.tileOrigin(hit.groupId, tile)?.let { it + session.boardOrigin }
+                    ?: return
                 session.beginResize(
                     layout, ids, tile,
-                    origin = tileOrigin + session.boardOrigin,
+                    origin = origin,
                     startPointer = viewport,
                     startContent = board,
                 )

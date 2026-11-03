@@ -6,6 +6,10 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
@@ -42,10 +46,13 @@ internal fun HomeDragDebugOverlay(
     val board = session.boardOrigin
     val gBoard = pointerBoard - session.grab
     val hitTile = session.tileId
-    val inPreview = hitTile
+    // 持久追踪最后拖过那块：finish() 会把 tileId 清空，但我们要看的是「它最终还在不在布局里」
+    var lastSeen by remember { mutableStateOf<String?>(null) }
+    if (hitTile != null) lastSeen = hitTile
+    val finalPos = lastSeen
         ?.let { liveLayout.locate(it) }
         ?.let { (g, t) -> "${g.id} @(${t.x.round1()},${t.y.round1()})" }
-        ?: "--"
+        ?: "**GONE**"
     val cell = targetGroup?.let { geometry.cellAt(it, gBoard) }
 
     Column(
@@ -62,8 +69,8 @@ internal fun HomeDragDebugOverlay(
             "O=(${board.x.round1()},${board.y.round1()})  W=${session.boardWidth.round1()}  ready=${geometry.ready}",
             "mode=${session.mode}  tile=${hitTile ?: "-"}  fromPalette=${session.fromPalette}",
             "target=${targetGroup ?: "-"}  cell=${cell?.let { "(${it.x.round1()},${it.y.round1()})" } ?: "-"}",
-            "dragTile in preview = $inPreview",
-            "base=${if (session.base != null) "Y" else "N"}  settle=${session.settling}",
+            "tile in layout NOW = $finalPos   (松手后看这行)",
+            "event=${session.lastEvent}  base=${if (session.base != null) "Y" else "N"}  settle=${session.settling}",
         ).forEach { Text(it, color = Color.White, fontSize = 11.sp) }
     }
 }

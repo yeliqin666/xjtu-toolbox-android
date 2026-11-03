@@ -40,6 +40,7 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.lerp
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
@@ -491,6 +492,8 @@ private fun HomeTileItem(
         Modifier
             .offset { frame.leftTop }
             .size(with(density) { frame.widthPx.toDp() }, with(density) { frame.heightPx.toDp() })
+            // 起手定位抓取点用的实测活坐标（绝对真相）；普通 map，不进组合
+            .onGloballyPositioned { session.tileCoords[tile.id] = it }
             .then(tap),
     ) {
         HomeTileFaceBox(
