@@ -101,7 +101,7 @@
 | 45 | 1×1 的热区 = 整块卡片（正方格边长 ≈ 76dp ≥ 48dp），不额外缩小 | `HomeTileItem` 的 tap 手势 | 已实现 |
 | 46 | 字体放大降级：文字一律 `maxLines = 1` + `Ellipsis`，行高固定 dp 而非随字体无限涨；极端放大时先省略名称、再隐去状态行 | `HomeTileFaceBox` | 已实现 |
 | 47 | 深浅色参数**分开**：填充 浅 62% / 深 10% 白；细边 浅 0.7 / 深 0.1；标题色深色提亮 0.25；液态玻璃 blur 两档相同 | `HomeTileFaceBox`、`GroupHeader` | 已实现 |
-| 48 | 性能降级：抖动只在编辑态挂动画；掉帧交给 Compose 的帧调度，**唯一**的降级开关是液态玻璃下的「开启折射」子项（`HomeLayoutStore.liquidRefraction`，默认开）——关掉只跳过 `lens` 这一层，模糊与高光不动，卡片、组删除钮、悬浮球、宿主顶栏圆钮四处一起生效。液态玻璃的 `drawBackdrop` 用 `remember` 按圆角 / 填充 / 阴影缓存（只有圆角随尺寸动画变时才重建），静止与位置动画不重复采样；纯色背景下折射不可见但高光仍在，故不做「无背景图退化」 | `HomeTileItem`、`HomeTileFaceBox` | 已实现（本批修） |
+| 48 | 性能降级：抖动只在编辑态挂动画；掉帧交给 Compose 的帧调度，**唯一**的降级开关是液态玻璃下的「开启折射」子项（`HomeLayoutStore.liquidRefraction`，默认开）——关掉只跳过 `lens` 这一层，模糊与高光不动，卡片、组删除钮、悬浮球、宿主顶栏圆钮四处一起生效。顶栏模糊带原为 useplanes 的 progressive blur（七层不同半径叠着跑，滚动时每帧七次离屏采样 + 七次高斯模糊），现收成**一层** 12dp 模糊 + 纵向淡出遮罩，底边同样没有硬边；壁纸的 base64 解码从组合期同步改为 `Dispatchers.Default` 后台解码，并按数据串哈希缓存最后一张（未命中时先画占位渐变、图到后 180ms 淡入，命中缓存则首帧即图）。液态玻璃的 `drawBackdrop` 用 `remember` 按圆角 / 填充 / 阴影缓存（只有圆角随尺寸动画变时才重建），静止与位置动画不重复采样；纯色背景下折射不可见但高光仍在，故不做「无背景图退化」 | `HomeTileItem`、`HomeTileFaceBox`、`HomeScreen.kt` · `HomeBarBlurBand`、`HeroCustom.kt` · `HeroCustomBackground` | 已实现（本批修） |
 | 49 | 基准来源：材质 = App 内 `drawBackdrop` + 底栏玻璃；抽屉 = 设置页既有 `OverlayBottomSheet` 范式；动画 = Compose 官方 spring；手势 = `detectDragGestures` 系统语义。**不自创** | 全文 | 按此决定 |
 | 50 | 参数不写死：档位阈值取半格（§11），dp 由一格边长（正方格，量到的组宽推）决定（§9），时长沿用 App 既有弹簧参数（§43） | 全文 | 按此决定 |
 
