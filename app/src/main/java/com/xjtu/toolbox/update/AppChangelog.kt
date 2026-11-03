@@ -36,6 +36,7 @@ object AppChangelog {
     val ENTRIES: List<Pair<String, VersionChangelog>> = listOf(
         "5.2.2" to VersionChangelog(
             items = listOf(
+                "📄" to "修复部分荣耀 Android 16 及以上设备进入学辅文件预览时闪退",
                 "💬" to "小岱不再保存空白新对话，发送后才建立记录；自动清理已有的空记录",
                 "📄" to "我的页面新增学业材料，可打开电子成绩单及中文、中英文在读证明申请入口",
                 "⚡" to "长按应用图标的快捷方式可在设置里自选，付款码默认可见；更多功能可单独固定到桌面",
