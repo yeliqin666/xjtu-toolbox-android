@@ -269,8 +269,8 @@ fun HomeScreen(
         derivedStateOf {
             buildBoardGeometry(
                 groups = session.baseGroups.ifEmpty { visibleGroups },
-                left = session.boardLeft,
-                top = session.boardTopContent,
+                left = 0f,
+                top = 0f,
                 width = session.boardWidth,
                 cellHeightPx = cellHeightPx,
                 gapPx = tileGapPx,
@@ -282,14 +282,16 @@ fun HomeScreen(
     }
 
     /**
-     * 手指的**内容坐标** = 视口坐标 + 当前滚动量。
+     * 手指的**板内坐标** = 页面根局部坐标 − 组区容器左上角。
      *
-     * 这一个派生量就是「自动滚动不需要任何补偿特例」的全部原因：边缘自动滚动改的是
-     * `scroll.value`，它一变，下面所有依赖内容坐标的派生量（目标组、落点格、缩放尺寸、
-     * 组排序目标）自动重算。旧实现把计算塞进手势回调，就得为缩放专门补一次尺寸。
+     * 只做这一处减法，而且减的是**实测**的 `session.boardOrigin`（随滚动一起动），
+     * 所以自动滚动时手指不动也能正确换组、缩放尺寸也会自然跟着变大。
+     *
+     * 旧实现存的是「内容坐标 = 页面坐标 + scrollY」：那条链要求 pageOrigin 已回填、
+     * scrollY 恰好同帧，任何一环错位都会让整份几何表整体偏移（表现：一拖就跑到上方老远）。
      */
-    val pointerContent by remember {
-        derivedStateOf { session.pointer + Offset(0f, scroll.value.toFloat()) }
+    val pointerBoard by remember {
+        derivedStateOf { session.pointer - session.boardOrigin }
     }
 
     /**
@@ -298,7 +300,7 @@ fun HomeScreen(
      */
     val targetGroup by remember(groupGapPx) {
         derivedStateOf {
-            if (!session.draggingTile) null else dragGeometry.groupAt(pointerContent, groupGapPx / 2f)
+            if (!session.draggingTile) null else dragGeometry.groupAt(pointerBoard, groupGapPx / 2f)
         }
     }
 
@@ -329,7 +331,7 @@ fun HomeScreen(
             val g = dragGeometry
             if (!g.ready) return@derivedStateOf null
             val grid = gridState.value
-            val delta = pointerContent - session.resizeStartContent
+            val delta = pointerBoard - session.resizeStartContent
             Offset(
                 HomeGridMath.clampSpan(session.resizeStartCells.x + delta.x / g.colUnit, grid),
                 HomeGridMath.clampSpan(session.resizeStartCells.y + delta.y / g.rowUnit, grid),
@@ -343,7 +345,7 @@ fun HomeScreen(
             if (session.mode != HomeDragMode.GROUP) return@derivedStateOf -1
             val g = dragGeometry
             val top = g.slots.getOrNull(session.groupIndex)?.top ?: return@derivedStateOf -1
-            val offset = pointerContent.y - session.groupGrabY - top
+            val offset = pointerBoard.y - session.groupGrabY - top
             HomeGridMath.reorderTargetIndex(g.heights(groupGapPx), session.groupIndex, offset)
         }
     }
@@ -385,7 +387,7 @@ fun HomeScreen(
                     val id = session.tileId
                     val route = session.routeId
                     val target = targetGroup
-                    val cell = if (target == null) null else dragGeometry.cellAt(target, pointerContent)
+                    val cell = if (target == null) null else dragGeometry.cellAt(target, pointerBoard)
                     when {
                         id == null || route == null || target == null || cell == null -> base
                         session.fromPalette ->
@@ -421,7 +423,7 @@ fun HomeScreen(
         val base = session.base ?: return
         val route = session.routeId
         val target = targetGroup
-        val cell = if (target == null) null else dragGeometry.cellAt(target, pointerContent)
+        val cell = if (target == null) null else dragGeometry.cellAt(target, pointerBoard)
         val from = session.ghostOrigin
         val startGhost = session.startGhost
 
@@ -440,8 +442,8 @@ fun HomeScreen(
             val placed = committed.locate(id)
             val settled = buildBoardGeometry(
                 groups = committed.groups.filter(::groupVisible),
-                left = session.boardLeft,
-                top = session.boardTopContent,
+                left = 0f,
+                top = 0f,
                 width = session.boardWidth,
                 cellHeightPx = cellHeightPx,
                 gapPx = tileGapPx,
@@ -451,7 +453,7 @@ fun HomeScreen(
             )
             placed
                 ?.let { (g, t) -> settled.cellOrigin(g.id, t.x, t.y) }
-                ?.let { it - Offset(0f, scroll.value.toFloat()) }
+                ?.let { it + session.boardOrigin }
         } else {
             null
         }
@@ -506,7 +508,7 @@ fun HomeScreen(
         val id = session.groupId ?: run { session.abort(); return }
         val g = dragGeometry
         val groupTop = g.slots.getOrNull(session.groupIndex)?.top ?: 0f
-        val liftNow = pointerContent.y - session.groupGrabY - groupTop
+        val liftNow = pointerBoard.y - session.groupGrabY - groupTop
         reorderSettleId = id
         val epoch = ++reorderEpoch
         scope.launch {
@@ -535,7 +537,7 @@ fun HomeScreen(
         val g = dragGeometry
         val heights = g.heights(groupGapPx)
         val groupTop = g.slots.getOrNull(from)?.top ?: 0f
-        val liftNow = pointerContent.y - session.groupGrabY - groupTop
+        val liftNow = pointerBoard.y - session.groupGrabY - groupTop
         if (target < 0 || target == from || from !in heights.indices) {
             cancelGroupDrop()
             return
@@ -561,8 +563,17 @@ fun HomeScreen(
         }
     }
 
-    /** 手势落点是拖拽目标：按种类起手（快照、身份、抓取偏移一次定死）。 */
-    fun beginGesture(hit: HomeHit, viewport: Offset, content: Offset) {
+    /**
+     * 手势落点是拖拽目标：按种类起手（快照、身份、抓取偏移一次定死）。
+     *
+     * [viewport] 是页面根局部坐标；板内坐标在这里现算一次，交给 session 当缩放/组排序的
+     * 基准。几何表没就绪（还没量到组区宽度）时不接手——宁可这一下没反应，也不要拿一份
+     * 空几何去起手（那正是「一拖就飞到老远」的来源）。
+     */
+    fun beginGesture(hit: HomeHit, viewport: Offset) {
+        // 几何表没就绪（组区还没量到宽度）就不接手：宁可这一下没反应，也不要拿空几何起手
+        if (!dragGeometry.ready || session.boardWidth <= 0f) return
+        val board = viewport - session.boardOrigin
         // 新手势顶掉上一场的结算动画
         ghostEpoch++
         reorderEpoch++
@@ -574,34 +585,66 @@ fun HomeScreen(
         when (hit) {
             is HomeHit.Tile -> {
                 val tile = layout.tile(hit.tileId) ?: return
-                val origin = dragGeometry.tileOrigin(hit.groupId, tile) ?: return
+                val tileOrigin = dragGeometry.tileOrigin(hit.groupId, tile) ?: return
                 session.beginTile(
                     layout, ids, tile, hit.groupId,
-                    origin = origin - Offset(0f, scroll.value.toFloat()),
+                    // 块原点是板内坐标，加 boardOrigin 换成页面坐标——grab 是两者之差，
+                    // 所以它天然与页面坐标/板内坐标无关，幽灵块绝不会因为基准偏差而跳。
+                    origin = tileOrigin + session.boardOrigin,
                     startPointer = viewport,
                 )
             }
             is HomeHit.Resize -> {
                 val tile = layout.tile(hit.tileId) ?: return
-                val origin = dragGeometry.tileOrigin(hit.groupId, tile) ?: return
+                val tileOrigin = dragGeometry.tileOrigin(hit.groupId, tile) ?: return
                 session.beginResize(
                     layout, ids, tile,
-                    origin = origin - Offset(0f, scroll.value.toFloat()),
+                    origin = tileOrigin + session.boardOrigin,
                     startPointer = viewport,
-                    startContent = content,
+                    startContent = board,
                 )
             }
             is HomeHit.GroupHandle -> {
                 val top = dragGeometry.slot(hit.groupId)?.top ?: return
-                session.beginGroup(layout, ids, hit.groupId, hit.index, top, viewport, content)
+                session.beginGroup(layout, ids, hit.groupId, hit.index, top, viewport, board)
             }
             HomeHit.Pass -> Unit
         }
     }
 
+    // 手势层作为**页面根 Box 的修饰符**挂载，而不是盖在上面的兄弟覆盖层。
+    // 兄弟覆盖层一旦带 pointerInput 就会独占整条命中路径，把下面的滚动列 / 顶栏 / 卡片
+    // 全挡掉（实测：除挂在它上层的悬浮条，其余什么都点不动）。挂在根 Box 上则是「祖先」：
+    // 子节点照样先收到 Main pass，我们只在 Initial pass 抢真正属于拖拽的那一下 down。
+    val dragLayerModifier = if (editing.on) {
+        Modifier.homeDragLayer(
+            session = session,
+            geometry = { dragGeometry },
+            handlePx = handlePx,
+            removePx = removePx,
+            onDown = { hit, viewport -> beginGesture(hit, viewport) },
+            onMove = { viewport -> session.move(viewport) },
+            onUp = {
+                when (session.mode) {
+                    HomeDragMode.TILE, HomeDragMode.PALETTE -> settleTileDrop()
+                    HomeDragMode.RESIZE -> settleResizeDrop()
+                    HomeDragMode.GROUP -> settleGroupDrop()
+                    HomeDragMode.IDLE -> Unit
+                }
+            },
+            onCancel = {
+                // 手势被系统抢走：整场作废（拖动中从不写草稿，所以不用恢复数据）
+                if (session.mode == HomeDragMode.GROUP) cancelGroupDrop() else abandonDrag()
+            },
+        )
+    } else {
+        Modifier
+    }
+
     Box(
         modifier
             .fillMaxSize()
+            .then(dragLayerModifier)
             .onGloballyPositioned {
                 // 拖拽会话的坐标基准：所有组 / 块的 boundsInRoot 都减它，统一成页面局部坐标
                 session.pageOrigin = it.boundsInRoot().topLeft
@@ -690,11 +733,9 @@ fun HomeScreen(
 
             // ── 卡片组 ──
             // 这一层容器是拖拽命中的唯一回读基准：padding 之后的网格区。
-            // boardLeft/boardWidth 是视口量（横向不滚动，恒定）；boardTopContent 存的是
-            // **内容坐标**（boundsInRoot().top − pageOrigin.y + scrollY：滚动时两项同步变、
-            // 和恒定），所以它在整场拖拽里是一个常数——这正是几何表能锁死的前提。
-            // 拖拽期间用 heightIn(min = 快照总高) 把页面总高钉住：否则拖走一块源组变矮、
-            // 页面变短，scrollY 被夹回上界，而 scrollY 又是内容坐标的唯一来源，落点会跟着跳。
+            // boardOrigin/boardWidth 是**页面根局部**量，每帧刷新；几何表以它为原点算板内
+            // 坐标（纯数据，不含测量量）。拖拽期间用 heightIn(min = 快照总高) 把页面总高
+            // 钉住：否则拖走一块源组变矮、页面变短，滚动被夹回上界，视觉上会跳。
             val boardMinHeight = if (session.draggingTile || session.mode == HomeDragMode.RESIZE) {
                 with(density) { dragGeometry.totalHeight(groupGapPx, firstGapPx).toDp() }
             } else {
@@ -707,9 +748,8 @@ fun HomeScreen(
                     .padding(horizontal = 16.dp)
                     .onGloballyPositioned { coords ->
                         val bounds = coords.boundsInRoot()
-                        session.boardLeft = bounds.left - session.pageOrigin.x
-                        session.boardWidth = bounds.width.toFloat()
-                        session.boardTopContent = bounds.top - session.pageOrigin.y + scroll.value.toFloat()
+                        session.boardOrigin = bounds.topLeft - session.pageOrigin
+                        session.boardWidth = bounds.width
                     },
             ) {
                 liveLayout.groups.filter(::groupVisible).forEachIndexed { index, group ->
@@ -732,7 +772,7 @@ fun HomeScreen(
                                 reorderLift = when {
                                     session.mode == HomeDragMode.GROUP && session.groupId == group.id -> {
                                         val top = dragGeometry.slot(group.id)?.top ?: 0f
-                                        pointerContent.y - session.groupGrabY - top
+                                        pointerBoard.y - session.groupGrabY - top
                                     }
                                     reorderSettleId == group.id -> reorderSettleAnim.value
                                     else -> null
@@ -791,37 +831,6 @@ fun HomeScreen(
             }
         }
 
-        // ── 编辑态的拖拽手势层：盖住整页、自己不滚动。所有拖拽手势只挂在这里这一个
-        // 从不销毁的节点上，被拖的块可以自由换组而不断手势（同 AOSP Launcher3 的 DragLayer）。
-        // 只在编辑态挂载；非编辑态卡片自己接点击/长按进编辑态，不需要这一层。──
-        if (editing.on) {
-            Box(
-                Modifier
-                    .matchParentSize()
-                    .homeDragLayer(
-                        session = session,
-                        geometry = { dragGeometry },
-                        scrollY = { scroll.value.toFloat() },
-                        handlePx = handlePx,
-                        removePx = removePx,
-                        onDown = { hit, viewport, content -> beginGesture(hit, viewport, content) },
-                        onMove = { viewport, _ -> session.move(viewport) },
-                        onUp = {
-                            when (session.mode) {
-                                HomeDragMode.TILE, HomeDragMode.PALETTE -> settleTileDrop()
-                                HomeDragMode.RESIZE -> settleResizeDrop()
-                                HomeDragMode.GROUP -> settleGroupDrop()
-                                HomeDragMode.IDLE -> Unit
-                            }
-                        },
-                        onCancel = {
-                            // 手势被系统抢走：整场作废（拖动中从不写草稿，所以不用恢复数据）
-                            if (session.mode == HomeDragMode.GROUP) cancelGroupDrop() else abandonDrag()
-                        },
-                    ),
-            )
-        }
-
         // ── 拖拽幽灵块：跟手画在最上层；松手时飞向落点（或飞回起手位置）再消失 ──
         HomeDragGhost(
             session = session,
@@ -865,8 +874,9 @@ fun HomeScreen(
         }
 
         // ── 拖到屏幕上下边缘时自动滚动（带阻尼：越靠边越快）；卡片、缩放、组排序共用 ──
-        // 只改 scroll.value：内容坐标是 (pointer + scrollY) 的派生量，滚动会自动触发命中与
-        // 落点重算，所以缩放/换组都自然跟上——不需要旧实现那种「按预估位置补算尺寸」的特例。
+        // 只改 scroll.value：手指板坐标是 (pointer − boardOrigin) 的派生量，滚动会改变
+        // boardOrigin，于是命中与落点自动重算，缩放/换组都自然跟上——不需要旧实现那种
+        // 「按预估位置补算尺寸」的特例。
         LaunchedEffect(session.active) {
             if (!session.active) return@LaunchedEffect
             val edge = with(density) { 104.dp.toPx() }

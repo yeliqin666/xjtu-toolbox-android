@@ -37,7 +37,9 @@ internal sealed interface HomeHit {
  *
  * 四条根基，缺一条就会回到「拖不动 / 落点飘 / 松手跳」：
  *
- * 1. **手势只挂在一个常驻不滚动的覆盖层上**（[HomeDragLayer]，同 AOSP Launcher3 的
+ * 1. **手势只挂在一个常驻、不滚动的层上**（`Modifier.homeDragLayer`，挂在页面根 Box
+ *    自己的修饰符链上——不是盖在上面的兄弟覆盖层，兄弟覆盖层带 pointerInput 会独占整条
+ *    命中路径，把下面的滚动列 / 顶栏 / 卡片全挡掉。同 AOSP Launcher3 的
  *    `DragLayer`）。它给的 [pointer] 就是**视口坐标**——`PointerInputChange.position`
  *    拿来直接用，不需要 `boundsInRoot()`、不需要逐块登记位置、不做差分累加。
  *    卡片节点自己**一个拖拽手势都不挂**，所以「被拖的块换到别的组会不会让手势协程被
@@ -47,20 +49,18 @@ internal sealed interface HomeHit {
  *    **渲染不需要几何表**——块在组内的位置由「数据格 × rowUnit」算出，组在页面里的位置
  *    交给 Column 自己排。几何与渲染因此不可能不一致（旧实现两套高度对不上，才要在
  *    松手时补算一次 `settledGeometry`）。
- * 3. **视口与内容之间只差一个 `scrollY`，而且每次都是绝对相加**：几何与命中一律在
- *    **内容坐标**（= [pointer] + `(0, scrollY)`，由 [HomeScreen] 派生）。滚动只是把内容
- *    整体平移，内容坐标里的组高与格位置一动不动，所以自动滚动时手指不动也能正确换组；
- *    缩放中自动滚动，块的左上角在内容坐标里不动而手指的内容坐标继续变大，尺寸于是自然
- *    跟着变大——不需要「按预估位置补算尺寸」那种特例。
- * 4. **布局是幂等纯函数**：每帧 `layout = f(base, 手指内容坐标)` 从快照重算，绝不
+ * 3. **几何一律在「板内坐标」，手指坐标只做一次减法**：几何表以组区容器左上角为原点
+ *    （`left = top = 0`），是**纯数据**，不含任何测量量；手指板坐标 = [pointer] −
+ *    [boardOrigin]。[boardOrigin] 由组区容器的 `onGloballyPositioned` 每帧刷新，随滚动
+ *    一起动，所以自动滚动时手指不动也能正确换组、缩放尺寸也会自然跟着变大——不需要
+ *    任何「按预估位置补算」的特例，也不需要在坐标里手工掺 `scrollY`。
+ * 4. **布局是幂等纯函数**：每帧 `layout = f(base, 手指板坐标)` 从快照重算，绝不
  *    `layout = f(layout, delta)` 累积。同一个手指位置反复算永远得到同一个布局，拖多久
  *    都不漂；命中 → 落点 → 布局之间也不存在反馈回路（旧实现振荡的根源）。
  *
- * 回读的几何基准只有组区容器自己（[boardLeft]/[boardWidth]/[boardTopContent]），
- * 三者都长在**从不做动画**的节点上，而且 [boardTopContent] 存的是内容坐标
- * （`boundsInRoot().top − pageOrigin.y + scrollY`：滚动时两项同步变化，和恒定），
- * 所以它在整次拖拽里就是一个常数。旧实现把**每块弹簧动画的中间帧位置**当基准还自称
- * 「绝对合成，动画污染不了」，那恰恰被自己的动画污染了——落点飘就是这么来的。
+ * 回读的几何基准只有组区容器自己的位置与宽度（[boardOrigin]/[boardWidth]），
+ * 它长在**从不做动画**的节点上，所以永远准。旧实现把**每块弹簧动画的中间帧位置**当
+ * 基准还自称「绝对合成，动画污染不了」，那恰恰被自己的动画污染了——落点飘就是这么来的。
  */
 @Stable
 internal class HomeDragSession {
@@ -68,7 +68,10 @@ internal class HomeDragSession {
     var mode by mutableStateOf(HomeDragMode.IDLE)
         private set
 
-    /** 手指的**视口**坐标：边缘自动滚动按它判断。内容坐标由首页按 scrollY 派生。 */
+    /**
+     * 手指的**页面根局部**坐标（手势层给的，手势层铺在页面根 Box 上）。
+     * 板内坐标 = [pointer] − [boardOrigin]，由首页/CursorLayer 现算。
+     */
     var pointer by mutableStateOf(Offset.Zero)
 
     val active: Boolean get() = mode != HomeDragMode.IDLE
@@ -76,14 +79,19 @@ internal class HomeDragSession {
     /** 拖的是卡片（含从悬浮条拖出的新块）：落点与接收高亮按卡片那一套走。 */
     val draggingTile: Boolean get() = mode == HomeDragMode.TILE || mode == HomeDragMode.PALETTE
 
-    // ── 组区容器的几何基准（只在非动画节点上回读，见类头第 4 条） ──
+    // ── 组区容器的几何基准 ──
 
-    /** 组区左边界与宽度（视口 x = 内容 x，横向不滚动）。 */
-    var boardLeft by mutableFloatStateOf(0f)
+    /**
+     * 组区容器的左上角，在**页面根局部坐标**里（每帧由 `onGloballyPositioned` 刷新）。
+     *
+     * 它随滚动移动——这正是要的：`手指板坐标 = 手指页面坐标 − boardOrigin`，页面滚到哪
+     * 映射都自动跟上，**不需要再手工掺 scrollY**。旧实现存
+     * `boundsInRoot().top − pageOrigin.y + scrollY` 那种「内容坐标」，那条链任何一环时序
+     * 不对（pageOrigin 尚未回填、scrollY 差一帧）都会让整份几何表整体偏移，表现就是
+     * 「一拖就跑到上方老远」。
+     */
+    var boardOrigin by mutableStateOf(Offset.Zero)
     var boardWidth by mutableFloatStateOf(0f)
-
-    /** 组区顶边的**内容** y：`boundsInRoot().top − pageOrigin.y + scrollY`，滚动中恒定。 */
-    var boardTopContent by mutableFloatStateOf(0f)
 
     /**
      * 页面根 Box 在窗口里的位置。
@@ -264,12 +272,13 @@ internal class HomeDragSession {
     }
 
     /**
-     * 手指移动：只记下**视口坐标**。
+     * 手指移动：只记下**页面根局部坐标**。
      *
      * 落点、目标组、缩放尺寸、组排序目标下标**全部不在这里算**——它们是 [HomeScreen] 里
-     * 读 `(pointer, scrollY, 快照几何)` 的 `derivedStateOf` 派生量。这样设计的好处：边缘
-     * 自动滚动改的是 `scrollY`，它一变，所有派生量自动重算，不需要任何「滚动时补算」的
-     * 特例（旧实现要为缩放专门补一次尺寸，就是因为把计算塞进了手势回调里）。
+     * 读 `(pointer, boardOrigin, 快照几何)` 的 `derivedStateOf` 派生量。这样设计的好处：
+     * 边缘自动滚动改的是 [boardOrigin]（以及派生出的手指板坐标），它一变，所有派生量自动
+     * 重算，不需要任何「滚动时补算」的特例（旧实现要为缩放专门补一次尺寸，就是因为把计算
+     * 塞进了手势回调里）。
      */
     fun move(now: Offset) {
         pointer = now
@@ -320,8 +329,9 @@ internal class HomeDragSession {
  * 组区几何表：每组多高、在哪里、每块在哪个矩形，全部由 [HomeDragSession.base] 这一份
  * **数据**推出（见 [buildBoardGeometry]）。
  *
- * 纵向一律是**内容坐标**（= 视口坐标 + `scrollY`）：滚动只是把内容整体平移，
- * 内容坐标里的组高与格位置一动不动，所以命中区间在整次拖拽里恒定。
+ * 坐标一律是**板内坐标**：原点就是组区容器左上角（构造时 `left = top = 0`），
+ * 所以整张表是**纯数据**、不含任何测量量，也就没有「测量时序不对导致整体偏移」的余地。
+ * 手指坐标由首页用 `pointer − boardOrigin` 现算成同一套板内坐标。
  */
 internal class HomeBoardGeometry(
     /** 组区左边界（视口 x = 内容 x，横向不滚动）。 */
@@ -367,13 +377,13 @@ internal class HomeBoardGeometry(
         return Offset((content.x - left) / colUnit, (content.y - s.gridTop) / rowUnit)
     }
 
-    /** 某一格的**内容坐标**左上角：松手时幽灵要吸附到这里。 */
+    /** 某一格的**板内坐标**左上角：松手时幽灵要吸附到这里（加 boardOrigin 换成页面坐标）。 */
     fun cellOrigin(groupId: String, cellX: Float, cellY: Float): Offset? {
         val s = slot(groupId) ?: return null
         return Offset(left + cellX * colUnit, s.gridTop + cellY * rowUnit)
     }
 
-    /** 某一块的内容坐标左上角：起手时用它算 grab（减掉 scrollY 就是视口坐标）。 */
+    /** 某一块的板内坐标左上角：起手时用它算 grab。 */
     fun tileOrigin(groupId: String, tile: HomeTile): Offset? {
         val s = slot(groupId) ?: return null
         return Offset(left + tile.x * colUnit, s.gridTop + tile.y * rowUnit)

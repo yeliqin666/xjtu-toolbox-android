@@ -111,6 +111,8 @@ internal fun HomeAddTileOrb(
         val pageH = constraints.maxHeight.toFloat()
         // 默认位：右侧边偏上一点
         val center = orbCenter ?: Offset(pageW - ballPx, pageH * 0.32f)
+        // 把手拖动的抓取偏移（手指 − 球心）：绝对跟手用，全程不变
+        var handleGrab by remember { mutableStateOf<Offset?>(null) }
 
         // 球 ↔ 长条：把手拖动中也强制显示成球
         val showRail = expanded && !handleDragging
@@ -150,12 +152,16 @@ internal fun HomeAddTileOrb(
                         onPaletteStart = onPaletteStart,
                         onPaletteDrop = onPaletteDrop,
                         onPaletteCancel = onPaletteCancel,
-                        onHandleDrag = { delta ->
+                        onHandleDragStart = { finger ->
                             handleDragging = true
-                            orbCenter = (orbCenter ?: center) + delta
+                            handleGrab = finger - (orbCenter ?: center)
+                        },
+                        onHandleDragTo = { finger ->
+                            handleGrab?.let { orbCenter = finger - it }
                         },
                         onHandleDrop = {
                             handleDragging = false
+                            handleGrab = null
                             orbCenter = snapToSide(orbCenter ?: center, pageW, pageH, ballPx)
                         },
                     )
@@ -163,13 +169,16 @@ internal fun HomeAddTileOrb(
                     OrbHandle(
                         liquid = liquid,
                         backdrop = backdrop,
+                        session = session,
                         onTap = { expanded = true },
-                        onDrag = { delta ->
+                        onDragStart = { finger ->
                             handleDragging = true
-                            orbCenter = (orbCenter ?: center) + delta
+                            handleGrab = finger - (orbCenter ?: center)
                         },
+                        onDragTo = { finger -> handleGrab?.let { orbCenter = finger - it } },
                         onDrop = {
                             handleDragging = false
+                            handleGrab = null
                             orbCenter = snapToSide(orbCenter ?: center, pageW, pageH, ballPx)
                         },
                     )
@@ -187,18 +196,36 @@ private fun snapToSide(center: Offset, pageW: Float, pageH: Float, ballPx: Float
     return Offset(x, y)
 }
 
-/** 那一枚圆形把手（球 = 它，长条最上方也是它）：液态玻璃，按住拖动、点一下展开。 */
+/**
+ * 那一枚圆形把手（球 = 它，长条最上方也是它）：液态玻璃，按住拖动、点一下展开。
+ *
+ * **跟手必须用「绝对坐标」而不是差分**。这个节点自己会跟着手指移动（整条收成球跟手），
+ * 如果用 `change.position - last` 累加：节点移动 Δ 后，下一帧的 `change.position` 就少了
+ * Δ，于是位移被抵消一半——球只跟一半，手指很快滑出节点范围，事件中断走 `finally`，
+ * 直接 `snapToSide` 把球吸到边上（就是「拖到一半脱手自动吸到旁边」）。
+ *
+ * 改成 `节点实测原点 + 事件相对坐标` 就对了：事件坐标永远是相对**当前**布局位置的，
+ * 而 [origin] 也是当前布局位置（上一帧布局结束时刷新），两者相加就是手指的真实页面
+ * 坐标，与节点自己怎么移动无关。
+ */
 @Composable
 private fun OrbHandle(
     liquid: Boolean,
     backdrop: Backdrop?,
+    session: HomeDragSession,
     onTap: () -> Unit,
-    onDrag: (Offset) -> Unit,
+    /** 拖起来的瞬间：给出手指的页面局部坐标（调用方据此记抓取偏移）。 */
+    onDragStart: (finger: Offset) -> Unit,
+    /** 拖动中：给出**绝对**的手指页面局部坐标。 */
+    onDragTo: (finger: Offset) -> Unit,
     onDrop: () -> Unit,
 ) {
+    // 把手自己的页面局部原点：随球移动，但每帧由 onGloballyPositioned 刷新
+    var origin by remember { mutableStateOf(Offset.Zero) }
     Box(
         Modifier
             .size(ORB_BALL)
+            .onGloballyPositioned { origin = it.boundsInRoot().topLeft - session.pageOrigin }
             .orbGlass(liquid, backdrop, CircleShape)
             .pointerInput("orbHandle") {
                 awaitEachGesture {
@@ -209,16 +236,13 @@ private fun OrbHandle(
                         onTap()
                         return@awaitEachGesture
                     }
-                    // 拖起来了：整条收成球跟手，松手吸附侧边。finally 兜底：手势协程被
-                    // 取消（重组、系统抢走）时也要归位，不能让球卡在半中央
                     try {
-                        var last = drag.position
+                        onDragStart(origin + drag.position)
                         while (true) {
                             val change = awaitPointerEvent().changes.firstOrNull { it.id == drag.id } ?: break
                             if (!change.pressed) break
-                            onDrag(change.position - last)
-                            last = change.position
                             change.consume()
+                            onDragTo(origin + change.position)
                         }
                     } finally {
                         onDrop()
@@ -247,7 +271,8 @@ private fun OrbRail(
     onPaletteStart: (routeId: String, startPointer: Offset) -> Unit,
     onPaletteDrop: () -> Unit,
     onPaletteCancel: () -> Unit,
-    onHandleDrag: (Offset) -> Unit,
+    onHandleDragStart: (Offset) -> Unit,
+    onHandleDragTo: (Offset) -> Unit,
     onHandleDrop: () -> Unit,
 ) {
     val listState = rememberLazyListState()
@@ -261,7 +286,15 @@ private fun OrbRail(
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         // 把手升到最上方：按住它整条收走（点它不做别的）
-        OrbHandle(liquid = liquid, backdrop = backdrop, onTap = {}, onDrag = onHandleDrag, onDrop = onHandleDrop)
+        OrbHandle(
+            liquid = liquid,
+            backdrop = backdrop,
+            session = session,
+            onTap = {},
+            onDragStart = onHandleDragStart,
+            onDragTo = onHandleDragTo,
+            onDrop = onHandleDrop,
+        )
         Spacer(Modifier.height(4.dp))
         LazyColumn(
             state = listState,
