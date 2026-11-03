@@ -101,8 +101,6 @@ internal fun HomeAddTileOrb(
     var expanded by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) { expanded = true }
 
-    // 按住把手拖动中：整条收成球跟手
-    var handleDragging by remember { mutableStateOf(false) }
     // 球（或收起的把手）中心在页面里的位置（页面局部坐标）；null = 还没拖过，用默认位
     var orbCenter by remember { mutableStateOf<Offset?>(null) }
 
@@ -114,8 +112,10 @@ internal fun HomeAddTileOrb(
         // 把手拖动的抓取偏移（手指 − 球心）：绝对跟手用，全程不变
         var handleGrab by remember { mutableStateOf<Offset?>(null) }
 
-        // 球 ↔ 长条：把手拖动中也强制显示成球
-        val showRail = expanded && !handleDragging
+        // 球 ↔ 长条。**拖动把手时绝不能切换状态**：AnimatedContent 会把正在跑手势的那个
+        // OrbHandle 节点销毁掉，手势协程跟着死，表现就是「按住把手拖不动」。
+        // 拖动中整条保持原样跟着手指走（这也正是「拖动整个悬浮条」该有的行为）。
+        val showRail = expanded
         // 卸载时清掉登记的矩形：编辑态退出后手势层不该还挡着这一块
         DisposableEffect(Unit) {
             onDispose { session.paletteRect = null }
@@ -153,14 +153,12 @@ internal fun HomeAddTileOrb(
                         onPaletteDrop = onPaletteDrop,
                         onPaletteCancel = onPaletteCancel,
                         onHandleDragStart = { finger ->
-                            handleDragging = true
                             handleGrab = finger - (orbCenter ?: center)
                         },
                         onHandleDragTo = { finger ->
                             handleGrab?.let { orbCenter = finger - it }
                         },
                         onHandleDrop = {
-                            handleDragging = false
                             handleGrab = null
                             orbCenter = snapToSide(orbCenter ?: center, pageW, pageH, ballPx)
                         },
@@ -172,12 +170,10 @@ internal fun HomeAddTileOrb(
                         session = session,
                         onTap = { expanded = true },
                         onDragStart = { finger ->
-                            handleDragging = true
                             handleGrab = finger - (orbCenter ?: center)
                         },
                         onDragTo = { finger -> handleGrab?.let { orbCenter = finger - it } },
                         onDrop = {
-                            handleDragging = false
                             handleGrab = null
                             orbCenter = snapToSide(orbCenter ?: center, pageW, pageH, ballPx)
                         },
