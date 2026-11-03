@@ -77,9 +77,14 @@ class HomeLayoutStore(
             HomeLayoutRevision.bump()
         }
 
-    /** 当前应当渲染的布局：存档优先，没有就按目录生成默认的。 */
+    /**
+     * 当前应当渲染的布局：存档优先，没有就按目录生成默认的。
+     *
+     * 读出来顺手收一遍空行（`compactGaps`，只网格模式）：老版本把空行留在存档里了，不收的话
+     * 用户升级完看到的还是那片空行。
+     */
     fun load(accountType: AccountType, quickRoutes: List<AppRoute> = emptyList()): HomeLayout =
-        saved ?: HomeLayoutDefaults.of(accountType, quickRoutes)
+        (saved ?: HomeLayoutDefaults.of(accountType, quickRoutes)).compactGaps(grid)
 
     fun save(layout: HomeLayout) {
         saved = layout

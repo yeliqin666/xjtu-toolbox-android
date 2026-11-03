@@ -246,8 +246,8 @@ internal fun HomeGroupSection(
                 key(tile.id) {
                     if (ghosted && tile.id == dragId) {
                         // 被拖块：不画真身，画一个弹簧跟随数据位置的落点占位框。
-                        // 真身由顶层的幽灵块画（跟手），松手时幽灵吸附到这里、占位框消失。
-                        DropSlot(tile, colUnit, rowUnit, gapPx)
+                        // 真身由顶层的幽灵块画（跟手），松手时幽灵吸附到这里、占位框渐隐。
+                        DropSlot(tile, colUnit, rowUnit, gapPx, settling = session.settling)
                     } else {
                         HomeTileItem(
                             tile = tile,
@@ -386,14 +386,23 @@ private fun GroupDeleteButton(liquid: Boolean, backdrop: Backdrop?, onClick: () 
 /**
  * 落点占位框：被拖块在**实时布局**里的位置与尺寸，弹簧跟位。
  * 「松手会落在哪」在拖动全程都看得见；松手时幽灵块飞过来与它重合，预览固化成数据。
+ *
+ * [settling] 为真（松手结算中）时它**渐隐**：幽灵块正飞过来长成原大，落点会在这段时间里被
+ * 盖住，所以淡出不会被看见；而等 `finish()` 那一刻才硬消失的话，边框会「啪」一下没掉。
  */
 @Composable
-private fun DropSlot(tile: HomeTile, colUnit: Float, rowUnit: Float, gapPx: Float) {
+private fun DropSlot(tile: HomeTile, colUnit: Float, rowUnit: Float, gapPx: Float, settling: Boolean) {
     val density = LocalDensity.current
     val x by animateFloatAsState(targetValue = tile.x, animationSpec = HomeTileSpring, label = "dropX")
     val y by animateFloatAsState(targetValue = tile.y, animationSpec = HomeTileSpring, label = "dropY")
     val w by animateFloatAsState(targetValue = tile.w, animationSpec = HomeTileSpring, label = "dropW")
     val h by animateFloatAsState(targetValue = tile.h, animationSpec = HomeTileSpring, label = "dropH")
+    // 淡出比吸附飞行稍快一点收尾（飞行是弹簧，约 200–300ms）：这样淡完时幽灵已经盖住它了
+    val fade by animateFloatAsState(
+        targetValue = if (settling) 0f else 1f,
+        animationSpec = tween(200),
+        label = "dropSlotFade",
+    )
     val frame = cellFrame(x, y, w, h, colUnit, rowUnit, gapPx)
     val radius = (minOf(w, h) * 12f).coerceIn(10f, 22f).dp
     val accent = MiuixTheme.colorScheme.primary
@@ -404,6 +413,7 @@ private fun DropSlot(tile: HomeTile, colUnit: Float, rowUnit: Float, gapPx: Floa
             .zIndex(2f)
             .offset { frame.leftTop }
             .size(with(density) { frame.widthPx.toDp() }, with(density) { frame.heightPx.toDp() })
+            .graphicsLayer { alpha = fade }
             // 幽灵是半透明盖在它上面的，所以底色给足、边框加粗，透过幽灵也能看清这块"空位"
             .background(accent.copy(alpha = 0.20f), RoundedCornerShape(radius))
             .border(2.dp, accent.copy(alpha = 0.85f), RoundedCornerShape(radius)),

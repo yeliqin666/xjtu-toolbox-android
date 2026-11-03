@@ -41,6 +41,7 @@ import androidx.compose.material.icons.filled.Settings
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
@@ -267,6 +268,22 @@ fun HomeScreen(
      */
     val idleTops = remember { mutableMapOf<String, Float>() }
 
+    /**
+     * 非编辑态**真正渲染出来的那一份组列表**（引用级快照，不复制数据）。
+     *
+     * 进编辑态的头一帧要用它算出「视口之上会多出多少高度」，好在布局之前就把滚动补好——
+     * 等布局量完再补，那一帧的错位就已经被画出来了（就是「进编辑态闪一下」）。
+     */
+    var idleGroups by remember { mutableStateOf<List<HomeGroup>>(emptyList()) }
+
+    /** 上面那份里**标题为空**的组 id：非编辑态它们不画标题行（§6），预测高度必须扣掉。 */
+    var idleHeaderless by remember { mutableStateOf<Set<String>>(emptySet()) }
+    if (!editing.on) {
+        // 内容相等时不会触发重组（List / Set 按结构比较），所以这里每帧赋值是安全的
+        idleGroups = visibleGroups
+        idleHeaderless = visibleGroups.filter { it.title.isBlank() }.mapTo(mutableSetOf()) { it.id }
+    }
+
     val scope = rememberCoroutineScope()
 
     // ── 拖拽编排：快照几何 → 每帧幂等重算 → 松手固化一次（根基见 HomeDragSession 类头） ──
@@ -398,6 +415,56 @@ fun HomeScreen(
         val add = (need - budget).coerceAtMost(session.sizeCells.y)
         val current = extraRows[group] ?: 0f
         if (add > current + 0.01f) extraRows = extraRows + (group to add)
+    }
+
+    /**
+     * 预测「进编辑态会让视口之上的内容长高多少」（px，正数 = 内容下移）。
+     *
+     * 编辑态会给每一组补标题行、把空组与「组件都打不开」的组也显示出来，这些都在视口之上，
+     * 一旦长高画面就整体下错。等布局量完再补，那一帧的错位已经被画出来（闪一下），所以这里
+     * 用**同一套几何函数**（[buildBoardGeometry]）把「编辑前 / 编辑后」锚点组的顶边差算出来，
+     * 在布局之前就补进滚动。
+     *
+     * 锚点 = 视口里最靠上的那一组；只比它的顶边，因为插入都发生在它之上（它自己的标题行在
+     * 顶边之下，不影响顶边）。万一预测有误差，后面那条逐帧锚点循环会兜底修正。
+     */
+    fun predictEnterFix(): Float {
+        if (idleGroups.isEmpty()) return 0f
+        val anchor = idleTops.entries
+            .filter { entry -> idleGroups.any { it.id == entry.key } }
+            .minByOrNull { abs(it.value) }
+            ?: return 0f
+        fun topOf(groups: List<HomeGroup>, headerless: Set<String>): Float? = buildBoardGeometry(
+            groups = groups,
+            left = 0f,
+            top = 0f,
+            width = session.boardWidth,
+            cellHeightPx = cellHeightPx,
+            gapPx = tileGapPx,
+            headerPx = headerPx,
+            groupGapPx = groupGapPx,
+            firstGapPx = firstGapPx,
+            headerlessIds = headerless,
+        ).slot(anchor.key)?.top
+        val before = topOf(idleGroups, idleHeaderless) ?: return 0f
+        val after = topOf(visibleGroups, emptySet()) ?: return 0f
+        return after - before
+    }
+
+    /** 待应用的「进编辑态预测补偿」（px）：组合期算好，[SideEffect] 里一次性打进滚动。 */
+    val enterFix = remember { mutableStateOf(0f) }
+    // remember(editing.on) 的 calculation 只在编辑态切换的那一次组合里跑，且早于布局
+    remember(editing.on) {
+        enterFix.value = if (editing.on) predictEnterFix() else 0f
+    }
+    // SideEffect 在「组合已提交、这一帧还没布局」时执行：现在改 scroll，布局与绘制用的就是
+    // 补好的位置，中间不会有一帧错位被画出来。
+    SideEffect {
+        val fix = enterFix.value
+        if (fix != 0f) {
+            enterFix.value = 0f
+            scroll.dispatchRawDelta(fix)
+        }
     }
 
     /** 缩放中的实时尺寸（格）：按「手指内容坐标 − 起手内容坐标」的**绝对差值**重算。 */

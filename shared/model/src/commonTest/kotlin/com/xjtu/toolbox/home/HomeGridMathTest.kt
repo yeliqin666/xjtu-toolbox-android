@@ -250,6 +250,37 @@ class HomeGridMathTest {
     }
 
     @Test
+    fun `只剩一块时也把上面的空行收掉`() {
+        // 两块一组、把上面那块拖走：只剩下面那块（y = 1），它必须被提回第一行，
+        // 否则那一行空着，「空行自动向上」在单块组里就失效了
+        val alone = listOf(tile("b", 0f, 1f))
+        val compacted = HomeGridMath.compactEmptyRows(alone)
+        assertEquals(0f, compacted.single().y, 0.0001f)
+    }
+
+    @Test
+    fun `单块本来就在第一行时不动它`() {
+        val alone = listOf(tile("b", 0f, 0f))
+        assertEquals(alone, HomeGridMath.compactEmptyRows(alone))
+    }
+
+    @Test
+    fun `读盘时把存档里遗留的空行收掉`() {
+        // 老版本存档里可能留着空行（拖动中被行数预算钉着、松手也没收）：读盘时补一遍，
+        // 否则用户升级完第一眼看到的还是那片空行
+        val holed = HomeLayout(
+            groups = listOf(HomeGroup(id = "g", title = "组", tiles = listOf(tile("a", 0f, 2f)))),
+        )
+        val fixed = holed.compactGaps(grid = true)
+        assertEquals(0f, fixed.group("g")!!.tiles.single().y, 0.0001f)
+        // 自由模式允许留空隙：原样返回（连对象都不换）
+        assertTrue(holed.compactGaps(grid = false) === holed)
+        // 本来就没空行时也不换对象
+        val tidy = HomeLayout(groups = listOf(HomeGroup(id = "g", tiles = listOf(tile("a", 0f, 0f)))))
+        assertTrue(tidy.compactGaps(grid = true) === tidy)
+    }
+
+    @Test
     fun `自由拖拽贴近邻居的边就吸过去`() {
         val anchor = tile("anchor", 0f, 0f)
         // 右边差 0.05 格；容差 0.28 之内 → 吸到 2f

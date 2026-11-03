@@ -198,28 +198,33 @@ object HomeGridMath {
      * 把「全空行」删掉：拖走 / 缩小之后中间空出一整行时，下面的块整体上移补上
      * （需求 §4.3 补充：后面所有卡片动画跟上来）。只服务网格模式——自由模式允许留空隙。
      * 所有块统一下移，相对顺序与相对位置不变。
+     *
+     * **一块也要压**：以前这里有个 `size < 2` 的短路，结果「两块一组、把上面那块拖走」之后
+     * 剩下的那块孤零零停在第二行，上面那行永远空着（看着就是「空行没被收掉」）。
      */
     fun compactEmptyRows(tiles: List<HomeTile>): List<HomeTile> {
-        if (tiles.size < 2) return tiles
-        val bottom = contentBottom(tiles).toInt()
-        if (bottom < 1) return tiles
+        if (tiles.isEmpty()) return tiles
+        // 末行下标 = 内容底 − 1：`contentBottom` 是「底边」，直接当行号会多算一行幽灵行
+        // （那一行永远算空，于是「没有空行」也判成有、每帧白建一份新 List）
+        val rows = contentBottom(tiles).toInt()
+        if (rows < 1) return tiles
         // 每个整数行有没有块占据（块可能跨行，整段都算占）
-        val occupied = BooleanArray(bottom + 1)
+        val occupied = BooleanArray(rows)
         tiles.forEach { t ->
             val from = t.y.toInt().coerceAtLeast(0)
             val to = (t.y + t.h).toInt()
-            for (y in from until to) if (y <= bottom) occupied[y] = true
+            for (y in from until to) if (y < rows) occupied[y] = true
         }
         // 每行之上有多少个全空行，就是要上移的格数
         var shift = 0
-        val shiftAt = IntArray(bottom + 1)
-        for (y in 0..bottom) {
+        val shiftAt = IntArray(rows)
+        for (y in 0 until rows) {
             if (!occupied[y]) shift++
             shiftAt[y] = shift
         }
         if (shift == 0) return tiles
         return tiles.map { t ->
-            t.copy(y = (t.y - shiftAt[t.y.toInt().coerceIn(0, bottom)]).coerceAtLeast(0f))
+            t.copy(y = (t.y - shiftAt[t.y.toInt().coerceIn(0, rows - 1)]).coerceAtLeast(0f))
         }
     }
 

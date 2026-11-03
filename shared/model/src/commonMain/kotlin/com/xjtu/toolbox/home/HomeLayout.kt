@@ -174,6 +174,28 @@ data class HomeLayout(val groups: List<HomeGroup> = emptyList()) {
     }
 
     /**
+     * 读盘时把各组里遗留的**全空行**收掉（只网格模式）。
+     *
+     * 理由：老版本会在存档里留下空行（拖动中被行数预算钉着、松手那次也没收），而「收空行」
+     * 只在用户再动一次布局时才跑——那样用户升级完第一眼看到的还是那片空行，会以为没修。
+     * 无空行时原样返回（`compactEmptyRows` 没有位移就返回同一个实例），不产生多余对象。
+     */
+    fun compactGaps(grid: Boolean = true): HomeLayout {
+        if (!grid) return this
+        var changed = false
+        val compacted = groups.map { group ->
+            val tiles = HomeGridMath.compactEmptyRows(group.tiles)
+            if (tiles === group.tiles) {
+                group
+            } else {
+                changed = true
+                group.copy(tiles = tiles)
+            }
+        }
+        return if (changed) copy(groups = compacted) else this
+    }
+
+    /**
      * 删掉一块。网格模式下顺手把因此空出来的整行收掉（§A1：空行不该留着，下面的块上移），
      * 否则删掉中间那一行里的块之后，这一行会一直空着，下面的块与后面的组也跟着永远错开。
      */

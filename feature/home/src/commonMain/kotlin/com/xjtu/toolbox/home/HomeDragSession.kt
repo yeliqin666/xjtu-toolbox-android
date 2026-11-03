@@ -514,6 +514,10 @@ internal class HomeBoardGeometry(
  * 底端之外时给那一组开新行接住（§5）。它同时喂给渲染侧的行数预算（`HomeGroupSection` 的
  * `budgetRows`），两边一起长，所以「命中 == 画出来的」仍然成立；因为只增不减，也不会出现
  * 「长出空行 → 手指落回组内 → 又收回去」的来回振荡。
+ *
+ * [headerlessIds] 是给「预测非编辑态版面」用的：非编辑态里**标题为空的组不画标题行**
+ * （§6），要拿这套函数算出与真实渲染一致的高度，就得把这些组标出来。拖拽几何表永远不传
+ * 它——编辑态每组都画标题行。
  */
 internal fun buildBoardGeometry(
     groups: List<HomeGroup>,
@@ -527,22 +531,24 @@ internal fun buildBoardGeometry(
     groupGapPx: Float,
     firstGapPx: Float,
     extraRows: Map<String, Float> = emptyMap(),
+    headerlessIds: Set<String> = emptySet(),
 ): HomeBoardGeometry {
     val colUnit = if (width > 0f) (width + gapPx) / HomeGridMath.COLUMNS else 0f
     val rowUnit = cellHeightPx + gapPx
     val slots = mutableListOf<HomeBoardGeometry.Slot>()
     var y = top + firstGapPx
     groups.forEach { group ->
+        val header = if (group.id in headerlessIds) 0f else headerPx
         val rows = HomeGridMath.contentBottom(group.tiles).coerceAtLeast(1f) + (extraRows[group.id] ?: 0f)
         val gridHeight = rows * rowUnit - gapPx
         slots += HomeBoardGeometry.Slot(
             groupId = group.id,
             top = y,
-            gridTop = y + headerPx,
-            height = headerPx + gridHeight,
+            gridTop = y + header,
+            height = header + gridHeight,
             tiles = group.tiles,
         )
-        y += headerPx + gridHeight + groupGapPx
+        y += header + gridHeight + groupGapPx
     }
     return HomeBoardGeometry(left, width, colUnit, rowUnit, slots)
 }
