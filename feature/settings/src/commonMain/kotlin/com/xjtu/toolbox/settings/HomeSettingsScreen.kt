@@ -83,13 +83,14 @@ fun HomeSettingsSheet(show: Boolean, onDismiss: () -> Unit) {
         title = "主页设置",
         onDismissRequest = onDismiss,
     ) {
-        HomeSettingsBody()
+        // 抽屉自己要知道怎么关自己：「恢复默认分组和布局」确认之后要立刻合上（§29 补充）
+        HomeSettingsBody(onDismiss = onDismiss)
     }
 }
 
 @OptIn(ExperimentalEncodingApi::class)
 @Composable
-private fun HomeSettingsBody() {
+private fun HomeSettingsBody(onDismiss: () -> Unit) {
     val store = remember { HomeLayoutStore() }
     // 本地状态是这一屏的真源：滑条拖动时先改它，写盘也顺手做，但只有离散动作才 bump revision
     var liquid by remember { mutableStateOf(store.liquidCard) }
@@ -275,6 +276,9 @@ private fun HomeSettingsBody() {
                             blur = store.backgroundBlur
                             opacity = store.backgroundOpacity
                             confirmReset = false
+                            // 确认之后就收起来：首页编辑态会立刻换成新的默认布局（草稿跟着
+                            // HomeLayoutResetRevision 换），不用等用户再点一次保存
+                            onDismiss()
                         },
                         modifier = Modifier.weight(1f),
                         colors = ButtonDefaults.textButtonColorsPrimary(),

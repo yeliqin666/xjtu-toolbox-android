@@ -3,7 +3,6 @@ package com.xjtu.toolbox.home
 import androidx.compose.animation.Crossfade
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
@@ -255,7 +254,6 @@ internal fun HomeGroupSection(
                             editing = editing,
                             liquid = liquid,
                             backdrop = backdrop,
-                            session = session,
                             colUnit = colUnit,
                             rowUnit = rowUnit,
                             gapPx = gapPx,
@@ -454,7 +452,8 @@ private fun cellFrame(
  * - 非编辑态：整块点击打开、长按进编辑态（此时 [homeDragLayer] 根本没挂载，不冲突）；
  * - 编辑态的左上角移除按钮：一个独立的点击热区（手势层对这块放行，见 `HomeBoardGeometry.hit`）。
  *
- * 缩放中被缩的那一块尺寸跟手（snap，不做动画），其余块尺寸/位置变化走弹簧。
+ * 尺寸与位置一律走弹簧（缩放也一样）：缩放时数据是一格一格跳的，snap 会把这些跳变原样
+ * 画出来、看着一顿一顿；走弹簧边缘才连续地挪过去。
  */
 @Composable
 private fun HomeTileItem(
@@ -463,7 +462,6 @@ private fun HomeTileItem(
     editing: Boolean,
     liquid: Boolean,
     backdrop: Backdrop?,
-    session: HomeDragSession,
     colUnit: Float,
     rowUnit: Float,
     gapPx: Float,
@@ -478,18 +476,11 @@ private fun HomeTileItem(
     val animX by animateFloatAsState(targetValue = tile.x, animationSpec = HomeTileSpring, label = "tileX")
     val animY by animateFloatAsState(targetValue = tile.y, animationSpec = HomeTileSpring, label = "tileY")
 
-    // 尺寸：缩放中被缩的那块跟手（snap），其余尺寸变化走弹簧
-    val resizing = session.mode == HomeDragMode.RESIZE && session.tileId == tile.id
-    val animW by animateFloatAsState(
-        targetValue = tile.w,
-        animationSpec = if (resizing) snap() else HomeTileSpring,
-        label = "tileW",
-    )
-    val animH by animateFloatAsState(
-        targetValue = tile.h,
-        animationSpec = if (resizing) snap() else HomeTileSpring,
-        label = "tileH",
-    )
+    // 尺寸：被缩的那一块也要跟着弹簧走（不再 snap）。尺寸是「数据格数」，拖动把手指位移换算成
+    // 整数格，按下与松手之间会一格一格地跳；snap 会把这些跳变原样画出来，看着一顿一顿的。
+    // 走弹簧后边缘是连续挪过去的，缩放过程才像「拉」而不是「跳格」。
+    val animW by animateFloatAsState(targetValue = tile.w, animationSpec = HomeTileSpring, label = "tileW")
+    val animH by animateFloatAsState(targetValue = tile.h, animationSpec = HomeTileSpring, label = "tileH")
 
     // 与 DropSlot 共用同一个换算入口：真身和占位框永远同一个矩形
     val frame = cellFrame(animX, animY, animW, animH, colUnit, rowUnit, gapPx)

@@ -108,6 +108,7 @@ import com.xjtu.toolbox.ui.theme.EditorialRule
 import com.xjtu.toolbox.ui.theme.LocalIsDarkTheme
 import com.xjtu.toolbox.ui.theme.serviceColor
 import kotlin.math.abs
+import kotlin.math.ceil
 import kotlin.math.roundToInt
 import kotlinx.coroutines.launch
 import top.yukonga.miuix.kmp.basic.ButtonDefaults
@@ -263,25 +264,31 @@ fun HomeScreen(
     val groupTops = remember { mutableMapOf<String, Float>() }
 
     /**
-     * 「进编辑态之前」各组的位置：只在**非编辑态的布局帧**里更新（写在每组的布局回调里，
-     * 所以取到的就是那一次真实布局的结果，不依赖「组合期还会再来一次」这种运气）。
+     * 「**上一种**编辑状态的布局帧里」各组的位置（组 id → 页面 y）。
+     *
+     * 进/出编辑态都要把滚动位置保住：进的时候每组补标题行、空组显现，出的时候反过来，内容在
+     * 视口之上长高/变矮，画面就会错位。这里按状态各记一份实测值，切换时拿它当锚点。
      */
     val idleTops = remember { mutableMapOf<String, Float>() }
+    val editTops = remember { mutableMapOf<String, Float>() }
 
     /**
-     * 非编辑态**真正渲染出来的那一份组列表**（引用级快照，不复制数据）。
+     * 两种状态各自**真正渲染出来的那一份组列表**（引用级快照，不复制数据）。
      *
-     * 进编辑态的头一帧要用它算出「视口之上会多出多少高度」，好在布局之前就把滚动补好——
-     * 等布局量完再补，那一帧的错位就已经被画出来了（就是「进编辑态闪一下」）。
+     * 切换的头一帧要用它算出「视口之上会多出/少掉多少高度」，好在布局之前就把滚动补好——
+     * 等布局量完再补，那一帧的错位就已经被画出来了（就是「闪一下」）。
      */
     var idleGroups by remember { mutableStateOf<List<HomeGroup>>(emptyList()) }
+    var editGroups by remember { mutableStateOf<List<HomeGroup>>(emptyList()) }
 
-    /** 上面那份里**标题为空**的组 id：非编辑态它们不画标题行（§6），预测高度必须扣掉。 */
+    /** 非编辑态那份里**标题为空**的组 id：它们不画标题行（§6），预测高度必须扣掉。 */
     var idleHeaderless by remember { mutableStateOf<Set<String>>(emptySet()) }
     if (!editing.on) {
         // 内容相等时不会触发重组（List / Set 按结构比较），所以这里每帧赋值是安全的
         idleGroups = visibleGroups
         idleHeaderless = visibleGroups.filter { it.title.isBlank() }.mapTo(mutableSetOf()) { it.id }
+    } else {
+        editGroups = visibleGroups
     }
 
     val scope = rememberCoroutineScope()
@@ -396,42 +403,25 @@ fun HomeScreen(
     }
 
     /**
-     * 手指（幽灵块）探出某一组的最后一个格时，给这一组多开一行接住它。
+     * 预测「切换编辑态会让视口之上的内容长高（进）或变矮（出）多少」（px，正数 = 内容下移）。
      *
-     * 触发条件只看**幽灵块底边是否越过这一组的预算行数**——拖到组底端边缘或组间空隙里都算，
-     * 正是用户「想再往下摆一行」的那个动作。加多少行 = 差多少，最多到这一块自己的高度
-     * （2 行高的块要能整块塞进新行里）。
+     * 编辑态会给每一组补标题行、把空组与「组件都打不开」的组也显示出来，退出时反过来——
+     * 这些都在视口之上，内容一变，画面就整体错位。等布局量完再补，那一帧的错位已经被画出来
+     * （闪一下），所以这里用**同一套几何函数**（[buildBoardGeometry]）把「切换前 / 切换后」
+     * 锚点组的顶边差算出来，在布局之前就补进滚动。
      *
-     * 只有在拖**卡片**时才有意义（缩放不吃预算、组排序不涉及落格），所以别的模式直接跳过。
-     * 写的是 [extraRows]：几何表与渲染侧的行数预算都读它，两边一起长。
+     * 锚点 = 切换前视口里最靠上的那一组；只比它的顶边，因为插入都发生在它之上（它自己的标题行
+     * 在顶边之下，不影响顶边）。万一预测有误差，后面那条逐帧锚点循环会兜底修正。
      */
-    fun growRowUnderGhost() {
-        if (!session.draggingTile) return
-        val group = targetGroup ?: return
-        val cell = dragGeometry.cellAt(group, ghostBoard) ?: return
-        val budget = rowBudget?.get(group) ?: return
-        val need = cell.y + session.sizeCells.y
-        if (need <= budget + 0.05f) return
-        val add = (need - budget).coerceAtMost(session.sizeCells.y)
-        val current = extraRows[group] ?: 0f
-        if (add > current + 0.01f) extraRows = extraRows + (group to add)
-    }
-
-    /**
-     * 预测「进编辑态会让视口之上的内容长高多少」（px，正数 = 内容下移）。
-     *
-     * 编辑态会给每一组补标题行、把空组与「组件都打不开」的组也显示出来，这些都在视口之上，
-     * 一旦长高画面就整体下错。等布局量完再补，那一帧的错位已经被画出来（闪一下），所以这里
-     * 用**同一套几何函数**（[buildBoardGeometry]）把「编辑前 / 编辑后」锚点组的顶边差算出来，
-     * 在布局之前就补进滚动。
-     *
-     * 锚点 = 视口里最靠上的那一组；只比它的顶边，因为插入都发生在它之上（它自己的标题行在
-     * 顶边之下，不影响顶边）。万一预测有误差，后面那条逐帧锚点循环会兜底修正。
-     */
-    fun predictEnterFix(): Float {
-        if (idleGroups.isEmpty()) return 0f
-        val anchor = idleTops.entries
-            .filter { entry -> idleGroups.any { it.id == entry.key } }
+    fun predictAnchorFix(): Float {
+        val entering = editing.on
+        val beforeGroups = if (entering) idleGroups else editGroups
+        if (beforeGroups.isEmpty()) return 0f
+        val beforeHeaderless = if (entering) idleHeaderless else emptySet()
+        val afterHeaderless = if (entering) emptySet() else visibleGroups.filter { it.title.isBlank() }.mapTo(mutableSetOf()) { it.id }
+        val beforeTops = if (entering) idleTops else editTops
+        val anchor = beforeTops.entries
+            .filter { entry -> beforeGroups.any { it.id == entry.key } }
             .minByOrNull { abs(it.value) }
             ?: return 0f
         fun topOf(groups: List<HomeGroup>, headerless: Set<String>): Float? = buildBoardGeometry(
@@ -446,25 +436,37 @@ fun HomeScreen(
             firstGapPx = firstGapPx,
             headerlessIds = headerless,
         ).slot(anchor.key)?.top
-        val before = topOf(idleGroups, idleHeaderless) ?: return 0f
-        val after = topOf(visibleGroups, emptySet()) ?: return 0f
+        val before = topOf(beforeGroups, beforeHeaderless) ?: return 0f
+        val after = topOf(visibleGroups, afterHeaderless) ?: return 0f
         return after - before
     }
 
-    /** 待应用的「进编辑态预测补偿」（px）：组合期算好，[SideEffect] 里一次性打进滚动。 */
-    val enterFix = remember { mutableStateOf(0f) }
+    /**
+     * 待应用的「切换编辑态预测补偿」（px）。用普通数组当一次性槽位（不是 State）：组合期写它、
+     * [SideEffect] 读它，两处都不需要订阅——用 State 反而会在组合期写状态、引起一次额外重组。
+     */
+    val anchorFixSlot = remember { floatArrayOf(0f) }
     // remember(editing.on) 的 calculation 只在编辑态切换的那一次组合里跑，且早于布局
     remember(editing.on) {
-        enterFix.value = if (editing.on) predictEnterFix() else 0f
+        anchorFixSlot[0] = predictAnchorFix()
     }
     // SideEffect 在「组合已提交、这一帧还没布局」时执行：现在改 scroll，布局与绘制用的就是
     // 补好的位置，中间不会有一帧错位被画出来。
     SideEffect {
-        val fix = enterFix.value
+        val fix = anchorFixSlot[0]
         if (fix != 0f) {
-            enterFix.value = 0f
+            anchorFixSlot[0] = 0f
             scroll.dispatchRawDelta(fix)
         }
+    }
+
+    // 「恢复默认分组和布局」：抽屉里确认之后立刻生效——**不退出编辑态**，但手上的草稿换成新的
+    // 默认布局（抽屉自己已经关了，见 HomeSettingsBody）。只看 reset 这一个信号，不看普通
+    // 的 revision：那个在改背景 / 开关网格时也会动，跟着换会把用户正摆着的草稿冲掉。
+    val resetRevision = HomeLayoutResetRevision.current
+    LaunchedEffect(resetRevision) {
+        if (resetRevision == 0 || !editing.on) return@LaunchedEffect
+        editing.draft = layoutStore.load(host.audience, host.quickRoutes)
     }
 
     /** 缩放中的实时尺寸（格）：按「手指内容坐标 − 起手内容坐标」的**绝对差值**重算。 */
@@ -546,6 +548,52 @@ fun HomeScreen(
         }
     }
 
+    /**
+     * 维护「本场拖拽里各组多开了几行」（[extraRows]）。三条规则，都是当前状态的纯函数：
+     *
+     * 1. **真用到的必须留着**：实时布局里某组已经占到预算之外的行，就把它记下来。不然卡片
+     *    明明摆在新行上，预算下一帧一收，它就被挤回去了。
+     * 2. **没用到的当帧就收**：反过来说，实时布局已经不占那些行了（让位 / 收空行把卡片提回
+     *    原来的行），多出来的行必须立刻消失——否则组底会留一条空行，直到松手才塌下去。
+     * 3. **手指探出组底 → 把空位补出来**：幽灵块底边越过该组的预算就补上差的那几行；
+     *    **网格模式下取整到整行**（空位随网格一格一格扩展），自由模式按实际差值（半格也行）。
+     *
+     * 写成幂等函数而不是「只增不减」，是因为第 2 条必须能回收；也不会振荡——cell.y 是相对
+     * 组顶算的，组底多出几行不改变它，「有那一行」和「没有那一行」各自都是不动点。
+     */
+    fun syncExtraRows() {
+        if (!session.draggingTile) {
+            if (extraRows.isNotEmpty()) extraRows = emptyMap()
+            return
+        }
+        val base = session.baseGroups.associate {
+            it.id to HomeGridMath.contentBottom(it.tiles).coerceAtLeast(1f)
+        }
+        val liveRows = liveLayout.groups.associate {
+            it.id to HomeGridMath.contentBottom(it.tiles).coerceAtLeast(1f)
+        }
+        val next = mutableMapOf<String, Float>()
+        base.forEach { (id, rows) ->
+            val used = (liveRows[id] ?: rows) - rows
+            if (used > 0.01f) next[id] = used
+        }
+        val group = targetGroup
+        if (group != null) {
+            val rows = base[group]
+            val cell = dragGeometry.cellAt(group, ghostBoard)
+            if (rows != null && cell != null) {
+                val budget = rows + (next[group] ?: 0f)
+                val need = cell.y + session.sizeCells.y
+                if (need > budget + 0.05f) {
+                    val raw = need - budget
+                    val add = if (gridState.value) ceil(raw) else raw
+                    next[group] = maxOf(next[group] ?: 0f, add)
+                }
+            }
+        }
+        if (next != extraRows) extraRows = next
+    }
+
     // ── 松手结算：幽灵块的吸附/回弹动画，与组排序的归位补偿 ──
     var ghostSettling by remember { mutableStateOf(false) }
     var ghostEpoch by remember { mutableIntStateOf(0) }
@@ -574,8 +622,9 @@ fun HomeScreen(
         val from = session.ghostOrigin
         val startGhost = session.startGhost
 
-        // 落盘必须与预览用**同一套行数预算**：预览带着 rowBudget（不压空行），落盘若不带
-        // 就会多压一次空行、整组上移，于是「落到的位置和预览看到的不一样、还可能挤在一起」。
+        // 落盘必须与预览用**同一套行数预算**：预览带着 rowBudget，落盘若不带就会在落位时多
+        // 认几行、整组上移，于是「落到的位置和预览看到的不一样、还可能挤在一起」。
+        // （空行由 finishRows 两边一起收，所以收空行不会让落盘和预览分叉。）
         val committed = if (target != null && cell != null && route != null) {
             if (session.fromPalette) {
                 base.addTileAt(target, route, id, cell.x, cell.y, grid, rowBudget)
@@ -937,8 +986,8 @@ fun HomeScreen(
                             Modifier.onGloballyPositioned { coords ->
                                 val top = coords.positionInRoot().y - session.pageOrigin.y
                                 groupTops[group.id] = top
-                                // 非编辑态的这一帧就是「进编辑之前的样子」
-                                if (!editing.on) idleTops[group.id] = top
+                                // 这一帧属于哪种状态，就记到哪一份「切换前的样子」里
+                                if (!editing.on) idleTops[group.id] = top else editTops[group.id] = top
                             },
                         ) {
                             Spacer(Modifier.height(if (index == 0) FIRST_GROUP_GAP else GROUP_GAP))
@@ -1089,7 +1138,7 @@ fun HomeScreen(
             while (true) {
                 withFrameNanos { }
                 session.refreshBoardFromCoordinates()
-                growRowUnderGhost()
+                syncExtraRows()
                 val y = session.pointer.y
                 val step = when {
                     y < edge -> -(1f - (y / edge).coerceIn(0f, 1f)) * maxStep
@@ -1100,19 +1149,20 @@ fun HomeScreen(
             }
         }
 
-        // 进编辑态**不跳**：编辑态会给每一组补上标题行、把空组与「组件都打不开」的组也显示
-        // 出来——这些都在**当前视口之上**，内容一长高，画面就整体往下错（scroll.value 没变，
-        // 所以以前那句「把 scroll 拉回原值」根本管不到这件事，等于没做）。
+        // 切换编辑态保住滚动位置（进、出都要）：编辑态会给每组补标题行、把空组与「组件都打不开」
+        // 的组显示出来，退出时反过来——这些都在**当前视口之上**，内容一变，画面就整体错位。
+        // 光记住 scroll.value 补不回来（内容高度变了、scroll 值没变）。
         //
-        // 做法：进编辑前记下「视口里最靠上的那一组」的位置（idleTops），进来之后每帧把这个
-        // 组的顶边补回原处（它下移了多少就把滚动补多少）。逐帧补是因为组高带弹簧动画
-        // （`animRows`）：一次补到位，剩下的部分还会接着漂；残差归零几帧就收工。
+        // 上面 predictAnchorFix + SideEffect 已经在**布局之前**把预测的差值补好了；这里按实测
+        // 的锚点组（切换前视口里最靠上的那一组）逐帧把残差补掉——组高带弹簧动画，一次补到位
+        // 剩下的部分还会接着漂；残差归零三帧收工。
         LaunchedEffect(editing.on) {
-            if (!editing.on) return@LaunchedEffect
-            // 锚点必须是「编辑态也还在」的那一组：已经不在的组留下的旧位置没有意义
+            val entering = editing.on
+            val beforeTops = if (entering) idleTops else editTops
+            val beforeGroups = if (entering) idleGroups else editGroups
             val alive = visibleGroups.mapTo(mutableSetOf()) { it.id }
-            val anchor = idleTops.entries
-                .filter { it.key in alive }
+            val anchor = beforeTops.entries
+                .filter { it.key in alive && beforeGroups.any { group -> group.id == it.key } }
                 .minByOrNull { abs(it.value) }
                 ?: return@LaunchedEffect
             val targetY = anchor.value

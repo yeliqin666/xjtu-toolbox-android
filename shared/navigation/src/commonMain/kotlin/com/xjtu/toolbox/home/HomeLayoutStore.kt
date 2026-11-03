@@ -87,12 +87,14 @@ class HomeLayoutStore(
         (saved ?: HomeLayoutDefaults.of(accountType, quickRoutes)).compactGaps(grid)
 
     fun save(layout: HomeLayout) {
-        saved = layout
+        // 空组不落盘：编辑态里被搬空的组，保存这一下就自动删掉（它在常规态本来就是隐藏的）
+        saved = layout.withoutEmptyGroups()
     }
 
     /** 「恢复默认分组和布局」：清掉整页快照，回到 [HomeLayoutDefaults]。 */
     fun reset() {
         store.remove(KEY_LAYOUT)
+        HomeLayoutResetRevision.bump()
         HomeLayoutRevision.bump()
     }
 
@@ -169,6 +171,22 @@ class HomeLayoutStore(
  * 主页设置面板、编辑态、首页自己各持一份状态，靠它一起重读，不依赖谁还留在组合里。
  */
 object HomeLayoutRevision {
+    var current by mutableIntStateOf(0)
+        private set
+
+    internal fun bump() {
+        current++
+    }
+}
+
+/**
+ * 「恢复默认分组和布局」的独立信号。
+ *
+ * 不能复用 [HomeLayoutRevision]：那个计数器在改背景、开关网格、保存布局时都会动，而首页编辑态
+ * 只在**恢复默认**这一件事上才该把手上草稿整个换成新的默认布局（别的信号要是也换，会把用户
+ * 正摆着的草稿冲掉）。恢复默认是一次「推倒重来」，所以它同时也 bump [HomeLayoutRevision]。
+ */
+object HomeLayoutResetRevision {
     var current by mutableIntStateOf(0)
         private set
 

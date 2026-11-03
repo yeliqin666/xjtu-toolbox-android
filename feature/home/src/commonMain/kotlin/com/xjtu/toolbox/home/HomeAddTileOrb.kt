@@ -251,11 +251,9 @@ private fun OrbHandle(
                     val down = awaitFirstDown(requireUnconsumed = false)
                     val slop = viewConfiguration.touchSlop
                     var dragging = false
-                    // **不能**用 awaitTouchSlopOrCancellation：它在发现变更被别人消费过时直接
-                    // 返回 null。而页面根 Box 上的 detectDragGesturesAfterLongPress 在长按成立后
-                    // 会**无条件** consume 每个 move（哪怕我们判断落在悬浮条上、什么都不做），
-                    // 于是把手永远跨不过 slop、被当成点击 —— 表现就是「按住把手完全没反应」。
-                    // 这里自己判 slop，不看消费标记，就不会被上层吃掉。
+                    // 自己判 slop，不用 awaitTouchSlopOrCancellation：后者在「变更已被别人消费
+                    // 过」时直接返回 null，而这条链上还有页面根 Box 的手势层与滚动列，谁先消费
+                    // 一下都可能把把手误判成点击。自己判就只看位移，不受消费标记影响。
                     try {
                         while (true) {
                             val change = awaitPointerEvent().changes.firstOrNull { it.id == down.id } ?: break

@@ -207,6 +207,14 @@ data class HomeLayout(val groups: List<HomeGroup> = emptyList()) {
     )
 
     /**
+     * 去掉**一个块都不剩的组**：编辑态里把某一组的卡片全搬走之后，这个组在常规态本来就是
+     * 隐藏的（`groupVisible` 只认有卡的组），留着它只是存档里的垃圾。落盘时统一清一次，
+     * 于是「空卡组在保存后自动删除」。
+     */
+    fun withoutEmptyGroups(): HomeLayout =
+        if (groups.none { it.tiles.isEmpty() }) this else copy(groups = groups.filter { it.tiles.isNotEmpty() })
+
+    /**
      * 给新块分一个**全局唯一**的 id：尾号取整页现有 `#N` 尾号的最大值 +1。
      *
      * 不能用「组内块数」当尾号——删掉一块再加就会撞号，`key(tile.id)` 与 `locate`
