@@ -8,7 +8,6 @@ import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
-import androidx.compose.foundation.gestures.awaitTouchSlopOrCancellation
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -226,23 +225,32 @@ private fun OrbHandle(
             .pointerInput("orbHandle") {
                 awaitEachGesture {
                     val down = awaitFirstDown(requireUnconsumed = false)
-                    val drag = awaitTouchSlopOrCancellation(down.id) { change, _ -> change.consume() }
-                    if (drag == null) {
-                        // 没拖起来 = 点一下：球展开成长条
-                        onTap()
-                        return@awaitEachGesture
-                    }
+                    val slop = viewConfiguration.touchSlop
+                    var dragging = false
+                    // **不能**用 awaitTouchSlopOrCancellation：它在发现变更被别人消费过时直接
+                    // 返回 null。而页面根 Box 上的 detectDragGesturesAfterLongPress 在长按成立后
+                    // 会**无条件** consume 每个 move（哪怕我们判断落在悬浮条上、什么都不做），
+                    // 于是把手永远跨不过 slop、被当成点击 —— 表现就是「按住把手完全没反应」。
+                    // 这里自己判 slop，不看消费标记，就不会被上层吃掉。
                     try {
-                        onDragStart(origin + drag.position)
                         while (true) {
-                            val change = awaitPointerEvent().changes.firstOrNull { it.id == drag.id } ?: break
+                            val change = awaitPointerEvent().changes.firstOrNull { it.id == down.id } ?: break
                             if (!change.pressed) break
-                            change.consume()
-                            onDragTo(origin + change.position)
+                            if (!dragging && (change.position - down.position).getDistance() > slop) {
+                                dragging = true
+                                onDragStart(origin + change.position)
+                            }
+                            if (dragging) {
+                                change.consume()
+                                onDragTo(origin + change.position)
+                            }
                         }
                     } finally {
-                        onDrop()
+                        // 手势被取消（重组、系统抢走）也要把抓取状态归位
+                        if (dragging) onDrop()
                     }
+                    // 没拖起来 = 点一下：球展开成长条（在 finally 之后，取消时不会走到）
+                    if (!dragging) onTap()
                 }
             },
         contentAlignment = Alignment.Center,
