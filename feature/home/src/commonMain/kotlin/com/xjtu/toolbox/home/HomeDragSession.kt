@@ -9,7 +9,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.layout.LayoutCoordinates
-import androidx.compose.ui.layout.boundsInWindow
 
 /** 编辑态里正在进行的手势种类。一次只有一种；[HomeDragMode.IDLE] = 没有手势。 */
 internal enum class HomeDragMode { IDLE, TILE, RESIZE, GROUP, PALETTE }
@@ -106,40 +105,25 @@ internal class HomeDragSession {
     var rootCoords: LayoutCoordinates? = null
     var boardCoords: LayoutCoordinates? = null
 
-    /** 各块最近一次布局的活坐标（普通 map，不进组合）。起手时用它定位抓取点——这是绝对真相。 */
-    val tileCoords = mutableMapOf<String, LayoutCoordinates>()
-
-    /**
-     * 起手时某块的页面局部左上角（**实测**活坐标）。
-     *
-     * 为什么用它而不是几何推算：起手那一瞬组区原点 [boardOrigin] 可能还停留在上一帧的旧值
-     * （容器位置没变则回调不触发），几何算出来的 origin 会整体偏移，幽灵于是「按下瞬间上跳」。
-     * 实测块位置永远不会。null = 还没量到（调用方回退几何推算）。
-     */
-    fun tileTopLeft(tileId: String): Offset? {
-        val r = rootCoords ?: return null
-        val c = tileCoords[tileId] ?: return null
-        if (!r.isAttached || !c.isAttached) return null
-        // boundsInWindow 是屏幕绝对位置，减根位置换成页面局部坐标——与抓取点的手指坐标同空间
-        return c.boundsInWindow().topLeft - r.boundsInWindow().topLeft
-    }
-
     /** 【临时诊断】上一次手势收尾的路径；定位完连同 HOME_DRAG_DEBUG 一起删。 */
     var lastEvent by mutableStateOf("-")
 
     /**
      * 把 [boardOrigin] / [boardWidth] 刷成**此刻**的值。
      *
-     * 用 `boundsInWindow`（屏幕上的绝对位置，滚动与动画都如实反映）两两相减换成页面局部坐标，
-     * 不用 `localPositionOf`——后者对「滚动容器里的子节点」的偏移语义不可靠（实测起手一瞬
-     * 给出 y=0 这种停在内容起点的值，就是「按下瞬间上跳」的来源）。
+     * 用 `localPositionOf`——这是 f10b44f8 那版、真机确认拖拽正确时用的写法。之前我误判它
+     * 给出 y=0 是 bug 并换成 boundsInWindow，反而把好用的行为改坏了；那次「上跳」的真因是
+     * 幽灵块被人为抬高了 64dp（本轮已撤）。
      */
     fun refreshBoardFromCoordinates() {
-        val r = rootCoords ?: return
-        val c = boardCoords ?: return
-        if (!r.isAttached || !c.isAttached) return
-        boardOrigin = c.boundsInWindow().topLeft - r.boundsInWindow().topLeft
-        if (c.size.width > 0) boardWidth = c.size.width.toFloat()
+        val r = rootCoords
+        val c = boardCoords
+        if (r != null && c != null && r.isAttached && c.isAttached) {
+            boardOrigin = r.localPositionOf(c, Offset.Zero)
+        }
+        boardCoords?.let { co ->
+            if (co.isAttached && co.size.width > 0) boardWidth = co.size.width.toFloat()
+        }
     }
 
     /**

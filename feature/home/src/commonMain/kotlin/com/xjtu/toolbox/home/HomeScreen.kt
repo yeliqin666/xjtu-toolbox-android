@@ -250,9 +250,6 @@ fun HomeScreen(
     val firstGapPx = with(density) { FIRST_GROUP_GAP.toPx() }
     val handlePx = with(density) { RESIZE_HANDLE_TOUCH.toPx() }
     val removePx = with(density) { REMOVE_TOUCH.toPx() }
-    // 拖拽中幽灵块向上悬浮的高度：落点占位框就在幽灵正下方，不抬高会被整个盖住。
-    // iOS / Launcher 的做法都是把被拖物抬离手指一段距离，让底下的格子露出来。
-    val ghostDragLiftPx = with(density) { 64.dp.toPx() }
 
     // derivedStateOf 的 lambda 只在依赖的 State 变化时重跑；layout / grid / visibleGroups
     // 都是普通局部值，直接读不会被追踪，所以经 rememberUpdatedState 读它们的**最新值**
@@ -451,11 +448,13 @@ fun HomeScreen(
         val from = session.ghostOrigin
         val startGhost = session.startGhost
 
+        // 落盘必须与预览用**同一套行数预算**：预览带着 rowBudget（不压空行），落盘若不带
+        // 就会多压一次空行、整组上移，于是「落到的位置和预览看到的不一样、还可能挤在一起」。
         val committed = if (target != null && cell != null && route != null) {
             if (session.fromPalette) {
-                base.addTileAt(target, route, id, cell.x, cell.y, grid)
+                base.addTileAt(target, route, id, cell.x, cell.y, grid, rowBudget)
             } else {
-                base.moveTile(id, target, cell.x, cell.y, grid, if (grid) 0f else EDGE_LINK_CELLS)
+                base.moveTile(id, target, cell.x, cell.y, grid, if (grid) 0f else EDGE_LINK_CELLS, rowBudget)
             }
         } else {
             null
@@ -494,7 +493,7 @@ fun HomeScreen(
         // 剩下只是幽灵的吸附/回弹动画（可被打断；打断就交给下一场手势的 finish 清场）。
         val epoch = ++ghostEpoch
         scope.launch {
-            ghostSettle.snapTo(from - Offset(0f, ghostDragLiftPx))
+            ghostSettle.snapTo(from)
             ghostSettling = true
             try {
                 ghostSettle.animateTo(destination ?: startGhost, HomeTileSpringOffset)
@@ -617,25 +616,21 @@ fun HomeScreen(
         when (hit) {
             is HomeHit.Tile -> {
                 val tile = layout.tile(hit.tileId) ?: return
-                // 抓取点优先用「这一块实测的位置」（起手那一刻的绝对真相）；组区原点那一瞬
-                // 可能还是旧值（容器位置没变则回调不触发），几何推算会整体偏移、幽灵上跳。
-                val origin = session.tileTopLeft(hit.tileId)
-                    ?: dragGeometry.tileOrigin(hit.groupId, tile)?.let { it + session.boardOrigin }
-                    ?: return
+                val tileOrigin = dragGeometry.tileOrigin(hit.groupId, tile) ?: return
                 session.beginTile(
                     layout, ids, tile, hit.groupId,
-                    origin = origin,
+                    // 块原点是板内坐标，加 boardOrigin 换成页面坐标——grab 是两者之差，
+                    // 天然与坐标系无关。这版写法在真机上确认过拖拽正确，别再动。
+                    origin = tileOrigin + session.boardOrigin,
                     startPointer = viewport,
                 )
             }
             is HomeHit.Resize -> {
                 val tile = layout.tile(hit.tileId) ?: return
-                val origin = session.tileTopLeft(hit.tileId)
-                    ?: dragGeometry.tileOrigin(hit.groupId, tile)?.let { it + session.boardOrigin }
-                    ?: return
+                val tileOrigin = dragGeometry.tileOrigin(hit.groupId, tile) ?: return
                 session.beginResize(
                     layout, ids, tile,
-                    origin = origin,
+                    origin = tileOrigin + session.boardOrigin,
                     startPointer = viewport,
                     startContent = board,
                 )
@@ -892,7 +887,6 @@ fun HomeScreen(
             geometry = dragGeometry,
             settling = ghostSettling,
             settleValue = { ghostSettle.value },
-            liftPx = ghostDragLiftPx,
         )
 
         // ── 编辑态右侧的「添加卡片」悬浮球：展开成长条，长按功能拖出来放到组里 ──
@@ -1766,8 +1760,6 @@ private fun HomeDragGhost(
     geometry: HomeBoardGeometry,
     settling: Boolean,
     settleValue: () -> Offset,
-    /** 拖拽中向上悬浮的高度（露出底下的占位框）；结算动画的值里已含，不再重复抬。 */
-    liftPx: Float,
 ) {
     if (!session.draggingTile && !settling) return
     val face = session.routeId?.let { faces[it] } ?: return
@@ -1781,7 +1773,7 @@ private fun HomeDragGhost(
         Modifier
             // 跟手阶段：手指 − 抓取点；结算阶段：吸附/回弹动画的当前值（都是视口坐标）
             .offset {
-                val p = if (settling) settleValue() else session.ghostOrigin - Offset(0f, liftPx)
+                val p = if (settling) settleValue() else session.ghostOrigin
                 IntOffset(p.x.roundToInt(), p.y.roundToInt())
             }
             .size(with(density) { wPx.toDp() }, with(density) { hPx.toDp() })

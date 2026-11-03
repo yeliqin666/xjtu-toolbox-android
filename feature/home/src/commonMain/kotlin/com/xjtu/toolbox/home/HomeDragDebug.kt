@@ -32,7 +32,7 @@ import top.yukonga.miuix.kmp.basic.Text
  * 判读：`P` 与 `G` 应只差一个固定的 `grab`；`dragTile` 若在拖动中变成 `--`，说明预览把
  * 块弄丢了；松手后看 `dragTile` 落到哪一格、和预期是否一致、是否消失。
  */
-internal const val HOME_DRAG_DEBUG = true
+internal const val HOME_DRAG_DEBUG = false
 
 @Composable
 internal fun HomeDragDebugOverlay(
