@@ -59,14 +59,19 @@ internal object DynamicScheduleScheduler {
                 return@withLock
             }
             val cache = DataCache(context, account)
-            val term = ScheduleCache.readCurrentTermSchedule(cache)
+            val term = ScheduleCache.readCurrentTerm(cache)
+            // readCourses 会把课名写入当前全局账号的色表；后台仅做无副作用的显式账号读取。
+            val courses = term?.let {
+                ScheduleCache.readOptimizedCourses(cache, it, Long.MAX_VALUE)
+                    ?: ScheduleCache.readRawCourses(cache, it, Long.MAX_VALUE)
+            }.orEmpty()
             val custom = term?.let {
-                AppDatabase.getInstance(context).customCourseDao().getByTerm(account, it.code).map { row -> row.toCourseItem() }
+                AppDatabase.getInstance(context).customCourseDao().getByTerm(account, it).map { row -> row.toCourseItem() }
             }.orEmpty()
             val now = ZonedDateTime.now(CampusZoneId)
             val plan = planDynamicSchedule(
-                courses = term?.courses.orEmpty() + custom,
-                termStart = term?.start?.toJavaTime(),
+                courses = courses + custom,
+                termStart = term?.let { ScheduleCache.readStartDate(cache, it) }?.toJavaTime(),
                 now = now,
                 holidays = HolidayApi.peekCached(cache).keys.map { it.toJavaTime() }.toSet(),
             )

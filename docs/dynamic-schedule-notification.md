@@ -31,3 +31,9 @@
 ![日程通知](qa/dynamic-schedule-agenda.png)
 
 系统约束见 Android 官方文档：[闹钟调度与精确权限](https://developer.android.com/develop/background-work/services/alarms)、[通知计时器](https://developer.android.com/reference/androidx/core/app/NotificationCompat.Builder#setChronometerCountDown(boolean))。
+
+2026-11-03 在 adb 真机 2509FPN0BC（Android 17 / API 37）使用独立临时包与虚构数据验证：课程课前、日程进行态、回收后台进程后在开始边界重新拉起并切换到距结束、结束后自动收起、关闭后撤销。主 Activity 启动返回 `Status: ok`（WARM，347 ms）；未登录校园账号。测试后卸载临时包，保留原正式版和 debug 包。下图仅裁出目标通知卡片，未修改通知内容：
+
+![真机课程通知](qa/dynamic-schedule-device-course.png)
+
+![真机日程通知](qa/dynamic-schedule-device-agenda.png)
