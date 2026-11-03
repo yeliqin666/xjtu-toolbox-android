@@ -40,6 +40,8 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.lerp
+import androidx.compose.ui.layout.boundsInRoot
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
@@ -198,7 +200,11 @@ internal fun HomeGroupSection(
         BoxWithConstraints(
             Modifier
                 .fillMaxWidth()
-                .height(with(density) { (animRows * (cellHeightPx + gapPx) - gapPx).toDp() }),
+                .height(with(density) { (animRows * (cellHeightPx + gapPx) - gapPx).toDp() })
+                // 网格区实测原点：起手时用它反推 boardOrigin（见 session.gridOrigins）
+                .onGloballyPositioned {
+                    session.gridOrigins[group.id] = it.boundsInRoot().topLeft - session.pageOrigin
+                },
         ) {
             val colUnit = (constraints.maxWidth + gapPx) / HomeGridMath.COLUMNS
             val rowUnit = cellHeightPx + gapPx

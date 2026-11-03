@@ -573,6 +573,18 @@ fun HomeScreen(
     fun beginGesture(hit: HomeHit, viewport: Offset) {
         // 几何表没就绪（组区还没量到宽度）就不接手：宁可这一下没反应，也不要拿空几何起手
         if (!dragGeometry.ready || session.boardWidth <= 0f) return
+        // 用「落点所在组」的网格区实测位置反推 boardOrigin（比组区容器整体测量更直接，
+        // 也不怕容器位置没变导致回调没触发）。网格区顶 = boardOrigin.y + slot.gridTop。
+        val hitGroupId = when (hit) {
+            is HomeHit.Tile -> hit.groupId
+            is HomeHit.Resize -> hit.groupId
+            is HomeHit.GroupHandle -> hit.groupId
+            HomeHit.Pass -> return
+        }
+        val hitSlot = dragGeometry.slot(hitGroupId) ?: return
+        session.gridOrigins[hitGroupId]?.let { grid ->
+            session.boardOrigin = grid - Offset(0f, hitSlot.gridTop)
+        }
         val board = viewport - session.boardOrigin
         // 新手势顶掉上一场的结算动画
         ghostEpoch++
@@ -829,6 +841,19 @@ fun HomeScreen(
                     alignWithGreeting = masthead,
                 )
             }
+        }
+
+        // ── 【临时】拖拽诊断读数（定位完删掉：搜索 HOME_DRAG_DEBUG）──
+        if (editing.on) {
+            HomeDragDebugOverlay(
+                session = session,
+                geometry = dragGeometry,
+                pointerBoard = pointerBoard,
+                handlePx = handlePx,
+                removePx = removePx,
+                groupGapPx = groupGapPx,
+                firstGapPx = firstGapPx,
+            )
         }
 
         // ── 拖拽幽灵块：跟手画在最上层；松手时飞向落点（或飞回起手位置）再消失 ──

@@ -94,6 +94,16 @@ internal class HomeDragSession {
     var boardWidth by mutableFloatStateOf(0f)
 
     /**
+     * 各组「网格区」（标题行之下那块）左上角的页面局部坐标，由 [HomeGroupSection] 的
+     * `onGloballyPositioned` 刷新（普通 map，不进组合，只在起手那一刻读一次）。
+     *
+     * 起手时用它**反推** [boardOrigin]：网格区顶 = boardOrigin.y + slot.gridTop，
+     * 所以 `boardOrigin = 网格区顶 − slot.gridTop`。这比读组区容器整体的测量更直接，
+     * 也不存在「容器位置没变所以回调没触发」的过期问题。
+     */
+    val gridOrigins = mutableMapOf<String, Offset>()
+
+    /**
      * 页面根 Box 在窗口里的位置。
      *
      * **只给悬浮条用**：那条长条里的图标自己有长按手势（拖出新块），要把「事件的图标
