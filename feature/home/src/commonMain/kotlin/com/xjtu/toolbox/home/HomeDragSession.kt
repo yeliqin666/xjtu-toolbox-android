@@ -509,6 +509,11 @@ internal class HomeBoardGeometry(
  *
  * 拖拽期间渲染的实时布局会让某些组变高变矮，但这里始终按快照算，所以命中区间恒定，
  * 命中与滚动、命中与落点之间都不存在反馈回路。
+ *
+ * [extraRows]（组 id → 多出来的行数）是唯一的例外，而且是**只增不减**的：卡片拖到某一组
+ * 底端之外时给那一组开新行接住（§5）。它同时喂给渲染侧的行数预算（`HomeGroupSection` 的
+ * `budgetRows`），两边一起长，所以「命中 == 画出来的」仍然成立；因为只增不减，也不会出现
+ * 「长出空行 → 手指落回组内 → 又收回去」的来回振荡。
  */
 internal fun buildBoardGeometry(
     groups: List<HomeGroup>,
@@ -521,13 +526,14 @@ internal fun buildBoardGeometry(
     headerPx: Float,
     groupGapPx: Float,
     firstGapPx: Float,
+    extraRows: Map<String, Float> = emptyMap(),
 ): HomeBoardGeometry {
     val colUnit = if (width > 0f) (width + gapPx) / HomeGridMath.COLUMNS else 0f
     val rowUnit = cellHeightPx + gapPx
     val slots = mutableListOf<HomeBoardGeometry.Slot>()
     var y = top + firstGapPx
     groups.forEach { group ->
-        val rows = HomeGridMath.contentBottom(group.tiles).coerceAtLeast(1f)
+        val rows = HomeGridMath.contentBottom(group.tiles).coerceAtLeast(1f) + (extraRows[group.id] ?: 0f)
         val gridHeight = rows * rowUnit - gapPx
         slots += HomeBoardGeometry.Slot(
             groupId = group.id,

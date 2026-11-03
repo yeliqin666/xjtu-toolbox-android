@@ -97,7 +97,7 @@ data class HomeLayout(val groups: List<HomeGroup> = emptyList()) {
                 moved
             }
             val placed = HomeGridMath.placeInGroup(from.tiles, adjusted, grid, rowBudget?.get(from.id))
-            return replaceGroup(from.copy(tiles = finishRows(placed, grid, rowBudget)))
+            return replaceGroup(from.copy(tiles = finishRows(placed, grid)))
         }
 
         // 跨组：先把它从原来那组摘掉（原位置留下空档，不压缩别的块），再放进目标组
@@ -106,8 +106,8 @@ data class HomeLayout(val groups: List<HomeGroup> = emptyList()) {
         return copy(
             groups = groups.map {
                 when (it.id) {
-                    fromAfter.id -> fromAfter.copy(tiles = finishRows(fromAfter.tiles, grid, rowBudget))
-                    targetAfter.id -> targetAfter.copy(tiles = finishRows(targetAfter.tiles, grid, rowBudget))
+                    fromAfter.id -> fromAfter.copy(tiles = finishRows(fromAfter.tiles, grid))
+                    targetAfter.id -> targetAfter.copy(tiles = finishRows(targetAfter.tiles, grid))
                     else -> it
                 }
             },
@@ -125,15 +125,19 @@ data class HomeLayout(val groups: List<HomeGroup> = emptyList()) {
         val (group, tile) = locate(tileId) ?: return this
         val moved = tile.copy(w = w, h = h)
         val placed = HomeGridMath.resizeInGroup(group.tiles, moved, grid, rowBudget?.get(group.id))
-        return replaceGroup(group.copy(tiles = finishRows(placed, grid, rowBudget)))
+        return replaceGroup(group.copy(tiles = finishRows(placed, grid)))
     }
 
     /**
-     * 一次落位的收尾：给了行数预算（= 拖动中）就原样留着空行，没给（= 松手）就把这一组的
-     * 全空行收掉，下面的块整体上移补位（§A1）。自由模式允许留空隙，不压。
+     * 一次落位的收尾：网格模式下把这一组的**全空行**收掉，下面的块整体上移补位（§A1）。
+     *
+     * 拖动中也收（以前只在松手那一次收——那样预览留着空行、松手一压缩，落点就和看到的不一样，
+     * 于是 16278fd7 那轮反过来取消了松手压缩，空行就永远留着了）。现在两边都收，预览与落盘
+     * 逐格一致；组高在拖动中由行数预算钉住（渲染那一层），所以收掉空行只是块在组内上移，
+     * 不会让下面的组跟着跳。自由模式允许留空隙，不压。
      */
-    private fun finishRows(tiles: List<HomeTile>, grid: Boolean, rowBudget: Map<String, Float>?): List<HomeTile> =
-        if (grid && rowBudget == null) HomeGridMath.compactEmptyRows(tiles) else tiles
+    private fun finishRows(tiles: List<HomeTile>, grid: Boolean): List<HomeTile> =
+        if (grid) HomeGridMath.compactEmptyRows(tiles) else tiles
 
     /** 往 [groupId] 组里加一个功能；组里已经有同一个路由就不重复加。 */
     fun addTile(groupId: String, routeId: String, tileId: String): HomeLayout {
@@ -166,11 +170,18 @@ data class HomeLayout(val groups: List<HomeGroup> = emptyList()) {
         val group = group(groupId) ?: return this
         if (group.tiles.any { it.routeId == routeId }) return this
         val placed = HomeGridMath.placeInGroup(group.tiles, HomeTile(tileId, routeId, x, y, 2f, 1f), grid, rowBudget?.get(groupId))
-        return replaceGroup(group.copy(tiles = finishRows(placed, grid, rowBudget)))
+        return replaceGroup(group.copy(tiles = finishRows(placed, grid)))
     }
 
-    fun removeTile(tileId: String): HomeLayout = copy(
-        groups = groups.map { group -> group.copy(tiles = group.tiles.filter { it.id != tileId }) },
+    /**
+     * 删掉一块。网格模式下顺手把因此空出来的整行收掉（§A1：空行不该留着，下面的块上移），
+     * 否则删掉中间那一行里的块之后，这一行会一直空着，下面的块与后面的组也跟着永远错开。
+     */
+    fun removeTile(tileId: String, grid: Boolean = true): HomeLayout = copy(
+        groups = groups.map { group ->
+            val kept = group.tiles.filter { it.id != tileId }
+            if (kept.size == group.tiles.size) group else group.copy(tiles = finishRows(kept, grid))
+        },
     )
 
     /**

@@ -3,6 +3,7 @@ package com.xjtu.toolbox.home
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.VectorConverter
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -105,6 +106,7 @@ import com.xjtu.toolbox.ui.theme.Editorial
 import com.xjtu.toolbox.ui.theme.EditorialRule
 import com.xjtu.toolbox.ui.theme.LocalIsDarkTheme
 import com.xjtu.toolbox.ui.theme.serviceColor
+import kotlin.math.abs
 import kotlin.math.roundToInt
 import kotlinx.coroutines.launch
 import top.yukonga.miuix.kmp.basic.ButtonDefaults
@@ -240,6 +242,31 @@ fun HomeScreen(
     val density = LocalDensity.current
     var pageSize by remember { mutableStateOf(Offset.Zero) }
 
+    /**
+     * 本场拖拽里**已经给哪一组多开了几行**（组 id → 多出来的行数）。
+     *
+     * 卡片拖到某一组的最后一个格之外时，要能在那儿新起一行接住它（需求：拖到本组底端可以
+     * 再建一行）。做法是「按需长高」而不是「先把预算放宽」——放宽成对**所有**组都多一行的话，
+     * 每场拖拽都会凭空多出一整行空行，收起时整页又要跳一下。
+     *
+     * 只增不减：行数一旦长出来，本场就不再收回去。这一条是防振荡的关键——手指探出组底就
+     * 长一行，长完之后手指自然回到组内，若这时又收回去，「长 → 收 → 再长」就成了每帧来回摆。
+     * 多出来的行若最终没被占住，松手时由「收空行」（`HomeLayout.finishRows`）统一压掉。
+     */
+    var extraRows by remember { mutableStateOf<Map<String, Float>>(emptyMap()) }
+
+    /**
+     * 各组在**页面坐标**里的顶边（组 id → y），由每组外框的 `onGloballyPositioned` 每帧刷新。
+     * 只服务「进编辑态不跳」这一件事：拿它当滚动锚点（见下面的 `LaunchedEffect(editing.on)`）。
+     */
+    val groupTops = remember { mutableMapOf<String, Float>() }
+
+    /**
+     * 「进编辑态之前」各组的位置：只在**非编辑态的布局帧**里更新（写在每组的布局回调里，
+     * 所以取到的就是那一次真实布局的结果，不依赖「组合期还会再来一次」这种运气）。
+     */
+    val idleTops = remember { mutableMapOf<String, Float>() }
+
     val scope = rememberCoroutineScope()
 
     // ── 拖拽编排：快照几何 → 每帧幂等重算 → 松手固化一次（根基见 HomeDragSession 类头） ──
@@ -265,7 +292,7 @@ fun HomeScreen(
      * remember 的 key：内容一变就重建这个 derivedStateOf（List 按内容相等比较，不会每帧重建）。
      * 拖动中不写草稿 → visibleGroups 恒定 → key 恒定；落盘那一下它变，几何表随之刷新。
      */
-    val dragGeometry by remember(visibleGroups, cellHeightPx, tileGapPx, groupGapPx, headerPx, firstGapPx) {
+    val dragGeometry by remember(visibleGroups, cellHeightPx, tileGapPx, groupGapPx, headerPx, firstGapPx, extraRows) {
         derivedStateOf {
             buildBoardGeometry(
                 groups = session.baseGroups.ifEmpty { visibleGroups },
@@ -277,6 +304,8 @@ fun HomeScreen(
                 headerPx = headerPx,
                 groupGapPx = groupGapPx,
                 firstGapPx = firstGapPx,
+                // 给「已经多开了行」的那几组补上高度，命中区间与渲染才继续相等
+                extraRows = extraRows,
             )
         }
     }
@@ -326,12 +355,13 @@ fun HomeScreen(
     }
 
     /**
-     * 拖动中的**行数预算**：每组锁死成起手快照的行数。
+     * 拖动中的**行数预算**：每组锁死成起手快照的行数（**加上**本场已经给它多开的行）。
      *
-     * 这是「落点不飘」的物理保证——有了它，整场拖拽里没有任何一个组会变高，于是
-     * `dragGeometry`（按快照算的命中区间）与渲染出来的组位置**每一帧都严格相等**。
-     * 组一变高，下面的组就被推下去，而命中还按快照的旧位置算，手指与格子的对应关系
-     * 当场失效，然后落点改布局、布局改高度、高度又改落点——那就是旧实现振荡的回路。
+     * 这是「落点不飘」的物理保证——有了它，整场拖拽里除了「用户明确要求多开的那几行」以外
+     * 没有任何一个组会变高，于是 `dragGeometry`（按快照算的命中区间）与渲染出来的组位置
+     * **每一帧都严格相等**。组一变高，下面的组就被推下去，而命中还按快照的旧位置算，手指与
+     * 格子的对应关系当场失效，然后落点改布局、布局改高度、高度又改落点——那就是旧实现振荡
+     * 的回路。
      *
      * 缩放不吃预算（组跟着变高是用户的明确意图，而且缩放全程不需要命中判定）。
      */
@@ -340,9 +370,34 @@ fun HomeScreen(
             if (!session.draggingTile) {
                 null
             } else {
-                session.baseGroups.associate { it.id to HomeGridMath.contentBottom(it.tiles).coerceAtLeast(1f) }
+                session.baseGroups.associate { group ->
+                    val base = HomeGridMath.contentBottom(group.tiles).coerceAtLeast(1f)
+                    group.id to base + (extraRows[group.id] ?: 0f)
+                }
             }
         }
+    }
+
+    /**
+     * 手指（幽灵块）探出某一组的最后一个格时，给这一组多开一行接住它。
+     *
+     * 触发条件只看**幽灵块底边是否越过这一组的预算行数**——拖到组底端边缘或组间空隙里都算，
+     * 正是用户「想再往下摆一行」的那个动作。加多少行 = 差多少，最多到这一块自己的高度
+     * （2 行高的块要能整块塞进新行里）。
+     *
+     * 只有在拖**卡片**时才有意义（缩放不吃预算、组排序不涉及落格），所以别的模式直接跳过。
+     * 写的是 [extraRows]：几何表与渲染侧的行数预算都读它，两边一起长。
+     */
+    fun growRowUnderGhost() {
+        if (!session.draggingTile) return
+        val group = targetGroup ?: return
+        val cell = dragGeometry.cellAt(group, ghostBoard) ?: return
+        val budget = rowBudget?.get(group) ?: return
+        val need = cell.y + session.sizeCells.y
+        if (need <= budget + 0.05f) return
+        val add = (need - budget).coerceAtMost(session.sizeCells.y)
+        val current = extraRows[group] ?: 0f
+        if (add > current + 0.01f) extraRows = extraRows + (group to add)
     }
 
     /** 缩放中的实时尺寸（格）：按「手指内容坐标 − 起手内容坐标」的**绝对差值**重算。 */
@@ -613,6 +668,8 @@ fun HomeScreen(
     fun beginGesture(hit: HomeHit, viewport: Offset) {
         // 几何表没就绪（组区还没量到宽度）就不接手：宁可这一下没反应，也不要拿空几何起手
         if (!dragGeometry.ready || session.boardWidth <= 0f) return
+        // 新的一场：上一场多开的行全部作废（多出来的行在那场松手时就已经被收空行压掉了）
+        extraRows = emptyMap()
         // 原点已由手势层在起手那一刻现场刷新过（session.refreshBoardFromCoordinates），
         // 这里直接用，不再做二次猜测。
         val board = viewport - session.boardOrigin
@@ -807,7 +864,16 @@ fun HomeScreen(
                 liveLayout.groups.filter(::groupVisible).forEachIndexed { index, group ->
                     // key 定身份：组重排时子树连同动画状态一起平移，不销毁重建
                     key(group.id) {
-                        Column {
+                        Column(
+                            // 记下这一组的实际顶边（页面坐标）：进编辑态时拿它当滚动锚点，
+                            // 把「编辑态补出来的标题行 / 空组」造成的内容位移补回去
+                            Modifier.onGloballyPositioned { coords ->
+                                val top = coords.positionInRoot().y - session.pageOrigin.y
+                                groupTops[group.id] = top
+                                // 非编辑态的这一帧就是「进编辑之前的样子」
+                                if (!editing.on) idleTops[group.id] = top
+                            },
+                        ) {
                             Spacer(Modifier.height(if (index == 0) FIRST_GROUP_GAP else GROUP_GAP))
                             HomeGroupSection(
                                 group = group,
@@ -834,7 +900,8 @@ fun HomeScreen(
                                 onStartEdit = { editing.begin(stored) },
                                 onEditGroup = { editing.editGroup = group },
                                 onDeleteGroup = { editing.confirmDeleteGroup = group },
-                                onRemoveTile = { tileId -> update { it.removeTile(tileId) } },
+                                // 网格模式下删完顺手收空行（空行不该留着，下面的块与组一起上移）
+                                onRemoveTile = { tileId -> update { it.removeTile(tileId, grid) } },
                                 // 和头卡同一套左右留白由容器统一给；入场沿用「错峰淡入上浮」，只播一次
                                 modifier = Modifier.enterOnce(index),
                                 cellHeight = cellHeight,
@@ -917,6 +984,8 @@ fun HomeScreen(
                 session = session,
                 onPaletteStart = { routeId, startPointer ->
                     session.refreshBoardFromCoordinates()
+                    // 新的一场（悬浮条拖出也走这里）：上一场多开的行作废
+                    extraRows = emptyMap()
                     val g = dragGeometry
                     if (g.ready) {
                         session.beginPalette(
@@ -938,13 +1007,14 @@ fun HomeScreen(
             )
         }
 
-        // ── 拖拽期间的每帧维护：①组区原点跟住滚动 ②拖到上下边缘时自动滚动（带阻尼：越靠边越快） ──
+        // ── 拖拽期间的每帧维护：①组区原点跟住滚动 ②拖到边缘自动滚动 ③探出组底就多开一行 ──
         // ①是几何表的命门：手指板坐标 = 手指 − boardOrigin，而 boardOrigin 只能靠**现读活坐标**
         // 才准。组区容器上那处 onGloballyPositioned 回填不可靠——页面滚起来之后它不保证每帧都到，
         // 值一停住，落点格 / 目标组 / 组排序中点就整体偏「从起手算起滚过的距离」：表现是拖到一半
         // 页面滚下去、占位框不跟着内容走，松手落到别的组（卡片本身是 Column 排的，照样滚得对，
         // 所以只看画面会觉得「卡片对、网格不对」）。这里每帧刷一次，与回调是否触发无关。
         // ②只改 scroll.value：原点跟着刷新，目标组 / 落点格 / 缩放尺寸 / 组排序目标全部自动重算。
+        // ③只在手指探出某一组最后一格时给它加行，且**只增不减**（见 extraRows 的说明）。
         LaunchedEffect(session.active) {
             if (!session.active) return@LaunchedEffect
             val edge = with(density) { 104.dp.toPx() }
@@ -952,6 +1022,7 @@ fun HomeScreen(
             while (true) {
                 withFrameNanos { }
                 session.refreshBoardFromCoordinates()
+                growRowUnderGhost()
                 val y = session.pointer.y
                 val step = when {
                     y < edge -> -(1f - (y / edge).coerceIn(0f, 1f)) * maxStep
@@ -962,13 +1033,35 @@ fun HomeScreen(
             }
         }
 
-        // 长按进编辑态：记住那一刻的滚动位置，编辑态布局稳定后若被改动就拉回去。
-        // 编辑态会多出空组 / 标题行，内容变高，但滚动本身不该跳（§17 补充）
+        // 进编辑态**不跳**：编辑态会给每一组补上标题行、把空组与「组件都打不开」的组也显示
+        // 出来——这些都在**当前视口之上**，内容一长高，画面就整体往下错（scroll.value 没变，
+        // 所以以前那句「把 scroll 拉回原值」根本管不到这件事，等于没做）。
+        //
+        // 做法：进编辑前记下「视口里最靠上的那一组」的位置（idleTops），进来之后每帧把这个
+        // 组的顶边补回原处（它下移了多少就把滚动补多少）。逐帧补是因为组高带弹簧动画
+        // （`animRows`）：一次补到位，剩下的部分还会接着漂；残差归零几帧就收工。
         LaunchedEffect(editing.on) {
             if (!editing.on) return@LaunchedEffect
-            val anchor = scroll.value
-            withFrameNanos { }
-            if (scroll.value != anchor) scroll.scrollTo(anchor)
+            // 锚点必须是「编辑态也还在」的那一组：已经不在的组留下的旧位置没有意义
+            val alive = visibleGroups.mapTo(mutableSetOf()) { it.id }
+            val anchor = idleTops.entries
+                .filter { it.key in alive }
+                .minByOrNull { abs(it.value) }
+                ?: return@LaunchedEffect
+            val targetY = anchor.value
+            var stable = 0
+            repeat(40) {
+                withFrameNanos { }
+                val y = groupTops[anchor.key] ?: return@LaunchedEffect
+                val delta = (y - targetY).roundToInt()
+                if (delta == 0) {
+                    if (++stable >= 3) return@LaunchedEffect
+                } else {
+                    stable = 0
+                    val target = (scroll.value + delta).coerceIn(0, scroll.maxValue)
+                    if (target != scroll.value) scroll.scrollTo(target)
+                }
+            }
         }
 
         // ── 组名 / 颜色、删除组、往组里加功能这几个弹窗 ──
@@ -1021,6 +1114,13 @@ private const val EDGE_LINK_CELLS = 0.28f
 
 /** 幽灵块吸附/回弹的弹簧：与卡片位移同一组参数（阻尼、刚度），只是换成二维坐标。 */
 private val HomeTileSpringOffset = spring<Offset>(dampingRatio = 0.62f, stiffness = 520f)
+
+/**
+ * 拖动中幽灵块缩放到的比例 / 不透明度：比真身略小、略透，底下的落点占位框才露得出来。
+ * 松手后这两个值会在结算动画里补回 1.0（否则动画末尾换真身那一下会「突变成正常大小」）。
+ */
+private const val GHOST_DRAG_SCALE = 0.94f
+private const val GHOST_DRAG_ALPHA = 0.88f
 
 /**
  * 编辑态的那点临时状态：草稿布局、正在编辑的组、正在加功能的组。
@@ -1791,6 +1891,16 @@ private fun HomeDragGhost(
     val wPx = (session.sizeCells.x * geometry.colUnit - gapPx).coerceAtLeast(1f)
     val hPx = (session.sizeCells.y * geometry.rowUnit - gapPx).coerceAtLeast(1f)
 
+    // 松手后幽灵一边飞向落点、一边**长回原大、变回不透明**：
+    // 拖动中它是 94% + 88% 不透明（好让底下的落点占位框露出来），而落点处换成真身的那一刻
+    // 是真身 100%。不把这两个值补回去，动画结束那一帧就会「从略小一点突变成正常大小」——
+    // 用户看到的就是落位末尾跳一下。用同一组弹簧参数，和吸附位移同步收敛。
+    val settleToFull by animateFloatAsState(
+        targetValue = if (settling) 1f else 0f,
+        animationSpec = HomeTileSpring,
+        label = "ghostSettleToFull",
+    )
+
     Box(
         Modifier
             // 跟手阶段：手指 − 抓取点；结算阶段：吸附/回弹动画的当前值（都是视口坐标）
@@ -1803,9 +1913,11 @@ private fun HomeDragGhost(
             .graphicsLayer {
                 // 略小于占位框 + 半透明：底下的落点占位框（2dp 主题色边框）才能露出来。
                 // 之前放大到 1.04 且 96% 不透明，正好把占位框整个盖住，等于没有提示。
-                scaleX = 0.94f
-                scaleY = 0.94f
-                alpha = 0.88f
+                // 结算期线性补回 1.0 / 1.0，见上面 settleToFull。
+                val full = settleToFull
+                scaleX = GHOST_DRAG_SCALE + (1f - GHOST_DRAG_SCALE) * full
+                scaleY = GHOST_DRAG_SCALE + (1f - GHOST_DRAG_SCALE) * full
+                alpha = GHOST_DRAG_ALPHA + (1f - GHOST_DRAG_ALPHA) * full
             },
     ) {
         HomeTileFaceBox(

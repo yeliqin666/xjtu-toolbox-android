@@ -319,7 +319,10 @@ private fun GroupHeader(
                 color = titleColor,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.weight(1f, fill = false).then(titleTap),
+                // 必须给满 weight（不能 fill = false）：fill = false 时 Text 只量到自己的实际
+                // 宽度，它那份**配给但没用掉**的空间不会还给后面的兄弟，于是右侧的删除按钮
+                // 被顶到「标题 + 半个剩余宽度」那里，看着就是不居右。
+                modifier = Modifier.weight(1f).then(titleTap),
             )
         } else if (editing) {
             Text(
@@ -327,10 +330,13 @@ private fun GroupHeader(
                 fontSize = 18.sp,
                 fontWeight = FontWeight.Bold,
                 color = muted.copy(alpha = 0.6f),
-                modifier = titleTap,
+                modifier = Modifier.weight(1f).then(titleTap),
             )
+        } else {
+            // 这一行只在「编辑态，或组名非空」时才会被画（见外层判断），这里是兜底：
+            // 无非让一个空占位把右侧按钮顶到边上
+            Spacer(Modifier.weight(1f))
         }
-        Spacer(Modifier.weight(1f))
         if (editing) {
             GroupDeleteButton(liquid = liquid, backdrop = backdrop, onClick = onDeleteGroup)
         }
