@@ -295,12 +295,33 @@ fun HomeScreen(
     }
 
     /**
+     * **幽灵左上角**的板内坐标 = 手指板坐标 − 抓取偏移。
+     *
+     * 落点必须按它算，不能按手指算：手指按在块的中间，用手指所在的格当「块左上角该落的格」
+     * 会整体偏掉一格左右（2×1 的块按中心抓，偏半格横向 + 半格纵向，取整后就是一格）。
+     * 幽灵画在 `pointer − grab`，所以用它算格才能「所见即所得」。
+     * grab 是同一坐标系里的差值，−boardOrigin 会抵消，整条链与滚动无关。
+     */
+    val ghostBoard by remember {
+        derivedStateOf { pointerBoard - session.grab }
+    }
+
+    /**
      * 目标组：纯函数。组间空隙对半分之后各组的命中区间**首尾相接不重叠**，
      * 所以不需要「记住当前组」的滞回，也就不存在边界上来回切。
      */
     val targetGroup by remember(groupGapPx) {
         derivedStateOf {
-            if (!session.draggingTile) null else dragGeometry.groupAt(pointerBoard, groupGapPx / 2f)
+            if (!session.draggingTile) {
+            null
+        } else {
+            // 用幽灵**中心**判组：2×2 的块上半截还在上一组时，不该判给上一组
+            val half = Offset(
+                session.sizeCells.x * dragGeometry.colUnit / 2f,
+                session.sizeCells.y * dragGeometry.rowUnit / 2f,
+            )
+            dragGeometry.groupAt(ghostBoard + half, groupGapPx / 2f)
+        }
         }
     }
 
@@ -387,7 +408,7 @@ fun HomeScreen(
                     val id = session.tileId
                     val route = session.routeId
                     val target = targetGroup
-                    val cell = if (target == null) null else dragGeometry.cellAt(target, pointerBoard)
+                    val cell = if (target == null) null else dragGeometry.cellAt(target, ghostBoard)
                     when {
                         id == null || route == null || target == null || cell == null -> base
                         session.fromPalette ->
@@ -423,7 +444,7 @@ fun HomeScreen(
         val base = session.base ?: return
         val route = session.routeId
         val target = targetGroup
-        val cell = if (target == null) null else dragGeometry.cellAt(target, pointerBoard)
+        val cell = if (target == null) null else dragGeometry.cellAt(target, ghostBoard)
         val from = session.ghostOrigin
         val startGhost = session.startGhost
 
@@ -871,6 +892,7 @@ fun HomeScreen(
                 backdrop = tileBackdrop.takeIf { liquid },
                 session = session,
                 onPaletteStart = { routeId, startPointer ->
+                    session.refreshBoardFromCoordinates()
                     val g = dragGeometry
                     if (g.ready) {
                         session.beginPalette(
