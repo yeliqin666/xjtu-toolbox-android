@@ -7,8 +7,9 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.layout.LayoutCoordinates
 import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.layout.LayoutCoordinates
+import androidx.compose.ui.layout.boundsInWindow
 
 /** 编辑态里正在进行的手势种类。一次只有一种；[HomeDragMode.IDLE] = 没有手势。 */
 internal enum class HomeDragMode { IDLE, TILE, RESIZE, GROUP, PALETTE }
