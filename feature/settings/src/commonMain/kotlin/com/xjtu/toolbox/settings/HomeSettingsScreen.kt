@@ -21,7 +21,6 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.GridOn
 import androidx.compose.material.icons.filled.RestartAlt
-import androidx.compose.material.icons.filled.TextFields
 import androidx.compose.material.icons.filled.Wallpaper
 import androidx.compose.material.icons.filled.WaterDrop
 import androidx.compose.runtime.Composable
@@ -95,13 +94,14 @@ private fun HomeSettingsBody(onDismiss: () -> Unit) {
     // 本地状态是这一屏的真源：滑条拖动时先改它，写盘也顺手做，但只有离散动作才 bump revision
     var liquid by remember { mutableStateOf(store.liquidCard) }
     var grid by remember { mutableStateOf(store.grid) }
-    var textSpace by remember { mutableStateOf(store.leaveTextSpace) }
     var image by remember { mutableStateOf(store.backgroundImage) }
     var blur by remember { mutableIntStateOf(store.backgroundBlur) }
     var opacity by remember { mutableIntStateOf(store.backgroundOpacity) }
     var busy by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
     var confirmReset by remember { mutableStateOf(false) }
+    // 打开网格会当场把非整数的摆位取整、收空行，且回不去（见 [confirmGrid]）——先二次确认
+    var confirmGrid by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
 
     // 抽屉关掉时把「连续值也改过了」告诉首页（滑条不逐帧 bump，见 notifyChanged 的说明）
@@ -214,25 +214,15 @@ private fun HomeSettingsBody(onDismiss: () -> Unit) {
                 summary = if (grid) "拖动与缩放吸附到 1×1、1×2、2×1 这类标准栅格" else "自由摆放，拖到相邻边界时自动贴合",
                 checked = grid,
                 startAction = { SettingsIcon(Icons.Default.GridOn, cTeal) },
-                onCheckedChange = {
-                    grid = it
-                    store.grid = it
-                    store.notifyChanged()
-                },
-            )
-            SwitchPreference(
-                title = "网格下留出文字空间",
-                summary = if (textSpace) {
-                    "单元高 88dp：高长方形，1×1 也放得下图标与名称"
-                } else {
-                    "单元高 46dp：网格更紧凑，1 格高的卡片只剩图标"
-                },
-                checked = textSpace,
-                startAction = { SettingsIcon(Icons.Default.TextFields, cBlue) },
-                onCheckedChange = {
-                    textSpace = it
-                    store.leaveTextSpace = it
-                    store.notifyChanged()
+                onCheckedChange = { on ->
+                    // 关掉是立刻生效的（不会动数据）；打开要把非整数摆位取整，先问一句
+                    if (!on) {
+                        grid = false
+                        store.grid = false
+                        store.notifyChanged()
+                    } else {
+                        confirmGrid = true
+                    }
                 },
             )
         }
@@ -279,6 +269,38 @@ private fun HomeSettingsBody(onDismiss: () -> Unit) {
                             // 确认之后就收起来：首页编辑态会立刻换成新的默认布局（草稿跟着
                             // HomeLayoutResetRevision 换），不用等用户再点一次保存
                             onDismiss()
+                        },
+                        modifier = Modifier.weight(1f),
+                        colors = ButtonDefaults.textButtonColorsPrimary(),
+                    )
+                }
+            }
+        }
+    }
+
+    // 打开网格的二次确认：它会把自由摆位取整落盘，且没有回头路（参照「恢复默认」那个弹窗）
+    if (confirmGrid) {
+        WindowDialog(
+            show = true,
+            title = "开启网格",
+            onDismissRequest = { confirmGrid = false },
+        ) {
+            Column(Modifier.fillMaxWidth()) {
+                Text(
+                    "自由摆放的组件会按格子取整、收掉空出来的行，改成吸附到 1×1 / 2×1 / 1×2 / 2×2 这些标准格子。" +
+                        "这一步不可撤销：之后再关掉网格，也不会恢复成原来的位置与大小。",
+                    style = MiuixTheme.textStyles.body2,
+                )
+                Spacer(Modifier.height(16.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    TextButton(text = "取消", onClick = { confirmGrid = false }, modifier = Modifier.weight(1f))
+                    TextButton(
+                        text = "开启网格",
+                        onClick = {
+                            // 取整落盘 + 开开关 + 换掉编辑态草稿，全在 store 里一次做完
+                            store.enableGrid()
+                            grid = true
+                            confirmGrid = false
                         },
                         modifier = Modifier.weight(1f),
                         colors = ButtonDefaults.textButtonColorsPrimary(),

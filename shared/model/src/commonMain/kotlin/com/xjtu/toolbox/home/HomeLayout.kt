@@ -196,6 +196,39 @@ data class HomeLayout(val groups: List<HomeGroup> = emptyList()) {
     }
 
     /**
+     * 把整页的摆位**取整改进网格**（自由摆放 → 开启网格的那一下用，不可撤销）。
+     *
+     * 规则就三步，全部复用拖拽那一套纯函数，所以结果和「用户手动一格一格拖进去」一致：
+     * 1. 每块先 [HomeGridMath.clampToBoard]：宽高取整、夹进 1..4 格，左边界夹进 0..列数-w；
+     * 2. 按阅读顺序（上→下、左→右）逐块落位：原位没被占就直接用，占了找第一个放得下的
+     *    空位（[HomeGridMath.firstFreeSlot]），实在没有就摞到本组最下方
+     *    （[HomeGridMath.bottomSlot]）——绝不重叠，也绝不跨组；
+     * 3. 每组最后收一遍空行（[HomeGridMath.compactEmptyRows]）。
+     *
+     * 自由模式下允许 1.3×2.7 这种非整数摆位，网格模式里它们既吸不住也画不齐；
+     * 取整之后**原来的位置和大小就不再是那份数据了**，这就是设置面板里那句「不可恢复」。
+     */
+    fun snapToGrid(): HomeLayout = copy(
+        groups = groups.map { group ->
+            val packed = mutableListOf<HomeTile>()
+            group.tiles
+                .sortedWith(compareBy({ it.y }, { it.x }, { it.id }))
+                .forEach { tile ->
+                    val clamped = HomeGridMath.clampToBoard(tile, grid = true)
+                    val placed = if (HomeGridMath.isFree(clamped, packed)) {
+                        clamped
+                    } else {
+                        HomeGridMath.firstFreeSlot(packed, clamped.w, clamped.h)
+                            ?.let { clamped.copy(x = it.first, y = it.second) }
+                            ?: HomeGridMath.bottomSlot(packed, clamped)
+                    }
+                    packed += placed
+                }
+            group.copy(tiles = HomeGridMath.compactEmptyRows(packed))
+        },
+    )
+
+    /**
      * 删掉一块。网格模式下顺手把因此空出来的整行收掉（§A1：空行不该留着，下面的块上移），
      * 否则删掉中间那一行里的块之后，这一行会一直空着，下面的块与后面的组也跟着永远错开。
      */

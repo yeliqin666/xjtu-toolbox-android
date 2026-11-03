@@ -402,7 +402,7 @@ internal class HomeBoardGeometry(
     val width: Float,
     /** 一格的宽（px）：`(组宽 + 缝隙) / 列数`。 */
     val colUnit: Float,
-    /** 一格的高（px）：`单元高 + 缝隙`。 */
+    /** 一格的高（px）：网格是正方格，恒等于 [colUnit]。 */
     val rowUnit: Float,
     val slots: List<Slot>,
 ) {
@@ -505,7 +505,11 @@ internal class HomeBoardGeometry(
 }
 
 /**
- * 由**起手快照**推出组区几何表（纯函数）：每组高度 = 标题区 + 格数 × 单元高。
+ * 由**起手快照**推出组区几何表（纯函数）：每组高度 = 标题区 + 格数 × 一格边长。
+ *
+ * 网格是**正方格**：一格的高等于一格的宽（`(组宽 + 缝) / 列数`），所以这里只需要组宽。
+ * 卡片内容那一套「1×1 图标 + 名称、2×1 横条、1×2 竖条、2×2 大方块」正是按正方形拼出来的，
+ * 几何与渲染因此共用同一个边长，不存在「单元高度」这个第二参数（它曾经是个设置开关）。
  *
  * 拖拽期间渲染的实时布局会让某些组变高变矮，但这里始终按快照算，所以命中区间恒定，
  * 命中与滚动、命中与落点之间都不存在反馈回路。
@@ -525,7 +529,6 @@ internal fun buildBoardGeometry(
     /** 组区内容顶（第一组标题行之上还要加一个组间距，见 [firstGapPx]）。 */
     top: Float,
     width: Float,
-    cellHeightPx: Float,
     gapPx: Float,
     headerPx: Float,
     groupGapPx: Float,
@@ -534,7 +537,8 @@ internal fun buildBoardGeometry(
     headerlessIds: Set<String> = emptySet(),
 ): HomeBoardGeometry {
     val colUnit = if (width > 0f) (width + gapPx) / HomeGridMath.COLUMNS else 0f
-    val rowUnit = cellHeightPx + gapPx
+    // 正方格：一格的高 = 一格的宽
+    val rowUnit = colUnit
     val slots = mutableListOf<HomeBoardGeometry.Slot>()
     var y = top + firstGapPx
     groups.forEach { group ->

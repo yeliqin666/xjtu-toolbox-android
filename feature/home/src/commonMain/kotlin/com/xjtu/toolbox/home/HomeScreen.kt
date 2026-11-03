@@ -64,11 +64,13 @@ import androidx.compose.ui.graphics.TileMode
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -167,9 +169,6 @@ fun HomeScreen(
     val backgroundImage = remember(revision) { layoutStore.backgroundImage }
     val backgroundBlur = remember(revision) { layoutStore.backgroundBlur }
     val backgroundOpacity = remember(revision) { layoutStore.backgroundOpacity }
-    // 网格单元要不要给文字留位置（§12）：关掉之后单元变矮，1 格高的卡片自动退成纯图标
-    val leaveTextSpace = remember(revision) { layoutStore.leaveTextSpace }
-    val cellHeight = if (leaveTextSpace) HomeCellHeight else HomeCompactCellHeight
 
     /** 改当前布局：编辑态改草稿（点「对勾」才落盘），其余情况直接落盘。 */
     fun update(block: (HomeLayout) -> HomeLayout) {
@@ -242,6 +241,8 @@ fun HomeScreen(
 
     val session = remember { HomeDragSession() }
     val density = LocalDensity.current
+    // 长按「拿起」的触感：走主题里那个被「振动开关」包过的 LocalHapticFeedback（见 Theme.kt）
+    val haptic = LocalHapticFeedback.current
     var pageSize by remember { mutableStateOf(Offset.Zero) }
 
     /**
@@ -295,7 +296,6 @@ fun HomeScreen(
 
     // ── 拖拽编排：快照几何 → 每帧幂等重算 → 松手固化一次（根基见 HomeDragSession 类头） ──
     val tileGapPx = with(density) { HomeTileGap.toPx() }
-    val cellHeightPx = with(density) { cellHeight.toPx() }
     val groupGapPx = with(density) { GROUP_GAP.toPx() }
     val headerPx = with(density) { GROUP_HEADER_HEIGHT.toPx() }
     val firstGapPx = with(density) { FIRST_GROUP_GAP.toPx() }
@@ -316,14 +316,13 @@ fun HomeScreen(
      * remember 的 key：内容一变就重建这个 derivedStateOf（List 按内容相等比较，不会每帧重建）。
      * 拖动中不写草稿 → visibleGroups 恒定 → key 恒定；落盘那一下它变，几何表随之刷新。
      */
-    val dragGeometry by remember(visibleGroups, cellHeightPx, tileGapPx, groupGapPx, headerPx, firstGapPx, extraRows) {
+    val dragGeometry by remember(visibleGroups, tileGapPx, groupGapPx, headerPx, firstGapPx, extraRows) {
         derivedStateOf {
             buildBoardGeometry(
                 groups = session.baseGroups.ifEmpty { visibleGroups },
                 left = 0f,
                 top = 0f,
                 width = session.boardWidth,
-                cellHeightPx = cellHeightPx,
                 gapPx = tileGapPx,
                 headerPx = headerPx,
                 groupGapPx = groupGapPx,
@@ -429,7 +428,6 @@ fun HomeScreen(
             left = 0f,
             top = 0f,
             width = session.boardWidth,
-            cellHeightPx = cellHeightPx,
             gapPx = tileGapPx,
             headerPx = headerPx,
             groupGapPx = groupGapPx,
@@ -467,6 +465,14 @@ fun HomeScreen(
     LaunchedEffect(resetRevision) {
         if (resetRevision == 0 || !editing.on) return@LaunchedEffect
         editing.draft = layoutStore.load(host.audience, host.quickRoutes)
+    }
+
+    // 「打开网格」：它会把自由摆位取整（不可撤销），手上的草稿也一起取整——只取整、不换内容，
+    // 用户正摆着的东西还在（和「恢复默认」不同）。同样只认这一个信号。
+    val gridRevision = HomeLayoutGridRevision.current
+    LaunchedEffect(gridRevision) {
+        if (gridRevision == 0) return@LaunchedEffect
+        editing.draft = editing.draft?.snapToGrid()
     }
 
     /** 缩放中的实时尺寸（格）：按「手指内容坐标 − 起手内容坐标」的**绝对差值**重算。 */
@@ -645,7 +651,6 @@ fun HomeScreen(
                 left = 0f,
                 top = 0f,
                 width = session.boardWidth,
-                cellHeightPx = cellHeightPx,
                 gapPx = tileGapPx,
                 headerPx = headerPx,
                 groupGapPx = groupGapPx,
@@ -838,6 +843,8 @@ fun HomeScreen(
             handlePx = handlePx,
             removePx = removePx,
             onDown = { hit, viewport -> beginGesture(hit, viewport) },
+            // 移动卡片 / 组排序要长按：拿起那一刻给一次触感，和系统桌面「拾起图标」同一手感
+            onPickUp = { haptic.performHapticFeedback(HapticFeedbackType.LongPress) },
             onMove = { viewport -> session.move(viewport) },
             onUp = {
                 when (session.mode) {
@@ -1020,7 +1027,6 @@ fun HomeScreen(
                                 onRemoveTile = { tileId -> update { it.removeTile(tileId, grid) } },
                                 // 和头卡同一套左右留白由容器统一给；入场沿用「错峰淡入上浮」，只播一次
                                 modifier = Modifier.enterOnce(index),
-                                cellHeight = cellHeight,
                             )
                         }
                     }
@@ -1084,7 +1090,6 @@ fun HomeScreen(
             faces = faces,
             liquid = liquid,
             backdrop = tileBackdrop.takeIf { liquid },
-            cellHeight = cellHeight,
             geometry = dragGeometry,
             settling = ghostSettling,
             settleValue = { ghostSettle.value },
@@ -1995,7 +2000,6 @@ private fun HomeDragGhost(
     faces: Map<String, HomeServiceRow>,
     liquid: Boolean,
     backdrop: Backdrop?,
-    cellHeight: Dp,
     geometry: HomeBoardGeometry,
     settling: Boolean,
     settleValue: () -> Offset,
@@ -2043,7 +2047,6 @@ private fun HomeDragGhost(
             h = session.sizeCells.y,
             liquid = liquid,
             backdrop = backdrop,
-            cellHeight = cellHeight,
             modifier = Modifier.fillMaxSize(),
         )
     }

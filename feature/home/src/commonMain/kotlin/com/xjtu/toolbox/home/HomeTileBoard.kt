@@ -72,21 +72,14 @@ import top.yukonga.miuix.kmp.squircle.squircleClip
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 /**
- * 一格的基准高度（开着「网格下留出文字空间」时）。组件的实际高度 = 格数 ×（这个高度
- * + [HomeTileGap]）− [HomeTileGap]。
+ * 网格是**正方格**：一格的高恒等于一格的宽（=「组宽 + 缝」÷ 列数），一组的高度因此是
+ * `格数 × 一格边长 − 缝`。
  *
- * 88dp 让 1×1 是个**高长方形**（§13）：图标在上、名称在下正好放下，而不是过去那种
- * 只塞得下图标的「胖方块」——这一档的名字就叫「在图标下留出文字空间」。
+ * 这里曾经有两档单元高度——「留出文字空间」的 88dp 高长方形与「紧凑」的 46dp 方块，靠设置
+ * 里一个开关切换。后来发现那等于同一页卡片有两套尺寸设计：开着像小组件，关掉就只剩图标，
+ * 2×1 里连名称都塞不下。现在统一成正方格，1×1 永远是个放得下「图标 + 名称」的正方形，
+ * 2×1 / 1×2 / 2×2 也都是正方形拼出来的，尺寸与内容的对应关系只有一套。
  */
-internal val HomeCellHeight = 88.dp
-
-/**
- * 关掉「网格下留出文字空间」之后的一格高度（补充 §12）。
- *
- * 单元一矮，1 格高的卡片就装不下名称与状态，自动落进纯图标形态（§13 的阈值联动）；
- * 组件的槽位是按格数存的，所以换单元高度只是换换算比例，数据不用动。
- */
-internal val HomeCompactCellHeight = 46.dp
 
 /**
  * 组件之间、以及组件与组边界之间的标准缝隙。
@@ -153,11 +146,9 @@ internal fun HomeGroupSection(
     onDeleteGroup: () -> Unit,
     onRemoveTile: (tileId: String) -> Unit,
     modifier: Modifier = Modifier,
-    cellHeight: Dp = HomeCellHeight,
 ) {
     val density = LocalDensity.current
     val gapPx = with(density) { HomeTileGap.toPx() }
-    val cellHeightPx = with(density) { cellHeight.toPx() }
     val tiles = group.tiles
     val contentRows = HomeGridMath.contentBottom(tiles).coerceAtLeast(1f)
     // 拖动中用锁定的行数，否则用实时行数；组高据此弹簧伸缩
@@ -197,74 +188,77 @@ internal fun HomeGroupSection(
             Spacer(Modifier.height(GROUP_HEADER_HEIGHT - GROUP_HEADER_ROW))
         }
 
-        BoxWithConstraints(
-            Modifier
-                .fillMaxWidth()
-                .height(with(density) { (animRows * (cellHeightPx + gapPx) - gapPx).toDp() }),
-        ) {
+        // 一格是正方形，所以「一格边长」只能从**量到的宽度**里推：外面这层 BoxWithConstraints
+        // 只负责量宽度，里面那个 Box 才按「行数 × 边长 − 缝」定高。
+        BoxWithConstraints(Modifier.fillMaxWidth()) {
             val colUnit = (constraints.maxWidth + gapPx) / HomeGridMath.COLUMNS
-            val rowUnit = cellHeightPx + gapPx
-
-            // 手指当前认定的目标组画一圈接收高亮（§19）：松手会落到哪，按下那一刻就看得见
-            if (receiving) {
-                Box(
-                    Modifier
-                        .matchParentSize()
-                        .border(
-                            1.5.dp,
-                            MiuixTheme.colorScheme.primary.copy(alpha = 0.55f),
-                            RoundedCornerShape(14.dp),
-                        ),
-                )
-            }
-
-            if (tiles.isEmpty() && editing) {
-                Box(
-                    Modifier
-                        .fillMaxSize()
-                        .squircleClip(18.dp)
-                        .border(
-                            1.dp,
-                            MiuixTheme.colorScheme.onSurface.copy(alpha = 0.12f),
-                            RoundedCornerShape(18.dp),
-                        ),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Text(
-                        "这一组还是空的，从右侧悬浮条拖一个功能进来",
-                        fontSize = 12.sp,
-                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+            // 正方格：一格的高 = 一格的宽（见文件头那段「网格是正方格」）
+            val rowUnit = colUnit
+            Box(
+                Modifier
+                    .fillMaxWidth()
+                    .height(with(density) { (animRows * rowUnit - gapPx).toDp() }),
+            ) {
+                // 手指当前认定的目标组画一圈接收高亮（§19）：松手会落到哪，按下那一刻就看得见
+                if (receiving) {
+                    Box(
+                        Modifier
+                            .matchParentSize()
+                            .border(
+                                1.5.dp,
+                                MiuixTheme.colorScheme.primary.copy(alpha = 0.55f),
+                                RoundedCornerShape(14.dp),
+                            ),
                     )
                 }
-            }
 
-            val dragId = session.tileId
-            // 拖动中与**结算中**都画占位框：松手后幽灵从手指位置飞向落点，落点这一块先留成
-            // 占位框；幽灵飞到与它重合才 finish() 切回真实块——外观一样，切换无感。
-            // 只判 draggingTile 的话，结算期它会立刻变成落点处的真实块，和还在飞的幽灵重影。
-            val ghosted = session.draggingTile || session.settling
-            tiles.forEach { tile ->
-                val face = faces[tile.routeId] ?: return@forEach
-                key(tile.id) {
-                    if (ghosted && tile.id == dragId) {
-                        // 被拖块：不画真身，画一个弹簧跟随数据位置的落点占位框。
-                        // 真身由顶层的幽灵块画（跟手），松手时幽灵吸附到这里、占位框渐隐。
-                        DropSlot(tile, colUnit, rowUnit, gapPx, settling = session.settling)
-                    } else {
-                        HomeTileItem(
-                            tile = tile,
-                            face = face,
-                            editing = editing,
-                            liquid = liquid,
-                            backdrop = backdrop,
-                            colUnit = colUnit,
-                            rowUnit = rowUnit,
-                            gapPx = gapPx,
-                            cellHeight = cellHeight,
-                            onOpen = { onOpen(face) },
-                            onStartEdit = onStartEdit,
-                            onRemoveTile = onRemoveTile,
+                if (tiles.isEmpty() && editing) {
+                    Box(
+                        Modifier
+                            .fillMaxSize()
+                            .squircleClip(18.dp)
+                            .border(
+                                1.dp,
+                                MiuixTheme.colorScheme.onSurface.copy(alpha = 0.12f),
+                                RoundedCornerShape(18.dp),
+                            ),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text(
+                            "这一组还是空的，从右侧悬浮条拖一个功能进来",
+                            fontSize = 12.sp,
+                            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                         )
+                    }
+                }
+
+                val dragId = session.tileId
+                // 拖动中与**结算中**都画占位框：松手后幽灵从手指位置飞向落点，落点这一块先留成
+                // 占位框；幽灵飞到与它重合才 finish() 切回真实块——外观一样，切换无感。
+                // 只判 draggingTile 的话，结算期它会立刻变成落点处的真实块，和还在飞的幽灵重影。
+                val ghosted = session.draggingTile || session.settling
+                tiles.forEach { tile ->
+                    val face = faces[tile.routeId] ?: return@forEach
+                    key(tile.id) {
+                        if (ghosted && tile.id == dragId) {
+                            // 被拖块：不画真身，画一个弹簧跟随数据位置的落点占位框。
+                            // 真身由顶层的幽灵块画（跟手），松手时幽灵吸附到这里、占位框渐隐。
+                            DropSlot(tile, colUnit, rowUnit, gapPx, settling = session.settling)
+                        } else {
+                            HomeTileItem(
+                                tile = tile,
+                                face = face,
+                                editing = editing,
+                                liquid = liquid,
+                                backdrop = backdrop,
+                                colUnit = colUnit,
+                                rowUnit = rowUnit,
+                                gapPx = gapPx,
+                                onOpen = { onOpen(face) },
+                                onStartEdit = onStartEdit,
+                                onRemoveTile = onRemoveTile,
+                            )
+                        }
                     }
                 }
             }
@@ -468,7 +462,6 @@ private fun HomeTileItem(
     colUnit: Float,
     rowUnit: Float,
     gapPx: Float,
-    cellHeight: Dp,
     onOpen: () -> Unit,
     onStartEdit: () -> Unit,
     onRemoveTile: (tileId: String) -> Unit,
@@ -509,7 +502,6 @@ private fun HomeTileItem(
             h = animH,
             liquid = liquid,
             backdrop = backdrop,
-            cellHeight = cellHeight,
             modifier = Modifier.fillMaxSize(),
         )
 
@@ -567,13 +559,13 @@ private fun HomeTileItem(
  * 组件的材质与内容：尺寸决定排版（§3.3），材质由「主页卡片液态玻璃」开关决定（§5.2）。
  *
  * 排版这一套是从「小组件模式」的首页（`dev` 的 `HomeWidgetGrid`）搬过来的逐档设计：
- * 1×1 只画图标，横条是「图标 + 小号名称 + 主要数据」，竖条是「小号名称 + 大字数据 + 说明」，
- * 大方块再压一枚水印图标、字号也大一档。各档共用同一条「大字 / 一句话」判定
- * （见 [FIGURE_MAX_CHARS] 与 [LIST_TILES]），所以同一个功能在任何尺寸下强调的都是同一件事。
+ * 1×1 是「图标 + 名称」，横条是「图标 + 小号名称 + 主要数据 + 一行说明」，竖条是
+ * 「小号名称 + 大字数据 + 说明」，大方块再压一枚水印图标、字号也大一档。各档共用同一条
+ * 「大字 / 一句话」判定（见 [FIGURE_MAX_CHARS] 与 [LIST_TILES]），所以同一个功能在任何
+ * 尺寸下强调的都是同一件事。
  *
- * 与那一套唯一的差别：**1×1 一律画图标**（不给状态数字，小方块上认图标比读数字快）。
- * 开着「网格下留出文字空间」（一格 88dp 的高长方形）时，图标下面补一行名称；
- * 关掉时一格只有 46dp，这一格真的只剩图标。
+ * 与那一套唯一的差别：**1×1 一律画图标**，不拿状态数字顶替（小方块上认图标比读数字快）。
+ * 网格统一是正方格，1×1 永远放得下图标与名称，所以这里没有任何「窄了就只剩图标」的降级档。
  *
  * 液态玻璃直接复用 App 里已有的那套 `drawBackdrop`（底栏、玻璃顶栏用的同一个），
  * 采样源是首页自己那一层背景，所以透出来的是壁纸而不是组件自己（会成环）。
@@ -586,8 +578,6 @@ internal fun HomeTileFaceBox(
     liquid: Boolean,
     backdrop: Backdrop?,
     modifier: Modifier = Modifier,
-    /** 一格的实际高度：决定 1 格高的卡片够不够装「图标 + 名称」（§13）。 */
-    cellHeight: Dp = HomeCellHeight,
 ) {
     val dark = LocalIsDarkTheme.current
     val ink = MiuixTheme.colorScheme.onSurface
@@ -633,9 +623,6 @@ internal fun HomeTileFaceBox(
             .squircleBorder(0.7.dp, hairline, radius)
     }
 
-    // 「网格下留出文字空间」开着时一格 88dp，1×1 是能装下「图标 + 名称」的高长方形；
-    // 关掉时一格只有 46dp，1 格高的卡片连一行名称都挤不下
-    val textRoom = cellHeight >= 76.dp
     val stat = face.stat?.takeIf { it.isNotBlank() }
     // 状态短到 8 个字以内、又不是「一句话型」的功能，才当大字数据排（¥128.50、12 周、3 门）；
     // 其余是一句话（「今日暂无空教室」），压成大字就只剩个糊字
@@ -659,114 +646,79 @@ internal fun HomeTileFaceBox(
         }
         Crossfade(targetState = shape, animationSpec = tween(160)) { now ->
             when (now) {
-                // 1×1：只画图标。图标照宽度缩，小块不显得空、大屏也不至于糊成大圆饼。
-                // 开着文字空间时下面补一行名称（关掉时这一格只有 46dp 高，写不下）
+                // 1×1：图标在上、名称在下——正方格的一边长 ~76dp，这两行正好放得下，
+                // 所以这一档不再分「有没有文字空间」，永远画名称
                 HomeTileShape.Icon -> Column(
-                    Modifier.fillMaxSize().padding(6.dp),
+                    Modifier.fillMaxSize().padding(7.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.Center,
                 ) {
                     ExpressiveIcon(
                         icon = face.icon,
                         color = iconColor,
-                        size = (minOf(w, h) * 30f).coerceIn(24f, 34f).dp,
-                        iconSize = (minOf(w, h) * 16f).coerceIn(13f, 19f).dp,
+                        size = (minOf(w, h) * 34f).coerceIn(28f, 38f).dp,
+                        iconSize = (minOf(w, h) * 19f).coerceIn(15f, 21f).dp,
                     )
-                    if (textRoom) {
-                        Spacer(Modifier.height(5.dp))
-                        Text(
-                            face.title,
-                            fontSize = 11.sp,
-                            lineHeight = 14.sp,
-                            fontWeight = FontWeight.Medium,
-                            color = ink,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            textAlign = TextAlign.Center,
-                        )
-                    }
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        face.title,
+                        fontSize = 10.5.sp,
+                        lineHeight = 13.sp,
+                        color = ink,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        textAlign = TextAlign.Center,
+                    )
                 }
 
-                // 横条（2×1 起）：图标在左，右边是「小号名称 + 主要数据 + 一行说明」。
-                // 紧凑网格下这一格只有一格高，只留「图标 + 名称 + 一行状态」，字号也收一号。
-                HomeTileShape.Wide -> if (textRoom) {
-                    Row(
-                        Modifier.fillMaxSize().padding(horizontal = 11.dp, vertical = 8.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(10.dp),
-                    ) {
-                        ExpressiveIcon(icon = face.icon, color = iconColor, size = 30.dp, iconSize = 17.dp)
-                        Column(Modifier.weight(1f)) {
+                // 横条（2×1 起）：图标在左，右边是「小号名称 + 主要数据 + 一行说明」
+                HomeTileShape.Wide -> Row(
+                    Modifier.fillMaxSize().padding(horizontal = 11.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    ExpressiveIcon(icon = face.icon, color = iconColor, size = 30.dp, iconSize = 17.dp)
+                    Column(Modifier.weight(1f)) {
+                        Text(
+                            face.title,
+                            fontSize = 10.sp,
+                            lineHeight = 13.sp,
+                            color = muted,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                        Spacer(Modifier.height(3.dp))
+                        Text(
+                            stat ?: face.subtitle,
+                            style = if (figure) {
+                                Editorial.figure.copy(fontSize = 19.sp, lineHeight = 23.sp)
+                            } else {
+                                MiuixTheme.textStyles.body2.copy(fontSize = 12.sp, lineHeight = 16.sp)
+                            },
+                            color = statColor,
+                            maxLines = if (figure || !face.statDetail.isNullOrBlank()) 1 else 2,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                        // 说明只跟着大字数据走：一句话型的状态本身就是完整的一句，再加一行反而碎
+                        if (figure && !face.statDetail.isNullOrBlank()) {
                             Text(
-                                face.title,
-                                fontSize = 10.sp,
-                                lineHeight = 13.sp,
+                                face.statDetail,
+                                fontSize = 9.5.sp,
+                                lineHeight = 12.sp,
                                 color = muted,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
                             )
-                            Spacer(Modifier.height(3.dp))
-                            Text(
-                                stat ?: face.subtitle,
-                                style = if (figure) {
-                                    Editorial.figure.copy(fontSize = 19.sp, lineHeight = 23.sp)
-                                } else {
-                                    MiuixTheme.textStyles.body2.copy(fontSize = 12.sp, lineHeight = 16.sp)
-                                },
-                                color = statColor,
-                                maxLines = if (figure || !face.statDetail.isNullOrBlank()) 1 else 2,
-                                overflow = TextOverflow.Ellipsis,
-                            )
-                            // 说明只跟着大字数据走：一句话型的状态本身就是完整的一句，再加一行反而碎
-                            if (figure && !face.statDetail.isNullOrBlank()) {
-                                Text(
-                                    face.statDetail,
-                                    fontSize = 9.5.sp,
-                                    lineHeight = 12.sp,
-                                    color = muted,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
-                                )
-                            }
-                        }
-                    }
-                } else {
-                    Row(
-                        Modifier.fillMaxSize().padding(horizontal = 10.dp, vertical = 4.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    ) {
-                        ExpressiveIcon(icon = face.icon, color = iconColor, size = 26.dp, iconSize = 15.dp)
-                        Column(Modifier.weight(1f)) {
-                            Text(
-                                face.title,
-                                fontSize = 12.sp,
-                                lineHeight = 15.sp,
-                                fontWeight = FontWeight.Medium,
-                                color = ink,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                            )
-                            if (stat != null) {
-                                Text(
-                                    stat,
-                                    fontSize = 10.5.sp,
-                                    lineHeight = 13.sp,
-                                    color = statColor,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
-                                )
-                            }
                         }
                     }
                 }
 
                 // 竖条（1×2 起）：名称压小、数据放大——高度正好够「小标题 + 一行大字 + 一行说明」。
                 // 没有状态的功能（社区、黄页这类）居中放图标 + 名称 + 说明，不留半屏空白
-                HomeTileShape.Tall -> when {
-                    !textRoom -> HomeTileStack(face, stat, statColor, iconColor, ink, muted)
-                    stat == null -> HomeTileCentered(face, iconColor, ink, muted, iconSize = 30.dp, iconGlyph = 17.dp)
-                    else -> Column(Modifier.fillMaxSize().padding(10.dp)) {
+                HomeTileShape.Tall -> if (stat == null) {
+                    HomeTileCentered(face, iconColor, ink, muted, iconSize = 30.dp, iconGlyph = 17.dp)
+                } else {
+                    Column(Modifier.fillMaxSize().padding(10.dp)) {
                         ExpressiveIcon(icon = face.icon, color = iconColor, size = 25.dp, iconSize = 14.dp)
                         Spacer(Modifier.height(7.dp))
                         Text(
@@ -804,10 +756,10 @@ internal fun HomeTileFaceBox(
                 }
 
                 // 大方块（2×2 起）：右上角压一枚几乎看不见的水印图标，数据再放大一档
-                HomeTileShape.Large -> when {
-                    !textRoom -> HomeTileStack(face, stat, statColor, iconColor, ink, muted)
-                    stat == null -> HomeTileCentered(face, iconColor, ink, muted, iconSize = 42.dp, iconGlyph = 24.dp)
-                    else -> Box(Modifier.fillMaxSize()) {
+                HomeTileShape.Large -> if (stat == null) {
+                    HomeTileCentered(face, iconColor, ink, muted, iconSize = 42.dp, iconGlyph = 24.dp)
+                } else {
+                    Box(Modifier.fillMaxSize()) {
                         Icon(
                             face.icon,
                             contentDescription = null,
@@ -901,54 +853,6 @@ private fun HomeTileCentered(
                 lineHeight = 14.sp,
                 color = muted,
                 maxLines = 3,
-                overflow = TextOverflow.Ellipsis,
-                textAlign = TextAlign.Center,
-            )
-        }
-    }
-}
-
-/**
- * 紧凑网格（关掉「网格下留出文字空间」）下的竖条与大方块：一格只有 46dp 高，
- * 按大尺寸那套排会挤出去，所以压成「图标 + 名称 + 一行小字」。
- *
- * 这一档的定位就是「网格更紧凑」——信息量与 1 格高的横条对齐，不硬塞说明文字。
- */
-@Composable
-private fun HomeTileStack(
-    face: HomeServiceRow,
-    stat: String?,
-    statColor: Color,
-    iconColor: Color,
-    ink: Color,
-    muted: Color,
-) {
-    Column(
-        Modifier.fillMaxSize().padding(8.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center,
-    ) {
-        ExpressiveIcon(icon = face.icon, color = iconColor, size = 30.dp, iconSize = 17.dp)
-        Spacer(Modifier.height(4.dp))
-        Text(
-            face.title,
-            fontSize = 12.sp,
-            lineHeight = 15.sp,
-            fontWeight = FontWeight.Medium,
-            color = ink,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            textAlign = TextAlign.Center,
-        )
-        val sub = stat ?: face.subtitle
-        if (sub.isNotBlank()) {
-            Spacer(Modifier.height(2.dp))
-            Text(
-                sub,
-                fontSize = 10.5.sp,
-                lineHeight = 13.sp,
-                color = if (stat != null) statColor else muted,
-                maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
                 textAlign = TextAlign.Center,
             )

@@ -99,6 +99,24 @@ class HomeLayoutStore(
     }
 
     /**
+     * 打开网格：把存档里那份**自由摆位取整落盘**，再开开关。
+     *
+     * 这一步不可撤销——原来那串 1.3×2.7 之类的非整数摆位在 [HomeLayout.snapToGrid] 之后
+     * 就不存在了，关掉网格也不会回来。所以调用方（主页设置）必须先二次确认再进来。
+     *
+     * 顺手 bump [HomeLayoutGridRevision]：抽屉可能是从**编辑态**的齿轮打开的，那时首页手上
+     * 还有一份草稿；不处理它，用户点保存就会把取整前的自由摆位又写回去。这个信号让首页把
+     * 草稿也取整一次（只取整，不换内容——和「恢复默认」不同，用户摆的东西还在）。
+     */
+    fun enableGrid() {
+        // 存档为空 = 从没摆过，默认布局本来就是整格摆的，不用取整
+        saved?.let { save(it.snapToGrid()) }
+        grid = true
+        HomeLayoutGridRevision.bump()
+        notifyChanged()
+    }
+
+    /**
      * 改完一批设置之后叫一次，让首页重新读盘。
      *
      * 上面那些 setter 故意不自己 bump：主页设置面板里的滑条一次拖动会连着写几十次，
@@ -117,16 +135,6 @@ class HomeLayoutStore(
     var liquidCard: Boolean
         get() = store.getBoolean(KEY_LIQUID_CARD, false)
         set(value) = store.putBoolean(KEY_LIQUID_CARD, value)
-
-    /**
-     * 网格单元要不要给文字留位置（补充 §12）。
-     *
-     * 打开（默认）：单元 88dp，1×1 是高长方形，装得下「图标 + 名称」；
-     * 关闭：单元 46dp，趋近紧凑方块，1 格高的卡片自动落进纯图标形态（§13 的阈值联动）。
-     */
-    var leaveTextSpace: Boolean
-        get() = store.getBoolean(KEY_TEXT_SPACE, true)
-        set(value) = store.putBoolean(KEY_TEXT_SPACE, value)
 
     /** 主页背景图（裁好的 WebP Base64）；空串 = 没有背景图，用主题底色。 */
     var backgroundImage: String
@@ -159,7 +167,6 @@ class HomeLayoutStore(
         private const val KEY_LAYOUT = "home_layout"
         private const val KEY_GRID = "home_grid"
         private const val KEY_LIQUID_CARD = "home_liquid_card"
-        private const val KEY_TEXT_SPACE = "home_text_space"
         private const val KEY_BACKGROUND_IMAGE = "home_background_image"
         private const val KEY_BACKGROUND_BLUR = "home_background_blur"
         private const val KEY_BACKGROUND_OPACITY = "home_background_opacity"
@@ -187,6 +194,21 @@ object HomeLayoutRevision {
  * 正摆着的草稿冲掉）。恢复默认是一次「推倒重来」，所以它同时也 bump [HomeLayoutRevision]。
  */
 object HomeLayoutResetRevision {
+    var current by mutableIntStateOf(0)
+        private set
+
+    internal fun bump() {
+        current++
+    }
+}
+
+/**
+ * 「打开网格」的独立信号（见 [HomeLayoutStore.enableGrid]）。
+ *
+ * 也不能复用 [HomeLayoutRevision]：那个在改背景、保存布局时都会动，跟着取整会把用户正常摆着
+ * 的草稿一遍遍重排。首页只在这个计数变化时把草稿取整一次。
+ */
+object HomeLayoutGridRevision {
     var current by mutableIntStateOf(0)
         private set
 

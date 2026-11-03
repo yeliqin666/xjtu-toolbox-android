@@ -26,20 +26,21 @@
 
 | # | 决定 | 落点 | 状态 |
 |---|---|---|---|
-| 8 | 尺寸边界：最小 **1×1**（纯图标方块），最大 **4×4**。网格开 → 整数步进（`snap` 四舍五入）；网格关 → 0.5 步进 | `HomeGridMath` · `MIN_SPAN`/`MAX_SPAN`/`clampSpan` | 已实现 |
-| 9 | 排版规则按格数分三档（表见下），长条形横排、方块以上竖向堆叠；大尺寸靠"多一行信息"提密度，**不是**等比放大 | `HomeTileBoard.kt` · `HomeTileFaceBox` | 已实现 |
-| 10 | 形态由**实时**格数决定（`animW`/`animH`，缩放过程中逐帧判断），切档时 140ms `Crossfade` 过渡，不等松手。**尺寸也走弹簧**（缩放不再 snap）：数据是一格一格跳的，snap 把这些跳变原样画出来会一顿一顿 | 同上 | 已实现（缩放动画按 2026-11 复核加） |
-| 11 | 阈值由内容模型推：单元 62dp − 竖向内边距 12dp = 50dp 可用高，放不下"图标 + 两行字"→ 1 格高只能是纯图标；竖排两行字至少要多 1 行 ≈ 0.6 格 → 1.6 格起竖排。**不写死全局像素** | `HomeTileBoard.kt` · `mode` 的 `when` | 已实现 |
-| 12 | 「网格下留出文字空间」是**网格基础单元**的开关：开（默认）单元 **88dp**——1×1 是高长方形，装得下「图标 + 名称」；关 → 单元 46dp，趋近紧凑方块。存 `home_text_space` | `HomeLayoutStore.leaveTextSpace`、`HomeSettingsScreen.kt` | 已实现 |
-| 13 | 与形态阈值联动：高单元格时 1 格就装得下「图标 + 名称」，1×1 竖排不落进纯图标；矮单元格时 1 格只剩图标。切换后**数据不动**——槽位存的是格数，重算的是"格 → 像素"的比例，所以按新语义重排是自动的 | `HomeTileBoard.kt` · `HomeTileFaceBox` 的 `mode` | 已实现 |
+| 8 | 尺寸边界：最小 **1×1**（正方格：图标 + 名称），最大 **4×4**。网格开 → 整数步进（`snap` 四舍五入）；网格关 → 0.5 步进 | `HomeGridMath` · `MIN_SPAN`/`MAX_SPAN`/`clampSpan` | 已实现 |
+| 9 | 排版按格数分**四档**（表见下，档位与「小组件模式」那套 1×1 / 2×1 / 1×2 / 2×2 一一对应）：1×1 图标 + 名称、横条图标 + 名称 + 大字数据、竖条名称 + 大字数据 + 说明、大方块再压水印图标并放大字号；大尺寸靠"多一行信息"提密度，**不是**等比放大 | `HomeTileBoard.kt` · `HomeTileFaceBox` | 已实现 |
+| 10 | 形态由**实时**格数决定（`animW`/`animH`，缩放过程中逐帧判断），切档时 160ms `Crossfade` 过渡，不等松手。**尺寸也走弹簧**（缩放不再 snap）：数据是一格一格跳的，snap 把这些跳变原样画出来会一顿一顿 | 同上 | 已实现（缩放动画按 2026-11 复核加） |
+| 11 | 档位阈值取**半格（1.5）**：`w、h` 都 < 1.5 → 1×1；`h < 1.5` → 横条；`w < 1.5` → 竖条；其余 → 大方块。判据只有"几格宽 × 几格高"，不再从像素可用高度反推——网格统一成正方格之后，格数本身就是内容的容量单位 | `HomeTileBoard.kt` · `HomeTileShape` 的 `when` | 已实现（2026-11 统一正方格） |
+| 12 | 网格基础单元是**正方格**：一格的高恒等于一格的宽（= `(组宽 + 缝) / 列数`），一组的高 = `格数 × 边长 − 缝`。原先的「网格下留出文字空间」开关（88dp / 46dp 两档单元高度，键 `home_text_space`）**已删除**：同一页不该有两套尺寸设计 | `HomeTileBoard.kt` · `HomeGroupSection`、`HomeDragSession.kt` · `buildBoardGeometry` | 已实现（2026-11 统一正方格） |
+| 13 | 切换尺寸只换排版、**数据不动**：槽位存的是格数，重算的只是"格 → 像素"的比例；四档外观的差别全部由 `face.stat` / `statDetail` 与那条「大字 / 一句话」判定派生，所以同一个功能在任何尺寸下强调的都是同一件事 | `HomeTileBoard.kt` · `HomeTileFaceBox` | 已实现 |
 
-**形态阈值表（§9/§11）**
+**形态档位表（§9/§11）**
 
 | 档 | 条件 | 排版 | 信息 |
 |---|---|---|---|
-| 0 纯图标 | `w < 1.2` 或 `h < 1.2` | 图标居中，24–34dp | 只有图标（热区 = 整块，见 §45） |
-| 1 横排 | `h < 1.6` | 图标左（30dp）+ 右侧两行 | 名称 + 状态/说明 |
-| 2 竖排 | 其余 | 图标 / 名称 / 状态 | 名称 + 状态/说明 |
+| 1×1 | `w < 1.5` 且 `h < 1.5` | 图标（34dp）在上、名称在下，居中 | 名称（**不**用状态数字顶替图标） |
+| 横条 | `h < 1.5`（`w ≥ 1.5`） | 图标左（30dp）+ 右侧三行 | 小号名称 + 大字数据/说明 + 一行细节 |
+| 竖条 | `w < 1.5`（`h ≥ 1.5`） | 图标（25dp）/ 小号名称 / 大字数据 / 细节 | 同上；没有状态的功能改成「图标 + 名称 + 说明」居中 |
+| 大方块 | 其余 | 右上角淡水印图标 + 左列三行 | 小号名称 + 更大一档的数据（26sp）+ 细节 |
 
 ## 三、拖拽、缩放与排序
 
@@ -48,7 +49,7 @@
 | 14 | 跟手：**所有拖拽手势只挂在页面根 Box 自己的一个修饰符上**（`Modifier.homeDragLayer`，同 AOSP Launcher3 的 `DragLayer`）。**不能做成盖在上面的兄弟覆盖层**——兄弟层一旦带 `pointerInput` 就会独占整条命中路径，把下面的滚动列 / 顶栏 / 卡片全挡掉（实测：除挂在它上层的悬浮条，其余什么都点不动）；挂成根 Box 的修饰符则是「祖先」，子节点照样先收 Main pass。它给的 `PointerInputChange.position` 直接就是**页面根局部坐标**，板内坐标 = 它 − `boardOrigin`（组区容器左上角）。`boardOrigin` **必须现读活坐标**（`rootCoords.localPositionOf(boardCoords)`），且在拖拽期间**每帧**刷（每帧维护循环 + 每次 move + 落盘前）。位置**一律不许用 `boundsInRoot()`**：它默认按**裁剪边界**取框，网格区一滚出视口，拿到的就是「视口顶」——原点从此冻在那一刻（`positionInRoot()` 读的是布局位置，不受裁剪影响）。回调 `onGloballyPositioned` 只当兜底，页面滚起来之后它不保证每帧都到，值一停住落点就整体偏「滚过的距离」——卡片是 Column 排的照样滚得对，所以现场看着就是「卡片对、网格不跟滚动」（2026-11 修）。全程只有这一处减法——**不回读任何块的 `boundsInRoot`、不逐块登记位置、不做差分累加、也不手工掺 `scrollY`**，所以弹簧动画的中间帧污染不到坐标（旧实现正是拿动画中间帧当基准才落点飘）。拖拽全程 **live preview**：每帧 `layout = f(base 快照, 手指内容坐标)` 幂等重算，被拖块画成落点占位框、真身由顶层幽灵块跟手、其它块弹簧让位；松手才把结果写进草稿一次。**拖动中从不写草稿**，所以手势被抢走时不需要「回退临时状态」——草稿根本没被碰过 | `HomeDragLayer.kt`、`HomeDragSession.kt` · `refreshBoardFromCoordinates`/`peekLiveBoardOrigin`、`HomeScreen.kt` · `liveLayout`/`settleTileDrop`、`HomeTileBoard.kt` · `DropSlot` | 已实现（2026-11 拖拽二次重构；原点跟滚动按 2026-11 复核改） |
 | 15 | 每个卡片右下角恒有缩放把手——**把右下角那段圆弧染成主题色**当把手，热区 30dp。把手只画记号、不接手势：命中与拖动全在 `HomeDragLayer` 按快照几何判定（`HomeBoardGeometry.hit` 区分卡片体 / 缩放把手 / 移除按钮 / 组排序把手 / 放行）。缩放尺寸按 **AOSP `AppWidgetResizeFrame` 的绝对差值**算：`尺寸 = 起手尺寸 + (手指当前内容坐标 − 起手内容坐标) / 单元`，每帧从 baseline 重算、**不累积增量**，所以把手自己随尺寸移动也不会漂。**缩放过程就是实时预览**（其它块同步让位），松手固化；顶到屏幕边缘自动滚动时，块左上角在内容坐标里不动而手指内容坐标继续变大，尺寸自然跟着变大——不需要任何补算特例 | `HomeDragLayer.kt` · `hit`、`HomeScreen.kt` · `resizeCells`、`HomeTileBoard.kt` · `HomeTileItem`（只画把手） | 已实现（2026-11 拖拽二次重构） |
 | 16 | 位置变化用 `spring(0.62, 520)`，尺寸变化用同一参数，禁止瞬移。组上下排序：**被拖组跟手浮起、其它组按「越过中线」纯函数让位**（`HomeGridMath.reorderTargetIndex/reorderShifts`），拖动中**不改数据**，列表始终堆叠不留空；松手一次性 `moveGroupWithin` 落盘（可见组序列 → 全量序列映射），被拖组补「手指位置 − 新槽位」的差值弹簧归位——三步（落盘 / 切结算态 / 值就位）放在协程同一个同步段里，中间不插帧，无重组风暴、无动画状态重建 | `HomeTileSpring`、`HomeGridMath` · 组排序几何、`HomeScreen.kt` · `settleGroupDrop`/`cancelGroupDrop` | 已实现（2026-11 拖拽二次重构） |
-| 17 | **拖拽不需要长按**：`HomeDragLayer` 在 **`PointerEventPass.Initial`** 上自己收 down（这一层是滚动列的祖先，Initial 又是祖先先看到），down 那一刻按快照几何定死归属——落点是拖拽目标就 `consume`（后到的 `verticalScroll` 在 Main pass 根本看不到它），落点是 `HomeHit.Pass`（移除按钮 / 删除组 / 组名 / 空白 / 悬浮条）就**不消费**，down 原样留给下层点击节点与滚动。**不用官方 `detectDragGestures`**：它的 slop 判定「发现变更已被别人消费过就取消」，而滚动列正好在这条路径上，所以这里自己判 slop（按下到超过 slop 之间什么都不做，点一下不算拖）。编辑态要滚页面就从 Pass 区域起手（组间空隙、网格空格、组标题、刊头 / 头卡、页面空白），拖到边缘还有自动滚动兜底。**进编辑态不跳、也不闪**：编辑态会给每组补标题行、把空组与「组件都打不开」的组显示出来，这些都在视口之上，光记住 `scroll.value` 补不回来。两步：①**布局之前**就用同一套几何函数（`buildBoardGeometry(headerlessIds=…)`）算出「编辑前 → 编辑后」锚点组的顶边差，在 `SideEffect` 里 `dispatchRawDelta` 打进滚动——等布局量完再补，那一帧的错位已经被画出来（闪一下）；②布局之后按实测的**锚点组**（`groupTops`/`idleTops`，进编辑前「视口里最靠上的那一组」）逐帧把残差补回原处，逐帧是因为组高带弹簧动画，残差归零收工（兜底，正常情况①已经补准了） | `HomeDragLayer.kt` · Initial pass、`HomeScreen.kt` · `predictEnterFix`/锚点 effect | 已实现（2026-11 拖拽二次重构；进编辑锚点按 2026-11 复核改，补「布局前预测」） |
+| 17 | **缩放「按住就能拖」，移动与组排序「先长按拿起」**（长按成立之前一个事件都不消费，所以从卡片上普通上下滑照样滚页面；拿起那一刻给一次 `HapticFeedbackType.LongPress`，走主题里被振动开关包过的 `LocalHapticFeedback`）：`HomeDragLayer` 在 **`PointerEventPass.Initial`** 上自己收 down（这一层是滚动列的祖先，Initial 又是祖先先看到），down 那一刻按快照几何定死归属——落点是拖拽目标就 `consume`（后到的 `verticalScroll` 在 Main pass 根本看不到它），落点是 `HomeHit.Pass`（移除按钮 / 删除组 / 组名 / 空白 / 悬浮条）就**不消费**，down 原样留给下层点击节点与滚动。**不用官方 `detectDragGestures`**：它的 slop 判定「发现变更已被别人消费过就取消」，而滚动列正好在这条路径上，所以这里自己判 slop（按下到超过 slop 之间什么都不做，点一下不算拖）。编辑态要滚页面就从 Pass 区域起手（组间空隙、网格空格、组标题、刊头 / 头卡、页面空白），拖到边缘还有自动滚动兜底。**进编辑态不跳、也不闪**：编辑态会给每组补标题行、把空组与「组件都打不开」的组显示出来，这些都在视口之上，光记住 `scroll.value` 补不回来。两步：①**布局之前**就用同一套几何函数（`buildBoardGeometry(headerlessIds=…)`）算出「编辑前 → 编辑后」锚点组的顶边差，在 `SideEffect` 里 `dispatchRawDelta` 打进滚动——等布局量完再补，那一帧的错位已经被画出来（闪一下）；②布局之后按实测的**锚点组**（`groupTops`/`idleTops`，进编辑前「视口里最靠上的那一组」）逐帧把残差补回原处，逐帧是因为组高带弹簧动画，残差归零收工（兜底，正常情况①已经补准了） | `HomeDragLayer.kt` · Initial pass、`HomeScreen.kt` · `predictEnterFix`/锚点 effect | 已实现（2026-11 拖拽二次重构；进编辑锚点按 2026-11 复核改，补「布局前预测」） |
 | 18 | 编辑态**不做抖动**（按 2026-11 复核决定去掉了）：只有被拖那块画成落点占位框、被缩那块跟手，其余静止（让位是 live preview 驱动的弹簧位移，不是抖动）。**被拖块不再有「源组残影」**——手势不在块自己的节点上，块可以自由换组，无需钉死 | `HomeTileBoard.kt` · `HomeTileItem`/`DropSlot` | 已实现（2026-11 拖拽二次重构） |
 | 19 | 跨组接收指示：手指落进某个**非源组**的矩形时，该组画一圈 1.5dp、55% 的 primary 圆角环。目标组判定是纯几何（组高 = 数据的纯函数），**组间空隙对半分**：上一组向下延半个间距、下一组向上延半个间距，两段区间首尾相接不重叠，所以这是位置的纯函数——**边界上不来回切，也不需要「记住当前组」的滞回** | `HomeDragSession.kt` · `HomeBoardGeometry.groupAt`、`HomeTileBoard.kt` · `HomeGroupSection` | 已实现（2026-11 拖拽二次重构改判定） |
 | 20 | 边缘自动滚动：上下各 104dp 触发区，速度从 0 线性升到 14dp/帧（越靠边越快），只做纵向。自动滚动**只改 `scroll.value`**——手指板坐标是 `(pointer − boardOrigin)` 的派生量，而这条每帧维护循环**同时**把 `boardOrigin` 刷成实测值，于是 `scroll.value` 一变，目标组 / 落点格 / 缩放尺寸 / 组排序目标全部自动重算，不需要任何「按预估位置补算」的特例 | `HomeScreen.kt` · 每帧维护 effect、`pointerBoard` | 已实现（2026-11 拖拽二次重构；原点刷新按 2026-11 复核并入同一循环） |
@@ -69,7 +70,7 @@
 | 29 | 「主页设置」是**底部抽屉**（`OverlayBottomSheet`），复用设置页里"更新日志 / 用户协议"那一套抽屉范式，不再是二级页 | `HomeSettingsScreen.kt` · `HomeSettingsSheet` | 已实现（本批改） |
 | 30 | 全局设置里的那一行和编辑态齿轮打开的是**同一个** `HomeSettingsSheet`（同一份 `HomeLayoutStore`、同一套内容）。齿轮**直接在原地打开抽屉**：不跳设置页、不走一次性旗标（`home_settings_pending` 机制已随本批删除） | `SettingsScreen.kt`、`HomeTab.kt`、`AppHomeHost.kt` | 已实现（本批修） |
 | 31 | 编辑态打开抽屉**不丢改动、也不关编辑态**：齿轮只是把抽屉盖上来，手上的草稿原样留着，关掉抽屉接着摆；返回键优先关抽屉（`BackHandler(enabled = show)`） | `HomeScreen.kt`、`HomeSettingsSheet` | 已实现（本批修） |
-| 32 | 网格开关**立即**影响下一次拖动 / 缩放的吸附步进；已经摆好的组件**不重排**（避免开关一按满屏跳位），只在新操作时按新步进吸附 | `HomeScreen.kt` · `grid` | 已实现 |
+| 32 | **关**网格：立即影响下一次拖动 / 缩放的吸附步进，已摆好的组件**不重排**。**开**网格：先二次确认（`WindowDialog`，文案与「恢复默认」同款），确认后 `HomeLayoutStore.enableGrid()` 把存档里那份自由摆位取整落盘（`HomeLayout.snapToGrid()`：宽高取整、逐块按阅读顺序找空位、收空行），并 bump `HomeLayoutGridRevision` 让编辑态把手上草稿也取整一次（只取整、不换内容）。**不可撤销**——之后再关掉网格也不会恢复原来的位置与大小 | `HomeScreen.kt` · `grid`、`HomeSettingsScreen.kt` · `confirmGrid`、`HomeLayoutStore.enableGrid`、`HomeLayout.snapToGrid` | 已实现（2026-11 加二次确认） |
 | 33 | 「恢复默认分组和布局」：二次确认弹窗；重置范围 = 分组结构、顺序、标题、标题颜色、组件尺寸 / 位置、网格开关。**不含**背景图与材质开关——按钮文案写的是"分组和布局"，顺手清掉壁纸属于超出授权的破坏 | `HomeLayoutStore.reset`、`HomeSettingsScreen.kt` | 已实现（范围按此决定） |
 | 34 | 液态玻璃开关与背景模糊**独立生效**：前者管卡片材质，后者管壁纸；液态玻璃内部的 blur（8dp）**不读**背景模糊值，否则两层模糊叠起来会糊成一片 | `HomeTileBoard.kt` · `HomeTileFaceBox` | 已实现 |
 
@@ -97,12 +98,12 @@
 
 | # | 决定 | 落点 | 状态 |
 |---|---|---|---|
-| 45 | 纯图标模式热区 = 整块卡片（1×1 ≈ 62×62dp ≥ 48dp），不额外缩小 | `HomeTileItem` 的 tap 手势 | 已实现 |
+| 45 | 1×1 的热区 = 整块卡片（正方格边长 ≈ 76dp ≥ 48dp），不额外缩小 | `HomeTileItem` 的 tap 手势 | 已实现 |
 | 46 | 字体放大降级：文字一律 `maxLines = 1` + `Ellipsis`，行高固定 dp 而非随字体无限涨；极端放大时先省略名称、再隐去状态行 | `HomeTileFaceBox` | 已实现 |
 | 47 | 深浅色参数**分开**：填充 浅 62% / 深 10% 白；细边 浅 0.7 / 深 0.1；标题色深色提亮 0.25；液态玻璃 blur 两档相同 | `HomeTileFaceBox`、`GroupHeader` | 已实现 |
 | 48 | 性能降级：抖动只在编辑态挂动画；掉帧交给 Compose 的帧调度，不额外做降级开关。液态玻璃的 `drawBackdrop` 用 `remember` 按圆角 / 填充 / 阴影缓存（只有圆角随尺寸动画变时才重建），静止与位置动画不重复采样；纯色背景下折射不可见但高光仍在，故不做「无背景图退化」 | `HomeTileItem`、`HomeTileFaceBox` | 已实现（本批修） |
 | 49 | 基准来源：材质 = App 内 `drawBackdrop` + 底栏玻璃；抽屉 = 设置页既有 `OverlayBottomSheet` 范式；动画 = Compose 官方 spring；手势 = `detectDragGestures` 系统语义。**不自创** | 全文 | 按此决定 |
-| 50 | 参数不写死：格数阈值由内容模型推（§11），dp 由单元高度推（§9），时长沿用 App 既有弹簧参数（§43） | 全文 | 按此决定 |
+| 50 | 参数不写死：档位阈值取半格（§11），dp 由一格边长（正方格，量到的组宽推）决定（§9），时长沿用 App 既有弹簧参数（§43） | 全文 | 按此决定 |
 
 ## 八、本轮（2026-11 复核）新增交互
 
