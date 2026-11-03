@@ -57,6 +57,10 @@ internal fun Modifier.homeDragLayer(
         detectDragGesturesAfterLongPress(
             onDragStart = { offset ->
                 started = false
+                // 已经有别的拖拽在跑（悬浮条的图标长按会先一步起手）：绝不顶掉它。
+                // 图标自己的长按和这一层是**同帧**触发的，顺序靠深度决定（子先父后），
+                // 所以进到这里时 session.active 往往已经是 PALETTE——放行即可。
+                if (session.active) return@detectDragGesturesAfterLongPress
                 // 悬浮条自己管长按拖出：落在它矩形里一律放行
                 val palette = session.paletteRect
                 if (palette != null && palette.contains(offset)) return@detectDragGesturesAfterLongPress
