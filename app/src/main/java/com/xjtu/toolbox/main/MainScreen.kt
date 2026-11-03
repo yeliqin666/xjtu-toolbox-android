@@ -91,6 +91,7 @@ import com.xjtu.toolbox.home.HomeSignals
 import com.xjtu.toolbox.home.HomeStats
 import com.xjtu.toolbox.home.HomeStatsRefresher
 import com.xjtu.toolbox.home.HomeTab
+import com.xjtu.toolbox.home.LocalHomeGlassRefraction
 import com.xjtu.toolbox.home.LocalHomeTileBackdrop
 import com.xjtu.toolbox.library.LibraryFocus
 import com.xjtu.toolbox.library.LibraryQrArea
@@ -629,6 +630,8 @@ private fun HomeRoundAction(
     val isDark = LocalIsDarkTheme.current
     // 首页背景层（壁纸）由首页通过 Local 递过来：液态开关开着时圆钮采它做液态玻璃
     val liquid = LocalHomeTileBackdrop.current
+    // 折射子开关同样由首页 provide：关掉时圆钮只留模糊与高光，省一层离屏位移采样
+    val refraction = LocalHomeGlassRefraction.current
     val fill = if (isDark) Color.White.copy(alpha = 0.08f) else Color.White.copy(alpha = 0.4f)
     Box(
         Modifier
@@ -650,7 +653,7 @@ private fun HomeRoundAction(
                             padding = maxOf(padding, 8.dp.toPx())
                             vibrancy()
                             blur(6.dp.toPx())
-                            lens(8.dp.toPx(), 10.dp.toPx())
+                            if (refraction) lens(8.dp.toPx(), 10.dp.toPx())
                         },
                         highlight = { Highlight.Default.copy(alpha = 0.65f) },
                         shadow = null,

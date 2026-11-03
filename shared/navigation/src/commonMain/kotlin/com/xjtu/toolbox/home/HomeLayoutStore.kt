@@ -136,6 +136,20 @@ class HomeLayoutStore(
         get() = store.getBoolean(KEY_LIQUID_CARD, false)
         set(value) = store.putBoolean(KEY_LIQUID_CARD, value)
 
+    /**
+     * 液态玻璃要不要带折射（透镜弯光 + 色散）。
+     *
+     * 折射是整个玻璃里最贵的一层：`lens()` 要在离屏层上再跑一遍位移采样，开色散时还是三通道
+     * 各采一次。关掉它剩下的模糊、活力、高光、轮廓、投影一样不少，只是玻璃从「厚透镜」变成
+     * 「磨砂片」——观感差一档，但滚动和拖动时省下相当一部分 GPU。
+     *
+     * 独立成一个键、默认 true：老用户升级上来外观不变，觉得卡的人自己往下拨一格。
+     * 只在 [liquidCard] 为真时有意义（毛玻璃那条路本来就没有折射）。
+     */
+    var liquidRefraction: Boolean
+        get() = store.getBoolean(KEY_LIQUID_REFRACTION, true)
+        set(value) = store.putBoolean(KEY_LIQUID_REFRACTION, value)
+
     /** 主页背景图（裁好的 WebP Base64）；空串 = 没有背景图，用主题底色。 */
     var backgroundImage: String
         get() = store.getString(KEY_BACKGROUND_IMAGE).orEmpty()
@@ -167,6 +181,7 @@ class HomeLayoutStore(
         private const val KEY_LAYOUT = "home_layout"
         private const val KEY_GRID = "home_grid"
         private const val KEY_LIQUID_CARD = "home_liquid_card"
+        private const val KEY_LIQUID_REFRACTION = "home_liquid_refraction"
         private const val KEY_BACKGROUND_IMAGE = "home_background_image"
         private const val KEY_BACKGROUND_BLUR = "home_background_blur"
         private const val KEY_BACKGROUND_OPACITY = "home_background_opacity"

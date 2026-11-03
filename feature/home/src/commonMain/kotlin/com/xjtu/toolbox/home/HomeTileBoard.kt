@@ -130,6 +130,8 @@ internal fun HomeGroupSection(
     faces: Map<String, HomeServiceRow>,
     editing: Boolean,
     liquid: Boolean,
+    /** 液态玻璃是否带折射；关掉只少一层 `lens`，模糊 / 活力 / 高光 / 投影都不动。 */
+    refraction: Boolean,
     backdrop: Backdrop?,
     session: HomeDragSession,
     /** 拖动中锁定的行数；null = 跟随实时数据。 */
@@ -181,6 +183,7 @@ internal fun HomeGroupSection(
                 group = group,
                 editing = editing,
                 liquid = liquid,
+                refraction = refraction,
                 backdrop = backdrop,
                 onEditGroup = onEditGroup,
                 onDeleteGroup = onDeleteGroup,
@@ -250,6 +253,7 @@ internal fun HomeGroupSection(
                                 face = face,
                                 editing = editing,
                                 liquid = liquid,
+                                refraction = refraction,
                                 backdrop = backdrop,
                                 colUnit = colUnit,
                                 rowUnit = rowUnit,
@@ -278,6 +282,7 @@ private fun GroupHeader(
     group: HomeGroup,
     editing: Boolean,
     liquid: Boolean,
+    refraction: Boolean,
     backdrop: Backdrop?,
     onEditGroup: () -> Unit,
     onDeleteGroup: () -> Unit,
@@ -333,14 +338,14 @@ private fun GroupHeader(
             Spacer(Modifier.weight(1f))
         }
         if (editing) {
-            GroupDeleteButton(liquid = liquid, backdrop = backdrop, onClick = onDeleteGroup)
+            GroupDeleteButton(liquid = liquid, refraction = refraction, backdrop = backdrop, onClick = onDeleteGroup)
         }
     }
 }
 
 /** 组标题行右侧的删除按钮：液态玻璃小圆钮（§2.4）。 */
 @Composable
-private fun GroupDeleteButton(liquid: Boolean, backdrop: Backdrop?, onClick: () -> Unit) {
+private fun GroupDeleteButton(liquid: Boolean, refraction: Boolean, backdrop: Backdrop?, onClick: () -> Unit) {
     val dark = LocalIsDarkTheme.current
     val fill = if (dark) Color.White.copy(alpha = 0.07f) else Color.White.copy(alpha = 0.42f)
     val material = if (liquid && backdrop != null) {
@@ -351,7 +356,7 @@ private fun GroupDeleteButton(liquid: Boolean, backdrop: Backdrop?, onClick: () 
                 padding = maxOf(padding, 8.dp.toPx())
                 vibrancy()
                 blur(6.dp.toPx())
-                lens(6.dp.toPx(), 8.dp.toPx())
+                if (refraction) lens(6.dp.toPx(), 8.dp.toPx())
             },
             highlight = { Highlight.Default.copy(alpha = 0.6f) },
             shadow = null,
@@ -458,6 +463,7 @@ private fun HomeTileItem(
     face: HomeServiceRow,
     editing: Boolean,
     liquid: Boolean,
+    refraction: Boolean,
     backdrop: Backdrop?,
     colUnit: Float,
     rowUnit: Float,
@@ -501,6 +507,7 @@ private fun HomeTileItem(
             w = animW,
             h = animH,
             liquid = liquid,
+            refraction = refraction,
             backdrop = backdrop,
             modifier = Modifier.fillMaxSize(),
         )
@@ -576,6 +583,7 @@ internal fun HomeTileFaceBox(
     w: Float,
     h: Float,
     liquid: Boolean,
+    refraction: Boolean,
     backdrop: Backdrop?,
     modifier: Modifier = Modifier,
 ) {
@@ -594,7 +602,7 @@ internal fun HomeTileFaceBox(
     val liquidShadow = remember(accent, dark) { floatingGlassShadow(accent, dark) }
 
     val material = when {
-        liquid && backdrop != null -> remember(backdrop, radius, liquidFill, liquidShadow) {
+        liquid && backdrop != null -> remember(backdrop, radius, liquidFill, liquidShadow, refraction) {
             Modifier.drawBackdrop(
                 backdrop = backdrop,
                 shape = { RoundedCornerShape(radius) },
@@ -606,8 +614,11 @@ internal fun HomeTileFaceBox(
                     blur(8.dp.toPx())
                     // 折射才是「液态」和「毛玻璃」的分界：边缘把背景扭出透镜的弯光，
                     // 带一点色散。带宽与位移用固定的物理宽度（和底栏一致），不随卡片
-                    // 缩放——大小卡片的玻璃厚度本来就一样
-                    lens(10.dp.toPx(), 14.dp.toPx(), chromaticAberration = true)
+                    // 缩放——大小卡片的玻璃厚度本来就一样。
+                    //
+                    // 关掉折射时这一整段（离屏位移采样 + 三通道色散）都不跑，剩下的模糊、
+                    // 活力、高光、投影照旧：玻璃还是那块玻璃，只是不再像一片厚透镜。
+                    if (refraction) lens(10.dp.toPx(), 14.dp.toPx(), chromaticAberration = true)
                 },
                 // 玻璃被光打亮的那圈轮廓
                 highlight = { Highlight.Default.copy(alpha = 0.65f) },

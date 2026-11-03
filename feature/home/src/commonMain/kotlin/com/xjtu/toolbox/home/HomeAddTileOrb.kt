@@ -84,6 +84,8 @@ internal fun HomeAddTileOrb(
     faces: Map<String, HomeServiceRow>,
     catalog: List<AppService>,
     liquid: Boolean,
+    /** 液态玻璃是否带折射；见 HomeTileFaceBox 的 `refraction` 说明。 */
+    refraction: Boolean,
     backdrop: Backdrop?,
     session: HomeDragSession,
     /** 长按图标拖出一个新功能：[startPointer] 是手指的页面局部坐标（首页统一换算、开预览）。 */
@@ -150,6 +152,7 @@ internal fun HomeAddTileOrb(
                         faces = faces,
                         catalog = catalog,
                         liquid = liquid,
+                        refraction = refraction,
                         backdrop = backdrop,
                         session = session,
                         onPaletteStart = onPaletteStart,
@@ -169,6 +172,7 @@ internal fun HomeAddTileOrb(
                 } else {
                     OrbHandle(
                         liquid = liquid,
+                        refraction = refraction,
                         backdrop = backdrop,
                         session = session,
                         onTap = { expanded = true },
@@ -230,6 +234,7 @@ private fun snapToSide(
 @Composable
 private fun OrbHandle(
     liquid: Boolean,
+    refraction: Boolean,
     backdrop: Backdrop?,
     session: HomeDragSession,
     onTap: () -> Unit,
@@ -245,7 +250,7 @@ private fun OrbHandle(
         Modifier
             .size(ORB_BALL)
             .onGloballyPositioned { origin = it.boundsInRoot().topLeft - session.pageOrigin }
-            .orbGlass(liquid, backdrop, CircleShape)
+            .orbGlass(liquid, refraction, backdrop, CircleShape)
             .pointerInput("orbHandle") {
                 awaitEachGesture {
                     val down = awaitFirstDown(requireUnconsumed = false)
@@ -292,6 +297,7 @@ private fun OrbRail(
     faces: Map<String, HomeServiceRow>,
     catalog: List<AppService>,
     liquid: Boolean,
+    refraction: Boolean,
     backdrop: Backdrop?,
     session: HomeDragSession,
     onPaletteStart: (routeId: String, startPointer: Offset) -> Unit,
@@ -307,13 +313,14 @@ private fun OrbRail(
     Column(
         Modifier
             .width(ORB_RAIL_WIDTH)
-            .orbGlass(liquid, backdrop, RoundedCornerShape(ORB_RAIL_WIDTH / 2))
+            .orbGlass(liquid, refraction, backdrop, RoundedCornerShape(ORB_RAIL_WIDTH / 2))
             .padding(vertical = 6.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         // 把手升到最上方：按住它整条收走（点它不做别的）
         OrbHandle(
             liquid = liquid,
+            refraction = refraction,
             backdrop = backdrop,
             session = session,
             onTap = {},
@@ -333,6 +340,7 @@ private fun OrbRail(
                 OrbTileIcon(
                     face = face,
                     liquid = liquid,
+                    refraction = refraction,
                     backdrop = backdrop,
                     session = session,
                     onDragOut = { startPointer -> onPaletteStart(service.route.id, startPointer) },
@@ -349,6 +357,7 @@ private fun OrbRail(
 private fun OrbTileIcon(
     face: HomeServiceRow,
     liquid: Boolean,
+    refraction: Boolean,
     backdrop: Backdrop?,
     session: HomeDragSession,
     onDragOut: (startPointer: Offset) -> Unit,
@@ -365,7 +374,7 @@ private fun OrbTileIcon(
                 // 换成页面局部坐标登记，拖出时从这里起算
                 iconTop = coords.boundsInRoot().topLeft - session.pageOrigin
             }
-            .orbGlass(liquid, backdrop, CircleShape)
+            .orbGlass(liquid, refraction, backdrop, CircleShape)
             .pointerInput(face.key) {
                 // 官方长按拖拽：onDragCancel 有兜底，手势被抢走不会卡死会话
                 detectDragGesturesAfterLongPress(
@@ -388,7 +397,12 @@ private fun OrbTileIcon(
 
 /** 悬浮球与长条共用的液态玻璃（采首页背景层，和卡片同一套参数）；关液态时退回半透明底。 */
 @Composable
-private fun Modifier.orbGlass(liquid: Boolean, backdrop: Backdrop?, shape: Shape): Modifier {
+private fun Modifier.orbGlass(
+    liquid: Boolean,
+    refraction: Boolean,
+    backdrop: Backdrop?,
+    shape: Shape,
+): Modifier {
     val dark = LocalIsDarkTheme.current
     val fill = if (dark) Color.White.copy(alpha = 0.07f) else Color.White.copy(alpha = 0.42f)
     if (!liquid || backdrop == null) {
@@ -404,7 +418,7 @@ private fun Modifier.orbGlass(liquid: Boolean, backdrop: Backdrop?, shape: Shape
                 padding = maxOf(padding, 10.dp.toPx())
                 vibrancy()
                 blur(8.dp.toPx())
-                lens(9.dp.toPx(), 12.dp.toPx())
+                if (refraction) lens(9.dp.toPx(), 12.dp.toPx())
             },
             highlight = { Highlight.Default.copy(alpha = 0.65f) },
             shadow = { shadow },

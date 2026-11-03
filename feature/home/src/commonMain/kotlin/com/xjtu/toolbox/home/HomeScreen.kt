@@ -166,6 +166,8 @@ fun HomeScreen(
     val layout = editing.draft ?: stored
     val grid = remember(revision) { layoutStore.grid }
     val liquid = remember(revision) { layoutStore.liquidCard }
+    // 液态玻璃的折射子项：只在 liquid 为真时有意义，关掉省一层离屏位移采样（见 HomeLayoutStore）
+    val refraction = remember(revision) { layoutStore.liquidRefraction }
     val backgroundImage = remember(revision) { layoutStore.backgroundImage }
     val backgroundBlur = remember(revision) { layoutStore.backgroundBlur }
     val backgroundOpacity = remember(revision) { layoutStore.backgroundOpacity }
@@ -1003,6 +1005,7 @@ fun HomeScreen(
                                 faces = faces,
                                 editing = editing.on,
                                 liquid = liquid,
+                                refraction = refraction,
                                 backdrop = tileBackdrop.takeIf { liquid },
                                 session = session,
                                 budgetRows = rowBudget?.get(group.id),
@@ -1045,8 +1048,12 @@ fun HomeScreen(
         // 编辑态顶栏（取消 / 设置 / 保存）不需要宿主给按钮，所以这一端没有 topActions 也要画，
         // 否则桌面、Web 长按进了编辑态就出不来了
         if (collapsible || editing.on) {
-            // 把首页背景层通过 Local 递给顶栏按钮（含宿主给的扫码 / 搜索 / 通知）做液态玻璃
-            CompositionLocalProvider(LocalHomeTileBackdrop provides tileBackdrop.takeIf { liquid }) {
+            // 把首页背景层通过 Local 递给顶栏按钮（含宿主给的扫码 / 搜索 / 通知）做液态玻璃。
+            // 折射开关同理走 Local：那几个按钮是宿主（:app）画的，拿不到这里的参数
+            CompositionLocalProvider(
+                LocalHomeTileBackdrop provides tileBackdrop.takeIf { liquid },
+                LocalHomeGlassRefraction provides refraction,
+            ) {
                 HomeCollapsingBar(
                     progress = progress,
                     topInset = contentTopPadding,
@@ -1089,6 +1096,7 @@ fun HomeScreen(
             session = session,
             faces = faces,
             liquid = liquid,
+            refraction = refraction,
             backdrop = tileBackdrop.takeIf { liquid },
             geometry = dragGeometry,
             settling = ghostSettling,
@@ -1101,6 +1109,7 @@ fun HomeScreen(
                 faces = faces,
                 catalog = catalog,
                 liquid = liquid,
+                refraction = refraction,
                 backdrop = tileBackdrop.takeIf { liquid },
                 session = session,
                 onPaletteStart = { routeId, startPointer ->
@@ -1289,6 +1298,15 @@ private fun newGroupId(): String = "custom-" + kotlin.random.Random.nextInt(1000
  */
 val LocalHomeTileBackdrop = compositionLocalOf<Backdrop?> { null }
 
+/**
+ * 首页液态玻璃要不要带折射（透镜弯光 + 色散）。
+ *
+ * 首页自己画的卡片、悬浮球走显式参数，不需要这个；它专门给**宿主（`:app`）画的顶栏圆钮**用——
+ * 那几个按钮是在 `topActions` lambda 里创建的，拿不到首页的局部值，只能走 CompositionLocal。
+ * 默认 true：没经首页 provide 的场合（比如别处复用了圆钮）保持原来的外观。
+ */
+val LocalHomeGlassRefraction = compositionLocalOf { true }
+
 // ── 顶栏 ──
 
 /**
@@ -1411,6 +1429,7 @@ private fun HomeCollapsingBar(
 @Composable
 private fun HomeBarIconButton(icon: ImageVector, label: String, liquid: Backdrop?, onClick: () -> Unit) {
     val dark = LocalIsDarkTheme.current
+    val refraction = LocalHomeGlassRefraction.current
     val fill = if (dark) Color.White.copy(alpha = 0.08f) else Color.White.copy(alpha = 0.4f)
     val material = if (liquid != null) {
         Modifier.drawBackdrop(
@@ -1420,7 +1439,7 @@ private fun HomeBarIconButton(icon: ImageVector, label: String, liquid: Backdrop
                 padding = maxOf(padding, 8.dp.toPx())
                 vibrancy()
                 blur(6.dp.toPx())
-                lens(8.dp.toPx(), 10.dp.toPx())
+                if (refraction) lens(8.dp.toPx(), 10.dp.toPx())
             },
             highlight = { Highlight.Default.copy(alpha = 0.65f) },
             shadow = null,
@@ -1999,6 +2018,7 @@ private fun HomeDragGhost(
     session: HomeDragSession,
     faces: Map<String, HomeServiceRow>,
     liquid: Boolean,
+    refraction: Boolean,
     backdrop: Backdrop?,
     geometry: HomeBoardGeometry,
     settling: Boolean,
@@ -2046,6 +2066,7 @@ private fun HomeDragGhost(
             w = session.sizeCells.x,
             h = session.sizeCells.y,
             liquid = liquid,
+            refraction = refraction,
             backdrop = backdrop,
             modifier = Modifier.fillMaxSize(),
         )

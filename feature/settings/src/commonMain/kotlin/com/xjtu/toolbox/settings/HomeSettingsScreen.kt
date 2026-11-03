@@ -93,6 +93,7 @@ private fun HomeSettingsBody(onDismiss: () -> Unit) {
     val store = remember { HomeLayoutStore() }
     // 本地状态是这一屏的真源：滑条拖动时先改它，写盘也顺手做，但只有离散动作才 bump revision
     var liquid by remember { mutableStateOf(store.liquidCard) }
+    var refraction by remember { mutableStateOf(store.liquidRefraction) }
     var grid by remember { mutableStateOf(store.grid) }
     var image by remember { mutableStateOf(store.backgroundImage) }
     var blur by remember { mutableIntStateOf(store.backgroundBlur) }
@@ -204,6 +205,26 @@ private fun HomeSettingsBody(onDismiss: () -> Unit) {
                     store.notifyChanged()
                 },
             )
+            // 液态玻璃的子项：只决定要不要那一层「透镜弯光」。模糊、活力、高光、轮廓、投影
+            // 都是另一条路，关掉折射照样保留——玻璃还是那块玻璃，只是不再像厚透镜。
+            // 换机嫌卡的人往下拨一格，滚动与拖动的开销能明显下来。
+            if (liquid) {
+                SwitchPreference(
+                    title = "开启折射",
+                    summary = if (refraction) {
+                        "边缘把背景扭出透镜的弯光，带一点色散（最费的一层）"
+                    } else {
+                        "只留模糊与高光：轮廓和通透感都在，省一层离屏采样"
+                    },
+                    checked = refraction,
+                    startAction = { SettingsIcon(Icons.Default.WaterDrop, cBlue.copy(alpha = 0.72f)) },
+                    onCheckedChange = {
+                        refraction = it
+                        store.liquidRefraction = it
+                        store.notifyChanged()
+                    },
+                )
+            }
         }
 
         // ── 网格 ──
@@ -261,6 +282,7 @@ private fun HomeSettingsBody(onDismiss: () -> Unit) {
                         onClick = {
                             store.reset()
                             liquid = store.liquidCard
+                            refraction = store.liquidRefraction
                             grid = store.grid
                             image = store.backgroundImage
                             blur = store.backgroundBlur

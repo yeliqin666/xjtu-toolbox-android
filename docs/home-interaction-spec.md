@@ -14,7 +14,7 @@
 
 | # | 决定 | 落点 | 状态 |
 |---|---|---|---|
-| 1 | 液态玻璃**只用** App 内现成实现：`com.kyant.backdrop` 的 `drawBackdrop`（底栏、玻璃顶栏、头卡同一套），三要素齐全——`blur + vibrancy` 之外还有 `lens` 折射（边缘弯光 + 色散）、`Highlight` 轮廓高光、`floatingGlassShadow` 环境光投影；毛玻璃是另一条独立路径：`squircleClip + background + squircleBorder + appCardShadow`。两者靠 `liquidCard` 开关切换，**不允许**用毛玻璃调参去"模拟"液态玻璃 | `HomeTileBoard.kt` · `HomeTileFaceBox` | 已实现 |
+| 1 | 液态玻璃**只用** App 内现成实现：`com.kyant.backdrop` 的 `drawBackdrop`（底栏、玻璃顶栏、头卡同一套），三要素齐全——`blur + vibrancy` 之外还有 `lens` 折射（边缘弯光 + 色散）、`Highlight` 轮廓高光、`floatingGlassShadow` 环境光投影；毛玻璃是另一条独立路径：`squircleClip + background + squircleBorder + appCardShadow`。两者靠 `liquidCard` 开关切换，**不允许**用毛玻璃调参去"模拟"液态玻璃；液态玻璃下另有**折射**子开关（`liquidRefraction`，默认开），关掉只去掉 `lens` 那一层（离屏位移采样 + 三通道色散），模糊 / 活力 / 高光 / 轮廓 / 投影全部保留 | `HomeTileBoard.kt` · `HomeTileFaceBox` | 已实现 |
 | 2 | 背景图**铺满全屏含顶栏**：顶栏模糊带与按钮改采首页**背景层**（之前采滚动内容层，不透背景）；非玻璃风格顶栏透明。顶栏按钮（编辑态按钮 + 宿主的扫码 / 搜索 / 通知）经 `LocalHomeTileBackdrop` 采背景层做液态玻璃，无白描边 | `HomeScreen.kt` · `HomeCollapsingBar`、`app/main/MainScreen.kt` · `HomeRoundAction` | 已实现（本批修） |
 | 3 | 背景图**固定** `ContentScale.Crop` 居中铺满（不变形、不重复），**不开放**用户缩放 / 移动取景——它和页面滚动、双击手势会抢指针，收益远小于冲突；可调项只有两个滑条：模糊 0–10dp、不透明度 20–100% | `HomeSettingsScreen.kt` · `HomeSettingsBody` | 已实现（取景按此决定不开放） |
 | 4 | 背景变化后**不做**卡片对比度联动补偿。理由：壁纸太花是用户的审美选择，自动压暗会让"液态玻璃透出壁纸"这个卖点消失。保底只做两件事：文字恒用主题 `onSurface`、液态玻璃内部 blur 恒为 8dp 保证可读 | `HomeTileBoard.kt` · `HomeTileFaceBox` | 已实现 |
@@ -101,7 +101,7 @@
 | 45 | 1×1 的热区 = 整块卡片（正方格边长 ≈ 76dp ≥ 48dp），不额外缩小 | `HomeTileItem` 的 tap 手势 | 已实现 |
 | 46 | 字体放大降级：文字一律 `maxLines = 1` + `Ellipsis`，行高固定 dp 而非随字体无限涨；极端放大时先省略名称、再隐去状态行 | `HomeTileFaceBox` | 已实现 |
 | 47 | 深浅色参数**分开**：填充 浅 62% / 深 10% 白；细边 浅 0.7 / 深 0.1；标题色深色提亮 0.25；液态玻璃 blur 两档相同 | `HomeTileFaceBox`、`GroupHeader` | 已实现 |
-| 48 | 性能降级：抖动只在编辑态挂动画；掉帧交给 Compose 的帧调度，不额外做降级开关。液态玻璃的 `drawBackdrop` 用 `remember` 按圆角 / 填充 / 阴影缓存（只有圆角随尺寸动画变时才重建），静止与位置动画不重复采样；纯色背景下折射不可见但高光仍在，故不做「无背景图退化」 | `HomeTileItem`、`HomeTileFaceBox` | 已实现（本批修） |
+| 48 | 性能降级：抖动只在编辑态挂动画；掉帧交给 Compose 的帧调度，**唯一**的降级开关是液态玻璃下的「开启折射」子项（`HomeLayoutStore.liquidRefraction`，默认开）——关掉只跳过 `lens` 这一层，模糊与高光不动，卡片、组删除钮、悬浮球、宿主顶栏圆钮四处一起生效。液态玻璃的 `drawBackdrop` 用 `remember` 按圆角 / 填充 / 阴影缓存（只有圆角随尺寸动画变时才重建），静止与位置动画不重复采样；纯色背景下折射不可见但高光仍在，故不做「无背景图退化」 | `HomeTileItem`、`HomeTileFaceBox` | 已实现（本批修） |
 | 49 | 基准来源：材质 = App 内 `drawBackdrop` + 底栏玻璃；抽屉 = 设置页既有 `OverlayBottomSheet` 范式；动画 = Compose 官方 spring；手势 = `detectDragGestures` 系统语义。**不自创** | 全文 | 按此决定 |
 | 50 | 参数不写死：档位阈值取半格（§11），dp 由一格边长（正方格，量到的组宽推）决定（§9），时长沿用 App 既有弹簧参数（§43） | 全文 | 按此决定 |
 
