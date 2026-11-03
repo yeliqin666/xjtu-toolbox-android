@@ -100,6 +100,7 @@ import com.xjtu.toolbox.ui.components.HeroForestBackground
 import com.xjtu.toolbox.ui.components.HeroForestScrim
 import com.xjtu.toolbox.ui.components.HeroPixelBackground
 import com.xjtu.toolbox.ui.components.HeroPixelScrim
+import com.xjtu.toolbox.ui.components.JiaoxiaoxiAvatar
 import com.xjtu.toolbox.ui.components.LiquidBackground
 import com.xjtu.toolbox.ui.components.enterOnce
 import com.xjtu.toolbox.ui.components.rememberLiquidMood
@@ -148,8 +149,9 @@ fun HomeScreen(
     /**
      * 顶栏最左侧那个按钮（`:app` 是「扫一扫」）；null = 这一端没有。
      *
-     * 首页本身不认「功能按钮统一右对齐」那个开关（`HomeLayoutStore.topActionsRight`）：
-     * 它只决定宿主往这两个槽位里放什么，关掉时扫码从 [topActions] 挪到这里。
+     * 打开「功能按钮统一右对齐」（`HomeLayoutStore.topActionsRight`，默认开）时这一端改成
+     * 改造前的顶栏——左侧换成「家小西」头像、不画居中标题，所以这个槽位在那时不被调用；
+     * 关掉才按本分支的排法画（扫码靠左、标题居中）。
      */
     topLeading: (@Composable () -> Unit)? = null,
     /** 顶栏右侧那一排（`:app` 是「搜索」+「通知」，扫码统一右对齐时也在这一排）。null = 这一端没有顶栏。 */
@@ -173,6 +175,9 @@ fun HomeScreen(
     val liquid = remember(revision) { layoutStore.liquidCard }
     // 液态玻璃的折射子项：只在 liquid 为真时有意义，关掉省一层离屏位移采样（见 HomeLayoutStore）
     val refraction = remember(revision) { layoutStore.liquidRefraction }
+    // 顶栏排法：开（默认）= 改造前那套（左侧「家小西」头像、三个圆钮统一在右、不画居中标题）；
+    // 关 = 本分支那套（扫码靠左、标题绝对居中、右侧只留搜索与通知）
+    val topActionsRight = remember(revision) { layoutStore.topActionsRight }
     val backgroundImage = remember(revision) { layoutStore.backgroundImage }
     val backgroundBlur = remember(revision) { layoutStore.backgroundBlur }
     val backgroundOpacity = remember(revision) { layoutStore.backgroundOpacity }
@@ -1080,6 +1085,8 @@ fun HomeScreen(
                         host.onOpenHomeSettings()
                     },
                     alignWithGreeting = masthead,
+                    // 「功能按钮统一右对齐」开着 = 整个顶栏回到改造前那套（头像 / 三钮 / 无居中标题）
+                    devTopBar = topActionsRight,
                 )
             }
         }
@@ -1315,12 +1322,15 @@ val LocalHomeGlassRefraction = compositionLocalOf { true }
 // ── 顶栏 ──
 
 /**
- * 首页的折叠顶栏，叠在滚动内容上面：正中间是应用名，左右两排按钮全由宿主给
- * （`:app` 默认是「扫码 / 搜索 / 通知」三个圆钮统一在右侧，主页设置里关掉
- * 「功能按钮统一右对齐」之后扫码挪到最左）。往上滑过刊头后玻璃底色浮出来，底边柔和淡出。
+ * 首页的折叠顶栏，叠在滚动内容上面，两套排法：
  *
- * 编辑态顶栏换成三个纯图标：左边取消、右边齿轮 + 对勾（需求 §1.3），
- * 按钮的视觉样式和常规态完全一致，只有图标不同。
+ * - [devTopBar] = true（主页设置「功能按钮统一右对齐」开着，默认）：**改造前那套**——
+ *   左侧「家小西」头像（随上滑淡入放大）、三个功能圆钮全在右侧、**不画居中标题**；
+ * - false：本分支那套——扫码靠左（宿主给的 [leading]）、标题绝对居中、右侧只留搜索与通知。
+ *
+ * 往上滑过刊头后玻璃底色浮出来，底边柔和淡出。编辑态两套排法一律换成三个纯图标：
+ * 左边取消、右边齿轮 + 对勾（需求 §1.3）——编辑态是本分支新加的，不跟着顶栏排法走，
+ * 否则老排法下进了编辑态就出不来。
  */
 @Composable
 private fun HomeCollapsingBar(
@@ -1338,6 +1348,7 @@ private fun HomeCollapsingBar(
     onSaveEdit: () -> Unit,
     onHomeSettings: () -> Unit,
     alignWithGreeting: Boolean = false,
+    devTopBar: Boolean = false,
 ) {
     val collapsed by remember { derivedStateOf { progress() > 0.5f } }
     val surface = MiuixTheme.colorScheme.surface
@@ -1353,7 +1364,7 @@ private fun HomeCollapsingBar(
                     .requiredHeight(PROGRESSIVE_BLUR_BAND_HEIGHT)
                     .offset { IntOffset(0, bandShift().roundToPx()) },
             ) {
-                HomeBarBlurBand(backdrop, Modifier.matchParentSize())
+                ProgressiveBarBlur(backdrop, Modifier.matchParentSize())
                 if (SHOW_TINT_WASH) {
                     Box(Modifier.matchParentSize().background(tintWash(surface)))
                 }
@@ -1373,21 +1384,24 @@ private fun HomeCollapsingBar(
         )
 
         // 标题绝对居中：不参与左右两排按钮的排布，所以两边按钮多少都不影响它。
-        // 编辑态换成「首页调整设置」，让人一眼知道现在在摆桌面
-        Box(
-            Modifier
-                .matchParentSize()
-                .padding(top = topInset)
-                .height(BAR_HEIGHT),
-            contentAlignment = Alignment.Center,
-        ) {
-            Text(
-                if (editing) "首页调整设置" else "岱宗盒子",
-                fontSize = 17.sp,
-                fontWeight = FontWeight.SemiBold,
-                color = MiuixTheme.colorScheme.onSurface,
-                maxLines = 1,
-            )
+        // 编辑态换成「首页调整设置」，让人一眼知道现在在摆桌面；
+        // 改造前的顶栏（devTopBar）本来就没有居中标题，那条路上整块不画
+        if (!devTopBar || editing) {
+            Box(
+                Modifier
+                    .matchParentSize()
+                    .padding(top = topInset)
+                    .height(BAR_HEIGHT),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    if (editing) "首页调整设置" else "岱宗盒子",
+                    fontSize = 17.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MiuixTheme.colorScheme.onSurface,
+                    maxLines = 1,
+                )
+            }
         }
 
         Row(
@@ -1395,7 +1409,8 @@ private fun HomeCollapsingBar(
                 .fillMaxWidth()
                 .padding(top = topInset)
                 .height(BAR_HEIGHT)
-                .padding(horizontal = 16.dp),
+                // 改造前那一套的左边距是 20dp（头像比圆钮细一档），本分支两排圆钮统一 16dp
+                .padding(start = if (devTopBar) 20.dp else 16.dp, end = 16.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Box(
@@ -1403,10 +1418,10 @@ private fun HomeCollapsingBar(
                     translationY = if (alignWithGreeting) 0f else -BUTTON_LIFT.toPx() * (1f - progress())
                 },
             ) {
-                if (editing) {
-                    HomeBarIconButton(Icons.Default.Close, "取消编辑", tileLiquidBackdrop, onCancelEdit)
-                } else {
-                    leading?.invoke()
+                when {
+                    editing -> HomeBarIconButton(Icons.Default.Close, "取消编辑", tileLiquidBackdrop, onCancelEdit)
+                    devTopBar -> HomeBarAvatar(progress)
+                    else -> leading?.invoke()
                 }
             }
             Spacer(Modifier.weight(1f))
@@ -1426,6 +1441,24 @@ private fun HomeCollapsingBar(
             }
         }
     }
+}
+
+/**
+ * 改造前顶栏左侧的「家小西」头像（[HomeCollapsingBar] 的 `devTopBar` 那条路专用）。
+ *
+ * 和改造前一模一样的写法：随上滑淡入、由 0.78 放大到 1，停在顶部时基本看不见——
+ * 那时候顶栏上只有右侧三个功能圆钮，滚起来才「浮」出个头像。
+ */
+@Composable
+private fun HomeBarAvatar(progress: () -> Float) {
+    JiaoxiaoxiAvatar(
+        Modifier.size(28.dp).graphicsLayer {
+            val f = progress()
+            alpha = f
+            scaleX = 0.78f + 0.22f * f
+            scaleY = scaleX
+        },
+    )
 }
 
 /**
@@ -1472,36 +1505,41 @@ private fun HomeBarIconButton(icon: ImageVector, label: String, liquid: Backdrop
 }
 
 /**
- * 顶部模糊带：把滚到顶栏底下的内容模糊**一层**，再用一条纵向渐变遮罩让它在底边淡出。
+ * useplanes 的 progressive blur：七层不同半径的模糊叠在一起。
+ * 每层都从同一份 backdrop 采样，再用各自的渐变遮罩只留下一段：
+ * 最弱的一层在底边淡出，最强的一层在屏幕顶边达到满强度，中间没有硬边。
  *
- * 这里原来是 useplanes 的 progressive blur——七层不同半径叠起来，做出「越靠顶边越糊」的
- * 强度渐变。代价是滚动时**每一帧七次离屏采样 + 七次高斯模糊**，而这条带横跨整个屏宽，
- * 是首页滚动最贵的两处之一（另一处是卡片玻璃）。
- *
- * 收成一层之后模糊强度恒定，过渡全靠遮罩的透明度渐变：上段满强度、往下淡到全透明，
- * 底边同样没有硬边。区别只在「模糊变淡的坡度」上略钝一点，滚动开销降到原来的七分之一。
+ * 代价要清楚：滚动时**每一帧七次离屏采样 + 七次高斯模糊**，而这条带宽 96dp、横跨整个屏宽，
+ * 是首页滚动最贵的两处之一（另一处是卡片玻璃）。曾经收成过单层（1/7 开销），
+ * 后来按需求改回这个「越靠顶边越糊」的观感——嫌卡就调 [ProgressiveBlurRadii] 的层数。
  */
 @Composable
-private fun HomeBarBlurBand(
+private fun ProgressiveBarBlur(
     backdrop: Backdrop,
     modifier: Modifier = Modifier,
 ) {
-    val layer = remember(backdrop) {
-        Modifier.drawBackdrop(
-            backdrop = backdrop,
-            shape = { RoundedCornerShape(0.dp) },
-            effects = {
-                blur(BAR_BLUR_RADIUS.toPx(), TileMode.Decal)
-            },
-            highlight = null,
-            shadow = null,
-            onDrawFront = {
-                drawRect(brush = BarBlurMask, blendMode = BlendMode.DstIn)
-            },
-        )
+    Box(modifier) {
+        ProgressiveBlurRadii.forEachIndexed { index, radius ->
+            val layer = remember(backdrop, index) {
+                Modifier.drawBackdrop(
+                    backdrop = backdrop,
+                    shape = { RoundedCornerShape(0.dp) },
+                    effects = {
+                        blur(radius.dp.toPx(), TileMode.Decal)
+                    },
+                    highlight = null,
+                    shadow = null,
+                    onDrawFront = {
+                        drawRect(
+                            brush = ProgressiveBlurMasks[index],
+                            blendMode = BlendMode.DstIn,
+                        )
+                    },
+                )
+            }
+            Box(Modifier.matchParentSize().then(layer))
+        }
     }
-    // 带本身没有子内容：模糊与遮罩都由 drawBackdrop 这一层画
-    Box(modifier.then(layer)) {}
 }
 
 /** 展开时圆钮比顶栏正中上移的距离：顶栏里圆钮上方正好留这么多，不会顶进状态栏。 */
@@ -1514,22 +1552,48 @@ private const val SHOW_TINT_WASH = true
 private val PROGRESSIVE_BLUR_BAND_HEIGHT = 96.dp
 
 /**
- * 模糊半径。原来七层里最强的那层是 18dp：单层取 12dp，顶栏下面那块观感最接近它，
- * 又不至于把壁纸纹理整个抹平（模糊带的高度只有 96dp，半径给大了会糊成一片色）。
+ * 顶栏渐进模糊的七层半径（useplanes 页面预览的默认 ramp × 1.5）。
+ *
+ * 想让滚动更省一点，就删掉末尾一两层：梯度会变钝，但每层都是一次全屏宽的离屏采样 + 高斯模糊。
  */
-private val BAR_BLUR_RADIUS = 12.dp
+private val ProgressiveBlurRadii = listOf(0.75f, 1.5f, 3f, 4.5f, 7.5f, 12f, 18f)
+
+/** 每层遮罩占整条带的比例：useplanes 的层与层之间错开 12.5%。 */
+private const val PROGRESSIVE_BLUR_STEP = 0.125f
 
 /**
- * 模糊带的淡出遮罩：上段保持满强度，往下线性淡到全透明。
- *
- * 有遮罩才不会在带的底边看到一条「清晰 / 模糊」的硬边——尾部那一段是模糊像素逐渐变透明，
- * 底下未模糊的内容慢慢透出来，和原来七层堆出来的过渡是同一个思路，只是强度不再随高度变。
+ * 顶栏的模糊从屏幕顶边往下递减，所以遮罩按从底边往上数的位置生成：
+ * 第 0 层（0.75dp）在底边附近淡出，第 6 层（18dp）在顶边满强度。
  */
-private val BarBlurMask: Brush = Brush.verticalGradient(
-    0f to Color.Black,
-    0.45f to Color.Black,
-    1f to Color.Transparent,
-)
+private val ProgressiveBlurMasks: List<Brush> = ProgressiveBlurRadii.indices.map { index ->
+    val stops = listOf(
+        (1f - (index + 3) * PROGRESSIVE_BLUR_STEP) to 0f,
+        (1f - (index + 2) * PROGRESSIVE_BLUR_STEP) to 1f,
+        (1f - (index + 1) * PROGRESSIVE_BLUR_STEP) to 1f,
+        (1f - index * PROGRESSIVE_BLUR_STEP) to 0f,
+    ).clipToUnitRange()
+    Brush.verticalGradient(
+        *stops.map { (position, alpha) ->
+            position to Color.Black.copy(alpha = alpha)
+        }.toTypedArray(),
+    )
+}
+
+/** 把越出 [0, 1] 的渐变端点裁掉，并在边界上按原斜率补一个端点。 */
+private fun List<Pair<Float, Float>>.clipToUnitRange(): List<Pair<Float, Float>> {
+    fun alphaAt(position: Float): Float {
+        val before = lastOrNull { it.first <= position } ?: first()
+        val after = firstOrNull { it.first >= position } ?: last()
+        if (before.first == after.first) return after.second
+        val t = (position - before.first) / (after.first - before.first)
+        return before.second + (after.second - before.second) * t
+    }
+
+    val visible = filter { it.first in 0f..1f }.toMutableList()
+    if (first().first > 0f) visible.add(0, 0f to alphaAt(0f))
+    if (last().first < 1f) visible.add(1f to alphaAt(1f))
+    return visible.sortedBy { it.first }
+}
 
 /** 顶栏表面色遮罩：顶部完全不透明，到底边线性归零。 */
 private fun tintWash(surface: Color): Brush = Brush.verticalGradient(
@@ -2058,7 +2122,10 @@ private fun HomeDragGhost(
 
 /**
  * 改一个组的名字与标题颜色（§2.3）：标题留空就整行不画。
- * 颜色用全应用同一套调色盘（`AppColorPicker`），「跟随主题」就是存空串。
+ *
+ * 颜色用全应用同一套调色盘（`AppColorPicker`）+ 一个 **Hex 输入框**，拖色和敲色值两条路
+ * 互相回填。开关叫「添加颜色」而不是「跟随主题」：关着 = 这个组的标题不设色、直接跟随主题
+ * （存空串），打开才多出调色盘与 Hex；关掉就等于把颜色摘回去。
  */
 @Composable
 private fun GroupEditDialog(
@@ -2067,14 +2134,18 @@ private fun GroupEditDialog(
     onConfirm: (title: String, colorHex: String) -> Unit,
 ) {
     var title by remember(group.id) { mutableStateOf(group.title) }
-    // 空串 = 跟随主题
-    var followTheme by remember(group.id) { mutableStateOf(group.colorHex.isEmpty()) }
+    // 关 = 跟随主题（存空串），开 = 自己挑一个色
+    var addColor by remember(group.id) { mutableStateOf(group.colorHex.isNotEmpty()) }
     // 主题色要在组合上下文取好再喂给 remember——remember 的 calculation lambda 不是
     // @Composable 上下文，里面直接读 MiuixTheme 会编译报错
     val defaultTint = MiuixTheme.colorScheme.primary
     var picked by remember(group.id) {
         mutableStateOf(CourseColors.parseHex(group.colorHex) ?: defaultTint)
     }
+    // Hex 输入框是「草稿」：解析得出来才同步给 picked，敲到一半的无效值只拦住「确定」，
+    // 不拿它去覆盖已经选好的颜色
+    var hex by remember(group.id) { mutableStateOf(CourseColors.toHex(picked)) }
+    val hexValid = CourseColors.parseHex(hex) != null
     WindowDialog(show = true, title = "分组设置", onDismissRequest = onDismiss) {
         Column(
             Modifier
@@ -2092,15 +2163,36 @@ private fun GroupEditDialog(
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Text("标题颜色", fontSize = 15.sp)
                 Spacer(Modifier.weight(1f))
-                Text("跟随主题", fontSize = 13.sp, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
+                Text("添加颜色", fontSize = 13.sp, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
                 Spacer(Modifier.width(6.dp))
-                Switch(checked = followTheme, onCheckedChange = { followTheme = it })
+                Switch(
+                    checked = addColor,
+                    onCheckedChange = { on ->
+                        addColor = on
+                        // 打开时把手上选好的色写回输入框：上次关掉前可能留着一串敲了一半的无效值
+                        if (on) hex = CourseColors.toHex(picked)
+                    },
+                )
             }
-            if (!followTheme) {
+            if (addColor) {
                 Spacer(Modifier.height(10.dp))
                 AppColorPicker(
                     color = picked,
-                    onColorChanged = { picked = it },
+                    onColorChanged = {
+                        picked = it
+                        hex = CourseColors.toHex(it)
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Spacer(Modifier.height(10.dp))
+                TextField(
+                    value = hex,
+                    onValueChange = { text ->
+                        hex = text
+                        CourseColors.parseHex(text)?.let { picked = it }
+                    },
+                    label = "Hex 色值（#RRGGBB）",
+                    singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
                 )
             }
@@ -2108,7 +2200,9 @@ private fun GroupEditDialog(
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 TextButton(
                     text = "确定",
-                    onClick = { onConfirm(title.trim(), if (followTheme) "" else CourseColors.toHex(picked)) },
+                    onClick = { onConfirm(title.trim(), if (addColor) CourseColors.toHex(picked) else "") },
+                    // 敲了半截的 Hex 不认：宁可拦住「确定」，也不拿一个看不出来的色落盘
+                    enabled = !addColor || hexValid,
                     modifier = Modifier.weight(1f),
                     colors = ButtonDefaults.textButtonColorsPrimary(),
                 )

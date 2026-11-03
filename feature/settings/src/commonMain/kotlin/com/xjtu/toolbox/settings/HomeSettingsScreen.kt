@@ -244,7 +244,7 @@ private fun HomeSettingsBody(onDismiss: () -> Unit, showTopBarStyle: Boolean) {
                 SwitchPreference(
                     title = "功能按钮统一右对齐",
                     summary = if (topActionsRight) {
-                        "扫码、搜索、通知三个圆钮都在右侧"
+                        "三个圆钮都在右侧，左侧是家小西头像、不画标题（改造前的顶栏）"
                     } else {
                         "扫码靠左、标题居中，右侧只留搜索与通知"
                     },

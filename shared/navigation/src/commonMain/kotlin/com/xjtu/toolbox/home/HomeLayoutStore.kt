@@ -151,13 +151,15 @@ class HomeLayoutStore(
         set(value) = store.putBoolean(KEY_LIQUID_REFRACTION, value)
 
     /**
-     * 首页顶栏的功能按钮是否**统一右对齐**（默认开）。
+     * 首页顶栏用哪套排法（默认**开** = 改造前那套）。
      *
-     * 开 = 扫码 / 搜索 / 通知三个圆钮都在顶栏右侧（改造前的排法）；
-     * 关 = 扫码单独站到最左边、标题绝对居中，右侧只留搜索与通知（改版后的排法）。
+     * 开 = 整套改造前顶栏：左侧「家小西」头像（随上滑淡入）、扫码 / 搜索 / 通知三个圆钮都在右侧、
+     * 不画居中标题；
+     * 关 = 改版后的顶栏：扫码单独站到最左边、标题绝对居中，右侧只留搜索与通知。
      *
-     * 只有自己画首页顶栏按钮的端才读它（`:app`）；桌面与 web 的首页顶栏由外壳画，
-     * 主页设置抽屉在那两端也不画这一行（`SettingsRow.HOME_TOP_BAR` 没人认领）。
+     * 编辑态不受影响（两套排法都是 ✕ / ⚙ / ✓）。只有自己画首页顶栏按钮的端才读它（`:app`）；
+     * 桌面与 web 的首页顶栏由外壳画，主页设置抽屉在那两端也不画这一行
+     * （`SettingsRow.HOME_TOP_BAR` 没人认领）。
      */
     var topActionsRight: Boolean
         get() = store.getBoolean(KEY_TOP_ACTIONS_RIGHT, true)
