@@ -42,6 +42,7 @@ import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import com.kyant.backdrop.Backdrop
 import com.kyant.backdrop.drawBackdrop
@@ -102,6 +103,8 @@ internal fun HomeAddTileOrb(
 
     // 球（或收起的把手）中心在页面里的位置（页面局部坐标）；null = 还没拖过，用默认位
     var orbCenter by remember { mutableStateOf<Offset?>(null) }
+    // 当前内容（球或长条）的实测尺寸：吸附贴边按它算，不能假定内容就是那个球
+    var contentSize by remember { mutableStateOf(IntSize.Zero) }
 
     BoxWithConstraints(modifier) {
         val pageW = constraints.maxWidth.toFloat()
@@ -124,6 +127,7 @@ internal fun HomeAddTileOrb(
                 .align(Alignment.TopStart)
                 .offset { IntOffset((center.x - ballPx / 2f).roundToInt(), (center.y - ballPx / 2f).roundToInt()) }
                 .onGloballyPositioned { coords ->
+                    contentSize = coords.size
                     // 球或长条当前的视口矩形：手势层对落在这里的 down 一律放行，
                     // 那条长条盖在组区右缘上，不排除就会把图标们的长按手势抢走。
                     // 这一层从不做动画（拖动时整条一动不动），所以 bounds 是准的。
@@ -159,7 +163,7 @@ internal fun HomeAddTileOrb(
                         },
                         onHandleDrop = {
                             handleGrab = null
-                            orbCenter = snapToSide(orbCenter ?: center, pageW, pageH, ballPx)
+                            orbCenter = snapToSide(orbCenter ?: center, pageW, pageH, ballPx, contentSize)
                         },
                     )
                 } else {
@@ -174,7 +178,7 @@ internal fun HomeAddTileOrb(
                         onDragTo = { finger -> handleGrab?.let { orbCenter = finger - it } },
                         onDrop = {
                             handleGrab = null
-                            orbCenter = snapToSide(orbCenter ?: center, pageW, pageH, ballPx)
+                            orbCenter = snapToSide(orbCenter ?: center, pageW, pageH, ballPx, contentSize)
                         },
                     )
                 }
@@ -184,10 +188,30 @@ internal fun HomeAddTileOrb(
 }
 
 /** 松手后把球吸回最近的侧边（左 / 右边缘），纵向夹进页面里。 */
-private fun snapToSide(center: Offset, pageW: Float, pageH: Float, ballPx: Float): Offset {
+private fun snapToSide(
+    center: Offset,
+    pageW: Float,
+    pageH: Float,
+    ballPx: Float,
+    contentSize: IntSize,
+): Offset {
     val margin = 8f
-    val x = if (center.x < pageW / 2f) margin + ballPx / 2f else pageW - margin - ballPx / 2f
-    val y = center.y.coerceIn(margin + ballPx / 2f, pageH - margin - ballPx / 2f)
+    // 定位一直是 `offset = center - ballPx/2`，这里保持同样的锚点关系
+    val half = ballPx / 2f
+    // 还没量到就退回球的尺寸，避免算出负数边距
+    val w = if (contentSize.width > 0) contentSize.width.toFloat() else ballPx
+    val h = if (contentSize.height > 0) contentSize.height.toFloat() else ballPx
+    val x = if (center.x < pageW / 2f) {
+        // 左贴边：内容左边距 = margin（长条是往右长的，左边贴住就放得下）
+        margin + half
+    } else {
+        // 右贴边必须按**内容实际宽度**算：长条比球宽 18dp，仍按球算就会探出屏幕一截。
+        // 目标：内容右边 = pageW - margin，而内容左 = center - half。
+        pageW - margin - w + half
+    }
+    // 纵向同理：内容底边不要越过下边距
+    val maxY = pageH - margin - h + half
+    val y = center.y.coerceIn(margin + half, maxY.coerceAtLeast(margin + half))
     return Offset(x, y)
 }
 
