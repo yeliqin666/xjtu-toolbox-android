@@ -30,7 +30,7 @@ import androidx.compose.foundation.layout.fillMaxSize
  * 判读方法：若青框**没有**正好压在真实卡片上，就是 `boardOrigin` 或几何表的问题，偏移量
  * 直接就是差值；若青框压得很准但幽灵不在手指下，就是 `grab` 算错。
  */
-internal const val HOME_DRAG_DEBUG = true
+internal const val HOME_DRAG_DEBUG = false
 
 @Composable
 internal fun HomeDragDebugOverlay(
@@ -53,6 +53,9 @@ internal fun HomeDragDebugOverlay(
         HomeHit.Pass -> "Pass"
     }
     val ghost = session.ghostOrigin
+    // 必须在**组合期**读出来：Canvas 的 draw lambda 不订阅快照状态，在里面读会画出冻住的值
+    val pointer = session.pointer
+    val activeNow = session.active
 
     // fillMaxSize：本函数不是 BoxScope 扩展，拿不到 matchParentSize
     Canvas(Modifier.fillMaxSize()) {
@@ -88,8 +91,8 @@ internal fun HomeDragDebugOverlay(
             }
         }
         // 手指（绿）
-        if (session.active) {
-            val p = session.pointer
+        if (activeNow) {
+            val p = pointer
             drawLine(Color.Green, Offset(p.x - 24f, p.y), Offset(p.x + 24f, p.y), 3f)
             drawLine(Color.Green, Offset(p.x, p.y - 24f), Offset(p.x, p.y + 24f), 3f)
             // 幽灵左上角（品红）

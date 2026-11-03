@@ -573,18 +573,8 @@ fun HomeScreen(
     fun beginGesture(hit: HomeHit, viewport: Offset) {
         // 几何表没就绪（组区还没量到宽度）就不接手：宁可这一下没反应，也不要拿空几何起手
         if (!dragGeometry.ready || session.boardWidth <= 0f) return
-        // 用「落点所在组」的网格区实测位置反推 boardOrigin（比组区容器整体测量更直接，
-        // 也不怕容器位置没变导致回调没触发）。网格区顶 = boardOrigin.y + slot.gridTop。
-        val hitGroupId = when (hit) {
-            is HomeHit.Tile -> hit.groupId
-            is HomeHit.Resize -> hit.groupId
-            is HomeHit.GroupHandle -> hit.groupId
-            HomeHit.Pass -> return
-        }
-        val hitSlot = dragGeometry.slot(hitGroupId) ?: return
-        session.gridOrigins[hitGroupId]?.let { grid ->
-            session.boardOrigin = grid - Offset(0f, hitSlot.gridTop)
-        }
+        // 原点已由手势层在起手那一刻现场刷新过（session.refreshBoardFromCoordinates），
+        // 这里直接用，不再做二次猜测。
         val board = viewport - session.boardOrigin
         // 新手势顶掉上一场的结算动画
         ghostEpoch++
@@ -658,8 +648,10 @@ fun HomeScreen(
             .fillMaxSize()
             .then(dragLayerModifier)
             .onGloballyPositioned {
-                // 拖拽会话的坐标基准：所有组 / 块的 boundsInRoot 都减它，统一成页面局部坐标
+                // 页面根局部坐标系的基准：悬浮条把「事件相对坐标」合成页面坐标时要用
                 session.pageOrigin = it.boundsInRoot().topLeft
+                // 活坐标：起手时现场算组区原点用（见 session.refreshBoardFromCoordinates）
+                session.rootCoords = it
                 pageSize = Offset(it.size.width.toFloat(), it.size.height.toFloat())
             }
             .then(
@@ -759,9 +751,11 @@ fun HomeScreen(
                     .heightIn(min = boardMinHeight)
                     .padding(horizontal = 16.dp)
                     .onGloballyPositioned { coords ->
+                        // 活坐标（起手现场读）+ 一份数值快照（几何表/调试用）
+                        session.boardCoords = coords
                         val bounds = coords.boundsInRoot()
                         session.boardOrigin = bounds.topLeft - session.pageOrigin
-                        session.boardWidth = bounds.width
+                        if (bounds.width > 0f) session.boardWidth = bounds.width
                     },
             ) {
                 liveLayout.groups.filter(::groupVisible).forEachIndexed { index, group ->

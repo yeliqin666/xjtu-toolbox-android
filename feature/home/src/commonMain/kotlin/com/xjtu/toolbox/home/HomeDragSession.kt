@@ -7,6 +7,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.layout.LayoutCoordinates
 import androidx.compose.ui.geometry.Rect
 
 /** 编辑态里正在进行的手势种类。一次只有一种；[HomeDragMode.IDLE] = 没有手势。 */
@@ -94,14 +95,23 @@ internal class HomeDragSession {
     var boardWidth by mutableFloatStateOf(0f)
 
     /**
-     * 各组「网格区」（标题行之下那块）左上角的页面局部坐标，由 [HomeGroupSection] 的
-     * `onGloballyPositioned` 刷新（普通 map，不进组合，只在起手那一刻读一次）。
+     * 页面根 Box 与组区容器的**活坐标对象**（不是回填的数值）。
      *
-     * 起手时用它**反推** [boardOrigin]：网格区顶 = boardOrigin.y + slot.gridTop，
-     * 所以 `boardOrigin = 网格区顶 − slot.gridTop`。这比读组区容器整体的测量更直接，
-     * 也不存在「容器位置没变所以回调没触发」的过期问题。
+     * 起手那一刻用 [refreshBoardFromCoordinates] 现算原点：`LayoutCoordinates` 是活对象，
+     * 读的时候就是当前值，所以页面滚到哪都不会拿到过期位置。之前把 `onGloballyPositioned`
+     * 回填的 Offset 当基准存着，页面一滚动它就停在旧值上——命中全部落空（按住没反应）、
+     * 抓取点偏几百 dp（一拖就跳到远处），都是这一个原因。
      */
-    val gridOrigins = mutableMapOf<String, Offset>()
+    var rootCoords: LayoutCoordinates? = null
+    var boardCoords: LayoutCoordinates? = null
+
+    /** 把 [boardOrigin] / [boardWidth] 刷成**此刻**的值；坐标还没挂上就保持原值。 */
+    fun refreshBoardFromCoordinates() {
+        layoutPosition(rootCoords, boardCoords)?.let { boardOrigin = it }
+        boardCoords?.let { c ->
+            if (c.isAttached && c.size.width > 0) boardWidth = c.size.width.toFloat()
+        }
+    }
 
     /**
      * 页面根 Box 在窗口里的位置。
