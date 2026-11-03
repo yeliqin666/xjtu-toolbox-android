@@ -1,7 +1,9 @@
 package com.xjtu.toolbox.zyxf
 
 import android.annotation.SuppressLint
+import android.os.Build
 import android.text.format.Formatter
+import android.view.View
 import android.view.ViewGroup
 import android.webkit.JavascriptInterface
 import android.webkit.WebResourceRequest
@@ -347,6 +349,13 @@ private fun WebOfficeView(
         modifier = Modifier.fillMaxSize(),
         factory = { ctx ->
             WebView(ctx).apply {
+                // HONOR Android 16 的 WebView Vulkan 合成会在宿主 RenderThread 触发
+                // SIGTRAP（drawVk / SkiaVulkanPipeline），onRenderProcessGone 捕获不到。
+                // 只让文档预览走软件绘制，保留 Compose 外壳及其它 WebView 的硬件加速。
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.BAKLAVA &&
+                    Build.MANUFACTURER.equals("HONOR", ignoreCase = true)) {
+                    setLayerType(View.LAYER_TYPE_SOFTWARE, null)
+                }
                 layoutParams = ViewGroup.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT,
                     ViewGroup.LayoutParams.MATCH_PARENT,
