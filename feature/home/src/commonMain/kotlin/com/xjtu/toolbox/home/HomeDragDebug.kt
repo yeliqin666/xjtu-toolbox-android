@@ -23,7 +23,9 @@ import top.yukonga.miuix.kmp.basic.Text
  *
  * 目的：把拖拽链上每个量的**实测值**摊出来，一次就能判断是哪一环错了：
  * - `P` 手指（页面坐标）、`B` 手指（板内坐标）、`G` 幽灵左上角（板内坐标）
- * - `O` 组区原点、`W` 组区宽
+ * - `O` 组区原点（**缓存值**）与 `live`（同一刻现读的实测值）：两者不等 ⇒ 原点过期，
+ *   落点会整体偏「滚过的距离」，就是「滚动时网格不跟着走」那一类问题
+ * - `W` 组区宽、`scroll` 当前滚动量
  * - `mode`/`tile` 当前拖拽身份；`target`/`cell` 手指当前认定的目标组与落点格
  * - `dragTile` 被拖那块在**实时预览布局**里的「组 @格位」（`--` = 预览里没它了，
  *   那就是模型把块弄丢）
@@ -41,9 +43,13 @@ internal fun HomeDragDebugOverlay(
     pointerBoard: Offset,
     liveLayout: HomeLayout,
     targetGroup: String?,
+    /** 当前滚动量：和 `O` 一起看，滚动变了 `O` 却没变 ⇒ 原点没跟上。 */
+    scrollValue: Int,
 ) {
     if (!HOME_DRAG_DEBUG) return
     val board = session.boardOrigin
+    // 现读一次实测原点（纯查询，不写状态）：缓存值与它不等就是原点过期
+    val live = session.peekLiveBoardOrigin()
     val gBoard = pointerBoard - session.grab
     val hitTile = session.tileId
     // 持久追踪最后拖过那块：finish() 会把 tileId 清空，但我们要看的是「它最终还在不在布局里」
@@ -66,7 +72,8 @@ internal fun HomeDragDebugOverlay(
         listOf(
             "P=(${session.pointer.x.round1()},${session.pointer.y.round1()})  B=(${pointerBoard.x.round1()},${pointerBoard.y.round1()})",
             "G=(${gBoard.x.round1()},${gBoard.y.round1()})  grab=(${session.grab.x.round1()},${session.grab.y.round1()})",
-            "O=(${board.x.round1()},${board.y.round1()})  W=${session.boardWidth.round1()}  ready=${geometry.ready}",
+            "O=(${board.x.round1()},${board.y.round1()})  live=${live?.let { "(${it.x.round1()},${it.y.round1()})" } ?: "-"}  W=${session.boardWidth.round1()}  ready=${geometry.ready}",
+            "scroll=$scrollValue   往下滚一屏：O.y 应同步变小；O 不动而 live 动了 ⇒ 原点没跟上",
             "mode=${session.mode}  tile=${hitTile ?: "-"}  fromPalette=${session.fromPalette}",
             "target=${targetGroup ?: "-"}  cell=${cell?.let { "(${it.x.round1()},${it.y.round1()})" } ?: "-"}",
             "tile in layout NOW = $finalPos   (松手后看这行)",

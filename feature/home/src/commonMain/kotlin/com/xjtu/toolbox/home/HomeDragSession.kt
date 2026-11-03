@@ -52,9 +52,11 @@ internal sealed interface HomeHit {
  *    松手时补算一次 `settledGeometry`）。
  * 3. **几何一律在「板内坐标」，手指坐标只做一次减法**：几何表以组区容器左上角为原点
  *    （`left = top = 0`），是**纯数据**，不含任何测量量；手指板坐标 = [pointer] −
- *    [boardOrigin]。[boardOrigin] 由组区容器的 `onGloballyPositioned` 每帧刷新，随滚动
- *    一起动，所以自动滚动时手指不动也能正确换组、缩放尺寸也会自然跟着变大——不需要
- *    任何「按预估位置补算」的特例，也不需要在坐标里手工掺 `scrollY`。
+ *    [boardOrigin]。[boardOrigin] 在拖拽期间**每帧**从活坐标现读（[refreshBoardFromCoordinates]：
+ *    每帧维护循环 + 每次 [move] + 落盘前），随滚动一起动，所以自动滚动时手指不动也能正确
+ *    换组、缩放尺寸也会自然跟着变大——不需要任何「按预估位置补算」的特例，也不需要在坐标里
+ *    手工掺 `scrollY`。**不能只靠组区容器的 `onGloballyPositioned` 回填**：页面滚起来之后
+ *    那个回调不保证每帧都到，值一停住，落点就整体偏「滚过的距离」。
  * 4. **布局是幂等纯函数**：每帧 `layout = f(base, 手指板坐标)` 从快照重算，绝不
  *    `layout = f(layout, delta)` 累积。同一个手指位置反复算永远得到同一个布局，拖多久
  *    都不漂；命中 → 落点 → 布局之间也不存在反馈回路（旧实现振荡的根源）。
@@ -83,13 +85,19 @@ internal class HomeDragSession {
     // ── 组区容器的几何基准 ──
 
     /**
-     * 组区容器的左上角，在**页面根局部坐标**里（每帧由 `onGloballyPositioned` 刷新）。
+     * 组区容器的左上角，在**页面根局部坐标**里。
      *
      * 它随滚动移动——这正是要的：`手指板坐标 = 手指页面坐标 − boardOrigin`，页面滚到哪
      * 映射都自动跟上，**不需要再手工掺 scrollY**。旧实现存
      * `boundsInRoot().top − pageOrigin.y + scrollY` 那种「内容坐标」，那条链任何一环时序
      * 不对（pageOrigin 尚未回填、scrollY 差一帧）都会让整份几何表整体偏移，表现就是
      * 「一拖就跑到上方老远」。
+     *
+     * **别指望 `onGloballyPositioned` 帮你跟住滚动**（组区容器上那一处回填只是兜底）：
+     * 页面滚起来之后，那个回调不保证每帧都到，一旦停了，这个值就停在拖动开始时的位置上
+     * ——落点格 / 目标组 / 组排序中点会整体偏「滚过的距离」，表现是「拖到一半页面滚下去，
+     * 占位框不跟着内容走，松手落到别的组」。所以拖拽期间由 [HomeScreen] 的每帧维护循环、
+     * 每次 [move]、以及落盘前这几处一起调 [refreshBoardFromCoordinates] 现读活坐标。
      */
     var boardOrigin by mutableStateOf(Offset.Zero)
     var boardWidth by mutableFloatStateOf(0f)
@@ -114,16 +122,30 @@ internal class HomeDragSession {
      * 用 `localPositionOf`——这是 f10b44f8 那版、真机确认拖拽正确时用的写法。之前我误判它
      * 给出 y=0 是 bug 并换成 boundsInWindow，反而把好用的行为改坏了；那次「上跳」的真因是
      * 幽灵块被人为抬高了 64dp（本轮已撤）。
+     *
+     * 调用点：起手那一刻（`Modifier.homeDragLayer`）、拖拽期间的每帧维护循环、每次 [move]、
+     * 以及每一次落盘（`settleTileDrop` / `settleResizeDrop` / `settleGroupDrop` / `cancelGroupDrop`）
+     * 之前；少一处就会在「页面滚过一段」之后偏。读的都是活坐标对象，所以拿到的一定是当前
+     * 布局位置，与 `onGloballyPositioned` 是否触发无关。
      */
     fun refreshBoardFromCoordinates() {
-        val r = rootCoords
-        val c = boardCoords
-        if (r != null && c != null && r.isAttached && c.isAttached) {
-            boardOrigin = r.localPositionOf(c, Offset.Zero)
-        }
+        peekLiveBoardOrigin()?.let { boardOrigin = it }
         boardCoords?.let { co ->
             if (co.isAttached && co.size.width > 0) boardWidth = co.size.width.toFloat()
         }
+    }
+
+    /**
+     * 现读一次组区原点，**不改任何状态**（纯查询）。
+     *
+     * 给 [refreshBoardFromCoordinates] 与诊断层共用：诊断层要靠它把「缓存值 vs 实测值」
+     * 并排摊出来——两者一旦不等，就是「网格不随滚动走」的那一类问题。
+     */
+    fun peekLiveBoardOrigin(): Offset? {
+        val r = rootCoords ?: return null
+        val c = boardCoords ?: return null
+        if (!r.isAttached || !c.isAttached) return null
+        return r.localPositionOf(c, Offset.Zero)
     }
 
     /**
@@ -312,8 +334,13 @@ internal class HomeDragSession {
      * 边缘自动滚动改的是 [boardOrigin]（以及派生出的手指板坐标），它一变，所有派生量自动
      * 重算，不需要任何「滚动时补算」的特例（旧实现要为缩放专门补一次尺寸，就是因为把计算
      * 塞进了手势回调里）。
+     *
+     * 记手指之前先把原点刷成**此刻**的实测值：页面可能刚被自动滚动挪过，而
+     * `onGloballyPositioned` 的回填不保证每帧都到。少这一步，「页面滚过一段之后落点整体
+     * 偏 scrollDelta」就会重现（见 [boardOrigin]）。
      */
     fun move(now: Offset) {
+        refreshBoardFromCoordinates()
         pointer = now
     }
 

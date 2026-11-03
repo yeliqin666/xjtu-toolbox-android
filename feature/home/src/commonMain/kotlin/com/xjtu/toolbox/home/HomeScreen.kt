@@ -63,9 +63,9 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.nestedscroll.nestedScroll
-import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -442,6 +442,10 @@ fun HomeScreen(
     fun settleTileDrop() {
         val id = session.tileId ?: return
         val base = session.base ?: return
+        // 落点必须在**此刻**的布局上算：自动滚动可能刚把页面又挪过一截，而 targetGroup /
+        // ghostBoard 都是派生量，喂给它们的原点要是旧值，落点就会整格偏出去（松手落到别的
+        // 组、或挤到别的行）。先刷原点，再读派生量——读一次就是新值。
+        session.refreshBoardFromCoordinates()
         val route = session.routeId
         val target = targetGroup
         val cell = if (target == null) null else dragGeometry.cellAt(target, ghostBoard)
@@ -510,6 +514,9 @@ fun HomeScreen(
     fun settleResizeDrop() {
         val id = session.tileId
         val base = session.base
+        // 同一个理由：resizeCells 按「手指板坐标 − 起手内容坐标」算，原点过期会让固化下来的
+        // 尺寸比预览小/大一截（滚过一段之后尤其明显）
+        session.refreshBoardFromCoordinates()
         val cells = resizeCells
         if (id != null && base != null && cells != null) {
             update { base.resizeTile(id, cells.x, cells.y, grid) }
@@ -535,6 +542,8 @@ fun HomeScreen(
      */
     fun cancelGroupDrop() {
         val id = session.groupId ?: run { session.abort(); return }
+        // 跟手位移从指针板坐标来，原点过期会让「弹回原位」的起点偏出去一截
+        session.refreshBoardFromCoordinates()
         val g = dragGeometry
         val groupTop = g.slots.getOrNull(session.groupIndex)?.top ?: 0f
         val liftNow = pointerBoard.y - session.groupGrabY - groupTop
@@ -561,6 +570,8 @@ fun HomeScreen(
      */
     fun settleGroupDrop() {
         val id = session.groupId ?: return
+        // 同 cancelGroupDrop：目标下标与归位补偿都按指针板坐标算，先刷原点
+        session.refreshBoardFromCoordinates()
         val from = session.groupIndex
         val target = reorderTarget
         val g = dragGeometry
@@ -677,8 +688,10 @@ fun HomeScreen(
             .fillMaxSize()
             .then(dragLayerModifier)
             .onGloballyPositioned {
-                // 页面根局部坐标系的基准：悬浮条把「事件相对坐标」合成页面坐标时要用
-                session.pageOrigin = it.boundsInRoot().topLeft
+                // 页面根局部坐标系的基准：悬浮条把「事件相对坐标」合成页面坐标时要用。
+                // 用 positionInRoot 而不是 boundsInRoot().topLeft：后者默认按**裁剪边界**取框，
+                // 节点被滚出一半时会拿到被夹住的值（首页网格区就是这么拿到"冻住的"原点的）。
+                session.pageOrigin = it.positionInRoot()
                 // 活坐标：起手时现场算组区原点用（见 session.refreshBoardFromCoordinates）
                 session.rootCoords = it
                 pageSize = Offset(it.size.width.toFloat(), it.size.height.toFloat())
@@ -766,8 +779,8 @@ fun HomeScreen(
 
             // ── 卡片组 ──
             // 这一层容器是拖拽命中的唯一回读基准：padding 之后的网格区。
-            // boardOrigin/boardWidth 是**页面根局部**量，每帧刷新；几何表以它为原点算板内
-            // 坐标（纯数据，不含测量量）。拖拽期间用 heightIn(min = 快照总高) 把页面总高
+            // boardOrigin/boardWidth 是**页面根局部**量；几何表以它为原点算板内坐标
+            // （纯数据，不含测量量）。拖拽期间用 heightIn(min = 快照总高) 把页面总高
             // 钉住：否则拖走一块源组变矮、页面变短，滚动被夹回上界，视觉上会跳。
             val boardMinHeight = if (session.draggingTile || session.mode == HomeDragMode.RESIZE) {
                 with(density) { dragGeometry.totalHeight(groupGapPx, firstGapPx).toDp() }
@@ -780,11 +793,15 @@ fun HomeScreen(
                     .heightIn(min = boardMinHeight)
                     .padding(horizontal = 16.dp)
                     .onGloballyPositioned { coords ->
-                        // 活坐标（起手现场读）+ 一份数值快照（几何表/调试用）
+                        // 活坐标对象留好（拖拽期间靠它现读原点，见 refreshBoardFromCoordinates），
+                        // 顺带回填一份数值：只当兜底——滚动时这个回调不保证每帧都到，别拿它当
+                        // 跟随滚动的依据。位置一律用 positionInRoot()：它读的是布局位置，
+                        // 而 boundsInRoot() 默认会被滚动容器的裁剪边界夹住——网格区顶一滚出
+                        // 视口，拿到的就是「视口顶」，原点从此冻住（「滚过大卡片后网格不再
+                        // 随滚动变化」就是这么来的）。
                         session.boardCoords = coords
-                        val bounds = coords.boundsInRoot()
-                        session.boardOrigin = bounds.topLeft - session.pageOrigin
-                        if (bounds.width > 0f) session.boardWidth = bounds.width
+                        session.boardOrigin = coords.positionInRoot() - session.pageOrigin
+                        if (coords.size.width > 0) session.boardWidth = coords.size.width.toFloat()
                     },
             ) {
                 liveLayout.groups.filter(::groupVisible).forEachIndexed { index, group ->
@@ -874,6 +891,7 @@ fun HomeScreen(
                 pointerBoard = pointerBoard,
                 liveLayout = liveLayout,
                 targetGroup = targetGroup,
+                scrollValue = scroll.value,
             )
         }
 
@@ -920,16 +938,20 @@ fun HomeScreen(
             )
         }
 
-        // ── 拖到屏幕上下边缘时自动滚动（带阻尼：越靠边越快）；卡片、缩放、组排序共用 ──
-        // 只改 scroll.value：手指板坐标是 (pointer − boardOrigin) 的派生量，滚动会改变
-        // boardOrigin，于是命中与落点自动重算，缩放/换组都自然跟上——不需要旧实现那种
-        // 「按预估位置补算尺寸」的特例。
+        // ── 拖拽期间的每帧维护：①组区原点跟住滚动 ②拖到上下边缘时自动滚动（带阻尼：越靠边越快） ──
+        // ①是几何表的命门：手指板坐标 = 手指 − boardOrigin，而 boardOrigin 只能靠**现读活坐标**
+        // 才准。组区容器上那处 onGloballyPositioned 回填不可靠——页面滚起来之后它不保证每帧都到，
+        // 值一停住，落点格 / 目标组 / 组排序中点就整体偏「从起手算起滚过的距离」：表现是拖到一半
+        // 页面滚下去、占位框不跟着内容走，松手落到别的组（卡片本身是 Column 排的，照样滚得对，
+        // 所以只看画面会觉得「卡片对、网格不对」）。这里每帧刷一次，与回调是否触发无关。
+        // ②只改 scroll.value：原点跟着刷新，目标组 / 落点格 / 缩放尺寸 / 组排序目标全部自动重算。
         LaunchedEffect(session.active) {
             if (!session.active) return@LaunchedEffect
             val edge = with(density) { 104.dp.toPx() }
             val maxStep = with(density) { 14.dp.toPx() }
             while (true) {
                 withFrameNanos { }
+                session.refreshBoardFromCoordinates()
                 val y = session.pointer.y
                 val step = when {
                     y < edge -> -(1f - (y / edge).coerceIn(0f, 1f)) * maxStep
