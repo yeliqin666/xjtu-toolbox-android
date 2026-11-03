@@ -9,6 +9,7 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
@@ -55,10 +56,12 @@ import com.kyant.backdrop.effects.blur
 import com.kyant.backdrop.effects.lens
 import com.kyant.backdrop.effects.vibrancy
 import com.kyant.backdrop.highlight.Highlight
+import com.xjtu.toolbox.nav.AppRoute
 import com.xjtu.toolbox.schedule.CourseColors
 import com.xjtu.toolbox.ui.components.ExpressiveIcon
 import com.xjtu.toolbox.ui.components.appCardShadow
 import com.xjtu.toolbox.ui.glass.floatingGlassShadow
+import com.xjtu.toolbox.ui.theme.Editorial
 import com.xjtu.toolbox.ui.theme.LocalIsDarkTheme
 import kotlin.math.roundToInt
 import kotlinx.coroutines.launch
@@ -563,6 +566,15 @@ private fun HomeTileItem(
 /**
  * 组件的材质与内容：尺寸决定排版（§3.3），材质由「主页卡片液态玻璃」开关决定（§5.2）。
  *
+ * 排版这一套是从「小组件模式」的首页（`dev` 的 `HomeWidgetGrid`）搬过来的逐档设计：
+ * 1×1 只画图标，横条是「图标 + 小号名称 + 主要数据」，竖条是「小号名称 + 大字数据 + 说明」，
+ * 大方块再压一枚水印图标、字号也大一档。各档共用同一条「大字 / 一句话」判定
+ * （见 [FIGURE_MAX_CHARS] 与 [LIST_TILES]），所以同一个功能在任何尺寸下强调的都是同一件事。
+ *
+ * 与那一套唯一的差别：**1×1 一律画图标**（不给状态数字，小方块上认图标比读数字快）。
+ * 开着「网格下留出文字空间」（一格 88dp 的高长方形）时，图标下面补一行名称；
+ * 关掉时一格只有 46dp，这一格真的只剩图标。
+ *
  * 液态玻璃直接复用 App 里已有的那套 `drawBackdrop`（底栏、玻璃顶栏用的同一个），
  * 采样源是首页自己那一层背景，所以透出来的是壁纸而不是组件自己（会成环）。
  */
@@ -621,89 +633,343 @@ internal fun HomeTileFaceBox(
             .squircleBorder(0.7.dp, hairline, radius)
     }
 
-    Box(
-        modifier.then(material).padding(horizontal = 8.dp, vertical = 6.dp),
-        contentAlignment = Alignment.Center,
-    ) {
+    // 「网格下留出文字空间」开着时一格 88dp，1×1 是能装下「图标 + 名称」的高长方形；
+    // 关掉时一格只有 46dp，1 格高的卡片连一行名称都挤不下
+    val textRoom = cellHeight >= 76.dp
+    val stat = face.stat?.takeIf { it.isNotBlank() }
+    // 状态短到 8 个字以内、又不是「一句话型」的功能，才当大字数据排（¥128.50、12 周、3 门）；
+    // 其余是一句话（「今日暂无空教室」），压成大字就只剩个糊字
+    val figure = stat != null && stat.length <= FIGURE_MAX_CHARS && face.key !in LIST_TILES
+    // 数据的颜色：只有「出事了」才换色，其余一律跟正文走——大字本身已经够抢眼了
+    val statColor = when (face.tone) {
+        HomeTone.ALERT -> if (dark) Color(0xFFFFB4AB) else MiuixTheme.colorScheme.error
+        HomeTone.ACCENT -> face.color
+        HomeTone.NORMAL, HomeTone.MUTED -> ink
+    }
+
+    Box(modifier.then(material)) {
         // 形态按**实时**格数选（§10）：拖动把手缩放时逐帧判断，不等松手才重排。
-        // 高单元格（「网格下留出文字空间」）时 1 格就装得下「图标 + 名称」，1×1 也竖排；
-        // 矮单元格（紧凑）时 1 格只剩图标。明显宽扁的块横排，其余竖排（§13 的阈值联动）。
-        val tallCell = cellHeight >= 76.dp
-        val mode = when {
-            (w < 1.2f || h < 1.2f) && !tallCell -> 0
-            w > h * 1.5f && h < 1.6f -> 1
-            else -> 2
+        // 判据就是「几格宽 × 几格高」，阈值取半格（1.5）：一格见方是小块，一格高是横条，
+        // 一格宽是竖条，两格都到是大方块——弹簧动画经过阈值也不会来回抖。
+        val shape = when {
+            w < 1.5f && h < 1.5f -> HomeTileShape.Icon
+            h < 1.5f -> HomeTileShape.Wide
+            w < 1.5f -> HomeTileShape.Tall
+            else -> HomeTileShape.Large
         }
-        Crossfade(targetState = mode, animationSpec = tween(140)) { shape ->
-            when (shape) {
-                // 极值形态：纯图标
-                0 -> ExpressiveIcon(
-                    icon = face.icon,
-                    color = iconColor,
-                    size = (minOf(w, h) * 30f).coerceIn(24f, 34f).dp,
-                    iconSize = (minOf(w, h) * 16f).coerceIn(13f, 19f).dp,
-                )
-                // 长条形：图标在左、字在右
-                1 -> Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                    ExpressiveIcon(icon = face.icon, color = face.color, size = 30.dp, iconSize = 17.dp)
-                    Spacer(Modifier.width(8.dp))
-                    Column(Modifier.weight(1f)) {
+        Crossfade(targetState = shape, animationSpec = tween(160)) { now ->
+            when (now) {
+                // 1×1：只画图标。图标照宽度缩，小块不显得空、大屏也不至于糊成大圆饼。
+                // 开着文字空间时下面补一行名称（关掉时这一格只有 46dp 高，写不下）
+                HomeTileShape.Icon -> Column(
+                    Modifier.fillMaxSize().padding(6.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center,
+                ) {
+                    ExpressiveIcon(
+                        icon = face.icon,
+                        color = iconColor,
+                        size = (minOf(w, h) * 30f).coerceIn(24f, 34f).dp,
+                        iconSize = (minOf(w, h) * 16f).coerceIn(13f, 19f).dp,
+                    )
+                    if (textRoom) {
+                        Spacer(Modifier.height(5.dp))
                         Text(
                             face.title,
-                            fontSize = 13.sp,
-                            lineHeight = 16.sp,
+                            fontSize = 11.sp,
+                            lineHeight = 14.sp,
                             fontWeight = FontWeight.Medium,
                             color = ink,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
+                            textAlign = TextAlign.Center,
                         )
-                        StatLine(face, muted, centered = false)
                     }
                 }
-                // 方块及以上：图标一行、名称与状态各一行
-                else -> Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    ExpressiveIcon(
-                        icon = face.icon,
-                        color = iconColor,
-                        size = (minOf(w, h) * 25f).coerceIn(30f, 40f).dp,
-                        iconSize = (minOf(w, h) * 14f).coerceIn(17f, 22f).dp,
-                    )
-                    Spacer(Modifier.height(6.dp))
-                    Text(
-                        face.title,
-                        fontSize = 12.5.sp,
-                        lineHeight = 15.sp,
-                        fontWeight = FontWeight.Medium,
-                        color = ink,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        textAlign = TextAlign.Center,
-                    )
-                    StatLine(face, muted, centered = true)
+
+                // 横条（2×1 起）：图标在左，右边是「小号名称 + 主要数据 + 一行说明」。
+                // 紧凑网格下这一格只有一格高，只留「图标 + 名称 + 一行状态」，字号也收一号。
+                HomeTileShape.Wide -> if (textRoom) {
+                    Row(
+                        Modifier.fillMaxSize().padding(horizontal = 11.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    ) {
+                        ExpressiveIcon(icon = face.icon, color = iconColor, size = 30.dp, iconSize = 17.dp)
+                        Column(Modifier.weight(1f)) {
+                            Text(
+                                face.title,
+                                fontSize = 10.sp,
+                                lineHeight = 13.sp,
+                                color = muted,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                            Spacer(Modifier.height(3.dp))
+                            Text(
+                                stat ?: face.subtitle,
+                                style = if (figure) {
+                                    Editorial.figure.copy(fontSize = 19.sp, lineHeight = 23.sp)
+                                } else {
+                                    MiuixTheme.textStyles.body2.copy(fontSize = 12.sp, lineHeight = 16.sp)
+                                },
+                                color = statColor,
+                                maxLines = if (figure || !face.statDetail.isNullOrBlank()) 1 else 2,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                            // 说明只跟着大字数据走：一句话型的状态本身就是完整的一句，再加一行反而碎
+                            if (figure && !face.statDetail.isNullOrBlank()) {
+                                Text(
+                                    face.statDetail,
+                                    fontSize = 9.5.sp,
+                                    lineHeight = 12.sp,
+                                    color = muted,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                            }
+                        }
+                    }
+                } else {
+                    Row(
+                        Modifier.fillMaxSize().padding(horizontal = 10.dp, vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        ExpressiveIcon(icon = face.icon, color = iconColor, size = 26.dp, iconSize = 15.dp)
+                        Column(Modifier.weight(1f)) {
+                            Text(
+                                face.title,
+                                fontSize = 12.sp,
+                                lineHeight = 15.sp,
+                                fontWeight = FontWeight.Medium,
+                                color = ink,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                            if (stat != null) {
+                                Text(
+                                    stat,
+                                    fontSize = 10.5.sp,
+                                    lineHeight = 13.sp,
+                                    color = statColor,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                            }
+                        }
+                    }
+                }
+
+                // 竖条（1×2 起）：名称压小、数据放大——高度正好够「小标题 + 一行大字 + 一行说明」。
+                // 没有状态的功能（社区、黄页这类）居中放图标 + 名称 + 说明，不留半屏空白
+                HomeTileShape.Tall -> when {
+                    !textRoom -> HomeTileStack(face, stat, statColor, iconColor, ink, muted)
+                    stat == null -> HomeTileCentered(face, iconColor, ink, muted, iconSize = 30.dp, iconGlyph = 17.dp)
+                    else -> Column(Modifier.fillMaxSize().padding(10.dp)) {
+                        ExpressiveIcon(icon = face.icon, color = iconColor, size = 25.dp, iconSize = 14.dp)
+                        Spacer(Modifier.height(7.dp))
+                        Text(
+                            face.title,
+                            fontSize = 11.sp,
+                            lineHeight = 14.sp,
+                            fontWeight = FontWeight.Medium,
+                            color = muted,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                        Spacer(Modifier.height(7.dp))
+                        Text(
+                            stat,
+                            style = if (figure) {
+                                Editorial.figure.copy(fontSize = 19.sp, lineHeight = 24.sp)
+                            } else {
+                                MiuixTheme.textStyles.body2.copy(fontSize = 12.sp, lineHeight = 16.sp)
+                            },
+                            color = statColor,
+                            maxLines = if (figure) 1 else 3,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                        if (!face.statDetail.isNullOrBlank()) {
+                            Text(
+                                face.statDetail,
+                                fontSize = 10.5.sp,
+                                lineHeight = 14.sp,
+                                color = muted,
+                                maxLines = if (figure) 2 else 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
+                    }
+                }
+
+                // 大方块（2×2 起）：右上角压一枚几乎看不见的水印图标，数据再放大一档
+                HomeTileShape.Large -> when {
+                    !textRoom -> HomeTileStack(face, stat, statColor, iconColor, ink, muted)
+                    stat == null -> HomeTileCentered(face, iconColor, ink, muted, iconSize = 42.dp, iconGlyph = 24.dp)
+                    else -> Box(Modifier.fillMaxSize()) {
+                        Icon(
+                            face.icon,
+                            contentDescription = null,
+                            tint = ink.copy(alpha = 0.055f),
+                            modifier = Modifier.align(Alignment.TopEnd).padding(10.dp).size(64.dp),
+                        )
+                        Column(Modifier.fillMaxSize().padding(14.dp)) {
+                            Text(
+                                face.title,
+                                fontSize = 11.sp,
+                                lineHeight = 14.sp,
+                                fontWeight = FontWeight.Medium,
+                                color = muted,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                            Spacer(Modifier.height(7.dp))
+                            Text(
+                                stat,
+                                style = if (figure) {
+                                    Editorial.figure.copy(fontSize = 26.sp, lineHeight = 31.sp)
+                                } else {
+                                    MiuixTheme.textStyles.body2.copy(fontSize = 13.sp, lineHeight = 17.sp)
+                                },
+                                color = statColor,
+                                maxLines = if (figure) 1 else 3,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                            if (!face.statDetail.isNullOrBlank()) {
+                                Spacer(Modifier.height(2.dp))
+                                Text(
+                                    face.statDetail,
+                                    fontSize = 10.5.sp,
+                                    lineHeight = 14.sp,
+                                    color = muted,
+                                    maxLines = if (figure) 1 else 2,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                            }
+                        }
+                    }
                 }
             }
         }
     }
 }
 
-/** 组件上那一行小字：优先状态，没有状态就是功能说明（§3.3 大尺寸展示更多信息）。 */
+/**
+ * 卡片内容的四种形态，由**实时**格数决定（见 [HomeTileFaceBox] 里的判据）。
+ *
+ * 与「小组件模式」那套四档（1×1 / 2×1 / 1×2 / 2×2）一一对应，只是这里的格子是自由的，
+ * 所以按「几格宽、几格高」分档，而不是按固定的那四个枚举。
+ */
+private enum class HomeTileShape { Icon, Wide, Tall, Large }
+
+/**
+ * 没有状态的功能（社区、黄页这类）：居中一列「图标 + 名称 + 说明」。
+ *
+ * 这类卡片没数据可放大，「留白 + 居中」本身就是它的版式；字号仍按大块比小块大一号。
+ */
 @Composable
-private fun StatLine(face: HomeServiceRow, muted: Color, centered: Boolean) {
-    val text = face.stat ?: face.subtitle.takeIf { it.isNotBlank() } ?: return
-    val color = when {
-        face.stat == null || face.tone == HomeTone.MUTED -> muted
-        face.tone == HomeTone.ALERT -> MiuixTheme.colorScheme.error
-        face.tone == HomeTone.ACCENT -> face.color
-        else -> muted
+private fun HomeTileCentered(
+    face: HomeServiceRow,
+    iconColor: Color,
+    ink: Color,
+    muted: Color,
+    iconSize: Dp,
+    iconGlyph: Dp,
+) {
+    Column(
+        Modifier.fillMaxSize().padding(12.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center,
+    ) {
+        ExpressiveIcon(icon = face.icon, color = iconColor, size = iconSize, iconSize = iconGlyph)
+        Spacer(Modifier.height(8.dp))
+        Text(
+            face.title,
+            fontSize = 11.sp,
+            lineHeight = 14.sp,
+            color = ink,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+            textAlign = TextAlign.Center,
+        )
+        if (face.subtitle.isNotBlank()) {
+            Spacer(Modifier.height(5.dp))
+            Text(
+                face.subtitle,
+                fontSize = 10.sp,
+                lineHeight = 14.sp,
+                color = muted,
+                maxLines = 3,
+                overflow = TextOverflow.Ellipsis,
+                textAlign = TextAlign.Center,
+            )
+        }
     }
-    Spacer(Modifier.height(2.dp))
-    Text(
-        text,
-        fontSize = 10.5.sp,
-        lineHeight = 13.sp,
-        color = color,
-        maxLines = 1,
-        overflow = TextOverflow.Ellipsis,
-        textAlign = if (centered) TextAlign.Center else TextAlign.Start,
-    )
 }
+
+/**
+ * 紧凑网格（关掉「网格下留出文字空间」）下的竖条与大方块：一格只有 46dp 高，
+ * 按大尺寸那套排会挤出去，所以压成「图标 + 名称 + 一行小字」。
+ *
+ * 这一档的定位就是「网格更紧凑」——信息量与 1 格高的横条对齐，不硬塞说明文字。
+ */
+@Composable
+private fun HomeTileStack(
+    face: HomeServiceRow,
+    stat: String?,
+    statColor: Color,
+    iconColor: Color,
+    ink: Color,
+    muted: Color,
+) {
+    Column(
+        Modifier.fillMaxSize().padding(8.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center,
+    ) {
+        ExpressiveIcon(icon = face.icon, color = iconColor, size = 30.dp, iconSize = 17.dp)
+        Spacer(Modifier.height(4.dp))
+        Text(
+            face.title,
+            fontSize = 12.sp,
+            lineHeight = 15.sp,
+            fontWeight = FontWeight.Medium,
+            color = ink,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            textAlign = TextAlign.Center,
+        )
+        val sub = stat ?: face.subtitle
+        if (sub.isNotBlank()) {
+            Spacer(Modifier.height(2.dp))
+            Text(
+                sub,
+                fontSize = 10.5.sp,
+                lineHeight = 13.sp,
+                color = if (stat != null) statColor else muted,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                textAlign = TextAlign.Center,
+            )
+        }
+    }
+}
+
+/** 状态不超过这么多字才当大号数字排（¥128.50、12 周、3 门），再长就是一句话。 */
+private const val FIGURE_MAX_CHARS = 8
+
+/**
+ * 状态天生是一句话、不适合当大字数字排的功能（空教室「今日暂无空教室」、通知「3 条未读」）。
+ *
+ * 名单与「小组件模式」那一套保持一致；用路由 id 而不是字符串字面量，改名时会一起变。
+ */
+private val LIST_TILES = setOf(
+    AppRoute.EmptyRoom.id,
+    AppRoute.Lms().id,
+    AppRoute.Community.id,
+    AppRoute.Games.id,
+    AppRoute.Agent.id,
+    AppRoute.Notification.id,
+    AppRoute.YellowPage.id,
+)
