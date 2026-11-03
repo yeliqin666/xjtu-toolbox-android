@@ -87,6 +87,8 @@ import com.xjtu.toolbox.data.AppearanceSettings
 import com.xjtu.toolbox.data.CredentialStore
 import com.xjtu.toolbox.feedback.FeedbackPromptSheet
 import com.xjtu.toolbox.home.GlobalSearchScreen
+import com.xjtu.toolbox.home.HomeLayoutRevision
+import com.xjtu.toolbox.home.HomeLayoutStore
 import com.xjtu.toolbox.home.HomeSignals
 import com.xjtu.toolbox.home.HomeStats
 import com.xjtu.toolbox.home.HomeStatsRefresher
@@ -514,12 +516,18 @@ internal fun MainScreen(
                         contentTopPadding = insets.contentTopPadding,
                         contentTopShift = insets.contentTopShift,
                         topLeading = {
-                            HomeTopLeading(onScan = { showQrLogin = true })
+                            // 「功能按钮统一右对齐」关掉时，扫码单独站到最左边（标题仍然绝对居中）
+                            if (!rememberTopActionsRight()) {
+                                HomeScanAction(onScan = { showQrLogin = true })
+                            }
                         },
                         topActions = {
                             HomeTopActions(
                                 onInbox = { router.open(AppRoute.Inbox) },
+                                onScan = { showQrLogin = true },
                                 onSearch = { showGlobalSearch = true },
+                                // 开着（默认）扫码也并进右侧这一排，三个圆钮统一右对齐
+                                withScan = rememberTopActionsRight(),
                             )
                         },
                     )
@@ -581,9 +589,23 @@ internal fun MainScreen(
 private val OverlayEnter = fadeIn(tween(220)) + slideInVertically(tween(260)) { it / 16 }
 private val OverlayExit = fadeOut(tween(180)) + slideOutVertically(tween(200)) { it / 16 }
 
-/** 首页顶栏最左侧那一个圆钮：「扫一扫」（标题居中，扫码靠左，需求 §1.1）。 */
+/**
+ * 主页设置里「功能按钮统一右对齐」的当前值（默认开，见 `HomeLayoutStore.topActionsRight`）。
+ *
+ * 特意读在**槽位内部**：`topLeading` / `topActions` 这两个 lambda 是在首页顶栏那一组组合里
+ * 执行的，读 [HomeLayoutRevision] 只会让顶栏这一组失效——主页设置里拨完开关回到首页，
+ * 顶栏当场换排法，不用把整页 [MainScreen] 重开一遍（它比顶栏贵得多）。
+ */
 @Composable
-private fun HomeTopLeading(onScan: () -> Unit) {
+private fun rememberTopActionsRight(): Boolean {
+    val revision = HomeLayoutRevision.current
+    val store = remember { HomeLayoutStore() }
+    return remember(store, revision) { store.topActionsRight }
+}
+
+/** 「扫一扫」圆钮：顶栏左、右两种排法共用同一个画法。 */
+@Composable
+private fun HomeScanAction(onScan: () -> Unit) {
     val tint = MiuixTheme.colorScheme.onSurface
     HomeRoundAction(onClick = onScan, size = HomeTopActionSize) {
         Icon(
@@ -595,9 +617,19 @@ private fun HomeTopLeading(onScan: () -> Unit) {
     }
 }
 
-/** 首页顶栏右侧那两个圆钮：搜索、消息。 */
+/**
+ * 首页顶栏右侧那一排圆钮：搜索、消息；[withScan] 为真时扫码也并进来，三个圆钮统一右对齐。
+ *
+ * 排法由主页设置的「功能按钮统一右对齐」决定：开着（默认）就是改造前的排法，
+ * 关掉则扫码单独站到最左边，这一排只留搜索与消息。
+ */
 @Composable
-private fun HomeTopActions(onInbox: () -> Unit, onSearch: () -> Unit) {
+private fun HomeTopActions(
+    onInbox: () -> Unit,
+    onScan: () -> Unit,
+    onSearch: () -> Unit,
+    withScan: Boolean,
+) {
     val tint = MiuixTheme.colorScheme.onSurface
     Row(
         horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(8.dp),
@@ -606,6 +638,7 @@ private fun HomeTopActions(onInbox: () -> Unit, onSearch: () -> Unit) {
         HomeRoundAction(onClick = onSearch, size = HomeTopActionSize) {
             Icon(Icons.Outlined.Search, contentDescription = "搜索", tint = tint, modifier = Modifier.size(21.dp))
         }
+        if (withScan) HomeScanAction(onScan = onScan)
         HomeRoundAction(onClick = onInbox, size = HomeTopActionSize) {
             InboxBell(onInbox, clickable = false, iconSize = 22.dp, containerSize = HomeTopActionSize)
         }

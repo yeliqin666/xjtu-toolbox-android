@@ -76,9 +76,11 @@ internal fun HomeTab(
     )
     SubsystemStatusSheet(loginState, home.showStatusSheet)
     // 「主页设置」抽屉：首页编辑态的齿轮直接在原地打开它（不跳设置页、不关编辑态）
+    // `:app` 自己画首页顶栏那三个圆钮，所以「顶栏」那一组在这里一定画得出来
     com.xjtu.toolbox.settings.HomeSettingsSheet(
         show = home.showHomeSettings.value,
         onDismiss = { home.showHomeSettings.value = false },
+        showTopBarStyle = true,
     )
     HomeScreen(
         host = home.host,

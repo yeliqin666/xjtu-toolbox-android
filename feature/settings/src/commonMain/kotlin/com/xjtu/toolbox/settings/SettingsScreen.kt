@@ -159,6 +159,8 @@ private fun SettingsHome(
     val showNavStyle = SettingsRow.NAV_STYLE in host.honoredRows
     val showHomeHero = SettingsRow.HOME_HERO in host.honoredRows
     val showHomeSettings = SettingsRow.HOME_SETTINGS in host.honoredRows
+    // 顶栏排法只对那些自己画首页顶栏按钮的端有意义（见 SettingsRow.HOME_TOP_BAR）
+    val showHomeTopBarStyle = SettingsRow.HOME_TOP_BAR in host.honoredRows
     val showDefaultTab = SettingsRow.DEFAULT_TAB in host.honoredRows
     val showBottomTabs = SettingsRow.BOTTOM_TABS in host.honoredRows
     val showHaptics = SettingsRow.HAPTICS in host.honoredRows
@@ -389,10 +391,10 @@ private fun SettingsHome(
                     )
                 }
                 if (showHomeSettings) {
-                    // 二级页：背景壁纸、卡片材质、网格开关、恢复默认分组和布局（首页编辑态的齿轮也落到这）
+                    // 二级页：背景壁纸、卡片材质、顶栏排法、网格开关、恢复默认分组和布局（首页编辑态的齿轮也落到这）
                     ArrowPreference(
                         title = "主页设置",
-                        summary = "背景、卡片材质、网格与分组布局",
+                        summary = "背景、卡片材质、顶栏排法与网格布局",
                         startAction = { SettingsIcon(Icons.Default.GridView, cBlue) },
                         onClick = onOpenHomeSettings,
                     )
@@ -624,7 +626,11 @@ private fun SettingsHome(
         ChangelogSheet(show = showChangelog, entries = host.changelog, onDismiss = { showChangelog = false })
         EulaSheet(show = showEula, onDismiss = { showEula = false })
         // 主页设置：和首页编辑态齿轮打开的是同一个抽屉（同一份 HomeLayoutStore）
-        HomeSettingsSheet(show = showHomeSettingsSheet, onDismiss = onDismissHomeSettingsSheet)
+        HomeSettingsSheet(
+            show = showHomeSettingsSheet,
+            onDismiss = onDismissHomeSettingsSheet,
+            showTopBarStyle = showHomeTopBarStyle,
+        )
     }
 }
 

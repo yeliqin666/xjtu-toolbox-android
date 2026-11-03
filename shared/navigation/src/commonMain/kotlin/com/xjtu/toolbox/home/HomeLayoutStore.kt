@@ -150,6 +150,19 @@ class HomeLayoutStore(
         get() = store.getBoolean(KEY_LIQUID_REFRACTION, true)
         set(value) = store.putBoolean(KEY_LIQUID_REFRACTION, value)
 
+    /**
+     * 首页顶栏的功能按钮是否**统一右对齐**（默认开）。
+     *
+     * 开 = 扫码 / 搜索 / 通知三个圆钮都在顶栏右侧（改造前的排法）；
+     * 关 = 扫码单独站到最左边、标题绝对居中，右侧只留搜索与通知（改版后的排法）。
+     *
+     * 只有自己画首页顶栏按钮的端才读它（`:app`）；桌面与 web 的首页顶栏由外壳画，
+     * 主页设置抽屉在那两端也不画这一行（`SettingsRow.HOME_TOP_BAR` 没人认领）。
+     */
+    var topActionsRight: Boolean
+        get() = store.getBoolean(KEY_TOP_ACTIONS_RIGHT, true)
+        set(value) = store.putBoolean(KEY_TOP_ACTIONS_RIGHT, value)
+
     /** 主页背景图（裁好的 WebP Base64）；空串 = 没有背景图，用主题底色。 */
     var backgroundImage: String
         get() = store.getString(KEY_BACKGROUND_IMAGE).orEmpty()
@@ -182,6 +195,7 @@ class HomeLayoutStore(
         private const val KEY_GRID = "home_grid"
         private const val KEY_LIQUID_CARD = "home_liquid_card"
         private const val KEY_LIQUID_REFRACTION = "home_liquid_refraction"
+        private const val KEY_TOP_ACTIONS_RIGHT = "home_top_actions_right"
         private const val KEY_BACKGROUND_IMAGE = "home_background_image"
         private const val KEY_BACKGROUND_BLUR = "home_background_blur"
         private const val KEY_BACKGROUND_OPACITY = "home_background_opacity"

@@ -145,9 +145,14 @@ fun HomeScreen(
     contentTopPadding: Dp = 0.dp,
     /** 壳把整页上移的量（见 `ShellPageInsets.contentTopShift`）；模糊带按它补回屏幕顶边。 */
     contentTopShift: () -> Dp = { 0.dp },
-    /** 顶栏最左侧那个按钮（`:app` 是「扫一扫」）；null = 这一端没有。 */
+    /**
+     * 顶栏最左侧那个按钮（`:app` 是「扫一扫」）；null = 这一端没有。
+     *
+     * 首页本身不认「功能按钮统一右对齐」那个开关（`HomeLayoutStore.topActionsRight`）：
+     * 它只决定宿主往这两个槽位里放什么，关掉时扫码从 [topActions] 挪到这里。
+     */
     topLeading: (@Composable () -> Unit)? = null,
-    /** 顶栏右侧那一排（`:app` 是「搜索」+「通知」）。null = 这一端没有顶栏。 */
+    /** 顶栏右侧那一排（`:app` 是「搜索」+「通知」，扫码统一右对齐时也在这一排）。null = 这一端没有顶栏。 */
     topActions: (@Composable () -> Unit)? = null,
 ) {
     val honored = host.honoredCards
@@ -1310,8 +1315,9 @@ val LocalHomeGlassRefraction = compositionLocalOf { true }
 // ── 顶栏 ──
 
 /**
- * 首页的折叠顶栏，叠在滚动内容上面：最左是扫码（宿主给），正中间是应用名，
- * 右侧是搜索与通知。往上滑过刊头后玻璃底色浮出来，底边柔和淡出。
+ * 首页的折叠顶栏，叠在滚动内容上面：正中间是应用名，左右两排按钮全由宿主给
+ * （`:app` 默认是「扫码 / 搜索 / 通知」三个圆钮统一在右侧，主页设置里关掉
+ * 「功能按钮统一右对齐」之后扫码挪到最左）。往上滑过刊头后玻璃底色浮出来，底边柔和淡出。
  *
  * 编辑态顶栏换成三个纯图标：左边取消、右边齿轮 + 对勾（需求 §1.3），
  * 按钮的视觉样式和常规态完全一致，只有图标不同。

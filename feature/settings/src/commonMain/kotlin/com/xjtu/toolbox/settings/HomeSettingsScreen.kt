@@ -21,6 +21,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.GridOn
 import androidx.compose.material.icons.filled.RestartAlt
+import androidx.compose.material.icons.filled.SwapHoriz
 import androidx.compose.material.icons.filled.Wallpaper
 import androidx.compose.material.icons.filled.WaterDrop
 import androidx.compose.runtime.Composable
@@ -66,15 +67,22 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.window.WindowDialog
 
 /**
- * 「主页设置」抽屉（需求 §5 / 补充 §29）：背景、卡片材质、网格开关、恢复默认分组和布局。
+ * 「主页设置」抽屉（需求 §5 / 补充 §29）：背景、卡片材质、顶栏排法、网格开关、恢复默认分组和布局。
  *
  * 做成底部抽屉而不是二级页，是因为它要能从两处打开——全局设置里的那一行，和首页编辑态的齿轮；
  * 两处挂的是**同一个** [HomeSettingsSheet]，读写同一份 [HomeLayoutStore]（`app_settings`），
  * 所以从哪儿打开看到的都是同一套状态。改完叫一次 [HomeLayoutStore.notifyChanged]，
  * 首页那边靠 `HomeLayoutRevision` 重读，返回首页时改动已经生效。
+ *
+ * [showTopBarStyle] 管「顶栏」那一组：只有自己画首页顶栏按钮的端（`:app`）才拨得动它，
+ * 桌面与 web 的首页顶栏在外壳里，那一组整块不画——省得留一个拨了没反应的开关。
  */
 @Composable
-fun HomeSettingsSheet(show: Boolean, onDismiss: () -> Unit) {
+fun HomeSettingsSheet(
+    show: Boolean,
+    onDismiss: () -> Unit,
+    showTopBarStyle: Boolean = false,
+) {
     // 返回键优先关抽屉（§31）：抽屉在前台时不把返回交给下面的页面
     BackHandler(enabled = show) { onDismiss() }
     OverlayBottomSheet(
@@ -83,17 +91,18 @@ fun HomeSettingsSheet(show: Boolean, onDismiss: () -> Unit) {
         onDismissRequest = onDismiss,
     ) {
         // 抽屉自己要知道怎么关自己：「恢复默认分组和布局」确认之后要立刻合上（§29 补充）
-        HomeSettingsBody(onDismiss = onDismiss)
+        HomeSettingsBody(onDismiss = onDismiss, showTopBarStyle = showTopBarStyle)
     }
 }
 
 @OptIn(ExperimentalEncodingApi::class)
 @Composable
-private fun HomeSettingsBody(onDismiss: () -> Unit) {
+private fun HomeSettingsBody(onDismiss: () -> Unit, showTopBarStyle: Boolean) {
     val store = remember { HomeLayoutStore() }
     // 本地状态是这一屏的真源：滑条拖动时先改它，写盘也顺手做，但只有离散动作才 bump revision
     var liquid by remember { mutableStateOf(store.liquidCard) }
     var refraction by remember { mutableStateOf(store.liquidRefraction) }
+    var topActionsRight by remember { mutableStateOf(store.topActionsRight) }
     var grid by remember { mutableStateOf(store.grid) }
     var image by remember { mutableStateOf(store.backgroundImage) }
     var blur by remember { mutableIntStateOf(store.backgroundBlur) }
@@ -221,6 +230,29 @@ private fun HomeSettingsBody(onDismiss: () -> Unit) {
                     onCheckedChange = {
                         refraction = it
                         store.liquidRefraction = it
+                        store.notifyChanged()
+                    },
+                )
+            }
+        }
+
+        // ── 顶栏 ──
+        // 排法只有 :app 真的画得出两种（桌面 / web 的首页顶栏在外壳里，`showTopBarStyle` 为假）
+        if (showTopBarStyle) {
+            SmallTitle("顶栏")
+            HomeSettingsCard {
+                SwitchPreference(
+                    title = "功能按钮统一右对齐",
+                    summary = if (topActionsRight) {
+                        "扫码、搜索、通知三个圆钮都在右侧"
+                    } else {
+                        "扫码靠左、标题居中，右侧只留搜索与通知"
+                    },
+                    checked = topActionsRight,
+                    startAction = { SettingsIcon(Icons.Default.SwapHoriz, cPurple) },
+                    onCheckedChange = {
+                        topActionsRight = it
+                        store.topActionsRight = it
                         store.notifyChanged()
                     },
                 )
