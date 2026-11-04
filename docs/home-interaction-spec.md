@@ -8,20 +8,24 @@
 
 参数（格数、dp、毫秒）都不写死在文档里当圣旨，而是「由内容模型推出来的」，改卡片内容模型时要连带复核。
 
-## 零、三套布局并存
+## 零、两套布局：经典分类卡（回落）+ 卡片组
 
-首页现在有三套实现，由 `SettingsStore.homeLayout`（`classic` / `widgets` / `cards`）在
+首页只有两套实现，由 `SettingsStore.homeLayout`（`classic` / `cards`）在
 `feature/home/.../HomeScreen.kt` 这个薄分派里选：
 
 | 布局 | 入口 | 说明 |
 |---|---|---|
-| 经典分类卡 `classic` | `HomeLegacyScreen` | dev 上原来那套「刊头 + 头卡 + 分类卡」，回落用 |
-| 小组件 `widgets` | `HomeLegacyScreen` | dev 上已发版的可调尺寸小组件（同一个屏内部的另一条分支） |
+| 经典分类卡 `classic` | `HomeClassicScreen` | 刊头 + 头卡 + 分类卡，只做回落 |
 | 卡片组 `cards` | `HomeCardGroupScreen` | **本文档描述的这一套**：可编辑的卡片组网格 |
 
-**背景 / 液态玻璃 / 顶栏排法三组设置三套共用**（落 `SettingsStore`）；只有卡片组才有的
+dev 上原来那套「小组件」**不是第三个选项**：它和卡片组本来就是同一个功能的两代，已经并进
+卡片组——位置模型、拖拽、分组用卡片组的，材质、一镜到底接线、付款码、内容分档这些能力从
+小组件那边搬了过来。老存档里的 `home_layout = widgets` 读出来按 `cards` 处理；没设置过的也
+是 `cards`。
+
+**背景 / 液态玻璃 / 顶栏排法三组设置两套共用**（落 `SettingsStore`）；只有卡片组才有的
 （网格开关、折射子开关、背景不透明度、恢复默认分组和布局）落在 `HomeLayoutStore`，
-切到别的布局时那几块不画。本文档其余各节只描述 `cards` 这一套。
+切到经典分类卡时那几块不画。本文档其余各节只描述 `cards` 这一套。
 
 ---
 

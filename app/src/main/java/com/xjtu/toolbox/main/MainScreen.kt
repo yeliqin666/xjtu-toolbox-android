@@ -664,7 +664,7 @@ private fun HomeRoundAction(
     val isDark = LocalIsDarkTheme.current
     // 首页**内容层**（背景 + 滚动内容）由首页通过 Local 递过来：液态开关开着时圆钮采它，
     // 于是模糊 / 折射的也是它此刻盖住的东西，和顶栏模糊带同一个源。卡片组布局会 provide；
-    // 经典分类卡 / 小组件那两套（`HomeLegacyScreen`）不 provide，于是退回下面那层半透明底。
+    // 经典分类卡那一套（`HomeClassicScreen`）不 provide，于是退回下面那层半透明底。
     val liquid = LocalHomeBarBackdrop.current
     // 折射子开关同样由首页 provide：关掉时圆钮只留模糊与高光，省一层离屏位移采样
     val refraction = LocalHomeGlassRefraction.current

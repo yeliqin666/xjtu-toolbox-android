@@ -112,14 +112,13 @@ import top.yukonga.miuix.kmp.utils.SinkFeedback
 import top.yukonga.miuix.kmp.utils.overScrollVertical
 
 /**
- * 首页屏（dev 上已发版的那一套）：经典分类卡与小组件两种布局都在这里，由
- * `SettingsStore.homeLayout` 在这两条分支之间选。
+ * 首页「经典分类卡」布局（回落用）：刊头 + 头卡 + 分类卡，功能按分类成群。
  *
- * 本分支的第三种布局「卡片组」在 [HomeCardGroupScreen]，入口分派见 [HomeScreen]。
- * 这个文件与 dev 逐字一致，方便日后核对三套布局谁改了什么。
+ * 它原来是 dev 上的 `HomeScreen`，同时装着经典与小组件两条分支；小组件那套已经并进
+ * [HomeCardGroupScreen]（见那边的说明），所以这里只剩经典这一条路。入口分派在 [HomeScreen]。
  */
 @Composable
-fun HomeLegacyScreen(
+fun HomeClassicScreen(
     host: HomeHost,
     modifier: Modifier = Modifier,
     scrollBehavior: ScrollBehavior? = null,
@@ -146,8 +145,7 @@ fun HomeLegacyScreen(
     val seamlessOpeners = remember(catalog) {
         catalog.associate { s -> s.route.id to { source: SeamlessCardSource -> currentHost.onRouteSeamless(s.route, source) } }
     }
-    val paymentCode: suspend () -> String? = remember { { currentHost.paymentCode() } }
-    val openLink: (String) -> Unit = remember { { currentHost.onOpenLink(it) } }
+    // 一镜到底：命中某一行时把「从这一块出发」的矩形交给宿主（见 opensRow）
 
     fun rowOf(service: AppService, stat: HomeStat?): HomeServiceRow {
         val id = service.route.id
@@ -189,25 +187,10 @@ fun HomeLegacyScreen(
         } else null
     val groups = HomeCards.groups(host.audience, host.stats, host.openableRouteIds)
     val layoutStore = remember { SettingsStore() }
-    val widgetMode = remember(HomeLayoutRevision.current) {
-        layoutStore.homeLayout == SettingsStore.HOME_LAYOUT_WIDGETS
-    }
     val background = remember(HomeLayoutRevision.current) { layoutStore.homeBackground }
     val wallpaper = remember(HomeLayoutRevision.current) { layoutStore.homeWallpaperImage.takeIf { background == "image" }.orEmpty() }
     val wallpaperTone = remember(HomeLayoutRevision.current) { layoutStore.homeWallpaperBlur to layoutStore.homeWallpaperBrightness }
-    val liquidGlass = remember(HomeLayoutRevision.current) { layoutStore.homeLiquidGlass }
     val topActionsRight = remember(HomeLayoutRevision.current) { layoutStore.homeTopActionsRight }
-    val wall = rememberLayerBackdrop()
-    val wallFrame = remember { WallFrame() }
-    // 纯色背景不做玻璃；液态玻璃是唯一需要实时采样壁纸层的情况，别的情况壁纸层不录
-    val liquid = widgetMode && liquidGlass && background != "solid"
-    val frosted = rememberFrostedImage(if (widgetMode && !liquid) wallpaper else "")
-    val surface = when {
-        background == "solid" -> WidgetSurface.Plain
-        liquid -> WidgetSurface.Liquid(wall)
-        frosted != null -> WidgetSurface.Frost(frosted, remember(wallpaperTone.second) { heroBrightnessFilter(wallpaperTone.second) }, wallFrame)
-        else -> WidgetSurface.Tint
-    }
     // 自定义图片上用白字；渐变很浅，照常用正文色
     val pageInk = if (wallpaper.isNotEmpty()) Color.White else MiuixTheme.colorScheme.onSurface
     val frontInbox = host.inbox.takeIf { HomeCard.INBOX in honored }
@@ -242,9 +225,7 @@ fun HomeLegacyScreen(
         Box(Modifier.matchParentSize().then(if (glass) Modifier.layerBackdrop(pageBackdrop) else Modifier)) {
         HomeWallpaper(
             background, wallpaper,
-            Modifier.matchParentSize()
-                .onGloballyPositioned { wallFrame.origin = it.positionInRoot(); wallFrame.size = it.size }
-                .then(if (liquid) Modifier.layerBackdrop(wall) else Modifier),
+            Modifier.matchParentSize(),
             blur = wallpaperTone.first, brightness = wallpaperTone.second,
         )
         Column(
@@ -291,32 +272,11 @@ fun HomeLegacyScreen(
                     modifier = Modifier.enterOnce(0),
                     host = host,
                     inbox = frontInbox,
-                    // 小组件模式里常用功能是最上面那一组，刊头不再重复
-                    quick = quick?.takeIf { !widgetMode }?.let { { it(40.dp, null) } },
+                    quick = quick?.let { { it(40.dp, null) } },
                 )
             }
 
-            if (HomeCard.SERVICE_GRID in honored && groups.isNotEmpty() && widgetMode) {
-                Spacer(Modifier.height(20.dp))
-                val rows = groups.flatMap { g -> g.rows.map { indexRow(it.service, it.stat, it.statDetail) } }.distinctBy { it.key }
-                val hasStat = rows.associate { it.key to (it.stat != null) }
-                HomeWidgetGrid(
-                    rows = rows,
-                    defaults = HomeWidgetLayout.defaultGroups(
-                        quick = quickRows.map { it.key },
-                        categories = groups.map { g -> Triple(g.category.name, g.category.title, g.rows.map { it.service.route.id }) },
-                        hasStat = { hasStat[it] == true },
-                    ),
-                    hiddenGroups = if (HomeCard.QUICK_ACTIONS in honored) emptySet() else setOf(HomeWidgetLayout.QUICK_GROUP),
-                    surface = surface,
-                    ink = pageInk,
-                    paymentCode = paymentCode,
-                    onLink = openLink,
-                    modifier = Modifier.enterOnce(1),
-                    scroll = scroll,
-                    onOpenSettings = if (host.hasHomeSettings) host::onOpenHomeSettings else null,
-                )
-            } else if (HomeCard.SERVICE_GRID in honored && groups.isNotEmpty()) {
+            if (HomeCard.SERVICE_GRID in honored && groups.isNotEmpty()) {
                 Spacer(Modifier.height(20.dp))
                 HomeIndexCard(
                     sections = groups.map { group ->

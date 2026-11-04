@@ -60,10 +60,10 @@ import top.yukonga.miuix.kmp.window.WindowDialog
 /**
  * 「主页设置」抽屉（需求 §5 / 补充 §29）。
  *
- * 三套首页布局共用这一个抽屉，因为有三组设置是**跨布局共用**的——背景（壁纸 / 模糊 / 亮度）、
+ * 两套首页布局共用这一个抽屉，因为有三组设置是**跨布局共用**的——背景（壁纸 / 模糊 / 亮度）、
  * 卡片材质（液态玻璃）、顶栏排法，它们落在 [SettingsStore] 里；只有卡片组才有的几项
  * （网格开关、折射子开关、背景不透明度、恢复默认分组和布局）落在
- * [com.xjtu.toolbox.home.HomeLayoutStore] 里，切到别的布局时整块不画。
+ * [com.xjtu.toolbox.home.HomeLayoutStore] 里，切到经典分类卡时整块不画。
  *
  * 做成底部抽屉而不是二级页，是因为它要能从两处打开——全局设置里的那一行，和首页编辑态的齿轮；
  * 两处挂的是**同一个** `HomeSettingsSheet`，从哪儿打开看到的都是同一套状态。
@@ -107,7 +107,7 @@ internal fun homeSettingsSummary(store: SettingsStore): String = listOf(
 private fun HomeSettingsBody(onDismiss: () -> Unit, showTopBarStyle: Boolean) {
     // 卡片组独有：整页布局（分组与格位）、网格开关、折射、背景不透明度
     val store = remember { HomeLayoutStore() }
-    // 三套布局共用：背景、卡片材质、顶栏排法
+    // 两套布局共用：背景、卡片材质、顶栏排法
     val settings = remember { SettingsStore() }
     val revision = HomeLayoutRevision.current
 
@@ -142,15 +142,14 @@ private fun HomeSettingsBody(onDismiss: () -> Unit, showTopBarStyle: Boolean) {
             .verticalScroll(rememberScrollState())
             .navigationBarsPadding(),
     ) {
-        // ── 首页功能区：三套布局二选一（dev 上已发版的经典分类卡 / 小组件，本分支新增的卡片组） ──
+        // ── 首页功能区：经典分类卡（回落）/ 卡片组（合并了原「小组件」能力的实现） ──
         SmallTitle("首页功能区")
         HomeSettingsCard {
             OverlayDropdownPreference(
                 title = "布局",
                 summary = when (layout) {
-                    SettingsStore.HOME_LAYOUT_CARDS -> "长按进入编辑，可以自由摆放与缩放"
                     SettingsStore.HOME_LAYOUT_CLASSIC -> "刊头 + 头卡 + 分类卡，功能按分类排"
-                    else -> "长按编辑，拖右下角调整大小"
+                    else -> "长按进入编辑：可自由摆放、缩放、分组"
                 },
                 items = HOME_LAYOUT_LABELS,
                 selectedIndex = HOME_LAYOUT_VALUES.indexOf(layout).coerceAtLeast(0),
@@ -408,16 +407,15 @@ private fun SimpleRow(
 }
 
 /**
- * 「首页功能区」三选一：显示顺序与落盘值必须一一对应。
+ * 「首页功能区」二选一：经典分类卡（回落）/ 卡片组。
  *
- * 前两个是 dev 上已经发过版的布局，第三个是本分支新写的卡片组。
+ * 显示顺序与落盘值必须一一对应。原来的「小组件」不再是独立选项——那套实现已经并进卡片组。
  */
 private val HOME_LAYOUT_VALUES = listOf(
     SettingsStore.HOME_LAYOUT_CLASSIC,
-    SettingsStore.HOME_LAYOUT_WIDGETS,
     SettingsStore.HOME_LAYOUT_CARDS,
 )
-private val HOME_LAYOUT_LABELS = listOf("经典分类卡", "小组件", "卡片组")
+private val HOME_LAYOUT_LABELS = listOf("经典分类卡", "卡片组")
 
 @Composable
 private fun HomeSettingsCard(content: @Composable ColumnScope.() -> Unit) {

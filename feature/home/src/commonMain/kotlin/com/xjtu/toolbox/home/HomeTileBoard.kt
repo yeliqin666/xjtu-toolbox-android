@@ -6,8 +6,10 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -15,6 +17,7 @@ import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -31,6 +34,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -57,13 +61,22 @@ import com.kyant.backdrop.effects.lens
 import com.kyant.backdrop.effects.vibrancy
 import com.kyant.backdrop.highlight.Highlight
 import com.xjtu.toolbox.nav.AppRoute
+import com.xjtu.toolbox.nav.SeamlessCardSource
+import com.xjtu.toolbox.nav.expandOriginSource
+import com.xjtu.toolbox.nav.rememberExpandOriginSource
+import com.xjtu.toolbox.platform.qrCodeModules
 import com.xjtu.toolbox.schedule.CourseColors
+import com.xjtu.toolbox.ui.components.CodeMatrixView
 import com.xjtu.toolbox.ui.components.ExpressiveIcon
+import com.xjtu.toolbox.ui.components.LocalPageVisible
 import com.xjtu.toolbox.ui.components.appCardShadow
 import com.xjtu.toolbox.ui.glass.floatingGlassShadow
+import com.xjtu.toolbox.ui.rememberCampusNow
 import com.xjtu.toolbox.ui.theme.Editorial
 import com.xjtu.toolbox.ui.theme.LocalIsDarkTheme
 import kotlin.math.roundToInt
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.Text
@@ -144,6 +157,13 @@ internal fun HomeGroupSection(
     reorderShift: Float,
     onOpen: (HomeServiceRow) -> Unit,
     onStartEdit: () -> Unit,
+    /**
+     * 付款码取数（校园卡 2×2 以上的大卡直接画二维码）。
+     *
+     * 这条是原「小组件」那套的能力，合并进卡片组后保留：只在用餐时段 + 页面可见时取，取不到就
+     * 照常画大卡内容。默认返回 null = 这一端拿不到（桌面 / Web 就靠这个默认值什么都不画）。
+     */
+    paymentCode: suspend () -> String? = { null },
     onEditGroup: () -> Unit,
     onDeleteGroup: () -> Unit,
     onRemoveTile: (tileId: String) -> Unit,
@@ -258,6 +278,7 @@ internal fun HomeGroupSection(
                                 colUnit = colUnit,
                                 rowUnit = rowUnit,
                                 gapPx = gapPx,
+                                paymentCode = paymentCode,
                                 onOpen = { onOpen(face) },
                                 onStartEdit = onStartEdit,
                                 onRemoveTile = onRemoveTile,
@@ -387,6 +408,95 @@ private fun GroupDeleteButton(liquid: Boolean, refraction: Boolean, backdrop: Ba
 }
 
 /**
+ * 校园卡大卡上的付款码。
+ *
+ * 只在「用餐时段 + 这一页可见」时去取码（[isMealPaymentTime]，见 `PaymentCodeTime.kt`），取到就
+ * 整块盖成二维码并每 30 秒自动刷新；取不到 / 不在时段就什么都不画，底下的大卡内容照旧——所以
+ * 绝大多数时候它只花一次「现在是不是饭点」的判断，不发任何请求。
+ */
+@Composable
+private fun PaymentCodeOverlay(fetch: suspend () -> String?, radius: Dp) {
+    val now = rememberCampusNow()
+    val active = LocalPageVisible.current && isMealPaymentTime(now.time)
+    val code by produceState<String?>(null, active) {
+        value = null
+        while (active) {
+            value = try {
+                fetch()
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                // 没登录 / 校园卡没登 / 网络抖一下都走这条：不画码，也不弹错
+                null
+            }
+            delay(PAYMENT_REFRESH_MS)
+        }
+    }
+    val matrix = remember(code, active) { code?.takeIf { active }?.let { qrCodeModules(it) } } ?: return
+    Column(
+        Modifier
+            .fillMaxSize()
+            .clip(RoundedCornerShape(radius))
+            .background(Color.White)
+            .padding(10.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Box(
+            Modifier.weight(1f).aspectRatio(1f),
+            contentAlignment = Alignment.Center,
+        ) {
+            CodeMatrixView(matrix = matrix, quietZoneModules = 1, modifier = Modifier.fillMaxSize())
+        }
+        Spacer(Modifier.height(4.dp))
+        Text(
+            "付款码 · 自动刷新",
+            fontSize = 10.sp,
+            color = Color.Black.copy(alpha = 0.65f),
+            maxLines = 1,
+        )
+    }
+}
+
+/** 付款码自动刷新的间隔（与原「小组件」那套一致）。 */
+private const val PAYMENT_REFRESH_MS = 30_000L
+
+/**
+ * 卡片的点击层：整块点开 + 长按进编辑态，并把「从这一块出发」的矩形交给一镜到底。
+ *
+ * 和经典屏 `opensRow` 是同一套接线：`expandOriginSource` 登记起点，按下先 `arm`（Compose 回落
+ * 转场用它画放大），再按宿主有没有接 [HomeServiceRow.onSeamlessClick] 决定走 KIT 独立 Activity
+ * （金标联盟 SharedViewKit）还是普通跳转。宿主没接就退回 `onOpen`，桌面 / Web 与老 ROM 的行为不变。
+ */
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun Modifier.tileOpen(
+    face: HomeServiceRow,
+    radius: Dp,
+    onOpen: () -> Unit,
+    onStartEdit: () -> Unit,
+): Modifier {
+    val origin = rememberExpandOriginSource()
+    val density = LocalDensity.current
+    return this
+        .expandOriginSource(origin)
+        .combinedClickable(
+            interactionSource = remember { MutableInteractionSource() },
+            indication = null,
+            onClick = {
+                origin.arm(face.key, radius, density, null)
+                val seamless = face.onSeamlessClick
+                val bounds = origin.boundsInWindow()
+                if (seamless != null && bounds != null) {
+                    seamless(SeamlessCardSource(bounds, radius))
+                } else {
+                    onOpen()
+                }
+            },
+            onLongClick = onStartEdit,
+        )
+}
+
+/**
  * 落点占位框：被拖块在**实时布局**里的位置与尺寸，弹簧跟位。
  * 「松手会落在哪」在拖动全程都看得见；松手时幽灵块飞过来与它重合，预览固化成数据。
  *
@@ -471,6 +581,8 @@ private fun HomeTileItem(
     colUnit: Float,
     rowUnit: Float,
     gapPx: Float,
+    /** 付款码取数；null 的语义见 [HomeGroupSection] 的同名参数。 */
+    paymentCode: suspend () -> String? = { null },
     onOpen: () -> Unit,
     onStartEdit: () -> Unit,
     onRemoveTile: (tileId: String) -> Unit,
@@ -491,12 +603,12 @@ private fun HomeTileItem(
     val frame = cellFrame(animX, animY, animW, animH, colUnit, rowUnit, gapPx)
 
     // 非编辑态：整块点击打开、长按进编辑态。编辑态这块不挂手势（交给手势层）。
+    // 点击走「一镜到底」那套接线，和卡片圆角用同一个半径，转场时放大出来的形状才对得上。
+    val radius = (minOf(animW, animH) * 12f).coerceIn(10f, 22f).dp
     val tap = if (editing) {
         Modifier
     } else {
-        Modifier.pointerInput(tile.id) {
-            detectTapGestures(onTap = { onOpen() }, onLongPress = { onStartEdit() })
-        }
+        Modifier.tileOpen(face = face, radius = radius, onOpen = onOpen, onStartEdit = onStartEdit)
     }
 
     Box(
@@ -514,6 +626,12 @@ private fun HomeTileItem(
             backdrop = backdrop,
             modifier = Modifier.fillMaxSize(),
         )
+
+        // 校园卡的 2×2 大卡：用餐时段直接把付款码画在这块上（原「小组件」那套能力，
+        // 合并进卡片组后保留）。取不到码 / 不在时段就什么都不画，下面的大卡内容照旧。
+        if (!editing && animW >= 1.5f && animH >= 1.5f && face.key == AppRoute.CampusCard.id) {
+            PaymentCodeOverlay(fetch = paymentCode, radius = radius)
+        }
 
         if (editing) {
             // 左上角：移除这一块。热区 32dp，视觉只有 18dp，所以点偏一点也点得到。

@@ -131,14 +131,16 @@ import top.yukonga.miuix.kmp.utils.overScrollVertical
 import top.yukonga.miuix.kmp.window.WindowDialog
 
 /**
- * 首页屏（本分支的「卡片组」布局）。
+ * 首页「卡片组」布局——**dev 那套「小组件」就是这一套的前身**，两者已合成一份。
  *
  * 版面从「刊头 + 头卡 + 一堆分类卡」改成「刊头 + 头卡 + **可编辑的卡片组**」：
  * 每组是一片组件网格，组件的大小、位置、所属组都能在编辑态里拖。
  * 「常用功能」不再是特权区，它就是第一组（需求 §2.1）。
  *
- * 与 dev 上那套 [HomeLegacyScreen]（经典分类卡 / 小组件）并存，入口按
- * `SettingsStore.HOME_LAYOUT_CARDS` 分派，见 [HomeScreen]。
+ * 合并时从小组件那套搬过来的能力：材质四态里的纯色 / 渐变薄底（§1）、
+ * 一镜到底接线（`HomeTileBoard` 的 `tileOpen`、本文件的 `rowOf` 里 `onSeamlessClick`）、
+ * 校园卡大卡的付款码（`HomeTileBoard` 的 `PaymentCodeOverlay`）。
+ * 只剩「经典分类卡」作为回落，见 [HomeClassicScreen]；入口分派在 [HomeScreen]。
  */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -230,6 +232,9 @@ fun HomeCardGroupScreen(
             subtitle = service.subtitle,
             color = colorByKey[id] ?: Color.Unspecified,
             onClick = { host.onRoute(service.route) },
+            // 一镜到底：把「从这一块出发」的矩形交给宿主，ROM 支持 SharedViewKit 时走系统转场，
+            // 不支持就落回上面的 onClick（见 HomeTileBoard 的 tileOpen）
+            onSeamlessClick = { source -> host.onRouteSeamless(service.route, source) },
             stat = stat?.value,
             statDetail = stat?.detail,
         )
@@ -1082,6 +1087,8 @@ fun HomeCardGroupScreen(
                                     liquid = liquid,
                                     refraction = refraction,
                                     backdrop = tileBackdrop.takeIf { recordTileLayer },
+                                    // 校园卡大卡的付款码：用餐时段才真去取（原「小组件」那套能力）
+                                    paymentCode = { host.paymentCode() },
                                     session = session,
                                     budgetRows = rowBudget?.get(group.id),
                                     // 接收高亮：手指把这一组当落点，且它不是拖拽源组（§19）
