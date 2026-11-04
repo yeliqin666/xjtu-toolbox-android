@@ -149,7 +149,7 @@ internal class AndroidAgentHost(
             append("• dynamic_color（跟随系统取色）：${cs.dynamicColor}　可选 true/false\n")
             append("• nav_bar_style（界面风格）：${cs.navBarStyle}　可选 floating（玻璃，默认）/classic（经典，不透明、更省电）\n")
             append("• show_quick_actions（首页常用功能）：${cs.showQuickActions}　可选 true/false\n")
-            append("• default_tab（启动页）：${cs.defaultTab}　可选当前底栏上的格子 ${cs.bottomTabs.joinToString("/")}（底栏组成在 设置 → 外观 → 底栏 里改）\n")
+            append("• default_tab（启动页）：${cs.defaultTab}　可选当前底栏上的格子 ${cs.bottomTabs.joinToString("/")}（底栏组成在 设置 → 首页与底栏 → 底栏 里改）\n")
             append("• network_mode（网络模式）：${cs.networkMode}　可选 auto/direct/vpn\n")
             append("• account_type（账号类型）：${cs.accountType.key}　可选 undergraduate/postgraduate\n")
             append("• venue_auto_solve_captcha（场馆验证码自动识别）：${cs.venueAutoSolveCaptchaEnabled}　可选 true/false\n")
