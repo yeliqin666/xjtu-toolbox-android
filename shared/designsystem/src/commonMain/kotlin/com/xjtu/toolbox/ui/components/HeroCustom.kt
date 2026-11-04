@@ -19,10 +19,10 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
@@ -71,8 +71,8 @@ private const val HERO_CROP_WIDTH = 1440
  *
  * 键用数据串的哈希：整串 base64 可能有几百 KB，每次组合都全串比较不划算，
  * 哈希碰撞的代价只是「多信一次缓存、显示旧图」，而这里同一时刻只有一张图在轮换。
- * 不放进 Compose 状态：它的作用是省一次解码，读它的地方（[HeroCustomBackground] 的
- * produceState 初值）本来就会随 imageData 重组。
+ * 不放进 Compose 状态：它的作用是省一次解码，读它的地方（[HeroCustomBackground] 里那个
+ * `remember(哈希)` 的初值）本来就会随 imageData 重组。
  */
 private object HeroImageCache {
     private var key = 0
@@ -108,12 +108,18 @@ fun HeroCustomBackground(
     // key 用哈希而不是数据串本身：几百 KB 的 base64 当 remember key，每次重组都要全串
     // 比较一次（JVM 的 String.hashCode 算过一次就缓存，equals 没有）。碰撞只是「不重解、
     // 显示上一张」，与缓存的判据完全一致。
-    val decoded by produceState(initialValue = HeroImageCache[imageData], key1 = imageData.hashCode()) {
-        if (imageData.isEmpty() || value != null) return@produceState
-        value = withContext(Dispatchers.Default) {
+    //
+    // 这里是 `remember(哈希)` + `LaunchedEffect(哈希)`，**不是 `produceState(key1 = 哈希)`**：
+    // produceState 里面那层 state 是 `remember { mutableStateOf(initialValue) }`（不带 key），
+    // key 变了只重启 effect、旧值还留在里面，于是 `value != null` 的守卫会让新图永远不解码——
+    // 表现就是「换完壁纸没反应，重启应用才生效」（2026-11 实测，改法的原因就这一条）。
+    var decoded by remember(imageData.hashCode()) { mutableStateOf(HeroImageCache[imageData]) }
+    LaunchedEffect(imageData.hashCode()) {
+        if (imageData.isEmpty() || decoded != null) return@LaunchedEffect
+        decoded = withContext(Dispatchers.Default) {
             runCatching { decodeImageFull(Base64.Default.decode(imageData)) }.getOrNull()
         }
-        value?.let { HeroImageCache.put(imageData, it) }
+        decoded?.let { HeroImageCache.put(imageData, it) }
     }
     // 委托属性不会被智能转换，先取出来再用
     val image = decoded
