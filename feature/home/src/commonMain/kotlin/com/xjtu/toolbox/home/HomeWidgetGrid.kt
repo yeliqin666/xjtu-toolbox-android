@@ -82,8 +82,17 @@ import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.runtime.Immutable
+import androidx.compose.ui.graphics.drawscope.ContentDrawScope
+import androidx.compose.ui.layout.LayoutCoordinates
+import androidx.compose.ui.layout.layout
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInRoot
+import androidx.compose.ui.node.DrawModifierNode
+import androidx.compose.ui.node.GlobalPositionAwareModifierNode
+import androidx.compose.ui.node.ModifierNodeElement
+import androidx.compose.ui.node.invalidateDraw
+import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.semantics.CustomAccessibilityAction
@@ -345,11 +354,13 @@ internal fun HomeWallpaper(mode: String, imageData: String, modifier: Modifier =
  * - [Frost]：图片背景上贴预先模糊好的低清图，按小组件在页面上的位置取对应那一块；
  * - [Liquid]：液态玻璃，实时采样壁纸层，带折射与高光。
  */
+@Immutable
 internal sealed interface WidgetSurface {
     data object Plain : WidgetSurface
     data object Tint : WidgetSurface
-    class Frost(val image: ImageBitmap, val filter: ColorFilter?, val wall: WallFrame) : WidgetSurface
-    class Liquid(val wall: Backdrop) : WidgetSurface
+    // 按值比较：首页每次重组都会新建一份，引用不同但内容相同时格子要能跳过重组
+    @Immutable data class Frost(val image: ImageBitmap, val filter: ColorFilter?, val wall: WallFrame) : WidgetSurface
+    @Immutable data class Liquid(val wall: Backdrop) : WidgetSurface
 }
 
 /** 壁纸在根坐标里的位置与尺寸，[WidgetSurface.Frost] 按它找每块小组件底下对应的那一块。 */
@@ -419,7 +430,7 @@ private fun WidgetCanvas(
             y += groupGapPx
         }
         val totalPx = (y - groupGapPx).coerceAtLeast(0f)
-        val height by animateDpAsState(
+        val height = animateDpAsState(
             with(density) { totalPx.toDp() },
             spring(stiffness = Spring.StiffnessMediumLow), label = "widgetGridHeight",
         )
@@ -539,7 +550,13 @@ private fun WidgetCanvas(
         } else Modifier
 
         Box(
-            Modifier.fillMaxWidth().height(height)
+            Modifier.fillMaxWidth()
+                // 高度动画只在布局阶段读，不让整张画布跟着逐帧重组
+                .layout { measurable, constraints ->
+                    val h = height.value.roundToPx()
+                    val placeable = measurable.measure(constraints.copy(minHeight = h, maxHeight = h))
+                    layout(placeable.width, h) { placeable.place(0, 0) }
+                }
                 .onGloballyPositioned { gridRoot = it.positionInRoot() }
                 .then(gestures),
         ) {
@@ -570,18 +587,28 @@ private fun WidgetCanvas(
                             pos.animateTo(target, spring(dampingRatio = 0.82f, stiffness = Spring.StiffnessMediumLow))
                         }
                     }
-                    val width by animateDpAsState(w, spring(dampingRatio = 0.85f, stiffness = Spring.StiffnessMediumLow), label = "w")
-                    val heightAnim by animateDpAsState(h, spring(dampingRatio = 0.85f, stiffness = Spring.StiffnessMediumLow), label = "h")
+                    // 动画值和缩放手势都只在布局 / 绘制阶段读：读在组合里，每一帧都会让整张画布重组
+                    val width = animateDpAsState(w, spring(dampingRatio = 0.85f, stiffness = Spring.StiffnessMediumLow), label = "w")
+                    val heightAnim = animateDpAsState(h, spring(dampingRatio = 0.85f, stiffness = Spring.StiffnessMediumLow), label = "h")
                     val lift by animateFloatAsState(if (isDragged) 1.05f else 1f, label = "lift")
                     val shake = rememberShake(editing && !isDragged && !isResizing && !item.isAdd, item.key)
-                    val resizeWidth = with(density) { (resizeStart.x + resizeDelta.x).coerceIn(cell.toPx(), (cell * 2 + GAP).toPx()).toDp() }
-                    val resizeHeight = with(density) { (resizeStart.y + resizeDelta.y).coerceIn(cell.toPx(), (cell * 2 + GAP).toPx()).toDp() }
 
                     Box(
                         Modifier
                             .offset { if (isResizing) resizeOrigin else pos.value }
                             .zIndex(if (isDragged || isResizing) 2f else 0f)
-                            .size(if (isResizing) resizeWidth else width, if (isResizing) resizeHeight else heightAnim)
+                            .layout { measurable, _ ->
+                                val (wPx, hPx) = if (isResizing) {
+                                    val min = cell.toPx()
+                                    val max = (cell * 2 + GAP).toPx()
+                                    (resizeStart.x + resizeDelta.x).coerceIn(min, max).roundToInt() to
+                                        (resizeStart.y + resizeDelta.y).coerceIn(min, max).roundToInt()
+                                } else {
+                                    width.value.roundToPx() to heightAnim.value.roundToPx()
+                                }
+                                val placeable = measurable.measure(Constraints.fixed(wPx, hPx))
+                                layout(wPx, hPx) { placeable.place(0, 0) }
+                            }
                             // 分组错峰入场；摆动只改绘制层，不触发重组
                             .enterOnce(visible.indexOfFirst { it.id == item.group } + 1)
                             .graphicsLayer { scaleX = lift; scaleY = lift; rotationZ = shake() },
@@ -1017,31 +1044,7 @@ private fun Modifier.widgetSurface(surface: WidgetSurface, ink: Color): Modifier
             .background(AppCardColor)
             .border(0.6.dp, MiuixTheme.colorScheme.onSurface.copy(alpha = if (dark) 0.09f else 0.065f), shape)
         WidgetSurface.Tint -> this.clip(shape).background(tint).border(0.7.dp, edge, shape)
-        is WidgetSurface.Frost -> {
-            // 位置写进状态、在绘制阶段读：滚动只让这块重画一次贴图，不重组
-            var root by remember { mutableStateOf(Offset.Zero) }
-            this.onGloballyPositioned { root = it.positionInRoot() }
-                .clip(shape)
-                .drawBehind {
-                    val image = surface.image
-                    val wall = surface.wall.size
-                    if (wall.width > 0 && wall.height > 0) {
-                        // 和壁纸同一种 Crop 取景，再平移到这块小组件的位置
-                        val scale = max(wall.width.toFloat() / image.width, wall.height.toFloat() / image.height)
-                        val dx = (wall.width - image.width * scale) / 2f + surface.wall.origin.x - root.x
-                        val dy = (wall.height - image.height * scale) / 2f + surface.wall.origin.y - root.y
-                        drawImage(
-                            image,
-                            dstOffset = IntOffset(dx.roundToInt(), dy.roundToInt()),
-                            dstSize = IntSize((image.width * scale).roundToInt(), (image.height * scale).roundToInt()),
-                            colorFilter = surface.filter,
-                            filterQuality = FilterQuality.Low,
-                        )
-                    }
-                    drawRect(tint)
-                }
-                .border(0.7.dp, edge, shape)
-        }
+        is WidgetSurface.Frost -> this.clip(shape).then(FrostElement(surface, tint)).border(0.7.dp, edge, shape)
         is WidgetSurface.Liquid -> {
             val accent = MiuixTheme.colorScheme.primary
             val shadow = remember(accent, dark) { floatingGlassShadow(accent, dark) }
@@ -1062,6 +1065,52 @@ private fun Modifier.widgetSurface(surface: WidgetSurface, ink: Color): Modifier
                 )
             } then Modifier.clip(shape)
         }
+    }
+}
+
+private data class FrostElement(val frost: WidgetSurface.Frost, val tint: Color) : ModifierNodeElement<FrostNode>() {
+    override fun create() = FrostNode(frost, tint)
+    override fun update(node: FrostNode) {
+        node.frost = frost
+        node.tint = tint
+        node.invalidateDraw()
+    }
+}
+
+/**
+ * 磨砂底：贴低清模糊壁纸里正好在这块底下的那一片。位置一变就在布局回调里直接重画，
+ * 和这一帧的滚动同步；不经快照状态，不会晚一帧（底图跟着漂），也不会每帧多写几十次状态。
+ */
+private class FrostNode(var frost: WidgetSurface.Frost, var tint: Color) :
+    Modifier.Node(), DrawModifierNode, GlobalPositionAwareModifierNode {
+    private var root = Offset.Zero
+
+    override fun onGloballyPositioned(coordinates: LayoutCoordinates) {
+        val now = coordinates.positionInRoot()
+        if (now != root) {
+            root = now
+            invalidateDraw()
+        }
+    }
+
+    override fun ContentDrawScope.draw() {
+        val image = frost.image
+        val wall = frost.wall.size
+        if (wall.width > 0 && wall.height > 0) {
+            // 和壁纸同一种 Crop 取景，再平移到这块小组件的位置
+            val scale = max(wall.width.toFloat() / image.width, wall.height.toFloat() / image.height)
+            val dx = (wall.width - image.width * scale) / 2f + frost.wall.origin.x - root.x
+            val dy = (wall.height - image.height * scale) / 2f + frost.wall.origin.y - root.y
+            drawImage(
+                image,
+                dstOffset = IntOffset(dx.roundToInt(), dy.roundToInt()),
+                dstSize = IntSize((image.width * scale).roundToInt(), (image.height * scale).roundToInt()),
+                colorFilter = frost.filter,
+                filterQuality = FilterQuality.Low,
+            )
+        }
+        drawRect(tint)
+        drawContent()
     }
 }
 

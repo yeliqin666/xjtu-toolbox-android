@@ -35,6 +35,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -128,6 +129,12 @@ fun HomeScreen(
     val catalog = remember(host.audience) { AppServices.homeFor(host.audience) }
     // 配色随应用主题变化，不能放进 remember。
     val colorByKey = catalog.associate { it.route.id to serviceColor(it.route.id) }
+    // 宿主每次重组都是新对象：回调统一经它的最新值转一手，引用固定下来，
+    // 数据没变的格子才能跳过重组（HomeServiceRow 按值比较，里面的 lambda 也算在内）
+    val currentHost by rememberUpdatedState(host)
+    val openers = remember(catalog) { catalog.associate { s -> s.route.id to { currentHost.onRoute(s.route) } } }
+    val paymentCode: suspend () -> String? = remember { { currentHost.paymentCode() } }
+    val openLink: (String) -> Unit = remember { { currentHost.onOpenLink(it) } }
 
     fun rowOf(service: AppService, stat: HomeStat?): HomeServiceRow {
         val id = service.route.id
@@ -137,7 +144,7 @@ fun HomeScreen(
             title = service.title,
             subtitle = service.subtitle,
             color = colorByKey[id] ?: Color.Unspecified,
-            onClick = { host.onRoute(service.route) },
+            onClick = openers[id] ?: { host.onRoute(service.route) },
             stat = stat?.value,
             statDetail = stat?.detail,
             lines = stat?.lines.orEmpty().ifEmpty {
@@ -288,8 +295,8 @@ fun HomeScreen(
                     hiddenGroups = if (HomeCard.QUICK_ACTIONS in honored) emptySet() else setOf(HomeWidgetLayout.QUICK_GROUP),
                     surface = surface,
                     ink = pageInk,
-                    paymentCode = host::paymentCode,
-                    onLink = host::onOpenLink,
+                    paymentCode = paymentCode,
+                    onLink = openLink,
                     modifier = Modifier.enterOnce(1),
                     scroll = scroll,
                     onOpenSettings = if (host.hasHomeSettings) host::onOpenHomeSettings else null,
@@ -343,7 +350,9 @@ private fun HomeCollapsingBar(
     actions: @Composable () -> Unit,
     alignWithGreeting: Boolean = false,
 ) {
-    val collapsed by remember { derivedStateOf { progress() > 0.5f } }
+    // 经 rememberUpdatedState 读最新的 progress：刊头量完高度后折叠区间会变，只记第一份会判早
+    val latestProgress by rememberUpdatedState(progress)
+    val collapsed by remember { derivedStateOf { latestProgress() > 0.5f } }
     val surface = MiuixTheme.colorScheme.surface
     Box(Modifier.fillMaxWidth().height(topInset + BAR_HEIGHT)) {
         if (backdrop != null) {
@@ -1046,6 +1055,7 @@ private fun balancedColumns(count: Int, weight: (Int) -> Int): List<List<Int>> {
 }
 
 /** 首页服务条目。 */
+@androidx.compose.runtime.Immutable
 internal data class HomeServiceRow(
     val key: String,
     val icon: ImageVector,
