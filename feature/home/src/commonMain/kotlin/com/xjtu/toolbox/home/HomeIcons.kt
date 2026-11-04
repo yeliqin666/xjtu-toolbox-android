@@ -66,6 +66,7 @@ object HomeIcons {
         AppRoute.Fitness -> Icons.AutoMirrored.Filled.DirectionsRun
         AppRoute.YellowPage -> Icons.Default.ContactPhone
         AppRoute.CampusBus -> Icons.Default.DirectionsBus
+        AppRoute.DegreeProgress -> Icons.Default.Description
         AppRoute.WebVpnConverter -> Icons.Default.VpnKey
         AppRoute.Agent -> Icons.Default.SmartToy
         AppRoute.Community -> Icons.Default.Forum

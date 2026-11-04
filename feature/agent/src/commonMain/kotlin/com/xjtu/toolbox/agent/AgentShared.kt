@@ -73,6 +73,7 @@ fun agentNavSuggestions(shownTools: List<String>): List<Pair<String, String>> =
             "get_notifications"                 -> "通知公告"   to AppRoute.Notification
             "search_yellow_page"                -> "校园黄页"   to AppRoute.YellowPage
             "get_campus_bus"                    -> "校车查询"   to AppRoute.CampusBus
+            "get_degree_progress"               -> "学业进度"   to AppRoute.DegreeProgress
             "get_library"                       -> "图书馆"     to AppRoute.Library
             "get_textbooks"                     -> "日程教材"   to AppRoute.Schedule
             "get_coupons"                       -> "加餐券"     to AppRoute.Coupon
