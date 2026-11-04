@@ -107,7 +107,10 @@ internal object NoticeWatchSync {
         var posted = false
         if (notify && toPush.isNotEmpty() && NoticeWatchStore.isEnabled(app)) {
             posted = NoticeNotifier.canPost(app)
-            if (posted) NoticeNotifier.notifyNew(app, toPush)
+            if (posted) {
+                val tags = NoticeAiTagger.tag(app, toPush.take(NoticeNotifier.MAX_SHOWN))
+                NoticeNotifier.notifyNew(app, toPush, tags)
+            }
         }
         val bubble = toPush.firstOrNull()
         if (bubble != null && notify && !posted) {

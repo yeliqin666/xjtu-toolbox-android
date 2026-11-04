@@ -590,9 +590,12 @@ private fun NoticeSourceSheet(
     val context = LocalContext.current
     var selected by remember(show) { mutableStateOf(NoticeWatchStore.sources(context)) }
     var keywords by remember(show) { mutableStateOf(NoticeWatchStore.keywordsRaw(context)) }
+    var aiTags by remember(show) { mutableStateOf(NoticeWatchStore.aiTagsEnabled(context)) }
+    val agentConfigured = remember(show) { com.xjtu.toolbox.agent.AgentConfigStore().load().isConfigured }
     fun close() {
         NoticeWatchStore.setSources(context, selected)
         NoticeWatchStore.setKeywords(context, keywords)
+        NoticeWatchStore.setAiTagsEnabled(context, aiTags)
         onDismiss()
     }
     BackHandler(enabled = show) { close() }
@@ -665,6 +668,15 @@ private fun NoticeSourceSheet(
                 label = "如：保研, 奖学金, 补考, 停电",
                 modifier = Modifier.fillMaxWidth(),
                 singleLine = true,
+            )
+            SwitchPreference(
+                title = "小岱给推送加标签",
+                summary = if (agentConfigured) "标出与你相关、要报名、可忽略。每批新通知调用一次你配置的模型，会消耗额度；通知标题和你的身份信息会发给模型"
+                else "先在小岱里配置模型才能开启",
+                checked = aiTags && agentConfigured,
+                onCheckedChange = { aiTags = it },
+                enabled = agentConfigured,
+                modifier = Modifier.padding(top = 12.dp),
             )
             Spacer(Modifier.height(16.dp))
         }
