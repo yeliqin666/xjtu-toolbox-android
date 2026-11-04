@@ -78,13 +78,32 @@ class HomeLayoutStore(
         }
 
     /**
-     * 当前应当渲染的布局：存档优先，没有就按目录生成默认的。
+     * 当前应当渲染的布局：卡片组存档优先 → 迁移 dev 那套小组件排版 → 最后才是按目录生成的默认布局。
      *
      * 读出来顺手收一遍空行（`compactGaps`，只网格模式）：老版本把空行留在存档里了，不收的话
      * 用户升级完看到的还是那片空行。
      */
     fun load(accountType: AccountType, quickRoutes: List<AppRoute> = emptyList()): HomeLayout =
-        (saved ?: HomeLayoutDefaults.of(accountType, quickRoutes)).compactGaps(grid)
+        (saved ?: migrateFromWidgetLayout(accountType) ?: HomeLayoutDefaults.of(accountType, quickRoutes))
+            .compactGaps(grid)
+
+    /**
+     * 把 dev 上那套「小组件」的排版迁成卡片组——**兼容必备**：升级不能把用户摆好的分组、
+     * 标题、颜色、尺寸与顺序弄丢（那套实现已经并进卡片组，没有第二个渲染器能读它）。
+     *
+     * 只在「还没有卡片组存档、但有旧布局」时做一次：迁完把结果写进 `home_cards_layout`，
+     * 下次 `saved` 就有值了。**旧键 `home_widgets` 不删**——留着不占多少地方，万一要回滚或
+     * 再迁一次还有得读。这里不动 revision：本方法是读的一端，在组合里 bump 会触发多余重组。
+     */
+    private fun migrateFromWidgetLayout(accountType: AccountType): HomeLayout? {
+        val lines = store.getString(KEY_LEGACY_WIDGETS)?.split('\n')?.filter { it.isNotBlank() }
+        if (lines.isNullOrEmpty()) return null
+        val available = AppServices.homeFor(accountType).map { it.route.id }.toSet()
+        val migrated = HomeWidgetMigration.decode(lines, available) ?: return null
+        val normalized = migrated.withoutEmptyGroups()
+        store.putString(KEY_LAYOUT, HomeLayoutCodec.encode(normalized))
+        return normalized
+    }
 
     fun save(layout: HomeLayout) {
         // 空组不落盘：编辑态里被搬空的组，保存这一下就自动删掉（它在常规态本来就是隐藏的）
@@ -225,6 +244,12 @@ class HomeLayoutStore(
         // （classic / widgets / cards）落在 `home_layout` 上；这里存的是卡片组那一整页的分组
         // 与格位快照，必须换个键，否则两边会互相覆盖（合并 dev 时踩到过）。
         private const val KEY_LAYOUT = "home_cards_layout"
+
+/**
+ * dev 上那套「小组件」布局的键（`SettingsStore.homeWidgets` 同一个）。只**读**：
+ * 升级时把用户摆好的排版迁成卡片组（见 `load` 里的 `migrateFromWidgetLayout`）。
+ */
+private const val KEY_LEGACY_WIDGETS = "home_widgets"
         private const val KEY_GRID = "home_grid"
         private const val KEY_LIQUID_CARD = "home_liquid_card"
         private const val KEY_LIQUID_REFRACTION = "home_liquid_refraction"
