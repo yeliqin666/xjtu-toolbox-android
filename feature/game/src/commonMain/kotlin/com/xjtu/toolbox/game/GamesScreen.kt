@@ -14,8 +14,7 @@ import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.platform.LocalDensity
 import com.xjtu.toolbox.ui.glass.tabContentBottomPadding
 import com.xjtu.toolbox.ui.components.GradientAppIcon
-import com.xjtu.toolbox.nav.expandOriginSource
-import com.xjtu.toolbox.nav.rememberExpandOriginSource
+import com.xjtu.toolbox.nav.rememberSeamlessOrigin
 import com.xjtu.toolbox.ui.components.AppCardColor
 import top.yukonga.miuix.kmp.squircle.squircleBackground
 import top.yukonga.miuix.kmp.squircle.squircleClip
@@ -279,22 +278,19 @@ private fun battleRecord(
  */
 @Composable
 private fun ArcadeCard(entry: GameEntry, onClick: () -> Unit, modifier: Modifier = Modifier) {
-    val origin = rememberExpandOriginSource()
-    val density = LocalDensity.current
+    // ROM 支持时从这张卡一镜到底，否则照旧从这里放大出来
+    val origin = rememberSeamlessOrigin(26.dp)
     val top = lerp(entry.color, Color.White, 0.18f)
     val bottom = lerp(entry.color, Color.Black, 0.18f)
     Box(
         modifier
-            .expandOriginSource(origin)
+            .then(origin.modifier)
             .squircleClip(26.dp)
             .background(Brush.linearGradient(listOf(top, entry.color, bottom)))
             .clickable(
                 interactionSource = remember { MutableInteractionSource() },
                 indication = SinkFeedback(),
-                onClick = {
-                    origin.arm(entry.route.id, 26.dp, density)
-                    onClick()
-                },
+                onClick = { origin.open(entry.route, onClick) },
             ),
     ) {
         Icon(
@@ -337,20 +333,16 @@ private fun ArcadeCard(entry: GameEntry, onClick: () -> Unit, modifier: Modifier
 /** 棋类一行：App 式渐变图标、名称与说明、对局方式标签，右侧战绩。 */
 @Composable
 private fun BoardGameRow(entry: GameEntry, onClick: () -> Unit) {
-    val origin = rememberExpandOriginSource()
-    val density = LocalDensity.current
+    val origin = rememberSeamlessOrigin(18.dp)
     val muted = MiuixTheme.colorScheme.onSurfaceVariantSummary
     Row(
         Modifier
             .fillMaxWidth()
-            .expandOriginSource(origin)
+            .then(origin.modifier)
             .clickable(
                 interactionSource = remember { MutableInteractionSource() },
                 indication = SinkFeedback(),
-                onClick = {
-                    origin.arm(entry.route.id, 18.dp, density)
-                    onClick()
-                },
+                onClick = { origin.open(entry.route, onClick) },
             )
             .padding(horizontal = 14.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,

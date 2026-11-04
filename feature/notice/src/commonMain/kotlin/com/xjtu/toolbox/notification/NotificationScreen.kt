@@ -259,13 +259,16 @@ fun NotificationScreen(
                                 key = { index -> "${filteredNotifications[index].source.name}_${index}_${filteredNotifications[index].link.hashCode()}" }
                             ) { index ->
                                 val notification = filteredNotifications[index]
+                                // ROM 支持时从这张卡一镜到底打开原文
+                                val origin = com.xjtu.toolbox.nav.rememberSeamlessOrigin(16.dp)
                                 // 第一屏错峰淡入，之后的直接就位
-                                androidx.compose.foundation.layout.Box(Modifier.enterOnce(index)) {
+                                androidx.compose.foundation.layout.Box(Modifier.enterOnce(index).then(origin.modifier)) {
                                 NotificationCard(
                                     notification = notification,
                                     showSource = vm.selectedSources.size > 1,
                                     onClick = {
-                                        onNavigate(AppRoute.Browser(notification.link))
+                                        val route = AppRoute.Browser(notification.link)
+                                        origin.open(route) { onNavigate(route) }
                                     }
                                 )
                                 }

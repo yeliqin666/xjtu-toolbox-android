@@ -56,6 +56,22 @@ class AppRouteTest {
     }
 
     @Test
+    fun `公告详情把标题正文链接随路由带走`() {
+        val route = AppRoute.NoticeDetail(
+            noticeId = "notice-1",
+            level = "warn",
+            title = "校园网维护通知",
+            body = "10 月 2 日 0:00-6:00 断网，影响 & 全部宿舍区。\n请提前保存。",
+            url = "https://example.com/a?b=1&c=中文",
+        )
+        assertEquals(route, appRouteOf(route.id))
+        // body / url 为空时不写进 id，解析回来是默认值
+        val brief = AppRoute.NoticeDetail(noticeId = "notice-2", level = "info", title = "短公告")
+        assertEquals(brief, appRouteOf(brief.id))
+        assertNull(appRouteOf("notice_detail/"))
+    }
+
+    @Test
     fun `返回栈能序列化再读回来`() {
         // miuix-nav 用 kotlinx.serialization 把返回栈存进 rememberSaveable，切到后台时才触发；
         // 这里提前在单测里走一遍，插件没生效或者哪个路由漏了 @Serializable 会在这里就挂。

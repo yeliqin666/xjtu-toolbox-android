@@ -4,6 +4,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import com.xjtu.toolbox.auth.AccountType
 import com.xjtu.toolbox.bulletin.Bulletin
 import com.xjtu.toolbox.nav.AppRoute
+import com.xjtu.toolbox.nav.SeamlessCardSource
 import kotlinx.datetime.LocalDateTime
 
 /** 首页上的每一块：各端声明自己那一份的词汇表。 */
@@ -116,10 +117,26 @@ interface HomeHost {
     /** 打开某个入口。 */
     fun onRoute(route: AppRoute) {}
 
+    /**
+     * 打开某个入口，并带上「从哪一块卡片/图标出发」的几何信息（一镜到底用）。
+     * 默认仍走 [onRoute]；Android 宿主在 ROM 支持 SharedViewKit 时改走独立 Activity 的系统转场。
+     */
+    fun onRouteSeamless(route: AppRoute, source: SeamlessCardSource?) {
+        onRoute(route)
+    }
+
     /** 「我的」那一屏。 */
     fun onProfile() {}
     /** 点一下公告条里的某条公告。 */
     fun onBulletinTap(bulletin: Bulletin) {}
+
+    /**
+     * 点公告条里的「查看详情」：默认仍走 [onBulletinTap]（桌面 / Web 不接管），
+     * Android 宿主改成「卡片 → 公告详情」的无缝转场（ROM 支持走 KIT，其余走 Compose 转场）。
+     */
+    fun onBulletinDetail(bulletin: Bulletin, source: SeamlessCardSource?) {
+        onBulletinTap(bulletin)
+    }
 
     /** 关掉公告条里的某条公告。 */
     fun onBulletinDismiss(bulletin: Bulletin) {}

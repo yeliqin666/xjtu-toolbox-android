@@ -44,6 +44,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.layout.boundsInRoot
+import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
@@ -51,6 +52,7 @@ import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
+import com.xjtu.toolbox.nav.SeamlessCardSource
 import com.xjtu.toolbox.nav.expandOriginSource
 import com.xjtu.toolbox.nav.rememberExpandOriginSource
 import com.xjtu.toolbox.ui.components.ExpressiveIcon
@@ -148,6 +150,7 @@ internal fun QuickActionsGrid(
                             onClick = { if (!editing) row.onClick() },
                             onLongClick = if (editable && !editing) ::startEditing else null,
                             originKey = row.key.takeUnless { editing },
+                            onSeamlessClick = row.onSeamlessClick.takeUnless { editing },
                             iconSize = iconSize,
                             labelColor = contentColor,
                         )
@@ -230,6 +233,7 @@ private fun HomeQuickAction(
     iconSize: Dp,
     onLongClick: (() -> Unit)? = null,
     originKey: String? = null,
+    onSeamlessClick: ((SeamlessCardSource) -> Unit)? = null,
     labelColor: Color? = null,
 ) {
     val origin = rememberExpandOriginSource()
@@ -251,14 +255,23 @@ private fun HomeQuickAction(
                 indication = SinkFeedback(),
                 onLongClick = onLongClick,
                 onClick = {
+                    // 先登记 Compose 起点：KIT 走独立 Activity 时会被 KitOneTake 清掉，回落时正好用它做放大转场。
                     originKey?.let { origin.arm(it, iconRadius, density, snapshot) }
-                    onClick()
+                    val seamless = onSeamlessClick
+                    val bounds = origin.boundsInWindow()
+                    if (seamless != null && bounds != null) {
+                        seamless(SeamlessCardSource(bounds, iconRadius))
+                    } else {
+                        onClick()
+                    }
                 },
             )
             .padding(horizontal = 4.dp, vertical = 6.dp)
     ) {
         // 转场从图标本身长出来：坐标取图标方块，不含下面的名称。
-        Box(if (originKey != null) Modifier.expandOriginSource(origin) else Modifier) {
+        Box(
+            Modifier.then(if (originKey != null) Modifier.expandOriginSource(origin) else Modifier),
+        ) {
             ExpressiveIcon(icon = icon, color = color, size = iconSize, iconSize = iconSize * 0.5f)
         }
         Spacer(Modifier.height(6.dp))

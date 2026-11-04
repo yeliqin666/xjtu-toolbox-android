@@ -93,6 +93,7 @@ import androidx.compose.ui.node.GlobalPositionAwareModifierNode
 import androidx.compose.ui.node.ModifierNodeElement
 import androidx.compose.ui.node.invalidateDraw
 import androidx.compose.ui.unit.Constraints
+import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.semantics.CustomAccessibilityAction
@@ -114,6 +115,7 @@ import com.kyant.backdrop.effects.lens
 import com.kyant.backdrop.effects.vibrancy
 import com.kyant.backdrop.highlight.Highlight
 import com.xjtu.toolbox.nav.AppRoute
+import com.xjtu.toolbox.nav.SeamlessCardSource
 import com.xjtu.toolbox.nav.expandOriginSource
 import com.xjtu.toolbox.nav.rememberExpandOriginSource
 import com.xjtu.toolbox.platform.BackHandler
@@ -813,8 +815,15 @@ private fun WidgetTile(
                 indication = SinkFeedback(),
                 enabled = !editing,
                 onClick = {
+                    // 先登记 Compose 起点：KIT 走独立 Activity 时会被 KitOneTake 清掉，回落时正好用它做放大转场。
                     origin.arm(row.key, TILE_RADIUS, density, null)
-                    row.onClick()
+                    val seamless = row.onSeamlessClick
+                    val bounds = origin.boundsInWindow()
+                    if (seamless != null && bounds != null) {
+                        seamless(SeamlessCardSource(bounds, TILE_RADIUS))
+                    } else {
+                        row.onClick()
+                    }
                 },
                 onLongClick = onLongClick,
                 onLongClickLabel = "编辑小组件",

@@ -17,6 +17,7 @@ import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.layout.LayoutCoordinates
 import androidx.compose.ui.layout.boundsInRoot
+import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.Dp
@@ -136,6 +137,13 @@ class ExpandOriginSource internal constructor() {
             ExpandOrigins.Origin(bounds, with(density) { cornerRadius.toPx() }, snapshot),
         )
     }
+
+    /**
+     * 点击瞬间读这一块在窗口里的矩形：KIT 的 Bitmap 源要它。
+     * 只读已有的坐标记录，不额外挂 `onGloballyPositioned`，避免首页滚动/拖动时每帧回调；
+     * 格子已脱离布局时返回 null，调用方回落普通 Compose 转场。
+     */
+    fun boundsInWindow(): Rect? = coordinates?.takeIf { it.isAttached }?.boundsInWindow()
 }
 
 @Composable

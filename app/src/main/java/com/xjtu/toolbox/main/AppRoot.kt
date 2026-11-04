@@ -41,7 +41,6 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import androidx.lifecycle.viewmodel.compose.viewModel
 import com.xjtu.toolbox.auth.AppLoginState
 import com.xjtu.toolbox.auth.AppLoginStateViewModel
 import com.xjtu.toolbox.auth.LocalAppLoginState
@@ -99,7 +98,8 @@ fun AppRoot(
     onInitialTabConsumed: () -> Unit,
     onReady: () -> Unit,
 ) {
-    val viewModel: AppLoginStateViewModel = viewModel()
+    // 进程级唯一一份：一镜到底的独立页面宿主（SeamlessPageActivity）也用它，不能再 viewModel() 出第二份会话。
+    val viewModel: AppLoginStateViewModel = com.xjtu.toolbox.auth.ProcessLoginState.get(LocalContext.current)
     val loginState = viewModel.loginState
     val credentialStore = viewModel.credentialStore
     val context = LocalContext.current
@@ -209,8 +209,13 @@ fun AppRoot(
 
     // 宽屏判断在根部算一次往下传，保证同一帧各处结论一致
     val navStyle by AppearanceSettings.get(context).navBarStyle.collectAsStateWithLifecycle()
+    // 全应用的「从这一块打开某页」：ROM 支持就走一镜到底，否则照常压路由（见 seamlessOpener）
+    val seamlessOpen = remember(router, loginState) {
+        com.xjtu.toolbox.sharedview.seamlessOpener(context, loginState, router::open)
+    }
     CompositionLocalProvider(
         LocalAppLoginState provides loginState,
+        com.xjtu.toolbox.nav.LocalSeamlessOpener provides seamlessOpen,
         com.xjtu.toolbox.auth.LocalAuthExpiry provides com.xjtu.toolbox.auth.AuthExpiryHandler { route, onBack ->
             loginState.handleAuthExpired(route, onBack)
         },
@@ -266,7 +271,7 @@ fun AppRoot(
 
 /** 「自动登录中」，独立窗口，子页面也看得见。 */
 @Composable
-private fun AutoLoginDialog(router: AppRouter) {
+internal fun AutoLoginDialog(router: AppRouter) {
     val message = router.autoLoginMessage ?: return
     // 加载动画和文字横排：以前标题、说明、动画竖着摞，中间一小块形状四周全是白
     WindowDialog(

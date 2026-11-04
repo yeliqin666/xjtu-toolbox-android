@@ -43,6 +43,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -52,6 +53,8 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.layout.boundsInWindow
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.TextStyle
@@ -67,6 +70,7 @@ import com.kyant.backdrop.backdrops.rememberLayerBackdrop
 import com.xjtu.toolbox.ui.glass.progressiveBlurBar
 import com.xjtu.toolbox.bulletin.BulletinNoticePanel
 import com.xjtu.toolbox.nav.AppRoute
+import com.xjtu.toolbox.nav.SeamlessCardSource
 import com.xjtu.toolbox.nav.expandOriginSource
 import com.xjtu.toolbox.nav.rememberExpandOriginSource
 import com.xjtu.toolbox.settings.HomeLayoutRevision
@@ -133,6 +137,9 @@ fun HomeScreen(
     // 数据没变的格子才能跳过重组（HomeServiceRow 按值比较，里面的 lambda 也算在内）
     val currentHost by rememberUpdatedState(host)
     val openers = remember(catalog) { catalog.associate { s -> s.route.id to { currentHost.onRoute(s.route) } } }
+    val seamlessOpeners = remember(catalog) {
+        catalog.associate { s -> s.route.id to { source: SeamlessCardSource -> currentHost.onRouteSeamless(s.route, source) } }
+    }
     val paymentCode: suspend () -> String? = remember { { currentHost.paymentCode() } }
     val openLink: (String) -> Unit = remember { { currentHost.onOpenLink(it) } }
 
@@ -145,6 +152,7 @@ fun HomeScreen(
             subtitle = service.subtitle,
             color = colorByKey[id] ?: Color.Unspecified,
             onClick = openers[id] ?: { host.onRoute(service.route) },
+            onSeamlessClick = seamlessOpeners[id] ?: { source -> host.onRouteSeamless(service.route, source) },
             stat = stat?.value,
             statDetail = stat?.detail,
             lines = stat?.lines.orEmpty().ifEmpty {
@@ -268,6 +276,7 @@ fun HomeScreen(
                     BulletinNoticePanel(
                         bulletins = host.bulletins,
                         onTap = host::onBulletinTap,
+                        onDetail = host::onBulletinDetail,
                         onDismiss = host::onBulletinDismiss,
                     )
                     Spacer(Modifier.height(SECTION_GAP))
@@ -809,13 +818,16 @@ private fun EditorialNextUpLead(
 @Composable
 @OptIn(ExperimentalFoundationApi::class)
 private fun InboxBrief(summary: HomeInboxSummary, ink: Color, muted: Color, onLongClick: () -> Unit, onClick: () -> Unit) {
+    // 点开收纳页：ROM 支持时从这一行一镜到底
+    val origin = com.xjtu.toolbox.nav.rememberSeamlessOrigin(0.dp)
     Row(
         Modifier
             .fillMaxWidth()
+            .then(origin.modifier)
             .combinedClickable(
                 interactionSource = remember { MutableInteractionSource() },
                 indication = SinkFeedback(),
-                onClick = onClick,
+                onClick = { origin.open(AppRoute.Inbox, onClick) },
                 onLongClick = onLongClick,
                 onLongClickLabel = "设置卡片外观",
             )
@@ -1063,6 +1075,8 @@ internal data class HomeServiceRow(
     val subtitle: String = "",
     val color: Color,
     val onClick: () -> Unit,
+    /** 这一块的几何起点交给宿主：ROM 支持 SharedViewKit 时走独立 Activity 的系统转场。 */
+    val onSeamlessClick: ((SeamlessCardSource) -> Unit)? = null,
     val stat: String? = null,
     val statDetail: String? = null,
     val tone: HomeTone = HomeTone.NORMAL,
@@ -1086,8 +1100,15 @@ private fun Modifier.opensRow(
             interactionSource = remember { MutableInteractionSource() },
             indication = SinkFeedback(),
             onClick = {
+                // 先登记 Compose 起点：KIT 走独立 Activity 时会被 KitOneTake 清掉，回落时正好用它做放大转场。
                 origin.arm(row.key, radius, density, snapshot)
-                row.onClick()
+                val seamless = row.onSeamlessClick
+                val bounds = origin.boundsInWindow()
+                if (seamless != null && bounds != null) {
+                    seamless(SeamlessCardSource(bounds, radius))
+                } else {
+                    row.onClick()
+                }
             },
         )
 }

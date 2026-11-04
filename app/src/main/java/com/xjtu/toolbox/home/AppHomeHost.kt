@@ -1,5 +1,6 @@
 package com.xjtu.toolbox.home
 
+import android.app.Activity
 import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.EventNote
@@ -23,6 +24,8 @@ import com.xjtu.toolbox.bulletin.Bulletin
 import com.xjtu.toolbox.card.CampusCardCache
 import com.xjtu.toolbox.data.DataCache
 import com.xjtu.toolbox.nav.AppRoute
+import com.xjtu.toolbox.nav.SeamlessCardSource
+import com.xjtu.toolbox.sharedview.seamlessOpener
 import com.xjtu.toolbox.schedule.HolidayApi
 import com.xjtu.toolbox.schedule.ScheduleCache
 import com.xjtu.toolbox.util.toJavaTime
@@ -343,6 +346,15 @@ internal fun rememberAppHome(
             return com.xjtu.toolbox.pay.PaymentCodeApi(site).getBarCode()
         }
         override fun onBulletinTap(bulletin: Bulletin) = onBulletinTap(bulletin)
+        // 「查看详情」走站内公告详情页：ROM 支持金标联盟一镜到底时由 KitOneTake 换成独立 Activity，
+        // 否则压 AppRoute.NoticeDetail，走同一条 Compose 放大转场（BulletinNoticePanel 已登记起点）。
+        override fun onBulletinDetail(bulletin: Bulletin, source: SeamlessCardSource?) =
+            seamlessOpener(context, loginState, onNavigate)(AppRoute.NoticeDetail.of(bulletin), source)
+
+        // 首页常用功能 / 功能小组件 / 分类入口行：判断规则与全应用一致（见 seamlessOpener）
+        override fun onRouteSeamless(route: AppRoute, source: SeamlessCardSource?) =
+            seamlessOpener(context, loginState, ::onRoute)(route, source)
+
         override fun onBulletinDismiss(bulletin: Bulletin) = onBulletinDismiss(bulletin)
         override fun onOpenStatus() {
             showStatusSheet.value = true
