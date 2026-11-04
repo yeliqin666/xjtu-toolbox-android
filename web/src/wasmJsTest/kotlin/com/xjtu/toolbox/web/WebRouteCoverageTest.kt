@@ -66,15 +66,24 @@ class WebRouteCoverageTest {
     // ── 断言 ──
 
     @Test
-    fun `路由差集只剩那 5 条，且每条都在 WebSupport 的文件头里有如实说明`() {
+    fun `路由差集只剩那几条登记过的，且每条都在 WebSupport 的文件头里有如实说明`() {
         assertEquals(
-            42,
+            45,
             declaredRoutes.size,
-            "AppRoute 的声明数不是 42 了（现在 ${declaredRoutes.size}）：$criterion；" +
+            "AppRoute 的声明数不是 45 了（现在 ${declaredRoutes.size}）：$criterion；" +
                 "加/删一条声明要同时看这里与 desktop 那份 DesktopRouteCoverageJvmTest",
         )
         assertEquals(
-            listOf("Browser", "DownloadManager", "Jiaocai1", "Jiaocai1Reader", "Zyxf"),
+            listOf(
+                "Browser",
+                "CampusBus",
+                "DegreeProgress",
+                "DownloadManager",
+                "Jiaocai1",
+                "Jiaocai1Reader",
+                "NoticeDetail",
+                "Zyxf",
+            ),
             notOpenableNames.sorted(),
             "差集变了（现在 ${notOpenableNames}）：$criterion；" +
                 "新补上一屏就把它从差集里拿掉（同时改 AppPage 的分支与 WebSupport 的文件头说明），" +

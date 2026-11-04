@@ -781,6 +781,12 @@ private fun DesktopPage(
         AppRoute.Agent -> DesktopAgentScreen(agentHost, onNavigate)
         // 资料站（zyxf）没有桌面端实现：显式给一条分支，不依赖 else。
         AppRoute.Zyxf -> NotPortedScreen(route, onNavigate)
+        // 下面三条同样是「这一端还没接」，也显式列出来——`else` 只留给「加了路由却忘了加分支」：
+        // - 学业进度要一份桌面端能用的 `DegreeSource`（`:data` 里没有），暂时接不了；
+        // - 社区帖子详情 / 公告详情在桌面端是从列表里内联展开的，没有独立一屏。
+        AppRoute.DegreeProgress -> NotPortedScreen(route, onNavigate)
+        is AppRoute.CommunityPost -> NotPortedScreen(route, onNavigate)
+        is AppRoute.NoticeDetail -> NotPortedScreen(route, onNavigate)
 
         // 其余路由显示「没搬过来」，不拿有数据的屏冒充。
         else -> NotPortedScreen(route, onNavigate)
