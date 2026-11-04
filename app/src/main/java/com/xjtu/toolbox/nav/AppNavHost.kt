@@ -157,7 +157,7 @@ private val standaloneHostedRoutes: Set<AppRoute> = setOf(
     AppRoute.EmptyRoom, AppRoute.Notification, AppRoute.Attendance, AppRoute.Judge,
     AppRoute.JwappScore, AppRoute.Library, AppRoute.CampusCard, AppRoute.Coupon,
     AppRoute.Transcript, AppRoute.Venue, AppRoute.DownloadManager, AppRoute.Jiaocai,
-    AppRoute.Jiaocai1, AppRoute.SchoolCourse, AppRoute.SchoolCalendar, AppRoute.YellowPage, AppRoute.CampusBus,
+    AppRoute.Jiaocai1, AppRoute.SchoolCourse, AppRoute.SchoolCalendar, AppRoute.YellowPage, AppRoute.CampusBus, AppRoute.DegreeProgress,
     AppRoute.Fitness, AppRoute.Iclassface, AppRoute.Settings, AppRoute.Inbox,
     AppRoute.Community, AppRoute.Faculty, AppRoute.Accounts, AppRoute.WebVpnConverter,
     AppRoute.Games, AppRoute.Game2048, AppRoute.GameMerge, AppRoute.GameBlocks,
@@ -475,6 +475,19 @@ fun NavEntryBuilder.appPageEntries(
                 onBack = back,
                 errorText = { FriendlyError.of(it, "加载") },
             )
+        }
+        entry<AppRoute.DegreeProgress>(transition = expand(AppRoute.DegreeProgress::class)) {
+            val degreeContext = LocalContext.current
+            val degreeSource = remember(loginState.sessionManager) {
+                loginState.sessionManager?.let { com.xjtu.toolbox.degree.appDegreeSource(degreeContext, it) }
+            }
+            if (degreeSource != null) {
+                com.xjtu.toolbox.degree.DegreeScreen(
+                    source = degreeSource,
+                    onBack = back,
+                    onAskAgent = { sendToPidai(it, router::open) },
+                )
+            }
         }
         entry<AppRoute.CampusBus>(transition = expand(AppRoute.CampusBus::class)) {
             com.xjtu.toolbox.bus.BusScreen(source = com.xjtu.toolbox.bus.appBusApi, onBack = back)

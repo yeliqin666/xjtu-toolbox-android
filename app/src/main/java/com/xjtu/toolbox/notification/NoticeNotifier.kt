@@ -22,6 +22,8 @@ import com.xjtu.toolbox.util.RequestCodes
  */
 internal object NoticeNotifier {
     const val NOTIFICATION_ID = 3101
+    /** 一条通知里最多列几条，打标签也只打这几条。 */
+    const val MAX_SHOWN = 5
     const val EXTRA_ASK_TEXT = "extra_ask_pidai_text"
     const val EXTRA_ASK_SNAPSHOT = "extra_ask_pidai_snapshot"
     const val EXTRA_ASK_INBOX_IDS = "extra_ask_pidai_inbox_ids"
@@ -38,14 +40,16 @@ internal object NoticeNotifier {
         return true
     }
 
-    fun notifyNew(context: Context, items: List<Notification>) {
+    /** [tags] 是 `链接 -> AI 标签`，没有就是不带标签（见 [NoticeAiTagger]）。 */
+    fun notifyNew(context: Context, items: List<Notification>, tags: Map<String, String> = emptyMap()) {
         if (items.isEmpty() || !canPost(context)) return
 
-        val shown = items.take(5)
+        val shown = items.take(MAX_SHOWN)
+        fun label(n: Notification) = NoticeAiTags.decorate(n.title, tags[n.link])
         val title = if (items.size == 1) shown[0].source.displayName else "教务通知"
-        val text = if (items.size == 1) shown[0].title else "${items.size} 条新通知"
+        val text = if (items.size == 1) label(shown[0]) else "${items.size} 条新通知"
         val inbox = NotificationCompat.InboxStyle().setSummaryText(text)
-        shown.forEach { inbox.addLine("${it.source.displayName}  ${it.title}") }
+        shown.forEach { inbox.addLine("${it.source.displayName}  ${label(it)}") }
 
         val launch = Intent(context, MainActivity::class.java).apply {
             // 只有一条时直接打开正文（#138），多条才进通知列表

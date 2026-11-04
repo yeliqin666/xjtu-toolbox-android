@@ -44,7 +44,7 @@ fun NotificationScreen(
     source: NoticeSource,
     onBack: () -> Unit,
     onNavigate: (AppRoute) -> Unit = {},
-    /** 长按一条转给小岱。没接小岱的端传 null，长按不响应。 */
+    /** 长按一条弹菜单，点「问小岱」转过去。没接小岱的端传 null，长按不响应。 */
     onAskAgent: ((com.xjtu.toolbox.agent.AgentForward) -> Unit)? = null,
 ) {
     // 与 :app 同一个 ViewModel（只是取数换成了端口）；两端都用 androidx.lifecycle 的
@@ -298,7 +298,7 @@ fun NotificationScreen(
                                 NotificationCard(
                                     notification = notification,
                                     showSource = vm.selectedSources.size > 1,
-                                    onLongPress = onAskAgent?.let { ask ->
+                                    onAskAgent = onAskAgent?.let { ask ->
                                         { ask(com.xjtu.toolbox.agent.AgentForward.notice(notification)) }
                                     },
                                     onClick = {
@@ -365,20 +365,49 @@ private fun formatRelativeDate(date: LocalDate): String {
 private fun NotificationCard(
     notification: Notification,
     showSource: Boolean = false,
-    onLongPress: (() -> Unit)? = null,
-    onClick: () -> Unit
+    onAskAgent: (() -> Unit)? = null,
+    onClick: () -> Unit,
 ) {
+    var menuOpen by remember { mutableStateOf(false) }
     val haptics = androidx.compose.ui.platform.LocalHapticFeedback.current
+    Box {
+        NotificationCardBody(
+            notification = notification,
+            showSource = showSource,
+            onLongPress = onAskAgent?.let {
+                {
+                    haptics.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
+                    menuOpen = true
+                }
+            },
+            onClick = onClick,
+        )
+        if (onAskAgent != null) {
+            com.xjtu.toolbox.ui.components.AppDropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                com.xjtu.toolbox.ui.components.AppDropdownMenuItem(
+                    text = { Text("问小岱") },
+                    onClick = {
+                        menuOpen = false
+                        onAskAgent()
+                    },
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun NotificationCardBody(
+    notification: Notification,
+    showSource: Boolean,
+    onLongPress: (() -> Unit)?,
+    onClick: () -> Unit,
+) {
     top.yukonga.miuix.kmp.basic.Card(
         modifier = Modifier
             .fillMaxWidth(),
         onClick = onClick,
-        onLongPress = onLongPress?.let { send ->
-            {
-                haptics.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
-                send()
-            }
-        },
+        onLongPress = onLongPress,
         pressFeedbackType = top.yukonga.miuix.kmp.utils.PressFeedbackType.Sink,
         colors = top.yukonga.miuix.kmp.basic.CardDefaults.defaultColors(color = MiuixTheme.colorScheme.surfaceVariant
         )

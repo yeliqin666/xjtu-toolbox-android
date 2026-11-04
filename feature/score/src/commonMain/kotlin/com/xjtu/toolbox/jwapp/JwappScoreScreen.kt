@@ -123,6 +123,12 @@ fun JwappScoreScreen(
     // GPA 选课计算模式
     var gpaSelectMode by rememberSaveable { mutableStateOf(false) }
     var selectedCourseIds by rememberSaveable { mutableStateOf<Set<String>>(emptySet()) }
+    // 选择态下返回只退出选择，和顶栏的关闭按钮一样，不离开页面
+    // 成绩页可以放在底栏：切到别的 tab 时不拦
+    com.xjtu.toolbox.platform.BackHandler(enabled = gpaSelectMode && com.xjtu.toolbox.ui.components.LocalPageVisible.current) {
+        gpaSelectMode = false
+        selectedCourseIds = emptySet()
+    }
     val showGpaTips = remember { mutableStateOf(false) }
 
     // 搜索 & 过滤

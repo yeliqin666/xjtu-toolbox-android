@@ -18,6 +18,7 @@ internal object NoticeWatchStore {
     private const val KEY_LAST_SYNC = "last_sync_at"
     private const val KEY_LAST_TITLES = "last_titles"
     private const val KEY_KEYWORDS = "push_keywords"
+    private const val KEY_AI_TAGS = "ai_tags"
 
     const val DEFAULT_ENABLED = true
     val DEFAULT_SOURCES: Set<NotificationSource> = setOf(NotificationSource.JWC)
@@ -103,6 +104,13 @@ internal object NoticeWatchStore {
             .split(Regex("""[,，、\s]+"""))
             .map { it.trim() }
             .filter { it.isNotEmpty() }
+
+    /** 推送时让小岱打标签（#343）。默认关：每批新通知都会调一次用户自己配的模型。 */
+    fun aiTagsEnabled(context: Context): Boolean = prefs(context).getBoolean(KEY_AI_TAGS, false)
+
+    fun setAiTagsEnabled(context: Context, value: Boolean) {
+        prefs(context).edit().putBoolean(KEY_AI_TAGS, value).apply()
+    }
 
     fun keywordsRaw(context: Context): String =
         prefs(context).getString(KEY_KEYWORDS, "").orEmpty()

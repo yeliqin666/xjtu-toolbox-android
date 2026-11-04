@@ -905,6 +905,8 @@ internal fun ProfileTab(
                     var showCertificate by remember { mutableStateOf(false) }
                     SmallTitle("学业材料")
                     MenuGroup {
+                        ProfileMenuRow(Icons.Outlined.School, TINT_TEAL, "学业进度", subtitle = "培养方案与毕业要求", onClick = { onNavigate(AppRoute.DegreeProgress) }, route = AppRoute.DegreeProgress)
+                        MenuDivider()
                         ProfileMenuRow(Icons.Outlined.Description, TINT_TEAL, "电子成绩单", onClick = { onNavigate(AppRoute.Transcript) }, route = AppRoute.Transcript)
                         MenuDivider()
                         ProfileMenuRow(Icons.Outlined.School, TINT_TEAL, "在读证明", subtitle = "中文或中英文",

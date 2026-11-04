@@ -106,9 +106,11 @@ fun EulaScreen(onAccept: () -> Unit) {
             Button(
                 onClick = onAccept,
                 enabled = canAccept,
+                // 默认的 buttonColors 是中性灰，主操作要用主题色，和登录页一致
+                colors = top.yukonga.miuix.kmp.basic.ButtonDefaults.buttonColorsPrimary(),
                 modifier = Modifier.fillMaxWidth()
             ) {
-                Text("我已阅读并同意")
+                Text("我已阅读并同意", color = MiuixTheme.colorScheme.onPrimary)
             }
 
             Spacer(Modifier.height(32.dp))

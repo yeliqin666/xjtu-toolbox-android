@@ -71,6 +71,7 @@ object AppServices {
             )),
         AppService(AppRoute.Zyxf, "学辅资料", "历年卷与复习资料", ServiceCategory.STUDY, listOf("学辅", "仲英学辅", "历年卷", "真题", "复习资料", "课件", "笔记"),
             features = listOf("小岱找资料：说要找什么，小岱帮你挑")),
+        AppService(AppRoute.DegreeProgress, "学业进度", "培养方案与毕业要求", ServiceCategory.CLASS, listOf("培养方案", "毕业进度", "毕业要求", "学分", "还差多少学分", "方案树", "转专业"), audience = AccountType.UNDERGRADUATE),
         AppService(AppRoute.Transcript, "成绩单", "电子成绩单", ServiceCategory.CLASS, listOf("成绩证明", "打印成绩"), showOnHome = false, audience = AccountType.UNDERGRADUATE),
         AppService(AppRoute.Browser(EnrollmentCertificate.CHINESE.url), "在读证明（中文）", "电子凭证平台申请与下载", ServiceCategory.CLASS,
             listOf("在读证明", "学籍证明", "在校证明"), showOnHome = false, audience = AccountType.UNDERGRADUATE,

@@ -156,7 +156,7 @@ fun BrowserScreen(
     extraCookieDomains: List<String> = emptyList(),
     /** 地址还没备好（[initialUrl] 为空）：先出空白页和进度条，等 [initialUrl] 有值再加载。 */
     waiting: Boolean = false,
-    /** 「更多」里的「发给小岱」。 */
+    /** 「更多」里的「问小岱」。 */
     onAskAgent: ((com.xjtu.toolbox.agent.AgentForward) -> Unit)? = null,
     onBack: () -> Unit
 ) {
@@ -363,7 +363,7 @@ fun BrowserScreen(
                                     }
                                     // 分享：纯文字「网页标题 + 链接」，走系统分享面板
                                     item(Icons.Default.Share, "分享") { shareWebPage(context, pageTitle, currentUrl) }
-                                    if (onAskAgent != null) item(Icons.Default.SmartToy, "发给小岱") {
+                                    if (onAskAgent != null) item(Icons.Default.SmartToy, "问小岱") {
                                         val title = pageTitle
                                         val link = shareableUrl(currentUrl, WebVpnUtil)
                                         val send = { text: String -> onAskAgent(com.xjtu.toolbox.agent.AgentForward.webPage(title, link, text)) }

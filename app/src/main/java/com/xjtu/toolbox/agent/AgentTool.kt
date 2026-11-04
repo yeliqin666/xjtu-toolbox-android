@@ -1725,6 +1725,9 @@ class AgentToolRegistry(
             val brief = findLmsActivity(api, c.id, activity)
                 ?: return ToolReply.notFound("activity", "${c.name} / ${activity.orEmpty()}")
             val a = api.getActivityDetail(brief.id, brief)
+            val files = a.uploads.map { LmsFileRef(it.id, it.name, it.readableSize) } +
+                a.submissionList?.list?.firstOrNull()?.uploads.orEmpty().map { LmsFileRef(it.id, it.name, it.readableSize, mine = true) }
+            if (files.isNotEmpty()) pendingWidgets.add(LmsFileWidget(c.name, a.title, c.id, brief.id, files.distinctBy { it.id }))
             buildString {
                 append("「${c.name}」${agentLmsTypeName(a.type)}详情：${a.title}\n")
                 a.startTime?.let { append("开始：$it\n") }

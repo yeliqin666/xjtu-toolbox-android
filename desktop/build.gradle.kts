@@ -142,6 +142,22 @@ tasks.register<JavaExec>("renderScreens") {
     args = listOf(layout.buildDirectory.dir("screenshots").get().asFile.absolutePath)
 }
 
+tasks.register<JavaExec>("renderDegreePreview") {
+    group = "verification"
+    description = "Render the degree progress screen with offline fixtures"
+    mainClass.set("com.xjtu.toolbox.desktop.RenderDegreePreviewKt")
+    classpath = sourceSets["test"].runtimeClasspath
+    args = listOf(layout.buildDirectory.dir("degree-preview").get().asFile.absolutePath)
+}
+
+tasks.register<JavaExec>("renderBusPreview") {
+    group = "verification"
+    description = "Render the campus bus screen with offline fixtures at phone, landscape and tablet sizes"
+    mainClass.set("com.xjtu.toolbox.desktop.RenderBusPreviewKt")
+    classpath = sourceSets["test"].runtimeClasspath
+    args = listOf(layout.buildDirectory.dir("bus-preview").get().asFile.absolutePath)
+}
+
 tasks.register<JavaExec>("renderHomePreview") {
     group = "verification"
     description = "Render the shared home screen with offline fixtures at phone and desktop sizes"

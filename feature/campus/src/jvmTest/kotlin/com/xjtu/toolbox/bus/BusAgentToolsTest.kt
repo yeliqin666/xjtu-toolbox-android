@@ -63,6 +63,18 @@ class BusAgentToolsTest {
         assertTrue(reply.endsWith(ToolReply.EXTERNAL_DATA))
     }
 
+    @Test fun resultBecomesACardOnlyWhenThereAreRuns() = runTest {
+        val t = tools(Fake(runs))
+        t.execute("get_campus_bus", """{"date":"明天"}""")
+        val card = t.drainWidgets().single() as com.xjtu.toolbox.agent.BusWidget
+        assertEquals(listOf("07:30", "18:15"), card.items.map { it.time })
+        assertEquals(emptyList(), t.drainWidgets())
+        tools(Fake(emptyList())).let { empty ->
+            empty.execute("get_campus_bus", "{}")
+            assertEquals(emptyList(), empty.drainWidgets())
+        }
+    }
+
     @Test fun badDateAndNetworkFailureAreReported() = runTest {
         assertTrue(tools(Fake(runs)).execute("get_campus_bus", """{"date":"下周"}""").startsWith("error: bad_format"))
         assertTrue(tools(Fake(runs, fail = true)).execute("get_campus_bus", "{}").startsWith("error: failed"))

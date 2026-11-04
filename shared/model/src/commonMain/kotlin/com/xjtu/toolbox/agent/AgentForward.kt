@@ -60,7 +60,7 @@ data class AgentForward(val text: String, val snapshot: String) {
                 activity.endTime?.let { appendLine("截止：$it") }
                 activity.description?.replace(HTML_TAG, " ")?.let(::compact)?.takeIf { it.isNotEmpty() }
                     ?.let { appendLine("说明：${it.take(MAX_LMS_CHARS)}") }
-                append("说清要做什么、什么时候截止。要看附件和完整内容用 get_lms_activity。")
+                append("这里只有活动的基本信息，没有提交情况、老师附件和用户交的文件。回答前先调 get_lms_activity 查（course 和 activity 用上面的名称）；问到用户交的作业时，用结果里「我的提交附件」的 file 读取。再说清要做什么、什么时候截止、交没交。")
             }),
         )
 

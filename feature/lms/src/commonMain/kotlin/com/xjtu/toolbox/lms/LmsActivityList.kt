@@ -268,7 +268,7 @@ internal fun ActivityListPage(
                                         submitted = cache.submitted(activity) == true,
                                         selected = if (selecting) activity.id in picked else null,
                                         enabled = !selecting || canPick,
-                                        onLongPress = if (selecting) null else onAskAgent?.let { ask ->
+                                        onAskAgent = if (selecting) null else onAskAgent?.let { ask ->
                                             { ask(com.xjtu.toolbox.agent.AgentForward.lmsActivity(course, activity, activity.type.displayName())) }
                                         },
                                     ) {
@@ -297,7 +297,7 @@ internal fun ActivityListPage(
                                         submitted = cache.submitted(activity) == true,
                                         selected = if (selecting) activity.id in picked else null,
                                         enabled = !selecting || canPick,
-                                        onLongPress = if (selecting) null else onAskAgent?.let { ask ->
+                                        onAskAgent = if (selecting) null else onAskAgent?.let { ask ->
                                             { ask(com.xjtu.toolbox.agent.AgentForward.lmsActivity(course, activity, activity.type.displayName())) }
                                         },
                                     ) {
@@ -480,19 +480,52 @@ private fun LmsActivityCard(
     /** 批量选择时的勾选状态；null 表示不在选择模式。 */
     selected: Boolean? = null,
     enabled: Boolean = true,
-    onLongPress: (() -> Unit)? = null,
+    onAskAgent: (() -> Unit)? = null,
+    onClick: () -> Unit,
+) {
+    var menuOpen by remember { mutableStateOf(false) }
+    val haptics = androidx.compose.ui.platform.LocalHapticFeedback.current
+    Box {
+        LmsActivityCardBody(
+            activity = activity,
+            submitted = submitted,
+            selected = selected,
+            enabled = enabled,
+            onLongPress = onAskAgent?.let {
+                {
+                    haptics.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
+                    menuOpen = true
+                }
+            },
+            onClick = onClick,
+        )
+        if (onAskAgent != null) {
+            com.xjtu.toolbox.ui.components.AppDropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                com.xjtu.toolbox.ui.components.AppDropdownMenuItem(
+                    text = { Text("问小岱") },
+                    onClick = {
+                        menuOpen = false
+                        onAskAgent()
+                    },
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun LmsActivityCardBody(
+    activity: LmsActivity,
+    submitted: Boolean,
+    selected: Boolean?,
+    enabled: Boolean,
+    onLongPress: (() -> Unit)?,
     onClick: () -> Unit,
 ) {
     val (icon, color) = activityTypeVisual(activity.type)
-    val haptics = androidx.compose.ui.platform.LocalHapticFeedback.current
     Card(
         onClick = onClick,
-        onLongPress = onLongPress?.let { send ->
-            {
-                haptics.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
-                send()
-            }
-        },
+        onLongPress = onLongPress,
         pressFeedbackType = PressFeedbackType.Sink,
         modifier = Modifier
             .fillMaxWidth()

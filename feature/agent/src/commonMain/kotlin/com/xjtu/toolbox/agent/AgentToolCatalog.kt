@@ -166,7 +166,7 @@ fun agentToolDefinitions(honored: Set<AgentCapability>): String {
             "scope" to agentEnumProp("assignments：全部作业汇总。", "assignments"),
         )))
     arr.add(agentTool("get_lms_activity",
-        "思源活动详情、截止时间、提交状态和附件。给 file 读取附件：PDF 用 info 看元数据与书签目录，text 快速取文字，images 看指定页面；auto 文字优先。附件复用缓存，同 read_zyxf_file。需思源登录。",
+        "思源活动详情、截止时间、提交状态、分数、教师评语，以及用户自己已提交的内容和附件（结果里的「我的提交附件」）。这些都是用户本人的数据，直接查，不用先问。给 file 读取附件，老师发的和用户自己交的都能读：PDF 用 info 看元数据与书签目录，text 快速取文字，images 看指定页面；auto 文字优先。附件复用缓存，同 read_zyxf_file。需思源登录。",
         agentParams(
             "course" to agentStrProp("课程名，模糊。"),
             "activity" to agentStrProp("活动标题，模糊。"),
