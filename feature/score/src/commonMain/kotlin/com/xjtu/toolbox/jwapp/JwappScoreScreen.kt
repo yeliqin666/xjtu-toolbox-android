@@ -503,6 +503,13 @@ fun JwappScoreScreen(
                                                 isSelected = isSelected,
                                                 isFromReport = isFromReport,
                                                 isUnevaluated = isUnevaluated,
+                                                // 长按只选这一门：多半是想挑几门算，不是从全选里一门门去掉
+                                                onLongPress = if (gpaSelectMode) null else {
+                                                    {
+                                                        gpaSelectMode = true
+                                                        selectedCourseIds = setOf(scoreItem.id)
+                                                    }
+                                                },
                                                 onToggle = {
                                                     if (gpaSelectMode) {
                                                         selectedCourseIds = if (isSelected) {
@@ -542,18 +549,14 @@ fun GpaCard(
     onPrecisionToggle: () -> Unit = {},
     extraContent: @Composable ColumnScope.() -> Unit = {},
 ) {
+    val selectAccent = gpaSelectAccent()
     val containerColor by androidx.compose.animation.animateColorAsState(
-        if (isSelectMode) MiuixTheme.colorScheme.secondaryContainer
+        if (isSelectMode) androidx.compose.ui.graphics.lerp(MiuixTheme.colorScheme.surfaceVariant, selectAccent, 0.18f)
         else MiuixTheme.colorScheme.surfaceVariant,
         animationSpec = spring(dampingRatio = 0.85f, stiffness = 500f),
         label = "gpaCardBg"
     )
-    val textColor by androidx.compose.animation.animateColorAsState(
-        if (isSelectMode) MiuixTheme.colorScheme.onSecondaryContainer
-        else MiuixTheme.colorScheme.onSurface,
-        animationSpec = spring(dampingRatio = 0.85f, stiffness = 500f),
-        label = "gpaCardText"
-    )
+    val textColor = MiuixTheme.colorScheme.onSurface
     val accentColor = textColor.copy(alpha = 0.12f)
 
     top.yukonga.miuix.kmp.basic.Card(
@@ -562,14 +565,12 @@ fun GpaCard(
     ) {
       Box(Modifier.fillMaxWidth()) {
         // 平时是这页的主角，铺一层主题色流动底色（6 秒后停，它在玻璃顶栏下面）；
-        // 选课算均分时换成 secondaryContainer 纯色，表示「这是临时的计算结果」
-        if (!isSelectMode) {
-            com.xjtu.toolbox.ui.components.HeroMesh(
-                base = containerColor,
-                accent = MiuixTheme.colorScheme.primary,
-                modifier = Modifier.matchParentSize(),
-            )
-        }
+        // 选课算均分时换成一种非主题色，表示「这是临时的计算结果」，但不褪成一片灰（#358）
+        com.xjtu.toolbox.ui.components.HeroMesh(
+            base = containerColor,
+            accent = if (isSelectMode) selectAccent else MiuixTheme.colorScheme.primary,
+            modifier = Modifier.matchParentSize(),
+        )
         Column(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 12.dp)) {
             if (isSelectMode) {
                 Row(
@@ -697,8 +698,10 @@ private fun ScoreRow(
     isFromReport: Boolean = false,
     isUnevaluated: Boolean = false,
     onToggle: () -> Unit,
+    onLongPress: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
+    val haptics = androidx.compose.ui.platform.LocalHapticFeedback.current
     val reallyPassed = com.xjtu.toolbox.score.ScoreCalculator.isPassed(scoreItem)
     // 跨模块取不到 smart cast（ScoreItem 现在住在 :core，public API property 不能自动转非空）⇒ 落成本地 val
     val scoreValue = scoreItem.scoreValue
@@ -727,6 +730,12 @@ private fun ScoreRow(
         ),
         colors = CardDefaults.defaultColors(color = if (isFromReport) androidx.compose.ui.graphics.lerp(AppCardColor, primary, 0.10f) else AppCardColor),
         onClick = onToggle,
+        onLongPress = onLongPress?.let { enter ->
+            {
+                haptics.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
+                enter()
+            }
+        },
         pressFeedbackType = PressFeedbackType.Sink,
     ) {
         Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 14.dp)) {
@@ -738,6 +747,9 @@ private fun ScoreRow(
                     Checkbox(
                         state = if (isSelected) ToggleableState.On else ToggleableState.Off,
                         onClick = onToggle,
+                        colors = top.yukonga.miuix.kmp.basic.CheckboxDefaults.checkboxColors(
+                            checkedBackgroundColor = gpaSelectAccent(),
+                        ),
                     )
                     Spacer(Modifier.width(12.dp))
                 }
@@ -1082,3 +1094,20 @@ private fun ReportSheet(
         }
     }
 }
+
+/** 「选课算 GPA」专用色：故意不跟主题走。默认琥珀；主题本身偏橙黄时换青色，别和主题撞。 */
+internal fun gpaSelectAccentFor(primary: androidx.compose.ui.graphics.Color): androidx.compose.ui.graphics.Color {
+    val max = maxOf(primary.red, primary.green, primary.blue)
+    val min = minOf(primary.red, primary.green, primary.blue)
+    val delta = max - min
+    val hue = when {
+        delta == 0f -> return androidx.compose.ui.graphics.Color(0xFFF59E0B)
+        max == primary.red -> 60f * (((primary.green - primary.blue) / delta + 6f) % 6f)
+        max == primary.green -> 60f * ((primary.blue - primary.red) / delta + 2f)
+        else -> 60f * ((primary.red - primary.green) / delta + 4f)
+    }
+    return if (hue in 15f..70f) androidx.compose.ui.graphics.Color(0xFF00897B) else androidx.compose.ui.graphics.Color(0xFFF59E0B)
+}
+
+@Composable
+private fun gpaSelectAccent(): androidx.compose.ui.graphics.Color = gpaSelectAccentFor(MiuixTheme.colorScheme.primary)

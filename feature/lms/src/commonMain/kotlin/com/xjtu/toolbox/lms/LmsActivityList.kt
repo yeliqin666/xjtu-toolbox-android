@@ -57,6 +57,7 @@ internal fun ActivityListPage(
     onBack: () -> Unit,
     onActivitySelected: (LmsActivity) -> Unit,
     onBulletinSelected: (LmsBulletin) -> Unit,
+    onAskAgent: ((com.xjtu.toolbox.agent.AgentForward) -> Unit)? = null,
 ) {
     val authExpiry = LocalAuthExpiry.current
     val activities = cache.activities[course.id].orEmpty()
@@ -267,6 +268,9 @@ internal fun ActivityListPage(
                                         submitted = cache.submitted(activity) == true,
                                         selected = if (selecting) activity.id in picked else null,
                                         enabled = !selecting || canPick,
+                                        onLongPress = if (selecting) null else onAskAgent?.let { ask ->
+                                            { ask(com.xjtu.toolbox.agent.AgentForward.lmsActivity(course, activity, activity.type.displayName())) }
+                                        },
                                     ) {
                                         when {
                                             !selecting -> onActivitySelected(activity)
@@ -293,6 +297,9 @@ internal fun ActivityListPage(
                                         submitted = cache.submitted(activity) == true,
                                         selected = if (selecting) activity.id in picked else null,
                                         enabled = !selecting || canPick,
+                                        onLongPress = if (selecting) null else onAskAgent?.let { ask ->
+                                            { ask(com.xjtu.toolbox.agent.AgentForward.lmsActivity(course, activity, activity.type.displayName())) }
+                                        },
                                     ) {
                                         when {
                                             !selecting -> onActivitySelected(activity)
@@ -473,11 +480,19 @@ private fun LmsActivityCard(
     /** 批量选择时的勾选状态；null 表示不在选择模式。 */
     selected: Boolean? = null,
     enabled: Boolean = true,
+    onLongPress: (() -> Unit)? = null,
     onClick: () -> Unit,
 ) {
     val (icon, color) = activityTypeVisual(activity.type)
+    val haptics = androidx.compose.ui.platform.LocalHapticFeedback.current
     Card(
         onClick = onClick,
+        onLongPress = onLongPress?.let { send ->
+            {
+                haptics.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
+                send()
+            }
+        },
         pressFeedbackType = PressFeedbackType.Sink,
         modifier = Modifier
             .fillMaxWidth()

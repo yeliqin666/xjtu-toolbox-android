@@ -20,6 +20,7 @@ import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -43,6 +44,8 @@ fun NotificationScreen(
     source: NoticeSource,
     onBack: () -> Unit,
     onNavigate: (AppRoute) -> Unit = {},
+    /** 长按一条转给小岱。没接小岱的端传 null，长按不响应。 */
+    onAskAgent: ((com.xjtu.toolbox.agent.AgentForward) -> Unit)? = null,
 ) {
     // 与 :app 同一个 ViewModel（只是取数换成了端口）；两端都用 androidx.lifecycle 的
     // `viewModel { }`（:core 里是 JetBrains 版，同 API、同版本）。
@@ -54,8 +57,9 @@ fun NotificationScreen(
     val listState = androidx.compose.foundation.lazy.staggeredgrid.rememberLazyStaggeredGridState()
 
     // 展示的通知：没在搜就是列表；在搜时是站内结果，外加本地已加载里的匹配（合并去重、按日期）
-    val filteredNotifications = remember(notifications, vm.searchQuery, vm.searchResults) {
-        if (!searching) notifications
+    val filteredNotifications = remember(notifications, vm.searchQuery, vm.searchResults, vm.selectedTag) {
+        val tag = vm.selectedTag
+        if (!searching) notifications.filter { tag == null || tag in it.tags }
         else {
             val local = notifications.filter { it.title.contains(vm.searchQuery.trim(), ignoreCase = true) }
             val remote = vm.searchResults
@@ -72,7 +76,7 @@ fun NotificationScreen(
     // 滑动到底自动翻页
     val shouldLoadMore by remember(vm.hasMorePages) {
         derivedStateOf {
-            if (!vm.hasMorePages) return@derivedStateOf false
+            if (!vm.hasMorePages || !vm.tagAutoLoad) return@derivedStateOf false
             // 瀑布流里可见项不一定按下标排好，取最大的下标
             val lastVisibleIndex = listState.layoutInfo.visibleItemsInfo.maxOfOrNull { it.index } ?: return@derivedStateOf false
             val totalItems = listState.layoutInfo.totalItemsCount
@@ -226,6 +230,30 @@ fun NotificationScreen(
                                 }
                             }
                             fullLineItem(key = "search") { searchBar(Modifier) }
+                            // 只有一种分类时筛了也没区别；搜索走的是站内结果，这一版不筛
+                            val tagOptions = noticeTagOptions(notifications)
+                            if (!searching && (tagOptions.size > 1 || vm.selectedTag != null)) {
+                                fullLineItem(key = "tags") {
+                                    Row(
+                                        Modifier.fillMaxWidth().horizontalScroll(androidx.compose.foundation.rememberScrollState()),
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                    ) {
+                                        com.xjtu.toolbox.ui.components.AppFilterChip(
+                                            selected = vm.selectedTag == null,
+                                            onClick = { vm.selectTag(null) },
+                                            label = "全部",
+                                        )
+                                        (listOfNotNull(vm.selectedTag) + tagOptions).distinct().forEach { tag ->
+                                            com.xjtu.toolbox.ui.components.AppFilterChip(
+                                                selected = vm.selectedTag == tag,
+                                                onClick = { vm.selectTag(tag) },
+                                                label = tag,
+                                            )
+                                        }
+                                    }
+                                }
+                            }
                             if (bannerText != null) {
                                 fullLineItem(key = "skipped") { skippedNoticeBanner(Modifier) }
                             }
@@ -248,7 +276,11 @@ fun NotificationScreen(
                                     } else {
                                         EmptyState(
                                             title = "没有匹配的通知",
-                                            subtitle = if (searching) "站内也没搜到，换个关键词试试" else "请尝试更改搜索关键词",
+                                            subtitle = when {
+                                                searching -> "站内也没搜到，换个关键词试试"
+                                                vm.selectedTag != null -> "已加载的通知里没有这个分类"
+                                                else -> "请尝试更改搜索关键词"
+                                            },
                                             modifier = Modifier.fillMaxWidth().padding(vertical = 48.dp)
                                         )
                                     }
@@ -266,6 +298,9 @@ fun NotificationScreen(
                                 NotificationCard(
                                     notification = notification,
                                     showSource = vm.selectedSources.size > 1,
+                                    onLongPress = onAskAgent?.let { ask ->
+                                        { ask(com.xjtu.toolbox.agent.AgentForward.notice(notification)) }
+                                    },
                                     onClick = {
                                         val route = AppRoute.Browser(notification.link)
                                         origin.open(route) { onNavigate(route) }
@@ -274,7 +309,16 @@ fun NotificationScreen(
                                 }
                             }
 
-                            if (!searching && (vm.hasMorePages || vm.isLoadingMore)) {
+                            if (!searching && !vm.tagAutoLoad && vm.hasMorePages && !vm.isLoadingMore) {
+                                fullLineItem(key = "keep_looking") {
+                                    top.yukonga.miuix.kmp.basic.TextButton(
+                                        text = "继续往前找",
+                                        onClick = vm::keepLookingForTag,
+                                        modifier = Modifier.fillMaxWidth(),
+                                    )
+                                }
+                            }
+                            if (!searching && vm.tagAutoLoad && (vm.hasMorePages || vm.isLoadingMore)) {
                                 fullLineItem {
                                     Box(
                                         modifier = Modifier.fillMaxWidth().padding(16.dp),
@@ -321,12 +365,20 @@ private fun formatRelativeDate(date: LocalDate): String {
 private fun NotificationCard(
     notification: Notification,
     showSource: Boolean = false,
+    onLongPress: (() -> Unit)? = null,
     onClick: () -> Unit
 ) {
+    val haptics = androidx.compose.ui.platform.LocalHapticFeedback.current
     top.yukonga.miuix.kmp.basic.Card(
         modifier = Modifier
             .fillMaxWidth(),
         onClick = onClick,
+        onLongPress = onLongPress?.let { send ->
+            {
+                haptics.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
+                send()
+            }
+        },
         pressFeedbackType = top.yukonga.miuix.kmp.utils.PressFeedbackType.Sink,
         colors = top.yukonga.miuix.kmp.basic.CardDefaults.defaultColors(color = MiuixTheme.colorScheme.surfaceVariant
         )

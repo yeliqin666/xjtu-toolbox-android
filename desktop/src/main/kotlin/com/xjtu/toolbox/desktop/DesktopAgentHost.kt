@@ -50,6 +50,7 @@ internal class DesktopAgentHost(
         ),
         extras = listOfNotNull(
             com.xjtu.toolbox.campusmap.CampusMapAgentTools(),
+            com.xjtu.toolbox.bus.BusAgentTools(com.xjtu.toolbox.bus.BusApi(yellowPageClient)),
             config.webSearchKey.takeIf { it.isNotEmpty() }?.let { DeepSeekWebTools(it) },
         ),
     )

@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.SmartToy
 import androidx.compose.material.icons.filled.*
 import androidx.compose.runtime.*
 import com.xjtu.toolbox.auth.LocalAuthExpiry
@@ -57,6 +58,7 @@ internal fun ActivityDetailPage(
     activity: LmsActivity,
     onBack: () -> Unit,
     onTopicSelected: (LmsForumTopic) -> Unit = {},
+    onAskAgent: ((com.xjtu.toolbox.agent.AgentForward) -> Unit)? = null,
     onPlayVideo: (title: String, instructorUrl: String?, encoderUrl: String?, isLive: Boolean, headers: Map<String, String>, startInDual: Boolean) -> Unit
 ) {
     val authExpiry = LocalAuthExpiry.current
@@ -157,6 +159,16 @@ internal fun ActivityDetailPage(
                 glass = glass,
                 scrollBehavior = scrollBehavior,
                 onBack = onBack,
+                actions = {
+                    if (onAskAgent != null) {
+                        IconButton(onClick = {
+                            // 详情加载完就带上说明，没加载完也能发（小岱可以自己查）
+                            onAskAgent(com.xjtu.toolbox.agent.AgentForward.lmsActivity(course, detail ?: activity, activity.type.displayName()))
+                        }) {
+                            Icon(Icons.Default.SmartToy, contentDescription = "发给小岱")
+                        }
+                    }
+                },
             )
         }
     ) { padding ->

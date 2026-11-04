@@ -117,6 +117,8 @@ fun InboxScreen(
     account: String? = null,
     /** 小岱消息弹窗里的「接着问小岱」：宿主把这条消息当快照带进对话。null = 只按路由打开小岱页。 */
     onAskPidai: ((InboxItem) -> Unit)? = null,
+    /** 长按一条学校通知转给小岱。没接小岱的端传 null，长按里不出现这一项。 */
+    onForwardToAgent: ((com.xjtu.toolbox.agent.AgentForward) -> Unit)? = null,
 ) {
     val scope = rememberCoroutineScope()
     val scrollBehavior = MiuixScrollBehavior(rememberTopAppBarState())
@@ -293,10 +295,19 @@ fun InboxScreen(
                         }
                         groups.groupBy { daySection(it.latest.time) }.forEach { (title, list) ->
                             section(title, list.map { g ->
+                                val rowActions = buildList<Pair<String, () -> Unit>> {
+                                    if (g.unread) add("标为已读" to { InboxStore.markRead(g.ids) })
+                                    if (onForwardToAgent != null && g.latest.category == InboxCategories.NOTICE) {
+                                        add("发给小岱" to {
+                                            InboxStore.markRead(g.ids)
+                                            onForwardToAgent(com.xjtu.toolbox.agent.AgentForward.inboxNotice(g.latest))
+                                        })
+                                    }
+                                }
                                 Entry(
                                     g.latest, g.latest.id, g.unread, g.count, dimmed = !g.unread,
-                                    onLongClick = if (g.unread) {
-                                        { actions = RowActions(g.latest, listOf("标为已读" to { InboxStore.markRead(g.ids) })) }
+                                    onLongClick = if (rowActions.isNotEmpty()) {
+                                        { actions = RowActions(g.latest, rowActions) }
                                     } else null,
                                 ) { open(g.latest, g.ids) }
                             })

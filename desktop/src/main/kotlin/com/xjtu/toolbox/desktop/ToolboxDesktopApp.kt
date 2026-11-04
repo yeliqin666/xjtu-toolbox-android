@@ -267,6 +267,7 @@ internal val DESKTOP_SUPPORTED_ROUTES = listOf(
     AppRoute.Inbox to "消息收纳",
     AppRoute.Notification to "通知公告",
     AppRoute.YellowPage to "黄页",
+    AppRoute.CampusBus to "校车查询",
     AppRoute.Faculty to "教师检索",
     AppRoute.Transcript to "电子成绩单",
     AppRoute.Coupon to "加餐券",
@@ -408,6 +409,10 @@ private fun DesktopPage(
             api = remember { YellowPageApi(yellowPageClient) },
             onBack = back,
             errorText = { FriendlyError.of(it, "加载黄页") },
+        )
+        AppRoute.CampusBus -> com.xjtu.toolbox.bus.BusScreen(
+            source = remember { com.xjtu.toolbox.bus.BusApi(yellowPageClient) },
+            onBack = back,
         )
         AppRoute.Library -> {
             val hintPrefs = remember { keyValueStore("feature_hints") }

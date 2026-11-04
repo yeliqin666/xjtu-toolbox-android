@@ -122,6 +122,11 @@
         </activity-alias>
 
         <activity-alias
+            android:name=".agent.AskPidaiFromNotice"
+            android:targetActivity=".MainActivity"
+            android:exported="false" />
+
+        <activity-alias
             android:name=".agent.ShareWithPidai"
             android:targetActivity=".MainActivity"
             android:exported="true"
