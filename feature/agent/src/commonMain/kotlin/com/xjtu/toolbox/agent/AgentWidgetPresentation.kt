@@ -17,6 +17,7 @@ internal object AgentWidgetPresentation {
         "get_card_info" to "card", "list_zyxf" to "files", "get_library" to "library",
         "campus_map" to "map", "my_location" to "map",
         "get_notifications" to "notices",
+        "get_campus_bus" to "bus", "get_lms_activity" to "attachments",
     )
 
     private fun arrayProp(description: String, type: String = "string") = buildJsonObject {
@@ -91,6 +92,8 @@ internal object AgentWidgetPresentation {
             "rooms" -> arrayOf("original", "seats_desc", "free_desc", "people_asc", "name")
             "card" -> arrayOf("original", "date_asc", "date_desc", "amount_desc")
             "files" -> arrayOf("original", "name", "folders_first")
+            "attachments" -> arrayOf("original", "name")
+            "bus" -> arrayOf("original")
             "schedule", "exams", "attendance" -> arrayOf("original", "date_asc", "date_desc")
             "notices" -> arrayOf("original", "date_asc", "date_desc", "priority_desc")
             "library", "map" -> arrayOf("original")
@@ -137,6 +140,8 @@ internal object AgentWidgetPresentation {
             is LibraryWidget -> if (w.areas.isNotEmpty()) w.areas.map { "${it.name}｜${it.free}/${it.total}" } else w.seats.map { it.seatId }
             is CampusMapWidget -> w.places
             is PlanWidget -> w.items.map { "${it.date} ${it.start}｜${it.title}" }
+            is BusWidget -> w.items.map { "${it.time} ${it.line}｜${it.route}｜余${it.seatsLeft}" }
+            is LmsFileWidget -> w.items.map { it.name + if (it.mine) "｜用户提交" else "｜老师发布" }
         }
         val scope = when (w) {
             is LiveRoomWidget -> "snapshot: realtime_only; slots: unavailable; continuous_vacancy: unknown\n"
@@ -172,6 +177,7 @@ internal object AgentWidgetPresentation {
                 is GradeWidget -> "grades"; is ScheduleWidget -> "schedule"; is ExamWidget -> "exams"
                 is RoomWidget, is LiveRoomWidget -> "rooms"; is AttendanceWidget -> "attendance"
                 is CardWidget -> "card"; is ZyxfWidget -> "files"; is LibraryWidget -> "library"; is CampusMapWidget -> "map"
+                is BusWidget -> "bus"; is LmsFileWidget -> "attachments"
             }
             val supported = schema(kind)["properties"]!!.jsonObject.keys
             val o = Options(JsonObject(options.filterKeys { it in supported }))
@@ -276,6 +282,15 @@ internal object AgentWidgetPresentation {
                     rows = when (o.sort) { "date_asc" -> rows.sortedBy { it.time }; "date_desc" -> rows.sortedByDescending { it.time }; "amount_desc" -> rows.sortedByDescending { kotlin.math.abs(it.amount) }; else -> rows }
                     w.copy(transactions = rows, spend = rows.filter { it.amount < 0 }.sumOf { -it.amount }, income = rows.filter { it.amount > 0 }.sumOf { it.amount }, display = o.display(rows.size, view = view))
                 }
+                is BusWidget -> {
+                    val rows = o.select(w.items)
+                    w.copy(items = rows, display = o.display(rows.size))
+                }
+                is LmsFileWidget -> {
+                    var rows = o.select(w.items)
+                    if (o.sort == "name") rows = rows.sortedBy { it.name }
+                    w.copy(items = rows, display = o.display(rows.size))
+                }
                 is ZyxfWidget -> {
                     val kind = o.enum("kind", setOf("all", "files", "folders"), "all")
                     var rows = o.select(w.items).filter { kind == "all" || it.isFolder == (kind == "folders") }
@@ -331,6 +346,8 @@ internal object AgentWidgetPresentation {
                 "attendance" -> setOf("date", "location", "status")
                 "card" -> setOf("balance", "summary", "transactions")
                 "files" -> setOf("path", "size")
+                "attachments" -> setOf("size")
+                "bus" -> setOf("route", "plate")
                 "library" -> setOf("booking", "summary", "plan")
                 else -> setOf("here", "caption")
             }

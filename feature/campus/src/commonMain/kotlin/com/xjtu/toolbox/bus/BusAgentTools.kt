@@ -1,6 +1,9 @@
 package com.xjtu.toolbox.bus
 
 import com.xjtu.toolbox.agent.AgentTools
+import com.xjtu.toolbox.agent.AgentWidget
+import com.xjtu.toolbox.agent.BusWidget
+import com.xjtu.toolbox.agent.BusWidgetItem
 import com.xjtu.toolbox.agent.ToolReply
 import com.xjtu.toolbox.util.AppJson
 import com.xjtu.toolbox.util.CampusTimeZone
@@ -38,6 +41,10 @@ class BusAgentTools(
 
     override fun rateLimitKeyOf(toolName: String): String? = "campus_bus"
 
+    private val pendingWidgets = mutableListOf<AgentWidget>()
+
+    override fun drainWidgets(): List<AgentWidget> = pendingWidgets.toList().also { pendingWidgets.clear() }
+
     override suspend fun execute(name: String, argsJson: String): String {
         if (name != TOOL) return ToolReply.notFound("tool", name)
         val args = runCatching { AppJson.parseToJsonElement(argsJson.ifBlank { "{}" }).jsonObject }.getOrDefault(JsonObject(emptyMap()))
@@ -64,6 +71,12 @@ class BusAgentTools(
         if (shown.isEmpty()) {
             return ToolReply.empty(scope) + if (matched.isNotEmpty()) "; departed_hidden: ${matched.size}" else ""
         }
+        pendingWidgets += BusWidget(
+            title = date.toString(),
+            items = shown.map {
+                BusWidgetItem(it.time, BusRules.shortLineName(it.lineName), "${it.from} → ${it.to}", it.seatsLeft, it.seats, it.plate, it.isTight)
+            },
+        )
         return buildString {
             appendLine("date: $date; runs: ${shown.size}; boarding: ${BusRules.BOARDING_TIP}")
             if (shown.size < matched.size) appendLine("departed_hidden: ${matched.size - shown.size}")

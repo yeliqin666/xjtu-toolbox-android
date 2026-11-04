@@ -71,6 +71,22 @@ object BusRules {
         }
     }
 
+    /** 「1号线(三村西门-创新港)」→「1号线」：起终点卡片上另有一行，不用再说一遍。 */
+    fun shortLineName(name: String): String =
+        name.substringBefore('(').substringBefore('（').trim().ifEmpty { name }
+
+    /** 线路名里写了直通、直达的。 */
+    fun isDirect(run: BusRun): Boolean = run.lineName.contains("直通") || run.lineName.contains("直达")
+
+    fun periodOf(time: String): String {
+        val hour = time.substringBefore(':').toIntOrNull() ?: 0
+        return when {
+            hour < 12 -> "上午"
+            hour < 18 -> "下午"
+            else -> "晚上"
+        }
+    }
+
     /** 同一分钟算还没走：人可能正在上车。 */
     fun hasDeparted(run: BusRun, nowHhmm: String): Boolean = run.time < nowHhmm
 }

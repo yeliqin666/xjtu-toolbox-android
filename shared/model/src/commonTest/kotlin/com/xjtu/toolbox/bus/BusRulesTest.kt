@@ -47,6 +47,20 @@ class BusRulesTest {
         assertFalse(run("a", "x", "y", used = 30).isTight)
     }
 
+    @Test fun shortNameDropsTheRouteInBrackets() {
+        assertEquals("1号线", BusRules.shortLineName("1号线(三村西门-创新港)"))
+        assertEquals("兴庆B2线", BusRules.shortLineName("兴庆B2线（雁塔-兴庆直达）"))
+        assertEquals("（怪名字）", BusRules.shortLineName("（怪名字）"))
+        assertTrue(BusRules.isDirect(run("1号线(三村西门直通车)", "x", "y")))
+        assertFalse(BusRules.isDirect(run("3号线（思源中心-创新港）", "x", "y")))
+    }
+
+    @Test fun periodsFollowTheClock() {
+        assertEquals("上午", BusRules.periodOf("06:20"))
+        assertEquals("下午", BusRules.periodOf("12:00"))
+        assertEquals("晚上", BusRules.periodOf("18:00"))
+    }
+
     @Test fun aRunLeavingThisMinuteHasNotDeparted() {
         assertFalse(BusRules.hasDeparted(toPort, "07:30"))
         assertTrue(BusRules.hasDeparted(toPort, "07:31"))
