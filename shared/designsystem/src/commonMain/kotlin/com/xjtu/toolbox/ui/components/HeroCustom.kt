@@ -133,26 +133,6 @@ fun heroBrightnessFilter(brightness: Int): ColorFilter? =
     if (brightness >= 100) null
     else (brightness / 100f).let { ColorFilter.colorMatrix(ColorMatrix().apply { setToScale(it, it, it, 1f) }) }
 
-/**
- * 已解码的背景图，只留最近一张。
- *
- * 键用数据串的哈希：整串 base64 可能有几百 KB，每次组合都全串比较不划算，
- * 哈希碰撞的代价只是「多信一次缓存、显示旧图」，而这里同一时刻只有一张图在轮换。
- * 不放进 Compose 状态：它的作用是省一次解码，读它的地方（[HeroCustomBackground] 里那个
- * `remember(哈希)` 的初值）本来就会随 imageData 重组。
- */
-private object HeroImageCache {
-    private var key = 0
-    private var bitmap: ImageBitmap? = null
-
-    operator fun get(data: String): ImageBitmap? = if (data.isNotEmpty() && data.hashCode() == key) bitmap else null
-
-    fun put(data: String, value: ImageBitmap) {
-        key = data.hashCode()
-        bitmap = value
-    }
-}
-
 /** 自定义背景上承托白字的暗色罩。 */
 val HeroCustomScrim: Brush = Brush.verticalGradient(
     0f to Color.Black.copy(alpha = 0.30f),
