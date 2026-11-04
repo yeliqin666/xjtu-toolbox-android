@@ -25,8 +25,9 @@ data class HomeTile(
 /**
  * 首页的一个卡片组。
  *
- * [id] 稳定不变（默认组用分类名，自建组是 `custom-<时间戳式的短串>`）；[title] 允许为空串——
- * 空串时整块标题组件都不画（需求 §2.3）；[colorHex] 是标题颜色，空串 = 跟随主题。
+ * [id] 稳定不变（默认组用分类名，自建组是 `custom-<时间戳式的短串>`）；[title] 跟着默认分类名走
+ * （「常用功能」「教务」…），**用户不再自己设标题**——自建组的 title 为空串，常规态整行不画、
+ * 编辑态显示「未命名分组」占位（需求 §2.3）；[colorHex] 是标题颜色，空串 = 跟随主题。
  */
 data class HomeGroup(
     val id: String,
@@ -260,7 +261,13 @@ data class HomeLayout(val groups: List<HomeGroup> = emptyList()) {
         return "$groupId/$routeId#${serial + 1}"
     }
 
-    /** 改组名（允许空串 = 不显示标题）。 */
+    /**
+     * 改组名（允许空串 = 不显示标题）。
+     *
+     * 界面**不再调用**它：分组标题不归用户设（见 [HomeGroup.title] 的说明）。留着是因为
+     * 标题仍在数据里——默认分类名由 [HomeLayoutDefaults] 填、老存档里也可能有用户起过的名字，
+     * 编解码与单测要能原样带着它走。
+     */
     fun renameGroup(groupId: String, title: String): HomeLayout =
         group(groupId)?.let { replaceGroup(it.copy(title = title)) } ?: this
 

@@ -180,7 +180,11 @@ fun HomeScreen(
     val topActionsRight = remember(revision) { layoutStore.topActionsRight }
     // 背景样式：主题底色 / 主题色渐变 / 自定义图片
     val backgroundMode = remember(revision) { layoutStore.backgroundMode }
-    val backgroundImage = remember(revision) { layoutStore.backgroundImage }
+    // 只有自定义图片这一档才去读那串 Base64（完整壁纸能有几百 KB）：其余两档读了也没人用，
+    // 别让每次设置变更都白扛一次大字符串
+    val backgroundImage = remember(revision, backgroundMode) {
+        if (backgroundMode == HomeLayoutStore.BACKGROUND_IMAGE) layoutStore.backgroundImage else ""
+    }
     val backgroundBlur = remember(revision) { layoutStore.backgroundBlur }
     val backgroundOpacity = remember(revision) { layoutStore.backgroundOpacity }
 
@@ -924,10 +928,13 @@ fun HomeScreen(
                 .then(if (recordPageLayer) Modifier.layerBackdrop(pageBackdrop) else Modifier),
         ) {
             // ── 背景层：主题底色 +（可选）主题色渐变 / 壁纸。卡片 / 悬浮球的液态玻璃采它 ──
+            // 采样只在液态玻璃开着时才有消费者（卡片、圆钮、悬浮球、删除按钮的 backdrop 全按
+            // `liquid` 取），毛玻璃（默认）这一档没人采——那就别录：`layerBackdrop` 是一次
+            // 整屏离屏渲染，白做一遍纯属把每帧的 GPU 白送。
             Box(
                 Modifier
                     .matchParentSize()
-                    .layerBackdrop(tileBackdrop),
+                    .then(if (liquid) Modifier.layerBackdrop(tileBackdrop) else Modifier),
             ) {
                 Box(Modifier.matchParentSize().background(barSurface))
                 when (backgroundMode) {
@@ -1082,7 +1089,9 @@ fun HomeScreen(
                 if (editing.on) {
                     Spacer(Modifier.height(GROUP_GAP))
                     Column(Modifier.padding(horizontal = 16.dp)) {
-                        AddGroupRow { update { it.addGroup(HomeGroup(id = newGroupId(), title = "新分组")) } }
+                        // 新组不预填名字：分组标题不再由用户设（需求），空标题在常规态整行不画、
+                        // 编辑态显示「未命名分组」占位，全靠文案认不出是哪一组也没关系——摆的是格子
+                        AddGroupRow { update { it.addGroup(HomeGroup(id = newGroupId())) } }
                     }
                 }
                 Spacer(Modifier.height(SECTION_GAP + extraBottomPadding + 8.dp))
@@ -1128,7 +1137,9 @@ fun HomeScreen(
         }
 
         // ── 【临时】拖拽诊断读数（定位完删掉：搜索 HOME_DRAG_DEBUG）──
-        if (editing.on) {
+        // 调用处也要先判一次：诊断层自身是「进去就 return」，但参数在**调用点**就求值了，
+        // 光靠里面的早退仍会把 dragGeometry 整张几何表算一遍（见 HomeDragDebug.kt）
+        if (editing.on && HOME_DRAG_DEBUG) {
             HomeDragDebugOverlay(
                 session = session,
                 geometry = dragGeometry,
@@ -1140,13 +1151,15 @@ fun HomeScreen(
         }
 
         // ── 拖拽幽灵块：跟手画在最上层；松手时飞向落点（或飞回起手位置）再消失 ──
+        // 几何表按**函数**传：不拖动时幽灵自己早退，几何表就一次都不用算（传值的话参数在
+        // 调用点就求值了，等于每次重组都白算一遍整张表）
         HomeDragGhost(
             session = session,
             faces = faces,
             liquid = liquid,
             refraction = refraction,
             backdrop = tileBackdrop.takeIf { liquid },
-            geometry = dragGeometry,
+            geometry = { dragGeometry },
             settling = ghostSettling,
             settleValue = { ghostSettle.value },
         )
@@ -1243,14 +1256,14 @@ fun HomeScreen(
             }
         }
 
-        // ── 组名 / 颜色、删除组、往组里加功能这几个弹窗 ──
+        // ── 组标题颜色、删除组、往组里加功能这几个弹窗 ──
         editing.editGroup?.let { group ->
             val current = layout.group(group.id) ?: group
             GroupEditDialog(
                 group = current,
                 onDismiss = { editing.editGroup = null },
-                onConfirm = { title, colorHex ->
-                    update { it.renameGroup(current.id, title).tintGroup(current.id, colorHex) }
+                onConfirm = { colorHex ->
+                    update { it.tintGroup(current.id, colorHex) }
                     editing.editGroup = null
                 },
             )
@@ -2125,17 +2138,19 @@ private fun HomeDragGhost(
     liquid: Boolean,
     refraction: Boolean,
     backdrop: Backdrop?,
-    geometry: HomeBoardGeometry,
+    /** 几何表按函数拿：本层早退时一次都不必求值（见调用处说明）。 */
+    geometry: () -> HomeBoardGeometry,
     settling: Boolean,
     settleValue: () -> Offset,
 ) {
     if (!session.draggingTile && !settling) return
     val face = session.routeId?.let { faces[it] } ?: return
-    if (!geometry.ready) return
+    val board = geometry()
+    if (!board.ready) return
     val density = LocalDensity.current
     val gapPx = with(density) { HomeTileGap.toPx() }
-    val wPx = (session.sizeCells.x * geometry.colUnit - gapPx).coerceAtLeast(1f)
-    val hPx = (session.sizeCells.y * geometry.rowUnit - gapPx).coerceAtLeast(1f)
+    val wPx = (session.sizeCells.x * board.colUnit - gapPx).coerceAtLeast(1f)
+    val hPx = (session.sizeCells.y * board.rowUnit - gapPx).coerceAtLeast(1f)
 
     // 松手后幽灵一边飞向落点、一边**长回原大、变回不透明**：
     // 拖动中它是 94% + 88% 不透明（好让底下的落点占位框露出来），而落点处换成真身的那一刻
@@ -2179,7 +2194,10 @@ private fun HomeDragGhost(
 }
 
 /**
- * 改一个组的名字与标题颜色（§2.3）：标题留空就整行不画。
+ * 调一个组的**标题颜色**（§2.3）。
+ *
+ * 分组标题本身不再由用户设置：组名固定跟着默认分类名走（常用功能 / 教务 / 生活…），
+ * 新建的组没有标题——常规态整行不画，编辑态显示「未命名分组」占位。所以这个对话框只剩颜色。
  *
  * 颜色用全应用同一套调色盘（`AppColorPicker`）+ 一个 **Hex 输入框**，拖色和敲色值两条路
  * 互相回填。开关叫「添加颜色」而不是「跟随主题」：关着 = 这个组的标题不设色、直接跟随主题
@@ -2189,9 +2207,8 @@ private fun HomeDragGhost(
 private fun GroupEditDialog(
     group: HomeGroup,
     onDismiss: () -> Unit,
-    onConfirm: (title: String, colorHex: String) -> Unit,
+    onConfirm: (colorHex: String) -> Unit,
 ) {
-    var title by remember(group.id) { mutableStateOf(group.title) }
     // 关 = 跟随主题（存空串），开 = 自己挑一个色
     var addColor by remember(group.id) { mutableStateOf(group.colorHex.isNotEmpty()) }
     // 主题色要在组合上下文取好再喂给 remember——remember 的 calculation lambda 不是
@@ -2211,13 +2228,6 @@ private fun GroupEditDialog(
                 .verticalScroll(rememberScrollState())
                 .padding(horizontal = 4.dp),
         ) {
-            TextField(
-                value = title,
-                onValueChange = { title = it.take(20) },
-                label = "分组标题（留空则不显示标题）",
-                modifier = Modifier.fillMaxWidth(),
-            )
-            Spacer(Modifier.height(14.dp))
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Text("标题颜色", fontSize = 15.sp)
                 Spacer(Modifier.weight(1f))
@@ -2258,7 +2268,7 @@ private fun GroupEditDialog(
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 TextButton(
                     text = "确定",
-                    onClick = { onConfirm(title.trim(), if (addColor) CourseColors.toHex(picked) else "") },
+                    onClick = { onConfirm(if (addColor) CourseColors.toHex(picked) else "") },
                     // 敲了半截的 Hex 不认：宁可拦住「确定」，也不拿一个看不出来的色落盘
                     enabled = !addColor || hexValid,
                     modifier = Modifier.weight(1f),
