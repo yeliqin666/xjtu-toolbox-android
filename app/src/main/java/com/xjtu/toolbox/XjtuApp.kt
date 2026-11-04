@@ -86,6 +86,7 @@ class XjtuApp : Application() {
         // 后台调度要读账号（AccountStore → 加密存储首次打开要走 keystore），不占主线程。
         // 顺带预热了 SecurePrefs 的缓存，首帧里界面再取账号时直接命中。
         applicationScope.launch {
+            com.xjtu.toolbox.notification.DynamicScheduleScheduler.refresh(this@XjtuApp)
             com.xjtu.toolbox.notification.NoticeWatchScheduler.apply(this@XjtuApp)
             com.xjtu.toolbox.notification.ScheduleWatchScheduler.apply(this@XjtuApp)
             com.xjtu.toolbox.notification.LmsDeadlineScheduler.apply(this@XjtuApp)

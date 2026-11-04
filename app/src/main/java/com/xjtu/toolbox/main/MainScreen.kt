@@ -221,6 +221,7 @@ internal fun MainScreen(
                 )
                 HomeSignals.scheduleVersion++
                 com.xjtu.toolbox.widget.ScheduleWidgetUpdater.requestUpdate(context, resetToToday = false)
+                com.xjtu.toolbox.notification.DynamicScheduleScheduler.requestRefresh(context)
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -232,6 +233,7 @@ internal fun MainScreen(
     // 和上面撞车时 refreshDue 自己会跳过后到的那次
     val resumeScope = rememberCoroutineScope()
     androidx.lifecycle.compose.LifecycleEventEffect(androidx.lifecycle.Lifecycle.Event.ON_RESUME) {
+        com.xjtu.toolbox.notification.DynamicScheduleScheduler.requestRefresh(context)
         com.xjtu.toolbox.widget.ScheduleWidgetUpdater.requestUpdate(context, resetToToday = false)
         resumeScope.launch {
             launch { runCatching { loginState.ensureCampusDetected() } }

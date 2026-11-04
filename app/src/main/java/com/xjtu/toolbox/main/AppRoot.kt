@@ -105,6 +105,12 @@ fun AppRoot(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
 
+    // 切号、退出时立即撤掉上一账号的内容，再从持久化激活指针读取新账号。
+    LaunchedEffect(loginState.accountId) {
+        com.xjtu.toolbox.notification.DynamicScheduleScheduler.cancel(context)
+        com.xjtu.toolbox.notification.DynamicScheduleScheduler.requestRefresh(context)
+    }
+
     // 类型参数必须写父类型，否则推断成 AppRoute.Main，存盘时序列化失败
     val backStack = rememberNavBackStack<AppRoute>(AppRoute.Main)
     val navigator = remember(backStack) { AppNavigator(backStack) }

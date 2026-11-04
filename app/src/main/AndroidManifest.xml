@@ -8,6 +8,9 @@
     <uses-permission android:name="com.android.alarm.permission.SET_ALARM" />
 
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- 动态课程/日程通知在开始、结束时切换；可选授权，未授权时使用非精确闹钟。 -->
+    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <!-- 富触感反馈（ui/Haptics.kt）：没有这个权限，VibrationEffect 组合振动会静默失效 -->
     <uses-permission android:name="android.permission.VIBRATE" />
 
@@ -178,6 +181,18 @@
         <receiver
             android:name=".notification.LibraryActionReceiver"
             android:exported="false" />
+
+        <receiver
+            android:name=".notification.DynamicScheduleReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+                <action android:name="android.intent.action.TIME_SET" />
+                <action android:name="android.intent.action.TIMEZONE_CHANGED" />
+                <action android:name="android.app.action.SCHEDULE_EXACT_ALARM_PERMISSION_STATE_CHANGED" />
+            </intent-filter>
+        </receiver>
 
         <receiver
             android:name=".widget.WidgetRefreshReceiver"
