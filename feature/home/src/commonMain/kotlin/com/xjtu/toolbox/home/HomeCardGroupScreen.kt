@@ -1028,6 +1028,8 @@ fun HomeCardGroupScreen(
                         BulletinNoticePanel(
                             bulletins = host.bulletins,
                             onTap = host::onBulletinTap,
+                            // 「查看详情」走一镜到底：面板自己登记起点矩形，宿主决定走 KIT 还是 Compose 放大
+                            onDetail = host::onBulletinDetail,
                             onDismiss = host::onBulletinDismiss,
                         )
                         Spacer(Modifier.height(SECTION_GAP))
