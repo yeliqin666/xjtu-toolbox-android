@@ -295,8 +295,10 @@ fun HomeCardGroupScreen(
     val pageBackdrop = rememberLayerBackdrop()
 
     // 要不要真录这一层（`layerBackdrop` 会多一次全屏离屏渲染）：玻璃风格的模糊带要用它，
-    // 液态玻璃开着时顶栏圆钮要用它；两种都不需要（经典风格 + 毛玻璃，或这一端根本没有顶栏）就不录
-    val recordPageLayer = glass || (collapsible && liquid)
+    // 液态玻璃开着时顶栏圆钮要用它；**编辑态的添加悬浮条也要用它**——纯色 / 渐变背景上
+    // 卡片那层没东西可采（见 recordTileLayer），悬浮条就改采这层内容，于是它透出来、扭动的
+    // 是此刻压在它下面的卡片，而不是一片死板的薄色。
+    val recordPageLayer = glass || (collapsible && liquid) || (liquid && editing.on)
 
     val session = remember { HomeDragSession() }
     val density = LocalDensity.current
@@ -1198,14 +1200,17 @@ fun HomeCardGroupScreen(
             settleValue = { ghostSettle.value },
         )
 
-        // ── 编辑态右侧的「添加卡片」悬浮球：展开成长条，长按功能拖出来放到组里 ──
+        // ── 编辑态右侧的「添加卡片」悬浮球 / 悬浮条 ──
         if (editing.on) {
             HomeAddTileOrb(
                 faces = faces,
                 catalog = catalog,
                 liquid = liquid,
                 refraction = refraction,
-                backdrop = tileBackdrop.takeIf { recordTileLayer },
+                // 采样源：有壁纸采背景层（透出壁纸）；纯色 / 渐变没有壁纸，改采**内容层**——
+                // 悬浮条本来就浮在卡片上面，采内容层才是「隔着玻璃看见下面的卡片」，
+                // 这也是它在这两种背景上仍然看得出是液态玻璃的原因。
+                backdrop = tileBackdrop.takeIf { recordTileLayer } ?: pageBackdrop.takeIf { liquid },
                 session = session,
                 onPaletteStart = { routeId, startPointer ->
                     session.refreshBoardFromCoordinates()

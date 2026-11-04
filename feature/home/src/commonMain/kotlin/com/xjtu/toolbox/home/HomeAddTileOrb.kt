@@ -74,8 +74,9 @@ private const val ORB_VISIBLE_ROWS = 6
  * 编辑态右侧的「添加卡片」悬浮球（§7 补充）。
  *
  * 三种形态在同一棵树上切换：
- * - **球**：一枚圆形液态玻璃把手，贴在侧边；点一下展开。
- * - **长条**：把手升到最上方，下面是一列圆形功能图标（可滚动，长按拖出来放到组里）。
+ * - **球**：一枚圆形液态玻璃把手，贴在侧边；点一下展开成长条。
+ * - **长条**：把手升到最上方，下面是一列圆形功能图标（可滚动，长按拖出来放到组里）；
+ *   **点一下把手把它收回成球**（想让它别挡着画面时不必退出编辑态）。
  * - **按住把手拖**：整条收回成那颗球跟手，松手自动吸回最近的侧边。
  *
  * 只在编辑态被挂上；挂上时先是一颗球，随即自动展开成长条（中间不停顿的展开动画）。
@@ -159,6 +160,8 @@ internal fun HomeAddTileOrb(
                         onPaletteStart = onPaletteStart,
                         onPaletteDrop = onPaletteDrop,
                         onPaletteCancel = onPaletteCancel,
+                        // 单击把手 = 把自己收回成那颗球（拖动仍走下面三个回调）
+                        onHandleTap = { expanded = false },
                         onHandleDragStart = { finger ->
                             handleGrab = finger - (orbCenter ?: center)
                         },
@@ -304,6 +307,8 @@ private fun OrbRail(
     onPaletteStart: (routeId: String, startPointer: Offset) -> Unit,
     onPaletteDrop: () -> Unit,
     onPaletteCancel: () -> Unit,
+    /** 单击把手：把长条收回成球。 */
+    onHandleTap: () -> Unit,
     onHandleDragStart: (Offset) -> Unit,
     onHandleDragTo: (Offset) -> Unit,
     onHandleDrop: () -> Unit,
@@ -318,13 +323,13 @@ private fun OrbRail(
             .padding(vertical = 6.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        // 把手升到最上方：按住它整条收走（点它不做别的）
+        // 把手升到最上方：点它收回成球，按住它整条收走跟手
         OrbHandle(
             liquid = liquid,
             refraction = refraction,
             backdrop = backdrop,
             session = session,
-            onTap = {},
+            onTap = onHandleTap,
             onDragStart = onHandleDragStart,
             onDragTo = onHandleDragTo,
             onDrop = onHandleDrop,
@@ -397,10 +402,14 @@ private fun OrbTileIcon(
 }
 
 /**
- * 悬浮球与长条共用的液态玻璃（采首页背景层，和卡片同一套参数）；关液态时退回半透明底。
+ * 悬浮球与长条共用的液态玻璃；关液态时退回半透明底。
  *
- * 纯色 / 渐变背景上没有壁纸可采（`backdrop` 为 null 但液态玻璃开着）：照卡片的规矩走
- * 「不采不糊、换一薄层更白/更深的底 + 投影」，不再退回毛玻璃那种闷底。
+ * 采样源由调用方决定（见 `HomeCardGroupScreen`）：**有壁纸时采背景层**（透出壁纸），
+ * 纯色 / 渐变背景没有壁纸可采，改采**内容层**——悬浮条本来浮在卡片上面，采内容层才是
+ * 「隔着玻璃看见下面的卡片」，所以这两种背景下它仍然是真液态玻璃，而不是一片薄色。
+ *
+ * `backdrop == null` 只剩两种情况：液态玻璃关着，或者这一帧内容层没在录（不该发生），
+ * 那时退回薄色底，至少不会画成一片透明。
  */
 @Composable
 private fun Modifier.orbGlass(
@@ -417,7 +426,7 @@ private fun Modifier.orbGlass(
         return this.background(MiuixTheme.colorScheme.surface.copy(alpha = 0.6f), shape)
     }
     if (backdrop == null) {
-        // 没有壁纸：底子换成一层薄色，投影照留（浮起感主要来自这层环境光）
+        // 兜底：没有采样源时用薄色 + 投影，别画成一片透明
         return this
             .appCardShadow(shape = shape)
             .background(
