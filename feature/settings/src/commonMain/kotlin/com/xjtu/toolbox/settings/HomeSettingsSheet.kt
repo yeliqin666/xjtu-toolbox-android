@@ -92,9 +92,9 @@ fun HomeSettingsSheet(
 /** 主页设置那一行的摘要文案：「卡片组 · 主题色渐变」这种。 */
 internal fun homeSettingsSummary(store: SettingsStore): String = listOf(
     when (store.homeLayout) {
-        SettingsStore.HOME_LAYOUT_CARDS -> "卡片组"
         SettingsStore.HOME_LAYOUT_CLASSIC -> "经典分类卡"
-        else -> "小组件"
+        // 只有两个取值，其余一律是卡片组（老存档的 widgets 也被读成 cards）
+        else -> "卡片组"
     },
     when (store.homeBackground) {
         "solid" -> "主题色"
