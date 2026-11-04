@@ -145,6 +145,7 @@ fun InboxScreen(
 
     var tab by rememberSaveable { mutableIntStateOf(0) }
     var refreshing by remember { mutableStateOf(false) }
+    var schoolTodoOpened by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
     var showSettings by remember { mutableStateOf(false) }
     var showAdd by remember { mutableStateOf(false) }
@@ -182,7 +183,37 @@ fun InboxScreen(
         openedTodos = openedTodos + ids
         // 小岱的简报正文就是全部内容，小岱页里没有它：先弹窗看全文，想接着聊再进小岱
         val route = item.resolvedRouteId()
-        if (route == null || item.category == InboxCategories.PIDAI) detail = item else onOpen(route)
+        if (route == null || item.category == InboxCategories.PIDAI) {
+            detail = item
+        } else {
+            // 事务中心是在网页里办的，App 不知道结果：回来时重拉这一类，办完的那条才会消失
+            if (item.category == InboxCategories.SCHOOL_TODO) schoolTodoOpened = true
+            onOpen(route)
+        }
+    }
+
+    fun refreshIfBackFromSchoolTodo() {
+        if (!schoolTodoOpened) return
+        schoolTodoOpened = false
+        scope.launch {
+            try {
+                source.refreshSchoolTodos(account)
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                // 列表还是旧的，不打扰用户；下拉刷新还能再试
+            }
+        }
+    }
+    // 返回时这一页可能是重新组合的（导航栈），也可能一直在、只是恢复（系统转场另开了 Activity）
+    androidx.compose.runtime.LaunchedEffect(Unit) { refreshIfBackFromSchoolTodo() }
+    val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
+    androidx.compose.runtime.DisposableEffect(lifecycleOwner) {
+        val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
+            if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) refreshIfBackFromSchoolTodo()
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
     Scaffold(
@@ -298,7 +329,7 @@ fun InboxScreen(
                                 val rowActions = buildList<Pair<String, () -> Unit>> {
                                     if (g.unread) add("标为已读" to { InboxStore.markRead(g.ids) })
                                     if (onForwardToAgent != null && g.latest.category == InboxCategories.NOTICE) {
-                                        add("发给小岱" to {
+                                        add("问小岱" to {
                                             InboxStore.markRead(g.ids)
                                             onForwardToAgent(com.xjtu.toolbox.agent.AgentForward.inboxNotice(g.latest))
                                         })

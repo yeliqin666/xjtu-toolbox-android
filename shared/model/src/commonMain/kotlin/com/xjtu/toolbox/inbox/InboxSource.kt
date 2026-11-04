@@ -5,6 +5,9 @@ interface InboxSource {
     /** 拉一轮并写进 [InboxStore]；各接口互不影响（失败的保留上次结果）。 */
     suspend fun refresh(account: String?)
 
+    /** 只重拉事务中心待办：用户点进网页办完回来时用。学校没有按单条查状态的接口，只能重拉这一类。 */
+    suspend fun refreshSchoolTodos(account: String?) {}
+
     /** 距上次成功拉取是否已过 TTL。 */
     fun isDue(account: String?, now: Long): Boolean
 
