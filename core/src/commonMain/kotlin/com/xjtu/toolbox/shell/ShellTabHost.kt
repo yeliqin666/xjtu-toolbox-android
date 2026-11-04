@@ -25,6 +25,8 @@ import androidx.compose.ui.unit.constrainHeight
 import androidx.compose.ui.unit.constrainWidth
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import com.xjtu.toolbox.ui.components.LocalPageVisible
 import kotlinx.coroutines.delay
 
@@ -45,6 +47,18 @@ fun ShellTabHost(
     }
 
     val selectedId = nav.selected?.id
+    // 隐藏的 tab 还留在组合里，输入框的焦点不会自己走：不清掉的话键盘跟着切到别的页，
+    // 从别的应用切回来时系统还会照这个焦点把键盘弹出来（#353）
+    val focusManager = LocalFocusManager.current
+    val keyboard = LocalSoftwareKeyboardController.current
+    var focusedTabId by remember { mutableStateOf(selectedId) }
+    LaunchedEffect(selectedId) {
+        if (focusedTabId != selectedId) {
+            focusedTabId = selectedId
+            focusManager.clearFocus(force = true)
+            keyboard?.hide()
+        }
+    }
     var composedIds by remember { mutableStateOf(setOfNotNull(selectedId)) }
     LaunchedEffect(selectedId) { composedIds = composedIds + setOfNotNull(selectedId) }
 

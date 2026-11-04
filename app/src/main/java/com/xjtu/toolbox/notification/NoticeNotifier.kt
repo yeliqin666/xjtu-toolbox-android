@@ -22,6 +22,9 @@ import com.xjtu.toolbox.util.RequestCodes
  */
 internal object NoticeNotifier {
     const val NOTIFICATION_ID = 3101
+    const val EXTRA_ASK_TEXT = "extra_ask_pidai_text"
+    const val EXTRA_ASK_SNAPSHOT = "extra_ask_pidai_snapshot"
+    const val EXTRA_ASK_INBOX_IDS = "extra_ask_pidai_inbox_ids"
 
     fun canPost(context: Context): Boolean {
         if (!AppNotificationChannels.areNotificationsEnabled(context)) return false
@@ -66,8 +69,27 @@ internal object NoticeNotifier {
             .setOnlyAlertOnce(true)
             .setNumber(items.size)
             .setContentIntent(pending)
+            .addAction(R.drawable.ic_notification_notice, "问小岱", askPidaiIntent(context, shown))
             .build()
 
         NotificationManagerCompat.from(context).notify(NOTIFICATION_ID, notification)
+    }
+
+    /** 走不导出的别名（[DeepLinkRouter.PIDAI_NOTICE_ALIAS]）：只有本应用能发这个 Intent，到了就自动发送。 */
+    private fun askPidaiIntent(context: Context, shown: List<Notification>): PendingIntent {
+        val forward = com.xjtu.toolbox.agent.AgentForward.notices(shown)
+        val intent = Intent().apply {
+            setClassName(context, com.xjtu.toolbox.nav.DeepLinkRouter.PIDAI_NOTICE_ALIAS)
+            putExtra(EXTRA_ASK_TEXT, forward.text)
+            putExtra(EXTRA_ASK_SNAPSHOT, forward.snapshot)
+            putExtra(EXTRA_ASK_INBOX_IDS, shown.map { "notice:${it.link}" }.toTypedArray())
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+        }
+        return PendingIntent.getActivity(
+            context,
+            RequestCodes.NOTICE_ASK_PIDAI,
+            intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
     }
 }

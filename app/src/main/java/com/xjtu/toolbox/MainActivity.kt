@@ -149,12 +149,32 @@ class MainActivity : ComponentActivity() {
             ?.let(com.xjtu.toolbox.agent.AgentPushFocus::set)
         launchTab.value = extras?.getStringExtra(EXTRA_LAUNCH_TAB)
             ?.let { name -> BottomTab.entries.firstOrNull { it.name == name } }
+        consumeAskPidaiFromNotice(intent)
         when {
             deepLink == null -> Unit
             deepLink.sharedMaterial -> importSharedMaterial(deepLink)
             deepLink.imageUris.isNotEmpty() -> importSharedImages(deepLink)
             else -> deepLink.prompt?.let { AgentPendingPrompt.set(it, draftOnly = !deepLink.autoSend) }
         }
+    }
+
+    /**
+     * 通知栏的「问小岱」。别名不导出，外部应用进不来，所以可以自动发送（外部深链都只填草稿）。
+     * 读完就摘掉 extra；从最近任务重新打开时不再发一遍，免得重复花钱。
+     */
+    private fun consumeAskPidaiFromNotice(intent: Intent?) {
+        if (intent?.component?.className != DeepLinkRouter.PIDAI_NOTICE_ALIAS) return
+        if (intent.flags and Intent.FLAG_ACTIVITY_LAUNCHED_FROM_HISTORY != 0) return
+        val text = intent.getStringExtra(com.xjtu.toolbox.notification.NoticeNotifier.EXTRA_ASK_TEXT) ?: return
+        val snapshot = intent.getStringExtra(com.xjtu.toolbox.notification.NoticeNotifier.EXTRA_ASK_SNAPSHOT)
+        val inboxIds = intent.getStringArrayExtra(com.xjtu.toolbox.notification.NoticeNotifier.EXTRA_ASK_INBOX_IDS).orEmpty().toList()
+        intent.removeExtra(com.xjtu.toolbox.notification.NoticeNotifier.EXTRA_ASK_TEXT)
+        AccountContext.restoreIfNeeded()
+        // 点按钮不会触发 autoCancel，要自己收
+        androidx.core.app.NotificationManagerCompat.from(this).cancel(com.xjtu.toolbox.notification.NoticeNotifier.NOTIFICATION_ID)
+        com.xjtu.toolbox.inbox.InboxStore.markRead(inboxIds)
+        AgentPendingPrompt.set(text, snapshot = snapshot)
+        launchRoute.value = com.xjtu.toolbox.nav.AppRoute.Agent
     }
 
     private fun importSharedMaterial(target: DeepLinkRouter.DeepLinkTarget) {

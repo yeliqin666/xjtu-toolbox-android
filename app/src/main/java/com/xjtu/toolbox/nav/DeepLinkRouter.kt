@@ -12,6 +12,8 @@ object DeepLinkRouter {
     private val BARE_URL = Regex("""https?://\S+""")
     const val PIDAI_LINK_ALIAS = "com.xjtu.toolbox.agent.ReadWithPidai"
     const val PIDAI_SHARE_ALIAS = "com.xjtu.toolbox.agent.ShareWithPidai"
+    /** 通知栏「问小岱」专用，manifest 里不导出，外部应用发不了。 */
+    const val PIDAI_NOTICE_ALIAS = "com.xjtu.toolbox.agent.AskPidaiFromNotice"
 
     data class DeepLinkTarget(
         val route: AppRoute,

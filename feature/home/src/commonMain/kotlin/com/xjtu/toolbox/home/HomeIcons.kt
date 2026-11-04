@@ -1,6 +1,7 @@
 package com.xjtu.toolbox.home
 
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.DirectionsBus
 import androidx.compose.material.icons.automirrored.filled.DirectionsRun
 import androidx.compose.material.icons.automirrored.filled.EventNote
 import androidx.compose.material.icons.automirrored.filled.LibraryBooks
@@ -64,6 +65,7 @@ object HomeIcons {
         AppRoute.Venue -> Icons.Default.Stadium
         AppRoute.Fitness -> Icons.AutoMirrored.Filled.DirectionsRun
         AppRoute.YellowPage -> Icons.Default.ContactPhone
+        AppRoute.CampusBus -> Icons.Default.DirectionsBus
         AppRoute.WebVpnConverter -> Icons.Default.VpnKey
         AppRoute.Agent -> Icons.Default.SmartToy
         AppRoute.Community -> Icons.Default.Forum

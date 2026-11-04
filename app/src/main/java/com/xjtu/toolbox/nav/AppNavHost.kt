@@ -157,7 +157,7 @@ private val standaloneHostedRoutes: Set<AppRoute> = setOf(
     AppRoute.EmptyRoom, AppRoute.Notification, AppRoute.Attendance, AppRoute.Judge,
     AppRoute.JwappScore, AppRoute.Library, AppRoute.CampusCard, AppRoute.Coupon,
     AppRoute.Transcript, AppRoute.Venue, AppRoute.DownloadManager, AppRoute.Jiaocai,
-    AppRoute.Jiaocai1, AppRoute.SchoolCourse, AppRoute.SchoolCalendar, AppRoute.YellowPage,
+    AppRoute.Jiaocai1, AppRoute.SchoolCourse, AppRoute.SchoolCalendar, AppRoute.YellowPage, AppRoute.CampusBus,
     AppRoute.Fitness, AppRoute.Iclassface, AppRoute.Settings, AppRoute.Inbox,
     AppRoute.Community, AppRoute.Faculty, AppRoute.Accounts, AppRoute.WebVpnConverter,
     AppRoute.Games, AppRoute.Game2048, AppRoute.GameMerge, AppRoute.GameBlocks,
@@ -244,7 +244,12 @@ fun NavEntryBuilder.appPageEntries(
             )
         }
         entry<AppRoute.Notification>(transition = expand(AppRoute.Notification::class)) {
-            NotificationScreen(source = remember { AppNoticeSource() }, onBack = back, onNavigate = router::open)
+            NotificationScreen(
+                source = remember { AppNoticeSource() },
+                onBack = back,
+                onNavigate = router::open,
+                onAskAgent = { sendToPidai(it, router::open) },
+            )
         }
         entry<AppRoute.Attendance>(transition = expand(AppRoute.Attendance::class)) {
             val attendanceContext = LocalContext.current
@@ -398,6 +403,7 @@ fun NavEntryBuilder.appPageEntries(
                     showFirstUseHint = !hintPrefs.getBoolean("lms_hint_shown", false),
                     onFirstUseHintRead = { hintPrefs.edit().putBoolean("lms_hint_shown", true).apply() },
                     videoPlayer = AndroidVideoPlayerHost,
+                    onAskAgent = { sendToPidai(it, router::open) },
                 )
             }
         }
@@ -470,6 +476,9 @@ fun NavEntryBuilder.appPageEntries(
                 errorText = { FriendlyError.of(it, "加载") },
             )
         }
+        entry<AppRoute.CampusBus>(transition = expand(AppRoute.CampusBus::class)) {
+            com.xjtu.toolbox.bus.BusScreen(source = com.xjtu.toolbox.bus.appBusApi, onBack = back)
+        }
         entry<AppRoute.Fitness>(transition = expand(AppRoute.Fitness::class)) {
             val fitnessContext = LocalContext.current
             val account = loginState.accountId.takeIf { it.isNotEmpty() }
@@ -513,6 +522,7 @@ fun NavEntryBuilder.appPageEntries(
                     null
                 },
                 extraCookieDomains = listOfNotNull(host, destinationHost),
+                onAskAgent = { sendToPidai(it, router::open) },
                 onBack = back,
             )
         }
@@ -546,6 +556,7 @@ fun NavEntryBuilder.appPageEntries(
                     )
                     router.open(AppRoute.Agent)
                 },
+                onForwardToAgent = { sendToPidai(it, router::open) },
             )
         }
         // 公告详情：首页公告条「查看详情」的落点。ROM 支持金标联盟一镜到底时由
@@ -740,4 +751,10 @@ private fun rememberPickEvidenceFiles(context: Context): suspend () -> List<Pair
         launcher.launch(arrayOf("*/*"))
         deferred.await()
     }
+}
+
+/** 把通知、活动、网页转给小岱：开新对话并自动发出（用户刚刚明确点了这个操作）。 */
+private fun sendToPidai(forward: com.xjtu.toolbox.agent.AgentForward, open: (AppRoute) -> Unit) {
+    com.xjtu.toolbox.agent.AgentPendingPrompt.set(forward.text, snapshot = forward.snapshot)
+    open(AppRoute.Agent)
 }

@@ -158,6 +158,8 @@ fun LmsScreen(
     /** 「功能说明」弹过了没。`:app` 与原实现同一个 pref 文件、同一个键（`feature_hints` / `lms_hint_shown`）。 */
     showFirstUseHint: Boolean = false,
     onFirstUseHintRead: () -> Unit = {},
+    /** 把活动转给小岱（列表长按、详情页顶栏）。没接小岱的端传 null，两个入口都不出现。 */
+    onAskAgent: ((com.xjtu.toolbox.agent.AgentForward) -> Unit)? = null,
     /** 视频播放槽位：`:app` 传 ExoPlayer 全屏页，桌面交给系统播放器；都不传时给一句说明页。 */
     videoPlayer: VideoPlayerHost? = null,
 ) {
@@ -338,7 +340,8 @@ fun LmsScreen(
                 // 否则点箭头仍会掉进那个用户没进过的课程列表。
                 onBack = { if (deepLinked) onBack() else currentPage = LmsPage.CourseList },
                 onActivitySelected = { currentPage = LmsPage.ActivityDetail(page.course, it) },
-                onBulletinSelected = { currentPage = LmsPage.BulletinDetail(page.course, it) }
+                onBulletinSelected = { currentPage = LmsPage.BulletinDetail(page.course, it) },
+                onAskAgent = onAskAgent,
             )
             is LmsPage.ActivityDetail -> ActivityDetailPage(
                 source = source,
@@ -347,6 +350,7 @@ fun LmsScreen(
                 activity = page.activity,
                 onBack = { currentPage = LmsPage.ActivityList(page.course) },
                 onTopicSelected = { topic -> currentPage = LmsPage.ForumTopicDetail(page.course, page.activity, topic) },
+                onAskAgent = onAskAgent,
                 onPlayVideo = { title, instrUrl, encUrl, isLive, headers, startInDual ->
                     currentPage = LmsPage.VideoPlayer(
                         title = title,

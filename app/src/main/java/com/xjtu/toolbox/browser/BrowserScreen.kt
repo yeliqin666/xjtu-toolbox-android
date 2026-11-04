@@ -55,6 +55,8 @@ import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Share
+import androidx.compose.material.icons.filled.SmartToy
+import kotlinx.serialization.json.jsonPrimitive
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -154,6 +156,8 @@ fun BrowserScreen(
     extraCookieDomains: List<String> = emptyList(),
     /** 地址还没备好（[initialUrl] 为空）：先出空白页和进度条，等 [initialUrl] 有值再加载。 */
     waiting: Boolean = false,
+    /** 「更多」里的「发给小岱」。 */
+    onAskAgent: ((com.xjtu.toolbox.agent.AgentForward) -> Unit)? = null,
     onBack: () -> Unit
 ) {
     var currentUrl by remember { mutableStateOf(initialUrl) }
@@ -359,6 +363,16 @@ fun BrowserScreen(
                                     }
                                     // 分享：纯文字「网页标题 + 链接」，走系统分享面板
                                     item(Icons.Default.Share, "分享") { shareWebPage(context, pageTitle, currentUrl) }
+                                    if (onAskAgent != null) item(Icons.Default.SmartToy, "发给小岱") {
+                                        val title = pageTitle
+                                        val link = shareableUrl(currentUrl, WebVpnUtil)
+                                        val send = { text: String -> onAskAgent(com.xjtu.toolbox.agent.AgentForward.webPage(title, link, text)) }
+                                        // 带上页面上显示的文字：链接要登录或走 WebVPN 时小岱自己打不开。
+                                        // innerText 不含输入框里填的内容（密码之类）
+                                        webViewRef?.evaluateJavascript(PAGE_TEXT_JS) { raw ->
+                                            send(runCatching { com.xjtu.toolbox.util.AppJson.parseToJsonElement(raw).jsonPrimitive.content }.getOrDefault(""))
+                                        } ?: send("")
+                                    }
                                     item(Icons.AutoMirrored.Filled.OpenInNew, "在外部浏览器打开") {
                                         runCatching {
                                             context.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(shareableUrl(currentUrl, WebVpnUtil))))
@@ -651,3 +665,6 @@ internal fun shareWebPage(context: android.content.Context, title: String, url: 
     runCatching { context.startActivity(android.content.Intent.createChooser(send, "分享网页")) }
         .onFailure { Toast.makeText(context, "没有可以分享到的应用", Toast.LENGTH_SHORT).show() }
 }
+
+/** 读当前页显示的文字。多取一些留给 [com.xjtu.toolbox.agent.AgentForward.webPage] 判断是否截断。 */
+private const val PAGE_TEXT_JS = "document.body ? document.body.innerText.slice(0, 20000) : ''"

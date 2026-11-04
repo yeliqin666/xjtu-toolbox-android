@@ -496,15 +496,28 @@ fun SettingsScreen(
         add(SettingsGroup("关于", MiuixIcons.Info, cBlue, aboutGroup))
     }
 
-    // 退场滑出时 page 已回 NO_PAGE，画的仍是刚才那页
-    var shownPage by remember { mutableIntStateOf(NO_PAGE) }
-    if (page != NO_PAGE) shownPage = page
+    // 窄屏的致谢叠在「关于」上面：两层各滑各的，「关于」一直在底下，返回时滚动位置也还在。
+    // 以前只有一层、直接换内容，那一层一直可见，AnimatedVisibility 不会触发，于是没有转场（#356）
+    val backToAbout = !com.xjtu.toolbox.ui.isWideLayout()
+    val groupPage = when {
+        page >= 0 -> page
+        page == CREDITS_PAGE && backToAbout -> groups.lastIndex
+        else -> NO_PAGE
+    }
+    // 退场滑出时 groupPage 已回 NO_PAGE，画的仍是刚才那页
+    var shownGroup by remember { mutableIntStateOf(NO_PAGE) }
+    if (groupPage != NO_PAGE) shownGroup = groupPage
     // 和压栈打开子页同一套转场（AppPageMotion）：新页从右侧整屏滑入，
     // 被盖住的设置页向左让出 1/4 屏并轻微压暗，与「我的 → 设置」一致。
     val cover by animateFloatAsState(
         targetValue = if (page != NO_PAGE) 1f else 0f,
         animationSpec = tween(AppPageMotion.DurationMillis, easing = AppPageMotion.Easing),
         label = "subPageCover",
+    )
+    val creditsCover by animateFloatAsState(
+        targetValue = if (page == CREDITS_PAGE && backToAbout) 1f else 0f,
+        animationSpec = tween(AppPageMotion.DurationMillis, easing = AppPageMotion.Easing),
+        label = "creditsCover",
     )
     val rtl = LocalLayoutDirection.current == LayoutDirection.Rtl
     Box(Modifier.fillMaxSize()) {
@@ -517,7 +530,28 @@ fun SettingsScreen(
             },
         )
         AnimatedVisibility(
-            visible = page != NO_PAGE,
+            visible = groupPage != NO_PAGE,
+            enter = slideInHorizontally(
+                tween(AppPageMotion.DurationMillis, easing = AppPageMotion.Easing),
+            ) { if (rtl) -it else it },
+            exit = slideOutHorizontally(
+                tween(AppPageMotion.DurationMillis, easing = AppPageMotion.Easing),
+            ) { if (rtl) -it else it },
+        ) {
+            BackHandler(enabled = page >= 0) { page = NO_PAGE }
+            Box(
+                Modifier.fillMaxSize().graphicsLayer {
+                    translationX = (if (rtl) 1f else -1f) * creditsCover * size.width * 0.25f
+                    alpha = 1f - 0.1f * creditsCover
+                },
+            ) {
+                groups.getOrNull(shownGroup)?.let { group ->
+                    SettingsSubPage(title = group.title, onBack = { page = NO_PAGE }) { group.body() }
+                }
+            }
+        }
+        AnimatedVisibility(
+            visible = page == CREDITS_PAGE,
             enter = slideInHorizontally(
                 tween(AppPageMotion.DurationMillis, easing = AppPageMotion.Easing),
             ) { if (rtl) -it else it },
@@ -526,16 +560,9 @@ fun SettingsScreen(
             ) { if (rtl) -it else it },
         ) {
             // 窄屏的致谢是从「关于」二级页进来的，返回时退回「关于」
-            val backToAbout = !com.xjtu.toolbox.ui.isWideLayout()
-            val close = { page = if (page == CREDITS_PAGE && backToAbout) groups.lastIndex else NO_PAGE }
-            BackHandler { close() }
-            if (shownPage == CREDITS_PAGE) {
-                CreditsScreen(host = host, onBack = close)
-            } else {
-                groups.getOrNull(shownPage)?.let { group ->
-                    SettingsSubPage(title = group.title, onBack = close) { group.body() }
-                }
-            }
+            val close = { page = if (backToAbout) groups.lastIndex else NO_PAGE }
+            BackHandler(enabled = page == CREDITS_PAGE) { close() }
+            CreditsScreen(host = host, onBack = close)
         }
     }
 }

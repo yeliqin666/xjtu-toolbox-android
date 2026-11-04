@@ -70,6 +70,7 @@ internal class AndroidAgentHost(
                 com.xjtu.toolbox.inbox.SelfTodoAgentTools,
                 com.xjtu.toolbox.campusmap.CampusMapAgentTools(locate = { AgentLocation.current(context) }),
                 PidaiTaskAgentTools,
+                com.xjtu.toolbox.bus.BusAgentTools(com.xjtu.toolbox.bus.appBusApi),
                 config.webSearchKey.takeIf { it.isNotEmpty() }?.let { DeepSeekWebTools(it, localFetch = wechat::readArticle) },
                 wechat,
             ),

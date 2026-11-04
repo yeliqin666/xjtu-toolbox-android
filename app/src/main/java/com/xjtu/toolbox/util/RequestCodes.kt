@@ -21,6 +21,8 @@ object RequestCodes {
 
     // 2xxx 系统通知
     const val NOTICE_PUSH = 2000
+    /** 通知栏新通知上的「问小岱」按钮。 */
+    const val NOTICE_ASK_PIDAI = 2001
     const val REMINDER_LIBRARY = 2101
     const val REMINDER_SCHEDULE = 2102
     const val REMINDER_EXAM = 2103
