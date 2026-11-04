@@ -261,6 +261,10 @@ fun HomeScreen(
     // 顶栏本身在这个层**外面**（是它的兄弟节点），不然它会被采进自己那层里形成回环。
     val pageBackdrop = rememberLayerBackdrop()
 
+    // 要不要真录这一层（`layerBackdrop` 会多一次全屏离屏渲染）：玻璃风格的模糊带要用它，
+    // 液态玻璃开着时顶栏圆钮要用它；两种都不需要（经典风格 + 毛玻璃，或这一端根本没有顶栏）就不录
+    val recordPageLayer = glass || (collapsible && liquid)
+
     val session = remember { HomeDragSession() }
     val density = LocalDensity.current
     // 长按「拿起」的触感：走主题里那个被「振动开关」包过的 LocalHapticFeedback（见 Theme.kt）
@@ -912,14 +916,14 @@ fun HomeScreen(
                 },
             ),
     ) {
-        // ── 内容层：背景 + 滚动内容，整层录进 pageBackdrop 供顶栏模糊带采样 ──
-        // 只有玻璃风格下才真的录：`layerBackdrop` 会多一次离屏渲染，经典风格用不到
+        // ── 内容层：背景 + 滚动内容，整层录进 pageBackdrop 给顶栏模糊带与顶栏圆钮采样 ──
+        // 只在真有人要采的时候录，见上面的 recordPageLayer
         Box(
             Modifier
                 .matchParentSize()
-                .then(if (glass) Modifier.layerBackdrop(pageBackdrop) else Modifier),
+                .then(if (recordPageLayer) Modifier.layerBackdrop(pageBackdrop) else Modifier),
         ) {
-            // ── 背景层：主题底色 +（可选）主题色渐变 / 壁纸。同时是液态玻璃组件的采样源 ──
+            // ── 背景层：主题底色 +（可选）主题色渐变 / 壁纸。卡片 / 悬浮球的液态玻璃采它 ──
             Box(
                 Modifier
                     .matchParentSize()
@@ -1088,10 +1092,11 @@ fun HomeScreen(
         // 编辑态顶栏（取消 / 设置 / 保存）不需要宿主给按钮，所以这一端没有 topActions 也要画，
         // 否则桌面、Web 长按进了编辑态就出不来了
         if (collapsible || editing.on) {
-            // 把首页背景层通过 Local 递给顶栏按钮（含宿主给的扫码 / 搜索 / 通知）做液态玻璃。
+            // 顶栏圆钮（编辑态三个图标 + 宿主给的扫码 / 搜索 / 通知）也采**内容层**：
+            // 它们和模糊带一样压在内容上面，该糊 / 折射的是此刻盖住的东西，不是固定壁纸。
             // 折射开关同理走 Local：那几个按钮是宿主（:app）画的，拿不到这里的参数
             CompositionLocalProvider(
-                LocalHomeTileBackdrop provides tileBackdrop.takeIf { liquid },
+                LocalHomeBarBackdrop provides pageBackdrop.takeIf { liquid },
                 LocalHomeGlassRefraction provides refraction,
             ) {
                 HomeCollapsingBar(
@@ -1100,7 +1105,7 @@ fun HomeScreen(
                     bandShift = contentTopShift,
                     // 模糊带采**内容层**：糊的是此刻滚到顶栏底下的东西（壁纸 + 内容），不是固定壁纸
                     backdrop = if (glass) pageBackdrop else null,
-                    tileLiquidBackdrop = tileBackdrop.takeIf { liquid },
+                    barLiquidBackdrop = pageBackdrop.takeIf { liquid },
                     onTapCollapsed = { scope.launch { scroll.animateScrollTo(0) } },
                     editing = editing.on,
                     leading = topLeading,
@@ -1336,10 +1341,13 @@ private fun defaultGroupIds(): Set<String> =
 private fun newGroupId(): String = "custom-" + kotlin.random.Random.nextInt(100000, 999999)
 
 /**
- * 首页背景层（主题底色 + 壁纸）的采样源：顶栏按钮——包括宿主给的扫码 / 搜索 / 通知——
- * 读它做液态玻璃。首页在顶栏这一层 provide（液态开关关的时候是 null，按钮退回非液态）。
+ * 首页**内容层**（背景 + 滚动内容）的采样源：顶栏那排圆钮——包括宿主给的扫码 / 搜索 / 通知——
+ * 读它做液态玻璃，于是圆钮模糊 / 折射的也是它**此刻盖住的东西**，和顶栏模糊带同一个源。
+ *
+ * 首页在顶栏这一层 provide（液态开关关的时候是 null，按钮退回非液态）。卡片 / 悬浮球不走它，
+ * 那些还是采背景层（见 `tileBackdrop`）——它们贴在壁纸上，采整页会把自己和邻居也采进去。
  */
-val LocalHomeTileBackdrop = compositionLocalOf<Backdrop?> { null }
+val LocalHomeBarBackdrop = compositionLocalOf<Backdrop?> { null }
 
 /**
  * 首页液态玻璃要不要带折射（透镜弯光 + 色散）。
@@ -1369,8 +1377,8 @@ private fun HomeCollapsingBar(
     topInset: Dp,
     bandShift: () -> Dp,
     backdrop: Backdrop?,
-    /** 顶栏圆钮液态玻璃的采样源（首页背景层）；null = 退回半透明圆钮。 */
-    tileLiquidBackdrop: Backdrop?,
+    /** 顶栏圆钮液态玻璃的采样源（首页**内容层**：背景 + 滚动内容）；null = 退回半透明圆钮。 */
+    barLiquidBackdrop: Backdrop?,
     onTapCollapsed: () -> Unit,
     editing: Boolean,
     leading: (@Composable () -> Unit)?,
@@ -1450,7 +1458,7 @@ private fun HomeCollapsingBar(
                 },
             ) {
                 when {
-                    editing -> HomeBarIconButton(Icons.Default.Close, "取消编辑", tileLiquidBackdrop, onCancelEdit)
+                    editing -> HomeBarIconButton(Icons.Default.Close, "取消编辑", barLiquidBackdrop, onCancelEdit)
                     devTopBar -> HomeBarAvatar(progress)
                     else -> leading?.invoke()
                 }
@@ -1463,8 +1471,8 @@ private fun HomeCollapsingBar(
             ) {
                 if (editing) {
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                        HomeBarIconButton(Icons.Default.Settings, "主页设置", tileLiquidBackdrop, onHomeSettings)
-                        HomeBarIconButton(Icons.Default.Check, "保存布局", tileLiquidBackdrop, onSaveEdit)
+                        HomeBarIconButton(Icons.Default.Settings, "主页设置", barLiquidBackdrop, onHomeSettings)
+                        HomeBarIconButton(Icons.Default.Check, "保存布局", barLiquidBackdrop, onSaveEdit)
                     }
                 } else {
                     actions?.invoke()

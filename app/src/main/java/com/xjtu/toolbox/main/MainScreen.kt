@@ -94,7 +94,7 @@ import com.xjtu.toolbox.home.HomeStats
 import com.xjtu.toolbox.home.HomeStatsRefresher
 import com.xjtu.toolbox.home.HomeTab
 import com.xjtu.toolbox.home.LocalHomeGlassRefraction
-import com.xjtu.toolbox.home.LocalHomeTileBackdrop
+import com.xjtu.toolbox.home.LocalHomeBarBackdrop
 import com.xjtu.toolbox.library.LibraryFocus
 import com.xjtu.toolbox.library.LibraryQrArea
 import com.xjtu.toolbox.nav.AppRoute
@@ -649,8 +649,9 @@ private fun HomeTopActions(
 private val HomeTopActionSize = 44.dp
 
 /**
- * 顶栏圆钮：半透明底色 + 柔和投影，直接透出下面的顶栏模糊，不再单独采样/模糊。
- * **没有描边**——和底栏那套玻璃拟态一致（需求 §1.2：移除所有白边框）。
+ * 顶栏圆钮：液态玻璃（采首页递过来的**内容层**：模糊 + 活力 + 高光 + 可选折射透镜，
+ * 所以透出来、扭动的是它此刻盖住的壁纸与滚到下面的内容）；[liquid] 为 null 时退回
+ * 半透明底色圆钮。**没有描边**——和底栏那套玻璃拟态一致（需求 §1.2：移除所有白边框）。
  * 按压用共享的 [pressScale]（小圆钮压深一点）；onClick 为 null 时只画底，不接管点击。
  */
 @Composable
@@ -661,8 +662,9 @@ private fun HomeRoundAction(
 ) {
     val interaction = remember { MutableInteractionSource() }
     val isDark = LocalIsDarkTheme.current
-    // 首页背景层（壁纸）由首页通过 Local 递过来：液态开关开着时圆钮采它做液态玻璃
-    val liquid = LocalHomeTileBackdrop.current
+    // 首页**内容层**（背景 + 滚动内容）由首页通过 Local 递过来：液态开关开着时圆钮采它，
+    // 于是模糊 / 折射的也是它此刻盖住的东西，和顶栏模糊带同一个源
+    val liquid = LocalHomeBarBackdrop.current
     // 折射子开关同样由首页 provide：关掉时圆钮只留模糊与高光，省一层离屏位移采样
     val refraction = LocalHomeGlassRefraction.current
     val fill = if (isDark) Color.White.copy(alpha = 0.08f) else Color.White.copy(alpha = 0.4f)
