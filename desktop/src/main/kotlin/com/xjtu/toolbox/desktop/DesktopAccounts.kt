@@ -13,7 +13,6 @@ import com.xjtu.toolbox.platform.keyValueStore
 import com.xjtu.toolbox.platform.secureKeyValueStore
 import com.xjtu.toolbox.desktop.jiaocai1.DesktopJiaocai1ShelfStore
 import com.xjtu.toolbox.desktop.media.DesktopDownloadTaskStore
-import com.xjtu.toolbox.desktop.score.DesktopScoreReportCache
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
@@ -134,14 +133,18 @@ internal class DesktopAccounts(
     /** 删掉这个账号在本端的本地缓存（`deleteCache = true` 那一档）。 */
     private fun wipeDesktopCaches(accountId: String) {
         runCatching {
-            keyValueStore(accountScopedStoreName(DesktopScoreReportCache.STORE_NAME, accountId))
-                .remove(DesktopScoreReportCache.keyFor(accountId))
+            // 旧版成绩报表页留下的缓存（页面已并入成绩查询），删账号时一并清掉
+            keyValueStore(accountScopedStoreName(LEGACY_SCORE_REPORT_STORE, accountId)).clear()
             secureKeyValueStore(accountScopedStoreName(DesktopDownloadTaskStore.STORE_NAME, accountId)).clear()
             secureKeyValueStore(accountScopedStoreName(DesktopJiaocai1ShelfStore.STORE_NAME, accountId)).clear()
         }
     }
 
     private fun nowMs(): Long = System.currentTimeMillis()
+
+    internal companion object {
+        const val LEGACY_SCORE_REPORT_STORE = "score_report"
+    }
 }
 
 /** 外壳每次组合建一个（与 `DesktopAuth` 同生命周期）：它只持有 `auth` 与那份账号表，自身没有状态。 */

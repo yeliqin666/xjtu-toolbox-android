@@ -36,7 +36,7 @@ import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextButton
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
-/** 屁岱（`AppRoute.Agent`）在浏览器上的那一屏（设计真源 `docs/agent-web-spec.md` §4）。 */
+/** 小岱（`AppRoute.Agent`）在浏览器上的那一屏（设计真源 `docs/agent-web-spec.md` §4）。 */
 @Composable
 internal fun WebAgentScreen(
     client: HttpClient,
@@ -52,9 +52,9 @@ internal fun WebAgentScreen(
     // 读到 serve 上的配置之前不画屏：否则默认值会被写回 serve 覆盖掉真实配置。
     if (host.config == null) {
         WebUnavailableScreen(
-            title = "屁岱（Web 这一端）",
+            title = "小岱（Web 这一端）",
             why = host.configError
-                ?: "正在读取运行 serve 的那台机器上的屁岱配置（GET /api/agent/config）…",
+                ?: "正在读取运行 serve 的那台机器上的小岱配置（GET /api/agent/config）…",
             missing = listOf(
                 "这一屏的模型调用 / 工具取数 / 会话与记忆 / API Key 全在 serve 那一侧",
                 "配置没读回来之前不画屏：拿默认值画出来的表单一保存就会把 serve 上的配置覆盖掉",
@@ -70,7 +70,7 @@ internal fun WebAgentScreen(
     }
 
     // 顶栏那三样由屏反向送上来（见文件头第 3 条）；标题 / 按钮的本体都是屏给的 composable。
-    var title by remember { mutableStateOf("屁岱") }
+    var title by remember { mutableStateOf("小岱") }
     var navIcon by remember { mutableStateOf<(@Composable () -> Unit)?>(null) }
     var actions by remember { mutableStateOf<(@Composable RowScope.() -> Unit)?>(null) }
 
@@ -251,7 +251,7 @@ private fun WebAgentMemorySection(session: WebAgentSession) {
 
 // 记忆条数上限用 `:core` 的 `AgentMemory.MAX_ITEMS`（serve 侧落盘的那一份说了算）—— 本文件不另写一个数
 
-/** 「这一份部署的屁岱能做什么」——页面说明与白名单同源。 */
+/** 「这一份部署的小岱能做什么」——页面说明与白名单同源。 */
 internal fun agentToolNote(allowlist: List<String>): String = buildString {
     append("对话、记忆和 API Key 保存在服务端。")
     if (allowlist.isEmpty()) append("当前仅支持聊天，校园查询暂未开放。")

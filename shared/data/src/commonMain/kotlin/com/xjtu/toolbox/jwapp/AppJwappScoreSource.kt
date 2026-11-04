@@ -2,7 +2,7 @@ package com.xjtu.toolbox.jwapp
 
 import com.xjtu.toolbox.auth.SessionExpiredException
 import com.xjtu.toolbox.auth.SessionManager
-import com.xjtu.toolbox.judge.JudgeApi
+import com.xjtu.toolbox.auth.ensureSite
 import com.xjtu.toolbox.score.ReportedGrade
 import com.xjtu.toolbox.score.ScoreReportApi
 import kotlinx.coroutines.Dispatchers
@@ -15,8 +15,8 @@ class AppJwappScoreSource(private val sessionManager: SessionManager) :
     private fun jwappSite() = sessionManager.getSiteOrNull(JWAPP_SITE_KEY)
         ?: throw SessionExpiredException("移动教务", "移动教务站点会话不存在")
 
-    private fun jwxtSite() = sessionManager.getSiteOrNull(JWXT_SITE_KEY)
-        ?: throw SessionExpiredException("教务", "教务站点会话不存在")
+    /** 成绩页只登了移动教务；教务这半用到时再静默补登（已登录时不发请求）。 */
+    private suspend fun jwxtSite() = sessionManager.ensureSite(JWXT_SITE_KEY, silent = true)
 
     // ── jwapp（移动教务）那半 ────────────────────────────────────────
 
@@ -41,10 +41,6 @@ class AppJwappScoreSource(private val sessionManager: SessionManager) :
 
     override suspend fun preciseScores(): List<CjcxScore> =
         withContext(Dispatchers.IO) { CjcxApi(jwxtSite()).getAllScores() }
-
-    override suspend fun unevaluatedCourseNames(): Set<String> = withContext(Dispatchers.IO) {
-        JudgeApi(jwxtSite()).unfinishedQuestionnaires().map { it.KCM }.toSet()
-    }
 
     override suspend fun reportedGrades(studentId: String): List<ReportedGrade> =
         withContext(Dispatchers.IO) { ScoreReportApi(jwxtSite()).getReportedGrade(studentId) }

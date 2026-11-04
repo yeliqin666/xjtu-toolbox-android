@@ -9,10 +9,12 @@ import androidx.core.content.getSystemService
 /**
  * 系统通知渠道。
  *
- * 三个 channel 各司其职：
+ * 通知渠道各司其职：
  * - [CHANNEL_APP]     常规业务通知（余额低 / 新通知 / 新成绩），有声音但不打扰
  * - [CHANNEL_REMINDER] 上课前提醒，高优先级，锁屏可见
  * - [CHANNEL_SILENT]  静默备份通道，LOW importance，不响不弹，纯抽屉里落一条
+ * - [CHANNEL_DYNAMIC_SCHEDULE] 动态课程与日程，静默更新同一条通知
+ * - [CHANNEL_AGENT]   小岱生成回复期间的前台服务通知
  *
  * 必须在 [Application.onCreate] 调一次 [ensureChannels]，否则 8.0+ 发通知会被系统丢弃。
  * 调用幂等：重复注册同名 channel 会覆盖，不会泄漏。
@@ -28,9 +30,36 @@ object AppNotificationChannels {
     /** Agent 主动拉新冗余通道，不打扰。 */
     const val CHANNEL_SILENT = "silent"
 
+    /** 动态课程与日程：静默持续展示，独立渠道可随时关闭。 */
+    const val CHANNEL_DYNAMIC_SCHEDULE = "dynamic_schedule"
+
+    /** 小岱生成中：前台服务必须带的那条通知，静默。 */
+    const val CHANNEL_AGENT = "agent_generation"
+
     /** 启动时建一次。重复调用无副作用。 */
     fun ensureChannels(context: Context) {
         val nm = context.getSystemService<NotificationManager>() ?: return
+
+        nm.createNotificationChannel(
+            NotificationChannel(CHANNEL_AGENT, "小岱回复中", NotificationManager.IMPORTANCE_LOW).apply {
+                description = "生成回复期间保持运行，切出应用也不中断"
+                setShowBadge(false)
+                enableVibration(false)
+                enableLights(false)
+                setSound(null, null)
+            }
+        )
+
+        nm.createNotificationChannel(
+            NotificationChannel(CHANNEL_DYNAMIC_SCHEDULE, "动态课程与日程", NotificationManager.IMPORTANCE_LOW).apply {
+                description = "今日正在进行或接下来的课程、日程与倒计时"
+                setShowBadge(false)
+                enableVibration(false)
+                enableLights(false)
+                setSound(null, null)
+                lockscreenVisibility = android.app.Notification.VISIBILITY_PRIVATE
+            }
+        )
 
         nm.createNotificationChannel(
             NotificationChannel(

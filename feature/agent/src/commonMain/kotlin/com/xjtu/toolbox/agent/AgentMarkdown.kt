@@ -12,6 +12,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.foundation.layout.*
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
@@ -120,14 +121,18 @@ fun MarkdownText(
                     MdText(mathLive, rememberInline(block.text, linkColor, codeBg, errorColor, linkHandler), color = quoteColor,
                         style = MiuixTheme.textStyles.body2)
                 }
-                is MdBlock.Code -> Box(
-                    Modifier.fillMaxWidth()
-                        .background(codeBg, RoundedCornerShape(8.dp))
-                        .horizontalScroll(rememberScrollState())
-                        .padding(10.dp)
-                ) {
-                    Text(block.text, color = color, style = MiuixTheme.textStyles.footnote1,
-                        fontFamily = FontFamily.Monospace)
+                is MdBlock.Code -> Column {
+                    val scroll = rememberScrollState()
+                    Box(
+                        Modifier.fillMaxWidth()
+                            .background(codeBg, RoundedCornerShape(8.dp))
+                            .horizontalScroll(scroll)
+                            .padding(10.dp)
+                    ) {
+                        Text(block.text, color = color, style = MiuixTheme.textStyles.footnote1,
+                            fontFamily = FontFamily.Monospace)
+                    }
+                    HorizontalScrollHint(scroll, color)
                 }
                 MdBlock.Rule -> HorizontalDivider(
                     Modifier.padding(vertical = 4.dp),
@@ -503,25 +508,32 @@ private fun MathBlock(block: MdBlock.Math, color: Color, codeBg: Color, live: Bo
         live && texParses(block.tex) &&
             runCatching { measurer.measure(block.tex, config, dark) != null }.getOrDefault(false)
     }
+    val scroll = rememberScrollState()
     if (ok) {
         BoxWithConstraints(Modifier.fillMaxWidth()) {
             val minW = maxWidth
-            Box(
-                Modifier.horizontalScroll(rememberScrollState()).widthIn(min = minW).padding(vertical = 4.dp),
-                contentAlignment = Alignment.Center,
-            ) {
-                Latex(block.tex, config = config, isDarkTheme = dark)
+            Column {
+                Box(
+                    Modifier.horizontalScroll(scroll).widthIn(min = minW).padding(vertical = 4.dp),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Latex(block.tex, config = config, isDarkTheme = dark)
+                }
+                HorizontalScrollHint(scroll, color)
             }
         }
     } else {
-        Box(
-            Modifier.fillMaxWidth()
-                .background(codeBg, RoundedCornerShape(6.dp))
-                .horizontalScroll(rememberScrollState())
-                .padding(horizontal = 8.dp, vertical = 6.dp)
-        ) {
-            Text(block.raw, color = color, style = MiuixTheme.textStyles.footnote1,
-                fontFamily = FontFamily.Monospace)
+        Column {
+            Box(
+                Modifier.fillMaxWidth()
+                    .background(codeBg, RoundedCornerShape(6.dp))
+                    .horizontalScroll(scroll)
+                    .padding(horizontal = 8.dp, vertical = 6.dp)
+            ) {
+                Text(block.raw, color = color, style = MiuixTheme.textStyles.footnote1,
+                    fontFamily = FontFamily.Monospace)
+            }
+            HorizontalScrollHint(scroll, color)
         }
     }
 }
@@ -579,3 +591,22 @@ private fun MdImage(alt: String, url: String, images: AgentImageLoader, linkColo
     }
 }
 
+
+/** 横向可滑内容下方的细条：只在内容超宽时出现，滑块长度与位置跟随可见区域，提示「这里能左右滑」。 */
+@Composable
+private fun HorizontalScrollHint(state: androidx.compose.foundation.ScrollState, color: Color) {
+    if (state.maxValue <= 0 || state.maxValue == Int.MAX_VALUE) return
+    val viewport = state.viewportSize.toFloat().coerceAtLeast(1f)
+    val fraction = viewport / (viewport + state.maxValue)
+    val offset = state.value.toFloat() / state.maxValue * (1f - fraction)
+    Box(
+        Modifier.fillMaxWidth().padding(top = 4.dp).height(3.dp)
+            .background(color.copy(alpha = 0.08f), RoundedCornerShape(2.dp)),
+    ) {
+        Box(
+            Modifier.fillMaxWidth(fraction).height(3.dp)
+                .graphicsLayer { translationX = offset * size.width / fraction }
+                .background(color.copy(alpha = 0.32f), RoundedCornerShape(2.dp)),
+        )
+    }
+}

@@ -6,7 +6,6 @@ import com.xjtu.toolbox.account.AccountStore
 import com.xjtu.toolbox.auth.AccountType
 import com.xjtu.toolbox.desktop.jiaocai1.DesktopJiaocai1ShelfStore
 import com.xjtu.toolbox.desktop.media.DesktopDownloadTaskStore
-import com.xjtu.toolbox.desktop.score.DesktopScoreReportCache
 import com.xjtu.toolbox.platform.dataRootOverride
 import com.xjtu.toolbox.platform.keyValueStore
 import com.xjtu.toolbox.platform.secureKeyValueStore
@@ -193,10 +192,10 @@ class DesktopAccountsJvmTest {
 
         val mine = "2210000001"
         val other = "2210000002"
-        val myReport = accountScopedStoreName(DesktopScoreReportCache.STORE_NAME, mine)
+        val myReport = accountScopedStoreName(DesktopAccounts.LEGACY_SCORE_REPORT_STORE, mine)
         val myQueue = accountScopedStoreName(DesktopDownloadTaskStore.STORE_NAME, mine)
         val myShelf = accountScopedStoreName(DesktopJiaocai1ShelfStore.STORE_NAME, mine)
-        keyValueStore(myReport).putString(DesktopScoreReportCache.keyFor(mine), """{"at":1,"grades":[]}""")
+        keyValueStore(myReport).putString("grades_$mine", """{"at":1,"grades":[]}""")
         secureKeyValueStore(myQueue).putString("rows", "[]")
         secureKeyValueStore(myShelf).putString("rows", "[]")
         // 另一条账号的那两份（删 mine 时一条都不该动）
@@ -207,7 +206,7 @@ class DesktopAccountsJvmTest {
 
         accounts.removeAccount(mine, deleteCache = true)
 
-        assertNull(keyValueStore(myReport).getString(DesktopScoreReportCache.keyFor(mine)), "成绩报表缓存要清掉")
+        assertNull(keyValueStore(myReport).getString("grades_$mine"), "旧版成绩报表缓存要清掉")
         assertNull(secureKeyValueStore(myQueue).getString("rows"), "下载队列要清掉")
         assertNull(secureKeyValueStore(myShelf).getString("rows"), "教材书架要清掉")
         assertEquals("[]", secureKeyValueStore(otherQueue).getString("rows"), "其余账号的队列一条都不能动")

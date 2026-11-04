@@ -31,6 +31,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import com.xjtu.toolbox.ui.glass.tabContentPadding
 import com.xjtu.toolbox.ui.isWideLayout
 import top.yukonga.miuix.kmp.basic.VerticalDivider
 
@@ -97,7 +98,7 @@ fun AdaptiveCardGrid(
             modifier
         },
         state = state,
-        contentPadding = contentPadding,
+        contentPadding = tabContentPadding(contentPadding),
         verticalItemSpacing = spacing,
         horizontalArrangement = Arrangement.spacedBy(horizontalSpacing),
         content = content,
@@ -132,7 +133,7 @@ fun AdaptiveRowGrid(
             modifier
         },
         state = state,
-        contentPadding = contentPadding,
+        contentPadding = tabContentPadding(contentPadding),
         verticalArrangement = Arrangement.spacedBy(spacing),
         horizontalArrangement = Arrangement.spacedBy(horizontalSpacing),
         content = content,

@@ -137,6 +137,7 @@ private class AppSettingsHost(
         ScheduleSource.entries.map { ScheduleSourceOption(it.key, it.label) }
 
     override val noticeSection: @Composable () -> Unit = { NoticeAndReminderSection(context, scope) }
+    override val launcherShortcutPreference: @Composable () -> Unit = { com.xjtu.toolbox.shortcuts.LauncherShortcutPreference() }
 
     override val dataPrivacySection: @Composable () -> Unit = { DataPrivacySection(context, scope) }
 
@@ -279,6 +280,7 @@ private fun NoticeAndReminderSection(context: Context, scope: CoroutineScope) {
             onClick = { showNoticeSources = true }
         )
     }
+    DynamicSchedulePreference()
     SmallTitle("后台提醒")
     SettingsCard {
         SwitchPreference(
@@ -452,6 +454,7 @@ private fun DataPrivacySection(context: Context, scope: CoroutineScope) {
                             // 重新计算实际缓存大小，刷新 UI
                             val newSize = runCatching { clearableCacheBytes(context) }.map(::formatFileSize).getOrDefault("0 B")
                             com.xjtu.toolbox.widget.ScheduleWidgetUpdater.requestUpdate(context)
+                            com.xjtu.toolbox.notification.DynamicScheduleScheduler.requestRefresh(context)
                             withContext(Dispatchers.Main) {
                                 cacheSizeText = newSize
                                 Toast.makeText(

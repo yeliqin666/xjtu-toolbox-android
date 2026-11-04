@@ -5,10 +5,6 @@ import androidx.compose.foundation.layout.calculateEndPadding
 import androidx.compose.foundation.layout.calculateStartPadding
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
-import com.kyant.backdrop.effects.vibrancy
-import com.kyant.backdrop.effects.blur
-import com.kyant.backdrop.drawBackdrop
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.getValue
@@ -19,7 +15,6 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.snapshots.Snapshot
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.TileMode
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.unit.Dp
@@ -155,36 +150,9 @@ fun Modifier.glassTopBar(backdrop: LayerBackdrop?): Modifier {
 @Composable
 fun glassBarTint(): Color = MiuixTheme.colorScheme.surface.copy(alpha = 0.72f)
 
-/**
- * 贴边顶栏的玻璃：色彩增强 + 模糊，再压一层 [tint]。不投影、不折射（整宽直边用不上）；
- * 采样范围比顶栏大一圈，边缘也有真实内容可混；屏幕顶边外按透明处理（Clamp 会把边缘像素拉长）。
- *
- * 参数要 remember：drawBackdrop 按 lambda 是否相等判断参数变没变，每次重组传新 lambda
- * 会让它每次都重建效果。
- */
+/** 贴边顶栏的玻璃：与首页同一套无边界渐变模糊，见 [progressiveBlurBar]。只画不量。 */
 @Composable
-fun Modifier.glassBarSurface(backdrop: Backdrop, tint: Color): Modifier {
-    val surface = remember(backdrop, tint) {
-        Modifier.drawBackdrop(
-            backdrop = backdrop,
-            shape = { BarShape },
-            effects = {
-                padding = maxOf(padding, 24.dp.toPx())
-                vibrancy()
-                blur(20.dp.toPx(), TileMode.Decal)
-            },
-            highlight = null,
-            shadow = null,
-            // 采样层里没有页面底色，先垫一层不透明的底，否则字周围模糊后几乎不剩东西
-            onDrawBehind = { drawRect(tint.copy(alpha = 1f)) },
-            onDrawSurface = { drawRect(tint) },
-        )
-    }
-    return this then surface
-}
-
-// 直角写成 RoundedCornerShape(0.dp)：RectangleShape 开折射会闪退
-private val BarShape = RoundedCornerShape(0.dp)
+fun Modifier.glassBarSurface(backdrop: Backdrop, tint: Color): Modifier = progressiveBlurBar(backdrop, tint)
 
 /** 玻璃时内容容器不吃顶部 padding（铺到顶栏下面）；经典时原样返回。 */
 @Composable

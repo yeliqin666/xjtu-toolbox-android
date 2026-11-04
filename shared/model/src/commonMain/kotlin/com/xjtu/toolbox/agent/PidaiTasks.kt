@@ -19,7 +19,7 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.put
 import kotlin.time.Clock
 
-/** 用户交给屁岱的定时任务：到点由后台跑一次，结果进收纳和通知。 */
+/** 用户交给小岱的定时任务：到点由后台跑一次，结果进收纳和通知。 */
 @Serializable
 data class PidaiTask(
     val id: String,
@@ -62,7 +62,7 @@ object PidaiTaskStore {
     }
 }
 
-/** 屁岱管定时任务的三件工具：`schedule_task` / `list_tasks` / `cancel_task`。 */
+/** 小岱管定时任务的三件工具：`schedule_task` / `list_tasks` / `cancel_task`。 */
 object PidaiTaskAgentTools : AgentTools {
 
     private val DAY_CODES = listOf("MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN")
@@ -85,7 +85,7 @@ object PidaiTaskAgentTools : AgentTools {
             listOf(
                 tool(
                     "schedule_task",
-                    "让屁岱在后台定时做一件事（查公开通知、联网搜、看校园地图），到点把结果发到通知和「消息收纳」。" +
+                    "让小岱在后台定时做一件事（查公开通知、联网搜、看校园地图），到点把结果发到通知和「消息收纳」。" +
                         "后台不登录学校系统，课表、成绩这类要登录的查不了。最多 ${PidaiTaskStore.MAX_TASKS} 个。",
                     mapOf(
                         "prompt" to prop("到点要做的事，写成给自己的指令，如「看教务处和学生处有没有奖学金评选通知，有就列出来」。"),
@@ -94,7 +94,7 @@ object PidaiTaskAgentTools : AgentTools {
                     ),
                     listOf("prompt", "time"),
                 ),
-                tool("list_tasks", "列出用户让屁岱定时做的任务。", emptyMap(), emptyList()),
+                tool("list_tasks", "列出用户让小岱定时做的任务。", emptyMap(), emptyList()),
                 tool("cancel_task", "取消一个定时任务。", mapOf("keyword" to prop("任务内容里的关键词。")), listOf("keyword")),
             ),
         ).toString()

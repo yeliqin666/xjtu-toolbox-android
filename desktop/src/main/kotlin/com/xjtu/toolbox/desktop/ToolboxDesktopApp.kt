@@ -50,7 +50,6 @@ import com.xjtu.toolbox.emptyroom.EmptyRoomScreen
 import com.xjtu.toolbox.error.FriendlyError
 import com.xjtu.toolbox.faculty.FacultyApiSource
 import com.xjtu.toolbox.feedback.AppFeedbackSource
-import com.xjtu.toolbox.feedback.FeedbackScreen
 import com.xjtu.toolbox.faculty.FacultyScreen
 import com.xjtu.toolbox.fitness.FitnessApi
 import com.xjtu.toolbox.fitness.FitnessScreen
@@ -69,10 +68,7 @@ import com.xjtu.toolbox.game.hop.HopScreen
 import com.xjtu.toolbox.schedule.AppSchoolCourseSource
 import com.xjtu.toolbox.schedule.ScheduleScreen
 import com.xjtu.toolbox.schedule.SchoolCourseScreen
-import com.xjtu.toolbox.score.ScoreReportScreen
-import com.xjtu.toolbox.score.scoreReportSource
 import com.xjtu.toolbox.game.xiangqi.XiangqiScreen
-import com.xjtu.toolbox.desktop.score.DesktopScoreReportCache
 import com.xjtu.toolbox.inbox.AppInboxSource
 import com.xjtu.toolbox.inbox.InboxScreen
 import com.xjtu.toolbox.jiaocai.AppJiaocaiSource
@@ -149,13 +145,13 @@ internal fun ToolboxDesktopApp(
     initialTarget: DesktopTarget = DesktopTarget.App(AppRoute.Main),
     /** 公告取数那一枪（[DesktopBulletins.fetch]）。 */
     bulletinFetch: suspend (String) -> BulletinApi.FetchResult? = { BulletinApi.fetch(it) },
-    /** 屁岱的宿主面（`:core` 的 [AgentHost]）。 */
+    /** 小岱的宿主面（`:core` 的 [AgentHost]）。 */
     agentHost: AgentHost? = null,
 ) {
     var target by remember { mutableStateOf(initialTarget) }
     val scope = rememberCoroutineScope()
 
-    // 屁岱的宿主面：进程内一份（与 `:app` 把屁岱挂在导航项上同位 —— 切页不丢会话）。
+    // 小岱的宿主面：进程内一份（与 `:app` 把小岱挂在导航项上同位 —— 切页不丢会话）。
     val agent = agentHost ?: remember(auth) { DesktopAgentHost(auth) }
 
 
@@ -264,7 +260,6 @@ internal val DESKTOP_SUPPORTED_ROUTES = listOf(
     AppRoute.SchoolCourse to "全校课表",
 
     AppRoute.Schedule to "我的课表",
-    AppRoute.ScoreReport to "成绩",
     AppRoute.Judge to "学生评教",
     AppRoute.CampusCard to "校园卡",
     AppRoute.EmptyRoom to "空闲教室",
@@ -289,7 +284,6 @@ internal val DESKTOP_SUPPORTED_ROUTES = listOf(
     AppRoute.Iclassface to "快速考勤流水",
     AppRoute.Community to "社区",
 
-    AppRoute.Feedback to "反馈与建议",
 
     AppRoute.Jiaocai to "教材查询",
 
@@ -311,7 +305,7 @@ internal val DESKTOP_SUPPORTED_ROUTES = listOf(
 
     AppRoute.Accounts to "账号管理",
 
-    AppRoute.Agent to "屁岱",
+    AppRoute.Agent to "小岱",
 
     AppRoute.Match to "匹配交友",
 )
@@ -387,7 +381,7 @@ private fun DesktopPage(
     route: AppRoute,
     /** 公告宿主面（只有首页用得上：顶部那条堆叠条）。 */
     bulletins: DesktopBulletins,
-    /** 屁岱的宿主面（只有 `AppRoute.Agent` 用得上；外壳持有，切页不丢会话）。 */
+    /** 小岱的宿主面（只有 `AppRoute.Agent` 用得上；外壳持有，切页不丢会话）。 */
     agentHost: AgentHost,
     /** 外观设置改完之后戳一下外壳（设置屏通过 `DesktopSettingsHost` 回调过来，见 `ToolboxDesktopApp`）。 */
     onAppearanceChanged: () -> Unit,
@@ -453,27 +447,6 @@ private fun DesktopPage(
                 },
             )
         }
-        AppRoute.ScoreReport -> DesktopSiteGate(auth, DesktopAuth.JWXT_SITE_KEY, "教务") { site ->
-            val studentId = AccountContext.activeAccountId?.takeIf { it.isNotBlank() }
-            if (studentId == null) {
-                MissingIdentityPage(
-                    onNavigate = onNavigate,
-                    title = "成绩报表要一个学号，现在取不到",
-                    lines = listOf(
-                        "成绩报表按学号取数，学号来自这次登录。取不到通常是登录还没走完，或者这一份装配是" +
-                            "从落盘凭据恢复的 —— 重新登录一次即可。",
-                        "教务那边的会话本身是好的（能进这一屏就说明它建起来了）。",
-                    ),
-                )
-            } else {
-                ScoreReportScreen(
-                    source = remember(site, studentId) { scoreReportSource(site, studentId) },
-                    cache = remember(studentId) { DesktopScoreReportCache(studentId) },
-                    onBack = back,
-                )
-            }
-        }
-
         AppRoute.Judge -> if (AccountContext.activeAccountType == AccountType.POSTGRADUATE) {
             val source = remember { GraduateJudgeSource(auth.sessionManager) }
             val vm: JudgeViewModel<GraduateQuestionnaire> =
@@ -635,7 +608,6 @@ private fun DesktopPage(
                 source = source,
                 studentId = AccountContext.activeAccountId.orEmpty(),
                 onBack = back,
-                onOpenReport = { onNavigate(DesktopTarget.App(AppRoute.ScoreReport)) },
                 onOpenTranscript = if (AccountContext.activeAccountType == AccountType.UNDERGRADUATE) {
                     { onNavigate(DesktopTarget.App(AppRoute.Transcript)) }
                 } else null,
@@ -657,14 +629,6 @@ private fun DesktopPage(
             deviceAuth = remember {
                 GithubOAuthDeviceAuthRepository(GithubNetwork.client, CommunityRepo.CLIENT_ID)
             },
-            onBack = back,
-            onOpenLegacyFeedback = { onNavigate(DesktopTarget.App(AppRoute.Feedback)) },
-        )
-
-        // 反馈：上游是飞书开放平台，不套 `DesktopSiteGate`；凭据没配时表单隐藏、只剩外链。
-        AppRoute.Feedback -> FeedbackScreen(
-            source = remember { AppFeedbackSource },
-            onOpenUrl = { url -> if (url.isNotBlank()) openInBrowser(url) },
             onBack = back,
         )
 
@@ -719,8 +683,8 @@ private fun DesktopPage(
         )
         // 设置：屏在 `:core`（`SettingsScreen`，与 `:app` 同一份），
         // 这一端只装配两样：落盘的偏好存储（`desktopSettings`）与宿主槽位（`DesktopSettingsHost`，
-        // 声明这一端**真会照着办**的行）。宿主没有的那几组（通知与提醒 / 更新）整组不画，
-        // 「数据与隐私」已接桌面归档（导出 / 导入数据存档）—— 见那个类的 KDoc 与 honoredRows。
+        // 声明这一端**真会照着办**的行）。宿主没有的那几组（通知与提醒 / 数据与隐私 / 更新）
+        // 整组不画 —— 见那个类的 KDoc 里那张表与 TODO。
         AppRoute.Settings -> SettingsScreen(
             store = desktopSettings,
             host = remember { DesktopSettingsHost(onAppearanceChanged) },
@@ -817,7 +781,7 @@ private fun DesktopPage(
         else -> NotPortedScreen(route, onNavigate)
     }
 }
-/** 屁岱在桌面的宿主壳 —— `:core` 的 [AgentScreen] 自己不带顶栏。 */
+/** 小岱在桌面的宿主壳 —— `:core` 的 [AgentScreen] 自己不带顶栏。 */
 @Composable
 private fun DesktopAgentScreen(host: AgentHost, onNavigate: (DesktopTarget) -> Unit) {
     // 屏把这三格送上来（见 AgentScreen 的 KDoc）：标题跟着助手名走。

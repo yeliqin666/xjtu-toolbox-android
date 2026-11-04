@@ -95,11 +95,17 @@ interface AgentHost {
     /** 删掉这些附件文件（会话被删、附件被撤回时调用）。 */
     fun deleteImageFiles(paths: List<String>): Unit = Unit
 
+    fun sharedMaterials(): AgentShareStore? = null
+    fun copySharedImages(paths: List<String>): List<String> = emptyList()
+
     /** 读工具落下的平面图缓存（图书馆座位卡的底图，`:app` = `cacheDir/library_plan/<name>`）。 */
     suspend fun readPlanImage(name: String): DecodedPlanImage? = null
 
     /** 把仲英学辅资料站的一个文件存进「下载」（资料卡那一行的动作）。 */
     suspend fun saveZyxfFile(fileId: Int): String? = null
+
+    /** 生成开始 / 结束（`:app` 借此挂前台服务，切出 App 后进程不被冻结、流式不断）。 */
+    fun generating(active: Boolean) {}
 
     companion object {
 

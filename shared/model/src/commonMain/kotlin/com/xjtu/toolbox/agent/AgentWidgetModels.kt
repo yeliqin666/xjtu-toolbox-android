@@ -143,6 +143,24 @@ data class CampusMapWidget(
     val display: WidgetDisplay = WidgetDisplay(),
 ) : AgentWidget
 
+/**
+ * 小岱提议的安排：从对话或材料里理出的日程、待办，用户逐条点「加入」才写入。
+ * [date] 为 yyyy-MM-dd，[start]/[end] 为 HH:mm；待办的 [start] 是该办完的时刻，可空（当天截止）。
+ */
+@Serializable
+data class PlanProposal(
+    val title: String = "",
+    val date: String = "",
+    val start: String = "",
+    val end: String = "",
+    val place: String = "",
+    val note: String = "",
+    val todo: Boolean = false,
+)
+
+@Serializable
+data class PlanWidget(val items: List<PlanProposal> = emptyList(), val caption: String = "") : AgentWidget
+
 /** 类型名是存盘格式的一部分（沿用旧版的类名），不要改。 */
 fun AgentWidget.toStored(): StoredWidget = when (this) {
     is NoticeWidget -> StoredWidget("NoticeWidget", AppJson.encodeToString(this))
@@ -156,6 +174,7 @@ fun AgentWidget.toStored(): StoredWidget = when (this) {
     is ZyxfWidget -> StoredWidget("ZyxfWidget", AppJson.encodeToString(this))
     is LibraryWidget -> StoredWidget("LibraryWidget", AppJson.encodeToString(this))
     is CampusMapWidget -> StoredWidget("CampusMapWidget", AppJson.encodeToString(this))
+    is PlanWidget -> StoredWidget("PlanWidget", AppJson.encodeToString(this))
 }
 
 /** 读不回来（旧版半截写入、未知类型）就丢掉这张卡片，不影响整段会话。 */
@@ -172,6 +191,7 @@ fun storedToWidget(stored: StoredWidget): AgentWidget? = runCatching {
         "ZyxfWidget" -> AppJson.decodeFromString<ZyxfWidget>(stored.json)
         "LibraryWidget" -> AppJson.decodeFromString<LibraryWidget>(stored.json)
         "CampusMapWidget" -> AppJson.decodeFromString<CampusMapWidget>(stored.json)
+        "PlanWidget" -> AppJson.decodeFromString<PlanWidget>(stored.json)
         else -> null
     }
 }.getOrNull()

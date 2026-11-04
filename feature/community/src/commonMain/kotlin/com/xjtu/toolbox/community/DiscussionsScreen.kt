@@ -3,6 +3,8 @@ package com.xjtu.toolbox.community
 // 改编自 JoyinJoester/Etoile（GPL-3.0）：github/feature/discussions/DiscussionsScreen.kt。
 // 界面改用 MIUIX，按论坛帖子列表重排：作者头像、时间、分类、回复数、点赞、状态标签，分类筛选，下拉刷新，滑到底自动翻页。
 
+import com.xjtu.toolbox.ui.glass.tabContentPadding
+import com.xjtu.toolbox.ui.glass.tabContentBottomPadding
 import com.xjtu.toolbox.ui.components.AppPullToRefresh
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
@@ -61,7 +63,6 @@ fun DiscussionsScreen(
     /** 当前登录的 GitHub 用户名，「我发的」用。 */
     me: String,
     onAccount: () -> Unit,
-    onLegacyFeedback: () -> Unit,
     /** 由外层持有：进帖子时这一页会被换掉，回来要停在原来的位置。 */
     listState: LazyListState = rememberLazyListState(),
 ) {
@@ -123,7 +124,7 @@ fun DiscussionsScreen(
             LazyColumn(
                 state = listState,
                 modifier = Modifier.fillMaxSize().overScrollVertical(),
-                contentPadding = PaddingValues(start = 12.dp, end = 12.dp, top = top + 8.dp, bottom = 96.dp),
+                contentPadding = tabContentPadding(PaddingValues(start = 12.dp, end = 12.dp, top = top + 8.dp, bottom = 96.dp)),
                 verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
                 if (state.categories.isNotEmpty()) item(key = "filters") {
@@ -134,7 +135,6 @@ fun DiscussionsScreen(
                         }
                     }
                 }
-                item(key = "legacy") { LegacyFeedbackEntry(onLegacyFeedback) }
                 when {
                     state.items.isEmpty() && state.loading -> item(key = "loading") {
                         LoadingState("正在加载帖子…", Modifier.fillMaxWidth().padding(vertical = 48.dp))
@@ -186,27 +186,29 @@ private fun DiscussionCard(discussion: GithubDiscussion, onClick: () -> Unit, mo
         onClick = onClick,
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            CommunityAvatar(discussion.authorAvatar, discussion.author, 22.dp)
-            Spacer(Modifier.width(8.dp))
-            Text(
-                discussion.author ?: "已注销用户",
-                style = MiuixTheme.textStyles.footnote1,
-                fontWeight = FontWeight.Medium,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.weight(1f, fill = false),
-            )
-            if (discussion.authorIsAdmin) {
-                Spacer(Modifier.width(4.dp))
-                AdminTag()
+            // 作者一组独占剩余宽度，分类标签才贴右；和 Spacer 各占 weight 会平分空白
+            Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
+                CommunityAvatar(discussion.authorAvatar, discussion.author, 22.dp)
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    discussion.author ?: "已注销用户",
+                    style = MiuixTheme.textStyles.footnote1,
+                    fontWeight = FontWeight.Medium,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f, fill = false),
+                )
+                if (discussion.authorIsAdmin) {
+                    Spacer(Modifier.width(4.dp))
+                    AdminTag()
+                }
+                Text(
+                    " · " + communityTime(discussion.updatedAt.ifEmpty { discussion.createdAt }),
+                    style = MiuixTheme.textStyles.footnote1,
+                    color = colors.onSurfaceVariantSummary,
+                    maxLines = 1,
+                )
             }
-            Text(
-                " · " + communityTime(discussion.updatedAt.ifEmpty { discussion.createdAt }),
-                style = MiuixTheme.textStyles.footnote1,
-                color = colors.onSurfaceVariantSummary,
-                maxLines = 1,
-            )
-            Spacer(Modifier.weight(1f))
             Spacer(Modifier.width(8.dp))
             CommunityTag(discussion.category.name)
         }
@@ -337,7 +339,7 @@ fun DiscussionComposer(
             Modifier
                 .fillMaxSize()
                 .imePadding()
-                .verticalScroll(rememberScrollState())
+                .verticalScroll(rememberScrollState()).tabContentBottomPadding()
                 .padding(horizontal = 16.dp)
                 .padding(top = top + 8.dp, bottom = 24.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),

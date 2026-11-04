@@ -65,7 +65,6 @@ import com.xjtu.toolbox.faculty.FacultyApiSource
 import com.xjtu.toolbox.faculty.FacultyAvatar
 import com.xjtu.toolbox.faculty.FacultyScreen
 import com.xjtu.toolbox.feedback.AppFeedbackSource
-import com.xjtu.toolbox.feedback.FeedbackScreen
 import com.xjtu.toolbox.fitness.FitnessScreen
 import com.xjtu.toolbox.game.GamesScreen
 import com.xjtu.toolbox.game.g2048.Gpa2048Screen
@@ -106,10 +105,7 @@ import com.xjtu.toolbox.notification.AppNoticeSource
 import com.xjtu.toolbox.notification.NotificationScreen
 import com.xjtu.toolbox.schedule.AppSchoolCourseSource
 import com.xjtu.toolbox.schedule.SchoolCourseScreen
-import com.xjtu.toolbox.score.ScoreReportScreen
 import com.xjtu.toolbox.platform.keyValueStore
-import com.xjtu.toolbox.score.appScoreReportCache
-import com.xjtu.toolbox.score.scoreReportSource
 import com.xjtu.toolbox.settings.SettingsScreen
 import com.xjtu.toolbox.settings.SettingsStore
 import com.xjtu.toolbox.settings.rememberAppSettingsHost
@@ -247,7 +243,6 @@ fun NavEntryBuilder.appPageEntries(
                 source = scoreSource,
                 studentId = loginState.activeUsername,
                 onBack = back,
-                onOpenReport = { router.open(AppRoute.ScoreReport) },
                 // 成绩单只有本科生的流程，研究生不显示入口
                 onOpenTranscript = if (loginState.accountType == AccountType.UNDERGRADUATE) { { router.open(AppRoute.Transcript) } } else null,
                 jwxt = scoreSource,
@@ -329,19 +324,6 @@ fun NavEntryBuilder.appPageEntries(
                     source = remember(site) { AppCouponSource(site) },
                     onBack = back,
                     onSummary = { value, detail -> HomeStats.push(couponContext, AppRoute.Coupon, value, detail) },
-                )
-            }
-        }
-        entry<AppRoute.ScoreReport>(transition = expand(AppRoute.ScoreReport::class)) {
-            WithSite("jwxt") { site ->
-                val scoreContext = LocalContext.current
-                val studentId = loginState.activeUsername
-                ScoreReportScreen(
-                    source = remember(site, studentId) { scoreReportSource(site, studentId) },
-                    onBack = back,
-                    cache = remember(loginState.accountId, studentId) {
-                        appScoreReportCache(scoreContext, loginState.accountId.takeIf { it.isNotEmpty() }, studentId)
-                    },
                 )
             }
         }
@@ -465,10 +447,18 @@ fun NavEntryBuilder.appPageEntries(
             )
         }
         entry<AppRoute.Fitness>(transition = expand(AppRoute.Fitness::class)) {
+            val fitnessContext = LocalContext.current
+            val account = loginState.accountId.takeIf { it.isNotEmpty() }
             WithSite("fitness") { site ->
                 FitnessScreen(
                     source = remember(site) { com.xjtu.toolbox.fitness.FitnessApi(site) },
                     onBack = back,
+                    onScoreLoaded = { year, score ->
+                        val stat = com.xjtu.toolbox.home.fitnessHomeStat(year.name, score)
+                        HomeStats.push(fitnessContext, AppRoute.Fitness, stat.value, stat.detail, account, stat.lines)
+                        HomeStats.markFetched(fitnessContext, AppRoute.Fitness, account)
+                        com.xjtu.toolbox.home.HomeSignals.bumpStatsVersion()
+                    },
                 )
             }
         }
@@ -544,22 +534,14 @@ fun NavEntryBuilder.appPageEntries(
                     )
                 },
                 onBack = back,
-                onOpenLegacyFeedback = { router.open(AppRoute.Feedback) },
             )
         }
-        entry<AppRoute.Feedback>(transition = expand(AppRoute.Feedback::class)) {
-            val feedbackContext = LocalContext.current
-            FeedbackScreen(
-                source = AppFeedbackSource,
-                onOpenUrl = { url ->
-                    runCatching {
-                        feedbackContext.startActivity(
-                            Intent(Intent.ACTION_VIEW, Uri.parse(url))
-                                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                        )
-                    }
-                },
+        entry<AppRoute.CommunityPost>(transition = expand(AppRoute.CommunityPost::class)) { route ->
+            CommunityScreen(
+                session = remember { SecureGithubSession.get() },
+                deviceAuth = remember { GithubOAuthDeviceAuthRepository(GithubNetwork.client, CommunityRepo.CLIENT_ID) },
                 onBack = back,
+                discussionNumber = route.number,
             )
         }
         entry<AppRoute.Faculty>(transition = expand(AppRoute.Faculty::class)) {
@@ -694,6 +676,7 @@ fun AwaitSite(
 
 /** 内置浏览器打开某个站点时带哪套登录会话的 cookie。 */
 private fun siteKeyForHost(host: String): String = when {
+    host == "dzpz.xjtu.edu.cn" -> "dzpz"
     "tyxylp.xjtu.edu.cn" in host -> "fitness"
     "rg.lib.xjtu.edu.cn" in host -> "library"
     "jwapp.xjtu.edu.cn" in host -> "jwapp"

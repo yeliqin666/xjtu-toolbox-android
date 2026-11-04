@@ -39,6 +39,8 @@ data class InboxItem(
      * 只有「自建待办」会填：收纳里的其他条目都是学校 / 思源那边的投影，没有可挑色的地方。
      */
     val colorArgb: Int? = null,
+    /** 开始后才进入待办；0 表示立即可见。 */
+    val availableAt: Long = 0L,
 )
 
 /** 办完（或被用户忽略）的待办，灰着留 [InboxRules.FINISHED_KEEP_MS]。 */
@@ -69,7 +71,7 @@ data class InboxData(
      */
     val importance: Map<String, Int> = emptyMap(),
     val schoolFetchedAt: Long = 0L,
-    /** 已经由屁岱冒过泡的消息，不重复念。 */
+    /** 已经由小岱冒过泡的消息，不重复念。 */
     val bubbled: Set<String> = emptySet(),
 )
 
@@ -95,7 +97,7 @@ object InboxCategories {
     const val NOTICE = "msg.notice"
     const val BULLETIN = "msg.bulletin"
     const val COMMUNITY = "msg.community"
-    /** 屁岱的主动简报与定时任务结果。 */
+    /** 小岱的主动简报与定时任务结果。 */
     const val PIDAI = "msg.pidai"
     private const val SCHOOL_PREFIX = "school:"
 
@@ -115,7 +117,7 @@ object InboxCategories {
         InboxCategory(NOTICE, "教务新通知"),
         InboxCategory(BULLETIN, "工具箱公告"),
         InboxCategory(COMMUNITY, "社区回复 / @我"),
-        InboxCategory(PIDAI, "屁岱简报"),
+        InboxCategory(PIDAI, "小岱简报"),
     )
 
     fun school(label: String) = SCHOOL_PREFIX + label
@@ -164,7 +166,7 @@ object InboxRules {
     /** 还没办的待办（忽略的除外），快截止的排前面。 */
     fun todos(data: InboxData, now: Long): List<InboxItem> =
         data.todos.filterKeys { it !in data.off }.values.flatten()
-            .filter { visible(it, now) && it.id !in data.ignored }
+            .filter { it.availableAt <= now && visible(it, now) && it.id !in data.ignored }
             .sortedWith(compareBy<InboxItem> { it.expiresAt.takeIf { e -> e > 0 } ?: Long.MAX_VALUE }.thenByDescending { it.time })
 
     /**
@@ -266,8 +268,20 @@ object InboxRules {
             .replace("&nbsp;", " ").replace("&lt;", "<").replace("&gt;", ">").replace("&amp;", "&")
             .lines().joinToString("\n") { it.trim() }.trim()
 
+    /** 小岱推送在通知栏和收件箱里按纯文本显示：去掉模型偶尔带出的 Markdown 标记。 */
+    fun markdownToPlain(md: String): String =
+        md.lines().filterNot { it.trim().matches(Regex("""[-*_=|:\s]{3,}""")) }.joinToString("\n") { line ->
+            line.trim()
+                .replace(Regex("""^#{1,6}\s+"""), "")
+                .replace(Regex("""^>\s?"""), "")
+                .replace(Regex("""^[-*+]\s+"""), "· ")
+                .replace(Regex("""!?\[([^\]]*)]\([^)]*\)"""), "$1")
+                .replace(Regex("""(\*\*|__|~~|`)"""), "")
+                .replace(Regex("""(?<![\w*])\*(?!\s)([^*\n]+?)\*(?!\w)"""), "$1")
+        }.replace(Regex("\n{3,}"), "\n\n").trim()
+
     /**
-     * 用户已经在别处（屁岱气泡、系统通知）看过这件事：[ids] 和 [category] 下的消息标已读，
+     * 用户已经在别处（小岱气泡、系统通知）看过这件事：[ids] 和 [category] 下的消息标已读，
      * [category] 下的待办标已看。气泡和收纳是同一件事的两个出口，不能各算各的已读。
      */
     fun acknowledge(data: InboxData, ids: Collection<String>, category: String?, now: Long): InboxData {
@@ -373,7 +387,7 @@ object InboxStore {
 
     fun markBubbled(id: String) = update(AccountContext.activeAccountId) { it.copy(bubbled = it.bubbled + id) }
 
-    /** 在收纳以外看过了（点了屁岱气泡等）：对应消息标已读、待办标已看。见 [InboxRules.acknowledge]。 */
+    /** 在收纳以外看过了（点了小岱气泡等）：对应消息标已读、待办标已看。见 [InboxRules.acknowledge]。 */
     fun acknowledge(ids: Collection<String> = emptyList(), category: String? = null) {
         if (ids.isEmpty() && category == null) return
         update(AccountContext.activeAccountId) { InboxRules.acknowledge(it, ids, category, Clock.System.now().toEpochMilliseconds()) }

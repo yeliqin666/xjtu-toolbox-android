@@ -43,7 +43,7 @@ internal class WebSettingsHost(
     override val versionText: String = "Web 构建（wasm）"
 
     override val honoredRows: Set<SettingsRow> =
-        setOf(SettingsRow.DARK_MODE, SettingsRow.DYNAMIC_COLOR, SettingsRow.HOME_HERO, SettingsRow.HOME_SETTINGS)
+        setOf(SettingsRow.DARK_MODE, SettingsRow.DYNAMIC_COLOR, SettingsRow.HOME_HERO)
 
     /** 本端没有更新日志（`:app` 的 `AppChangelog` 在更新域里）⇒ 那一行不画。 */
     override val changelog: List<ChangelogEntry> = emptyList()

@@ -27,7 +27,8 @@ class AgentConfigStore(
         model = plain.getString("model") ?: "",
         baseUrl = plain.getString("base_url") ?: "",
         assistantName = sanitizeAgentTitle(
-            plain.getString("assistant_name") ?: AgentConfig.DEFAULT_ASSISTANT_NAME
+            plain.getString("assistant_name")?.takeIf { it != AgentConfig.LEGACY_ASSISTANT_NAME }
+                ?: AgentConfig.DEFAULT_ASSISTANT_NAME
         ),
         searchEngine = normalizeSearchEngine(plain.getString("search_engine")),
         searchApiKey = secure.getString("search_api_key").orEmpty(),

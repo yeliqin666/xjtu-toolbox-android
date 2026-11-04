@@ -21,9 +21,21 @@ class FitnessSession : CasSiteSession("fitness", "体测查询", mustUseWebVpn =
         FitnessProtocol.writeTokens(localToken, launch)
     }
 
+    /**
+     * legacy 接口回「登录信息失效」= PHP 会话没了或 token 过期，按认证失效处理：
+     * 基类会强制重登（登录流程末尾用新 token 调 checkLogin 建会话）再重放请求。
+     * 只认这一句原文，学校应用层故障时的其它含糊文案不算。
+     */
+    override fun isAuthFailureResponse(response: okhttp3.Response, bodyPreview: String?): Boolean =
+        super.isAuthFailureResponse(response, bodyPreview) ||
+            bodyPreview?.let { FitnessProtocol.isLegacySessionLost(it) } == true
+
+    /**
+     * v3 的 UserInfo 拿过期 token 也照样回成功，不能当探活；用 legacy 的 checkLogin：
+     * token 过期它会明说，顺带把学年、成绩要用的 PHP 会话建好。
+     */
     override suspend fun validateLogin(): Boolean = withContext(Dispatchers.IO) {
-        val session = FitnessProtocol.sessionFromTokens(localToken) ?: return@withContext false
-        val referer = localToken["referer_url"] ?: FitnessProtocol.H5_HOME_URL
-        FitnessProtocol.requestUserInfo(client, session, referer) != null
+        FitnessProtocol.sessionFromTokens(localToken) ?: return@withContext false
+        FitnessProtocol.checkLogin(client, localToken)
     }
 }

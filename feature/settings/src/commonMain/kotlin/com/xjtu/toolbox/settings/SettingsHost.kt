@@ -21,17 +21,6 @@ enum class SettingsRow {
     /** 首页头卡的背景与流动效果（首页和设置页共用 `:shared:designsystem` 的弹窗）。 */
     HOME_HERO,
 
-    /** 「主页设置」二级页：背景壁纸、卡片材质、顶栏排法、网格开关、恢复默认分组和布局。 */
-    HOME_SETTINGS,
-
-    /**
-     * 主页设置里的「顶栏 → 功能按钮统一右对齐」。
-     *
-     * 只有**自己画首页顶栏按钮**的端才有意义（`:app` 那三个圆钮是扫码 / 搜索 / 通知）；
-     * 桌面与 web 的首页顶栏在外壳里，没有这一行可拨，所以不认领它。
-     */
-    HOME_TOP_BAR,
-
     /** 默认启动 Tab。 */
     DEFAULT_TAB,
 
@@ -95,4 +84,5 @@ interface SettingsHost {
 
     /** 功能图标（底栏候选列表用，与首页宫格同一套）；null = 不画图标。 */
     val serviceIcon: ((AppRoute) -> ImageVector)? get() = null
+    val launcherShortcutPreference: (@Composable () -> Unit)? get() = null
 }

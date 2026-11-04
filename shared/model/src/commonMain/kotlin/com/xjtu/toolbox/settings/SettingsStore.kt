@@ -1,7 +1,20 @@
 package com.xjtu.toolbox.settings
 
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.setValue
 import com.xjtu.toolbox.platform.KeyValueStore
 import com.xjtu.toolbox.platform.keyValueStore
+
+/** 首页功能区设置落盘后的进程内信号：设置页与首页各读一份，改完靠它一起重读。 */
+object HomeLayoutRevision {
+    var current by mutableIntStateOf(0)
+        private set
+
+    fun bump() {
+        current++
+    }
+}
 
 /** 设置页那些偏好的读写。 */
 class SettingsStore(private val store: KeyValueStore = keyValueStore(APP_SETTINGS_FILE)) {
@@ -113,6 +126,49 @@ class SettingsStore(private val store: KeyValueStore = keyValueStore(APP_SETTING
             .coerceIn(HERO_IMAGE_BRIGHTNESS_MIN, HERO_IMAGE_BRIGHTNESS_MAX)
         set(value) = store.putInt("hero_image_brightness", value.coerceIn(HERO_IMAGE_BRIGHTNESS_MIN, HERO_IMAGE_BRIGHTNESS_MAX))
 
+    /** 首页功能区：classic = 分类卡，widgets = 可调尺寸的小组件。 */
+    var homeLayout: String
+        get() = store.getString("home_layout")?.takeIf { it == HOME_LAYOUT_WIDGETS || it == HOME_LAYOUT_CLASSIC } ?: HOME_LAYOUT_WIDGETS
+        set(value) = store.putString("home_layout", value.takeIf { it == HOME_LAYOUT_WIDGETS } ?: HOME_LAYOUT_CLASSIC)
+
+    /** 小组件的分组、排列与尺寸（格式见 `HomeWidgetLayout.encodeGroups`）；null = 没编辑过，用默认布局。 */
+    var homeWidgets: List<String>?
+        get() = store.getString("home_widgets")?.split('\n')?.filter { it.isNotBlank() }
+        set(value) = store.putString("home_widgets", value?.joinToString("\n"))
+
+    /** 小组件用液态玻璃（折射 + 高光，较耗电）；只在渐变与图片背景上生效，纯色背景一律是实心卡片。 */
+    var homeLiquidGlass: Boolean
+        get() = store.getBoolean("home_liquid_card", false)
+        set(value) = store.putBoolean("home_liquid_card", value)
+
+    /** 首页顶栏：true = 扫码、搜索、消息统一靠右（默认），false = 扫码单独靠左、标题居中。 */
+    var homeTopActionsRight: Boolean
+        get() = store.getBoolean("home_top_actions_right", true)
+        set(value) = store.putBoolean("home_top_actions_right", value)
+
+    var homeBackground: String
+        get() = store.getString("home_background") ?: when {
+            store.getString("home_widget_material") == WIDGET_MATERIAL_PAPER -> "solid"
+            homeWallpaperImage.isNotEmpty() -> "image"
+            else -> "gradient"
+        }
+        set(value) = store.putString("home_background", value)
+
+    /** 首页自定义背景，WebP Base64。 */
+    var homeWallpaperImage: String
+        get() = store.getString("home_wallpaper_image").orEmpty()
+        set(value) = store.putString("home_wallpaper_image", value.ifEmpty { null })
+
+    /** 首页背景图的模糊与亮度，取值范围同首页大卡的自定义背景。 */
+    var homeWallpaperBlur: Int
+        get() = store.getInt("home_wallpaper_blur", HERO_IMAGE_BLUR_MIN).coerceIn(HERO_IMAGE_BLUR_MIN, HERO_IMAGE_BLUR_MAX)
+        set(value) = store.putInt("home_wallpaper_blur", value.coerceIn(HERO_IMAGE_BLUR_MIN, HERO_IMAGE_BLUR_MAX))
+
+    var homeWallpaperBrightness: Int
+        get() = store.getInt("home_wallpaper_brightness", HERO_IMAGE_BRIGHTNESS_MAX)
+            .coerceIn(HERO_IMAGE_BRIGHTNESS_MIN, HERO_IMAGE_BRIGHTNESS_MAX)
+        set(value) = store.putInt("home_wallpaper_brightness", value.coerceIn(HERO_IMAGE_BRIGHTNESS_MIN, HERO_IMAGE_BRIGHTNESS_MAX))
+
     /** 场馆滑块验证码自动识别开关。 */
     var venueAutoSolveCaptchaEnabled: Boolean
         get() = store.getBoolean(KEY_VENUE_AUTO_SOLVE_CAPTCHA, true)
@@ -139,6 +195,9 @@ class SettingsStore(private val store: KeyValueStore = keyValueStore(APP_SETTING
         }
         /** 非敏感的应用设置（外观、协议、更新……），普通 SharedPreferences。 */
         const val APP_SETTINGS_FILE = "app_settings"
+        const val HOME_LAYOUT_CLASSIC = "classic"
+        const val HOME_LAYOUT_WIDGETS = "widgets"
+        const val WIDGET_MATERIAL_PAPER = "paper"
 
         const val HERO_IMAGE_BLUR_MIN = 0
         const val HERO_IMAGE_BLUR_MAX = 10

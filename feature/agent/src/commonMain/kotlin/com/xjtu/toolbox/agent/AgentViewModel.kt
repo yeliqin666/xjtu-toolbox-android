@@ -47,7 +47,7 @@ data class ChatMessage(
 )
 
 /**
- * Agent 是否正在思考/生成——底栏屁岱的「思考」动画读这里（见 PidaiNavButton）。
+ * Agent 是否正在思考/生成——底栏小岱的「思考」动画读这里（见 PidaiNavButton）。
  * 与 [AgentViewModel.isLoading] 由同一个 setter 同步；单独拎出来是因为 ViewModel
  * 挂在导航项上，而底栏常驻，需要全局可观察（同 ProactiveBubbleHost 的路子）。
  */
@@ -83,6 +83,7 @@ class AgentViewModel(private val host: AgentHost) : ViewModel(), AgentChatSessio
 
     /** 加载态的唯一写入口：UI 加载与底栏思考动画共用同一信号，不会各走各的。 */
     private fun applyLoading(loading: Boolean) {
+        if (isLoading != loading) host.generating(loading)
         isLoading = loading
         AgentThinkingHost.isThinking = loading
     }
@@ -188,7 +189,7 @@ class AgentViewModel(private val host: AgentHost) : ViewModel(), AgentChatSessio
     private var boundSuffix: String? = null
 
     /**
-     * 绑定持久化存储并加载会话列表，空则自动建首个会话。同一账号只做一次；换了账号要重来，
+     * 绑定持久化存储并加载会话列表。同一账号只做一次；换了账号要重来，
      * 不然上一个账号的对话还摆在屏幕上，再发一条就整段写进新账号的目录。
      */
     override fun bind(store: AgentSessionPersistence) {
@@ -199,6 +200,11 @@ class AgentViewModel(private val host: AgentHost) : ViewModel(), AgentChatSessio
         boundSuffix = suffix
         currentSessionId = null
         messages.clear(); llmHistory = mutableListOf(); userContextProbe = null
+        store.list().filter { session ->
+            session.id != AgentPushFocus.SESSION_ID && !session.locked && store.load(session.id)?.let {
+                it.messages.isEmpty() && it.llmHistory.trim().let { history -> history.isEmpty() || history == "[]" }
+            } == true
+        }.forEach { store.delete(it.id) }
         sessions.clear()
         sessions.addAll(store.list())
         val first = sessions.firstOrNull()
@@ -207,10 +213,9 @@ class AgentViewModel(private val host: AgentHost) : ViewModel(), AgentChatSessio
 
     override fun newSession() {
         pendingInputs.clear()
-        val store = store ?: return
+        if (store == null) return
         currentJob?.cancel(); applyLoading(false)   // 取消进行中的生成，避免写入新会话造成错乱
-        val s = store.create()
-        currentSessionId = s.id
+        currentSessionId = null
         messages.clear(); llmHistory = mutableListOf(); tools = null; errorMessage = null
         lastTotalTokens = null; contextExhausted = false; contextExhaustedJustTriggered = false
         refreshSessions()
@@ -373,9 +378,10 @@ class AgentViewModel(private val host: AgentHost) : ViewModel(), AgentChatSessio
             errorMessage = CONTEXT_EXHAUSTED_MESSAGE
             return
         }
-        if (currentSessionId == null) newSession()
+        if (currentSessionId == null) currentSessionId = store?.create()?.id
         errorMessage = null
         messages.add(ChatMessage("user", userText, images = images))
+        persist()
         applyLoading(true)
 
         val turnSid = currentSessionId   // 本轮所属会话；切走后不再写当前 messages，避免串台
@@ -483,14 +489,11 @@ class AgentViewModel(private val host: AgentHost) : ViewModel(), AgentChatSessio
                 }
 
                 // 每条 user 消息携带实时时间，杜绝"今天/明天"按会话起始日的陈旧判断。
-                // 提醒快照只给模型看：对准「点的是哪件事」，不当完整事实，也不进气泡。
+                // annex 只给模型看、不进气泡，自带说明（见 AgentAnnex）。
                 val llmUser = buildString {
                     append(nowTag(config.effectiveModel))
                     append('\n')
                     if (!llmAnnex.isNullOrBlank()) {
-                        append("[App 快照]\n")
-                        append("用户从 App 里的提醒或屁岱卡片点进来，快照是他当时在看的东西，接着它聊。")
-                        append("快照够用就直接用，别再查一遍；用户要最新情况、完整清单或快照里没有的内容时才调工具。缺的字段不要编。\n")
                         append(llmAnnex.trim())
                         append("\n\n")
                     }

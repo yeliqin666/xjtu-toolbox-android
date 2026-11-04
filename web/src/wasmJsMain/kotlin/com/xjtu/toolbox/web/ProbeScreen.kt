@@ -94,12 +94,12 @@ fun ProbeScreen() {
         ) {
             Column {
                 Text(
-                    "本端支持的路由（${WebSupport.openableRouteIds.size} 条）",
+                    "本端支持的路由类型（${WebSupport.openableRouteTypes.size} 条）",
                     color = cs.onSurface,
                     fontSize = 13.sp,
                 )
                 Text(
-                    WebSupport.openableRouteIds.sorted().joinToString(" · "),
+                    WebSupport.openableRouteTypes.mapNotNull { it.simpleName }.sorted().joinToString(" · "),
                     color = cs.onBackgroundVariant,
                     fontSize = 10.sp,
                 )

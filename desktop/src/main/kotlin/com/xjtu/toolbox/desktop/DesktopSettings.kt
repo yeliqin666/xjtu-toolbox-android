@@ -56,15 +56,9 @@ internal class DesktopSettingsHost(private val notifyAppearanceChanged: () -> Un
     /** 版本号那一行：桌面包的版本（构建期烘进 `DesktopBuildConfig`，与 jpackage 的`packageVersion` 同一个来源）。 */
     override val versionText: String = "v${DesktopBuildConfig.VERSION_NAME} (desktop)"
 
-    /**
-     * 真会照着办的行：深色模式、取色、首页卡片外观、主页设置抽屉。
-     *
-     * 「主页设置」与 app 共用同一份 `SettingsScreen` / `HomeSettingsSheet`，落盘也在
-     * `:shared:navigation` 的 `HomeLayoutStore`（JVM 可用），所以桌面端声明它没有越界——
-     * 编辑首页卡片组（间距、网格、壁纸）本来就要从这里进。
-     */
+    /** 真会照着办的行。 */
     override val honoredRows: Set<SettingsRow> =
-        setOf(SettingsRow.DARK_MODE, SettingsRow.DYNAMIC_COLOR, SettingsRow.HOME_HERO, SettingsRow.HOME_SETTINGS)
+        setOf(SettingsRow.DARK_MODE, SettingsRow.DYNAMIC_COLOR, SettingsRow.HOME_HERO)
 
     override val changelog: List<ChangelogEntry> = emptyList()
 

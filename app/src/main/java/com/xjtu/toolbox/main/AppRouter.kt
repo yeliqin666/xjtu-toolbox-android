@@ -125,6 +125,7 @@ class AppRouter(
 
     /** 真正落地：底栏上有它就切 tab，付款码开覆盖层，其余压栈。 */
     private fun go(route: AppRoute) {
+        com.xjtu.toolbox.game.GameStore.recordOpened(route.id)
         val tab = tabs.bar.firstOrNull { it.route == route }
         when {
             route == AppRoute.Main -> selectBarTab(tabs.selectedId)

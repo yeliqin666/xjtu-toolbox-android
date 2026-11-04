@@ -1,6 +1,7 @@
 package com.xjtu.toolbox.card
 
 import androidx.compose.material.icons.automirrored.filled.MenuBook
+import com.xjtu.toolbox.ui.glass.tabContentPadding
 import com.xjtu.toolbox.ui.components.AppPullToRefresh
 import com.xjtu.toolbox.ui.components.BackButton
 import com.xjtu.toolbox.platform.BackHandler
@@ -410,7 +411,7 @@ private fun OverviewTab(
         // 列表外面留白的话，列表的边界就在卡片边上，投影左右两侧会被切掉。
         modifier = Modifier.fillMaxSize().overScrollVertical(),
         verticalArrangement = Arrangement.spacedBy(12.dp),
-        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = topContentPadding + 12.dp, bottom = 12.dp)
+        contentPadding = tabContentPadding(PaddingValues(start = 16.dp, end = 16.dp, top = topContentPadding + 12.dp, bottom = 12.dp))
     ) {
         // 整页依次登场：余额 → 今天 → 区间消费 → 最近交易，每块错开一拍
         item {
@@ -722,9 +723,9 @@ private fun TodayMealsCard(today: TodaySpendSummary) {
                     Triple("晚餐", today.dinner, 17..21),
                 ).forEach { (name, amount, hours) ->
                     val color = when (name) {
-                        "早餐" -> Color(0xFFFFB74D)
-                        "午餐" -> Color(0xFFFF8A65)
-                        else -> Color(0xFF7986CB)
+                        "早餐" -> campusCardPalette()[3]
+                        "午餐" -> campusCardPalette()[7]
+                        else -> campusCardPalette()[2]
                     }
                     val eaten = amount > 0
                     Column(
@@ -854,7 +855,7 @@ private fun TransactionTab(
     LazyColumn(
         modifier = Modifier.fillMaxSize().overScrollVertical().padding(horizontal = 16.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
-        contentPadding = PaddingValues(top = topContentPadding + 12.dp, bottom = 12.dp)
+        contentPadding = tabContentPadding(PaddingValues(top = topContentPadding + 12.dp, bottom = 12.dp))
     ) {
         item {
             Card(
@@ -1019,7 +1020,7 @@ private fun AnalyticsTab(
     LazyColumn(
         modifier = Modifier.fillMaxSize().overScrollVertical().padding(horizontal = 16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
-        contentPadding = PaddingValues(top = topContentPadding + 12.dp, bottom = 12.dp)
+        contentPadding = tabContentPadding(PaddingValues(top = topContentPadding + 12.dp, bottom = 12.dp))
     ) {
         if (categorySpending.isEmpty() && monthlyStats.isEmpty() && mealTimeStats.isEmpty()) {
             item {
@@ -1132,10 +1133,7 @@ private fun CategoryCard(categories: Map<String, Double>) {
         "学习" to Icons.AutoMirrored.Filled.MenuBook, "洗衣" to Icons.Default.LocalLaundryService,
         "交通" to Icons.Default.DirectionsBus, "医疗" to Icons.Default.LocalHospital,
         "充值" to Icons.Default.AddCard, "其他" to Icons.Default.MoreHoriz)
-    val categoryColors = listOf(
-        Color(0xFFE57373), Color(0xFF81C784), Color(0xFF64B5F6),
-        Color(0xFFFFB74D), Color(0xFF9575CD), Color(0xFF4DD0E1),
-        Color(0xFFA1887F), Color(0xFFFF8A65), Color(0xFF90A4AE), Color(0xFFBDBDBD))
+    val categoryColors = categoryIcons.keys.zip(campusCardPalette()).toMap()
 
     top.yukonga.miuix.kmp.basic.Card(modifier = Modifier.fillMaxWidth(), cornerRadius = 20.dp) {
         Column(Modifier.padding(20.dp)) {
@@ -1150,9 +1148,9 @@ private fun CategoryCard(categories: Map<String, Double>) {
                     color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
             }
             Spacer(Modifier.height(16.dp))
-            categories.entries.forEachIndexed { index, (category, amount) ->
+            categories.entries.forEach { (category, amount) ->
                 val percent = if (total > 0) amount / total else 0.0
-                val color = categoryColors.getOrElse(index) { MiuixTheme.colorScheme.outline }
+                val color = categoryColors[category] ?: MiuixTheme.colorScheme.outline
                 val icon = categoryIcons[category] ?: Icons.Default.MoreHoriz
                 Row(Modifier.fillMaxWidth().padding(vertical = 6.dp),
                     verticalAlignment = Alignment.CenterVertically) {
@@ -1180,18 +1178,6 @@ private fun CategoryCard(categories: Map<String, Double>) {
     }
 }
 
-/** 主食分类的固定配色。按 [CampusCardApi] 里 FOOD_SUB_RULES 的名字取，不按下标——
- *  下标会随分类的金额排序变，同一类的颜色就会每次刷新都换一个。 */
-private val FOOD_SUB_COLORS = mapOf(
-    "面食" to Color(0xFFFFB74D),
-    "米饭" to Color(0xFF81C784),
-    "自选" to Color(0xFF64B5F6),
-    "汤粥" to Color(0xFFE57373),
-    "小吃" to Color(0xFFBA68C8),
-    "饺包" to Color(0xFF4DB6AC),
-    "饮品" to Color(0xFF90A4AE),
-)
-
 /**
  * 主食构成：环形图 + 图例。
  *
@@ -1204,6 +1190,7 @@ private fun FoodBreakdownCard(breakdown: Map<String, Double>, mealCount: Int, fo
     val total = breakdown.values.sum()
     if (total <= 0) return
     val entries = breakdown.entries.toList()
+    val foodColors = listOf("面食", "米饭", "自选", "汤粥", "小吃", "饺包", "饮品").zip(campusCardPalette()).toMap()
 
     // 一次扫过整圈的入场动画。进度在 drawBehind 里读，动画期间只重画这一个环。
     val sweep = com.xjtu.toolbox.ui.components.rememberRevealProgress(
@@ -1252,7 +1239,7 @@ private fun FoodBreakdownCard(breakdown: Map<String, Double>, mealCount: Int, fo
                                 val shown = full * sweep.value
                                 if (shown > 0.5f) {
                                     drawArc(
-                                        color = FOOD_SUB_COLORS[name] ?: trackColor,
+                                        color = foodColors[name] ?: trackColor,
                                         startAngle = angle, sweepAngle = (shown - 2f).coerceAtLeast(0.8f),
                                         useCenter = false, topLeft = topLeft, size = arcSize,
                                         style = androidx.compose.ui.graphics.drawscope.Stroke(stroke),
@@ -1285,7 +1272,7 @@ private fun FoodBreakdownCard(breakdown: Map<String, Double>, mealCount: Int, fo
                                 Modifier
                                     .size(8.dp)
                                     .clip(CircleShape)
-                                    .background(FOOD_SUB_COLORS[name] ?: trackColor)
+                                    .background(foodColors[name] ?: trackColor)
                             )
                             Spacer(Modifier.width(8.dp))
                             Text(name, style = MiuixTheme.textStyles.body2, modifier = Modifier.weight(1f))
@@ -1410,6 +1397,7 @@ private fun SpendingInsightsCard(
         generateInsights(stats, categories, mealStats, weekdayWeekend, activeCampusDays, rangeStart, rangeEnd, balance, dailyRate)
     }
     if (insights.isEmpty()) return
+    val tints = campusCardPalette()
 
     top.yukonga.miuix.kmp.basic.Card(modifier = Modifier.fillMaxWidth(), cornerRadius = 20.dp) {
         Column(Modifier.padding(20.dp)) {
@@ -1422,7 +1410,7 @@ private fun SpendingInsightsCard(
             }
             Spacer(Modifier.height(12.dp))
             insights.forEachIndexed { i, (icon, text) ->
-                val tint = INSIGHT_TINTS[i % INSIGHT_TINTS.size]
+                val tint = tints[i % tints.size]
                 Row(Modifier.padding(vertical = 5.dp), verticalAlignment = Alignment.CenterVertically) {
                     Box(
                         Modifier.size(30.dp).clip(CircleShape).background(tint.copy(alpha = 0.16f)),
@@ -1437,11 +1425,6 @@ private fun SpendingInsightsCard(
         }
     }
 }
-
-private val INSIGHT_TINTS = listOf(
-    Color(0xFF42A5F5), Color(0xFFFF8A65), Color(0xFF66BB6A),
-    Color(0xFFFFB300), Color(0xFFAB47BC), Color(0xFF26A69A),
-)
 
 // ==================== 辅助函数 ====================
 

@@ -1,6 +1,7 @@
 package com.xjtu.toolbox.jiaocai1
 
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.xjtu.toolbox.ui.glass.tabContentPadding
 import com.xjtu.toolbox.platform.BackHandler
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -734,7 +735,7 @@ private fun CategoryTab(
                 state = listState,
                 // 分类树是一张长卡片，宽屏限宽居中就好，分列反而打乱层级
                 modifier = Modifier.weight(1f).readableWidth().overScrollVertical(),
-                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+                contentPadding = tabContentPadding(PaddingValues(horizontal = 16.dp, vertical = 8.dp)),
             ) {
                 if (vm.categoryPath.isNotEmpty()) {
                     item {
