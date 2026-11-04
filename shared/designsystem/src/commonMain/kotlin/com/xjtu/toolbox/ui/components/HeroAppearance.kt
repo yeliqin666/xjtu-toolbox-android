@@ -221,7 +221,7 @@ fun HeroAppearanceDialog(
         } else {
             Column {
                 Column(
-                    Modifier.fillMaxWidth().heightIn(max = 480.dp).verticalScroll(rememberScrollState()),
+                    Modifier.fillMaxWidth().weight(1f, fill = false).heightIn(max = 480.dp).verticalScroll(rememberScrollState()),
                     verticalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
                     Text("样式", style = MiuixTheme.textStyles.body2)
