@@ -178,6 +178,8 @@ fun HomeScreen(
     // 顶栏排法：开（默认）= 改造前那套（左侧「家小西」头像、三个圆钮统一在右、不画居中标题）；
     // 关 = 本分支那套（扫码靠左、标题绝对居中、右侧只留搜索与通知）
     val topActionsRight = remember(revision) { layoutStore.topActionsRight }
+    // 背景样式：主题底色 / 主题色渐变 / 自定义图片
+    val backgroundMode = remember(revision) { layoutStore.backgroundMode }
     val backgroundImage = remember(revision) { layoutStore.backgroundImage }
     val backgroundBlur = remember(revision) { layoutStore.backgroundBlur }
     val backgroundOpacity = remember(revision) { layoutStore.backgroundOpacity }
@@ -245,11 +247,19 @@ fun HomeScreen(
     val progress = { (scroll.value / rangePx).coerceIn(0f, 1f) }
     // 背景层的主题底色（没有壁纸时顶栏与卡片透出来的就是它）
     val barSurface = MiuixTheme.colorScheme.surface
+    // 「主题色渐变背景」的两个输入：主题色 + 明暗（深色下要更浓一点才看得出）
+    val barPrimary = MiuixTheme.colorScheme.primary
+    val barDark = LocalIsDarkTheme.current
     val glass = LocalGlassStyle.current && collapsible
 
-    // 顶栏模糊带、卡片与顶栏按钮的液态玻璃，采的都是这**同一层背景**（主题底色 + 壁纸）：
-    // 壁纸铺满全屏含顶栏（§1.1），玻璃透出来的统一是它；采整页会把组件自己采进去，形成回环
+    // 液态玻璃（卡片、圆钮、悬浮球）的采样源：**只有背景层**（主题底色 + 壁纸）。
+    // 它们要透出的是壁纸，采整页会把别的组件也采进去。
     val tileBackdrop = rememberLayerBackdrop()
+
+    // 顶栏模糊带的采样源：**这一页的内容层**——背景 + 滚动内容一起录进去，
+    // 于是顶栏糊的是「此刻滚动到它底下的东西」，而不是固定不动的壁纸。
+    // 顶栏本身在这个层**外面**（是它的兄弟节点），不然它会被采进自己那层里形成回环。
+    val pageBackdrop = rememberLayerBackdrop()
 
     val session = remember { HomeDragSession() }
     val density = LocalDensity.current
@@ -902,157 +912,177 @@ fun HomeScreen(
                 },
             ),
     ) {
-        // ── 背景层：主题底色 + 可选壁纸。同时是液态玻璃组件的采样源 ──
+        // ── 内容层：背景 + 滚动内容，整层录进 pageBackdrop 供顶栏模糊带采样 ──
+        // 只有玻璃风格下才真的录：`layerBackdrop` 会多一次离屏渲染，经典风格用不到
         Box(
             Modifier
                 .matchParentSize()
-                .layerBackdrop(tileBackdrop),
+                .then(if (glass) Modifier.layerBackdrop(pageBackdrop) else Modifier),
         ) {
-            Box(Modifier.matchParentSize().background(barSurface))
-            if (backgroundImage.isNotEmpty()) {
-                HeroCustomBackground(
-                    imageData = backgroundImage,
-                    modifier = Modifier.matchParentSize(),
-                    blur = backgroundBlur,
-                    brightness = 100,
-                )
-                // 透明度：缺多少就用主题底色盖回去多少，不整层 alpha（否则文字也会跟着淡）
-                val cover = (100 - backgroundOpacity) / 100f
-                if (cover > 0f) {
-                    Box(Modifier.matchParentSize().background(barSurface.copy(alpha = cover)))
-                }
-            }
-        }
-
-        Column(
-            Modifier
-                .fillMaxSize()
-                .then(if (scrollBehavior != null) Modifier.nestedScroll(scrollBehavior.nestedScrollConnection) else Modifier)
-                .overScrollVertical()
-                .verticalScroll(scroll)
-        ) {
-            Spacer(Modifier.height(contentTopPadding))
-            if (masthead) {
-                // 顶栏那一排按钮先占住最上面，刊头大字从它下面开始
-                if (collapsible) Spacer(Modifier.height(BAR_HEIGHT))
-                EditorialMasthead(
-                    greeting = Greeting.of(),
-                    name = host.greetingName,
-                    dateLabel = host.dateLabel,
-                    weekNumber = if (HomeCard.WEEK_NUMBER in honored) host.weekNumber else 0,
-                    status = host.statusLine,
-                    onStatus = host::onOpenStatus,
-                    modifier = Modifier.enterOnce(0).onSizeChanged { mastheadPx = it.height },
-                )
-            } else if (collapsible) {
-                Spacer(Modifier.height(BAR_HEIGHT))
-            }
-
-            Column(
+            // ── 背景层：主题底色 +（可选）主题色渐变 / 壁纸。同时是液态玻璃组件的采样源 ──
+            Box(
                 Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp)
-                    .padding(top = if (masthead) 6.dp else 8.dp)
+                    .matchParentSize()
+                    .layerBackdrop(tileBackdrop),
             ) {
-                if (HomeCard.BULLETIN_BAR in honored && host.bulletins.isNotEmpty()) {
-                    BulletinNoticePanel(
-                        bulletins = host.bulletins,
-                        onTap = host::onBulletinTap,
-                        onDismiss = host::onBulletinDismiss,
-                    )
-                    Spacer(Modifier.height(SECTION_GAP))
-                }
-                EditorialFrontPage(
-                    modifier = Modifier.enterOnce(0),
-                    host = host,
-                    inbox = host.inbox.takeIf { HomeCard.INBOX in honored },
-                )
-            }
-
-            // ── 卡片组 ──
-            // 这一层容器是拖拽命中的唯一回读基准：padding 之后的网格区。
-            // boardOrigin/boardWidth 是**页面根局部**量；几何表以它为原点算板内坐标
-            // （纯数据，不含测量量）。拖拽期间用 heightIn(min = 快照总高) 把页面总高
-            // 钉住：否则拖走一块源组变矮、页面变短，滚动被夹回上界，视觉上会跳。
-            val boardMinHeight = if (session.draggingTile || session.mode == HomeDragMode.RESIZE) {
-                with(density) { dragGeometry.totalHeight(groupGapPx, firstGapPx).toDp() }
-            } else {
-                Dp.Unspecified
-            }
-            Column(
-                Modifier
-                    .fillMaxWidth()
-                    .heightIn(min = boardMinHeight)
-                    .padding(horizontal = 16.dp)
-                    .onGloballyPositioned { coords ->
-                        // 活坐标对象留好（拖拽期间靠它现读原点，见 refreshBoardFromCoordinates），
-                        // 顺带回填一份数值：只当兜底——滚动时这个回调不保证每帧都到，别拿它当
-                        // 跟随滚动的依据。位置一律用 positionInRoot()：它读的是布局位置，
-                        // 而 boundsInRoot() 默认会被滚动容器的裁剪边界夹住——网格区顶一滚出
-                        // 视口，拿到的就是「视口顶」，原点从此冻住（「滚过大卡片后网格不再
-                        // 随滚动变化」就是这么来的）。
-                        session.boardCoords = coords
-                        session.boardOrigin = coords.positionInRoot() - session.pageOrigin
-                        if (coords.size.width > 0) session.boardWidth = coords.size.width.toFloat()
-                    },
-            ) {
-                liveLayout.groups.filter(::groupVisible).forEachIndexed { index, group ->
-                    // key 定身份：组重排时子树连同动画状态一起平移，不销毁重建
-                    key(group.id) {
-                        Column(
-                            // 记下这一组的实际顶边（页面坐标）：进编辑态时拿它当滚动锚点，
-                            // 把「编辑态补出来的标题行 / 空组」造成的内容位移补回去
-                            Modifier.onGloballyPositioned { coords ->
-                                val top = coords.positionInRoot().y - session.pageOrigin.y
-                                groupTops[group.id] = top
-                                // 这一帧属于哪种状态，就记到哪一份「切换前的样子」里
-                                if (!editing.on) idleTops[group.id] = top else editTops[group.id] = top
-                            },
-                        ) {
-                            Spacer(Modifier.height(if (index == 0) FIRST_GROUP_GAP else GROUP_GAP))
-                            HomeGroupSection(
-                                group = group,
-                                faces = faces,
-                                editing = editing.on,
-                                liquid = liquid,
-                                refraction = refraction,
-                                backdrop = tileBackdrop.takeIf { liquid },
-                                session = session,
-                                budgetRows = rowBudget?.get(group.id),
-                                // 接收高亮：手指把这一组当落点，且它不是拖拽源组（§19）
-                                receiving = session.draggingTile &&
-                                    targetGroup == group.id &&
-                                    session.sourceGroupId != group.id,
-                                reorderLift = when {
-                                    session.mode == HomeDragMode.GROUP && session.groupId == group.id -> {
-                                        val top = dragGeometry.slot(group.id)?.top ?: 0f
-                                        pointerBoard.y - session.groupGrabY - top
-                                    }
-                                    reorderSettleId == group.id -> reorderSettleAnim.value
-                                    else -> null
-                                },
-                                reorderShift = reorderShiftMap[group.id] ?: 0f,
-                                onOpen = { it.onClick() },
-                                onStartEdit = { editing.begin(stored) },
-                                onEditGroup = { editing.editGroup = group },
-                                onDeleteGroup = { editing.confirmDeleteGroup = group },
-                                // 网格模式下删完顺手收空行（空行不该留着，下面的块与组一起上移）
-                                onRemoveTile = { tileId -> update { it.removeTile(tileId, grid) } },
-                                // 和头卡同一套左右留白由容器统一给；入场沿用「错峰淡入上浮」，只播一次
-                                modifier = Modifier.enterOnce(index),
+                Box(Modifier.matchParentSize().background(barSurface))
+                when (backgroundMode) {
+                    HomeLayoutStore.BACKGROUND_IMAGE -> {
+                        if (backgroundImage.isNotEmpty()) {
+                            HeroCustomBackground(
+                                imageData = backgroundImage,
+                                modifier = Modifier.matchParentSize(),
+                                blur = backgroundBlur,
+                                brightness = 100,
                             )
+                            // 透明度：缺多少就用主题底色盖回去多少，不整层 alpha（否则文字也会跟着淡）
+                            val cover = (100 - backgroundOpacity) / 100f
+                            if (cover > 0f) {
+                                Box(Modifier.matchParentSize().background(barSurface.copy(alpha = cover)))
+                            }
+                        }
+                    }
+                    HomeLayoutStore.BACKGROUND_GRADIENT -> {
+                        val gradient = remember(barSurface, barPrimary, barDark) {
+                            themeBackgroundGradient(barSurface, barPrimary, barDark)
+                        }
+                        Box(Modifier.matchParentSize().background(gradient))
+                    }
+                    // 主题底色：上面那层 surface 已经铺好了
+                    else -> Unit
+                }
+            }
+
+            Column(
+                Modifier
+                    .fillMaxSize()
+                    .then(if (scrollBehavior != null) Modifier.nestedScroll(scrollBehavior.nestedScrollConnection) else Modifier)
+                    .overScrollVertical()
+                    .verticalScroll(scroll)
+            ) {
+                Spacer(Modifier.height(contentTopPadding))
+                if (masthead) {
+                    // 顶栏那一排按钮先占住最上面，刊头大字从它下面开始
+                    if (collapsible) Spacer(Modifier.height(BAR_HEIGHT))
+                    EditorialMasthead(
+                        greeting = Greeting.of(),
+                        name = host.greetingName,
+                        dateLabel = host.dateLabel,
+                        weekNumber = if (HomeCard.WEEK_NUMBER in honored) host.weekNumber else 0,
+                        status = host.statusLine,
+                        onStatus = host::onOpenStatus,
+                        modifier = Modifier.enterOnce(0).onSizeChanged { mastheadPx = it.height },
+                    )
+                } else if (collapsible) {
+                    Spacer(Modifier.height(BAR_HEIGHT))
+                }
+
+                Column(
+                    Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp)
+                        .padding(top = if (masthead) 6.dp else 8.dp)
+                ) {
+                    if (HomeCard.BULLETIN_BAR in honored && host.bulletins.isNotEmpty()) {
+                        BulletinNoticePanel(
+                            bulletins = host.bulletins,
+                            onTap = host::onBulletinTap,
+                            onDismiss = host::onBulletinDismiss,
+                        )
+                        Spacer(Modifier.height(SECTION_GAP))
+                    }
+                    EditorialFrontPage(
+                        modifier = Modifier.enterOnce(0),
+                        host = host,
+                        inbox = host.inbox.takeIf { HomeCard.INBOX in honored },
+                    )
+                }
+
+                // ── 卡片组 ──
+                // 这一层容器是拖拽命中的唯一回读基准：padding 之后的网格区。
+                // boardOrigin/boardWidth 是**页面根局部**量；几何表以它为原点算板内坐标
+                // （纯数据，不含测量量）。拖拽期间用 heightIn(min = 快照总高) 把页面总高
+                // 钉住：否则拖走一块源组变矮、页面变短，滚动被夹回上界，视觉上会跳。
+                val boardMinHeight = if (session.draggingTile || session.mode == HomeDragMode.RESIZE) {
+                    with(density) { dragGeometry.totalHeight(groupGapPx, firstGapPx).toDp() }
+                } else {
+                    Dp.Unspecified
+                }
+                Column(
+                    Modifier
+                        .fillMaxWidth()
+                        .heightIn(min = boardMinHeight)
+                        .padding(horizontal = 16.dp)
+                        .onGloballyPositioned { coords ->
+                            // 活坐标对象留好（拖拽期间靠它现读原点，见 refreshBoardFromCoordinates），
+                            // 顺带回填一份数值：只当兜底——滚动时这个回调不保证每帧都到，别拿它当
+                            // 跟随滚动的依据。位置一律用 positionInRoot()：它读的是布局位置，
+                            // 而 boundsInRoot() 默认会被滚动容器的裁剪边界夹住——网格区顶一滚出
+                            // 视口，拿到的就是「视口顶」，原点从此冻住（「滚过大卡片后网格不再
+                            // 随滚动变化」就是这么来的）。
+                            session.boardCoords = coords
+                            session.boardOrigin = coords.positionInRoot() - session.pageOrigin
+                            if (coords.size.width > 0) session.boardWidth = coords.size.width.toFloat()
+                        },
+                ) {
+                    liveLayout.groups.filter(::groupVisible).forEachIndexed { index, group ->
+                        // key 定身份：组重排时子树连同动画状态一起平移，不销毁重建
+                        key(group.id) {
+                            Column(
+                                // 记下这一组的实际顶边（页面坐标）：进编辑态时拿它当滚动锚点，
+                                // 把「编辑态补出来的标题行 / 空组」造成的内容位移补回去
+                                Modifier.onGloballyPositioned { coords ->
+                                    val top = coords.positionInRoot().y - session.pageOrigin.y
+                                    groupTops[group.id] = top
+                                    // 这一帧属于哪种状态，就记到哪一份「切换前的样子」里
+                                    if (!editing.on) idleTops[group.id] = top else editTops[group.id] = top
+                                },
+                            ) {
+                                Spacer(Modifier.height(if (index == 0) FIRST_GROUP_GAP else GROUP_GAP))
+                                HomeGroupSection(
+                                    group = group,
+                                    faces = faces,
+                                    editing = editing.on,
+                                    liquid = liquid,
+                                    refraction = refraction,
+                                    backdrop = tileBackdrop.takeIf { liquid },
+                                    session = session,
+                                    budgetRows = rowBudget?.get(group.id),
+                                    // 接收高亮：手指把这一组当落点，且它不是拖拽源组（§19）
+                                    receiving = session.draggingTile &&
+                                        targetGroup == group.id &&
+                                        session.sourceGroupId != group.id,
+                                    reorderLift = when {
+                                        session.mode == HomeDragMode.GROUP && session.groupId == group.id -> {
+                                            val top = dragGeometry.slot(group.id)?.top ?: 0f
+                                            pointerBoard.y - session.groupGrabY - top
+                                        }
+                                        reorderSettleId == group.id -> reorderSettleAnim.value
+                                        else -> null
+                                    },
+                                    reorderShift = reorderShiftMap[group.id] ?: 0f,
+                                    onOpen = { it.onClick() },
+                                    onStartEdit = { editing.begin(stored) },
+                                    onEditGroup = { editing.editGroup = group },
+                                    onDeleteGroup = { editing.confirmDeleteGroup = group },
+                                    // 网格模式下删完顺手收空行（空行不该留着，下面的块与组一起上移）
+                                    onRemoveTile = { tileId -> update { it.removeTile(tileId, grid) } },
+                                    // 和头卡同一套左右留白由容器统一给；入场沿用「错峰淡入上浮」，只播一次
+                                    modifier = Modifier.enterOnce(index),
+                                )
+                            }
                         }
                     }
                 }
-            }
 
-            if (editing.on) {
-                Spacer(Modifier.height(GROUP_GAP))
-                Column(Modifier.padding(horizontal = 16.dp)) {
-                    AddGroupRow { update { it.addGroup(HomeGroup(id = newGroupId(), title = "新分组")) } }
+                if (editing.on) {
+                    Spacer(Modifier.height(GROUP_GAP))
+                    Column(Modifier.padding(horizontal = 16.dp)) {
+                        AddGroupRow { update { it.addGroup(HomeGroup(id = newGroupId(), title = "新分组")) } }
+                    }
                 }
+                Spacer(Modifier.height(SECTION_GAP + extraBottomPadding + 8.dp))
             }
-            Spacer(Modifier.height(SECTION_GAP + extraBottomPadding + 8.dp))
         }
 
         // 编辑态顶栏（取消 / 设置 / 保存）不需要宿主给按钮，所以这一端没有 topActions 也要画，
@@ -1068,7 +1098,8 @@ fun HomeScreen(
                     progress = progress,
                     topInset = contentTopPadding,
                     bandShift = contentTopShift,
-                    backdrop = if (glass) tileBackdrop else null,
+                    // 模糊带采**内容层**：糊的是此刻滚到顶栏底下的东西（壁纸 + 内容），不是固定壁纸
+                    backdrop = if (glass) pageBackdrop else null,
                     tileLiquidBackdrop = tileBackdrop.takeIf { liquid },
                     onTapCollapsed = { scope.launch { scroll.animateScrollTo(0) } },
                     editing = editing.on,
@@ -1600,6 +1631,25 @@ private fun tintWash(surface: Color): Brush = Brush.verticalGradient(
     0f to surface.copy(alpha = 1f),
     1f to surface.copy(alpha = 0f),
 )
+
+/**
+ * 「主题色渐变背景」：把主题色按 22% → 10% → 4%（深色 30% → 18% → 8%）的比例**融进底色**，
+ * 从左上一路铺到右下，最后收在底色本身。
+ *
+ * 关键是**不铺纯主题色**：整屏浓色会把卡片与正文压掉，上半屏还会像换了一套配色；
+ * 从「透明度适中」的混色起步、越往下越接近底色，才是壁纸缺席时该有的那种轻渐变。
+ */
+private fun themeBackgroundGradient(surface: Color, primary: Color, dark: Boolean): Brush =
+    Brush.linearGradient(
+        listOf(
+            lerp(surface, primary, if (dark) 0.30f else 0.22f),
+            lerp(surface, primary, if (dark) 0.18f else 0.10f),
+            lerp(surface, primary, if (dark) 0.08f else 0.04f),
+            surface,
+        ),
+        start = Offset.Zero,
+        end = Offset(Float.POSITIVE_INFINITY, Float.POSITIVE_INFINITY),
+    )
 
 // ── 首页版式 ──
 

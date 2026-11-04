@@ -62,6 +62,7 @@ import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextButton
 import top.yukonga.miuix.kmp.overlay.OverlayBottomSheet
 import top.yukonga.miuix.kmp.preference.ArrowPreference
+import top.yukonga.miuix.kmp.preference.OverlayDropdownPreference
 import top.yukonga.miuix.kmp.preference.SwitchPreference
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.window.WindowDialog
@@ -105,6 +106,8 @@ private fun HomeSettingsBody(onDismiss: () -> Unit, showTopBarStyle: Boolean) {
     var topActionsRight by remember { mutableStateOf(store.topActionsRight) }
     var grid by remember { mutableStateOf(store.grid) }
     var image by remember { mutableStateOf(store.backgroundImage) }
+    // 背景样式：主题底色 / 主题色渐变 / 自定义图片
+    var mode by remember { mutableStateOf(store.backgroundMode) }
     var blur by remember { mutableIntStateOf(store.backgroundBlur) }
     var opacity by remember { mutableIntStateOf(store.backgroundOpacity) }
     var busy by remember { mutableStateOf(false) }
@@ -132,7 +135,10 @@ private fun HomeSettingsBody(onDismiss: () -> Unit, showTopBarStyle: Boolean) {
             if (encoded != null) {
                 val base64 = Base64.Default.encode(encoded)
                 image = base64
+                mode = HomeLayoutStore.BACKGROUND_IMAGE
                 store.backgroundImage = base64
+                // 选了图就把样式切到「自定义图片」：否则刚选完还显示渐变，看着像没生效
+                store.backgroundMode = HomeLayoutStore.BACKGROUND_IMAGE
                 store.notifyChanged()
             } else {
                 error = "这张图片读不出来"
@@ -154,49 +160,70 @@ private fun HomeSettingsBody(onDismiss: () -> Unit, showTopBarStyle: Boolean) {
         // ── 背景 ──
         SmallTitle("背景")
         HomeSettingsCard {
-            ArrowPreference(
-                title = "更换背景图片",
-                summary = when {
-                    busy -> "处理中…"
-                    error != null -> error.orEmpty()
-                    image.isEmpty() -> "还没有背景图，用主题底色"
-                    else -> "已设置 · 模糊 $blur dp · 不透明度 $opacity%"
-                },
+            // 背景样式三选一：「自定义图片」这一项点了直接拉起相册，选完才真正切过去
+            OverlayDropdownPreference(
+                title = "主页背景",
+                items = BACKGROUND_MODE_LABELS,
+                selectedIndex = BACKGROUND_MODE_VALUES.indexOf(mode).coerceAtLeast(0),
                 startAction = { SettingsIcon(Icons.Default.Wallpaper, cPurple) },
-                onClick = pickImage,
-            )
-            if (image.isNotEmpty()) {
-                SliderRow(
-                    title = "背景模糊",
-                    valueText = if (blur == 0) "无" else "$blur dp",
-                    value = blur.toFloat(),
-                    range = HomeLayoutStore.BACKGROUND_BLUR_MIN.toFloat()..HomeLayoutStore.BACKGROUND_BLUR_MAX.toFloat(),
-                    onChange = {
-                        blur = it.roundToInt()
-                        store.backgroundBlur = blur
-                    },
-                )
-                SliderRow(
-                    title = "背景透明度",
-                    valueText = "$opacity%",
-                    value = opacity.toFloat(),
-                    range = HomeLayoutStore.BACKGROUND_OPACITY_MIN.toFloat()..HomeLayoutStore.BACKGROUND_OPACITY_MAX.toFloat(),
-                    onChange = {
-                        opacity = it.roundToInt()
-                        store.backgroundOpacity = opacity
-                    },
-                )
-                SimpleRow(
-                    title = "移除背景图片",
-                    summary = "回到主题底色",
-                    icon = Icons.Default.RestartAlt,
-                    color = cOrange,
-                    onClick = {
-                        image = ""
-                        store.backgroundImage = ""
+                onSelectedIndexChange = { index ->
+                    val next = BACKGROUND_MODE_VALUES[index]
+                    if (next == HomeLayoutStore.BACKGROUND_IMAGE) {
+                        pickImage()
+                    } else {
+                        mode = next
+                        store.backgroundMode = next
                         store.notifyChanged()
+                    }
+                },
+            )
+            if (mode == HomeLayoutStore.BACKGROUND_IMAGE) {
+                ArrowPreference(
+                    title = "更换背景图片",
+                    summary = when {
+                        busy -> "处理中…"
+                        error != null -> error.orEmpty()
+                        image.isEmpty() -> "还没有背景图，用主题底色"
+                        else -> "已设置 · 模糊 $blur dp · 不透明度 $opacity%"
                     },
+                    startAction = { SettingsIcon(Icons.Default.Wallpaper, cPurple) },
+                    onClick = pickImage,
                 )
+                if (image.isNotEmpty()) {
+                    SliderRow(
+                        title = "背景模糊",
+                        valueText = if (blur == 0) "无" else "$blur dp",
+                        value = blur.toFloat(),
+                        range = HomeLayoutStore.BACKGROUND_BLUR_MIN.toFloat()..HomeLayoutStore.BACKGROUND_BLUR_MAX.toFloat(),
+                        onChange = {
+                            blur = it.roundToInt()
+                            store.backgroundBlur = blur
+                        },
+                    )
+                    SliderRow(
+                        title = "背景透明度",
+                        valueText = "$opacity%",
+                        value = opacity.toFloat(),
+                        range = HomeLayoutStore.BACKGROUND_OPACITY_MIN.toFloat()..HomeLayoutStore.BACKGROUND_OPACITY_MAX.toFloat(),
+                        onChange = {
+                            opacity = it.roundToInt()
+                            store.backgroundOpacity = opacity
+                        },
+                    )
+                    SimpleRow(
+                        title = "移除背景图片",
+                        summary = "回到主题底色",
+                        icon = Icons.Default.RestartAlt,
+                        color = cOrange,
+                        onClick = {
+                            image = ""
+                            mode = HomeLayoutStore.BACKGROUND_SOLID
+                            store.backgroundImage = ""
+                            store.backgroundMode = HomeLayoutStore.BACKGROUND_SOLID
+                            store.notifyChanged()
+                        },
+                    )
+                }
             }
         }
 
@@ -317,6 +344,7 @@ private fun HomeSettingsBody(onDismiss: () -> Unit, showTopBarStyle: Boolean) {
                             refraction = store.liquidRefraction
                             grid = store.grid
                             image = store.backgroundImage
+                            mode = store.backgroundMode
                             blur = store.backgroundBlur
                             opacity = store.backgroundOpacity
                             confirmReset = false
@@ -419,6 +447,19 @@ private fun SimpleRow(
         }
     }
 }
+
+/**
+ * 「主页背景」三选一：显示顺序与落盘值必须一一对应。
+ *
+ * 第一项叫「主题底色」而不是「主题色」：它就是主题里的 `surface`，不是主色铺满——
+ * 主色只在「主题色渐变」里以浅混色出现。
+ */
+private val BACKGROUND_MODE_VALUES = listOf(
+    HomeLayoutStore.BACKGROUND_SOLID,
+    HomeLayoutStore.BACKGROUND_GRADIENT,
+    HomeLayoutStore.BACKGROUND_IMAGE,
+)
+private val BACKGROUND_MODE_LABELS = listOf("主题底色", "主题色渐变", "自定义图片")
 
 @Composable
 private fun HomeSettingsCard(content: @Composable ColumnScope.() -> Unit) {

@@ -165,6 +165,25 @@ class HomeLayoutStore(
         get() = store.getBoolean(KEY_TOP_ACTIONS_RIGHT, true)
         set(value) = store.putBoolean(KEY_TOP_ACTIONS_RIGHT, value)
 
+    /**
+     * 主页背景样式：**主题底色**（[BACKGROUND_SOLID]）/ **主题色渐变**（[BACKGROUND_GRADIENT]）/
+     * **自定义图片**（[BACKGROUND_IMAGE]，图本体存在 [backgroundImage]）。
+     *
+     * 老存档只存过 `home_background_image`：这个键没有值时按「有图就是图片、没图就是主题底色」推断，
+     * 不用迁移。存档里写着图片但图被清掉了（手滑 / 老版本）也当主题底色，不留一片空白。
+     */
+    var backgroundMode: String
+        get() {
+            val saved = store.getString(KEY_BACKGROUND_MODE) ?: return if (backgroundImage.isNotEmpty()) {
+                BACKGROUND_IMAGE
+            } else {
+                BACKGROUND_SOLID
+            }
+            if (saved == BACKGROUND_IMAGE && backgroundImage.isEmpty()) return BACKGROUND_SOLID
+            return saved
+        }
+        set(value) = store.putString(KEY_BACKGROUND_MODE, value)
+
     /** 主页背景图（裁好的 WebP Base64）；空串 = 没有背景图，用主题底色。 */
     var backgroundImage: String
         get() = store.getString(KEY_BACKGROUND_IMAGE).orEmpty()
@@ -188,6 +207,15 @@ class HomeLayoutStore(
         )
 
     companion object {
+        /** 背景样式：纯主题底色。 */
+        const val BACKGROUND_SOLID = "solid"
+
+        /** 背景样式：主题色由浅到深铺满整页（不铺纯主题色，见 `HomeScreen` 里那段渐变说明）。 */
+        const val BACKGROUND_GRADIENT = "gradient"
+
+        /** 背景样式：自定义图片，图本体在 [backgroundImage]。 */
+        const val BACKGROUND_IMAGE = "image"
+
         const val BACKGROUND_BLUR_MIN = 0
         const val BACKGROUND_BLUR_MAX = 10
         const val BACKGROUND_OPACITY_MIN = 20
@@ -198,6 +226,7 @@ class HomeLayoutStore(
         private const val KEY_LIQUID_CARD = "home_liquid_card"
         private const val KEY_LIQUID_REFRACTION = "home_liquid_refraction"
         private const val KEY_TOP_ACTIONS_RIGHT = "home_top_actions_right"
+        private const val KEY_BACKGROUND_MODE = "home_background_mode"
         private const val KEY_BACKGROUND_IMAGE = "home_background_image"
         private const val KEY_BACKGROUND_BLUR = "home_background_blur"
         private const val KEY_BACKGROUND_OPACITY = "home_background_opacity"

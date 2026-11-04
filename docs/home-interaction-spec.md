@@ -15,7 +15,7 @@
 | # | 决定 | 落点 | 状态 |
 |---|---|---|---|
 | 1 | 液态玻璃**只用** App 内现成实现：`com.kyant.backdrop` 的 `drawBackdrop`（底栏、玻璃顶栏、头卡同一套），三要素齐全——`blur + vibrancy` 之外还有 `lens` 折射（边缘弯光 + 色散）、`Highlight` 轮廓高光、`floatingGlassShadow` 环境光投影；毛玻璃是另一条独立路径：`squircleClip + background + squircleBorder + appCardShadow`。两者靠 `liquidCard` 开关切换，**不允许**用毛玻璃调参去"模拟"液态玻璃；液态玻璃下另有**折射**子开关（`liquidRefraction`，默认开），关掉只去掉 `lens` 那一层（离屏位移采样 + 三通道色散），模糊 / 活力 / 高光 / 轮廓 / 投影全部保留 | `HomeTileBoard.kt` · `HomeTileFaceBox` | 已实现 |
-| 2 | 背景图**铺满全屏含顶栏**：顶栏模糊带与按钮改采首页**背景层**（之前采滚动内容层，不透背景）；非玻璃风格顶栏透明。顶栏按钮（编辑态按钮 + 宿主的扫码 / 搜索 / 通知）经 `LocalHomeTileBackdrop` 采背景层做液态玻璃，无白描边 | `HomeScreen.kt` · `HomeCollapsingBar`、`app/main/MainScreen.kt` · `HomeRoundAction` | 已实现（本批修） |
+| 2 | 背景图**铺满全屏含顶栏**；非玻璃风格顶栏透明。**顶栏模糊带糊的是「此刻滚到它底下的东西」**：它采的是页面**内容层**（`pageBackdrop`＝背景层＋滚动内容一起录，顶栏本身在层外，否则会采到自己形成回环），所以刊头、卡片滚过来会被糊进去，而不是糊一张固定不动的壁纸（2026-11 按实测要求改回）。**圆钮**仍采**背景层**（`LocalHomeTileBackdrop` → `tileBackdrop`，只含主题底色 / 渐变 / 壁纸）：它们要透的是壁纸质感，且经典风格下不录内容层也能亮。顶栏按钮（编辑态按钮 + 宿主的扫码 / 搜索 / 通知）无白描边 | `HomeScreen.kt` · `HomeCollapsingBar` / `pageBackdrop` / `tileBackdrop`、`app/main/MainScreen.kt` · `HomeRoundAction` | 已实现（本批修） |
 | 3 | 背景图**固定** `ContentScale.Crop` 居中铺满（不变形、不重复），**不开放**用户缩放 / 移动取景——它和页面滚动、双击手势会抢指针，收益远小于冲突；可调项只有两个滑条：模糊 0–10dp、不透明度 20–100% | `HomeSettingsScreen.kt` · `HomeSettingsBody` | 已实现（取景按此决定不开放） |
 | 4 | 背景变化后**不做**卡片对比度联动补偿。理由：壁纸太花是用户的审美选择，自动压暗会让"液态玻璃透出壁纸"这个卖点消失。保底只做两件事：文字恒用主题 `onSurface`、液态玻璃内部 blur 恒为 8dp 保证可读 | `HomeTileBoard.kt` · `HomeTileFaceBox` | 已实现 |
 | 5 | 组标题颜色默认 = `colorHex` 为空 → 主题 `onSurface`；可选范围 = 全应用同一套 `AppColorPicker`（色板 + **Hex 输入框**），对话框里那个开关叫「添加颜色」（关 = 不设色、跟随主题，存空串）；深色模式把颜色向白 `lerp 0.25` 提亮，浅色原样使用 | `HomeTileBoard.kt` · `GroupHeader`、`HomeScreen.kt` · `GroupEditDialog` | 已实现 |
@@ -105,6 +105,7 @@
 | 49 | 基准来源：材质 = App 内 `drawBackdrop` + 底栏玻璃；抽屉 = 设置页既有 `OverlayBottomSheet` 范式；动画 = Compose 官方 spring；手势 = `detectDragGestures` 系统语义。**不自创** | 全文 | 按此决定 |
 | 50 | 参数不写死：档位阈值取半格（§11），dp 由一格边长（正方格，量到的组宽推）决定（§9），时长沿用 App 既有弹簧参数（§43） | 全文 | 按此决定 |
 | 51 | 顶栏排法做成主页设置里的一行开关「功能按钮统一右对齐」（`HomeLayoutStore.topActionsRight`，**默认开**），它换的是**整套改造前顶栏**：开 = 左侧「家小西」头像（随上滑淡入放大，停在顶部时看不见）+ 扫码 / 搜索 / 通知三个圆钮都在右侧 + **不画居中标题** + 左侧内边距 20dp；关 = 扫码单独站到最左边、标题绝对居中、右侧只留搜索与通知（§1.1 的排法）。**编辑态例外**：两种排法进了编辑态都是 ✕ / ⚙ / ✓ 三个纯图标，否则老排法下进了编辑态就出不来。宿主侧只换传进 `HomeScreen` 的 `topLeading` / `topActions` 两个槽位，头像与标题由 `HomeScreen` 自己按同一个键决定（`devTopBar`）。抽屉与落盘三端共用，但桌面 / web 的首页顶栏在外壳里，那一组靠 `SettingsRow.HOME_TOP_BAR` 不画 | `shared/navigation/.../HomeLayoutStore.kt` · `topActionsRight`、`feature/settings/.../HomeSettingsScreen.kt` · `HomeSettingsSheet`、`feature/home/.../HomeScreen.kt` · `HomeCollapsingBar` / `HomeBarAvatar`、`app/main/MainScreen.kt` · `rememberTopActionsRight` / `HomeTopActions`、`app/home/HomeTab.kt` | 已实现 |
+| 52 | 主页背景三选一（`HomeLayoutStore.backgroundMode`：`solid` / `gradient` / `image`，抽屉里叫「主页背景」下拉）：**主题底色** = 主题 `surface`；**主题色渐变** = 主题色按 22% → 10% → 4%（深色 30% → 18% → 8%）融进底色、左上铺到右下、最后一档就是底色本身——**不铺纯主题色**（整屏浓色压掉卡片与正文，上半屏还像换了套配色）；**自定义图片** = 走原来的壁纸（模糊 / 透明度 / 移除只在图片模式下出现）。选图片会直接拉相册，选完才把样式切过去；清掉图片时样式退回主题底色。老存档没有这个键时按「有图=图片、没图=主题底色」推断，不做迁移 | `shared/navigation/.../HomeLayoutStore.kt` · `backgroundMode`、`feature/home/.../HomeScreen.kt` · `themeBackgroundGradient`、`feature/settings/.../HomeSettingsScreen.kt` · `BACKGROUND_MODE_LABELS` | 已实现 |
 
 ## 八、本轮（2026-11 复核）新增交互
 
