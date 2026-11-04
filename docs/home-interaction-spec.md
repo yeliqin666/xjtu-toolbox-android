@@ -8,6 +8,21 @@
 
 参数（格数、dp、毫秒）都不写死在文档里当圣旨，而是「由内容模型推出来的」，改卡片内容模型时要连带复核。
 
+## 零、三套布局并存
+
+首页现在有三套实现，由 `SettingsStore.homeLayout`（`classic` / `widgets` / `cards`）在
+`feature/home/.../HomeScreen.kt` 这个薄分派里选：
+
+| 布局 | 入口 | 说明 |
+|---|---|---|
+| 经典分类卡 `classic` | `HomeLegacyScreen` | dev 上原来那套「刊头 + 头卡 + 分类卡」，回落用 |
+| 小组件 `widgets` | `HomeLegacyScreen` | dev 上已发版的可调尺寸小组件（同一个屏内部的另一条分支） |
+| 卡片组 `cards` | `HomeCardGroupScreen` | **本文档描述的这一套**：可编辑的卡片组网格 |
+
+**背景 / 液态玻璃 / 顶栏排法三组设置三套共用**（落 `SettingsStore`）；只有卡片组才有的
+（网格开关、折射子开关、背景不透明度、恢复默认分组和布局）落在 `HomeLayoutStore`，
+切到别的布局时那几块不画。本文档其余各节只描述 `cards` 这一套。
+
 ---
 
 ## 一、材质与视觉
