@@ -114,6 +114,8 @@ fun DownloadManagerScreen(
     // 多选批量管理。两份选中集合，因为本页有两套彼此独立的数据源：
     // 回放视频任务在存储里（按 id），文件类下载在宿主的登记表里（按 uri）。
     var isCleanupMode by remember { mutableStateOf(false) }
+    // 清理选择态下返回只退出选择，和顶栏的取消按钮一样，不离开页面
+    BackHandler(enabled = isCleanupMode) { isCleanupMode = false }
     val selectedTaskIds = remember { mutableStateListOf<Long>() }
     val selectedFileUris = remember { mutableStateListOf<String>() }
 

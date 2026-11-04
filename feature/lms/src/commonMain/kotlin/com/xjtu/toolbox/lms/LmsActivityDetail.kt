@@ -165,7 +165,7 @@ internal fun ActivityDetailPage(
                             // 详情加载完就带上说明，没加载完也能发（小岱可以自己查）
                             onAskAgent(com.xjtu.toolbox.agent.AgentForward.lmsActivity(course, detail ?: activity, activity.type.displayName()))
                         }) {
-                            Icon(Icons.Default.SmartToy, contentDescription = "发给小岱")
+                            Icon(Icons.Default.SmartToy, contentDescription = "问小岱")
                         }
                     }
                 },

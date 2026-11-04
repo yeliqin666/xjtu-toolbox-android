@@ -78,6 +78,8 @@ internal fun QuickActionsGrid(
     contentColor: Color? = null,
 ) {
     var editing by remember { mutableStateOf(false) }
+    // 编辑态下返回只退出编辑，和「完成」一样；切到别的 tab 时不拦
+    com.xjtu.toolbox.platform.BackHandler(enabled = editing && com.xjtu.toolbox.ui.components.LocalPageVisible.current) { editing = false }
     var picking by remember { mutableStateOf(false) }
     val order = remember { mutableStateListOf<String>() }
     // 普通 Map：滚动时每帧都在更新，写成状态会白白触发失效；拖动时 finger 变化自然会重读它
