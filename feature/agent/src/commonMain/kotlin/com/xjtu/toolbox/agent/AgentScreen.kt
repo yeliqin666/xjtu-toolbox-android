@@ -88,7 +88,7 @@ fun AgentScreen(
             onDismissRequest = { vm.answerExternalTool(false) },
         ) {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Column(Modifier.heightIn(max = 280.dp).then(Modifier.verticalScroll(androidx.compose.foundation.rememberScrollState()))) {
+                Column(Modifier.weight(1f, fill = false).heightIn(max = 280.dp).verticalScroll(androidx.compose.foundation.rememberScrollState())) {
                     Text("服务：${request.endpoint}\n工具：${request.tool}\n参数：${request.arguments}")
                 }
                 val leaks = remember(request.arguments) { personalDataHints(request.arguments) }

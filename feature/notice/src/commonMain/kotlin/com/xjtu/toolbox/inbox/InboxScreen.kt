@@ -678,7 +678,7 @@ private fun InboxDetailDialog(item: InboxItem, onAskPidai: (() -> Unit)? = null,
             Text(
                 item.body.ifBlank { item.title },
                 style = MiuixTheme.textStyles.body2,
-                modifier = Modifier.heightIn(max = 360.dp).verticalScroll(rememberScrollState()),
+                modifier = Modifier.weight(1f, fill = false).heightIn(max = 360.dp).verticalScroll(rememberScrollState()),
             )
             if (onAskPidai == null) {
                 TextButton(text = "知道了", onClick = onDismiss, modifier = Modifier.fillMaxWidth().padding(top = 12.dp), colors = ButtonDefaults.textButtonColorsPrimary())
