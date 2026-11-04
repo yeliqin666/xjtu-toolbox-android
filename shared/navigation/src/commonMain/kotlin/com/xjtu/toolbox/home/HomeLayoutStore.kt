@@ -12,9 +12,13 @@ import com.xjtu.toolbox.settings.SettingsStore
 /**
  * 默认分组 + 默认摆放。
  *
- * **分组结构和改造前一致**：最上面一组「常用功能」，下面按 [ServiceCategory] 的目录顺序
- * 一组一个（这一类里没有可见功能就不出组）。每块默认 2×1 也就是「一行两块、图标 + 名称 +
- * 状态」，正是改造前分类卡的样子；要摆成 1×1 纯图标或 4×4 大块，进编辑态拖。
+ * **分组结构和尺寸规则与 dev 那套「小组件」一致**（升级后没编辑过的人看到的排法不变）：
+ * 最上面一组「常用功能」，下面按 [ServiceCategory] 的目录顺序一组一个（这一类里没有可见功能
+ * 就不出组）。尺寸：校园卡、图书馆给 2×2；课表、校历、LMS、考勤、空教室、通知、社区、游戏、
+ * 小岱、黄页这些「信息型」给 2×1（放得下一行状态）；常用功能与其余给 1×1。
+ *
+ * 每组的块按 first-fit 从上到下、从左到右排（与 dev `HomeWidgetLayout.pack` 同一套），
+ * 所以同一份目录排出来的样子和原来一致。要改成别的摆法，进编辑态拖。
  *
  * [quickRoutes] 是宿主按点击习惯挑出来的常用入口；拿不到这份数据的端（桌面、Web）传空表，
  * 「常用功能」组就是空组——编辑态下仍然画出来，用户可以自己往里放。
@@ -23,38 +27,93 @@ object HomeLayoutDefaults {
 
     const val QUICK_GROUP = "quick"
 
+    /** 默认放大一档（2×2）：最常看、内容也最多。 */
+    private val FEATURED = setOf(AppRoute.CampusCard.id, AppRoute.Library.id)
+
+    /** 信息型（2×1）：放一行状态比纯图标有用。 */
+    private val INFORMATIONAL = setOf(
+        AppRoute.Schedule.id, AppRoute.SchoolCalendar.id, AppRoute.Lms().id,
+        AppRoute.Attendance.id, AppRoute.EmptyRoom.id, AppRoute.Notification.id,
+        AppRoute.Community.id, AppRoute.Games.id, AppRoute.Agent.id, AppRoute.YellowPage.id,
+    )
+
     fun of(accountType: AccountType, quickRoutes: List<AppRoute> = emptyList()): HomeLayout {
         val groups = mutableListOf<HomeGroup>()
 
-        val quick = quickRoutes.distinctBy { it.id }.mapIndexed { index, route ->
-            HomeTile(
-                id = "$QUICK_GROUP/$index",
-                routeId = route.id,
-                x = (index % 2) * 2f,
-                y = (index / 2).toFloat(),
-                w = 2f,
-                h = 1f,
-            )
-        }
+        val quick = pack(
+            groupId = QUICK_GROUP,
+            items = quickRoutes.distinctBy { it.id }.map { DefaultSlot(it.id, 1, 1) },
+        )
         groups += HomeGroup(id = QUICK_GROUP, title = "常用功能", tiles = quick)
 
         AppServices.homeFor(accountType)
             .groupBy { it.category }
             .forEach { (category, services) ->
-                val tiles = services.mapIndexed { index, service ->
-                    HomeTile(
-                        id = "${category.name}/${service.route.id}",
-                        routeId = service.route.id,
-                        x = (index % 2) * 2f,
-                        y = (index / 2).toFloat(),
-                        w = 2f,
-                        h = 1f,
-                    )
-                }
+                val tiles = pack(
+                    groupId = category.name,
+                    items = services.map { service ->
+                        val id = service.route.id
+                        when {
+                            id in FEATURED -> DefaultSlot(id, 2, 2)
+                            id in INFORMATIONAL -> DefaultSlot(id, 2, 1)
+                            else -> DefaultSlot(id, 1, 1)
+                        }
+                    },
+                )
                 groups += HomeGroup(id = category.name, title = category.title, tiles = tiles)
             }
 
         return HomeLayout(groups)
+    }
+
+    /** 一块默认摆位的尺寸（列 × 行）。 */
+    private data class DefaultSlot(val routeId: String, val cols: Int, val rows: Int)
+
+    /**
+     * 一组内的 first-fit 排位：从上到下、从左到右找第一个放得下的位置，小格回填前面的空洞。
+     *
+     * 与 dev `HomeWidgetLayout.pack` 的扫描顺序逐行一致，所以同一份目录排出来的样子和原来相同。
+     */
+    private fun pack(groupId: String, items: List<DefaultSlot>): List<HomeTile> {
+        val columns = 4
+        val taken = mutableListOf<BooleanArray>()
+        fun row(r: Int): BooleanArray {
+            while (taken.size <= r) taken.add(BooleanArray(columns))
+            return taken[r]
+        }
+        fun fits(c: Int, r: Int, cols: Int, rows: Int): Boolean {
+            if (c + cols > columns) return false
+            for (dr in 0 until rows) {
+                for (dc in 0 until cols) if (row(r + dr)[c + dc]) return false
+            }
+            return true
+        }
+        var serial = 0
+        return items.map { slot ->
+            var r = 0
+            var spot: Pair<Int, Int>? = null
+            while (spot == null) {
+                for (c in 0..columns - slot.cols) {
+                    if (fits(c, r, slot.cols, slot.rows)) {
+                        spot = c to r
+                        break
+                    }
+                }
+                if (spot == null) r++
+            }
+            val (c0, r0) = spot!!
+            for (dr in 0 until slot.rows) {
+                for (dc in 0 until slot.cols) row(r0 + dr)[c0 + dc] = true
+            }
+            HomeTile(
+                id = "$groupId/${slot.routeId}#${serial++}",
+                routeId = slot.routeId,
+                x = c0.toFloat(),
+                y = r0.toFloat(),
+                w = slot.cols.toFloat(),
+                h = slot.rows.toFloat(),
+            )
+        }
     }
 }
 
