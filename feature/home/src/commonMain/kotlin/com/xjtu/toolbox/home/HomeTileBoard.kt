@@ -165,6 +165,11 @@ internal fun HomeGroupSection(
      * 照常画大卡内容。默认返回 null = 这一端拿不到（桌面 / Web 就靠这个默认值什么都不画）。
      */
     paymentCode: suspend () -> String? = { null },
+    /**
+     * 卡片能不能糊（只有卡片吃「纯色 / 渐变不模糊」这条规则；按钮与悬浮条照旧模糊）。
+     * 见 [HomeTileFaceBox] 的同名参数。
+     */
+    blurGlass: Boolean = true,
     onEditGroup: () -> Unit,
     onDeleteGroup: () -> Unit,
     onRemoveTile: (tileId: String) -> Unit,
@@ -276,6 +281,7 @@ internal fun HomeGroupSection(
                                 liquid = liquid,
                                 refraction = refraction,
                                 backdrop = backdrop,
+                                blurGlass = blurGlass,
                                 colUnit = colUnit,
                                 rowUnit = rowUnit,
                                 gapPx = gapPx,
@@ -370,6 +376,8 @@ private fun GroupHeader(
 private fun GroupDeleteButton(liquid: Boolean, refraction: Boolean, backdrop: Backdrop?, onClick: () -> Unit) {
     val dark = LocalIsDarkTheme.current
     val fill = if (dark) Color.White.copy(alpha = 0.07f) else Color.White.copy(alpha = 0.42f)
+    // 按钮不跟卡片那条「纯色 / 渐变不模糊」的规则：它浮在内容上面，模糊的是此刻盖住的卡片，
+    // 糊得动也值得糊。纯色 / 渐变下它照旧模糊 + 折射。
     val material = when {
         liquid && backdrop != null -> Modifier.drawBackdrop(
             backdrop = backdrop,
@@ -384,10 +392,10 @@ private fun GroupDeleteButton(liquid: Boolean, refraction: Boolean, backdrop: Ba
             shadow = null,
             onDrawSurface = { drawRect(fill) },
         )
-        // 纯色 / 渐变背景：和卡片同一套「不采不糊，换薄色」，别让这个小圆钮独自退回毛玻璃
+        // 这一帧没有采样源（不该发生）：退回半透明底，别画成一片透明
         liquid -> Modifier
             .clip(CircleShape)
-            .background(if (dark) Color.Black.copy(alpha = 0.24f) else Color.White.copy(alpha = 0.55f))
+            .background(MiuixTheme.colorScheme.onSurface.copy(alpha = 0.12f))
         else -> Modifier
             .clip(CircleShape)
             .background(MiuixTheme.colorScheme.onSurface.copy(alpha = 0.07f))
@@ -584,6 +592,8 @@ private fun HomeTileItem(
     gapPx: Float,
     /** 付款码取数；null 的语义见 [HomeGroupSection] 的同名参数。 */
     paymentCode: suspend () -> String? = { null },
+    /** 这张卡能不能糊；见 [HomeTileFaceBox] 的同名参数。 */
+    blurGlass: Boolean = true,
     onOpen: () -> Unit,
     onStartEdit: () -> Unit,
     onRemoveTile: (tileId: String) -> Unit,
@@ -625,6 +635,7 @@ private fun HomeTileItem(
             liquid = liquid,
             refraction = refraction,
             backdrop = backdrop,
+            blurGlass = blurGlass,
             modifier = Modifier.fillMaxSize(),
         )
 
@@ -707,6 +718,14 @@ internal fun HomeTileFaceBox(
     liquid: Boolean,
     refraction: Boolean,
     backdrop: Backdrop?,
+    /**
+     * 这张卡**能不能糊**：有壁纸（自定义图片）为真。纯色 / 渐变背景上模糊这层没信息可采，
+     * 只关掉它（`vibrancy` 光感、`lens` 折射、高光、轮廓、投影全都保留），底色换成
+     * `flatGlassFill`（浅色更白 / 深色更深）。
+     *
+     * 只有**卡片**吃这条规则；按钮与编辑态悬浮条浮在内容上面，照旧模糊 + 折射。
+     */
+    blurGlass: Boolean = true,
     modifier: Modifier = Modifier,
 ) {
     val dark = LocalIsDarkTheme.current
@@ -722,13 +741,13 @@ internal fun HomeTileFaceBox(
     // 和底栏胶囊同一套环境光阴影（remember：shadow lambda 捕获的对象变了会触发重采样）
     val accent = MiuixTheme.colorScheme.primary
     val liquidShadow = remember(accent, dark) { floatingGlassShadow(accent, dark) }
-    // 纯色 / 渐变背景上的液态玻璃（背景上没有壁纸可采）：模糊与折射都糊不出东西，换成一薄层
-    // 「比页面更白（浅色）/ 更深（深色）」的底色，轮廓高光与环境光投影照留——观感上仍是一块
-    // 浮起来的玻璃，只是不再透出背后的东西。与折射开关无关，两种状态都走这一档。
+    // 纯色 / 渐变背景上：**只关掉模糊**，活力 / 折射 / 高光 / 轮廓 / 投影全部保留，
+    // 底色换成这一层「比页面更白（浅色）/ 更深（深色）」的薄色（与折射开关无关）
     val flatGlassFill = if (dark) Color.Black.copy(alpha = 0.26f) else Color.White.copy(alpha = 0.52f)
+    val surfaceFill = if (blurGlass) liquidFill else flatGlassFill
 
     val material = when {
-        liquid && backdrop != null -> remember(backdrop, radius, liquidFill, liquidShadow, refraction) {
+        liquid && backdrop != null -> remember(backdrop, radius, surfaceFill, liquidShadow, refraction, blurGlass) {
             Modifier.drawBackdrop(
                 backdrop = backdrop,
                 shape = { RoundedCornerShape(radius) },
@@ -737,7 +756,8 @@ internal fun HomeTileFaceBox(
                     // （和底栏胶囊、屁岱气泡同一手法）
                     padding = maxOf(padding, 12.dp.toPx())
                     vibrancy()
-                    blur(8.dp.toPx())
+                    // 纯色 / 渐变上没有壁纸可糊：只省这一层，其余效果一个不少
+                    if (blurGlass) blur(8.dp.toPx())
                     // 折射才是「液态」和「毛玻璃」的分界：边缘把背景扭出透镜的弯光，
                     // 带一点色散。带宽与位移用固定的物理宽度（和底栏一致），不随卡片
                     // 缩放——大小卡片的玻璃厚度本来就一样。
@@ -750,11 +770,11 @@ internal fun HomeTileFaceBox(
                 highlight = { Highlight.Default.copy(alpha = 0.65f) },
                 // 卡片浮在壁纸上，该有一圈柔和的环境光投影
                 shadow = { liquidShadow },
-                onDrawSurface = { drawRect(liquidFill) },
+                onDrawSurface = { drawRect(surfaceFill) },
             )
         }
-        // 液态玻璃开着、但背景是纯色 / 渐变（没有 backdrop 可采）：不做模糊与折射，
-        // 用一薄层高光底色 + 轮廓 + 投影顶上，别退回毛玻璃——毛玻璃明显更闷
+        // 液态玻璃开着、但这一帧没有采样源（不该发生）：退回薄色 + 轮廓 + 投影，
+        // 别退回毛玻璃——毛玻璃明显更闷
         liquid -> Modifier
             .appCardShadow(shape = RoundedCornerShape(radius))
             .squircleClip(radius)

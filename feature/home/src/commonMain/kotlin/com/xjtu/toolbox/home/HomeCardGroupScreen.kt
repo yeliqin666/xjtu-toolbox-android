@@ -40,6 +40,7 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.compositionLocalOf
@@ -89,6 +90,7 @@ import com.kyant.backdrop.effects.vibrancy
 import com.kyant.backdrop.highlight.Highlight
 import com.xjtu.toolbox.bulletin.BulletinNoticePanel
 import com.xjtu.toolbox.nav.AppRoute
+import com.xjtu.toolbox.platform.BackHandler
 import com.xjtu.toolbox.settings.SettingsStore
 // 两个同名 revision：一个是本页布局自己的（com.xjtu.toolbox.home），一个是全应用设置那套
 // （com.xjtu.toolbox.settings）。背景 / 材质 / 顶栏排法与经典版共用后者，故起别名区分。
@@ -105,6 +107,7 @@ import com.xjtu.toolbox.ui.components.HeroPixelBackground
 import com.xjtu.toolbox.ui.components.HeroPixelScrim
 import com.xjtu.toolbox.ui.components.JiaoxiaoxiAvatar
 import com.xjtu.toolbox.ui.components.LiquidBackground
+import com.xjtu.toolbox.ui.components.LocalPageVisible
 import com.xjtu.toolbox.ui.components.enterOnce
 import com.xjtu.toolbox.ui.components.rememberLiquidMood
 import com.xjtu.toolbox.ui.glass.LocalGlassStyle
@@ -203,16 +206,16 @@ fun HomeCardGroupScreen(
     val backgroundOpacity = remember(revision) { layoutStore.backgroundOpacity }
 
     /**
-     * 背景上**真的有壁纸可采**吗：只有「自定义图片」且图还在时才是。
+     * 背景上**真的有壁纸可糊**吗：只有「自定义图片」且图还在时才是。
      *
-     * 纯色 / 渐变这两档的背景层就是一片纯色——糊它糊不出任何东西，却照样要付一次离屏采样。
-     * 所以这两档的液态玻璃走「不采不糊 + 一薄层更白/更深的底色」（见 `HomeTileFaceBox` 的
-     * `flatGlassFill`），轮廓高光、环境光投影、圆角那一套仍然照旧。顶栏那条模糊带不受影响：
-     * 它采的是**内容层**（壁纸 + 滚动内容），纯色下也照样有内容可糊。
+     * 液态玻璃在纯色 / 渐变上**只关掉模糊**（`blur` 那一层糊不出信息，白付采样代价）：
+     * 活力（光感）、折射、高光、轮廓、投影全部保留，底色换成「更白（浅色）/ 更深（深色）」
+     * 的薄色（见 `HomeTileFaceBox` 的 `flatGlassFill` 与 `LocalHomeGlassBlur`）。
+     * 顶栏那条模糊带不受影响：它采的是**内容层**，纯色下也照样有内容可糊。
      */
     val hasWallpaper = backgroundMode == HomeLayoutStore.BACKGROUND_IMAGE && backgroundImage.isNotEmpty()
-    // 卡片那一层离屏层只在「液态玻璃开着且真有壁纸」时才录
-    val recordTileLayer = liquid && hasWallpaper
+    // 卡片那一层离屏层：液态玻璃开着就录——纯色 / 渐变上虽然不糊，但活力与折射仍要采样
+    val recordTileLayer = liquid
 
     /** 改当前布局：编辑态改草稿（点「对勾」才落盘），其余情况直接落盘。 */
     fun update(block: (HomeLayout) -> HomeLayout) {
@@ -220,6 +223,34 @@ fun HomeCardGroupScreen(
             editing.draft = block(editing.draft ?: stored)
         } else {
             layoutStore.save(block(stored))
+        }
+    }
+
+    /**
+     * 退出编辑态并**落盘**：「对勾」、返回键、切到别的页签都走这条。
+     *
+     * 不落盘就直接退出，用户摆的东西会静悄悄丢掉；反过来，退出时不写盘而是等下次进编辑态
+     * 再问一遍，就成了「摆完还得记得点保存」。所以这里一次写清楚：有草稿就存，没有就只是关掉。
+     */
+    fun saveAndQuitEdit() {
+        if (!editing.on) return
+        editing.draft?.let { layoutStore.save(it) }
+        editing.cancel()
+    }
+
+    val pageVisible = LocalPageVisible.current
+    // 返回键：编辑态优先（这一下不退出页面），退出时自动保存
+    BackHandler(enabled = editing.on && pageVisible) { saveAndQuitEdit() }
+    // 切到别的页签：这一页还在组合里，只是不可见了 —— 这时就退出编辑并保存。
+    // 只在「变成不可见」那一下动一次，可见时不做事（不做任何周期性工作）。
+    LaunchedEffect(pageVisible) {
+        if (!pageVisible) saveAndQuitEdit()
+    }
+    // 页面整个被移出组合（宿主直接销毁这一页）：补一次落盘。
+    // 只写盘、不碰 Compose 状态（dispose 阶段改 state 没有意义，还可能触发多余的组合）。
+    DisposableEffect(Unit) {
+        onDispose {
+            if (editing.on) editing.draft?.let { layoutStore.save(it) }
         }
     }
 
@@ -1091,6 +1122,8 @@ fun HomeCardGroupScreen(
                                     liquid = liquid,
                                     refraction = refraction,
                                     backdrop = tileBackdrop.takeIf { recordTileLayer },
+                                    // 卡片能不能糊：纯色 / 渐变上关掉模糊，其余玻璃效果全留
+                                    blurGlass = hasWallpaper,
                                     // 校园卡大卡的付款码：用餐时段才真去取（原「小组件」那套能力）
                                     paymentCode = { host.paymentCode() },
                                     session = session,
@@ -1156,10 +1189,7 @@ fun HomeCardGroupScreen(
                     leading = topLeading,
                     actions = topActions,
                     onCancelEdit = { editing.cancel() },
-                    onSaveEdit = {
-                        editing.draft?.let { layoutStore.save(it) }
-                        editing.cancel()
-                    },
+                    onSaveEdit = { saveAndQuitEdit() },
                     onHomeSettings = {
                         // 齿轮 = 在原地打开「主页设置」抽屉：不跳设置页、编辑态不关闭，
                         // 手上的草稿原样留着，关掉抽屉接着摆（§31）
@@ -1195,6 +1225,8 @@ fun HomeCardGroupScreen(
             liquid = liquid,
             refraction = refraction,
             backdrop = tileBackdrop.takeIf { recordTileLayer },
+            // 幽灵块是卡片的预览，跟卡片同一条规则
+            blurGlass = hasWallpaper,
             geometry = { dragGeometry },
             settling = ghostSettling,
             settleValue = { ghostSettle.value },
@@ -1209,8 +1241,12 @@ fun HomeCardGroupScreen(
                 refraction = refraction,
                 // 采样源：有壁纸采背景层（透出壁纸）；纯色 / 渐变没有壁纸，改采**内容层**——
                 // 悬浮条本来就浮在卡片上面，采内容层才是「隔着玻璃看见下面的卡片」，
-                // 这也是它在这两种背景上仍然看得出是液态玻璃的原因。
-                backdrop = tileBackdrop.takeIf { recordTileLayer } ?: pageBackdrop.takeIf { liquid },
+                // 于是这两种背景下它照样是带模糊与折射的液态玻璃（不吃卡片那条「不模糊」规则）。
+                backdrop = when {
+                    !liquid -> null
+                    hasWallpaper -> tileBackdrop
+                    else -> pageBackdrop
+                },
                 session = session,
                 onPaletteStart = { routeId, startPointer ->
                     session.refreshBoardFromCoordinates()
@@ -2177,6 +2213,8 @@ private fun HomeDragGhost(
     liquid: Boolean,
     refraction: Boolean,
     backdrop: Backdrop?,
+    /** 幽灵是卡片的预览，糊不糊跟卡片同一条规则（见 [HomeTileFaceBox]）。 */
+    blurGlass: Boolean = true,
     /** 几何表按函数拿：本层早退时一次都不必求值（见调用处说明）。 */
     geometry: () -> HomeBoardGeometry,
     settling: Boolean,
@@ -2227,6 +2265,7 @@ private fun HomeDragGhost(
             liquid = liquid,
             refraction = refraction,
             backdrop = backdrop,
+            blurGlass = blurGlass,
             modifier = Modifier.fillMaxSize(),
         )
     }
