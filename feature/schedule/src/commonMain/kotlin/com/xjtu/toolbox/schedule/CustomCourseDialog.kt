@@ -2,19 +2,23 @@ package com.xjtu.toolbox.schedule
 
 import com.xjtu.toolbox.util.formatTwoDigits
 import com.xjtu.toolbox.platform.BackHandler
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ChevronRight
 import top.yukonga.miuix.kmp.utils.overScrollVertical
 import top.yukonga.miuix.kmp.theme.MiuixTheme
+import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextField
 import top.yukonga.miuix.kmp.basic.Surface
 import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.CardDefaults
-import top.yukonga.miuix.kmp.basic.ColorPalette
 import top.yukonga.miuix.kmp.window.WindowBottomSheet
 import top.yukonga.miuix.kmp.window.WindowDialog
 import top.yukonga.miuix.kmp.basic.TextButton
@@ -138,6 +142,21 @@ fun CustomCourseDialog(
     val isTimeValid = endTotalMinutes > startTotalMinutes
 
     val showDeleteConfirm = remember { mutableStateOf(false) }
+    // 选色面板：主抽屉里只放入口，色板和 Hex 在面板里（和课程颜色共用同一块面板）
+    var showColorPicker by remember { mutableStateOf(false) }
+
+    if (showColorPicker) {
+        CourseColorPickerDialog(
+            title = "日程颜色",
+            summary = "同名日程一起生效",
+            initial = color ?: defaultCourseColor(courseName),
+            onDismiss = { showColorPicker = false },
+            onConfirm = { picked ->
+                color = picked
+                showColorPicker = false
+            },
+        )
+    }
 
     // ── 删除确认 ──
     //
@@ -231,13 +250,44 @@ fun CustomCourseDialog(
                 modifier = Modifier.fillMaxWidth()
             )
 
-            // ── 星期 ──
-            SectionHeader("日程颜色", trailing = "同名日程一起生效")
-            ColorPalette(
-                color = color ?: defaultCourseColor(courseName),
-                onColorChanged = { color = it.copy(alpha = 1f) },
-            )
-            TextButton(text = "使用默认颜色", onClick = { color = null })
+            // ── 颜色 ──
+            // 色板和 Hex 都收进面板里了，这一行右端只留入口：点它才开选色面板
+            // （面板与课程颜色是同一个，见 CourseColorPickerDialog）
+            Row(
+                Modifier.fillMaxWidth().padding(start = 4.dp, end = 4.dp, top = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    "日程颜色",
+                    style = MiuixTheme.textStyles.subtitle,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MiuixTheme.colorScheme.onSurface,
+                )
+                Spacer(Modifier.weight(1f))
+                Surface(
+                    modifier = Modifier.clip(RoundedCornerShape(12.dp)).clickable { showColorPicker = true },
+                    shape = RoundedCornerShape(12.dp),
+                    color = MiuixTheme.colorScheme.secondaryContainer,
+                ) {
+                    Row(
+                        Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        // 当前生效的颜色；没单独设过时显示按课名哈希出来的默认色
+                        Box(Modifier.size(14.dp).clip(CircleShape).background(color ?: defaultCourseColor(courseName)))
+                        Text(
+                            color?.let(CourseColors::toHex) ?: "默认",
+                            style = MiuixTheme.textStyles.footnote1,
+                            color = MiuixTheme.colorScheme.onSurface,
+                        )
+                        Icon(
+                            Icons.Default.ChevronRight, null, Modifier.size(14.dp),
+                            tint = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                        )
+                    }
+                }
+            }
 
             SectionHeader("星期")
             WeekdaySelectorRow(

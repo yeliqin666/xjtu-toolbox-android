@@ -69,7 +69,9 @@ data class AgentConfig(
     val isConfigured: Boolean get() = apiKey.isNotBlank() || keyConfigured
 
     companion object {
-        const val DEFAULT_ASSISTANT_NAME = "屁岱"
+        const val DEFAULT_ASSISTANT_NAME = "小岱"
+        /** 旧默认名：存着它的老用户等于没改过名，跟着换成新默认。 */
+        const val LEGACY_ASSISTANT_NAME = "屁岱"
         const val PROVIDER_DEEPSEEK = "deepseek"
         const val PROVIDER_OPENAI = "openai"
         const val PROVIDER_CUSTOM = "custom"

@@ -488,6 +488,8 @@ internal data class InboxPayload(
     val seenTodos: Set<String>,
     val ignored: Set<String>,
     val off: Set<String>,
+    /** 待办 id → 重要程度（`InboxRules.IMPORTANCE_*`）。投影必须带上，否则浏览器那端标的级别存了也读不回来。 */
+    val importance: Map<String, Int> = emptyMap(),
     val schoolFetchedAt: String?,
     val bubbled: Set<String>,
 )
@@ -530,6 +532,7 @@ private fun InboxData.toDto() = InboxPayload(
     seenTodos = seenTodos,
     ignored = ignored,
     off = off,
+    importance = importance,
     schoolFetchedAt = isoTime(schoolFetchedAt),
     bubbled = bubbled,
 )

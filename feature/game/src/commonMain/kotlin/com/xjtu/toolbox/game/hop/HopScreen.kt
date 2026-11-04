@@ -54,12 +54,15 @@ import com.xjtu.toolbox.game.Sfx
 import com.xjtu.toolbox.game.board.Leaderboard
 import com.xjtu.toolbox.game.board.LeaderboardAskDialog
 import com.xjtu.toolbox.game.ui.GameMenu
+import com.xjtu.toolbox.game.ui.PauseMenu
+import com.xjtu.toolbox.game.ui.RestartConfirmMenu
+import com.xjtu.toolbox.game.ui.leaveIcon
 import com.xjtu.toolbox.ui.rememberHaptics
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.VolumeOff
 import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.filled.EmojiEvents
+import androidx.compose.material.icons.filled.Refresh
 import top.yukonga.miuix.kmp.basic.Icon
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.height
@@ -136,6 +139,7 @@ fun HopScreen(
     var streak by remember { mutableIntStateOf(0) }
     var over by remember { mutableStateOf(false) }
     var paused by remember { mutableStateOf(false) }
+    var confirmRestart by remember { mutableStateOf(false) }
     // 够上榜时的上榜询问。归本页持有，玩家退出去弹窗就跟着没了
     var boardAsk by remember { mutableStateOf<Leaderboard.PendingAsk?>(null) }
     var best by remember { mutableIntStateOf(GameStore.bestScore(GameIds.HOP)) }
@@ -151,6 +155,7 @@ fun HopScreen(
         game = HopGame()
         over = false
         paused = false
+        confirmRestart = false
         score = 0
         streak = 0
         camX = game.focusX
@@ -164,14 +169,24 @@ fun HopScreen(
         lifecycle.addObserver(observer)
         onDispose { lifecycle.removeObserver(observer) }
     }
-    // 有分了再按返回，先停下问一句，别一滑就把这局丢了
-    fun leave() {
+    // 中途重开：这一局的分数照常记进最高分，再开新局（死亡时已经记过了）
+    fun restartKeepingScore() {
         if (!over && game.score > 0) {
+            GameStore.submitScore(GameIds.HOP, game.score)
+            best = maxOf(best, game.score)
+        }
+        restart()
+    }
+    // 有分了再按返回，先停下问一句，别一滑就把这局丢了
+    val inProgress = !over && score > 0
+    fun leave() {
+        if (inProgress) {
             game.cancelCharge()
             paused = true
         } else onBack()
     }
     BackHandler(enabled = !paused && !picking) { leave() }
+    BackHandler(enabled = confirmRestart) { confirmRestart = false }
     BackHandler(enabled = picking) { picking = false }
     // 换地标时记下时刻：新的一座淡入，顶上浮出它的名字
     LaunchedEffect(landmarkIndex) { landmarkShownAt = fx.time }
@@ -282,7 +297,8 @@ fun HopScreen(
         ) {
             if (frame < 0) return@Canvas // 游戏状态不是 Compose state，读一下帧号让画布每帧重画
             drawSky(game.score, fx.time)
-            val scale = size.width / VIEW_UNITS
+            // 按竖屏手机的视野取景：横屏平板只按宽度算会把台子放得过大
+            val scale = minOf(size.width, size.height * 0.6f) / VIEW_UNITS
             if (landmarkIndex >= 0) {
                 drawLandmark(landmarkImages[landmarkIndex], (fx.time - landmarkShownAt) / 1.2f, night, -(camX - camZ) * scale * 0.05f)
             }
@@ -348,7 +364,7 @@ fun HopScreen(
                     .clickable(remember { MutableInteractionSource() }, SinkFeedback(), onClick = ::leave),
                 contentAlignment = Alignment.Center,
             ) {
-                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回", tint = ink, modifier = Modifier.size(22.dp))
+                Icon(leaveIcon(inProgress), contentDescription = if (inProgress) "暂停" else "返回", tint = ink, modifier = Modifier.size(22.dp))
             }
             Spacer(Modifier.width(14.dp))
             Column {
@@ -360,7 +376,7 @@ fun HopScreen(
             }
         }
 
-        // 右上：排行榜、音效开关、换角色
+        // 右上：重开、排行榜、音效开关、换角色
         Row(
             Modifier
                 .align(Alignment.TopEnd)
@@ -368,6 +384,23 @@ fun HopScreen(
                 .padding(end = 16.dp, top = 12.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
+            Icon(
+                Icons.Filled.Refresh,
+                contentDescription = "重新开始",
+                tint = ink,
+                modifier = Modifier
+                    .clip(RoundedCornerShape(20.dp))
+                    .background(ink.copy(alpha = 0.08f))
+                    .clickable(remember { MutableInteractionSource() }, SinkFeedback()) {
+                        if (inProgress) {
+                            game.cancelCharge()
+                            paused = true
+                            confirmRestart = true
+                        } else restart()
+                    }
+                    .padding(8.dp)
+                    .size(20.dp),
+            )
             if (Leaderboard.enabled) {
                 Icon(
                     Icons.Default.EmojiEvents,
@@ -464,11 +497,14 @@ fun HopScreen(
                 ),
                 accent = ACCENT, panel = panel, ink = ink,
             )
-            paused -> GameMenu(
-                title = "暂停",
+            confirmRestart -> RestartConfirmMenu(
+                onConfirm = ::restartKeepingScore, onCancel = { confirmRestart = false },
+                accent = ACCENT, panel = panel, ink = ink,
+            )
+            paused -> PauseMenu(
                 big = score.toString(),
                 subtitle = "最高 ${maxOf(best, score)}",
-                actions = listOf("继续" to { paused = false }, "重新开始" to { restart() }, "退出" to onBack),
+                onResume = { paused = false }, onRestart = ::restartKeepingScore, onExit = onBack,
                 accent = ACCENT, panel = panel, ink = ink,
             )
         }

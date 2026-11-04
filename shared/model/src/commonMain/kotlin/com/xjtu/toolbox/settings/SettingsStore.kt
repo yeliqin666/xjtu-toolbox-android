@@ -1,7 +1,20 @@
 package com.xjtu.toolbox.settings
 
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.setValue
 import com.xjtu.toolbox.platform.KeyValueStore
 import com.xjtu.toolbox.platform.keyValueStore
+
+/** 首页功能区设置落盘后的进程内信号：设置页与首页各读一份，改完靠它一起重读。 */
+object HomeLayoutRevision {
+    var current by mutableIntStateOf(0)
+        private set
+
+    fun bump() {
+        current++
+    }
+}
 
 /** 设置页那些偏好的读写。 */
 class SettingsStore(private val store: KeyValueStore = keyValueStore(APP_SETTINGS_FILE)) {
@@ -20,7 +33,7 @@ class SettingsStore(private val store: KeyValueStore = keyValueStore(APP_SETTING
         get() = store.getBoolean(KEY_DYNAMIC_COLOR, false)
         set(value) = store.putBoolean(KEY_DYNAMIC_COLOR, value)
 
-    /** 自定义主题种子色；空串表示未选择。保持独立，切换取色来源时保留上次选择。 */
+    /** 自定义主题色（浅色模式那一档）；空串表示未选择。保持独立，切换取色来源时保留上次选择。 */
     var customColorHex: String
         get() = normalizeThemeColor(store.getString("custom_color_hex").orEmpty())
         set(value) = store.putString("custom_color_hex", normalizeThemeColor(value))
@@ -29,8 +42,19 @@ class SettingsStore(private val store: KeyValueStore = keyValueStore(APP_SETTING
         get() = store.getBoolean("custom_color_enabled", false)
         set(value) = store.putBoolean("custom_color_enabled", value)
 
-    /** 主题实际采用的种子色：未启用自定义时为空串。 */
-    val themeSeedHex: String get() = if (customColorEnabled) customColorHex else ""
+    /**
+     * 浅色 / 深色各存一份自选主题色。没单独选过的那一档回退到旧键 [customColorHex]：
+     * 老版本只存了一个色，升级后两档都该还是那个色，而不是深色突然跑回默认配色。
+     */
+    fun customColorHex(dark: Boolean): String =
+        normalizeThemeColor(store.getString(if (dark) "custom_color_hex_dark" else "custom_color_hex_light").orEmpty())
+            .ifEmpty { customColorHex }
+
+    fun setCustomColorHex(dark: Boolean, value: String) =
+        store.putString(if (dark) "custom_color_hex_dark" else "custom_color_hex_light", normalizeThemeColor(value))
+
+    /** 主题实际采用的自选色（按当前明暗取那一档）：未启用自定义时为空串。 */
+    fun themeSeedHex(dark: Boolean): String = if (customColorEnabled) customColorHex(dark) else ""
 
     /** 默认启动 tab。不在底栏上时由读的一方回首页（`BottomBarTabs.defaultTab`）。 */
     var defaultTab: String
@@ -90,6 +114,61 @@ class SettingsStore(private val store: KeyValueStore = keyValueStore(APP_SETTING
         get() = store.getString("hero_image_data").orEmpty()
         set(value) = store.putString("hero_image_data", value.ifEmpty { null })
 
+    /** 自定义背景的模糊半径（dp），0 = 不模糊。 */
+    var heroImageBlur: Int
+        get() = store.getInt("hero_image_blur", HERO_IMAGE_BLUR_MIN)
+            .coerceIn(HERO_IMAGE_BLUR_MIN, HERO_IMAGE_BLUR_MAX)
+        set(value) = store.putInt("hero_image_blur", value.coerceIn(HERO_IMAGE_BLUR_MIN, HERO_IMAGE_BLUR_MAX))
+
+    /** 自定义背景的亮度（百分比，20..100）；100 = 原图，越小越暗。 */
+    var heroImageBrightness: Int
+        get() = store.getInt("hero_image_brightness", HERO_IMAGE_BRIGHTNESS_MAX)
+            .coerceIn(HERO_IMAGE_BRIGHTNESS_MIN, HERO_IMAGE_BRIGHTNESS_MAX)
+        set(value) = store.putInt("hero_image_brightness", value.coerceIn(HERO_IMAGE_BRIGHTNESS_MIN, HERO_IMAGE_BRIGHTNESS_MAX))
+
+    /** 首页功能区：classic = 分类卡，widgets = 可调尺寸的小组件。 */
+    var homeLayout: String
+        get() = store.getString("home_layout")?.takeIf { it == HOME_LAYOUT_WIDGETS || it == HOME_LAYOUT_CLASSIC } ?: HOME_LAYOUT_WIDGETS
+        set(value) = store.putString("home_layout", value.takeIf { it == HOME_LAYOUT_WIDGETS } ?: HOME_LAYOUT_CLASSIC)
+
+    /** 小组件的分组、排列与尺寸（格式见 `HomeWidgetLayout.encodeGroups`）；null = 没编辑过，用默认布局。 */
+    var homeWidgets: List<String>?
+        get() = store.getString("home_widgets")?.split('\n')?.filter { it.isNotBlank() }
+        set(value) = store.putString("home_widgets", value?.joinToString("\n"))
+
+    /** 小组件用液态玻璃（折射 + 高光，较耗电）；只在渐变与图片背景上生效，纯色背景一律是实心卡片。 */
+    var homeLiquidGlass: Boolean
+        get() = store.getBoolean("home_liquid_card", false)
+        set(value) = store.putBoolean("home_liquid_card", value)
+
+    /** 首页顶栏：true = 扫码、搜索、消息统一靠右（默认），false = 扫码单独靠左、标题居中。 */
+    var homeTopActionsRight: Boolean
+        get() = store.getBoolean("home_top_actions_right", true)
+        set(value) = store.putBoolean("home_top_actions_right", value)
+
+    var homeBackground: String
+        get() = store.getString("home_background") ?: when {
+            store.getString("home_widget_material") == WIDGET_MATERIAL_PAPER -> "solid"
+            homeWallpaperImage.isNotEmpty() -> "image"
+            else -> "gradient"
+        }
+        set(value) = store.putString("home_background", value)
+
+    /** 首页自定义背景，WebP Base64。 */
+    var homeWallpaperImage: String
+        get() = store.getString("home_wallpaper_image").orEmpty()
+        set(value) = store.putString("home_wallpaper_image", value.ifEmpty { null })
+
+    /** 首页背景图的模糊与亮度，取值范围同首页大卡的自定义背景。 */
+    var homeWallpaperBlur: Int
+        get() = store.getInt("home_wallpaper_blur", HERO_IMAGE_BLUR_MIN).coerceIn(HERO_IMAGE_BLUR_MIN, HERO_IMAGE_BLUR_MAX)
+        set(value) = store.putInt("home_wallpaper_blur", value.coerceIn(HERO_IMAGE_BLUR_MIN, HERO_IMAGE_BLUR_MAX))
+
+    var homeWallpaperBrightness: Int
+        get() = store.getInt("home_wallpaper_brightness", HERO_IMAGE_BRIGHTNESS_MAX)
+            .coerceIn(HERO_IMAGE_BRIGHTNESS_MIN, HERO_IMAGE_BRIGHTNESS_MAX)
+        set(value) = store.putInt("home_wallpaper_brightness", value.coerceIn(HERO_IMAGE_BRIGHTNESS_MIN, HERO_IMAGE_BRIGHTNESS_MAX))
+
     /** 场馆滑块验证码自动识别开关。 */
     var venueAutoSolveCaptchaEnabled: Boolean
         get() = store.getBoolean(KEY_VENUE_AUTO_SOLVE_CAPTCHA, true)
@@ -116,6 +195,14 @@ class SettingsStore(private val store: KeyValueStore = keyValueStore(APP_SETTING
         }
         /** 非敏感的应用设置（外观、协议、更新……），普通 SharedPreferences。 */
         const val APP_SETTINGS_FILE = "app_settings"
+        const val HOME_LAYOUT_CLASSIC = "classic"
+        const val HOME_LAYOUT_WIDGETS = "widgets"
+        const val WIDGET_MATERIAL_PAPER = "paper"
+
+        const val HERO_IMAGE_BLUR_MIN = 0
+        const val HERO_IMAGE_BLUR_MAX = 10
+        const val HERO_IMAGE_BRIGHTNESS_MIN = 20
+        const val HERO_IMAGE_BRIGHTNESS_MAX = 100
 
         private const val KEY_NAV_BAR_STYLE = "nav_bar_style"
         private const val KEY_DARK_MODE = "dark_mode"
@@ -132,6 +219,9 @@ class SettingsStore(private val store: KeyValueStore = keyValueStore(APP_SETTING
 
         /** 取值是旧版考勤（bkkq）的写法，已写进用户设置，不能改。 */
         const val SCHEDULE_SOURCE_ATTENDANCE = "bkkq"
+
+        /** 智慧教室平台；和旧版存的值一致，以前选过它的用户升级后直接生效。 */
+        const val SCHEDULE_SOURCE_JS = "js"
         const val NAV_STYLE_FLOATING = "floating"
         const val NAV_STYLE_CLASSIC = "classic"
         const val DARK_MODE_SYSTEM = "system"

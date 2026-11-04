@@ -19,16 +19,27 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Pause
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.xjtu.toolbox.platform.BackHandler
+import com.xjtu.toolbox.ui.glass.LocalTabRoot
+import top.yukonga.miuix.kmp.basic.Icon
+import top.yukonga.miuix.kmp.basic.IconButton
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
@@ -127,4 +138,83 @@ fun GameMenu(
             }
         }
     }
+}
+
+/** 顶栏左上角的图标：对局进行中是「暂停」，否则是「返回」（没开局 / 已结束，点了直接退出）。 */
+fun leaveIcon(inProgress: Boolean): ImageVector =
+    if (inProgress) Icons.Filled.Pause else Icons.AutoMirrored.Filled.ArrowBack
+
+/** Miuix 顶栏用的左上角按钮；页面被放到底栏上时（[LocalTabRoot]）没有上一级，不画。 */
+@Composable
+fun LeaveButton(inProgress: Boolean, onClick: () -> Unit) {
+    if (LocalTabRoot.current) return
+    IconButton(onClick = onClick) { Icon(leaveIcon(inProgress), contentDescription = if (inProgress) "暂停" else "返回") }
+}
+
+/** 暂停菜单：继续 / 重新开始 / 退出。配色默认跟 Miuix 主题，街机类游戏传自己的。 */
+@Composable
+fun PauseMenu(
+    subtitle: String,
+    onResume: () -> Unit,
+    onRestart: (() -> Unit)?,
+    onExit: () -> Unit,
+    big: String? = null,
+    accent: Color = MiuixTheme.colorScheme.primary,
+    panel: Color = MiuixTheme.colorScheme.surface,
+    ink: Color = MiuixTheme.colorScheme.onSurface,
+) = GameMenu(
+    title = "暂停",
+    subtitle = subtitle,
+    actions = listOfNotNull("继续" to onResume, onRestart?.let { "重新开始" to it }, "退出" to onExit),
+    accent = accent, panel = panel, ink = ink, big = big,
+)
+
+/** 重开前的二次确认：当前这一局不保留，最高分由调用方先交给 GameStore。 */
+@Composable
+fun RestartConfirmMenu(
+    onConfirm: () -> Unit,
+    onCancel: () -> Unit,
+    accent: Color = MiuixTheme.colorScheme.primary,
+    panel: Color = MiuixTheme.colorScheme.surface,
+    ink: Color = MiuixTheme.colorScheme.onSurface,
+) = GameMenu(
+    title = "重新开始这一局？",
+    subtitle = "当前分数不会保留",
+    actions = listOf("重新开始" to onConfirm, "取消" to onCancel),
+    accent = accent, panel = panel, ink = ink,
+)
+
+/**
+ * 「顶栏左上角 + 系统返回键」的统一接线：对局进行中先弹暂停菜单，没开局 / 已结束直接退出。
+ * 菜单开着时再按返回键等于「继续」。
+ */
+class LeaveGuard internal constructor() {
+    var menuOpen by mutableStateOf(false)
+    internal var inProgress = false
+    internal var exit: () -> Unit = {}
+
+    fun request() {
+        if (inProgress) menuOpen = true else exit()
+    }
+
+    /** 盖在游戏上的暂停菜单；[onRestart] 为 null（联机）就没有「重新开始」。 */
+    @Composable
+    fun Menu(subtitle: String, onRestart: (() -> Unit)?) {
+        if (!menuOpen) return
+        PauseMenu(
+            subtitle = subtitle,
+            onResume = { menuOpen = false },
+            onRestart = onRestart?.let { r -> { menuOpen = false; r() } },
+            onExit = { menuOpen = false; exit() },
+        )
+    }
+}
+
+@Composable
+fun rememberLeaveGuard(inProgress: Boolean, onExit: () -> Unit): LeaveGuard {
+    val guard = remember { LeaveGuard() }
+    guard.inProgress = inProgress
+    guard.exit = onExit
+    BackHandler { if (guard.menuOpen) guard.menuOpen = false else guard.request() }
+    return guard
 }

@@ -123,6 +123,13 @@ internal class ScheduleViewModel(private val host: ScheduleHost) : ViewModel() {
                 host.customCourses.observeByTerm(AccountContext.activeAccountId ?: "", term).collect { customCourses = it }
             }
         }
+        // 日程里出现过的课名交给 ScheduleColorSeen：收纳里给自建待办挑色时，列的就是这些课的颜色
+        // （自选色 + 按课名哈希的默认色）。教务课由课表缓存的读取顺手记，这里补上「自建日程」那部分。
+        viewModelScope.launch {
+            snapshotFlow { courses.map { it.courseName } + customCourses.map { it.courseName } }
+                .distinctUntilChanged()
+                .collect { names -> withContext(host.io) { ScheduleColorSeen.note(names) } }
+        }
     }
 
     /** 开学日期和教务给的总周数一起落盘；是正在看的学期就同步周数。 */

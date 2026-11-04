@@ -98,6 +98,7 @@ class AccountManager(
         // 4) 持久化激活指针 + lastUsedAt
         accountStore.setActive(accountId)
         accountStore.update(accountId) { it.copy(lastUsedAt = System.currentTimeMillis()) }
+        com.xjtu.toolbox.notification.DynamicScheduleScheduler.requestRefresh(context)
         // 5) 通知 UI：避免在「我的」页面改信息时误以为是当前账号。
         // 显式切到 Main 线程：mutableStateOf 的写入对其他线程不可见，必须在主线程上 set。
         withContext(Dispatchers.Main) {
@@ -175,6 +176,7 @@ class AccountManager(
         )
         accountStore.upsert(persisted, setActive = true)
         accountStore.update(username) { it.copy(lastUsedAt = System.currentTimeMillis()) }
+        com.xjtu.toolbox.notification.DynamicScheduleScheduler.requestRefresh(context)
         Log.i(TAG, "addAccount ok: $username")
         withContext(Dispatchers.Main) {
             holder.switchNotice = "已添加并切换到「${nickname ?: username}」"
@@ -286,6 +288,7 @@ class AccountManager(
         holder.clearInMemorySessionState()
         sessionManager.reconfigureForAnonymous()
         accountStore.clearActive()
+        com.xjtu.toolbox.notification.DynamicScheduleScheduler.requestRefresh(context)
         Log.i(TAG, "logoutCurrent(${id.redactUrl()}) done")
     }
 

@@ -46,6 +46,16 @@ private class WebKeyValueStore(private val name: String) : KeyValueStore {
 
     override fun contains(key: String): Boolean = localStorage.getItem(k(key)) != null
 
+    /** 与本文件里 `clear()` 同一套前缀扫法，去掉前缀交回去。 */
+    override fun keys(): Set<String> {
+        val prefix = "$PREFIX$name."
+        val out = mutableSetOf<String>()
+        for (i in 0 until localStorage.length) {
+            localStorage.key(i)?.takeIf { it.startsWith(prefix) }?.let { out += it.removePrefix(prefix) }
+        }
+        return out
+    }
+
     override fun clear() {
         // localStorage 没有「按前缀清空」的 API，只能自己扫。键不多，代价可接受。
         val doomed = mutableListOf<String>()

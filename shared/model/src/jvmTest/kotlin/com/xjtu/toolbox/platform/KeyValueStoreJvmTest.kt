@@ -54,6 +54,20 @@ class KeyValueStoreJvmTest {
     }
 
     @Test
+    fun `keys 列出本 store 的键，clear 之后为空`() = withTempRoot {
+        val store = keyValueStore("keys_listing")
+        store.clear()
+        store.putString("a", "1")
+        store.putInt("b", 2)
+        store.putBoolean("c", true)
+        assertEquals(setOf("a", "b", "c"), store.keys())
+        store.remove("b")
+        assertEquals(setOf("a", "c"), store.keys())
+        store.clear()
+        assertTrue(store.keys().isEmpty(), "清空之后不该还能列出键")
+    }
+
+    @Test
     fun `同名 store 不得同时以 plain 与 secure 打开`() {
         // 两份清单必须无交集：有人把某个 store 换到另一条缝时这里会失败而不是静默覆盖。
         val plainStoreNames = setOf(
@@ -71,6 +85,7 @@ class KeyValueStoreJvmTest {
             "inbox",
             "schedule_diff",
             "course_colors",
+            "course_colors_seen",
             "schedule_source",
             "schedule_changes",
             "attendance_records_ug",

@@ -1,5 +1,6 @@
 package com.xjtu.toolbox.account
 
+import com.xjtu.toolbox.ui.glass.tabContentBottomPadding
 import com.xjtu.toolbox.ui.adaptive.readableWidth
 import com.xjtu.toolbox.platform.BackHandler
 import androidx.compose.foundation.background
@@ -166,7 +167,7 @@ fun AccountManagerScreen(
                 .background(MiuixTheme.colorScheme.background)
                 .nestedScroll(scrollBehavior.nestedScrollConnection)
                 .overScrollVertical()
-                .verticalScroll(rememberScrollState())
+                .verticalScroll(rememberScrollState()).tabContentBottomPadding()
                 .padding(padding.withoutTop(glass))
         ) {
             Spacer(Modifier.height(padding.glassTop(glass)))

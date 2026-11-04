@@ -527,12 +527,13 @@ private fun LmsActivityCard(
                     if (activity.isClosed) {
                         Text("已结束", fontSize = 12.sp, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
                     }
-                    activity.startTime?.let {
-                        Text(
-                            formatLmsTime(it),
-                            fontSize = 12.sp,
-                            color = MiuixTheme.colorScheme.onSurfaceVariantSummary
-                        )
+                    // 作业给截止（列表接口带 deadline，缺了退回 end_time）；其余活动给开始时间。都带上标签，
+                    // 免得把作业的开放时间当成截止（#266）
+                    val due = activity.deadline?.takeIf { it.isNotBlank() } ?: activity.endTime?.takeIf { it.isNotBlank() }
+                    val time = if (activity.type == LmsActivityType.HOMEWORK) due?.let { "截止 " + formatLmsTime(it) }
+                    else activity.startTime?.takeIf { it.isNotBlank() }?.let { "开始 " + formatLmsTime(it) }
+                    time?.let {
+                        Text(it, fontSize = 12.sp, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
                     }
                 }
             }

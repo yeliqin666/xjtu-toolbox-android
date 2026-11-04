@@ -4,6 +4,10 @@ name: Core KMP Gate
 
 on:
   pull_request:
+    # 只改文档的 PR 不跑 wasm 编译与全量 jvmTest；手动触发不受此限制。
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
   workflow_dispatch:
 
 concurrency:
@@ -37,10 +41,11 @@ jobs:
         # :web 是真正吃 :core 的非 Android 端。它编得过，就说明 :core 的公开面在浏览器目标上成立。
         run: ./gradlew :core:compileKotlinWasmJs :web:compileKotlinWasmJs
 
-      - name: 装中日字体（共享模块与桌面端离屏布局测试共同需要）
-        # ubuntu-latest 镜像没有中日字体 ⇒ 字形缺失、量出来的文字宽度不对，而
-        # DesktopShellRailJvmTest 断言的正是那个宽度（CI 上实测 15.0px）。装完用 fc-list 响亮自检：
-        # 镜像/包一旦变了就在这里红，而不是让人去猜后面那条断言。
+      - name: 装中日字体（共享模块的离屏布局测试需要）
+        # ubuntu-latest 镜像没有中日字体 ⇒ 字形缺失、文字量出来的尺寸不对，而
+        # :feature:schedule 的 ExamCardLayoutTest 与 :feature:settings 的 CustomThemeTest
+        # 都在离屏渲染后断言中文文本的布局。装完用 fc-list 响亮自检：镜像/包一旦变了
+        # 就在这里红，而不是让人去猜后面那些断言。桌面端的同类断言在 desktop-linux.yml。
         run: |
           set -x
           sudo apt-get update
@@ -61,18 +66,18 @@ jobs:
           :shared:model:jvmTest :shared:navigation:jvmTest :shared:designsystem:jvmTest :shared:network:jvmTest
           :feature:account:jvmTest :feature:agent:jvmTest :feature:attendance:jvmTest :feature:campus:jvmTest :feature:community:jvmTest :feature:game:jvmTest :feature:home:jvmTest :feature:jiaocai:jvmTest :feature:library:jvmTest :feature:lms:jvmTest :feature:notice:jvmTest :feature:schedule:jvmTest :feature:score:jvmTest :feature:settings:jvmTest :feature:webvpn:jvmTest
 
-      - name: 数据层（:data）与桌面端（:desktop）也要能编、能测
+      - name: 数据层（:data）与假上游（:testkit）能编能测，桌面端（:desktop）能编
         # :data 是同一条判据的第二个消费者：它刻意**只有 jvm + android** 两个目标
         # （okhttp 只发布 jvm/android 变体、jsoup 只有一份 JVM jar，加 wasm 立刻编不过），
         # 所以这里不拿它去编 wasm —— 它的可移植性判据是"同一份代码在这两个目标上都编得过 +
         # `LibraryDataLayerJvmTest` 在 JVM 上真跑通（本地 HTTP 服务器 + 域名重写）"。
-        # :desktop 是第一个 Compose Desktop 承载；它的**装配**有验收测试（真登录、凭据落盘、
-        # 冷启动恢复、会话失效重登），跑在 JVM 上、不需要显示服务器；而离屏渲染（renderScreens）
-        # 留作本地/人工验收（它需要 libGL 与 skiko 的原生库，不往 CI 里塞环境依赖）。
         #
-        # :testkit 是假的校园上游（图书馆座位系统 + 统一认证）—— 它不在任何交付物里，但上面两条
+        # :testkit 是假的校园上游（图书馆座位系统 + 统一认证）—— 它不在任何交付物里，但上面这些
         # 测试都依赖它，所以要单独编一遍（它一旦编不过，两边的失败信息都很难指向真因）。
-        run: ./gradlew :testkit:compileKotlin :shared:data:compileAndroidMain :shared:data:jvmTest :data:compileAndroidMain :data:jvmTest :desktop:compileKotlin :desktop:test
+        #
+        # :desktop 这里只做编译（便宜，且覆盖所有 PR）；它的完整测试 :desktop:test 在
+        # desktop-linux.yml 里跑 —— 那边的路径过滤覆盖了 :desktop 的全部依赖，别重复跑一遍。
+        run: ./gradlew :testkit:compileKotlin :shared:data:compileAndroidMain :shared:data:jvmTest :data:compileAndroidMain :data:jvmTest :desktop:compileKotlin
 
       - name: wasm 的运行时证明（:web 在真浏览器里跑真数据）
         # 上面那句「wasm 的运行时证明交给 :web 在真浏览器里跑真数据」此前**只写在注释里**，命令里没有 ——

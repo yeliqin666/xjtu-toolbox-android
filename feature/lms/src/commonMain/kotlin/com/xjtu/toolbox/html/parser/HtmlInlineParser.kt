@@ -15,18 +15,25 @@ import androidx.compose.ui.unit.em
 import com.xjtu.toolbox.html.dom.HtmlElement as Element
 import com.xjtu.toolbox.html.dom.HtmlNode as Node
 import com.xjtu.toolbox.html.dom.HtmlText as TextNode
+import com.xjtu.toolbox.html.model.cssInvertHueRotate180
 
 internal object HtmlInlineParser {
 
+    /**
+     * @param invertInlineColors 暗色模式下为 true：把行内 CSS 写死的颜色过一遍
+     *   `invert(100%) hue-rotate(180deg)`。默认主题色由 [com.xjtu.toolbox.html.model.HtmlStyle]
+     *   整体换算，这里只管上游 HTML 自己写的那部分（`color:#000` 那一类）。
+     */
     fun buildAnnotatedString(
         nodes: List<Node>,
         linkColor: Color = Color.Unspecified,
         codeBgColor: Color = Color.Unspecified,
         onLinkClick: ((url: String) -> Unit)? = null,
+        invertInlineColors: Boolean = false,
     ): AnnotatedString {
         val builder = AnnotatedString.Builder()
         for (node in nodes) {
-            appendNode(builder, node, linkColor, codeBgColor, onLinkClick)
+            appendNode(builder, node, linkColor, codeBgColor, onLinkClick, invertInlineColors)
         }
         return builder.toAnnotatedString()
     }
@@ -37,6 +44,7 @@ internal object HtmlInlineParser {
         linkColor: Color,
         codeBgColor: Color,
         onLinkClick: ((url: String) -> Unit)?,
+        invertInlineColors: Boolean,
     ) {
         when (node) {
             is TextNode -> {
@@ -115,7 +123,10 @@ internal object HtmlInlineParser {
                 }
 
                 // 2. 内联 CSS style 属性解析
+                // 暗色模式下要换算：写死的 `color:#000` 不跟随主题，是「半黑半白」的根因
+                // （见 HtmlStyle 的类注释）。换算放在这里，与整份 HtmlStyle 走同一条规则。
                 val inlineCss = HtmlCssParser.parseStyle(node.attr("style"))
+                    ?.let { if (invertInlineColors) it.cssInvertHueRotate180() else it }
                 if (inlineCss != null) {
                     builder.pushStyle(inlineCss)
                     pushedStyleCount++
@@ -123,7 +134,7 @@ internal object HtmlInlineParser {
 
                 // 递归子节点
                 for (child in node.childNodes()) {
-                    appendNode(builder, child, linkColor, codeBgColor, onLinkClick)
+                    appendNode(builder, child, linkColor, codeBgColor, onLinkClick, invertInlineColors)
                 }
 
                 // 出栈

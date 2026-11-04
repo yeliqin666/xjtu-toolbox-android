@@ -10,6 +10,15 @@ import kotlin.test.*
 import kotlinx.serialization.json.jsonObject
 
 class AgentWidgetPresentationTest {
+    @Test fun cardPresentationIgnoresNoticeCaptionAndKeepsValidOptions() {
+        val card = CardWidget(CardInfo(balance = 8.49), transactionsLoaded = true)
+        val displayed = display(card, """{"view":"transactions","caption":"一周消费摘要","sort":"date_desc"}""") as CardWidget
+        assertEquals("transactions", displayed.display.view)
+        assertEquals(card.info, displayed.info)
+        val definition = AgentWidgetPresentation.toolDefinition(mapOf("result" to "get_card_info"))
+        val displayProps = definition["function"]!!.jsonObject["parameters"]!!.jsonObject["properties"]!!.jsonObject["display"]!!.jsonObject["properties"]!!.jsonObject
+        assertFalse("caption" in displayProps)
+    }
     @Test fun presentationSchemaIncludesAllSupportedViews() {
         val views = AgentWidgetPresentation.schema()["properties"]!!.jsonObject["view"]!!.jsonObject["enum"].toString()
         listOf("slots", "status", "both", "balance", "summary", "transactions", "plan", "booking", "places", "route")

@@ -27,6 +27,12 @@ import androidx.compose.material.icons.filled.School
 import androidx.compose.material.icons.filled.SmartToy
 import androidx.compose.material.icons.filled.SportsEsports
 import androidx.compose.material.icons.filled.Stadium
+import androidx.compose.material.icons.filled.GridOn
+import androidx.compose.material.icons.filled.Grain
+import androidx.compose.material.icons.filled.Widgets
+import androidx.compose.material.icons.filled.SportsGymnastics
+import androidx.compose.material.icons.filled.Dashboard
+import androidx.compose.material.icons.filled.Casino
 import androidx.compose.material.icons.filled.TravelExplore
 import androidx.compose.material.icons.filled.VpnKey
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -62,6 +68,13 @@ object HomeIcons {
         AppRoute.Agent -> Icons.Default.SmartToy
         AppRoute.Community -> Icons.Default.Forum
         AppRoute.Games -> Icons.Default.SportsEsports
+        AppRoute.Game2048 -> Icons.Default.GridOn
+        AppRoute.GameMerge -> Icons.Default.Grain
+        AppRoute.GameBlocks -> Icons.Default.Widgets
+        AppRoute.GameHop -> Icons.Default.SportsGymnastics
+        AppRoute.GameGomoku -> Icons.Default.Dashboard
+        AppRoute.GameGo -> Icons.Default.Casino
+        AppRoute.GameXiangqi -> Icons.Default.School
         AppRoute.Match -> Icons.Default.Groups
         else -> Icons.Default.Apps
     }

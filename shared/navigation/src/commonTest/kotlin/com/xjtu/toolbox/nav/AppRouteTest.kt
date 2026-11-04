@@ -9,12 +9,28 @@ import kotlin.test.Test
  * 这里把「字符串 → 对象 → 字符串」来回一圈钉死，尤其是三种带参数的写法。
  */
 class AppRouteTest {
+    @Test
+    fun `在读证明保留工作流参数并复用电子凭证认证`() {
+        com.xjtu.toolbox.home.EnrollmentCertificate.entries.forEach { certificate ->
+            val route = AppRoute.Browser(certificate.url)
+            assertEquals(route, appRouteOf(route.id))
+            assertEquals(com.xjtu.toolbox.auth.LoginType.DZPZ, route.loginType)
+        }
+        assertNull(AppRoute.Browser("https://dzpz.xjtu.edu.cn.example.org/").loginType)
+    }
 
     @Test
     fun `无参数路由来回一致`() {
         listOf(AppRoute.Main, AppRoute.Settings, AppRoute.Jiaocai1, AppRoute.Match, AppRoute.Game2048).forEach { route ->
             assertEquals(route, appRouteOf(route.id))
         }
+    }
+
+    @Test
+    fun `社区帖子编号来回一致`() {
+        assertEquals(AppRoute.CommunityPost(42), appRouteOf(AppRoute.CommunityPost(42).id))
+        assertNull(appRouteOf("community/0"))
+        assertNull(appRouteOf("community/abc"))
     }
 
     @Test

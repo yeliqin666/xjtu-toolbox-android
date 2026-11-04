@@ -35,7 +35,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.EmojiEvents
-import androidx.compose.material.icons.filled.Pause
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -78,6 +78,9 @@ import com.xjtu.toolbox.game.Sfx
 import com.xjtu.toolbox.game.board.Leaderboard
 import com.xjtu.toolbox.game.board.LeaderboardAskDialog
 import com.xjtu.toolbox.game.ui.GameMenu
+import com.xjtu.toolbox.game.ui.PauseMenu
+import com.xjtu.toolbox.game.ui.RestartConfirmMenu
+import com.xjtu.toolbox.game.ui.leaveIcon
 import com.xjtu.toolbox.ui.rememberHaptics
 import kotlin.math.abs
 import kotlin.math.roundToInt
@@ -230,6 +233,7 @@ private fun BlocksPlay(mode: BlocksMode, best: Int, palette: BlocksPalette, onRe
     var level by remember { mutableIntStateOf(1) }
     var secondsLeft by remember { mutableIntStateOf((ULTRA_MS / 1000).toInt()) }
     var paused by remember { mutableStateOf(false) }
+    var confirmRestart by remember { mutableStateOf(false) }
     var over by remember { mutableStateOf(false) }
     // 够上榜时的上榜询问。归本页持有，玩家退出去弹窗就跟着没了
     var boardAsk by remember { mutableStateOf<Leaderboard.PendingAsk?>(null) }
@@ -254,6 +258,7 @@ private fun BlocksPlay(mode: BlocksMode, best: Int, palette: BlocksPalette, onRe
     fun restart() {
         game = BlocksGame(mode)
         paused = false
+        confirmRestart = false
         over = false
         label = null
         sync()
@@ -343,9 +348,9 @@ private fun BlocksPlay(mode: BlocksMode, best: Int, palette: BlocksPalette, onRe
         game.block()
         frame++
     }
-    // 系统返回：对局中先暂停，暂停 / 结算时再按就退出
+    // 系统返回：对局中先暂停，暂停 / 结算时再按就退出；重开确认框里按返回等于取消
     BackHandler {
-        if (paused || over) onExit() else paused = true
+        if (confirmRestart) confirmRestart = false else if (paused || over) onExit() else paused = true
     }
 
     val focus = remember { FocusRequester() }
@@ -363,7 +368,7 @@ private fun BlocksPlay(mode: BlocksMode, best: Int, palette: BlocksPalette, onRe
                     Key.DirectionUp, Key.X -> act { rotateWithSound(true) }
                     Key.Z -> act { rotateWithSound(false) }
                     Key.Spacebar -> act { hardDrop() }
-                    Key.P, Key.Escape -> if (!over) paused = !paused
+                    Key.P, Key.Escape -> if (!over && !confirmRestart) paused = !paused
                     else -> return@onKeyEvent false
                 }
                 true
@@ -372,9 +377,9 @@ private fun BlocksPlay(mode: BlocksMode, best: Int, palette: BlocksPalette, onRe
             .focusable(),
     ) {
         Column(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().padding(horizontal = 12.dp)) {
-            // 顶栏：返回 · 分数 · 排行榜 · 暂停
+            // 顶栏：暂停（结算后是返回）· 分数 · 排行榜 · 重开
             Row(Modifier.fillMaxWidth().height(52.dp), verticalAlignment = Alignment.CenterVertically) {
-                BarIcon(Icons.AutoMirrored.Filled.ArrowBack, "返回", palette.ink) { if (!over) paused = true }
+                BarIcon(leaveIcon(!over), if (over) "返回" else "暂停", palette.ink) { if (over) onExit() else paused = true }
                 Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
                     Text(shownScore.toString(), fontSize = 28.sp, fontWeight = FontWeight.Bold, color = palette.ink, lineHeight = 30.sp)
                 }
@@ -384,7 +389,9 @@ private fun BlocksPlay(mode: BlocksMode, best: Int, palette: BlocksPalette, onRe
                         Leaderboard.openRanking(blocksRecordId(mode))
                     }
                 }
-                BarIcon(Icons.Filled.Pause, "暂停", palette.ink) { if (!over) paused = true }
+                BarIcon(Icons.Filled.Refresh, "重新开始", palette.ink) {
+                    if (over || score == 0) restart() else { paused = true; confirmRestart = true }
+                }
             }
             // 信息条：数据 · 下一个
             Row(Modifier.fillMaxWidth().padding(vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -488,10 +495,13 @@ private fun BlocksPlay(mode: BlocksMode, best: Int, palette: BlocksPalette, onRe
                 ),
                 accent = accent, panel = palette.panel, ink = palette.ink,
             )
-            paused -> GameMenu(
-                title = "暂停",
+            confirmRestart -> RestartConfirmMenu(
+                onConfirm = { restart() }, onCancel = { confirmRestart = false },
+                accent = accent, panel = palette.panel, ink = palette.ink,
+            )
+            paused -> PauseMenu(
                 subtitle = "本局 $score 分",
-                actions = listOf("继续" to { paused = false }, "重新开始" to { restart() }, "退出" to onExit),
+                onResume = { paused = false }, onRestart = { restart() }, onExit = onExit,
                 accent = accent, panel = palette.panel, ink = palette.ink,
             )
         }

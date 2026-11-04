@@ -233,7 +233,7 @@ private fun RankingDialog(sheet: Leaderboard.Sheet.Ranking) {
                 TextButton(text = "重试", onClick = { reload++ }, modifier = Modifier.fillMaxWidth())
             }
 
-            else -> {
+            else -> Column {
                 val board = snapshot
                 val mine = board?.me
                 if (board == null || board.rows.isEmpty()) {
@@ -248,6 +248,7 @@ private fun RankingDialog(sheet: Leaderboard.Sheet.Ranking) {
                     Column(
                         Modifier
                             .fillMaxWidth()
+                            .weight(1f, fill = false)
                             .heightIn(max = 380.dp)
                             .verticalScroll(rememberScrollState()),
                     ) {

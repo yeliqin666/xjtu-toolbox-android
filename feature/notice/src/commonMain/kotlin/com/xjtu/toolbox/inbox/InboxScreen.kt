@@ -65,6 +65,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.xjtu.toolbox.ui.glass.tabContentPadding
 import com.xjtu.toolbox.auth.LoginType
 import com.xjtu.toolbox.schedule.colorOf
 import com.xjtu.toolbox.schedule.rememberCourseColors
@@ -114,7 +115,7 @@ fun InboxScreen(
     onOpen: (String) -> Unit,
     /** 收纳是**按账号**存的；null = 当前账号（:core 的 AccountContext）。 */
     account: String? = null,
-    /** 屁岱消息弹窗里的「接着问屁岱」：宿主把这条消息当快照带进对话。null = 只按路由打开屁岱页。 */
+    /** 小岱消息弹窗里的「接着问小岱」：宿主把这条消息当快照带进对话。null = 只按路由打开小岱页。 */
     onAskPidai: ((InboxItem) -> Unit)? = null,
 ) {
     val scope = rememberCoroutineScope()
@@ -130,7 +131,11 @@ fun InboxScreen(
     // 作业按科目取课表里那门课的颜色，和课表、思源学堂一致
     val courseNames = remember(data) { (todos + finished.map { it.item }).filter { it.category == InboxCategories.LMS }.map { it.source }.distinct() }
     val courseColors = rememberCourseColors(courseNames)
-    fun accentOf(item: InboxItem) = if (item.category == InboxCategories.LMS) courseColors.colorOf(item.source) else null
+    // 自建待办可以自己挑色（存在 SelfTodo 上，投影到条目的 colorArgb）；没挑过就走分类色
+    fun accentOf(item: InboxItem): Color? = when {
+        item.category == InboxCategories.LMS -> courseColors.colorOf(item.source)
+        else -> item.colorArgb?.let { Color(it) }
+    }
     // 这次进来之前没看过的待办标个红点；一看到就记成看过，首页红点随之熄掉，这页的红点留到下次进来
     val seenAtOpen = remember { data.seenTodos }
     // 点开过的这次就算看了，返回时红点立刻熄掉
@@ -143,6 +148,8 @@ fun InboxScreen(
     var showAdd by remember { mutableStateOf(false) }
     var detail by remember { mutableStateOf<InboxItem?>(null) }
     var actions by remember { mutableStateOf<RowActions?>(null) }
+    /** 正在改截止的那条自建待办（`SelfTodoStore` 里的 id）；null = 没在改 */
+    var editingDue by remember { mutableStateOf<String?>(null) }
 
     // 自建待办留在收纳里时靠时间戳判可见，进来时刷一次，别让它悄悄过期
     androidx.compose.runtime.LaunchedEffect(Unit) { SelfTodoStore.publish() }
@@ -171,7 +178,7 @@ fun InboxScreen(
     fun open(item: InboxItem, ids: List<String> = listOf(item.id)) {
         InboxStore.markRead(ids)
         openedTodos = openedTodos + ids
-        // 屁岱的简报正文就是全部内容，屁岱页里没有它：先弹窗看全文，想接着聊再进屁岱
+        // 小岱的简报正文就是全部内容，小岱页里没有它：先弹窗看全文，想接着聊再进小岱
         val route = item.resolvedRouteId()
         if (route == null || item.category == InboxCategories.PIDAI) detail = item else onOpen(route)
     }
@@ -226,7 +233,7 @@ fun InboxScreen(
             AppTabPager(pageCount = 2, selectedTabIndex = tab, onTabSelected = { tab = it }, modifier = Modifier.fillMaxSize()) { page ->
                 LazyColumn(
                     Modifier.fillMaxSize().overScrollVertical(),
-                    contentPadding = PaddingValues(top = glassTop, bottom = 24.dp),
+                    contentPadding = tabContentPadding(PaddingValues(top = glassTop, bottom = 24.dp)),
                 ) {
                     error?.let { msg ->
                         item(key = "error") {
@@ -248,10 +255,19 @@ fun InboxScreen(
                             section(title, list.map {
                                 Entry(
                                     it, it.id, unread = it.id !in seenAtOpen && it.id !in openedTodos, count = 1, accent = accentOf(it),
+                                    importance = InboxRules.importanceOf(data, it.id),
                                     onLongClick = {
                                         val selfId = SelfTodoRules.todoIdOf(it.id)
                                         actions = if (selfId != null) {
-                                            RowActions(it, listOf("标为完成" to { SelfTodoStore.complete(selfId) }, "删除" to { SelfTodoStore.delete(selfId) }))
+                                            RowActions(
+                                                it,
+                                                listOf(
+                                                    "改截止" to { editingDue = selfId },
+                                                    "标为完成" to { SelfTodoStore.complete(selfId) },
+                                                    "删除" to { SelfTodoStore.delete(selfId) },
+                                                ),
+                                                todoId = selfId,
+                                            )
                                         } else {
                                             RowActions(it, listOf("忽略这条待办" to { InboxStore.ignoreTodo(it.id) }))
                                         }
@@ -264,6 +280,7 @@ fun InboxScreen(
                             section("已完成", finished.map { f ->
                                 Entry(
                                     f.item, "done:${f.item.id}", unread = false, count = 1, dimmed = true, done = !f.ignored, accent = accentOf(f.item),
+                                    importance = InboxRules.importanceOf(data, f.item.id),
                                     timeText = (if (f.ignored) "已忽略 · " else "已完成 · ") + timeLabel(f.at),
                                 ) { open(f.item) }
                             })
@@ -299,81 +316,22 @@ fun InboxScreen(
         InboxDetailDialog(d, onAskPidai = ask) { detail = null }
     }
     actions?.let { a -> RowActionsDialog(a) { actions = null } }
-    if (showAdd) AddTodoDialog { showAdd = false }
-}
-
-/** 新建一条自建待办：标题必填，截止（今天 / 明天 / 本周日 / 不设）和优先级可选。 */
-@Composable
-private fun AddTodoDialog(onDismiss: () -> Unit) {
-    var title by remember { mutableStateOf("") }
-    var dueOffset by remember { mutableStateOf<Int?>(null) }
-    var priority by remember { mutableIntStateOf(SelfTodoRules.PRIORITY_NONE) }
-    var remind by remember { mutableStateOf(true) }
-    val today = remember { com.xjtu.toolbox.util.todayOnCampus() }
-    val dueChoices = listOf<Pair<String, Int?>>(
-        "不设" to null, "今天" to 0, "明天" to 1, "本周日" to SelfTodoRules.daysToSunday(today),
-    ).distinctBy { it.second }
-    val priorityChoices = listOf(
-        "无" to SelfTodoRules.PRIORITY_NONE, "低" to SelfTodoRules.PRIORITY_LOW,
-        "中" to SelfTodoRules.PRIORITY_MEDIUM, "高" to SelfTodoRules.PRIORITY_HIGH,
-    )
-    WindowDialog(show = true, title = "新建待办", summary = "记一件有截止、不占课表时段的事", onDismissRequest = onDismiss) {
-        Column {
-            top.yukonga.miuix.kmp.basic.TextField(
-                value = title,
-                onValueChange = { title = it.take(80) },
-                label = "要做什么",
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth(),
+    editingDue?.let { id ->
+        // 抽屉刚关掉时才读：改完截止这个 id 就置空了，不必订阅存储
+        val todo = remember(id, data) { SelfTodoStore.all().firstOrNull { it.id == id } }
+        if (todo != null) {
+            EditDueDialog(
+                title = todo.title,
+                currentDue = SelfTodoRules.dueMillis(todo).takeIf { it > 0 },
+                onDismiss = { editingDue = null },
+                onConfirm = { due ->
+                    SelfTodoStore.setDue(id, due)
+                    editingDue = null
+                },
             )
-            Spacer(Modifier.height(14.dp))
-            Text("截止", style = MiuixTheme.textStyles.footnote1, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
-            Spacer(Modifier.height(6.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                dueChoices.forEach { (label, offset) ->
-                    com.xjtu.toolbox.ui.components.AppFilterChip(selected = dueOffset == offset, onClick = { dueOffset = offset }, label = label)
-                }
-            }
-            if (dueOffset != null) {
-                Spacer(Modifier.height(12.dp))
-                Text("提醒", style = MiuixTheme.textStyles.footnote1, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
-                Spacer(Modifier.height(6.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    com.xjtu.toolbox.ui.components.AppFilterChip(selected = remind, onClick = { remind = true }, label = "当天 9 点")
-                    com.xjtu.toolbox.ui.components.AppFilterChip(selected = !remind, onClick = { remind = false }, label = "不提醒")
-                }
-            }
-            Spacer(Modifier.height(12.dp))
-            Text("优先级", style = MiuixTheme.textStyles.footnote1, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
-            Spacer(Modifier.height(6.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                priorityChoices.forEach { (label, value) ->
-                    com.xjtu.toolbox.ui.components.AppFilterChip(selected = priority == value, onClick = { priority = value }, label = label)
-                }
-            }
-            Spacer(Modifier.height(16.dp))
-            Row {
-                TextButton(text = "取消", onClick = onDismiss, modifier = Modifier.weight(1f))
-                Spacer(Modifier.width(12.dp))
-                TextButton(
-                    text = "添加",
-                    enabled = title.isNotBlank(),
-                    onClick = {
-                        SelfTodoStore.create(
-                            title = title,
-                            dueDate = SelfTodoRules.dueAt(dueOffset, Clock.System.now()),
-                            priority = priority,
-                            allDay = dueOffset != null,
-                            remind = remind && dueOffset != null,
-                        )
-                        onDismiss()
-                    },
-                    modifier = Modifier.weight(1f),
-                    colors = ButtonDefaults.textButtonColorsPrimary(),
-                )
-            }
         }
     }
+    if (showAdd) AddTodoSheet { showAdd = false }
 }
 
 private class Entry(
@@ -389,17 +347,43 @@ private class Entry(
     val timeText: String? = null,
     /** 作业按科目取课表里那门课的颜色，只给图标上色（课程色可自选，浅色当字色看不清）；为 null 用分类色。 */
     val accent: Color? = null,
+    /** 用户标的重要程度（[InboxRules.IMPORTANCE_*]）：只在标题旁画个角标，不参与排序。 */
+    val importance: Int = InboxRules.IMPORTANCE_NONE,
     val onLongClick: (() -> Unit)? = null,
     val onClick: () -> Unit,
 )
 
 /** 长按一条弹出的操作。 */
-private class RowActions(val item: InboxItem, val actions: List<Pair<String, () -> Unit>>)
+private class RowActions(
+    val item: InboxItem,
+    val actions: List<Pair<String, () -> Unit>>,
+    /** 自建待办在 `SelfTodoStore` 里的 id：只有这一种条目能在长按抽屉里改颜色。 */
+    val todoId: String? = null,
+)
 
+/**
+ * 长按抽屉：上半是「对这条待办的标注」（颜色、重要程度），下半是操作按钮。
+ *
+ * 颜色只有自建待办能改（存在 `SelfTodo` 上）；重要程度是所有待办都能标（存在
+ * `InboxData.importance`，学校推来的那几条也算）—— 两者都**不影响排序**。
+ */
 @Composable
 private fun RowActionsDialog(a: RowActions, onDismiss: () -> Unit) {
     WindowDialog(show = true, title = a.item.title, summary = a.item.source, onDismissRequest = onDismiss) {
-        Column {
+        Column(Modifier.heightIn(max = 460.dp).verticalScroll(rememberScrollState())) {
+            val todoId = a.todoId
+            if (todoId != null) {
+                var color by remember(todoId) { mutableStateOf(a.item.colorArgb) }
+                TodoColorField(current = color, onPick = {
+                    color = it
+                    SelfTodoStore.setColor(todoId, it)
+                })
+                Spacer(Modifier.height(12.dp))
+            }
+            ImportanceRow(level = InboxRules.importanceOf(InboxStore.snapshot(), a.item.id)) {
+                InboxStore.setImportance(a.item.id, it)
+            }
+            Spacer(Modifier.height(12.dp))
             a.actions.forEach { (label, run) ->
                 TextButton(
                     text = label,
@@ -628,14 +612,21 @@ private fun InboxRow(e: Entry) {
             }
             // 学校不少消息的标题就是系统名，和上面的来源重复，这时直接拿正文当标题
             val titleIsSource = item.title == item.source && item.body.isNotBlank()
-            Text(
-                if (titleIsSource) item.body else item.title,
-                style = MiuixTheme.textStyles.body1,
-                fontWeight = if (unread) FontWeight.SemiBold else FontWeight.Normal,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.padding(top = 2.dp),
-            )
+            Row(verticalAlignment = Alignment.Top) {
+                // 重要程度只画角标：顺序仍按截止时间，标签不插队
+                if (e.importance != InboxRules.IMPORTANCE_NONE) {
+                    Box(Modifier.padding(top = 5.dp)) { ImportanceBadge(e.importance) }
+                    Spacer(Modifier.width(6.dp))
+                }
+                Text(
+                    if (titleIsSource) item.body else item.title,
+                    style = MiuixTheme.textStyles.body1,
+                    fontWeight = if (unread) FontWeight.SemiBold else FontWeight.Normal,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f).padding(top = 2.dp),
+                )
+            }
             if (item.body.isNotBlank() && !titleIsSource) {
                 Text(
                     item.body,
@@ -656,7 +647,7 @@ private fun InboxSettingsSheet(show: Boolean, data: InboxData, onDismiss: () -> 
     OverlayBottomSheet(show = show, title = "收纳设置", onDismissRequest = onDismiss) {
         val school = InboxStore.schoolCategories(data).map { InboxCategory(it, InboxCategories.schoolLabel(it)) }
         Column(Modifier.fillMaxWidth().navigationBarsPadding().heightIn(max = 520.dp).verticalScroll(rememberScrollState())) {
-            Text("勾掉的类别不进列表、不计数，屁岱也不再提。", style = MiuixTheme.textStyles.footnote1, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
+            Text("勾掉的类别不进列表、不计数，小岱也不再提。", style = MiuixTheme.textStyles.footnote1, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
             SettingsGroup("待办", InboxCategories.todos, data)
             SettingsGroup("消息", InboxCategories.messages, data)
             if (school.isNotEmpty()) SettingsGroup("学校消息", school, data)
@@ -687,7 +678,7 @@ private fun InboxDetailDialog(item: InboxItem, onAskPidai: (() -> Unit)? = null,
             Text(
                 item.body.ifBlank { item.title },
                 style = MiuixTheme.textStyles.body2,
-                modifier = Modifier.heightIn(max = 360.dp).verticalScroll(rememberScrollState()),
+                modifier = Modifier.weight(1f, fill = false).heightIn(max = 360.dp).verticalScroll(rememberScrollState()),
             )
             if (onAskPidai == null) {
                 TextButton(text = "知道了", onClick = onDismiss, modifier = Modifier.fillMaxWidth().padding(top = 12.dp), colors = ButtonDefaults.textButtonColorsPrimary())
@@ -696,7 +687,7 @@ private fun InboxDetailDialog(item: InboxItem, onAskPidai: (() -> Unit)? = null,
                     TextButton(text = "知道了", onClick = onDismiss, modifier = Modifier.weight(1f))
                     Spacer(Modifier.width(12.dp))
                     TextButton(
-                        text = "接着问屁岱",
+                        text = "接着问小岱",
                         onClick = { onDismiss(); onAskPidai() },
                         modifier = Modifier.weight(1f),
                         colors = ButtonDefaults.textButtonColorsPrimary(),

@@ -9,6 +9,7 @@ import top.yukonga.miuix.kmp.basic.Surface
 import top.yukonga.miuix.kmp.basic.CircularProgressIndicator
 import top.yukonga.miuix.kmp.basic.Checkbox
 
+import com.xjtu.toolbox.ui.glass.tabContentBottomPadding
 import com.xjtu.toolbox.platform.BackHandler
 import com.xjtu.toolbox.platform.CodeMatrix
 import com.xjtu.toolbox.ui.components.CodeMatrixView
@@ -174,7 +175,7 @@ fun PaymentCodeScreen(
         Column(
             Modifier
                 .padding(20.dp)
-                .verticalScroll(rememberScrollState())
+                .verticalScroll(rememberScrollState()).tabContentBottomPadding()
         ) {
             Text(
                 "付款码",

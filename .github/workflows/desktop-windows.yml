@@ -11,12 +11,14 @@ name: Desktop Windows Packaging
 
 on:
   pull_request:
+    # 只保留会改变 Windows 产物或行为的输入：desktop/**（打包配置与桌面端代码）、
+    # data/**（:desktop 的直接依赖）、shared/data/**（DPAPI 凭据保护）。
+    # core/**、shared/**（除 data）、feature/** 编译出的 JVM 字节码与平台无关，
+    # 由 core-gate.yml + desktop-linux.yml 覆盖；再打一次 MSI 不会产生新信息。
     paths:
       - 'desktop/**'
       - 'data/**'
-      - 'core/**'
-      - 'shared/**'
-      - 'feature/**'
+      - 'shared/data/**'
       - 'build-logic/**'
       - 'gradle/**'
       - 'gradlew'

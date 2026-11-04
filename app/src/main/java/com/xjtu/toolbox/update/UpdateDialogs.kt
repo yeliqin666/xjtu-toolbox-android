@@ -174,9 +174,17 @@ fun AutoUpdateDialog(
                 .fillMaxWidth()
                 .verticalScroll(rememberScrollState())
         ) {
-            if (channelLabel.isNotBlank()) {
+            val published = updateInfo.publishedAtMillis.takeIf { it > 0 }?.let {
+                java.time.Instant.ofEpochMilli(it).atZone(java.time.ZoneId.systemDefault())
+                    .format(java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm"))
+            }
+            val meta = listOfNotNull(
+                channelLabel.takeIf { it.isNotBlank() }?.let { "来源：$it" },
+                published?.let { "发布于 $it" },
+            )
+            if (meta.isNotEmpty()) {
                 Text(
-                    "来源：$channelLabel",
+                    meta.joinToString(" · "),
                     style = MiuixTheme.textStyles.body2,
                     color = MiuixTheme.colorScheme.onSurfaceVariantSummary
                 )

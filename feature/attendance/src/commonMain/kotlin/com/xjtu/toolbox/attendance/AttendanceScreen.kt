@@ -1,6 +1,7 @@
 package com.xjtu.toolbox.attendance
 
-
+import com.xjtu.toolbox.ui.glass.tabContentPadding
+import com.xjtu.toolbox.ui.glass.tabContentBottomPadding
 import com.xjtu.toolbox.ui.components.AppPullToRefresh
 import com.xjtu.toolbox.ui.components.FullPageState
 import androidx.compose.ui.graphics.Color
@@ -305,7 +306,7 @@ fun AttendanceScreen(
                 title = "请假详情",
                 onDismissRequest = { detail = null },
             ) {
-                Column(Modifier.verticalScroll(rememberScrollState())) {
+                Column(Modifier.verticalScroll(rememberScrollState()).tabContentBottomPadding()) {
                     Text(
                         "${LeaveType.fromCode(rec.leaveType).displayName} · ${leaveStatusLabel(rec.effectiveStatus)}",
                         style = MiuixTheme.textStyles.body1,
@@ -365,7 +366,7 @@ private fun AttendanceListShell(
     if (isEmpty) {
         LazyColumn(
             Modifier.fillMaxSize().overScrollVertical(),
-            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 12.dp + topPadding),
+            contentPadding = tabContentPadding(PaddingValues(start = 16.dp, end = 16.dp, top = 12.dp + topPadding)),
         ) {
             item(key = "header") { header() }
             item(key = "empty") { empty(Modifier.fillParentMaxWidth().fillParentMaxHeight(0.6f)) }
@@ -670,7 +671,7 @@ private fun LeaveFormDialog(
         title = "新建请假申请",
         onDismissRequest = onDismiss,
     ) {
-        Column(Modifier.verticalScroll(rememberScrollState())) {
+        Column(Modifier.verticalScroll(rememberScrollState()).tabContentBottomPadding()) {
             Text(
                 "考勤系统不支持补假。请假开始时间须为当前之后的整点。",
                 style = MiuixTheme.textStyles.body2,

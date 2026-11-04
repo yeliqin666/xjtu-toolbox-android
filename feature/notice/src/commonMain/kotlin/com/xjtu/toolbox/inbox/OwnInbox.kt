@@ -2,8 +2,11 @@ package com.xjtu.toolbox.inbox
 
 import com.xjtu.toolbox.bulletin.Bulletin
 import com.xjtu.toolbox.bulletin.BulletinRules
+import com.xjtu.toolbox.community.CommunityActivity
+import com.xjtu.toolbox.community.CommunityActivityKind
 import com.xjtu.toolbox.library.MyBookingInfo
 import com.xjtu.toolbox.lms.LmsDue
+import com.xjtu.toolbox.lms.lmsInstant
 import com.xjtu.toolbox.nav.AppRoute
 import com.xjtu.toolbox.notification.Notification
 import com.xjtu.toolbox.util.todayOnCampus
@@ -39,6 +42,16 @@ object OwnInbox {
         route = AppRoute.Browser(n.link).id,
     )
 
+    /** 社区里别人的回复或 @。标题用帖子标题，同一帖的多条在收纳里折成一组；点开直达那一楼。 */
+    fun community(a: CommunityActivity) = InboxItem(
+        id = "community:${a.id}", category = InboxCategories.COMMUNITY, source = "社区",
+        title = a.title,
+        body = a.author + (if (a.kind == CommunityActivityKind.MENTION) " @了你：" else " 回复：") +
+            a.body.replace(Regex("\\s+"), " ").trim().take(80),
+        time = runCatching { Instant.parse(a.createdAt).toEpochMilliseconds() }.getOrElse { Clock.System.now().toEpochMilliseconds() },
+        route = AppRoute.Browser(a.url).id,
+    )
+
     /** 工具箱公告。时间取开始时间，没有就取 id 开头的日期（公告 id 都以发布日期开头），再没有就算现在。 */
     fun bulletin(b: Bulletin): InboxItem {
         val dated = BulletinRules.parseInstant(b.id.take(10))?.toEpochMilliseconds()
@@ -70,6 +83,7 @@ object OwnInbox {
                 category = InboxCategories.LMS, source = d.courseName,
                 title = if (d.exam) "测试 · ${d.title}" else d.title,
                 time = d.fetchedAt, route = AppRoute.Lms(d.courseId, d.activityId.takeUnless { d.exam }).id, expiresAt = deadline,
+                availableAt = d.startTime?.let(::lmsInstant)?.toEpochMilliseconds() ?: 0L,
             )
         }
 }

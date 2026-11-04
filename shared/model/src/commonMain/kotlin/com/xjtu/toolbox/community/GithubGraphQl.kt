@@ -114,20 +114,51 @@ class GraphQlGithubDiscussionsRepository(
         buildJsonObject { put("id", id); put("cursor", cursor) }
     ) { data -> comments(data.getValue("node").jsonObject.getValue("comments").jsonObject) }
 
-    /** 第一页顺带拉置顶帖，排在最前面。 */
-    override suspend fun list(owner: String, name: String, cursor: String?, categoryId: String?): Result<GithubDiscussionPage> = execute(
-        "query(\$owner:String!,\$name:String!,\$cursor:String,\$category:ID,\$top:Boolean!){repository(owner:\$owner,name:\$name){id pinnedDiscussions(first:10) @include(if:\$top){nodes{discussion{$FIELDS}}} discussions(first:20,after:\$cursor,categoryId:\$category,orderBy:{field:UPDATED_AT,direction:DESC}){nodes{$FIELDS} pageInfo{hasNextPage endCursor}}}}",
-        buildJsonObject { put("owner", owner); put("name", name); put("cursor", cursor); put("category", categoryId); put("top", cursor == null) }
+    /**
+     * 第一页顺带拉置顶帖（按状态 / 分类筛），排在最前面。按作者筛时 `discussions` 没有对应参数，
+     * 改走 `search`，此时不带置顶。
+     */
+    override suspend fun list(owner: String, name: String, cursor: String?, query: DiscussionQuery): Result<GithubDiscussionPage> {
+        if (query.author != null) return search(owner, name, cursor, query)
+        val categoryId = query.categoryId
+        val states = query.state.graphQl?.let { JsonArray(listOf(JsonPrimitive(it))) } ?: JsonNull
+        return execute(
+            "query(\$owner:String!,\$name:String!,\$cursor:String,\$category:ID,\$states:[DiscussionState!],\$top:Boolean!){repository(owner:\$owner,name:\$name){id viewerPermission pinnedDiscussions(first:10) @include(if:\$top){nodes{discussion{$FIELDS}}} discussions(first:20,after:\$cursor,categoryId:\$category,states:\$states,orderBy:{field:${query.sort.field},direction:DESC}){nodes{$FIELDS} pageInfo{hasNextPage endCursor}}}}",
+            buildJsonObject {
+                put("owner", owner); put("name", name); put("cursor", cursor); put("category", categoryId)
+                put("states", states); put("top", cursor == null)
+            }
+        ) { data ->
+            val repo = data.getValue("repository").jsonObject
+            val pinned = repo.obj("pinnedDiscussions")?.getValue("nodes")?.jsonArray.orEmpty()
+                .map { discussion(it.jsonObject.getValue("discussion").jsonObject).copy(pinned = true) }
+                .filter { categoryId == null || it.category.id == categoryId }
+                .filter { query.state == DiscussionStateFilter.ALL || it.closed == (query.state == DiscussionStateFilter.CLOSED) }
+            val connection = repo.getValue("discussions").jsonObject
+            val page = connection.getValue("pageInfo").jsonObject
+            val items = connection.getValue("nodes").jsonArray.map { discussion(it.jsonObject) }
+            GithubDiscussionPage(repo.text("id"), (pinned + items).distinctBy { it.id },
+                if (page.getValue("hasNextPage").jsonPrimitive.boolean) page.text("endCursor") else null,
+                repo.optText("viewerPermission"))
+        }
+    }
+
+    private suspend fun search(owner: String, name: String, cursor: String?, query: DiscussionQuery): Result<GithubDiscussionPage> = execute(
+        "query(\$owner:String!,\$name:String!,\$q:String!,\$cursor:String){repository(owner:\$owner,name:\$name){id viewerPermission} search(query:\$q,type:DISCUSSION,first:20,after:\$cursor){nodes{... on Discussion{$FIELDS}} pageInfo{hasNextPage endCursor}}}",
+        buildJsonObject {
+            put("owner", owner); put("name", name); put("cursor", cursor)
+            put("q", discussionSearchText(owner, name, query))
+        }
     ) { data ->
         val repo = data.getValue("repository").jsonObject
-        val pinned = repo.obj("pinnedDiscussions")?.getValue("nodes")?.jsonArray.orEmpty()
-            .map { discussion(it.jsonObject.getValue("discussion").jsonObject).copy(pinned = true) }
-            .filter { categoryId == null || it.category.id == categoryId }
-        val connection = repo.getValue("discussions").jsonObject
+        val connection = data.getValue("search").jsonObject
         val page = connection.getValue("pageInfo").jsonObject
-        val items = connection.getValue("nodes").jsonArray.map { discussion(it.jsonObject) }
-        GithubDiscussionPage(repo.text("id"), (pinned + items).distinctBy { it.id },
-            if (page.getValue("hasNextPage").jsonPrimitive.boolean) page.text("endCursor") else null)
+        val items = connection.getValue("nodes").jsonArray.map { it.jsonObject }
+            .filter { "id" in it } // search 结果里可能混进拿不到的节点
+            .map { discussion(it) }
+        GithubDiscussionPage(repo.text("id"), items,
+            if (page.getValue("hasNextPage").jsonPrimitive.boolean) page.text("endCursor") else null,
+            repo.optText("viewerPermission"))
     }
 
     override suspend fun detail(owner: String, name: String, number: Int): Result<GithubDiscussion> = execute(
@@ -186,6 +217,34 @@ class GraphQlGithubDiscussionsRepository(
         return execute("mutation(\$input:AddDiscussionCommentInput!){addDiscussionComment(input:\$input){comment{id}}}",
             buildJsonObject { put("input", buildJsonObject { put("discussionId", discussionId); put("body", body) }) }
         ) { it.getValue("addDiscussionComment").jsonObject.getValue("comment").jsonObject.text("id") }
+    }
+
+    /**
+     * 一次查询两路搜索：我发的帖子（看别人的回复）、全文含「@我」的帖子（GitHub 的 `mentions:` 不索引
+     * Discussions，全文搜索覆盖正文和评论，再在本地按 [mentions] 精确筛）。各取最近更新的 10 帖，
+     * 每帖最近 20 楼、每楼最近 20 条楼中楼，表情回应不查。
+     */
+    override suspend fun activity(owner: String, name: String, login: String): Result<List<CommunityActivity>> = execute(
+        "query(\$mine:String!,\$at:String!){mine:search(type:DISCUSSION,query:\$mine,first:10){nodes{$ACTIVITY}} at:search(type:DISCUSSION,query:\$at,first:10){nodes{$ACTIVITY}}}",
+        buildJsonObject {
+            put("mine", "repo:$owner/$name author:$login sort:updated-desc")
+            put("at", "repo:$owner/$name \"@$login\" sort:updated-desc")
+        }
+    ) { data ->
+        fun posts(alias: String) = data.getValue(alias).jsonObject.getValue("nodes").jsonArray.map { it.jsonObject }
+            .filter { "id" in it } // search 结果里可能混进拿不到的节点
+        fun floors(post: JsonObject) = post.getValue("comments").jsonObject.getValue("nodes").jsonArray.flatMap { c ->
+            listOf(c.jsonObject) + c.jsonObject.getValue("replies").jsonObject.getValue("nodes").jsonArray.map { it.jsonObject }
+        }
+        fun JsonObject.byOthers() = login(this)?.equals(login, ignoreCase = true) == false
+        fun JsonObject.activity(kind: CommunityActivityKind, post: JsonObject) = CommunityActivity(
+            text("id"), kind, login(this).orEmpty(), post.text("title"), text("body"), text("url"), text("createdAt"),
+        )
+        posts("mine").flatMap { post -> floors(post).filter { it.byOthers() }.map { it.activity(CommunityActivityKind.REPLY, post) } } +
+            posts("at").flatMap { post ->
+                (listOf(post) + floors(post)).filter { it.byOthers() && mentions(it.text("body"), login) }
+                    .map { it.activity(CommunityActivityKind.MENTION, post) }
+            }
     }
 
     private suspend fun mutate(mutation: String, inputType: String, input: JsonObject): Result<Unit> =
@@ -300,6 +359,8 @@ class GraphQlGithubDiscussionsRepository(
         const val REPLY_FIELDS = "id url body createdAt $AUTHOR authorAssociation $REACTIONS isAnswer viewerCanMarkAsAnswer viewerCanUnmarkAsAnswer viewerCanUpdate viewerCanDelete isMinimized minimizedReason viewerCanMinimize viewerCanUnminimize"
         const val COMMENT_FIELDS = "$REPLY_FIELDS replies(first:2){totalCount nodes{$REPLY_FIELDS}}"
         const val POLL = "poll{question totalVoteCount viewerCanVote viewerHasVoted options(first:20){nodes{id option totalVoteCount viewerHasVoted}}}"
+        const val ACTIVITY_NODE = "id url body createdAt $AUTHOR"
+        const val ACTIVITY = "... on Discussion{$ACTIVITY_NODE title comments(last:20){nodes{$ACTIVITY_NODE replies(last:20){nodes{$ACTIVITY_NODE}}}}}"
         const val FIELDS = "viewerCanUpdate viewerCanDelete viewerCanClose viewerCanReopen authorAssociation id number title body url createdAt updatedAt closed stateReason locked repository{viewerPermission} $AUTHOR $REACTIONS $POLL category{id name isAnswerable} comments{totalCount} answer{id}"
     }
 }

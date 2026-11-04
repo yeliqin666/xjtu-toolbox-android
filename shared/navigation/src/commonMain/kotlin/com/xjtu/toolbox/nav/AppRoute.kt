@@ -90,10 +90,6 @@ sealed interface AppRoute : NavKey {
         override val id get() = "coupon"
         override val loginType get() = LoginType.COUPON
     }
-    @Serializable data object ScoreReport : AppRoute {
-        override val id get() = "score_report"
-        override val loginType get() = LoginType.JWXT
-    }
     @Serializable data object Transcript : AppRoute {
         override val id get() = "transcript"
         override val loginType get() = LoginType.DZPZ
@@ -147,12 +143,14 @@ sealed interface AppRoute : NavKey {
     /** [then] 非空时，[url] 先加载完并走完登录，再自动跳到 [then]（支付页要先过一遍登录）。 */
     @Serializable data class Browser(val url: String = "", val then: String = "") : AppRoute {
         override val id get() = "browser?url=${encode(url)}" + if (then.isEmpty()) "" else "&then=${encode(then)}"
+        override val loginType get() = LoginType.DZPZ.takeIf { url.startsWith("https://dzpz.xjtu.edu.cn/") }
     }
     @Serializable data object Settings : AppRoute { override val id get() = "settings" }
     /** 消息收纳：待办与消息。 */
     @Serializable data object Inbox : AppRoute { override val id get() = "inbox" }
-    @Serializable data object Feedback : AppRoute { override val id get() = "feedback" }
     @Serializable data object Community : AppRoute { override val id get() = "community" }
+    /** 直达社区里的某一帖（首页卡片、链接）；返回时直接退出社区。 */
+    @Serializable data class CommunityPost(val number: Int) : AppRoute { override val id get() = "community/$number" }
 
     /** 教师主页检索，公开站点。 */
     @Serializable data object Faculty : AppRoute { override val id get() = "faculty" }
@@ -178,10 +176,10 @@ private val simpleRoutes: Map<String, AppRoute> = listOf(
     AppRoute.Main, AppRoute.Schedule, AppRoute.Agent, AppRoute.Zyxf, AppRoute.PaymentCode,
     AppRoute.EmptyRoom, AppRoute.Notification, AppRoute.Attendance, AppRoute.Judge,
     AppRoute.JwappScore, AppRoute.Library, AppRoute.CampusCard, AppRoute.Coupon,
-    AppRoute.ScoreReport, AppRoute.Transcript, AppRoute.Venue, AppRoute.DownloadManager,
+    AppRoute.Transcript, AppRoute.Venue, AppRoute.DownloadManager,
     AppRoute.Jiaocai, AppRoute.Jiaocai1, AppRoute.SchoolCourse, AppRoute.SchoolCalendar,
     AppRoute.YellowPage, AppRoute.Fitness, AppRoute.Iclassface, AppRoute.Settings, AppRoute.Inbox,
-    AppRoute.Feedback, AppRoute.Community, AppRoute.Faculty, AppRoute.Accounts,
+    AppRoute.Community, AppRoute.Faculty, AppRoute.Accounts,
     AppRoute.WebVpnConverter, AppRoute.Games, AppRoute.Game2048, AppRoute.GameMerge,
     AppRoute.GameBlocks, AppRoute.GameHop, AppRoute.GameGomoku, AppRoute.GameGo, AppRoute.GameXiangqi, AppRoute.Match,
 ).associateBy { it.id }
@@ -204,6 +202,7 @@ fun appRouteOf(id: String): AppRoute? {
             param("activityId")?.toIntOrNull()?.takeIf { it > 0 },
         )
         path == "browser" -> AppRoute.Browser(param("url").orEmpty(), param("then").orEmpty())
+        path.startsWith("community/") -> path.removePrefix("community/").toIntOrNull()?.takeIf { it > 0 }?.let(AppRoute::CommunityPost)
         path.startsWith("jiaocai1_reader/") -> {
             val ssno = path.removePrefix("jiaocai1_reader/")
             if (ssno.isBlank()) null else AppRoute.Jiaocai1Reader(ssno, param("title").orEmpty())

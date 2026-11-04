@@ -78,7 +78,8 @@ internal fun QuickActionsGrid(
     var editing by remember { mutableStateOf(false) }
     var picking by remember { mutableStateOf(false) }
     val order = remember { mutableStateListOf<String>() }
-    val bounds = remember { mutableStateMapOf<String, Rect>() }
+    // 普通 Map：滚动时每帧都在更新，写成状态会白白触发失效；拖动时 finger 变化自然会重读它
+    val bounds = remember { HashMap<String, Rect>() }
     var dragKey by remember { mutableStateOf<String?>(null) }
     var finger by remember { mutableStateOf(Offset.Zero) }
     val commit by rememberUpdatedState { onChange(order.toList()) }

@@ -12,6 +12,7 @@ import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.platform.LocalDensity
+import com.xjtu.toolbox.ui.glass.tabContentBottomPadding
 import com.xjtu.toolbox.ui.components.GradientAppIcon
 import com.xjtu.toolbox.nav.expandOriginSource
 import com.xjtu.toolbox.nav.rememberExpandOriginSource
@@ -86,8 +87,9 @@ fun GamesScreen(
     val scrollBehavior = MiuixScrollBehavior(rememberTopAppBarState())
     androidx.compose.runtime.LaunchedEffect(Unit) { GameSound.prepare() }
 
-    // 战绩每次进页面读一次即可：玩完一局是 pop 回来，会重新组合。
-    val arcade = remember {
+    // 返回本页时 remember 还在，战绩靠 GameStore.version 失效重读
+    val version = GameStore.version
+    val arcade = remember(version) {
         listOf(
             GameEntry(
                 route = AppRoute.GameMerge,
@@ -127,7 +129,7 @@ fun GamesScreen(
             ),
         )
     }
-    val boards = remember {
+    val boards = remember(version) {
         listOf(
             GameEntry(
                 route = AppRoute.GameGomoku,
@@ -195,7 +197,7 @@ fun GamesScreen(
                     .fillMaxSize()
                     .nestedScroll(scrollBehavior.nestedScrollConnection)
                     .overScrollVertical()
-                    .verticalScroll(rememberScrollState())
+                    .verticalScroll(rememberScrollState()).tabContentBottomPadding()
                     .padding(horizontal = 16.dp),
             ) {
                 Spacer(Modifier.height(glassTop + 8.dp))

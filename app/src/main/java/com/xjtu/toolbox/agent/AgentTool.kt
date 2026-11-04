@@ -216,7 +216,8 @@ class AgentToolRegistry(
                 if (p.grade > 0) lines.add("- 年级：${p.grade} 级")
                 // 请假、证明、心情不好时最该找的人；「我辅导员电话多少」黄页里查不到
                 if (p.counselorName.isNotBlank()) {
-                    lines.add("- 辅导员：" + listOf(p.counselorName, p.counselorPhone, p.counselorOffice)
+                    val office = p.counselorOffice.takeIf { it.isNotBlank() }?.let { "辅导员办公室：$it" }
+                    lines.add("- 辅导员：" + listOfNotNull(p.counselorName, p.counselorPhone, office)
                         .filter { it.isNotBlank() }.joinToString("｜"))
                 }
                 if (p.classTeacherName.isNotBlank()) {
@@ -1935,6 +1936,7 @@ class AgentToolRegistry(
             dao.insert(entity)
             // 日程页经 Room 的 Flow 自动刷新；桌面小组件得单独叫一声
             com.xjtu.toolbox.widget.ScheduleWidgetUpdater.requestUpdate(context)
+            com.xjtu.toolbox.notification.DynamicScheduleScheduler.requestRefresh(context)
             "ok: added; term: $termCode; title: $name; weekday: ${entity.dayOfWeek}; " +
                 "time: ${"%02d:%02d".format(startTime.hour, startTime.minute)}-${"%02d:%02d".format(endTime.hour, endTime.minute)}; " +
                 "weeks: ${com.xjtu.toolbox.schedule.CustomCourseConflicts.describeWeeks(weekList.sorted())}" +

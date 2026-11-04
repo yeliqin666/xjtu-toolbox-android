@@ -131,6 +131,12 @@ abstract class SiteSession(
     @Throws(IOException::class)
     protected open suspend fun validateLogin(): Boolean? = null
 
+    /**
+     * 业务层的「疑似过期」确认探针（如 legacy 接口靠失败文案猜登录失效时用）：
+     * true=会话其实有效（按普通业务失败处理，别触发整页退出重登），false=确认失效，null=本站无探活手段。
+     */
+    suspend fun probeSessionValid(): Boolean? = validateLogin()
+
     /** 为业务请求注入本站 header（默认不注入）。 */
     open fun decorateRequest(builder: Request.Builder): Request.Builder = builder
 

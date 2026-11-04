@@ -680,6 +680,7 @@ fun ScheduleScreen(
                                     upcoming = upcomingItems,
                                     todayHomework = vm.homeworkDue,
                                     onAddPlan = vm::addPlanItems,
+                                    onNavigate = onNavigate,
                                 )
                             }
                         }
@@ -793,6 +794,7 @@ fun ScheduleScreen(
                             upcoming = upcomingItems,
                             todayHomework = vm.homeworkDue,
                             onAddPlan = vm::addPlanItems,
+                            onNavigate = onNavigate,
                         )
                     }
                 }

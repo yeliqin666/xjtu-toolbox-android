@@ -1,0 +1,52 @@
+name: Tally discussion votes
+
+# 统计 Discussion #213「新功能投票总楼」的投票，并在对应投票楼层下回复统计结论。
+#
+# 定时（每天北京时间 05:00 = UTC 21:00；GitHub cron 只认 UTC，触发可能延迟几分钟，
+# 且 schedule 只在默认分支上生效）：
+#   * 楼层发布时间（createdAt，不是编辑时间）满 14 天且从未统计过的楼层；
+#   * 或者最近一条统计结论是「建议等待」，且距它发布满 14 天的楼层；
+#   * 最近结论是「建议实施 / 建议搁置」的楼层不再自动统计。
+# 手动（workflow_dispatch 填 comment_id，即评论的 databaseId，如 19200505）：
+#   * 只统计该楼层，忽略 14 天和「是否统计过」的限制；
+#   * 填的如果是楼中楼（回复楼层）则报错退出，不做任何写入。
+#
+# 投票口径：楼层上的 👍 记赞成、👎 记反对，其它 reaction 忽略；同一账号两边都点则两边都不计。
+# 结论：有效投票人数 < 5 或 |赞成比例-反对比例| < 10 个百分点 → 数据不足建议等待；
+#       否则赞成多 → 建议实施，反对多 → 建议搁置。
+# 统计评论里带隐藏标记（三个结论各一个），用来识别历史统计，见 .github/scripts/vote_tally.py。
+
+on:
+  schedule:
+    - cron: '0 21 * * *'
+  workflow_dispatch:
+    inputs:
+      comment_id:
+        description: '只统计指定楼层：评论 databaseId（如 19200505）；楼中楼会直接报错。留空 = 按定时规则统计所有到期楼层'
+        required: false
+        default: ''
+        type: string
+
+# actions/checkout 需要 contents: read；回复讨论需要 discussions: write（GITHUB_TOKEN 会以 github-actions[bot] 身份发表评论）。
+permissions:
+  contents: read
+  discussions: write
+
+# 避免两次统计同时跑导致同一楼层重复回复。恢复旧运行不会取消进行中的运行。
+concurrency:
+  group: discussion-213-vote-tally
+  cancel-in-progress: false
+
+jobs:
+  tally:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Tally votes
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          COMMENT_ID: ${{ github.event.inputs.comment_id }}
+        run: python3 .github/scripts/vote_tally.py

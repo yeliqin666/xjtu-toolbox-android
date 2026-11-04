@@ -4,6 +4,8 @@ import com.xjtu.toolbox.account.AccountContext
 import com.xjtu.toolbox.platform.dataFilesDir
 import com.xjtu.toolbox.util.AppJson
 import java.io.File
+import java.nio.file.Files
+import java.nio.file.StandardCopyOption
 import java.util.UUID
 
 /**
@@ -28,10 +30,10 @@ class AgentSessionStore(
         get() = File(dir, "index.json")
 
     /** 全部会话，按最近更新降序。 */
-    override fun list(): List<AgentSession> = readIndex().sortedByDescending { it.updatedAt }
+    override fun list(): List<AgentSession> = synchronized(storeLock) { readIndex().sortedByDescending { it.updatedAt } }
 
     /** 新建空会话并登记。 */
-    override fun create(title: String): AgentSession {
+    override fun create(title: String): AgentSession = synchronized(storeLock) {
         val now = System.currentTimeMillis()
         val session = AgentSession(UUID.randomUUID().toString(), sanitizeAgentTitle(title, DEFAULT_TITLE), now, now)
         writeIndex(readIndex() + session)
@@ -40,28 +42,28 @@ class AgentSessionStore(
     }
 
     /** @param lock 是否锁定标题（用户改名或 AI 总结时为 true）。 */
-    override fun rename(id: String, title: String, lock: Boolean) {
+    override fun rename(id: String, title: String, lock: Boolean): Unit = synchronized(storeLock) {
         val now = System.currentTimeMillis()
         writeIndex(readIndex().map {
             if (it.id == id) it.copy(title = sanitizeAgentTitle(title, DEFAULT_TITLE), updatedAt = now, locked = lock) else it
         })
     }
 
-    override fun delete(id: String) {
+    override fun delete(id: String): Unit = synchronized(storeLock) {
         // 发给模型的照片跟着会话走，不然删了会话私人照片还留在本机
         load(id)?.messages?.flatMap { it.images.orEmpty() }?.forEach { runCatching { File(it).delete() } }
         writeIndex(readIndex().filterNot { it.id == id })
         convoFile(id).delete()
     }
 
-    override fun load(id: String): StoredConversation? {
+    override fun load(id: String): StoredConversation? = synchronized(storeLock) {
         val f = convoFile(id)
         if (!f.exists()) return null
         return runCatching { AppJson.decodeFromString<StoredConversation>(f.readText()) }.getOrNull()
     }
 
     /** 保存会话内容，并把 title/updatedAt 同步进 index（不存在则补登记）。保留已有 locked 标志。 */
-    override fun save(id: String, convo: StoredConversation, title: String) {
+    override fun save(id: String, convo: StoredConversation, title: String): Unit = synchronized(storeLock) {
         writeConvo(id, convo)
         val now = System.currentTimeMillis()
         val idx = readIndex()
@@ -73,7 +75,14 @@ class AgentSessionStore(
     }
 
     /** 当前标题是否已锁定（用于 ViewModel 决定是否自动改标题）。 */
-    override fun isLocked(id: String): Boolean = readIndex().firstOrNull { it.id == id }?.locked == true
+    override fun isLocked(id: String): Boolean = synchronized(storeLock) { readIndex().firstOrNull { it.id == id }?.locked == true }
+
+    /** 同一把锁里读-改-写一个会话：后台追加消息（推送记录）与前台写盘不互相覆盖。 */
+    override fun update(id: String, title: String, lockTitle: Boolean, transform: (StoredConversation) -> StoredConversation): Unit =
+        synchronized(storeLock) {
+            save(id, transform(load(id) ?: StoredConversation()), title)
+            if (lockTitle && !isLocked(id)) rename(id, title, lock = true)
+        }
 
     // ── 内部 ──────────────────────────────────────────────────────────────
 
@@ -84,14 +93,24 @@ class AgentSessionStore(
         else runCatching { AppJson.decodeFromString<List<AgentSession>>(indexFile.readText()) }.getOrDefault(emptyList())
 
     private fun writeIndex(list: List<AgentSession>) {
-        runCatching { indexFile.writeText(AppJson.encodeToString(list)) }
+        runCatching { indexFile.writeAtomically(AppJson.encodeToString(list)) }
     }
 
     private fun writeConvo(id: String, convo: StoredConversation) {
-        runCatching { convoFile(id).writeText(AppJson.encodeToString(convo)) }
+        runCatching { convoFile(id).writeAtomically(AppJson.encodeToString(convo)) }
+    }
+
+    /** 先写临时文件再原子替换，写到一半被打断也不会留下半截 JSON；替换失败时原文件不动，异常抛出后由 save 吞掉。 */
+    private fun File.writeAtomically(text: String) {
+        val tmp = File(parentFile, "$name.tmp")
+        tmp.writeText(text)
+        Files.move(tmp.toPath(), toPath(), StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE)
     }
 
     companion object {
         const val DEFAULT_TITLE = AGENT_SESSION_DEFAULT_TITLE
+
+        /** 进程内所有实例共用：后台 Worker 和屁岱页各自 new 一个 store，写的是同一批文件。 */
+        private val storeLock = Any()
     }
 }

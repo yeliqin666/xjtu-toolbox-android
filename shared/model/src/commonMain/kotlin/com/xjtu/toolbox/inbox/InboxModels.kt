@@ -33,6 +33,14 @@ data class InboxItem(
      * 排序、「24 小时内截止」「已逾期」分组都靠它。也不受消息保留期约束。
      */
     val sticky: Boolean = false,
+    /**
+     * 用户自选的图标色（ARGB）。null = 用 [InboxCategories.argb] 给这一类的默认色。
+     *
+     * 只有「自建待办」会填：收纳里的其他条目都是学校 / 思源那边的投影，没有可挑色的地方。
+     */
+    val colorArgb: Int? = null,
+    /** 开始后才进入待办；0 表示立即可见。 */
+    val availableAt: Long = 0L,
 )
 
 /** 办完（或被用户忽略）的待办，灰着留 [InboxRules.FINISHED_KEEP_MS]。 */
@@ -55,8 +63,15 @@ data class InboxData(
     val finished: List<FinishedTodo> = emptyList(),
     /** 用户关掉的分类；默认全开，所以只记关掉的。 */
     val off: Set<String> = emptySet(),
+    /**
+     * 用户给某条待办标的重要程度：待办 id → 级别（见 [InboxRules.IMPORTANCE_*]）。
+     *
+     * 和 [ignored] 一样是「对某条待办的本地标注」，不跟着来源走：学校明天重新推一遍
+     * 同一条待办，标过的级别还在。**不参与排序**，只决定列表里的角标和通知的措辞。
+     */
+    val importance: Map<String, Int> = emptyMap(),
     val schoolFetchedAt: Long = 0L,
-    /** 已经由屁岱冒过泡的消息，不重复念。 */
+    /** 已经由小岱冒过泡的消息，不重复念。 */
     val bubbled: Set<String> = emptySet(),
 )
 
@@ -81,7 +96,8 @@ object InboxCategories {
     const val ATTENDANCE = "msg.attendance"
     const val NOTICE = "msg.notice"
     const val BULLETIN = "msg.bulletin"
-    /** 屁岱的主动简报与定时任务结果。 */
+    const val COMMUNITY = "msg.community"
+    /** 小岱的主动简报与定时任务结果。 */
     const val PIDAI = "msg.pidai"
     private const val SCHOOL_PREFIX = "school:"
 
@@ -100,7 +116,8 @@ object InboxCategories {
         InboxCategory(ATTENDANCE, "考勤异常"),
         InboxCategory(NOTICE, "教务新通知"),
         InboxCategory(BULLETIN, "工具箱公告"),
-        InboxCategory(PIDAI, "屁岱简报"),
+        InboxCategory(COMMUNITY, "社区回复 / @我"),
+        InboxCategory(PIDAI, "小岱简报"),
     )
 
     fun school(label: String) = SCHOOL_PREFIX + label
@@ -121,6 +138,7 @@ object InboxCategories {
         ATTENDANCE -> 0xFFEF4444
         NOTICE -> 0xFF10B981
         BULLETIN -> 0xFF0EA5E9
+        COMMUNITY -> 0xFFF59E0B
         PIDAI -> 0xFFA855F7
         else -> 0xFF64748B
     }.toInt()
@@ -148,8 +166,34 @@ object InboxRules {
     /** 还没办的待办（忽略的除外），快截止的排前面。 */
     fun todos(data: InboxData, now: Long): List<InboxItem> =
         data.todos.filterKeys { it !in data.off }.values.flatten()
-            .filter { visible(it, now) && it.id !in data.ignored }
+            .filter { it.availableAt <= now && visible(it, now) && it.id !in data.ignored }
             .sortedWith(compareBy<InboxItem> { it.expiresAt.takeIf { e -> e > 0 } ?: Long.MAX_VALUE }.thenByDescending { it.time })
+
+    /**
+     * 重要程度：沿用滴答任务模型的 0/1/3/5（不是连续数，和 `SelfTodo.priority` 同一套取值）。
+     *
+     * 这里是**用户给收纳里某条待办贴的标签**（手建的和学校推来的都能贴），
+     * 只决定列表角标与通知措辞，**不参与排序** —— 顺序一律看截止时间。
+     */
+    const val IMPORTANCE_NONE = 0
+    const val IMPORTANCE_LOW = 1
+    const val IMPORTANCE_MEDIUM = 3
+    const val IMPORTANCE_HIGH = 5
+
+    /** 一条待办的级别；没标过就是 [IMPORTANCE_NONE]。 */
+    fun importanceOf(data: InboxData, id: String): Int = data.importance[id] ?: IMPORTANCE_NONE
+
+    /** 改级别；选「普通」等于把标签摘掉。 */
+    fun setImportance(data: InboxData, id: String, level: Int): InboxData =
+        data.copy(importance = if (level == IMPORTANCE_NONE) data.importance - id else data.importance + (id to level))
+
+    /** 级别的字面：角标和通知共用这一套措辞。 */
+    fun importanceLabel(level: Int): String? = when (level) {
+        IMPORTANCE_LOW -> "次要"
+        IMPORTANCE_MEDIUM -> "重要"
+        IMPORTANCE_HIGH -> "紧急"
+        else -> null
+    }
 
     /** 最近办完或忽略的待办，新的在前。 */
     fun finished(data: InboxData, now: Long): List<FinishedTodo> =
@@ -173,11 +217,14 @@ object InboxRules {
         val activeIds = todos.values.flatten().mapTo(HashSet()) { it.id }
         val finished = (data.finished.filter { it.ignored || it.item.id !in newIds } + vanished.map { FinishedTodo(it, now) })
             .filter { now - it.at < FINISHED_KEEP_MS }
+        // 各种标注只留还在的 id：重要程度的标签跟着条目走，条目彻底消失（办完过完 7 天）才丢
+        val keptIds = activeIds + finished.map { it.item.id }
         return data.copy(
             todos = todos,
             finished = finished,
             seenTodos = data.seenTodos.filterTo(HashSet()) { it in activeIds },
             ignored = data.ignored.filterTo(HashSet()) { it in activeIds },
+            importance = data.importance.filterKeys { it in keptIds },
         )
     }
 
@@ -221,8 +268,20 @@ object InboxRules {
             .replace("&nbsp;", " ").replace("&lt;", "<").replace("&gt;", ">").replace("&amp;", "&")
             .lines().joinToString("\n") { it.trim() }.trim()
 
+    /** 小岱推送在通知栏和收件箱里按纯文本显示：去掉模型偶尔带出的 Markdown 标记。 */
+    fun markdownToPlain(md: String): String =
+        md.lines().filterNot { it.trim().matches(Regex("""[-*_=|:\s]{3,}""")) }.joinToString("\n") { line ->
+            line.trim()
+                .replace(Regex("""^#{1,6}\s+"""), "")
+                .replace(Regex("""^>\s?"""), "")
+                .replace(Regex("""^[-*+]\s+"""), "· ")
+                .replace(Regex("""!?\[([^\]]*)]\([^)]*\)"""), "$1")
+                .replace(Regex("""(\*\*|__|~~|`)"""), "")
+                .replace(Regex("""(?<![\w*])\*(?!\s)([^*\n]+?)\*(?!\w)"""), "$1")
+        }.replace(Regex("\n{3,}"), "\n\n").trim()
+
     /**
-     * 用户已经在别处（屁岱气泡、系统通知）看过这件事：[ids] 和 [category] 下的消息标已读，
+     * 用户已经在别处（小岱气泡、系统通知）看过这件事：[ids] 和 [category] 下的消息标已读，
      * [category] 下的待办标已看。气泡和收纳是同一件事的两个出口，不能各算各的已读。
      */
     fun acknowledge(data: InboxData, ids: Collection<String>, category: String?, now: Long): InboxData {
@@ -322,9 +381,13 @@ object InboxStore {
 
     fun ignoreTodo(id: String) = update(AccountContext.activeAccountId) { InboxRules.ignore(it, id, Clock.System.now().toEpochMilliseconds()) }
 
+    /** 给一条待办标重要程度；只影响角标与通知措辞，不影响排序。 */
+    fun setImportance(id: String, level: Int) =
+        update(AccountContext.activeAccountId) { InboxRules.setImportance(it, id, level) }
+
     fun markBubbled(id: String) = update(AccountContext.activeAccountId) { it.copy(bubbled = it.bubbled + id) }
 
-    /** 在收纳以外看过了（点了屁岱气泡等）：对应消息标已读、待办标已看。见 [InboxRules.acknowledge]。 */
+    /** 在收纳以外看过了（点了小岱气泡等）：对应消息标已读、待办标已看。见 [InboxRules.acknowledge]。 */
     fun acknowledge(ids: Collection<String> = emptyList(), category: String? = null) {
         if (ids.isEmpty() && category == null) return
         update(AccountContext.activeAccountId) { InboxRules.acknowledge(it, ids, category, Clock.System.now().toEpochMilliseconds()) }

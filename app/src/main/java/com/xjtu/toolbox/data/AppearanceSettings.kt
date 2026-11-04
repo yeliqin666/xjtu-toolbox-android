@@ -19,6 +19,8 @@ class AppearanceSettings private constructor(context: Context) {
     private val _darkMode = MutableStateFlow(store.darkMode)
     private val _customColorHex = MutableStateFlow(store.customColorHex)
     val customColorHex: StateFlow<String> = _customColorHex.asStateFlow()
+    private val _customDarkColorHex = MutableStateFlow(store.customDarkColorHex)
+    val customDarkColorHex: StateFlow<String> = _customDarkColorHex.asStateFlow()
     private val _dynamicColor = MutableStateFlow(store.dynamicColor)
     private val _navBarStyle = MutableStateFlow(store.navBarStyle)
     private val _showQuickActions = MutableStateFlow(store.showQuickActions)
@@ -41,6 +43,7 @@ class AppearanceSettings private constructor(context: Context) {
         _darkMode.value = store.darkMode
         _dynamicColor.value = store.dynamicColor
         _customColorHex.value = store.customColorHex
+        _customDarkColorHex.value = store.customDarkColorHex
         _navBarStyle.value = store.navBarStyle
         _showQuickActions.value = store.showQuickActions
         _bottomTabs.value = store.bottomTabs

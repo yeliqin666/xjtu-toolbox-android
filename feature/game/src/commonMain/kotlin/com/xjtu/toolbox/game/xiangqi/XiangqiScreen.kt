@@ -1,6 +1,5 @@
 package com.xjtu.toolbox.game.xiangqi
 
-import com.xjtu.toolbox.ui.components.BackButton
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
@@ -13,12 +12,14 @@ import com.xjtu.toolbox.game.ui.Contender
 import com.xjtu.toolbox.game.ui.GameAction
 import com.xjtu.toolbox.game.ui.GameActionRow
 import com.xjtu.toolbox.game.ui.GameHint
+import com.xjtu.toolbox.game.ui.LeaveButton
 import com.xjtu.toolbox.game.ui.SjtuColor
 import com.xjtu.toolbox.game.ui.StonePaints
 import com.xjtu.toolbox.game.ui.VersusBar
 import com.xjtu.toolbox.game.ui.XjtuColor
 import com.xjtu.toolbox.game.ui.drawStone
 import com.xjtu.toolbox.game.ui.rememberDropProgress
+import com.xjtu.toolbox.game.ui.rememberLeaveGuard
 import com.xjtu.toolbox.game.ui.woodBoard
 import com.xjtu.toolbox.game.ui.woodColors
 import com.xjtu.toolbox.ui.components.AppSegmentedTabs
@@ -150,14 +151,22 @@ fun XiangqiScreen(onBack: () -> Unit, onlineLobby: OnlineLobby? = null) {
 
     val wide = isWideLayout()
 
+    // 已走过子且没分出胜负才算对局中；联机时退出要先断开连接
+    @Suppress("UNUSED_VARIABLE") val onlineVersion = match.version
+    val inProgress = if (online) {
+        match.session != null && match.game.status() is XiangqiStatus.Playing &&
+            match.disconnectedReason == null && match.game.canUndo()
+    } else {
+        status is XiangqiStatus.Playing && snapshot.canUndo
+    }
+    val leave = rememberLeaveGuard(inProgress) { match.leave(); onBack() }
+
     Scaffold(
         topBar = {
             TopAppBar(
                 title = "象棋",
                 color = MiuixTheme.colorScheme.background,
-                navigationIcon = {
-                    BackButton(onBack)
-                },
+                navigationIcon = { LeaveButton(inProgress, leave::request) },
             )
         },
     ) { padding ->
@@ -280,6 +289,11 @@ fun XiangqiScreen(onBack: () -> Unit, onlineLobby: OnlineLobby? = null) {
             }
         }
       }
+
+        leave.Menu(
+            if (online) "联机对局中，退出会断开连接" else "对局进行中",
+            onRestart = if (online) null else ::restart,
+        )
 
         // 终局提示。按 MIUIX-reference 的 Overlay Rules，必须留在 Scaffold 内容作用域里。
         OverlayDialog(

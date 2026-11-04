@@ -21,7 +21,7 @@ import kotlin.math.sin
 /*
  * 跳一跳的角色。每个角色一套画法，也一套动作：
  * - 棋子：蓄力压扁，空中翻跟头；
- * - 屁岱：果冻身子，蓄力压成扁团，空中拉长不翻身，眼睛看着要去的方向，站着会眨眼；
+ * - 小岱：果冻身子，蓄力压成扁团，空中拉长不翻身，眼睛看着要去的方向，站着会眨眼；
  * - 小猫：蓄力伏低、尾巴翘起，空中身子前探像扑过去，站着尾巴慢慢摆；
  * - 宇航员：轻飘飘地原地浮动，起跳往前倾、背包喷一口气，落地很轻。
  * 规则不管画成什么，只给位置；动作全在这里按状态算。
@@ -29,7 +29,7 @@ import kotlin.math.sin
 
 enum class HopSkin(val id: String, val title: String) {
     PAWN("pawn", "棋子"),
-    PIDAI("pidai", "屁岱"),
+    PIDAI("pidai", "小岱"),
     CAT("cat", "小猫"),
     ASTRONAUT("astronaut", "宇航员"),
 }
@@ -121,7 +121,7 @@ private fun DrawScope.drawPawn(s: PieceState) {
     }
 }
 
-// ── 屁岱 ──
+// ── 小岱 ──
 
 private fun DrawScope.drawPidai(s: PieceState) {
     val sc = s.scale

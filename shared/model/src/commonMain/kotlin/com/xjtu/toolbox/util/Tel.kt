@@ -19,6 +19,13 @@ fun String.toDialableTel(): String {
     return DIGITS.find(compact.replaceFirst(COUNTRY_CODE, ""))?.value.orEmpty()
 }
 
+/** 一串里写了多个号码（「138… / 029-…」）时逐个取号，去重后按原顺序返回。 */
+fun String.toDialableTels(): List<String> =
+    split(SEPARATORS).map { it.toDialableTel() }.filter { it.isNotBlank() }.distinct()
+
+/** 「-」与空格故意不算分隔符（保留分机号），故「82668888-82669999」只取前一个。 */
+private val SEPARATORS = Regex("""[,，、/;；|]|或""")
+
 /** 半角与全角空白，校方数据里两种都出现过。 */
 private val WHITESPACE = Regex("""[\s\u3000]+""")
 

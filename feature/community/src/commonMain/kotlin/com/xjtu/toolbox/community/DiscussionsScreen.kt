@@ -3,7 +3,10 @@ package com.xjtu.toolbox.community
 // 改编自 JoyinJoester/Etoile（GPL-3.0）：github/feature/discussions/DiscussionsScreen.kt。
 // 界面改用 MIUIX，按论坛帖子列表重排：作者头像、时间、分类、回复数、点赞、状态标签，分类筛选，下拉刷新，滑到底自动翻页。
 
+import com.xjtu.toolbox.ui.glass.tabContentPadding
+import com.xjtu.toolbox.ui.glass.tabContentBottomPadding
 import com.xjtu.toolbox.ui.components.AppPullToRefresh
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
@@ -17,6 +20,7 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ThumbUp
 import androidx.compose.material.icons.outlined.AccountCircle
 import androidx.compose.material.icons.outlined.ChatBubbleOutline
+import androidx.compose.material.icons.outlined.FilterList
 import androidx.compose.material.icons.outlined.Forum
 import androidx.compose.material.icons.outlined.ThumbUp
 import androidx.compose.runtime.*
@@ -53,8 +57,12 @@ fun DiscussionsScreen(
     onCreate: () -> Unit,
     onOpen: (GithubDiscussion) -> Unit,
     onFilter: (String?) -> Unit,
+    onState: (DiscussionStateFilter) -> Unit,
+    onSort: (DiscussionSort) -> Unit,
+    onAuthor: (String?) -> Unit,
+    /** 当前登录的 GitHub 用户名，「我发的」用。 */
+    me: String,
     onAccount: () -> Unit,
-    onLegacyFeedback: () -> Unit,
     /** 由外层持有：进帖子时这一页会被换掉，回来要停在原来的位置。 */
     listState: LazyListState = rememberLazyListState(),
 ) {
@@ -72,16 +80,41 @@ fun DiscussionsScreen(
         if (nearEnd && state.nextCursor != null && !state.loadError) onLoadMore()
     }
 
+    // 状态、排序、「我发的」收进顶栏的筛选弹窗；列表顶上只留一行分类，不堆两行胶囊
+    var showOptions by remember { mutableStateOf(false) }
+    val mine = state.author.equals(me, ignoreCase = true)
+    val customized = state.stateFilter != DiscussionStateFilter.OPEN || state.sort != DiscussionSort.UPDATED || mine
+
     CommunityPage(
         title = "社区",
         onBack = onBack,
-        actions = { CommunityBarAction(Icons.Outlined.AccountCircle, "GitHub 账号", onClick = onAccount) },
+        actions = {
+            Box {
+                CommunityBarAction(Icons.Outlined.FilterList, "筛选与排序", onClick = { showOptions = true })
+                // 改过默认筛选时亮一个小点，免得忘了自己筛过
+                if (customized) Box(
+                    Modifier.align(Alignment.TopEnd).padding(top = 10.dp, end = 10.dp).size(7.dp)
+                        .background(MiuixTheme.colorScheme.primary, androidx.compose.foundation.shape.CircleShape),
+                )
+            }
+            CommunityBarAction(Icons.Outlined.AccountCircle, "GitHub 账号", onClick = onAccount)
+        },
         floatingActionButton = {
             FloatingActionButton(onClick = onCreate) {
                 Icon(Icons.Filled.Add, contentDescription = "发帖", tint = Color.White)
             }
         },
     ) { top ->
+        // 弹窗靠 Scaffold 提供的宿主渲染，必须放在页面内容里
+        DiscussionOptionsSheet(
+            show = showOptions,
+            state = state,
+            mine = mine,
+            onState = onState,
+            onSort = onSort,
+            onMine = { onAuthor(if (it) me else null) },
+            onDismiss = { showOptions = false },
+        )
         AppPullToRefresh(
             isRefreshing = pulling && state.loading,
             onRefresh = { pulling = true; onRefresh() },
@@ -91,7 +124,7 @@ fun DiscussionsScreen(
             LazyColumn(
                 state = listState,
                 modifier = Modifier.fillMaxSize().overScrollVertical(),
-                contentPadding = PaddingValues(start = 12.dp, end = 12.dp, top = top + 8.dp, bottom = 96.dp),
+                contentPadding = tabContentPadding(PaddingValues(start = 12.dp, end = 12.dp, top = top + 8.dp, bottom = 96.dp)),
                 verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
                 if (state.categories.isNotEmpty()) item(key = "filters") {
@@ -102,7 +135,6 @@ fun DiscussionsScreen(
                         }
                     }
                 }
-                item(key = "legacy") { LegacyFeedbackEntry(onLegacyFeedback) }
                 when {
                     state.items.isEmpty() && state.loading -> item(key = "loading") {
                         LoadingState("正在加载帖子…", Modifier.fillMaxWidth().padding(vertical = 48.dp))
@@ -111,7 +143,12 @@ fun DiscussionsScreen(
                         ErrorState("帖子加载失败，检查网络后重试", onRetry = onRefresh, modifier = Modifier.fillMaxWidth().padding(vertical = 32.dp))
                     }
                     state.items.isEmpty() -> item(key = "empty") {
-                        EmptyState("还没有帖子", "点右下角的 + 发第一帖", Icons.Outlined.Forum, Modifier.fillMaxWidth().padding(vertical = 48.dp))
+                        val filtering = state.filter != null || state.author != null || state.stateFilter != DiscussionStateFilter.OPEN
+                        EmptyState(
+                            if (filtering) "没有符合条件的帖子" else "还没有帖子",
+                            if (filtering) "换个筛选条件试试" else "点右下角的 + 发第一帖",
+                            Icons.Outlined.Forum, Modifier.fillMaxWidth().padding(vertical = 48.dp),
+                        )
                     }
                 }
                 items(state.items, key = { it.id }) { discussion ->
@@ -149,27 +186,29 @@ private fun DiscussionCard(discussion: GithubDiscussion, onClick: () -> Unit, mo
         onClick = onClick,
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            CommunityAvatar(discussion.authorAvatar, discussion.author, 22.dp)
-            Spacer(Modifier.width(8.dp))
-            Text(
-                discussion.author ?: "已注销用户",
-                style = MiuixTheme.textStyles.footnote1,
-                fontWeight = FontWeight.Medium,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.weight(1f, fill = false),
-            )
-            if (discussion.authorIsAdmin) {
-                Spacer(Modifier.width(4.dp))
-                AdminTag()
+            // 作者一组独占剩余宽度，分类标签才贴右；和 Spacer 各占 weight 会平分空白
+            Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
+                CommunityAvatar(discussion.authorAvatar, discussion.author, 22.dp)
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    discussion.author ?: "已注销用户",
+                    style = MiuixTheme.textStyles.footnote1,
+                    fontWeight = FontWeight.Medium,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f, fill = false),
+                )
+                if (discussion.authorIsAdmin) {
+                    Spacer(Modifier.width(4.dp))
+                    AdminTag()
+                }
+                Text(
+                    " · " + communityTime(discussion.updatedAt.ifEmpty { discussion.createdAt }),
+                    style = MiuixTheme.textStyles.footnote1,
+                    color = colors.onSurfaceVariantSummary,
+                    maxLines = 1,
+                )
             }
-            Text(
-                " · " + communityTime(discussion.updatedAt.ifEmpty { discussion.createdAt }),
-                style = MiuixTheme.textStyles.footnote1,
-                color = colors.onSurfaceVariantSummary,
-                maxLines = 1,
-            )
-            Spacer(Modifier.weight(1f))
             Spacer(Modifier.width(8.dp))
             CommunityTag(discussion.category.name)
         }
@@ -207,6 +246,43 @@ private fun DiscussionCard(discussion: GithubDiscussion, onClick: () -> Unit, mo
     }
 }
 
+/** 列表筛选：状态、排序两个下拉，加「只看我发的」开关。改完即生效，不用点确定。 */
+@Composable
+private fun DiscussionOptionsSheet(
+    show: Boolean,
+    state: DiscussionsUiState,
+    mine: Boolean,
+    onState: (DiscussionStateFilter) -> Unit,
+    onSort: (DiscussionSort) -> Unit,
+    onMine: (Boolean) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    com.xjtu.toolbox.platform.BackHandler(enabled = show) { onDismiss() }
+    top.yukonga.miuix.kmp.overlay.OverlayBottomSheet(show = show, title = "筛选与排序", onDismissRequest = onDismiss) {
+        Column(Modifier.fillMaxWidth().navigationBarsPadding().padding(bottom = 12.dp)) {
+            val states = DiscussionStateFilter.entries
+            top.yukonga.miuix.kmp.preference.OverlayDropdownPreference(
+                title = "状态",
+                items = states.map { it.label },
+                selectedIndex = states.indexOf(state.stateFilter).coerceAtLeast(0),
+                onSelectedIndexChange = { onState(states[it]) },
+            )
+            val sorts = DiscussionSort.entries
+            top.yukonga.miuix.kmp.preference.OverlayDropdownPreference(
+                title = "排序",
+                items = sorts.map { it.label },
+                selectedIndex = sorts.indexOf(state.sort).coerceAtLeast(0),
+                onSelectedIndexChange = { onSort(sorts[it]) },
+            )
+            top.yukonga.miuix.kmp.preference.SwitchPreference(
+                title = "只看我发的",
+                checked = mine,
+                onCheckedChange = onMine,
+            )
+        }
+    }
+}
+
 @Composable
 private fun CountLabel(icon: ImageVector, text: String, active: Boolean = false) {
     val tint = if (active) MiuixTheme.colorScheme.primary else MiuixTheme.colorScheme.onSurfaceVariantSummary
@@ -232,15 +308,19 @@ fun DiscussionComposer(
     onRetryCategories: () -> Unit,
 ) {
     var preview by remember { mutableStateOf(false) }
-    // 分区加载好了还没选：默认选第一个，少点一下
-    LaunchedEffect(state.categories) {
-        if (state.categoryId == null && state.categories.isNotEmpty()) onEdit(state.title, state.body, state.categories.first().id)
+    // 无权发帖的分类（如通知公告）不列出
+    val postable = remember(state.categories, state.viewerPermission) { postableCategories(state.categories, state.viewerPermission) }
+    // 分区加载好了还没选（或选中的发不了）：默认选第一个可发的，少点一下
+    LaunchedEffect(postable) {
+        if (state.categories.isNotEmpty() && postable.none { it.id == state.categoryId }) {
+            onEdit(state.title, state.body, postable.firstOrNull()?.id)
+        }
     }
     // 发新帖时能 @ 的人：列表里出现过的作者
     val candidates = remember(state.items) {
         state.items.mapNotNull { d -> d.author?.let { CommunityUser(it, d.authorAvatar) } }.distinctBy { it.login }
     }
-    val canSubmit = !state.submitting && state.categories.any { it.id == state.categoryId } &&
+    val canSubmit = !state.submitting && postable.any { it.id == state.categoryId } &&
         state.title.isNotBlank() && state.body.isNotBlank()
     CommunityPage(
         title = "发帖",
@@ -259,7 +339,7 @@ fun DiscussionComposer(
             Modifier
                 .fillMaxSize()
                 .imePadding()
-                .verticalScroll(rememberScrollState())
+                .verticalScroll(rememberScrollState()).tabContentBottomPadding()
                 .padding(horizontal = 16.dp)
                 .padding(top = top + 8.dp, bottom = 24.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
@@ -274,7 +354,7 @@ fun DiscussionComposer(
                 CircularProgressIndicator(size = 20.dp)
             }
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                state.categories.forEach { category ->
+                postable.forEach { category ->
                     AppFilterChip(
                         selected = state.categoryId == category.id,
                         onClick = { if (!state.submitting) onEdit(state.title, state.body, category.id) },
@@ -282,7 +362,7 @@ fun DiscussionComposer(
                     )
                 }
             }
-            if (state.categories.firstOrNull { it.id == state.categoryId }?.acceptsAnswers == true) {
+            if (postable.firstOrNull { it.id == state.categoryId }?.acceptsAnswers == true) {
                 Text(
                     "这是问答分类：别人的回复可以被你采纳为答案。",
                     style = MiuixTheme.textStyles.footnote1,

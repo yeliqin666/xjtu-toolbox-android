@@ -94,7 +94,10 @@ object ScheduleCache {
 
     /** 优先剔除过节假日的版本，没有再用原样的。 */
     fun readCourses(cache: ScheduleCacheStore, termCode: String): List<CourseItem>? =
-        readOptimizedCourses(cache, termCode, FOREVER) ?: readRawCourses(cache, termCode, FOREVER)
+        (readOptimizedCourses(cache, termCode, FOREVER) ?: readRawCourses(cache, termCode, FOREVER))
+            // 顺手记下这学期出现过的课名：收纳里「自建待办」的快捷色片按这些课名算颜色
+            // （见 [ScheduleColorSeen]）。只记不读，读不到课表时什么也不发生。
+            ?.also { courses -> ScheduleColorSeen.note(courses.map { it.courseName }) }
 
     /** 本学期的课表和开学日期：首页、屁岱、桌面小组件共用。 */
     data class TermSchedule(val code: String, val courses: List<CourseItem>, val start: LocalDate?)

@@ -94,7 +94,7 @@ class StoreArchiveImportJvmTest {
             createdBy = "desktop-linux",
             appVersion = "test",
             stores = listOf(
-                StoreSnapshot("app_settings", mapOf("home_theme" to StoreValue.S("list"))),
+                StoreSnapshot("app_settings", mapOf("hero_background" to StoreValue.S("forest"))),
                 StoreSnapshot(
                     SCHEDULE_CACHE_STORE + suffix,
                     mapOf("schedule_current_term" to StoreValue.S("\"$NEW_TERM\"")),
@@ -109,7 +109,7 @@ class StoreArchiveImportJvmTest {
         assertEquals(ImportResult.Ok(keysWritten = 1, keysKept = 1, filesWritten = 0), result)
 
         // 档案有、端内没有 ⇒ 写入（走原读法读得回来）
-        assertEquals("list", settings.homeTheme)
+        assertEquals("forest", settings.heroBackground)
         // 端内更旧那条：本端胜，一个字都不动
         assertEquals(TERM, ScheduleCache.readCurrentTerm(cache))
         assertEquals("dark", settings.darkMode)

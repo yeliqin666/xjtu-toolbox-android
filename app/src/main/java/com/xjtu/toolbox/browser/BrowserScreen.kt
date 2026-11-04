@@ -4,6 +4,7 @@ package com.xjtu.toolbox.browser
 
 import com.xjtu.toolbox.network.APP_UA
 import com.xjtu.toolbox.util.redactUrl
+import com.xjtu.toolbox.util.recoverFromRendererGone
 import com.xjtu.toolbox.util.releaseSafely
 import com.xjtu.toolbox.webvpn.WebVpnUtil
 import top.yukonga.miuix.kmp.theme.MiuixTheme
@@ -24,6 +25,7 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.automirrored.filled.OpenInNew
 import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.filled.DesktopWindows
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.MoreHoriz
@@ -163,6 +165,9 @@ fun BrowserScreen(
     var webViewRef by remember { mutableStateOf<WebView?>(null) }
     var editing by remember { mutableStateOf(false) }
     var menuOpen by remember { mutableStateOf(false) }
+    // 桌面版：只改写 viewport、不换 UA（统一认证登录态绑定 UA）
+    var desktop by remember { mutableStateOf(DESKTOP_HOSTS.any { hostOf(initialUrl)?.endsWith(it) == true }) }
+    val desktopState = rememberUpdatedState(desktop)
     val clipboard = LocalClipboard.current
     val isDark = LocalIsDarkTheme.current
     val darkState = rememberUpdatedState(isDark)
@@ -336,6 +341,11 @@ fun BrowserScreen(
                                 }
                                 item(Icons.Default.Refresh, "刷新") { webViewRef?.reload() }
                                 if (canGoForward) item(Icons.AutoMirrored.Filled.ArrowForward, "前进") { webViewRef?.goForward() }
+                                item(Icons.Default.DesktopWindows, if (desktop) "切回手机版" else "桌面版") {
+                                    desktop = !desktop
+                                    // 关掉要重载才能拿回页面原来的 viewport
+                                    webViewRef?.let { if (desktop) it.evaluateJavascript(DESKTOP_VIEWPORT_JS, null) else it.reload() }
+                                }
                                 item(Icons.Default.Edit, "输入网址") {
                                     editingUrl = currentUrl
                                     editing = true
@@ -403,6 +413,13 @@ fun BrowserScreen(
                         /** 还没跳去 [thenUrl]：等首个页面加载完、且已经离开登录页（登录页上要用户自己输）。 */
                         private var thenPending = thenUrl.isNotBlank()
 
+                        override fun onRenderProcessGone(view: WebView, detail: android.webkit.RenderProcessGoneDetail): Boolean =
+                            view.recoverFromRendererGone {
+                                webViewRef = null
+                                android.widget.Toast.makeText(context, "网页崩溃了，已关闭", android.widget.Toast.LENGTH_SHORT).show()
+                                onBack()
+                            }
+
                         override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
                             super.onPageStarted(view, url, favicon)
                             isLoading = true
@@ -438,6 +455,7 @@ fun BrowserScreen(
                                 editingUrl = it
                             }
                             view?.let { WebViewNightMode.apply(it, darkState.value) }
+                            if (desktopState.value && url != null && !isAuthHop(url)) view?.evaluateJavascript(DESKTOP_VIEWPORT_JS, null)
                             if (thenPending && url != null && !isAuthHop(url)) {
                                 thenPending = false
                                 view?.loadUrl(normalizeUrl(thenUrl))
@@ -554,6 +572,14 @@ fun BrowserScreen(
         )
     }
 }
+
+/** 默认按桌面版打开的站点：电子凭证平台的表单只按桌面宽度排，手机宽度下文字挤成竖排。 */
+private val DESKTOP_HOSTS = listOf("dzpz.xjtu.edu.cn")
+
+/** 把 viewport 改成 1280 宽；配合 useWideViewPort / loadWithOverviewMode 缩到整屏，可双指放大。 */
+private const val DESKTOP_VIEWPORT_JS = """(function(){var m=document.querySelector('meta[name=viewport]');
+if(!m){m=document.createElement('meta');m.name='viewport';document.head.appendChild(m);}
+m.content='width=1280';})()"""
 
 @Composable
 private fun BrowserMenuItem(icon: ImageVector, label: String, onClick: () -> Unit) {

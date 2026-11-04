@@ -8,6 +8,12 @@
     <uses-permission android:name="com.android.alarm.permission.SET_ALARM" />
 
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- 小岱生成期间的前台服务（agent/AgentGenerationService.kt）：切出应用不被冻结 -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+    <!-- 动态课程/日程通知在开始、结束时切换；可选授权，未授权时使用非精确闹钟。 -->
+    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <!-- 富触感反馈（ui/Haptics.kt）：没有这个权限，VibrationEffect 组合振动会静默失效 -->
     <uses-permission android:name="android.permission.VIBRATE" />
 
@@ -45,10 +51,12 @@
         android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
         android:theme="@style/Theme.XJTUToolBox">
+        <!-- singleTask：系统分享面板带 NEW_DOCUMENT|MULTIPLE_TASK，singleTop 下每次分享都会另起一个实例，
+             后台实例会抢走分享材料等一次性信号；单实例时所有入口都经 onNewIntent 回到同一处 -->
         <activity
             android:name=".MainActivity"
             android:exported="true"
-            android:launchMode="singleTop"
+            android:launchMode="singleTask"
             android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|uiMode"
             android:windowSoftInputMode="adjustResize"
             android:label="@string/app_name"
@@ -67,10 +75,6 @@
                 <data android:scheme="xjtu" />
             </intent-filter>
 
-            <!-- 启动器长按快捷入口：5 个 static shortcuts，定义在 res/xml/shortcuts.xml -->
-            <meta-data
-                android:name="android.app.shortcuts"
-                android:resource="@xml/shortcuts" />
         </activity>
 
         <activity-alias
@@ -96,23 +100,29 @@
                 <data android:mimeType="application/xhtml+xml" />
             </intent-filter>
             <intent-filter>
-                <action android:name="android.intent.action.SEND" />
-                <category android:name="android.intent.category.DEFAULT" />
-                <data android:mimeType="text/plain" />
-                <data android:mimeType="text/html" />
-            </intent-filter>
-            <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <data android:scheme="content" />
                 <data android:scheme="file" />
                 <data android:mimeType="image/*" />
             </intent-filter>
+        </activity-alias>
+
+        <activity-alias
+            android:name=".agent.ShareWithPidai"
+            android:targetActivity=".MainActivity"
+            android:exported="true"
+            android:label="@string/pidai_share_name"
+            android:icon="@drawable/shortcut_agent_icon">
             <intent-filter>
                 <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="*/*" />
+            </intent-filter>
+            <intent-filter>
                 <action android:name="android.intent.action.SEND_MULTIPLE" />
                 <category android:name="android.intent.category.DEFAULT" />
-                <data android:mimeType="image/*" />
+                <data android:mimeType="*/*" />
             </intent-filter>
         </activity-alias>
 
@@ -172,6 +182,22 @@
         </receiver>
 
         <receiver
+            android:name=".notification.LibraryActionReceiver"
+            android:exported="false" />
+
+        <receiver
+            android:name=".notification.DynamicScheduleReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+                <action android:name="android.intent.action.TIME_SET" />
+                <action android:name="android.intent.action.TIMEZONE_CHANGED" />
+                <action android:name="android.app.action.SCHEDULE_EXACT_ALARM_PERMISSION_STATE_CHANGED" />
+            </intent-filter>
+        </receiver>
+
+        <receiver
             android:name=".widget.WidgetRefreshReceiver"
             android:exported="false">
             <intent-filter>
@@ -180,6 +206,11 @@
                 <action android:name="android.intent.action.TIME_SET" />
             </intent-filter>
         </receiver>
+
+        <service
+            android:name=".agent.AgentGenerationService"
+            android:exported="false"
+            android:foregroundServiceType="dataSync" />
 
         <service
             android:name=".widget.ScheduleWidgetRemoteViewsService"

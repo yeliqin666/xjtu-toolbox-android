@@ -1,5 +1,6 @@
 package com.xjtu.toolbox.schedule
 
+import com.xjtu.toolbox.ui.glass.tabContentBottomPadding
 import com.xjtu.toolbox.platform.BackHandler
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
@@ -79,22 +80,39 @@ fun SchoolCourseScreen(
     var detailCourse by remember { mutableStateOf<SchoolCourse?>(null) }
     val snackbarState = remember { SnackbarHostState() }
 
-    fun doSearch() = vm.search(
-        SchoolCourseQuery(
-            termCode = selectedTermCode,
-            courseName = searchCourseName,
-            courseCode = searchCourseCode,
-            teacher = searchTeacher,
-            departmentCode = selectedDeptCode,
-            className = searchClassName,
-            campusCode = selectedCampusCode,
-            isPublicElective = isPublicElectiveFilter,
-            electiveCategoryCode = selectedElectiveCat,
-            weekday = selectedWeekday,
-            startSection = selectedStartSection,
-            endSection = selectedEndSection,
-        )
+    fun currentQuery() = SchoolCourseQuery(
+        termCode = selectedTermCode,
+        courseName = searchCourseName.trim(),
+        courseCode = searchCourseCode.trim(),
+        teacher = searchTeacher.trim(),
+        departmentCode = selectedDeptCode,
+        className = searchClassName.trim(),
+        campusCode = selectedCampusCode,
+        isPublicElective = isPublicElectiveFilter,
+        electiveCategoryCode = selectedElectiveCat,
+        weekday = selectedWeekday,
+        startSection = selectedStartSection,
+        endSection = selectedEndSection,
     )
+
+    fun doSearch() = vm.search(currentQuery())
+
+    // 保留学期，其余筛选复位；已有结果时按新条件重查
+    fun clearFilters() {
+        val default = SchoolCourseQuery(termCode = selectedTermCode)
+        searchCourseName = default.courseName
+        searchCourseCode = default.courseCode
+        searchTeacher = default.teacher
+        searchClassName = default.className
+        selectedDeptCode = default.departmentCode
+        selectedCampusCode = default.campusCode
+        selectedWeekday = default.weekday
+        selectedStartSection = default.startSection
+        selectedEndSection = default.endSection
+        isPublicElectiveFilter = default.isPublicElective
+        selectedElectiveCat = default.electiveCategoryCode
+        if (vm.result != null) vm.search(default)
+    }
 
     // Scaffold 布局
     val scrollBehavior = MiuixScrollBehavior(rememberTopAppBarState())
@@ -187,31 +205,62 @@ fun SchoolCourseScreen(
                             modifier = Modifier.fillMaxWidth()
                         )
 
-                        // 高级筛选切换
+                        // 左：已选筛选数与清空；右：高级筛选切换
                         Spacer(Modifier.height(8.dp))
                         Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clip(RoundedCornerShape(8.dp))
-                                .clickable(
-                                    interactionSource = remember { MutableInteractionSource() },
-                                    indication = SinkFeedback()
-                                ) { showAdvancedFilter = !showAdvancedFilter }
-                                .padding(vertical = 6.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.Center
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Text(
-                                if (showAdvancedFilter) "收起高级筛选" else "展开高级筛选",
-                                style = MiuixTheme.textStyles.footnote1,
-                                color = MiuixTheme.colorScheme.primary
-                            )
-                            Icon(
-                                if (showAdvancedFilter) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
-                                contentDescription = null,
-                                tint = MiuixTheme.colorScheme.primary,
-                                modifier = Modifier.size(18.dp)
-                            )
+                            val filterCount = currentQuery().activeFilterCount
+                            Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
+                                Text(
+                                    if (filterCount > 0) "已选 $filterCount 项筛选" else "未设置筛选",
+                                    style = MiuixTheme.textStyles.footnote1,
+                                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                    modifier = Modifier.weight(1f, fill = false)
+                                )
+                                if (filterCount > 0) {
+                                    Text(
+                                        "清空筛选",
+                                        style = MiuixTheme.textStyles.footnote1,
+                                        color = MiuixTheme.colorScheme.primary,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                        modifier = Modifier
+                                            .padding(start = 4.dp)
+                                            .clip(RoundedCornerShape(8.dp))
+                                            .clickable(
+                                                interactionSource = remember { MutableInteractionSource() },
+                                                indication = SinkFeedback()
+                                            ) { clearFilters() }
+                                            .padding(horizontal = 4.dp, vertical = 6.dp)
+                                    )
+                                }
+                            }
+                            Row(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .clickable(
+                                        interactionSource = remember { MutableInteractionSource() },
+                                        indication = SinkFeedback()
+                                    ) { showAdvancedFilter = !showAdvancedFilter }
+                                    .padding(start = 4.dp, top = 6.dp, bottom = 6.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    if (showAdvancedFilter) "收起高级筛选" else "展开高级筛选",
+                                    style = MiuixTheme.textStyles.footnote1,
+                                    color = MiuixTheme.colorScheme.primary
+                                )
+                                Icon(
+                                    if (showAdvancedFilter) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                                    contentDescription = null,
+                                    tint = MiuixTheme.colorScheme.primary,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            }
                         }
 
                         // ── 高级筛选内容 ──
@@ -809,7 +858,7 @@ private fun CourseDetailSheet(
             Modifier
                 .fillMaxWidth()
                 .overScrollVertical()
-                .verticalScroll(rememberScrollState())
+                .verticalScroll(rememberScrollState()).tabContentBottomPadding()
                 .navigationBarsPadding()
         ) {
             Card(

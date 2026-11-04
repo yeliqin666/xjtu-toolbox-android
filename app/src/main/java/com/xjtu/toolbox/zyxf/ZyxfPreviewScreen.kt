@@ -1,7 +1,9 @@
 package com.xjtu.toolbox.zyxf
 
 import android.annotation.SuppressLint
+import android.os.Build
 import android.text.format.Formatter
+import android.view.View
 import android.view.ViewGroup
 import android.webkit.JavascriptInterface
 import android.webkit.WebResourceRequest
@@ -46,6 +48,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
+import com.xjtu.toolbox.util.recoverFromRendererGone
 import com.xjtu.toolbox.util.releaseSafely
 import com.xjtu.toolbox.lms.LmsDownloadStore
 import kotlinx.coroutines.Dispatchers
@@ -346,6 +349,13 @@ private fun WebOfficeView(
         modifier = Modifier.fillMaxSize(),
         factory = { ctx ->
             WebView(ctx).apply {
+                // HONOR Android 16 的 WebView Vulkan 合成会在宿主 RenderThread 触发
+                // SIGTRAP（drawVk / SkiaVulkanPipeline），onRenderProcessGone 捕获不到。
+                // 只让文档预览走软件绘制，保留 Compose 外壳及其它 WebView 的硬件加速。
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.BAKLAVA &&
+                    Build.MANUFACTURER.equals("HONOR", ignoreCase = true)) {
+                    setLayerType(View.LAYER_TYPE_SOFTWARE, null)
+                }
                 layoutParams = ViewGroup.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT,
                     ViewGroup.LayoutParams.MATCH_PARENT,
@@ -371,6 +381,11 @@ private fun WebOfficeView(
                             host.endsWith("aliyuncs.com") ||
                             host.endsWith("alicdn.com") ||
                             host.endsWith("aliyun.com"))
+                    }
+
+                    override fun onRenderProcessGone(view: WebView, detail: android.webkit.RenderProcessGoneDetail): Boolean {
+                        (view.tag as? Bridge)?.released = true
+                        return view.recoverFromRendererGone { onError("预览组件崩溃了，可以下载后用本机应用打开。") }
                     }
                 }
 

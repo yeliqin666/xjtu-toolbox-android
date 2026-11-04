@@ -127,6 +127,7 @@ class FitnessApi(private val site: SiteSession) : FitnessSource {
         return dataElement.jsonObject
     }
 
+    /** 会话失效（「登录信息失效」）由 [com.xjtu.toolbox.auth.FitnessSession] 判定，走站点统一的重登重放。 */
     private suspend fun postLegacy(url: String, body: FormBody) =
         site.executeWithReAuth(
                 Request.Builder()
@@ -142,11 +143,7 @@ class FitnessApi(private val site: SiteSession) : FitnessSource {
             if (!response.isSuccessful) throw RuntimeException("体测服务响应 ${response.code}")
             val root = text.safeParseJsonObject()
             if (root.get("status")?.intValue != 1) {
-                val message = root.get("info")?.stringValue ?: "体测查询失败"
-                if ("登录" in message || "验证" in message || "会话" in message) {
-                    throw AuthExpiredException("体测查询", message)
-                }
-                throw RuntimeException(message)
+                throw RuntimeException(root.get("info")?.stringValue ?: "体测查询失败")
             }
             root
         }

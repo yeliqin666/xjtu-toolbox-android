@@ -79,6 +79,8 @@ class Jiaocai1ReaderViewModel(
                     if (restoreShelf) restoreShelfRow(h) else keepPage(h)
                     handle = h
                     images.setPrefetchWindow(h, pageIndex)
+                    // 首页落进磁盘缓存，书架据此画缩略图（#206）；在预取窗口（±2）内就交给预取
+                    if (pageIndex > 2) launch { source.pageBytes(h, h.pages.first()) }
                 }
             } catch (e: Exception) {
                 // 与 [Jiaocai1ViewModel] 同一条写法：`:core` 只能按标记接口认会话失效。

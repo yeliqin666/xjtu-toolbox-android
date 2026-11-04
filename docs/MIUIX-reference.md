@@ -216,6 +216,26 @@ Text styles used most in this app:
 - Keep settings rows on `SwitchPreference`, `ArrowPreference`, and
   `OverlayDropdownPreference` for consistent spacing and animation.
 - Use `overScrollVertical()` on main scroll containers for Miuix feel.
+- 选色一律用本仓库的 `com.xjtu.toolbox.ui.components.AppColorPicker`，不要直接用
+  `ColorPalette` / `ColorPicker`：0.9.4 里这两个组件把透明度滑条写死在内部，
+  **没有关掉的参数**（见下节）。
+
+## Color Components: 透明度滑条去不掉
+
+0.9.4 的两个取色组件都内置 alpha，且签名里没有开关：
+
+| 组件 | alpha 滑条在哪 | 能否关掉 |
+|---|---|---|
+| `ColorPalette` | 网格下面无条件跟一条 `HsvAlphaSlider`（`basic/ColorPalette.kt`，约 163–175 行） | 不能 |
+| `ColorPicker` | 通道滑条里最后一条是 `HsvAlphaSlider`（`basic/ColorPicker.kt`，约 233–244 行；OkHSV/OkLab/OkLch 各变体同样） | 不能 |
+
+本项目的颜色只用于课程块、待办图标、主题色与首页卡片，落盘一律走
+`CourseColors.toHex`（只留 `#RRGGBB`）。让用户拖出一条半透明色就会出现
+「面板显示的 Hex 与眼睛看到的色块对不上」——issue #311 就是这个现象。
+
+`AppColorPicker` 的做法：只借公开的 `HsvHueSlider`（它不带 alpha），
+「饱和度 × 明度」二维方块自己用两层渐变画（横铺白→纯色相色，竖压透明→黑），
+产出的 alpha 恒为 1。若要再改颜色相关的界面，沿用这个组件。
 
 ## 0.9.2 Notes
 

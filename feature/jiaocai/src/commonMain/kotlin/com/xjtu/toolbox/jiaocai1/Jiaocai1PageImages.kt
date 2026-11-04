@@ -49,6 +49,14 @@ class Jiaocai1PageImages(private val source: Jiaocai1Source) {
         return decodeInto(memKey, bytes, targetWidthPx, Jiaocai1DecodeTier.SCREEN)
     }
 
+    /** 没有封面地址时退而取本地缓存的首页；没缓存返回 null。 */
+    suspend fun loadFirstPage(ssno: String, targetWidthPx: Int): ImageBitmap? {
+        val memKey = "first:$ssno@$targetWidthPx"
+        cached(memKey)?.let { return it }
+        val bytes = source.cachedFirstPageBytes(ssno) ?: return null
+        return decodeInto(memKey, bytes, targetWidthPx, Jiaocai1DecodeTier.SCREEN)
+    }
+
     /** 预取窗口转发（屏滚动时调；见 [Jiaocai1Source.prefetchWindow]）。 */
     fun setPrefetchWindow(handle: Jiaocai1BookHandle, center: Int) = source.prefetchWindow(handle, center)
 

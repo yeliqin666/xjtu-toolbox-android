@@ -332,7 +332,6 @@ class ServeLmsJiaocaiJwappIclassfaceApiTest {
         // 分项成绩已于 2026-10-14 端出（§5.8）：serve 形态下这个开关报 true，屏上那一格能展开，
         // 取数（含「detail:null ⇒ 空明细」那一支）钉在 ServeJwappScoreDetailApiTest 里
         assertTrue(api.canFetchScoreDetail, "§5.8 端了分项成绩 ⇒ serve 形态下屏上那一格能展开")
-        assertFailsWith<UnsupportedOperationException> { api.unevaluatedCourseNames() }
         assertFailsWith<UnsupportedOperationException> { api.reportedGrades("20260001") }
 
         // ⚠️ 第二条端点 502 可容忍（VM catch 住就用 jwapp 那一份）；本层照实抛出服务端那句中文

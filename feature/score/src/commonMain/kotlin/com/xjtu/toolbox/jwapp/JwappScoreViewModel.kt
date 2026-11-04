@@ -21,7 +21,7 @@ data class ScoreMessage(val text: String, val long: Boolean = false)
 
 /**
  * 成绩：jwapp 的学期成绩为底，教务的 xscjcx 替换成精确的总评和绩点，
- * 再从成绩报表补上未评教（jwapp 不显示）的课程。加工后的结果整份缓存，下次先秒显。
+ * 再用成绩报表补最新学期看不到的成绩（见 [ScoreReportFill]）。加工后的结果整份缓存，下次先秒显。
  *
  * @param source 传 null = 这一端没有 jwapp 会话（`canRefresh` 为 false，只读缓存）；
  * @param jwxt 传 null = 这一端没有教务会话（只出 jwapp 那一份）；
@@ -44,9 +44,16 @@ class JwappScoreViewModel(
     val termList: List<Pair<String, String>> get() = allTermScores.map { it.termCode to it.termName }
     var courseDetails by mutableStateOf<Map<String, ScoreDetail>>(emptyMap()); private set
     var detailLoading by mutableStateOf<String?>(null); private set
-    var unevaluatedCourses by mutableStateOf<Set<String>>(emptySet()); private set
-    /** 从报表补了几门课的提示。 */
+    /** 最新学期看不到成绩、从报表补了几门的提示。 */
     var reportHint by mutableStateOf<String?>(null); private set
+    /** 成绩报表里最新学期的全部课（抽屉用）；null = 还没拉。 */
+    var reportGrades by mutableStateOf<List<ReportedGrade>?>(null); private set
+    var reportLoading by mutableStateOf(false); private set
+    var reportFailed by mutableStateOf(false); private set
+    /** 补全了哪几行：成绩行 id → 报表那门。 */
+    var reportFilled by mutableStateOf<Map<String, ReportedGrade>>(emptyMap()); private set
+    /** 有教务会话才能拉报表。 */
+    val canOpenReport get() = jwxt != null && studentId.isNotEmpty()
     val canRefresh get() = source != null
 
     init { load() }
@@ -116,16 +123,14 @@ class JwappScoreViewModel(
         }
     }
 
-    /** jwapp 成绩、xscjcx 精确成绩、未评教名单三路互不依赖，并行拉。 */
+    /** jwapp 成绩和 xscjcx 精确成绩互不依赖，并行拉；最后用报表补最新学期看不到的成绩。 */
     private suspend fun fetch(source: JwappScoreSource): List<TermScore> = coroutineScope {
         val jwxt = jwxt ?: return@coroutineScope source.getGrade(null)
         val precise = async { preciseScores(jwxt) }
-        val uneval = if (studentId.isNotEmpty()) async { unevaluated(jwxt) } else null
         var grades = source.getGrade(null)
         grades = withPreciseScores(grades, precise.await())
         grades = grades.map { ts -> ts.copy(scoreList = ts.scoreList.map(::withCourseGroup)) }
-        if (uneval != null) grades = withUnevaluated(grades, jwxt, uneval.await())
-        grades
+        withReportFill(grades)
     }
 
     private suspend fun preciseScores(jwxt: JwxtScoreSupplement): List<CjcxScore>? = try {
@@ -168,52 +173,57 @@ class JwappScoreViewModel(
         return score.copy(courseGroup = group)
     }
 
-    private suspend fun unevaluated(jwxt: JwxtScoreSupplement): Set<String> = try {
-        jwxt.unevaluatedCourseNames()
-    } catch (e: CancellationException) {
-        throw e
-    } catch (e: Exception) {
-        Log.w(TAG, "未评教查询失败: ${e.message}")
-        emptySet()
+    /**
+     * 最新学期里成绩看不到的行（多半没评教），用成绩报表补上；匹配拿不准的留着，
+     * 用户可在最新学期的「报表」抽屉里看全。旧学期不补：往后不评教也能看，补了只会误配。
+     */
+    private suspend fun withReportFill(grades: List<TermScore>): List<TermScore> {
+        val latest = ScoreReportFill.latestTerm(grades) ?: return grades
+        val (hidden, visible) = grades.first { it.termCode == latest }.scoreList.partition { ScoreReportFill.isHidden(it.score) }
+        if (hidden.isEmpty()) {
+            reportHint = null
+            return grades
+        }
+        val report = fetchReport(latest) ?: return grades.also {
+            reportHint = "最新学期有 ${hidden.size} 门看不到成绩，成绩报表暂时拉不到，可点学期右侧「报表」重试"
+        }
+        val fills = ScoreReportFill.match(hidden, visible, report)
+        reportFilled = fills
+        reportHint = buildString {
+            append("最新学期有 ${hidden.size} 门看不到成绩")
+            if (fills.isNotEmpty()) append("，已从成绩报表补上 ${fills.size} 门")
+            if (fills.size < hidden.size) append("；其余可点学期右侧「报表」查看")
+        }
+        return grades.map { ts ->
+            if (ts.termCode != latest) ts
+            else ts.copy(scoreList = ts.scoreList.map { item -> fills[item.id]?.let { ScoreReportFill.fill(item, it) } ?: item })
+        }
     }
 
-    /** 未评教的课 jwapp 不给成绩，从成绩报表里补上。 */
-    private suspend fun withUnevaluated(grades: List<TermScore>, jwxt: JwxtScoreSupplement, uneval: Set<String>): List<TermScore> {
-        unevaluatedCourses = uneval
-        if (uneval.isEmpty()) return grades
+    /** 最新学期的报表成绩；失败返回 null，抽屉里显示重试。 */
+    private suspend fun fetchReport(term: String): List<ReportedGrade>? {
+        val jwxt = jwxt ?: return null
+        if (studentId.isEmpty()) return null
+        reportLoading = true
         return try {
-            val existing = grades.flatMap { ts -> ts.scoreList.map { courseKey(ts.termCode, it.courseName) } }.toMutableSet()
-            val extras = jwxt.reportedGrades(studentId)
-                .filter { it.courseName in uneval && existing.add(courseKey(it.term, it.courseName)) }
-                .groupBy({ it.term }, { it.toScoreItem() })
-                .toMutableMap()
-            if (extras.isEmpty()) return grades
-            val merged = grades.map { ts -> extras.remove(ts.termCode)?.let { ts.copy(scoreList = ts.scoreList + it) } ?: ts } +
-                extras.map { (term, items) -> TermScore(term, "报表·" + term.replace("-", "—"), items) }
-            val count = merged.sumOf { ts -> ts.scoreList.count { it.source == ScoreSource.REPORT } }
-            if (count > 0) reportHint = "已从报表补充 $count 门未评教课程成绩"
-            merged
+            jwxt.reportedGrades(studentId).filter { it.term == term }.also { reportGrades = it }
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
             Log.w(TAG, "报表加载失败: ${e.message}")
-            grades
+            reportFailed = true
+            null
+        } finally {
+            reportLoading = false
         }
     }
 
-    /** 课程名标准化后当键：全角 / 空白 / 课程标记符号 / 末尾课程代码两边写法常不一致。 */
-    private fun courseKey(term: String, name: String): String {
-        val n = name.trim()
-            .replace("　", " ")
-            .replace(" ", " ")
-            .replace(Regex("\\s+"), " ")
-            .replace("（", "(").replace("）", ")")
-            .replace("＋", "+").replace("－", "-")
-            .replace(Regex("[◇◆◎○●★☆※▲△▼▽]"), "")
-            .replace(Regex("\\([A-Z]{2,}\\d{4,}\\)$"), "")
-            .trim()
-            .lowercase()
-        return "${term.trim()}|$n"
+    /** 打开报表抽屉时：还没拉过（最新学期没有看不到的成绩时不会自动拉）就现拉。 */
+    fun loadReport(force: Boolean = false) {
+        if (reportLoading || (!force && reportGrades != null)) return
+        val term = ScoreReportFill.latestTerm(allTermScores) ?: return
+        reportFailed = false
+        viewModelScope.launch { fetchReport(term) }
     }
 
     /** 分项成绩：没有分项的课也记一份空的，免得每次展开都再问。 */
@@ -243,15 +253,3 @@ class JwappScoreViewModel(
         const val TAG = "JwappScore"
     }
 }
-
-private fun ReportedGrade.toScoreItem(): ScoreItem = ScoreItem(
-    id = "report_${term}_${courseName.hashCode()}",
-    termCode = term,
-    courseName = courseName,
-    score = score,
-    scoreValue = score.toDoubleOrNull(),
-    passFlag = gpa?.let { it > 0.0 } ?: (score.toDoubleOrNull()?.let { it >= 60.0 } ?: false),
-    coursePoint = coursePoint,
-    gpa = gpa,
-    source = ScoreSource.REPORT,
-)

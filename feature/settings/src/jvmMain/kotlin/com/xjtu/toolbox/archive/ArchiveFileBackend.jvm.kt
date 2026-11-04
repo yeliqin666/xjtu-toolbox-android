@@ -12,8 +12,9 @@ actual fun archiveCacheRoot(): String? = null
 class JvmFileBackend(private val dataRoot: File) : ArchiveFileBackend {
 
     override fun list(suffix: String, prefix: String): List<String> = when (prefix) {
+        // 只导出 .json，原子写盘残留的 .tmp 不进备份
         "agent_sessions" -> agentSessionsDir(suffix)
-            .listFiles { f -> f.isFile }
+            .listFiles { f -> f.isFile && f.name.endsWith(".json") }
             ?.map { "agent_sessions/${it.name}" }
             ?.sorted()
             ?: emptyList()

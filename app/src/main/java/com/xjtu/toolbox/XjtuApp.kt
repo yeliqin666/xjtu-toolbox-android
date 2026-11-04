@@ -73,7 +73,7 @@ class XjtuApp : Application() {
         com.xjtu.toolbox.inbox.InboxWidgetHook.onTodosChanged = {
             runCatching { com.xjtu.toolbox.widget.TodoWidgetUpdater.requestUpdate(this) }
         }
-        // 自建待办的到点提醒：存储在 :shared:model（各端共用），排期要 WorkManager（只在 :app）⇒ 同样挂回调。
+        // 自建待办的截止提醒：存储在 :shared:model（各端共用），排期要 WorkManager（只在 :app）⇒ 同样挂回调。
         com.xjtu.toolbox.inbox.SelfTodoHooks.onChanged = { account, before, after ->
             com.xjtu.toolbox.inbox.SelfTodoReminders.sync(this, account, before, after)
         }
@@ -86,9 +86,11 @@ class XjtuApp : Application() {
         // 后台调度要读账号（AccountStore → 加密存储首次打开要走 keystore），不占主线程。
         // 顺带预热了 SecurePrefs 的缓存，首帧里界面再取账号时直接命中。
         applicationScope.launch {
+            com.xjtu.toolbox.notification.DynamicScheduleScheduler.refresh(this@XjtuApp)
             com.xjtu.toolbox.notification.NoticeWatchScheduler.apply(this@XjtuApp)
             com.xjtu.toolbox.notification.ScheduleWatchScheduler.apply(this@XjtuApp)
             com.xjtu.toolbox.notification.LmsDeadlineScheduler.apply(this@XjtuApp)
+            com.xjtu.toolbox.notification.CommunityWatchScheduler.apply(this@XjtuApp)
             com.xjtu.toolbox.agent.PidaiJobScheduler.apply(this@XjtuApp)
         }
     }

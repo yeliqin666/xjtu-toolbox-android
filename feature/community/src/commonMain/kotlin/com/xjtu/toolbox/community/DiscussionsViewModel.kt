@@ -27,6 +27,12 @@ data class DiscussionsUiState(
     val categoryId: String? = null,
     /** 列表按哪个分类筛选，null 为全部。 */
     val filter: String? = null,
+    val stateFilter: DiscussionStateFilter = DiscussionStateFilter.OPEN,
+    val sort: DiscussionSort = DiscussionSort.UPDATED,
+    /** 只看这个作者的帖子，null 为不限。 */
+    val author: String? = null,
+    /** 当前用户对仓库的权限，列表加载后才知道；未知时按普通用户处理。 */
+    val viewerPermission: String? = null,
     /** 刚发布失败时 GitHub 给的原因（例如该分类只有维护者能发帖）。 */
     val submitMessage: String? = null,
     val composing: Boolean = false,
@@ -84,21 +90,43 @@ class DiscussionsViewModel(
         val cursor = if (more) current.nextCursor else null
         mutable.update { it.copy(loading = true, loadError = false) }
         loadJob = viewModelScope.launch {
-            val result = repository.list(owner, name, cursor, current.filter)
+            val query = DiscussionQuery(
+                categoryId = current.filter,
+                categoryName = current.categories.firstOrNull { it.id == current.filter }?.name,
+                state = current.stateFilter, sort = current.sort, author = current.author,
+            )
+            val result = repository.list(owner, name, cursor, query)
             if (!isActive) return@launch
             result.fold(onSuccess = { page ->
                 mutable.update { it.copy(loading = false, repositoryId = page.repositoryId,
+                    viewerPermission = page.viewerPermission ?: it.viewerPermission,
                     items = (if (more) it.items + page.items else page.items).distinctBy(GithubDiscussion::id),
                     nextCursor = page.nextCursor?.takeUnless { next -> next == cursor }) }
             }, onFailure = { mutable.update { it.copy(loading = false, loadError = true) } })
         }
     }
 
-    fun selectFilter(categoryId: String?) {
-        if (mutable.value.filter == categoryId) return
+    /** 改了任一筛选条件：丢掉旧结果，从头加载。 */
+    private fun refilter(change: (DiscussionsUiState) -> DiscussionsUiState) {
         loadJob?.cancel()
-        mutable.update { it.copy(filter = categoryId, items = emptyList(), nextCursor = null, loading = false) }
+        mutable.update { change(it).copy(items = emptyList(), nextCursor = null, loading = false) }
         load()
+    }
+
+    fun selectFilter(categoryId: String?) {
+        if (mutable.value.filter != categoryId) refilter { it.copy(filter = categoryId) }
+    }
+
+    fun selectState(value: DiscussionStateFilter) {
+        if (mutable.value.stateFilter != value) refilter { it.copy(stateFilter = value) }
+    }
+
+    fun selectSort(value: DiscussionSort) {
+        if (mutable.value.sort != value) refilter { it.copy(sort = value) }
+    }
+
+    fun selectAuthor(login: String?) {
+        if (mutable.value.author != login) refilter { it.copy(author = login) }
     }
 
     /** 帖子被删了：从列表里拿掉。 */
@@ -131,9 +159,10 @@ class DiscussionsViewModel(
         val current = mutable.value
         if (current.submitting) return
         val repositoryId = current.repositoryId ?: return
-        val category = current.categories.firstOrNull { it.id == current.categoryId }
+        val category = postableCategories(current.categories, current.viewerPermission).firstOrNull { it.id == current.categoryId }
         if (category == null || current.title.isBlank() || current.body.isBlank()) {
-            mutable.update { it.copy(submitError = true) }; return
+            val denied = current.categories.any { it.id == current.categoryId } && category == null
+            mutable.update { it.copy(submitError = true, submitMessage = if (denied) "该分类仅管理员可发帖" else null) }; return
         }
         mutable.update { it.copy(submitting = true, submitError = false, submitMessage = null) }
         createJob = viewModelScope.launch {

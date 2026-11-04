@@ -55,6 +55,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.xjtu.toolbox.ui.components.FullScreenOverlay
 import com.xjtu.toolbox.auth.AccountType
+import com.xjtu.toolbox.webvpn.WebVpnUtil
 import com.xjtu.toolbox.ui.components.AppSearchBar
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.IconButton
@@ -72,7 +73,7 @@ import kotlinx.coroutines.delay
 /**
  * 搜索结果条目。两种类型：
  * - [SearchEntry.Screen]：跳屏
- * - [SearchEntry.AgentPrompt]：把搜索词直接送给屁岱
+ * - [SearchEntry.AgentPrompt]：把搜索词直接送给小岱
  */
 internal sealed class SearchEntry {
     abstract val title: String
@@ -96,15 +97,15 @@ internal sealed class SearchEntry {
 
 internal object GlobalSearchIndex {
     private val agentPrompts = listOf(
-        SearchEntry.AgentPrompt("问屁岱", "我的校园卡余额还有多少？", "我的校园卡余额还有多少？",
+        SearchEntry.AgentPrompt("问小岱", "我的校园卡余额还有多少？", "我的校园卡余额还有多少？",
             listOf("余额", "还有多少")),
-        SearchEntry.AgentPrompt("问屁岱", "今天我还有哪些课？", "今天我还有哪些课？",
+        SearchEntry.AgentPrompt("问小岱", "今天我还有哪些课？", "今天我还有哪些课？",
             listOf("今天", "课程")),
-        SearchEntry.AgentPrompt("问屁岱", "GPA 怎么算？", "GPA 怎么算？",
+        SearchEntry.AgentPrompt("问小岱", "GPA 怎么算？", "GPA 怎么算？",
             listOf("gpa 算法", "绩点算法")),
-        SearchEntry.AgentPrompt("问屁岱", "最近教务处有什么通知？", "教务处最近有什么通知？",
+        SearchEntry.AgentPrompt("问小岱", "最近教务处有什么通知？", "教务处最近有什么通知？",
             listOf("新通知", "最新通知")),
-        SearchEntry.AgentPrompt("问屁岱", "帮我查空教室", "帮我查空教室",
+        SearchEntry.AgentPrompt("问小岱", "帮我查空教室", "帮我查空教室",
             listOf("找空教室", "哪里空")),
     )
 
@@ -137,6 +138,22 @@ internal object GlobalSearchIndex {
 
 private val QuickChips = listOf("课表", "空教室", "校园卡", "成绩", "付款码", "通知")
 
+private val UrlHost = Regex("""(?i)([a-z0-9]([a-z0-9-]*[a-z0-9])?\.)+[a-z]{2,}(:\d{1,5})?|(\d{1,3}\.){3}\d{1,3}(:\d{1,5})?""")
+
+/**
+ * 搜索词看起来像网址就补全成可访问的 URL，否则 null。
+ * 有 http(s):// 前缀的直接认；没有前缀的要求首段像域名（`xxx.xjtu.edu.cn/...`、`example.com`），补 https://。
+ */
+internal fun searchUrlOf(input: String): String? {
+    val text = input.trim()
+    if (text.isEmpty() || text.any { it.isWhitespace() }) return null
+    val scheme = Regex("""(?i)^https?://""").find(text)
+    val rest = text.substring(scheme?.value?.length ?: 0)
+    val host = rest.takeWhile { it != '/' && it != '?' && it != '#' }
+    if (scheme != null) return text.takeIf { host.isNotEmpty() }
+    return if (UrlHost.matches(host)) "https://$text" else null
+}
+
 /**
  * 全局搜索。盖在主界面最外层的整屏浮层（见 [FullScreenOverlay]），盖过首页大标题和悬浮底栏。
  */
@@ -146,6 +163,9 @@ fun GlobalSearchScreen(
     onBack: () -> Unit,
     onNavigate: (AppRoute) -> Unit,
     onAskAgent: (String) -> Unit,
+    onOpenUrl: (String) -> Unit,
+    /** 参数是已转成 WebVPN 域的网址。 */
+    onOpenWithWebVpn: (String) -> Unit,
     accountType: AccountType = AccountType.UNDERGRADUATE,
 ) {
     FullScreenOverlay {
@@ -196,7 +216,7 @@ fun GlobalSearchScreen(
                     AppSearchBar(
                         query = query,
                         onQueryChange = { query = it },
-                        label = "课表、成绩、空教室、问屁岱…",
+                        label = "课表、成绩、空教室、问小岱…",
                         modifier = Modifier
                             .fillMaxWidth()
                             .focusRequester(focusRequester)
@@ -222,6 +242,8 @@ fun GlobalSearchScreen(
                                 results = results,
                                 onNavigate = onNavigate,
                                 onAskAgent = onAskAgent,
+                                onOpenUrl = onOpenUrl,
+                                onOpenWithWebVpn = onOpenWithWebVpn,
                             )
                         }
                     }
@@ -265,7 +287,7 @@ private fun SearchEmptyHints(
         }
         Spacer(Modifier.height(28.dp))
         Text(
-            "直接问屁岱",
+            "直接问小岱",
             style = MiuixTheme.textStyles.subtitle,
             fontWeight = FontWeight.SemiBold,
         )
@@ -278,14 +300,14 @@ private fun SearchEmptyHints(
         Spacer(Modifier.height(12.dp))
         SearchResultRow(
             title = "今天还有哪些课？",
-            subtitle = "问屁岱",
+            subtitle = "问小岱",
             showAiIcon = true,
             onClick = { onAskAgent("今天我还有哪些课？") },
         )
         Spacer(Modifier.height(8.dp))
         SearchResultRow(
             title = "帮我查空教室",
-            subtitle = "问屁岱",
+            subtitle = "问小岱",
             showAiIcon = true,
             onClick = { onAskAgent("帮我查空教室") },
         )
@@ -298,7 +320,10 @@ private fun SearchResultList(
     results: List<SearchEntry>,
     onNavigate: (AppRoute) -> Unit,
     onAskAgent: (String) -> Unit,
+    onOpenUrl: (String) -> Unit,
+    onOpenWithWebVpn: (String) -> Unit,
 ) {
+    val url = remember(query) { searchUrlOf(query) }
     val screens = results.filterIsInstance<SearchEntry.Screen>()
     val prompts = results.filterIsInstance<SearchEntry.AgentPrompt>()
 
@@ -308,6 +333,19 @@ private fun SearchResultList(
         contentPadding = PaddingValues(top = 12.dp, bottom = 12.dp + bottomInset),
         verticalArrangement = Arrangement.spacedBy(6.dp)
     ) {
+        if (url != null) {
+            item(key = "url-direct") {
+                SearchResultRow(title = "直接访问", subtitle = url, showAiIcon = false, onClick = { onOpenUrl(url) })
+            }
+            item(key = "url-vpn") {
+                SearchResultRow(
+                    title = "通过 WebVPN 访问",
+                    subtitle = "校外访问校内网站",
+                    showAiIcon = false,
+                    onClick = { onOpenWithWebVpn(WebVpnUtil.toVpnUrl(url)) },
+                )
+            }
+        }
         if (screens.isNotEmpty()) {
             item(key = "hdr-screen") {
                 Text(
@@ -329,7 +367,7 @@ private fun SearchResultList(
         if (prompts.isNotEmpty()) {
             item(key = "hdr-ai") {
                 Text(
-                    "问屁岱",
+                    "问小岱",
                     style = MiuixTheme.textStyles.footnote1,
                     color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                     modifier = Modifier.padding(bottom = 2.dp, top = 8.dp),
@@ -356,7 +394,7 @@ private fun SearchResultList(
         }
         item(key = "fallback") {
             SearchResultRow(
-                title = "问屁岱：$query",
+                title = "问小岱：$query",
                 subtitle = "用这句话提问",
                 showAiIcon = true,
                 onClick = { onAskAgent(query) }
@@ -380,7 +418,7 @@ private fun SearchResultRow(
             .clip(RoundedCornerShape(14.dp))
             .clickable(onClick = onClick)
             .semantics(mergeDescendants = true) {
-                contentDescription = if (showAiIcon) "问屁岱：$title" else title
+                contentDescription = if (showAiIcon) "问小岱：$title" else title
             }
     ) {
         Row(

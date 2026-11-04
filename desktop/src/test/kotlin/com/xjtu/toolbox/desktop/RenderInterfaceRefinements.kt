@@ -76,6 +76,7 @@ fun main(args: Array<String>) {
         override fun newSession() { newSessions++; messages.clear() }
         override fun switchSession(id: String) {}
         override fun deleteSession(id: String) {}
+        override fun renameSession(id: String, title: String) {}
         override fun stop() { isLoading = false }
         override fun replaceLastUserAndSend(newText: String, config: AgentConfig) {}
         override fun sendMessage(userText: String, config: AgentConfig, llmAnnex: String?, images: List<String>) {

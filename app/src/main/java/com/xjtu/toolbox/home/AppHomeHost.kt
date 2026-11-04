@@ -18,6 +18,7 @@ import com.xjtu.toolbox.account.AccountContext
 import com.xjtu.toolbox.auth.AppLoginState
 import com.xjtu.toolbox.auth.LoginType
 import com.xjtu.toolbox.auth.siteKey
+import com.xjtu.toolbox.auth.ensureSite
 import com.xjtu.toolbox.bulletin.Bulletin
 import com.xjtu.toolbox.card.CampusCardCache
 import com.xjtu.toolbox.data.DataCache
@@ -37,6 +38,8 @@ internal class AppHome(
     val host: HomeHost,
     /** 「子系统连接状态」弹窗的开关，由调用方（[HomeTab]）在组合里读并画那个弹窗。 */
     val showStatusSheet: MutableState<Boolean>,
+    /** 「主页设置」抽屉的开关（首页编辑态里点「设置」）。 */
+    val showSettingsSheet: MutableState<Boolean>,
 )
 
 /** 首页的宿主面（`:app` 这一端）—— 把「首页要的数据从哪来」收成一个对象。 */
@@ -134,7 +137,10 @@ internal fun rememberAppHome(
         loginState.accountId,
         loginState.campusCardCacheVersion,
         HomeSignals.statsVersion,
+        com.xjtu.toolbox.game.GameStore.version,
         campusNow.date,
+        campusNow.hour,
+        campusNow.minute,
     ) {
         val term = withContext(Dispatchers.IO) {
             runCatching { ScheduleCache.readCurrentTerm(DataCache(context)) }.getOrNull()
@@ -148,6 +154,7 @@ internal fun rememberAppHome(
     val audience = loginState.accountType
     val isLoggedIn = loginState.isLoggedIn
     val showStatusSheet = remember { mutableStateOf(false) }
+    val showSettingsSheet = remember { mutableStateOf(false) }
 
     // 常用入口：用户置顶过就按置顶的来，否则按使用频率取 4 个。它是**额外**的入口，分类里照常保留。
     val settings = remember { com.xjtu.toolbox.settings.SettingsStore() }
@@ -181,10 +188,11 @@ internal fun rememberAppHome(
 
     // 一行要放在右上角插画旁边，写短：「校外 · 12/14 就绪」。走不走 WebVPN、哪些子系统没连上，点开看明细
     val heroStatus: HomeStatusLine? = if (isLoggedIn) {
-        val (netLabel, netTone) = when (loginState.isOnCampus) {
-            true -> "校园网" to HomeTone.NORMAL
-            false -> "非校园网" to HomeTone.ACCENT
-            null -> "检测中" to HomeTone.MUTED
+        val (netLabel, netTone) = when {
+            !loginState.hasNetwork -> "无网络连接" to HomeTone.ALERT
+            loginState.isOnCampus == true -> "校园网" to HomeTone.NORMAL
+            loginState.isOnCampus == false -> "非校园网" to HomeTone.ACCENT
+            else -> "检测中" to HomeTone.MUTED
         }
         val types = LoginType.entries
         val ok = types.count { loginState.sessionManager?.getSiteOrNull(it.siteKey())?.hasLogin == true }
@@ -261,7 +269,7 @@ internal fun rememberAppHome(
                 else -> HomeNextUp(
                     icon = HomeHero.EMPTY_ICON,
                     title = HomeHero.NOTHING_TITLE,
-                    detail = "问问屁岱怎么安排",
+                    detail = "问问小岱怎么安排",
                     route = AppRoute.Schedule,
                 )
             }
@@ -310,14 +318,42 @@ internal fun rememberAppHome(
         }
 
         override fun onProfile() = onNavigateToProfile()
+
+        override fun onOpenLink(link: String) {
+            if (link.startsWith("app:")) {
+                com.xjtu.toolbox.nav.appRouteOf(link.removePrefix("app:"))?.let(::onRoute)
+            } else if (link.startsWith("agent:")) {
+                com.xjtu.toolbox.agent.AgentPendingPrompt.set(link.removePrefix("agent:"), draftOnly = true)
+                onRoute(AppRoute.Agent)
+            } else if (link.startsWith("tel:")) {
+                runCatching {
+                    context.startActivity(
+                        android.content.Intent(android.content.Intent.ACTION_DIAL, android.net.Uri.parse(link))
+                            .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK),
+                    )
+                }
+            } else {
+                onNavigate(AppRoute.Browser(link))
+            }
+        }
+
+        override suspend fun paymentCode(): String? {
+            val manager = loginState.sessionManager ?: return null
+            val site = manager.ensureSite("campus_card", silent = true)
+            return com.xjtu.toolbox.pay.PaymentCodeApi(site).getBarCode()
+        }
         override fun onBulletinTap(bulletin: Bulletin) = onBulletinTap(bulletin)
         override fun onBulletinDismiss(bulletin: Bulletin) = onBulletinDismiss(bulletin)
         override fun onOpenStatus() {
             showStatusSheet.value = true
         }
+        override fun onOpenHomeSettings() {
+            showSettingsSheet.value = true
+        }
+        override val hasHomeSettings get() = true
     }
 
-    return AppHome(host, showStatusSheet)
+    return AppHome(host, showStatusSheet, showSettingsSheet)
 }
 
 /** 「10月12日」那一段。`:app` 这一端读的是 `java.time` 的月份与日。 */

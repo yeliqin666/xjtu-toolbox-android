@@ -10,9 +10,9 @@ import kotlinx.serialization.json.JsonObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
-import java.util.UUID
 class AppUpdaterPickReleaseTest {
 
     private fun buildReleaseJson(
@@ -40,52 +40,6 @@ class AppUpdaterPickReleaseTest {
     }
 
     @Test
-    fun extractRolloutPercentage() {
-        assertEquals(100, AppUpdater.extractRolloutPercentage(""))
-        assertEquals(100, AppUpdater.extractRolloutPercentage("一些无关说明"))
-        assertEquals(20, AppUpdater.extractRolloutPercentage("rollout: 20"))
-        assertEquals(50, AppUpdater.extractRolloutPercentage("  rollout: 50%  \n详细说明"))
-        assertEquals(0, AppUpdater.extractRolloutPercentage("ROLLOUT: 0"))
-        assertEquals(100, AppUpdater.extractRolloutPercentage("rollout: 150")) // clamped to 100
-    }
-
-    @Test
-    fun rolloutBucketDistribution() {
-        // rollout: 0 永远不中，rollout: 100 永远中
-        val tag = "dev-1"
-        for (i in 0 until 100) {
-            val id = UUID.randomUUID().toString()
-            assertFalse(AppUpdater.isRolloutHit(id, tag, 0))
-            assertTrue(AppUpdater.isRolloutHit(id, tag, 100))
-        }
-
-        // 同 rolloutId 同 tag 结果稳定
-        val fixedId = UUID.randomUUID().toString()
-        val r1 = AppUpdater.isRolloutHit(fixedId, tag, 30)
-        val r2 = AppUpdater.isRolloutHit(fixedId, tag, 30)
-        assertEquals(r1, r2)
-
-        // 单调性：如果 30% 命中，那么 60% 必定命中
-        for (i in 0 until 500) {
-            val id = UUID.randomUUID().toString()
-            if (AppUpdater.isRolloutHit(id, tag, 30)) {
-                assertTrue(AppUpdater.isRolloutHit(id, tag, 60))
-            }
-        }
-
-        // 统计 10000 个随机 ID 分桶在 20% 左右（±3%）
-        var hitCount = 0
-        val total = 10000
-        for (i in 0 until total) {
-            if (AppUpdater.isRolloutHit(UUID.randomUUID().toString(), tag, 20)) {
-                hitCount++
-            }
-        }
-        val pct = hitCount.toDouble() / total * 100.0
-        assertTrue("Hit pct $pct should be between 17% and 23%", pct in 17.0..23.0)
-    }
-
-    @Test
     fun pickRelease_previewDisabled_onlyReturnsFormal() {
         val releases = buildJsonArray {
             add(buildReleaseJson(tagName = "v4.9.7", name = "v4.9.7", prerelease = false))
@@ -96,7 +50,6 @@ class AppUpdaterPickReleaseTest {
             releases = releases,
             currentVersion = "4.9.6",
             includePreview = false,
-            rolloutId = "some-id",
         )
 
         assertNotNull(result)
@@ -108,19 +61,35 @@ class AppUpdaterPickReleaseTest {
     fun pickRelease_previewEnabled_returnsPreviewIfGreater() {
         val releases = buildJsonArray {
             add(buildReleaseJson(tagName = "v4.9.7", name = "v4.9.7", prerelease = false))
-            add(buildReleaseJson(tagName = "dev-1", name = "4.9.8-dev.1", prerelease = true, body = "rollout: 100"))
+            add(buildReleaseJson(tagName = "dev-1", name = "4.9.8-dev.1", prerelease = true))
         }
 
         val result = AppUpdater.pickRelease(
             releases = releases,
             currentVersion = "4.9.7",
             includePreview = true,
-            rolloutId = "some-id",
         )
 
         assertNotNull(result)
         assertEquals("4.9.8-dev.1", result!!.version)
         assertTrue(result.isPreview)
+    }
+
+    @Test
+    fun pickRelease_previewEnabled_ignoresLegacyRolloutField() {
+        // 旧 Release 说明里可能还留着 rollout: 0；新客户端不再按它分桶，开启预览就必须能收到。
+        val releases = buildJsonArray {
+            add(buildReleaseJson(tagName = "dev-1", name = "4.9.8-dev.1", prerelease = true, body = "rollout: 0"))
+        }
+
+        val result = AppUpdater.pickRelease(
+            releases = releases,
+            currentVersion = "4.9.7",
+            includePreview = true,
+        )
+
+        assertNotNull(result)
+        assertEquals("4.9.8-dev.1", result!!.version)
     }
 
     @Test
@@ -144,9 +113,9 @@ class AppUpdaterPickReleaseTest {
             // Draft formal
             add(buildReleaseJson(tagName = "v4.9.9", draft = true))
             // Preview missing apk
-            add(buildReleaseJson(tagName = "dev-2", name = "4.9.9-dev.2", prerelease = true, hasApk = false, body = "rollout: 100"))
+            add(buildReleaseJson(tagName = "dev-2", name = "4.9.9-dev.2", prerelease = true, hasApk = false))
             // Preview missing name
-            add(buildReleaseJson(tagName = "dev-3", name = null, prerelease = true, body = "rollout: 100"))
+            add(buildReleaseJson(tagName = "dev-3", name = null, prerelease = true))
             // Formal valid
             add(buildReleaseJson(tagName = "v4.9.7", name = "v4.9.7", prerelease = false))
         }
@@ -155,10 +124,86 @@ class AppUpdaterPickReleaseTest {
             releases = releases,
             currentVersion = "4.9.6",
             includePreview = true,
-            rolloutId = "some-id",
         )
 
         assertNotNull(result)
         assertEquals("4.9.7", result!!.version)
+    }
+
+    private fun validManifestJson(): String = """
+        {
+          "schema": 1,
+          "channel": "stable",
+          "versionName": "5.2.2",
+          "versionCode": 92,
+          "apkUrl": "https://dzhz.zyxf.top/xjtu-toolbox/apk/5.2.2/app-release.apk",
+          "mirrors": ["https://github.com/yeliqin666/xjtu-toolbox-android/releases/download/v5.2.2/app-release.apk"],
+          "sha256": "${"a".repeat(64)}",
+          "size": 6712345,
+          "notes": "## test",
+          "releaseUrl": "https://github.com/yeliqin666/xjtu-toolbox-android/releases/tag/v5.2.2",
+          "publishedAt": "2026-10-23T12:00:00Z"
+        }
+    """.trimIndent()
+
+    @Test
+    fun aliyunManifestParses() {
+        val manifest = AppUpdater.parseOssManifest(validManifestJson())
+        assertNotNull(manifest)
+        assertEquals("5.2.2", manifest!!.versionName)
+        assertEquals(92, manifest.versionCode)
+        assertEquals(1, manifest.mirrors.size)
+    }
+
+    @Test
+    fun aliyunManifestIgnoresLegacyRolloutField() {
+        // 旧清单仍带 rollout: 0；新客户端不再解析这个字段，不能因此拒绝清单。
+        val manifest = AppUpdater.parseOssManifest(
+            validManifestJson().replace("\"publishedAt\"", "\"rollout\": 0,\n          \"publishedAt\"")
+        )
+        assertNotNull(manifest)
+        assertEquals("5.2.2", manifest!!.versionName)
+    }
+
+    @Test
+    fun aliyunManifestRejectsBadShaAndHttpUrl() {
+        val valid = validManifestJson()
+        assertNotNull(AppUpdater.parseOssManifest(valid))
+        assertNull(AppUpdater.parseOssManifest(valid.replace("a".repeat(64), "short")))
+        assertNull(
+            AppUpdater.parseOssManifest(
+                valid.replace("https://dzhz.zyxf.top", "http://dzhz.zyxf.top")
+            )
+        )
+    }
+
+    @Test
+    fun newestManifestUsesPublishTimeForSameBasePreview() {
+        val stable = UpdateManifest(
+            schema = 1,
+            channel = "stable",
+            versionName = "5.2.0",
+            apkUrl = "https://example.com/app.apk",
+            sha256 = "a".repeat(64),
+            publishedAt = "2026-10-20T08:00:00Z",
+        )
+        val preview = stable.copy(
+            channel = "preview",
+            versionName = "5.2.0-dev.100",
+            publishedAt = "2026-10-22T08:00:00Z",
+        )
+
+        assertEquals("5.2.0-dev.100", AppUpdater.pickNewestManifest(stable, preview)!!.versionName)
+        assertEquals("5.2.0", AppUpdater.pickNewestManifest(stable, null)!!.versionName)
+    }
+
+    @Test
+    fun aliyunChannelLabelAndNormalization() {
+        assertEquals("阿里云", AppUpdater.channelLabel(AppUpdater.CHANNEL_ALIYUN))
+        assertEquals("GitHub", AppUpdater.channelLabel(AppUpdater.CHANNEL_GITHUB))
+        assertEquals("Gitee", AppUpdater.channelLabel(AppUpdater.CHANNEL_GITEE))
+        assertEquals(AppUpdater.CHANNEL_ALIYUN, AppUpdater.normalizeChannel("oss"))
+        assertEquals(AppUpdater.CHANNEL_ALIYUN, AppUpdater.normalizeChannel("stable"))
+        assertEquals(AppUpdater.CHANNEL_GITEE, AppUpdater.normalizeChannel("gitee"))
     }
 }

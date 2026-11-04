@@ -24,14 +24,14 @@ private const val TAG = "ScheduleSource"
  * 当前学期课表从哪个系统拉。
  *
  * 教务一次给整学期，任何学期都能查，调停课也合在里面，是默认源。考勤系统是签到设备
- * 实际用的那一份排课，门户把本科、研究生课程合在一起，研究生课表只有它能给。
+ * 实际用的那一份排课，门户把本科、研究生课程合在一起。智慧教室平台按周拉，有研究生反馈比考勤稳。
  *
- * 旧版设置里存的 `"jwapp"`（移动教务，和教务同一个库）、`"js"`（智慧教室平台）已不作课表源，
- * 由 [fromKey] 落回默认源。
+ * 旧版设置里存的 `"jwapp"`（移动教务，和教务同一个库）已不作课表源，由 [fromKey] 落回默认源。
  */
 enum class ScheduleSource(val key: String, val label: String, val summary: String) {
     JWXT(SettingsStore.SCHEDULE_SOURCE_JWXT, "教务系统", "一次拉整学期，含调停课"),
-    ATTENDANCE(SettingsStore.SCHEDULE_SOURCE_ATTENDANCE, "考勤系统", "本科、研究生课程合并，只有当前学期");
+    ATTENDANCE(SettingsStore.SCHEDULE_SOURCE_ATTENDANCE, "考勤系统", "本科、研究生课程合并，只有当前学期"),
+    JS(SettingsStore.SCHEDULE_SOURCE_JS, "智慧教室平台", "按周拉，研究生课表可试试，只有当前学期");
 
     companion object {
         val DEFAULT = JWXT
@@ -69,6 +69,7 @@ object ScheduleSourceRouter {
             withContext(Dispatchers.IO) {
                 when (source) {
                     ScheduleSource.ATTENDANCE -> fromAttendance(manager, termCode, userInitiated)
+                    ScheduleSource.JS -> fromJs(jwxt, manager, termCode, userInitiated)
                     ScheduleSource.JWXT -> null
                 }
             }
@@ -189,7 +190,7 @@ object ScheduleSourceRouter {
         termCode: String,
         userInitiated: Boolean,
     ): SourceSchedule? {
-        val site = manager.siteOrNull(LoginType.ATTENDANCE, userInitiated)
+        val site = manager.siteOrNull(LoginType.ATTENDANCE.siteKey(), userInitiated)
             ?: throw java.io.IOException("考勤系统登录不上")
         val sides = KqPortal.currentSemester(site).filter { sameTerm(it.termCode, termCode) }
         if (sides.isEmpty()) {
@@ -197,6 +198,25 @@ object ScheduleSourceRouter {
             return null
         }
         return SourceSchedule(KqTimetableRow.toCourses(sides.flatMap { it.rows }))
+    }
+
+    /**
+     * 智慧教室平台课表源。接口按学期代码查，但没验证过历史学期会不会把当前学期的课当成别的学期返回，
+     * 所以只在要查的就是教务的当前学期时用它。
+     */
+    private suspend fun fromJs(
+        jwxt: JwxtScheduleSource,
+        manager: SessionManager,
+        termCode: String,
+        userInitiated: Boolean,
+    ): SourceSchedule? {
+        if (!sameTerm(termCode, jwxt.currentTerm())) {
+            Log.d(TAG, "智慧教室平台只用于当前学期，要查的是 $termCode，走教务")
+            return null
+        }
+        val site = manager.siteOrNull(com.xjtu.toolbox.auth.JsSession.SITE_KEY, userInitiated)
+            ?: throw java.io.IOException("智慧教室平台登录不上")
+        return SourceSchedule(JsScheduleApi(site).getSchedule(termCode))
     }
 
     /**
@@ -216,12 +236,12 @@ object ScheduleSourceRouter {
      * 取一个已登录的站点，拿不到返回 null。取消必须原样抛，不能当成"站点不可用"——
      * 吞掉取消会在重组频繁时反复触发登录，把站点打进失败冷却。
      */
-    private suspend fun SessionManager.siteOrNull(type: LoginType, userInitiated: Boolean) = try {
-        ensureSite(type.siteKey(), userInitiated = userInitiated, silent = true)
+    private suspend fun SessionManager.siteOrNull(siteKey: String, userInitiated: Boolean) = try {
+        ensureSite(siteKey, userInitiated = userInitiated, silent = true)
     } catch (e: CancellationException) {
         throw e
     } catch (e: Throwable) {
-        Log.d(TAG, "ensureSite(${type.siteKey()}) 不可用：${e.javaClass.simpleName} ${e.message}")
+        Log.d(TAG, "ensureSite($siteKey) 不可用：${e.javaClass.simpleName} ${e.message}")
         null
     }
 }

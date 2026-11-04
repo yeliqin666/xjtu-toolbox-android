@@ -48,7 +48,8 @@ private fun parseSemester(obj: JsonObject): SchoolTerm? {
         )
     }.orEmpty().sortedBy { it.startDate }
 
-    val totalWeeks = ((end.toEpochDays() - start.toEpochDays()) / 7).toInt().coerceAtLeast(0)
+    // 要计算为闭区间，把结束日也算上
+    val totalWeeks = ((end.toEpochDays() - start.toEpochDays() + 1) / 7).toInt().coerceAtLeast(0)
     val workDays = countWorkDays(start, end)
 
     val year = obj.get("year")?.stringValue.orEmpty()

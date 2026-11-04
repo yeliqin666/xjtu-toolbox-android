@@ -35,8 +35,10 @@ class AgentPromptTest {
     }
 
     @Test
-    fun `名字出现在身份段里`() {
-        assertTrue(build(name = "Mikoto").contains("你是「Mikoto」"))
+    fun `名字只作称呼，不当身份`() {
+        val prompt = build(name = "Mikoto")
+        assertTrue(prompt.contains("用户叫你「Mikoto」"))
+        assertTrue("你是「Mikoto」" !in prompt)
     }
 
     @Test

@@ -1,5 +1,6 @@
 package com.xjtu.toolbox.jiaocai1
 
+import com.xjtu.toolbox.ui.glass.tabContentPadding
 import com.xjtu.toolbox.ui.components.BackButton
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.foundation.Image
@@ -263,7 +264,7 @@ private fun ReaderContent(
                     LazyColumn(
                         state = listState,
                         modifier = Modifier.fillMaxSize(),
-                        contentPadding = PaddingValues(top = glassTop),
+                        contentPadding = tabContentPadding(PaddingValues(top = glassTop)),
                         verticalArrangement = Arrangement.spacedBy(6.dp),
                     ) {
                         itemsIndexed(pages, key = { _, p -> p.fileName }) { index, page ->

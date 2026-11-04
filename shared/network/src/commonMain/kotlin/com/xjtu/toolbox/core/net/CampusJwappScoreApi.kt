@@ -73,12 +73,6 @@ class CampusJwappScoreApi(
             ?: error("serve 分项成绩响应的 detail 不是对象（$id）")
     }
 
-    /** 见类 KDoc：那是评教那一侧的名单（评教本体的另一半在 `/api/jwxt/evaluations`）。 */
-    override suspend fun unevaluatedCourseNames(): Set<String> = throw UnsupportedOperationException(
-        "serve 契约不端「未评教的课程名单」：那是评教那一侧的边角" +
-            "（docs/api-contract.md §5.6）—— 本端的 studentId 传空串，VM 不会调它",
-    )
-
     /** 见类 KDoc：它要学号（§5.2）。 */
     override suspend fun reportedGrades(studentId: String): List<ReportedGrade> = throw UnsupportedOperationException(
         "serve 契约不端「按学号取成绩报表」：它要学号（契约 §5.2 红线，例外清单里没有这一族）" +

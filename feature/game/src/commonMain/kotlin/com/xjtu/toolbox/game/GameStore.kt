@@ -1,6 +1,10 @@
 package com.xjtu.toolbox.game
 
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.setValue
 import com.xjtu.toolbox.platform.keyValueStore
+import com.xjtu.toolbox.nav.AppRoute
 
 /**
  * 小游戏的本地记录：最高分与胜负战绩。
@@ -17,6 +21,46 @@ object GameStore {
 
     private fun store() = keyValueStore(PREFS)
 
+    val titles = mapOf(
+        AppRoute.GameMerge.id to "合成西交大", AppRoute.Game2048.id to "GPA 2048",
+        AppRoute.GameBlocks.id to "方块", AppRoute.GameHop.id to "跳一跳",
+        AppRoute.GameGomoku.id to "五子棋", AppRoute.GameGo.id to "围棋", AppRoute.GameXiangqi.id to "象棋",
+    )
+
+    fun recentRoutes(): List<String> = store().getString("recent_routes").orEmpty().split('|').filter { it in titles }
+
+    fun summary(routeId: String): String? {
+        val game = when (routeId) {
+            AppRoute.GameMerge.id -> GameIds.MERGE
+            AppRoute.Game2048.id -> GameIds.G2048
+            AppRoute.GameBlocks.id -> GameIds.BLOCKS
+            AppRoute.GameHop.id -> GameIds.HOP
+            AppRoute.GameGomoku.id -> GameIds.GOMOKU
+            AppRoute.GameGo.id -> GameIds.GO
+            AppRoute.GameXiangqi.id -> GameIds.XIANGQI
+            else -> return null
+        }
+        if (game in listOf(GameIds.GOMOKU, GameIds.GO, GameIds.XIANGQI)) {
+            val modes = listOf("easy", "hard", "hell", "local", "online")
+            val wins = modes.sumOf { wins(game, it) }
+            val losses = modes.sumOf { losses(game, it) }
+            val draws = modes.sumOf { draws(game, it) }
+            return if (wins + losses + draws > 0) "$wins 胜 · $losses 负 · $draws 和" else "继续对弈"
+        }
+        val best = if (game == GameIds.BLOCKS) com.xjtu.toolbox.game.blocks.BlocksMode.entries.maxOf { bestScore(com.xjtu.toolbox.game.blocks.blocksRecordId(it)) } else bestScore(game)
+        return if (best > 0) "最高 $best" else "继续挑战"
+    }
+
+    fun recordOpened(routeId: String) {
+        if (routeId !in titles) return
+        store().putString("recent_routes", (listOf(routeId) + recentRoutes()).distinct().take(4).joinToString("|"))
+        version++
+    }
+
+    /** 战绩每变一次加一，合集页据此重读。 */
+    var version by mutableIntStateOf(0)
+        private set
+
     // ── 分数类（2048、合成西交大…）──
 
     fun bestScore(game: String): Int = store().getInt("best_$game", 0)
@@ -26,6 +70,7 @@ object GameStore {
         val s = store()
         if (score > s.getInt("best_$game", 0)) {
             s.putInt("best_$game", score)
+            version++
         }
     }
 
@@ -45,6 +90,7 @@ object GameStore {
         val key = "${game}_${suffix}_$difficulty"
         val s = store()
         s.putInt(key, s.getInt(key, 0) + 1)
+        version++
     }
 
 

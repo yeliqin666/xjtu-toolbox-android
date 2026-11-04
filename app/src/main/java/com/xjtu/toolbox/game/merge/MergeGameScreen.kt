@@ -1,6 +1,6 @@
 package com.xjtu.toolbox.game.merge
 
-import com.xjtu.toolbox.ui.components.BackButton
+import com.xjtu.toolbox.platform.BackHandler
 import android.annotation.SuppressLint
 import android.content.Context
 import android.view.ViewGroup
@@ -14,12 +14,14 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.EmojiEvents
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -31,6 +33,10 @@ import com.xjtu.toolbox.game.GameIds
 import com.xjtu.toolbox.game.GameStore
 import com.xjtu.toolbox.game.board.Leaderboard
 import com.xjtu.toolbox.game.board.LeaderboardAskDialog
+import com.xjtu.toolbox.game.ui.LeaveButton
+import com.xjtu.toolbox.game.ui.RestartConfirmMenu
+import com.xjtu.toolbox.game.ui.rememberLeaveGuard
+import com.xjtu.toolbox.util.recoverFromRendererGone
 import com.xjtu.toolbox.util.releaseSafely
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.IconButton
@@ -74,12 +80,24 @@ fun MergeGameScreen(onBack: () -> Unit) {
         finishedScore.value?.let { boardAsk = Leaderboard.report(GameIds.MERGE, it) }
     }
 
-    // 页面不可见时暂停 JS 侧的物理循环，避免在后台空跑耗电。
+    // 页面回报的当前分数和是否已结束。桥线程直接写状态即可。
+    val progress = remember { mutableStateOf(0 to false) }
+    val inProgress = progress.value.let { (score, over) -> score > 0 && !over }
+    var confirmRestart by remember { mutableStateOf(false) }
+    val leave = rememberLeaveGuard(inProgress, onBack)
+    BackHandler(enabled = confirmRestart) { confirmRestart = false }
+    fun runJs(code: String) = webViewRef.value?.evaluateJavascript(code, null)
+    val menuShown by rememberUpdatedState(leave.menuOpen || confirmRestart)
+
+    // 页面不可见、或菜单盖在上面时暂停 JS 侧的物理循环，避免空跑耗电 / 球在菜单下面接着掉。
+    LaunchedEffect(menuShown) {
+        runJs(if (menuShown) "window.pauseGame && window.pauseGame();" else "window.resumeGame && window.resumeGame();")
+    }
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
             when (event) {
                 Lifecycle.Event.ON_PAUSE -> webViewRef.value?.evaluateJavascript("window.pauseGame && window.pauseGame();", null)
-                Lifecycle.Event.ON_RESUME -> webViewRef.value?.evaluateJavascript("window.resumeGame && window.resumeGame();", null)
+                Lifecycle.Event.ON_RESUME -> if (!menuShown) webViewRef.value?.evaluateJavascript("window.resumeGame && window.resumeGame();", null)
                 else -> {}
             }
         }
@@ -92,10 +110,12 @@ fun MergeGameScreen(onBack: () -> Unit) {
             SmallTopAppBar(
                 title = "合成西交大",
                 color = MiuixTheme.colorScheme.surface,
-                navigationIcon = {
-                    BackButton(onBack)
-                },
+                navigationIcon = { LeaveButton(inProgress, leave::request) },
                 actions = {
+                    // 分数页面里已经实时记进最高分，重开不用再补记
+                    IconButton(onClick = { if (inProgress) confirmRestart = true else runJs("window.restartGame && window.restartGame();") }) {
+                        Icon(Icons.Default.Refresh, contentDescription = "重新开始")
+                    }
                     if (Leaderboard.enabled) {
                         IconButton(onClick = { Leaderboard.openRanking(GameIds.MERGE) }) {
                             Icon(Icons.Default.EmojiEvents, contentDescription = "排行榜")
@@ -127,7 +147,7 @@ fun MergeGameScreen(onBack: () -> Unit) {
                     // JS -> Kotlin 分数回传：游戏结束这一刻发生一次，事件驱动，
                     // 比 evaluateJavascript 轮询查状态更直接也更省资源。
                     addJavascriptInterface(
-                        MergeGameBridge(ctx) { finishedScore.value = it },
+                        MergeGameBridge(ctx, { finishedScore.value = it }) { score, over -> progress.value = score to over },
                         "AndroidGameBridge",
                     )
 
@@ -143,6 +163,13 @@ fun MergeGameScreen(onBack: () -> Unit) {
                             }
                             return null // 交给 WebView 默认的 android_asset 加载逻辑
                         }
+
+                        override fun onRenderProcessGone(view: WebView, detail: android.webkit.RenderProcessGoneDetail): Boolean =
+                            view.recoverFromRendererGone {
+                                webViewRef.value = null
+                                android.widget.Toast.makeText(ctx, "游戏页面崩溃了，再进一次试试", android.widget.Toast.LENGTH_SHORT).show()
+                                onBack()
+                            }
                     }
 
                     webViewRef.value = this
@@ -158,6 +185,13 @@ fun MergeGameScreen(onBack: () -> Unit) {
                 .fillMaxSize()
                 .padding(padding)
         )
+        when {
+            confirmRestart -> RestartConfirmMenu(
+                onConfirm = { confirmRestart = false; runJs("window.restartGame && window.restartGame();") },
+                onCancel = { confirmRestart = false },
+            )
+            else -> leave.Menu("本局 ${progress.value.first} 分") { runJs("window.restartGame && window.restartGame();") }
+        }
     }
 
     LeaderboardAskDialog(boardAsk) { boardAsk = null }
@@ -171,7 +205,15 @@ private object EmptyInputStream : InputStream() {
     override fun read(): Int = -1
 }
 
-private class MergeGameBridge(private val context: Context, private val onFinishRun: (Int) -> Unit) {
+private class MergeGameBridge(
+    private val context: Context,
+    private val onFinishRun: (Int) -> Unit,
+    private val onProgress: (score: Int, over: Boolean) -> Unit,
+) {
+    /** 分数变了 / 一局结束时页面回报，供顶栏判断是不是对局中。 */
+    @JavascriptInterface
+    fun progress(score: Int, over: Boolean) = onProgress(score, over)
+
     @JavascriptInterface
     fun submitScore(score: Int) {
         if (score <= 0) return

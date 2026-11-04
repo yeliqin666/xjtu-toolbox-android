@@ -38,7 +38,7 @@ WiX（`candle.exe` / `light.exe`）。Compose Desktop 会**自己下载**一份 
 | `windows.perUserInstall` | `true` | 装到 `%LOCALAPPDATA%`、**不弹 UAC**。这一端是「每个人装自己一份、装完各登各的」——凭据用 DPAPI 的**当前用户**作用域（§5.2），与安装范围对齐 |
 | `windows.upgradeUuid` | `528a294e-23ee-4307-a37a-1a71bb591fa0` | MSI 的 UpgradeCode：**升级与卸载靠它认人**。发过一次版就**绝对不能改**（改了就是另一个产品，老版本不会被升级/卸载，而是并存两个） |
 | `windows.menuGroup` | `Education` | 开始菜单里的文件夹名（与 Linux 那栏同一个词） |
-| `windows.iconFile` | `desktop/icons/windows.ico` | 多尺寸（256/128/64/48/32/24/16；本机用 pwsh 核过：7 张、有 `256×256` 那张），从 Android 的 `mipmap-xxxhdpi/ic_launcher.webp` 转出来的；不设它的话开始菜单/控制面板里会是默认的 Java 图标。⚠️ 但那份 `.webp` 是 **Android Studio 模板的绿机器人占位图**，不是应用自己的图标 —— 见 §7 第 10 条 |
+| `windows.iconFile` | `desktop/icons/windows.ico` | 多尺寸（256/128/64/48/32/24/16，共 7 张），来自 Figma 设计的 App 图标（与 Android 自适应图标、`icons/linux.png` 同一份导出）；不设它的话开始菜单/控制面板里会是默认的 Java 图标 |
 | 其余 | 默认值 | `console = false`（不开控制台窗）、`shortcut = true` / `menu = true`、`dirChooser = true`、`msiPackageVersion` / `exePackageVersion` 取 `packageVersion` |
 
 `packageVersion` 同时被**两个地方**读：jpackage 与 `DesktopBuildConfig.VERSION_NAME`
@@ -67,7 +67,7 @@ WiX（`candle.exe` / `light.exe`）。Compose Desktop 会**自己下载**一份 
 | `copyright` 落到哪 | 安装器与控制面板的「版权」栏 | 包里的 `share/doc/copyright`（`License: Unknown` 是 jpackage 按 `licenseType` 默认值填的） | 平台差异（同一个值） |
 | `licenseFile` / EULA | **没设** | **没设**（所以 Linux 那份 `copyright` 里是 `License: Unknown`） | ✅ 两边都缺（同一个 TODO：本节 §9 第 2 条 / `linux-delivery.md` §7 第 12 条） |
 | 数据目录 | `~/.local/share/xjtu-toolbox`（XDG 口径，见 §9 第 6 条） | 同一个 | ✅ |
-| 出包 CI | `.github/workflows/desktop-windows.yml`（windows-latest） | `.github/workflows/desktop-linux.yml`（ubuntu-latest） | 两条独立、路径过滤重叠 |
+| 出包 CI | `.github/workflows/desktop-windows.yml`（windows-latest） | `.github/workflows/desktop-linux.yml`（ubuntu-latest） | 两条独立；Windows 只看平台专属面 |
 
 标「平台差异」的都是**必须**不一样的（安装范围、认产品的方式、签名链）；真正不一致的只有 `iconFile`
 那一格 —— 不是配置写错了（两边的 `iconFile` 都指对了文件名），差的是 `windows.ico` 里那张**图本身**。
@@ -77,7 +77,7 @@ WiX（`candle.exe` / `light.exe`）。Compose Desktop 会**自己下载**一份 
 | 步骤 | 内容 |
 |---|---|
 | 卡死护栏 | job 级 `timeout-minutes: 60`（与 `desktop-linux.yml` 同一个数字；⚠️ 没在 CI 上量过） |
-| 触发 | `pull_request`（路径过滤：`desktop/**` `data/**` `core/**` `gradle/**` `gradlew*` `settings.gradle.kts` 与本文件）+ `workflow_dispatch`；`concurrency` 去重 |
+| 触发 | `pull_request`（路径过滤：`desktop/**` `data/**` `shared/data/**` `build-logic/**` `gradle/**` `gradlew` `gradlew.bat` `settings.gradle.kts` 与本文件）+ `workflow_dispatch`；`concurrency` 去重。`core/**`、`shared/**`（除 data）、`feature/**` 不触发 —— 它们编出的 JVM 字节码与平台无关，由 `core-gate.yml` + `desktop-linux.yml` 覆盖 |
 | 环境 | `windows-latest` · `actions/setup-java@v4`（temurin 21，与 `jvmToolchain(21)` / Kotlin 2.4.20 对齐）· `gradle/actions/setup-gradle@v4` |
 | 哨兵 | 一条检查 `ANDROID_HOME` / `ANDROID_SDK_ROOT` 的步骤：我们只编 `:desktop`，但 Gradle 会配置整个构建（含 `:app` 的 AGP），缺 SDK 时**响亮地**失败在这一步 |
 | 编译 | `.\gradlew.bat :desktop:compileKotlin` |
@@ -198,7 +198,7 @@ JvmCredentialStore(storeName, protector = secretProtectorForPlatform())
 | 7 | **整套 `:desktop:test` / `:data:jvmTest` 在 Windows 上是否全绿** | **已知会红一条**：`:desktop` 的 `DesktopAuthLibraryJvmTest` 断言凭据文件是 `0600`（POSIX 权限），Windows 没有这个概念 ⇒ 那条用例在 Windows 上必然失败 | 要么把那条用例改成按平台判（POSIX 不支持就跳过这段断言），要么在 Windows 上只跑指定类（现在 workflow 就是这么做的）。**这一轮没改别人的用例** |
 | 8 | **Windows 上会话 cookie / 站点快照 / 设置仍是明文文件** | 见 §5.5 第 3 条：这一轮只保护凭据那一份 | 下一个决定：把 `secureKeyValueStore` 的调用点逐个换成带保护器的版本（信封格式已就绪） |
 | 9 | **更新骨架的 UI 接线与发布通道** | 见 §6：调用点与 Release 发布都还没做 | 设置页那一轮（`updateSection`）+ 发版流程那一轮 |
-| 10 | **已知问题：`windows.ico` 里那张图不是应用自己的图标** | 本机把 `desktop/icons/windows.ico` 的 7 张图逐张解出来看过（收尾轮复核过，`magick "desktop/icons/windows.ico[$i]" -format '%wx%h %[pixel:p{w/2,h*0.3}]' info:`）：256 与 128 两张是 `srgba(60,218,130,1)`（模板绿 `#3DDC84`），48 那张是 `srgba(64,219,132,1)`，64 / 32 / 24 / 16 四张是同一个绿的百分比写法（16×16 那张漂到 `29.1765%,86.2745%,54.5098%` —— 缩小重采样的抖动）；`mipmap-xxxhdpi/ic_launcher.webp`（192×192）取同一点也是 `srgba(60,218,130,1)`。应用自己的图标是仓库里那份自适应矢量（`ic_launcher_background.xml` `#87CEEB` + `ic_launcher_foreground.xml`，提交 `2145ad11` 写着「App 图标恢复 v2.0 那套自适应图标」）—— `desktop/icons/linux.png` 已经从它转出来了（`linux-delivery.md` §2.1，取样核过 `srgb(135,206,235)` / `srgb(46,107,158)` / `srgb(123,174,212)` / `srgb(27,79,114)`，收尾轮又拿真 `.deb` 核了一遍 md5，见那边 §3.4）。⚠️ 这一批**没有**重新生成 `windows.ico`（只记录问题；重转与真打一次 `.msi` 都要 Windows 那一侧） | **TODO（与 Linux 同一源重做）**：把 `linux-delivery.md` §2.1 那条命令最后一步换成各尺寸重导 —— 源就是同一份 `app/src/main/res/drawable/` 的自适应矢量，输出改成 `desktop/icons/windows.ico`：`magick -size 1080x1080 xc:'#87CEEB' -fill '#7BAED4' -draw 'polygon 220,780 400,520 580,780' -fill '#2E6B9E' -draw 'polygon 380,780 620,360 860,780' -fill '#FFFFFF' -draw 'polygon 560,440 620,360 680,440' -fill '#1B4F72' -draw 'polygon 180,780 900,780 900,820 180,820' -define icon:auto-resize=256,128,64,48,32,24,16 desktop/icons/windows.ico`。现仓库的 `.ico` 里确实有 256/128/64/48/32/24/16 七张，所以换完尺寸不用变。本机验不了 WiX 收不收新文件（jpackage 不能交叉出包）⇒ 归到「Windows 上真打一次」那一轮：换完先让 §3 里那段 ICO 校验过一遍，再真出一次 `.msi` 看开始菜单/控制面板 |
+| 10 | **已修复（2026-10-30）：`windows.ico` 换成 Figma 设计的 App 图标** | （修复前的记录）本机把 `desktop/icons/windows.ico` 的 7 张图逐张解出来看过（收尾轮复核过，`magick "desktop/icons/windows.ico[$i]" -format '%wx%h %[pixel:p{w/2,h*0.3}]' info:`）：256 与 128 两张是 `srgba(60,218,130,1)`（模板绿 `#3DDC84`），48 那张是 `srgba(64,219,132,1)`，64 / 32 / 24 / 16 四张是同一个绿的百分比写法（16×16 那张漂到 `29.1765%,86.2745%,54.5098%` —— 缩小重采样的抖动）；`mipmap-xxxhdpi/ic_launcher.webp`（192×192）取同一点也是 `srgba(60,218,130,1)`。应用自己的图标是仓库里那份自适应矢量（`ic_launcher_background.xml` `#87CEEB` + `ic_launcher_foreground.xml`，提交 `2145ad11` 写着「App 图标恢复 v2.0 那套自适应图标」）—— `desktop/icons/linux.png` 已经从它转出来了（`linux-delivery.md` §2.1，取样核过 `srgb(135,206,235)` / `srgb(46,107,158)` / `srgb(123,174,212)` / `srgb(27,79,114)`，收尾轮又拿真 `.deb` 核了一遍 md5，见那边 §3.4）。⚠️ 这一批**没有**重新生成 `windows.ico`（只记录问题；重转与真打一次 `.msi` 都要 Windows 那一侧） | **已按此重做（2026-10-30，源改为 Figma 导出，`.ico` 里仍是 256/128/64/48/32/24/16 七张）**：把 `linux-delivery.md` §2.1 那条命令最后一步换成各尺寸重导 —— 源就是同一份 `app/src/main/res/drawable/` 的自适应矢量，输出改成 `desktop/icons/windows.ico`：`magick -size 1080x1080 xc:'#87CEEB' -fill '#7BAED4' -draw 'polygon 220,780 400,520 580,780' -fill '#2E6B9E' -draw 'polygon 380,780 620,360 860,780' -fill '#FFFFFF' -draw 'polygon 560,440 620,360 680,440' -fill '#1B4F72' -draw 'polygon 180,780 900,780 900,820 180,820' -define icon:auto-resize=256,128,64,48,32,24,16 desktop/icons/windows.ico`。现仓库的 `.ico` 里确实有 256/128/64/48/32/24/16 七张，所以换完尺寸不用变。本机验不了 WiX 收不收新文件（jpackage 不能交叉出包）⇒ 归到「Windows 上真打一次」那一轮：换完先让 §3 里那段 ICO 校验过一遍，再真出一次 `.msi` 看开始菜单/控制面板 |
 
 ## 8. 门禁与测试数字（本轮实测）
 数字都是这一轮在本机（Linux、JDK 21）跑出来的：

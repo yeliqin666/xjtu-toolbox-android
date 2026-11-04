@@ -6,6 +6,8 @@ import com.xjtu.toolbox.util.isObject
 import com.xjtu.toolbox.util.isPrimitive
 import com.xjtu.toolbox.util.arr
 import com.xjtu.toolbox.util.AppJson
+import kotlinx.serialization.Serializable
+import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonArray
 import com.xjtu.toolbox.network.HttpClients
@@ -31,26 +33,49 @@ data class AppUpdateInfo(
     val notes: String,
     val downloadUrl: String,
     val releaseUrl: String,
-    val channel: String = AppUpdater.CHANNEL_GITEE,
+    val channel: String = AppUpdater.CHANNEL_ALIYUN,
     val channelLabel: String = AppUpdater.channelLabel(channel),
     val isPreview: Boolean = false,
     val sha256: String? = null,  // 小写十六进制，不带前缀
     val publishedAtMillis: Long = 0,
+    val versionCode: Int = 0,
+    /** 阿里云清单里的备用下载地址，主地址失败时依次尝试。 */
+    val mirrors: List<String> = emptyList(),
+)
+
+/** 阿里云 OSS 上的 stable.json / preview.json 结构。 */
+@Serializable
+data class UpdateManifest(
+    val schema: Int = 0,
+    val channel: String = "",
+    val versionName: String = "",
+    val versionCode: Int = 0,
+    val apkUrl: String = "",
+    val mirrors: List<String> = emptyList(),
+    val sha256: String = "",
+    val size: Long = 0,
+    val notes: String = "",
+    val releaseUrl: String = "",
+    val publishedAt: String = "",
 )
 
 object AppUpdater {
+    const val CHANNEL_ALIYUN = "aliyun"
     const val CHANNEL_GITEE = "gitee"
     const val CHANNEL_GITHUB = "github"
+    const val OSS_BASE_URL = "https://dzhz.zyxf.top/xjtu-toolbox"
     const val AUTO_CHECK_INTERVAL_MS = 24 * 60 * 60 * 1000L
 
     val channelKeys = listOf(
-        CHANNEL_GITEE,
+        CHANNEL_ALIYUN,
         CHANNEL_GITHUB,
+        CHANNEL_GITEE,
     )
 
     val channelLabels = listOf(
-        "Gitee（推荐）",
+        "阿里云",
         "GitHub",
+        "Gitee",
     )
 
     private val client = HttpClients.base.newBuilder()
@@ -60,27 +85,39 @@ object AppUpdater {
         .followSslRedirects(true)
         .build()
 
+    /** 清单很小，不能像 APK 下载一样等 120 秒；OSS 不可用时尽快回退。 */
+    private val manifestClient = HttpClients.base.newBuilder()
+        .connectTimeout(6, TimeUnit.SECONDS)
+        .readTimeout(8, TimeUnit.SECONDS)
+        .followRedirects(true)
+        .followSslRedirects(true)
+        .build()
+
+    private val SHA256_REGEX = Regex("^[0-9a-f]{64}$")
+
     private val githubDigestCache = ConcurrentHashMap<String, String>()
 
     fun normalizeChannel(channel: String?): String = when (channel?.trim()?.lowercase()) {
-        // 兼容旧版本存下的 4 渠道值：稳定版/最新版统一归一化为对应主渠道。
-        "stable", "beta", CHANNEL_GITEE, "gitee_latest" -> CHANNEL_GITEE
+        // 旧版本的 stable/beta 都走默认渠道；现在默认是阿里云。
+        CHANNEL_ALIYUN, "oss", "auto", "stable", "beta" -> CHANNEL_ALIYUN
         CHANNEL_GITHUB, "github_latest" -> CHANNEL_GITHUB
-        else -> CHANNEL_GITEE
+        CHANNEL_GITEE, "gitee_latest" -> CHANNEL_GITEE
+        else -> CHANNEL_ALIYUN
     }
 
-    fun channelLabel(channel: String?): String {
-        val normalized = normalizeChannel(channel)
-        val idx = channelKeys.indexOf(normalized)
-        return channelLabels.getOrElse(idx) { "Gitee（推荐）" }
+    fun channelLabel(channel: String?): String = when (normalizeChannel(channel)) {
+        CHANNEL_ALIYUN -> "阿里云"
+        CHANNEL_GITHUB -> "GitHub"
+        CHANNEL_GITEE -> "Gitee"
+        else -> "阿里云"
     }
 
-    fun releasesPageUrl(channel: String): String =
-        if (normalizeChannel(channel) == CHANNEL_GITHUB) {
-            "https://github.com/yeliqin666/xjtu-toolbox-android/releases/latest"
-        } else {
-            "https://gitee.com/yeliqin666/xjtu-toolbox-android/releases"
-        }
+    fun releasesPageUrl(channel: String): String = when (normalizeChannel(channel)) {
+        CHANNEL_GITHUB -> "https://github.com/yeliqin666/xjtu-toolbox-android/releases/latest"
+        CHANNEL_GITEE -> "https://gitee.com/yeliqin666/xjtu-toolbox-android/releases"
+        // 阿里云清单自带 releaseUrl；拿不到时用 GitHub 发布页兜底。
+        else -> "https://github.com/yeliqin666/xjtu-toolbox-android/releases/latest"
+    }
 
     /**
      * 拉当前渠道的最新 Release，不跟本机版本比。
@@ -89,53 +126,140 @@ object AppUpdater {
     suspend fun fetchLatest(
         channel: String,
         includePreview: Boolean = false,
-        rolloutId: String = "",
     ): AppUpdateInfo = withContext(Dispatchers.IO) {
-        val normalizedChannel = normalizeChannel(channel)
-        if (includePreview && normalizedChannel == CHANNEL_GITHUB) {
-            val url = "https://api.github.com/repos/yeliqin666/xjtu-toolbox-android/releases?per_page=30"
-            val body = client.newCall(
+        when (val normalized = normalizeChannel(channel)) {
+            CHANNEL_ALIYUN -> {
+                fetchAliyunLatest(includePreview)
+                    ?: if (includePreview) {
+                        // 预览版只有 GitHub Pre-release 有兜底；不能先退 Gitee 的稳定版。
+                        runCatching { fetchGithubLatest(true) }.getOrNull()
+                            ?: runCatching { fetchGiteeLatest() }.getOrNull()
+                    } else {
+                        // 正式版优先 Gitee（国内更稳），再退 GitHub。
+                        runCatching { fetchGiteeLatest() }.getOrNull()
+                            ?: fetchGithubLatest(false)
+                    }
+                    ?: error("检查更新失败")
+            }
+            CHANNEL_GITHUB -> fetchGithubLatest(includePreview)
+            else -> fetchGiteeLatest()
+        }
+    }
+
+    /** OSS 清单不可用或字段非法时返回 null，交给 Gitee/GitHub 兜底。 */
+    private fun fetchAliyunLatest(includePreview: Boolean): AppUpdateInfo? {
+        val stable = fetchOssManifest("$OSS_BASE_URL/stable.json")
+        val preview = if (includePreview) {
+            fetchOssManifest("$OSS_BASE_URL/preview.json")
+        } else {
+            null
+        }
+        return pickNewestManifest(stable, preview)?.toUpdateInfo()
+    }
+
+    internal fun pickNewestManifest(a: UpdateManifest?, b: UpdateManifest?): UpdateManifest? =
+        listOfNotNull(a, b).maxWithOrNull { x, y ->
+            val xTime = x.publishedAtMillis()
+            val yTime = y.publishedAtMillis()
+            if (xTime > 0 && yTime > 0 && xTime != yTime) {
+                xTime.compareTo(yTime)
+            } else {
+                BulletinRules.compareVersions(x.versionName, y.versionName)
+            }
+        }
+
+    private fun UpdateManifest.publishedAtMillis(): Long =
+        runCatching { java.time.Instant.parse(publishedAt).toEpochMilli() }.getOrDefault(0)
+
+    private fun UpdateManifest.toUpdateInfo(): AppUpdateInfo = AppUpdateInfo(
+        version = versionName,
+        notes = notes,
+        downloadUrl = apkUrl,
+        releaseUrl = releaseUrl,
+        channel = CHANNEL_ALIYUN,
+        channelLabel = channelLabel(CHANNEL_ALIYUN),
+        isPreview = channel == "preview",
+        sha256 = sha256,
+        publishedAtMillis = publishedAtMillis(),
+        versionCode = versionCode,
+        mirrors = mirrors.filter { it.startsWith("https://") }.distinct(),
+    )
+
+    private fun fetchOssManifest(url: String): UpdateManifest? {
+        return try {
+            val body = manifestClient.newCall(
                 Request.Builder()
                     .url(url)
                     .header("Accept", "application/json")
                     .header("User-Agent", "XJTUToolBox/${BuildConfig.VERSION_NAME}")
                     .build()
             ).execute().use { response ->
-                if (!response.isSuccessful) error("服务器响应 ${response.code}")
-                response.body?.string() ?: error("服务器没有返回内容")
+                if (!response.isSuccessful) return null
+                response.body?.string() ?: return null
             }
-            val array = AppJson.parseToJsonElement(body).jsonArray
-            val picked = pickRelease(array, BuildConfig.VERSION_NAME, includePreview = true, rolloutId = rolloutId)
-            if (picked != null) {
-                return@withContext picked
-            }
+            parseOssManifest(body)
+        } catch (_: Exception) {
+            null
         }
+    }
 
-        val primary = fetchRelease(normalizedChannel)
-        if (!primary.hasApkAsset && normalizedChannel == CHANNEL_GITEE) {
+    /** 解析并校验清单；测试也直接用它。 */
+    internal fun parseOssManifest(body: String): UpdateManifest? = runCatching {
+        val manifest = AppJson.decodeFromString<UpdateManifest>(body)
+        require(manifest.schema == 1) { "unsupported manifest schema" }
+        require(manifest.versionName.isNotBlank()) { "versionName missing" }
+        require(manifest.apkUrl.startsWith("https://")) { "apkUrl must be https" }
+        require(manifest.sha256.matches(SHA256_REGEX)) { "sha256 invalid" }
+        manifest
+    }.getOrNull()
+
+    private suspend fun fetchGithubLatest(
+        includePreview: Boolean,
+    ): AppUpdateInfo {
+        if (includePreview) {
+            val url = "https://api.github.com/repos/yeliqin666/xjtu-toolbox-android/releases?per_page=30"
+            val array = AppJson.parseToJsonElement(fetchText(url)).jsonArray
+            pickRelease(array, BuildConfig.VERSION_NAME, includePreview = true)
+                ?.let { return it }
+        }
+        return fetchRelease(CHANNEL_GITHUB).info
+    }
+
+    private suspend fun fetchGiteeLatest(): AppUpdateInfo {
+        val primary = fetchRelease(CHANNEL_GITEE)
+        if (!primary.hasApkAsset) {
             val github = runCatching { fetchRelease(CHANNEL_GITHUB) }.getOrNull()
             if (github?.hasApkAsset == true) {
-                return@withContext primary.info.copy(
+                return primary.info.copy(
                     downloadUrl = github.info.downloadUrl,
                     sha256 = github.info.sha256,
                 )
             }
         }
-        if (normalizedChannel == CHANNEL_GITEE && primary.info.sha256 == null) {
-            return@withContext primary.info.copy(
-                sha256 = fetchGithubDigestByTag(primary.info.version),
-            )
+        if (primary.info.sha256 == null) {
+            return primary.info.copy(sha256 = fetchGithubDigestByTag(primary.info.version))
         }
-        primary.info
+        return primary.info
     }
+
+    private fun fetchText(url: String, accept: String = "application/json"): String =
+        client.newCall(
+            Request.Builder()
+                .url(url)
+                .header("Accept", accept)
+                .header("User-Agent", "XJTUToolBox/${BuildConfig.VERSION_NAME}")
+                .build()
+        ).execute().use { response ->
+            if (!response.isSuccessful) error("服务器响应 ${response.code}")
+            response.body?.string() ?: error("服务器没有返回内容")
+        }
 
     /** 仅当远端版本比本机新时返回，给设置里「检查更新」用。 */
     suspend fun check(
         channel: String,
         includePreview: Boolean = false,
-        rolloutId: String = "",
     ): AppUpdateInfo? {
-        val latest = fetchLatest(channel, includePreview, rolloutId)
+        val latest = fetchLatest(channel, includePreview)
         return latest.takeIf {
             isNewerUpdate(BuildConfig.VERSION_NAME, it)
         }
@@ -149,32 +273,10 @@ object AppUpdater {
             current.removePrefix("v") == candidate.version.removePrefix("v").substringBefore('-')
     }
 
-    private val ROLLOUT_REGEX = Regex("""(?im)^\s*rollout\s*:\s*(\d{1,3})\s*%?\s*$""")
-
-    fun extractRolloutPercentage(body: String): Int {
-        val match = ROLLOUT_REGEX.find(body) ?: return 100
-        val p = match.groupValues[1].toIntOrNull() ?: 100
-        return p.coerceIn(0, 100)
-    }
-
-    fun isRolloutHit(rolloutId: String, tag: String, rolloutPct: Int): Boolean {
-        if (rolloutPct <= 0) return false
-        if (rolloutPct >= 100) return true
-        val md = MessageDigest.getInstance("SHA-256")
-        val hash = md.digest("$rolloutId:$tag".toByteArray(Charsets.UTF_8))
-        val raw = ((hash[0].toLong() and 0xFFL) shl 24) or
-                ((hash[1].toLong() and 0xFFL) shl 16) or
-                ((hash[2].toLong() and 0xFFL) shl 8) or
-                (hash[3].toLong() and 0xFFL)
-        val bucket = (raw % 100L).toInt()
-        return bucket < rolloutPct
-    }
-
     fun pickRelease(
         releases: JsonArray,
         currentVersion: String,
         includePreview: Boolean = false,
-        rolloutId: String = "",
     ): AppUpdateInfo? {
         val candidates = mutableListOf<AppUpdateInfo>()
         for (el in releases) {
@@ -212,12 +314,6 @@ object AppUpdater {
                 // 预览版版本号从 name 取（CI 约定 name 为完整版本号，如 4.9.8-dev.12）
                 if (name.isBlank()) continue
                 version = name
-
-                // 灰度判定
-                val rolloutPct = extractRolloutPercentage(body)
-                if (!isRolloutHit(rolloutId, tagName, rolloutPct)) {
-                    continue
-                }
             } else {
                 // 正式版
                 val ver = tagName.removePrefix("v").trim()
@@ -252,23 +348,12 @@ object AppUpdater {
     }
 
     private suspend fun fetchRelease(channel: String): ParsedRelease {
-        val github = channel == CHANNEL_GITHUB
-        val url = if (github) {
+        val url = if (channel == CHANNEL_GITHUB) {
             "https://api.github.com/repos/yeliqin666/xjtu-toolbox-android/releases/latest"
         } else {
             "https://gitee.com/api/v5/repos/yeliqin666/xjtu-toolbox-android/releases/latest"
         }
-        val body = client.newCall(
-            Request.Builder()
-                .url(url)
-                .header("Accept", "application/json")
-                .header("User-Agent", "XJTUToolBox/${BuildConfig.VERSION_NAME}")
-                .build()
-        ).execute().use { response ->
-            if (!response.isSuccessful) error("服务器响应 ${response.code}")
-            response.body?.string() ?: error("服务器没有返回内容")
-        }
-        return AppJson.parseToJsonElement(body).jsonObject.toParsedRelease(channel)
+        return AppJson.parseToJsonElement(fetchText(url)).jsonObject.toParsedRelease(channel)
     }
 
     private fun sha256Hex(file: File): String {
@@ -291,31 +376,32 @@ object AppUpdater {
     ): File = withContext(Dispatchers.IO) {
         android.util.Log.d("AppUpdater", "准备下载，版本: ${info.version}, 期望哈希: ${info.sha256}")
         val updateDir = File(context.cacheDir, "updates").apply { mkdirs() }
-        val target = File(updateDir, "xjtu-toolbox-${info.version}.apk")
+        val safeVersion = info.version.replace(Regex("[^A-Za-z0-9._-]"), "_")
+        val target = File(updateDir, "xjtu-toolbox-$safeVersion.apk")
         val partial = File(updateDir, "${target.name}.part")
-        client.newCall(Request.Builder().url(info.downloadUrl).build()).execute().use { response ->
-            if (!response.isSuccessful) error("下载失败（${response.code}）")
-            val body = response.body ?: error("下载内容为空")
-            val total = body.contentLength()
-            body.byteStream().use { input ->
-                partial.outputStream().use { output ->
-                    val buffer = ByteArray(32 * 1024)
-                    var downloaded = 0L
-                    while (true) {
-                        val count = input.read(buffer)
-                        if (count < 0) break
-                        output.write(buffer, 0, count)
-                        downloaded += count
-                        if (total > 0) onProgress(downloaded.toFloat() / total)
-                    }
+
+        val urls = (listOf(info.downloadUrl) + info.mirrors)
+            .filter { it.isNotBlank() }
+            .distinct()
+        var lastError: Exception? = null
+        for (url in urls) {
+            try {
+                downloadTo(url, partial, onProgress)
+                if (partial.length() < 100_000L || partial.inputStream().use {
+                        it.read() != 0x50 || it.read() != 0x4B
+                    }) {
+                    error("下载内容不是有效安装包")
                 }
+                lastError = null
+                break
+            } catch (e: Exception) {
+                android.util.Log.w("AppUpdater", "下载失败，尝试下一个源: $url", e)
+                lastError = e
+                partial.delete()
             }
         }
-        if (partial.length() < 100_000L || partial.inputStream().use {
-                it.read() != 0x50 || it.read() != 0x4B
-            }) {
-            partial.delete()
-            error("下载内容不是有效安装包")
+        if (lastError != null || !partial.exists()) {
+            throw lastError ?: error("下载失败")
         }
 
         val expected = info.sha256
@@ -340,6 +426,31 @@ object AppUpdater {
             }
         }
         target
+    }
+
+    private fun downloadTo(
+        url: String,
+        partial: File,
+        onProgress: (Float) -> Unit,
+    ) {
+        client.newCall(Request.Builder().url(url).build()).execute().use { response ->
+            if (!response.isSuccessful) error("下载失败（${response.code}）")
+            val body = response.body ?: error("下载内容为空")
+            val total = body.contentLength()
+            body.byteStream().use { input ->
+                partial.outputStream().use { output ->
+                    val buffer = ByteArray(32 * 1024)
+                    var downloaded = 0L
+                    while (true) {
+                        val count = input.read(buffer)
+                        if (count < 0) break
+                        output.write(buffer, 0, count)
+                        downloaded += count
+                        if (total > 0) onProgress(downloaded.toFloat() / total)
+                    }
+                }
+            }
+        }
     }
 
     fun canInstallPackages(context: Context): Boolean =

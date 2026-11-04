@@ -24,6 +24,15 @@ const val SLIDE_TIME = 0.35f
 const val FALL_TIME = 0.45f
 internal const val TIP_FALL_TIME = 0.7f
 internal const val ICE_SLIDE = 0.42f
+
+/**
+ * 冰面滑行距离：台子越小摩擦越大（按开局台面半径 0.55 折算），后期小台不至于站不住；
+ * 正中落地最多滑到 0.9 个半径，保证连续完美总有可能。
+ */
+internal fun iceSlideOf(half: Float, center: Boolean): Float {
+    val slide = ICE_SLIDE * min(1f, half / 0.55f)
+    return if (center) min(slide, half * (1 - CENTER_RATIO - 0.1f)) else slide
+}
 const val CRUMBLE_TIME = 1.8f
 /** 易碎台之后那块的最远中心距：蓄力约 0.75 秒，给看清和起跳留出余量。 */
 const val RUSHED_GAP = 2.2f
@@ -48,9 +57,12 @@ internal const val SPIN_SPEED = 1.3f
 /** 蹦床落稳后隔这么久自动起跳。 */
 const val BOUNCE_DELAY = 0.3f
 
-/** 彩蛋台：黑胶（圆台 1）停够两秒 +10，咖啡杯（圆台 2）、魔方（方台 3）+5，别的台子 0。 */
+/**
+ * 彩蛋台：黑胶（圆台 1）停够两秒 +10，咖啡杯（圆台 2）、魔方（方台 3）+5，别的台子 0。
+ * 移动台画的也是这几种造型，落上去就停了，同样算。
+ */
 fun stayBonusOf(pad: Pad): Int = when {
-    pad.kind != PadKind.NORMAL || pad.bonus > 0 -> 0
+    (pad.kind != PadKind.NORMAL && pad.kind != PadKind.MOVING) || pad.bonus > 0 -> 0
     pad.round && pad.style == 1 -> 10
     pad.round && pad.style == 2 -> 5
     !pad.round && pad.style == 3 -> 5
@@ -415,10 +427,11 @@ class HopGame(private val random: Random = Random.Default) {
         if (pad.kind == PadKind.TRAMPOLINE) bounceTimer = 0f
         crumbleLeft = if (pad.kind == PadKind.CRUMBLE) CRUMBLE_TIME else 0f
         if (pad.kind == PadKind.ICE) {
+            val slide = iceSlideOf(pad.half, lastWasCenter)
             fromX = px
             fromZ = pz
-            toX = px + dirX * ICE_SLIDE
-            toZ = pz + dirZ * ICE_SLIDE
+            toX = px + dirX * slide
+            toZ = pz + dirZ * slide
             timer = 0f
             phase = HopPhase.SLIDING
         } else {

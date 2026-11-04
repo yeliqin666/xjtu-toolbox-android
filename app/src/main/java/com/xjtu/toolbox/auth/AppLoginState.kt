@@ -144,6 +144,9 @@ class AppLoginState : com.xjtu.toolbox.account.AppLoginStateHolder {
 
     var isOnCampus by mutableStateOf<Boolean?>(null)   // null=未检测, true=校内, false=校外
 
+    /** 设备是否有可用网络，由 NetworkChangeWatcher 维护。 */
+    var hasNetwork by mutableStateOf(true)
+
     // 网络检测结果缓存（10 分钟）
     private var campusDetectTime: Long = 0L
     private val CAMPUS_CACHE_MS = 10 * 60 * 1000L

@@ -1,5 +1,7 @@
 package com.xjtu.toolbox.library
 
+import com.xjtu.toolbox.ui.glass.tabContentPadding
+import com.xjtu.toolbox.ui.glass.tabContentBottomPadding
 import com.xjtu.toolbox.error.FriendlyError
 import com.xjtu.toolbox.ui.components.AppPullToRefresh
 import com.xjtu.toolbox.ui.components.pressScale
@@ -486,15 +488,6 @@ fun LibraryScreen(
                 colors = CardDefaults.defaultColors(color = com.xjtu.toolbox.ui.components.AppCardColor)
             ) {
                 Column {
-                    val home = vm.homeCampus
-                    if (home != null && home != campus) {
-                        Text(
-                            "离开本页会切回${home.displayName}；在这里约了座位就留在${campus.displayName}",
-                            style = MiuixTheme.textStyles.footnote2,
-                            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                            modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 8.dp),
-                        )
-                    }
                     if (floors.isNotEmpty()) {
                         CompositionLocalProvider(LocalOnGlassBar provides (glass != null)) {
                             AppSegmentedTabs(
@@ -588,7 +581,7 @@ fun LibraryScreen(
                     .width(420.dp)
                     .fillMaxHeight()
                     .overScrollVertical()
-                    .verticalScroll(rememberScrollState())
+                    .verticalScroll(rememberScrollState()).tabContentBottomPadding()
             ) {
                 Spacer(Modifier.height(glassTop))
                 headerContent()
@@ -600,11 +593,11 @@ fun LibraryScreen(
             LazyVerticalGrid(
                 state = gridState,
                 columns = GridCells.Adaptive(minSize = 56.dp),
-                contentPadding = PaddingValues(
+                contentPadding = tabContentPadding(PaddingValues(
                     start = 12.dp, end = 12.dp,
                     top = if (wideLibrary) glassTop + 6.dp else 0.dp,
                     bottom = 16.dp,
-                ),
+                )),
                 verticalArrangement = Arrangement.spacedBy(4.dp),
                 horizontalArrangement = Arrangement.spacedBy(4.dp),
                 modifier = Modifier.fillMaxSize().overScrollVertical()

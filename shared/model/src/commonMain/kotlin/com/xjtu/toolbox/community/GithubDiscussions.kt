@@ -30,7 +30,52 @@ data class GithubDiscussion(
 ) {
     val closed get() = closedReason != null
 }
-data class GithubDiscussionPage(val repositoryId: String, val items: List<GithubDiscussion>, val nextCursor: String?)
+data class GithubDiscussionPage(
+    val repositoryId: String, val items: List<GithubDiscussion>, val nextCursor: String?,
+    /** 当前用户对仓库的权限：ADMIN / MAINTAIN / WRITE / TRIAGE / READ。 */
+    val viewerPermission: String? = null,
+)
+
+/** 列表的状态筛选，[graphQl] 是 DiscussionState 枚举名，null 为不限。 */
+enum class DiscussionStateFilter(val label: String, val graphQl: String?, val searchTerm: String?) {
+    OPEN("开启", "OPEN", "is:open"),
+    CLOSED("已关闭", "CLOSED", "is:closed"),
+    ALL("全部", null, null),
+}
+
+enum class DiscussionSort(val label: String, val field: String, val searchTerm: String) {
+    UPDATED("最近更新", "UPDATED_AT", "sort:updated-desc"),
+    CREATED("最新发布", "CREATED_AT", "sort:created-desc"),
+}
+
+/** 列表查询条件。[author] 非空时走搜索（discussions 连接没有 author 参数），这时分类要用 [categoryName]。 */
+data class DiscussionQuery(
+    val categoryId: String? = null,
+    val categoryName: String? = null,
+    val state: DiscussionStateFilter = DiscussionStateFilter.OPEN,
+    val sort: DiscussionSort = DiscussionSort.UPDATED,
+    val author: String? = null,
+)
+
+/** 搜索语法：`author:` 只认登录名字符，分类名里的引号去掉。 */
+fun discussionSearchText(owner: String, name: String, query: DiscussionQuery): String = buildString {
+    append("repo:$owner/$name is:discussion")
+    query.state.searchTerm?.let { append(' ').append(it) }
+    query.author?.filter { it.isLetterOrDigit() || it == '-' }?.takeIf { it.isNotEmpty() }?.let { append(" author:").append(it) }
+    query.categoryName?.replace("\"", "")?.trim()?.takeIf { it.isNotEmpty() }?.let { append(" category:\"").append(it).append('"') }
+    append(' ').append(query.sort.searchTerm)
+}
+
+/** 只有这个分类限制发帖。GitHub 没有公告格式字段，按名字（slug 同名）认。 */
+const val ANNOUNCEMENT_CATEGORY = "通知公告"
+
+/** 公告分类只有仓库 ADMIN / MAINTAIN 能发；WRITE（协作者）和普通用户都不行。 */
+fun canPostIn(category: GithubDiscussionCategory, viewerPermission: String?): Boolean =
+    category.name.trim() != ANNOUNCEMENT_CATEGORY || viewerPermission == "ADMIN" || viewerPermission == "MAINTAIN"
+
+fun postableCategories(categories: List<GithubDiscussionCategory>, viewerPermission: String?) =
+    categories.filter { canPostIn(it, viewerPermission) }
+
 data class GithubDiscussionComment(
     val id: String, val body: String, val author: String?, val isAnswer: Boolean,
     val canMarkAnswer: Boolean = false, val canUnmarkAnswer: Boolean = false,
@@ -54,7 +99,7 @@ class GithubDiscussionException(message: String? = null) :
 
 /** 取数接口：只声明共享 UI 真正用到的三个方法。 */
 interface GithubDiscussionsRepository {
-    suspend fun list(owner: String, name: String, cursor: String?, categoryId: String? = null): Result<GithubDiscussionPage>
+    suspend fun list(owner: String, name: String, cursor: String?, query: DiscussionQuery = DiscussionQuery()): Result<GithubDiscussionPage>
 
     suspend fun categories(owner: String, name: String): Result<List<GithubDiscussionCategory>>
 
@@ -79,4 +124,7 @@ interface GithubDiscussionsRepository {
     suspend fun minimize(id: String, classifier: String): Result<Unit>
     suspend fun unminimize(id: String): Result<Unit>
     suspend fun vote(optionId: String): Result<Unit>
+
+    /** 别人对 [login] 的近期回复与 @，见 [CommunityActivity]。 */
+    suspend fun activity(owner: String, name: String, login: String): Result<List<CommunityActivity>>
 }

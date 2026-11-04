@@ -424,6 +424,7 @@ object ProactiveRules {
     }
 
     private const val INBOX_ID = "inbox"
+    private const val COMBO_HINT_KEY = "combo_hint_shown"
 
     /**
      * 用户**主动点**屁岱时的闲话，和自动冒泡走两套规则。
@@ -440,6 +441,11 @@ object ProactiveRules {
      */
     fun pickOnTap(ctx: Context): ProactiveMessage? {
         if (readProactiveLevel(ctx) == ProactiveLevel.OFF) return null
+        // 头一回戳它，先透露连戳有彩蛋，之后不再说
+        if (!prefs(ctx).getBoolean(COMBO_HINT_KEY, false)) {
+            prefs(ctx).edit().putBoolean(COMBO_HINT_KEY, true).apply()
+            return ProactiveMessage(id = CHATTER_ID, text = "悄悄告诉你：连戳我三下有彩蛋", prompt = "", fullReveal = true)
+        }
         val line = ChatterPool.pick(
             java.time.LocalDateTime.now(com.xjtu.toolbox.util.CampusZoneId).toKx(),
             chatterRecent(ctx),

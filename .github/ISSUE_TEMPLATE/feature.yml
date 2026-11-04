@@ -10,3 +10,13 @@ body:
       description: 什么场景下缺什么、希望怎么用。截图或别的 App 的做法都可以贴，别带个人信息。
     validations:
       required: true
+  - type: dropdown
+    id: priority
+    attributes:
+      label: 优先级
+      description: 仅供排期参考，以维护者标签为准。
+      options:
+        - 高：影响日常使用，急需
+        - 中：有会更好，正常排期
+        - 低：锦上添花，以后再说
+      default: 1

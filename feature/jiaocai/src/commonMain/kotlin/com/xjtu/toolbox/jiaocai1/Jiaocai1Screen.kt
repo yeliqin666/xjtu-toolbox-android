@@ -1,6 +1,7 @@
 package com.xjtu.toolbox.jiaocai1
 
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.xjtu.toolbox.ui.glass.tabContentPadding
 import com.xjtu.toolbox.platform.BackHandler
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -346,6 +347,8 @@ private fun ShelfCard(
                 url = row.coverUrl,
                 images = images,
                 title = row.title,
+                ssno = row.ssno,
+                refreshKey = row.lastReadAt,
                 width = 64.dp,
                 height = 88.dp,
             )
@@ -638,9 +641,15 @@ private fun CoverThumb(
     title: String = "",
     width: Dp = 56.dp,
     height: Dp = 76.dp,
+    /** 无封面地址时用缓存首页 */
+    ssno: String? = null,
+    /** 变化时重取缩略图 */
+    refreshKey: Any? = null,
 ) {
-    var bitmap by remember(url) { mutableStateOf<androidx.compose.ui.graphics.ImageBitmap?>(null) }
-    LaunchedEffect(url) { bitmap = images.loadCover(url, 200) }
+    var bitmap by remember(url, ssno) { mutableStateOf<androidx.compose.ui.graphics.ImageBitmap?>(null) }
+    LaunchedEffect(url, ssno, refreshKey) {
+        bitmap = images.loadCover(url, 200) ?: ssno?.let { images.loadFirstPage(it, 200) }
+    }
     val (top, bottom) = remember(title) { coverPalette(title) }
     val initial = remember(title) { coverInitial(title) }
     val corner = 8.dp
@@ -726,7 +735,7 @@ private fun CategoryTab(
                 state = listState,
                 // 分类树是一张长卡片，宽屏限宽居中就好，分列反而打乱层级
                 modifier = Modifier.weight(1f).readableWidth().overScrollVertical(),
-                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+                contentPadding = tabContentPadding(PaddingValues(horizontal = 16.dp, vertical = 8.dp)),
             ) {
                 if (vm.categoryPath.isNotEmpty()) {
                     item {

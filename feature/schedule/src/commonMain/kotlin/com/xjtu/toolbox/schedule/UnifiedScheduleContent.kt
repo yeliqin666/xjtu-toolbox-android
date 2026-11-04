@@ -4,6 +4,7 @@ import com.xjtu.toolbox.ui.components.enterOnce
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -39,6 +40,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.xjtu.toolbox.lms.LmsDue
 import com.xjtu.toolbox.lms.remaining
+import com.xjtu.toolbox.nav.AppRoute
 import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.CardDefaults
 import top.yukonga.miuix.kmp.basic.Icon
@@ -89,6 +91,7 @@ fun TodayTimeline(
     todayHomework: List<LmsDue> = emptyList(),
     /** 屁岱排日程卡里的安排写进日程（见 [DayPlanCard]）。 */
     onAddPlan: ((LocalDate, List<PlanItem>) -> Unit)? = null,
+    onNavigate: (AppRoute) -> Unit = {},
 ) {
     val courseColors = rememberCourseColors(allCourseNames)
     val isSummer = remember(today) { XjtuTime.isSummerTime(today.monthNumber) }
@@ -138,6 +141,7 @@ fun TodayTimeline(
                     detail = "${formatTwoDigits(zoned.hour)}:${formatTwoDigits(zoned.minute)} 截止",
                     kind = EntryKind.HOMEWORK,
                     course = null,
+                    route = AppRoute.Lms(hw.courseId, hw.activityId),
                 )
             }
         (fromCourses + fromExams + fromHomework).sortedBy { it.startMinute }
@@ -215,14 +219,14 @@ fun TodayTimeline(
                 val progress = if (e.endMinute > e.startMinute && nowMinute in e.startMinute until e.endMinute)
                     (nowMinute - e.startMinute).toFloat() / (e.endMinute - e.startMinute) else null
                 Box(Modifier.enterOnce(i)) {
-                    TimelineRow(e, past, courseColors, onCourseClick, progress)
+                    TimelineRow(e, past, courseColors, onCourseClick, progress, onNavigate)
                 }
             }
         }
         if (upcoming.isNotEmpty()) {
             val base = entries.size.coerceAtLeast(1)
             item { Box(Modifier.enterOnce(base)) { SectionLabel("接下来") } }
-            itemsIndexed(upcoming) { i, item -> Box(Modifier.enterOnce(base + 1 + i)) { UpcomingRow(item) } }
+            itemsIndexed(upcoming) { i, item -> Box(Modifier.enterOnce(base + 1 + i)) { UpcomingRow(item, onNavigate) } }
         }
     }
 }
@@ -237,6 +241,7 @@ private data class TimelineEntry(
     val detail: String,
     val kind: EntryKind,
     val course: CourseItem?,
+    val route: AppRoute? = null,
 )
 
 @Composable
@@ -269,6 +274,7 @@ private fun TimelineRow(
     onCourseClick: (CourseItem) -> Unit,
     /** 正在进行时是已过去的比例（0~1），否则 null。 */
     progress: Float? = null,
+    onNavigate: (AppRoute) -> Unit,
 ) {
     val accent = when (e.kind) {
         EntryKind.EXAM -> MiuixTheme.colorScheme.error
@@ -307,7 +313,7 @@ private fun TimelineRow(
             modifier = Modifier.weight(1f),
             cornerRadius = 12.dp,
             colors = CardDefaults.defaultColors(color = accent.copy(alpha = 0.12f * alpha)),
-            onClick = { e.course?.let(onCourseClick) },
+            onClick = { if (e.course != null) onCourseClick(e.course) else e.route?.let(onNavigate) },
         ) {
             // 正在上的课：卡底从左到右铺一层更深的颜色表示已上的部分，进场时长出来
             val grown = com.xjtu.toolbox.ui.components.rememberRollingValue((progress ?: 0f).toDouble(), 700)
@@ -376,6 +382,7 @@ data class UpcomingItem(
     val subtitle: String,
     /** 排序用，不展示。 */
     val at: Instant,
+    val route: AppRoute? = null,
 )
 
 /**
@@ -427,19 +434,20 @@ fun buildUpcoming(
                 title = "[${hw.courseName}] ${hw.title}",
                 subtitle = "还${remaining(nowInstant, deadline)}",
                 at = deadline,
+                route = AppRoute.Lms(hw.courseId, hw.activityId),
             )
         }
     return (examItems + homeworkItems).sortedBy { it.at }
 }
 
 @Composable
-private fun UpcomingRow(item: UpcomingItem) {
+private fun UpcomingRow(item: UpcomingItem, onNavigate: (AppRoute) -> Unit) {
     val accent = when (item.kind) {
         UpcomingKind.EXAM -> MiuixTheme.colorScheme.error
         UpcomingKind.HOMEWORK -> MiuixTheme.colorScheme.primary
     }
     Card(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier.fillMaxWidth().then(item.route?.let { route -> Modifier.clickable { onNavigate(route) } } ?: Modifier),
         cornerRadius = 12.dp,
         colors = CardDefaults.defaultColors(color = accent.copy(alpha = 0.10f)),
     ) {

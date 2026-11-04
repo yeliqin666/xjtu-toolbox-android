@@ -4,6 +4,7 @@ import androidx.compose.animation.*
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import com.xjtu.toolbox.ui.glass.tabContentBottomPadding
 import com.xjtu.toolbox.ui.glass.glassSource
 import com.xjtu.toolbox.ui.glass.glassTop
 import com.xjtu.toolbox.ui.glass.glassTopBar
@@ -76,7 +77,7 @@ fun EulaScreen(onAccept: () -> Unit) {
                 .widthIn(max = 720.dp)
                 .fillMaxWidth()
                 .nestedScroll(scrollBehavior.nestedScrollConnection)
-                .verticalScroll(scrollState)
+                .verticalScroll(scrollState).tabContentBottomPadding()
                 .padding(horizontal = 16.dp)
         ) {
             Spacer(Modifier.height(8.dp + padding.glassTop(glass)))

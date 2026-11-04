@@ -11,6 +11,8 @@ kotlin {
             api(project(":shared:navigation"))
             api(project(":shared:designsystem"))
             api(project(":shared:network"))
+            implementation(libs.latex.renderer)
+            implementation(libs.latex.fonts.katex)
         }
     }
 }

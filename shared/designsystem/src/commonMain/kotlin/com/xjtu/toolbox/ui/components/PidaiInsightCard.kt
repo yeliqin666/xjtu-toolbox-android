@@ -19,6 +19,8 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.sizeIn
+import androidx.compose.foundation.layout.wrapContentSize
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -51,6 +53,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
@@ -58,6 +61,7 @@ import com.xjtu.toolbox.agent.AgentInsightHub
 import com.xjtu.toolbox.agent.InsightOutcome
 import com.xjtu.toolbox.agent.InsightSpec
 import com.xjtu.toolbox.agent.PidaiCards
+import com.xjtu.toolbox.platform.showBriefMessage
 import kotlin.time.Clock
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
@@ -68,7 +72,7 @@ import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
-/** 一块屁岱卡的状态：先画缓存，再按需调模型；跑的时候 [progress] 报屁岱在做什么。 */
+/** 一块小岱卡的状态：先画缓存，再按需调模型；跑的时候 [progress] 报小岱在做什么。 */
 @Stable
 class InsightState internal constructor(
     internal var spec: InsightSpec,
@@ -81,7 +85,7 @@ class InsightState internal constructor(
     var progress by mutableStateOf("")
         private set
 
-    /** 这次交给屁岱的输入（「接着问屁岱」时一并带过去）。 */
+    /** 这次交给小岱的输入（「接着问小岱」时一并带过去）。 */
     var input: String? by mutableStateOf(null)
         internal set
 
@@ -96,7 +100,7 @@ class InsightState internal constructor(
             val sec = (Clock.System.now().toEpochMilliseconds() - started) / 1000
             progress = buildString {
                 if (step > 0) append("第 $step 步 · ")
-                append("屁岱").append(doing)
+                append("小岱").append(doing)
                 if (sec >= 2) append(" · ${sec} 秒")
             }
         }
@@ -146,9 +150,9 @@ fun rememberInsight(spec: InsightSpec, input: String?, auto: Boolean = true): In
 }
 
 /**
- * 屁岱卡：和页面其他卡片同一种底，头部是屁岱徽标 + 标题 + 一行状态（在做什么 / 多久前看的），
- * [controls] 放这张卡的选项，结果下面是「接着问屁岱」（把这张卡的输入和结果一并带进对话）。
- * 这一端没有屁岱时整块不画。
+ * 小岱卡：和页面其他卡片同一种底，头部是小岱徽标 + 标题 + 一行状态（在做什么 / 多久前看的），
+ * [controls] 放这张卡的选项，结果下面是「接着问小岱」（把这张卡的输入和结果一并带进对话）。
+ * 这一端没有小岱时整块不画。
  */
 @Composable
 fun PidaiInsightCard(
@@ -157,7 +161,7 @@ fun PidaiInsightCard(
     modifier: Modifier = Modifier,
     /** 没有结果时状态行那句话。 */
     subtitle: String = "",
-    /** 点「接着问屁岱」时说的那句；null = 不显示。 */
+    /** 点「接着问小岱」时说的那句；null = 不显示。 */
     askPrompt: ((JsonObject) -> String)? = null,
     /** 还没生成时的引导语和按钮（按钮点了才调模型）。 */
     idleHint: String = "",
@@ -168,7 +172,9 @@ fun PidaiInsightCard(
 ) {
     val insights = AgentInsightHub.insights
     val off by PidaiCards.off.collectAsState()
-    if (!insights.available || state.spec.card in off) return
+    // 关闭：仅本次；不再提示：走设置开关
+    var dismissed by rememberSaveable(state.spec.id) { mutableStateOf(false) }
+    if (!insights.available || state.spec.card in off || dismissed) return
     val ok = state.outcome as? InsightOutcome.Ok
     val visibilityStore = remember { com.xjtu.toolbox.platform.keyValueStore("pidai_card_visibility") }
     var collapsed by rememberSaveable(state.spec.id) { mutableStateOf(visibilityStore.getBoolean(state.spec.id, false)) }
@@ -177,83 +183,98 @@ fun PidaiInsightCard(
         colors = CardDefaults.defaultColors(color = AppCardColor),
     ) {
         Column(
-            Modifier.padding(horizontal = 16.dp, vertical = 14.dp).animateContentSize(),
+            Modifier.padding(vertical = 14.dp).animateContentSize(),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                PidaiBadge(thinking = state.loading)
-                Column(Modifier.padding(start = 10.dp).weight(1f).clickable {
-                    collapsed = !collapsed
-                    visibilityStore.putBoolean(state.spec.id, collapsed)
-                }) {
-                    Text(title, style = MiuixTheme.textStyles.body1, fontWeight = FontWeight.Bold)
-                    val status = when {
-                        state.loading -> state.progress
-                        ok != null -> "屁岱 · ${insightAge(ok.at)}"
-                        else -> subtitle
-                    }
-                    if (status.isNotBlank()) {
-                        AnimatedContent(status, transitionSpec = { fadeIn() togetherWith fadeOut() }, label = "status") { s ->
-                            Text(
-                                s,
-                                style = MiuixTheme.textStyles.footnote1,
-                                color = if (state.loading) MiuixTheme.colorScheme.primary else MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                                maxLines = 1,
-                            )
-                        }
-                    }
-                }
-                if (ok != null || state.outcome is InsightOutcome.Failed) {
-                    Box(
-                        Modifier.size(32.dp).clip(CircleShape).background(AppInsetColor)
-                            .clickable(enabled = !state.loading) { state.refresh() },
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Icon(Icons.Filled.Refresh, contentDescription = "让屁岱重新看", modifier = Modifier.size(16.dp),
-                            tint = MiuixTheme.colorScheme.onSurfaceVariantSummary)
-                    }
-                }
-                Box(
-                    Modifier.size(40.dp).clip(CircleShape).clickable {
+            // 内容左右 16dp；链接自带 6dp，故右侧留 10dp，对齐且热区不越界
+            Column(
+                Modifier.padding(horizontal = 16.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    PidaiBadge(thinking = state.loading)
+                    Column(Modifier.padding(start = 10.dp).weight(1f).clickable {
                         collapsed = !collapsed
                         visibilityStore.putBoolean(state.spec.id, collapsed)
-                    },
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Icon(
-                        if (collapsed) Icons.Filled.ExpandMore else Icons.Filled.ExpandLess,
-                        contentDescription = if (collapsed) "展开精选卡片" else "折叠精选卡片",
-                        tint = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                    )
+                    }) {
+                        Text(title, style = MiuixTheme.textStyles.body1, fontWeight = FontWeight.Bold)
+                        val status = when {
+                            state.loading -> state.progress
+                            ok != null -> "小岱 · ${insightAge(ok.at)}"
+                            else -> subtitle
+                        }
+                        if (status.isNotBlank()) {
+                            AnimatedContent(status, transitionSpec = { fadeIn() togetherWith fadeOut() }, label = "status") { s ->
+                                Text(
+                                    s,
+                                    style = MiuixTheme.textStyles.footnote1,
+                                    color = if (state.loading) MiuixTheme.colorScheme.primary else MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                                    maxLines = 1,
+                                )
+                            }
+                        }
+                    }
+                    if (ok != null || state.outcome is InsightOutcome.Failed) {
+                        Box(
+                            Modifier.size(32.dp).clip(CircleShape).background(AppInsetColor)
+                                .clickable(enabled = !state.loading) { state.refresh() },
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Icon(Icons.Filled.Refresh, contentDescription = "让小岱重新看", modifier = Modifier.size(16.dp),
+                                tint = MiuixTheme.colorScheme.onSurfaceVariantSummary)
+                        }
+                    }
+                    Box(
+                        Modifier.size(40.dp).clip(CircleShape).clickable {
+                            collapsed = !collapsed
+                            visibilityStore.putBoolean(state.spec.id, collapsed)
+                        },
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Icon(
+                            if (collapsed) Icons.Filled.ExpandMore else Icons.Filled.ExpandLess,
+                            contentDescription = if (collapsed) "展开精选卡片" else "折叠精选卡片",
+                            tint = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                        )
+                    }
+                }
+                if (!collapsed) {
+                    controls?.invoke(this)
+                    when (val o = state.outcome) {
+                        is InsightOutcome.Ok -> {
+                            Column(Modifier.alpha(if (state.loading) 0.45f else 1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                content(o.json)
+                            }
+                            if (askPrompt != null && !state.loading) {
+                                PidaiChip("接着问小岱", icon = Icons.AutoMirrored.Filled.Chat, onClick = {
+                                    insights.ask(askPrompt(o.json), insightSnapshot(title, state.input, o))
+                                })
+                            }
+                        }
+                        InsightOutcome.Unavailable -> InsightHint("在小岱页配好 API Key 后，这里由小岱帮你挑重点。")
+                        is InsightOutcome.Failed -> if (!state.loading) InsightHint("这次没看成：${o.message}")
+                        null -> if (!state.loading) {
+                            if (idleHint.isNotBlank()) InsightHint(idleHint)
+                            if (idleAction != null) PidaiChip(idleAction, icon = Icons.Filled.AutoAwesome, emphasized = true, onClick = { state.refresh(force = false) })
+                        }
+                    }
+                    if (state.loading && ok == null) InsightShimmer()
                 }
             }
-            if (!collapsed) {
-                controls?.invoke(this)
-                when (val o = state.outcome) {
-                    is InsightOutcome.Ok -> {
-                        Column(Modifier.alpha(if (state.loading) 0.45f else 1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            content(o.json)
-                        }
-                        if (askPrompt != null && !state.loading) {
-                            PidaiChip("接着问屁岱", icon = Icons.AutoMirrored.Filled.Chat, onClick = {
-                                insights.ask(askPrompt(o.json), insightSnapshot(title, state.input, o))
-                            })
-                        }
-                    }
-                    InsightOutcome.Unavailable -> InsightHint("在屁岱页配好 API Key 后，这里由屁岱帮你挑重点。")
-                    is InsightOutcome.Failed -> if (!state.loading) InsightHint("这次没看成：${o.message}")
-                    null -> if (!state.loading) {
-                        if (idleHint.isNotBlank()) InsightHint(idleHint)
-                        if (idleAction != null) PidaiChip(idleAction, icon = Icons.Filled.AutoAwesome, emphasized = true, onClick = { state.refresh(force = false) })
+            Row(Modifier.align(Alignment.End).padding(end = 10.dp)) {
+                InsightHint("关闭") { dismissed = true }
+                state.spec.card?.let { card ->
+                    InsightHint("不再提示") {
+                        PidaiCards.set(card, false)
+                        showBriefMessage("已关闭，可在小岱设置中恢复")
                     }
                 }
-                if (state.loading && ok == null) InsightShimmer()
             }
         }
     }
 }
 
-/** 带进对话的快照：这张卡看了什么、查到了什么、给了什么，屁岱接着聊时直接用，不用再查。 */
+/** 带进对话的快照：这张卡看了什么、查到了什么、给了什么，小岱接着聊时直接用，不用再查。 */
 private fun insightSnapshot(title: String, input: String?, ok: InsightOutcome.Ok): String = buildString {
     val minutes = ((kotlin.time.Clock.System.now().toEpochMilliseconds() - ok.at) / 60_000).coerceAtLeast(0)
     append("用户从「$title」卡片点进来。下面是这张卡的数据、你当时查到的工具结果和给出的结果，")
@@ -264,7 +285,7 @@ private fun insightSnapshot(title: String, input: String?, ok: InsightOutcome.Ok
     append("【你给出的结果】\n").append(ok.json.toString())
 }
 
-/** 屁岱的小徽标：主色渐变圆 + 星光；思考时慢慢呼吸。 */
+/** 小岱的小徽标：主色渐变圆 + 星光；思考时慢慢呼吸。 */
 @Composable
 fun PidaiBadge(thinking: Boolean = false, size: androidx.compose.ui.unit.Dp = 30.dp) {
     val primary = MiuixTheme.colorScheme.primary
@@ -359,14 +380,16 @@ fun PidaiInputRow(
                 .clickable(enabled = enabled, onClick = onSubmit),
             contentAlignment = Alignment.Center,
         ) {
-            Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = "让屁岱排", tint = MiuixTheme.colorScheme.onPrimary, modifier = Modifier.size(18.dp))
+            Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = "让小岱排", tint = MiuixTheme.colorScheme.onPrimary, modifier = Modifier.size(18.dp))
         }
     }
 }
 
 @Composable
-private fun InsightHint(text: String) {
-    Text(text, style = MiuixTheme.textStyles.footnote1, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
+private fun InsightHint(text: String, onClick: (() -> Unit)? = null) {
+    val m = if (onClick == null) Modifier else Modifier.clickable(role = Role.Button, onClick = onClick)
+        .sizeIn(minWidth = 48.dp, minHeight = 32.dp).wrapContentSize().padding(horizontal = 6.dp)
+    Text(text, m, style = MiuixTheme.textStyles.footnote1, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
 }
 
 /** 加载骨架：三行长短不一的 [SkeletonBlock]。 */

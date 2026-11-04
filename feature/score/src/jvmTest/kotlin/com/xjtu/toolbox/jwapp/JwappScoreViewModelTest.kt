@@ -85,24 +85,41 @@ class JwappScoreViewModelTest {
     }
 
     @Test
-    fun `未评教的课：从成绩报表补进对应学期，并给出「补充了 N 门」的提示`() {
-        val source = FakeJwappScoreSource(grades = listOf(coarseGrade))
+    fun `最新学期看不到成绩的那行用报表填上，旧学期不动、不加新行`() {
+        val older = TermScore("2025-2026-2", "2025-2026学年 第二学期", listOf(
+            ScoreItem(id = "OLD", termCode = "2025-2026-2", courseName = "大学物理(PHYS100100)", score = "暂不能查看", coursePoint = 4.0),
+        ))
+        val latest = coarseGrade.copy(scoreList = coarseGrade.scoreList +
+            ScoreItem(id = "HID", termCode = TERM, courseName = "大学物理(PHYS100100)", score = "暂不能查看", coursePoint = 4.0))
+        val source = FakeJwappScoreSource(grades = listOf(latest, older))
         val jwxt = FakeJwxtScoreSupplement(
-            precise = emptyList(),
-            unevaluated = setOf("大学物理"),
-            reported = listOf(ReportedGrade(courseName = "大学物理", coursePoint = 4.0, score = "91", gpa = 4.1, term = TERM)),
+            reported = listOf(
+                ReportedGrade(courseName = "大学物理", coursePoint = 4.0, score = "91", gpa = 4.1, term = TERM),
+                ReportedGrade(courseName = "大学物理", coursePoint = 4.0, score = "80", gpa = 3.3, term = "2025-2026-2"),
+            ),
         )
         val vm = JwappScoreViewModel(source, jwxt, STUDENT_ID)
 
         assertTrue(awaitIdle(vm), "加载应当在超时前落地")
-        val term = vm.allTermScores.single()
-        assertEquals(2, term.scoreList.size, "原来那门 + 报表补的那门")
-        val fromReport = term.scoreList.single { it.courseName == "大学物理" }
-        assertEquals(ScoreSource.REPORT, fromReport.source)
-        assertEquals("91", fromReport.score)
-        assertEquals(setOf("大学物理"), vm.unevaluatedCourses)
-        assertEquals("已从报表补充 1 门未评教课程成绩", vm.reportHint)
+        val term = vm.allTermScores.first { it.termCode == TERM }
+        assertEquals(2, term.scoreList.size, "只填成绩，不追加行")
+        val filled = term.scoreList.single { it.id == "HID" }
+        assertEquals(ScoreSource.REPORT, filled.source)
+        assertEquals("91", filled.score)
+        assertEquals("暂不能查看", vm.allTermScores.first { it.termCode == "2025-2026-2" }.scoreList.single().score, "旧学期不补")
+        assertEquals(1, vm.reportGrades?.size, "抽屉只放最新学期")
+        assertEquals("最新学期有 1 门看不到成绩，已从成绩报表补上 1 门", vm.reportHint)
         assertEquals(STUDENT_ID, jwxt.lastReportedStudentId)
+    }
+
+    @Test
+    fun `最新学期没有看不到的成绩时不拉报表`() {
+        val jwxt = FakeJwxtScoreSupplement(precise = precise)
+        val vm = JwappScoreViewModel(FakeJwappScoreSource(grades = listOf(coarseGrade)), jwxt, STUDENT_ID)
+
+        assertTrue(awaitIdle(vm), "加载应当在超时前落地")
+        assertNull(jwxt.lastReportedStudentId)
+        assertNull(vm.reportHint)
     }
 
     @Test
@@ -114,7 +131,7 @@ class JwappScoreViewModelTest {
         val item = vm.allTermScores.single().scoreList.single()
         assertEquals(86.0, item.scoreValue, "没有教务那一份时显示 jwapp 的粗分")
         assertNull(vm.errorMessage)
-        assertTrue(vm.unevaluatedCourses.isEmpty())
+        assertTrue(!vm.canOpenReport, "没有教务会话就不给报表入口")
     }
 
     @Test
@@ -199,7 +216,6 @@ class JwappScoreViewModelTest {
 
     private class FakeJwxtScoreSupplement(
         var precise: List<CjcxScore> = emptyList(),
-        var unevaluated: Set<String> = emptySet(),
         var reported: List<ReportedGrade> = emptyList(),
     ) : JwxtScoreSupplement {
         var preciseCalls = 0
@@ -209,8 +225,6 @@ class JwappScoreViewModelTest {
             preciseCalls++
             return precise
         }
-
-        override suspend fun unevaluatedCourseNames(): Set<String> = unevaluated
 
         override suspend fun reportedGrades(studentId: String): List<ReportedGrade> {
             lastReportedStudentId = studentId
