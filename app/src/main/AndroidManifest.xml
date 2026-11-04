@@ -8,6 +8,9 @@
     <uses-permission android:name="com.android.alarm.permission.SET_ALARM" />
 
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- 小岱生成期间的前台服务（agent/AgentGenerationService.kt）：切出应用不被冻结 -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
     <!-- 动态课程/日程通知在开始、结束时切换；可选授权，未授权时使用非精确闹钟。 -->
     <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
@@ -203,6 +206,11 @@
                 <action android:name="android.intent.action.TIME_SET" />
             </intent-filter>
         </receiver>
+
+        <service
+            android:name=".agent.AgentGenerationService"
+            android:exported="false"
+            android:foregroundServiceType="dataSync" />
 
         <service
             android:name=".widget.ScheduleWidgetRemoteViewsService"

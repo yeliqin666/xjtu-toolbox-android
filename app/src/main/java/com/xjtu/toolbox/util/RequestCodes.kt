@@ -33,6 +33,8 @@ object RequestCodes {
     /** 图书馆提醒上的「签到」按钮，发给 LibraryActionReceiver 的广播。 */
     const val REMINDER_LIBRARY_ACTION = 2108
     const val DYNAMIC_SCHEDULE = 2109
+    /** 小岱生成中的前台通知，点开回小岱。 */
+    const val AGENT_GENERATION = 2110
 
     // 5xxx 发给小组件自己的广播
     /** + WidgetSize.ordinal。沿用旧值：AlarmManager 里排着的闹钟要靠同一个码才取消得掉。 */

@@ -104,6 +104,9 @@ interface AgentHost {
     /** 把仲英学辅资料站的一个文件存进「下载」（资料卡那一行的动作）。 */
     suspend fun saveZyxfFile(fileId: Int): String? = null
 
+    /** 生成开始 / 结束（`:app` 借此挂前台服务，切出 App 后进程不被冻结、流式不断）。 */
+    fun generating(active: Boolean) {}
+
     companion object {
 
         /** 什么都没接的宿主：所有档位都不画、不执行。 */

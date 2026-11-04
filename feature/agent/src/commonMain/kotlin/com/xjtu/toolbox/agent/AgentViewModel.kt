@@ -83,6 +83,7 @@ class AgentViewModel(private val host: AgentHost) : ViewModel(), AgentChatSessio
 
     /** 加载态的唯一写入口：UI 加载与底栏思考动画共用同一信号，不会各走各的。 */
     private fun applyLoading(loading: Boolean) {
+        if (isLoading != loading) host.generating(loading)
         isLoading = loading
         AgentThinkingHost.isThinking = loading
     }

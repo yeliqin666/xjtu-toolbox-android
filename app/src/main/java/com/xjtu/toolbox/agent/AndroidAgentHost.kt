@@ -303,6 +303,16 @@ internal class AndroidAgentHost(
         runCatching { com.xjtu.toolbox.zyxf.ZyxfApi.download(context, fileId) }.getOrNull()
             ?.let { "已保存到下载" }
     }
+
+    private val mainHandler = android.os.Handler(android.os.Looper.getMainLooper())
+    private val stopGeneration = Runnable { AgentGenerationService.stop(context.applicationContext) }
+
+    override fun generating(active: Boolean) {
+        mainHandler.removeCallbacks(stopGeneration)
+        if (active) AgentGenerationService.start(context.applicationContext)
+        // 晚一秒停：排队的下一条紧接着开始时不必先停再起（停了之后在后台起不来）
+        else mainHandler.postDelayed(stopGeneration, 1_000)
+    }
 }
 
 // ── 相册挑图（`:core` 的 AgentImagePicker 在这一端的实现）──────────────────────
