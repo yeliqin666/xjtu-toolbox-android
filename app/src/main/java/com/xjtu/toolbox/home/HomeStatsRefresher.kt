@@ -22,6 +22,7 @@ import kotlinx.coroutines.withContext
 import kotlinx.datetime.toLocalDateTime
 import com.xjtu.toolbox.nav.AppRoute
 import kotlin.math.roundToInt
+import kotlin.time.Clock
 
 /** 首页后台刷新：公开源优先，站点串行静默登录；按源缓存，取到一项就更新一项。 */
 object HomeStatsRefresher {
@@ -125,8 +126,9 @@ object HomeStatsRefresher {
                     com.xjtu.toolbox.bus.appBusApi.runs(com.xjtu.toolbox.util.todayOnCampus())
                 }.getOrNull() ?: return@withContext null
                 if (runs.isEmpty()) return@withContext null
-                val nowMinutes = with(kotlinx.datetime.Clock.System.now()
-                    .toLocalDateTime(kotlinx.datetime.TimeZone.currentSystemDefault()).time) { hour * 60 + minute }
+                // 「现在几点」用校区时区（和校车页同一套），不跟设备时区走
+                val nowMinutes = with(Clock.System.now()
+                    .toLocalDateTime(com.xjtu.toolbox.util.CampusTimeZone).time) { hour * 60 + minute }
                 fun minutes(run: com.xjtu.toolbox.bus.BusRun): Int {
                     val h = run.time.substringBefore(':').toIntOrNull() ?: 0
                     val m = run.time.substringAfter(':', "0").toIntOrNull() ?: 0
