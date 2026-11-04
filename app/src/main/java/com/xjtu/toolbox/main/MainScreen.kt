@@ -63,6 +63,11 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.kyant.backdrop.backdrops.LayerBackdrop
+import com.kyant.backdrop.drawBackdrop
+import com.kyant.backdrop.effects.blur
+import com.kyant.backdrop.effects.lens
+import com.kyant.backdrop.effects.vibrancy
+import com.kyant.backdrop.highlight.Highlight
 import com.xjtu.toolbox.account.AccountManager
 import com.xjtu.toolbox.agent.AgentOverlays
 import com.xjtu.toolbox.agent.AgentInsightEngine
@@ -82,6 +87,7 @@ import com.xjtu.toolbox.data.AppearanceSettings
 import com.xjtu.toolbox.data.CredentialStore
 import com.xjtu.toolbox.feedback.FeedbackPromptSheet
 import com.xjtu.toolbox.home.GlobalSearchScreen
+import com.xjtu.toolbox.settings.HomeLayoutRevision
 import com.xjtu.toolbox.home.HomeSignals
 import com.xjtu.toolbox.home.HomeStats
 import com.xjtu.toolbox.home.HomeStatsRefresher
@@ -507,11 +513,19 @@ internal fun MainScreen(
                         onBulletinDismiss = onHeroBulletinDismiss,
                         contentTopPadding = insets.contentTopPadding,
                         contentTopShift = insets.contentTopShift,
+                        topLeading = {
+                            // 「功能按钮统一右对齐」关掉时，扫码单独站到最左边（标题仍然绝对居中）
+                            if (!rememberTopActionsRight()) {
+                                HomeScanAction(onScan = { showQrLogin = true })
+                            }
+                        },
                         topActions = {
                             HomeTopActions(
                                 onInbox = { router.open(AppRoute.Inbox) },
                                 onScan = { showQrLogin = true },
                                 onSearch = { showGlobalSearch = true },
+                                // 开着（默认）扫码也并进右侧这一排，三个圆钮统一右对齐
+                                withScan = rememberTopActionsRight(),
                             )
                         },
                     )
@@ -572,9 +586,44 @@ internal fun MainScreen(
 private val OverlayEnter = fadeIn(tween(220)) + slideInVertically(tween(260)) { it / 16 }
 private val OverlayExit = fadeOut(tween(180)) + slideOutVertically(tween(200)) { it / 16 }
 
-/** 首页最上面一行右侧的三个圆钮：搜索、扫一扫、消息。 */
+/**
+ * 主页设置里「功能按钮统一右对齐」的当前值（默认开）。读在槽位内部：只让顶栏这一组随设置失效，
+ * 不必重组整个 [MainScreen]。
+ */
 @Composable
-private fun HomeTopActions(onInbox: () -> Unit, onScan: () -> Unit, onSearch: () -> Unit) {
+private fun rememberTopActionsRight(): Boolean {
+    val revision = HomeLayoutRevision.current
+    val store = remember { com.xjtu.toolbox.settings.SettingsStore() }
+    return remember(store, revision) { store.homeTopActionsRight }
+}
+
+/** 「扫一扫」圆钮：顶栏左、右两种排法共用同一个画法。 */
+@Composable
+private fun HomeScanAction(onScan: () -> Unit) {
+    val tint = MiuixTheme.colorScheme.onSurface
+    HomeRoundAction(onClick = onScan, size = HomeTopActionSize) {
+        Icon(
+            androidx.compose.ui.res.painterResource(com.xjtu.toolbox.R.drawable.ic_scan),
+            contentDescription = "扫一扫",
+            tint = tint,
+            modifier = Modifier.size(20.dp),
+        )
+    }
+}
+
+/**
+ * 首页顶栏右侧那一排圆钮：搜索、消息；[withScan] 为真时扫码也并进来，三个圆钮统一右对齐。
+ *
+ * 排法由主页设置的「功能按钮统一右对齐」决定：开着（默认）就是改造前的排法，
+ * 关掉则扫码单独站到最左边，这一排只留搜索与消息。
+ */
+@Composable
+private fun HomeTopActions(
+    onInbox: () -> Unit,
+    onScan: () -> Unit,
+    onSearch: () -> Unit,
+    withScan: Boolean,
+) {
     val tint = MiuixTheme.colorScheme.onSurface
     Row(
         horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(8.dp),
@@ -583,14 +632,7 @@ private fun HomeTopActions(onInbox: () -> Unit, onScan: () -> Unit, onSearch: ()
         HomeRoundAction(onClick = onSearch, size = HomeTopActionSize) {
             Icon(Icons.Outlined.Search, contentDescription = "搜索", tint = tint, modifier = Modifier.size(21.dp))
         }
-        HomeRoundAction(onClick = onScan, size = HomeTopActionSize) {
-            Icon(
-                androidx.compose.ui.res.painterResource(com.xjtu.toolbox.R.drawable.ic_scan),
-                contentDescription = "扫一扫",
-                tint = tint,
-                modifier = Modifier.size(20.dp),
-            )
-        }
+        if (withScan) HomeScanAction(onScan = onScan)
         HomeRoundAction(onClick = onInbox, size = HomeTopActionSize) {
             InboxBell(onInbox, clickable = false, iconSize = 22.dp, containerSize = HomeTopActionSize)
         }

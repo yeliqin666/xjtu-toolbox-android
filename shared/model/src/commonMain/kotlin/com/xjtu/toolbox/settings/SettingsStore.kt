@@ -131,10 +131,20 @@ class SettingsStore(private val store: KeyValueStore = keyValueStore(APP_SETTING
         get() = store.getString("home_layout")?.takeIf { it == HOME_LAYOUT_WIDGETS || it == HOME_LAYOUT_CLASSIC } ?: HOME_LAYOUT_WIDGETS
         set(value) = store.putString("home_layout", value.takeIf { it == HOME_LAYOUT_WIDGETS } ?: HOME_LAYOUT_CLASSIC)
 
-    /** 小组件的排列与尺寸，一行一个 `路由id:尺寸`；null = 没编辑过，用默认布局。 */
+    /** 小组件的分组、排列与尺寸（格式见 `HomeWidgetLayout.encodeGroups`）；null = 没编辑过，用默认布局。 */
     var homeWidgets: List<String>?
         get() = store.getString("home_widgets")?.split('\n')?.filter { it.isNotBlank() }
         set(value) = store.putString("home_widgets", value?.joinToString("\n"))
+
+    /** 小组件用液态玻璃（折射 + 高光，较耗电）；只在渐变与图片背景上生效，纯色背景一律是实心卡片。 */
+    var homeLiquidGlass: Boolean
+        get() = store.getBoolean("home_liquid_card", false)
+        set(value) = store.putBoolean("home_liquid_card", value)
+
+    /** 首页顶栏：true = 扫码、搜索、消息统一靠右（默认），false = 扫码单独靠左、标题居中。 */
+    var homeTopActionsRight: Boolean
+        get() = store.getBoolean("home_top_actions_right", true)
+        set(value) = store.putBoolean("home_top_actions_right", value)
 
     var homeBackground: String
         get() = store.getString("home_background") ?: when {

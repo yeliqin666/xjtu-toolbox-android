@@ -71,6 +71,10 @@ import com.xjtu.toolbox.nav.rememberExpandOriginSource
 import com.xjtu.toolbox.settings.HomeLayoutRevision
 import com.xjtu.toolbox.settings.SettingsStore
 import com.xjtu.toolbox.ui.components.AppCardColor
+import com.xjtu.toolbox.ui.components.heroBrightnessFilter
+import com.xjtu.toolbox.ui.components.rememberFrostedImage
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInRoot
 import com.xjtu.toolbox.ui.components.HeroAppearance
 import com.xjtu.toolbox.ui.components.HeroAppearanceDialog
 import com.xjtu.toolbox.ui.components.HeroAppearanceRevision
@@ -114,6 +118,8 @@ fun HomeScreen(
     contentTopPadding: Dp = 0.dp,
     /** 壳把整页上移的量（见 `ShellPageInsets.contentTopShift`）；模糊带按它补回屏幕顶边。 */
     contentTopShift: () -> Dp = { 0.dp },
+    /** 顶栏最左边的按钮（「功能按钮统一右对齐」关掉时宿主放扫码）；开着时那里是头像。 */
+    topLeading: (@Composable () -> Unit)? = null,
     /** 首页没有顶栏：消息、扫一扫、搜索这几个按钮由宿主给，放在页面最上面跟着内容一起滚。 */
     topActions: (@Composable () -> Unit)? = null,
 ) {
@@ -168,7 +174,19 @@ fun HomeScreen(
     val background = remember(HomeLayoutRevision.current) { layoutStore.homeBackground }
     val wallpaper = remember(HomeLayoutRevision.current) { layoutStore.homeWallpaperImage.takeIf { background == "image" }.orEmpty() }
     val wallpaperTone = remember(HomeLayoutRevision.current) { layoutStore.homeWallpaperBlur to layoutStore.homeWallpaperBrightness }
+    val liquidGlass = remember(HomeLayoutRevision.current) { layoutStore.homeLiquidGlass }
+    val topActionsRight = remember(HomeLayoutRevision.current) { layoutStore.homeTopActionsRight }
     val wall = rememberLayerBackdrop()
+    val wallFrame = remember { WallFrame() }
+    // 纯色背景不做玻璃；液态玻璃是唯一需要实时采样壁纸层的情况，别的情况壁纸层不录
+    val liquid = widgetMode && liquidGlass && background != "solid"
+    val frosted = rememberFrostedImage(if (widgetMode && !liquid) wallpaper else "")
+    val surface = when {
+        background == "solid" -> WidgetSurface.Plain
+        liquid -> WidgetSurface.Liquid(wall)
+        frosted != null -> WidgetSurface.Frost(frosted, remember(wallpaperTone.second) { heroBrightnessFilter(wallpaperTone.second) }, wallFrame)
+        else -> WidgetSurface.Tint
+    }
     // 自定义图片上用白字；渐变很浅，照常用正文色
     val pageInk = if (wallpaper.isNotEmpty()) Color.White else MiuixTheme.colorScheme.onSurface
     val frontInbox = host.inbox.takeIf { HomeCard.INBOX in honored }
@@ -201,8 +219,13 @@ fun HomeScreen(
     Box(modifier.fillMaxSize()) {
         // 壁纸和滚动内容一起录进顶栏的采样层，顶栏模糊里也有壁纸
         Box(Modifier.matchParentSize().then(if (glass) Modifier.layerBackdrop(pageBackdrop) else Modifier)) {
-        HomeWallpaper(background, wallpaper, Modifier.matchParentSize().layerBackdrop(wall),
-            blur = wallpaperTone.first, brightness = wallpaperTone.second)
+        HomeWallpaper(
+            background, wallpaper,
+            Modifier.matchParentSize()
+                .onGloballyPositioned { wallFrame.origin = it.positionInRoot(); wallFrame.size = it.size }
+                .then(if (liquid) Modifier.layerBackdrop(wall) else Modifier),
+            blur = wallpaperTone.first, brightness = wallpaperTone.second,
+        )
         Column(
             Modifier
                 .fillMaxSize()
@@ -246,15 +269,24 @@ fun HomeScreen(
                     modifier = Modifier.enterOnce(0),
                     host = host,
                     inbox = frontInbox,
-                    quick = quick?.let { { it(40.dp, null) } },
+                    // 小组件模式里常用功能是最上面那一组，刊头不再重复
+                    quick = quick?.takeIf { !widgetMode }?.let { { it(40.dp, null) } },
                 )
             }
 
             if (HomeCard.SERVICE_GRID in honored && groups.isNotEmpty() && widgetMode) {
                 Spacer(Modifier.height(20.dp))
+                val rows = groups.flatMap { g -> g.rows.map { indexRow(it.service, it.stat, it.statDetail) } }.distinctBy { it.key }
+                val hasStat = rows.associate { it.key to (it.stat != null) }
                 HomeWidgetGrid(
-                    rows = groups.flatMap { g -> g.rows.map { indexRow(it.service, it.stat, it.statDetail) } },
-                    wall = wall,
+                    rows = rows,
+                    defaults = HomeWidgetLayout.defaultGroups(
+                        quick = quickRows.map { it.key },
+                        categories = groups.map { g -> Triple(g.category.name, g.category.title, g.rows.map { it.service.route.id }) },
+                        hasStat = { hasStat[it] == true },
+                    ),
+                    hiddenGroups = if (HomeCard.QUICK_ACTIONS in honored) emptySet() else setOf(HomeWidgetLayout.QUICK_GROUP),
+                    surface = surface,
                     ink = pageInk,
                     paymentCode = host::paymentCode,
                     onLink = host::onOpenLink,
@@ -287,6 +319,7 @@ fun HomeScreen(
                 bandShift = contentTopShift,
                 backdrop = if (glass) pageBackdrop else null,
                 onTapCollapsed = { scope.launch { scroll.animateScrollTo(0) } },
+                leading = topLeading.takeIf { !topActionsRight },
                 actions = topActions,
                 alignWithGreeting = masthead,
             )
@@ -295,8 +328,9 @@ fun HomeScreen(
 }
 
 /**
- * 首页的折叠顶栏，叠在滚动内容上面。三个圆钮一直在右上角；往上滑过刊头后，
- * 玻璃底色和左边的方印一起浮出来，底边柔和淡出，内容从它后面模糊着滑过。折叠后点空白处回到顶部。
+ * 首页的折叠顶栏，叠在滚动内容上面。默认圆钮都在右上角，往上滑过刊头后玻璃底色和左边的头像
+ * 一起浮出来；给了 [leading]（主页设置关掉「统一右对齐」）时左边换成它、标题居中。
+ * 底边柔和淡出，内容从它后面模糊着滑过；折叠后点空白处回到顶部。
  */
 @Composable
 private fun HomeCollapsingBar(
@@ -305,6 +339,7 @@ private fun HomeCollapsingBar(
     bandShift: () -> Dp,
     backdrop: Backdrop?,
     onTapCollapsed: () -> Unit,
+    leading: (@Composable () -> Unit)?,
     actions: @Composable () -> Unit,
     alignWithGreeting: Boolean = false,
 ) {
@@ -335,23 +370,35 @@ private fun HomeCollapsingBar(
                     else Modifier
                 ),
         )
+        val lift = Modifier.graphicsLayer {
+            translationY = if (alignWithGreeting) 0f else -BUTTON_LIFT.toPx() * (1f - progress())
+        }
+        if (leading != null) {
+            // 标题绝对居中，不参与左右两排按钮的排布
+            Box(Modifier.matchParentSize().padding(top = topInset), contentAlignment = Alignment.Center) {
+                Text("岱宗盒子", fontSize = 17.sp, fontWeight = FontWeight.SemiBold, color = MiuixTheme.colorScheme.onSurface, maxLines = 1)
+            }
+        }
         Row(
-            Modifier.fillMaxWidth().padding(top = topInset).height(BAR_HEIGHT).padding(start = 20.dp, end = 16.dp),
+            Modifier.fillMaxWidth().padding(top = topInset).height(BAR_HEIGHT)
+                .padding(start = if (leading != null) 16.dp else 20.dp, end = 16.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            com.xjtu.toolbox.ui.components.JiaoxiaoxiAvatar(
-                Modifier.size(28.dp).graphicsLayer {
-                    // 头像不跟着玻璃瞬现，随着上滑慢慢淡入、放大
-                    val f = progress()
-                    alpha = f
-                    scaleX = 0.78f + 0.22f * f
-                    scaleY = scaleX
-                },
-            )
+            if (leading != null) {
+                Box(lift) { leading() }
+            } else {
+                com.xjtu.toolbox.ui.components.JiaoxiaoxiAvatar(
+                    Modifier.size(28.dp).graphicsLayer {
+                        // 头像不跟着玻璃瞬现，随着上滑慢慢淡入、放大
+                        val f = progress()
+                        alpha = f
+                        scaleX = 0.78f + 0.22f * f
+                        scaleY = scaleX
+                    },
+                )
+            }
             Spacer(Modifier.weight(1f))
-            Box(Modifier.graphicsLayer {
-                translationY = if (alignWithGreeting) 0f else -BUTTON_LIFT.toPx() * (1f - progress())
-            }) { actions() }
+            Box(lift) { actions() }
         }
     }
 }

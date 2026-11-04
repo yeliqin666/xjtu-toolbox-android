@@ -19,10 +19,17 @@ import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.awaitLongPressOrCancellation
+import androidx.compose.foundation.gestures.awaitTouchSlopOrCancellation
+import androidx.compose.foundation.gestures.drag
+import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -35,7 +42,6 @@ import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -46,9 +52,11 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Remove
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
@@ -56,77 +64,93 @@ import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.TileMode
+import androidx.compose.ui.graphics.ColorFilter
+import androidx.compose.ui.graphics.FilterQuality
+import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.foundation.gestures.awaitEachGesture
-import androidx.compose.foundation.gestures.awaitFirstDown
-import androidx.compose.foundation.gestures.awaitLongPressOrCancellation
-import androidx.compose.foundation.gestures.awaitTouchSlopOrCancellation
-import androidx.compose.foundation.gestures.drag
-import androidx.compose.foundation.gestures.scrollBy
-import androidx.compose.foundation.ScrollState
-import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInRoot
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.semantics.CustomAccessibilityAction
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.customActions
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
 import com.kyant.backdrop.Backdrop
 import com.kyant.backdrop.drawBackdrop
 import com.kyant.backdrop.effects.blur
+import com.kyant.backdrop.effects.lens
 import com.kyant.backdrop.effects.vibrancy
+import com.kyant.backdrop.highlight.Highlight
 import com.xjtu.toolbox.nav.AppRoute
 import com.xjtu.toolbox.nav.expandOriginSource
 import com.xjtu.toolbox.nav.rememberExpandOriginSource
-import com.xjtu.toolbox.platform.qrCodeModules
 import com.xjtu.toolbox.platform.BackHandler
+import com.xjtu.toolbox.platform.qrCodeModules
+import com.xjtu.toolbox.schedule.CourseColors
 import com.xjtu.toolbox.settings.HomeLayoutRevision
 import com.xjtu.toolbox.settings.SettingsStore
+import com.xjtu.toolbox.ui.components.AppCardColor
+import com.xjtu.toolbox.ui.components.AppColorPicker
 import com.xjtu.toolbox.ui.components.CodeMatrixView
 import com.xjtu.toolbox.ui.components.HeroCustomBackground
 import com.xjtu.toolbox.ui.components.LocalPageVisible
+import com.xjtu.toolbox.ui.components.appCardShadow
+import com.xjtu.toolbox.ui.components.enterOnce
+import com.xjtu.toolbox.ui.glass.floatingGlassShadow
 import com.xjtu.toolbox.ui.rememberCampusNow
 import com.xjtu.toolbox.ui.theme.Editorial
 import com.xjtu.toolbox.ui.theme.LocalIsDarkTheme
+import kotlin.math.max
 import kotlin.math.roundToInt
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.delay
+import top.yukonga.miuix.kmp.basic.ButtonDefaults
 import top.yukonga.miuix.kmp.basic.Icon
+import top.yukonga.miuix.kmp.basic.Switch
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextButton
+import top.yukonga.miuix.kmp.basic.TextField
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.utils.SinkFeedback
 import top.yukonga.miuix.kmp.window.WindowDialog
 
 /**
- * 小组件模式的首页功能区：四列正方格，每个功能可选 1×1 / 2×1 / 1×2 / 2×2，各尺寸放各自真实的内容。
- * 长按进入编辑：再长按一格才能拖（普通上下滑照常滚动），拖右下角缩放、左上角移除、末尾「添加」找回。
- * 背景在设置中选择，小组件统一使用随正文配色的玻璃表面。
+ * 小组件模式的首页功能区：按组排，每组四列正方格，组内按顺序自动排紧凑；每个功能可选
+ * 1×1 / 2×1 / 1×2 / 2×2，各尺寸放各自真实的内容。
+ * 长按进入编辑：再长按一格才能拖（普通上下滑照常滚动），拖到别的组就挪过去；拖右下角缩放、
+ * 左上角移除、组末「添加」找回，点组名改名、改色、调顺序。
  */
 @Composable
 internal fun HomeWidgetGrid(
     rows: List<HomeServiceRow>,
-    wall: Backdrop,
+    /** 没编辑过时的默认分组。 */
+    defaults: List<HomeWidgetGroup>,
+    /** 不画的组（「显示常用功能」关掉时的常用功能组）。 */
+    hiddenGroups: Set<String>,
+    surface: WidgetSurface,
     ink: Color,
     paymentCode: suspend () -> String?,
     onLink: (String) -> Unit,
@@ -139,20 +163,18 @@ internal fun HomeWidgetGrid(
     val store = remember { SettingsStore() }
     val byId = rows.associateBy { it.key }
     val revision = HomeLayoutRevision.current
-    var widgets by remember(revision, byId.keys) {
-        mutableStateOf(
-            store.homeWidgets?.let { HomeWidgetLayout.decode(it, byId.keys) }
-                ?: HomeWidgetLayout.defaults(rows.map { it.key }) { byId[it]?.stat != null },
-        )
+    var groups by remember(revision, byId.keys, defaults) {
+        mutableStateOf(store.homeWidgets?.let { HomeWidgetLayout.decodeGroups(it, byId.keys) } ?: defaults)
     }
     var editing by remember { mutableStateOf(false) }
-    var adding by remember { mutableStateOf(false) }
-    BackHandler(enabled = editing || adding) {
-        if (adding) adding = false else editing = false
+    var adding by remember { mutableStateOf<String?>(null) }
+    var editingGroup by remember { mutableStateOf<String?>(null) }
+    BackHandler(enabled = editing || adding != null) {
+        if (adding != null) adding = null else editing = false
     }
-    fun save(next: List<HomeWidgetSpec>) {
-        widgets = next
-        store.homeWidgets = HomeWidgetLayout.encode(next)
+    fun save(next: List<HomeWidgetGroup>) {
+        groups = next
+        store.homeWidgets = HomeWidgetLayout.encodeGroups(next)
     }
 
     Column(modifier.fillMaxWidth()) {
@@ -165,58 +187,94 @@ internal fun HomeWidgetGrid(
                 ink = ink,
                 onReset = {
                     store.homeWidgets = null
-                    widgets = HomeWidgetLayout.defaults(rows.map { it.key }) { byId[it]?.stat != null }
+                    groups = defaults
                 },
                 onSettings = onOpenSettings,
                 onDone = { editing = false },
             )
         }
         WidgetCanvas(
-            widgets = widgets,
+            groups = groups,
+            hidden = hiddenGroups,
             byId = byId,
             editing = editing,
-            wall = wall,
+            surface = surface,
             ink = ink,
             paymentCode = paymentCode,
             onLink = onLink,
             onEdit = { editing = true },
-            onReorder = ::save,
-            onAdd = { adding = true },
+            onChange = ::save,
+            onAdd = { adding = it },
+            onEditGroup = { editingGroup = it },
             scroll = scroll,
             modifier = Modifier.padding(horizontal = 16.dp),
         )
+        AnimatedVisibility(visible = editing, enter = fadeIn(), exit = fadeOut()) {
+            AddGroupRow(ink) {
+                val id = "custom-" + kotlin.random.Random.nextInt(100000, 999999)
+                save(groups + HomeWidgetGroup(id, "新分组"))
+                editingGroup = id
+            }
+        }
     }
 
-    if (adding) {
-        val hidden = rows.filter { r -> widgets.none { it.routeId == r.key } }
-        WindowDialog(show = true, title = "添加小组件", onDismissRequest = { adding = false }) {
-            Column(Modifier.fillMaxWidth().heightIn(max = 420.dp).verticalScroll(rememberScrollState())) {
-                if (hidden.isEmpty()) {
-                    Text("所有功能都已经在首页上了", style = MiuixTheme.textStyles.body2,
-                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary, modifier = Modifier.padding(vertical = 12.dp))
-                }
-                hidden.forEach { r ->
-                    Row(
-                        Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).clickable {
-                            save(widgets + HomeWidgetSpec(r.key, if (r.stat != null) WidgetSize.WIDE else WidgetSize.SMALL))
-                            adding = false
-                        }.padding(horizontal = 8.dp, vertical = 10.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        WidgetIcon(r, 32.dp, MiuixTheme.colorScheme.onSurface)
-                        Spacer(Modifier.width(12.dp))
-                        Column(Modifier.weight(1f)) {
-                            Text(r.title, style = MiuixTheme.textStyles.body1)
-                            Text(r.subtitle, style = MiuixTheme.textStyles.footnote2,
-                                color = MiuixTheme.colorScheme.onSurfaceVariantSummary, maxLines = 1, overflow = TextOverflow.Ellipsis)
+    adding?.let { groupId ->
+        val group = groups.firstOrNull { it.id == groupId }
+        val hidden = rows.filter { r -> group?.widgets?.none { it.routeId == r.key } != false }
+        WindowDialog(show = true, title = "添加小组件", onDismissRequest = { adding = null }) {
+            Column(Modifier.fillMaxWidth()) {
+                // weight：平板横屏弹窗被限高时先压列表，关闭按钮不被裁掉
+                Column(Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState())) {
+                    if (hidden.isEmpty()) {
+                        Text("所有功能都已经在这一组里了", style = MiuixTheme.textStyles.body2,
+                            color = MiuixTheme.colorScheme.onSurfaceVariantSummary, modifier = Modifier.padding(vertical = 12.dp))
+                    }
+                    hidden.forEach { r ->
+                        Row(
+                            Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).clickable {
+                                val size = if (groupId == HomeWidgetLayout.QUICK_GROUP || r.stat == null) WidgetSize.SMALL else WidgetSize.WIDE
+                                save(groups.map { if (it.id == groupId) it.copy(widgets = it.widgets + HomeWidgetSpec(r.key, size)) else it })
+                                adding = null
+                            }.padding(horizontal = 8.dp, vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            WidgetIcon(r, 32.dp, MiuixTheme.colorScheme.onSurface)
+                            Spacer(Modifier.width(12.dp))
+                            Column(Modifier.weight(1f)) {
+                                Text(r.title, style = MiuixTheme.textStyles.body1)
+                                Text(r.subtitle, style = MiuixTheme.textStyles.footnote2,
+                                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            }
+                            Icon(Icons.Filled.Add, null, tint = MiuixTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
                         }
-                        Icon(Icons.Filled.Add, null, tint = MiuixTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
                     }
                 }
                 Spacer(Modifier.height(8.dp))
-                TextButton(text = "关闭", onClick = { adding = false }, modifier = Modifier.fillMaxWidth())
+                TextButton(text = "关闭", onClick = { adding = null }, modifier = Modifier.fillMaxWidth())
             }
         }
+    }
+
+    editingGroup?.let { id ->
+        val index = groups.indexOfFirst { it.id == id }
+        val group = groups.getOrNull(index) ?: return@let
+        GroupEditDialog(
+            group = group,
+            canMoveUp = index > 0,
+            canMoveDown = index < groups.lastIndex,
+            onDismiss = { editingGroup = null },
+            onConfirm = { title, hex ->
+                save(groups.map { if (it.id == id) it.copy(title = title, colorHex = hex) else it })
+                editingGroup = null
+            },
+            onMove = { delta ->
+                save(groups.toMutableList().apply { add((index + delta).coerceIn(0, lastIndex), removeAt(index)) })
+            },
+            onDelete = {
+                save(groups.filterNot { it.id == id })
+                editingGroup = null
+            },
+        )
     }
 }
 
@@ -280,39 +338,89 @@ internal fun HomeWallpaper(mode: String, imageData: String, modifier: Modifier =
     }
 }
 
-/** 网格本体：算格子尺寸、排位，并管拖动。 */
+/**
+ * 小组件的底。滚动时谁都不跑实时模糊，只有用户自己打开的液态玻璃例外：
+ * - [Plain]：纯色背景上用实心卡片，不做玻璃；
+ * - [Tint]：渐变背景上半透明底直接透出渐变（渐变本身就柔和，模糊它看不出差别）；
+ * - [Frost]：图片背景上贴预先模糊好的低清图，按小组件在页面上的位置取对应那一块；
+ * - [Liquid]：液态玻璃，实时采样壁纸层，带折射与高光。
+ */
+internal sealed interface WidgetSurface {
+    data object Plain : WidgetSurface
+    data object Tint : WidgetSurface
+    class Frost(val image: ImageBitmap, val filter: ColorFilter?, val wall: WallFrame) : WidgetSurface
+    class Liquid(val wall: Backdrop) : WidgetSurface
+}
+
+/** 壁纸在根坐标里的位置与尺寸，[WidgetSurface.Frost] 按它找每块小组件底下对应的那一块。 */
+@Stable
+internal class WallFrame {
+    var origin by mutableStateOf(Offset.Zero)
+    var size by mutableStateOf(IntSize.Zero)
+}
+
+/** 画布上排好的一块：[key] = `组id/路由id`（同一功能可以出现在几个组里），添加格是 `ADD_KEY/组id`。 */
+private class CanvasItem(val key: String, val group: String, val placed: PlacedWidget, val top: Float) {
+    val isAdd get() = placed.spec.routeId == ADD_KEY
+}
+
+/** 画布本体：所有组排在一张画布上，算格子尺寸、排位，并管拖动（跨组拖动也在这一层）。 */
 @Composable
 private fun WidgetCanvas(
-    widgets: List<HomeWidgetSpec>,
+    groups: List<HomeWidgetGroup>,
+    hidden: Set<String>,
     byId: Map<String, HomeServiceRow>,
     editing: Boolean,
-    wall: Backdrop,
+    surface: WidgetSurface,
     ink: Color,
     paymentCode: suspend () -> String?,
     onLink: (String) -> Unit,
     onEdit: () -> Unit,
-    onReorder: (List<HomeWidgetSpec>) -> Unit,
-    onAdd: () -> Unit,
+    onChange: (List<HomeWidgetGroup>) -> Unit,
+    onAdd: (String) -> Unit,
+    onEditGroup: (String) -> Unit,
     scroll: ScrollState?,
     modifier: Modifier = Modifier,
 ) {
     BoxWithConstraints(modifier.fillMaxWidth()) {
         val cols = HomeWidgetLayout.COLUMNS
         val cell = (maxWidth - GAP * (cols - 1)) / cols
+        val density = LocalDensity.current
+        val step = with(density) { (cell + GAP).toPx() }
+        val gapPx = with(density) { GAP.toPx() }
+        val headerPx = with(density) { GROUP_HEADER.toPx() }
+        val groupGapPx = with(density) { GROUP_GAP.toPx() }
         var resizing by remember { mutableStateOf<String?>(null) }
         var resizeSize by remember { mutableStateOf(WidgetSize.SMALL) }
         var resizeOrigin by remember { mutableStateOf(IntOffset.Zero) }
         var resizeStart by remember { mutableStateOf(Offset.Zero) }
         var resizeDelta by remember { mutableStateOf(Offset.Zero) }
-        val shown = widgets.filter { it.routeId in byId }.map {
-            if (it.routeId == resizing) it.copy(size = resizeSize) else it
+
+        // 逐组排：标题行（编辑态或有标题时）+ 组内自动排的格子；编辑时每组末尾多一个「添加」格
+        val visible = groups.filter { g -> g.id !in hidden && (editing || g.widgets.any { it.routeId in byId }) }
+        val headers = mutableListOf<Pair<HomeWidgetGroup, Float>>()
+        val items = mutableListOf<CanvasItem>()
+        var y = 0f
+        visible.forEach { g ->
+            if (editing || g.title.isNotBlank()) {
+                headers += g to y
+                y += headerPx
+            }
+            val shown = g.widgets.filter { it.routeId in byId }.map {
+                if ("${g.id}/${it.routeId}" == resizing) it.copy(size = resizeSize) else it
+            }
+            val placed = HomeWidgetLayout.pack(if (editing) shown + HomeWidgetSpec(ADD_KEY, WidgetSize.SMALL) else shown)
+            val top = y
+            placed.forEach { p ->
+                items += CanvasItem(if (p.spec.routeId == ADD_KEY) "$ADD_KEY/${g.id}" else "${g.id}/${p.spec.routeId}", g.id, p, top)
+            }
+            val rowCount = HomeWidgetLayout.rowCount(placed)
+            if (rowCount > 0) y += rowCount * step - gapPx
+            y += groupGapPx
         }
-        // 编辑时末尾多一个「添加」格，跟着一起排
-        val withAdd = if (editing) shown + HomeWidgetSpec(ADD_KEY, WidgetSize.SMALL) else shown
-        val placed = remember(withAdd) { HomeWidgetLayout.pack(withAdd) }
-        val rowCount = HomeWidgetLayout.rowCount(placed)
+        val totalPx = (y - groupGapPx).coerceAtLeast(0f)
         val height by animateDpAsState(
-            if (rowCount == 0) 0.dp else cell * rowCount + GAP * (rowCount - 1),
+            with(density) { totalPx.toDp() },
             spring(stiffness = Spring.StiffnessMediumLow), label = "widgetGridHeight",
         )
         var dragging by remember { mutableStateOf<String?>(null) }
@@ -324,33 +432,45 @@ private fun WidgetCanvas(
         var dragSize by remember { mutableStateOf(Offset.Zero) }
         // 上一次换位的目标：换完它挪走、别的格子滑到手指下时不会立刻再换，避免来回抖
         var lastHover by remember { mutableStateOf<String?>(null) }
-        val density = LocalDensity.current
-        val step = with(density) { (cell + GAP).toPx() }
         val haptic = LocalHapticFeedback.current
-        // 手势只在进入编辑时装一次，里面读到的列表和排位得是最新的
-        val latestWidgets by rememberUpdatedState(widgets)
-        val latestPlaced by rememberUpdatedState(placed)
+        // 手势只在进入编辑时装一次，里面读到的分组和排位得是最新的
+        val latestGroups by rememberUpdatedState(groups)
+        val latestItems by rememberUpdatedState(items)
         val dragPos = { fingerRoot - gridRoot - grab }
 
-        fun rectOf(p: PlacedWidget) = androidx.compose.ui.geometry.Rect(
-            Offset(p.col * step, p.row * step),
-            androidx.compose.ui.geometry.Size(p.spec.size.cols * step - GAP.value * density.density, p.spec.size.rows * step - GAP.value * density.density),
+        fun rectOf(item: CanvasItem) = Rect(
+            Offset(item.placed.col * step, item.top + item.placed.row * step),
+            Size(item.placed.spec.size.cols * step - gapPx, item.placed.spec.size.rows * step - gapPx),
         )
+
+        fun routeOf(key: String) = key.substringAfter('/')
 
         fun updateHover() {
             val id = dragging ?: return
             val center = dragPos() + dragSize / 2f
-            val hover = latestPlaced.firstOrNull { o -> o.spec.routeId != id && o.spec.routeId != ADD_KEY && rectOf(o).contains(center) }
+            val hover = latestItems.firstOrNull { it.key != id && rectOf(it).contains(center) }
             if (hover == null) { lastHover = null; return }
-            if (hover.spec.routeId == lastHover) return
-            lastHover = hover.spec.routeId
-            val list = latestWidgets
-            val from = list.indexOfFirst { it.routeId == id }
-            val to = list.indexOfFirst { it.routeId == hover.spec.routeId }
-            if (from >= 0 && to >= 0 && from != to) {
-                onReorder(list.toMutableList().apply { add(to, removeAt(from)) })
+            if (hover.key == lastHover) return
+            lastHover = hover.key
+            val from = id.substringBefore('/')
+            val route = routeOf(id)
+            val target = latestGroups.firstOrNull { it.id == hover.group } ?: return
+            val toIndex = if (hover.isAdd) target.widgets.size else target.widgets.indexOfFirst { it.routeId == hover.placed.spec.routeId }
+            if (toIndex < 0) return
+            val next = HomeWidgetLayout.move(latestGroups, from, route, hover.group, toIndex)
+            if (next != latestGroups) {
+                onChange(next)
+                dragging = "${hover.group}/$route"
                 haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
             }
+        }
+
+        fun resizeTo(key: String, size: WidgetSize) {
+            val group = key.substringBefore('/')
+            val route = routeOf(key)
+            onChange(latestGroups.map { g ->
+                if (g.id != group) g else g.copy(widgets = g.widgets.map { if (it.routeId == route) it.copy(size = size) else it })
+            })
         }
 
         // 拖到屏幕上下边缘时自动滚动：越靠边越快
@@ -362,10 +482,10 @@ private fun WidgetCanvas(
             val maxStep = with(density) { AUTO_SCROLL_MAX_STEP.toPx() }
             while (true) {
                 androidx.compose.runtime.withFrameNanos { }
-                val y = fingerRoot.y
+                val fy = fingerRoot.y
                 val delta = when {
-                    y < edge -> -(1f - (y / edge).coerceIn(0f, 1f)) * maxStep
-                    y > windowHeight - edge -> ((y - (windowHeight - edge)) / edge).coerceIn(0f, 1f) * maxStep
+                    fy < edge -> -(1f - (fy / edge).coerceIn(0f, 1f)) * maxStep
+                    fy > windowHeight - edge -> ((fy - (windowHeight - edge)) / edge).coerceIn(0f, 1f) * maxStep
                     else -> 0f
                 }
                 if (delta != 0f && page.scrollBy(delta) != 0f) updateHover()
@@ -378,27 +498,27 @@ private fun WidgetCanvas(
             val handle = RESIZE_HANDLE_TOUCH.toPx()
             awaitEachGesture {
                 val down = awaitFirstDown(requireUnconsumed = false)
-                val hit = latestPlaced.lastOrNull { it.spec.routeId != ADD_KEY && rectOf(it).contains(down.position) }
+                val hit = latestItems.lastOrNull { !it.isAdd && rectOf(it).contains(down.position) }
                     ?: return@awaitEachGesture
                 val rect = rectOf(hit)
                 if (down.position.x >= rect.right - handle && down.position.y >= rect.bottom - handle) {
                     val start = awaitTouchSlopOrCancellation(down.id) { c, _ -> c.consume() } ?: return@awaitEachGesture
-                    resizing = hit.spec.routeId
-                    resizeSize = hit.spec.size
+                    resizing = hit.key
+                    resizeSize = hit.placed.spec.size
                     resizeOrigin = IntOffset(rect.left.roundToInt(), rect.top.roundToInt())
                     resizeStart = Offset(rect.width, rect.height)
                     resizeDelta = Offset.Zero
                     val done = drag(start.id) { c ->
                         resizeDelta += c.position - c.previousPosition
-                        val next = WidgetSize.fromExtent((resizeStart.x + resizeDelta.x + GAP.toPx()) / step,
-                            (resizeStart.y + resizeDelta.y + GAP.toPx()) / step)
+                        val next = WidgetSize.fromExtent((resizeStart.x + resizeDelta.x + gapPx) / step,
+                            (resizeStart.y + resizeDelta.y + gapPx) / step)
                         if (next != resizeSize) {
                             resizeSize = next
                             haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                         }
                         c.consume()
                     }
-                    if (done) onReorder(latestWidgets.map { if (it.routeId == hit.spec.routeId) it.copy(size = resizeSize) else it })
+                    if (done) resizeTo(hit.key, resizeSize)
                     resizing = null
                 } else {
                     val press = awaitLongPressOrCancellation(down.id) ?: return@awaitEachGesture
@@ -406,7 +526,7 @@ private fun WidgetCanvas(
                     dragSize = Offset(rect.width, rect.height)
                     fingerRoot = gridRoot + press.position
                     lastHover = null
-                    dragging = hit.spec.routeId
+                    dragging = hit.key
                     haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                     drag(press.id) { c ->
                         fingerRoot = gridRoot + c.position
@@ -423,13 +543,24 @@ private fun WidgetCanvas(
                 .onGloballyPositioned { gridRoot = it.positionInRoot() }
                 .then(gestures),
         ) {
-            placed.forEach { p ->
-                key(p.spec.routeId) {
-                    val target = IntOffset((p.col * step).roundToInt(), (p.row * step).roundToInt())
+            headers.forEach { (g, top) ->
+                key("header/${g.id}") {
+                    Box(
+                        Modifier.offset { IntOffset(0, top.roundToInt()) }.fillMaxWidth().height(GROUP_HEADER)
+                            .enterOnce(visible.indexOf(g) + 1),
+                    ) {
+                        GroupHeader(g, editing, ink, onEdit = { onEditGroup(g.id) })
+                    }
+                }
+            }
+            items.forEach { item ->
+                val p = item.placed
+                key(item.key) {
+                    val target = IntOffset((p.col * step).roundToInt(), (item.top + p.row * step).roundToInt())
                     val w = cell * p.spec.size.cols + GAP * (p.spec.size.cols - 1)
                     val h = cell * p.spec.size.rows + GAP * (p.spec.size.rows - 1)
-                    val isDragged = dragging == p.spec.routeId
-                    val isResizing = resizing == p.spec.routeId
+                    val isDragged = dragging == item.key
+                    val isResizing = resizing == item.key
                     val pos = remember { Animatable(target, IntOffset.VectorConverter) }
                     // 拖动中每帧把位置同步给 pos，松手后从手指处弹回格子
                     LaunchedEffect(target, isDragged) {
@@ -442,7 +573,7 @@ private fun WidgetCanvas(
                     val width by animateDpAsState(w, spring(dampingRatio = 0.85f, stiffness = Spring.StiffnessMediumLow), label = "w")
                     val heightAnim by animateDpAsState(h, spring(dampingRatio = 0.85f, stiffness = Spring.StiffnessMediumLow), label = "h")
                     val lift by animateFloatAsState(if (isDragged) 1.05f else 1f, label = "lift")
-                    val shake = rememberShake(editing && !isDragged && !isResizing && p.spec.routeId != ADD_KEY, p.spec.routeId)
+                    val shake = rememberShake(editing && !isDragged && !isResizing && !item.isAdd, item.key)
                     val resizeWidth = with(density) { (resizeStart.x + resizeDelta.x).coerceIn(cell.toPx(), (cell * 2 + GAP).toPx()).toDp() }
                     val resizeHeight = with(density) { (resizeStart.y + resizeDelta.y).coerceIn(cell.toPx(), (cell * 2 + GAP).toPx()).toDp() }
 
@@ -451,33 +582,35 @@ private fun WidgetCanvas(
                             .offset { if (isResizing) resizeOrigin else pos.value }
                             .zIndex(if (isDragged || isResizing) 2f else 0f)
                             .size(if (isResizing) resizeWidth else width, if (isResizing) resizeHeight else heightAnim)
-                            // 摆动只改绘制层，不触发重组
+                            // 分组错峰入场；摆动只改绘制层，不触发重组
+                            .enterOnce(visible.indexOfFirst { it.id == item.group } + 1)
                             .graphicsLayer { scaleX = lift; scaleY = lift; rotationZ = shake() },
                     ) {
-                        if (p.spec.routeId == ADD_KEY) {
-                            AddTile(ink, onAdd)
+                        if (item.isAdd) {
+                            AddTile(ink) { onAdd(item.group) }
                         } else {
                             val row = byId.getValue(p.spec.routeId)
                             WidgetTile(
                                 row = row,
                                 size = p.spec.size,
-                                wall = wall,
+                                surface = surface,
                                 ink = ink,
                                 editing = editing,
                                 paymentCode = paymentCode,
                                 onLink = onLink,
-                                onLongClick ={ haptic.performHapticFeedback(HapticFeedbackType.LongPress); onEdit() },
+                                onLongClick = { haptic.performHapticFeedback(HapticFeedbackType.LongPress); onEdit() },
                             )
                             EditBadges(
                                 visible = editing && !isDragged,
-                                onRemove = { onReorder(widgets.filterNot { it.routeId == row.key }) },
+                                onRemove = {
+                                    onChange(latestGroups.map { g ->
+                                        if (g.id == item.group) g.copy(widgets = g.widgets.filterNot { it.routeId == row.key }) else g
+                                    })
+                                },
                                 // 把手只画记号，手势在网格那一层按热区判定；读屏可直接切尺寸
                                 resizeModifier = Modifier.semantics {
                                     customActions = WidgetSize.entries.map { size ->
-                                        CustomAccessibilityAction(size.key) {
-                                            onReorder(latestWidgets.map { if (it.routeId == row.key) it.copy(size = size) else it })
-                                            true
-                                        }
+                                        CustomAccessibilityAction(size.key) { resizeTo(item.key, size); true }
                                     }
                                 },
                             )
@@ -486,6 +619,129 @@ private fun WidgetCanvas(
                 }
             }
         }
+    }
+}
+
+/** 组标题：常规态只有标题；编辑态点一下打开分组设置，没标题的显示占位。 */
+@Composable
+private fun GroupHeader(group: HomeWidgetGroup, editing: Boolean, ink: Color, onEdit: () -> Unit) {
+    val dark = LocalIsDarkTheme.current
+    val color = CourseColors.parseHex(group.colorHex)?.let { if (dark) lerp(it, Color.White, 0.25f) else it } ?: ink
+    Row(
+        Modifier.fillMaxSize()
+            .then(if (editing) Modifier.clip(RoundedCornerShape(8.dp)).clickable(onClickLabel = "分组设置", onClick = onEdit) else Modifier)
+            .padding(start = 4.dp, end = 4.dp, bottom = 6.dp),
+        verticalAlignment = Alignment.Bottom,
+    ) {
+        Text(
+            group.title.ifBlank { "未命名分组" },
+            fontSize = 16.sp,
+            fontWeight = FontWeight.Bold,
+            color = if (group.title.isBlank()) ink.copy(alpha = 0.45f) else color,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f),
+        )
+        if (editing) Icon(Icons.Filled.Edit, "分组设置", tint = ink.copy(alpha = 0.55f), modifier = Modifier.size(16.dp))
+    }
+}
+
+/** 分组设置：标题、标题颜色（色板 + Hex）、上下移动、删除。 */
+@Composable
+private fun GroupEditDialog(
+    group: HomeWidgetGroup,
+    canMoveUp: Boolean,
+    canMoveDown: Boolean,
+    onDismiss: () -> Unit,
+    onConfirm: (title: String, colorHex: String) -> Unit,
+    onMove: (Int) -> Unit,
+    onDelete: () -> Unit,
+) {
+    var title by remember(group.id) { mutableStateOf(group.title) }
+    // 关 = 跟随主题（存空串），开 = 自己挑一个色
+    var addColor by remember(group.id) { mutableStateOf(group.colorHex.isNotEmpty()) }
+    val defaultTint = MiuixTheme.colorScheme.primary
+    var picked by remember(group.id) { mutableStateOf(CourseColors.parseHex(group.colorHex) ?: defaultTint) }
+    // Hex 输入框是草稿：解析得出来才同步给 picked，敲到一半的无效值只拦住「确定」
+    var hex by remember(group.id) { mutableStateOf(CourseColors.toHex(picked)) }
+    var confirmDelete by remember(group.id) { mutableStateOf(false) }
+    WindowDialog(show = true, title = "分组设置", onDismissRequest = onDismiss) {
+        Column(Modifier.fillMaxWidth()) {
+            Column(Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState())) {
+                TextField(
+                    value = title,
+                    onValueChange = { title = it.take(20) },
+                    label = "分组标题（留空则不显示）",
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Spacer(Modifier.height(14.dp))
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Text("自定义标题颜色", fontSize = 15.sp, modifier = Modifier.weight(1f))
+                    Switch(checked = addColor, onCheckedChange = { on ->
+                        addColor = on
+                        if (on) hex = CourseColors.toHex(picked)
+                    })
+                }
+                if (addColor) {
+                    Spacer(Modifier.height(10.dp))
+                    AppColorPicker(
+                        color = picked,
+                        onColorChanged = { picked = it; hex = CourseColors.toHex(it) },
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    Spacer(Modifier.height(10.dp))
+                    TextField(
+                        value = hex,
+                        onValueChange = { text -> hex = text; CourseColors.parseHex(text)?.let { picked = it } },
+                        label = "Hex 色值（#RRGGBB）",
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
+            }
+            Spacer(Modifier.height(16.dp))
+            if (confirmDelete) {
+                Text("这一组和里面的 ${group.widgets.size} 个小组件会一起删掉，可在编辑态点「复原」找回默认布局。",
+                    style = MiuixTheme.textStyles.body2, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
+                Spacer(Modifier.height(12.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    TextButton(text = "取消", onClick = { confirmDelete = false }, modifier = Modifier.weight(1f))
+                    TextButton(text = "删除", onClick = onDelete, modifier = Modifier.weight(1f), colors = ButtonDefaults.textButtonColorsPrimary())
+                }
+            } else {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    TextButton(text = "上移", onClick = { onMove(-1) }, enabled = canMoveUp, modifier = Modifier.weight(1f))
+                    TextButton(text = "下移", onClick = { onMove(1) }, enabled = canMoveDown, modifier = Modifier.weight(1f))
+                    TextButton(text = "删除", onClick = { confirmDelete = true }, modifier = Modifier.weight(1f))
+                }
+                Spacer(Modifier.height(8.dp))
+                TextButton(
+                    text = "确定",
+                    onClick = { onConfirm(title.trim(), if (addColor) CourseColors.toHex(picked) else "") },
+                    enabled = !addColor || CourseColors.parseHex(hex) != null,
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = ButtonDefaults.textButtonColorsPrimary(),
+                )
+            }
+        }
+    }
+}
+
+/** 编辑态最下面的「新建分组」。 */
+@Composable
+private fun AddGroupRow(ink: Color, onClick: () -> Unit) {
+    Row(
+        Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp)
+            .clip(RoundedCornerShape(TILE_RADIUS))
+            .border(1.2.dp, ink.copy(alpha = 0.3f), RoundedCornerShape(TILE_RADIUS))
+            .clickable(onClick = onClick)
+            .padding(vertical = 14.dp),
+        horizontalArrangement = Arrangement.Center,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(Icons.Filled.Add, null, tint = ink.copy(alpha = 0.75f), modifier = Modifier.size(18.dp))
+        Spacer(Modifier.width(6.dp))
+        Text("新建分组", fontSize = 14.sp, color = ink.copy(alpha = 0.85f))
     }
 }
 
@@ -511,7 +767,7 @@ private fun rememberShake(active: Boolean, id: String): () -> Float {
 private fun WidgetTile(
     row: HomeServiceRow,
     size: WidgetSize,
-    wall: Backdrop,
+    surface: WidgetSurface,
     ink: Color,
     editing: Boolean,
     paymentCode: suspend () -> String?,
@@ -520,14 +776,11 @@ private fun WidgetTile(
 ) {
     val origin = rememberExpandOriginSource()
     val density = LocalDensity.current
-    val shape = RoundedCornerShape(TILE_RADIUS)
-    val surface = Modifier.glassTile(wall, ink)
     Box(
         Modifier
             .fillMaxSize()
             .expandOriginSource(origin)
-            .then(surface)
-            .clip(shape)
+            .widgetSurface(surface, ink)
             .combinedClickable(
                 interactionSource = remember { MutableInteractionSource() },
                 indication = SinkFeedback(),
@@ -736,7 +989,7 @@ private fun Badge(icon: ImageVector, label: String, onClick: () -> Unit) {
     }
 }
 
-/** 编辑态末尾的「添加」格：描边加号。 */
+/** 编辑态每组末尾的「添加」格：描边加号；拖着别的格子落在这里 = 挪到这一组末尾。 */
 @Composable
 private fun AddTile(ink: Color, onClick: () -> Unit) {
     Box(
@@ -749,34 +1002,74 @@ private fun AddTile(ink: Color, onClick: () -> Unit) {
     }
 }
 
-/**
- * 玻璃格子：采壁纸模糊，再压一层按文字颜色反推的底色——白字压暗、黑字提亮，
- * 不管壁纸多花，字和底的对比度都有保证。
- */
+/** 按 [surface] 画小组件的底并裁成圆角；底色按文字颜色反推（白字压暗、黑字提亮），对比度有保证。 */
 @Composable
-private fun Modifier.glassTile(wall: Backdrop, ink: Color): Modifier {
+private fun Modifier.widgetSurface(surface: WidgetSurface, ink: Color): Modifier {
+    val shape = RoundedCornerShape(TILE_RADIUS)
+    val dark = LocalIsDarkTheme.current
     val lightInk = ink.luminanceApprox() > 0.5f
-    val tint = if (lightInk) Color.Black.copy(alpha = 0.24f) else Color.White.copy(alpha = 0.55f)
-    val edge = if (lightInk) Color.White.copy(alpha = 0.22f) else Color.White.copy(alpha = 0.7f)
-    val drawn = remember(wall, tint) {
-        Modifier.drawBackdrop(
-            backdrop = wall,
-            shape = { RoundedCornerShape(TILE_RADIUS) },
-            effects = {
-                vibrancy()
-                blur(16.dp.toPx(), TileMode.Decal)
-            },
-            highlight = null,
-            shadow = null,
-            onDrawSurface = { drawRect(tint) },
-        )
+    val tint = if (lightInk) Color.Black.copy(alpha = 0.24f) else Color.White.copy(alpha = if (dark) 0.10f else 0.55f)
+    val edge = if (lightInk || dark) Color.White.copy(alpha = 0.18f) else Color.White.copy(alpha = 0.7f)
+    return when (surface) {
+        WidgetSurface.Plain -> this
+            .then(if (dark) Modifier else Modifier.appCardShadow(shape = shape))
+            .clip(shape)
+            .background(AppCardColor)
+            .border(0.6.dp, MiuixTheme.colorScheme.onSurface.copy(alpha = if (dark) 0.09f else 0.065f), shape)
+        WidgetSurface.Tint -> this.clip(shape).background(tint).border(0.7.dp, edge, shape)
+        is WidgetSurface.Frost -> {
+            // 位置写进状态、在绘制阶段读：滚动只让这块重画一次贴图，不重组
+            var root by remember { mutableStateOf(Offset.Zero) }
+            this.onGloballyPositioned { root = it.positionInRoot() }
+                .clip(shape)
+                .drawBehind {
+                    val image = surface.image
+                    val wall = surface.wall.size
+                    if (wall.width > 0 && wall.height > 0) {
+                        // 和壁纸同一种 Crop 取景，再平移到这块小组件的位置
+                        val scale = max(wall.width.toFloat() / image.width, wall.height.toFloat() / image.height)
+                        val dx = (wall.width - image.width * scale) / 2f + surface.wall.origin.x - root.x
+                        val dy = (wall.height - image.height * scale) / 2f + surface.wall.origin.y - root.y
+                        drawImage(
+                            image,
+                            dstOffset = IntOffset(dx.roundToInt(), dy.roundToInt()),
+                            dstSize = IntSize((image.width * scale).roundToInt(), (image.height * scale).roundToInt()),
+                            colorFilter = surface.filter,
+                            filterQuality = FilterQuality.Low,
+                        )
+                    }
+                    drawRect(tint)
+                }
+                .border(0.7.dp, edge, shape)
+        }
+        is WidgetSurface.Liquid -> {
+            val accent = MiuixTheme.colorScheme.primary
+            val shadow = remember(accent, dark) { floatingGlassShadow(accent, dark) }
+            this then remember(surface.wall, tint, shadow) {
+                Modifier.drawBackdrop(
+                    backdrop = surface.wall,
+                    shape = { shape },
+                    effects = {
+                        // 采样范围往外扩一圈，折射在轮廓边上也有真实内容可混
+                        padding = maxOf(padding, 12.dp.toPx())
+                        vibrancy()
+                        blur(8.dp.toPx())
+                        lens(10.dp.toPx(), 14.dp.toPx(), chromaticAberration = true)
+                    },
+                    highlight = { Highlight.Default.copy(alpha = 0.65f) },
+                    shadow = { shadow },
+                    onDrawSurface = { drawRect(tint) },
+                )
+            } then Modifier.clip(shape)
+        }
     }
-    return this then drawn then Modifier.border(0.7.dp, edge, RoundedCornerShape(TILE_RADIUS))
 }
 
 private fun Color.luminanceApprox(): Float = 0.2126f * red + 0.7152f * green + 0.0722f * blue
 
 private val GAP = 10.dp
+private val GROUP_HEADER = 38.dp
+private val GROUP_GAP = 18.dp
 private val RESIZE_HANDLE_TOUCH = 44.dp
 private val AUTO_SCROLL_EDGE = 104.dp
 private val AUTO_SCROLL_MAX_STEP = 14.dp

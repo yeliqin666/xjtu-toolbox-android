@@ -23,9 +23,21 @@ data class HomeWidgetSpec(val routeId: String, val size: WidgetSize)
 /** 排好位置的小组件：左上角在第 [col] 列、第 [row] 行。 */
 data class PlacedWidget(val spec: HomeWidgetSpec, val col: Int, val row: Int)
 
+/**
+ * 一组小组件：组内按顺序自动排（[HomeWidgetLayout.pack]）。[title] 为空时常规态不画标题行；
+ * [colorHex] 是标题颜色，空串 = 跟随主题。同一个功能可以同时出现在不同组里（比如常用功能）。
+ */
+data class HomeWidgetGroup(
+    val id: String,
+    val title: String = "",
+    val colorHex: String = "",
+    val widgets: List<HomeWidgetSpec> = emptyList(),
+)
+
 /** 小组件的落盘格式、默认布局与排版。 */
 object HomeWidgetLayout {
     const val COLUMNS = 4
+    const val QUICK_GROUP = "quick"
 
     fun encode(widgets: List<HomeWidgetSpec>): List<String> = widgets.map { "${it.routeId}:${it.size.key}" }
 
@@ -36,6 +48,52 @@ object HomeWidgetLayout {
             val size = WidgetSize.of(line.substringAfter(':', "").trim()) ?: return@mapNotNull null
             HomeWidgetSpec(id, size).takeIf { id in available }
         }.distinctBy { it.routeId }
+
+    /** 分组落盘：每组一行 `#id\t标题\t颜色`，下面跟着本组的 `路由id:尺寸`。 */
+    fun encodeGroups(groups: List<HomeWidgetGroup>): List<String> = groups.flatMap { g ->
+        listOf("#" + listOf(g.id, g.title, g.colorHex).joinToString("\t") { it.replace('\t', ' ').replace('\n', ' ') }) +
+            encode(g.widgets)
+    }
+
+    /** 早先的存档没有组标题行：整串当成一个无标题组。 */
+    fun decodeGroups(lines: List<String>, available: Collection<String>): List<HomeWidgetGroup> {
+        if (lines.none { it.startsWith('#') }) return listOf(HomeWidgetGroup("main", widgets = decode(lines, available)))
+        val groups = mutableListOf<HomeWidgetGroup>()
+        var header: List<String>? = null
+        val body = mutableListOf<String>()
+        fun flush() {
+            header?.let { h -> groups += HomeWidgetGroup(h[0], h.getOrElse(1) { "" }, h.getOrElse(2) { "" }, decode(body, available)) }
+            body.clear()
+        }
+        lines.forEach { line ->
+            if (line.startsWith('#')) {
+                flush()
+                header = line.drop(1).split('\t')
+            } else body += line
+        }
+        flush()
+        return groups.distinctBy { it.id }
+    }
+
+    /** 默认分组：常用功能（小格）在最上面，下面每个分类一组。 */
+    fun defaultGroups(
+        quick: List<String>,
+        categories: List<Triple<String, String, List<String>>>,
+        hasStat: (String) -> Boolean,
+    ): List<HomeWidgetGroup> =
+        listOf(HomeWidgetGroup(QUICK_GROUP, "常用功能", widgets = quick.distinct().map { HomeWidgetSpec(it, WidgetSize.SMALL) })) +
+            categories.map { (id, title, routes) -> HomeWidgetGroup(id, title, widgets = defaults(routes, hasStat)) }
+
+    /** 把 [fromGroup] 组里的 [routeId] 挪到 [toGroup] 组的第 [toIndex] 位；跨组时目标组已有同一功能就不动。 */
+    fun move(groups: List<HomeWidgetGroup>, fromGroup: String, routeId: String, toGroup: String, toIndex: Int): List<HomeWidgetGroup> {
+        val spec = groups.firstOrNull { it.id == fromGroup }?.widgets?.firstOrNull { it.routeId == routeId } ?: return groups
+        if (fromGroup != toGroup && groups.firstOrNull { it.id == toGroup }?.widgets?.any { it.routeId == routeId } != false) return groups
+        val removed = groups.map { g -> if (g.id == fromGroup) g.copy(widgets = g.widgets - spec) else g }
+        return removed.map { g ->
+            if (g.id != toGroup) g
+            else g.copy(widgets = g.widgets.toMutableList().apply { add(toIndex.coerceIn(0, size), spec) })
+        }
+    }
 
     /**
      * 没编辑过时的默认布局：按目录顺序，有实时状态的功能给横条（能放下一行数字），其余给小格。

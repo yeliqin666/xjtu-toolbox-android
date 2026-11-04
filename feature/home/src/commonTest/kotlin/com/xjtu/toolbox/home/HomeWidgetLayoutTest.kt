@@ -47,6 +47,47 @@ class HomeWidgetLayoutTest {
     }
 
     @Test
+    fun `分组落盘往返，标题里的制表符和换行不会破坏格式`() {
+        val groups = listOf(
+            HomeWidgetGroup("quick", "常用\t功能", "", listOf(spec("a", WidgetSize.SMALL))),
+            HomeWidgetGroup("custom-1", "", "#FF8800", listOf(spec("b", WidgetSize.WIDE), spec("a", WidgetSize.LARGE))),
+            HomeWidgetGroup("empty", "空组"),
+        )
+        assertEquals(
+            listOf(
+                groups[0].copy(title = "常用 功能"),
+                groups[1],
+                groups[2],
+            ),
+            HomeWidgetLayout.decodeGroups(HomeWidgetLayout.encodeGroups(groups), available = setOf("a", "b")),
+        )
+    }
+
+    @Test
+    fun `没有组标题行的老存档整串当成一个组`() {
+        assertEquals(
+            listOf(HomeWidgetGroup("main", widgets = listOf(spec("a", WidgetSize.WIDE)))),
+            HomeWidgetLayout.decodeGroups(listOf("a:2x1", "gone:1x1"), available = setOf("a")),
+        )
+    }
+
+    @Test
+    fun `组内换位与跨组挪动，目标组已有同一功能时不动`() {
+        val groups = listOf(
+            HomeWidgetGroup("g1", widgets = listOf(spec("a", WidgetSize.SMALL), spec("b", WidgetSize.SMALL), spec("c", WidgetSize.SMALL))),
+            HomeWidgetGroup("g2", widgets = listOf(spec("b", WidgetSize.WIDE))),
+        )
+        assertEquals(
+            listOf("c", "a", "b"),
+            HomeWidgetLayout.move(groups, "g1", "c", "g1", 0)[0].widgets.map { it.routeId },
+        )
+        val moved = HomeWidgetLayout.move(groups, "g1", "a", "g2", 1)
+        assertEquals(listOf("b", "c"), moved[0].widgets.map { it.routeId })
+        assertEquals(listOf("b", "a"), moved[1].widgets.map { it.routeId })
+        assertEquals(groups, HomeWidgetLayout.move(groups, "g1", "b", "g2", 0))
+    }
+
+    @Test
     fun `横向和纵向独立吸附，可以一次拖成任意尺寸`() {
         assertEquals(WidgetSize.SMALL, WidgetSize.fromExtent(1.49f, 1.49f))
         assertEquals(WidgetSize.WIDE, WidgetSize.fromExtent(1.5f, 1f))

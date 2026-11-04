@@ -59,6 +59,8 @@ internal fun HomeTab(
     contentTopPadding: androidx.compose.ui.unit.Dp = 0.dp,
     /** 壳把整页上移的量（见 `ShellPageInsets.contentTopShift`）；首页模糊带按它补回屏幕顶边。 */
     contentTopShift: () -> androidx.compose.ui.unit.Dp = { 0.dp },
+    /** 顶栏最左边那个按钮（「功能按钮统一右对齐」关掉时的扫码）。 */
+    topLeading: (@Composable () -> Unit)? = null,
     topActions: (@Composable () -> Unit)? = null,
 ) {
     val home = rememberAppHome(
@@ -73,13 +75,19 @@ internal fun HomeTab(
         onBulletinDismiss = onBulletinDismiss,
     )
     SubsystemStatusSheet(loginState, home.showStatusSheet)
-    com.xjtu.toolbox.settings.HomeSettingsSheet(home.showSettingsSheet.value, onDismiss = { home.showSettingsSheet.value = false })
+    // `:app` 自己画首页顶栏圆钮，所以抽屉里带「顶栏排法」那一行
+    com.xjtu.toolbox.settings.HomeSettingsSheet(
+        home.showSettingsSheet.value,
+        onDismiss = { home.showSettingsSheet.value = false },
+        showTopBarStyle = true,
+    )
     HomeScreen(
         host = home.host,
         scrollBehavior = scrollBehavior,
         extraBottomPadding = extraBottomPadding,
         contentTopPadding = contentTopPadding,
         contentTopShift = contentTopShift,
+        topLeading = topLeading,
         topActions = topActions,
     )
 }
