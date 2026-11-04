@@ -95,4 +95,5 @@ interface SettingsHost {
 
     /** 功能图标（底栏候选列表用，与首页宫格同一套）；null = 不画图标。 */
     val serviceIcon: ((AppRoute) -> ImageVector)? get() = null
+    val launcherShortcutPreference: (@Composable () -> Unit)? get() = null
 }

@@ -8,17 +8,6 @@
     <string name="campus_card_widget_name">Campus Card</string>
     <string name="campus_card_widget_desc">Balance and today\'s spending</string>
 
-    <string name="shortcut_agent_short">AI</string>
-    <string name="shortcut_agent_long">Ask AI</string>
-    <string name="shortcut_schedule_short">Schedule</string>
-    <string name="shortcut_schedule_long">My schedule</string>
-    <string name="shortcut_card_short">Card</string>
-    <string name="shortcut_card_long">Card balance</string>
-    <string name="shortcut_empty_room_short">Rooms</string>
-    <string name="shortcut_empty_room_long">Find empty rooms</string>
-    <string name="shortcut_payment_short">Pay</string>
-    <string name="shortcut_payment_long">Show payment code</string>
-
     <string name="notice_widget_name">Notices</string>
     <string name="notice_widget_desc">Last 4 notices from selected sources</string>
 </resources>

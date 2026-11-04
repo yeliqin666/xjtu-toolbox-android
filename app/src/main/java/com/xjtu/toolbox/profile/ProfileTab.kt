@@ -44,6 +44,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.xjtu.toolbox.auth.*
+import com.xjtu.toolbox.home.EnrollmentCertificate
 import com.xjtu.toolbox.ui.components.AppCardColor
 import com.xjtu.toolbox.ui.components.appCardShadow
 import com.xjtu.toolbox.ui.components.enterOnce
@@ -70,6 +71,9 @@ import top.yukonga.miuix.kmp.basic.ScrollBehavior
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextButton
 import top.yukonga.miuix.kmp.basic.TextField
+import top.yukonga.miuix.kmp.basic.SmallTitle
+import top.yukonga.miuix.kmp.overlay.OverlayBottomSheet
+import top.yukonga.miuix.kmp.preference.ArrowPreference
 import top.yukonga.miuix.kmp.overlay.OverlayDialog
 import top.yukonga.miuix.kmp.squircle.squircleBackground
 import top.yukonga.miuix.kmp.squircle.squircleClip
@@ -254,12 +258,16 @@ private fun ProfileMenuRow(
     subtitle: String? = null,
     titleColor: Color = MiuixTheme.colorScheme.onSurface,
     trailingIcon: ImageVector? = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+    /** 点了打开的页面：给了就从这一行长出一镜到底的转场（ROM 不支持时 [onClick] 照常打开）。 */
+    route: AppRoute? = null,
 ) {
     val dark = com.xjtu.toolbox.ui.theme.LocalIsDarkTheme.current
+    val origin = com.xjtu.toolbox.nav.rememberSeamlessOrigin(16.dp)
     Row(
         Modifier
             .fillMaxWidth()
-            .pressOverlay(onClick = onClick)
+            .then(if (route != null) origin.modifier else Modifier)
+            .pressOverlay(onClick = { if (route != null) origin.open(route, onClick) else onClick() })
             .padding(horizontal = 16.dp, vertical = 13.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -884,7 +892,7 @@ internal fun ProfileTab(
                 }
                 Spacer(Modifier.height(PROFILE_GAP))
                 MenuGroup(Modifier.enterOnce(2)) {
-                    ProfileMenuRow(Icons.Outlined.Settings, TINT_SLATE, "设置", onClick = { onNavigate(AppRoute.Settings) })
+                    ProfileMenuRow(Icons.Outlined.Settings, TINT_SLATE, "设置", onClick = { onNavigate(AppRoute.Settings) }, route = AppRoute.Settings)
                 }
             } else {
                 // ━━ 已登录 ━━
@@ -893,22 +901,51 @@ internal fun ProfileTab(
                     Spacer(Modifier.height(PROFILE_GAP))
                 }
 
+                if (loginState.accountType == AccountType.UNDERGRADUATE) {
+                    var showCertificate by remember { mutableStateOf(false) }
+                    SmallTitle("学业材料")
+                    MenuGroup {
+                        ProfileMenuRow(Icons.Outlined.Description, TINT_TEAL, "电子成绩单", onClick = { onNavigate(AppRoute.Transcript) }, route = AppRoute.Transcript)
+                        MenuDivider()
+                        ProfileMenuRow(Icons.Outlined.School, TINT_TEAL, "在读证明", subtitle = "中文或中英文",
+                            onClick = { showCertificate = true })
+                    }
+                    Spacer(Modifier.height(PROFILE_GAP))
+                    if (showCertificate) OverlayBottomSheet(
+                        show = true, title = "在读证明", onDismissRequest = { showCertificate = false },
+                    ) {
+                        Column(Modifier.navigationBarsPadding()) {
+                            EnrollmentCertificate.entries.forEach { certificate ->
+                                ArrowPreference(
+                                    title = certificate.label, summary = "在学校电子凭证平台申请与下载",
+                                    onClick = {
+                                        showCertificate = false
+                                        onNavigate(AppRoute.Browser(certificate.url))
+                                    },
+                                )
+                            }
+                        }
+                    }
+                }
+
                 MenuGroup(Modifier.enterOnce(2)) {
                     ProfileMenuRow(
                         Icons.Outlined.ManageAccounts, MiuixTheme.colorScheme.primary, "账号管理",
                         onClick = { onNavigate(AppRoute.Accounts) },
                         subtitle = if (accountCount > 0) "已保存 $accountCount 个账号" else "切换或添加账号",
+                        route = AppRoute.Accounts,
                     )
                     MenuDivider()
                     ProfileMenuRow(
                         Icons.Outlined.Download, TINT_TEAL, "下载管理",
                         onClick = { onNavigate(AppRoute.DownloadManager) },
                         subtitle = downloadSummary ?: "查看下载进度和记录",
+                        route = AppRoute.DownloadManager,
                     )
                 }
                 Spacer(Modifier.height(PROFILE_GAP))
                 MenuGroup(Modifier.enterOnce(3)) {
-                    ProfileMenuRow(Icons.Outlined.Settings, TINT_SLATE, "设置", onClick = { onNavigate(AppRoute.Settings) })
+                    ProfileMenuRow(Icons.Outlined.Settings, TINT_SLATE, "设置", onClick = { onNavigate(AppRoute.Settings) }, route = AppRoute.Settings)
                 }
                 Spacer(Modifier.height(PROFILE_GAP))
 

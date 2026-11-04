@@ -9,12 +9,28 @@ import kotlin.test.Test
  * 这里把「字符串 → 对象 → 字符串」来回一圈钉死，尤其是三种带参数的写法。
  */
 class AppRouteTest {
+    @Test
+    fun `在读证明保留工作流参数并复用电子凭证认证`() {
+        com.xjtu.toolbox.home.EnrollmentCertificate.entries.forEach { certificate ->
+            val route = AppRoute.Browser(certificate.url)
+            assertEquals(route, appRouteOf(route.id))
+            assertEquals(com.xjtu.toolbox.auth.LoginType.DZPZ, route.loginType)
+        }
+        assertNull(AppRoute.Browser("https://dzpz.xjtu.edu.cn.example.org/").loginType)
+    }
 
     @Test
     fun `无参数路由来回一致`() {
         listOf(AppRoute.Main, AppRoute.Settings, AppRoute.Jiaocai1, AppRoute.Match, AppRoute.Game2048).forEach { route ->
             assertEquals(route, appRouteOf(route.id))
         }
+    }
+
+    @Test
+    fun `社区帖子编号来回一致`() {
+        assertEquals(AppRoute.CommunityPost(42), appRouteOf(AppRoute.CommunityPost(42).id))
+        assertNull(appRouteOf("community/0"))
+        assertNull(appRouteOf("community/abc"))
     }
 
     @Test
@@ -37,6 +53,22 @@ class AppRouteTest {
         val id = AppRoute.Jiaocai1Reader("12345", "高等数学（第七版）上册").id
         assertEquals(AppRoute.Jiaocai1Reader("12345", "高等数学（第七版）上册"), appRouteOf(id))
         assertNull(appRouteOf("jiaocai1_reader/"))
+    }
+
+    @Test
+    fun `公告详情把标题正文链接随路由带走`() {
+        val route = AppRoute.NoticeDetail(
+            noticeId = "notice-1",
+            level = "warn",
+            title = "校园网维护通知",
+            body = "10 月 2 日 0:00-6:00 断网，影响 & 全部宿舍区。\n请提前保存。",
+            url = "https://example.com/a?b=1&c=中文",
+        )
+        assertEquals(route, appRouteOf(route.id))
+        // body / url 为空时不写进 id，解析回来是默认值
+        val brief = AppRoute.NoticeDetail(noticeId = "notice-2", level = "info", title = "短公告")
+        assertEquals(brief, appRouteOf(brief.id))
+        assertNull(appRouteOf("notice_detail/"))
     }
 
     @Test

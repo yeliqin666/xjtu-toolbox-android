@@ -36,8 +36,8 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
  * 屁岱主界面。
  *
  * 作为底栏的 0 级 tab 嵌在 MainScreen 的 Scaffold 里，自己**不**渲染 Scaffold / TopAppBar /
- * 返回箭头——顶栏归宿主，标题、副标题（当前会话）和「历史 / 新对话 / 设置」按钮通过
- * [onTitleChange] / [onSubtitleChange] / [onActionsChange] / [onNavIconChange] 反向送上去。
+ * 返回箭头——顶栏归宿主，标题（当前对话）和「历史 / 新对话 / 设置」按钮通过
+ * [onTitleChange] / [onActionsChange] / [onNavIconChange] 反向送上去。
  * 侧栏和设置页是全屏层：宿主给了 [overlays] 就画在宿主最外层（盖住顶栏和底栏），否则盖在本页内容区。
  */
 @Composable
@@ -47,6 +47,7 @@ fun AgentScreen(
     session: AgentChatSession? = null,
     /** 系统相册挑图的适配器（`:app` 用 `rememberLauncherForActivityResult` 实现，见那个模块的 `rememberAndroidAgentImagePicker`）。 */
     imagePicker: AgentImagePicker = AgentImagePicker.None,
+    contentModifier: Modifier = Modifier,
     onNavigate: (AppRoute) -> Unit = {},
     /** tab 模式下需要额外空出的底部高度（悬浮胶囊底栏不占宿主 contentPadding，见调用处）。 */
     extraBottomPadding: Dp = 0.dp,
@@ -54,7 +55,6 @@ fun AgentScreen(
     hostBottomPadding: Dp = 0.dp,
     scrollBehavior: ScrollBehavior? = null,
     onTitleChange: (String) -> Unit = {},
-    onSubtitleChange: (String) -> Unit = {},
     onActionsChange: ((@Composable RowScope.() -> Unit)?) -> Unit = {},
     onNavIconChange: ((@Composable () -> Unit)?) -> Unit = {},
     overlays: AgentOverlays? = null,
@@ -65,6 +65,7 @@ fun AgentScreen(
     pokeWhisper: @Composable (Modifier) -> Unit = {},
     /** 「形象选择」那一整块：`:app` 交 `PidaiAppearancePanel`；没有形象设置的端传 null。 */
     appearanceSection: (@Composable () -> Unit)? = null,
+    pushPreferences: (@Composable () -> Unit)? = null,
     /** 配置面板里那两格要交给宿主的（见 [ConfigPanel] 的 `apiKeySection` / `memorySection`）：浏览器那一端拿不到 key（它在 serve 上）、模型用的记忆也在 serve ⇒ 这两块得由它自己画。 */
     apiKeySection: (@Composable () -> Unit)? = null,
     memorySection: (@Composable () -> Unit)? = null,
@@ -77,6 +78,7 @@ fun AgentScreen(
     var config by remember { mutableStateOf(host.loadConfig()) }
     // 不要 rememberSaveable：冷启动第一帧可能读到空 key，之后会把设置页钉死。
     var showConfig by remember { mutableStateOf(false) }
+    var showPushPreferences by remember { mutableStateOf(false) }
     // 宿主侧 remember，key 固定即可（切 tab 不丢）。
     val vm: AgentChatSession = session ?: viewModel(key = "agent") { AgentViewModel(host) }
 
@@ -86,7 +88,7 @@ fun AgentScreen(
             onDismissRequest = { vm.answerExternalTool(false) },
         ) {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Column(Modifier.heightIn(max = 280.dp).then(Modifier.verticalScroll(androidx.compose.foundation.rememberScrollState()))) {
+                Column(Modifier.weight(1f, fill = false).heightIn(max = 280.dp).verticalScroll(androidx.compose.foundation.rememberScrollState())) {
                     Text("服务：${request.endpoint}\n工具：${request.tool}\n参数：${request.arguments}")
                 }
                 val leaks = remember(request.arguments) { personalDataHints(request.arguments) }
@@ -126,7 +128,7 @@ fun AgentScreen(
             vm.draft = pending.text
             return@LaunchedEffect
         }
-        vm.sendMessage(pending.text, config, llmAnnex = pending.snapshot, images = pending.images)
+        vm.sendMessage(pending.text, config, llmAnnex = pending.snapshot?.let(AgentAnnex::snapshot), images = pending.images)
     }
 
     // 点屁岱推送的通知进来：切到「推送记录」，定位并闪一下那一条（#194）
@@ -202,11 +204,10 @@ fun AgentScreen(
         }
     }
 
-    // 标题是助手名（用户可改名），副标题是当前对话。
-    val hostTitle = config.effectiveName
+    // 标题是当前对话的名字；新对话还没名字时用助手名（用户可改名）
+    val hostTitle = vm.sessions.firstOrNull { it.id == vm.currentSessionId }?.title
+        ?.takeIf { it.isNotBlank() } ?: config.effectiveName
     LaunchedEffect(hostTitle) { onTitleChange(hostTitle) }
-    val hostSubtitle = vm.sessions.firstOrNull { it.id == vm.currentSessionId }?.title.orEmpty()
-    LaunchedEffect(hostSubtitle) { onSubtitleChange(hostSubtitle) }
     DisposableEffect(Unit) {
         onActionsChange(headerActions)
         onNavIconChange(headerNavIcon)
@@ -275,9 +276,20 @@ fun AgentScreen(
                 scrollBehavior = effectiveScrollBehavior,
                 onNavigate = onNavigate,
                 onOpenConfig = { showConfig = true },
+                onPushPreferences = { if (pushPreferences != null) showPushPreferences = true else showConfig = true },
                 bottomReserve = extraBottomPadding,
+                modifier = contentModifier,
             )
 
+            if (showPushPreferences && pushPreferences != null) {
+                top.yukonga.miuix.kmp.window.WindowDialog(
+                    show = true, title = "推送设置", onDismissRequest = { showPushPreferences = false },
+                ) {
+                    Column(Modifier.heightIn(max = 440.dp).verticalScroll(androidx.compose.foundation.rememberScrollState())) {
+                        pushPreferences()
+                    }
+                }
+            }
             // OverlayDialog 必须在 Scaffold content 里：靠 Scaffold 提供的弹窗宿主渲染。
             // 写在 Scaffold 外面会注册进空列表，点了没反应。
             actionTarget?.let { target ->

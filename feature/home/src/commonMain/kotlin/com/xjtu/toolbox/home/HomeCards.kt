@@ -63,7 +63,7 @@ object HomeCards {
     /** 某个功能此刻的状态。 */
     fun statOf(key: String, stats: Map<String, HomeStat>): HomeStat? = when (key) {
         AppRoute.CampusCard.id, AppRoute.SchoolCalendar.id -> null
-        AppRoute.Fitness.id -> stats[key]?.takeIf { it.value.trim().toDoubleOrNull()?.let { score -> score >= 60 } == true }
+        AppRoute.Fitness.id -> stats[key]
         AppRoute.Attendance.id -> stats[AppRoute.Attendance.id]?.let { att ->
             val punch = stats[AppRoute.Iclassface.id]
             val detail = if (punch != null && punch.value != "今日未刷卡") {

@@ -38,14 +38,6 @@ import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
-/** 四个饭点的固定配色，饭点节奏图和下面的小格子共用。 */
-private val MEAL_COLORS = linkedMapOf(
-    "早餐" to Color(0xFFFFB74D),
-    "午餐" to Color(0xFFFF8A65),
-    "晚餐" to Color(0xFF7986CB),
-    "夜宵" to Color(0xFF5C6BC0),
-)
-
 /** 与 [CampusCardAnalysis.analyzeMealTimes] 的时段划分一致；15、16 点不算正餐，给灰色。 */
 private fun mealOfHour(hour: Int): String? = when (hour) {
     in 5..10 -> "早餐"
@@ -150,6 +142,8 @@ private fun PersonaChip(emoji: String, text: String, index: Int, tint: Color) {
 @Composable
 internal fun MealRhythmCard(hourly: List<Int>, mealStats: Map<String, MealTimeStats>) {
     if (hourly.size != 24 || hourly.all { it == 0 }) return
+    val palette = campusCardPalette()
+    val mealColors = linkedMapOf("早餐" to palette[3], "午餐" to palette[7], "晚餐" to palette[2], "夜宵" to palette[4])
     val max = hourly.max().toFloat()
     val peak = hourly.indices.maxBy { hourly[it] }
     val grow = rememberRevealProgress(hourly, spec = tween(1100, easing = FastOutSlowInEasing))
@@ -186,7 +180,7 @@ internal fun MealRhythmCard(hourly: List<Int>, mealStats: Map<String, MealTimeSt
                             val barH = size.height * full * local
                             drawRoundRect(track, Offset(x, 0f), Size(barW, size.height), r)
                             if (barH > 0f) {
-                                val c = mealOfHour(h)?.let { MEAL_COLORS[it] } ?: idle
+                                val c = mealOfHour(h)?.let { mealColors[it] } ?: idle
                                 drawRoundRect(c, Offset(x, size.height - barH), Size(barW, barH), r)
                             }
                         }
@@ -198,13 +192,13 @@ internal fun MealRhythmCard(hourly: List<Int>, mealStats: Map<String, MealTimeSt
                     Text(it, style = MiuixTheme.textStyles.footnote2, color = summary)
                 }
             }
-            val present = MEAL_COLORS.keys.filter { mealStats[it] != null }
+            val present = mealColors.keys.filter { mealStats[it] != null }
             if (present.isNotEmpty()) {
                 Spacer(Modifier.height(14.dp))
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     present.forEach { name ->
                         val stat = mealStats.getValue(name)
-                        val c = MEAL_COLORS.getValue(name)
+                        val c = mealColors.getValue(name)
                         Column(
                             Modifier
                                 .weight(1f)
@@ -228,7 +222,7 @@ internal fun MealRhythmCard(hourly: List<Int>, mealStats: Map<String, MealTimeSt
 }
 
 private val PODIUM = listOf(
-    Triple("🥇", Color(0xFFFFC940), 76.dp),
+    Triple("🥇", Color(0xFFB59A63), 76.dp),
     Triple("🥈", Color(0xFFB0BEC5), 54.dp),
     Triple("🥉", Color(0xFFD7A07A), 40.dp),
 )
@@ -251,7 +245,7 @@ internal fun TopMerchantsCard(monthlyStats: List<MonthlyStats>) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(
                     Icons.Default.EmojiEvents, null,
-                    tint = Color(0xFFFFB300), modifier = Modifier.size(18.dp)
+                    tint = Color(0xFFB59A63), modifier = Modifier.size(18.dp)
                 )
                 Spacer(Modifier.width(6.dp))
                 Text("消费排行", style = MiuixTheme.textStyles.subtitle, fontWeight = FontWeight.Medium)

@@ -430,7 +430,12 @@ fun GlassBottomTabs(
             ) {
                 tabs.forEachIndexed { index, tab ->
                     if (tab.tintExempt) {
-                        GlassNavTabSlot(onClick = tabOnClick(index)) {
+                        // 屁岱是当前格时滑块正压在它下面：重叠的兄弟节点只有最上面的收得到触摸，
+                        // 所以把滑块的拖动也挂在这一格上，从屁岱按住照样能拖（回调只认位移，挂哪都一样）
+                        GlassNavTabSlot(
+                            onClick = tabOnClick(index),
+                            modifier = if (index == currentIndex) dampedDrag.modifier else Modifier,
+                        ) {
                             tab.content(this, index == currentIndex)
                         }
                     } else {

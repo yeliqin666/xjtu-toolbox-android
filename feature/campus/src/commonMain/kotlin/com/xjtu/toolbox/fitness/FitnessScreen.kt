@@ -37,6 +37,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.xjtu.toolbox.ui.glass.tabContentPadding
 import com.xjtu.toolbox.auth.LocalAuthExpiry
 import com.xjtu.toolbox.error.FriendlyError
 import com.xjtu.toolbox.nav.AppRoute
@@ -73,12 +74,14 @@ import top.yukonga.miuix.kmp.utils.overScrollVertical
 fun FitnessScreen(
     source: FitnessSource,
     onBack: () -> Unit,
+    onScoreLoaded: (FitnessYear, FitnessScore) -> Unit = { _, _ -> },
 ) {
     val authExpiry = LocalAuthExpiry.current
     val scope = rememberCoroutineScope()
     var years by remember { mutableStateOf<List<FitnessYear>>(emptyList()) }
     var selectedYear by remember { mutableStateOf<FitnessYear?>(null) }
     var score by remember { mutableStateOf<FitnessScore?>(null) }
+    var latestYear by remember { mutableStateOf<String?>(null) }
     var loading by remember { mutableStateOf(true) }
     var isRefreshing by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
@@ -101,7 +104,7 @@ fun FitnessScreen(
                         ?: "该学年暂无体测数据"
                     continue
                 }
-                if (s.hasUsableTotal()) {
+                if (s.hasResults()) {
                     picked = year to s
                     break
                 }
@@ -111,6 +114,8 @@ fun FitnessScreen(
             if (chosen != null) {
                 selectedYear = chosen.first
                 score = chosen.second
+                latestYear = chosen.first.yearNum
+                onScoreLoaded(chosen.first, chosen.second)
                 error = null
             } else {
                 selectedYear = candidates.firstOrNull()
@@ -134,6 +139,7 @@ fun FitnessScreen(
         error = null
         try {
             score = source.score(year.yearNum)
+            if (year.yearNum == latestYear) score?.let { onScoreLoaded(year, it) }
         } catch (e: Exception) {
             if (e.isAuthExpiry()) {
                 authExpiry.onAuthExpired(AppRoute.Fitness, onBack)
@@ -153,6 +159,7 @@ fun FitnessScreen(
                 error = null
                 try {
                     score = source.score(year.yearNum)
+                    if (year.yearNum == latestYear) score?.let { onScoreLoaded(year, it) }
                 } catch (e: Exception) {
                     if (e.isAuthExpiry()) {
                         authExpiry.onAuthExpired(AppRoute.Fitness, onBack)
@@ -243,7 +250,7 @@ fun FitnessScreen(
                                 .then(if (wide) Modifier.width(460.dp) else Modifier.weight(1f))
                                 .fillMaxHeight()
                                 .overScrollVertical(),
-                            contentPadding = PaddingValues(top = glassTop + 16.dp, bottom = 28.dp),
+                            contentPadding = tabContentPadding(PaddingValues(top = glassTop + 16.dp, bottom = 28.dp)),
                             verticalArrangement = Arrangement.spacedBy(12.dp)
                         ) {
                             item {
@@ -279,7 +286,7 @@ fun FitnessScreen(
                         if (wide) {
                             LazyColumn(
                                 modifier = Modifier.weight(1f).fillMaxHeight().overScrollVertical(),
-                                contentPadding = PaddingValues(top = glassTop + 16.dp, bottom = 28.dp),
+                                contentPadding = tabContentPadding(PaddingValues(top = glassTop + 16.dp, bottom = 28.dp)),
                                 verticalArrangement = Arrangement.spacedBy(12.dp)
                             ) {
                                 itemsCard()

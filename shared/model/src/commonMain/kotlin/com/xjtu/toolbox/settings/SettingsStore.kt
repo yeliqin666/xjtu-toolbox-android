@@ -1,7 +1,20 @@
 package com.xjtu.toolbox.settings
 
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.setValue
 import com.xjtu.toolbox.platform.KeyValueStore
 import com.xjtu.toolbox.platform.keyValueStore
+
+/** 首页功能区设置落盘后的进程内信号：设置页与首页各读一份，改完靠它一起重读。 */
+object HomeLayoutRevision {
+    var current by mutableIntStateOf(0)
+        private set
+
+    fun bump() {
+        current++
+    }
+}
 
 /** 设置页那些偏好的读写。 */
 class SettingsStore(private val store: KeyValueStore = keyValueStore(APP_SETTINGS_FILE)) {
@@ -113,6 +126,57 @@ class SettingsStore(private val store: KeyValueStore = keyValueStore(APP_SETTING
             .coerceIn(HERO_IMAGE_BRIGHTNESS_MIN, HERO_IMAGE_BRIGHTNESS_MAX)
         set(value) = store.putInt("hero_image_brightness", value.coerceIn(HERO_IMAGE_BRIGHTNESS_MIN, HERO_IMAGE_BRIGHTNESS_MAX))
 
+    /**
+     * 首页功能区用哪一套：classic = 经典分类卡，widgets = 可调尺寸的小组件，cards = 卡片组。
+     *
+     * 前两套是 dev 上已经发过版的实现（`HomeLegacyScreen`），`cards` 是本分支新写的
+     * （`HomeCardGroupScreen`）；三套并存，由 `HomeScreen` 分派。老存档里没有这个键时仍是
+     * widgets——升级后首页不会自己变样，想换的人自己在主页设置里选。
+     */
+    var homeLayout: String
+        get() = store.getString("home_layout")?.takeIf {
+            it == HOME_LAYOUT_WIDGETS || it == HOME_LAYOUT_CLASSIC || it == HOME_LAYOUT_CARDS
+        } ?: HOME_LAYOUT_WIDGETS
+        set(value) = store.putString("home_layout", value.takeIf { it in HOME_LAYOUTS } ?: HOME_LAYOUT_WIDGETS)
+
+    /** 小组件的分组、排列与尺寸（格式见 `HomeWidgetLayout.encodeGroups`）；null = 没编辑过，用默认布局。 */
+    var homeWidgets: List<String>?
+        get() = store.getString("home_widgets")?.split('\n')?.filter { it.isNotBlank() }
+        set(value) = store.putString("home_widgets", value?.joinToString("\n"))
+
+    /** 小组件用液态玻璃（折射 + 高光，较耗电）；只在渐变与图片背景上生效，纯色背景一律是实心卡片。 */
+    var homeLiquidGlass: Boolean
+        get() = store.getBoolean("home_liquid_card", false)
+        set(value) = store.putBoolean("home_liquid_card", value)
+
+    /** 首页顶栏：true = 扫码、搜索、消息统一靠右（默认），false = 扫码单独靠左、标题居中。 */
+    var homeTopActionsRight: Boolean
+        get() = store.getBoolean("home_top_actions_right", true)
+        set(value) = store.putBoolean("home_top_actions_right", value)
+
+    var homeBackground: String
+        get() = store.getString("home_background") ?: when {
+            store.getString("home_widget_material") == WIDGET_MATERIAL_PAPER -> "solid"
+            homeWallpaperImage.isNotEmpty() -> "image"
+            else -> "gradient"
+        }
+        set(value) = store.putString("home_background", value)
+
+    /** 首页自定义背景，WebP Base64。 */
+    var homeWallpaperImage: String
+        get() = store.getString("home_wallpaper_image").orEmpty()
+        set(value) = store.putString("home_wallpaper_image", value.ifEmpty { null })
+
+    /** 首页背景图的模糊与亮度，取值范围同首页大卡的自定义背景。 */
+    var homeWallpaperBlur: Int
+        get() = store.getInt("home_wallpaper_blur", HERO_IMAGE_BLUR_MIN).coerceIn(HERO_IMAGE_BLUR_MIN, HERO_IMAGE_BLUR_MAX)
+        set(value) = store.putInt("home_wallpaper_blur", value.coerceIn(HERO_IMAGE_BLUR_MIN, HERO_IMAGE_BLUR_MAX))
+
+    var homeWallpaperBrightness: Int
+        get() = store.getInt("home_wallpaper_brightness", HERO_IMAGE_BRIGHTNESS_MAX)
+            .coerceIn(HERO_IMAGE_BRIGHTNESS_MIN, HERO_IMAGE_BRIGHTNESS_MAX)
+        set(value) = store.putInt("home_wallpaper_brightness", value.coerceIn(HERO_IMAGE_BRIGHTNESS_MIN, HERO_IMAGE_BRIGHTNESS_MAX))
+
     /** 场馆滑块验证码自动识别开关。 */
     var venueAutoSolveCaptchaEnabled: Boolean
         get() = store.getBoolean(KEY_VENUE_AUTO_SOLVE_CAPTCHA, true)
@@ -139,6 +203,15 @@ class SettingsStore(private val store: KeyValueStore = keyValueStore(APP_SETTING
         }
         /** 非敏感的应用设置（外观、协议、更新……），普通 SharedPreferences。 */
         const val APP_SETTINGS_FILE = "app_settings"
+        const val HOME_LAYOUT_CLASSIC = "classic"
+        const val HOME_LAYOUT_WIDGETS = "widgets"
+
+        /** 本分支新增的第三种首页布局（卡片组）；前两种是 dev 上已发版的那两套。 */
+        const val HOME_LAYOUT_CARDS = "cards"
+
+        /** 合法的首页布局取值；落盘/读盘都按它校验，认不出的值退回 widgets。 */
+        val HOME_LAYOUTS = setOf(HOME_LAYOUT_CLASSIC, HOME_LAYOUT_WIDGETS, HOME_LAYOUT_CARDS)
+        const val WIDGET_MATERIAL_PAPER = "paper"
 
         const val HERO_IMAGE_BLUR_MIN = 0
         const val HERO_IMAGE_BLUR_MAX = 10

@@ -15,4 +15,5 @@ data class LmsDue(
     val submitted: Boolean = false,
     val fetchedAt: Long = 0L,
     val exam: Boolean = false,
+    val startTime: String? = null,
 )

@@ -56,6 +56,7 @@ import androidx.compose.ui.state.ToggleableState
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.xjtu.toolbox.ui.glass.tabContentPadding
 import com.xjtu.toolbox.platform.BackHandler
 import com.xjtu.toolbox.ui.adaptive.readableWidth
 import com.xjtu.toolbox.ui.components.EmptyState
@@ -290,7 +291,7 @@ fun DownloadManagerScreen(
                 )
                 LazyColumn(
                     Modifier.fillMaxSize().overScrollVertical(),
-                    contentPadding = PaddingValues(start = 12.dp, end = 12.dp, top = glassTop, bottom = 24.dp),
+                    contentPadding = tabContentPadding(PaddingValues(start = 12.dp, end = 12.dp, top = glassTop, bottom = 24.dp)),
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
                     if (stats != null && stats!!.activeCount > 0 && !isCleanupMode) {

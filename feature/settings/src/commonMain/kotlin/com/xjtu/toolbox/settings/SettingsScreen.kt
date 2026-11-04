@@ -1,10 +1,9 @@
 package com.xjtu.toolbox.settings
 
-import androidx.compose.material.icons.automirrored.filled.Assignment
 import androidx.compose.material.icons.automirrored.filled.FactCheck
 import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.DarkMode
-import androidx.compose.material.icons.filled.GridView
+import androidx.compose.material.icons.filled.Dashboard
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.Star
@@ -20,6 +19,7 @@ import top.yukonga.miuix.kmp.icon.extended.Info
 import top.yukonga.miuix.kmp.icon.extended.Recent
 import top.yukonga.miuix.kmp.icon.extended.Settings
 import top.yukonga.miuix.kmp.icon.extended.Theme
+import com.xjtu.toolbox.ui.glass.tabContentBottomPadding
 import com.xjtu.toolbox.home.BottomBarTabs
 import com.xjtu.toolbox.ui.components.HeroAppearance
 import com.xjtu.toolbox.ui.components.HeroAppearanceRevision
@@ -27,6 +27,8 @@ import com.xjtu.toolbox.ui.components.HomeHeroAppearanceDialog
 import com.xjtu.toolbox.ui.components.JiaoxiaoxiAvatar
 import com.xjtu.toolbox.ui.theme.LocalIsDarkTheme
 import com.xjtu.toolbox.platform.BackHandler
+import com.xjtu.toolbox.platform.copyOnLongPress
+import com.xjtu.toolbox.platform.rememberCopyText
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
@@ -75,7 +77,6 @@ import com.xjtu.toolbox.nav.AppPageMotion
 import com.xjtu.toolbox.ui.HapticsSettingItem
 import com.xjtu.toolbox.ui.glass.*
 import top.yukonga.miuix.kmp.basic.BasicComponent
-import top.yukonga.miuix.kmp.basic.ButtonDefaults
 import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.CardDefaults
 import top.yukonga.miuix.kmp.basic.Icon
@@ -85,7 +86,6 @@ import top.yukonga.miuix.kmp.basic.Scaffold
 import top.yukonga.miuix.kmp.basic.SmallTitle
 import top.yukonga.miuix.kmp.basic.Surface
 import top.yukonga.miuix.kmp.basic.Text
-import top.yukonga.miuix.kmp.basic.TextButton
 import top.yukonga.miuix.kmp.basic.TopAppBar
 import top.yukonga.miuix.kmp.basic.rememberTopAppBarState
 import top.yukonga.miuix.kmp.overlay.OverlayBottomSheet
@@ -95,72 +95,21 @@ import top.yukonga.miuix.kmp.preference.SwitchPreference
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.utils.overScrollVertical
 
-/** 设置屏。致谢二级页叠在主页上滑入，返回时主页滚动位置不丢。 */
+/**
+ * 设置屏。窄屏首页只列组名，点进去是该组的二级页；宽屏左栏组名、右栏组内容。
+ * 二级页（组、致谢）叠在首页上滑入，返回时首页滚动位置不丢。
+ */
 @Composable
 fun SettingsScreen(
     store: SettingsStore,
     host: SettingsHost,
     onBack: () -> Unit,
 ) {
-    var showCredits by rememberSaveable { mutableStateOf(false) }
-    var showHomeSettings by rememberSaveable { mutableStateOf(false) }
-    // 和压栈打开子页同一套转场（AppPageMotion）：新页从右侧整屏滑入，
-    // 被盖住的设置页向左让出 1/4 屏并轻微压暗，与「我的 → 设置」一致。
-    // 「主页设置」不再是二级页，是底部抽屉（补充 §29），所以这里只算致谢那一页
-    val overlayOpen = showCredits
-    val cover by animateFloatAsState(
-        targetValue = if (overlayOpen) 1f else 0f,
-        animationSpec = tween(AppPageMotion.DurationMillis, easing = AppPageMotion.Easing),
-        label = "creditsCover",
-    )
-    val rtl = LocalLayoutDirection.current == LayoutDirection.Rtl
-    Box(Modifier.fillMaxSize()) {
-        SettingsHome(
-            store, host, onBack,
-            onOpenCredits = { showCredits = true },
-            onOpenHomeSettings = { showHomeSettings = true },
-            showHomeSettingsSheet = showHomeSettings,
-            onDismissHomeSettingsSheet = { showHomeSettings = false },
-            modifier = Modifier.graphicsLayer {
-                translationX = (if (rtl) 1f else -1f) * cover * size.width * 0.25f
-                alpha = 1f - 0.1f * cover
-            },
-        )
-        AnimatedVisibility(
-            visible = overlayOpen,
-            enter = slideInHorizontally(
-                tween(AppPageMotion.DurationMillis, easing = AppPageMotion.Easing),
-            ) { if (rtl) -it else it },
-            exit = slideOutHorizontally(
-                tween(AppPageMotion.DurationMillis, easing = AppPageMotion.Easing),
-            ) { if (rtl) -it else it },
-        ) {
-            BackHandler { showCredits = false }
-            CreditsScreen(host = host, onBack = { showCredits = false })
-        }
-    }
-}
-
-@Composable
-private fun SettingsHome(
-    store: SettingsStore,
-    host: SettingsHost,
-    onBack: () -> Unit,
-    onOpenCredits: () -> Unit,
-    onOpenHomeSettings: () -> Unit,
-    showHomeSettingsSheet: Boolean,
-    onDismissHomeSettingsSheet: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-
     val showDarkMode = SettingsRow.DARK_MODE in host.honoredRows
     val showDynamicColor = SettingsRow.DYNAMIC_COLOR in host.honoredRows
     val showQuickActions = SettingsRow.QUICK_ACTIONS in host.honoredRows
     val showNavStyle = SettingsRow.NAV_STYLE in host.honoredRows
     val showHomeHero = SettingsRow.HOME_HERO in host.honoredRows
-    val showHomeSettings = SettingsRow.HOME_SETTINGS in host.honoredRows
-    // 顶栏排法只对那些自己画首页顶栏按钮的端有意义（见 SettingsRow.HOME_TOP_BAR）
-    val showHomeTopBarStyle = SettingsRow.HOME_TOP_BAR in host.honoredRows
     val showDefaultTab = SettingsRow.DEFAULT_TAB in host.honoredRows
     val showBottomTabs = SettingsRow.BOTTOM_TABS in host.honoredRows
     val showHaptics = SettingsRow.HAPTICS in host.honoredRows
@@ -169,6 +118,7 @@ private fun SettingsHome(
     val showScheduleSource = scheduleOptions.isNotEmpty()
     val showScheduleAttendance = SettingsRow.SCHEDULE_ATTENDANCE in host.honoredRows
     val showVenueCaptcha = SettingsRow.VENUE_CAPTCHA in host.honoredRows
+    val launcherShortcuts = host.launcherShortcutPreference
 
     var navBarStyle by remember { mutableStateOf(store.navBarStyle) }
     var darkMode by remember { mutableStateOf(store.darkMode) }
@@ -190,6 +140,8 @@ private fun SettingsHome(
     var venueAutoSolveCaptcha by remember { mutableStateOf(store.venueAutoSolveCaptchaEnabled) }
     var showChangelog by remember { mutableStateOf(false) }
     var showEula by remember { mutableStateOf(false) }
+    // 二级页：NO_PAGE、CREDITS_PAGE 或 groups 下标
+    var page by rememberSaveable { mutableIntStateOf(NO_PAGE) }
     if (showThemeColor) {
         ThemeColorDialog(
             initialLightHex = customLightHex,
@@ -228,7 +180,6 @@ private fun SettingsHome(
             },
         )
     }
-    val scrollBehavior = MiuixScrollBehavior(rememberTopAppBarState())
 
     // 设置页低饱和多彩调色板
     val cPurple = Color(0xFF7E57C2)
@@ -239,7 +190,6 @@ private fun SettingsHome(
     val cGreen = Color(0xFF66BB6A)
     val cOrange = Color(0xFFFFA726)
     val cPink = Color(0xFFEC407A)
-    val cLime = Color(0xFF9CCC65)
 
     val versionText = host.versionText
 
@@ -265,6 +215,339 @@ private fun SettingsHome(
         SettingsStore.NETWORK_VPN
     )
 
+    val appearanceGroup: @Composable () -> Unit = {
+        SmallTitle("外观")
+        SettingsCard {
+            if (showDarkMode) {
+                OverlayDropdownPreference(
+                    title = "深色模式",
+                    items = darkModeOptions,
+                    selectedIndex = darkModeValues.indexOf(darkMode).coerceAtLeast(0),
+                    startAction = { SettingsIcon(Icons.Default.DarkMode, cPurple) },
+                    onSelectedIndexChange = { idx ->
+                        val v = darkModeValues[idx]
+                        darkMode = v
+                        store.darkMode = v
+                        host.onAppearanceChanged()
+                    }
+                )
+            }
+            if (showDynamicColor) {
+                OverlayDropdownPreference(
+                    title = "主题取色",
+                    items = listOf("默认配色", "跟随系统", "自定义颜色"),
+                    selectedIndex = if (customColorEnabled) 2 else if (dynamicColor) 1 else 0,
+                    startAction = { SettingsIcon(Icons.Default.Palette, cPink) },
+                    onSelectedIndexChange = { idx ->
+                        if (idx == 2 && customLightHex.isEmpty() && customDarkHex.isEmpty()) {
+                            showThemeColor = true
+                        } else {
+                            customColorEnabled = idx == 2
+                            dynamicColor = idx == 1
+                            store.customColorEnabled = customColorEnabled
+                            store.dynamicColor = dynamicColor
+                            host.onAppearanceChanged()
+                        }
+                    },
+                )
+                if (customColorEnabled) {
+                    ArrowPreference(
+                        title = "自定义主题色",
+                        summary = "浅色 $customLightHex · 深色 $customDarkHex",
+                        startAction = {
+                            // 两个色点：左浅右深，一眼看出两档各设了什么。
+                            // 尺寸照 SettingsIcon 那套（32dp 内容 + 12dp 间隔），标题才和上下行对齐。
+                            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                listOf(customLightHex, customDarkHex).forEach { hex ->
+                                    Box(
+                                        Modifier.size(14.dp)
+                                            .background(
+                                                com.xjtu.toolbox.schedule.CourseColors.parseHex(hex) ?: cPink,
+                                                CircleShape,
+                                            )
+                                            .border(
+                                                1.dp,
+                                                MiuixTheme.colorScheme.onSurface.copy(alpha = 0.12f),
+                                                CircleShape,
+                                            )
+                                    )
+                                }
+                            }
+                            Spacer(Modifier.width(12.dp))
+                        },
+                        onClick = { showThemeColor = true },
+                    )
+                }
+            }
+            if (showNavStyle) {
+                // 管所有玻璃（底栏、侧栏、气泡、顶栏），宽屏也显示
+                OverlayDropdownPreference(
+                    title = "界面风格",
+                    items = navStyleOptions,
+                    selectedIndex = navStyleValues.indexOf(navBarStyle).coerceAtLeast(0),
+                    startAction = { SettingsIcon(MiuixIcons.Carrier, cBlue) },
+                    onSelectedIndexChange = { idx ->
+                        val v = navStyleValues[idx]
+                        navBarStyle = v
+                        store.navBarStyle = v
+                        host.onAppearanceChanged()
+                    }
+                )
+            }
+        }
+    }
+
+    val homeGroup: @Composable () -> Unit = {
+        SmallTitle("首页与底栏")
+        SettingsCard {
+            if (showHomeHero) {
+                val dark = LocalIsDarkTheme.current
+                val heroAppearance = remember(HeroAppearanceRevision.current, dark) {
+                    HeroAppearance.read(store, dark)
+                }
+                ArrowPreference(
+                    title = "首页卡片",
+                    summary = heroAppearance.summary,
+                    startAction = { SettingsIcon(Icons.Default.Wallpaper, cPurple) },
+                    onClick = { showHomeHeroDialog = true },
+                )
+                var showHomeSettings by remember { mutableStateOf(false) }
+                val homeSummary = remember(HomeLayoutRevision.current) { homeSettingsSummary(store) }
+                ArrowPreference(
+                    title = "主页设置",
+                    summary = homeSummary,
+                    startAction = { SettingsIcon(Icons.Default.Dashboard, cPurple) },
+                    onClick = { showHomeSettings = true },
+                )
+                HomeSettingsSheet(show = showHomeSettings, onDismiss = { showHomeSettings = false })
+            }
+            if (showQuickActions) {
+                SwitchPreference(
+                    title = "显示常用功能",
+                    summary = "在首页长按常用功能可排序和增删",
+                    checked = showQuickActionsOn,
+                    startAction = { SettingsIcon(Icons.Default.Star, cTeal) },
+                    onCheckedChange = { v ->
+                        showQuickActionsOn = v
+                        store.showQuickActions = v
+                        host.onAppearanceChanged()
+                    }
+                )
+            }
+            if (showBottomTabs) {
+                ArrowPreference(
+                    title = "底栏",
+                    summary = tabOptions.joinToString(" · "),
+                    startAction = { SettingsIcon(Icons.Default.Tab, cIndigo) },
+                    onClick = { showBottomBarDialog = true },
+                )
+            }
+            if (showDefaultTab) {
+                OverlayDropdownPreference(
+                    title = "默认启动 Tab",
+                    items = tabOptions,
+                    selectedIndex = tabValues.indexOf(defaultTab).coerceAtLeast(0),
+                    startAction = { SettingsIcon(Icons.Default.Tab, cTeal) },
+                    onSelectedIndexChange = { idx ->
+                        val v = tabValues[idx]
+                        defaultTab = v
+                        store.defaultTab = v
+                    }
+                )
+            }
+        }
+    }
+
+    val generalGroup: @Composable () -> Unit = {
+        SmallTitle("通用")
+        SettingsCard {
+            // 触感开关自带偏好存储，不经 SettingsStore
+            if (showHaptics) HapticsSettingItem()
+            if (showNetworkMode) {
+                OverlayDropdownPreference(
+                    title = "连接模式",
+                    items = networkOptions,
+                    selectedIndex = networkValues.indexOf(networkMode).coerceAtLeast(0),
+                    startAction = { SettingsIcon(MiuixIcons.Carrier, cIndigo) },
+                    onSelectedIndexChange = { idx ->
+                        val v = networkValues[idx]
+                        networkMode = v
+                        store.networkMode = v
+                        host.onNetworkModeChanged?.invoke()
+                    }
+                )
+            }
+            launcherShortcuts?.invoke()
+        }
+    }
+
+    // ── 功能：只对某一个功能生效的开关，按功能分小节 ──
+    val scheduleRows = showScheduleSource || showScheduleAttendance
+    val featuresGroup: @Composable () -> Unit = {
+        if (scheduleRows) {
+            SmallTitle("日程")
+            SettingsCard {
+                if (showScheduleSource) {
+                    OverlayDropdownPreference(
+                        title = "当前学期课表来源",
+                        items = scheduleOptions.map { it.label },
+                        selectedIndex = scheduleOptions.indexOfFirst { it.key == scheduleSource }.coerceAtLeast(0),
+                        startAction = { SettingsIcon(Icons.Default.CalendarMonth, cBlue) },
+                        onSelectedIndexChange = { idx ->
+                            val v = scheduleOptions[idx]
+                            scheduleSource = v.key
+                            store.scheduleSource = v.key
+                        }
+                    )
+                }
+                if (showScheduleAttendance) {
+                    SwitchPreference(
+                        title = "课表显示考勤",
+                        checked = attendanceBadge,
+                        startAction = { SettingsIcon(Icons.AutoMirrored.Filled.FactCheck, cGreen) },
+                        onCheckedChange = {
+                            attendanceBadge = it
+                            store.scheduleAttendanceBadge = it
+                        }
+                    )
+                }
+            }
+        }
+        if (showVenueCaptcha) {
+            SmallTitle("场馆")
+            SettingsCard {
+                SwitchPreference(
+                    title = "自动识别场馆验证码",
+                    checked = venueAutoSolveCaptcha,
+                    startAction = { SettingsIcon(MiuixIcons.Settings, cIndigo) },
+                    onCheckedChange = {
+                        venueAutoSolveCaptcha = it
+                        store.venueAutoSolveCaptchaEnabled = it
+                    }
+                )
+            }
+        }
+    }
+
+    val aboutGroup: @Composable () -> Unit = {
+        val copy = rememberCopyText()
+        SmallTitle("关于")
+        SettingsCard {
+            BasicComponent(
+                modifier = Modifier.copyOnLongPress(versionText, copy),
+                title = "版本号",
+                summary = versionText,
+                startAction = { SettingsIcon(MiuixIcons.Info, cGreen) }
+            )
+            if (host.changelog.isNotEmpty()) {
+                ArrowPreference(
+                    title = "更新日志",
+                    summary = "查看历史版本变化",
+                    startAction = { SettingsIcon(MiuixIcons.Recent, cTeal) },
+                    onClick = { showChangelog = true }
+                )
+            }
+            ArrowPreference(
+                title = "项目主页",
+                summary = "GitHub · yeliqin666/xjtu-toolbox-android",
+                startAction = { SettingsIcon(MiuixIcons.Forward, cBlue) },
+                onClick = { host.onOpenUrl("https://github.com/yeliqin666/xjtu-toolbox-android") }
+            )
+            ArrowPreference(
+                title = CREDITS_TITLE,
+                summary = "图标形象、贡献者与许可证",
+                startAction = { SettingsIcon(Icons.Default.Star, cPurple) },
+                onClick = { page = CREDITS_PAGE }
+            )
+            ArrowPreference(
+                title = "用户协议与隐私政策",
+                startAction = { SettingsIcon(MiuixIcons.File, cPurple) },
+                onClick = { showEula = true }
+            )
+        }
+        // 弹层跟着组走：组可能画在二级页里，挂在首页的 Scaffold 上会被二级页盖住
+        ChangelogSheet(show = showChangelog, entries = host.changelog, onDismiss = { showChangelog = false })
+        EulaSheet(show = showEula, onDismiss = { showEula = false })
+    }
+
+    // 组的顺序与标题（窄屏首页、宽屏左栏都是这一列）。宿主没有那一组时整条不出现。
+    val groups = buildList {
+        if (showDarkMode || showDynamicColor || showNavStyle) {
+            add(SettingsGroup("外观", Icons.Default.Palette, cPurple, appearanceGroup))
+        }
+        if (showHomeHero || showQuickActions || showBottomTabs || showDefaultTab) {
+            add(SettingsGroup("首页与底栏", Icons.Default.Dashboard, cIndigo, homeGroup))
+        }
+        if (showHaptics || showNetworkMode || launcherShortcuts != null) {
+            add(SettingsGroup("通用", MiuixIcons.Settings, cTeal, generalGroup))
+        }
+        if (scheduleRows || showVenueCaptcha) {
+            add(SettingsGroup("功能", Icons.Default.CalendarMonth, cBlue, featuresGroup))
+        }
+        host.noticeSection?.let {
+            add(SettingsGroup("通知与提醒", Icons.Default.Notifications, cOrange, it))
+        }
+        host.dataPrivacySection?.let {
+            add(SettingsGroup("数据与隐私", MiuixIcons.CloudFill, cBlueGray, it))
+        }
+        host.updateSection?.let {
+            add(SettingsGroup("更新", Icons.Default.Star, cGreen, it))
+        }
+        add(SettingsGroup("关于", MiuixIcons.Info, cBlue, aboutGroup))
+    }
+
+    // 退场滑出时 page 已回 NO_PAGE，画的仍是刚才那页
+    var shownPage by remember { mutableIntStateOf(NO_PAGE) }
+    if (page != NO_PAGE) shownPage = page
+    // 和压栈打开子页同一套转场（AppPageMotion）：新页从右侧整屏滑入，
+    // 被盖住的设置页向左让出 1/4 屏并轻微压暗，与「我的 → 设置」一致。
+    val cover by animateFloatAsState(
+        targetValue = if (page != NO_PAGE) 1f else 0f,
+        animationSpec = tween(AppPageMotion.DurationMillis, easing = AppPageMotion.Easing),
+        label = "subPageCover",
+    )
+    val rtl = LocalLayoutDirection.current == LayoutDirection.Rtl
+    Box(Modifier.fillMaxSize()) {
+        SettingsHome(
+            groups, onBack,
+            onOpenGroup = { page = it },
+            modifier = Modifier.graphicsLayer {
+                translationX = (if (rtl) 1f else -1f) * cover * size.width * 0.25f
+                alpha = 1f - 0.1f * cover
+            },
+        )
+        AnimatedVisibility(
+            visible = page != NO_PAGE,
+            enter = slideInHorizontally(
+                tween(AppPageMotion.DurationMillis, easing = AppPageMotion.Easing),
+            ) { if (rtl) -it else it },
+            exit = slideOutHorizontally(
+                tween(AppPageMotion.DurationMillis, easing = AppPageMotion.Easing),
+            ) { if (rtl) -it else it },
+        ) {
+            // 窄屏的致谢是从「关于」二级页进来的，返回时退回「关于」
+            val backToAbout = !com.xjtu.toolbox.ui.isWideLayout()
+            val close = { page = if (page == CREDITS_PAGE && backToAbout) groups.lastIndex else NO_PAGE }
+            BackHandler { close() }
+            if (shownPage == CREDITS_PAGE) {
+                CreditsScreen(host = host, onBack = close)
+            } else {
+                groups.getOrNull(shownPage)?.let { group ->
+                    SettingsSubPage(title = group.title, onBack = close) { group.body() }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun SettingsHome(
+    groups: List<SettingsGroup>,
+    onBack: () -> Unit,
+    onOpenGroup: (Int) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val scrollBehavior = MiuixScrollBehavior(rememberTopAppBarState())
     // 玻璃顶栏（经典风格下为 null，一切照旧），用法见 ui/glass/GlassTopBar.kt
     val glass = rememberPageGlass()
     Scaffold(
@@ -286,275 +569,6 @@ private fun SettingsHome(
     ) { padding ->
         val glassTop = padding.glassTop(glass)
 
-        val appearanceGroup: @Composable () -> Unit = {
-            SmallTitle("外观")
-            SettingsCard {
-                if (showDarkMode) {
-                    OverlayDropdownPreference(
-                        title = "深色模式",
-                        items = darkModeOptions,
-                        selectedIndex = darkModeValues.indexOf(darkMode).coerceAtLeast(0),
-                        startAction = { SettingsIcon(Icons.Default.DarkMode, cPurple) },
-                        onSelectedIndexChange = { idx ->
-                            val v = darkModeValues[idx]
-                            darkMode = v
-                            store.darkMode = v
-                            host.onAppearanceChanged()
-                        }
-                    )
-                }
-                if (showDynamicColor) {
-                    OverlayDropdownPreference(
-                        title = "主题取色",
-                        items = listOf("默认配色", "跟随系统", "自定义颜色"),
-                        selectedIndex = if (customColorEnabled) 2 else if (dynamicColor) 1 else 0,
-                        startAction = { SettingsIcon(Icons.Default.Palette, cPink) },
-                        onSelectedIndexChange = { idx ->
-                            if (idx == 2 && customLightHex.isEmpty() && customDarkHex.isEmpty()) {
-                                showThemeColor = true
-                            } else {
-                                customColorEnabled = idx == 2
-                                dynamicColor = idx == 1
-                                store.customColorEnabled = customColorEnabled
-                                store.dynamicColor = dynamicColor
-                                host.onAppearanceChanged()
-                            }
-                        },
-                    )
-                    if (customColorEnabled) {
-                        ArrowPreference(
-                            title = "自定义主题色",
-                            summary = "浅色 $customLightHex · 深色 $customDarkHex",
-                            startAction = {
-                                // 两个色点：左浅右深，一眼看出两档各设了什么。
-                                // 尺寸照 SettingsIcon 那套（32dp 内容 + 12dp 间隔），标题才和上下行对齐。
-                                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                                    listOf(customLightHex, customDarkHex).forEach { hex ->
-                                        Box(
-                                            Modifier.size(14.dp)
-                                                .background(
-                                                    com.xjtu.toolbox.schedule.CourseColors.parseHex(hex) ?: cPink,
-                                                    CircleShape,
-                                                )
-                                                .border(
-                                                    1.dp,
-                                                    MiuixTheme.colorScheme.onSurface.copy(alpha = 0.12f),
-                                                    CircleShape,
-                                                )
-                                        )
-                                    }
-                                }
-                                Spacer(Modifier.width(12.dp))
-                            },
-                            onClick = { showThemeColor = true },
-                        )
-                    }
-                }
-                if (showQuickActions) {
-                    SwitchPreference(
-                        title = "显示常用功能",
-                        summary = "在首页长按常用功能可排序和增删",
-                        checked = showQuickActionsOn,
-                        startAction = { SettingsIcon(Icons.Default.Star, cTeal) },
-                        onCheckedChange = { v ->
-                            showQuickActionsOn = v
-                            store.showQuickActions = v
-                            host.onAppearanceChanged()
-                        }
-                    )
-                }
-                if (showNavStyle) {
-                    // 管所有玻璃（底栏、侧栏、气泡、顶栏），宽屏也显示
-                    OverlayDropdownPreference(
-                        title = "界面风格",
-                        items = navStyleOptions,
-                        selectedIndex = navStyleValues.indexOf(navBarStyle).coerceAtLeast(0),
-                        startAction = { SettingsIcon(MiuixIcons.Carrier, cBlue) },
-                        onSelectedIndexChange = { idx ->
-                            val v = navStyleValues[idx]
-                            navBarStyle = v
-                            store.navBarStyle = v
-                            host.onAppearanceChanged()
-                        }
-                    )
-                }
-                if (showHomeHero) {
-                    val dark = LocalIsDarkTheme.current
-                    val heroAppearance = remember(HeroAppearanceRevision.current, dark) {
-                        HeroAppearance.read(store, dark)
-                    }
-                    ArrowPreference(
-                        title = "首页卡片",
-                        summary = heroAppearance.summary,
-                        startAction = { SettingsIcon(Icons.Default.Wallpaper, cPurple) },
-                        onClick = { showHomeHeroDialog = true },
-                    )
-                }
-                if (showHomeSettings) {
-                    // 二级页：背景壁纸、卡片材质、顶栏排法、网格开关、恢复默认分组和布局（首页编辑态的齿轮也落到这）
-                    ArrowPreference(
-                        title = "主页设置",
-                        summary = "背景、卡片材质、顶栏排法与网格布局",
-                        startAction = { SettingsIcon(Icons.Default.GridView, cBlue) },
-                        onClick = onOpenHomeSettings,
-                    )
-                }
-                if (showBottomTabs) {
-                    ArrowPreference(
-                        title = "底栏",
-                        summary = tabOptions.joinToString(" · "),
-                        startAction = { SettingsIcon(Icons.Default.Tab, cIndigo) },
-                        onClick = { showBottomBarDialog = true },
-                    )
-                }
-            }
-        }
-
-        val generalGroup: @Composable () -> Unit = {
-            SmallTitle("通用")
-            SettingsCard {
-                if (showDefaultTab) {
-                    OverlayDropdownPreference(
-                        title = "默认启动 Tab",
-                        items = tabOptions,
-                        selectedIndex = tabValues.indexOf(defaultTab).coerceAtLeast(0),
-                        startAction = { SettingsIcon(Icons.Default.Tab, cTeal) },
-                        onSelectedIndexChange = { idx ->
-                            val v = tabValues[idx]
-                            defaultTab = v
-                            store.defaultTab = v
-                        }
-                    )
-                }
-                // 触感开关自带偏好存储，不经 SettingsStore
-                if (showHaptics) HapticsSettingItem()
-                if (showNetworkMode) {
-                    OverlayDropdownPreference(
-                        title = "连接模式",
-                        items = networkOptions,
-                        selectedIndex = networkValues.indexOf(networkMode).coerceAtLeast(0),
-                        startAction = { SettingsIcon(MiuixIcons.Carrier, cIndigo) },
-                        onSelectedIndexChange = { idx ->
-                            val v = networkValues[idx]
-                            networkMode = v
-                            store.networkMode = v
-                            host.onNetworkModeChanged?.invoke()
-                        }
-                    )
-                }
-            }
-        }
-
-        // ── 功能：只对某一个功能生效的开关，按功能分小节 ──
-        val scheduleRows = showScheduleSource || showScheduleAttendance
-        val featuresGroup: @Composable () -> Unit = {
-            if (scheduleRows) {
-                SmallTitle("日程")
-                SettingsCard {
-                    if (showScheduleSource) {
-                        OverlayDropdownPreference(
-                            title = "当前学期课表来源",
-                            items = scheduleOptions.map { it.label },
-                            selectedIndex = scheduleOptions.indexOfFirst { it.key == scheduleSource }.coerceAtLeast(0),
-                            startAction = { SettingsIcon(Icons.Default.CalendarMonth, cBlue) },
-                            onSelectedIndexChange = { idx ->
-                                val v = scheduleOptions[idx]
-                                scheduleSource = v.key
-                                store.scheduleSource = v.key
-                            }
-                        )
-                    }
-                    if (showScheduleAttendance) {
-                        SwitchPreference(
-                            title = "课表显示考勤",
-                            checked = attendanceBadge,
-                            startAction = { SettingsIcon(Icons.AutoMirrored.Filled.FactCheck, cGreen) },
-                            onCheckedChange = {
-                                attendanceBadge = it
-                                store.scheduleAttendanceBadge = it
-                            }
-                        )
-                    }
-                }
-            }
-            if (showVenueCaptcha) {
-                SmallTitle("场馆")
-                SettingsCard {
-                    SwitchPreference(
-                        title = "自动识别场馆验证码",
-                        checked = venueAutoSolveCaptcha,
-                        startAction = { SettingsIcon(MiuixIcons.Settings, cIndigo) },
-                        onCheckedChange = {
-                            venueAutoSolveCaptcha = it
-                            store.venueAutoSolveCaptchaEnabled = it
-                        }
-                    )
-                }
-            }
-        }
-
-        val aboutGroup: @Composable () -> Unit = {
-            // ── 关于 ──
-            SmallTitle("关于")
-            SettingsCard {
-                BasicComponent(
-                    title = "版本号",
-                    summary = versionText,
-                    startAction = { SettingsIcon(MiuixIcons.Info, cGreen) }
-                )
-                if (host.changelog.isNotEmpty()) {
-                    ArrowPreference(
-                        title = "更新日志",
-                        summary = "查看历史版本变化",
-                        startAction = { SettingsIcon(MiuixIcons.Recent, cTeal) },
-                        onClick = { showChangelog = true }
-                    )
-                }
-                ArrowPreference(
-                    title = "项目主页",
-                    summary = "GitHub · yeliqin666/xjtu-toolbox-android",
-                    startAction = { SettingsIcon(MiuixIcons.Forward, cBlue) },
-                    onClick = { host.onOpenUrl("https://github.com/yeliqin666/xjtu-toolbox-android") }
-                )
-                ArrowPreference(
-                    title = CREDITS_TITLE,
-                    summary = "图标形象、贡献者与许可证",
-                    startAction = { SettingsIcon(Icons.Default.Star, cPurple) },
-                    onClick = onOpenCredits
-                )
-                ArrowPreference(
-                    title = "用户协议与隐私政策",
-                    startAction = { SettingsIcon(MiuixIcons.File, cPurple) },
-                    onClick = { showEula = true }
-                )
-            }
-        }
-
-        // 组的顺序与标题（宽屏左栏就是这一列）。宿主没有那一组时整条不出现。
-        val groups = buildList {
-            if (showDarkMode || showDynamicColor || showQuickActions || showNavStyle || showBottomTabs ||
-                showHomeHero || showHomeSettings
-            ) {
-                add(SettingsGroup("外观", Icons.Default.Palette, cPurple, appearanceGroup))
-            }
-            if (showDefaultTab || showHaptics || showNetworkMode) {
-                add(SettingsGroup("通用", Icons.Default.Tab, cTeal, generalGroup))
-            }
-            if (scheduleRows || showVenueCaptcha) {
-                add(SettingsGroup("功能", Icons.Default.CalendarMonth, cBlue, featuresGroup))
-            }
-            host.noticeSection?.let {
-                add(SettingsGroup("通知与提醒", Icons.Default.Notifications, cOrange, it))
-            }
-            host.dataPrivacySection?.let {
-                add(SettingsGroup("数据与隐私", MiuixIcons.CloudFill, cBlueGray, it))
-            }
-            host.updateSection?.let {
-                add(SettingsGroup("更新", Icons.Default.Star, cGreen, it))
-            }
-            add(SettingsGroup("关于", MiuixIcons.Info, cBlue, aboutGroup))
-        }
-
         // 宽屏：左栏组名列表 + 右栏选中组。选中项 rememberSaveable，跨旋转不丢。
         var selectedGroup by rememberSaveable { mutableIntStateOf(0) }
         if (com.xjtu.toolbox.ui.isWideLayout()) {
@@ -570,7 +584,7 @@ private fun SettingsHome(
                         Modifier
                             .fillMaxSize()
                             .overScrollVertical()
-                            .verticalScroll(rememberScrollState())
+                            .verticalScroll(rememberScrollState()).tabContentBottomPadding()
                     ) {
                         Spacer(Modifier.height(glassTop + 8.dp))
                         SettingsCard {
@@ -592,7 +606,7 @@ private fun SettingsHome(
                             .fillMaxSize()
                             .nestedScroll(scrollBehavior.nestedScrollConnection)
                             .overScrollVertical()
-                            .verticalScroll(rememberScrollState())
+                            .verticalScroll(rememberScrollState()).tabContentBottomPadding()
                     ) {
                         Spacer(Modifier.height(glassTop))
                         groups[selectedGroup.coerceIn(groups.indices)].body()
@@ -611,30 +625,69 @@ private fun SettingsHome(
                     .background(MiuixTheme.colorScheme.surface)
                     .nestedScroll(scrollBehavior.nestedScrollConnection)
                     .overScrollVertical()
-                    .verticalScroll(rememberScrollState())
+                    .verticalScroll(rememberScrollState()).tabContentBottomPadding()
                     .padding(padding.withoutTop(glass))
             ) {
-                Spacer(Modifier.height(glassTop))
-                groups.forEach { it.body() }
-
+                Spacer(Modifier.height(glassTop + 8.dp))
+                SettingsCard {
+                    groups.forEachIndexed { i, group ->
+                        ArrowPreference(
+                            title = group.title,
+                            startAction = { SettingsIcon(group.icon, group.color) },
+                            onClick = { onOpenGroup(i) },
+                        )
+                    }
+                }
                 Spacer(Modifier.height(16.dp))
                 Spacer(Modifier.windowInsetsBottomHeight(WindowInsets.navigationBars))
             }
         }
-
-        // ── 弹层（必须在 Scaffold 内，MiuixPopupHost 才能渲染）──
-        ChangelogSheet(show = showChangelog, entries = host.changelog, onDismiss = { showChangelog = false })
-        EulaSheet(show = showEula, onDismiss = { showEula = false })
-        // 主页设置：和首页编辑态齿轮打开的是同一个抽屉（同一份 HomeLayoutStore）
-        HomeSettingsSheet(
-            show = showHomeSettingsSheet,
-            onDismiss = onDismissHomeSettingsSheet,
-            showTopBarStyle = showHomeTopBarStyle,
-        )
     }
 }
 
-/** 一组设置：宽屏左栏拿 [title]/[icon]/[color]，右栏拿 [body]。 */
+/** 二级页外壳：组页与致谢页共用的顶栏、玻璃与滚动。 */
+@Composable
+private fun SettingsSubPage(title: String, onBack: () -> Unit, content: @Composable ColumnScope.() -> Unit) {
+    val scrollBehavior = MiuixScrollBehavior(rememberTopAppBarState())
+    val glass = rememberPageGlass()
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = title,
+                largeTitle = title,
+                color = glassBarColor(glass),
+                modifier = Modifier.glassTopBar(glass),
+                scrollBehavior = scrollBehavior,
+                navigationIcon = {
+                    IconButton(onClick = onBack) {
+                        Icon(MiuixIcons.Back, contentDescription = "返回")
+                    }
+                }
+            )
+        }
+    ) { padding ->
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .glassSource(glass)
+                .background(MiuixTheme.colorScheme.surface)
+                .nestedScroll(scrollBehavior.nestedScrollConnection)
+                .overScrollVertical()
+                .verticalScroll(rememberScrollState())
+                .padding(padding.withoutTop(glass))
+        ) {
+            Spacer(Modifier.height(padding.glassTop(glass)))
+            content()
+            Spacer(Modifier.height(16.dp))
+            Spacer(Modifier.windowInsetsBottomHeight(WindowInsets.navigationBars))
+        }
+    }
+}
+
+private const val NO_PAGE = -1
+private const val CREDITS_PAGE = -2
+
+/** 一组设置：组名列表拿 [title]/[icon]/[color]，组内容拿 [body]。 */
 private class SettingsGroup(
     val title: String,
     val icon: ImageVector,
@@ -732,130 +785,99 @@ private fun CreditsScreen(host: SettingsHost, onBack: () -> Unit) {
     val cBlue = Color(0xFF42A5F5)
     val cPurple = Color(0xFF7E57C2)
     val cLime = Color(0xFF9CCC65)
-    val scrollBehavior = MiuixScrollBehavior(rememberTopAppBarState())
-    val glass = rememberPageGlass()
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = CREDITS_TITLE,
-                largeTitle = CREDITS_TITLE,
-                color = glassBarColor(glass),
-                modifier = Modifier.glassTopBar(glass),
-                scrollBehavior = scrollBehavior,
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(MiuixIcons.Back, contentDescription = "返回")
-                    }
+    SettingsSubPage(title = CREDITS_TITLE, onBack = onBack) {
+        // 交小西制作组的授权要求：版权归属与「非制作组出品」两句必须同时可见，
+        // 文案不要删减，出处见 THIRD_PARTY_NOTICES.md「美术素材」。
+        SmallTitle("图标形象")
+        SettingsCard {
+            BasicComponent(
+                title = "交小西",
+                summary = "图标形象版权归交小西制作组所有",
+                startAction = {
+                    JiaoxiaoxiAvatar(Modifier.size(32.dp))
+                    Spacer(Modifier.width(12.dp))
                 }
             )
-        }
-    ) { padding ->
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .glassSource(glass)
-                .background(MiuixTheme.colorScheme.surface)
-                .nestedScroll(scrollBehavior.nestedScrollConnection)
-                .overScrollVertical()
-                .verticalScroll(rememberScrollState())
-                .padding(padding.withoutTop(glass))
-        ) {
-            Spacer(Modifier.height(padding.glassTop(glass)))
-            // 交小西制作组的授权要求：版权归属与「非制作组出品」两句必须同时可见，
-            // 文案不要删减，出处见 THIRD_PARTY_NOTICES.md「美术素材」。
-            SmallTitle("图标形象")
-            SettingsCard {
-                BasicComponent(
-                    title = "交小西",
-                    summary = "图标形象版权归交小西制作组所有",
-                    startAction = {
-                        JiaoxiaoxiAvatar(Modifier.size(32.dp))
-                        Spacer(Modifier.width(12.dp))
-                    }
-                )
-                ArrowPreference(
-                    title = "B 站主页",
-                    summary = "space.bilibili.com/3494379805215567",
-                    startAction = { SettingsIcon(MiuixIcons.Forward, cBlue) },
-                    onClick = { host.onOpenUrl("https://space.bilibili.com/3494379805215567") }
-                )
-            }
-            Text(
-                text = "已获得交小西制作组授权使用该形象。本应用为开源项目，不由交小西制作组出品。",
-                style = MiuixTheme.textStyles.footnote1,
-                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                modifier = Modifier.padding(horizontal = 32.dp, vertical = 6.dp)
+            ArrowPreference(
+                title = "B 站主页",
+                summary = "space.bilibili.com/3494379805215567",
+                startAction = { SettingsIcon(MiuixIcons.Forward, cBlue) },
+                onClick = { host.onOpenUrl("https://space.bilibili.com/3494379805215567") }
             )
-            SmallTitle("贡献者")
-            SettingsCard {
-                ArrowPreference(
-                    title = "项目贡献者",
-                    summary = "GitHub 上的贡献者列表",
-                    startAction = { SettingsIcon(MiuixIcons.Forward, cBlue) },
-                    onClick = { host.onOpenUrl("https://github.com/yeliqin666/xjtu-toolbox-android/graphs/contributors") }
-                )
-            }
-            SmallTitle("许可证")
-            SettingsCard {
-                ArrowPreference(
-                    title = "岱宗盒子",
-                    summary = "GPL-3.0",
-                    startAction = { SettingsIcon(MiuixIcons.File, cPurple) },
-                    onClick = { host.onOpenUrl("https://github.com/yeliqin666/xjtu-toolbox-android/blob/main/LICENSE") }
-                )
-                ArrowPreference(
-                    title = "第三方声明",
-                    summary = "上游项目的改动说明与许可证全文",
-                    startAction = { SettingsIcon(MiuixIcons.File, cPurple) },
-                    onClick = { host.onOpenUrl("https://github.com/yeliqin666/xjtu-toolbox-android/blob/main/THIRD_PARTY_NOTICES.md") }
-                )
-            }
-            SmallTitle("致谢")
-            SettingsCard {
-                ArrowPreference(
-                    title = "XJTUToolBox by yan-xiaoo",
-                    summary = "开源社区项目",
-                    startAction = { SettingsIcon(MiuixIcons.Info, cLime) },
-                    onClick = { host.onOpenUrl("https://github.com/yan-xiaoo/XJTUToolBox") }
-                )
-            }
-            // 小游戏并入或参考的上游项目。完整的改动说明与许可证全文见仓库根目录的
-            // THIRD_PARTY_NOTICES.md，这里只放跳转，避免在设置页里塞进几千字许可证。
-            SmallTitle("小游戏的上游项目")
-            SettingsCard {
-                ArrowPreference(
-                    title = "suika-game by moonfloof",
-                    summary = "「合成西交大」的玩法与实现基础 · Unlicense",
-                    startAction = { SettingsIcon(MiuixIcons.Info, cLime) },
-                    onClick = { host.onOpenUrl("https://github.com/moonfloof/suika-game") }
-                )
-                ArrowPreference(
-                    title = "Matter.js by liabru",
-                    summary = "「合成西交大」的物理引擎 · MIT",
-                    startAction = { SettingsIcon(MiuixIcons.Info, cLime) },
-                    onClick = { host.onOpenUrl("https://github.com/liabru/matter-js") }
-                )
-                ArrowPreference(
-                    title = "chinese-chess-fish-android by zfdang",
-                    summary = "象棋规则引擎 · MIT",
-                    startAction = { SettingsIcon(MiuixIcons.Info, cLime) },
-                    onClick = { host.onOpenUrl("https://github.com/zfdang/chinese-chess-fish-android") }
-                )
-                ArrowPreference(
-                    title = "Etoile by JoyinJoester",
-                    summary = "社区讨论区与 GitHub 登录 · GPL-3.0",
-                    startAction = { SettingsIcon(MiuixIcons.Info, cLime) },
-                    onClick = { host.onOpenUrl("https://github.com/JoyinJoester/Etoile") }
-                )
-                ArrowPreference(
-                    title = "blackstone by haslam22",
-                    summary = "五子棋 AI 的思路来源（未并入代码）· MIT",
-                    startAction = { SettingsIcon(MiuixIcons.Info, cLime) },
-                    onClick = { host.onOpenUrl("https://github.com/haslam22/blackstone") }
-                )
-            }
-            Spacer(Modifier.height(16.dp))
-            Spacer(Modifier.windowInsetsBottomHeight(WindowInsets.navigationBars))
+        }
+        Text(
+            text = "已获得交小西制作组授权使用该形象。本应用为开源项目，不由交小西制作组出品。",
+            style = MiuixTheme.textStyles.footnote1,
+            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+            modifier = Modifier.padding(horizontal = 32.dp, vertical = 6.dp)
+        )
+        SmallTitle("贡献者")
+        SettingsCard {
+            ArrowPreference(
+                title = "项目贡献者",
+                summary = "GitHub 上的贡献者列表",
+                startAction = { SettingsIcon(MiuixIcons.Forward, cBlue) },
+                onClick = { host.onOpenUrl("https://github.com/yeliqin666/xjtu-toolbox-android/graphs/contributors") }
+            )
+        }
+        SmallTitle("许可证")
+        SettingsCard {
+            ArrowPreference(
+                title = "岱宗盒子",
+                summary = "GPL-3.0",
+                startAction = { SettingsIcon(MiuixIcons.File, cPurple) },
+                onClick = { host.onOpenUrl("https://github.com/yeliqin666/xjtu-toolbox-android/blob/main/LICENSE") }
+            )
+            ArrowPreference(
+                title = "第三方声明",
+                summary = "上游项目的改动说明与许可证全文",
+                startAction = { SettingsIcon(MiuixIcons.File, cPurple) },
+                onClick = { host.onOpenUrl("https://github.com/yeliqin666/xjtu-toolbox-android/blob/main/THIRD_PARTY_NOTICES.md") }
+            )
+        }
+        SmallTitle("致谢")
+        SettingsCard {
+            ArrowPreference(
+                title = "XJTUToolBox by yan-xiaoo",
+                summary = "开源社区项目",
+                startAction = { SettingsIcon(MiuixIcons.Info, cLime) },
+                onClick = { host.onOpenUrl("https://github.com/yan-xiaoo/XJTUToolBox") }
+            )
+        }
+        // 小游戏并入或参考的上游项目。完整的改动说明与许可证全文见仓库根目录的
+        // THIRD_PARTY_NOTICES.md，这里只放跳转，避免在设置页里塞进几千字许可证。
+        SmallTitle("小游戏的上游项目")
+        SettingsCard {
+            ArrowPreference(
+                title = "suika-game by moonfloof",
+                summary = "「合成西交大」的玩法与实现基础 · Unlicense",
+                startAction = { SettingsIcon(MiuixIcons.Info, cLime) },
+                onClick = { host.onOpenUrl("https://github.com/moonfloof/suika-game") }
+            )
+            ArrowPreference(
+                title = "Matter.js by liabru",
+                summary = "「合成西交大」的物理引擎 · MIT",
+                startAction = { SettingsIcon(MiuixIcons.Info, cLime) },
+                onClick = { host.onOpenUrl("https://github.com/liabru/matter-js") }
+            )
+            ArrowPreference(
+                title = "chinese-chess-fish-android by zfdang",
+                summary = "象棋规则引擎 · MIT",
+                startAction = { SettingsIcon(MiuixIcons.Info, cLime) },
+                onClick = { host.onOpenUrl("https://github.com/zfdang/chinese-chess-fish-android") }
+            )
+            ArrowPreference(
+                title = "Etoile by JoyinJoester",
+                summary = "社区讨论区与 GitHub 登录 · GPL-3.0",
+                startAction = { SettingsIcon(MiuixIcons.Info, cLime) },
+                onClick = { host.onOpenUrl("https://github.com/JoyinJoester/Etoile") }
+            )
+            ArrowPreference(
+                title = "blackstone by haslam22",
+                summary = "五子棋 AI 的思路来源（未并入代码）· MIT",
+                startAction = { SettingsIcon(MiuixIcons.Info, cLime) },
+                onClick = { host.onOpenUrl("https://github.com/haslam22/blackstone") }
+            )
         }
     }
 }

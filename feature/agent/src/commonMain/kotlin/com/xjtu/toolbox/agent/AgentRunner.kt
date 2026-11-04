@@ -14,6 +14,7 @@ import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 
 /**
@@ -125,6 +126,11 @@ class AgentRunner(
     ): String {
         val baseToolDefs = AppJson.parseToJsonElement(tools.toolDefinitions).jsonArray
             .map { AgentWidgetPresentation.queryDefinition(it.jsonObject) }
+            .let { defs ->
+                // 能写日程的一端才给「列成卡片让用户点」
+                val canWrite = defs.any { it["function"]?.jsonObject?.get("name")?.jsonPrimitive?.content == "add_schedule_event" }
+                if (canWrite) defs + AgentPlanCard.definition() else defs
+            }
         data class Snapshot(val tool: String, val widgets: List<AgentWidget>)
         val snapshots = linkedMapOf<String, Snapshot>()
         val displayedSnapshots = mutableMapOf<String, List<AgentWidget>>()
@@ -140,7 +146,7 @@ class AgentRunner(
 
         while (true) {
             val toolDefs = JsonArray(baseToolDefs + if (snapshots.isEmpty()) emptyList() else
-                listOf(AgentWidgetPresentation.toolDefinition(snapshots.keys)))
+                listOf(AgentWidgetPresentation.toolDefinition(snapshots.mapValues { it.value.tool })))
             // 保险丝烧了，这一轮不带 tools，逼模型直接作答
             val allowTools = toolCallCount < TOOL_CALL_FUSE && toolDefs.isNotEmpty()
             val reqBody = buildJsonObject {
@@ -269,10 +275,14 @@ class AgentRunner(
                         present(id, selected)
                         if (selected.isEmpty()) "page_entry: shown; tool: ${snapshot.tool}"
                         else AgentWidgetPresentation.receipt(selected)
+                    } else if (tc.name == AgentPlanCard.TOOL) {
+                        val card = AgentPlanCard.parse(tc.arguments)
+                        present(tc.id, listOf(card))
+                        AgentPlanCard.receipt(card)
                     } else tools.execute(tc.name, tc.arguments)
                 }
                 // 查询保留快照，展示在拿到结果后单独决定。
-                val made = if (tc.name == AgentWidgetPresentation.TOOL) emptyList() else tools.drainWidgets()
+                val made = if (tc.name == AgentWidgetPresentation.TOOL || tc.name == AgentPlanCard.TOOL) emptyList() else tools.drainWidgets()
                 var result: String
                 val toolErrorMsg: String?
                 if (toolResult.isSuccess) {

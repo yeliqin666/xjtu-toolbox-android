@@ -26,7 +26,7 @@ android {
         minSdk = 31
         targetSdk = 36
         versionCode = 93
-        versionName = "5.2.2"
+        versionName = "5.3.0"
 
         // 反馈后端（飞书多维表格）的凭据。优先读环境变量（CI），否则读
         // 仓库根目录 feedback.properties（已 gitignore）。两者都没有时留空字符串——
@@ -118,8 +118,7 @@ android {
                 ?.let { signingConfig = it }
             // 带 -PdebugSuffix 构建时包名加 .debug 后缀，与设备上已装的正式版共存。
             // 场景：没有 release.jks 的机器（签名必然与正式版不同，覆盖安装会被拒，
-            // 又不想卸载正式版丢数据）。代价：res/xml/shortcuts.xml 的
-            // targetPackage 硬编码了主包名，共存包的长按快捷方式会失效。
+            // 又不想卸载正式版丢数据）。动态快捷方式会使用当前包名。
             if (project.hasProperty("debugSuffix")) {
                 applicationIdSuffix = ".debug"
             }
@@ -213,6 +212,9 @@ dependencies {
     // 三端共用的业务与平台抽象（KMP）；:core 必须能编过 wasmJs（CI 门禁在守）。
     implementation(project(":core"))
     implementation(project(":data"))
+    // 金标联盟 SharedViewKit：ROM 声明支持时，公告卡 → 公告详情走系统级一镜到底；
+    // 不支持时由 :app 的 KitOneTake 回落成 App 内现有的 Compose 转场（见 KitOneTake.kt）。
+    implementation(libs.sharedview.kit)
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.core.splashscreen)
     implementation(libs.androidx.lifecycle.runtime.ktx)

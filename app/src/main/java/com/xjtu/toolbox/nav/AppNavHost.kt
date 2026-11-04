@@ -41,6 +41,7 @@ import com.xjtu.toolbox.attendance.AppAttendanceSource
 import com.xjtu.toolbox.auth.AppLoginState
 import com.xjtu.toolbox.auth.SiteSession
 import com.xjtu.toolbox.browser.BrowserScreen
+import com.xjtu.toolbox.bulletin.NoticeDetailScreen
 import com.xjtu.toolbox.calendar.SchoolCalendarScreen
 import com.xjtu.toolbox.card.AppCampusCardSource
 import com.xjtu.toolbox.card.appCampusCardStore
@@ -65,7 +66,6 @@ import com.xjtu.toolbox.faculty.FacultyApiSource
 import com.xjtu.toolbox.faculty.FacultyAvatar
 import com.xjtu.toolbox.faculty.FacultyScreen
 import com.xjtu.toolbox.feedback.AppFeedbackSource
-import com.xjtu.toolbox.feedback.FeedbackScreen
 import com.xjtu.toolbox.fitness.FitnessScreen
 import com.xjtu.toolbox.game.GamesScreen
 import com.xjtu.toolbox.game.g2048.Gpa2048Screen
@@ -106,10 +106,7 @@ import com.xjtu.toolbox.notification.AppNoticeSource
 import com.xjtu.toolbox.notification.NotificationScreen
 import com.xjtu.toolbox.schedule.AppSchoolCourseSource
 import com.xjtu.toolbox.schedule.SchoolCourseScreen
-import com.xjtu.toolbox.score.ScoreReportScreen
 import com.xjtu.toolbox.platform.keyValueStore
-import com.xjtu.toolbox.score.appScoreReportCache
-import com.xjtu.toolbox.score.scoreReportSource
 import com.xjtu.toolbox.settings.SettingsScreen
 import com.xjtu.toolbox.settings.SettingsStore
 import com.xjtu.toolbox.settings.rememberAppSettingsHost
@@ -143,6 +140,29 @@ class AppPageDeps(
     val accountManager: AccountManager,
     /** WebVPN 转换页「用 WebVPN 打开」。 */
     val onOpenWithWebVpn: (String) -> Unit,
+)
+
+/**
+ * 这个路由能不能在一镜到底的独立 Activity 宿主（`SeamlessPageActivity`）里单独画：
+ * 只有 [appPageEntries] 注册过 entry 的页面才行；`Main` 是栈底、`PaymentCode` 是 AppRoot 的覆盖层，都不算。
+ */
+fun isStandaloneHostable(route: AppRoute): Boolean = when (route) {
+    is AppRoute.Main, is AppRoute.PaymentCode, is AppRoute.Schedule, is AppRoute.Agent, is AppRoute.Zyxf -> false
+    is AppRoute.Lms, is AppRoute.Jiaocai1Reader, is AppRoute.Browser, is AppRoute.CommunityPost, is AppRoute.NoticeDetail -> true
+    else -> route in standaloneHostedRoutes
+}
+
+/** [appPageEntries] 里以 data object 形式注册过的页面（带参数的上面单独判断）。 */
+private val standaloneHostedRoutes: Set<AppRoute> = setOf(
+    AppRoute.EmptyRoom, AppRoute.Notification, AppRoute.Attendance, AppRoute.Judge,
+    AppRoute.JwappScore, AppRoute.Library, AppRoute.CampusCard, AppRoute.Coupon,
+    AppRoute.Transcript, AppRoute.Venue, AppRoute.DownloadManager, AppRoute.Jiaocai,
+    AppRoute.Jiaocai1, AppRoute.SchoolCourse, AppRoute.SchoolCalendar, AppRoute.YellowPage,
+    AppRoute.Fitness, AppRoute.Iclassface, AppRoute.Settings, AppRoute.Inbox,
+    AppRoute.Community, AppRoute.Faculty, AppRoute.Accounts, AppRoute.WebVpnConverter,
+    AppRoute.Games, AppRoute.Game2048, AppRoute.GameMerge, AppRoute.GameBlocks,
+    AppRoute.GameHop, AppRoute.GameGomoku, AppRoute.GameGo, AppRoute.GameXiangqi,
+    AppRoute.Match,
 )
 
 /**
@@ -247,7 +267,6 @@ fun NavEntryBuilder.appPageEntries(
                 source = scoreSource,
                 studentId = loginState.activeUsername,
                 onBack = back,
-                onOpenReport = { router.open(AppRoute.ScoreReport) },
                 // 成绩单只有本科生的流程，研究生不显示入口
                 onOpenTranscript = if (loginState.accountType == AccountType.UNDERGRADUATE) { { router.open(AppRoute.Transcript) } } else null,
                 jwxt = scoreSource,
@@ -329,19 +348,6 @@ fun NavEntryBuilder.appPageEntries(
                     source = remember(site) { AppCouponSource(site) },
                     onBack = back,
                     onSummary = { value, detail -> HomeStats.push(couponContext, AppRoute.Coupon, value, detail) },
-                )
-            }
-        }
-        entry<AppRoute.ScoreReport>(transition = expand(AppRoute.ScoreReport::class)) {
-            WithSite("jwxt") { site ->
-                val scoreContext = LocalContext.current
-                val studentId = loginState.activeUsername
-                ScoreReportScreen(
-                    source = remember(site, studentId) { scoreReportSource(site, studentId) },
-                    onBack = back,
-                    cache = remember(loginState.accountId, studentId) {
-                        appScoreReportCache(scoreContext, loginState.accountId.takeIf { it.isNotEmpty() }, studentId)
-                    },
                 )
             }
         }
@@ -465,10 +471,18 @@ fun NavEntryBuilder.appPageEntries(
             )
         }
         entry<AppRoute.Fitness>(transition = expand(AppRoute.Fitness::class)) {
+            val fitnessContext = LocalContext.current
+            val account = loginState.accountId.takeIf { it.isNotEmpty() }
             WithSite("fitness") { site ->
                 FitnessScreen(
                     source = remember(site) { com.xjtu.toolbox.fitness.FitnessApi(site) },
                     onBack = back,
+                    onScoreLoaded = { year, score ->
+                        val stat = com.xjtu.toolbox.home.fitnessHomeStat(year.name, score)
+                        HomeStats.push(fitnessContext, AppRoute.Fitness, stat.value, stat.detail, account, stat.lines)
+                        HomeStats.markFetched(fitnessContext, AppRoute.Fitness, account)
+                        com.xjtu.toolbox.home.HomeSignals.bumpStatsVersion()
+                    },
                 )
             }
         }
@@ -534,6 +548,15 @@ fun NavEntryBuilder.appPageEntries(
                 },
             )
         }
+        // 公告详情：首页公告条「查看详情」的落点。ROM 支持金标联盟一镜到底时由
+        // sharedview.NoticeDetailActivity 承载同一个屏；其余设备压这条路由，从公告卡放大进来。
+        entry<AppRoute.NoticeDetail>(transition = expand(AppRoute.NoticeDetail::class)) { route ->
+            NoticeDetailScreen(
+                notice = route,
+                onBack = back,
+                onOpenUrl = { url -> router.open(AppRoute.Browser(url)) },
+            )
+        }
         entry<AppRoute.Community>(transition = expand(AppRoute.Community::class)) {
             CommunityScreen(
                 session = remember { SecureGithubSession.get() },
@@ -544,22 +567,14 @@ fun NavEntryBuilder.appPageEntries(
                     )
                 },
                 onBack = back,
-                onOpenLegacyFeedback = { router.open(AppRoute.Feedback) },
             )
         }
-        entry<AppRoute.Feedback>(transition = expand(AppRoute.Feedback::class)) {
-            val feedbackContext = LocalContext.current
-            FeedbackScreen(
-                source = AppFeedbackSource,
-                onOpenUrl = { url ->
-                    runCatching {
-                        feedbackContext.startActivity(
-                            Intent(Intent.ACTION_VIEW, Uri.parse(url))
-                                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                        )
-                    }
-                },
+        entry<AppRoute.CommunityPost>(transition = expand(AppRoute.CommunityPost::class)) { route ->
+            CommunityScreen(
+                session = remember { SecureGithubSession.get() },
+                deviceAuth = remember { GithubOAuthDeviceAuthRepository(GithubNetwork.client, CommunityRepo.CLIENT_ID) },
                 onBack = back,
+                discussionNumber = route.number,
             )
         }
         entry<AppRoute.Faculty>(transition = expand(AppRoute.Faculty::class)) {
@@ -623,7 +638,7 @@ fun NavEntryBuilder.appPageEntries(
  * 外层灰底和窗口尺寸继续按转场的进度缩到原位，所以看不到页面顶栏叠在目标元素上。
  */
 @Composable
-private fun ExpandOriginPopOverlay(screenCornerPx: Float) {
+internal fun ExpandOriginPopOverlay(screenCornerPx: Float) {
     val pop = ExpandOrigins.pop.value ?: return
     val origin = pop.origin
     val snapshot = origin.snapshot ?: return
@@ -694,6 +709,7 @@ fun AwaitSite(
 
 /** 内置浏览器打开某个站点时带哪套登录会话的 cookie。 */
 private fun siteKeyForHost(host: String): String = when {
+    host == "dzpz.xjtu.edu.cn" -> "dzpz"
     "tyxylp.xjtu.edu.cn" in host -> "fitness"
     "rg.lib.xjtu.edu.cn" in host -> "library"
     "jwapp.xjtu.edu.cn" in host -> "jwapp"

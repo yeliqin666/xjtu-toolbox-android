@@ -4,6 +4,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import com.xjtu.toolbox.auth.AccountType
 import com.xjtu.toolbox.bulletin.Bulletin
 import com.xjtu.toolbox.nav.AppRoute
+import com.xjtu.toolbox.nav.SeamlessCardSource
 import kotlinx.datetime.LocalDateTime
 
 /** 首页上的每一块：各端声明自己那一份的词汇表。 */
@@ -115,10 +116,27 @@ interface HomeHost {
 
     /** 打开某个入口。 */
     fun onRoute(route: AppRoute) {}
+
+    /**
+     * 打开某个入口，并带上「从哪一块卡片/图标出发」的几何信息（一镜到底用）。
+     * 默认仍走 [onRoute]；Android 宿主在 ROM 支持 SharedViewKit 时改走独立 Activity 的系统转场。
+     */
+    fun onRouteSeamless(route: AppRoute, source: SeamlessCardSource?) {
+        onRoute(route)
+    }
+
     /** 「我的」那一屏。 */
     fun onProfile() {}
     /** 点一下公告条里的某条公告。 */
     fun onBulletinTap(bulletin: Bulletin) {}
+
+    /**
+     * 点公告条里的「查看详情」：默认仍走 [onBulletinTap]（桌面 / Web 不接管），
+     * Android 宿主改成「卡片 → 公告详情」的无缝转场（ROM 支持走 KIT，其余走 Compose 转场）。
+     */
+    fun onBulletinDetail(bulletin: Bulletin, source: SeamlessCardSource?) {
+        onBulletinTap(bulletin)
+    }
 
     /** 关掉公告条里的某条公告。 */
     fun onBulletinDismiss(bulletin: Bulletin) {}
@@ -126,10 +144,19 @@ interface HomeHost {
     /** 点开「子系统连接状态」的明细（那一层弹窗是各端自己的画法，所以是槽位）。 */
     fun onOpenStatus() {}
 
+    /** 点小组件里带链接的一条明细：网址打开原文，`tel:` 拨号。 */
+    fun onOpenLink(link: String) {}
+
+    /** 当前付款码（大尺寸付款码小组件直接画二维码）；null = 这一端拿不到或还没登录校园卡。 */
+    suspend fun paymentCode(): String? = null
+
     /**
-     * 首页编辑态里点「齿轮」：打开全局设置并**直接定位到「主页设置」面板**（需求 §1.3）。
+     * 首页编辑态里点「齿轮」、或小组件编辑态里点「设置」：打开主页设置抽屉（需求 §1.3）。
      *
      * 默认空实现 = 这一端没有设置页，点了就在原地不动（桌面、Web 各自决定接不接）。
      */
     fun onOpenHomeSettings() {}
+
+    /** 是否接了 [onOpenHomeSettings]，没接就不显示那个入口。 */
+    val hasHomeSettings: Boolean get() = false
 }

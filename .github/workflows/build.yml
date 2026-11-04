@@ -58,6 +58,11 @@ jobs:
         if: github.ref == 'refs/heads/dev'
         run: ./gradlew :app:minifyReleaseWithR8
 
+      - name: Verify preview lint
+        if: github.ref == 'refs/heads/dev'
+        # 即使跳过预览发布，也检查 preview 资源，避免补发时才发现致命 lint 错误。
+        run: ./gradlew :app:lintVitalPreview
+
       - name: Extract version name
         id: version
         run: |

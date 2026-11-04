@@ -90,6 +90,7 @@ object LmsDueCollector {
                 LmsDue(
                     courseId = c.id, courseName = c.name, activityId = a.id, title = a.title,
                     deadline = deadline.toString(), fetchedAt = fetchedAt,
+                    startTime = a.startTime,
                 )
             }
         }

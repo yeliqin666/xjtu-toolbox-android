@@ -65,6 +65,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.xjtu.toolbox.ui.glass.tabContentPadding
 import com.xjtu.toolbox.auth.LoginType
 import com.xjtu.toolbox.schedule.colorOf
 import com.xjtu.toolbox.schedule.rememberCourseColors
@@ -114,7 +115,7 @@ fun InboxScreen(
     onOpen: (String) -> Unit,
     /** 收纳是**按账号**存的；null = 当前账号（:core 的 AccountContext）。 */
     account: String? = null,
-    /** 屁岱消息弹窗里的「接着问屁岱」：宿主把这条消息当快照带进对话。null = 只按路由打开屁岱页。 */
+    /** 小岱消息弹窗里的「接着问小岱」：宿主把这条消息当快照带进对话。null = 只按路由打开小岱页。 */
     onAskPidai: ((InboxItem) -> Unit)? = null,
 ) {
     val scope = rememberCoroutineScope()
@@ -177,7 +178,7 @@ fun InboxScreen(
     fun open(item: InboxItem, ids: List<String> = listOf(item.id)) {
         InboxStore.markRead(ids)
         openedTodos = openedTodos + ids
-        // 屁岱的简报正文就是全部内容，屁岱页里没有它：先弹窗看全文，想接着聊再进屁岱
+        // 小岱的简报正文就是全部内容，小岱页里没有它：先弹窗看全文，想接着聊再进小岱
         val route = item.resolvedRouteId()
         if (route == null || item.category == InboxCategories.PIDAI) detail = item else onOpen(route)
     }
@@ -232,7 +233,7 @@ fun InboxScreen(
             AppTabPager(pageCount = 2, selectedTabIndex = tab, onTabSelected = { tab = it }, modifier = Modifier.fillMaxSize()) { page ->
                 LazyColumn(
                     Modifier.fillMaxSize().overScrollVertical(),
-                    contentPadding = PaddingValues(top = glassTop, bottom = 24.dp),
+                    contentPadding = tabContentPadding(PaddingValues(top = glassTop, bottom = 24.dp)),
                 ) {
                     error?.let { msg ->
                         item(key = "error") {
@@ -646,7 +647,7 @@ private fun InboxSettingsSheet(show: Boolean, data: InboxData, onDismiss: () -> 
     OverlayBottomSheet(show = show, title = "收纳设置", onDismissRequest = onDismiss) {
         val school = InboxStore.schoolCategories(data).map { InboxCategory(it, InboxCategories.schoolLabel(it)) }
         Column(Modifier.fillMaxWidth().navigationBarsPadding().heightIn(max = 520.dp).verticalScroll(rememberScrollState())) {
-            Text("勾掉的类别不进列表、不计数，屁岱也不再提。", style = MiuixTheme.textStyles.footnote1, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
+            Text("勾掉的类别不进列表、不计数，小岱也不再提。", style = MiuixTheme.textStyles.footnote1, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
             SettingsGroup("待办", InboxCategories.todos, data)
             SettingsGroup("消息", InboxCategories.messages, data)
             if (school.isNotEmpty()) SettingsGroup("学校消息", school, data)
@@ -677,7 +678,7 @@ private fun InboxDetailDialog(item: InboxItem, onAskPidai: (() -> Unit)? = null,
             Text(
                 item.body.ifBlank { item.title },
                 style = MiuixTheme.textStyles.body2,
-                modifier = Modifier.heightIn(max = 360.dp).verticalScroll(rememberScrollState()),
+                modifier = Modifier.weight(1f, fill = false).heightIn(max = 360.dp).verticalScroll(rememberScrollState()),
             )
             if (onAskPidai == null) {
                 TextButton(text = "知道了", onClick = onDismiss, modifier = Modifier.fillMaxWidth().padding(top = 12.dp), colors = ButtonDefaults.textButtonColorsPrimary())
@@ -686,7 +687,7 @@ private fun InboxDetailDialog(item: InboxItem, onAskPidai: (() -> Unit)? = null,
                     TextButton(text = "知道了", onClick = onDismiss, modifier = Modifier.weight(1f))
                     Spacer(Modifier.width(12.dp))
                     TextButton(
-                        text = "接着问屁岱",
+                        text = "接着问小岱",
                         onClick = { onDismiss(); onAskPidai() },
                         modifier = Modifier.weight(1f),
                         colors = ButtonDefaults.textButtonColorsPrimary(),

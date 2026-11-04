@@ -6,6 +6,7 @@ import com.xjtu.toolbox.community.CommunityActivity
 import com.xjtu.toolbox.community.CommunityActivityKind
 import com.xjtu.toolbox.library.MyBookingInfo
 import com.xjtu.toolbox.lms.LmsDue
+import com.xjtu.toolbox.lms.lmsInstant
 import com.xjtu.toolbox.nav.AppRoute
 import com.xjtu.toolbox.notification.Notification
 import com.xjtu.toolbox.util.todayOnCampus
@@ -82,6 +83,7 @@ object OwnInbox {
                 category = InboxCategories.LMS, source = d.courseName,
                 title = if (d.exam) "测试 · ${d.title}" else d.title,
                 time = d.fetchedAt, route = AppRoute.Lms(d.courseId, d.activityId.takeUnless { d.exam }).id, expiresAt = deadline,
+                availableAt = d.startTime?.let(::lmsInstant)?.toEpochMilliseconds() ?: 0L,
             )
         }
 }

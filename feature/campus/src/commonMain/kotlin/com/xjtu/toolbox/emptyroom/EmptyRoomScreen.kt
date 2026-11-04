@@ -1,5 +1,6 @@
 package com.xjtu.toolbox.emptyroom
 
+import com.xjtu.toolbox.ui.glass.tabContentBottomPadding
 import com.xjtu.toolbox.ui.components.AppPullToRefresh
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.xjtu.toolbox.ui.components.enterOnce
@@ -632,7 +633,7 @@ fun EmptyRoomScreen(
                         .width(400.dp)
                         .fillMaxHeight()
                         .overScrollVertical()
-                        .verticalScroll(rememberScrollState())
+                        .verticalScroll(rememberScrollState()).tabContentBottomPadding()
                         .padding(start = 12.dp, top = glassTop + 4.dp, bottom = 16.dp),
                 ) {
                     filtersCard()

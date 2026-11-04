@@ -71,6 +71,7 @@ internal class AppScheduleHost(
     override fun onScheduleSynced() {
         HomeSignals.scheduleVersion++
         ScheduleWidgetUpdater.requestUpdate(app)
+        com.xjtu.toolbox.notification.DynamicScheduleScheduler.requestRefresh(app)
     }
 
     override fun shareFile(content: String, fileName: String, mimeType: String): Boolean {

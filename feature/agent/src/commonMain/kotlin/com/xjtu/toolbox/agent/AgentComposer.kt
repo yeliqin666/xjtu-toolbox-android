@@ -36,6 +36,7 @@ import androidx.compose.runtime.*
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.filled.Image
+import androidx.compose.material.icons.filled.Inbox
 import com.xjtu.toolbox.platform.decodeImageFull
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -71,6 +72,7 @@ internal fun AgentComposer(
     onRemoveAttachment: (String) -> Unit = {},
     /** 玻璃模式下的采样源：聊天内容层。null 时退回原来的实底输入框。 */
     backdrop: Backdrop? = null,
+    onOpenShared: (() -> Unit)? = null,
 ) {
     // 只发图不打字是合理的（「这是什么」「帮我看看这张课表」）。
     val canSend = (input.isNotBlank() || attachments.isNotEmpty()) && !contextExhausted
@@ -189,6 +191,11 @@ internal fun AgentComposer(
                 .padding(start = 6.dp, end = 6.dp, top = 6.dp, bottom = 6.dp),
             verticalAlignment = Alignment.Bottom,
         ) {
+            onOpenShared?.let { open ->
+                IconButton(onClick = open, modifier = Modifier.size(36.dp)) {
+                    Icon(Icons.Default.Inbox, "分享材料", modifier = Modifier.size(20.dp), tint = MiuixTheme.colorScheme.onSurfaceVariantSummary)
+                }
+            }
             if (visionEnabled) {
                 Box(
                     Modifier
@@ -309,5 +316,33 @@ internal fun AttachmentThumb(path: String, host: AgentHost, size: Dp = 62.dp) {
                 modifier = Modifier.size(20.dp),
             )
         }
+    }
+}
+
+/** 推送记录的底栏：只读说明 + 开新对话，底部让位与 [AgentComposer] 一致。 */
+@Composable
+internal fun PushLogFooter(bottomReserve: Dp, onNewChat: () -> Unit) {
+    val resting = if (bottomReserve > 0.dp) WindowInsets(bottom = bottomReserve) else WindowInsets.navigationBars
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .windowInsetsPadding(resting)
+            .padding(horizontal = 20.dp, vertical = 14.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            "这里只收小岱的推送，不能回复",
+            style = MiuixTheme.textStyles.footnote1,
+            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+            modifier = Modifier.weight(1f),
+        )
+        Text(
+            "开新对话",
+            style = MiuixTheme.textStyles.footnote1,
+            fontWeight = androidx.compose.ui.text.font.FontWeight.Medium,
+            color = MiuixTheme.colorScheme.primary,
+            modifier = Modifier.clip(RoundedCornerShape(8.dp)).clickable(onClick = onNewChat)
+                .padding(horizontal = 8.dp, vertical = 6.dp),
+        )
     }
 }

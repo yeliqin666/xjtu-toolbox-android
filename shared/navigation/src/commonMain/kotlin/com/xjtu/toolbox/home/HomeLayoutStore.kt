@@ -221,7 +221,10 @@ class HomeLayoutStore(
         const val BACKGROUND_OPACITY_MIN = 20
         const val BACKGROUND_OPACITY_MAX = 100
 
-        private const val KEY_LAYOUT = "home_layout"
+        // 注意键名：`SettingsStore.homeLayout` 也用「首页布局」这个意思，但存的是**模式**
+        // （classic / widgets / cards）落在 `home_layout` 上；这里存的是卡片组那一整页的分组
+        // 与格位快照，必须换个键，否则两边会互相覆盖（合并 dev 时踩到过）。
+        private const val KEY_LAYOUT = "home_cards_layout"
         private const val KEY_GRID = "home_grid"
         private const val KEY_LIQUID_CARD = "home_liquid_card"
         private const val KEY_LIQUID_REFRACTION = "home_liquid_refraction"

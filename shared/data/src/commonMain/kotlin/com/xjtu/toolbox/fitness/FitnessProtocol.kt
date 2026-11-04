@@ -25,6 +25,8 @@ import javax.crypto.spec.SecretKeySpec
 data class FitnessLaunch(
     val session: LinkedHashMap<String, Any>,
     val referer: String,
+    val userType: String = "2",
+    val loginType: String = "4",
 )
 
 /** 学校网关故障不表示登录失效，也不保存成服务永久关闭。 */
@@ -87,8 +89,58 @@ object FitnessProtocol {
         session["ostype"] = "5"
         session["role"] = role
         val base = url.substring(0, hash).substringBefore('?')
-        return FitnessLaunch(session, referer = "$base#$fragmentPath")
+        return FitnessLaunch(
+            session,
+            referer = "$base#$fragmentPath",
+            userType = params.getValue("user_type"),
+            loginType = params["login_type"]?.ifBlank { null } ?: "4",
+        )
     }
+
+    /**
+     * legacy PHP 接口（学年列表、成绩）要先用 token 在 `Index/checkLogin` 建立 PHP 会话，
+     * 否则一律回「登录信息失效」。签名同 v3，但不含 term_id、id。
+     */
+    fun checkLogin(client: OkHttpClient, tokens: Map<String, String>): Boolean {
+        val fields = linkedMapOf(
+            "timestamp" to (System.currentTimeMillis() / 1000).toString(),
+            "nonce" to "%06d".format(random.nextInt(1_000_000)),
+            "course_id" to "0",
+            "uid" to tokens["uid"].orEmpty(),
+            "card_id" to tokens["card_id"].orEmpty(),
+            "login_type" to (tokens["login_type"]?.ifBlank { null } ?: "4"),
+            "type" to "1",
+            "school_id" to tokens["school_id"].orEmpty(),
+            "student_num" to tokens["student_num"].orEmpty(),
+            "user_type" to (tokens["user_type"]?.ifBlank { null } ?: "2"),
+            "token" to tokens["token"].orEmpty(),
+        )
+        if (fields["uid"].isNullOrBlank() || fields["token"].isNullOrBlank()) return false
+        val sign = md5Hex(fields.keys.sorted().joinToString("") { "$it${fields[it]}" } + SIGN_SALT)
+        val form = FormBody.Builder().apply {
+            fields.forEach { (k, v) -> add(k, v) }
+            add("sign", sign)
+            add("term_id", "")
+            add("id", "")
+        }.build()
+        val request = Request.Builder()
+            .url("$LEGACY_API_ROOT/Index/checkLogin")
+            .header("Origin", ORIGIN)
+            .header("Referer", "$ORIGIN/bdlp_h5_fitness_test/view/fitness/homepage/year_fitness.html")
+            .header("X-Requested-With", "XMLHttpRequest")
+            .post(form)
+            .build()
+        return client.newCall(request).execute().use { response ->
+            checkNotServerError(response.code)
+            val body = response.body.string()
+            com.xjtu.toolbox.platform.Log.d("Fitness", "checkLogin: code=${response.code} body=${body.take(120)}")
+            response.isSuccessful &&
+                runCatching { body.safeParseJsonObject() }.getOrNull()?.get("status")?.intValue == 1
+        }
+    }
+
+    /** legacy 接口说 PHP 会话没了（没建过或 token 过期）。 */
+    fun isLegacySessionLost(body: String): Boolean = "登录信息失效" in body
 
     fun sessionFromTokens(tokens: Map<String, String>): LinkedHashMap<String, Any>? {
         val session = linkedMapOf<String, Any>()
@@ -104,6 +156,8 @@ object FitnessProtocol {
     fun writeTokens(tokens: MutableMap<String, String>, launch: FitnessLaunch) {
         launch.session.forEach { (key, value) -> tokens[key] = value.toString() }
         tokens["referer_url"] = launch.referer
+        tokens["user_type"] = launch.userType
+        tokens["login_type"] = launch.loginType
     }
 
     fun buildApiPayload(

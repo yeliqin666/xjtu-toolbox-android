@@ -1,5 +1,7 @@
 package com.xjtu.toolbox.library
 
+import com.xjtu.toolbox.ui.glass.tabContentPadding
+import com.xjtu.toolbox.ui.glass.tabContentBottomPadding
 import com.xjtu.toolbox.error.FriendlyError
 import com.xjtu.toolbox.ui.components.AppPullToRefresh
 import com.xjtu.toolbox.ui.components.pressScale
@@ -579,7 +581,7 @@ fun LibraryScreen(
                     .width(420.dp)
                     .fillMaxHeight()
                     .overScrollVertical()
-                    .verticalScroll(rememberScrollState())
+                    .verticalScroll(rememberScrollState()).tabContentBottomPadding()
             ) {
                 Spacer(Modifier.height(glassTop))
                 headerContent()
@@ -591,11 +593,11 @@ fun LibraryScreen(
             LazyVerticalGrid(
                 state = gridState,
                 columns = GridCells.Adaptive(minSize = 56.dp),
-                contentPadding = PaddingValues(
+                contentPadding = tabContentPadding(PaddingValues(
                     start = 12.dp, end = 12.dp,
                     top = if (wideLibrary) glassTop + 6.dp else 0.dp,
                     bottom = 16.dp,
-                ),
+                )),
                 verticalArrangement = Arrangement.spacedBy(4.dp),
                 horizontalArrangement = Arrangement.spacedBy(4.dp),
                 modifier = Modifier.fillMaxSize().overScrollVertical()

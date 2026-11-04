@@ -22,6 +22,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.Image
+import com.xjtu.toolbox.ui.glass.tabContentPadding
 import com.xjtu.toolbox.html.HtmlContent
 import com.xjtu.toolbox.platform.showBriefMessage
 import com.xjtu.toolbox.ui.adaptive.readableWidth
@@ -159,12 +160,12 @@ internal fun BulletinDetailPage(
                 modifier = Modifier
                     .fillMaxSize()
                     .readableWidth(),
-                contentPadding = PaddingValues(
+                contentPadding = tabContentPadding(PaddingValues(
                     start = 16.dp,
                     end = 16.dp,
                     top = glassTop + 12.dp,
                     bottom = 24.dp
-                )
+                ))
             ) {
                 // 基本信息卡
                 item(key = "info") {

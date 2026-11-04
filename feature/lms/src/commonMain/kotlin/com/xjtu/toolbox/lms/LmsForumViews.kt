@@ -1,5 +1,6 @@
 package com.xjtu.toolbox.lms
 
+import com.xjtu.toolbox.ui.glass.tabContentPadding
 import com.xjtu.toolbox.platform.Log
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
@@ -380,7 +381,7 @@ internal fun LmsForumTopicDetailPage(
             LazyColumn(
                 state = listState,
                 modifier = Modifier.fillMaxSize().readableWidth(),
-                contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = glassTop + 12.dp, bottom = 24.dp)
+                contentPadding = tabContentPadding(PaddingValues(start = 16.dp, end = 16.dp, top = glassTop + 12.dp, bottom = 24.dp))
             ) {
                 // 主帖卡片
                 item(key = "topic_main") {
