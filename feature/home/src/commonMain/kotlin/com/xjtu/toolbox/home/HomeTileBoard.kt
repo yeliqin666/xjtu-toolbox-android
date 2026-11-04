@@ -348,8 +348,8 @@ private fun GroupHeader(
 private fun GroupDeleteButton(liquid: Boolean, refraction: Boolean, backdrop: Backdrop?, onClick: () -> Unit) {
     val dark = LocalIsDarkTheme.current
     val fill = if (dark) Color.White.copy(alpha = 0.07f) else Color.White.copy(alpha = 0.42f)
-    val material = if (liquid && backdrop != null) {
-        Modifier.drawBackdrop(
+    val material = when {
+        liquid && backdrop != null -> Modifier.drawBackdrop(
             backdrop = backdrop,
             shape = { CircleShape },
             effects = {
@@ -362,8 +362,11 @@ private fun GroupDeleteButton(liquid: Boolean, refraction: Boolean, backdrop: Ba
             shadow = null,
             onDrawSurface = { drawRect(fill) },
         )
-    } else {
-        Modifier
+        // 纯色 / 渐变背景：和卡片同一套「不采不糊，换薄色」，别让这个小圆钮独自退回毛玻璃
+        liquid -> Modifier
+            .clip(CircleShape)
+            .background(if (dark) Color.Black.copy(alpha = 0.24f) else Color.White.copy(alpha = 0.55f))
+        else -> Modifier
             .clip(CircleShape)
             .background(MiuixTheme.colorScheme.onSurface.copy(alpha = 0.07f))
     }
@@ -600,6 +603,10 @@ internal fun HomeTileFaceBox(
     // 和底栏胶囊同一套环境光阴影（remember：shadow lambda 捕获的对象变了会触发重采样）
     val accent = MiuixTheme.colorScheme.primary
     val liquidShadow = remember(accent, dark) { floatingGlassShadow(accent, dark) }
+    // 纯色 / 渐变背景上的液态玻璃（背景上没有壁纸可采）：模糊与折射都糊不出东西，换成一薄层
+    // 「比页面更白（浅色）/ 更深（深色）」的底色，轮廓高光与环境光投影照留——观感上仍是一块
+    // 浮起来的玻璃，只是不再透出背后的东西。与折射开关无关，两种状态都走这一档。
+    val flatGlassFill = if (dark) Color.Black.copy(alpha = 0.26f) else Color.White.copy(alpha = 0.52f)
 
     val material = when {
         liquid && backdrop != null -> remember(backdrop, radius, liquidFill, liquidShadow, refraction) {
@@ -627,6 +634,13 @@ internal fun HomeTileFaceBox(
                 onDrawSurface = { drawRect(liquidFill) },
             )
         }
+        // 液态玻璃开着、但背景是纯色 / 渐变（没有 backdrop 可采）：不做模糊与折射，
+        // 用一薄层高光底色 + 轮廓 + 投影顶上，别退回毛玻璃——毛玻璃明显更闷
+        liquid -> Modifier
+            .appCardShadow(shape = RoundedCornerShape(radius))
+            .squircleClip(radius)
+            .background(flatGlassFill)
+            .squircleBorder(0.9.dp, hairline, radius)
         else -> Modifier
             .then(if (dark) Modifier else Modifier.appCardShadow(shape = RoundedCornerShape(radius)))
             .squircleClip(radius)

@@ -188,6 +188,18 @@ fun HomeScreen(
     val backgroundBlur = remember(revision) { layoutStore.backgroundBlur }
     val backgroundOpacity = remember(revision) { layoutStore.backgroundOpacity }
 
+    /**
+     * 背景上**真的有壁纸可采**吗：只有「自定义图片」且图还在时才是。
+     *
+     * 纯色 / 渐变这两档的背景层就是一片纯色——糊它糊不出任何东西，却照样要付一次离屏采样。
+     * 所以这两档的液态玻璃走「不采不糊 + 一薄层更白/更深的底色」（见 `HomeTileFaceBox` 的
+     * `flatGlassFill`），轮廓高光、环境光投影、圆角那一套仍然照旧。顶栏那条模糊带不受影响：
+     * 它采的是**内容层**（壁纸 + 滚动内容），纯色下也照样有内容可糊。
+     */
+    val hasWallpaper = backgroundMode == HomeLayoutStore.BACKGROUND_IMAGE && backgroundImage.isNotEmpty()
+    // 卡片那一层离屏层只在「液态玻璃开着且真有壁纸」时才录
+    val recordTileLayer = liquid && hasWallpaper
+
     /** 改当前布局：编辑态改草稿（点「对勾」才落盘），其余情况直接落盘。 */
     fun update(block: (HomeLayout) -> HomeLayout) {
         if (editing.on) {
@@ -928,13 +940,13 @@ fun HomeScreen(
                 .then(if (recordPageLayer) Modifier.layerBackdrop(pageBackdrop) else Modifier),
         ) {
             // ── 背景层：主题底色 +（可选）主题色渐变 / 壁纸。卡片 / 悬浮球的液态玻璃采它 ──
-            // 采样只在液态玻璃开着时才有消费者（卡片、圆钮、悬浮球、删除按钮的 backdrop 全按
-            // `liquid` 取），毛玻璃（默认）这一档没人采——那就别录：`layerBackdrop` 是一次
-            // 整屏离屏渲染，白做一遍纯属把每帧的 GPU 白送。
+            // 采样只在「液态玻璃开着、且背景上真有壁纸」时才有消费者与内容（卡片、圆钮、悬浮球、
+            // 删除按钮的 backdrop 全按 `recordTileLayer` 取）：`layerBackdrop` 是一次整屏离屏
+            // 渲染，没有壁纸可采时白做一遍纯属把每帧的 GPU 白送。
             Box(
                 Modifier
                     .matchParentSize()
-                    .then(if (liquid) Modifier.layerBackdrop(tileBackdrop) else Modifier),
+                    .then(if (recordTileLayer) Modifier.layerBackdrop(tileBackdrop) else Modifier),
             ) {
                 Box(Modifier.matchParentSize().background(barSurface))
                 when (backgroundMode) {
@@ -1056,7 +1068,7 @@ fun HomeScreen(
                                     editing = editing.on,
                                     liquid = liquid,
                                     refraction = refraction,
-                                    backdrop = tileBackdrop.takeIf { liquid },
+                                    backdrop = tileBackdrop.takeIf { recordTileLayer },
                                     session = session,
                                     budgetRows = rowBudget?.get(group.id),
                                     // 接收高亮：手指把这一组当落点，且它不是拖拽源组（§19）
@@ -1158,7 +1170,7 @@ fun HomeScreen(
             faces = faces,
             liquid = liquid,
             refraction = refraction,
-            backdrop = tileBackdrop.takeIf { liquid },
+            backdrop = tileBackdrop.takeIf { recordTileLayer },
             geometry = { dragGeometry },
             settling = ghostSettling,
             settleValue = { ghostSettle.value },
@@ -1171,7 +1183,7 @@ fun HomeScreen(
                 catalog = catalog,
                 liquid = liquid,
                 refraction = refraction,
-                backdrop = tileBackdrop.takeIf { liquid },
+                backdrop = tileBackdrop.takeIf { recordTileLayer },
                 session = session,
                 onPaletteStart = { routeId, startPointer ->
                     session.refreshBoardFromCoordinates()

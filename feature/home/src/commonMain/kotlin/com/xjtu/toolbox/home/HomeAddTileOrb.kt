@@ -51,6 +51,7 @@ import com.kyant.backdrop.effects.lens
 import com.kyant.backdrop.effects.vibrancy
 import com.kyant.backdrop.highlight.Highlight
 import com.xjtu.toolbox.ui.components.ExpressiveIcon
+import com.xjtu.toolbox.ui.components.appCardShadow
 import com.xjtu.toolbox.ui.glass.floatingGlassShadow
 import com.xjtu.toolbox.ui.theme.LocalIsDarkTheme
 import kotlin.math.roundToInt
@@ -395,7 +396,12 @@ private fun OrbTileIcon(
     }
 }
 
-/** 悬浮球与长条共用的液态玻璃（采首页背景层，和卡片同一套参数）；关液态时退回半透明底。 */
+/**
+ * 悬浮球与长条共用的液态玻璃（采首页背景层，和卡片同一套参数）；关液态时退回半透明底。
+ *
+ * 纯色 / 渐变背景上没有壁纸可采（`backdrop` 为 null 但液态玻璃开着）：照卡片的规矩走
+ * 「不采不糊、换一薄层更白/更深的底 + 投影」，不再退回毛玻璃那种闷底。
+ */
 @Composable
 private fun Modifier.orbGlass(
     liquid: Boolean,
@@ -405,11 +411,20 @@ private fun Modifier.orbGlass(
 ): Modifier {
     val dark = LocalIsDarkTheme.current
     val fill = if (dark) Color.White.copy(alpha = 0.07f) else Color.White.copy(alpha = 0.42f)
-    if (!liquid || backdrop == null) {
-        return this.background(MiuixTheme.colorScheme.surface.copy(alpha = 0.6f), shape)
-    }
     val accent = MiuixTheme.colorScheme.primary
     val shadow = remember(accent, dark) { floatingGlassShadow(accent, dark) }
+    if (!liquid) {
+        return this.background(MiuixTheme.colorScheme.surface.copy(alpha = 0.6f), shape)
+    }
+    if (backdrop == null) {
+        // 没有壁纸：底子换成一层薄色，投影照留（浮起感主要来自这层环境光）
+        return this
+            .appCardShadow(shape = shape)
+            .background(
+                if (dark) Color.Black.copy(alpha = 0.24f) else Color.White.copy(alpha = 0.55f),
+                shape,
+            )
+    }
     return this.then(
         Modifier.drawBackdrop(
             backdrop = backdrop,
