@@ -79,6 +79,7 @@ fun main(args: Array<String>) {
         }
     }
     capture("today.png", 412, 915)
+    capture("today-departed.png", 412, 915, clicks = listOf("今天已发车"))
     capture("phone.png", 412, 915, clicks = listOf("明天"))
     capture("phone-expanded.png", 412, 915, clicks = listOf("明天", "三村西门 → 创新港"))
     capture("phone-dark.png", 412, 915, dark = true, clicks = listOf("明天"))

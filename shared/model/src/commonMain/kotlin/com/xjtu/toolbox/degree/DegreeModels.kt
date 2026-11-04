@@ -7,7 +7,7 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonObject
 
 /** 培养方案与学业进度（#255）。树是基础，成绩来自成绩查询，教务的完成报告只作参考。 */
-enum class DegreeCourseStatus { PASSED, FAILED, NOT_TAKEN, OTHER }
+enum class DegreeCourseStatus { PASSED, FAILED, NOT_TAKEN, IN_PROGRESS, OTHER }
 
 data class DegreeCourse(
     val code: String,
@@ -61,6 +61,8 @@ data class DegreeLooseCourse(
     val passed: Boolean,
     val score: String?,
     val term: String?,
+    /** 在最近两个学期的课表里，还没出成绩。 */
+    val inProgress: Boolean = false,
 )
 
 data class DegreeProgress(
@@ -79,6 +81,9 @@ data class DegreeProgress(
     val gpaEstimate: Double?,
     val failedCourses: List<String>,
     val warnings: List<String>,
+    /** 在修或待出成绩的学分和门数。不计入 earned/counted。 */
+    val inProgressCredits: Double = 0.0,
+    val inProgressCount: Int = 0,
 )
 
 /** 成绩查询里的一门成绩。 */
@@ -92,6 +97,9 @@ data class DegreeGrade(
     val term: String,
 )
 
+/** 最近两个有课学期的课表里的一门课。 */
+data class DegreeCurrentCourse(val code: String, val name: String, val term: String)
+
 /** 教务接口的原始行，解析全在 [DegreeBuilder]，方便用假数据测各种奇形怪状的树。 */
 data class DegreeRaw(
     val planCode: String,
@@ -103,7 +111,15 @@ data class DegreeRaw(
     /** `queryXyzhbx.do` 的 data；拿不到为 null，树和成绩照样能算。 */
     val report: JsonObject?,
     val grades: List<DegreeGrade>,
+    /** 方案所属年级，如 `2023`。 */
+    val grade: String? = null,
+    val currentCourses: List<DegreeCurrentCourse> = emptyList(),
 )
+
+/** 全校方案列表里的一条。 */
+data class DegreePlanSummary(val code: String, val name: String, val college: String, val grade: String)
+
+data class DegreePlanPage(val plans: List<DegreePlanSummary>, val total: Int)
 
 /** 取数端口。 */
 interface DegreeSource {
@@ -111,10 +127,27 @@ interface DegreeSource {
 
     /** 教务的「重新计算」。只在用户点按钮时调。返回 false 表示等超时了。 */
     suspend fun recalculate(): Boolean
+
+    /** 按名称和年级搜全校培养方案（规划转专业用）。 */
+    suspend fun searchPlans(keyword: String, grade: String): DegreePlanPage
+
+    /** 取别的方案，带上用户的成绩：看转过去能算多少。教务报告只针对用户自己的方案，这里没有。 */
+    suspend fun fetchPlan(plan: DegreePlanSummary): DegreeRaw
 }
 
 object DegreeBuilder {
     const val ROOT_PARENT = "-1"
+    const val IN_PROGRESS_TEXT = "在修或待出成绩"
+
+    /** `2025-2026-2` 的上一学期。每学年三学期（第 3 个是小学期）；认不出的格式返回 null。 */
+    fun previousTerm(term: String): String? {
+        val parts = term.split('-')
+        val start = parts.getOrNull(0)?.toIntOrNull() ?: return null
+        val end = parts.getOrNull(1)?.toIntOrNull() ?: return null
+        val no = parts.getOrNull(2)?.toIntOrNull() ?: return null
+        if (parts.size != 3) return null
+        return if (no > 1) "$start-$end-${no - 1}" else "${start - 1}-${end - 1}-3"
+    }
     private const val UNKNOWN_GROUP = "_unknown"
     private val HTML_TAG = Regex("<[^>]+>")
 
@@ -229,6 +262,12 @@ object DegreeBuilder {
                     warnings += "教务报告里的「${it.name}」不在方案树中"
                 }
             }
+            // 要求以方案树为准；教务报告写的不一样就说出来，不悄悄选一个
+            node.number("creditsRequired")?.let { official ->
+                if (kotlin.math.abs(official - draft.required) > 0.01) {
+                    warnings += "「${draft.name}」方案要求 ${draft.required} 学分，教务报告写的是 $official"
+                }
+            }
             draft.officialTaken = node.number("creditsTaken")
             draft.officialPassed = node.text("sftg")?.let { it == "1" }
             (node["data"] as? JsonArray)?.forEach { element ->
@@ -333,6 +372,38 @@ object DegreeBuilder {
             loose.remove(key)
         }
 
+        // ── 最近两个学期的课表（进小学期时上学期成绩常常还没出）：出了成绩的以成绩为准不重复，没出的单独标、不计学分 ──
+        raw.currentCourses.forEach { cur ->
+            val key = keyOf(cur.code, cur.name)
+            val name = cur.name.trim()
+            val attempts = raw.grades.filter { keyOf(it.code, it.name) == key || (name.isNotEmpty() && it.name.trim() == name) }
+            // 以前挂过这学期重修的还算在修；这学期已经出分的就不是了
+            if (attempts.any { it.passed || it.term == cur.term }) return@forEach
+            val hit = drafts.values.firstNotNullOfOrNull { d ->
+                val k = if (key in d.courses) key
+                else d.courses.entries.firstOrNull { it.value.name == name && name.isNotEmpty() }?.key
+                k?.let { d to it }
+            }
+            when {
+                hit != null -> {
+                    val (draft, k) = hit
+                    val known = draft.courses.getValue(k)
+                    if (known.status != DegreeCourseStatus.PASSED) {
+                        draft.courses[k] = known.copy(
+                            status = DegreeCourseStatus.IN_PROGRESS,
+                            statusText = IN_PROGRESS_TEXT,
+                            term = cur.term,
+                            matchedByName = k != key,
+                        )
+                    }
+                }
+                genEdGroup(cur.code) != null -> genEdGroup(cur.code)!!.courses[key] = DegreeCourse(
+                    cur.code, cur.name, 0.0, DegreeCourseStatus.IN_PROGRESS, IN_PROGRESS_TEXT, term = cur.term,
+                )
+                else -> loose[key] = DegreeLooseCourse(cur.code, cur.name, 0.0, false, null, cur.term, inProgress = true)
+            }
+        }
+
         // ── 重算。教务的问题是子组学分先截断到自身要求，要求为 0 的模块就全归零（专业选修 0/11）──
         val countedOnce = HashSet<String>()
         fun finish(d: Draft): DegreeNode {
@@ -380,6 +451,8 @@ object DegreeBuilder {
             gpaEstimate = if (creditSum > 0) graded.sumOf { it.gpa!! * it.credit } / creditSum else null,
             failedCourses = bestGrades.values.filter { !it.passed }.map { it.name },
             warnings = warnings,
+            inProgressCredits = nodes.flatMap { it.flattened }.flatMap { it.courses }.filter { it.status == DegreeCourseStatus.IN_PROGRESS }.sumOf { it.credit },
+            inProgressCount = nodes.flatMap { it.flattened }.flatMap { it.courses }.count { it.status == DegreeCourseStatus.IN_PROGRESS } + loose.values.count { it.inProgress },
         )
     }
 }

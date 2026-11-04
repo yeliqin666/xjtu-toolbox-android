@@ -477,8 +477,9 @@ fun NavEntryBuilder.appPageEntries(
             )
         }
         entry<AppRoute.DegreeProgress>(transition = expand(AppRoute.DegreeProgress::class)) {
+            val degreeContext = LocalContext.current
             val degreeSource = remember(loginState.sessionManager) {
-                loginState.sessionManager?.let { com.xjtu.toolbox.degree.AppDegreeSource(it) }
+                loginState.sessionManager?.let { com.xjtu.toolbox.degree.appDegreeSource(degreeContext, it) }
             }
             if (degreeSource != null) {
                 com.xjtu.toolbox.degree.DegreeScreen(

@@ -55,21 +55,32 @@ object DegreeAgentJson {
             put("remainingCount", remaining.size)
             if (remaining.size <= MAX_LISTED_REMAINING) {
                 putJsonArray("remaining") {
-                    remaining.forEach { c -> add(c.name + "(${c.credit})" + if (c.status == DegreeCourseStatus.FAILED) "[未通过]" else "") }
+                    remaining.forEach { c ->
+                        add(c.name + "(${c.credit})" + when (c.status) {
+                            DegreeCourseStatus.FAILED -> "[未通过]"
+                            DegreeCourseStatus.IN_PROGRESS -> "[在修或待出成绩]"
+                            else -> ""
+                        })
+                    }
                 }
             }
         }
         if (n.children.isNotEmpty()) put("children", JsonArray(n.children.map(::overviewNode)))
     }
 
-    fun overview(p: DegreeProgress): String = buildJsonObject {
+    /** @param otherPlan 看的是别的方案（规划转专业）：数字是用户的成绩对照这个方案的估算。 */
+    fun overview(p: DegreeProgress, otherPlan: Boolean = false): String = buildJsonObject {
         put("plan", p.planName)
         put("required", num(p.required))
         put("counted", num(p.counted))
         p.officialTaken?.let { put("officialTaken", num(it)) }
         p.officialEarned?.let { put("officialEarned", num(it)) }
         p.calculatedAt?.let { put("reportCalculatedAt", it) }
-        put("howToRead", "counted/earned 是按课程重算的；official* 是教务报告原值，可能算错（要求为 0 的子模块会被算成 0）。两者不同时都告诉用户，以教务为准。用 group 参数传节点 id 可看该组全部原始字段。")
+        put(
+            "howToRead",
+            if (otherPlan) "这不是用户现在的方案，是用用户的成绩对照它的估算，没有教务报告。课程号或课程名对不上的课不计入，实际能否认定以学院转专业文件为准。用 group 参数传节点 id 可看该组全部原始字段。"
+            else "counted/earned 是按课程重算的；official* 是教务报告原值，可能算错（要求为 0 的子模块会被算成 0）。两者不同时都告诉用户，以教务为准。用 group 参数传节点 id 可看该组全部原始字段。",
+        )
         put("nodes", JsonArray(p.nodes.map(::overviewNode)))
         putJsonArray("unplaced") {
             p.unplaced.forEach { c ->
@@ -80,10 +91,20 @@ object DegreeAgentJson {
                     put("passed", c.passed)
                     c.score?.let { put("score", it) }
                     c.term?.let { put("term", it) }
+                    if (c.inProgress) put("inProgress", true)
                 })
             }
         }
-        put("unplacedNote", "这些课没归进方案，可能是换过课程号。可以按名称和学分建议它可能抵哪一组，但只是建议：要用户在学业进度页自己确认，并向教务核实。")
+        if (p.inProgressCount > 0) {
+            put("inProgressCourses", p.inProgressCount)
+            put("inProgressCredits", num(p.inProgressCredits))
+            put("inProgressNote", "最近两个学期课表里还没出成绩的课，可能在修，也可能已结课等成绩，不计入 earned/counted，课程后标了 [在修或待出成绩]。学分为 0 的是没对上方案、不知道学分。")
+        }
+        put(
+            "unplacedNote",
+            if (otherPlan) "这些课在这个方案里没对上，转过去可能用不上，也可能可以申请认定。可以按名称和学分给建议，但只是建议，要向学院核实。"
+            else "这些课没归进方案，可能是换过课程号。可以按名称和学分建议它可能抵哪一组，但只是建议：要用户在学业进度页自己确认，并向教务核实。",
+        )
         p.gpaEstimate?.let { put("gpaEstimate", (it * 100).toLong() / 100.0) }
         put("failedCourses", buildJsonArray { p.failedCourses.forEach { add(it) } })
         if (p.warnings.isNotEmpty()) put("warnings", buildJsonArray { p.warnings.forEach { add(it) } })

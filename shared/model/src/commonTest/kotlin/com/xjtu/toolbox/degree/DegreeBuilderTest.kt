@@ -187,6 +187,79 @@ class DegreeBuilderTest {
         assertEquals(0, (root["rules"] as JsonArray).size)
     }
 
+    private val thisTerm = "2026-2027-1"
+    private fun current(code: String, name: String) = DegreeCurrentCourse(code, name, thisTerm)
+
+    @Test fun currentCoursesAreMarkedButNotCounted() {
+        val p = DegreeBuilder.build(electives.copy(currentCourses = listOf(current("B2", "宇宙学"))))
+        val c = p.node("m2").courses.first { it.code == "B2" }
+        assertEquals(DegreeCourseStatus.IN_PROGRESS, c.status)
+        assertEquals(11.0, p.node("e").earned)
+        assertEquals(2.0, p.inProgressCredits)
+        assertEquals(1, p.inProgressCount)
+    }
+
+    @Test fun gradedCurrentCoursesAreNotDoubleCounted() {
+        val data = electives.copy(
+            grades = electives.grades + grade("B2", "宇宙学", 2.0, term = thisTerm),
+            currentCourses = listOf(current("B2", "宇宙学")),
+        )
+        val p = DegreeBuilder.build(data)
+        assertEquals(DegreeCourseStatus.PASSED, p.node("m2").courses.first { it.code == "B2" }.status)
+        assertEquals(13.0, p.node("e").earned)
+        assertEquals(0, p.inProgressCount)
+    }
+
+    @Test fun retakingAFailedCourseCountsAsInProgress() {
+        val p = DegreeBuilder.build(raw(
+            groups = listOf(group("g", "-1", "必修", 4.0)),
+            courses = listOf(course("g", "M1", "数学", 4.0)),
+            grades = listOf(grade("M1", "数学", 4.0, passed = false, term = "2024-2025-1")),
+        ).copy(currentCourses = listOf(current("M1", "数学"))))
+        assertEquals(DegreeCourseStatus.IN_PROGRESS, p.node("g").courses.single().status)
+    }
+
+    @Test fun failedThisTermIsNotShownAsInProgress() {
+        val p = DegreeBuilder.build(raw(
+            groups = listOf(group("g", "-1", "必修", 4.0)),
+            courses = listOf(course("g", "M1", "数学", 4.0)),
+            grades = listOf(grade("M1", "数学", 4.0, passed = false, term = thisTerm)),
+        ).copy(currentCourses = listOf(current("M1", "数学"))))
+        assertEquals(DegreeCourseStatus.FAILED, p.node("g").courses.single().status)
+    }
+
+    @Test fun currentCourseOutsideThePlanWaitsInUnplaced() {
+        val p = DegreeBuilder.build(electives.copy(currentCourses = listOf(current("Q1", "方案外的课"))))
+        val loose = p.unplaced.single { it.code == "Q1" }
+        assertTrue(loose.inProgress)
+        assertFalse(loose.passed)
+    }
+
+    @Test fun previousTermWalksBackThroughTheShortTerm() {
+        assertEquals("2025-2026-2", DegreeBuilder.previousTerm("2025-2026-3"))
+        assertEquals("2024-2025-3", DegreeBuilder.previousTerm("2025-2026-1"))
+        assertEquals(null, DegreeBuilder.previousTerm("暑假"))
+        assertEquals(null, DegreeBuilder.previousTerm("2025-2026-2-1"))
+    }
+
+    @Test fun lastTermWithoutGradeStaysMarkedIntoTheShortTerm() {
+        val p = DegreeBuilder.build(electives.copy(currentCourses = listOf(DegreeCurrentCourse("B2", "宇宙学", "2025-2026-2"))))
+        assertEquals(DegreeBuilder.IN_PROGRESS_TEXT, p.node("m2").courses.first { it.code == "B2" }.statusText)
+    }
+
+    @Test fun otherPlanIsMarkedAsAnEstimate() {
+        val json = DegreeAgentJson.overview(DegreeBuilder.build(electives), otherPlan = true)
+        assertTrue("不是用户现在的方案" in json)
+        assertTrue("\"counted\":11" in json, json)
+    }
+
+    @Test fun requirementDisagreementIsReportedNotSilentlyPicked() {
+        val report = obj("""{"fanbx":{"children":[{"courseGroupId":"e","creditsRequired":12,"creditsTaken":0,"sftg":"0"}]}}""")
+        val p = DegreeBuilder.build(electives.copy(report = report))
+        assertEquals(11.0, p.node("e").required)
+        assertTrue(p.warnings.any { "专业选修课程" in it && "12" in it }, p.warnings.toString())
+    }
+
     @Test fun detailPassesOddFieldsThroughButStripsPrivateOnes() {
         val p = DegreeBuilder.build(raw(
             groups = listOf(group("g", "-1", "奇怪的组", 1.0, ""","WEIRD":"模型能读懂","XH":"2233000000","CZRXM":"某老师","EMPTY":"" """)),

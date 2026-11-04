@@ -14,6 +14,8 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.add
+import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.put
@@ -26,9 +28,13 @@ import okhttp3.Request
  * 学号、姓名只用来拼请求，不进 [DegreeRaw]；响应也不落盘。
  * 「重新计算」（`bysc.do`）只在用户点按钮时调，平时读现成报告。
  */
-class AppDegreeSource(private val sessionManager: SessionManager) : DegreeSource {
+class AppDegreeSource(
+    private val sessionManager: SessionManager,
+    /** 最近两个有课学期的课表。课表缓存在各端自己那层，拿不到也不影响其他。 */
+    private val currentCourses: suspend () -> List<DegreeCurrentCourse> = { emptyList() },
+) : DegreeSource {
 
-    private data class Plan(val code: String, val name: String, val required: Double?, val studentId: String, val studentName: String)
+    private data class Plan(val code: String, val name: String, val required: Double?, val grade: String?, val studentId: String, val studentName: String)
 
     private suspend fun site(): SiteSession = sessionManager.ensureSite(JWXT, silent = true)
 
@@ -75,6 +81,7 @@ class AppDegreeSource(private val sessionManager: SessionManager) : DegreeSource
             code = row["PYFADM"].safeStringOrNull().orEmpty(),
             name = row["PYFAMC"].safeStringOrNull().orEmpty(),
             required = row["ZSYQXF"].safeDoubleOrNull(),
+            grade = row["XZNJ"].safeStringOrNull(),
             studentId = row["XH"].safeStringOrNull().orEmpty(),
             studentName = row["XM"].safeStringOrNull().orEmpty(),
         )
@@ -99,6 +106,60 @@ class AppDegreeSource(private val sessionManager: SessionManager) : DegreeSource
             courses = courses,
             report = optional("完成报告") { report(site, plan) },
             grades = optional("成绩") { grades() }.orEmpty(),
+            grade = plan.grade,
+            currentCourses = optional("课表") { currentCourses() }.orEmpty(),
+        )
+    }
+
+    override suspend fun searchPlans(keyword: String, grade: String): DegreePlanPage = withContext(Dispatchers.IO) {
+        val site = site()
+        enterApp(site, CATALOG_APP)
+        val setting = buildJsonArray {
+            if (keyword.isNotEmpty()) {
+                add(buildJsonArray {
+                    add(buildJsonObject { put("name", "PYFAMC"); put("value", keyword); put("builder", "include"); put("linkOpt", "OR") })
+                })
+            }
+            add(buildJsonObject { put("name", "NJDM"); put("linkOpt", "AND"); put("builder", "equal"); put("value", grade) })
+            // 99 = 已发布；转专业只看主修
+            add(buildJsonObject { put("name", "FAZTDM"); put("linkOpt", "AND"); put("builder", "equal"); put("value", "99") })
+            add(buildJsonObject { put("name", "XDLXDM"); put("linkOpt", "AND"); put("builder", "equal"); put("value", "01") })
+        }
+        val root = post(site, CATALOG_APP, "sys/qxfacx/modules/pyfacxepg/qxpyfacxzl.do", mapOf(
+            "querySetting" to setting.toString(),
+            "*order" to "-NJDM,+DWDM,+ZYDM",
+            "pageSize" to PLAN_PAGE_SIZE.toString(),
+            "pageNumber" to "1",
+        ))
+        val total = root["datas"]?.jsonObject?.get("qxpyfacxzl")?.jsonObject?.get("totalSize").safeDoubleOrNull()?.toInt()
+        val plans = rows(root, "qxpyfacxzl").mapNotNull { row ->
+            val code = row["PYFADM"].safeStringOrNull() ?: return@mapNotNull null
+            DegreePlanSummary(
+                code = code,
+                name = row["PYFAMC"].safeStringOrNull().orEmpty(),
+                college = row["DWDM_DISPLAY"].safeStringOrNull().orEmpty(),
+                grade = row["NJDM"].safeStringOrNull().orEmpty(),
+            )
+        }
+        DegreePlanPage(plans, total ?: plans.size)
+    }
+
+    override suspend fun fetchPlan(plan: DegreePlanSummary): DegreeRaw = withContext(Dispatchers.IO) {
+        val site = site()
+        enterApp(site, CATALOG_APP)
+        val byPlan = mapOf("PYFADM" to plan.code)
+        val detail = optional("方案说明") { rows(post(site, CATALOG_APP, "sys/jwpubapp/modules/pyfa/qxpyfacx.do", byPlan), "qxpyfacx").firstOrNull() }
+        DegreeRaw(
+            planCode = plan.code,
+            planName = plan.name,
+            required = detail?.get("ZSYQXF").safeDoubleOrNull(),
+            notes = listOf("KZZD1", "KZZD2", "FATS", "XDYQ").mapNotNull { detail?.get(it).safeStringOrNull()?.takeIf { s -> s.isNotBlank() } }.joinToString("\n"),
+            groups = rows(post(site, CATALOG_APP, "sys/jwpubapp/modules/pyfa/kzcx.do", byPlan), "kzcx"),
+            courses = rows(post(site, CATALOG_APP, "sys/jwpubapp/modules/pyfa/kzkccx.do", byPlan), "kzkccx"),
+            report = null,
+            grades = optional("成绩") { grades() }.orEmpty(),
+            grade = plan.grade,
+            currentCourses = optional("课表") { currentCourses() }.orEmpty(),
         )
     }
 
@@ -169,6 +230,8 @@ class AppDegreeSource(private val sessionManager: SessionManager) : DegreeSource
         const val JWAPP = "jwapp"
         const val PLAN_APP = "xsfacx"
         const val REPORT_APP = "xywccx"
+        const val CATALOG_APP = "qxfacx"
+        const val PLAN_PAGE_SIZE = 40
         /** 抓包里页面固定传的检测类别。 */
         const val CHECK_TYPE = "04"
         const val POLL_TIMES = 30
