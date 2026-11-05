@@ -380,9 +380,12 @@ private fun OrbRail(
                     awaitFirstDown(requireUnconsumed = false)
                     touching = true
                     try {
-                        do {
+                        // 一直跟到抬手 / 取消为止。（不能写成 `do { val e = … } while (e…)`：
+                        // Kotlin 的 do-while 条件看不到块内声明的变量。）
+                        while (true) {
                             val event = awaitPointerEvent()
-                        } while (event.changes.any { it.pressed })
+                            if (event.changes.none { it.pressed }) break
+                        }
                     } finally {
                         touching = false
                     }
