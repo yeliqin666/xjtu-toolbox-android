@@ -25,6 +25,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.DragHandle
 import androidx.compose.runtime.Composable
@@ -46,6 +47,7 @@ import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
@@ -83,6 +85,9 @@ private val ORB_LABEL_WIDTH = 96.dp
 
 /** 焦点离开长条后，名称再停留多久才收起（毫秒）。 */
 private const val ORB_LABEL_HOLD_MS = 420L
+
+/** 停靠时内容边缘离屏幕边缘的距离；定位与吸附共用同一个数，贴边才「工整」。 */
+private val ORB_EDGE_MARGIN = 8.dp
 
 /**
  * 编辑态右侧的「添加卡片」悬浮球（§7 补充）。
@@ -136,13 +141,30 @@ internal fun HomeAddTileOrb(
         // OrbHandle 节点销毁掉，手势协程跟着死，表现就是「按住把手拖不动」。
         // 拖动中整条保持原样跟着手指走（这也正是「拖动整个悬浮条」该有的行为）。
         val showRail = expanded
-        // 停靠侧决定「变宽时朝哪边生长」：右停靠内容只能往左长（右边贴边不能伸出去），
-        // 左停靠反过来。长条展开标签、把手拖动后的重新吸附都按这一条算。
+        // 停靠侧决定「变宽时朝哪边生长」：右停靠只能往左长（右边贴边不能伸出去），左停靠反过来。
         val dockRight = center.x >= pageW / 2f
-        // 内容比把手宽出来的部分：右停靠时把整块往左挪这么多，右边缘就恒等于「球心 + 半颗球」
-        val contentW = if (contentSize.width > 0) contentSize.width.toFloat() else ballPx
-        val extraW = (contentW - ballPx).coerceAtLeast(0f)
-        val anchorShift = if (dockRight) extraW else 0f
+        // 名称展开：状态放在这一层，宽度也在这里算——**定位必须用同一个宽度**。之前是拿
+        // 「量出来的 contentSize」推位置，它比宽度动画慢一帧，整条于是每帧抖一下（乱跳的根源）。
+        var labels by remember { mutableStateOf(false) }
+        val railWidth by animateDpAsState(
+            targetValue = if (showRail && labels) ORB_RAIL_WIDTH + ORB_LABEL_WIDTH else ORB_RAIL_WIDTH,
+            animationSpec = tween(160),
+            label = "orbRailWidth",
+        )
+        val railWidthPx = with(density) { railWidth.toPx() }
+        // 贴边边距：和 snapToSide 里的 margin 同一个数，吸附才「工整」
+        val marginPx = with(density) { ORB_EDGE_MARGIN.toPx() }
+        val grab = handleGrab
+        // 当前内容的实际宽度：球态就是那颗球，长条态用动画宽度
+        val contentW = if (showRail) railWidthPx else ballPx
+        // 横坐标：拖动整条时跟手（以球心为锚）；停靠时**贴边那一侧固定**，变宽只朝页面内侧长
+        val x = when {
+            grab != null -> center.x - ballPx / 2f
+            dockRight -> pageW - marginPx - contentW + ballPx / 2f
+            else -> marginPx + ballPx / 2f
+        }
+        // 拖动把手（整条跟手）或按住卡片准备拖出时，一律不许展开名称
+        val suppressLabels = grab != null || session.active
         // 卸载时清掉登记的矩形：编辑态退出后手势层不该还挡着这一块
         DisposableEffect(Unit) {
             onDispose { session.paletteRect = null }
@@ -151,10 +173,7 @@ internal fun HomeAddTileOrb(
             Modifier
                 .align(Alignment.TopStart)
                 .offset {
-                    IntOffset(
-                        (center.x - ballPx / 2f - anchorShift).roundToInt(),
-                        (center.y - ballPx / 2f).roundToInt(),
-                    )
+                    IntOffset(x.roundToInt(), (center.y - ballPx / 2f).roundToInt())
                 }
                 .onGloballyPositioned { coords ->
                     contentSize = coords.size
@@ -185,6 +204,11 @@ internal fun HomeAddTileOrb(
                         session = session,
                         // 停靠侧：右停靠时标签长在图标左边，左停靠长在右边
                         dockRight = dockRight,
+                        // 展开状态与宽度都由本层持有（定位用同一个宽度，见上面注释）
+                        labels = labels,
+                        onLabelsChange = { labels = it },
+                        suppressLabels = suppressLabels,
+                        railWidth = railWidth,
                         onPaletteStart = onPaletteStart,
                         onPaletteDrop = onPaletteDrop,
                         onPaletteCancel = onPaletteCancel,
@@ -334,6 +358,13 @@ private fun OrbRail(
     session: HomeDragSession,
     /** 停靠在页面右侧（true）/ 左侧（false）：展开标签时只朝页面内侧长。 */
     dockRight: Boolean,
+    /** 名称展开状态（由父层持有，定位要用同一个宽度）。 */
+    labels: Boolean,
+    onLabelsChange: (Boolean) -> Unit,
+    /** 拖动把手 / 按住卡片准备拖出时为真：这时一律不展开。 */
+    suppressLabels: Boolean,
+    /** 当前宽度（父层同一个动画值）。 */
+    railWidth: Dp,
     onPaletteStart: (routeId: String, startPointer: Offset) -> Unit,
     onPaletteDrop: () -> Unit,
     onPaletteCancel: () -> Unit,
@@ -348,32 +379,26 @@ private fun OrbRail(
     val items = remember(catalog, faces) { catalog.filter { faces.containsKey(it.route.id) } }
 
     // 「焦点在长条上」= 手指按着它、或列表正在滑（含惯性）。只有这时才把名称展开出来，
-    // 焦点离开就收回；按住某个图标准备拖出（session.active）立刻收回，别挡拖拽路径。
+    // 焦点离开（留一点缓冲）就收回；拖动把手或按住卡片准备拖出时一律不展开。
     // 这里**不消费**任何指针事件：滚动仍归 LazyColumn，长按拖出仍归各个图标。
     var touching by remember { mutableStateOf(false) }
-    var labels by remember { mutableStateOf(false) }
-    LaunchedEffect(touching, listState.isScrollInProgress, session.active) {
+    LaunchedEffect(touching, listState.isScrollInProgress, suppressLabels) {
         when {
-            session.active -> labels = false
-            touching || listState.isScrollInProgress -> labels = true
+            suppressLabels -> onLabelsChange(false)
+            touching || listState.isScrollInProgress -> onLabelsChange(true)
             else -> {
                 // 焦点离开后留一点缓冲：快速滑一下不会被「展开-收起」反复打断
                 delay(ORB_LABEL_HOLD_MS)
-                labels = false
+                onLabelsChange(false)
             }
         }
     }
-    val railWidth by animateDpAsState(
-        targetValue = if (labels) ORB_RAIL_WIDTH + ORB_LABEL_WIDTH else ORB_RAIL_WIDTH,
-        animationSpec = tween(160),
-        label = "orbRailWidth",
-    )
 
     Column(
         Modifier
             .width(railWidth)
-            // 长条**自己不画底**：图标本身各是一颗玻璃圆钮，中间再铺一层玻璃，暗色主题下就会
-            // 露出一条贯穿列表的暗色矩形（就是「影响美观」那一句）。这一层只当布局容器。
+            // 外框：一条液态玻璃胶囊（圆角跟着当前宽度，展开名称时就是更宽的胶囊）
+            .orbGlass(liquid, refraction, backdrop, RoundedCornerShape(railWidth / 2))
             .padding(vertical = 6.dp)
             .pointerInput(Unit) {
                 awaitEachGesture {
@@ -393,17 +418,25 @@ private fun OrbRail(
             },
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        // 把手升到最上方：点它收回成球，按住它整条收走跟手
-        OrbHandle(
-            liquid = liquid,
-            refraction = refraction,
-            backdrop = backdrop,
-            session = session,
-            onTap = onHandleTap,
-            onDragStart = onHandleDragStart,
-            onDragTo = onHandleDragTo,
-            onDrop = onHandleDrop,
-        )
+        // 把手钉在**停靠侧**那一栏（宽度恒为 ORB_RAIL_WIDTH、内部居中）：
+        // 展开名称时整条只朝页面内侧长，把手保持原位，不会跟着挪。
+        Row(
+            Modifier.fillMaxWidth(),
+            horizontalArrangement = if (dockRight) Arrangement.End else Arrangement.Start,
+        ) {
+            Box(Modifier.width(ORB_RAIL_WIDTH), contentAlignment = Alignment.Center) {
+                OrbHandle(
+                    liquid = liquid,
+                    refraction = refraction,
+                    backdrop = backdrop,
+                    session = session,
+                    onTap = onHandleTap,
+                    onDragStart = onHandleDragStart,
+                    onDragTo = onHandleDragTo,
+                    onDrop = onHandleDrop,
+                )
+            }
+        }
         Spacer(Modifier.height(4.dp))
         LazyColumn(
             state = listState,
