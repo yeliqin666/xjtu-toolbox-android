@@ -212,13 +212,13 @@ class HomeLayoutStore(
         set(value) = store.putBoolean(KEY_GRID, value)
 
     /**
-     * 首页圆角（dp）。
+     * 首页**卡片**的圆角（dp）。
      *
-     * 默认 22 就是改造后一直用的那档；卡片实际圆角还会被「边长 × 12」夹住（见
-     * `HomeTileFaceBox`），所以 1×1 这种小格不会跟着变成圆饼。滑到 0 就完全方正。
+     * 默认 22 就是改造后一直用的那档；卡片实际圆角还会被「短边的一半」夹住（见
+     * `HomeTileItem`），所以滑到顶时任何尺寸的卡片都圆成饼。滑到 0 就完全方正。
      *
-     * **编辑态的悬浮条也吃它**（按 64dp 半宽夹一次，所以拖到顶是胶囊）：那里的把手不反向
-     * 钉死圆角，而是自己按圆角让位（`HomeAddTileOrb.knobTopPadding`）。
+     * **只管卡片**：编辑态那条悬浮条恒为全圆（胶囊），不吃这个值（见 `HomeAddTileOrb`）。
+     * 改完记得叫一次 [notifyChanged]——这里只写盘，首页靠 `HomeLayoutRevision` 重读。
      */
     var cardCorner: Int
         get() = store.getInt(KEY_CARD_CORNER, CARD_CORNER_DEFAULT)

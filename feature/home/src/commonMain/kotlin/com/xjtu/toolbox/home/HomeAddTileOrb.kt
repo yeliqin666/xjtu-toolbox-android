@@ -86,9 +86,8 @@ private val ORB_TILE = 44.dp
 /** 长条最多露出的功能行数；超出的靠滚动。 */
 private const val ORB_VISIBLE_ROWS = 6
 
-// 长条的圆角**不由这里定**：它就是主页设置里那条「卡片圆角」（`HomeLayoutStore.cardCorner`），
-// 只按长条半宽（32dp）夹一下——拖到顶是胶囊、拖到 0 是直角。把手不吃这个值，反过来**自己让位**
-// （见 knobTopPadding），所以圆角怎么调都不会把把手切掉。
+// 长条的圆角**恒为全圆**（= 长条半宽 32dp，两端是半圆，也就是胶囊），**不吃**主页设置里那条
+// 「卡片圆角」：那条滑条只管卡片自己。把手的让位量因此也成了定值（见 knobTopPadding）。
 
 /** 把手两侧在图标列里留出的边（64 − 46 的一半）：判断圆角吃掉多少时要用它。 */
 private val ORB_KNOB_SIDE = (ORB_RAIL_WIDTH - ORB_BALL) / 2
@@ -106,14 +105,14 @@ private val ORB_LABEL_WIDTH = 84.dp
 private val ORB_BODY = ORB_BALL + ORB_GAP + ORB_TILE * ORB_VISIBLE_ROWS
 
 /**
- * 圆角 [corner] 下，把手顶边至少要离玻璃顶多远，整颗把手才落在弧里。
+ * 胶囊两端半径 [corner] 下，把手顶边至少要离玻璃顶多远，整颗把手才落在半圆里。
  *
- * 把手是 46dp 的圆、居中在 64dp 那一列里（左右各留 [ORB_KNOB_SIDE] = 9dp）。圆角把直角吃掉
+ * 把手是 46dp 的圆、居中在 64dp 那一列里（左右各留 [ORB_KNOB_SIDE] = 9dp）。半圆把直角吃掉
  * 之后，离顶 p 处的玻璃边界已经内缩 `r − √(r² − (r−p)²)`；要求它不超过 9dp，解出
  * `p ≥ r − √(2·r·s − s²)`（s = 9dp）。
  *
- * **方向就是这样：圆角由用户调，把手让位。** 反过来把圆角钉死成「把手正好装得进」的那个值，
- * 等于用户那条滑条对悬浮条失效。
+ * 长条恒为全圆（r = 32dp），所以这个值现在是定值 9.75dp；留着算式是因为它说明了这个数从哪来
+ * ——改长条宽度或球直径时它会自己跟着变，不用重新量一遍。
  */
 private fun knobTopPadding(corner: Dp): Dp {
     val r = corner.value
@@ -158,8 +157,6 @@ internal fun HomeAddTileOrb(
     refraction: Boolean,
     backdrop: Backdrop?,
     session: HomeDragSession,
-    /** 用户那条「卡片圆角」设置（dp）：长条的圆角就吃它，把手自己让位（见 [knobTopPadding]）。 */
-    cornerRadius: Dp,
     /**
      * 名字栏是否露着。
      *
@@ -211,10 +208,10 @@ internal fun HomeAddTileOrb(
             label = "orbLabels",
         )
 
-        // 圆角**完全由用户那条滑条决定**（只按长条半宽夹一下：拖到顶就是胶囊、拖到 0 就是直角）；
-        // 把手不吃它，反过来自己往下让——见 knobTopPadding。
-        val railCorner = cornerRadius.coerceAtMost(ORB_RAIL_WIDTH / 2)
-        // 长条态要留的内边距：至少 6dp，圆角大到吃掉把手时按公式再让
+        // 长条**恒为全圆**：半径就取半宽（32dp），两端是半圆，跟设置里那条「卡片圆角」无关。
+        // 把手照样按这个常量让位（见 knobTopPadding），所以把手永远整颗落在半圆里。
+        val railCorner = ORB_RAIL_WIDTH / 2
+        // 长条态要留的内边距：至少 6dp，半圆吃掉把手时按公式再让（定值 9.75dp）
         val railPad = maxOf(ORB_PAD, knobTopPadding(railCorner))
         // 动画中的内边距：球态没有内边距，靠 shape 从 0 长到 railPad
         val pad = railPad * shape
@@ -296,10 +293,9 @@ internal fun HomeAddTileOrb(
                 ) {
                     Box(Modifier.width(colW), contentAlignment = Alignment.Center) {
                         OrbHandle(
-                            liquid = liquid,
-                            refraction = refraction,
-                            backdrop = backdrop,
                             session = session,
+                            // 圆角那种「平涂圆钮」只在长条态出现；球态整块玻璃就是那颗球
+                            knobAlpha = shape,
                             onTap = {
                                 if (expanded) {
                                     // 名字栏露着时点把手：两段动画同时跑，等于直接从
@@ -354,11 +350,11 @@ internal fun HomeAddTileOrb(
 }
 
 /**
- * 那枚把手（球态就是整颗球）：**液态玻璃圆钮** + 拖拽图示，外观和改动前完全一致。
+ * 那枚把手（球态就是整颗球）：一枚**平涂**的圆钮 + 拖拽图示，不再自带一层液态玻璃。
  *
- * 它自己带一层 `orbGlass`（而不是借用外框那层玻璃）：外框在球态正好缩成一枚同样大小的圆，
- * 两层叠起来才是原来那种「玻璃上再浮一枚玻璃钮」的观感——这份观感是原版就有的，不为了省一次
- * 采样把它抹平。跟着用户那条圆角滑条走的只是**几何**（圆角本身、把手让位、形态过渡）。
+ * 为什么不再叠玻璃：外框本身就是液态玻璃，再叠一层会在圆角处跟外框的弧「咬」在一起（看着像
+ * 探出了玻璃边）；而且每多一层就是每帧多一次离屏采样。球态时外框正好是一枚玻璃圆，这一层
+ * 淡出到 0，剩下的就是纯玻璃球——两种形态的观感于是连成一套。
  *
  * **跟手必须用「绝对坐标」而不是差分**。这个节点自己会跟着手指移动，如果用
  * `change.position - last` 累加：节点移动 Δ 后，下一帧的 `change.position` 就少了 Δ，
@@ -370,10 +366,9 @@ internal fun HomeAddTileOrb(
  */
 @Composable
 private fun OrbHandle(
-    liquid: Boolean,
-    refraction: Boolean,
-    backdrop: Backdrop?,
     session: HomeDragSession,
+    /** 平涂圆钮的浓度：长条态 1、球态 0（球态整块玻璃就是球，不需要内衬）。 */
+    knobAlpha: Float,
     onTap: () -> Unit,
     /** 拖起来的瞬间：给出手指的页面局部坐标（调用方据此记抓取偏移）。 */
     onDragStart: (finger: Offset) -> Unit,
@@ -381,21 +376,23 @@ private fun OrbHandle(
     onDragTo: (finger: Offset) -> Unit,
     onDrop: () -> Unit,
 ) {
-    // 把手自己的页面局部原点：随球移动，但每帧由 onGloballyPositioned 刷新
+    // 把手用**主题色**：和卡片右下角那个缩放把手同一条语汇（它也是沿圆弧染一段主题色），
+    // 一眼就能认出「这块是能拖的」
+    val accent = MiuixTheme.colorScheme.primary
+    val dark = LocalIsDarkTheme.current
+    // 把手自己的页面局部原点：随它移动，但每帧由 onGloballyPositioned 刷新
     var origin by remember { mutableStateOf(Offset.Zero) }
     Box(
         Modifier
             .size(ORB_BALL)
             .onGloballyPositioned { origin = it.boundsInRoot().topLeft - session.pageOrigin }
-            .orbGlass(liquid, refraction, backdrop, CircleShape)
             .pointerInput("orbHandle") {
                 awaitEachGesture {
                     val down = awaitFirstDown(requireUnconsumed = false)
                     val slop = viewConfiguration.touchSlop
                     var dragging = false
                     // 自己判 slop，不用 awaitTouchSlopOrCancellation：后者在「变更已被别人消费
-                    // 过」时直接返回 null，而这条链上还有页面根 Box 的手势层与滚动列，谁先消费
-                    // 一下都可能把把手误判成点击。自己判就只看位移，不受消费标记影响。
+                    // 过」时直接返回 null，而这条链上还有页面根的手势层与滚动列。
                     try {
                         while (true) {
                             val change = awaitPointerEvent().changes.firstOrNull { it.id == down.id } ?: break
@@ -419,10 +416,18 @@ private fun OrbHandle(
             },
         contentAlignment = Alignment.Center,
     ) {
+        if (knobAlpha > 0f) {
+            Box(
+                Modifier
+                    .matchParentSize()
+                    .graphicsLayer { alpha = knobAlpha }
+                    .background(accent.copy(alpha = if (dark) 0.30f else 0.18f), CircleShape),
+            )
+        }
         Icon(
             Icons.Default.DragHandle,
             contentDescription = "拖动悬浮球",
-            tint = MiuixTheme.colorScheme.onSurface,
+            tint = accent,
             modifier = Modifier.size(20.dp),
         )
     }

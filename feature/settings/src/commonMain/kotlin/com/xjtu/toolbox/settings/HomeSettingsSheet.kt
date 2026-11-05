@@ -202,7 +202,7 @@ private fun HomeSettingsBody(onDismiss: () -> Unit, showTopBarStyle: Boolean) {
                 },
             )
             // 圆角只有卡片组有（经典分类卡 / 小组件那两套的圆角是写死的）；
-            // 编辑态那条悬浮条也跟着这个值走，把手会自己让位
+            // 编辑态那条悬浮条**恒为全圆**，不吃这个值
             if (cards) {
                 SliderRow(
                     title = "卡片圆角",
@@ -217,6 +217,9 @@ private fun HomeSettingsBody(onDismiss: () -> Unit, showTopBarStyle: Boolean) {
                         corner = it.roundToInt()
                         store.cardCorner = corner
                     },
+                    // 松手才通知首页重读：拖的时候逐帧 bump 会把整页（含一圈液态玻璃）重组几十次，
+                    // 而这段连续值本来就只写盘、不逐帧刷新（同 notifyChanged 的约定）
+                    onValueChangeFinished = { store.notifyChanged() },
                 )
             }
             // 折射子项只有卡片组吃：经典版与小组件那两套没有这一层
@@ -378,6 +381,8 @@ private fun SliderRow(
     value: Float,
     range: ClosedFloatingPointRange<Float>,
     onChange: (Float) -> Unit,
+    /** 松手那一刻：给需要「拖完再落盘/通知」的调用方用（圆角靠它 bump 首页）。 */
+    onValueChangeFinished: () -> Unit = {},
 ) {
     Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp)) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
@@ -387,6 +392,7 @@ private fun SliderRow(
         Slider(
             value = value,
             onValueChange = onChange,
+            onValueChangeFinished = onValueChangeFinished,
             valueRange = range,
             modifier = Modifier.fillMaxWidth(),
         )
