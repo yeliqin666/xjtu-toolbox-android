@@ -41,6 +41,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
@@ -107,8 +108,28 @@ internal val HomeTileGap = 8.dp
 /** 组件位置/尺寸变化的弹簧：阻尼偏低一点，才有液态玻璃那种「弹一下再停住」。 */
 internal val HomeTileSpring = spring<Float>(dampingRatio = 0.62f, stiffness = 520f)
 
-/** 右下角缩放把手的热区边长（§15）：贴着圆弧把手的一小块，太大容易和移动抢指针。 */
+/** 右下角缩放把手的热区边长（§15）：贴着把手图示的一小块，太大容易和移动抢指针。 */
 internal val RESIZE_HANDLE_TOUCH = 30.dp
+
+/**
+ * 缩放把手的图示：**直角括线**（右下角一个 L 形），尖角带一点点圆角。
+ *
+ * 之前画的是一段四分之一圆弧，看着像「把卡片自己的圆角染了色」；改成直角括线后它才像一枚
+ * 独立的「拉大」记号。
+ *
+ * **位置就是这一格的右下角，跟卡片圆角没有任何关系**（§15，2026-11 定）：不按圆角算内缩、
+ * 也不管括线压在卡片上还是压在那圈透明角上——圆角拖到圆饼时它在同一处，拖到直角时也在同一处。
+ * 内缩 2dp 只是为了 2.5dp 的描边（半宽 1.25dp）连着圆头端帽都整段落在格子里，不被裁掉；
+ * 别再往内推了，那会让它离开「网格右下角」这个位置。
+ */
+private val RESIZE_GRIP_ARM = 14.dp
+private val RESIZE_GRIP_INSET = 2.dp
+
+/** 尖角那一小段圆角（美化用，与卡片圆角无关）。 */
+private val RESIZE_GRIP_CORNER = 4.dp
+
+/** 括线本身的粗细。 */
+private val RESIZE_GRIP_STROKE = 2.5.dp
 
 /** 左上角移除按钮的热区边长：视觉只有 18dp，热区放大到 32dp，点偏一点也点得到。 */
 internal val REMOVE_TOUCH = 32.dp
@@ -693,23 +714,38 @@ private fun HomeTileItem(
                     )
                 }
             }
-            // 右下角：缩放把手的**视觉**（§15）——把右下角那一小段圆弧染成主题色当把手。
+            // 右下角：缩放把手的**视觉**（§15）——主题色的直角括线（尖角带一点圆角）。
             // 把手只画记号、不接手势：命中与拖动全在手势层。
+            //
+            // 它标的是**这一格的右下角**，不是卡片的形状：外框钉在 BottomEnd，括线只内缩
+            // [RESIZE_GRIP_INSET]（够描边不被裁就行），所以卡片圆角滑条拖到哪一档它都在
+            // 同一处、同一个朝向——压在卡片上还是压在那圈透明角上都无所谓。
             Box(
                 Modifier
                     .align(Alignment.BottomEnd)
                     .size(RESIZE_HANDLE_TOUCH),
-                contentAlignment = Alignment.Center,
             ) {
                 val gripColor = MiuixTheme.colorScheme.primary
-                Canvas(Modifier.size(20.dp)) {
-                    // 以中心为圆心扫过 0°→90°（正右 → 正下），正好是右下角那段弧
-                    drawArc(
+                Canvas(Modifier.fillMaxSize()) {
+                    val stroke = RESIZE_GRIP_STROKE.toPx()
+                    val arm = RESIZE_GRIP_ARM.toPx()
+                    val inset = RESIZE_GRIP_INSET.toPx()
+                    val r = RESIZE_GRIP_CORNER.toPx()
+                    // 贴着外框的右 / 下边、各内缩 inset 画一个 L：右竖边从上往下走，
+                    // 到尖角前拐一个半径 r 的圆，再沿底边往左走。
+                    val right = size.width - inset
+                    val bottom = size.height - inset
+                    val path = Path().apply {
+                        moveTo(right, bottom - arm)
+                        lineTo(right, bottom - r)
+                        // 尖角美化：二次贝塞尔在 (right, bottom) 拐一下，视觉上就是「直角带一点圆」
+                        quadraticTo(right, bottom, right - r, bottom)
+                        lineTo(right - arm, bottom)
+                    }
+                    drawPath(
+                        path = path,
                         color = gripColor,
-                        startAngle = 0f,
-                        sweepAngle = 90f,
-                        useCenter = false,
-                        style = Stroke(width = 3.dp.toPx(), cap = StrokeCap.Round),
+                        style = Stroke(width = stroke, cap = StrokeCap.Round),
                     )
                 }
             }
