@@ -204,6 +204,8 @@ fun HomeCardGroupScreen(
     val backgroundBlur = remember(settingsRevision) { settings.homeWallpaperBlur }
     val backgroundBrightness = remember(settingsRevision) { settings.homeWallpaperBrightness }
     val backgroundOpacity = remember(revision) { layoutStore.backgroundOpacity }
+    // 卡片圆角（主页设置里那条滑条）；默认 22dp，实际还会被「边长 × 12」夹住
+    val cardCorner = remember(revision) { layoutStore.cardCorner }.dp
 
     /**
      * 背景上**真的有壁纸可糊**吗：只有「自定义图片」且图还在时才是。
@@ -1124,6 +1126,7 @@ fun HomeCardGroupScreen(
                                     backdrop = tileBackdrop.takeIf { recordTileLayer },
                                     // 卡片能不能糊：纯色 / 渐变上关掉模糊，其余玻璃效果全留
                                     blurGlass = hasWallpaper,
+                                    cardCorner = cardCorner,
                                     // 校园卡大卡的付款码：用餐时段才真去取（原「小组件」那套能力）
                                     paymentCode = { host.paymentCode() },
                                     session = session,
@@ -1227,6 +1230,7 @@ fun HomeCardGroupScreen(
             backdrop = tileBackdrop.takeIf { recordTileLayer },
             // 幽灵块是卡片的预览，跟卡片同一条规则
             blurGlass = hasWallpaper,
+            cardCorner = cardCorner,
             geometry = { dragGeometry },
             settling = ghostSettling,
             settleValue = { ghostSettle.value },
@@ -2215,6 +2219,8 @@ private fun HomeDragGhost(
     backdrop: Backdrop?,
     /** 幽灵是卡片的预览，糊不糊跟卡片同一条规则（见 [HomeTileFaceBox]）。 */
     blurGlass: Boolean = true,
+    /** 幽灵块的圆角也跟卡片走，松手换成真身时形状才对得上。 */
+    cardCorner: Dp = 22.dp,
     /** 几何表按函数拿：本层早退时一次都不必求值（见调用处说明）。 */
     geometry: () -> HomeBoardGeometry,
     settling: Boolean,
@@ -2266,6 +2272,7 @@ private fun HomeDragGhost(
             refraction = refraction,
             backdrop = backdrop,
             blurGlass = blurGlass,
+            cardCorner = cardCorner,
             modifier = Modifier.fillMaxSize(),
         )
     }

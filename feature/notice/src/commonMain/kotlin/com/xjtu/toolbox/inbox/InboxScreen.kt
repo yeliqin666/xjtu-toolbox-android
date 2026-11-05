@@ -1,8 +1,10 @@
 package com.xjtu.toolbox.inbox
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.shadow
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -529,20 +531,35 @@ fun InboxBell(
             }
         }
         if (count > 0) {
+            // 角标：**半透明红 + 玻璃观感**（圆角胶囊、白色细高光边、一圈柔和投影），
+            // 但**绝不采样背景**——它只有 15dp，模糊/折射在这个尺度上只会糊成一团，
+            // 而且每帧多一次离屏采样不值（首页顶栏本来就有模糊带）。
+            //
+            // 位置钉在右上角内侧、与铃铛图形拉开距离：原来压在图形右上角、又正好落在圆钮
+            // 玻璃的圆弧边界上，看着就像被裁掉一块。
+            val accent = Color(0xFFE8453A)
             Box(
                 Modifier
                     .align(Alignment.TopEnd)
-                    .offset(x = (-2).dp, y = 4.dp)
-                    .height(16.dp)
-                    .widthIn(min = 16.dp)
-                    .background(MiuixTheme.colorScheme.error, CircleShape)
-                    .padding(horizontal = 4.dp),
+                    .offset(x = 0.dp, y = 1.dp)
+                    .height(15.dp)
+                    .widthIn(min = 15.dp)
+                    .shadow(
+                        elevation = 4.dp,
+                        shape = CircleShape,
+                        clip = false,
+                        ambientColor = accent.copy(alpha = 0.55f),
+                        spotColor = accent.copy(alpha = 0.75f),
+                    )
+                    .background(accent.copy(alpha = 0.86f), CircleShape)
+                    .border(0.6.dp, Color.White.copy(alpha = 0.5f), CircleShape)
+                    .padding(horizontal = 3.5.dp),
                 contentAlignment = Alignment.Center,
             ) {
                 Text(
                     if (count > 99) "99+" else "$count",
-                    fontSize = 10.sp,
-                    lineHeight = 10.sp,
+                    fontSize = 9.5.sp,
+                    lineHeight = 9.5.sp,
                     fontWeight = FontWeight.Bold,
                     color = Color.White,
                 )

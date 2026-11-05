@@ -211,6 +211,17 @@ class HomeLayoutStore(
         get() = store.getBoolean(KEY_GRID, true)
         set(value) = store.putBoolean(KEY_GRID, value)
 
+    /**
+     * 首页卡片圆角（dp）。
+     *
+     * 默认 22 就是改造后一直用的那档；卡片实际圆角还会被「边长 × 12」夹住（见
+     * `HomeTileFaceBox`），所以 1×1 这种小格不会跟着变成圆饼。滑到 0 就完全方正。
+     */
+    var cardCorner: Int
+        get() = store.getInt(KEY_CARD_CORNER, CARD_CORNER_DEFAULT)
+            .coerceIn(CARD_CORNER_MIN, CARD_CORNER_MAX)
+        set(value) = store.putInt(KEY_CARD_CORNER, value.coerceIn(CARD_CORNER_MIN, CARD_CORNER_MAX))
+
     /** 主页卡片材质：false = 毛玻璃（默认），true = 液态玻璃。 */
     var liquidCard: Boolean
         get() = store.getBoolean(KEY_LIQUID_CARD, false)
@@ -301,6 +312,11 @@ class HomeLayoutStore(
         const val BACKGROUND_OPACITY_MIN = 20
         const val BACKGROUND_OPACITY_MAX = 100
 
+        /** 卡片圆角的可调范围与默认值（dp）。22 = 改造后一直用的那档。 */
+        const val CARD_CORNER_MIN = 0
+        const val CARD_CORNER_MAX = 28
+        const val CARD_CORNER_DEFAULT = 22
+
         // 注意键名：`SettingsStore.homeLayout` 也用「首页布局」这个意思，但存的是**模式**
         // （classic / widgets / cards）落在 `home_layout` 上；这里存的是卡片组那一整页的分组
         // 与格位快照，必须换个键，否则两边会互相覆盖（合并 dev 时踩到过）。
@@ -312,6 +328,7 @@ class HomeLayoutStore(
  */
 private const val KEY_LEGACY_WIDGETS = "home_widgets"
         private const val KEY_GRID = "home_grid"
+private const val KEY_CARD_CORNER = "home_card_corner"
         private const val KEY_LIQUID_CARD = "home_liquid_card"
         private const val KEY_LIQUID_REFRACTION = "home_liquid_refraction"
         private const val KEY_TOP_ACTIONS_RIGHT = "home_top_actions_right"

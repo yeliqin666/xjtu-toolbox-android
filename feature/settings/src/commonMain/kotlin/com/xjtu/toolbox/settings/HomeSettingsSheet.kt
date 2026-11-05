@@ -116,6 +116,7 @@ private fun HomeSettingsBody(onDismiss: () -> Unit, showTopBarStyle: Boolean) {
     var topActionsRight by remember(revision) { mutableStateOf(settings.homeTopActionsRight) }
     var refraction by remember { mutableStateOf(store.liquidRefraction) }
     var grid by remember { mutableStateOf(store.grid) }
+    var corner by remember { mutableIntStateOf(store.cardCorner) }
     var opacity by remember { mutableIntStateOf(store.backgroundOpacity) }
     var confirmReset by remember { mutableStateOf(false) }
     // 打开网格会当场把非整数的摆位取整、收空行，且回不去（见 [confirmGrid]）——先二次确认
@@ -200,6 +201,19 @@ private fun HomeSettingsBody(onDismiss: () -> Unit, showTopBarStyle: Boolean) {
                     HomeLayoutRevision.bump()
                 },
             )
+            // 圆角只有卡片组有（经典分类卡 / 小组件那两套的圆角是写死的）
+            if (cards) {
+                SliderRow(
+                    title = "卡片圆角",
+                    valueText = if (corner == 0) "直角" else "$corner dp",
+                    value = corner.toFloat(),
+                    range = HomeLayoutStore.CARD_CORNER_MIN.toFloat()..HomeLayoutStore.CARD_CORNER_MAX.toFloat(),
+                    onChange = {
+                        corner = it.roundToInt()
+                        store.cardCorner = corner
+                    },
+                )
+            }
             // 折射子项只有卡片组吃：经典版与小组件那两套没有这一层
             if (cards && liquid) {
                 SwitchPreference(

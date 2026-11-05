@@ -170,6 +170,8 @@ internal fun HomeGroupSection(
      * 见 [HomeTileFaceBox] 的同名参数。
      */
     blurGlass: Boolean = true,
+    /** 卡片圆角（主页设置里那条滑条），实际还会被「边长 × 12」夹住，见 [HomeTileFaceBox]。 */
+    cardCorner: Dp = 22.dp,
     onEditGroup: () -> Unit,
     onDeleteGroup: () -> Unit,
     onRemoveTile: (tileId: String) -> Unit,
@@ -272,7 +274,7 @@ internal fun HomeGroupSection(
                         if (ghosted && tile.id == dragId) {
                             // 被拖块：不画真身，画一个弹簧跟随数据位置的落点占位框。
                             // 真身由顶层的幽灵块画（跟手），松手时幽灵吸附到这里、占位框渐隐。
-                            DropSlot(tile, colUnit, rowUnit, gapPx, settling = session.settling)
+                            DropSlot(tile, colUnit, rowUnit, gapPx, settling = session.settling, cardCorner = cardCorner)
                         } else {
                             HomeTileItem(
                                 tile = tile,
@@ -282,6 +284,7 @@ internal fun HomeGroupSection(
                                 refraction = refraction,
                                 backdrop = backdrop,
                                 blurGlass = blurGlass,
+                                cardCorner = cardCorner,
                                 colUnit = colUnit,
                                 rowUnit = rowUnit,
                                 gapPx = gapPx,
@@ -513,7 +516,15 @@ private fun Modifier.tileOpen(
  * 盖住，所以淡出不会被看见；而等 `finish()` 那一刻才硬消失的话，边框会「啪」一下没掉。
  */
 @Composable
-private fun DropSlot(tile: HomeTile, colUnit: Float, rowUnit: Float, gapPx: Float, settling: Boolean) {
+private fun DropSlot(
+    tile: HomeTile,
+    colUnit: Float,
+    rowUnit: Float,
+    gapPx: Float,
+    settling: Boolean,
+    /** 占位框跟着卡片圆角走，松手前看到的「空位」才和真身一个形状。 */
+    cardCorner: Dp = 22.dp,
+) {
     val density = LocalDensity.current
     val x by animateFloatAsState(targetValue = tile.x, animationSpec = HomeTileSpring, label = "dropX")
     val y by animateFloatAsState(targetValue = tile.y, animationSpec = HomeTileSpring, label = "dropY")
@@ -526,7 +537,8 @@ private fun DropSlot(tile: HomeTile, colUnit: Float, rowUnit: Float, gapPx: Floa
         label = "dropSlotFade",
     )
     val frame = cellFrame(x, y, w, h, colUnit, rowUnit, gapPx)
-    val radius = (minOf(w, h) * 12f).coerceIn(10f, 22f).dp
+    // 圆角跟卡片同一条设置（主页设置滑条）；「边长 × 12」是上限，小格才不会被削成圆饼
+    val radius = cardCorner.coerceAtMost((minOf(w, h) * 12f).dp)
     val accent = MiuixTheme.colorScheme.primary
     Box(
         Modifier
@@ -594,6 +606,8 @@ private fun HomeTileItem(
     paymentCode: suspend () -> String? = { null },
     /** 这张卡能不能糊；见 [HomeTileFaceBox] 的同名参数。 */
     blurGlass: Boolean = true,
+    /** 卡片圆角；见 [HomeGroupSection] 的同名参数。 */
+    cardCorner: Dp = 22.dp,
     onOpen: () -> Unit,
     onStartEdit: () -> Unit,
     onRemoveTile: (tileId: String) -> Unit,
@@ -615,7 +629,7 @@ private fun HomeTileItem(
 
     // 非编辑态：整块点击打开、长按进编辑态。编辑态这块不挂手势（交给手势层）。
     // 点击走「一镜到底」那套接线，和卡片圆角用同一个半径，转场时放大出来的形状才对得上。
-    val radius = (minOf(animW, animH) * 12f).coerceIn(10f, 22f).dp
+    val radius = cardCorner.coerceAtMost((minOf(animW, animH) * 12f).dp)
     val tap = if (editing) {
         Modifier
     } else {
@@ -636,6 +650,7 @@ private fun HomeTileItem(
             refraction = refraction,
             backdrop = backdrop,
             blurGlass = blurGlass,
+            cardCorner = cardCorner,
             modifier = Modifier.fillMaxSize(),
         )
 
@@ -726,13 +741,19 @@ internal fun HomeTileFaceBox(
      * 只有**卡片**吃这条规则；按钮与编辑态悬浮条浮在内容上面，照旧模糊 + 折射。
      */
     blurGlass: Boolean = true,
+    /**
+     * 卡片圆角（dp，主页设置里那条滑条，默认 22）。
+     *
+     * 实际用的半径还会被「边长 × 12」夹住：4 个 22dp 的圆角扣在 1×1 上会变成圆饼，
+     * 所以小格沿用原来的收敛范围（1×1 ≈ 12dp、2×2 用满 22dp）。
+     */
+    cardCorner: Dp = 22.dp,
     modifier: Modifier = Modifier,
 ) {
     val dark = LocalIsDarkTheme.current
     val ink = MiuixTheme.colorScheme.onSurface
     val muted = MiuixTheme.colorScheme.onSurfaceVariantSummary
-    // 小块的圆角要跟着缩，否则 1×1 看着像个大圆饼
-    val radius = (minOf(w, h) * 12f).coerceIn(10f, 22f).dp
+    val radius = cardCorner.coerceAtMost((minOf(w, h) * 12f).dp)
     val fill = if (dark) Color.White.copy(alpha = 0.10f) else Color.White.copy(alpha = 0.62f)
     val hairline = if (dark) Color.White.copy(alpha = 0.10f) else Color.White.copy(alpha = 0.7f)
     val iconColor = if (dark) lerp(face.color, Color.White, 0.4f) else face.color
