@@ -205,7 +205,11 @@ private fun HomeSettingsBody(onDismiss: () -> Unit, showTopBarStyle: Boolean) {
             if (cards) {
                 SliderRow(
                     title = "卡片圆角",
-                    valueText = if (corner == 0) "直角" else "$corner dp",
+                    valueText = when (corner) {
+                        0 -> "直角"
+                        HomeLayoutStore.CARD_CORNER_MAX -> "圆饼"
+                        else -> "$corner dp"
+                    },
                     value = corner.toFloat(),
                     range = HomeLayoutStore.CARD_CORNER_MIN.toFloat()..HomeLayoutStore.CARD_CORNER_MAX.toFloat(),
                     onChange = {

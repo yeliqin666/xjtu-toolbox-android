@@ -2219,7 +2219,7 @@ private fun HomeDragGhost(
     backdrop: Backdrop?,
     /** 幽灵是卡片的预览，糊不糊跟卡片同一条规则（见 [HomeTileFaceBox]）。 */
     blurGlass: Boolean = true,
-    /** 幽灵块的圆角也跟卡片走，松手换成真身时形状才对得上。 */
+    /** 幽灵块的圆角也跟卡片走（同样按短边一半截断），松手换成真身时形状才对得上。 */
     cardCorner: Dp = 22.dp,
     /** 几何表按函数拿：本层早退时一次都不必求值（见调用处说明）。 */
     geometry: () -> HomeBoardGeometry,
@@ -2234,6 +2234,8 @@ private fun HomeDragGhost(
     val gapPx = with(density) { HomeTileGap.toPx() }
     val wPx = (session.sizeCells.x * board.colUnit - gapPx).coerceAtLeast(1f)
     val hPx = (session.sizeCells.y * board.rowUnit - gapPx).coerceAtLeast(1f)
+    // 和卡片同一套截断：设置值不超过短边的一半 ⇒ 滑条到顶时幽灵也是圆饼
+    val cornerRadius = cardCorner.coerceAtMost(with(density) { minOf(wPx, hPx).toDp() } / 2)
 
     // 松手后幽灵一边飞向落点、一边**长回原大、变回不透明**：
     // 拖动中它是 94% + 88% 不透明（好让底下的落点占位框露出来），而落点处换成真身的那一刻
@@ -2272,7 +2274,7 @@ private fun HomeDragGhost(
             refraction = refraction,
             backdrop = backdrop,
             blurGlass = blurGlass,
-            cardCorner = cardCorner,
+            cornerRadius = cornerRadius,
             modifier = Modifier.fillMaxSize(),
         )
     }

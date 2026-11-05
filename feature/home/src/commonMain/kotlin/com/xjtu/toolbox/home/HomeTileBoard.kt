@@ -537,8 +537,10 @@ private fun DropSlot(
         label = "dropSlotFade",
     )
     val frame = cellFrame(x, y, w, h, colUnit, rowUnit, gapPx)
-    // 圆角跟卡片同一条设置（主页设置滑条）；「边长 × 12」是上限，小格才不会被削成圆饼
-    val radius = cardCorner.coerceAtMost((minOf(w, h) * 12f).dp)
+    // 圆角跟卡片同一条设置；上限是**短边的一半**，所以滑到顶时占位框也是圆饼
+    val radius = cardCorner.coerceAtMost(
+        with(density) { minOf(frame.widthPx, frame.heightPx).toDp() } / 2,
+    )
     val accent = MiuixTheme.colorScheme.primary
     Box(
         Modifier
@@ -629,7 +631,12 @@ private fun HomeTileItem(
 
     // 非编辑态：整块点击打开、长按进编辑态。编辑态这块不挂手势（交给手势层）。
     // 点击走「一镜到底」那套接线，和卡片圆角用同一个半径，转场时放大出来的形状才对得上。
-    val radius = cardCorner.coerceAtMost((minOf(animW, animH) * 12f).dp)
+    //
+    // 圆角 = min(设置值, 短边的一半)：滑条拖到顶时任何尺寸的卡片都**圆成饼**，而卡片本身的
+    // 宽高一点没变（圆角只影响形状，不参与布局）。
+    val radius = cardCorner.coerceAtMost(
+        with(density) { minOf(frame.widthPx, frame.heightPx).toDp() } / 2,
+    )
     val tap = if (editing) {
         Modifier
     } else {
@@ -650,7 +657,7 @@ private fun HomeTileItem(
             refraction = refraction,
             backdrop = backdrop,
             blurGlass = blurGlass,
-            cardCorner = cardCorner,
+            cornerRadius = radius,
             modifier = Modifier.fillMaxSize(),
         )
 
@@ -742,18 +749,18 @@ internal fun HomeTileFaceBox(
      */
     blurGlass: Boolean = true,
     /**
-     * 卡片圆角（dp，主页设置里那条滑条，默认 22）。
+     * 卡片圆角（dp），**已由调用方按「短边的一半」截断**（见 [HomeTileItem]）。
      *
-     * 实际用的半径还会被「边长 × 12」夹住：4 个 22dp 的圆角扣在 1×1 上会变成圆饼，
-     * 所以小格沿用原来的收敛范围（1×1 ≈ 12dp、2×2 用满 22dp）。
+     * 之所以在这里直接收现成值：本层只看得到「占几格」，看不到一格实际多少 dp，
+     * 算不出「拖到顶就是圆饼」需要的那个上限。
      */
-    cardCorner: Dp = 22.dp,
+    cornerRadius: Dp = 22.dp,
     modifier: Modifier = Modifier,
 ) {
     val dark = LocalIsDarkTheme.current
     val ink = MiuixTheme.colorScheme.onSurface
     val muted = MiuixTheme.colorScheme.onSurfaceVariantSummary
-    val radius = cardCorner.coerceAtMost((minOf(w, h) * 12f).dp)
+    val radius = cornerRadius
     val fill = if (dark) Color.White.copy(alpha = 0.10f) else Color.White.copy(alpha = 0.62f)
     val hairline = if (dark) Color.White.copy(alpha = 0.10f) else Color.White.copy(alpha = 0.7f)
     val iconColor = if (dark) lerp(face.color, Color.White, 0.4f) else face.color

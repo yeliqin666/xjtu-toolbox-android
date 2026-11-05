@@ -312,9 +312,14 @@ class HomeLayoutStore(
         const val BACKGROUND_OPACITY_MIN = 20
         const val BACKGROUND_OPACITY_MAX = 100
 
-        /** 卡片圆角的可调范围与默认值（dp）。22 = 改造后一直用的那档。 */
+        /**
+         * 卡片圆角的可调范围与默认值（dp）。22 = 改造后一直用的那档。
+         *
+         * 上限取 40：卡片实际圆角还会被「短边的一半」截断，所以拖到顶时**任何尺寸的卡片都圆成饼**
+         * （常见 1×1 约 74dp，半径 37dp 即正圆）。默认 22 在这条截断之内，升级后外观不变。
+         */
         const val CARD_CORNER_MIN = 0
-        const val CARD_CORNER_MAX = 28
+        const val CARD_CORNER_MAX = 40
         const val CARD_CORNER_DEFAULT = 22
 
         // 注意键名：`SettingsStore.homeLayout` 也用「首页布局」这个意思，但存的是**模式**
