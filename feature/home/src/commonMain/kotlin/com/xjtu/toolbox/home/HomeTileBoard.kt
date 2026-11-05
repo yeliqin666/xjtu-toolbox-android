@@ -670,17 +670,26 @@ private fun HomeTileItem(
             .size(with(density) { frame.widthPx.toDp() }, with(density) { frame.heightPx.toDp() })
             .then(tap),
     ) {
-        HomeTileFaceBox(
-            face = face,
-            w = animW,
-            h = animH,
-            liquid = liquid,
-            refraction = refraction,
-            backdrop = backdrop,
-            blurGlass = blurGlass,
-            cornerRadius = radius,
-            modifier = Modifier.fillMaxSize(),
-        )
+        // 圆角 / 材质一变就让**整块卡面换一个新节点**。
+        //
+        // 为什么需要 key()：`drawBackdrop` 的离屏层是「建层那一刻」按 shape 建好的，之后只改
+        // shape 不会重建那一层——观测到的症状就是「模糊层还是旧圆角，而高光外框（逐帧描边）
+        // 已经是新圆角」，非得杀进程重启才对齐。key 换了组合身份，修饰符节点跟着换新，两层
+        // 一起重建。（key 里带上 liquid / blurGlass / refraction 是同一个理由：这三项也决定
+        // 那一层怎么建，改它们同样要换节点，别等下一个「开关不生效」的反馈。）
+        key(radius, liquid, blurGlass, refraction) {
+            HomeTileFaceBox(
+                face = face,
+                w = animW,
+                h = animH,
+                liquid = liquid,
+                refraction = refraction,
+                backdrop = backdrop,
+                blurGlass = blurGlass,
+                cornerRadius = radius,
+                modifier = Modifier.fillMaxSize(),
+            )
+        }
 
         // 校园卡的 2×2 大卡：用餐时段直接把付款码画在这块上（原「小组件」那套能力，
         // 合并进卡片组后保留）。取不到码 / 不在时段就什么都不画，下面的大卡内容照旧。

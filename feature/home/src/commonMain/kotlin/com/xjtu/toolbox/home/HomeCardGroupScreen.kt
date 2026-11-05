@@ -1251,14 +1251,11 @@ fun HomeCardGroupScreen(
                 catalog = catalog,
                 liquid = liquid,
                 refraction = refraction,
-                // 采样源：有壁纸采背景层（透出壁纸）；纯色 / 渐变没有壁纸，改采**内容层**——
-                // 悬浮条本来就浮在卡片上面，采内容层才是「隔着玻璃看见下面的卡片」，
-                // 于是这两种背景下它照样是带模糊与折射的液态玻璃（不吃卡片那条「不模糊」规则）。
-                backdrop = when {
-                    !liquid -> null
-                    hasWallpaper -> tileBackdrop
-                    else -> pageBackdrop
-                },
+                // 采样源：**内容层**（`pageBackdrop` = 背景 + 滚动内容那一整层），和顶栏那几个圆钮、
+                // 顶栏模糊带采的是同一层。悬浮条浮在所有东西之上，该糊的是「此刻压在它下面的那一片」
+                // ——卡片、文字、壁纸全算在内；只采背景层的话透出来的永远是那张壁纸，卡片从它身下
+                // 滚过去也不会有任何变化（2026-11 按维护者要求改）。
+                backdrop = pageBackdrop.takeIf { liquid },
                 session = session,
                 // 悬浮条恒为全圆（胶囊），不吃用户那条「卡片圆角」——那条滑条只管卡片
                 labels = orbLabels,
