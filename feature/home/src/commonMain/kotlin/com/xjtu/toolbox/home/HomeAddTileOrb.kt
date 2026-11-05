@@ -296,9 +296,10 @@ internal fun HomeAddTileOrb(
                 ) {
                     Box(Modifier.width(colW), contentAlignment = Alignment.Center) {
                         OrbHandle(
+                            liquid = liquid,
+                            refraction = refraction,
+                            backdrop = backdrop,
                             session = session,
-                            // 圆角那种「平涂圆钮」只在长条态出现；球态整块玻璃就是那颗球
-                            knobAlpha = shape,
                             onTap = {
                                 if (expanded) {
                                     // 名字栏露着时点把手：两段动画同时跑，等于直接从
@@ -353,11 +354,11 @@ internal fun HomeAddTileOrb(
 }
 
 /**
- * 那枚把手（球态就是整颗球）：一枚**平涂**的圆钮 + 拖拽图示，不再自带一层液态玻璃。
+ * 那枚把手（球态就是整颗球）：**液态玻璃圆钮** + 拖拽图示，外观和改动前完全一致。
  *
- * 为什么不再叠玻璃：外框本身就是液态玻璃，再叠一层会在圆角处跟外框的弧「咬」在一起（看着像
- * 探出了玻璃边）；而且每多一层就是每帧多一次离屏采样。球态时外框正好是一枚玻璃圆，这一层
- * 淡出到 0，剩下的就是纯玻璃球——两种形态的观感于是连成一套。
+ * 它自己带一层 `orbGlass`（而不是借用外框那层玻璃）：外框在球态正好缩成一枚同样大小的圆，
+ * 两层叠起来才是原来那种「玻璃上再浮一枚玻璃钮」的观感——这份观感是原版就有的，不为了省一次
+ * 采样把它抹平。跟着用户那条圆角滑条走的只是**几何**（圆角本身、把手让位、形态过渡）。
  *
  * **跟手必须用「绝对坐标」而不是差分**。这个节点自己会跟着手指移动，如果用
  * `change.position - last` 累加：节点移动 Δ 后，下一帧的 `change.position` 就少了 Δ，
@@ -369,9 +370,10 @@ internal fun HomeAddTileOrb(
  */
 @Composable
 private fun OrbHandle(
+    liquid: Boolean,
+    refraction: Boolean,
+    backdrop: Backdrop?,
     session: HomeDragSession,
-    /** 平涂圆钮的浓度：长条态 1、球态 0（球态整块玻璃就是球，不需要内衬）。 */
-    knobAlpha: Float,
     onTap: () -> Unit,
     /** 拖起来的瞬间：给出手指的页面局部坐标（调用方据此记抓取偏移）。 */
     onDragStart: (finger: Offset) -> Unit,
@@ -379,23 +381,21 @@ private fun OrbHandle(
     onDragTo: (finger: Offset) -> Unit,
     onDrop: () -> Unit,
 ) {
-    // 把手用**主题色**：和卡片右下角那个缩放把手同一条语汇（它也是沿圆弧染一段主题色），
-    // 一眼就能认出「这块是能拖的」
-    val accent = MiuixTheme.colorScheme.primary
-    val dark = LocalIsDarkTheme.current
-    // 把手自己的页面局部原点：随它移动，但每帧由 onGloballyPositioned 刷新
+    // 把手自己的页面局部原点：随球移动，但每帧由 onGloballyPositioned 刷新
     var origin by remember { mutableStateOf(Offset.Zero) }
     Box(
         Modifier
             .size(ORB_BALL)
             .onGloballyPositioned { origin = it.boundsInRoot().topLeft - session.pageOrigin }
+            .orbGlass(liquid, refraction, backdrop, CircleShape)
             .pointerInput("orbHandle") {
                 awaitEachGesture {
                     val down = awaitFirstDown(requireUnconsumed = false)
                     val slop = viewConfiguration.touchSlop
                     var dragging = false
                     // 自己判 slop，不用 awaitTouchSlopOrCancellation：后者在「变更已被别人消费
-                    // 过」时直接返回 null，而这条链上还有页面根的手势层与滚动列。
+                    // 过」时直接返回 null，而这条链上还有页面根 Box 的手势层与滚动列，谁先消费
+                    // 一下都可能把把手误判成点击。自己判就只看位移，不受消费标记影响。
                     try {
                         while (true) {
                             val change = awaitPointerEvent().changes.firstOrNull { it.id == down.id } ?: break
@@ -419,18 +419,10 @@ private fun OrbHandle(
             },
         contentAlignment = Alignment.Center,
     ) {
-        if (knobAlpha > 0f) {
-            Box(
-                Modifier
-                    .matchParentSize()
-                    .graphicsLayer { alpha = knobAlpha }
-                    .background(accent.copy(alpha = if (dark) 0.30f else 0.18f), CircleShape),
-            )
-        }
         Icon(
             Icons.Default.DragHandle,
             contentDescription = "拖动悬浮球",
-            tint = accent,
+            tint = MiuixTheme.colorScheme.onSurface,
             modifier = Modifier.size(20.dp),
         )
     }
