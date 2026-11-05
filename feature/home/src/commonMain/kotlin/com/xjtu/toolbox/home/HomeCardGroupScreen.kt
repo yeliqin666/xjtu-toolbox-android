@@ -926,6 +926,12 @@ fun HomeCardGroupScreen(
         }
     }
 
+    // 悬浮条的名字栏：只有「滚动图标列」会把它拉开，开始拖拽 / 点把手 / 点到别处都会收回。
+    // 状态提到这一层，是因为「点到别处（失焦）」只有页面根的手势层看得见（见 homeDragLayer）；
+    // 而传下去的是 State 本身、不是它的值——读发生在悬浮条内部，这一屏不会为它重组。
+    val orbLabels = remember { mutableStateOf(false) }
+    LaunchedEffect(editing.on) { if (!editing.on) orbLabels.value = false }
+
     // 手势层作为**页面根 Box 的修饰符**挂载，而不是盖在上面的兄弟覆盖层。
     // 兄弟覆盖层一旦带 pointerInput 就会独占整条命中路径，把下面的滚动列 / 顶栏 / 卡片
     // 全挡掉（实测：除挂在它上层的悬浮条，其余什么都点不动）。挂在根 Box 上则是「祖先」：
@@ -937,6 +943,8 @@ fun HomeCardGroupScreen(
             handlePx = handlePx,
             removePx = removePx,
             onDown = { hit, viewport -> beginGesture(hit, viewport) },
+            // 按在悬浮条外面 = 它失焦了：名字栏收回去（没展开时是空操作，不会引起重组）
+            onDownOutsidePalette = { if (orbLabels.value) orbLabels.value = false },
             // 移动卡片 / 组排序要长按：拿起那一刻给一次触感，和系统桌面「拾起图标」同一手感
             onPickUp = { haptic.performHapticFeedback(HapticFeedbackType.LongPress) },
             onMove = { viewport -> session.move(viewport) },
@@ -1252,6 +1260,7 @@ fun HomeCardGroupScreen(
                     else -> pageBackdrop
                 },
                 session = session,
+                labels = orbLabels,
                 onPaletteStart = { routeId, startPointer ->
                     session.refreshBoardFromCoordinates()
                     // 新的一场（悬浮条拖出也走这里）：上一场多开的行作废

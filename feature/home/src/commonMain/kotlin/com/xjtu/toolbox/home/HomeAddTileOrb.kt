@@ -1,6 +1,7 @@
 package com.xjtu.toolbox.home
 
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -15,10 +16,12 @@ import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.requiredWidth
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
@@ -30,12 +33,14 @@ import androidx.compose.material.icons.filled.DragHandle
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
@@ -44,6 +49,9 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
@@ -59,6 +67,7 @@ import com.xjtu.toolbox.ui.glass.floatingGlassShadow
 import com.xjtu.toolbox.ui.theme.LocalIsDarkTheme
 import kotlin.math.roundToInt
 import top.yukonga.miuix.kmp.basic.Icon
+import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 /** 悬浮球（也是长条顶部那枚把手）的直径。 */
@@ -66,6 +75,15 @@ private val ORB_BALL = 46.dp
 
 /** 展开长条的宽。 */
 private val ORB_RAIL_WIDTH = 64.dp
+
+/**
+ * 图标旁边那片名称栏的宽度。
+ *
+ * 名称栏**不是**一个开关，而是滚动列表时临时露出来的：面板里 15 个功能、一屏只放得下 6 个，
+ * 滚的时候光看图标认不出滚到谁了。所以只在滚动时横向拉开，其余时刻（开始拖动、点把手、
+ * 点到别处）都收回去——收起时不组合那段文字，一次文字布局都不做。
+ */
+private val ORB_LABEL_WIDTH = 84.dp
 
 /** 展开长条里一颗功能图标的直径。 */
 private val ORB_TILE = 44.dp
@@ -80,7 +98,12 @@ private const val ORB_VISIBLE_ROWS = 6
  * - **球**：一枚圆形液态玻璃把手，贴在侧边；点一下展开成长条。
  * - **长条**：把手升到最上方，下面是一列圆形功能图标（可滚动，长按拖出来放到组里）；
  *   **点一下把手把它收回成球**（想让它别挡着画面时不必退出编辑态）。
+ * - **滚动图标列**：图标旁边横着露出一行名字（展开成圆角矩形），滚到哪里都认得出是谁；
+ *   再没有任何手势会**展开**它——按住不动什么都不会发生，所以不会和「按住拖拽」打架。
  * - **按住把手拖**：整条收回成那颗球跟手，松手自动吸回最近的侧边。
+ *
+ * 名字栏的收起时机（都是「确认了别的意图」才收，绝不因为滚动而收）：
+ * 开始拖拽（整条 / 拖出图标）的那一刻、点把手、以及在别处按下（失焦）。
  *
  * 只在编辑态被挂上；挂上时先是一颗球，随即自动展开成长条（中间不停顿的展开动画）。
  */
@@ -93,6 +116,14 @@ internal fun HomeAddTileOrb(
     refraction: Boolean,
     backdrop: Backdrop?,
     session: HomeDragSession,
+    /**
+     * 名字栏是否露着。
+     *
+     * 传的是 State 而不是值：它在滚动时翻，读在**悬浮条内部**（见下面的 `labelsExpanded`），
+     * 于是首页不必为「露出名字」重组一遍——真正需要重排的只有这条长条自己。
+     * 唯一入口是滚动图标列；退出编辑态时由首页复位。
+     */
+    labels: MutableState<Boolean>,
     /** 长按图标拖出一个新功能：[startPointer] 是手指的页面局部坐标（首页统一换算、开预览）。 */
     onPaletteStart: (routeId: String, startPointer: Offset) -> Unit,
     /** 拖出新块的手势松手：首页把预览固化、幽灵吸附到落点。 */
@@ -125,8 +156,19 @@ internal fun HomeAddTileOrb(
         // OrbHandle 节点销毁掉，手势协程跟着死，表现就是「按住把手拖不动」。
         // 拖动中整条保持原样跟着手指走（这也正是「拖动整个悬浮条」该有的行为）。
         val showRail = expanded
-        // 停靠侧：只用来决定「贴哪一边」（这里不做变宽，长条宽度恒为 ORB_RAIL_WIDTH）
+        // 停靠侧：决定「贴哪一边」，以及名字栏往哪一侧长
         val dockRight = center.x >= pageW / 2f
+        // 名字栏拉出来的额外宽度。它只加在**远离贴边**的那一侧：图标列（把手 + 每颗圆钮）
+        // 的绝对位置一动不动，所以「按住拖整条」的跟手数学与展开状态完全无关。
+        val labelsExpanded = labels.value
+        val labelExtra by animateDpAsState(
+            targetValue = if (labelsExpanded) ORB_LABEL_WIDTH else 0.dp,
+            animationSpec = tween(220),
+            label = "orbLabels",
+        )
+        val labelExtraPx = with(density) { labelExtra.toPx() }
+        // 贴边只看**靠边那一侧**有多宽：球态是球直径，长条态是 64dp（名字栏不算进去）
+        val dockWidthPx = if (showRail) with(density) { ORB_RAIL_WIDTH.toPx() } else ballPx
         // 卸载时清掉登记的矩形：编辑态退出后手势层不该还挡着这一块
         DisposableEffect(Unit) {
             onDispose { session.paletteRect = null }
@@ -134,11 +176,13 @@ internal fun HomeAddTileOrb(
         Box(
             Modifier
                 .align(Alignment.TopStart)
-                // 定位仍然以**把手中心**为锚（拖动时就是这一条在跟手）。
-                // 上一版按「贴边 + 内容宽度」推位置，把拖动也一起推坏了：这里改回原来的锚点。
+                // 定位锚点是**图标列左边缘**（= 把手中心 − 球半径），与展开量无关：
+                // 展开时只把外框的左边推出去，图标列留在原地。
+                // （上一版按「贴边 + 内容宽度」推位置，把拖动一起推坏了——别再往那儿改。）
                 .offset {
+                    val iconLeft = center.x - ballPx / 2f
                     IntOffset(
-                        (center.x - ballPx / 2f).roundToInt(),
+                        (if (dockRight) iconLeft - labelExtraPx else iconLeft).roundToInt(),
                         (center.y - ballPx / 2f).roundToInt(),
                     )
                 }
@@ -171,12 +215,23 @@ internal fun HomeAddTileOrb(
                         session = session,
                         // 停靠侧：右停靠时图标列贴右边，左停靠贴左边
                         dockRight = dockRight,
+                        labelExtra = labelExtra,
+                        // 滚动图标列 = 露出名字（唯一入口）
+                        onRevealLabels = { labels.value = true },
+                        // 「确认是在按住拖拽」才收：真正开始拖的那一刻由下面几个回调触发
+                        onCollapseLabels = { labels.value = false },
                         onPaletteStart = onPaletteStart,
                         onPaletteDrop = onPaletteDrop,
                         onPaletteCancel = onPaletteCancel,
-                        // 单击把手 = 把自己收回成那颗球（拖动仍走下面三个回调）
-                        onHandleTap = { expanded = false },
+                        // 单击把手 = 把自己收回成那颗球（名字栏也就没必要留着了）
+                        onHandleTap = {
+                            labels.value = false
+                            expanded = false
+                        },
                         onHandleDragStart = { finger ->
+                            // 按住拖整条：确认开始移动的这一刻先收名字栏，再跟手
+                            // （图标列位置不动，所以收起不会让长条在手指下跳一下）
+                            labels.value = false
                             handleGrab = finger - (orbCenter ?: center)
                         },
                         onHandleDragTo = { finger ->
@@ -184,7 +239,7 @@ internal fun HomeAddTileOrb(
                         },
                         onHandleDrop = {
                             handleGrab = null
-                            orbCenter = snapToSide(orbCenter ?: center, pageW, pageH, ballPx, contentSize)
+                            orbCenter = snapToSide(orbCenter ?: center, pageW, pageH, ballPx, dockWidthPx, contentSize)
                         },
                     )
                 } else {
@@ -200,8 +255,34 @@ internal fun HomeAddTileOrb(
                         onDragTo = { finger -> handleGrab?.let { orbCenter = finger - it } },
                         onDrop = {
                             handleGrab = null
-                            orbCenter = snapToSide(orbCenter ?: center, pageW, pageH, ballPx, contentSize)
+                            orbCenter = snapToSide(orbCenter ?: center, pageW, pageH, ballPx, dockWidthPx, contentSize)
                         },
+                    )
+                }
+            }
+
+            // 名字栏那一片玻璃（只有拉起时才存在）：落在它上面的按下由它自己吃掉。
+            // 不吃的话这一下会穿下去——点开一张卡，或长按开始拖卡片，浮在上面的玻璃
+            // 反倒成了"透明"的。它自己不做任何事（拖拽仍走把手与图标各自的节点）。
+            if (showRail && labelExtra > 0.dp) {
+                Box(Modifier.matchParentSize()) {
+                    Box(
+                        Modifier
+                            .align(if (dockRight) Alignment.CenterStart else Alignment.CenterEnd)
+                            .width(labelExtra)
+                            .fillMaxHeight()
+                            .pointerInput("orbLabelShield") {
+                                awaitEachGesture {
+                                    val down = awaitFirstDown(requireUnconsumed = false)
+                                    down.consume()
+                                    while (true) {
+                                        val change = awaitPointerEvent()
+                                            .changes.firstOrNull { it.id == down.id } ?: break
+                                        if (!change.pressed) break
+                                        change.consume()
+                                    }
+                                }
+                            },
                     )
                 }
             }
@@ -209,27 +290,33 @@ internal fun HomeAddTileOrb(
     }
 }
 
-/** 松手后把球吸回最近的侧边（左 / 右边缘），纵向夹进页面里。 */
+/**
+ * 松手后把球吸回最近的侧边（左 / 右边缘），纵向夹进页面里。
+ *
+ * [dockWidth] 必须是**靠边那一侧**的宽度（球态 = 球直径，长条态 = `ORB_RAIL_WIDTH`），
+ * 不能用内容实测宽度：名字栏是往**远离贴边**那一侧长的，一旦混进来，展开时拖一下松手，
+ * 长条就会停在离屏幕边整整一个名字栏的位置。
+ */
 private fun snapToSide(
     center: Offset,
     pageW: Float,
     pageH: Float,
     ballPx: Float,
+    dockWidth: Float,
     contentSize: IntSize,
 ): Offset {
     val margin = 8f
-    // 定位一直是 `offset = center - ballPx/2`，这里保持同样的锚点关系
+    // 定位一直是 `offset = 图标列左边缘 − 名字栏`，而图标列左边缘 = center − 球半径，
+    // 名字栏与贴边无关（见上），所以这里只按图标列算。
     val half = ballPx / 2f
-    // 还没量到就退回球的尺寸，避免算出负数边距
-    val w = if (contentSize.width > 0) contentSize.width.toFloat() else ballPx
+    // 高度随内容变（长条比球高得多），还没量到就退回球的尺寸，避免算出负数边距
     val h = if (contentSize.height > 0) contentSize.height.toFloat() else ballPx
     val x = if (center.x < pageW / 2f) {
-        // 左贴边：内容左边距 = margin（长条是往右长的，左边贴住就放得下）
+        // 左贴边：图标列左边距 = margin（长条往右长，左边贴住就放得下）
         margin + half
     } else {
-        // 右贴边必须按**内容实际宽度**算：长条比球宽 18dp，仍按球算就会探出屏幕一截。
-        // 目标：内容右边 = pageW - margin，而内容左 = center - half。
-        pageW - margin - w + half
+        // 右贴边：图标列右边 = pageW − margin
+        pageW - margin - dockWidth + half
     }
     // 纵向同理：内容底边不要越过下边距
     val maxY = pageH - margin - h + half
@@ -318,8 +405,14 @@ private fun OrbRail(
     refraction: Boolean,
     backdrop: Backdrop?,
     session: HomeDragSession,
-    /** 停靠在页面右侧（true）/ 左侧（false）：图标列贴哪一边。 */
+    /** 停靠在页面右侧（true）/ 左侧（false）：图标列贴哪一边、名字栏往另一边长。 */
     dockRight: Boolean,
+    /** 名字栏已经拉出来的宽度（0 = 紧凑胶囊）。 */
+    labelExtra: Dp,
+    /** 列表被滚动：露出名字。 */
+    onRevealLabels: () -> Unit,
+    /** 开始拖拽：先收名字。 */
+    onCollapseLabels: () -> Unit,
     onPaletteStart: (routeId: String, startPointer: Offset) -> Unit,
     onPaletteDrop: () -> Unit,
     onPaletteCancel: () -> Unit,
@@ -333,13 +426,24 @@ private fun OrbRail(
     // 这一端打不开的功能不进面板（faces 里本来就没有它们）
     val items = remember(catalog, faces) { catalog.filter { faces.containsKey(it.route.id) } }
 
+    val railWidth = ORB_RAIL_WIDTH + labelExtra
+    // 名字只在真露出来时才组合：紧凑态既不量字也不画字（一次文字布局都不做）
+    val showLabels = labelExtra > 0.dp
+
+    // 「滑动列表」是露出名字的**唯一**入口：一屏只放得下 6 个图标，滚的时候得知道滚到谁了。
+    // 这个状态一次手势只翻两次（起手 / 停手），直接当 key 读；反过来，滚动**绝不**收起它——
+    // 只有「确认了别的意图」才收（见下面 onCollapseLabels / onHandleTap 与页面手势层）。
+    LaunchedEffect(listState.isScrollInProgress) {
+        if (listState.isScrollInProgress) onRevealLabels()
+    }
+
     Column(
         Modifier
-            .width(ORB_RAIL_WIDTH)
-            // 外框：一条液态玻璃胶囊（和改造前一致）
+            .width(railWidth)
+            // 外框：紧凑时圆角 = 半宽（胶囊），拉开后同一个圆角落在更宽的矩形上就是圆角矩形。
+            // 名字栏那半边只是外框变宽，把手 / 图标的实际位置一动不动。
             .orbGlass(liquid, refraction, backdrop, RoundedCornerShape(ORB_RAIL_WIDTH / 2))
             .padding(vertical = 6.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         // 把手钉在**停靠侧**那一栏（宽度恒为 ORB_RAIL_WIDTH、内部居中）
         Row(
@@ -362,26 +466,68 @@ private fun OrbRail(
         Spacer(Modifier.height(4.dp))
         LazyColumn(
             state = listState,
-            modifier = Modifier.height(ORB_TILE * ORB_VISIBLE_ROWS),
-            horizontalAlignment = Alignment.CenterHorizontally,
+            modifier = Modifier.width(railWidth).height(ORB_TILE * ORB_VISIBLE_ROWS),
         ) {
             items(items.size) { index ->
                 val service = items[index]
                 val face = faces.getValue(service.route.id)
-                Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-                    OrbTileIcon(
-                        face = face,
-                        liquid = liquid,
-                        refraction = refraction,
-                        backdrop = backdrop,
-                        session = session,
-                        onDragOut = { startPointer -> onPaletteStart(service.route.id, startPointer) },
-                        onDrop = onPaletteDrop,
-                        onCancel = onPaletteCancel,
-                    )
+                Row(
+                    Modifier.fillMaxWidth(),
+                    horizontalArrangement = if (dockRight) Arrangement.End else Arrangement.Start,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    if (dockRight && showLabels) OrbLabel(face.title, labelExtra, textEnd = true)
+                    Box(Modifier.width(ORB_RAIL_WIDTH), contentAlignment = Alignment.Center) {
+                        OrbTileIcon(
+                            face = face,
+                            liquid = liquid,
+                            refraction = refraction,
+                            backdrop = backdrop,
+                            session = session,
+                            // 拖出图标 = 「按住再拖」：确认开始移动的这一刻先收名字栏
+                            onDragOut = { startPointer ->
+                                onCollapseLabels()
+                                onPaletteStart(service.route.id, startPointer)
+                            },
+                            onDrop = onPaletteDrop,
+                            onCancel = onPaletteCancel,
+                        )
+                    }
+                    if (!dockRight && showLabels) OrbLabel(face.title, labelExtra, textEnd = false)
                 }
             }
         }
+    }
+}
+
+/**
+ * 图标旁边那一行名字。
+ *
+ * 窗口宽度就是「名字栏已经拉出来多少」：文字按**固定宽度**排版（`requiredWidth`，不吃窗口
+ * 挤压），窗口窄时只露出靠图标那一侧的一截，窗口张开时像拉帘子一样把它带出来——整个过程
+ * 文字不重排，不会抖、不会闪省略号。
+ */
+@Composable
+private fun OrbLabel(title: String, width: Dp, textEnd: Boolean) {
+    Box(
+        Modifier.width(width).clipToBounds(),
+        contentAlignment = if (textEnd) Alignment.CenterEnd else Alignment.CenterStart,
+    ) {
+        Text(
+            text = title,
+            style = MiuixTheme.textStyles.footnote1,
+            color = MiuixTheme.colorScheme.onSurface.copy(alpha = 0.86f),
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            textAlign = if (textEnd) TextAlign.End else TextAlign.Start,
+            modifier = Modifier
+                .requiredWidth(ORB_LABEL_WIDTH)
+                // 8dp 是图标与字之间的呼吸位，留在靠图标的那一侧
+                .padding(
+                    start = if (textEnd) 0.dp else 8.dp,
+                    end = if (textEnd) 8.dp else 0.dp,
+                ),
+        )
     }
 }
 
