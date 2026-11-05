@@ -2,6 +2,9 @@ package com.xjtu.toolbox.sharedview
 
 import android.app.Activity
 import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.graphics.Paint
+import android.graphics.Path
 import android.graphics.Rect
 import android.os.Bundle
 import android.os.Handler
@@ -104,6 +107,8 @@ object KitOneTake {
             return
         }
 
+        val density = activity.resources.displayMetrics.density
+        val radiusPx = source.cornerRadius.value * density
         val bitmap = runCatching {
             Bitmap.createBitmap(bounds.width(), bounds.height(), Bitmap.Config.ARGB_8888)
         }.getOrNull()
@@ -122,7 +127,16 @@ object KitOneTake {
                 { result ->
                     starting.set(false)
                     if (result == PixelCopy.SUCCESS && !activity.isFinishing && !activity.isDestroyed) {
-                        startWithKit(activity, route, bitmap, bounds, source, fallback)
+                        // 底板要画成源元素自己的底色：卡片取卡片背景、图标取图标那块浅色底。
+                        // 取不到（截图异常）时返回 0，交给 ROM 自动取色兜底。
+                        val maskColor = runCatching {
+                            KitMaskColor.backgroundOf(bitmap, radiusPx)
+                        }.getOrDefault(0)
+                        // 截图圆角外还带着点击时的页面像素，动画里会从底板边上露出一圈白；刷成底板同色。
+                        if (maskColor != 0) {
+                            runCatching { paintOutsideRoundedRect(bitmap, radiusPx, maskColor) }
+                        }
+                        startWithKit(activity, route, bitmap, bounds, source, radiusPx, maskColor, fallback)
                     } else {
                         Log.d(TAG, "PixelCopy failed: result=$result, fall back")
                         fallback()
@@ -143,14 +157,15 @@ object KitOneTake {
         bitmap: Bitmap,
         windowBounds: Rect,
         source: SeamlessCardSource,
+        radiusPx: Float,
+        maskColor: Int,
         fallback: () -> Unit,
     ) {
         try {
-            val density = activity.resources.displayMetrics.density
-            val radiusPx = source.cornerRadius.value * density
-            val bundle: Bundle = ViewAnimationConfig()
-                .setRadius(radiusPx)
-                .toBundle()
+            val config = ViewAnimationConfig().setRadius(radiusPx)
+            // 底板填充色：不传由 ROM 自动取色，会挑中图标强调色在卡片四周露色（见 KitMaskColor）。
+            if (maskColor != 0) config.setColor(maskColor)
+            val bundle: Bundle = config.toBundle()
             // 只写 ROM 声明支持的 extras：没声明的写了也不会生效，收益为零。
             if (declaredExtras?.containsKey(ViewAnimationExtras.EXTRA_BLUR) == true) {
                 bundle.putBoolean(ViewAnimationExtras.EXTRA_BLUR, true)
@@ -177,7 +192,7 @@ object KitOneTake {
             Log.i(
                 TAG,
                 "start KIT: route=${route.id}, protocol=$protocolVersion, windowRect=$windowBounds, " +
-                    "kitBounds=$kitBounds, radiusPx=$radiusPx, " +
+                    "kitBounds=$kitBounds, radiusPx=$radiusPx, maskColor=" + maskColorHex(maskColor) + ", " +
                     "blur=${declaredExtras?.containsKey(ViewAnimationExtras.EXTRA_BLUR)}",
             )
             val options = ViewAnimationManager.makeViewAnimationOptions(
@@ -205,6 +220,31 @@ object KitOneTake {
     }
 
     /**
+     * 把截图圆角外那圈页面像素刷成底板色。
+     *
+     * KIT 的底板比源元素大一圈，而源截图是矩形的：圆角以外仍然带着点击那一刻的页面像素。
+     * 动画过程中底板和截图错开，这些页面像素就会在底板和卡片之间露出一圈白边。
+     * 刷成与底板相同的颜色后，截图上没有内容的地方和底板连成一片，看不出接缝。
+     */
+    private fun paintOutsideRoundedRect(bitmap: Bitmap, radiusPx: Float, color: Int) {
+        val width = bitmap.width.toFloat()
+        val height = bitmap.height.toFloat()
+        val radius = radiusPx.coerceIn(0f, minOf(width, height) / 2f)
+        // EVEN_ODD：外圈整块矩形减去中间圆角矩形，只留下圆角外的那四块。
+        val path = Path().apply {
+            fillType = Path.FillType.EVEN_ODD
+            addRect(0f, 0f, width, height, Path.Direction.CW)
+            addRoundRect(0f, 0f, width, height, radius, radius, Path.Direction.CW)
+        }
+        val paint = Paint().apply {
+            this.color = color
+            isAntiAlias = true
+            style = Paint.Style.FILL
+        }
+        Canvas(bitmap).drawPath(path, paint)
+    }
+
+    /**
      * `EXTRA_BOUNDS` 的坐标系由 ROM 声明：`rect|WINDOW|...` 用窗口坐标，否则用屏幕坐标。
      * 传错坐标系是 KIT 落点偏移的常见原因，别按机型硬编码。
      */
@@ -229,4 +269,8 @@ object KitOneTake {
         }
         return if (meta.uppercase().contains("WINDOW")) "WINDOW" else "SCREEN"
     }
+
+    /** 日志里把底板色打成 `#AARRGGBB`；没取到色时标记出来，方便真机上确认走的是哪条路。 */
+    private fun maskColorHex(maskColor: Int): String =
+        if (maskColor == 0) "none" else "#%08X".format(maskColor)
 }
