@@ -55,6 +55,8 @@
 - 单位：`radius/bounds` 都是 **px**（卡片 20dp / 行 15dp / 图标 `iconSize*0.31`，宿主按 density 换算）。
 - 坐标系：读 `getViewAnimationExtras()[EXTRA_BOUNDS]` 的 `rect|WINDOW|...` 元数据决定 SCREEN/WINDOW，不按机型硬编码。
 - extras：只写 ROM 声明支持的 key（当前只用 `EXTRA_BLUR`）。
+- **底板填充色（`sharedView.color`）必须自己传，且要取源元素自己的底色**：底板是比源元素大一圈的圆角矩形，动画打开 / 返回时会从卡片四周露出来。不传时由 ROM 自动取色，它挑的是源截图里最显眼的颜色——卡片里的图标（比如公告的红色铃铛）会被当成底色，返回动画收尾回弹段就在卡片底下露出一圈红；取页面底色又会在渐变背景上露出一块与卡片无关的板子。现在的做法：`KitMaskColor` 在源元素截图里贴着圆角矩形内边取一圈像素（避开中间内容，圆角外的页面底色不参与），去极值后逐通道求均值——卡片得到自己的背景色（当前浅色配置约 `#F5F6F7`），常用功能图标得到图标那块浅色底（红铃铛约 `#FBE1DE`，每个图标不同），经 `ViewAnimationConfig.setColor` 写进 Bundle；取不到色时不传，交给 ROM 兜底。
+- **截图圆角外那圈页面像素刷成底板同色**：源截图是矩形的，圆角外还带着点击那一刻的页面像素；动画里底板和截图错开时，这些像素会在底板与卡片之间露出一圈白边。拿到底板色后把圆角外区域填成同色，接缝就看不出来了。
 - 宿主 Activity 关掉预测式返回（manifest `android:enableOnBackInvokedCallback="false"`），避免系统跨 Activity 预测返回与 ROM 关闭动画打架；系统返回交给 Compose 返回栈处理，退到底 `finish()`。
 
 ## 5. 真机验证清单
@@ -68,7 +70,7 @@ adb logcat -c && adb logcat -s KitOneTake SharedViewKit
 # 首页点「常用功能」图标 / 功能小组件卡片 / 公告「查看详情」
 # 期望（支持 ROM 且条件满足）：
 #   SharedViewKit supported, protocol=100, extras=...
-#   start KIT: route=<route.id>, protocol=100, windowRect=..., radiusPx=...
+#   start KIT: route=<route.id>, protocol=100, windowRect=..., radiusPx=..., maskColor=#AARRGGBB
 #   KIT animation start, mode=0
 #   topResumedActivity = .../SeamlessPageActivity
 # 返回：
