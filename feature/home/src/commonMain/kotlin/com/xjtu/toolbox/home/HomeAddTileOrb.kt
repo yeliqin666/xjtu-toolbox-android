@@ -1,11 +1,7 @@
 package com.xjtu.toolbox.home
 
-import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.tween
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
@@ -16,7 +12,6 @@ import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
@@ -105,7 +100,7 @@ private const val ORB_VISIBLE_ROWS = 6
  * 名字栏的收起时机（都是「确认了别的意图」才收，绝不因为滚动而收）：
  * 开始拖拽（整条 / 拖出图标）的那一刻、点把手、以及在别处按下（失焦）。
  *
- * 只在编辑态被挂上；挂上时先是一颗球，随即自动展开成长条（中间不停顿的展开动画）。
+ * 只在编辑态被挂上；挂上时直接就是长条（编辑态一进来就要能拖图标），之后才可能收回成球。
  */
 @Composable
 internal fun HomeAddTileOrb(
@@ -135,9 +130,9 @@ internal fun HomeAddTileOrb(
     val density = LocalDensity.current
     val ballPx = with(density) { ORB_BALL.toPx() }
 
-    // 球 ↔ 长条；刚挂上时是球，随即自动展开（播那段连续展开动画）
-    var expanded by remember { mutableStateOf(false) }
-    LaunchedEffect(Unit) { expanded = true }
+    // 球 ↔ 长条。刚挂上就直接是长条（编辑态一进来要能立刻拖图标），
+    // 之后点把手才收回成球、点球再展开。
+    var expanded by remember { mutableStateOf(true) }
 
     // 球（或收起的把手）中心在页面里的位置（页面局部坐标）；null = 还没拖过，用默认位
     var orbCenter by remember { mutableStateOf<Offset?>(null) }
@@ -152,8 +147,8 @@ internal fun HomeAddTileOrb(
         // 把手拖动的抓取偏移（手指 − 球心）：绝对跟手用，全程不变
         var handleGrab by remember { mutableStateOf<Offset?>(null) }
 
-        // 球 ↔ 长条。**拖动把手时绝不能切换状态**：AnimatedContent 会把正在跑手势的那个
-        // OrbHandle 节点销毁掉，手势协程跟着死，表现就是「按住把手拖不动」。
+        // 球 ↔ 长条。**拖动把手时绝不能切换状态**：节点一旦被换掉，正在跑手势的
+        // OrbHandle 就没了，手势协程跟着死，表现就是「按住把手拖不动」。
         // 拖动中整条保持原样跟着手指走（这也正是「拖动整个悬浮条」该有的行为）。
         val showRail = expanded
         // 停靠侧：决定「贴哪一边」，以及名字栏往哪一侧长
@@ -200,91 +195,63 @@ internal fun HomeAddTileOrb(
                     )
                 },
         ) {
-            AnimatedContent(
-                targetState = showRail,
-                transitionSpec = { fadeIn(tween(180)) togetherWith fadeOut(tween(140)) },
-                label = "addTileOrb",
-            ) { rail ->
-                if (rail) {
-                    OrbRail(
-                        faces = faces,
-                        catalog = catalog,
-                        liquid = liquid,
-                        refraction = refraction,
-                        backdrop = backdrop,
-                        session = session,
-                        // 停靠侧：右停靠时图标列贴右边，左停靠贴左边
-                        dockRight = dockRight,
-                        labelExtra = labelExtra,
-                        // 滚动图标列 = 露出名字（唯一入口）
-                        onRevealLabels = { labels.value = true },
-                        // 「确认是在按住拖拽」才收：真正开始拖的那一刻由下面几个回调触发
-                        onCollapseLabels = { labels.value = false },
-                        onPaletteStart = onPaletteStart,
-                        onPaletteDrop = onPaletteDrop,
-                        onPaletteCancel = onPaletteCancel,
-                        // 单击把手 = 把自己收回成那颗球（名字栏也就没必要留着了）
-                        onHandleTap = {
-                            labels.value = false
-                            expanded = false
-                        },
-                        onHandleDragStart = { finger ->
-                            // 按住拖整条：确认开始移动的这一刻先收名字栏，再跟手
-                            // （图标列位置不动，所以收起不会让长条在手指下跳一下）
-                            labels.value = false
-                            handleGrab = finger - (orbCenter ?: center)
-                        },
-                        onHandleDragTo = { finger ->
-                            handleGrab?.let { orbCenter = finger - it }
-                        },
-                        onHandleDrop = {
-                            handleGrab = null
-                            orbCenter = snapToSide(orbCenter ?: center, pageW, pageH, ballPx, dockWidthPx, contentSize)
-                        },
-                    )
-                } else {
-                    OrbHandle(
-                        liquid = liquid,
-                        refraction = refraction,
-                        backdrop = backdrop,
-                        session = session,
-                        onTap = { expanded = true },
-                        onDragStart = { finger ->
-                            handleGrab = finger - (orbCenter ?: center)
-                        },
-                        onDragTo = { finger -> handleGrab?.let { orbCenter = finger - it } },
-                        onDrop = {
-                            handleGrab = null
-                            orbCenter = snapToSide(orbCenter ?: center, pageW, pageH, ballPx, dockWidthPx, contentSize)
-                        },
-                    )
-                }
-            }
-
-            // 名字栏那一片玻璃（只有拉起时才存在）：落在它上面的按下由它自己吃掉。
-            // 不吃的话这一下会穿下去——点开一张卡，或长按开始拖卡片，浮在上面的玻璃
-            // 反倒成了"透明"的。它自己不做任何事（拖拽仍走把手与图标各自的节点）。
-            if (showRail && labelExtra > 0.dp) {
-                Box(Modifier.matchParentSize()) {
-                    Box(
-                        Modifier
-                            .align(if (dockRight) Alignment.CenterStart else Alignment.CenterEnd)
-                            .width(labelExtra)
-                            .fillMaxHeight()
-                            .pointerInput("orbLabelShield") {
-                                awaitEachGesture {
-                                    val down = awaitFirstDown(requireUnconsumed = false)
-                                    down.consume()
-                                    while (true) {
-                                        val change = awaitPointerEvent()
-                                            .changes.firstOrNull { it.id == down.id } ?: break
-                                        if (!change.pressed) break
-                                        change.consume()
-                                    }
-                                }
-                            },
-                    )
-                }
+            // 球与长条**不同时存在**：同一时刻只有一个带 pointerInput 的节点，
+            // 免得交叉淡入淡出那一小段里两个节点抢同一下按下（也就不会有「点一下变两次」）。
+            // 也不用 AnimatedContent：它会给容器尺寸做动画，而这里容器一宽一窄正是靠
+            // 名字栏控制的——真被它夹着走，图标列就会跟着挪。
+            if (showRail) {
+                OrbRail(
+                    faces = faces,
+                    catalog = catalog,
+                    liquid = liquid,
+                    refraction = refraction,
+                    backdrop = backdrop,
+                    session = session,
+                    // 停靠侧：右停靠时图标列贴右边，左停靠贴左边
+                    dockRight = dockRight,
+                    labelExtra = labelExtra,
+                    // 滚动图标列 = 露出名字（唯一入口）
+                    onRevealLabels = { labels.value = true },
+                    // 「确认是在按住拖拽」才收：真正开始拖的那一刻由下面几个回调触发
+                    onCollapseLabels = { labels.value = false },
+                    onPaletteStart = onPaletteStart,
+                    onPaletteDrop = onPaletteDrop,
+                    onPaletteCancel = onPaletteCancel,
+                    // 单击把手 = 把自己收回成那颗球（名字栏也就没必要留着了）
+                    onHandleTap = {
+                        labels.value = false
+                        expanded = false
+                    },
+                    onHandleDragStart = { finger ->
+                        // 按住拖整条：确认开始移动的这一刻先收名字栏，再跟手
+                        // （图标列位置不动，所以收起不会让长条在手指下跳一下）
+                        labels.value = false
+                        handleGrab = finger - (orbCenter ?: center)
+                    },
+                    onHandleDragTo = { finger ->
+                        handleGrab?.let { orbCenter = finger - it }
+                    },
+                    onHandleDrop = {
+                        handleGrab = null
+                        orbCenter = snapToSide(orbCenter ?: center, pageW, pageH, ballPx, dockWidthPx, contentSize)
+                    },
+                )
+            } else {
+                OrbHandle(
+                    liquid = liquid,
+                    refraction = refraction,
+                    backdrop = backdrop,
+                    session = session,
+                    onTap = { expanded = true },
+                    onDragStart = { finger ->
+                        handleGrab = finger - (orbCenter ?: center)
+                    },
+                    onDragTo = { finger -> handleGrab?.let { orbCenter = finger - it } },
+                    onDrop = {
+                        handleGrab = null
+                        orbCenter = snapToSide(orbCenter ?: center, pageW, pageH, ballPx, dockWidthPx, contentSize)
+                    },
+                )
             }
         }
     }
