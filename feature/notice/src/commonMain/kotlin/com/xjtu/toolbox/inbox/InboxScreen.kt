@@ -507,6 +507,11 @@ fun InboxBell(
     iconSize: Dp = 24.dp,
     /** 非点击模式的容器边长；嵌在圆钮里时传圆钮的尺寸，角标才会和圆钮对齐。 */
     containerSize: Dp = 48.dp,
+    /**
+     * 自己画不画角标。嵌在圆形玻璃钮里时传 `false`，改由圆钮的父层用 [InboxUnreadBadge]
+     * 画在玻璃层**外面**——玻璃会把内容裁成圆形，画在里面角上会被弧边削掉。
+     */
+    showBadge: Boolean = true,
 ) {
     val data = InboxStore.snapshot()
     val count = remember(data) { InboxRules.badge(data, Clock.System.now().toEpochMilliseconds()) }
@@ -530,41 +535,51 @@ fun InboxBell(
                 )
             }
         }
-        if (count > 0) {
-            // 角标：**半透明红 + 玻璃观感**（圆角胶囊、白色细高光边、一圈柔和投影），
-            // 但**绝不采样背景**——它只有 15dp，模糊/折射在这个尺度上只会糊成一团，
-            // 而且每帧多一次离屏采样不值（首页顶栏本来就有模糊带）。
-            //
-            // 位置钉在右上角内侧、与铃铛图形拉开距离：原来压在图形右上角、又正好落在圆钮
-            // 玻璃的圆弧边界上，看着就像被裁掉一块。
-            val accent = Color(0xFFE8453A)
-            Box(
-                Modifier
-                    .align(Alignment.TopEnd)
-                    .offset(x = 0.dp, y = 1.dp)
-                    .height(15.dp)
-                    .widthIn(min = 15.dp)
-                    .shadow(
-                        elevation = 4.dp,
-                        shape = CircleShape,
-                        clip = false,
-                        ambientColor = accent.copy(alpha = 0.55f),
-                        spotColor = accent.copy(alpha = 0.75f),
-                    )
-                    .background(accent.copy(alpha = 0.86f), CircleShape)
-                    .border(0.6.dp, Color.White.copy(alpha = 0.5f), CircleShape)
-                    .padding(horizontal = 3.5.dp),
-                contentAlignment = Alignment.Center,
-            ) {
-                Text(
-                    if (count > 99) "99+" else "$count",
-                    fontSize = 9.5.sp,
-                    lineHeight = 9.5.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = Color.White,
-                )
-            }
-        }
+        // 角标画在本层（容器右上角）。**嵌在圆钮玻璃里的时候要把 showBadge 关掉、由圆钮的
+        // 父层用 [InboxUnreadBadge] 画**——圆钮那层玻璃会把内容裁成圆形，画在里面必被弧边削掉。
+        if (showBadge && count > 0) UnreadBadge(count, Modifier.align(Alignment.TopEnd).offset(x = (-2).dp, y = 4.dp))
+    }
+}
+
+/**
+ * 未读角标（可单独调用）：**半透明红 + 玻璃观感**（白色细高光边 + 一圈红色柔光投影）。
+ *
+ * 嵌在圆形玻璃钮里时，调用方应该把它画在**圆钮外面那一层**，否则会被玻璃的圆形裁剪削掉。
+ * 但**绝不采样背景**：它只有 15dp，模糊 / 折射在这个尺度上只会糊成一团，还多付一次离屏采样。
+ */
+@Composable
+fun InboxUnreadBadge(modifier: Modifier = Modifier) {
+    val data = InboxStore.snapshot()
+    val count = remember(data) { InboxRules.badge(data, Clock.System.now().toEpochMilliseconds()) }
+    if (count > 0) UnreadBadge(count, modifier)
+}
+
+@Composable
+private fun UnreadBadge(count: Int, modifier: Modifier = Modifier) {
+    val accent = Color(0xFFE8453A)
+    Box(
+        modifier
+            .height(15.dp)
+            .widthIn(min = 15.dp)
+            .shadow(
+                elevation = 4.dp,
+                shape = CircleShape,
+                clip = false,
+                ambientColor = accent.copy(alpha = 0.5f),
+                spotColor = accent.copy(alpha = 0.7f),
+            )
+            .background(accent.copy(alpha = 0.86f), CircleShape)
+            .border(0.6.dp, Color.White.copy(alpha = 0.5f), CircleShape)
+            .padding(horizontal = 3.5.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            if (count > 99) "99+" else "$count",
+            fontSize = 9.5.sp,
+            lineHeight = 9.5.sp,
+            fontWeight = FontWeight.Bold,
+            color = Color.White,
+        )
     }
 }
 

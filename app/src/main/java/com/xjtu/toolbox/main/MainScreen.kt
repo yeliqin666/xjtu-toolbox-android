@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.asPaddingValues
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.displayCutout
 import androidx.compose.foundation.layout.exclude
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -639,8 +640,23 @@ private fun HomeTopActions(
             Icon(Icons.Outlined.Search, contentDescription = "搜索", tint = tint, modifier = Modifier.size(21.dp))
         }
         if (withScan) HomeScanAction(onScan = onScan)
-        HomeRoundAction(onClick = onInbox, size = HomeTopActionSize) {
-            InboxBell(onInbox, clickable = false, iconSize = 22.dp, containerSize = HomeTopActionSize)
+        // 铃铛：角标画在**圆钮外面这一层**。圆钮的液态玻璃把内容裁成圆形，画在里面的右上角
+        // 一定会被那道圆弧削掉一块；角标位置还是原来的（圆钮右上角）。
+        Box {
+            HomeRoundAction(onClick = onInbox, size = HomeTopActionSize) {
+                InboxBell(
+                    onInbox,
+                    clickable = false,
+                    iconSize = 22.dp,
+                    containerSize = HomeTopActionSize,
+                    showBadge = false,
+                )
+            }
+            com.xjtu.toolbox.inbox.InboxUnreadBadge(
+                Modifier
+                    .align(Alignment.TopEnd)
+                    .offset(x = (-2).dp, y = 4.dp),
+            )
         }
     }
 }
