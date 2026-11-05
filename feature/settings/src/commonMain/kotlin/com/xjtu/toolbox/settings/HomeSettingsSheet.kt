@@ -201,7 +201,8 @@ private fun HomeSettingsBody(onDismiss: () -> Unit, showTopBarStyle: Boolean) {
                     HomeLayoutRevision.bump()
                 },
             )
-            // 圆角只有卡片组有（经典分类卡 / 小组件那两套的圆角是写死的）
+            // 圆角只有卡片组有（经典分类卡 / 小组件那两套的圆角是写死的）；
+            // 编辑态那条悬浮条也跟着这个值走，把手会自己让位
             if (cards) {
                 SliderRow(
                     title = "卡片圆角",

@@ -63,6 +63,7 @@ import com.xjtu.toolbox.ui.components.appCardShadow
 import com.xjtu.toolbox.ui.glass.floatingGlassShadow
 import com.xjtu.toolbox.ui.theme.LocalIsDarkTheme
 import kotlin.math.roundToInt
+import kotlin.math.sqrt
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.theme.MiuixTheme
@@ -73,7 +74,7 @@ private val ORB_BALL = 46.dp
 /** 长条里图标列那一条的宽（把手也钉在这一条正中）。 */
 private val ORB_RAIL_WIDTH = 64.dp
 
-/** 长条上下内边距：玻璃比把手多让出这一圈，球态没有。 */
+/** 长条上下内边距的**下限**：玻璃比把手多让出这一圈，球态没有；圆角大时按 [knobTopPadding] 再让。 */
 private val ORB_PAD = 6.dp
 
 /** 把手与图标列表之间的空隙。 */
@@ -85,15 +86,12 @@ private val ORB_TILE = 44.dp
 /** 长条最多露出的功能行数；超出的靠滚动。 */
 private const val ORB_VISIBLE_ROWS = 6
 
-/**
- * 长条展开后的圆角。
- *
- * **不能取「半宽」32dp**：把手是 46dp 的圆，在 64dp 那一列里左右各留 9dp、离顶只留 [ORB_PAD] 6dp。
- * 圆角 32 时那道弧在离顶 6dp 处已经吃进来 13dp > 9dp，把手两角就探到玻璃外面，看着像错位。
- * 22dp 时同一位置只吃 7dp，把手完整落在玻璃里，观感又是正经的圆角矩形——所以这个值由
- * 「把手必须装得进圆角」反推而来，别单独调它。
- */
-private val ORB_RAIL_CORNER = 22.dp
+// 长条的圆角**不由这里定**：它就是主页设置里那条「卡片圆角」（`HomeLayoutStore.cardCorner`），
+// 只按长条半宽（32dp）夹一下——拖到顶是胶囊、拖到 0 是直角。把手不吃这个值，反过来**自己让位**
+// （见 knobTopPadding），所以圆角怎么调都不会把把手切掉。
+
+/** 把手两侧在图标列里留出的边（64 − 46 的一半）：判断圆角吃掉多少时要用它。 */
+private val ORB_KNOB_SIDE = (ORB_RAIL_WIDTH - ORB_BALL) / 2
 
 /**
  * 图标旁边那片名称栏的宽度。
@@ -104,8 +102,26 @@ private val ORB_RAIL_CORNER = 22.dp
  */
 private val ORB_LABEL_WIDTH = 84.dp
 
-/** 长条完全展开时的高度：上下内边距 + 把手 + 空隙 + 列表窗口。 */
-private val ORB_RAIL_HEIGHT = ORB_BALL + ORB_GAP + ORB_TILE * ORB_VISIBLE_ROWS + ORB_PAD * 2
+/** 把手 + 空隙 + 列表窗口，不含上下内边距（内边距要跟着圆角变，见 [knobTopPadding]）。 */
+private val ORB_BODY = ORB_BALL + ORB_GAP + ORB_TILE * ORB_VISIBLE_ROWS
+
+/**
+ * 圆角 [corner] 下，把手顶边至少要离玻璃顶多远，整颗把手才落在弧里。
+ *
+ * 把手是 46dp 的圆、居中在 64dp 那一列里（左右各留 [ORB_KNOB_SIDE] = 9dp）。圆角把直角吃掉
+ * 之后，离顶 p 处的玻璃边界已经内缩 `r − √(r² − (r−p)²)`；要求它不超过 9dp，解出
+ * `p ≥ r − √(2·r·s − s²)`（s = 9dp）。
+ *
+ * **方向就是这样：圆角由用户调，把手让位。** 反过来把圆角钉死成「把手正好装得进」的那个值，
+ * 等于用户那条滑条对悬浮条失效。
+ */
+private fun knobTopPadding(corner: Dp): Dp {
+    val r = corner.value
+    val s = ORB_KNOB_SIDE.value
+    if (r <= s) return 0.dp // 直角段：两侧本来就有 9dp，吃不到把手
+    val need = r - sqrt((2f * r * s - s * s).coerceAtLeast(0f))
+    return need.dp.coerceAtLeast(0.dp)
+}
 
 /**
  * 贴边保留的呼吸位。**长条与球共用同一个**：贴边一律按长条那 64dp 算，所以球态看着比长条
@@ -142,6 +158,8 @@ internal fun HomeAddTileOrb(
     refraction: Boolean,
     backdrop: Backdrop?,
     session: HomeDragSession,
+    /** 用户那条「卡片圆角」设置（dp）：长条的圆角就吃它，把手自己让位（见 [knobTopPadding]）。 */
+    cornerRadius: Dp,
     /**
      * 名字栏是否露着。
      *
@@ -161,8 +179,6 @@ internal fun HomeAddTileOrb(
     val density = LocalDensity.current
     val ballPx = with(density) { ORB_BALL.toPx() }
     val railPx = with(density) { ORB_RAIL_WIDTH.toPx() }
-    val railHeightPx = with(density) { ORB_RAIL_HEIGHT.toPx() }
-    val padPx = with(density) { ORB_PAD.toPx() }
     val marginPx = with(density) { ORB_EDGE_MARGIN.toPx() }
 
     // 长条 ↔ 球。刚挂上直接是长条；点把手切换。
@@ -195,19 +211,33 @@ internal fun HomeAddTileOrb(
             label = "orbLabels",
         )
 
+        // 圆角**完全由用户那条滑条决定**（只按长条半宽夹一下：拖到顶就是胶囊、拖到 0 就是直角）；
+        // 把手不吃它，反过来自己往下让——见 knobTopPadding。
+        val railCorner = cornerRadius.coerceAtMost(ORB_RAIL_WIDTH / 2)
+        // 长条态要留的内边距：至少 6dp，圆角大到吃掉把手时按公式再让
+        val railPad = maxOf(ORB_PAD, knobTopPadding(railCorner))
+        // 动画中的内边距：球态没有内边距，靠 shape 从 0 长到 railPad
+        val pad = railPad * shape
+
         // 图标列（连着把手那一栏）当前宽度：球态 = 球直径，长条态 = ORB_RAIL_WIDTH
         val colW = ORB_BALL + (ORB_RAIL_WIDTH - ORB_BALL) * shape
         val boxW = colW + labelExtra
-        val boxH = ORB_BALL + (ORB_RAIL_HEIGHT - ORB_BALL) * shape
-        // 圆角：球态是正圆，长条态是 [ORB_RAIL_CORNER]（由「把手装得进圆角」反推出来的）
-        val corner = ORB_BALL / 2 + (ORB_RAIL_CORNER - ORB_BALL / 2) * shape
+        val boxH = ORB_BALL + (ORB_BODY + railPad * 2 - ORB_BALL) * shape
+        // 圆角：球态是正圆（半宽），长条态是上面那个用户值；再夹一次「不能超过短边一半」，
+        // 免得过渡到一半时圆角比框还大（形状会翻出去）
+        val corner = (ORB_BALL / 2 + (railCorner - ORB_BALL / 2) * shape)
+            .coerceAtMost(minOf(boxW, boxH) / 2)
         val glassShape: Shape = RoundedCornerShape(corner)
 
         val colHalfPx = with(density) { colW.toPx() } / 2f
         val boxWPx = with(density) { boxW.toPx() }
+        val padPx = with(density) { pad.toPx() }
+        // 落定后的内边距与整块高度：吸附用它们，不用动画中的中间值
+        val railPadPx = with(density) { railPad.toPx() }
+        val railHeightPx = with(density) { (ORB_BODY + railPad * 2).toPx() }
         // 玻璃顶边比把手中心高出的量：球态正好是半径，长条态再多让一圈内边距。
         // 反过来就是「把手中心在任何形态下都落在 center」——拖动锚点因此与形态无关。
-        val topInsetPx = ballPx / 2f + padPx * shape
+        val topInsetPx = ballPx / 2f + padPx
 
         /**
          * 松手吸附：贴边一律按**长条**的半宽算（球态因此内缩 9dp，见 [ORB_EDGE_MARGIN]）。
@@ -221,7 +251,7 @@ internal fun HomeAddTileOrb(
                 pageW - marginPx - railPx / 2f
             }
             val height = if (asRail) railHeightPx else ballPx
-            val inset = if (asRail) ballPx / 2f + padPx else ballPx / 2f
+            val inset = if (asRail) ballPx / 2f + railPadPx else ballPx / 2f
             val low = marginPx + inset
             val high = (pageH - marginPx - height + inset).coerceAtLeast(low)
             return Offset(x, from.y.coerceIn(low, high))
@@ -258,7 +288,7 @@ internal fun HomeAddTileOrb(
                     )
                 },
         ) {
-            Column(Modifier.padding(top = ORB_PAD * shape)) {
+            Column(Modifier.padding(top = pad)) {
                 // 把手钉在**停靠侧**那一栏的正中（那一栏宽度恒为 colW，球态就正好是整颗球）
                 Row(
                     Modifier.fillMaxWidth(),
@@ -349,6 +379,9 @@ private fun OrbHandle(
     onDragTo: (finger: Offset) -> Unit,
     onDrop: () -> Unit,
 ) {
+    // 把手用**主题色**：和卡片右下角那个缩放把手同一条语汇（它也是沿圆弧染一段主题色），
+    // 一眼就能认出「这块是能拖的」
+    val accent = MiuixTheme.colorScheme.primary
     val dark = LocalIsDarkTheme.current
     // 把手自己的页面局部原点：随它移动，但每帧由 onGloballyPositioned 刷新
     var origin by remember { mutableStateOf(Offset.Zero) }
@@ -391,16 +424,13 @@ private fun OrbHandle(
                 Modifier
                     .matchParentSize()
                     .graphicsLayer { alpha = knobAlpha }
-                    .background(
-                        if (dark) Color.White.copy(alpha = 0.10f) else Color.Black.copy(alpha = 0.05f),
-                        CircleShape,
-                    ),
+                    .background(accent.copy(alpha = if (dark) 0.30f else 0.18f), CircleShape),
             )
         }
         Icon(
             Icons.Default.DragHandle,
             contentDescription = "拖动悬浮球",
-            tint = MiuixTheme.colorScheme.onSurface,
+            tint = accent,
             modifier = Modifier.size(20.dp),
         )
     }

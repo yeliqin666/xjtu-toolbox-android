@@ -1260,6 +1260,9 @@ fun HomeCardGroupScreen(
                     else -> pageBackdrop
                 },
                 session = session,
+                // 圆角吃用户那条「卡片圆角」设置：悬浮条和卡片同一套圆角语汇，
+                // 把手不反过来钉死圆角（它自己按圆角让位）
+                cornerRadius = cardCorner,
                 labels = orbLabels,
                 onPaletteStart = { routeId, startPointer ->
                     session.refreshBoardFromCoordinates()
