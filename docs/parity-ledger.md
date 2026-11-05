@@ -106,11 +106,13 @@
 
 ---
 
-## ① `enum SettingsRow`（11 项）× 三端 `honoredRows`
+## ① `enum SettingsRow`（12 项）× 三端 `honoredRows`
 
-三端声明本体：A = `app/src/main/java/com/xjtu/toolbox/settings/AppSettings.kt:124`（`SettingsRow.entries.toSet()`，11/11）；
-D = `desktop/src/main/kotlin/com/xjtu/toolbox/desktop/DesktopSettings.kt:60-61`（3 项）；
-W = `web/src/wasmJsMain/kotlin/com/xjtu/toolbox/web/WebSettingsHost.kt:45-46`（2 项）。
+三端声明本体：A = `app/src/main/java/com/xjtu/toolbox/settings/AppSettings.kt`（`SettingsRow.entries.toSet()`，全量）；
+D = `desktop/src/main/kotlin/com/xjtu/toolbox/desktop/DesktopSettings.kt`（4 项：`DARK_MODE` `DYNAMIC_COLOR` `HOME_HERO` `HOME_SETTINGS`）；
+W = `web/src/wasmJsMain/kotlin/com/xjtu/toolbox/web/WebSettingsHost.kt`（3 项：`DARK_MODE` `DYNAMIC_COLOR` `HOME_SETTINGS`）。
+> 2026-11 首页重构：`SettingsRow` 新增 `HOME_SETTINGS`（下表第 12b 行）。本轮重排过 `SettingsScreen.kt` / `SettingsHost.kt`，
+> 其余各行证据里的行号可能已偏移，以「文件名 + 符号名」为准。
 
 | 功能点 | Android | 桌面 | web | 证据(文件:行) | 补它要动什么(一句话) |
 | --- | --- | --- | --- | --- | --- |
@@ -126,6 +128,7 @@ W = `web/src/wasmJsMain/kotlin/com/xjtu/toolbox/web/WebSettingsHost.kt:45-46`（
 | 10. `SCHEDULE_SOURCE` 课表来源 | ✅ | 🔧 | 🔧 | `AppSettings.kt:124,134` · `ScheduleSourceRouter.kt:32-43`（`of()` 读设置）、`:65-66`（`manager == null` 时短路成教务） · `SettingsScreen.kt:291-293` · `DesktopSettings.kt:65`（空表 → 不画） · `WebSettingsHost.kt:52`（空表） · 两端无 `ScheduleSourceRouter` 调用（`grep` 只命中 `:app`/`:server`） | 两端：先得有第二个来源 —— 考勤系统那条路要校园会话（`manager`），现在两头都传不进 |
 | 11. `SCHEDULE_ATTENDANCE` 考勤角标 | ✅ | 🔧 | 🔧 | `AppSettings.kt:124` · `AppScheduleHost.kt:62` · `feature/schedule/.../ScheduleScreen.kt:908` 与 `CourseLinkSections.kt:100`（`ATTENDANCE in honored && attendanceBadgeEnabled`） · 共享默认 `shared/model/.../schedule/ScheduleHost.kt:79`（false） · 桌面 `DesktopScheduleHost.kt:24-32`（无 `ATTENDANCE`） · web `WebScheduleHost.kt:33-38`（无 `ATTENDANCE`） | 两端：先要有考勤取数口，再给宿主 `honored` 加 `ATTENDANCE`（设置行才有意义） |
 | 12. `VENUE_CAPTCHA` 场馆验证码自动识别 | ✅ | 🔧 | 🔧 | `AppSettings.kt:124` · `AppNavHost.kt:310`（读 `venueAutoSolveCaptchaEnabled` 喂识别器） · `SettingsScreen.kt:110,327-331` · `DesktopSettings.kt:61`（未列） · `WebSettingsHost.kt:46`（未列） · web 已有滑块识别器 `web/src/wasmJsMain/kotlin/com/xjtu/toolbox/web/WebSlideCaptchaHost.kt`（无设置读取者） | web：把恒开的识别器改成受设置控制（读完即一行 honored）；桌面：要先有场馆预约那条路 |
+| 12b. `HOME_SETTINGS` 主页设置抽屉 | ✅ | ✅ | ✅ | 声明 `feature/settings/.../SettingsHost.kt`（`HOME_SETTINGS`）· 抽屉 `feature/settings/.../HomeSettingsSheet.kt`（`HomeSettingsSheet`，`OverlayBottomSheet` 范式，与其他设置抽屉一致）· 入口 `feature/settings/.../SettingsScreen.kt`（外观组「主页设置」）+ 首页编辑态齿轮**直接在原地打开**（不跳设置页，经 `HomeTab` 挂的同一抽屉；旧的 `pendingHomeSettings` 旗标机制已删）· 落盘：背景 / 材质 / 顶栏排法在 `SettingsStore.kt`（`home_background` `home_wallpaper_*` `home_liquid_card` `home_top_actions_right` `home_layout`），卡片组独有的网格 / 折射 / 不透明度 / 整页快照在 `shared/navigation/.../HomeLayoutStore.kt` | 无（三端共用同一份抽屉与首页）。**抽屉里的「首页功能区」二选一**：经典分类卡（回落）/ 卡片组（`home_layout` = `classic` / `cards`，由 `feature/home/.../HomeScreen.kt` 这个薄分派选屏：`classic` 走 `HomeClassicScreen`，`cards` 走 `HomeCardGroupScreen`）。原来的「小组件」**不是第三个选项**——它和卡片组是同一个功能的两代，已经并进卡片组（材质、一镜到底接线、付款码、内容分档都搬过来了），老存档 `widgets` 读出来按 `cards`，没设置过也是 `cards`。桌面 / web 的首页顶栏没有齿轮入口，从设置页进。抽屉里的「顶栏 → 功能按钮统一右对齐」只有 `:app` 认领（`SettingsRow.HOME_TOP_BAR`：桌面 / web 的首页顶栏在外壳里，那一组不画；键 `home_top_actions_right` 默认 true，开 = 整套改造前顶栏：家小西头像 + 三个圆钮在右 + 不画居中标题；编辑态两套排法都是 ✕ / ⚙ / ✓）。另外「主页背景」是 `solid` / `gradient` / `image` 三选一（`home_background`），两套布局共用，所以渐变在桌面 / web 也一样生效。行为规格见 `docs/home-interaction-spec.md` |
 
 ## ② `SettingsHost` 其它槽位
 

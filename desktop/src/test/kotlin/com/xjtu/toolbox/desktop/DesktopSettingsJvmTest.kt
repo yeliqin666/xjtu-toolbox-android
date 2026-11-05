@@ -65,14 +65,19 @@ class DesktopSettingsJvmTest {
     }
 
     @Test
-    fun `桌面宿主的如实降级：只声明真会照办的三行，没有的行与组是 null`() {
+    fun `桌面宿主的如实降级：只声明真会照办的四行，没有的行与组是 null`() {
         var ticked = 0
         val host = DesktopSettingsHost { ticked++ }
 
         assertEquals(
-            setOf(SettingsRow.DARK_MODE, SettingsRow.DYNAMIC_COLOR, SettingsRow.HOME_HERO),
+            setOf(
+                SettingsRow.DARK_MODE,
+                SettingsRow.DYNAMIC_COLOR,
+                SettingsRow.HOME_HERO,
+                SettingsRow.HOME_SETTINGS,
+            ),
             host.honoredRows,
-            "桌面外壳接了深色模式 / 取色 / 首页卡片外观（见 DesktopSettingsHost 的 KDoc）",
+            "桌面外壳接了深色模式 / 取色 / 首页卡片外观 / 主页设置抽屉（与 app 共用同一份 SettingsScreen）",
         )
         assertNull(host.noticeSection, "桌面没有系统通知权限与 WorkManager 排程 ⇒ 整组不画")
         assertNotNull(

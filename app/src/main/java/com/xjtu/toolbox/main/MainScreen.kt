@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.asPaddingValues
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.displayCutout
 import androidx.compose.foundation.layout.exclude
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -92,6 +93,8 @@ import com.xjtu.toolbox.home.HomeSignals
 import com.xjtu.toolbox.home.HomeStats
 import com.xjtu.toolbox.home.HomeStatsRefresher
 import com.xjtu.toolbox.home.HomeTab
+import com.xjtu.toolbox.home.LocalHomeGlassRefraction
+import com.xjtu.toolbox.home.LocalHomeBarBackdrop
 import com.xjtu.toolbox.library.LibraryFocus
 import com.xjtu.toolbox.library.LibraryQrArea
 import com.xjtu.toolbox.nav.AppRoute
@@ -587,8 +590,12 @@ private val OverlayEnter = fadeIn(tween(220)) + slideInVertically(tween(260)) { 
 private val OverlayExit = fadeOut(tween(180)) + slideOutVertically(tween(200)) { it / 16 }
 
 /**
- * 主页设置里「功能按钮统一右对齐」的当前值（默认开）。读在槽位内部：只让顶栏这一组随设置失效，
- * 不必重组整个 [MainScreen]。
+ * 主页设置里「功能按钮统一右对齐」的当前值（默认开，落盘在 `SettingsStore.homeTopActionsRight`，
+ * 三套首页布局共用这一个键）。
+ *
+ * 特意读在**槽位内部**：`topLeading` / `topActions` 这两个 lambda 是在首页顶栏那一组组合里
+ * 执行的，读 [HomeLayoutRevision] 只会让顶栏这一组失效——主页设置里拨完开关回到首页，
+ * 顶栏当场换排法，不用把整页 [MainScreen] 重开一遍（它比顶栏贵得多）。
  */
 @Composable
 private fun rememberTopActionsRight(): Boolean {
@@ -633,8 +640,23 @@ private fun HomeTopActions(
             Icon(Icons.Outlined.Search, contentDescription = "搜索", tint = tint, modifier = Modifier.size(21.dp))
         }
         if (withScan) HomeScanAction(onScan = onScan)
-        HomeRoundAction(onClick = onInbox, size = HomeTopActionSize) {
-            InboxBell(onInbox, clickable = false, iconSize = 22.dp, containerSize = HomeTopActionSize)
+        // 铃铛：角标画在**圆钮外面这一层**。圆钮的液态玻璃把内容裁成圆形，画在里面的右上角
+        // 一定会被那道圆弧削掉一块；角标位置还是原来的（圆钮右上角）。
+        Box {
+            HomeRoundAction(onClick = onInbox, size = HomeTopActionSize) {
+                InboxBell(
+                    onInbox,
+                    clickable = false,
+                    iconSize = 22.dp,
+                    containerSize = HomeTopActionSize,
+                    showBadge = false,
+                )
+            }
+            com.xjtu.toolbox.inbox.InboxUnreadBadge(
+                Modifier
+                    .align(Alignment.TopEnd)
+                    .offset(x = (-2).dp, y = 4.dp),
+            )
         }
     }
 }
@@ -643,7 +665,9 @@ private fun HomeTopActions(
 private val HomeTopActionSize = 44.dp
 
 /**
- * 顶栏圆钮：半透明底色 + 柔和投影，直接透出下面的顶栏模糊，不再单独采样/模糊；不描边，和底栏的玻璃一致。
+ * 顶栏圆钮：卡片组布局下是液态玻璃（采首页递过来的**内容层**：模糊 + 活力 + 高光 + 可选折射
+ * 透镜，所以透出来、扭动的是它此刻盖住的壁纸与滚到下面的内容）；经典分类卡 / 小组件那两套不
+ * 递这一层，于是退回半透明底色圆钮。**没有描边**——和底栏那套玻璃拟态一致（需求 §1.2）。
  * 按压用共享的 [pressScale]（小圆钮压深一点）；onClick 为 null 时只画底，不接管点击。
  */
 @Composable
@@ -654,7 +678,13 @@ private fun HomeRoundAction(
 ) {
     val interaction = remember { MutableInteractionSource() }
     val isDark = LocalIsDarkTheme.current
-    val fill = MiuixTheme.colorScheme.surfaceContainerHigh.copy(alpha = if (isDark) 0.52f else 0.6f)
+    // 首页**内容层**（背景 + 滚动内容）由首页通过 Local 递过来：液态开关开着时圆钮采它，
+    // 于是模糊 / 折射的也是它此刻盖住的东西，和顶栏模糊带同一个源。卡片组布局会 provide；
+    // 经典分类卡那一套（`HomeClassicScreen`）不 provide，于是退回下面那层半透明底。
+    val liquid = LocalHomeBarBackdrop.current
+    // 折射子开关同样由首页 provide：关掉时圆钮只留模糊与高光，省一层离屏位移采样
+    val refraction = LocalHomeGlassRefraction.current
+    val fill = if (isDark) Color.White.copy(alpha = 0.08f) else Color.White.copy(alpha = 0.4f)
     Box(
         Modifier
             .size(size)
@@ -666,7 +696,28 @@ private fun HomeRoundAction(
                 ambientColor = Color.White.copy(alpha = if (isDark) 0.28f else 0.6f),
                 spotColor = Color.White.copy(alpha = if (isDark) 0.28f else 0.6f),
             )
-            .background(fill, CircleShape)
+            .then(
+                if (liquid != null) {
+                    Modifier.drawBackdrop(
+                        backdrop = liquid,
+                        shape = { CircleShape },
+                        effects = {
+                            padding = maxOf(padding, 8.dp.toPx())
+                            vibrancy()
+                            blur(6.dp.toPx())
+                            if (refraction) lens(8.dp.toPx(), 10.dp.toPx())
+                        },
+                        highlight = { Highlight.Default.copy(alpha = 0.65f) },
+                        shadow = null,
+                        onDrawSurface = { drawRect(fill) },
+                    )
+                } else {
+                    Modifier.background(
+                        MiuixTheme.colorScheme.surfaceContainerHigh.copy(alpha = if (isDark) 0.52f else 0.6f),
+                        CircleShape,
+                    )
+                },
+            )
             .then(
                 if (onClick != null) {
                     Modifier.clickable(interactionSource = interaction, indication = null, onClick = onClick)

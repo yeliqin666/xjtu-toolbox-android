@@ -19,7 +19,10 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.withContext
+import kotlinx.datetime.toLocalDateTime
 import com.xjtu.toolbox.nav.AppRoute
+import kotlin.math.roundToInt
+import kotlin.time.Clock
 
 /** 首页后台刷新：公开源优先，站点串行静默登录；按源缓存，取到一项就更新一项。 */
 object HomeStatsRefresher {
@@ -111,7 +114,47 @@ object HomeStatsRefresher {
         )
     }
 
-    private val sources: List<Source> = listOf(
+    /**
+     * 首页各卡片的状态源。`manager` 只在需要「整条会话」的源里用（学业进度要按培养方案取一遍），
+     * 所以这张表按轮次构造而不是写成常量表。
+     */
+    private fun sources(manager: SessionManager?): List<Source> = listOf(
+        // 校车：下一班 + 余座。10 分钟一刷够用（班次表本身是按点走的），不登录取公开信息。
+        Source(AppRoute.CampusBus, 10 * 60 * 1000L, null) { _, _ ->
+            withContext(Dispatchers.IO) {
+                val runs = runCatching {
+                    com.xjtu.toolbox.bus.appBusApi.runs(com.xjtu.toolbox.util.todayOnCampus())
+                }.getOrNull() ?: return@withContext null
+                if (runs.isEmpty()) return@withContext null
+                // 「现在几点」用校区时区（和校车页同一套），不跟设备时区走
+                val nowMinutes = with(Clock.System.now()
+                    .toLocalDateTime(com.xjtu.toolbox.util.CampusTimeZone).time) { hour * 60 + minute }
+                fun minutes(run: com.xjtu.toolbox.bus.BusRun): Int {
+                    val h = run.time.substringBefore(':').toIntOrNull() ?: 0
+                    val m = run.time.substringAfter(':', "0").toIntOrNull() ?: 0
+                    return h * 60 + m
+                }
+                val next = runs.filter { minutes(it) >= nowMinutes }.minByOrNull(::minutes)
+                    ?: runs.minByOrNull(::minutes)
+                    ?: return@withContext null
+                HomeStat(next.time, "${next.from} → ${next.to} · 余 ${next.seatsLeft} 座")
+            }
+        },
+        // 学业进度：已修学分 / 要求学分。按天刷（培养方案不会一天变几次），要登录教务。
+        Source(AppRoute.DegreeProgress, 1 * DAY, LoginType.JWXT) { ctx, _ ->
+            val m = manager ?: return@Source null
+            withContext(Dispatchers.IO) {
+                val raw = runCatching { com.xjtu.toolbox.degree.appDegreeSource(ctx, m).fetch() }.getOrNull()
+                    ?: return@withContext null
+                // 同一门课重修只算一次、只算通过的：这是「已修学分」的通用口径。
+                // 字面用「112/160」而不是「112 / 160」：卡片把 ≤8 字的短值排成大字，多两个
+                // 空格就掉回正文档，看着像一句话而不是进度
+                val earned = raw.grades.filter { it.passed }.distinctBy { it.code }.sumOf { it.credit }
+                val value = raw.required?.let { "${earned.roundToInt()}/${it.roundToInt()}" }
+                    ?: "${earned.roundToInt()}"
+                HomeStat(value, "${raw.planName} · 已修学分")
+            }
+        },
         Source(AppRoute.YellowPage, 7 * DAY, null) { ctx, _ ->
             val data = com.xjtu.toolbox.yellowpage.appYellowPageApi(ctx, roundAccount).getData()
             HomeStat("${data.departments.size} 个机构", "常用校内电话")
@@ -428,7 +471,7 @@ object HomeStatsRefresher {
             val roundAccount = com.xjtu.toolbox.account.AccountContext.activeAccountId
             this.roundAccount = roundAccount
             fun accountChanged() = !roundIsCurrent()
-            val stamps = HomeStats.stamps(context, sources.map { it.route }, roundAccount)
+            val stamps = HomeStats.stamps(context, sources(manager).map { it.route }, roundAccount)
             val now = System.currentTimeMillis()
             // 上一个源是否可能刚和统一认证打过交道（登录成功算；取站点出异常时保守地也算），是的话下一个源前留间隔
             var justLoggedIn = false
@@ -436,7 +479,7 @@ object HomeStatsRefresher {
             firstRunInProcess = false
             val existing = HomeStats.collect(context, null).keys
             Log.d(TAG, "start; coldStart=$coldStart 已有内容=$existing stamps=${stamps.mapValues { (now - it.value) / 60000 }} (分钟前)")
-            for (s in sources.sortedWith(compareBy<Source> { it.loginType != null }.thenBy { runOrder.indexOf(it.route).let { i -> if (i < 0) Int.MAX_VALUE else i } })) {
+            for (s in sources(manager).sortedWith(compareBy<Source> { it.loginType != null }.thenBy { runOrder.indexOf(it.route).let { i -> if (i < 0) Int.MAX_VALUE else i } })) {
                 if (s.loginType != null && !canLogin) continue
                 if (s.loginType == LoginType.ICLASSFACE && accountType != AccountType.UNDERGRADUATE) continue
                 // 首页评教统计走的是本科教务评教；研究生评教在 gste，要单独登录，不在后台刷

@@ -212,6 +212,25 @@ dependencies {
     // 三端共用的业务与平台抽象（KMP）；:core 必须能编过 wasmJs（CI 门禁在守）。
     implementation(project(":core"))
     implementation(project(":data"))
+    // `:core` 用 api 转发了全部 :feature:*，但**别依赖那层转发**：:app 的源码是直接按包名
+    // 引用 feature 里的类（@Serializable 路由、各 feature 自带的 AgentTools、archive 那套……），
+    // 一旦转发对 Android 消费者没生效，报的全是「包能解析、类找不到」的 Unresolved，
+    // 排查起来还很绕。这里把用到的 feature 直接声明一遍，compose 的依赖本来就该显式。
+    implementation(project(":feature:account"))
+    implementation(project(":feature:agent"))
+    implementation(project(":feature:attendance"))
+    implementation(project(":feature:campus"))
+    implementation(project(":feature:community"))
+    implementation(project(":feature:game"))
+    implementation(project(":feature:home"))
+    implementation(project(":feature:jiaocai"))
+    implementation(project(":feature:library"))
+    implementation(project(":feature:lms"))
+    implementation(project(":feature:notice"))
+    implementation(project(":feature:schedule"))
+    implementation(project(":feature:score"))
+    implementation(project(":feature:settings"))
+    implementation(project(":feature:webvpn"))
     // 金标联盟 SharedViewKit：ROM 声明支持时，公告卡 → 公告详情走系统级一镜到底；
     // 不支持时由 :app 的 KitOneTake 回落成 App 内现有的 Compose 转场（见 KitOneTake.kt）。
     implementation(libs.sharedview.kit)
