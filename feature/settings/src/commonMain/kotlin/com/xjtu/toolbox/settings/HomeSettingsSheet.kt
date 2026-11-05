@@ -127,7 +127,9 @@ private fun HomeSettingsBody(onDismiss: () -> Unit, showTopBarStyle: Boolean) {
         settings.homeBackground == HomeLayoutStore.BACKGROUND_IMAGE && settings.homeWallpaperImage.isNotEmpty()
     }
 
-    // 抽屉关掉时把「连续值也改过了」告诉首页（滑条不逐帧 bump，见 notifyChanged 的说明）
+    // 抽屉关掉时把「连续值也改过了」告诉首页（滑条不逐帧 bump，见 notifyChanged 的说明）。
+    // 圆角那条滑条例外：它松手时自己 bump 一次（见下面的 onValueChangeFinished），
+    // 因为「改完圆角立刻回首页」不该再等抽屉关闭。
     DisposableEffect(Unit) {
         onDispose { store.notifyChanged() }
     }
