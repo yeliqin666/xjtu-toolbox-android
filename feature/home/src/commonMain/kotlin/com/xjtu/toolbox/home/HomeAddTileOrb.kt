@@ -431,7 +431,11 @@ private fun OrbRail(
                             refraction = refraction,
                             backdrop = backdrop,
                             session = session,
-                            onDragOut = { startPointer -> onPaletteStart(service.route.id, startPointer) },
+                            // 一按住准备拖出就立刻收回名称，别挡着拖拽路径（不依赖 effect 的下一帧）
+                            onDragOut = { startPointer ->
+                                labels = false
+                                onPaletteStart(service.route.id, startPointer)
+                            },
                             onDrop = onPaletteDrop,
                             onCancel = onPaletteCancel,
                         )
