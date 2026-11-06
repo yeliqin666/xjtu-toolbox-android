@@ -94,13 +94,25 @@ private const val ORB_VISIBLE_ROWS = 6
 private val ORB_KNOB_SIDE = (ORB_RAIL_WIDTH - ORB_BALL) / 2
 
 /**
- * 图标旁边那片名称栏的宽度。
+ * 图标旁边那片名称栏的宽度（**外框朝远离贴边那一侧长出去的总宽**）。
  *
  * 名称栏**不是**一个开关，而是滚动列表时临时露出来的：面板里十几个功能、一屏只放得下 6 个，
  * 滚的时候光看图标认不出滚到谁了。所以只在滚动时横向拉开，其余时刻（开始拖动、点把手、
  * 点到别处）都收回去——收起时不组合那段文字，一次文字布局都不做。
+ *
+ * 104dp 是按最宽的一行算出来的（2026-11 加宽）：`10` 外沿安全边 + `15` 计数圆标 + `5` 圆标与字的
+ * 间隙 + 名字（首页最长的四个汉字约 52dp）+ `8` 图标侧呼吸位 ≈ 90，再留十几格给五六字的名字。
+ * 加宽之前是 84dp，塞进圆标之后四个字的名字就要开始省略了。
  */
-private val ORB_LABEL_WIDTH = 84.dp
+private val ORB_LABEL_WIDTH = 104.dp
+
+/**
+ * 名称栏**靠外沿那一侧**的安全边（离玻璃边缘的距离）。
+ *
+ * 那一侧正是胶囊的圆弧，字与圆标贴上去会被弧边啃掉一角；也给「拉开帘子」留出终点，收尾时
+ * 文字不会顶着玻璃边停下。图标侧另有 8dp 呼吸位（见 `OrbLabel`）。
+ */
+private val ORB_LABEL_EDGE_PAD = 10.dp
 
 /** 把手 + 空隙 + 列表窗口，不含上下内边距（内边距要跟着圆角变，见 [knobTopPadding]）。 */
 private val ORB_BODY = ORB_BALL + ORB_GAP + ORB_TILE * ORB_VISIBLE_ROWS
@@ -542,10 +554,11 @@ private fun OrbTileList(
  */
 @Composable
 private fun OrbLabel(title: String, width: Dp, textEnd: Boolean, count: Int) {
-    // 8dp 是图标与字之间的呼吸位，留在靠图标的那一侧（计数串也贴在这一侧）
+    // 图标侧 8dp 呼吸位；**外沿那侧留 [ORB_LABEL_EDGE_PAD]**——那里是胶囊的圆弧，字与圆标
+    // 贴上去会被弧边啃掉一角（2026-11 加宽名字栏时一起补的安全距离）
     val iconSidePad = Modifier.padding(
-        start = if (textEnd) 0.dp else 8.dp,
-        end = if (textEnd) 8.dp else 0.dp,
+        start = if (textEnd) ORB_LABEL_EDGE_PAD else 8.dp,
+        end = if (textEnd) 8.dp else ORB_LABEL_EDGE_PAD,
     )
     Box(
         Modifier.width(width).clipToBounds(),
@@ -553,7 +566,7 @@ private fun OrbLabel(title: String, width: Dp, textEnd: Boolean, count: Int) {
     ) {
         Row(
             modifier = Modifier.requiredWidth(ORB_LABEL_WIDTH).then(iconSidePad),
-            horizontalArrangement = Arrangement.spacedBy(3.dp),
+            horizontalArrangement = Arrangement.spacedBy(5.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             if (!textEnd && count > 0) CountBadge(count)
