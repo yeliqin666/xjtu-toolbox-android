@@ -178,9 +178,9 @@ class SettingsStore(private val store: KeyValueStore = keyValueStore(APP_SETTING
     /**
      * 首页背景图的模糊半径，取值范围同首页大卡的自定义背景。
      *
-     * 原来还有一条「亮度」（键 `home_wallpaper_brightness`）：现在**不再读也不再写**。
-     * 自定义壁纸的对比度靠「背景不透明度」那条滑条调（往下拨就把主题底色盖回去），
-     * 多一条亮度只会让两张滑条互相抵消。旧存档里那个键原地留着，不删也不认。
+     * 原来还有一条「亮度」（键 `home_wallpaper_brightness`）：那**功能整个删掉了**（2026-11），
+     * 键不再读也不再写，壁纸按原图铺。自定义壁纸的明暗交给「背景不透明度」那条滑条调
+     * （往下拨就把主题底色盖回去）——亮度与它调的是同一件事，两条一起拨只会互相抵消。
      */
     var homeWallpaperBlur: Int
         get() = store.getInt("home_wallpaper_blur", HERO_IMAGE_BLUR_MIN).coerceIn(HERO_IMAGE_BLUR_MIN, HERO_IMAGE_BLUR_MAX)

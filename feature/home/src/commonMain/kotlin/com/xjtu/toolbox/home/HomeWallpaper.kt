@@ -25,7 +25,6 @@ internal fun HomeWallpaper(
     imageData: String,
     modifier: Modifier = Modifier,
     blur: Int = 0,
-    brightness: Int = 100,
 ) {
     val dark = LocalIsDarkTheme.current
     val surface = MiuixTheme.colorScheme.surface
@@ -38,7 +37,6 @@ internal fun HomeWallpaper(
                 imageData = imageData,
                 modifier = Modifier.matchParentSize(),
                 blur = blur,
-                brightness = brightness,
             )
             Box(
                 Modifier.matchParentSize().background(
