@@ -12,18 +12,17 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Dashboard
 import androidx.compose.material.icons.filled.Description
+import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.GridOn
 import androidx.compose.material.icons.filled.Layers
 import androidx.compose.material.icons.filled.RestartAlt
@@ -42,15 +41,15 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.platform.LocalClipboardManager
-import androidx.compose.ui.text.AnnotatedString
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.xjtu.toolbox.home.HomeLayout
 import com.xjtu.toolbox.home.HomeLayoutCodec
 import com.xjtu.toolbox.home.HomeLayoutStore
 import com.xjtu.toolbox.platform.BackHandler
+import com.xjtu.toolbox.platform.rememberPickTextFile
+import com.xjtu.toolbox.platform.rememberSaveTextFile
 import com.xjtu.toolbox.platform.showBriefMessage
 import kotlin.math.roundToInt
 import top.yukonga.miuix.kmp.basic.ButtonDefaults
@@ -73,7 +72,7 @@ import top.yukonga.miuix.kmp.window.WindowDialog
  *
  * 两套首页布局共用这一个抽屉，因为有三组设置是**跨布局共用**的——背景（壁纸 / 模糊）、
  * 卡片材质（液态玻璃）、顶栏排法，它们落在 [SettingsStore] 里；只有卡片组才有的几项
- * （网格开关、折射子开关、卡片圆角、背景不透明度、导出自定义布局、恢复默认分组和布局）落在
+ * （网格开关、折射子开关、卡片圆角、背景不透明度、导出 / 导入布局、恢复默认分组和布局）落在
  * [com.xjtu.toolbox.home.HomeLayoutStore] 里，切到经典分类卡时整块不画。
  *
  * 做成底部抽屉而不是二级页，是因为它要能从两处打开——全局设置里的那一行，和首页编辑态的齿轮；
@@ -132,8 +131,8 @@ private fun HomeSettingsBody(onDismiss: () -> Unit, showTopBarStyle: Boolean) {
     var confirmReset by remember { mutableStateOf(false) }
     // 打开网格会当场把非整数的摆位取整、收空行，且回不去（见 [confirmGrid]）——先二次确认
     var confirmGrid by remember { mutableStateOf(false) }
-    // 「导出自定义布局」的文本；非 null = 预览弹窗开着
-    var exportText by remember { mutableStateOf<String?>(null) }
+    // 从文件读回来、等用户确认的那份布局；非 null = 导入确认弹窗开着
+    var pendingImport by remember { mutableStateOf<HomeLayout?>(null) }
     val cards = layout == SettingsStore.HOME_LAYOUT_CARDS
     // 只有在卡片组 + 自定义图片这一档，不透明度才有可调的对象
     val wallpaper = remember(revision) {
@@ -141,7 +140,16 @@ private fun HomeSettingsBody(onDismiss: () -> Unit, showTopBarStyle: Boolean) {
     }
     // 导出的是用户**自己摆过**的那份快照：没有快照 = 首页还在用默认布局，没什么可导
     val savedLayout = remember(revision) { store.saved }
-    val copy = rememberCopyLayoutText()
+    // 导出 / 导入走平台的文件通道（Android SAF、桌面 JFileChooser、Web 下载 + 选文件）
+    val saveLayoutFile = rememberSaveTextFile()
+    val pickLayoutFile = rememberPickTextFile(
+        onLoaded = { text ->
+            // 内容对不对交给编解码判定：解不出来就当这次没导，错误只说人话、不抛格式细节
+            val parsed = HomeLayoutCodec.decode(text)
+            if (parsed == null) showBriefMessage("这个文件不是岱宗盒子的布局") else pendingImport = parsed
+        },
+        onError = { showBriefMessage(it.ifEmpty { "读不出这个文件" }) },
+    )
 
     // 抽屉关掉时把「连续值也改过了」告诉首页（滑条不逐帧 bump，见 notifyChanged 的说明）。
     // 圆角那条滑条例外：它松手时自己 bump 一次（见下面的 onValueChangeFinished），
@@ -242,18 +250,19 @@ private fun HomeSettingsBody(onDismiss: () -> Unit, showTopBarStyle: Boolean) {
             )
             // 折射子项只有卡片组吃：经典版与小组件那两套没有这一层。
             //
-            // 纯色 / 渐变背景上**没有壁纸可折**（模糊那一层已经不跑了，折射采的也是同一张
-            // 纯色底），拨了看不出任何区别，所以置灰 + 在说明里讲清楚：这一档现在不生效，
-            // 换成自定义背景图片再来调。开关里的值本身照旧保留，换回图片背景就还是原来那一档。
+            // 纯色 / 渐变背景上**没有壁纸可折 / 可糊**：模糊那一层已经不跑了，折射采的也是同一张
+            // 纯色底，开与不开在观感上几乎没有区别。既然看不出差别，就**强制关掉**（开关置灰、
+            // 显示成关）省下那层离屏位移采样——文案里把「为什么关掉」讲清楚，用户不会以为坏了。
+            // 存盘里的值不动：换回自定义背景图片，还是原来那一档。
             if (cards && liquid) {
                 SwitchPreference(
                     title = "开启折射",
                     summary = when {
-                        !wallpaper -> "纯色 / 渐变背景上没有壁纸可折，这一层看不出效果；换成自定义背景图片再来调"
+                        !wallpaper -> "当前背景是纯色 / 渐变：折射与模糊在这种背景上看不出区别，为省性能已强制关闭（换成自定义背景图片再调）"
                         refraction -> "边缘把背景扭出透镜的弯光，带一点色散（最费的一层）"
                         else -> "只留模糊与高光：轮廓和通透感都在，省一层离屏采样"
                     },
-                    checked = refraction,
+                    checked = refraction && wallpaper,
                     enabled = wallpaper,
                     startAction = { SettingsIcon(Icons.Default.WaterDrop, SettingsBlue.copy(alpha = 0.72f)) },
                     onCheckedChange = {
@@ -314,15 +323,15 @@ private fun HomeSettingsBody(onDismiss: () -> Unit, showTopBarStyle: Boolean) {
                 )
             }
 
-            SmallTitle("重置")
+            SmallTitle("备份与重置")
             HomeSettingsCard {
-                // 放在「恢复默认」**上面**：先能备份，再谈推倒重来——这两个动作挨着，
-                // 顺序反了就成了「想留个底的人得先在重置区上面找导出」
+                // 三行按「先备份、再导入、最后推倒重来」排：导出在上，是因为它是唯一
+                // 无副作用的一步，也是下面两步的后悔药
                 SimpleRow(
-                    title = "导出自定义布局",
+                    title = "导出布局到文件",
                     summary = savedLayout?.let { custom ->
                         "共 ${custom.groups.size} 组 · " +
-                            "${custom.groups.sumOf { group -> group.tiles.size }} 个组件，导出成一串可复制的文本"
+                            "${custom.groups.sumOf { group -> group.tiles.size }} 个组件，存成一个 ${HOME_LAYOUT_FILE_NAME}"
                     } ?: "还没摆过：首页现在用默认布局，没有可导出的内容",
                     icon = Icons.Default.Description,
                     color = SettingsPurple,
@@ -331,9 +340,17 @@ private fun HomeSettingsBody(onDismiss: () -> Unit, showTopBarStyle: Boolean) {
                         if (saved == null) {
                             showBriefMessage("还没有自定义过布局，首页现在是默认布局")
                         } else {
-                            exportText = HomeLayoutCodec.encode(saved)
+                            saveLayoutFile(HOME_LAYOUT_FILE_NAME, HomeLayoutCodec.encode(saved))
                         }
                     },
+                )
+                SimpleDivider()
+                SimpleRow(
+                    title = "从文件导入布局",
+                    summary = "选一个导出过的 ${HOME_LAYOUT_FILE_NAME}，覆盖当前的分组与摆放",
+                    icon = Icons.Default.FolderOpen,
+                    color = SettingsBlue,
+                    onClick = pickLayoutFile,
                 )
                 SimpleDivider()
                 SimpleRow(
@@ -415,47 +432,31 @@ private fun HomeSettingsBody(onDismiss: () -> Unit, showTopBarStyle: Boolean) {
         }
     }
 
-    // 导出的预览：这段文本就是 [HomeLayoutCodec] 的落盘格式，能原样存起来 / 发给别人
-    exportText?.let { payload ->
+    // 导入的确认：文件里解出来了，才问「要不要覆盖现在这份」——覆盖不可撤销，
+    // 所以和「恢复默认」「开启网格」一样先停一步
+    pendingImport?.let { imported ->
         WindowDialog(
             show = true,
-            title = "导出自定义布局",
-            onDismissRequest = { exportText = null },
+            title = "导入自定义布局",
+            onDismissRequest = { pendingImport = null },
         ) {
             Column(Modifier.fillMaxWidth()) {
                 Text(
-                    "下面是当前的自定义布局：分组、顺序、每个组件的位置与大小都在里面。" +
-                        "复制下来存好，或者发给别人。",
+                    "文件里有 ${imported.groups.size} 组 · " +
+                        "${imported.groups.sumOf { group -> group.tiles.size }} 个组件。" +
+                        "导入会覆盖当前的分组与摆放，这一步没法撤销。",
                     style = MiuixTheme.textStyles.body2,
                 )
-                Spacer(Modifier.height(12.dp))
-                Surface(
-                    shape = RoundedCornerShape(12.dp),
-                    color = MiuixTheme.colorScheme.surfaceVariant,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .heightIn(max = 220.dp),
-                ) {
-                    Column(
-                        Modifier
-                            .verticalScroll(rememberScrollState())
-                            .padding(12.dp),
-                    ) {
-                        Text(
-                            payload,
-                            style = MiuixTheme.textStyles.footnote2,
-                            fontFamily = FontFamily.Monospace,
-                        )
-                    }
-                }
                 Spacer(Modifier.height(16.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    TextButton(text = "关闭", onClick = { exportText = null }, modifier = Modifier.weight(1f))
+                    TextButton(text = "取消", onClick = { pendingImport = null }, modifier = Modifier.weight(1f))
                     TextButton(
-                        text = "复制",
+                        text = "导入",
                         onClick = {
-                            copy(payload)
-                            exportText = null
+                            store.importLayout(imported)
+                            pendingImport = null
+                            // 和「恢复默认」一样：导完就收起抽屉，首页当场换成导入的布局
+                            onDismiss()
                         },
                         modifier = Modifier.weight(1f),
                         colors = ButtonDefaults.textButtonColorsPrimary(),
@@ -472,6 +473,15 @@ internal val SettingsPurple = Color(0xFF7E57C2)
 internal val SettingsBlue = Color(0xFF42A5F5)
 internal val SettingsTeal = Color(0xFF26A69A)
 internal val SettingsOrange = Color(0xFFFFA726)
+
+/**
+ * 导出的文件名。
+ *
+ * 固定一个名字（不带时间戳）：这是「我的布局备份」，不是一堆历史版本——换机 / 重装时
+ * 从同一个位置挑回来最省事；真要留多份，用户自己在文件管理器里改名就行了。
+ * 内容就是 `HomeLayoutCodec` 的落盘格式，`.txt` 保险（各家文件管理器都认得、能直接看）。
+ */
+private const val HOME_LAYOUT_FILE_NAME = "xjtu-toolbox-home-layout.txt"
 
 /**
  * 主页设置里所有滑动条的**唯一**写法：直接用 MIUIX 自带的 [SliderPreference]。
@@ -509,27 +519,6 @@ internal fun SettingsSliderRow(
         valueRange = range,
         onValueChangeFinished = onValueChangeFinished,
     )
-}
-
-/**
- * 把导出的那串文本放进剪贴板，并提示一句短的。
- *
- * 不用 designsystem 的 `rememberCopyText`：它会把**整段文本**塞进提示（「已复制：<全文>」），
- * 导出的布局动辄几十行，那条提示会把屏幕铺满。这里只报「已复制」。
- *
- * 用的是已废弃的 [LocalClipboardManager]：新的 `LocalClipboard` 要平台自己的 `ClipEntry`，
- * 共享 UI 里给不出来，所以社区页、屁岱聊天那几处也都是这一份。
- */
-@Suppress("DEPRECATION")
-@Composable
-private fun rememberCopyLayoutText(): (String) -> Unit {
-    val clipboard = LocalClipboardManager.current
-    return remember(clipboard) {
-        { text ->
-            clipboard.setText(AnnotatedString(text))
-            showBriefMessage("自定义布局已复制")
-        }
-    }
 }
 
 /**

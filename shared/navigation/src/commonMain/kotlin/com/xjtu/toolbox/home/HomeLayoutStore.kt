@@ -179,6 +179,19 @@ class HomeLayoutStore(
     }
 
     /**
+     * 「从文件导入自定义布局」：把解析好的整页快照落盘。
+     *
+     * 语义和 [reset] 一样是**推倒重来**：首页编辑态手里那份草稿也要换成导入的这份，
+     * 所以两个信号一起 bump（只 bump [HomeLayoutRevision] 的话，用户正摆着的草稿会在
+     * 下一次「对勾」时把刚导入的布局又盖回去）。
+     */
+    fun importLayout(layout: HomeLayout) {
+        save(layout)
+        HomeLayoutResetRevision.bump()
+        HomeLayoutRevision.bump()
+    }
+
+    /**
      * 打开网格：把存档里那份**自由摆位取整落盘**，再开开关。
      *
      * 这一步不可撤销——原来那串 1.3×2.7 之类的非整数摆位在 [HomeLayout.snapToGrid] 之后

@@ -209,13 +209,20 @@ fun HomeCardGroupScreen(
     /**
      * 背景上**真的有壁纸可糊**吗：只有「自定义图片」且图还在时才是。
      *
-     * 液态玻璃在纯色 / 渐变上**只关掉模糊**（`blur` 那一层糊不出信息，白付采样代价）：
-     * 活力（光感）、折射、高光、轮廓、投影全部保留，底色换成「更白（浅色）/ 更深（深色）」
-     * 的薄色（见 `HomeTileFaceBox` 的 `flatGlassFill` 与 `LocalHomeGlassBlur`）。
-     * 顶栏那条模糊带不受影响：它采的是**内容层**，纯色下也照样有内容可糊。
+     * 液态玻璃在纯色 / 渐变上把白费的离屏采样都关掉：模糊（`blur`，糊不出信息）与折射
+     * （`lens`，折的是一张纯色底，看不出弯光）——活力（光感）、高光、轮廓、投影仍然保留，
+     * 底色换成「更白（浅色）/ 更深（深色）」的薄色（见 `HomeTileFaceBox` 的 `flatGlassFill`
+     * 与 `LocalHomeGlassBlur`）。顶栏那条模糊带不受影响：它采的是**内容层**，纯色下也照样
+     * 有内容可糊。
      */
     val hasWallpaper = backgroundMode == HomeLayoutStore.BACKGROUND_IMAGE && backgroundImage.isNotEmpty()
-    // 卡片那一层离屏层：液态玻璃开着就录——纯色 / 渐变上虽然不糊，但活力与折射仍要采样
+    // 卡片与幽灵块采的是**背景层**：纯色 / 渐变上没有壁纸可折，折射这一层照样要跑一遍离屏
+    // 位移采样，而画面上几乎看不出区别——所以背景没有壁纸时把它**强制关掉**（主页设置里
+    // 那个开关也是同时置灰的）。顶栏圆钮、悬浮球采的是**内容层**（卡片、文字都在里面），
+    // 那里折射真看得出来，照旧吃用户那个开关。
+    val cardRefraction = refraction && hasWallpaper
+    // 卡片那一层离屏层：液态玻璃开着就录——纯色 / 渐变上虽然不糊、也不折射，但活力（光感）
+    // 与高光还要采这层，少了它玻璃就退成一张实心纸
     val recordTileLayer = liquid
 
     /** 改当前布局：编辑态改草稿（点「对勾」才落盘），其余情况直接落盘。 */
@@ -1127,7 +1134,7 @@ fun HomeCardGroupScreen(
                                     faces = faces,
                                     editing = editing.on,
                                     liquid = liquid,
-                                    refraction = refraction,
+                                    refraction = cardRefraction,
                                     backdrop = tileBackdrop.takeIf { recordTileLayer },
                                     // 卡片能不能糊：纯色 / 渐变上关掉模糊，其余玻璃效果全留
                                     blurGlass = hasWallpaper,
@@ -1231,7 +1238,7 @@ fun HomeCardGroupScreen(
             session = session,
             faces = faces,
             liquid = liquid,
-            refraction = refraction,
+            refraction = cardRefraction,
             backdrop = tileBackdrop.takeIf { recordTileLayer },
             // 幽灵块是卡片的预览，跟卡片同一条规则
             blurGlass = hasWallpaper,

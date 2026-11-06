@@ -787,7 +787,8 @@ internal fun HomeTileFaceBox(
     backdrop: Backdrop?,
     /**
      * 这张卡**能不能糊**：有壁纸（自定义图片）为真。纯色 / 渐变背景上模糊这层没信息可采，
-     * 只关掉它（`vibrancy` 光感、`lens` 折射、高光、轮廓、投影全都保留），底色换成
+     * 只关掉它（`vibrancy` 光感、高光、轮廓、投影全都保留；`lens` 折射由调用方一并关掉，
+     * 见 `HomeCardGroupScreen` 的 `cardRefraction`），底色换成
      * `flatGlassFill`（浅色更白 / 深色更深）。
      *
      * 只有**卡片**吃这条规则；按钮与编辑态悬浮条浮在内容上面，照旧模糊 + 折射。
@@ -814,7 +815,7 @@ internal fun HomeTileFaceBox(
     // 和底栏胶囊同一套环境光阴影（remember：shadow lambda 捕获的对象变了会触发重采样）
     val accent = MiuixTheme.colorScheme.primary
     val liquidShadow = remember(accent, dark) { floatingGlassShadow(accent, dark) }
-    // 纯色 / 渐变背景上：**只关掉模糊**，活力 / 折射 / 高光 / 轮廓 / 投影全部保留，
+    // 纯色 / 渐变背景上：关掉模糊（调用方连折射一起关），活力 / 高光 / 轮廓 / 投影全部保留，
     // 底色换成这一层「比页面更白（浅色）/ 更深（深色）」的薄色（与折射开关无关）
     val flatGlassFill = if (dark) Color.Black.copy(alpha = 0.26f) else Color.White.copy(alpha = 0.52f)
     val surfaceFill = if (blurGlass) liquidFill else flatGlassFill
