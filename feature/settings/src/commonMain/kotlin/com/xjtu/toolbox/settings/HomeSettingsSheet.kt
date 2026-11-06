@@ -138,16 +138,10 @@ private fun HomeSettingsBody(onDismiss: () -> Unit, showTopBarStyle: Boolean) {
     val wallpaper = remember(revision) {
         settings.homeBackground == HomeLayoutStore.BACKGROUND_IMAGE && settings.homeWallpaperImage.isNotEmpty()
     }
-    // 壁纸自己的模糊半径：糊到一定程度，卡片上能折、能糊的细节也一起没影了
-    val blur = remember(revision) { settings.homeWallpaperBlur }
-    val blurredOut = wallpaper && blur >= SettingsStore.HOME_WALLPAPER_BLUR_HIDES_GLASS
-    /**
-     * 卡片那层玻璃**还能不能看出模糊 / 折射**：有壁纸、且壁纸还留着细节。
-     *
-     * 和 `HomeCardGroupScreen.glassHasDetail` 是同一条判据（那边决定卡片怎么画，这边决定开关
-     * 能不能拨）——两处必须一起改，否则会出现「开关看着开、卡片却没折射」这种自相矛盾。
-     */
-    val glassHasDetail = wallpaper && !blurredOut
+    // 卡片那层玻璃还能不能看出模糊 / 折射：壁纸糊到阈值以上时就看不出差别了
+    val glassHasDetail = remember(wallpaper, revision) {
+        wallpaper && settings.homeWallpaperBlur < SettingsStore.HOME_WALLPAPER_BLUR_HIDES_GLASS
+    }
     // 导出的是用户**自己摆过**的那份快照：没有快照 = 首页还在用默认布局，没什么可导
     val savedLayout = remember(revision) { store.saved }
     // 导出 / 导入走平台的文件通道（Android SAF、桌面 JFileChooser、Web 下载 + 选文件）
@@ -269,15 +263,13 @@ private fun HomeSettingsBody(onDismiss: () -> Unit, showTopBarStyle: Boolean) {
             // 但开关**不改成关**：显示的是用户自己那一档（`checked = refraction`），只是拨不动
             // （`enabled = glassHasDetail`）。「用不上」和「用户关掉了」是两件事——前者换一档背景
             // 就恢复，后者得用户自己再拨回来。存盘值一律不动。
+            //
+            // 说明文字只用那一句（维护者定的）：**不加括号解释**成因，两档共用。
             if (cards && liquid) {
                 SwitchPreference(
                     title = "开启折射",
                     summary = when {
-                        // 置灰时只解释「为什么用不上」，两种成因分开说（图片糊了 / 压根没壁纸）
-                        !glassHasDetail && wallpaper ->
-                            "当前背景设置下折射/模糊无明显效果，为节省资源已关闭（背景图已模糊到 ${blur}dp，细节被抹平了）"
-                        !glassHasDetail ->
-                            "当前背景设置下折射/模糊无明显效果，为节省资源已关闭（纯色 / 渐变背景上没有可折射的细节）"
+                        !glassHasDetail -> "当前背景设置下折射/模糊无明显效果，为节省资源已关闭"
                         refraction -> "边缘把背景扭出透镜的弯光，带一点色散（最费的一层）"
                         else -> "只留模糊与高光：轮廓和通透感都在，省一层离屏采样"
                     },

@@ -58,6 +58,7 @@ import com.kyant.backdrop.effects.blur
 import com.kyant.backdrop.effects.lens
 import com.kyant.backdrop.effects.vibrancy
 import com.kyant.backdrop.highlight.Highlight
+import com.xjtu.toolbox.ui.components.CountBadge
 import com.xjtu.toolbox.ui.components.ExpressiveIcon
 import com.xjtu.toolbox.ui.components.appCardShadow
 import com.xjtu.toolbox.ui.glass.floatingGlassShadow
@@ -533,8 +534,11 @@ private fun OrbTileList(
  * 文字不重排，不会抖、不会闪省略号。
  *
  * [count] 排**图标与文字中间**（2026-11 按需求加）：贴边停靠时中间就是文字右侧，靠左停靠时
- * 是文字左侧，两种情况都在「靠图标那一侧」，和名字一起被帘子带出来。0 块时不画——没摆过的
- * 卡不必多一个「×0」。
+ * 是文字左侧，两种情况都在「靠图标那一侧」，和名字一起被帘子带出来。0 块时不画。
+ *
+ * 画法是一枚**主题色小圆标**（`CountBadge`：半透明底色 + 白细高光边 + 同色柔光，和首页顶栏铃铛
+ * 那枚未读角标同一套配方——绝不采样背景），不是一行 `×3` 的弱化小字：那个数字是「这张卡在主页
+ * 上已经有几块」的**计数**，和名字同级的信息，靠一枚钉子更一眼看得出来。
  */
 @Composable
 private fun OrbLabel(title: String, width: Dp, textEnd: Boolean, count: Int) {
@@ -552,7 +556,7 @@ private fun OrbLabel(title: String, width: Dp, textEnd: Boolean, count: Int) {
             horizontalArrangement = Arrangement.spacedBy(3.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            if (!textEnd && count > 0) OrbCount(count)
+            if (!textEnd && count > 0) CountBadge(count)
             Text(
                 text = title,
                 style = MiuixTheme.textStyles.footnote1,
@@ -562,20 +566,9 @@ private fun OrbLabel(title: String, width: Dp, textEnd: Boolean, count: Int) {
                 textAlign = if (textEnd) TextAlign.End else TextAlign.Start,
                 modifier = Modifier.weight(1f),
             )
-            if (textEnd && count > 0) OrbCount(count)
+            if (textEnd && count > 0) CountBadge(count)
         }
     }
-}
-
-/** 名字栏里那个「已在主页放了几块」的数目（`×3`），比名字弱一档，不抢字。 */
-@Composable
-private fun OrbCount(count: Int) {
-    Text(
-        text = "×$count",
-        style = MiuixTheme.textStyles.footnote2,
-        color = MiuixTheme.colorScheme.onSurface.copy(alpha = 0.5f),
-        maxLines = 1,
-    )
 }
 
 /** 长条里一颗圆形功能图标：液态玻璃，长按拖出来放到组里。 */

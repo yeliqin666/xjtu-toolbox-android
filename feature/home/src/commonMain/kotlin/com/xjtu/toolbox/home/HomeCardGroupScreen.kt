@@ -477,12 +477,30 @@ fun HomeCardGroupScreen(
     }
 
     /**
+     * 手指此刻**压在悬浮条自己身上**（球 / 长条那块玻璃里）。
+     *
+     * 从悬浮条拖出来的块一旦落回这儿，就当这一场没发生（2026-11 维护者要求）：
+     * 「拖到悬浮条内不进行放置」。用同一份矩形（`paletteRect`，悬浮条自己登记的视口矩形）
+     * 一起管住**预览与落盘**——目标组变成 null，于是拖动中不画落点占位框、松手也不写草稿，
+     * 幽灵自己飞回图标原位。
+     *
+     * 只对**从悬浮条拖出**的那一场生效：拖已有卡片经过悬浮条时，它照样可以停在悬浮条底下
+     * （那一场卡片在悬浮条**下面**画，见 [GHOST_Z_INDEX]）。
+     */
+    val paletteOverOrb by remember {
+        derivedStateOf {
+            val rect = session.paletteRect
+            session.fromPalette && rect != null && rect.contains(session.pointer)
+        }
+    }
+
+    /**
      * 目标组：纯函数。组间空隙对半分之后各组的命中区间**首尾相接不重叠**，
      * 所以不需要「记住当前组」的滞回，也就不存在边界上来回切。
      */
     val targetGroup by remember(groupGapPx) {
         derivedStateOf {
-            if (!session.draggingTile) {
+            if (!session.draggingTile || paletteOverOrb) {
             null
         } else {
             // 用幽灵**中心**判组：2×2 的块上半截还在上一组时，不该判给上一组
@@ -1411,12 +1429,16 @@ private val GROUP_GAP = 20.dp
 /**
  * 拖拽幽灵块与编辑态悬浮条（球 / 长条）的绘制层次。
  *
- * **悬浮条必须压在幽灵块上面**（2026-11 按维护者要求定）：把卡片拖到屏幕右侧时，幽灵块整块
- * 盖在悬浮条上，图标与名字栏一个都看不见，鼠标 / 手指想再拖一个功能出来还得先松手。
- * 现在反过来——卡片在悬浮条底下穿过去，悬浮条始终是「浮在最上面」的那一层。
+ * **拖已有卡片时，卡片在悬浮条下面**（2026-11 按维护者要求定）：把卡片拖到屏幕右侧时，
+ * 幽灵块整块盖在悬浮条上，图标与名字栏一个都看不见。
+ *
+ * **从悬浮条拖出来的新块反过来——它画在悬浮条上面**（[PALETTE_GHOST_Z_INDEX]）：那一块正在
+ * 找地方落，被悬浮条挡住就不知道自己在放哪儿；而且它的「取消落点」正好是悬浮条本身
+ * （落进去 = 不放置，见 `paletteOverOrb`）。
  */
 private const val GHOST_Z_INDEX = 20f
 private const val ORB_Z_INDEX = 24f
+private const val PALETTE_GHOST_Z_INDEX = 28f
 
 /** 第一组与上方头卡之间的间距。 */
 private val FIRST_GROUP_GAP = 20.dp
@@ -2296,7 +2318,8 @@ private fun HomeDragGhost(
                 IntOffset(p.x.roundToInt(), p.y.roundToInt())
             }
             .size(with(density) { wPx.toDp() }, with(density) { hPx.toDp() })
-            .zIndex(GHOST_Z_INDEX)
+            // 从悬浮条拖出的新块画在悬浮条**之上**，拖已有卡片时在它**之下**（见常量说明）
+            .zIndex(if (session.fromPalette) PALETTE_GHOST_Z_INDEX else GHOST_Z_INDEX)
             .graphicsLayer {
                 // 略小于占位框 + 半透明：底下的落点占位框（2dp 主题色边框）才能露出来。
                 // 之前放大到 1.04 且 96% 不透明，正好把占位框整个盖住，等于没有提示。

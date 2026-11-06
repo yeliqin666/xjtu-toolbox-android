@@ -505,7 +505,51 @@ class HomeLayoutTest {
     }
 
     @Test
-    fun `改组名与标题颜色`() {
+    fun `往已有同功能的位置再放一块时原来那块原地不动`() {
+        // 落点正压着同一功能的另一块：不挤它（挤走 = 用户眼里的「原来那块没了」），
+        // 新块退到本组第一个空位
+        val base = layout()
+        val added = base.addTileAt(
+            "CLASS", "schedule", "CLASS/schedule#9",
+            x = 0f, y = 0f, grid = true, rowBudget = mapOf("CLASS" to 1f),
+        )
+        val tiles = added.group("CLASS")!!.tiles
+        assertEquals(2, tiles.size)
+        val old = tiles.first { it.id == "CLASS/schedule" }
+        assertEquals(0f, old.x, 0.0001f)
+        assertEquals(0f, old.y, 0.0001f)
+        val fresh = tiles.first { it.id == "CLASS/schedule#9" }
+        assertEquals(2f, fresh.x, 0.0001f)
+        assertEquals(0f, fresh.y, 0.0001f)
+        assertTrue(added.isConsistent())
+
+        // 预算内一个空位都没有时：新块接到最后一行，旧块照样一个都不动
+        val full = HomeLayout(
+            groups = listOf(
+                HomeGroup(
+                    id = "G",
+                    tiles = listOf(
+                        HomeTile("G/a", "schedule", 0f, 0f, 2f, 1f),
+                        HomeTile("G/b", "library", 2f, 0f, 2f, 1f),
+                    ),
+                ),
+            ),
+        )
+        val grown = full.addTileAt(
+            "G", "schedule", "G/twin",
+            x = 0f, y = 0f, grid = true, rowBudget = mapOf("G" to 1f),
+        )
+        assertEquals(3, grown.group("G")!!.tiles.size)
+        val kept = grown.group("G")!!.tiles.first { it.id == "G/a" }
+        assertEquals(0f, kept.x, 0.0001f)
+        assertEquals(0f, kept.y, 0.0001f)
+        val appended = grown.group("G")!!.tiles.first { it.id == "G/twin" }
+        assertEquals(0f, appended.x, 0.0001f)
+        assertEquals(1f, appended.y, 0.0001f)
+        assertTrue(grown.isConsistent())
+    }
+
+
         val renamed = layout().renameGroup("CLASS", "").tintGroup("CLASS", "#FF3B30")
         assertEquals("", renamed.group("CLASS")!!.title)
         assertEquals("#FF3B30", renamed.group("CLASS")!!.colorHex)
