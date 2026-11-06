@@ -160,13 +160,8 @@ data class HomeLayout(val groups: List<HomeGroup> = emptyList()) {
 
     /**
      * 往 [groupId] 组的**指定格** `(x, y)` 放一个功能（从添加面板 / 悬浮条拖出来落到这里）：
-     * 新块按 2×1 进组，落点照样挤开邻居；同组已有同路由**照样加**（见 [addTile]）。
-     *
-     * **只有一种例外：落点上正压着同一功能的另一块**（2026-11 维护者要求）。那时不去挤它——
-     * 已添加的那块原地不动，新块退到本组第一个空位；本组一个空位都没有就接到最后一行（组长高）。
-     * 理由：同功能的两块长得一模一样，把原来那块挤走（哪怕只是挪到旁边一行），用户看到的就是
-     * 「我拖了一块新的进来，原来那块没了」。加一块新的不该让任何旧块换位置。
-     *
+     * 新块按 2×1 进组，落点照样挤开邻居。同组已有同路由**照样加**，而且待遇和别的卡片
+     * **没有任何区别**——落点上是谁就挤谁，不做特判（2026-11 维护者定：只删限制，不加规则）。
      * `[rowBudget]` 同 [moveTile]。
      */
     fun addTileAt(
@@ -179,19 +174,7 @@ data class HomeLayout(val groups: List<HomeGroup> = emptyList()) {
         rowBudget: Map<String, Float>? = null,
     ): HomeLayout {
         val group = group(groupId) ?: return this
-        val incoming = HomeTile(tileId, routeId, x, y, 2f, 1f)
-        val budget = rowBudget?.get(groupId)
-        val twin = group.tiles.firstOrNull { it.routeId == routeId && HomeGridMath.overlaps(it, incoming) }
-        val placed = if (twin == null) {
-            HomeGridMath.placeInGroup(group.tiles, incoming, grid, budget)
-        } else {
-            val free = HomeGridMath.firstFreeSlot(group.tiles, incoming.w, incoming.h, budget)
-            group.tiles + (
-                if (free != null) incoming.copy(x = free.first, y = free.second)
-                // 空位也没有：接到本组最后一行（`bottomSlot` 不碰别人，只是组会多一行）
-                else HomeGridMath.bottomSlot(group.tiles, incoming)
-                )
-        }
+        val placed = HomeGridMath.placeInGroup(group.tiles, HomeTile(tileId, routeId, x, y, 2f, 1f), grid, rowBudget?.get(groupId))
         return replaceGroup(group.copy(tiles = finishRows(placed, grid)))
     }
 

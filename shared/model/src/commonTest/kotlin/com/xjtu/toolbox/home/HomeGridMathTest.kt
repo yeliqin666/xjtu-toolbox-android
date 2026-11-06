@@ -505,48 +505,24 @@ class HomeLayoutTest {
     }
 
     @Test
-    fun `往已有同功能的位置再放一块时原来那块原地不动`() {
-        // 落点正压着同一功能的另一块：不挤它（挤走 = 用户眼里的「原来那块没了」），
-        // 新块退到本组第一个空位
-        val base = layout()
-        val added = base.addTileAt(
+    fun `往已有同功能的位置再放一块跟别的卡片一样挤开`() {
+        // 同组已有同路由也照样加，而且待遇和普通卡片**没有任何区别**：落点上的那块照常让位。
+        // （2026-11 维护者定：这里只该删掉「同路由不许重复」的限制，不该给同功能加特判。）
+        val added = layout().addTileAt(
             "CLASS", "schedule", "CLASS/schedule#9",
             x = 0f, y = 0f, grid = true, rowBudget = mapOf("CLASS" to 1f),
         )
         val tiles = added.group("CLASS")!!.tiles
         assertEquals(2, tiles.size)
-        val old = tiles.first { it.id == "CLASS/schedule" }
-        assertEquals(0f, old.x, 0.0001f)
-        assertEquals(0f, old.y, 0.0001f)
+        // 新的那块占住落点
         val fresh = tiles.first { it.id == "CLASS/schedule#9" }
-        assertEquals(2f, fresh.x, 0.0001f)
+        assertEquals(0f, fresh.x, 0.0001f)
         assertEquals(0f, fresh.y, 0.0001f)
+        // 原来那块被挤到本组第一行剩下的空位（和任意两块普通卡片互相挤的开法完全一致）
+        val moved = tiles.first { it.id == "CLASS/schedule" }
+        assertEquals(2f, moved.x, 0.0001f)
+        assertEquals(0f, moved.y, 0.0001f)
         assertTrue(added.isConsistent())
-
-        // 预算内一个空位都没有时：新块接到最后一行，旧块照样一个都不动
-        val full = HomeLayout(
-            groups = listOf(
-                HomeGroup(
-                    id = "G",
-                    tiles = listOf(
-                        HomeTile("G/a", "schedule", 0f, 0f, 2f, 1f),
-                        HomeTile("G/b", "library", 2f, 0f, 2f, 1f),
-                    ),
-                ),
-            ),
-        )
-        val grown = full.addTileAt(
-            "G", "schedule", "G/twin",
-            x = 0f, y = 0f, grid = true, rowBudget = mapOf("G" to 1f),
-        )
-        assertEquals(3, grown.group("G")!!.tiles.size)
-        val kept = grown.group("G")!!.tiles.first { it.id == "G/a" }
-        assertEquals(0f, kept.x, 0.0001f)
-        assertEquals(0f, kept.y, 0.0001f)
-        val appended = grown.group("G")!!.tiles.first { it.id == "G/twin" }
-        assertEquals(0f, appended.x, 0.0001f)
-        assertEquals(1f, appended.y, 0.0001f)
-        assertTrue(grown.isConsistent())
     }
 
     @Test
