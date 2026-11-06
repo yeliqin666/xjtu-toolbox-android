@@ -187,8 +187,11 @@ internal fun HomeGroupSection(
      */
     paymentCode: suspend () -> String? = { null },
     /**
-     * 卡片能不能糊（只有卡片吃「纯色 / 渐变不模糊」这条规则；按钮与悬浮条照旧模糊）。
-     * 见 [HomeTileFaceBox] 的同名参数。
+     * 卡片能不能糊（只有卡片吃「没有可糊的细节就不糊」这条规则；按钮与悬浮条照旧模糊）。
+     *
+     * 「没有细节」有两种：纯色 / 渐变背景（压根没有壁纸），以及壁纸自己已经被「模糊程度」糊到
+     * 看不出细节（`SettingsStore.HOME_WALLPAPER_BLUR_HIDES_GLASS` 及以上）。两种都由调用方算成
+     * 一个布尔传进来，见 [HomeTileFaceBox] 的同名参数。
      */
     blurGlass: Boolean = true,
     /** 卡片圆角（主页设置里那条滑条），实际还会被「边长 × 12」夹住，见 [HomeTileFaceBox]。 */
@@ -786,8 +789,10 @@ internal fun HomeTileFaceBox(
     refraction: Boolean,
     backdrop: Backdrop?,
     /**
-     * 这张卡**能不能糊**：有壁纸（自定义图片）为真。纯色 / 渐变背景上模糊这层没信息可采，
-     * 只关掉它（`vibrancy` 光感、高光、轮廓、投影全都保留；`lens` 折射由调用方一并关掉，
+     * 这张卡**能不能糊**：背景上有可糊的细节才为真——自定义图片、且没被「模糊程度」糊平。
+     *
+     * 纯色 / 渐变背景上模糊这层没信息可采，壁纸糊到 5dp 以上也一样（壁纸已经是一片色块）。
+     * 只关掉模糊（`vibrancy` 光感、高光、轮廓、投影全都保留；`lens` 折射由调用方一并关掉，
      * 见 `HomeCardGroupScreen` 的 `cardRefraction`），底色换成
      * `flatGlassFill`（浅色更白 / 深色更深）。
      *

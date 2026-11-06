@@ -152,6 +152,13 @@ private val ORB_EDGE_MARGIN = 8.dp
 internal fun HomeAddTileOrb(
     faces: Map<String, HomeServiceRow>,
     catalog: List<AppService>,
+    /**
+     * 每张卡在整页上已经放了几块（路由 id → 块数）。
+     *
+     * 名字栏里把它显示在**图标与文字中间**（见 [OrbLabel]）：同一张卡现在允许在主页上出现
+     * 多块，光看图标认不出「这个功能是不是已经摆过了、摆了几个」，加一个数就有了。
+     */
+    tileCounts: Map<String, Int>,
     liquid: Boolean,
     /** 液态玻璃是否带折射；见 HomeTileFaceBox 的 `refraction` 说明。 */
     refraction: Boolean,
@@ -327,6 +334,7 @@ internal fun HomeAddTileOrb(
                 OrbTileList(
                     faces = faces,
                     catalog = catalog,
+                    tileCounts = tileCounts,
                     liquid = liquid,
                     refraction = refraction,
                     backdrop = backdrop,
@@ -438,6 +446,8 @@ private fun OrbHandle(
 private fun OrbTileList(
     faces: Map<String, HomeServiceRow>,
     catalog: List<AppService>,
+    /** 路由 id → 这一张卡在整页上已经放了几块（0 / 缺省 = 还没摆过）。 */
+    tileCounts: Map<String, Int>,
     liquid: Boolean,
     refraction: Boolean,
     backdrop: Backdrop?,
@@ -488,7 +498,9 @@ private fun OrbTileList(
                 horizontalArrangement = if (dockRight) Arrangement.End else Arrangement.Start,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                if (dockRight && showLabels) OrbLabel(face.title, labelExtra, textEnd = true)
+                if (dockRight && showLabels) {
+                    OrbLabel(face.title, labelExtra, textEnd = true, count = tileCounts[service.route.id] ?: 0)
+                }
                 Box(Modifier.width(colW), contentAlignment = Alignment.Center) {
                     OrbTileIcon(
                         face = face,
@@ -505,41 +517,65 @@ private fun OrbTileList(
                         onCancel = onPaletteCancel,
                     )
                 }
-                if (!dockRight && showLabels) OrbLabel(face.title, labelExtra, textEnd = false)
+                if (!dockRight && showLabels) {
+                    OrbLabel(face.title, labelExtra, textEnd = false, count = tileCounts[service.route.id] ?: 0)
+                }
             }
         }
     }
 }
 
 /**
- * 图标旁边那一行名字。
+ * 图标旁边那一行名字（外加「这张卡在主页上已经放了几块」）。
  *
  * 窗口宽度就是「名字栏已经拉出来多少」：文字按**固定宽度**排版（`requiredWidth`，不吃窗口
  * 挤压），窗口窄时只露出靠图标那一侧的一截，窗口张开时像拉帘子一样把它带出来——整个过程
  * 文字不重排，不会抖、不会闪省略号。
+ *
+ * [count] 排**图标与文字中间**（2026-11 按需求加）：贴边停靠时中间就是文字右侧，靠左停靠时
+ * 是文字左侧，两种情况都在「靠图标那一侧」，和名字一起被帘子带出来。0 块时不画——没摆过的
+ * 卡不必多一个「×0」。
  */
 @Composable
-private fun OrbLabel(title: String, width: Dp, textEnd: Boolean) {
+private fun OrbLabel(title: String, width: Dp, textEnd: Boolean, count: Int) {
+    // 8dp 是图标与字之间的呼吸位，留在靠图标的那一侧（计数串也贴在这一侧）
+    val iconSidePad = Modifier.padding(
+        start = if (textEnd) 0.dp else 8.dp,
+        end = if (textEnd) 8.dp else 0.dp,
+    )
     Box(
         Modifier.width(width).clipToBounds(),
         contentAlignment = if (textEnd) Alignment.CenterEnd else Alignment.CenterStart,
     ) {
-        Text(
-            text = title,
-            style = MiuixTheme.textStyles.footnote1,
-            color = MiuixTheme.colorScheme.onSurface.copy(alpha = 0.86f),
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            textAlign = if (textEnd) TextAlign.End else TextAlign.Start,
-            modifier = Modifier
-                .requiredWidth(ORB_LABEL_WIDTH)
-                // 8dp 是图标与字之间的呼吸位，留在靠图标的那一侧
-                .padding(
-                    start = if (textEnd) 0.dp else 8.dp,
-                    end = if (textEnd) 8.dp else 0.dp,
-                ),
-        )
+        Row(
+            modifier = Modifier.requiredWidth(ORB_LABEL_WIDTH).then(iconSidePad),
+            horizontalArrangement = Arrangement.spacedBy(3.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            if (!textEnd && count > 0) OrbCount(count)
+            Text(
+                text = title,
+                style = MiuixTheme.textStyles.footnote1,
+                color = MiuixTheme.colorScheme.onSurface.copy(alpha = 0.86f),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                textAlign = if (textEnd) TextAlign.End else TextAlign.Start,
+                modifier = Modifier.weight(1f),
+            )
+            if (textEnd && count > 0) OrbCount(count)
+        }
     }
+}
+
+/** 名字栏里那个「已在主页放了几块」的数目（`×3`），比名字弱一档，不抢字。 */
+@Composable
+private fun OrbCount(count: Int) {
+    Text(
+        text = "×$count",
+        style = MiuixTheme.textStyles.footnote2,
+        color = MiuixTheme.colorScheme.onSurface.copy(alpha = 0.5f),
+        maxLines = 1,
+    )
 }
 
 /** 长条里一颗圆形功能图标：液态玻璃，长按拖出来放到组里。 */

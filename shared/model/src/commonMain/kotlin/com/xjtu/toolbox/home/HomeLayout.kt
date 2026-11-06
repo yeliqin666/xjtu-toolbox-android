@@ -25,9 +25,10 @@ data class HomeTile(
 /**
  * 首页的一个卡片组。
  *
- * [id] 稳定不变（默认组用分类名，自建组是 `custom-<时间戳式的短串>`）；[title] 跟着默认分类名走
- * （「常用功能」「教务」…），**用户不再自己设标题**——自建组的 title 为空串，常规态整行不画、
- * 编辑态显示「未命名分组」占位（需求 §2.3）；[colorHex] 是标题颜色，空串 = 跟随主题。
+ * [id] 稳定不变（默认组用分类名，自建组是 `custom-<时间戳式的短串>`）；[title] 是用户能改的组名
+ * ——默认填分类名（「常用功能」「教务」…），编辑态点组头可以重命名（存进快照、跟着导出 / 导入走）；
+ * 空串 = 常规态整行不画、编辑态显示「未命名分组」占位（需求 §2.3）；[colorHex] 是标题颜色，
+ * 空串 = 跟随主题。
  */
 data class HomeGroup(
     val id: String,
@@ -140,10 +141,12 @@ data class HomeLayout(val groups: List<HomeGroup> = emptyList()) {
     private fun finishRows(tiles: List<HomeTile>, grid: Boolean): List<HomeTile> =
         if (grid) HomeGridMath.compactEmptyRows(tiles) else tiles
 
-    /** 往 [groupId] 组里加一个功能；组里已经有同一个路由就不重复加。 */
+    /**
+     * 往 [groupId] 组里加一个功能。**同一组里允许出现同一个功能的多块**（2026-11 按需求改）：
+     * 「常用功能」本来就是同一路由的第二块，组内再来一块也是用户的明确意图，没有理由拦。
+     */
     fun addTile(groupId: String, routeId: String, tileId: String): HomeLayout {
         val group = group(groupId) ?: return this
-        if (group.tiles.any { it.routeId == routeId }) return this
         // 新块按 2×1 进组：和默认布局一档，放不下就落到最下面
         val size = 2f to 1f
         val slot = HomeGridMath.firstFreeSlot(group.tiles, size.first, size.second)
@@ -156,8 +159,9 @@ data class HomeLayout(val groups: List<HomeGroup> = emptyList()) {
     }
 
     /**
-     * 往 [groupId] 组的**指定格** `(x, y)` 放一个功能（从添加面板拖出来落到这里）：
-     * 新块按 2×1 进组，落点照样挤开邻居；组里已有同路由就不加。[rowBudget] 同 [moveTile]。
+     * 往 [groupId] 组的**指定格** `(x, y)` 放一个功能（从添加面板 / 悬浮条拖出来落到这里）：
+     * 新块按 2×1 进组，落点照样挤开邻居；同组已有同路由**照样加**（见 [addTile]）。
+     * `[rowBudget]` 同 [moveTile]。
      */
     fun addTileAt(
         groupId: String,
@@ -169,7 +173,6 @@ data class HomeLayout(val groups: List<HomeGroup> = emptyList()) {
         rowBudget: Map<String, Float>? = null,
     ): HomeLayout {
         val group = group(groupId) ?: return this
-        if (group.tiles.any { it.routeId == routeId }) return this
         val placed = HomeGridMath.placeInGroup(group.tiles, HomeTile(tileId, routeId, x, y, 2f, 1f), grid, rowBudget?.get(groupId))
         return replaceGroup(group.copy(tiles = finishRows(placed, grid)))
     }
@@ -262,11 +265,10 @@ data class HomeLayout(val groups: List<HomeGroup> = emptyList()) {
     }
 
     /**
-     * 改组名（允许空串 = 不显示标题）。
+     * 改组名（空串 = 常规态不显示标题）。
      *
-     * 界面**不再调用**它：分组标题不归用户设（见 [HomeGroup.title] 的说明）。留着是因为
-     * 标题仍在数据里——默认分类名由 [HomeLayoutDefaults] 填、老存档里也可能有用户起过的名字，
-     * 编解码与单测要能原样带着它走。
+     * 界面入口是编辑态点组头打开的「分组设置」，里面既能改名也能改标题颜色；
+     * 组名存进整页快照，导出 / 导入布局时原样带走。
      */
     fun renameGroup(groupId: String, title: String): HomeLayout =
         group(groupId)?.let { replaceGroup(it.copy(title = title)) } ?: this

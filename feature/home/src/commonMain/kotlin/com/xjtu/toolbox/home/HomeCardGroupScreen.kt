@@ -216,13 +216,26 @@ fun HomeCardGroupScreen(
      * 有内容可糊。
      */
     val hasWallpaper = backgroundMode == HomeLayoutStore.BACKGROUND_IMAGE && backgroundImage.isNotEmpty()
-    // 卡片与幽灵块采的是**背景层**：纯色 / 渐变上没有壁纸可折，折射这一层照样要跑一遍离屏
-    // 位移采样，而画面上几乎看不出区别——所以背景没有壁纸时把它**强制关掉**（主页设置里
-    // 那个开关也是同时置灰的）。顶栏圆钮、悬浮球采的是**内容层**（卡片、文字都在里面），
-    // 那里折射真看得出来，照旧吃用户那个开关。
-    val cardRefraction = refraction && hasWallpaper
-    // 卡片那一层离屏层：液态玻璃开着就录——纯色 / 渐变上虽然不糊、也不折射，但活力（光感）
-    // 与高光还要采这层，少了它玻璃就退成一张实心纸
+    /**
+     * 壁纸被自己那条「模糊程度」糊到没有细节了（≥ [SettingsStore.HOME_WALLPAPER_BLUR_HIDES_GLASS]）。
+     *
+     * 那时卡片能折 / 能糊的东西也已经被抹平：再跑一遍模糊与折射，画出来的和「薄色底」几乎
+     * 分不出，而这两层是全页最贵的。所以按纯色 / 渐变同一套处理（2026-11 按需求补的这一档）。
+     */
+    val wallpaperBlurredOut = hasWallpaper && backgroundBlur >= SettingsStore.HOME_WALLPAPER_BLUR_HIDES_GLASS
+    /**
+     * 卡片那层玻璃**还能不能看出模糊 / 折射**：有壁纸、且壁纸还有细节。
+     *
+     * 卡片与幽灵块采的是**背景层**，所以这个值同时决定「糊不糊」与「折不折」；
+     * 顶栏圆钮、悬浮球、组删除钮采的是**内容层**（卡片、文字都在里面），那里折射真看得出来，
+     * 照旧吃用户那个开关（见 `orbGlass` / `GroupDeleteButton`）。
+     */
+    val glassHasDetail = hasWallpaper && !wallpaperBlurredOut
+    // 卡片与幽灵块：没有细节可折就别付那份离屏位移采样。主页设置里那个开关同时置灰
+    // ——但它**不改用户的设置**，只是显示成「用不上」
+    val cardRefraction = refraction && glassHasDetail
+    // 卡片那一层离屏层：液态玻璃开着就录——纯色 / 渐变（以及糊到没细节的壁纸）上虽然不糊、
+    // 也不折射，但活力（光感）与高光还要采这层，少了它玻璃就退成一张实心纸
     val recordTileLayer = liquid
 
     /** 改当前布局：编辑态改草稿（点「对勾」才落盘），其余情况直接落盘。 */
@@ -309,6 +322,11 @@ fun HomeCardGroupScreen(
     val visibleGroups = layout.groups.filter(::groupVisible)
 
     val scroll = rememberScrollState()
+    // 每张卡在**整页**上出现了几块（组 id 无关）：悬浮条名字栏里显示「已添加几块」。
+    // 同一路由现在允许出现多块（组内、跨组都算），所以这里数的是整页的块数
+    val tileCounts = remember(layout) {
+        layout.groups.flatMap { it.tiles }.groupingBy { it.routeId }.eachCount()
+    }
     // 有宿主给的按钮才有折叠顶栏（桌面、Web 的壳有自己的顶栏）
     val collapsible = topActions != null || topLeading != null
     val masthead = HomeCard.GREETING in honored
@@ -1136,8 +1154,8 @@ fun HomeCardGroupScreen(
                                     liquid = liquid,
                                     refraction = cardRefraction,
                                     backdrop = tileBackdrop.takeIf { recordTileLayer },
-                                    // 卡片能不能糊：纯色 / 渐变上关掉模糊，其余玻璃效果全留
-                                    blurGlass = hasWallpaper,
+                                    // 卡片能不能糊：没有可糊的细节（纯色 / 渐变，或壁纸已被糊平）时关掉
+                                    blurGlass = glassHasDetail,
                                     cardCorner = cardCorner,
                                     // 校园卡大卡的付款码：用餐时段才真去取（原「小组件」那套能力）
                                     paymentCode = { host.paymentCode() },
@@ -1241,7 +1259,7 @@ fun HomeCardGroupScreen(
             refraction = cardRefraction,
             backdrop = tileBackdrop.takeIf { recordTileLayer },
             // 幽灵块是卡片的预览，跟卡片同一条规则
-            blurGlass = hasWallpaper,
+            blurGlass = glassHasDetail,
             cardCorner = cardCorner,
             geometry = { dragGeometry },
             settling = ghostSettling,
@@ -1253,6 +1271,8 @@ fun HomeCardGroupScreen(
             HomeAddTileOrb(
                 faces = faces,
                 catalog = catalog,
+                // 名字栏里那个「已在主页放了几块」：整页所有组一起数（同一条路由现在可以有多块）
+                tileCounts = tileCounts,
                 liquid = liquid,
                 refraction = refraction,
                 // 采样源：**内容层**（`pageBackdrop` = 背景 + 滚动内容那一整层），和顶栏那几个圆钮、
@@ -1284,7 +1304,8 @@ fun HomeCardGroupScreen(
                 },
                 onPaletteDrop = { settleTileDrop() },
                 onPaletteCancel = { abandonDrag() },
-                modifier = Modifier.matchParentSize(),
+                // 悬浮条压在拖拽幽灵块上面：卡片从它底下「穿过去」（见 ORB_Z_INDEX）
+                modifier = Modifier.matchParentSize().zIndex(ORB_Z_INDEX),
             )
         }
 
@@ -1352,8 +1373,8 @@ fun HomeCardGroupScreen(
             GroupEditDialog(
                 group = current,
                 onDismiss = { editing.editGroup = null },
-                onConfirm = { colorHex ->
-                    update { it.tintGroup(current.id, colorHex) }
+                onConfirm = { colorHex, title ->
+                    update { it.tintGroup(current.id, colorHex).renameGroup(current.id, title) }
                     editing.editGroup = null
                 },
             )
@@ -1371,10 +1392,9 @@ fun HomeCardGroupScreen(
         }
         editing.addTo?.let { group ->
             TilePickerDialog(
-                candidates = catalog.filter { service ->
-                    // 已经在这一组里的就不列了；在别的组里的允许再放一块（常用功能就是这么来的）
-                    layout.group(group.id)?.tiles?.none { it.routeId == service.route.id } != false
-                },
+                // 全目录都列：组内已经有的功能**照样可以再加一块**（2026-11 按需求取消了
+                // 「一组里同一功能只能一个」的限制，常用功能本来就是同路由的第二块）
+                candidates = catalog,
                 onDismiss = { editing.addTo = null },
                 onPick = { service ->
                     update { it.addTile(group.id, service.route.id, it.nextTileId(group.id, service.route.id)) }
@@ -1387,6 +1407,16 @@ fun HomeCardGroupScreen(
 
 /** 组与组之间的间距（每组自带标题行，间距比组内组件缝隙大一档）。 */
 private val GROUP_GAP = 20.dp
+
+/**
+ * 拖拽幽灵块与编辑态悬浮条（球 / 长条）的绘制层次。
+ *
+ * **悬浮条必须压在幽灵块上面**（2026-11 按维护者要求定）：把卡片拖到屏幕右侧时，幽灵块整块
+ * 盖在悬浮条上，图标与名字栏一个都看不见，鼠标 / 手指想再拖一个功能出来还得先松手。
+ * 现在反过来——卡片在悬浮条底下穿过去，悬浮条始终是「浮在最上面」的那一层。
+ */
+private const val GHOST_Z_INDEX = 20f
+private const val ORB_Z_INDEX = 24f
 
 /** 第一组与上方头卡之间的间距。 */
 private val FIRST_GROUP_GAP = 20.dp
@@ -2266,7 +2296,7 @@ private fun HomeDragGhost(
                 IntOffset(p.x.roundToInt(), p.y.roundToInt())
             }
             .size(with(density) { wPx.toDp() }, with(density) { hPx.toDp() })
-            .zIndex(20f)
+            .zIndex(GHOST_Z_INDEX)
             .graphicsLayer {
                 // 略小于占位框 + 半透明：底下的落点占位框（2dp 主题色边框）才能露出来。
                 // 之前放大到 1.04 且 96% 不透明，正好把占位框整个盖住，等于没有提示。
@@ -2292,10 +2322,11 @@ private fun HomeDragGhost(
 }
 
 /**
- * 调一个组的**标题颜色**（§2.3）。
+ * 一个组的设置：**组名** + **标题颜色**（§2.3 / 2026-11 加回改名）。
  *
- * 分组标题本身不再由用户设置：组名固定跟着默认分类名走（常用功能 / 教务 / 生活…），
- * 新建的组没有标题——常规态整行不画，编辑态显示「未命名分组」占位。所以这个对话框只剩颜色。
+ * 组名默认跟着默认分类名走（常用功能 / 教务 / 生活…），但用户想叫什么叫什么——编辑态点组头
+ * 就进这里改（之前那版把输入框整个删掉了，这一轮按需求加回来）。允许清空：空串 =
+ * 常规态整行不画、编辑态显示「未命名分组」占位。
  *
  * 颜色用全应用同一套调色盘（`AppColorPicker`）+ 一个 **Hex 输入框**，拖色和敲色值两条路
  * 互相回填。开关叫「添加颜色」而不是「跟随主题」：关着 = 这个组的标题不设色、直接跟随主题
@@ -2305,8 +2336,10 @@ private fun HomeDragGhost(
 private fun GroupEditDialog(
     group: HomeGroup,
     onDismiss: () -> Unit,
-    onConfirm: (colorHex: String) -> Unit,
+    onConfirm: (colorHex: String, title: String) -> Unit,
 ) {
+    // 组名草稿。限长 12：标题行只有一行、字号 18sp，再长就只剩省略号了（存的是用户敲的原文）
+    var title by remember(group.id) { mutableStateOf(group.title) }
     // 关 = 跟随主题（存空串），开 = 自己挑一个色
     var addColor by remember(group.id) { mutableStateOf(group.colorHex.isNotEmpty()) }
     // 主题色要在组合上下文取好再喂给 remember——remember 的 calculation lambda 不是
@@ -2326,6 +2359,14 @@ private fun GroupEditDialog(
                 .verticalScroll(rememberScrollState())
                 .padding(horizontal = 4.dp),
         ) {
+            TextField(
+                value = title,
+                onValueChange = { if (it.length <= GROUP_TITLE_MAX) title = it },
+                label = "分组名称",
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth(),
+            )
+            Spacer(Modifier.height(14.dp))
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Text("标题颜色", fontSize = 15.sp)
                 Spacer(Modifier.weight(1f))
@@ -2366,7 +2407,8 @@ private fun GroupEditDialog(
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 TextButton(
                     text = "确定",
-                    onClick = { onConfirm(if (addColor) CourseColors.toHex(picked) else "") },
+                    // 组名前后空格没有意义（标题行还会因此看着缩了一截），落盘前先 trim
+                    onClick = { onConfirm(if (addColor) CourseColors.toHex(picked) else "", title.trim()) },
                     // 敲了半截的 Hex 不认：宁可拦住「确定」，也不拿一个看不出来的色落盘
                     enabled = !addColor || hexValid,
                     modifier = Modifier.weight(1f),
@@ -2400,7 +2442,7 @@ private fun DeleteGroupDialog(group: HomeGroup, onDismiss: () -> Unit, onConfirm
     }
 }
 
-/** 往一个组里放功能：列出还没在这一组里的入口。 */
+/** 往一个组里放功能：列出目录里的所有入口（已经放过的**也列**，允许再放一块）。 */
 @Composable
 private fun TilePickerDialog(
     candidates: List<AppService>,
@@ -2411,7 +2453,7 @@ private fun TilePickerDialog(
         Column(Modifier.heightIn(max = 420.dp).verticalScroll(rememberScrollState())) {
             if (candidates.isEmpty()) {
                 Text(
-                    "这一组已经放满目录里的功能了",
+                    "这一端没有可添加的功能",
                     fontSize = 13.sp,
                     color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                     modifier = Modifier.padding(8.dp),
@@ -2498,6 +2540,9 @@ private val EDITORIAL_RADIUS = 24.dp
 
 /** 教学周超过这个数就不显示（假期或学期没对上）。 */
 private const val MAX_TEACHING_WEEK = 25
+
+/** 组名最多几个字：标题行只有一行、18sp 字号，再长就只剩省略号了。 */
+private const val GROUP_TITLE_MAX = 12
 
 private val STATUS_GREEN = Color(0xFF2E7D32)
 private val STATUS_BLUE = Color(0xFF1565C0)

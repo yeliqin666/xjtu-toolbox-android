@@ -487,14 +487,21 @@ class HomeLayoutTest {
     }
 
     @Test
-    fun `添加功能不会重复、删除能删干净`() {
+    fun `同一组里可以再放一块同一个功能、删除能删干净`() {
         val added = layout().addTile("CLASS", "library", "CLASS/library")
         assertEquals(2, added.group("CLASS")!!.tiles.size)
-        // 同一个路由再加一次不生效
-        assertEquals(added, added.addTile("CLASS", "library", "CLASS/library/x"))
+        // 同一个路由再加一次**会**真的再多一块：2026-11 取消了「一组里同一功能只能有一个」的限制，
+        // 「常用功能」本来就是同路由的第二块，组内再来一块也是用户的明确意图
+        val twice = added.addTile("CLASS", "library", added.nextTileId("CLASS", "library"))
+        assertEquals(3, twice.group("CLASS")!!.tiles.size)
+        assertEquals(2, twice.group("CLASS")!!.tiles.count { it.routeId == "library" })
+        // 两块互不重叠（挤开规则照旧）
+        assertTrue(twice.isConsistent())
 
-        val removed = added.removeTile("CLASS/library")
-        assertEquals(1, removed.group("CLASS")!!.tiles.size)
+        // 删的是**指定的那一块**，另一块留着
+        val removed = twice.removeTile("CLASS/library")
+        assertEquals(2, removed.group("CLASS")!!.tiles.size)
+        assertEquals(1, removed.group("CLASS")!!.tiles.count { it.routeId == "library" })
     }
 
     @Test

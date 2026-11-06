@@ -138,6 +138,16 @@ private fun HomeSettingsBody(onDismiss: () -> Unit, showTopBarStyle: Boolean) {
     val wallpaper = remember(revision) {
         settings.homeBackground == HomeLayoutStore.BACKGROUND_IMAGE && settings.homeWallpaperImage.isNotEmpty()
     }
+    // 壁纸自己的模糊半径：糊到一定程度，卡片上能折、能糊的细节也一起没影了
+    val blur = remember(revision) { settings.homeWallpaperBlur }
+    val blurredOut = wallpaper && blur >= SettingsStore.HOME_WALLPAPER_BLUR_HIDES_GLASS
+    /**
+     * 卡片那层玻璃**还能不能看出模糊 / 折射**：有壁纸、且壁纸还留着细节。
+     *
+     * 和 `HomeCardGroupScreen.glassHasDetail` 是同一条判据（那边决定卡片怎么画，这边决定开关
+     * 能不能拨）——两处必须一起改，否则会出现「开关看着开、卡片却没折射」这种自相矛盾。
+     */
+    val glassHasDetail = wallpaper && !blurredOut
     // 导出的是用户**自己摆过**的那份快照：没有快照 = 首页还在用默认布局，没什么可导
     val savedLayout = remember(revision) { store.saved }
     // 导出 / 导入走平台的文件通道（Android SAF、桌面 JFileChooser、Web 下载 + 选文件）
@@ -237,8 +247,8 @@ private fun HomeSettingsBody(onDismiss: () -> Unit, showTopBarStyle: Boolean) {
                 title = "液态玻璃",
                 summary = when {
                     !liquid -> "毛玻璃：半透明纸面 + 高光细边"
-                    wallpaper -> "透出壁纸并带折射（最费电的一档）"
-                    else -> "纯色 / 渐变背景上不采不糊，换成薄色 + 高光轮廓"
+                    glassHasDetail -> "透出壁纸并带折射（最费电的一档）"
+                    else -> "这张背景上看不出模糊与折射，只留薄色与高光轮廓"
                 },
                 checked = liquid,
                 startAction = { SettingsIcon(Icons.Default.WaterDrop, SettingsBlue) },
@@ -250,20 +260,29 @@ private fun HomeSettingsBody(onDismiss: () -> Unit, showTopBarStyle: Boolean) {
             )
             // 折射子项只有卡片组吃：经典版与小组件那两套没有这一层。
             //
-            // 纯色 / 渐变背景上**没有壁纸可折 / 可糊**：模糊那一层已经不跑了，折射采的也是同一张
-            // 纯色底，开与不开在观感上几乎没有区别。既然看不出差别，就**强制关掉**（开关置灰、
-            // 显示成关）省下那层离屏位移采样——文案里把「为什么关掉」讲清楚，用户不会以为坏了。
-            // 存盘里的值不动：换回自定义背景图片，还是原来那一档。
+            // 没有可折 / 可糊的细节时它**置灰但保留用户的设置**（2026-11 按维护者要求改）：
+            // ①纯色 / 渐变背景上没有壁纸可采，`lens` 折的是一张纯色底，`blur` 也糊不出信息；
+            // ②自定义图片但「模糊程度」≥ 5dp 时，壁纸已经被糊成一片色块，卡片再采它一遍糊出来的
+            // 与「薄色底」几乎分不出。两种情况都是「既不模糊也不折射」，而这两层是全页最贵的
+            // （每张卡一次离屏采样 + 三通道色散），所以渲染侧直接不跑。
+            //
+            // 但开关**不改成关**：显示的是用户自己那一档（`checked = refraction`），只是拨不动
+            // （`enabled = glassHasDetail`）。「用不上」和「用户关掉了」是两件事——前者换一档背景
+            // 就恢复，后者得用户自己再拨回来。存盘值一律不动。
             if (cards && liquid) {
                 SwitchPreference(
                     title = "开启折射",
                     summary = when {
-                        !wallpaper -> "当前背景是纯色 / 渐变：折射与模糊在这种背景上看不出区别，为省性能已强制关闭（换成自定义背景图片再调）"
+                        // 置灰时只解释「为什么用不上」，两种成因分开说（图片糊了 / 压根没壁纸）
+                        !glassHasDetail && wallpaper ->
+                            "当前背景设置下折射/模糊无明显效果，为节省资源已关闭（背景图已模糊到 ${blur}dp，细节被抹平了）"
+                        !glassHasDetail ->
+                            "当前背景设置下折射/模糊无明显效果，为节省资源已关闭（纯色 / 渐变背景上没有可折射的细节）"
                         refraction -> "边缘把背景扭出透镜的弯光，带一点色散（最费的一层）"
                         else -> "只留模糊与高光：轮廓和通透感都在，省一层离屏采样"
                     },
-                    checked = refraction && wallpaper,
-                    enabled = wallpaper,
+                    checked = refraction,
+                    enabled = glassHasDetail,
                     startAction = { SettingsIcon(Icons.Default.WaterDrop, SettingsBlue.copy(alpha = 0.72f)) },
                     onCheckedChange = {
                         refraction = it

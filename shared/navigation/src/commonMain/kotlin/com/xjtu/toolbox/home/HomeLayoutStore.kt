@@ -238,9 +238,15 @@ class HomeLayoutStore(
             .coerceIn(CARD_CORNER_MIN, CARD_CORNER_MAX)
         set(value) = store.putInt(KEY_CARD_CORNER, value.coerceIn(CARD_CORNER_MIN, CARD_CORNER_MAX))
 
-    /** 主页卡片材质：false = 毛玻璃（默认），true = 液态玻璃。 */
+    /**
+     * 主页卡片材质：false = 毛玻璃，true = 液态玻璃（**默认开**，2026-11 按维护者要求改）。
+     *
+     * 键 `home_liquid_card` 与 `SettingsStore.homeLiquidGlass` 是**同一个**：那边是真正在用的
+     * 那个访问器（首页与设置面板都读它），这里只是个同键的口子，两边的默认值必须一致，
+     * 否则「谁先读到」就决定了首启是玻璃还是毛玻璃。
+     */
     var liquidCard: Boolean
-        get() = store.getBoolean(KEY_LIQUID_CARD, false)
+        get() = store.getBoolean(KEY_LIQUID_CARD, true)
         set(value) = store.putBoolean(KEY_LIQUID_CARD, value)
 
     /**
