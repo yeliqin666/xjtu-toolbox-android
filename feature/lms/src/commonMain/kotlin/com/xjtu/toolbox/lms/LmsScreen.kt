@@ -176,6 +176,8 @@ fun LmsScreen(
     // 不能跟着 pendingCourseId 一起清：清掉它和切到活动页是同一帧，AnimatedContent 里淡出中的
     // 旧页会用新状态重组一次——占位变成完整课程列表，用户就看到「中间闪过思源学堂主页」。
     var listPlaceholder by remember { mutableStateOf(initialCourseId != null) }
+    // 深链落地的那一页：从它返回直接退出思源，回到来处（日程、消息），不掉进用户没进过的上一层
+    var entryPage by remember { mutableStateOf<LmsPage?>(null) }
     LaunchedEffect(Unit) {
         // 占位期间 CourseListPage 没被组合，它那个"进页面就加载"的 effect 不会跑，
         // 得在这里把列表拉起来，否则一直转圈。不以 pendingCourseId 为键：落盘的列表一到就可能
@@ -215,6 +217,7 @@ fun LmsScreen(
                 com.xjtu.toolbox.platform.showBriefMessage("未能打开这项作业，请在课程中查找或刷新后重试")
             }
         }
+        if (hit != null) entryPage = currentPage
         // 活动列表拉取完成才消费意图，避免改变 effect 的 key 取消自己。
         pendingCourseId = null
     }
@@ -254,15 +257,10 @@ fun LmsScreen(
         }
     }
 
-    // 返回处理
-    // 从日程页深链进来看某门课时，返回应当直接回日程，而不是先落到课程列表——
-    // 用户并没有"进过"那个列表，退到那儿等于凭空多一层。
-    // 合并成一个 BackHandler：多个同时启用时后注册的先被调用，
-    // 拆成两个很容易被顺序坑到。
-    val deepLinked = initialCourseId != null
+    // 合并成一个 BackHandler：多个同时启用时后注册的先被调用，拆成两个很容易被顺序坑到
     BackHandler(enabled = currentPage !is LmsPage.CourseList) {
         val cur = currentPage
-        if (deepLinked && cur is LmsPage.ActivityList) {
+        if (cur == entryPage) {
             onBack()
             return@BackHandler
         }
@@ -336,9 +334,8 @@ fun LmsScreen(
                 source = source,
                 cache = cache,
                 course = page.course,
-                // 标题栏的返回箭头要和系统返回键一致：深链进来的直接退出，
-                // 否则点箭头仍会掉进那个用户没进过的课程列表。
-                onBack = { if (deepLinked) onBack() else currentPage = LmsPage.CourseList },
+                // 标题栏返回箭头与系统返回键一致
+                onBack = { if (page == entryPage) onBack() else currentPage = LmsPage.CourseList },
                 onActivitySelected = { currentPage = LmsPage.ActivityDetail(page.course, it) },
                 onBulletinSelected = { currentPage = LmsPage.BulletinDetail(page.course, it) },
                 onAskAgent = onAskAgent,
@@ -348,7 +345,11 @@ fun LmsScreen(
                 cache = cache,
                 course = page.course,
                 activity = page.activity,
-                onBack = { currentPage = LmsPage.ActivityList(page.course) },
+                onBack = { if (page == entryPage) onBack() else currentPage = LmsPage.ActivityList(page.course) },
+                // 从别处直达这项作业时，给一个去课程页的入口；之后从课程页返回就回到课程列表
+                onOpenCourse = if (page == entryPage) {
+                    { entryPage = null; listPlaceholder = false; currentPage = LmsPage.ActivityList(page.course) }
+                } else null,
                 onTopicSelected = { topic -> currentPage = LmsPage.ForumTopicDetail(page.course, page.activity, topic) },
                 onAskAgent = onAskAgent,
                 onPlayVideo = { title, instrUrl, encUrl, isLive, headers, startInDual ->

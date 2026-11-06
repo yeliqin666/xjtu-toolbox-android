@@ -255,7 +255,7 @@ private fun NoticeAndReminderSection(context: Context, scope: CoroutineScope) {
         SwitchPreference(
             title = "新通知提醒",
             checked = noticeWatchEnabled,
-            startAction = { SettingsIcon(Icons.Default.Notifications) },
+            startAction = { SettingsIcon(Icons.Default.Notifications, SettingsColors.Orange) },
             onCheckedChange = { on ->
                 if (on) {
                     val needAsk = Build.VERSION.SDK_INT >= 33 &&
@@ -276,7 +276,7 @@ private fun NoticeAndReminderSection(context: Context, scope: CoroutineScope) {
         ArrowPreference(
             title = "推送来源",
             summary = noticeWatchSummary,
-            startAction = { SettingsIcon(Icons.Default.CloudSync) },
+            startAction = { SettingsIcon(Icons.Default.CloudSync, SettingsColors.Blue) },
             onClick = { showNoticeSources = true }
         )
     }
@@ -287,27 +287,27 @@ private fun NoticeAndReminderSection(context: Context, scope: CoroutineScope) {
             title = ReminderKind.LIBRARY.title,
             summary = "签到快超时、暂离未返座",
             checked = reminderLibrary,
-            startAction = { SettingsIcon(Icons.Default.EventSeat) },
+            startAction = { SettingsIcon(Icons.Default.EventSeat, SettingsColors.Teal) },
             onCheckedChange = { on -> applyReminder(ReminderKind.LIBRARY, on) }
         )
         SwitchPreference(
             title = ReminderKind.SCHEDULE.title,
             summary = "调课、停课、考前 3 天",
             checked = reminderSchedule,
-            startAction = { SettingsIcon(Icons.Default.CalendarMonth) },
+            startAction = { SettingsIcon(Icons.Default.CalendarMonth, SettingsColors.Blue) },
             onCheckedChange = { on -> applyReminder(ReminderKind.SCHEDULE, on) }
         )
         SwitchPreference(
             title = ReminderKind.LMS.title,
             summary = "作业截止前 48 小时未交",
             checked = reminderLms,
-            startAction = { SettingsIcon(Icons.AutoMirrored.Filled.Assignment) },
+            startAction = { SettingsIcon(Icons.AutoMirrored.Filled.Assignment, SettingsColors.Indigo) },
             onCheckedChange = { on -> applyReminder(ReminderKind.LMS, on) }
         )
         ArrowPreference(
             title = "提醒不准时？",
             summary = "在系统设置里取消省电限制",
-            startAction = { SettingsIcon(Icons.Default.BatteryAlert) },
+            startAction = { SettingsIcon(Icons.Default.BatteryAlert, SettingsColors.Orange) },
             onClick = {
                 // 只跳系统的电池优化列表，不申请 REQUEST_IGNORE_BATTERY_OPTIMIZATIONS
                 // 直接弹窗：那个权限要在清单里声明，且上架审核会追问用途。
@@ -327,14 +327,14 @@ private fun NoticeAndReminderSection(context: Context, scope: CoroutineScope) {
             title = ReminderKind.COMMUNITY_REPLY.title,
             summary = "自己发的帖子有新回复，需先登录社区",
             checked = reminderReply,
-            startAction = { SettingsIcon(Icons.Default.Forum) },
+            startAction = { SettingsIcon(Icons.Default.Forum, SettingsColors.Purple) },
             onCheckedChange = { on -> commitReminder(ReminderKind.COMMUNITY_REPLY, on) }
         )
         SwitchPreference(
             title = ReminderKind.COMMUNITY_MENTION.title,
             summary = "任意帖子或评论里 @ 了我",
             checked = reminderMention,
-            startAction = { SettingsIcon(Icons.Default.AlternateEmail) },
+            startAction = { SettingsIcon(Icons.Default.AlternateEmail, SettingsColors.Indigo) },
             onCheckedChange = { on -> commitReminder(ReminderKind.COMMUNITY_MENTION, on) }
         )
     }
@@ -394,14 +394,14 @@ private fun DataPrivacySection(context: Context, scope: CoroutineScope) {
         ArrowPreference(
             title = "清除缓存",
             summary = cacheSizeText,
-            startAction = { SettingsIcon(Icons.Default.Refresh) },
+            startAction = { SettingsIcon(Icons.Default.Refresh, SettingsColors.BlueGray) },
             onClick = { showClearCacheDialog = true }
         )
         SwitchPreference(
             title = "自动上报崩溃日志",
             summary = "匿名，已去除学号等个人信息",
             checked = crashReportEnabled,
-            startAction = { SettingsIcon(Icons.Default.BugReport) },
+            startAction = { SettingsIcon(Icons.Default.BugReport, SettingsColors.Pink) },
             onCheckedChange = {
                 crashReportEnabled = it
                 com.xjtu.toolbox.error.CrashReporter.setEnabled(context, it)
@@ -410,7 +410,7 @@ private fun DataPrivacySection(context: Context, scope: CoroutineScope) {
         ArrowPreference(
             title = "导出数据存档",
             summary = "把本机数据打包成 zip（不含密码等凭据）",
-            startAction = { SettingsIcon(Icons.Default.Upload) },
+            startAction = { SettingsIcon(Icons.Default.Upload, SettingsColors.Teal) },
             onClick = {
                 scope.launch {
                     val archive = withContext(Dispatchers.IO) { runCatching { AppArchiveUx.exportArchive(context) }.getOrNull() }
@@ -426,7 +426,7 @@ private fun DataPrivacySection(context: Context, scope: CoroutineScope) {
         ArrowPreference(
             title = "导入数据存档",
             summary = "从 zip 档案导入（默认不覆盖本机数据）",
-            startAction = { SettingsIcon(Icons.Default.Download) },
+            startAction = { SettingsIcon(Icons.Default.Download, SettingsColors.Blue) },
             onClick = { importLauncher.launch(arrayOf("*/*")) },
         )
     }
@@ -486,7 +486,7 @@ private fun UpdateSection(context: Context, scope: CoroutineScope, credentialSto
             title = "更新渠道",
             items = AppUpdater.channelLabels,
             selectedIndex = AppUpdater.channelKeys.indexOf(updateChannel).coerceAtLeast(0),
-            startAction = { SettingsIcon(Icons.Default.Star) },
+            startAction = { SettingsIcon(Icons.Default.Star, SettingsColors.Green) },
             onSelectedIndexChange = { idx ->
                 val v = AppUpdater.channelKeys[idx]
                 updateChannel = v
@@ -497,7 +497,7 @@ private fun UpdateSection(context: Context, scope: CoroutineScope, credentialSto
             title = "接收预览版更新",
             summary = if (receivePreviewUpdates) "预览版可能不稳定" else null,
             checked = receivePreviewUpdates,
-            startAction = { SettingsIcon(Icons.Default.CloudSync) },
+            startAction = { SettingsIcon(Icons.Default.CloudSync, SettingsColors.Blue) },
             onCheckedChange = { checked ->
                 if (checked) {
                     showPreviewConfirmDialog = true
@@ -511,7 +511,7 @@ private fun UpdateSection(context: Context, scope: CoroutineScope, credentialSto
         ArrowPreference(
             title = "立即检查更新",
             summary = if (checkingUpdate) "正在检查…" else null,
-            startAction = { SettingsIcon(Icons.Default.Refresh) },
+            startAction = { SettingsIcon(Icons.Default.Refresh, SettingsColors.Teal) },
             onClick = {
                 if (checkingUpdate) return@ArrowPreference
                 checkingUpdate = true
@@ -681,25 +681,6 @@ private fun NoticeSourceSheet(
             Spacer(Modifier.height(16.dp))
         }
     }
-}
-
-/** 设置页的「一行一图标」，与共享屏的 `SettingsIcon` 视觉一致。 */
-@Composable
-private fun SettingsIcon(icon: androidx.compose.ui.graphics.vector.ImageVector) {
-    val color = MiuixTheme.colorScheme.primary
-    top.yukonga.miuix.kmp.basic.Surface(
-        shape = androidx.compose.foundation.shape.CircleShape,
-        color = color.copy(alpha = 0.12f),
-        modifier = Modifier.size(32.dp)
-    ) {
-        androidx.compose.foundation.layout.Box(
-            contentAlignment = androidx.compose.ui.Alignment.Center,
-            modifier = Modifier.fillMaxSize()
-        ) {
-            Icon(icon, contentDescription = null, modifier = Modifier.size(18.dp), tint = color)
-        }
-    }
-    Spacer(Modifier.width(12.dp))
 }
 
 /** 设置页分组卡片的外壳（与共享屏的私有 `SettingsCard` 一致）。 */

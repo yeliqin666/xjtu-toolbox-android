@@ -44,6 +44,7 @@ import androidx.compose.ui.unit.dp
 import com.xjtu.toolbox.platform.BackHandler
 import com.xjtu.toolbox.schedule.CourseColorPickerDialog
 import com.xjtu.toolbox.schedule.CourseColors
+import com.xjtu.toolbox.schedule.TermWeeks
 import com.xjtu.toolbox.ui.components.AppDatePickerDialog
 import com.xjtu.toolbox.ui.components.AppFilterChip
 import com.xjtu.toolbox.util.CampusTimeZone
@@ -84,7 +85,7 @@ private const val MAX_DAYS_AHEAD = 365
  * （截止前 48 小时，撞上 0–7 点顺延到 7 点），用户不用选，选了也没用。
  */
 @Composable
-internal fun AddTodoSheet(onDismiss: () -> Unit) {
+internal fun AddTodoSheet(termStart: LocalDate?, onDismiss: () -> Unit) {
     val today = remember { todayOnCampus() }
     var title by remember { mutableStateOf("") }
     var note by remember { mutableStateOf("") }
@@ -133,12 +134,13 @@ internal fun AddTodoSheet(onDismiss: () -> Unit) {
 
                 SheetSection(
                     title = "截止",
-                    trailing = if (noDue) "不设截止" else "${dateText(day)} ${formatTwoDigits(hour)}:${formatTwoDigits(minute)}",
+                    trailing = if (noDue) "不设截止" else "${dateText(day, termStart)} ${formatTwoDigits(hour)}:${formatTwoDigits(minute)}",
                 )
                 SheetCard {
                     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                         DueEditor(
                             day = day,
+                            termStart = termStart,
                             hour = hour,
                             minute = minute,
                             enabled = !noDue,
@@ -221,9 +223,12 @@ private val IMPORTANCE_CHOICES = listOf(
     "紧急" to InboxRules.IMPORTANCE_HIGH,
 )
 
-/** 「10月30日 · 周五」。日期选择器回来的是 [LocalDate]，不引用 JVM 的日期格式化。 */
-internal fun dateText(date: LocalDate): String =
-    "${date.monthNumber}月${date.dayOfMonth}日 · 周${"一二三四五六日"[date.dayOfWeek.isoDayNumber - 1]}"
+/** 「10月30日 · 第9周周五」；不知道开学日期或不在学期内时只给「周五」。 */
+internal fun dateText(date: LocalDate, termStart: LocalDate?): String {
+    val week = termStart?.let { TermWeeks.weekOf(it, date) }?.takeIf { it in 1..TermWeeks.MAX_REASONABLE }
+    val prefix = week?.let { "第${it}周" }.orEmpty()
+    return "${date.monthNumber}月${date.dayOfMonth}日 · ${prefix}周${"一二三四五六日"[date.dayOfWeek.isoDayNumber - 1]}"
+}
 
 /**
  * 日期 + 时间两行，新建抽屉和「改截止」共用：日期点开系统日历（桌面 / Web 是填 `YYYY-MM-DD`），
@@ -234,6 +239,7 @@ internal fun dateText(date: LocalDate): String =
 @Composable
 private fun DueEditor(
     day: LocalDate,
+    termStart: LocalDate?,
     hour: Int,
     minute: Int,
     enabled: Boolean,
@@ -254,7 +260,7 @@ private fun DueEditor(
             Text("日期", style = MiuixTheme.textStyles.body1, color = MiuixTheme.colorScheme.onSurface)
             Spacer(Modifier.weight(1f))
             Text(
-                dateText(day),
+                dateText(day, termStart),
                 style = MiuixTheme.textStyles.body1,
                 color = MiuixTheme.colorScheme.primary,
                 fontWeight = FontWeight.Medium,
@@ -303,6 +309,7 @@ internal fun EditDueDialog(
     title: String,
     /** 现在的截止（毫秒）；null = 原来不设截止 */
     currentDue: Long?,
+    termStart: LocalDate?,
     onDismiss: () -> Unit,
     onConfirm: (String?) -> Unit,
 ) {
@@ -322,12 +329,13 @@ internal fun EditDueDialog(
         Column {
             SheetSection(
                 title = "截止",
-                trailing = if (noDue) "不设截止" else "${dateText(day)} ${formatTwoDigits(hour)}:${formatTwoDigits(minute)}",
+                trailing = if (noDue) "不设截止" else "${dateText(day, termStart)} ${formatTwoDigits(hour)}:${formatTwoDigits(minute)}",
             )
             SheetCard {
                 Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     DueEditor(
                         day = day,
+                        termStart = termStart,
                         hour = hour,
                         minute = minute,
                         enabled = !noDue,

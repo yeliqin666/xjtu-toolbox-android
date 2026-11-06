@@ -403,17 +403,17 @@ fun HomeCardGroupScreen(
     val gridState = rememberUpdatedState(grid)
 
     /**
-     * 组区几何表：命中与落点的唯一依据。拖拽中按**起手快照**算（`session.base` 是 State，
-     * derivedStateOf 自动追踪），空闲时按当前可见组算（供按下那一帧的命中）。
+     * 组区几何表：命中与落点的唯一依据。拖拽中按起手快照算，空闲时按当前可见组算。
      *
-     * `visibleGroups` 与单位换算常量都**不是 State**，derivedStateOf 追踪不到，所以放进
-     * remember 的 key：内容一变就重建这个 derivedStateOf（List 按内容相等比较，不会每帧重建）。
-     * 拖动中不写草稿 → visibleGroups 恒定 → key 恒定；落盘那一下它变，几何表随之刷新。
+     * 这个 State 对象必须整场稳定：下面 targetGroup / liveLayout 等 derivedStateOf 只在首次组合
+     * 时捕获它一次。所以可见组经 rememberUpdatedState 读、extraRows 本身是 State，都不进 key——
+     * 进了 key 就会换新对象，下游还读旧的那份（多开行之后落点与渲染对不上）。
      */
-    val dragGeometry by remember(visibleGroups, tileGapPx, groupGapPx, headerPx, firstGapPx, extraRows) {
+    val visibleGroupsState = rememberUpdatedState(visibleGroups)
+    val dragGeometry by remember(tileGapPx, groupGapPx, headerPx, firstGapPx) {
         derivedStateOf {
             buildBoardGeometry(
-                groups = session.baseGroups.ifEmpty { visibleGroups },
+                groups = session.baseGroups.ifEmpty { visibleGroupsState.value },
                 left = 0f,
                 top = 0f,
                 width = session.boardWidth,
@@ -757,10 +757,7 @@ fun HomeCardGroupScreen(
             null
         }
 
-        // 落盘与切结算态**同步**执行，不进协程、不被 epoch 守卫跳过——松手落盘是这一刻
-        // 就该发生的事。之前把它们放进协程、顶部一个 `ghostEpoch != epoch` 提前 return，
-        // 实测这条路径根本没走到（release 从未被调，卡片直接消失）。
-        session.lastEvent = "settle target=" + target + " committed=" + (committed != null)
+        // 落盘与切结算态同步执行，不进协程、不被 epoch 守卫跳过
         if (committed != null) update { committed }
         session.release()
 
@@ -1143,12 +1140,14 @@ fun HomeCardGroupScreen(
                                     receiving = session.draggingTile &&
                                         targetGroup == group.id &&
                                         session.sourceGroupId != group.id,
+                                    // 传 lambda：手指位置与回弹动画逐帧变化，只在绘制阶段读，不让整页逐帧重组
                                     reorderLift = when {
                                         session.mode == HomeDragMode.GROUP && session.groupId == group.id -> {
-                                            val top = dragGeometry.slot(group.id)?.top ?: 0f
-                                            pointerBoard.y - session.groupGrabY - top
+                                            { pointerBoard.y - session.groupGrabY - (dragGeometry.slot(group.id)?.top ?: 0f) }
                                         }
-                                        reorderSettleId == group.id -> reorderSettleAnim.value
+                                        reorderSettleId == group.id -> {
+                                            { reorderSettleAnim.value }
+                                        }
                                         else -> null
                                     },
                                     reorderShift = reorderShiftMap[group.id] ?: 0f,
@@ -1211,20 +1210,6 @@ fun HomeCardGroupScreen(
                     devTopBar = topActionsRight,
                 )
             }
-        }
-
-        // ── 【临时】拖拽诊断读数（定位完删掉：搜索 HOME_DRAG_DEBUG）──
-        // 调用处也要先判一次：诊断层自身是「进去就 return」，但参数在**调用点**就求值了，
-        // 光靠里面的早退仍会把 dragGeometry 整张几何表算一遍（见 HomeDragDebug.kt）
-        if (editing.on && HOME_DRAG_DEBUG) {
-            HomeDragDebugOverlay(
-                session = session,
-                geometry = dragGeometry,
-                pointerBoard = pointerBoard,
-                liveLayout = liveLayout,
-                targetGroup = targetGroup,
-                scrollValue = scroll.value,
-            )
         }
 
         // ── 拖拽幽灵块：跟手画在最上层；松手时飞向落点（或飞回起手位置）再消失 ──

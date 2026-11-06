@@ -33,6 +33,7 @@ import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -382,6 +383,11 @@ private fun OrbHandle(
     val dark = LocalIsDarkTheme.current
     // 把手自己的页面局部原点：随它移动，但每帧由 onGloballyPositioned 刷新
     var origin by remember { mutableStateOf(Offset.Zero) }
+    // 手势协程只起一次，回调每次重组都是新的（闭包里有随布局变的 center 等）：经 rememberUpdatedState 读最新值
+    val tap by rememberUpdatedState(onTap)
+    val dragStart by rememberUpdatedState(onDragStart)
+    val dragTo by rememberUpdatedState(onDragTo)
+    val drop by rememberUpdatedState(onDrop)
     Box(
         Modifier
             .size(ORB_BALL)
@@ -399,19 +405,19 @@ private fun OrbHandle(
                             if (!change.pressed) break
                             if (!dragging && (change.position - down.position).getDistance() > slop) {
                                 dragging = true
-                                onDragStart(origin + change.position)
+                                dragStart(origin + change.position)
                             }
                             if (dragging) {
                                 change.consume()
-                                onDragTo(origin + change.position)
+                                dragTo(origin + change.position)
                             }
                         }
                     } finally {
                         // 手势被取消（重组、系统抢走）也要把抓取状态归位
-                        if (dragging) onDrop()
+                        if (dragging) drop()
                     }
                     // 没拖起来 = 点一下：长条与球互相切换（在 finally 之后，取消时不会走到）
-                    if (!dragging) onTap()
+                    if (!dragging) tap()
                 }
             },
         contentAlignment = Alignment.Center,

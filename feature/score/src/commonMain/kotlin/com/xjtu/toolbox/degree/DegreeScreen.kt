@@ -104,10 +104,10 @@ fun DegreeScreen(
                 scrollBehavior = scrollBehavior,
                 onBack = onBack,
                 actions = {
-                    if (onAskAgent != null && progress != null) IconButton(onClick = {
+                    if (onAskAgent != null && progress != null) com.xjtu.toolbox.ui.components.AskAgentAction(
+                        summary = if (vm.browsing) "让小岱分析这个培养方案" else "让小岱分析你的学业进度",
+                    ) {
                         onAskAgent(if (vm.browsing) askAboutPlan(progress.planName) else ASK_PROGRESS)
-                    }) {
-                        Icon(Icons.Default.SmartToy, contentDescription = "问小岱")
                     }
                 },
             )

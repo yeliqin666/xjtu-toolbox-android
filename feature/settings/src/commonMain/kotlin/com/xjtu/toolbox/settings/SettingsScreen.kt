@@ -1,5 +1,14 @@
 package com.xjtu.toolbox.settings
 
+import com.xjtu.toolbox.settings.SettingsColors.Blue as cBlue
+import com.xjtu.toolbox.settings.SettingsColors.BlueGray as cBlueGray
+import com.xjtu.toolbox.settings.SettingsColors.Green as cGreen
+import com.xjtu.toolbox.settings.SettingsColors.Indigo as cIndigo
+import com.xjtu.toolbox.settings.SettingsColors.Lime as cLime
+import com.xjtu.toolbox.settings.SettingsColors.Orange as cOrange
+import com.xjtu.toolbox.settings.SettingsColors.Pink as cPink
+import com.xjtu.toolbox.settings.SettingsColors.Purple as cPurple
+import com.xjtu.toolbox.settings.SettingsColors.Teal as cTeal
 import androidx.compose.material.icons.automirrored.filled.FactCheck
 import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.DarkMode
@@ -180,16 +189,6 @@ fun SettingsScreen(
             },
         )
     }
-
-    // 设置页低饱和多彩调色板
-    val cPurple = Color(0xFF7E57C2)
-    val cBlue = Color(0xFF42A5F5)
-    val cTeal = Color(0xFF26A69A)
-    val cIndigo = Color(0xFF5C6BC0)
-    val cBlueGray = Color(0xFF78909C)
-    val cGreen = Color(0xFF66BB6A)
-    val cOrange = Color(0xFFFFA726)
-    val cPink = Color(0xFFEC407A)
 
     val versionText = host.versionText
 
@@ -736,20 +735,6 @@ private fun SettingsCard(content: @Composable ColumnScope.() -> Unit) {
 }
 
 @Composable
-private fun SettingsIcon(icon: ImageVector, color: Color) {
-    Surface(
-        shape = CircleShape,
-        color = color.copy(alpha = 0.12f),
-        modifier = Modifier.size(32.dp)
-    ) {
-        Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
-            Icon(icon, contentDescription = null, modifier = Modifier.size(18.dp), tint = color)
-        }
-    }
-    Spacer(Modifier.width(12.dp))
-}
-
-@Composable
 private fun ChangelogSheet(show: Boolean, entries: List<ChangelogEntry>, onDismiss: () -> Unit) {
     BackHandler(enabled = show) { onDismiss() }
     OverlayBottomSheet(
@@ -809,9 +794,6 @@ private const val CREDITS_TITLE = "致谢与开源许可"
 /** 致谢二级页：贡献者、许可证与上游项目。 */
 @Composable
 private fun CreditsScreen(host: SettingsHost, onBack: () -> Unit) {
-    val cBlue = Color(0xFF42A5F5)
-    val cPurple = Color(0xFF7E57C2)
-    val cLime = Color(0xFF9CCC65)
     SettingsSubPage(title = CREDITS_TITLE, onBack = onBack) {
         // 交小西制作组的授权要求：版权归属与「非制作组出品」两句必须同时可见，
         // 文案不要删减，出处见 THIRD_PARTY_NOTICES.md「美术素材」。

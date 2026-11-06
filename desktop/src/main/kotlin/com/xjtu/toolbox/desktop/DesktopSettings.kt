@@ -30,6 +30,8 @@ import com.xjtu.toolbox.desktop.archive.DesktopImportOutcome
 import com.xjtu.toolbox.platform.secureKeyValueStore
 import com.xjtu.toolbox.settings.ChangelogEntry
 import com.xjtu.toolbox.settings.ScheduleSourceOption
+import com.xjtu.toolbox.settings.SettingsColors
+import com.xjtu.toolbox.settings.SettingsIcon
 import com.xjtu.toolbox.settings.SettingsHost
 import com.xjtu.toolbox.settings.SettingsRow
 import com.xjtu.toolbox.settings.SettingsStore
@@ -96,7 +98,7 @@ private fun DesktopDataPrivacySection() {
         ArrowPreference(
             title = "导出数据存档",
             summary = "写到数据根下的 ${DesktopArchiveHost.ARCHIVE_DIR}/ 目录与 ${DesktopArchiveHost.ARCHIVE_ZIP_NAME}（不含密码等凭据）",
-            startAction = { SettingsIcon(Icons.Default.Upload) },
+            startAction = { SettingsIcon(Icons.Default.Upload, SettingsColors.Teal) },
             onClick = {
                 if (busy) return@ArrowPreference
                 busy = true
@@ -117,7 +119,7 @@ private fun DesktopDataPrivacySection() {
         ArrowPreference(
             title = "导入数据存档",
             summary = "扫数据根下的 ${DesktopArchiveHost.ARCHIVE_DIR}/ 目录与 *.zip，先自校验再合并",
-            startAction = { SettingsIcon(Icons.Default.Download) },
+            startAction = { SettingsIcon(Icons.Default.Download, SettingsColors.Blue) },
             onClick = {
                 if (busy) return@ArrowPreference
                 busy = true
@@ -151,22 +153,6 @@ internal fun importStatusText(): String {
         is DesktopImportOutcome.AlreadyImported -> "$prefix：这份档案已经导过（标记与它一致），本次未改动任何数据"
         is DesktopImportOutcome.Failed -> "$prefix 不可用：${outcome.reason}（端内零变化）"
     }
-}
-
-/** 设置页一行左侧的图标（与 `:core` 设置屏的 `SettingsIcon` 同一视觉）。 */
-@Composable
-private fun SettingsIcon(icon: ImageVector) {
-    val color = MiuixTheme.colorScheme.primary
-    Surface(
-        shape = CircleShape,
-        color = color.copy(alpha = 0.12f),
-        modifier = Modifier.size(32.dp),
-    ) {
-        Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
-            Icon(icon, contentDescription = null, modifier = Modifier.size(18.dp), tint = color)
-        }
-    }
-    Spacer(Modifier.width(12.dp))
 }
 
 /** 设置页分组卡片的外壳（与共享屏的私有 `SettingsCard` 一致）。 */

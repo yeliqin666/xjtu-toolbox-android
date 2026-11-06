@@ -1,5 +1,9 @@
 package com.xjtu.toolbox.settings
 
+import com.xjtu.toolbox.settings.SettingsColors.Blue as cBlue
+import com.xjtu.toolbox.settings.SettingsColors.Orange as cOrange
+import com.xjtu.toolbox.settings.SettingsColors.Purple as cPurple
+import com.xjtu.toolbox.settings.SettingsColors.Teal as cTeal
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
@@ -133,11 +137,6 @@ private fun HomeSettingsBody(onDismiss: () -> Unit, showTopBarStyle: Boolean) {
     DisposableEffect(Unit) {
         onDispose { store.notifyChanged() }
     }
-
-    val cPurple = Color(0xFF7E57C2)
-    val cBlue = Color(0xFF42A5F5)
-    val cTeal = Color(0xFF26A69A)
-    val cOrange = Color(0xFFFFA726)
 
     Column(
         modifier = Modifier
@@ -457,17 +456,3 @@ private fun HomeSettingsCard(content: @Composable ColumnScope.() -> Unit) {
     }
 }
 
-/** 和设置页其它行同一个图标样式（32dp 圆底 + 18dp 图标 + 12dp 间隔）。 */
-@Composable
-private fun SettingsIcon(icon: ImageVector, color: Color) {
-    Surface(
-        shape = CircleShape,
-        color = color.copy(alpha = 0.12f),
-        modifier = Modifier.size(32.dp),
-    ) {
-        Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
-            Icon(icon, contentDescription = null, modifier = Modifier.size(18.dp), tint = color)
-        }
-    }
-    Spacer(Modifier.width(12.dp))
-}

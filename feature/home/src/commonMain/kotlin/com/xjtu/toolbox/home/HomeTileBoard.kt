@@ -37,6 +37,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -173,8 +174,8 @@ internal fun HomeGroupSection(
     budgetRows: Float?,
     /** 手指当前把这一组当成落点（且不是拖拽源组）：画接收高亮（§19）。派生量，由首页算。 */
     receiving: Boolean,
-    /** 被拖组的跟手位移（含松手后的归位补偿）；null = 这一组不在被拖。 */
-    reorderLift: Float?,
+    /** 被拖组的跟手位移（含松手后的归位补偿），只在绘制阶段读，逐帧变化不触发重组；null = 这一组不在被拖。 */
+    reorderLift: (() -> Float)?,
     /** 组排序中这一组的让位目标（px）：被拖组抽走后它该往哪挪。 */
     reorderShift: Float,
     onOpen: (HomeServiceRow) -> Unit,
@@ -223,7 +224,7 @@ internal fun HomeGroupSection(
             .fillMaxWidth()
             .zIndex(if (reorderLift != null) 6f else 0f)
             .graphicsLayer {
-                translationY = reorderLift ?: shiftAnim.value
+                translationY = reorderLift?.invoke() ?: shiftAnim.value
                 alpha = if (session.groupId == group.id) 0.94f else 1f
             },
     ) {
@@ -636,10 +637,12 @@ private fun HomeTileItem(
     onRemoveTile: (tileId: String) -> Unit,
 ) {
     val density = LocalDensity.current
+    // 移除热区的手势按 tile.id 只起一次，回调闭包里的网格开关等会变：经 rememberUpdatedState 读最新值
+    val removeTile by rememberUpdatedState(onRemoveTile)
 
-    // 位置：跟数据弹簧（拖动中被挤开的块平滑补位）
-    val animX by animateFloatAsState(targetValue = tile.x, animationSpec = HomeTileSpring, label = "tileX")
-    val animY by animateFloatAsState(targetValue = tile.y, animationSpec = HomeTileSpring, label = "tileY")
+    // 位置：跟数据弹簧（拖动中被挤开的块平滑补位）。只在 offset 的布局阶段读，补位动画不逐帧重组卡面
+    val animX = animateFloatAsState(targetValue = tile.x, animationSpec = HomeTileSpring, label = "tileX")
+    val animY = animateFloatAsState(targetValue = tile.y, animationSpec = HomeTileSpring, label = "tileY")
 
     // 尺寸：被缩的那一块也要跟着弹簧走（不再 snap）。尺寸是「数据格数」，拖动把手指位移换算成
     // 整数格，按下与松手之间会一格一格地跳；snap 会把这些跳变原样画出来，看着一顿一顿的。
@@ -647,16 +650,17 @@ private fun HomeTileItem(
     val animW by animateFloatAsState(targetValue = tile.w, animationSpec = HomeTileSpring, label = "tileW")
     val animH by animateFloatAsState(targetValue = tile.h, animationSpec = HomeTileSpring, label = "tileH")
 
-    // 与 DropSlot 共用同一个换算入口：真身和占位框永远同一个矩形
-    val frame = cellFrame(animX, animY, animW, animH, colUnit, rowUnit, gapPx)
+    // 与 DropSlot 共用同一个换算入口：真身和占位框永远同一个矩形（这里只取尺寸，位置在 offset 里现读）
+    val frame = cellFrame(0f, 0f, animW, animH, colUnit, rowUnit, gapPx)
 
     // 非编辑态：整块点击打开、长按进编辑态。编辑态这块不挂手势（交给手势层）。
     // 点击走「一镜到底」那套接线，和卡片圆角用同一个半径，转场时放大出来的形状才对得上。
     //
-    // 圆角 = min(设置值, 短边的一半)：滑条拖到顶时任何尺寸的卡片都**圆成饼**，而卡片本身的
-    // 宽高一点没变（圆角只影响形状，不参与布局）。
+    // 圆角 = min(设置值, 短边的一半)。按**目标**尺寸算而不是动画中的尺寸：它是下面 key() 的一员，
+    // 跟着动画逐帧变会让卡面连同离屏层每帧重建
+    val target = cellFrame(0f, 0f, tile.w, tile.h, colUnit, rowUnit, gapPx)
     val radius = cardCorner.coerceAtMost(
-        with(density) { minOf(frame.widthPx, frame.heightPx).toDp() } / 2,
+        with(density) { minOf(target.widthPx, target.heightPx).toDp() } / 2,
     )
     val tap = if (editing) {
         Modifier
@@ -666,7 +670,7 @@ private fun HomeTileItem(
 
     Box(
         Modifier
-            .offset { frame.leftTop }
+            .offset { IntOffset((animX.value * colUnit).roundToInt(), (animY.value * rowUnit).roundToInt()) }
             .size(with(density) { frame.widthPx.toDp() }, with(density) { frame.heightPx.toDp() })
             .then(tap),
     ) {
@@ -704,7 +708,7 @@ private fun HomeTileItem(
                 Modifier
                     .align(Alignment.TopStart)
                     .size(REMOVE_TOUCH)
-                    .pointerInput(tile.id) { detectTapGestures(onTap = { onRemoveTile(tile.id) }) },
+                    .pointerInput(tile.id) { detectTapGestures(onTap = { removeTile(tile.id) }) },
                 contentAlignment = Alignment.TopStart,
             ) {
                 Box(
