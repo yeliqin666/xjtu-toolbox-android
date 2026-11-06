@@ -1,5 +1,6 @@
 package com.xjtu.toolbox.settings
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
@@ -11,20 +12,25 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Dashboard
+import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.GridOn
+import androidx.compose.material.icons.filled.Layers
 import androidx.compose.material.icons.filled.RestartAlt
 import androidx.compose.material.icons.filled.SwapHoriz
 import androidx.compose.material.icons.filled.Wallpaper
 import androidx.compose.material.icons.filled.WaterDrop
+import androidx.compose.material.icons.filled.Widgets
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
@@ -36,23 +42,28 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.xjtu.toolbox.home.HomeLayoutCodec
 import com.xjtu.toolbox.home.HomeLayoutStore
 import com.xjtu.toolbox.platform.BackHandler
+import com.xjtu.toolbox.platform.showBriefMessage
 import kotlin.math.roundToInt
 import top.yukonga.miuix.kmp.basic.ButtonDefaults
 import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.CardDefaults
 import top.yukonga.miuix.kmp.basic.Icon
-import top.yukonga.miuix.kmp.basic.Slider
 import top.yukonga.miuix.kmp.basic.SmallTitle
 import top.yukonga.miuix.kmp.basic.Surface
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextButton
 import top.yukonga.miuix.kmp.overlay.OverlayBottomSheet
 import top.yukonga.miuix.kmp.preference.OverlayDropdownPreference
+import top.yukonga.miuix.kmp.preference.SliderPreference
 import top.yukonga.miuix.kmp.preference.SwitchPreference
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.window.WindowDialog
@@ -60,9 +71,9 @@ import top.yukonga.miuix.kmp.window.WindowDialog
 /**
  * 「主页设置」抽屉（需求 §5 / 补充 §29）。
  *
- * 两套首页布局共用这一个抽屉，因为有三组设置是**跨布局共用**的——背景（壁纸 / 模糊 / 亮度）、
+ * 两套首页布局共用这一个抽屉，因为有三组设置是**跨布局共用**的——背景（壁纸 / 模糊）、
  * 卡片材质（液态玻璃）、顶栏排法，它们落在 [SettingsStore] 里；只有卡片组才有的几项
- * （网格开关、折射子开关、背景不透明度、恢复默认分组和布局）落在
+ * （网格开关、折射子开关、卡片圆角、背景不透明度、导出自定义布局、恢复默认分组和布局）落在
  * [com.xjtu.toolbox.home.HomeLayoutStore] 里，切到经典分类卡时整块不画。
  *
  * 做成底部抽屉而不是二级页，是因为它要能从两处打开——全局设置里的那一行，和首页编辑态的齿轮；
@@ -105,7 +116,7 @@ internal fun homeSettingsSummary(store: SettingsStore): String = listOf(
 
 @Composable
 private fun HomeSettingsBody(onDismiss: () -> Unit, showTopBarStyle: Boolean) {
-    // 卡片组独有：整页布局（分组与格位）、网格开关、折射、背景不透明度
+    // 卡片组独有：整页布局（分组与格位）、网格开关、折射、圆角、背景不透明度
     val store = remember { HomeLayoutStore() }
     // 两套布局共用：背景、卡片材质、顶栏排法
     val settings = remember { SettingsStore() }
@@ -121,11 +132,16 @@ private fun HomeSettingsBody(onDismiss: () -> Unit, showTopBarStyle: Boolean) {
     var confirmReset by remember { mutableStateOf(false) }
     // 打开网格会当场把非整数的摆位取整、收空行，且回不去（见 [confirmGrid]）——先二次确认
     var confirmGrid by remember { mutableStateOf(false) }
+    // 「导出自定义布局」的文本；非 null = 预览弹窗开着
+    var exportText by remember { mutableStateOf<String?>(null) }
     val cards = layout == SettingsStore.HOME_LAYOUT_CARDS
     // 只有在卡片组 + 自定义图片这一档，不透明度才有可调的对象
     val wallpaper = remember(revision) {
         settings.homeBackground == HomeLayoutStore.BACKGROUND_IMAGE && settings.homeWallpaperImage.isNotEmpty()
     }
+    // 导出的是用户**自己摆过**的那份快照：没有快照 = 首页还在用默认布局，没什么可导
+    val savedLayout = remember(revision) { store.saved }
+    val copy = rememberCopyLayoutText()
 
     // 抽屉关掉时把「连续值也改过了」告诉首页（滑条不逐帧 bump，见 notifyChanged 的说明）。
     // 圆角那条滑条例外：它松手时自己 bump 一次（见下面的 onValueChangeFinished），
@@ -133,11 +149,6 @@ private fun HomeSettingsBody(onDismiss: () -> Unit, showTopBarStyle: Boolean) {
     DisposableEffect(Unit) {
         onDispose { store.notifyChanged() }
     }
-
-    val cPurple = Color(0xFF7E57C2)
-    val cBlue = Color(0xFF42A5F5)
-    val cTeal = Color(0xFF26A69A)
-    val cOrange = Color(0xFFFFA726)
 
     Column(
         modifier = Modifier
@@ -156,7 +167,7 @@ private fun HomeSettingsBody(onDismiss: () -> Unit, showTopBarStyle: Boolean) {
                 },
                 items = HOME_LAYOUT_LABELS,
                 selectedIndex = HOME_LAYOUT_VALUES.indexOf(layout).coerceAtLeast(0),
-                startAction = { SettingsIcon(Icons.Default.Dashboard, cBlue) },
+                startAction = { SettingsIcon(Icons.Default.Dashboard, SettingsBlue) },
                 onSelectedIndexChange = { index ->
                     layout = HOME_LAYOUT_VALUES[index]
                     settings.homeLayout = layout
@@ -168,15 +179,17 @@ private fun HomeSettingsBody(onDismiss: () -> Unit, showTopBarStyle: Boolean) {
         // ── 背景（三套布局共用） ──
         SmallTitle("背景")
         HomeSettingsCard {
-            HomeBackgroundPreference(settings, startAction = { SettingsIcon(Icons.Default.Wallpaper, cPurple) })
+            HomeBackgroundPreference(settings, startAction = { SettingsIcon(Icons.Default.Wallpaper, SettingsPurple) })
             // 卡片组独有：壁纸再盖一层主题底色，文字对比度不够时自己往下拨
             if (cards && wallpaper) {
-                SliderRow(
+                SettingsSliderRow(
                     title = "背景不透明度",
                     valueText = "$opacity%",
                     value = opacity.toFloat(),
                     range = HomeLayoutStore.BACKGROUND_OPACITY_MIN.toFloat()..
                         HomeLayoutStore.BACKGROUND_OPACITY_MAX.toFloat(),
+                    icon = Icons.Default.Layers,
+                    color = SettingsPurple,
                     onChange = {
                         opacity = it.roundToInt()
                         store.backgroundOpacity = opacity
@@ -188,25 +201,11 @@ private fun HomeSettingsBody(onDismiss: () -> Unit, showTopBarStyle: Boolean) {
         // ── 卡片材质 ──
         SmallTitle("卡片")
         HomeSettingsCard {
-            SwitchPreference(
-                title = "液态玻璃",
-                summary = when {
-                    !liquid -> "毛玻璃：半透明纸面 + 高光细边"
-                    wallpaper -> "透出壁纸并带折射（最费电的一档）"
-                    else -> "纯色 / 渐变背景上不采不糊，换成薄色 + 高光轮廓"
-                },
-                checked = liquid,
-                startAction = { SettingsIcon(Icons.Default.WaterDrop, cBlue) },
-                onCheckedChange = {
-                    liquid = it
-                    settings.homeLiquidGlass = it
-                    HomeLayoutRevision.bump()
-                },
-            )
+            // 圆角排在材质**上面**：先定「长什么样」（形状），再定「用什么材质」。
             // 圆角只有卡片组有（经典分类卡 / 小组件那两套的圆角是写死的）；
             // 编辑态那条悬浮条**恒为全圆**，不吃这个值
             if (cards) {
-                SliderRow(
+                SettingsSliderRow(
                     title = "卡片圆角",
                     valueText = when (corner) {
                         0 -> "直角"
@@ -215,6 +214,8 @@ private fun HomeSettingsBody(onDismiss: () -> Unit, showTopBarStyle: Boolean) {
                     },
                     value = corner.toFloat(),
                     range = HomeLayoutStore.CARD_CORNER_MIN.toFloat()..HomeLayoutStore.CARD_CORNER_MAX.toFloat(),
+                    icon = Icons.Default.Widgets,
+                    color = SettingsTeal,
                     onChange = {
                         corner = it.roundToInt()
                         store.cardCorner = corner
@@ -224,17 +225,37 @@ private fun HomeSettingsBody(onDismiss: () -> Unit, showTopBarStyle: Boolean) {
                     onValueChangeFinished = { store.notifyChanged() },
                 )
             }
-            // 折射子项只有卡片组吃：经典版与小组件那两套没有这一层
+            SwitchPreference(
+                title = "液态玻璃",
+                summary = when {
+                    !liquid -> "毛玻璃：半透明纸面 + 高光细边"
+                    wallpaper -> "透出壁纸并带折射（最费电的一档）"
+                    else -> "纯色 / 渐变背景上不采不糊，换成薄色 + 高光轮廓"
+                },
+                checked = liquid,
+                startAction = { SettingsIcon(Icons.Default.WaterDrop, SettingsBlue) },
+                onCheckedChange = {
+                    liquid = it
+                    settings.homeLiquidGlass = it
+                    HomeLayoutRevision.bump()
+                },
+            )
+            // 折射子项只有卡片组吃：经典版与小组件那两套没有这一层。
+            //
+            // 纯色 / 渐变背景上**没有壁纸可折**（模糊那一层已经不跑了，折射采的也是同一张
+            // 纯色底），拨了看不出任何区别，所以置灰 + 在说明里讲清楚：这一档现在不生效，
+            // 换成自定义背景图片再来调。开关里的值本身照旧保留，换回图片背景就还是原来那一档。
             if (cards && liquid) {
                 SwitchPreference(
                     title = "开启折射",
-                    summary = if (refraction) {
-                        "边缘把背景扭出透镜的弯光，带一点色散（最费的一层）"
-                    } else {
-                        "只留模糊与高光：轮廓和通透感都在，省一层离屏采样"
+                    summary = when {
+                        !wallpaper -> "纯色 / 渐变背景上没有壁纸可折，这一层看不出效果；换成自定义背景图片再来调"
+                        refraction -> "边缘把背景扭出透镜的弯光，带一点色散（最费的一层）"
+                        else -> "只留模糊与高光：轮廓和通透感都在，省一层离屏采样"
                     },
                     checked = refraction,
-                    startAction = { SettingsIcon(Icons.Default.WaterDrop, cBlue.copy(alpha = 0.72f)) },
+                    enabled = wallpaper,
+                    startAction = { SettingsIcon(Icons.Default.WaterDrop, SettingsBlue.copy(alpha = 0.72f)) },
                     onCheckedChange = {
                         refraction = it
                         store.liquidRefraction = it
@@ -252,12 +273,12 @@ private fun HomeSettingsBody(onDismiss: () -> Unit, showTopBarStyle: Boolean) {
                 SwitchPreference(
                     title = "功能按钮统一右对齐",
                     summary = if (topActionsRight) {
-                        "三个圆钮都在右侧，左侧是家小西头像、不画标题（改造前的顶栏）"
+                        "三个圆钮都在右侧，左侧是交小西头像、不画标题（改造前的顶栏）"
                     } else {
                         "扫码靠左、标题居中，右侧只留搜索与通知"
                     },
                     checked = topActionsRight,
-                    startAction = { SettingsIcon(Icons.Default.SwapHoriz, cPurple) },
+                    startAction = { SettingsIcon(Icons.Default.SwapHoriz, SettingsPurple) },
                     onCheckedChange = {
                         topActionsRight = it
                         settings.homeTopActionsRight = it
@@ -279,7 +300,7 @@ private fun HomeSettingsBody(onDismiss: () -> Unit, showTopBarStyle: Boolean) {
                         "自由摆放，拖到相邻边界时自动贴合"
                     },
                     checked = grid,
-                    startAction = { SettingsIcon(Icons.Default.GridOn, cTeal) },
+                    startAction = { SettingsIcon(Icons.Default.GridOn, SettingsTeal) },
                     onCheckedChange = { on ->
                         // 关掉是立刻生效的（不会动数据）；打开要把非整数摆位取整，先问一句
                         if (!on) {
@@ -295,11 +316,31 @@ private fun HomeSettingsBody(onDismiss: () -> Unit, showTopBarStyle: Boolean) {
 
             SmallTitle("重置")
             HomeSettingsCard {
+                // 放在「恢复默认」**上面**：先能备份，再谈推倒重来——这两个动作挨着，
+                // 顺序反了就成了「想留个底的人得先在重置区上面找导出」
+                SimpleRow(
+                    title = "导出自定义布局",
+                    summary = savedLayout?.let { custom ->
+                        "共 ${custom.groups.size} 组 · " +
+                            "${custom.groups.sumOf { group -> group.tiles.size }} 个组件，导出成一串可复制的文本"
+                    } ?: "还没摆过：首页现在用默认布局，没有可导出的内容",
+                    icon = Icons.Default.Description,
+                    color = SettingsPurple,
+                    onClick = {
+                        val saved = store.saved
+                        if (saved == null) {
+                            showBriefMessage("还没有自定义过布局，首页现在是默认布局")
+                        } else {
+                            exportText = HomeLayoutCodec.encode(saved)
+                        }
+                    },
+                )
+                SimpleDivider()
                 SimpleRow(
                     title = "恢复默认分组和布局",
                     summary = "分组、顺序、组件大小全部回到刚安装时的样子",
                     icon = Icons.Default.RestartAlt,
-                    color = cOrange,
+                    color = SettingsOrange,
                     onClick = { confirmReset = true },
                 )
             }
@@ -373,32 +414,140 @@ private fun HomeSettingsBody(onDismiss: () -> Unit, showTopBarStyle: Boolean) {
             }
         }
     }
+
+    // 导出的预览：这段文本就是 [HomeLayoutCodec] 的落盘格式，能原样存起来 / 发给别人
+    exportText?.let { payload ->
+        WindowDialog(
+            show = true,
+            title = "导出自定义布局",
+            onDismissRequest = { exportText = null },
+        ) {
+            Column(Modifier.fillMaxWidth()) {
+                Text(
+                    "下面是当前的自定义布局：分组、顺序、每个组件的位置与大小都在里面。" +
+                        "复制下来存好，或者发给别人。",
+                    style = MiuixTheme.textStyles.body2,
+                )
+                Spacer(Modifier.height(12.dp))
+                Surface(
+                    shape = RoundedCornerShape(12.dp),
+                    color = MiuixTheme.colorScheme.surfaceVariant,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(max = 220.dp),
+                ) {
+                    Column(
+                        Modifier
+                            .verticalScroll(rememberScrollState())
+                            .padding(12.dp),
+                    ) {
+                        Text(
+                            payload,
+                            style = MiuixTheme.textStyles.footnote2,
+                            fontFamily = FontFamily.Monospace,
+                        )
+                    }
+                }
+                Spacer(Modifier.height(16.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    TextButton(text = "关闭", onClick = { exportText = null }, modifier = Modifier.weight(1f))
+                    TextButton(
+                        text = "复制",
+                        onClick = {
+                            copy(payload)
+                            exportText = null
+                        },
+                        modifier = Modifier.weight(1f),
+                        colors = ButtonDefaults.textButtonColorsPrimary(),
+                    )
+                }
+            }
+        }
+    }
 }
 
-/** 一行的两栏布局：左边标题 + 右侧数值，下面一条滑条（不透明度用它）。 */
+// 抽屉里几处图标底色。分成常量放这里，是为了让两个文件（本文件与
+// [HomeBackgroundPreference]）里的行用同一套颜色，不会各写一个色值慢慢漂开。
+internal val SettingsPurple = Color(0xFF7E57C2)
+internal val SettingsBlue = Color(0xFF42A5F5)
+internal val SettingsTeal = Color(0xFF26A69A)
+internal val SettingsOrange = Color(0xFFFFA726)
+
+/**
+ * 主页设置里所有滑动条的**唯一**写法：直接用 MIUIX 自带的 [SliderPreference]。
+ *
+ * 以前这里是手搓的一行（自己排标题、数值、`padding(horizontal = 16.dp)` + 一条占满宽度的
+ * `Slider`），结果是：标题贴在卡片左边缘（16dp），而上下的
+ * `SwitchPreference` / `OverlayDropdownPreference` 因为有左侧图标，标题落在 60dp——
+ * 同一张卡片里两套缩进，看着就是"没对齐"。数值也是自己写在标题右边，与开关行的末位控件
+ * 不在一条竖线上。
+ *
+ * [SliderPreference] 与那些行共用同一个 `BasicComponent`：内边距、图标位、标题/摘要字号、
+ * 末位数值的位置全部一致，滑条落在组件底部（`fillMaxWidth`，同样吃 16dp 内边距）。
+ * 所以这里只做「把我们的图标和取值文案塞进去」，不再自己摆布局。
+ *
+ * @param onValueChangeFinished 松手那一刻。连续值一律是「改的时候只写盘、松手才通知首页重读」，
+ *   逐帧通知会把整页（含一圈液态玻璃）重组几十次。
+ */
 @Composable
-private fun SliderRow(
+internal fun SettingsSliderRow(
     title: String,
     valueText: String,
     value: Float,
     range: ClosedFloatingPointRange<Float>,
+    icon: ImageVector,
+    color: Color,
     onChange: (Float) -> Unit,
-    /** 松手那一刻：给需要「拖完再落盘/通知」的调用方用（圆角靠它 bump 首页）。 */
     onValueChangeFinished: () -> Unit = {},
 ) {
-    Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp)) {
-        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            Text(title, fontSize = 15.sp, modifier = Modifier.weight(1f))
-            Text(valueText, fontSize = 13.sp, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
+    SliderPreference(
+        value = value,
+        onValueChange = onChange,
+        title = title,
+        valueText = valueText,
+        startAction = { SettingsIcon(icon, color) },
+        valueRange = range,
+        onValueChangeFinished = onValueChangeFinished,
+    )
+}
+
+/**
+ * 把导出的那串文本放进剪贴板，并提示一句短的。
+ *
+ * 不用 designsystem 的 `rememberCopyText`：它会把**整段文本**塞进提示（「已复制：<全文>」），
+ * 导出的布局动辄几十行，那条提示会把屏幕铺满。这里只报「已复制」。
+ *
+ * 用的是已废弃的 [LocalClipboardManager]：新的 `LocalClipboard` 要平台自己的 `ClipEntry`，
+ * 共享 UI 里给不出来，所以社区页、屁岱聊天那几处也都是这一份。
+ */
+@Suppress("DEPRECATION")
+@Composable
+private fun rememberCopyLayoutText(): (String) -> Unit {
+    val clipboard = LocalClipboardManager.current
+    return remember(clipboard) {
+        { text ->
+            clipboard.setText(AnnotatedString(text))
+            showBriefMessage("自定义布局已复制")
         }
-        Slider(
-            value = value,
-            onValueChange = onChange,
-            onValueChangeFinished = onValueChangeFinished,
-            valueRange = range,
-            modifier = Modifier.fillMaxWidth(),
-        )
     }
+}
+
+/**
+ * 卡内两行之间那条细线。
+ *
+ * 只有「重置」这张卡里有两行（导出 / 恢复默认），而这两行是手搓的 [SimpleRow]——MIUIX 的
+ * preference 组件自己不带分隔线，所以这里补一条：起点对齐文字（16dp 内边距 + 32dp 图标 +
+ * 12dp 间隔 = 60dp），右端留 16dp，和设置页其它卡片的观感一致。
+ */
+@Composable
+private fun SimpleDivider() {
+    Box(
+        Modifier
+            .fillMaxWidth()
+            .padding(start = 60.dp, end = 16.dp)
+            .height(0.5.dp)
+            .background(MiuixTheme.colorScheme.onSurface.copy(alpha = 0.08f)),
+    )
 }
 
 /** 只有标题与说明的一行（重置这类动作），整行可点。 */

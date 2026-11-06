@@ -175,15 +175,16 @@ class SettingsStore(private val store: KeyValueStore = keyValueStore(APP_SETTING
         get() = store.getString("home_wallpaper_image").orEmpty()
         set(value) = store.putString("home_wallpaper_image", value.ifEmpty { null })
 
-    /** 首页背景图的模糊与亮度，取值范围同首页大卡的自定义背景。 */
+    /**
+     * 首页背景图的模糊半径，取值范围同首页大卡的自定义背景。
+     *
+     * 原来还有一条「亮度」（键 `home_wallpaper_brightness`）：现在**不再读也不再写**。
+     * 自定义壁纸的对比度靠「背景不透明度」那条滑条调（往下拨就把主题底色盖回去），
+     * 多一条亮度只会让两张滑条互相抵消。旧存档里那个键原地留着，不删也不认。
+     */
     var homeWallpaperBlur: Int
         get() = store.getInt("home_wallpaper_blur", HERO_IMAGE_BLUR_MIN).coerceIn(HERO_IMAGE_BLUR_MIN, HERO_IMAGE_BLUR_MAX)
         set(value) = store.putInt("home_wallpaper_blur", value.coerceIn(HERO_IMAGE_BLUR_MIN, HERO_IMAGE_BLUR_MAX))
-
-    var homeWallpaperBrightness: Int
-        get() = store.getInt("home_wallpaper_brightness", HERO_IMAGE_BRIGHTNESS_MAX)
-            .coerceIn(HERO_IMAGE_BRIGHTNESS_MIN, HERO_IMAGE_BRIGHTNESS_MAX)
-        set(value) = store.putInt("home_wallpaper_brightness", value.coerceIn(HERO_IMAGE_BRIGHTNESS_MIN, HERO_IMAGE_BRIGHTNESS_MAX))
 
     /** 场馆滑块验证码自动识别开关。 */
     var venueAutoSolveCaptchaEnabled: Boolean

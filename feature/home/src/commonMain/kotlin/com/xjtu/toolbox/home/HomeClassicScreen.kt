@@ -187,7 +187,7 @@ fun HomeClassicScreen(
     val layoutStore = remember { SettingsStore() }
     val background = remember(HomeLayoutRevision.current) { layoutStore.homeBackground }
     val wallpaper = remember(HomeLayoutRevision.current) { layoutStore.homeWallpaperImage.takeIf { background == "image" }.orEmpty() }
-    val wallpaperTone = remember(HomeLayoutRevision.current) { layoutStore.homeWallpaperBlur to layoutStore.homeWallpaperBrightness }
+    val wallpaperBlur = remember(HomeLayoutRevision.current) { layoutStore.homeWallpaperBlur }
     val topActionsRight = remember(HomeLayoutRevision.current) { layoutStore.homeTopActionsRight }
     // 自定义图片上用白字；渐变很浅，照常用正文色
     val pageInk = if (wallpaper.isNotEmpty()) Color.White else MiuixTheme.colorScheme.onSurface
@@ -224,7 +224,7 @@ fun HomeClassicScreen(
         HomeWallpaper(
             background, wallpaper,
             Modifier.matchParentSize(),
-            blur = wallpaperTone.first, brightness = wallpaperTone.second,
+            blur = wallpaperBlur,
         )
         Column(
             Modifier

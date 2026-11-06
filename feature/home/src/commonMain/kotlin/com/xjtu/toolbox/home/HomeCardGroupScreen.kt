@@ -161,7 +161,7 @@ fun HomeCardGroupScreen(
      * 顶栏最左侧那个按钮（`:app` 是「扫一扫」）；null = 这一端没有。
      *
      * 打开「功能按钮统一右对齐」（`SettingsStore.homeTopActionsRight`，默认开）时这一端改成
-     * 改造前的顶栏——左侧换成「家小西」头像、不画居中标题，所以这个槽位在那时不被调用；
+     * 改造前的顶栏——左侧换成「交小西」头像、不画居中标题，所以这个槽位在那时不被调用；
      * 关掉才按本分支的排法画（扫码靠左、标题居中）。
      */
     topLeading: (@Composable () -> Unit)? = null,
@@ -191,7 +191,7 @@ fun HomeCardGroupScreen(
     val liquid = remember(settingsRevision) { settings.homeLiquidGlass }
     // 液态玻璃的折射子项：只在 liquid 为真时有意义，关掉省一层离屏位移采样（见 HomeLayoutStore）
     val refraction = remember(revision) { layoutStore.liquidRefraction }
-    // 顶栏排法：开（默认）= 改造前那套（左侧「家小西」头像、三个圆钮统一在右、不画居中标题）；
+    // 顶栏排法：开（默认）= 改造前那套（左侧「交小西」头像、三个圆钮统一在右、不画居中标题）；
     // 关 = 本分支那套（扫码靠左、标题绝对居中、右侧只留搜索与通知）
     val topActionsRight = remember(settingsRevision) { settings.homeTopActionsRight }
     // 背景样式：主题底色 / 主题色渐变 / 自定义图片（取值与经典版同一套字符串）
@@ -202,7 +202,6 @@ fun HomeCardGroupScreen(
         if (backgroundMode == HomeLayoutStore.BACKGROUND_IMAGE) settings.homeWallpaperImage else ""
     }
     val backgroundBlur = remember(settingsRevision) { settings.homeWallpaperBlur }
-    val backgroundBrightness = remember(settingsRevision) { settings.homeWallpaperBrightness }
     val backgroundOpacity = remember(revision) { layoutStore.backgroundOpacity }
     // 卡片圆角（主页设置里那条滑条）；默认 22dp，实际还会被「边长 × 12」夹住
     val cardCorner = remember(revision) { layoutStore.cardCorner }.dp
@@ -1016,8 +1015,6 @@ fun HomeCardGroupScreen(
                                 imageData = backgroundImage,
                                 modifier = Modifier.matchParentSize(),
                                 blur = backgroundBlur,
-                                // 亮度与经典版 / 小组件共用同一个键（主页设置里那条「亮度」滑条）
-                                brightness = backgroundBrightness,
                             )
                             // 透明度：缺多少就用主题底色盖回去多少，不整层 alpha（否则文字也会跟着淡）
                             val cover = (100 - backgroundOpacity) / 100f
@@ -1463,7 +1460,7 @@ val LocalHomeGlassRefraction = compositionLocalOf { true }
  * 首页的折叠顶栏，叠在滚动内容上面，两套排法：
  *
  * - [devTopBar] = true（主页设置「功能按钮统一右对齐」开着，默认）：**改造前那套**——
- *   左侧「家小西」头像（随上滑淡入放大）、三个功能圆钮全在右侧、**不画居中标题**；
+ *   左侧「交小西」头像（随上滑淡入放大）、三个功能圆钮全在右侧、**不画居中标题**；
  * - false：本分支那套——扫码靠左（宿主给的 [leading]）、标题绝对居中、右侧只留搜索与通知。
  *
  * 往上滑过刊头后玻璃底色浮出来，底边柔和淡出。编辑态两套排法一律换成三个纯图标：
@@ -1582,7 +1579,7 @@ private fun HomeCollapsingBar(
 }
 
 /**
- * 改造前顶栏左侧的「家小西」头像（[HomeCollapsingBar] 的 `devTopBar` 那条路专用）。
+ * 改造前顶栏左侧的「交小西」头像（[HomeCollapsingBar] 的 `devTopBar` 那条路专用）。
  *
  * 和改造前一模一样的写法：随上滑淡入、由 0.78 放大到 1，停在顶部时基本看不见——
  * 那时候顶栏上只有右侧三个功能圆钮，滚起来才「浮」出个头像。
