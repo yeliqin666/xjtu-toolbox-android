@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -84,7 +85,10 @@ private val ORB_GAP = 4.dp
 /** 展开长条里一颗功能图标的直径。 */
 private val ORB_TILE = 44.dp
 
-/** 长条最多露出的功能行数；超出的靠滚动。 */
+/** 图标上下各留的呼吸位（`OrbTileIcon` 里那一圈 `padding`）；一行因此是 [ORB_TILE] + 2×它。 */
+private val ORB_TILE_PAD = 5.dp
+
+/** 长条里列表窗口占几行的名义高度；超出的靠滚动。 */
 private const val ORB_VISIBLE_ROWS = 6
 
 // 长条的圆角**恒为全圆**（= 长条半宽 32dp，两端是半圆，也就是胶囊），**不吃**主页设置里那条
@@ -240,6 +244,18 @@ internal fun HomeAddTileOrb(
         val colW = ORB_BALL + (ORB_RAIL_WIDTH - ORB_BALL) * shape
         val boxW = colW + labelExtra
         val boxH = ORB_BALL + (ORB_BODY + railPad * 2 - ORB_BALL) * shape
+        /**
+         * 列表窗口的高度 = **框内从列表顶边一直到外框底边**（`boxH − 顶部内边距 − 把手 − 空隙`）。
+         *
+         * 这么算而不是「图标行数 × 行高」，为的是让内容一直铺到框的边缘：从前只铺到行数那么高，
+         * 于是列表在外框底边上方 railPad（约 10dp）处自己截断，屏幕上是「图标在中间被切一刀、
+         * 下面还空着一条」，切的位置不在框边缘（2026-11 维护者提的第 6 条）。现在超出部分被
+         * 外框那层 `clip(glassShape)` 裁掉，切的就是框本身。
+         *
+         * 按 `shape` 现算（而不是写成常量），球 ↔ 长条过渡的每一帧列表都正好贴着框底，中途不会
+         * 多出一条或短一截。
+         */
+        val listH = (boxH - pad - ORB_BALL - ORB_GAP).coerceAtLeast(0.dp)
         // 圆角：球态是正圆（半宽），长条态是上面那个用户值；再夹一次「不能超过短边一半」，
         // 免得过渡到一半时圆角比框还大（形状会翻出去）
         val corner = (ORB_BALL / 2 + (railCorner - ORB_BALL / 2) * shape)
@@ -356,6 +372,17 @@ internal fun HomeAddTileOrb(
                     // 图标那一栏跟着形态一起变宽，图标因此始终落在把手正下方
                     colW = colW,
                     width = boxW,
+                    /**
+                     * 列表要**一直铺到外框底边**（多出来的量正好是底部那圈内边距）。
+                     *
+                     * 从前列表高度只算到 `ORB_TILE * 行数`，于是它在外框底边上方 railPad（约 10dp）
+                     * 处就自己截断了：屏幕上是「图标在中间被切一刀，下面还空着一条」——切的位置
+                     * 不在框的边缘。把它铺到底之后，截断由外框那层 `clip(glassShape)` 来做，
+                     * 内容是在**框边缘**被裁掉的（2026-11 维护者提的第 6 条）。
+                     */
+                    listHeight = listH,
+                    /** 滚到底时给最后一行留的呼吸位：那里正是胶囊收成一点的圆弧，贴着会被啃掉。 */
+                    endPadding = pad,
                     fade = shape,
                     // 名字栏比外框晚一点收、也与形态一起淡：动画中间不会闪出一个方角
                     labelExtra = labelExtra,
@@ -471,6 +498,15 @@ private fun OrbTileList(
     colW: Dp,
     /** 整块外框的宽（= 图标栏 + 名字栏）。 */
     width: Dp,
+    /**
+     * 列表窗口的高度：**由调用方算成「一直铺到外框底边」**，多出来的那点正好是底部那圈内边距。
+     *
+     * 这个高度只决定「窗口开多大」；窗口是被外框那层 `clip(glassShape)` 裁的，所以真正决定
+     * 内容在哪儿被切断的是外框边缘，而不是这里（见调用处那段说明）。
+     */
+    listHeight: Dp,
+    /** 滚到底时给最后一行留的呼吸位：底边正是胶囊收成一点的圆弧，贴着会被弧边啃掉一角。 */
+    endPadding: Dp,
     /** 整体透明度：球态 0（被裁掉之前先淡掉，中间不会闪出半个图标）。 */
     fade: Float,
     /** 名字栏状态（宽度由 `HomeAddTileOrb` 里那条动画统一管）。 */
@@ -500,8 +536,10 @@ private fun OrbTileList(
         state = listState,
         modifier = Modifier
             .width(width)
-            .height(ORB_TILE * ORB_VISIBLE_ROWS)
+            .height(listHeight)
             .graphicsLayer { alpha = fade },
+        // 最后一行不贴着胶囊那截圆弧停：滚到底时留出与底边同宽的一圈
+        contentPadding = PaddingValues(bottom = endPadding),
     ) {
         items(items.size) { index ->
             val service = items[index]
@@ -600,7 +638,7 @@ private fun OrbTileIcon(
     var iconTop by remember(face.key) { mutableStateOf(Offset.Zero) }
     Box(
         Modifier
-            .padding(vertical = 5.dp)
+            .padding(vertical = ORB_TILE_PAD)
             .size(ORB_TILE)
             .onGloballyPositioned { coords ->
                 // 换成页面局部坐标登记，拖出时从这里起算
