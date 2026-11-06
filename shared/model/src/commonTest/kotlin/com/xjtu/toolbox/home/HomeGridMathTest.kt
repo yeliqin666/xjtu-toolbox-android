@@ -549,7 +549,8 @@ class HomeLayoutTest {
         assertTrue(grown.isConsistent())
     }
 
-
+    @Test
+    fun `改组名与标题颜色`() {
         val renamed = layout().renameGroup("CLASS", "").tintGroup("CLASS", "#FF3B30")
         assertEquals("", renamed.group("CLASS")!!.title)
         assertEquals("#FF3B30", renamed.group("CLASS")!!.colorHex)
