@@ -813,7 +813,7 @@ internal fun HomeTileFaceBox(
      * 壁纸糊到 5dp 以上同理（壁纸已经是一片色块）。这三种情况走 `sampling = false`：**不采样、
      * 不建离屏层、`effects` 一概不跑**，但高光与投影仍由库自己画（同一份 [Highlight] / [Shadow]），
      * 所以观感与采样版一模一样——这一档本来就是为省性能（开关在 vendored 的 
-     * `thirdparty/backdrop` 里，见它的 README）。底色与采样版**共用同一层**（[liquidFill]）——这一档少掉的只是 vibrancy 对采样结果的饱和度提升，不会多蒙一层白。
+     * `thirdparty/backdrop` 里，见它的 README）。**不铺底色**：卡片完全透明，只剩轮廓高光与外面那圈投影——2026-11 维护者定「玻璃片本身该是透的，只要铺白就像蒙了一层白」，要染色的是角标（`CountBadge`），不是卡片。
      *
      * 只有**卡片**吃这条规则；按钮与编辑态悬浮条浮在内容上面，照旧模糊 + 折射。
      */
@@ -835,10 +835,9 @@ internal fun HomeTileFaceBox(
     val hairline = if (dark) Color.White.copy(alpha = 0.10f) else Color.White.copy(alpha = 0.7f)
     val iconColor = if (dark) lerp(face.color, Color.White, 0.4f) else face.color
     // 液态玻璃的填充要比毛玻璃更透：折射与高光是它的主角，填浓了就只剩一张白卡。
-    // 采样档与不采样档**共用这一层**：不采样档透出的就是页面那层背景本身，所以「背景 + 这层白」
-    // 与采样版「采到的背景 + 同一层白」几乎一样，唯一差别是没有 vibrancy 对采样结果的饱和度提升。
-    // **别给它另配一层更白的底**——2026-11 两次真机反馈都指向这里：深色曾用 Black 26%（整块卡面
-    // 沉下去、比周围暗），浅色曾用 White 52%（比采样版多蒙 10% 白，雾蒙蒙）。
+    // **只给采样档用**：不采样那一档不铺任何底色（完全透明，只留高光 + 投影）——2026-11 维护者
+    // 第三次真机反馈定下的：只要铺白，那块玻璃就「像蒙了一层白」，玻璃片本身该是透的；
+    // 想要染色的是角标（`CountBadge` 用主题色半透明底），卡片不染。
     // 玻璃的暗部只应该出现在外面那圈投影里（`floatingGlassShadow`）。
     val liquidFill = if (dark) Color.White.copy(alpha = 0.07f) else Color.White.copy(alpha = 0.42f)
     // 和底栏胶囊同一套环境光阴影（remember：shadow lambda 捕获的对象变了会触发重采样）
@@ -853,7 +852,7 @@ internal fun HomeTileFaceBox(
     // 有可糊 / 可折的细节 → 走 `drawBackdrop` 的离屏采样，模糊 + 活力 + 折射 + 高光 + 投影全套。
     // 没有（纯色、渐变，或壁纸已被模糊程度糊平）→ 同一个 `drawBackdrop` 加 `sampling = false`：
     // 「录一层采样结果再画上去」那一段整段跳过（离屏层、effects 里的 blur / lens / vibrancy 一起省），
-    // 而 onDrawSurface / 内容 / 高光 / 投影还是库自己按原顺序画，所以**光影一条不少**、与采样版同一套
+    // 而内容 / 高光 / 投影还是库自己按原顺序画（**不铺底色，卡片完全透明**），所以光影一条不少
     // ——2026-11 维护者要求的就是这个（「我只是不要做采样，其他效果我都要」）。
     val sample = backdrop?.takeIf { blurGlass || refraction }
     // 圆角形状两档共用同一个对象：`remember` 住它，`drawBackdrop` 的 `ShapeProvider` 才不会
@@ -889,9 +888,10 @@ internal fun HomeTileFaceBox(
             )
         }
         // 没有可采的细节（纯色 / 渐变 / 壁纸已被糊平）：`sampling = false`——不录采样层、
-        // `effects` 一概不跑、离屏层也不建，而 onDrawSurface / 内容 / 高光 / 投影仍由库按原顺序画。
+        // `effects` 一概不跑、离屏层也不建。**而且不铺底色**：卡片完全透明，只剩轮廓高光 +
+        // 外面那圈投影（2026-11 维护者定：只要铺白就「像蒙了一层白」，透的才是玻璃）。
         // 有细节时走上头那一支，模糊与折射照旧。
-        liquid -> remember(cardShape, liquidFill, liquidShadow, rim) {
+        liquid -> remember(cardShape, liquidShadow, rim) {
             Modifier.drawBackdrop(
                 backdrop = emptyBackdrop(),
                 shape = { cardShape },
@@ -899,7 +899,6 @@ internal fun HomeTileFaceBox(
                 effects = {},
                 highlight = { rim },
                 shadow = { liquidShadow },
-                onDrawSurface = { drawRect(liquidFill) },
             )
         }
         else -> Modifier
