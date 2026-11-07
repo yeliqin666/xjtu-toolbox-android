@@ -76,7 +76,6 @@ import com.xjtu.toolbox.nav.rememberExpandOriginSource
 import com.xjtu.toolbox.settings.HomeLayoutRevision
 import com.xjtu.toolbox.settings.SettingsStore
 import com.xjtu.toolbox.ui.components.AppCardColor
-import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInRoot
 import com.xjtu.toolbox.ui.components.HeroAppearance
 import com.xjtu.toolbox.ui.components.HeroAppearanceDialog

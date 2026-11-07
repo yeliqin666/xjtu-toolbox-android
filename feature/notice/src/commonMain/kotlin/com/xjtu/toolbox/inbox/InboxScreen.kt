@@ -118,6 +118,8 @@ fun InboxScreen(
     onAskPidai: ((InboxItem) -> Unit)? = null,
     /** 长按一条学校通知转给小岱。没接小岱的端传 null，长按里不出现这一项。 */
     onForwardToAgent: ((com.xjtu.toolbox.agent.AgentForward) -> Unit)? = null,
+    /** 本学期开学日期，截止日期旁标「第几周」用；null = 不知道，只标星期。 */
+    termStart: LocalDate? = null,
 ) {
     val scope = rememberCoroutineScope()
     val scrollBehavior = MiuixScrollBehavior(rememberTopAppBarState())
@@ -364,6 +366,7 @@ fun InboxScreen(
             EditDueDialog(
                 title = todo.title,
                 currentDue = SelfTodoRules.dueMillis(todo).takeIf { it > 0 },
+                termStart = termStart,
                 onDismiss = { editingDue = null },
                 onConfirm = { due ->
                     SelfTodoStore.setDue(id, due)
@@ -372,7 +375,7 @@ fun InboxScreen(
             )
         }
     }
-    if (showAdd) AddTodoSheet { showAdd = false }
+    if (showAdd) AddTodoSheet(termStart) { showAdd = false }
 }
 
 private class Entry(

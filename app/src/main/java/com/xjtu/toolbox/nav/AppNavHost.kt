@@ -570,6 +570,13 @@ fun NavEntryBuilder.appPageEntries(
                     router.open(AppRoute.Agent)
                 },
                 onForwardToAgent = { sendToPidai(it, router::open) },
+                termStart = androidx.compose.runtime.produceState<kotlinx.datetime.LocalDate?>(null, inboxContext) {
+                    value = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                        runCatching {
+                            com.xjtu.toolbox.schedule.ScheduleCache.readCurrentTermSchedule(com.xjtu.toolbox.data.DataCache(inboxContext))?.start
+                        }.getOrNull()
+                    }
+                }.value,
             )
         }
         // 公告详情：首页公告条「查看详情」的落点。ROM 支持金标联盟一镜到底时由

@@ -1,6 +1,10 @@
 package com.xjtu.toolbox.settings
 
 import androidx.compose.foundation.background
+import com.xjtu.toolbox.settings.SettingsColors.Blue as cBlue
+import com.xjtu.toolbox.settings.SettingsColors.Orange as cOrange
+import com.xjtu.toolbox.settings.SettingsColors.Purple as cPurple
+import com.xjtu.toolbox.settings.SettingsColors.Teal as cTeal
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
@@ -179,7 +183,7 @@ private fun HomeSettingsBody(onDismiss: () -> Unit, showTopBarStyle: Boolean) {
                 },
                 items = HOME_LAYOUT_LABELS,
                 selectedIndex = HOME_LAYOUT_VALUES.indexOf(layout).coerceAtLeast(0),
-                startAction = { SettingsIcon(Icons.Default.Dashboard, SettingsBlue) },
+                startAction = { SettingsIcon(Icons.Default.Dashboard, cBlue) },
                 onSelectedIndexChange = { index ->
                     layout = HOME_LAYOUT_VALUES[index]
                     settings.homeLayout = layout
@@ -191,7 +195,7 @@ private fun HomeSettingsBody(onDismiss: () -> Unit, showTopBarStyle: Boolean) {
         // ── 背景（三套布局共用） ──
         SmallTitle("背景")
         HomeSettingsCard {
-            HomeBackgroundPreference(settings, startAction = { SettingsIcon(Icons.Default.Wallpaper, SettingsPurple) })
+            HomeBackgroundPreference(settings, startAction = { SettingsIcon(Icons.Default.Wallpaper, cPurple) })
             // 卡片组独有：壁纸再盖一层主题底色，文字对比度不够时自己往下拨
             if (cards && wallpaper) {
                 SettingsSliderRow(
@@ -201,7 +205,7 @@ private fun HomeSettingsBody(onDismiss: () -> Unit, showTopBarStyle: Boolean) {
                     range = HomeLayoutStore.BACKGROUND_OPACITY_MIN.toFloat()..
                         HomeLayoutStore.BACKGROUND_OPACITY_MAX.toFloat(),
                     icon = Icons.Default.Layers,
-                    color = SettingsPurple,
+                    color = cPurple,
                     onChange = {
                         opacity = it.roundToInt()
                         store.backgroundOpacity = opacity
@@ -227,7 +231,7 @@ private fun HomeSettingsBody(onDismiss: () -> Unit, showTopBarStyle: Boolean) {
                     value = corner.toFloat(),
                     range = HomeLayoutStore.CARD_CORNER_MIN.toFloat()..HomeLayoutStore.CARD_CORNER_MAX.toFloat(),
                     icon = Icons.Default.Widgets,
-                    color = SettingsTeal,
+                    color = cTeal,
                     onChange = {
                         corner = it.roundToInt()
                         store.cardCorner = corner
@@ -245,7 +249,7 @@ private fun HomeSettingsBody(onDismiss: () -> Unit, showTopBarStyle: Boolean) {
                     else -> "这张背景上看不出模糊与折射，只留薄色与高光轮廓"
                 },
                 checked = liquid,
-                startAction = { SettingsIcon(Icons.Default.WaterDrop, SettingsBlue) },
+                startAction = { SettingsIcon(Icons.Default.WaterDrop, cBlue) },
                 onCheckedChange = {
                     liquid = it
                     settings.homeLiquidGlass = it
@@ -275,7 +279,7 @@ private fun HomeSettingsBody(onDismiss: () -> Unit, showTopBarStyle: Boolean) {
                     },
                     checked = refraction,
                     enabled = glassHasDetail,
-                    startAction = { SettingsIcon(Icons.Default.WaterDrop, SettingsBlue.copy(alpha = 0.72f)) },
+                    startAction = { SettingsIcon(Icons.Default.WaterDrop, cBlue.copy(alpha = 0.72f)) },
                     onCheckedChange = {
                         refraction = it
                         store.liquidRefraction = it
@@ -298,7 +302,7 @@ private fun HomeSettingsBody(onDismiss: () -> Unit, showTopBarStyle: Boolean) {
                         "扫码靠左、标题居中，右侧只留搜索与通知"
                     },
                     checked = topActionsRight,
-                    startAction = { SettingsIcon(Icons.Default.SwapHoriz, SettingsPurple) },
+                    startAction = { SettingsIcon(Icons.Default.SwapHoriz, cPurple) },
                     onCheckedChange = {
                         topActionsRight = it
                         settings.homeTopActionsRight = it
@@ -320,7 +324,7 @@ private fun HomeSettingsBody(onDismiss: () -> Unit, showTopBarStyle: Boolean) {
                         "自由摆放，拖到相邻边界时自动贴合"
                     },
                     checked = grid,
-                    startAction = { SettingsIcon(Icons.Default.GridOn, SettingsTeal) },
+                    startAction = { SettingsIcon(Icons.Default.GridOn, cTeal) },
                     onCheckedChange = { on ->
                         // 关掉是立刻生效的（不会动数据）；打开要把非整数摆位取整，先问一句
                         if (!on) {
@@ -345,7 +349,7 @@ private fun HomeSettingsBody(onDismiss: () -> Unit, showTopBarStyle: Boolean) {
                             "${custom.groups.sumOf { group -> group.tiles.size }} 个组件，存成一个 ${HOME_LAYOUT_FILE_NAME}"
                     } ?: "还没摆过：首页现在用默认布局，没有可导出的内容",
                     icon = Icons.Default.Description,
-                    color = SettingsPurple,
+                    color = cPurple,
                     onClick = {
                         val saved = store.saved
                         if (saved == null) {
@@ -360,7 +364,7 @@ private fun HomeSettingsBody(onDismiss: () -> Unit, showTopBarStyle: Boolean) {
                     title = "从文件导入布局",
                     summary = "选一个导出过的 ${HOME_LAYOUT_FILE_NAME}，覆盖当前的分组与摆放",
                     icon = Icons.Default.FolderOpen,
-                    color = SettingsBlue,
+                    color = cBlue,
                     onClick = pickLayoutFile,
                 )
                 SimpleDivider()
@@ -368,7 +372,7 @@ private fun HomeSettingsBody(onDismiss: () -> Unit, showTopBarStyle: Boolean) {
                     title = "恢复默认分组和布局",
                     summary = "分组、顺序、组件大小全部回到刚安装时的样子",
                     icon = Icons.Default.RestartAlt,
-                    color = SettingsOrange,
+                    color = cOrange,
                     onClick = { confirmReset = true },
                 )
             }
@@ -477,13 +481,6 @@ private fun HomeSettingsBody(onDismiss: () -> Unit, showTopBarStyle: Boolean) {
         }
     }
 }
-
-// 抽屉里几处图标底色。分成常量放这里，是为了让两个文件（本文件与
-// [HomeBackgroundPreference]）里的行用同一套颜色，不会各写一个色值慢慢漂开。
-internal val SettingsPurple = Color(0xFF7E57C2)
-internal val SettingsBlue = Color(0xFF42A5F5)
-internal val SettingsTeal = Color(0xFF26A69A)
-internal val SettingsOrange = Color(0xFFFFA726)
 
 /**
  * 导出的文件名。
@@ -606,17 +603,3 @@ private fun HomeSettingsCard(content: @Composable ColumnScope.() -> Unit) {
     }
 }
 
-/** 和设置页其它行同一个图标样式（32dp 圆底 + 18dp 图标 + 12dp 间隔）。 */
-@Composable
-private fun SettingsIcon(icon: ImageVector, color: Color) {
-    Surface(
-        shape = CircleShape,
-        color = color.copy(alpha = 0.12f),
-        modifier = Modifier.size(32.dp),
-    ) {
-        Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
-            Icon(icon, contentDescription = null, modifier = Modifier.size(18.dp), tint = color)
-        }
-    }
-    Spacer(Modifier.width(12.dp))
-}

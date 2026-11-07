@@ -13,7 +13,6 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.SmartToy
 import androidx.compose.material.icons.filled.*
 import androidx.compose.runtime.*
 import com.xjtu.toolbox.auth.LocalAuthExpiry
@@ -57,6 +56,8 @@ internal fun ActivityDetailPage(
     course: LmsCourseSummary,
     activity: LmsActivity,
     onBack: () -> Unit,
+    /** 从别处直达这项作业时去课程页的入口；null = 不显示。 */
+    onOpenCourse: (() -> Unit)? = null,
     onTopicSelected: (LmsForumTopic) -> Unit = {},
     onAskAgent: ((com.xjtu.toolbox.agent.AgentForward) -> Unit)? = null,
     onPlayVideo: (title: String, instructorUrl: String?, encoderUrl: String?, isLive: Boolean, headers: Map<String, String>, startInDual: Boolean) -> Unit
@@ -160,12 +161,11 @@ internal fun ActivityDetailPage(
                 scrollBehavior = scrollBehavior,
                 onBack = onBack,
                 actions = {
+                    if (onOpenCourse != null) TextButton(text = "打开课程", onClick = onOpenCourse)
                     if (onAskAgent != null) {
-                        IconButton(onClick = {
+                        com.xjtu.toolbox.ui.components.AskAgentAction(summary = "把这项${activity.type.displayName()}的标题和说明发给小岱") {
                             // 详情加载完就带上说明，没加载完也能发（小岱可以自己查）
                             onAskAgent(com.xjtu.toolbox.agent.AgentForward.lmsActivity(course, detail ?: activity, activity.type.displayName()))
-                        }) {
-                            Icon(Icons.Default.SmartToy, contentDescription = "问小岱")
                         }
                     }
                 },

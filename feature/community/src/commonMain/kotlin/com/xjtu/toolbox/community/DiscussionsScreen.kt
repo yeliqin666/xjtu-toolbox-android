@@ -100,7 +100,8 @@ fun DiscussionsScreen(
             CommunityBarAction(Icons.Outlined.AccountCircle, "GitHub 账号", onClick = onAccount)
         },
         floatingActionButton = {
-            FloatingActionButton(onClick = onCreate) {
+            // 社区作为底栏 tab 时要让出玻璃底栏的高度
+            FloatingActionButton(onClick = onCreate, modifier = Modifier.tabContentBottomPadding()) {
                 Icon(Icons.Filled.Add, contentDescription = "发帖", tint = Color.White)
             }
         },

@@ -102,50 +102,20 @@ internal class HomeDragSession {
     var boardOrigin by mutableStateOf(Offset.Zero)
     var boardWidth by mutableFloatStateOf(0f)
 
-    /**
-     * 页面根 Box 与组区容器的**活坐标对象**（不是回填的数值）。
-     *
-     * 起手那一刻用 [refreshBoardFromCoordinates] 现算原点：`LayoutCoordinates` 是活对象，
-     * 读的时候就是当前值，所以页面滚到哪都不会拿到过期位置。之前把 `onGloballyPositioned`
-     * 回填的 Offset 当基准存着，页面一滚动它就停在旧值上——命中全部落空（按住没反应）、
-     * 抓取点偏几百 dp（一拖就跳到远处），都是这一个原因。
-     */
+    /** 页面根 Box 与组区容器的活坐标对象：读的时候就是当前值，滚到哪都不会过期。 */
     var rootCoords: LayoutCoordinates? = null
     var boardCoords: LayoutCoordinates? = null
 
-    /** 【临时诊断】上一次手势收尾的路径；定位完连同 HOME_DRAG_DEBUG 一起删。 */
-    var lastEvent by mutableStateOf("-")
-
     /**
-     * 把 [boardOrigin] / [boardWidth] 刷成**此刻**的值。
-     *
-     * 用 `localPositionOf`——这是 f10b44f8 那版、真机确认拖拽正确时用的写法。之前我误判它
-     * 给出 y=0 是 bug 并换成 boundsInWindow，反而把好用的行为改坏了；那次「上跳」的真因是
-     * 幽灵块被人为抬高了 64dp（本轮已撤）。
-     *
-     * 调用点：起手那一刻（`Modifier.homeDragLayer`）、拖拽期间的每帧维护循环、每次 [move]、
-     * 以及每一次落盘（`settleTileDrop` / `settleResizeDrop` / `settleGroupDrop` / `cancelGroupDrop`）
-     * 之前；少一处就会在「页面滚过一段」之后偏。读的都是活坐标对象，所以拿到的一定是当前
-     * 布局位置，与 `onGloballyPositioned` 是否触发无关。
+     * 把 [boardOrigin] / [boardWidth] 刷成此刻的值。起手、拖拽中每帧、每次 [move]、
+     * 每次落盘前都要调；少一处，页面滚过一段之后落点就会偏。
      */
     fun refreshBoardFromCoordinates() {
-        peekLiveBoardOrigin()?.let { boardOrigin = it }
-        boardCoords?.let { co ->
-            if (co.isAttached && co.size.width > 0) boardWidth = co.size.width.toFloat()
-        }
-    }
-
-    /**
-     * 现读一次组区原点，**不改任何状态**（纯查询）。
-     *
-     * 给 [refreshBoardFromCoordinates] 与诊断层共用：诊断层要靠它把「缓存值 vs 实测值」
-     * 并排摊出来——两者一旦不等，就是「网格不随滚动走」的那一类问题。
-     */
-    fun peekLiveBoardOrigin(): Offset? {
-        val r = rootCoords ?: return null
-        val c = boardCoords ?: return null
-        if (!r.isAttached || !c.isAttached) return null
-        return r.localPositionOf(c, Offset.Zero)
+        val r = rootCoords ?: return
+        val c = boardCoords ?: return
+        if (!r.isAttached || !c.isAttached) return
+        boardOrigin = r.localPositionOf(c, Offset.Zero)
+        if (c.size.width > 0) boardWidth = c.size.width.toFloat()
     }
 
     /**
@@ -349,26 +319,19 @@ internal class HomeDragSession {
      * 动画播完由 [finish] 彻底清场。
      */
     fun release() {
-        lastEvent = "release(mode was $mode)"
         if (mode == HomeDragMode.IDLE) return
         mode = HomeDragMode.IDLE
         settling = true
     }
 
     /** 结算动画播完（或被新手势顶掉）：彻底清场。 */
-    fun finish() {
-        lastEvent = "finish"
-        reset()
-    }
+    fun finish() = reset()
 
     /**
      * 手势被系统抢走 / 从头到尾没拖过 slop（其实是点击）：整场作废，布局由调用方恢复成
      * [base]（AOSP Launcher3 的 `revertTempState()` 就是这个语义）。
      */
-    fun abort() {
-        lastEvent = "abort"
-        reset()
-    }
+    fun abort() = reset()
 
     private fun reset() {
         mode = HomeDragMode.IDLE

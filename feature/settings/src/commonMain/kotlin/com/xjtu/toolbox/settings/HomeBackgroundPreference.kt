@@ -11,6 +11,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import com.xjtu.toolbox.platform.decodeImage
 import com.xjtu.toolbox.platform.decodeImageSize
+import com.xjtu.toolbox.settings.SettingsColors.Purple as cPurple
 import com.xjtu.toolbox.ui.components.encodeHeroImage
 import com.xjtu.toolbox.ui.components.rememberHeroImagePicker
 import com.xjtu.toolbox.ui.components.ImageCropContent
@@ -69,7 +70,7 @@ internal fun HomeBackgroundPreference(store: SettingsStore, startAction: @Compos
             value = blur.toFloat(),
             range = SettingsStore.HERO_IMAGE_BLUR_MIN.toFloat()..SettingsStore.HERO_IMAGE_BLUR_MAX.toFloat(),
             icon = Icons.Default.Tune,
-            color = SettingsPurple,
+            color = cPurple,
             onChange = {
                 blur = it.roundToInt()
                 store.homeWallpaperBlur = blur
