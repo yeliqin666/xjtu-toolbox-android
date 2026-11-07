@@ -211,9 +211,9 @@ fun HomeCardGroupScreen(
      *
      * 液态玻璃在纯色 / 渐变上把白费的离屏采样都关掉：模糊（`blur`，糊不出信息）与折射
      * （`lens`，折的是一张纯色底，看不出弯光）——活力（光感）、高光、轮廓、投影仍然保留，
-     * 底色换成「比页面更亮」的薄色（见 `HomeTileFaceBox` 的 `flatGlassFill`
-     * 与 `LocalHomeGlassBlur`）。顶栏那条模糊带不受影响：它采的是**内容层**，纯色下也照样
-     * 有内容可糊。
+     * 底色与采样档共用同一层（见 `HomeTileFaceBox` 的 `liquidFill`：这一档少掉的只是 vibrancy
+     * 的饱和度提升，不会多蒙一层白）与 `LocalHomeGlassBlur`。顶栏那条模糊带不受影响：它采的是
+     * **内容层**，纯色下也照样有内容可糊。
      */
     val hasWallpaper = backgroundMode == HomeLayoutStore.BACKGROUND_IMAGE && backgroundImage.isNotEmpty()
     /**

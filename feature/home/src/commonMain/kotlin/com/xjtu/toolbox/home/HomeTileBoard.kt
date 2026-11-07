@@ -813,7 +813,7 @@ internal fun HomeTileFaceBox(
      * 壁纸糊到 5dp 以上同理（壁纸已经是一片色块）。这三种情况走 `sampling = false`：**不采样、
      * 不建离屏层、`effects` 一概不跑**，但高光与投影仍由库自己画（同一份 [Highlight] / [Shadow]），
      * 所以观感与采样版一模一样——这一档本来就是为省性能（开关在 vendored 的 
-     * `thirdparty/backdrop` 里，见它的 README）。底色另换成 `flatGlassFill`（两种模式都比页面亮一档：玻璃是反光的，内部不能比周围暗，暗部交给外部阴影）。
+     * `thirdparty/backdrop` 里，见它的 README）。底色与采样版**共用同一层**（[liquidFill]）——这一档少掉的只是 vibrancy 对采样结果的饱和度提升，不会多蒙一层白。
      *
      * 只有**卡片**吃这条规则；按钮与编辑态悬浮条浮在内容上面，照旧模糊 + 折射。
      */
@@ -834,7 +834,12 @@ internal fun HomeTileFaceBox(
     val fill = if (dark) Color.White.copy(alpha = 0.10f) else Color.White.copy(alpha = 0.62f)
     val hairline = if (dark) Color.White.copy(alpha = 0.10f) else Color.White.copy(alpha = 0.7f)
     val iconColor = if (dark) lerp(face.color, Color.White, 0.4f) else face.color
-    // 液态玻璃的填充要比毛玻璃更透：折射与高光是它的主角，填浓了就只剩一张白卡
+    // 液态玻璃的填充要比毛玻璃更透：折射与高光是它的主角，填浓了就只剩一张白卡。
+    // 采样档与不采样档**共用这一层**：不采样档透出的就是页面那层背景本身，所以「背景 + 这层白」
+    // 与采样版「采到的背景 + 同一层白」几乎一样，唯一差别是没有 vibrancy 对采样结果的饱和度提升。
+    // **别给它另配一层更白的底**——2026-11 两次真机反馈都指向这里：深色曾用 Black 26%（整块卡面
+    // 沉下去、比周围暗），浅色曾用 White 52%（比采样版多蒙 10% 白，雾蒙蒙）。
+    // 玻璃的暗部只应该出现在外面那圈投影里（`floatingGlassShadow`）。
     val liquidFill = if (dark) Color.White.copy(alpha = 0.07f) else Color.White.copy(alpha = 0.42f)
     // 和底栏胶囊同一套环境光阴影（remember：shadow lambda 捕获的对象变了会触发重采样）
     val accent = MiuixTheme.colorScheme.primary
@@ -842,13 +847,6 @@ internal fun HomeTileFaceBox(
     // 那圈轮廓高光的**唯一一份**：两个分支都把它交给 `drawBackdrop` 的 `highlight`，画法完全同一份，
     // 改参数只改这一行
     val rim = remember { Highlight.Default.copy(alpha = 0.65f) }
-    // 不采样时（纯色 / 渐变 / 壁纸已糊成色块）：底色换成这一层「比页面更亮」的薄色，
-    // 代替本该从壁纸上采到的颜色（与折射开关无关）。
-    // **两种模式都提亮**：玻璃是反光的东西，内部不能比周围暗——这一档早先用过 `Black 26%`，
-    // 深色模式下整块卡面会沉下去，周围阴影再好也救不回来（2026-11 维护者真机反馈）。
-    // 深色取白 10%（与毛玻璃档同一档）、浅色取白 52%，暗的那一圈交给 `floatingGlassShadow`。
-    val flatGlassFill = if (dark) Color.White.copy(alpha = 0.10f) else Color.White.copy(alpha = 0.52f)
-    val surfaceFill = if (blurGlass) liquidFill else flatGlassFill
 
     // 液态玻璃（§1 / §A16 ⑦）：**有条件的只有「采不采」这一件事**。
     //
@@ -862,7 +860,7 @@ internal fun HomeTileFaceBox(
     // 因为「每帧一个新 lambda」被判定成换了形状而重建离屏层
     val cardShape = remember(radius) { RoundedCornerShape(radius) }
     val material = when {
-        liquid && sample != null -> remember(sample, cardShape, surfaceFill, liquidShadow, rim, refraction, blurGlass) {
+        liquid && sample != null -> remember(sample, cardShape, liquidFill, liquidShadow, rim, refraction, blurGlass) {
             Modifier.drawBackdrop(
                 backdrop = sample,
                 shape = { cardShape },
@@ -887,13 +885,13 @@ internal fun HomeTileFaceBox(
                 highlight = { rim },
                 // 卡片浮在壁纸上，该有一圈柔和的环境光投影（同上）
                 shadow = { liquidShadow },
-                onDrawSurface = { drawRect(surfaceFill) },
+                onDrawSurface = { drawRect(liquidFill) },
             )
         }
         // 没有可采的细节（纯色 / 渐变 / 壁纸已被糊平）：`sampling = false`——不录采样层、
         // `effects` 一概不跑、离屏层也不建，而 onDrawSurface / 内容 / 高光 / 投影仍由库按原顺序画。
         // 有细节时走上头那一支，模糊与折射照旧。
-        liquid -> remember(cardShape, surfaceFill, liquidShadow, rim) {
+        liquid -> remember(cardShape, liquidFill, liquidShadow, rim) {
             Modifier.drawBackdrop(
                 backdrop = emptyBackdrop(),
                 shape = { cardShape },
@@ -901,7 +899,7 @@ internal fun HomeTileFaceBox(
                 effects = {},
                 highlight = { rim },
                 shadow = { liquidShadow },
-                onDrawSurface = { drawRect(surfaceFill) },
+                onDrawSurface = { drawRect(liquidFill) },
             )
         }
         else -> Modifier
