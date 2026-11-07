@@ -430,6 +430,8 @@ private fun GroupDeleteButton(liquid: Boolean, refraction: Boolean, backdrop: Ba
                 blur(6.dp.toPx())
                 if (refraction) lens(6.dp.toPx(), 8.dp.toPx())
             },
+            // 同顶栏圆钮：只糊时降一半分辨率，要折射就保清
+            downsample = if (refraction) 1f else 0.5f,
             highlight = { Highlight.Default.copy(alpha = 0.6f) },
             shadow = null,
             onDrawSurface = { drawRect(fill) },
@@ -880,6 +882,10 @@ internal fun HomeTileFaceBox(
                     // 活力、高光、投影照旧：玻璃还是那块玻璃，只是不再像一片厚透镜。
                     if (refraction) lens(10.dp.toPx(), 14.dp.toPx())
                 },
+                // 只糊不折时把采样层降一半分辨率（像素数 1/4）：8dp 的模糊早把细节糊平了，
+                // 缩小再放大看不出来；开折射就保清——那圈透镜弯光吃的就是采样精度。
+                // （2026-11 性能优化，见 `drawBackdrop` 的 downsample）
+                downsample = if (refraction) 1f else 0.5f,
                 // 玻璃被光打亮的那圈轮廓（与采样无关，两条路都画）
                 highlight = { rim },
                 // 卡片浮在壁纸上，该有一圈柔和的环境光投影（同上）

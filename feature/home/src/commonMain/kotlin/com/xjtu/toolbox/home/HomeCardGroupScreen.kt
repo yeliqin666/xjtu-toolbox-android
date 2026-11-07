@@ -1661,6 +1661,9 @@ private fun HomeBarIconButton(icon: ImageVector, label: String, liquid: Backdrop
                 blur(6.dp.toPx())
                 if (refraction) lens(8.dp.toPx(), 10.dp.toPx())
             },
+            // 有折射就保清：那圈透镜弯光靠的就是采样精度；只模糊时降一半分辨率看不出来，
+            // 像素数直接砍到 1/4（2026-11 性能优化，见 `drawBackdrop` 的 downsample）
+            downsample = if (refraction) 1f else 0.5f,
             highlight = { Highlight.Default.copy(alpha = 0.65f) },
             shadow = null,
             onDrawSurface = { drawRect(fill) },
@@ -1693,6 +1696,11 @@ private fun HomeBarIconButton(icon: ImageVector, label: String, liquid: Backdrop
  * 代价要清楚：滚动时**每一帧七次离屏采样 + 七次高斯模糊**，而这条带宽 96dp、横跨整个屏宽，
  * 是首页滚动最贵的两处之一（另一处是卡片玻璃）。曾经收成过单层（1/7 开销），
  * 后来按需求改回这个「越靠顶边越糊」的观感——嫌卡就调 [ProgressiveBlurRadii] 的层数。
+ *
+ * 所以这一组是全 App 最该降采样的地方（2026-11 性能优化）：**采样层按一半分辨率录**
+ * （`downsample = 0.5f`），模糊与遮罩的像素数直接降到 1/4，画回去时双线性放大。
+ * 这条带本身就是「越靠顶边越糊」，最锐的一层也才 0.75dp、还被渐变遮罩压在低透明度那一段，
+ * 缩小一半看不出区别；而 `blur()` 的参数是按 dp 写的，缩放坐标系之后外观半径不变。
  */
 @Composable
 private fun ProgressiveBarBlur(
@@ -1708,6 +1716,7 @@ private fun ProgressiveBarBlur(
                     effects = {
                         blur(radius.dp.toPx(), TileMode.Decal)
                     },
+                    downsample = 0.5f,
                     highlight = null,
                     shadow = null,
                     onDrawFront = {
