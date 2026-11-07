@@ -1,13 +1,12 @@
 package com.xjtu.toolbox.ui.components
 
-import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -15,9 +14,9 @@ import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.xjtu.toolbox.ui.glass.glassHairline
-import com.xjtu.toolbox.ui.glass.glassSheen
-import com.xjtu.toolbox.ui.glass.staticGlassShadow
+import com.kyant.backdrop.highlight.Highlight
+import com.xjtu.toolbox.ui.glass.floatingGlassShadow
+import com.xjtu.toolbox.ui.glass.staticGlassSurface
 import com.xjtu.toolbox.ui.theme.LocalIsDarkTheme
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.theme.MiuixTheme
@@ -25,12 +24,12 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
 /**
  * 一枚「有几个」的小圆标（`1` / `12` / `99+`）。
  *
- * **不采样，但液态玻璃的效果一样不少**（2026-11 维护者定）：只有「必须采样才画得出来」的
- * 那几样才不做——模糊、折射、以及 `vibrancy` 对底色的饱和度提升（15dp 的尺度上那两层只会
- * 糊成一团，`vibrancy` 在这么小的面积上也看不出来）。其余全部保留，用纯绘制的方式补：
- * 半透明染色面 + 顶部打光（[glassSheen]）+ 轮廓高光（[glassHairline]）+ 同色环境光投影
- * （[staticGlassShadow]，与卡片的 `floatingGlassShadow` 同一组参数）。这样它才像一枚
- * 「钉在玻璃上的小钉子」，而不是一张贴纸。
+ * **和卡片同一套液态玻璃的参数，但不采样**（2026-11 维护者定）：轮廓高光是同一份
+ * `Highlight.Default.copy(alpha = 0.65f)`，环境光投影是同一份 [floatingGlassShadow]，
+ * 走 [staticGlassSurface] 直接画出来——**不调 `drawBackdrop`**。理由是性能：`drawBackdrop`
+ * 的离屏层跟有没有内容可采无关，源给成空的也每帧照录一层；而这枚 15dp 的小圆标下面本来
+ * 就没有可采的东西，`vibrancy` / `blur` / `lens` 一个都用不上（见 `staticGlassSurface` 注释）。
+ * 参数只有一处来源，所以它和卡片之间不会慢慢漂成两套材质。
  *
  * 放在 `:shared:designsystem` 而不是某个 feature 里，是因为首页悬浮条与通知铃铛分属两个 feature，
  * 而 feature 之间不许互相依赖。
@@ -47,15 +46,22 @@ fun CountBadge(count: Int, modifier: Modifier = Modifier, accent: Color = Color.
     val ink = if (dark) lerp(tint, Color.White, 0.45f) else lerp(tint, Color.Black, 0.3f)
     // 染色面：比实心色淡得多——它的作用是「往底下那块玻璃里掺一点色」，不是盖住它
     val wash = tint.copy(alpha = if (dark) 0.50f else 0.42f)
+    val glow = remember(tint, dark) { floatingGlassShadow(tint, dark) }
+    val rim = remember { Highlight.Default.copy(alpha = 0.65f) }
+
+    val material = remember(wash, glow, rim) {
+        Modifier.staticGlassSurface(
+            highlight = rim,
+            shadow = glow,
+            shape = CircleShape,
+            fill = wash,
+        )
+    }
     Box(
         modifier
             .height(15.dp)
             .widthIn(min = 15.dp)
-            // 环境光投影：与卡片同一组参数，小圆标才像浮在玻璃上的钉子
-            .staticGlassShadow(tint, dark, CircleShape)
-            .background(wash, CircleShape)
-            .background(glassSheen(dark), CircleShape)
-            .border(0.7.dp, glassHairline(dark), CircleShape)
+            .then(material)
             .padding(horizontal = 3.5.dp),
         contentAlignment = Alignment.Center,
     ) {

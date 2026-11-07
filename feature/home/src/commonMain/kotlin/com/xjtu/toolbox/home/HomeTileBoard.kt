@@ -73,9 +73,7 @@ import com.xjtu.toolbox.ui.components.ExpressiveIcon
 import com.xjtu.toolbox.ui.components.LocalPageVisible
 import com.xjtu.toolbox.ui.components.appCardShadow
 import com.xjtu.toolbox.ui.glass.floatingGlassShadow
-import com.xjtu.toolbox.ui.glass.glassHairline
-import com.xjtu.toolbox.ui.glass.glassSheen
-import com.xjtu.toolbox.ui.glass.staticGlassShadow
+import com.xjtu.toolbox.ui.glass.staticGlassSurface
 import com.xjtu.toolbox.ui.rememberCampusNow
 import com.xjtu.toolbox.ui.theme.Editorial
 import com.xjtu.toolbox.ui.theme.LocalIsDarkTheme
@@ -805,12 +803,13 @@ internal fun HomeTileFaceBox(
     refraction: Boolean,
     backdrop: Backdrop?,
     /**
-     * 这张卡**能不能糊**：背景上有可糊的细节才为真——自定义图片、且没被「模糊程度」糊平。
+     * 这一张卡**采不采背景**：只有「自定义图片、且没被模糊程度糊平」才值得采。
      *
-     * 纯色 / 渐变背景上模糊这层没信息可采，壁纸糊到 5dp 以上也一样（壁纸已经是一片色块）。
-     * 只关掉模糊（`vibrancy` 光感、高光、轮廓、投影全都保留；`lens` 折射由调用方一并关掉，
-     * 见 `HomeCardGroupScreen` 的 `cardRefraction`），底色换成
-     * `flatGlassFill`（浅色更白 / 深色更深）。
+     * 纯色 / 渐变背景上模糊采到的就是那片纯色，`lens` 也没东西可折，`vibrancy` 更是无事可做；
+     * 壁纸糊到 5dp 以上同理（壁纸已经是一片色块）。这三种情况**整块卡面不进 `drawBackdrop`**，
+     * 高光与投影改用 [staticGlassSurface] 直接画——参数就地取自同一个 [Highlight] / `Shadow`
+     * 对象，所以观感与采样版是同一套，只是省掉了那次离屏层与采样（这一档本来就是为省性能）。
+     * 底色另换成 `flatGlassFill`（浅色更白 / 深色更深）。
      *
      * 只有**卡片**吃这条规则；按钮与编辑态悬浮条浮在内容上面，照旧模糊 + 折射。
      */
@@ -836,23 +835,37 @@ internal fun HomeTileFaceBox(
     // 和底栏胶囊同一套环境光阴影（remember：shadow lambda 捕获的对象变了会触发重采样）
     val accent = MiuixTheme.colorScheme.primary
     val liquidShadow = remember(accent, dark) { floatingGlassShadow(accent, dark) }
-    // 纯色 / 渐变背景上：关掉模糊（调用方连折射一起关），活力 / 高光 / 轮廓 / 投影全部保留，
-    // 底色换成这一层「比页面更白（浅色）/ 更深（深色）」的薄色（与折射开关无关）
+    // 那圈轮廓高光的**唯一一份**：采样版交给 `drawBackdrop` 的 `highlight`，不采样版交给
+    // `staticGlassSurface` 当描边，两个分支取的是同一个对象，改参数只改这一行
+    val rim = remember { Highlight.Default.copy(alpha = 0.65f) }
+    // 不采样时（纯色 / 渐变 / 壁纸已糊成色块）：底色换成这一层「比页面更白（浅色）/
+    // 更深（深色）」的薄色，代替本该从壁纸上采到的颜色（与折射开关无关）
     val flatGlassFill = if (dark) Color.Black.copy(alpha = 0.26f) else Color.White.copy(alpha = 0.52f)
     val surfaceFill = if (blurGlass) liquidFill else flatGlassFill
 
+    // 液态玻璃（§1 / §A16 ⑦）：**有条件的只有「采不采」这一件事**。
+    //
+    // 有可糊 / 可折的细节 → 走 `drawBackdrop` 的离屏采样，模糊 + 活力 + 折射 + 高光 + 投影全套。
+    // 没有（纯色、渐变，或壁纸已被模糊程度糊平）→ **不调 `drawBackdrop`**：它的离屏层跟有没有
+    // 内容可采无关，源给成空的也每帧照录一张卡片大小的层（见 `staticGlassSurface` 的注释），
+    // 而这一档的存在理由就是省性能，留着那层等于白付一次全卡离屏渲染。
+    // 改为直接画，但**参数一个都不另存**：轮廓用同一份 [rim]（`Highlight`）、投影用同一份
+    // `liquidShadow`（`Shadow`）、底色用同一份 `surfaceFill`，全部从这两个库对象上读，
+    // 所以换个背景看不出「换了材质」——2026-11 维护者要求的就是这个。
+    val sample = backdrop?.takeIf { blurGlass || refraction }
     val material = when {
-        // 有可糊 / 可折的细节：走 `drawBackdrop`（离屏采样），模糊 + 活力 + 折射 + 高光 + 投影全套
-        liquid && backdrop != null && (blurGlass || refraction) -> remember(backdrop, radius, surfaceFill, liquidShadow, refraction, blurGlass) {
+        liquid && sample != null -> remember(sample, radius, surfaceFill, liquidShadow, rim, refraction, blurGlass) {
             Modifier.drawBackdrop(
-                backdrop = backdrop,
+                backdrop = sample,
                 shape = { RoundedCornerShape(radius) },
                 effects = {
+                    // 能走到这一支就说明背景上有可糊 / 可折的细节（没有时 [sample] 是空的，
+                    // 整块卡面走下面的 `staticGlassSurface`），所以下面这几层都真跑
+                    //
                     // 采样范围往外扩一圈，折射与模糊在轮廓边上也有真实内容可混、不变弱
                     // （和底栏胶囊、屁岱气泡同一手法）
                     padding = maxOf(padding, 12.dp.toPx())
                     vibrancy()
-                    // 纯色 / 渐变上没有壁纸可糊：只省这一层，其余效果一个不少
                     if (blurGlass) blur(8.dp.toPx())
                     // 折射才是「液态」和「毛玻璃」的分界：边缘把背景扭出透镜的弯光，
                     // 带一点色散。带宽与位移用固定的物理宽度（和底栏一致），不随卡片
@@ -862,28 +875,19 @@ internal fun HomeTileFaceBox(
                     // 活力、高光、投影照旧：玻璃还是那块玻璃，只是不再像一片厚透镜。
                     if (refraction) lens(10.dp.toPx(), 14.dp.toPx(), chromaticAberration = true)
                 },
-                // 玻璃被光打亮的那圈轮廓
-                highlight = { Highlight.Default.copy(alpha = 0.65f) },
-                // 卡片浮在壁纸上，该有一圈柔和的环境光投影
+                // 玻璃被光打亮的那圈轮廓（与采样无关，两条路都画）
+                highlight = { rim },
+                // 卡片浮在壁纸上，该有一圈柔和的环境光投影（同上）
                 shadow = { liquidShadow },
                 onDrawSurface = { drawRect(surfaceFill) },
             )
         }
-        /**
-         * 没有可糊 / 可折的细节（纯色、渐变，或壁纸已糊成色块）：**不采样，但玻璃的效果一样不少**。
-         *
-         * 2026-11 维护者定：只有「必须采样才画得出来」的那几样才不做——模糊、折射、以及
-         * `vibrancy` 对底色的饱和度提升（底板本来就是一片纯色，采了也没变化）。其余全部保留，
-         * 用纯绘制的方式补：[glassSheen] 补顶部打光（对应 `Highlight`）、
-         * [staticGlassShadow] 补环境光投影（与 `floatingGlassShadow` 同一组参数）、
-         * 再加底部薄色与轮廓高光。少了这三样，卡片就从「一块浮起来的玻璃」退成「一张平涂的纸」。
-         */
-        liquid -> Modifier
-            .staticGlassShadow(accent, dark, RoundedCornerShape(radius))
-            .squircleClip(radius)
-            .background(flatGlassFill)
-            .background(glassSheen(dark))
-            .squircleBorder(0.9.dp, glassHairline(dark), radius)
+        liquid -> Modifier.staticGlassSurface(
+            highlight = rim,
+            shadow = liquidShadow,
+            shape = RoundedCornerShape(radius),
+            fill = surfaceFill,
+        )
         else -> Modifier
             .then(if (dark) Modifier else Modifier.appCardShadow(shape = RoundedCornerShape(radius)))
             .squircleClip(radius)
