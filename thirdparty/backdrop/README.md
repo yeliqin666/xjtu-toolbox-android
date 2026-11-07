@@ -45,16 +45,35 @@ configurations.configureEach {
    折射弯光本身不变，只是边缘不再有彩色条纹。调用点（首页卡片、底栏胶囊）相应去掉
    `chromaticAberration = true`。
 
-后续的 vendor 扩展（与「省资源」同一条线）：`DrawBackdropModifier.kt` 的 `sampling: Boolean = true`，
-`false` 时跳过 `drawBackdropLayer()`、不设 `CompositingStrategy.Offscreen`、不执行 `effects`。
+后续的 vendor 扩展（与「省资源」同一条线）：
+
+1. `DrawBackdropModifier.kt` 的 `sampling: Boolean = true`，`false` 时跳过 `drawBackdropLayer()`、
+   不设 `CompositingStrategy.Offscreen`、不执行 `effects`。
+2. **内容只渲染一遍**（`backdrops/LayerBackdropModifier.kt`）：上游 `LayerBackdropNode.draw()` 是
+   `drawContent()`（上屏）再 `recordLayer { onDraw }`（进采样层，默认又是 `drawContent()`），同一棵
+   内容树画两次。默认 `onDraw` 与内容本身逐像素相同，所以改成**先录进采样层、再把同一层画上屏**，
+   采样与上屏共用一次渲染（不额外占显存，那一层本来就存在）。`Modifier.layerBackdrop(backdrop,
+   drawOnce = false)` 可退回上游行为。
+   收益是**按嵌套层数相乘**的：壳的内容层（`AppShell`）里套着首页的内容层，首页里又有每张卡片的
+   采样层——首页滚动时卡片那套 blur + 折射上游要跑 4 遍。
+3. **采样层降采样**（`drawPlainBackdrop` / `drawBackdrop` 的 `downsample: Float = 1f`）：按
+   `1/downsample` 倍小的分辨率录采样层，特效算完再放大画回去，像素数降到 `downsample²`。
+   `BackdropEffectScopeImpl.update(scope, scale)` 会把 `density` 与 `size` 一起缩到那一套坐标系里，
+   所以调用方的 `blur(8.dp.toPx())` / `lens(10.dp.toPx(), 14.dp.toPx())` **外观尺寸一个字不用改**。
+   用在「本来就被糊掉了细节」的层：首页顶栏那条 96dp 的七层渐进模糊带（`0.5f`）、只模糊不折射的
+   卡片与圆钮（`0.5f`）。开折射一律保持 `1f`——那圈透镜弯光吃的就是采样精度。
+4. `HighlightNode` / `ShadowNode` 只在半径真的变了时才重建 `BlurMaskFilter`（`Paint.blur` 每次都会
+   new 一个原生 MaskFilter，卡片一多就是每帧一堆垃圾）。
 
 已知上游遗留（**未改动**，按最小改动原则）：`highlight/HighlightModifier.kt` 的 `prevStyle`
 只写不读（SearchDeadCode 会报一条 DC002），上游 2.0.1 就是这样。
 
 ## 升级上游
 
-重新拉两个 sources jar 覆盖 `src/`，然后把上面三处改动重放一遍。**不要**直接改绘制代码而不同步
-到这里，否则下次升级会丢。
+重新拉两个 sources jar 覆盖 `src/`，然后把「哪些改过」逐条重放：构建相关三处（注解、`skikoMain`）、
+删色散、`sampling`、`downsample`（`BackdropEffectScope` 的 `update(scope, scale)` + `drawBackdropLayer`
+的录制/绘制数学）、`LayerBackdropNode` 的单遍绘制、两处 `BlurMaskFilter` 缓存。
+**不要**直接改绘制代码而不同步到这里，否则下次升级会丢。
 
 ## 许可
 
