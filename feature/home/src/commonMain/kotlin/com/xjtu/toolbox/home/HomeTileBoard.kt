@@ -807,8 +807,9 @@ internal fun HomeTileFaceBox(
      *
      * 纯色 / 渐变背景上模糊采到的就是那片纯色，`lens` 也没东西可折，`vibrancy` 更是无事可做；
      * 壁纸糊到 5dp 以上同理（壁纸已经是一片色块）。这三种情况**整块卡面不进 `drawBackdrop`**，
-     * 高光与投影改用 [staticGlassSurface] 直接画——参数就地取自同一个 [Highlight] / `Shadow`
-     * 对象，所以观感与采样版是同一套，只是省掉了那次离屏层与采样（这一档本来就是为省性能）。
+     * 光影改用 [staticGlassSurface] 直接画——**一圈都不少**：轮廓高光按库里那条方向光公式
+     * 逐边逐角重画（`GlassRimMath`）、投影与加色混合照旧，参数就地取自同一个 [Highlight] /
+     * `Shadow` 对象，所以观感与采样版是同一套，只是省掉了那次离屏层与采样（这一档本来就是为省性能）。
      * 底色另换成 `flatGlassFill`（浅色更白 / 深色更深）。
      *
      * 只有**卡片**吃这条规则；按钮与编辑态悬浮条浮在内容上面，照旧模糊 + 折射。
@@ -836,7 +837,8 @@ internal fun HomeTileFaceBox(
     val accent = MiuixTheme.colorScheme.primary
     val liquidShadow = remember(accent, dark) { floatingGlassShadow(accent, dark) }
     // 那圈轮廓高光的**唯一一份**：采样版交给 `drawBackdrop` 的 `highlight`，不采样版交给
-    // `staticGlassSurface` 当描边，两个分支取的是同一个对象，改参数只改这一行
+    // `staticGlassSurface` 按同一份参数（含方向光的角度与衰减）重画那圈描边，
+    // 两个分支取的是同一个对象，改参数只改这一行
     val rim = remember { Highlight.Default.copy(alpha = 0.65f) }
     // 不采样时（纯色 / 渐变 / 壁纸已糊成色块）：底色换成这一层「比页面更白（浅色）/
     // 更深（深色）」的薄色，代替本该从壁纸上采到的颜色（与折射开关无关）
@@ -849,15 +851,19 @@ internal fun HomeTileFaceBox(
     // 没有（纯色、渐变，或壁纸已被模糊程度糊平）→ **不调 `drawBackdrop`**：它的离屏层跟有没有
     // 内容可采无关，源给成空的也每帧照录一张卡片大小的层（见 `staticGlassSurface` 的注释），
     // 而这一档的存在理由就是省性能，留着那层等于白付一次全卡离屏渲染。
-    // 改为直接画，但**参数一个都不另存**：轮廓用同一份 [rim]（`Highlight`）、投影用同一份
-    // `liquidShadow`（`Shadow`）、底色用同一份 `surfaceFill`，全部从这两个库对象上读，
-    // 所以换个背景看不出「换了材质」——2026-11 维护者要求的就是这个。
+    // 改为直接画，但**光影一样不少、参数一个都不另存**：轮廓高光用同一份 [rim]（按库里那条
+    // 方向光公式逐边逐角重画，见 `GlassRimMath`）、投影用同一份 `liquidShadow`（`Shadow`）、
+    // 底色用同一份 `surfaceFill`，全部从这两个库对象上读，所以换个背景看不出「换了材质」
+    // ——2026-11 维护者要求的就是这个（「我只是不要做采样，其他效果我都要」）。
     val sample = backdrop?.takeIf { blurGlass || refraction }
+    // 圆角形状两档共用同一个对象：`remember` 住它，`drawBackdrop` 的 `ShapeProvider` 才不会
+    // 因为「每帧一个新 lambda」被判定成换了形状而重建离屏层
+    val cardShape = remember(radius) { RoundedCornerShape(radius) }
     val material = when {
-        liquid && sample != null -> remember(sample, radius, surfaceFill, liquidShadow, rim, refraction, blurGlass) {
+        liquid && sample != null -> remember(sample, cardShape, surfaceFill, liquidShadow, rim, refraction, blurGlass) {
             Modifier.drawBackdrop(
                 backdrop = sample,
-                shape = { RoundedCornerShape(radius) },
+                shape = { cardShape },
                 effects = {
                     // 能走到这一支就说明背景上有可糊 / 可折的细节（没有时 [sample] 是空的，
                     // 整块卡面走下面的 `staticGlassSurface`），所以下面这几层都真跑
@@ -882,14 +888,16 @@ internal fun HomeTileFaceBox(
                 onDrawSurface = { drawRect(surfaceFill) },
             )
         }
-        liquid -> Modifier.staticGlassSurface(
-            highlight = rim,
-            shadow = liquidShadow,
-            shape = RoundedCornerShape(radius),
-            fill = surfaceFill,
-        )
+        liquid -> remember(cardShape, surfaceFill, liquidShadow, rim) {
+            Modifier.staticGlassSurface(
+                highlight = rim,
+                shadow = liquidShadow,
+                shape = cardShape,
+                fill = surfaceFill,
+            )
+        }
         else -> Modifier
-            .then(if (dark) Modifier else Modifier.appCardShadow(shape = RoundedCornerShape(radius)))
+            .then(if (dark) Modifier else Modifier.appCardShadow(shape = cardShape))
             .squircleClip(radius)
             .background(fill)
             .squircleBorder(0.7.dp, hairline, radius)

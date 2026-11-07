@@ -25,7 +25,8 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
  * 一枚「有几个」的小圆标（`1` / `12` / `99+`）。
  *
  * **和卡片同一套液态玻璃的参数，但不采样**（2026-11 维护者定）：轮廓高光是同一份
- * `Highlight.Default.copy(alpha = 0.65f)`，环境光投影是同一份 [floatingGlassShadow]，
+ * `Highlight.Default.copy(alpha = 0.65f)`（按方向光逐角重画，见 `GlassRimMath`，所以
+ * 「亮一对角、隐一对角」的光感都在），环境光投影是同一份 [floatingGlassShadow]，
  * 走 [staticGlassSurface] 直接画出来——**不调 `drawBackdrop`**。理由是性能：`drawBackdrop`
  * 的离屏层跟有没有内容可采无关，源给成空的也每帧照录一层；而这枚 15dp 的小圆标下面本来
  * 就没有可采的东西，`vibrancy` / `blur` / `lens` 一个都用不上（见 `staticGlassSurface` 注释）。
