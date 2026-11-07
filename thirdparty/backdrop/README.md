@@ -42,6 +42,9 @@ configurations.configureEach {
 后续计划（第二步）：`DrawBackdropModifier.kt` 加 `sampling: Boolean = true`，`false` 时跳过
 `drawBackdropLayer()`、不设 `CompositingStrategy.Offscreen`、不执行 `effects`。
 
+已知上游遗留（**未改动**，按最小改动原则）：`highlight/HighlightModifier.kt` 的 `prevStyle`
+只写不读（SearchDeadCode 会报一条 DC002），上游 2.0.1 就是这样。
+
 ## 升级上游
 
 重新拉两个 sources jar 覆盖 `src/`，然后把上面三处改动重放一遍。**不要**直接改绘制代码而不同步
