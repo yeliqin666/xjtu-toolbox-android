@@ -56,14 +56,14 @@ configurations.configureEach {
    drawOnce = false)` 可退回上游行为。
    收益是**按嵌套层数相乘**的：壳的内容层（`AppShell`）里套着首页的内容层，首页里又有每张卡片的
    采样层——首页滚动时卡片那套 blur + 折射上游要跑 4 遍。
-3. **采样层降采样**（`drawPlainBackdrop` / `drawBackdrop` 的 `downsample: Float = 1f`）：按
-   `1/downsample` 倍小的分辨率录采样层，特效算完再放大画回去，像素数降到 `downsample²`。
-   `BackdropEffectScopeImpl.update(scope, scale)` 会把 `density` 与 `size` 一起缩到那一套坐标系里，
-   所以调用方的 `blur(8.dp.toPx())` / `lens(10.dp.toPx(), 14.dp.toPx())` **外观尺寸一个字不用改**。
-   用在「本来就被糊掉了细节」的层：首页顶栏那条 96dp 的七层渐进模糊带（`0.5f`）、只模糊不折射的
-   卡片与圆钮（`0.5f`）。开折射一律保持 `1f`——那圈透镜弯光吃的就是采样精度。
-4. `HighlightNode` / `ShadowNode` 只在半径真的变了时才重建 `BlurMaskFilter`（`Paint.blur` 每次都会
+3. `HighlightNode` / `ShadowNode` 只在半径真的变了时才重建 `BlurMaskFilter`（`Paint.blur` 每次都会
    new 一个原生 MaskFilter，卡片一多就是每帧一堆垃圾）。
+
+**试过又撤掉的路（别再走一遍）**：把采样层录成半分辨率、再靠画布 `scale(1/n)` 放大画回去
+（一度加过 `downsample: Float` 参数，2026-11 撤除）。想法是「模糊那层本来就没细节，像素数降到
+1/n²」，但 `RenderEffect` 与 AGSL runtime shader **是在设备空间求值的**：层录小了并不会让特效少算，
+把这张层再缩放绘制反而可能让硬件按设备分辨率重算一遍、外加一次重采样——真机上不是持平而是更慢。
+要在 Android 上真正省模糊，只能从**层数、半径、面积、出帧频率**这四个维度省。
 
 已知上游遗留（**未改动**，按最小改动原则）：`highlight/HighlightModifier.kt` 的 `prevStyle`
 只写不读（SearchDeadCode 会报一条 DC002），上游 2.0.1 就是这样。
@@ -71,8 +71,7 @@ configurations.configureEach {
 ## 升级上游
 
 重新拉两个 sources jar 覆盖 `src/`，然后把「哪些改过」逐条重放：构建相关三处（注解、`skikoMain`）、
-删色散、`sampling`、`downsample`（`BackdropEffectScope` 的 `update(scope, scale)` + `drawBackdropLayer`
-的录制/绘制数学）、`LayerBackdropNode` 的单遍绘制、两处 `BlurMaskFilter` 缓存。
+删色散、`sampling`、`LayerBackdropNode` 的单遍绘制、两处 `BlurMaskFilter` 缓存。
 **不要**直接改绘制代码而不同步到这里，否则下次升级会丢。
 
 ## 许可

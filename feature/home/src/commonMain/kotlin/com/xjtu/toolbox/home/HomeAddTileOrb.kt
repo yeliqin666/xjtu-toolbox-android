@@ -729,8 +729,6 @@ private fun Modifier.orbGlass(
                 blur(8.dp.toPx())
                 if (refraction) lens(9.dp.toPx(), 12.dp.toPx())
             },
-            // 同卡片 / 顶栏圆钮：只糊时降一半分辨率，要折射就保清（2026-11 性能优化）
-            downsample = if (refraction) 1f else 0.5f,
             highlight = { Highlight.Default.copy(alpha = 0.65f) },
             shadow = { shadow },
             onDrawSurface = { drawRect(fill) },

@@ -6,12 +6,10 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.neverEqualPolicy
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.GraphicsLayerScope
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.drawscope.ContentDrawScope
 import androidx.compose.ui.graphics.drawscope.DrawScope
-import androidx.compose.ui.graphics.drawscope.withTransform
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.layer.GraphicsLayer
 import androidx.compose.ui.graphics.layer.drawLayer
@@ -56,23 +54,11 @@ private val NoEffects: BackdropEffectScope.() -> Unit = {}
 // 与投影（Shadow / InnerShadow）用的还是上游那两份绘制代码，所以观感与 `sampling = true` 一模一样。
 // 用在「背景上没有可采细节」那一档（纯色 / 渐变，或壁纸已被模糊糊平）；有细节时照旧传 true。
 
-/** 采样层允许的最小缩小倍数（再小就看得出糊了）。 */
-private const val MIN_DOWNSAMPLE = 0.25f
-
 fun Modifier.drawPlainBackdrop(
     backdrop: Backdrop,
     shape: () -> Shape,
     effects: BackdropEffectScope.() -> Unit,
     sampling: Boolean = true,
-    /**
-     * [岱宗盒子 vendor 扩展] 采样层的降采样倍数：1 = 全分辨率，0.5 = 录一层一半大小的采样结果
-     * 再放大画回去（像素数降到 1/4）。
-     *
-     * 只在「谁看都看不出来」的地方开：要模糊的那一层本来就被糊掉了细节，缩小一半再放大只在
-     * 极低模糊半径下才看得出来。而 `blur()` / `lens()` 的参数是按 dp 写的，缩放坐标系之后
-     * 外观尺寸不变（见 `BackdropEffectScopeImpl.update`）。
-     */
-    downsample: Float = 1f,
     layerBlock: (GraphicsLayerScope.() -> Unit)? = null,
     exportedBackdrop: LayerBackdrop? = null,
     onDrawBehind: (DrawScope.() -> Unit)? = null,
@@ -95,7 +81,6 @@ fun Modifier.drawPlainBackdrop(
                 shapeProvider = shapeProvider,
                 effects = effects,
                 sampling = sampling,
-                downsample = downsample,
                 layerBlock = layerBlock,
                 exportedBackdrop = exportedBackdrop,
                 onDrawBehind = onDrawBehind,
@@ -111,8 +96,6 @@ fun Modifier.drawBackdrop(
     shape: () -> Shape,
     effects: BackdropEffectScope.() -> Unit,
     sampling: Boolean = true,
-    /** [岱宗盒子 vendor 扩展]，含义见 [drawPlainBackdrop]。 */
-    downsample: Float = 1f,
     highlight: (() -> Highlight?)? = DefaultHighlight,
     shadow: (() -> Shadow?)? = DefaultShadow,
     innerShadow: (() -> InnerShadow?)? = null,
@@ -168,7 +151,6 @@ fun Modifier.drawBackdrop(
                 shapeProvider = shapeProvider,
                 effects = effects,
                 sampling = sampling,
-                downsample = downsample,
                 layerBlock = layerBlock,
                 exportedBackdrop = exportedBackdrop,
                 onDrawBehind = onDrawBehind,
@@ -184,7 +166,6 @@ private class DrawBackdropElement(
     val shapeProvider: ShapeProvider,
     val effects: BackdropEffectScope.() -> Unit,
     val sampling: Boolean,
-    val downsample: Float,
     val layerBlock: (GraphicsLayerScope.() -> Unit)?,
     val exportedBackdrop: LayerBackdrop?,
     val onDrawBehind: (DrawScope.() -> Unit)?,
@@ -199,7 +180,6 @@ private class DrawBackdropElement(
             shapeProvider = shapeProvider,
             effects = effects,
             sampling = sampling,
-            downsample = downsample,
             layerBlock = layerBlock,
             exportedBackdrop = exportedBackdrop,
             onDrawBehind = onDrawBehind,
@@ -214,7 +194,6 @@ private class DrawBackdropElement(
         node.shapeProvider = shapeProvider
         node.effects = effects
         node.sampling = sampling
-        node.downsample = downsample
         node.layerBlock = layerBlock
         if (node.exportedBackdrop != exportedBackdrop) {
             node.exportedBackdrop?.layerCoordinates = null
@@ -233,7 +212,6 @@ private class DrawBackdropElement(
         properties["shapeProvider"] = shapeProvider
         properties["effects"] = effects
         properties["sampling"] = sampling
-        properties["downsample"] = downsample
         properties["layerBlock"] = layerBlock
         properties["exportedBackdrop"] = exportedBackdrop
         properties["onDrawBehind"] = onDrawBehind
@@ -250,7 +228,6 @@ private class DrawBackdropElement(
         if (shapeProvider != other.shapeProvider) return false
         if (effects != other.effects) return false
         if (sampling != other.sampling) return false
-        if (downsample != other.downsample) return false
         if (layerBlock != other.layerBlock) return false
         if (exportedBackdrop != other.exportedBackdrop) return false
         if (onDrawBehind != other.onDrawBehind) return false
@@ -266,7 +243,6 @@ private class DrawBackdropElement(
         result = 31 * result + shapeProvider.hashCode()
         result = 31 * result + effects.hashCode()
         result = 31 * result + sampling.hashCode()
-        result = 31 * result + downsample.hashCode()
         result = 31 * result + (layerBlock?.hashCode() ?: 0)
         result = 31 * result + (exportedBackdrop?.hashCode() ?: 0)
         result = 31 * result + (onDrawBehind?.hashCode() ?: 0)
@@ -282,7 +258,6 @@ private class DrawBackdropNode(
     var shapeProvider: ShapeProvider,
     var effects: BackdropEffectScope.() -> Unit,
     var sampling: Boolean,
-    var downsample: Float,
     var layerBlock: (GraphicsLayerScope.() -> Unit)?,
     var exportedBackdrop: LayerBackdrop?,
     var onDrawBehind: (DrawScope.() -> Unit)?,
@@ -312,28 +287,14 @@ private class DrawBackdropNode(
 
     private var padding by mutableFloatStateOf(0f)
 
-    /**
-     * 采样层实际用的缩小倍数（1 = 全分辨率）。和 [padding] 一样由 [updateEffects] 写进来：
-     * 它们都是「按缩小后的坐标系算出来的像素值」，绘制阶段必须和录采样层时用的是同一套。
-     */
-    private var sampleScale by mutableFloatStateOf(1f)
-
-    /** 这一帧该按多大比例录采样层。不采样时不录层，一律当 1（绘制路径也不会用到它）。 */
-    private val currentSampleScale: Float
-        get() = if (sampling) downsample.coerceIn(MIN_DOWNSAMPLE, 1f) else 1f
-
     private val recordBackdropBlock: (DrawScope.() -> Unit) = {
         val canvas = drawContext.canvas
         val padding = padding
-        val scale = sampleScale
 
+        // 用 save/restore 而不是「平移再平移回来」：下面可能还会被别的层嵌套录制
         canvas.save()
-        // 先平移再缩放：下面的内容一律按「原尺寸坐标」画，落到层里时整体小了 scale 倍
         if (padding != 0f) {
             canvas.translate(padding, padding)
-        }
-        if (scale != 1f) {
-            canvas.scale(scale, scale)
         }
         onDrawBackdrop {
             with(backdrop) {
@@ -350,16 +311,14 @@ private class DrawBackdropNode(
     private val drawBackdropLayer: DrawScope.() -> Unit = {
         val layer = graphicsLayer
         if (layer != null) {
-            val scale = sampleScale
             val padding = padding
-            // padding 已经是缩小后坐标系里的像素；层的左上角在「放大回去之后」要正好落在 -padding
             val pad = padding.roundToInt()
 
             recordLayer(
                 layer,
                 size = IntSize(
-                    (size.width * scale).roundToInt() + pad * 2,
-                    (size.height * scale).roundToInt() + pad * 2
+                    size.width.roundToInt() + pad * 2,
+                    size.height.roundToInt() + pad * 2
                 ),
                 block = recordBackdropBlock
             )
@@ -367,14 +326,7 @@ private class DrawBackdropNode(
             layer.topLeft =
                 if (pad != 0) IntOffset(-pad, -pad)
                 else IntOffset.Zero
-            if (scale == 1f) {
-                drawLayer(layer)
-            } else {
-                // 降采样录的那一层放大画回去（双线性插值）；像素数只有 1/scale²
-                withTransform({ scale(1f / scale, 1f / scale, pivot = Offset.Zero) }) {
-                    drawLayer(layer)
-                }
-            }
+            drawLayer(layer)
         }
     }
 
@@ -389,7 +341,7 @@ private class DrawBackdropNode(
     }
 
     override fun ContentDrawScope.draw() {
-        if (effectScope.update(this, currentSampleScale)) {
+        if (effectScope.update(this)) {
             updateEffects()
         }
 
@@ -442,9 +394,7 @@ private class DrawBackdropNode(
         // 采样源是空的时候既看不出效果、又要白付几趟 GPU 处理
         effectScope.apply(if (sampling) effects else NoEffects)
         graphicsLayer?.renderEffect = effectScope.renderEffect
-        // 这两个都是「缩小后坐标系」里的像素值，录层与画层必须用同一份
         padding = effectScope.padding
-        sampleScale = currentSampleScale
     }
 
     override fun onAttach() {

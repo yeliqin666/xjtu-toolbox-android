@@ -1661,9 +1661,6 @@ private fun HomeBarIconButton(icon: ImageVector, label: String, liquid: Backdrop
                 blur(6.dp.toPx())
                 if (refraction) lens(8.dp.toPx(), 10.dp.toPx())
             },
-            // 有折射就保清：那圈透镜弯光靠的就是采样精度；只模糊时降一半分辨率看不出来，
-            // 像素数直接砍到 1/4（2026-11 性能优化，见 `drawBackdrop` 的 downsample）
-            downsample = if (refraction) 1f else 0.5f,
             highlight = { Highlight.Default.copy(alpha = 0.65f) },
             shadow = null,
             onDrawSurface = { drawRect(fill) },
@@ -1689,42 +1686,42 @@ private fun HomeBarIconButton(icon: ImageVector, label: String, liquid: Backdrop
 }
 
 /**
- * 顶栏那条 96dp 的「渐强模糊带」：**一次模糊 + 一条顶上不透明、下边透明的渐变遮罩**。
+ * 顶栏那条 96dp 的「渐强模糊带」：**两级阶梯模糊 + 各自的竖向渐变遮罩**。
  *
- * 这里以前是 useplanes 的 progressive blur——七层不同半径的模糊叠着跑，靠各自的渐变遮罩只留一段，
- * 于是「越靠顶边越糊」。代价是每帧七次全屏宽的离屏采样 + 七次高斯模糊，是首页最贵的两处之一。
- * 2026-11 改成现在这个做法（维护者提的）：只做**一次** `blur()`（就是 `RenderEffect.createBlurEffect`，
- * 库里的 `blur()` 落到它），再用一条竖向渐变把结果按「顶边满强度、底边归零」压掉。
- * 观感上等价的东西是「模糊权重从顶到底递减」——七层 ramp 用七个半径拼出这条曲线，这里用一个半径
- * 乘一条 alpha 曲线拼出来，一层的开销是七层的 1/7。
+ * 历史与取舍（2026-11，三次真机反馈）：最早是 useplanes 的 progressive blur——七层半径
+ * 0.75→18dp 叠着跑，每层用一条渐变只留一段，于是「越靠顶边越糊」。那是每帧七次全屏宽的
+ * 离屏采样 + 七次高斯模糊，**首页最贵的两处之一**。之后试过两种省法，**真机上都更慢，已撤**：
+ * ①把采样层录成半分辨率再放大画回去——`RenderEffect` 与 runtime shader 是在设备空间求值的，
+ * 层录小并不会让特效少算，只平白多一次重采样；②收成一层 12dp + 一条「顶上不透明、下边透明」
+ * 的遮罩——观感上把 7 段折线压成 1 段，而大面积大半径模糊并不比七层小半径便宜。
  *
- * 另外仍然开 `downsample = 0.5f`：采样层按一半分辨率录，模糊与遮罩的像素数再降到 1/4
- * （这条带整块都是糊的，看不出差别；`blur()` 的参数按 dp 写，缩放坐标系后外观半径不变）。
- * 嫌不够糊就调 [PROGRESSIVE_BLUR_RADIUS] 这一个值。
+ * 现在这个做法是把七段的 ramp 抽成**两级**：上半段 10dp、下半段 3dp，两条遮罩在交界处互相
+ * 淡入淡出，所以既没有硬边、又保住了「越靠顶边越糊」这条曲线。开销 2/7，全分辨率、没有任何
+ * 画布缩放。想再省就把 [ProgressiveBarBlurSteps] 并成一级。
  */
 @Composable
 private fun ProgressiveBarBlur(
     backdrop: Backdrop,
     modifier: Modifier = Modifier,
 ) {
-    val layer = remember(backdrop) {
-        Modifier.drawBackdrop(
-            backdrop = backdrop,
-            shape = { RoundedCornerShape(0.dp) },
-            effects = {
-                blur(PROGRESSIVE_BLUR_RADIUS.toPx(), TileMode.Decal)
-            },
-            downsample = 0.5f,
-            highlight = null,
-            shadow = null,
-            // 画在本层内容之后：这一层的内容就是那张模糊结果（框里没有别的子内容），
-            // 用 DstIn 按渐变把下缘抹掉，上缘留满
-            onDrawFront = {
-                drawRect(brush = ProgressiveBarBlurMask, blendMode = BlendMode.DstIn)
-            },
-        )
+    Box(modifier) {
+        ProgressiveBarBlurSteps.forEach { step ->
+            val layer = remember(backdrop, step) {
+                Modifier.drawBackdrop(
+                    backdrop = backdrop,
+                    shape = { RoundedCornerShape(0.dp) },
+                    effects = { blur(step.radius.toPx(), TileMode.Decal) },
+                    highlight = null,
+                    shadow = null,
+                    // 遮罩画在本层内容之后：这一层的内容就是那张模糊结果，用 DstIn 只留自己那一段
+                    onDrawFront = {
+                        drawRect(brush = step.mask, blendMode = BlendMode.DstIn)
+                    },
+                )
+            }
+            Box(Modifier.matchParentSize().then(layer))
+        }
     }
-    Box(modifier.then(layer))
 }
 
 /** 展开时圆钮比顶栏正中上移的距离：顶栏里圆钮上方正好留这么多，不会顶进状态栏。 */
@@ -1736,23 +1733,21 @@ private const val SHOW_TINT_WASH = true
 /** 顶栏模糊带的高度：96dp（比顶栏本身高，才能往内容里多淡一段）。 */
 private val PROGRESSIVE_BLUR_BAND_HEIGHT = 96.dp
 
-/**
- * 这条带唯一的模糊半径。原来的七层 ramp 从 0.75dp 一直到 18dp；单层用一个中偏强的值，
- * 「越靠顶边越糊」那段改由遮罩的 alpha 曲线表达（见 [ProgressiveBarBlurMask]）。
- */
-private val PROGRESSIVE_BLUR_RADIUS = 12.dp
+/** 一级模糊：半径 + 只留它那一段的竖向遮罩。 */
+private class ProgressiveBlurStep(val radius: Dp, val mask: Brush)
 
 /**
- * 模糊带的竖向遮罩：顶边完全不透明、底边透明。
- *
- * 中间多停了两档（0.55 处还是 85%、0.85 处降到 25%）再收尾，让「糊→清」的过渡更靠下、
- * 上半段更像一层厚霜；纯两点线性的话，整条带会显得上下都不够糊。
+ * 两级阶梯（2026-11）。上面那段强、下面那段弱，交界（0.42→0.55 一带）两条遮罩互相淡出。
+ * 全分辨率、零缩放，所以调大调小半径都不会踩到「缩层放大」那条坑。
  */
-private val ProgressiveBarBlurMask: Brush = Brush.verticalGradient(
-    0f to Color.Black.copy(alpha = 1f),
-    0.55f to Color.Black.copy(alpha = 0.85f),
-    0.85f to Color.Black.copy(alpha = 0.25f),
-    1f to Color.Black.copy(alpha = 0f),
+private val ProgressiveBarBlurSteps = listOf(
+    ProgressiveBlurStep(10.dp, blurMask(0f to 1f, 0.42f to 1f, 0.78f to 0f)),
+    ProgressiveBlurStep(3.dp, blurMask(0.30f to 0f, 0.55f to 1f, 0.85f to 1f, 1f to 0f)),
+)
+
+/** 把「位置 → alpha」的几档折成一条竖向渐变（0 = 带的顶边，1 = 底边）。 */
+private fun blurMask(vararg stops: Pair<Float, Float>): Brush = Brush.verticalGradient(
+    *stops.map { (position, alpha) -> position to Color.Black.copy(alpha = alpha) }.toTypedArray(),
 )
 
 /** 顶栏表面色遮罩：顶部完全不透明，到底边线性归零。 */

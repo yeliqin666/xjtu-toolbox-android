@@ -35,17 +35,10 @@ internal abstract class BackdropEffectScopeImpl : BackdropEffectScope, RuntimeSh
         return runtimeShaderCache.obtainRuntimeShader(key, string)
     }
 
-    /**
-     * 采样层按 [scale] 缩着录（1 = 全分辨率）。
-     *
-     * 这一句把「特效坐标系」整体换到缩过的那一套里：`density` 乘上 scale（`8.dp.toPx()` 于是
-     * 得到缩过之后的像素）、`size` 也乘上 scale（折射的 SDF、圆角半径都按层里的像素算）。
-     * 于是调用方一行不改，模糊半径 / 折射位移 / padding 的外观尺寸都不变，只是真的少算了像素。
-     */
-    fun update(scope: DrawScope, scale: Float = 1f): Boolean {
-        val newDensity = scope.density * scale
+    fun update(scope: DrawScope): Boolean {
+        val newDensity = scope.density
         val newFontScale = scope.fontScale
-        val newSize = if (scale == 1f) scope.size else Size(scope.size.width * scale, scope.size.height * scale)
+        val newSize = scope.size
         val newLayoutDirection = scope.layoutDirection
 
         val changed = newDensity != density ||
