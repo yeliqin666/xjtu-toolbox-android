@@ -18,9 +18,16 @@ import com.kyant.backdrop.drawBackdrop
 import com.kyant.backdrop.effects.blur
 
 /**
- * 顶栏的无边界渐变模糊（useplanes 的 progressive blur）：七层不同半径的模糊叠在一起，
- * 每层用一条渐变遮罩只留一段，顶边最强、底边归零，再盖一层从顶到底淡出的表面色。
- * 只画不量：不改顶栏尺寸，内容排版和留白一概不受影响。
+ * 顶栏的无边界渐变模糊：**一次模糊 + 一条顶上不透明、下边透明的渐变遮罩**，
+ * 再盖一层从顶到底淡出的表面色。只画不量：不改顶栏尺寸，内容排版和留白一概不受影响。
+ *
+ * 这里以前是 useplanes 的 progressive blur——七层不同半径的模糊叠着跑，每层用自己的渐变遮罩只留一段，
+ * 于是「越靠顶边越糊」。代价是每帧七次全屏宽的离屏采样 + 七次高斯模糊，二级页里没有比它更贵的。
+ * 2026-11 改成现在这个做法（维护者提的）：只做**一次** `blur()`（库里的 `blur()` 在 Android 上就是
+ * `RenderEffect.createBlurEffect`），再用一条竖向渐变把结果按「顶边满强度、底边归零」压掉。
+ * 「模糊权重从顶到底递减」这条曲线，七层 ramp 用七个半径拼，这里用一个半径乘一条 alpha 曲线拼，
+ * 开销是原来的 1/7；采样层再按一半分辨率录（`downsample = 0.5f`），像素数又降到 1/4。
+ * 嫌不够糊就调 [PROGRESSIVE_BLUR_RADIUS] 这一个值。
  *
  * [backdrop] 先垫一层不透明表面色再采样，否则模糊把透明当黑色，字周围会出脏黑边。
  */
@@ -29,34 +36,30 @@ fun Modifier.progressiveBlurBar(backdrop: Backdrop, tint: Color, titled: Boolean
     val surfaceDraw: DrawScope.() -> Unit = remember(tint) { { drawRect(tint.copy(alpha = 1f)) } }
     val sampled = rememberCombinedBackdrop(rememberCanvasBackdrop(surfaceDraw), backdrop)
     val layers = remember(sampled, tint, titled) {
-        ProgressiveBlurRadii.indices.fold(Modifier as Modifier) { acc, index ->
-            acc then Modifier.drawBackdrop(
-                backdrop = sampled,
-                shape = { BandShape },
-                effects = { blur(ProgressiveBlurRadii[index].dp.toPx(), TileMode.Decal) },
-                // 七层全屏宽的模糊是全 App 最贵的一处，采样层按一半分辨率录（像素数 1/4）：
-                // 这条带本身就是「顶边糊到底边清」，最锐的一层也才 0.75dp 且被遮罩压在低透明度那一段，
-                // 缩小一半再放大看不出来；`blur()` 的参数按 dp 写，缩放坐标系后外观半径不变。
-                // （2026-11 性能优化，见 `drawBackdrop` 的 downsample）
-                downsample = 0.5f,
-                highlight = null,
-                shadow = null,
-                // 遮罩必须画在本层自己的背景图层里：onDrawFront 在内容之后，会把标题和后面几层一起裁掉
-                onDrawBackdrop = { drawBackdrop ->
-                    drawBackdrop()
-                    drawRect(ProgressiveBlurMasks[index], blendMode = BlendMode.DstIn)
-                },
-            )
-        } then Modifier.drawWithCache {
-            // 模糊之上、标题之下，到底边淡到 0。有标题的顶栏上半段多压一点表面色保证字清楚；
-            // 只有圆钮的（首页）从顶到底线性淡出
-            val wash = if (titled) Brush.verticalGradient(
-                0f to tint.copy(alpha = (tint.alpha + 0.2f).coerceAtMost(1f)),
-                0.7f to tint,
-                1f to tint.copy(alpha = 0f),
-            ) else Brush.verticalGradient(0f to tint, 1f to tint.copy(alpha = 0f))
-            onDrawBehind { drawRect(wash) }
-        }
+        Modifier.drawBackdrop(
+            backdrop = sampled,
+            shape = { BandShape },
+            effects = { blur(PROGRESSIVE_BLUR_RADIUS.toPx(), TileMode.Decal) },
+            downsample = 0.5f,
+            highlight = null,
+            shadow = null,
+            // 遮罩必须画在本层自己的采样层里：onDrawFront 在内容之后，会把标题一起裁掉
+            onDrawBackdrop = { drawBackdrop ->
+                drawBackdrop()
+                drawRect(ProgressiveBlurMask, blendMode = BlendMode.DstIn)
+            },
+        ).then(
+            Modifier.drawWithCache {
+                // 模糊之上、标题之下，到底边淡到 0。有标题的顶栏上半段多压一点表面色保证字清楚；
+                // 只有圆钮的（首页）从顶到底线性淡出
+                val wash = if (titled) Brush.verticalGradient(
+                    0f to tint.copy(alpha = (tint.alpha + 0.2f).coerceAtMost(1f)),
+                    0.7f to tint,
+                    1f to tint.copy(alpha = 0f),
+                ) else Brush.verticalGradient(0f to tint, 1f to tint.copy(alpha = 0f))
+                onDrawBehind { drawRect(wash) }
+            },
+        )
     }
     return this then layers
 }
@@ -64,35 +67,21 @@ fun Modifier.progressiveBlurBar(backdrop: Backdrop, tint: Color, titled: Boolean
 /** 直角写成 RoundedCornerShape(0.dp)：RectangleShape 开折射会闪退。 */
 private val BandShape = RoundedCornerShape(0.dp)
 
-/** 七层模糊半径（useplanes 默认 ramp × 1.5），从底边到顶边。 */
-private val ProgressiveBlurRadii = listOf(0.75f, 1.5f, 3f, 4.5f, 7.5f, 12f, 18f)
+/**
+ * 这条带唯一的模糊半径。原来的七层 ramp 从 0.75dp 一直到 18dp；单层取一个中偏强的值，
+ * 「越靠顶边越糊」那段改由 [ProgressiveBlurMask] 的 alpha 曲线表达。
+ */
+private val PROGRESSIVE_BLUR_RADIUS = 12.dp
 
-/** 层与层错开 12.5%，每层是「透明 → 不透明 → 不透明 → 透明」的一条带。 */
-private const val PROGRESSIVE_BLUR_STEP = 0.125f
-
-/** 按从底边往上数的位置生成：第 0 层在底边附近淡出，第 6 层在顶边满强度。 */
-private val ProgressiveBlurMasks: List<Brush> = ProgressiveBlurRadii.indices.map { index ->
-    val stops = listOf(
-        (1f - (index + 3) * PROGRESSIVE_BLUR_STEP) to 0f,
-        (1f - (index + 2) * PROGRESSIVE_BLUR_STEP) to 1f,
-        (1f - (index + 1) * PROGRESSIVE_BLUR_STEP) to 1f,
-        (1f - index * PROGRESSIVE_BLUR_STEP) to 0f,
-    ).clipToUnitRange()
-    Brush.verticalGradient(*stops.map { (position, alpha) -> position to Color.Black.copy(alpha = alpha) }.toTypedArray())
-}
-
-/** 把越出 [0, 1] 的渐变端点裁掉，并在边界上按原斜率补一个端点。 */
-private fun List<Pair<Float, Float>>.clipToUnitRange(): List<Pair<Float, Float>> {
-    fun alphaAt(position: Float): Float {
-        val before = lastOrNull { it.first <= position } ?: first()
-        val after = firstOrNull { it.first >= position } ?: last()
-        if (before.first == after.first) return after.second
-        val t = (position - before.first) / (after.first - before.first)
-        return before.second + (after.second - before.second) * t
-    }
-
-    val visible = filter { it.first in 0f..1f }.toMutableList()
-    if (first().first > 0f) visible.add(0, 0f to alphaAt(0f))
-    if (last().first < 1f) visible.add(1f to alphaAt(1f))
-    return visible.sortedBy { it.first }
-}
+/**
+ * 模糊的竖向遮罩：顶边完全不透明、底边透明。
+ *
+ * 中间多停两档（0.55 处还是 85%、0.85 处降到 25%）再收尾，让「糊→清」的过渡更靠下、
+ * 上半段更像一层厚霜；纯两点线性的话整条带会显得上下都不够糊。
+ */
+private val ProgressiveBlurMask: Brush = Brush.verticalGradient(
+    0f to Color.Black.copy(alpha = 1f),
+    0.55f to Color.Black.copy(alpha = 0.85f),
+    0.85f to Color.Black.copy(alpha = 0.25f),
+    1f to Color.Black.copy(alpha = 0f),
+)

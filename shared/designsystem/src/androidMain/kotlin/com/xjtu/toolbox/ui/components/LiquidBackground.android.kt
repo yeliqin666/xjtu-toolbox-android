@@ -13,12 +13,18 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.FrameRateCategory
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawWithCache
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.ShaderBrush
+import androidx.compose.ui.graphics.drawscope.withTransform
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.layer.drawLayer
+import androidx.compose.ui.graphics.rememberGraphicsLayer
 import androidx.compose.ui.preferredFrameRate
+import androidx.compose.ui.unit.IntSize
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.currentStateAsState
+import kotlin.math.roundToInt
 import kotlin.time.TimeSource
 import kotlinx.coroutines.delay
 
@@ -133,26 +139,47 @@ private fun RuntimeLiquid(
 ) {
     val shader = remember { RuntimeShader(LIQUID_AGSL) }
     val brush = remember(shader) { ShaderBrush(shader) }
+    // 着色器先录进一层**半分辨率**的离屏层再放大画回去：这个 fbm 是全 App 每帧最贵的一笔
+    // （三层 domain warping，每像素几十次 sin），而噪声是连续的低频场，缩一半再双线性放大
+    // 看不出区别，像素数直接降到 1/4。
+    val layer = rememberGraphicsLayer()
     Box(
         modifier
             .fillMaxSize()
             .preferredFrameRate(FrameRateCategory.Normal)
             .graphicsLayer()
             .drawWithCache {
-                shader.setFloatUniform("size", size.width, size.height)
-                shader.setFloatUniform("seed", seed)
-                // 手机上不跟指针：稳态的鼠标放在中心，只留一点边缘扰动。
-                shader.setFloatUniform("mouse", 0.5f, 0.5f)
-                shader.setFloatUniform("crease", crease)
-                shader.setFloatUniform("zoom", 1f, 1f)
-                shader.setFloatUniform("speed", speed)
-                shader.setFloatUniform("c0", colors.dark.red, colors.dark.green, colors.dark.blue)
-                shader.setFloatUniform("c1", colors.mid.red, colors.mid.green, colors.mid.blue)
-                shader.setFloatUniform("c2", colors.light.red, colors.light.green, colors.light.blue)
                 onDrawBehind {
-                    shader.setFloatUniform("time", seconds())
-                    drawRect(brush)
+                    layer.record(
+                        size = IntSize(
+                            (size.width * LIQUID_RENDER_SCALE).roundToInt().coerceAtLeast(1),
+                            (size.height * LIQUID_RENDER_SCALE).roundToInt().coerceAtLeast(1),
+                        ),
+                    ) {
+                        // 着色器只认「画布有多大」：uv = fragCoord / size，所以这里喂层自己的尺寸，
+                        // 缩放之后 uv 仍然铺满整块，shader 一个字不用改
+                        shader.setFloatUniform("size", this.size.width, this.size.height)
+                        shader.setFloatUniform("seed", seed)
+                        // 手机上不跟指针：稳态的鼠标放在中心，只留一点边缘扰动。
+                        shader.setFloatUniform("mouse", 0.5f, 0.5f)
+                        shader.setFloatUniform("crease", crease)
+                        shader.setFloatUniform("zoom", 1f, 1f)
+                        shader.setFloatUniform("speed", speed)
+                        shader.setFloatUniform("c0", colors.dark.red, colors.dark.green, colors.dark.blue)
+                        shader.setFloatUniform("c1", colors.mid.red, colors.mid.green, colors.mid.blue)
+                        shader.setFloatUniform("c2", colors.light.red, colors.light.green, colors.light.blue)
+                        shader.setFloatUniform("time", seconds())
+                        drawRect(brush)
+                    }
+                    withTransform({
+                        scale(1f / LIQUID_RENDER_SCALE, 1f / LIQUID_RENDER_SCALE, Offset.Zero)
+                    }) {
+                        drawLayer(layer)
+                    }
                 }
             },
     )
 }
+
+/** 液体背景的渲染倍率：0.5 = 半分辨率（像素数 1/4），放大回去看不出区别。 */
+private const val LIQUID_RENDER_SCALE = 0.5f
