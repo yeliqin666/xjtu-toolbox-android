@@ -15,7 +15,11 @@
 :core       →  残留壳：shell/**，并用 api 转发全部 :shared:* 与 :feature:*
 :data       →  残留：场馆滑块验证码，api 转发 :shared:data 与 :core
 :app / :desktop / :web / :server  →  平台壳，依赖不变（仍然经 :core / :data 拿到全部模块）
+
+:thirdparty:backdrop  →  不依赖任何业务模块，只吃 Compose（vendored 第三方，见下表）
 ```
+
+- `:thirdparty:backdrop` 是 vendor 进来的 kyant backdrop（Apache-2.0，包名仍是 `com.kyant.backdrop`）：上游 `drawBackdrop` 在「不采样」那一档仍会每帧建一层卡片大小的离屏层，所以 fork 一份加开关。根 `build.gradle.kts` 用 `dependencySubstitution` 把 Maven 坐标 `io.github.kyant0:backdrop` 顶替成这个模块——`toolbox.kmp.compose` 里那条 `api` 不用改，十来处 `drawBackdrop` 调用点也一行都不用改。
 
 - 功能模块要的数据接口（`*Source`、`AgentTransport` 之类）都放在 `:shared:model`，不放在 `:shared:data`。原因是 `:shared:data` 没有 wasmJs 目标。真正的实现由各平台壳注入：Android 和桌面端用 `:shared:data`，Web 用 `web/`。
 - 各平台壳本来就负责收集 agent 工具、注册路由：`:app` 里的 `AppNavHost`、`AndroidAgentHost`，桌面端的路由表，`web/`、`server/`。这次没有新造一套注册契约，`:app` 也基本没动，方便 `port/android-only` 变基。
@@ -52,6 +56,7 @@
 | `:feature:webvpn` | 2 | 1 | webvpn 换算器、内置浏览器 |
 | `:core`（残留） | 10 | 2 | shell/** |
 | `:data`（残留） | 3 | 3 | 场馆滑块验证码 |
+| `:thirdparty:backdrop`（vendored） | 38 | 0 | vendor 进来的 kyant backdrop 2.0.1（Apache-2.0）：加「不采样」开关用，包名仍是 `com.kyant.backdrop`，来源与改动见 `thirdparty/backdrop/README.md` |
 
 ## 重点文件
 

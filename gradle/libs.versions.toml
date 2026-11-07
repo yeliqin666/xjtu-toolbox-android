@@ -27,6 +27,8 @@ zxing = "3.5.4"
 camerax = "1.6.2"
 media3 = "1.11.1"
 backdrop = "2.0.1"
+# 只有 vendored backdrop 的 Lens 用（圆角形状采样），版本跟上游 2.0.1 声明的一致
+kyantShapes = "1.2.1"
 graphicsShapes = "1.1.0"
 kotlinxSerialization = "1.11.0"
 # okhttp 只发布 jvm/android 变体，非 Android 端用 Ktor。
@@ -94,6 +96,10 @@ miuix-icons = { group = "top.yukonga.miuix.kmp", name = "miuix-icons-android", v
 miuix-squircle = { group = "top.yukonga.miuix.kmp", name = "miuix-squircle-android", version.ref = "miuix" }
 miuix-nav = { group = "top.yukonga.miuix.kmp", name = "miuix-nav-android", version.ref = "miuix" }
 kyant-backdrop = { group = "io.github.kyant0", name = "backdrop", version.ref = "backdrop" }
+# vendored 的 :thirdparty:backdrop 自己声明依赖时用（根 build.gradle.kts 会把上面那条坐标顶替成它）
+kyant-shapes = { group = "io.github.kyant0", name = "shapes", version.ref = "kyantShapes" }
+jb-compose-ui = { group = "org.jetbrains.compose.ui", name = "ui", version.ref = "composeMultiplatform" }
+jb-compose-foundation = { group = "org.jetbrains.compose.foundation", name = "foundation", version.ref = "composeMultiplatform" }
 androidx-graphics-shapes = { group = "androidx.graphics", name = "graphics-shapes", version.ref = "graphicsShapes" }
 kotlinx-serialization-json = { group = "org.jetbrains.kotlinx", name = "kotlinx-serialization-json", version.ref = "kotlinxSerialization" }
 junit = { group = "junit", name = "junit", version.ref = "junit" }
