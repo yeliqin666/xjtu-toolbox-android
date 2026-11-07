@@ -372,7 +372,7 @@ fun GlassBottomTabs(
                             shape = { pillShape },
                             effects = {
                                 val progress = dampedDrag.pressProgress
-                                lens(10.dp.toPx() * progress, 14.dp.toPx() * progress, chromaticAberration = true)
+                                lens(10.dp.toPx() * progress, 14.dp.toPx() * progress)
                             },
                             highlight = { Highlight.Default.copy(alpha = dampedDrag.pressProgress) },
                             layerBlock = {

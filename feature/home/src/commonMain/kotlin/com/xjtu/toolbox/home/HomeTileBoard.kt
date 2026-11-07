@@ -872,13 +872,13 @@ internal fun HomeTileFaceBox(
                     padding = maxOf(padding, 12.dp.toPx())
                     vibrancy()
                     if (blurGlass) blur(8.dp.toPx())
-                    // 折射才是「液态」和「毛玻璃」的分界：边缘把背景扭出透镜的弯光，
-                    // 带一点色散。带宽与位移用固定的物理宽度（和底栏一致），不随卡片
+                    // 折射才是「液态」和「毛玻璃」的分界：边缘把背景扭出透镜的弯光。
+                    // 带宽与位移用固定的物理宽度（和底栏一致），不随卡片
                     // 缩放——大小卡片的玻璃厚度本来就一样。
                     //
-                    // 关掉折射时这一整段（离屏位移采样 + 三通道色散）都不跑，剩下的模糊、
+                    // 关掉折射时这一整段（那一趟离屏位移采样）都不跑，剩下的模糊、
                     // 活力、高光、投影照旧：玻璃还是那块玻璃，只是不再像一片厚透镜。
-                    if (refraction) lens(10.dp.toPx(), 14.dp.toPx(), chromaticAberration = true)
+                    if (refraction) lens(10.dp.toPx(), 14.dp.toPx())
                 },
                 // 玻璃被光打亮的那圈轮廓（与采样无关，两条路都画）
                 highlight = { rim },

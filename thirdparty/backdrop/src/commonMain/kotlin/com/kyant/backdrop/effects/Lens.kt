@@ -8,16 +8,17 @@ import androidx.compose.ui.util.fastCoerceAtLeast
 import androidx.compose.ui.util.fastCoerceAtMost
 import com.kyant.backdrop.BackdropEffectScope
 import com.kyant.backdrop.internal.RoundedRectRefractionShaderString
-import com.kyant.backdrop.internal.RoundedRectRefractionWithDispersionShaderString
 import com.kyant.backdrop.internal.RuntimeShaderEffect
 import com.kyant.backdrop.isRuntimeShaderSupported
 import com.kyant.shapes.RoundedRectangularShape
 
+// [岱宗盒子 vendor 改动] 删掉了上游的 `chromaticAberration`（色散）：本仓库永远不用它，而它会
+// 把折射那一档从「每像素 1 次纹理采样」变成「7 次」（红橙黄绿青蓝紫七次 content.eval），
+// 是整页最贵的一层。现在这条路上只剩一个不带色散的折射 shader。
 fun BackdropEffectScope.lens(
     @FloatRange(from = 0.0) refractionHeight: Float,
     @FloatRange(from = 0.0) refractionAmount: Float,
-    depthEffect: Boolean = false,
-    chromaticAberration: Boolean = false
+    depthEffect: Boolean = false
 ) {
     if (!isRuntimeShaderSupported()) return
     if (refractionHeight <= 0f || refractionAmount <= 0f) return
@@ -29,18 +30,10 @@ fun BackdropEffectScope.lens(
     val cornerRadii = cornerRadii
     val effect =
         if (cornerRadii != null) {
-            val shader =
-                if (!chromaticAberration) {
-                    obtainRuntimeShader(
-                        "Refraction",
-                        RoundedRectRefractionShaderString
-                    )
-                } else {
-                    obtainRuntimeShader(
-                        "RefractionWithDispersion",
-                        RoundedRectRefractionWithDispersionShaderString
-                    )
-                }
+            val shader = obtainRuntimeShader(
+                "Refraction",
+                RoundedRectRefractionShaderString
+            )
             shader.apply {
                 setFloatUniform("size", size.width, size.height)
                 setFloatUniform("offset", -padding, -padding)
@@ -48,9 +41,6 @@ fun BackdropEffectScope.lens(
                 setFloatUniform("refractionHeight", refractionHeight)
                 setFloatUniform("refractionAmount", -refractionAmount)
                 setFloatUniform("depthEffect", if (depthEffect) 1f else 0f)
-                if (chromaticAberration) {
-                    setFloatUniform("chromaticAberration", 1f)
-                }
             }
             RuntimeShaderEffect(shader, "content")
         } else {

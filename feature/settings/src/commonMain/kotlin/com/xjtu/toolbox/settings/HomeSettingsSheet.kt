@@ -262,7 +262,7 @@ private fun HomeSettingsBody(onDismiss: () -> Unit, showTopBarStyle: Boolean) {
             // ①纯色 / 渐变背景上没有壁纸可采，`lens` 折的是一张纯色底，`blur` 也糊不出信息；
             // ②自定义图片但「模糊程度」≥ 5dp 时，壁纸已经被糊成一片色块，卡片再采它一遍糊出来的
             // 与「薄色底」几乎分不出。两种情况都是「既不模糊也不折射」，而这两层是全页最贵的
-            // （每张卡一次离屏采样 + 三通道色散），所以渲染侧直接不跑。
+            // （每张卡一次离屏位移采样），所以渲染侧直接不跑。
             //
             // 但开关**不改成关**：显示的是用户自己那一档（`checked = refraction`），只是拨不动
             // （`enabled = glassHasDetail`）。「用不上」和「用户关掉了」是两件事——前者换一档背景
@@ -274,7 +274,7 @@ private fun HomeSettingsBody(onDismiss: () -> Unit, showTopBarStyle: Boolean) {
                     title = "开启折射",
                     summary = when {
                         !glassHasDetail -> "当前背景设置下折射/模糊无明显效果，为节省资源已关闭"
-                        refraction -> "边缘把背景扭出透镜的弯光，带一点色散（最费的一层）"
+                        refraction -> "边缘把背景扭出透镜的弯光（最费的一层）"
                         else -> "只留模糊与高光：轮廓和通透感都在，省一层离屏采样"
                     },
                     checked = refraction,

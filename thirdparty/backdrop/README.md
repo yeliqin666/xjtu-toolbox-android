@@ -38,9 +38,15 @@ configurations.configureEach {
    `androidx.annotation:annotation-experimental`。两个函数的判等逻辑与上游一致。
 3. 上游把 jvm 与 wasmJs 共用的实现放在 `skikoMain` 这个中间源集，而本仓库的约定插件只建
    `jvmMain` / `wasmJsMain`，所以 `build.gradle.kts` 里补一个同名中间源集让两者 `dependsOn` 它。
+4. **删掉折射的色散（`chromaticAberration`）**（2026-11 维护者定：「色散永远不会用到」）：
+   `effects/Lens.kt` 只剩一个不带色散的折射 shader，`internal/Shaders.kt` 里
+   `RoundedRectRefractionWithDispersionShaderString` 整块删除。省得非常直接——那个 shader 对每个
+   像素做 **7 次** `content.eval`（红橙黄绿青蓝紫七次色散采样），不带色散的版本只要 **1 次**；
+   折射弯光本身不变，只是边缘不再有彩色条纹。调用点（首页卡片、底栏胶囊）相应去掉
+   `chromaticAberration = true`。
 
-后续计划（第二步）：`DrawBackdropModifier.kt` 加 `sampling: Boolean = true`，`false` 时跳过
-`drawBackdropLayer()`、不设 `CompositingStrategy.Offscreen`、不执行 `effects`。
+后续的 vendor 扩展（与「省资源」同一条线）：`DrawBackdropModifier.kt` 的 `sampling: Boolean = true`，
+`false` 时跳过 `drawBackdropLayer()`、不设 `CompositingStrategy.Offscreen`、不执行 `effects`。
 
 已知上游遗留（**未改动**，按最小改动原则）：`highlight/HighlightModifier.kt` 的 `prevStyle`
 只写不读（SearchDeadCode 会报一条 DC002），上游 2.0.1 就是这样。

@@ -1492,7 +1492,7 @@ private fun newGroupId(): String = "custom-" + kotlin.random.Random.nextInt(1000
 val LocalHomeBarBackdrop = compositionLocalOf<Backdrop?> { null }
 
 /**
- * 首页液态玻璃要不要带折射（透镜弯光 + 色散）。
+ * 首页液态玻璃要不要带折射（透镜弯光）。
  *
  * 首页自己画的卡片、悬浮球走显式参数，不需要这个；它专门给**宿主（`:app`）画的顶栏圆钮**用——
  * 那几个按钮是在 `topActions` lambda 里创建的，拿不到首页的局部值，只能走 CompositionLocal。
