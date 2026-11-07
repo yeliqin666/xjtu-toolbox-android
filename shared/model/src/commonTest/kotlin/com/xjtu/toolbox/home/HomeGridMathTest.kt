@@ -547,6 +547,26 @@ class HomeLayoutTest {
     }
 
     @Test
+    fun `尾号解析不出来的老块占着号时，新块 id 会往后躲`() {
+        // 老存档里可能有 `#dup2` 这种重编号（尾号已经不是数字），此时「最大尾号 + 1」会算错，
+        // 恰好等于某一块的号——撞号在界面上就是「按住悬浮条图标，页面上那块卡被顶掉」。
+        val weird = HomeLayout(
+            groups = listOf(
+                HomeGroup(
+                    id = "G",
+                    tiles = listOf(
+                        HomeTile("G/x#0", "schedule", 0f, 0f, 1f, 1f),
+                        // 尾号是 dup，`toIntOrNull()` 拿不到 1，于是「最大 + 1」会算出 1
+                        HomeTile("G/y#dup1", "library", 1f, 0f, 1f, 1f),
+                    ),
+                ),
+            ),
+        )
+        val fresh = weird.nextTileId("G", "notice")
+        assertTrue(fresh !in weird.groups.flatMap { it.tiles }.map { it.id }, "新 id 撞了已有块：$fresh")
+    }
+
+    @Test
     fun `读盘时撞号的块被重编而不是弄丢`() {
         val text = buildString {
             append("v1\n")

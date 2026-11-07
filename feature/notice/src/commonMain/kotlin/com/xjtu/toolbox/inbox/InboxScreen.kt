@@ -74,6 +74,7 @@ import top.yukonga.miuix.kmp.overlay.OverlayBottomSheet
 import com.xjtu.toolbox.ui.components.SelectionTile
 import com.xjtu.toolbox.ui.components.AppTabPager
 import com.xjtu.toolbox.ui.components.CountBadge
+import com.kyant.backdrop.Backdrop
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.navigationBarsPadding
 import com.xjtu.toolbox.platform.BackHandler
@@ -509,6 +510,8 @@ fun InboxBell(
      * 画在玻璃层**外面**——玻璃会把内容裁成圆形，画在里面角上会被弧边削掉。
      */
     showBadge: Boolean = true,
+    /** 采样源：这一枚走卡片同一套 `drawBackdrop` 液态玻璃（关掉模糊与折射），null 时退回薄色。 */
+    badgeBackdrop: Backdrop? = null,
 ) {
     val data = InboxStore.snapshot()
     val count = remember(data) { InboxRules.badge(data, Clock.System.now().toEpochMilliseconds()) }
@@ -534,7 +537,7 @@ fun InboxBell(
         }
         // 角标画在本层（容器右上角）。**嵌在圆钮玻璃里的时候要把 showBadge 关掉、由圆钮的
         // 父层用 [InboxUnreadBadge] 画**——圆钮那层玻璃会把内容裁成圆形，画在里面必被弧边削掉。
-        if (showBadge && count > 0) UnreadBadge(count, Modifier.align(Alignment.TopEnd).offset(x = (-2).dp, y = 4.dp))
+        if (showBadge && count > 0) UnreadBadge(count, Modifier.align(Alignment.TopEnd).offset(x = (-2).dp, y = 4.dp), badgeBackdrop)
     }
 }
 
@@ -549,15 +552,15 @@ fun InboxBell(
  * 嵌在圆形玻璃钮里时，调用方应该把它画在**圆钮外面那一层**，否则会被玻璃的圆形裁剪削掉。
  */
 @Composable
-fun InboxUnreadBadge(modifier: Modifier = Modifier) {
+fun InboxUnreadBadge(modifier: Modifier = Modifier, backdrop: Backdrop? = null) {
     val data = InboxStore.snapshot()
     val count = remember(data) { InboxRules.badge(data, Clock.System.now().toEpochMilliseconds()) }
-    if (count > 0) UnreadBadge(count, modifier)
+    if (count > 0) UnreadBadge(count, modifier, backdrop)
 }
 
 @Composable
-private fun UnreadBadge(count: Int, modifier: Modifier = Modifier) {
-    CountBadge(count, modifier, accent = UnreadAccent)
+private fun UnreadBadge(count: Int, modifier: Modifier = Modifier, backdrop: Backdrop? = null) {
+    CountBadge(count, modifier, accent = UnreadAccent, backdrop = backdrop)
 }
 
 /** 未读角标的品牌红：icon 与角标共用，别在别处另写一个红。 */

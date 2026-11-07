@@ -257,12 +257,24 @@ data class HomeLayout(val groups: List<HomeGroup> = emptyList()) {
      *
      * 不能用「组内块数」当尾号——删掉一块再加就会撞号，`key(tile.id)` 与 `locate`
      * 都会错乱。尾号只保证唯一；前面的 `组/路由` 前缀只是让人读落盘数据时好认。
+     *
+     * 算出来的 id **还要再核一遍有没有被占**（2026-11）：尾号解析不了的老存档（比如
+     * `#dup2` 那种重编号）、或者 `routeId` 里带 `#`，都可能让「最大尾号 +1」恰好等于
+     * 某一块的 id。撞号在界面上表现为「按一下就把那一块顶掉」——`placeInGroup` 会按 id
+     * 把旧块当成「被拖动的自己」过滤掉，旧块直接没了。这里循环往后挪到没人用的尾号。
      */
     fun nextTileId(groupId: String, routeId: String): String {
+        val used = groups.flatMap { it.tiles }.mapTo(mutableSetOf()) { it.id }
         val serial = groups.flatMap { it.tiles }
             .mapNotNull { it.id.substringAfterLast('#', "").toIntOrNull() }
             .maxOrNull() ?: -1
-        return "$groupId/$routeId#${serial + 1}"
+        var candidate = "$groupId/$routeId#${serial + 1}"
+        var next = serial + 1
+        while (candidate in used) {
+            next++
+            candidate = "$groupId/$routeId#$next"
+        }
+        return candidate
     }
 
     /**

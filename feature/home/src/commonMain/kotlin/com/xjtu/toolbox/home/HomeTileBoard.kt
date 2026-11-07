@@ -287,7 +287,20 @@ internal fun HomeGroupSection(
                     }
                 }
 
-                val dragId = session.tileId
+                /**
+                 * 这一帧要画成落点占位框的那一块（null = 一块都不藏）。
+                 *
+                 * **从悬浮条拖出时，绝不能藏起起手快照里就有的那块**（2026-11 维护者实测反馈：
+                 * 「手指一按住悬浮条上的图标，页面上对应的那张卡就消失了」）。那一场手里拿的是
+                 * 一个「还不存在的新 id」，正常情况下与页面上任何一块都不同名，这条判定只会命中
+                 * `liveLayout` 里那张**预览块**（落点占位框就是它画的）。可一旦新 id 与某块撞号
+                 * （尾号是「当前最大 +1」，删过最高号之后会回退到用过的号），这里就会命中那块
+                 * 无辜的真身——它被换成占位框，看起来就是「按住就没了」。
+                 * 撞号时一个都不藏：宁可预览少一个落点框，也不能吃掉真块。
+                 */
+                val paletteHitsRealTile = session.fromPalette &&
+                    session.tileId?.let { session.base?.tile(it) != null } == true
+                val dragId = session.tileId?.takeIf { !paletteHitsRealTile }
                 // 拖动中与**结算中**都画占位框：松手后幽灵从手指位置飞向落点，落点这一块先留成
                 // 占位框；幽灵飞到与它重合才 finish() 切回真实块——外观一样，切换无感。
                 // 只判 draggingTile 的话，结算期它会立刻变成落点处的真实块，和还在飞的幽灵重影。

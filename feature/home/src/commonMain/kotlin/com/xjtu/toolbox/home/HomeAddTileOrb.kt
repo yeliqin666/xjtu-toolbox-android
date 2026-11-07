@@ -550,7 +550,7 @@ private fun OrbTileList(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 if (dockRight && showLabels) {
-                    OrbLabel(face.title, labelExtra, textEnd = true, count = tileCounts[service.route.id] ?: 0)
+                    OrbLabel(face.title, labelExtra, textEnd = true, count = tileCounts[service.route.id] ?: 0, backdrop = backdrop)
                 }
                 Box(Modifier.width(colW), contentAlignment = Alignment.Center) {
                     OrbTileIcon(
@@ -569,7 +569,7 @@ private fun OrbTileList(
                     )
                 }
                 if (!dockRight && showLabels) {
-                    OrbLabel(face.title, labelExtra, textEnd = false, count = tileCounts[service.route.id] ?: 0)
+                    OrbLabel(face.title, labelExtra, textEnd = false, count = tileCounts[service.route.id] ?: 0, backdrop = backdrop)
                 }
             }
         }
@@ -586,12 +586,12 @@ private fun OrbTileList(
  * [count] 排**图标与文字中间**（2026-11 按需求加）：贴边停靠时中间就是文字右侧，靠左停靠时
  * 是文字左侧，两种情况都在「靠图标那一侧」，和名字一起被帘子带出来。0 块时不画。
  *
- * 画法是一枚**主题色小圆标**（`CountBadge`：半透明底色 + 白细高光边 + 同色柔光，和首页顶栏铃铛
- * 那枚未读角标同一套配方——绝不采样背景），不是一行 `×3` 的弱化小字：那个数字是「这张卡在主页
- * 上已经有几块」的**计数**，和名字同级的信息，靠一枚钉子更一眼看得出来。
+ * 画法是一枚**主题色小圆标**（`CountBadge`：走卡片同一套 `drawBackdrop` 液态玻璃，只把
+ * `blur()` / `lens()` 两层关掉——见那个组件的注释），不是一行 `×3` 的弱化小字：那个数字是
+ * 「这张卡在主页上已经有几块」的**计数**，和名字同级的信息，靠一枚钉子更一眼看得出来。
  */
 @Composable
-private fun OrbLabel(title: String, width: Dp, textEnd: Boolean, count: Int) {
+private fun OrbLabel(title: String, width: Dp, textEnd: Boolean, count: Int, backdrop: Backdrop?) {
     // 图标侧 8dp 呼吸位；**外沿那侧留 [ORB_LABEL_EDGE_PAD]**——那里是胶囊的圆弧，字与圆标
     // 贴上去会被弧边啃掉一角（2026-11 加宽名字栏时一起补的安全距离）
     val iconSidePad = Modifier.padding(
@@ -607,7 +607,7 @@ private fun OrbLabel(title: String, width: Dp, textEnd: Boolean, count: Int) {
             horizontalArrangement = Arrangement.spacedBy(5.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            if (!textEnd && count > 0) CountBadge(count)
+            if (!textEnd && count > 0) CountBadge(count, backdrop = backdrop)
             Text(
                 text = title,
                 style = MiuixTheme.textStyles.footnote1,
@@ -617,7 +617,7 @@ private fun OrbLabel(title: String, width: Dp, textEnd: Boolean, count: Int) {
                 textAlign = if (textEnd) TextAlign.End else TextAlign.Start,
                 modifier = Modifier.weight(1f),
             )
-            if (textEnd && count > 0) CountBadge(count)
+            if (textEnd && count > 0) CountBadge(count, backdrop = backdrop)
         }
     }
 }
