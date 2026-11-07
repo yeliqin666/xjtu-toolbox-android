@@ -318,9 +318,6 @@ private const val RIM_STOP_COUNT = 36
 private fun Color.shadedBy(intensity: Float): Color =
     if (intensity >= 1f) this else copy(alpha = alpha * intensity)
 
-/** 整圈色标的段数：72 段 = 每 5° 一个，线性插值后与 `|cos|` 的偏差 < 0.5%。 */
-private const val RIM_STOP_COUNT = 72
-
 /** 比这更小的圆角直接当直角（半像素以下，画出来只是一团糊）。 */
 private const val MIN_RADIUS_PX = 0.5f
 
