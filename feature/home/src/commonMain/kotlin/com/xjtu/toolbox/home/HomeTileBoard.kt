@@ -73,6 +73,9 @@ import com.xjtu.toolbox.ui.components.ExpressiveIcon
 import com.xjtu.toolbox.ui.components.LocalPageVisible
 import com.xjtu.toolbox.ui.components.appCardShadow
 import com.xjtu.toolbox.ui.glass.floatingGlassShadow
+import com.xjtu.toolbox.ui.glass.glassHairline
+import com.xjtu.toolbox.ui.glass.glassSheen
+import com.xjtu.toolbox.ui.glass.staticGlassShadow
 import com.xjtu.toolbox.ui.rememberCampusNow
 import com.xjtu.toolbox.ui.theme.Editorial
 import com.xjtu.toolbox.ui.theme.LocalIsDarkTheme
@@ -839,13 +842,7 @@ internal fun HomeTileFaceBox(
     val surfaceFill = if (blurGlass) liquidFill else flatGlassFill
 
     val material = when {
-        // 只有**真要糊或真折射**的时候才值得付那次离屏采样。
-        //
-        // 纯色 / 渐变背景（以及壁纸被糊到没细节）时 `blurGlass = false`、`refraction` 也一并
-        // 被调用方关掉，这时 `drawBackdrop` 采出来的只是一片纯色底：`blur` / `lens` 不跑，
-        // 剩下一层 `vibrancy()` 的饱和度提升在这种底上根本看不出来——等于每帧白做一次整块卡面
-        // 的离屏采样。所以这种情况直接落到下面那条**静态薄色**：半透明染色 + 高光边 + 投影，
-        // 叠在背景上，和「没有细节可糊」这个事实是一致的（2026-11 维护者定）。
+        // 有可糊 / 可折的细节：走 `drawBackdrop`（离屏采样），模糊 + 活力 + 折射 + 高光 + 投影全套
         liquid && backdrop != null && (blurGlass || refraction) -> remember(backdrop, radius, surfaceFill, liquidShadow, refraction, blurGlass) {
             Modifier.drawBackdrop(
                 backdrop = backdrop,
@@ -872,13 +869,21 @@ internal fun HomeTileFaceBox(
                 onDrawSurface = { drawRect(surfaceFill) },
             )
         }
-        // 液态玻璃开着、但没有可采样 / 可折的细节：**半透明薄色直接叠**（见上面那条注释）。
-        // 高光边与投影都留着，所以它仍然像一块浮起来的玻璃，只是不再采样。
+        /**
+         * 没有可糊 / 可折的细节（纯色、渐变，或壁纸已糊成色块）：**不采样，但玻璃的效果一样不少**。
+         *
+         * 2026-11 维护者定：只有「必须采样才画得出来」的那几样才不做——模糊、折射、以及
+         * `vibrancy` 对底色的饱和度提升（底板本来就是一片纯色，采了也没变化）。其余全部保留，
+         * 用纯绘制的方式补：[glassSheen] 补顶部打光（对应 `Highlight`）、
+         * [staticGlassShadow] 补环境光投影（与 `floatingGlassShadow` 同一组参数）、
+         * 再加底部薄色与轮廓高光。少了这三样，卡片就从「一块浮起来的玻璃」退成「一张平涂的纸」。
+         */
         liquid -> Modifier
-            .appCardShadow(shape = RoundedCornerShape(radius))
+            .staticGlassShadow(accent, dark, RoundedCornerShape(radius))
             .squircleClip(radius)
             .background(flatGlassFill)
-            .squircleBorder(0.9.dp, hairline, radius)
+            .background(glassSheen(dark))
+            .squircleBorder(0.9.dp, glassHairline(dark), radius)
         else -> Modifier
             .then(if (dark) Modifier else Modifier.appCardShadow(shape = RoundedCornerShape(radius)))
             .squircleClip(radius)
