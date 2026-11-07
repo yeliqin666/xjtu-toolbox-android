@@ -19,7 +19,9 @@ import androidx.compose.ui.unit.Density
 import com.kyant.backdrop.Backdrop
 import com.kyant.backdrop.internal.InverseLayerScope
 
-private val DefaultOnDraw: ContentDrawScope.() -> Unit = { drawContent() }
+// [岱宗盒子 vendor 改动] private → internal：`LayerBackdropNode` 要靠「是不是这一份默认实现」
+// 判断能不能把采样层直接当屏幕内容画（见那边 draw() 的注释）。
+internal val DefaultOnDraw: ContentDrawScope.() -> Unit = { drawContent() }
 
 @Composable
 fun rememberLayerBackdrop(
@@ -40,6 +42,12 @@ class LayerBackdrop internal constructor(
     override val isCoordinatesDependent: Boolean = true
 
     internal var layerCoordinates: LayoutCoordinates? by mutableStateOf(null)
+
+    /**
+     * [onDraw] 是不是「原样画一遍内容」（默认那份）。是的话，录进这一层的东西与屏幕上该出现的东西
+     * 逐像素相同，`LayerBackdropNode` 就能把这一层本身当屏幕内容画出去，内容树只渲染一遍。
+     */
+    internal val drawsContent: Boolean get() = onDraw === DefaultOnDraw
 
     private var inverseLayerScope: InverseLayerScope? = null
 

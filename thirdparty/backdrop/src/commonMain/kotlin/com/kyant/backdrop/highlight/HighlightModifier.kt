@@ -84,6 +84,13 @@ internal class HighlightNode(
 
     private var prevStyle: HighlightStyle? = null
 
+    /**
+     * 上一次设进 [paint] 的模糊半径。[Paint.blur] 每次都会 new 一个 `BlurMaskFilter`（原生对象，
+     * 建它要现算核表），而半径在一帧之内几乎从不变——卡片多的时候这里是纯粹的垃圾产出，
+     * 半径没变就别重设（[岱宗盒子 vendor 改动]）。
+     */
+    private var appliedBlurRadius = Float.NaN
+
     override fun ContentDrawScope.draw() {
         val highlight = highlight()
         if (highlight == null || highlight.width.value <= 0f) {
@@ -151,7 +158,11 @@ internal class HighlightNode(
     private fun DrawScope.configurePaint(highlight: Highlight) {
         paint.color = highlight.style.color
         paint.strokeWidth = ceil(highlight.width.toPx().fastCoerceAtMost(size.minDimension / 2f)) * 2f
-        paint.blur(highlight.blurRadius.toPx())
+        val blurRadius = highlight.blurRadius.toPx()
+        if (blurRadius != appliedBlurRadius) {
+            appliedBlurRadius = blurRadius
+            paint.blur(blurRadius)
+        }
         if (isRuntimeShaderSupported()) {
             val shader =
                 with(highlight.style) {

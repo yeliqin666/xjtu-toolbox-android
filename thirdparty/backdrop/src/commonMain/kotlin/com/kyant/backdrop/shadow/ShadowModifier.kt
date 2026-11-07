@@ -70,6 +70,9 @@ internal class ShadowNode(
 
     private val paint = Paint()
 
+    /** 上一次设进 [paint] 的模糊半径：半径没变就别重建 `BlurMaskFilter`（见 HighlightModifier 同名注释）。 */
+    private var appliedBlurRadius = Float.NaN
+
     override fun ContentDrawScope.draw() {
         val shadow = shadow() ?: return drawContent()
 
@@ -128,7 +131,11 @@ internal class ShadowNode(
 
     private fun DrawScope.configurePaint(shadow: Shadow) {
         paint.color = shadow.color
-        paint.blur(shadow.radius.toPx())
+        val blurRadius = shadow.radius.toPx()
+        if (blurRadius != appliedBlurRadius) {
+            appliedBlurRadius = blurRadius
+            paint.blur(blurRadius)
+        }
     }
 }
 
