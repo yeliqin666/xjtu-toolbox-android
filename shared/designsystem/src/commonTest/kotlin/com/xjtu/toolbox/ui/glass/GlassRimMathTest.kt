@@ -26,8 +26,9 @@ class GlassRimMathTest {
     }
 
     @Test
-    fun `正对光的那一对圆角最亮，背着光的那一对归零`() {
-        // 这是「光感」的全部来源：两个对角亮到 1.0、两个对角渐隐
+    fun `45 度光下亮的是对角，暗的是另一对`() {
+        // 「光感」的全部来源：法线与光向同向（或恰好反向）的那一对圆角最亮，
+        // 与之垂直的那一对归零。反向也亮是 shader 里那个 abs 带来的，见下一条用例
         assertEquals(1f, GlassRimMath.intensity(45f, 45f, 1f), 1e-4f)
         assertEquals(1f, GlassRimMath.intensity(225f, 45f, 1f), 1e-4f)
         assertEquals(0f, GlassRimMath.intensity(135f, 45f, 1f), 1e-4f)
@@ -35,11 +36,22 @@ class GlassRimMathTest {
     }
 
     @Test
-    fun `光向转了，亮的圆角跟着转`() {
-        // 光从正上方（270°）打下来：正对它的左上 / 右上两个圆角最亮
-        assertEquals(1f, GlassRimMath.intensity(270f, 270f, 1f), 1e-4f)
-        assertEquals(1f, GlassRimMath.intensity(0f, 0f, 1f), 1e-4f)
-        assertEquals(0f, GlassRimMath.intensity(180f, 0f, 1f), 1e-4f)
+    fun `光向转 90 度亮暗互换，转 180 度观感不变`() {
+        // 库里的强度带 abs（`pow(abs(dot), falloff)`）：只有这样整圈轮廓才「亮一对、暗一对」，
+        // 而不是只剩半边有高光。副作用是光向差 180° 时分布一模一样，
+        // 只有差 90° 才会把亮暗两对换过来——所以别在这里断言「背着光的那一侧归零」。
+        val light = 45f
+        // 差 180°：不变
+        assertEquals(
+            GlassRimMath.intensity(0f, light, 1f),
+            GlassRimMath.intensity(0f, light + 180f, 1f),
+            1e-4f,
+        )
+        // 差 90°：原本最亮的对角变成最暗，原本最暗的变成最亮
+        assertEquals(1f, GlassRimMath.intensity(45f, light, 1f), 1e-4f)
+        assertEquals(0f, GlassRimMath.intensity(45f, light + 90f, 1f), 1e-4f)
+        assertEquals(0f, GlassRimMath.intensity(135f, light, 1f), 1e-4f)
+        assertEquals(1f, GlassRimMath.intensity(135f, light + 90f, 1f), 1e-4f)
     }
 
     @Test
