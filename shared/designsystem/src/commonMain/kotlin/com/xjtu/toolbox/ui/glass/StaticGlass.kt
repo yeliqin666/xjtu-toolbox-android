@@ -15,10 +15,10 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Outline
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawOutline
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.graphics.drawscope.StrokeCap
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.LayoutDirection
 import com.kyant.backdrop.highlight.Highlight
@@ -289,10 +289,10 @@ private fun glassRim(
 private fun sweepStops(style: HighlightStyle.Default, color: Color): Array<Pair<Float, Color>> {
     val key = RimStopsKey(color, style.angle, style.falloff)
     rimStopsCache[key]?.let { return it }
-    val stops = Array(RIM_STOP_COUNT + 1) { i ->
+    val stops: Array<Pair<Float, Color>> = Array(RIM_STOP_COUNT + 1) { i ->
         val fraction = i.toFloat() / RIM_STOP_COUNT
         val k = GlassRimMath.intensity(fraction * 360f, style.angle, style.falloff)
-        fraction to color.shadedBy(k)
+        Pair(fraction, color.shadedBy(k))
     }
     // 键的组合就那么几种（每套主题色 + 一个光向）；真被喂满也只是几张几十项的数组
     if (rimStopsCache.size >= MAX_RIM_STOPS_CACHE) rimStopsCache.clear()
