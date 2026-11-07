@@ -34,6 +34,11 @@ fun Modifier.progressiveBlurBar(backdrop: Backdrop, tint: Color, titled: Boolean
                 backdrop = sampled,
                 shape = { BandShape },
                 effects = { blur(ProgressiveBlurRadii[index].dp.toPx(), TileMode.Decal) },
+                // 七层全屏宽的模糊是全 App 最贵的一处，采样层按一半分辨率录（像素数 1/4）：
+                // 这条带本身就是「顶边糊到底边清」，最锐的一层也才 0.75dp 且被遮罩压在低透明度那一段，
+                // 缩小一半再放大看不出来；`blur()` 的参数按 dp 写，缩放坐标系后外观半径不变。
+                // （2026-11 性能优化，见 `drawBackdrop` 的 downsample）
+                downsample = 0.5f,
                 highlight = null,
                 shadow = null,
                 // 遮罩必须画在本层自己的背景图层里：onDrawFront 在内容之后，会把标题和后面几层一起裁掉
