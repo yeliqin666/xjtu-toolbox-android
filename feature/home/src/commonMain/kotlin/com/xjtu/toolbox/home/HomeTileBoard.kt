@@ -58,6 +58,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
 import com.kyant.backdrop.Backdrop
+import com.kyant.backdrop.backdrops.emptyBackdrop
 import com.kyant.backdrop.drawBackdrop
 import com.kyant.backdrop.effects.blur
 import com.kyant.backdrop.effects.lens
@@ -74,7 +75,6 @@ import com.xjtu.toolbox.ui.components.ExpressiveIcon
 import com.xjtu.toolbox.ui.components.LocalPageVisible
 import com.xjtu.toolbox.ui.components.appCardShadow
 import com.xjtu.toolbox.ui.glass.floatingGlassShadow
-import com.xjtu.toolbox.ui.glass.staticGlassSurface
 import com.xjtu.toolbox.ui.rememberCampusNow
 import com.xjtu.toolbox.ui.theme.Editorial
 import com.xjtu.toolbox.ui.theme.LocalIsDarkTheme
@@ -810,11 +810,10 @@ internal fun HomeTileFaceBox(
      * 这一张卡**采不采背景**：只有「自定义图片、且没被模糊程度糊平」才值得采。
      *
      * 纯色 / 渐变背景上模糊采到的就是那片纯色，`lens` 也没东西可折，`vibrancy` 更是无事可做；
-     * 壁纸糊到 5dp 以上同理（壁纸已经是一片色块）。这三种情况**整块卡面不进 `drawBackdrop`**，
-     * 光影改用 [staticGlassSurface] 直接画——**一圈都不少**：轮廓高光按库里那条方向光公式
-     * 逐边逐角重画（`GlassRimMath`）、投影与加色混合照旧，参数就地取自同一个 [Highlight] /
-     * `Shadow` 对象，所以观感与采样版是同一套，只是省掉了那次离屏层与采样（这一档本来就是为省性能）。
-     * 底色另换成 `flatGlassFill`（浅色更白 / 深色更深）。
+     * 壁纸糊到 5dp 以上同理（壁纸已经是一片色块）。这三种情况走 `sampling = false`：**不采样、
+     * 不建离屏层、`effects` 一概不跑**，但高光与投影仍由库自己画（同一份 [Highlight] / [Shadow]），
+     * 所以观感与采样版一模一样——这一档本来就是为省性能（开关在 vendored 的 
+     * `thirdparty/backdrop` 里，见它的 README）。底色另换成 `flatGlassFill`（浅色更白 / 深色更深）。
      *
      * 只有**卡片**吃这条规则；按钮与编辑态悬浮条浮在内容上面，照旧模糊 + 折射。
      */
@@ -840,9 +839,8 @@ internal fun HomeTileFaceBox(
     // 和底栏胶囊同一套环境光阴影（remember：shadow lambda 捕获的对象变了会触发重采样）
     val accent = MiuixTheme.colorScheme.primary
     val liquidShadow = remember(accent, dark) { floatingGlassShadow(accent, dark) }
-    // 那圈轮廓高光的**唯一一份**：采样版交给 `drawBackdrop` 的 `highlight`，不采样版交给
-    // `staticGlassSurface` 按同一份参数（含方向光的角度与衰减）重画那圈描边，
-    // 两个分支取的是同一个对象，改参数只改这一行
+    // 那圈轮廓高光的**唯一一份**：两个分支都把它交给 `drawBackdrop` 的 `highlight`，画法完全同一份，
+    // 改参数只改这一行
     val rim = remember { Highlight.Default.copy(alpha = 0.65f) }
     // 不采样时（纯色 / 渐变 / 壁纸已糊成色块）：底色换成这一层「比页面更白（浅色）/
     // 更深（深色）」的薄色，代替本该从壁纸上采到的颜色（与折射开关无关）
@@ -852,12 +850,9 @@ internal fun HomeTileFaceBox(
     // 液态玻璃（§1 / §A16 ⑦）：**有条件的只有「采不采」这一件事**。
     //
     // 有可糊 / 可折的细节 → 走 `drawBackdrop` 的离屏采样，模糊 + 活力 + 折射 + 高光 + 投影全套。
-    // 没有（纯色、渐变，或壁纸已被模糊程度糊平）→ **不调 `drawBackdrop`**：它的离屏层跟有没有
-    // 内容可采无关，源给成空的也每帧照录一张卡片大小的层（见 `staticGlassSurface` 的注释），
-    // 而这一档的存在理由就是省性能，留着那层等于白付一次全卡离屏渲染。
-    // 改为直接画，但**光影一样不少、参数一个都不另存**：轮廓高光用同一份 [rim]（按库里那条
-    // 方向光公式逐边逐角重画，见 `GlassRimMath`）、投影用同一份 `liquidShadow`（`Shadow`）、
-    // 底色用同一份 `surfaceFill`，全部从这两个库对象上读，所以换个背景看不出「换了材质」
+    // 没有（纯色、渐变，或壁纸已被模糊程度糊平）→ 同一个 `drawBackdrop` 加 `sampling = false`：
+    // 「录一层采样结果再画上去」那一段整段跳过（离屏层、effects 里的 blur / lens / vibrancy 一起省），
+    // 而 onDrawSurface / 内容 / 高光 / 投影还是库自己按原顺序画，所以**光影一条不少**、与采样版同一套
     // ——2026-11 维护者要求的就是这个（「我只是不要做采样，其他效果我都要」）。
     val sample = backdrop?.takeIf { blurGlass || refraction }
     // 圆角形状两档共用同一个对象：`remember` 住它，`drawBackdrop` 的 `ShapeProvider` 才不会
@@ -870,7 +865,7 @@ internal fun HomeTileFaceBox(
                 shape = { cardShape },
                 effects = {
                     // 能走到这一支就说明背景上有可糊 / 可折的细节（没有时 [sample] 是空的，
-                    // 整块卡面走下面的 `staticGlassSurface`），所以下面这几层都真跑
+                    // 整块卡面走下面那个 `sampling = false` 分支），所以下面这几层都真跑
                     //
                     // 采样范围往外扩一圈，折射与模糊在轮廓边上也有真实内容可混、不变弱
                     // （和底栏胶囊、屁岱气泡同一手法）
@@ -892,12 +887,18 @@ internal fun HomeTileFaceBox(
                 onDrawSurface = { drawRect(surfaceFill) },
             )
         }
+        // 没有可采的细节（纯色 / 渐变 / 壁纸已被糊平）：`sampling = false`——不录采样层、
+        // `effects` 一概不跑、离屏层也不建，而 onDrawSurface / 内容 / 高光 / 投影仍由库按原顺序画。
+        // 有细节时走上头那一支，模糊与折射照旧。
         liquid -> remember(cardShape, surfaceFill, liquidShadow, rim) {
-            Modifier.staticGlassSurface(
-                highlight = rim,
-                shadow = liquidShadow,
-                shape = cardShape,
-                fill = surfaceFill,
+            Modifier.drawBackdrop(
+                backdrop = emptyBackdrop(),
+                shape = { cardShape },
+                sampling = false,
+                effects = {},
+                highlight = { rim },
+                shadow = { liquidShadow },
+                onDrawSurface = { drawRect(surfaceFill) },
             )
         }
         else -> Modifier

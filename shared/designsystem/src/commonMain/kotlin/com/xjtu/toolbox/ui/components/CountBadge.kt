@@ -14,9 +14,10 @@ import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.kyant.backdrop.backdrops.emptyBackdrop
+import com.kyant.backdrop.drawBackdrop
 import com.kyant.backdrop.highlight.Highlight
 import com.xjtu.toolbox.ui.glass.floatingGlassShadow
-import com.xjtu.toolbox.ui.glass.staticGlassSurface
 import com.xjtu.toolbox.ui.theme.LocalIsDarkTheme
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.theme.MiuixTheme
@@ -25,12 +26,11 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
  * 一枚「有几个」的小圆标（`1` / `12` / `99+`）。
  *
  * **和卡片同一套液态玻璃的参数，但不采样**（2026-11 维护者定）：轮廓高光是同一份
- * `Highlight.Default.copy(alpha = 0.65f)`（按方向光逐角重画，见 `GlassRimMath`，所以
- * 「亮一对角、隐一对角」的光感都在），环境光投影是同一份 [floatingGlassShadow]，
- * 走 [staticGlassSurface] 直接画出来——**不调 `drawBackdrop`**。理由是性能：`drawBackdrop`
- * 的离屏层跟有没有内容可采无关，源给成空的也每帧照录一层；而这枚 15dp 的小圆标下面本来
- * 就没有可采的东西，`vibrancy` / `blur` / `lens` 一个都用不上（见 `staticGlassSurface` 注释）。
- * 参数只有一处来源，所以它和卡片之间不会慢慢漂成两套材质。
+ * `Highlight.Default.copy(alpha = 0.65f)`、环境光投影是同一份 [floatingGlassShadow]，
+ * 走 `drawBackdrop` 但 **`sampling = false`**（vendored backdrop 的开关，见 
+ * `thirdparty/backdrop/README.md`）：不录采样层、不跑 `effects`、不建离屏层，而高光与投影
+ * 仍由库自己画——这枚 15dp 的小圆标下面本来就没有可采的东西，`vibrancy` / `blur` / `lens` 
+ * 一个都用不上。参数只有一处来源，所以它和卡片之间不会慢慢漂成两套材质。
  *
  * 放在 `:shared:designsystem` 而不是某个 feature 里，是因为首页悬浮条与通知铃铛分属两个 feature，
  * 而 feature 之间不许互相依赖。
@@ -50,12 +50,17 @@ fun CountBadge(count: Int, modifier: Modifier = Modifier, accent: Color = Color.
     val glow = remember(tint, dark) { floatingGlassShadow(tint, dark) }
     val rim = remember { Highlight.Default.copy(alpha = 0.65f) }
 
+    // 和首页卡片同一条路：sampling = false 只跳过「录一层采样结果」，高光 / 投影由库自己画，
+    // 所以这枚小圆标与卡片之间不会漂成两套材质
     val material = remember(wash, glow, rim) {
-        Modifier.staticGlassSurface(
-            highlight = rim,
-            shadow = glow,
-            shape = CircleShape,
-            fill = wash,
+        Modifier.drawBackdrop(
+            backdrop = emptyBackdrop(),
+            shape = { CircleShape },
+            sampling = false,
+            effects = {},
+            highlight = { rim },
+            shadow = { glow },
+            onDrawSurface = { drawRect(wash) },
         )
     }
     Box(

@@ -235,9 +235,8 @@ fun HomeCardGroupScreen(
     // ——但它**不改用户的设置**，只是显示成「用不上」
     val cardRefraction = refraction && glassHasDetail
     // 背景层的离屏层：**只在真有人要采时才录**（`layerBackdrop` 是一次整屏离屏渲染）。
-    // 卡片在纯色 / 渐变上（或壁纸已糊成色块）不采样，连 `drawBackdrop` 都不进——那个离屏层跟
-    // 有没有内容可采无关，源给成空的也照录，而这一档就是为省性能（见 `HomeTileFaceBox` 与
-    // `staticGlassSurface`）。这一层剩下的消费者是组标题行右侧那个**删除小圆钮**（浮在内容上，
+    // 卡片在纯色 / 渐变上（或壁纸已糊成色块）不采样：`drawBackdrop(sampling = false)` 跳过「录采样层」
+    // 那一段、也不建离屏层，这一档就是为省性能（见 `HomeTileFaceBox`）。这一层剩下的消费者是组标题行右侧那个**删除小圆钮**（浮在内容上，
     // 照旧模糊 + 折射），而它只在编辑态出现。
     val recordTileLayer = liquid && (glassHasDetail || editing.on)
 
