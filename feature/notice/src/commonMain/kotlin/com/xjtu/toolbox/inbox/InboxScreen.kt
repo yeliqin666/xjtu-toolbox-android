@@ -74,7 +74,6 @@ import top.yukonga.miuix.kmp.overlay.OverlayBottomSheet
 import com.xjtu.toolbox.ui.components.SelectionTile
 import com.xjtu.toolbox.ui.components.AppTabPager
 import com.xjtu.toolbox.ui.components.CountBadge
-import com.kyant.backdrop.Backdrop
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.navigationBarsPadding
 import com.xjtu.toolbox.platform.BackHandler
@@ -510,8 +509,6 @@ fun InboxBell(
      * 画在玻璃层**外面**——玻璃会把内容裁成圆形，画在里面角上会被弧边削掉。
      */
     showBadge: Boolean = true,
-    /** 采样源：这一枚走卡片同一套 `drawBackdrop` 液态玻璃（关掉模糊与折射），null 时退回薄色。 */
-    badgeBackdrop: Backdrop? = null,
 ) {
     val data = InboxStore.snapshot()
     val count = remember(data) { InboxRules.badge(data, Clock.System.now().toEpochMilliseconds()) }
@@ -537,7 +534,7 @@ fun InboxBell(
         }
         // 角标画在本层（容器右上角）。**嵌在圆钮玻璃里的时候要把 showBadge 关掉、由圆钮的
         // 父层用 [InboxUnreadBadge] 画**——圆钮那层玻璃会把内容裁成圆形，画在里面必被弧边削掉。
-        if (showBadge && count > 0) UnreadBadge(count, Modifier.align(Alignment.TopEnd).offset(x = (-2).dp, y = 4.dp), badgeBackdrop)
+        if (showBadge && count > 0) UnreadBadge(count, Modifier.align(Alignment.TopEnd).offset(x = (-2).dp, y = 4.dp))
     }
 }
 
@@ -545,22 +542,22 @@ fun InboxBell(
  * 未读角标（可单独调用）：**玻璃小圆标**——与首页悬浮条里那枚「已添加几块」是同一个组件
  * （`:shared:designsystem` 的 `CountBadge`），只是底色换成品牌红。
  *
- * 玻璃感来自「淡染色面 + 顶部白色顶光 + 白细高光边 + 同色柔光投影」，**不模糊、不折射、也绝不
- * 采样背景**：15dp 的尺度上模糊 / 折射只会糊成一团，还多付一次离屏采样（2026-11 维护者定，
- * 改成和纯色背景下的卡片同一套薄玻璃观感）。以前是一枚不透明的实心红点，看着不像玻璃。
+ * 玻璃感来自「半透明染色面 + 白细高光边 + 同色柔光投影」，**不采样、不模糊、不折射**：它自己
+ * 不吃模糊与折射，那就没有理由为它跑一次离屏采样——直接半透明叠在下面那块玻璃（圆钮）上，
+ * 透出它本身的颜色即可，这也是纯色背景下卡片的同一条做法（2026-11 维护者定）。
  *
  * 嵌在圆形玻璃钮里时，调用方应该把它画在**圆钮外面那一层**，否则会被玻璃的圆形裁剪削掉。
  */
 @Composable
-fun InboxUnreadBadge(modifier: Modifier = Modifier, backdrop: Backdrop? = null) {
+fun InboxUnreadBadge(modifier: Modifier = Modifier) {
     val data = InboxStore.snapshot()
     val count = remember(data) { InboxRules.badge(data, Clock.System.now().toEpochMilliseconds()) }
-    if (count > 0) UnreadBadge(count, modifier, backdrop)
+    if (count > 0) UnreadBadge(count, modifier)
 }
 
 @Composable
-private fun UnreadBadge(count: Int, modifier: Modifier = Modifier, backdrop: Backdrop? = null) {
-    CountBadge(count, modifier, accent = UnreadAccent, backdrop = backdrop)
+private fun UnreadBadge(count: Int, modifier: Modifier = Modifier) {
+    CountBadge(count, modifier, accent = UnreadAccent)
 }
 
 /** 未读角标的品牌红：icon 与角标共用，别在别处另写一个红。 */

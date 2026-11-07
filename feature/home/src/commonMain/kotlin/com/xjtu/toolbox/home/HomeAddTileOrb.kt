@@ -34,6 +34,7 @@ import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -550,7 +551,7 @@ private fun OrbTileList(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 if (dockRight && showLabels) {
-                    OrbLabel(face.title, labelExtra, textEnd = true, count = tileCounts[service.route.id] ?: 0, backdrop = backdrop)
+                    OrbLabel(face.title, labelExtra, textEnd = true, count = tileCounts[service.route.id] ?: 0)
                 }
                 Box(Modifier.width(colW), contentAlignment = Alignment.Center) {
                     OrbTileIcon(
@@ -569,7 +570,7 @@ private fun OrbTileList(
                     )
                 }
                 if (!dockRight && showLabels) {
-                    OrbLabel(face.title, labelExtra, textEnd = false, count = tileCounts[service.route.id] ?: 0, backdrop = backdrop)
+                    OrbLabel(face.title, labelExtra, textEnd = false, count = tileCounts[service.route.id] ?: 0)
                 }
             }
         }
@@ -586,12 +587,12 @@ private fun OrbTileList(
  * [count] 排**图标与文字中间**（2026-11 按需求加）：贴边停靠时中间就是文字右侧，靠左停靠时
  * 是文字左侧，两种情况都在「靠图标那一侧」，和名字一起被帘子带出来。0 块时不画。
  *
- * 画法是一枚**主题色小圆标**（`CountBadge`：走卡片同一套 `drawBackdrop` 液态玻璃，只把
- * `blur()` / `lens()` 两层关掉——见那个组件的注释），不是一行 `×3` 的弱化小字：那个数字是
+ * 画法是一枚**主题色小圆标**（`CountBadge`：半透明染色 + 白细高光边 + 同色柔光投影，**不采样**，
+ * 就是直接叠在下面那块玻璃上——见那个组件的注释），不是一行 `×3` 的弱化小字：那个数字是
  * 「这张卡在主页上已经有几块」的**计数**，和名字同级的信息，靠一枚钉子更一眼看得出来。
  */
 @Composable
-private fun OrbLabel(title: String, width: Dp, textEnd: Boolean, count: Int, backdrop: Backdrop?) {
+private fun OrbLabel(title: String, width: Dp, textEnd: Boolean, count: Int) {
     // 图标侧 8dp 呼吸位；**外沿那侧留 [ORB_LABEL_EDGE_PAD]**——那里是胶囊的圆弧，字与圆标
     // 贴上去会被弧边啃掉一角（2026-11 加宽名字栏时一起补的安全距离）
     val iconSidePad = Modifier.padding(
@@ -607,7 +608,7 @@ private fun OrbLabel(title: String, width: Dp, textEnd: Boolean, count: Int, bac
             horizontalArrangement = Arrangement.spacedBy(5.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            if (!textEnd && count > 0) CountBadge(count, backdrop = backdrop)
+            if (!textEnd && count > 0) CountBadge(count)
             Text(
                 text = title,
                 style = MiuixTheme.textStyles.footnote1,
@@ -617,7 +618,7 @@ private fun OrbLabel(title: String, width: Dp, textEnd: Boolean, count: Int, bac
                 textAlign = if (textEnd) TextAlign.End else TextAlign.Start,
                 modifier = Modifier.weight(1f),
             )
-            if (textEnd && count > 0) CountBadge(count, backdrop = backdrop)
+            if (textEnd && count > 0) CountBadge(count)
         }
     }
 }
@@ -636,6 +637,18 @@ private fun OrbTileIcon(
 ) {
     // 图标的页面局部位置：每次回读存本地，合成手指坐标用（列表滚动后自动新鲜）
     var iconTop by remember(face.key) { mutableStateOf(Offset.Zero) }
+    /**
+     * 回调必须经 `rememberUpdatedState` 读最新值，**不能直接捕获**。
+     *
+     * `pointerInput(face.key)` 的手势协程只启动一次（key 不变就不重启），而 `onDragOut` 每次
+     * 重组都是新的 lambda，里面捕获着**那一刻的 `layout` 草稿**。直接捕获的话，按下时用的还是
+     * 「上一次重组时」那份布局：本轮刚从悬浮条放下的一张卡不在那份快照里，于是新块的 id 会被
+     * 重新算成与它相同、落盘时又按旧快照整页覆盖——表现就是「同一张卡再放一次，刚放下的那张
+     * 就没了」。`HomeDragLayer` 里那几个回调就是同样的写法。
+     */
+    val currentDragOut by rememberUpdatedState(onDragOut)
+    val currentDrop by rememberUpdatedState(onDrop)
+    val currentCancel by rememberUpdatedState(onCancel)
     Box(
         Modifier
             .padding(vertical = ORB_TILE_PAD)
@@ -648,15 +661,15 @@ private fun OrbTileIcon(
             .pointerInput(face.key) {
                 // 官方长按拖拽：onDragCancel 有兜底，手势被抢走不会卡死会话
                 detectDragGesturesAfterLongPress(
-                    onDragStart = { offset -> onDragOut(iconTop + offset) },
+                    onDragStart = { offset -> currentDragOut(iconTop + offset) },
                     onDrag = { change, _ ->
                         change.consume()
                         // 图标位置（视口）+ 事件的图标相对坐标 = 手指视口坐标。手势层不接管
                         // 悬浮条，所以这一路自己更新 session.pointer；落点仍是首页按快照派生的
                         session.move(iconTop + change.position)
                     },
-                    onDragEnd = { onDrop() },
-                    onDragCancel = { onCancel() },
+                    onDragEnd = { currentDrop() },
+                    onDragCancel = { currentCancel() },
                 )
             },
         contentAlignment = Alignment.Center,

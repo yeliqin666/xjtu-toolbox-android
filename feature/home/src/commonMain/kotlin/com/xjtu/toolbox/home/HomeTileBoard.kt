@@ -839,7 +839,14 @@ internal fun HomeTileFaceBox(
     val surfaceFill = if (blurGlass) liquidFill else flatGlassFill
 
     val material = when {
-        liquid && backdrop != null -> remember(backdrop, radius, surfaceFill, liquidShadow, refraction, blurGlass) {
+        // 只有**真要糊或真折射**的时候才值得付那次离屏采样。
+        //
+        // 纯色 / 渐变背景（以及壁纸被糊到没细节）时 `blurGlass = false`、`refraction` 也一并
+        // 被调用方关掉，这时 `drawBackdrop` 采出来的只是一片纯色底：`blur` / `lens` 不跑，
+        // 剩下一层 `vibrancy()` 的饱和度提升在这种底上根本看不出来——等于每帧白做一次整块卡面
+        // 的离屏采样。所以这种情况直接落到下面那条**静态薄色**：半透明染色 + 高光边 + 投影，
+        // 叠在背景上，和「没有细节可糊」这个事实是一致的（2026-11 维护者定）。
+        liquid && backdrop != null && (blurGlass || refraction) -> remember(backdrop, radius, surfaceFill, liquidShadow, refraction, blurGlass) {
             Modifier.drawBackdrop(
                 backdrop = backdrop,
                 shape = { RoundedCornerShape(radius) },
@@ -865,8 +872,8 @@ internal fun HomeTileFaceBox(
                 onDrawSurface = { drawRect(surfaceFill) },
             )
         }
-        // 液态玻璃开着、但这一帧没有采样源（不该发生）：退回薄色 + 轮廓 + 投影，
-        // 别退回毛玻璃——毛玻璃明显更闷
+        // 液态玻璃开着、但没有可采样 / 可折的细节：**半透明薄色直接叠**（见上面那条注释）。
+        // 高光边与投影都留着，所以它仍然像一块浮起来的玻璃，只是不再采样。
         liquid -> Modifier
             .appCardShadow(shape = RoundedCornerShape(radius))
             .squircleClip(radius)

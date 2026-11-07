@@ -656,9 +656,6 @@ private fun HomeTopActions(
                 Modifier
                     .align(Alignment.TopEnd)
                     .offset(x = (-2).dp, y = 4.dp),
-                // 角标自己也走液态玻璃（卡片那套 drawBackdrop，只是关了模糊与折射）：
-                // 采的是顶栏递下来的**内容层**，和旁边那枚圆钮同一个源，看起来才像同一块玻璃上的钉子
-                backdrop = LocalHomeBarBackdrop.current,
             )
         }
     }

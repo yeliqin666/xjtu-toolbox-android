@@ -234,9 +234,11 @@ fun HomeCardGroupScreen(
     // 卡片与幽灵块：没有细节可折就别付那份离屏位移采样。主页设置里那个开关同时置灰
     // ——但它**不改用户的设置**，只是显示成「用不上」
     val cardRefraction = refraction && glassHasDetail
-    // 卡片那一层离屏层：液态玻璃开着就录——纯色 / 渐变（以及糊到没细节的壁纸）上虽然不糊、
-    // 也不折射，但活力（光感）与高光还要采这层，少了它玻璃就退成一张实心纸
-    val recordTileLayer = liquid
+    // 背景层的离屏层：**只在真有人要采时才录**。卡片与幽灵块在没有可糊 / 可折的细节时走
+    // 静态薄色（见 `HomeTileFaceBox` 的材质分支），不采样；这一层剩下的消费者只有组标题行
+    // 右侧那个**删除按钮**（小圆钮，浮在内容上，照旧模糊 + 折射），而它只在编辑态出现。
+    // 所以纯色 / 渐变背景的常规态下这一整屏离屏渲染可以省掉。
+    val recordTileLayer = liquid && (glassHasDetail || editing.on)
 
     /** 改当前布局：编辑态改草稿（点「对勾」才落盘），其余情况直接落盘。 */
     fun update(block: (HomeLayout) -> HomeLayout) {
