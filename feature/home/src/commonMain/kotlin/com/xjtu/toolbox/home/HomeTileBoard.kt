@@ -813,7 +813,7 @@ internal fun HomeTileFaceBox(
      * 壁纸糊到 5dp 以上同理（壁纸已经是一片色块）。这三种情况走 `sampling = false`：**不采样、
      * 不建离屏层、`effects` 一概不跑**，但高光与投影仍由库自己画（同一份 [Highlight] / [Shadow]），
      * 所以观感与采样版一模一样——这一档本来就是为省性能（开关在 vendored 的 
-     * `thirdparty/backdrop` 里，见它的 README）。底色另换成 `flatGlassFill`（浅色更白 / 深色更深）。
+     * `thirdparty/backdrop` 里，见它的 README）。底色另换成 `flatGlassFill`（两种模式都比页面亮一档：玻璃是反光的，内部不能比周围暗，暗部交给外部阴影）。
      *
      * 只有**卡片**吃这条规则；按钮与编辑态悬浮条浮在内容上面，照旧模糊 + 折射。
      */
@@ -842,9 +842,12 @@ internal fun HomeTileFaceBox(
     // 那圈轮廓高光的**唯一一份**：两个分支都把它交给 `drawBackdrop` 的 `highlight`，画法完全同一份，
     // 改参数只改这一行
     val rim = remember { Highlight.Default.copy(alpha = 0.65f) }
-    // 不采样时（纯色 / 渐变 / 壁纸已糊成色块）：底色换成这一层「比页面更白（浅色）/
-    // 更深（深色）」的薄色，代替本该从壁纸上采到的颜色（与折射开关无关）
-    val flatGlassFill = if (dark) Color.Black.copy(alpha = 0.26f) else Color.White.copy(alpha = 0.52f)
+    // 不采样时（纯色 / 渐变 / 壁纸已糊成色块）：底色换成这一层「比页面更亮」的薄色，
+    // 代替本该从壁纸上采到的颜色（与折射开关无关）。
+    // **两种模式都提亮**：玻璃是反光的东西，内部不能比周围暗——这一档早先用过 `Black 26%`，
+    // 深色模式下整块卡面会沉下去，周围阴影再好也救不回来（2026-11 维护者真机反馈）。
+    // 深色取白 10%（与毛玻璃档同一档）、浅色取白 52%，暗的那一圈交给 `floatingGlassShadow`。
+    val flatGlassFill = if (dark) Color.White.copy(alpha = 0.10f) else Color.White.copy(alpha = 0.52f)
     val surfaceFill = if (blurGlass) liquidFill else flatGlassFill
 
     // 液态玻璃（§1 / §A16 ⑦）：**有条件的只有「采不采」这一件事**。
