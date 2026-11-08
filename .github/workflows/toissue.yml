@@ -1,0 +1,45 @@
+name: Handle /toissue in discussions
+
+# 监听 Discussion 新评论里的 /toissue 命令，把主帖或楼中楼转换成 issue。
+#
+# /toissue <type> <priority> [flags] [assignee]
+#   type     bug / feature
+#   priority 0 / 1 / 2 / 3
+#   flags    q 加 Question；t 把 Awaiting Assignment 换成 Awaiting Triage
+#   assignee @用户名，可省略
+#
+# 只有仓库 write / maintain / admin 权限的作者会触发；权限不足静默跳过。
+# 顶层回复转换讨论主帖，楼中楼转换该楼中楼本身。
+# GitHub 不允许回复楼中楼，所以对楼中楼命令的回复会落在同一线程顶层，并引用具体评论。
+# 已转换过的来源会在 issue 正文里留隐藏标记，重复命令只更新/回链，不会重复建 issue。
+#
+# 命令要求单独占一行（行首可有空格）；引用行（>）和围栏代码块里的不算。
+
+on:
+  discussion_comment:
+    types: [created]
+
+# 读取讨论、创建/更新 issue、回帖都需要写权限。
+permissions:
+  contents: read
+  discussions: write
+  issues: write
+
+# 同一讨论内的命令串行处理，避免同一来源并发创建两个 issue。
+concurrency:
+  group: discussion-toissue-${{ github.event.discussion.number }}
+  cancel-in-progress: false
+
+jobs:
+  toissue:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Handle command
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          COMMENT_NODE_ID: ${{ github.event.comment.node_id }}
+        run: python3 .github/scripts/toissue.py
