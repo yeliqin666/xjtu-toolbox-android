@@ -249,19 +249,6 @@ class HomeLayoutStore(
         get() = store.getBoolean(KEY_LIQUID_CARD, true)
         set(value) = store.putBoolean(KEY_LIQUID_CARD, value)
 
-    /**
-     * 液态玻璃要不要带折射（透镜弯光）。
-     *
-     * 折射是整个玻璃里最贵的一层：`lens()` 要在离屏层上再跑一遍位移采样（每像素一次）。
-     * 关掉它剩下的模糊、活力、高光、轮廓、投影一样不少，只是玻璃从「厚透镜」变成
-     * 「磨砂片」——观感差一档，但滚动和拖动时省下相当一部分 GPU。
-     *
-     * 独立成一个键、默认 true：老用户升级上来外观不变，觉得卡的人自己往下拨一格。
-     * 只在 [liquidCard] 为真时有意义（毛玻璃那条路本来就没有折射）。
-     */
-    var liquidRefraction: Boolean
-        get() = store.getBoolean(KEY_LIQUID_REFRACTION, true)
-        set(value) = store.putBoolean(KEY_LIQUID_REFRACTION, value)
 
     /**
      * 首页顶栏用哪套排法（默认**开** = 改造前那套）。
@@ -357,7 +344,6 @@ private const val KEY_LEGACY_WIDGETS = "home_widgets"
         private const val KEY_GRID = "home_grid"
 private const val KEY_CARD_CORNER = "home_card_corner"
         private const val KEY_LIQUID_CARD = "home_liquid_card"
-        private const val KEY_LIQUID_REFRACTION = "home_liquid_refraction"
         private const val KEY_TOP_ACTIONS_RIGHT = "home_top_actions_right"
         private const val KEY_BACKGROUND_MODE = "home_background_mode"
         private const val KEY_BACKGROUND_IMAGE = "home_background_image"
