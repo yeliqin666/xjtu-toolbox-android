@@ -82,6 +82,7 @@ import com.kyant.backdrop.Backdrop
 import com.kyant.backdrop.backdrops.layerBackdrop
 import com.kyant.backdrop.backdrops.rememberLayerBackdrop
 import com.kyant.backdrop.drawBackdrop
+import com.kyant.backdrop.effects.blur
 import com.kyant.backdrop.effects.lens
 import com.kyant.backdrop.effects.vibrancy
 import com.kyant.backdrop.highlight.Highlight
@@ -108,6 +109,7 @@ import com.xjtu.toolbox.ui.components.LocalPageVisible
 import com.xjtu.toolbox.ui.components.enterOnce
 import com.xjtu.toolbox.ui.components.rememberLiquidMood
 import com.xjtu.toolbox.ui.glass.LocalGlassStyle
+import com.xjtu.toolbox.ui.glass.topBarScrim
 import com.xjtu.toolbox.schedule.CourseColors
 import com.xjtu.toolbox.ui.theme.Editorial
 import com.xjtu.toolbox.ui.theme.EditorialRule
