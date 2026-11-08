@@ -273,7 +273,7 @@ fun GlassBottomTabs(
                             backdrop = backdrop,
                             shape = { pillShape },
                             effects = {
-                                // 采样范围往外扩一圈，胶囊边缘处也有真实内容可混（见 glassBarSurface）
+                                // 采样范围往外扩一圈，胶囊边缘处也有真实内容可混（见 topBarScrim）
                                 padding = maxOf(padding, 16.dp.toPx())
                                 vibrancy()
                                 blur(8.dp.toPx())

@@ -20,9 +20,7 @@ import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.constrainHeight
 import androidx.compose.ui.unit.dp
-import com.kyant.backdrop.Backdrop
 import com.kyant.backdrop.backdrops.LayerBackdrop
-import com.kyant.backdrop.backdrops.layerBackdrop
 import com.kyant.backdrop.backdrops.rememberLayerBackdrop
 import com.xjtu.toolbox.ui.components.BackButton
 import androidx.compose.foundation.layout.RowScope
@@ -31,28 +29,33 @@ import top.yukonga.miuix.kmp.basic.TopAppBar
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 /**
- * 二级页的玻璃顶栏。用法：
+ * 二级页的顶栏：玻璃风格下画一条渐变遮罩（暗色黑 / 亮色白，见 [topBarScrim]）。用法：
  * ```
  * val glass = rememberPageGlass()                        // 经典风格下是 null
  * Scaffold(topBar = {
  *     TopAppBar(..., color = glassBarColor(glass), modifier = Modifier.glassTopBar(glass))
  * }) { padding ->
- *     // 内容铺到顶栏下面并作为采样源；采样源要挂在滚动容器外面
+ *     // 内容铺到顶栏下面；不跟着滚的横幅、筛选条要自己让出顶栏高度，别压在遮罩后面
  *     Box(Modifier.fillMaxSize().padding(padding.withoutTop(glass)).glassSource(glass)) {
  *         val top = padding.glassTop(glass)                   // 顶部留白放进滚动内容
  *         LazyColumn(contentPadding = PaddingValues(top = top + 8.dp, ...)) { ... }
  *     }
  * }
  * ```
- * 采样源别挂在整个 Scaffold 上（顶栏会采样自己，RenderThread 崩溃）；
- * 不跟着滚的横幅、筛选条要自己让出顶栏高度，别压在玻璃后面。
+ * [glassSource] 只管顶栏折叠时的布局位移，**不再录采样层**（顶栏已经不采样了）。
  */
 val LocalGlassStyle = compositionLocalOf { false }
 
 /** 二级页被用户放到了底栏上（没有上一级）：[com.xjtu.toolbox.ui.components.BackButton] 不画。 */
 val LocalTabRoot = compositionLocalOf { false }
 
-/** 这一页的玻璃采样源；经典风格时为 null。每页自己建一份，不借主界面的。 */
+/**
+ * 这一页的玻璃采样源；经典风格时为 null。每页自己建一份，不借主界面的。
+ *
+ * 顶栏从 2026-11 起不再采样（见 [topBarScrim]），所以这个对象现在只当**「玻璃风格 + 每页一份」
+ * 的哨兵**用：`glassTopBar` / `glassBarColor` / `withoutTop` / `glassTop` 都靠它判 null，
+ * `glassSource` 也不再往它里面录内容（那次整屏离屏渲染已经省掉）。
+ */
 @Composable
 fun rememberPageGlass(): LayerBackdrop? {
     val backdrop = rememberLayerBackdrop()
@@ -60,12 +63,15 @@ fun rememberPageGlass(): LayerBackdrop? {
 }
 
 /**
- * 录下这一层作为采样源；[backdrop] 为 null 时什么都不做。
- * 同时让内容跟着顶栏折叠走：页面按稳定的最大留白排版，实际矮多少就在布局阶段上移多少。
+ * 让内容跟着顶栏折叠走：页面按稳定的最大留白排版，实际矮多少就在布局阶段上移多少。
+ * [backdrop] 为 null（经典风格）时什么都不做。
+ *
+ * 以前这里还挂着 `layerBackdrop`，把整页录一份给顶栏采样；顶栏改成渐变遮罩后没人采样了，
+ * 就把那一次**整屏离屏渲染**摘掉了——每个二级页每帧省一趟（40 来个页面都吃这口）。
  */
 fun Modifier.glassSource(backdrop: LayerBackdrop?): Modifier {
     if (backdrop == null) return this
-    return this.layerBackdrop(backdrop).shiftUpBy {
+    return shiftUpBy {
         val follow = topBarFollows[backdrop] ?: return@shiftUpBy 0.dp
         follow.stable - follow.current()
     }
@@ -139,20 +145,16 @@ fun GlassTopAppBar(
 fun glassBarColor(backdrop: LayerBackdrop?): Color =
     if (backdrop != null) Color.Transparent else MiuixTheme.colorScheme.surface
 
-/** 二级页顶栏的玻璃，见 [glassBarSurface]。 */
+/**
+ * 二级页顶栏的渐变遮罩，见 [topBarScrim]。只画不量。
+ *
+ * 参数是「这一页走不走玻璃风格」的哨兵：null = 经典风格，顶栏自己铺不透明底色，不画遮罩。
+ */
 @Composable
 fun Modifier.glassTopBar(backdrop: LayerBackdrop?): Modifier {
     if (backdrop == null) return this
-    return glassBarSurface(backdrop, glassBarTint())
+    return Modifier.topBarScrim()
 }
-
-/** 顶栏玻璃上压的表面色，保证字看得清。 */
-@Composable
-fun glassBarTint(): Color = MiuixTheme.colorScheme.surface.copy(alpha = 0.72f)
-
-/** 贴边顶栏的玻璃：与首页同一套无边界渐变模糊，见 [progressiveBlurBar]。只画不量。 */
-@Composable
-fun Modifier.glassBarSurface(backdrop: Backdrop, tint: Color): Modifier = progressiveBlurBar(backdrop, tint)
 
 /** 玻璃时内容容器不吃顶部 padding（铺到顶栏下面）；经典时原样返回。 */
 @Composable

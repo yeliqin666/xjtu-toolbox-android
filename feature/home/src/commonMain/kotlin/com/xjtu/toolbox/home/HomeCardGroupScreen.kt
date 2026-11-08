@@ -58,10 +58,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.TileMode
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -84,7 +82,6 @@ import com.kyant.backdrop.Backdrop
 import com.kyant.backdrop.backdrops.layerBackdrop
 import com.kyant.backdrop.backdrops.rememberLayerBackdrop
 import com.kyant.backdrop.drawBackdrop
-import com.kyant.backdrop.effects.blur
 import com.kyant.backdrop.effects.lens
 import com.kyant.backdrop.effects.vibrancy
 import com.kyant.backdrop.highlight.Highlight
@@ -155,7 +152,7 @@ fun HomeCardGroupScreen(
     extraBottomPadding: Dp = 0.dp,
     /** 玻璃顶栏的高度：内容铺到顶栏下面，这段留白放进滚动内容里。经典风格为 0。 */
     contentTopPadding: Dp = 0.dp,
-    /** 壳把整页上移的量（见 `ShellPageInsets.contentTopShift`）；模糊带按它补回屏幕顶边。 */
+    /** 壳把整页上移的量（见 `ShellPageInsets.contentTopShift`）；顶栏遮罩按它补回屏幕顶边。 */
     contentTopShift: () -> Dp = { 0.dp },
     /**
      * 顶栏最左侧那个按钮（`:app` 是「扫一扫」）；null = 这一端没有。
@@ -236,9 +233,13 @@ fun HomeCardGroupScreen(
     val cardRefraction = refraction && glassHasDetail
     // 背景层的离屏层：**只在真有人要采时才录**（`layerBackdrop` 是一次整屏离屏渲染）。
     // 卡片在纯色 / 渐变上（或壁纸已糊成色块）不采样：`drawBackdrop(sampling = false)` 跳过「录采样层」
-    // 那一段、也不建离屏层，这一档就是为省性能（见 `HomeTileFaceBox`）。这一层剩下的消费者是组标题行右侧那个**删除小圆钮**（浮在内容上，
-    // 照旧模糊 + 折射），而它只在编辑态出现。
-    val recordTileLayer = liquid && (glassHasDetail || editing.on)
+    // 那一段、也不建离屏层，这一档就是为省性能（见 `HomeTileFaceBox`）。
+    //
+    // 2026-11 这一档**去掉了 `|| editing.on`**：以前编辑态为了组标题行那个 30dp 的删除圆钮、
+    // 还有拖拽幽灵块能糊一下，在没有壁纸细节的背景上也强行录这一层——等于为了几个小圆钮每帧
+    // 多渲染一整屏。现在它们跟卡片同一条规则：没细节可糊就走薄色兜底（编辑态因此少了一整屏离屏渲染）。
+    // **折射开关是采样总开关**：它关掉时这一层整个不录（见 HomeTileFaceBox）。
+    val recordTileLayer = liquid && refraction && glassHasDetail
 
     /** 改当前布局：编辑态改草稿（点「对勾」才落盘），其余情况直接落盘。 */
     fun update(block: (HomeLayout) -> HomeLayout) {
@@ -348,16 +349,16 @@ fun HomeCardGroupScreen(
     // 它们要透出的是壁纸，采整页会把别的组件也采进去。
     val tileBackdrop = rememberLayerBackdrop()
 
-    // 顶栏模糊带的采样源：**这一页的内容层**——背景 + 滚动内容一起录进去，
-    // 于是顶栏糊的是「此刻滚动到它底下的东西」，而不是固定不动的壁纸。
-    // 顶栏本身在这个层**外面**（是它的兄弟节点），不然它会被采进自己那层里形成回环。
+    // 顶栏圆钮 / 编辑态悬浮条的采样源：**这一页的内容层**——背景 + 滚动内容一起录进去，
+    // 于是它们糊出来的是「此刻压在它下面的东西」，而不是固定不动的壁纸。
+    // （顶栏那条带子从 2026-11 起不再采样，改画渐变遮罩，所以这一层只剩这两处消费者。）
     val pageBackdrop = rememberLayerBackdrop()
 
-    // 要不要真录这一层（`layerBackdrop` 会多一次全屏离屏渲染）：玻璃风格的模糊带要用它，
-    // 液态玻璃开着时顶栏圆钮要用它；**编辑态的添加悬浮条也要用它**——纯色 / 渐变背景上
-    // 卡片那层没东西可采（见 recordTileLayer），悬浮条就改采这层内容，于是它透出来、扭动的
-    // 是此刻压在它下面的卡片，而不是一片死板的薄色。
-    val recordPageLayer = glass || (collapsible && liquid) || (liquid && editing.on)
+    // 要不要真录这一层（`layerBackdrop` 会多一次整屏离屏渲染）：液态玻璃开着时顶栏圆钮要用它；
+    // **编辑态的添加悬浮条也要用它**——纯色 / 渐变背景上卡片那层没东西可采（见 recordTileLayer），
+    // 悬浮条就改采这层内容，于是它透出来、扭动的是此刻压在它下面的卡片，而不是一片死板的薄色。
+    // 以前还有一条 `glass ||`（玻璃风格顶栏的模糊带要用），顶栏改成渐变遮罩后已经去掉。
+    val recordPageLayer = refraction && ((collapsible && liquid) || (liquid && editing.on))
 
     val session = remember { HomeDragSession() }
     val density = LocalDensity.current
@@ -1033,7 +1034,7 @@ fun HomeCardGroupScreen(
                 },
             ),
     ) {
-        // ── 内容层：背景 + 滚动内容，整层录进 pageBackdrop 给顶栏模糊带与顶栏圆钮采样 ──
+        // ── 内容层：背景 + 滚动内容，整层录进 pageBackdrop 给顶栏圆钮与编辑态悬浮条采样 ──
         // 只在真有人要采的时候录，见上面的 recordPageLayer
         Box(
             Modifier
@@ -1223,19 +1224,20 @@ fun HomeCardGroupScreen(
         // 否则桌面、Web 长按进了编辑态就出不来了
         if (collapsible || editing.on) {
             // 顶栏圆钮（编辑态三个图标 + 宿主给的扫码 / 搜索 / 通知）也采**内容层**：
-            // 它们和模糊带一样压在内容上面，该糊 / 折射的是此刻盖住的东西，不是固定壁纸。
+            // 它们压在内容上面，该糊 / 折射的是此刻盖住的东西，不是固定壁纸。
             // 折射开关同理走 Local：那几个按钮是宿主（:app）画的，拿不到这里的参数
             CompositionLocalProvider(
-                LocalHomeBarBackdrop provides pageBackdrop.takeIf { liquid },
+                // 折射开关是采样总开关：关掉时圆钮连采样源都不给，退回半透明底（见 HomeTileFaceBox）
+                LocalHomeBarBackdrop provides pageBackdrop.takeIf { liquid && refraction },
                 LocalHomeGlassRefraction provides refraction,
             ) {
                 HomeCollapsingBar(
                     progress = progress,
                     topInset = contentTopPadding,
                     bandShift = contentTopShift,
-                    // 模糊带采**内容层**：糊的是此刻滚到顶栏底下的东西（壁纸 + 内容），不是固定壁纸
-                    backdrop = if (glass) pageBackdrop else null,
-                    barLiquidBackdrop = pageBackdrop.takeIf { liquid },
+                    // 遮罩不采样了，这里只留「画不画」这一个开关（玻璃风格才画渐变遮罩，见 topBarScrim）
+                    showScrim = glass,
+                    barLiquidBackdrop = pageBackdrop.takeIf { liquid && refraction },
                     onTapCollapsed = { scope.launch { scroll.animateScrollTo(0) } },
                     editing = editing.on,
                     leading = topLeading,
@@ -1281,10 +1283,10 @@ fun HomeCardGroupScreen(
                 liquid = liquid,
                 refraction = refraction,
                 // 采样源：**内容层**（`pageBackdrop` = 背景 + 滚动内容那一整层），和顶栏那几个圆钮、
-                // 顶栏模糊带采的是同一层。悬浮条浮在所有东西之上，该糊的是「此刻压在它下面的那一片」
+                // 顶栏圆钮采的是同一层。悬浮条浮在所有东西之上，该糊的是「此刻压在它下面的那一片」
                 // ——卡片、文字、壁纸全算在内；只采背景层的话透出来的永远是那张壁纸，卡片从它身下
                 // 滚过去也不会有任何变化（2026-11 按维护者要求改）。
-                backdrop = pageBackdrop.takeIf { liquid },
+                backdrop = pageBackdrop.takeIf { liquid && refraction },
                 session = session,
                 // 悬浮条恒为全圆（胶囊），不吃用户那条「卡片圆角」——那条滑条只管卡片
                 labels = orbLabels,
@@ -1484,7 +1486,7 @@ private fun newGroupId(): String = "custom-" + kotlin.random.Random.nextInt(1000
 
 /**
  * 首页**内容层**（背景 + 滚动内容）的采样源：顶栏那排圆钮——包括宿主给的扫码 / 搜索 / 通知——
- * 读它做液态玻璃，于是圆钮模糊 / 折射的也是它**此刻盖住的东西**，和顶栏模糊带同一个源。
+ * 读它做液态玻璃，于是圆钮模糊 / 折射的也是它**此刻盖住的东西**，和顶栏圆钮同一个源。
  *
  * 首页在顶栏这一层 provide（液态开关关的时候是 null，按钮退回非液态）。卡片 / 悬浮球不走它，
  * 那些还是采背景层（见 `tileBackdrop`）——它们贴在壁纸上，采整页会把自己和邻居也采进去。
@@ -1518,7 +1520,8 @@ private fun HomeCollapsingBar(
     progress: () -> Float,
     topInset: Dp,
     bandShift: () -> Dp,
-    backdrop: Backdrop?,
+    /** 画不画顶栏底下那条渐变遮罩（玻璃风格才画；经典风格顶栏自己铺底色）。 */
+    showScrim: Boolean,
     /** 顶栏圆钮液态玻璃的采样源（首页**内容层**：背景 + 滚动内容）；null = 退回半透明圆钮。 */
     barLiquidBackdrop: Backdrop?,
     onTapCollapsed: () -> Unit,
@@ -1532,23 +1535,18 @@ private fun HomeCollapsingBar(
     devTopBar: Boolean = false,
 ) {
     val collapsed by remember { derivedStateOf { progress() > 0.5f } }
-    val surface = MiuixTheme.colorScheme.surface
     Box(Modifier.fillMaxWidth().height(topInset + BAR_HEIGHT)) {
-        if (backdrop != null) {
-            // 96dp 的模糊带比顶栏本身高，放在顶栏高度之外，才能往内容里多淡一段。
-            // 采的是首页**背景层**：壁纸的模糊一直铺到屏幕顶边（§1.1 背景铺满含顶栏）。
+        if (showScrim) {
+            // 96dp 的遮罩比顶栏本身高，放在顶栏高度之外，才能往内容里多淡一段。
             // 贴的是屏幕顶边而不是这一页的本地 0 点：壳会按 stable 顶栏高度把整页上移，
-            // 不补回 [bandShift] 的话整条带会被顶到屏幕外。
+            // 不补回 [bandShift] 的话整条遮罩会被顶到屏幕外。
             Box(
                 Modifier
                     .fillMaxWidth()
-                    .requiredHeight(PROGRESSIVE_BLUR_BAND_HEIGHT)
+                    .requiredHeight(TOP_BAR_SCRIM_HEIGHT)
                     .offset { IntOffset(0, bandShift().roundToPx()) },
             ) {
-                ProgressiveBarBlur(backdrop, Modifier.matchParentSize())
-                if (SHOW_TINT_WASH) {
-                    Box(Modifier.matchParentSize().background(tintWash(surface)))
-                }
+                Box(Modifier.matchParentSize().topBarScrim(titled = false))
             }
         }
         // 顶栏本体透明：背景图（或背景层的主题底色）从下面透上来，按钮浮在上面
@@ -1685,70 +1683,11 @@ private fun HomeBarIconButton(icon: ImageVector, label: String, liquid: Backdrop
     }
 }
 
-/**
- * 顶栏那条 96dp 的「渐强模糊带」：**一层模糊 + 一条整带高度的线性淡出遮罩**。
- *
- * 历史与取舍（2026-11，四次真机反馈）：最早是 useplanes 的 progressive blur——七层半径
- * 0.75→18dp 叠着跑，每层用一条渐变只留一段，于是「越靠顶边越糊」。那是每帧七次全屏宽的
- * 离屏采样 + 七次高斯模糊，**首页最贵的两处之一**。之后试过三种省法：①把采样层录成半分辨率
- * 再放大画回去——`RenderEffect` 与 runtime shader 是在**设备空间**求值的，层录小并不会让特效
- * 少算，只平白多一次重采样，真机上反而爆炸，这条路永远不要再走；②一层 12dp + 一条折线遮罩，
- * 大面积大半径并不便宜；③两级阶梯（10dp / 3dp，交界处两条遮罩互相淡出）——开销下来了，但
- * 两段半径的交界在真机上仍看得出硬边。
- *
- * 现在这个是**一层 + 一条纯线性淡出**：全带同一个半径，只有遮罩透明度从顶边 1 线性降到 0，
- * 半径没有交界、线性渐变也没有折点，所以过渡是一整条不间断的「霜 → 清」。半径与面积都最小，
- * 全分辨率、零画布缩放。
- */
-@Composable
-private fun ProgressiveBarBlur(
-    backdrop: Backdrop,
-    modifier: Modifier = Modifier,
-) {
-    val layer = remember(backdrop) {
-        Modifier.drawBackdrop(
-            backdrop = backdrop,
-            shape = { RoundedCornerShape(0.dp) },
-            effects = { blur(BarBlurRadius.toPx(), TileMode.Decal) },
-            highlight = null,
-            shadow = null,
-            // 遮罩画在本层内容之后：这一层的内容就是那张模糊结果，用 DstIn 按高度渐渐吃掉它
-            onDrawFront = {
-                drawRect(brush = BarBlurMask, blendMode = BlendMode.DstIn)
-            },
-        )
-    }
-    Box(modifier.then(layer))
-}
-
 /** 展开时圆钮比顶栏正中上移的距离：顶栏里圆钮上方正好留这么多，不会顶进状态栏。 */
 private val BUTTON_LIFT get() = (BAR_HEIGHT - 36.dp) / 2 - 2.dp
 
-/** useplanes 的可选 tint：表面色从顶部 1.0 线性淡到底边 0。 */
-private const val SHOW_TINT_WASH = true
-
-/** 顶栏模糊带的高度：96dp（比顶栏本身高，才能往内容里多淡一段）。 */
-private val PROGRESSIVE_BLUR_BAND_HEIGHT = 96.dp
-
-/** 顶栏模糊带的半径：全带同一个值，靠遮罩往下淡出来收边，所以没有两段半径的交界可言。 */
-private val BarBlurRadius = 8.dp
-
-/**
- * 竖向遮罩：顶边全留、底边归零（0 = 带的顶边，1 = 底边）。
- * 只有两个 stop 的纯线性渐变——折点为零，也就不会在任何高度上冒出一条横线。
- */
-private val BarBlurMask = blurMask(0f to 1f, 1f to 0f)
-
-/** 把「位置 → alpha」的几档折成一条竖向渐变（0 = 带的顶边，1 = 底边）。 */
-private fun blurMask(vararg stops: Pair<Float, Float>): Brush = Brush.verticalGradient(
-    *stops.map { (position, alpha) -> position to Color.Black.copy(alpha = alpha) }.toTypedArray(),
-)
-
-/** 顶栏表面色遮罩：顶部完全不透明，到底边线性归零。 */
-private fun tintWash(surface: Color): Brush = Brush.verticalGradient(
-    0f to surface.copy(alpha = 1f),
-    1f to surface.copy(alpha = 0f),
-)
+/** 顶栏渐变遮罩的高度：96dp（比顶栏本身高，才能往内容里多淡一段）。 */
+private val TOP_BAR_SCRIM_HEIGHT = 96.dp
 
 /**
  * 「主题色渐变背景」：把主题色按 22% → 10% → 4%（深色 30% → 18% → 8%）的比例**融进底色**，
