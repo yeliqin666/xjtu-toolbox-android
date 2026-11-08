@@ -178,8 +178,6 @@ internal fun HomeAddTileOrb(
      */
     tileCounts: Map<String, Int>,
     liquid: Boolean,
-    /** 液态玻璃是否带折射；见 HomeTileFaceBox 的 `refraction` 说明。 */
-    refraction: Boolean,
     backdrop: Backdrop?,
     session: HomeDragSession,
     /**
@@ -308,7 +306,7 @@ internal fun HomeAddTileOrb(
                 .size(boxW, boxH)
                 // 玻璃先画（投影要能落在框外面，所以 clip 必须在它**里面**），
                 // 再由内层 clip 裁掉动画中间溢出来的那半截列表
-                .orbGlass(liquid, refraction, backdrop, glassShape)
+                .orbGlass(liquid, backdrop, glassShape)
                 .clip(glassShape)
                 .onGloballyPositioned { coords ->
                     // 这一层当前的视口矩形：手势层对落在这里的 down 一律放行，
@@ -366,7 +364,6 @@ internal fun HomeAddTileOrb(
                     catalog = catalog,
                     tileCounts = tileCounts,
                     liquid = liquid,
-                    refraction = refraction,
                     backdrop = backdrop,
                     session = session,
                     dockRight = dockRight,
@@ -495,7 +492,6 @@ private fun OrbTileList(
     /** 路由 id → 这一张卡在整页上已经放了几块（0 / 缺省 = 还没摆过）。 */
     tileCounts: Map<String, Int>,
     liquid: Boolean,
-    refraction: Boolean,
     backdrop: Backdrop?,
     session: HomeDragSession,
     /** 停靠在页面右侧（true）/ 左侧（false）：图标列贴哪一边、名字栏往另一边长。 */
@@ -562,7 +558,6 @@ private fun OrbTileList(
                     OrbTileIcon(
                         face = face,
                         liquid = liquid,
-                        refraction = refraction,
                         backdrop = backdrop,
                         session = session,
                         // 拖出图标 = 「按住再拖」：确认开始移动的这一刻先收名字栏
@@ -633,7 +628,6 @@ private fun OrbLabel(title: String, width: Dp, textEnd: Boolean, count: Int) {
 private fun OrbTileIcon(
     face: HomeServiceRow,
     liquid: Boolean,
-    refraction: Boolean,
     backdrop: Backdrop?,
     session: HomeDragSession,
     onDragOut: (startPointer: Offset) -> Unit,
@@ -662,7 +656,7 @@ private fun OrbTileIcon(
                 // 换成页面局部坐标登记，拖出时从这里起算
                 iconTop = coords.boundsInRoot().topLeft - session.pageOrigin
             }
-            .orbGlass(liquid, refraction, backdrop, CircleShape)
+            .orbGlass(liquid, backdrop, CircleShape)
             .pointerInput(face.key) {
                 // 官方长按拖拽：onDragCancel 有兜底，手势被抢走不会卡死会话
                 detectDragGesturesAfterLongPress(
@@ -697,7 +691,6 @@ private fun OrbTileIcon(
 @Composable
 private fun Modifier.orbGlass(
     liquid: Boolean,
-    refraction: Boolean,
     backdrop: Backdrop?,
     shape: Shape,
 ): Modifier {
@@ -728,7 +721,7 @@ private fun Modifier.orbGlass(
                 // 悬浮球 / 长条浮在内容上面，模糊的是此刻盖住的卡片：照旧模糊（不吃卡片那条
                 // 「纯色 / 渐变不模糊」的规则），折射也照旧由开关管
                 blur(8.dp.toPx())
-                if (refraction) lens(9.dp.toPx(), 12.dp.toPx())
+                lens(9.dp.toPx(), 12.dp.toPx())
             },
             highlight = { Highlight.Default.copy(alpha = 0.65f) },
             shadow = { shadow },

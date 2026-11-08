@@ -92,7 +92,6 @@ import com.xjtu.toolbox.home.HomeSignals
 import com.xjtu.toolbox.home.HomeStats
 import com.xjtu.toolbox.home.HomeStatsRefresher
 import com.xjtu.toolbox.home.HomeTab
-import com.xjtu.toolbox.home.LocalHomeGlassRefraction
 import com.xjtu.toolbox.home.LocalHomeBarBackdrop
 import com.xjtu.toolbox.library.LibraryFocus
 import com.xjtu.toolbox.library.LibraryQrArea
@@ -681,7 +680,6 @@ private fun HomeRoundAction(
     val liquid = LocalHomeBarBackdrop.current
     // 折射子开关是**采样总开关**：首页在它关掉时会把上面的 `liquid` 收成 null（连采样源都不给），
     // 圆钮于是退回下面那条半透明底——不采样、不模糊、不折射（2026-11 维护者定）
-    val refraction = LocalHomeGlassRefraction.current
     val fill = if (isDark) Color.White.copy(alpha = 0.08f) else Color.White.copy(alpha = 0.4f)
     Box(
         Modifier
@@ -703,7 +701,7 @@ private fun HomeRoundAction(
                             padding = maxOf(padding, 8.dp.toPx())
                             vibrancy()
                             blur(6.dp.toPx())
-                            if (refraction) lens(8.dp.toPx(), 10.dp.toPx())
+                            lens(8.dp.toPx(), 10.dp.toPx())
                         },
                         highlight = { Highlight.Default.copy(alpha = 0.65f) },
                         shadow = null,

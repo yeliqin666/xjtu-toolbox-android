@@ -189,7 +189,6 @@ fun HomeCardGroupScreen(
     val grid = remember(revision) { layoutStore.grid }
     val liquid = remember(settingsRevision) { settings.homeLiquidGlass }
     // 液态玻璃的折射子项：只在 liquid 为真时有意义，关掉省一层离屏位移采样（见 HomeLayoutStore）
-    val refraction = remember(revision) { layoutStore.liquidRefraction }
     // 顶栏排法：开（默认）= 改造前那套（左侧「交小西」头像、三个圆钮统一在右、不画居中标题）；
     // 关 = 本分支那套（扫码靠左、标题绝对居中、右侧只留搜索与通知）
     val topActionsRight = remember(settingsRevision) { settings.homeTopActionsRight }
@@ -225,14 +224,13 @@ fun HomeCardGroupScreen(
     /**
      * 卡片那层玻璃**还能不能看出模糊 / 折射**：有壁纸、且壁纸还有细节。
      *
-     * 卡片与幽灵块采的是**背景层**，所以这个值同时决定「糊不糊」与「折不折」；
-     * 顶栏圆钮、悬浮球、组删除钮采的是**内容层**（卡片、文字都在里面），那里折射真看得出来，
-     * 照旧吃用户那个开关（见 `orbGlass` / `GroupDeleteButton`）。
+     * 卡片与幽灵块采的是**背景层**，所以这个值同时决定「糊不糊」与「折不折」——**没有用户开关**
+     * （2026-11 维护者把「开启折射」那项整个删了）：有细节就一整套上，没有就不采样，
+     * 免得把「省电」这件事交给用户去猜。
+     * 顶栏圆钮、悬浮球、组删除钮采的是**内容层**（卡片、文字都在里面），那里永远有东西可折，
+     * 所以它们恒采样 + 恒折射（见 `orbGlass` / `GroupDeleteButton`）。
      */
     val glassHasDetail = hasWallpaper && !wallpaperBlurredOut
-    // 卡片与幽灵块：没有细节可折就别付那份离屏位移采样。主页设置里那个开关同时置灰
-    // ——但它**不改用户的设置**，只是显示成「用不上」
-    val cardRefraction = refraction && glassHasDetail
     // 背景层的离屏层：**只在真有人要采时才录**（`layerBackdrop` 是一次整屏离屏渲染）。
     // 卡片在纯色 / 渐变上（或壁纸已糊成色块）不采样：`drawBackdrop(sampling = false)` 跳过「录采样层」
     // 那一段、也不建离屏层，这一档就是为省性能（见 `HomeTileFaceBox`）。
@@ -240,8 +238,7 @@ fun HomeCardGroupScreen(
     // 2026-11 这一档**去掉了 `|| editing.on`**：以前编辑态为了组标题行那个 30dp 的删除圆钮、
     // 还有拖拽幽灵块能糊一下，在没有壁纸细节的背景上也强行录这一层——等于为了几个小圆钮每帧
     // 多渲染一整屏。现在它们跟卡片同一条规则：没细节可糊就走薄色兜底（编辑态因此少了一整屏离屏渲染）。
-    // **折射开关是采样总开关**：它关掉时这一层整个不录（见 HomeTileFaceBox）。
-    val recordTileLayer = liquid && refraction && glassHasDetail
+    val recordTileLayer = liquid && glassHasDetail
 
     /** 改当前布局：编辑态改草稿（点「对勾」才落盘），其余情况直接落盘。 */
     fun update(block: (HomeLayout) -> HomeLayout) {
@@ -360,7 +357,7 @@ fun HomeCardGroupScreen(
     // **编辑态的添加悬浮条也要用它**——纯色 / 渐变背景上卡片那层没东西可采（见 recordTileLayer），
     // 悬浮条就改采这层内容，于是它透出来、扭动的是此刻压在它下面的卡片，而不是一片死板的薄色。
     // 以前还有一条 `glass ||`（玻璃风格顶栏的模糊带要用），顶栏改成渐变遮罩后已经去掉。
-    val recordPageLayer = refraction && ((collapsible && liquid) || (liquid && editing.on))
+    val recordPageLayer = (collapsible && liquid) || (liquid && editing.on)
 
     val session = remember { HomeDragSession() }
     val density = LocalDensity.current
@@ -1172,7 +1169,7 @@ fun HomeCardGroupScreen(
                                     faces = faces,
                                     editing = editing.on,
                                     liquid = liquid,
-                                    refraction = cardRefraction,
+                                    refraction = glassHasDetail,
                                     backdrop = tileBackdrop.takeIf { recordTileLayer },
                                     // 卡片能不能糊：没有可糊的细节（纯色 / 渐变，或壁纸已被糊平）时关掉
                                     blurGlass = glassHasDetail,
@@ -1230,8 +1227,7 @@ fun HomeCardGroupScreen(
             // 折射开关同理走 Local：那几个按钮是宿主（:app）画的，拿不到这里的参数
             CompositionLocalProvider(
                 // 折射开关是采样总开关：关掉时圆钮连采样源都不给，退回半透明底（见 HomeTileFaceBox）
-                LocalHomeBarBackdrop provides pageBackdrop.takeIf { liquid && refraction },
-                LocalHomeGlassRefraction provides refraction,
+                LocalHomeBarBackdrop provides pageBackdrop.takeIf { liquid },
             ) {
                 HomeCollapsingBar(
                     progress = progress,
@@ -1239,7 +1235,7 @@ fun HomeCardGroupScreen(
                     bandShift = contentTopShift,
                     // 遮罩不采样了，这里只留「画不画」这一个开关（玻璃风格才画渐变遮罩，见 topBarScrim）
                     showScrim = glass,
-                    barLiquidBackdrop = pageBackdrop.takeIf { liquid && refraction },
+                    barLiquidBackdrop = pageBackdrop.takeIf { liquid },
                     onTapCollapsed = { scope.launch { scroll.animateScrollTo(0) } },
                     editing = editing.on,
                     leading = topLeading,
@@ -1265,7 +1261,7 @@ fun HomeCardGroupScreen(
             session = session,
             faces = faces,
             liquid = liquid,
-            refraction = cardRefraction,
+            refraction = glassHasDetail,
             backdrop = tileBackdrop.takeIf { recordTileLayer },
             // 幽灵块是卡片的预览，跟卡片同一条规则
             blurGlass = glassHasDetail,
@@ -1283,12 +1279,11 @@ fun HomeCardGroupScreen(
                 // 名字栏里那个「已在主页放了几块」：整页所有组一起数（同一条路由现在可以有多块）
                 tileCounts = tileCounts,
                 liquid = liquid,
-                refraction = refraction,
                 // 采样源：**内容层**（`pageBackdrop` = 背景 + 滚动内容那一整层），和顶栏那几个圆钮、
                 // 顶栏圆钮采的是同一层。悬浮条浮在所有东西之上，该糊的是「此刻压在它下面的那一片」
                 // ——卡片、文字、壁纸全算在内；只采背景层的话透出来的永远是那张壁纸，卡片从它身下
                 // 滚过去也不会有任何变化（2026-11 按维护者要求改）。
-                backdrop = pageBackdrop.takeIf { liquid && refraction },
+                backdrop = pageBackdrop.takeIf { liquid },
                 session = session,
                 // 悬浮条恒为全圆（胶囊），不吃用户那条「卡片圆角」——那条滑条只管卡片
                 labels = orbLabels,
@@ -1495,15 +1490,6 @@ private fun newGroupId(): String = "custom-" + kotlin.random.Random.nextInt(1000
  */
 val LocalHomeBarBackdrop = compositionLocalOf<Backdrop?> { null }
 
-/**
- * 首页液态玻璃要不要带折射（透镜弯光）。
- *
- * 首页自己画的卡片、悬浮球走显式参数，不需要这个；它专门给**宿主（`:app`）画的顶栏圆钮**用——
- * 那几个按钮是在 `topActions` lambda 里创建的，拿不到首页的局部值，只能走 CompositionLocal。
- * 默认 true：没经首页 provide 的场合（比如别处复用了圆钮）保持原来的外观。
- */
-val LocalHomeGlassRefraction = compositionLocalOf { true }
-
 // ── 顶栏 ──
 
 /**
@@ -1649,7 +1635,7 @@ private fun HomeBarAvatar(progress: () -> Float) {
 @Composable
 private fun HomeBarIconButton(icon: ImageVector, label: String, liquid: Backdrop?, onClick: () -> Unit) {
     val dark = LocalIsDarkTheme.current
-    val refraction = LocalHomeGlassRefraction.current
+    // 折射不再有用户开关：圆钮压在内容上，恒模糊 + 恒折射（顶栏那条带子已经不采样了，圆钮仍是玻璃）
     val fill = if (dark) Color.White.copy(alpha = 0.08f) else Color.White.copy(alpha = 0.4f)
     val material = if (liquid != null) {
         Modifier.drawBackdrop(
@@ -1659,7 +1645,7 @@ private fun HomeBarIconButton(icon: ImageVector, label: String, liquid: Backdrop
                 padding = maxOf(padding, 8.dp.toPx())
                 vibrancy()
                 blur(6.dp.toPx())
-                if (refraction) lens(8.dp.toPx(), 10.dp.toPx())
+                lens(8.dp.toPx(), 10.dp.toPx())
             },
             highlight = { Highlight.Default.copy(alpha = 0.65f) },
             shadow = null,

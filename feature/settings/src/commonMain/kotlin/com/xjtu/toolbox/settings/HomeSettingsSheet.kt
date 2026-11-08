@@ -128,7 +128,6 @@ private fun HomeSettingsBody(onDismiss: () -> Unit, showTopBarStyle: Boolean) {
     var layout by remember(revision) { mutableStateOf(settings.homeLayout) }
     var liquid by remember(revision) { mutableStateOf(settings.homeLiquidGlass) }
     var topActionsRight by remember(revision) { mutableStateOf(settings.homeTopActionsRight) }
-    var refraction by remember { mutableStateOf(store.liquidRefraction) }
     var grid by remember { mutableStateOf(store.grid) }
     var corner by remember { mutableIntStateOf(store.cardCorner) }
     var opacity by remember { mutableIntStateOf(store.backgroundOpacity) }
@@ -256,37 +255,6 @@ private fun HomeSettingsBody(onDismiss: () -> Unit, showTopBarStyle: Boolean) {
                     HomeLayoutRevision.bump()
                 },
             )
-            // 折射子项只有卡片组吃：经典版与小组件那两套没有这一层。
-            //
-            // 没有可折 / 可糊的细节时它**置灰但保留用户的设置**（2026-11 按维护者要求改）：
-            // ①纯色 / 渐变背景上没有壁纸可采，`lens` 折的是一张纯色底，`blur` 也糊不出信息；
-            // ②自定义图片但「模糊程度」≥ 5dp 时，壁纸已经被糊成一片色块，卡片再采它一遍糊出来的
-            // 与「薄色底」几乎分不出。两种情况都是「既不模糊也不折射」，而这两层是全页最贵的
-            // （每张卡一次离屏位移采样），所以渲染侧直接不跑。
-            //
-            // 但开关**不改成关**：显示的是用户自己那一档（`checked = refraction`），只是拨不动
-            // （`enabled = glassHasDetail`）。「用不上」和「用户关掉了」是两件事——前者换一档背景
-            // 就恢复，后者得用户自己再拨回来。存盘值一律不动。
-            //
-            // 说明文字只用那一句（维护者定的）：**不加括号解释**成因，两档共用。
-            if (cards && liquid) {
-                SwitchPreference(
-                    title = "开启折射",
-                    summary = when {
-                        !glassHasDetail -> "当前背景设置下折射/模糊无明显效果，为节省资源已关闭"
-                        refraction -> "边缘把背景扭出透镜的弯光（最费的一层）"
-                        else -> "只留模糊与高光：轮廓和通透感都在，省一层离屏采样"
-                    },
-                    checked = refraction,
-                    enabled = glassHasDetail,
-                    startAction = { SettingsIcon(Icons.Default.WaterDrop, cBlue.copy(alpha = 0.72f)) },
-                    onCheckedChange = {
-                        refraction = it
-                        store.liquidRefraction = it
-                        store.notifyChanged()
-                    },
-                )
-            }
         }
 
         // ── 顶栏 ──
@@ -399,7 +367,6 @@ private fun HomeSettingsBody(onDismiss: () -> Unit, showTopBarStyle: Boolean) {
                         text = "恢复默认",
                         onClick = {
                             store.reset()
-                            refraction = store.liquidRefraction
                             grid = store.grid
                             opacity = store.backgroundOpacity
                             confirmReset = false
