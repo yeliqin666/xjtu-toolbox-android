@@ -710,6 +710,7 @@ private fun Modifier.orbGlass(
     }
     if (backdrop == null) {
         // 兜底：没有采样源时用薄色 + 投影，别画成一片透明
+        // （背景是纯色 / 渐变，或用户关掉了「开启折射」这个采样总开关）
         return this
             .appCardShadow(shape = shape)
             .background(

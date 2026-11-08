@@ -418,8 +418,9 @@ private fun GroupHeader(
 private fun GroupDeleteButton(liquid: Boolean, refraction: Boolean, backdrop: Backdrop?, onClick: () -> Unit) {
     val dark = LocalIsDarkTheme.current
     val fill = if (dark) Color.White.copy(alpha = 0.07f) else Color.White.copy(alpha = 0.42f)
-    // 按钮不跟卡片那条「纯色 / 渐变不模糊」的规则：它浮在内容上面，模糊的是此刻盖住的卡片，
-    // 糊得动也值得糊。纯色 / 渐变下它照旧模糊 + 折射。
+    // 和卡片、圆钮、悬浮球同一条规则：**折射开关是采样总开关**，关掉就只剩高光 / 薄色，
+    // 不采样也不模糊（真机上模糊和折射一样贵，留着模糊省不下什么）。
+    // 背景上压根没有细节（纯色 / 渐变）时 `backdrop` 也是 null，走的同样是下面那条薄色兜底。
     val material = when {
         liquid && backdrop != null -> Modifier.drawBackdrop(
             backdrop = backdrop,
@@ -434,7 +435,7 @@ private fun GroupDeleteButton(liquid: Boolean, refraction: Boolean, backdrop: Ba
             shadow = null,
             onDrawSurface = { drawRect(fill) },
         )
-        // 这一帧没有采样源（不该发生）：退回半透明底，别画成一片透明
+        // 没开采样（折射关着，或背景是纯色 / 渐变）：退回半透明底，别画成一片透明
         liquid -> Modifier
             .clip(CircleShape)
             .background(MiuixTheme.colorScheme.onSurface.copy(alpha = 0.12f))
@@ -815,7 +816,7 @@ internal fun HomeTileFaceBox(
      * 所以观感与采样版一模一样——这一档本来就是为省性能（开关在 vendored 的 
      * `thirdparty/backdrop` 里，见它的 README）。**不铺底色**：卡片完全透明，只剩轮廓高光与外面那圈投影——2026-11 维护者定「玻璃片本身该是透的，只要铺白就像蒙了一层白」，要染色的是角标（`CountBadge`），不是卡片。
      *
-     * 只有**卡片**吃这条规则；按钮与编辑态悬浮条浮在内容上面，照旧模糊 + 折射。
+     * 这条只管「背景上有没有细节」；另外**折射开关是采样总开关**，关掉时连这一档都不进（见下）。
      */
     blurGlass: Boolean = true,
     /**
@@ -854,7 +855,11 @@ internal fun HomeTileFaceBox(
     // 「录一层采样结果再画上去」那一段整段跳过（离屏层、effects 里的 blur / lens / vibrancy 一起省），
     // 而内容 / 高光 / 投影还是库自己按原顺序画（**不铺底色，卡片完全透明**），所以光影一条不少
     // ——2026-11 维护者要求的就是这个（「我只是不要做采样，其他效果我都要」）。
-    val sample = backdrop?.takeIf { blurGlass || refraction }
+    //
+    // **折射开关是这一档的总开关**（2026-11 第五次真机反馈后定的）：真机上模糊与折射一样贵，
+    // 「关掉折射但保留模糊」省不下什么，所以关掉折射就整档退到 `sampling = false`——不采样、
+    // 不模糊、不折射，只剩高光与投影。用户关它图的就是省电，不该再偷偷跑一趟模糊。
+    val sample = backdrop?.takeIf { refraction }
     // 圆角形状两档共用同一个对象：`remember` 住它，`drawBackdrop` 的 `ShapeProvider` 才不会
     // 因为「每帧一个新 lambda」被判定成换了形状而重建离屏层
     val cardShape = remember(radius) { RoundedCornerShape(radius) }
