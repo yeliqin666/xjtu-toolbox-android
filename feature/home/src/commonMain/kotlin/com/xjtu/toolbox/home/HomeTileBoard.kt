@@ -58,6 +58,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
 import com.kyant.backdrop.Backdrop
+import com.kyant.backdrop.backdrops.emptyBackdrop
 import com.kyant.backdrop.drawBackdrop
 import com.kyant.backdrop.effects.blur
 import com.kyant.backdrop.effects.lens
@@ -188,8 +189,11 @@ internal fun HomeGroupSection(
      */
     paymentCode: suspend () -> String? = { null },
     /**
-     * 卡片能不能糊（只有卡片吃「纯色 / 渐变不模糊」这条规则；按钮与悬浮条照旧模糊）。
-     * 见 [HomeTileFaceBox] 的同名参数。
+     * 卡片能不能糊（只有卡片吃「没有可糊的细节就不糊」这条规则；按钮与悬浮条照旧模糊）。
+     *
+     * 「没有细节」有两种：纯色 / 渐变背景（压根没有壁纸），以及壁纸自己已经被「模糊程度」糊到
+     * 看不出细节（`SettingsStore.HOME_WALLPAPER_BLUR_HIDES_GLASS` 及以上）。两种都由调用方算成
+     * 一个布尔传进来，见 [HomeTileFaceBox] 的同名参数。
      */
     blurGlass: Boolean = true,
     /** 卡片圆角（主页设置里那条滑条），实际还会被「边长 × 12」夹住，见 [HomeTileFaceBox]。 */
@@ -285,7 +289,20 @@ internal fun HomeGroupSection(
                     }
                 }
 
-                val dragId = session.tileId
+                /**
+                 * 这一帧要画成落点占位框的那一块（null = 一块都不藏）。
+                 *
+                 * **从悬浮条拖出时，绝不能藏起起手快照里就有的那块**（2026-11 维护者实测反馈：
+                 * 「手指一按住悬浮条上的图标，页面上对应的那张卡就消失了」）。那一场手里拿的是
+                 * 一个「还不存在的新 id」，正常情况下与页面上任何一块都不同名，这条判定只会命中
+                 * `liveLayout` 里那张**预览块**（落点占位框就是它画的）。可一旦新 id 与某块撞号
+                 * （尾号是「当前最大 +1」，删过最高号之后会回退到用过的号），这里就会命中那块
+                 * 无辜的真身——它被换成占位框，看起来就是「按住就没了」。
+                 * 撞号时一个都不藏：宁可预览少一个落点框，也不能吃掉真块。
+                 */
+                val paletteHitsRealTile = session.fromPalette &&
+                    session.tileId?.let { session.base?.tile(it) != null } == true
+                val dragId = session.tileId?.takeIf { !paletteHitsRealTile }
                 // 拖动中与**结算中**都画占位框：松手后幽灵从手指位置飞向落点，落点这一块先留成
                 // 占位框；幽灵飞到与它重合才 finish() 切回真实块——外观一样，切换无感。
                 // 只判 draggingTile 的话，结算期它会立刻变成落点处的真实块，和还在飞的幽灵重影。
@@ -401,8 +418,9 @@ private fun GroupHeader(
 private fun GroupDeleteButton(liquid: Boolean, refraction: Boolean, backdrop: Backdrop?, onClick: () -> Unit) {
     val dark = LocalIsDarkTheme.current
     val fill = if (dark) Color.White.copy(alpha = 0.07f) else Color.White.copy(alpha = 0.42f)
-    // 按钮不跟卡片那条「纯色 / 渐变不模糊」的规则：它浮在内容上面，模糊的是此刻盖住的卡片，
-    // 糊得动也值得糊。纯色 / 渐变下它照旧模糊 + 折射。
+    // 和卡片、圆钮、悬浮球同一条规则：**折射开关是采样总开关**，关掉就只剩高光 / 薄色，
+    // 不采样也不模糊（真机上模糊和折射一样贵，留着模糊省不下什么）。
+    // 背景上压根没有细节（纯色 / 渐变）时 `backdrop` 也是 null，走的同样是下面那条薄色兜底。
     val material = when {
         liquid && backdrop != null -> Modifier.drawBackdrop(
             backdrop = backdrop,
@@ -417,7 +435,7 @@ private fun GroupDeleteButton(liquid: Boolean, refraction: Boolean, backdrop: Ba
             shadow = null,
             onDrawSurface = { drawRect(fill) },
         )
-        // 这一帧没有采样源（不该发生）：退回半透明底，别画成一片透明
+        // 没开采样（折射关着，或背景是纯色 / 渐变）：退回半透明底，别画成一片透明
         liquid -> Modifier
             .clip(CircleShape)
             .background(MiuixTheme.colorScheme.onSurface.copy(alpha = 0.12f))
@@ -790,11 +808,15 @@ internal fun HomeTileFaceBox(
     refraction: Boolean,
     backdrop: Backdrop?,
     /**
-     * 这张卡**能不能糊**：有壁纸（自定义图片）为真。纯色 / 渐变背景上模糊这层没信息可采，
-     * 只关掉它（`vibrancy` 光感、`lens` 折射、高光、轮廓、投影全都保留），底色换成
-     * `flatGlassFill`（浅色更白 / 深色更深）。
+     * 这一张卡**采不采背景**：只有「自定义图片、且没被模糊程度糊平」才值得采。
      *
-     * 只有**卡片**吃这条规则；按钮与编辑态悬浮条浮在内容上面，照旧模糊 + 折射。
+     * 纯色 / 渐变背景上模糊采到的就是那片纯色，`lens` 也没东西可折，`vibrancy` 更是无事可做；
+     * 壁纸糊到 5dp 以上同理（壁纸已经是一片色块）。这三种情况走 `sampling = false`：**不采样、
+     * 不建离屏层、`effects` 一概不跑**，但高光与投影仍由库自己画（同一份 [Highlight] / [Shadow]），
+     * 所以观感与采样版一模一样——这一档本来就是为省性能（开关在 vendored 的 
+     * `thirdparty/backdrop` 里，见它的 README）。**不铺底色**：卡片完全透明，只剩轮廓高光与外面那圈投影——2026-11 维护者定「玻璃片本身该是透的，只要铺白就像蒙了一层白」，要染色的是角标（`CountBadge`），不是卡片。
+     *
+     * 这条只管「背景上有没有细节」；另外**折射开关是采样总开关**，关掉时连这一档都不进（见下）。
      */
     blurGlass: Boolean = true,
     /**
@@ -813,52 +835,79 @@ internal fun HomeTileFaceBox(
     val fill = if (dark) Color.White.copy(alpha = 0.10f) else Color.White.copy(alpha = 0.62f)
     val hairline = if (dark) Color.White.copy(alpha = 0.10f) else Color.White.copy(alpha = 0.7f)
     val iconColor = if (dark) lerp(face.color, Color.White, 0.4f) else face.color
-    // 液态玻璃的填充要比毛玻璃更透：折射与高光是它的主角，填浓了就只剩一张白卡
+    // 液态玻璃的填充要比毛玻璃更透：折射与高光是它的主角，填浓了就只剩一张白卡。
+    // **只给采样档用**：不采样那一档不铺任何底色（完全透明，只留高光 + 投影）——2026-11 维护者
+    // 第三次真机反馈定下的：只要铺白，那块玻璃就「像蒙了一层白」，玻璃片本身该是透的；
+    // 想要染色的是角标（`CountBadge` 用主题色半透明底），卡片不染。
+    // 玻璃的暗部只应该出现在外面那圈投影里（`floatingGlassShadow`）。
     val liquidFill = if (dark) Color.White.copy(alpha = 0.07f) else Color.White.copy(alpha = 0.42f)
     // 和底栏胶囊同一套环境光阴影（remember：shadow lambda 捕获的对象变了会触发重采样）
     val accent = MiuixTheme.colorScheme.primary
     val liquidShadow = remember(accent, dark) { floatingGlassShadow(accent, dark) }
-    // 纯色 / 渐变背景上：**只关掉模糊**，活力 / 折射 / 高光 / 轮廓 / 投影全部保留，
-    // 底色换成这一层「比页面更白（浅色）/ 更深（深色）」的薄色（与折射开关无关）
-    val flatGlassFill = if (dark) Color.Black.copy(alpha = 0.26f) else Color.White.copy(alpha = 0.52f)
-    val surfaceFill = if (blurGlass) liquidFill else flatGlassFill
+    // 那圈轮廓高光的**唯一一份**：两个分支都把它交给 `drawBackdrop` 的 `highlight`，画法完全同一份，
+    // 改参数只改这一行
+    val rim = remember { Highlight.Default.copy(alpha = 0.65f) }
 
+    // 液态玻璃（§1 / §A16 ⑦）：**有条件的只有「采不采」这一件事**。
+    //
+    // 有可糊 / 可折的细节 → 走 `drawBackdrop` 的离屏采样，模糊 + 活力 + 折射 + 高光 + 投影全套。
+    // 没有（纯色、渐变，或壁纸已被模糊程度糊平）→ 同一个 `drawBackdrop` 加 `sampling = false`：
+    // 「录一层采样结果再画上去」那一段整段跳过（离屏层、effects 里的 blur / lens / vibrancy 一起省），
+    // 而内容 / 高光 / 投影还是库自己按原顺序画（**不铺底色，卡片完全透明**），所以光影一条不少
+    // ——2026-11 维护者要求的就是这个（「我只是不要做采样，其他效果我都要」）。
+    //
+    // **折射开关是这一档的总开关**（2026-11 第五次真机反馈后定的）：真机上模糊与折射一样贵，
+    // 「关掉折射但保留模糊」省不下什么，所以关掉折射就整档退到 `sampling = false`——不采样、
+    // 不模糊、不折射，只剩高光与投影。用户关它图的就是省电，不该再偷偷跑一趟模糊。
+    val sample = backdrop?.takeIf { refraction }
+    // 圆角形状两档共用同一个对象：`remember` 住它，`drawBackdrop` 的 `ShapeProvider` 才不会
+    // 因为「每帧一个新 lambda」被判定成换了形状而重建离屏层
+    val cardShape = remember(radius) { RoundedCornerShape(radius) }
     val material = when {
-        liquid && backdrop != null -> remember(backdrop, radius, surfaceFill, liquidShadow, refraction, blurGlass) {
+        liquid && sample != null -> remember(sample, cardShape, liquidFill, liquidShadow, rim, refraction, blurGlass) {
             Modifier.drawBackdrop(
-                backdrop = backdrop,
-                shape = { RoundedCornerShape(radius) },
+                backdrop = sample,
+                shape = { cardShape },
                 effects = {
+                    // 能走到这一支就说明背景上有可糊 / 可折的细节（没有时 [sample] 是空的，
+                    // 整块卡面走下面那个 `sampling = false` 分支），所以下面这几层都真跑
+                    //
                     // 采样范围往外扩一圈，折射与模糊在轮廓边上也有真实内容可混、不变弱
                     // （和底栏胶囊、屁岱气泡同一手法）
                     padding = maxOf(padding, 12.dp.toPx())
                     vibrancy()
-                    // 纯色 / 渐变上没有壁纸可糊：只省这一层，其余效果一个不少
                     if (blurGlass) blur(8.dp.toPx())
-                    // 折射才是「液态」和「毛玻璃」的分界：边缘把背景扭出透镜的弯光，
-                    // 带一点色散。带宽与位移用固定的物理宽度（和底栏一致），不随卡片
+                    // 折射才是「液态」和「毛玻璃」的分界：边缘把背景扭出透镜的弯光。
+                    // 带宽与位移用固定的物理宽度（和底栏一致），不随卡片
                     // 缩放——大小卡片的玻璃厚度本来就一样。
                     //
-                    // 关掉折射时这一整段（离屏位移采样 + 三通道色散）都不跑，剩下的模糊、
+                    // 关掉折射时这一整段（那一趟离屏位移采样）都不跑，剩下的模糊、
                     // 活力、高光、投影照旧：玻璃还是那块玻璃，只是不再像一片厚透镜。
-                    if (refraction) lens(10.dp.toPx(), 14.dp.toPx(), chromaticAberration = true)
+                    if (refraction) lens(10.dp.toPx(), 14.dp.toPx())
                 },
-                // 玻璃被光打亮的那圈轮廓
-                highlight = { Highlight.Default.copy(alpha = 0.65f) },
-                // 卡片浮在壁纸上，该有一圈柔和的环境光投影
+                // 玻璃被光打亮的那圈轮廓（与采样无关，两条路都画）
+                highlight = { rim },
+                // 卡片浮在壁纸上，该有一圈柔和的环境光投影（同上）
                 shadow = { liquidShadow },
-                onDrawSurface = { drawRect(surfaceFill) },
+                onDrawSurface = { drawRect(liquidFill) },
             )
         }
-        // 液态玻璃开着、但这一帧没有采样源（不该发生）：退回薄色 + 轮廓 + 投影，
-        // 别退回毛玻璃——毛玻璃明显更闷
-        liquid -> Modifier
-            .appCardShadow(shape = RoundedCornerShape(radius))
-            .squircleClip(radius)
-            .background(flatGlassFill)
-            .squircleBorder(0.9.dp, hairline, radius)
+        // 没有可采的细节（纯色 / 渐变 / 壁纸已被糊平）：`sampling = false`——不录采样层、
+        // `effects` 一概不跑、离屏层也不建。**而且不铺底色**：卡片完全透明，只剩轮廓高光 +
+        // 外面那圈投影（2026-11 维护者定：只要铺白就「像蒙了一层白」，透的才是玻璃）。
+        // 有细节时走上头那一支，模糊与折射照旧。
+        liquid -> remember(cardShape, liquidShadow, rim) {
+            Modifier.drawBackdrop(
+                backdrop = emptyBackdrop(),
+                shape = { cardShape },
+                sampling = false,
+                effects = {},
+                highlight = { rim },
+                shadow = { liquidShadow },
+            )
+        }
         else -> Modifier
-            .then(if (dark) Modifier else Modifier.appCardShadow(shape = RoundedCornerShape(radius)))
+            .then(if (dark) Modifier else Modifier.appCardShadow(shape = cardShape))
             .squircleClip(radius)
             .background(fill)
             .squircleBorder(0.7.dp, hairline, radius)

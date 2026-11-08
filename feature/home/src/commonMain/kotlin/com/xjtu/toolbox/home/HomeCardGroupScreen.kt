@@ -58,10 +58,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.TileMode
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -111,6 +109,7 @@ import com.xjtu.toolbox.ui.components.LocalPageVisible
 import com.xjtu.toolbox.ui.components.enterOnce
 import com.xjtu.toolbox.ui.components.rememberLiquidMood
 import com.xjtu.toolbox.ui.glass.LocalGlassStyle
+import com.xjtu.toolbox.ui.glass.topBarScrim
 import com.xjtu.toolbox.schedule.CourseColors
 import com.xjtu.toolbox.ui.theme.Editorial
 import com.xjtu.toolbox.ui.theme.EditorialRule
@@ -155,13 +154,13 @@ fun HomeCardGroupScreen(
     extraBottomPadding: Dp = 0.dp,
     /** 玻璃顶栏的高度：内容铺到顶栏下面，这段留白放进滚动内容里。经典风格为 0。 */
     contentTopPadding: Dp = 0.dp,
-    /** 壳把整页上移的量（见 `ShellPageInsets.contentTopShift`）；模糊带按它补回屏幕顶边。 */
+    /** 壳把整页上移的量（见 `ShellPageInsets.contentTopShift`）；顶栏遮罩按它补回屏幕顶边。 */
     contentTopShift: () -> Dp = { 0.dp },
     /**
      * 顶栏最左侧那个按钮（`:app` 是「扫一扫」）；null = 这一端没有。
      *
      * 打开「功能按钮统一右对齐」（`SettingsStore.homeTopActionsRight`，默认开）时这一端改成
-     * 改造前的顶栏——左侧换成「家小西」头像、不画居中标题，所以这个槽位在那时不被调用；
+     * 改造前的顶栏——左侧换成「交小西」头像、不画居中标题，所以这个槽位在那时不被调用；
      * 关掉才按本分支的排法画（扫码靠左、标题居中）。
      */
     topLeading: (@Composable () -> Unit)? = null,
@@ -191,7 +190,7 @@ fun HomeCardGroupScreen(
     val liquid = remember(settingsRevision) { settings.homeLiquidGlass }
     // 液态玻璃的折射子项：只在 liquid 为真时有意义，关掉省一层离屏位移采样（见 HomeLayoutStore）
     val refraction = remember(revision) { layoutStore.liquidRefraction }
-    // 顶栏排法：开（默认）= 改造前那套（左侧「家小西」头像、三个圆钮统一在右、不画居中标题）；
+    // 顶栏排法：开（默认）= 改造前那套（左侧「交小西」头像、三个圆钮统一在右、不画居中标题）；
     // 关 = 本分支那套（扫码靠左、标题绝对居中、右侧只留搜索与通知）
     val topActionsRight = remember(settingsRevision) { settings.homeTopActionsRight }
     // 背景样式：主题底色 / 主题色渐变 / 自定义图片（取值与经典版同一套字符串）
@@ -202,7 +201,6 @@ fun HomeCardGroupScreen(
         if (backgroundMode == HomeLayoutStore.BACKGROUND_IMAGE) settings.homeWallpaperImage else ""
     }
     val backgroundBlur = remember(settingsRevision) { settings.homeWallpaperBlur }
-    val backgroundBrightness = remember(settingsRevision) { settings.homeWallpaperBrightness }
     val backgroundOpacity = remember(revision) { layoutStore.backgroundOpacity }
     // 卡片圆角（主页设置里那条滑条）；默认 22dp，实际还会被「边长 × 12」夹住
     val cardCorner = remember(revision) { layoutStore.cardCorner }.dp
@@ -210,14 +208,40 @@ fun HomeCardGroupScreen(
     /**
      * 背景上**真的有壁纸可糊**吗：只有「自定义图片」且图还在时才是。
      *
-     * 液态玻璃在纯色 / 渐变上**只关掉模糊**（`blur` 那一层糊不出信息，白付采样代价）：
-     * 活力（光感）、折射、高光、轮廓、投影全部保留，底色换成「更白（浅色）/ 更深（深色）」
-     * 的薄色（见 `HomeTileFaceBox` 的 `flatGlassFill` 与 `LocalHomeGlassBlur`）。
-     * 顶栏那条模糊带不受影响：它采的是**内容层**，纯色下也照样有内容可糊。
+     * 液态玻璃在纯色 / 渐变上把白费的离屏采样都关掉：模糊（`blur`，糊不出信息）与折射
+     * （`lens`，折的是一张纯色底，看不出弯光）——活力（光感）、高光、轮廓、投影仍然保留，
+     * **这一档还不铺底色**（卡片完全透明，只剩轮廓高光与投影，见 `HomeTileFaceBox`；
+     * 染色只留在角标 `CountBadge`）与 `LocalHomeGlassBlur`。顶栏那条模糊带不受影响：它采的是
+     * **内容层**，纯色下也照样有内容可糊。
      */
     val hasWallpaper = backgroundMode == HomeLayoutStore.BACKGROUND_IMAGE && backgroundImage.isNotEmpty()
-    // 卡片那一层离屏层：液态玻璃开着就录——纯色 / 渐变上虽然不糊，但活力与折射仍要采样
-    val recordTileLayer = liquid
+    /**
+     * 壁纸被自己那条「模糊程度」糊到没有细节了（≥ [SettingsStore.HOME_WALLPAPER_BLUR_HIDES_GLASS]）。
+     *
+     * 那时卡片能折 / 能糊的东西也已经被抹平：再跑一遍模糊与折射，画出来的和「薄色底」几乎
+     * 分不出，而这两层是全页最贵的。所以按纯色 / 渐变同一套处理（2026-11 按需求补的这一档）。
+     */
+    val wallpaperBlurredOut = hasWallpaper && backgroundBlur >= SettingsStore.HOME_WALLPAPER_BLUR_HIDES_GLASS
+    /**
+     * 卡片那层玻璃**还能不能看出模糊 / 折射**：有壁纸、且壁纸还有细节。
+     *
+     * 卡片与幽灵块采的是**背景层**，所以这个值同时决定「糊不糊」与「折不折」；
+     * 顶栏圆钮、悬浮球、组删除钮采的是**内容层**（卡片、文字都在里面），那里折射真看得出来，
+     * 照旧吃用户那个开关（见 `orbGlass` / `GroupDeleteButton`）。
+     */
+    val glassHasDetail = hasWallpaper && !wallpaperBlurredOut
+    // 卡片与幽灵块：没有细节可折就别付那份离屏位移采样。主页设置里那个开关同时置灰
+    // ——但它**不改用户的设置**，只是显示成「用不上」
+    val cardRefraction = refraction && glassHasDetail
+    // 背景层的离屏层：**只在真有人要采时才录**（`layerBackdrop` 是一次整屏离屏渲染）。
+    // 卡片在纯色 / 渐变上（或壁纸已糊成色块）不采样：`drawBackdrop(sampling = false)` 跳过「录采样层」
+    // 那一段、也不建离屏层，这一档就是为省性能（见 `HomeTileFaceBox`）。
+    //
+    // 2026-11 这一档**去掉了 `|| editing.on`**：以前编辑态为了组标题行那个 30dp 的删除圆钮、
+    // 还有拖拽幽灵块能糊一下，在没有壁纸细节的背景上也强行录这一层——等于为了几个小圆钮每帧
+    // 多渲染一整屏。现在它们跟卡片同一条规则：没细节可糊就走薄色兜底（编辑态因此少了一整屏离屏渲染）。
+    // **折射开关是采样总开关**：它关掉时这一层整个不录（见 HomeTileFaceBox）。
+    val recordTileLayer = liquid && refraction && glassHasDetail
 
     /** 改当前布局：编辑态改草稿（点「对勾」才落盘），其余情况直接落盘。 */
     fun update(block: (HomeLayout) -> HomeLayout) {
@@ -303,6 +327,11 @@ fun HomeCardGroupScreen(
     val visibleGroups = layout.groups.filter(::groupVisible)
 
     val scroll = rememberScrollState()
+    // 每张卡在**整页**上出现了几块（组 id 无关）：悬浮条名字栏里显示「已添加几块」。
+    // 同一路由现在允许出现多块（组内、跨组都算），所以这里数的是整页的块数
+    val tileCounts = remember(layout) {
+        layout.groups.flatMap { it.tiles }.groupingBy { it.routeId }.eachCount()
+    }
     // 有宿主给的按钮才有折叠顶栏（桌面、Web 的壳有自己的顶栏）
     val collapsible = topActions != null || topLeading != null
     val masthead = HomeCard.GREETING in honored
@@ -322,16 +351,16 @@ fun HomeCardGroupScreen(
     // 它们要透出的是壁纸，采整页会把别的组件也采进去。
     val tileBackdrop = rememberLayerBackdrop()
 
-    // 顶栏模糊带的采样源：**这一页的内容层**——背景 + 滚动内容一起录进去，
-    // 于是顶栏糊的是「此刻滚动到它底下的东西」，而不是固定不动的壁纸。
-    // 顶栏本身在这个层**外面**（是它的兄弟节点），不然它会被采进自己那层里形成回环。
+    // 顶栏圆钮 / 编辑态悬浮条的采样源：**这一页的内容层**——背景 + 滚动内容一起录进去，
+    // 于是它们糊出来的是「此刻压在它下面的东西」，而不是固定不动的壁纸。
+    // （顶栏那条带子从 2026-11 起不再采样，改画渐变遮罩，所以这一层只剩这两处消费者。）
     val pageBackdrop = rememberLayerBackdrop()
 
-    // 要不要真录这一层（`layerBackdrop` 会多一次全屏离屏渲染）：玻璃风格的模糊带要用它，
-    // 液态玻璃开着时顶栏圆钮要用它；**编辑态的添加悬浮条也要用它**——纯色 / 渐变背景上
-    // 卡片那层没东西可采（见 recordTileLayer），悬浮条就改采这层内容，于是它透出来、扭动的
-    // 是此刻压在它下面的卡片，而不是一片死板的薄色。
-    val recordPageLayer = glass || (collapsible && liquid) || (liquid && editing.on)
+    // 要不要真录这一层（`layerBackdrop` 会多一次整屏离屏渲染）：液态玻璃开着时顶栏圆钮要用它；
+    // **编辑态的添加悬浮条也要用它**——纯色 / 渐变背景上卡片那层没东西可采（见 recordTileLayer），
+    // 悬浮条就改采这层内容，于是它透出来、扭动的是此刻压在它下面的卡片，而不是一片死板的薄色。
+    // 以前还有一条 `glass ||`（玻璃风格顶栏的模糊带要用），顶栏改成渐变遮罩后已经去掉。
+    val recordPageLayer = refraction && ((collapsible && liquid) || (liquid && editing.on))
 
     val session = remember { HomeDragSession() }
     val density = LocalDensity.current
@@ -453,12 +482,30 @@ fun HomeCardGroupScreen(
     }
 
     /**
+     * 手指此刻**压在悬浮条自己身上**（球 / 长条那块玻璃里）。
+     *
+     * 从悬浮条拖出来的块一旦落回这儿，就当这一场没发生（2026-11 维护者要求）：
+     * 「拖到悬浮条内不进行放置」。用同一份矩形（`paletteRect`，悬浮条自己登记的视口矩形）
+     * 一起管住**预览与落盘**——目标组变成 null，于是拖动中不画落点占位框、松手也不写草稿，
+     * 幽灵自己飞回图标原位。
+     *
+     * 只对**从悬浮条拖出**的那一场生效：拖已有卡片经过悬浮条时，它照样可以停在悬浮条底下
+     * （那一场卡片在悬浮条**下面**画，见 [GHOST_Z_INDEX]）。
+     */
+    val paletteOverOrb by remember {
+        derivedStateOf {
+            val rect = session.paletteRect
+            session.fromPalette && rect != null && rect.contains(session.pointer)
+        }
+    }
+
+    /**
      * 目标组：纯函数。组间空隙对半分之后各组的命中区间**首尾相接不重叠**，
      * 所以不需要「记住当前组」的滞回，也就不存在边界上来回切。
      */
     val targetGroup by remember(groupGapPx) {
         derivedStateOf {
-            if (!session.draggingTile) {
+            if (!session.draggingTile || paletteOverOrb) {
             null
         } else {
             // 用幽灵**中心**判组：2×2 的块上半截还在上一组时，不该判给上一组
@@ -989,7 +1036,7 @@ fun HomeCardGroupScreen(
                 },
             ),
     ) {
-        // ── 内容层：背景 + 滚动内容，整层录进 pageBackdrop 给顶栏模糊带与顶栏圆钮采样 ──
+        // ── 内容层：背景 + 滚动内容，整层录进 pageBackdrop 给顶栏圆钮与编辑态悬浮条采样 ──
         // 只在真有人要采的时候录，见上面的 recordPageLayer
         Box(
             Modifier
@@ -1013,8 +1060,6 @@ fun HomeCardGroupScreen(
                                 imageData = backgroundImage,
                                 modifier = Modifier.matchParentSize(),
                                 blur = backgroundBlur,
-                                // 亮度与经典版 / 小组件共用同一个键（主页设置里那条「亮度」滑条）
-                                brightness = backgroundBrightness,
                             )
                             // 透明度：缺多少就用主题底色盖回去多少，不整层 alpha（否则文字也会跟着淡）
                             val cover = (100 - backgroundOpacity) / 100f
@@ -1127,10 +1172,10 @@ fun HomeCardGroupScreen(
                                     faces = faces,
                                     editing = editing.on,
                                     liquid = liquid,
-                                    refraction = refraction,
+                                    refraction = cardRefraction,
                                     backdrop = tileBackdrop.takeIf { recordTileLayer },
-                                    // 卡片能不能糊：纯色 / 渐变上关掉模糊，其余玻璃效果全留
-                                    blurGlass = hasWallpaper,
+                                    // 卡片能不能糊：没有可糊的细节（纯色 / 渐变，或壁纸已被糊平）时关掉
+                                    blurGlass = glassHasDetail,
                                     cardCorner = cardCorner,
                                     // 校园卡大卡的付款码：用餐时段才真去取（原「小组件」那套能力）
                                     paymentCode = { host.paymentCode() },
@@ -1181,19 +1226,20 @@ fun HomeCardGroupScreen(
         // 否则桌面、Web 长按进了编辑态就出不来了
         if (collapsible || editing.on) {
             // 顶栏圆钮（编辑态三个图标 + 宿主给的扫码 / 搜索 / 通知）也采**内容层**：
-            // 它们和模糊带一样压在内容上面，该糊 / 折射的是此刻盖住的东西，不是固定壁纸。
+            // 它们压在内容上面，该糊 / 折射的是此刻盖住的东西，不是固定壁纸。
             // 折射开关同理走 Local：那几个按钮是宿主（:app）画的，拿不到这里的参数
             CompositionLocalProvider(
-                LocalHomeBarBackdrop provides pageBackdrop.takeIf { liquid },
+                // 折射开关是采样总开关：关掉时圆钮连采样源都不给，退回半透明底（见 HomeTileFaceBox）
+                LocalHomeBarBackdrop provides pageBackdrop.takeIf { liquid && refraction },
                 LocalHomeGlassRefraction provides refraction,
             ) {
                 HomeCollapsingBar(
                     progress = progress,
                     topInset = contentTopPadding,
                     bandShift = contentTopShift,
-                    // 模糊带采**内容层**：糊的是此刻滚到顶栏底下的东西（壁纸 + 内容），不是固定壁纸
-                    backdrop = if (glass) pageBackdrop else null,
-                    barLiquidBackdrop = pageBackdrop.takeIf { liquid },
+                    // 遮罩不采样了，这里只留「画不画」这一个开关（玻璃风格才画渐变遮罩，见 topBarScrim）
+                    showScrim = glass,
+                    barLiquidBackdrop = pageBackdrop.takeIf { liquid && refraction },
                     onTapCollapsed = { scope.launch { scroll.animateScrollTo(0) } },
                     editing = editing.on,
                     leading = topLeading,
@@ -1219,10 +1265,10 @@ fun HomeCardGroupScreen(
             session = session,
             faces = faces,
             liquid = liquid,
-            refraction = refraction,
+            refraction = cardRefraction,
             backdrop = tileBackdrop.takeIf { recordTileLayer },
             // 幽灵块是卡片的预览，跟卡片同一条规则
-            blurGlass = hasWallpaper,
+            blurGlass = glassHasDetail,
             cardCorner = cardCorner,
             geometry = { dragGeometry },
             settling = ghostSettling,
@@ -1234,13 +1280,15 @@ fun HomeCardGroupScreen(
             HomeAddTileOrb(
                 faces = faces,
                 catalog = catalog,
+                // 名字栏里那个「已在主页放了几块」：整页所有组一起数（同一条路由现在可以有多块）
+                tileCounts = tileCounts,
                 liquid = liquid,
                 refraction = refraction,
                 // 采样源：**内容层**（`pageBackdrop` = 背景 + 滚动内容那一整层），和顶栏那几个圆钮、
-                // 顶栏模糊带采的是同一层。悬浮条浮在所有东西之上，该糊的是「此刻压在它下面的那一片」
+                // 顶栏圆钮采的是同一层。悬浮条浮在所有东西之上，该糊的是「此刻压在它下面的那一片」
                 // ——卡片、文字、壁纸全算在内；只采背景层的话透出来的永远是那张壁纸，卡片从它身下
                 // 滚过去也不会有任何变化（2026-11 按维护者要求改）。
-                backdrop = pageBackdrop.takeIf { liquid },
+                backdrop = pageBackdrop.takeIf { liquid && refraction },
                 session = session,
                 // 悬浮条恒为全圆（胶囊），不吃用户那条「卡片圆角」——那条滑条只管卡片
                 labels = orbLabels,
@@ -1265,7 +1313,8 @@ fun HomeCardGroupScreen(
                 },
                 onPaletteDrop = { settleTileDrop() },
                 onPaletteCancel = { abandonDrag() },
-                modifier = Modifier.matchParentSize(),
+                // 悬浮条压在拖拽幽灵块上面：卡片从它底下「穿过去」（见 ORB_Z_INDEX）
+                modifier = Modifier.matchParentSize().zIndex(ORB_Z_INDEX),
             )
         }
 
@@ -1333,8 +1382,8 @@ fun HomeCardGroupScreen(
             GroupEditDialog(
                 group = current,
                 onDismiss = { editing.editGroup = null },
-                onConfirm = { colorHex ->
-                    update { it.tintGroup(current.id, colorHex) }
+                onConfirm = { colorHex, title ->
+                    update { it.tintGroup(current.id, colorHex).renameGroup(current.id, title) }
                     editing.editGroup = null
                 },
             )
@@ -1352,10 +1401,9 @@ fun HomeCardGroupScreen(
         }
         editing.addTo?.let { group ->
             TilePickerDialog(
-                candidates = catalog.filter { service ->
-                    // 已经在这一组里的就不列了；在别的组里的允许再放一块（常用功能就是这么来的）
-                    layout.group(group.id)?.tiles?.none { it.routeId == service.route.id } != false
-                },
+                // 全目录都列：组内已经有的功能**照样可以再加一块**（2026-11 按需求取消了
+                // 「一组里同一功能只能一个」的限制，常用功能本来就是同路由的第二块）
+                candidates = catalog,
                 onDismiss = { editing.addTo = null },
                 onPick = { service ->
                     update { it.addTile(group.id, service.route.id, it.nextTileId(group.id, service.route.id)) }
@@ -1368,6 +1416,20 @@ fun HomeCardGroupScreen(
 
 /** 组与组之间的间距（每组自带标题行，间距比组内组件缝隙大一档）。 */
 private val GROUP_GAP = 20.dp
+
+/**
+ * 拖拽幽灵块与编辑态悬浮条（球 / 长条）的绘制层次。
+ *
+ * **拖已有卡片时，卡片在悬浮条下面**（2026-11 按维护者要求定）：把卡片拖到屏幕右侧时，
+ * 幽灵块整块盖在悬浮条上，图标与名字栏一个都看不见。
+ *
+ * **从悬浮条拖出来的新块反过来——它画在悬浮条上面**（[PALETTE_GHOST_Z_INDEX]）：那一块正在
+ * 找地方落，被悬浮条挡住就不知道自己在放哪儿；而且它的「取消落点」正好是悬浮条本身
+ * （落进去 = 不放置，见 `paletteOverOrb`）。
+ */
+private const val GHOST_Z_INDEX = 20f
+private const val ORB_Z_INDEX = 24f
+private const val PALETTE_GHOST_Z_INDEX = 28f
 
 /** 第一组与上方头卡之间的间距。 */
 private val FIRST_GROUP_GAP = 20.dp
@@ -1426,7 +1488,7 @@ private fun newGroupId(): String = "custom-" + kotlin.random.Random.nextInt(1000
 
 /**
  * 首页**内容层**（背景 + 滚动内容）的采样源：顶栏那排圆钮——包括宿主给的扫码 / 搜索 / 通知——
- * 读它做液态玻璃，于是圆钮模糊 / 折射的也是它**此刻盖住的东西**，和顶栏模糊带同一个源。
+ * 读它做液态玻璃，于是圆钮模糊 / 折射的也是它**此刻盖住的东西**，和顶栏圆钮同一个源。
  *
  * 首页在顶栏这一层 provide（液态开关关的时候是 null，按钮退回非液态）。卡片 / 悬浮球不走它，
  * 那些还是采背景层（见 `tileBackdrop`）——它们贴在壁纸上，采整页会把自己和邻居也采进去。
@@ -1434,7 +1496,7 @@ private fun newGroupId(): String = "custom-" + kotlin.random.Random.nextInt(1000
 val LocalHomeBarBackdrop = compositionLocalOf<Backdrop?> { null }
 
 /**
- * 首页液态玻璃要不要带折射（透镜弯光 + 色散）。
+ * 首页液态玻璃要不要带折射（透镜弯光）。
  *
  * 首页自己画的卡片、悬浮球走显式参数，不需要这个；它专门给**宿主（`:app`）画的顶栏圆钮**用——
  * 那几个按钮是在 `topActions` lambda 里创建的，拿不到首页的局部值，只能走 CompositionLocal。
@@ -1448,7 +1510,7 @@ val LocalHomeGlassRefraction = compositionLocalOf { true }
  * 首页的折叠顶栏，叠在滚动内容上面，两套排法：
  *
  * - [devTopBar] = true（主页设置「功能按钮统一右对齐」开着，默认）：**改造前那套**——
- *   左侧「家小西」头像（随上滑淡入放大）、三个功能圆钮全在右侧、**不画居中标题**；
+ *   左侧「交小西」头像（随上滑淡入放大）、三个功能圆钮全在右侧、**不画居中标题**；
  * - false：本分支那套——扫码靠左（宿主给的 [leading]）、标题绝对居中、右侧只留搜索与通知。
  *
  * 往上滑过刊头后玻璃底色浮出来，底边柔和淡出。编辑态两套排法一律换成三个纯图标：
@@ -1460,7 +1522,8 @@ private fun HomeCollapsingBar(
     progress: () -> Float,
     topInset: Dp,
     bandShift: () -> Dp,
-    backdrop: Backdrop?,
+    /** 画不画顶栏底下那条渐变遮罩（玻璃风格才画；经典风格顶栏自己铺底色）。 */
+    showScrim: Boolean,
     /** 顶栏圆钮液态玻璃的采样源（首页**内容层**：背景 + 滚动内容）；null = 退回半透明圆钮。 */
     barLiquidBackdrop: Backdrop?,
     onTapCollapsed: () -> Unit,
@@ -1474,23 +1537,18 @@ private fun HomeCollapsingBar(
     devTopBar: Boolean = false,
 ) {
     val collapsed by remember { derivedStateOf { progress() > 0.5f } }
-    val surface = MiuixTheme.colorScheme.surface
     Box(Modifier.fillMaxWidth().height(topInset + BAR_HEIGHT)) {
-        if (backdrop != null) {
-            // 96dp 的模糊带比顶栏本身高，放在顶栏高度之外，才能往内容里多淡一段。
-            // 采的是首页**背景层**：壁纸的模糊一直铺到屏幕顶边（§1.1 背景铺满含顶栏）。
+        if (showScrim) {
+            // 96dp 的遮罩比顶栏本身高，放在顶栏高度之外，才能往内容里多淡一段。
             // 贴的是屏幕顶边而不是这一页的本地 0 点：壳会按 stable 顶栏高度把整页上移，
-            // 不补回 [bandShift] 的话整条带会被顶到屏幕外。
+            // 不补回 [bandShift] 的话整条遮罩会被顶到屏幕外。
             Box(
                 Modifier
                     .fillMaxWidth()
-                    .requiredHeight(PROGRESSIVE_BLUR_BAND_HEIGHT)
+                    .requiredHeight(TOP_BAR_SCRIM_HEIGHT)
                     .offset { IntOffset(0, bandShift().roundToPx()) },
             ) {
-                ProgressiveBarBlur(backdrop, Modifier.matchParentSize())
-                if (SHOW_TINT_WASH) {
-                    Box(Modifier.matchParentSize().background(tintWash(surface)))
-                }
+                Box(Modifier.matchParentSize().topBarScrim(titled = false))
             }
         }
         // 顶栏本体透明：背景图（或背景层的主题底色）从下面透上来，按钮浮在上面
@@ -1567,7 +1625,7 @@ private fun HomeCollapsingBar(
 }
 
 /**
- * 改造前顶栏左侧的「家小西」头像（[HomeCollapsingBar] 的 `devTopBar` 那条路专用）。
+ * 改造前顶栏左侧的「交小西」头像（[HomeCollapsingBar] 的 `devTopBar` 那条路专用）。
  *
  * 和改造前一模一样的写法：随上滑淡入、由 0.78 放大到 1，停在顶部时基本看不见——
  * 那时候顶栏上只有右侧三个功能圆钮，滚起来才「浮」出个头像。
@@ -1627,102 +1685,11 @@ private fun HomeBarIconButton(icon: ImageVector, label: String, liquid: Backdrop
     }
 }
 
-/**
- * useplanes 的 progressive blur：七层不同半径的模糊叠在一起。
- * 每层都从同一份 backdrop 采样，再用各自的渐变遮罩只留下一段：
- * 最弱的一层在底边淡出，最强的一层在屏幕顶边达到满强度，中间没有硬边。
- *
- * 代价要清楚：滚动时**每一帧七次离屏采样 + 七次高斯模糊**，而这条带宽 96dp、横跨整个屏宽，
- * 是首页滚动最贵的两处之一（另一处是卡片玻璃）。曾经收成过单层（1/7 开销），
- * 后来按需求改回这个「越靠顶边越糊」的观感——嫌卡就调 [ProgressiveBlurRadii] 的层数。
- */
-@Composable
-private fun ProgressiveBarBlur(
-    backdrop: Backdrop,
-    modifier: Modifier = Modifier,
-) {
-    Box(modifier) {
-        ProgressiveBlurRadii.forEachIndexed { index, radius ->
-            val layer = remember(backdrop, index) {
-                Modifier.drawBackdrop(
-                    backdrop = backdrop,
-                    shape = { RoundedCornerShape(0.dp) },
-                    effects = {
-                        blur(radius.dp.toPx(), TileMode.Decal)
-                    },
-                    highlight = null,
-                    shadow = null,
-                    onDrawFront = {
-                        drawRect(
-                            brush = ProgressiveBlurMasks[index],
-                            blendMode = BlendMode.DstIn,
-                        )
-                    },
-                )
-            }
-            Box(Modifier.matchParentSize().then(layer))
-        }
-    }
-}
-
 /** 展开时圆钮比顶栏正中上移的距离：顶栏里圆钮上方正好留这么多，不会顶进状态栏。 */
 private val BUTTON_LIFT get() = (BAR_HEIGHT - 36.dp) / 2 - 2.dp
 
-/** useplanes 的可选 tint：表面色从顶部 1.0 线性淡到底边 0。 */
-private const val SHOW_TINT_WASH = true
-
-/** useplanes 页面预览的顶部模糊带高度：96px。 */
-private val PROGRESSIVE_BLUR_BAND_HEIGHT = 96.dp
-
-/**
- * 顶栏渐进模糊的七层半径（useplanes 页面预览的默认 ramp × 1.5）。
- *
- * 想让滚动更省一点，就删掉末尾一两层：梯度会变钝，但每层都是一次全屏宽的离屏采样 + 高斯模糊。
- */
-private val ProgressiveBlurRadii = listOf(0.75f, 1.5f, 3f, 4.5f, 7.5f, 12f, 18f)
-
-/** 每层遮罩占整条带的比例：useplanes 的层与层之间错开 12.5%。 */
-private const val PROGRESSIVE_BLUR_STEP = 0.125f
-
-/**
- * 顶栏的模糊从屏幕顶边往下递减，所以遮罩按从底边往上数的位置生成：
- * 第 0 层（0.75dp）在底边附近淡出，第 6 层（18dp）在顶边满强度。
- */
-private val ProgressiveBlurMasks: List<Brush> = ProgressiveBlurRadii.indices.map { index ->
-    val stops = listOf(
-        (1f - (index + 3) * PROGRESSIVE_BLUR_STEP) to 0f,
-        (1f - (index + 2) * PROGRESSIVE_BLUR_STEP) to 1f,
-        (1f - (index + 1) * PROGRESSIVE_BLUR_STEP) to 1f,
-        (1f - index * PROGRESSIVE_BLUR_STEP) to 0f,
-    ).clipToUnitRange()
-    Brush.verticalGradient(
-        *stops.map { (position, alpha) ->
-            position to Color.Black.copy(alpha = alpha)
-        }.toTypedArray(),
-    )
-}
-
-/** 把越出 [0, 1] 的渐变端点裁掉，并在边界上按原斜率补一个端点。 */
-private fun List<Pair<Float, Float>>.clipToUnitRange(): List<Pair<Float, Float>> {
-    fun alphaAt(position: Float): Float {
-        val before = lastOrNull { it.first <= position } ?: first()
-        val after = firstOrNull { it.first >= position } ?: last()
-        if (before.first == after.first) return after.second
-        val t = (position - before.first) / (after.first - before.first)
-        return before.second + (after.second - before.second) * t
-    }
-
-    val visible = filter { it.first in 0f..1f }.toMutableList()
-    if (first().first > 0f) visible.add(0, 0f to alphaAt(0f))
-    if (last().first < 1f) visible.add(1f to alphaAt(1f))
-    return visible.sortedBy { it.first }
-}
-
-/** 顶栏表面色遮罩：顶部完全不透明，到底边线性归零。 */
-private fun tintWash(surface: Color): Brush = Brush.verticalGradient(
-    0f to surface.copy(alpha = 1f),
-    1f to surface.copy(alpha = 0f),
-)
+/** 顶栏渐变遮罩的高度：96dp（比顶栏本身高，才能往内容里多淡一段）。 */
+private val TOP_BAR_SCRIM_HEIGHT = 96.dp
 
 /**
  * 「主题色渐变背景」：把主题色按 22% → 10% → 4%（深色 30% → 18% → 8%）的比例**融进底色**，
@@ -2247,7 +2214,8 @@ private fun HomeDragGhost(
                 IntOffset(p.x.roundToInt(), p.y.roundToInt())
             }
             .size(with(density) { wPx.toDp() }, with(density) { hPx.toDp() })
-            .zIndex(20f)
+            // 从悬浮条拖出的新块画在悬浮条**之上**，拖已有卡片时在它**之下**（见常量说明）
+            .zIndex(if (session.fromPalette) PALETTE_GHOST_Z_INDEX else GHOST_Z_INDEX)
             .graphicsLayer {
                 // 略小于占位框 + 半透明：底下的落点占位框（2dp 主题色边框）才能露出来。
                 // 之前放大到 1.04 且 96% 不透明，正好把占位框整个盖住，等于没有提示。
@@ -2273,10 +2241,11 @@ private fun HomeDragGhost(
 }
 
 /**
- * 调一个组的**标题颜色**（§2.3）。
+ * 一个组的设置：**组名** + **标题颜色**（§2.3 / 2026-11 加回改名）。
  *
- * 分组标题本身不再由用户设置：组名固定跟着默认分类名走（常用功能 / 教务 / 生活…），
- * 新建的组没有标题——常规态整行不画，编辑态显示「未命名分组」占位。所以这个对话框只剩颜色。
+ * 组名默认跟着默认分类名走（常用功能 / 教务 / 生活…），但用户想叫什么叫什么——编辑态点组头
+ * 就进这里改（之前那版把输入框整个删掉了，这一轮按需求加回来）。允许清空：空串 =
+ * 常规态整行不画、编辑态显示「未命名分组」占位。
  *
  * 颜色用全应用同一套调色盘（`AppColorPicker`）+ 一个 **Hex 输入框**，拖色和敲色值两条路
  * 互相回填。开关叫「添加颜色」而不是「跟随主题」：关着 = 这个组的标题不设色、直接跟随主题
@@ -2286,8 +2255,10 @@ private fun HomeDragGhost(
 private fun GroupEditDialog(
     group: HomeGroup,
     onDismiss: () -> Unit,
-    onConfirm: (colorHex: String) -> Unit,
+    onConfirm: (colorHex: String, title: String) -> Unit,
 ) {
+    // 组名草稿。限长 12：标题行只有一行、字号 18sp，再长就只剩省略号了（存的是用户敲的原文）
+    var title by remember(group.id) { mutableStateOf(group.title) }
     // 关 = 跟随主题（存空串），开 = 自己挑一个色
     var addColor by remember(group.id) { mutableStateOf(group.colorHex.isNotEmpty()) }
     // 主题色要在组合上下文取好再喂给 remember——remember 的 calculation lambda 不是
@@ -2307,6 +2278,14 @@ private fun GroupEditDialog(
                 .verticalScroll(rememberScrollState())
                 .padding(horizontal = 4.dp),
         ) {
+            TextField(
+                value = title,
+                onValueChange = { if (it.length <= GROUP_TITLE_MAX) title = it },
+                label = "分组名称",
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth(),
+            )
+            Spacer(Modifier.height(14.dp))
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Text("标题颜色", fontSize = 15.sp)
                 Spacer(Modifier.weight(1f))
@@ -2347,7 +2326,8 @@ private fun GroupEditDialog(
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 TextButton(
                     text = "确定",
-                    onClick = { onConfirm(if (addColor) CourseColors.toHex(picked) else "") },
+                    // 组名前后空格没有意义（标题行还会因此看着缩了一截），落盘前先 trim
+                    onClick = { onConfirm(if (addColor) CourseColors.toHex(picked) else "", title.trim()) },
                     // 敲了半截的 Hex 不认：宁可拦住「确定」，也不拿一个看不出来的色落盘
                     enabled = !addColor || hexValid,
                     modifier = Modifier.weight(1f),
@@ -2381,7 +2361,7 @@ private fun DeleteGroupDialog(group: HomeGroup, onDismiss: () -> Unit, onConfirm
     }
 }
 
-/** 往一个组里放功能：列出还没在这一组里的入口。 */
+/** 往一个组里放功能：列出目录里的所有入口（已经放过的**也列**，允许再放一块）。 */
 @Composable
 private fun TilePickerDialog(
     candidates: List<AppService>,
@@ -2392,7 +2372,7 @@ private fun TilePickerDialog(
         Column(Modifier.heightIn(max = 420.dp).verticalScroll(rememberScrollState())) {
             if (candidates.isEmpty()) {
                 Text(
-                    "这一组已经放满目录里的功能了",
+                    "这一端没有可添加的功能",
                     fontSize = 13.sp,
                     color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                     modifier = Modifier.padding(8.dp),
@@ -2479,6 +2459,9 @@ private val EDITORIAL_RADIUS = 24.dp
 
 /** 教学周超过这个数就不显示（假期或学期没对上）。 */
 private const val MAX_TEACHING_WEEK = 25
+
+/** 组名最多几个字：标题行只有一行、18sp 字号，再长就只剩省略号了。 */
+private const val GROUP_TITLE_MAX = 12
 
 private val STATUS_GREEN = Color(0xFF2E7D32)
 private val STATUS_BLUE = Color(0xFF1565C0)

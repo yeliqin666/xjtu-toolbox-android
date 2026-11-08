@@ -1,10 +1,8 @@
 package com.xjtu.toolbox.inbox
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.ui.draw.alpha
-import androidx.compose.ui.draw.shadow
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -18,7 +16,6 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.rememberScrollState
@@ -66,7 +63,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.xjtu.toolbox.ui.glass.tabContentPadding
 import com.xjtu.toolbox.auth.LoginType
 import com.xjtu.toolbox.schedule.colorOf
@@ -77,6 +73,7 @@ import com.xjtu.toolbox.ui.components.AppSegmentedTabs
 import top.yukonga.miuix.kmp.overlay.OverlayBottomSheet
 import com.xjtu.toolbox.ui.components.SelectionTile
 import com.xjtu.toolbox.ui.components.AppTabPager
+import com.xjtu.toolbox.ui.components.CountBadge
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.navigationBarsPadding
 import com.xjtu.toolbox.platform.BackHandler
@@ -545,10 +542,14 @@ fun InboxBell(
 }
 
 /**
- * 未读角标（可单独调用）：**半透明红 + 玻璃观感**（白色细高光边 + 一圈红色柔光投影）。
+ * 未读角标（可单独调用）：**玻璃小圆标**——与首页悬浮条里那枚「已添加几块」是同一个组件
+ * （`:shared:designsystem` 的 `CountBadge`），只是底色换成品牌红。
+ *
+ * 玻璃感来自「半透明染色面 + 白细高光边 + 同色柔光投影」，**不采样、不模糊、不折射**：它自己
+ * 不吃模糊与折射，那就没有理由为它跑一次离屏采样——直接半透明叠在下面那块玻璃（圆钮）上，
+ * 透出它本身的颜色即可，这也是纯色背景下卡片的同一条做法（2026-11 维护者定）。
  *
  * 嵌在圆形玻璃钮里时，调用方应该把它画在**圆钮外面那一层**，否则会被玻璃的圆形裁剪削掉。
- * 但**绝不采样背景**：它只有 15dp，模糊 / 折射在这个尺度上只会糊成一团，还多付一次离屏采样。
  */
 @Composable
 fun InboxUnreadBadge(modifier: Modifier = Modifier) {
@@ -559,32 +560,11 @@ fun InboxUnreadBadge(modifier: Modifier = Modifier) {
 
 @Composable
 private fun UnreadBadge(count: Int, modifier: Modifier = Modifier) {
-    val accent = Color(0xFFE8453A)
-    Box(
-        modifier
-            .height(15.dp)
-            .widthIn(min = 15.dp)
-            .shadow(
-                elevation = 4.dp,
-                shape = CircleShape,
-                clip = false,
-                ambientColor = accent.copy(alpha = 0.5f),
-                spotColor = accent.copy(alpha = 0.7f),
-            )
-            .background(accent.copy(alpha = 0.86f), CircleShape)
-            .border(0.6.dp, Color.White.copy(alpha = 0.5f), CircleShape)
-            .padding(horizontal = 3.5.dp),
-        contentAlignment = Alignment.Center,
-    ) {
-        Text(
-            if (count > 99) "99+" else "$count",
-            fontSize = 9.5.sp,
-            lineHeight = 9.5.sp,
-            fontWeight = FontWeight.Bold,
-            color = Color.White,
-        )
-    }
+    CountBadge(count, modifier, accent = UnreadAccent)
 }
+
+/** 未读角标的品牌红：icon 与角标共用，别在别处另写一个红。 */
+private val UnreadAccent = Color(0xFFE8453A)
 
 // `DateTimeFormatter.ofPattern("M月d日")` / `("HH:mm")` 是 JVM 专属 ⇒ 手写（:core 的既有做法）
 private fun dayText(date: LocalDate): String = "${date.monthNumber}月${date.dayOfMonth}日"

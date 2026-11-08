@@ -21,7 +21,6 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.currentStateAsState
 import kotlin.time.TimeSource
 import kotlinx.coroutines.delay
-
 /** Android 侧的液体背景实现。 */
 @Composable
 internal actual fun PlatformLiquidBackground(

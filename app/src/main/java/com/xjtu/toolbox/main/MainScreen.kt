@@ -63,7 +63,6 @@ import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.kyant.backdrop.backdrops.LayerBackdrop
 import com.kyant.backdrop.drawBackdrop
 import com.kyant.backdrop.effects.blur
 import com.kyant.backdrop.effects.lens
@@ -115,8 +114,7 @@ import com.xjtu.toolbox.shell.ShellTab
 import com.xjtu.toolbox.ui.components.pressScale
 import com.xjtu.toolbox.ui.glass.LocalAppBackdrop
 import com.xjtu.toolbox.ui.glass.LocalOnGlassBar
-import com.xjtu.toolbox.ui.glass.glassBarSurface
-import com.xjtu.toolbox.ui.glass.glassBarTint
+import com.xjtu.toolbox.ui.glass.topBarScrim
 import com.xjtu.toolbox.ui.isWideLayout
 import com.xjtu.toolbox.ui.theme.LocalIsDarkTheme
 import com.xjtu.toolbox.ui.rememberHaptics
@@ -368,12 +366,11 @@ internal fun MainScreen(
         },
         tabArt = tabArt,
         snackbarHost = { SnackbarHost(router.messages) },
-        topBar = { _, handles ->
+        topBar = { _, _ ->
             // 顶栏留在这一端：它有 Android 的扫一扫图标（`R.drawable.ic_scan`）与每格自己的表头槽位
             MainTopBar(
                 selectedTab = selectedTab,
                 glassStyle = glassStyle,
-                backdrop = handles.contentBackdrop,
                 scrollBehavior = when (selectedTab) {
                     BottomTab.HOME, null -> homeScrollBehavior
                     BottomTab.COURSES -> coursesScrollBehavior
@@ -682,7 +679,8 @@ private fun HomeRoundAction(
     // 于是模糊 / 折射的也是它此刻盖住的东西，和顶栏模糊带同一个源。卡片组布局会 provide；
     // 经典分类卡那一套（`HomeClassicScreen`）不 provide，于是退回下面那层半透明底。
     val liquid = LocalHomeBarBackdrop.current
-    // 折射子开关同样由首页 provide：关掉时圆钮只留模糊与高光，省一层离屏位移采样
+    // 折射子开关是**采样总开关**：首页在它关掉时会把上面的 `liquid` 收成 null（连采样源都不给），
+    // 圆钮于是退回下面那条半透明底——不采样、不模糊、不折射（2026-11 维护者定）
     val refraction = LocalHomeGlassRefraction.current
     val fill = if (isDark) Color.White.copy(alpha = 0.08f) else Color.White.copy(alpha = 0.4f)
     Box(
@@ -729,13 +727,12 @@ private fun HomeRoundAction(
     ) { content() }
 }
 
-/** 主界面顶栏，玻璃风格下采样 tab 内容区。 */
+/** 主界面顶栏。 */
 @Composable
 private fun MainTopBar(
     /** null = 选中的是放上来的子页（自带顶栏）。 */
     selectedTab: BottomTab?,
     glassStyle: Boolean,
-    backdrop: LayerBackdrop,
     scrollBehavior: ScrollBehavior,
     agentTitle: String,
     agentNavIcon: (@Composable () -> Unit)?,
@@ -747,9 +744,9 @@ private fun MainTopBar(
     onSearch: () -> Unit,
     onInbox: () -> Unit,
 ) {
-    val tint = glassBarTint()
     val color = if (glassStyle) Color.Transparent else MiuixTheme.colorScheme.surface
-    val modifier = if (glassStyle) Modifier.glassBarSurface(backdrop, tint) else Modifier
+    // 玻璃风格下顶栏透明、由一条渐变遮罩压住滚上来的内容（不采样、不模糊，见 topBarScrim）
+    val modifier = if (glassStyle) Modifier.topBarScrim() else Modifier
     // 首页没有顶栏（标题「岱宗盒子」没有信息量）：按钮挪进首页内容里，状态栏留白由 Scaffold 的 insets 给；
     // 放到底栏上的子页自带顶栏
     if (selectedTab == null || selectedTab == BottomTab.HOME) return

@@ -179,6 +179,19 @@ class HomeLayoutStore(
     }
 
     /**
+     * 「从文件导入自定义布局」：把解析好的整页快照落盘。
+     *
+     * 语义和 [reset] 一样是**推倒重来**：首页编辑态手里那份草稿也要换成导入的这份，
+     * 所以两个信号一起 bump（只 bump [HomeLayoutRevision] 的话，用户正摆着的草稿会在
+     * 下一次「对勾」时把刚导入的布局又盖回去）。
+     */
+    fun importLayout(layout: HomeLayout) {
+        save(layout)
+        HomeLayoutResetRevision.bump()
+        HomeLayoutRevision.bump()
+    }
+
+    /**
      * 打开网格：把存档里那份**自由摆位取整落盘**，再开开关。
      *
      * 这一步不可撤销——原来那串 1.3×2.7 之类的非整数摆位在 [HomeLayout.snapToGrid] 之后
@@ -225,16 +238,22 @@ class HomeLayoutStore(
             .coerceIn(CARD_CORNER_MIN, CARD_CORNER_MAX)
         set(value) = store.putInt(KEY_CARD_CORNER, value.coerceIn(CARD_CORNER_MIN, CARD_CORNER_MAX))
 
-    /** 主页卡片材质：false = 毛玻璃（默认），true = 液态玻璃。 */
+    /**
+     * 主页卡片材质：false = 毛玻璃，true = 液态玻璃（**默认开**，2026-11 按维护者要求改）。
+     *
+     * 键 `home_liquid_card` 与 `SettingsStore.homeLiquidGlass` 是**同一个**：那边是真正在用的
+     * 那个访问器（首页与设置面板都读它），这里只是个同键的口子，两边的默认值必须一致，
+     * 否则「谁先读到」就决定了首启是玻璃还是毛玻璃。
+     */
     var liquidCard: Boolean
-        get() = store.getBoolean(KEY_LIQUID_CARD, false)
+        get() = store.getBoolean(KEY_LIQUID_CARD, true)
         set(value) = store.putBoolean(KEY_LIQUID_CARD, value)
 
     /**
-     * 液态玻璃要不要带折射（透镜弯光 + 色散）。
+     * 液态玻璃要不要带折射（透镜弯光）。
      *
-     * 折射是整个玻璃里最贵的一层：`lens()` 要在离屏层上再跑一遍位移采样，开色散时还是三通道
-     * 各采一次。关掉它剩下的模糊、活力、高光、轮廓、投影一样不少，只是玻璃从「厚透镜」变成
+     * 折射是整个玻璃里最贵的一层：`lens()` 要在离屏层上再跑一遍位移采样（每像素一次）。
+     * 关掉它剩下的模糊、活力、高光、轮廓、投影一样不少，只是玻璃从「厚透镜」变成
      * 「磨砂片」——观感差一档，但滚动和拖动时省下相当一部分 GPU。
      *
      * 独立成一个键、默认 true：老用户升级上来外观不变，觉得卡的人自己往下拨一格。
@@ -247,7 +266,7 @@ class HomeLayoutStore(
     /**
      * 首页顶栏用哪套排法（默认**开** = 改造前那套）。
      *
-     * 开 = 整套改造前顶栏：左侧「家小西」头像（随上滑淡入）、扫码 / 搜索 / 通知三个圆钮都在右侧、
+     * 开 = 整套改造前顶栏：左侧「交小西」头像（随上滑淡入）、扫码 / 搜索 / 通知三个圆钮都在右侧、
      * 不画居中标题；
      * 关 = 改版后的顶栏：扫码单独站到最左边、标题绝对居中，右侧只留搜索与通知。
      *

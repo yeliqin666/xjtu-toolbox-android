@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -59,6 +60,7 @@ import com.kyant.backdrop.effects.blur
 import com.kyant.backdrop.effects.lens
 import com.kyant.backdrop.effects.vibrancy
 import com.kyant.backdrop.highlight.Highlight
+import com.xjtu.toolbox.ui.components.CountBadge
 import com.xjtu.toolbox.ui.components.ExpressiveIcon
 import com.xjtu.toolbox.ui.components.appCardShadow
 import com.xjtu.toolbox.ui.glass.floatingGlassShadow
@@ -84,7 +86,10 @@ private val ORB_GAP = 4.dp
 /** 展开长条里一颗功能图标的直径。 */
 private val ORB_TILE = 44.dp
 
-/** 长条最多露出的功能行数；超出的靠滚动。 */
+/** 图标上下各留的呼吸位（`OrbTileIcon` 里那一圈 `padding`）；一行因此是 [ORB_TILE] + 2×它。 */
+private val ORB_TILE_PAD = 5.dp
+
+/** 长条里列表窗口占几行的名义高度；超出的靠滚动。 */
 private const val ORB_VISIBLE_ROWS = 6
 
 // 长条的圆角**恒为全圆**（= 长条半宽 32dp，两端是半圆，也就是胶囊），**不吃**主页设置里那条
@@ -94,13 +99,25 @@ private const val ORB_VISIBLE_ROWS = 6
 private val ORB_KNOB_SIDE = (ORB_RAIL_WIDTH - ORB_BALL) / 2
 
 /**
- * 图标旁边那片名称栏的宽度。
+ * 图标旁边那片名称栏的宽度（**外框朝远离贴边那一侧长出去的总宽**）。
  *
  * 名称栏**不是**一个开关，而是滚动列表时临时露出来的：面板里十几个功能、一屏只放得下 6 个，
  * 滚的时候光看图标认不出滚到谁了。所以只在滚动时横向拉开，其余时刻（开始拖动、点把手、
  * 点到别处）都收回去——收起时不组合那段文字，一次文字布局都不做。
+ *
+ * 104dp 是按最宽的一行算出来的（2026-11 加宽）：`10` 外沿安全边 + `15` 计数圆标 + `5` 圆标与字的
+ * 间隙 + 名字（首页最长的四个汉字约 52dp）+ `8` 图标侧呼吸位 ≈ 90，再留十几格给五六字的名字。
+ * 加宽之前是 84dp，塞进圆标之后四个字的名字就要开始省略了。
  */
-private val ORB_LABEL_WIDTH = 84.dp
+private val ORB_LABEL_WIDTH = 104.dp
+
+/**
+ * 名称栏**靠外沿那一侧**的安全边（离玻璃边缘的距离）。
+ *
+ * 那一侧正是胶囊的圆弧，字与圆标贴上去会被弧边啃掉一角；也给「拉开帘子」留出终点，收尾时
+ * 文字不会顶着玻璃边停下。图标侧另有 8dp 呼吸位（见 `OrbLabel`）。
+ */
+private val ORB_LABEL_EDGE_PAD = 10.dp
 
 /** 把手 + 空隙 + 列表窗口，不含上下内边距（内边距要跟着圆角变，见 [knobTopPadding]）。 */
 private val ORB_BODY = ORB_BALL + ORB_GAP + ORB_TILE * ORB_VISIBLE_ROWS
@@ -153,6 +170,13 @@ private val ORB_EDGE_MARGIN = 8.dp
 internal fun HomeAddTileOrb(
     faces: Map<String, HomeServiceRow>,
     catalog: List<AppService>,
+    /**
+     * 每张卡在整页上已经放了几块（路由 id → 块数）。
+     *
+     * 名字栏里把它显示在**图标与文字中间**（见 [OrbLabel]）：同一张卡现在允许在主页上出现
+     * 多块，光看图标认不出「这个功能是不是已经摆过了、摆了几个」，加一个数就有了。
+     */
+    tileCounts: Map<String, Int>,
     liquid: Boolean,
     /** 液态玻璃是否带折射；见 HomeTileFaceBox 的 `refraction` 说明。 */
     refraction: Boolean,
@@ -221,6 +245,18 @@ internal fun HomeAddTileOrb(
         val colW = ORB_BALL + (ORB_RAIL_WIDTH - ORB_BALL) * shape
         val boxW = colW + labelExtra
         val boxH = ORB_BALL + (ORB_BODY + railPad * 2 - ORB_BALL) * shape
+        /**
+         * 列表窗口的高度 = **框内从列表顶边一直到外框底边**（`boxH − 顶部内边距 − 把手 − 空隙`）。
+         *
+         * 这么算而不是「图标行数 × 行高」，为的是让内容一直铺到框的边缘：从前只铺到行数那么高，
+         * 于是列表在外框底边上方 railPad（约 10dp）处自己截断，屏幕上是「图标在中间被切一刀、
+         * 下面还空着一条」，切的位置不在框边缘（2026-11 维护者提的第 6 条）。现在超出部分被
+         * 外框那层 `clip(glassShape)` 裁掉，切的就是框本身。
+         *
+         * 按 `shape` 现算（而不是写成常量），球 ↔ 长条过渡的每一帧列表都正好贴着框底，中途不会
+         * 多出一条或短一截。
+         */
+        val listH = (boxH - pad - ORB_BALL - ORB_GAP).coerceAtLeast(0.dp)
         // 圆角：球态是正圆（半宽），长条态是上面那个用户值；再夹一次「不能超过短边一半」，
         // 免得过渡到一半时圆角比框还大（形状会翻出去）
         val corner = (ORB_BALL / 2 + (railCorner - ORB_BALL / 2) * shape)
@@ -328,6 +364,7 @@ internal fun HomeAddTileOrb(
                 OrbTileList(
                     faces = faces,
                     catalog = catalog,
+                    tileCounts = tileCounts,
                     liquid = liquid,
                     refraction = refraction,
                     backdrop = backdrop,
@@ -336,6 +373,17 @@ internal fun HomeAddTileOrb(
                     // 图标那一栏跟着形态一起变宽，图标因此始终落在把手正下方
                     colW = colW,
                     width = boxW,
+                    /**
+                     * 列表要**一直铺到外框底边**（多出来的量正好是底部那圈内边距）。
+                     *
+                     * 从前列表高度只算到 `ORB_TILE * 行数`，于是它在外框底边上方 railPad（约 10dp）
+                     * 处就自己截断了：屏幕上是「图标在中间被切一刀，下面还空着一条」——切的位置
+                     * 不在框的边缘。把它铺到底之后，截断由外框那层 `clip(glassShape)` 来做，
+                     * 内容是在**框边缘**被裁掉的（2026-11 维护者提的第 6 条）。
+                     */
+                    listHeight = listH,
+                    /** 滚到底时给最后一行留的呼吸位：那里正是胶囊收成一点的圆弧，贴着会被啃掉。 */
+                    endPadding = pad,
                     fade = shape,
                     // 名字栏比外框晚一点收、也与形态一起淡：动画中间不会闪出一个方角
                     labelExtra = labelExtra,
@@ -444,6 +492,8 @@ private fun OrbHandle(
 private fun OrbTileList(
     faces: Map<String, HomeServiceRow>,
     catalog: List<AppService>,
+    /** 路由 id → 这一张卡在整页上已经放了几块（0 / 缺省 = 还没摆过）。 */
+    tileCounts: Map<String, Int>,
     liquid: Boolean,
     refraction: Boolean,
     backdrop: Backdrop?,
@@ -454,6 +504,15 @@ private fun OrbTileList(
     colW: Dp,
     /** 整块外框的宽（= 图标栏 + 名字栏）。 */
     width: Dp,
+    /**
+     * 列表窗口的高度：**由调用方算成「一直铺到外框底边」**，多出来的那点正好是底部那圈内边距。
+     *
+     * 这个高度只决定「窗口开多大」；窗口是被外框那层 `clip(glassShape)` 裁的，所以真正决定
+     * 内容在哪儿被切断的是外框边缘，而不是这里（见调用处那段说明）。
+     */
+    listHeight: Dp,
+    /** 滚到底时给最后一行留的呼吸位：底边正是胶囊收成一点的圆弧，贴着会被弧边啃掉一角。 */
+    endPadding: Dp,
     /** 整体透明度：球态 0（被裁掉之前先淡掉，中间不会闪出半个图标）。 */
     fade: Float,
     /** 名字栏状态（宽度由 `HomeAddTileOrb` 里那条动画统一管）。 */
@@ -483,8 +542,10 @@ private fun OrbTileList(
         state = listState,
         modifier = Modifier
             .width(width)
-            .height(ORB_TILE * ORB_VISIBLE_ROWS)
+            .height(listHeight)
             .graphicsLayer { alpha = fade },
+        // 最后一行不贴着胶囊那截圆弧停：滚到底时留出与底边同宽的一圈
+        contentPadding = PaddingValues(bottom = endPadding),
     ) {
         items(items.size) { index ->
             val service = items[index]
@@ -494,7 +555,9 @@ private fun OrbTileList(
                 horizontalArrangement = if (dockRight) Arrangement.End else Arrangement.Start,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                if (dockRight && showLabels) OrbLabel(face.title, labelExtra, textEnd = true)
+                if (dockRight && showLabels) {
+                    OrbLabel(face.title, labelExtra, textEnd = true, count = tileCounts[service.route.id] ?: 0)
+                }
                 Box(Modifier.width(colW), contentAlignment = Alignment.Center) {
                     OrbTileIcon(
                         face = face,
@@ -511,40 +574,57 @@ private fun OrbTileList(
                         onCancel = onPaletteCancel,
                     )
                 }
-                if (!dockRight && showLabels) OrbLabel(face.title, labelExtra, textEnd = false)
+                if (!dockRight && showLabels) {
+                    OrbLabel(face.title, labelExtra, textEnd = false, count = tileCounts[service.route.id] ?: 0)
+                }
             }
         }
     }
 }
 
 /**
- * 图标旁边那一行名字。
+ * 图标旁边那一行名字（外加「这张卡在主页上已经放了几块」）。
  *
  * 窗口宽度就是「名字栏已经拉出来多少」：文字按**固定宽度**排版（`requiredWidth`，不吃窗口
  * 挤压），窗口窄时只露出靠图标那一侧的一截，窗口张开时像拉帘子一样把它带出来——整个过程
  * 文字不重排，不会抖、不会闪省略号。
+ *
+ * [count] 排**图标与文字中间**（2026-11 按需求加）：贴边停靠时中间就是文字右侧，靠左停靠时
+ * 是文字左侧，两种情况都在「靠图标那一侧」，和名字一起被帘子带出来。0 块时不画。
+ *
+ * 画法是一枚**主题色小圆标**（`CountBadge`：半透明染色 + 白细高光边 + 同色柔光投影，**不采样**，
+ * 就是直接叠在下面那块玻璃上——见那个组件的注释），不是一行 `×3` 的弱化小字：那个数字是
+ * 「这张卡在主页上已经有几块」的**计数**，和名字同级的信息，靠一枚钉子更一眼看得出来。
  */
 @Composable
-private fun OrbLabel(title: String, width: Dp, textEnd: Boolean) {
+private fun OrbLabel(title: String, width: Dp, textEnd: Boolean, count: Int) {
+    // 图标侧 8dp 呼吸位；**外沿那侧留 [ORB_LABEL_EDGE_PAD]**——那里是胶囊的圆弧，字与圆标
+    // 贴上去会被弧边啃掉一角（2026-11 加宽名字栏时一起补的安全距离）
+    val iconSidePad = Modifier.padding(
+        start = if (textEnd) ORB_LABEL_EDGE_PAD else 8.dp,
+        end = if (textEnd) 8.dp else ORB_LABEL_EDGE_PAD,
+    )
     Box(
         Modifier.width(width).clipToBounds(),
         contentAlignment = if (textEnd) Alignment.CenterEnd else Alignment.CenterStart,
     ) {
-        Text(
-            text = title,
-            style = MiuixTheme.textStyles.footnote1,
-            color = MiuixTheme.colorScheme.onSurface.copy(alpha = 0.86f),
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            textAlign = if (textEnd) TextAlign.End else TextAlign.Start,
-            modifier = Modifier
-                .requiredWidth(ORB_LABEL_WIDTH)
-                // 8dp 是图标与字之间的呼吸位，留在靠图标的那一侧
-                .padding(
-                    start = if (textEnd) 0.dp else 8.dp,
-                    end = if (textEnd) 8.dp else 0.dp,
-                ),
-        )
+        Row(
+            modifier = Modifier.requiredWidth(ORB_LABEL_WIDTH).then(iconSidePad),
+            horizontalArrangement = Arrangement.spacedBy(5.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            if (!textEnd && count > 0) CountBadge(count)
+            Text(
+                text = title,
+                style = MiuixTheme.textStyles.footnote1,
+                color = MiuixTheme.colorScheme.onSurface.copy(alpha = 0.86f),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                textAlign = if (textEnd) TextAlign.End else TextAlign.Start,
+                modifier = Modifier.weight(1f),
+            )
+            if (textEnd && count > 0) CountBadge(count)
+        }
     }
 }
 
@@ -562,9 +642,21 @@ private fun OrbTileIcon(
 ) {
     // 图标的页面局部位置：每次回读存本地，合成手指坐标用（列表滚动后自动新鲜）
     var iconTop by remember(face.key) { mutableStateOf(Offset.Zero) }
+    /**
+     * 回调必须经 `rememberUpdatedState` 读最新值，**不能直接捕获**。
+     *
+     * `pointerInput(face.key)` 的手势协程只启动一次（key 不变就不重启），而 `onDragOut` 每次
+     * 重组都是新的 lambda，里面捕获着**那一刻的 `layout` 草稿**。直接捕获的话，按下时用的还是
+     * 「上一次重组时」那份布局：本轮刚从悬浮条放下的一张卡不在那份快照里，于是新块的 id 会被
+     * 重新算成与它相同、落盘时又按旧快照整页覆盖——表现就是「同一张卡再放一次，刚放下的那张
+     * 就没了」。`HomeDragLayer` 里那几个回调就是同样的写法。
+     */
+    val currentDragOut by rememberUpdatedState(onDragOut)
+    val currentDrop by rememberUpdatedState(onDrop)
+    val currentCancel by rememberUpdatedState(onCancel)
     Box(
         Modifier
-            .padding(vertical = 5.dp)
+            .padding(vertical = ORB_TILE_PAD)
             .size(ORB_TILE)
             .onGloballyPositioned { coords ->
                 // 换成页面局部坐标登记，拖出时从这里起算
@@ -574,15 +666,15 @@ private fun OrbTileIcon(
             .pointerInput(face.key) {
                 // 官方长按拖拽：onDragCancel 有兜底，手势被抢走不会卡死会话
                 detectDragGesturesAfterLongPress(
-                    onDragStart = { offset -> onDragOut(iconTop + offset) },
+                    onDragStart = { offset -> currentDragOut(iconTop + offset) },
                     onDrag = { change, _ ->
                         change.consume()
                         // 图标位置（视口）+ 事件的图标相对坐标 = 手指视口坐标。手势层不接管
                         // 悬浮条，所以这一路自己更新 session.pointer；落点仍是首页按快照派生的
                         session.move(iconTop + change.position)
                     },
-                    onDragEnd = { onDrop() },
-                    onDragCancel = { onCancel() },
+                    onDragEnd = { currentDrop() },
+                    onDragCancel = { currentCancel() },
                 )
             },
         contentAlignment = Alignment.Center,
@@ -618,6 +710,7 @@ private fun Modifier.orbGlass(
     }
     if (backdrop == null) {
         // 兜底：没有采样源时用薄色 + 投影，别画成一片透明
+        // （背景是纯色 / 渐变，或用户关掉了「开启折射」这个采样总开关）
         return this
             .appCardShadow(shape = shape)
             .background(

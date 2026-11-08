@@ -152,9 +152,15 @@ class SettingsStore(private val store: KeyValueStore = keyValueStore(APP_SETTING
         get() = store.getString("home_widgets")?.split('\n')?.filter { it.isNotBlank() }
         set(value) = store.putString("home_widgets", value?.joinToString("\n"))
 
-    /** 小组件用液态玻璃（折射 + 高光，较耗电）；只在渐变与图片背景上生效，纯色背景一律是实心卡片。 */
+    /**
+     * 小组件用液态玻璃（折射 + 高光，较耗电）；只在图片背景上真能看出效果，纯色 / 渐变与
+     * 「糊到没有细节的图片」一律退成薄色卡片（见 `SettingsStore.HOME_WALLPAPER_BLUR_HIDES_GLASS`）。
+     *
+     * **默认开**（2026-11 按维护者要求改）：这套玻璃是首页现在的默认观感，觉得卡 / 费电的人
+     * 自己去主页设置里关，或者只关折射。
+     */
     var homeLiquidGlass: Boolean
-        get() = store.getBoolean("home_liquid_card", false)
+        get() = store.getBoolean("home_liquid_card", true)
         set(value) = store.putBoolean("home_liquid_card", value)
 
     /** 首页顶栏：true = 扫码、搜索、消息统一靠右（默认），false = 扫码单独靠左、标题居中。 */
@@ -175,15 +181,19 @@ class SettingsStore(private val store: KeyValueStore = keyValueStore(APP_SETTING
         get() = store.getString("home_wallpaper_image").orEmpty()
         set(value) = store.putString("home_wallpaper_image", value.ifEmpty { null })
 
-    /** 首页背景图的模糊与亮度，取值范围同首页大卡的自定义背景。 */
+    /**
+     * 首页背景图的模糊半径，取值范围同首页大卡的自定义背景。
+     *
+     * 糊到 [HOME_WALLPAPER_BLUR_HIDES_GLASS] 及以上时，卡片上的模糊与折射就看不出差别了，
+     * 那时卡片退成薄色玻璃（见那个常量的说明）——这里只负责存值，判定在渲染与设置面板。
+     *
+     * 原来还有一条「亮度」（键 `home_wallpaper_brightness`）：那**功能整个删掉了**（2026-11），
+     * 键不再读也不再写，壁纸按原图铺。自定义壁纸的明暗交给「背景不透明度」那条滑条调
+     * （往下拨就把主题底色盖回去）——亮度与它调的是同一件事，两条一起拨只会互相抵消。
+     */
     var homeWallpaperBlur: Int
         get() = store.getInt("home_wallpaper_blur", HERO_IMAGE_BLUR_MIN).coerceIn(HERO_IMAGE_BLUR_MIN, HERO_IMAGE_BLUR_MAX)
         set(value) = store.putInt("home_wallpaper_blur", value.coerceIn(HERO_IMAGE_BLUR_MIN, HERO_IMAGE_BLUR_MAX))
-
-    var homeWallpaperBrightness: Int
-        get() = store.getInt("home_wallpaper_brightness", HERO_IMAGE_BRIGHTNESS_MAX)
-            .coerceIn(HERO_IMAGE_BRIGHTNESS_MIN, HERO_IMAGE_BRIGHTNESS_MAX)
-        set(value) = store.putInt("home_wallpaper_brightness", value.coerceIn(HERO_IMAGE_BRIGHTNESS_MIN, HERO_IMAGE_BRIGHTNESS_MAX))
 
     /** 场馆滑块验证码自动识别开关。 */
     var venueAutoSolveCaptchaEnabled: Boolean
@@ -226,6 +236,20 @@ class SettingsStore(private val store: KeyValueStore = keyValueStore(APP_SETTING
 
         const val HERO_IMAGE_BLUR_MIN = 0
         const val HERO_IMAGE_BLUR_MAX = 10
+
+        /**
+         * 背景图糊到这个半径（dp）及以上，卡片上的**模糊与折射就都看不出差别**了
+         * （2026-11 维护者给的阈值）。
+         *
+         * 模糊是真高斯，半径翻倍等于细节对折再对折：到 5dp 时壁纸已经是一片色块，卡片再采它一遍
+         * 糊出来的和「薄色底」几乎分不出，折射折的也是同一片色块——但这两层是全页最贵的
+         * （每张卡一次离屏位移采样）。所以此时按「纯色 / 渐变背景」那套处理：
+         * 不录卡片那层、不模糊、不折射，只留活力 / 高光 / 轮廓 / 投影。
+         *
+         * 注意这**不是**把用户的折射开关改成关：开关照原样显示、只是置灰（见主页设置），
+         * 换回不糊的图片或把模糊调小就立刻恢复。
+         */
+        const val HOME_WALLPAPER_BLUR_HIDES_GLASS = 5
         const val HERO_IMAGE_BRIGHTNESS_MIN = 20
         const val HERO_IMAGE_BRIGHTNESS_MAX = 100
 

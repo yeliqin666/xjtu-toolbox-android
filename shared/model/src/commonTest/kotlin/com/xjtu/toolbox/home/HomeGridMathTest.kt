@@ -487,14 +487,42 @@ class HomeLayoutTest {
     }
 
     @Test
-    fun `添加功能不会重复、删除能删干净`() {
+    fun `同一组里可以再放一块同一个功能、删除能删干净`() {
         val added = layout().addTile("CLASS", "library", "CLASS/library")
         assertEquals(2, added.group("CLASS")!!.tiles.size)
-        // 同一个路由再加一次不生效
-        assertEquals(added, added.addTile("CLASS", "library", "CLASS/library/x"))
+        // 同一个路由再加一次**会**真的再多一块：2026-11 取消了「一组里同一功能只能有一个」的限制，
+        // 「常用功能」本来就是同路由的第二块，组内再来一块也是用户的明确意图
+        val twice = added.addTile("CLASS", "library", added.nextTileId("CLASS", "library"))
+        assertEquals(3, twice.group("CLASS")!!.tiles.size)
+        assertEquals(2, twice.group("CLASS")!!.tiles.count { it.routeId == "library" })
+        // 两块互不重叠（挤开规则照旧）
+        assertTrue(twice.isConsistent())
 
-        val removed = added.removeTile("CLASS/library")
-        assertEquals(1, removed.group("CLASS")!!.tiles.size)
+        // 删的是**指定的那一块**，另一块留着
+        val removed = twice.removeTile("CLASS/library")
+        assertEquals(2, removed.group("CLASS")!!.tiles.size)
+        assertEquals(1, removed.group("CLASS")!!.tiles.count { it.routeId == "library" })
+    }
+
+    @Test
+    fun `往已有同功能的位置再放一块跟别的卡片一样挤开`() {
+        // 同组已有同路由也照样加，而且待遇和普通卡片**没有任何区别**：落点上的那块照常让位。
+        // （2026-11 维护者定：这里只该删掉「同路由不许重复」的限制，不该给同功能加特判。）
+        val added = layout().addTileAt(
+            "CLASS", "schedule", "CLASS/schedule#9",
+            x = 0f, y = 0f, grid = true, rowBudget = mapOf("CLASS" to 1f),
+        )
+        val tiles = added.group("CLASS")!!.tiles
+        assertEquals(2, tiles.size)
+        // 新的那块占住落点
+        val fresh = tiles.first { it.id == "CLASS/schedule#9" }
+        assertEquals(0f, fresh.x, 0.0001f)
+        assertEquals(0f, fresh.y, 0.0001f)
+        // 原来那块被挤到本组第一行剩下的空位（和任意两块普通卡片互相挤的开法完全一致）
+        val moved = tiles.first { it.id == "CLASS/schedule" }
+        assertEquals(2f, moved.x, 0.0001f)
+        assertEquals(0f, moved.y, 0.0001f)
+        assertTrue(added.isConsistent())
     }
 
     @Test
@@ -516,6 +544,26 @@ class HomeLayoutTest {
         val third = removed.addTile("CLASS", "library", removed.nextTileId("CLASS", "library"))
         val ids = third.group("CLASS")!!.tiles.map { it.id }
         assertEquals(ids.size, ids.distinct().size, "出现了重复 id：$ids")
+    }
+
+    @Test
+    fun `尾号解析不出来的老块占着号时，新块 id 会往后躲`() {
+        // 老存档里可能有 `#dup2` 这种重编号（尾号已经不是数字），此时「最大尾号 + 1」会算错，
+        // 恰好等于某一块的号——撞号在界面上就是「按住悬浮条图标，页面上那块卡被顶掉」。
+        val weird = HomeLayout(
+            groups = listOf(
+                HomeGroup(
+                    id = "G",
+                    tiles = listOf(
+                        HomeTile("G/x#0", "schedule", 0f, 0f, 1f, 1f),
+                        // 尾号是 dup，`toIntOrNull()` 拿不到 1，于是「最大 + 1」会算出 1
+                        HomeTile("G/y#dup1", "library", 1f, 0f, 1f, 1f),
+                    ),
+                ),
+            ),
+        )
+        val fresh = weird.nextTileId("G", "notice")
+        assertTrue(fresh !in weird.groups.flatMap { it.tiles }.map { it.id }, "新 id 撞了已有块：$fresh")
     }
 
     @Test
