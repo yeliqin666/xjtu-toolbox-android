@@ -67,7 +67,7 @@ import top.yukonga.miuix.kmp.basic.Surface
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextButton
 import top.yukonga.miuix.kmp.overlay.OverlayBottomSheet
-import top.yukonga.miuix.kmp.preference.OverlayDropdownPreference
+import com.xjtu.toolbox.ui.components.AppDropdownPreference
 import top.yukonga.miuix.kmp.preference.SliderPreference
 import top.yukonga.miuix.kmp.preference.SwitchPreference
 import top.yukonga.miuix.kmp.theme.MiuixTheme
@@ -183,7 +183,7 @@ private fun HomeSettingsBody(onDismiss: () -> Unit, showTopBarStyle: Boolean) {
         // ── 布局：功能区样式、网格、顶栏排法 ──
         SmallTitle("布局")
         HomeSettingsCard {
-            OverlayDropdownPreference(
+            AppDropdownPreference(
                 title = "功能区",
                 summary = if (cards) "长按主页空白处进入编辑" else "功能按分类排成卡片",
                 items = HOME_LAYOUT_LABELS,
@@ -233,7 +233,7 @@ private fun HomeSettingsBody(onDismiss: () -> Unit, showTopBarStyle: Boolean) {
             }
             // 圆角只有卡片组有；编辑态悬浮条恒为全圆，不吃这个值。存的仍是 dp，老存档按最近一档显示
             if (cards) {
-                OverlayDropdownPreference(
+                AppDropdownPreference(
                     title = "卡片形状",
                     items = CARD_CORNER_PRESETS.map { it.second },
                     selectedIndex = CARD_CORNER_PRESETS.indices.minBy { abs(CARD_CORNER_PRESETS[it].first - corner) },

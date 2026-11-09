@@ -107,25 +107,19 @@ internal fun CourseListPage(
                         IconButton(onClick = { showSemesterMenu = true }) {
                             Icon(Icons.Default.DateRange, contentDescription = "学期：${selectedSemester ?: "全部"}")
                         }
-                        OverlayListPopup(
-                            show = showSemesterMenu,
-                            alignment = PopupPositionProvider.Align.End,
+                        com.xjtu.toolbox.ui.components.AppDropdownMenu(
+                            expanded = showSemesterMenu,
                             onDismissRequest = { showSemesterMenu = false },
                         ) {
-                            val options = listOf<String?>(null) + semesters
-                            ListPopupColumn {
-                                options.forEachIndexed { idx, sem ->
-                                    DropdownImpl(
-                                        text = sem ?: "全部学期",
-                                        optionSize = options.size,
-                                        isSelected = sem == selectedSemester,
-                                        onSelectedIndexChange = {
-                                            showSemesterMenu = false
-                                            selectedSemester = sem
-                                        },
-                                        index = idx,
-                                    )
-                                }
+                            (listOf<String?>(null) + semesters).forEach { sem ->
+                                com.xjtu.toolbox.ui.components.AppDropdownOption(
+                                    text = sem ?: "全部学期",
+                                    selected = sem == selectedSemester,
+                                    onClick = {
+                                        showSemesterMenu = false
+                                        selectedSemester = sem
+                                    },
+                                )
                             }
                         }
                     }

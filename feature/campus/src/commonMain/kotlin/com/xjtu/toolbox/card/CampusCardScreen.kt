@@ -189,25 +189,20 @@ fun CampusCardScreen(
                         IconButton(onClick = { showRangeMenu = true }) {
                             Icon(Icons.Default.DateRange, contentDescription = "时间范围：$rangeLabel")
                         }
-                        OverlayListPopup(
-                            show = showRangeMenu,
-                            alignment = PopupPositionProvider.Align.End,
+                        com.xjtu.toolbox.ui.components.AppDropdownMenu(
+                            expanded = showRangeMenu,
                             onDismissRequest = { showRangeMenu = false },
                         ) {
-                            ListPopupColumn {
-                                TimeRange.entries.forEachIndexed { idx, range ->
-                                    DropdownImpl(
-                                        text = if (range == TimeRange.CUSTOM) "自定义…" else "近${range.label}",
-                                        optionSize = TimeRange.entries.size,
-                                        isSelected = range == vm.timeRange,
-                                        onSelectedIndexChange = {
-                                            showRangeMenu = false
-                                            if (range == TimeRange.CUSTOM) showCustomRange = true
-                                            else vm.selectRange(range)
-                                        },
-                                        index = idx,
-                                    )
-                                }
+                            TimeRange.entries.forEach { range ->
+                                com.xjtu.toolbox.ui.components.AppDropdownOption(
+                                    text = if (range == TimeRange.CUSTOM) "自定义…" else "近${range.label}",
+                                    selected = range == vm.timeRange,
+                                    onClick = {
+                                        showRangeMenu = false
+                                        if (range == TimeRange.CUSTOM) showCustomRange = true
+                                        else vm.selectRange(range)
+                                    },
+                                )
                             }
                         }
                     }

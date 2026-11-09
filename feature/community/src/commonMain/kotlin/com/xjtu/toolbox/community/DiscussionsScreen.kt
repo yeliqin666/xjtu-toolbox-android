@@ -263,14 +263,14 @@ private fun DiscussionOptionsSheet(
     top.yukonga.miuix.kmp.overlay.OverlayBottomSheet(show = show, title = "筛选与排序", onDismissRequest = onDismiss) {
         Column(Modifier.fillMaxWidth().navigationBarsPadding().padding(bottom = 12.dp)) {
             val states = DiscussionStateFilter.entries
-            top.yukonga.miuix.kmp.preference.OverlayDropdownPreference(
+            com.xjtu.toolbox.ui.components.AppDropdownPreference(
                 title = "状态",
                 items = states.map { it.label },
                 selectedIndex = states.indexOf(state.stateFilter).coerceAtLeast(0),
                 onSelectedIndexChange = { onState(states[it]) },
             )
             val sorts = DiscussionSort.entries
-            top.yukonga.miuix.kmp.preference.OverlayDropdownPreference(
+            com.xjtu.toolbox.ui.components.AppDropdownPreference(
                 title = "排序",
                 items = sorts.map { it.label },
                 selectedIndex = sorts.indexOf(state.sort).coerceAtLeast(0),

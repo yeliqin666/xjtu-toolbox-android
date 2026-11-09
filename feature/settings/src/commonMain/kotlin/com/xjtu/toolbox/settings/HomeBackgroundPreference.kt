@@ -26,7 +26,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import top.yukonga.miuix.kmp.preference.ArrowPreference
-import top.yukonga.miuix.kmp.preference.OverlayDropdownPreference
+import com.xjtu.toolbox.ui.components.AppDropdownPreference
 
 @OptIn(ExperimentalEncodingApi::class)
 @Composable
@@ -45,7 +45,7 @@ internal fun HomeBackgroundPreference(store: SettingsStore, startAction: @Compos
         }
     }
     val modes = listOf("solid", "gradient", "image")
-    OverlayDropdownPreference(
+    AppDropdownPreference(
         title = "主页背景",
         summary = if (mode == "solid") "素笺 · 随主题变化" else null,
         items = listOf("主题色", "主题色渐变", "自定义图片"),

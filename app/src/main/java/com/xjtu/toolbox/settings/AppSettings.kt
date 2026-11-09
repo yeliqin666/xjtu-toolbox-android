@@ -482,7 +482,7 @@ private fun UpdateSection(context: Context, scope: CoroutineScope, credentialSto
 
     SmallTitle("更新")
     SettingsCard {
-        OverlayDropdownPreference(
+        com.xjtu.toolbox.ui.components.AppDropdownPreference(
             title = "更新渠道",
             items = AppUpdater.channelLabels,
             selectedIndex = AppUpdater.channelKeys.indexOf(updateChannel).coerceAtLeast(0),

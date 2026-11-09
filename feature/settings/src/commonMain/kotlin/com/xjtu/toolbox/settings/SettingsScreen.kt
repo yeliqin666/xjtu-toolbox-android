@@ -100,7 +100,7 @@ import top.yukonga.miuix.kmp.basic.TopAppBar
 import top.yukonga.miuix.kmp.basic.rememberTopAppBarState
 import top.yukonga.miuix.kmp.overlay.OverlayBottomSheet
 import top.yukonga.miuix.kmp.preference.ArrowPreference
-import top.yukonga.miuix.kmp.preference.OverlayDropdownPreference
+import com.xjtu.toolbox.ui.components.AppDropdownPreference
 import top.yukonga.miuix.kmp.preference.SwitchPreference
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.utils.overScrollVertical
@@ -218,7 +218,7 @@ fun SettingsScreen(
         if (showDarkMode || showDynamicColor || showNavStyle) SmallTitle("主题")
         if (showDarkMode || showDynamicColor || showNavStyle) SettingsCard {
             if (showDarkMode) {
-                OverlayDropdownPreference(
+                AppDropdownPreference(
                     title = "深色模式",
                     items = darkModeOptions,
                     selectedIndex = darkModeValues.indexOf(darkMode).coerceAtLeast(0),
@@ -232,7 +232,7 @@ fun SettingsScreen(
                 )
             }
             if (showDynamicColor) {
-                OverlayDropdownPreference(
+                AppDropdownPreference(
                     title = "主题取色",
                     items = listOf("默认配色", "跟随系统", "自定义颜色"),
                     selectedIndex = if (customColorEnabled) 2 else if (dynamicColor) 1 else 0,
@@ -280,7 +280,7 @@ fun SettingsScreen(
             }
             if (showNavStyle) {
                 // 管所有玻璃（底栏、侧栏、气泡、顶栏），宽屏也显示
-                OverlayDropdownPreference(
+                AppDropdownPreference(
                     title = "界面质感",
                     summary = "顶栏、底栏和气泡用玻璃还是实色",
                     items = navStyleOptions,
@@ -346,7 +346,7 @@ fun SettingsScreen(
                     )
                 }
                 if (showDefaultTab) {
-                    OverlayDropdownPreference(
+                    AppDropdownPreference(
                         title = "打开应用时进入",
                         items = tabOptions,
                         selectedIndex = tabValues.indexOf(defaultTab).coerceAtLeast(0),
@@ -368,7 +368,7 @@ fun SettingsScreen(
             // 触感开关自带偏好存储，不经 SettingsStore
             if (showHaptics) HapticsSettingItem()
             if (showNetworkMode) {
-                OverlayDropdownPreference(
+                AppDropdownPreference(
                     title = "连接模式",
                     items = networkOptions,
                     selectedIndex = networkValues.indexOf(networkMode).coerceAtLeast(0),
@@ -392,7 +392,7 @@ fun SettingsScreen(
             SmallTitle("日程")
             SettingsCard {
                 if (showScheduleSource) {
-                    OverlayDropdownPreference(
+                    AppDropdownPreference(
                         title = "当前学期课表来源",
                         items = scheduleOptions.map { it.label },
                         selectedIndex = scheduleOptions.indexOfFirst { it.key == scheduleSource }.coerceAtLeast(0),

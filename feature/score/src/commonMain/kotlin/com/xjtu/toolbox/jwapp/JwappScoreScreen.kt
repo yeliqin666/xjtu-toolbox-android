@@ -85,6 +85,9 @@ import com.xjtu.toolbox.ui.components.LoadingState
 import com.xjtu.toolbox.ui.components.ErrorState
 import com.xjtu.toolbox.ui.glass.*
 
+/** 成绩页入场动画覆盖的条数：大约一屏（总结卡、学期标题与十来门课），再往后直接就位。 */
+private const val SCORE_ENTER_MAX = 12
+
 /**
  * 成绩查询。
  * @param source 传 null = 这一端没有 jwapp 会话（只读缓存）；
@@ -380,25 +383,21 @@ fun JwappScoreScreen(
                                             )
                                         }
                                         val termChoices = listOf("全部学期") + termList.map { it.second }
-                                        OverlayListPopup(
-                                            show = termMenuExpanded,
-                                            alignment = PopupPositionProvider.Align.Start,
-                                            onDismissRequest = { termMenuExpanded = false }
+                                        com.xjtu.toolbox.ui.components.AppDropdownMenu(
+                                            expanded = termMenuExpanded,
+                                            onDismissRequest = { termMenuExpanded = false },
+                                            alignment = Alignment.TopStart,
                                         ) {
-                                            ListPopupColumn {
-                                                termChoices.forEachIndexed { idx, name ->
-                                                    DropdownImpl(
-                                                        text = name,
-                                                        optionSize = termChoices.size,
-                                                        isSelected = idx == selectedTermIndex,
-                                                        onSelectedIndexChange = {
-                                                            selectedTermIndex = it
-                                                            expandedCourseId = null
-                                                            termMenuExpanded = false
-                                                        },
-                                                        index = idx
-                                                    )
-                                                }
+                                            termChoices.forEachIndexed { idx, name ->
+                                                com.xjtu.toolbox.ui.components.AppDropdownOption(
+                                                    text = name,
+                                                    selected = idx == selectedTermIndex,
+                                                    onClick = {
+                                                        selectedTermIndex = idx
+                                                        expandedCourseId = null
+                                                        termMenuExpanded = false
+                                                    },
+                                                )
                                             }
                                         }
                                     }
@@ -463,12 +462,16 @@ fun JwappScoreScreen(
                             }
                         }
                     } else {
+                        // 入场按整页的先后统一编号：学期标题行与各门成绩连续排下去（以前每个学期从头算、
+                        // 标题行又不挂，于是几个学期的前几门同时动、后面的和标题行不动）
+                        var order = 2
                         groupedTerms.forEach { (termCode, termName, termScores) ->
                             // 最新学期的标题行一直显示：右侧「报表」是匹配漏掉时的兜底
                             val reportEntry = termCode == latestTerm && vm.canOpenReport
                             if (selectedTermIndex == 0 || groupedTerms.size > 1 || reportEntry) {
+                                val headerOrder = order++
                                 fullLineItem(key = "term_$termCode") {
-                                    Row(Modifier.fillMaxWidth().padding(start = 4.dp, top = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                                    Row(Modifier.enterOnce(headerOrder, SCORE_ENTER_MAX).fillMaxWidth().padding(start = 4.dp, top = 4.dp), verticalAlignment = Alignment.CenterVertically) {
                                         Text(
                                             "$termName · ${termScores.size} 门",
                                             style = MiuixTheme.textStyles.body2,
@@ -491,6 +494,8 @@ fun JwappScoreScreen(
                                     }
                                 }
                             }
+                            val rowsOrder = order
+                            order += termScores.size
                             itemsIndexed(termScores, key = { _, it -> "${termCode}_${it.id}" }) { rowIndex, scoreItem ->
                                             val isFromReport = scoreItem.source == ScoreSource.REPORT
                                             val isUnevaluated = ScoreReportFill.isHidden(scoreItem.score)
@@ -499,8 +504,8 @@ fun JwappScoreScreen(
                                             val isDetailLoading = vm.detailLoading == scoreItem.id
                                             val isSelected = scoreItem.id in selectedCourseIds
                                             ScoreRow(
-                                                // 第一屏错峰淡入，后面的直接就位
-                                                modifier = Modifier.enterOnce(rowIndex + 2),
+                                                // 第一屏按整页顺序错峰淡入，后面的直接就位
+                                                modifier = Modifier.enterOnce(rowsOrder + rowIndex, SCORE_ENTER_MAX),
                                                 scoreItem = scoreItem,
                                                 isExpanded = isExpanded && !isFromReport,
                                                 detail = detail,

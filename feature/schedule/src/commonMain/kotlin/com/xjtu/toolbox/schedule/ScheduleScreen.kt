@@ -264,12 +264,11 @@ fun ScheduleScreen(
                 Icon(Icons.Default.MoreVert, contentDescription = "更多")
             }
             // 主菜单
-            OverlayListPopup(
-                show = showExportMenu,
-                alignment = PopupPositionProvider.Align.End,
-                onDismissRequest = { showExportMenu = false }
+            com.xjtu.toolbox.ui.components.AppDropdownMenu(
+                expanded = showExportMenu,
+                onDismissRequest = { showExportMenu = false },
             ) {
-                ListPopupColumn {
+                run {
                     // 视图切换已经提到工具栏上了，这里不再重复一份——
                     // 同一个开关两个入口，用户按了哪个都得再确认一次状态。
                     if (vm.termList.isNotEmpty()) {
@@ -312,24 +311,19 @@ fun ScheduleScreen(
             }
             // 学期切换 popup（独立，由"切换学期"菜单项触发）
             val termSelectedIdxTb = vm.termList.indexOf(vm.selectedTermCode).coerceAtLeast(0)
-            OverlayListPopup(
-                show = termDropdownExpanded,
-                alignment = PopupPositionProvider.Align.End,
-                onDismissRequest = { termDropdownExpanded = false }
+            com.xjtu.toolbox.ui.components.AppDropdownMenu(
+                expanded = termDropdownExpanded,
+                onDismissRequest = { termDropdownExpanded = false },
             ) {
-                ListPopupColumn {
-                    vm.termList.forEachIndexed { idx, term ->
-                        DropdownImpl(
-                            text = vm.termLabel(term),
-                            optionSize = vm.termList.size,
-                            isSelected = idx == termSelectedIdxTb,
-                            onSelectedIndexChange = {
-                                termDropdownExpanded = false
-                                vm.switchTerm(term)
-                            },
-                            index = idx
-                        )
-                    }
+                vm.termList.forEachIndexed { idx, term ->
+                    com.xjtu.toolbox.ui.components.AppDropdownOption(
+                        text = vm.termLabel(term),
+                        selected = idx == termSelectedIdxTb,
+                        onClick = {
+                            termDropdownExpanded = false
+                            vm.switchTerm(term)
+                        },
+                    )
                 }
             }
         }
@@ -1104,17 +1098,11 @@ private fun ScheduleMenuRow(
     text: String,
     onClick: () -> Unit
 ) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable { onClick() }
-            .padding(horizontal = 16.dp, vertical = 12.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Icon(icon, null, Modifier.size(20.dp), tint = MiuixTheme.colorScheme.onSurfaceContainer)
-        Spacer(Modifier.width(12.dp))
-        Text(text, style = MiuixTheme.textStyles.body1, color = MiuixTheme.colorScheme.onSurfaceContainer)
-    }
+    com.xjtu.toolbox.ui.components.AppDropdownMenuItem(
+        text = { Text(text, style = MiuixTheme.textStyles.body1, color = MiuixTheme.colorScheme.onSurfaceContainer) },
+        leadingIcon = { Icon(icon, null, Modifier.size(20.dp), tint = MiuixTheme.colorScheme.onSurfaceContainer) },
+        onClick = onClick,
+    )
 }
 
 /**
