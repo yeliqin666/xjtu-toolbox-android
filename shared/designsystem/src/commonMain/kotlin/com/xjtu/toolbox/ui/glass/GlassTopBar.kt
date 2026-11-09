@@ -55,7 +55,7 @@ val LocalTabRoot = compositionLocalOf { false }
 /** 这一页的玻璃采样源；经典风格时为 null。每页自己建一份，不借主界面的。 */
 @Composable
 fun rememberPageGlass(): LayerBackdrop? {
-    val backdrop = rememberLayerBackdrop()
+    val backdrop = rememberLayerBackdrop(cache = true)
     return if (LocalGlassStyle.current) backdrop else null
 }
 

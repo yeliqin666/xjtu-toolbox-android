@@ -77,7 +77,8 @@ fun HapticsSettingItem() {
 /** 与 `SettingsScreen.kt` 私有的 `SettingsIcon` 视觉一致的设置图标。 */
 @Composable
 private fun HapticsSettingIcon() {
-    val color = top.yukonga.miuix.kmp.theme.MiuixTheme.colorScheme.primary
+    // 与设置页其余图标同一套固定色（SettingsColors.Pink），不跟主题色：主题色设成黑色时这里会变成一颗灰黑圆
+    val color = androidx.compose.ui.graphics.Color(0xFFEC407A)
     Surface(
         shape = CircleShape,
         color = color.copy(alpha = 0.12f),

@@ -1,5 +1,6 @@
 package com.xjtu.toolbox.shell
 
+import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.Box
@@ -7,15 +8,24 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.GraphicsLayerScope
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.unit.toSize
+import com.xjtu.toolbox.ui.components.LocalEnterAnimations
+import com.xjtu.toolbox.nav.ButtonZoom
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.layout
@@ -28,7 +38,6 @@ import androidx.compose.ui.zIndex
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import com.xjtu.toolbox.ui.components.LocalPageVisible
-import kotlinx.coroutines.delay
 
 /** 当前页那一层：画哪几页由 [ShellPageHost] 说。 */
 @Composable
@@ -36,13 +45,14 @@ fun ShellTabHost(
     nav: ShellNavState,
     pageHost: ShellPageHost = ShellPageHost.VISITED_TABS,
     modifier: Modifier = Modifier,
-    tabModifier: (ShellTab?) -> Modifier = { Modifier },
+    /** 切页放大的进度与几何；null = 这一形态不做放大（比如侧栏）。 */
+    zoom: ShellTabZoom? = null,
     content: @Composable (ShellPage) -> Unit,
 ) {
     // 只有当前这一页：不常驻、不横移（横移缩放只对「同层的几格」成立）
     if (!nav.keepsVisitedTabPages(pageHost)) {
         val page = nav.currentShellPage()
-        Box(modifier.fillMaxSize().then(tabModifier(page.tab))) { content(page) }
+        Box(modifier.fillMaxSize()) { content(page) }
         return
     }
 
@@ -63,27 +73,28 @@ fun ShellTabHost(
     LaunchedEffect(selectedId) { composedIds = composedIds + setOfNotNull(selectedId) }
 
     val selectedIndex = nav.tabs.indexOf(selectedId)
-    var previousTabIndex by rememberSaveable { mutableIntStateOf(selectedIndex) }
-    val tabSwitchDirection = selectedIndex.compareTo(previousTabIndex)
-    LaunchedEffect(selectedId) {
-        delay(280)
-        previousTabIndex = selectedIndex
-    }
-
+    val pageColor = top.yukonga.miuix.kmp.theme.MiuixTheme.colorScheme.surface
     val tabSlideDistance = with(LocalDensity.current) { 28.dp.toPx() }
-    Box(modifier.fillMaxSize()) {
+    Box(modifier.fillMaxSize().onSizeChanged { zoom?.hostSize = it.toSize() }) {
         // 别在 key {} 里 return@key：Kotlin 2.4.20 会生成 R8 无法转 dex 的方法名
-        nav.tabs.tabs.filter { it.id in composedIds }.forEach { tab ->
+        nav.tabs.tabs.filter { it.id in composedIds || it.id == selectedId }.forEach { tab ->
             key(tab) {
                 val isActive = selectedId == tab.id
                 val tabAlpha by animateFloatAsState(
                     targetValue = if (isActive) 1f else 0f,
-                    animationSpec = tween(if (isActive) 240 else 180),
+                    animationSpec = tween(if (isActive) 340 else 260),
                     label = "tabAlpha",
                 )
+                // 第一次打开的页签也要走入场：animateFloatAsState 的初值就是目标值，不会有过渡
+                val openedBySwitch = remember { tab.id !in composedIds }
+                val firstEntrance = remember { Animatable(if (openedBySwitch) 0f else 1f) }
+                val isUnder = zoom != null && !isActive && tab.id == zoom.underId
+                // 返回时正缩回按钮的那页；它在收的时候，当前这页（退回来的）从后面浮上来
+                val isClosing = zoom != null && tab.id == zoom.closingId
+                LaunchedEffect(Unit) { firstEntrance.animateTo(1f, tween(340)) }
                 val tabOffset by animateFloatAsState(
                     targetValue = when {
-                        isActive || tabSwitchDirection == 0 -> 0f
+                        isActive -> 0f
                         nav.tabs.indexOf(tab.id) < selectedIndex -> -tabSlideDistance
                         else -> tabSlideDistance
                     },
@@ -91,8 +102,8 @@ fun ShellTabHost(
                     label = "tabOffset",
                 )
                 val tabScale by animateFloatAsState(
-                    targetValue = if (isActive) 1f else 0.985f,
-                    animationSpec = tween(260),
+                    targetValue = if (isActive) 1f else 0.96f,
+                    animationSpec = tween(360),
                     label = "tabScale",
                 )
                 Box(
@@ -100,13 +111,44 @@ fun ShellTabHost(
                         .fillMaxSize()
                         // 隐藏的 tab 冻结测量约束，侧栏动画时不跟着逐帧重排
                         .freezeLayoutWhile { !isActive && tabAlpha == 0f }
-                        .then(tabModifier(tab))
-                        .zIndex(if (isActive) 1f else 0f)
+                        .zIndex(if (isClosing) 2f else if (isActive) 1f else 0f)
                         .graphicsLayer {
-                            alpha = tabAlpha
-                            translationX = tabOffset
-                            scaleX = tabScale
-                            scaleY = tabScale
+                            val z = zoom?.progress ?: 1f
+                            val returningUnder = isActive && zoom?.closingId != null
+                            when {
+                                isClosing -> zoom?.let { it.applyTo(this, it.closingIndex) }
+                                returningUnder -> {
+                                    val s = 1f + (ButtonZoom.RECEDE_SCALE - 1f) * z
+                                    scaleX = s
+                                    scaleY = s
+                                }
+                                isActive && z < 1f -> zoom?.applyTo(this)
+                                isUnder && z < 1f -> {
+                                    // 上一页整体很快淡出，不留在底下看着控件一个个消失
+                                    alpha = (1f - z / UNDER_FADE_END).coerceIn(0f, 1f)
+                                    val s = 1f + (ButtonZoom.RECEDE_SCALE - 1f) * z
+                                    scaleX = s
+                                    scaleY = s
+                                }
+                                else -> {
+                                    alpha = tabAlpha * firstEntrance.value
+                                    translationX = tabOffset
+                                    val entranceScale = 0.96f + 0.04f * firstEntrance.value
+                                    scaleX = tabScale * entranceScale
+                                    scaleY = tabScale * entranceScale
+                                }
+                            }
+                        }
+                        .drawWithContent {
+                            val z = zoom?.progress ?: 1f
+                            val returningUnder = isActive && zoom?.closingId != null
+                            // 放大中 / 收回中的那页垫一层实底：飞行时才是一块看得见的东西，而不是几张散的卡片
+                            if (isClosing || (isActive && z < 1f && !returningUnder)) drawRect(pageColor)
+                            drawContent()
+                            // 底下那页的压暗：打开时随新页长大加深，返回时随旧页缩走变浅
+                            if ((isUnder && z < 1f) || returningUnder) {
+                                drawRect(Color.Black.copy(alpha = ButtonZoom.RECEDE_DIM * z))
+                            }
                         }
                         .pointerInput(isActive) {
                             if (!isActive) {
@@ -119,13 +161,91 @@ fun ShellTabHost(
                         },
                 ) {
                     // 让隐藏 tab 里的常驻动画停下
-                    CompositionLocalProvider(LocalPageVisible provides isActive) {
-                        content(ShellPage(tab.target, tab))
+                    CompositionLocalProvider(
+                        LocalPageVisible provides (isActive && LocalPageVisible.current),
+                        // 切过来时整页一起放大，控件不再各自入场
+                        LocalEnterAnimations provides !(openedBySwitch && zoom != null),
+                    ) {
+                        // 同一份对象：host 重组（选中项变化）时，没变的页不跟着重组
+                        content(remember(tab) { ShellPage(tab.target, tab) })
                     }
                 }
             }
         }
     }
+}
+
+private const val TAB_ZOOM_MS = 820
+
+/** 返回时当前页缩回按钮：比打开快，像收起而不是再演一遍。 */
+private const val TAB_CLOSE_MS = 420
+private const val UNDER_FADE_END = 0.3f
+
+/**
+ * 切页时整页的放大（顶栏也在页面容器里，见 [ShellBarPage]）。
+ * [origin] 给出底栏当前格按钮的矩形，坐标系与页面容器相同。
+ */
+@Stable
+class ShellTabZoom internal constructor(
+    private val selectedIndex: () -> Int,
+    private val tabCount: () -> Int,
+) {
+    internal var underId: String? by mutableStateOf(null)
+
+    /** 返回时正缩回自己按钮的那一页（[closingIndex] 是它在底栏上的位置）；null = 没在收。 */
+    internal var closingId: String? by mutableStateOf(null)
+    internal var closingIndex = -1
+    internal var run by mutableStateOf(Animatable(1f))
+    internal var hostSize by mutableStateOf(Size.Zero)
+    var origin: ((index: Int, count: Int, size: Size) -> Rect)? = null
+
+    /** 0 = 还在按钮上，1 = 铺满。只在绘制阶段读。打开时 0→1，返回收起时 1→0。 */
+    val progress: Float get() = run.value
+
+    fun applyTo(scope: GraphicsLayerScope, index: Int = selectedIndex()) {
+        val full = hostSize
+        val from = origin?.invoke(index, tabCount(), full)
+        if (from != null && full.width > 0f) ButtonZoom.apply(scope, from, full, progress, 0f, risesFromBottom = true)
+    }
+}
+
+/** [enabled] 为假（这一形态没有底栏按钮）时返回 null，切页走普通淡入。 */
+@Composable
+fun rememberShellTabZoom(nav: ShellNavState, enabled: Boolean): ShellTabZoom? {
+    if (!enabled) return null
+    val selectedId = nav.selected?.id
+    val zoom = remember(nav) { ShellTabZoom({ nav.tabs.indexOf(nav.selected?.id) }, { nav.tabs.tabs.size }) }
+    // 在组合里同步切到新一轮：第一帧就是起始状态，不会闪一下全屏
+    val shownId = remember { object { var id = selectedId } }
+    remember(selectedId) {
+        val previous = shownId.id
+        if (previous != selectedId) {
+            if (nav.returning && previous != null) {
+                // 返回：刚才那页缩回自己的按钮，退回去的这页本来就在，只是从后面浮上来
+                zoom.underId = null
+                zoom.closingId = previous
+                zoom.closingIndex = nav.tabs.indexOf(previous)
+                zoom.run = Animatable(1f)
+            } else {
+                zoom.closingId = null
+                zoom.underId = previous
+                zoom.run = Animatable(0f)
+            }
+        }
+    }
+    SideEffect { shownId.id = selectedId }
+    LaunchedEffect(zoom.run) {
+        if (zoom.closingId != null) {
+            zoom.run.animateTo(0f, tween(TAB_CLOSE_MS, easing = ButtonZoom.Easing))
+            zoom.closingId = null
+            zoom.run = Animatable(1f)
+            return@LaunchedEffect
+        }
+        // 新页第一次组合要好几十毫秒：等它画出来再开始计时，不然飞行的开头正好被这一帧吃掉
+        if (zoom.run.value < 1f) repeat(2) { androidx.compose.runtime.withFrameNanos { } }
+        zoom.run.animateTo(1f, tween(TAB_ZOOM_MS, easing = ButtonZoom.Easing))
+    }
+    return zoom
 }
 
 /** [frozen] 为真时沿用上一次的测量约束，子树不跟着父布局尺寸动画重排。 */

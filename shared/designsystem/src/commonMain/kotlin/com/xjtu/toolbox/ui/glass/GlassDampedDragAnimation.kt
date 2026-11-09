@@ -9,7 +9,9 @@
 package com.xjtu.toolbox.ui.glass
 
 import androidx.compose.animation.core.Animatable
-import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.LinearOutSlowInEasing
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.MutatorMutex
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.withFrameNanos
@@ -36,21 +38,19 @@ internal class GlassDampedDragAnimation(
     val visibilityThreshold: Float,
     val initialScale: Float,
     val pressedScale: Float,
+    /** 按住时竖直方向的缩放（滑块上下略压扁），默认同 [pressedScale]。 */
+    val pressedScaleY: Float = pressedScale,
     val onDragStarted: GlassDampedDragAnimation.(position: Offset) -> Unit,
     val onDragStopped: GlassDampedDragAnimation.() -> Unit,
     val onDrag: GlassDampedDragAnimation.(size: IntSize, dragAmount: Offset) -> Unit,
 ) {
 
-    private val valueAnimationSpec =
-        spring(1f, 1000f, visibilityThreshold)
-    private val velocityAnimationSpec =
-        spring(0.5f, 300f, visibilityThreshold * 10f)
-    private val pressProgressAnimationSpec =
-        spring(1f, 1000f, 0.001f)
-    private val scaleXAnimationSpec =
-        spring(0.6f, 250f, 0.001f)
-    private val scaleYAnimationSpec =
-        spring(0.7f, 250f, 0.001f)
+    // 滑块在格子之间的移动
+    private val valueAnimationSpec = tween<Float>(340, easing = FastOutSlowInEasing)
+    private val velocityAnimationSpec = tween<Float>(240, easing = FastOutSlowInEasing)
+    // 按下与松手都有过渡；松手比按下慢，不回弹
+    private val pressInSpec = tween<Float>(200, easing = LinearOutSlowInEasing)
+    private val pressOutSpec = tween<Float>(380, easing = FastOutSlowInEasing)
 
     private val valueAnimation =
         Animatable(initialValue, visibilityThreshold)
@@ -96,9 +96,9 @@ internal class GlassDampedDragAnimation(
     fun press() {
         velocityTracker.resetTracking()
         animationScope.launch {
-            launch { pressProgressAnimation.animateTo(1f, pressProgressAnimationSpec) }
-            launch { scaleXAnimation.animateTo(pressedScale, scaleXAnimationSpec) }
-            launch { scaleYAnimation.animateTo(pressedScale, scaleYAnimationSpec) }
+            launch { pressProgressAnimation.animateTo(1f, pressInSpec) }
+            launch { scaleXAnimation.animateTo(pressedScale, pressInSpec) }
+            launch { scaleYAnimation.animateTo(pressedScaleY, pressInSpec) }
         }
     }
 
@@ -111,10 +111,15 @@ internal class GlassDampedDragAnimation(
                     .filter { abs(it - valueAnimation.targetValue) < threshold }
                     .first()
             }
-            launch { pressProgressAnimation.animateTo(0f, pressProgressAnimationSpec) }
-            launch { scaleXAnimation.animateTo(initialScale, scaleXAnimationSpec) }
-            launch { scaleYAnimation.animateTo(initialScale, scaleYAnimationSpec) }
+            launch { pressProgressAnimation.animateTo(0f, pressOutSpec) }
+            launch { scaleXAnimation.animateTo(initialScale, pressOutSpec) }
+            launch { scaleYAnimation.animateTo(initialScale, pressOutSpec) }
         }
+    }
+
+    /** 拖动时直接把滑块放到手指下（不走弹簧，免得追着手指跑、和手指错位）。 */
+    fun snapToValue(value: Float) {
+        animationScope.launch { valueAnimation.snapTo(value.coerceIn(valueRange)) }
     }
 
     fun updateValue(value: Float) {
@@ -124,16 +129,15 @@ internal class GlassDampedDragAnimation(
         }
     }
 
+    /** 滑块移到某一格。只管位置；按压态由手指决定（[press] / [release]），程序切页不闪灰。 */
     fun animateToValue(value: Float) {
         animationScope.launch {
             mutatorMutex.mutate {
-                press()
                 val targetValue = value.coerceIn(valueRange)
                 launch { valueAnimation.animateTo(targetValue, valueAnimationSpec) }
                 if (velocity != 0f) {
                     launch { velocityAnimation.animateTo(0f, velocityAnimationSpec) }
                 }
-                release()
             }
         }
     }

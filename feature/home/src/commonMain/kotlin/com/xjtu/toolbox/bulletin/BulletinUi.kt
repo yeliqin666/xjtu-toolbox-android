@@ -392,16 +392,18 @@ fun BulletinLaunchDialog(
                         onSubmitPoll(answers)
                     },
                     enabled = selected.isNotEmpty() || otherText.isNotBlank(),
+                    colors = top.yukonga.miuix.kmp.basic.ButtonDefaults.buttonColorsPrimary(),
                     modifier = Modifier.fillMaxWidth(),
                 ) {
-                    Text("提交")
+                    Text("提交", color = MiuixTheme.colorScheme.onPrimary)
                 }
             } else if (isForceUpdate) {
                 Button(
                     onClick = onPrimary,
+                    colors = top.yukonga.miuix.kmp.basic.ButtonDefaults.buttonColorsPrimary(),
                     modifier = Modifier.fillMaxWidth(),
                 ) {
-                    Text("立即更新")
+                    Text("立即更新", color = MiuixTheme.colorScheme.onPrimary)
                 }
                 Spacer(Modifier.height(8.dp))
                 TextButton(

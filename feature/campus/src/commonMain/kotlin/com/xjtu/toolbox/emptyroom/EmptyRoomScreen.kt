@@ -26,6 +26,7 @@ import top.yukonga.miuix.kmp.basic.RangeSlider
 import com.xjtu.toolbox.ui.glass.*
 import top.yukonga.miuix.kmp.overlay.OverlayDialog
 import top.yukonga.miuix.kmp.overlay.OverlayBottomSheet
+import androidx.compose.material.icons.filled.Tune
 import com.xjtu.toolbox.ui.components.SelectionTile
 import top.yukonga.miuix.kmp.utils.SinkFeedback
 import top.yukonga.miuix.kmp.utils.overScrollVertical
@@ -266,7 +267,42 @@ fun EmptyRoomScreen(
                 glass = glass,
                 scrollBehavior = scrollBehavior,
                 onBack = onBack,
-
+                actions = {
+                    val sources = vm.availableSources
+                    if (sources.size > 1) {
+                        var menuOpen by remember { mutableStateOf(false) }
+                        fun pick(target: RoomSource) {
+                            menuOpen = false
+                            vm.selectSource(target)
+                            if (target == RoomSource.CDN && !cdnTipRead) tipVisible = true
+                        }
+                        val periodSources = sources.filter { it != RoomSource.LIVE }
+                        fun label(it: RoomSource) = if (it == RoomSource.CDN) "课表 CDN" else "直查教务"
+                        com.xjtu.toolbox.ui.components.AppIconMenu(
+                            expanded = menuOpen,
+                            onExpandedChange = { menuOpen = it },
+                            icon = { Icon(Icons.Default.Tune, contentDescription = "查询方式") },
+                        ) {
+                            if (RoomSource.LIVE in sources) {
+                                com.xjtu.toolbox.ui.components.AppDropdownOption("此刻实况", isLive) { pick(RoomSource.LIVE) }
+                            }
+                            // 只有一种按节来源时不用再选，直接叫「按节找空闲」
+                            periodSources.singleOrNull()?.let { only ->
+                                com.xjtu.toolbox.ui.components.AppDropdownOption("按节找空闲", sourceKind == only) { pick(only) }
+                            }
+                            if (periodSources.size > 1) {
+                                com.xjtu.toolbox.ui.components.AppDropdownSubMenu(
+                                    title = "按节找空闲",
+                                    summary = if (isLive) null else label(sourceKind),
+                                ) {
+                                    periodSources.forEach { source ->
+                                        com.xjtu.toolbox.ui.components.AppDropdownOption(label(source), sourceKind == source) { pick(source) }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
             )
         }
     ) { padding ->
@@ -305,6 +341,7 @@ fun EmptyRoomScreen(
                 // 弹窗里实际只有"选校区 + 选教学楼"两件事（下面注释自己也写明了），
                 // "筛选空闲教室"这个标题范围太大、容易让人以为还能选时间/节次，改成准确的"选择教学楼"
                 title = "选择教学楼",
+                backgroundColor = MiuixTheme.colorScheme.surface,
                 onDismissRequest = { showFilterSheet.value = false }
             ) {
                 Column(
@@ -342,39 +379,19 @@ fun EmptyRoomScreen(
                     }
                     // 全选/取消全选
                     val allSelected = sheetBuildings.isNotEmpty() && sheetSelected.size == sheetBuildings.size
-                    if (sheetBuildings.isNotEmpty()) SelectionTile(
-                        text = if (allSelected) "已选择全部教学楼" else "选择全部教学楼",
-                        selected = allSelected,
-                        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)
-                    ) {
-                        vm.setSheetSelected(if (allSelected) setOf(sheetBuildings.firstOrNull() ?: "") else sheetBuildings.toSet())
-                    }
-                    HorizontalDivider(Modifier.padding(vertical = 4.dp))
                     val visibleBuildings = sheetBuildings
                         .filter { buildingQuery.isBlank() || it.contains(buildingQuery, ignoreCase = true) }
-                    visibleBuildings.chunked(2).forEach { rowBuildings ->
-                        Row(
-                            Modifier.fillMaxWidth().padding(vertical = 4.dp),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            rowBuildings.forEach { building ->
-                                val isSelected = building in sheetSelected
-                                SelectionTile(
-                                    text = building,
-                                    selected = isSelected,
-                                    modifier = Modifier.weight(1f)
-                                ) {
-                                    vm.setSheetSelected(
-                                        if (isSelected) {
-                                            val newSet = sheetSelected - building
-                                            if (newSet.isEmpty()) sheetSelected else newSet
-                                        } else {
-                                            sheetSelected + building
-                                        }
-                                    )
-                                }
+                    if (sheetBuildings.isNotEmpty()) com.xjtu.toolbox.ui.components.AppOptionGroup(Modifier.padding(top = 4.dp)) {
+                        com.xjtu.toolbox.ui.components.AppCheckRow("全部教学楼", allSelected) {
+                            vm.setSheetSelected(if (allSelected) setOf(sheetBuildings.firstOrNull() ?: "") else sheetBuildings.toSet())
+                        }
+                        visibleBuildings.forEach { building ->
+                            val isSelected = building in sheetSelected
+                            com.xjtu.toolbox.ui.components.AppCheckRow(building, isSelected) {
+                                // 至少留一栋：全取消后列表就没东西可查了
+                                val next = if (isSelected) sheetSelected - building else sheetSelected + building
+                                if (next.isNotEmpty()) vm.setSheetSelected(next)
                             }
-                            if (rowBuildings.size == 1) Spacer(Modifier.weight(1f))
                         }
                     }
                     if (isLive) {
@@ -427,28 +444,6 @@ fun EmptyRoomScreen(
                         colors = CardDefaults.defaultColors(color = com.xjtu.toolbox.ui.components.AppCardColor),
                     ) {
                         Column(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 12.dp)) {
-                            // 实况和两种按节来源并成一排；只有一种按节来源时就叫「按节找空闲」
-                            val sources = vm.availableSources
-                            val periodCount = sources.count { it != RoomSource.LIVE }
-                            if (sources.size > 1) {
-                                AppSegmentedTabs(
-                                    tabs = sources.map {
-                                        when {
-                                            it == RoomSource.LIVE -> "此刻实况"
-                                            periodCount == 1 -> "按节找空闲"
-                                            it == RoomSource.CDN -> "课表 CDN"
-                                            else -> "直查教务"
-                                        }
-                                    },
-                                    selectedTabIndex = sources.indexOf(sourceKind).coerceAtLeast(0),
-                                    onTabSelected = { index ->
-                                        val target = sources[index]
-                                        vm.selectSource(target)
-                                        if (target == RoomSource.CDN && !cdnTipRead) tipVisible = true
-                                    },
-                                    modifier = Modifier.fillMaxWidth().padding(bottom = 10.dp),
-                                )
-                            }
                             // 第一行：楼栋（点开选校区、选楼）+ 日期
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Row(

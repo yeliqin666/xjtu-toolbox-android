@@ -262,7 +262,8 @@ internal fun BulletinDetailPage(
                                             }
                                         }
                                     },
-                                    enabled = !isDownloading
+                                    enabled = !isDownloading,
+                                    colors = com.xjtu.toolbox.ui.components.appTonalButtonColors(),
                                 ) {
                                     Row(verticalAlignment = Alignment.CenterVertically) {
                                         Icon(Icons.Default.Download, null, modifier = Modifier.size(16.dp))

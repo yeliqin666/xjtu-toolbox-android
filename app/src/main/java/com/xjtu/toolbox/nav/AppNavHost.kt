@@ -16,6 +16,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -23,6 +24,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
@@ -40,6 +42,7 @@ import com.xjtu.toolbox.attendance.AttendanceScreen
 import com.xjtu.toolbox.attendance.AppAttendanceSource
 import com.xjtu.toolbox.auth.AppLoginState
 import com.xjtu.toolbox.auth.SiteSession
+import com.xjtu.toolbox.auth.ensureSite
 import com.xjtu.toolbox.browser.BrowserScreen
 import com.xjtu.toolbox.bulletin.NoticeDetailScreen
 import com.xjtu.toolbox.calendar.SchoolCalendarScreen
@@ -122,6 +125,7 @@ import com.xjtu.toolbox.yellowpage.appYellowPageApi
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
+import top.yukonga.miuix.kmp.nav.core.LocalNavTransitionScope
 import top.yukonga.miuix.kmp.nav.core.NavBackStack
 import top.yukonga.miuix.kmp.nav.core.NavDisplay
 import top.yukonga.miuix.kmp.nav.core.NavEntryBuilder
@@ -182,7 +186,36 @@ fun AppNavHost(
     val back: () -> Unit = deps.router::back
     Box(Modifier.fillMaxSize()) {
         NavDisplay(backStack = backStack, onBack = back) {
-            entry<AppRoute.Main> { mainContent() }
+            entry<AppRoute.Main> {
+                val navScope = LocalNavTransitionScope.current
+                // 上面的页缩回去时还算盖着，落定才恢复
+                val covered by remember(navScope) { derivedStateOf { navScope.relativeDepth > 0.001f } }
+                // 落定时清掉交接状态；打开中途被返回打断时退场页可能在清理之后又画一帧，两帧后再补清一次。
+                // 不能持续监听：极慢的返回手势里转场每帧都在写，持续清会和它互相触发卡死主线程
+                LaunchedEffect(covered, backStack.size) {
+                    if (!covered && backStack.size <= 1) {
+                        ExpandOrigins.clearContent()
+                        androidx.compose.runtime.withFrameNanos { }
+                        androidx.compose.runtime.withFrameNanos { }
+                        ExpandOrigins.clearContent()
+                    }
+                }
+                Box(Modifier.fillMaxSize()) {
+                    // 被上面的页盖住时算不可见：液态背景这些循环动画要停下，
+                    // 否则它每帧都让整页玻璃重画，正好和转场抢时间
+                    androidx.compose.runtime.CompositionLocalProvider(
+                        com.xjtu.toolbox.ui.components.LocalPageVisible provides (backStack.size <= 1 && !covered),
+                    ) { mainContent() }
+                    // 压暗由这一页被盖住的深度现算：页面落定时深度必为 0，不会残留
+                    Box(
+                        Modifier.fillMaxSize().drawBehind {
+                            if (!ExpandOrigins.coveredFromOrigin.value) return@drawBehind
+                            val dim = ButtonZoom.RECEDE_DIM * navScope.relativeDepth.coerceIn(0f, 1f)
+                            if (dim > 0f) drawRect(androidx.compose.ui.graphics.Color.Black.copy(alpha = dim))
+                        },
+                    )
+                }
+            }
             appPageEntries(deps, back) { type -> expandTransitions.getOrPut(type) { expandFromOrigin(type, screenCornerPx) } }
         }
         ExpandOriginPopOverlay(screenCornerPx)
@@ -390,12 +423,21 @@ fun NavEntryBuilder.appPageEntries(
             AppDownloadManagerScreen(onBack = back)
         }
         entry<AppRoute.Lms>(transition = expand(AppRoute.Lms::class)) { route ->
-            WithSite("lms") { site ->
+            val manager = loginState.sessionManager
+            if (manager == null) {
+                LaunchedEffect(Unit) { back() }
+            } else {
                 val lmsContext = LocalContext.current
                 val accountId = loginState.accountId
                 val hintPrefs = remember { lmsContext.getSharedPreferences("feature_hints", Context.MODE_PRIVATE) }
                 LmsScreen(
-                    source = remember(site) { AppLmsSource(site, AppLmsSink(lmsContext)) },
+                    // 第一次取数时才登录，页面不用等
+                    source = remember(manager) {
+                        AppLmsSource.lazy(
+                            { manager.ensureSite(requireNotNull(route.loginType), userInitiated = true) },
+                            AppLmsSink(lmsContext),
+                        )
+                    },
                     onBack = back,
                     initialCourseId = route.courseId,
                     initialActivityId = route.activityId,
@@ -664,52 +706,10 @@ fun NavEntryBuilder.appPageEntries(
     }
 }
 
-/**
- * 返回时的源元素叠加层：窗口缩到中段以后，页面内容会让位给真实的图标 / 行块。
- * 外层灰底和窗口尺寸继续按转场的进度缩到原位，所以看不到页面顶栏叠在目标元素上。
- */
+/** 打开和返回都使用同一个源卡片叠加层，与目标页双向渐变。 */
 @Composable
 internal fun ExpandOriginPopOverlay(screenCornerPx: Float) {
-    val pop = ExpandOrigins.pop.value ?: return
-    val origin = pop.origin
-    val snapshot = origin.snapshot ?: return
-    val win = ExpandOrigins.windowOf(origin, pop.progress, pop.full)
-    // 0.55 → 0.35：页面渐隐、源元素渐显；之后整个窗口继续缩到原位。
-    val cover = ((0.55f - pop.progress) / 0.2f).coerceIn(0f, 1f)
-    if (cover <= 0f) return
-    val widthPx = win.bounds.width
-    val heightPx = win.bounds.height
-    if (widthPx <= 0f || heightPx <= 0f) return
-
-    val density = LocalDensity.current
-    val surface = MiuixTheme.colorScheme.surface
-    val cornerPx = lerp(origin.cornerPx, screenCornerPx, win.grow)
-    val scale = widthPx / origin.bounds.width.coerceAtLeast(1f)
-    val winWidth = with(density) { widthPx.toDp() }
-    val winHeight = with(density) { heightPx.toDp() }
-    val corner = with(density) { cornerPx.toDp() }
-    val originWidth = with(density) { origin.bounds.width.toDp() }
-    val originHeight = with(density) { origin.bounds.height.toDp() }
-
-    Box(
-        Modifier
-            .offset { IntOffset(win.bounds.left.roundToInt(), win.bounds.top.roundToInt()) }
-            .size(winWidth, winHeight)
-            .clip(RoundedCornerShape(corner))
-            .background(surface.copy(alpha = cover)),
-    ) {
-        Box(
-            Modifier
-                .align(Alignment.Center)
-                .graphicsLayer {
-                    scaleX = scale
-                    scaleY = scale
-                    alpha = cover
-                },
-        ) {
-            snapshot(Modifier.size(originWidth, originHeight))
-        }
-    }
+    OriginContentOverlay(screenCornerPx, com.xjtu.toolbox.ui.components.AppCardColor)
 }
 
 /** 等站点会话出现再显示（刚登上时可能晚一两帧注册），约 1.5 秒还没有就 [onTimeout]。 */
@@ -773,8 +773,11 @@ private fun rememberPickEvidenceFiles(context: Context): suspend () -> List<Pair
     }
 }
 
-/** 把通知、活动、网页转给小岱：开新对话并自动发出（用户刚刚明确点了这个操作）。 */
+/**
+ * 把通知、活动、网页转给小岱：开新对话，问题填进输入框、页面内容挂成「附带」标签，
+ * 由用户自己改一改再点发送（不替他发）。
+ */
 private fun sendToPidai(forward: com.xjtu.toolbox.agent.AgentForward, open: (AppRoute) -> Unit) {
-    com.xjtu.toolbox.agent.AgentPendingPrompt.set(forward.text, snapshot = forward.snapshot)
+    com.xjtu.toolbox.agent.AgentPendingPrompt.set(forward.text, snapshot = forward.snapshot, draftOnly = true, label = forward.label)
     open(AppRoute.Agent)
 }

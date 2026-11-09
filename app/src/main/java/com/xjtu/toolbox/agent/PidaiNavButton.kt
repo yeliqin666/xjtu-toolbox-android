@@ -4,11 +4,9 @@ import android.os.SystemClock
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
-import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -106,11 +104,11 @@ internal fun PidaiNavButton(
     val scope = rememberCoroutineScope()
     val bounce = remember { Animatable(1f) }
     val interactionSource = remember { MutableInteractionSource() }
-    // 和底栏其余几格同一套按压手感：按住微暗 + 缩小，松手后再接原来的弹一下
+    // 和底栏其余几格同一套按压手感：按住变淡，松手后再接原来的弹一下
     val pressed by interactionSource.collectIsPressedAsState()
     val press by androidx.compose.animation.core.animateFloatAsState(
         if (pressed) 1f else 0f,
-        spring(dampingRatio = 0.7f, stiffness = 700f),
+        tween(if (pressed) 200 else 380, easing = FastOutSlowInEasing),
         label = "pidaiPress",
     )
 
@@ -183,10 +181,7 @@ internal fun PidaiNavButton(
                     scope.launch {
                         // 身体自己会被按扁，外层只轻轻一缩，免得两层缩放叠成一大下
                         bounce.snapTo(0.9f)
-                        bounce.animateTo(
-                            1f,
-                            spring(dampingRatio = 0.32f, stiffness = Spring.StiffnessMediumLow),
-                        )
+                        bounce.animateTo(1f, tween(320, easing = FastOutSlowInEasing))
                     }
                     onClick()
                 },
@@ -200,10 +195,9 @@ internal fun PidaiNavButton(
             Modifier
                 .size(diameter)
                 .graphicsLayer {
-                    val s = bounce.value * (1f - 0.1f * press)
-                    scaleX = s
-                    scaleY = s
-                    alpha = 1f - 0.35f * press
+                    scaleX = bounce.value
+                    scaleY = bounce.value
+                    alpha = 1f - 0.5f * press
                     translationY = -liftUp.toPx()
                 }
                 .drawBehind {

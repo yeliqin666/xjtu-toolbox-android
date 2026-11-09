@@ -19,7 +19,7 @@ import okhttp3.RequestBody.Companion.toRequestBody
 import java.util.concurrent.TimeUnit
 
 /**
- * 仿 opencode：首轮对话后用一次轻量 LLM 调用，把对话概括成 ≤12 字的会话标题。
+ * 仿 opencode：首条消息发出时（或首轮结束后）用一次轻量 LLM 调用，把对话概括成 ≤12 字的会话标题。
  * 失败返回 null（调用方退回首条消息截断）。
  *
  * 要点：
@@ -82,8 +82,9 @@ object AgentTitleGen {
                 })
                 add(buildJsonObject {
                     put("role", "user")
+                    // 刚发出还没有回复时只给问题
                     put("content",
-                        "【用户】${userMsg.take(300)}\n【助手】${assistantMsg.take(300)}"
+                        "【用户】${userMsg.take(300)}" + assistantMsg.takeIf { it.isNotBlank() }?.let { "\n【助手】${it.take(300)}" }.orEmpty()
                     )
                 })
             }

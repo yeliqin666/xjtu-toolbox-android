@@ -125,10 +125,18 @@ fun AgentScreen(
         showConfig = false
         vm.newSession()
         if (pending.draftOnly) {
+            // 只填进输入框等用户自己发；带进来的页面内容挂成输入框上方的标签，发送时一起带上
             vm.draft = pending.text
+            vm.draftContext = pending.snapshot?.let { AgentDraftContext(pending.label ?: "页面内容", it) }
             return@LaunchedEffect
         }
-        vm.sendMessage(pending.text, config, llmAnnex = pending.snapshot?.let(AgentAnnex::snapshot), images = pending.images)
+        vm.sendMessage(
+            pending.text,
+            config,
+            llmAnnex = pending.snapshot?.let(AgentAnnex::snapshot),
+            images = pending.images,
+            contextLabel = pending.label,
+        )
     }
 
     // 点屁岱推送的通知进来：切到「推送记录」，定位并闪一下那一条（#194）

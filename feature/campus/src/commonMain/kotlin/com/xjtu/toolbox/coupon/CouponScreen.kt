@@ -259,8 +259,8 @@ private fun CouponList(
                         color = MiuixTheme.colorScheme.onSurfaceVariantSummary
                     )
                     Spacer(Modifier.height(8.dp))
-                    Button(onClick = onLoadMore, enabled = !isLoadingMore) {
-                        Text("重试")
+                    Button(onClick = onLoadMore, enabled = !isLoadingMore, colors = top.yukonga.miuix.kmp.basic.ButtonDefaults.buttonColorsPrimary()) {
+                        Text("重试", color = MiuixTheme.colorScheme.onPrimary)
                     }
                 }
             }
@@ -407,12 +407,13 @@ private fun CouponRecordCard(
                     Button(
                         onClick = { onReceive(coupon) },
                         enabled = !isReceiving && coupon.showCardId.isNotBlank(),
+                        colors = top.yukonga.miuix.kmp.basic.ButtonDefaults.buttonColorsPrimary(),
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         if (isReceiving) {
                             CircularProgressIndicator(size = 16.dp, strokeWidth = 2.dp)
                         } else {
-                            Text("领取")
+                            Text("领取", color = MiuixTheme.colorScheme.onPrimary)
                         }
                     }
                 }

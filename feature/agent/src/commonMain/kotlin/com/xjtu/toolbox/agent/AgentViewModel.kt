@@ -44,6 +44,8 @@ data class ChatMessage(
      * 区分 [isToolCall] 的"执行中转圈"和"执行失败"——避免用户被空提示骗"还在跑"。
      */
     val toolError: String? = null,
+    /** 随这条用户消息悄悄发给模型的上下文来自哪（如「学业进度」）；非空时气泡上方标出来。 */
+    val contextLabel: String? = null,
 )
 
 /**
@@ -91,6 +93,7 @@ class AgentViewModel(private val host: AgentHost) : ViewModel(), AgentChatSessio
 
     /** 要填进输入框的话（外部深链带来的），输入框取走后置回 null。 */
     override var draft by mutableStateOf<String?>(null)
+    override var draftContext by mutableStateOf<AgentDraftContext?>(null)
     /**
      * 上下文耗尽标记。变 true 时 UI 应主动弹窗提醒用户"请新开对话"，
      * 而不是悄悄把输入框禁用 + 文字提示里藏一句。
@@ -134,7 +137,7 @@ class AgentViewModel(private val host: AgentHost) : ViewModel(), AgentChatSessio
 
     // 当前生成任务，供"停止生成"取消
     private var currentJob: kotlinx.coroutines.Job? = null
-    private data class PendingInput(val text: String, val config: AgentConfig, val annex: String?, val images: List<String>)
+    private data class PendingInput(val text: String, val config: AgentConfig, val annex: String?, val images: List<String>, val contextLabel: String?)
     private val pendingInputs = ArrayDeque<PendingInput>()
 
     /** 停止正在进行的生成。 */
@@ -207,8 +210,8 @@ class AgentViewModel(private val host: AgentHost) : ViewModel(), AgentChatSessio
         }.forEach { store.delete(it.id) }
         sessions.clear()
         sessions.addAll(store.list())
-        val first = sessions.firstOrNull()
-        if (first != null) switchSession(first.id) else newSession()
+        // 每次打开都是首屏；上次的对话由首屏最上面那一条接回去
+        newSession()
     }
 
     override fun newSession() {
@@ -216,6 +219,7 @@ class AgentViewModel(private val host: AgentHost) : ViewModel(), AgentChatSessio
         if (store == null) return
         currentJob?.cancel(); applyLoading(false)   // 取消进行中的生成，避免写入新会话造成错乱
         currentSessionId = null
+        draftContext = null
         messages.clear(); llmHistory = mutableListOf(); tools = null; errorMessage = null
         lastTotalTokens = null; contextExhausted = false; contextExhaustedJustTriggered = false
         refreshSessions()
@@ -242,6 +246,7 @@ class AgentViewModel(private val host: AgentHost) : ViewModel(), AgentChatSessio
                 timestamp = m.timestamp ?: Clock.System.now().toEpochMilliseconds(),
                 isToolCall = false,
                 toolError = m.toolError,
+                contextLabel = m.contextLabel,
             ))
         }
         llmHistory = runCatching { AppJson.parseToJsonElement(convo.llmHistory).jsonArray.toMutableList() }.getOrDefault(mutableListOf())
@@ -298,6 +303,7 @@ class AgentViewModel(private val host: AgentHost) : ViewModel(), AgentChatSessio
                 it.timestamp,
                 it.toolError,
                 it.images.takeIf { images -> images.isNotEmpty() },
+                it.contextLabel,
             )
         }
         val title = if (store.isLocked(id))
@@ -328,24 +334,33 @@ class AgentViewModel(private val host: AgentHost) : ViewModel(), AgentChatSessio
         return "[现在：$time $w" + (if (model.isBlank()) "" else " · $model") + "]"
     }
 
-    /** 首轮结束后用 AI 把对话总结成简短标题（仿 opencode）；用户已改名则不动。 */
+    /** 正在起标题的会话：发出时起一次，首轮结束再兜一次，同一时间只发一个请求。 */
+    private val titling = mutableSetOf<String>()
+
+    /**
+     * 用 AI 把对话总结成简短标题（仿 opencode）；用户已改名则不动。
+     * 首条消息一发出就起（只看问题），侧栏马上有标题；没起成的话首轮结束带上回复再试一次。
+     */
     private fun maybeAutoTitle(config: AgentConfig) {
         val store = store ?: return
         val id = currentSessionId ?: return
-        if (store.isLocked(id)) return
+        if (store.isLocked(id) || id in titling) return
         if (messages.count { it.role == "user" } != 1) return
         val firstUser = messages.firstOrNull { it.role == "user" }?.content?.trim().orEmpty()
         if (firstUser.isBlank()) return
-        // 取**最后一条**助手消息：当首轮触发了工具调用链路时，UI 里
-        // 会留下若干 tool 段 + 结尾的 assistant 总结；标题应当基于**最终回复**来起。
+        // 取最后一条助手消息：首轮有工具调用时，结尾那条才是最终回复。发出时还没有，为空
         val firstAssistant = messages.lastOrNull { it.role == "assistant" }?.content?.trim().orEmpty()
-        if (firstAssistant.isBlank()) return
+        titling += id
         viewModelScope.launch {
-            val title = host.generateTitle(config, firstUser, firstAssistant)?.takeIf { it.isNotBlank() }
-                ?: return@launch
-            if (!store.isLocked(id)) {           // 期间用户可能已手动改名
-                store.rename(id, title, lock = true)
-                refreshSessions()
+            try {
+                val title = host.generateTitle(config, firstUser, firstAssistant)?.takeIf { it.isNotBlank() }
+                    ?: return@launch
+                if (!store.isLocked(id)) {           // 期间用户可能已手动改名
+                    store.rename(id, title, lock = true)
+                    refreshSessions()
+                }
+            } finally {
+                titling -= id
             }
         }
     }
@@ -366,11 +381,12 @@ class AgentViewModel(private val host: AgentHost) : ViewModel(), AgentChatSessio
         llmAnnex: String?,
         /** 随消息发送的图片路径，见 [AgentVision.attach]。 */
         images: List<String>,
+        contextLabel: String?,
     ) {
         // 只发图不打字是合理的（「这是什么」），所以有图时允许正文为空。
         if (userText.isBlank() && images.isEmpty()) return
         if (isLoading) {
-            pendingInputs.addLast(PendingInput(userText, config, llmAnnex, images))
+            pendingInputs.addLast(PendingInput(userText, config, llmAnnex, images, contextLabel))
             currentJob?.cancel()
             return
         }
@@ -380,8 +396,11 @@ class AgentViewModel(private val host: AgentHost) : ViewModel(), AgentChatSessio
         }
         if (currentSessionId == null) currentSessionId = store?.create()?.id
         errorMessage = null
-        messages.add(ChatMessage("user", userText, images = images))
+        // 带了上下文却没说来源的（提醒气泡、外部入口），也要标出来：用户该知道这条不只是他打的那句
+        val label = contextLabel ?: if (!llmAnnex.isNullOrBlank()) "App 快照" else null
+        messages.add(ChatMessage("user", userText, images = images, contextLabel = label))
         persist()
+        maybeAutoTitle(config)
         applyLoading(true)
 
         val turnSid = currentSessionId   // 本轮所属会话；切走后不再写当前 messages，避免串台
@@ -608,7 +627,7 @@ class AgentViewModel(private val host: AgentHost) : ViewModel(), AgentChatSessio
                     } else {
                         messages.add(ChatMessage("assistant", reply, navSuggestions = navSuggestions, widgets = widgets))
                     }
-                    maybeAutoTitle(config)   // 首轮结束后用 AI 总结一个会话标题（仿 opencode）
+                    maybeAutoTitle(config)   // 发出时没起成标题的，带上回复再试一次
                 }
             } catch (e: kotlinx.coroutines.CancellationException) {
                 flushStream()
@@ -652,7 +671,7 @@ class AgentViewModel(private val host: AgentHost) : ViewModel(), AgentChatSessio
                     persist(turnSid)   // 仅当仍在本会话才落盘，避免把新会话内容写到旧 id
                     currentJob = null
                     pendingInputs.removeFirstOrNull()?.let { next ->
-                        sendMessage(next.text, next.config, next.annex, next.images)
+                        sendMessage(next.text, next.config, next.annex, next.images, next.contextLabel)
                     }
                 }
             }

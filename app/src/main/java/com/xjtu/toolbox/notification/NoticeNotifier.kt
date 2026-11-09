@@ -79,7 +79,7 @@ internal object NoticeNotifier {
         NotificationManagerCompat.from(context).notify(NOTIFICATION_ID, notification)
     }
 
-    /** 走不导出的别名（[DeepLinkRouter.PIDAI_NOTICE_ALIAS]）：只有本应用能发这个 Intent，到了就自动发送。 */
+    /** 走不导出的别名（[DeepLinkRouter.PIDAI_NOTICE_ALIAS]）：只有本应用能发这个 Intent，到了填进小岱输入框。 */
     private fun askPidaiIntent(context: Context, shown: List<Notification>): PendingIntent {
         val forward = com.xjtu.toolbox.agent.AgentForward.notices(shown)
         val intent = Intent().apply {

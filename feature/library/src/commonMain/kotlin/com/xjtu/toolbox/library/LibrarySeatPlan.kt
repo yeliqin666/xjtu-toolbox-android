@@ -19,7 +19,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import top.yukonga.miuix.kmp.basic.Icon
-import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.awaitEachGesture
@@ -206,7 +206,7 @@ private class PlanTransform {
             toX = c.x - (c.x - offsetX) * (toS / scale)
             toY = c.y - (c.y - offsetY) * (toS / scale)
         }
-        androidx.compose.animation.core.animate(0f, 1f, animationSpec = spring(stiffness = 500f)) { v, _ ->
+        androidx.compose.animation.core.animate(0f, 1f, animationSpec = tween(320, easing = androidx.compose.animation.core.FastOutSlowInEasing)) { v, _ ->
             scale = fromS + (toS - fromS) * v
             offsetX = fromX + (toX - fromX) * v
             offsetY = fromY + (toY - fromY) * v
@@ -551,8 +551,8 @@ fun SeatPlanPanel(
         val peekHeight = 46.dp
         val overlap = 14.dp
         val floorFull = floorBounds?.let { (width * (it.height / it.width)).coerceIn(130.dp, 220.dp) } ?: 0.dp
-        // 临界阻尼：不回弹。欠阻尼的弹簧会冲过头，内边距一瞬间变成负数，Compose 直接抛异常
-        val stackSpring = spring<Dp>(dampingRatio = 1f, stiffness = 420f)
+        // 不能冲过头：内边距一瞬间变成负数，Compose 直接抛异常
+        val stackSpring = tween<Dp>(360, easing = androidx.compose.animation.core.FastOutSlowInEasing)
         val backHeight by androidx.compose.animation.core.animateDpAsState(
             when {
                 !hasFloor -> 0.dp
@@ -637,7 +637,8 @@ fun SeatPlanPanel(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Column(Modifier.weight(1f)) {
-                    Text(
+                    // 整层只有一个区域时它就叫楼层名，上面的楼层切换已经说过了
+                    if (pickableAreas.size > 1) Text(
                         areaName,
                         style = MiuixTheme.textStyles.body1,
                         fontWeight = FontWeight.Bold,
@@ -656,8 +657,8 @@ fun SeatPlanPanel(
                     Text(error, color = MiuixTheme.colorScheme.error, style = MiuixTheme.textStyles.body2)
                     Spacer(Modifier.height(12.dp))
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Button(onClick = onRetry) { Text("重试") }
-                        Button(onClick = onShowList) { Text("看列表") }
+                        Button(onClick = onRetry, colors = ButtonDefaults.buttonColorsPrimary()) { Text("重试", color = MiuixTheme.colorScheme.onPrimary) }
+                        Button(onClick = onShowList, colors = com.xjtu.toolbox.ui.components.appTonalButtonColors()) { Text("看列表") }
                     }
                 }
                 layout == null || images == null -> com.xjtu.toolbox.ui.components.LoadingState(

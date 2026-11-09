@@ -12,6 +12,8 @@ class ShellNavState(
     val target: ShellTarget,
     val onSelect: (ShellTab) -> Unit,
     val accountBadge: ShellAccountBadge? = null,
+    /** 这次选中变化是返回键退回来的：切页时当前页缩回自己的按钮（见 `ShellTabZoom`）。 */
+    val returning: Boolean = false,
 ) {
 
     /** [target] 落在的那一格；null = 不属于任何一格 ⇒ 底栏 / 侧栏一格都不高亮。 */

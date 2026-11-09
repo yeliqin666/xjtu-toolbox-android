@@ -1,9 +1,7 @@
 package com.xjtu.toolbox.venue
 
 import androidx.compose.animation.*
-import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.spring
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -715,10 +713,7 @@ private fun VenueCard(
 
     val favoriteScale by animateFloatAsState(
         targetValue = if (showFavoriteAnimation) 1.3f else 1f,
-        animationSpec = spring(
-            dampingRatio = Spring.DampingRatioMediumBouncy,
-            stiffness = Spring.StiffnessLow
-        ),
+        animationSpec = androidx.compose.animation.core.tween(320, easing = androidx.compose.animation.core.FastOutSlowInEasing),
         finishedListener = { showFavoriteAnimation = false }
     )
 
@@ -763,7 +758,7 @@ private fun VenueCard(
             }
             AnimatedVisibility(
                 visible = isFavorite,
-                enter = scaleIn(animationSpec = spring(stiffness = Spring.StiffnessLow)) + fadeIn(),
+                enter = scaleIn(animationSpec = androidx.compose.animation.core.tween(320, easing = androidx.compose.animation.core.FastOutSlowInEasing)) + fadeIn(),
                 exit = scaleOut() + fadeOut()
             ) {
                 Icon(
@@ -872,8 +867,8 @@ private fun SlotSelectionContent(
                             fontWeight = FontWeight.Bold
                         )
                     }
-                    Button(onClick = onConfirm) {
-                        Text("确认预订")
+                    Button(onClick = onConfirm, colors = ButtonDefaults.buttonColorsPrimary()) {
+                        Text("确认预订", color = MiuixTheme.colorScheme.onPrimary)
                     }
                 }
             }

@@ -1,5 +1,6 @@
 package com.xjtu.toolbox.card
 
+
 import androidx.compose.material.icons.automirrored.filled.MenuBook
 import com.xjtu.toolbox.ui.glass.tabContentPadding
 import com.xjtu.toolbox.ui.components.AppPullToRefresh
@@ -167,7 +168,7 @@ fun CampusCardScreen(
     }
     // 这一页自己的采样源：顶栏采它，不用全局的 LocalAppBackdrop（这是二级页，有自己
     // 的 Scaffold/TopAppBar）。
-    val cardBackdrop = rememberLayerBackdrop()
+    val cardBackdrop = rememberLayerBackdrop(cache = true)
     // 宽屏「流水 / 分析」两栏的选中项。标签行在顶栏里，所以提到 Scaffold 外面
     val isWideTop = com.xjtu.toolbox.ui.isWideLayout()
     var wideTab by rememberSaveable { mutableIntStateOf(0) }
@@ -186,12 +187,10 @@ fun CampusCardScreen(
                     // 时间范围收进顶栏菜单：它同时作用于概览、流水、分析三栏，是整页的设置，
                     // 不该在标签行下面单独占一排胶囊。当前范围由各栏里的小字标出（rangeLabel）。
                     Box {
-                        IconButton(onClick = { showRangeMenu = true }) {
-                            Icon(Icons.Default.DateRange, contentDescription = "时间范围：$rangeLabel")
-                        }
-                        com.xjtu.toolbox.ui.components.AppDropdownMenu(
+                        com.xjtu.toolbox.ui.components.AppIconMenu(
                             expanded = showRangeMenu,
-                            onDismissRequest = { showRangeMenu = false },
+                            onExpandedChange = { showRangeMenu = it },
+                            icon = { Icon(Icons.Default.DateRange, contentDescription = "时间范围：$rangeLabel") },
                         ) {
                             TimeRange.entries.forEach { range ->
                                 com.xjtu.toolbox.ui.components.AppDropdownOption(
@@ -1071,7 +1070,6 @@ private fun CustomRangeDialog(
     OverlayDialog(
         show = show,
         title = "自定义时间段",
-        summary = "流水和分析共用这一段。",
         onDismissRequest = onDismiss
     ) {
         ArrowPreference(

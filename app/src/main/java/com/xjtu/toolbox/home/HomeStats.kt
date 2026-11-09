@@ -114,6 +114,16 @@ object HomeStats {
         }
     }
 
+    private const val SNAPSHOT_KEY = "home_stats_snapshot"
+
+    /** 上次 [collect] 的完整结果，冷启动首帧直接显示。 */
+    fun snapshot(context: Context): Map<String, HomeStat> =
+        runCatching { DataCache(context).read<Map<String, HomeStat>>(SNAPSHOT_KEY, PUSHED_TTL_MS) }.getOrNull().orEmpty()
+
+    fun saveSnapshot(context: Context, stats: Map<String, HomeStat>) {
+        runCatching { DataCache(context).write(SNAPSHOT_KEY, stats) }
+    }
+
     /** 某个功能推送过的摘要（没有或过期返回 null），给功能页顶部的入口卡显示状态。 */
     fun pushed(context: Context, route: AppRoute): HomeStat? = readPushed(DataCache(context), route.id)
 

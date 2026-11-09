@@ -63,8 +63,14 @@ fun quoteMarkdown(comment: GithubDiscussionComment, maxLines: Int = 4): String {
     return if (quoted.isEmpty()) mention else "$quoted\n\n$mention"
 }
 
-/** 菜单项；[danger] 用红字。 */
-data class MenuAction(val label: String, val danger: Boolean = false, val onClick: () -> Unit)
+/** 菜单项；[danger] 用红字。给了 [options]（值 to 文案）就展开成二级菜单，选中后调 [onPick]。 */
+data class MenuAction(
+    val label: String,
+    val danger: Boolean = false,
+    val options: List<Pair<String, String>> = emptyList(),
+    val onPick: (String) -> Unit = {},
+    val onClick: () -> Unit = {},
+)
 
 /** 「…」按钮 + 弹出菜单；没有可用项时不显示。 */
 @Composable
@@ -75,7 +81,16 @@ fun MoreMenu(actions: List<MenuAction>) {
         CommunityAction(Icons.Outlined.MoreHoriz, "", onClick = { open = true })
         AppDropdownMenu(expanded = open, onDismissRequest = { open = false }) {
             actions.forEach { action ->
-                AppDropdownMenuItem(
+                if (action.options.isNotEmpty()) {
+                    com.xjtu.toolbox.ui.components.AppDropdownSubMenu(title = action.label) {
+                        action.options.forEach { (value, label) ->
+                            AppDropdownMenuItem(
+                                text = { Text(label, color = MiuixTheme.colorScheme.onSurface) },
+                                onClick = { open = false; action.onPick(value) },
+                            )
+                        }
+                    }
+                } else AppDropdownMenuItem(
                     text = {
                         Text(
                             action.label,

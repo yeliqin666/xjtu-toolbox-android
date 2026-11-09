@@ -73,7 +73,7 @@ internal fun AndroidPokeWhisper(modifier: Modifier = Modifier) {
         visible = visible && text != null,
         enter = androidx.compose.animation.fadeIn(tween(160)) +
             androidx.compose.animation.scaleIn(
-                androidx.compose.animation.core.spring(dampingRatio = 0.55f, stiffness = 500f),
+                tween(280, easing = androidx.compose.animation.core.FastOutSlowInEasing),
                 initialScale = 0.7f,
                 transformOrigin = androidx.compose.ui.graphics.TransformOrigin(0.5f, 1f),
             ),

@@ -86,6 +86,8 @@ class DataCache(
             }.getOrDefault(0L)
             val stamp = "${com.xjtu.toolbox.BuildConfig.VERSION_CODE}@$installedAt"
             if (prefs.getString(KEY_INSTALL_STAMP, null) == stamp) return
+            // 包已经换了，下载的安装包没用了（一个 35MB，以前一直留着）
+            runCatching { File(app.cacheDir, "updates").deleteRecursively() }
             // listFiles 返回 null 表示 cacheDir 本身读不了（I/O 错误），不能当"没有目录"处理
             val dirs = app.cacheDir.listFiles { f -> f.isDirectory && f.name.startsWith("data_cache") }
             // deleteRecursively 失败只返回 false、不一定抛异常，必须看返回值

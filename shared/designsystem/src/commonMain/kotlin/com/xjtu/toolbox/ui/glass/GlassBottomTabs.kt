@@ -17,9 +17,15 @@ package com.xjtu.toolbox.ui.glass
 
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.EaseOut
-import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.PressInteraction
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.ColumnScope
@@ -69,6 +75,9 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
 import kotlin.math.abs
 import kotlin.math.roundToInt
 import kotlin.math.sign
+
+/** 底栏玻璃按 1/2 分辨率模糊：8dp 的模糊已经比放大后的像素粗，填充量只剩四分之一。 */
+private const val GLASS_BAR_DOWNSCALE = 2
 
 /**
  * 底栏的一格。
@@ -169,8 +178,9 @@ fun GlassBottomTabs(
                 valueRange = 0f..(tabsCount - 1).toFloat(),
                 visibilityThreshold = 0.001f,
                 initialScale = 1f,
-                // 按住时滑块轻轻缩一下（常见的按压反馈），不再放大成一块大玻璃
-                pressedScale = 0.94f,
+                // 按住时滑块宽度不变、上下略压扁，同时灰色加深一点、图标变淡
+                pressedScale = 1f,
+                pressedScaleY = 0.94f,
                 onDragStarted = {},
                 onDragStopped = {
                     val targetIndex = GlassDragMath.snappedIndex(targetValue, tabsCount)
@@ -180,7 +190,7 @@ fun GlassBottomTabs(
                     }
                     animateToValue(targetIndex.toFloat())
                     animationScope.launch {
-                        offsetAnimation.animateTo(0f, spring(1f, 300f, 0.5f))
+                        offsetAnimation.animateTo(0f, tween(320, easing = FastOutSlowInEasing))
                     }
                 },
                 onDrag = { _, dragAmount ->
@@ -212,8 +222,70 @@ fun GlassBottomTabs(
             }
         }
 
-        // 每格一个按压来源：真实那一遍与染色那一遍共用，谁接到触摸都一起微暗缩小
+        // 每格一个按压来源：真实那一遍与染色那一遍共用，谁接到触摸都一起变淡
         val pressSources = remember(tabsCount) { List(tabsCount) { MutableInteractionSource() } }
+        val barDragging = remember { booleanArrayOf(false) }
+        // 一按下，滑块就快速跟到那一格（松手才真正切页）；按下后滑走取消了就回到原来那格
+        pressSources.forEachIndexed { index, source ->
+            LaunchedEffect(source, dampedDrag) {
+                source.interactions.collect { interaction ->
+                    when (interaction) {
+                        is PressInteraction.Press -> {
+                            dampedDrag.press()
+                            dampedDrag.animateToValue(index.toFloat())
+                        }
+                        is PressInteraction.Release -> dampedDrag.release()
+                        // 转成整条拖动时也会收到取消：这时按压态和位置都归拖动管
+                        is PressInteraction.Cancel -> if (!barDragging[0]) {
+                            dampedDrag.release()
+                            if (currentIndex >= 0) dampedDrag.animateToValue(currentIndex.toFloat())
+                        }
+                    }
+                }
+            }
+        }
+
+        // 整条底栏都能拖：在哪一格按下都行，横向滑过触摸阈值就接管，滑块按手指的绝对位置
+        // 直接贴在手指下；松手吸到最近的一格并切页。没滑过阈值就是点击，交给各格自己处理。
+        val padPx = with(density) { 4.dp.toPx() }
+        val dragAnywhere = Modifier.pointerInput(tabsCount, tabWidthPx, isLtr) {
+            awaitEachGesture {
+                val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
+                val slop = viewConfiguration.touchSlop
+                var dragging = false
+                fun valueAt(x: Float): Float {
+                    val local = (if (isLtr) x else size.width - x) - padPx
+                    return (local / tabWidthPx - 0.5f).coerceIn(0f, (tabsCount - 1).toFloat())
+                }
+                while (true) {
+                    val event = awaitPointerEvent(PointerEventPass.Initial)
+                    val change = event.changes.firstOrNull { it.id == down.id } ?: break
+                    if (!change.pressed) {
+                        if (dragging) {
+                            val target = GlassDragMath.snappedIndex(dampedDrag.value, tabsCount)
+                            if (currentIndex != target) {
+                                currentIndex = target
+                                onTabSelectedUpdated(target)
+                            }
+                            dampedDrag.animateToValue(target.toFloat())
+                            change.consume()
+                        }
+                        break
+                    }
+                    if (!dragging && abs(change.position.x - down.position.x) > slop) {
+                        dragging = true
+                        barDragging[0] = true
+                        dampedDrag.press()
+                    }
+                    if (dragging) {
+                        dampedDrag.snapToValue(valueAt(change.position.x))
+                        change.consume()
+                    }
+                }
+                if (dragging) dampedDrag.release()
+                barDragging[0] = false
+            }
+        }
 
         fun tabOnClick(index: Int): () -> Unit = {
             if (currentIndex != index) {
@@ -253,6 +325,8 @@ fun GlassBottomTabs(
             }
         }
 
+        // 所有层都包在这一个 Box 里：拖动手势挂在它们共同的祖先上（挂在最上面的兄弟层会吞掉各格的点击）
+        Box(Modifier.fillMaxWidth().then(dragAnywhere), contentAlignment = Alignment.CenterStart) {
         Row(
             Modifier
                 .graphicsLayer { translationX = panelOffset }
@@ -265,8 +339,9 @@ fun GlassBottomTabs(
                                 // 采样范围往外扩一圈，胶囊边缘处也有真实内容可混
                                 padding = maxOf(padding, 16.dp.toPx())
                                 vibrancy()
-                                blur(8.dp.toPx())
+                                blur(8.dp.toPx() / GLASS_BAR_DOWNSCALE)
                             },
+                            sampleDownscale = GLASS_BAR_DOWNSCALE,
                             exportedBackdrop = exportedBackdrop,
                             // 悬浮胶囊是真的浮在内容上面，该有影子；但不要 kyant 默认那圈
                             // 死黑（24dp、10% 黑）。改成带一点主题色的环境光阴影：更散、更低，
@@ -288,7 +363,8 @@ fun GlassBottomTabs(
         )
 
         if (glass && tabsBackdrop != null) {
-            CompositionLocalProvider(LocalGlassNavTabScale provides { lerp(1f, 0.92f, dampedDrag.pressProgress) }) {
+            // 当前格被滑块盖着，按住滑块时看到的是这一遍：图标跟着变淡
+            CompositionLocalProvider(LocalGlassNavTabFade provides { 1f - 0.5f * dampedDrag.pressProgress }) {
                 Row(
                     Modifier
                         .clearAndSetSemantics {}
@@ -335,7 +411,6 @@ fun GlassBottomTabs(
                                 if (isLtr) dampedDrag.value * tabWidthPx + panelOffset
                                 else size.width - (dampedDrag.value + 1f) * tabWidthPx + panelOffset
                         }
-                        .then(dampedDrag.modifier)
                         .drawWithContent {
                             if (glassActive) drawContent()
                             else drawOutline(pillShape.createOutline(size, layoutDirection, this), restTint)
@@ -349,10 +424,8 @@ fun GlassBottomTabs(
                                 scaleX = dampedDrag.scaleX
                                 scaleY = dampedDrag.scaleY
                             },
-                            // 按住时在淡色底上再压一层暗：微暗 + 缩小，常见的按压手感
                             onDrawSurface = {
-                                drawRect(restTint)
-                                drawRect(Color.Black.copy(alpha = 0.08f * dampedDrag.pressProgress))
+                                drawRect(restTint.copy(alpha = restTint.alpha * (1f + 0.6f * dampedDrag.pressProgress)))
                             },
                         )
                         .height(innerHeight)
@@ -368,8 +441,8 @@ fun GlassBottomTabs(
                             translationX =
                                 if (isLtr) dampedDrag.value * tabWidthPx + panelOffset
                                 else size.width - (dampedDrag.value + 1f) * tabWidthPx + panelOffset
+                            scaleY = dampedDrag.scaleY
                         }
-                        .then(dampedDrag.modifier)
                         .clip(pillShape)
                         .background(accentColor.copy(alpha = 0.15f))
                         .height(innerHeight)
@@ -391,12 +464,8 @@ fun GlassBottomTabs(
             ) {
                 tabs.forEachIndexed { index, tab ->
                     if (tab.tintExempt) {
-                        // 屁岱是当前格时滑块正压在它下面：重叠的兄弟节点只有最上面的收得到触摸，
-                        // 所以把滑块的拖动也挂在这一格上，从屁岱按住照样能拖（回调只认位移，挂哪都一样）
-                        GlassNavTabSlot(
-                            onClick = tabOnClick(index),
-                            modifier = if (index == currentIndex) dampedDrag.modifier else Modifier,
-                        ) {
+                        // 拖动由外层统一接管，这一格只管点击
+                        GlassNavTabSlot(onClick = tabOnClick(index)) {
                             tab.content(this, index == currentIndex)
                         }
                     } else {
@@ -404,6 +473,7 @@ fun GlassBottomTabs(
                     }
                 }
             }
+        }
         }
     }
 }

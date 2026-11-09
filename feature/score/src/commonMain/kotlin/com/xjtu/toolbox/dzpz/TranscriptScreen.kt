@@ -230,9 +230,10 @@ private fun WorkflowProgressCard(
                     Spacer(Modifier.height(16.dp))
                     Button(
                         onClick = onStart,
+                        colors = ButtonDefaults.buttonColorsPrimary(),
                         modifier = Modifier.fillMaxWidth()
                     ) {
-                        Text("一键申请成绩单")
+                        Text("一键申请成绩单", color = MiuixTheme.colorScheme.onPrimary)
                     }
                 }
                 WorkflowState.RUNNING -> {
@@ -289,6 +290,7 @@ private fun WorkflowProgressCard(
                     Spacer(Modifier.height(12.dp))
                     Button(
                         onClick = onStart,
+                        colors = com.xjtu.toolbox.ui.components.appTonalButtonColors(),
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         Text("重新申请")
@@ -404,15 +406,17 @@ private fun DownloadSuccessCard(
                 // 操作按钮
                 Button(
                     onClick = { saver.save(info.filename, pdfBytes) },
+                    colors = ButtonDefaults.buttonColorsPrimary(),
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Icon(
                         Icons.Default.SaveAlt,
                         contentDescription = null,
-                        modifier = Modifier.size(18.dp)
+                        modifier = Modifier.size(18.dp),
+                        tint = MiuixTheme.colorScheme.onPrimary,
                     )
                     Spacer(Modifier.width(6.dp))
-                    Text(saver.actionLabel)
+                    Text(saver.actionLabel, color = MiuixTheme.colorScheme.onPrimary)
                 }
                 Spacer(Modifier.height(8.dp))
                 Text(

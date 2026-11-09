@@ -281,11 +281,12 @@ internal fun ActivityDetailPage(
                                                 true,
                                             )
                                         },
+                                        colors = ButtonDefaults.buttonColorsPrimary(),
                                         modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)
                                     ) {
-                                        Icon(Icons.Default.PlayCircle, null, Modifier.size(18.dp))
+                                        Icon(Icons.Default.PlayCircle, null, Modifier.size(18.dp), tint = MiuixTheme.colorScheme.onPrimary)
                                         Spacer(Modifier.width(6.dp))
-                                        Text("多机位播放器")
+                                        Text("多机位播放器", color = MiuixTheme.colorScheme.onPrimary)
                                     }
                                 }
                             }
@@ -332,11 +333,12 @@ internal fun ActivityDetailPage(
                                                 true,
                                             )
                                         },
+                                        colors = ButtonDefaults.buttonColorsPrimary(),
                                         modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)
                                     ) {
-                                        Icon(Icons.Default.LiveTv, null, Modifier.size(18.dp))
+                                        Icon(Icons.Default.LiveTv, null, Modifier.size(18.dp), tint = MiuixTheme.colorScheme.onPrimary)
                                         Spacer(Modifier.width(6.dp))
-                                        Text("多机位观看直播")
+                                        Text("多机位观看直播", color = MiuixTheme.colorScheme.onPrimary)
                                     }
                                 }
                                 // 单独的流列表
@@ -378,11 +380,12 @@ internal fun ActivityDetailPage(
                                                     true,
                                                 )
                                             },
+                                            colors = ButtonDefaults.buttonColorsPrimary(),
                                             modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)
                                         ) {
-                                            Icon(Icons.Default.PlayCircle, null, Modifier.size(18.dp))
+                                            Icon(Icons.Default.PlayCircle, null, Modifier.size(18.dp), tint = MiuixTheme.colorScheme.onPrimary)
                                             Spacer(Modifier.width(6.dp))
-                                            Text("多机位播放器")
+                                            Text("多机位播放器", color = MiuixTheme.colorScheme.onPrimary)
                                         }
                                     }
                                 }

@@ -18,7 +18,18 @@ import kotlinx.coroutines.launch
  *
  * 其余启动钩子（性能打点 / 渠道开关）保持空。
  */
-class XjtuApp : Application() {
+class XjtuApp : Application(), coil3.SingletonImageLoader.Factory {
+    /** 图片磁盘缓存封顶，不用 Coil 的默认上限，免得社区看多了占掉一大块空间。 */
+    override fun newImageLoader(context: coil3.PlatformContext): coil3.ImageLoader =
+        coil3.ImageLoader.Builder(context)
+            .diskCache {
+                coil3.disk.DiskCache.Builder()
+                    .directory(okio.Path.Companion.run { cacheDir.resolve("coil3_disk_cache").absolutePath.toPath() })
+                    .maxSizeBytes(100L * 1024 * 1024)
+                    .build()
+            }
+            .build()
+
     /** 应用级协程作用域：跟随进程存活，给页面销毁后仍要做完的收尾工作（如保存进度）用。 */
     val applicationScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 

@@ -1,5 +1,6 @@
 package com.xjtu.toolbox.community
 
+import kotlinx.coroutines.launch
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.animation.animateContentSize
@@ -133,10 +134,16 @@ fun CommunityPage(
                 .glassSource(glass)
                 .nestedScroll(scrollBehavior.nestedScrollConnection)
         ) {
-            content(top)
+            CompositionLocalProvider(LocalCommunityBarScroll provides scrollBehavior) {
+                content(top)
+            }
         }
     }
 }
+
+/** 这一页顶栏的折叠状态：页内下拉刷新要它，才能先展开大标题、展开完才算下拉。 */
+internal val LocalCommunityBarScroll =
+    androidx.compose.runtime.staticCompositionLocalOf<top.yukonga.miuix.kmp.basic.ScrollBehavior?> { null }
 
 /**
  * 社区里页与页之间的转场：往里走（列表 → 帖子 → 编辑）新页从右边推进来、旧页往左让一点并变淡；
@@ -209,7 +216,11 @@ fun MarkdownText(markdown: String, modifier: Modifier = Modifier.fillMaxWidth())
     )
     // 段内单个换行按硬换行显示，与 GitHub 评论一致（#214）；代码块不经此路径
     val annotator = remember { markdownAnnotator(config = markdownAnnotatorConfig(eolAsNewLine = true)) }
-    val linked = remember(markdown) { linkMentions(markdown) }
+    val refs = LocalIssueRefs.current
+    val refNumbers = remember(markdown) { issueNumbersIn(markdown) }
+    androidx.compose.runtime.LaunchedEffect(refs, refNumbers) { refs?.request(refNumbers) }
+    val knownRefs = refs?.kinds?.filterKeys { it in refNumbers }.orEmpty()
+    val linked = remember(markdown, knownRefs) { linkIssues(linkMentions(markdown), knownRefs) }
     // 引用垫一层浅底圆角，和正文分得开；内容仍是标准的「> 」引用，只是这边画得像卡片
     val quoteBackground = colors.onSurface.copy(alpha = 0.05f)
     val components = markdownComponents(
@@ -364,6 +375,16 @@ private val MENTION = Regex("""(^|[\s(（，。、：；！？])@([A-Za-z0-9](?:
  */
 internal fun linkMentions(markdown: String): String {
     if ('@' !in markdown) return markdown
+    return mapOutsideCode(markdown) { text ->
+        MENTION.replace(text) { m ->
+            val name = m.groupValues[2]
+            "${m.groupValues[1]}[@$name](https://github.com/$name)"
+        }
+    }
+}
+
+/** 只改代码块和行内代码以外的文字。 */
+private fun mapOutsideCode(markdown: String, transform: (String) -> String): String {
     val out = StringBuilder(markdown.length + 32)
     var fenced = false
     markdown.split('\n').forEachIndexed { i, line ->
@@ -374,19 +395,71 @@ internal fun linkMentions(markdown: String): String {
             out.append(line)
             return@forEachIndexed
         }
-        if (fenced || '@' !in line) { out.append(line); return@forEachIndexed }
+        if (fenced) { out.append(line); return@forEachIndexed }
         // 按反引号切开，奇数段是行内代码
         line.split('`').forEachIndexed { j, part ->
             if (j > 0) out.append('`')
-            if (j % 2 == 1) out.append(part)
-            else out.append(MENTION.replace(part) { m ->
-                val name = m.groupValues[2]
-                "${m.groupValues[1]}[@$name](https://github.com/$name)"
-            })
+            out.append(if (j % 2 == 1) part else transform(part))
         }
     }
     return out.toString()
 }
+
+private val ISSUE_REF = Regex("""(^|[\s(（，。、：；！？])#(\d{1,7})(?![\w-])""")
+private const val MAX_REFS_PER_QUERY = 40
+
+/** 正文里出现的 `#编号`，代码里的不算。 */
+internal fun issueNumbersIn(markdown: String): Set<Int> {
+    if ('#' !in markdown) return emptySet()
+    val found = linkedSetOf<Int>()
+    mapOutsideCode(markdown) { text ->
+        ISSUE_REF.findAll(text).forEach { m -> m.groupValues[2].toIntOrNull()?.let(found::add) }
+        text
+    }
+    return found
+}
+
+/** 把确认存在的 `#编号` 换成链接；没查到的保持普通文字。 */
+internal fun linkIssues(markdown: String, kinds: Map<Int, GithubRefKind>): String {
+    if (kinds.isEmpty()) return markdown
+    val base = "https://github.com/${CommunityRepo.OWNER}/${CommunityRepo.NAME}"
+    return mapOutsideCode(markdown) { text ->
+        ISSUE_REF.replace(text) { m ->
+            val number = m.groupValues[2].toIntOrNull()
+            val path = when (kinds[number]) {
+                GithubRefKind.DISCUSSION -> "discussions"
+                GithubRefKind.PULL_REQUEST -> "pull"
+                GithubRefKind.ISSUE -> "issues"
+                null -> null
+            }
+            if (path == null) m.value else "${m.groupValues[1]}[#$number]($base/$path/$number)"
+        }
+    }
+}
+
+/** 一页里各楼层的编号合并成一次查询，查过的不再查。 */
+internal class IssueRefResolver(private val repo: GithubDiscussionsRepository, private val scope: kotlinx.coroutines.CoroutineScope) {
+    val kinds = androidx.compose.runtime.mutableStateMapOf<Int, GithubRefKind>()
+    private val asked = mutableSetOf<Int>()
+    private val pending = mutableSetOf<Int>()
+    private var job: kotlinx.coroutines.Job? = null
+
+    fun request(numbers: Set<Int>) {
+        pending += numbers - asked
+        if (pending.isEmpty() || job?.isActive == true) return
+        job = scope.launch {
+            kotlinx.coroutines.delay(120)
+            while (pending.isNotEmpty()) {
+                val batch = pending.take(MAX_REFS_PER_QUERY).toSet()
+                pending -= batch
+                asked += batch
+                repo.referenceKinds(CommunityRepo.OWNER, CommunityRepo.NAME, batch).onSuccess { kinds += it }
+            }
+        }
+    }
+}
+
+internal val LocalIssueRefs = androidx.compose.runtime.staticCompositionLocalOf<IssueRefResolver?> { null }
 
 /** 光标前正在输入的 @前缀（不含 @）；没在输 @ 时返回 null。 */
 fun mentionQuery(text: String, cursor: Int): String? {
@@ -506,7 +579,7 @@ fun CommunityAction(
     LaunchedEffect(active) {
         if (active) {
             scale.animateTo(1.25f, androidx.compose.animation.core.tween(120))
-            scale.animateTo(1f, androidx.compose.animation.core.spring(dampingRatio = 0.4f))
+            scale.animateTo(1f, androidx.compose.animation.core.tween(280, easing = androidx.compose.animation.core.FastOutSlowInEasing))
         }
     }
     Row(

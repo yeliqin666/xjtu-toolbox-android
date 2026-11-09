@@ -35,12 +35,10 @@ import java.time.LocalDate
 import java.util.Locale
 import com.xjtu.toolbox.util.todayOnCampus
 
-/** 首页在 `:app` 这一端的两半：宿主面（[host]）+ 它自己的那一层弹窗（[showStatusSheet]）。 */
+/** 首页在 `:app` 这一端：宿主面（[host]）+ 主页设置抽屉的开关。 */
 @Stable
 internal class AppHome(
     val host: HomeHost,
-    /** 「子系统连接状态」弹窗的开关，由调用方（[HomeTab]）在组合里读并画那个弹窗。 */
-    val showStatusSheet: MutableState<Boolean>,
     /** 「主页设置」抽屉的开关（首页编辑态里点「设置」）。 */
     val showSettingsSheet: MutableState<Boolean>,
 )
@@ -135,7 +133,8 @@ internal fun rememberAppHome(
         HomeSignals.scheduleReminder = focus?.startAt?.let { HomeSignals.ScheduleFocus(focus.title, it.toJavaTime()) }
     }
 
-    var homeStats by remember { mutableStateOf<Map<String, HomeStat>>(emptyMap()) }
+    // 首帧就显示上次的内容，不从空白跳过来；只读一个小文件，放在组合里同步读
+    var homeStats by remember(loginState.accountId) { mutableStateOf(HomeStats.snapshot(context)) }
     LaunchedEffect(
         loginState.accountId,
         loginState.campusCardCacheVersion,
@@ -148,7 +147,11 @@ internal fun rememberAppHome(
         val term = withContext(Dispatchers.IO) {
             runCatching { ScheduleCache.readCurrentTerm(DataCache(context)) }.getOrNull()
         }
-        homeStats = HomeStats.collect(context, term)
+        val fresh = HomeStats.collect(context, term)
+        if (fresh != homeStats) {
+            homeStats = fresh
+            withContext(Dispatchers.IO) { HomeStats.saveSnapshot(context, fresh) }
+        }
         // 校园卡由 refresher 写进 CampusCardCache 的 prefs，不经过 homeStats，单独重读一次。
         cachedBalance = cardPrefs.getFloat("card_balance_cache", -1f)
         cachedDailyRate = cardPrefs.getFloat("card_daily_rate_cache", -1f)
@@ -156,7 +159,6 @@ internal fun rememberAppHome(
 
     val audience = loginState.accountType
     val isLoggedIn = loginState.isLoggedIn
-    val showStatusSheet = remember { mutableStateOf(false) }
     val showSettingsSheet = remember { mutableStateOf(false) }
 
     // 常用入口：用户置顶过就按置顶的来，否则按使用频率取 4 个。它是**额外**的入口，分类里照常保留。
@@ -200,6 +202,7 @@ internal fun rememberAppHome(
         val types = LoginType.entries
         val ok = types.count { loginState.sessionManager?.getSiteOrNull(it.siteKey())?.hasLogin == true }
         HomeStatusLine(
+            subsystems = types.map { HomeSubsystem(it.label, loginState.sessionManager?.getSiteOrNull(it.siteKey())?.hasLogin == true) },
             label = netLabel,
             detail = when {
                 isRestoring -> "连接中…"
@@ -356,16 +359,13 @@ internal fun rememberAppHome(
             seamlessOpener(context, loginState, ::onRoute)(route, source)
 
         override fun onBulletinDismiss(bulletin: Bulletin) = onBulletinDismiss(bulletin)
-        override fun onOpenStatus() {
-            showStatusSheet.value = true
-        }
         override fun onOpenHomeSettings() {
             showSettingsSheet.value = true
         }
         override val hasHomeSettings get() = true
     }
 
-    return AppHome(host, showStatusSheet, showSettingsSheet)
+    return AppHome(host, showSettingsSheet)
 }
 
 /** 「10月12日」那一段。`:app` 这一端读的是 `java.time` 的月份与日。 */

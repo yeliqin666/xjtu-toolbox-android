@@ -42,10 +42,13 @@ import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.IconButton
 import top.yukonga.miuix.kmp.basic.Scaffold
 import top.yukonga.miuix.kmp.basic.SmallTopAppBar
-import top.yukonga.miuix.kmp.theme.MiuixTheme
 import java.io.InputStream
 
 // 游戏本体资源的根目录，只有这个前缀下的文件允许被 WebView 加载。
+/** 页面顶部渐变的起始色，与 index.html 的 --bg-top 一致。 */
+private const val MERGE_BG_TOP_LIGHT = 0xFFEAF1FFL
+private const val MERGE_BG_TOP_DARK = 0xFF0E141DL
+
 private const val ASSET_ROOT = "games/merge/"
 private const val ENTRY_URL = "file:///android_asset/${ASSET_ROOT}index.html"
 
@@ -105,11 +108,13 @@ fun MergeGameScreen(onBack: () -> Unit) {
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
+    val dark = com.xjtu.toolbox.ui.theme.LocalIsDarkTheme.current
     Scaffold(
         topBar = {
             SmallTopAppBar(
                 title = "合成西交大",
-                color = MiuixTheme.colorScheme.surface,
+                // 与页面顶部渐变（--bg-top）同色，标题栏和游戏连成一片
+                color = androidx.compose.ui.graphics.Color(if (dark) MERGE_BG_TOP_DARK else MERGE_BG_TOP_LIGHT),
                 navigationIcon = { LeaveButton(inProgress, leave::request) },
                 actions = {
                     // 分数页面里已经实时记进最高分，重开不用再补记
@@ -127,11 +132,10 @@ fun MergeGameScreen(onBack: () -> Unit) {
     ) { padding ->
         // 深浅色经 URL 参数交给页面：WebView 的 prefers-color-scheme 不一定跟 App 主题走。
         // 底色和页面顶部渐变一致，加载那一下不白闪。
-        val dark = com.xjtu.toolbox.ui.theme.LocalIsDarkTheme.current
         AndroidView(
             factory = { ctx ->
                 WebView(ctx).apply {
-                    setBackgroundColor(if (dark) 0xFF0E141D.toInt() else 0xFFEAF1FF.toInt())
+                    setBackgroundColor((if (dark) MERGE_BG_TOP_DARK else MERGE_BG_TOP_LIGHT).toInt())
                     layoutParams = ViewGroup.LayoutParams(
                         ViewGroup.LayoutParams.MATCH_PARENT,
                         ViewGroup.LayoutParams.MATCH_PARENT

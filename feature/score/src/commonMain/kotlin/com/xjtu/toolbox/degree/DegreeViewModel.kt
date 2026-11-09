@@ -168,6 +168,8 @@ internal class DegreeViewModel(private val source: DegreeSource) : ViewModel() {
 
     fun confirm(course: DegreeLooseCourse, nodeId: String) = update(confirmed + (course.code.trim().uppercase() to nodeId))
 
+    fun reassign(code: String, nodeId: String) = update(confirmed + (code.trim().uppercase() to nodeId))
+
     fun undoConfirm(code: String) = update(confirmed - code.trim().uppercase())
 
     private fun update(value: Map<String, String>) {

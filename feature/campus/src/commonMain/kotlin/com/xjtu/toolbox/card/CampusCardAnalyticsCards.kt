@@ -1,7 +1,6 @@
 package com.xjtu.toolbox.card
 
 import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
@@ -112,7 +111,7 @@ internal fun SpendingHeroCard(
 
 @Composable
 private fun PersonaChip(emoji: String, text: String, index: Int, tint: Color) {
-    val pop = rememberRevealProgress(text, 250L + index * 110L, spring(dampingRatio = 0.5f, stiffness = 380f))
+    val pop = rememberRevealProgress(text, 250L + index * 110L, tween(420, easing = FastOutSlowInEasing))
     Row(
         Modifier
             .graphicsLayer {
@@ -294,7 +293,7 @@ internal fun TopMerchantsCard(monthlyStats: List<MonthlyStats>) {
 private fun PodiumColumn(m: MerchantStat, rank: Int, modifier: Modifier = Modifier) {
     val (medal, color, height) = PODIUM[rank]
     // 台子从地面升起来，冠军最后到
-    val rise = rememberRevealProgress(m.name to m.totalAmount, listOf(260L, 120L, 0L)[rank], spring(dampingRatio = 0.62f, stiffness = 260f))
+    val rise = rememberRevealProgress(m.name to m.totalAmount, listOf(260L, 120L, 0L)[rank], tween(520, easing = FastOutSlowInEasing))
     Column(modifier, horizontalAlignment = Alignment.CenterHorizontally) {
         Text(medal, fontSize = if (rank == 0) 28.sp else 22.sp)
         Spacer(Modifier.height(4.dp))

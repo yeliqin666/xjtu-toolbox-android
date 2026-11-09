@@ -3,9 +3,7 @@ package com.xjtu.toolbox.game.g2048
 import com.xjtu.toolbox.platform.BackHandler
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateIntOffsetAsState
-import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.focusable
@@ -75,7 +73,7 @@ import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.IconButton
 import top.yukonga.miuix.kmp.basic.Scaffold
 import top.yukonga.miuix.kmp.basic.Text
-import top.yukonga.miuix.kmp.basic.TopAppBar
+import top.yukonga.miuix.kmp.basic.SmallTopAppBar
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 /**
@@ -213,12 +211,13 @@ fun Gpa2048Screen(onBack: () -> Unit) {
 
     Scaffold(
         topBar = {
-            TopAppBar(
+            // 不滚动的页面，大标题只占地方；透明才和页面连成一片
+            SmallTopAppBar(
                 title = "GPA 2048",
                 navigationIcon = {
                     LeaveButton(inProgress, leave::request)
                 },
-                color = MiuixTheme.colorScheme.background,
+                color = androidx.compose.ui.graphics.Color.Transparent,
                 actions = {
                     if (Leaderboard.enabled) {
                         IconButton(onClick = { Leaderboard.openRanking(GameIds.G2048) }) {
@@ -448,12 +447,12 @@ private fun TileView(tile: UiTile, cell: Dp, cellPx: Int, gapPx: Int) {
         when (tile.kind) {
             TileKind.SPAWN -> {
                 delay(SLIDE_MS.toLong())
-                scale.animateTo(1f, spring(dampingRatio = 0.6f, stiffness = Spring.StiffnessMedium))
+                scale.animateTo(1f, tween(160, easing = FastOutSlowInEasing))
             }
             TileKind.MERGED -> {
                 delay(SLIDE_MS - 20L)
                 scale.animateTo(1.14f, tween(80))
-                scale.animateTo(1f, spring(dampingRatio = 0.5f, stiffness = Spring.StiffnessMedium))
+                scale.animateTo(1f, tween(160, easing = FastOutSlowInEasing))
             }
             // 连滑太快时上一段弹跳/冒出还没播完就被打断，直接归位，别卡在半大不小
             else -> scale.snapTo(1f)

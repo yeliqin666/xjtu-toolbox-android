@@ -13,6 +13,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.FrameRateCategory
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawWithCache
+import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.ShaderBrush
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.preferredFrameRate
@@ -136,7 +137,9 @@ private fun RuntimeLiquid(
         modifier
             .fillMaxSize()
             .preferredFrameRate(FrameRateCategory.Normal)
-            .graphicsLayer()
+            // 画进硬件缓存层：滚动时卡片只是平移，直接复用缓存好的像素，着色器只在自己 30 帧/秒的
+            // 节拍上重算。不加的话这道逐像素 fbm 会跟着 120Hz 的滚动每帧整卡重算一遍（首页滑动掉帧的大头）
+            .graphicsLayer(compositingStrategy = CompositingStrategy.Offscreen)
             .drawWithCache {
                 shader.setFloatUniform("size", size.width, size.height)
                 shader.setFloatUniform("seed", seed)

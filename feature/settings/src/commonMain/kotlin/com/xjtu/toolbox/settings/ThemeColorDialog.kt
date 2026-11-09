@@ -44,7 +44,6 @@ internal fun ThemeColorDialog(
     WindowDialog(
         show = true,
         title = "自定义主题色",
-        summary = "浅色和深色分别设置，选中的颜色直接用作主题色",
         onDismissRequest = onDismiss,
     ) {
         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -53,7 +52,8 @@ internal fun ThemeColorDialog(
                 AppFilterChip(selected = editingDark, onClick = { editingDark = true }, label = "深色")
             }
             // 色板和输入框只认当前这一档，切按钮就把它们换成那一档的颜色
-            AppColorPicker(color = color, onColorChanged = { setHex(CourseColors.toHex(it)) })
+            // 不要取色器自带的色条：下面的预览已经把这个色画在真实界面上了
+            AppColorPicker(color = color, onColorChanged = { setHex(CourseColors.toHex(it)) }, showPreview = false)
             TextField(
                 value = hex,
                 onValueChange = setHex,
@@ -79,8 +79,7 @@ internal fun ThemeColorDialog(
                             .background(MiuixTheme.colorScheme.primary, RoundedCornerShape(8.dp)),
                         contentAlignment = Alignment.Center,
                     ) {
-                        // 主题色上的字只跟明暗走（深色白、浅色黑），挑的色再极端也不会自动换字色，
-                        // 所以这一条就是最终效果的预演
+                        // 字色和真实主题同一道对比度门（见 readableOn），这一条就是最终效果
                         Text("主题色上的文字", color = MiuixTheme.colorScheme.onPrimary)
                     }
                 }

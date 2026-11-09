@@ -383,7 +383,11 @@ private fun NotificationCard(
             onClick = onClick,
         )
         if (onAskAgent != null) {
-            com.xjtu.toolbox.ui.components.AppDropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+            com.xjtu.toolbox.ui.components.AppDropdownMenu(
+                expanded = menuOpen,
+                onDismissRequest = { menuOpen = false },
+                morph = com.xjtu.toolbox.ui.components.MenuMorph.FromRow,
+            ) {
                 com.xjtu.toolbox.ui.components.AppDropdownMenuItem(
                     text = { Text("问小岱") },
                     onClick = {

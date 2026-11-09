@@ -41,7 +41,15 @@ enum class HomeCard {
 enum class HomeTone { NORMAL, ACCENT, ALERT, MUTED }
 
 /** Hero 里那一行状态（网络环境 + 子系统就绪数），点开看明细。 */
-data class HomeStatusLine(val label: String, val detail: String, val tone: HomeTone)
+data class HomeStatusLine(
+    val label: String,
+    val detail: String,
+    val tone: HomeTone,
+    /** 点开时就地列出的明细；空列表时这一行不可点。 */
+    val subsystems: List<HomeSubsystem> = emptyList(),
+)
+
+data class HomeSubsystem(val label: String, val ready: Boolean)
 
 /** 速览格里的一项。 */
 data class HomeGlanceItem(
@@ -140,9 +148,6 @@ interface HomeHost {
 
     /** 关掉公告条里的某条公告。 */
     fun onBulletinDismiss(bulletin: Bulletin) {}
-
-    /** 点开「子系统连接状态」的明细（那一层弹窗是各端自己的画法，所以是槽位）。 */
-    fun onOpenStatus() {}
 
     /** 点小组件里带链接的一条明细：网址打开原文，`tel:` 拨号。 */
     fun onOpenLink(link: String) {}

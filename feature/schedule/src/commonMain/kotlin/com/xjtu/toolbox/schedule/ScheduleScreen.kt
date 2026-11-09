@@ -1,5 +1,6 @@
 package com.xjtu.toolbox.schedule
 
+
 import com.xjtu.toolbox.ui.components.AppPullToRefresh
 import androidx.compose.foundation.layout.height
 import androidx.compose.ui.graphics.graphicsLayer
@@ -88,7 +89,6 @@ fun ScheduleScreen(
     /** 宿主槽位（见 [ScheduleHost]）：本地落盘、教务会话、分享面板，以及考勤 / 思源学堂 / 教室座位数那几档「只有某些端才有」的能力。 */
     host: ScheduleHost,
     onBack: () -> Unit = {},  // 用于 catch AuthExpired 时退出
-    onSubtitleChange: (String) -> Unit = {},
     onActionsChange: ((@Composable androidx.compose.foundation.layout.RowScope.() -> Unit)?) -> Unit = {},
     onBottomContentChange: ((@Composable () -> Unit)?) -> Unit = {},
     contentBottomPadding: androidx.compose.ui.unit.Dp = 0.dp,
@@ -151,16 +151,12 @@ fun ScheduleScreen(
             unifiedSelectedCourse = course
         }
     }
-    var termDropdownExpanded by remember { mutableStateOf(false) }
     var showWeekPicker by remember { mutableStateOf(false) }
     var showExportMenu by remember { mutableStateOf(false) }
 
     /** tab 序号 → 这一页放什么：固定今日 / 周视图 / 学期三格。 */
     fun contentOf(tab: Int): String = when (tab) { 0 -> "today"; 1 -> "week"; else -> "semester" }
     val currentContent = contentOf(selectedTab)
-
-    // 通知外层顶栏当前学期
-    LaunchedEffect(vm.selectedTermCode, vm.termList) { onSubtitleChange(vm.termLabel(vm.selectedTermCode)) }
 
     // 教务课程 + 自定义日程，剔除命中法定节假日的周次
     val mergedCourses = remember(vm.courses, vm.customCourses) { vm.courses + vm.customCourses.map { it.toCourseItem() } }
@@ -260,23 +256,34 @@ fun ScheduleScreen(
         // 周视图/全部周叠加的切换在标签行「第 N 周」那一格的选周里（§1.4），
         // 这里不再放一个意思含糊的按钮。
         Box {
-            IconButton(onClick = { showExportMenu = true }) {
-                Icon(Icons.Default.MoreVert, contentDescription = "更多")
-            }
             // 主菜单
-            com.xjtu.toolbox.ui.components.AppDropdownMenu(
+            com.xjtu.toolbox.ui.components.AppIconMenu(
                 expanded = showExportMenu,
-                onDismissRequest = { showExportMenu = false },
+                onExpandedChange = { showExportMenu = it },
+                icon = { Icon(Icons.Default.MoreVert, contentDescription = "更多") },
             ) {
                 run {
                     // 视图切换已经提到工具栏上了，这里不再重复一份——
                     // 同一个开关两个入口，用户按了哪个都得再确认一次状态。
                     if (vm.termList.isNotEmpty()) {
-                        ScheduleMenuRow(
-                            icon = Icons.Default.SwapHoriz,
-                            text = "切换学期",
-                            onClick = { showExportMenu = false; termDropdownExpanded = true }
-                        )
+                        com.xjtu.toolbox.ui.components.AppDropdownSubMenu(
+                            title = "切换学期",
+                            summary = vm.termLabel(vm.selectedTermCode),
+                            leadingIcon = {
+                                Icon(Icons.Default.SwapHoriz, null, Modifier.size(20.dp), tint = MiuixTheme.colorScheme.onSurfaceContainer)
+                            },
+                        ) {
+                            vm.termList.forEach { term ->
+                                com.xjtu.toolbox.ui.components.AppDropdownOption(
+                                    text = vm.termLabel(term),
+                                    selected = term == vm.selectedTermCode,
+                                    onClick = {
+                                        showExportMenu = false
+                                        vm.switchTerm(term)
+                                    },
+                                )
+                            }
+                        }
                     }
                     // 这一行只在「本端真能把文件交给系统」时才画（见 ScheduleCapability.SHARE_FILE）：
                     // 桌面端还没有分享面板，画出来就是点一下没反应。
@@ -309,43 +316,62 @@ fun ScheduleScreen(
                     }
                 }
             }
-            // 学期切换 popup（独立，由"切换学期"菜单项触发）
-            val termSelectedIdxTb = vm.termList.indexOf(vm.selectedTermCode).coerceAtLeast(0)
-            com.xjtu.toolbox.ui.components.AppDropdownMenu(
-                expanded = termDropdownExpanded,
-                onDismissRequest = { termDropdownExpanded = false },
-            ) {
-                vm.termList.forEachIndexed { idx, term ->
-                    com.xjtu.toolbox.ui.components.AppDropdownOption(
-                        text = vm.termLabel(term),
-                        selected = idx == termSelectedIdxTb,
-                        onClick = {
-                            termDropdownExpanded = false
-                            vm.switchTerm(term)
-                        },
-                    )
-                }
-            }
         }
     }
     val headerBottomContent: (@Composable () -> Unit) = {
         Column {
             // 中间一格直接写看的是哪一周；已选中时再点弹出选周，不另占位置
             val weekLabel = if (vm.showAllWeeks) "全学期" else "第${vm.currentWeek}周"
-            AppSegmentedTabs(
-                // 固定今日 / 周 / 学期三格，不再随布局变化，见 plan2 §1.5。
-                tabs = listOf("今日", if (selectedTab == 1) "$weekLabel ▾" else weekLabel, "学期"),
-                selectedTabIndex = selectedTab,
-                onTabSelected = { tab ->
-                    if (tab == 1 && selectedTab == 1) {
-                        showWeekPicker = true
-                        return@AppSegmentedTabs
+            Box {
+                AppSegmentedTabs(
+                    // 固定今日 / 周 / 学期三格，不再随布局变化，见 plan2 §1.5。
+                    tabs = listOf("今日", if (selectedTab == 1) "$weekLabel ▾" else weekLabel, "学期"),
+                    selectedTabIndex = selectedTab,
+                    onTabSelected = { tab ->
+                        if (tab == 1 && selectedTab == 1) {
+                            showWeekPicker = true
+                            return@AppSegmentedTabs
+                        }
+                        selectedTab = tab
+                        // 学期栏第一次打开时才加载教材，别的栏用不上。
+                        if (tab == 2) vm.ensureTextbooks(requireApi = false)
+                    },
+                )
+                // 三格等宽：中间这块就是「第 N 周」，选周菜单以它为锚点
+                Row(Modifier.matchParentSize()) {
+                    Spacer(Modifier.weight(1f))
+                    Box(Modifier.weight(1f).fillMaxHeight()) {
+                        com.xjtu.toolbox.ui.components.AppDropdownMenu(
+                            expanded = showWeekPicker,
+                            onDismissRequest = { showWeekPicker = false },
+                            morph = com.xjtu.toolbox.ui.components.MenuMorph.FromTab,
+                        ) {
+                            val weeks = vm.totalWeeks.takeIf { it > 0 }
+                                ?: filteredMergedCourses.maxOfOrNull { it.weekBits.length }?.takeIf { it > 0 }
+                                ?: TermWeeks.DEFAULT_TOTAL_WEEKS
+                            val viewingCurrentTerm = vm.selectedTermCode.isEmpty() || vm.selectedTermCode == vm.currentTermCode
+                            WeekPickerMenu(
+                                totalWeeks = weeks,
+                                selectedWeek = vm.currentWeek.takeUnless { vm.showAllWeeks },
+                                thisWeek = vm.realCurrentWeek.takeIf { viewingCurrentTerm && it > 0 },
+                                hasCourse = { week -> filteredMergedCourses.any { it.isInWeek(week) } },
+                                onPickWeek = { week ->
+                                    haptics.tick()
+                                    vm.showAllWeeks = false
+                                    vm.currentWeek = week
+                                    showWeekPicker = false
+                                },
+                                onOverview = {
+                                    haptics.tick()
+                                    vm.showAllWeeks = true
+                                    showWeekPicker = false
+                                },
+                            )
+                        }
                     }
-                    selectedTab = tab
-                    // 学期栏第一次打开时才加载教材，别的栏用不上。
-                    if (tab == 2) vm.ensureTextbooks(requireApi = false)
-                },
-            )
+                    Spacer(Modifier.weight(1f))
+                }
+            }
             campusTimeHint()?.let {
                 Text(
                     it,
@@ -357,128 +383,6 @@ fun ScheduleScreen(
         }
     }
 
-    // 周选择弹窗（§1.4③）：网格选任意一周，或者切到「全学期总览」。
-    if (showWeekPicker) {
-        val pageWeeksForPicker = vm.totalWeeks.takeIf { it > 0 }
-            ?: filteredMergedCourses.maxOfOrNull { it.weekBits.length }?.takeIf { it > 0 }
-            ?: TermWeeks.DEFAULT_TOTAL_WEEKS
-        val pickerShow = remember { mutableStateOf(true) }
-        BackHandler(enabled = pickerShow.value) { pickerShow.value = false; showWeekPicker = false }
-        OverlayBottomSheet(
-            show = pickerShow.value,
-            title = "选择周",
-            onDismissRequest = { pickerShow.value = false; showWeekPicker = false },
-        ) {
-            Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
-                // 「全学期总览」和周网格是同一个选择的两种答案，放在网格上方同一行的右端，
-                // 选中时和选中的周一样高亮；不再单独占一整行、再配一行解释小字。
-                Row(
-                    Modifier.fillMaxWidth().padding(bottom = 12.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text(
-                        if (vm.realCurrentWeek > 0) "本周第 ${vm.realCurrentWeek} 周 · 共 $pageWeeksForPicker 周" else "共 $pageWeeksForPicker 周",
-                        style = MiuixTheme.textStyles.body2,
-                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                        modifier = Modifier.weight(1f),
-                    )
-                    // 「回本周」原来在整行周标题的右端，那一行删了，挪到这里
-                    val viewingCurrentTerm = vm.selectedTermCode.isEmpty() || vm.selectedTermCode == vm.currentTermCode
-                    if (viewingCurrentTerm && vm.realCurrentWeek > 0 && (vm.showAllWeeks || vm.currentWeek != vm.realCurrentWeek)) {
-                        Text(
-                            "回本周",
-                            style = MiuixTheme.textStyles.body2,
-                            fontWeight = FontWeight.SemiBold,
-                            color = MiuixTheme.colorScheme.primary,
-                            modifier = Modifier
-                                .padding(end = 8.dp)
-                                .clip(RoundedCornerShape(12.dp))
-                                .clickable {
-                                    haptics.tick()
-                                    vm.showAllWeeks = false
-                                    vm.currentWeek = vm.realCurrentWeek
-                                    showWeekPicker = false
-                                }
-                                .padding(horizontal = 10.dp, vertical = 8.dp),
-                        )
-                    }
-                    val allSelected = vm.showAllWeeks
-                    Row(
-                        Modifier
-                            .clip(RoundedCornerShape(12.dp))
-                            .background(
-                                if (allSelected) MiuixTheme.colorScheme.primary
-                                else MiuixTheme.colorScheme.primary.copy(alpha = 0.12f)
-                            )
-                            .clickable {
-                                haptics.tick()
-                                vm.showAllWeeks = true
-                                showWeekPicker = false
-                            }
-                            .padding(horizontal = 12.dp, vertical = 8.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        val fg = if (allSelected) MiuixTheme.colorScheme.onPrimary else MiuixTheme.colorScheme.primary
-                        Icon(
-                            Icons.Default.GridView,
-                            contentDescription = null,
-                            tint = fg,
-                            modifier = Modifier.size(16.dp),
-                        )
-                        Spacer(Modifier.width(6.dp))
-                        Text("全学期总览", style = MiuixTheme.textStyles.body2, fontWeight = FontWeight.SemiBold, color = fg)
-                    }
-                }
-                (1..pageWeeksForPicker).chunked(5).forEach { rowWeeks ->
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        rowWeeks.forEach { weekN ->
-                            val hasCourse = filteredMergedCourses.any { it.isInWeek(weekN) }
-                            val isSelected = !vm.showAllWeeks && weekN == vm.currentWeek
-                            Surface(
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .clip(RoundedCornerShape(10.dp))
-                                    .clickable {
-                                        haptics.tick()
-                                        vm.showAllWeeks = false
-                                        vm.currentWeek = weekN
-                                        showWeekPicker = false
-                                    }
-                                    .alpha(if (hasCourse) 1f else com.xjtu.toolbox.ui.components.ExpiredStyle.CONTENT_ALPHA),
-                                shape = RoundedCornerShape(10.dp),
-                                color = if (isSelected) MiuixTheme.colorScheme.primary.copy(alpha = 0.16f)
-                                    else MiuixTheme.colorScheme.surfaceVariant,
-                            ) {
-                                Column(
-                                    Modifier.padding(vertical = 10.dp).fillMaxWidth(),
-                                    horizontalAlignment = Alignment.CenterHorizontally,
-                                ) {
-                                    Text(
-                                        "$weekN",
-                                        style = MiuixTheme.textStyles.body2,
-                                        fontWeight = FontWeight.Bold,
-                                        color = if (isSelected) MiuixTheme.colorScheme.primary else MiuixTheme.colorScheme.onSurface,
-                                    )
-                                    if (weekN == vm.realCurrentWeek) {
-                                        Text(
-                                            "本周",
-                                            style = MiuixTheme.textStyles.footnote2,
-                                            color = MiuixTheme.colorScheme.primary,
-                                        )
-                                    }
-                                }
-                            }
-                        }
-                        // 不满 5 个时补空位，保持网格对齐。
-                        repeat(5 - rowWeeks.size) { Spacer(Modifier.weight(1f)) }
-                    }
-                    Spacer(Modifier.height(8.dp))
-                }
-                // 弹层铺到屏幕底边，最后一行会压在系统导航条上；和 AppDialogs 里的弹层一样补一段导航条高度
-                Spacer(Modifier.windowInsetsBottomHeight(WindowInsets.navigationBars))
-            }
-        }
-    }
     // 顶栏按钮是一段 lambda 交给外层 Scaffold 拿着的，闭包里 currentContent / vm.api 这类
     // 普通 val 是发布那一刻的值：只发布一次的话，切到考试页加号还在、登录晚到 vm.api 仍是 null。
     // 这两个变了就重发一份，别用 SideEffect 每帧发——外层重组会再重组这里，转起来没头。
@@ -1089,6 +993,83 @@ private fun ScheduleTabContent(
             onRequestTextbooks = onRequestTextbooks,
             onNavigate = onNavigate,
         )
+    }
+}
+
+/** 选周菜单：总览在上，周按六列排；选中的实心，本周浅底，没课的周变淡。 */
+@Composable
+private fun WeekPickerMenu(
+    totalWeeks: Int,
+    selectedWeek: Int?,
+    thisWeek: Int?,
+    hasCourse: (Int) -> Boolean,
+    onPickWeek: (Int) -> Unit,
+    onOverview: () -> Unit,
+) {
+    val colors = MiuixTheme.colorScheme
+    val overview = selectedWeek == null
+    Column(Modifier.padding(horizontal = 10.dp, vertical = 4.dp)) {
+        WeekPickerAction(Icons.Default.GridView, "全学期总览", overview, Modifier.fillMaxWidth(), onOverview)
+        Spacer(Modifier.height(8.dp))
+        (1..totalWeeks).chunked(6).forEach { row ->
+            Row(horizontalArrangement = Arrangement.spacedBy(4.dp), modifier = Modifier.padding(bottom = 4.dp)) {
+                row.forEach { week ->
+                    val selected = week == selectedWeek
+                    val current = week == thisWeek
+                    Box(
+                        Modifier
+                            .size(38.dp)
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(
+                                when {
+                                    selected -> colors.primary
+                                    current -> colors.primary.copy(alpha = 0.12f)
+                                    else -> androidx.compose.ui.graphics.Color.Transparent
+                                },
+                            )
+                            .clickable { onPickWeek(week) }
+                            .alpha(if (selected || hasCourse(week)) 1f else com.xjtu.toolbox.ui.components.ExpiredStyle.CONTENT_ALPHA),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text(
+                            "$week",
+                            style = MiuixTheme.textStyles.body2,
+                            fontWeight = if (selected || current) FontWeight.Bold else FontWeight.Medium,
+                            color = when {
+                                selected -> colors.onPrimary
+                                current -> colors.primary
+                                else -> colors.onSurfaceContainer
+                            },
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun WeekPickerAction(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    label: String,
+    selected: Boolean,
+    modifier: Modifier,
+    onClick: () -> Unit,
+) {
+    val colors = MiuixTheme.colorScheme
+    val fg = if (selected) colors.onPrimary else colors.primary
+    Row(
+        modifier
+            .clip(RoundedCornerShape(12.dp))
+            .background(if (selected) colors.primary else colors.primary.copy(alpha = 0.12f))
+            .clickable(onClick = onClick)
+            .padding(horizontal = 10.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.Center,
+    ) {
+        Icon(icon, null, Modifier.size(16.dp), tint = fg)
+        Spacer(Modifier.width(4.dp))
+        Text(label, style = MiuixTheme.textStyles.footnote1, fontWeight = FontWeight.SemiBold, color = fg, maxLines = 1)
     }
 }
 

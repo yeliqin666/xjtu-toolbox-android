@@ -271,11 +271,12 @@ fun AutoUpdateDialog(
                                 }
                             }
                         },
+                        colors = top.yukonga.miuix.kmp.basic.ButtonDefaults.buttonColorsPrimary(),
                         modifier = Modifier.fillMaxWidth()
                     ) {
-                        Icon(Icons.Default.Download, null, Modifier.size(16.dp))
+                        Icon(Icons.Default.Download, null, Modifier.size(16.dp), tint = MiuixTheme.colorScheme.onPrimary)
                         Spacer(Modifier.width(6.dp))
-                        Text(if (downloadedApk != null) "继续安装" else "下载并安装")
+                        Text(if (downloadedApk != null) "继续安装" else "下载并安装", color = MiuixTheme.colorScheme.onPrimary)
                     }
                 }
             }
@@ -327,7 +328,8 @@ private fun MarkdownReleaseNotes(markdown: String) {
             }
             quote -> Surface(
                 shape = RoundedCornerShape(10.dp),
-                color = MiuixTheme.colorScheme.surfaceVariant,
+                // 抽屉是白底，引用块用半透明压暗才看得出，不用同为白的 surfaceVariant
+                color = MiuixTheme.colorScheme.onSurface.copy(alpha = 0.05f),
                 modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp)
             ) {
                 Text(

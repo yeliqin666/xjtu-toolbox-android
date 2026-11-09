@@ -115,7 +115,7 @@ internal fun MealReportDialog(report: MealReport, exporter: MealReportExport, on
                 )
             }
             Row(Modifier.fillMaxWidth().padding(16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                Button(onClick = onDismiss, modifier = Modifier.weight(1f)) { Text("关闭") }
+                Button(onClick = onDismiss, modifier = Modifier.weight(1f), colors = com.xjtu.toolbox.ui.components.appTonalButtonColors()) { Text("关闭") }
                 Button(
                     onClick = {
                         scope.launch {

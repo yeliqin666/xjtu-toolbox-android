@@ -122,11 +122,9 @@ internal fun ConfigPanel(
         }
     }
 
-    val providerItems = AgentConfig.PROVIDERS.map {
-        top.yukonga.miuix.kmp.basic.DropdownItem(text = AgentConfig.providerLabel(it))
-    }
+    val providerItems = AgentConfig.PROVIDERS.map { AgentConfig.providerLabel(it) }
     val providerIndex = AgentConfig.PROVIDERS.indexOf(provider).coerceAtLeast(0)
-    val searchEngineItems = AgentConfig.SEARCH_ENGINES.map { DropdownItem(text = AgentConfig.searchEngineLabel(it)) }
+    val searchEngineItems = AgentConfig.SEARCH_ENGINES.map { AgentConfig.searchEngineLabel(it) }
     val searchEngineIndex = AgentConfig.SEARCH_ENGINES.indexOf(searchEngine).coerceAtLeast(0)
 
     LazyColumn(
@@ -141,7 +139,7 @@ internal fun ConfigPanel(
         item {
             Card(colors = CardDefaults.defaultColors(color = com.xjtu.toolbox.ui.components.AppCardColor)) {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    OverlaySpinnerPreference(
+                    com.xjtu.toolbox.ui.components.AppDropdownPreference(
                         title = "服务商",
                         summary = AgentConfig.providerLabel(provider),
                         items = providerItems,
@@ -262,10 +260,10 @@ internal fun ConfigPanel(
                         val extra = trimmed.takeIf { it.isNotEmpty() && it !in availableModels }
                         val options: List<String> = listOf("") + listOfNotNull(extra) + availableModels
                         val selIdx = options.indexOf(trimmed).coerceAtLeast(0)
-                        OverlaySpinnerPreference(
+                        com.xjtu.toolbox.ui.components.AppDropdownPreference(
                             title = "选择模型",
                             summary = trimmed.ifBlank { "默认（$defaultModel）" },
-                            items = options.map { DropdownItem(text = it.ifBlank { "默认（$defaultModel）" }) },
+                            items = options.map { it.ifBlank { "默认（$defaultModel）" } },
                             selectedIndex = selIdx,
                             onSelectedIndexChange = {
                                 model = options[it]
@@ -332,7 +330,7 @@ internal fun ConfigPanel(
                         }
                         if (thinkingEnabled) {
                             val efforts = AgentConfig.REASONING_EFFORTS
-                            OverlaySpinnerPreference(
+                            com.xjtu.toolbox.ui.components.AppDropdownPreference(
                                 title = "思考强度",
                                 summary = when (reasoningEffort) {
                                     AgentConfig.REASONING_AUTO -> "自动（由服务端按模型默认档）"
@@ -340,7 +338,7 @@ internal fun ConfigPanel(
                                 },
                                 // 选项文案从 efforts 现推，别再手写一份平行列表——
                                 // 两边靠下标对齐，档位一多就会错位成"选高得到最大"。
-                                items = efforts.map { DropdownItem(text = AgentConfig.reasoningEffortLabel(it)) },
+                                items = efforts.map { AgentConfig.reasoningEffortLabel(it) },
                                 selectedIndex = efforts.indexOf(reasoningEffort).coerceAtLeast(0),
                                 onSelectedIndexChange = {
                                     reasoningEffort = efforts[it]
@@ -375,7 +373,7 @@ internal fun ConfigPanel(
         item {
             Card(colors = CardDefaults.defaultColors(color = com.xjtu.toolbox.ui.components.AppCardColor)) {
                 Column(Modifier.padding(bottom = 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    OverlaySpinnerPreference(
+                    com.xjtu.toolbox.ui.components.AppDropdownPreference(
                         title = "联网搜索",
                         summary = AgentConfig.searchEngineLabel(searchEngine),
                         items = searchEngineItems,

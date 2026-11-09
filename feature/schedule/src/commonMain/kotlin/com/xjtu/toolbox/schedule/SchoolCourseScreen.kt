@@ -132,12 +132,12 @@ fun SchoolCourseScreen(
     ) { padding ->
         val glassTop = padding.glassTop(glass)
         if (vm.isInitializing) {
-            LoadingState("正在加载课程查询...", Modifier.padding(padding.withoutTop(glass)).glassSource(glass))
+            LoadingState("正在加载课程查询...", Modifier.fillMaxSize().padding(padding.withoutTop(glass)).glassSource(glass).padding(top = glassTop))
             return@Scaffold
         }
 
         if (vm.initError != null) {
-            ErrorState(vm.initError.orEmpty(), onRetry = vm::loadOptions, modifier = Modifier.padding(padding.withoutTop(glass)).glassSource(glass))
+            ErrorState(vm.initError.orEmpty(), onRetry = vm::loadOptions, modifier = Modifier.fillMaxSize().padding(padding.withoutTop(glass)).glassSource(glass).padding(top = glassTop))
             return@Scaffold
         }
 
@@ -157,12 +157,12 @@ fun SchoolCourseScreen(
         ) {
             // ── 学期选择 ──
             fullLineItem(key = "term_selector") {
-                val termEntries = vm.termList.map { DropdownItem(title = it.name) }
+                val termEntries = vm.termList.map { it.name }
                 val selectedIdx = vm.termList.indexOfFirst { it.code == selectedTermCode }.coerceAtLeast(0)
 
                 Card(Modifier.readableWidth().fillMaxWidth(), cornerRadius = 16.dp) {
                     if (termEntries.isNotEmpty()) {
-                        OverlaySpinnerPreference(
+                        com.xjtu.toolbox.ui.components.AppDropdownPreference(
                             items = termEntries,
                             selectedIndex = selectedIdx,
                             title = "学期",
@@ -294,13 +294,13 @@ fun SchoolCourseScreen(
                                 // 见 SchoolCourseSource 的能力开关）——比「出现了却筛不动」诚实。
                                 if (source.supportsDepartmentFilter) {
                                     val deptEntries = buildList {
-                                        add(DropdownItem(title = "不限"))
-                                        vm.departmentList.forEach { add(DropdownItem(title = it.name)) }
+                                        add("不限")
+                                        vm.departmentList.forEach { add(it.name) }
                                     }
                                     val deptIdx = if (selectedDeptCode.isBlank()) 0
                                         else (vm.departmentList.indexOfFirst { it.code == selectedDeptCode } + 1).coerceAtLeast(0)
                                     Card(Modifier.fillMaxWidth(), cornerRadius = 12.dp) {
-                                        OverlaySpinnerPreference(
+                                        com.xjtu.toolbox.ui.components.AppDropdownPreference(
                                             items = deptEntries,
                                             selectedIndex = deptIdx,
                                             title = "开课单位",
@@ -362,11 +362,11 @@ fun SchoolCourseScreen(
                                 Spacer(Modifier.height(6.dp))
                                 Row(verticalAlignment = Alignment.CenterVertically) {
                                     val sectionEntries = buildList {
-                                        add(DropdownItem(title = "不限"))
-                                        for (i in 1..14) add(DropdownItem(title = "第${i}节"))
+                                        add("不限")
+                                        for (i in 1..14) add("第${i}节")
                                     }
                                     Card(Modifier.weight(1f), cornerRadius = 12.dp) {
-                                        OverlaySpinnerPreference(
+                                        com.xjtu.toolbox.ui.components.AppDropdownPreference(
                                             items = sectionEntries,
                                             selectedIndex = selectedStartSection,
                                             title = "开始",
@@ -379,7 +379,7 @@ fun SchoolCourseScreen(
                                     }
                                     Text(" ~ ", Modifier.padding(horizontal = 8.dp), color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
                                     Card(Modifier.weight(1f), cornerRadius = 12.dp) {
-                                        OverlaySpinnerPreference(
+                                        com.xjtu.toolbox.ui.components.AppDropdownPreference(
                                             items = sectionEntries,
                                             selectedIndex = selectedEndSection,
                                             title = "结束",
@@ -461,13 +461,14 @@ fun SchoolCourseScreen(
                         Button(
                             onClick = { doSearch() },
                             modifier = Modifier.fillMaxWidth(),
-                            enabled = !vm.isSearching && selectedTermCode.isNotBlank()
+                            enabled = !vm.isSearching && selectedTermCode.isNotBlank(),
+                            colors = ButtonDefaults.buttonColorsPrimary(),
                         ) {
                             if (vm.isSearching) {
                                 CircularProgressIndicator(modifier = Modifier.size(18.dp))
                                 Spacer(Modifier.width(8.dp))
                             }
-                            Text(if (vm.isSearching) "搜索中..." else "搜索")
+                            Text(if (vm.isSearching) "搜索中..." else "搜索", color = MiuixTheme.colorScheme.onPrimary)
                         }
                     }
                 }
@@ -878,6 +879,12 @@ private fun CourseDetailSheet(
                         style = MiuixTheme.textStyles.footnote1,
                         color = MiuixTheme.colorScheme.onSurfaceVariantSummary
                     )
+                    Text(
+                        listOf(course.teacher.ifBlank { "教师未知" }, course.department).filter { it.isNotBlank() }.joinToString(" · "),
+                        style = MiuixTheme.textStyles.body2,
+                        color = MiuixTheme.colorScheme.onSurface,
+                        modifier = Modifier.padding(top = 6.dp),
+                    )
                     Spacer(Modifier.height(14.dp))
                     Row(Modifier.fillMaxWidth()) {
                         HeadlineStat("学分", "${course.credit}", Modifier.weight(1f))
@@ -896,26 +903,22 @@ private fun CourseDetailSheet(
                             )
                         }
                     }
-                    Spacer(Modifier.height(14.dp))
                     CapacityBar(course)
+                    HoursBar(course)
                 }
             }
 
-            SmallTitle("基本信息")
+            Spacer(Modifier.height(12.dp))
             DetailCard {
-                DetailRow("开课单位", course.department)
-                DetailRow("教师", course.teacher.ifBlank { "未知" })
-                course.lectureHours?.takeIf { it > 0 }?.let { DetailRow("授课学时", "${it.toInt()}") }
-                course.labHours?.takeIf { it > 0 }?.let { DetailRow("实验学时", "${it.toInt()}") }
-                course.practiceHours?.takeIf { it > 0 }?.let { DetailRow("实践学时", "${it.toInt()}") }
-                course.weeklyHours?.takeIf { it > 0 }?.let { DetailRow("周学时", "$it") }
-                DetailRow("校区", course.campus.ifBlank { "未知" })
-            }
-
-            if (course.scheduleLocation.isNotBlank()) {
-                SmallTitle("时间地点")
-                DetailCard {
-                    course.scheduleLocation.split(",")
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("时间地点", style = MiuixTheme.textStyles.body2, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+                    Text(course.campus.ifBlank { "校区未知" }, style = MiuixTheme.textStyles.footnote1, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
+                }
+                Spacer(Modifier.height(4.dp))
+                if (course.scheduleLocation.isBlank()) {
+                    Text("没有排课信息", style = MiuixTheme.textStyles.body2, color = MiuixTheme.colorScheme.onSurfaceVariantSummary, modifier = Modifier.padding(vertical = 5.dp))
+                }
+                course.scheduleLocation.split(",")
                         .map { it.trim() }
                         .filter { it.isNotEmpty() }
                         .forEach { slot ->
@@ -934,36 +937,27 @@ private fun CourseDetailSheet(
                                 Text(slot, style = MiuixTheme.textStyles.body2)
                             }
                         }
-                }
             }
 
-            // 「选课情况」整块依赖人数类字段；这一端不知道就整块不出现，不留空标题。
-            if (course.capacity != null && course.enrollCount != null) {
-                SmallTitle("选课情况")
-                DetailCard {
-                    DetailRow("选课人数", "${course.enrollCount} / ${course.capacity}")
-                    course.maleEnrollCount?.let { DetailRow("男生", "$it 人") }
-                    course.femaleEnrollCount?.let { DetailRow("女生", "$it 人") }
-                }
+            // 零碎信息收成一行标签 + 一行脚注，不再各占一个分区
+            val tags = listOfNotNull(
+                if (course.isPublicElective) "校公选" + course.electiveCategory.takeIf { it.isNotBlank() }?.let { " · $it" }.orEmpty() else null,
+                course.className.takeIf { it.isNotBlank() },
+            )
+            if (tags.isNotEmpty()) {
+                androidx.compose.foundation.layout.FlowRow(
+                    Modifier.fillMaxWidth().padding(top = 12.dp),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                ) { tags.forEach { SmallTag(it, MiuixTheme.colorScheme.primary) } }
             }
-
-            val hasExtra = course.isPublicElective ||
-                course.className.isNotBlank() ||
-                course.teachingClassId.isNotBlank()
-            if (hasExtra) {
-                SmallTitle("其他")
-                DetailCard {
-                    if (course.isPublicElective) {
-                        DetailRow("校公选课", "是")
-                        if (course.electiveCategory.isNotBlank()) {
-                            DetailRow("公选类别", course.electiveCategory)
-                        }
-                    }
-                    if (course.className.isNotBlank()) DetailRow("上课班级", course.className)
-                    if (course.teachingClassId.isNotBlank()) {
-                        DetailRow("教学班 ID", course.teachingClassId)
-                    }
-                }
+            if (course.teachingClassId.isNotBlank()) {
+                Text(
+                    "教学班 ID ${course.teachingClassId}",
+                    style = MiuixTheme.textStyles.footnote2,
+                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                    modifier = Modifier.padding(start = 4.dp, top = 10.dp),
+                )
             }
 
             Spacer(Modifier.height(16.dp))
@@ -994,39 +988,75 @@ private fun HeadlineStat(
     }
 }
 
+/** 一条分段横条 + 下面一行图例：选课人数（男/女占容量）、学时构成都用它。 */
 @Composable
-private fun CapacityBar(course: SchoolCourse) {
-    // 这一端不知道容量就什么都不画（调用方已经在 null 时不进来，这里再兜一层）
-    val ratio = course.fillRatio ?: return
-    val fillColor = when {
-        ratio >= 0.95f -> Color(0xFFD32F2F)
-        ratio >= 0.8f -> Color(0xFFE65100)
-        ratio >= 0.5f -> Color(0xFFF9A825)
-        else -> Color(0xFF2E7D32)
-    }
-    Column {
-        Box(
-            Modifier
-                .fillMaxWidth()
-                .height(6.dp)
-                .clip(RoundedCornerShape(3.dp))
-                .background(MiuixTheme.colorScheme.onBackground.copy(alpha = 0.08f))
-        ) {
-            Box(
-                Modifier
-                    .fillMaxHeight()
-                    .fillMaxWidth(ratio.coerceIn(0f, 1f))
-                    .clip(RoundedCornerShape(3.dp))
-                    .background(fillColor)
-            )
+private fun SegmentBar(title: String, trailing: String, segments: List<Triple<String, Float, Color>>, total: Float) {
+    val cs = MiuixTheme.colorScheme
+    Column(Modifier.padding(top = 14.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(title, style = MiuixTheme.textStyles.footnote1, fontWeight = FontWeight.Medium, color = cs.onSurface, modifier = Modifier.weight(1f))
+            Text(trailing, style = MiuixTheme.textStyles.footnote1, color = cs.onSurfaceVariantSummary)
         }
         Spacer(Modifier.height(6.dp))
-        Text(
-            "已选 ${(ratio * 100).toInt()}%",
-            style = MiuixTheme.textStyles.footnote2,
-            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-        )
+        Row(
+            Modifier.fillMaxWidth().height(8.dp).clip(RoundedCornerShape(4.dp))
+                .background(cs.onBackground.copy(alpha = 0.08f)),
+        ) {
+            segments.filter { it.second > 0f }.forEach { (_, value, color) ->
+                Box(Modifier.fillMaxHeight().weight(value.coerceAtLeast(0.0001f)).background(color))
+            }
+            val rest = total - segments.sumOf { it.second.toDouble() }.toFloat()
+            if (rest > 0f) Spacer(Modifier.weight(rest))
+        }
+        Row(Modifier.padding(top = 6.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            segments.filter { it.second > 0f }.forEach { (label, value, color) ->
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(Modifier.size(7.dp).clip(CircleShape).background(color))
+                    Spacer(Modifier.width(4.dp))
+                    Text("$label ${value.toInt()}", style = MiuixTheme.textStyles.footnote2, color = cs.onSurfaceVariantSummary)
+                }
+            }
+        }
     }
+}
+
+@Composable
+private fun CapacityBar(course: SchoolCourse) {
+    // 这一端不知道容量就不画
+    val capacity = course.capacity ?: return
+    val enrolled = course.enrollCount ?: return
+    if (capacity <= 0) return
+    val ratio = enrolled.toFloat() / capacity
+    val tight = when {
+        ratio >= 0.95f -> Color(0xFFD32F2F)
+        ratio >= 0.8f -> Color(0xFFE65100)
+        else -> MiuixTheme.colorScheme.primary
+    }
+    val male = course.maleEnrollCount
+    val female = course.femaleEnrollCount
+    val segments = if (male != null && female != null && male + female > 0) {
+        listOf(
+            Triple("男", male.toFloat(), tight),
+            Triple("女", female.toFloat(), tight.copy(alpha = 0.45f)),
+        )
+    } else {
+        listOf(Triple("已选", enrolled.toFloat(), tight))
+    }
+    SegmentBar("选课人数", "$enrolled / $capacity · ${(ratio * 100).toInt()}%", segments, maxOf(capacity, enrolled).toFloat())
+}
+
+/** 学时构成：授课 / 实验 / 实践占总学时多少。只有一种时不画条，头部的总学时已经说清了。 */
+@Composable
+private fun HoursBar(course: SchoolCourse) {
+    val primary = MiuixTheme.colorScheme.primary
+    val parts = listOf(
+        Triple("授课", (course.lectureHours ?: 0.0).toFloat(), primary),
+        Triple("实验", (course.labHours ?: 0.0).toFloat(), Color(0xFF26A69A)),
+        Triple("实践", (course.practiceHours ?: 0.0).toFloat(), Color(0xFFFFA726)),
+    )
+    if (parts.count { it.second > 0f } < 2) return
+    val total = parts.sumOf { it.second.toDouble() }.toFloat()
+    SegmentBar("学时构成", course.weeklyHours?.takeIf { it > 0 }?.let { "周学时 $it" }.orEmpty(), parts, total)
 }
 
 @Composable
@@ -1040,31 +1070,3 @@ private fun DetailCard(content: @Composable ColumnScope.() -> Unit) {
     }
 }
 
-@Composable
-private fun DetailRow(
-    label: String,
-    value: String,
-    valueColor: Color? = null
-) {
-    Row(
-        Modifier
-            .fillMaxWidth()
-            .padding(vertical = 3.dp),
-        horizontalArrangement = Arrangement.SpaceBetween
-    ) {
-        Text(
-            label,
-            style = MiuixTheme.textStyles.body2,
-            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-        )
-        Spacer(Modifier.width(16.dp))
-        Text(
-            value,
-            style = MiuixTheme.textStyles.body2,
-            fontWeight = FontWeight.Medium,
-            color = valueColor ?: MiuixTheme.colorScheme.onSurface,
-            textAlign = TextAlign.End,
-            modifier = Modifier.weight(1f)
-        )
-    }
-}

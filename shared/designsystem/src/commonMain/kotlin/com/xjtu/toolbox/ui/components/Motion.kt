@@ -6,7 +6,6 @@ import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.AnimationSpec
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
@@ -109,8 +108,11 @@ fun rememberEnterProgress(index: Int, maxAnimated: Int = ENTER_MAX): State<Float
     rememberRevealProgress(
         delayMillis = index * ENTER_STAGGER_MS,
         spec = tween(ENTER_MS, easing = FastOutSlowInEasing),
-        skip = index >= maxAnimated,
+        skip = index >= maxAnimated || !LocalEnterAnimations.current,
     )
+
+/** 这一页的控件要不要各自错峰入场。整页一起放大进来时关掉，否则控件和页面不同步。 */
+val LocalEnterAnimations = androidx.compose.runtime.compositionLocalOf { true }
 
 /**
  * 常驻循环的相位 0→1（周期 [periodMillis]）：按约 30 帧/秒推进，页面不可见就停。
@@ -148,8 +150,14 @@ fun Modifier.enterOnce(index: Int, maxAnimated: Int = ENTER_MAX): Modifier {
     }
 }
 
+/** 一上来就快、越走越慢的指数减速（取自 HyperOS 系统菜单的实测节奏）：弹出面板、整页放大都用它。 */
+val AppDecelerate: androidx.compose.animation.core.Easing = androidx.compose.animation.core.Easing { x ->
+    val k = 2.8f
+    (1f - kotlin.math.exp(-k * x)) / (1f - kotlin.math.exp(-k))
+}
+
 /**
- * 按下时缩小、松手弹回来，摸起来是「软」的。卡片、圆钮用它；小圆钮可以压得更深（如 0.92）。
+ * 按下时缓缓缩小、松手慢慢回来，不回弹。卡片、圆钮用它；小圆钮可以压得更深（如 0.92）。
  * 整行的列表项用 [pressHighlight]：一整行跟着缩放太晃。
  */
 @Composable
@@ -157,7 +165,7 @@ fun Modifier.pressScale(source: MutableInteractionSource, pressed: Float = 0.96f
     val isPressed by source.collectIsPressedAsState()
     val s = animateFloatAsState(
         if (isPressed) pressed else 1f,
-        spring(dampingRatio = 0.5f, stiffness = 600f),
+        if (isPressed) tween(200) else tween(360),
         label = "pressScale",
     )
     return graphicsLayer {
@@ -166,11 +174,11 @@ fun Modifier.pressScale(source: MutableInteractionSource, pressed: Float = 0.96f
     }
 }
 
-/** 列表行的按压：盖一层淡淡的前景色，按下即现、松手淡出；深浅色主题下都看得见。 */
+/** 列表行的按压：盖一层淡淡的前景色，缓缓压暗、松手慢慢退；深浅色主题下都看得见。 */
 @Composable
 fun Modifier.pressHighlight(source: MutableInteractionSource): Modifier {
     val isPressed by source.collectIsPressedAsState()
-    val a = animateFloatAsState(if (isPressed) 1f else 0f, tween(if (isPressed) 60 else 220), label = "pressHighlight")
+    val a = animateFloatAsState(if (isPressed) 1f else 0f, tween(if (isPressed) 200 else 440), label = "pressHighlight")
     val tint = MiuixTheme.colorScheme.onSurface
     return drawWithContent {
         drawContent()
@@ -393,13 +401,13 @@ fun SkeletonBlock(modifier: Modifier = Modifier, cornerRadius: Dp = 12.dp) {
 /** 「成功」的绿色：打勾动画和成功文案共用。 */
 val SuccessGreen = Color(0xFF34C759)
 
-/** 一次性描出来的对勾（登录、预订、生成成功这类时刻）：外圈弹一下，对勾沿路径画出。 */
+/** 一次性描出来的对勾（登录、预订、生成成功这类时刻）：外圈放大到位，对勾沿路径画出。 */
 @Composable
 fun DrawCheckmark(color: Color = SuccessGreen, modifier: Modifier = Modifier, size: Dp = 72.dp) {
     val ring = remember { Animatable(0.6f) }
     val stroke = remember { Animatable(0f) }
     LaunchedEffect(Unit) {
-        ring.animateTo(1f, spring(dampingRatio = 0.45f, stiffness = 380f))
+        ring.animateTo(1f, tween(420, easing = AppDecelerate))
     }
     LaunchedEffect(Unit) {
         delay(120)

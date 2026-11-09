@@ -34,6 +34,9 @@ object HomeStatsRefresher {
 
     private const val DAY = 24L * 60 * 60 * 1000L
 
+    /** 卡片明细最多给几条：4×4 的大卡放得下这么多，小卡按高度能放几条就画几条。 */
+    private const val TILE_LINES = 8
+
     private val runLock = Mutex()
 
     /**
@@ -106,7 +109,7 @@ object HomeStatsRefresher {
         fun freeUntil(room: com.xjtu.toolbox.emptyroom.RoomInfo): Int =
             (section..room.status.size).takeWhile { room.status[it - 1] == 0 }.lastOrNull() ?: section
         val picks = free.sortedWith(compareByDescending<com.xjtu.toolbox.emptyroom.RoomInfo> { r -> favorites.any { r.name.startsWith(it) && it.isNotBlank() } }
-            .thenByDescending { freeUntil(it) }.thenBy { it.name }).take(4)
+            .thenByDescending { freeUntil(it) }.thenBy { it.name }).take(TILE_LINES)
         return HomeStat(
             picks.first().name,
             "$campus · 第 $section 节起 · 课表空闲",
@@ -164,7 +167,7 @@ object HomeStatsRefresher {
             val today = com.xjtu.toolbox.util.todayOnCampus()
             val term = terms.firstOrNull { it.currentWeek(today) > 0 } ?: terms.firstOrNull { it.startDate > today }
                 ?: return@Source null
-            val events = term.events.filter { it.endDate >= today }.sortedBy { it.startDate }.take(4)
+            val events = term.events.filter { it.endDate >= today }.sortedBy { it.startDate }.take(TILE_LINES)
             HomeStat(term.currentWeek(today).takeIf { it > 0 }?.let { "第 $it 周" } ?: "学期未开始", term.termName,
                 events.map { HomeLine("${it.startDate.monthNumber}/${it.startDate.dayOfMonth} · ${it.name}") })
         },
@@ -173,7 +176,7 @@ object HomeStatsRefresher {
             if (session.login.value == null) return@Source null
             val page = session.repository.list(com.xjtu.toolbox.community.CommunityRepo.OWNER, com.xjtu.toolbox.community.CommunityRepo.NAME, null,
                 com.xjtu.toolbox.community.DiscussionQuery(sort = com.xjtu.toolbox.community.DiscussionSort.CREATED)).getOrThrow()
-            val posts = page.items.sortedByDescending { it.createdAt }.take(4)
+            val posts = page.items.sortedByDescending { it.createdAt }.take(TILE_LINES)
             posts.firstOrNull()?.let { first -> HomeStat(first.title, "社区最新发布",
                 posts.map { HomeLine(it.title, "app:${AppRoute.CommunityPost(it.number).id}", listOfNotNull(it.author, "${it.comments} 回复").joinToString(" · ")) }) }
         },
@@ -288,7 +291,7 @@ object HomeStatsRefresher {
                 val shownCount = shown?.scoreList?.size ?: 0
                 // 小组件明细：最近出分的几门（取不到本学期就用有成绩的最新学期）
                 val recent = (shown ?: terms.maxByOrNull { it.termCode })?.scoreList.orEmpty()
-                    .take(4).map { com.xjtu.toolbox.home.HomeLine("${it.courseName.take(10)}  ${it.score}") }
+                    .take(TILE_LINES).map { com.xjtu.toolbox.home.HomeLine("${it.courseName.take(10)}  ${it.score}") }
                 when {
                     newCount > 0 -> HomeStat("$newCount 门新成绩", "共 $total 门 · 有更新", recent)
                     shownCount > 0 -> HomeStat("$shownCount 门", "${shown?.termName.orEmpty()} 学期", recent)
@@ -418,7 +421,7 @@ object HomeStatsRefresher {
         val acts = all.filter { it.third.type in wanted }
         Log.d(TAG, "lms: 命中作业/资料 ${acts.size} 条")
         if (acts.isEmpty()) return HomeStat("${inTerm.size} 门课程", "本学期暂无作业或资料",
-            inTerm.take(4).map { HomeLine(it.name, "app:${AppRoute.Lms(courseId = it.id).id}") })
+            inTerm.take(TILE_LINES).map { HomeLine(it.name, "app:${AppRoute.Lms(courseId = it.id).id}") })
 
         // 排序时间要逐级兜底：**部分作业既没有 updated_at 也没有 created_at**
         // （用户实测遇到过），只用这两个字段的话它们会以空串排到最后，永远选不中。
@@ -429,7 +432,7 @@ object HomeStatsRefresher {
                 .ifBlank { a.deadline.orEmpty() }
                 .ifBlank { a.endTime.orEmpty() }
                 .ifBlank { a.startTime.orEmpty() }
-        }.take(4)
+        }.take(TILE_LINES)
 
         fun label(triple: Triple<Int, String, com.xjtu.toolbox.lms.LmsActivity>): String {
             val (_, course, a) = triple
@@ -673,7 +676,7 @@ object HomeStatsRefresher {
         return HomeStat(
             "$rate%",
             if (abnormal > 0) "本周 $ok/$total 次正常 · $abnormal 次异常" else "本周 $ok/$total 次正常",
-            stats.sortedByDescending { it.abnormalCount }.take(4).map {
+            stats.sortedByDescending { it.abnormalCount }.take(TILE_LINES).map {
                 HomeLine("${it.subjectName} · " + if (it.abnormalCount > 0) "迟到 ${it.lateCount} / 缺勤 ${it.absenceCount}" else "${it.actualCount}/${it.total} 次正常")
             },
         )

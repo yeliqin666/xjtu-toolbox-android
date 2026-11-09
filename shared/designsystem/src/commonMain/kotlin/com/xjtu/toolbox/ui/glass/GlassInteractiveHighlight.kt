@@ -5,9 +5,10 @@
 package com.xjtu.toolbox.ui.glass
 
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.VectorConverter
 import androidx.compose.animation.core.VisibilityThreshold
-import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.Offset
@@ -33,10 +34,8 @@ class GlassInteractiveHighlight(
     val position: (size: Size, offset: Offset) -> Offset = { _, offset -> offset },
 ) {
 
-    private val pressProgressAnimationSpec =
-        spring(0.5f, 300f, 0.001f)
-    private val positionAnimationSpec =
-        spring(0.5f, 300f, Offset.VisibilityThreshold)
+    private val pressProgressAnimationSpec = tween<Float>(260, easing = FastOutSlowInEasing)
+    private val positionAnimationSpec = tween<Offset>(260, easing = FastOutSlowInEasing)
 
     private val pressProgressAnimation =
         Animatable(0f, 0.001f)

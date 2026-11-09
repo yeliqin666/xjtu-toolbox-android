@@ -132,13 +132,38 @@ private fun CommunityForum(
         when (shown) {
             is ForumPage.Detail -> {
                 BackHandler(onBack = closeDetail)
-                DiscussionDetailScreen(
-                    initial = shown.discussion,
-                    repo = repo,
-                    onChanged = vm::replace,
-                    onDeleted = { vm.remove(shown.discussion.id); closeDetail() },
-                    onBack = closeDetail,
-                )
+                val linkScope = androidx.compose.runtime.rememberCoroutineScope()
+                val refs = remember(repo) { IssueRefResolver(repo, linkScope) }
+                // 帖子里的 #编号：讨论留在 App 内，issue 和 PR 交给浏览器
+                val discussionUrl = "https://github.com/${CommunityRepo.OWNER}/${CommunityRepo.NAME}/discussions/"
+                val links = remember(uriHandler) {
+                    object : androidx.compose.ui.platform.UriHandler {
+                        override fun openUri(uri: String) {
+                            val number = uri.removePrefix(discussionUrl).takeIf { uri.startsWith(discussionUrl) }?.toIntOrNull()
+                            if (number == null) {
+                                uriHandler.openUri(uri)
+                            } else {
+                                linkScope.launch {
+                                    repo.detail(CommunityRepo.OWNER, CommunityRepo.NAME, number)
+                                        .onSuccess { open = it }
+                                        .onFailure { uriHandler.openUri(uri) }
+                                }
+                            }
+                        }
+                    }
+                }
+                androidx.compose.runtime.CompositionLocalProvider(
+                    LocalIssueRefs provides refs,
+                    LocalUriHandler provides links,
+                ) {
+                    DiscussionDetailScreen(
+                        initial = shown.discussion,
+                        repo = repo,
+                        onChanged = vm::replace,
+                        onDeleted = { vm.remove(shown.discussion.id); closeDetail() },
+                        onBack = closeDetail,
+                    )
+                }
             }
             ForumPage.Compose -> {
                 BackHandler { if (!state.submitting) vm.setComposing(false) }

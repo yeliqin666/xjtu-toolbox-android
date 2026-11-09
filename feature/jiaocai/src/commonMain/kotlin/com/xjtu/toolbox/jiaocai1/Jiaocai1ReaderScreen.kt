@@ -1,5 +1,6 @@
 package com.xjtu.toolbox.jiaocai1
 
+
 import com.xjtu.toolbox.ui.glass.tabContentPadding
 import com.xjtu.toolbox.ui.components.BackButton
 import androidx.compose.ui.graphics.ImageBitmap
@@ -209,12 +210,10 @@ private fun ReaderContent(
                     },
                     actions = {
                         Box {
-                            IconButton(onClick = { showToc = true }) {
-                                Icon(Icons.AutoMirrored.Filled.MenuBook, contentDescription = "目录")
-                            }
-                            AppDropdownMenu(
+                            com.xjtu.toolbox.ui.components.AppIconMenu(
                                 expanded = showToc,
-                                onDismissRequest = { showToc = false },
+                                onExpandedChange = { showToc = it },
+                                icon = { Icon(Icons.AutoMirrored.Filled.MenuBook, contentDescription = "目录") },
                             ) {
                                 Jiaocai1Paging.sectionStarts(pages).forEach { (typeIndex, start) ->
                                     AppDropdownMenuItem(

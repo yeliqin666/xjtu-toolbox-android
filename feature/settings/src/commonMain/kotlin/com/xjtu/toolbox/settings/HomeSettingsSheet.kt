@@ -110,26 +110,17 @@ fun HomeSettingsSheet(
         onDismissRequest = onDismiss,
     ) {
         // 抽屉自己要知道怎么关自己：「恢复默认分组和布局」确认之后要立刻合上（§29 补充）
-        HomeSettingsBody(onDismiss = onDismiss, showTopBarStyle = showTopBarStyle)
+        HomeSettingsBody(
+            onDismiss = onDismiss,
+            showTopBarStyle = showTopBarStyle,
+            modifier = Modifier.verticalScroll(rememberScrollState()).navigationBarsPadding(),
+        )
     }
 }
 
-/** 主页设置那一行的摘要文案：「卡片组 · 主题色渐变」这种。 */
-internal fun homeSettingsSummary(store: SettingsStore): String = listOf(
-    when (store.homeLayout) {
-        SettingsStore.HOME_LAYOUT_CLASSIC -> "经典分类卡"
-        // 只有两个取值，其余一律是卡片组（老存档的 widgets 也被读成 cards）
-        else -> "卡片组"
-    },
-    when (store.homeBackground) {
-        "solid" -> "主题色"
-        "image" -> "自定义图片"
-        else -> "主题色渐变"
-    },
-).joinToString(" · ")
-
+/** 抽屉和设置「外观」页共用的内容；滚动归外层。[onDismiss]：恢复默认或导入后要收起时调用。 */
 @Composable
-private fun HomeSettingsBody(onDismiss: () -> Unit, showTopBarStyle: Boolean) {
+internal fun HomeSettingsBody(onDismiss: () -> Unit, showTopBarStyle: Boolean, modifier: Modifier = Modifier) {
     // 卡片组独有：整页布局（分组与格位）、网格开关、折射、圆角、背景不透明度
     val store = remember { HomeLayoutStore() }
     // 两套布局共用：背景、卡片材质、顶栏排法
@@ -174,14 +165,9 @@ private fun HomeSettingsBody(onDismiss: () -> Unit, showTopBarStyle: Boolean) {
         onDispose { store.notifyChanged() }
     }
 
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .verticalScroll(rememberScrollState())
-            .navigationBarsPadding(),
-    ) {
+    Column(modifier.fillMaxWidth()) {
         // ── 布局：功能区样式、网格、顶栏排法 ──
-        SmallTitle("布局")
+        SmallTitle("首页布局")
         HomeSettingsCard {
             AppDropdownPreference(
                 title = "功能区",
@@ -212,7 +198,7 @@ private fun HomeSettingsBody(onDismiss: () -> Unit, showTopBarStyle: Boolean) {
         }
 
         // ── 外观：背景与卡片（背景、材质三套布局共用） ──
-        SmallTitle("外观")
+        SmallTitle("首页背景与卡片")
         HomeSettingsCard {
             HomeBackgroundPreference(settings, startAction = { SettingsIcon(Icons.Default.Wallpaper, cPurple) })
             // 卡片组独有：壁纸再盖一层主题底色，文字对比度不够时自己往下拨

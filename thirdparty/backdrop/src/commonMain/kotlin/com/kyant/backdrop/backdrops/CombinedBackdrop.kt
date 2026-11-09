@@ -3,6 +3,7 @@ package com.kyant.backdrop.backdrops
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.remember
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.GraphicsLayerScope
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.layout.LayoutCoordinates
@@ -54,6 +55,9 @@ private class Combined2Backdrops(
         with(backdrop1) { drawBackdrop(density, coordinates, layerBlock) }
         with(backdrop2) { drawBackdrop(density, coordinates, layerBlock) }
     }
+
+    override fun sampleOffset(coordinates: LayoutCoordinates): Offset =
+        backdrop1.sampleOffset(coordinates) + backdrop2.sampleOffset(coordinates)
 }
 
 @Immutable
@@ -77,6 +81,9 @@ private class Combined3Backdrops(
         with(backdrop2) { drawBackdrop(density, coordinates, layerBlock) }
         with(backdrop3) { drawBackdrop(density, coordinates, layerBlock) }
     }
+
+    override fun sampleOffset(coordinates: LayoutCoordinates): Offset =
+        backdrop1.sampleOffset(coordinates) + backdrop2.sampleOffset(coordinates) + backdrop3.sampleOffset(coordinates)
 }
 
 @Immutable
@@ -96,4 +103,7 @@ private class CombinedBackdrops(
             with(backdrop) { drawBackdrop(density, coordinates, layerBlock) }
         }
     }
+
+    override fun sampleOffset(coordinates: LayoutCoordinates): Offset =
+        backdrops.fold(Offset.Zero) { sum, backdrop -> sum + backdrop.sampleOffset(coordinates) }
 }

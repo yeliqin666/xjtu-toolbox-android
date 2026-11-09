@@ -17,7 +17,6 @@ import androidx.compose.animation.core.tween
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.VectorConverter
 import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.spring
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -373,7 +372,7 @@ fun HomeCardGroupScreen(
 
     // 顶栏模糊带与顶栏圆钮的采样源：**这一页的内容层**（背景 + 滚动内容），
     // 糊出来的是「此刻压在它下面的东西」，而不是固定不动的壁纸。
-    val pageBackdrop = rememberLayerBackdrop()
+    val pageBackdrop = rememberLayerBackdrop(cache = true)
 
     // 有消费者才录（`layerBackdrop` 是一次整屏离屏渲染）：玻璃风格的模糊带、液态圆钮（编辑态没有宿主顶栏也画）
     val recordPageLayer = glass || (liquid && (collapsible || editing.on))
@@ -798,7 +797,7 @@ fun HomeCardGroupScreen(
             ghostSettle.snapTo(from)
             ghostSettling = true
             try {
-                ghostSettle.animateTo(destination ?: startGhost, HomeTileSpringOffset)
+                ghostSettle.animateTo(destination ?: startGhost, HomeTileMotionOffset)
             } finally {
                 if (ghostEpoch == epoch) {
                     ghostSettling = false
@@ -850,7 +849,7 @@ fun HomeCardGroupScreen(
         scope.launch {
             reorderSettleAnim.snapTo(liftNow)
             session.release()
-            reorderSettleAnim.animateTo(0f, HomeTileSpring)
+            reorderSettleAnim.animateTo(0f, HomeTileMotion)
             if (reorderEpoch == epoch) {
                 reorderSettleId = null
                 session.finish()
@@ -893,7 +892,7 @@ fun HomeCardGroupScreen(
             reorderSettleAnim.snapTo(liftNow - delta)
             update { it.moveGroupWithin(id, order, target) }
             session.release()
-            reorderSettleAnim.animateTo(0f, HomeTileSpring)
+            reorderSettleAnim.animateTo(0f, HomeTileMotion)
             if (reorderEpoch == epoch) {
                 reorderSettleId = null
                 session.finish()
@@ -1074,7 +1073,6 @@ fun HomeCardGroupScreen(
                         dateLabel = host.dateLabel,
                         weekNumber = if (HomeCard.WEEK_NUMBER in honored) host.weekNumber else 0,
                         status = host.statusLine,
-                        onStatus = host::onOpenStatus,
                         modifier = Modifier.enterOnce(0).onSizeChanged { mastheadPx = it.height }.then(dim),
                     )
                 } else if (collapsible) {
@@ -1156,6 +1154,20 @@ fun HomeCardGroupScreen(
                                     // 卡片能不能糊：没有可糊的细节（纯色 / 渐变，或壁纸已被糊平）时关掉
                                     blurGlass = glassHasDetail,
                                     cardCorner = cardCorner,
+                                    resizeSpan = { tile ->
+                                        val g = dragGeometry
+                                        if (!g.ready) {
+                                            null
+                                        } else {
+                                            val delta = pointerBoard - session.resizeStartContent
+                                            Offset(
+                                                (session.resizeStartCells.x + delta.x / g.colUnit)
+                                                    .coerceIn(HomeGridMath.MIN_SPAN, minOf(HomeGridMath.MAX_SPAN, HomeGridMath.COLUMNS - tile.x)),
+                                                (session.resizeStartCells.y + delta.y / g.rowUnit)
+                                                    .coerceIn(HomeGridMath.MIN_SPAN, HomeGridMath.MAX_SPAN),
+                                            )
+                                        }
+                                    },
                                     // 校园卡大卡的付款码：用餐时段才真去取（原「小组件」那套能力）
                                     paymentCode = { host.paymentCode() },
                                     session = session,
@@ -1179,11 +1191,24 @@ fun HomeCardGroupScreen(
                                     onStartEdit = { editing.begin(stored) },
                                     onEditGroup = { editing.editGroup = group },
                                     onAddTile = { editing.addTo = group },
+                                    addTileMenu = {
+                                        TilePickerMenu(
+                                            expanded = editing.addTo?.id == group.id,
+                                            // 全目录都列：组内已经有的功能**照样可以再加一块**（2026-11 按需求取消了
+                                            // 「一组里同一功能只能一个」的限制，常用功能本来就是同路由的第二块）
+                                            candidates = catalog,
+                                            onDismiss = { editing.addTo = null },
+                                            onPick = { service ->
+                                                update { it.addTile(group.id, service.route.id, it.nextTileId(group.id, service.route.id)) }
+                                                editing.addTo = null
+                                            },
+                                        )
+                                    },
                                     onDeleteGroup = { editing.confirmDeleteGroup = group },
                                     // 网格模式下删完顺手收空行（空行不该留着，下面的块与组一起上移）
                                     onRemoveTile = { tileId -> update { it.removeTile(tileId, grid) } },
-                                    // 和头卡同一套左右留白由容器统一给；入场沿用「错峰淡入上浮」，只播一次
-                                    modifier = Modifier.enterOnce(index),
+                                    // 功能卡各自错峰起跳，避免再叠加整组的上浮。
+                                    modifier = Modifier,
                                 )
                             }
                         }
@@ -1192,7 +1217,7 @@ fun HomeCardGroupScreen(
 
                 AnimatedVisibility(
                     visible = editing.on,
-                    enter = expandVertically(spring(dampingRatio = 0.8f, stiffness = 400f)) + fadeIn(),
+                    enter = expandVertically(tween(320, easing = androidx.compose.animation.core.FastOutSlowInEasing)) + fadeIn(),
                     exit = shrinkVertically(tween(180)) + fadeOut(tween(120)),
                 ) {
                     // 新组不预填名字：空标题常规态整行不画，编辑态显示「未命名分组」占位
@@ -1224,7 +1249,6 @@ fun HomeCardGroupScreen(
                     editing = editing.on,
                     leading = topLeading,
                     actions = topActions,
-                    onCancelEdit = { editing.cancel() },
                     onSaveEdit = { saveAndQuitEdit() },
                     onHomeSettings = {
                         // 齿轮 = 在原地打开「主页设置」抽屉：不跳设置页、编辑态不关闭，
@@ -1336,18 +1360,6 @@ fun HomeCardGroupScreen(
                 },
             )
         }
-        editing.addTo?.let { group ->
-            TilePickerDialog(
-                // 全目录都列：组内已经有的功能**照样可以再加一块**（2026-11 按需求取消了
-                // 「一组里同一功能只能一个」的限制，常用功能本来就是同路由的第二块）
-                candidates = catalog,
-                onDismiss = { editing.addTo = null },
-                onPick = { service ->
-                    update { it.addTile(group.id, service.route.id, it.nextTileId(group.id, service.route.id)) }
-                    editing.addTo = null
-                },
-            )
-        }
     }
 }
 
@@ -1369,8 +1381,8 @@ private val FIRST_GROUP_GAP = 20.dp
 /** 自由拖拽模式的边界联动容差（格）：离邻居的边不到这个距离就吸过去。 */
 private const val EDGE_LINK_CELLS = 0.28f
 
-/** 幽灵块吸附/回弹的弹簧：与卡片位移同一组参数（阻尼、刚度），只是换成二维坐标。 */
-private val HomeTileSpringOffset = spring<Offset>(dampingRatio = 0.62f, stiffness = 520f)
+/** 幽灵块吸附：与卡片位移同一条曲线，只是换成二维坐标。 */
+private val HomeTileMotionOffset = tween<Offset>(HOME_TILE_MOTION_MS, easing = androidx.compose.animation.core.FastOutSlowInEasing)
 
 /**
  * 拖动中幽灵块缩放到的比例 / 不透明度：比真身略小、略透，底下的落点占位框才露得出来。
@@ -1453,7 +1465,6 @@ private fun HomeCollapsingBar(
     editing: Boolean,
     leading: (@Composable () -> Unit)?,
     actions: (@Composable () -> Unit)?,
-    onCancelEdit: () -> Unit,
     onSaveEdit: () -> Unit,
     onHomeSettings: () -> Unit,
     alignWithGreeting: Boolean = false,
@@ -1493,9 +1504,10 @@ private fun HomeCollapsingBar(
         Box(
             Modifier
                 .matchParentSize()
-                .padding(top = topInset)
+                .padding(top = topInset, start = if (editing) 20.dp else 0.dp)
                 .height(BAR_HEIGHT),
-            contentAlignment = Alignment.Center,
+            // 编辑态标题靠左，右边留给三颗按钮
+            contentAlignment = if (editing) Alignment.CenterStart else Alignment.Center,
         ) {
             AnimatedContent(editing, transitionSpec = { BarSwap }, label = "barTitle") { edit ->
                 val title = when {
@@ -1531,7 +1543,7 @@ private fun HomeCollapsingBar(
             ) {
                 AnimatedContent(editing, transitionSpec = { BarSwap }, label = "barLeading") { edit ->
                     when {
-                        edit -> HomeBarIconButton(Icons.Default.Close, "取消编辑", barLiquidBackdrop, onCancelEdit)
+                        edit -> Unit
                         devTopBar -> HomeBarAvatar(progress)
                         else -> leading?.invoke()
                     }
@@ -1669,7 +1681,6 @@ private fun EditorialMasthead(
     dateLabel: String,
     weekNumber: Int,
     status: HomeStatusLine?,
-    onStatus: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val ink = MiuixTheme.colorScheme.onSurface
@@ -1709,7 +1720,7 @@ private fun EditorialMasthead(
                 if (status != null) {
                     Spacer(Modifier.width(12.dp))
                     Box(Modifier.weight(1f), contentAlignment = Alignment.CenterEnd) {
-                        HeroStatusLine(status, onStatus)
+                        HeroStatusLine(status)
                     }
                 }
             }
@@ -2061,45 +2072,6 @@ private fun InboxBrief(summary: HomeInboxSummary, ink: Color, muted: Color, onLo
     }
 }
 
-@Composable
-private fun HeroStatusLine(
-    status: HomeStatusLine,
-    onClick: () -> Unit,
-) {
-    val tint = when (status.tone) {
-        HomeTone.ACCENT -> STATUS_BLUE
-        HomeTone.ALERT -> MiuixTheme.colorScheme.error
-        HomeTone.NORMAL -> STATUS_GREEN
-        HomeTone.MUTED -> MiuixTheme.colorScheme.onSurfaceVariantSummary
-    }
-    val muted = MiuixTheme.colorScheme.onSurfaceVariantSummary
-    val dot = @Composable {
-        Box(
-            Modifier
-                .size(6.dp)
-                .clip(CircleShape)
-                .background(tint)
-        )
-    }
-    val click = Modifier.clickable(
-        interactionSource = remember { MutableInteractionSource() },
-        indication = SinkFeedback(),
-        onClick = onClick,
-    )
-    Row(click, verticalAlignment = Alignment.CenterVertically) {
-        dot()
-        Spacer(Modifier.width(5.dp))
-        Text(
-            status.label,
-            style = MiuixTheme.textStyles.footnote2,
-            color = muted,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.weight(1f, fill = false),
-        )
-        Icon(Icons.Default.ChevronRight, contentDescription = "查看子系统连接状态", tint = muted, modifier = Modifier.size(13.dp))
-    }
-}
 
 // ── 编辑态的弹窗与幽灵块 ──
 
@@ -2140,15 +2112,15 @@ private fun HomeDragGhost(
     // 松手后幽灵一边飞向落点、一边**长回原大、变回不透明**：
     // 拖动中它是 94% + 88% 不透明（好让底下的落点占位框露出来），而落点处换成真身的那一刻
     // 是真身 100%。不把这两个值补回去，动画结束那一帧就会「从略小一点突变成正常大小」——
-    // 用户看到的就是落位末尾跳一下。用同一组弹簧参数，和吸附位移同步收敛。
+    // 用户看到的就是落位末尾跳一下。和吸附位移同一条曲线，同时到位。
     val settleToFull by animateFloatAsState(
         targetValue = if (settling) 1f else 0f,
-        animationSpec = HomeTileSpring,
+        animationSpec = HomeTileMotion,
         label = "ghostSettleToFull",
     )
-    // 拿起：从真身大小弹到拖动比例，而不是一帧缩下去
+    // 拿起时缩到拖动比例，同样是这条曲线。
     val pickup = remember { Animatable(0f) }
-    LaunchedEffect(Unit) { pickup.animateTo(1f, spring(dampingRatio = 0.5f, stiffness = 520f)) }
+    LaunchedEffect(Unit) { pickup.animateTo(1f, HomeTileMotion) }
 
     Box(
         Modifier
@@ -2257,7 +2229,7 @@ private fun GroupEditDialog(
 /** 组标题颜色的一枚色块：选中时外面套一圈主题色描边。 */
 @Composable
 private fun ColorSwatch(fill: Brush, selected: Boolean, label: String?, onClick: () -> Unit) {
-    val ring by animateFloatAsState(if (selected) 1f else 0f, spring(dampingRatio = 0.6f, stiffness = 500f), label = "swatch")
+    val ring by animateFloatAsState(if (selected) 1f else 0f, tween(220), label = "swatch")
     val outline = MiuixTheme.colorScheme.onSurface
     Box(
         Modifier
@@ -2312,43 +2284,34 @@ private fun DeleteGroupDialog(group: HomeGroup, onDismiss: () -> Unit, onConfirm
 
 /** 往一个组里放功能：列出目录里的所有入口（已经放过的**也列**，允许再放一块）。 */
 @Composable
-private fun TilePickerDialog(
+private fun TilePickerMenu(
+    expanded: Boolean,
     candidates: List<AppService>,
     onDismiss: () -> Unit,
     onPick: (AppService) -> Unit,
 ) {
-    WindowDialog(show = true, title = "添加功能", onDismissRequest = onDismiss) {
-        Column(Modifier.heightIn(max = 420.dp).verticalScroll(rememberScrollState())) {
-            if (candidates.isEmpty()) {
-                Text(
-                    "这一端没有可添加的功能",
-                    fontSize = 13.sp,
-                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                    modifier = Modifier.padding(8.dp),
-                )
-            }
-            candidates.forEach { service ->
-                Row(
-                    Modifier.fillMaxWidth()
-                        .clip(RoundedCornerShape(12.dp))
-                        .clickable(
-                            interactionSource = remember { MutableInteractionSource() },
-                            indication = SinkFeedback(),
-                            onClick = { onPick(service) },
-                        )
-                        .padding(horizontal = 8.dp, vertical = 10.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
+    com.xjtu.toolbox.ui.components.AppDropdownMenu(expanded = expanded, onDismissRequest = onDismiss) {
+        if (candidates.isEmpty()) {
+            Text(
+                "这一端没有可添加的功能",
+                fontSize = 13.sp,
+                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                modifier = Modifier.padding(16.dp),
+            )
+        }
+        candidates.forEach { service ->
+            com.xjtu.toolbox.ui.components.AppDropdownMenuItem(
+                text = { Text(service.title, fontSize = 14.sp) },
+                leadingIcon = {
                     Icon(
                         HomeIcons.of(service.route),
                         contentDescription = null,
                         tint = serviceColor(service.route.id),
                         modifier = Modifier.size(20.dp),
                     )
-                    Spacer(Modifier.width(12.dp))
-                    Text(service.title, fontSize = 14.sp)
-                }
-            }
+                },
+                onClick = { onPick(service) },
+            )
         }
     }
 }
@@ -2411,9 +2374,6 @@ private const val MAX_TEACHING_WEEK = 25
 
 /** 组名最多几个字：标题行只有一行、18sp 字号，再长就只剩省略号了。 */
 private const val GROUP_TITLE_MAX = 12
-
-private val STATUS_GREEN = Color(0xFF2E7D32)
-private val STATUS_BLUE = Color(0xFF1565C0)
 
 /** `¥42.50` —— 自己拼两位小数。 */
 private fun yuanText(value: Float): String {

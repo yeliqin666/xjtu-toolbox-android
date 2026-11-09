@@ -15,7 +15,7 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
  * 页面级分段选择。缩进的 `surfaceContainer` 托盘托住 [TabRowWithContour]，
  * 避免通栏白板切顶栏，也避免轨道默认 `surface` 叠在页面灰上隐形。
  *
- * 已经在白卡片内部时用 [embedded]：不再外套托盘，只给组件自带轨道一层浅底。
+ * 已经在卡片或抽屉内部时用 [embedded]：不再外套托盘，轨道改成半透明压暗，放在任何底色上都看得见。
  */
 @Composable
 fun AppSegmentedTabs(
@@ -33,7 +33,9 @@ fun AppSegmentedTabs(
             tabs = tabs,
             selectedTabIndex = selectedTabIndex,
             onTabSelected = onTabSelected,
-            colors = if (embedded || onGlass) {
+            // 玻璃上、或嵌在别的容器里时，轨道用半透明压暗：它叠在什么底色上都比底色深一档。
+            // 默认轨道是 surface，放进同为 surface 的抽屉就和底色融成一片，只剩选中那颗胶囊
+            colors = if (onGlass || embedded) {
                 TabRowDefaults.tabRowColors(
                     backgroundColor = MiuixTheme.colorScheme.onBackground.copy(alpha = 0.06f),
                 )

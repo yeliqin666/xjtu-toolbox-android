@@ -208,7 +208,7 @@ fun HomeClassicScreen(
     val rangePx = if (masthead && mastheadPx > 0) mastheadPx.toFloat().coerceAtLeast(barPx) else barPx
     val progress = { (scroll.value / rangePx).coerceIn(0f, 1f) }
     // 顶栏的模糊带采这一页自己的滚动层：顶栏本身在壳的采样层里，采壳的层会采到自己
-    val pageBackdrop = rememberLayerBackdrop()
+    val pageBackdrop = rememberLayerBackdrop(cache = true)
     val glass = LocalGlassStyle.current && collapsible
 
     Box(modifier.fillMaxSize()) {
@@ -236,7 +236,6 @@ fun HomeClassicScreen(
                     dateLabel = host.dateLabel,
                     weekNumber = if (HomeCard.WEEK_NUMBER in honored) host.weekNumber else 0,
                     status = host.statusLine,
-                    onStatus = host::onOpenStatus,
                     ink = pageInk,
                     modifier = Modifier.enterOnce(0).onSizeChanged { mastheadPx = it.height },
                 )
@@ -421,7 +420,6 @@ private fun EditorialMasthead(
     dateLabel: String,
     weekNumber: Int,
     status: HomeStatusLine?,
-    onStatus: () -> Unit,
     ink: Color = MiuixTheme.colorScheme.onSurface,
     modifier: Modifier = Modifier,
 ) {
@@ -458,7 +456,7 @@ private fun EditorialMasthead(
                 if (status != null) {
                     Spacer(Modifier.width(12.dp))
                     Box(Modifier.weight(1f), contentAlignment = Alignment.CenterEnd) {
-                        HeroStatusLine(status, onStatus)
+                        HeroStatusLine(status)
                     }
                 }
             }
@@ -908,26 +906,12 @@ private fun IndexEntry(row: HomeServiceRow, modifier: Modifier = Modifier) {
     val iconColor = if (dark) lerp(row.color, Color.White, 0.4f) else row.color
     Row(
         modifier.background(tile, RoundedCornerShape(15.dp))
-            .opensRow(row, 15.dp) { m -> IndexEntrySnapshot(row, m) }
-            .padding(horizontal = 10.dp, vertical = 11.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        IndexEntryBody(row, dark, ink, muted, iconColor)
-    }
-}
-
-/** 返回转场里画在窗口中的行块；和 [IndexEntry] 用同一套内容与底色，落到原位时不会跳。 */
-@Composable
-private fun IndexEntrySnapshot(row: HomeServiceRow, modifier: Modifier = Modifier) {
-    val dark = LocalIsDarkTheme.current
-    val ink = MiuixTheme.colorScheme.onSurface
-    val muted = MiuixTheme.colorScheme.onSurfaceVariantSummary
-    val tile = if (dark) lerp(AppCardColor, Color.White, 0.045f)
-        else lerp(AppCardColor, MiuixTheme.colorScheme.surface, 0.65f)
-    val iconColor = if (dark) lerp(row.color, Color.White, 0.4f) else row.color
-    Row(
-        modifier.fillMaxSize()
-            .background(tile, RoundedCornerShape(15.dp))
+            .opensRow(row, 15.dp) { m ->
+                Row(
+                    m.background(tile, RoundedCornerShape(15.dp)).padding(horizontal = 10.dp, vertical = 11.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) { IndexEntryBody(row, dark, ink, muted, iconColor) }
+            }
             .padding(horizontal = 10.dp, vertical = 11.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -970,45 +954,6 @@ private fun RowScope.IndexEntryBody(
     }
 }
 
-@Composable
-private fun HeroStatusLine(
-    status: HomeStatusLine,
-    onClick: () -> Unit,
-) {
-    val tint = when (status.tone) {
-        HomeTone.ACCENT -> STATUS_BLUE
-        HomeTone.ALERT -> MiuixTheme.colorScheme.error
-        HomeTone.NORMAL -> STATUS_GREEN
-        HomeTone.MUTED -> MiuixTheme.colorScheme.onSurfaceVariantSummary
-    }
-    val muted = MiuixTheme.colorScheme.onSurfaceVariantSummary
-    val dot = @Composable {
-        Box(
-            Modifier
-                .size(6.dp)
-                .clip(CircleShape)
-                .background(tint)
-        )
-    }
-    val click = Modifier.clickable(
-        interactionSource = remember { MutableInteractionSource() },
-        indication = SinkFeedback(),
-        onClick = onClick,
-    )
-    Row(click, verticalAlignment = Alignment.CenterVertically) {
-        dot()
-        Spacer(Modifier.width(5.dp))
-        Text(
-            status.label,
-            style = MiuixTheme.textStyles.footnote2,
-            color = muted,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.weight(1f, fill = false),
-        )
-        Icon(Icons.Default.ChevronRight, contentDescription = "查看子系统连接状态", tint = muted, modifier = Modifier.size(13.dp))
-    }
-}
 
 /** 宽屏分类分成高度接近的两列。 */
 private fun balancedColumns(count: Int, weight: (Int) -> Int): List<List<Int>> {
@@ -1049,21 +994,26 @@ private fun Modifier.opensRow(
 ): Modifier {
     val origin = rememberExpandOriginSource()
     val density = LocalDensity.current
+    val press = remember { MutableInteractionSource() }
+    val openAfterPress = rememberOpenAfterPress(press)
     return this
         .expandOriginSource(origin)
         .clip(RoundedCornerShape(radius))
+        .instantPress(press)
         .clickable(
-            interactionSource = remember { MutableInteractionSource() },
+            interactionSource = press,
             indication = SinkFeedback(),
             onClick = {
-                // 先登记 Compose 起点：KIT 走独立 Activity 时会被 KitOneTake 清掉，回落时正好用它做放大转场。
-                origin.arm(row.key, radius, density, snapshot)
-                val seamless = row.onSeamlessClick
-                val bounds = origin.boundsInWindow()
-                if (seamless != null && bounds != null) {
-                    seamless(SeamlessCardSource(bounds, radius))
-                } else {
-                    row.onClick()
+                openAfterPress {
+                    // 先登记 Compose 起点：KIT 走独立 Activity 时会被 KitOneTake 清掉，回落时正好用它做放大转场。
+                    origin.arm(row.key, radius, density, snapshot)
+                    val seamless = row.onSeamlessClick
+                    val bounds = origin.boundsInWindow()
+                    if (seamless != null && bounds != null) {
+                        seamless(SeamlessCardSource(bounds, radius))
+                    } else {
+                        row.onClick()
+                    }
                 }
             },
         )
@@ -1095,9 +1045,6 @@ private val EDITORIAL_RADIUS = 24.dp
 
 /** 教学周超过这个数就不显示（假期或学期没对上）。 */
 private const val MAX_TEACHING_WEEK = 25
-
-private val STATUS_GREEN = Color(0xFF2E7D32)
-private val STATUS_BLUE = Color(0xFF1565C0)
 
 /** `¥42.50` —— 自己拼两位小数。 */
 private fun yuanText(value: Float): String {

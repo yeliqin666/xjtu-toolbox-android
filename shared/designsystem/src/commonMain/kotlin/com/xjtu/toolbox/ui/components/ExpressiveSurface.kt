@@ -33,6 +33,12 @@ import top.yukonga.miuix.kmp.squircle.squircleSurface
 val AppCardColor: Color
     @Composable get() = top.yukonga.miuix.kmp.theme.MiuixTheme.colorScheme.surfaceVariant
 
+/** 次要按钮：浅主题色底，文字沿用正文色。主操作用 `ButtonDefaults.buttonColorsPrimary()`；默认色和背景分不开。 */
+@Composable
+fun appTonalButtonColors() = top.yukonga.miuix.kmp.basic.ButtonDefaults.buttonColors(
+    color = top.yukonga.miuix.kmp.theme.MiuixTheme.colorScheme.primary.copy(alpha = 0.12f),
+)
+
 /** 卡片内部再嵌一层时用（比卡片略重），例如统计块、内嵌列表行。 */
 val AppInsetColor: Color
     @Composable get() = top.yukonga.miuix.kmp.theme.MiuixTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.5f)

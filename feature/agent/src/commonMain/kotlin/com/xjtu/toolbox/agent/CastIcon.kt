@@ -27,6 +27,7 @@ import com.xjtu.toolbox.agent.bot.cast.CastCharacter
 import com.xjtu.toolbox.agent.bot.cast.CastEngine
 import com.xjtu.toolbox.agent.bot.cast.Sketch
 import com.xjtu.toolbox.agent.bot.cast.Tone
+import com.xjtu.toolbox.ui.components.LocalPageVisible
 
 /**
  * 新角色的 Compose 渲染器：[CastEngine] 每帧在 [Sketch] 上记下笔画，这里转成 Path 画出来。
@@ -87,8 +88,9 @@ internal fun CastIcon(
             clock.stateChangedAt = now
             engine.play(act, now, replay = true)
         }
-        LaunchedEffect(engine) {
-            while (true) {
+        val pageVisible = LocalPageVisible.current
+        LaunchedEffect(engine, pageVisible) {
+            while (pageVisible) {
                 val t = clock.now()
                 val looking = steer(t)
                 val resting = currentBeat == PidaiBeat.REST && t - clock.stateChangedAt > 0.6 &&

@@ -14,7 +14,6 @@ import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.platform.LocalDensity
 import com.xjtu.toolbox.ui.glass.tabContentBottomPadding
 import com.xjtu.toolbox.ui.components.GradientAppIcon
-import com.xjtu.toolbox.nav.rememberSeamlessOrigin
 import com.xjtu.toolbox.ui.components.AppCardColor
 import top.yukonga.miuix.kmp.squircle.squircleBackground
 import top.yukonga.miuix.kmp.squircle.squircleClip
@@ -68,6 +67,7 @@ import top.yukonga.miuix.kmp.icon.extended.Back
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.utils.overScrollVertical
 import com.xjtu.toolbox.nav.AppRoute
+import com.xjtu.toolbox.nav.rememberSeamlessOrigin
 
 /**
  * 小游戏合集页。
@@ -278,8 +278,8 @@ private fun battleRecord(
  */
 @Composable
 private fun ArcadeCard(entry: GameEntry, onClick: () -> Unit, modifier: Modifier = Modifier) {
-    // ROM 支持时从这张卡一镜到底，否则照旧从这里放大出来
-    val origin = rememberSeamlessOrigin(26.dp)
+    // ROM 支持时从这张卡一镜到底；不支持就普通打开，不做 Compose 放大
+    val origin = rememberSeamlessOrigin(26.dp, composeFallback = false)
     val top = lerp(entry.color, Color.White, 0.18f)
     val bottom = lerp(entry.color, Color.Black, 0.18f)
     Box(
@@ -333,7 +333,8 @@ private fun ArcadeCard(entry: GameEntry, onClick: () -> Unit, modifier: Modifier
 /** 棋类一行：App 式渐变图标、名称与说明、对局方式标签，右侧战绩。 */
 @Composable
 private fun BoardGameRow(entry: GameEntry, onClick: () -> Unit) {
-    val origin = rememberSeamlessOrigin(18.dp)
+    // ROM 支持时从这一行一镜到底；不支持就普通打开，不做 Compose 放大
+    val origin = rememberSeamlessOrigin(18.dp, composeFallback = false)
     val muted = MiuixTheme.colorScheme.onSurfaceVariantSummary
     Row(
         Modifier

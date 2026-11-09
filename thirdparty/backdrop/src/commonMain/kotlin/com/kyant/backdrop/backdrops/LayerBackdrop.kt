@@ -6,10 +6,12 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.GraphicsLayerScope
 import androidx.compose.ui.graphics.drawscope.ContentDrawScope
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.withTransform
+import androidx.compose.ui.graphics.layer.CompositingStrategy
 import androidx.compose.ui.graphics.layer.GraphicsLayer
 import androidx.compose.ui.graphics.layer.drawLayer
 import androidx.compose.ui.graphics.rememberGraphicsLayer
@@ -26,9 +28,14 @@ internal val DefaultOnDraw: ContentDrawScope.() -> Unit = { drawContent() }
 @Composable
 fun rememberLayerBackdrop(
     graphicsLayer: GraphicsLayer = rememberGraphicsLayer(),
+    cache: Boolean = false,
     onDraw: ContentDrawScope.() -> Unit = DefaultOnDraw
 ): LayerBackdrop {
-    return remember(graphicsLayer, onDraw) {
+    // 复杂内容被多个采样者复用时才强制缓存为纹理。小型染色层、导出层用 Auto，
+    // 避免每个采样源都分配离屏缓冲；已有 RenderEffect 的层仍由平台自动离屏。
+    return remember(graphicsLayer, cache, onDraw) {
+        graphicsLayer.compositingStrategy =
+            if (cache) CompositingStrategy.Offscreen else CompositingStrategy.Auto
         LayerBackdrop(graphicsLayer, onDraw)
     }
 }
@@ -72,6 +79,15 @@ class LayerBackdrop internal constructor(
             translate(-offset.x, -offset.y)
         }) {
             drawLayer(graphicsLayer)
+        }
+    }
+
+    override fun sampleOffset(coordinates: LayoutCoordinates): Offset {
+        val layer = layerCoordinates?.takeIf { it.isAttached } ?: return coordinates.positionInWindow()
+        return try {
+            layer.localPositionOf(coordinates)
+        } catch (_: Exception) {
+            coordinates.positionInWindow() - layer.positionInWindow()
         }
     }
 

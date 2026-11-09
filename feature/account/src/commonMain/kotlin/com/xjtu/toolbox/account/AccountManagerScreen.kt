@@ -164,7 +164,8 @@ fun AccountManagerScreen(
                 // 采样源必须挂在滚动之前：挂在 verticalScroll 后面录下的是整条跟着滚的长内容，
                 // 不是屏幕上这块视口，顶栏按屏幕位置采样就对不上，只剩透明没有模糊
                 .glassSource(glass)
-                .background(MiuixTheme.colorScheme.background)
+                // 页面是 surface 灰底，卡片（AppCardColor）才看得出边界；用 background 就和白卡同色
+                .background(MiuixTheme.colorScheme.surface)
                 .nestedScroll(scrollBehavior.nestedScrollConnection)
                 .overScrollVertical()
                 .verticalScroll(rememberScrollState()).tabContentBottomPadding()
@@ -349,7 +350,7 @@ private fun ActiveAccountPanel(
             .fillMaxWidth()
             .padding(horizontal = 16.dp, vertical = 10.dp),
         cornerRadius = 24.dp,
-        colors = CardDefaults.defaultColors(color = MiuixTheme.colorScheme.surface)
+        colors = CardDefaults.defaultColors(color = com.xjtu.toolbox.ui.components.AppCardColor)
     ) {
         Column(Modifier.fillMaxWidth().padding(18.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -425,7 +426,7 @@ private fun EmptyAccountsPanel(
             .fillMaxWidth()
             .padding(horizontal = 16.dp, vertical = 8.dp),
         cornerRadius = 20.dp,
-        colors = CardDefaults.defaultColors(color = MiuixTheme.colorScheme.surface)
+        colors = CardDefaults.defaultColors(color = com.xjtu.toolbox.ui.components.AppCardColor)
     ) {
         Column(
             Modifier.fillMaxWidth().padding(22.dp),
@@ -452,7 +453,7 @@ private fun EmptyAccountsPanel(
                 color = MiuixTheme.colorScheme.onSurfaceVariantSummary
             )
             Spacer(Modifier.height(14.dp))
-            Button(onClick = onAdd, enabled = enabled) { Text("添加账号") }
+            Button(onClick = onAdd, enabled = enabled, colors = ButtonDefaults.buttonColorsPrimary()) { Text("添加账号", color = MiuixTheme.colorScheme.onPrimary) }
         }
     }
 }
@@ -473,7 +474,7 @@ private fun AccountListPanel(
             .fillMaxWidth()
             .padding(horizontal = 16.dp, vertical = 4.dp),
         cornerRadius = 20.dp,
-        colors = CardDefaults.defaultColors(color = MiuixTheme.colorScheme.surface),
+        colors = CardDefaults.defaultColors(color = com.xjtu.toolbox.ui.components.AppCardColor),
     ) {
         Column {
             accounts.forEachIndexed { index, account ->
@@ -753,7 +754,6 @@ private fun AddAccountDialog(
     OverlayDialog(
         show = true,
         title = "添加账号",
-        summary = "输入统一身份认证账号，登录验证通过后保存。",
         onDismissRequest = onDismiss
     ) {
         Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(12.dp)) {

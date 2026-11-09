@@ -1,7 +1,6 @@
 package com.xjtu.toolbox.settings
 
 import com.xjtu.toolbox.settings.SettingsColors.Blue as cBlue
-import com.xjtu.toolbox.settings.SettingsColors.BlueGray as cBlueGray
 import com.xjtu.toolbox.settings.SettingsColors.Green as cGreen
 import com.xjtu.toolbox.settings.SettingsColors.Indigo as cIndigo
 import com.xjtu.toolbox.settings.SettingsColors.Lime as cLime
@@ -12,8 +11,9 @@ import com.xjtu.toolbox.settings.SettingsColors.Teal as cTeal
 import androidx.compose.material.icons.automirrored.filled.FactCheck
 import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.DarkMode
-import androidx.compose.material.icons.filled.Dashboard
 import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.Layers
+import androidx.compose.material.icons.filled.Wifi
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.Star
@@ -22,7 +22,6 @@ import androidx.compose.material.icons.filled.Wallpaper
 import top.yukonga.miuix.kmp.icon.MiuixIcons
 import top.yukonga.miuix.kmp.icon.extended.Back
 import top.yukonga.miuix.kmp.icon.extended.Carrier
-import top.yukonga.miuix.kmp.icon.extended.CloudFill
 import top.yukonga.miuix.kmp.icon.extended.File
 import top.yukonga.miuix.kmp.icon.extended.Forward
 import top.yukonga.miuix.kmp.icon.extended.Info
@@ -285,7 +284,7 @@ fun SettingsScreen(
                     summary = "顶栏、底栏和气泡用玻璃还是实色",
                     items = navStyleOptions,
                     selectedIndex = navStyleValues.indexOf(navBarStyle).coerceAtLeast(0),
-                    startAction = { SettingsIcon(MiuixIcons.Carrier, cBlue) },
+                    startAction = { SettingsIcon(Icons.Default.Layers, cBlue) },
                     onSelectedIndexChange = { idx ->
                         val v = navStyleValues[idx]
                         navBarStyle = v
@@ -295,19 +294,11 @@ fun SettingsScreen(
                 )
             }
         }
+        if (showHomeHero) HomeSettingsBody(onDismiss = {}, showTopBarStyle = false)
         if (showHomeHero || showQuickActions) {
-            SmallTitle("首页")
+            SmallTitle("首页内容")
             SettingsCard {
                 if (showHomeHero) {
-                    var showHomeSettings by remember { mutableStateOf(false) }
-                    val homeSummary = remember(HomeLayoutRevision.current) { homeSettingsSummary(store) }
-                    ArrowPreference(
-                        title = "布局与背景",
-                        summary = homeSummary,
-                        startAction = { SettingsIcon(Icons.Default.Dashboard, cPurple) },
-                        onClick = { showHomeSettings = true },
-                    )
-                    HomeSettingsSheet(show = showHomeSettings, onDismiss = { showHomeSettings = false })
                     val dark = LocalIsDarkTheme.current
                     val heroAppearance = remember(HeroAppearanceRevision.current, dark) {
                         HeroAppearance.read(store, dark)
@@ -362,32 +353,32 @@ fun SettingsScreen(
         }
     }
 
-    val generalGroup: @Composable () -> Unit = {
-        SmallTitle("通用")
-        SettingsCard {
-            // 触感开关自带偏好存储，不经 SettingsStore
-            if (showHaptics) HapticsSettingItem()
-            if (showNetworkMode) {
-                AppDropdownPreference(
-                    title = "连接模式",
-                    items = networkOptions,
-                    selectedIndex = networkValues.indexOf(networkMode).coerceAtLeast(0),
-                    startAction = { SettingsIcon(MiuixIcons.Carrier, cIndigo) },
-                    onSelectedIndexChange = { idx ->
-                        val v = networkValues[idx]
-                        networkMode = v
-                        store.networkMode = v
-                        host.onNetworkModeChanged?.invoke()
-                    }
-                )
-            }
-            launcherShortcuts?.invoke()
-        }
-    }
-
-    // ── 功能：只对某一个功能生效的开关，按功能分小节 ──
+    val generalRows = showHaptics || showNetworkMode || launcherShortcuts != null
     val scheduleRows = showScheduleSource || showScheduleAttendance
-    val featuresGroup: @Composable () -> Unit = {
+    // 通用一页：全局开关在前，只对某一个功能生效的按功能分小节
+    val generalGroup: @Composable () -> Unit = {
+        if (generalRows) {
+            SmallTitle("通用")
+            SettingsCard {
+                // 触感开关自带偏好存储，不经 SettingsStore
+                if (showHaptics) HapticsSettingItem()
+                if (showNetworkMode) {
+                    AppDropdownPreference(
+                        title = "连接模式",
+                        items = networkOptions,
+                        selectedIndex = networkValues.indexOf(networkMode).coerceAtLeast(0),
+                        startAction = { SettingsIcon(Icons.Default.Wifi, cIndigo) },
+                        onSelectedIndexChange = { idx ->
+                            val v = networkValues[idx]
+                            networkMode = v
+                            store.networkMode = v
+                            host.onNetworkModeChanged?.invoke()
+                        }
+                    )
+                }
+                launcherShortcuts?.invoke()
+            }
+        }
         if (scheduleRows) {
             SmallTitle("日程")
             SettingsCard {
@@ -469,6 +460,8 @@ fun SettingsScreen(
                 onClick = { page = EULA_PAGE }
             )
         }
+        host.updateSection?.invoke()
+        host.dataPrivacySection?.invoke()
     }
 
     // 组的顺序与标题（窄屏首页、宽屏左栏都是这一列）。宿主没有那一组时整条不出现。
@@ -476,20 +469,11 @@ fun SettingsScreen(
         if (showDarkMode || showDynamicColor || showNavStyle || showHomeHero || showQuickActions || showBottomTabs || showDefaultTab) {
             add(SettingsGroup("外观", Icons.Default.Palette, cPurple, appearanceGroup))
         }
-        if (showHaptics || showNetworkMode || launcherShortcuts != null) {
+        if (generalRows || scheduleRows || showVenueCaptcha) {
             add(SettingsGroup("通用", MiuixIcons.Settings, cTeal, generalGroup))
-        }
-        if (scheduleRows || showVenueCaptcha) {
-            add(SettingsGroup("功能", Icons.Default.CalendarMonth, cBlue, featuresGroup))
         }
         host.noticeSection?.let {
             add(SettingsGroup("通知与提醒", Icons.Default.Notifications, cOrange, it))
-        }
-        host.dataPrivacySection?.let {
-            add(SettingsGroup("数据与隐私", MiuixIcons.CloudFill, cBlueGray, it))
-        }
-        host.updateSection?.let {
-            add(SettingsGroup("更新", Icons.Default.Star, cGreen, it))
         }
         add(SettingsGroup("关于", MiuixIcons.Info, cBlue, aboutGroup))
     }

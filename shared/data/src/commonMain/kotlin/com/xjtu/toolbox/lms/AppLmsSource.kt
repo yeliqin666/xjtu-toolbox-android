@@ -5,35 +5,49 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
 /** `:core` 的 [LmsSource] 在 `:data` 里的实现（Android 与桌面共用） */
-class AppLmsSource(
-    private val site: SiteSession,
-    private val sink: LmsDownloadSink = LmsDownloadSink.Unsupported,
+class AppLmsSource private constructor(
+    /** 第一次取数时才要会话：页面可以先显示缓存，登录放在后台。 */
+    private val siteProvider: suspend () -> SiteSession,
+    private val sink: LmsDownloadSink,
 ) : LmsSource {
 
-    private val api = LmsApi(site)
+    constructor(site: SiteSession, sink: LmsDownloadSink = LmsDownloadSink.Unsupported) : this({ site }, sink)
+
+    companion object {
+        fun lazy(siteProvider: suspend () -> SiteSession, sink: LmsDownloadSink): AppLmsSource = AppLmsSource(siteProvider, sink)
+    }
+
+    private var current: Pair<SiteSession, LmsApi>? = null
+
+    /** 活动和公告并行取，这里可能同时进来：多建一个 [LmsApi] 无妨，它只是几张本地缓存表。 */
+    private suspend fun api(): LmsApi {
+        val site = siteProvider()
+        current?.takeIf { it.first === site }?.let { return it.second }
+        return LmsApi(site).also { current = site to it }
+    }
 
     override suspend fun myCourses(): List<LmsCourseSummary> =
-        withContext(Dispatchers.IO) { api.getMyCourses() }
+        withContext(Dispatchers.IO) { api().getMyCourses() }
 
     override suspend fun courseActivities(courseId: Int): List<LmsActivity> =
-        withContext(Dispatchers.IO) { api.getCourseActivities(courseId) }
+        withContext(Dispatchers.IO) { api().getCourseActivities(courseId) }
 
     override suspend fun activityDetail(activityId: Int, brief: LmsActivity?): LmsActivity =
-        withContext(Dispatchers.IO) { api.getActivityDetail(activityId, brief) }
+        withContext(Dispatchers.IO) { api().getActivityDetail(activityId, brief) }
 
     override suspend fun courseBulletins(courseId: Int): List<LmsBulletin> =
-        withContext(Dispatchers.IO) { api.getCourseBulletins(courseId) }
+        withContext(Dispatchers.IO) { api().getCourseBulletins(courseId) }
 
     override suspend fun forumCategoryTopics(categoryId: Int, page: Int): LmsForumCategoryResult =
-        withContext(Dispatchers.IO) { api.getForumCategoryTopics(categoryId, page) }
+        withContext(Dispatchers.IO) { api().getForumCategoryTopics(categoryId, page) }
 
     override suspend fun forumTopicReplies(topicId: Int): List<LmsForumReply> =
-        withContext(Dispatchers.IO) { api.getTopicReplies(topicId) }
+        withContext(Dispatchers.IO) { api().getTopicReplies(topicId) }
 
     /** 学堂（`*.xjtu.edu.cn`）的图走登录态取；外站图不带学堂的凭据，用一个干净的客户端取。 */
     override suspend fun imageBytes(url: String): ByteArray? = withContext(Dispatchers.IO) {
         val host = runCatching { java.net.URI(url).host }.getOrNull()?.lowercase() ?: return@withContext null
-        if (host == "xjtu.edu.cn" || host.endsWith(".xjtu.edu.cn")) api.downloadBytes(url)
+        if (host == "xjtu.edu.cn" || host.endsWith(".xjtu.edu.cn")) api().downloadBytes(url)
         else runCatching {
             externalImageClient.newCall(okhttp3.Request.Builder().url(url).get().build()).execute().use { r ->
                 if (r.isSuccessful) r.body?.bytes() else null
@@ -48,13 +62,13 @@ class AppLmsSource(
     }
 
     override suspend fun userSubmitCount(activityId: Int): Int =
-        withContext(Dispatchers.IO) { api.getUserSubmitCount(activityId) }
+        withContext(Dispatchers.IO) { api().getUserSubmitCount(activityId) }
 
     override suspend fun htmlToPlainText(html: String): String =
         withContext(Dispatchers.IO) { com.xjtu.toolbox.lms.htmlToPlainText(html) }
 
     override suspend fun uploadBytes(upload: LmsUpload): ByteArray? =
-        withContext(Dispatchers.IO) { api.downloadUploadBytes(upload) }
+        withContext(Dispatchers.IO) { api().downloadUploadBytes(upload) }
 
     override suspend fun saveDownload(job: LmsDownloadJob): LmsDownloadResult =
         withContext(Dispatchers.IO) {
@@ -62,6 +76,7 @@ class AppLmsSource(
             // 跨模块拿不到 smart cast，只能先取成局部 val 再判空（语义一字不变）。
             val upload = job.upload
             val url = job.url
+            val api = api()
             sink.save(job.name, job.mimeType, job.folder) { out ->
                 when {
                     upload != null -> api.downloadUpload(upload, out)

@@ -3,9 +3,7 @@ package com.xjtu.toolbox.bus
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.animateContentSize
-import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
@@ -254,7 +252,8 @@ private fun TextTab(label: String, active: Boolean, onClick: () -> Unit) {
 private fun RunGroup(period: String, runs: List<BusRun>, nextKey: String?, expanded: String?, onToggle: (String) -> Unit) {
     val cs = MiuixTheme.colorScheme
     Surface(color = AppCardColor, shape = CARD_SHAPE, modifier = Modifier.fillMaxWidth()) {
-        Column(Modifier.animateContentSize(spring(stiffness = Spring.StiffnessMediumLow))) {
+        // 不套 animateContentSize：行内展开自己会长高，外层再追一层动画，下面的卡就会慢半拍才挪
+        Column {
             Row(Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 12.dp), verticalAlignment = Alignment.CenterVertically) {
                 Text(period, style = MiuixTheme.textStyles.footnote1, fontWeight = FontWeight.Bold, color = cs.onSurfaceVariantSummary, modifier = Modifier.weight(1f))
                 Text("${runs.size} 班", style = MiuixTheme.textStyles.footnote1, color = cs.onSurfaceVariantSummary)
@@ -280,7 +279,7 @@ private fun DepartedGroup(runs: List<BusRun>, open: Boolean, onToggleOpen: () ->
     val cs = MiuixTheme.colorScheme
     val source = remember { MutableInteractionSource() }
     Surface(color = AppCardColor, shape = CARD_SHAPE, modifier = Modifier.fillMaxWidth()) {
-        Column(Modifier.animateContentSize(spring(stiffness = Spring.StiffnessMediumLow))) {
+        Column {
             Row(
                 Modifier.fillMaxWidth().pressHighlight(source).clickable(source, null, onClick = onToggleOpen).padding(horizontal = 16.dp, vertical = 14.dp),
                 verticalAlignment = Alignment.CenterVertically,
@@ -288,16 +287,20 @@ private fun DepartedGroup(runs: List<BusRun>, open: Boolean, onToggleOpen: () ->
                 Text("今天已发车 ${runs.size} 班", style = MiuixTheme.textStyles.body2, color = cs.onSurfaceVariantSummary, modifier = Modifier.weight(1f))
                 Chevron(open)
             }
-            AnimatedVisibility(open, enter = expandVertically() + fadeIn(), exit = shrinkVertically() + fadeOut()) {
+            AnimatedVisibility(open, enter = BusExpand, exit = BusCollapse) {
                 Column { Rows(runs, null, expanded, departed = true, onToggle) }
             }
         }
     }
 }
 
+/** 展开收起只有这一层尺寸动画，和箭头同一条曲线。 */
+private val BusExpand = expandVertically(tween(320, easing = androidx.compose.animation.core.FastOutSlowInEasing)) + fadeIn(tween(220))
+private val BusCollapse = shrinkVertically(tween(320, easing = androidx.compose.animation.core.FastOutSlowInEasing)) + fadeOut(tween(160))
+
 @Composable
 private fun Chevron(open: Boolean) {
-    val rotation by animateFloatAsState(if (open) 180f else 0f, spring(stiffness = Spring.StiffnessMediumLow), label = "busChevron")
+    val rotation by animateFloatAsState(if (open) 180f else 0f, tween(320, easing = androidx.compose.animation.core.FastOutSlowInEasing), label = "busChevron")
     Icon(
         Icons.Default.ExpandMore,
         if (open) "收起" else "展开",
@@ -336,7 +339,7 @@ private fun RunRow(run: BusRun, isNext: Boolean, departed: Boolean, isExpanded: 
             Spacer(Modifier.width(10.dp))
             SeatBadge(run, departed)
         }
-        AnimatedVisibility(isExpanded, enter = expandVertically() + fadeIn(), exit = shrinkVertically() + fadeOut()) {
+        AnimatedVisibility(isExpanded, enter = BusExpand, exit = BusCollapse) {
             Column(Modifier.padding(start = 60.dp, top = 12.dp)) {
                 run.stops.forEachIndexed { i, stop -> StopLine(stop, first = i == 0, last = i == run.stops.lastIndex) }
                 Text(

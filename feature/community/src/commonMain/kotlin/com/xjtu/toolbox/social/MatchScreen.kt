@@ -608,13 +608,11 @@ private fun ShareSettingsDialog(
                 // 拿哪个学期来比：默认本学期；想和老同学对一对以前的课表，可以换成历史学期。
                 // 只列本地有课表缓存的学期（在日程页翻到过的才有）。
                 if (local.availableTerms.size > 1) {
-                    top.yukonga.miuix.kmp.preference.OverlaySpinnerPreference(
+                    com.xjtu.toolbox.ui.components.AppDropdownPreference(
                         title = "学期",
                         summary = termLabel,
                         items = local.availableTerms.map {
-                            top.yukonga.miuix.kmp.basic.DropdownItem(
-                                text = (local.termNames[it] ?: it) + if (it == local.currentTerm) "（本学期）" else "",
-                            )
+                            (local.termNames[it] ?: it) + if (it == local.currentTerm) "（本学期）" else ""
                         },
                         selectedIndex = local.availableTerms.indexOf(local.term).coerceAtLeast(0),
                         onSelectedIndexChange = { onTermPicked(local.availableTerms[it]) },

@@ -28,6 +28,8 @@ data class StoredMessage(
     val toolError: String? = null,
     /** 图片附件的本地路径。老会话没有这个字段，反序列化得到 null。 */
     val images: List<String>? = null,
+    /** 这条用户消息随附了 App 带进来的上下文（只发给模型）：气泡上方标的那个来源名。 */
+    val contextLabel: String? = null,
 )
 
 /** 一个会话的完整内容：UI 消息 + 供续聊的 LLM 历史（JsonArray 的字符串形式）。 */

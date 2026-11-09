@@ -701,29 +701,44 @@ private fun InboxRow(e: Entry) {
 @Composable
 private fun InboxSettingsSheet(show: Boolean, data: InboxData, onDismiss: () -> Unit) {
     BackHandler(enabled = show) { onDismiss() }
-    OverlayBottomSheet(show = show, title = "收纳设置", onDismissRequest = onDismiss) {
+    OverlayBottomSheet(
+        show = show,
+        title = "收纳设置",
+        backgroundColor = MiuixTheme.colorScheme.surface,
+        onDismissRequest = onDismiss,
+    ) {
         val school = InboxStore.schoolCategories(data).map { InboxCategory(it, InboxCategories.schoolLabel(it)) }
         Column(Modifier.fillMaxWidth().navigationBarsPadding().heightIn(max = 520.dp).verticalScroll(rememberScrollState())) {
-            Text("勾掉的类别不进列表、不计数，小岱也不再提。", style = MiuixTheme.textStyles.footnote1, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
             SettingsGroup("待办", InboxCategories.todos, data)
             SettingsGroup("消息", InboxCategories.messages, data)
             if (school.isNotEmpty()) SettingsGroup("学校消息", school, data)
-            Spacer(Modifier.height(12.dp))
+            Text(
+                "关掉的类别不进列表、不计数，小岱也不再提。",
+                style = MiuixTheme.textStyles.footnote1,
+                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                modifier = Modifier.padding(start = 4.dp, top = 12.dp, bottom = 12.dp),
+            )
         }
     }
 }
 
-/** 一组类别，两列勾选块。 */
+/** 一组类别：和设置页一样的开关行。 */
 @Composable
 private fun SettingsGroup(title: String, categories: List<InboxCategory>, data: InboxData) {
-    Text(title, style = MiuixTheme.textStyles.subtitle, modifier = Modifier.padding(start = 4.dp, top = 14.dp, bottom = 8.dp))
-    categories.chunked(2).forEach { row ->
-        Row(Modifier.fillMaxWidth().padding(vertical = 4.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            row.forEach { c ->
-                val on = c.key !in data.off
-                SelectionTile(c.label, on, Modifier.weight(1f), maxLines = 2) { InboxStore.setEnabled(c.key, !on) }
-            }
-            if (row.size == 1) Spacer(Modifier.weight(1f))
+    Text(
+        title,
+        style = MiuixTheme.textStyles.footnote1,
+        fontWeight = FontWeight.SemiBold,
+        color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+        modifier = Modifier.padding(start = 4.dp, top = 14.dp, bottom = 6.dp),
+    )
+    com.xjtu.toolbox.ui.components.AppOptionGroup {
+        categories.forEach { c ->
+            top.yukonga.miuix.kmp.preference.SwitchPreference(
+                title = c.label,
+                checked = c.key !in data.off,
+                onCheckedChange = { InboxStore.setEnabled(c.key, it) },
+            )
         }
     }
 }

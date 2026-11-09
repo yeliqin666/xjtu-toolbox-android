@@ -53,9 +53,8 @@ class AppDegreeSource(
         }
     }
 
-    /** 这些应用要先进一次页面、切到学生身份，接口才认。 */
+    /** 先切到学生身份再进应用页：没选身份时进页面会被教务 403。 */
     private suspend fun enterApp(site: SiteSession, app: String) {
-        site.executeWithReAuth(Request.Builder().url("$BASE/sys/$app/*default/index.do").get().build()).close()
         val roleId = runCatching {
             site.executeWithReAuth(Request.Builder().url("$BASE/sys/homeapp/api/home/currentUser.do").get().build()).use { response ->
                 val groups = response.body?.string().orEmpty().safeParseJsonObject()["datas"]?.jsonObject?.get("userGroups") as? JsonArray
@@ -63,6 +62,7 @@ class AppDegreeSource(
             }
         }.getOrNull()
         if (roleId != null) post(site, app, "sys/jwpubapp/pub/setJwCommonAppRole.do", mapOf("ROLEID" to roleId))
+        site.executeWithReAuth(Request.Builder().url("$BASE/sys/$app/*default/index.do").get().build()).close()
     }
 
     private fun rows(root: JsonObject, module: String): List<JsonObject> {

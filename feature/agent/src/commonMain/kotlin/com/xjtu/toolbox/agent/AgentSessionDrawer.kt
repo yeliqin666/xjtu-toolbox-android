@@ -289,7 +289,7 @@ private fun SessionRow(
     }
 }
 
-private fun formatSessionTime(ts: Long): String =
+internal fun formatSessionTime(ts: Long): String =
     // `SimpleDateFormat("MM-dd HH:mm")` 的跨端等价（commonMain 没有 `java.text`）：
     // 北京时间 + 同样补零，年月日之外的部分本来就是稳定格式。
     campusDateTimeOf(ts)

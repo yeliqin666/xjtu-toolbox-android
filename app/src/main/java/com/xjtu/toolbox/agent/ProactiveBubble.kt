@@ -5,8 +5,6 @@ import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.SizeTransform
 import androidx.compose.animation.togetherWith
-import androidx.compose.animation.core.Spring
-import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -633,10 +631,7 @@ fun ProactiveBubbleView(
             scaleIn(
                 initialScale = 0.35f,
                 transformOrigin = pivot,
-                animationSpec = spring(
-                    dampingRatio = 0.52f,
-                    stiffness = Spring.StiffnessMediumLow,
-                ),
+                animationSpec = tween(320, easing = androidx.compose.animation.core.FastOutSlowInEasing),
             ),
         // 收回去也回到同一点，别原地淡出。
         exit = fadeOut(animationSpec = tween(140)) +
@@ -659,10 +654,7 @@ fun ProactiveBubbleView(
                         scaleIn(
                             initialScale = 0.5f,
                             transformOrigin = pivot,
-                            animationSpec = spring(
-                                dampingRatio = 0.5f,
-                                stiffness = Spring.StiffnessMedium,
-                            ),
+                            animationSpec = tween(280, easing = androidx.compose.animation.core.FastOutSlowInEasing),
                         )
                     ).togetherWith(
                     fadeOut(animationSpec = tween(90)) +

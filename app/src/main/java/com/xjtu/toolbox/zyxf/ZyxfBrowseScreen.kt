@@ -408,8 +408,7 @@ private fun SortBar(
     Column(
         Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp)
             .clip(RoundedCornerShape(16.dp))
-            .background(com.xjtu.toolbox.ui.components.AppCardColor)
-            .animateContentSize(),
+            .background(com.xjtu.toolbox.ui.components.AppCardColor),
     ) {
         Row(
             Modifier

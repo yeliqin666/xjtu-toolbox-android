@@ -19,6 +19,11 @@ interface AgentChatSession {
     /** 要填进输入框的话（外部深链带来的，只填不发），输入框取走后置回 `null`。 */
     var draft: String?
 
+    /** 草稿附带的 App 上下文（「问小岱」带进来的页面内容）：输入框上方显示成标签，发送时随消息发给模型。 */
+    var draftContext: AgentDraftContext?
+        get() = null
+        set(_) {}
+
     /** 上下文是否已达上限（800k token）。 */
     val contextExhausted: Boolean
 
@@ -68,6 +73,8 @@ interface AgentChatSession {
         config: AgentConfig,
         llmAnnex: String? = null,
         images: List<String> = emptyList(),
+        /** [llmAnnex] 的来源名，标在这条消息上（如「学业进度」）；带了 annex 却不给时标「App 快照」。 */
+        contextLabel: String? = null,
     )
 
     companion object {

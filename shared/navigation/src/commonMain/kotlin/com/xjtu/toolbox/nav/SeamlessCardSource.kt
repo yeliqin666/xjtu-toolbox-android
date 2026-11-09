@@ -6,6 +6,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.Dp
@@ -43,24 +44,33 @@ class SeamlessOrigin internal constructor(
     private val density: Density,
     private val radius: Dp,
     private val opener: ((AppRoute, SeamlessCardSource?) -> Unit)?,
+    private val composeFallback: Boolean,
 ) {
-    val modifier: Modifier = Modifier.expandOriginSource(source)
+    val modifier: Modifier =
+        if (composeFallback) Modifier.expandOriginSource(source)
+        else Modifier.onGloballyPositioned { source.coordinates = it }
 
     /**
      * 先登记 Compose 放大转场的起点（走 KIT 时会被清掉，回落时正好用上），再交给 [LocalSeamlessOpener]；
      * 这一端没有它时调 [fallback]（各页原来的打开方式）。
      */
     fun open(route: AppRoute, fallback: () -> Unit) {
-        source.arm(route.id, radius, density, null)
+        if (composeFallback) source.arm(route.id, radius, density, null)
         val opener = opener ?: return fallback()
         opener(route, source.boundsInWindow()?.let { SeamlessCardSource(it, radius) })
     }
 }
 
+/**
+ * @param composeFallback false = ROM 不支持一镜到底时不退回 Compose 放大转场，页面普通滑入。
+ *   游戏菜单、「我的」页的子功能用它（点击时录快照的放大转场在这几处落地不稳）。
+ */
 @Composable
-fun rememberSeamlessOrigin(radius: Dp): SeamlessOrigin {
+fun rememberSeamlessOrigin(radius: Dp, composeFallback: Boolean = true): SeamlessOrigin {
     val source = rememberExpandOriginSource()
     val density = LocalDensity.current
     val opener = LocalSeamlessOpener.current
-    return remember(source, density, radius, opener) { SeamlessOrigin(source, density, radius, opener) }
+    return remember(source, density, radius, opener, composeFallback) {
+        SeamlessOrigin(source, density, radius, opener, composeFallback)
+    }
 }

@@ -15,6 +15,8 @@ object AgentPendingPrompt {
         /** 只填进输入框等用户自己发。外部深链来的都是这种。 */
         val draftOnly: Boolean = false,
         val images: List<String> = emptyList(),
+        /** [snapshot] 的来源名（如「学业进度」），标在消息上让用户知道附带了什么。 */
+        val label: String? = null,
     )
 
     @Volatile
@@ -23,8 +25,8 @@ object AgentPendingPrompt {
     var generation by mutableIntStateOf(0)
         private set
 
-    fun set(text: String, snapshot: String? = null, draftOnly: Boolean = false, images: List<String> = emptyList()) {
-        pending = Pending(text, snapshot, draftOnly, images.toList())
+    fun set(text: String, snapshot: String? = null, draftOnly: Boolean = false, images: List<String> = emptyList(), label: String? = null) {
+        pending = Pending(text, snapshot, draftOnly, images.toList(), label)
         generation++
     }
 
@@ -34,6 +36,9 @@ object AgentPendingPrompt {
         return v
     }
 }
+
+/** 草稿附带的 App 上下文：[label] 是给用户看的来源名，[snapshot] 只发给模型。 */
+data class AgentDraftContext(val label: String, val snapshot: String)
 
 /** 随 user 消息发给模型、不进气泡的说明，交代这条消息从哪来、怎么接。 */
 internal object AgentAnnex {

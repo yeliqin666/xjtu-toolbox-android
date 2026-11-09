@@ -2,6 +2,7 @@
 
 package com.xjtu.toolbox.browser
 
+
 import com.xjtu.toolbox.network.APP_UA
 import com.xjtu.toolbox.util.redactUrl
 import com.xjtu.toolbox.util.recoverFromRendererGone
@@ -334,10 +335,11 @@ fun BrowserScreen(
                                     .padding(horizontal = 12.dp, vertical = 10.dp),
                             )
                         } else Box {
-                            IconButton(onClick = { menuOpen = true }) {
-                                Icon(Icons.Default.MoreHoriz, contentDescription = "更多")
-                            }
-                            AppDropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                            com.xjtu.toolbox.ui.components.AppIconMenu(
+                                expanded = menuOpen,
+                                onExpandedChange = { menuOpen = it },
+                                icon = { Icon(Icons.Default.MoreHoriz, contentDescription = "更多") },
+                            ) {
                                 val isWeb = currentUrl.startsWith("http")
                                 // 点任一项都先收起菜单
                                 val item = @Composable { icon: ImageVector, label: String, action: () -> Unit ->

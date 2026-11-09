@@ -27,6 +27,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ExpandMore
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.SmartToy
 import androidx.compose.material.icons.filled.SwapHoriz
 import androidx.compose.runtime.Composable
@@ -50,6 +51,10 @@ import com.xjtu.toolbox.error.FriendlyError
 import com.xjtu.toolbox.ui.adaptive.AdaptiveCardGrid
 import com.xjtu.toolbox.ui.adaptive.fullLineItem
 import com.xjtu.toolbox.ui.components.AppCardColor
+import com.xjtu.toolbox.ui.components.AppDropdownMenu
+import com.xjtu.toolbox.ui.components.AppDropdownMenuItem
+import com.xjtu.toolbox.ui.components.AppOptionGroup
+import com.xjtu.toolbox.ui.components.MenuMorph
 import com.xjtu.toolbox.ui.components.AppPullToRefresh
 import com.xjtu.toolbox.ui.components.AppSearchBar
 import com.xjtu.toolbox.ui.components.ErrorState
@@ -90,7 +95,11 @@ fun DegreeScreen(
     val scrollBehavior = MiuixScrollBehavior(rememberTopAppBarState())
     val glass = rememberPageGlass()
     var opened by remember { mutableStateOf(setOf<String>()) }
-    var picking by remember { mutableStateOf<DegreeLooseCourse?>(null) }
+    var picking by remember { mutableStateOf<PickTarget?>(null) }
+    val confirmedActions = ConfirmedActions(
+        onChange = { course, nodeId -> picking = PickTarget(course.code, course.name, null, nodeId) },
+        onUndo = vm::undoConfirm,
+    )
     var choosingPlan by remember { mutableStateOf(false) }
     var showUnplaced by remember { mutableStateOf(false) }
     val progress = vm.progress
@@ -148,15 +157,21 @@ fun DegreeScreen(
                                         open = showUnplaced,
                                         otherPlan = vm.browsing,
                                         onToggle = { showUnplaced = !showUnplaced },
-                                        onPick = { picking = it },
+                                        onPick = { picking = PickTarget(it.code, it.name, it, null) },
                                         onAskAgent = onAskAgent?.let { ask -> { ask(if (vm.browsing) askAboutPlan(progress.planName) else ASK_UNPLACED) } },
                                     )
                                 }
                             }
                         }
+                        val manual = progress.nodes.flatMap { it.flattened }.flatMap { n -> n.courses.filter { it.userConfirmed }.map { n to it } }
+                        if (manual.isNotEmpty() && !vm.browsing) {
+                            fullLineItem(key = "manual_${progress.planCode}") {
+                                Box(Modifier.enterOnce(1)) { ManualCard(manual, confirmedActions) }
+                            }
+                        }
                         val nodes = progress.nodes
                         items(nodes.size, key = { "${progress.planCode}_${nodes[it].id}" }) { i ->
-                            Box(Modifier.enterOnce(i + 2)) { RootCard(nodes[i], opened, toggle, vm::undoConfirm) }
+                            Box(Modifier.enterOnce(i + 2)) { RootCard(nodes[i], opened, toggle, confirmedActions) }
                         }
                         if (progress.warnings.isNotEmpty()) {
                             fullLineItem(key = "warnings") {
@@ -179,28 +194,15 @@ fun DegreeScreen(
 
         val target = picking
         if (target != null && progress != null) {
-            OverlayBottomSheet(show = true, title = "「${target.name}」抵哪一组", onDismissRequest = { picking = null }) {
-                Column(Modifier.heightIn(max = 460.dp).verticalScroll(rememberScrollState())) {
-                    Text(
-                        "只记在本机，用来估算进度，教务并不知道。真要抵扣请向教务确认。",
-                        style = MiuixTheme.textStyles.footnote1,
-                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                        modifier = Modifier.padding(bottom = 8.dp),
-                    )
-                    progress.nodes.flatMap { it.flattened }.filter { it.children.isEmpty() }.forEach { node ->
-                        Row(
-                            Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).clickable {
-                                vm.confirm(target, node.id)
-                                picking = null
-                            }.padding(horizontal = 8.dp, vertical = 12.dp),
-                        ) {
-                            Text(node.name, style = MiuixTheme.textStyles.body2, color = MiuixTheme.colorScheme.onSurface, modifier = Modifier.weight(1f))
-                            Text("${credits(node.counted)}/${credits(node.required)}", style = MiuixTheme.textStyles.footnote1, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
-                        }
-                    }
-                    Spacer(Modifier.height(16.dp))
-                }
-            }
+            GroupPicker(
+                target = target,
+                roots = progress.nodes,
+                onPick = { nodeId ->
+                    if (target.loose != null) vm.confirm(target.loose, nodeId) else vm.reassign(target.code, nodeId)
+                    picking = null
+                },
+                onDismiss = { picking = null },
+            )
         }
     }
 }
@@ -208,16 +210,19 @@ fun DegreeScreen(
 private val ASK_PROGRESS = AgentForward(
     text = "看看我的学业进度，还差什么？",
     snapshot = "用户从学业进度页进来。用 get_degree_progress 查，重算结果和教务原值不同时都说清楚，结论以教务为准。",
+    label = "学业进度",
 )
 
 private val ASK_UNPLACED = AgentForward(
     text = "帮我看看这些没归进培养方案的课，可能抵哪些要求？",
     snapshot = "用户从学业进度页进来。用 get_degree_progress 查 unplaced 和各组要求，按课程名和学分给出可能的对应和理由。这只是建议：请用户在学业进度页自己确认，并向教务核实。",
+    label = "学业进度",
 )
 
 private fun askAboutPlan(name: String) = AgentForward(
     text = "如果我转到「$name」，大概还要补哪些课？",
     snapshot = "用户在学业进度页看别的培养方案，可能在规划转专业。用 get_degree_progress 的 plan 参数查这个方案（名称：$name），说明现有的课能算多少、要补哪些、哪些用不上。转专业政策和学分认定以学院当年文件为准，没有收录就如实说。",
+    label = "培养方案「$name」",
 )
 
 @Composable
@@ -404,9 +409,15 @@ private fun Unplaced(courses: List<DegreeLooseCourse>, open: Boolean, otherPlan:
     }
 }
 
-/** 顶层一组一张卡：标题 + 进度条，子组和课程收在里面。 */
+/** 手动抵扣的课由谁改：改抵到别的组 / 撤销。 */
+private class ConfirmedActions(val onChange: (DegreeCourse, String) -> Unit, val onUndo: (String) -> Unit)
+
+/** 选组弹窗的对象：没归位的课（[loose]）首次抵扣，或已抵扣的课改组（[current] 是现在那组）。 */
+private data class PickTarget(val code: String, val name: String, val loose: DegreeLooseCourse?, val current: String?)
+
+/** 顶层一组一张卡：标题 + 进度条；下一级是卡里的行，再往下收进一块内嵌底色里。 */
 @Composable
-private fun RootCard(node: DegreeNode, opened: Set<String>, onToggle: (String) -> Unit, onUndo: (String) -> Unit) {
+private fun RootCard(node: DegreeNode, opened: Set<String>, onToggle: (String) -> Unit, actions: ConfirmedActions) {
     val cs = MiuixTheme.colorScheme
     Surface(color = AppCardColor, shape = RoundedCornerShape(18.dp), modifier = Modifier.fillMaxWidth()) {
         Column(Modifier.fillMaxWidth().animateContentSize().padding(vertical = 14.dp)) {
@@ -416,39 +427,49 @@ private fun RootCard(node: DegreeNode, opened: Set<String>, onToggle: (String) -
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(node.name, style = MiuixTheme.textStyles.body1, fontWeight = FontWeight.Bold, color = cs.onSurface, modifier = Modifier.weight(1f))
+                    Text(node.name, style = MiuixTheme.textStyles.title4, fontWeight = FontWeight.SemiBold, color = cs.onSurface, modifier = Modifier.weight(1f))
                     Spacer(Modifier.width(8.dp))
                     Amount(node, emphasize = true)
                     if (leaf) Chevron(node.id in opened)
                 }
-                if (node.required > 0) Bar(fraction(node.counted, node.required))
+                if (node.required > 0) Bar(fraction(node.counted, node.required), height = 6.dp)
                 Mismatch(node)
             }
             if (leaf) {
-                if (node.id in opened) Column(Modifier.padding(top = 8.dp)) { NodeBody(node, depth = 0, onUndo) }
+                if (node.id in opened) Inset { NodeBody(node, actions) }
             } else {
                 Spacer(Modifier.height(6.dp))
-                node.children.forEach { ChildNode(it, 0, opened, onToggle, onUndo) }
+                node.children.forEach { ChildNode(it, opened, onToggle, actions) }
             }
         }
     }
 }
 
+/** 展开后的内容垫一层内嵌底色：一眼看出它属于上面那一行。 */
 @Composable
-private fun ChildNode(node: DegreeNode, depth: Int, opened: Set<String>, onToggle: (String) -> Unit, onUndo: (String) -> Unit) {
+private fun Inset(content: @Composable () -> Unit) {
+    Column(
+        Modifier.fillMaxWidth().padding(start = 12.dp, end = 12.dp, top = 4.dp, bottom = 6.dp)
+            .clip(RoundedCornerShape(14.dp)).background(com.xjtu.toolbox.ui.components.AppInsetColor)
+            .padding(vertical = 6.dp),
+    ) { content() }
+}
+
+@Composable
+private fun ChildNode(node: DegreeNode, opened: Set<String>, onToggle: (String) -> Unit, actions: ConfirmedActions) {
     val cs = MiuixTheme.colorScheme
     val isOpen = node.id in opened
     val expandable = node.children.isNotEmpty() || node.courses.isNotEmpty() || node.requirementText != null
     Column(Modifier.fillMaxWidth()) {
         Column(
             Modifier.fillMaxWidth().clickable(enabled = expandable) { onToggle(node.id) }
-                .padding(start = 16.dp + 12.dp * depth, end = 16.dp, top = 9.dp, bottom = 9.dp),
+                .padding(horizontal = 16.dp, vertical = 10.dp),
             verticalArrangement = Arrangement.spacedBy(3.dp),
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 StatusDot(node.satisfied)
-                Spacer(Modifier.width(8.dp))
-                Text(node.name, style = MiuixTheme.textStyles.body2, color = cs.onSurface, modifier = Modifier.weight(1f))
+                Spacer(Modifier.width(10.dp))
+                Text(node.name, style = MiuixTheme.textStyles.body2, fontWeight = FontWeight.Medium, color = cs.onSurface, modifier = Modifier.weight(1f))
                 Spacer(Modifier.width(8.dp))
                 Amount(node, emphasize = false)
                 if (expandable) Chevron(isOpen)
@@ -456,23 +477,135 @@ private fun ChildNode(node: DegreeNode, depth: Int, opened: Set<String>, onToggl
             Mismatch(node)
         }
         if (isOpen) {
-            NodeBody(node, depth + 1, onUndo)
-            node.children.forEach { ChildNode(it, depth + 1, opened, onToggle, onUndo) }
+            Inset {
+                NodeBody(node, actions)
+                node.children.forEach { ChildNode(it, opened, onToggle, actions) }
+            }
         }
     }
 }
 
 @Composable
-private fun NodeBody(node: DegreeNode, depth: Int, onUndo: (String) -> Unit) {
+private fun NodeBody(node: DegreeNode, actions: ConfirmedActions) {
     node.requirementText?.let {
         Text(
             it,
             style = MiuixTheme.textStyles.footnote1,
             color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-            modifier = Modifier.padding(start = 16.dp + 12.dp * depth, end = 16.dp, bottom = 6.dp),
+            modifier = Modifier.padding(horizontal = 14.dp, vertical = 4.dp),
         )
     }
-    node.courses.forEach { CourseRow(it, depth, onUndo) }
+    node.courses.forEach { CourseRow(it, node.id, actions) }
+}
+
+/** 手动抵扣的课集中列在这里，点一门就能改组或撤销。 */
+@Composable
+private fun ManualCard(items: List<Pair<DegreeNode, DegreeCourse>>, actions: ConfirmedActions) {
+    val cs = MiuixTheme.colorScheme
+    Surface(color = AppCardColor, shape = RoundedCornerShape(18.dp), modifier = Modifier.fillMaxWidth()) {
+        Column(Modifier.fillMaxWidth().padding(vertical = 12.dp)) {
+            Text(
+                "手动抵扣 ${items.size} 门",
+                style = MiuixTheme.textStyles.body1,
+                fontWeight = FontWeight.Medium,
+                color = cs.onSurface,
+                modifier = Modifier.padding(horizontal = 16.dp),
+            )
+            Text(
+                "只记在本机，教务不知道；点一门改组或撤销",
+                style = MiuixTheme.textStyles.footnote1,
+                color = cs.onSurfaceVariantSummary,
+                modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 2.dp, bottom = 4.dp),
+            )
+            items.forEach { (node, course) ->
+                ConfirmedMenuHost(course, node.id, actions) { open ->
+                    Row(
+                        Modifier.fillMaxWidth().clickable(onClick = open).padding(horizontal = 16.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Column(Modifier.weight(1f)) {
+                            Text(course.name, style = MiuixTheme.textStyles.body2, color = cs.onSurface)
+                            Text("抵到「${node.name}」", style = MiuixTheme.textStyles.footnote1, color = cs.onSurfaceVariantSummary)
+                        }
+                        Text("${credits(course.credit)} 学分", style = MiuixTheme.textStyles.footnote1, color = cs.onSurfaceVariantSummary)
+                        Icon(Icons.Default.MoreVert, contentDescription = "改组或撤销", tint = cs.onSurfaceVariantSummary, modifier = Modifier.padding(start = 6.dp).size(18.dp))
+                    }
+                }
+            }
+        }
+    }
+}
+
+/** 已抵扣课程的那一行 + 它的弹出菜单（改抵到其他组 / 撤销抵扣）。 */
+@Composable
+private fun ConfirmedMenuHost(course: DegreeCourse, nodeId: String, actions: ConfirmedActions, row: @Composable (open: () -> Unit) -> Unit) {
+    var open by remember { mutableStateOf(false) }
+    Box {
+        row { open = true }
+        AppDropdownMenu(expanded = open, onDismissRequest = { open = false }, morph = MenuMorph.FromRow) {
+            AppDropdownMenuItem(
+                text = { Text("改抵到其他组", style = MiuixTheme.textStyles.body1) },
+                leadingIcon = { Icon(Icons.Default.SwapHoriz, null, tint = MiuixTheme.colorScheme.onSurface, modifier = Modifier.size(20.dp)) },
+                onClick = {
+                    open = false
+                    actions.onChange(course, nodeId)
+                },
+            )
+            AppDropdownMenuItem(
+                text = { Text("撤销抵扣", style = MiuixTheme.textStyles.body1, color = MiuixTheme.colorScheme.error) },
+                leadingIcon = { Icon(Icons.Default.Close, null, tint = MiuixTheme.colorScheme.error, modifier = Modifier.size(20.dp)) },
+                onClick = {
+                    open = false
+                    actions.onUndo(course.code)
+                },
+            )
+        }
+    }
+}
+
+/** 选抵到哪一组：按顶层大类分组列出末级课组，当前那组打勾。 */
+@Composable
+private fun GroupPicker(target: PickTarget, roots: List<DegreeNode>, onPick: (String) -> Unit, onDismiss: () -> Unit) {
+    val cs = MiuixTheme.colorScheme
+    // 抽屉默认白底，里面的课组卡也是白的；垫 surface 灰底才分得出
+    OverlayBottomSheet(show = true, title = "「${target.name}」抵哪一组", backgroundColor = cs.surface, onDismissRequest = onDismiss) {
+        Column(Modifier.heightIn(max = 520.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Text(
+                "只记在本机，用来估算进度，教务并不知道。真要抵扣请向教务确认。",
+                style = MiuixTheme.textStyles.footnote1,
+                color = cs.onSurfaceVariantSummary,
+            )
+            roots.forEach { root ->
+                val leaves = root.flattened.filter { it.children.isEmpty() }
+                if (leaves.isEmpty()) return@forEach
+                Text(root.name, style = MiuixTheme.textStyles.footnote1, fontWeight = FontWeight.Medium, color = cs.onSurfaceVariantSummary, modifier = Modifier.padding(start = 4.dp, top = 4.dp))
+                AppOptionGroup {
+                    leaves.forEach { node ->
+                        val current = node.id == target.current
+                        Row(
+                            Modifier.fillMaxWidth().clickable(enabled = !current) { onPick(node.id) }.padding(horizontal = 16.dp, vertical = 12.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text(
+                                node.name,
+                                style = MiuixTheme.textStyles.body2,
+                                fontWeight = if (current) FontWeight.Medium else FontWeight.Normal,
+                                color = if (current) cs.primary else cs.onSurface,
+                                modifier = Modifier.weight(1f),
+                            )
+                            Text(
+                                if (node.required > 0) "${credits(node.counted)}/${credits(node.required)}" else "已修 ${credits(node.earned)}",
+                                style = MiuixTheme.textStyles.footnote1,
+                                color = cs.onSurfaceVariantSummary,
+                            )
+                            if (current) Icon(Icons.Default.Check, "当前", tint = cs.primary, modifier = Modifier.padding(start = 8.dp).size(18.dp))
+                        }
+                    }
+                }
+            }
+            Spacer(Modifier.height(16.dp))
+        }
+    }
 }
 
 /** 这一组的学分。有要求显示「已修/要求」；要求是 0 的（选修模块）只说修了多少。 */
@@ -525,22 +658,32 @@ private fun StatusDot(done: Boolean) {
 }
 
 @Composable
-private fun CourseRow(c: DegreeCourse, depth: Int, onUndo: (String) -> Unit) {
+private fun CourseRow(c: DegreeCourse, nodeId: String, actions: ConfirmedActions) {
+    if (c.userConfirmed) {
+        ConfirmedMenuHost(c, nodeId, actions) { open -> CourseRowContent(c, Modifier.clickable(onClick = open)) }
+    } else {
+        CourseRowContent(c, Modifier)
+    }
+}
+
+@Composable
+private fun CourseRowContent(c: DegreeCourse, modifier: Modifier) {
     val cs = MiuixTheme.colorScheme
     val passed = c.status == DegreeCourseStatus.PASSED
     val note = when {
-        c.userConfirmed -> "已确认抵扣（未经教务确认），点按撤销"
-        c.matchedByName -> "按课程名匹配"
+        c.userConfirmed -> "手动抵扣（未经教务确认），点按改组或撤销"
+        c.matchedByName -> "课程号与方案不一致，已按同一门课计入"
         passed -> null
         c.status == DegreeCourseStatus.NOT_TAKEN -> c.plannedTerm?.let { "建议 $it" }
         c.status == DegreeCourseStatus.IN_PROGRESS -> DegreeBuilder.IN_PROGRESS_TEXT
         else -> c.statusText.ifEmpty { null }
     }
     Row(
-        Modifier.fillMaxWidth().clickable(enabled = c.userConfirmed) { onUndo(c.code) }
-            .padding(start = 40.dp + 12.dp * depth, end = 16.dp, top = 6.dp, bottom = 6.dp),
+        Modifier.fillMaxWidth().then(modifier).padding(horizontal = 14.dp, vertical = 7.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
+        CourseMark(c.status)
+        Spacer(Modifier.width(10.dp))
         Column(Modifier.weight(1f)) {
             Text(c.name, style = MiuixTheme.textStyles.footnote1, color = if (passed) cs.onSurface else cs.onSurfaceVariantSummary)
             note?.let {
@@ -564,6 +707,20 @@ private fun CourseRow(c: DegreeCourse, depth: Int, onUndo: (String) -> Unit) {
             style = MiuixTheme.textStyles.footnote1,
             color = cs.onSurfaceVariantSummary,
         )
+    }
+}
+
+/** 课程前面的小记号：通过实心勾、在修主题色圆点、挂科红点、没修空心圈。 */
+@Composable
+private fun CourseMark(status: DegreeCourseStatus) {
+    val cs = MiuixTheme.colorScheme
+    Box(Modifier.size(14.dp), contentAlignment = Alignment.Center) {
+        when (status) {
+            DegreeCourseStatus.PASSED -> Icon(Icons.Default.Check, null, tint = cs.primary, modifier = Modifier.size(14.dp))
+            DegreeCourseStatus.IN_PROGRESS -> Box(Modifier.size(7.dp).clip(CircleShape).background(cs.primary))
+            DegreeCourseStatus.FAILED -> Box(Modifier.size(7.dp).clip(CircleShape).background(cs.error))
+            else -> Box(Modifier.size(8.dp).clip(CircleShape).border(1.2.dp, cs.onSurface.copy(alpha = 0.3f), CircleShape))
+        }
     }
 }
 

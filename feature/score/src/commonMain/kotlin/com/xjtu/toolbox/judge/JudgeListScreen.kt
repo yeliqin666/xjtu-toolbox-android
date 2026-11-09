@@ -164,11 +164,12 @@ private fun <Q> AutoJudgeBlock(vm: JudgeViewModel<Q>, onClick: () -> Unit) {
         Button(
             onClick = { if (!vm.isAutoJudging) onClick() },
             modifier = Modifier.fillMaxWidth(0.84f).height(44.dp).align(Alignment.CenterHorizontally),
-            enabled = !vm.isAutoJudging
+            enabled = !vm.isAutoJudging,
+            colors = ButtonDefaults.buttonColorsPrimary(),
         ) {
-            Icon(Icons.Default.ThumbUp, contentDescription = null)
+            Icon(Icons.Default.ThumbUp, contentDescription = null, tint = MiuixTheme.colorScheme.onPrimary)
             Spacer(Modifier.width(8.dp))
-            Text(if (vm.isAutoJudging) "评教中..." else "一键全部好评")
+            Text(if (vm.isAutoJudging) "评教中..." else "一键全部好评", color = MiuixTheme.colorScheme.onPrimary)
         }
         if (!vm.isAutoJudging && vm.autoJudgeMessage.isEmpty()) return@Column
         Spacer(Modifier.height(8.dp))

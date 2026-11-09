@@ -1,5 +1,6 @@
 package com.xjtu.toolbox.lms
 
+
 import com.xjtu.toolbox.platform.Log
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
@@ -104,12 +105,10 @@ internal fun CourseListPage(
                 actions = {
                     // 学期是整页的筛选，和校园卡的时间范围一样收进顶栏菜单，默认全部
                     if (semesters.size > 1) Box {
-                        IconButton(onClick = { showSemesterMenu = true }) {
-                            Icon(Icons.Default.DateRange, contentDescription = "学期：${selectedSemester ?: "全部"}")
-                        }
-                        com.xjtu.toolbox.ui.components.AppDropdownMenu(
+                        com.xjtu.toolbox.ui.components.AppIconMenu(
                             expanded = showSemesterMenu,
-                            onDismissRequest = { showSemesterMenu = false },
+                            onExpandedChange = { showSemesterMenu = it },
+                            icon = { Icon(Icons.Default.DateRange, contentDescription = "学期：${selectedSemester ?: "全部"}") },
                         ) {
                             (listOf<String?>(null) + semesters).forEach { sem ->
                                 com.xjtu.toolbox.ui.components.AppDropdownOption(

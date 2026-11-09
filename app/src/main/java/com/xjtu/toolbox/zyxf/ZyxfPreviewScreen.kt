@@ -309,6 +309,7 @@ private fun PreviewDownloadBar(state: String?, onDownload: () -> Unit) {
         Button(
             onClick = onDownload,
             enabled = !downloading,
+            colors = com.xjtu.toolbox.ui.components.appTonalButtonColors(),
         ) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 if (downloading) {

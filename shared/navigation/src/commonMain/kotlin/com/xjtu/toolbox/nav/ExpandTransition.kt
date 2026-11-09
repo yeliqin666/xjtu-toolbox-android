@@ -5,16 +5,28 @@ import androidx.compose.animation.core.Easing
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.State
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.remember
+import androidx.compose.foundation.Canvas
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.RoundRect
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.CompositingStrategy
+import androidx.compose.ui.graphics.GraphicsLayerScope
 import androidx.compose.ui.graphics.Outline
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.graphics.layer.GraphicsLayer
+import androidx.compose.ui.graphics.layer.drawLayer
+import androidx.compose.ui.graphics.rememberGraphicsLayer
+import androidx.compose.ui.graphics.drawscope.draw
+import androidx.compose.ui.graphics.drawscope.scale
 import androidx.compose.ui.layout.LayoutCoordinates
 import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.boundsInWindow
@@ -22,11 +34,14 @@ import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.LayoutDirection
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.util.lerp
 import top.yukonga.miuix.kmp.nav.runtime.NavChange
 import top.yukonga.miuix.kmp.nav.transition.NavTransition
 import top.yukonga.miuix.kmp.nav.transition.navGraphicsTransition
 import kotlin.reflect.KClass
+import kotlin.math.roundToInt
 
 /**
  * 首页格子 → 功能页的「从那一格放大出来」转场（plan2 PR V）。
@@ -46,38 +61,88 @@ object ExpandOrigins {
         val bounds: Rect,
         val cornerPx: Float,
         val snapshot: (@Composable (Modifier) -> Unit)? = null,
+        /** 被点的那个元素：转场期间藏起来，飞走的是它自己，原地不留一份。 */
+        val source: ExpandOriginSource? = null,
     )
 
-    /** 当前返回中的起点、进度和目的地尺寸；叠加层据此把源元素放回窗口里。 */
-    data class Pop(val origin: Origin, val progress: Float, val full: Size)
+    /** 一次内容交接。进度仅在图层读，逐帧更新不重组源卡片。 */
+    class ContentTransition(val origin: Origin, progress: Float, full: Size, val popping: Boolean) {
+        var progress by mutableFloatStateOf(progress)
+            internal set
+        var full by mutableStateOf(full)
+            internal set
+
+        /** 转场已结束：原卡先放出来，叠加层再留两帧才撤（见 [finishContent]），中间不会有一帧两边都不画。 */
+        var ending by mutableStateOf(false)
+            internal set
+    }
 
     /** 返回窗口：屏幕坐标里的矩形，以及窗口从格子长到全屏的进度（0 = 格子，1 = 全屏）。 */
     data class Window(val bounds: Rect, val grow: Float)
 
-    private val popState = mutableStateOf<Pop?>(null)
+    private val contentState = mutableStateOf<ContentTransition?>(null)
 
-    val pop: State<Pop?> get() = popState
+    private val coveredFromOriginState = mutableStateOf(false)
 
-    internal fun updatePop(origin: Origin, progress: Float, full: Size) {
-        popState.value = Pop(origin, progress.coerceIn(0f, 1f), full)
+    /**
+     * 这个元素此刻正在转场里飞着。绘制阶段读。
+     * 直接由进行中的转场推出来，不单独存状态：转场一结束自然恢复，不会一直藏着。
+     */
+    fun isHidden(source: ExpandOriginSource): Boolean {
+        val transition = contentState.value ?: return false
+        if (transition.origin.source !== source || transition.ending) return false
+        // 有叠加层的卡片：整段都藏着，转场结束那一帧和叠加层一次换手（两张透明玻璃叠着淡入淡出会叠亮一下）。
+        // 没有叠加层的圆钮：页面自己缩回按钮并淡出，最后一小段要露出按钮
+        return transition.origin.snapshot != null || transition.progress > SOURCE_HANDOFF
     }
 
-    internal fun clearPop() {
-        if (popState.value != null) popState.value = null
+    /** 紧贴主界面的那一页是从起点放大出来的：主界面被它盖住时才压暗（默认转场不压）。 */
+    val coveredFromOrigin: State<Boolean> get() = coveredFromOriginState
+
+    val contentTransition: State<ContentTransition?> get() = contentState
+
+    internal fun updateContent(origin: Origin, progress: Float, full: Size, popping: Boolean) {
+        val current = contentState.value
+        if (current?.origin !== origin || current.popping != popping || current.ending) {
+            contentState.value = ContentTransition(origin, progress, full, popping)
+        } else {
+            current.progress = progress
+            current.full = full
+        }
+    }
+
+    /**
+     * 转场结束。不直接置空：这个调用常发生在绘制阶段，叠加层靠重组撤掉、原卡靠重绘放出来，
+     * 两条路不保证同一帧生效，实测会空出一帧什么都没画（卡片闪一下）。
+     * 所以先标 [ContentTransition.ending]：原卡立刻放出来，叠加层留两帧再由 [finishContent] 撤。
+     */
+    fun clearContent() {
+        val current = contentState.value ?: return
+        if (current.origin.snapshot == null) contentState.value = null else current.ending = true
+    }
+
+    /** 叠加层收尾：只撤自己那一次，期间若已开始新的转场就不动。 */
+    internal fun finishContent(transition: ContentTransition) {
+        if (contentState.value === transition) contentState.value = null
+    }
+
+    /**
+     * 页面内容占多少（1 = 全是页面，0 = 全是卡片）。打开时到中央前后才交接成页面；
+     * 返回时页面一开始缩就换回卡片，看到的是卡片飞回去。
+     */
+    fun pageContentAlpha(progress: Float, popping: Boolean = false): Float {
+        val t = if (popping) ((progress - 0.40f) / 0.40f).coerceIn(0f, 1f)
+        else ((progress - 0.26f) / 0.36f).coerceIn(0f, 1f)
+        return t * t * (3f - 2f * t)
     }
 
     /** 按和转场完全相同的公式算返回窗口，保证叠加层和页面裁剪严丝合缝。 */
-    fun windowOf(origin: Origin, progress: Float, full: Size): Window {
-        val grow = ((progress - ORIGIN_HOLD) / (1f - ORIGIN_HOLD)).coerceIn(0f, 1f)
-        return Window(
-            bounds = Rect(
-                lerp(origin.bounds.left, 0f, grow),
-                lerp(origin.bounds.top, 0f, grow),
-                lerp(origin.bounds.right, full.width, grow),
-                lerp(origin.bounds.bottom, full.height, grow),
-            ),
-            grow = grow,
-        )
+    fun windowOf(origin: Origin, progress: Float, full: Size): Window =
+        windowAt(origin, progress.coerceIn(0f, 1f), full)
+
+    /** 窗口在长大进度 [grow] 时的矩形；[grow] 可以略大于 1（打开时的回弹）。 */
+    internal fun windowAt(origin: Origin, grow: Float, full: Size): Window {
+        return Window(bounds = ButtonZoom.window(origin.bounds, full, grow), grow = grow)
     }
 
     private var armed: Pair<String, Origin>? = null
@@ -97,12 +162,14 @@ object ExpandOrigins {
      * [AppNavigator] 每次压栈时调用：只有紧接在格子点击之后、去同一个路由的那一次才用起点，
      * 否则把这个类型的旧起点清掉，免得从搜索进同一页时从上次那一格飞出来。
      */
-    fun onPush(route: AppRoute) {
-        clearPop()
+    fun onPush(route: AppRoute, aboveRoot: Boolean) {
+        clearContent()
         val a = armed
         armed = null
-        if (a != null && a.first == route.id) byType[route::class] = a.second
+        val fromOrigin = a != null && a.first == route.id
+        if (fromOrigin) byType[route::class] = a.second
         else byType.remove(route::class)
+        if (aboveRoot) coveredFromOriginState.value = fromOrigin
     }
 
     /**
@@ -112,15 +179,142 @@ object ExpandOrigins {
     fun clear() {
         armed = null
         byType.clear()
-        clearPop()
+        contentState.value = null
+        coveredFromOriginState.value = false
     }
 
     internal fun originOf(type: KClass<out AppRoute>): Origin? = byType[type]
 }
 
+/**
+ * 顶栏圆钮 ↔ 整页（容器变形）：窗口从按钮的矩形一路长到全屏，页面等比缩放铺满窗口、按窗口裁切；
+ * 倒着走就缩回按钮。开头一小段淡入，让按钮溶进页面。
+ */
+object ButtonZoom {
+    private const val FADE_END = 0.05f
+
+    /** 页面放大时，底下那页退到的比例。 */
+    const val RECEDE_SCALE = 0.9f
+
+    /** 底下那页压暗的最大程度。 */
+    const val RECEDE_DIM = 0.42f
+
+    /** 接近匀速的时钟：节奏都在 [window] 的分段曲线里，这里不再叠一层减速。 */
+    val Easing: Easing = CubicBezierEasing(0.3f, 0.15f, 0.6f, 0.95f)
+
+    /** 起点是不是一颗圆（圆角达到短边一半）：圆钮和卡片共用几何，内容交接各自处理。 */
+    fun isCircle(origin: ExpandOrigins.Origin): Boolean =
+        origin.cornerPx * 2f >= origin.bounds.minDimension * 0.95f
+
+    /**
+     * 和弹出菜单同一种节奏，分两段：前段边移边放大，飞到屏幕中央；
+     * 后段位置已经停稳，原地继续放大铺满。尺寸是两段叠加，交接处速度连续，高度比宽度晚一点撑开。
+     */
+    fun window(from: Rect, full: Size, u: Float, risesFromBottom: Boolean = false): Rect {
+        val p = u.coerceIn(0f, 1f)
+        // 起步速度为 0：卡片先以原样动起来，不会一下子跳大
+        val flight = smoothStep(p / FLIGHT_END)
+        // 飞行段只长一点，看得清是一小块在移动；铺满主要靠后段
+        val growW = 0.22f * flight + 0.78f * smoothStep((p - 0.38f) / 0.62f)
+        val growH = 0.16f * flight + 0.84f * smoothStep((p - 0.34f) / 0.66f)
+        val cx = lerp(from.center.x, full.width / 2f, flight)
+        // 底栏盖在页面上层：先升到它上方、屏幕偏下处，看得见离开了底栏，再放大回到全屏中心
+        val cy = if (risesFromBottom) {
+            lerp(
+                lerp(from.center.y, full.height * BAR_FLIGHT_TARGET, flight),
+                full.height / 2f,
+                smoothStep((p - 0.38f) / 0.62f),
+            )
+        } else {
+            lerp(from.center.y, full.height / 2f, flight)
+        }
+        val w = lerp(from.width, full.width, growW)
+        val h = lerp(from.height, full.height, growH)
+        return Rect(cx - w / 2f, cy - h / 2f, cx + w / 2f, cy + h / 2f)
+    }
+
+    /**
+     * 圆钮变成页面时，页面内容的透明度：先是按钮长成的面板，长到一定大小后内容才在面板下浮出来。
+     * 进度 5% 就整页显出来的话，一按下去按钮就成了「装着整页缩略图的圆」。
+     */
+    fun contentAlpha(u: Float): Float = smoothStep((u - 0.12f) / 0.25f)
+
+    /** 盖在页面上的那块按钮面板（底色 + 原大图标）的透明度，和 [contentAlpha] 交叉。 */
+    fun coverAlpha(u: Float): Float = 1f - smoothStep((u - 0.18f) / 0.25f)
+
+    /** 面板底色从按钮那种半透明长成实底，起步时看起来还是那颗按钮。 */
+    fun coverFill(u: Float): Float = 0.55f + 0.45f * smoothStep(u / 0.12f)
+
+    /** 飞行段在总进度的这个位置结束，之后只原地放大。 */
+    private const val FLIGHT_END = 0.55f
+
+    /** 从底栏打开时，飞行段停在屏幕高度的这个位置。 */
+    private const val BAR_FLIGHT_TARGET = 0.68f
+
+    private fun smoothStep(x: Float): Float {
+        val t = x.coerceIn(0f, 1f)
+        return t * t * (3f - 2f * t)
+    }
+
+    /** [progress]：0 = 按钮，1 = 全屏。[full] 是整页尺寸，[from] 与它在同一坐标系。 */
+    fun apply(
+        scope: GraphicsLayerScope,
+        from: Rect,
+        full: Size,
+        progress: Float,
+        endCorner: Float,
+        risesFromBottom: Boolean = false,
+    ) = with(scope) {
+        val u = progress.coerceIn(0f, 1f)
+        val win = window(from, full, u, risesFromBottom)
+        val width = win.width.coerceAtLeast(1f)
+        val height = win.height.coerceAtLeast(1f)
+        val s = maxOf(width / full.width, height / full.height).coerceIn(0.01f, 1f)
+        transformOrigin = TransformOrigin(0f, 0f)
+        scaleX = s
+        scaleY = s
+        translationX = win.left
+        translationY = win.top
+        // 裁切形状写在缩放前的页面坐标里
+        shape = PixelRoundRectShape(Rect(0f, 0f, width / s, height / s), lerp(from.minDimension / 2f, endCorner, u) / s)
+        clip = true
+        // 飞行时带投影，铺满前收掉
+        shadowElevation = 20.dp.toPx() * (1f - u)
+        alpha = (u / FADE_END).coerceIn(0f, 1f)
+    }
+}
+
 /** 一个格子自己的位置记录器：点击时读的是**被点的这一格**，同一服务在首页出现两次也不会拿错。 */
-class ExpandOriginSource internal constructor() {
+class ExpandOriginSource internal constructor(private val layer: GraphicsLayer) {
     internal var coordinates: LayoutCoordinates? = null
+    internal var captureRequested by mutableStateOf(false)
+
+    // 只在点击后的第一帧录一次。平时直接绘制，不为每张首页卡常驻离屏渲染。
+    internal fun capture(draw: androidx.compose.ui.graphics.drawscope.ContentDrawScope) {
+        if (captureRequested) {
+            layer.record(
+                density = draw,
+                layoutDirection = draw.layoutDirection,
+                size = IntSize(draw.size.width.roundToInt(), draw.size.height.roundToInt()),
+            ) {
+                // drawContent 画在 draw 自己的画布上，要临时换成录制画布，否则录到的是空的
+                val recording = drawContext.canvas
+                draw.draw(draw, draw.layoutDirection, recording, draw.size) { draw.drawContent() }
+            }
+            // 录完当帧要画一次，图层才算在用，后面还能再画
+            with(draw) { drawLayer(layer) }
+            captureRequested = false
+        }
+    }
+
+    private val capturedContent: @Composable (Modifier) -> Unit = { modifier ->
+        Canvas(modifier) {
+            val recorded = layer.size
+            if (recorded.width > 0 && recorded.height > 0) {
+                scale(size.width / recorded.width, size.height / recorded.height, Offset.Zero) { drawLayer(layer) }
+            }
+        }
+    }
 
     /** 在跳转之前调用。格子已经脱离布局（拿不到坐标）就什么都不记，退回普通转场。 */
     fun arm(
@@ -132,9 +326,10 @@ class ExpandOriginSource internal constructor() {
         val c = coordinates?.takeIf { it.isAttached } ?: return
         val bounds = c.boundsInRoot()
         if (bounds.isEmpty) return
+        if (snapshot == null) captureRequested = true
         ExpandOrigins.arm(
             routeId,
-            ExpandOrigins.Origin(bounds, with(density) { cornerRadius.toPx() }, snapshot),
+            ExpandOrigins.Origin(bounds, with(density) { cornerRadius.toPx() }, snapshot ?: capturedContent, this),
         )
     }
 
@@ -147,10 +342,19 @@ class ExpandOriginSource internal constructor() {
 }
 
 @Composable
-fun rememberExpandOriginSource(): ExpandOriginSource = remember { ExpandOriginSource() }
+fun rememberExpandOriginSource(): ExpandOriginSource {
+    val layer = rememberGraphicsLayer()
+    return remember(layer) { ExpandOriginSource(layer) }
+}
 
 fun Modifier.expandOriginSource(source: ExpandOriginSource): Modifier =
     onGloballyPositioned { source.coordinates = it }
+        .drawWithContent {
+            when {
+                source.captureRequested -> source.capture(this)
+                !ExpandOrigins.isHidden(source) -> drawContent()
+            }
+        }
 
 /**
  * 给类型 [type] 的页面用的转场。起点每一帧现读，所以起点被清掉以后，返回动画会自动退回普通平移。
@@ -176,7 +380,19 @@ fun expandFromOrigin(type: KClass<out AppRoute>, screenCornerPx: Float): NavTran
                 val cover = d.coerceIn(0f, 1f)
                 translationX = (if (rtl) 1f else -1f) * cover * width * 0.25f
                 alpha = 1f - 0.1f * cover
+            } else {
+                // 上面那页放大时，底下这页慢慢往后退一点（压暗由主界面按深度自己画）
+                val s = lerp(1f, ButtonZoom.RECEDE_SCALE, d.coerceIn(0f, 1f))
+                scaleX = s
+                scaleY = s
+                shape = PixelRoundRectShape(
+                    Rect(0f, 0f, width, scope.layoutSize.height.toFloat()),
+                    lerp(0f, screenCornerPx, d.coerceIn(0f, 1f)),
+                )
+                clip = true
             }
+            // 完全被盖住：这一页不用画了
+            if (d >= 1f) alpha = 0f
             return@navGraphicsTransition
         }
         if (origin == null) {
@@ -188,22 +404,40 @@ fun expandFromOrigin(type: KClass<out AppRoute>, screenCornerPx: Float): NavTran
         val full = Size(width, scope.layoutSize.height.toFloat())
         if (full.width <= 0f || full.height <= 0f) return@navGraphicsTransition
 
-        // 返回时页面一直保持到缩回格子前最后一刻才淡出，然后直接交还给原图标 / 横块。
         val isPop = scope.change is NavChange.Pop
-        if (isPop && scope.isRunning && p > 0.01f) {
-            ExpandOrigins.updatePop(origin, p, full)
-        } else {
-            ExpandOrigins.clearPop()
+
+        // miuix-nav 出栈收尾时会再报一帧深度 0（p 从 ≈0 跳回 1），isRunning 却还是 true，
+        // 而且这一帧的 change 可能已经不是 Pop 了。照这一帧去画，叠加层按 p=1 全透明、原卡仍藏着，
+        // 落地那一下就空一帧（真机日志实测）。所以不看方向：同一个起点、还没结束的转场里
+        // 进度一帧跳过半程不可能是动画，一律按「已结束」处理
+        val current = ExpandOrigins.contentTransition.value
+        val reset = scope.isRunning && current != null && current.origin === origin &&
+            !current.ending && kotlin.math.abs(p - current.progress) > 0.5f
+
+        // 转场进行时登记进度：叠加层和「藏原件」都读它，结束就清掉
+        if (scope.isRunning && !reset) ExpandOrigins.updateContent(origin, p, full, isPop) else ExpandOrigins.clearContent()
+        // 刚走完的是出栈：退场页已经不该出现，这一帧不能按 p=1 整页画出来
+        if (reset && current?.popping == true) {
+            alpha = 0f
+            return@navGraphicsTransition
+        }
+
+        // 从顶栏圆钮打开：页面从按钮长出来、返回时缩回按钮（见 ButtonZoom）。
+        // 带图标的圆钮先由叠加层画成「按钮面板」，页面内容晚一点才浮出来（见 ButtonMorphCover）
+        if (ButtonZoom.isCircle(origin)) {
+            ButtonZoom.apply(this, origin.bounds, full, p, screenCornerPx)
+            if (origin.snapshot != null) alpha = ButtonZoom.contentAlpha(p)
+            compositingStrategy = CompositingStrategy.ModulateAlpha
+            return@navGraphicsTransition
         }
 
         // 窗口在屏幕坐标里从被点的格子长到全屏。起始帧的窗口就是那一格的尺寸，
         // 页面按「铺满窗口」等比缩放，所以不会出现一张小页面浮在格子中间。
-        // 开头一小段先停在格子上做淡入：页面从格子里长出来之前，先把格子本身换成页面内容，
-        // 返回时也正好收回这一格再淡出，落点就是被点元素的位置。
+        // 内容交接和展开同时开始，不单独停在起点等待淡入。
         val win = ExpandOrigins.windowOf(origin, p, full)
         val winWidth = win.bounds.width.coerceAtLeast(1f)
         val winHeight = win.bounds.height.coerceAtLeast(1f)
-        val s = maxOf(winWidth / full.width, winHeight / full.height).coerceIn(0.05f, 1f)
+        val s = maxOf(winWidth / full.width, winHeight / full.height).coerceIn(0.05f, 1.06f)
 
         // 页面左上角贴着窗口左上角；以左上角为轴缩放，窗口长大时页面跟着长。
         transformOrigin = TransformOrigin(0f, 0f)
@@ -213,27 +447,39 @@ fun expandFromOrigin(type: KClass<out AppRoute>, screenCornerPx: Float): NavTran
         translationY = win.bounds.top
 
         // 裁剪形状定义在缩放前的页面坐标里：窗口换算回页面坐标后就是左上角的一块。
-        val radius = lerp(origin.cornerPx, screenCornerPx, win.grow) / s
+        val radius = lerp(origin.cornerPx, screenCornerPx, win.grow.coerceIn(0f, 1f)) / s
         shape = PixelRoundRectShape(Rect(0f, 0f, winWidth / s, winHeight / s), radius)
         clip = true
-        // 在格子上淡入页面内容；淡入完成后再开始放大，中段之前页面就已经完全显出来。
+        // 在展开初段淡入页面内容，中段之前页面就已经完全显出来。
         // 返回时页面一直保持不透明，缩到格子前最后一刻才淡出；中段的内容交接由叠加层完成。
         // 逐条绘制指令调透明度，避免整页先进离屏缓冲再合成。
-        alpha = if (isPop) {
+        alpha = if (origin.snapshot != null) {
+            if (isPop) {
+                // 返回：卡片接手过半后页面跟着淡掉，不能一直垫在下面——卡片落地时是透明玻璃，会把页面透出来
+                (ExpandOrigins.pageContentAlpha(p, popping = true) * 2.5f).coerceIn(0f, 1f)
+            } else {
+                // 打开：卡片起步时是透明玻璃，页面先不出现；卡面底色铺满后、开始交接前页面才垫上来
+                val t = ((p - 0.20f) / 0.06f).coerceIn(0f, 1f)
+                t * t * (3f - 2f * t)
+            }
+        } else if (isPop) {
             ((p - POP_FADE_END) / (POP_FADE_START - POP_FADE_END)).coerceIn(0f, 1f)
         } else {
-            val fade = (p / ORIGIN_HOLD).coerceIn(0f, 1f)
+            val fade = (p / ORIGIN_FADE_END).coerceIn(0f, 1f)
             fade * fade * (3f - 2f * fade)
         }
         compositingStrategy = CompositingStrategy.ModulateAlpha
     }
 
-/** 起点停留 / 淡入占整段转场的比例。 */
-private const val ORIGIN_HOLD = 0.04f
+/** 进度低于它时原件显示，高于它时藏起来，和叠加层的淡入淡出同一段。 */
+private const val SOURCE_HANDOFF = 0.05f
 
-/** 返回时页面保持到缩回格子前最后一刻（约 0.045 进度）再淡出，避免中段出现空档。 */
-private const val POP_FADE_START = 0.045f
-private const val POP_FADE_END = 0.04f
+/** 页面内容在展开初段接入，不单独停留。 */
+private const val ORIGIN_FADE_END = 0.08f
+
+/** 返回时窗口缩回格子后在格子上淡出，交还给原来的格子。 */
+private const val POP_FADE_START = 0.06f
+private const val POP_FADE_END = 0.015f
 
 /**
  * 子页转场（程序化跳转）的节奏：420ms，ease-in-out(0.4, 0, 0.2, 1)。
@@ -246,18 +492,24 @@ object AppPageMotion {
     val Easing: Easing = CubicBezierEasing(0.4f, 0f, 0.2f, 1f)
 }
 
-/**
- * 格子放大 / 缩回的节奏。
- *
- * 用 420ms 的 ease-in-out：先在格子上淡入页面内容，中段加速放大，收尾再减速贴边。
- * 跟手的预测式返回仍用 miuix-nav 默认弹簧。
- */
+/** 格子放大 / 缩回的节奏，不回弹。返回手势松手后的落定（完成或反悔）也一样。 */
 private val ExpandMotion = top.yukonga.miuix.kmp.nav.transition.NavMotion(
+    commit = top.yukonga.miuix.kmp.nav.transition.NavSettleSpec.Tween(
+        durationMillis = GESTURE_SETTLE_MS,
+        easing = ButtonZoom.Easing,
+    ),
+    cancel = top.yukonga.miuix.kmp.nav.transition.NavSettleSpec.Tween(
+        durationMillis = GESTURE_SETTLE_MS,
+        easing = ButtonZoom.Easing,
+    ),
     programmatic = top.yukonga.miuix.kmp.nav.transition.NavSettleSpec.Tween(
-        durationMillis = AppPageMotion.DurationMillis,
-        easing = AppPageMotion.Easing,
+        durationMillis = EXPAND_DURATION_MS,
+        easing = ButtonZoom.Easing,
     ),
 )
+
+private const val EXPAND_DURATION_MS = 660
+private const val GESTURE_SETTLE_MS = 420
 
 /** 裁剪用的形状：页面上的一块圆角矩形，[radius] 是缩放前的像素半径。 */
 private class PixelRoundRectShape(private val rect: Rect, private val radius: Float) : Shape {

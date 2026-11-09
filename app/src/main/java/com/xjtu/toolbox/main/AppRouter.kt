@@ -32,7 +32,26 @@ import top.yukonga.miuix.kmp.basic.SnackbarHostState
 /** 主界面选中的底栏格（[BarTab.id]）与底栏上有哪几格，放在导航根部，跳转时可直接切。 */
 @Stable
 class MainTabState(initialId: String) {
-    var selectedId by mutableStateOf(initialId)
+    private val current = mutableStateOf(initialId)
+
+    /** 切过来之前在哪几格，最近的在最后。只记 [MAX_HISTORY] 步：页签页本来就常驻，不存快照，限的是能退几步。 */
+    private val history = ArrayDeque<String>()
+
+    /** 这一次切换是不是返回键退回来的：外壳据此让当前页缩回自己的按钮，而不是让上一页再放大一次。 */
+    var returning by mutableStateOf(false)
+        private set
+
+    var selectedId: String
+        get() = current.value
+        set(value) {
+            if (value == current.value) return
+            history.remove(current.value)
+            history.addLast(current.value)
+            while (history.size > MAX_HISTORY) history.removeFirst()
+            history.remove(value)
+            returning = false
+            current.value = value
+        }
 
     /** 底栏从左到右的格子，跟着设置变（MainScreen 收集）。 */
     var bar by mutableStateOf(BottomTab.entries.map { BarTab.of(it) })
@@ -41,7 +60,21 @@ class MainTabState(initialId: String) {
         selectedId = tab.name
     }
 
+    /** 退回上一格；没有可退的（或那几格已经不在底栏上）返回 false。 */
+    fun back(onBar: Set<String>): Boolean {
+        while (history.isNotEmpty()) {
+            val previous = history.removeLast()
+            if (previous == current.value || previous !in onBar) continue
+            returning = true
+            current.value = previous
+            return true
+        }
+        return false
+    }
+
     companion object {
+        private const val MAX_HISTORY = 4
+
         val Saver = Saver<MainTabState, String>(
             save = { it.selectedId },
             restore = { MainTabState(it) },
@@ -152,6 +185,11 @@ class AppRouter(
         }
         if (!loginState.hasCredentials) {
             notify("请先登录后使用${type.label}")
+            return
+        }
+        // 思源学堂有落盘缓存：先开页面显示上次的内容，登录交给页面第一次取数时在后台做
+        if (route is AppRoute.Lms) {
+            go(route)
             return
         }
         cancelAutoLogin()

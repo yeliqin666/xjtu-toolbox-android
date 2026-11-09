@@ -252,11 +252,10 @@ internal fun AgentRoutePage(loginState: AppLoginState, onNavigate: (AppRoute) ->
     }
 }
 
-/** 移出底栏的日程：副标题、按钮、标签行照样由日程页送上来，挂到自己的顶栏上。 */
+/** 移出底栏的日程：按钮、标签行照样由日程页送上来，挂到自己的顶栏上。 */
 @Composable
 internal fun ScheduleRoutePage(loginState: AppLoginState, onNavigate: (AppRoute) -> Unit, onBack: () -> Unit) {
     val tabBottomPadding = LocalTabBottomPadding.current
-    var subtitle by remember { mutableStateOf("") }
     var actions by remember { mutableStateOf<(@Composable RowScope.() -> Unit)?>(null) }
     var bottomContent by remember { mutableStateOf<(@Composable () -> Unit)?>(null) }
     val scrollBehavior = MiuixScrollBehavior(rememberTopAppBarState())
@@ -265,7 +264,6 @@ internal fun ScheduleRoutePage(loginState: AppLoginState, onNavigate: (AppRoute)
             TopAppBar(
                 title = "日程",
                 largeTitle = "日程",
-                subtitle = subtitle,
                 color = glassBarColor(glass),
                 modifier = Modifier.glassTopBar(glass),
                 scrollBehavior = scrollBehavior,
@@ -284,7 +282,6 @@ internal fun ScheduleRoutePage(loginState: AppLoginState, onNavigate: (AppRoute)
             scrollBehavior = scrollBehavior,
             extraBottomPadding = tabBottomPadding,
             contentTopPadding = topPadding,
-            onSubtitleChange = { subtitle = it },
             onActionsChange = { actions = it },
             onBottomContentChange = { bottomContent = it },
         )

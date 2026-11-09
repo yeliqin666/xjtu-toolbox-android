@@ -1,6 +1,9 @@
 package com.xjtu.toolbox.community
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.ui.draw.clip
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Image
 import androidx.compose.runtime.*
@@ -13,9 +16,20 @@ import top.yukonga.miuix.kmp.window.WindowDialog
 
 /** 编辑器工具栏里的「图片」：贴一个图片链接，插成 Markdown 图片。 */
 @Composable
-internal fun CommunityImageActions(enabled: Boolean, onInsert: (String) -> Unit) {
+internal fun CommunityImageActions(enabled: Boolean, iconOnly: Boolean = false, onInsert: (String) -> Unit) {
     var show by remember { mutableStateOf(false) }
-    AppFilterChip(
+    if (iconOnly) {
+        androidx.compose.foundation.layout.Box(
+            Modifier
+                .size(36.dp)
+                .clip(CircleShape)
+                .clickable(enabled = enabled) { show = true },
+            contentAlignment = androidx.compose.ui.Alignment.Center,
+        ) {
+            Icon(Icons.Outlined.Image, contentDescription = "插入图片",
+                tint = MiuixTheme.colorScheme.onSurfaceVariantSummary, modifier = Modifier.size(20.dp))
+        }
+    } else AppFilterChip(
         selected = false,
         onClick = { if (enabled) show = true },
         label = "图片",

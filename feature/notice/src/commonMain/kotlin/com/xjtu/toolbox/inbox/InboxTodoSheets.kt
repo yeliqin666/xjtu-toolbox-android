@@ -1,5 +1,6 @@
 package com.xjtu.toolbox.inbox
 
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -46,7 +47,9 @@ import com.xjtu.toolbox.schedule.CourseColorPickerDialog
 import com.xjtu.toolbox.schedule.CourseColors
 import com.xjtu.toolbox.schedule.TermWeeks
 import com.xjtu.toolbox.ui.components.AppDatePickerDialog
+import com.xjtu.toolbox.ui.components.AppDropdownPreference
 import com.xjtu.toolbox.ui.components.AppFilterChip
+import com.xjtu.toolbox.ui.components.AppOptionGroup
 import com.xjtu.toolbox.util.CampusTimeZone
 import com.xjtu.toolbox.util.formatTwoDigits
 import com.xjtu.toolbox.util.todayOnCampus
@@ -56,6 +59,8 @@ import kotlinx.datetime.isoDayNumber
 import kotlinx.datetime.plus
 import kotlinx.datetime.toLocalDateTime
 import kotlin.time.Instant
+import top.yukonga.miuix.kmp.basic.BasicComponent
+import top.yukonga.miuix.kmp.basic.Button
 import top.yukonga.miuix.kmp.basic.ButtonDefaults
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.NumberPicker
@@ -75,14 +80,10 @@ private const val DEFAULT_DUE_MINUTE = 59
 private const val MAX_DAYS_AHEAD = 365
 
 /**
- * 新建一条自建待办。
+ * 新建一条自建待办：两个输入框 + 一组设置行（截止、时间、重要程度、颜色），各行点开就地选。
  *
- * 形态照自建日程的编辑面板（`CustomCourseDialog`）：底部抽屉 + 分区标题 + 一组输入，
- * 而不是一个窄弹窗 —— 日期、时间、颜色挤在弹窗里既看不清也点不准；抽屉还能一路往下滑。
- *
- * 与日程那面的差别是有意为之：待办**不占时段**（没有结束时间、没有周次、没有冲突判定），
- * 只需要一个截止；提醒也不在这里问 —— 提醒时刻由 [SelfTodoRules.reminderAt] 推算
- * （截止前 48 小时，撞上 0–7 点顺延到 7 点），用户不用选，选了也没用。
+ * 待办**不占时段**，只要一个截止；提醒不在这里问，由 [SelfTodoRules.reminderAt] 推算
+ * （截止前 48 小时，撞上 0–7 点顺延到 7 点）。
  */
 @Composable
 internal fun AddTodoSheet(termStart: LocalDate?, onDismiss: () -> Unit) {
@@ -96,23 +97,41 @@ internal fun AddTodoSheet(termStart: LocalDate?, onDismiss: () -> Unit) {
     var minute by remember { mutableIntStateOf(DEFAULT_DUE_MINUTE) }
     var noDue by remember { mutableStateOf(false) }
     var picking by remember { mutableStateOf(false) }
+    var editingTime by remember { mutableStateOf(false) }
+
+    // 截止的快捷选项：今天、明天、后天、本周日；挑过别的日子就把它也列进来
+    val quickDays = remember(today) {
+        listOf(
+            "今天" to today,
+            "明天" to today.plus(1, DateTimeUnit.DAY),
+            "后天" to today.plus(2, DateTimeUnit.DAY),
+            "本周日" to today.plus(7 - today.dayOfWeek.isoDayNumber, DateTimeUnit.DAY),
+        ).distinctBy { it.second }
+    }
+    val dayChoices = quickDays.map { it.first } +
+        listOfNotNull(shortDate(day).takeIf { quickDays.none { q -> q.second == day } }) +
+        listOf("选择日期…", "不设截止")
+    val dayIndex = when {
+        noDue -> dayChoices.lastIndex
+        else -> quickDays.indexOfFirst { it.second == day }.takeIf { it >= 0 } ?: quickDays.size
+    }
 
     BackHandler { onDismiss() }
     WindowBottomSheet(
         show = true,
         title = "新建待办",
+        // 抽屉默认白底，里面的设置组也是白的；垫 surface 灰底才分得出
+        backgroundColor = MiuixTheme.colorScheme.surface,
         onDismissRequest = onDismiss,
     ) {
-        // 面板本身是限高的 Column：可滚动区必须用 weight(fill = false)，不然 verticalScroll
-        // 会把剩余高度吃光，底部的「添加」被挤出面板（和日程面板同一个坑）。
+        // 面板是限高的 Column：滚动区用 weight(fill = false)，「添加」才不会被挤出去
         Column(Modifier.fillMaxWidth()) {
             Column(
                 modifier = Modifier
                     .weight(1f, fill = false)
                     .overScrollVertical()
-                    .verticalScroll(rememberScrollState())
-                    .padding(bottom = 4.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
                 TextField(
                     value = title,
@@ -128,73 +147,79 @@ internal fun AddTodoSheet(termStart: LocalDate?, onDismiss: () -> Unit) {
                     maxLines = 3,
                     modifier = Modifier.fillMaxWidth(),
                 )
-
-                SheetSection("颜色", trailing = "只影响收纳里这一条的图标色")
-                TodoColorField(current = colorArgb, onPick = { colorArgb = it })
-
-                SheetSection(
-                    title = "截止",
-                    trailing = if (noDue) "不设截止" else "${dateText(day, termStart)} ${formatTwoDigits(hour)}:${formatTwoDigits(minute)}",
-                )
-                SheetCard {
-                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        DueEditor(
-                            day = day,
-                            termStart = termStart,
-                            hour = hour,
-                            minute = minute,
-                            enabled = !noDue,
-                            onPickDate = { picking = true },
-                            onHour = { hour = it },
-                            onMinute = { minute = it },
-                        )
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            AppFilterChip(selected = !noDue, onClick = { noDue = false }, label = "按时截止")
-                            AppFilterChip(selected = noDue, onClick = { noDue = true }, label = "不设截止")
-                        }
-                    }
-                }
-
-                SheetSection("重要程度", trailing = "只作标记，不改变排序")
-                SheetCard {
-                    FlowRow(
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp),
-                    ) {
-                        IMPORTANCE_CHOICES.forEach { (label, level) ->
-                            AppFilterChip(
-                                selected = importance == level,
-                                onClick = { importance = level },
-                                label = label,
+                AppOptionGroup {
+                    AppDropdownPreference(
+                        title = "截止",
+                        summary = if (noDue) null else dateText(day, termStart),
+                        items = dayChoices,
+                        selectedIndex = dayIndex,
+                        onSelectedIndexChange = { index ->
+                            when {
+                                index == dayChoices.lastIndex -> noDue = true
+                                index == dayChoices.lastIndex - 1 -> picking = true
+                                index < quickDays.size -> {
+                                    noDue = false
+                                    day = quickDays[index].second
+                                }
+                                else -> noDue = false
+                            }
+                        },
+                    )
+                    AnimatedVisibility(visible = !noDue) {
+                        Column {
+                            BasicComponent(
+                                title = "时间",
+                                endActions = {
+                                    Text(
+                                        "${formatTwoDigits(hour)}:${formatTwoDigits(minute)}",
+                                        style = MiuixTheme.textStyles.body2,
+                                        color = if (editingTime) MiuixTheme.colorScheme.primary else MiuixTheme.colorScheme.onSurfaceVariantActions,
+                                    )
+                                },
+                                onClick = { editingTime = !editingTime },
                             )
+                            AnimatedVisibility(visible = editingTime) {
+                                Row(
+                                    Modifier.fillMaxWidth().padding(horizontal = 48.dp).padding(bottom = 8.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    WheelNumber(hour, 0..23, { hour = it }, Modifier.weight(1f))
+                                    Text(":", style = MiuixTheme.textStyles.title3, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
+                                    WheelNumber(minute, 0..59, { minute = it }, Modifier.weight(1f))
+                                }
+                            }
                         }
                     }
+                    AppDropdownPreference(
+                        title = "重要程度",
+                        items = IMPORTANCE_CHOICES.map { it.first },
+                        selectedIndex = IMPORTANCE_CHOICES.indexOfFirst { it.second == importance }.coerceAtLeast(0),
+                        onSelectedIndexChange = { importance = IMPORTANCE_CHOICES[it].second },
+                    )
+                    TodoColorRow(current = colorArgb, onPick = { colorArgb = it })
                 }
             }
 
-            // ── 底部操作区（不随内容滚动）──
-            Spacer(Modifier.height(12.dp))
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                TextButton(text = "取消", onClick = onDismiss, modifier = Modifier.weight(1f))
-                TextButton(
-                    text = "添加",
-                    enabled = title.isNotBlank(),
-                    onClick = {
-                        val todo = SelfTodoStore.create(
-                            title = title,
-                            content = note,
-                            dueDate = if (noDue) null else SelfTodoRules.dueAt(day, hour, minute),
-                            colorArgb = colorArgb,
-                        )
-                        // 重要程度按「收纳里那条」存（学校推来的待办也能标），所以建完再贴
-                        if (todo != null && importance != InboxRules.IMPORTANCE_NONE) {
-                            InboxStore.setImportance(SelfTodoRules.inboxId(todo.id), importance)
-                        }
-                        onDismiss()
-                    },
-                    modifier = Modifier.weight(1f),
-                    colors = ButtonDefaults.textButtonColorsPrimary(),
-                )
+            Spacer(Modifier.height(16.dp))
+            Button(
+                onClick = {
+                    val todo = SelfTodoStore.create(
+                        title = title,
+                        content = note,
+                        dueDate = if (noDue) null else SelfTodoRules.dueAt(day, hour, minute),
+                        colorArgb = colorArgb,
+                    )
+                    // 重要程度按「收纳里那条」存（学校推来的待办也能标），所以建完再贴
+                    if (todo != null && importance != InboxRules.IMPORTANCE_NONE) {
+                        InboxStore.setImportance(SelfTodoRules.inboxId(todo.id), importance)
+                    }
+                    onDismiss()
+                },
+                enabled = title.isNotBlank(),
+                modifier = Modifier.fillMaxWidth(),
+                colors = ButtonDefaults.buttonColorsPrimary(),
+            ) {
+                Text("添加", color = MiuixTheme.colorScheme.onPrimary, fontWeight = FontWeight.Medium)
             }
             Spacer(Modifier.height(8.dp))
             Spacer(Modifier.windowInsetsBottomHeight(WindowInsets.navigationBars))
@@ -210,7 +235,67 @@ internal fun AddTodoSheet(termStart: LocalDate?, onDismiss: () -> Unit) {
         onDismiss = { picking = false },
         onConfirm = { picked ->
             day = picked
+            noDue = false
             picking = false
+        },
+    )
+}
+
+/** 「11月20日 周五」：菜单里放得下的短日期。 */
+private fun shortDate(date: LocalDate): String =
+    "${date.monthNumber}月${date.dayOfMonth}日 周${"一二三四五六日"[date.dayOfWeek.isoDayNumber - 1]}"
+
+/** 颜色一行：右边几个快捷色片 + 调色盘，点色片直接用。 */
+@Composable
+private fun TodoColorRow(current: Int?, onPick: (Int?) -> Unit) {
+    var showPalette by remember { mutableStateOf(false) }
+    val fallback = Color(InboxCategories.argb(InboxCategories.SELF))
+    val quick = remember(CourseColors.revision) { CourseColors.palette().take(5) }
+    // 自选色不在快捷色片里时，放在最前面，始终看得到当前用的是哪个
+    val swatches = remember(quick, current) {
+        val custom = current?.let { Color(it) }?.takeIf { c -> quick.none { it.toArgb() == current } }
+        listOfNotNull(custom) + quick.ifEmpty { listOf(fallback) }
+    }
+    if (showPalette) {
+        CourseColorPickerDialog(
+            title = "待办颜色",
+            summary = "只改收纳里这一条的图标色",
+            initial = current?.let { Color(it) } ?: fallback,
+            onDismiss = { showPalette = false },
+            onConfirm = { picked ->
+                onPick(picked?.toArgb())
+                showPalette = false
+            },
+        )
+    }
+    BasicComponent(
+        title = "颜色",
+        endActions = {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                swatches.forEach { color ->
+                    val argb = color.toArgb()
+                    val chosen = argb == (current ?: fallback.toArgb())
+                    Box(
+                        Modifier
+                            .size(22.dp)
+                            .then(if (chosen) Modifier.border(2.dp, MiuixTheme.colorScheme.primary, CircleShape) else Modifier)
+                            .padding(if (chosen) 3.dp else 0.dp)
+                            .clip(CircleShape)
+                            .background(color)
+                            .clickable { onPick(argb) }
+                            .semantics {
+                                contentDescription = "颜色 " + CourseColors.toHex(color)
+                                selected = chosen
+                            },
+                    )
+                }
+                Icon(
+                    Icons.Default.Palette,
+                    contentDescription = "调色盘",
+                    tint = MiuixTheme.colorScheme.onSurfaceVariantActions,
+                    modifier = Modifier.size(22.dp).clip(CircleShape).clickable { showPalette = true }.padding(1.dp),
+                )
+            }
         },
     )
 }

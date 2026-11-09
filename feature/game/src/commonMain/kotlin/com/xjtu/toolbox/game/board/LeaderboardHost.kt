@@ -69,8 +69,7 @@ fun LeaderboardHost() {
  * 一局结束后够上榜时的询问。由**游戏页面自己**挂载并把 [pending] 传进来：
  * 页面一销毁弹窗就跟着消失，不会飘到已经返回的别的页面上。
  *
- * 这个弹窗**点空白处不关**，只能点右上角的 ×（或下面「这次不上榜」）：游戏刚结束时
- * 手指还在屏幕上，误触把询问点掉就等于白白丢了一次上榜机会。
+ * 关闭（×、「这次不上榜」、返回键、点空白处）都等于这次不上榜。
  *
  * 名字留空就是匿名，按钮文案跟着变，省得再去解释一遍「留空=匿名」。
  * 「后续上榜不再提示」默认勾上：绝大多数人不想每破一次纪录就被问一次。
@@ -90,8 +89,9 @@ fun LeaderboardAskDialog(pending: Leaderboard.PendingAsk?, onDone: () -> Unit) {
 
     WindowDialog(
         show = true,
-        // null = 点空白处和按返回键都不关，只有下面 × 与「这次不上榜」两条明路
-        onDismissRequest = null,
+        // 不能传 null：返回键由弹窗窗口自己处理，先藏内容再回调，没人接的话透明窗口会一直盖着页面。
+        // 上传中不关（结果回来会走 onDone）
+        onDismissRequest = { if (!busy) onDone() },
     ) {
         Column(Modifier.fillMaxWidth().imePadding(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Box(Modifier.fillMaxWidth()) {

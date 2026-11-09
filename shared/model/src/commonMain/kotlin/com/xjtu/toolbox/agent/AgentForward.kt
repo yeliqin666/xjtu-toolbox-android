@@ -9,7 +9,12 @@ import com.xjtu.toolbox.notification.Notification
  * 「转给小岱」的提示词：[text] 进聊天气泡，[snapshot] 只发给模型。
  * 快照里是通知标题、网页正文这类外部内容，一律标成数据（[ToolReply.EXTERNAL_DATA]）。
  */
-data class AgentForward(val text: String, val snapshot: String) {
+data class AgentForward(
+    val text: String,
+    val snapshot: String,
+    /** 给用户看的来源名，标在输入框和消息上（「附带：通知」）。 */
+    val label: String = "页面内容",
+) {
     companion object {
         /** 网页正文最多带这么多字，够看懂一页，又不至于把上下文撑爆。 */
         const val MAX_PAGE_CHARS = 6000
@@ -25,6 +30,7 @@ data class AgentForward(val text: String, val snapshot: String) {
 
         fun notice(n: Notification) = AgentForward(
             text = "帮我看看这条通知：${n.title}",
+            label = "通知",
             snapshot = data(buildString {
                 appendLine("通知标题：${n.title}")
                 appendLine("来源：${n.source.displayName}")
@@ -38,12 +44,14 @@ data class AgentForward(val text: String, val snapshot: String) {
         /** 通知栏一次推来好几条时用。 */
         fun notices(list: List<Notification>): AgentForward = list.singleOrNull()?.let(::notice) ?: AgentForward(
             text = "帮我看看这 ${list.size} 条新通知，哪些跟我有关？",
+            label = "${list.size} 条通知",
             snapshot = data(list.joinToString("\n") { "${it.source.displayName} ${it.date} ${it.title} ${it.link}" }),
         )
 
         /** 消息收纳里的通知。链接在 id 里（`notice:<url>`，见 `OwnInbox.notice`）。 */
         fun inboxNotice(item: InboxItem) = AgentForward(
             text = "帮我看看这条通知：${item.title}",
+            label = "通知",
             snapshot = data(buildString {
                 appendLine("通知标题：${item.title}")
                 appendLine("来源：${item.source}")
@@ -54,6 +62,7 @@ data class AgentForward(val text: String, val snapshot: String) {
 
         fun lmsActivity(course: LmsCourseSummary, activity: LmsActivity, typeName: String) = AgentForward(
             text = "帮我看看${course.name}的${typeName}：${activity.title}",
+            label = "思源$typeName",
             snapshot = data(buildString {
                 appendLine("课程：${course.name}（id ${course.id}）")
                 appendLine("活动：${activity.title}（id ${activity.id}，$typeName）")
@@ -72,6 +81,7 @@ data class AgentForward(val text: String, val snapshot: String) {
             val body = compact(pageText)
             return AgentForward(
                 text = "帮我看看这个网页：${title.ifBlank { url }}",
+                label = "网页内容",
                 snapshot = data(buildString {
                     appendLine("网页标题：$title")
                     appendLine("链接：$url")

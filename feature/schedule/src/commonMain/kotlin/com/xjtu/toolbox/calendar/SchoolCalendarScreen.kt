@@ -25,6 +25,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CloudOff
+import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -114,8 +115,27 @@ fun SchoolCalendarScreen(
         topBar = {
             TopAppBar(
                 title = "校历",
+                // 学期切换收进右上角了，当前是哪个学期写在这里
+                subtitle = terms.getOrNull(selectedTermIndex)?.termName.orEmpty(),
                 color = glassBarColor(glass),
                 modifier = Modifier.glassTopBar(glass),
+                actions = {
+                    if (terms.size > 1) {
+                        var termMenuOpen by remember { mutableStateOf(false) }
+                        com.xjtu.toolbox.ui.components.AppIconMenu(
+                            expanded = termMenuOpen,
+                            onExpandedChange = { termMenuOpen = it },
+                            icon = { Icon(Icons.Default.DateRange, contentDescription = "切换学期") },
+                        ) {
+                            terms.forEachIndexed { index, term ->
+                                com.xjtu.toolbox.ui.components.AppDropdownOption(term.termName, index == selectedTermIndex) {
+                                    termMenuOpen = false
+                                    selectedTermIndex = index
+                                }
+                            }
+                        }
+                    }
+                },
                 navigationIcon = {
                     BackButton(onBack, modifier = Modifier.padding(start = 8.dp))
                 },
@@ -165,11 +185,8 @@ fun SchoolCalendarScreen(
                 else -> {
                     val currentTerm = terms.getOrNull(selectedTermIndex) ?: terms.first()
                     TermContent(
-                        terms = terms,
                         currentTerm = currentTerm,
                         today = today,
-                        selectedIndex = selectedTermIndex,
-                        onSelectTerm = { selectedTermIndex = it },
                         listState = scrollState,
                         scrollBehavior = scrollBehavior,
                         glassTop = glassTop,
@@ -183,11 +200,8 @@ fun SchoolCalendarScreen(
 
 @Composable
 private fun TermContent(
-    terms: List<SchoolTerm>,
     currentTerm: SchoolTerm,
     today: LocalDate,
-    selectedIndex: Int,
-    onSelectTerm: (Int) -> Unit,
     listState: LazyListState,
     scrollBehavior: top.yukonga.miuix.kmp.basic.ScrollBehavior,
     glassTop: androidx.compose.ui.unit.Dp = 0.dp,
@@ -204,54 +218,8 @@ private fun TermContent(
     // 宽屏两栏：左边是「这学期现在到哪了」（学期切换、状态卡、统计），右边是整学期的日程时间轴。
     // 以前整页限宽 720 居中，平板横屏左右各空一大块，时间轴还得滚过状态卡才看得到。
     val wide = isWideLayout()
-    val termTabs: @Composable () -> Unit = {
-        Row(
-            Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 8.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            terms.forEachIndexed { idx, term ->
-                val isSelected = idx == selectedIndex
-                val bgColor by animateColorAsState(
-                    if (isSelected) MiuixTheme.colorScheme.primary
-                    else MiuixTheme.colorScheme.secondaryContainer,
-                    label = "tabBg"
-                )
-                val textColor by animateColorAsState(
-                    if (isSelected) MiuixTheme.colorScheme.onPrimary
-                    else MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                    label = "tabText"
-                )
-                Box(
-                    modifier = Modifier
-                        .weight(1f)
-                        .clip(RoundedCornerShape(12.dp))
-                        .background(bgColor)
-                        .clickable { onSelectTerm(idx) }
-                        .padding(vertical = 8.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text(
-                        text = term.termName
-                            .replace("学年", "\n")
-                            .replace("第", "")
-                            .replace("学期", "学期"),
-                        color = textColor,
-                        fontSize = 12.sp,
-                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                }
-            }
-        }
-    }
-    // 状态区：学期切换 + 英雄卡片（当前状态 + 进度）+ 统计信息行
+    // 状态区：英雄卡片（当前状态 + 进度）+ 统计信息行；学期切换在顶栏右上角
     val statusItems: androidx.compose.foundation.lazy.LazyListScope.() -> Unit = {
-        if (terms.size > 1) {
-            item { termTabs() }
-        }
         // 整页依次登场：学期卡 → 统计 → 日程标题 → 时间轴前几项
         item {
             Box(Modifier.enterOnce(0)) {

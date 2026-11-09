@@ -12,7 +12,7 @@ import androidx.compose.animation.scaleOut
 import androidx.compose.animation.shrinkHorizontally
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.VectorConverter
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.ExperimentalFoundationApi
@@ -29,6 +29,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -50,9 +51,23 @@ import androidx.compose.runtime.key
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.derivedStateOf
+import androidx.compose.runtime.snapshotFlow
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawWithCache
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.RoundRect
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.drawscope.clipPath
+import androidx.compose.ui.layout.LayoutCoordinates
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.layout
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
@@ -61,6 +76,14 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.interaction.PressInteraction
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.positionChange
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -72,10 +95,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
 import com.kyant.backdrop.Backdrop
 import com.kyant.backdrop.backdrops.emptyBackdrop
-import com.kyant.backdrop.drawBackdrop
-import com.kyant.backdrop.effects.blur
-import com.kyant.backdrop.effects.lens
-import com.kyant.backdrop.effects.vibrancy
+import com.kyant.backdrop.movedFrom
 import com.kyant.backdrop.highlight.Highlight
 import com.xjtu.toolbox.nav.AppRoute
 import com.xjtu.toolbox.nav.SeamlessCardSource
@@ -86,6 +106,8 @@ import com.xjtu.toolbox.schedule.CourseColors
 import com.xjtu.toolbox.ui.components.CodeMatrixView
 import com.xjtu.toolbox.ui.components.ExpressiveIcon
 import com.xjtu.toolbox.ui.components.LocalPageVisible
+import com.xjtu.toolbox.ui.components.LocalEnterAnimations
+import com.xjtu.toolbox.ui.components.rememberRevealProgress
 import com.xjtu.toolbox.ui.components.appCardShadow
 import com.xjtu.toolbox.ui.glass.floatingGlassShadow
 import com.xjtu.toolbox.ui.rememberCampusNow
@@ -94,6 +116,7 @@ import com.xjtu.toolbox.ui.theme.LocalIsDarkTheme
 import kotlin.math.roundToInt
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.Text
@@ -122,45 +145,35 @@ import com.xjtu.toolbox.settings.HomeSettingsOverlay
  */
 internal val HomeTileGap = 8.dp
 
-/** 组件位置/尺寸变化的弹簧：阻尼偏低一点，才有液态玻璃那种「弹一下再停住」。 */
-internal val HomeTileSpring = spring<Float>(dampingRatio = 0.62f, stiffness = 520f)
+/**
+ * 首页卡片的位移、尺寸、组高、编辑态和入场共用一条曲线，整块板一起动、一起停。
+ */
+internal const val HOME_TILE_MOTION_MS = 320
+internal val HomeTileMotion = tween<Float>(HOME_TILE_MOTION_MS, easing = FastOutSlowInEasing)
 
-/** 卡片按下 / 进出编辑态的缩放弹簧：略带回弹。 */
-private val TilePressSpring = spring<Float>(dampingRatio = 0.55f, stiffness = 420f)
+/** 按下比松手快一点，曲线不变。 */
+private val TilePressIn = tween<Float>(100, easing = FastOutSlowInEasing)
 
 /** 编辑态卡片整体收到的比例，让出一圈空隙给角标。 */
 private const val EDIT_TILE_SCALE = 0.95f
 
-/** 编辑态摇摆：单程时长与最大角度。慢而轻，像呼吸而不是发抖。 */
-private val WobbleTween = tween<Float>(durationMillis = 520, easing = FastOutSlowInEasing)
-private const val WOBBLE_DEGREES = 0.9f
 
 /** 移除角标弹出 / 收回。 */
-private val BadgeEnter = scaleIn(spring(dampingRatio = 0.5f, stiffness = 500f)) + fadeIn(tween(120))
+private val BadgeEnter = scaleIn(TilePressIn, initialScale = 0.6f) + fadeIn(tween(140))
 private val BadgeExit = scaleOut(tween(140)) + fadeOut(tween(120))
 
 /** 右下角缩放把手的热区边长（§15）：贴着把手图示的一小块，太大容易和移动抢指针。 */
 internal val RESIZE_HANDLE_TOUCH = 30.dp
 
 /**
- * 缩放把手的图示：**直角括线**（右下角一个 L 形），尖角带一点点圆角。
- *
- * 之前画的是一段四分之一圆弧，看着像「把卡片自己的圆角染了色」；改成直角括线后它才像一枚
- * 独立的「拉大」记号。
- *
- * **位置就是这一格的右下角，跟卡片圆角没有任何关系**（§15，2026-11 定）：不按圆角算内缩、
- * 也不管括线压在卡片上还是压在那圈透明角上——圆角拖到圆饼时它在同一处，拖到直角时也在同一处。
- * 内缩 2dp 只是为了 2.5dp 的描边（半宽 1.25dp）连着圆头端帽都整段落在格子里，不被裁掉；
- * 别再往内推了，那会让它离开「网格右下角」这个位置。
+ * 缩放把手的图示：一段贴着卡片圆角的弧（与卡片右下角同心，往里收 [RESIZE_GRIP_INSET]），
+ * 卡片选了什么形状它就弯成什么样。方角卡片至少留 [RESIZE_GRIP_MIN_ARC] 的弧。
  */
-private val RESIZE_GRIP_ARM = 14.dp
-private val RESIZE_GRIP_INSET = 2.dp
-
-/** 尖角那一小段圆角（美化用，与卡片圆角无关）。 */
-private val RESIZE_GRIP_CORNER = 4.dp
+private val RESIZE_GRIP_INSET = 5.dp
+private val RESIZE_GRIP_MIN_ARC = 9.dp
 
 /** 括线本身的粗细。 */
-private val RESIZE_GRIP_STROKE = 2.5.dp
+private val RESIZE_GRIP_STROKE = 4.5.dp
 
 /** 左上角移除按钮的热区边长：视觉只有 18dp，热区放大到 32dp，点偏一点也点得到。 */
 internal val REMOVE_TOUCH = 32.dp
@@ -227,9 +240,13 @@ internal fun HomeGroupSection(
     blurGlass: Boolean = true,
     /** 卡片圆角（主页设置里那条滑条），实际还会被「边长 × 12」夹住，见 [HomeTileFaceBox]。 */
     cardCorner: Dp = 22.dp,
+    /** 被缩放那一块此刻跟手的连续尺寸（格）。 */
+    resizeSpan: (HomeTile) -> Offset? = { null },
     onEditGroup: () -> Unit,
     /** 编辑态往这一组加功能（组头的「+」、空组占位都走它）。 */
     onAddTile: () -> Unit,
+    /** 添加功能的菜单，从组头的「+」展开。 */
+    addTileMenu: @Composable () -> Unit,
     onDeleteGroup: () -> Unit,
     onRemoveTile: (tileId: String) -> Unit,
     modifier: Modifier = Modifier,
@@ -240,7 +257,7 @@ internal fun HomeGroupSection(
     val contentRows = HomeGridMath.contentBottom(tiles).coerceAtLeast(1f)
     // 拖动中用锁定的行数，否则用实时行数；组高据此弹簧伸缩
     val rows = budgetRows ?: contentRows
-    val animRows by animateFloatAsState(targetValue = rows, animationSpec = HomeTileSpring, label = "groupRows")
+    val animRows = animateFloatAsState(targetValue = rows, animationSpec = HomeTileMotion, label = "groupRows")
 
     // 组排序的让位：被拖组跟手（lift），其它组弹簧到让位目标；排序一结束立刻 snap 回 0——
     // 那一刻布局已按新顺序就位，偏移只有立刻归零，视觉位置才连续（§16）
@@ -250,7 +267,7 @@ internal fun HomeGroupSection(
         when {
             reorderLift != null -> shiftAnim.snapTo(0f)
             !reordering -> shiftAnim.snapTo(0f)
-            else -> launch { shiftAnim.animateTo(reorderShift, HomeTileSpring) }
+            else -> launch { shiftAnim.animateTo(reorderShift, HomeTileMotion) }
         }
     }
 
@@ -272,6 +289,7 @@ internal fun HomeGroupSection(
                 backdrop = backdrop,
                 onEditGroup = onEditGroup,
                 onAddTile = onAddTile,
+                addTileMenu = addTileMenu,
                 onDeleteGroup = onDeleteGroup,
             )
             Spacer(Modifier.height(GROUP_HEADER_HEIGHT - GROUP_HEADER_ROW))
@@ -286,7 +304,12 @@ internal fun HomeGroupSection(
             Box(
                 Modifier
                     .fillMaxWidth()
-                    .height(with(density) { (animRows * rowUnit - gapPx).toDp() }),
+                    .layout { measurable, constraints ->
+                        val height = (animRows.value * rowUnit - gapPx).roundToInt()
+                            .coerceIn(constraints.minHeight, constraints.maxHeight)
+                        val placeable = measurable.measure(constraints.copy(minHeight = height, maxHeight = height))
+                        layout(placeable.width, placeable.height) { placeable.place(0, 0) }
+                    },
             ) {
                 // 手指当前认定的目标组画一圈接收高亮（§19）：松手会落到哪，按下那一刻就看得见
                 if (receiving) {
@@ -343,7 +366,6 @@ internal fun HomeGroupSection(
                                 tile = tile,
                                 face = face,
                                 editing = editing,
-                                still = !session.active && !HomeSettingsOverlay.open,
                                 liquid = liquid,
                                 refraction = refraction,
                                 backdrop = backdrop,
@@ -353,6 +375,10 @@ internal fun HomeGroupSection(
                                 rowUnit = rowUnit,
                                 gapPx = gapPx,
                                 paymentCode = paymentCode,
+                                resizeSpan = {
+                                    if (session.mode == HomeDragMode.RESIZE && tile.id == dragId) resizeSpan(tile) else null
+                                },
+                                resizing = session.mode == HomeDragMode.RESIZE && tile.id == dragId,
                                 onOpen = { onOpen(face) },
                                 onStartEdit = onStartEdit,
                                 onRemoveTile = onRemoveTile,
@@ -381,6 +407,7 @@ private fun GroupHeader(
     backdrop: Backdrop?,
     onEditGroup: () -> Unit,
     onAddTile: () -> Unit,
+    addTileMenu: @Composable () -> Unit,
     onDeleteGroup: () -> Unit,
 ) {
     val dark = LocalIsDarkTheme.current
@@ -403,7 +430,7 @@ private fun GroupHeader(
     ) {
         AnimatedVisibility(
             visible = editing,
-            enter = expandHorizontally(spring(dampingRatio = 0.8f, stiffness = 500f)) + fadeIn(),
+            enter = expandHorizontally(tween(260, easing = FastOutSlowInEasing)) + fadeIn(),
             exit = shrinkHorizontally(tween(160)) + fadeOut(tween(120)),
         ) {
             Box(Modifier.padding(end = 4.dp).size(22.dp), contentAlignment = Alignment.Center) {
@@ -438,14 +465,19 @@ private fun GroupHeader(
         }
         AnimatedVisibility(visible = editing, enter = BadgeEnter, exit = BadgeExit) {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                GroupRoundButton(Icons.Default.Add, "往这一组添加功能", MiuixTheme.colorScheme.primary, liquid, backdrop, onAddTile)
+                Box {
+                    GroupRoundButton(Icons.Default.Add, "往这一组添加功能", MiuixTheme.colorScheme.primary, liquid, backdrop, onAddTile)
+                    addTileMenu()
+                }
                 GroupRoundButton(Icons.Default.Close, "删除这一组", MiuixTheme.colorScheme.error, liquid, backdrop, onDeleteGroup)
             }
         }
     }
 }
 
-/** 组标题行右侧的小圆钮（添加 / 删除）：液态玻璃（§2.4）。 */
+private val ROUND_BUTTON_SIZE = 30.dp
+
+/** 组标题行右侧的小圆钮（添加 / 删除）：玻璃（§2.4）。 */
 @Composable
 private fun GroupRoundButton(
     icon: ImageVector,
@@ -457,22 +489,11 @@ private fun GroupRoundButton(
 ) {
     val dark = LocalIsDarkTheme.current
     val fill = if (dark) Color.White.copy(alpha = 0.07f) else Color.White.copy(alpha = 0.42f)
-    // 它浮在内容上面，永远有东西可糊可折，所以**恒采样 + 恒折射**（不像卡片要看背景有没有细节）。
-    // 背景上压根没有细节（纯色 / 渐变）时 `backdrop` 也是 null，走的同样是下面那条薄色兜底。
+    // 和卡片同一种贴图玻璃：编辑态每组两颗，滚动时不能每帧各跑一遍模糊和折射。
+    // 背景上压根没有细节（纯色 / 渐变）时 `backdrop` 是 null，走下面的薄色兜底。
     val material = when {
-        liquid && backdrop != null -> Modifier.drawBackdrop(
-            backdrop = backdrop,
-            shape = { CircleShape },
-            effects = {
-                padding = maxOf(padding, 8.dp.toPx())
-                vibrancy()
-                blur(6.dp.toPx())
-                lens(6.dp.toPx(), 8.dp.toPx())
-            },
-            highlight = { Highlight.Default.copy(alpha = 0.6f) },
-            shadow = null,
-            onDrawSurface = { drawRect(fill) },
-        )
+        liquid && backdrop != null ->
+            Modifier.softGlass(backdrop, ROUND_BUTTON_SIZE / 2, fill, SolidColor(Color.Transparent), dark)
         // 没开采样（背景是纯色 / 渐变）：退回半透明底，别画成一片透明
         liquid -> Modifier
             .clip(CircleShape)
@@ -483,7 +504,7 @@ private fun GroupRoundButton(
     }
     Box(
         Modifier
-            .size(30.dp)
+            .size(ROUND_BUTTON_SIZE)
             .then(material)
             .pointerInput(label) { detectTapGestures(onTap = { onClick() }) },
         contentAlignment = Alignment.Center,
@@ -558,29 +579,74 @@ private fun Modifier.tileOpen(
     face: HomeServiceRow,
     radius: Dp,
     press: MutableInteractionSource,
+    /** 转场里画的那张卡：实时画一张真的，内容一定在。 */
+    snapshot: @Composable (Modifier) -> Unit,
     onOpen: () -> Unit,
     onStartEdit: () -> Unit,
 ): Modifier {
     val origin = rememberExpandOriginSource()
     val density = LocalDensity.current
+    val openAfterPress = rememberOpenAfterPress(press)
     return this
         .expandOriginSource(origin)
+        .instantPress(press)
         .combinedClickable(
             interactionSource = press,
             indication = null,
             onClick = {
-                origin.arm(face.key, radius, density, null)
-                val seamless = face.onSeamlessClick
-                val bounds = origin.boundsInWindow()
-                if (seamless != null && bounds != null) {
-                    seamless(SeamlessCardSource(bounds, radius))
-                } else {
-                    onOpen()
+                openAfterPress {
+                    origin.arm(face.key, radius, density, snapshot)
+                    val seamless = face.onSeamlessClick
+                    val bounds = origin.boundsInWindow()
+                    if (seamless != null && bounds != null) {
+                        seamless(SeamlessCardSource(bounds, radius))
+                    } else {
+                        onOpen()
+                    }
                 }
             },
             onLongClick = onStartEdit,
         )
 }
+
+/**
+ * 手指一碰就算按下：滚动容器里系统要等约 100ms 才发按压，快速点一下根本看不到反馈。
+ * 只旁听不消费，滚动开始（事件被消费）就松开。
+ */
+internal fun Modifier.instantPress(source: MutableInteractionSource): Modifier = pointerInput(source) {
+    awaitEachGesture {
+        val down = awaitFirstDown(requireUnconsumed = false)
+        val press = PressInteraction.Press(down.position)
+        source.tryEmit(press)
+        do {
+            val event = awaitPointerEvent(PointerEventPass.Final)
+        } while (event.changes.any { it.pressed } && event.changes.none { it.isConsumed && it.positionChange() != Offset.Zero })
+        source.tryEmit(PressInteraction.Release(press))
+    }
+}
+
+/** 先把按下的样子演完再打开；页面盖上之后才松开，返回时卡片还在按下的状态。 */
+@Composable
+internal fun rememberOpenAfterPress(source: MutableInteractionSource): (() -> Unit) -> Unit {
+    val scope = rememberCoroutineScope()
+    var opening by remember { mutableStateOf(false) }
+    return { open ->
+        if (!opening) {
+            opening = true
+            scope.launch {
+                val hold = PressInteraction.Press(Offset.Zero)
+                source.emit(hold)
+                delay(PRESS_BEFORE_OPEN_MS)
+                open()
+                delay(300)
+                source.emit(PressInteraction.Release(hold))
+                opening = false
+            }
+        }
+    }
+}
+
+private const val PRESS_BEFORE_OPEN_MS = 100L
 
 /**
  * 落点占位框：被拖块在**实时布局**里的位置与尺寸，弹簧跟位。
@@ -600,14 +666,14 @@ private fun DropSlot(
     cardCorner: Dp = 22.dp,
 ) {
     val density = LocalDensity.current
-    val x by animateFloatAsState(targetValue = tile.x, animationSpec = HomeTileSpring, label = "dropX")
-    val y by animateFloatAsState(targetValue = tile.y, animationSpec = HomeTileSpring, label = "dropY")
-    val w by animateFloatAsState(targetValue = tile.w, animationSpec = HomeTileSpring, label = "dropW")
-    val h by animateFloatAsState(targetValue = tile.h, animationSpec = HomeTileSpring, label = "dropH")
-    // 淡出比吸附飞行稍快一点收尾（飞行是弹簧，约 200–300ms）：这样淡完时幽灵已经盖住它了
+    val x by animateFloatAsState(targetValue = tile.x, animationSpec = HomeTileMotion, label = "dropX")
+    val y by animateFloatAsState(targetValue = tile.y, animationSpec = HomeTileMotion, label = "dropY")
+    val w by animateFloatAsState(targetValue = tile.w, animationSpec = HomeTileMotion, label = "dropW")
+    val h by animateFloatAsState(targetValue = tile.h, animationSpec = HomeTileMotion, label = "dropH")
+    // 淡出比吸附飞行稍快一点收尾：这样淡完时幽灵已经盖住它了
     val fade by animateFloatAsState(
         targetValue = if (settling) 0f else 1f,
-        animationSpec = tween(200),
+        animationSpec = tween(320),
         label = "dropSlotFade",
     )
     val frame = cellFrame(x, y, w, h, colUnit, rowUnit, gapPx)
@@ -672,8 +738,6 @@ private fun HomeTileItem(
     tile: HomeTile,
     face: HomeServiceRow,
     editing: Boolean,
-    /** 没有拖拽在进行：编辑态只在这时摇摆。 */
-    still: Boolean,
     liquid: Boolean,
     refraction: Boolean,
     backdrop: Backdrop?,
@@ -686,6 +750,9 @@ private fun HomeTileItem(
     blurGlass: Boolean = true,
     /** 卡片圆角；见 [HomeGroupSection] 的同名参数。 */
     cardCorner: Dp = 22.dp,
+    /** 这一块正被缩放时手指对应的连续尺寸（格），其余时候 null。 */
+    resizeSpan: () -> Offset? = { null },
+    resizing: Boolean = false,
     onOpen: () -> Unit,
     onStartEdit: () -> Unit,
     onRemoveTile: (tileId: String) -> Unit,
@@ -695,23 +762,27 @@ private fun HomeTileItem(
     val removeTile by rememberUpdatedState(onRemoveTile)
 
     // 位置：跟数据弹簧（拖动中被挤开的块平滑补位）。只在 offset 的布局阶段读，补位动画不逐帧重组卡面
-    val animX = animateFloatAsState(targetValue = tile.x, animationSpec = HomeTileSpring, label = "tileX")
-    val animY = animateFloatAsState(targetValue = tile.y, animationSpec = HomeTileSpring, label = "tileY")
+    val animX = animateFloatAsState(targetValue = tile.x, animationSpec = HomeTileMotion, label = "tileX")
+    val animY = animateFloatAsState(targetValue = tile.y, animationSpec = HomeTileMotion, label = "tileY")
 
-    // 尺寸：被缩的那一块也要跟着弹簧走（不再 snap）。尺寸是「数据格数」，拖动把手指位移换算成
-    // 整数格，按下与松手之间会一格一格地跳；snap 会把这些跳变原样画出来，看着一顿一顿的。
-    // 走弹簧后边缘是连续挪过去的，缩放过程才像「拉」而不是「跳格」。
-    val animW by animateFloatAsState(targetValue = tile.w, animationSpec = HomeTileSpring, label = "tileW")
-    val animH by animateFloatAsState(targetValue = tile.h, animationSpec = HomeTileSpring, label = "tileH")
-
-    // 与 DropSlot 共用同一个换算入口：真身和占位框永远同一个矩形（这里只取尺寸，位置在 offset 里现读）
-    val frame = cellFrame(0f, 0f, animW, animH, colUnit, rowUnit, gapPx)
+    // 尺寸：缩放中直接等于手指（不经过网格），松手再缓缓落到网格；其它情况跟数据走同一条过渡。
+    val resizeSpanState = rememberUpdatedState(resizeSpan)
+    val targetSpan = rememberUpdatedState(Offset(tile.w, tile.h))
+    val spanAnimation = remember { Animatable(Offset(tile.w, tile.h), Offset.VectorConverter) }
+    LaunchedEffect(spanAnimation) {
+        snapshotFlow { resizeSpanState.value() to targetSpan.value }.collectLatest { (finger, target) ->
+            if (finger != null) spanAnimation.snapTo(finger)
+            else spanAnimation.animateTo(target, tween(HOME_TILE_MOTION_MS, easing = FastOutSlowInEasing))
+        }
+    }
+    // 连续尺寸只在测量、绘制和形态阈值判断里读取，不让指针每动一像素就重组整张卡面。
+    val liveSpan = remember { { resizeSpanState.value() ?: spanAnimation.value } }
+    val large by remember { derivedStateOf { liveSpan().let { it.x >= 1.5f && it.y >= 1.5f } } }
 
     // 非编辑态：整块点击打开、长按进编辑态。编辑态这块不挂手势（交给手势层）。
     // 点击走「一镜到底」那套接线，和卡片圆角用同一个半径，转场时放大出来的形状才对得上。
     //
-    // 圆角 = min(设置值, 短边的一半)。按**目标**尺寸算而不是动画中的尺寸：它是下面 key() 的一员，
-    // 跟着动画逐帧变会让卡面连同离屏层每帧重建
+    // 圆角按目标短边截断，不随尺寸动画逐帧改材质参数。绘制时还会按实际大小限幅。
     val target = cellFrame(0f, 0f, tile.w, tile.h, colUnit, rowUnit, gapPx)
     val radius = cardCorner.coerceAtMost(
         with(density) { minOf(target.widthPx, target.heightPx).toDp() } / 2,
@@ -720,67 +791,87 @@ private fun HomeTileItem(
     val tap = if (editing) {
         Modifier
     } else {
-        Modifier.tileOpen(face = face, radius = radius, press = press, onOpen = onOpen, onStartEdit = onStartEdit)
+        Modifier.tileOpen(
+            face = face,
+            radius = radius,
+            press = press,
+            snapshot = { m ->
+                // 和原卡完全同一种材质，连背景采样也带上：采样按这张卡在屏幕上的实际位置取，
+                // 落回原位时取到的就是原卡那一块，换手那一帧两张逐像素一致（少了采样会透出没糊的壁纸、亮度一跳）
+                HomeTileFaceBox(face = face, w = tile.w, h = tile.h, liquid = liquid, refraction = refraction, backdrop = backdrop, blurGlass = blurGlass, cornerRadius = radius, modifier = m)
+            },
+            onOpen = onOpen,
+            onStartEdit = onStartEdit,
+        )
     }
 
-    // 动效全在绘制阶段读：按下下沉、编辑态整体收一圈并轻轻摇摆（拖拽中停摆，落点才看得准）
+    // 动效全在绘制阶段读：按下下沉、编辑态整体收一圈
     val pressed by press.collectIsPressedAsState()
-    val pressScale = animateFloatAsState(if (pressed && !editing) 0.95f else 1f, TilePressSpring, label = "tilePress")
-    val editScale = animateFloatAsState(if (editing) EDIT_TILE_SCALE else 1f, TilePressSpring, label = "tileEdit")
-    val wobble = remember { Animatable(0f) }
-    val wobbling = editing && still
-    LaunchedEffect(wobbling) {
-        if (!wobbling) {
-            wobble.animateTo(0f, TilePressSpring)
-            return@LaunchedEffect
-        }
-        // 每块错开相位与方向，整页才不会齐步走
-        val seed = tile.id.hashCode() and 0x7fffffff
-        val dir = if (seed % 2 == 0) 1f else -1f
-        delay((seed % 4) * 45L)
-        while (true) {
-            wobble.animateTo(dir, WobbleTween)
-            wobble.animateTo(-dir, WobbleTween)
+    // 页面盖上时直接复原（只重画一帧）：起点按原尺寸记，缩回来落在原尺寸上，不再落定后弹一下
+    val pageVisible = LocalPageVisible.current
+    val pressDepth = remember { Animatable(0f) }
+    LaunchedEffect(pressed, editing, pageVisible) {
+        if (pageVisible) {
+            val down = pressed && !editing
+            pressDepth.animateTo(if (down) 1f else 0f, if (down) TilePressIn else HomeTileMotion)
+        } else {
+            pressDepth.snapTo(0f)
         }
     }
+    val editScale = animateFloatAsState(if (editing) EDIT_TILE_SCALE else 1f, HomeTileMotion, label = "tileEdit")
+    // 从上到下、从左到右依次起跳；下方未露面的行不入场，编辑中新建 / 拖回的卡片直接就位。
+    val entrance = rememberRevealProgress(
+        key = tile.id,
+        delayMillis = (tile.y.toInt().coerceIn(0, 2) * 24 + tile.x.toInt().coerceIn(0, 3) * 12).toLong(),
+        spec = HomeTileMotion,
+        skip = editing || tile.y >= 3f || !LocalEnterAnimations.current,
+    )
 
     Box(
         Modifier
+            // 正在缩放的这一块压在邻居上面：它按手指走，邻居按网格让位，中途会有交叠
+            .zIndex(if (resizing) 1f else 0f)
             .offset { IntOffset((animX.value * colUnit).roundToInt(), (animY.value * rowUnit).roundToInt()) }
-            .size(with(density) { frame.widthPx.toDp() }, with(density) { frame.heightPx.toDp() })
-            .graphicsLayer {
-                val s = pressScale.value * editScale.value
-                scaleX = s
-                scaleY = s
-                rotationZ = wobble.value * WOBBLE_DEGREES
+            .layout { measurable, constraints ->
+                val span = liveSpan()
+                val frame = cellFrame(0f, 0f, span.x, span.y, colUnit, rowUnit, gapPx)
+                val width = frame.widthPx.roundToInt().coerceIn(constraints.minWidth, constraints.maxWidth)
+                val height = frame.heightPx.roundToInt().coerceIn(constraints.minHeight, constraints.maxHeight)
+                val placeable = measurable.measure(
+                    constraints.copy(minWidth = width, maxWidth = width, minHeight = height, maxHeight = height),
+                )
+                layout(placeable.width, placeable.height) { placeable.place(0, 0) }
             }
-            .then(tap),
+            // 点击层在缩放层外面：起点矩形不含按压缩放
+            .then(tap)
+            .graphicsLayer {
+                val entry = entrance.value
+                val depth = pressDepth.value
+                val s = (0.86f + 0.14f * entry) * editScale.value
+                scaleX = s * (1f - 0.03f * depth)
+                scaleY = s * (1f - 0.03f * depth)
+                translationY = 16.dp.toPx() * (1f - entry)
+                alpha = entry.coerceIn(0f, 1f)
+            },
     ) {
-        // 圆角 / 材质一变就让**整块卡面换一个新节点**。
-        //
-        // 为什么需要 key()：`drawBackdrop` 的离屏层是「建层那一刻」按 shape 建好的，之后只改
-        // shape 不会重建那一层——观测到的症状就是「模糊层还是旧圆角，而高光外框（逐帧描边）
-        // 已经是新圆角」，非得杀进程重启才对齐。key 换了组合身份，修饰符节点跟着换新，两层
-        // 一起重建。（key 里带上 liquid / blurGlass / refraction 是同一个理由：这三项也决定
-        // 那一层怎么建，改它们同样要换节点，别等下一个「开关不生效」的反馈。）
-        key(radius, liquid, blurGlass, refraction) {
-            HomeTileFaceBox(
-                face = face,
-                w = animW,
-                h = animH,
-                liquid = liquid,
-                refraction = refraction,
-                backdrop = backdrop,
-                blurGlass = blurGlass,
-                cornerRadius = radius,
-                interactive = !editing,
-                modifier = Modifier.fillMaxSize(),
-            )
-        }
+        // 柔光玻璃已没有每卡的采样层，圆角和材质可以原地更新，保住卡面组合身份。
+        HomeTileFaceBox(
+            face = face,
+            w = tile.w,
+            h = tile.h,
+            liquid = liquid,
+            refraction = refraction,
+            backdrop = backdrop,
+            blurGlass = blurGlass,
+            cornerRadius = radius,
+            interactive = !editing,
+            modifier = Modifier.fillMaxSize(),
+            liveSpan = liveSpan,
+        )
 
         // 校园卡的 2×2 大卡：用餐时段直接把付款码画在这块上（原「小组件」那套能力，
         // 合并进卡片组后保留）。取不到码 / 不在时段就什么都不画，下面的大卡内容照旧。
-        if (!editing && animW >= 1.5f && animH >= 1.5f && face.key == AppRoute.CampusCard.id) {
+        if (!editing && large && face.key == AppRoute.CampusCard.id) {
             PaymentCodeOverlay(fetch = paymentCode, radius = radius)
         }
 
@@ -826,23 +917,19 @@ private fun HomeTileItem(
                 val gripColor = MiuixTheme.colorScheme.primary
                 Canvas(Modifier.fillMaxSize()) {
                     val stroke = RESIZE_GRIP_STROKE.toPx()
-                    val arm = RESIZE_GRIP_ARM.toPx()
                     val inset = RESIZE_GRIP_INSET.toPx()
-                    val r = RESIZE_GRIP_CORNER.toPx()
-                    // 贴着外框的右 / 下边、各内缩 inset 画一个 L：右竖边从上往下走，
-                    // 到尖角前拐一个半径 r 的圆，再沿底边往左走。
-                    val right = size.width - inset
-                    val bottom = size.height - inset
-                    val path = Path().apply {
-                        moveTo(right, bottom - arm)
-                        lineTo(right, bottom - r)
-                        // 尖角美化：二次贝塞尔在 (right, bottom) 拐一下，视觉上就是「直角带一点圆」
-                        quadraticTo(right, bottom, right - r, bottom)
-                        lineTo(right - arm, bottom)
-                    }
-                    drawPath(
-                        path = path,
+                    // 一段贴着卡片圆角的弧：和卡片右下角同心、往里收 inset，卡片是什么圆角它就弯成什么样；
+                    // 方角卡片也留一段小弧，不然只剩一个点
+                    val arc = (radius.toPx() - inset).coerceAtLeast(RESIZE_GRIP_MIN_ARC.toPx())
+                    val cx = size.width - inset - arc
+                    val cy = size.height - inset - arc
+                    drawArc(
                         color = gripColor,
+                        startAngle = 6f,
+                        sweepAngle = 78f,
+                        useCenter = false,
+                        topLeft = Offset(cx - arc, cy - arc),
+                        size = Size(arc * 2, arc * 2),
                         style = Stroke(width = stroke, cap = StrokeCap.Round),
                     )
                 }
@@ -866,6 +953,7 @@ private fun HomeTileItem(
  * 液态玻璃直接复用 App 里已有的那套 `drawBackdrop`（底栏、玻璃顶栏用的同一个），
  * 采样源是首页自己那一层背景，所以透出来的是壁纸而不是组件自己（会成环）。
  */
+@OptIn(androidx.compose.animation.ExperimentalAnimationApi::class)
 @Composable
 internal fun HomeTileFaceBox(
     face: HomeServiceRow,
@@ -896,6 +984,8 @@ internal fun HomeTileFaceBox(
     /** 明细行能不能点：只有常规态的真身可以（编辑态、拖拽幽灵不行）。 */
     interactive: Boolean = false,
     modifier: Modifier = Modifier,
+    /** 实时尺寸用于切换卡面形态；只在跨越形态阈值时重组。 */
+    liveSpan: (() -> Offset)? = null,
 ) {
     val dark = LocalIsDarkTheme.current
     val ink = MiuixTheme.colorScheme.onSurface
@@ -917,58 +1007,20 @@ internal fun HomeTileFaceBox(
             0.55f to Color.White.copy(alpha = 0f),
         )
     }
-    // 和底栏胶囊同一套环境光阴影（remember：shadow lambda 捕获的对象变了会触发重采样）
-    val accent = MiuixTheme.colorScheme.primary
-    val liquidShadow = remember(accent, dark) { floatingGlassShadow(accent, dark) }
-    // 那圈轮廓高光的**唯一一份**：两个分支都把它交给 `drawBackdrop` 的 `highlight`，画法完全同一份，
-    // 改参数只改这一行
-    val rim = remember { Highlight.Default.copy(alpha = 0.65f) }
-
-    // 液态玻璃（§1 / §A16 ⑦）：**有条件的只有「采不采」这一件事**。
-    //
-    // 有可糊 / 可折的细节 → 走 `drawBackdrop` 的离屏采样，模糊 + 活力 + 折射 + 高光 + 投影全套。
-    // 没有（纯色、渐变，或壁纸已被模糊程度糊平）→ 同一个 `drawBackdrop` 加 `sampling = false`：
-    // 「录一层采样结果再画上去」那一段整段跳过（离屏层、effects 里的 blur / lens / vibrancy 一起省），
-    // 而内容 / 高光 / 投影还是库自己按原顺序画（**不铺底色，卡片完全透明**），所以光影一条不少
-    // ——2026-11 维护者要求的就是这个（「我只是不要做采样，其他效果我都要」）。
-    //
-    // **没有用户开关**（2026-11 维护者把「开启折射」那一项整个删了）：卡片这一档只看背景上
-    // 有没有细节——有就一整套上，没有就整档不采样。「用不上」交给渲染侧判断，不交给用户去猜。
+    // 柔光玻璃（液态玻璃开着时）：**不走 drawBackdrop**。每张卡一个 drawBackdrop 就是一块离屏层 +
+    // 一遍着色器高光 + 一个模糊投影，滚动时每帧整套重画（真机：GPU 8–10ms 超出 120Hz 的 8.3ms 预算，
+    // 显存里几十块卡片大小的离屏层）。这里改成直接画：
+    // - 有壁纸细节：把首页**已经糊好**的背景副本（tileBackdrop）按卡片当前位置裁成圆角贴上来，
+    //   只是一次贴图，不开离屏层；
+    // - 没有（纯色 / 渐变 / 壁纸已被糊平）：不贴背景，卡片是透的；
+    // - 光感：顶部一层白光往下淡出 + 一圈渐变细描边；投影用系统原生阴影（不开离屏层）。
     val sample = backdrop?.takeIf { refraction && blurGlass }
-    // 圆角形状两档共用同一个对象：`remember` 住它，`drawBackdrop` 的 `ShapeProvider` 才不会
-    // 因为「每帧一个新 lambda」被判定成换了形状而重建离屏层
     val cardShape = remember(radius) { RoundedCornerShape(radius) }
+    val shadowTint = MiuixTheme.colorScheme.primary.copy(alpha = if (dark) 0.18f else 0.14f)
     val material = when {
-        // 柔光玻璃：采的是首页**已经糊好**的背景副本（见 HomeCardGroupScreen 的 tileBackdrop），
-        // 这里不再跑模糊、折射与活力——滚动时每张卡只是平移着贴同一张纹理。
-        // 光感交给面上一层从上往下淡出的白光与轮廓高光。
-        liquid && sample != null -> remember(sample, cardShape, liquidFill, softLight, liquidShadow, rim) {
-            Modifier.drawBackdrop(
-                backdrop = sample,
-                shape = { cardShape },
-                effects = {},
-                highlight = { rim },
-                shadow = { liquidShadow },
-                onDrawSurface = {
-                    drawRect(liquidFill)
-                    drawRect(softLight)
-                },
-            )
-        }
-        // 没有可采的细节（纯色 / 渐变 / 壁纸已被糊平）：`sampling = false`——不录采样层、
-        // `effects` 一概不跑、离屏层也不建。**而且不铺底色**：卡片完全透明，只剩轮廓高光 +
-        // 外面那圈投影（2026-11 维护者定：只要铺白就「像蒙了一层白」，透的才是玻璃）。
-        // 有细节时走上头那一支，模糊与折射照旧。
-        liquid -> remember(cardShape, liquidShadow, rim) {
-            Modifier.drawBackdrop(
-                backdrop = emptyBackdrop(),
-                shape = { cardShape },
-                sampling = false,
-                effects = {},
-                highlight = { rim },
-                shadow = { liquidShadow },
-            )
-        }
+        liquid -> Modifier
+            .shadow(10.dp, cardShape, clip = false, ambientColor = shadowTint, spotColor = shadowTint)
+            .softGlass(sample, radius, fill = if (sample != null) liquidFill else Color.Transparent, softLight = softLight, dark = dark)
         else -> Modifier
             .then(if (dark) Modifier else Modifier.appCardShadow(shape = cardShape))
             .squircleClip(radius)
@@ -994,13 +1046,25 @@ internal fun HomeTileFaceBox(
         // 形态按**实时**格数选（§10）：拖动把手缩放时逐帧判断，不等松手才重排。
         // 判据就是「几格宽 × 几格高」，阈值取半格（1.5）：一格见方是小块，一格高是横条，
         // 一格宽是竖条，两格都到是大方块——弹簧动画经过阈值也不会来回抖。
-        val shape = when {
-            w < 1.5f && h < 1.5f -> HomeTileShape.Icon
-            h < 1.5f -> HomeTileShape.Wide
-            w < 1.5f -> HomeTileShape.Tall
-            else -> HomeTileShape.Large
+        val shape by remember(w, h, liveSpan) {
+            derivedStateOf {
+                val span = liveSpan?.invoke() ?: Offset(w, h)
+                when {
+                    span.x < 1.5f && span.y < 1.5f -> HomeTileShape.Icon
+                    span.y < 1.5f -> if (span.x >= 2.5f) HomeTileShape.WideXL else HomeTileShape.Wide
+                    span.x < 1.5f -> HomeTileShape.Tall
+                    span.x < 2.5f && span.y < 2.5f -> HomeTileShape.Large
+                    span.y < 2.5f -> HomeTileShape.Panorama
+                    span.x < 2.5f -> HomeTileShape.Tower
+                    else -> HomeTileShape.Board
+                }
+            }
         }
-        Crossfade(targetState = shape, animationSpec = tween(160)) { now ->
+        // 形态或内容变了都淡入淡出：旧层画的是当时的内容，数字刷新不会瞬间跳变
+        androidx.compose.animation.core.updateTransition(shape to face, label = "tileFace").Crossfade(
+            animationSpec = tween(240),
+            contentKey = { (s, f) -> listOf(s, f.stat, f.statDetail, f.lines) },
+        ) { (now, face) ->
             when (now) {
                 // 1×1：图标在上、名称在下——正方格的一边长 ~76dp，这两行正好放得下，
                 // 所以这一档不再分「有没有文字空间」，永远画名称
@@ -1012,8 +1076,14 @@ internal fun HomeTileFaceBox(
                     ExpressiveIcon(
                         icon = face.icon,
                         color = iconColor,
-                        size = (minOf(w, h) * 34f).coerceIn(28f, 38f).dp,
-                        iconSize = (minOf(w, h) * 19f).coerceIn(15f, 21f).dp,
+                        size = (if (liveSpan == null) (minOf(w, h) * 34f).coerceIn(28f, 38f) else 34f).dp,
+                        iconSize = (if (liveSpan == null) (minOf(w, h) * 19f).coerceIn(15f, 21f) else 19f).dp,
+                        modifier = if (liveSpan == null) Modifier else Modifier.graphicsLayer {
+                            val span = liveSpan()
+                            val scale = (minOf(span.x, span.y) * 34f).coerceIn(28f, 38f) / 34f
+                            scaleX = scale
+                            scaleY = scale
+                        },
                     )
                     Spacer(Modifier.height(4.dp))
                     Text(
@@ -1172,6 +1242,76 @@ internal fun HomeTileFaceBox(
                         }
                     }
                 }
+
+                // 长横条（3×1 起）：左边和 2×1 一样，右边多出来的宽度列两条明细
+                HomeTileShape.WideXL -> Row(
+                    Modifier.fillMaxSize().padding(horizontal = 12.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    ExpressiveIcon(icon = face.icon, color = iconColor, size = 32.dp, iconSize = 18.dp)
+                    Spacer(Modifier.width(10.dp))
+                    TileHero(face, stat ?: face.subtitle.takeIf { it.isNotBlank() }, figure, statColor, muted, figureSize = 20, bodySize = 12.5f, bodyLines = 2, detailLines = 1, modifier = Modifier.weight(1f))
+                    if (lines.isNotEmpty()) {
+                        TileDivider(vertical = true, color = muted)
+                        TileLines(lines, ink, muted, onLine, compact = true, modifier = Modifier.weight(1f).fillMaxHeight())
+                    }
+                }
+
+                // 宽卡（3×2 起）：左半边大字数据 + 说明，右半边明细带说明
+                HomeTileShape.Panorama -> if (stat == null && lines.isEmpty()) {
+                    HomeTileCentered(face, iconColor, ink, muted, iconSize = 46.dp, iconGlyph = 26.dp)
+                } else {
+                    Row(Modifier.fillMaxSize().padding(16.dp)) {
+                        Column(Modifier.weight(1f).fillMaxHeight()) {
+                            TileHeader(face, iconColor, muted)
+                            Spacer(Modifier.weight(1f))
+                            TileHero(face, stat, figure, statColor, muted, figureSize = 30, bodySize = 14f, bodyLines = 3, detailLines = 2)
+                        }
+                        if (lines.isNotEmpty()) {
+                            TileDivider(vertical = true, color = muted)
+                            TileLinesRich(lines, ink, muted, onLine, columns = 1, modifier = Modifier.weight(1.2f).fillMaxHeight())
+                        }
+                    }
+                }
+
+                // 高卡（2×3 起）：数据再大一号，下面两行一条的明细铺满剩下的高度
+                HomeTileShape.Tower -> if (stat == null && lines.isEmpty()) {
+                    HomeTileCentered(face, iconColor, ink, muted, iconSize = 52.dp, iconGlyph = 28.dp)
+                } else {
+                    Column(Modifier.fillMaxSize().padding(16.dp)) {
+                        TileHeader(face, iconColor, muted)
+                        Spacer(Modifier.height(12.dp))
+                        TileHero(face, stat, figure, statColor, muted, figureSize = 32, bodySize = 14f, bodyLines = 3, detailLines = 2)
+                        if (lines.isNotEmpty()) {
+                            TileDivider(vertical = false, color = muted)
+                            TileLinesRich(lines, ink, muted, onLine, columns = 1, modifier = Modifier.weight(1f))
+                        }
+                    }
+                }
+
+                // 大板（3×3 起）：数据最大，明细收在内嵌底色里；四格宽时分两栏
+                HomeTileShape.Board -> if (stat == null && lines.isEmpty()) {
+                    HomeTileCentered(face, iconColor, ink, muted, iconSize = 60.dp, iconGlyph = 32.dp)
+                } else {
+                    // 按落定的格数分栏（拖动缩放时不逐帧重组）
+                    val wideBoard = w >= 3.5f
+                    Column(Modifier.fillMaxSize().padding(18.dp)) {
+                        TileHeader(face, iconColor, muted)
+                        Spacer(Modifier.height(14.dp))
+                        TileHero(face, stat, figure, statColor, muted, figureSize = 40, bodySize = 15f, bodyLines = 3, detailLines = 2)
+                        if (lines.isNotEmpty()) {
+                            Spacer(Modifier.height(14.dp))
+                            TileLinesRich(
+                                lines, ink, muted, onLine,
+                                columns = if (wideBoard) 2 else 1,
+                                modifier = Modifier.weight(1f)
+                                    .clip(RoundedCornerShape(16.dp))
+                                    .background(ink.copy(alpha = 0.04f))
+                                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                            )
+                        }
+                    }
+                }
             }
         }
     }
@@ -1236,13 +1376,217 @@ private fun TileLines(
     }
 }
 
+/** 大卡的抬头：小图标 + 名称。 */
+@Composable
+private fun TileHeader(face: HomeServiceRow, iconColor: Color, muted: Color) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        ExpressiveIcon(icon = face.icon, color = iconColor, size = 26.dp, iconSize = 15.dp)
+        Spacer(Modifier.width(8.dp))
+        Text(
+            face.title,
+            fontSize = 12.sp,
+            lineHeight = 15.sp,
+            fontWeight = FontWeight.Medium,
+            color = muted,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+    }
+}
+
 /**
- * 卡片内容的四种形态，由**实时**格数决定（见 [HomeTileFaceBox] 里的判据）。
- *
- * 与「小组件模式」那套四档（1×1 / 2×1 / 1×2 / 2×2）一一对应，只是这里的格子是自由的，
- * 所以按「几格宽、几格高」分档，而不是按固定的那四个枚举。
+ * 主数据 + 说明。短数据（[figure]）按 [figureSize] 的大字排，一句话型按 [bodySize] 正文排，
+ * 和小卡同一条判据，所以同一个功能在任何尺寸下强调的都是同一件事。
  */
-private enum class HomeTileShape { Icon, Wide, Tall, Large }
+@Composable
+private fun TileHero(
+    face: HomeServiceRow,
+    stat: String?,
+    figure: Boolean,
+    statColor: Color,
+    muted: Color,
+    figureSize: Int,
+    bodySize: Float,
+    bodyLines: Int,
+    detailLines: Int,
+    modifier: Modifier = Modifier,
+) {
+    Column(modifier) {
+        if (stat != null) {
+            Text(
+                stat,
+                style = if (figure) {
+                    Editorial.figure.copy(fontSize = figureSize.sp, lineHeight = (figureSize * 1.2f).sp)
+                } else {
+                    MiuixTheme.textStyles.body2.copy(fontSize = bodySize.sp, lineHeight = (bodySize * 1.35f).sp)
+                },
+                fontWeight = if (figure) null else FontWeight.Medium,
+                color = statColor,
+                maxLines = if (figure) 1 else bodyLines,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+        if (!face.statDetail.isNullOrBlank()) {
+            Spacer(Modifier.height(3.dp))
+            Text(
+                face.statDetail,
+                fontSize = 11.5.sp,
+                lineHeight = 15.sp,
+                color = muted,
+                maxLines = detailLines,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+    }
+}
+
+/** 数据区和明细区之间的一道细线。 */
+@Composable
+private fun TileDivider(vertical: Boolean, color: Color) {
+    if (vertical) {
+        Box(Modifier.padding(horizontal = 12.dp).fillMaxHeight().width(0.5.dp).background(color.copy(alpha = 0.22f)))
+    } else {
+        Box(Modifier.padding(vertical = 12.dp).fillMaxWidth().height(0.5.dp).background(color.copy(alpha = 0.22f)))
+    }
+}
+
+/**
+ * 大卡的明细：一条两行（正文 + 说明），按剩余高度能放几行放几行，不画半截。
+ * [columns] 为 2 时按行两两排开（四格宽的大板）。带链接的一条可点。
+ */
+@Composable
+private fun TileLinesRich(
+    lines: List<HomeLine>,
+    ink: Color,
+    muted: Color,
+    onLine: ((String) -> Unit)?,
+    columns: Int,
+    modifier: Modifier = Modifier,
+) {
+    val anyDetail = lines.any { !it.detail.isNullOrBlank() }
+    val rowHeight = if (anyDetail) 40.dp else 26.dp
+    BoxWithConstraints(modifier.fillMaxWidth()) {
+        val rows = (maxHeight / rowHeight).toInt().coerceAtLeast(0)
+        Column {
+            lines.take(rows * columns).chunked(columns).forEach { row ->
+                Row(Modifier.fillMaxWidth().height(rowHeight), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    row.forEach { line ->
+                        val link = line.link
+                        Row(
+                            Modifier
+                                .weight(1f)
+                                .fillMaxHeight()
+                                .then(
+                                    if (link != null && onLine != null) {
+                                        Modifier
+                                            .clip(RoundedCornerShape(8.dp))
+                                            .clickable(
+                                                interactionSource = remember { MutableInteractionSource() },
+                                                indication = SinkFeedback(),
+                                                onClick = { onLine(link) },
+                                            )
+                                    } else {
+                                        Modifier
+                                    },
+                                ),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Box(Modifier.size(5.dp).background(muted.copy(alpha = 0.55f), CircleShape))
+                            Spacer(Modifier.width(8.dp))
+                            Column(Modifier.weight(1f)) {
+                                Text(line.text, fontSize = 12.5.sp, lineHeight = 16.sp, color = ink, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                if (!line.detail.isNullOrBlank()) {
+                                    Text(line.detail, fontSize = 10.5.sp, lineHeight = 14.sp, color = muted, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                }
+                            }
+                        }
+                    }
+                    // 最后一行不满时补位，别让单条撑满两栏
+                    repeat(columns - row.size) { Spacer(Modifier.weight(1f)) }
+                }
+            }
+        }
+    }
+}
+
+/**
+ * 柔光玻璃的直接画法（不开离屏层）：圆角裁切里贴 [frost]（已糊好的背景，按这张卡此刻的位置取那一块），
+ * 再铺 [fill] 与 [softLight]，最后一圈从左上亮到右下淡的细描边。
+ *
+ * 卡片一动（滚动、拖拽补位）背景那一块就得跟着换：位置变化时只让这一张卡**重画**（不重组、不重排），
+ * 画的只是一次贴图加几笔，比 drawBackdrop 那一整套便宜得多。
+ */
+@Composable
+private fun Modifier.softGlass(
+    frost: Backdrop?,
+    radius: Dp,
+    fill: Color,
+    softLight: Brush,
+    dark: Boolean,
+): Modifier {
+    val coords = remember { arrayOfNulls<LayoutCoordinates>(1) }
+    val moved = remember { mutableIntStateOf(0) }
+    val lastOffset = remember { arrayOfNulls<Offset>(1) }
+    val rim = remember(dark) {
+        Brush.linearGradient(
+            0f to Color.White.copy(alpha = if (dark) 0.28f else 0.85f),
+            0.5f to Color.White.copy(alpha = if (dark) 0.08f else 0.25f),
+            1f to Color.White.copy(alpha = if (dark) 0.16f else 0.55f),
+        )
+    }
+    return this
+        .then(
+            if (frost != null) {
+                Modifier.onGloballyPositioned {
+                    coords[0] = it
+                    // 只有相对背景真的动了才重画：整页缩放时这里每帧回调，但取的那块背景没变
+                    val offset = frost.sampleOffset(it)
+                    val previous = lastOffset[0]
+                    if (previous == null || offset.movedFrom(previous)) {
+                        lastOffset[0] = offset
+                        moved.intValue++
+                    }
+                }
+            } else {
+                Modifier
+            },
+        )
+        .drawWithCache {
+            val r = radius.toPx().coerceAtMost(size.minDimension / 2f)
+            val outline = RoundRect(0f, 0f, size.width, size.height, CornerRadius(r))
+            val clip = if (frost != null) Path().apply { addRoundRect(outline) } else null
+            val stroke = 0.8.dp.toPx()
+            val strokeStyle = Stroke(stroke)
+            onDrawBehind {
+                if (frost != null) {
+                    moved.intValue // 位置变了就重画这一块
+                    clipPath(requireNotNull(clip)) {
+                        with(frost) { drawBackdrop(this@onDrawBehind, coords[0]) }
+                    }
+                }
+                if (fill.alpha > 0f) drawRoundRect(fill, cornerRadius = CornerRadius(r))
+                drawRoundRect(softLight, cornerRadius = CornerRadius(r))
+                drawRoundRect(
+                    brush = rim,
+                    topLeft = Offset(stroke / 2f, stroke / 2f),
+                    size = Size(size.width - stroke, size.height - stroke),
+                    cornerRadius = CornerRadius((r - stroke / 2f).coerceAtLeast(0f)),
+                    style = strokeStyle,
+                )
+            }
+        }
+}
+
+/**
+ * 卡片内容的形态，由**实时**格数决定（见 [HomeTileFaceBox] 里的判据）。
+ *
+ * - [Icon] 1×1、[Wide] 2×1、[Tall] 1×2 起、[Large] 2×2：小组件模式那四档；
+ * - [WideXL] 3×1 起：横条右边再列两条明细；
+ * - [Panorama] 3×2 起：左边大字数据，右边明细带说明；
+ * - [Tower] 2×3 起：数据再大一号，下面两行一条的明细铺满；
+ * - [Board] 3×3 起：数据最大，明细在内嵌底色里，四格宽时分两栏。
+ */
+private enum class HomeTileShape { Icon, Wide, WideXL, Tall, Large, Panorama, Tower, Board }
 
 /**
  * 没有状态的功能（社区、黄页这类）：居中一列「图标 + 名称 + 说明」。

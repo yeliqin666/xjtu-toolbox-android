@@ -4,11 +4,15 @@
 // LocalLiquidBottomTabScale；按压改成常见的微暗 + 缩小。
 package com.xjtu.toolbox.ui.glass
 
-import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.interaction.collectIsPressedAsState
+import androidx.compose.foundation.interaction.PressInteraction
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.remember
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.launch
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
@@ -22,14 +26,15 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
 
-/** 滑块被按住时染色那一遍图标的缩放（只有 [GlassBottomTabs] 的 `tintedContent` 会 provide）。 */
-val LocalGlassNavTabScale = staticCompositionLocalOf { { 1f } }
+/** 滑块被按住时染色那一遍图标的透明度系数（只有 [GlassBottomTabs] 的 `tintedContent` 会 provide）。 */
+val LocalGlassNavTabFade = staticCompositionLocalOf { { 1f } }
 
 /**
  * 底栏里的一格：占满高度、按 `weight(1f)` 均分宽度，点击直接走 [onClick]。
  *
- * 按下时微暗 + 缩小。[pressSource] 由底栏按格子共用：触摸可能落在透明的染色那一遍上，
- * 共用同一个来源，看得见的那一遍才会跟着按下去。
+ * 按下时图标变淡（不缩放）。[pressSource] 由底栏按格子共用：触摸可能落在透明的染色那一遍上，
+ * 共用同一个来源，看得见的那一遍才会跟着变淡。直接听按压事件而不是「是否按着」的状态：
+ * 快速点一下时按下与抬起常落在同一帧，只看状态就一帧都画不出来。
  */
 @Composable
 fun RowScope.GlassNavTabSlot(
@@ -38,9 +43,25 @@ fun RowScope.GlassNavTabSlot(
     pressSource: MutableInteractionSource? = null,
     content: @Composable ColumnScope.() -> Unit,
 ) {
-    val scale = LocalGlassNavTabScale.current
-    val pressed = pressSource?.collectIsPressedAsState()?.value == true
-    val press = animateFloatAsState(if (pressed) 1f else 0f, spring(dampingRatio = 0.7f, stiffness = 700f), label = "tabPress")
+    val fade = LocalGlassNavTabFade.current
+    val press = remember { Animatable(0f) }
+    if (pressSource != null) {
+        LaunchedEffect(pressSource) {
+            var down: Job? = null
+            pressSource.interactions.collect { interaction ->
+                when (interaction) {
+                    is PressInteraction.Press -> down = launch { press.animateTo(1f, tween(180)) }
+                    is PressInteraction.Release, is PressInteraction.Cancel -> {
+                        val pending = down
+                        launch {
+                            pending?.join()
+                            press.animateTo(0f, tween(380))
+                        }
+                    }
+                }
+            }
+        }
+    }
     Column(
         modifier
             .fillMaxHeight()
@@ -58,11 +79,7 @@ fun RowScope.GlassNavTabSlot(
                 },
             )
             .graphicsLayer {
-                val p = press.value
-                val s = scale() * (1f - 0.1f * p)
-                scaleX = s
-                scaleY = s
-                alpha = 1f - 0.35f * p
+                alpha = (1f - 0.5f * press.value) * fade()
             },
         verticalArrangement = Arrangement.spacedBy(2.dp, Alignment.CenterVertically),
         horizontalAlignment = Alignment.CenterHorizontally,

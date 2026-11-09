@@ -26,6 +26,7 @@ import com.xjtu.toolbox.agent.bot.BotEngine
 import com.xjtu.toolbox.agent.bot.BotFrame
 import com.xjtu.toolbox.agent.bot.NOTIF_BLUE
 import com.xjtu.toolbox.agent.bot.cast.CastCharacter
+import com.xjtu.toolbox.ui.components.LocalPageVisible
 
 /**
  * bloub 机器人的 Compose 渲染器：把 [BotEngine] 采出的帧画到一块小画布上。
@@ -121,8 +122,10 @@ fun BloubBotIcon(
         }
         // 形状跟着用户选择走：设置页就在底栏旁边，换形状要立刻在底栏看到 morph。
         LaunchedEffect(shape) { engine.setShape(shape, clock.now()) }
-        LaunchedEffect(Unit) {
-            while (true) {
+        // 页面盖住底栏时不跑：每一帧都要刷新整棵界面树，正好和转场抢时间
+        val pageVisible = LocalPageVisible.current
+        LaunchedEffect(pageVisible) {
+            while (pageVisible) {
                 val t = clock.now()
                 val looking = steer(t)
                 // 看某处、以及看完回正的那半秒要全速跑，眼神才跟得上手指

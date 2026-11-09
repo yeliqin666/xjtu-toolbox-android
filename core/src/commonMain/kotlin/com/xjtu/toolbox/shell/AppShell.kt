@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.calculateEndPadding
 import androidx.compose.foundation.layout.calculateStartPadding
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -14,12 +15,17 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.ui.layout.boundsInWindow
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInWindow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
+import com.xjtu.toolbox.ui.glass.GLASS_BAR_HEIGHT
 import com.kyant.backdrop.Backdrop
 import com.kyant.backdrop.backdrops.LayerBackdrop
 import com.kyant.backdrop.backdrops.layerBackdrop
@@ -28,8 +34,6 @@ import com.kyant.backdrop.backdrops.rememberLayerBackdrop
 import com.xjtu.toolbox.platform.smallestScreenWidthDp
 import com.xjtu.toolbox.ui.WindowSize
 import com.xjtu.toolbox.ui.currentWindowSize
-import com.xjtu.toolbox.ui.glass.followTopBar
-import com.xjtu.toolbox.ui.glass.rememberStableTopPadding
 import com.xjtu.toolbox.ui.isWideLayout
 import com.xjtu.toolbox.platform.BackHandler
 import top.yukonga.miuix.kmp.basic.NavigationBarDefaults
@@ -78,8 +82,12 @@ fun AppShell(
     // 图标统一放进同样高的框里，五格文字基线才对齐
     val navIconBox = remember(nav.tabs) { nav.tabs.tabs.maxOf { it.iconSize } }
 
+    val tabZoom = rememberShellTabZoom(nav, enabled = form == ShellForm.GLASS_BAR)
+    // 底栏与页面容器在窗口里的位置：只在绘制阶段读，不用 state
+    val barGeometry = remember { BarGeometry() }
+
     // 玻璃采样源只录 tab 内容区；录整个 Scaffold 会让底栏采样自己，RenderThread 直接崩
-    val contentBackdrop = rememberLayerBackdrop()
+    val contentBackdrop = rememberLayerBackdrop(cache = glassStyle)
     // 底栏导出成一层，屁岱气泡尖角伸到底栏上时采的是「页面 + 底栏」
     val barBackdrop = rememberLayerBackdrop()
     val handles = ShellHandles(
@@ -117,23 +125,25 @@ fun AppShell(
                     .then(if (isWide) Modifier.railSettledWidth(railState, railProgress) else Modifier),
                 contentWindowInsets = contentWindowInsets,
                 snackbarHost = snackbarHost,
-                topBar = { topBar?.invoke(nav.selected, handles) },
                 bottomBar = {
                     if (!isWide && !glassStyle) ClassicBottomBar(nav, navItemColors, bubble, tabArt)
                 },
                 floatingToolbar = {
                     when (form) {
-                        ShellForm.GLASS_BAR -> GlassBottomBar(
-                            nav = nav,
-                            selectedColor = navSelectedContent,
-                            unselectedColor = navUnselectedContent,
-                            iconBox = navIconBox,
-                            backdrop = contentBackdrop,
-                            exportedBackdrop = barBackdrop,
-                            bottomPadding = layout.glassBarSlotBottomPadding,
-                            bubble = bubble,
-                            tabArt = tabArt,
-                        )
+                        // 量出底栏在窗口里的实际下沿：切页放大 / 收回的起止点按它算，不靠留白公式推
+                        ShellForm.GLASS_BAR -> Box(Modifier.onGloballyPositioned { barGeometry.barBottom = it.boundsInWindow().bottom }) {
+                            GlassBottomBar(
+                                nav = nav,
+                                selectedColor = navSelectedContent,
+                                unselectedColor = navUnselectedContent,
+                                iconBox = navIconBox,
+                                backdrop = contentBackdrop,
+                                exportedBackdrop = barBackdrop,
+                                bottomPadding = layout.glassBarSlotBottomPadding,
+                                bubble = bubble,
+                                tabArt = tabArt,
+                            )
+                        }
 
                         ShellForm.FLOATING_PILL -> FloatingBottomBar(
                             nav = nav,
@@ -147,53 +157,68 @@ fun AppShell(
                     }
                 },
             ) { padding ->
-                val stableTopBar = rememberStableTopPadding(padding)
-                val tabTopPadding = if (glassStyle) stableTopBar.value else 0.dp
-                // 壳把 tab 整页上移了 stable − 实际顶栏高度：页面里贴屏幕顶边的装饰要自己补回这段
-                val contentTopShift: () -> Dp = {
-                    if (glassStyle) {
-                        (stableTopBar.value - padding.calculateTopPadding()).coerceAtLeast(0.dp)
-                    } else {
-                        0.dp
-                    }
-                }
                 val layoutDirection = LocalLayoutDirection.current
-                val insets = ShellPageInsets(
-                    contentTopPadding = tabTopPadding,
-                    contentTopShift = contentTopShift,
-                    bottomBarReserve = layout.bottomBarReserve,
-                    scaffoldBottomPadding = padding.calculateBottomPadding(),
-                )
+                val statusTop = contentWindowInsets.asPaddingValues().calculateTopPadding()
+                // 顶部留白归每一页（见 ShellBarPage），这一层只垫左右和底
                 Box(
                     Modifier
                         .fillMaxSize()
                         .padding(
-                            if (glassStyle) {
-                                PaddingValues(
-                                    start = padding.calculateStartPadding(layoutDirection),
-                                    end = padding.calculateEndPadding(layoutDirection),
-                                    bottom = padding.calculateBottomPadding(),
-                                )
-                            } else {
-                                padding
-                            },
-                        ),
+                            PaddingValues(
+                                start = padding.calculateStartPadding(layoutDirection),
+                                end = padding.calculateEndPadding(layoutDirection),
+                                bottom = padding.calculateBottomPadding(),
+                            ),
+                        )
+                        .onGloballyPositioned { barGeometry.hostTop = it.positionInWindow().y },
                 ) {
                     ShellTabHost(
                         nav = nav,
                         pageHost = pageHost,
                         modifier = if (glassStyle) Modifier.layerBackdrop(contentBackdrop) else Modifier,
-                        // 跟随位移是给「按 contentTopPadding 留白、顶栏由壳画」的页补的；自带顶栏的页没留那段白，
-                        // 位移会把它整页往上推进状态栏（stableTopBar 记的是各格见过的最高顶栏）
-                        tabModifier = { tab ->
-                            if (glassStyle && tab?.drawsOwnTopBar != true) {
-                                Modifier.followTopBar({ stableTopBar.value }, padding)
-                            } else {
-                                Modifier
+                        zoom = tabZoom?.apply {
+                            val density = LocalDensity.current
+                            val edge = with(density) { 24.dp.toPx() }
+                            val radius = with(density) { 24.dp.toPx() }
+                            val fromBottom = with(density) {
+                                (layout.glassBarSlotBottomPadding + GLASS_BAR_HEIGHT / 2 - padding.calculateBottomPadding()).toPx()
+                            }
+                            // 底栏中线距它下沿的距离（下沿以下是贴底留白）
+                            val barCenterAboveBottom = with(density) { (layout.glassBarSlotBottomPadding + GLASS_BAR_HEIGHT / 2).toPx() }
+                            origin = { index, count, size ->
+                                val cx = edge + (size.width - edge * 2f) * (index + 0.5f) / count
+                                // 优先用实测的底栏位置（换算到页面容器坐标）；还没量到时退回公式
+                                val measured = barGeometry.barBottom
+                                val cy = if (measured != null) measured - barCenterAboveBottom - barGeometry.hostTop
+                                else size.height - fromBottom
+                                androidx.compose.ui.geometry.Rect(cx - radius, cy - radius, cx + radius, cy + radius)
                             }
                         },
                     ) { p ->
-                        page(p, insets)
+                        ShellBarPage(
+                            glass = glassStyle,
+                            statusTop = statusTop,
+                            bar = if (topBar != null && p.tab?.drawsOwnTopBar != true) {
+                                { backdrop ->
+                                    topBar(
+                                        p.tab,
+                                        ShellHandles(backdrop, barBackdrop, handles.combinedBackdrop, handles.glassBarPresent),
+                                    )
+                                }
+                            } else {
+                                null
+                            },
+                        ) { contentTop, contentShift ->
+                            page(
+                                p,
+                                ShellPageInsets(
+                                    contentTopPadding = contentTop,
+                                    contentTopShift = contentShift,
+                                    bottomBarReserve = layout.bottomBarReserve,
+                                    scaffoldBottomPadding = padding.calculateBottomPadding(),
+                                ),
+                            )
+                        }
                     }
 
                     ShellRestoreBanner(
@@ -219,7 +244,7 @@ fun AppShell(
 
 /** 共享壳算给当前页的那几格留白 —— 页自己拿去补（壳不知道页面内部怎么排版）。 */
 class ShellPageInsets(
-    /** 玻璃风格下顶栏（折叠时会变矮）稳定最大高度；经典风格恒为 0。 */
+    /** 玻璃风格下这一页顶栏的稳定最大高度（没有顶栏时是状态栏高度）；经典风格恒为 0。 */
     val contentTopPadding: Dp,
     /** 浮在上面的底栏一共占掉多少（滚动内容末尾要留出来）。见 [ShellLayout.bottomBarReserve]。 */
     val bottomBarReserve: Dp,
@@ -235,7 +260,7 @@ class ShellPageInsets(
 
 /** 共享壳交给端上插槽的那几样把手。 */
 class ShellHandles(
-    /** 内容区那一层（壳在 tab 内容根上挂了 `Modifier.layerBackdrop`）。 */
+    /** 采样层：交给顶栏时是这一页自己的内容层，交给其它插槽时是整个 tab 区。 */
     val contentBackdrop: LayerBackdrop,
     /** 底栏导出的一层。 */
     val barBackdrop: LayerBackdrop,
@@ -244,3 +269,9 @@ class ShellHandles(
     /** 玻璃胶囊底栏在场（决定气泡尖角朝下时该采哪一层）。 */
     val glassBarPresent: Boolean,
 )
+
+/** 底栏下沿与页面容器顶边在窗口里的位置（px），切页放大 / 收回按它找按钮。 */
+private class BarGeometry {
+    var barBottom: Float? = null
+    var hostTop: Float = 0f
+}

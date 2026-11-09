@@ -6,7 +6,7 @@ import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -106,7 +106,7 @@ private fun ProfileInfoCard(p: com.xjtu.toolbox.hello.HelloProfile, modifier: Mo
     ) {
         ProfileMenuRow(
             icon = Icons.Outlined.School,
-            tint = MiuixTheme.colorScheme.primary,
+            tint = TINT_BLUE,
             title = "学籍信息",
             subtitle = listOf(p.departmentName, p.className).filter { it.isNotBlank() }.joinToString(" · ").ifBlank { null },
             trailingIcon = if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
@@ -258,11 +258,11 @@ private fun ProfileMenuRow(
     subtitle: String? = null,
     titleColor: Color = MiuixTheme.colorScheme.onSurface,
     trailingIcon: ImageVector? = Icons.AutoMirrored.Filled.KeyboardArrowRight,
-    /** 点了打开的页面：给了就从这一行长出一镜到底的转场（ROM 不支持时 [onClick] 照常打开）。 */
+    /** 点了打开的页面：ROM 支持时从这一行一镜到底，不支持就普通打开（不做 Compose 放大）。 */
     route: AppRoute? = null,
 ) {
     val dark = com.xjtu.toolbox.ui.theme.LocalIsDarkTheme.current
-    val origin = com.xjtu.toolbox.nav.rememberSeamlessOrigin(16.dp)
+    val origin = com.xjtu.toolbox.nav.rememberSeamlessOrigin(16.dp, composeFallback = false)
     Row(
         Modifier
             .fillMaxWidth()
@@ -274,7 +274,7 @@ private fun ProfileMenuRow(
         Box(
             Modifier
                 .size(34.dp)
-                .squircleBackground(tint.copy(alpha = if (dark) 0.22f else 0.12f), 11.dp),
+                .squircleBackground(tint.copy(alpha = if (dark) 0.24f else 0.16f), 11.dp),
             contentAlignment = Alignment.Center,
         ) {
             Icon(icon, contentDescription = null, tint = tint, modifier = Modifier.size(18.dp))
@@ -325,8 +325,13 @@ private fun MenuGroup(modifier: Modifier = Modifier, content: @Composable Column
     )
 }
 
-private val TINT_TEAL = Color(0xFF1F9E8F)
-private val TINT_SLATE = Color(0xFF6B7A90)
+// 图标配色与设置页同一套固定色板，不跟主题色走：主题色可能被设成黑色这类极端色，
+// 跟着它走时有的图标底块看得见、有的看不见，一页里就不齐了
+private val TINT_TEAL = com.xjtu.toolbox.settings.SettingsColors.Teal
+private val TINT_SLATE = com.xjtu.toolbox.settings.SettingsColors.BlueGray
+private val TINT_BLUE = com.xjtu.toolbox.settings.SettingsColors.Blue
+private val TINT_INDIGO = com.xjtu.toolbox.settings.SettingsColors.Indigo
+private val TINT_ORANGE = com.xjtu.toolbox.settings.SettingsColors.Orange
 
 /**
  * 顶部的身份卡：头像 + 姓名 + 学号 / 专业 + 一行标签。
@@ -375,7 +380,7 @@ private fun ProfileHeroCard(
             LaunchedEffect(avatarVersion) {
                 if (avatarVersion > 0) {
                     pop.snapTo(0.84f)
-                    pop.animateTo(1f, spring(dampingRatio = 0.45f, stiffness = 420f))
+                    pop.animateTo(1f, tween(320, easing = androidx.compose.animation.core.FastOutSlowInEasing))
                 }
             }
             Box(
@@ -867,7 +872,7 @@ internal fun ProfileTab(
                         Spacer(Modifier.height(14.dp))
                         val animatedProgress by animateFloatAsState(
                             targetValue = loginProgress,
-                            animationSpec = spring(dampingRatio = 0.85f, stiffness = 500f),
+                            animationSpec = tween(320, easing = androidx.compose.animation.core.FastOutSlowInEasing),
                             label = "loginProgress"
                         )
                         LinearProgressIndicator(
@@ -935,14 +940,14 @@ internal fun ProfileTab(
 
                 MenuGroup(Modifier.enterOnce(3)) {
                     ProfileMenuRow(
-                        Icons.Outlined.ManageAccounts, MiuixTheme.colorScheme.primary, "账号管理",
+                        Icons.Outlined.ManageAccounts, TINT_INDIGO, "账号管理",
                         onClick = { onNavigate(AppRoute.Accounts) },
                         subtitle = if (accountCount > 0) "已保存 $accountCount 个账号" else "切换或添加账号",
                         route = AppRoute.Accounts,
                     )
                     MenuDivider()
                     ProfileMenuRow(
-                        Icons.Outlined.Download, TINT_TEAL, "下载管理",
+                        Icons.Outlined.Download, TINT_ORANGE, "下载管理",
                         onClick = { onNavigate(AppRoute.DownloadManager) },
                         subtitle = downloadSummary ?: "查看下载进度和记录",
                         route = AppRoute.DownloadManager,

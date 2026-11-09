@@ -173,7 +173,8 @@ class MainActivity : ComponentActivity() {
         // 点按钮不会触发 autoCancel，要自己收
         androidx.core.app.NotificationManagerCompat.from(this).cancel(com.xjtu.toolbox.notification.NoticeNotifier.NOTIFICATION_ID)
         com.xjtu.toolbox.inbox.InboxStore.markRead(inboxIds)
-        AgentPendingPrompt.set(text, snapshot = snapshot)
+        // 和页内「问小岱」一样：只填进输入框、通知内容挂成「附带」标签，由用户自己发
+        AgentPendingPrompt.set(text, snapshot = snapshot, draftOnly = true, label = "通知")
         launchRoute.value = com.xjtu.toolbox.nav.AppRoute.Agent
     }
 

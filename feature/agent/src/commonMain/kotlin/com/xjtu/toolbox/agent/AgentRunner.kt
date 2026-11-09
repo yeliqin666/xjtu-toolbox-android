@@ -4,6 +4,7 @@ import com.xjtu.toolbox.error.SessionExpiredFailure
 import com.xjtu.toolbox.util.AppJson
 import com.xjtu.toolbox.util.stringValue
 import kotlin.time.Clock
+import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
@@ -32,6 +33,25 @@ class AgentRunner(
     private val tools: AgentTools,
     private val transport: AgentTransport,
 ) {
+    /**
+     * 工具在这里单独跑，这一轮只等它的结果。工具里多是阻塞的网络请求，
+     * 直接在这一轮里跑的话，用户点停止 / 插话要等请求自己返回才生效；
+     * 隔开以后取消立刻生效，没跑完的那次在后台收尾、结果丢弃（历史里记成 execution: unknown）。
+     */
+    private val toolScope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob())
+
+    private suspend fun interruptible(block: suspend () -> String): String {
+        // 沿用当前调度器：工具的线程语义不变，阻塞的部分它们自己会切到 IO
+        val dispatcher = kotlin.coroutines.coroutineContext[kotlin.coroutines.ContinuationInterceptor]
+        val call = toolScope.async(dispatcher ?: kotlinx.coroutines.Dispatchers.Default) { block() }
+        return try {
+            call.await()
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            call.cancel()
+            throw e
+        }
+    }
+
     companion object {
         /** 同一站点两次工具调用的最小间隔。不同站点互不影响。 */
         private const val SAME_SITE_MIN_INTERVAL_MS = 800L
@@ -48,6 +68,8 @@ class AgentRunner(
         fun toolResultCap(toolName: String): Int = when (toolName) {
             "web_fetch" -> FETCH_TOOL_RESULT_CHARS
             "read_zyxf_file", "get_lms_activity" -> 20_000
+            // 方案总览是一整行 JSON（整棵课组树 + 没归位的课），4000 字会把中间砍掉
+            "get_degree_progress" -> 16_000
             "web_search", "search_school_courses" -> SEARCH_TOOL_RESULT_CHARS
             else -> DEFAULT_TOOL_RESULT_CHARS
         }
@@ -279,7 +301,7 @@ class AgentRunner(
                         val card = AgentPlanCard.parse(tc.arguments)
                         present(tc.id, listOf(card))
                         AgentPlanCard.receipt(card)
-                    } else tools.execute(tc.name, tc.arguments)
+                    } else interruptible { tools.execute(tc.name, tc.arguments) }
                 }
                 // 查询保留快照，展示在拿到结果后单独决定。
                 val made = if (tc.name == AgentWidgetPresentation.TOOL || tc.name == AgentPlanCard.TOOL) emptyList() else tools.drainWidgets()

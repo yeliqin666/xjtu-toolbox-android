@@ -238,7 +238,6 @@ fun LmsScreen(
         WindowDialog(
             show = showHint.value,
             title = "功能说明",
-            summary = "数据来自思源学堂 lms.xjtu.edu.cn",
             onDismissRequest = { dismissHint() }
         ) {
             Column(Modifier.fillMaxWidth()) {

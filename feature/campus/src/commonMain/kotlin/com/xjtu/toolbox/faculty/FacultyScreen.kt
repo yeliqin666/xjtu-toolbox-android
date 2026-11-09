@@ -405,6 +405,8 @@ private fun FacultyDetailSheet(
     OverlayBottomSheet(
         show = member != null,
         title = shown.name,
+        // 抽屉默认白底，详情里的信息卡也是白的；垫 surface 灰底才分得出
+        backgroundColor = MiuixTheme.colorScheme.surface,
         onDismissRequest = onDismiss,
     ) {
         FacultyDetailBody(

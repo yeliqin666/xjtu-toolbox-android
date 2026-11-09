@@ -81,7 +81,7 @@ object DegreeAgentJson {
             if (otherPlan) "这不是用户现在的方案，是用用户的成绩对照它的估算，没有教务报告。课程号或课程名对不上的课不计入，实际能否认定以学院转专业文件为准。用 group 参数传节点 id 可看该组全部原始字段。"
             else "counted/earned 是按课程重算的；official* 是教务报告原值，可能算错（要求为 0 的子模块会被算成 0）。两者不同时都告诉用户，以教务为准。用 group 参数传节点 id 可看该组全部原始字段。",
         )
-        put("nodes", JsonArray(p.nodes.map(::overviewNode)))
+        // 没归位的课放在课组树前面：树很长，万一被截断，丢的也是树尾而不是这份清单
         putJsonArray("unplaced") {
             p.unplaced.forEach { c ->
                 add(buildJsonObject {
@@ -105,6 +105,7 @@ object DegreeAgentJson {
             if (otherPlan) "这些课在这个方案里没对上，转过去可能用不上，也可能可以申请认定。可以按名称和学分给建议，但只是建议，要向学院核实。"
             else "这些课没归进方案，可能是换过课程号。可以按名称和学分建议它可能抵哪一组，但只是建议：要用户在学业进度页自己确认，并向教务核实。",
         )
+        put("nodes", JsonArray(p.nodes.map(::overviewNode)))
         p.gpaEstimate?.let { put("gpaEstimate", (it * 100).toLong() / 100.0) }
         put("failedCourses", buildJsonArray { p.failedCourses.forEach { add(it) } })
         if (p.warnings.isNotEmpty()) put("warnings", buildJsonArray { p.warnings.forEach { add(it) } })

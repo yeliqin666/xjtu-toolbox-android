@@ -5,6 +5,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.remember
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.hapticfeedback.HapticFeedback
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
@@ -65,8 +66,11 @@ fun XJTUToolBoxTheme(
             }
             MiuixTheme(
                 colors = if (darkTheme) colors else colors.copy(surface = LightPageBackground),
-                content = content,
-            )
+            ) {
+                val tint = MiuixTheme.colorScheme.onSurface
+                val indication = remember(tint) { com.xjtu.toolbox.ui.components.SlowPressIndication(tint) }
+                CompositionLocalProvider(androidx.compose.foundation.LocalIndication provides indication, content = content)
+            }
         }
     }
 }
@@ -91,11 +95,12 @@ private val LightPageBackground = Color(0xFFF0F1F3)
  * 于是「我选了深红」实际画出来是另一个红，挑色和结果对不上。这里保留 Monet 算出来的灰阶、
  * 卡片底和次要色，只把跟主题色同源的四个角色换成原色。
  *
- * 主题色上的字不按颜色亮度算对比度，只跟明暗走：深色模式白字、浅色模式黑字。挑什么色
- * 都不影响字色（这是维护者定的口径），所以挑了极端色时对比度好坏由用户自己看着办。
+ * 主题色上的字默认跟明暗走（深色模式白字、浅色模式黑字），但过一道对比度门：
+ * 这个字色和主题色对比不到 [MIN_TEXT_CONTRAST] 就换成黑白里对比更高的那个，
+ * 否则挑了黑色这类极端色时会黑底黑字（选中的胶囊、「应用」按钮上的字都看不见）。
  */
 private fun Colors.withExactPrimary(primary: Color, dark: Boolean): Colors {
-    val onPrimary = if (dark) Color.White else Color.Black
+    val onPrimary = readableOn(primary, preferred = if (dark) Color.White else Color.Black)
     return copy(
         primary = primary,
         onPrimary = onPrimary,
@@ -103,6 +108,26 @@ private fun Colors.withExactPrimary(primary: Color, dark: Boolean): Colors {
         onPrimaryContainer = onPrimary,
     )
 }
+
+/**
+ * [background] 上该用的字色：[preferred] 够清楚就用它，不够就换黑白里对比更高的那个。
+ * 对比度按 WCAG 的相对亮度算。
+ */
+fun readableOn(background: Color, preferred: Color): Color {
+    if (contrast(background, preferred) >= MIN_TEXT_CONTRAST) return preferred
+    val black = contrast(background, Color.Black)
+    val white = contrast(background, Color.White)
+    return if (black >= white) Color.Black else Color.White
+}
+
+private fun contrast(a: Color, b: Color): Float {
+    val la = a.luminance()
+    val lb = b.luminance()
+    return (maxOf(la, lb) + 0.05f) / (minOf(la, lb) + 0.05f)
+}
+
+/** 正文字与底色的最低对比度（WCAG AA）。 */
+private const val MIN_TEXT_CONTRAST = 4.5f
 
 /**
  * Monet / MD3 按同名角色灌进 MIUIX，会把「灰页 / 白卡片」对调。

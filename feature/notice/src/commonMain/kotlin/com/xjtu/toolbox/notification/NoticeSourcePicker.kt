@@ -1,10 +1,5 @@
 package com.xjtu.toolbox.notification
 
-import androidx.compose.animation.AnimatedContent
-import androidx.compose.animation.core.tween
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -26,12 +21,12 @@ import androidx.compose.ui.unit.dp
 import com.xjtu.toolbox.ui.components.AppCardColor
 import com.xjtu.toolbox.platform.BackHandler
 import com.xjtu.toolbox.ui.components.AppSearchBar
-import com.xjtu.toolbox.ui.components.AppSegmentedTabs
-import com.xjtu.toolbox.ui.components.SelectionTile
+import com.xjtu.toolbox.ui.components.AppCheckRow
+import com.xjtu.toolbox.ui.components.AppOptionGroup
+import top.yukonga.miuix.kmp.basic.Button
 import top.yukonga.miuix.kmp.basic.ButtonDefaults
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.Text
-import top.yukonga.miuix.kmp.basic.TextButton
 import top.yukonga.miuix.kmp.overlay.OverlayBottomSheet
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
@@ -66,61 +61,79 @@ internal fun NoticeSourceSheet(
     onConfirm: (Set<NotificationSource>) -> Unit,
 ) {
     var selected by remember { mutableStateOf(sources) }
-    var category by remember { mutableStateOf(sources.firstOrNull()?.category ?: SourceCategory.GENERAL) }
     var query by remember { mutableStateOf("") }
     LaunchedEffect(show) {
         if (show) {
             selected = sources
-            category = sources.firstOrNull()?.category ?: SourceCategory.GENERAL
             query = ""
         }
     }
-    val summary = MiuixTheme.colorScheme.onSurfaceVariantSummary
-    val searching = query.isNotBlank()
+    val colors = MiuixTheme.colorScheme
     BackHandler(enabled = show) { onDismiss() }
-    OverlayBottomSheet(show = show, title = "通知来源", onDismissRequest = onDismiss) {
+    OverlayBottomSheet(
+        show = show,
+        title = "通知来源",
+        backgroundColor = colors.surface,
+        onDismissRequest = onDismiss,
+    ) {
         Column(Modifier.fillMaxWidth().navigationBarsPadding()) {
             AppSearchBar(query = query, onQueryChange = { query = it }, label = "搜索学院或部门", modifier = Modifier.padding(top = 2.dp))
-            if (!searching) {
-                Spacer(Modifier.height(12.dp))
-                AppSegmentedTabs(
-                    tabs = SourceCategory.entries.map { it.displayName },
-                    selectedTabIndex = category.ordinal,
-                    onTabSelected = { category = SourceCategory.entries[it] },
-                )
-            }
-            Spacer(Modifier.height(12.dp))
-            // 列表区定高：各分类来源数不一样，跟着内容伸缩的话一切分类弹窗就跳一下
-            AnimatedContent(
-                targetState = if (searching) null else category,
-                transitionSpec = { fadeIn(tween(180)) togetherWith fadeOut(tween(120)) },
-                modifier = Modifier.fillMaxWidth().height(360.dp),
-                label = "noticeSources",
-            ) { shown ->
-                val matching = if (shown != null) NotificationSource.byCategory(shown)
-                    else NotificationSource.entries.filter { it.displayName.contains(query.trim(), ignoreCase = true) }
-                Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    matching.chunked(2).forEach { row ->
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            row.forEach { item ->
-                                SelectionTile(item.displayName, item in selected, Modifier.weight(1f), maxLines = 2) {
+            Text(
+                if (selected.isEmpty()) "还没选来源" else "已选：" + selected.joinToString("、") { it.displayName },
+                style = MiuixTheme.textStyles.footnote1,
+                color = colors.onSurfaceVariantSummary,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.padding(start = 4.dp, end = 4.dp, top = 10.dp),
+            )
+            // 定高：搜索时条目变少，弹窗不跟着跳
+            Column(Modifier.fillMaxWidth().height(380.dp).verticalScroll(rememberScrollState())) {
+                val keyword = query.trim()
+                var anyMatch = false
+                SourceCategory.entries.forEach { category ->
+                    val matching = NotificationSource.byCategory(category)
+                        .filter { keyword.isEmpty() || it.displayName.contains(keyword, ignoreCase = true) }
+                    if (matching.isNotEmpty()) {
+                        anyMatch = true
+                        val allOn = selected.containsAll(matching)
+                        Row(
+                            Modifier.fillMaxWidth().padding(start = 4.dp, top = 14.dp, bottom = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text(category.displayName, style = MiuixTheme.textStyles.footnote1, fontWeight = FontWeight.SemiBold, color = colors.onSurfaceVariantSummary, modifier = Modifier.weight(1f))
+                            Text(
+                                if (allOn) "清空" else "全选",
+                                style = MiuixTheme.textStyles.footnote1,
+                                color = colors.primary,
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .clickable { selected = if (allOn) selected - matching.toSet() else selected + matching }
+                                    .padding(horizontal = 6.dp, vertical = 2.dp),
+                            )
+                        }
+                        AppOptionGroup {
+                            matching.forEach { item ->
+                                AppCheckRow(item.displayName, item in selected) {
                                     selected = if (item in selected) selected - item else selected + item
                                 }
                             }
-                            if (row.size == 1) Spacer(Modifier.weight(1f))
                         }
                     }
-                    if (matching.isEmpty()) Text("没有匹配的来源", modifier = Modifier.padding(20.dp), color = summary)
                 }
+                if (!anyMatch) Text("没有匹配的来源", modifier = Modifier.padding(20.dp), color = colors.onSurfaceVariantSummary)
             }
-            Spacer(Modifier.height(16.dp))
-            TextButton(
-                text = if (selected.isEmpty()) "请至少选择一个来源" else "查看 ${selected.size} 个来源",
+            Spacer(Modifier.height(12.dp))
+            Button(
                 onClick = { onConfirm(selected) },
                 enabled = selected.isNotEmpty(),
-                colors = ButtonDefaults.textButtonColorsPrimary(),
+                colors = ButtonDefaults.buttonColorsPrimary(),
                 modifier = Modifier.fillMaxWidth(),
-            )
+            ) {
+                Text(
+                    if (selected.isEmpty()) "请至少选择一个来源" else "查看 ${selected.size} 个来源",
+                    color = colors.onPrimary,
+                )
+            }
             Spacer(Modifier.height(12.dp))
         }
     }

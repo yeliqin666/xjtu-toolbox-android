@@ -11,6 +11,19 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.xjtu.toolbox.platform.BackHandler
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.foundation.border
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.material.icons.automirrored.filled.Send
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.outlined.Visibility
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.text.TextRange
+import androidx.compose.ui.text.input.TextFieldValue
+import top.yukonga.miuix.kmp.basic.CircularProgressIndicator
 import androidx.compose.material.icons.filled.ThumbDown
 import androidx.compose.material.icons.filled.ThumbUp
 import androidx.compose.foundation.background
@@ -58,6 +71,9 @@ sealed interface EditorTarget {
     data class ReplyTo(val comment: GithubDiscussionComment, val prefill: String?) : EditorTarget
     data class EditComment(val comment: GithubDiscussionComment) : EditorTarget
     data object EditDiscussion : EditorTarget
+
+    /** 回帖就在详情页底部的输入框里写；编辑已有内容才进全屏页。 */
+    val inline: Boolean get() = this !is EditComment && this != EditDiscussion
 }
 
 @Composable
@@ -84,7 +100,6 @@ fun DiscussionDetailScreen(
     var editor by remember { mutableStateOf<EditorTarget?>(null) }
     var deleting by remember { mutableStateOf<GithubDiscussionComment?>(null) }
     var deletingPost by remember { mutableStateOf(false) }
-    var minimizing by remember { mutableStateOf<GithubDiscussionComment?>(null) }
     var closing by remember { mutableStateOf(false) }
     var locking by remember { mutableStateOf(false) }
     // 本帖参与者，写回复时 @ 联想用
@@ -105,7 +120,7 @@ fun DiscussionDetailScreen(
         if (comment.url.isNotEmpty()) add(MenuAction("分享") { share(discussion.title, comment.url) })
         if (comment.canEdit) add(MenuAction("编辑") { editor = EditorTarget.EditComment(comment) })
         if (comment.canUnminimize && comment.minimized) add(MenuAction("取消折叠") { vm.unminimize(comment) })
-        else if (comment.canMinimize && !comment.minimized) add(MenuAction("折叠") { minimizing = comment })
+        else if (comment.canMinimize && !comment.minimized) add(MenuAction("折叠", options = MINIMIZE_REASONS, onPick = { vm.minimize(comment, it) }))
         if (comment.canDelete) add(MenuAction("删除", danger = true) { deleting = comment })
     }
     // 锁帖后只有管理员还能回复
@@ -155,15 +170,6 @@ fun DiscussionDetailScreen(
             },
         )
     }
-    minimizing?.let { comment ->
-        ReasonDialog(
-            title = "折叠这条回复",
-            summary = "折叠后默认只显示原因，别人点开仍能看到。",
-            reasons = MINIMIZE_REASONS,
-            onDismiss = { minimizing = null },
-            onPick = { minimizing = null; vm.minimize(comment, it) },
-        )
-    }
     if (closing) {
         ReasonDialog(
             title = "关闭帖子",
@@ -188,15 +194,15 @@ fun DiscussionDetailScreen(
 
 
     AnimatedContent(
-        targetState = editor,
+        targetState = editor?.takeUnless { it.inline },
         contentKey = { it?.let { t -> "editor:${t.hashCode()}" } ?: "detail" },
         transitionSpec = { communitySlide(forward = targetState != null) },
         label = "detailEditor",
     ) { shownEditor ->
-    // ── 全屏编辑页：回帖 / 回复某楼 / 编辑 ──
+    // ── 全屏编辑页：编辑回复 / 编辑主帖 ──
     if (shownEditor != null) {
         val target = shownEditor
-        CommunityEditorPage(
+        CommunityEditor(
             target = target,
             discussion = discussion,
             onClose = { editor = null },
@@ -212,17 +218,21 @@ fun DiscussionDetailScreen(
             CommunityBarAction(Icons.Outlined.OpenInBrowser, "在浏览器打开") { uriHandler.openUri(discussion.url) }
         },
         bottomBar = {
-            ReplyBar(
+            ReplyComposer(
                 discussion = discussion,
                 canReply = canReply,
-                onReply = { editor = EditorTarget.NewComment },
+                target = editor?.takeIf { it.inline },
+                onClearTarget = { editor = null },
+                mentionCandidates = participants,
                 onLike = { vm.reactDiscussion(LIKE) },
+                onSubmit = { target, body -> vm.submit(target, null, body) },
             )
         },
     ) { top ->
         AppPullToRefresh(
             isRefreshing = refreshing,
             onRefresh = { refreshing = true; vm.reloadAll() },
+            scrollBehavior = LocalCommunityBarScroll.current,
             topPadding = top,
             modifier = Modifier.fillMaxSize(),
         ) {
@@ -478,43 +488,207 @@ fun AuthorLine(comment: GithubDiscussionComment, op: String?, avatar: androidx.c
     }
 }
 
-/** 详情页底部常驻的回帖栏：像论坛一样点一下就开写；锁帖后改成提示。 */
+/**
+ * 详情页底部常驻的回帖输入框，和小岱的输入框一个样子：点一下原地开写，跟着文字长高，
+ * 草稿一直留着。从某一楼点「回复」只是给它定个对象。锁帖后改成提示。
+ */
 @Composable
-private fun ReplyBar(discussion: GithubDiscussion, canReply: Boolean, onReply: () -> Unit, onLike: () -> Unit) {
+private fun ReplyComposer(
+    discussion: GithubDiscussion,
+    canReply: Boolean,
+    target: EditorTarget?,
+    onClearTarget: () -> Unit,
+    mentionCandidates: List<CommunityUser>,
+    onLike: () -> Unit,
+    onSubmit: suspend (EditorTarget, String) -> Result<Unit>,
+) {
     val colors = MiuixTheme.colorScheme
-    // 社区放到底栏上时，悬浮底栏盖在页面最下面（#386）：让出它的整段高度（已含系统导航栏），
-    // 不在底栏上时只让系统导航栏
-    val tabBottom = LocalTabBottomPadding.current
-    Row(
+    val scope = rememberCoroutineScope()
+    var field by rememberSaveable(stateSaver = TextFieldValue.Saver) { mutableStateOf(TextFieldValue()) }
+    var focused by remember { mutableStateOf(false) }
+    var sending by remember { mutableStateOf(false) }
+    var error by remember { mutableStateOf<String?>(null) }
+    var preview by remember { mutableStateOf(false) }
+    val focus = remember { FocusRequester() }
+    val focusManager = androidx.compose.ui.platform.LocalFocusManager.current
+    val keyboard = androidx.compose.ui.platform.LocalSoftwareKeyboardController.current
+
+    LaunchedEffect(target) {
+        if (target == null) return@LaunchedEffect
+        val prefill = when (target) {
+            is EditorTarget.Quote -> quoteMarkdown(target.comment)
+            is EditorTarget.ReplyTo -> target.prefill.orEmpty()
+            else -> ""
+        }
+        if (prefill.isNotEmpty() && field.text.isBlank()) field = TextFieldValue(prefill, TextRange(prefill.length))
+        focus.requestFocus()
+        keyboard?.show()
+    }
+    BackHandler(enabled = target != null, onBack = onClearTarget)
+
+    val text = field.text
+    val canSend = canReply && !sending && text.isNotBlank()
+    val send = {
+        sending = true
+        error = null
+        scope.launch {
+            onSubmit(target ?: EditorTarget.NewComment, text).fold(
+                onSuccess = {
+                    field = TextFieldValue()
+                    preview = false
+                    onClearTarget()
+                    focusManager.clearFocus()
+                },
+                onFailure = { e -> error = (e as? GithubDiscussionException)?.message?.let { "没成功：$it" } ?: "没成功，检查网络后重试" },
+            )
+            sending = false
+        }
+        Unit
+    }
+    val query = if (focused && field.selection.collapsed) mentionQuery(text, field.selection.start) else null
+    val density = androidx.compose.ui.platform.LocalDensity.current
+    // 贴着屏幕底：取原始的键盘高度。windowInsetsPadding 会扣掉祖先消费过的导航条，正好差那一截被键盘盖住
+    val bottomInset = with(density) {
+        maxOf(WindowInsets.ime.getBottom(density), WindowInsets.navigationBars.getBottom(density)).toDp()
+    }.coerceAtLeast(LocalTabBottomPadding.current)
+    val borderColor by androidx.compose.animation.animateColorAsState(
+        if (focused) colors.primary.copy(alpha = 0.55f) else colors.outline.copy(alpha = 0.25f),
+        androidx.compose.animation.core.tween(180),
+        label = "replyBorder",
+    )
+
+    Column(
         Modifier
             .fillMaxWidth()
             .background(colors.surface)
-            .then(if (tabBottom > 0.dp) Modifier.padding(bottom = tabBottom) else Modifier.navigationBarsPadding())
+            .padding(bottom = bottomInset)
             .padding(horizontal = 12.dp, vertical = 8.dp),
-        verticalAlignment = Alignment.CenterVertically,
+        verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
-        Box(
-            Modifier
-                .weight(1f)
-                .clip(RoundedCornerShape(20.dp))
-                .background(colors.surfaceContainerHigh)
-                .clickable(enabled = canReply, onClick = onReply)
-                .padding(horizontal = 16.dp, vertical = 10.dp),
-        ) {
-            Text(
-                if (canReply) "说点什么…" else "帖子已锁定，暂不能回复",
-                style = MiuixTheme.textStyles.body2,
-                color = colors.onSurfaceVariantSummary,
-            )
+        val targetLabel = when (target) {
+            is EditorTarget.Quote -> "引用回复"
+            is EditorTarget.ReplyTo -> "回复 ${target.comment.author ?: "这一楼"}"
+            else -> null
         }
-        Spacer(Modifier.width(8.dp))
-        LikeAction(discussion.reactions, discussion.canReact, "赞", onClick = onLike)
+        if (targetLabel != null) {
+            Row(Modifier.padding(start = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text(targetLabel, style = MiuixTheme.textStyles.footnote1, color = colors.primary, modifier = Modifier.weight(1f))
+                Box(Modifier.size(24.dp).clip(CircleShape).clickable(onClick = onClearTarget), contentAlignment = Alignment.Center) {
+                    Icon(Icons.Default.Close, "不回复这一楼了", Modifier.size(15.dp), tint = colors.onSurfaceVariantSummary)
+                }
+            }
+        }
+        error?.let { Text(it, color = colors.error, style = MiuixTheme.textStyles.footnote1, modifier = Modifier.padding(start = 12.dp)) }
+        if (preview && text.isNotBlank()) {
+            Box(
+                Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = 240.dp)
+                    .clip(RoundedCornerShape(16.dp))
+                    .background(AppCardColor)
+                    .verticalScroll(rememberScrollState())
+                    .padding(14.dp),
+            ) { MarkdownText(text) }
+        }
+        if (query != null) {
+            MentionSuggestions(mentionCandidates, query) { user ->
+                val cursor = field.selection.start
+                val start = cursor - query.length - 1
+                val inserted = "@${user.login} "
+                field = TextFieldValue(text.replaceRange(start, cursor, inserted), TextRange(start + inserted.length))
+            }
+        }
+        Row(verticalAlignment = Alignment.Bottom) {
+            Row(
+                Modifier
+                    .weight(1f)
+                    .clip(RoundedCornerShape(24.dp))
+                    .background(AppCardColor)
+                    .border(1.dp, borderColor, RoundedCornerShape(24.dp))
+                    .padding(6.dp),
+                verticalAlignment = Alignment.Bottom,
+            ) {
+                CommunityImageActions(enabled = canReply && !sending, iconOnly = true) { markdown ->
+                    val start = field.selection.min
+                    val inserted = text.replaceRange(start, field.selection.max, markdown)
+                    require(inserted.length <= 65536) { "正文已接近长度上限，请缩短后再插入图片" }
+                    field = TextFieldValue(inserted, TextRange(start + markdown.length))
+                }
+                Box(
+                    Modifier.weight(1f).defaultMinSize(minHeight = 36.dp).padding(end = 6.dp),
+                    contentAlignment = Alignment.CenterStart,
+                ) {
+                    BasicTextField(
+                        value = field,
+                        onValueChange = { if (it.text.length <= 65536) { field = it; error = null } },
+                        enabled = canReply && !sending,
+                        textStyle = MiuixTheme.textStyles.body1.copy(color = colors.onSurface),
+                        cursorBrush = SolidColor(colors.primary),
+                        maxLines = 6,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 8.dp)
+                            .focusRequester(focus)
+                            .onFocusChanged { focused = it.isFocused },
+                    )
+                    if (text.isEmpty()) {
+                        Text(
+                            if (canReply) "说点什么…" else "帖子已锁定，暂不能回复",
+                            style = MiuixTheme.textStyles.body1,
+                            color = colors.onSurfaceVariantSummary,
+                            maxLines = 1,
+                        )
+                    }
+                }
+                if (text.isNotBlank()) {
+                    Box(
+                        Modifier.size(36.dp).clip(CircleShape).clickable { preview = !preview },
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Icon(
+                            Icons.Outlined.Visibility,
+                            if (preview) "收起预览" else "预览 Markdown",
+                            Modifier.size(20.dp),
+                            tint = if (preview) colors.primary else colors.onSurfaceVariantSummary,
+                        )
+                    }
+                }
+                if (focused || text.isNotEmpty()) {
+                    Box(
+                        Modifier
+                            .size(36.dp)
+                            .clip(CircleShape)
+                            .background(if (canSend) colors.primary else colors.onSurface.copy(alpha = 0.10f))
+                            .clickable(enabled = canSend, onClick = send),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        if (sending) {
+                            CircularProgressIndicator(size = 16.dp, strokeWidth = 2.dp)
+                        } else {
+                            Icon(
+                                Icons.AutoMirrored.Filled.Send,
+                                "发送",
+                                Modifier.size(18.dp),
+                                tint = if (canSend) colors.onPrimary else colors.onSurfaceVariantSummary,
+                            )
+                        }
+                    }
+                }
+            }
+            // 没在写的时候，右边是赞
+            if (!focused && text.isEmpty()) {
+                Spacer(Modifier.width(8.dp))
+                Box(Modifier.height(50.dp), contentAlignment = Alignment.Center) {
+                    LikeAction(discussion.reactions, discussion.canReact, "赞", onClick = onLike)
+                }
+            }
+        }
     }
 }
 
-/** 全屏编辑页：回帖、回复某楼、编辑回复、编辑主帖都用它。 */
+/** 编辑已有内容的全屏页：编辑回复、编辑主帖。回帖走 [ReplyComposer]。 */
 @Composable
-private fun CommunityEditorPage(
+private fun CommunityEditor(
     target: EditorTarget,
     discussion: GithubDiscussion,
     onClose: () -> Unit,
@@ -561,48 +735,7 @@ private fun CommunityEditorPage(
         Unit
     }
 
-    CommunityPage(
-        title = pageTitle,
-        onBack = close,
-        actions = {
-            TextButton(
-                text = if (sending) "$submitLabel…" else submitLabel,
-                onClick = submit,
-                enabled = canSubmit,
-                colors = ButtonDefaults.textButtonColorsPrimary(),
-                minHeight = 36.dp,
-            )
-        },
-    ) { top ->
-        Column(
-            Modifier
-                .fillMaxSize()
-                .imePadding()
-                .verticalScroll(rememberScrollState())
-                .tabContentBottomPadding()
-                .padding(horizontal = 16.dp)
-                .padding(top = top + 8.dp, bottom = 24.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
-            if (target is EditorTarget.ReplyTo) {
-                // 引用被回复的那一楼，写的时候知道在回谁
-                Column(
-                    Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(12.dp))
-                        .background(MiuixTheme.colorScheme.surfaceContainer)
-                        .padding(12.dp),
-                ) {
-                    Text(target.comment.author ?: "已注销用户", style = MiuixTheme.textStyles.footnote1, fontWeight = FontWeight.SemiBold)
-                    Text(
-                        discussionSummary(target.comment.body),
-                        style = MiuixTheme.textStyles.body2,
-                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                        maxLines = 3,
-                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
-                    )
-                }
-            }
+    val form: @Composable ColumnScope.() -> Unit = {
             if (withTitle) {
                 TextField(
                     value = title,
@@ -620,11 +753,37 @@ private fun CommunityEditorPage(
                 onPreviewChange = { preview = it },
                 label = "支持 Markdown，输入 @ 可提到别人",
                 enabled = !sending,
-                minLines = if (withTitle) 10 else 6,
+                minLines = 10,
                 mentionCandidates = mentionCandidates,
             )
             error?.let { Text(it, color = MiuixTheme.colorScheme.error, style = MiuixTheme.textStyles.body2) }
-        }
+    }
+    val submitText = if (sending) "$submitLabel…" else submitLabel
+
+    CommunityPage(
+        title = pageTitle,
+        onBack = close,
+        actions = {
+            TextButton(
+                text = submitText,
+                onClick = submit,
+                enabled = canSubmit,
+                colors = ButtonDefaults.textButtonColorsPrimary(),
+                minHeight = 36.dp,
+            )
+        },
+    ) { top ->
+        Column(
+            Modifier
+                .fillMaxSize()
+                .imePadding()
+                .verticalScroll(rememberScrollState())
+                .tabContentBottomPadding()
+                .padding(horizontal = 16.dp)
+                .padding(top = top + 8.dp, bottom = 24.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+            content = form,
+        )
     }
 
     if (confirmDiscard) {

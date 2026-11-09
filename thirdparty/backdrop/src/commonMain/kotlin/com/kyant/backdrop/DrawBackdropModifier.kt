@@ -10,6 +10,7 @@ import androidx.compose.ui.graphics.GraphicsLayerScope
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.drawscope.ContentDrawScope
 import androidx.compose.ui.graphics.drawscope.DrawScope
+import androidx.compose.ui.graphics.drawscope.withTransform
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.layer.GraphicsLayer
 import androidx.compose.ui.graphics.layer.drawLayer
@@ -104,7 +105,9 @@ fun Modifier.drawBackdrop(
     onDrawBehind: (DrawScope.() -> Unit)? = null,
     onDrawBackdrop: DrawScope.(drawBackdrop: DrawScope.() -> Unit) -> Unit = DefaultOnDrawBackdrop,
     onDrawSurface: (DrawScope.() -> Unit)? = null,
-    onDrawFront: (DrawScope.() -> Unit)? = null
+    onDrawFront: (DrawScope.() -> Unit)? = null,
+    // [vendor] 采样层按 1/N 分辨率渲染再放大；模糊半径（单位是采样层像素）由调用方一并除以 N
+    sampleDownscale: Int = 1,
 ): Modifier {
     val shapeProvider = ShapeProvider(shape)
     return this
@@ -156,7 +159,8 @@ fun Modifier.drawBackdrop(
                 onDrawBehind = onDrawBehind,
                 onDrawBackdrop = onDrawBackdrop,
                 onDrawSurface = onDrawSurface,
-                onDrawFront = onDrawFront
+                onDrawFront = onDrawFront,
+                sampleDownscale = sampleDownscale
             )
         )
 }
@@ -171,7 +175,8 @@ private class DrawBackdropElement(
     val onDrawBehind: (DrawScope.() -> Unit)?,
     val onDrawBackdrop: DrawScope.(drawBackdrop: DrawScope.() -> Unit) -> Unit,
     val onDrawSurface: (DrawScope.() -> Unit)?,
-    val onDrawFront: (DrawScope.() -> Unit)?
+    val onDrawFront: (DrawScope.() -> Unit)?,
+    val sampleDownscale: Int = 1
 ) : ModifierNodeElement<DrawBackdropNode>() {
 
     override fun create(): DrawBackdropNode {
@@ -185,7 +190,8 @@ private class DrawBackdropElement(
             onDrawBehind = onDrawBehind,
             onDrawBackdrop = onDrawBackdrop,
             onDrawSurface = onDrawSurface,
-            onDrawFront = onDrawFront
+            onDrawFront = onDrawFront,
+            sampleDownscale = sampleDownscale
         )
     }
 
@@ -194,6 +200,7 @@ private class DrawBackdropElement(
         node.shapeProvider = shapeProvider
         node.effects = effects
         node.sampling = sampling
+        node.sampleDownscale = sampleDownscale
         node.layerBlock = layerBlock
         if (node.exportedBackdrop != exportedBackdrop) {
             node.exportedBackdrop?.layerCoordinates = null
@@ -234,6 +241,7 @@ private class DrawBackdropElement(
         if (onDrawBackdrop != other.onDrawBackdrop) return false
         if (onDrawSurface != other.onDrawSurface) return false
         if (onDrawFront != other.onDrawFront) return false
+        if (sampleDownscale != other.sampleDownscale) return false
 
         return true
     }
@@ -249,6 +257,7 @@ private class DrawBackdropElement(
         result = 31 * result + onDrawBackdrop.hashCode()
         result = 31 * result + (onDrawSurface?.hashCode() ?: 0)
         result = 31 * result + (onDrawFront?.hashCode() ?: 0)
+        result = 31 * result + sampleDownscale
         return result
     }
 }
@@ -263,7 +272,8 @@ private class DrawBackdropNode(
     var onDrawBehind: (DrawScope.() -> Unit)?,
     var onDrawBackdrop: DrawScope.(drawBackdrop: DrawScope.() -> Unit) -> Unit,
     var onDrawSurface: (DrawScope.() -> Unit)?,
-    var onDrawFront: (DrawScope.() -> Unit)?
+    var onDrawFront: (DrawScope.() -> Unit)?,
+    var sampleDownscale: Int = 1
 ) : LayoutModifierNode, DrawModifierNode, GlobalPositionAwareModifierNode, ObserverModifierNode, Modifier.Node() {
 
     private val effectScope =
@@ -284,6 +294,7 @@ private class DrawBackdropNode(
     }
 
     private var layoutCoordinates: LayoutCoordinates? by mutableStateOf(null, neverEqualPolicy())
+    private var lastSampleOffset: androidx.compose.ui.geometry.Offset? = null
 
     private var padding by mutableFloatStateOf(0f)
 
@@ -293,6 +304,10 @@ private class DrawBackdropNode(
 
         // 用 save/restore 而不是「平移再平移回来」：下面可能还会被别的层嵌套录制
         canvas.save()
+        if (sampleDownscale != 1) {
+            val down = 1f / sampleDownscale
+            canvas.scale(down, down)
+        }
         if (padding != 0f) {
             canvas.translate(padding, padding)
         }
@@ -313,20 +328,30 @@ private class DrawBackdropNode(
         if (layer != null) {
             val padding = padding
             val pad = padding.roundToInt()
+            val down = sampleDownscale
 
             recordLayer(
                 layer,
                 size = IntSize(
-                    size.width.roundToInt() + pad * 2,
-                    size.height.roundToInt() + pad * 2
+                    (size.width.roundToInt() + pad * 2 + down - 1) / down,
+                    (size.height.roundToInt() + pad * 2 + down - 1) / down
                 ),
                 block = recordBackdropBlock
             )
 
-            layer.topLeft =
-                if (pad != 0) IntOffset(-pad, -pad)
-                else IntOffset.Zero
-            drawLayer(layer)
+            if (down == 1) {
+                layer.topLeft =
+                    if (pad != 0) IntOffset(-pad, -pad)
+                    else IntOffset.Zero
+                drawLayer(layer)
+            } else {
+                withTransform({
+                    translate(-pad.toFloat(), -pad.toFloat())
+                    scale(down.toFloat(), down.toFloat(), pivot = androidx.compose.ui.geometry.Offset.Zero)
+                }) {
+                    drawLayer(layer)
+                }
+            }
         }
     }
 
@@ -365,7 +390,14 @@ private class DrawBackdropNode(
     override fun onGloballyPositioned(coordinates: LayoutCoordinates) {
         if (coordinates.isAttached) {
             if (backdrop.isCoordinatesDependent) {
-                layoutCoordinates = coordinates
+                // [vendor] 写这个状态会让这块玻璃重录采样层。父级缩放、位移时这里每帧都回调，
+                // 只有相对采样源真的动了才写，否则页面转场时所有玻璃每帧白录一遍
+                val offset = backdrop.sampleOffset(coordinates)
+                val previous = lastSampleOffset
+                if (layoutCoordinates == null || previous == null || offset.movedFrom(previous)) {
+                    lastSampleOffset = offset
+                    layoutCoordinates = coordinates
+                }
             } else {
                 if (layoutCoordinates != null) {
                     layoutCoordinates = null

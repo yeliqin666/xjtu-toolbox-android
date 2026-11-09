@@ -215,8 +215,10 @@ internal fun ActivityListPage(
         Box(Modifier.fillMaxSize().padding(padding.withoutTop(glass)).glassSource(glass).nestedScroll(scrollBehavior.nestedScrollConnection)) {
             val hasContent = activities.isNotEmpty() || bulletins.isNotEmpty()
             when {
-                isLoading && !hasContent -> LoadingIndicator("加载课程内容…")
-                errorMsg != null && !hasContent -> ErrorRetry(errorMsg!!) { loadActivities() }
+                // 两边都到了才出列表：先回来的一边单独露面，另一边再插进来，整页会跳
+                isLoading && (cache.activities[course.id] == null || cache.bulletins[course.id] == null) ->
+                    LoadingIndicator("加载课程内容…")
+                errorMsg != null && activities.isEmpty() -> ErrorRetry(errorMsg!!) { loadActivities() }
                 !hasContent -> EmptyState(Icons.Default.Inbox, "暂无内容", "该课程还没有发布任何活动或公告")
                 else -> {
                     // 宽屏卡片分两三列（见 AdaptiveCardGrid）；卡片自带外边距，间距给 0
@@ -421,7 +423,7 @@ private fun BatchOptionRow(title: String, summary: String, checked: Boolean, onC
 private fun BatchProgressCard(state: LmsBatchDownload.State, pathLabel: String) {
     Card(
         modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp),
-        colors = CardDefaults.defaultColors(color = MiuixTheme.colorScheme.secondaryContainer),
+        colors = CardDefaults.defaultColors(color = com.xjtu.toolbox.ui.components.AppCardColor),
     ) {
         Column(Modifier.padding(14.dp)) {
             when (state) {
@@ -500,7 +502,11 @@ private fun LmsActivityCard(
             onClick = onClick,
         )
         if (onAskAgent != null) {
-            com.xjtu.toolbox.ui.components.AppDropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+            com.xjtu.toolbox.ui.components.AppDropdownMenu(
+                expanded = menuOpen,
+                onDismissRequest = { menuOpen = false },
+                morph = com.xjtu.toolbox.ui.components.MenuMorph.FromRow,
+            ) {
                 com.xjtu.toolbox.ui.components.AppDropdownMenuItem(
                     text = { Text("问小岱") },
                     onClick = {

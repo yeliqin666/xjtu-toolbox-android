@@ -265,6 +265,7 @@ fun DownloadManagerScreen(
                                     loadTasks()
                                 }
                             },
+                            colors = com.xjtu.toolbox.ui.components.appTonalButtonColors(),
                             modifier = Modifier.fillMaxWidth(),
                         ) {
                             Text("删除选中")
@@ -570,9 +571,9 @@ private fun GlobalControls(
                         }
                     },
                     modifier = Modifier.weight(1f),
-                    colors = ButtonDefaults.buttonColors(color = MiuixTheme.colorScheme.secondaryContainer),
+                    colors = com.xjtu.toolbox.ui.components.appTonalButtonColors(),
                 ) {
-                    Text("全部暂停", color = MiuixTheme.colorScheme.onSecondaryContainer)
+                    Text("全部暂停")
                 }
                 Button(
                     onClick = {
@@ -583,8 +584,9 @@ private fun GlobalControls(
                         }
                     },
                     modifier = Modifier.weight(1f),
+                    colors = ButtonDefaults.buttonColorsPrimary(),
                 ) {
-                    Text("全部继续")
+                    Text("全部继续", color = MiuixTheme.colorScheme.onPrimary)
                 }
             }
         }

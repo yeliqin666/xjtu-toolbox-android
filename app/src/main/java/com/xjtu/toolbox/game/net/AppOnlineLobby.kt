@@ -182,7 +182,7 @@ fun OnlineLobbyContent(
                     Text("创建房间（我显示二维码）", color = MiuixTheme.colorScheme.onPrimary)
                 }
                 Spacer(8.dp)
-                Button(onClick = { withBlePermission { state.beginScanning() } }, modifier = Modifier.fillMaxWidth()) {
+                Button(onClick = { withBlePermission { state.beginScanning() } }, modifier = Modifier.fillMaxWidth(), colors = com.xjtu.toolbox.ui.components.appTonalButtonColors()) {
                     Text("加入房间（我扫对方的码）")
                 }
                 Spacer(8.dp)
@@ -238,8 +238,8 @@ fun OnlineLobbyContent(
                 Spacer12()
                 Text(state.failReason, style = MiuixTheme.textStyles.body2, textAlign = TextAlign.Center)
                 Spacer12()
-                Button(onClick = { state.reset() }, modifier = Modifier.fillMaxWidth()) {
-                    Text("重试")
+                Button(onClick = { state.reset() }, modifier = Modifier.fillMaxWidth(), colors = ButtonDefaults.buttonColorsPrimary()) {
+                    Text("重试", color = MiuixTheme.colorScheme.onPrimary)
                 }
                 Spacer(8.dp)
                 TextButton(text = "返回", onClick = cancel)

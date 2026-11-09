@@ -191,10 +191,10 @@ fun AttendanceScreen(
                         modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
                         colors = CardDefaults.defaultColors(color = AppCardColor)
                     ) {
-                        OverlaySpinnerPreference(
+                        com.xjtu.toolbox.ui.components.AppDropdownPreference(
                             title = "学期",
                             summary = "选择要查询的学期",
-                            items = state.terms.map { DropdownItem(text = it.name) },
+                            items = state.terms.map { it.name },
                             selectedIndex = state.terms.indexOfFirst { it.bh == state.termBh }.coerceAtLeast(0),
                             onSelectedIndexChange = { vm.selectTerm(state.terms[it].bh) }
                         )
@@ -678,9 +678,9 @@ private fun LeaveFormDialog(
                 color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
             )
             Spacer(Modifier.height(8.dp))
-            OverlaySpinnerPreference(
+            com.xjtu.toolbox.ui.components.AppDropdownPreference(
                 title = "请假类型",
-                items = LeaveType.entries.map { DropdownItem(text = it.displayName) },
+                items = LeaveType.entries.map { it.displayName },
                 selectedIndex = LeaveType.entries.indexOf(type),
                 onSelectedIndexChange = { type = LeaveType.entries[it] }
             )
@@ -689,9 +689,9 @@ private fun LeaveFormDialog(
                 summary = startDate.toString(),
                 onClick = { pickingStartDate = true },
             )
-            OverlaySpinnerPreference(
+            com.xjtu.toolbox.ui.components.AppDropdownPreference(
                 title = "开始整点",
-                items = (0..23).map { DropdownItem(text = "${it}:00") },
+                items = (0..23).map { "${it}:00" },
                 selectedIndex = startHour,
                 onSelectedIndexChange = { startHour = it }
             )
@@ -700,16 +700,16 @@ private fun LeaveFormDialog(
                 summary = endDate.toString(),
                 onClick = { pickingEndDate = true },
             )
-            OverlaySpinnerPreference(
+            com.xjtu.toolbox.ui.components.AppDropdownPreference(
                 title = "结束整点",
-                items = (0..23).map { DropdownItem(text = "${it}:00") },
+                items = (0..23).map { "${it}:00" },
                 selectedIndex = endHour,
                 onSelectedIndexChange = { endHour = it }
             )
             if (approvers.isNotEmpty()) {
-                OverlaySpinnerPreference(
+                com.xjtu.toolbox.ui.components.AppDropdownPreference(
                     title = "下一审批人",
-                    items = approvers.map { DropdownItem(text = it.name.ifBlank { it.userId }) },
+                    items = approvers.map { it.name.ifBlank { it.userId } },
                     selectedIndex = approverIndex.coerceAtMost(approvers.lastIndex),
                     onSelectedIndexChange = { approverIndex = it }
                 )

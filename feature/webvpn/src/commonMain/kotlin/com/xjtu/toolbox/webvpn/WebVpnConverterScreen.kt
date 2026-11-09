@@ -113,8 +113,8 @@ fun WebVpnConverterScreen(
                     )
                     if (onOpenApply != null) {
                         Spacer(Modifier.height(12.dp))
-                        Button(onClick = onOpenApply, modifier = Modifier.fillMaxWidth()) {
-                            Text("申请 WebVPN 权限")
+                        Button(onClick = onOpenApply, modifier = Modifier.fillMaxWidth(), colors = top.yukonga.miuix.kmp.basic.ButtonDefaults.buttonColorsPrimary()) {
+                            Text("申请 WebVPN 权限", color = MiuixTheme.colorScheme.onPrimary)
                         }
                     }
                 }
@@ -219,8 +219,9 @@ fun WebVpnConverterScreen(
                                 Log.d("WebVpnConverter", "convert reversed=$reversed input=$normalized output=${convertedUrl.redactUrl()}")
                             }
                         },
+                        colors = top.yukonga.miuix.kmp.basic.ButtonDefaults.buttonColorsPrimary(),
                         modifier = Modifier.fillMaxWidth()
-                    ) { Text("转换") }
+                    ) { Text("转换", color = MiuixTheme.colorScheme.onPrimary) }
 
                     if (convertedUrl.isNotBlank()) {
                         Spacer(Modifier.height(12.dp))
@@ -238,12 +239,13 @@ fun WebVpnConverterScreen(
                             Spacer(Modifier.height(12.dp))
                             Button(
                                 onClick = { onOpenWithWebVpn(convertedUrl) },
+                                colors = top.yukonga.miuix.kmp.basic.ButtonDefaults.buttonColorsPrimary(),
                                 modifier = Modifier.fillMaxWidth()
                             ) {
-                                Icon(Icons.Default.OpenInBrowser, null, modifier = Modifier.size(18.dp))
+                                Icon(Icons.Default.OpenInBrowser, null, modifier = Modifier.size(18.dp), tint = MiuixTheme.colorScheme.onPrimary)
                                 Spacer(Modifier.width(8.dp))
                                 // 没连上会自动登录再打开，用户不用先去别处登录
-                                Text("用 WebVPN 打开")
+                                Text("用 WebVPN 打开", color = MiuixTheme.colorScheme.onPrimary)
                             }
                         }
                     }

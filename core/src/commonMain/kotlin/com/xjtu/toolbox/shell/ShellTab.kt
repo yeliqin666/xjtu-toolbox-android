@@ -15,7 +15,7 @@ data class ShellTab(
     val showsAccountBadge: Boolean = false,
     /**
      * 这一页自己画顶栏（原本是压栈的子页，被放到了底栏上）：壳不画主顶栏，
-     * 也不按主顶栏的折叠给它做位移（见 AppShell 的 followTopBar）。
+     * 也不按主顶栏的折叠给它做位移（见 ShellBarPage）。
      */
     val drawsOwnTopBar: Boolean = false,
 )

@@ -38,8 +38,8 @@ import top.yukonga.miuix.kmp.utils.SinkFeedback
 
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateContentSize
-import androidx.compose.animation.core.Spring
-import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -564,7 +564,7 @@ fun GpaCard(
     val containerColor by androidx.compose.animation.animateColorAsState(
         if (isSelectMode) androidx.compose.ui.graphics.lerp(MiuixTheme.colorScheme.surfaceVariant, selectAccent, 0.18f)
         else MiuixTheme.colorScheme.surfaceVariant,
-        animationSpec = spring(dampingRatio = 0.85f, stiffness = 500f),
+        animationSpec = tween(260),
         label = "gpaCardBg"
     )
     val textColor = MiuixTheme.colorScheme.onSurface
@@ -736,9 +736,8 @@ private fun ScoreRow(
     // 报表补上的成绩整张卡片换成主题色淡底，一眼和教务给的分开
     val primary = MiuixTheme.colorScheme.primary
     Card(
-        modifier = modifier.fillMaxWidth().animateContentSize(
-            animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessLow)
-        ),
+        // 展开明细由里面的 AnimatedVisibility 负责长高，卡片外层不再叠尺寸动画（叠了下面的卡会慢半拍）
+        modifier = modifier.fillMaxWidth(),
         colors = CardDefaults.defaultColors(color = if (isFromReport) androidx.compose.ui.graphics.lerp(AppCardColor, primary, 0.10f) else AppCardColor),
         onClick = onToggle,
         onLongPress = onLongPress?.let { enter ->
@@ -819,10 +818,11 @@ private fun ScoreRow(
 
             AnimatedVisibility(
                 visible = isExpanded && !showCheckbox,
-                enter = expandVertically(animationSpec = spring(stiffness = Spring.StiffnessLow)) + fadeIn(),
-                exit = shrinkVertically(animationSpec = spring(stiffness = Spring.StiffnessLow)) + fadeOut()
+                enter = expandVertically(animationSpec = tween(320, easing = FastOutSlowInEasing)) + fadeIn(),
+                exit = shrinkVertically(animationSpec = tween(320, easing = FastOutSlowInEasing)) + fadeOut()
             ) {
-                Column(Modifier.padding(top = 12.dp)) {
+                // 明细从加载圈换成内容时由这一层平滑长高
+                Column(Modifier.padding(top = 12.dp).animateContentSize(tween(320, easing = FastOutSlowInEasing))) {
                     if (isDetailLoading) {
                         Box(Modifier.fillMaxWidth().padding(vertical = 12.dp), contentAlignment = Alignment.Center) {
                             CircularProgressIndicator(size = 22.dp)
@@ -930,6 +930,7 @@ fun GpaMappingDialog(show: MutableState<Boolean>) {
         Spacer(Modifier.height(16.dp))
         Button(
             onClick = { show.value = false },
+            colors = com.xjtu.toolbox.ui.components.appTonalButtonColors(),
             modifier = Modifier.fillMaxWidth()
         ) {
             Text("知道了")
