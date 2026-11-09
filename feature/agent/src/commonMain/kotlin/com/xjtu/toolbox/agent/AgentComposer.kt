@@ -323,11 +323,16 @@ internal fun AttachmentThumb(path: String, host: AgentHost, size: Dp = 62.dp) {
 @Composable
 internal fun PushLogFooter(bottomReserve: Dp, onNewChat: () -> Unit) {
     val resting = if (bottomReserve > 0.dp) WindowInsets(bottom = bottomReserve) else WindowInsets.navigationBars
+    // 和输入框同款的胶囊实底（#379）：聊天记录滚到底栏后面时，提示文字不再和内容叠在一起
     Row(
         Modifier
             .fillMaxWidth()
             .windowInsetsPadding(resting)
-            .padding(horizontal = 20.dp, vertical = 14.dp),
+            .padding(horizontal = 12.dp, vertical = 8.dp)
+            .clip(RoundedCornerShape(24.dp))
+            .background(MiuixTheme.colorScheme.surfaceVariant)
+            .border(1.dp, MiuixTheme.colorScheme.onSurface.copy(alpha = 0.08f), RoundedCornerShape(24.dp))
+            .padding(start = 16.dp, end = 6.dp, top = 6.dp, bottom = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(

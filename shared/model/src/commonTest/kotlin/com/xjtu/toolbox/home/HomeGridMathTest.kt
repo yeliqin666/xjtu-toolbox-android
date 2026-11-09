@@ -22,6 +22,32 @@ class HomeGridMathTest {
         h: Float = 1f,
     ) = HomeTile(id = id, routeId = id, x = x, y = y, w = w, h = h)
 
+    // ── 删除补位 ──
+
+    @Test
+    fun `删掉一块后后面的块往前补位`() {
+        // a(0,0) b(2,0) / c(0,1) d(2,1)，删 b：c 前移到 (2,0)，d 前移到 (0,1)
+        val a = tile("a", 0f, 0f)
+        val b = tile("b", 2f, 0f)
+        val c = tile("c", 0f, 1f)
+        val d = tile("d", 2f, 1f)
+        val out = HomeGridMath.refill(listOf(a, c, d), b).associateBy { it.id }
+        assertEquals(0f to 0f, out.getValue("a").x to out.getValue("a").y)
+        assertEquals(2f to 0f, out.getValue("c").x to out.getValue("c").y)
+        assertEquals(0f to 1f, out.getValue("d").x to out.getValue("d").y)
+    }
+
+    @Test
+    fun `补位不填洞之前的空档也不往后挪`() {
+        // 第 0 行右半是用户留的空档；删 (0,1) 那块，它之前的空档不动，c 只前移不后退
+        val a = tile("a", 0f, 0f)
+        val removed = tile("x", 0f, 1f)
+        val c = tile("c", 2f, 1f)
+        val out = HomeGridMath.refill(listOf(a, c), removed).associateBy { it.id }
+        assertEquals(0f to 0f, out.getValue("a").x to out.getValue("a").y)
+        assertEquals(0f to 1f, out.getValue("c").x to out.getValue("c").y)
+    }
+
     // ── 基本几何 ──
 
     @Test

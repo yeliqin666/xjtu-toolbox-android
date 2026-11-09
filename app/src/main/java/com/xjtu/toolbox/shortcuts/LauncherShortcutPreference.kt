@@ -4,7 +4,10 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Apps
 import androidx.compose.material.icons.filled.PushPin
+import com.xjtu.toolbox.settings.SettingsColors
+import com.xjtu.toolbox.settings.SettingsIcon
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -33,6 +36,7 @@ internal fun LauncherShortcutPreference() {
     var show by remember { mutableStateOf(false) }
     var saving by remember { mutableStateOf(false) }
     ArrowPreference(title = "桌面快捷方式", summary = selected.mapNotNull { id -> candidates.firstOrNull { it.route.id == id }?.title }.joinToString(" · "),
+        startAction = { SettingsIcon(Icons.Default.Apps, SettingsColors.Blue) },
         onClick = { show = true })
     if (show) OverlayBottomSheet(show = true, title = "桌面快捷方式", onDismissRequest = { show = false }) {
         Column {

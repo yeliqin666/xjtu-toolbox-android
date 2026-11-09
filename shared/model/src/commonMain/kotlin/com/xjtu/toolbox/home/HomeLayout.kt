@@ -234,13 +234,14 @@ data class HomeLayout(val groups: List<HomeGroup> = emptyList()) {
     )
 
     /**
-     * 删掉一块。网格模式下顺手把因此空出来的整行收掉（§A1：空行不该留着，下面的块上移），
-     * 否则删掉中间那一行里的块之后，这一行会一直空着，下面的块与后面的组也跟着永远错开。
+     * 删掉一块。网格模式下后面的块往前补位（[HomeGridMath.refill]），再收掉空出来的整行；
+     * 自由模式不动别的块。
      */
     fun removeTile(tileId: String, grid: Boolean = true): HomeLayout = copy(
         groups = groups.map { group ->
+            val removed = group.tiles.firstOrNull { it.id == tileId } ?: return@map group
             val kept = group.tiles.filter { it.id != tileId }
-            if (kept.size == group.tiles.size) group else group.copy(tiles = finishRows(kept, grid))
+            group.copy(tiles = finishRows(if (grid) HomeGridMath.refill(kept, removed) else kept, grid))
         },
     )
 

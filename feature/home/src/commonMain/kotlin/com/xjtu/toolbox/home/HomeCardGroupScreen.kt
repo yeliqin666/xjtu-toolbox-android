@@ -74,6 +74,10 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.BlurEffect
+import androidx.compose.ui.graphics.TileMode
+import androidx.compose.ui.graphics.drawscope.ContentDrawScope
+import androidx.compose.ui.graphics.rememberGraphicsLayer
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
@@ -199,7 +203,7 @@ fun HomeCardGroupScreen(
         layoutStore.load(host.audience, host.quickRoutes)
     }
     val layout = editing.draft ?: stored
-    val grid = remember(revision) { layoutStore.grid }
+    val grid = layoutStore.grid
     val liquid = remember(settingsRevision) { settings.homeLiquidGlass }
     // 液态玻璃的折射子项：只在 liquid 为真时有意义，关掉省一层离屏位移采样（见 HomeLayoutStore）
     // 顶栏排法：开（默认）= 改造前那套（左侧「交小西」头像、三个圆钮统一在右、不画居中标题）；
@@ -241,7 +245,7 @@ fun HomeCardGroupScreen(
      * （2026-11 维护者把「开启折射」那项整个删了）：有细节就一整套上，没有就不采样，
      * 免得把「省电」这件事交给用户去猜。
      * 顶栏圆钮、悬浮球、组删除钮采的是**内容层**（卡片、文字都在里面），那里永远有东西可折，
-     * 所以它们恒采样 + 恒折射（见 `orbGlass` / `GroupDeleteButton`）。
+     * 所以它们恒采样 + 恒折射（见 `HomeBarIconButton` / `GroupDeleteButton`）。
      */
     val glassHasDetail = hasWallpaper && !wallpaperBlurredOut
     // 背景层的离屏层：**只在真有人要采时才录**（`layerBackdrop` 是一次整屏离屏渲染）。
@@ -344,11 +348,6 @@ fun HomeCardGroupScreen(
     val visibleGroups = layout.groups.filter(::groupVisible)
 
     val scroll = rememberScrollState()
-    // 每张卡在**整页**上出现了几块（组 id 无关）：悬浮条名字栏里显示「已添加几块」。
-    // 同一路由现在允许出现多块（组内、跨组都算），所以这里数的是整页的块数
-    val tileCounts = remember(layout) {
-        layout.groups.flatMap { it.tiles }.groupingBy { it.routeId }.eachCount()
-    }
     // 有宿主给的按钮才有折叠顶栏（桌面、Web 的壳有自己的顶栏）
     val collapsible = topActions != null || topLeading != null
     val masthead = HomeCard.GREETING in honored
@@ -364,16 +363,20 @@ fun HomeCardGroupScreen(
     val barDark = LocalIsDarkTheme.current
     val glass = LocalGlassStyle.current && collapsible
 
-    // 液态玻璃（卡片、圆钮、悬浮球）的采样源：**只有背景层**（主题底色 + 壁纸）。
-    // 它们要透出的是壁纸，采整页会把别的组件也采进去。
-    val tileBackdrop = rememberLayerBackdrop()
+    // 卡片柔光玻璃的采样源：背景层（主题底色 + 壁纸）另录一份**预先糊好**的副本，所有卡片共用。
+    // 背景不随滚动变，带 RenderEffect 的这一层在 HWUI 里会被单独缓存成一张纹理：滚动时卡片只是
+    // 平移着贴它，不再每帧每张卡各跑一遍模糊与折射（以前滚动卡顿的主因）。
+    val frostRadius = with(LocalDensity.current) { FROST_RADIUS.toPx() }
+    val frostLayer = rememberGraphicsLayer()
+    remember(frostLayer, frostRadius) { frostLayer.renderEffect = BlurEffect(frostRadius, frostRadius, TileMode.Clamp) }
+    val tileBackdrop = rememberLayerBackdrop(frostLayer, onDraw = FrostOnDraw)
 
-    // 顶栏模糊带、顶栏圆钮、编辑态悬浮条的采样源：**这一页的内容层**（背景 + 滚动内容），
+    // 顶栏模糊带与顶栏圆钮的采样源：**这一页的内容层**（背景 + 滚动内容），
     // 糊出来的是「此刻压在它下面的东西」，而不是固定不动的壁纸。
     val pageBackdrop = rememberLayerBackdrop()
 
-    // 有消费者才录（`layerBackdrop` 是一次整屏离屏渲染）：玻璃风格的模糊带、液态圆钮、编辑态悬浮条
-    val recordPageLayer = glass || (collapsible && liquid) || (liquid && editing.on)
+    // 有消费者才录（`layerBackdrop` 是一次整屏离屏渲染）：玻璃风格的模糊带、液态圆钮（编辑态没有宿主顶栏也画）
+    val recordPageLayer = glass || (liquid && (collapsible || editing.on))
 
     val session = remember { HomeDragSession() }
     val density = LocalDensity.current
@@ -495,30 +498,12 @@ fun HomeCardGroupScreen(
     }
 
     /**
-     * 手指此刻**压在悬浮条自己身上**（球 / 长条那块玻璃里）。
-     *
-     * 从悬浮条拖出来的块一旦落回这儿，就当这一场没发生（2026-11 维护者要求）：
-     * 「拖到悬浮条内不进行放置」。用同一份矩形（`paletteRect`，悬浮条自己登记的视口矩形）
-     * 一起管住**预览与落盘**——目标组变成 null，于是拖动中不画落点占位框、松手也不写草稿，
-     * 幽灵自己飞回图标原位。
-     *
-     * 只对**从悬浮条拖出**的那一场生效：拖已有卡片经过悬浮条时，它照样可以停在悬浮条底下
-     * （那一场卡片在悬浮条**下面**画，见 [GHOST_Z_INDEX]）。
-     */
-    val paletteOverOrb by remember {
-        derivedStateOf {
-            val rect = session.paletteRect
-            session.fromPalette && rect != null && rect.contains(session.pointer)
-        }
-    }
-
-    /**
      * 目标组：纯函数。组间空隙对半分之后各组的命中区间**首尾相接不重叠**，
      * 所以不需要「记住当前组」的滞回，也就不存在边界上来回切。
      */
     val targetGroup by remember(groupGapPx) {
         derivedStateOf {
-            if (!session.draggingTile || paletteOverOrb) {
+            if (!session.draggingTile) {
             null
         } else {
             // 用幽灵**中心**判组：2×2 的块上半截还在上一组时，不该判给上一组
@@ -621,14 +606,6 @@ fun HomeCardGroupScreen(
         editing.draft = layoutStore.load(host.audience, host.quickRoutes)
     }
 
-    // 「打开网格」：它会把自由摆位取整（不可撤销），手上的草稿也一起取整——只取整、不换内容，
-    // 用户正摆着的东西还在（和「恢复默认」不同）。同样只认这一个信号。
-    val gridRevision = HomeLayoutGridRevision.current
-    LaunchedEffect(gridRevision) {
-        if (gridRevision == 0) return@LaunchedEffect
-        editing.draft = editing.draft?.snapToGrid()
-    }
-
     /** 缩放中的实时尺寸（格）：按「手指内容坐标 − 起手内容坐标」的**绝对差值**重算。 */
     val resizeCells by remember {
         derivedStateOf {
@@ -695,8 +672,6 @@ fun HomeCardGroupScreen(
                     val cell = if (target == null) null else dragGeometry.cellAt(target, ghostBoard)
                     when {
                         id == null || route == null || target == null || cell == null -> base
-                        session.fromPalette ->
-                            base.addTileAt(target, route, id, cell.x, cell.y, grid, rowBudget)
                         else -> base.moveTile(
                             id, target, cell.x, cell.y, grid,
                             if (grid) 0f else EDGE_LINK_CELLS, rowBudget,
@@ -786,11 +761,7 @@ fun HomeCardGroupScreen(
         // 认几行、整组上移，于是「落到的位置和预览看到的不一样、还可能挤在一起」。
         // （空行由 finishRows 两边一起收，所以收空行不会让落盘和预览分叉。）
         val committed = if (target != null && cell != null && route != null) {
-            if (session.fromPalette) {
-                base.addTileAt(target, route, id, cell.x, cell.y, grid, rowBudget)
-            } else {
-                base.moveTile(id, target, cell.x, cell.y, grid, if (grid) 0f else EDGE_LINK_CELLS, rowBudget)
-            }
+            base.moveTile(id, target, cell.x, cell.y, grid, if (grid) 0f else EDGE_LINK_CELLS, rowBudget)
         } else {
             null
         }
@@ -983,16 +954,10 @@ fun HomeCardGroupScreen(
         }
     }
 
-    // 悬浮条的名字栏：只有「滚动图标列」会把它拉开，开始拖拽 / 点把手 / 点到别处都会收回。
-    // 状态提到这一层，是因为「点到别处（失焦）」只有页面根的手势层看得见（见 homeDragLayer）；
-    // 而传下去的是 State 本身、不是它的值——读发生在悬浮条内部，这一屏不会为它重组。
-    val orbLabels = remember { mutableStateOf(false) }
-    LaunchedEffect(editing.on) { if (!editing.on) orbLabels.value = false }
-
     // 手势层作为**页面根 Box 的修饰符**挂载，而不是盖在上面的兄弟覆盖层。
     // 兄弟覆盖层一旦带 pointerInput 就会独占整条命中路径，把下面的滚动列 / 顶栏 / 卡片
-    // 全挡掉（实测：除挂在它上层的悬浮条，其余什么都点不动）。挂在根 Box 上则是「祖先」：
-    // 子节点照样先收到 Main pass，我们只在 Initial pass 抢真正属于拖拽的那一下 down。
+    // 全挡掉。挂在根 Box 上则是「祖先」：子节点照样先收到 Main pass，我们只在 Initial pass
+    // 抢真正属于拖拽的那一下 down。
     val dragLayerModifier = if (editing.on) {
         Modifier.homeDragLayer(
             session = session,
@@ -1000,14 +965,12 @@ fun HomeCardGroupScreen(
             handlePx = handlePx,
             removePx = removePx,
             onDown = { hit, viewport -> beginGesture(hit, viewport) },
-            // 按在悬浮条外面 = 它失焦了：名字栏收回去（没展开时是空操作，不会引起重组）
-            onDownOutsidePalette = { if (orbLabels.value) orbLabels.value = false },
             // 移动卡片 / 组排序要长按：拿起那一刻给一次触感，和系统桌面「拾起图标」同一手感
             onPickUp = { haptic.performHapticFeedback(HapticFeedbackType.LongPress) },
             onMove = { viewport -> session.move(viewport) },
             onUp = {
                 when (session.mode) {
-                    HomeDragMode.TILE, HomeDragMode.PALETTE -> settleTileDrop()
+                    HomeDragMode.TILE -> settleTileDrop()
                     HomeDragMode.RESIZE -> settleResizeDrop()
                     HomeDragMode.GROUP -> settleGroupDrop()
                     HomeDragMode.IDLE -> Unit
@@ -1027,7 +990,7 @@ fun HomeCardGroupScreen(
             .fillMaxSize()
             .then(dragLayerModifier)
             .onGloballyPositioned {
-                // 页面根局部坐标系的基准：悬浮条把「事件相对坐标」合成页面坐标时要用。
+                // 页面根局部坐标系的基准：组区原点与组顶都按它换算。
                 // 用 positionInRoot 而不是 boundsInRoot().topLeft：后者默认按**裁剪边界**取框，
                 // 节点被滚出一半时会拿到被夹住的值（首页网格区就是这么拿到"冻住的"原点的）。
                 session.pageOrigin = it.positionInRoot()
@@ -1049,20 +1012,20 @@ fun HomeCardGroupScreen(
                 },
             ),
     ) {
-        // ── 内容层：背景 + 滚动内容，整层录进 pageBackdrop 给顶栏圆钮与编辑态悬浮条采样 ──
+        // ── 内容层：背景 + 滚动内容，整层录进 pageBackdrop 给顶栏模糊带与圆钮采样 ──
         // 只在真有人要采的时候录，见上面的 recordPageLayer
         Box(
             Modifier
                 .matchParentSize()
                 .then(if (recordPageLayer) Modifier.layerBackdrop(pageBackdrop) else Modifier),
         ) {
-            // ── 背景层：主题底色 +（可选）主题色渐变 / 壁纸。卡片 / 悬浮球的液态玻璃采它 ──
-            // 采样只在「液态玻璃开着、且背景上真有壁纸」时才有消费者与内容（卡片、圆钮、悬浮球、
-            // 删除按钮的 backdrop 全按 `recordTileLayer` 取）：`layerBackdrop` 是一次整屏离屏
-            // 渲染，没有壁纸可采时白做一遍纯属把每帧的 GPU 白送。
+            // ── 背景层：主题底色 +（可选）主题色渐变 / 壁纸。卡片的柔光玻璃采它糊好的副本 ──
+            // 只在「液态玻璃开着、且背景上真有壁纸」时才录（见 `recordTileLayer`）。
+            // 自带一层 graphicsLayer：滚动内容每帧重录时不连带重录背景，糊好的那张纹理才能一直复用
             Box(
                 Modifier
                     .matchParentSize()
+                    .graphicsLayer()
                     .then(if (recordTileLayer) Modifier.layerBackdrop(tileBackdrop) else Modifier),
             ) {
                 Box(Modifier.matchParentSize().background(barSurface))
@@ -1215,6 +1178,7 @@ fun HomeCardGroupScreen(
                                     onOpen = { it.onClick() },
                                     onStartEdit = { editing.begin(stored) },
                                     onEditGroup = { editing.editGroup = group },
+                                    onAddTile = { editing.addTo = group },
                                     onDeleteGroup = { editing.confirmDeleteGroup = group },
                                     // 网格模式下删完顺手收空行（空行不该留着，下面的块与组一起上移）
                                     onRemoveTile = { tileId -> update { it.removeTile(tileId, grid) } },
@@ -1290,53 +1254,6 @@ fun HomeCardGroupScreen(
             settling = ghostSettling,
             settleValue = { ghostSettle.value },
         )
-
-        // ── 编辑态右侧的「添加卡片」悬浮球 / 悬浮条：从右侧滑入，退出时滑回去 ──
-        // 悬浮条压在拖拽幽灵块上面：卡片从它底下「穿过去」（见 ORB_Z_INDEX）
-        AnimatedVisibility(
-            visible = editing.on,
-            modifier = Modifier.matchParentSize().zIndex(ORB_Z_INDEX),
-            enter = fadeIn(tween(200)) + slideInHorizontally(spring(dampingRatio = 0.75f, stiffness = 380f)) { it / 5 },
-            exit = fadeOut(tween(150)) + slideOutHorizontally(tween(180)) { it / 5 },
-        ) {
-            HomeAddTileOrb(
-                faces = faces,
-                catalog = catalog,
-                // 名字栏里那个「已在主页放了几块」：整页所有组一起数（同一条路由现在可以有多块）
-                tileCounts = tileCounts,
-                liquid = liquid,
-                // 采样源：**内容层**（`pageBackdrop` = 背景 + 滚动内容那一整层），和顶栏那几个圆钮、
-                // 顶栏圆钮采的是同一层。悬浮条浮在所有东西之上，该糊的是「此刻压在它下面的那一片」
-                // ——卡片、文字、壁纸全算在内；只采背景层的话透出来的永远是那张壁纸，卡片从它身下
-                // 滚过去也不会有任何变化（2026-11 按维护者要求改）。
-                backdrop = pageBackdrop.takeIf { liquid },
-                session = session,
-                // 悬浮条恒为全圆（胶囊），不吃用户那条「卡片圆角」——那条滑条只管卡片
-                labels = orbLabels,
-                onPaletteStart = { routeId, startPointer ->
-                    session.refreshBoardFromCoordinates()
-                    // 新的一场（悬浮条拖出也走这里）：上一场多开的行作废
-                    extraRows = emptyMap()
-                    val g = dragGeometry
-                    if (g.ready) {
-                        session.beginPalette(
-                            layout = layout,
-                            visibleIds = visibleGroups.map { it.id },
-                            newTileId = layout.nextTileId("palette", routeId),
-                            newRouteId = routeId,
-                            w = 2f,
-                            h = 1f,
-                            startPointer = startPointer,
-                            colUnit = g.colUnit,
-                            rowUnit = g.rowUnit,
-                        )
-                    }
-                },
-                onPaletteDrop = { settleTileDrop() },
-                onPaletteCancel = { abandonDrag() },
-                modifier = Modifier.fillMaxSize(),
-            )
-        }
 
         // ── 拖拽期间的每帧维护：①组区原点跟住滚动 ②拖到边缘自动滚动 ③探出组底就多开一行 ──
         // ①是几何表的命门：手指板坐标 = 手指 − boardOrigin，而 boardOrigin 只能靠**现读活坐标**
@@ -1437,19 +1354,14 @@ fun HomeCardGroupScreen(
 /** 组与组之间的间距（每组自带标题行，间距比组内组件缝隙大一档）。 */
 private val GROUP_GAP = 20.dp
 
-/**
- * 拖拽幽灵块与编辑态悬浮条（球 / 长条）的绘制层次。
- *
- * **拖已有卡片时，卡片在悬浮条下面**（2026-11 按维护者要求定）：把卡片拖到屏幕右侧时，
- * 幽灵块整块盖在悬浮条上，图标与名字栏一个都看不见。
- *
- * **从悬浮条拖出来的新块反过来——它画在悬浮条上面**（[PALETTE_GHOST_Z_INDEX]）：那一块正在
- * 找地方落，被悬浮条挡住就不知道自己在放哪儿；而且它的「取消落点」正好是悬浮条本身
- * （落进去 = 不放置，见 `paletteOverOrb`）。
- */
+/** 柔光玻璃的模糊半径：背景副本只糊这一次，所有卡片共用。 */
+private val FROST_RADIUS = 14.dp
+
+/** 采样副本的录制方式：与默认那份不是同一个对象，`layerBackdrop` 才会照常把清晰的背景画上屏，只把副本拿去糊。 */
+private val FrostOnDraw: ContentDrawScope.() -> Unit = { drawContent() }
+
+/** 拖拽幽灵块的绘制层次：压在顶栏与所有卡片之上。 */
 private const val GHOST_Z_INDEX = 20f
-private const val ORB_Z_INDEX = 24f
-private const val PALETTE_GHOST_Z_INDEX = 28f
 
 /** 第一组与上方头卡之间的间距。 */
 private val FIRST_GROUP_GAP = 20.dp
@@ -2194,7 +2106,7 @@ private fun HeroStatusLine(
 /**
  * 拖拽幽灵块：跟手画一块「和真组件一模一样」的预览；松手结算中改由吸附/回弹动画驱动。
  *
- * 只在拖**卡片**（移动 / 从悬浮条拖出）时出现；缩放没有幽灵（被缩那块自己跟手变大）。
+ * 只在移动卡片时出现；缩放没有幽灵（被缩那块自己跟手变大）。
  * 结算期 [HomeDragSession.mode] 已是 IDLE，但 [HomeDragSession.settling] 为真、
  * `base`/`tileId` 还留着——靠它们继续画到吸附动画播完。
  */
@@ -2246,8 +2158,7 @@ private fun HomeDragGhost(
                 IntOffset(p.x.roundToInt(), p.y.roundToInt())
             }
             .size(with(density) { wPx.toDp() }, with(density) { hPx.toDp() })
-            // 从悬浮条拖出的新块画在悬浮条**之上**，拖已有卡片时在它**之下**（见常量说明）
-            .zIndex(if (session.fromPalette) PALETTE_GHOST_Z_INDEX else GHOST_Z_INDEX)
+            .zIndex(GHOST_Z_INDEX)
             .graphicsLayer {
                 // 略小于占位框 + 半透明：底下的落点占位框（2dp 主题色边框）才能露出来。
                 // 之前放大到 1.04 且 96% 不透明，正好把占位框整个盖住，等于没有提示。

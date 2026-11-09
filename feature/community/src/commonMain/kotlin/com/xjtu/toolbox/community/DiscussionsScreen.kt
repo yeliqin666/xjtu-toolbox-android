@@ -88,6 +88,7 @@ fun DiscussionsScreen(
     CommunityPage(
         title = "社区",
         onBack = onBack,
+        root = true,
         actions = {
             Box {
                 CommunityBarAction(Icons.Outlined.FilterList, "筛选与排序", onClick = { showOptions = true })

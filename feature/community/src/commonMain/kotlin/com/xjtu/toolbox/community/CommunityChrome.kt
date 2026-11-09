@@ -1,6 +1,5 @@
 package com.xjtu.toolbox.community
 
-import com.xjtu.toolbox.ui.components.BackButton
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.animation.animateContentSize
@@ -59,6 +58,9 @@ import coil3.compose.AsyncImage
 import coil3.compose.LocalPlatformContext
 import coil3.request.ImageRequest
 import coil3.request.crossfade
+import coil3.size.Dimension
+import coil3.size.Size as CoilSize
+import androidx.compose.ui.platform.LocalWindowInfo
 import com.mikepenz.markdown.coil3.Coil3ImageTransformerImpl
 import com.mikepenz.markdown.compose.Markdown
 import com.mikepenz.markdown.compose.components.markdownComponents
@@ -68,16 +70,19 @@ import com.mikepenz.markdown.model.DefaultMarkdownTypography
 import com.mikepenz.markdown.model.markdownAlertColors
 import com.mikepenz.markdown.model.markdownAnnotator
 import com.mikepenz.markdown.model.markdownAnnotatorConfig
-import com.xjtu.toolbox.ui.glass.glassBarColor
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.ui.input.nestedscroll.nestedScroll
+import com.xjtu.toolbox.ui.glass.GlassTopAppBar
+import com.xjtu.toolbox.ui.glass.LocalTabRoot
 import com.xjtu.toolbox.ui.glass.glassSource
 import com.xjtu.toolbox.ui.glass.glassTop
-import com.xjtu.toolbox.ui.glass.glassTopBar
 import com.xjtu.toolbox.ui.glass.rememberPageGlass
 import com.xjtu.toolbox.ui.glass.withoutTop
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.IconButton
 import top.yukonga.miuix.kmp.basic.Scaffold
-import top.yukonga.miuix.kmp.basic.SmallTopAppBar
+import top.yukonga.miuix.kmp.basic.rememberTopAppBarState
+import top.yukonga.miuix.kmp.basic.MiuixScrollBehavior
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import kotlin.time.Clock
@@ -87,30 +92,35 @@ import kotlinx.datetime.toLocalDateTime
 import com.xjtu.toolbox.util.CampusTimeZone
 
 /**
- * 社区各页的外壳：App 自己的玻璃小标题栏，内容铺到顶栏下面做采样源。
+ * 社区各页的外壳：和其他二级页同一套可折叠大标题（玻璃风格下内容铺到顶栏下面做采样源）。
  * [content] 拿到的 top 是要放进滚动内容里的顶部留白。
+ *
+ * [root] = 社区首页本身。社区被放到底栏上时只有它没有上一级；帖子、发帖、编辑这些
+ * 往里走的页面永远要有返回键，所以对它们把 [LocalTabRoot] 摘掉。
  */
 @Composable
 fun CommunityPage(
     title: String,
     onBack: () -> Unit,
+    root: Boolean = false,
     actions: @Composable RowScope.() -> Unit = {},
     floatingActionButton: @Composable () -> Unit = {},
     bottomBar: @Composable () -> Unit = {},
     content: @Composable (top: Dp) -> Unit,
 ) {
     val glass = rememberPageGlass()
+    val scrollBehavior = MiuixScrollBehavior(rememberTopAppBarState())
     Scaffold(
         topBar = {
-            SmallTopAppBar(
-                title = title,
-                color = glassBarColor(glass),
-                modifier = Modifier.glassTopBar(glass),
-                navigationIcon = {
-                    BackButton(onBack)
-                },
-                actions = actions,
-            )
+            CompositionLocalProvider(LocalTabRoot provides (root && LocalTabRoot.current)) {
+                GlassTopAppBar(
+                    title = title,
+                    glass = glass,
+                    scrollBehavior = scrollBehavior,
+                    onBack = onBack,
+                    actions = actions,
+                )
+            }
         },
         bottomBar = bottomBar,
         floatingActionButton = floatingActionButton,
@@ -121,6 +131,7 @@ fun CommunityPage(
                 .fillMaxSize()
                 .padding(padding.withoutTop(glass))
                 .glassSource(glass)
+                .nestedScroll(scrollBehavior.nestedScrollConnection)
         ) {
             content(top)
         }
@@ -276,6 +287,9 @@ private fun PostImage(image: PostPart.Image) {
     var attempt by remember(image.url) { mutableStateOf(0) }
     var viewing by remember { mutableStateOf(false) }
     val summary = MiuixTheme.colorScheme.onSurfaceVariantSummary
+    // 按屏宽解码、高不限（#384）：不给尺寸时 Coil 按首帧那块 180dp 高的占位去缩图，
+    // 盒子按真实比例撑开后显示的还是那张小图，于是发糊
+    val decodeWidth = LocalWindowInfo.current.containerSize.width.coerceAtLeast(1)
     Box(
         Modifier
             .then(if (image.width != null && image.width > 0) Modifier.widthIn(max = image.width.dp) else Modifier)
@@ -291,7 +305,8 @@ private fun PostImage(image: PostPart.Image) {
     ) {
         androidx.compose.runtime.key(attempt) {
             AsyncImage(
-                model = ImageRequest.Builder(LocalPlatformContext.current).data(image.url).crossfade(true).build(),
+                model = ImageRequest.Builder(LocalPlatformContext.current).data(image.url).crossfade(true)
+                    .size(CoilSize(Dimension(decodeWidth), Dimension.Undefined)).build(),
                 contentDescription = image.alt.ifBlank { null },
                 contentScale = ContentScale.Fit,
                 modifier = Modifier.fillMaxSize(),
@@ -327,7 +342,8 @@ private fun CommunityImageViewer(url: String, alt: String, onDismiss: () -> Unit
         Box(Modifier.fillMaxSize().background(Color.Black)) {
             com.xjtu.toolbox.ui.components.ZoomableBox(Modifier.fillMaxSize(), key = url, onTap = onDismiss) { zoom ->
                 AsyncImage(
-                    model = ImageRequest.Builder(LocalPlatformContext.current).data(url).build(),
+                    // 全屏要能放大看细节：解原图，不按屏幕尺寸缩
+                    model = ImageRequest.Builder(LocalPlatformContext.current).data(url).size(CoilSize.ORIGINAL).build(),
                     contentDescription = alt.ifBlank { null },
                     contentScale = ContentScale.Fit,
                     modifier = zoom,

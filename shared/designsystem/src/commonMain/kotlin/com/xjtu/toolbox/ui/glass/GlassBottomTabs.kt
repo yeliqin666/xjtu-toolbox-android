@@ -19,6 +19,7 @@ import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.EaseOut
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.background
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.ColumnScope
@@ -168,7 +169,8 @@ fun GlassBottomTabs(
                 valueRange = 0f..(tabsCount - 1).toFloat(),
                 visibilityThreshold = 0.001f,
                 initialScale = 1f,
-                pressedScale = 78f / 56f,
+                // 按住时滑块轻轻缩一下（常见的按压反馈），不再放大成一块大玻璃
+                pressedScale = 0.94f,
                 onDragStarted = {},
                 onDragStopped = {
                     val targetIndex = GlassDragMath.snappedIndex(targetValue, tabsCount)
@@ -200,31 +202,18 @@ fun GlassBottomTabs(
             }
         }
 
-        val interactiveHighlight = remember(animationScope, isLtr, dampedDrag) {
-            GlassInteractiveHighlight(
-                animationScope = animationScope,
-                position = { size, _ ->
-                    Offset(
-                        x = if (isLtr) {
-                            (dampedDrag.value + 0.5f) * tabWidthPx + panelOffset
-                        } else {
-                            size.width - (dampedDrag.value + 0.5f) * tabWidthPx + panelOffset
-                        },
-                        y = size.height / 2f,
-                    )
-                },
-            )
-        }
-
-        // 静止（没按住、滑块停在整格、形变和高光都回位）时，染色层和滑块玻璃画出来
-        // 与「选中格按选中态画 + 一层淡色胶囊」逐像素相同，这时两层都跳过不画
-        val glassActive by remember(dampedDrag, interactiveHighlight) {
+        // 静止（没按住、滑块停在整格、形变回位）时，染色层和滑块画出来与「选中格按选中态画 +
+        // 一层淡色胶囊」逐像素相同，这时两层都跳过不画
+        val glassActive by remember(dampedDrag) {
             derivedStateOf {
-                dampedDrag.pressProgress > 0f || interactiveHighlight.pressProgress > 0f ||
+                dampedDrag.pressProgress > 0f ||
                     dampedDrag.scaleX != 1f || dampedDrag.scaleY != 1f ||
                     abs(dampedDrag.value - dampedDrag.value.roundToInt()) > 0.001f
             }
         }
+
+        // 每格一个按压来源：真实那一遍与染色那一遍共用，谁接到触摸都一起微暗缩小
+        val pressSources = remember(tabsCount) { List(tabsCount) { MutableInteractionSource() } }
 
         fun tabOnClick(index: Int): () -> Unit = {
             if (currentIndex != index) {
@@ -243,7 +232,7 @@ fun GlassBottomTabs(
                 if (tab.tintExempt) {
                     GlassNavTabSlot(onClick = null) {}
                 } else {
-                    GlassNavTabSlot(onClick = tabOnClick(index)) {
+                    GlassNavTabSlot(onClick = tabOnClick(index), pressSource = pressSources[index]) {
                         tab.content(this, index == currentIndex)
                     }
                 }
@@ -257,7 +246,7 @@ fun GlassBottomTabs(
                 if (tab.tintExempt) {
                     GlassNavTabSlot(onClick = null) {}
                 } else {
-                    GlassNavTabSlot(onClick = tabOnClick(index)) {
+                    GlassNavTabSlot(onClick = tabOnClick(index), pressSource = pressSources[index]) {
                         tab.content(this, true)
                     }
                 }
@@ -277,15 +266,6 @@ fun GlassBottomTabs(
                                 padding = maxOf(padding, 16.dp.toPx())
                                 vibrancy()
                                 blur(8.dp.toPx())
-                                // 折射只在按住 / 拖动时随进度出现，静止时省掉这一遍着色器
-                                val progress = dampedDrag.pressProgress
-                                lens(24.dp.toPx() * progress, 24.dp.toPx() * progress)
-                            },
-                            layerBlock = {
-                                val progress = dampedDrag.pressProgress
-                                val scale = lerp(1f, 1f + 16.dp.toPx() / size.width, progress)
-                                scaleX = scale
-                                scaleY = scale
                             },
                             exportedBackdrop = exportedBackdrop,
                             // 悬浮胶囊是真的浮在内容上面，该有影子；但不要 kyant 默认那圈
@@ -300,7 +280,6 @@ fun GlassBottomTabs(
                             .background(containerColor)
                     },
                 )
-                .then(if (glass) interactiveHighlight.modifier else Modifier)
                 .height(GLASS_BAR_HEIGHT)
                 .fillMaxWidth()
                 .padding(4.dp),
@@ -309,7 +288,7 @@ fun GlassBottomTabs(
         )
 
         if (glass && tabsBackdrop != null) {
-            CompositionLocalProvider(LocalGlassNavTabScale provides { lerp(1f, 1.2f, dampedDrag.pressProgress) }) {
+            CompositionLocalProvider(LocalGlassNavTabScale provides { lerp(1f, 0.92f, dampedDrag.pressProgress) }) {
                 Row(
                     Modifier
                         .clearAndSetSemantics {}
@@ -323,24 +302,19 @@ fun GlassBottomTabs(
                             backdrop = exportedBackdrop ?: backdrop,
                             shape = { pillShape },
                             effects = {
-                                val progress = dampedDrag.pressProgress
                                 if (exportedBackdrop == null) {
                                     padding = maxOf(padding, 16.dp.toPx())
                                     vibrancy()
                                     blur(8.dp.toPx())
                                 }
-                                lens(24.dp.toPx() * progress, 24.dp.toPx() * progress)
                             },
-                            highlight = {
-                                Highlight.Default.copy(alpha = dampedDrag.pressProgress)
-                            },
+                            highlight = null,
                             onDrawSurface = if (exportedBackdrop == null) {
                                 { drawRect(containerColor) }
                             } else {
                                 null
                             },
                         )
-                        .then(interactiveHighlight.modifier)
                         .height(innerHeight)
                         .fillMaxWidth()
                         .padding(horizontal = 4.dp),
@@ -361,7 +335,6 @@ fun GlassBottomTabs(
                                 if (isLtr) dampedDrag.value * tabWidthPx + panelOffset
                                 else size.width - (dampedDrag.value + 1f) * tabWidthPx + panelOffset
                         }
-                        .then(interactiveHighlight.gestureModifier)
                         .then(dampedDrag.modifier)
                         .drawWithContent {
                             if (glassActive) drawContent()
@@ -370,28 +343,16 @@ fun GlassBottomTabs(
                         .drawBackdrop(
                             backdrop = rememberCombinedBackdrop(backdrop, tabsBackdrop),
                             shape = { pillShape },
-                            effects = {
-                                val progress = dampedDrag.pressProgress
-                                lens(10.dp.toPx() * progress, 14.dp.toPx() * progress)
-                            },
-                            highlight = { Highlight.Default.copy(alpha = dampedDrag.pressProgress) },
+                            effects = {},
+                            highlight = null,
                             layerBlock = {
                                 scaleX = dampedDrag.scaleX
                                 scaleY = dampedDrag.scaleY
-                                // 速度取绝对值：拖得快就横向拉长、纵向压扁，**两个方向一样**。
-                                // 原来用的是带符号速度，往右 scaleX 被放大、往左反而被压窄；
-                                // 而 backdrop 采样只按 LayoutCoordinates 定位，不反解 layerBlock
-                                // 的缩放（见 DrawBackdropNode：layerBlock 是 placeWithLayer 施加的），
-                                // 于是滑块本体和它透出的强调色层对不齐——表现就是从右往左拖时
-                                // 蓝色块稳定偏移，往右拖却看不出来。
-                                val v = abs(dampedDrag.velocity) / 10f
-                                scaleX /= 1f - (v * 0.75f).coerceIn(0f, 0.2f)
-                                scaleY *= 1f - (v * 0.25f).coerceIn(0f, 0.2f)
                             },
+                            // 按住时在淡色底上再压一层暗：微暗 + 缩小，常见的按压手感
                             onDrawSurface = {
-                                val progress = dampedDrag.pressProgress
-                                drawRect(restTint, alpha = 1f - progress)
-                                drawRect(Color.Black.copy(alpha = 0.03f * progress))
+                                drawRect(restTint)
+                                drawRect(Color.Black.copy(alpha = 0.08f * dampedDrag.pressProgress))
                             },
                         )
                         .height(innerHeight)

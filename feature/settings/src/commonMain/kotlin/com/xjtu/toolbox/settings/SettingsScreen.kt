@@ -13,6 +13,7 @@ import androidx.compose.material.icons.automirrored.filled.FactCheck
 import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.DarkMode
 import androidx.compose.material.icons.filled.Dashboard
+import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.Star
@@ -147,8 +148,6 @@ fun SettingsScreen(
     var attendanceBadge by remember { mutableStateOf(store.scheduleAttendanceBadge) }
     var scheduleSource by remember { mutableStateOf(store.scheduleSource) }
     var venueAutoSolveCaptcha by remember { mutableStateOf(store.venueAutoSolveCaptchaEnabled) }
-    var showChangelog by remember { mutableStateOf(false) }
-    var showEula by remember { mutableStateOf(false) }
     // 二级页：NO_PAGE、CREDITS_PAGE 或 groups 下标
     var page by rememberSaveable { mutableIntStateOf(NO_PAGE) }
     if (showThemeColor) {
@@ -214,9 +213,10 @@ fun SettingsScreen(
         SettingsStore.NETWORK_VPN
     )
 
+    // 外观一页分三段：主题（全局配色与质感）→ 首页 → 底栏
     val appearanceGroup: @Composable () -> Unit = {
-        SmallTitle("外观")
-        SettingsCard {
+        if (showDarkMode || showDynamicColor || showNavStyle) SmallTitle("主题")
+        if (showDarkMode || showDynamicColor || showNavStyle) SettingsCard {
             if (showDarkMode) {
                 OverlayDropdownPreference(
                     title = "深色模式",
@@ -281,7 +281,8 @@ fun SettingsScreen(
             if (showNavStyle) {
                 // 管所有玻璃（底栏、侧栏、气泡、顶栏），宽屏也显示
                 OverlayDropdownPreference(
-                    title = "界面风格",
+                    title = "界面质感",
+                    summary = "顶栏、底栏和气泡用玻璃还是实色",
                     items = navStyleOptions,
                     selectedIndex = navStyleValues.indexOf(navBarStyle).coerceAtLeast(0),
                     startAction = { SettingsIcon(MiuixIcons.Carrier, cBlue) },
@@ -294,65 +295,69 @@ fun SettingsScreen(
                 )
             }
         }
-    }
-
-    val homeGroup: @Composable () -> Unit = {
-        SmallTitle("首页与底栏")
-        SettingsCard {
-            if (showHomeHero) {
-                val dark = LocalIsDarkTheme.current
-                val heroAppearance = remember(HeroAppearanceRevision.current, dark) {
-                    HeroAppearance.read(store, dark)
+        if (showHomeHero || showQuickActions) {
+            SmallTitle("首页")
+            SettingsCard {
+                if (showHomeHero) {
+                    var showHomeSettings by remember { mutableStateOf(false) }
+                    val homeSummary = remember(HomeLayoutRevision.current) { homeSettingsSummary(store) }
+                    ArrowPreference(
+                        title = "布局与背景",
+                        summary = homeSummary,
+                        startAction = { SettingsIcon(Icons.Default.Dashboard, cPurple) },
+                        onClick = { showHomeSettings = true },
+                    )
+                    HomeSettingsSheet(show = showHomeSettings, onDismiss = { showHomeSettings = false })
+                    val dark = LocalIsDarkTheme.current
+                    val heroAppearance = remember(HeroAppearanceRevision.current, dark) {
+                        HeroAppearance.read(store, dark)
+                    }
+                    ArrowPreference(
+                        title = "今日卡片",
+                        summary = heroAppearance.summary,
+                        startAction = { SettingsIcon(Icons.Default.Wallpaper, cPink) },
+                        onClick = { showHomeHeroDialog = true },
+                    )
                 }
-                ArrowPreference(
-                    title = "首页卡片",
-                    summary = heroAppearance.summary,
-                    startAction = { SettingsIcon(Icons.Default.Wallpaper, cPurple) },
-                    onClick = { showHomeHeroDialog = true },
-                )
-                var showHomeSettings by remember { mutableStateOf(false) }
-                val homeSummary = remember(HomeLayoutRevision.current) { homeSettingsSummary(store) }
-                ArrowPreference(
-                    title = "主页设置",
-                    summary = homeSummary,
-                    startAction = { SettingsIcon(Icons.Default.Dashboard, cPurple) },
-                    onClick = { showHomeSettings = true },
-                )
-                HomeSettingsSheet(show = showHomeSettings, onDismiss = { showHomeSettings = false })
+                if (showQuickActions) {
+                    SwitchPreference(
+                        title = "常用功能",
+                        summary = "按你的使用习惯，把最常点的几项排在首页最前面",
+                        checked = showQuickActionsOn,
+                        startAction = { SettingsIcon(Icons.Default.Star, cTeal) },
+                        onCheckedChange = { v ->
+                            showQuickActionsOn = v
+                            store.showQuickActions = v
+                            host.onAppearanceChanged()
+                        }
+                    )
+                }
             }
-            if (showQuickActions) {
-                SwitchPreference(
-                    title = "显示常用功能",
-                    summary = "在首页长按常用功能可排序和增删",
-                    checked = showQuickActionsOn,
-                    startAction = { SettingsIcon(Icons.Default.Star, cTeal) },
-                    onCheckedChange = { v ->
-                        showQuickActionsOn = v
-                        store.showQuickActions = v
-                        host.onAppearanceChanged()
-                    }
-                )
-            }
-            if (showBottomTabs) {
-                ArrowPreference(
-                    title = "底栏",
-                    summary = tabOptions.joinToString(" · "),
-                    startAction = { SettingsIcon(Icons.Default.Tab, cIndigo) },
-                    onClick = { showBottomBarDialog = true },
-                )
-            }
-            if (showDefaultTab) {
-                OverlayDropdownPreference(
-                    title = "默认启动 Tab",
-                    items = tabOptions,
-                    selectedIndex = tabValues.indexOf(defaultTab).coerceAtLeast(0),
-                    startAction = { SettingsIcon(Icons.Default.Tab, cTeal) },
-                    onSelectedIndexChange = { idx ->
-                        val v = tabValues[idx]
-                        defaultTab = v
-                        store.defaultTab = v
-                    }
-                )
+        }
+        if (showBottomTabs || showDefaultTab) {
+            SmallTitle("底栏")
+            SettingsCard {
+                if (showBottomTabs) {
+                    ArrowPreference(
+                        title = "底栏放哪些页",
+                        summary = tabOptions.joinToString(" · "),
+                        startAction = { SettingsIcon(Icons.Default.Tab, cIndigo) },
+                        onClick = { showBottomBarDialog = true },
+                    )
+                }
+                if (showDefaultTab) {
+                    OverlayDropdownPreference(
+                        title = "打开应用时进入",
+                        items = tabOptions,
+                        selectedIndex = tabValues.indexOf(defaultTab).coerceAtLeast(0),
+                        startAction = { SettingsIcon(Icons.Default.Home, cTeal) },
+                        onSelectedIndexChange = { idx ->
+                            val v = tabValues[idx]
+                            defaultTab = v
+                            store.defaultTab = v
+                        }
+                    )
+                }
             }
         }
     }
@@ -443,7 +448,7 @@ fun SettingsScreen(
                     title = "更新日志",
                     summary = "查看历史版本变化",
                     startAction = { SettingsIcon(MiuixIcons.Recent, cTeal) },
-                    onClick = { showChangelog = true }
+                    onClick = { page = CHANGELOG_PAGE }
                 )
             }
             ArrowPreference(
@@ -461,21 +466,15 @@ fun SettingsScreen(
             ArrowPreference(
                 title = "用户协议与隐私政策",
                 startAction = { SettingsIcon(MiuixIcons.File, cPurple) },
-                onClick = { showEula = true }
+                onClick = { page = EULA_PAGE }
             )
         }
-        // 弹层跟着组走：组可能画在二级页里，挂在首页的 Scaffold 上会被二级页盖住
-        ChangelogSheet(show = showChangelog, entries = host.changelog, onDismiss = { showChangelog = false })
-        EulaSheet(show = showEula, onDismiss = { showEula = false })
     }
 
     // 组的顺序与标题（窄屏首页、宽屏左栏都是这一列）。宿主没有那一组时整条不出现。
     val groups = buildList {
-        if (showDarkMode || showDynamicColor || showNavStyle) {
+        if (showDarkMode || showDynamicColor || showNavStyle || showHomeHero || showQuickActions || showBottomTabs || showDefaultTab) {
             add(SettingsGroup("外观", Icons.Default.Palette, cPurple, appearanceGroup))
-        }
-        if (showHomeHero || showQuickActions || showBottomTabs || showDefaultTab) {
-            add(SettingsGroup("首页与底栏", Icons.Default.Dashboard, cIndigo, homeGroup))
         }
         if (showHaptics || showNetworkMode || launcherShortcuts != null) {
             add(SettingsGroup("通用", MiuixIcons.Settings, cTeal, generalGroup))
@@ -495,14 +494,18 @@ fun SettingsScreen(
         add(SettingsGroup("关于", MiuixIcons.Info, cBlue, aboutGroup))
     }
 
-    // 窄屏的致谢叠在「关于」上面：两层各滑各的，「关于」一直在底下，返回时滚动位置也还在。
-    // 以前只有一层、直接换内容，那一层一直可见，AnimatedVisibility 不会触发，于是没有转场（#356）
+    // 「关于」里点进去的页（致谢、更新日志、用户协议）叠在「关于」上面：两层各滑各的，「关于」一直在底下，
+    // 返回时滚动位置也还在。以前只有一层、直接换内容，那一层一直可见，AnimatedVisibility 不会触发（#356）
     val backToAbout = !com.xjtu.toolbox.ui.isWideLayout()
+    val aboutChild = page in ABOUT_CHILD_PAGES
     val groupPage = when {
         page >= 0 -> page
-        page == CREDITS_PAGE && backToAbout -> groups.lastIndex
+        aboutChild && backToAbout -> groups.lastIndex
         else -> NO_PAGE
     }
+    // 退场滑出时 page 已经换掉，画的仍是刚才那页
+    var shownAboutChild by remember { mutableIntStateOf(CREDITS_PAGE) }
+    if (aboutChild) shownAboutChild = page
     // 退场滑出时 groupPage 已回 NO_PAGE，画的仍是刚才那页
     var shownGroup by remember { mutableIntStateOf(NO_PAGE) }
     if (groupPage != NO_PAGE) shownGroup = groupPage
@@ -514,7 +517,7 @@ fun SettingsScreen(
         label = "subPageCover",
     )
     val creditsCover by animateFloatAsState(
-        targetValue = if (page == CREDITS_PAGE && backToAbout) 1f else 0f,
+        targetValue = if (aboutChild && backToAbout) 1f else 0f,
         animationSpec = tween(AppPageMotion.DurationMillis, easing = AppPageMotion.Easing),
         label = "creditsCover",
     )
@@ -550,7 +553,7 @@ fun SettingsScreen(
             }
         }
         AnimatedVisibility(
-            visible = page == CREDITS_PAGE,
+            visible = aboutChild,
             enter = slideInHorizontally(
                 tween(AppPageMotion.DurationMillis, easing = AppPageMotion.Easing),
             ) { if (rtl) -it else it },
@@ -558,10 +561,16 @@ fun SettingsScreen(
                 tween(AppPageMotion.DurationMillis, easing = AppPageMotion.Easing),
             ) { if (rtl) -it else it },
         ) {
-            // 窄屏的致谢是从「关于」二级页进来的，返回时退回「关于」
+            // 窄屏是从「关于」二级页进来的，返回时退回「关于」
             val close = { page = if (backToAbout) groups.lastIndex else NO_PAGE }
-            BackHandler(enabled = page == CREDITS_PAGE) { close() }
-            CreditsScreen(host = host, onBack = close)
+            BackHandler(enabled = aboutChild) { close() }
+            when (shownAboutChild) {
+                CHANGELOG_PAGE -> SettingsSubPage(title = "更新日志", onBack = close) { ChangelogBody(host.changelog) }
+                EULA_PAGE -> SettingsSubPage(title = "用户协议与隐私政策", onBack = close) {
+                    com.xjtu.toolbox.legal.Eula.Body(Modifier.padding(horizontal = 16.dp, vertical = 8.dp))
+                }
+                else -> CreditsScreen(host = host, onBack = close)
+            }
         }
     }
 }
@@ -712,6 +721,11 @@ private fun SettingsSubPage(title: String, onBack: () -> Unit, content: @Composa
 
 private const val NO_PAGE = -1
 private const val CREDITS_PAGE = -2
+private const val CHANGELOG_PAGE = -3
+private const val EULA_PAGE = -4
+
+/** 从「关于」点进去、叠在它上面的那几页。 */
+private val ABOUT_CHILD_PAGES = setOf(CREDITS_PAGE, CHANGELOG_PAGE, EULA_PAGE)
 
 /** 一组设置：组名列表拿 [title]/[icon]/[color]，组内容拿 [body]。 */
 private class SettingsGroup(
@@ -734,27 +748,13 @@ private fun SettingsCard(content: @Composable ColumnScope.() -> Unit) {
     }
 }
 
+/** 更新日志页的正文：每个版本一张卡，版本号作卡头。 */
 @Composable
-private fun ChangelogSheet(show: Boolean, entries: List<ChangelogEntry>, onDismiss: () -> Unit) {
-    BackHandler(enabled = show) { onDismiss() }
-    OverlayBottomSheet(
-        show = show,
-        title = "更新日志",
-        onDismissRequest = onDismiss
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .verticalScroll(rememberScrollState())
-                .navigationBarsPadding()
-        ) {
-            entries.forEach { entry ->
-                Text(
-                    text = entry.version,
-                    style = MiuixTheme.textStyles.subtitle,
-                    fontWeight = FontWeight.Bold,
-                    modifier = Modifier.padding(top = 12.dp, bottom = 4.dp)
-                )
+private fun ChangelogBody(entries: List<ChangelogEntry>) {
+    entries.forEach { entry ->
+        SmallTitle(entry.version)
+        SettingsCard {
+            Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
                 entry.items.forEach { item ->
                     Text(
                         text = "· $item",
@@ -764,27 +764,6 @@ private fun ChangelogSheet(show: Boolean, entries: List<ChangelogEntry>, onDismi
                     )
                 }
             }
-            Spacer(Modifier.height(8.dp))
-        }
-    }
-}
-
-@Composable
-private fun EulaSheet(show: Boolean, onDismiss: () -> Unit) {
-    BackHandler(enabled = show) { onDismiss() }
-    OverlayBottomSheet(
-        show = show,
-        title = "用户协议与隐私政策",
-        onDismissRequest = onDismiss
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .verticalScroll(rememberScrollState())
-                .navigationBarsPadding()
-        ) {
-            com.xjtu.toolbox.legal.Eula.Body()
-            Spacer(Modifier.height(8.dp))
         }
     }
 }

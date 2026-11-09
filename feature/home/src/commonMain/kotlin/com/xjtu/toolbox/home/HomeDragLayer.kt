@@ -35,7 +35,7 @@ import androidx.compose.ui.input.pointer.pointerInput
  *    活对象，读的时候就是当前值。之前把 `onGloballyPositioned` 回填的 Offset 存进 session 当
  *    基准，页面一滚动它就过期，命中全落空（「按住没反应」就是这个原因）。
  *
- * 4. **放行的落点一个事件都不碰**：移除按钮 / 删除组 / 组名 / 空白 / 悬浮条都是
+ * 4. **放行的落点一个事件都不碰**：移除按钮 / 删除组 / 添加 / 组名 / 空白都是
  *    [HomeHit.Pass]，down 原样留给下层点击节点与滚动。
  *
  * 编辑态里想**滚动页面**就从这些地方起手：组间空隙、网格里的空格、组标题行（把手右侧）、
@@ -53,14 +53,6 @@ internal fun Modifier.homeDragLayer(
     removePx: Float,
     /** 命中拖拽目标：这一场开始。[viewport] 是页面根局部坐标。 */
     onDown: (hit: HomeHit, viewport: Offset) -> Unit,
-    /**
-     * 这一下 down 落在悬浮条矩形**之外**。
-     *
-     * 编辑态里悬浮条的名字栏是「滚动时才露出来」的临时态，点一下别处就该收回去——而它是
-     * 页面里唯一看得见全部按下的地方（`Initial` pass 上最先拿到 down），所以由它转告一声。
-     * 悬浮条不展开时这段是个空操作。
-     */
-    onDownOutsidePalette: () -> Unit = {},
     /** 长按「拿起」成立（只有移动卡片 / 组排序走这条）：给一次触感反馈。 */
     onPickUp: () -> Unit = {},
     /** 手指移动：[viewport] 是页面根局部坐标。 */
@@ -73,7 +65,6 @@ internal fun Modifier.homeDragLayer(
     val currentHandlePx by rememberUpdatedState(handlePx)
     val currentRemovePx by rememberUpdatedState(removePx)
     val currentOnDown by rememberUpdatedState(onDown)
-    val currentOnDownOutsidePalette by rememberUpdatedState(onDownOutsidePalette)
     val currentOnPickUp by rememberUpdatedState(onPickUp)
     val currentOnMove by rememberUpdatedState(onMove)
     val currentOnUp by rememberUpdatedState(onUp)
@@ -85,13 +76,8 @@ internal fun Modifier.homeDragLayer(
             // 而且下面还要用消费与否来决定这一下归谁
             val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
 
-            // 已经有别的拖拽在跑（悬浮条图标先一步起了手）：绝不顶掉它，整场放行
+            // 已经有别的拖拽在跑（多指）：绝不顶掉它，整场放行
             if (session.active) return@awaitEachGesture
-            // 落在悬浮条自己的矩形里：那是它的长按面板与拖出，放行
-            val palette = session.paletteRect
-            if (palette != null && palette.contains(down.position)) return@awaitEachGesture
-            // 落在悬浮条外面 = 它失焦了（名字栏该收回去）；它没展开时这里是空操作
-            currentOnDownOutsidePalette()
 
             // ← 现场把组区原点刷成"此刻"的值（不用任何回填缓存）
             session.refreshBoardFromCoordinates()

@@ -39,7 +39,9 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.material.icons.filled.DragHandle
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -51,6 +53,7 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
@@ -98,6 +101,7 @@ import top.yukonga.miuix.kmp.squircle.squircleBorder
 import top.yukonga.miuix.kmp.squircle.squircleClip
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.utils.SinkFeedback
+import com.xjtu.toolbox.settings.HomeSettingsOverlay
 
 /**
  * 网格是**正方格**：一格的高恒等于一格的宽（=「组宽 + 缝」÷ 列数），一组的高度因此是
@@ -127,9 +131,9 @@ private val TilePressSpring = spring<Float>(dampingRatio = 0.55f, stiffness = 42
 /** 编辑态卡片整体收到的比例，让出一圈空隙给角标。 */
 private const val EDIT_TILE_SCALE = 0.95f
 
-/** 编辑态摇摆：单程时长与最大角度。 */
-private val WobbleTween = tween<Float>(durationMillis = 190, easing = FastOutSlowInEasing)
-private const val WOBBLE_DEGREES = 1.1f
+/** 编辑态摇摆：单程时长与最大角度。慢而轻，像呼吸而不是发抖。 */
+private val WobbleTween = tween<Float>(durationMillis = 520, easing = FastOutSlowInEasing)
+private const val WOBBLE_DEGREES = 0.9f
 
 /** 移除角标弹出 / 收回。 */
 private val BadgeEnter = scaleIn(spring(dampingRatio = 0.5f, stiffness = 500f)) + fadeIn(tween(120))
@@ -214,7 +218,7 @@ internal fun HomeGroupSection(
      */
     paymentCode: suspend () -> String? = { null },
     /**
-     * 卡片能不能糊（只有卡片吃「没有可糊的细节就不糊」这条规则；按钮与悬浮条照旧模糊）。
+     * 卡片能不能糊（只有卡片吃「没有可糊的细节就不糊」这条规则；按钮照旧模糊）。
      *
      * 「没有细节」有两种：纯色 / 渐变背景（压根没有壁纸），以及壁纸自己已经被「模糊程度」糊到
      * 看不出细节（`SettingsStore.HOME_WALLPAPER_BLUR_HIDES_GLASS` 及以上）。两种都由调用方算成
@@ -224,6 +228,8 @@ internal fun HomeGroupSection(
     /** 卡片圆角（主页设置里那条滑条），实际还会被「边长 × 12」夹住，见 [HomeTileFaceBox]。 */
     cardCorner: Dp = 22.dp,
     onEditGroup: () -> Unit,
+    /** 编辑态往这一组加功能（组头的「+」、空组占位都走它）。 */
+    onAddTile: () -> Unit,
     onDeleteGroup: () -> Unit,
     onRemoveTile: (tileId: String) -> Unit,
     modifier: Modifier = Modifier,
@@ -265,6 +271,7 @@ internal fun HomeGroupSection(
                 refraction = refraction,
                 backdrop = backdrop,
                 onEditGroup = onEditGroup,
+                onAddTile = onAddTile,
                 onDeleteGroup = onDeleteGroup,
             )
             Spacer(Modifier.height(GROUP_HEADER_HEIGHT - GROUP_HEADER_ROW))
@@ -303,31 +310,23 @@ internal fun HomeGroupSection(
                                 1.dp,
                                 MiuixTheme.colorScheme.onSurface.copy(alpha = 0.12f),
                                 RoundedCornerShape(18.dp),
+                            )
+                            .clickable(
+                                interactionSource = remember { MutableInteractionSource() },
+                                indication = SinkFeedback(),
+                                onClick = onAddTile,
                             ),
                         contentAlignment = Alignment.Center,
                     ) {
                         Text(
-                            "这一组还是空的，从右侧悬浮条拖一个功能进来",
+                            "这一组还是空的，点这里添加功能",
                             fontSize = 12.sp,
                             color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                         )
                     }
                 }
 
-                /**
-                 * 这一帧要画成落点占位框的那一块（null = 一块都不藏）。
-                 *
-                 * **从悬浮条拖出时，绝不能藏起起手快照里就有的那块**（2026-11 维护者实测反馈：
-                 * 「手指一按住悬浮条上的图标，页面上对应的那张卡就消失了」）。那一场手里拿的是
-                 * 一个「还不存在的新 id」，正常情况下与页面上任何一块都不同名，这条判定只会命中
-                 * `liveLayout` 里那张**预览块**（落点占位框就是它画的）。可一旦新 id 与某块撞号
-                 * （尾号是「当前最大 +1」，删过最高号之后会回退到用过的号），这里就会命中那块
-                 * 无辜的真身——它被换成占位框，看起来就是「按住就没了」。
-                 * 撞号时一个都不藏：宁可预览少一个落点框，也不能吃掉真块。
-                 */
-                val paletteHitsRealTile = session.fromPalette &&
-                    session.tileId?.let { session.base?.tile(it) != null } == true
-                val dragId = session.tileId?.takeIf { !paletteHitsRealTile }
+                val dragId = session.tileId
                 // 拖动中与**结算中**都画占位框：松手后幽灵从手指位置飞向落点，落点这一块先留成
                 // 占位框；幽灵飞到与它重合才 finish() 切回真实块——外观一样，切换无感。
                 // 只判 draggingTile 的话，结算期它会立刻变成落点处的真实块，和还在飞的幽灵重影。
@@ -344,7 +343,7 @@ internal fun HomeGroupSection(
                                 tile = tile,
                                 face = face,
                                 editing = editing,
-                                still = !session.active,
+                                still = !session.active && !HomeSettingsOverlay.open,
                                 liquid = liquid,
                                 refraction = refraction,
                                 backdrop = backdrop,
@@ -381,6 +380,7 @@ private fun GroupHeader(
     refraction: Boolean,
     backdrop: Backdrop?,
     onEditGroup: () -> Unit,
+    onAddTile: () -> Unit,
     onDeleteGroup: () -> Unit,
 ) {
     val dark = LocalIsDarkTheme.current
@@ -437,14 +437,24 @@ private fun GroupHeader(
             Spacer(Modifier.weight(1f))
         }
         AnimatedVisibility(visible = editing, enter = BadgeEnter, exit = BadgeExit) {
-            GroupDeleteButton(liquid = liquid, backdrop = backdrop, onClick = onDeleteGroup)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                GroupRoundButton(Icons.Default.Add, "往这一组添加功能", MiuixTheme.colorScheme.primary, liquid, backdrop, onAddTile)
+                GroupRoundButton(Icons.Default.Close, "删除这一组", MiuixTheme.colorScheme.error, liquid, backdrop, onDeleteGroup)
+            }
         }
     }
 }
 
-/** 组标题行右侧的删除按钮：液态玻璃小圆钮（§2.4）。 */
+/** 组标题行右侧的小圆钮（添加 / 删除）：液态玻璃（§2.4）。 */
 @Composable
-private fun GroupDeleteButton(liquid: Boolean, backdrop: Backdrop?, onClick: () -> Unit) {
+private fun GroupRoundButton(
+    icon: ImageVector,
+    label: String,
+    tint: Color,
+    liquid: Boolean,
+    backdrop: Backdrop?,
+    onClick: () -> Unit,
+) {
     val dark = LocalIsDarkTheme.current
     val fill = if (dark) Color.White.copy(alpha = 0.07f) else Color.White.copy(alpha = 0.42f)
     // 它浮在内容上面，永远有东西可糊可折，所以**恒采样 + 恒折射**（不像卡片要看背景有没有细节）。
@@ -475,15 +485,10 @@ private fun GroupDeleteButton(liquid: Boolean, backdrop: Backdrop?, onClick: () 
         Modifier
             .size(30.dp)
             .then(material)
-            .pointerInput("deleteGroup") { detectTapGestures(onTap = { onClick() }) },
+            .pointerInput(label) { detectTapGestures(onTap = { onClick() }) },
         contentAlignment = Alignment.Center,
     ) {
-        Icon(
-            Icons.Default.Close,
-            contentDescription = "删除这一组",
-            tint = MiuixTheme.colorScheme.error,
-            modifier = Modifier.size(16.dp),
-        )
+        Icon(icon, contentDescription = label, tint = tint, modifier = Modifier.size(16.dp))
     }
 }
 
@@ -904,7 +909,14 @@ internal fun HomeTileFaceBox(
     // 第三次真机反馈定下的：只要铺白，那块玻璃就「像蒙了一层白」，玻璃片本身该是透的；
     // 想要染色的是角标（`CountBadge` 用主题色半透明底），卡片不染。
     // 玻璃的暗部只应该出现在外面那圈投影里（`floatingGlassShadow`）。
-    val liquidFill = if (dark) Color.White.copy(alpha = 0.07f) else Color.White.copy(alpha = 0.42f)
+    val liquidFill = if (dark) Color.White.copy(alpha = 0.07f) else Color.White.copy(alpha = 0.34f)
+    // 柔光：顶部一抹白光往下淡出，玻璃才有「被光照着」的厚度
+    val softLight = remember(dark) {
+        Brush.verticalGradient(
+            0f to Color.White.copy(alpha = if (dark) 0.10f else 0.26f),
+            0.55f to Color.White.copy(alpha = 0f),
+        )
+    }
     // 和底栏胶囊同一套环境光阴影（remember：shadow lambda 捕获的对象变了会触发重采样）
     val accent = MiuixTheme.colorScheme.primary
     val liquidShadow = remember(accent, dark) { floatingGlassShadow(accent, dark) }
@@ -922,37 +934,25 @@ internal fun HomeTileFaceBox(
     //
     // **没有用户开关**（2026-11 维护者把「开启折射」那一项整个删了）：卡片这一档只看背景上
     // 有没有细节——有就一整套上，没有就整档不采样。「用不上」交给渲染侧判断，不交给用户去猜。
-    val sample = backdrop?.takeIf { refraction }
+    val sample = backdrop?.takeIf { refraction && blurGlass }
     // 圆角形状两档共用同一个对象：`remember` 住它，`drawBackdrop` 的 `ShapeProvider` 才不会
     // 因为「每帧一个新 lambda」被判定成换了形状而重建离屏层
     val cardShape = remember(radius) { RoundedCornerShape(radius) }
     val material = when {
-        liquid && sample != null -> remember(sample, cardShape, liquidFill, liquidShadow, rim, refraction, blurGlass) {
+        // 柔光玻璃：采的是首页**已经糊好**的背景副本（见 HomeCardGroupScreen 的 tileBackdrop），
+        // 这里不再跑模糊、折射与活力——滚动时每张卡只是平移着贴同一张纹理。
+        // 光感交给面上一层从上往下淡出的白光与轮廓高光。
+        liquid && sample != null -> remember(sample, cardShape, liquidFill, softLight, liquidShadow, rim) {
             Modifier.drawBackdrop(
                 backdrop = sample,
                 shape = { cardShape },
-                effects = {
-                    // 能走到这一支就说明背景上有可糊 / 可折的细节（没有时 [sample] 是空的，
-                    // 整块卡面走下面那个 `sampling = false` 分支），所以下面这几层都真跑
-                    //
-                    // 采样范围往外扩一圈，折射与模糊在轮廓边上也有真实内容可混、不变弱
-                    // （和底栏胶囊、屁岱气泡同一手法）
-                    padding = maxOf(padding, 12.dp.toPx())
-                    vibrancy()
-                    if (blurGlass) blur(8.dp.toPx())
-                    // 折射才是「液态」和「毛玻璃」的分界：边缘把背景扭出透镜的弯光。
-                    // 带宽与位移用固定的物理宽度（和底栏一致），不随卡片
-                    // 缩放——大小卡片的玻璃厚度本来就一样。
-                    //
-                    // 关掉折射时这一整段（那一趟离屏位移采样）都不跑，剩下的模糊、
-                    // 活力、高光、投影照旧：玻璃还是那块玻璃，只是不再像一片厚透镜。
-                    if (refraction) lens(10.dp.toPx(), 14.dp.toPx())
-                },
-                // 玻璃被光打亮的那圈轮廓（与采样无关，两条路都画）
+                effects = {},
                 highlight = { rim },
-                // 卡片浮在壁纸上，该有一圈柔和的环境光投影（同上）
                 shadow = { liquidShadow },
-                onDrawSurface = { drawRect(liquidFill) },
+                onDrawSurface = {
+                    drawRect(liquidFill)
+                    drawRect(softLight)
+                },
             )
         }
         // 没有可采的细节（纯色 / 渐变 / 壁纸已被糊平）：`sampling = false`——不录采样层、

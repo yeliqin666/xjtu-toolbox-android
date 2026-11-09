@@ -4,7 +4,8 @@ package com.xjtu.toolbox.community
 // DiscussionCommentActions.kt。界面改用 MIUIX，按论坛楼层重排：主帖卡片、N 楼、楼主标记、楼中楼预览、
 // 表情回应、投票、引用、分享、关闭 / 锁定 / 折叠、底部回帖栏、全屏编辑页（编辑 / 预览）。
 
-import com.xjtu.toolbox.ui.glass.tabContentPadding
+import com.xjtu.toolbox.ui.glass.LocalTabBottomPadding
+import com.xjtu.toolbox.ui.glass.tabContentBottomPadding
 import com.xjtu.toolbox.ui.components.AppPullToRefresh
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -228,7 +229,8 @@ fun DiscussionDetailScreen(
             LazyColumn(
                 state = listState,
                 modifier = Modifier.fillMaxSize().overScrollVertical(),
-                contentPadding = tabContentPadding(PaddingValues(start = 12.dp, end = 12.dp, top = top + 8.dp, bottom = 16.dp)),
+                // 底部的底栏避让已经由回帖栏让过了（Scaffold 的内容区不含它），这里不再叠一次
+                contentPadding = PaddingValues(start = 12.dp, end = 12.dp, top = top + 8.dp, bottom = 16.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 item(key = "op") {
@@ -480,11 +482,14 @@ fun AuthorLine(comment: GithubDiscussionComment, op: String?, avatar: androidx.c
 @Composable
 private fun ReplyBar(discussion: GithubDiscussion, canReply: Boolean, onReply: () -> Unit, onLike: () -> Unit) {
     val colors = MiuixTheme.colorScheme
+    // 社区放到底栏上时，悬浮底栏盖在页面最下面（#386）：让出它的整段高度（已含系统导航栏），
+    // 不在底栏上时只让系统导航栏
+    val tabBottom = LocalTabBottomPadding.current
     Row(
         Modifier
             .fillMaxWidth()
             .background(colors.surface)
-            .navigationBarsPadding()
+            .then(if (tabBottom > 0.dp) Modifier.padding(bottom = tabBottom) else Modifier.navigationBarsPadding())
             .padding(horizontal = 12.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -574,6 +579,7 @@ private fun CommunityEditorPage(
                 .fillMaxSize()
                 .imePadding()
                 .verticalScroll(rememberScrollState())
+                .tabContentBottomPadding()
                 .padding(horizontal = 16.dp)
                 .padding(top = top + 8.dp, bottom = 24.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),

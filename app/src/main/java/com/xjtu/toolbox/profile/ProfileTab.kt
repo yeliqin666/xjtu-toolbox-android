@@ -903,6 +903,8 @@ internal fun ProfileTab(
 
                 if (loginState.accountType == AccountType.UNDERGRADUATE) {
                     var showCertificate by remember { mutableStateOf(false) }
+                    // 标题和卡片一起挂入场：以前这一组没挂，别的卡片在滑入、它一动不动
+                    Column(Modifier.enterOnce(2)) {
                     SmallTitle("学业材料")
                     MenuGroup {
                         ProfileMenuRow(Icons.Outlined.School, TINT_TEAL, "学业进度", subtitle = "培养方案与毕业要求", onClick = { onNavigate(AppRoute.DegreeProgress) }, route = AppRoute.DegreeProgress)
@@ -911,6 +913,7 @@ internal fun ProfileTab(
                         MenuDivider()
                         ProfileMenuRow(Icons.Outlined.School, TINT_TEAL, "在读证明", subtitle = "中文或中英文",
                             onClick = { showCertificate = true })
+                    }
                     }
                     Spacer(Modifier.height(PROFILE_GAP))
                     if (showCertificate) OverlayBottomSheet(
@@ -930,7 +933,7 @@ internal fun ProfileTab(
                     }
                 }
 
-                MenuGroup(Modifier.enterOnce(2)) {
+                MenuGroup(Modifier.enterOnce(3)) {
                     ProfileMenuRow(
                         Icons.Outlined.ManageAccounts, MiuixTheme.colorScheme.primary, "账号管理",
                         onClick = { onNavigate(AppRoute.Accounts) },
@@ -946,14 +949,14 @@ internal fun ProfileTab(
                     )
                 }
                 Spacer(Modifier.height(PROFILE_GAP))
-                MenuGroup(Modifier.enterOnce(3)) {
+                MenuGroup(Modifier.enterOnce(4)) {
                     ProfileMenuRow(Icons.Outlined.Settings, TINT_SLATE, "设置", onClick = { onNavigate(AppRoute.Settings) }, route = AppRoute.Settings)
                 }
                 Spacer(Modifier.height(PROFILE_GAP))
 
                 // 退出登录单独一张：危险操作不和日常入口挤在一组里
                 val showLogoutDialog = remember { mutableStateOf(false) }
-                MenuGroup(Modifier.enterOnce(4)) {
+                MenuGroup(Modifier.enterOnce(5)) {
                     Box(
                         Modifier
                             .fillMaxWidth()

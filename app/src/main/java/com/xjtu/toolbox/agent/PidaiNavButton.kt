@@ -12,6 +12,7 @@ import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.selection.selectable
@@ -105,6 +106,13 @@ internal fun PidaiNavButton(
     val scope = rememberCoroutineScope()
     val bounce = remember { Animatable(1f) }
     val interactionSource = remember { MutableInteractionSource() }
+    // 和底栏其余几格同一套按压手感：按住微暗 + 缩小，松手后再接原来的弹一下
+    val pressed by interactionSource.collectIsPressedAsState()
+    val press by androidx.compose.animation.core.animateFloatAsState(
+        if (pressed) 1f else 0f,
+        spring(dampingRatio = 0.7f, stiffness = 700f),
+        label = "pidaiPress",
+    )
 
     // 状态互斥，优先级：点击 > 思考 > 提醒 > 偶发微动 > 待命。
     // 用一个 state 表达而不是多个 boolean，避免出现"既在彗星又在思考"的叠加态。
@@ -192,8 +200,10 @@ internal fun PidaiNavButton(
             Modifier
                 .size(diameter)
                 .graphicsLayer {
-                    scaleX = bounce.value
-                    scaleY = bounce.value
+                    val s = bounce.value * (1f - 0.1f * press)
+                    scaleX = s
+                    scaleY = s
+                    alpha = 1f - 0.35f * press
                     translationY = -liftUp.toPx()
                 }
                 .drawBehind {

@@ -46,6 +46,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.xjtu.toolbox.home.HomeLayout
@@ -94,9 +95,18 @@ fun HomeSettingsSheet(
 ) {
     // 返回键优先关抽屉（§31）：抽屉在前台时不把返回交给下面的页面
     BackHandler(enabled = show) { onDismiss() }
+    // 只有开着的那一份写这个标记：设置页里还挂着另一份（关着），别让它把标记冲掉
+    DisposableEffect(show) {
+        if (show) HomeSettingsOverlay.open = true
+        onDispose { if (show) HomeSettingsOverlay.open = false }
+    }
     OverlayBottomSheet(
         show = show,
         title = "主页设置",
+        // 默认左右 24dp 内边距再叠卡片的 16dp 就成了 40dp；去掉这一层，标题与卡片的对齐和设置页一致
+        insideMargin = DpSize(0.dp, 0.dp),
+        // 默认底色 background 在浅色下是纯白，和卡片的 surfaceVariant 一样白，分组就看不出来了
+        backgroundColor = MiuixTheme.colorScheme.surface,
         onDismissRequest = onDismiss,
     ) {
         // 抽屉自己要知道怎么关自己：「恢复默认分组和布局」确认之后要立刻合上（§29 补充）
@@ -129,13 +139,10 @@ private fun HomeSettingsBody(onDismiss: () -> Unit, showTopBarStyle: Boolean) {
     var layout by remember(revision) { mutableStateOf(settings.homeLayout) }
     var liquid by remember(revision) { mutableStateOf(settings.homeLiquidGlass) }
     var topActionsRight by remember(revision) { mutableStateOf(settings.homeTopActionsRight) }
-    var grid by remember { mutableStateOf(store.grid) }
     var corner by remember { mutableIntStateOf(store.cardCorner) }
     var opacity by remember { mutableIntStateOf(store.backgroundOpacity) }
     var confirmReset by remember { mutableStateOf(false) }
     var showBackup by remember { mutableStateOf(false) }
-    // 打开网格会当场把非整数的摆位取整、收空行，且回不去（见 [confirmGrid]）——先二次确认
-    var confirmGrid by remember { mutableStateOf(false) }
     // 从文件读回来、等用户确认的那份布局；非 null = 导入确认弹窗开着
     var pendingImport by remember { mutableStateOf<HomeLayout?>(null) }
     val cards = layout == SettingsStore.HOME_LAYOUT_CARDS
@@ -188,24 +195,6 @@ private fun HomeSettingsBody(onDismiss: () -> Unit, showTopBarStyle: Boolean) {
                     HomeLayoutRevision.bump()
                 },
             )
-            if (cards) {
-                SwitchPreference(
-                    title = "吸附网格",
-                    summary = if (grid) "拖动与缩放按整格对齐" else "自由摆放，靠近时自动贴边",
-                    checked = grid,
-                    startAction = { SettingsIcon(Icons.Default.GridOn, cTeal) },
-                    onCheckedChange = { on ->
-                        // 关掉立刻生效（不动数据）；打开会把非整数摆位取整，先问一句
-                        if (!on) {
-                            grid = false
-                            store.grid = false
-                            store.notifyChanged()
-                        } else {
-                            confirmGrid = true
-                        }
-                    },
-                )
-            }
             // 只有自己画首页顶栏按钮的端（:app）才画得出两种排法
             if (showTopBarStyle) {
                 SwitchPreference(
@@ -351,44 +340,11 @@ private fun HomeSettingsBody(onDismiss: () -> Unit, showTopBarStyle: Boolean) {
                         text = "恢复默认",
                         onClick = {
                             store.reset()
-                            grid = store.grid
                             opacity = store.backgroundOpacity
                             confirmReset = false
                             // 确认之后就收起来：首页编辑态会立刻换成新的默认布局（草稿跟着
                             // HomeLayoutResetRevision 换），不用等用户再点一次保存
                             onDismiss()
-                        },
-                        modifier = Modifier.weight(1f),
-                        colors = ButtonDefaults.textButtonColorsPrimary(),
-                    )
-                }
-            }
-        }
-    }
-
-    // 打开网格的二次确认：它会把自由摆位取整落盘，且没有回头路（参照「恢复默认」那个弹窗）
-    if (confirmGrid) {
-        WindowDialog(
-            show = true,
-            title = "开启网格",
-            onDismissRequest = { confirmGrid = false },
-        ) {
-            Column(Modifier.fillMaxWidth()) {
-                Text(
-                    "自由摆放的组件会按格子取整、收掉空出来的行，改成吸附到 1×1 / 2×1 / 1×2 / 2×2 这些标准格子。" +
-                        "这一步不可撤销：之后再关掉网格，也不会恢复成原来的位置与大小。",
-                    style = MiuixTheme.textStyles.body2,
-                )
-                Spacer(Modifier.height(16.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    TextButton(text = "取消", onClick = { confirmGrid = false }, modifier = Modifier.weight(1f))
-                    TextButton(
-                        text = "开启网格",
-                        onClick = {
-                            // 取整落盘 + 开开关 + 换掉编辑态草稿，全在 store 里一次做完
-                            store.enableGrid()
-                            grid = true
-                            confirmGrid = false
                         },
                         modifier = Modifier.weight(1f),
                         colors = ButtonDefaults.textButtonColorsPrimary(),

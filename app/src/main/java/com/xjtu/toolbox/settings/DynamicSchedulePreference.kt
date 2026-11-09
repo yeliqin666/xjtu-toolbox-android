@@ -11,6 +11,10 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Alarm
+import androidx.compose.material.icons.filled.EventNote
+import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -66,6 +70,7 @@ internal fun DynamicSchedulePreference() {
                 title = "动态课程与日程通知",
                 summary = "显示今日当前或下一项安排与倒计时；需先同步课表，今日安排结束后自动收起",
                 checked = enabled,
+                startAction = { SettingsIcon(Icons.Default.EventNote, SettingsColors.Blue) },
                 onCheckedChange = { on ->
                     if (on && Build.VERSION.SDK_INT >= 33 && !canPost) {
                         permission.launch(Manifest.permission.POST_NOTIFICATIONS)
@@ -76,6 +81,7 @@ internal fun DynamicSchedulePreference() {
                 ArrowPreference(
                     title = "准时切换通知",
                     summary = if (exact) "已允许在课程、日程开始和结束时切换" else "未允许精确闹钟，后台切换可能延迟；倒计时仍自动更新",
+                    startAction = { SettingsIcon(Icons.Default.Alarm, SettingsColors.Orange) },
                     onClick = {
                         openSettings(Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM, Uri.parse("package:${context.packageName}")))
                     },
@@ -83,6 +89,7 @@ internal fun DynamicSchedulePreference() {
                 ArrowPreference(
                     title = "系统通知设置",
                     summary = if (canPost) "可单独关闭动态课程与日程渠道" else "系统通知未允许，当前无法展示",
+                    startAction = { SettingsIcon(Icons.Default.Notifications, SettingsColors.Teal) },
                     onClick = {
                         openSettings(Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName))
                     },

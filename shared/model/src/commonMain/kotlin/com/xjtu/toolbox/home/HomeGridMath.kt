@@ -255,6 +255,36 @@ object HomeGridMath {
         return null
     }
 
+    /**
+     * 删掉 [hole] 之后的补位（网格模式）：阅读顺序在它之前的块原地不动，之后的块按阅读顺序
+     * 依次前移到「从洞起、不晚于自己原位」的第一个空位，于是后面的卡片像文字一样往前流。
+     * 洞之前用户留的空档不碰；找不到更靠前的位置就留在原处。
+     */
+    fun refill(tiles: List<HomeTile>, hole: HomeTile): List<HomeTile> {
+        fun before(t: HomeTile) = t.y < hole.y || (t.y == hole.y && t.x < hole.x)
+        val packed = tiles.filter(::before).toMutableList()
+        tiles.filterNot(::before)
+            .sortedWith(compareBy({ it.y }, { it.x }, { it.id }))
+            .forEach { t -> packed += earliestSlot(packed, t, hole) ?: bottomSlot(packed, t) }
+        return packed
+    }
+
+    /** [tile] 在 [hole] 与它原位之间（含两端）第一个放得下的位置；都放不下返回 null。 */
+    private fun earliestSlot(packed: List<HomeTile>, tile: HomeTile, hole: HomeTile): HomeTile? {
+        var y = hole.y
+        while (y <= tile.y + EPSILON) {
+            var x = if (y == hole.y) hole.x else 0f
+            while (x <= COLUMNS - tile.w + EPSILON) {
+                if (y == tile.y && x > tile.x + EPSILON) return null
+                val probe = tile.copy(x = x, y = y)
+                if (packed.none { overlaps(it, probe) }) return probe
+                x += 1f
+            }
+            y += 1f
+        }
+        return null
+    }
+
     /** 放到本组最下方（整行空出来），避开已有内容。 */
     fun bottomSlot(tiles: List<HomeTile>, tile: HomeTile): HomeTile {
         val others = tiles.filter { it.id != tile.id }

@@ -1,6 +1,7 @@
 package com.xjtu.toolbox.lms
 
 import androidx.compose.material.icons.automirrored.filled.ScreenShare
+import androidx.compose.material.icons.automirrored.filled.MenuBook
 import androidx.compose.material.icons.automirrored.filled.Comment
 import androidx.compose.material.icons.automirrored.filled.TrendingDown
 import androidx.compose.material.icons.automirrored.filled.TrendingUp
@@ -161,7 +162,16 @@ internal fun ActivityDetailPage(
                 scrollBehavior = scrollBehavior,
                 onBack = onBack,
                 actions = {
-                    if (onOpenCourse != null) TextButton(text = "打开课程", onClick = onOpenCourse)
+                    // 书本图标而不是四个字（#380）：顶栏右侧和小岱按钮并排，图标更整齐
+                    if (onOpenCourse != null) {
+                        top.yukonga.miuix.kmp.basic.IconButton(onClick = onOpenCourse) {
+                            top.yukonga.miuix.kmp.basic.Icon(
+                                Icons.AutoMirrored.Filled.MenuBook,
+                                contentDescription = "打开课程",
+                                tint = top.yukonga.miuix.kmp.theme.MiuixTheme.colorScheme.onSurface,
+                            )
+                        }
+                    }
                     if (onAskAgent != null) {
                         com.xjtu.toolbox.ui.components.AskAgentAction(summary = "把这项${activity.type.displayName()}的标题和说明发给小岱") {
                             // 详情加载完就带上说明，没加载完也能发（小岱可以自己查）

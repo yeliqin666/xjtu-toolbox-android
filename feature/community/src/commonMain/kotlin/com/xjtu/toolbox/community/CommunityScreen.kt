@@ -234,7 +234,7 @@ private fun CommunityLoginScreen(
     }
     if (pending != null) BackHandler { authorization = null }
 
-    CommunityPage(title = "社区", onBack = onBack) { top ->
+    CommunityPage(title = "社区", onBack = onBack, root = true) { top ->
         Column(
             Modifier
                 .fillMaxSize()

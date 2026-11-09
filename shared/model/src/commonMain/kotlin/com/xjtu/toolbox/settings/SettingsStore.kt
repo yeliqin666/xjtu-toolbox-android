@@ -2,6 +2,7 @@ package com.xjtu.toolbox.settings
 
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import com.xjtu.toolbox.platform.KeyValueStore
 import com.xjtu.toolbox.platform.keyValueStore
@@ -14,6 +15,11 @@ object HomeLayoutRevision {
     fun bump() {
         current++
     }
+}
+
+/** 主页设置抽屉此刻是否开着：首页据此停掉背后的持续动画，抽屉拖动与滚动才不卡。 */
+object HomeSettingsOverlay {
+    var open by mutableStateOf(false)
 }
 
 /** 设置页那些偏好的读写。 */

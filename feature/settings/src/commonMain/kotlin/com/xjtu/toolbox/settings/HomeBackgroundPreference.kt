@@ -1,6 +1,7 @@
 package com.xjtu.toolbox.settings
 
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.runtime.Composable
 import kotlin.math.roundToInt
@@ -60,7 +61,11 @@ internal fun HomeBackgroundPreference(store: SettingsStore, startAction: @Compos
         },
     )
     if (mode == "image") {
-        ArrowPreference(title = "更换背景图片", onClick = pickImage)
+        ArrowPreference(
+            title = "更换背景图片",
+            startAction = { SettingsIcon(Icons.Default.Image, cPurple) },
+            onClick = pickImage,
+        )
         var blur by remember { mutableStateOf(store.homeWallpaperBlur) }
         // 只有「模糊程度」一条：亮度已经删了（壁纸的明暗交给「背景不透明度」，
         // 两张滑条调的是同一件事，留着只会互相抵消；见 SettingsStore.homeWallpaperBlur 的说明）

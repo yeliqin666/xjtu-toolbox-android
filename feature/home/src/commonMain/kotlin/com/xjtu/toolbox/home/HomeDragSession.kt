@@ -7,16 +7,15 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.layout.LayoutCoordinates
 
 /** 编辑态里正在进行的手势种类。一次只有一种；[HomeDragMode.IDLE] = 没有手势。 */
-internal enum class HomeDragMode { IDLE, TILE, RESIZE, GROUP, PALETTE }
+internal enum class HomeDragMode { IDLE, TILE, RESIZE, GROUP }
 
 /**
  * 按下的落点归谁：手势层据此决定「接管」还是「放行」。
  *
- * 放行（[Pass]）的那些位置——移除按钮、删除组按钮、组名、悬浮条——下面还有真的点击
+ * 放行（[Pass]）的那些位置——移除按钮、删除组 / 添加按钮、组名——下面还有真的点击
  * 或长按节点在等，手势层一旦吃掉 down，它们就永远点不着了。
  */
 internal sealed interface HomeHit {
@@ -34,7 +33,7 @@ internal sealed interface HomeHit {
 }
 
 /**
- * 编辑态的拖拽会话。四种手势（移动卡片、缩放、组排序、从悬浮条拖新块）共用这一份。
+ * 编辑态的拖拽会话。三种手势（移动卡片、缩放、组排序）共用这一份。
  *
  * 四条根基，缺一条就会回到「拖不动 / 落点飘 / 松手跳」：
  *
@@ -79,8 +78,8 @@ internal class HomeDragSession {
 
     val active: Boolean get() = mode != HomeDragMode.IDLE
 
-    /** 拖的是卡片（含从悬浮条拖出的新块）：落点与接收高亮按卡片那一套走。 */
-    val draggingTile: Boolean get() = mode == HomeDragMode.TILE || mode == HomeDragMode.PALETTE
+    /** 正在移动卡片：落点与接收高亮按卡片那一套走。 */
+    val draggingTile: Boolean get() = mode == HomeDragMode.TILE
 
     // ── 组区容器的几何基准 ──
 
@@ -118,20 +117,8 @@ internal class HomeDragSession {
         if (c.size.width > 0) boardWidth = c.size.width.toFloat()
     }
 
-    /**
-     * 页面根 Box 在窗口里的位置。
-     *
-     * **只给悬浮条用**：那条长条里的图标自己有长按手势（拖出新块），要把「事件的图标
-     * 相对坐标」合成成视口坐标，就得知道图标在哪。它登记的位置长在从不做动画的节点上
-     * （拖出新块时长条一动不动），所以是准的。卡片一律不登记位置——见类头第 1 条。
-     */
+    /** 页面根 Box 在窗口里的位置：组顶的页面坐标按它换算。 */
     var pageOrigin by mutableStateOf(Offset.Zero)
-
-    /**
-     * 悬浮条（球或展开的长条）当前的视口矩形：手势层对落在这里的 down 一律放行——
-     * 那条长条盖在组区右缘上，不排除就会把图标们的长按手势抢走。null = 没挂载。
-     */
-    var paletteRect by mutableStateOf<Rect?>(null)
 
     // ── 起手快照：几何与命中的唯一基准 ──
 
@@ -143,9 +130,9 @@ internal class HomeDragSession {
     var baseGroupIds: List<String> = emptyList()
         private set
 
-    // ── 卡片拖拽 / 缩放 / 悬浮条拖出 ──
+    // ── 卡片拖拽 / 缩放 ──
 
-    /** 被操作那块的 id；悬浮条拖出时是预览与落盘共用的新 id。 */
+    /** 被操作那块的 id。 */
     var tileId by mutableStateOf<String?>(null)
         private set
     var routeId by mutableStateOf<String?>(null)
@@ -176,11 +163,7 @@ internal class HomeDragSession {
     var resizeStartContent = Offset.Zero
         private set
 
-    /** 从悬浮条拖出的新块：落点用 [HomeLayout.addTileAt] 而不是 `moveTile`。 */
-    var fromPalette by mutableStateOf(false)
-        private set
-
-    /** 拖拽起始于哪个组（悬浮条新块为 null）：接收高亮只在「拖进别的组」时画（§19）。 */
+    /** 拖拽起始于哪个组：接收高亮只在「拖进别的组」时画（§19）。 */
     var sourceGroupId by mutableStateOf<String?>(null)
         private set
 
@@ -254,28 +237,6 @@ internal class HomeDragSession {
         resizeStartContent = startContent
     }
 
-    /** 从悬浮条拖出一个新块：[newTileId] 已按全局唯一规则分好，预览与落盘用同一个。 */
-    fun beginPalette(
-        layout: HomeLayout,
-        visibleIds: List<String>,
-        newTileId: String,
-        newRouteId: String,
-        w: Float,
-        h: Float,
-        startPointer: Offset,
-        colUnit: Float,
-        rowUnit: Float,
-    ) {
-        // 悬浮条上按住的是一枚圆图标，幽灵块抓在中心最自然
-        val center = Offset(w * colUnit / 2f, h * rowUnit / 2f)
-        begin(layout, visibleIds, HomeDragMode.PALETTE, startPointer - center, startPointer)
-        tileId = newTileId
-        routeId = newRouteId
-        fromPalette = true
-        sizeCells = Offset(w, h)
-        sourceGroupId = null
-    }
-
     /**
      * 组排序。[groupTop] 是这一组顶边（含标题行）的**内容** y，[startContent] 是起手时
      * 手指的内容坐标；两者之差就是抓取偏移，之后跟手位移 = 当前内容 y − 它 − 组顶。
@@ -340,7 +301,6 @@ internal class HomeDragSession {
         baseGroupIds = emptyList()
         tileId = null
         routeId = null
-        fromPalette = false
         sourceGroupId = null
         groupId = null
         groupIndex = -1
