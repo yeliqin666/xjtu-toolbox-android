@@ -27,13 +27,15 @@ object HomeLayoutDefaults {
 
     const val QUICK_GROUP = "quick"
 
-    /** 默认放大一档（2×2）：最常看、内容也最多。 */
-    private val FEATURED = setOf(AppRoute.CampusCard.id, AppRoute.Library.id, AppRoute.DegreeProgress.id)
+    /** 默认放大一档（2×2）：最常看、内容也最多（通知列最近几条标题）。 */
+    private val FEATURED = setOf(
+        AppRoute.CampusCard.id, AppRoute.Library.id, AppRoute.DegreeProgress.id, AppRoute.Notification.id,
+    )
 
     /** 信息型（2×1）：放一行状态比纯图标有用。 */
     private val INFORMATIONAL = setOf(
         AppRoute.Schedule.id, AppRoute.SchoolCalendar.id, AppRoute.Lms().id,
-        AppRoute.Attendance.id, AppRoute.EmptyRoom.id, AppRoute.Notification.id,
+        AppRoute.Attendance.id, AppRoute.EmptyRoom.id,
         AppRoute.Community.id, AppRoute.Games.id, AppRoute.Agent.id, AppRoute.YellowPage.id,
         // 校车：横条里正好放「下一班 14:20 · 余 12 座」这种一行状态
         AppRoute.CampusBus.id,

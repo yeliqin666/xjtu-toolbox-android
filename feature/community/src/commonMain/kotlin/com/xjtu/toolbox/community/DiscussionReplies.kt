@@ -5,8 +5,13 @@ package com.xjtu.toolbox.community
 
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.text.font.FontWeight
+import top.yukonga.miuix.kmp.utils.SinkFeedback
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -104,29 +109,54 @@ fun DiscussionReplies(
         }
         when {
             !full && total > shown.size -> ReplyExpansionAction(
-                text = "展开剩余 ${total - shown.size} 条回复",
+                text = "展开 ${total - shown.size} 条回复",
                 onClick = { full = true; loader.fetch(true) },
             )
-            full && connection.loading -> ReplyExpansionAction("正在加载回复…", loading = true, onClick = {})
-            full && connection.failed -> ReplyExpansionAction("加载失败 · 重试", retry = true, onClick = { loader.fetch(!connection.loaded) })
-            full && connection.cursor != null -> ReplyExpansionAction("加载更多回复", onClick = { loader.fetch(false) })
+            full && connection.loading -> ReplyExpansionAction("正在加载", loading = true, onClick = {})
+            full && connection.failed -> ReplyExpansionAction("加载失败，点此重试", retry = true, onClick = { loader.fetch(!connection.loaded) })
+            full && connection.cursor != null -> ReplyExpansionAction("继续展开", onClick = { loader.fetch(false) })
+            full && total > preview.size -> ReplyExpansionAction("收起", collapse = true, onClick = { full = false })
         }
     }
 }
 
+/** 楼中楼底部的「展开 / 收起」：引导短线 + 文字 + 箭头，箭头随展开状态翻转。 */
 @Composable
-private fun ReplyExpansionAction(text: String, loading: Boolean = false, retry: Boolean = false, onClick: () -> Unit) {
-    val color = MiuixTheme.colorScheme.primary
+private fun ReplyExpansionAction(
+    text: String,
+    loading: Boolean = false,
+    retry: Boolean = false,
+    collapse: Boolean = false,
+    onClick: () -> Unit,
+) {
+    val colors = MiuixTheme.colorScheme
+    val tint = if (retry) colors.error else colors.primary
+    val flip by animateFloatAsState(if (collapse) 180f else 0f, label = "replyChevron")
     Row(
-        Modifier.padding(start = 32.dp).fillMaxWidth()
-            .clip(RoundedCornerShape(10.dp)).background(color.copy(alpha = 0.06f))
-            .clickable(enabled = !loading, onClick = onClick)
-            .padding(horizontal = 12.dp, vertical = 9.dp),
+        Modifier.padding(start = 32.dp, top = 2.dp)
+            .clip(RoundedCornerShape(8.dp))
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = SinkFeedback(),
+                enabled = !loading,
+                onClick = onClick,
+            )
+            .padding(vertical = 6.dp, horizontal = 2.dp),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        if (loading) CircularProgressIndicator(size = 16.dp, strokeWidth = 2.dp)
-        else Icon(if (retry) Icons.Default.Refresh else Icons.Default.ExpandMore, contentDescription = null, tint = color, modifier = Modifier.size(17.dp))
-        Text(text, style = MiuixTheme.textStyles.footnote1, color = color)
+        Box(Modifier.width(18.dp).height(1.dp).background(colors.onSurfaceVariantSummary.copy(alpha = 0.35f)))
+        Spacer(Modifier.width(8.dp))
+        Text(text, style = MiuixTheme.textStyles.footnote1, fontWeight = FontWeight.Medium, color = tint)
+        Spacer(Modifier.width(2.dp))
+        when {
+            loading -> CircularProgressIndicator(size = 12.dp, strokeWidth = 1.5.dp)
+            retry -> Icon(Icons.Default.Refresh, contentDescription = null, tint = tint, modifier = Modifier.size(14.dp))
+            else -> Icon(
+                Icons.Default.ExpandMore,
+                contentDescription = null,
+                tint = tint,
+                modifier = Modifier.size(16.dp).graphicsLayer { rotationZ = flip },
+            )
+        }
     }
 }

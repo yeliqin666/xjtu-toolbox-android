@@ -1,5 +1,11 @@
 package com.xjtu.toolbox.community
 
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.text.font.FontWeight
+import top.yukonga.miuix.kmp.utils.SinkFeedback
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -129,6 +135,19 @@ fun MinimizedNotice(reason: String, onExpand: () -> Unit) {
             color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
             modifier = Modifier.weight(1f),
         )
-        TextButton(text = "展开", onClick = onExpand, minHeight = 32.dp)
+        Text(
+            "显示",
+            style = MiuixTheme.textStyles.footnote1,
+            fontWeight = FontWeight.Medium,
+            color = MiuixTheme.colorScheme.primary,
+            modifier = Modifier
+                .clip(RoundedCornerShape(8.dp))
+                .clickable(
+                    interactionSource = remember { MutableInteractionSource() },
+                    indication = SinkFeedback(),
+                    onClick = onExpand,
+                )
+                .padding(horizontal = 8.dp, vertical = 6.dp),
+        )
     }
 }

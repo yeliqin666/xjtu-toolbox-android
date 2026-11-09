@@ -706,7 +706,7 @@ fun ProactiveBubbleView(
                             backdrop = backdrop,
                             shape = { bubbleShape },
                             effects = {
-                                // 采样范围往外扩一圈，边缘处也有真实内容可混，模糊不会在轮廓边上变弱（见 topBarScrim）
+                                // 采样范围往外扩一圈，边缘处也有真实内容可混，模糊不会在轮廓边上变弱
                                 padding = maxOf(padding, 12.dp.toPx())
                                 vibrancy()
                                 blur(6.dp.toPx())

@@ -55,6 +55,7 @@ import com.xjtu.toolbox.platform.BackHandler
 import com.xjtu.toolbox.platform.rememberPickTextFile
 import com.xjtu.toolbox.platform.rememberSaveTextFile
 import com.xjtu.toolbox.platform.showBriefMessage
+import kotlin.math.abs
 import kotlin.math.roundToInt
 import top.yukonga.miuix.kmp.basic.ButtonDefaults
 import top.yukonga.miuix.kmp.basic.Card
@@ -132,6 +133,7 @@ private fun HomeSettingsBody(onDismiss: () -> Unit, showTopBarStyle: Boolean) {
     var corner by remember { mutableIntStateOf(store.cardCorner) }
     var opacity by remember { mutableIntStateOf(store.backgroundOpacity) }
     var confirmReset by remember { mutableStateOf(false) }
+    var showBackup by remember { mutableStateOf(false) }
     // 打开网格会当场把非整数的摆位取整、收空行，且回不去（见 [confirmGrid]）——先二次确认
     var confirmGrid by remember { mutableStateOf(false) }
     // 从文件读回来、等用户确认的那份布局；非 null = 导入确认弹窗开着
@@ -171,15 +173,12 @@ private fun HomeSettingsBody(onDismiss: () -> Unit, showTopBarStyle: Boolean) {
             .verticalScroll(rememberScrollState())
             .navigationBarsPadding(),
     ) {
-        // ── 首页功能区：经典分类卡（回落）/ 卡片组（合并了原「小组件」能力的实现） ──
-        SmallTitle("首页功能区")
+        // ── 布局：功能区样式、网格、顶栏排法 ──
+        SmallTitle("布局")
         HomeSettingsCard {
             OverlayDropdownPreference(
-                title = "布局",
-                summary = when (layout) {
-                    SettingsStore.HOME_LAYOUT_CLASSIC -> "刊头 + 头卡 + 分类卡，功能按分类排"
-                    else -> "长按进入编辑：可自由摆放、缩放、分组"
-                },
+                title = "功能区",
+                summary = if (cards) "长按主页空白处进入编辑" else "功能按分类排成卡片",
                 items = HOME_LAYOUT_LABELS,
                 selectedIndex = HOME_LAYOUT_VALUES.indexOf(layout).coerceAtLeast(0),
                 startAction = { SettingsIcon(Icons.Default.Dashboard, cBlue) },
@@ -189,10 +188,42 @@ private fun HomeSettingsBody(onDismiss: () -> Unit, showTopBarStyle: Boolean) {
                     HomeLayoutRevision.bump()
                 },
             )
+            if (cards) {
+                SwitchPreference(
+                    title = "吸附网格",
+                    summary = if (grid) "拖动与缩放按整格对齐" else "自由摆放，靠近时自动贴边",
+                    checked = grid,
+                    startAction = { SettingsIcon(Icons.Default.GridOn, cTeal) },
+                    onCheckedChange = { on ->
+                        // 关掉立刻生效（不动数据）；打开会把非整数摆位取整，先问一句
+                        if (!on) {
+                            grid = false
+                            store.grid = false
+                            store.notifyChanged()
+                        } else {
+                            confirmGrid = true
+                        }
+                    },
+                )
+            }
+            // 只有自己画首页顶栏按钮的端（:app）才画得出两种排法
+            if (showTopBarStyle) {
+                SwitchPreference(
+                    title = "按钮集中在右侧",
+                    summary = if (topActionsRight) "左侧显示头像" else "扫码在左、标题居中",
+                    checked = topActionsRight,
+                    startAction = { SettingsIcon(Icons.Default.SwapHoriz, cPurple) },
+                    onCheckedChange = {
+                        topActionsRight = it
+                        settings.homeTopActionsRight = it
+                        HomeLayoutRevision.bump()
+                    },
+                )
+            }
         }
 
-        // ── 背景（三套布局共用） ──
-        SmallTitle("背景")
+        // ── 外观：背景与卡片（背景、材质三套布局共用） ──
+        SmallTitle("外观")
         HomeSettingsCard {
             HomeBackgroundPreference(settings, startAction = { SettingsIcon(Icons.Default.Wallpaper, cPurple) })
             // 卡片组独有：壁纸再盖一层主题底色，文字对比度不够时自己往下拨
@@ -211,41 +242,26 @@ private fun HomeSettingsBody(onDismiss: () -> Unit, showTopBarStyle: Boolean) {
                     },
                 )
             }
-        }
-
-        // ── 卡片材质 ──
-        SmallTitle("卡片")
-        HomeSettingsCard {
-            // 圆角排在材质**上面**：先定「长什么样」（形状），再定「用什么材质」。
-            // 圆角只有卡片组有（经典分类卡 / 小组件那两套的圆角是写死的）；
-            // 编辑态那条悬浮条**恒为全圆**，不吃这个值
+            // 圆角只有卡片组有；编辑态悬浮条恒为全圆，不吃这个值。存的仍是 dp，老存档按最近一档显示
             if (cards) {
-                SettingsSliderRow(
-                    title = "卡片圆角",
-                    valueText = when (corner) {
-                        0 -> "直角"
-                        HomeLayoutStore.CARD_CORNER_MAX -> "圆饼"
-                        else -> "$corner dp"
-                    },
-                    value = corner.toFloat(),
-                    range = HomeLayoutStore.CARD_CORNER_MIN.toFloat()..HomeLayoutStore.CARD_CORNER_MAX.toFloat(),
-                    icon = Icons.Default.Widgets,
-                    color = cTeal,
-                    onChange = {
-                        corner = it.roundToInt()
+                OverlayDropdownPreference(
+                    title = "卡片形状",
+                    items = CARD_CORNER_PRESETS.map { it.second },
+                    selectedIndex = CARD_CORNER_PRESETS.indices.minBy { abs(CARD_CORNER_PRESETS[it].first - corner) },
+                    startAction = { SettingsIcon(Icons.Default.Widgets, cTeal) },
+                    onSelectedIndexChange = { index ->
+                        corner = CARD_CORNER_PRESETS[index].first
                         store.cardCorner = corner
+                        store.notifyChanged()
                     },
-                    // 松手才通知首页重读：拖的时候逐帧 bump 会把整页（含一圈液态玻璃）重组几十次，
-                    // 而这段连续值本来就只写盘、不逐帧刷新（同 notifyChanged 的约定）
-                    onValueChangeFinished = { store.notifyChanged() },
                 )
             }
             SwitchPreference(
                 title = "液态玻璃",
                 summary = when {
-                    !liquid -> "毛玻璃：半透明纸面 + 高光细边"
-                    glassHasDetail -> "透出壁纸并带折射（最费电的一档）"
-                    else -> "这张背景上看不出模糊与折射，只留薄色与高光轮廓"
+                    !liquid -> "毛玻璃：半透明纸面"
+                    glassHasDetail -> "透出壁纸并带折射"
+                    else -> "纯色背景上只留高光轮廓"
                 },
                 checked = liquid,
                 startAction = { SettingsIcon(Icons.Default.WaterDrop, cBlue) },
@@ -257,65 +273,30 @@ private fun HomeSettingsBody(onDismiss: () -> Unit, showTopBarStyle: Boolean) {
             )
         }
 
-        // ── 顶栏 ──
-        // 排法只有 :app 真的画得出两种（桌面 / web 的首页顶栏在外壳里，`showTopBarStyle` 为假）
-        if (showTopBarStyle) {
-            SmallTitle("顶栏")
+        // ── 备份与恢复：三个动作收进一个入口，不常用 ──
+        if (cards) {
+            SmallTitle("备份")
             HomeSettingsCard {
-                SwitchPreference(
-                    title = "功能按钮统一右对齐",
-                    summary = if (topActionsRight) {
-                        "三个圆钮都在右侧，左侧是交小西头像、不画标题（改造前的顶栏）"
-                    } else {
-                        "扫码靠左、标题居中，右侧只留搜索与通知"
-                    },
-                    checked = topActionsRight,
-                    startAction = { SettingsIcon(Icons.Default.SwapHoriz, cPurple) },
-                    onCheckedChange = {
-                        topActionsRight = it
-                        settings.homeTopActionsRight = it
-                        HomeLayoutRevision.bump()
-                    },
+                SimpleRow(
+                    title = "备份与恢复",
+                    summary = savedLayout?.let { "当前 ${it.groups.size} 组 · ${it.groups.sumOf { g -> g.tiles.size }} 个组件" }
+                        ?: "当前是默认布局",
+                    icon = Icons.Default.Description,
+                    color = cPurple,
+                    onClick = { showBackup = true },
                 )
             }
         }
 
-        // ── 网格与重置：只有卡片组有格位这个概念 ──
-        if (cards) {
-            SmallTitle("网格")
-            HomeSettingsCard {
-                SwitchPreference(
-                    title = "开启网格",
-                    summary = if (grid) {
-                        "拖动与缩放吸附到 1×1、1×2、2×1 这类标准栅格"
-                    } else {
-                        "自由摆放，拖到相邻边界时自动贴合"
-                    },
-                    checked = grid,
-                    startAction = { SettingsIcon(Icons.Default.GridOn, cTeal) },
-                    onCheckedChange = { on ->
-                        // 关掉是立刻生效的（不会动数据）；打开要把非整数摆位取整，先问一句
-                        if (!on) {
-                            grid = false
-                            store.grid = false
-                            store.notifyChanged()
-                        } else {
-                            confirmGrid = true
-                        }
-                    },
-                )
-            }
+        Spacer(Modifier.height(8.dp))
+    }
 
-            SmallTitle("备份与重置")
-            HomeSettingsCard {
-                // 三行按「先备份、再导入、最后推倒重来」排：导出在上，是因为它是唯一
-                // 无副作用的一步，也是下面两步的后悔药
+    if (showBackup) {
+        WindowDialog(show = true, title = "备份与恢复", onDismissRequest = { showBackup = false }) {
+            Column(Modifier.fillMaxWidth()) {
                 SimpleRow(
-                    title = "导出布局到文件",
-                    summary = savedLayout?.let { custom ->
-                        "共 ${custom.groups.size} 组 · " +
-                            "${custom.groups.sumOf { group -> group.tiles.size }} 个组件，存成一个 ${HOME_LAYOUT_FILE_NAME}"
-                    } ?: "还没摆过：首页现在用默认布局，没有可导出的内容",
+                    title = "导出到文件",
+                    summary = "存成 $HOME_LAYOUT_FILE_NAME",
                     icon = Icons.Default.Description,
                     color = cPurple,
                     onClick = {
@@ -323,30 +304,33 @@ private fun HomeSettingsBody(onDismiss: () -> Unit, showTopBarStyle: Boolean) {
                         if (saved == null) {
                             showBriefMessage("还没有自定义过布局，首页现在是默认布局")
                         } else {
+                            showBackup = false
                             saveLayoutFile(HOME_LAYOUT_FILE_NAME, HomeLayoutCodec.encode(saved))
                         }
                     },
                 )
-                SimpleDivider()
                 SimpleRow(
-                    title = "从文件导入布局",
-                    summary = "选一个导出过的 ${HOME_LAYOUT_FILE_NAME}，覆盖当前的分组与摆放",
+                    title = "从文件导入",
+                    summary = "覆盖当前的分组与摆放",
                     icon = Icons.Default.FolderOpen,
                     color = cBlue,
-                    onClick = pickLayoutFile,
+                    onClick = {
+                        showBackup = false
+                        pickLayoutFile()
+                    },
                 )
-                SimpleDivider()
                 SimpleRow(
-                    title = "恢复默认分组和布局",
-                    summary = "分组、顺序、组件大小全部回到刚安装时的样子",
+                    title = "恢复默认",
+                    summary = "分组、顺序、大小回到刚安装时",
                     icon = Icons.Default.RestartAlt,
                     color = cOrange,
-                    onClick = { confirmReset = true },
+                    onClick = {
+                        showBackup = false
+                        confirmReset = true
+                    },
                 )
             }
         }
-
-        Spacer(Modifier.height(8.dp))
     }
 
     if (confirmReset) {
@@ -496,23 +480,13 @@ internal fun SettingsSliderRow(
     )
 }
 
-/**
- * 卡内两行之间那条细线。
- *
- * 只有「重置」这张卡里有两行（导出 / 恢复默认），而这两行是手搓的 [SimpleRow]——MIUIX 的
- * preference 组件自己不带分隔线，所以这里补一条：起点对齐文字（16dp 内边距 + 32dp 图标 +
- * 12dp 间隔 = 60dp），右端留 16dp，和设置页其它卡片的观感一致。
- */
-@Composable
-private fun SimpleDivider() {
-    Box(
-        Modifier
-            .fillMaxWidth()
-            .padding(start = 60.dp, end = 16.dp)
-            .height(0.5.dp)
-            .background(MiuixTheme.colorScheme.onSurface.copy(alpha = 0.08f)),
-    )
-}
+/** 卡片形状的几档（圆角 dp）：最后一档在任何尺寸上都会被截成圆形。 */
+private val CARD_CORNER_PRESETS = listOf(
+    8 to "方正",
+    HomeLayoutStore.CARD_CORNER_DEFAULT to "标准",
+    32 to "圆润",
+    HomeLayoutStore.CARD_CORNER_MAX to "圆形",
+)
 
 /** 只有标题与说明的一行（重置这类动作），整行可点。 */
 @Composable

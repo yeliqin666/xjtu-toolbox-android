@@ -1,7 +1,16 @@
 package com.xjtu.toolbox.home
 
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.Crossfade
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.expandHorizontally
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.animation.shrinkHorizontally
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
@@ -9,6 +18,7 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -87,6 +97,7 @@ import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.squircle.squircleBorder
 import top.yukonga.miuix.kmp.squircle.squircleClip
 import top.yukonga.miuix.kmp.theme.MiuixTheme
+import top.yukonga.miuix.kmp.utils.SinkFeedback
 
 /**
  * 网格是**正方格**：一格的高恒等于一格的宽（=「组宽 + 缝」÷ 列数），一组的高度因此是
@@ -109,6 +120,20 @@ internal val HomeTileGap = 8.dp
 
 /** 组件位置/尺寸变化的弹簧：阻尼偏低一点，才有液态玻璃那种「弹一下再停住」。 */
 internal val HomeTileSpring = spring<Float>(dampingRatio = 0.62f, stiffness = 520f)
+
+/** 卡片按下 / 进出编辑态的缩放弹簧：略带回弹。 */
+private val TilePressSpring = spring<Float>(dampingRatio = 0.55f, stiffness = 420f)
+
+/** 编辑态卡片整体收到的比例，让出一圈空隙给角标。 */
+private const val EDIT_TILE_SCALE = 0.95f
+
+/** 编辑态摇摆：单程时长与最大角度。 */
+private val WobbleTween = tween<Float>(durationMillis = 190, easing = FastOutSlowInEasing)
+private const val WOBBLE_DEGREES = 1.1f
+
+/** 移除角标弹出 / 收回。 */
+private val BadgeEnter = scaleIn(spring(dampingRatio = 0.5f, stiffness = 500f)) + fadeIn(tween(120))
+private val BadgeExit = scaleOut(tween(140)) + fadeOut(tween(120))
 
 /** 右下角缩放把手的热区边长（§15）：贴着把手图示的一小块，太大容易和移动抢指针。 */
 internal val RESIZE_HANDLE_TOUCH = 30.dp
@@ -319,6 +344,7 @@ internal fun HomeGroupSection(
                                 tile = tile,
                                 face = face,
                                 editing = editing,
+                                still = !session.active,
                                 liquid = liquid,
                                 refraction = refraction,
                                 backdrop = backdrop,
@@ -375,11 +401,14 @@ private fun GroupHeader(
         Modifier.fillMaxWidth().height(GROUP_HEADER_ROW).padding(horizontal = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        if (editing) {
-            Box(Modifier.size(22.dp), contentAlignment = Alignment.Center) {
+        AnimatedVisibility(
+            visible = editing,
+            enter = expandHorizontally(spring(dampingRatio = 0.8f, stiffness = 500f)) + fadeIn(),
+            exit = shrinkHorizontally(tween(160)) + fadeOut(tween(120)),
+        ) {
+            Box(Modifier.padding(end = 4.dp).size(22.dp), contentAlignment = Alignment.Center) {
                 Icon(Icons.Default.DragHandle, contentDescription = "拖动排序", tint = muted, modifier = Modifier.size(16.dp))
             }
-            Spacer(Modifier.width(4.dp))
         }
         if (group.title.isNotBlank()) {
             Text(
@@ -407,7 +436,7 @@ private fun GroupHeader(
             // 无非让一个空占位把右侧按钮顶到边上
             Spacer(Modifier.weight(1f))
         }
-        if (editing) {
+        AnimatedVisibility(visible = editing, enter = BadgeEnter, exit = BadgeExit) {
             GroupDeleteButton(liquid = liquid, backdrop = backdrop, onClick = onDeleteGroup)
         }
     }
@@ -523,6 +552,7 @@ private const val PAYMENT_REFRESH_MS = 30_000L
 private fun Modifier.tileOpen(
     face: HomeServiceRow,
     radius: Dp,
+    press: MutableInteractionSource,
     onOpen: () -> Unit,
     onStartEdit: () -> Unit,
 ): Modifier {
@@ -531,7 +561,7 @@ private fun Modifier.tileOpen(
     return this
         .expandOriginSource(origin)
         .combinedClickable(
-            interactionSource = remember { MutableInteractionSource() },
+            interactionSource = press,
             indication = null,
             onClick = {
                 origin.arm(face.key, radius, density, null)
@@ -637,6 +667,8 @@ private fun HomeTileItem(
     tile: HomeTile,
     face: HomeServiceRow,
     editing: Boolean,
+    /** 没有拖拽在进行：编辑态只在这时摇摆。 */
+    still: Boolean,
     liquid: Boolean,
     refraction: Boolean,
     backdrop: Backdrop?,
@@ -679,16 +711,44 @@ private fun HomeTileItem(
     val radius = cardCorner.coerceAtMost(
         with(density) { minOf(target.widthPx, target.heightPx).toDp() } / 2,
     )
+    val press = remember { MutableInteractionSource() }
     val tap = if (editing) {
         Modifier
     } else {
-        Modifier.tileOpen(face = face, radius = radius, onOpen = onOpen, onStartEdit = onStartEdit)
+        Modifier.tileOpen(face = face, radius = radius, press = press, onOpen = onOpen, onStartEdit = onStartEdit)
+    }
+
+    // 动效全在绘制阶段读：按下下沉、编辑态整体收一圈并轻轻摇摆（拖拽中停摆，落点才看得准）
+    val pressed by press.collectIsPressedAsState()
+    val pressScale = animateFloatAsState(if (pressed && !editing) 0.95f else 1f, TilePressSpring, label = "tilePress")
+    val editScale = animateFloatAsState(if (editing) EDIT_TILE_SCALE else 1f, TilePressSpring, label = "tileEdit")
+    val wobble = remember { Animatable(0f) }
+    val wobbling = editing && still
+    LaunchedEffect(wobbling) {
+        if (!wobbling) {
+            wobble.animateTo(0f, TilePressSpring)
+            return@LaunchedEffect
+        }
+        // 每块错开相位与方向，整页才不会齐步走
+        val seed = tile.id.hashCode() and 0x7fffffff
+        val dir = if (seed % 2 == 0) 1f else -1f
+        delay((seed % 4) * 45L)
+        while (true) {
+            wobble.animateTo(dir, WobbleTween)
+            wobble.animateTo(-dir, WobbleTween)
+        }
     }
 
     Box(
         Modifier
             .offset { IntOffset((animX.value * colUnit).roundToInt(), (animY.value * rowUnit).roundToInt()) }
             .size(with(density) { frame.widthPx.toDp() }, with(density) { frame.heightPx.toDp() })
+            .graphicsLayer {
+                val s = pressScale.value * editScale.value
+                scaleX = s
+                scaleY = s
+                rotationZ = wobble.value * WOBBLE_DEGREES
+            }
             .then(tap),
     ) {
         // 圆角 / 材质一变就让**整块卡面换一个新节点**。
@@ -708,6 +768,7 @@ private fun HomeTileItem(
                 backdrop = backdrop,
                 blurGlass = blurGlass,
                 cornerRadius = radius,
+                interactive = !editing,
                 modifier = Modifier.fillMaxSize(),
             )
         }
@@ -718,12 +779,15 @@ private fun HomeTileItem(
             PaymentCodeOverlay(fetch = paymentCode, radius = radius)
         }
 
-        if (editing) {
-            // 左上角：移除这一块。热区 32dp，视觉只有 18dp，所以点偏一点也点得到。
-            // 手势层对这个热区放行（HomeHit.Pass），所以这里的点击照常生效。
+        // 左上角：移除这一块。热区 32dp，视觉只有 18dp；手势层对这个热区放行（HomeHit.Pass）
+        AnimatedVisibility(
+            visible = editing,
+            modifier = Modifier.align(Alignment.TopStart),
+            enter = BadgeEnter,
+            exit = BadgeExit,
+        ) {
             Box(
                 Modifier
-                    .align(Alignment.TopStart)
                     .size(REMOVE_TOUCH)
                     .pointerInput(tile.id) { detectTapGestures(onTap = { removeTile(tile.id) }) },
                 contentAlignment = Alignment.TopStart,
@@ -744,17 +808,16 @@ private fun HomeTileItem(
                     )
                 }
             }
-            // 右下角：缩放把手的**视觉**（§15）——主题色的直角括线（尖角带一点圆角）。
-            // 把手只画记号、不接手势：命中与拖动全在手势层。
-            //
-            // 它标的是**这一格的右下角**，不是卡片的形状：外框钉在 BottomEnd，括线只内缩
-            // [RESIZE_GRIP_INSET]（够描边不被裁就行），所以卡片圆角滑条拖到哪一档它都在
-            // 同一处、同一个朝向——压在卡片上还是压在那圈透明角上都无所谓。
-            Box(
-                Modifier
-                    .align(Alignment.BottomEnd)
-                    .size(RESIZE_HANDLE_TOUCH),
-            ) {
+        }
+        // 右下角：缩放把手的视觉（§15），只画记号、手势在手势层。标的是这一格的右下角，
+        // 与卡片圆角无关，括线只内缩 [RESIZE_GRIP_INSET] 保证描边不被裁
+        AnimatedVisibility(
+            visible = editing,
+            modifier = Modifier.align(Alignment.BottomEnd),
+            enter = fadeIn(tween(220, delayMillis = 60)),
+            exit = fadeOut(tween(120)),
+        ) {
+            Box(Modifier.size(RESIZE_HANDLE_TOUCH)) {
                 val gripColor = MiuixTheme.colorScheme.primary
                 Canvas(Modifier.fillMaxSize()) {
                     val stroke = RESIZE_GRIP_STROKE.toPx()
@@ -825,6 +888,8 @@ internal fun HomeTileFaceBox(
      * 算不出「拖到顶就是圆饼」需要的那个上限。
      */
     cornerRadius: Dp = 22.dp,
+    /** 明细行能不能点：只有常规态的真身可以（编辑态、拖拽幽灵不行）。 */
+    interactive: Boolean = false,
     modifier: Modifier = Modifier,
 ) {
     val dark = LocalIsDarkTheme.current
@@ -911,7 +976,10 @@ internal fun HomeTileFaceBox(
             .squircleBorder(0.7.dp, hairline, radius)
     }
 
-    val stat = face.stat?.takeIf { it.isNotBlank() }
+    // 明细第一条和状态是同一句（通知的状态就是最新一条标题）时，状态让给明细列表，免得一句话画两遍
+    val stat = face.stat?.takeIf { s -> s.isNotBlank() && face.lines.none { it.text == s } }
+    val lines = face.lines
+    val onLine = face.onLink.takeIf { interactive }
     // 状态短到 8 个字以内、又不是「一句话型」的功能，才当大字数据排（¥128.50、12 周、3 门）；
     // 其余是一句话（「今日暂无空教室」），压成大字就只剩个糊字
     val figure = stat != null && stat.length <= FIGURE_MAX_CHARS && face.key !in LIST_TILES
@@ -977,7 +1045,7 @@ internal fun HomeTileFaceBox(
                         )
                         Spacer(Modifier.height(3.dp))
                         Text(
-                            stat ?: face.subtitle,
+                            face.stat?.takeIf { it.isNotBlank() } ?: face.subtitle,
                             style = if (figure) {
                                 Editorial.figure.copy(fontSize = 19.sp, lineHeight = 23.sp)
                             } else {
@@ -987,10 +1055,12 @@ internal fun HomeTileFaceBox(
                             maxLines = if (figure || !face.statDetail.isNullOrBlank()) 1 else 2,
                             overflow = TextOverflow.Ellipsis,
                         )
-                        // 说明只跟着大字数据走：一句话型的状态本身就是完整的一句，再加一行反而碎
-                        if (figure && !face.statDetail.isNullOrBlank()) {
+                        // 说明只跟着大字数据走：一句话型的状态本身就是完整的一句，再加一行反而碎。
+                        // 没有说明时拿明细第一条补上（课表大字「5 门课」下面就是下一节）
+                        val wideDetail = face.statDetail?.takeIf { it.isNotBlank() } ?: lines.firstOrNull()?.text
+                        if (figure && wideDetail != null) {
                             Text(
-                                face.statDetail,
+                                wideDetail,
                                 fontSize = 9.5.sp,
                                 lineHeight = 12.sp,
                                 color = muted,
@@ -1001,9 +1071,9 @@ internal fun HomeTileFaceBox(
                     }
                 }
 
-                // 竖条（1×2 起）：名称压小、数据放大——高度正好够「小标题 + 一行大字 + 一行说明」。
-                // 没有状态的功能（社区、黄页这类）居中放图标 + 名称 + 说明，不留半屏空白
-                HomeTileShape.Tall -> if (stat == null) {
+                // 竖条（1×2 起）：名称压小、数据放大，剩下的高度列明细。
+                // 既没状态也没明细的功能居中放图标 + 名称 + 说明，不留半屏空白
+                HomeTileShape.Tall -> if (stat == null && lines.isEmpty()) {
                     HomeTileCentered(face, iconColor, ink, muted, iconSize = 30.dp, iconGlyph = 17.dp)
                 } else {
                     Column(Modifier.fillMaxSize().padding(10.dp)) {
@@ -1018,33 +1088,39 @@ internal fun HomeTileFaceBox(
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                         )
-                        Spacer(Modifier.height(7.dp))
-                        Text(
-                            stat,
-                            style = if (figure) {
-                                Editorial.figure.copy(fontSize = 19.sp, lineHeight = 24.sp)
-                            } else {
-                                MiuixTheme.textStyles.body2.copy(fontSize = 12.sp, lineHeight = 16.sp)
-                            },
-                            color = statColor,
-                            maxLines = if (figure) 1 else 3,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                        if (!face.statDetail.isNullOrBlank()) {
+                        if (stat != null) {
+                            Spacer(Modifier.height(7.dp))
                             Text(
-                                face.statDetail,
-                                fontSize = 10.5.sp,
-                                lineHeight = 14.sp,
-                                color = muted,
-                                maxLines = if (figure) 2 else 1,
+                                stat,
+                                style = if (figure) {
+                                    Editorial.figure.copy(fontSize = 19.sp, lineHeight = 24.sp)
+                                } else {
+                                    MiuixTheme.textStyles.body2.copy(fontSize = 12.sp, lineHeight = 16.sp)
+                                },
+                                color = statColor,
+                                maxLines = if (figure) 1 else 3,
                                 overflow = TextOverflow.Ellipsis,
                             )
+                            if (!face.statDetail.isNullOrBlank()) {
+                                Text(
+                                    face.statDetail,
+                                    fontSize = 10.5.sp,
+                                    lineHeight = 14.sp,
+                                    color = muted,
+                                    maxLines = if (figure && lines.isEmpty()) 2 else 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                            }
+                        }
+                        if (lines.isNotEmpty()) {
+                            Spacer(Modifier.height(6.dp))
+                            TileLines(lines, ink, muted, onLine, compact = true, modifier = Modifier.weight(1f))
                         }
                     }
                 }
 
-                // 大方块（2×2 起）：右上角压一枚几乎看不见的水印图标，数据再放大一档
-                HomeTileShape.Large -> if (stat == null) {
+                // 大方块（2×2 起）：右上角压一枚几乎看不见的水印图标，数据放大一档，剩下的高度列明细
+                HomeTileShape.Large -> if (stat == null && lines.isEmpty()) {
                     HomeTileCentered(face, iconColor, ink, muted, iconSize = 42.dp, iconGlyph = 24.dp)
                 } else {
                     Box(Modifier.fillMaxSize()) {
@@ -1064,30 +1140,95 @@ internal fun HomeTileFaceBox(
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
                             )
-                            Spacer(Modifier.height(7.dp))
-                            Text(
-                                stat,
-                                style = if (figure) {
-                                    Editorial.figure.copy(fontSize = 26.sp, lineHeight = 31.sp)
-                                } else {
-                                    MiuixTheme.textStyles.body2.copy(fontSize = 13.sp, lineHeight = 17.sp)
-                                },
-                                color = statColor,
-                                maxLines = if (figure) 1 else 3,
-                                overflow = TextOverflow.Ellipsis,
-                            )
-                            if (!face.statDetail.isNullOrBlank()) {
-                                Spacer(Modifier.height(2.dp))
+                            if (stat != null) {
+                                Spacer(Modifier.height(7.dp))
                                 Text(
-                                    face.statDetail,
-                                    fontSize = 10.5.sp,
-                                    lineHeight = 14.sp,
-                                    color = muted,
-                                    maxLines = if (figure) 1 else 2,
+                                    stat,
+                                    style = if (figure) {
+                                        Editorial.figure.copy(fontSize = 26.sp, lineHeight = 31.sp)
+                                    } else {
+                                        MiuixTheme.textStyles.body2.copy(fontSize = 13.sp, lineHeight = 17.sp)
+                                    },
+                                    color = statColor,
+                                    maxLines = if (figure || lines.isNotEmpty()) 1 else 3,
                                     overflow = TextOverflow.Ellipsis,
                                 )
+                                if (!face.statDetail.isNullOrBlank()) {
+                                    Spacer(Modifier.height(2.dp))
+                                    Text(
+                                        face.statDetail,
+                                        fontSize = 10.5.sp,
+                                        lineHeight = 14.sp,
+                                        color = muted,
+                                        maxLines = if (figure || lines.isNotEmpty()) 1 else 2,
+                                        overflow = TextOverflow.Ellipsis,
+                                    )
+                                }
+                            }
+                            if (lines.isNotEmpty()) {
+                                Spacer(Modifier.height(if (stat != null) 8.dp else 6.dp))
+                                TileLines(lines, ink, muted, onLine, compact = false, modifier = Modifier.weight(1f))
                             }
                         }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/**
+ * 大卡里的明细列表（今天的课、最近几笔、常用电话……）：按剩余高度能放几行就放几行，
+ * 不画半截。带链接的一行可点（编辑态与幽灵块上 [onLine] 为 null）。
+ */
+@Composable
+private fun TileLines(
+    lines: List<HomeLine>,
+    ink: Color,
+    muted: Color,
+    onLine: ((String) -> Unit)?,
+    compact: Boolean,
+    modifier: Modifier = Modifier,
+) {
+    val rowHeight = if (compact) 16.dp else 20.dp
+    BoxWithConstraints(modifier.fillMaxWidth()) {
+        val fit = (maxHeight / rowHeight).toInt()
+        Column {
+            lines.take(fit).forEach { line ->
+                val link = line.link
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .height(rowHeight)
+                        .then(
+                            if (link != null && onLine != null) {
+                                Modifier
+                                    .clip(RoundedCornerShape(6.dp))
+                                    .clickable(
+                                        interactionSource = remember { MutableInteractionSource() },
+                                        indication = SinkFeedback(),
+                                        onClick = { onLine(link) },
+                                    )
+                            } else {
+                                Modifier
+                            },
+                        ),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Box(Modifier.size(4.dp).background(muted.copy(alpha = 0.55f), CircleShape))
+                    Spacer(Modifier.width(6.dp))
+                    Text(
+                        line.text,
+                        fontSize = if (compact) 10.sp else 11.5.sp,
+                        lineHeight = if (compact) 13.sp else 15.sp,
+                        color = ink,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f),
+                    )
+                    if (!compact && !line.detail.isNullOrBlank()) {
+                        Spacer(Modifier.width(6.dp))
+                        Text(line.detail, fontSize = 10.sp, lineHeight = 13.sp, color = muted, maxLines = 1)
                     }
                 }
             }

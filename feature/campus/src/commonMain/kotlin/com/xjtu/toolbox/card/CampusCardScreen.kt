@@ -33,6 +33,8 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import com.kyant.backdrop.backdrops.layerBackdrop
+import com.kyant.backdrop.backdrops.rememberLayerBackdrop
 import com.xjtu.toolbox.auth.LocalAuthExpiry
 import com.xjtu.toolbox.ui.adaptive.readableWidth
 import com.xjtu.toolbox.ui.components.AppDatePickerDialog
@@ -45,7 +47,8 @@ import com.xjtu.toolbox.ui.components.MeshBackground
 import com.xjtu.toolbox.ui.components.appCardShadow
 import com.xjtu.toolbox.ui.components.enterOnce
 import com.xjtu.toolbox.ui.glass.followTopBar
-import com.xjtu.toolbox.ui.glass.topBarScrim
+import com.xjtu.toolbox.ui.glass.glassBarSurface
+import com.xjtu.toolbox.ui.glass.glassBarTint
 import com.xjtu.toolbox.util.todayOnCampus
 import kotlin.math.abs
 import kotlin.time.Clock
@@ -162,6 +165,9 @@ fun CampusCardScreen(
     } else {
         "近${vm.timeRange.label}"
     }
+    // 这一页自己的采样源：顶栏采它，不用全局的 LocalAppBackdrop（这是二级页，有自己
+    // 的 Scaffold/TopAppBar）。
+    val cardBackdrop = rememberLayerBackdrop()
     // 宽屏「流水 / 分析」两栏的选中项。标签行在顶栏里，所以提到 Scaffold 外面
     val isWideTop = com.xjtu.toolbox.ui.isWideLayout()
     var wideTab by rememberSaveable { mutableIntStateOf(0) }
@@ -245,9 +251,10 @@ fun CampusCardScreen(
                     }
                 },
                 modifier = if (glass) {
-                    // 和其他二级页顶栏同一套画法：不投影、不折射、不采样，只压一条
-                    // 「暗色黑 / 亮色白」的渐变遮罩，见 topBarScrim。
-                    Modifier.topBarScrim()
+                    // 和其他二级页顶栏同一套画法：不投影、不折射、底边渐隐，见 glassBarSurface。
+                    // 以前这里单独写了一份：只模糊 4dp、没压表面色，还开了 24dp 的强折射，
+                    // 余额卡滚上去时标题下面一大片被拉弯。
+                    Modifier.glassBarSurface(cardBackdrop, glassBarTint())
                 } else {
                     Modifier
                 },
@@ -310,9 +317,10 @@ fun CampusCardScreen(
                         modifier = Modifier.fillMaxSize(),
                     ) {
                         // 横滑切栏（概览/流水/分析），用契约组件 AppTabPager；标签行仍由下面的
-                        // AppSegmentedTabs 负责点击切换，两者共用同一个 selectedTab。
+                        // AppSegmentedTabs 负责点击切换，两者共用同一个 selectedTab。挂上
+                        // layerBackdrop，顶栏才能采到「余额卡从这里滚过去」的画面。
                         if (isWide) {
-                            Row(Modifier.fillMaxSize().followTopBar({ stableTop.value }, padding)) {
+                            Row(Modifier.fillMaxSize().layerBackdrop(cardBackdrop).followTopBar({ stableTop.value }, padding)) {
                                 Box(Modifier.weight(0.42f).fillMaxHeight()) {
                                     // 右栏就是完整的流水，左栏不再重复「最近交易」
                                     OverviewTab(
@@ -349,7 +357,7 @@ fun CampusCardScreen(
                             pageCount = 3,
                             selectedTabIndex = selectedTab,
                             onTabSelected = { selectedTab = it },
-                            modifier = Modifier.fillMaxSize().followTopBar({ stableTop.value }, padding),
+                            modifier = Modifier.fillMaxSize().layerBackdrop(cardBackdrop).followTopBar({ stableTop.value }, padding),
                         ) { tab ->
                             when (tab) {
                                 0 -> OverviewTab(

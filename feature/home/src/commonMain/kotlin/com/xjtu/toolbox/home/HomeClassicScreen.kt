@@ -64,7 +64,10 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.xjtu.toolbox.ui.glass.topBarScrim
+import com.kyant.backdrop.Backdrop
+import com.kyant.backdrop.backdrops.layerBackdrop
+import com.kyant.backdrop.backdrops.rememberLayerBackdrop
+import com.xjtu.toolbox.ui.glass.progressiveBlurBar
 import com.xjtu.toolbox.bulletin.BulletinNoticePanel
 import com.xjtu.toolbox.nav.AppRoute
 import com.xjtu.toolbox.nav.SeamlessCardSource
@@ -120,7 +123,7 @@ fun HomeClassicScreen(
     extraBottomPadding: Dp = 0.dp,
     /** 玻璃顶栏的高度：内容铺到顶栏下面，这段留白放进滚动内容里。经典风格为 0。 */
     contentTopPadding: Dp = 0.dp,
-    /** 壳把整页上移的量（见 `ShellPageInsets.contentTopShift`）；顶栏遮罩按它补回屏幕顶边。 */
+    /** 壳把整页上移的量（见 `ShellPageInsets.contentTopShift`）；模糊带按它补回屏幕顶边。 */
     contentTopShift: () -> Dp = { 0.dp },
     /** 顶栏最左边的按钮（「功能按钮统一右对齐」关掉时宿主放扫码）；开着时那里是头像。 */
     topLeading: (@Composable () -> Unit)? = null,
@@ -153,13 +156,7 @@ fun HomeClassicScreen(
             onSeamlessClick = seamlessOpeners[id] ?: { source -> host.onRouteSeamless(service.route, source) },
             stat = stat?.value,
             statDetail = stat?.detail,
-            lines = stat?.lines.orEmpty().ifEmpty {
-                if (service.route == AppRoute.Agent) listOf(
-                    HomeLine("安排今天", "agent:看看我今天的课表和待办，帮我安排今天。"),
-                    HomeLine("找自习教室", "agent:帮我找现在适合自习的空闲教室。"),
-                    HomeLine("收纳一件事", "agent:帮我把下面的事情整理成日程或待办："),
-                ) else emptyList()
-            },
+            lines = stat?.lines.orEmpty().ifEmpty { HomeCards.linesOf(id, emptyMap()) },
         )
     }
 
@@ -210,12 +207,13 @@ fun HomeClassicScreen(
     // 刊头先让出一栏高度、再画在顶栏下面，所以滑完整个刊头才算折叠完成
     val rangePx = if (masthead && mastheadPx > 0) mastheadPx.toFloat().coerceAtLeast(barPx) else barPx
     val progress = { (scroll.value / rangePx).coerceIn(0f, 1f) }
-    // 顶栏从 2026-11 起不再采样，改画一条渐变遮罩（见 topBarScrim），所以这一页不用再录采样层
+    // 顶栏的模糊带采这一页自己的滚动层：顶栏本身在壳的采样层里，采壳的层会采到自己
+    val pageBackdrop = rememberLayerBackdrop()
     val glass = LocalGlassStyle.current && collapsible
 
     Box(modifier.fillMaxSize()) {
-        // 壁纸和滚动内容在这一层里；顶栏不采它了，就不再挂 layerBackdrop（省一次整屏离屏渲染）
-        Box(Modifier.matchParentSize()) {
+        // 壁纸和滚动内容一起录进顶栏的采样层，模糊带里也有壁纸
+        Box(Modifier.matchParentSize().then(if (glass) Modifier.layerBackdrop(pageBackdrop) else Modifier)) {
         HomeWallpaper(
             background, wallpaper,
             Modifier.matchParentSize(),
@@ -292,7 +290,7 @@ fun HomeClassicScreen(
                 progress = progress,
                 topInset = contentTopPadding,
                 bandShift = contentTopShift,
-                glass = glass,
+                backdrop = if (glass) pageBackdrop else null,
                 onTapCollapsed = { scope.launch { scroll.animateScrollTo(0) } },
                 leading = topLeading.takeIf { !topActionsRight },
                 actions = topActions,
@@ -305,14 +303,14 @@ fun HomeClassicScreen(
 /**
  * 首页的折叠顶栏，叠在滚动内容上面。默认圆钮都在右上角，往上滑过刊头后玻璃底色和左边的头像
  * 一起浮出来；给了 [leading]（主页设置关掉「统一右对齐」）时左边换成它、标题居中。
- * 底边柔和淡出（暗色黑 / 亮色白的渐变，不采样不模糊）；折叠后点空白处回到顶部。
+ * 底边柔和淡出，内容从它后面模糊着滑过；折叠后点空白处回到顶部。
  */
 @Composable
 private fun HomeCollapsingBar(
     progress: () -> Float,
     topInset: Dp,
     bandShift: () -> Dp,
-    glass: Boolean,
+    backdrop: Backdrop?,
     onTapCollapsed: () -> Unit,
     leading: (@Composable () -> Unit)?,
     actions: @Composable () -> Unit,
@@ -323,23 +321,22 @@ private fun HomeCollapsingBar(
     val collapsed by remember { derivedStateOf { latestProgress() > 0.5f } }
     val surface = MiuixTheme.colorScheme.surface
     Box(Modifier.fillMaxWidth().height(topInset + BAR_HEIGHT)) {
-        if (glass) {
-            // 96dp 的遮罩比顶栏本身高，放在顶栏高度之外，才能往内容里多淡一段。
-            // 贴的是屏幕顶边而不是这一页的本地 0 点：壳会按 stable 顶栏高度把整页上移，
-            // 不补回 [bandShift] 的话整条遮罩会被顶到屏幕外（切到过顶栏更高的 tab 再回来就复现）。
+        if (backdrop != null) {
+            // 96dp 的模糊带比顶栏本身高，往内容里多淡一段。贴屏幕顶边：壳会按 stable 顶栏高度
+            // 把整页上移，不补回 [bandShift] 整条带会被顶出屏幕。
             Box(
                 Modifier
                     .fillMaxWidth()
-                    .requiredHeight(TOP_BAR_SCRIM_HEIGHT)
+                    .requiredHeight(PROGRESSIVE_BLUR_BAND_HEIGHT)
                     .offset { IntOffset(0, bandShift().roundToPx()) },
             ) {
-                Box(Modifier.matchParentSize().topBarScrim(titled = false))
+                Box(Modifier.matchParentSize().progressiveBlurBar(backdrop, surface, titled = false))
             }
         }
         Box(
             Modifier
                 .matchParentSize()
-                .then(if (!glass) Modifier.background(surface) else Modifier)
+                .then(if (backdrop == null) Modifier.background(surface) else Modifier)
                 .then(
                     if (collapsed) Modifier.clickable(interactionSource = null, indication = null, onClick = onTapCollapsed)
                     else Modifier
@@ -381,8 +378,8 @@ private fun HomeCollapsingBar(
 /** 展开时圆钮比顶栏正中上移的距离：顶栏里圆钮上方正好留这么多，不会顶进状态栏。 */
 private val BUTTON_LIFT get() = (BAR_HEIGHT - 36.dp) / 2 - 2.dp
 
-/** 顶栏渐变遮罩的高度：96dp（比顶栏本身高，才能往内容里多淡一段）。 */
-private val TOP_BAR_SCRIM_HEIGHT = 96.dp
+/** 顶部模糊带的高度。 */
+private val PROGRESSIVE_BLUR_BAND_HEIGHT = 96.dp
 
 // ── 首页版式 ──
 
@@ -1039,6 +1036,8 @@ internal data class HomeServiceRow(
     val tone: HomeTone = HomeTone.NORMAL,
     /** 大尺寸小组件里列的明细（最近几笔、今天的课……）。 */
     val lines: List<HomeLine> = emptyList(),
+    /** 点明细里带链接的一条（网址、`tel:`、`app:`、`agent:`）；null = 明细不可点。 */
+    val onLink: ((String) -> Unit)? = null,
 )
 
 /** 点开功能页，并让功能页从这一块放大出来。 */
