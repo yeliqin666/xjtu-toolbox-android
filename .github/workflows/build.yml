@@ -471,6 +471,17 @@ jobs:
           $BT/aapt dump badging "$APK" | grep -q "versionName='$VERSION'" \
             || { echo "::error::APK 内 versionName 与预期 $VERSION 不一致"; exit 1; }
           cp "$APK" "xjtu-toolbox-$VERSION.apk"
+          # 预览版现在与正式版同一套 R8 规则，堆栈已混淆，mapping 必须随构建留档供 retrace
+          test -f app/build/outputs/mapping/preview/mapping.txt \
+            || { echo "::error::preview mapping.txt 缺失，崩溃堆栈无法 retrace"; exit 1; }
+
+      - name: Upload preview R8 mapping
+        if: env.PUBLISH_PREVIEW == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: mapping-preview-${{ steps.preview.outputs.version }}
+          path: app/build/outputs/mapping/preview/mapping.txt
+          retention-days: 90
 
       - name: Publish preview to OSS (primary)
         id: oss_preview_publish

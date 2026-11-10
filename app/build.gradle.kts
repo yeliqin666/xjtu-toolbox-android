@@ -135,12 +135,15 @@ android {
         }
         create("preview") {
             // 预览渠道包：给愿意尝鲜的用户，也是我们抓问题的主要来源。
-            // - 不混淆不压缩：崩溃堆栈直接可读，proguard 里 -assumenosideeffects 不生效，Log 完整保留。
+            // - R8 与正式版完全同一套规则（initWith(release) 继承 proguardFiles）：
+            //   混淆 + 资源压缩 + 移除 Log.d/v，包体和运行表现对齐正式版，
+            //   也能提前暴露只在 R8 后才出现的 keep / 序列化问题。
+            //   代价：崩溃堆栈需要 mapping retrace，CI 会按预览版本号上传 mapping。
             // - 非 debuggable：debug 包的 Compose 明显卡顿，用户会以为新版本变慢。
             // - 与 release 同签名：可与正式版互相覆盖安装，不丢登录态。
             initWith(getByName("release"))
-            isMinifyEnabled = false
-            isShrinkResources = false
+            isMinifyEnabled = true
+            isShrinkResources = true
             isDebuggable = false
             // initWith 已把 release 的签名配置抄过来；本地没有 keystore 时要显式清掉，
             // 否则 validateSigningPreview 直接失败，而不是产出未签名包。
@@ -180,10 +183,14 @@ android {
 }
 
 androidComponents {
-    // 正式发布包只带 ARM 的 so（CameraX、graphics-path 各一份 x86/x86_64，约 110KB）：
-    // 手机与平板都是 ARM。只作用于 `release` 这一个构建类型——baseline profile 插件派生的
-    // nonMinifiedRelease 跑在 x86_64 托管模拟器上，必须保留 x86_64，否则采集时加载 so 失败。
+    // 正式发布包与预览包都只带 ARM 的 so（CameraX、graphics-path 各一份 x86/x86_64，约 170KB）：
+    // 手机与平板都是 ARM。只挑 release / preview 这两个构建类型——baseline profile 插件派生的
+    // nonMinifiedRelease / nonMinifiedPreview 跑在 x86_64 托管模拟器上，必须保留 x86_64，
+    // 否则采集时加载 so 失败。
     onVariants(selector().withBuildType("release")) { variant ->
+        variant.packaging.jniLibs.excludes.addAll("lib/x86/**", "lib/x86_64/**")
+    }
+    onVariants(selector().withBuildType("preview")) { variant ->
         variant.packaging.jniLibs.excludes.addAll("lib/x86/**", "lib/x86_64/**")
     }
 }
