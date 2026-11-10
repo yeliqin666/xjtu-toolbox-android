@@ -1,6 +1,6 @@
 name: Handle /toissue in discussions
 
-# 监听 Discussion 新评论里的 /toissue 命令，把主帖或楼中楼转换成 issue。
+# 监听 Discussion 新评论里的 /toissue 命令，把主帖或父评论转换成 issue。
 #
 # /toissue <type> <priority> [flags] [assignee]
 #   type     bug / feature
@@ -9,7 +9,9 @@ name: Handle /toissue in discussions
 #   assignee @用户名，可省略
 #
 # 只有仓库 write / maintain / admin 权限的作者会触发；权限不足静默跳过。
-# 顶层回复转换讨论主帖，楼中楼转换该楼中楼本身。
+# 顶层回复默认转换讨论主帖，楼中楼默认转换父评论（replyTo）。
+# 命令后空一行写 `## 标题`，再空一行写正文时，用这段内容作为 issue。
+# 没有 `## 标题` 时忽略后面的文字，回退到默认来源。
 # GitHub 不允许回复楼中楼，所以对楼中楼命令的回复会落在同一线程顶层，并引用具体评论。
 # 已转换过的来源会在 issue 正文里留隐藏标记，重复命令只更新/回链，不会重复建 issue。
 #

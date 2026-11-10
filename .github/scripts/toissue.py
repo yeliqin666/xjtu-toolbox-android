@@ -12,11 +12,14 @@
   顺序无关，大小写不敏感，未定义字符忽略并在回复末尾提示；
 * assignee：@用户名，可省略；flags 位置以 @ 开头时跳过 flags。
 
-触发位置决定转换对象：顶层回复 → 转换讨论主帖；楼中楼 → 转换该楼中楼本身。
-只有仓库 write / maintain / admin 权限的作者会触发；权限不足时静默跳过。
+触发位置决定默认来源：顶层回复 → 讨论主帖；楼中楼 → 父评论（replyTo）。
+命令后空一行写 `## 标题`，再空一行写正文时，用这段内容作为 issue；没有标题则忽略后面
+文字，回退到默认来源。只有仓库 write / maintain / admin 权限的作者会触发；权限不足时
+静默跳过。
 
 幂等：转出的 issue 正文里带隐藏标记 `<!-- toissue:source=... -->`，再次收到同一来源的
-命令时用 GitHub 搜索找回已有 issue；标签组一致只回链接，不一致则更新标签并说明。
+命令时用 GitHub 搜索找回已有 issue；有自定义标题时以命令评论为来源，否则按默认来源
+（主帖/父评论）去重。标签组一致只回链接，不一致则更新标签并说明。
 
 这是给以后更多讨论区命令用的最小框架：命令注册在 HANDLERS，每个 handler 只负责
 解析自己的参数并返回回复正文，GitHub 读写统一走 GitHub 类。
@@ -79,6 +82,7 @@ USAGE = """用法：
   - 未定义的字符会被忽略，并在回复末尾提示
 - `assignee`：`@用户名`，可省略
 - flags 位置以 `@` 开头时跳过 flags，直接按 assignee 解析
+- 命令下方空一行后可写 `## 标题`，标题与正文之间至少空一行（正文可留空）；没有 `## 标题` 时忽略后面的文字，回退到主帖/父评论
 
 示例：`/toissue bug 1 qt @someone`"""
 
@@ -226,7 +230,7 @@ query($id: ID!) {
       url
       authorAssociation
       author { login }
-      replyTo { id databaseId }
+      replyTo { id databaseId body url }
       discussion {
         id
         number
@@ -327,6 +331,8 @@ class Comment:
     author_association: str
     reply_to_id: Optional[int]
     reply_to_node_id: Optional[str]
+    reply_to_body: str
+    reply_to_url: str
     discussion: Discussion
 
     @property
@@ -351,6 +357,22 @@ class ToIssueArgs:
     flags: set[str] = field(default_factory=set)
     assignee: Optional[str] = None
     warnings: list[str] = field(default_factory=list)
+
+
+@dataclass
+class Tail:
+    title: str
+    body: str
+
+
+@dataclass
+class Source:
+    key: str
+    content: str
+    raw_title: str
+    link: str
+    where: str
+    fallback_title: str
 
 
 class CommandHandler:
@@ -407,6 +429,8 @@ def fetch_comment(client: GitHub, node_id: str) -> Comment:
         author_association=node.get("authorAssociation") or "",
         reply_to_id=(int(reply_to["databaseId"]) if reply_to.get("databaseId") else None),
         reply_to_node_id=reply_to.get("id"),
+        reply_to_body=reply_to.get("body") or "",
+        reply_to_url=reply_to.get("url") or "",
         discussion=discussion,
     )
 
@@ -430,11 +454,32 @@ def find_command(body: str) -> Optional[tuple[str, list[str], int]]:
     return None
 
 
-def strip_command_line(body: str, line_index: int) -> str:
+def parse_tail(body: str, command_line_index: int) -> Optional[Tail]:
+    """读取命令后空一行开始的 `## 标题` 块；不合法时返回 None。"""
     lines = body.splitlines()
-    if 0 <= line_index < len(lines):
-        del lines[line_index]
-    return "\n".join(lines).strip()
+    index = command_line_index + 1
+    # 指令和标题之间至少要有一行空行。
+    if index >= len(lines) or lines[index].strip():
+        return None
+    while index < len(lines) and not lines[index].strip():
+        index += 1
+    if index >= len(lines):
+        return None
+
+    heading = lines[index].strip()
+    if not heading.startswith("## "):
+        return None
+    title = heading[3:].strip()
+    if not title:
+        return None
+    index += 1
+
+    # 标题和正文之间也要有空行；标题后直接结束也算正文为空。
+    if index < len(lines) and lines[index].strip():
+        return None
+    while index < len(lines) and not lines[index].strip():
+        index += 1
+    return Tail(title, "\n".join(lines[index:]).strip())
 
 
 def first_content_line(body: str) -> str:
@@ -457,6 +502,40 @@ def issue_title(kind: str, raw: str, fallback: str) -> str:
     if len(text) > 120:
         text = text[:119].rstrip() + "…"
     return f"{TITLE_PREFIX[kind]} {text}"
+
+
+def pick_source(comment: Comment, command_line_index: int) -> Source:
+    """有 `## 标题` 用命令评论；否则顶层回退主帖，楼中楼回退父评论。"""
+    discussion = comment.discussion
+    tail = parse_tail(comment.body, command_line_index)
+    if tail is not None:
+        return Source(
+            key=f"discussioncomment-{comment.database_id}",
+            content=tail.body,
+            raw_title=tail.title,
+            link=f"[Discussion #{discussion.number} 的这条评论]({comment.url})",
+            where="本评论",
+            fallback_title=f"Discussion #{discussion.number} 的评论",
+        )
+
+    if comment.reply_to_id is None:
+        return Source(
+            key=f"discussion-{discussion.number}",
+            content=discussion.body,
+            raw_title=discussion.title,
+            link=f"[Discussion #{discussion.number}]({discussion.url})",
+            where="本讨论",
+            fallback_title=f"Discussion #{discussion.number} 的回复",
+        )
+
+    return Source(
+        key=f"discussioncomment-{comment.reply_to_id}",
+        content=comment.reply_to_body,
+        raw_title=first_content_line(comment.reply_to_body),
+        link=f"[Discussion #{discussion.number} 的父评论]({comment.reply_to_url})",
+        where="父评论",
+        fallback_title=f"Discussion #{discussion.number} 的父评论",
+    )
 
 
 def parse_toissue(args: list[str]) -> ToIssueArgs:
@@ -721,29 +800,17 @@ class ToIssueHandler(CommandHandler):
         if missing:
             raise CommandFailure("仓库缺少标签：" + "、".join(f"`{name}`" for name in missing))
 
-        if comment.reply_to_id is None:
-            source_key = f"discussion-{discussion.number}"
-            content = discussion.body
-            raw_title = discussion.title
-            source_link = f"[Discussion #{discussion.number}]({discussion.url})"
-            where = "本讨论"
-        else:
-            source_key = f"discussioncomment-{comment.database_id}"
-            content = strip_command_line(comment.body, ctx.command_line_index)
-            raw_title = first_content_line(content)
-            source_link = f"[Discussion #{discussion.number} 的这条回复]({comment.url})"
-            where = "本楼"
-
-        title = issue_title(parsed.type, raw_title, f"Discussion #{discussion.number} 的回复")
-        body = build_issue_body(source_key, source_link, content)
-        existing = find_existing_issue(ctx.client, ctx.owner, ctx.repo, source_key)
+        source = pick_source(comment, ctx.command_line_index)
+        title = issue_title(parsed.type, source.raw_title, source.fallback_title)
+        body = build_issue_body(source.key, source.link, source.content)
+        existing = find_existing_issue(ctx.client, ctx.owner, ctx.repo, source.key)
 
         if existing:
             current = managed_labels(existing)
             state_note = "（当前 issue 已关闭）" if existing.get("state") == "CLOSED" else ""
             if current == desired:
                 reply = (
-                    f"{where}已于 {format_time(existing['createdAt'])}（北京时间）"
+                    f"{source.where}已于 {format_time(existing['createdAt'])}（北京时间）"
                     f"转为 issue #{existing['number']}：{existing['url']}{state_note}，标签与命令一致。"
                 )
             else:
@@ -754,7 +821,7 @@ class ToIssueHandler(CommandHandler):
                     raise CommandFailure(public_api_message(error), parsed.warnings, fatal=True) from None
                 changes = format_changes(desired - current, current - desired)
                 reply = (
-                    f"{where}此前已于 {format_time(existing['createdAt'])}（北京时间）"
+                    f"{source.where}此前已于 {format_time(existing['createdAt'])}（北京时间）"
                     f"转为 issue #{existing['number']}：{existing['url']}{state_note}。"
                     f"已按命令更新标签：{changes}。"
                 )
@@ -825,7 +892,56 @@ def self_test() -> None:
     assert found is not None and found[0] == "/toissue"
     assert found[1] == ["bug", "1", "@someone"] and found[2] == 1
 
-    assert strip_command_line("/toissue bug 1\n正文", 0) == "正文"
+    assert parse_tail("/toissue bug 1\n\n## 标题\n\n正文", 0) == Tail("标题", "正文")
+    assert parse_tail("/toissue bug 1\n\n## 标题", 0) == Tail("标题", "")
+    assert parse_tail("/toissue bug 1\n\n## 标题\n正文", 0) is None
+    assert parse_tail("/toissue bug 1\n## 标题\n\n正文", 0) is None
+    assert parse_tail("/toissue bug 1\n\n### 标题\n\n正文", 0) is None
+    assert parse_tail("/toissue bug 1\n\n##标题\n\n正文", 0) is None
+    assert parse_tail("/toissue bug 1\n\n##  \n\n正文", 0) is None
+    assert parse_tail("/toissue bug 1\n\n  ## 标题  \n\n正文", 0) == Tail("标题", "正文")
+
+    discussion = Discussion("D", 7, "讨论标题", "主帖正文", "durl", "R")
+
+    def make_comment(
+        body: str, reply_to_id: Optional[int] = None, parent_body: str = "", parent_url: str = "purl"
+    ) -> Comment:
+        return Comment(
+            "C",
+            2,
+            body,
+            "curl",
+            "u",
+            "COLLABORATOR",
+            reply_to_id,
+            "P" if reply_to_id else None,
+            parent_body,
+            parent_url,
+            discussion,
+        )
+
+    source = pick_source(make_comment("/toissue bug 1\n\n## 自定义\n\n正文"), 0)
+    assert source.key == "discussioncomment-2" and source.content == "正文"
+    assert source.raw_title == "自定义" and source.where == "本评论"
+
+    source = pick_source(make_comment("/toissue bug 1"), 0)
+    assert source.key == "discussion-7" and source.content == "主帖正文"
+    assert source.where == "本讨论"
+
+    source = pick_source(make_comment("/toissue bug 1", 9, "父评论正文"), 0)
+    assert source.key == "discussioncomment-9" and source.content == "父评论正文"
+    assert source.raw_title == "父评论正文" and source.where == "父评论"
+
+    source = pick_source(make_comment("/toissue bug 1\n\n## 标题\n\n正文", 9, "父评论正文"), 0)
+    assert source.key == "discussioncomment-2" and source.content == "正文"
+
+    # 标题块不合法时忽略尾随文字，回退到默认来源。
+    source = pick_source(make_comment("/toissue bug 1\n## 标题\n\n正文"), 0)
+    assert source.key == "discussion-7" and source.content == "主帖正文"
+
+    source = pick_source(make_comment("/toissue bug 1\n## 标题\n\n正文", 9, "父评论正文"), 0)
+    assert source.key == "discussioncomment-9" and source.content == "父评论正文"
+
     assert issue_title("bug", "[Bug] 闪退", "fallback") == "[Bug] 闪退"
 
     for bad in ("", "bug", "bug 4", "bug 1 @", "nope 1"):
