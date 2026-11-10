@@ -63,6 +63,12 @@ object ExpandOrigins {
         val snapshot: (@Composable (Modifier) -> Unit)? = null,
         /** 被点的那个元素：转场期间藏起来，飞走的是它自己，原地不留一份。 */
         val source: ExpandOriginSource? = null,
+        /**
+         * 圆钮自己的底色与有无投影（见 [ButtonMorphCover]）：按钮面板缩回按钮的最后一段渐变成它，
+         * 落地那一帧和真按钮一模一样。null = 首页玻璃圆钮那种（页面底色半透明 + 投影）。
+         */
+        val restFill: androidx.compose.ui.graphics.Color? = null,
+        val restShadow: Boolean = true,
     )
 
     /** 一次内容交接。进度仅在图层读，逐帧更新不重组源卡片。 */
@@ -91,8 +97,9 @@ object ExpandOrigins {
     fun isHidden(source: ExpandOriginSource): Boolean {
         val transition = contentState.value ?: return false
         if (transition.origin.source !== source || transition.ending) return false
-        // 有叠加层的卡片：整段都藏着，转场结束那一帧和叠加层一次换手（两张透明玻璃叠着淡入淡出会叠亮一下）。
-        // 没有叠加层的圆钮：页面自己缩回按钮并淡出，最后一小段要露出按钮
+        // 有叠加层的（卡片、圆钮）：整段都「挪进叠加层」由它实时画（见 expandOriginSource），
+        // 结束那一帧换回原位，前后是同一份画面。
+        // 没有叠加层的：页面自己缩回原处并淡出，最后一小段露出原件
         return transition.origin.snapshot != null || transition.progress > SOURCE_HANDOFF
     }
 
@@ -196,6 +203,16 @@ object ButtonZoom {
     /** 页面放大时，底下那页退到的比例。 */
     const val RECEDE_SCALE = 0.9f
 
+    /**
+     * 底下那页此刻该退多深（压暗、缩小都按它）。导航库给的「被盖住深度」在返回快结束时会停在 0.2 上下，
+     * 转场一结束才跳回 0——整页一下子变亮、尺寸回弹，就是返回最后闪的那一下。
+     * 有从起点放大的转场在跑时改跟它的进度走：飞回的那一块落地时，底下这页正好退回原样。
+     */
+    fun recedeDepth(navDepth: Float): Float {
+        val t = ExpandOrigins.contentTransition.value ?: return navDepth
+        return if (t.ending) 0f else minOf(navDepth, t.progress)
+    }
+
     /** 底下那页压暗的最大程度。 */
     const val RECEDE_DIM = 0.42f
 
@@ -289,21 +306,29 @@ class ExpandOriginSource internal constructor(private val layer: GraphicsLayer) 
     internal var coordinates: LayoutCoordinates? = null
     internal var captureRequested by mutableStateOf(false)
 
-    // 只在点击后的第一帧录一次。平时直接绘制，不为每张首页卡常驻离屏渲染。
+    // 点击那一帧先录一次，叠加层第一帧就有东西画；之后转场里每帧由 [recordLive] 重录。
+    // 平时直接绘制，不为每张首页卡常驻离屏渲染。
     internal fun capture(draw: androidx.compose.ui.graphics.drawscope.ContentDrawScope) {
         if (captureRequested) {
-            layer.record(
-                density = draw,
-                layoutDirection = draw.layoutDirection,
-                size = IntSize(draw.size.width.roundToInt(), draw.size.height.roundToInt()),
-            ) {
-                // drawContent 画在 draw 自己的画布上，要临时换成录制画布，否则录到的是空的
-                val recording = drawContext.canvas
-                draw.draw(draw, draw.layoutDirection, recording, draw.size) { draw.drawContent() }
-            }
+            record(draw)
             // 录完当帧要画一次，图层才算在用，后面还能再画
             with(draw) { drawLayer(layer) }
             captureRequested = false
+        }
+    }
+
+    /** 转场里：只把此刻的画面录进图层（叠加层画它），原位不画。 */
+    internal fun recordLive(draw: androidx.compose.ui.graphics.drawscope.ContentDrawScope) = record(draw)
+
+    private fun record(draw: androidx.compose.ui.graphics.drawscope.ContentDrawScope) {
+        layer.record(
+            density = draw,
+            layoutDirection = draw.layoutDirection,
+            size = IntSize(draw.size.width.roundToInt(), draw.size.height.roundToInt()),
+        ) {
+            // drawContent 画在 draw 自己的画布上，要临时换成录制画布，否则录到的是空的
+            val recording = drawContext.canvas
+            draw.draw(draw, draw.layoutDirection, recording, draw.size) { draw.drawContent() }
         }
     }
 
@@ -322,6 +347,9 @@ class ExpandOriginSource internal constructor(private val layer: GraphicsLayer) 
         cornerRadius: Dp,
         density: Density,
         snapshot: (@Composable (Modifier) -> Unit)? = null,
+        /** 圆钮自己的底色与投影，见 [ExpandOrigins.Origin.restFill]。 */
+        restFill: androidx.compose.ui.graphics.Color? = null,
+        restShadow: Boolean = true,
     ) {
         val c = coordinates?.takeIf { it.isAttached } ?: return
         val bounds = c.boundsInRoot()
@@ -329,7 +357,10 @@ class ExpandOriginSource internal constructor(private val layer: GraphicsLayer) 
         if (snapshot == null) captureRequested = true
         ExpandOrigins.arm(
             routeId,
-            ExpandOrigins.Origin(bounds, with(density) { cornerRadius.toPx() }, snapshot ?: capturedContent, this),
+            ExpandOrigins.Origin(
+                bounds, with(density) { cornerRadius.toPx() }, snapshot ?: capturedContent, this,
+                restFill = restFill, restShadow = restShadow,
+            ),
         )
     }
 
@@ -347,12 +378,23 @@ fun rememberExpandOriginSource(): ExpandOriginSource {
     return remember(layer) { ExpandOriginSource(layer) }
 }
 
+/**
+ * 起点元素的绘制：平时照常画；转场里它「挪进叠加层」——不在原位画，而是每一帧把**此刻的真实画面**
+ * 录进同一个图层，叠加层画的就是它（同 Compose 共享元素 renderInSharedTransitionScopeOverlay 的做法）。
+ * 叠加层与原位始终是同一份内容，转场结束换回原位那一帧像素不变，不会闪。
+ */
 fun Modifier.expandOriginSource(source: ExpandOriginSource): Modifier =
     onGloballyPositioned { source.coordinates = it }
         .drawWithContent {
             when {
                 source.captureRequested -> source.capture(this)
-                !ExpandOrigins.isHidden(source) -> drawContent()
+                ExpandOrigins.isHidden(source) -> {
+                    // 在绘制阶段读一次进度：转场每走一帧都让这里重画、重录。不读的话这一页被盖着时没人
+                    // 触发它重画，图层里一直是点击那一刻的画面（还带着按压反馈），落地时和真元素对不上
+                    ExpandOrigins.contentTransition.value?.progress
+                    source.recordLive(this)
+                }
+                else -> drawContent()
             }
         }
 
@@ -382,12 +424,13 @@ fun expandFromOrigin(type: KClass<out AppRoute>, screenCornerPx: Float): NavTran
                 alpha = 1f - 0.1f * cover
             } else {
                 // 上面那页放大时，底下这页慢慢往后退一点（压暗由主界面按深度自己画）
-                val s = lerp(1f, ButtonZoom.RECEDE_SCALE, d.coerceIn(0f, 1f))
+                val depth = ButtonZoom.recedeDepth(d).coerceIn(0f, 1f)
+                val s = lerp(1f, ButtonZoom.RECEDE_SCALE, depth)
                 scaleX = s
                 scaleY = s
                 shape = PixelRoundRectShape(
                     Rect(0f, 0f, width, scope.layoutSize.height.toFloat()),
-                    lerp(0f, screenCornerPx, d.coerceIn(0f, 1f)),
+                    lerp(0f, screenCornerPx, depth),
                 )
                 clip = true
             }
@@ -427,7 +470,7 @@ fun expandFromOrigin(type: KClass<out AppRoute>, screenCornerPx: Float): NavTran
         if (ButtonZoom.isCircle(origin)) {
             ButtonZoom.apply(this, origin.bounds, full, p, screenCornerPx)
             if (origin.snapshot != null) alpha = ButtonZoom.contentAlpha(p)
-            compositingStrategy = CompositingStrategy.ModulateAlpha
+            compositingStrategy = modulateUnlessHidden(alpha)
             return@navGraphicsTransition
         }
 
@@ -468,8 +511,16 @@ fun expandFromOrigin(type: KClass<out AppRoute>, screenCornerPx: Float): NavTran
             val fade = (p / ORIGIN_FADE_END).coerceIn(0f, 1f)
             fade * fade * (3f - 2f * fade)
         }
-        compositingStrategy = CompositingStrategy.ModulateAlpha
+        compositingStrategy = modulateUnlessHidden(alpha)
     }
+
+/**
+ * 逐条指令调透明度（ModulateAlpha）省掉整页离屏，但它只淡这一层自己的绘制指令：页面里嵌套的子图层
+ * （卡片、顶栏）和这一层的投影照样画。透明度到 0 时那些东西仍会缩在起点处显出来——圆钮返回最后
+ * 那团发暗的内容和外面那圈投影就是它。到 0 时改回普通合成，系统整层跳过不画。
+ */
+private fun modulateUnlessHidden(alpha: Float): CompositingStrategy =
+    if (alpha <= 0f) CompositingStrategy.Auto else CompositingStrategy.ModulateAlpha
 
 /** 进度低于它时原件显示，高于它时藏起来，和叠加层的淡入淡出同一段。 */
 private const val SOURCE_HANDOFF = 0.05f

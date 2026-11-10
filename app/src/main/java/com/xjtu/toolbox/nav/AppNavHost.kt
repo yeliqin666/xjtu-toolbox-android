@@ -210,7 +210,8 @@ fun AppNavHost(
                     Box(
                         Modifier.fillMaxSize().drawBehind {
                             if (!ExpandOrigins.coveredFromOrigin.value) return@drawBehind
-                            val dim = ButtonZoom.RECEDE_DIM * navScope.relativeDepth.coerceIn(0f, 1f)
+                            // 跟飞回那一块的进度走（见 recedeDepth），落地时正好不压暗，不在结束那帧一下子变亮
+                            val dim = ButtonZoom.RECEDE_DIM * ButtonZoom.recedeDepth(navScope.relativeDepth).coerceIn(0f, 1f)
                             if (dim > 0f) drawRect(androidx.compose.ui.graphics.Color.Black.copy(alpha = dim))
                         },
                     )

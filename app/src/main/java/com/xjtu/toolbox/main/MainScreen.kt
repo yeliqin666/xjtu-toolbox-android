@@ -702,7 +702,7 @@ private fun RevealOverlay(
         if (from != null) {
             var full by remember { mutableStateOf(androidx.compose.ui.geometry.Size.Zero) }
             Box(Modifier.fillMaxSize().onSizeChanged { full = androidx.compose.ui.geometry.Size(it.width.toFloat(), it.height.toFloat()) }) {
-                com.xjtu.toolbox.nav.ButtonMorphCover(from, { full }, { progress.value }, screenCornerPx, MiuixTheme.colorScheme.surface, icon)
+                com.xjtu.toolbox.nav.ButtonMorphCover(from, { full }, { progress.value }, screenCornerPx, MiuixTheme.colorScheme.surface, icon = icon)
             }
         }
     }

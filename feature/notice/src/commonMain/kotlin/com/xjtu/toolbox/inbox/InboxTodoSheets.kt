@@ -251,10 +251,11 @@ private fun TodoColorRow(current: Int?, onPick: (Int?) -> Unit) {
     var showPalette by remember { mutableStateOf(false) }
     val fallback = Color(InboxCategories.argb(InboxCategories.SELF))
     val quick = remember(CourseColors.revision) { CourseColors.palette().take(5) }
-    // 自选色不在快捷色片里时，放在最前面，始终看得到当前用的是哪个
+    // 自选色不在快捷色片里时，放在最前面，始终看得到当前用的是哪个。
+    // 色片总数固定最多 5 个：多出一片会把行尾的调色盘挤出这一行（选了新颜色后入口就没了）
     val swatches = remember(quick, current) {
         val custom = current?.let { Color(it) }?.takeIf { c -> quick.none { it.toArgb() == current } }
-        listOfNotNull(custom) + quick.ifEmpty { listOf(fallback) }
+        (listOfNotNull(custom) + quick.ifEmpty { listOf(fallback) }).take(MAX_SWATCHES)
     }
     if (showPalette) {
         CourseColorPickerDialog(
@@ -299,6 +300,9 @@ private fun TodoColorRow(current: Int?, onPick: (Int?) -> Unit) {
         },
     )
 }
+
+/** 颜色行里色片的上限（含自选色），留出调色盘的位置。 */
+private const val MAX_SWATCHES = 5
 
 /** 重要程度的四档；文案与 [InboxRules.importanceLabel] 一致，这里多一个「普通」。 */
 private val IMPORTANCE_CHOICES = listOf(

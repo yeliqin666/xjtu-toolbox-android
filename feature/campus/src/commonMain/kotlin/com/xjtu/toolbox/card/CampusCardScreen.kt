@@ -401,9 +401,8 @@ private fun CouponTopAction(badge: Int, onOpen: () -> Unit) {
     val density = androidx.compose.ui.platform.LocalDensity.current
     val tint = MiuixTheme.colorScheme.onSurface
     val dark = com.xjtu.toolbox.ui.theme.LocalIsDarkTheme.current
-    // 和首页右上角圆钮同款半透明圆底：页面返回时缩成的那颗圆正好落在它上面，不会凭空剩一个圆盘淡出
+    // 和首页右上角圆钮同款半透明圆底：页面返回时缩成的那颗圆正好落在它上面
     val fill = MiuixTheme.colorScheme.surfaceContainerHigh.copy(alpha = if (dark) 0.52f else 0.6f)
-    // 转场起点画成「按钮面板 + 原大图标」（同首页铃铛）：打开时面板先长大、返回时缩回带图标的按钮
     val glyph: @Composable (Modifier) -> Unit = { m ->
         Box(m, contentAlignment = Alignment.Center) {
             Icon(Icons.Default.Restaurant, contentDescription = null, tint = tint, modifier = Modifier.size(20.dp))
@@ -417,7 +416,12 @@ private fun CouponTopAction(badge: Int, onOpen: () -> Unit) {
                 .clip(androidx.compose.foundation.shape.CircleShape)
                 .background(fill)
                 .clickable {
-                    source.arm(AppRoute.Coupon.id, cornerRadius = 20.dp, density = density, snapshot = glyph)
+                    // 不给替身：转场里叠加层画的就是这颗按钮此刻的真实画面（含圆底），
+                    // 面板底色贴近按钮时透明，落地前后是同一份像素
+                    source.arm(
+                        AppRoute.Coupon.id, cornerRadius = 20.dp, density = density,
+                        restFill = androidx.compose.ui.graphics.Color.Transparent, restShadow = false,
+                    )
                     onOpen()
                 }
                 .semantics(mergeDescendants = true) {

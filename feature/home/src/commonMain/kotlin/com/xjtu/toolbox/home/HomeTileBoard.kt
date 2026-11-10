@@ -1020,12 +1020,12 @@ internal fun HomeTileFaceBox(
     val sample = backdrop?.takeIf { refraction && blurGlass }
     val cardShape = remember(radius) { RoundedCornerShape(radius) }
     val shadowTint = MiuixTheme.colorScheme.primary.copy(alpha = if (dark) 0.18f else 0.14f)
+    // 卡片不带投影：卡面是半透明的，系统投影（.shadow）整块画在卡片底下，透过卡面能看见
+    // 投影内圈那块没被压暗的直角矩形，像每张卡里垫了块白板
     val material = when {
         liquid -> Modifier
-            .shadow(10.dp, cardShape, clip = false, ambientColor = shadowTint, spotColor = shadowTint)
             .softGlass(sample, radius, fill = if (sample != null) liquidFill else Color.Transparent, softLight = softLight, dark = dark)
         else -> Modifier
-            .then(if (dark) Modifier else Modifier.appCardShadow(shape = cardShape))
             .squircleClip(radius)
             .background(fill)
             .squircleBorder(0.7.dp, hairline, radius)

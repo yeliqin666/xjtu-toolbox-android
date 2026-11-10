@@ -34,7 +34,11 @@ fun OriginContentOverlay(screenCornerPx: Float, windowColor: androidx.compose.ui
     val origin = transition.origin
     val snapshot = origin.snapshot ?: return
     if (ButtonZoom.isCircle(origin)) {
-        ButtonMorphCover(origin.bounds, { transition.full }, { transition.progress }, screenCornerPx, windowColor) { snapshot(Modifier.fillMaxSize()) }
+        ButtonMorphCover(
+            origin.bounds, { transition.full }, { transition.progress }, screenCornerPx, windowColor,
+            restFill = origin.restFill, restShadow = origin.restShadow,
+            gone = { transition.ending },
+        ) { snapshot(Modifier.fillMaxSize()) }
         return
     }
     val density = LocalDensity.current
@@ -52,8 +56,10 @@ fun OriginContentOverlay(screenCornerPx: Float, windowColor: androidx.compose.ui
             )
             clip = true
             // 整个卡面先合成再淡出，文字、玻璃高光与底色不会各自叠加变深。
-            // 贴近原位时不淡出：原卡整段藏着，转场结束那一帧一次换手，不和原卡叠在一起
-            alpha = 1f - ExpandOrigins.pageContentAlpha(p, transition.popping)
+            // 贴近原位时不淡出：原卡整段藏着，转场结束那一帧一次换手，不和原卡叠在一起。
+            // 结束后叠加层还留两帧（防空帧），这两帧必须不画：原卡已经放出来了，两张半透明玻璃卡叠着会亮一下。
+            // 「藏叠加层」和「放原卡」都在绘制阶段读同一个 ending，同一帧生效
+            alpha = if (transition.ending) 0f else 1f - ExpandOrigins.pageContentAlpha(p, transition.popping)
         }
             // 窗口比卡片长得快：多出来的部分用页面底色填上。
             // 回到原位附近时底色退掉，只剩卡面本身的材质，和原处的玻璃卡对得上
@@ -91,6 +97,12 @@ fun ButtonMorphCover(
     progress: () -> Float,
     screenCornerPx: Float,
     panelColor: androidx.compose.ui.graphics.Color,
+    /** 按钮自己的底色：贴近按钮的那一段从它渐变到 [panelColor]，落地时和真按钮一致。null = 首页玻璃圆钮的画法。 */
+    restFill: androidx.compose.ui.graphics.Color? = null,
+    /** 按钮本身没有投影时为 false：贴近按钮时投影收掉，不在落地那一帧多出一圈阴影。 */
+    restShadow: Boolean = true,
+    /** 转场已结束、真按钮已经放出来：面板这一帧起不画，免得和真按钮叠一帧（绘制阶段读）。 */
+    gone: () -> Boolean = { false },
     icon: @Composable () -> Unit,
 ) {
     val density = LocalDensity.current
@@ -100,9 +112,20 @@ fun ButtonMorphCover(
         Modifier.fillMaxSize().graphicsLayer {
             val u = progress()
             ButtonZoom.apply(this, from, full(), u, screenCornerPx)
-            alpha = ButtonZoom.coverAlpha(u)
+            // 按钮本身没投影：贴近按钮时面板还是半透明的，再小的投影也会透过半透明内容把整颗按钮压暗一层，
+            // 落地那帧一归零就是一跳。只在面板已经铺成不透明底色之后（进度过了交接段）才带投影
+            if (!restShadow) shadowElevation *= opaquePanel(u)
+            alpha = if (gone()) 0f else ButtonZoom.coverAlpha(u)
         }.drawBehind {
-            drawRect(panelColor.copy(alpha = panelColor.alpha * ButtonZoom.coverFill(progress())))
+            val u = progress()
+            val fill = if (restFill != null) {
+                // 全透明的起点按面板色的透明版算：Color.Transparent 是透明的黑，直接插值会在中段压出一层灰
+                val start = if (restFill.alpha == 0f) panelColor.copy(alpha = 0f) else restFill
+                androidx.compose.ui.graphics.lerp(start, panelColor, nearButton(u))
+            } else {
+                panelColor.copy(alpha = panelColor.alpha * ButtonZoom.coverFill(u))
+            }
+            drawRect(fill)
         },
     ) {
         // 图标按原尺寸画：外层把整页缩到窗口大小，这里反向缩回去，并放在窗口（页面左上那一块）正中
@@ -121,6 +144,18 @@ fun ButtonMorphCover(
             contentAlignment = androidx.compose.ui.Alignment.Center,
         ) { icon() }
     }
+}
+
+/** 面板已经铺成不透明底色的程度：底色在 0–12% 铺满，之后才开始有投影。 */
+private fun opaquePanel(u: Float): Float {
+    val t = ((u - 0.12f) / 0.2f).coerceIn(0f, 1f)
+    return t * t * (3f - 2f * t)
+}
+
+/** 离按钮多远：0 = 就是按钮，展开到 12% 时到 1（和 [ButtonZoom.coverFill] 同一段）。 */
+private fun nearButton(u: Float): Float {
+    val t = (u / 0.12f).coerceIn(0f, 1f)
+    return t * t * (3f - 2f * t)
 }
 
 private class ContentWindowShape(private val window: Size, private val radius: Float) : Shape {
