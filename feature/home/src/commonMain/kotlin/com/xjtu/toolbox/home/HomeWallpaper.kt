@@ -31,7 +31,9 @@ internal fun HomeWallpaper(
     val primary = MiuixTheme.colorScheme.primary
     Box(modifier) {
         if (mode == "solid") {
-            Box(Modifier.matchParentSize().background(lerp(surface, primary, if (dark) 0.10f else 0.06f)))
+            // 主题色底就是页面底色本身（浅 #F0F1F2 / 深 #000000），不再混一档主题色，
+            // 这样经典分类卡和卡片组两种布局的「主题色」背景与其余页面完全一致。
+            Box(Modifier.matchParentSize().background(surface))
         } else if (imageData.isNotEmpty()) {
             HeroCustomBackground(
                 imageData = imageData,

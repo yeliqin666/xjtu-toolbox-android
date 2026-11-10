@@ -173,7 +173,7 @@ class SettingsStore(private val store: KeyValueStore = keyValueStore(APP_SETTING
         get() = store.getString("home_background") ?: when {
             store.getString("home_widget_material") == WIDGET_MATERIAL_PAPER -> "solid"
             homeWallpaperImage.isNotEmpty() -> "image"
-            else -> "gradient"
+            else -> "solid"
         }
         set(value) = store.putString("home_background", value)
 

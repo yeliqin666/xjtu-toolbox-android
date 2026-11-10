@@ -2,6 +2,7 @@ package com.xjtu.toolbox.shell
 
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
@@ -39,6 +40,18 @@ import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import com.xjtu.toolbox.ui.components.LocalPageVisible
 
+/**
+ * 页面底色跟着内容一起画。
+ *
+ * 这一层同时是 COUI 底栏的采样源：以前底色由外层 Scaffold 铺，「我的」这种自己不透底的页
+ * 录出来是一片透明像素，材质拿不到颜色（旧色滤会自己补 alpha，所以只表现为一块死灰；
+ * 换成按真实 alpha 混的 AGSL 材质后就是整块消失）。
+ */
+private fun Modifier.pageBackdropBase(color: Color): Modifier = drawWithContent {
+    drawRect(color)
+    drawContent()
+}
+
 /** 当前页那一层：画哪几页由 [ShellPageHost] 说。 */
 @Composable
 fun ShellTabHost(
@@ -49,10 +62,11 @@ fun ShellTabHost(
     zoom: ShellTabZoom? = null,
     content: @Composable (ShellPage) -> Unit,
 ) {
+    val pageBackdropColor = top.yukonga.miuix.kmp.theme.MiuixTheme.colorScheme.surface
     // 只有当前这一页：不常驻、不横移（横移缩放只对「同层的几格」成立）
     if (!nav.keepsVisitedTabPages(pageHost)) {
         val page = nav.currentShellPage()
-        Box(modifier.fillMaxSize()) { content(page) }
+        Box(modifier.fillMaxSize().pageBackdropBase(pageBackdropColor)) { content(page) }
         return
     }
 
@@ -75,35 +89,38 @@ fun ShellTabHost(
     val selectedIndex = nav.tabs.indexOf(selectedId)
     val pageColor = top.yukonga.miuix.kmp.theme.MiuixTheme.colorScheme.surface
     val tabSlideDistance = with(LocalDensity.current) { 28.dp.toPx() }
-    Box(modifier.fillMaxSize().onSizeChanged { zoom?.hostSize = it.toSize() }) {
+    Box(modifier.fillMaxSize().pageBackdropBase(pageBackdropColor).onSizeChanged { zoom?.hostSize = it.toSize() }) {
         // 别在 key {} 里 return@key：Kotlin 2.4.20 会生成 R8 无法转 dex 的方法名
         nav.tabs.tabs.filter { it.id in composedIds || it.id == selectedId }.forEach { tab ->
             key(tab) {
                 val isActive = selectedId == tab.id
+                // zoom 为空 = 这一形态不做切页放大；此时整页切换也不演任何过渡（淡入淡出、横移、缩放、
+                // 入场全部瞬时到位），四个页签之间是硬切。
+                val animated = zoom != null
                 val tabAlpha by animateFloatAsState(
                     targetValue = if (isActive) 1f else 0f,
-                    animationSpec = tween(if (isActive) 340 else 260),
+                    animationSpec = if (animated) tween(if (isActive) 340 else 260) else snap(),
                     label = "tabAlpha",
                 )
                 // 第一次打开的页签也要走入场：animateFloatAsState 的初值就是目标值，不会有过渡
                 val openedBySwitch = remember { tab.id !in composedIds }
-                val firstEntrance = remember { Animatable(if (openedBySwitch) 0f else 1f) }
+                val firstEntrance = remember { Animatable(if (openedBySwitch && animated) 0f else 1f) }
                 val isUnder = zoom != null && !isActive && tab.id == zoom.underId
                 // 返回时正缩回按钮的那页；它在收的时候，当前这页（退回来的）从后面浮上来
                 val isClosing = zoom != null && tab.id == zoom.closingId
-                LaunchedEffect(Unit) { firstEntrance.animateTo(1f, tween(340)) }
+                LaunchedEffect(Unit) { if (animated) firstEntrance.animateTo(1f, tween(340)) }
                 val tabOffset by animateFloatAsState(
                     targetValue = when {
                         isActive -> 0f
                         nav.tabs.indexOf(tab.id) < selectedIndex -> -tabSlideDistance
                         else -> tabSlideDistance
                     },
-                    animationSpec = tween(260),
+                    animationSpec = if (animated) tween(260) else snap(),
                     label = "tabOffset",
                 )
                 val tabScale by animateFloatAsState(
                     targetValue = if (isActive) 1f else 0.96f,
-                    animationSpec = tween(360),
+                    animationSpec = if (animated) tween(360) else snap(),
                     label = "tabScale",
                 )
                 Box(
@@ -163,8 +180,8 @@ fun ShellTabHost(
                     // 让隐藏 tab 里的常驻动画停下
                     CompositionLocalProvider(
                         LocalPageVisible provides (isActive && LocalPageVisible.current),
-                        // 切过来时整页一起放大，控件不再各自入场
-                        LocalEnterAnimations provides !(openedBySwitch && zoom != null),
+                        // 切过来的页签不演内部入场：整页淡入已经够了，控件再各自动一遍会显得很吵
+                        LocalEnterAnimations provides !openedBySwitch,
                     ) {
                         // 同一份对象：host 重组（选中项变化）时，没变的页不跟着重组
                         content(remember(tab) { ShellPage(tab.target, tab) })

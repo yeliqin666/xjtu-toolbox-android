@@ -21,10 +21,14 @@ import androidx.compose.ui.layout.layout
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.sp
 import com.kyant.backdrop.backdrops.LayerBackdrop
 import com.xjtu.toolbox.ui.glass.GlassBottomTabs
 import com.xjtu.toolbox.ui.glass.GlassTab
+import com.xjtu.toolbox.ui.glass.LocalCouiGlassBarBackdrop
+import com.xjtu.toolbox.ui.glass.couiGlassBarMaterialEnabled
+import com.xjtu.toolbox.ui.glass.couiGlassBarSupported
 import top.yukonga.miuix.kmp.basic.FloatingNavigationBar
 import top.yukonga.miuix.kmp.basic.FloatingNavigationBarItem
 import top.yukonga.miuix.kmp.basic.Icon
@@ -99,17 +103,20 @@ fun GlassBottomBar(
     bubble: @Composable () -> Unit,
     tabArt: ShellTabArt = ShellTabArt.None,
 ) {
+    // COUI 路径：底栏本体是 COUI NavigationBar 的移植，自带 16dp 外边距与 tappableElement
+    // 导航条适配，外层不能再加本机的 20dp 侧距和 bottomPadding；只补 miuix floatingToolbar
+    // 槽位私有的 4dp（FloatingToolbarSpacing），让胶囊下沿与 COUI 自己的 Scaffold 栏位同高。
+    val couiBar = couiGlassBarMaterialEnabled && LocalCouiGlassBarBackdrop.current != null && couiGlassBarSupported
     Column(
         Modifier
             .fillMaxWidth()
-            .padding(horizontal = 20.dp)
-            .padding(bottom = bottomPadding),
+            .then(if (couiBar) Modifier else Modifier.padding(horizontal = 20.dp).padding(bottom = bottomPadding)),
     ) {
-        bubble()
+        Box(Modifier.then(if (couiBar) Modifier.padding(horizontal = 20.dp) else Modifier)) { bubble() }
         GlassBottomTabs(
             tabs = nav.tabs.tabs.map { tab ->
                 // 自绘那一格（屁岱）免染色：强调色是把整排再画一遍，机器人不能画出第二份
-                GlassTab(key = tab, tintExempt = tabArt.handles(tab)) { selected ->
+                GlassTab(key = tab, tintExempt = tabArt.handles(tab), title = tab.label, icon = tab.icon) { selected ->
                     if (tabArt.handles(tab)) {
                         tabArt.barTab(
                             current = nav.selected,
@@ -131,7 +138,15 @@ fun GlassBottomBar(
                                 }
                             }
                         }
-                        Text(tab.label, fontSize = 11.sp, maxLines = 1, color = tint)
+                        // 文字对齐 COUI 底栏：10sp / 行高 12sp / Medium
+                        Text(
+                            tab.label,
+                            fontSize = 10.sp,
+                            lineHeight = 12.sp,
+                            fontWeight = FontWeight.Medium,
+                            maxLines = 1,
+                            color = tint,
+                        )
                     }
                 }
             },
@@ -143,6 +158,7 @@ fun GlassBottomBar(
             backdrop = backdrop,
             exportedBackdrop = exportedBackdrop,
             glass = true,
+            modifier = if (couiBar) Modifier.offset(y = MIUIX_FLOATING_TOOLBAR_SPACING) else Modifier,
         )
     }
 }

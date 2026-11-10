@@ -85,8 +85,8 @@ private class GatedHapticFeedback(private val inner: HapticFeedback) : HapticFee
     }
 }
 
-/** 浅色模式的页面底色；卡片仍是 surfaceVariant（白）。 */
-private val LightPageBackground = Color(0xFFF0F1F3)
+/** 浅色模式的页面底色；卡片仍是 surfaceVariant（白）。首页的「主题色」背景直接用这个值。 */
+private val LightPageBackground = Color(0xFFF0F1F2)
 
 /**
  * 自选主题色：用户挑的就是主题色本身，不再拿它当种子重新调一档色阶。

@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.layout.boundsInWindow
@@ -27,6 +28,8 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import com.xjtu.toolbox.ui.glass.GLASS_BAR_HEIGHT
+import com.xjtu.toolbox.ui.glass.rememberCouiGlassBarBackdrop
+import com.xjtu.toolbox.ui.glass.LocalCouiGlassBarBackdrop
 import com.kyant.backdrop.Backdrop
 import com.kyant.backdrop.backdrops.LayerBackdrop
 import com.kyant.backdrop.backdrops.layerBackdrop
@@ -83,12 +86,17 @@ fun AppShell(
     // 图标统一放进同样高的框里，五格文字基线才对齐
     val navIconBox = remember(nav.tabs) { nav.tabs.tabs.maxOf { it.iconSize } }
 
-    val tabZoom = rememberShellTabZoom(nav, enabled = form == ShellForm.GLASS_BAR)
+    // 切页不做「从底栏那一格长出来」的放大（ShellTabZoom）：起点在左下/右下角，看着像弹出，
+    // 已按需求关掉，切页走普通淡入。机制本身留在 ShellTabHost 里，恢复时把下面换成
+    // rememberShellTabZoom(nav, enabled = form == ShellForm.GLASS_BAR) 即可。
+    val tabZoom: ShellTabZoom? = null
     // 底栏与页面容器在窗口里的位置：只在绘制阶段读，不用 state
     val barGeometry = remember { BarGeometry() }
 
     // 玻璃采样源只录 tab 内容区；录整个 Scaffold 会让底栏采样自己，RenderThread 直接崩
     val contentBackdrop = rememberLayerBackdrop(cache = glassStyle)
+    // COUI 材质的页面采样源（Android 14+ 才有实现，其它平台/系统为 null，底栏自动降级）
+    val couiGlassBackdrop = rememberCouiGlassBarBackdrop()
     // 底栏导出成一层，屁岱气泡尖角伸到底栏上时采的是「页面 + 底栏」
     val barBackdrop = rememberLayerBackdrop()
     val handles = ShellHandles(
@@ -101,6 +109,7 @@ fun AppShell(
     // 端上那只气泡：底栏版和侧栏版共用同一份，各自只管定位
     val bubble: @Composable () -> Unit = { barBubble?.invoke(handles) }
 
+    CompositionLocalProvider(LocalCouiGlassBarBackdrop provides couiGlassBackdrop) {
     Box(Modifier.fillMaxSize().then(rootModifier)) {
         val railState = rememberNavigationRailState()
         // 与 miuix 侧栏内部同一条弹簧，用来判断侧栏是否还在动
@@ -177,7 +186,8 @@ fun AppShell(
                     ShellTabHost(
                         nav = nav,
                         pageHost = pageHost,
-                        modifier = if (glassStyle) Modifier.layerBackdrop(contentBackdrop) else Modifier,
+                        modifier = (if (glassStyle) Modifier.layerBackdrop(contentBackdrop) else Modifier)
+                            .then(couiGlassBackdrop?.recordInto(Modifier) ?: Modifier),
                         zoom = tabZoom?.apply {
                             val density = LocalDensity.current
                             val edge = with(density) { 24.dp.toPx() }
@@ -241,6 +251,7 @@ fun AppShell(
         // 盖满整屏的浮层（搜索、扫一扫）放在最外层，不放进 Scaffold 的内容区：
         // 放在内容区里时，Scaffold 把顶栏、底栏画在内容之上，状态栏和小白条那两条被主界面盖住。
         overlays?.invoke(handles)
+    }
     }
 }
 

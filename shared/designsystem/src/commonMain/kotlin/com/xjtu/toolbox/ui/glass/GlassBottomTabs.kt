@@ -16,31 +16,36 @@
 package com.xjtu.toolbox.ui.glass
 
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.EaseOut
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
-import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.interaction.PressInteraction
-import androidx.compose.foundation.gestures.awaitEachGesture
-import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.PointerId
+import androidx.compose.ui.unit.IntSize
+import androidx.compose.ui.input.pointer.util.VelocityTracker
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.layout.width
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
@@ -54,9 +59,11 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawOutline
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.util.lerp
@@ -66,9 +73,9 @@ import com.kyant.backdrop.backdrops.rememberCombinedBackdrop
 import com.kyant.backdrop.backdrops.rememberLayerBackdrop
 import com.kyant.backdrop.drawBackdrop
 import com.kyant.backdrop.effects.blur
-import com.kyant.backdrop.effects.lens
 import com.kyant.backdrop.effects.vibrancy
 import com.kyant.backdrop.highlight.Highlight
+import com.kyant.backdrop.effects.lens
 import com.xjtu.toolbox.ui.theme.LocalIsDarkTheme
 import kotlinx.coroutines.launch
 import top.yukonga.miuix.kmp.theme.MiuixTheme
@@ -76,8 +83,19 @@ import kotlin.math.abs
 import kotlin.math.roundToInt
 import kotlin.math.sign
 
-/** 底栏玻璃按 1/2 分辨率模糊：8dp 的模糊已经比放大后的像素粗，填充量只剩四分之一。 */
+/**
+ * 底栏玻璃按 1/2 分辨率模糊。
+ *
+ * 半径按 COUI 对齐：它的 RenderEffect 模糊是 25px（约 9.5dp @2.625x），这里同样取 9.5dp，
+ * 采样层降一半分辨率后再放大，填充量只剩四分之一。
+ */
 private const val GLASS_BAR_DOWNSCALE = 2
+
+/** COUI 材质的模糊半径（px）。 */
+private const val GLASS_BLUR_DP = 9.5f
+
+/** 胶囊按压时的缩放，对齐 COUI `CouiPressMotion` 对宽条的取值（约 0.92）。 */
+private const val GLASS_BAR_PRESS_SCALE = 0.93f
 
 /**
  * 底栏的一格。
@@ -85,11 +103,16 @@ private const val GLASS_BAR_DOWNSCALE = 2
  * @param key 稳定标识，一般传 tab 的枚举值本身，方便调用方在 [onTabSelected] 里反查。
  * @param tintExempt true = 滑块经过时不染色，染色那一遍里只放同尺寸的空占位——给屁岱用
  *   （见计划 §9.3 第 3 条：屁岱只有一个实例，不能被复制出第二份）。
+ *   只对 kyant 回退路径有意义；COUI 路径只录一遍内容，不存在第二份实例。
+ * @param title 格子的无障碍/默认文案（COUI 路径用来构造 `CouiNavigationItem`）。
+ * @param icon 格子的默认图标（同上；[content] 整格替换时不显示）。
  * @param content 格子内容（一般是图标 + 文字），`selected` 是当前是否选中这一格。
  */
 class GlassTab(
     val key: Any,
     val tintExempt: Boolean = false,
+    val title: String = "",
+    val icon: ImageVector? = null,
     val content: @Composable ColumnScope.(selected: Boolean) -> Unit,
 )
 
@@ -127,35 +150,39 @@ fun GlassBottomTabs(
     val tabsCount = tabs.size
     if (tabsCount == 0) return
 
+    // 整条交给 COUI 的 NavigationBar 移植（三主体融球、材质、投影、形变全部原厂实现）；
+    // 只有非 Android 平台 / 显式关玻璃 / 没有采样源时才走下面 kyant 的玻璃实现。
+    val couiBackdrop = LocalCouiGlassBarBackdrop.current
+    if (couiGlassBarMaterialEnabled && glass && couiBackdrop != null && couiGlassBarSupported) {
+        CouiGlassBottomBar(couiBackdrop, tabs, selectedIndex, onTabSelected, modifier)
+        return
+    }
+
     val isDark = LocalIsDarkTheme.current
     val accentColor = MiuixTheme.colorScheme.primary
+    // 材质：容器色压低到 0.28，配合更大的模糊半径，让正文能像 COUI 那样透出来
     val containerColor = MiuixTheme.colorScheme.surfaceContainerHigh.let {
-        if (glass) it.copy(alpha = 0.4f) else it
+        if (glass) it.copy(alpha = 0.28f) else it
     }
     val barShadow = remember(accentColor, isDark) { floatingGlassShadow(accentColor, isDark) }
-    // 滑块静止时的底色
-    val restTint = if (isDark) Color.White.copy(alpha = 0.1f) else Color.Black.copy(alpha = 0.1f)
-    // 圆角按设计给的 28dp 写死，不额外依赖 io.github.kyant0:shapes 的 Capsule——那只是
-    // backdrop 的传递依赖，不在本项目的编译期 classpath 上（加它要改
-    // gradle/libs.versions.toml，是热点文件，见收尾报告的胶合清单）。RoundedCornerShape
-    // 是 CornerBasedShape，lens() 支持（计划 §16.1 第 2 条）。
-    // 28dp < 本体高的一半（58/2 = 29dp），所以不会被 Compose 夹：两端各留一小段直边，
-    // 是圆角矩形而不是满半圆的胶囊。给到 ≥ 29dp 才会被夹成胶囊。
-    val pillShape = remember { RoundedCornerShape(28.dp) }
+    // 形状改用 COUI 的 sdCapsule 轮廓（两端真半圆，曲率连续），不再是 28dp 圆角矩形。
+    // 代价：Outline.Generic 不是 CornerBasedShape，`lens()`（折射）对这个形状不可用。
+    val pillShape = remember { GlassCapsuleShape }
 
     // 内容行高度 = 本体高 − 上下各 4dp 内衬。本体高取 GLASS_BAR_HEIGHT（MainScreen 的浮空占位
     // 也按它算），滑块、染色层、屁岱真身那几层都跟着它，以后调高度只改那一个常量。
-    val innerHeight = GLASS_BAR_HEIGHT - 8.dp
+    val innerHeight = GLASS_BAR_HEIGHT - GLASS_BAR_PADDING_V * 2
 
-    // 只有 glass = true 才需要这一层：给滑块用，把「强调色染色」那一遍的像素录下来，
-    // 让滑块下面透出的是「玻璃 + 强调色」而不是纯色块。
-    val tabsBackdrop = if (glass) rememberLayerBackdrop() else null
 
     BoxWithConstraints(modifier, contentAlignment = Alignment.CenterStart) {
         val density = LocalDensity.current
-        val tabWidthPx = with(density) {
-            (constraints.maxWidth.toFloat() - 8.dp.toPx()) / tabsCount
-        }
+        val padHPx = with(density) { GLASS_BAR_PADDING_H.toPx() }
+        val gapPx = with(density) { GLASS_BAR_ITEM_GAP.toPx() }
+        // 每格宽 = (本体宽 − 左右内边距 − 格间距) / 格数，对齐 COUI 的 12dp 内边距 + 8dp 间距
+        val tabWidthPx = ((constraints.maxWidth.toFloat() - padHPx * 2f - gapPx * (tabsCount - 1))
+            .coerceAtLeast(0f)) / tabsCount
+        // 相邻两格中心之间的距离：滑块的位移与拖动的命中判定都按它算
+        val stepPx = tabWidthPx + gapPx
 
         val offsetAnimation = remember { Animatable(0f) }
         val panelOffset by remember(density, constraints.maxWidth) {
@@ -174,6 +201,26 @@ fun GlassBottomTabs(
         val latestTabWidthPx by rememberUpdatedState(tabWidthPx)
         val latestLtr by rememberUpdatedState(isLtr)
 
+        // COUI 的按压是「整颗胶囊一起缩」，不是每格淡出：这里给本体一个弹簧缩放
+        var barPressed by remember { mutableStateOf(false) }
+        val barScale by animateFloatAsState(
+            targetValue = if (barPressed) GLASS_BAR_PRESS_SCALE else 1f,
+            animationSpec = spring(dampingRatio = 0.72f, stiffness = Spring.StiffnessMediumLow),
+            label = "glassBarPressScale",
+        )
+        // 折射与边缘高光随按压进度浮出来（7ed7a4d4 之前就是这个行为）：
+        // 静止时 lens 传 0 会直接 return，不跑着色器，滚动时不多付一遍全条采样
+        val pressProgress by animateFloatAsState(
+            targetValue = if (barPressed) 1f else 0f,
+            animationSpec = tween(if (barPressed) 220 else 360),
+            label = "glassBarPressProgress",
+        )
+        // 拖动时的预选格（COUI 的 previewSelection）：只影响高亮，松手才提交
+        var previewIndex by remember { mutableIntStateOf(-1) }
+        // COUI 的橡皮筋位移 + 形变：拖动时胶囊跟着手指走、并被拉长压扁
+        val deform = rememberGlassBarDeform()
+        fun isHighlighted(index: Int) = index == (if (previewIndex >= 0) previewIndex else currentIndex)
+
         val dampedDrag = remember(animationScope, tabsCount) {
             GlassDampedDragAnimation(
                 animationScope = animationScope,
@@ -181,9 +228,9 @@ fun GlassBottomTabs(
                 valueRange = 0f..(tabsCount - 1).toFloat(),
                 visibilityThreshold = 0.001f,
                 initialScale = 1f,
-                // 按住时滑块宽度不变、上下略压扁，同时灰色加深一点、图标变淡
+                // COUI 按压时整颗胶囊缩，滑块本身不变形，所以两轴都不缩
                 pressedScale = 1f,
-                pressedScaleY = 0.94f,
+                pressedScaleY = 1f,
                 onDragStarted = {},
                 onDragStopped = {
                     val targetIndex = GlassDragMath.snappedIndex(targetValue, tabsCount)
@@ -215,78 +262,72 @@ fun GlassBottomTabs(
             }
         }
 
-        // 静止（没按住、滑块停在整格、形变回位）时，染色层和滑块画出来与「选中格按选中态画 +
-        // 一层淡色胶囊」逐像素相同，这时两层都跳过不画
-        val glassActive by remember(dampedDrag) {
-            derivedStateOf {
-                dampedDrag.pressProgress > 0f ||
-                    dampedDrag.scaleX != 1f || dampedDrag.scaleY != 1f ||
-                    abs(dampedDrag.value - dampedDrag.value.roundToInt()) > 0.001f
+        // 手势照抄 COUI：整条胶囊由一根手指接管，Main pass，每个事件都 consume；
+        // 按下记 down，移动改预选（跳格，不跟手滑动），抬起按 COUI 的三条规则提交。
+        // 这里不挂 clickable——各格只留无障碍语义（GlassNavTabSlot 的 clickable = false）。
+        val dragAnywhere = Modifier.pointerInput(tabsCount, stepPx, isLtr) {
+            fun hitAt(x: Float): Int {
+                val local = (if (isLtr) x else size.width - x) - padHPx
+                return (local / stepPx).toInt().coerceIn(0, tabsCount - 1)
             }
-        }
-
-        // 每格一个按压来源：真实那一遍与染色那一遍共用，谁接到触摸都一起变淡
-        val pressSources = remember(tabsCount) { List(tabsCount) { MutableInteractionSource() } }
-        val barDragging = remember { booleanArrayOf(false) }
-        // 一按下，滑块就快速跟到那一格（松手才真正切页）；按下后滑走取消了就回到原来那格
-        pressSources.forEachIndexed { index, source ->
-            LaunchedEffect(source, dampedDrag) {
-                source.interactions.collect { interaction ->
-                    when (interaction) {
-                        is PressInteraction.Press -> {
-                            dampedDrag.press()
-                            dampedDrag.animateToValue(index.toFloat())
-                        }
-                        is PressInteraction.Release -> dampedDrag.release()
-                        // 转成整条拖动时也会收到取消：这时按压态和位置都归拖动管
-                        is PressInteraction.Cancel -> if (!barDragging[0]) {
-                            dampedDrag.release()
-                            if (currentIndex >= 0) dampedDrag.animateToValue(currentIndex.toFloat())
-                        }
-                    }
-                }
-            }
-        }
-
-        // 整条底栏都能拖：在哪一格按下都行，横向滑过触摸阈值就接管，滑块按手指的绝对位置
-        // 直接贴在手指下；松手吸到最近的一格并切页。没滑过阈值就是点击，交给各格自己处理。
-        val padPx = with(density) { 4.dp.toPx() }
-        val dragAnywhere = Modifier.pointerInput(tabsCount, tabWidthPx, isLtr) {
-            awaitEachGesture {
-                val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
-                val slop = viewConfiguration.touchSlop
-                var dragging = false
-                fun valueAt(x: Float): Float {
-                    val local = (if (isLtr) x else size.width - x) - padPx
-                    return (local / tabWidthPx - 0.5f).coerceIn(0f, (tabsCount - 1).toFloat())
-                }
+            awaitPointerEventScope {
+                val velocity = VelocityTracker()
+                var activeId: PointerId? = null
+                var downIndex = -1
+                var pendingIndex = -1
+                var preview = currentIndex
                 while (true) {
-                    val event = awaitPointerEvent(PointerEventPass.Initial)
-                    val change = event.changes.firstOrNull { it.id == down.id } ?: break
-                    if (!change.pressed) {
-                        if (dragging) {
-                            val target = GlassDragMath.snappedIndex(dampedDrag.value, tabsCount)
-                            if (currentIndex != target) {
-                                currentIndex = target
-                                onTabSelectedUpdated(target)
-                            }
-                            dampedDrag.animateToValue(target.toFloat())
-                            change.consume()
+                    val event = awaitPointerEvent(PointerEventPass.Main)
+                    val tracked = event.changes.firstOrNull { it.id == activeId }
+                    val pointer = tracked?.takeIf { it.pressed }
+                        ?: event.changes.firstOrNull { it.pressed }
+                        ?: tracked ?: continue
+                    if (activeId == null) {
+                        downIndex = hitAt(pointer.position.x)
+                        preview = currentIndex
+                        // 上一次手势若被父级抢走（没有收到 up），预选会残留，这里清掉
+                        previewIndex = -1
+                        barPressed = true
+                        velocity.resetTracking()
+                        velocity.addPosition(pointer.uptimeMillis, pointer.position)
+                        deform.begin(pointer.position, size)
+                    } else if (pointer.pressed && pointer.position != pointer.previousPosition) {
+                        velocity.addPosition(pointer.uptimeMillis, pointer.position)
+                        deform.move(pointer.position)
+                        val index = hitAt(pointer.position.x)
+                        if (index != preview) {
+                            preview = index
+                            pendingIndex = index
+                            previewIndex = index
+                            dampedDrag.snapToValue(index.toFloat())
                         }
-                        break
                     }
-                    if (!dragging && abs(change.position.x - down.position.x) > slop) {
-                        dragging = true
-                        barDragging[0] = true
-                        dampedDrag.press()
+                    activeId = pointer.id
+                    if (!pointer.pressed) {
+                        val released = velocity.calculateVelocity()
+                        deform.release(Offset(released.x, released.y))
+                        val up = hitAt(pointer.position.x)
+                        // 同 COUI couiNavigationReleaseTarget 的三条规则
+                        val target = when {
+                            up != downIndex && up != preview -> up
+                            pendingIndex >= 0 && pendingIndex == preview -> pendingIndex
+                            up == downIndex && up != preview -> up
+                            else -> -1
+                        }
+                        previewIndex = -1
+                        if (target >= 0 && target != currentIndex) {
+                            currentIndex = target
+                            onTabSelectedUpdated(target)
+                        }
+                        dampedDrag.snapToValue((if (target >= 0) target else currentIndex).coerceAtLeast(0).toFloat())
+                        activeId = null
+                        pendingIndex = -1
+                        downIndex = -1
+                        barPressed = false
                     }
-                    if (dragging) {
-                        dampedDrag.snapToValue(valueAt(change.position.x))
-                        change.consume()
-                    }
+                    // 每个事件都吃掉：与 COUI 一致，避免下层再起第二套手势
+                    event.changes.forEach { it.consume() }
                 }
-                if (dragging) dampedDrag.release()
-                barDragging[0] = false
             }
         }
 
@@ -307,176 +348,112 @@ fun GlassBottomTabs(
                 if (tab.tintExempt) {
                     GlassNavTabSlot(onClick = null) {}
                 } else {
-                    GlassNavTabSlot(onClick = tabOnClick(index), pressSource = pressSources[index]) {
-                        tab.content(this, index == currentIndex)
+                    GlassNavTabSlot(
+                        onClick = tabOnClick(index),
+                        selected = isHighlighted(index),
+                        clickable = false,
+                    ) {
+                        tab.content(this, isHighlighted(index))
                     }
                 }
             }
         }
 
-        // 第二遍：每格都按选中态画（强调色）、alpha = 0，只给滑块当采样源用。
-        // tintExempt 的格子（屁岱）在这一遍只放一个同尺寸空占位，不重新创建内容。
-        val tintedContent: @Composable RowScope.() -> Unit = {
-            tabs.forEachIndexed { index, tab ->
-                if (tab.tintExempt) {
-                    GlassNavTabSlot(onClick = null) {}
-                } else {
-                    GlassNavTabSlot(onClick = tabOnClick(index), pressSource = pressSources[index]) {
-                        tab.content(this, true)
-                    }
-                }
-            }
-        }
+        val barWidthPx = constraints.maxWidth.toFloat()
+        val tabWidthDp = with(density) { tabWidthPx.toDp() }
+        // 第 index 格左边缘在父容器里的 x（RTL 时从右边算），给滑块定位用
+        fun tabStartPx(index: Float): Float =
+            if (isLtr) padHPx + index * stepPx
+            else barWidthPx - padHPx - tabWidthPx - index * stepPx
 
-        // 所有层都包在这一个 Box 里：拖动手势挂在它们共同的祖先上（挂在最上面的兄弟层会吞掉各格的点击）
-        Box(Modifier.fillMaxWidth().then(dragAnywhere), contentAlignment = Alignment.CenterStart) {
-        Row(
+        // 所有层都包在这一个 Box 里：拖动手势挂在它们共同的祖先上（挂在最上面的兄弟层会吞掉各格的点击）；
+        // 按压缩放也挂在这里，等于整颗胶囊一起缩（COUI 的按压方式）。
+        Box(
             Modifier
-                .graphicsLayer { translationX = panelOffset }
-                .then(
-                    if (glass) {
-                        Modifier.drawBackdrop(
-                            backdrop = backdrop,
-                            shape = { pillShape },
-                            effects = {
-                                // 采样范围往外扩一圈，胶囊边缘处也有真实内容可混
-                                padding = maxOf(padding, 16.dp.toPx())
-                                vibrancy()
-                                blur(8.dp.toPx() / GLASS_BAR_DOWNSCALE)
-                            },
-                            sampleDownscale = GLASS_BAR_DOWNSCALE,
-                            exportedBackdrop = exportedBackdrop,
-                            // 悬浮胶囊是真的浮在内容上面，该有影子；但不要 kyant 默认那圈
-                            // 死黑（24dp、10% 黑）。改成带一点主题色的环境光阴影：更散、更低，
-                            // 颜色跟着主题走，像胶囊被页面的光托着，而不是压了一块灰。
-                            shadow = { barShadow },
-                            onDrawSurface = { drawRect(containerColor) },
-                        )
-                    } else {
-                        Modifier
-                            .clip(pillShape)
-                            .background(containerColor)
-                    },
-                )
-                .height(GLASS_BAR_HEIGHT)
                 .fillMaxWidth()
-                .padding(4.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            content = realContent,
-        )
-
-        if (glass && tabsBackdrop != null) {
-            // 当前格被滑块盖着，按住滑块时看到的是这一遍：图标跟着变淡
-            CompositionLocalProvider(LocalGlassNavTabFade provides { 1f - 0.5f * dampedDrag.pressProgress }) {
-                Row(
-                    Modifier
-                        .clearAndSetSemantics {}
-                        .alpha(0f)
-                        .drawWithContent { if (glassActive) drawContent() }
-                        .layerBackdrop(tabsBackdrop)
-                        .graphicsLayer { translationX = panelOffset }
-                        .drawBackdrop(
-                            // 有主胶囊导出的那一层（已模糊、已铺底色）就直接采它，省一次对页面的模糊；
-                            // 滑块里透出的底也和旁边的胶囊完全一致
-                            backdrop = exportedBackdrop ?: backdrop,
-                            shape = { pillShape },
-                            effects = {
-                                if (exportedBackdrop == null) {
-                                    padding = maxOf(padding, 16.dp.toPx())
-                                    vibrancy()
-                                    blur(8.dp.toPx())
-                                }
-                            },
-                            highlight = null,
-                            onDrawSurface = if (exportedBackdrop == null) {
-                                { drawRect(containerColor) }
-                            } else {
-                                null
-                            },
-                        )
-                        .height(innerHeight)
-                        .fillMaxWidth()
-                        .padding(horizontal = 4.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    content = tintedContent,
-                )
-            }
-        }
-
-        // 一格都不高亮（currentIndex = -1）时滑块不画：它没有该停的位置
-        if (tabWidthPx > 0f && currentIndex in 0 until tabsCount) {
-            if (glass && tabsBackdrop != null) {
-                Box(
-                    Modifier
-                        .padding(horizontal = 4.dp)
-                        .graphicsLayer {
-                            translationX =
-                                if (isLtr) dampedDrag.value * tabWidthPx + panelOffset
-                                else size.width - (dampedDrag.value + 1f) * tabWidthPx + panelOffset
-                        }
-                        .drawWithContent {
-                            if (glassActive) drawContent()
-                            else drawOutline(pillShape.createOutline(size, layoutDirection, this), restTint)
-                        }
-                        .drawBackdrop(
-                            backdrop = rememberCombinedBackdrop(backdrop, tabsBackdrop),
-                            shape = { pillShape },
-                            effects = {},
-                            highlight = null,
-                            layerBlock = {
-                                scaleX = dampedDrag.scaleX
-                                scaleY = dampedDrag.scaleY
-                            },
-                            onDrawSurface = {
-                                drawRect(restTint.copy(alpha = restTint.alpha * (1f + 0.6f * dampedDrag.pressProgress)))
-                            },
-                        )
-                        .height(innerHeight)
-                        .fillMaxWidth(1f / tabsCount),
-                )
-            } else {
-                // glass = false：退回一个不透明的强调色胶囊，靠 alpha 15% 的填色区分选中项，
-                // 不接 drawBackdrop / 高光着色器（性能模式）。拖动、点击的逻辑和玻璃模式共用。
-                Box(
-                    Modifier
-                        .padding(horizontal = 4.dp)
-                        .graphicsLayer {
-                            translationX =
-                                if (isLtr) dampedDrag.value * tabWidthPx + panelOffset
-                                else size.width - (dampedDrag.value + 1f) * tabWidthPx + panelOffset
-                            scaleY = dampedDrag.scaleY
-                        }
-                        .clip(pillShape)
-                        .background(accentColor.copy(alpha = 0.15f))
-                        .height(innerHeight)
-                        .fillMaxWidth(1f / tabsCount),
-                )
-            }
-        }
-
-        // 最上面一层：只画 tintExempt 的格子（屁岱）的真身，其余位置是不接触摸的空占位，
-        // 触摸会落到下面那一排和滑块上。这样屁岱始终只有一份，而且永远在滑块上面。
-        if (tabs.any { it.tintExempt }) {
+                .graphicsLayer {
+                    translationX = deform.translationX
+                    translationY = deform.translationY
+                    scaleX = deform.scaleX * barScale
+                    scaleY = deform.scaleY * barScale
+                }
+                .then(dragAnywhere),
+            contentAlignment = Alignment.CenterStart,
+        ) {
+            // kyant 玻璃（非 Android / 关玻璃时的回退）：整条胶囊一次采样 + 染色
             Row(
                 Modifier
                     .graphicsLayer { translationX = panelOffset }
+                    .then(
+                        if (glass) {
+                            Modifier.drawBackdrop(
+                                backdrop = backdrop,
+                                shape = { pillShape },
+                                effects = {
+                                    // 采样范围往外扩一圈，胶囊边缘处也有真实内容可混
+                                    padding = maxOf(padding, 16.dp.toPx())
+                                    vibrancy()
+                                    blur(GLASS_BLUR_DP.dp.toPx() / GLASS_BAR_DOWNSCALE)
+                                    // 液态玻璃的折射：按住时从 0 长到 24dp，静止为 0 不跑 shader
+                                    lens(24.dp.toPx() * pressProgress, 24.dp.toPx() * pressProgress)
+                                },
+                                sampleDownscale = GLASS_BAR_DOWNSCALE,
+                                exportedBackdrop = exportedBackdrop,
+                                // 胶囊边缘的高光：日间淡、夜间亮，和 COUI 的 edgeAlpha 同一档
+                                highlight = {
+                                    Highlight.Default.copy(
+                                        alpha = (if (isDark) 0.8f else 0.35f) + 0.4f * pressProgress,
+                                    )
+                                },
+                                // 悬浮胶囊是真的浮在内容上面，该有影子；但不要 kyant 默认那圈
+                                // 死黑（24dp、10% 黑）。改成带一点主题色的环境光阴影：更散、更低，
+                                // 颜色跟着主题走，像胶囊被页面的光托着，而不是压了一块灰。
+                                shadow = { barShadow },
+                                onDrawSurface = { drawRect(containerColor) },
+                            )
+                        } else {
+                            Modifier
+                                .clip(pillShape)
+                                .background(containerColor)
+                        },
+                    )
                     .height(GLASS_BAR_HEIGHT)
                     .fillMaxWidth()
-                    .padding(4.dp),
+                    .padding(horizontal = GLASS_BAR_PADDING_H, vertical = GLASS_BAR_PADDING_V),
+                horizontalArrangement = Arrangement.spacedBy(GLASS_BAR_ITEM_GAP),
                 verticalAlignment = Alignment.CenterVertically,
-            ) {
-                tabs.forEachIndexed { index, tab ->
-                    if (tab.tintExempt) {
-                        // 拖动由外层统一接管，这一格只管点击
-                        GlassNavTabSlot(onClick = tabOnClick(index)) {
-                            tab.content(this, index == currentIndex)
+                content = realContent,
+            )
+
+
+            // 最上面一层：只画 tintExempt 的格子（屁岱）的真身，其余位置是不接触摸的空占位，
+            // 触摸会落到下面那一排和滑块上。这样屁岱始终只有一份，而且永远在滑块上面。
+            if (tabs.any { it.tintExempt }) {
+                Row(
+                    Modifier
+                        .graphicsLayer { translationX = panelOffset }
+                        .height(GLASS_BAR_HEIGHT)
+                        .fillMaxWidth()
+                        .padding(horizontal = GLASS_BAR_PADDING_H, vertical = GLASS_BAR_PADDING_V),
+                    horizontalArrangement = Arrangement.spacedBy(GLASS_BAR_ITEM_GAP),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    tabs.forEachIndexed { index, tab ->
+                        if (tab.tintExempt) {
+                            // 拖动由外层统一接管，这一格只管点击
+                            GlassNavTabSlot(
+                                onClick = tabOnClick(index),
+                                selected = isHighlighted(index),
+                                clickable = false,
+                            ) {
+                                tab.content(this, isHighlighted(index))
+                            }
+                        } else {
+                            GlassNavTabSlot(onClick = null) {}
                         }
-                    } else {
-                        GlassNavTabSlot(onClick = null) {}
                     }
                 }
             }
-        }
         }
     }
 }

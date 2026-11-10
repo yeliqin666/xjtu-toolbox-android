@@ -24,6 +24,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.onClick
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 
 /** 滑块被按住时染色那一遍图标的透明度系数（只有 [GlassBottomTabs] 的 `tintedContent` 会 provide）。 */
@@ -41,6 +45,13 @@ fun RowScope.GlassNavTabSlot(
     onClick: (() -> Unit)?,
     modifier: Modifier = Modifier,
     pressSource: MutableInteractionSource? = null,
+    selected: Boolean = false,
+    /**
+     * false = 指针交给底栏胶囊统一处理（点击与拖动走同一条手势，见 [GlassBottomTabs]），
+     * 这一格只保留无障碍语义，不再自己接 `clickable`。
+     * 两套都挂会在同一根手指上互相抢事件——拖动因此失效。
+     */
+    clickable: Boolean = true,
     content: @Composable ColumnScope.() -> Unit,
 ) {
     val fade = LocalGlassNavTabFade.current
@@ -67,15 +78,23 @@ fun RowScope.GlassNavTabSlot(
             .fillMaxHeight()
             .weight(1f)
             .then(
-                if (onClick != null) {
-                    Modifier.clickable(
+                when {
+                    onClick == null -> Modifier
+                    clickable -> Modifier.clickable(
                         interactionSource = pressSource,
                         indication = null,
                         role = Role.Tab,
                         onClick = onClick,
                     )
-                } else {
-                    Modifier
+                    // 只留语义：点按由外层手势提交，这里给读屏一个可点的 Tab
+                    else -> Modifier.semantics {
+                        role = Role.Tab
+                        this.selected = selected
+                        onClick {
+                            onClick()
+                            true
+                        }
+                    }
                 },
             )
             .graphicsLayer {
