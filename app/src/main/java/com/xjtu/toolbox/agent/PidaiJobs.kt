@@ -156,8 +156,12 @@ class PidaiJobWorker(context: Context, params: WorkerParameters) : CoroutineWork
             """.trimIndent() + PLAIN_TEXT,
         )
 
-        /** 推送在通知栏按纯文本显示。 */
-        private const val PLAIN_TEXT = "\ntitle 和 body 都是纯文本：不用 Markdown（**、#、-、反引号、[链接](…)），分行直接换行。"
+        /**
+         * 推送在通知栏按纯文本显示。另外守住记忆里的偏好：用户说过不要的内容不写，
+         * 说过不要这类推送就整条不发（空 title / body 在 [runBrief] 里直接跳过）。
+         */
+        private const val PLAIN_TEXT = "\ntitle 和 body 都是纯文本：不用 Markdown（**、#、-、反引号、[链接](…)），分行直接换行。" +
+            "\n遵守记忆里用户的偏好：他说过不想看的内容不写；他说过不要这类推送，就只输出 {\"title\":\"\",\"body\":\"\"}。"
     }
 }
 

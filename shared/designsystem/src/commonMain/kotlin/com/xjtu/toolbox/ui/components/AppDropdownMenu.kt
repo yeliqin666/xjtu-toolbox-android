@@ -28,6 +28,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.FilterQuality
+import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.graphics.drawscope.withTransform
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Rect
@@ -246,6 +247,9 @@ private fun MorphMenu(
     val surface = MiuixTheme.colorScheme.surfaceContainer.let { if (frost != null) it.copy(alpha = MENU_FROSTED_ALPHA) else it }
     // 面板图层此刻的缩放与位移（图层块里写、绘制时读），用来把快照反变换回屏幕上的原位
     val layerXf = remember { FloatArray(3) }
+    // 二级面板的摆放纵坐标（布局时写）与此刻的上下位移（图层块里写）
+    val subPanelY = remember { FloatArray(1) }
+    val subTy = remember { FloatArray(1) }
     val hairline = MiuixTheme.colorScheme.onSurface.copy(alpha = 0.07f)
     val ltr =LocalLayoutDirection.current == LayoutDirection.Ltr
     val safeTop = WindowInsets.statusBars.getTop(density)
@@ -423,7 +427,21 @@ private fun MorphMenu(
                             spotShadowColor = MenuSpotShadow
                             val leaving = if (closing) ((progress() - 0.45f) / 0.4f).coerceIn(0f, 1f) else 1f
                             alpha = (q / 0.08f).coerceIn(0f, 1f) * leaving
+                            subTy[0] = translationY
                         }
+                        // 二级面板同样铺毛玻璃底：它只上下位移、不缩放，反着挪回去就对上屏幕原位
+                        .then(
+                            if (frost == null) Modifier else Modifier.drawBehind {
+                                translate(-target.value.left, -(subPanelY[0] + subTy[0])) {
+                                    drawImage(
+                                        frost.image,
+                                        dstOffset = IntOffset(frostAt.x.roundToInt(), frostAt.y.roundToInt()),
+                                        dstSize = frost.fullSize,
+                                        filterQuality = FilterQuality.Low,
+                                    )
+                                }
+                            },
+                        )
                         .background(surface)
                         .border(0.5.dp, hairline, RoundedCornerShape(MENU_RADIUS))
                         .pointerInput(Unit) { detectTapGestures { } }
@@ -466,6 +484,7 @@ private fun MorphMenu(
         target.value = Rect(x.toFloat(), y.toFloat(), (x + menu.width).toFloat(), (y + menu.height).toFloat())
         // 二级面板和上一层同宽，高度可以超过上一层，到屏幕底才在里面滚
         val panelY = y + sub.rowTop.roundToInt() + SUB_DROP.roundToPx()
+        subPanelY[0] = panelY.toFloat()
         val panel = if (sub.panel != null) {
             measurables.last().measure(
                 Constraints(
@@ -669,8 +688,8 @@ private val SUB_DROP = 8.dp
 
 private val MENU_RADIUS = 18.dp
 
-/** 铺了毛玻璃底时面板的不透明度：透出一点下面糊开的颜色，字仍清楚。 */
-private const val MENU_FROSTED_ALPHA = 0.8f
+/** 铺了毛玻璃底时面板的不透明度：下面糊开的颜色要透得出来才看得出是玻璃，字仍清楚。 */
+private const val MENU_FROSTED_ALPHA = 0.62f
 private const val MENU_OPEN_MS = 440
 private const val MENU_CLOSE_MS = 340
 private const val ICON_OPEN_MS = 660

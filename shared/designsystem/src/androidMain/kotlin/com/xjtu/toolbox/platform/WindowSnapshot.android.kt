@@ -24,10 +24,10 @@ import kotlinx.coroutines.withContext
 import kotlin.coroutines.resume
 
 /** 截图缩小的倍数：缩到这么小再拉回原尺寸，本身就糊了一层，再补一遍盒式模糊去掉格子感。 */
-private const val DOWNSCALE = 8
+private const val DOWNSCALE = 10
 
-/** 小图上盒式模糊的半径（像素）与遍数：三遍近似高斯。 */
-private const val BOX_RADIUS = 2
+/** 小图上盒式模糊的半径（像素）与遍数：三遍近似高斯，折回原图约 60px 的糊，字完全认不出、只剩色块。 */
+private const val BOX_RADIUS = 3
 private const val BOX_PASSES = 3
 
 @Composable

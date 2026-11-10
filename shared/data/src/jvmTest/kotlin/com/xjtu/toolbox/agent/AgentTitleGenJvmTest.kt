@@ -149,12 +149,12 @@ class AgentTitleGenJvmTest {
     }
 
     @Test
-    fun `标点清理与 12 字截断，推理尾行只取最后一行`() {
+    fun `标点清理与 10 字截断，推理尾行只取最后一行`() {
         handler = { 200 to ok("思考一下\n本周考试安排") }
         assertEquals("本周考试安排", generate())
 
         handler = { 200 to ok("「一二三四五六七八九十十一十二三。」") }
-        assertEquals("一二三四五六七八九十十一…", generate())
+        assertEquals("一二三四五六七八九十…", generate())
     }
 
     @Test

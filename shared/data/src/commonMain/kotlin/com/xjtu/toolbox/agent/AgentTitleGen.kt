@@ -19,7 +19,8 @@ import okhttp3.RequestBody.Companion.toRequestBody
 import java.util.concurrent.TimeUnit
 
 /**
- * 仿 opencode：首条消息发出时（或首轮结束后）用一次轻量 LLM 调用，把对话概括成 ≤12 字的会话标题。
+ * 仿 opencode：首条消息发出时（或首轮结束后）用一次轻量 LLM 调用，把对话概括成 ≤8 字的会话标题。
+ * 长度靠提示词约束；`max_tokens` 只是思考没关掉时的兜底额度，不管长度；超长的最后由 [sanitizeAgentTitle] 截断。
  * 失败返回 null（调用方退回首条消息截断）。
  *
  * 要点：
@@ -75,9 +76,9 @@ object AgentTitleGen {
                         // 光说"概括主题"不够：模型的默认倾向是**转述这次请求**
                         // （"用户询问本周是否有考试"），那是摘要不是标题。
                         // 所以既要正面给出"名词短语"的形状，也要反面点名禁掉主语开头，再给两个例子对齐。
-                        "为对话起标题：一个不超过 12 字的名词短语，写主题，不转述提问。\n" +
+                        "为对话起标题：一个不超过 8 个字的名词短语，写主题，不转述提问。\n" +
                             "不以「用户」「助手」「关于」「如何」开头，不含「询问」「想让我」这类动作词；只输出标题，不加标点。\n" +
-                            "例：问这周有没有考试 → 本周考试安排"
+                            "例：问这周有没有考试 → 本周考试；帮我把实验加进日程 → 实验日程"
                     )
                 })
                 add(buildJsonObject {
@@ -137,7 +138,7 @@ object AgentTitleGen {
         return lastLine
             .trim('"', '\u201c', '\u201d', '\u300c', '\u300d', '\u300a', '\u300b', '。', '.', ' ')
             .takeIf { it.isNotBlank() && !looksLikeMeta(it) }
-            ?.let { sanitizeAgentTitle(it, "") }
+            ?.let { sanitizeAgentTitle(it, "", AGENT_TITLE_MAX_CHARS) }
             ?.takeIf { it.isNotBlank() }
     }
 

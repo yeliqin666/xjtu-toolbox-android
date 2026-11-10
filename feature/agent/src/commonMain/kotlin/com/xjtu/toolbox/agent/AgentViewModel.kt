@@ -339,7 +339,7 @@ class AgentViewModel(private val host: AgentHost) : ViewModel(), AgentChatSessio
 
     /**
      * 用 AI 把对话总结成简短标题（仿 opencode）；用户已改名则不动。
-     * 首条消息一发出就起（只看问题），侧栏马上有标题；没起成的话首轮结束带上回复再试一次。
+     * 只看第一条消息、一发出就起：不等回复，侧栏马上有标题，输入短、结果也稳。没起成就留着首条消息截断的那个。
      */
     private fun maybeAutoTitle(config: AgentConfig) {
         val store = store ?: return
@@ -348,12 +348,10 @@ class AgentViewModel(private val host: AgentHost) : ViewModel(), AgentChatSessio
         if (messages.count { it.role == "user" } != 1) return
         val firstUser = messages.firstOrNull { it.role == "user" }?.content?.trim().orEmpty()
         if (firstUser.isBlank()) return
-        // 取最后一条助手消息：首轮有工具调用时，结尾那条才是最终回复。发出时还没有，为空
-        val firstAssistant = messages.lastOrNull { it.role == "assistant" }?.content?.trim().orEmpty()
         titling += id
         viewModelScope.launch {
             try {
-                val title = host.generateTitle(config, firstUser, firstAssistant)?.takeIf { it.isNotBlank() }
+                val title = host.generateTitle(config, firstUser, "")?.takeIf { it.isNotBlank() }
                     ?: return@launch
                 if (!store.isLocked(id)) {           // 期间用户可能已手动改名
                     store.rename(id, title, lock = true)
@@ -365,12 +363,12 @@ class AgentViewModel(private val host: AgentHost) : ViewModel(), AgentChatSessio
         }
     }
 
-    /** 标题取首条用户消息（截断 18 字），无则默认。 */
+    /** 标题取首条用户消息（按会话标题的上限截断），无则默认。 */
     private fun deriveTitle(): String {
         val firstUser = messages.firstOrNull { it.role == "user" }?.content?.trim().orEmpty()
         return when {
             firstUser.isBlank() -> AGENT_SESSION_DEFAULT_TITLE
-            else -> sanitizeAgentTitle(firstUser, AGENT_SESSION_DEFAULT_TITLE)
+            else -> sanitizeAgentTitle(firstUser, AGENT_SESSION_DEFAULT_TITLE, AGENT_TITLE_MAX_CHARS)
         }
     }
 
@@ -627,7 +625,6 @@ class AgentViewModel(private val host: AgentHost) : ViewModel(), AgentChatSessio
                     } else {
                         messages.add(ChatMessage("assistant", reply, navSuggestions = navSuggestions, widgets = widgets))
                     }
-                    maybeAutoTitle(config)   // 发出时没起成标题的，带上回复再试一次
                 }
             } catch (e: kotlinx.coroutines.CancellationException) {
                 flushStream()
