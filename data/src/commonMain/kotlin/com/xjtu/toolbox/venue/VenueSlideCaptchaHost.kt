@@ -17,12 +17,4 @@ object VenueSlideCaptchaHost : SlideCaptchaHost {
             onSlideComplete = onSolved,
         )
     }
-
-    override suspend fun solve(data: CaptchaData, shownAtMillis: Long): SolvedCaptcha? =
-        VenueCaptchaSolver.solve(data)?.let { solved ->
-            SolvedCaptcha(
-                sliderResult = VenueCaptchaSolver.stamp(solved.sliderResult, shownAtMillis),
-                releaseAfterMillis = VenueCaptchaSolver.releaseAt(solved.sliderResult),
-            )
-        }
 }

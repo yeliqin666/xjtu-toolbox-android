@@ -234,7 +234,6 @@ fun AgentScreen(
                 sessions = vm.sessions,
                 currentId = vm.currentSessionId,
                 onClose = { drawerOpen = false },
-                onNew = ::startNewChat,
                 onSelect = { vm.switchSession(it); drawerOpen = false },
                 // 对话框在 Scaffold 的弹窗宿主里，侧栏盖在它上面，先收起来
                 onLongPress = { actionTarget = it; drawerOpen = false },
@@ -437,7 +436,6 @@ fun AgentScreen(
                 SessionListPane(
                     sessions = vm.sessions,
                     currentId = vm.currentSessionId,
-                    onNew = ::startNewChat,
                     onSelect = { vm.switchSession(it) },
                     onLongPress = { actionTarget = it },
                 )

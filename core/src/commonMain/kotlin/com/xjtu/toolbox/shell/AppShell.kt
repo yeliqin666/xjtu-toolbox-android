@@ -197,6 +197,7 @@ fun AppShell(
                     ) { p ->
                         ShellBarPage(
                             glass = glassStyle,
+                            edgeToEdge = p.tab?.edgeToEdge == true,
                             statusTop = statusTop,
                             bar = if (topBar != null && p.tab?.drawsOwnTopBar != true) {
                                 { backdrop ->

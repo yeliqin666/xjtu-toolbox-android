@@ -88,10 +88,11 @@ object HomeStatsRefresher {
     )
 
     /**
-     * 兴庆校区此刻（当前或下一节）各楼空着几间，取空得最多的三栋。只认 CDN 的当天表；
+     * 此刻（当前或下一节）空着的教室，用户在空教室页常看的楼排前面。只认 CDN 的当天表，
+     * 和空教室页共用同一份磁盘缓存：页里已经查过今天的表就直接用，不再下一遍；
      * 晚上 22 点后没有节次可看就不出。
      */
-    private fun emptyRoomOverview(): HomeStat? {
+    private fun emptyRoomOverview(context: Context): HomeStat? {
         val now = com.xjtu.toolbox.util.nowOnCampus()
         val minute = now.hour * 60 + now.minute
         val section = com.xjtu.toolbox.schedule.XjtuTime.getAllTimes()
@@ -101,7 +102,8 @@ object HomeStatsRefresher {
             ?: "兴庆校区"
         val buildings = com.xjtu.toolbox.emptyroom.CAMPUS_BUILDINGS[campus].orEmpty()
         val rooms = runCatching {
-            com.xjtu.toolbox.emptyroom.EmptyRoomApi().getEmptyRoomsMulti(campus, buildings.toSet())
+            com.xjtu.toolbox.emptyroom.EmptyRoomApi(com.xjtu.toolbox.emptyroom.EmptyRoomCache(context))
+                .getEmptyRoomsMulti(campus, buildings.toSet())
         }.getOrNull() ?: return null
         val free = rooms.filter { it.status.getOrNull(section - 1) == 0 }
         if (free.isEmpty()) return null
@@ -110,10 +112,11 @@ object HomeStatsRefresher {
             (section..room.status.size).takeWhile { room.status[it - 1] == 0 }.lastOrNull() ?: section
         val picks = free.sortedWith(compareByDescending<com.xjtu.toolbox.emptyroom.RoomInfo> { r -> favorites.any { r.name.startsWith(it) && it.isNotBlank() } }
             .thenByDescending { freeUntil(it) }.thenBy { it.name }).take(TILE_LINES)
+        // 大字是空着的间数，明细列具体教室：卡片多大都有一个一眼能读的数
         return HomeStat(
-            picks.first().name,
-            "$campus · 第 $section 节起 · 课表空闲",
-            picks.map { r -> HomeLine("${r.name} · 空至第 ${freeUntil(r)} 节", "app:${AppRoute.EmptyRoom.id}") },
+            "${free.size} 间",
+            "${campus.removeSuffix("校区")} · 第 $section 节空闲",
+            picks.map { r -> HomeLine(r.name, "app:${AppRoute.EmptyRoom.id}", "空至第 ${freeUntil(r)} 节") },
         )
     }
 
@@ -353,9 +356,9 @@ object HomeStatsRefresher {
             }
         },
 
-        // 空教室：读 CDN 的当天占用表（不用登录），算出此刻各楼空着几间。不必及时，两小时一次。
-        Source(AppRoute.EmptyRoom, 10 * 60 * 1000L, null) { _, _ ->
-            withContext(Dispatchers.IO) { emptyRoomOverview() }
+        // 空教室：读 CDN 的当天占用表（不用登录），算出此刻空着哪些教室。十分钟一算，表本身当天只下一次。
+        Source(AppRoute.EmptyRoom, 10 * 60 * 1000L, null) { ctx, _ ->
+            withContext(Dispatchers.IO) { emptyRoomOverview(ctx) }
         },
 
         // 教务通知：来源跟用户在设置里勾的一致，小组件和系统通知共用。

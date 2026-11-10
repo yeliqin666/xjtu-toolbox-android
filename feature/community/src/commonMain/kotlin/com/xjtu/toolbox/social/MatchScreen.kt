@@ -759,10 +759,9 @@ private fun ResultCard(
                 Spacer(Modifier.height(8.dp))
                 Text(
                     if (result.commonDims == 0) {
-                        "你俩没有一项是都分享了的，没得比。常见原因是有一方没进过日程页，本地还没有课表；" +
-                            "让对方先打开一次日程页，或者多开几项再生成一次码。"
+                        "没有双方都分享的项。可能有一方还没打开过日程页，打开后多勾几项再生成一次码。"
                     } else {
-                        "你俩都分享了一些内容，但课、老师、考试这些都没有撞上，时间表也没能比上。"
+                        "课程、老师、考试和时间表都没有重合。"
                     },
                     style = MiuixTheme.textStyles.body2,
                     color = MiuixTheme.colorScheme.onSurfaceVariantSummary,

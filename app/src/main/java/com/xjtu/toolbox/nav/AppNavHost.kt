@@ -400,7 +400,6 @@ fun NavEntryBuilder.appPageEntries(
             }
         }
         entry<AppRoute.Venue>(transition = expand(AppRoute.Venue::class)) {
-            // 「自动识别验证码」每次预订现读设置，lambda 用 `remember` 稳住。
             val context = LocalContext.current
             val hintPrefs = remember(context) {
                 context.getSharedPreferences("feature_hints", Context.MODE_PRIVATE)
@@ -410,9 +409,6 @@ fun NavEntryBuilder.appPageEntries(
                     source = remember(site) { AppVenueSource(site) },
                     onBack = back,
                     onOpenBrowser = { url, then -> router.open(AppRoute.Browser(url, then)) },
-                    autoSolveCaptcha = remember(credentialStore) {
-                        { credentialStore.venueAutoSolveCaptchaEnabled }
-                    },
                     captchaHost = VenueSlideCaptchaHost,
                     showFirstUseHint = !hintPrefs.getBoolean("venue_hint_shown", false),
                     onFirstUseHintRead = { hintPrefs.edit().putBoolean("venue_hint_shown", true).apply() },

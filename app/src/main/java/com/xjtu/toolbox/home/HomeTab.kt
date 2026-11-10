@@ -23,12 +23,10 @@ internal fun HomeTab(
     bulletins: List<Bulletin> = emptyList(),
     onBulletinTap: (Bulletin) -> Unit = {},
     onBulletinDismiss: (Bulletin) -> Unit = {},
-    /** 玻璃顶栏的高度：内容铺到顶栏下面，这段留白放进滚动内容里。经典风格为 0。 */
+    /** 页面顶边到内容的留白（状态栏，玻璃风格下还有壳的顶栏）。 */
     contentTopPadding: androidx.compose.ui.unit.Dp = 0.dp,
     /** 壳把整页上移的量（见 `ShellPageInsets.contentTopShift`）；首页模糊带按它补回屏幕顶边。 */
     contentTopShift: () -> androidx.compose.ui.unit.Dp = { 0.dp },
-    /** 顶栏最左边那个按钮（「功能按钮统一右对齐」关掉时的扫码）。 */
-    topLeading: (@Composable () -> Unit)? = null,
     topActions: (@Composable () -> Unit)? = null,
 ) {
     val home = rememberAppHome(
@@ -42,11 +40,9 @@ internal fun HomeTab(
         onBulletinTap = onBulletinTap,
         onBulletinDismiss = onBulletinDismiss,
     )
-    // `:app` 自己画首页顶栏圆钮，所以抽屉里带「顶栏排法」那一行
     com.xjtu.toolbox.settings.HomeSettingsSheet(
         home.showSettingsSheet.value,
         onDismiss = { home.showSettingsSheet.value = false },
-        showTopBarStyle = true,
     )
     HomeScreen(
         host = home.host,
@@ -54,7 +50,6 @@ internal fun HomeTab(
         extraBottomPadding = extraBottomPadding,
         contentTopPadding = contentTopPadding,
         contentTopShift = contentTopShift,
-        topLeading = topLeading,
         topActions = topActions,
     )
 }

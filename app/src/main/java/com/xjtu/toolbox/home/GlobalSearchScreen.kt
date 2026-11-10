@@ -66,6 +66,7 @@ import top.yukonga.miuix.kmp.basic.TopAppBar
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.TravelExplore
 import androidx.compose.material.icons.outlined.ChevronRight
 import kotlinx.coroutines.delay
@@ -260,57 +261,30 @@ private fun SearchEmptyHints(
     onAskAgent: (String) -> Unit,
 ) {
     Column(Modifier.fillMaxWidth().padding(top = 20.dp)) {
-        Text(
-            "常用入口",
-            style = MiuixTheme.textStyles.subtitle,
-            fontWeight = FontWeight.SemiBold,
-        )
-        Spacer(Modifier.height(12.dp))
+        SectionLabel("常用入口")
         FlowRow(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             QuickChips.forEach { chip ->
-                Surface(
-                    shape = RoundedCornerShape(20.dp),
-                    color = MiuixTheme.colorScheme.surfaceVariant,
-                    // 先裁成圆角再接点击，按下的高亮才跟着圆角走
-                    modifier = Modifier.clip(RoundedCornerShape(20.dp)).clickable { onChip(chip) },
-                ) {
-                    Text(
-                        chip,
-                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
-                        style = MiuixTheme.textStyles.body2,
-                    )
-                }
+                Text(
+                    chip,
+                    style = MiuixTheme.textStyles.body2,
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(50))
+                        .background(com.xjtu.toolbox.ui.components.AppCardColor)
+                        .clickable { onChip(chip) }
+                        .padding(horizontal = 16.dp, vertical = 9.dp),
+                )
             }
         }
-        Spacer(Modifier.height(28.dp))
-        Text(
-            "直接问小岱",
-            style = MiuixTheme.textStyles.subtitle,
-            fontWeight = FontWeight.SemiBold,
-        )
-        Spacer(Modifier.height(8.dp))
-        Text(
-            "搜不到也没关系，把问题丢给 AI。",
-            style = MiuixTheme.textStyles.footnote1,
-            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-        )
-        Spacer(Modifier.height(12.dp))
-        SearchResultRow(
-            title = "今天还有哪些课？",
-            subtitle = "问小岱",
-            showAiIcon = true,
-            onClick = { onAskAgent("今天我还有哪些课？") },
-        )
-        Spacer(Modifier.height(8.dp))
-        SearchResultRow(
-            title = "帮我查空教室",
-            subtitle = "问小岱",
-            showAiIcon = true,
-            onClick = { onAskAgent("帮我查空教室") },
-        )
+        Spacer(Modifier.height(24.dp))
+        SectionLabel("问小岱")
+        ResultGroup {
+            SearchResultRow(SearchIcon.Agent, "今天还有哪些课？", "", onClick = { onAskAgent("今天我还有哪些课？") })
+            com.xjtu.toolbox.ui.components.RowDivider(startInset = ROW_TEXT_INSET)
+            SearchResultRow(SearchIcon.Agent, "帮我查空教室", "", onClick = { onAskAgent("帮我查空教室") })
+        }
     }
 }
 
@@ -329,128 +303,125 @@ private fun SearchResultList(
 
     // 末尾让出小白条和键盘，最后一条结果能滚到它们上面
     val bottomInset = WindowInsets.navigationBars.union(WindowInsets.ime).asPaddingValues().calculateBottomPadding()
-    LazyColumn(
-        contentPadding = PaddingValues(top = 12.dp, bottom = 12.dp + bottomInset),
-        verticalArrangement = Arrangement.spacedBy(6.dp)
-    ) {
+    LazyColumn(contentPadding = PaddingValues(top = 16.dp, bottom = 12.dp + bottomInset)) {
         if (url != null) {
-            item(key = "url-direct") {
-                SearchResultRow(title = "直接访问", subtitle = url, showAiIcon = false, onClick = { onOpenUrl(url) })
-            }
-            item(key = "url-vpn") {
-                SearchResultRow(
-                    title = "通过 WebVPN 访问",
-                    subtitle = "校外访问校内网站",
-                    showAiIcon = false,
-                    onClick = { onOpenWithWebVpn(WebVpnUtil.toVpnUrl(url)) },
-                )
+            item(key = "url") {
+                SectionLabel("网址")
+                ResultGroup {
+                    SearchResultRow(SearchIcon.Link, "直接访问", url, onClick = { onOpenUrl(url) })
+                    com.xjtu.toolbox.ui.components.RowDivider(startInset = ROW_TEXT_INSET)
+                    SearchResultRow(SearchIcon.Link, "通过 WebVPN 访问", "校外访问校内网站", onClick = { onOpenWithWebVpn(WebVpnUtil.toVpnUrl(url)) })
+                }
+                Spacer(Modifier.height(GROUP_GAP))
             }
         }
         if (screens.isNotEmpty()) {
-            item(key = "hdr-screen") {
-                Text(
-                    "功能",
-                    style = MiuixTheme.textStyles.footnote1,
-                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                    modifier = Modifier.padding(bottom = 2.dp, top = 4.dp),
-                )
-            }
-            items(screens, key = { "s-${it.route.id}-${it.title}" }) { entry ->
-                SearchResultRow(
-                    title = entry.title,
-                    subtitle = entry.subtitle,
-                    showAiIcon = false,
-                    onClick = { onNavigate(entry.route) }
-                )
+            item(key = "screens") {
+                SectionLabel("功能")
+                ResultGroup {
+                    screens.forEachIndexed { i, entry ->
+                        if (i > 0) com.xjtu.toolbox.ui.components.RowDivider(startInset = ROW_TEXT_INSET)
+                        SearchResultRow(SearchIcon.Route(entry.route), entry.title, entry.subtitle, onClick = { onNavigate(entry.route) })
+                    }
+                }
+                Spacer(Modifier.height(GROUP_GAP))
             }
         }
-        if (prompts.isNotEmpty()) {
-            item(key = "hdr-ai") {
-                Text(
-                    "问小岱",
-                    style = MiuixTheme.textStyles.footnote1,
-                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                    modifier = Modifier.padding(bottom = 2.dp, top = 8.dp),
-                )
+        item(key = "agent") {
+            SectionLabel("问小岱")
+            ResultGroup {
+                prompts.forEach { entry ->
+                    SearchResultRow(SearchIcon.Agent, entry.prompt, "", onClick = { onAskAgent(entry.prompt) })
+                    com.xjtu.toolbox.ui.components.RowDivider(startInset = ROW_TEXT_INSET)
+                }
+                SearchResultRow(SearchIcon.Agent, query, "用这句话提问", onClick = { onAskAgent(query) })
             }
-            items(prompts, key = { "a-${it.prompt}" }) { entry ->
-                SearchResultRow(
-                    title = entry.prompt,
-                    subtitle = "让 AI 处理",
-                    showAiIcon = true,
-                    onClick = { onAskAgent(entry.prompt) }
-                )
-            }
-        }
-        if (results.isEmpty()) {
-            item(key = "empty") {
-                Text(
-                    "没有直接匹配的功能",
-                    style = MiuixTheme.textStyles.body2,
-                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                    modifier = Modifier.padding(vertical = 8.dp),
-                )
-            }
-        }
-        item(key = "fallback") {
-            SearchResultRow(
-                title = "问小岱：$query",
-                subtitle = "用这句话提问",
-                showAiIcon = true,
-                onClick = { onAskAgent(query) }
-            )
         }
     }
 }
 
+/** 结果行前面的图标：功能用它自己的图标和配色，网址与提问各一种。 */
+private sealed interface SearchIcon {
+    data class Route(val route: AppRoute) : SearchIcon
+    data object Agent : SearchIcon
+    data object Link : SearchIcon
+}
+
+/** 行内文字起点：16 边距 + 34 图标 + 12 间距。 */
+private val ROW_TEXT_INSET = 62.dp
+private val GROUP_GAP = 20.dp
+
+@Composable
+private fun SectionLabel(text: String) {
+    Text(
+        text,
+        style = MiuixTheme.textStyles.footnote1,
+        fontWeight = FontWeight.SemiBold,
+        color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+        modifier = Modifier.padding(start = 4.dp, bottom = 8.dp),
+    )
+}
+
+/** 一组结果收进一张卡，行间细线。 */
+@Composable
+private fun ResultGroup(content: @Composable androidx.compose.foundation.layout.ColumnScope.() -> Unit) {
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(20.dp))
+            .background(com.xjtu.toolbox.ui.components.AppCardColor),
+        content = content,
+    )
+}
+
 @Composable
 private fun SearchResultRow(
+    icon: SearchIcon,
     title: String,
     subtitle: String,
-    showAiIcon: Boolean,
     onClick: () -> Unit,
 ) {
-    Surface(
-        shape = RoundedCornerShape(14.dp),
-        color = MiuixTheme.colorScheme.surfaceVariant,
-        modifier = Modifier
+    val primary = MiuixTheme.colorScheme.primary
+    val (vector, tint) = when (icon) {
+        is SearchIcon.Route -> HomeIcons.of(icon.route) to com.xjtu.toolbox.ui.theme.serviceColor(icon.route.id)
+        SearchIcon.Agent -> Icons.Default.TravelExplore to primary
+        SearchIcon.Link -> Icons.Default.Language to primary
+    }
+    Row(
+        Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(14.dp))
             .clickable(onClick = onClick)
             .semantics(mergeDescendants = true) {
-                contentDescription = if (showAiIcon) "问小岱：$title" else title
+                contentDescription = if (icon == SearchIcon.Agent) "问小岱：$title" else title
             }
+            .padding(horizontal = 16.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
     ) {
-        Row(
-            Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
-            verticalAlignment = Alignment.CenterVertically,
+        Box(
+            Modifier.size(34.dp).clip(RoundedCornerShape(11.dp)).background(tint.copy(alpha = 0.12f)),
+            contentAlignment = Alignment.Center,
         ) {
-            if (showAiIcon) {
-                Icon(
-                    Icons.Default.TravelExplore,
-                    contentDescription = null,
-                    modifier = Modifier.size(20.dp),
-                    tint = MiuixTheme.colorScheme.primary,
-                )
-                Spacer(Modifier.size(10.dp))
-            }
-            Column(Modifier.weight(1f)) {
-                Text(title, fontWeight = FontWeight.Medium)
-                if (subtitle.isNotBlank()) {
-                    Spacer(Modifier.height(2.dp))
-                    Text(
-                        subtitle,
-                        style = MiuixTheme.textStyles.footnote1,
-                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                    )
-                }
-            }
-            Icon(
-                Icons.Outlined.ChevronRight,
-                contentDescription = null,
-                modifier = Modifier.size(18.dp),
-                tint = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-            )
+            Icon(vector, contentDescription = null, modifier = Modifier.size(19.dp), tint = tint)
         }
+        Spacer(Modifier.size(12.dp))
+        Column(Modifier.weight(1f)) {
+            Text(title, fontWeight = FontWeight.Medium, maxLines = 2, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+            if (subtitle.isNotBlank()) {
+                Spacer(Modifier.height(2.dp))
+                Text(
+                    subtitle,
+                    style = MiuixTheme.textStyles.footnote1,
+                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                    maxLines = 1,
+                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                )
+            }
+        }
+        Icon(
+            Icons.Outlined.ChevronRight,
+            contentDescription = null,
+            modifier = Modifier.size(18.dp),
+            tint = MiuixTheme.colorScheme.onSurfaceVariantSummary.copy(alpha = 0.6f),
+        )
     }
 }

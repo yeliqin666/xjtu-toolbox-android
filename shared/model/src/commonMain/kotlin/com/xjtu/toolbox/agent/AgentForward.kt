@@ -76,8 +76,11 @@ data class AgentForward(
         /**
          * 内置浏览器当前页。正文是页面上已经显示的文字（WebView 里读的），所以要登录的页面、
          * WebVPN 页面也能看，模型不必自己去开链接。
+         *
+         * [needsLogin]：这一页要登录态才打得开（WebVPN 里的页面）。照实告诉模型读网页的工具打不开它，
+         * 只能以带过去的页面文字为准，免得它先去读链接、读到登录页再瞎答。
          */
-        fun webPage(title: String, url: String, pageText: String): AgentForward {
+        fun webPage(title: String, url: String, pageText: String, needsLogin: Boolean = false): AgentForward {
             val body = compact(pageText)
             return AgentForward(
                 text = "帮我看看这个网页：${title.ifBlank { url }}",
@@ -85,9 +88,14 @@ data class AgentForward(
                 snapshot = data(buildString {
                     appendLine("网页标题：$title")
                     appendLine("链接：$url")
+                    if (needsLogin) appendLine("注意：这个网址要登录态（经 WebVPN）才打得开，读网页的工具读不到它，不要去读链接。")
                     if (body.isEmpty()) {
-                        append("没读到页面文字。试着读链接；它可能要登录，读不到就如实说。")
+                        append(
+                            if (needsLogin) "没读到页面文字，这一页的内容无从得知，如实告诉用户。"
+                            else "没读到页面文字。试着读链接；它可能要登录，读不到就如实说。",
+                        )
                     } else {
+                        if (needsLogin) appendLine("以下页面文字是用户此刻看到的内容，以它为准：")
                         appendLine("页面文字${if (body.length > MAX_PAGE_CHARS) "（太长，只带了开头）" else ""}：")
                         append(body.take(MAX_PAGE_CHARS))
                     }

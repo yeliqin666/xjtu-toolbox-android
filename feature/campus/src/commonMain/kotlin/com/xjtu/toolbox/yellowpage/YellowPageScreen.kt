@@ -154,19 +154,14 @@ fun YellowPageScreen(
                 horizontalSpacing = 0.dp,
             ) {
                 fullLineItem {
-                    YellowPageHero(
-                        departmentCount = data?.departments?.size ?: 0,
-                        updateTime = data?.updateTime.orEmpty()
-                    )
-                }
-                fullLineItem {
                     com.xjtu.toolbox.ui.components.AppSearchBar(
                         query = query,
                         onQueryChange = { query = it },
-                        label = "搜索机构或电话号码",
+                        label = "搜索 ${data?.departments?.size ?: 0} 个机构或电话号码",
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(horizontal = 16.dp)
+                            .padding(top = 8.dp)
                     )
                 }
                 if (query.isBlank()) {
@@ -190,17 +185,17 @@ fun YellowPageScreen(
                 }
                 fullLineItem {
                     Row(
-                        Modifier.padding(horizontal = 18.dp, vertical = 2.dp),
-                        verticalAlignment = Alignment.CenterVertically
+                        Modifier.padding(start = 20.dp, end = 20.dp, top = 4.dp),
+                        verticalAlignment = Alignment.Bottom
                     ) {
                         Text(
                             if (query.isBlank()) categoryName else "搜索结果",
-                            style = MiuixTheme.textStyles.title3,
-                            fontWeight = FontWeight.Bold,
+                            style = MiuixTheme.textStyles.title4,
+                            fontWeight = FontWeight.SemiBold,
                             modifier = Modifier.weight(1f)
                         )
                         Text(
-                            "${shown.size} 个机构",
+                            "${shown.size} 个" + data?.updateTime?.takeIf { it.isNotBlank() }?.let { " · 更新于 $it" }.orEmpty(),
                             style = MiuixTheme.textStyles.footnote1,
                             color = MiuixTheme.colorScheme.onSurfaceVariantSummary
                         )
@@ -210,7 +205,7 @@ fun YellowPageScreen(
                     fullLineItem {
                         EmptyState(
                             title = "没有找到相关机构",
-                            subtitle = "试试机构简称或电话号码",
+                            subtitle = "可以搜机构简称或电话号码",
                             modifier = Modifier.fillMaxWidth().padding(top = 36.dp)
                         )
                     }
@@ -229,59 +224,8 @@ fun YellowPageScreen(
     }
 }
 
-@Composable
-private fun YellowPageHero(departmentCount: Int, updateTime: String) {
-    val primary = MiuixTheme.colorScheme.primary
-    Card(
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
-        cornerRadius = 24.dp,
-        colors = CardDefaults.defaultColors(color = Color.Transparent)
-    ) {
-        Row(
-            Modifier
-                .fillMaxWidth()
-                .background(
-                    Brush.linearGradient(
-                        listOf(primary.copy(alpha = 0.18f), primary.copy(alpha = 0.05f))
-                    )
-                )
-                .padding(18.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Box(
-                Modifier
-                    .size(52.dp)
-                    .clip(CircleShape)
-                    .background(primary.copy(alpha = 0.14f)),
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(
-                    Icons.Default.ContactPhone,
-                    contentDescription = null,
-                    tint = primary,
-                    modifier = Modifier.size(28.dp)
-                )
-            }
-            Spacer(Modifier.width(14.dp))
-            Column(Modifier.weight(1f)) {
-                Text(
-                    "交大机构电话，一搜即达",
-                    style = MiuixTheme.textStyles.title3,
-                    fontWeight = FontWeight.Bold
-                )
-                Spacer(Modifier.height(3.dp))
-                Text(
-                    "收录 $departmentCount 个校内机构" +
-                        if (updateTime.isNotBlank()) " · 更新于 $updateTime" else "",
-                    style = MiuixTheme.textStyles.footnote1,
-                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary
-                )
-            }
-        }
-    }
-}
-
-@OptIn(ExperimentalFoundationApi::class)
+/** 一个机构：名字一行，号码排成一行可点的胶囊（点了拨号、长按复制）。 */
+@OptIn(ExperimentalFoundationApi::class, androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
 private fun DepartmentCard(
     department: YellowPageDepartment,
@@ -289,47 +233,33 @@ private fun DepartmentCard(
     modifier: Modifier = Modifier,
 ) {
     val copy = rememberCopyText()
-    Card(
-        modifier = modifier.fillMaxWidth().padding(horizontal = 16.dp),
-        cornerRadius = 18.dp,
-        colors = CardDefaults.defaultColors(color = MiuixTheme.colorScheme.surfaceVariant)
+    val primary = MiuixTheme.colorScheme.primary
+    Column(
+        modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp)
+            .clip(RoundedCornerShape(20.dp))
+            .background(com.xjtu.toolbox.ui.components.AppCardColor)
+            .padding(horizontal = 16.dp, vertical = 14.dp)
     ) {
-        Column(Modifier.fillMaxWidth().padding(15.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Box(
-                    Modifier
-                        .size(36.dp)
-                        .clip(RoundedCornerShape(11.dp))
-                        .background(MiuixTheme.colorScheme.primary.copy(alpha = 0.10f)),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        Icons.Default.Business,
-                        contentDescription = null,
-                        tint = MiuixTheme.colorScheme.primary,
-                        modifier = Modifier.size(19.dp)
-                    )
-                }
-                Spacer(Modifier.width(11.dp))
-                Text(
-                    department.name,
-                    style = MiuixTheme.textStyles.body1,
-                    fontWeight = FontWeight.Bold,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f)
-                )
-            }
-            Spacer(Modifier.height(10.dp))
+        Text(
+            department.name,
+            style = MiuixTheme.textStyles.body1,
+            fontWeight = FontWeight.SemiBold,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+        )
+        Spacer(Modifier.height(10.dp))
+        androidx.compose.foundation.layout.FlowRow(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
             department.phoneItems.forEach { item ->
                 val number = department.dialNumber(item)
-                Surface(
-                    shape = RoundedCornerShape(12.dp),
-                    color = MiuixTheme.colorScheme.secondaryContainer,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(top = 5.dp)
-                        .clip(RoundedCornerShape(12.dp))
+                Row(
+                    Modifier
+                        .clip(RoundedCornerShape(50))
+                        .background(primary.copy(alpha = 0.10f))
                         .then(
                             if (number.isBlank()) Modifier.copyOnLongPress(item, copy)
                             else Modifier.combinedClickable(
@@ -338,30 +268,12 @@ private fun DepartmentCard(
                                 onLongClick = { copy(item) },
                             ) { onDial(number) }
                         )
+                        .padding(start = 10.dp, end = 14.dp, top = 7.dp, bottom = 7.dp),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Row(
-                        Modifier.padding(horizontal = 12.dp, vertical = 9.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Icon(
-                            Icons.Default.Call,
-                            contentDescription = null,
-                            modifier = Modifier.size(17.dp),
-                            tint = MiuixTheme.colorScheme.primary
-                        )
-                        Spacer(Modifier.width(9.dp))
-                        Text(
-                            item,
-                            style = MiuixTheme.textStyles.body2,
-                            fontWeight = FontWeight.Medium,
-                            modifier = Modifier.weight(1f)
-                        )
-                        Text(
-                            "拨打",
-                            style = MiuixTheme.textStyles.footnote1,
-                            color = MiuixTheme.colorScheme.primary
-                        )
-                    }
+                    Icon(Icons.Default.Call, contentDescription = null, modifier = Modifier.size(15.dp), tint = primary)
+                    Spacer(Modifier.width(6.dp))
+                    Text(item, style = MiuixTheme.textStyles.body2, fontWeight = FontWeight.Medium, color = primary)
                 }
             }
         }

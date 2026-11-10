@@ -63,7 +63,6 @@ import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.CardDefaults
 import top.yukonga.miuix.kmp.basic.CircularProgressIndicator
 import top.yukonga.miuix.kmp.basic.DropdownImpl
-import top.yukonga.miuix.kmp.basic.HorizontalDivider
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.IconButton
 import top.yukonga.miuix.kmp.basic.LinearProgressIndicator
@@ -456,10 +455,7 @@ private fun OverviewTab(
                             fontWeight = FontWeight.Medium,
                             modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp)
                         )
-                        recentTransactions.forEach { tx ->
-                            HorizontalDivider(Modifier.padding(horizontal = 16.dp))
-                            TransactionItem(tx)
-                        }
+                        TransactionRows(recentTransactions)
                     }
                 }
             }
@@ -651,7 +647,7 @@ private fun RangeSpendCard(summary: RangeSpendSummary, activeDays: Int) {
             }
             if (summary.peakDay.isNotEmpty()) {
                 Spacer(Modifier.height(12.dp))
-                HorizontalDivider()
+                com.xjtu.toolbox.ui.components.RowDivider(startInset = 0.dp)
                 Spacer(Modifier.height(8.dp))
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                     Icon(Icons.Default.LocalFireDepartment, null,
@@ -666,7 +662,7 @@ private fun RangeSpendCard(summary: RangeSpendSummary, activeDays: Int) {
             }
             if (summary.topMerchants.isNotEmpty()) {
                 Spacer(Modifier.height(12.dp))
-                HorizontalDivider()
+                com.xjtu.toolbox.ui.components.RowDivider(startInset = 0.dp)
                 Spacer(Modifier.height(12.dp))
                 Text("消费去向", style = MiuixTheme.textStyles.body2,
                     color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
@@ -904,10 +900,7 @@ private fun TransactionTab(
                                     color = MiuixTheme.colorScheme.error.copy(alpha = 0.7f))
                             }
                         }
-                        txList.forEach { tx ->
-                            HorizontalDivider(Modifier.padding(horizontal = 16.dp))
-                            TransactionItem(tx)
-                        }
+                        TransactionRows(txList)
                     }
                 }
             }
@@ -933,6 +926,15 @@ private fun TransactionTab(
                 }
             }
         }
+    }
+}
+
+/** 一组流水，行间细线从文字起点开始（16 边距 + 40 图标 + 12 间距）。 */
+@Composable
+private fun TransactionRows(list: List<Transaction>) {
+    list.forEachIndexed { i, tx ->
+        if (i > 0) com.xjtu.toolbox.ui.components.RowDivider(startInset = 68.dp, endInset = 16.dp)
+        TransactionItem(tx)
     }
 }
 

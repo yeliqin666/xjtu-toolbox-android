@@ -310,9 +310,9 @@ class VenueApiJvmTest {
     }
 
 
-    /** 登录 → 拿滑块挑战 → 自动识别 → 提交 → 下单成功。 */
+    /** 登录 → 拿滑块挑战 → 手动拖到缺口处 → 提交 → 下单成功。 */
     @Test
-    fun `真登录之后：滑块剧本下识别并提交，下单成功`() = withVenueLogin { site, fake ->
+    fun `真登录之后：滑块剧本下拖对位置并提交，下单成功`() = withVenueLogin { site, fake ->
         fake.venue.captchaScript = true
         val api = VenueApi(site)
 
@@ -320,15 +320,25 @@ class VenueApiJvmTest {
         assertEquals(CAPTCHA_ID, captcha.id)
         assertEquals(1, fake.venue.captchaCalls.get())
 
-        // 识别 + 盖章走共享宿主（:data）—— 桌面宿主也委托这一份
-        val shownAt = System.currentTimeMillis()
-        val solved = runBlocking { VenueSlideCaptchaHost.solve(captcha, shownAt) }
-        assertNotNull(solved, "合成图上的缺口应当被识别出来")
-        assertEquals(VenueCaptchaFixture.EXPECTED_SOLVE_TARGET_X, solved.sliderResult.trackList.last().x)
+        // 夹具已知缺口位置：照手拖的协议拼一条落在缺口处的轨迹
+        val target = VenueCaptchaFixture.EXPECTED_SOLVE_TARGET_X
+        val dragged = SliderResult(
+            bgImageWidth = 260,
+            bgImageHeight = 0,
+            sliderImageWidth = 0,
+            sliderImageHeight = 50,
+            startSlidingTime = "",
+            entSlidingTime = "",
+            trackList = listOf(
+                TrackPoint(0, 0, "down", 800),
+                TrackPoint(target / 2, 1, "move", 1300),
+                TrackPoint(target, 0, "up", 2000),
+            ),
+        )
 
         val pending = api.prepareOrder(SERVICE_ID, listOf(slot(5101, "场地1", 9101, SLOT_EARLY)))
         val result = runBlocking {
-            api.submitBooking(SERVICE_ID, pending, captcha.id, solved.sliderResult.toJson())
+            api.submitBooking(SERVICE_ID, pending, captcha.id, dragged.toJson())
         }
 
         assertTrue(result.success, "拖对了应当下单成功：${result.message}")

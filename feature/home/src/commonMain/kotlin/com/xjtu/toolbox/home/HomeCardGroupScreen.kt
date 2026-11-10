@@ -124,7 +124,6 @@ import com.xjtu.toolbox.ui.components.LiquidBackground
 import com.xjtu.toolbox.ui.components.LocalPageVisible
 import com.xjtu.toolbox.ui.components.enterOnce
 import com.xjtu.toolbox.ui.components.rememberLiquidMood
-import com.xjtu.toolbox.ui.glass.LocalGlassStyle
 import com.xjtu.toolbox.ui.glass.progressiveBlurBar
 import com.xjtu.toolbox.schedule.CourseColors
 import com.xjtu.toolbox.ui.theme.Editorial
@@ -168,19 +167,11 @@ fun HomeCardGroupScreen(
     scrollBehavior: ScrollBehavior? = null,
     /** 悬浮底栏的总占位高度：底栏浮在内容之上，页面末尾得自己留出来。 */
     extraBottomPadding: Dp = 0.dp,
-    /** 玻璃顶栏的高度：内容铺到顶栏下面，这段留白放进滚动内容里。经典风格为 0。 */
+    /** 页面顶边到内容的留白（状态栏，玻璃风格下还有壳的顶栏）：顶栏和模糊带从屏幕顶边画起。 */
     contentTopPadding: Dp = 0.dp,
     /** 壳把整页上移的量（见 `ShellPageInsets.contentTopShift`）；顶栏遮罩按它补回屏幕顶边。 */
     contentTopShift: () -> Dp = { 0.dp },
-    /**
-     * 顶栏最左侧那个按钮（`:app` 是「扫一扫」）；null = 这一端没有。
-     *
-     * 打开「功能按钮统一右对齐」（`SettingsStore.homeTopActionsRight`，默认开）时这一端改成
-     * 改造前的顶栏——左侧换成「交小西」头像、不画居中标题，所以这个槽位在那时不被调用；
-     * 关掉才按本分支的排法画（扫码靠左、标题居中）。
-     */
-    topLeading: (@Composable () -> Unit)? = null,
-    /** 顶栏右侧那一排（`:app` 是「搜索」+「通知」，扫码统一右对齐时也在这一排）。null = 这一端没有顶栏。 */
+    /** 顶栏右上角那一排圆钮（`:app` 是扫码、搜索、通知）。null = 这一端没有顶栏。 */
     topActions: (@Composable () -> Unit)? = null,
 ) {
     val honored = host.honoredCards
@@ -205,9 +196,6 @@ fun HomeCardGroupScreen(
     val grid = layoutStore.grid
     val liquid = remember(settingsRevision) { settings.homeLiquidGlass }
     // 液态玻璃的折射子项：只在 liquid 为真时有意义，关掉省一层离屏位移采样（见 HomeLayoutStore）
-    // 顶栏排法：开（默认）= 改造前那套（左侧「交小西」头像、三个圆钮统一在右、不画居中标题）；
-    // 关 = 本分支那套（扫码靠左、标题绝对居中、右侧只留搜索与通知）
-    val topActionsRight = remember(settingsRevision) { settings.homeTopActionsRight }
     // 背景样式：主题底色 / 主题色渐变 / 自定义图片（取值与经典版同一套字符串）
     val backgroundMode = remember(settingsRevision) { settings.homeBackground }
     // 只有自定义图片这一档才去读那串 Base64（完整壁纸能有几百 KB）：其余两档读了也没人用，
@@ -348,7 +336,7 @@ fun HomeCardGroupScreen(
 
     val scroll = rememberScrollState()
     // 有宿主给的按钮才有折叠顶栏（桌面、Web 的壳有自己的顶栏）
-    val collapsible = topActions != null || topLeading != null
+    val collapsible = topActions != null
     val masthead = HomeCard.GREETING in honored
     val barPx = with(LocalDensity.current) { BAR_HEIGHT.toPx() }
     var mastheadPx by remember { mutableIntStateOf(0) }
@@ -360,7 +348,6 @@ fun HomeCardGroupScreen(
     // 「主题色渐变背景」的两个输入：主题色 + 明暗（深色下要更浓一点才看得出）
     val barPrimary = MiuixTheme.colorScheme.primary
     val barDark = LocalIsDarkTheme.current
-    val glass = LocalGlassStyle.current && collapsible
 
     // 卡片柔光玻璃的采样源：背景层（主题底色 + 壁纸）另录一份**预先糊好**的副本，所有卡片共用。
     // 背景不随滚动变，带 RenderEffect 的这一层在 HWUI 里会被单独缓存成一张纹理：滚动时卡片只是
@@ -374,8 +361,9 @@ fun HomeCardGroupScreen(
     // 糊出来的是「此刻压在它下面的东西」，而不是固定不动的壁纸。
     val pageBackdrop = rememberLayerBackdrop(cache = true)
 
-    // 有消费者才录（`layerBackdrop` 是一次整屏离屏渲染）：玻璃风格的模糊带、液态圆钮（编辑态没有宿主顶栏也画）
-    val recordPageLayer = glass || (liquid && (collapsible || editing.on))
+    // 有消费者才录（`layerBackdrop` 是一次整屏离屏渲染）：顶栏模糊带、液态圆钮（编辑态没有宿主顶栏也画）。
+    // 模糊带两种导航风格都画：首页顶栏是页面自己的，跟底栏用不用玻璃无关
+    val recordPageLayer = collapsible || (liquid && editing.on)
 
     val session = remember { HomeDragSession() }
     val density = LocalDensity.current
@@ -1243,11 +1231,10 @@ fun HomeCardGroupScreen(
                     progress = progress,
                     topInset = contentTopPadding,
                     bandShift = contentTopShift,
-                    bandBackdrop = pageBackdrop.takeIf { glass },
+                    bandBackdrop = pageBackdrop.takeIf { collapsible },
                     barLiquidBackdrop = pageBackdrop.takeIf { liquid },
                     onTapCollapsed = { scope.launch { scroll.animateScrollTo(0) } },
                     editing = editing.on,
-                    leading = topLeading,
                     actions = topActions,
                     onSaveEdit = { saveAndQuitEdit() },
                     onHomeSettings = {
@@ -1256,8 +1243,6 @@ fun HomeCardGroupScreen(
                         host.onOpenHomeSettings()
                     },
                     alignWithGreeting = masthead,
-                    // 「功能按钮统一右对齐」开着 = 整个顶栏回到改造前那套（头像 / 三钮 / 无居中标题）
-                    devTopBar = topActionsRight,
                 )
             }
         }
@@ -1442,33 +1427,24 @@ val LocalHomeBarBackdrop = compositionLocalOf<Backdrop?> { null }
 // ── 顶栏 ──
 
 /**
- * 首页的折叠顶栏，叠在滚动内容上面，两套排法：
- *
- * - [devTopBar] = true（主页设置「功能按钮统一右对齐」开着，默认）：**改造前那套**——
- *   左侧「交小西」头像（随上滑淡入放大）、三个功能圆钮全在右侧、**不画居中标题**；
- * - false：本分支那套——扫码靠左（宿主给的 [leading]）、标题绝对居中、右侧只留搜索与通知。
- *
- * 往上滑过刊头后玻璃底色浮出来，底边柔和淡出。编辑态两套排法一律换成三个纯图标：
- * 左边取消、右边齿轮 + 对勾（需求 §1.3）——编辑态是本分支新加的，不跟着顶栏排法走，
- * 否则老排法下进了编辑态就出不来。
+ * 首页的折叠顶栏，叠在滚动内容上面：左侧「交小西」头像（随上滑淡入放大），功能圆钮全在右上角。
+ * 往上滑过刊头后模糊带浮出来，底边柔和淡出。编辑态左边是「编辑主页」，右边齿轮 + 对勾。
  */
 @Composable
 private fun HomeCollapsingBar(
     progress: () -> Float,
     topInset: Dp,
     bandShift: () -> Dp,
-    /** 顶部模糊带的采样源；null = 经典风格，不画模糊带。 */
+    /** 顶部模糊带的采样源；null = 不画模糊带。 */
     bandBackdrop: Backdrop?,
     /** 顶栏圆钮液态玻璃的采样源（首页**内容层**：背景 + 滚动内容）；null = 退回半透明圆钮。 */
     barLiquidBackdrop: Backdrop?,
     onTapCollapsed: () -> Unit,
     editing: Boolean,
-    leading: (@Composable () -> Unit)?,
     actions: (@Composable () -> Unit)?,
     onSaveEdit: () -> Unit,
     onHomeSettings: () -> Unit,
     alignWithGreeting: Boolean = false,
-    devTopBar: Boolean = false,
 ) {
     val collapsed by remember { derivedStateOf { progress() > 0.5f } }
     Box(Modifier.fillMaxWidth().height(topInset + BAR_HEIGHT)) {
@@ -1498,26 +1474,18 @@ private fun HomeCollapsingBar(
                 ),
         )
 
-        // 标题绝对居中：不参与左右两排按钮的排布，所以两边按钮多少都不影响它。
-        // 编辑态换成「首页调整设置」，让人一眼知道现在在摆桌面；
-        // 改造前的顶栏（devTopBar）本来就没有居中标题，那条路上整块不画
+        // 编辑态的标题靠左，让人一眼知道现在在摆桌面
         Box(
             Modifier
                 .matchParentSize()
-                .padding(top = topInset, start = if (editing) 20.dp else 0.dp)
+                .padding(top = topInset, start = 20.dp)
                 .height(BAR_HEIGHT),
-            // 编辑态标题靠左，右边留给三颗按钮
-            contentAlignment = if (editing) Alignment.CenterStart else Alignment.Center,
+            contentAlignment = Alignment.CenterStart,
         ) {
             AnimatedContent(editing, transitionSpec = { BarSwap }, label = "barTitle") { edit ->
-                val title = when {
-                    edit -> "编辑主页"
-                    devTopBar -> null
-                    else -> "岱宗盒子"
-                }
-                if (title != null) {
+                if (edit) {
                     Text(
-                        title,
+                        "编辑主页",
                         fontSize = 17.sp,
                         fontWeight = FontWeight.SemiBold,
                         color = MiuixTheme.colorScheme.onSurface,
@@ -1532,8 +1500,8 @@ private fun HomeCollapsingBar(
                 .fillMaxWidth()
                 .padding(top = topInset)
                 .height(BAR_HEIGHT)
-                // 改造前那一套的左边距是 20dp（头像比圆钮细一档），本分支两排圆钮统一 16dp
-                .padding(start = if (devTopBar) 20.dp else 16.dp, end = 16.dp),
+                // 头像比圆钮细一档，左边多留 4dp
+                .padding(start = 20.dp, end = 16.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Box(
@@ -1542,11 +1510,7 @@ private fun HomeCollapsingBar(
                 },
             ) {
                 AnimatedContent(editing, transitionSpec = { BarSwap }, label = "barLeading") { edit ->
-                    when {
-                        edit -> Unit
-                        devTopBar -> HomeBarAvatar(progress)
-                        else -> leading?.invoke()
-                    }
+                    if (!edit) HomeBarAvatar(progress)
                 }
             }
             Spacer(Modifier.weight(1f))
@@ -1570,12 +1534,7 @@ private fun HomeCollapsingBar(
     }
 }
 
-/**
- * 改造前顶栏左侧的「交小西」头像（[HomeCollapsingBar] 的 `devTopBar` 那条路专用）。
- *
- * 和改造前一模一样的写法：随上滑淡入、由 0.78 放大到 1，停在顶部时基本看不见——
- * 那时候顶栏上只有右侧三个功能圆钮，滚起来才「浮」出个头像。
- */
+/** 顶栏左侧的「交小西」头像：随上滑淡入、由 0.78 放大到 1，停在顶部时看不见。 */
 @Composable
 private fun HomeBarAvatar(progress: () -> Float) {
     JiaoxiaoxiAvatar(

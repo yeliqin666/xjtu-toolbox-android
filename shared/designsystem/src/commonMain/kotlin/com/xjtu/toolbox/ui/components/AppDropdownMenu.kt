@@ -154,6 +154,8 @@ fun AppDropdownMenu(
     ) {
         // 弹层自己在屏幕上的原点：锚点减掉它，就是锚点在弹层坐标里的位置
         var popupOrigin by remember { mutableStateOf<Offset?>(null) }
+        // 后面的页面轻轻糊一点、面板留一点透：克制的毛玻璃。糊不上的端面板保持不透明
+        val frosted = com.xjtu.toolbox.platform.rememberPopupBlurBehind(MENU_BACKDROP_BLUR, active = expanded)
         Box(
             Modifier
                 .fillMaxSize()
@@ -172,7 +174,7 @@ fun AppDropdownMenu(
                     local.left.roundToInt(), local.top.roundToInt(),
                     local.right.roundToInt(), local.bottom.roundToInt(),
                 )
-                MorphMenu(bounds, { progress.value }, !expanded, alignEnd, morph, modifier, trigger, sub, content)
+                MorphMenu(bounds, { progress.value }, !expanded, alignEnd, morph, modifier, trigger, sub, frosted, content)
             }
         }
     }
@@ -230,10 +232,11 @@ private fun MorphMenu(
     modifier: Modifier,
     trigger: (@Composable () -> Unit)?,
     sub: MenuSub,
+    frosted: Boolean,
     content: @Composable ColumnScope.() -> Unit,
 ) {
     val density = LocalDensity.current
-    val surface = MiuixTheme.colorScheme.surfaceContainer
+    val surface = MiuixTheme.colorScheme.surfaceContainer.let { if (frosted) it.copy(alpha = MENU_FROSTED_ALPHA) else it }
     val hairline = MiuixTheme.colorScheme.onSurface.copy(alpha = 0.07f)
     val ltr =LocalLayoutDirection.current == LayoutDirection.Ltr
     val safeTop = WindowInsets.statusBars.getTop(density)
@@ -633,6 +636,12 @@ private const val SUB_PARENT_SCALE = 0.95f
 private val SUB_DROP = 8.dp
 
 private val MENU_RADIUS = 18.dp
+
+/** 菜单开着时后面页面的模糊半径：只糊开一点，看得出层次、认不清字就够。 */
+private val MENU_BACKDROP_BLUR = 4.dp
+
+/** 后面糊上时面板的不透明度：留一点透，不至于看着像玻璃板。 */
+private const val MENU_FROSTED_ALPHA = 0.88f
 private const val MENU_OPEN_MS = 440
 private const val MENU_CLOSE_MS = 340
 private const val ICON_OPEN_MS = 660

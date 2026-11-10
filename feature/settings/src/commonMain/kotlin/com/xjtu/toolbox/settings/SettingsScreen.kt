@@ -126,7 +126,6 @@ fun SettingsScreen(
     val scheduleOptions = if (SettingsRow.SCHEDULE_SOURCE in host.honoredRows) host.scheduleSourceOptions else emptyList()
     val showScheduleSource = scheduleOptions.isNotEmpty()
     val showScheduleAttendance = SettingsRow.SCHEDULE_ATTENDANCE in host.honoredRows
-    val showVenueCaptcha = SettingsRow.VENUE_CAPTCHA in host.honoredRows
     val launcherShortcuts = host.launcherShortcutPreference
 
     var navBarStyle by remember { mutableStateOf(store.navBarStyle) }
@@ -146,7 +145,6 @@ fun SettingsScreen(
     var showQuickActionsOn by remember { mutableStateOf(store.showQuickActions) }
     var attendanceBadge by remember { mutableStateOf(store.scheduleAttendanceBadge) }
     var scheduleSource by remember { mutableStateOf(store.scheduleSource) }
-    var venueAutoSolveCaptcha by remember { mutableStateOf(store.venueAutoSolveCaptchaEnabled) }
     // 二级页：NO_PAGE、CREDITS_PAGE 或 groups 下标
     var page by rememberSaveable { mutableIntStateOf(NO_PAGE) }
     if (showThemeColor) {
@@ -294,7 +292,7 @@ fun SettingsScreen(
                 )
             }
         }
-        if (showHomeHero) HomeSettingsBody(onDismiss = {}, showTopBarStyle = false)
+        if (showHomeHero) HomeSettingsBody(onDismiss = {})
         if (showHomeHero || showQuickActions) {
             SmallTitle("首页内容")
             SettingsCard {
@@ -408,20 +406,6 @@ fun SettingsScreen(
                 }
             }
         }
-        if (showVenueCaptcha) {
-            SmallTitle("场馆")
-            SettingsCard {
-                SwitchPreference(
-                    title = "自动识别场馆验证码",
-                    checked = venueAutoSolveCaptcha,
-                    startAction = { SettingsIcon(MiuixIcons.Settings, cIndigo) },
-                    onCheckedChange = {
-                        venueAutoSolveCaptcha = it
-                        store.venueAutoSolveCaptchaEnabled = it
-                    }
-                )
-            }
-        }
     }
 
     val aboutGroup: @Composable () -> Unit = {
@@ -469,7 +453,7 @@ fun SettingsScreen(
         if (showDarkMode || showDynamicColor || showNavStyle || showHomeHero || showQuickActions || showBottomTabs || showDefaultTab) {
             add(SettingsGroup("外观", Icons.Default.Palette, cPurple, appearanceGroup))
         }
-        if (generalRows || scheduleRows || showVenueCaptcha) {
+        if (generalRows || scheduleRows) {
             add(SettingsGroup("通用", MiuixIcons.Settings, cTeal, generalGroup))
         }
         host.noticeSection?.let {

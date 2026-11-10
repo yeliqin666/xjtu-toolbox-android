@@ -303,15 +303,7 @@ private fun ProfileMenuRow(
 
 /** 同一组菜单行之间的细线：从图标右边开始，不横穿徽记。 */
 @Composable
-private fun MenuDivider() {
-    Box(
-        Modifier
-            .padding(start = 62.dp)
-            .fillMaxWidth()
-            .height(0.5.dp)
-            .background(MiuixTheme.colorScheme.outline.copy(alpha = 0.18f))
-    )
-}
+private fun MenuDivider() = com.xjtu.toolbox.ui.components.RowDivider(startInset = 62.dp)
 
 /** 一组菜单行的外壳。 */
 @Composable

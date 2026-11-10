@@ -23,11 +23,13 @@ private enum class BarPageSlot { Bar, Page }
  *
  * 玻璃风格下内容铺到顶栏下面，并按这一页见过的最高顶栏留白；顶栏折叠多少就把内容上移多少，
  * 这样折叠时内容不用逐帧重组。顶栏采样的是这一页自己的内容层。
- * 经典风格下内容排在顶栏之下。没有顶栏时 [statusTop] 就是顶部要让出的高度。
+ * 经典风格下内容排在顶栏之下；[edgeToEdge] 的页例外，两种风格都从屏幕顶边画起（见 [ShellTab.edgeToEdge]）。
+ * 没有顶栏时 [statusTop] 就是顶部要让出的高度。
  */
 @Composable
 internal fun ShellBarPage(
     glass: Boolean,
+    edgeToEdge: Boolean,
     statusTop: Dp,
     bar: (@Composable (LayerBackdrop) -> Unit)?,
     page: @Composable (contentTop: Dp, contentShift: () -> Dp) -> Unit,
@@ -49,11 +51,12 @@ internal fun ShellBarPage(
         heights.actual = actual
         if (actual > heights.stable) heights.stable = actual
 
-        val pageTop = if (glass) actual - heights.stable else actual
+        val underTop = glass || edgeToEdge
+        val pageTop = if (underTop) actual - heights.stable else actual
         val pageHeight = (constraints.maxHeight - pageTop).coerceAtLeast(0)
         val pagePlaceables = subcompose(BarPageSlot.Page) {
             Box(pageModifier) {
-                if (glass) page(with(density) { heights.stable.toDp() }, shift) else page(0.dp) { 0.dp }
+                if (underTop) page(with(density) { heights.stable.toDp() }, shift) else page(0.dp) { 0.dp }
             }
         }.map { it.measure(constraints.copy(minHeight = pageHeight, maxHeight = pageHeight)) }
 

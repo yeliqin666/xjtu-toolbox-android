@@ -197,7 +197,7 @@ private fun CommunityForum(
         OverlayDialog(
             show = true,
             title = "GitHub 账号",
-            summary = "已登录 @$signedIn。退出只清除本机授权；彻底撤销请到 GitHub 设置 → Applications。",
+            summary = "@$signedIn",
             onDismissRequest = { accountDialog = false },
         ) {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -280,7 +280,7 @@ private fun CommunityLoginScreen(
             Spacer(Modifier.height(4.dp))
             when {
                 !auth.isConfigured && !auth.supportsManualToken ->
-                    Text("社区登录还没配置好，敬请期待。",
+                    Text("社区登录暂不可用",
                         color = colors.error,
                         style = MiuixTheme.textStyles.body2)
 
@@ -395,7 +395,7 @@ private fun ManualTokenLogin(
 
     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Text(
-            "浏览器里走不通 GitHub 的设备码流程（那边不给跨源响应）。粘贴一个带 discussions 写权限的 token 即可登录，它只存在这台设备的浏览器里。",
+            "粘贴一个有 discussions 写权限的 GitHub token 登录，只存在这台设备的浏览器里。",
             style = MiuixTheme.textStyles.body2,
             color = colors.onSurfaceVariantSummary,
             textAlign = TextAlign.Center,

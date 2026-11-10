@@ -90,7 +90,6 @@ import com.xjtu.toolbox.ui.components.LiquidBackground
 import com.xjtu.toolbox.ui.components.appCardShadow
 import com.xjtu.toolbox.ui.components.enterOnce
 import com.xjtu.toolbox.ui.components.rememberLiquidMood
-import com.xjtu.toolbox.ui.glass.LocalGlassStyle
 import com.xjtu.toolbox.ui.isWideLayout
 import com.xjtu.toolbox.ui.theme.Editorial
 import com.xjtu.toolbox.ui.theme.EditorialRule
@@ -121,12 +120,10 @@ fun HomeClassicScreen(
     scrollBehavior: ScrollBehavior? = null,
     /** 悬浮底栏的总占位高度：底栏浮在内容之上，页面末尾得自己留出来。 */
     extraBottomPadding: Dp = 0.dp,
-    /** 玻璃顶栏的高度：内容铺到顶栏下面，这段留白放进滚动内容里。经典风格为 0。 */
+    /** 页面顶边到内容的留白（状态栏，玻璃风格下还有壳的顶栏）：顶栏和模糊带从屏幕顶边画起。 */
     contentTopPadding: Dp = 0.dp,
     /** 壳把整页上移的量（见 `ShellPageInsets.contentTopShift`）；模糊带按它补回屏幕顶边。 */
     contentTopShift: () -> Dp = { 0.dp },
-    /** 顶栏最左边的按钮（「功能按钮统一右对齐」关掉时宿主放扫码）；开着时那里是头像。 */
-    topLeading: (@Composable () -> Unit)? = null,
     /** 首页没有顶栏：消息、扫一扫、搜索这几个按钮由宿主给，放在页面最上面跟着内容一起滚。 */
     topActions: (@Composable () -> Unit)? = null,
 ) {
@@ -181,7 +178,6 @@ fun HomeClassicScreen(
     val background = remember(HomeLayoutRevision.current) { layoutStore.homeBackground }
     val wallpaper = remember(HomeLayoutRevision.current) { layoutStore.homeWallpaperImage.takeIf { background == "image" }.orEmpty() }
     val wallpaperBlur = remember(HomeLayoutRevision.current) { layoutStore.homeWallpaperBlur }
-    val topActionsRight = remember(HomeLayoutRevision.current) { layoutStore.homeTopActionsRight }
     // 自定义图片上用白字；渐变很浅，照常用正文色
     val pageInk = if (wallpaper.isNotEmpty()) Color.White else MiuixTheme.colorScheme.onSurface
     val frontInbox = host.inbox.takeIf { HomeCard.INBOX in honored }
@@ -209,7 +205,8 @@ fun HomeClassicScreen(
     val progress = { (scroll.value / rangePx).coerceIn(0f, 1f) }
     // 顶栏的模糊带采这一页自己的滚动层：顶栏本身在壳的采样层里，采壳的层会采到自己
     val pageBackdrop = rememberLayerBackdrop(cache = true)
-    val glass = LocalGlassStyle.current && collapsible
+    // 模糊带两种导航风格都画：首页顶栏是页面自己的，跟底栏用不用玻璃无关
+    val glass = collapsible
 
     Box(modifier.fillMaxSize()) {
         // 壁纸和滚动内容一起录进顶栏的采样层，模糊带里也有壁纸
@@ -291,7 +288,6 @@ fun HomeClassicScreen(
                 bandShift = contentTopShift,
                 backdrop = if (glass) pageBackdrop else null,
                 onTapCollapsed = { scope.launch { scroll.animateScrollTo(0) } },
-                leading = topLeading.takeIf { !topActionsRight },
                 actions = topActions,
                 alignWithGreeting = masthead,
             )
@@ -300,9 +296,8 @@ fun HomeClassicScreen(
 }
 
 /**
- * 首页的折叠顶栏，叠在滚动内容上面。默认圆钮都在右上角，往上滑过刊头后玻璃底色和左边的头像
- * 一起浮出来；给了 [leading]（主页设置关掉「统一右对齐」）时左边换成它、标题居中。
- * 底边柔和淡出，内容从它后面模糊着滑过；折叠后点空白处回到顶部。
+ * 首页的折叠顶栏，叠在滚动内容上面。圆钮都在右上角，往上滑过刊头后玻璃底色和左边的头像
+ * 一起浮出来。底边柔和淡出，内容从它后面模糊着滑过；折叠后点空白处回到顶部。
  */
 @Composable
 private fun HomeCollapsingBar(
@@ -311,7 +306,6 @@ private fun HomeCollapsingBar(
     bandShift: () -> Dp,
     backdrop: Backdrop?,
     onTapCollapsed: () -> Unit,
-    leading: (@Composable () -> Unit)?,
     actions: @Composable () -> Unit,
     alignWithGreeting: Boolean = false,
 ) {
@@ -344,30 +338,20 @@ private fun HomeCollapsingBar(
         val lift = Modifier.graphicsLayer {
             translationY = if (alignWithGreeting) 0f else -BUTTON_LIFT.toPx() * (1f - progress())
         }
-        if (leading != null) {
-            // 标题绝对居中，不参与左右两排按钮的排布
-            Box(Modifier.matchParentSize().padding(top = topInset), contentAlignment = Alignment.Center) {
-                Text("岱宗盒子", fontSize = 17.sp, fontWeight = FontWeight.SemiBold, color = MiuixTheme.colorScheme.onSurface, maxLines = 1)
-            }
-        }
         Row(
             Modifier.fillMaxWidth().padding(top = topInset).height(BAR_HEIGHT)
-                .padding(start = if (leading != null) 16.dp else 20.dp, end = 16.dp),
+                .padding(start = 20.dp, end = 16.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            if (leading != null) {
-                Box(lift) { leading() }
-            } else {
-                com.xjtu.toolbox.ui.components.JiaoxiaoxiAvatar(
-                    Modifier.size(28.dp).graphicsLayer {
-                        // 头像不跟着玻璃瞬现，随着上滑慢慢淡入、放大
-                        val f = progress()
-                        alpha = f
-                        scaleX = 0.78f + 0.22f * f
-                        scaleY = scaleX
-                    },
-                )
-            }
+            com.xjtu.toolbox.ui.components.JiaoxiaoxiAvatar(
+                Modifier.size(28.dp).graphicsLayer {
+                    // 头像不跟着玻璃瞬现，随着上滑慢慢淡入、放大
+                    val f = progress()
+                    alpha = f
+                    scaleX = 0.78f + 0.22f * f
+                    scaleY = scaleX
+                },
+            )
             Spacer(Modifier.weight(1f))
             Box(lift) { actions() }
         }

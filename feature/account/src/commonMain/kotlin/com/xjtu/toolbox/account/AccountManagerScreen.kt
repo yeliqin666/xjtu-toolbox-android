@@ -812,7 +812,7 @@ private fun SwitchConfirmDialog(
     OverlayDialog(
         show = true,
         title = "切换账号",
-        summary = "切换到 ${target.nickname ?: target.accountId}，当前账号的缓存会保留，随时可切回。",
+        summary = "切换到 ${target.nickname ?: target.accountId}，当前账号的数据会保留",
         onDismissRequest = onDismiss
     ) {
         Row(Modifier.fillMaxWidth()) {

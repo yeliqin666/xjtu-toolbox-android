@@ -8,14 +8,10 @@ import androidx.lifecycle.viewModelScope
 import com.xjtu.toolbox.error.FriendlyError
 import com.xjtu.toolbox.error.SessionExpiredFailure
 import com.xjtu.toolbox.util.todayOnCampus
-import kotlin.time.Clock
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.Channel
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 import kotlinx.datetime.LocalDate
 
 internal sealed interface VenuePage {
@@ -32,10 +28,6 @@ internal sealed interface VenueEvent {
 internal class VenueViewModel(
     /** 本端的取数 + 收藏实现（Android = `AppVenueSource`，Web = `CampusVenueApi`）。 */
     private val source: VenueSource,
-    /** 「验证码自动识别」这个设置项，**每次现读**（见类 KDoc）。 */
-    private val autoSolveCaptcha: () -> Boolean = { false },
-    /** 滑块验证码宿主槽位（见类 KDoc）：null = 本端没有这条路径。 */
-    private val captchaHost: SlideCaptchaHost? = null,
 ) : ViewModel() {
     private val eventChannel = Channel<VenueEvent>(Channel.BUFFERED)
     val events = eventChannel.receiveAsFlow()
@@ -64,10 +56,9 @@ internal class VenueViewModel(
     var captchaData by mutableStateOf<CaptchaData?>(null); private set
     var captchaLoading by mutableStateOf(false); private set
     var captchaError by mutableStateOf<String?>(null); private set
-    var captchaAutoSolving by mutableStateOf(false); private set
     var captchaNotice by mutableStateOf<String?>(null); private set
     private var pendingOrder: PendingOrder? = null
-    // 每次加载 / 关闭验证码都递增，丢弃旧协程的结果，免得换图后旧识别结果误提交
+    // 每次加载 / 关闭验证码都递增，丢弃旧协程的结果，免得换图后旧请求的结果顶掉新图
     private var captchaToken = 0
 
     var orders by mutableStateOf<List<OrderInfo>>(emptyList()); private set
@@ -190,7 +181,7 @@ internal class VenueViewModel(
                 if (token != captchaToken || !showCaptcha) return@launch
                 pendingOrder = order
                 val data = source.captcha(venue.id)
-                processCaptcha(data, token)
+                showCaptchaData(data, token)
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -201,7 +192,7 @@ internal class VenueViewModel(
                     captchaError = FriendlyError.of(e, "获取验证码")
                 }
             } finally {
-                if (token == captchaToken) { captchaLoading = false; captchaAutoSolving = false }
+                if (token == captchaToken) captchaLoading = false
             }
         }
     }
@@ -212,7 +203,7 @@ internal class VenueViewModel(
         viewModelScope.launch {
             try {
                 val data = source.captcha(venue.id)
-                processCaptcha(data, token)
+                showCaptchaData(data, token)
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -223,7 +214,7 @@ internal class VenueViewModel(
                     captchaError = FriendlyError.of(e, "获取验证码")
                 }
             } finally {
-                if (token == captchaToken) { captchaLoading = false; captchaAutoSolving = false }
+                if (token == captchaToken) captchaLoading = false
             }
         }
     }
@@ -231,7 +222,6 @@ internal class VenueViewModel(
     private fun beginCaptcha(): Int {
         bookingSubmitted = false
         captchaLoading = true
-        captchaAutoSolving = false
         captchaError = null
         captchaNotice = null
         captchaData = null
@@ -242,37 +232,13 @@ internal class VenueViewModel(
         showCaptcha = false
         captchaToken++
         captchaLoading = false
-        captchaAutoSolving = false
     }
 
-    /** 自动识别是设置项，默认开；识别失败只提示，保留当前验证码让用户手滑。 */
-    private suspend fun processCaptcha(data: CaptchaData, token: Int) {
+    /** 验证码图到了：画出来等用户手动拖。 */
+    private fun showCaptchaData(data: CaptchaData, token: Int) {
         if (token != captchaToken || !showCaptcha) return
         captchaData = data
         captchaNotice = null
-        val host = captchaHost ?: return
-        if (!autoSolveCaptcha()) return
-        val shownAt = Clock.System.now().toEpochMilliseconds()
-        captchaAutoSolving = true
-        val solved = try {
-            withContext(Dispatchers.Default) { host.solve(data, shownAt) }
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            null
-        }
-        if (token != captchaToken || !showCaptcha) return
-        if (solved == null) {
-            captchaAutoSolving = false
-            captchaNotice = "自动识别未通过，请手动滑动滑块"
-            return
-        }
-        // 按轨迹的节奏等到「松手」那一刻再提交，时间戳才对得上（轨迹里的两个时刻由实现方按
-        // shownAt 盖好，见 SolvedCaptcha 的 KDoc）
-        delay((shownAt + solved.releaseAfterMillis - Clock.System.now().toEpochMilliseconds()).coerceAtLeast(0L))
-        if (token != captchaToken || !showCaptcha) return
-        captchaAutoSolving = false
-        submitBooking(solved.sliderResult)
     }
 
     fun submitBooking(slider: SliderResult) {
@@ -282,7 +248,6 @@ internal class VenueViewModel(
         if (bookingInProgress) return
         captchaToken++
         captchaLoading = false
-        captchaAutoSolving = false
         bookingInProgress = true
         bookingSubmitted = true
         viewModelScope.launch {

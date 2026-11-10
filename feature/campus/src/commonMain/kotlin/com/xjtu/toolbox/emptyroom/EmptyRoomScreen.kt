@@ -119,6 +119,10 @@ private fun getCurrentPeriod(): Int {
     return -1
 }
 
+/** 节次条的上午 / 下午 / 晚上分段；节数对不上时不分。 */
+private fun slotBreaks(n: Int): Set<Int> =
+    if (n == PERIOD_TIMES.size) com.xjtu.toolbox.ui.components.DaySlotBreaks else emptySet()
+
 /** 计算教室从 startPeriod 开始的连续空闲节数 */
 private fun consecutiveFree(status: List<Int>, startPeriod: Int): Int {
     if (startPeriod < 0 || startPeriod >= status.size) return 0
@@ -228,6 +232,28 @@ fun EmptyRoomScreen(
         } else {
             filtered.sortedBy { it.name }
         }
+    }
+
+    // 教室归到哪栋楼：按选中的楼名前缀匹配，长的优先
+    val buildingOf: (RoomInfo) -> String = remember(vm.selectedBuildings) {
+        val prefixes = vm.selectedBuildings.sortedByDescending { it.length }
+        val of: (RoomInfo) -> String = { room ->
+            prefixes.firstOrNull { room.name.startsWith(it) } ?: room.name.substringBefore("-").substringBefore(" ")
+        }
+        of
+    }
+    // 不受节次区间影响的全量统计，给柱状图和热力图用
+    val periodFree = remember(rooms) { List(PERIOD_TIMES.size) { i -> rooms.count { it.status.getOrNull(i) == 0 } } }
+    val buildingFree = remember(rooms, buildingOf) {
+        rooms.groupBy(buildingOf).map { (name, list) ->
+            BuildingFree(name, list.size, List(PERIOD_TIMES.size) { i -> list.count { it.status.getOrNull(i) == 0 } })
+        }
+    }
+    // 点柱子或热力格：只看这一节；「现在空闲」「刚解放」跟别的节次叠不到一起，换回全部
+    val pickPeriod: (Int) -> Unit = { i ->
+        startPeriod = i + 1
+        endPeriod = i + 1
+        if (smartFilter == "现在空闲" || smartFilter == "刚解放") smartFilter = "全部"
     }
 
     // 实时状态的筛选与排序。楼的顺序跟平台一致（groupBy 保留首次出现顺序）。
@@ -425,14 +451,19 @@ fun EmptyRoomScreen(
             topPadding = glassTop,
             modifier = Modifier.fillMaxSize().padding(padding.withoutTop(glass)).glassSource(glass),
         ) {
-            val groupedRooms = remember(displayRooms, vm.selectedBuildings) {
-                displayRooms.groupBy { room ->
-                    vm.selectedBuildings
-                        .sortedByDescending { it.length }
-                        .firstOrNull { room.name.startsWith(it) }
-                        ?: room.name.substringBefore("-").substringBefore(" ")
+            val groupedRooms = remember(displayRooms, buildingOf) { displayRooms.groupBy(buildingOf) }
+            val liveByBuilding = remember(liveInScope) { liveInScope.groupBy { it.building } }
+            // 两栋楼以上才有得比
+            val heatmapCard: (@Composable () -> Unit)? = if (!isLive && buildingFree.size >= 2) {
+                {
+                    BuildingHeatmap(
+                        buildings = buildingFree,
+                        selected = (startPeriod - 1)..(endPeriod - 1),
+                        current = effectivePeriod,
+                        onPick = pickPeriod,
+                    )
                 }
-            }
+            } else null
             // 宽屏两栏：左边固定一张筛选卡（楼栋、日期、节次、智能筛选），右边教室卡片分两三列，按行对齐（AdaptiveRowGrid）：展开一间看节次时别的卡不会换列。
             // 以前整页限宽 720 居中，筛选卡占掉小半屏、教室一行一张，平板横屏两边各空一大块。
             // 窄屏照旧：筛选卡是列表的第一项，跟着教室一起滚。
@@ -519,21 +550,16 @@ fun EmptyRoomScreen(
                             }
                             Spacer(Modifier.height(12.dp))
                             if (isLive) {
-                                // 实时状态只有"此刻"，没有节次可选；快捷筛选按状态分，带上各自的间数
+                                // 实时状态只有"此刻"，没有节次可选；按状态分段，点一段就是筛选
                                 val counts = liveCounts
-                                Row(
-                                    modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                ) {
-                                    LIVE_FILTERS.forEach { filter ->
-                                        val n = counts[filter]
-                                        AppFilterChip(
-                                            selected = liveFilter == filter,
-                                            onClick = { liveFilter = filter },
-                                            label = if (n != null) "$filter $n" else filter,
-                                        )
-                                    }
-                                }
+                                if (counts.isNotEmpty()) LiveStatusBar(
+                                    free = counts.getValue("空闲"),
+                                    inUse = counts.getValue("其它使用"),
+                                    inClass = counts.getValue("上课中"),
+                                    total = counts.getValue("全部"),
+                                    selected = liveFilter,
+                                    onSelect = { liveFilter = it },
+                                )
                                 Spacer(Modifier.height(8.dp))
                                 Text(
                                     "「其它使用」：没排课但有人，可能是自习、借用或活动；人数为此刻在场人数。",
@@ -579,6 +605,15 @@ fun EmptyRoomScreen(
                                         fontWeight = FontWeight.Bold,
                                     )
                                 }
+                            }
+                            if (rooms.isNotEmpty()) {
+                                Spacer(Modifier.height(8.dp))
+                                PeriodFreeBars(
+                                    counts = periodFree,
+                                    selected = (startPeriod - 1)..(endPeriod - 1),
+                                    current = effectivePeriod,
+                                    onPick = pickPeriod,
+                                )
                             }
                             RangeSlider(
                                 value = startPeriod.toFloat()..endPeriod.toFloat(),
@@ -632,6 +667,10 @@ fun EmptyRoomScreen(
                         .padding(start = 12.dp, top = glassTop + 4.dp, bottom = 16.dp),
                 ) {
                     filtersCard()
+                    heatmapCard?.let {
+                        Spacer(Modifier.height(8.dp))
+                        it()
+                    }
                 }
             }
             com.xjtu.toolbox.ui.adaptive.AdaptiveRowGrid(
@@ -671,7 +710,10 @@ fun EmptyRoomScreen(
                     }
                 }
 
-                if (!wideRooms) fullLineItem(key = "filters") { filtersCard() }
+                if (!wideRooms) {
+                    fullLineItem(key = "filters") { filtersCard() }
+                    heatmapCard?.let { fullLineItem(key = "heatmap") { it() } }
+                }
 
                 // 加载中、出错、空：列表里没有「剩余高度」可以撑满，给个最小高度居中
                 val stateBox: (@Composable () -> Unit) -> Unit = { content ->
@@ -732,6 +774,7 @@ fun EmptyRoomScreen(
                                     Spacer(Modifier.width(9.dp))
                                     Text(building, style = MiuixTheme.textStyles.subtitle, fontWeight = FontWeight.Bold)
                                     Spacer(Modifier.weight(1f))
+                                    LiveMiniBar(liveByBuilding[building].orEmpty(), Modifier.padding(end = 8.dp))
                                     Text(
                                         "${buildingRooms.size} 间",
                                         style = MiuixTheme.textStyles.footnote1,
@@ -932,6 +975,7 @@ private fun SmartRoomCard(room: RoomInfo, currentPeriod: Int) {
                     currentIndex = currentPeriod,
                     busyColor = MiuixTheme.colorScheme.outline.copy(alpha = 0.14f),
                     height = 5.dp,
+                    breaks = slotBreaks(room.status.size),
                 )
             }
             if (expanded) {
@@ -979,9 +1023,6 @@ private fun SmartRoomCard(room: RoomInfo, currentPeriod: Int) {
 
 
 // ══════ 实时状态教室卡片 ══════
-
-/** 其它使用（没排课但有人）：用琥珀色，和"空闲"的主色、"上课中"的错误色都分得开。 */
-private val IN_USE_COLOR = Color(0xFFD9822B)
 
 /**
  * @param schedule 当天课表（CDN）里的同名教室，可能没有（平台多出来的教室、CDN 拿不到）。
@@ -1067,6 +1108,7 @@ private fun LiveRoomCard(room: LiveRoom, schedule: RoomInfo?, currentPeriod: Int
                     currentIndex = currentPeriod,
                     busyColor = MiuixTheme.colorScheme.outline.copy(alpha = 0.14f),
                     height = 5.dp,
+                    breaks = slotBreaks(status.size),
                 )
             }
         }

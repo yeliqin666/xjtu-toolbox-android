@@ -139,7 +139,7 @@ internal class AndroidAgentHost(
     /** `app_setting` 只认这几项：改名/新增都要两边一起动（工具表的 enum 与这里）。 */
     private val writableSettingKeys = listOf(
         "dark_mode", "dynamic_color", "nav_bar_style", "show_quick_actions",
-        "default_tab", "network_mode", "account_type", "venue_auto_solve_captcha",
+        "default_tab", "network_mode", "account_type",
         "update_channel", "receive_preview_updates",
     )
 
@@ -154,7 +154,6 @@ internal class AndroidAgentHost(
             append("• default_tab（启动页）：${cs.defaultTab}　可选当前底栏上的格子 ${cs.bottomTabs.joinToString("/")}（底栏组成在 设置 → 外观 → 底栏 里改）\n")
             append("• network_mode（网络模式）：${cs.networkMode}　可选 auto/direct/vpn\n")
             append("• account_type（账号类型）：${cs.accountType.key}　可选 undergraduate/postgraduate\n")
-            append("• venue_auto_solve_captcha（场馆验证码自动识别）：${cs.venueAutoSolveCaptchaEnabled}　可选 true/false\n")
             append("• update_channel（更新通道）：${cs.updateChannel}（${com.xjtu.toolbox.update.AppUpdater.channelLabel(cs.updateChannel)}）　可选 ${com.xjtu.toolbox.update.AppUpdater.channelKeys.joinToString("/")}\n")
             append("• receive_preview_updates（接收预览版更新）：${cs.receivePreviewUpdates}　可选 true/false")
         }
@@ -213,11 +212,6 @@ internal class AndroidAgentHost(
                 }
                 cs.accountType = type
                 "已将账号类型设为 ${type.displayName}。"
-            }
-            "venue_auto_solve_captcha" -> {
-                val b = agentParseBoolSetting(value) ?: return ToolReply.badValue("venue_auto_solve_captcha", "true/false")
-                cs.venueAutoSolveCaptchaEnabled = b
-                "已${if (b) "开启" else "关闭"}场馆验证码自动识别。"
             }
             "update_channel" -> {
                 val raw = value.trim().lowercase()

@@ -162,8 +162,11 @@ private const val EDIT_TILE_SCALE = 0.95f
 private val BadgeEnter = scaleIn(TilePressIn, initialScale = 0.6f) + fadeIn(tween(140))
 private val BadgeExit = scaleOut(tween(140)) + fadeOut(tween(120))
 
-/** 右下角缩放把手的热区边长（§15）：贴着把手图示的一小块，太大容易和移动抢指针。 */
-internal val RESIZE_HANDLE_TOUCH = 30.dp
+/**
+ * 右下角缩放把手的热区边长（§15），从格子边界（含格间距）往里量。格间距那一截占掉了一部分，
+ * 30dp 时卡面上实际只剩二十来 dp，很难按准；44dp 是常规触控尺寸，卡面中部仍归移动。
+ */
+internal val RESIZE_HANDLE_TOUCH = 44.dp
 
 /**
  * 缩放把手的图示：一段贴着卡片圆角的弧（与卡片右下角同心，往里收 [RESIZE_GRIP_INSET]），
@@ -1115,7 +1118,8 @@ internal fun HomeTileFaceBox(
                         )
                         Spacer(Modifier.height(3.dp))
                         Text(
-                            face.stat?.takeIf { it.isNotBlank() } ?: face.subtitle,
+                            // 状态让给了明细（通知的状态就是最新一条）时，横条上还是给那一条，不退回静态副标题
+                            face.stat?.takeIf { it.isNotBlank() } ?: lines.firstOrNull()?.text ?: face.subtitle,
                             style = if (figure) {
                                 Editorial.figure.copy(fontSize = 19.sp, lineHeight = 23.sp)
                             } else {
@@ -1142,9 +1146,10 @@ internal fun HomeTileFaceBox(
                 }
 
                 // 竖条（1×2 起）：名称压小、数据放大，剩下的高度列明细。
-                // 既没状态也没明细的功能居中放图标 + 名称 + 说明，不留半屏空白
-                HomeTileShape.Tall -> if (stat == null && lines.isEmpty()) {
-                    HomeTileCentered(face, iconColor, ink, muted, iconSize = 30.dp, iconGlyph = 17.dp)
+                // 只有一格宽，长句（通知标题、作业名）在这里只剩省略号：没有大字数据、或明细都是长句的功能
+                // 不硬塞内容，竖条当成一个大入口——图标、名称，加一枚「几条」的数
+                HomeTileShape.Tall -> if (!figure && (lines.isEmpty() || lines.any { it.text.length > TALL_LINE_MAX_CHARS })) {
+                    HomeTileEntry(face, iconColor, ink, muted, count = lines.size)
                 } else {
                     Column(Modifier.fillMaxSize().padding(10.dp)) {
                         ExpressiveIcon(icon = face.icon, color = iconColor, size = 25.dp, iconSize = 14.dp)
@@ -1182,7 +1187,7 @@ internal fun HomeTileFaceBox(
                                 )
                             }
                         }
-                        if (lines.isNotEmpty()) {
+                        if (lines.isNotEmpty() && lines.none { it.text.length > TALL_LINE_MAX_CHARS }) {
                             Spacer(Modifier.height(6.dp))
                             TileLines(lines, ink, muted, onLine, compact = true, modifier = Modifier.weight(1f))
                         }
@@ -1243,8 +1248,20 @@ internal fun HomeTileFaceBox(
                     }
                 }
 
-                // 长横条（3×1 起）：左边和 2×1 一样，右边多出来的宽度列两条明细
-                HomeTileShape.WideXL -> Row(
+                // 长横条（3×1 起）·列表型（通知、作业、空教室没有大字时）：明细就是内容本身，
+                // 让它占满整条宽度、一条一行，左边只留图标和名称；对半分会把每条标题都切成省略号
+                HomeTileShape.WideXL -> if (!figure && lines.isNotEmpty()) Row(
+                    Modifier.fillMaxSize().padding(start = 12.dp, end = 14.dp, top = 8.dp, bottom = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(Modifier.width(52.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                        ExpressiveIcon(icon = face.icon, color = iconColor, size = 30.dp, iconSize = 17.dp)
+                        Spacer(Modifier.height(4.dp))
+                        Text(face.title, fontSize = 10.sp, lineHeight = 12.sp, color = muted, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    }
+                    Spacer(Modifier.width(10.dp))
+                    TileLines(lines, ink, muted, onLine, compact = false, modifier = Modifier.weight(1f).fillMaxHeight())
+                } else Row(
                     Modifier.fillMaxSize().padding(horizontal = 12.dp, vertical = 8.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
@@ -1633,6 +1650,51 @@ private fun HomeTileCentered(
     }
 }
 
+/**
+ * 一格宽的竖条当入口用：图标放大居中，名称在下，有明细时再给一枚「N 条」。
+ * 竖条窄到放不下一句话，与其列一排省略号，不如让人一眼认出是什么、点进去看。
+ */
+@Composable
+private fun HomeTileEntry(face: HomeServiceRow, iconColor: Color, ink: Color, muted: Color, count: Int) {
+    Column(
+        Modifier.fillMaxSize().padding(10.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center,
+    ) {
+        ExpressiveIcon(icon = face.icon, color = iconColor, size = 40.dp, iconSize = 22.dp)
+        Spacer(Modifier.height(8.dp))
+        Text(
+            face.title,
+            fontSize = 11.sp,
+            lineHeight = 14.sp,
+            fontWeight = FontWeight.Medium,
+            color = ink,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+            textAlign = TextAlign.Center,
+        )
+        if (count > 0) {
+            Spacer(Modifier.height(8.dp))
+            Text(
+                "$count 条",
+                fontSize = 10.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = iconColor,
+                modifier = Modifier
+                    .clip(RoundedCornerShape(50))
+                    .background(iconColor.copy(alpha = 0.12f))
+                    .padding(horizontal = 8.dp, vertical = 2.dp),
+            )
+        } else if (face.subtitle.isNotBlank()) {
+            Spacer(Modifier.height(4.dp))
+            Text(face.subtitle, fontSize = 10.sp, lineHeight = 13.sp, color = muted, maxLines = 3, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center)
+        }
+    }
+}
+
+/** 一格宽的竖条里一行明细最多放这么多字，再长就只剩省略号，竖条改当入口（见 [HomeTileEntry]）。 */
+private const val TALL_LINE_MAX_CHARS = 6
+
 /** 状态不超过这么多字才当大号数字排（¥128.50、12 周、3 门），再长就是一句话。 */
 private const val FIGURE_MAX_CHARS = 8
 
@@ -1642,7 +1704,6 @@ private const val FIGURE_MAX_CHARS = 8
  * 名单与「小组件模式」那一套保持一致；用路由 id 而不是字符串字面量，改名时会一起变。
  */
 private val LIST_TILES = setOf(
-    AppRoute.EmptyRoom.id,
     AppRoute.Lms().id,
     AppRoute.Community.id,
     AppRoute.Games.id,

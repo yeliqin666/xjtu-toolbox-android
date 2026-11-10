@@ -239,21 +239,6 @@ class HomeLayoutStore(
 
 
     /**
-     * 首页顶栏用哪套排法（默认**开** = 改造前那套）。
-     *
-     * 开 = 整套改造前顶栏：左侧「交小西」头像（随上滑淡入）、扫码 / 搜索 / 通知三个圆钮都在右侧、
-     * 不画居中标题；
-     * 关 = 改版后的顶栏：扫码单独站到最左边、标题绝对居中，右侧只留搜索与通知。
-     *
-     * 编辑态不受影响（两套排法都是 ✕ / ⚙ / ✓）。只有自己画首页顶栏按钮的端才读它（`:app`）；
-     * 桌面与 web 的首页顶栏由外壳画，主页设置抽屉在那两端也不画这一行
-     * （`SettingsRow.HOME_TOP_BAR` 没人认领）。
-     */
-    var topActionsRight: Boolean
-        get() = store.getBoolean(KEY_TOP_ACTIONS_RIGHT, true)
-        set(value) = store.putBoolean(KEY_TOP_ACTIONS_RIGHT, value)
-
-    /**
      * 主页背景样式：**主题底色**（[BACKGROUND_SOLID]）/ **主题色渐变**（[BACKGROUND_GRADIENT]）/
      * **自定义图片**（[BACKGROUND_IMAGE]，图本体存在 [backgroundImage]）。
      *
@@ -333,7 +318,6 @@ private const val KEY_LEGACY_WIDGETS = "home_widgets"
         private const val KEY_LEGACY_GRID = "home_grid"
 private const val KEY_CARD_CORNER = "home_card_corner"
         private const val KEY_LIQUID_CARD = "home_liquid_card"
-        private const val KEY_TOP_ACTIONS_RIGHT = "home_top_actions_right"
         private const val KEY_BACKGROUND_MODE = "home_background_mode"
         private const val KEY_BACKGROUND_IMAGE = "home_background_image"
         private const val KEY_BACKGROUND_BLUR = "home_background_blur"

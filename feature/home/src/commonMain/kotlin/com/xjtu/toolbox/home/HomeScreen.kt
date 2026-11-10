@@ -28,13 +28,11 @@ fun HomeScreen(
     scrollBehavior: ScrollBehavior? = null,
     /** 悬浮底栏的总占位高度：底栏浮在内容之上，页面末尾得自己留出来。 */
     extraBottomPadding: Dp = 0.dp,
-    /** 玻璃顶栏的高度：内容铺到顶栏下面，这段留白放进滚动内容里。经典风格为 0。 */
+    /** 页面顶边到内容的留白（状态栏，玻璃风格下还有壳的顶栏）。 */
     contentTopPadding: Dp = 0.dp,
     /** 壳把整页上移的量（见 `ShellPageInsets.contentTopShift`）；模糊带按它补回屏幕顶边。 */
     contentTopShift: () -> Dp = { 0.dp },
-    /** 顶栏最左边的按钮（`:app` 是「扫一扫」）；null = 这一端没有。 */
-    topLeading: (@Composable () -> Unit)? = null,
-    /** 顶栏右侧那一排（`:app` 是「搜索」+「通知」）。null = 这一端没有顶栏。 */
+    /** 顶栏右上角那一排（`:app` 是扫码、搜索、通知）。null = 这一端没有顶栏。 */
     topActions: (@Composable () -> Unit)? = null,
 ) {
     val store = remember { SettingsStore() }
@@ -47,7 +45,6 @@ fun HomeScreen(
             extraBottomPadding = extraBottomPadding,
             contentTopPadding = contentTopPadding,
             contentTopShift = contentTopShift,
-            topLeading = topLeading,
             topActions = topActions,
         )
     } else {
@@ -58,7 +55,6 @@ fun HomeScreen(
             extraBottomPadding = extraBottomPadding,
             contentTopPadding = contentTopPadding,
             contentTopShift = contentTopShift,
-            topLeading = topLeading,
             topActions = topActions,
         )
     }

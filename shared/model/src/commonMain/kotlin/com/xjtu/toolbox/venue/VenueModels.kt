@@ -128,11 +128,3 @@ data class SliderResult(
 ) {
     fun toJson(): String = AppJson.encodeToString(this)
 }
-
-/** 自动识别（[VenueScreen] 的 `captchaHost` 槽位）交给共享预订状态机的结果。 */
-data class SolvedCaptcha(
-    /** 直接交给 [VenueSource.submitBooking] 的那份（时间戳已按「验证码出现时刻」盖好）。 */
-    val sliderResult: SliderResult,
-    /** 松手相对「验证码出现」过了多少毫秒 —— 状态机按这个节奏等一等再提交。 */
-    val releaseAfterMillis: Long,
-)

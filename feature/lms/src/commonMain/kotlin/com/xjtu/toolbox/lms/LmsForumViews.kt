@@ -476,7 +476,7 @@ internal fun LmsForumTopicDetailPage(
                         item(key = "replies_empty") {
                             Box(Modifier.fillMaxWidth().padding(24.dp), contentAlignment = Alignment.Center) {
                                 Text(
-                                    "暂无回复，快来抢沙发吧~",
+                                    "暂无回复",
                                     fontSize = 14.sp,
                                     color = MiuixTheme.colorScheme.onSurfaceVariantSummary
                                 )

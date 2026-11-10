@@ -730,8 +730,7 @@ private fun ScoreRow(
             ?: scoreItem.majorFlag?.takeIf { it.isNotBlank() }?.let { add(it) }
         if (scoreItem.examProp.isNotEmpty() && scoreItem.examProp != "初修") add(scoreItem.examProp)
         if (scoreItem.examType.isNotEmpty()) add(scoreItem.examType)
-        if (courseGpa != null) add("GPA ${formatFixed(courseGpa, 1)}")
-    }.joinToString("  ·  ")
+    }.joinToString(" · ")
 
     // 报表补上的成绩整张卡片换成主题色淡底，一眼和教务给的分开
     val primary = MiuixTheme.colorScheme.primary
@@ -799,18 +798,33 @@ private fun ScoreRow(
                     }
                 }
                 Spacer(Modifier.width(12.dp))
-                Column(horizontalAlignment = Alignment.End) {
+                // 成绩徽章：分数和这门课的绩点收在一块按分数段着色的底上，右边一列对齐，扫一眼就能比
+                Column(
+                    Modifier
+                        .widthIn(min = 58.dp)
+                        .clip(RoundedCornerShape(14.dp))
+                        .background(scoreColor.copy(alpha = 0.10f))
+                        .padding(horizontal = 10.dp, vertical = 6.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
                     Text(
                         scoreItem.score,
                         style = MiuixTheme.textStyles.title3,
                         fontWeight = FontWeight.SemiBold,
-                        color = scoreColor
+                        color = scoreColor,
+                        maxLines = 1,
                     )
-                    if (!reallyPassed) {
+                    val sub = when {
+                        !reallyPassed -> scoreItem.specificReason ?: "未通过"
+                        courseGpa != null -> "绩点 ${formatFixed(courseGpa, 1)}"
+                        else -> null
+                    }
+                    if (sub != null) {
                         Text(
-                            scoreItem.specificReason ?: "未通过",
-                            style = MiuixTheme.textStyles.footnote1,
-                            color = MiuixTheme.colorScheme.error
+                            sub,
+                            style = MiuixTheme.textStyles.footnote2,
+                            color = scoreColor.copy(alpha = 0.8f),
+                            maxLines = 1,
                         )
                     }
                 }

@@ -79,7 +79,7 @@
    - 应用外壳要把所有功能模块拼起来，本来就该依赖全部 feature，所以留在原地当壳。
    - `StoreArchiveImportJvmTest` 同时用到 settings、library、schedule 三个功能，放进哪个 feature 都会造成 feature 之间的依赖，所以跟壳一起留下。
    - `:core` 用 `api` 转发全部 shared 和 feature 模块，四个平台壳的依赖写法因此一行都不用改。
-2. **`:data` 只剩 venue 的 `SliderCaptcha.kt`、`VenueSlideCaptchaHost.kt`、`VenueCaptchaSolver.kt`，外加 3 个测试**（`VenueCaptchaSolverJvmTest`、`VenueApiJvmTest`、`auth/VenueLoginTestHarness`）。
+2. **`:data` 只剩 venue 的 `SliderCaptcha.kt`、`VenueSlideCaptchaHost.kt`，外加 2 个测试**（`VenueApiJvmTest`、`auth/VenueLoginTestHarness`）。验证码自动识别已删除，只剩手动拖动。
    - 这几个文件是 `@Composable` 的。它们实现的是 `:feature:campus` 里的 Compose 接口 `SlideCaptchaHost`，还用到 designsystem 里带 Compose 类型的 `ImageDecode`。
    - 放进 `:shared:data` 会把 Compose 带进 data，或者让 data 反过来依赖 feature。
    - 想拆开得先把验证码的图像接口改成纯数据类型，那是行为相关的改动，不在这次范围内。

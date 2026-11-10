@@ -18,6 +18,12 @@ data class ShellTab(
      * 也不按主顶栏的折叠给它做位移（见 ShellBarPage）。
      */
     val drawsOwnTopBar: Boolean = false,
+    /**
+     * 这一页两种导航风格都从屏幕顶边画起，自己让状态栏（拿到的 `contentTopPadding` 就是状态栏高度）。
+     * 首页的顶栏和模糊带是页面自己的，经典风格下也要盖住状态栏，不然两条割裂。
+     * 其余自画顶栏的子页（[drawsOwnTopBar]）经典风格下仍由壳垫状态栏。
+     */
+    val edgeToEdge: Boolean = false,
 )
 
 /** 一个端的那份 tab 集合。 */

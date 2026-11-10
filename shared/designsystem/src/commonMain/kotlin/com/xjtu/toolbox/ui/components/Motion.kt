@@ -305,7 +305,8 @@ fun SegmentedBar(
 }
 
 /**
- * 一天的节次条（空闲教室）：每格一节，空闲用 [freeColor]，占用用浅灰，当前节加深。
+ * 一天的节次条（空闲教室）：每格一节，空闲用 [freeColor]，占用用浅灰，当前节加深并描边。
+ * [breaks] 是分段处（这些下标之后留宽缝，如上午 / 下午 / 晚上）。
  * 一个 drawBehind 画完全部格子，不拆成十几个 Box；进场时各格从左到右依次亮起。
  */
 @Composable
@@ -316,6 +317,7 @@ fun SlotStripe(
     currentIndex: Int = -1,
     busyColor: Color = Color.Gray.copy(alpha = 0.16f),
     height: Dp = 6.dp,
+    breaks: Set<Int> = emptySet(),
 ) {
     val reveal = rememberRevealProgress(spec = tween(450, easing = FastOutSlowInEasing))
     Box(
@@ -326,22 +328,33 @@ fun SlotStripe(
                 val n = free.size
                 if (n == 0) return@drawBehind
                 val gap = 3.dp.toPx()
-                val w = (size.width - gap * (n - 1)) / n
+                val wideGap = 8.dp.toPx()
+                val wideCount = breaks.count { it in 0 until n - 1 }
+                val w = (size.width - gap * (n - 1 - wideCount) - wideGap * wideCount) / n
                 val r = CornerRadius(size.height / 2f)
+                var x = 0f
                 free.forEachIndexed { i, f ->
                     // 第 i 格在揭开进度走到它时才从 0 长到满透明度
                     val local = ((reveal.value * n) - i).coerceIn(0f, 1f)
                     val base = if (f) freeColor.copy(alpha = if (i == currentIndex) 1f else 0.55f) else busyColor
-                    drawRoundRect(
-                        base.copy(alpha = base.alpha * local),
-                        topLeft = Offset(i * (w + gap), 0f),
-                        size = Size(w, size.height),
-                        cornerRadius = r,
-                    )
+                    drawRoundRect(base.copy(alpha = base.alpha * local), Offset(x, 0f), Size(w, size.height), r)
+                    // 当前节占用时也要看得出「现在」在哪
+                    if (i == currentIndex && !f) {
+                        val s = 1.dp.toPx()
+                        drawRoundRect(
+                            freeColor.copy(alpha = local),
+                            Offset(x + s / 2, s / 2), Size(w - s, size.height - s), r,
+                            style = Stroke(s),
+                        )
+                    }
+                    x += w + if (i in breaks) wideGap else gap
                 }
             },
     )
 }
+
+/** 一天 11 节的分段处：第 4、8 节之后（上午 / 下午 / 晚上）。 */
+val DaySlotBreaks: Set<Int> = setOf(3, 7)
 
 /**
  * 页面大卡的流动底色：[accent] 按 [weights] 的浓度混进 [base]。封装的是首页 Hero 那套做法，

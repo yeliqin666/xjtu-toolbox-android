@@ -254,7 +254,7 @@ private fun ShelfTab(
         WindowDialog(
             show = true,
             title = "移出书架",
-            summary = "将「${target.title.ifBlank { "未命名教材" }}」移出书架，阅读进度会一并清除。书本身仍可通过检索重新打开。",
+            summary = "将「${target.title.ifBlank { "未命名教材" }}」移出书架，阅读进度一并清除",
             onDismissRequest = { pendingRemove = null },
         ) {
             Row(Modifier.fillMaxWidth()) {

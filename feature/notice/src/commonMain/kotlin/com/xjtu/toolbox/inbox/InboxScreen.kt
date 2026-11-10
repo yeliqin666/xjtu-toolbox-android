@@ -87,7 +87,6 @@ import com.xjtu.toolbox.ui.glass.withoutTop
 import kotlinx.coroutines.launch
 import top.yukonga.miuix.kmp.basic.ButtonDefaults
 import top.yukonga.miuix.kmp.basic.Card
-import top.yukonga.miuix.kmp.basic.HorizontalDivider
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.IconButton
 import top.yukonga.miuix.kmp.basic.MiuixScrollBehavior
@@ -450,7 +449,7 @@ private fun LazyListScope.section(title: String, entries: List<Entry>) {
                 key(e.key) {
                     InboxRow(e)
                     if (i != entries.lastIndex) {
-                        HorizontalDivider(Modifier.padding(start = 64.dp), color = MiuixTheme.colorScheme.onSurface.copy(alpha = 0.08f))
+                        com.xjtu.toolbox.ui.components.RowDivider(startInset = 64.dp)
                     }
                 }
             }

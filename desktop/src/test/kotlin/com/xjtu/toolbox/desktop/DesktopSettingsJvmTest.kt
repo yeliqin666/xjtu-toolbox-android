@@ -41,7 +41,6 @@ class DesktopSettingsJvmTest {
         assertEquals(SettingsStore.TAB_COURSES, store.defaultTab, "默认启动 Tab 是日程")
         assertEquals(SettingsStore.NETWORK_AUTO, store.networkMode, "连接模式默认自动检测")
         assertTrue(store.scheduleAttendanceBadge, "考勤角标默认开")
-        assertTrue(store.venueAutoSolveCaptchaEnabled, "场馆验证码自动识别默认开")
         assertTrue(store.showQuickActions, "常用功能默认显示")
         assertEquals(SettingsStore.SCHEDULE_SOURCE_JWXT, store.scheduleSource, "课表来源默认教务")
 

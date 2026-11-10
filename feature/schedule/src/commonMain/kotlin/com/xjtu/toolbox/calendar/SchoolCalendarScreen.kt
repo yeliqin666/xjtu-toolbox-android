@@ -257,12 +257,22 @@ private fun TermContent(
     // ── 事件时间轴 ──────────────────────────────────
     val timelineItems: androidx.compose.foundation.lazy.LazyListScope.() -> Unit = {
         item {
-            Text(
-                "日程安排",
-                style = MiuixTheme.textStyles.subtitle,
-                fontWeight = FontWeight.Bold,
-                modifier = Modifier.enterOnce(2).padding(start = 20.dp, top = 20.dp, bottom = 8.dp)
-            )
+            Row(
+                Modifier.enterOnce(2).fillMaxWidth().padding(start = 20.dp, end = 20.dp, top = 20.dp, bottom = 10.dp),
+                verticalAlignment = Alignment.Bottom,
+            ) {
+                Text(
+                    "日程安排",
+                    style = MiuixTheme.textStyles.subtitle,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.weight(1f),
+                )
+                Text(
+                    "${currentTerm.events.size} 项",
+                    style = MiuixTheme.textStyles.footnote1,
+                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                )
+            }
         }
 
         itemsIndexed(currentTerm.events) { index, event ->
@@ -273,6 +283,7 @@ private fun TermContent(
                 event = event,
                 isPast = isPast,
                 isCurrent = isCurrent,
+                isFirst = index == 0,
                 isLast = index == currentTerm.events.lastIndex
             )
         }
@@ -486,11 +497,16 @@ private fun StatChip(value: String, label: String, modifier: Modifier = Modifier
     }
 }
 
+/**
+ * 日程表的一行，整列连成一张卡（首行圆上角、末行圆下角，行间细线）：
+ * 左边开始日期，中间一条事件色竖条，右边名字和起止。进行中的那行淡淡染上事件色，过去的压淡。
+ */
 @Composable
 private fun EventTimelineItem(
     event: CalendarEvent,
     isPast: Boolean,
     isCurrent: Boolean,
+    isFirst: Boolean,
     isLast: Boolean,
     modifier: Modifier = Modifier,
 ) {
@@ -498,93 +514,95 @@ private fun EventTimelineItem(
     val accentColor = remember(event.colorHex) {
         CourseColors.parseHex(event.colorHex) ?: fallbackColor
     }
-    val alpha = if (isPast) 0.45f else 1f
+    val muted = MiuixTheme.colorScheme.onSurfaceVariantSummary
+    val radius = 20.dp
+    val shape = RoundedCornerShape(
+        topStart = if (isFirst) radius else 0.dp, topEnd = if (isFirst) radius else 0.dp,
+        bottomStart = if (isLast) radius else 0.dp, bottomEnd = if (isLast) radius else 0.dp,
+    )
 
-    Row(
+    Column(
         modifier
             .fillMaxWidth()
-            .padding(horizontal = 20.dp)
-            .alpha(alpha)
+            .padding(horizontal = 16.dp)
+            .clip(shape)
+            .background(AppCardColor)
     ) {
-        // 时间线竖轴
-        Column(
-            horizontalAlignment = Alignment.CenterHorizontally,
-            modifier = Modifier.width(20.dp)
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .then(if (isCurrent) Modifier.background(accentColor.copy(alpha = 0.07f)) else Modifier)
+                .padding(horizontal = 16.dp, vertical = 12.dp)
+                .alpha(if (isPast) 0.45f else 1f),
+            verticalAlignment = Alignment.CenterVertically,
         ) {
-            Box(
-                Modifier
-                    .size(if (isCurrent) 12.dp else 8.dp)
-                    .clip(CircleShape)
-                    .background(if (isCurrent) accentColor else accentColor.copy(alpha = 0.6f))
-            )
-            if (!isLast) {
-                Box(
-                    Modifier
-                        .width(2.dp)
-                        .height(if (isCurrent) 60.dp else 52.dp)
-                        .background(MiuixTheme.colorScheme.dividerLine)
+            Column(Modifier.width(40.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                Text("${event.startDate.month.ordinal + 1}月", fontSize = 11.sp, color = muted)
+                Text(
+                    "${event.startDate.day}",
+                    fontSize = 20.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = if (isCurrent) accentColor else MiuixTheme.colorScheme.onSurface,
                 )
             }
-        }
-
-        Spacer(Modifier.width(12.dp))
-
-        // 事件内容
-        Column(
-            Modifier
-                .weight(1f)
-                .padding(bottom = if (isLast) 0.dp else 4.dp)
-        ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                if (isCurrent) {
-                    Box(
-                        Modifier
-                            .clip(RoundedCornerShape(4.dp))
-                            .background(accentColor)
-                            .padding(horizontal = 6.dp, vertical = 2.dp)
-                    ) {
+            Spacer(Modifier.width(12.dp))
+            Box(
+                Modifier
+                    .width(3.dp)
+                    .height(34.dp)
+                    .clip(RoundedCornerShape(50))
+                    .background(accentColor.copy(alpha = if (isCurrent) 1f else 0.7f))
+            )
+            Spacer(Modifier.width(12.dp))
+            Column(Modifier.weight(1f)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        event.name,
+                        style = MiuixTheme.textStyles.body1,
+                        fontWeight = if (isCurrent) FontWeight.SemiBold else FontWeight.Medium,
+                        color = MiuixTheme.colorScheme.onSurface,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f, fill = false),
+                    )
+                    if (isCurrent) {
+                        Spacer(Modifier.width(6.dp))
                         Text(
                             "进行中",
                             fontSize = 10.sp,
-                            color = Color.White,
-                            fontWeight = FontWeight.Bold
+                            color = accentColor,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(50))
+                                .background(accentColor.copy(alpha = 0.14f))
+                                .padding(horizontal = 7.dp, vertical = 2.dp),
                         )
                     }
-                    Spacer(Modifier.width(6.dp))
                 }
+                val dateRange = if (event.startDate == event.endDate)
+                    weekdayCn(event.startDate)
+                else
+                    "至 ${monthDayCn(event.endDate)}"
                 Text(
-                    event.name,
-                    style = MiuixTheme.textStyles.body1,
-                    fontWeight = if (isCurrent) FontWeight.Bold else FontWeight.Normal,
-                    color = MiuixTheme.colorScheme.onSurface
+                    "$dateRange · ${event.days}天",
+                    fontSize = 12.sp,
+                    color = muted,
+                    modifier = Modifier.padding(top = 2.dp)
                 )
-            }
-
-            val dateRange = if (event.startDate == event.endDate)
-                monthDayCn(event.startDate)
-            else
-                "${monthDayCn(event.startDate)} ~ ${monthDayCn(event.endDate)}"
-
-            Text(
-                "$dateRange · ${event.days}天",
-                fontSize = 12.sp,
-                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                modifier = Modifier.padding(top = 2.dp)
-            )
-
-            if (event.remark.isNotEmpty() && isCurrent) {
-                Text(
-                    event.remark,
-                    style = MiuixTheme.textStyles.body2,
-                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.padding(top = 2.dp, bottom = 4.dp)
-                )
-            } else if (!isLast) {
-                Spacer(Modifier.height(12.dp))
+                if (event.remark.isNotEmpty() && isCurrent) {
+                    Text(
+                        event.remark,
+                        style = MiuixTheme.textStyles.footnote1,
+                        color = muted,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.padding(top = 4.dp)
+                    )
+                }
             }
         }
+        // 文字起点：16 边距 + 40 日期 + 12 + 3 竖条 + 12
+        if (!isLast) com.xjtu.toolbox.ui.components.RowDivider(startInset = 83.dp)
     }
 }
 

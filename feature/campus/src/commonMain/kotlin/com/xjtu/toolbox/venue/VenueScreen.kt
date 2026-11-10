@@ -70,8 +70,6 @@ fun VenueScreen(
     onBack: () -> Unit,
     /** 打开内置浏览器/浏览器：[url] 是第一站（站点登录页），[then] 是它之后要去的那一页（支付页）。 */
     onOpenBrowser: (url: String, then: String) -> Unit = { _, _ -> },
-    /** 「验证码自动识别」设置项每次预订现读，关掉后下一次立刻生效。 */
-    autoSolveCaptcha: () -> Boolean = { false },
     /** 滑块验证码宿主槽位（见类 KDoc）：Android/桌面 = 各端宿主，只读端 = null。 */
     captchaHost: SlideCaptchaHost? = null,
     /** 「功能说明」还没读过吗。 */
@@ -79,7 +77,7 @@ fun VenueScreen(
     onFirstUseHintRead: () -> Unit = {},
 ) {
     val authExpiry = LocalAuthExpiry.current
-    val vm: VenueViewModel = viewModel { VenueViewModel(source, autoSolveCaptcha, captchaHost) }
+    val vm: VenueViewModel = viewModel { VenueViewModel(source) }
     LaunchedEffect(vm) {
         vm.events.collect { event ->
             when (event) {
@@ -192,7 +190,7 @@ fun VenueScreen(
                         // 只读端那一条再按 `canCancel` 分：能取消就说能取消。
                         buildString {
                             if (canBook) {
-                                append("• 验证码默认自动识别，可在设置中关闭；失败仍可手滑\n")
+                                append("• 下单前拖动滑块完成验证\n")
                                 append("• 支付在内置浏览器里完成，登录一般自动通过\n")
                             } else {
                                 // 「能不能取消」是**另一条**能力（`canCancel`），不要跟着 `canBook` 一起说死：
@@ -380,9 +378,7 @@ fun VenueScreen(
                 ) {
                     when {
                         vm.bookingInProgress || vm.bookingSubmitted -> LoadingState("正在预订…")
-                        vm.captchaLoading -> LoadingState(
-                            if (vm.captchaAutoSolving) "正在自动识别验证码…" else "加载验证码…",
-                        )
+                        vm.captchaLoading -> LoadingState("加载验证码…")
                         vm.captchaError != null -> {
                             Text(vm.captchaError!!, color = MiuixTheme.colorScheme.error)
                             Spacer(Modifier.height(12.dp))
@@ -728,31 +724,38 @@ private fun VenueCard(
                     onDoubleClick()
                 }
             ),
-        colors = CardDefaults.defaultColors(color = MiuixTheme.colorScheme.surfaceVariant)
+        cornerRadius = 20.dp,
+        colors = CardDefaults.defaultColors(color = com.xjtu.toolbox.ui.components.AppCardColor)
     ) {
         Row(
-            modifier = Modifier.padding(16.dp),
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Icon(
-                Icons.Default.Place,
-                contentDescription = null,
-                modifier = Modifier.size(32.dp),
-                tint = MiuixTheme.colorScheme.primary
-            )
+            val primary = MiuixTheme.colorScheme.primary
+            Box(
+                Modifier.size(40.dp).clip(RoundedCornerShape(12.dp)).background(primary.copy(alpha = 0.12f)),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(Icons.Default.Place, contentDescription = null, modifier = Modifier.size(22.dp), tint = primary)
+            }
             Spacer(Modifier.width(12.dp))
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     venue.name,
                     style = MiuixTheme.textStyles.body1,
-                    fontWeight = FontWeight.Medium
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
                 )
                 val address = venue.address
                 if (!address.isNullOrBlank()) {
                     Text(
                         address,
-                        style = MiuixTheme.textStyles.body2,
-                        color = MiuixTheme.colorScheme.onSurfaceVariantActions
+                        style = MiuixTheme.textStyles.footnote1,
+                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                        maxLines = 1,
+                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                        modifier = Modifier.padding(top = 2.dp),
                     )
                 }
             }
@@ -957,30 +960,42 @@ private fun TimeSlotGroup(
 ) {
     Card(
         modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.defaultColors(color = MiuixTheme.colorScheme.surfaceVariant)
+        cornerRadius = 20.dp,
+        colors = CardDefaults.defaultColors(color = com.xjtu.toolbox.ui.components.AppCardColor)
     ) {
-        Column(modifier = Modifier.padding(12.dp)) {
-            // 时段标题 + 价格
+        Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp)) {
+            // 时段 + 剩几块场地 + 价格
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
                     timeSlot,
                     style = MiuixTheme.textStyles.body1,
-                    fontWeight = FontWeight.Bold,
+                    fontWeight = FontWeight.SemiBold,
                     color = MiuixTheme.colorScheme.onSurface
+                )
+                Spacer(Modifier.width(8.dp))
+                val free = slots.count { it.isAvailable }
+                Text(
+                    if (free > 0) "余 $free" else "已满",
+                    style = MiuixTheme.textStyles.footnote1,
+                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                    modifier = Modifier.weight(1f),
                 )
                 val price = slots.firstOrNull()?.price ?: 0.0
                 Text(
                     "¥${money0(price)}",
-                    style = MiuixTheme.textStyles.body2,
+                    style = MiuixTheme.textStyles.footnote1,
                     color = MiuixTheme.colorScheme.primary,
-                    fontWeight = FontWeight.Medium
+                    fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(50))
+                        .background(MiuixTheme.colorScheme.primary.copy(alpha = 0.10f))
+                        .padding(horizontal = 9.dp, vertical = 3.dp),
                 )
             }
-            Spacer(Modifier.height(8.dp))
+            Spacer(Modifier.height(12.dp))
 
             // 场地网格
             @OptIn(ExperimentalLayoutApi::class)
@@ -1011,36 +1026,34 @@ private fun SlotChip(
     isSelected: Boolean,
     onClick: () -> Unit
 ) {
+    // 可订：淡主题色底；选中：实心主题色；订满：几乎看不见的灰底 + 删除线，一眼分得开
+    val primary = MiuixTheme.colorScheme.primary
+    val ink = MiuixTheme.colorScheme.onSurface
     val bgColor = when {
-        isSelected -> MiuixTheme.colorScheme.primary
-        isAvailable -> MiuixTheme.colorScheme.surface
-        else -> MiuixTheme.colorScheme.surfaceContainerHigh
+        isSelected -> primary
+        isAvailable -> primary.copy(alpha = 0.10f)
+        else -> ink.copy(alpha = 0.04f)
     }
     val textColor = when {
         isSelected -> MiuixTheme.colorScheme.onPrimary
-        isAvailable -> MiuixTheme.colorScheme.onSurface
-        else -> MiuixTheme.colorScheme.onSurfaceVariantSummary
-    }
-    val borderColor = when {
-        isSelected -> MiuixTheme.colorScheme.primary
-        isAvailable -> MiuixTheme.colorScheme.outline
-        else -> MiuixTheme.colorScheme.surfaceContainerHigh
+        isAvailable -> primary
+        else -> MiuixTheme.colorScheme.onSurfaceVariantSummary.copy(alpha = 0.6f)
     }
 
     Box(
         modifier = Modifier
-            .clip(RoundedCornerShape(8.dp))
-            .border(1.dp, borderColor, RoundedCornerShape(8.dp))
+            .clip(RoundedCornerShape(12.dp))
             .background(bgColor)
             .clickable(enabled = isAvailable) { onClick() }
-            .padding(horizontal = 16.dp, vertical = 8.dp),
+            .padding(horizontal = 16.dp, vertical = 9.dp),
         contentAlignment = Alignment.Center
     ) {
         Text(
             areaName,
             style = MiuixTheme.textStyles.body2,
             color = textColor,
-            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
+            fontWeight = if (isSelected || isAvailable) FontWeight.SemiBold else FontWeight.Normal,
+            textDecoration = if (!isAvailable && !isSelected) androidx.compose.ui.text.style.TextDecoration.LineThrough else null,
         )
     }
 }

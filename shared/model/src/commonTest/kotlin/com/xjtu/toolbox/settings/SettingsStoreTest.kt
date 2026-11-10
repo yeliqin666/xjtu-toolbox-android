@@ -115,7 +115,6 @@ class SettingsStoreTest {
         assertEquals("auto", settings.networkMode, "连接模式默认自动检测")
         assertTrue(settings.showQuickActions, "常用功能默认显示")
         assertTrue(settings.scheduleAttendanceBadge, "考勤角标默认开")
-        assertTrue(settings.venueAutoSolveCaptchaEnabled, "场馆验证码自动识别默认开")
         assertEquals("jwxt", settings.scheduleSource, "课表来源默认教务")
 
         // 写一遍：字面键名一个字符都不能漂（Android 那份是同一个 SharedPreferences 文件）

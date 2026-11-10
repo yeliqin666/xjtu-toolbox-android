@@ -226,15 +226,6 @@ class CredentialStore(context: Context) {
         get() = settings.showQuickActions
         set(value) { settings.showQuickActions = value }
 
-    /**
-     * 场馆滑块验证码自动识别开关。
-     *
-     * 默认开启：预约时先自动识别，置信度不足仍回退到手动滑块。
-     */
-    var venueAutoSolveCaptchaEnabled: Boolean
-        get() = settings.venueAutoSolveCaptchaEnabled
-        set(value) { settings.venueAutoSolveCaptchaEnabled = value }
-
     companion object {
         internal const val FILE_NAME = "xjtu_credentials"
         /** 非敏感的应用设置（外观、协议、更新……），普通 SharedPreferences。 */

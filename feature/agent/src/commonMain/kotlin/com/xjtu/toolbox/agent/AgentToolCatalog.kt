@@ -184,7 +184,7 @@ fun agentToolDefinitions(honored: Set<AgentCapability>): String {
             "本应用设置：不给 value 时列出全部设置的当前值与可选值；给 key 和 value 时修改该项。",
             agentParams(
                 "key" to agentEnumProp("设置项。", "dark_mode", "dynamic_color", "nav_bar_style", "show_quick_actions",
-                    "default_tab", "network_mode", "account_type", "venue_auto_solve_captcha", "update_channel", "receive_preview_updates"),
+                    "default_tab", "network_mode", "account_type", "update_channel", "receive_preview_updates"),
                 "value" to agentStrProp("新取值。"),
                 )))
     }

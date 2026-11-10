@@ -169,11 +169,6 @@ class SettingsStore(private val store: KeyValueStore = keyValueStore(APP_SETTING
         get() = store.getBoolean("home_liquid_card", true)
         set(value) = store.putBoolean("home_liquid_card", value)
 
-    /** 首页顶栏：true = 扫码、搜索、消息统一靠右（默认），false = 扫码单独靠左、标题居中。 */
-    var homeTopActionsRight: Boolean
-        get() = store.getBoolean("home_top_actions_right", true)
-        set(value) = store.putBoolean("home_top_actions_right", value)
-
     var homeBackground: String
         get() = store.getString("home_background") ?: when {
             store.getString("home_widget_material") == WIDGET_MATERIAL_PAPER -> "solid"
@@ -200,11 +195,6 @@ class SettingsStore(private val store: KeyValueStore = keyValueStore(APP_SETTING
     var homeWallpaperBlur: Int
         get() = store.getInt("home_wallpaper_blur", HERO_IMAGE_BLUR_MIN).coerceIn(HERO_IMAGE_BLUR_MIN, HERO_IMAGE_BLUR_MAX)
         set(value) = store.putInt("home_wallpaper_blur", value.coerceIn(HERO_IMAGE_BLUR_MIN, HERO_IMAGE_BLUR_MAX))
-
-    /** 场馆滑块验证码自动识别开关。 */
-    var venueAutoSolveCaptchaEnabled: Boolean
-        get() = store.getBoolean(KEY_VENUE_AUTO_SOLVE_CAPTCHA, true)
-        set(value) = store.putBoolean(KEY_VENUE_AUTO_SOLVE_CAPTCHA, value)
 
     /** 课表格子上叠考勤角标。 */
     var scheduleAttendanceBadge: Boolean
@@ -266,7 +256,6 @@ class SettingsStore(private val store: KeyValueStore = keyValueStore(APP_SETTING
         private const val KEY_BOTTOM_BAR = "bottom_bar_tabs"
         private const val KEY_NETWORK_MODE = "network_mode"
         private const val KEY_SHOW_QUICK_ACTIONS = "show_quick_actions"
-        private const val KEY_VENUE_AUTO_SOLVE_CAPTCHA = "venue_auto_solve_captcha"
         private const val KEY_SCHEDULE_ATTENDANCE_BADGE = "schedule_attendance_badge"
         private const val KEY_SCHEDULE_SOURCE = "schedule_source"
 

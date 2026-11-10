@@ -30,7 +30,6 @@ import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.GridOn
 import androidx.compose.material.icons.filled.Layers
 import androidx.compose.material.icons.filled.RestartAlt
-import androidx.compose.material.icons.filled.SwapHoriz
 import androidx.compose.material.icons.filled.Wallpaper
 import androidx.compose.material.icons.filled.WaterDrop
 import androidx.compose.material.icons.filled.Widgets
@@ -83,15 +82,11 @@ import top.yukonga.miuix.kmp.window.WindowDialog
  *
  * 做成底部抽屉而不是二级页，是因为它要能从两处打开——全局设置里的那一行，和首页编辑态的齿轮；
  * 两处挂的是**同一个** `HomeSettingsSheet`，从哪儿打开看到的都是同一套状态。
- *
- * [showTopBarStyle] 管「顶栏」那一组：只有自己画首页顶栏按钮的端（`:app`）才拨得动它，
- * 桌面与 web 的首页顶栏在外壳里，那一组整块不画——省得留一个拨了没反应的开关。
  */
 @Composable
 fun HomeSettingsSheet(
     show: Boolean,
     onDismiss: () -> Unit,
-    showTopBarStyle: Boolean = false,
 ) {
     // 返回键优先关抽屉（§31）：抽屉在前台时不把返回交给下面的页面
     BackHandler(enabled = show) { onDismiss() }
@@ -112,7 +107,6 @@ fun HomeSettingsSheet(
         // 抽屉自己要知道怎么关自己：「恢复默认分组和布局」确认之后要立刻合上（§29 补充）
         HomeSettingsBody(
             onDismiss = onDismiss,
-            showTopBarStyle = showTopBarStyle,
             modifier = Modifier.verticalScroll(rememberScrollState()).navigationBarsPadding(),
         )
     }
@@ -120,16 +114,15 @@ fun HomeSettingsSheet(
 
 /** 抽屉和设置「外观」页共用的内容；滚动归外层。[onDismiss]：恢复默认或导入后要收起时调用。 */
 @Composable
-internal fun HomeSettingsBody(onDismiss: () -> Unit, showTopBarStyle: Boolean, modifier: Modifier = Modifier) {
+internal fun HomeSettingsBody(onDismiss: () -> Unit, modifier: Modifier = Modifier) {
     // 卡片组独有：整页布局（分组与格位）、网格开关、折射、圆角、背景不透明度
     val store = remember { HomeLayoutStore() }
-    // 两套布局共用：背景、卡片材质、顶栏排法
+    // 两套布局共用：背景、卡片材质
     val settings = remember { SettingsStore() }
     val revision = HomeLayoutRevision.current
 
     var layout by remember(revision) { mutableStateOf(settings.homeLayout) }
     var liquid by remember(revision) { mutableStateOf(settings.homeLiquidGlass) }
-    var topActionsRight by remember(revision) { mutableStateOf(settings.homeTopActionsRight) }
     var corner by remember { mutableIntStateOf(store.cardCorner) }
     var opacity by remember { mutableIntStateOf(store.backgroundOpacity) }
     var confirmReset by remember { mutableStateOf(false) }
@@ -166,7 +159,7 @@ internal fun HomeSettingsBody(onDismiss: () -> Unit, showTopBarStyle: Boolean, m
     }
 
     Column(modifier.fillMaxWidth()) {
-        // ── 布局：功能区样式、网格、顶栏排法 ──
+        // ── 布局：功能区样式 ──
         SmallTitle("首页布局")
         HomeSettingsCard {
             AppDropdownPreference(
@@ -181,20 +174,6 @@ internal fun HomeSettingsBody(onDismiss: () -> Unit, showTopBarStyle: Boolean, m
                     HomeLayoutRevision.bump()
                 },
             )
-            // 只有自己画首页顶栏按钮的端（:app）才画得出两种排法
-            if (showTopBarStyle) {
-                SwitchPreference(
-                    title = "按钮集中在右侧",
-                    summary = if (topActionsRight) "左侧显示头像" else "扫码在左、标题居中",
-                    checked = topActionsRight,
-                    startAction = { SettingsIcon(Icons.Default.SwapHoriz, cPurple) },
-                    onCheckedChange = {
-                        topActionsRight = it
-                        settings.homeTopActionsRight = it
-                        HomeLayoutRevision.bump()
-                    },
-                )
-            }
         }
 
         // ── 外观：背景与卡片（背景、材质三套布局共用） ──
