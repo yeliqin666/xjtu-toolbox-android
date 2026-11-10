@@ -23,7 +23,7 @@ android {
 
     defaultConfig {
         applicationId = "com.xjtu.toolbox"
-        minSdk = 31
+        minSdk = 34
         targetSdk = 36
         versionCode = 93
         versionName = "5.3.0"

@@ -12,7 +12,7 @@ android {
 
     defaultConfig {
         // macrobenchmark 要求 minSdk ≥ 28；跟着 :app 的 31 走即可
-        minSdk = 31
+        minSdk = 34
         targetSdk = 36
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }

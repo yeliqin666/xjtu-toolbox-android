@@ -14,6 +14,8 @@ local.properties
 /.github/instructions/*.md
 # ZCode 工作区状态（计划文件，含本地会话 ID，勿入库）
 /.zcode/
+# WorkBuddy 工作区记忆（本地笔记，不入库）
+/.workbuddy/
 # Signing
 release.jks
 release.jks.b64
