@@ -119,6 +119,16 @@ private fun getCurrentPeriod(): Int {
     return -1
 }
 
+/** 此刻综合按座位数分的教室类型。第一个是默认。 */
+private val ROOM_TYPES = listOf("全部", "大教室", "中小教室")
+
+/** 座位数未知（0）时只算进「全部」。 */
+private fun roomTypeMatches(seats: Int, type: String): Boolean = when (type) {
+    "大教室" -> seats >= 100
+    "中小教室" -> seats in 1 until 100
+    else -> true
+}
+
 /** 节次条的上午 / 下午 / 晚上分段；节数对不上时不分。 */
 private fun slotBreaks(n: Int): Set<Int> =
     if (n == PERIOD_TIMES.size) com.xjtu.toolbox.ui.components.DaySlotBreaks else emptySet()
@@ -270,20 +280,38 @@ fun EmptyRoomScreen(
             "全部" to liveInScope.size,
         )
     }
-    // 此刻综合的两段：此刻空着的（按课表还能空多久排），和此刻被占、按课表接下来会空的（按几节后空排）
-    val combinedNow = remember(liveInScope, vm.liveSchedule, currentPeriod) {
-        liveInScope.filter { it.isFree }.sortedWith(
+    // 此刻综合的教室类型（按座位数）
+    var combinedType by rememberSaveable { mutableStateOf(ROOM_TYPES.first()) }
+    fun seatsOf(room: LiveRoom) = room.seats.takeIf { it > 0 } ?: vm.liveSchedule[room.name]?.size ?: 0
+    // 此刻综合的两段，都按选的节次区间与类型筛（和按节查同一套口径：选中的节次都要空）：
+    // 此刻空着、且区间里此刻之后的节次也空的；此刻被占、但区间里此刻之后的节次都空的
+    val combinedNow = remember(liveInScope, vm.liveSchedule, currentPeriod, startPeriod, endPeriod, combinedType) {
+        val span = ((startPeriod - 1)..(endPeriod - 1)).filter { it >= currentPeriod.coerceAtLeast(0) }
+        liveInScope.filter { room ->
+            val status = vm.liveSchedule[room.name]?.status
+            room.isFree && roomTypeMatches(seatsOf(room), combinedType) &&
+                (status == null || span.all { status.getOrNull(it) == 0 })
+        }.sortedWith(
             compareByDescending<LiveRoom> { vm.liveSchedule[it.name]?.status?.let { s -> consecutiveFree(s, currentPeriod) } ?: 0 }
                 .thenBy { it.name },
         )
     }
-    val combinedLater = remember(liveInScope, vm.liveSchedule, currentPeriod) {
-        if (currentPeriod < 0) emptyList() else liveInScope.filter { !it.isFree }.mapNotNull { room ->
+    val combinedLater = remember(liveInScope, vm.liveSchedule, currentPeriod, startPeriod, endPeriod, combinedType) {
+        val span = ((startPeriod - 1)..(endPeriod - 1)).filter { it > currentPeriod }
+        if (currentPeriod < 0 || span.isEmpty()) emptyList() else liveInScope.filter { !it.isFree }.mapNotNull { room ->
             val status = vm.liveSchedule[room.name]?.status ?: return@mapNotNull null
-            val from = (currentPeriod + 1 until status.size).firstOrNull { status[it] == 0 } ?: return@mapNotNull null
-            // 此刻没课却有人（自习、借用、活动）：这种占用常常比一节课拖得久，两节以内空出来的要提醒一句
+            if (!roomTypeMatches(seatsOf(room), combinedType) || span.any { status.getOrNull(it) != 0 }) return@mapNotNull null
+            // 从区间起点往前倒，找它最早空出来的那一节（不早于下一节）
+            var from = span.first()
+            while (from - 1 > currentPeriod && status.getOrNull(from - 1) == 0) from--
+            // 此刻没课却有人（自习、借用、活动）：这种占用常常比一节课拖得久，两节以内空出来的要标出来
             UpcomingRoom(room, from, consecutiveFree(status, from), lingering = room.isInUse && from - currentPeriod <= 2)
         }.sortedWith(compareBy<UpcomingRoom> { it.from }.thenByDescending { it.run }.thenBy { it.room.name })
+    }
+    // 综合模式下柱状图的数：当天课表里每节空着的间数
+    val combinedPeriodFree = remember(vm.liveSchedule, combinedType) {
+        val schedule = vm.liveSchedule.values.filter { roomTypeMatches(it.size, combinedType) }
+        List(PERIOD_TIMES.size) { i -> schedule.count { it.status.getOrNull(i) == 0 } }
     }
     val liveGrouped = remember(liveInScope, liveFilter) {
         val picked = when (liveFilter) {
@@ -328,6 +356,11 @@ fun EmptyRoomScreen(
                                 // 此刻综合：实况 + 当天课表，此刻能用的和接下来会空的一起给
                                 com.xjtu.toolbox.ui.components.AppDropdownOption("此刻综合", isLive && vm.combined) {
                                     menuOpen = false
+                                    // 进来先看接下来两节：整天都要空的话，此刻被占的几乎全被筛掉
+                                    if (currentPeriod >= 0) {
+                                        startPeriod = (currentPeriod + 2).coerceIn(1, 11)
+                                        endPeriod = (startPeriod + 1).coerceAtMost(11)
+                                    }
                                     vm.selectCombined()
                                 }
                                 com.xjtu.toolbox.ui.components.AppDropdownOption("此刻实况", isLive && !vm.combined) { pick(RoomSource.LIVE) }
@@ -488,6 +521,51 @@ fun EmptyRoomScreen(
             // 以前整页限宽 720 居中，筛选卡占掉小半屏、教室一行一张，平板横屏两边各空一大块。
             // 窄屏照旧：筛选卡是列表的第一项，跟着教室一起滚。
             val wideRooms = com.xjtu.toolbox.ui.isWideLayout()
+            // 选节次：要空的节次与时间、每节空闲柱状图（有数时）、区间滑条。按节查与此刻综合共用
+            val periodPicker: @Composable (counts: List<Int>?, showNow: Boolean) -> Unit = { counts, showNow ->
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("第${startPeriod}-${endPeriod}节", style = MiuixTheme.textStyles.body2, fontWeight = FontWeight.Bold)
+                    Spacer(Modifier.width(6.dp))
+                    Text(
+                        "${PERIOD_TIMES[startPeriod - 1].first} - ${PERIOD_TIMES[endPeriod - 1].second}",
+                        style = MiuixTheme.textStyles.footnote1,
+                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                    )
+                    Spacer(Modifier.weight(1f))
+                    if (showNow && currentPeriod >= 0) {
+                        Text(
+                            "现在第${currentPeriod + 1}节",
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(50))
+                                .background(MiuixTheme.colorScheme.primary.copy(alpha = 0.12f))
+                                .padding(horizontal = 8.dp, vertical = 3.dp),
+                            style = MiuixTheme.textStyles.footnote2,
+                            color = MiuixTheme.colorScheme.primary,
+                            fontWeight = FontWeight.Bold,
+                        )
+                    }
+                }
+                if (counts != null) {
+                    Spacer(Modifier.height(8.dp))
+                    PeriodFreeBars(
+                        counts = counts,
+                        selected = (startPeriod - 1)..(endPeriod - 1),
+                        current = if (showNow) currentPeriod else -1,
+                        onPick = pickPeriod,
+                    )
+                }
+                RangeSlider(
+                    value = startPeriod.toFloat()..endPeriod.toFloat(),
+                    onValueChange = { range ->
+                        startPeriod = range.start.roundToInt().coerceIn(1, 11)
+                        endPeriod = range.endInclusive.roundToInt().coerceIn(startPeriod, 11)
+                    },
+                    valueRange = 1f..11f,
+                    steps = 9,
+                    showKeyPoints = true,
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+                )
+            }
             val filtersCard: @Composable () -> Unit = {
                     Card(
                         modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp),
@@ -572,28 +650,41 @@ fun EmptyRoomScreen(
                             if (isLive) {
                                 // 实时状态只有"此刻"，没有节次可选；按状态分段，点一段就是筛选
                                 val counts = liveCounts
-                                vm.scheduleNote?.takeIf { vm.combined }?.let { note ->
+                                if (vm.combined) {
+                                    vm.scheduleNote?.let { note ->
+                                        Text(
+                                            note,
+                                            style = MiuixTheme.textStyles.footnote1,
+                                            color = MiuixTheme.colorScheme.primary,
+                                            modifier = Modifier.padding(bottom = 8.dp),
+                                        )
+                                    }
+                                    // 和按节查同一套：选要空的节次、选教室类型
+                                    periodPicker(combinedPeriodFree.takeIf { vm.liveSchedule.isNotEmpty() }, true)
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                    ) {
+                                        ROOM_TYPES.forEach { type ->
+                                            AppFilterChip(selected = combinedType == type, onClick = { combinedType = type }, label = type)
+                                        }
+                                    }
+                                } else {
+                                    if (counts.isNotEmpty()) LiveStatusBar(
+                                        free = counts.getValue("空闲"),
+                                        inUse = counts.getValue("其它使用"),
+                                        inClass = counts.getValue("上课中"),
+                                        total = counts.getValue("全部"),
+                                        selected = liveFilter,
+                                        onSelect = { liveFilter = it },
+                                    )
+                                    Spacer(Modifier.height(8.dp))
                                     Text(
-                                        note,
+                                        "其它使用：没排课但有人在用",
                                         style = MiuixTheme.textStyles.footnote1,
-                                        color = MiuixTheme.colorScheme.primary,
-                                        modifier = Modifier.padding(bottom = 8.dp),
+                                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                                     )
                                 }
-                                if (counts.isNotEmpty() && !vm.combined) LiveStatusBar(
-                                    free = counts.getValue("空闲"),
-                                    inUse = counts.getValue("其它使用"),
-                                    inClass = counts.getValue("上课中"),
-                                    total = counts.getValue("全部"),
-                                    selected = liveFilter,
-                                    onSelect = { liveFilter = it },
-                                )
-                                Spacer(Modifier.height(8.dp))
-                                Text(
-                                    "「其它使用」：没排课但有人，可能是自习、借用或活动；人数为此刻在场人数。",
-                                    style = MiuixTheme.textStyles.footnote1,
-                                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                                )
                                 if (vm.isLoading && vm.liveSnapshot != null) {
                                     Spacer(Modifier.height(8.dp))
                                     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -607,53 +698,7 @@ fun EmptyRoomScreen(
                                     }
                                 }
                             } else {
-                            // 第二行：要空的节次和对应时间；今天再标出现在是第几节
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Text(
-                                    "第${startPeriod}-${endPeriod}节",
-                                    style = MiuixTheme.textStyles.body2,
-                                    fontWeight = FontWeight.Bold,
-                                )
-                                Spacer(Modifier.width(6.dp))
-                                Text(
-                                    "${PERIOD_TIMES[startPeriod - 1].first} - ${PERIOD_TIMES[endPeriod - 1].second}",
-                                    style = MiuixTheme.textStyles.footnote1,
-                                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                                )
-                                Spacer(Modifier.weight(1f))
-                                if (isToday && currentPeriod >= 0) {
-                                    Text(
-                                        "现在第${currentPeriod + 1}节",
-                                        modifier = Modifier
-                                            .clip(RoundedCornerShape(50))
-                                            .background(MiuixTheme.colorScheme.primary.copy(alpha = 0.12f))
-                                            .padding(horizontal = 8.dp, vertical = 3.dp),
-                                        style = MiuixTheme.textStyles.footnote2,
-                                        color = MiuixTheme.colorScheme.primary,
-                                        fontWeight = FontWeight.Bold,
-                                    )
-                                }
-                            }
-                            if (rooms.isNotEmpty()) {
-                                Spacer(Modifier.height(8.dp))
-                                PeriodFreeBars(
-                                    counts = periodFree,
-                                    selected = (startPeriod - 1)..(endPeriod - 1),
-                                    current = effectivePeriod,
-                                    onPick = pickPeriod,
-                                )
-                            }
-                            RangeSlider(
-                                value = startPeriod.toFloat()..endPeriod.toFloat(),
-                                onValueChange = { range ->
-                                    startPeriod = range.start.roundToInt().coerceIn(1, 11)
-                                    endPeriod = range.endInclusive.roundToInt().coerceIn(startPeriod, 11)
-                                },
-                                valueRange = 1f..11f,
-                                steps = 9,
-                                showKeyPoints = true,
-                                modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
-                            )
+                            periodPicker(periodFree.takeIf { rooms.isNotEmpty() }, isToday)
                             // 第三行：快捷筛选
                             Row(
                                 modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
@@ -785,11 +830,17 @@ fun EmptyRoomScreen(
                             }
                         } else {
                             itemsIndexed(combinedNow, key = { _, it -> "cmb_now_${it.name}" }) { i, room ->
-                                Box(Modifier.enterOnce(i + 1)) { LiveRoomCard(room, vm.liveSchedule[room.name], currentPeriod) }
+                                Box(Modifier.enterOnce(i + 1)) { LiveRoomCard(room, vm.liveSchedule[room.name], currentPeriod, showFreeBadge = false) }
                             }
                         }
                         if (combinedLater.isNotEmpty()) {
-                            fullLineItem(key = "cmb_later_h") { CombinedHeader("接下来空闲", combinedLater.size) }
+                            fullLineItem(key = "cmb_later_h") {
+                                // 「有人在用」的含义只在这里说一次，不在每张卡上重复
+                                CombinedHeader(
+                                    "接下来空闲", combinedLater.size,
+                                    note = "有人在用：没排课但此刻有人，可能拖过下一节".takeIf { combinedLater.any { it.lingering } },
+                                )
+                            }
                             itemsIndexed(combinedLater, key = { _, it -> "cmb_later_${it.room.name}" }) { i, upcoming ->
                                 Box(Modifier.enterOnce(i + 1)) { UpcomingRoomCard(upcoming, vm.liveSchedule[upcoming.room.name], currentPeriod) }
                             }
@@ -992,12 +1043,11 @@ private fun SmartRoomCard(room: RoomInfo, currentPeriod: Int) {
                     )
                     Spacer(Modifier.height(3.dp))
                     Text(
+                        // 空几节由右边的标签说，这里只补座位数和下一节课在哪
                         when {
-                            currentPeriod < 0 -> "${room.size} 座"
-                            isNowFree && nextBusy != null ->
-                                "${room.size} 座 · 可用 $freePeriods 节，下一次占用在第${nextBusy + 1}节"
-                            isNowFree -> "${room.size} 座 · 今天余下时段均空闲"
-                            else -> "${room.size} 座 · 当前占用"
+                            isNowFree && nextBusy != null -> "${room.size} 座 · 第${nextBusy + 1}节有课"
+                            isNowFree -> "${room.size} 座 · 之后没课"
+                            else -> "${room.size} 座"
                         },
                         style = MiuixTheme.textStyles.footnote1,
                         color = MiuixTheme.colorScheme.onSurfaceVariantSummary
@@ -1083,31 +1133,33 @@ private fun SmartRoomCard(room: RoomInfo, currentPeriod: Int) {
  */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun LiveRoomCard(room: LiveRoom, schedule: RoomInfo?, currentPeriod: Int) {
+private fun LiveRoomCard(
+    room: LiveRoom,
+    schedule: RoomInfo?,
+    currentPeriod: Int,
+    /** 「此刻可用」那一段里全是空闲的，标签不再重复。 */
+    showFreeBadge: Boolean = true,
+) {
     val copy = rememberCopyText()
     val seats = room.seats.takeIf { it > 0 } ?: schedule?.size ?: 0
-    val seatText = if (seats > 0) "$seats 座" else "座位数未知"
+    val seatText = if (seats > 0) "$seats 座" else ""
     val status = schedule?.status.orEmpty()
     val nextBusy = if (currentPeriod >= 0) {
         status.indices.firstOrNull { it > currentPeriod && status[it] != 0 }
     } else null
     val (badge, badgeColor) = when {
-        room.isFree -> "空闲" to MiuixTheme.colorScheme.primary
+        room.isFree -> (if (showFreeBadge) "空闲" else null) to MiuixTheme.colorScheme.primary
         room.isInUse -> "${room.people} 人" to IN_USE_COLOR
         room.isInClass -> "上课中" to MiuixTheme.colorScheme.error
-        else -> "未知" to MiuixTheme.colorScheme.onSurfaceVariantSummary
+        else -> null to MiuixTheme.colorScheme.onSurfaceVariantSummary
     }
+    // 状态与人数已在右边的标签里，这里只补座位数、下一节课或正在上的课
     val summary = when {
-        room.isFree -> when {
-            status.isEmpty() || currentPeriod < 0 -> "$seatText · 此刻没人"
-            nextBusy != null -> "$seatText · 下一节课在第${nextBusy + 1}节"
-            else -> "$seatText · 今天余下时段没排课"
-        }
-        room.isInUse -> "$seatText · 没排课，此刻 ${room.people} 人在用"
-        room.isInClass -> listOfNotNull(room.course, room.teacher).joinToString(" · ").ifEmpty { "有课" } +
-            " · ${room.people}/${seats.takeIf { it > 0 } ?: "?"} 人"
-        else -> "$seatText · 平台没给出状态"
-    }
+        room.isFree && status.isNotEmpty() && currentPeriod >= 0 ->
+            listOf(seatText, if (nextBusy != null) "第${nextBusy + 1}节有课" else "之后没课")
+        room.isInClass -> listOfNotNull(room.course, room.teacher)
+        else -> listOf(seatText)
+    }.filter { it.isNotBlank() }.joinToString(" · ")
 
     top.yukonga.miuix.kmp.basic.Card(
         modifier = Modifier
@@ -1131,26 +1183,30 @@ private fun LiveRoomCard(room: LiveRoom, schedule: RoomInfo?, currentPeriod: Int
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
-                    Spacer(Modifier.height(3.dp))
-                    Text(
-                        summary,
-                        style = MiuixTheme.textStyles.footnote1,
-                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis,
-                    )
+                    if (summary.isNotEmpty()) {
+                        Spacer(Modifier.height(3.dp))
+                        Text(
+                            summary,
+                            style = MiuixTheme.textStyles.footnote1,
+                            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
                 }
-                Surface(
-                    shape = RoundedCornerShape(8.dp),
-                    color = badgeColor.copy(alpha = 0.12f)
-                ) {
-                    Text(
-                        badge,
-                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                        style = MiuixTheme.textStyles.footnote1,
-                        color = badgeColor,
-                        fontWeight = FontWeight.Bold
-                    )
+                if (badge != null) {
+                    Surface(
+                        shape = RoundedCornerShape(8.dp),
+                        color = badgeColor.copy(alpha = 0.12f)
+                    ) {
+                        Text(
+                            badge,
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                            style = MiuixTheme.textStyles.footnote1,
+                            color = badgeColor,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
                 }
             }
             if (status.isNotEmpty()) {
@@ -1174,13 +1230,15 @@ private fun LiveRoomCard(room: LiveRoom, schedule: RoomInfo?, currentPeriod: Int
 private class UpcomingRoom(val room: LiveRoom, val from: Int, val run: Int, val lingering: Boolean)
 
 @Composable
-private fun CombinedHeader(title: String, count: Int) {
-    Row(
-        Modifier.fillMaxWidth().padding(start = 6.dp, end = 6.dp, top = 12.dp, bottom = 2.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Text(title, style = MiuixTheme.textStyles.subtitle, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
-        Text("$count 间", style = MiuixTheme.textStyles.footnote1, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
+private fun CombinedHeader(title: String, count: Int, note: String? = null) {
+    Column(Modifier.fillMaxWidth().padding(start = 6.dp, end = 6.dp, top = 12.dp, bottom = 2.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(title, style = MiuixTheme.textStyles.subtitle, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+            Text("$count 间", style = MiuixTheme.textStyles.footnote1, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
+        }
+        if (note != null) {
+            Text(note, style = MiuixTheme.textStyles.footnote1, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
+        }
     }
 }
 
@@ -1191,12 +1249,13 @@ private fun UpcomingRoomCard(upcoming: UpcomingRoom, schedule: RoomInfo?, curren
     val room = upcoming.room
     val status = schedule?.status.orEmpty()
     val (badge, badgeColor) = when {
-        upcoming.lingering -> "此刻有人在用" to IN_USE_COLOR
+        upcoming.lingering -> "有人在用" to IN_USE_COLOR
         room.isInClass -> "上课中" to MiuixTheme.colorScheme.error
         room.isInUse -> "${room.people} 人" to IN_USE_COLOR
         else -> "占用" to MiuixTheme.colorScheme.onSurfaceVariantSummary
     }
     val start = PERIOD_TIMES.getOrNull(upcoming.from)?.first.orEmpty()
+    val seats = room.seats.takeIf { it > 0 } ?: schedule?.size ?: 0
     top.yukonga.miuix.kmp.basic.Card(
         modifier = Modifier.fillMaxWidth().combinedClickable(onClick = {}, onLongClick = { copy(room.name) }),
         colors = top.yukonga.miuix.kmp.basic.CardDefaults.defaultColors(color = MiuixTheme.colorScheme.surfaceVariant),
@@ -1207,11 +1266,13 @@ private fun UpcomingRoomCard(upcoming: UpcomingRoom, schedule: RoomInfo?, curren
                     Text(room.name, style = MiuixTheme.textStyles.body1, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     Spacer(Modifier.height(3.dp))
                     Text(
-                        "第 ${upcoming.from + 1} 节（$start）起空 · 连空 ${upcoming.run} 节" +
-                            if (upcoming.lingering) " · 没排课但有人，可能拖得更久" else "",
+                        listOfNotNull(
+                            "$seats 座".takeIf { seats > 0 },
+                            "$start 起空 ${upcoming.run} 节",
+                        ).joinToString(" · "),
                         style = MiuixTheme.textStyles.footnote1,
                         color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                        maxLines = 2,
+                        maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
                 }

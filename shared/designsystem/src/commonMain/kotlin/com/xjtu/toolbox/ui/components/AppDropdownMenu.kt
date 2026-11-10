@@ -153,6 +153,8 @@ fun AppDropdownMenu(
     val alignEnd = alignment == Alignment.TopEnd || alignment == Alignment.BottomEnd
     // 二级面板开着时，返回键和点外面先退回上一层
     val dismiss = { if (sub.opened) sub.opened = false else onDismissRequest() }
+    // 点外面的手势协程跨重组存活，要调最新的回调
+    val latestDismiss by rememberUpdatedState(dismiss)
     Popup(
         popupPositionProvider = FullWindowPopup,
         onDismissRequest = dismiss,
@@ -168,7 +170,7 @@ fun AppDropdownMenu(
                     ready = true
                 }
                 // 点到菜单以外：收起（菜单项自己的点击先被它们吃掉）
-                .pointerInput(Unit) { detectTapGestures { dismiss() } },
+                .pointerInput(Unit) { detectTapGestures { latestDismiss() } },
         ) {
             val screen = anchorOnScreen.value
             val origin = popupOrigin

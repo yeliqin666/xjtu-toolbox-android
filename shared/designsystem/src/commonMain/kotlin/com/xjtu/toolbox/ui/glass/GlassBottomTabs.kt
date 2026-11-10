@@ -170,6 +170,9 @@ fun GlassBottomTabs(
         // -1 = 一格都不高亮（见 selectedIndex 的 KDoc）：索引本身允许是 -1，只有滑块的位置要它 ≥ 0
         var currentIndex by remember { mutableIntStateOf(selectedIndex.takeIf { it in 0 until tabsCount } ?: -1) }
         val onTabSelectedUpdated by rememberUpdatedState(onTabSelected)
+        // 下面的拖动状态机只建一次，宽度、方向变了（转屏、改语言）要读最新的
+        val latestTabWidthPx by rememberUpdatedState(tabWidthPx)
+        val latestLtr by rememberUpdatedState(isLtr)
 
         val dampedDrag = remember(animationScope, tabsCount) {
             GlassDampedDragAnimation(
@@ -194,8 +197,8 @@ fun GlassBottomTabs(
                     }
                 },
                 onDrag = { _, dragAmount ->
-                    val deltaX = if (isLtr) dragAmount.x else -dragAmount.x
-                    updateValue(GlassDragMath.dragTargetValue(targetValue, deltaX, tabWidthPx, tabsCount))
+                    val deltaX = if (latestLtr) dragAmount.x else -dragAmount.x
+                    updateValue(GlassDragMath.dragTargetValue(targetValue, deltaX, latestTabWidthPx, tabsCount))
                     animationScope.launch {
                         offsetAnimation.snapTo(offsetAnimation.value + dragAmount.x)
                     }

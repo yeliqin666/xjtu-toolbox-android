@@ -59,9 +59,6 @@ import top.yukonga.miuix.kmp.overlay.OverlayDialog
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.utils.overScrollVertical
 
-/** 楼中楼里某条被编辑（[edited]）或删除（[deletedId]）了；[seq] 保证同一条连改两次也会触发。 */
-data class ReplyPatch(val edited: GithubDiscussionComment?, val deletedId: String?, val seq: Int)
-
 /** 编辑页正在写什么。 */
 sealed interface EditorTarget {
     data object NewComment : EditorTarget
@@ -192,7 +189,8 @@ fun DiscussionDetailScreen(
         LaunchedEffect(text) { kotlinx.coroutines.delay(2500); vm.message = null }
     }
 
-
+    // 开全屏编辑页时帖子页会被销毁：大标题折叠这类 rememberSaveable 状态存在这里，编辑完回来原样
+    val saved = androidx.compose.runtime.saveable.rememberSaveableStateHolder()
     AnimatedContent(
         targetState = editor?.takeUnless { it.inline },
         contentKey = { it?.let { t -> "editor:${t.hashCode()}" } ?: "detail" },
@@ -209,7 +207,7 @@ fun DiscussionDetailScreen(
             mentionCandidates = participants,
             onSubmit = { title, body -> vm.submit(target, title, body) },
         )
-    } else {
+    } else saved.SaveableStateProvider("detail") {
     CommunityPage(
         title = discussion.category.name,
         onBack = onBack,
@@ -280,15 +278,13 @@ fun DiscussionDetailScreen(
                         comment = comment,
                         op = discussion.author,
                         answerable = discussion.category.acceptsAnswers,
-                        refreshKey = vm.replyRefresh[comment.id] ?: 0,
-                        repo = repo,
+                        replies = vm.replies(comment),
                         canReply = canReply,
                         onReact = vm::reactComment,
                         onReactFloor = { content -> vm.reactComment(comment, content) { loader.edited(it) } },
                         onReply = { prefill -> editor = EditorTarget.ReplyTo(comment, prefill) },
                         menu = ::commentMenu,
                         onToggleAnswer = { vm.moderate("采纳") { markAnswer(comment.id, !comment.isAnswer) } },
-                        patch = vm.patch,
                     )
                 }
                 item(key = "footer") {
@@ -410,15 +406,13 @@ private fun Floor(
     comment: GithubDiscussionComment,
     op: String?,
     answerable: Boolean,
-    refreshKey: Int,
-    repo: GithubDiscussionsRepository,
+    replies: FloorReplies,
     canReply: Boolean,
     onReact: (GithubDiscussionComment, String, (GithubDiscussionComment) -> Unit) -> Unit,
     onReactFloor: (String) -> Unit,
     onReply: (prefill: String?) -> Unit,
     menu: (GithubDiscussionComment) -> List<MenuAction>,
     onToggleAnswer: () -> Unit,
-    patch: ReplyPatch?,
 ) {
     var expanded by remember(comment.id) { mutableStateOf(false) }
     Card(
@@ -454,14 +448,12 @@ private fun Floor(
             DiscussionReplies(
                 comment = comment,
                 op = op,
-                refreshKey = refreshKey,
-                load = { cursor -> repo.replies(comment.id, cursor) },
+                state = replies,
                 canReply = canReply,
                 onReact = onReact,
                 // GitHub 的楼中楼只有一层，回的是其中哪条只能靠引用说明
                 onReply = { reply -> onReply(quoteMarkdown(reply)) },
                 menu = menu,
-                patch = patch,
             )
         }
         Spacer(Modifier.height(4.dp))
@@ -547,10 +539,14 @@ private fun ReplyComposer(
     }
     val query = if (focused && field.selection.collapsed) mentionQuery(text, field.selection.start) else null
     val density = androidx.compose.ui.platform.LocalDensity.current
-    // 贴着屏幕底：取原始的键盘高度。windowInsetsPadding 会扣掉祖先消费过的导航条，正好差那一截被键盘盖住
-    val bottomInset = with(density) {
-        maxOf(WindowInsets.ime.getBottom(density), WindowInsets.navigationBars.getBottom(density)).toDp()
-    }.coerceAtLeast(LocalTabBottomPadding.current)
+    val tabBottom = LocalTabBottomPadding.current
+    // 悬浮底栏下页面铺到窗口底边，底栏占位只是「不让子页再垫导航条」的声明，并没真垫：键盘按原始高度让。
+    // 其余宿主（经典底栏、独立页）垫了多少都声明了消费，走 windowInsetsPadding 自动扣掉
+    val keyboardAvoid = if (tabBottom > 0.dp) {
+        Modifier.padding(bottom = with(density) { WindowInsets.ime.getBottom(density).toDp() }.coerceAtLeast(tabBottom))
+    } else {
+        Modifier.windowInsetsPadding(WindowInsets.ime.union(WindowInsets.navigationBars))
+    }
     val borderColor by androidx.compose.animation.animateColorAsState(
         if (focused) colors.primary.copy(alpha = 0.55f) else colors.outline.copy(alpha = 0.25f),
         androidx.compose.animation.core.tween(180),
@@ -561,7 +557,7 @@ private fun ReplyComposer(
         Modifier
             .fillMaxWidth()
             .background(colors.surface)
-            .padding(bottom = bottomInset)
+            .then(keyboardAvoid)
             .padding(horizontal = 12.dp, vertical = 8.dp),
         verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {

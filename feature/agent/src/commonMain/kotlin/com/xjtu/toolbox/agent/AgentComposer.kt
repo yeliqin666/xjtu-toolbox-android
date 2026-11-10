@@ -14,7 +14,6 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.union
 import androidx.compose.foundation.layout.add
 import androidx.compose.foundation.layout.windowInsetsPadding
@@ -98,15 +97,8 @@ internal fun AgentComposer(
 
     // ── 底部让位 ──
     //
-    // 手算 inset 是错的路，之前两版都栽在这儿：先是 navigationBarsPadding + imePadding +
-    // reserve 三段相加把输入框顶到屏幕中间；改成手动取最大值后，又因为没扣掉宿主 Scaffold
-    // 已经为底栏让出的那段而多空 90dp；手动减一下，数又对不上。
-    //
-    // 根因是 `WindowInsets.ime.getBottom()` 拿的是**相对整块屏幕**的原始值，
-    // 完全不知道祖先已经让过多少。正确做法是走 `windowInsetsPadding`，它会自动扣除
-    // 已被消费的部分——前提是有人把"我已经让过了"声明出来。宿主只做了 padding(padding)
-    // 没做 consumeWindowInsets，所以这里在屁岱自己的子树里补一次声明（见 body 的调用处），
-    // 消费链建立后下面这一行就成立了。作用域只在屁岱内，不影响其它 tab。
+    // 走 windowInsetsPadding 而不是手取 `WindowInsets.ime.getBottom()`：后者是相对整块屏幕的原始值，
+    // 不知道祖先（经典底栏、宿主 Scaffold）已经让过多少；前者会扣掉祖先声明消费过的部分。
     //
     // 悬浮底栏的 bottomBarReserve 已经把系统导航条算进去了，不能再叠 navigationBars，
     // 否则输入框会多让一条导航条（实测多出 24dp）。只有 reserve = 0 的经典 / 侧栏形态

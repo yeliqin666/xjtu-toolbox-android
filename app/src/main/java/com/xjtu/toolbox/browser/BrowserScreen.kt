@@ -517,6 +517,7 @@ fun BrowserScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
+                .consumeWindowInsets(padding)
                 .imePadding()
         )
     }

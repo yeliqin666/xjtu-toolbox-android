@@ -14,7 +14,6 @@ import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -68,9 +67,8 @@ fun DiscussionsScreen(
     /** 当前登录的 GitHub 用户名，「我发的」用。 */
     me: String,
     onAccount: () -> Unit,
-    /** 由外层持有：进帖子时这一页会被换掉，回来要停在原来的位置。 */
-    listState: LazyListState = rememberLazyListState(),
 ) {
+    val listState = rememberLazyListState()
     // 顶部的刷新圈只跟用户下拉触发的那一次走，滑到底翻页时不转
     var pulling by remember { mutableStateOf(false) }
     LaunchedEffect(state.loading) { if (!state.loading) pulling = false }

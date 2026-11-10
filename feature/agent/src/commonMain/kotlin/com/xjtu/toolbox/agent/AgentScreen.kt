@@ -13,7 +13,6 @@ import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
@@ -51,8 +50,6 @@ fun AgentScreen(
     onNavigate: (AppRoute) -> Unit = {},
     /** tab 模式下需要额外空出的底部高度（悬浮胶囊底栏不占宿主 contentPadding，见调用处）。 */
     extraBottomPadding: Dp = 0.dp,
-    /** 宿主 Scaffold 的 contentPadding 底部值。输入栏算自己的让位时要把它减掉，见 AgentComposer。 */
-    hostBottomPadding: Dp = 0.dp,
     scrollBehavior: ScrollBehavior? = null,
     onTitleChange: (String) -> Unit = {},
     onActionsChange: ((@Composable RowScope.() -> Unit)?) -> Unit = {},
@@ -216,9 +213,12 @@ fun AgentScreen(
     val hostTitle = vm.sessions.firstOrNull { it.id == vm.currentSessionId }?.title
         ?.takeIf { it.isNotBlank() } ?: config.effectiveName
     LaunchedEffect(hostTitle) { onTitleChange(hostTitle) }
-    DisposableEffect(Unit) {
-        onActionsChange(headerActions)
-        onNavIconChange(headerNavIcon)
+    // 交出去的是固定的转发，画的时候读最新那一版：直接交闭包，宿主拿着的永远是交出那一刻的
+    val latestActions by rememberUpdatedState(headerActions)
+    val latestNavIcon by rememberUpdatedState(headerNavIcon)
+    DisposableEffect(isWide) {
+        onActionsChange { latestActions(this) }
+        onNavIconChange(if (isWide) null else { { latestNavIcon?.invoke() } })
         // 切走时把按钮撤掉，否则别的 tab 顶栏上会残留屁岱的图标。
         onDispose {
             onActionsChange(null)
@@ -425,9 +425,7 @@ fun AgentScreen(
                 modifier = Modifier
                     .width(300.dp)
                     .fillMaxHeight()
-                    // 列表底部自带 navigationBarsPadding（抽屉需要）。宿主 Scaffold 已经让过一次
-                    // 底部，不声明消费就会再让一条导航条的高度；顶部让出玻璃顶栏
-                    .consumeWindowInsets(PaddingValues(bottom = hostBottomPadding))
+                    // 顶部让出玻璃顶栏
                     .padding(top = contentTopPadding),
                 // 和顶栏、聊天区同一个底色，两栏之间只靠那条竖分隔线分开。原来是 surfaceContainer（白），
                 // 从顶栏下沿才开始，灰色顶栏和白色面板之间就出现一道横向断口
@@ -442,16 +440,7 @@ fun AgentScreen(
             }
             VerticalDivider()
         }
-        // 把"宿主已经让出底部 hostBottomPadding"这件事声明出来。
-        // 宿主 Scaffold 只 padding(padding)、没 consumeWindowInsets(padding)，
-        // 消费链是断的；在这里补一次，子树里的 windowInsetsPadding（输入栏那处）
-        // 才能正确扣除已让的部分，不至于把 ime 再整段加一遍。
-        Box(
-            Modifier
-                .weight(1f)
-                .fillMaxHeight()
-                .consumeWindowInsets(PaddingValues(bottom = hostBottomPadding))
-        ) {
+        Box(Modifier.weight(1f).fillMaxHeight()) {
             body(PaddingValues())
         }
         }

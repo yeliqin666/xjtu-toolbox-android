@@ -332,6 +332,15 @@ class ExpandOriginSource internal constructor(private val layer: GraphicsLayer) 
         }
     }
 
+    /**
+     * 不走 [ExpandOrigins] 的覆盖层（首页的搜索、扫码）借走这一格：非 null 期间原位不画，每帧把真实画面录进图层，
+     * 覆盖层用 [content] 画它，落地那帧换回原位像素不变。值是覆盖层的进度，绘制阶段读它只为逐帧重录。
+     */
+    var lifted by mutableStateOf<(() -> Float)?>(null)
+
+    /** 这一格此刻的真实画面（[lifted] 或转场期间每帧重录）。 */
+    val content: @Composable (Modifier) -> Unit get() = capturedContent
+
     private val capturedContent: @Composable (Modifier) -> Unit = { modifier ->
         Canvas(modifier) {
             val recorded = layer.size
@@ -392,6 +401,10 @@ fun Modifier.expandOriginSource(source: ExpandOriginSource): Modifier =
                     // 在绘制阶段读一次进度：转场每走一帧都让这里重画、重录。不读的话这一页被盖着时没人
                     // 触发它重画，图层里一直是点击那一刻的画面（还带着按压反馈），落地时和真元素对不上
                     ExpandOrigins.contentTransition.value?.progress
+                    source.recordLive(this)
+                }
+                source.lifted != null -> {
+                    source.lifted?.invoke()
                     source.recordLive(this)
                 }
                 else -> drawContent()

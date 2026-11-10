@@ -57,6 +57,9 @@ fun Jiaocai1ZoomablePage(
     var lastTapAt by remember { mutableStateOf(0L) }
     var lastTapPos by remember { mutableStateOf(Offset.Zero) }
     val tapScope = rememberCoroutineScope()
+    // 手势协程只在换页 / 换尺寸时重启，回调要读最新的
+    val latestTap by androidx.compose.runtime.rememberUpdatedState(onTap)
+    val latestScaleChange by androidx.compose.runtime.rememberUpdatedState(onScaleChange)
 
     fun fitted(): Pair<Float, Float> {
         val w = container.width.toFloat().coerceAtLeast(1f)
@@ -103,7 +106,7 @@ fun Jiaocai1ZoomablePage(
         val raw = Offset(focus.x - cx - world.x * s, focus.y - cy - world.y * s)
         scale = s
         offset = if (s <= 1.01f) Offset.Zero else clamp(s, raw)
-        onScaleChange(s)
+        latestScaleChange(s)
     }
 
     fun cycle(focus: Offset) {
@@ -181,7 +184,7 @@ fun Jiaocai1ZoomablePage(
                             pendingTap?.cancel()
                             pendingTap = tapScope.launch {
                                 delay(DOUBLE_TAP_MS)
-                                onTap()
+                                latestTap()
                             }
                         }
                     }

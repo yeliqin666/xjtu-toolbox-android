@@ -194,10 +194,8 @@ internal fun MainScreen(
     var lastBackPressTime by remember { mutableLongStateOf(0L) }
     var showGlobalSearch by remember { mutableStateOf(false) }
     var showQrLogin by remember { mutableStateOf(false) }
-    // 搜索 / 扫一扫以哪颗圆钮为支点放大（窗口坐标）；null = 从别处打开，直接淡入
-    var revealFrom by remember { mutableStateOf<androidx.compose.ui.geometry.Rect?>(null) }
-    // 正变成页面的那颗圆钮：动画期间藏起来，不然半透明的页面底下还看得见它
-    var openingAction by remember { mutableStateOf<HomeTopAction?>(null) }
+    // 搜索 / 扫一扫从哪颗圆钮长出来；null = 从别处打开，直接淡入
+    var revealSource by remember { mutableStateOf<ExpandOriginSource?>(null) }
     // 两个覆盖层的展开进度：提到这里，底下的页面才能跟着往后退
     val searchReveal = remember { androidx.compose.animation.core.Animatable(0f) }
     val qrReveal = remember { androidx.compose.animation.core.Animatable(0f) }
@@ -405,8 +403,8 @@ internal fun MainScreen(
                 agentActions = agentHeaderActions,
                 courseActions = courseHeaderActions,
                 courseBottomContent = courseHeaderBottomContent,
-                onScan = { ProactiveBubbleHost.clear(); revealFrom = null; showQrLogin = true },
-                onSearch = { ProactiveBubbleHost.clear(); revealFrom = null; showGlobalSearch = true },
+                onScan = { ProactiveBubbleHost.clear(); revealSource = null; showQrLogin = true },
+                onSearch = { ProactiveBubbleHost.clear(); revealSource = null; showGlobalSearch = true },
                 onInbox = { ProactiveBubbleHost.clear(); router.open(AppRoute.Inbox) },
             )
         },
@@ -435,10 +433,8 @@ internal fun MainScreen(
             if (selectedTab == BottomTab.PIDAI) agentOverlays.Content()
             RevealOverlay(
                 visible = showGlobalSearch,
-                origin = revealFrom,
+                source = revealSource,
                 progress = searchReveal,
-                onLanding = { openingAction = null },
-                icon = { Icon(Icons.Outlined.Search, contentDescription = null, tint = MiuixTheme.colorScheme.onSurface, modifier = Modifier.size(21.dp)) },
             ) {
                 CompositionLocalProvider(
                     LocalAppBackdrop provides if (glassStyle) handles.contentBackdrop else null,
@@ -469,17 +465,8 @@ internal fun MainScreen(
 
             RevealOverlay(
                 visible = showQrLogin,
-                origin = revealFrom,
+                source = revealSource,
                 progress = qrReveal,
-                onLanding = { openingAction = null },
-                icon = {
-                    Icon(
-                        androidx.compose.ui.res.painterResource(com.xjtu.toolbox.R.drawable.ic_scan),
-                        contentDescription = null,
-                        tint = MiuixTheme.colorScheme.onSurface,
-                        modifier = Modifier.size(20.dp),
-                    )
-                },
             ) {
                 QrLoginScreen(
                     sessionManager = accountManager.sessionManager,
@@ -563,35 +550,31 @@ internal fun MainScreen(
                         contentTopShift = insets.contentTopShift,
                         topActions = {
                             HomeTopActions(
-                                opening = openingAction,
-                                onInbox = { from, source ->
+                                onInbox = { source ->
                                     // 收纳页以这颗圆钮为支点放大（转场按圆形起点走 ButtonZoom）
+                                    val from = source.boundsInWindow()
                                     if (from != null) {
                                         com.xjtu.toolbox.nav.ExpandOrigins.arm(
                                             AppRoute.Inbox.id,
                                             com.xjtu.toolbox.nav.ExpandOrigins.Origin(
                                                 from,
                                                 from.width / 2f,
-                                                // 按钮面板上的图标：铃铛先长成面板，收纳页再浮上来
-                                                snapshot = { m ->
-                                                    Box(m, contentAlignment = Alignment.Center) {
-                                                        InboxBell({}, clickable = false, iconSize = 22.dp, containerSize = HomeTopActionSize, showBadge = false)
-                                                    }
-                                                },
+                                                // 面板上画的是圆钮每帧的真实画面，落地时和原位一致（见 RevealOverlay）
+                                                snapshot = source.content,
                                                 source = source,
+                                                restFill = Color.Transparent,
+                                                restShadow = false,
                                             ),
                                         )
                                     }
                                     router.open(AppRoute.Inbox)
                                 },
-                                onScan = { from ->
-                                    revealFrom = from
-                                    openingAction = HomeTopAction.SCAN
+                                onScan = { source ->
+                                    revealSource = source
                                     showQrLogin = true
                                 },
-                                onSearch = { from ->
-                                    revealFrom = from
-                                    openingAction = HomeTopAction.SEARCH
+                                onSearch = { source ->
+                                    revealSource = source
                                     showGlobalSearch = true
                                 },
                             )
@@ -603,7 +586,6 @@ internal fun MainScreen(
                         onNavigate = router::open,
                         // 输入栏钉在底边，要让开浮在上面的底栏
                         extraBottomPadding = insets.bottomBarReserve,
-                        hostBottomPadding = insets.scaffoldBottomPadding,
                         contentTopPadding = insets.contentTopPadding,
                         scrollBehavior = agentScrollBehavior,
                         onTitleChange = { agentTitle = it },
@@ -651,38 +633,40 @@ internal fun MainScreen(
 }
 
 /**
- * 搜索、扫一扫这类整屏覆盖层的进出场：给了 [origin] 就从那颗圆钮长成整页、收起时缩回去
- * （见 ButtonZoom）；没有起点就淡入淡出。[onLanding]：快缩回按钮了，真按钮该出来接手了。
+ * 搜索、扫一扫这类整屏覆盖层的进出场：给了 [source] 就从那颗圆钮长成整页、收起时缩回去
+ * （见 ButtonZoom）；没有起点就淡入淡出。
+ *
+ * 圆钮全程「挪进」覆盖层（[ExpandOriginSource.lifted]）：面板里画的是它每帧的真实画面（玻璃透出的底色、
+ * 高光都在），收起落地那一帧再换回原位，前后像素一致。
  */
 @Composable
 private fun RevealOverlay(
     visible: Boolean,
-    origin: Rect?,
+    source: ExpandOriginSource?,
     progress: androidx.compose.animation.core.Animatable<Float, androidx.compose.animation.core.AnimationVector1D>,
-    onLanding: () -> Unit = {},
-    /** 按钮上的图标：先长成带这枚图标的面板，页面内容再浮上来（见 ButtonMorphCover）。 */
-    icon: @Composable () -> Unit,
     content: @Composable () -> Unit,
 ) {
     var shown by remember { mutableStateOf(false) }
     if (visible) shown = true
     // 起点在打开那一下定死，收起时回到同一处
-    val from = remember(shown) { origin }
+    val button = remember(shown) { source?.takeIf { shown } }
+    val from = remember(button) { button?.boundsInWindow() }
     val screenCornerPx = with(LocalDensity.current) {
         top.yukonga.miuix.kmp.nav.core.rememberNavSystemCornerRadius().toPx()
     }
     LaunchedEffect(visible) {
         if (visible) {
+            if (from != null) button?.lifted = { progress.value }
             progress.animateTo(1f, tween(800, easing = com.xjtu.toolbox.nav.ButtonZoom.Easing))
         } else if (shown) {
-            launch {
-                androidx.compose.runtime.snapshotFlow { progress.value }.first { it < 0.05f }
-                onLanding()
-            }
             progress.animateTo(0f, tween(620, easing = com.xjtu.toolbox.nav.ButtonZoom.Easing))
+            // 同一帧：覆盖层撤走、圆钮回原位
+            button?.lifted = null
             shown = false
         }
     }
+    // 覆盖层被直接移出组合时也把圆钮还回去
+    androidx.compose.runtime.DisposableEffect(button) { onDispose { button?.lifted = null } }
     if (!shown) return
     // 一层淡灰压住后面的内容（底栏也在覆盖层下面），和子页转场的变暗同一个意思
     Box(Modifier.fillMaxSize().drawBehind { drawRect(Color.Black.copy(alpha = com.xjtu.toolbox.nav.ButtonZoom.RECEDE_DIM * progress.value)) }) {
@@ -699,21 +683,26 @@ private fun RevealOverlay(
                     }
                 },
         ) { content() }
-        if (from != null) {
+        if (from != null && button != null) {
             var full by remember { mutableStateOf(androidx.compose.ui.geometry.Size.Zero) }
             Box(Modifier.fillMaxSize().onSizeChanged { full = androidx.compose.ui.geometry.Size(it.width.toFloat(), it.height.toFloat()) }) {
-                com.xjtu.toolbox.nav.ButtonMorphCover(from, { full }, { progress.value }, screenCornerPx, MiuixTheme.colorScheme.surface, icon = icon)
+                com.xjtu.toolbox.nav.ButtonMorphCover(
+                    from, { full }, { progress.value }, screenCornerPx, MiuixTheme.colorScheme.surface,
+                    // 圆钮本身是玻璃、只有一圈白色微光：面板从透明长起，贴近按钮时不带深色投影
+                    restFill = Color.Transparent,
+                    restShadow = false,
+                ) { button.content(Modifier.fillMaxSize()) }
             }
         }
     }
 }
 
-/** 「扫一扫」圆钮。[onScan] 收到这颗圆钮的窗口矩形。 */
+/** 「扫一扫」圆钮。[onScan] 收到这颗圆钮，覆盖层从它长出来。 */
 @Composable
-private fun HomeScanAction(onScan: (Rect?) -> Unit, hidden: Boolean = false) {
+private fun HomeScanAction(onScan: (ExpandOriginSource) -> Unit) {
     val tint = MiuixTheme.colorScheme.onSurface
     val source = rememberExpandOriginSource()
-    HomeRoundAction(onClick = { onScan(source.boundsInWindow()) }, size = HomeTopActionSize, source = source, hidden = hidden) {
+    HomeRoundAction(onClick = { onScan(source) }, size = HomeTopActionSize, source = source) {
         Icon(
             androidx.compose.ui.res.painterResource(com.xjtu.toolbox.R.drawable.ic_scan),
             contentDescription = "扫一扫",
@@ -726,10 +715,9 @@ private fun HomeScanAction(onScan: (Rect?) -> Unit, hidden: Boolean = false) {
 /** 首页顶栏右上角那一排圆钮：搜索、扫码、消息。 */
 @Composable
 private fun HomeTopActions(
-    onInbox: (Rect?, ExpandOriginSource) -> Unit,
-    onScan: (Rect?) -> Unit,
-    onSearch: (Rect?) -> Unit,
-    opening: HomeTopAction? = null,
+    onInbox: (ExpandOriginSource) -> Unit,
+    onScan: (ExpandOriginSource) -> Unit,
+    onSearch: (ExpandOriginSource) -> Unit,
 ) {
     val tint = MiuixTheme.colorScheme.onSurface
     val searchSource = rememberExpandOriginSource()
@@ -739,19 +727,18 @@ private fun HomeTopActions(
         verticalAlignment = Alignment.CenterVertically,
     ) {
         HomeRoundAction(
-            onClick = { onSearch(searchSource.boundsInWindow()) },
+            onClick = { onSearch(searchSource) },
             size = HomeTopActionSize,
             source = searchSource,
-            hidden = opening == HomeTopAction.SEARCH,
         ) {
             Icon(Icons.Outlined.Search, contentDescription = "搜索", tint = tint, modifier = Modifier.size(21.dp))
         }
-        HomeScanAction(onScan = onScan, hidden = opening == HomeTopAction.SCAN)
+        HomeScanAction(onScan = onScan)
         // 铃铛：角标画在**圆钮外面这一层**。圆钮的液态玻璃把内容裁成圆形，画在里面的右上角
         // 一定会被那道圆弧削掉一块；角标位置还是原来的（圆钮右上角）。
         Box {
             HomeRoundAction(
-                onClick = { onInbox(inboxSource.boundsInWindow(), inboxSource) },
+                onClick = { onInbox(inboxSource) },
                 size = HomeTopActionSize,
                 source = inboxSource,
             ) {
@@ -773,9 +760,6 @@ private fun HomeTopActions(
     }
 }
 
-/** 展开成覆盖层的那两颗顶栏圆钮：动画期间原位藏起来。 */
-private enum class HomeTopAction { SEARCH, SCAN }
-
 /** 首页顶栏圆钮的直径：比原来的 40dp 略大，铃铛的角标才不会挤到圈外。 */
 private val HomeTopActionSize = 44.dp
 
@@ -791,17 +775,9 @@ private fun HomeRoundAction(
     size: Dp = HomeTopActionSize,
     /** 记下这颗圆钮的位置：点开的页面 / 覆盖层从它长出来。 */
     source: ExpandOriginSource? = null,
-    /** 它正变成页面：原位藏起来，页面收起时淡回来。 */
-    hidden: Boolean = false,
     content: @Composable () -> Unit,
 ) {
     val interaction = remember { MutableInteractionSource() }
-    val shownAlpha by androidx.compose.animation.core.animateFloatAsState(
-        if (hidden) 0f else 1f,
-        // 藏是立刻藏：淡出的那几帧就是原地多出来的一份
-        tween(if (hidden) 0 else 100),
-        label = "homeActionHidden",
-    )
     val isDark = LocalIsDarkTheme.current
     // 首页**内容层**（背景 + 滚动内容）由首页通过 Local 递过来：液态开关开着时圆钮采它，
     // 于是模糊 / 折射的也是它此刻盖住的东西，和顶栏模糊带同一个源。卡片组布局会 provide；
@@ -814,7 +790,6 @@ private fun HomeRoundAction(
         Modifier
             .size(size)
             .then(if (source != null) Modifier.expandOriginSource(source) else Modifier)
-            .graphicsLayer { alpha = shownAlpha }
             .pressScale(interaction, pressed = 0.92f)
             .shadow(
                 elevation = 10.dp,

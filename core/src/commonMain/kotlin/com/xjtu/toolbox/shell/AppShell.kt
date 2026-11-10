@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.calculateEndPadding
 import androidx.compose.foundation.layout.calculateStartPadding
+import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
@@ -159,17 +160,18 @@ fun AppShell(
             ) { padding ->
                 val layoutDirection = LocalLayoutDirection.current
                 val statusTop = contentWindowInsets.asPaddingValues().calculateTopPadding()
-                // 顶部留白归每一页（见 ShellBarPage），这一层只垫左右和底
+                // 顶部留白归每一页（见 ShellBarPage），这一层只垫左右和底。
+                // 垫了多少就声明消费多少：经典底栏下页面里的 imePadding / windowInsetsPadding 才会扣掉底栏，不把输入框多抬一截
+                val handled = PaddingValues(
+                    start = padding.calculateStartPadding(layoutDirection),
+                    end = padding.calculateEndPadding(layoutDirection),
+                    bottom = padding.calculateBottomPadding(),
+                )
                 Box(
                     Modifier
                         .fillMaxSize()
-                        .padding(
-                            PaddingValues(
-                                start = padding.calculateStartPadding(layoutDirection),
-                                end = padding.calculateEndPadding(layoutDirection),
-                                bottom = padding.calculateBottomPadding(),
-                            ),
-                        )
+                        .padding(handled)
+                        .consumeWindowInsets(handled)
                         .onGloballyPositioned { barGeometry.hostTop = it.positionInWindow().y },
                 ) {
                     ShellTabHost(
@@ -216,7 +218,6 @@ fun AppShell(
                                     contentTopPadding = contentTop,
                                     contentTopShift = contentShift,
                                     bottomBarReserve = layout.bottomBarReserve,
-                                    scaffoldBottomPadding = padding.calculateBottomPadding(),
                                 ),
                             )
                         }
@@ -249,8 +250,6 @@ class ShellPageInsets(
     val contentTopPadding: Dp,
     /** 浮在上面的底栏一共占掉多少（滚动内容末尾要留出来）。见 [ShellLayout.bottomBarReserve]。 */
     val bottomBarReserve: Dp,
-    /** Scaffold 那一层给的底部 padding（钉在底边的输入栏要让开）。 */
-    val scaffoldBottomPadding: Dp,
     /**
      * 壳为了对齐 [contentTopPadding] 把这一页整体上移的量（稳定值 − 当前实际顶栏高度）。
      * 页面里贴着屏幕顶边画的装饰（比如首页的渐进模糊带）要自己补回这段，不然会被顶出屏幕。

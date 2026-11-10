@@ -176,7 +176,6 @@ internal fun AndroidAgentScreen(
     loginState: AppLoginState,
     onNavigate: (AppRoute) -> Unit,
     extraBottomPadding: Dp,
-    hostBottomPadding: Dp,
     contentTopPadding: Dp,
     scrollBehavior: ScrollBehavior,
     onTitleChange: (String) -> Unit,
@@ -197,7 +196,6 @@ internal fun AndroidAgentScreen(
         appearanceSection = { PidaiAppearancePanel() },
         pushPreferences = { com.xjtu.toolbox.agent.PidaiPushPreferences() },
         extraBottomPadding = extraBottomPadding,
-        hostBottomPadding = hostBottomPadding,
         scrollBehavior = scrollBehavior,
         onTitleChange = onTitleChange,
         onActionsChange = onActionsChange,
@@ -234,12 +232,11 @@ internal fun AgentRoutePage(loginState: AppLoginState, onNavigate: (AppRoute) ->
                 actions = { actions?.invoke(this) },
             )
         },
-    ) { topPadding, bottomPadding ->
+    ) { topPadding, _ ->
         AndroidAgentScreen(
             loginState = loginState,
             onNavigate = onNavigate,
             extraBottomPadding = tabBottomPadding,
-            hostBottomPadding = bottomPadding,
             contentTopPadding = topPadding,
             scrollBehavior = scrollBehavior,
             onTitleChange = { title = it },

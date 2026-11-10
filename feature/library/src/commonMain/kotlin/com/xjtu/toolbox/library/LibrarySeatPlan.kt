@@ -221,11 +221,24 @@ private class PlanTransform {
  * - 双指捏合随时缩放，放大之后单指才拖图；
  * - 单击交给 [onTap]，双击在该处放大 / 复位，按住不动交给 [onLongPress]。
  */
+@Composable
 private fun Modifier.planGestures(
     t: PlanTransform,
     key: Any?,
     onLongPress: ((Offset) -> Unit)? = null,
     onTap: (Offset) -> Unit,
+): Modifier {
+    // 手势协程只在 key 变时重启，回调要读最新的
+    val latestLongPress by androidx.compose.runtime.rememberUpdatedState(onLongPress)
+    val latestTap by androidx.compose.runtime.rememberUpdatedState(onTap)
+    return planGesturesInput(t, key, { latestLongPress }, { latestTap })
+}
+
+private fun Modifier.planGesturesInput(
+    t: PlanTransform,
+    key: Any?,
+    longPressOf: () -> ((Offset) -> Unit)?,
+    tapOf: () -> (Offset) -> Unit,
 ): Modifier = pointerInput(key) {
     val slop = 8.dp.toPx()
     val longPressMs = viewConfiguration.longPressTimeoutMillis
@@ -238,7 +251,7 @@ private fun Modifier.planGestures(
             var multi = false
             var longPressed = false
             var travel = Offset.Zero
-            val longPress = onLongPress?.let { cb ->
+            val longPress = longPressOf()?.let { cb ->
                 launch {
                     kotlinx.coroutines.delay(longPressMs)
                     if (!moved && !multi) { longPressed = true; cb(down.position) }
@@ -281,7 +294,7 @@ private fun Modifier.planGestures(
             } else {
                 lastTapAt = now
                 lastTapPos = p
-                onTap(p)
+                tapOf()(p)
             }
         }
     }

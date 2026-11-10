@@ -6,6 +6,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.aspectRatio
@@ -127,10 +128,13 @@ fun CommunityPage(
         floatingActionButton = floatingActionButton,
     ) { padding ->
         val top = padding.glassTop(glass)
+        val handled = padding.withoutTop(glass)
         Box(
             Modifier
                 .fillMaxSize()
-                .padding(padding.withoutTop(glass))
+                .padding(handled)
+                // 垫过的声明消费：页里的 imePadding 才不会把底栏 / 导航条再算一遍
+                .consumeWindowInsets(handled)
                 .glassSource(glass)
                 .nestedScroll(scrollBehavior.nestedScrollConnection)
         ) {

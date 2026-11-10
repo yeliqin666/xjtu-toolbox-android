@@ -27,48 +27,55 @@ import top.yukonga.miuix.kmp.basic.CircularProgressIndicator
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.theme.MiuixTheme
+import kotlinx.coroutines.CoroutineScope
+
+/** 一楼的楼中楼：默认露出预览那几条，展开后换成完整列表。归 ViewModel 所有，见 [DiscussionDetailViewModel.replies]。 */
+class FloorReplies(
+    scope: CoroutineScope,
+    preview: List<GithubDiscussionComment>,
+    load: suspend (String?) -> Result<GithubDiscussionComments>,
+) {
+    val loader = DiscussionCommentsLoader(scope, load)
+    var full by mutableStateOf(false)
+    var preview by mutableStateOf(preview); private set
+    var deleted by mutableIntStateOf(0); private set
+
+    fun expand() {
+        full = true
+        loader.fetch(true)
+    }
+
+    fun edited(comment: GithubDiscussionComment) {
+        loader.edited(comment)
+        preview = preview.map { if (it.id == comment.id) comment else it }
+    }
+
+    fun deleted(id: String) {
+        if (loader.state.value.items.none { it.id == id } && preview.none { it.id == id }) return
+        loader.deleted(id)
+        preview = preview.filterNot { it.id == id }
+        deleted++
+    }
+}
 
 @Composable
 fun DiscussionReplies(
     comment: GithubDiscussionComment,
     op: String?,
-    refreshKey: Int,
-    load: suspend (String?) -> Result<GithubDiscussionComments>,
+    state: FloorReplies,
     canReply: Boolean,
     onReact: (GithubDiscussionComment, String, (GithubDiscussionComment) -> Unit) -> Unit,
     onReply: (GithubDiscussionComment) -> Unit,
     menu: (GithubDiscussionComment) -> List<MenuAction>,
-    patch: ReplyPatch?,
 ) {
-    val scope = rememberCoroutineScope()
-    val loader = remember(comment.id) { DiscussionCommentsLoader(scope, load) }
+    val loader = state.loader
     val connection by loader.state.collectAsStateWithLifecycle()
-    var full by remember(comment.id) { mutableStateOf(false) }
-    var preview by remember(comment.id) { mutableStateOf(comment.previewReplies) }
-    var deleted by remember(comment.id) { mutableIntStateOf(0) }
+    val full = state.full
+    val preview = state.preview
 
-    // 刚回复了这一楼：展开完整列表并重新拉，新回复立刻能看到
-    LaunchedEffect(refreshKey) {
-        if (refreshKey > 0) { full = true; loader.fetch(true) }
-    }
-    LaunchedEffect(patch) {
-        val p = patch ?: return@LaunchedEffect
-        p.edited?.let { edited ->
-            if (connection.items.any { it.id == edited.id }) loader.edited(edited)
-            preview = preview.map { if (it.id == edited.id) edited else it }
-        }
-        p.deletedId?.let { id ->
-            val mine = connection.items.any { it.id == id } || preview.any { it.id == id }
-            if (mine) {
-                loader.deleted(id)
-                preview = preview.filterNot { it.id == id }
-                deleted++
-            }
-        }
-    }
-
-    val shown = if (full) connection.items else preview
-    val total = (comment.replyCount - deleted).coerceAtLeast(shown.size)
+    // 完整列表拉回来之前先留着预览：中途清空会让这一楼突然变矮，列表跟着跳
+    val shown = if (full && connection.loaded) connection.items else preview
+    val total = (comment.replyCount - state.deleted).coerceAtLeast(shown.size)
     if (shown.isEmpty() && !full && total == 0) return
 
     val colors = MiuixTheme.colorScheme
@@ -85,10 +92,7 @@ fun DiscussionReplies(
         shown.forEach { reply ->
             key(reply.id) {
                 var expanded by remember { mutableStateOf(false) }
-                val apply = { updated: GithubDiscussionComment ->
-                    if (connection.items.any { it.id == updated.id }) loader.edited(updated)
-                    preview = preview.map { if (it.id == updated.id) updated else it }
-                }
+                val apply = state::edited
                 AuthorLine(reply, op, avatar = 22.dp)
                 Column(Modifier.padding(start = 32.dp)) {
                     val reason = reply.minimizedReason
@@ -110,12 +114,12 @@ fun DiscussionReplies(
         when {
             !full && total > shown.size -> ReplyExpansionAction(
                 text = "展开 ${total - shown.size} 条回复",
-                onClick = { full = true; loader.fetch(true) },
+                onClick = state::expand,
             )
             full && connection.loading -> ReplyExpansionAction("正在加载", loading = true, onClick = {})
             full && connection.failed -> ReplyExpansionAction("加载失败，点此重试", retry = true, onClick = { loader.fetch(!connection.loaded) })
             full && connection.cursor != null -> ReplyExpansionAction("继续展开", onClick = { loader.fetch(false) })
-            full && total > preview.size -> ReplyExpansionAction("收起", collapse = true, onClick = { full = false })
+            full && total > preview.size -> ReplyExpansionAction("收起", collapse = true, onClick = { state.full = false })
         }
     }
 }

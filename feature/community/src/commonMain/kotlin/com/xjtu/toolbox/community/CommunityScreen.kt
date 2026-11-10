@@ -10,7 +10,7 @@ import androidx.compose.animation.Crossfade
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -83,6 +83,10 @@ private sealed interface ForumPage {
     data class Detail(val discussion: GithubDiscussion) : ForumPage { override val depth = 1 }
 }
 
+/** 同一篇帖子的内容更新（点赞数之类）还是同一页：不重播转场、不换存档。 */
+private fun pageKey(page: ForumPage): String =
+    if (page is ForumPage.Detail) "detail:${page.discussion.id}" else page.toString()
+
 @Composable
 private fun CommunityForum(
     session: GithubSession,
@@ -97,8 +101,8 @@ private fun CommunityForum(
     }
     val state by vm.state.collectAsStateWithLifecycle()
     var open by remember { mutableStateOf<GithubDiscussion?>(null) }
-    // 列表页在 AnimatedContent 里，进帖子会被销毁；滚动位置放在这层，返回时还在原处
-    val listState = rememberLazyListState()
+    // 各页在 AnimatedContent 里，换页时会被销毁：页内 rememberSaveable 的状态（滚动位置、大标题折叠）按页存在这里，回来原样恢复
+    val saved = rememberSaveableStateHolder()
     var accountDialog by remember { mutableStateOf(false) }
     val uriHandler = LocalUriHandler.current
     // 发帖成功直接进新帖
@@ -113,6 +117,8 @@ private fun CommunityForum(
             .onFailure { showBriefMessage("帖子加载失败，已打开社区列表") }
     }
     val closeDetail: () -> Unit = {
+        // 关掉的帖子不留状态，下次打开从头看
+        open?.let { saved.removeState(pageKey(ForumPage.Detail(it))) }
         if (discussionNumber != null) onBack() else open = null
         Unit
     }
@@ -124,11 +130,11 @@ private fun CommunityForum(
     }
     AnimatedContent(
         targetState = page,
-        // 同一篇帖子的内容更新（点赞数之类）不算换页，不要重播转场
-        contentKey = { if (it is ForumPage.Detail) "detail:${it.discussion.id}" else it.toString() },
+        contentKey = ::pageKey,
         transitionSpec = { communitySlide(forward = targetState.depth >= initialState.depth) },
         label = "communityPage",
     ) { shown ->
+        saved.SaveableStateProvider(pageKey(shown)) {
         when (shown) {
             is ForumPage.Detail -> {
                 BackHandler(onBack = closeDetail)
@@ -188,8 +194,8 @@ private fun CommunityForum(
                 onAuthor = vm::selectAuthor,
                 me = signedIn,
                 onAccount = { accountDialog = true },
-                listState = listState,
             )
+        }
         }
     }
 

@@ -419,9 +419,10 @@ private fun GroupHeader(
     val titleColor = CourseColors.parseHex(group.colorHex)
         ?.let { if (dark) lerp(it, Color.White, 0.25f) else it }
         ?: ink
-    // 编辑态下点组名打开「分组设置」抽屉
+    // 编辑态下点组名打开「分组设置」抽屉。手势协程跨重组存活，调最新的回调
+    val latestEditGroup by rememberUpdatedState(onEditGroup)
     val titleTap = if (editing) {
-        Modifier.pointerInput(group.id) { detectTapGestures(onTap = { onEditGroup() }) }
+        Modifier.pointerInput(group.id) { detectTapGestures(onTap = { latestEditGroup() }) }
     } else {
         Modifier
     }
@@ -505,11 +506,13 @@ private fun GroupRoundButton(
             .clip(CircleShape)
             .background(MiuixTheme.colorScheme.onSurface.copy(alpha = 0.07f))
     }
+    // 键只有文案：同一位置换成别的组时手势不重启，必须调最新的回调，否则删的是原来那一组
+    val latestClick by rememberUpdatedState(onClick)
     Box(
         Modifier
             .size(ROUND_BUTTON_SIZE)
             .then(material)
-            .pointerInput(label) { detectTapGestures(onTap = { onClick() }) },
+            .pointerInput(label) { detectTapGestures(onTap = { latestClick() }) },
         contentAlignment = Alignment.Center,
     ) {
         Icon(icon, contentDescription = label, tint = tint, modifier = Modifier.size(16.dp))
@@ -885,10 +888,11 @@ private fun HomeTileItem(
             enter = BadgeEnter,
             exit = BadgeExit,
         ) {
+            val latestRemove by rememberUpdatedState(removeTile)
             Box(
                 Modifier
                     .size(REMOVE_TOUCH)
-                    .pointerInput(tile.id) { detectTapGestures(onTap = { removeTile(tile.id) }) },
+                    .pointerInput(tile.id) { detectTapGestures(onTap = { latestRemove(tile.id) }) },
                 contentAlignment = Alignment.TopStart,
             ) {
                 Box(

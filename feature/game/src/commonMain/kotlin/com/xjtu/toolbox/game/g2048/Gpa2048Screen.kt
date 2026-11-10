@@ -379,6 +379,8 @@ private fun BoardView(
 ) {
     val density = LocalDensity.current
     val thresholdPx = with(density) { DRAG_THRESHOLD_DP.toPx() }
+    // 手势协程只启动一次：滑动要交给最新的那份处理（局面在它的闭包里）
+    val latestSwipe by androidx.compose.runtime.rememberUpdatedState(onSwipe)
     val dark = LocalIsDarkTheme.current
     val boardColor = if (dark) Color(0xFF1C2330) else Color(0xFFE6ECF5)
     val emptyColor = if (dark) Color(0xFF263041) else Color(0xFFF4F7FC)
@@ -407,7 +409,7 @@ private fun BoardView(
                             dragX += amount.x
                             dragY += amount.y
                             if (!fired) {
-                                resolveSwipeDirection(dragX, dragY, thresholdPx)?.let { fired = true; onSwipe(it) }
+                                resolveSwipeDirection(dragX, dragY, thresholdPx)?.let { fired = true; latestSwipe(it) }
                             }
                         },
                     )

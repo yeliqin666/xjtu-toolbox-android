@@ -383,12 +383,14 @@ fun ScheduleScreen(
         }
     }
 
-    // 顶栏按钮是一段 lambda 交给外层 Scaffold 拿着的，闭包里 currentContent / vm.api 这类
-    // 普通 val 是发布那一刻的值：只发布一次的话，切到考试页加号还在、登录晚到 vm.api 仍是 null。
-    // 这两个变了就重发一份，别用 SideEffect 每帧发——外层重组会再重组这里，转起来没头。
-    DisposableEffect(currentContent, vm.activeSource) {
-        onActionsChange(headerActionsContent)
-        onBottomContentChange(headerBottomContent)
+    // 顶栏按钮、标签行交给外层顶栏去画。交出去的是固定的转发，转发时读本页最新那一版：
+    // 直接交出闭包的话，外层拿着的是交出那一刻的值（currentContent、vm.api 之类都是旧的）。
+    // 最新版变了只让外层读它的那块重画，不回头重组本页
+    val latestActions by rememberUpdatedState(headerActionsContent)
+    val latestBottom by rememberUpdatedState(headerBottomContent)
+    DisposableEffect(Unit) {
+        onActionsChange { latestActions(this) }
+        onBottomContentChange { latestBottom() }
         onDispose {
             onActionsChange(null)
             onBottomContentChange(null)
