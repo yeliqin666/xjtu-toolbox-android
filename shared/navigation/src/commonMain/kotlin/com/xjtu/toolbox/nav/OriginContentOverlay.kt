@@ -128,22 +128,44 @@ fun ButtonMorphCover(
             drawRect(fill)
         },
     ) {
-        // 图标按原尺寸画：外层把整页缩到窗口大小，这里反向缩回去，并放在窗口（页面左上那一块）正中
-        Box(
-            Modifier.size(iconWidth, iconHeight).graphicsLayer {
-                val size = full()
-                if (size.width <= 0f) return@graphicsLayer
-                val window = ButtonZoom.window(from, size, progress())
-                val s = maxOf(window.width / size.width, window.height / size.height).coerceIn(0.01f, 1f)
-                transformOrigin = TransformOrigin(0.5f, 0.5f)
-                scaleX = 1f / s
-                scaleY = 1f / s
-                translationX = window.width / (2f * s) - from.width / 2f
-                translationY = window.height / (2f * s) - from.height / 2f
-            },
-            contentAlignment = androidx.compose.ui.Alignment.Center,
-        ) { icon() }
+        // 两层同一份按钮画面，按「离按钮多远」整块交接（和底色同一条进度）：
+        // 贴近按钮时按钮铺满窗口，窗口里只有它，没有一圈露出的面板底色；
+        // 离开按钮后是面板上原尺寸的按钮，当作面板上的图标
+        ButtonLayer(iconWidth, iconHeight, from, full, progress, fillWindow = true, icon)
+        ButtonLayer(iconWidth, iconHeight, from, full, progress, fillWindow = false, icon)
     }
+}
+
+/** 按钮画面放在窗口（页面左上那一块）正中：外层把整页缩到窗口大小，这里反向缩回去。 */
+@Composable
+private fun ButtonLayer(
+    width: androidx.compose.ui.unit.Dp,
+    height: androidx.compose.ui.unit.Dp,
+    from: Rect,
+    full: () -> Size,
+    progress: () -> Float,
+    fillWindow: Boolean,
+    icon: @Composable () -> Unit,
+) {
+    Box(
+        Modifier.size(width, height).graphicsLayer {
+            val size = full()
+            if (size.width <= 0f) return@graphicsLayer
+            val u = progress()
+            val window = ButtonZoom.window(from, size, u)
+            val s = maxOf(window.width / size.width, window.height / size.height).coerceIn(0.01f, 1f)
+            // 铺满：按窗口长边放大，四周不留缝（多出的部分由外层的窗口形状裁掉）
+            val grow = if (fillWindow) maxOf(window.width / from.width, window.height / from.height, 1f) else 1f
+            val k = nearButton(u)
+            alpha = if (fillWindow) 1f - k else k
+            transformOrigin = TransformOrigin(0.5f, 0.5f)
+            scaleX = grow / s
+            scaleY = grow / s
+            translationX = window.width / (2f * s) - from.width / 2f
+            translationY = window.height / (2f * s) - from.height / 2f
+        },
+        contentAlignment = androidx.compose.ui.Alignment.Center,
+    ) { icon() }
 }
 
 /** 面板已经铺成不透明底色的程度：底色在 0–12% 铺满，之后才开始有投影。 */
