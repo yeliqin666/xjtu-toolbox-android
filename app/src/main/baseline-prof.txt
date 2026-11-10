@@ -31,3 +31,7 @@ HSPLcom/xjtu/toolbox/update/UpdateDialogsKt*;->**(**)**
 HSPLcom/xjtu/toolbox/update/ComposableSingletons$UpdateDialogsKt*;->**(**)**
 HSPLcom/xjtu/toolbox/profile/ProfileTabKt*;->**(**)**
 HSPLcom/xjtu/toolbox/profile/ComposableSingletons$ProfileTabKt*;->**(**)**
+# COUI 底栏与材质：托管模拟器是全新安装，采集只会走到用户协议/登录页，
+# 主界面（玻璃底栏、拖动形变、浮层材质）根本没被绘制，自动采集永远采不到这段。
+# 按上面同样的办法把整个 coui 包整类标成热点，让首帧真正跑的代码也在安装时 AOT。
+HSPLcom/xjtu/toolbox/ui/glass/coui/Coui*;->**(**)**

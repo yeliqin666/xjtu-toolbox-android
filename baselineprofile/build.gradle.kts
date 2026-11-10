@@ -34,6 +34,9 @@ android {
             device = "Pixel 6"
             apiLevel = 34
             systemImageSource = "aosp"
+            // aosp 镜像不支持 NDK 转译；AGP 9 默认 x86_64，AGP 10 起会改成 arm64-v8a，
+            // 到时测试会跑不起来。显式钉住当前行为。
+            testedAbi = "x86_64"
         }
     }
 }
