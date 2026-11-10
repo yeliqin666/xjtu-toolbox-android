@@ -33,6 +33,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.unit.sp
 import com.xjtu.toolbox.nav.expandOriginSource
+import androidx.compose.foundation.clickable
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
@@ -396,19 +399,33 @@ fun CampusCardScreen(
 private fun CouponTopAction(badge: Int, onOpen: () -> Unit) {
     val source = com.xjtu.toolbox.nav.rememberExpandOriginSource()
     val density = androidx.compose.ui.platform.LocalDensity.current
-    Box {
-        IconButton(
-            onClick = {
-                source.arm(AppRoute.Coupon.id, cornerRadius = 20.dp, density = density)
-                onOpen()
-            },
-            modifier = Modifier.expandOriginSource(source),
+    val tint = MiuixTheme.colorScheme.onSurface
+    val dark = com.xjtu.toolbox.ui.theme.LocalIsDarkTheme.current
+    // 和首页右上角圆钮同款半透明圆底：页面返回时缩成的那颗圆正好落在它上面，不会凭空剩一个圆盘淡出
+    val fill = MiuixTheme.colorScheme.surfaceContainerHigh.copy(alpha = if (dark) 0.52f else 0.6f)
+    // 转场起点画成「按钮面板 + 原大图标」（同首页铃铛）：打开时面板先长大、返回时缩回带图标的按钮
+    val glyph: @Composable (Modifier) -> Unit = { m ->
+        Box(m, contentAlignment = Alignment.Center) {
+            Icon(Icons.Default.Restaurant, contentDescription = null, tint = tint, modifier = Modifier.size(20.dp))
+        }
+    }
+    Box(Modifier.padding(end = 4.dp)) {
+        Box(
+            Modifier
+                .size(40.dp)
+                .expandOriginSource(source)
+                .clip(androidx.compose.foundation.shape.CircleShape)
+                .background(fill)
+                .clickable {
+                    source.arm(AppRoute.Coupon.id, cornerRadius = 20.dp, density = density, snapshot = glyph)
+                    onOpen()
+                }
+                .semantics(mergeDescendants = true) {
+                    contentDescription = if (badge > 0) "加餐券，$badge 张待领或待用" else "加餐券"
+                },
+            contentAlignment = Alignment.Center,
         ) {
-            Icon(
-                Icons.Default.Restaurant,
-                contentDescription = if (badge > 0) "加餐券，$badge 张待领或待用" else "加餐券",
-                tint = MiuixTheme.colorScheme.onSurface,
-            )
+            glyph(Modifier)
         }
         if (badge > 0) {
             Text(
