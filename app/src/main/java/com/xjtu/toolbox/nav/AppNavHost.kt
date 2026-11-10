@@ -371,7 +371,7 @@ fun NavEntryBuilder.appPageEntries(
                     couponStat = {
                         withContext(Dispatchers.IO) {
                             HomeStats.pushed(cardContext, AppRoute.Coupon)?.let { stat ->
-                                CouponEntryStat(stat.value, stat.detail)
+                                CouponEntryStat(stat.value, stat.detail, stat.count ?: 0)
                             }
                         }
                     },
@@ -385,7 +385,11 @@ fun NavEntryBuilder.appPageEntries(
                 CouponScreen(
                     source = remember(site) { AppCouponSource(site) },
                     onBack = back,
-                    onSummary = { value, detail -> HomeStats.push(couponContext, AppRoute.Coupon, value, detail) },
+                    onSummary = { value, detail, count ->
+                        // 只查了一类时张数不全，沿用上次算全的那个数（后台刷新会再算准）
+                        val badge = count ?: HomeStats.pushed(couponContext, AppRoute.Coupon)?.count
+                        HomeStats.push(couponContext, AppRoute.Coupon, value, detail, count = badge)
+                    },
                 )
             }
         }

@@ -30,6 +30,9 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.unit.sp
+import com.xjtu.toolbox.nav.expandOriginSource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
@@ -105,8 +108,8 @@ private fun formatRangeChip(start: LocalDate, end: LocalDate): String {
     }
 }
 
-/** 「加餐券」那条二级入口要的两行状态（值 + 说明）。 */
-data class CouponEntryStat(val value: String = "", val detail: String? = null)
+/** 加餐券入口的状态：值 + 说明 + 待领与待用的总张数（右上角按钮的数字气泡）。 */
+data class CouponEntryStat(val value: String = "", val detail: String? = null, val badge: Int = 0)
 
 /** 校园卡：概览 / 流水 / 分析三栏（宽屏左概览右「流水 / 分析」）。 */
 @Composable
@@ -183,6 +186,12 @@ fun CampusCardScreen(
                     BackButton(onBack)
                 },
                 actions = {
+                    // 加餐券：右上角一颗按钮，点开从按钮长成页面（同首页右上角圆钮），气泡是待领 + 待用张数。
+                    // 宿主没给状态（Web）⇒ 不画
+                    if (couponStat != null) {
+                        val stat by produceState<CouponEntryStat?>(null) { value = couponStat.invoke() }
+                        CouponTopAction(badge = stat?.badge ?: 0, onOpen = onOpenCoupon)
+                    }
                     // 时间范围收进顶栏菜单：它同时作用于概览、流水、分析三栏，是整页的设置，
                     // 不该在标签行下面单独占一排胶囊。当前范围由各栏里的小字标出（rangeLabel）。
                     Box {
@@ -318,8 +327,8 @@ fun CampusCardScreen(
                                     // 右栏就是完整的流水，左栏不再重复「最近交易」
                                     OverviewTab(
                                         cardInfo, stats.monthly, emptyList(), todaySummary, stats.dailyRate,
-                                        stats.activeDays, rangeDates.first, rangeDates.second, topInset, onOpenCoupon,
-                                        couponStat, allTransactions = vm.transactions,
+                                        stats.activeDays, rangeDates.first, rangeDates.second, topInset,
+                                        allTransactions = vm.transactions,
                                     )
                                 }
                                 Box(Modifier.weight(0.58f).fillMaxHeight()) {
@@ -355,8 +364,8 @@ fun CampusCardScreen(
                             when (tab) {
                                 0 -> OverviewTab(
                                     cardInfo, stats.monthly, transactions.take(5), todaySummary, stats.dailyRate,
-                                    stats.activeDays, rangeDates.first, rangeDates.second, topContentPadding, onOpenCoupon,
-                                    couponStat, allTransactions = vm.transactions,
+                                    stats.activeDays, rangeDates.first, rangeDates.second, topContentPadding,
+                                    allTransactions = vm.transactions,
                                 )
                                 1 -> TransactionTab(
                                     transactions, transactions.size, vm.isLoadingMore, searchQuery,
@@ -379,6 +388,49 @@ fun CampusCardScreen(
     }
 }
 
+/**
+ * 顶栏右上角的加餐券按钮：点开从这颗按钮长成加餐券页（[com.xjtu.toolbox.nav.ExpandOrigins]，同首页右上角圆钮），
+ * 右上角气泡是待领 + 待用的张数，转场时跟按钮一起藏起来。
+ */
+@Composable
+private fun CouponTopAction(badge: Int, onOpen: () -> Unit) {
+    val source = com.xjtu.toolbox.nav.rememberExpandOriginSource()
+    val density = androidx.compose.ui.platform.LocalDensity.current
+    Box {
+        IconButton(
+            onClick = {
+                source.arm(AppRoute.Coupon.id, cornerRadius = 20.dp, density = density)
+                onOpen()
+            },
+            modifier = Modifier.expandOriginSource(source),
+        ) {
+            Icon(
+                Icons.Default.Restaurant,
+                contentDescription = if (badge > 0) "加餐券，$badge 张待领或待用" else "加餐券",
+                tint = MiuixTheme.colorScheme.onSurface,
+            )
+        }
+        if (badge > 0) {
+            Text(
+                if (badge > 99) "99+" else "$badge",
+                fontSize = 10.sp,
+                lineHeight = 12.sp,
+                fontWeight = FontWeight.Bold,
+                color = androidx.compose.ui.graphics.Color.White,
+                textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .offset(x = (-2).dp, y = 4.dp)
+                    .graphicsLayer { alpha = if (com.xjtu.toolbox.nav.ExpandOrigins.isHidden(source)) 0f else 1f }
+                    .defaultMinSize(minWidth = 16.dp, minHeight = 16.dp)
+                    .clip(RoundedCornerShape(50))
+                    .background(MiuixTheme.colorScheme.error)
+                    .padding(horizontal = 4.dp, vertical = 2.dp),
+            )
+        }
+    }
+}
+
 // ==================== 概览 Tab ====================
 
 @Composable
@@ -393,9 +445,6 @@ private fun OverviewTab(
     rangeEnd: LocalDate,
     // 顶栏 + 标签行 + 时间选择器的高度，给列表让出来（plan2 §16.2）。
     topContentPadding: Dp = 0.dp,
-    onOpenCoupon: () -> Unit = {},
-    /** 见 [CampusCardScreen] 的 [couponStat]：加餐券入口的状态，null = 本端没有这份摘要，不画。 */
-    couponStat: (suspend () -> CouponEntryStat?)? = null,
     /** 全部已加载流水，「今天吃啥」按它算就餐习惯。 */
     allTransactions: List<Transaction> = emptyList(),
 ) {
@@ -415,23 +464,6 @@ private fun OverviewTab(
         // 卡状态正常时不占一整张卡，异常（挂失 / 冻结）才单独拎出来
         cardInfo?.takeIf { it.lostFlag || it.frozenFlag }?.let { info ->
             item { Box(Modifier.enterOnce(1)) { CardStatusPanel(info) } }
-        }
-        // 紧跟余额卡：放到最近交易后面就被长列表埋掉了
-        // 加餐券入口：状态（待领 / 可用张数、最近到期）由宿主从首页摘要里读，见 [couponStat]。
-        // 宿主没给（Web）⇒ 整条不画 —— 不画一条点进去落到占位页的入口。
-        if (couponStat != null) {
-            item {
-                Box(Modifier.enterOnce(1)) {
-                    val stat by produceState<CouponEntryStat?>(null) { value = couponStat.invoke() }
-                    com.xjtu.toolbox.ui.components.SecondaryEntry(
-                        Icons.Default.Restaurant, com.xjtu.toolbox.ui.theme.serviceColor(AppRoute.Coupon.id),
-                        "加餐券", stat?.detail ?: "领取和使用食堂加餐券",
-                        status = stat?.value,
-                        highlight = stat?.value?.contains("待领") == true || stat?.detail?.contains("到期") == true,
-                        onClick = onOpenCoupon,
-                    )
-                }
-            }
         }
         item { Box(Modifier.enterOnce(1)) { TodayMealsCard(today) } }
         if (allTransactions.isNotEmpty() && com.xjtu.toolbox.agent.AgentInsightHub.insights.available) {

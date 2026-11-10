@@ -187,7 +187,9 @@ fun AppSegmentedTabs(
                                 else -> downIndex
                             }
                             scope.launch { position.animateTo(target.toFloat(), slide) }
-                            if (released && target != latestSelected) latestOnSelected(target)
+                            // 点击一律回调（含点已选中的那一格：日程「第 N 周」再点一次是弹选周）；
+                            // 拖动只在落到别的格时回调
+                            if (released && (!dragging || target != latestSelected)) latestOnSelected(target)
                         }
                     },
             ) {

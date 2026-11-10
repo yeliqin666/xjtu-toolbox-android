@@ -44,6 +44,22 @@ internal class EmptyRoomViewModel(
     var sourceKind by mutableStateOf(initialSource()); private set
     val isLive get() = sourceKind == RoomSource.LIVE
 
+    /**
+     * 「此刻综合」：建立在实况这一档上，再把当天课表（CDN，拿不到改直查教务）对上去，
+     * 屏上分成「此刻可用」和「接下来空闲」两段。只在实况可用的端出现。
+     */
+    var combined by mutableStateOf(RoomSource.LIVE in availableSources && prefs.getString(KEY_COMBINED) == "1"); private set
+    /** 综合模式下课表的来路（改走直查、或拿不到）；null = CDN 正常。 */
+    var scheduleNote by mutableStateOf<String?>(null); private set
+
+    fun selectCombined() {
+        if (RoomSource.LIVE !in availableSources) return
+        if (sourceKind != RoomSource.LIVE) selectSource(RoomSource.LIVE)
+        combined = true
+        prefs.putString(KEY_COMBINED, "1")
+        query()
+    }
+
     // 校区按名字记：实时状态只有三个校区，两套列表的下标对不上
     private var campusName by mutableStateOf(prefs.getString(KEY_CAMPUS) ?: CAMPUS_BUILDINGS.keys.first())
     val campusNames get() = if (isLive) LIVE_CAMPUSES.keys.toList() else CAMPUS_BUILDINGS.keys.toList()
@@ -101,7 +117,14 @@ internal class EmptyRoomViewModel(
 
     fun selectSource(value: RoomSource) {
         val next = if (value == RoomSource.DIRECT && accountType == AccountType.POSTGRADUATE) RoomSource.CDN else value
-        if (next !in availableSources || next == sourceKind) return
+        if (next !in availableSources) return
+        // 从综合切回单纯的实况：数据就是这份，只是换个看法
+        if (combined) {
+            combined = false
+            prefs.putString(KEY_COMBINED, "0")
+            scheduleNote = null
+        }
+        if (next == sourceKind) return
         if (next != RoomSource.LIVE) {
             periodSourceKind = next
             prefs.putString("empty_room_period_source", next.key)
@@ -174,13 +197,38 @@ internal class EmptyRoomViewModel(
             if (!latest()) return
             liveSnapshot = snapshot
             staleNote = null
-            // 当天课表只做点缀：拿不到照样显示实时状态
+            // 当天课表：单纯实况下只做点缀，拿不到照样显示实时状态
             val today = todayOnCampus().toString()
-            val schedule = runCatching {
+            var schedule = runCatching {
                 source.rooms(campus, snapshot.buildings.toSet(), today, direct = false, force = false) { _, _ -> }
                     .associateBy { it.name }
             }.getOrDefault(emptyMap())
-            if (latest()) liveSchedule = schedule
+            var note: String? = null
+            // 综合模式要靠课表算「接下来空闲」：CDN 拿不到就改直查教务。直查按楼逐个查、很慢，
+            // 只查用户圈定的楼（实况里选的，没选就用按节查询时记住的那几栋）
+            if (combined && schedule.isEmpty()) {
+                val targets = liveEffective.ifEmpty { selectedBuildings }.filter { it in snapshot.buildings }
+                if (RoomSource.DIRECT in availableSources && targets.isNotEmpty()) {
+                    val rows = mutableListOf<RoomInfo>()
+                    for (b in targets) {
+                        if (!latest()) return
+                        try {
+                            rows += source.rooms(campus, setOf(b), today, direct = true, force = false) { _, _ -> }
+                        } catch (e: CancellationException) {
+                            throw e
+                        } catch (_: Exception) {
+                            // 这一栋直查不到就跳过，其余照常
+                        }
+                    }
+                    schedule = rows.associateBy { it.name }
+                    note = if (rows.isNotEmpty()) "CDN 课表不可用，已改直查教务（${targets.joinToString("、")}）" else null
+                }
+                if (schedule.isEmpty()) note = "当天课表暂时拿不到，只按此刻实况列出"
+            }
+            if (latest()) {
+                liveSchedule = schedule
+                scheduleNote = note
+            }
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
@@ -318,5 +366,6 @@ internal class EmptyRoomViewModel(
 
     private companion object {
         const val KEY_CAMPUS = "empty_room_last_campus"
+        const val KEY_COMBINED = "empty_room_combined"
     }
 }

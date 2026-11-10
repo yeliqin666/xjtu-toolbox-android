@@ -631,13 +631,14 @@ object HomeStatsRefresher {
         }
 
         val usableCount = usable?.records?.size ?: 0
-        if (pending == 0 && usableCount == 0) return HomeStat("暂无", "没有可领或可用的券")
+        if (pending == 0 && usableCount == 0) return HomeStat("暂无", "没有可领或可用的券", count = 0)
         return HomeStat(
             if (pending > 0) "$pending 张待领" else "$usableCount 张可用",
             listOfNotNull(
                 if (pending > 0 && usableCount > 0) "另有 $usableCount 张可用" else null,
                 daysLeft?.let { if (it == 0) "今天到期" else "最近 $it 天后到期" },
             ).joinToString(" · ").ifBlank { null },
+            count = pending + usableCount,
         )
     }
 

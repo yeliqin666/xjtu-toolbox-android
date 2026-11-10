@@ -27,6 +27,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.graphics.FilterQuality
+import androidx.compose.ui.graphics.drawscope.withTransform
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.RoundRect
@@ -142,6 +144,9 @@ fun AppDropdownMenu(
             }
         },
     )
+    // 菜单自己的毛玻璃底：打开那一刻截一张被盖住的窗口（已缩小、模糊），铺在面板下面。
+    // 要在弹层外面截（这里的 LocalView 是应用窗口），截不到的端面板保持不透明
+    val frost = com.xjtu.toolbox.platform.rememberWindowSnapshot(capture = shown)
     if (!shown) return
 
     val alignEnd = alignment == Alignment.TopEnd || alignment == Alignment.BottomEnd
@@ -154,8 +159,6 @@ fun AppDropdownMenu(
     ) {
         // 弹层自己在屏幕上的原点：锚点减掉它，就是锚点在弹层坐标里的位置
         var popupOrigin by remember { mutableStateOf<Offset?>(null) }
-        // 后面的页面轻轻糊一点、面板留一点透：克制的毛玻璃。糊不上的端面板保持不透明
-        val frosted = com.xjtu.toolbox.platform.rememberPopupBlurBehind(MENU_BACKDROP_BLUR, active = expanded)
         Box(
             Modifier
                 .fillMaxSize()
@@ -174,7 +177,9 @@ fun AppDropdownMenu(
                     local.left.roundToInt(), local.top.roundToInt(),
                     local.right.roundToInt(), local.bottom.roundToInt(),
                 )
-                MorphMenu(bounds, { progress.value }, !expanded, alignEnd, morph, modifier, trigger, sub, frosted, content)
+                // 快照左上角在弹层坐标里的位置
+                val frostAt = frost?.let { it.originOnScreen - origin }
+                MorphMenu(bounds, { progress.value }, !expanded, alignEnd, morph, modifier, trigger, sub, frost, frostAt ?: Offset.Zero, content)
             }
         }
     }
@@ -232,11 +237,15 @@ private fun MorphMenu(
     modifier: Modifier,
     trigger: (@Composable () -> Unit)?,
     sub: MenuSub,
-    frosted: Boolean,
+    /** 被盖住窗口的模糊快照（null = 这一端截不到，面板不透明）；[frostAt] 是它左上角在弹层里的位置。 */
+    frost: com.xjtu.toolbox.platform.WindowSnapshot?,
+    frostAt: Offset,
     content: @Composable ColumnScope.() -> Unit,
 ) {
     val density = LocalDensity.current
-    val surface = MiuixTheme.colorScheme.surfaceContainer.let { if (frosted) it.copy(alpha = MENU_FROSTED_ALPHA) else it }
+    val surface = MiuixTheme.colorScheme.surfaceContainer.let { if (frost != null) it.copy(alpha = MENU_FROSTED_ALPHA) else it }
+    // 面板图层此刻的缩放与位移（图层块里写、绘制时读），用来把快照反变换回屏幕上的原位
+    val layerXf = remember { FloatArray(3) }
     val hairline = MiuixTheme.colorScheme.onSurface.copy(alpha = 0.07f)
     val ltr =LocalLayoutDirection.current == LayoutDirection.Ltr
     val safeTop = WindowInsets.statusBars.getTop(density)
@@ -307,6 +316,9 @@ private fun MorphMenu(
                         scaleY = s * recede
                         translationX = if (end) r.right - t.right else r.left - t.left
                         translationY = r.top - t.top
+                        layerXf[0] = s * recede
+                        layerXf[1] = translationX
+                        layerXf[2] = translationY
                         val fromIcon = morph == MenuMorph.FromIcon
                         val startRadius = if (fromIcon) startRect(t).minDimension / 2f else endRadius
                         val radius = lerp(startRadius, endRadius, if (fromIcon) iconHeight(p) else p)
@@ -328,6 +340,26 @@ private fun MorphMenu(
                         val blur = if (closing && morph != MenuMorph.FromIcon) closeBlur * (1f - a) else 0f
                         renderEffect = if (blur > 0.5f) BlurEffect(blur, blur, TileMode.Decal) else null
                     }
+                    // 毛玻璃底：把快照反变换回它在屏幕上的原位再画，面板缩放、移动时透出来的仍是正下方那块
+                    .then(
+                        if (frost == null) Modifier else Modifier.drawBehind {
+                            val sc = layerXf[0].takeIf { it > 0.01f } ?: return@drawBehind
+                            val m = target.value
+                            val pivotX = if (end) size.width else 0f
+                            withTransform({
+                                translate(pivotX, 0f)
+                                scale(1f / sc, 1f / sc, pivot = Offset.Zero)
+                                translate(-(m.left + pivotX + layerXf[1]), -(m.top + layerXf[2]))
+                            }) {
+                                drawImage(
+                                    frost.image,
+                                    dstOffset = IntOffset(frostAt.x.roundToInt(), frostAt.y.roundToInt()),
+                                    dstSize = frost.fullSize,
+                                    filterQuality = FilterQuality.Low,
+                                )
+                            }
+                        },
+                    )
                     .background(surface)
                     // 一圈极细的描边：面板和页面同色时也分得出层次
                     .border(0.5.dp, hairline, RoundedCornerShape(MENU_RADIUS))
@@ -637,11 +669,8 @@ private val SUB_DROP = 8.dp
 
 private val MENU_RADIUS = 18.dp
 
-/** 菜单开着时后面页面的模糊半径：只糊开一点，看得出层次、认不清字就够。 */
-private val MENU_BACKDROP_BLUR = 4.dp
-
-/** 后面糊上时面板的不透明度：留一点透，不至于看着像玻璃板。 */
-private const val MENU_FROSTED_ALPHA = 0.88f
+/** 铺了毛玻璃底时面板的不透明度：透出一点下面糊开的颜色，字仍清楚。 */
+private const val MENU_FROSTED_ALPHA = 0.8f
 private const val MENU_OPEN_MS = 440
 private const val MENU_CLOSE_MS = 340
 private const val ICON_OPEN_MS = 660

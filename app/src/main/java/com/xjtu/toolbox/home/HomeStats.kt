@@ -44,12 +44,14 @@ object HomeStats {
         accountId: String? = com.xjtu.toolbox.account.AccountContext.activeAccountId,
         /** 小组件里列的明细。 */
         lines: List<HomeLine> = emptyList(),
+        /** 待处理件数（入口按钮的数字气泡），见 [HomeStat.count]。 */
+        count: Int? = null,
     ) {
         runCatching {
             val cache = DataCache(context, accountId)
             val k = PUSHED_PREFIX + route.id
             if (value.isNullOrBlank()) cache.invalidate(k)
-            else cache.write(k, HomeStat(value, detail, lines))
+            else cache.write(k, HomeStat(value, detail, lines, count))
         }
     }
 

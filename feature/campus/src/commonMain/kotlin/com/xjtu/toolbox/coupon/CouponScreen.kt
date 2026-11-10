@@ -70,7 +70,7 @@ fun CouponScreen(
     source: CouponSource,
     onBack: () -> Unit,
     /** 首页摘要回写（见 [CouponViewModel.onSummary]）：Android = `HomeStats.push(…, AppRoute.Coupon, …)` ；桌面/Web 没有那份首页摘要⇒ 默认空实现。 */
-    onSummary: (summary: String, detail: String?) -> Unit = { _, _ -> },
+    onSummary: (summary: String, detail: String?, count: Int?) -> Unit = { _, _, _ -> },
 ) {
     val authExpiry = LocalAuthExpiry.current
     val vm: CouponViewModel = viewModel(key = "coupon") { CouponViewModel(source, onSummary) }

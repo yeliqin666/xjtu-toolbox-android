@@ -2,9 +2,17 @@ package com.xjtu.toolbox.home
 
 import kotlinx.serialization.Serializable
 
-/** 一条首页状态：[value] 是大字主数据，[detail] 是补充说明，[lines] 是大尺寸小组件里列出的明细（最近几笔、今天的课……）。 */
+/**
+ * 一条首页状态：[value] 是大字主数据，[detail] 是补充说明，[lines] 是大尺寸小组件里列出的明细（最近几笔、今天的课……）。
+ * [count] 是要处理的件数（加餐券的待领 + 待用），给入口按钮的数字气泡用；没有这个概念的功能为 null。
+ */
 @Serializable
-data class HomeStat(val value: String = "", val detail: String? = null, val lines: List<HomeLine> = emptyList())
+data class HomeStat(
+    val value: String = "",
+    val detail: String? = null,
+    val lines: List<HomeLine> = emptyList(),
+    val count: Int? = null,
+)
 
 /** 小组件里的一条明细；[link] 非空时点这一行直接打开它（如某条通知的原文）。 */
 @Serializable

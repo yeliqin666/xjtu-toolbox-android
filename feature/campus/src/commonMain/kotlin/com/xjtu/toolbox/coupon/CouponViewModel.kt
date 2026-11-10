@@ -17,8 +17,11 @@ import kotlinx.coroutines.launch
 /** 加餐券：按分类分页，领取；换分类时取消上一个分类还没回来的请求。 */
 internal class CouponViewModel(
     private val source: CouponSource,
-    /** 首页摘要回写（值 + 说明）：Android = `HomeStats.push(appContext, AppRoute.Coupon, …)` ；桌面/Web 没有那份首页摘要⇒ 默认空实现。 */
-    private val onSummary: (summary: String, detail: String?) -> Unit = { _, _ -> },
+    /**
+     * 首页摘要回写（值 + 说明 + 待处理张数）：Android = `HomeStats.push(appContext, AppRoute.Coupon, …)`；
+     * 桌面/Web 没有那份首页摘要⇒ 默认空实现。张数只在「待领」「待用」两类都查过时才给，否则 null。
+     */
+    private val onSummary: (summary: String, detail: String?, count: Int?) -> Unit = { _, _, _ -> },
 ) : ViewModel() {
     private val authExpiredChannel = Channel<Unit>(Channel.CONFLATED)
     val authExpired = authExpiredChannel.receiveAsFlow()
@@ -104,7 +107,8 @@ internal class CouponViewModel(
             if (pendingCount > 0) add("$pendingCount 个待领取")
             if (usableCount > 0) add("$usableCount 个待使用")
         }
-        onSummary(parts.firstOrNull() ?: "暂无可用", parts.drop(1).firstOrNull())
+        val count = if (pendingCount >= 0 && usableCount >= 0) pendingCount + usableCount else null
+        onSummary(parts.firstOrNull() ?: "暂无可用", parts.drop(1).firstOrNull(), count)
     }
 
     fun receive(coupon: CouponRecord) {
