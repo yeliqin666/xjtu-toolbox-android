@@ -41,7 +41,7 @@ import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.CardDefaults
 import top.yukonga.miuix.kmp.basic.CircularProgressIndicator
 import top.yukonga.miuix.kmp.basic.Icon
-import top.yukonga.miuix.kmp.basic.ScrollBehavior
+import com.xjtu.toolbox.ui.glass.CouiTopBarScrollBehavior
 import top.yukonga.miuix.kmp.basic.Surface
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextButton
@@ -77,7 +77,7 @@ fun VenueOrdersContent(
     /** 本端能不能取消（[VenueSource.canCancel]）。false ⇒ 订单卡上没有「取消」。 */
     canCancel: Boolean = true,
     modifier: Modifier = Modifier,
-    scrollBehavior: ScrollBehavior? = null,
+    scrollBehavior: CouiTopBarScrollBehavior? = null,
     /** 玻璃顶栏（含标签行）的高度，放进列表顶部留白。 */
     topPadding: Dp = 0.dp,
 ) {

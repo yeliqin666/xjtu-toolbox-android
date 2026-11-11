@@ -1,6 +1,8 @@
 package com.xjtu.toolbox.library
 
 
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Row
 import com.xjtu.toolbox.ui.glass.tabContentPadding
 import com.xjtu.toolbox.ui.glass.tabContentBottomPadding
 import com.xjtu.toolbox.error.FriendlyError
@@ -17,8 +19,6 @@ import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.HorizontalDivider
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.Scaffold
-import top.yukonga.miuix.kmp.basic.MiuixScrollBehavior
-import top.yukonga.miuix.kmp.basic.rememberTopAppBarState
 import top.yukonga.miuix.kmp.basic.TextButton
 import top.yukonga.miuix.kmp.basic.CircularProgressIndicator
 import top.yukonga.miuix.kmp.basic.LinearProgressIndicator
@@ -80,6 +80,7 @@ import com.xjtu.toolbox.ui.glass.*
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 import com.xjtu.toolbox.nav.AppRoute
+import com.xjtu.toolbox.ui.glass.rememberCouiTopAppBarScrollBehavior
 import androidx.lifecycle.viewmodel.compose.viewModel
 
 /** 图书馆座位主页面：校区→ 楼层→ 区域→ 座位（列表 / 平面图），外加预约、换座与「我的预约」上的那几个动作。 */
@@ -214,7 +215,7 @@ fun LibraryScreen(
     val showAreaChips = areaCodes.size >= 2 && (!planMode || (!vm.floorPlanLoading && floorAreasOnPlan == null))
 
     // ══════ UI ══════
-    val scrollBehavior = MiuixScrollBehavior(rememberTopAppBarState())
+    val scrollBehavior = rememberCouiTopAppBarScrollBehavior()
     // 玻璃顶栏（经典风格下为 null，一切照旧），用法见 ui/glass/GlassTopBar.kt
     val glass = rememberPageGlass()
     Scaffold(
@@ -225,6 +226,10 @@ fun LibraryScreen(
                 scrollBehavior = scrollBehavior,
                 onBack = onBack,
                 actions = {
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
                     // 校区、平面图 / 列表都收进这个菜单：一次选定就很少再改，不值得各占一整行
                     if (vm.campusSwitching) CircularProgressIndicator(size = 16.dp, strokeWidth = 2.dp)
                     Box {
@@ -260,6 +265,7 @@ fun LibraryScreen(
                                     }
                             }
                         }
+                    }
                     }
                 },
             )

@@ -30,12 +30,14 @@ import com.xjtu.toolbox.ui.adaptive.AdaptiveCardGrid
 import com.xjtu.toolbox.ui.adaptive.fullLineItem
 import androidx.compose.foundation.lazy.staggeredgrid.items
 import com.xjtu.toolbox.ui.glass.*
+import com.xjtu.toolbox.ui.glass.CouiToolbarActionButton
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 import top.yukonga.miuix.kmp.basic.*
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.utils.PressFeedbackType
 import com.xjtu.toolbox.nav.AppRoute
+import com.xjtu.toolbox.ui.glass.rememberCouiTopAppBarScrollBehavior
 
 private const val TAG = "LmsScreen"
 
@@ -83,7 +85,7 @@ internal fun ActivityListPage(
     }
 
     val listState = rememberRetainedLazyStaggeredGridState("lms_activities_${course.id}")
-    val scrollBehavior = MiuixScrollBehavior(rememberTopAppBarState())
+    val scrollBehavior = rememberCouiTopAppBarScrollBehavior()
     // 玻璃顶栏（经典风格下为 null，一切照旧），用法见 ui/glass/GlassTopBar.kt
     val glass = rememberPageGlass()
 
@@ -174,21 +176,26 @@ internal fun ActivityListPage(
                     }
                 },
                 actions = {
-                    IconButton(onClick = { pickColor = true }) {
-                        Icon(Icons.Default.Palette, contentDescription = "课程颜色", tint = lmsAccent(course))
-                    }
-                    // 批量下载要能把文件落下来（`source.saveDownload` = 取字节 + 写下载位置）：
-                    // serve 形态两样都没有（契约 §5.6）⇒ 这一档整个不出现 —— 与「课堂回放」那一行
-                    // 按 `supportsVideoQueue` 收口同一条规矩（点了会失败的东西不摆出来）。
-                    if (activities.any { it.type in BATCH_TYPES } && source.supportsDownload && filter !is CourseContentFilter.Bulletin) {
-                        IconButton(onClick = {
-                            selecting = !selecting
-                            if (!selecting) picked.clear()
-                        }) {
-                            Icon(
-                                if (selecting) Icons.Default.Close else Icons.Default.Download,
-                                contentDescription = if (selecting) "退出批量下载" else "批量下载",
-                            )
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        CouiToolbarActionButton(onClick = { pickColor = true }) {
+                            Icon(Icons.Default.Palette, contentDescription = "课程颜色", tint = lmsAccent(course))
+                        }
+                        // 批量下载要能把文件落下来（`source.saveDownload` = 取字节 + 写下载位置）：
+                        // serve 形态两样都没有（契约 §5.6）⇒ 这一档整个不出现 —— 与「课堂回放」那一行
+                        // 按 `supportsVideoQueue` 收口同一条规矩（点了会失败的东西不摆出来）。
+                        if (activities.any { it.type in BATCH_TYPES } && source.supportsDownload && filter !is CourseContentFilter.Bulletin) {
+                            CouiToolbarActionButton(onClick = {
+                                selecting = !selecting
+                                if (!selecting) picked.clear()
+                            }) {
+                                Icon(
+                                    if (selecting) Icons.Default.Close else Icons.Default.Download,
+                                    contentDescription = if (selecting) "退出批量下载" else "批量下载",
+                                )
+                            }
                         }
                     }
                 },

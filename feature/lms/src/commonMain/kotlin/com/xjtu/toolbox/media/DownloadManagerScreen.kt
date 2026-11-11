@@ -56,15 +56,18 @@ import androidx.compose.ui.state.ToggleableState
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.xjtu.toolbox.ui.glass.CouiToolbarActionButton
 import com.xjtu.toolbox.ui.glass.tabContentPadding
 import com.xjtu.toolbox.platform.BackHandler
 import com.xjtu.toolbox.ui.adaptive.readableWidth
 import com.xjtu.toolbox.ui.components.EmptyState
 import com.xjtu.toolbox.ui.glass.GlassTopAppBar
+import com.xjtu.toolbox.ui.glass.CouiPageTopAppBar
+import com.xjtu.toolbox.ui.glass.couiPageBackdropFor
 import com.xjtu.toolbox.ui.glass.glassBarColor
+import com.xjtu.toolbox.ui.glass.rememberCouiTopAppBarScrollBehavior
 import com.xjtu.toolbox.ui.glass.glassSource
 import com.xjtu.toolbox.ui.glass.glassTop
-import com.xjtu.toolbox.ui.glass.glassTopBar
 import com.xjtu.toolbox.ui.glass.rememberPageGlass
 import com.xjtu.toolbox.ui.glass.withoutTop
 import kotlinx.coroutines.delay
@@ -77,13 +80,10 @@ import top.yukonga.miuix.kmp.basic.Checkbox
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.IconButton
 import top.yukonga.miuix.kmp.basic.LinearProgressIndicator
-import top.yukonga.miuix.kmp.basic.MiuixScrollBehavior
 import top.yukonga.miuix.kmp.basic.Scaffold
-import top.yukonga.miuix.kmp.basic.SmallTopAppBar
 import top.yukonga.miuix.kmp.basic.Surface
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextButton
-import top.yukonga.miuix.kmp.basic.rememberTopAppBarState
 import top.yukonga.miuix.kmp.overlay.OverlayDialog
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.utils.PressFeedbackType
@@ -121,9 +121,9 @@ fun DownloadManagerScreen(
 
     // 显示下载目录信息弹窗
     val showDirInfo = remember { mutableStateOf(false) }
-    val scrollBehavior = MiuixScrollBehavior(rememberTopAppBarState())
+    val scrollBehavior = rememberCouiTopAppBarScrollBehavior()
     // 玻璃顶栏（经典风格下为 null，一切照旧），用法见 ui/glass/GlassTopBar.kt。
-    // 批量管理模式下换成 SmallTopAppBar，同样要玻璃化。
+    // 批量管理模式下换成 COUI 钉死的小标题顶栏，同样要玻璃化。
     val glass = rememberPageGlass()
 
     // 加载任务列表（Room 的挂起查询自带线程，无需切 IO）。
@@ -159,18 +159,21 @@ fun DownloadManagerScreen(
     Scaffold(
         topBar = {
             if (isCleanupMode) {
-                SmallTopAppBar(
+                // 批量模式也走 COUI 原版小标题顶栏（钉死 52dp），整页只需要一种 COUI 滚动行为
+                CouiPageTopAppBar(
                     title = "批量管理",
+                    pinned = true,
                     color = glassBarColor(glass),
-                    modifier = Modifier.glassTopBar(glass),
+                    pageBackdrop = couiPageBackdropFor(glass),
+                    scrollBehavior = scrollBehavior,
                     navigationIcon = {
-                        IconButton(onClick = { isCleanupMode = false }) {
+                        CouiToolbarActionButton(onClick = { isCleanupMode = false }) {
                             Icon(Icons.Default.Close, contentDescription = "取消清理")
                         }
                     },
                     actions = {
                         // 全选覆盖两类数据源：回放任务（存储）+ 文件类下载（宿主登记表）
-                        IconButton(onClick = {
+                        CouiToolbarActionButton(onClick = {
                             val allSelected = selectedTaskIds.size == allTasks.size &&
                                 selectedFileUris.size == fileDownloads.size &&
                                 (allTasks.isNotEmpty() || fileDownloads.isNotEmpty())
@@ -192,15 +195,20 @@ fun DownloadManagerScreen(
                     scrollBehavior = scrollBehavior,
                     onBack = onBack,
                     actions = {
-                        // 信息按钮 - 显示下载目录
-                        IconButton(onClick = { showDirInfo.value = true }) {
-                            Icon(Icons.Default.Info, contentDescription = "下载目录信息")
-                        }
-                        // 有任何可管理的条目就显示入口。条件不能只看回放任务，
-                        // 否则只下载过文件的用户进不去批量模式。
-                        if (allTasks.isNotEmpty() || fileDownloads.isNotEmpty()) {
-                            IconButton(onClick = { isCleanupMode = true }) {
-                                Icon(Icons.Default.DeleteSweep, contentDescription = "批量管理")
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            // 信息按钮 - 显示下载目录
+                            CouiToolbarActionButton(onClick = { showDirInfo.value = true }) {
+                                Icon(Icons.Default.Info, contentDescription = "下载目录信息")
+                            }
+                            // 有任何可管理的条目就显示入口。条件不能只看回放任务，
+                            // 否则只下载过文件的用户进不去批量模式。
+                            if (allTasks.isNotEmpty() || fileDownloads.isNotEmpty()) {
+                                CouiToolbarActionButton(onClick = { isCleanupMode = true }) {
+                                    Icon(Icons.Default.DeleteSweep, contentDescription = "批量管理")
+                                }
                             }
                         }
                     },

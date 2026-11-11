@@ -5,13 +5,15 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import com.xjtu.toolbox.ui.glass.CouiTopBarScrollBehavior
 import top.yukonga.miuix.kmp.basic.PullToRefresh
 import top.yukonga.miuix.kmp.basic.PullToRefreshState
-import top.yukonga.miuix.kmp.basic.ScrollBehavior
 import top.yukonga.miuix.kmp.basic.rememberPullToRefreshState
 
 /**
- * miuix 下拉刷新，带中文提示。[scrollBehavior] 传了就让顶栏先展开大标题、展开完才算下拉；
+ * miuix 下拉刷新，带中文提示。[scrollBehavior] 是本页 COUI 顶栏的折叠行为：
+ * miuix 的下拉只认自己的 behavior 类型，这里不再交给它——顶栏的展开由 COUI
+ * `CouiCollapsingAppBarState` 在反向滚动的 `onPostScroll` 里自己做。
  * [topPadding] 是指示器让出的顶栏高度。
  */
 @Composable
@@ -19,7 +21,7 @@ fun AppPullToRefresh(
     isRefreshing: Boolean,
     onRefresh: () -> Unit,
     modifier: Modifier = Modifier,
-    scrollBehavior: ScrollBehavior? = null,
+    scrollBehavior: CouiTopBarScrollBehavior? = null,
     topPadding: Dp = 0.dp,
     state: PullToRefreshState = rememberPullToRefreshState(),
     content: @Composable () -> Unit,
@@ -30,7 +32,6 @@ fun AppPullToRefresh(
         modifier = modifier,
         pullToRefreshState = state,
         contentPadding = PaddingValues(top = topPadding),
-        topAppBarScrollBehavior = scrollBehavior,
         refreshTexts = RefreshTexts,
         content = content,
     )

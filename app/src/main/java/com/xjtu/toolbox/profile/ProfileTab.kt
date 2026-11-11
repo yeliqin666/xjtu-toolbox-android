@@ -67,7 +67,7 @@ import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.IconButton
 import top.yukonga.miuix.kmp.basic.LinearProgressIndicator
 import top.yukonga.miuix.kmp.basic.ProgressIndicatorDefaults
-import top.yukonga.miuix.kmp.basic.ScrollBehavior
+import com.xjtu.toolbox.ui.glass.CouiTopBarScrollBehavior
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextButton
 import top.yukonga.miuix.kmp.basic.TextField
@@ -493,7 +493,7 @@ internal fun ProfileTab(
     credentialStore: CredentialStore,
     accountManager: com.xjtu.toolbox.account.AccountManager,
     onNavigate: (AppRoute) -> Unit,
-    scrollBehavior: ScrollBehavior? = null,
+    scrollBehavior: CouiTopBarScrollBehavior? = null,
     /** 悬浮底栏的总占位高度（= MainScreen 的 floatingBarReserve）：底栏浮在内容之上，页面末尾得自己留出来。 */
     extraBottomPadding: androidx.compose.ui.unit.Dp = 0.dp,
     onWarmupRequest: () -> Unit = {},

@@ -1,5 +1,6 @@
 package com.xjtu.toolbox.community
 
+import com.xjtu.toolbox.ui.glass.CouiToolbarActionButton
 import kotlinx.coroutines.launch
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -83,8 +84,6 @@ import com.xjtu.toolbox.ui.glass.withoutTop
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.IconButton
 import top.yukonga.miuix.kmp.basic.Scaffold
-import top.yukonga.miuix.kmp.basic.rememberTopAppBarState
-import top.yukonga.miuix.kmp.basic.MiuixScrollBehavior
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import kotlin.time.Clock
@@ -92,6 +91,7 @@ import kotlin.time.Instant
 import kotlinx.datetime.TimeZone
 import kotlinx.datetime.toLocalDateTime
 import com.xjtu.toolbox.util.CampusTimeZone
+import com.xjtu.toolbox.ui.glass.rememberCouiTopAppBarScrollBehavior
 
 /**
  * 社区各页的外壳：和其他二级页同一套可折叠大标题（玻璃风格下内容铺到顶栏下面做采样源）。
@@ -111,7 +111,7 @@ fun CommunityPage(
     content: @Composable (top: Dp) -> Unit,
 ) {
     val glass = rememberPageGlass()
-    val scrollBehavior = MiuixScrollBehavior(rememberTopAppBarState())
+    val scrollBehavior = rememberCouiTopAppBarScrollBehavior()
     Scaffold(
         topBar = {
             CompositionLocalProvider(LocalTabRoot provides (root && LocalTabRoot.current)) {
@@ -147,7 +147,7 @@ fun CommunityPage(
 
 /** 这一页顶栏的折叠状态：页内下拉刷新要它，才能先展开大标题、展开完才算下拉。 */
 internal val LocalCommunityBarScroll =
-    androidx.compose.runtime.staticCompositionLocalOf<top.yukonga.miuix.kmp.basic.ScrollBehavior?> { null }
+    androidx.compose.runtime.staticCompositionLocalOf<com.xjtu.toolbox.ui.glass.CouiTopBarScrollBehavior?> { null }
 
 /**
  * 社区里页与页之间的转场：往里走（列表 → 帖子 → 编辑）新页从右边推进来、旧页往左让一点并变淡；
@@ -171,10 +171,10 @@ fun <S> AnimatedContentTransitionScope<S>.communitySlide(forward: Boolean): Cont
     }
 }
 
-/** 顶栏上的图标按钮。 */
+/** 顶栏上的图标按钮：和首页右上角同一套 COUI 圆钮材质。 */
 @Composable
 fun CommunityBarAction(icon: ImageVector, description: String, enabled: Boolean = true, onClick: () -> Unit) {
-    IconButton(onClick = onClick, enabled = enabled) {
+    CouiToolbarActionButton(onClick = onClick, enabled = enabled) {
         Icon(icon, contentDescription = description, tint = MiuixTheme.colorScheme.onSurface)
     }
 }

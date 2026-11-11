@@ -59,19 +59,17 @@ import com.xjtu.toolbox.shell.ShellPageInsets
 import com.xjtu.toolbox.ui.components.BackButton
 import com.xjtu.toolbox.ui.glass.LocalOnGlassBar
 import com.xjtu.toolbox.ui.glass.LocalTabRoot
+import com.xjtu.toolbox.ui.glass.CouiPageTopAppBar
+import com.xjtu.toolbox.ui.glass.couiPageBackdropFor
 import com.xjtu.toolbox.ui.glass.glassBarColor
 import com.xjtu.toolbox.ui.glass.glassSource
 import com.xjtu.toolbox.ui.glass.glassTop
-import com.xjtu.toolbox.ui.glass.glassTopBar
 import com.xjtu.toolbox.ui.glass.rememberPageGlass
 import com.xjtu.toolbox.ui.glass.withoutTop
 import com.xjtu.toolbox.zyxf.ZyxfBrowseScreen
-import top.yukonga.miuix.kmp.basic.MiuixScrollBehavior
+import com.xjtu.toolbox.ui.glass.rememberCouiTopAppBarScrollBehavior
 import top.yukonga.miuix.kmp.basic.Scaffold
 import top.yukonga.miuix.kmp.basic.ScrollBehavior
-import top.yukonga.miuix.kmp.basic.SmallTopAppBar
-import top.yukonga.miuix.kmp.basic.TopAppBar
-import top.yukonga.miuix.kmp.basic.rememberTopAppBarState
 
 /*
  * 底栏那几格的页，在两种宿主里画：挂在底栏上（MainScreen，顶栏由主界面画），
@@ -177,7 +175,8 @@ internal fun AndroidAgentScreen(
     onNavigate: (AppRoute) -> Unit,
     extraBottomPadding: Dp,
     contentTopPadding: Dp,
-    scrollBehavior: ScrollBehavior,
+    /** 小岱页内部的 MIUIX 折叠状态；宿主是 COUI 顶栏时传 null（钉死的 COUI 顶栏不折叠）。 */
+    scrollBehavior: ScrollBehavior? = null,
     onTitleChange: (String) -> Unit,
     onActionsChange: ((@Composable RowScope.() -> Unit)?) -> Unit,
     onNavIconChange: ((@Composable () -> Unit)?) -> Unit,
@@ -214,17 +213,21 @@ internal fun AgentRoutePage(loginState: AppLoginState, onNavigate: (AppRoute) ->
     var actions by remember { mutableStateOf<(@Composable RowScope.() -> Unit)?>(null) }
     var navIcon by remember { mutableStateOf<(@Composable () -> Unit)?>(null) }
     val overlays = remember { AgentOverlays() }
-    val scrollBehavior = MiuixScrollBehavior(rememberTopAppBarState())
+    val scrollBehavior = rememberCouiTopAppBarScrollBehavior()
     Box(Modifier.fillMaxSize()) {
     StandalonePage(
         topBar = { glass ->
-            SmallTopAppBar(
+            CouiPageTopAppBar(
                 title = title,
                 color = glassBarColor(glass),
-                modifier = Modifier.glassTopBar(glass),
                 scrollBehavior = scrollBehavior,
+                pageBackdrop = couiPageBackdropFor(glass),
+                pinned = true,
                 navigationIcon = {
-                    Row {
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
                         BackButton(onBack)
                         navIcon?.invoke()
                     }
@@ -238,7 +241,8 @@ internal fun AgentRoutePage(loginState: AppLoginState, onNavigate: (AppRoute) ->
             onNavigate = onNavigate,
             extraBottomPadding = tabBottomPadding,
             contentTopPadding = topPadding,
-            scrollBehavior = scrollBehavior,
+            // 这一页的顶栏是钉死的 COUI 小标题，聊天列表不用再驱动折叠
+            scrollBehavior = null,
             onTitleChange = { title = it },
             onActionsChange = { actions = it },
             onNavIconChange = { navIcon = it },
@@ -255,15 +259,15 @@ internal fun ScheduleRoutePage(loginState: AppLoginState, onNavigate: (AppRoute)
     val tabBottomPadding = LocalTabBottomPadding.current
     var actions by remember { mutableStateOf<(@Composable RowScope.() -> Unit)?>(null) }
     var bottomContent by remember { mutableStateOf<(@Composable () -> Unit)?>(null) }
-    val scrollBehavior = MiuixScrollBehavior(rememberTopAppBarState())
+    val scrollBehavior = rememberCouiTopAppBarScrollBehavior()
     StandalonePage(
         topBar = { glass ->
-            TopAppBar(
+            CouiPageTopAppBar(
                 title = "日程",
                 largeTitle = "日程",
                 color = glassBarColor(glass),
-                modifier = Modifier.glassTopBar(glass),
                 scrollBehavior = scrollBehavior,
+                pageBackdrop = couiPageBackdropFor(glass),
                 navigationIcon = { BackButton(onBack) },
                 actions = { actions?.invoke(this) },
                 bottomContent = {
@@ -289,15 +293,15 @@ internal fun ScheduleRoutePage(loginState: AppLoginState, onNavigate: (AppRoute)
 @Composable
 internal fun ZyxfRoutePage(onBack: () -> Unit) {
     val tabBottomPadding = LocalTabBottomPadding.current
-    val scrollBehavior = MiuixScrollBehavior(rememberTopAppBarState())
+    val scrollBehavior = rememberCouiTopAppBarScrollBehavior()
     StandalonePage(
         topBar = { glass ->
-            TopAppBar(
+            CouiPageTopAppBar(
                 title = ZYXF_TITLE,
                 largeTitle = ZYXF_TITLE,
                 color = glassBarColor(glass),
-                modifier = Modifier.glassTopBar(glass),
                 scrollBehavior = scrollBehavior,
+                pageBackdrop = couiPageBackdropFor(glass),
                 navigationIcon = { BackButton(onBack) },
             )
         },

@@ -30,3 +30,21 @@ gh issue edit 123 --remove-label "📥 State:Awaiting Assignment" --add-label "�
 ```bash
 gh issue edit 123 --remove-label "🔧 State:In Progress" --add-label "🔍 State:In Review"
 ```
+
+## 构建与安装
+
+改完 Android 相关代码后构建安卓版即可，不必自己开模拟器实测：
+
+```bash
+./gradlew :app:assembleDebug
+```
+
+产物在 `app/build/outputs/apk/debug/app-debug.apk`。
+
+用户说「帮我安装」时，安装目标是无线调试设备，地址形如 `<IP>:<端口>`——
+**地址每次会变，由用户当次给出，不要写死、也不要复用旧地址**：
+
+```bash
+adb connect <用户当次给出的 IP:端口>
+adb install -r app/build/outputs/apk/debug/app-debug.apk
+```

@@ -1,5 +1,6 @@
 package com.xjtu.toolbox.attendance
 
+import com.xjtu.toolbox.ui.glass.CouiToolbarActionButton
 import com.xjtu.toolbox.ui.glass.tabContentPadding
 import com.xjtu.toolbox.ui.glass.tabContentBottomPadding
 import com.xjtu.toolbox.ui.components.AppPullToRefresh
@@ -61,15 +62,12 @@ import top.yukonga.miuix.kmp.basic.CardDefaults
 import top.yukonga.miuix.kmp.basic.DropdownItem
 import top.yukonga.miuix.kmp.basic.HorizontalDivider
 import top.yukonga.miuix.kmp.basic.Icon
-import top.yukonga.miuix.kmp.basic.IconButton
-import top.yukonga.miuix.kmp.basic.MiuixScrollBehavior
 import top.yukonga.miuix.kmp.basic.Scaffold
 import top.yukonga.miuix.kmp.basic.SnackbarHost
 import top.yukonga.miuix.kmp.basic.SnackbarHostState
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextButton
 import top.yukonga.miuix.kmp.basic.TextField
-import top.yukonga.miuix.kmp.basic.rememberTopAppBarState
 import top.yukonga.miuix.kmp.overlay.OverlayDialog
 import top.yukonga.miuix.kmp.preference.ArrowPreference
 import top.yukonga.miuix.kmp.preference.OverlaySpinnerPreference
@@ -89,6 +87,7 @@ import com.xjtu.toolbox.util.CampusTimeZone
 import com.xjtu.toolbox.util.nowOnCampus
 import com.xjtu.toolbox.util.todayOnCampus
 import com.xjtu.toolbox.nav.AppRoute
+import com.xjtu.toolbox.ui.glass.rememberCouiTopAppBarScrollBehavior
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.CreationExtras
 import androidx.lifecycle.SavedStateHandle
@@ -128,7 +127,7 @@ fun AttendanceScreen(
         }
     }
 
-    val scrollBehavior = MiuixScrollBehavior(rememberTopAppBarState())
+    val scrollBehavior = rememberCouiTopAppBarScrollBehavior()
     // 玻璃顶栏（经典风格下为 null，一切照旧），用法见 ui/glass/GlassTopBar.kt
     val glass = rememberPageGlass()
     Scaffold(
@@ -140,18 +139,23 @@ fun AttendanceScreen(
                 scrollBehavior = scrollBehavior,
                 onBack = onBack,
                 actions = {
-                    // 快速考勤流水（电子班牌刷卡、人脸签到）：另一个系统的打卡记录，
-                    // 首页不再单独放入口，改从这里进去，做法照搬成绩页右上角的「成绩报表」。
-                    // 少了这一档（`onOpenIclassface == null`）就不画这个图标：点了会落到降级页的
-                    // 按钮不摆出来（见那个参数的 KDoc）。
-                    onOpenIclassface?.let { open ->
-                        IconButton(onClick = open) {
-                            Icon(Icons.Default.Face, contentDescription = "快速考勤流水（电子班牌刷卡、人脸签到）")
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        // 快速考勤流水（电子班牌刷卡、人脸签到）：另一个系统的打卡记录，
+                        // 首页不再单独放入口，改从这里进去，做法照搬成绩页右上角的「成绩报表」。
+                        // 少了这一档（`onOpenIclassface == null`）就不画这个图标：点了会落到降级页的
+                        // 按钮不摆出来（见那个参数的 KDoc）。
+                        onOpenIclassface?.let { open ->
+                            CouiToolbarActionButton(onClick = open) {
+                                Icon(Icons.Default.Face, contentDescription = "快速考勤流水（电子班牌刷卡、人脸签到）")
+                            }
                         }
-                    }
-                    if (selectedTab == 3 && source.capabilities.leave) {
-                        IconButton(onClick = { showForm = true }) {
-                            Icon(Icons.Default.Add, contentDescription = "新建请假")
+                        if (selectedTab == 3 && source.capabilities.leave) {
+                            CouiToolbarActionButton(onClick = { showForm = true }) {
+                                Icon(Icons.Default.Add, contentDescription = "新建请假")
+                            }
                         }
                     }
                 },

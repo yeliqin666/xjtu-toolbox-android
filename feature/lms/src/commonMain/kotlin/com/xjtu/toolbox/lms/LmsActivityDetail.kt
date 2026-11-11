@@ -1,5 +1,7 @@
 package com.xjtu.toolbox.lms
 
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Row
 import androidx.compose.material.icons.automirrored.filled.ScreenShare
 import androidx.compose.material.icons.automirrored.filled.MenuBook
 import androidx.compose.material.icons.automirrored.filled.Comment
@@ -43,6 +45,7 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.utils.PressFeedbackType
 import com.xjtu.toolbox.nav.AppRoute
 import com.xjtu.toolbox.html.HtmlContent
+import com.xjtu.toolbox.ui.glass.rememberCouiTopAppBarScrollBehavior
 
 private const val TAG = "LmsScreen"
 
@@ -150,7 +153,7 @@ internal fun ActivityDetailPage(
 
     LaunchedEffect(Unit) { if (cache.details[activity.id] == null) loadDetail() }
 
-    val scrollBehavior = MiuixScrollBehavior(rememberTopAppBarState())
+    val scrollBehavior = rememberCouiTopAppBarScrollBehavior()
     // 玻璃顶栏（经典风格下为 null，一切照旧），用法见 ui/glass/GlassTopBar.kt；
     // 播放器另开全屏页（本函数外的 VideoPlayer 分支），不在这里，不受影响。
     val glass = rememberPageGlass()
@@ -162,20 +165,25 @@ internal fun ActivityDetailPage(
                 scrollBehavior = scrollBehavior,
                 onBack = onBack,
                 actions = {
-                    // 书本图标而不是四个字（#380）：顶栏右侧和小岱按钮并排，图标更整齐
-                    if (onOpenCourse != null) {
-                        top.yukonga.miuix.kmp.basic.IconButton(onClick = onOpenCourse) {
-                            top.yukonga.miuix.kmp.basic.Icon(
-                                Icons.AutoMirrored.Filled.MenuBook,
-                                contentDescription = "打开课程",
-                                tint = top.yukonga.miuix.kmp.theme.MiuixTheme.colorScheme.onSurface,
-                            )
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        // 书本图标而不是四个字（#380）：顶栏右侧和小岱按钮并排，图标更整齐
+                        if (onOpenCourse != null) {
+                            com.xjtu.toolbox.ui.glass.CouiToolbarActionButton(onClick = onOpenCourse) {
+                                top.yukonga.miuix.kmp.basic.Icon(
+                                    Icons.AutoMirrored.Filled.MenuBook,
+                                    contentDescription = "打开课程",
+                                    tint = top.yukonga.miuix.kmp.theme.MiuixTheme.colorScheme.onSurface,
+                                )
+                            }
                         }
-                    }
-                    if (onAskAgent != null) {
-                        com.xjtu.toolbox.ui.components.AskAgentAction(summary = "把这项${activity.type.displayName()}的标题和说明发给小岱") {
-                            // 详情加载完就带上说明，没加载完也能发（小岱可以自己查）
-                            onAskAgent(com.xjtu.toolbox.agent.AgentForward.lmsActivity(course, detail ?: activity, activity.type.displayName()))
+                        if (onAskAgent != null) {
+                            com.xjtu.toolbox.ui.components.AskAgentAction(summary = "把这项${activity.type.displayName()}的标题和说明发给小岱") {
+                                // 详情加载完就带上说明，没加载完也能发（小岱可以自己查）
+                                onAskAgent(com.xjtu.toolbox.agent.AgentForward.lmsActivity(course, detail ?: activity, activity.type.displayName()))
+                            }
                         }
                     }
                 },

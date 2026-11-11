@@ -63,6 +63,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import com.xjtu.toolbox.ui.glass.CouiToolbarActionButton
 import com.xjtu.toolbox.ui.glass.tabContentPadding
 import com.xjtu.toolbox.auth.LoginType
 import com.xjtu.toolbox.schedule.colorOf
@@ -89,12 +90,10 @@ import top.yukonga.miuix.kmp.basic.ButtonDefaults
 import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.IconButton
-import top.yukonga.miuix.kmp.basic.MiuixScrollBehavior
 import top.yukonga.miuix.kmp.basic.Scaffold
 import top.yukonga.miuix.kmp.basic.SmallTitle
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextButton
-import top.yukonga.miuix.kmp.basic.rememberTopAppBarState
 import top.yukonga.miuix.kmp.preference.SwitchPreference
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.utils.overScrollVertical
@@ -105,6 +104,7 @@ import kotlinx.datetime.LocalDate
 import kotlinx.datetime.minus
 import com.xjtu.toolbox.util.campusDateTimeOf
 import com.xjtu.toolbox.util.todayOnCampus
+import com.xjtu.toolbox.ui.glass.rememberCouiTopAppBarScrollBehavior
 
 @Composable
 fun InboxScreen(
@@ -121,7 +121,7 @@ fun InboxScreen(
     termStart: LocalDate? = null,
 ) {
     val scope = rememberCoroutineScope()
-    val scrollBehavior = MiuixScrollBehavior(rememberTopAppBarState())
+    val scrollBehavior = rememberCouiTopAppBarScrollBehavior()
     val glass = rememberPageGlass()
 
     val data = InboxStore.snapshot()
@@ -224,18 +224,23 @@ fun InboxScreen(
                 scrollBehavior = scrollBehavior,
                 onBack = onBack,
                 actions = {
-                    if (tab == 0) {
-                        IconButton(onClick = { showAdd = true }) {
-                            Icon(Icons.Default.Add, contentDescription = "新建待办")
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        if (tab == 0) {
+                            CouiToolbarActionButton(onClick = { showAdd = true }) {
+                                Icon(Icons.Default.Add, contentDescription = "新建待办")
+                            }
                         }
-                    }
-                    if (tab == 1 && unread > 0) {
-                        IconButton(onClick = { InboxStore.markAllRead() }) {
-                            Icon(Icons.Default.DoneAll, contentDescription = "全部已读")
+                        if (tab == 1 && unread > 0) {
+                            CouiToolbarActionButton(onClick = { InboxStore.markAllRead() }) {
+                                Icon(Icons.Default.DoneAll, contentDescription = "全部已读")
+                            }
                         }
-                    }
-                    IconButton(onClick = { showSettings = true }) {
-                        Icon(Icons.Default.Tune, contentDescription = "收纳设置")
+                        CouiToolbarActionButton(onClick = { showSettings = true }) {
+                            Icon(Icons.Default.Tune, contentDescription = "收纳设置")
+                        }
                     }
                 },
                 bottomContent = {

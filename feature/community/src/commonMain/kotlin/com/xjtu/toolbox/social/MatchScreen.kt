@@ -63,6 +63,7 @@ import androidx.compose.ui.unit.dp
 import com.xjtu.toolbox.ui.components.CodeMatrixView
 import com.xjtu.toolbox.ui.glass.*
 import com.xjtu.toolbox.schedule.XjtuTime
+import com.xjtu.toolbox.ui.glass.rememberCouiTopAppBarScrollBehavior
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -75,14 +76,11 @@ import top.yukonga.miuix.kmp.basic.IconButton
 import top.yukonga.miuix.kmp.icon.MiuixIcons
 import top.yukonga.miuix.kmp.icon.extended.Back
 import top.yukonga.miuix.kmp.basic.LinearProgressIndicator
-import top.yukonga.miuix.kmp.basic.MiuixScrollBehavior
 import top.yukonga.miuix.kmp.basic.Scaffold
 import top.yukonga.miuix.kmp.basic.Switch
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextButton
 import top.yukonga.miuix.kmp.basic.TextField
-import top.yukonga.miuix.kmp.basic.TopAppBar
-import top.yukonga.miuix.kmp.basic.rememberTopAppBarState
 import top.yukonga.miuix.kmp.overlay.OverlayDialog
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.utils.overScrollVertical
@@ -108,7 +106,7 @@ fun MatchScreen(
     scanner: MatchScanner? = null,
 ) {
     val clipboard = LocalClipboardManager.current
-    val scrollBehavior = MiuixScrollBehavior(rememberTopAppBarState())
+    val scrollBehavior = rememberCouiTopAppBarScrollBehavior()
 
     // 名字默认空着，不拿档案里的真名：码常被截图发到群里、表白墙，真名加课表等于把人定位到教室
     var nickname by remember { mutableStateOf("") }
@@ -194,11 +192,11 @@ fun MatchScreen(
     Box(Modifier.fillMaxSize()) {
         Scaffold(
             topBar = {
-                TopAppBar(
+                CouiPageTopAppBar(
                     title = "匹配交友",
                     largeTitle = "匹配交友",
                     color = glassBarColor(glass),
-                    modifier = Modifier.glassTopBar(glass),
+                    pageBackdrop = couiPageBackdropFor(glass),
                     scrollBehavior = scrollBehavior,
                     navigationIcon = { com.xjtu.toolbox.ui.components.BackButton(onBack) },
                 )

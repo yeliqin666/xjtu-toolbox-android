@@ -1,5 +1,6 @@
 package com.xjtu.toolbox.account
 
+import com.xjtu.toolbox.ui.glass.CouiToolbarActionButton
 import com.xjtu.toolbox.ui.glass.tabContentBottomPadding
 import com.xjtu.toolbox.ui.adaptive.readableWidth
 import com.xjtu.toolbox.platform.BackHandler
@@ -59,7 +60,6 @@ import top.yukonga.miuix.kmp.basic.CircularProgressIndicator
 import top.yukonga.miuix.kmp.basic.HorizontalDivider
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.IconButton
-import top.yukonga.miuix.kmp.basic.MiuixScrollBehavior
 import top.yukonga.miuix.kmp.basic.ProgressIndicatorDefaults
 import top.yukonga.miuix.kmp.basic.Scaffold
 import top.yukonga.miuix.kmp.basic.SmallTitle
@@ -67,9 +67,7 @@ import top.yukonga.miuix.kmp.basic.Surface
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextField
 import top.yukonga.miuix.kmp.basic.TextButton
-import top.yukonga.miuix.kmp.basic.TopAppBar
 import top.yukonga.miuix.kmp.basic.TooltipBox
-import top.yukonga.miuix.kmp.basic.rememberTopAppBarState
 import top.yukonga.miuix.kmp.icon.MiuixIcons
 import top.yukonga.miuix.kmp.icon.extended.Add
 import top.yukonga.miuix.kmp.icon.extended.Back
@@ -80,6 +78,7 @@ import top.yukonga.miuix.kmp.overlay.OverlayDialog
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.utils.overScrollVertical
 import com.xjtu.toolbox.util.campusDateTimeOf
+import com.xjtu.toolbox.ui.glass.rememberCouiTopAppBarScrollBehavior
 
 /**
  * 多账号管理页。
@@ -123,7 +122,7 @@ fun AccountManagerScreen(
 
     fun refresh() { accounts = orderedAccounts() }
 
-    val scrollBehavior = MiuixScrollBehavior(rememberTopAppBarState())
+    val scrollBehavior = rememberCouiTopAppBarScrollBehavior()
     val pageBusy = globalBusy || busyAccountId != null
     val activeAccount = accounts.firstOrNull { it.accountId == activeId }
 
@@ -135,21 +134,21 @@ fun AccountManagerScreen(
     val glass = rememberPageGlass()
     Scaffold(
         topBar = {
-            TopAppBar(
+            CouiPageTopAppBar(
                 title = "账号管理",
                 largeTitle = "账号管理",
                 color = glassBarColor(glass),
-                modifier = Modifier.glassTopBar(glass),
+                pageBackdrop = couiPageBackdropFor(glass),
                 scrollBehavior = scrollBehavior,
                 navigationIcon = {
-                    IconButton(onClick = onBack) {
+                    CouiToolbarActionButton(onClick = onBack) {
                         Icon(MiuixIcons.Back, contentDescription = "返回")
                     }
                 },
                 actions = {
-                    IconButton(
+                    CouiToolbarActionButton(
                         onClick = { showAddSheet = true },
-                        enabled = !pageBusy
+                        enabled = !pageBusy,
                     ) {
                         Icon(MiuixIcons.Add, contentDescription = "新增账号")
                     }

@@ -51,23 +51,24 @@ import com.xjtu.toolbox.ui.components.BackButton
 import com.xjtu.toolbox.ui.components.HeroMesh
 import com.xjtu.toolbox.ui.components.RollingNumberText
 import com.xjtu.toolbox.ui.components.enterOnce
+import com.xjtu.toolbox.ui.glass.CouiPageTopAppBar
+import com.xjtu.toolbox.ui.glass.couiPageBackdropFor
 import com.xjtu.toolbox.ui.glass.glassBarColor
 import com.xjtu.toolbox.ui.glass.glassSource
 import com.xjtu.toolbox.ui.glass.glassTop
-import com.xjtu.toolbox.ui.glass.glassTopBar
 import com.xjtu.toolbox.ui.glass.rememberPageGlass
 import com.xjtu.toolbox.ui.glass.withoutTop
 import com.xjtu.toolbox.ui.isWideLayout
 import com.xjtu.toolbox.util.todayOnCampus
+import com.xjtu.toolbox.ui.glass.CouiTopBarScrollBehavior
+import com.xjtu.toolbox.ui.glass.rememberCouiTopAppBarScrollBehavior
 import kotlin.math.roundToInt
 import kotlinx.datetime.LocalDate
 import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.CircularProgressIndicator
 import top.yukonga.miuix.kmp.basic.Icon
-import top.yukonga.miuix.kmp.basic.MiuixScrollBehavior
 import top.yukonga.miuix.kmp.basic.Scaffold
 import top.yukonga.miuix.kmp.basic.Text
-import top.yukonga.miuix.kmp.basic.TopAppBar
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 /**
@@ -93,7 +94,7 @@ fun SchoolCalendarScreen(
 
     val today = remember { todayOnCampus() }
     val scrollState = rememberLazyListState()
-    val scrollBehavior = MiuixScrollBehavior()
+    val scrollBehavior = rememberCouiTopAppBarScrollBehavior()
     // 玻璃顶栏（经典风格下为 null，一切照旧），用法见 ui/glass/GlassTopBar.kt
     val glass = rememberPageGlass()
 
@@ -113,12 +114,12 @@ fun SchoolCalendarScreen(
 
     Scaffold(
         topBar = {
-            TopAppBar(
+            CouiPageTopAppBar(
                 title = "校历",
                 // 学期切换收进右上角了，当前是哪个学期写在这里
                 subtitle = terms.getOrNull(selectedTermIndex)?.termName.orEmpty(),
                 color = glassBarColor(glass),
-                modifier = Modifier.glassTopBar(glass),
+                pageBackdrop = couiPageBackdropFor(glass),
                 actions = {
                     if (terms.size > 1) {
                         var termMenuOpen by remember { mutableStateOf(false) }
@@ -137,7 +138,8 @@ fun SchoolCalendarScreen(
                     }
                 },
                 navigationIcon = {
-                    BackButton(onBack, modifier = Modifier.padding(start = 8.dp))
+                    // COUI 顶栏自己按 12dp 排导航槽，圆钮视觉边正好落在内容的 16dp 上，不用再补 padding
+                    BackButton(onBack)
                 },
                 scrollBehavior = scrollBehavior
             )
@@ -203,7 +205,7 @@ private fun TermContent(
     currentTerm: SchoolTerm,
     today: LocalDate,
     listState: LazyListState,
-    scrollBehavior: top.yukonga.miuix.kmp.basic.ScrollBehavior,
+    scrollBehavior: CouiTopBarScrollBehavior,
     glassTop: androidx.compose.ui.unit.Dp = 0.dp,
     calendarImage: (@Composable (selectedYear: String?) -> Unit)? = null,
 ) {
@@ -634,6 +636,6 @@ private fun int0(value: Float): String = value.roundToInt().toString()
 private fun percent0(value: Float): String = "${value.roundToInt()}%"
 
 /** LazyColumn 嵌套滚动接入 TopAppBar */
-private fun Modifier.nestedScrollToTopAppBar(scrollBehavior: top.yukonga.miuix.kmp.basic.ScrollBehavior): Modifier {
+private fun Modifier.nestedScrollToTopAppBar(scrollBehavior: CouiTopBarScrollBehavior): Modifier {
     return this.then(nestedScroll(scrollBehavior.nestedScrollConnection))
 }

@@ -3,6 +3,7 @@ package com.xjtu.toolbox.shell
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
@@ -15,6 +16,8 @@ import androidx.compose.ui.unit.dp
 import com.kyant.backdrop.backdrops.LayerBackdrop
 import com.kyant.backdrop.backdrops.layerBackdrop
 import com.kyant.backdrop.backdrops.rememberLayerBackdrop
+import com.xjtu.toolbox.ui.glass.LocalCouiPageBackdrop
+import com.xjtu.toolbox.ui.glass.rememberCouiPageBackdrop
 
 private enum class BarPageSlot { Bar, Page }
 
@@ -25,6 +28,9 @@ private enum class BarPageSlot { Bar, Page }
  * 这样折叠时内容不用逐帧重组。顶栏采样的是这一页自己的内容层。
  * 经典风格下内容排在顶栏之下；[edgeToEdge] 的页例外，两种风格都从屏幕顶边画起（见 [ShellTab.edgeToEdge]）。
  * 没有顶栏时 [statusTop] 就是顶部要让出的高度。
+ *
+ * 玻璃风格下这一页正文同时录一份 COUI 采样源（Android 才有），通过 [LocalCouiPageBackdrop]
+ * 交给这一页的顶栏画渐变模糊；经典风格不录也不提供，顶栏保持实色。
  */
 @Composable
 internal fun ShellBarPage(
@@ -36,14 +42,25 @@ internal fun ShellBarPage(
 ) {
     val density = LocalDensity.current
     val backdrop = rememberLayerBackdrop(cache = glass && bar != null)
+    // 这一页正文的 COUI 采样源；非 Android 平台、经典风格（顶栏实色）都不建
+    val couiPageBackdrop = if (glass) rememberCouiPageBackdrop() else null
+    val couiGlass = glass && bar != null
     val heights = remember { BarHeights() }
-    val pageModifier = if (glass && bar != null) Modifier.fillMaxSize().layerBackdrop(backdrop) else Modifier.fillMaxSize()
+    val pageModifier = Modifier
+        .fillMaxSize()
+        .then(if (glass && bar != null) Modifier.layerBackdrop(backdrop) else Modifier)
+        .then(if (couiGlass) couiPageBackdrop?.recordInto(Modifier) ?: Modifier else Modifier)
     val shift: () -> Dp = { with(density) { (heights.stable - heights.actual).toDp() } }
 
     SubcomposeLayout(Modifier.fillMaxSize()) { constraints ->
         val barPlaceables = if (bar != null) {
-            subcompose(BarPageSlot.Bar) { bar(backdrop) }
-                .map { it.measure(constraints.copy(minWidth = 0, minHeight = 0)) }
+            subcompose(BarPageSlot.Bar) {
+                CompositionLocalProvider(
+                    LocalCouiPageBackdrop provides if (couiGlass) couiPageBackdrop else null,
+                ) {
+                    bar(backdrop)
+                }
+            }.map { it.measure(constraints.copy(minWidth = 0, minHeight = 0)) }
         } else {
             emptyList()
         }

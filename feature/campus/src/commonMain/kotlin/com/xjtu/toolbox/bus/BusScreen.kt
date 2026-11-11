@@ -68,15 +68,14 @@ import com.xjtu.toolbox.ui.components.enterOnce
 import com.xjtu.toolbox.ui.components.pressHighlight
 import com.xjtu.toolbox.ui.glass.*
 import com.xjtu.toolbox.util.CampusTimeZone
+import com.xjtu.toolbox.ui.glass.rememberCouiTopAppBarScrollBehavior
 import kotlin.time.Clock
 import kotlinx.datetime.LocalDate
 import kotlinx.datetime.toLocalDateTime
 import top.yukonga.miuix.kmp.basic.Icon
-import top.yukonga.miuix.kmp.basic.MiuixScrollBehavior
 import top.yukonga.miuix.kmp.basic.Scaffold
 import top.yukonga.miuix.kmp.basic.Surface
 import top.yukonga.miuix.kmp.basic.Text
-import top.yukonga.miuix.kmp.basic.rememberTopAppBarState
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.utils.overScrollVertical
 
@@ -90,7 +89,7 @@ private val CARD_SHAPE = RoundedCornerShape(18.dp)
 fun BusScreen(source: BusSource, onBack: () -> Unit) {
     val vm: BusViewModel = viewModel { BusViewModel(source) }
     val listState = rememberLazyStaggeredGridState()
-    val scrollBehavior = MiuixScrollBehavior(rememberTopAppBarState())
+    val scrollBehavior = rememberCouiTopAppBarScrollBehavior()
     val glass = rememberPageGlass()
     var expanded by rememberSaveable { mutableStateOf<String?>(null) }
     var showDeparted by rememberSaveable { mutableStateOf(false) }

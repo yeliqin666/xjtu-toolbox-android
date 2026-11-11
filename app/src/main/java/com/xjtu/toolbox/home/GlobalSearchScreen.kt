@@ -1,6 +1,7 @@
 package com.xjtu.toolbox.home
 
 import com.xjtu.toolbox.ui.components.BackButton
+import com.xjtu.toolbox.ui.glass.CouiPageTopAppBar
 import com.xjtu.toolbox.nav.AppRoute
 import com.xjtu.toolbox.platform.BackHandler
 import androidx.compose.animation.AnimatedContent
@@ -55,14 +56,13 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.xjtu.toolbox.ui.components.FullScreenOverlay
 import com.xjtu.toolbox.auth.AccountType
+import com.xjtu.toolbox.ui.glass.CouiToolbarActionButton
 import com.xjtu.toolbox.webvpn.WebVpnUtil
 import com.xjtu.toolbox.ui.components.AppSearchBar
 import top.yukonga.miuix.kmp.basic.Icon
-import top.yukonga.miuix.kmp.basic.IconButton
 import top.yukonga.miuix.kmp.basic.Scaffold
 import top.yukonga.miuix.kmp.basic.Surface
 import top.yukonga.miuix.kmp.basic.Text
-import top.yukonga.miuix.kmp.basic.TopAppBar
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
@@ -191,7 +191,7 @@ fun GlobalSearchScreen(
                     .union(WindowInsets.displayCutout)
                     .only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal),
                 topBar = {
-                    TopAppBar(
+                    CouiPageTopAppBar(
                         title = "搜索",
                         color = scaffoldColor,
                         navigationIcon = {
@@ -199,7 +199,7 @@ fun GlobalSearchScreen(
                         },
                         actions = {
                             if (query.isNotEmpty()) {
-                                IconButton(onClick = { query = "" }) {
+                                CouiToolbarActionButton(onClick = { query = "" }) {
                                     Icon(Icons.Default.Close, contentDescription = "清空")
                                 }
                             }

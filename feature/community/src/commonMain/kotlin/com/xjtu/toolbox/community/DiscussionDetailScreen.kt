@@ -212,8 +212,13 @@ fun DiscussionDetailScreen(
         title = discussion.category.name,
         onBack = onBack,
         actions = {
-            CommunityBarAction(Icons.Outlined.Share, "分享") { share(discussion.title, discussion.url) }
-            CommunityBarAction(Icons.Outlined.OpenInBrowser, "在浏览器打开") { uriHandler.openUri(discussion.url) }
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                CommunityBarAction(Icons.Outlined.Share, "分享") { share(discussion.title, discussion.url) }
+                CommunityBarAction(Icons.Outlined.OpenInBrowser, "在浏览器打开") { uriHandler.openUri(discussion.url) }
+            }
         },
         bottomBar = {
             ReplyComposer(

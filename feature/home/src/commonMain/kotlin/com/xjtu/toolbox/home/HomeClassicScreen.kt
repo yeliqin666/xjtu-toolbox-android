@@ -22,6 +22,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.requiredHeight
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -65,9 +66,7 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.kyant.backdrop.Backdrop
-import com.kyant.backdrop.backdrops.layerBackdrop
-import com.kyant.backdrop.backdrops.rememberLayerBackdrop
-import com.xjtu.toolbox.ui.glass.progressiveBlurBar
+import com.xjtu.toolbox.ui.glass.rememberCouiPageBackdrop
 import com.xjtu.toolbox.bulletin.BulletinNoticePanel
 import com.xjtu.toolbox.nav.AppRoute
 import com.xjtu.toolbox.nav.SeamlessCardSource
@@ -99,7 +98,7 @@ import kotlin.math.abs
 import kotlin.math.roundToInt
 import kotlinx.coroutines.launch
 import top.yukonga.miuix.kmp.basic.Icon
-import top.yukonga.miuix.kmp.basic.ScrollBehavior
+import com.xjtu.toolbox.ui.glass.CouiTopBarScrollBehavior
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.squircle.squircleBorder
 import top.yukonga.miuix.kmp.squircle.squircleClip
@@ -117,7 +116,7 @@ import top.yukonga.miuix.kmp.utils.overScrollVertical
 fun HomeClassicScreen(
     host: HomeHost,
     modifier: Modifier = Modifier,
-    scrollBehavior: ScrollBehavior? = null,
+    scrollBehavior: CouiTopBarScrollBehavior? = null,
     /** 悬浮底栏的总占位高度：底栏浮在内容之上，页面末尾得自己留出来。 */
     extraBottomPadding: Dp = 0.dp,
     /** 页面顶边到内容的留白（状态栏，玻璃风格下还有壳的顶栏）：顶栏和模糊带从屏幕顶边画起。 */
@@ -126,6 +125,8 @@ fun HomeClassicScreen(
     contentTopShift: () -> Dp = { 0.dp },
     /** 首页没有顶栏：消息、扫一扫、搜索这几个按钮由宿主给，放在页面最上面跟着内容一起滚。 */
     topActions: (@Composable () -> Unit)? = null,
+    /** 两套首页共用的滚动位置（见 HomeScreen）：切换布局时不跳回顶部。 */
+    scrollState: ScrollState = rememberScrollState(),
 ) {
     val honored = host.honoredCards
     // 用目录全量：图标配色按它在目录里的下标取，过滤会让配色挪位。
@@ -194,7 +195,7 @@ fun HomeClassicScreen(
             .let { row -> row.copy(tone = glance?.tone ?: HomeTone.NORMAL, lines = host.stats[service.route.id]?.lines?.takeIf { it.isNotEmpty() } ?: row.lines) }
     }
 
-    val scroll = rememberScrollState()
+    val scroll = scrollState
     // 有宿主给的按钮才有折叠顶栏（桌面、Web 的壳有自己的顶栏）
     val collapsible = topActions != null
     val masthead = HomeCard.GREETING in honored
@@ -204,13 +205,13 @@ fun HomeClassicScreen(
     val rangePx = if (masthead && mastheadPx > 0) mastheadPx.toFloat().coerceAtLeast(barPx) else barPx
     val progress = { (scroll.value / rangePx).coerceIn(0f, 1f) }
     // 顶栏的模糊带采这一页自己的滚动层：顶栏本身在壳的采样层里，采壳的层会采到自己
-    val pageBackdrop = rememberLayerBackdrop(cache = true)
+    val pageBackdrop = rememberCouiPageBackdrop()
     // 模糊带两种导航风格都画：首页顶栏是页面自己的，跟底栏用不用玻璃无关
     val glass = collapsible
 
     Box(modifier.fillMaxSize()) {
         // 壁纸和滚动内容一起录进顶栏的采样层，模糊带里也有壁纸
-        Box(Modifier.matchParentSize().then(if (glass) Modifier.layerBackdrop(pageBackdrop) else Modifier)) {
+        Box(Modifier.matchParentSize().then(if (glass) (pageBackdrop?.recordInto(Modifier) ?: Modifier) else Modifier)) {
         HomeWallpaper(
             background, wallpaper,
             Modifier.matchParentSize(),
@@ -282,11 +283,11 @@ fun HomeClassicScreen(
         }
         if (topActions != null) {
             val scope = rememberCoroutineScope()
-            HomeCollapsingBar(
+            // 两套首页共用同一份顶栏（见 HomeTopBar）；经典版没有编辑态，只递宿主那排按钮。
+            HomeTopBar(
                 progress = progress,
                 topInset = contentTopPadding,
-                bandShift = contentTopShift,
-                backdrop = if (glass) pageBackdrop else null,
+                pageBackdrop = if (glass) pageBackdrop else null,
                 onTapCollapsed = { scope.launch { scroll.animateScrollTo(0) } },
                 actions = topActions,
                 alignWithGreeting = masthead,
@@ -294,75 +295,6 @@ fun HomeClassicScreen(
         }
     }
 }
-
-/**
- * 首页的折叠顶栏，叠在滚动内容上面。圆钮都在右上角，往上滑过刊头后玻璃底色和左边的头像
- * 一起浮出来。底边柔和淡出，内容从它后面模糊着滑过；折叠后点空白处回到顶部。
- */
-@Composable
-private fun HomeCollapsingBar(
-    progress: () -> Float,
-    topInset: Dp,
-    bandShift: () -> Dp,
-    backdrop: Backdrop?,
-    onTapCollapsed: () -> Unit,
-    actions: @Composable () -> Unit,
-    alignWithGreeting: Boolean = false,
-) {
-    // 经 rememberUpdatedState 读最新的 progress：刊头量完高度后折叠区间会变，只记第一份会判早
-    val latestProgress by rememberUpdatedState(progress)
-    val collapsed by remember { derivedStateOf { latestProgress() > 0.5f } }
-    val surface = MiuixTheme.colorScheme.surface
-    Box(Modifier.fillMaxWidth().height(topInset + BAR_HEIGHT)) {
-        if (backdrop != null) {
-            // 96dp 的模糊带比顶栏本身高，往内容里多淡一段。贴屏幕顶边：壳会按 stable 顶栏高度
-            // 把整页上移，不补回 [bandShift] 整条带会被顶出屏幕。
-            Box(
-                Modifier
-                    .fillMaxWidth()
-                    .requiredHeight(PROGRESSIVE_BLUR_BAND_HEIGHT)
-                    .offset { IntOffset(0, bandShift().roundToPx()) },
-            ) {
-                Box(Modifier.matchParentSize().progressiveBlurBar(backdrop, surface, titled = false))
-            }
-        }
-        Box(
-            Modifier
-                .matchParentSize()
-                .then(if (backdrop == null) Modifier.background(surface) else Modifier)
-                .then(
-                    if (collapsed) Modifier.clickable(interactionSource = null, indication = null, onClick = onTapCollapsed)
-                    else Modifier
-                ),
-        )
-        val lift = Modifier.graphicsLayer {
-            translationY = if (alignWithGreeting) 0f else -BUTTON_LIFT.toPx() * (1f - progress())
-        }
-        Row(
-            Modifier.fillMaxWidth().padding(top = topInset).height(BAR_HEIGHT)
-                .padding(start = 20.dp, end = 16.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            com.xjtu.toolbox.ui.components.JiaoxiaoxiAvatar(
-                Modifier.size(28.dp).graphicsLayer {
-                    // 头像不跟着玻璃瞬现，随着上滑慢慢淡入、放大
-                    val f = progress()
-                    alpha = f
-                    scaleX = 0.78f + 0.22f * f
-                    scaleY = scaleX
-                },
-            )
-            Spacer(Modifier.weight(1f))
-            Box(lift) { actions() }
-        }
-    }
-}
-
-/** 展开时圆钮比顶栏正中上移的距离：顶栏里圆钮上方正好留这么多，不会顶进状态栏。 */
-private val BUTTON_LIFT get() = (BAR_HEIGHT - 36.dp) / 2 - 2.dp
-
-/** 顶部模糊带的高度。 */
-private val PROGRESSIVE_BLUR_BAND_HEIGHT = 96.dp
 
 // ── 首页版式 ──
 
@@ -1020,9 +952,6 @@ private val LiquidCardScrim = Brush.verticalGradient(
 
 /** 液体卡上的暖色点缀，只用在小圆点和考试图标上，不承字。 */
 private val LiquidCardAccent = Color(0xFFFFB4A6)
-
-/** 首页折叠顶栏（状态栏以下）的高度，三个 36dp 圆钮在里面居中。 */
-private val BAR_HEIGHT = 52.dp
 
 /** 杂志版式的卡片圆角。 */
 private val EDITORIAL_RADIUS = 24.dp

@@ -40,11 +40,12 @@ import androidx.core.content.ContextCompat
 import com.xjtu.toolbox.auth.SessionManager
 import com.xjtu.toolbox.library.LibrarySeatQr
 import com.xjtu.toolbox.library.parseLibrarySeatQr
+import com.xjtu.toolbox.ui.glass.CouiPageTopAppBar
+import com.xjtu.toolbox.ui.glass.CouiToolbarActionButton
 import kotlinx.coroutines.launch
 import top.yukonga.miuix.kmp.basic.Button
 import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.Icon
-import top.yukonga.miuix.kmp.basic.IconButton
 import top.yukonga.miuix.kmp.basic.InfiniteProgressIndicator
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.navigationBars
@@ -52,7 +53,6 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.windowInsetsPadding
 import top.yukonga.miuix.kmp.basic.ButtonDefaults
-import top.yukonga.miuix.kmp.basic.SmallTopAppBar
 import top.yukonga.miuix.kmp.basic.Surface
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextButton
@@ -197,20 +197,23 @@ private fun QrLoginContent(
             ScanningContent(onResult = ::onDecoded)
         }
 
-        // 不要在这里再补 statusBars 让位：SmallTopAppBar 的
-        // defaultWindowInsetsPadding 默认就是 true，自己会让，叠一层就是双倍留白。
+        // 不要在这里再补 statusBars 让位：COUI 顶栏自己带 windowInsets 会让，
+        // 叠一层就是双倍留白。
         Column(Modifier.fillMaxSize()) {
-            // 始终折叠：这一页没有可滚动的长内容，大标题只会占掉取景空间，
-            // miuix 的 SmallTopAppBar 就是钉死在折叠态的版本。
+            // 钉死的小标题：这一页没有可滚动的长内容，大标题只会占掉取景空间，
+            // COUI 原版 TopAppBar（pinned = true）就是钉死在折叠态的版本。
             // 外面再套一层同色底：标题栏先让出状态栏再画自己的底色，状态栏那一段要靠这层补上，
             // 状态栏和标题栏才连成一块；标题也不会压在取景画面上看不清。
             Box(Modifier.fillMaxWidth().background(MiuixTheme.colorScheme.background)) {
-                SmallTopAppBar(
+                // 取景画面是相机流，录不进 COUI 的页面采样层：顶栏照原版钉死小标题的版式，
+                // 按钮材质采的是这层不透明顶栏底色（没有页面采样源时也不会崩）。
+                CouiPageTopAppBar(
                     title = "扫一扫",
                     color = MiuixTheme.colorScheme.background,
                     titleColor = MiuixTheme.colorScheme.onSurface,
+                    pinned = true,
                     navigationIcon = {
-                        IconButton(onClick = onBack) {
+                        CouiToolbarActionButton(onClick = onBack) {
                             Icon(
                                 Icons.AutoMirrored.Filled.ArrowBack,
                                 contentDescription = "返回",

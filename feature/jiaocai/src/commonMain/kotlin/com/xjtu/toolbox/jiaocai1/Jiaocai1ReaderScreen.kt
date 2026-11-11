@@ -1,6 +1,8 @@
 package com.xjtu.toolbox.jiaocai1
 
 
+import com.xjtu.toolbox.ui.glass.CouiPageTopAppBar
+import com.xjtu.toolbox.ui.glass.CouiToolbarActionButton
 import com.xjtu.toolbox.ui.glass.tabContentPadding
 import com.xjtu.toolbox.ui.components.BackButton
 import androidx.compose.ui.graphics.ImageBitmap
@@ -50,7 +52,7 @@ import com.xjtu.toolbox.auth.LocalAuthExpiry
 import com.xjtu.toolbox.ui.components.AppDropdownMenu
 import com.xjtu.toolbox.ui.glass.glassSource
 import com.xjtu.toolbox.ui.glass.glassTop
-import com.xjtu.toolbox.ui.glass.glassTopBar
+import com.xjtu.toolbox.ui.glass.glassPinnedTopBar
 import com.xjtu.toolbox.ui.glass.withoutTop
 import androidx.compose.foundation.layout.PaddingValues
 import com.xjtu.toolbox.ui.components.AppDropdownMenuItem
@@ -59,11 +61,9 @@ import com.xjtu.toolbox.ui.components.LoadingState
 import kotlinx.coroutines.launch
 import top.yukonga.miuix.kmp.basic.CircularProgressIndicator
 import top.yukonga.miuix.kmp.basic.Icon
-import top.yukonga.miuix.kmp.basic.IconButton
 import top.yukonga.miuix.kmp.basic.Scaffold
 import top.yukonga.miuix.kmp.basic.Slider
 import top.yukonga.miuix.kmp.basic.SliderDefaults
-import top.yukonga.miuix.kmp.basic.SmallTopAppBar
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextButton
 import top.yukonga.miuix.kmp.theme.MiuixTheme
@@ -130,9 +130,10 @@ fun Jiaocai1ReaderScreen(
 private fun ReaderShell(title: String, onBack: () -> Unit, body: @Composable () -> Unit) {
     Scaffold(
         topBar = {
-            SmallTopAppBar(
+            CouiPageTopAppBar(
                 title = title,
                 color = MiuixTheme.colorScheme.surface,
+                pinned = true,
                 navigationIcon = {
                     BackButton(onBack)
                 }
@@ -201,14 +202,19 @@ private fun ReaderContent(
     Scaffold(
         topBar = {
             if (chromeVisible) {
-                SmallTopAppBar(
+                CouiPageTopAppBar(
                     title = title,
                     color = com.xjtu.toolbox.ui.glass.glassBarColor(glass),
-                    modifier = Modifier.glassTopBar(glass),
+                    pageBackdrop = com.xjtu.toolbox.ui.glass.couiPageBackdropFor(glass),
+                    pinned = true,
                     navigationIcon = {
                         BackButton(onBack)
                     },
                     actions = {
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
                         Box {
                             com.xjtu.toolbox.ui.components.AppIconMenu(
                                 expanded = showToc,
@@ -233,7 +239,7 @@ private fun ReaderContent(
                                 }
                             }
                         }
-                        IconButton(
+                        CouiToolbarActionButton(
                             onClick = {
                                 vertical = !vertical
                                 Jiaocai1Prefs.setVerticalScroll(vertical)
@@ -243,6 +249,7 @@ private fun ReaderContent(
                                 if (vertical) Icons.Default.SwapHoriz else Icons.Default.SwapVert,
                                 contentDescription = if (vertical) "改为左右翻页" else "改为上下滚动",
                             )
+                        }
                         }
                     }
                 )

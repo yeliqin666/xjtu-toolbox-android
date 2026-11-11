@@ -61,15 +61,14 @@ import com.xjtu.toolbox.ui.components.ErrorState
 import com.xjtu.toolbox.ui.components.SkeletonList
 import com.xjtu.toolbox.ui.components.enterOnce
 import com.xjtu.toolbox.ui.glass.*
+import com.xjtu.toolbox.ui.glass.rememberCouiTopAppBarScrollBehavior
 import kotlinx.coroutines.delay
 import top.yukonga.miuix.kmp.basic.CircularProgressIndicator
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.IconButton
-import top.yukonga.miuix.kmp.basic.MiuixScrollBehavior
 import top.yukonga.miuix.kmp.basic.Scaffold
 import top.yukonga.miuix.kmp.basic.Surface
 import top.yukonga.miuix.kmp.basic.Text
-import top.yukonga.miuix.kmp.basic.rememberTopAppBarState
 import top.yukonga.miuix.kmp.overlay.OverlayBottomSheet
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.utils.overScrollVertical
@@ -92,7 +91,7 @@ fun DegreeScreen(
     onAskAgent: ((AgentForward) -> Unit)? = null,
 ) {
     val vm: DegreeViewModel = viewModel { DegreeViewModel(source) }
-    val scrollBehavior = MiuixScrollBehavior(rememberTopAppBarState())
+    val scrollBehavior = rememberCouiTopAppBarScrollBehavior()
     val glass = rememberPageGlass()
     var opened by remember { mutableStateOf(setOf<String>()) }
     var picking by remember { mutableStateOf<PickTarget?>(null) }

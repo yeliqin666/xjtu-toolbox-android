@@ -93,6 +93,10 @@ fun DiscussionsScreen(
         onBack = onBack,
         root = true,
         actions = {
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
             Box {
                 com.xjtu.toolbox.ui.components.AppIconMenu(
                     expanded = showOptions,
@@ -128,6 +132,7 @@ fun DiscussionsScreen(
             }
             CommunityBarAction(Icons.Outlined.Edit, "发帖", onClick = onCreate)
             CommunityBarAction(Icons.Outlined.AccountCircle, "GitHub 账号", onClick = onAccount)
+            }
         },
     ) { top ->
         AppPullToRefresh(

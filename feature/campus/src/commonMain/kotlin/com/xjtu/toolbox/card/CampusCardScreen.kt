@@ -40,8 +40,6 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import com.kyant.backdrop.backdrops.layerBackdrop
-import com.kyant.backdrop.backdrops.rememberLayerBackdrop
 import com.xjtu.toolbox.auth.LocalAuthExpiry
 import com.xjtu.toolbox.ui.adaptive.readableWidth
 import com.xjtu.toolbox.ui.components.AppDatePickerDialog
@@ -53,9 +51,9 @@ import com.xjtu.toolbox.ui.components.LoadingState
 import com.xjtu.toolbox.ui.components.MeshBackground
 import com.xjtu.toolbox.ui.components.appCardShadow
 import com.xjtu.toolbox.ui.components.enterOnce
+import com.xjtu.toolbox.ui.glass.CouiPageTopAppBar
 import com.xjtu.toolbox.ui.glass.followTopBar
-import com.xjtu.toolbox.ui.glass.glassBarSurface
-import com.xjtu.toolbox.ui.glass.glassBarTint
+import com.xjtu.toolbox.ui.glass.rememberCouiPageBackdrop
 import com.xjtu.toolbox.util.todayOnCampus
 import kotlin.math.abs
 import kotlin.time.Clock
@@ -73,7 +71,6 @@ import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.IconButton
 import top.yukonga.miuix.kmp.basic.LinearProgressIndicator
 import top.yukonga.miuix.kmp.basic.ListPopupColumn
-import top.yukonga.miuix.kmp.basic.MiuixScrollBehavior
 import top.yukonga.miuix.kmp.basic.PopupPositionProvider
 import top.yukonga.miuix.kmp.basic.Scaffold
 import top.yukonga.miuix.kmp.basic.SnackbarDuration
@@ -82,8 +79,6 @@ import top.yukonga.miuix.kmp.basic.SnackbarHostState
 import top.yukonga.miuix.kmp.basic.Surface
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextButton
-import top.yukonga.miuix.kmp.basic.TopAppBar
-import top.yukonga.miuix.kmp.basic.rememberTopAppBarState
 import top.yukonga.miuix.kmp.overlay.OverlayDialog
 import top.yukonga.miuix.kmp.overlay.OverlayListPopup
 import top.yukonga.miuix.kmp.preference.ArrowPreference
@@ -94,6 +89,7 @@ import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.viewmodel.CreationExtras
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.xjtu.toolbox.util.CampusTimeZone
+import com.xjtu.toolbox.ui.glass.rememberCouiTopAppBarScrollBehavior
 
 // ==================== 时间范围枚举 ====================
 
@@ -163,7 +159,7 @@ fun CampusCardScreen(
     var showCustomRange by remember { mutableStateOf(false) }
     var searchQuery by rememberSaveable { mutableStateOf("") }
 
-    val scrollBehavior = MiuixScrollBehavior(rememberTopAppBarState())
+    val scrollBehavior = rememberCouiTopAppBarScrollBehavior()
     var showRangeMenu by remember { mutableStateOf(false) }
     // 当前时间范围的一句话说法：顶栏菜单按钮的无障碍描述、流水和分析栏的小字共用
     val rangeLabel = if (vm.timeRange == TimeRange.CUSTOM) {
@@ -171,33 +167,40 @@ fun CampusCardScreen(
     } else {
         "近${vm.timeRange.label}"
     }
-    // 这一页自己的采样源：顶栏采它，不用全局的 LocalAppBackdrop（这是二级页，有自己
-    // 的 Scaffold/TopAppBar）。
-    val cardBackdrop = rememberLayerBackdrop(cache = true)
+    // 这一页自己的采样源：顶栏的 COUI 渐变模糊采它，不用全局的 LocalAppBackdrop
+    // （这是二级页，有自己的 Scaffold / 顶栏）。其它平台没有 COUI，返回 null。
+    val pageBackdrop = rememberCouiPageBackdrop()
+    // 采样本页正文：玻璃风格时才录，经典风格顶栏是实色
+    val pageSource = if (glass) pageBackdrop?.recordInto(Modifier) ?: Modifier else Modifier
     // 宽屏「流水 / 分析」两栏的选中项。标签行在顶栏里，所以提到 Scaffold 外面
     val isWideTop = com.xjtu.toolbox.ui.isWideLayout()
     var wideTab by rememberSaveable { mutableIntStateOf(0) }
     Scaffold(
         snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
-            TopAppBar(
+            CouiPageTopAppBar(
                 title = "校园卡",
                 color = if (glass) Color.Transparent else MiuixTheme.colorScheme.surface,
                 largeTitle = "校园卡",
                 scrollBehavior = scrollBehavior,
+                pageBackdrop = if (glass) pageBackdrop else null,
                 navigationIcon = {
                     BackButton(onBack)
                 },
                 actions = {
-                    // 加餐券：右上角一颗按钮，点开从按钮长成页面（同首页右上角圆钮），气泡是待领 + 待用张数。
-                    // 宿主没给状态（Web）⇒ 不画
-                    if (couponStat != null) {
-                        val stat by produceState<CouponEntryStat?>(null) { value = couponStat.invoke() }
-                        CouponTopAction(badge = stat?.badge ?: 0, onOpen = onOpenCoupon)
-                    }
-                    // 时间范围收进顶栏菜单：它同时作用于概览、流水、分析三栏，是整页的设置，
-                    // 不该在标签行下面单独占一排胶囊。当前范围由各栏里的小字标出（rangeLabel）。
-                    Box {
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        // 加餐券：右上角一颗按钮，点开从按钮长成页面（同首页右上角圆钮），气泡是待领 + 待用张数。
+                        // 宿主没给状态（Web）⇒ 不画
+                        if (couponStat != null) {
+                            val stat by produceState<CouponEntryStat?>(null) { value = couponStat.invoke() }
+                            CouponTopAction(badge = stat?.badge ?: 0, onOpen = onOpenCoupon)
+                        }
+                        // 时间范围收进顶栏菜单：它同时作用于概览、流水、分析三栏，是整页的设置，
+                        // 不该在标签行下面单独占一排胶囊。当前范围由各栏里的小字标出（rangeLabel）。
+                        Box {
                         com.xjtu.toolbox.ui.components.AppIconMenu(
                             expanded = showRangeMenu,
                             onExpandedChange = { showRangeMenu = it },
@@ -215,6 +218,7 @@ fun CampusCardScreen(
                                 )
                             }
                         }
+                    }
                     }
                 },
                 // 标签行不参与滚动：挂在顶栏里和顶栏一起做一整块玻璃，列表从它下面滚过去。
@@ -254,14 +258,6 @@ fun CampusCardScreen(
                             }
                         }
                     }
-                },
-                modifier = if (glass) {
-                    // 和其他二级页顶栏同一套画法：不投影、不折射、底边渐隐，见 glassBarSurface。
-                    // 以前这里单独写了一份：只模糊 4dp、没压表面色，还开了 24dp 的强折射，
-                    // 余额卡滚上去时标题下面一大片被拉弯。
-                    Modifier.glassBarSurface(cardBackdrop, glassBarTint())
-                } else {
-                    Modifier
                 },
             )
         }
@@ -325,7 +321,7 @@ fun CampusCardScreen(
                         // AppSegmentedTabs 负责点击切换，两者共用同一个 selectedTab。挂上
                         // layerBackdrop，顶栏才能采到「余额卡从这里滚过去」的画面。
                         if (isWide) {
-                            Row(Modifier.fillMaxSize().layerBackdrop(cardBackdrop).followTopBar({ stableTop.value }, padding)) {
+                            Row(Modifier.fillMaxSize().then(pageSource).followTopBar({ stableTop.value }, padding)) {
                                 Box(Modifier.weight(0.42f).fillMaxHeight()) {
                                     // 右栏就是完整的流水，左栏不再重复「最近交易」
                                     OverviewTab(
@@ -362,7 +358,7 @@ fun CampusCardScreen(
                             pageCount = 3,
                             selectedTabIndex = selectedTab,
                             onTabSelected = { selectedTab = it },
-                            modifier = Modifier.fillMaxSize().layerBackdrop(cardBackdrop).followTopBar({ stableTop.value }, padding),
+                            modifier = Modifier.fillMaxSize().then(pageSource).followTopBar({ stableTop.value }, padding),
                         ) { tab ->
                             when (tab) {
                                 0 -> OverviewTab(
@@ -400,36 +396,24 @@ private fun CouponTopAction(badge: Int, onOpen: () -> Unit) {
     val source = com.xjtu.toolbox.nav.rememberExpandOriginSource()
     val density = androidx.compose.ui.platform.LocalDensity.current
     val tint = MiuixTheme.colorScheme.onSurface
-    val dark = com.xjtu.toolbox.ui.theme.LocalIsDarkTheme.current
-    // 和首页右上角圆钮同款半透明圆底：页面返回时缩成的那颗圆正好落在它上面
-    val fill = MiuixTheme.colorScheme.surfaceContainerHigh.copy(alpha = if (dark) 0.52f else 0.6f)
-    val glyph: @Composable (Modifier) -> Unit = { m ->
-        Box(m, contentAlignment = Alignment.Center) {
-            Icon(Icons.Default.Restaurant, contentDescription = null, tint = tint, modifier = Modifier.size(20.dp))
-        }
-    }
     Box(Modifier.padding(end = 4.dp)) {
-        Box(
-            Modifier
-                .size(40.dp)
+        com.xjtu.toolbox.ui.glass.CouiToolbarActionButton(
+            onClick = {
+                // 不给替身：转场里叠加层画的就是这颗按钮此刻的真实画面（含圆底），
+                // 面板底色贴近按钮时透明，落地前后是同一份像素
+                source.arm(
+                    AppRoute.Coupon.id, cornerRadius = 20.dp, density = density,
+                    restFill = androidx.compose.ui.graphics.Color.Transparent, restShadow = false,
+                )
+                onOpen()
+            },
+            modifier = Modifier
                 .expandOriginSource(source)
-                .clip(androidx.compose.foundation.shape.CircleShape)
-                .background(fill)
-                .clickable {
-                    // 不给替身：转场里叠加层画的就是这颗按钮此刻的真实画面（含圆底），
-                    // 面板底色贴近按钮时透明，落地前后是同一份像素
-                    source.arm(
-                        AppRoute.Coupon.id, cornerRadius = 20.dp, density = density,
-                        restFill = androidx.compose.ui.graphics.Color.Transparent, restShadow = false,
-                    )
-                    onOpen()
-                }
                 .semantics(mergeDescendants = true) {
                     contentDescription = if (badge > 0) "加餐券，$badge 张待领或待用" else "加餐券"
                 },
-            contentAlignment = Alignment.Center,
         ) {
-            glyph(Modifier)
+            Icon(Icons.Default.Restaurant, contentDescription = null, tint = tint, modifier = Modifier.size(20.dp))
         }
         if (badge > 0) {
             Text(
@@ -441,7 +425,8 @@ private fun CouponTopAction(badge: Int, onOpen: () -> Unit) {
                 textAlign = androidx.compose.ui.text.style.TextAlign.Center,
                 modifier = Modifier
                     .align(Alignment.TopEnd)
-                    .offset(x = (-2).dp, y = 4.dp)
+                    // 圆钮视觉直径还是 40dp，但交互区 48dp，角标按内圈往外让 4dp
+                    .offset(x = 2.dp, y = 8.dp)
                     .graphicsLayer { alpha = if (com.xjtu.toolbox.nav.ExpandOrigins.isHidden(source)) 0f else 1f }
                     .defaultMinSize(minWidth = 16.dp, minHeight = 16.dp)
                     .clip(RoundedCornerShape(50))

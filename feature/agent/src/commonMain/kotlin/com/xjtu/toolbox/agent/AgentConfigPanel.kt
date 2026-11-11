@@ -29,6 +29,7 @@ import androidx.compose.ui.unit.dp
 import com.xjtu.toolbox.platform.keyValueStore
 import kotlinx.coroutines.launch
 import top.yukonga.miuix.kmp.basic.*
+import com.xjtu.toolbox.ui.glass.CouiTopBarScrollBehavior
 import top.yukonga.miuix.kmp.basic.CardDefaults
 import top.yukonga.miuix.kmp.preference.OverlaySpinnerPreference
 import top.yukonga.miuix.kmp.theme.MiuixTheme
@@ -45,7 +46,7 @@ internal fun ConfigPanel(
     apiKeySection: (@Composable () -> Unit)? = null,
     /** 「记住的偏好」那一块。 */
     memorySection: (@Composable () -> Unit)? = null,
-    scrollBehavior: ScrollBehavior,
+    scrollBehavior: CouiTopBarScrollBehavior,
     onSave: (AgentConfig) -> Unit,
     modifier: Modifier = Modifier,
     /** 玻璃顶栏的高度，放进列表的顶部留白。 */

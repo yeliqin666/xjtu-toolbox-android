@@ -41,14 +41,17 @@ import com.xjtu.toolbox.ui.components.ErrorState
 import com.xjtu.toolbox.ui.components.FullPageState
 import com.xjtu.toolbox.ui.components.LoadingState
 import com.xjtu.toolbox.ui.components.SkeletonList
+import com.xjtu.toolbox.ui.glass.CouiPageTopAppBar
 import com.xjtu.toolbox.ui.glass.LocalOnGlassBar
+import com.xjtu.toolbox.ui.glass.couiPageBackdropFor
 import com.xjtu.toolbox.ui.glass.glassBarColor
 import com.xjtu.toolbox.ui.glass.glassSource
 import com.xjtu.toolbox.ui.glass.glassTop
-import com.xjtu.toolbox.ui.glass.glassTopBar
 import com.xjtu.toolbox.ui.glass.rememberPageGlass
 import com.xjtu.toolbox.ui.glass.withoutTop
 import com.xjtu.toolbox.util.todayOnCampus
+import com.xjtu.toolbox.ui.glass.CouiTopBarScrollBehavior
+import com.xjtu.toolbox.ui.glass.rememberCouiTopAppBarScrollBehavior
 import kotlinx.datetime.DateTimeUnit
 import kotlinx.datetime.LocalDate
 import kotlinx.datetime.plus
@@ -104,7 +107,7 @@ fun VenueScreen(
     fun pay(order: OrderInfo) =
         onOpenBrowser(source.browserLoginUrl, source.paymentUrl(order.orderId))
 
-    val scrollBehavior = MiuixScrollBehavior(rememberTopAppBarState())
+    val scrollBehavior = rememberCouiTopAppBarScrollBehavior()
     // 玻璃顶栏（经典风格下为 null，一切照旧），用法见 ui/glass/GlassTopBar.kt
     val glass = rememberPageGlass()
     // 「场馆预订」「我的订单」两个顶层标签共用的选中回调：标签行点击、
@@ -123,7 +126,7 @@ fun VenueScreen(
     BackHandler(enabled = selectedTab == 1 || vm.page == VenuePage.SlotSelection, onBack = navigateBack)
     Scaffold(
         topBar = {
-            TopAppBar(
+            CouiPageTopAppBar(
                 title = if (selectedTab == 1) "我的订单" else when (vm.page) {
                     VenuePage.VenueList -> "场馆预订"
                     VenuePage.SlotSelection -> vm.selectedVenue?.name ?: "选择时段"
@@ -133,7 +136,7 @@ fun VenueScreen(
                     VenuePage.SlotSelection -> vm.selectedVenue?.name ?: "选择时段"
                 },
                 color = glassBarColor(glass),
-                modifier = Modifier.glassTopBar(glass),
+                pageBackdrop = couiPageBackdropFor(glass),
                 scrollBehavior = scrollBehavior,
                 navigationIcon = { com.xjtu.toolbox.ui.components.BackButton(navigateBack) },
                 // 分段标签、选日期这些不滚动的头部挂在顶栏里，和顶栏一起做一整块玻璃，
@@ -647,7 +650,7 @@ private fun VenueListContent(
     favoriteIds: Set<Int>,
     onToggleFavorite: (Venue) -> Unit,
     modifier: Modifier = Modifier,
-    scrollBehavior: ScrollBehavior,
+    scrollBehavior: CouiTopBarScrollBehavior,
     /** 玻璃顶栏（含标签行）的高度，放进列表顶部留白。 */
     topPadding: Dp = 0.dp,
 ) {
@@ -793,7 +796,7 @@ private fun SlotSelectionContent(
     /** 本端能不能勾选时段（[VenueSource.canBook]）。 */
     selectable: Boolean,
     modifier: Modifier = Modifier,
-    scrollBehavior: ScrollBehavior,
+    scrollBehavior: CouiTopBarScrollBehavior,
     /** 玻璃顶栏（含标签行、日期条）的高度，放进列表顶部留白。日期条在顶栏里，见 VenueScreen。 */
     topPadding: Dp = 0.dp,
 ) {

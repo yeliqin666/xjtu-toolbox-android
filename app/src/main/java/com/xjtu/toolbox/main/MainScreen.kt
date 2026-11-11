@@ -55,15 +55,11 @@ import com.xjtu.toolbox.nav.expandOriginSource
 import com.xjtu.toolbox.nav.rememberExpandOriginSource
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.size
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
-import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.layout.positionInRoot
@@ -73,12 +69,6 @@ import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.kyant.backdrop.backdrops.LayerBackdrop
-import com.kyant.backdrop.drawBackdrop
-import com.kyant.backdrop.effects.blur
-import com.kyant.backdrop.effects.lens
-import com.kyant.backdrop.effects.vibrancy
-import com.kyant.backdrop.highlight.Highlight
 import com.xjtu.toolbox.account.AccountManager
 import com.xjtu.toolbox.agent.AgentOverlays
 import com.xjtu.toolbox.agent.AgentInsightEngine
@@ -102,7 +92,6 @@ import com.xjtu.toolbox.home.HomeSignals
 import com.xjtu.toolbox.home.HomeStats
 import com.xjtu.toolbox.home.HomeStatsRefresher
 import com.xjtu.toolbox.home.HomeTab
-import com.xjtu.toolbox.home.LocalHomeBarBackdrop
 import com.xjtu.toolbox.library.LibraryFocus
 import com.xjtu.toolbox.library.LibraryQrArea
 import com.xjtu.toolbox.nav.AppRoute
@@ -120,13 +109,14 @@ import com.xjtu.toolbox.shell.ShellAccountBadge
 import com.xjtu.toolbox.shell.ShellHandles
 import com.xjtu.toolbox.shell.ShellNavState
 import com.xjtu.toolbox.shell.ShellTab
-import com.xjtu.toolbox.ui.components.pressScale
+import com.xjtu.toolbox.ui.glass.CouiPageTopAppBar
+import com.xjtu.toolbox.ui.glass.CouiTopBarScrollBehavior
+import com.xjtu.toolbox.ui.glass.CouiToolbarActionButton
+import com.xjtu.toolbox.ui.glass.LocalCouiPageBackdrop
 import com.xjtu.toolbox.ui.glass.LocalAppBackdrop
 import com.xjtu.toolbox.ui.glass.LocalOnGlassBar
-import com.xjtu.toolbox.ui.glass.glassBarSurface
-import com.xjtu.toolbox.ui.glass.glassBarTint
+import com.xjtu.toolbox.ui.glass.rememberCouiTopAppBarScrollBehavior
 import com.xjtu.toolbox.ui.isWideLayout
-import com.xjtu.toolbox.ui.theme.LocalIsDarkTheme
 import com.xjtu.toolbox.ui.rememberHaptics
 import com.xjtu.toolbox.zyxf.ZyxfBrowseScreen
 import kotlinx.coroutines.Dispatchers
@@ -137,13 +127,10 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import top.yukonga.miuix.kmp.basic.ButtonDefaults
 import top.yukonga.miuix.kmp.basic.Icon
-import top.yukonga.miuix.kmp.basic.IconButton
 import top.yukonga.miuix.kmp.basic.MiuixScrollBehavior
 import top.yukonga.miuix.kmp.basic.ScrollBehavior
-import top.yukonga.miuix.kmp.basic.SmallTopAppBar
 import top.yukonga.miuix.kmp.basic.SnackbarHost
 import top.yukonga.miuix.kmp.basic.TextButton
-import top.yukonga.miuix.kmp.basic.TopAppBar
 import top.yukonga.miuix.kmp.basic.rememberTopAppBarState
 import top.yukonga.miuix.kmp.overlay.OverlayDialog
 import top.yukonga.miuix.kmp.theme.MiuixTheme
@@ -201,10 +188,12 @@ internal fun MainScreen(
     val qrReveal = remember { androidx.compose.animation.core.Animatable(0f) }
 
     // ── 各 Tab 独立的滚动折叠状态 ──
-    val homeScrollBehavior = MiuixScrollBehavior(rememberTopAppBarState())
-    val coursesScrollBehavior = MiuixScrollBehavior(rememberTopAppBarState())
-    val toolsScrollBehavior = MiuixScrollBehavior(rememberTopAppBarState())
-    val profileScrollBehavior = MiuixScrollBehavior(rememberTopAppBarState())
+    // 主 tab 的大字顶栏是 COUI 原版 LargeTopAppBar，折叠状态就是 COUI 的
+    // CouiCollapsingAppBarState（弹簧、吸附、反向展开全在原厂代码里）。
+    val coursesScrollBehavior = rememberCouiTopAppBarScrollBehavior()
+    val toolsScrollBehavior = rememberCouiTopAppBarScrollBehavior()
+    val profileScrollBehavior = rememberCouiTopAppBarScrollBehavior()
+    // 小岱的聊天列表仍用 MIUIX 滚动行为驱动自己的列表联动（顶栏已换成钉死的 COUI 小标题）
     val agentScrollBehavior = MiuixScrollBehavior(rememberTopAppBarState())
 
     val isWide = isWideLayout()
@@ -390,13 +379,12 @@ internal fun MainScreen(
             MainTopBar(
                 selectedTab = barTab,
                 glassStyle = glassStyle,
-                backdrop = handles.contentBackdrop,
-                scrollBehavior = when (barTab) {
-                    BottomTab.HOME, null -> homeScrollBehavior
+                // 主 tab 的折叠行为来自 COUI；小岱 tab 的 SmallTopAppBar 仍吃 MIUIX
+                couiScrollBehavior = when (barTab) {
                     BottomTab.COURSES -> coursesScrollBehavior
-                    BottomTab.PIDAI -> agentScrollBehavior
                     BottomTab.TOOLS -> toolsScrollBehavior
                     BottomTab.PROFILE -> profileScrollBehavior
+                    else -> null
                 },
                 agentTitle = agentTitle,
                 agentNavIcon = agentHeaderNavIcon,
@@ -702,7 +690,7 @@ private fun RevealOverlay(
 private fun HomeScanAction(onScan: (ExpandOriginSource) -> Unit) {
     val tint = MiuixTheme.colorScheme.onSurface
     val source = rememberExpandOriginSource()
-    HomeRoundAction(onClick = { onScan(source) }, size = HomeTopActionSize, source = source) {
+    HomeRoundAction(onClick = { onScan(source) }, source = source) {
         Icon(
             androidx.compose.ui.res.painterResource(com.xjtu.toolbox.R.drawable.ic_scan),
             contentDescription = "扫一扫",
@@ -728,7 +716,6 @@ private fun HomeTopActions(
     ) {
         HomeRoundAction(
             onClick = { onSearch(searchSource) },
-            size = HomeTopActionSize,
             source = searchSource,
         ) {
             Icon(Icons.Outlined.Search, contentDescription = "搜索", tint = tint, modifier = Modifier.size(21.dp))
@@ -739,7 +726,6 @@ private fun HomeTopActions(
         Box {
             HomeRoundAction(
                 onClick = { onInbox(inboxSource) },
-                size = HomeTopActionSize,
                 source = inboxSource,
             ) {
                 InboxBell(
@@ -753,92 +739,43 @@ private fun HomeTopActions(
             com.xjtu.toolbox.inbox.InboxUnreadBadge(
                 Modifier
                     .align(Alignment.TopEnd)
-                    .offset(x = (-2).dp, y = 4.dp)
+                    .offset(x = (-2).dp, y = 8.dp)
                     .graphicsLayer { alpha = if (com.xjtu.toolbox.nav.ExpandOrigins.isHidden(inboxSource)) 0f else 1f },
             )
         }
     }
 }
 
-/** 首页顶栏圆钮的直径：比原来的 40dp 略大，铃铛的角标才不会挤到圈外。 */
-private val HomeTopActionSize = 44.dp
+/** 首页顶栏圆钮的视觉直径：COUI 顶栏按钮是 40dp 圆（外加 48dp 最小交互尺寸）。 */
+private val HomeTopActionSize = 40.dp
 
 /**
- * 顶栏圆钮：卡片组布局下是液态玻璃（采首页递过来的**内容层**：模糊 + 活力 + 高光 + 可选折射
- * 透镜，所以透出来、扭动的是它此刻盖住的壁纸与滚到下面的内容）；经典分类卡 / 小组件那两套不
- * 递这一层，于是退回半透明底色圆钮。**没有描边**——和底栏那套玻璃拟态一致（需求 §1.2）。
- * 按压用共享的 [pressScale]（小圆钮压深一点）；onClick 为 null 时只画底，不接管点击。
+ * 顶栏圆钮：COUI-Kit `TopAppBarButton` 原样——40dp 圆形视觉 + 48dp 交互尺寸、AGSL 浮层材质
+ * （边缘光、内光晕、轮廓投影、跟手形变与按压弹簧）。材质采的是首页顶栏表面录下的那一层
+ * （`LocalCouiToolbarBackdrop`），**两套首页布局下是同一颗钮**，切换功能区不会换材质。
+ *
+ * [source] 只用于「覆盖层从这颗钮长出来」的一镜到底起点。
  */
 @Composable
 private fun HomeRoundAction(
-    onClick: (() -> Unit)?,
-    size: Dp = HomeTopActionSize,
+    onClick: () -> Unit,
     /** 记下这颗圆钮的位置：点开的页面 / 覆盖层从它长出来。 */
     source: ExpandOriginSource? = null,
-    content: @Composable () -> Unit,
+    content: @Composable BoxScope.() -> Unit,
 ) {
-    val interaction = remember { MutableInteractionSource() }
-    val isDark = LocalIsDarkTheme.current
-    // 首页**内容层**（背景 + 滚动内容）由首页通过 Local 递过来：液态开关开着时圆钮采它，
-    // 于是模糊 / 折射的也是它此刻盖住的东西，和顶栏模糊带同一个源。卡片组布局会 provide；
-    // 经典分类卡那一套（`HomeClassicScreen`）不 provide，于是退回下面那层半透明底。
-    val liquid = LocalHomeBarBackdrop.current
-    // 折射子开关是**采样总开关**：首页在它关掉时会把上面的 `liquid` 收成 null（连采样源都不给），
-    // 圆钮于是退回下面那条半透明底——不采样、不模糊、不折射（2026-11 维护者定）
-    val fill = if (isDark) Color.White.copy(alpha = 0.08f) else Color.White.copy(alpha = 0.4f)
-    Box(
-        Modifier
-            .size(size)
-            .then(if (source != null) Modifier.expandOriginSource(source) else Modifier)
-            .pressScale(interaction, pressed = 0.92f)
-            .shadow(
-                elevation = 10.dp,
-                shape = CircleShape,
-                clip = false,
-                ambientColor = Color.White.copy(alpha = if (isDark) 0.28f else 0.6f),
-                spotColor = Color.White.copy(alpha = if (isDark) 0.28f else 0.6f),
-            )
-            .then(
-                if (liquid != null) {
-                    Modifier.drawBackdrop(
-                        backdrop = liquid,
-                        shape = { CircleShape },
-                        effects = {
-                            padding = maxOf(padding, 8.dp.toPx())
-                            vibrancy()
-                            blur(6.dp.toPx())
-                            lens(8.dp.toPx(), 10.dp.toPx())
-                        },
-                        highlight = { Highlight.Default.copy(alpha = 0.65f) },
-                        shadow = null,
-                        onDrawSurface = { drawRect(fill) },
-                    )
-                } else {
-                    Modifier.background(
-                        MiuixTheme.colorScheme.surfaceContainerHigh.copy(alpha = if (isDark) 0.52f else 0.6f),
-                        CircleShape,
-                    )
-                },
-            )
-            .then(
-                if (onClick != null) {
-                    Modifier.clickable(interactionSource = interaction, indication = null, onClick = onClick)
-                } else {
-                    Modifier
-                }
-            ),
-        contentAlignment = Alignment.Center,
-    ) { content() }
+    Box(Modifier.then(if (source != null) Modifier.expandOriginSource(source) else Modifier)) {
+        CouiToolbarActionButton(onClick = onClick, content = content)
+    }
 }
 
-/** 主界面顶栏，玻璃风格下采样 tab 内容区。 */
+/** 主界面顶栏：glass 风格下由 COUI 顶栏表面采样这一页正文（主 tab 大字、小岱钉死小标题）。 */
 @Composable
 private fun MainTopBar(
     /** null = 选中的是放上来的子页（自带顶栏）。 */
     selectedTab: BottomTab?,
     glassStyle: Boolean,
-    backdrop: LayerBackdrop,
-    scrollBehavior: ScrollBehavior,
+    /** COUI 折叠行为：主 tab 的 COUI 大字顶栏用它（首页/子页不用）。 */
+    couiScrollBehavior: CouiTopBarScrollBehavior?,
     agentTitle: String,
     agentNavIcon: (@Composable () -> Unit)?,
     agentActions: (@Composable RowScope.() -> Unit)?,
@@ -848,19 +785,17 @@ private fun MainTopBar(
     onSearch: () -> Unit,
     onInbox: () -> Unit,
 ) {
-    val tint = glassBarTint()
     val color = if (glassStyle) Color.Transparent else MiuixTheme.colorScheme.surface
-    val modifier = if (glassStyle) Modifier.glassBarSurface(backdrop, tint) else Modifier
     // 首页没有顶栏（标题「岱宗盒子」没有信息量）：按钮挪进首页内容里，状态栏留白由 Scaffold 的 insets 给；
     // 放到底栏上的子页自带顶栏
     if (selectedTab == null || selectedTab == BottomTab.HOME) return
-    // 小岱是自下而上的聊天，只用小标题
+    // 小岱是自下而上的聊天，只用钉死的小标题（COUI 原版 TopAppBar，52dp）
     if (selectedTab == BottomTab.PIDAI) {
-        SmallTopAppBar(
+        CouiPageTopAppBar(
             title = agentTitle,
+            pinned = true,
             color = color,
-            modifier = modifier,
-            scrollBehavior = scrollBehavior,
+            pageBackdrop = LocalCouiPageBackdrop.current,
             navigationIcon = { agentNavIcon?.invoke() },
             actions = { agentActions?.invoke(this) },
         )
@@ -871,12 +806,14 @@ private fun MainTopBar(
         BottomTab.TOOLS -> ZYXF_TITLE
         else -> selectedTab.label
     }
-    TopAppBar(
+    // 主 tab 的大字顶栏就是 COUI 原版 LargeTopAppBar：110dp → 52dp、原版 AppBarLayout 测量与
+    // CouiTopAppBarSurface 渐变模糊；折叠进度由 COUI 自己的 scrollBehavior 驱动。
+    CouiPageTopAppBar(
         color = color,
-        modifier = modifier,
         title = title,
         largeTitle = title,
-        scrollBehavior = scrollBehavior,
+        scrollBehavior = couiScrollBehavior,
+        pageBackdrop = LocalCouiPageBackdrop.current,
         actions = {
             if (selectedTab == BottomTab.COURSES) courseActions?.invoke(this)
         },
@@ -954,7 +891,7 @@ private fun ProactiveReminderLoop(loginState: AppLoginState) {
 internal fun CoursesTab(
     loginState: AppLoginState,
     onNavigate: (AppRoute) -> Unit,
-    scrollBehavior: ScrollBehavior,
+    scrollBehavior: CouiTopBarScrollBehavior,
     extraBottomPadding: Dp,
     contentTopPadding: Dp,
     onActionsChange: ((@Composable RowScope.() -> Unit)?) -> Unit,
@@ -1007,3 +944,4 @@ private fun PasswordInvalidatedDialog(loginState: AppLoginState, onUpdatePasswor
         }
     }
 }
+

@@ -12,7 +12,6 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.basic.TextField
 import top.yukonga.miuix.kmp.basic.Surface
 import top.yukonga.miuix.kmp.basic.Icon
-import top.yukonga.miuix.kmp.basic.IconButton
 import top.yukonga.miuix.kmp.basic.Scaffold
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.LinearProgressIndicator
@@ -68,6 +67,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import com.xjtu.toolbox.auth.SiteSession
 import com.xjtu.toolbox.lms.LmsDownloadStore
+import com.xjtu.toolbox.ui.glass.CouiToolbarActionButton
 import com.xjtu.toolbox.ui.theme.LocalIsDarkTheme
 import com.xjtu.toolbox.zyxf.ZyxfDownloader
 import com.xjtu.toolbox.zyxf.isCmsOneShotDownload
@@ -243,7 +243,7 @@ fun BrowserScreen(
                         Modifier.fillMaxWidth().height(56.dp).padding(horizontal = 4.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        IconButton(onClick = onBack) {
+                        CouiToolbarActionButton(onClick = onBack) {
                             Icon(Icons.Default.Close, contentDescription = "关闭")
                         }
                         run {

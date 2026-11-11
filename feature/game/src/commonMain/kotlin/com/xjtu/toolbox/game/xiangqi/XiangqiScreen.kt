@@ -86,7 +86,7 @@ import top.yukonga.miuix.kmp.basic.Button
 import top.yukonga.miuix.kmp.basic.Scaffold
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextButton
-import top.yukonga.miuix.kmp.basic.TopAppBar
+import com.xjtu.toolbox.ui.glass.CouiPageTopAppBar
 import top.yukonga.miuix.kmp.overlay.OverlayDialog
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
@@ -163,7 +163,7 @@ fun XiangqiScreen(onBack: () -> Unit, onlineLobby: OnlineLobby? = null) {
 
     Scaffold(
         topBar = {
-            TopAppBar(
+            CouiPageTopAppBar(
                 title = "象棋",
                 color = MiuixTheme.colorScheme.background,
                 navigationIcon = { LeaveButton(inProgress, leave::request) },

@@ -5,7 +5,7 @@ import androidx.compose.ui.unit.dp
 import com.xjtu.toolbox.auth.AppLoginState
 import com.xjtu.toolbox.bulletin.Bulletin
 import com.xjtu.toolbox.nav.AppRoute
-import top.yukonga.miuix.kmp.basic.ScrollBehavior
+import com.xjtu.toolbox.ui.glass.CouiTopBarScrollBehavior
 
 /** 首页在 `:app` 的宿主：画法在 `:core` 的 [HomeScreen]，这里只接 [HomeHost] 并挂主页设置抽屉。 */
 @Composable
@@ -16,7 +16,7 @@ internal fun HomeTab(
     onNavigate: (AppRoute) -> Unit,
     onNavigateToProfile: () -> Unit = {},
     onNavigateToCourses: () -> Unit = {},
-    scrollBehavior: ScrollBehavior? = null,
+    scrollBehavior: CouiTopBarScrollBehavior? = null,
     /** 悬浮底栏的总占位高度（= MainScreen 的 floatingBarReserve）：底栏浮在内容之上，页面末尾得自己留出来。 */
     extraBottomPadding: androidx.compose.ui.unit.Dp = 0.dp,
     showQuickActions: Boolean = true,

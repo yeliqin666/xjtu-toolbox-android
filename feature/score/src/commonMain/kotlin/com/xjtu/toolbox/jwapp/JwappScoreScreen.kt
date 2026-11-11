@@ -1,5 +1,6 @@
 package com.xjtu.toolbox.jwapp
 
+import com.xjtu.toolbox.ui.glass.CouiToolbarActionButton
 import com.xjtu.toolbox.ui.glass.tabContentBottomPadding
 import com.xjtu.toolbox.ui.components.AppPullToRefresh
 import com.xjtu.toolbox.ui.components.FullPageState
@@ -18,11 +19,7 @@ import top.yukonga.miuix.kmp.basic.Button
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.Surface
 import top.yukonga.miuix.kmp.basic.Icon
-import top.yukonga.miuix.kmp.basic.IconButton
 import top.yukonga.miuix.kmp.basic.Scaffold
-import top.yukonga.miuix.kmp.basic.TopAppBar
-import top.yukonga.miuix.kmp.basic.MiuixScrollBehavior
-import top.yukonga.miuix.kmp.basic.rememberTopAppBarState
 import top.yukonga.miuix.kmp.basic.CircularProgressIndicator
 import top.yukonga.miuix.kmp.basic.LinearProgressIndicator
 import top.yukonga.miuix.kmp.basic.ProgressIndicatorDefaults
@@ -84,6 +81,7 @@ import com.xjtu.toolbox.ui.components.AppSearchBar
 import com.xjtu.toolbox.ui.components.LoadingState
 import com.xjtu.toolbox.ui.components.ErrorState
 import com.xjtu.toolbox.ui.glass.*
+import com.xjtu.toolbox.ui.glass.rememberCouiTopAppBarScrollBehavior
 
 /** 成绩页入场动画覆盖的条数：大约一屏（总结卡、学期标题与十来门课），再往后直接就位。 */
 private const val SCORE_ENTER_MAX = 12
@@ -208,22 +206,22 @@ fun JwappScoreScreen(
     val latestTerm = remember(allTermScores) { ScoreReportFill.latestTerm(allTermScores) }
     var showReport by remember { mutableStateOf(false) }
 
-    val scrollBehavior = MiuixScrollBehavior(rememberTopAppBarState())
+    val scrollBehavior = rememberCouiTopAppBarScrollBehavior()
     var termMenuExpanded by remember { mutableStateOf(false) }
     // 玻璃顶栏（经典风格下为 null，一切照旧），用法见 ui/glass/GlassTopBar.kt
     val glass = rememberPageGlass()
     Scaffold(
         snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
-            TopAppBar(
+            CouiPageTopAppBar(
                 title = if (gpaSelectMode) "选课算 GPA" else "成绩查询",
                 largeTitle = if (gpaSelectMode) "选课算 GPA" else "成绩查询",
                 color = glassBarColor(glass),
-                modifier = Modifier.glassTopBar(glass),
+                pageBackdrop = couiPageBackdropFor(glass),
                 scrollBehavior = scrollBehavior,
                 navigationIcon = {
                     // 放在底栏上时没有上一级，只在选课模式下留「关闭」
-                    if (gpaSelectMode || !com.xjtu.toolbox.ui.glass.LocalTabRoot.current) IconButton(onClick = {
+                    if (gpaSelectMode || !com.xjtu.toolbox.ui.glass.LocalTabRoot.current) CouiToolbarActionButton(onClick = {
                         if (gpaSelectMode) { gpaSelectMode = false; selectedCourseIds = emptySet() }
                         else onBack()
                     }) {
@@ -234,27 +232,32 @@ fun JwappScoreScreen(
                     }
                 },
                 actions = {
-                    // GPA 映射表
-                    IconButton(onClick = { showGpaTips.value = true }) {
-                        Icon(Icons.Default.Info, contentDescription = "GPA 映射")
-                    }
-                    // 选课算 GPA 切换
-                    if (!gpaSelectMode) {
-                        IconButton(onClick = {
-                            gpaSelectMode = true
-                            // 默认全选当前学期
-                            selectedCourseIds = currentTermScores.map { it.id }.toSet()
-                        }) {
-                            Icon(Icons.Default.Calculate, contentDescription = "选课算GPA")
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        // GPA 映射表
+                        CouiToolbarActionButton(onClick = { showGpaTips.value = true }) {
+                            Icon(Icons.Default.Info, contentDescription = "GPA 映射")
                         }
-                    } else {
-                        // 全选/取消当前筛选范围内的课程
-                        IconButton(onClick = {
-                            val filteredIds = filteredScores.map { it.id }.toSet()
-                            val allFilteredSelected = filteredIds.isNotEmpty() && filteredIds.all { it in selectedCourseIds }
-                            selectedCourseIds = if (allFilteredSelected) selectedCourseIds - filteredIds else selectedCourseIds + filteredIds
-                        }) {
-                            Icon(Icons.Default.SelectAll, contentDescription = "全选当前")
+                        // 选课算 GPA 切换
+                        if (!gpaSelectMode) {
+                            CouiToolbarActionButton(onClick = {
+                                gpaSelectMode = true
+                                // 默认全选当前学期
+                                selectedCourseIds = currentTermScores.map { it.id }.toSet()
+                            }) {
+                                Icon(Icons.Default.Calculate, contentDescription = "选课算GPA")
+                            }
+                        } else {
+                            // 全选/取消当前筛选范围内的课程
+                            CouiToolbarActionButton(onClick = {
+                                val filteredIds = filteredScores.map { it.id }.toSet()
+                                val allFilteredSelected = filteredIds.isNotEmpty() && filteredIds.all { it in selectedCourseIds }
+                                selectedCourseIds = if (allFilteredSelected) selectedCourseIds - filteredIds else selectedCourseIds + filteredIds
+                            }) {
+                                Icon(Icons.Default.SelectAll, contentDescription = "全选当前")
+                            }
                         }
                     }
                 }

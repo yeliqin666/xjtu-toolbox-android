@@ -2,6 +2,7 @@
 
 package com.xjtu.toolbox.agent
 
+import androidx.compose.ui.Alignment
 import com.xjtu.toolbox.nav.AppRoute
 import com.xjtu.toolbox.platform.BackHandler
 import androidx.compose.animation.AnimatedVisibility
@@ -25,6 +26,7 @@ import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.xjtu.toolbox.ui.glass.CouiToolbarActionButton
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withTimeoutOrNull
 import top.yukonga.miuix.kmp.basic.*
@@ -192,20 +194,25 @@ fun AgentScreen(
     // 宽屏的历史对话常驻左栏，不送开关按钮。
     val headerNavIcon: (@Composable () -> Unit)? = if (isWide) null else {
         {
-            IconButton(onClick = { if (!showConfig) drawerOpen = !drawerOpen }) {
+            CouiToolbarActionButton(onClick = { if (!showConfig) drawerOpen = !drawerOpen }) {
                 Icon(Icons.Default.History, contentDescription = if (drawerOpen) "收起历史对话" else "历史对话")
             }
         }
     }
     val headerActions: @Composable RowScope.() -> Unit = {
-        IconButton(onClick = { if (!showConfig) startNewChat() }) {
-            Icon(Icons.Default.Add, contentDescription = "新对话")
-        }
-        IconButton(onClick = {
-            drawerOpen = false
-            showConfig = true
-        }) {
-            Icon(Icons.Default.Settings, contentDescription = "设置")
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            CouiToolbarActionButton(onClick = { if (!showConfig) startNewChat() }) {
+                Icon(Icons.Default.Add, contentDescription = "新对话")
+            }
+            CouiToolbarActionButton(onClick = {
+                drawerOpen = false
+                showConfig = true
+            }) {
+                Icon(Icons.Default.Settings, contentDescription = "设置")
+            }
         }
     }
 

@@ -84,12 +84,11 @@ import com.xjtu.toolbox.auth.LocalAuthExpiry
 import com.xjtu.toolbox.ui.components.AppSegmentedTabs
 import com.xjtu.toolbox.ui.components.AppTabPager
 import com.xjtu.toolbox.ui.glass.*
-import top.yukonga.miuix.kmp.basic.MiuixScrollBehavior
 import top.yukonga.miuix.kmp.basic.Scaffold
-import top.yukonga.miuix.kmp.basic.rememberTopAppBarState
 import kotlin.time.Clock
 import com.xjtu.toolbox.nav.AppRoute
 import com.xjtu.toolbox.util.campusDateTimeOf
+import com.xjtu.toolbox.ui.glass.rememberCouiTopAppBarScrollBehavior
 
 /**
  * 教材全文库那一屏（书架 + 五种字段检索 + 中图法分类树）。
@@ -126,7 +125,7 @@ fun Jiaocai1LibraryScreen(
     Jiaocai1UsageNotice(onDecline = onBack)
 
     var selectedTab by rememberSaveable { mutableIntStateOf(1) }
-    val scrollBehavior = MiuixScrollBehavior(rememberTopAppBarState())
+    val scrollBehavior = rememberCouiTopAppBarScrollBehavior()
     val glass = rememberPageGlass()
     Scaffold(
         topBar = {

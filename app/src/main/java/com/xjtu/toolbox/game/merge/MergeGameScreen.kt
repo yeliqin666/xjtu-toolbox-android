@@ -1,5 +1,8 @@
 package com.xjtu.toolbox.game.merge
 
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Row
+import androidx.compose.ui.Alignment
 import com.xjtu.toolbox.platform.BackHandler
 import android.annotation.SuppressLint
 import android.content.Context
@@ -25,6 +28,7 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.Lifecycle
@@ -36,12 +40,12 @@ import com.xjtu.toolbox.game.board.LeaderboardAskDialog
 import com.xjtu.toolbox.game.ui.LeaveButton
 import com.xjtu.toolbox.game.ui.RestartConfirmMenu
 import com.xjtu.toolbox.game.ui.rememberLeaveGuard
+import com.xjtu.toolbox.ui.glass.CouiPageTopAppBar
+import com.xjtu.toolbox.ui.glass.CouiToolbarActionButton
 import com.xjtu.toolbox.util.recoverFromRendererGone
 import com.xjtu.toolbox.util.releaseSafely
 import top.yukonga.miuix.kmp.basic.Icon
-import top.yukonga.miuix.kmp.basic.IconButton
 import top.yukonga.miuix.kmp.basic.Scaffold
-import top.yukonga.miuix.kmp.basic.SmallTopAppBar
 import java.io.InputStream
 
 // 游戏本体资源的根目录，只有这个前缀下的文件允许被 WebView 加载。
@@ -111,19 +115,27 @@ fun MergeGameScreen(onBack: () -> Unit) {
     val dark = com.xjtu.toolbox.ui.theme.LocalIsDarkTheme.current
     Scaffold(
         topBar = {
-            SmallTopAppBar(
+            // 游戏画面是 WebView，录不进 COUI 的页面采样层：顶栏照原版钉死小标题的版式，
+            // 按钮材质采的是这层不透明顶栏底色（没有页面采样源时也不会崩，见 CouiToolbarActionButton）。
+            CouiPageTopAppBar(
                 title = "合成西交大",
                 // 与页面顶部渐变（--bg-top）同色，标题栏和游戏连成一片
                 color = androidx.compose.ui.graphics.Color(if (dark) MERGE_BG_TOP_DARK else MERGE_BG_TOP_LIGHT),
+                pinned = true,
                 navigationIcon = { LeaveButton(inProgress, leave::request) },
                 actions = {
-                    // 分数页面里已经实时记进最高分，重开不用再补记
-                    IconButton(onClick = { if (inProgress) confirmRestart = true else runJs("window.restartGame && window.restartGame();") }) {
-                        Icon(Icons.Default.Refresh, contentDescription = "重新开始")
-                    }
-                    if (Leaderboard.enabled) {
-                        IconButton(onClick = { Leaderboard.openRanking(GameIds.MERGE) }) {
-                            Icon(Icons.Default.EmojiEvents, contentDescription = "排行榜")
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        // 分数页面里已经实时记进最高分，重开不用再补记
+                        CouiToolbarActionButton(onClick = { if (inProgress) confirmRestart = true else runJs("window.restartGame && window.restartGame();") }) {
+                            Icon(Icons.Default.Refresh, contentDescription = "重新开始")
+                        }
+                        if (Leaderboard.enabled) {
+                            CouiToolbarActionButton(onClick = { Leaderboard.openRanking(GameIds.MERGE) }) {
+                                Icon(Icons.Default.EmojiEvents, contentDescription = "排行榜")
+                            }
                         }
                     }
                 },

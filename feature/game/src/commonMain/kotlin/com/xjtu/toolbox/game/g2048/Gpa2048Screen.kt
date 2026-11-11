@@ -64,6 +64,8 @@ import com.xjtu.toolbox.game.ui.RestartConfirmMenu
 import com.xjtu.toolbox.game.ui.rememberLeaveGuard
 import com.xjtu.toolbox.game.ui.ScoreCard
 import com.xjtu.toolbox.ui.adaptive.readableWidth
+import com.xjtu.toolbox.ui.glass.CouiPageTopAppBar
+import com.xjtu.toolbox.ui.glass.CouiToolbarActionButton
 import com.xjtu.toolbox.ui.rememberHaptics
 import com.xjtu.toolbox.ui.theme.LocalIsDarkTheme
 import kotlinx.coroutines.delay
@@ -73,7 +75,6 @@ import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.IconButton
 import top.yukonga.miuix.kmp.basic.Scaffold
 import top.yukonga.miuix.kmp.basic.Text
-import top.yukonga.miuix.kmp.basic.SmallTopAppBar
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 /**
@@ -212,15 +213,18 @@ fun Gpa2048Screen(onBack: () -> Unit) {
     Scaffold(
         topBar = {
             // 不滚动的页面，大标题只占地方；透明才和页面连成一片
-            SmallTopAppBar(
+            // 棋盘是自绘的不透明画面，不上页面采样层，顶栏用页面底色（Scaffold 的 surface，
+            // 和原来透明顶栏看到的一致）；按钮材质采这层底色，没有页面采样源也不会崩。
+            CouiPageTopAppBar(
                 title = "GPA 2048",
                 navigationIcon = {
                     LeaveButton(inProgress, leave::request)
                 },
-                color = androidx.compose.ui.graphics.Color.Transparent,
+                color = MiuixTheme.colorScheme.surface,
+                pinned = true,
                 actions = {
                     if (Leaderboard.enabled) {
-                        IconButton(onClick = { Leaderboard.openRanking(GameIds.G2048) }) {
+                        CouiToolbarActionButton(onClick = { Leaderboard.openRanking(GameIds.G2048) }) {
                             Icon(Icons.Default.EmojiEvents, contentDescription = "排行榜")
                         }
                     }

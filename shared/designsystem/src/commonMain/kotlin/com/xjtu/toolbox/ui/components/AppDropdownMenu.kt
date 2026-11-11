@@ -62,8 +62,8 @@ import androidx.compose.ui.window.Popup
 import androidx.compose.ui.window.PopupPositionProvider
 import androidx.compose.ui.window.PopupProperties
 import kotlin.math.roundToInt
+import com.xjtu.toolbox.ui.glass.CouiToolbarActionButton
 import top.yukonga.miuix.kmp.basic.Icon
-import top.yukonga.miuix.kmp.basic.IconButton
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
@@ -191,6 +191,9 @@ fun AppDropdownMenu(
 /**
  * 顶栏图标按钮 + 它弹出的菜单：按钮本身变成菜单。弹层在屏幕上时真按钮藏起来，图标由面板带着走；
  * 弹层撤掉的那一刻按钮才回来，这时图标已经落回原位，两者重合。
+ *
+ * 触发按钮走 [CouiToolbarActionButton]：在 COUI 顶栏里是原版浮层材质（AGSL、边缘光、跟手、按压），
+ * 没有顶栏采样源时（经典风格、MIUIX 旧顶栏）退回半透明圆钮，两者都是 40dp 视觉 + 48dp 交互。
  */
 @Composable
 fun AppIconMenu(
@@ -202,7 +205,7 @@ fun AppIconMenu(
 ) {
     var menuOnScreen by remember { mutableStateOf(false) }
     Box(modifier) {
-        IconButton(
+        CouiToolbarActionButton(
             onClick = { onExpandedChange(true) },
             modifier = Modifier.graphicsLayer { alpha = if (menuOnScreen) 0f else 1f },
         ) { icon() }

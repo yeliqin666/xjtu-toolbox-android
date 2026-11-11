@@ -4,6 +4,7 @@ package com.xjtu.toolbox.schedule
 import com.xjtu.toolbox.ui.components.AppPullToRefresh
 import androidx.compose.foundation.layout.height
 import androidx.compose.ui.graphics.graphicsLayer
+import com.xjtu.toolbox.ui.glass.CouiToolbarActionButton
 import kotlinx.coroutines.delay
 import com.xjtu.toolbox.auth.LocalAuthExpiry
 import com.xjtu.toolbox.platform.BackHandler
@@ -19,7 +20,6 @@ import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.IconButton
 import top.yukonga.miuix.kmp.basic.Scaffold
 import top.yukonga.miuix.kmp.basic.LinearProgressIndicator
-import top.yukonga.miuix.kmp.basic.TopAppBar
 import top.yukonga.miuix.kmp.basic.TextButton
 import top.yukonga.miuix.kmp.overlay.OverlayBottomSheet
 import top.yukonga.miuix.kmp.window.WindowDialog
@@ -98,7 +98,7 @@ fun ScheduleScreen(
      */
     contentTopPadding: androidx.compose.ui.unit.Dp = 0.dp,
     /** 首页日程 tab 的顶栏折叠行为（顶栏在 MainScreen 里），交给各栏的下拉刷新协调。 */
-    topAppBarScrollBehavior: top.yukonga.miuix.kmp.basic.ScrollBehavior? = null,
+    topAppBarScrollBehavior: com.xjtu.toolbox.ui.glass.CouiTopBarScrollBehavior? = null,
     /** 课程详情面板里的下钻入口（教材全文 / 课程回放 / 考勤）要能跳到别的功能页。 */
     onNavigate: (AppRoute) -> Unit = {},
 ) {
@@ -235,11 +235,15 @@ fun ScheduleScreen(
 
     // 注入 TopAppBar actions：[+] [⋮] 两个独立按钮
     val headerActionsContent: (@Composable androidx.compose.foundation.layout.RowScope.() -> Unit) = {
+        androidx.compose.foundation.layout.Row(
+            horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(8.dp),
+            verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+        ) {
         // 添加日程（独立按钮）
         if (currentContent == "week" && ScheduleCapability.CUSTOM_COURSE_EDIT in host.honored) {
             // 一直可点。学期代码还没拿到时（教务接口失败、首装无缓存）别灰掉——用户
             // 只看到一个按不动的加号，不知道为什么；先按日期推一个学期，实在推不出再说明。
-            IconButton(
+            CouiToolbarActionButton(
                 onClick = {
                     if (vm.ensureTermForAdd()) {
                         showAddCourseDialog = true
@@ -316,6 +320,7 @@ fun ScheduleScreen(
                     }
                 }
             }
+        }
         }
     }
     val headerBottomContent: (@Composable () -> Unit) = {

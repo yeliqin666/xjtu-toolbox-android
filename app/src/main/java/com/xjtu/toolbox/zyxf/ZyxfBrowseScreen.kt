@@ -74,7 +74,7 @@ fun ZyxfBrowseScreen(
     onBack: (() -> Unit)? = null,
     contentPadding: PaddingValues = PaddingValues(0.dp),
     /** 宿主的折叠标题栏。列表滚动要驱动它，否则大标题永远不收。 */
-    scrollBehavior: top.yukonga.miuix.kmp.basic.ScrollBehavior? = null,
+    scrollBehavior: com.xjtu.toolbox.ui.glass.CouiTopBarScrollBehavior? = null,
     /** 宿主玻璃顶栏的高度：列表铺到顶栏下面，这段留白放进列表的 contentPadding。经典风格为 0。 */
     contentTopPadding: androidx.compose.ui.unit.Dp = 0.dp,
 ) {
