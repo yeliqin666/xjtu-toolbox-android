@@ -96,16 +96,6 @@ fun NotificationScreen(
                 glass = glass,
                 scrollBehavior = scrollBehavior,
                 onBack = onBack,
-                bottomContent = {
-                  Column {
-                    NoticeSourceBar(vm.selectedSources) { showSourceSheet = true }
-
-                    // ═══ 加载条 ═══
-                    AnimatedVisibility((vm.isLoading && notifications.isNotEmpty()) || vm.searchLoading, enter = fadeIn(), exit = fadeOut()) {
-                        LinearProgressIndicator(Modifier.fillMaxWidth())
-                    }
-                  }
-                },
             )
         }
     ) { padding ->
@@ -133,6 +123,9 @@ fun NotificationScreen(
                 !(vm.errorMessage != null && notifications.isEmpty()) &&
                 notifications.isNotEmpty()
             if (!listShown) Spacer(Modifier.height(glassTop))
+            // 来源入口：有列表时是列表第一项，跟着内容滚走；没有列表时放在上面。
+            // 以前它挂在顶栏的 bottomContent 里，折叠的顶栏动，它不动，就「钉」在顶上。
+            if (!listShown) NoticeSourceBar(vm.selectedSources) { showSourceSheet = true }
 
             // 搜索框和「有源不可达」提示：有通知列表时是列表的头两项，跟着列表滚走；
             // 来源入口是导航，留在顶上。以前这一整段都钉在顶部，占掉小半屏，
@@ -223,6 +216,12 @@ fun NotificationScreen(
                             contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp + glassTop, bottom = 8.dp),
                             spacing = 8.dp,
                         ) {
+                            fullLineItem(key = "sources") { NoticeSourceBar(vm.selectedSources) { showSourceSheet = true } }
+                            fullLineItem(key = "loading") {
+                                AnimatedVisibility((vm.isLoading && notifications.isNotEmpty()) || vm.searchLoading, enter = fadeIn(), exit = fadeOut()) {
+                                    LinearProgressIndicator(Modifier.fillMaxWidth())
+                                }
+                            }
                             if (!searching && com.xjtu.toolbox.agent.AgentInsightHub.insights.available) {
                                 fullLineItem(key = "picks") {
                                     NoticePicksCard(onOpen = { onNavigate(AppRoute.Browser(it)) })

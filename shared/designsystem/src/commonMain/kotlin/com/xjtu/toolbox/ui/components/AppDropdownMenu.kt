@@ -434,7 +434,9 @@ private fun MorphMenu(
                             alpha = (q / 0.08f).coerceIn(0f, 1f) * leaving
                             subTy[0] = translationY
                         }
-                        // 二级面板同样铺毛玻璃底：它只上下位移、不缩放，反着挪回去就对上屏幕原位
+                        // 二级面板同样铺毛玻璃底：它只上下位移、不缩放，反着挪回去就对上屏幕原位。
+                        // 先垫一层不透明底：二级叠在一级上面，只靠半透明底色会把一级的内容透出来。
+                        .then(if (frost == null) Modifier else Modifier.background(MiuixTheme.colorScheme.surfaceContainer))
                         .then(
                             if (frost == null) Modifier else Modifier.drawBehind {
                                 translate(-target.value.left, -(subPanelY[0] + subTy[0])) {
