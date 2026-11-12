@@ -3,6 +3,13 @@ name: Build & Release
 on:
   push:
     branches: [ main, dev ]
+    # 纯文档 / CI 脚本的提交不跑整条构建：以前改一篇 md 也要十几分钟，还会占住
+    # 并发组、把正在跑的代码提交的构建取消掉。
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+      - '.github/ISSUE_TEMPLATE/**'
+      - '.github/scripts/**'
   workflow_dispatch:
     inputs:
       publish_preview:
@@ -50,19 +57,6 @@ jobs:
         # 同时保留 36 供 targetSdk 使用
         run: $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager "platforms;android-37.0" "build-tools;37.0.0" "platforms;android-36" "build-tools;36.0.0" --channel=3
 
-      - name: Unit tests
-        # 单测不过就不出包
-        run: ./gradlew :app:testDebugUnitTest
-
-      - name: Verify release shrinking
-        if: github.ref == 'refs/heads/dev'
-        run: ./gradlew :app:minifyReleaseWithR8
-
-      - name: Verify preview lint
-        if: github.ref == 'refs/heads/dev'
-        # 即使跳过预览发布，也检查 preview 资源，避免补发时才发现致命 lint 错误。
-        run: ./gradlew :app:lintVitalPreview
-
       - name: Extract version name
         id: version
         run: |
@@ -84,7 +78,10 @@ jobs:
           print(f'Keystore decoded: {len(data)} bytes')
           "
 
-      - name: Build Release APK
+      - name: Unit tests + Build Release APK
+        # 单测直接跑在要发布的 release 变体上，和 assembleRelease 共用同一份编译产物：
+        # 以前是 debug 跑一遍测试、release 再编一遍（AGP 9 默认只为 debug 建单测任务，
+        # 这条属性把 release/preview 的单测任务也建出来，本地开发者的习惯不受影响）。
         if: github.ref == 'refs/heads/main'
         env:
           KEYSTORE_PATH: ${{ runner.temp }}/release.jks
@@ -97,7 +94,9 @@ jobs:
           FEEDBACK_BASE_TOKEN: ${{ secrets.FEEDBACK_BASE_TOKEN }}
           FEEDBACK_TABLE_SUBMIT: ${{ secrets.FEEDBACK_TABLE_SUBMIT }}
           FEEDBACK_TABLE_REPLY: ${{ secrets.FEEDBACK_TABLE_REPLY }}
-        run: ./gradlew :app:assembleRelease
+        run: >-
+          ./gradlew :app:testReleaseUnitTest :app:assembleRelease
+          -Pandroid.onlyEnableUnitTestForTheTestedBuildType=false
 
       - name: Verify release APK is signed
         if: github.ref == 'refs/heads/main'
@@ -441,8 +440,13 @@ jobs:
           echo "version=$VER" >> $GITHUB_OUTPUT
           echo "tag=dev-${GITHUB_RUN_NUMBER}" >> $GITHUB_OUTPUT
 
-      - name: Build Preview APK
-        if: env.PUBLISH_PREVIEW == 'true'
+      - name: Unit tests + preview lint + Build Preview APK
+        # 三步合成一次 Gradle 调用：单测 / lint / 打包共用同一份 preview 编译产物，
+        # lint 还能和 R8、打包并行；[skip preview] 时只跑测试和 lint。
+        # dev 上不再单独跑 `minifyReleaseWithR8`：preview 变体是 initWith(release) 的，
+        # proguardFiles / minify / shrinkResources 与正式版完全同一套，混淆规则坏了
+        # 这里就会红；正式包另有 main 的 assembleRelease 兜底。
+        if: github.ref == 'refs/heads/dev'
         env:
           KEYSTORE_PATH: ${{ runner.temp }}/release.jks
           STORE_PASSWORD: ${{ secrets.STORE_PASSWORD }}
@@ -453,7 +457,13 @@ jobs:
           FEEDBACK_BASE_TOKEN: ${{ secrets.FEEDBACK_BASE_TOKEN }}
           FEEDBACK_TABLE_SUBMIT: ${{ secrets.FEEDBACK_TABLE_SUBMIT }}
           FEEDBACK_TABLE_REPLY: ${{ secrets.FEEDBACK_TABLE_REPLY }}
-        run: ./gradlew :app:assemblePreview
+        run: |
+          TASKS=":app:testPreviewUnitTest :app:lintVitalPreview"
+          if [ "$PUBLISH_PREVIEW" = "true" ]; then
+            TASKS="$TASKS :app:assemblePreview"
+          fi
+          echo "Gradle tasks: $TASKS"
+          ./gradlew $TASKS -Pandroid.onlyEnableUnitTestForTheTestedBuildType=false
 
       - name: Verify preview APK
         if: env.PUBLISH_PREVIEW == 'true'
