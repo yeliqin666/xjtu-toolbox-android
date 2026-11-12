@@ -3,6 +3,7 @@ package com.xjtu.toolbox.community
 // 改编自 JoyinJoester/Etoile（GPL-3.0）：github/feature/discussions/DiscussionsScreen.kt。
 // 界面改用 MIUIX，按论坛帖子列表重排：作者头像、时间、分类、回复数、点赞、状态标签，分类筛选，下拉刷新，滑到底自动翻页。
 
+import com.xjtu.toolbox.ui.glass.CouiToolbarTextButton
 import com.xjtu.toolbox.ui.glass.tabContentPadding
 import com.xjtu.toolbox.ui.glass.tabContentBottomPadding
 import com.xjtu.toolbox.ui.components.AppPullToRefresh
@@ -94,7 +95,7 @@ fun DiscussionsScreen(
         root = true,
         actions = {
             Row(
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                horizontalArrangement = Arrangement.spacedBy(2.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
             Box {
@@ -310,23 +311,12 @@ fun DiscussionComposer(
         title = "发帖",
         onBack = { if (!state.submitting) onBack() },
         actions = {
-            val colors = MiuixTheme.colorScheme
-            Box(
-                Modifier
-                    .padding(end = 8.dp)
-                    .clip(RoundedCornerShape(18.dp))
-                    .background(if (canSubmit) colors.primary else colors.primary.copy(alpha = 0.12f))
-                    .clickable(enabled = canSubmit, onClick = onSubmit)
-                    .padding(horizontal = 16.dp, vertical = 7.dp),
-                contentAlignment = Alignment.Center,
-            ) {
-                Text(
-                    if (state.submitting) "发布中…" else "发布",
-                    style = MiuixTheme.textStyles.body2,
-                    fontWeight = FontWeight.SemiBold,
-                    color = if (canSubmit) colors.onPrimary else colors.primary.copy(alpha = 0.5f),
-                )
-            }
+            // 顶栏文字动作：与右侧圆钮同一套 COUI 玻璃材质（原版 text 分支，40dp 高胶囊）
+            CouiToolbarTextButton(
+                text = if (state.submitting) "发布中…" else "发布",
+                onClick = onSubmit,
+                enabled = canSubmit,
+            )
         },
     ) { top ->
         Column(

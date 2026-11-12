@@ -166,7 +166,7 @@ internal fun ActivityDetailPage(
                 onBack = onBack,
                 actions = {
                     Row(
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        horizontalArrangement = Arrangement.spacedBy(2.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         // 书本图标而不是四个字（#380）：顶栏右侧和小岱按钮并排，图标更整齐

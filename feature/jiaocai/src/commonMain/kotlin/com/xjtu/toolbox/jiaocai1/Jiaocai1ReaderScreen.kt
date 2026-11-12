@@ -212,7 +212,7 @@ private fun ReaderContent(
                     },
                     actions = {
                         Row(
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            horizontalArrangement = Arrangement.spacedBy(2.dp),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
                         Box {

@@ -237,7 +237,7 @@ fun ScheduleScreen(
     // 注入 TopAppBar actions：[+] [⋮] 两个独立按钮
     val headerActionsContent: (@Composable androidx.compose.foundation.layout.RowScope.() -> Unit) = {
         androidx.compose.foundation.layout.Row(
-            horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(8.dp),
+            horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(2.dp),
             verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
         ) {
         // 添加日程（独立按钮）

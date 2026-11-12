@@ -140,7 +140,7 @@ fun AttendanceScreen(
                 onBack = onBack,
                 actions = {
                     Row(
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        horizontalArrangement = Arrangement.spacedBy(2.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         // 快速考勤流水（电子班牌刷卡、人脸签到）：另一个系统的打卡记录，

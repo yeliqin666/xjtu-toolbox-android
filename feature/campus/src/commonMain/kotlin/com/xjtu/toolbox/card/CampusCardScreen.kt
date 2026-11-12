@@ -191,7 +191,7 @@ fun CampusCardScreen(
                 },
                 actions = {
                     Row(
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        horizontalArrangement = Arrangement.spacedBy(2.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         // 加餐券：右上角一颗按钮，点开从按钮长成页面（同首页右上角圆钮），气泡是待领 + 待用张数。
@@ -398,7 +398,8 @@ private fun CouponTopAction(badge: Int, onOpen: () -> Unit) {
     val source = com.xjtu.toolbox.nav.rememberExpandOriginSource()
     val density = androidx.compose.ui.platform.LocalDensity.current
     val tint = MiuixTheme.colorScheme.onSurface
-    Box(Modifier.padding(end = 4.dp)) {
+    // 不再额外留 4dp：多钮间距统一由外层 Row(2dp) + 每颗钮 4dp 内边距给出 10dp（对齐小布记忆）
+    Box {
         com.xjtu.toolbox.ui.glass.CouiToolbarActionButton(
             onClick = {
                 // 不给替身：转场里叠加层画的就是这颗按钮此刻的真实画面（含圆底），
@@ -415,7 +416,7 @@ private fun CouponTopAction(badge: Int, onOpen: () -> Unit) {
                     contentDescription = if (badge > 0) "加餐券，$badge 张待领或待用" else "加餐券"
                 },
         ) {
-            Icon(Icons.Default.Restaurant, contentDescription = null, tint = tint, modifier = Modifier.size(20.dp))
+            Icon(Icons.Default.Restaurant, contentDescription = null, tint = tint, modifier = Modifier.size(24.dp))
         }
         if (badge > 0) {
             Text(

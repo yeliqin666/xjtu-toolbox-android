@@ -5,8 +5,12 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
@@ -15,8 +19,10 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.xjtu.toolbox.ui.components.pressScale
 import com.xjtu.toolbox.ui.theme.LocalIsDarkTheme
+import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 /** 圆钮的视觉直径（和 COUI `TopAppBarButton` 一致）。 */
@@ -69,6 +75,60 @@ internal fun CouiToolbarActionButtonFallback(
             Box(Modifier.graphicsLayer { alpha = if (enabled) 1f else FallbackDisabledContentAlpha }) {
                 content()
             }
+        }
+    }
+}
+
+/** 胶囊文字按钮的视觉高度（和 COUI `TopAppBarButton(text = true)` 一致）。 */
+private val FallbackTextHeight = 40.dp
+
+/** 胶囊文字按钮的最小宽度（和 COUI 原版一致）。 */
+private val FallbackTextMinWidth = 60.dp
+
+/**
+ * 没有顶栏采样源时的胶囊文字按钮：半透明胶囊 + 文字。
+ *
+ * 尺寸、禁用态与 COUI 玻璃版对齐——高 40dp、最少 60dp 宽、内容水平留 12dp，
+ * 触摸区撑到 48dp 高。用于经典风格和非 Android 平台。
+ */
+@Composable
+internal fun CouiToolbarTextButtonFallback(
+    text: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true,
+) {
+    val dark = LocalIsDarkTheme.current
+    val interaction = remember { MutableInteractionSource() }
+    Box(
+        modifier
+            .height(FallbackTouchTargetSize)
+            .clickable(
+                interactionSource = interaction,
+                indication = null,
+                enabled = enabled,
+                role = Role.Button,
+                onClick = onClick,
+            ),
+        contentAlignment = Alignment.Center,
+    ) {
+        Box(
+            Modifier
+                .widthIn(min = FallbackTextMinWidth)
+                .height(FallbackTextHeight)
+                .clip(RoundedCornerShape(percent = 50))
+                .background(MiuixTheme.colorScheme.surfaceContainerHigh.copy(alpha = if (dark) 0.52f else 0.6f))
+                .pressScale(interaction, pressed = 0.92f)
+                .padding(horizontal = 12.dp),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text(
+                text,
+                color = MiuixTheme.colorScheme.onSurface,
+                style = MiuixTheme.textStyles.body2.copy(fontSize = 14.sp),
+                maxLines = 1,
+                modifier = Modifier.graphicsLayer { alpha = if (enabled) 1f else FallbackDisabledContentAlpha },
+            )
         }
     }
 }

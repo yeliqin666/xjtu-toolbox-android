@@ -202,7 +202,7 @@ fun AgentScreen(
     }
     val headerActions: @Composable RowScope.() -> Unit = {
         Row(
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            horizontalArrangement = Arrangement.spacedBy(2.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             CouiToolbarActionButton(onClick = { if (!showConfig) startNewChat() }) {

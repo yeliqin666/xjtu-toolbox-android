@@ -33,3 +33,19 @@ actual fun CouiToolbarActionButton(
         content = content,
     )
 }
+
+/** Web 端没有 COUI AGSL：胶囊文字按钮退回半透明胶囊。 */
+@Composable
+actual fun CouiToolbarTextButton(
+    text: String,
+    onClick: () -> Unit,
+    modifier: Modifier,
+    enabled: Boolean,
+) {
+    CouiToolbarTextButtonFallback(
+        text = text,
+        onClick = onClick,
+        modifier = modifier,
+        enabled = enabled,
+    )
+}

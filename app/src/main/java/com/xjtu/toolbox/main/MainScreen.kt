@@ -695,7 +695,7 @@ private fun HomeScanAction(onScan: (ExpandOriginSource) -> Unit) {
             androidx.compose.ui.res.painterResource(com.xjtu.toolbox.R.drawable.ic_scan),
             contentDescription = "扫一扫",
             tint = tint,
-            modifier = Modifier.size(20.dp),
+            modifier = Modifier.size(24.dp),
         )
     }
 }
@@ -711,14 +711,14 @@ private fun HomeTopActions(
     val searchSource = rememberExpandOriginSource()
     val inboxSource = rememberExpandOriginSource()
     Row(
-        horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(8.dp),
+        horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(2.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         HomeRoundAction(
             onClick = { onSearch(searchSource) },
             source = searchSource,
         ) {
-            Icon(Icons.Outlined.Search, contentDescription = "搜索", tint = tint, modifier = Modifier.size(21.dp))
+            Icon(Icons.Outlined.Search, contentDescription = "搜索", tint = tint, modifier = Modifier.size(24.dp))
         }
         HomeScanAction(onScan = onScan)
         // 铃铛：角标画在**圆钮外面这一层**。圆钮的液态玻璃把内容裁成圆形，画在里面的右上角
@@ -731,7 +731,7 @@ private fun HomeTopActions(
                 InboxBell(
                     {},
                     clickable = false,
-                    iconSize = 22.dp,
+                    iconSize = 24.dp,
                     containerSize = HomeTopActionSize,
                     showBadge = false,
                 )

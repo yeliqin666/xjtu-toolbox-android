@@ -196,7 +196,7 @@ fun DownloadManagerScreen(
                     onBack = onBack,
                     actions = {
                         Row(
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            horizontalArrangement = Arrangement.spacedBy(2.dp),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
                             // 信息按钮 - 显示下载目录

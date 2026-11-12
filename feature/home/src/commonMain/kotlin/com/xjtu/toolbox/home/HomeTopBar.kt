@@ -115,7 +115,9 @@ internal fun HomeTopBar(
                     .fillMaxWidth()
                     .padding(top = topInset)
                     .height(BAR_HEIGHT)
-                    .padding(start = 20.dp, end = 16.dp),
+                    // end 用 12dp：按钮自身还有 4dp 内边距，视觉右边距 = 16dp，
+                    // 与 COUI 顶栏（horizontalPadding 12dp + 4dp）和其他页面一致。
+                    .padding(start = 20.dp, end = 12.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 val lift = Modifier.graphicsLayer {
@@ -136,7 +138,7 @@ internal fun HomeTopBar(
                     ) { edit ->
                         if (edit) {
                             Row(
-                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                horizontalArrangement = Arrangement.spacedBy(2.dp),
                                 verticalAlignment = Alignment.CenterVertically,
                             ) {
                                 CouiToolbarActionButton(onClick = onHomeSettings) {
@@ -144,7 +146,7 @@ internal fun HomeTopBar(
                                         Icons.Default.Settings,
                                         contentDescription = "主页设置",
                                         tint = MiuixTheme.colorScheme.onSurface,
-                                        modifier = Modifier.size(20.dp),
+                                        modifier = Modifier.size(24.dp),
                                     )
                                 }
                                 CouiToolbarActionButton(onClick = onSaveEdit) {
@@ -152,7 +154,7 @@ internal fun HomeTopBar(
                                         Icons.Default.Check,
                                         contentDescription = "保存布局",
                                         tint = MiuixTheme.colorScheme.onSurface,
-                                        modifier = Modifier.size(20.dp),
+                                        modifier = Modifier.size(24.dp),
                                     )
                                 }
                             }

@@ -4,6 +4,7 @@ package com.xjtu.toolbox.community
 // DiscussionCommentActions.kt。界面改用 MIUIX，按论坛楼层重排：主帖卡片、N 楼、楼主标记、楼中楼预览、
 // 表情回应、投票、引用、分享、关闭 / 锁定 / 折叠、底部回帖栏、全屏编辑页（编辑 / 预览）。
 
+import com.xjtu.toolbox.ui.glass.CouiToolbarTextButton
 import com.xjtu.toolbox.ui.glass.LocalTabBottomPadding
 import com.xjtu.toolbox.ui.glass.tabContentBottomPadding
 import com.xjtu.toolbox.ui.components.AppPullToRefresh
@@ -213,7 +214,7 @@ fun DiscussionDetailScreen(
         onBack = onBack,
         actions = {
             Row(
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                horizontalArrangement = Arrangement.spacedBy(2.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 CommunityBarAction(Icons.Outlined.Share, "分享") { share(discussion.title, discussion.url) }
@@ -765,12 +766,11 @@ private fun CommunityEditor(
         title = pageTitle,
         onBack = close,
         actions = {
-            TextButton(
+            // 顶栏文字动作：与右侧圆钮同一套 COUI 玻璃材质（原版 text 分支，40dp 高胶囊）
+            CouiToolbarTextButton(
                 text = submitText,
                 onClick = submit,
                 enabled = canSubmit,
-                colors = ButtonDefaults.textButtonColorsPrimary(),
-                minHeight = 36.dp,
             )
         },
     ) { top ->

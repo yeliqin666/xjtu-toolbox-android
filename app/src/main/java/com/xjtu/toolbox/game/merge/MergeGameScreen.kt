@@ -125,7 +125,7 @@ fun MergeGameScreen(onBack: () -> Unit) {
                 navigationIcon = { LeaveButton(inProgress, leave::request) },
                 actions = {
                     Row(
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        horizontalArrangement = Arrangement.spacedBy(2.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         // 分数页面里已经实时记进最高分，重开不用再补记

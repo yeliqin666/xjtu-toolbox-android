@@ -81,6 +81,22 @@ expect fun CouiToolbarActionButton(
 )
 
 /**
+ * 顶栏上的胶囊文字按钮（如「发布」「提交」）。
+ *
+ * Android 上复用的就是 [CouiToolbarActionButton] 那套 COUI `TopAppBarButton`，只是走原版的
+ * `text` 分支：宽 ≥ 60dp、高 40dp、内容水平留 12dp，宽高不等时自动用胶囊形状，
+ * AGSL 材质、边缘光、内光晕、轮廓投影、跟手形变、按压弹簧与圆钮完全一致。
+ * 没有顶栏采样源时退回半透明胶囊，尺寸（40dp 高、最少 60dp 宽）与玻璃版对齐。
+ */
+@Composable
+expect fun CouiToolbarTextButton(
+    text: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true,
+)
+
+/**
  * 二级页 / 主界面 tab 的 COUI 顶栏。
  *
  * Android 上就是 COUI-Kit 的 `LargeTopAppBar` / `TopAppBar`（原版 `AppBarLayout` 测量与

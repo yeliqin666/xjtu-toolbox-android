@@ -6,10 +6,13 @@ import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import com.xjtu.toolbox.ui.glass.coui.CouiText
 import com.xjtu.toolbox.ui.glass.coui.CouiTopAppBarButton
 import com.xjtu.toolbox.ui.glass.coui.CouiTopAppBarSurface
+import com.xjtu.toolbox.ui.glass.coui.LocalCouiContentColor
 import com.xjtu.toolbox.ui.glass.coui.LocalCouiDarkTheme
 import com.xjtu.toolbox.ui.glass.coui.LocalCouiToolbarBackdrop
 import com.xjtu.toolbox.ui.glass.coui.couiBackdrop
@@ -85,7 +88,49 @@ actual fun CouiToolbarActionButton(
             onClick = onClick,
             modifier = modifier,
             enabled = enabled,
-            content = content,
+        ) {
+            // 原版内容槽是 RowScope；对外仍按 BoxScope 提供，包一层保持既有调用方的语义。
+            Box(contentAlignment = Alignment.Center) { content() }
+        }
+    }
+}
+
+/**
+ * 顶栏「胶囊文字按钮」的 COUI 材质入口（如社区发帖页的「发布」、回复页的「提交」）。
+ *
+ * Android 上就是 COUI 原版 `TopAppBarButton(text = true)`：宽 ≥ 60dp、高 40dp、内容水平
+ * 留 12dp，形状由宽高差自动切到胶囊，AGSL 材质 / 边缘光 / 内光晕 / 轮廓投影 / 跟手形变 /
+ * 按压弹簧与圆钮完全同一套；没有采样源时退回半透明胶囊
+ * （[CouiToolbarTextButtonFallback]）。
+ */
+@Composable
+actual fun CouiToolbarTextButton(
+    text: String,
+    onClick: () -> Unit,
+    modifier: Modifier,
+    enabled: Boolean,
+) {
+    if (LocalCouiToolbarBackdrop.current == null) {
+        CouiToolbarTextButtonFallback(
+            text = text,
+            onClick = onClick,
+            modifier = modifier,
+            enabled = enabled,
         )
+        return
+    }
+    CompositionLocalProvider(LocalCouiDarkTheme provides LocalIsDarkTheme.current) {
+        CouiTopAppBarButton(
+            onClick = onClick,
+            modifier = modifier,
+            enabled = enabled,
+            text = true,
+        ) {
+            CouiText(
+                text = text,
+                color = LocalCouiContentColor.current,
+                maxLines = 1,
+            )
+        }
     }
 }
