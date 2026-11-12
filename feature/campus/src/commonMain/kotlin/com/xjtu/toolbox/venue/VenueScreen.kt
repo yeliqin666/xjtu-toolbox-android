@@ -138,6 +138,8 @@ fun VenueScreen(
                 color = glassBarColor(glass),
                 pageBackdrop = couiPageBackdropFor(glass),
                 scrollBehavior = scrollBehavior,
+                // 二级页：标题钉死成收起态，不随上滑变小（只有正文滚动）
+                pinned = true,
                 navigationIcon = { com.xjtu.toolbox.ui.components.BackButton(navigateBack) },
                 // 分段标签、选日期这些不滚动的头部挂在顶栏里，和顶栏一起做一整块玻璃，
                 // 列表从它们下面滚过去（压在玻璃后面的是列表，不是这几行按钮）

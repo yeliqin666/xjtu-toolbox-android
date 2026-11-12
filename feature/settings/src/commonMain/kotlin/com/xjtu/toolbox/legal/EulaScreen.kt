@@ -57,7 +57,9 @@ fun EulaScreen(onAccept: () -> Unit) {
                 largeTitle = "用户协议与免责声明",
                 color = com.xjtu.toolbox.ui.glass.glassBarColor(glass),
                 pageBackdrop = com.xjtu.toolbox.ui.glass.couiPageBackdropFor(glass),
-                scrollBehavior = scrollBehavior
+                scrollBehavior = scrollBehavior,
+                // 二级页：标题钉死成收起态，不随上滑变小
+                pinned = true,
             )
         }
     ) { padding ->

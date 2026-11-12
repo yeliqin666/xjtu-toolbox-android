@@ -78,11 +78,15 @@ expect fun CouiToolbarActionButton(
 )
 
 /**
- * 二级页 / 主界面 tab 的 COUI 大标题折叠顶栏。
+ * 二级页 / 主界面 tab 的 COUI 顶栏。
  *
  * Android 上就是 COUI-Kit 的 `LargeTopAppBar` / `TopAppBar`（原版 `AppBarLayout` 测量与
  * `CouiTopAppBarSurface` 渐变模糊，未改一行版式），折叠进度由 COUI 自己的
  * [CouiTopBarScrollBehavior] 驱动：页面把它接到滚动容器祖先的 `Modifier.nestedScroll` 上即可。
+ *
+ * 一级页（首页 / 日程 / 学辅 / 我的）用折叠版（`pinned = false`）；二级页统一 `pinned = true`，
+ * 标题固定在收起态、不随上滑变小，模糊与一级页同一套 COUI 渐变模糊——此时 [scrollBehavior]
+ * 的连接也不再吃掉滚动（顶栏本来就不折叠，正文不该先停 58dp）。
  *
  * [pageBackdrop] 有值时走 COUI 玻璃；没有时画 COUI 版式 + 实色底。
  * 非 Android 平台的 actual 直接回退到 MIUIX `TopAppBar`，行为与改造前一致。
@@ -99,7 +103,7 @@ expect fun CouiPageTopAppBar(
     subtitle: String? = null,
     /** 覆盖标题文字色；Unspecified 时用 Miuix 主题的 onSurface。 */
     titleColor: Color = Color.Unspecified,
-    /** 直接按收起态画（钉死的小标题），不再跟随滚动进度。 */
+    /** 直接按收起态画（钉死的小标题），不再跟随滚动进度。二级页统一用它。 */
     pinned: Boolean = false,
     navigationIcon: @Composable () -> Unit = {},
     actions: @Composable RowScope.() -> Unit = {},

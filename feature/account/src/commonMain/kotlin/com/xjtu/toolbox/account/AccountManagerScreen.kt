@@ -140,6 +140,8 @@ fun AccountManagerScreen(
                 color = glassBarColor(glass),
                 pageBackdrop = couiPageBackdropFor(glass),
                 scrollBehavior = scrollBehavior,
+                // 二级页：标题钉死成收起态，不随上滑变小
+                pinned = true,
                 navigationIcon = {
                     CouiToolbarActionButton(onClick = onBack) {
                         Icon(MiuixIcons.Back, contentDescription = "返回")

@@ -166,6 +166,7 @@ fun XiangqiScreen(onBack: () -> Unit, onlineLobby: OnlineLobby? = null) {
             CouiPageTopAppBar(
                 title = "象棋",
                 color = MiuixTheme.colorScheme.background,
+                pinned = true,
                 navigationIcon = { LeaveButton(inProgress, leave::request) },
             )
         },

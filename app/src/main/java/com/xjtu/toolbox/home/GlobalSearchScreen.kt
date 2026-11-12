@@ -194,6 +194,8 @@ fun GlobalSearchScreen(
                     CouiPageTopAppBar(
                         title = "搜索",
                         color = scaffoldColor,
+                        // 二级页：标题钉死成收起态
+                        pinned = true,
                         navigationIcon = {
                             BackButton(onBack)
                         },

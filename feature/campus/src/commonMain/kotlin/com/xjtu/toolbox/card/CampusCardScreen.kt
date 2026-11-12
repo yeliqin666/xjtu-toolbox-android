@@ -184,6 +184,8 @@ fun CampusCardScreen(
                 largeTitle = "校园卡",
                 scrollBehavior = scrollBehavior,
                 pageBackdrop = if (glass) pageBackdrop else null,
+                // 二级页：标题钉死成收起态，不随上滑变小
+                pinned = true,
                 navigationIcon = {
                     BackButton(onBack)
                 },

@@ -250,6 +250,7 @@ fun GomokuScreen(onBack: () -> Unit, onlineLobby: OnlineLobby? = null) {
                 title = "五子棋",
                 navigationIcon = { LeaveButton(inProgress, leave::request) },
                 color = MiuixTheme.colorScheme.background,
+                pinned = true,
             )
         },
     ) { padding ->

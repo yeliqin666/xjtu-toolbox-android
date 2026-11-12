@@ -162,6 +162,10 @@ object KitOneTake {
         fallback: () -> Unit,
     ) {
         try {
+            // 返回动画类型保持不传 = `ViewAnimationType.VIEW_ANIM_DEFAULT`（0），也就是 ROM 默认的
+            // 「缩回源元素」一镜到底。其余档位换的是返回语义（1 不播返回动画 / 2 跳过 seamless /
+            // 3 强制淡出），4 还要 ROM 调试属性 debug.view_seamless.scale（默认 false）才生效，
+            // 都不适合默认开；要试其中某一档时再加 `setBackAnimType(...)`。
             val config = ViewAnimationConfig().setRadius(radiusPx)
             // 底板填充色：不传由 ROM 自动取色，会挑中图标强调色在卡片四周露色（见 KitMaskColor）。
             if (maskColor != 0) config.setColor(maskColor)

@@ -120,6 +120,8 @@ fun SchoolCalendarScreen(
                 subtitle = terms.getOrNull(selectedTermIndex)?.termName.orEmpty(),
                 color = glassBarColor(glass),
                 pageBackdrop = couiPageBackdropFor(glass),
+                // 二级页：标题钉死成收起态，不随上滑变小
+                pinned = true,
                 actions = {
                     if (terms.size > 1) {
                         var termMenuOpen by remember { mutableStateOf(false) }

@@ -198,6 +198,8 @@ fun MatchScreen(
                     color = glassBarColor(glass),
                     pageBackdrop = couiPageBackdropFor(glass),
                     scrollBehavior = scrollBehavior,
+                    // 二级页：标题钉死成收起态，不随上滑变小
+                    pinned = true,
                     navigationIcon = { com.xjtu.toolbox.ui.components.BackButton(onBack) },
                 )
             },

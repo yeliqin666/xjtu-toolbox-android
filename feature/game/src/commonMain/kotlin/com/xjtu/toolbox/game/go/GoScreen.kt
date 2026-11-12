@@ -116,6 +116,7 @@ fun GoScreen(onBack: () -> Unit, onlineLobby: OnlineLobby? = null) {
                 title = "围棋",
                 navigationIcon = { LeaveButton(inProgress, leave::request) },
                 color = MiuixTheme.colorScheme.background,
+                pinned = true,
             )
         },
     ) { padding ->

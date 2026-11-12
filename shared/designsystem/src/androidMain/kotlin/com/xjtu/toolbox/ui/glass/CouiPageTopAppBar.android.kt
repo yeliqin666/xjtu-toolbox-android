@@ -9,11 +9,14 @@ import androidx.compose.foundation.text.BasicText
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.takeOrElse
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Velocity
 import com.xjtu.toolbox.ui.glass.coui.CouiBackdrop
 import com.xjtu.toolbox.ui.glass.coui.CouiTextKind
 import com.xjtu.toolbox.ui.glass.coui.CouiTopAppBarColors
@@ -42,11 +45,27 @@ actual fun rememberCouiPageBackdrop(): CouiPageBackdrop? =
  * 折叠不是缓动曲线，也不读 MIUIX 的 `collapsedFraction`：正负滚动增量、临界阻尼
  * `SpringAnimation`（收起响应 .2s / 展开 .1s）、松手吸附、`contentPadding` 修正全部由
  * COUI 的 `CouiCollapsingAppBarState` 处理，这里只把它的 `nestedScrollConnection` 转出去。
+ *
+ * [pinned] 为真（页面顶栏钉死成收起态，二级页统一这么用）时连接不再把滚动喂给折叠状态：
+ * 顶栏本来就不折叠，正文也不该先被吃掉 58dp 才开始滚。
  */
 private class AndroidCouiTopBarScrollBehavior(
     val behavior: CouiTopAppBarScrollBehavior,
 ) : CouiTopBarScrollBehavior {
-    override val nestedScrollConnection: NestedScrollConnection get() = behavior.nestedScrollConnection
+    var pinned: Boolean = false
+
+    private val connection = object : NestedScrollConnection {
+        override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset =
+            if (pinned) Offset.Zero else behavior.nestedScrollConnection.onPreScroll(available, source)
+
+        override fun onPostScroll(consumed: Offset, available: Offset, source: NestedScrollSource): Offset =
+            if (pinned) Offset.Zero else behavior.nestedScrollConnection.onPostScroll(consumed, available, source)
+
+        override suspend fun onPostFling(consumed: Velocity, available: Velocity): Velocity =
+            if (pinned) Velocity.Zero else behavior.nestedScrollConnection.onPostFling(consumed, available)
+    }
+
+    override val nestedScrollConnection: NestedScrollConnection get() = connection
 }
 
 @Composable
@@ -91,6 +110,9 @@ actual fun CouiPageTopAppBar(
     val dark = LocalIsDarkTheme.current
     val backdrop = (pageBackdrop as? AndroidCouiPageBackdrop)?.backdrop
     val behavior = (scrollBehavior as? AndroidCouiTopBarScrollBehavior)?.behavior
+    // 钉死小标题：页面照旧把 behavior 的连接挂在正文滚动上，但顶栏不折叠时不该再吃那 58dp。
+    // 页内顶栏要么都钉死、要么都折叠，同一份 behavior 不会被两种顶栏同时用。
+    (scrollBehavior as? AndroidCouiTopBarScrollBehavior)?.pinned = pinned
     val resolvedTitle = if (pinned) title.ifBlank { largeTitle } else largeTitle.ifBlank { title }
     val resolvedSubtitle = subtitle?.takeIf { it.isNotBlank() }
     val resolvedTitleColor = titleColor.takeOrElse { MiuixTheme.colorScheme.onSurface }

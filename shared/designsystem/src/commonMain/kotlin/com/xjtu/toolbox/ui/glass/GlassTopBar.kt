@@ -133,7 +133,13 @@ private class TopBarFollow(initial: Dp) {
 /** 顶栏跟随状态。 */
 private val topBarFollows = mutableMapOf<LayerBackdrop, TopBarFollow>()
 
-/** 二级页的标准顶栏：COUI 折叠版式（非 Android 回退 MIUIX 大标题顶栏）、左上角返回。 */
+/**
+ * 二级页的标准顶栏：COUI 收起态版式（非 Android 回退 MIUIX 小标题顶栏）、左上角返回。
+ *
+ * 一级页（首页 / 日程 / 学辅 / 我的）保留各自的大标题折叠顶栏；二级页**不折叠**——
+ * 标题固定在收起态，跟着滚动的只有正文。模糊 / 材质与一级页同一套 COUI 渐变模糊，
+ * 所以这里同样把本页采样源交给顶栏（[couiPageBackdropFor]）。
+ */
 @Composable
 fun GlassTopAppBar(
     title: String,
@@ -150,6 +156,7 @@ fun GlassTopAppBar(
         color = glassBarColor(glass),
         scrollBehavior = scrollBehavior,
         pageBackdrop = couiPageBackdropFor(glass),
+        pinned = true,
         navigationIcon = { BackButton(onBack) },
         actions = actions,
         bottomContent = bottomContent,

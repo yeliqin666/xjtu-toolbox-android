@@ -219,6 +219,8 @@ fun JwappScoreScreen(
                 color = glassBarColor(glass),
                 pageBackdrop = couiPageBackdropFor(glass),
                 scrollBehavior = scrollBehavior,
+                // 二级页：标题钉死成收起态，不随上滑变小
+                pinned = true,
                 navigationIcon = {
                     // 放在底栏上时没有上一级，只在选课模式下留「关闭」
                     if (gpaSelectMode || !com.xjtu.toolbox.ui.glass.LocalTabRoot.current) CouiToolbarActionButton(onClick = {
