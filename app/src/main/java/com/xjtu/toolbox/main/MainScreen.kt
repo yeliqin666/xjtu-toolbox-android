@@ -489,7 +489,7 @@ internal fun MainScreen(
                 showGlobalSearch -> showGlobalSearch = false
                 // 先退回上一格（当前页缩回自己的按钮）；没有历史了再回首页
                 tabs.back(bar.mapTo(HashSet()) { it.id }) -> Unit
-                selectedTab != BottomTab.HOME -> tabs.select(BottomTab.HOME)
+                selectedTab != BottomTab.HOME -> tabs.jumpHome()
                 else -> {
                     val now = System.currentTimeMillis()
                     if (now - lastBackPressTime < 2000) {

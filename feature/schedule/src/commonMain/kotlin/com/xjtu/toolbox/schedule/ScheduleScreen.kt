@@ -56,6 +56,7 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.SwapHoriz
 import androidx.compose.material.icons.filled.Event
+import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.outlined.CloudOff
 import androidx.compose.material.icons.outlined.EventAvailable
 import top.yukonga.miuix.kmp.basic.SnackbarDuration
@@ -289,6 +290,42 @@ fun ScheduleScreen(
                             }
                         }
                     }
+                    // 课表壁纸：本周课表直接设成锁屏或桌面（只在能设壁纸的端上画）
+                    if (ScheduleCapability.WALLPAPER in host.honored) {
+                        ScheduleMenuRow(
+                            icon = Icons.Default.Schedule,
+                            text = "设为锁屏课表（第 ${vm.currentWeek} 周）",
+                            onClick = {
+                                showExportMenu = false
+                                val ok = host.setWallpaper(filteredMergedCourses, vm.currentWeek, lock = true)
+                                showBriefMessage(if (ok) "已设为锁屏壁纸" else "设置失败，请稍后再试")
+                            }
+                        )
+                        ScheduleMenuRow(
+                            icon = Icons.Default.Schedule,
+                            text = "设为桌面课表（第 ${vm.currentWeek} 周）",
+                            onClick = {
+                                showExportMenu = false
+                                val ok = host.setWallpaper(filteredMergedCourses, vm.currentWeek, lock = false)
+                                showBriefMessage(if (ok) "已设为桌面壁纸" else "设置失败，请稍后再试")
+                            }
+                        )
+                    }
+                    // 上课自动勿扰：没授权时点它是去系统里授权，授权后点一下切换开关
+                    host.autoDnd?.takeIf { ScheduleCapability.AUTO_DND in host.honored }?.let { dnd ->
+                        ScheduleMenuRow(
+                            icon = Icons.Default.Notifications,
+                            text = when {
+                                !dnd.granted -> "上课自动勿扰（去授权）"
+                                dnd.enabled -> "上课自动勿扰：已开启"
+                                else -> "上课自动勿扰：已关闭"
+                            },
+                            onClick = {
+                                showExportMenu = false
+                                if (dnd.granted) dnd.setEnabled(!dnd.enabled) else dnd.openAccessSettings()
+                            }
+                        )
+                    }
                     // 这一行只在「本端真能把文件交给系统」时才画（见 ScheduleCapability.SHARE_FILE）：
                     // 桌面端还没有分享面板，画出来就是点一下没反应。
                     if (ScheduleCapability.SHARE_FILE in host.honored) {
@@ -377,6 +414,8 @@ fun ScheduleScreen(
                     Spacer(Modifier.weight(1f))
                 }
             }
+            host.autoDnd?.takeIf { ScheduleCapability.AUTO_DND in host.honored && filteredMergedCourses.isNotEmpty() }
+                ?.takeIf { it.shouldPrompt() }?.let { AutoDndPromptCard(it) }
             campusTimeHint()?.let {
                 Text(
                     it,
@@ -1077,6 +1116,37 @@ private fun WeekPickerAction(
         Icon(icon, null, Modifier.size(16.dp), tint = fg)
         Spacer(Modifier.width(4.dp))
         Text(label, style = MiuixTheme.textStyles.footnote1, fontWeight = FontWeight.SemiBold, color = fg, maxLines = 1)
+    }
+}
+
+/** 课表有内容、还没开自动勿扰时在顶部提示一次；「不再提示」之后就不再出现。 */
+@Composable
+private fun AutoDndPromptCard(dnd: AutoDndAccess) {
+    var hidden by remember { mutableStateOf(false) }
+    if (hidden) return
+    Card(
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp),
+        cornerRadius = 14.dp,
+    ) {
+        Column(Modifier.padding(horizontal = 14.dp, vertical = 10.dp)) {
+            Text("上课时自动开启勿扰？", style = MiuixTheme.textStyles.body1, color = MiuixTheme.colorScheme.onSurfaceContainer)
+            Text(
+                "课前 3 分钟到课后 3 分钟自动切换，需要在系统里授权一次。",
+                style = MiuixTheme.textStyles.footnote1,
+                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+            )
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                TextButton(text = "不再提示", onClick = { dnd.dismissPrompt(); hidden = true })
+                Spacer(Modifier.width(8.dp))
+                TextButton(
+                    text = if (dnd.granted) "开启" else "去授权",
+                    onClick = {
+                        if (dnd.granted) dnd.setEnabled(true) else dnd.openAccessSettings()
+                        hidden = true
+                    },
+                )
+            }
+        }
     }
 }
 

@@ -27,6 +27,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
 import com.xjtu.toolbox.notification.DynamicScheduleScheduler
 import com.xjtu.toolbox.notification.DynamicScheduleNotifier
+import com.xjtu.toolbox.notification.AutoDndScheduler
 import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.CardDefaults
 import top.yukonga.miuix.kmp.basic.SmallTitle
@@ -40,9 +41,13 @@ internal fun DynamicSchedulePreference() {
     var enabled by remember { mutableStateOf(DynamicScheduleScheduler.isEnabled(context)) }
     var exact by remember { mutableStateOf(DynamicScheduleScheduler.canScheduleExactly(context)) }
     var canPost by remember { mutableStateOf(DynamicScheduleNotifier.canPost(context)) }
+    var dndOn by remember { mutableStateOf(AutoDndScheduler.isEnabled(context)) }
+    var dndGranted by remember { mutableStateOf(AutoDndScheduler.hasAccess(context)) }
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) {
         exact = DynamicScheduleScheduler.canScheduleExactly(context)
         canPost = DynamicScheduleNotifier.canPost(context)
+        dndOn = AutoDndScheduler.isEnabled(context)
+        dndGranted = AutoDndScheduler.hasAccess(context)
         DynamicScheduleScheduler.requestRefresh(context)
     }
     fun commit(value: Boolean) {
@@ -78,6 +83,17 @@ internal fun DynamicSchedulePreference() {
                 },
             )
             if (enabled) {
+                var walkOn by remember { mutableStateOf(DynamicScheduleScheduler.isWalkHintOn(context)) }
+                SwitchPreference(
+                    title = "跨楼时提醒出发",
+                    summary = "上一节与下一节不在同一栋楼时，按步行时间在开课前提醒该出发了",
+                    checked = walkOn,
+                    startAction = { SettingsIcon(Icons.Default.EventNote, SettingsColors.Green) },
+                    onCheckedChange = { on ->
+                        walkOn = on
+                        DynamicScheduleScheduler.setWalkHintOn(context, on)
+                    },
+                )
                 ArrowPreference(
                     title = "准时切换通知",
                     summary = if (exact) "已允许在课程、日程开始和结束时切换" else "未允许精确闹钟，后台切换可能延迟；倒计时仍自动更新",
@@ -95,6 +111,50 @@ internal fun DynamicSchedulePreference() {
                     },
                 )
             }
+        }
+    }
+    SmallTitle("小岱周报")
+    Card(
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+        cornerRadius = 16.dp,
+        colors = CardDefaults.defaultColors(color = MiuixTheme.colorScheme.surfaceVariant),
+    ) {
+        var reportOn by remember { mutableStateOf(com.xjtu.toolbox.report.WeeklyReport.isEnabled(context)) }
+        Column {
+            SwitchPreference(
+                title = "每周日晚发小岱周报",
+                summary = "周日 20:00 在消息收纳「小岱简报」里放一份本周作业、DDL 与校园卡消费小结，只读本机数据",
+                checked = reportOn,
+                startAction = { SettingsIcon(Icons.Default.EventNote, SettingsColors.Pink) },
+                onCheckedChange = { on ->
+                    reportOn = on
+                    com.xjtu.toolbox.report.WeeklyReport.setEnabled(context, on)
+                },
+            )
+        }
+    }
+    SmallTitle("上课自动勿扰")
+    Card(
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+        cornerRadius = 16.dp,
+        colors = CardDefaults.defaultColors(color = MiuixTheme.colorScheme.surfaceVariant),
+    ) {
+        Column {
+            SwitchPreference(
+                title = "上课时自动开启勿扰",
+                summary = if (dndGranted) "课前 3 分钟到课后 3 分钟切为「仅优先」，结束后恢复；手动改过的不会被还原"
+                    else "需要先在系统里授权「勿扰模式访问」（应用可以切换勿扰，不读取通知内容）",
+                checked = dndOn,
+                startAction = { SettingsIcon(Icons.Default.Notifications, SettingsColors.Purple) },
+                onCheckedChange = { on ->
+                    if (!dndGranted) openSettings(Intent(Settings.ACTION_NOTIFICATION_POLICY_ACCESS_SETTINGS))
+                    else {
+                        dndOn = on
+                        AutoDndScheduler.setEnabled(context, on)
+                        DynamicScheduleScheduler.requestRefresh(context)
+                    }
+                },
+            )
         }
     }
 }

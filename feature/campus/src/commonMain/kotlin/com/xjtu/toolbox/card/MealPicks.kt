@@ -29,6 +29,7 @@ import com.xjtu.toolbox.ui.components.rememberInsight
 import com.xjtu.toolbox.util.safeStringOrNull
 import com.xjtu.toolbox.util.todayOnCampus
 import kotlinx.datetime.DateTimeUnit
+import kotlinx.datetime.LocalDate
 import kotlinx.datetime.minus
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.jsonObject
@@ -62,6 +63,32 @@ private object MealPrefs {
 
     fun load(): Set<String> = store.getString("prefs").orEmpty().split(',').filter { it in OPTIONS }.toSet()
     fun save(prefs: Set<String>) = store.putString("prefs", prefs.joinToString(","))
+}
+
+/**
+ * 首页头卡的一句饭点推荐（纯本地，不发请求）：饭点内从近 20 天的餐饮流水里，挑这一顿常去、
+ * 且近两天没去过的档口；没有数据或不在饭点返回 null。
+ */
+internal fun mealHomeHint(transactions: List<Transaction>, today: LocalDate, hour: Int): String? {
+    val (slot, hours) = when (hour) {
+        in 11..13 -> "午饭" to 11..13
+        in 17..19 -> "晚饭" to 17..19
+        else -> return null
+    }
+    val since = today.minus(20, DateTimeUnit.DAY).toString()
+    val recent = today.minus(2, DateTimeUnit.DAY).toString()
+    val meals = transactions.filter { it.amount < 0 && it.time.take(10) >= since && categoryOf(it) == "餐饮" }
+    val pick = meals.groupBy { it.displayMerchant.ifBlank { MealReport.canteenOf(it) ?: "" } }
+        .filterKeys { it.isNotBlank() }
+        .mapNotNull { (place, txs) ->
+            val inSlot = txs.count { MealReport.clockOf(it)?.let { m -> m / 60 in hours } == true }
+            // 这一顿没去过、或近两天刚吃过的不推，让它轮换
+            if (inSlot == 0 || txs.any { it.time.take(10) >= recent }) null
+            else Triple(place, inSlot, txs.sumOf { -it.amount } / txs.size)
+        }
+        .maxByOrNull { it.second } ?: return null
+    val avg = (pick.third * 10).roundToInt() / 10.0
+    return "${slot}可以试试${pick.first}，你常在这顿吃 · 均价 $avg 元"
 }
 
 /** 交给屁岱的就餐摘要：近 21 天按食堂/档口聚合 + 时段 + 今天吃过的 + 余额。纯本地计算。 */

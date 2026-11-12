@@ -36,6 +36,8 @@ internal class AppScheduleHost(
     override val customCourses: CustomCourseStore =
         RoomCustomCourseStore(AppDatabase.getInstance(app).customCourseDao())
 
+    override val autoDnd: AutoDndAccess = com.xjtu.toolbox.notification.AndroidAutoDnd(app)
+
     override val login: ScheduleLogin = object : ScheduleLogin {
         override val accountId: String get() = loginState.accountId
         override val studentId: String get() = loginState.activeUsername
@@ -94,6 +96,9 @@ internal class AppScheduleHost(
             false
         }
     }
+
+    override fun setWallpaper(courses: List<CourseItem>, week: Int, lock: Boolean): Boolean =
+        ScheduleWallpaper.apply(app, courses, week, lock)
 
     override fun postScheduleChange(message: String) {
         InboxStore.post(OwnInbox.scheduleChange(message))

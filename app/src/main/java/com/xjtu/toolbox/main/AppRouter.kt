@@ -34,7 +34,7 @@ import top.yukonga.miuix.kmp.basic.SnackbarHostState
 class MainTabState(initialId: String) {
     private val current = mutableStateOf(initialId)
 
-    /** 切过来之前在哪几格，最近的在最后。只记 [MAX_HISTORY] 步：页签页本来就常驻，不存快照，限的是能退几步。 */
+    /** 切过来之前在哪几格，最近的在最后。每格只记一次，最多记「底栏格数 − 1」步：页签页常驻，限的是能退几步。 */
     private val history = ArrayDeque<String>()
 
     /** 这一次切换是不是返回键退回来的：外壳据此让当前页缩回自己的按钮，而不是让上一页再放大一次。 */
@@ -47,7 +47,8 @@ class MainTabState(initialId: String) {
             if (value == current.value) return
             history.remove(current.value)
             history.addLast(current.value)
-            while (history.size > MAX_HISTORY) history.removeFirst()
+            val limit = (bar.size - 1).coerceAtLeast(0)
+            while (history.size > limit) history.removeFirst()
             history.remove(value)
             returning = false
             current.value = value
@@ -58,6 +59,12 @@ class MainTabState(initialId: String) {
 
     fun select(tab: BottomTab) {
         selectedId = tab.name
+    }
+
+    /** 兜底回首页：不记入历史。记了的话，返回键会在首页和原页之间来回切，永远退不出 App。 */
+    fun jumpHome() {
+        returning = false
+        current.value = BottomTab.HOME.name
     }
 
     /** 退回上一格；没有可退的（或那几格已经不在底栏上）返回 false。 */
@@ -73,8 +80,6 @@ class MainTabState(initialId: String) {
     }
 
     companion object {
-        private const val MAX_HISTORY = 4
-
         val Saver = Saver<MainTabState, String>(
             save = { it.selectedId },
             restore = { MainTabState(it) },

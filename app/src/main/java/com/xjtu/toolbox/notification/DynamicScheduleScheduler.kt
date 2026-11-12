@@ -31,6 +31,15 @@ internal object DynamicScheduleScheduler {
     fun isEnabled(context: Context): Boolean =
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getBoolean("enabled", false)
 
+    /** 跨楼时提前提醒出发，默认开。 */
+    fun isWalkHintOn(context: Context): Boolean =
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getBoolean("walk_hint", true)
+
+    fun setWalkHintOn(context: Context, on: Boolean) {
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putBoolean("walk_hint", on).apply()
+        requestRefresh(context)
+    }
+
     fun setEnabled(context: Context, enabled: Boolean) {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putBoolean("enabled", enabled).apply()
         if (!enabled) cancel(context)
@@ -47,15 +56,21 @@ internal object DynamicScheduleScheduler {
 
     /** 由应用 IO scope 或广播的 goAsync 调用，只读当前账号的本机缓存与 Room。 */
     suspend fun refresh(context: Context) = lock.withLock {
+        // 周报闹钟与动态通知无关，但同样要在开机、换包后重排，所以挂在这里
+        com.xjtu.toolbox.report.WeeklyReport.syncAlarm(context)
         try {
-            if (!isEnabled(context) || !DynamicScheduleNotifier.canPost(context)) {
+            val notifyOn = isEnabled(context) && DynamicScheduleNotifier.canPost(context)
+            val dndOn = AutoDndScheduler.isEnabled(context)
+            if (!notifyOn && !dndOn) {
                 cancel(context)
+                AutoDndScheduler.restore(context)
                 return@withLock
             }
             val accounts = AccountStore()
             val account = accounts.activeAccountId()?.takeIf { it.isNotBlank() }
             if (account == null) {
                 cancel(context)
+                AutoDndScheduler.restore(context)
                 return@withLock
             }
             val cache = DataCache(context, account)
@@ -69,21 +84,34 @@ internal object DynamicScheduleScheduler {
                 AppDatabase.getInstance(context).customCourseDao().getByTerm(account, it).map { row -> row.toCourseItem() }
             }.orEmpty()
             val now = ZonedDateTime.now(CampusZoneId)
-            val plan = planDynamicSchedule(
-                courses = courses + custom,
-                termStart = term?.let { ScheduleCache.readStartDate(cache, it) }?.toJavaTime(),
-                now = now,
-                holidays = HolidayApi.peekCached(cache).keys.map { it.toJavaTime() }.toSet(),
-            )
+            val nowMs = now.toInstant().toEpochMilli()
+            val allCourses = courses + custom
+            val termStart = term?.let { ScheduleCache.readStartDate(cache, it) }?.toJavaTime()
+            val holidays = HolidayApi.peekCached(cache).keys.map { it.toJavaTime() }.toSet()
+            val plan = planDynamicSchedule(allCourses, termStart, now, holidays)
             // 查 Room 期间切了账号/关了开关，旧账号这一轮必须失效。
             if (accounts.activeAccountId() != account ||
-                (AccountContext.activeAccountId != null && AccountContext.activeAccountId != account) ||
-                !isEnabled(context)) {
+                (AccountContext.activeAccountId != null && AccountContext.activeAccountId != account)) {
                 cancel(context)
+                AutoDndScheduler.restore(context)
                 return@withLock
             }
-            DynamicScheduleNotifier.post(context, plan, now.toInstant().toEpochMilli())
-            schedule(context, plan.nextRefreshAt)
+            val todayItems = todayScheduleItems(allCourses, termStart, now, holidays)
+            // 跨楼「该出发」：只在显示的是下一节（未开始）时生效，出发时刻本身也是一次唤醒
+            val walk = if (isWalkHintOn(context) && !plan.ongoing) {
+                plan.current?.let { walkPlanFor(todayItems, it) }
+            } else null
+            if (notifyOn && isEnabled(context)) DynamicScheduleNotifier.post(context, plan, nowMs, walk?.let { walkHintText(it, nowMs) })
+            else DynamicScheduleNotifier.cancel(context)
+            val dndNext = if (dndOn) {
+                AutoDndScheduler.apply(context, todayItems, nowMs)
+            } else {
+                AutoDndScheduler.restore(context)
+                null
+            }
+            val walkWake = walk?.leaveAt?.takeIf { it > nowMs }
+            // 几件事共用一个闹钟：取最早的边界；午夜那一刻也要醒来重排第二天的课。
+            schedule(context, listOfNotNull(plan.nextRefreshAt, dndNext, walkWake).min())
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {

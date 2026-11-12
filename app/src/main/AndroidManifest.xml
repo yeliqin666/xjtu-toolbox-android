@@ -13,6 +13,10 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
     <!-- 动态课程/日程通知在开始、结束时切换；可选授权，未授权时使用非精确闹钟。 -->
     <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
+    <!-- 课表壁纸：把一周课表设为锁屏或桌面壁纸 -->
+    <uses-permission android:name="android.permission.SET_WALLPAPER" />
+    <!-- 上课自动勿扰：调用 setInterruptionFilter 需要它，另由用户在系统「勿扰模式访问」里授权。 -->
+    <uses-permission android:name="android.permission.ACCESS_NOTIFICATION_POLICY" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <!-- 富触感反馈（ui/Haptics.kt）：没有这个权限，VibrationEffect 组合振动会静默失效 -->
     <uses-permission android:name="android.permission.VIBRATE" />
@@ -212,6 +216,16 @@
                 <action android:name="android.intent.action.TIME_SET" />
                 <action android:name="android.intent.action.TIMEZONE_CHANGED" />
                 <action android:name="android.app.action.SCHEDULE_EXACT_ALARM_PERMISSION_STATE_CHANGED" />
+            </intent-filter>
+        </receiver>
+
+        <receiver
+            android:name=".report.WeeklyReportReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.xjtu.toolbox.WEEKLY_REPORT" />
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
             </intent-filter>
         </receiver>
 
