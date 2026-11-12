@@ -38,6 +38,9 @@ val LocalCouiPageBackdrop = staticCompositionLocalOf<CouiPageBackdrop?> { null }
 interface CouiTopBarScrollBehavior {
     /** 挂到滚动容器祖先上的连接；行为语义见 COUI `CouiCollapsingAppBarState`。 */
     val nestedScrollConnection: NestedScrollConnection
+
+    /** 顶栏折叠比例（0 = 全展开，1 = 全收起）。下拉刷新要等它为 0 才开始拉。 */
+    val collapsedFraction: Float get() = 0f
 }
 
 /** 每页（或每个 tab）一份 COUI 折叠状态；与 COUI `CouiTopAppBarDefaults.exitUntilCollapsedScrollBehavior` 等价。 */

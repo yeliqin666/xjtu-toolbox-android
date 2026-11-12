@@ -66,6 +66,8 @@ private class AndroidCouiTopBarScrollBehavior(
     }
 
     override val nestedScrollConnection: NestedScrollConnection get() = connection
+
+    override val collapsedFraction: Float get() = behavior.state.collapsedFraction
 }
 
 @Composable
