@@ -414,8 +414,6 @@ fun ScheduleScreen(
                     Spacer(Modifier.weight(1f))
                 }
             }
-            host.autoDnd?.takeIf { ScheduleCapability.AUTO_DND in host.honored && filteredMergedCourses.isNotEmpty() }
-                ?.takeIf { it.shouldPrompt() }?.let { AutoDndPromptCard(it) }
             campusTimeHint()?.let {
                 Text(
                     it,
@@ -464,11 +462,16 @@ fun ScheduleScreen(
             // 顶栏是玻璃、盖在内容上面时（contentTopPadding > 0）：
             // 下面几条不滚动的横幅（缓存提示、切周进度条、考试倒计时）出现时，横幅本身先让出顶栏高度，
             // 列表就不用再留；没有横幅时把留白交给各栏的滚动内容，内容才会从顶栏下面滚过去。
-            val staticHeaderShown = (vm.showingStaleData && !vm.isLoading) ||
+            // 自动勿扰提示是页面内的横幅（不进顶栏），和其他横幅一样让出顶栏高度
+            val dndPrompt = host.autoDnd?.takeIf {
+                ScheduleCapability.AUTO_DND in host.honored && filteredMergedCourses.isNotEmpty() && it.shouldPrompt()
+            }
+            val staticHeaderShown = (vm.showingStaleData && !vm.isLoading) || dndPrompt != null ||
                 (!vm.isLoading && vm.errorMessage == null &&
                     ((currentContent == "week" && vm.isSwitching) || nextExam != null))
             if (staticHeaderShown && contentTopPadding > 0.dp) Spacer(Modifier.height(contentTopPadding))
             val listTopPadding = if (staticHeaderShown) 0.dp else contentTopPadding
+            dndPrompt?.let { AutoDndPromptCard(it) }
 
             // 缓存数据提示：刷新失败但有缓存时，顶部一条小 banner 告知用户「这可能是旧数据」
             if (vm.showingStaleData && !vm.isLoading) {

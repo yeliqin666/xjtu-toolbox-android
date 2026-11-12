@@ -456,9 +456,7 @@ fun expandFromOrigin(type: KClass<out AppRoute>, screenCornerPx: Float): NavTran
             translationX = kotlin.math.round((if (rtl) -1f else 1f) * (-d).coerceIn(0f, 1f) * width)
             return@navGraphicsTransition
         }
-        val linear = (1f + d).coerceIn(0f, 1f) // 0 = 还在那一格里，1 = 全屏
-        // 矩形卡片起步就跟手，不做慢速前摇；圆钮沿用 ButtonZoom 的节奏。首尾不变，落地时刻不动。
-        val p = if (ButtonZoom.isCircle(origin)) linear else CardMotionEasing.transform(linear)
+        val p = (1f + d).coerceIn(0f, 1f) // 0 = 还在那一格里，1 = 全屏
         val full = Size(width, scope.layoutSize.height.toFloat())
         if (full.width <= 0f || full.height <= 0f) return@navGraphicsTransition
 
@@ -574,10 +572,7 @@ private val ExpandMotion = top.yukonga.miuix.kmp.nav.transition.NavMotion(
     ),
 )
 
-private const val EXPAND_DURATION_MS = 560
-
-/** 矩形卡片开合的进度曲线：初速比 [ButtonZoom.Easing] 高得多，前段不再拖。 */
-private val CardMotionEasing: Easing = CubicBezierEasing(0.25f, 0.5f, 0.25f, 1f)
+private const val EXPAND_DURATION_MS = 660
 private const val GESTURE_SETTLE_MS = 420
 
 /** 裁剪用的形状：页面上的一块圆角矩形，[radius] 是缩放前的像素半径。 */
