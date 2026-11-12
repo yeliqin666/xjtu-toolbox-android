@@ -112,8 +112,7 @@ fun CouiTopAppBarSurface(
                 }
                 Box {
                     CompositionLocalProvider(
-                        // 按钮采样页面内容本身，而不是顶栏的背景层：按钮后面滚过的内容会被它自己模糊
-                        LocalCouiToolbarBackdrop provides backdrop,
+                        LocalCouiToolbarBackdrop provides destination,
                         LocalCouiToolbarOverlay provides this@SharedTransitionScope,
                         content = content,
                     )

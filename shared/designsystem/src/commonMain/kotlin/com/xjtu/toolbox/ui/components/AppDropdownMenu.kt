@@ -346,9 +346,7 @@ private fun MorphMenu(
                             else -> ((p - 0.15f) / 0.5f).coerceIn(0f, 1f)
                         }
                         alpha = a
-                        // 二级展开时这一层（一级）跟着糊掉：二级底下透出的是模糊的一级，而不是清晰的内容
-                        val blur = (if (closing && morph != MenuMorph.FromIcon) closeBlur * (1f - a) else 0f) +
-                            SUB_PARENT_BLUR.toPx() * sub.anim.value
+                        val blur = if (closing && morph != MenuMorph.FromIcon) closeBlur * (1f - a) else 0f
                         renderEffect = if (blur > 0.5f) BlurEffect(blur, blur, TileMode.Decal) else null
                     }
                     // 毛玻璃底：把快照反变换回它在屏幕上的原位再画，面板缩放、移动时透出来的仍是正下方那块
@@ -436,8 +434,20 @@ private fun MorphMenu(
                             alpha = (q / 0.08f).coerceIn(0f, 1f) * leaving
                             subTy[0] = translationY
                         }
-                        // 二级是不透明的实底：透出来的该是被模糊的一级（见一级的 renderEffect），不是一级的内容本身
-                        .background(MiuixTheme.colorScheme.surfaceContainer)
+                        // 二级面板同样铺毛玻璃底：它只上下位移、不缩放，反着挪回去就对上屏幕原位
+                        .then(
+                            if (frost == null) Modifier else Modifier.drawBehind {
+                                translate(-target.value.left, -(subPanelY[0] + subTy[0])) {
+                                    drawImage(
+                                        frost.image,
+                                        dstOffset = IntOffset(frostAt.x.roundToInt(), frostAt.y.roundToInt()),
+                                        dstSize = frost.fullSize,
+                                        filterQuality = FilterQuality.Low,
+                                    )
+                                }
+                            },
+                        )
+                        .background(surface)
                         .border(0.5.dp, hairline, RoundedCornerShape(MENU_RADIUS))
                         .pointerInput(Unit) { detectTapGestures { } }
                         .padding(vertical = 6.dp),
@@ -729,9 +739,6 @@ private val ROW_START_DROP = 24.dp
 
 /** 收起时内容的最大模糊半径。 */
 private val MENU_CLOSE_BLUR = 10.dp
-
-/** 二级展开时，一级面板糊到的程度。 */
-private val SUB_PARENT_BLUR = 14.dp
 
 /**
  * 菜单投影：一圈柔和的环境光加一层往下的投影。系统还会把这里的透明度乘上自己的低系数
