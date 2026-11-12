@@ -269,38 +269,23 @@ fun ScheduleScreen(
             ) {
                 // 视图切换已经提到工具栏上了，这里不再重复一份——
                 // 同一个开关两个入口，用户按了哪个都得再确认一次状态。
-                if (vm.termList.isNotEmpty()) {
-                    submenu(
-                        title = "切换学期",
-                        summary = vm.termLabel(vm.selectedTermCode),
-                        icon = Icons.Default.SwapHoriz,
-                    ) {
-                        vm.termList.forEach { term ->
-                            option(text = vm.termLabel(term), selected = term == vm.selectedTermCode) {
-                                vm.switchTerm(term)
-                            }
-                        }
-                    }
-                }
                 // 课表壁纸：本周课表直接设成锁屏或桌面（只在能设壁纸的端上画）
                 if (ScheduleCapability.WALLPAPER in host.honored) {
-                    option("设为锁屏课表（第 ${vm.currentWeek} 周）", icon = Icons.Default.Schedule) {
+                    option("设为锁屏壁纸 (第 ${vm.currentWeek} 周)", icon = Icons.Default.Schedule) {
                         val ok = host.setWallpaper(filteredMergedCourses, vm.currentWeek, lock = true)
                         showBriefMessage(if (ok) "已设为锁屏壁纸" else "设置失败，请稍后再试")
                     }
-                    option("设为桌面课表（第 ${vm.currentWeek} 周）", icon = Icons.Default.Schedule) {
+                    option("设为桌面壁纸 (第 ${vm.currentWeek} 周)", icon = Icons.Default.Schedule) {
                         val ok = host.setWallpaper(filteredMergedCourses, vm.currentWeek, lock = false)
                         showBriefMessage(if (ok) "已设为桌面壁纸" else "设置失败，请稍后再试")
                     }
                 }
-                // 上课自动勿扰：没授权时点它是去系统里授权，授权后点一下切换开关
+                // 上课自动勿扰：开 / 关直接用菜单项的「选中」样式表示（高亮 + 主题色），
+                // 不再在标题后面写「已开启 / 已关闭」。没授权时点它是去系统权限页。
                 host.autoDnd?.takeIf { ScheduleCapability.AUTO_DND in host.honored }?.let { dnd ->
                     option(
-                        text = when {
-                            !dnd.granted -> "上课自动勿扰（去授权）"
-                            dnd.enabled -> "上课自动勿扰：已开启"
-                            else -> "上课自动勿扰：已关闭"
-                        },
+                        text = "上课自动勿扰",
+                        selected = dnd.granted && dnd.enabled,
                         icon = Icons.Default.Notifications,
                     ) {
                         if (dnd.granted) dnd.setEnabled(!dnd.enabled) else dnd.openAccessSettings()
@@ -326,6 +311,20 @@ fun ScheduleScreen(
                                 showBriefMessage("节假日获取失败，已按普通课表导出")
                                 val ics = ScheduleExport.generateIcs(filteredMergedCourses, st, vm.selectedTermCode, emptySet())
                                 host.shareFile(ics, "${vm.selectedTermCode}_日程.ics", "text/calendar")
+                            }
+                        }
+                    }
+                }
+                // 切换学期放在最后一行：当前学期在子项里有勾选，标题只写「切换学期」四个字，
+                // 不再在标题后面拼「· <学年学期>」那一长串。
+                if (vm.termList.isNotEmpty()) {
+                    submenu(
+                        title = "切换学期",
+                        icon = Icons.Default.SwapHoriz,
+                    ) {
+                        vm.termList.forEach { term ->
+                            option(text = vm.termLabel(term), selected = term == vm.selectedTermCode) {
+                                vm.switchTerm(term)
                             }
                         }
                     }
@@ -958,7 +957,6 @@ private fun ScheduleTabContent(
                         isCurrentWeek = (weekN == realCurrentWeek && selectedTermCode == currentTermCode),
                         weekDates = weekDates,
                         holidayNames = holidayDates,
-                        enableCompression = true,
                         bottomPadding = bottomPadding,
                         topPadding = gridTopPadding,
                         slotBadge = { badgeOf(it, weekN) },
@@ -983,7 +981,6 @@ private fun ScheduleTabContent(
             ScheduleGrid(
                 courses, allNames,
                 showWeeks = true,
-                enableCompression = true,
                 bottomPadding = bottomPadding,
                         topPadding = gridTopPadding,
                 onSlotClick = { item ->
