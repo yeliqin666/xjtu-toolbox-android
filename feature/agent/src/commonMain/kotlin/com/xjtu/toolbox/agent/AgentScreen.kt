@@ -170,9 +170,10 @@ fun AgentScreen(
         if (drawerOpen) keyboard?.hide()
     }
 
-    // 宿主给了就用宿主的（顶栏在宿主那儿，折叠状态必须共用同一份），没给才自己建。
-    val ownScrollBehavior = MiuixScrollBehavior(rememberTopAppBarState())
-    val effectiveScrollBehavior = scrollBehavior ?: ownScrollBehavior
+    // 只用宿主给的折叠行为（顶栏在宿主那儿，折叠状态必须共用同一份）。没给就不挂任何滚动连接：
+    // 以前这里会自己建一个没有顶栏在用的 MIUIX 行为，列表照样挂着它，手指上滑会被它吃掉，
+    // 小岱的列表于是只能下滑。
+    val effectiveScrollBehavior = scrollBehavior
     // 宽屏不拦抽屉：没有抽屉可关，再拦就是吃掉一次返回。
     BackHandler(enabled = showConfig || (drawerOpen && !isWide) || showContextExhaustedDialog) {
         when {

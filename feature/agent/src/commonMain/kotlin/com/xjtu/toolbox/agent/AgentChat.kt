@@ -79,7 +79,7 @@ internal fun ChatPanel(
     /** 系统相册挑图（`:app` 实现；没有相册的端那一档不画，见 [AgentCapability.IMAGE_INPUT]）。 */
     imagePicker: AgentImagePicker,
     padding: PaddingValues,
-    scrollBehavior: ScrollBehavior,
+    scrollBehavior: ScrollBehavior?,
     onNavigate: (AppRoute) -> Unit,
     onOpenConfig: () -> Unit,
     onPushPreferences: () -> Unit = onOpenConfig,
@@ -248,7 +248,7 @@ internal fun ChatPanel(
                     modifier = Modifier
                         .fillMaxSize()
                         .overScrollVertical()
-                        .nestedScroll(scrollBehavior.nestedScrollConnection),
+                        .then(if (scrollBehavior != null) Modifier.nestedScroll(scrollBehavior.nestedScrollConnection) else Modifier),
                     contentPadding = PaddingValues(start = 24.dp, end = 24.dp, top = 16.dp + listTopPadding, bottom = 16.dp + composerHeight),
                     verticalArrangement = Arrangement.spacedBy(14.dp)
                 ) {
