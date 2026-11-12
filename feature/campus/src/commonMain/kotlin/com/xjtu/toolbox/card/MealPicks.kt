@@ -69,7 +69,7 @@ private object MealPrefs {
  * 首页头卡的一句饭点推荐（纯本地，不发请求）：饭点内从近 20 天的餐饮流水里，挑这一顿常去、
  * 且近两天没去过的档口；没有数据或不在饭点返回 null。
  */
-internal fun mealHomeHint(transactions: List<Transaction>, today: LocalDate, hour: Int): String? {
+fun mealHomeHint(transactions: List<Transaction>, today: LocalDate, hour: Int): String? {
     val (slot, hours) = when (hour) {
         in 11..13 -> "午饭" to 11..13
         in 17..19 -> "晚饭" to 17..19
