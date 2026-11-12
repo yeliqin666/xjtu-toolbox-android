@@ -27,7 +27,8 @@ object CouiTopAppBarDefaults {
     val height = 52.dp
     val expandedHeight = CouiCollapsingAppBarDefaults.titleOnlyHeight
     val collapsedHeight = CouiCollapsingAppBarDefaults.collapsedTitleHeight
-    internal val titleOnlyCollapsedSize = 24.sp
+    /** 无返回键的大标题顶栏收起后的标题字号，也是钉死小标题应取的尺寸。 */
+    val titleOnlyCollapsedSize = 24.sp
     internal val expandedTitleStart = CouiCollapsingAppBarDefaults.titleStart
     internal val horizontalPadding = 12.dp
     internal val titleGap = 8.dp

@@ -346,15 +346,14 @@ fun EmptyRoomScreen(
                         }
                         val periodSources = sources.filter { it != RoomSource.LIVE }
                         fun label(it: RoomSource) = if (it == RoomSource.CDN) "课表 CDN" else "直查教务"
-                        com.xjtu.toolbox.ui.components.AppIconMenu(
+                        com.xjtu.toolbox.ui.glass.CouiIconMenu(
                             expanded = menuOpen,
                             onExpandedChange = { menuOpen = it },
                             icon = { Icon(Icons.Default.Tune, contentDescription = "查询方式") },
                         ) {
                             if (RoomSource.LIVE in sources) {
                                 // 此刻综合：实况 + 当天课表，此刻能用的和接下来会空的一起给
-                                com.xjtu.toolbox.ui.components.AppDropdownOption("此刻综合", isLive && vm.combined) {
-                                    menuOpen = false
+                                option("此刻综合", selected = isLive && vm.combined) {
                                     // 进来先看接下来两节：整天都要空的话，此刻被占的几乎全被筛掉
                                     if (currentPeriod >= 0) {
                                         startPeriod = (currentPeriod + 2).coerceIn(1, 11)
@@ -362,19 +361,19 @@ fun EmptyRoomScreen(
                                     }
                                     vm.selectCombined()
                                 }
-                                com.xjtu.toolbox.ui.components.AppDropdownOption("此刻实况", isLive && !vm.combined) { pick(RoomSource.LIVE) }
+                                option("此刻实况", selected = isLive && !vm.combined) { pick(RoomSource.LIVE) }
                             }
                             // 只有一种按节来源时不用再选，直接叫「按节找空闲」
                             periodSources.singleOrNull()?.let { only ->
-                                com.xjtu.toolbox.ui.components.AppDropdownOption("按节找空闲", sourceKind == only) { pick(only) }
+                                option("按节找空闲", selected = sourceKind == only) { pick(only) }
                             }
                             if (periodSources.size > 1) {
-                                com.xjtu.toolbox.ui.components.AppDropdownSubMenu(
+                                submenu(
                                     title = "按节找空闲",
                                     summary = if (isLive) null else label(sourceKind),
                                 ) {
                                     periodSources.forEach { source ->
-                                        com.xjtu.toolbox.ui.components.AppDropdownOption(label(source), sourceKind == source) { pick(source) }
+                                        option(label(source), selected = sourceKind == source) { pick(source) }
                                     }
                                 }
                             }

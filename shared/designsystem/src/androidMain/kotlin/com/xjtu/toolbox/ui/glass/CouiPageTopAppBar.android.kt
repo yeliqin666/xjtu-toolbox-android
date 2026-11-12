@@ -16,6 +16,7 @@ import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.Velocity
 import com.xjtu.toolbox.ui.glass.coui.CouiBackdrop
 import com.xjtu.toolbox.ui.glass.coui.CouiTextKind
@@ -28,6 +29,7 @@ import com.xjtu.toolbox.ui.glass.coui.Text
 import com.xjtu.toolbox.ui.glass.coui.TopAppBar
 import com.xjtu.toolbox.ui.glass.coui.couiBackdrop
 import com.xjtu.toolbox.ui.glass.coui.rememberCouiBackdrop
+import com.xjtu.toolbox.ui.glass.coui.rememberCouiSystemTextStyle
 import com.xjtu.toolbox.ui.theme.LocalIsDarkTheme
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
@@ -108,6 +110,7 @@ actual fun CouiPageTopAppBar(
     navigationIcon: @Composable () -> Unit,
     actions: @Composable RowScope.() -> Unit,
     bottomContent: @Composable () -> Unit,
+    titleSize: TextUnit?,
 ) {
     val dark = LocalIsDarkTheme.current
     val backdrop = (pageBackdrop as? AndroidCouiPageBackdrop)?.backdrop
@@ -131,6 +134,7 @@ actual fun CouiPageTopAppBar(
             title = resolvedTitle,
             subtitle = resolvedSubtitle,
             subtitleColor = subtitleColor,
+            fontSize = titleSize,
         )
     }
     if (backdrop == null) {
@@ -236,8 +240,15 @@ private fun CouiPageTitle(
     title: String,
     subtitle: String?,
     subtitleColor: Color,
+    fontSize: TextUnit? = null,
 ) {
-    val titleStyle = LocalCouiTextStyle.current
+    // 覆盖字号时按 COUI 的 HomeTitle 排版重新算一遍（字号变了行高要跟着变），
+    // 这样和「大标题收起后」的标题字形、字重完全一致。
+    val titleStyle = if (fontSize == null) {
+        LocalCouiTextStyle.current
+    } else {
+        rememberCouiSystemTextStyle(CouiTextKind.HomeTitle, size = fontSize.value)
+    }
     if (subtitle == null) {
         BasicText(
             text = title,

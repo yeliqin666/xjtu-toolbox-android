@@ -125,14 +125,13 @@ fun SchoolCalendarScreen(
                 actions = {
                     if (terms.size > 1) {
                         var termMenuOpen by remember { mutableStateOf(false) }
-                        com.xjtu.toolbox.ui.components.AppIconMenu(
+                        com.xjtu.toolbox.ui.glass.CouiIconMenu(
                             expanded = termMenuOpen,
                             onExpandedChange = { termMenuOpen = it },
                             icon = { Icon(Icons.Default.DateRange, contentDescription = "切换学期") },
                         ) {
                             terms.forEachIndexed { index, term ->
-                                com.xjtu.toolbox.ui.components.AppDropdownOption(term.termName, index == selectedTermIndex) {
-                                    termMenuOpen = false
+                                option(term.termName, selected = index == selectedTermIndex) {
                                     selectedTermIndex = index
                                 }
                             }

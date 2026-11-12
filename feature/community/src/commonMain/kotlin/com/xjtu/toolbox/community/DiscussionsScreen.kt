@@ -99,29 +99,26 @@ fun DiscussionsScreen(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
             Box {
-                com.xjtu.toolbox.ui.components.AppIconMenu(
+                com.xjtu.toolbox.ui.glass.CouiIconMenu(
                     expanded = showOptions,
                     onExpandedChange = { showOptions = it },
                     icon = { Icon(Icons.Outlined.FilterList, contentDescription = "筛选与排序", tint = MiuixTheme.colorScheme.onSurface) },
                 ) {
-                    com.xjtu.toolbox.ui.components.AppDropdownSubMenu(title = "状态", summary = state.stateFilter.label) {
+                    submenu(title = "状态", summary = state.stateFilter.label) {
                         DiscussionStateFilter.entries.forEach { filter ->
-                            com.xjtu.toolbox.ui.components.AppDropdownOption(filter.label, filter == state.stateFilter) {
-                                showOptions = false
+                            option(filter.label, selected = filter == state.stateFilter) {
                                 onState(filter)
                             }
                         }
                     }
-                    com.xjtu.toolbox.ui.components.AppDropdownSubMenu(title = "排序", summary = state.sort.label) {
+                    submenu(title = "排序", summary = state.sort.label) {
                         DiscussionSort.entries.forEach { sort ->
-                            com.xjtu.toolbox.ui.components.AppDropdownOption(sort.label, sort == state.sort) {
-                                showOptions = false
+                            option(sort.label, selected = sort == state.sort) {
                                 onSort(sort)
                             }
                         }
                     }
-                    com.xjtu.toolbox.ui.components.AppDropdownOption("只看我发的", mine) {
-                        showOptions = false
+                    option("只看我发的", selected = mine) {
                         onAuthor(if (mine) null else me)
                     }
                 }

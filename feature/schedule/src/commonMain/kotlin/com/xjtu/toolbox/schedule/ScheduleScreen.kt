@@ -262,98 +262,72 @@ fun ScheduleScreen(
         // 这里不再放一个意思含糊的按钮。
         Box {
             // 主菜单
-            com.xjtu.toolbox.ui.components.AppIconMenu(
+            com.xjtu.toolbox.ui.glass.CouiIconMenu(
                 expanded = showExportMenu,
                 onExpandedChange = { showExportMenu = it },
                 icon = { Icon(Icons.Default.MoreVert, contentDescription = "更多") },
             ) {
-                run {
-                    // 视图切换已经提到工具栏上了，这里不再重复一份——
-                    // 同一个开关两个入口，用户按了哪个都得再确认一次状态。
-                    if (vm.termList.isNotEmpty()) {
-                        com.xjtu.toolbox.ui.components.AppDropdownSubMenu(
-                            title = "切换学期",
-                            summary = vm.termLabel(vm.selectedTermCode),
-                            leadingIcon = {
-                                Icon(Icons.Default.SwapHoriz, null, Modifier.size(20.dp), tint = MiuixTheme.colorScheme.onSurfaceContainer)
-                            },
-                        ) {
-                            vm.termList.forEach { term ->
-                                com.xjtu.toolbox.ui.components.AppDropdownOption(
-                                    text = vm.termLabel(term),
-                                    selected = term == vm.selectedTermCode,
-                                    onClick = {
-                                        showExportMenu = false
-                                        vm.switchTerm(term)
-                                    },
-                                )
+                // 视图切换已经提到工具栏上了，这里不再重复一份——
+                // 同一个开关两个入口，用户按了哪个都得再确认一次状态。
+                if (vm.termList.isNotEmpty()) {
+                    submenu(
+                        title = "切换学期",
+                        summary = vm.termLabel(vm.selectedTermCode),
+                        icon = Icons.Default.SwapHoriz,
+                    ) {
+                        vm.termList.forEach { term ->
+                            option(text = vm.termLabel(term), selected = term == vm.selectedTermCode) {
+                                vm.switchTerm(term)
                             }
                         }
                     }
-                    // 课表壁纸：本周课表直接设成锁屏或桌面（只在能设壁纸的端上画）
-                    if (ScheduleCapability.WALLPAPER in host.honored) {
-                        ScheduleMenuRow(
-                            icon = Icons.Default.Schedule,
-                            text = "设为锁屏课表（第 ${vm.currentWeek} 周）",
-                            onClick = {
-                                showExportMenu = false
-                                val ok = host.setWallpaper(filteredMergedCourses, vm.currentWeek, lock = true)
-                                showBriefMessage(if (ok) "已设为锁屏壁纸" else "设置失败，请稍后再试")
-                            }
-                        )
-                        ScheduleMenuRow(
-                            icon = Icons.Default.Schedule,
-                            text = "设为桌面课表（第 ${vm.currentWeek} 周）",
-                            onClick = {
-                                showExportMenu = false
-                                val ok = host.setWallpaper(filteredMergedCourses, vm.currentWeek, lock = false)
-                                showBriefMessage(if (ok) "已设为桌面壁纸" else "设置失败，请稍后再试")
-                            }
-                        )
+                }
+                // 课表壁纸：本周课表直接设成锁屏或桌面（只在能设壁纸的端上画）
+                if (ScheduleCapability.WALLPAPER in host.honored) {
+                    option("设为锁屏课表（第 ${vm.currentWeek} 周）", icon = Icons.Default.Schedule) {
+                        val ok = host.setWallpaper(filteredMergedCourses, vm.currentWeek, lock = true)
+                        showBriefMessage(if (ok) "已设为锁屏壁纸" else "设置失败，请稍后再试")
                     }
-                    // 上课自动勿扰：没授权时点它是去系统里授权，授权后点一下切换开关
-                    host.autoDnd?.takeIf { ScheduleCapability.AUTO_DND in host.honored }?.let { dnd ->
-                        ScheduleMenuRow(
-                            icon = Icons.Default.Notifications,
-                            text = when {
-                                !dnd.granted -> "上课自动勿扰（去授权）"
-                                dnd.enabled -> "上课自动勿扰：已开启"
-                                else -> "上课自动勿扰：已关闭"
-                            },
-                            onClick = {
-                                showExportMenu = false
-                                if (dnd.granted) dnd.setEnabled(!dnd.enabled) else dnd.openAccessSettings()
-                            }
-                        )
+                    option("设为桌面课表（第 ${vm.currentWeek} 周）", icon = Icons.Default.Schedule) {
+                        val ok = host.setWallpaper(filteredMergedCourses, vm.currentWeek, lock = false)
+                        showBriefMessage(if (ok) "已设为桌面壁纸" else "设置失败，请稍后再试")
                     }
-                    // 这一行只在「本端真能把文件交给系统」时才画（见 ScheduleCapability.SHARE_FILE）：
-                    // 桌面端还没有分享面板，画出来就是点一下没反应。
-                    if (ScheduleCapability.SHARE_FILE in host.honored) {
-                        ScheduleMenuRow(
-                            icon = Icons.Default.Event,
-                            text = "导出日历 (ICS)",
-                            onClick = {
-                                showExportMenu = false
-                                val st = vm.startOfTerm
-                                if (st == null) {
-                                    showBriefMessage("缺少开学日期，下拉刷新后再导出")
-                                    return@ScheduleMenuRow
-                                }
-                                scope.launch {
-                                    showBriefMessage("正在导出日历…")
-                                    try {
-                                        val holidays = host.holidays
-                                            .refresh(host.cache(host.login.accountId.ifEmpty { null })).keys
-                                        val ics = ScheduleExport.generateIcs(filteredMergedCourses, st, vm.selectedTermCode, holidays)
-                                        host.shareFile(ics, "${vm.selectedTermCode}_日程.ics", "text/calendar")
-                                    } catch (e: Exception) {
-                                        showBriefMessage("节假日获取失败，已按普通课表导出")
-                                        val ics = ScheduleExport.generateIcs(filteredMergedCourses, st, vm.selectedTermCode, emptySet())
-                                        host.shareFile(ics, "${vm.selectedTermCode}_日程.ics", "text/calendar")
-                                    }
-                                }
+                }
+                // 上课自动勿扰：没授权时点它是去系统里授权，授权后点一下切换开关
+                host.autoDnd?.takeIf { ScheduleCapability.AUTO_DND in host.honored }?.let { dnd ->
+                    option(
+                        text = when {
+                            !dnd.granted -> "上课自动勿扰（去授权）"
+                            dnd.enabled -> "上课自动勿扰：已开启"
+                            else -> "上课自动勿扰：已关闭"
+                        },
+                        icon = Icons.Default.Notifications,
+                    ) {
+                        if (dnd.granted) dnd.setEnabled(!dnd.enabled) else dnd.openAccessSettings()
+                    }
+                }
+                // 这一行只在「本端真能把文件交给系统」时才画（见 ScheduleCapability.SHARE_FILE）：
+                // 桌面端还没有分享面板，画出来就是点一下没反应。
+                if (ScheduleCapability.SHARE_FILE in host.honored) {
+                    option("导出日历 (ICS)", icon = Icons.Default.Event) {
+                        val st = vm.startOfTerm
+                        if (st == null) {
+                            showBriefMessage("缺少开学日期，下拉刷新后再导出")
+                            return@option
+                        }
+                        scope.launch {
+                            showBriefMessage("正在导出日历…")
+                            try {
+                                val holidays = host.holidays
+                                    .refresh(host.cache(host.login.accountId.ifEmpty { null })).keys
+                                val ics = ScheduleExport.generateIcs(filteredMergedCourses, st, vm.selectedTermCode, holidays)
+                                host.shareFile(ics, "${vm.selectedTermCode}_日程.ics", "text/calendar")
+                            } catch (e: Exception) {
+                                showBriefMessage("节假日获取失败，已按普通课表导出")
+                                val ics = ScheduleExport.generateIcs(filteredMergedCourses, st, vm.selectedTermCode, emptySet())
+                                host.shareFile(ics, "${vm.selectedTermCode}_日程.ics", "text/calendar")
                             }
-                        )
+                        }
                     }
                 }
             }
@@ -1151,19 +1125,6 @@ private fun AutoDndPromptCard(dnd: AutoDndAccess) {
             }
         }
     }
-}
-
-@Composable
-private fun ScheduleMenuRow(
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
-    text: String,
-    onClick: () -> Unit
-) {
-    com.xjtu.toolbox.ui.components.AppDropdownMenuItem(
-        text = { Text(text, style = MiuixTheme.textStyles.body1, color = MiuixTheme.colorScheme.onSurfaceContainer) },
-        leadingIcon = { Icon(icon, null, Modifier.size(20.dp), tint = MiuixTheme.colorScheme.onSurfaceContainer) },
-        onClick = onClick,
-    )
 }
 
 /**

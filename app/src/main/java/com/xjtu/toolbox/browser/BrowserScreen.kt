@@ -16,8 +16,6 @@ import top.yukonga.miuix.kmp.basic.Scaffold
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.LinearProgressIndicator
 import top.yukonga.miuix.kmp.basic.ProgressIndicatorDefaults
-import com.xjtu.toolbox.ui.components.AppDropdownMenu
-import com.xjtu.toolbox.ui.components.AppDropdownMenuItem
 import com.xjtu.toolbox.platform.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -35,7 +33,6 @@ import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.isImeVisible
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.ClipEntry
 import androidx.compose.ui.platform.LocalClipboard
 import androidx.compose.ui.text.font.FontWeight
@@ -289,26 +286,26 @@ fun BrowserScreen(
                             }
                         }
                         Box {
-                            com.xjtu.toolbox.ui.components.AppIconMenu(
+                            com.xjtu.toolbox.ui.glass.CouiIconMenu(
                                 expanded = menuOpen,
                                 onExpandedChange = { menuOpen = it },
                                 icon = { Icon(Icons.Default.MoreHoriz, contentDescription = "更多") },
                             ) {
                                 val isWeb = currentUrl.startsWith("http")
-                                // 点任一项都先收起菜单
-                                val item = @Composable { icon: ImageVector, label: String, action: () -> Unit ->
-                                    BrowserMenuItem(icon, label) { menuOpen = false; action() }
-                                }
-                                item(Icons.Default.Refresh, "刷新") { webViewRef?.reload() }
-                                item(Icons.Default.DesktopWindows, if (desktop) "切回手机版" else "桌面版") {
+                                // 点任一项都由菜单自己先收起，再走动作
+                                option("刷新", icon = Icons.Default.Refresh) { webViewRef?.reload() }
+                                option(
+                                    if (desktop) "切回手机版" else "桌面版",
+                                    icon = Icons.Default.DesktopWindows,
+                                ) {
                                     desktop = !desktop
                                     // 关掉要重载才能拿回页面原来的 viewport
                                     webViewRef?.let { if (desktop) it.evaluateJavascript(DESKTOP_VIEWPORT_JS, null) else it.reload() }
                                 }
                                 if (isWeb) {
                                     // 分享：纯文字「网页标题 + 链接」，走系统分享面板
-                                    item(Icons.Default.Share, "分享") { shareWebPage(context, pageTitle, currentUrl) }
-                                    if (onAskAgent != null) item(Icons.Default.SmartToy, "问小岱") {
+                                    option("分享", icon = Icons.Default.Share) { shareWebPage(context, pageTitle, currentUrl) }
+                                    if (onAskAgent != null) option("问小岱", icon = Icons.Default.SmartToy) {
                                         val title = pageTitle
                                         val link = shareableUrl(currentUrl, WebVpnUtil)
                                         val needsLogin = WebVpnUtil.isWebVpnUrl(currentUrl)
@@ -319,7 +316,7 @@ fun BrowserScreen(
                                             send(runCatching { com.xjtu.toolbox.util.AppJson.parseToJsonElement(raw).jsonPrimitive.content }.getOrDefault(""))
                                         } ?: send("")
                                     }
-                                    item(Icons.AutoMirrored.Filled.OpenInNew, "在外部浏览器打开") {
+                                    option("在外部浏览器打开", icon = Icons.AutoMirrored.Filled.OpenInNew) {
                                         runCatching {
                                             context.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(shareableUrl(currentUrl, WebVpnUtil))))
                                         }.onFailure { Toast.makeText(context, "没有可用的浏览器", Toast.LENGTH_SHORT).show() }
@@ -530,15 +527,6 @@ private val DESKTOP_HOSTS = listOf("dzpz.xjtu.edu.cn")
 private const val DESKTOP_VIEWPORT_JS = """(function(){var m=document.querySelector('meta[name=viewport]');
 if(!m){m=document.createElement('meta');m.name='viewport';document.head.appendChild(m);}
 m.content='width=1280';})()"""
-
-@Composable
-private fun BrowserMenuItem(icon: ImageVector, label: String, onClick: () -> Unit) {
-    AppDropdownMenuItem(
-        text = { Text(label) },
-        leadingIcon = { Icon(icon, contentDescription = null, modifier = Modifier.size(20.dp)) },
-        onClick = onClick,
-    )
-}
 
 /**
  * 返回要退几步：从当前往前找第一个不是登录中转页的历史项。统一认证、WebVPN 登录前页、带

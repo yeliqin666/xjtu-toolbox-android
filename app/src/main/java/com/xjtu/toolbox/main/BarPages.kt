@@ -60,6 +60,7 @@ import com.xjtu.toolbox.ui.components.BackButton
 import com.xjtu.toolbox.ui.glass.LocalOnGlassBar
 import com.xjtu.toolbox.ui.glass.LocalTabRoot
 import com.xjtu.toolbox.ui.glass.CouiPageTopAppBar
+import com.xjtu.toolbox.ui.glass.coui.CouiTopAppBarDefaults
 import com.xjtu.toolbox.ui.glass.couiPageBackdropFor
 import com.xjtu.toolbox.ui.glass.glassBarColor
 import com.xjtu.toolbox.ui.glass.glassSource
@@ -269,6 +270,8 @@ internal fun ScheduleRoutePage(loginState: AppLoginState, onNavigate: (AppRoute)
                 scrollBehavior = scrollBehavior,
                 pageBackdrop = couiPageBackdropFor(glass),
                 navigationIcon = { BackButton(onBack) },
+                // 和底栏上的日程 tab 同字号：用「我的」收起后的小标题尺寸
+                titleSize = CouiTopAppBarDefaults.titleOnlyCollapsedSize,
                 actions = { actions?.invoke(this) },
                 bottomContent = {
                     // 标签行、周标题栏和顶栏是一整块玻璃

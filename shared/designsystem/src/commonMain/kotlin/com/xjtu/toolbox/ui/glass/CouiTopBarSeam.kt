@@ -7,6 +7,7 @@ import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+import androidx.compose.ui.unit.TextUnit
 
 /**
  * 页面级 COUI 采样源：一页正文（背景 + 滚动内容）录成的一层，供 COUI 顶栏的渐变模糊与按钮材质采样。
@@ -127,4 +128,9 @@ expect fun CouiPageTopAppBar(
     navigationIcon: @Composable () -> Unit = {},
     actions: @Composable RowScope.() -> Unit = {},
     bottomContent: @Composable () -> Unit = {},
+    /**
+     * 覆盖标题字号；null = 各版式自己的默认值。
+     * 钉死小标题想让字号和「大标题收起后」一致时传 `CouiTopAppBarDefaults.titleOnlyCollapsedSize`。
+     */
+    titleSize: TextUnit? = null,
 )

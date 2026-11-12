@@ -110,6 +110,7 @@ import com.xjtu.toolbox.shell.ShellHandles
 import com.xjtu.toolbox.shell.ShellNavState
 import com.xjtu.toolbox.shell.ShellTab
 import com.xjtu.toolbox.ui.glass.CouiPageTopAppBar
+import com.xjtu.toolbox.ui.glass.coui.CouiTopAppBarDefaults
 import com.xjtu.toolbox.ui.glass.CouiTopBarScrollBehavior
 import com.xjtu.toolbox.ui.glass.CouiToolbarActionButton
 import com.xjtu.toolbox.ui.glass.LocalCouiPageBackdrop
@@ -806,7 +807,31 @@ private fun MainTopBar(
         BottomTab.TOOLS -> ZYXF_TITLE
         else -> selectedTab.label
     }
-    // 主 tab 的大字顶栏就是 COUI 原版 LargeTopAppBar：110dp → 52dp、原版 AppBarLayout 测量与
+    // 日程：顶栏按二级页那套版式——钉死的小标题（COUI 原版 TopAppBar，52dp），
+    // 但它挂在底栏上、没有上一级，所以不放返回键。
+    // 折叠行为仍然传进去：`pinned = true` 会让正文的 nestedScroll 连接停用，
+    // 否则正文会先被吃掉 58dp 才开始滚（见 AndroidCouiTopBarScrollBehavior.pinned）。
+    if (selectedTab == BottomTab.COURSES) {
+        CouiPageTopAppBar(
+            title = title,
+            pinned = true,
+            color = color,
+            scrollBehavior = couiScrollBehavior,
+            pageBackdrop = LocalCouiPageBackdrop.current,
+            // 标题「日程」用「我的」收起后的字号（COUI 无返回键大标题的收起尺寸），
+            // 这样两页的小标题视觉上一样大。
+            titleSize = CouiTopAppBarDefaults.titleOnlyCollapsedSize,
+            actions = { courseActions?.invoke(this) },
+            bottomContent = {
+                // 标签行、周标题栏和顶栏是一整块玻璃，分开画接缝处会有模糊边
+                CompositionLocalProvider(LocalOnGlassBar provides glassStyle) {
+                    courseBottomContent?.invoke()
+                }
+            },
+        )
+        return
+    }
+    // 其余主 tab 的大字顶栏就是 COUI 原版 LargeTopAppBar：110dp → 52dp、原版 AppBarLayout 测量与
     // CouiTopAppBarSurface 渐变模糊；折叠进度由 COUI 自己的 scrollBehavior 驱动。
     CouiPageTopAppBar(
         color = color,
@@ -814,17 +839,6 @@ private fun MainTopBar(
         largeTitle = title,
         scrollBehavior = couiScrollBehavior,
         pageBackdrop = LocalCouiPageBackdrop.current,
-        actions = {
-            if (selectedTab == BottomTab.COURSES) courseActions?.invoke(this)
-        },
-        bottomContent = {
-            if (selectedTab == BottomTab.COURSES) {
-                // 日程的标签行、周标题栏和顶栏是一整块玻璃，分开画接缝处会有模糊边
-                CompositionLocalProvider(LocalOnGlassBar provides glassStyle) {
-                    courseBottomContent?.invoke()
-                }
-            }
-        },
     )
 }
 

@@ -106,20 +106,15 @@ internal fun CourseListPage(
                 actions = {
                     // 学期是整页的筛选，和校园卡的时间范围一样收进顶栏菜单，默认全部
                     if (semesters.size > 1) Box {
-                        com.xjtu.toolbox.ui.components.AppIconMenu(
+                        com.xjtu.toolbox.ui.glass.CouiIconMenu(
                             expanded = showSemesterMenu,
                             onExpandedChange = { showSemesterMenu = it },
                             icon = { Icon(Icons.Default.DateRange, contentDescription = "学期：${selectedSemester ?: "全部"}") },
                         ) {
                             (listOf<String?>(null) + semesters).forEach { sem ->
-                                com.xjtu.toolbox.ui.components.AppDropdownOption(
-                                    text = sem ?: "全部学期",
-                                    selected = sem == selectedSemester,
-                                    onClick = {
-                                        showSemesterMenu = false
-                                        selectedSemester = sem
-                                    },
-                                )
+                                option(text = sem ?: "全部学期", selected = sem == selectedSemester) {
+                                    selectedSemester = sem
+                                }
                             }
                         }
                     }

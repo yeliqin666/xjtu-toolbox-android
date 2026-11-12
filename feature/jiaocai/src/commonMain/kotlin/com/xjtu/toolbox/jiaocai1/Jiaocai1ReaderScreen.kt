@@ -55,7 +55,6 @@ import com.xjtu.toolbox.ui.glass.glassTop
 import com.xjtu.toolbox.ui.glass.glassPinnedTopBar
 import com.xjtu.toolbox.ui.glass.withoutTop
 import androidx.compose.foundation.layout.PaddingValues
-import com.xjtu.toolbox.ui.components.AppDropdownMenuItem
 import com.xjtu.toolbox.ui.components.ErrorState
 import com.xjtu.toolbox.ui.components.LoadingState
 import kotlinx.coroutines.launch
@@ -216,26 +215,16 @@ private fun ReaderContent(
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
                         Box {
-                            com.xjtu.toolbox.ui.components.AppIconMenu(
+                            com.xjtu.toolbox.ui.glass.CouiIconMenu(
                                 expanded = showToc,
                                 onExpandedChange = { showToc = it },
                                 icon = { Icon(Icons.AutoMirrored.Filled.MenuBook, contentDescription = "目录") },
                             ) {
+                                // COUI 菜单项没有 trailing 槽：页码并进标题（「章节 · 第 N 页」）
                                 Jiaocai1Paging.sectionStarts(pages).forEach { (typeIndex, start) ->
-                                    AppDropdownMenuItem(
-                                        text = { Text(Jiaocai1Paging.TYPE_NAMES[typeIndex]) },
-                                        trailingIcon = {
-                                            Text(
-                                                "第 ${start + 1} 页",
-                                                style = MiuixTheme.textStyles.footnote2,
-                                                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                                            )
-                                        },
-                                        onClick = {
-                                            showToc = false
-                                            jumpTo(start)
-                                        },
-                                    )
+                                    option("${Jiaocai1Paging.TYPE_NAMES[typeIndex]} · 第 ${start + 1} 页") {
+                                        jumpTo(start)
+                                    }
                                 }
                             }
                         }

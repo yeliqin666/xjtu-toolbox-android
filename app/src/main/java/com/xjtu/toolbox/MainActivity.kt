@@ -13,8 +13,11 @@ import androidx.activity.ComponentActivity
 import androidx.activity.SystemBarStyle
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.ui.Modifier
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.lifecycleScope
@@ -31,6 +34,7 @@ import com.xjtu.toolbox.main.BottomTab
 import com.xjtu.toolbox.nav.AppRoute
 import com.xjtu.toolbox.nav.DeepLinkRouter
 import com.xjtu.toolbox.nav.appRouteOf
+import com.xjtu.toolbox.ui.glass.coui.menu.ProvideCouiMenuBackdrop
 import com.xjtu.toolbox.ui.theme.XJTUToolBoxTheme
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -101,13 +105,20 @@ class MainActivity : ComponentActivity() {
                 customColorHex = customColorHex,
                 customDarkColorHex = customDarkColorHex,
             ) {
-                AppRoot(
-                    initialRoute = launchRoute.value,
-                    onInitialRouteConsumed = { launchRoute.value = null },
-                    initialTab = launchTab.value,
-                    onInitialTabConsumed = { launchTab.value = null },
-                    onReady = { isAppReady = true },
-                )
+                // 全窗口采样源：右上角 COUI 菜单的毛玻璃 / 描边材质从这里取被盖住的窗口内容。
+                // 菜单窗口是 Popup，不在采样树里，所以挂在组合根上最稳；isolateContent = false
+                // 是 COUI demo 用的模式（空闲时不强制整窗离屏），内容异常时改单参数版本。
+                ProvideCouiMenuBackdrop(isolateContent = false) { windowSource ->
+                    Box(Modifier.fillMaxSize().then(windowSource)) {
+                        AppRoot(
+                            initialRoute = launchRoute.value,
+                            onInitialRouteConsumed = { launchRoute.value = null },
+                            initialTab = launchTab.value,
+                            onInitialTabConsumed = { launchTab.value = null },
+                            onReady = { isAppReady = true },
+                        )
+                    }
+                }
             }
         }
     }

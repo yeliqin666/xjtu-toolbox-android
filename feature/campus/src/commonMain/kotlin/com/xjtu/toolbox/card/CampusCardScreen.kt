@@ -203,21 +203,19 @@ fun CampusCardScreen(
                         // 时间范围收进顶栏菜单：它同时作用于概览、流水、分析三栏，是整页的设置，
                         // 不该在标签行下面单独占一排胶囊。当前范围由各栏里的小字标出（rangeLabel）。
                         Box {
-                        com.xjtu.toolbox.ui.components.AppIconMenu(
+                        com.xjtu.toolbox.ui.glass.CouiIconMenu(
                             expanded = showRangeMenu,
                             onExpandedChange = { showRangeMenu = it },
                             icon = { Icon(Icons.Default.DateRange, contentDescription = "时间范围：$rangeLabel") },
                         ) {
                             TimeRange.entries.forEach { range ->
-                                com.xjtu.toolbox.ui.components.AppDropdownOption(
+                                option(
                                     text = if (range == TimeRange.CUSTOM) "自定义…" else "近${range.label}",
                                     selected = range == vm.timeRange,
-                                    onClick = {
-                                        showRangeMenu = false
-                                        if (range == TimeRange.CUSTOM) showCustomRange = true
-                                        else vm.selectRange(range)
-                                    },
-                                )
+                                ) {
+                                    if (range == TimeRange.CUSTOM) showCustomRange = true
+                                    else vm.selectRange(range)
+                                }
                             }
                         }
                     }

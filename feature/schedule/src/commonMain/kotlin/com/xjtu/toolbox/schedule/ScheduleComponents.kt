@@ -28,7 +28,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.text.font.FontWeight
@@ -37,6 +36,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.xjtu.toolbox.ui.glass.CouiGlassCard
 import kotlin.math.ceil
 import kotlin.math.floor
 
@@ -492,78 +492,73 @@ fun CourseCell(
     onClick: () -> Unit = {}
 ) {
     val textColor = if (color.luminance() > 0.5f) Color.Black else Color.White
-    top.yukonga.miuix.kmp.basic.Card(
-        modifier = Modifier
-            .fillMaxSize(),
-        onClick = onClick,
+    // 颜色块走 COUI 有色玻璃：AGSL 材质、边缘光、内光晕、轮廓投影、按压弹簧（不带跟手形变）。
+    // 没有顶栏采样源（经典风格 / 非 Android）时自动退回半透明色块。
+    CouiGlassCard(
+        color = color,
+        modifier = Modifier.fillMaxSize(),
         cornerRadius = 12.dp,
-        pressFeedbackType = top.yukonga.miuix.kmp.utils.PressFeedbackType.Sink,
-        colors = top.yukonga.miuix.kmp.basic.CardDefaults.defaultColors(color = color.copy(alpha = 0.85f))
+        onClick = onClick,
     ) {
-        // Card 的 content 是 ColumnScope，角标要 align，补一层 Box。
+        // 角标要 align 到右上角，单独补一层 Box。
         Box(Modifier.fillMaxSize()) {
-        Column(
-            Modifier
-                .fillMaxSize()
-                .background(
-                    Brush.verticalGradient(
-                        listOf(Color.White.copy(alpha = 0.08f), Color.Black.copy(alpha = 0.10f))
-                    )
-                )
-                .padding(horizontal = 4.dp, vertical = 3.dp),
-            verticalArrangement = Arrangement.Center,
-            horizontalAlignment = Alignment.CenterHorizontally
-        ) {
-            Text(
-                name, fontSize = 10.sp, fontWeight = FontWeight.Bold,
-                color = textColor,
-                textAlign = TextAlign.Center,
-                maxLines = when {
-                    spanSections >= 4 -> 5
-                    spanSections >= 3 -> 4
-                    else -> 2
-                },
-                overflow = TextOverflow.Ellipsis,
-                lineHeight = 12.sp
-            )
-            if (spanSections >= 2 && location.isNotEmpty()) {
-                Spacer(Modifier.height(1.dp))
-                Text(
-                    "@$location", fontSize = 8.sp,
-                    color = textColor.copy(alpha = 0.85f),
-                    textAlign = TextAlign.Center,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis
-                )
-            }
-            if (weekInfo.isNotEmpty() && spanSections >= 2) {
-                Text(
-                    weekInfo, fontSize = 7.sp,
-                    color = textColor.copy(alpha = 0.65f),
-                    textAlign = TextAlign.Center, maxLines = 1, overflow = TextOverflow.Ellipsis
-                )
-            }
-        }
-        // 叠在最上层不占布局，格子已经很挤。描一圈免得跟课程色撞在一起。
-        badge?.let { mark ->
-            // 中性标记用课格自己的文字色：深浅底都看得见，又不抢眼。
-            val dot = mark.color ?: textColor.copy(alpha = 0.9f)
-            val ring = if (mark.color == null) {
-                if (textColor == Color.White) Color.Black.copy(alpha = 0.35f)
-                else Color.White.copy(alpha = 0.55f)
-            } else {
-                textColor.copy(alpha = 0.55f)
-            }
-            Box(
+            Column(
                 Modifier
-                    .align(Alignment.TopEnd)
-                    .padding(3.dp)
-                    .size(if (mark.color == null) 6.dp else 7.dp)
-                    .background(ring, CircleShape)
-                    .padding(1.dp)
-                    .background(dot, CircleShape)
-            )
-        }
+                    .fillMaxSize()
+                    .padding(horizontal = 4.dp, vertical = 3.dp),
+                verticalArrangement = Arrangement.Center,
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Text(
+                    name, fontSize = 10.sp, fontWeight = FontWeight.Bold,
+                    color = textColor,
+                    textAlign = TextAlign.Center,
+                    maxLines = when {
+                        spanSections >= 4 -> 5
+                        spanSections >= 3 -> 4
+                        else -> 2
+                    },
+                    overflow = TextOverflow.Ellipsis,
+                    lineHeight = 12.sp
+                )
+                if (spanSections >= 2 && location.isNotEmpty()) {
+                    Spacer(Modifier.height(1.dp))
+                    Text(
+                        "@$location", fontSize = 8.sp,
+                        color = textColor.copy(alpha = 0.85f),
+                        textAlign = TextAlign.Center,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+                if (weekInfo.isNotEmpty() && spanSections >= 2) {
+                    Text(
+                        weekInfo, fontSize = 7.sp,
+                        color = textColor.copy(alpha = 0.65f),
+                        textAlign = TextAlign.Center, maxLines = 1, overflow = TextOverflow.Ellipsis
+                    )
+                }
+            }
+            // 叠在最上层不占布局，格子已经很挤。描一圈免得跟课程色撞在一起。
+            badge?.let { mark ->
+                // 中性标记用课格自己的文字色：深浅底都看得见，又不抢眼。
+                val dot = mark.color ?: textColor.copy(alpha = 0.9f)
+                val ring = if (mark.color == null) {
+                    if (textColor == Color.White) Color.Black.copy(alpha = 0.35f)
+                    else Color.White.copy(alpha = 0.55f)
+                } else {
+                    textColor.copy(alpha = 0.55f)
+                }
+                Box(
+                    Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(3.dp)
+                        .size(if (mark.color == null) 6.dp else 7.dp)
+                        .background(ring, CircleShape)
+                        .padding(1.dp)
+                        .background(dot, CircleShape)
+                )
+            }
         }
     }
 }

@@ -52,6 +52,7 @@ actual fun CouiPageTopAppBar(
     navigationIcon: @Composable () -> Unit,
     actions: @Composable RowScope.() -> Unit,
     bottomContent: @Composable () -> Unit,
+    @Suppress("UNUSED_PARAMETER") titleSize: androidx.compose.ui.unit.TextUnit?,
 ) {
     val resolvedColor = color.takeOrElse { MiuixTheme.colorScheme.surface }
     val miuixBehavior = (scrollBehavior as? MiuixCouiTopBarScrollBehavior)?.scrollBehavior

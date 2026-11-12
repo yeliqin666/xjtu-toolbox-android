@@ -57,7 +57,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.MoreHoriz
 import com.xjtu.toolbox.ui.components.AppDropdownMenu
-import com.xjtu.toolbox.ui.components.AppDropdownMenuItem
 import top.yukonga.miuix.kmp.basic.IconButton
 import androidx.compose.material.icons.filled.EventSeat
 import androidx.compose.material.icons.filled.Star
@@ -233,35 +232,29 @@ fun LibraryScreen(
                     // 校区、平面图 / 列表都收进这个菜单：一次选定就很少再改，不值得各占一整行
                     if (vm.campusSwitching) CircularProgressIndicator(size = 16.dp, strokeWidth = 2.dp)
                     Box {
-                        com.xjtu.toolbox.ui.components.AppIconMenu(
+                        com.xjtu.toolbox.ui.glass.CouiIconMenu(
                             expanded = menuOpen,
                             onExpandedChange = { menuOpen = it },
                             icon = { Icon(Icons.Default.MoreHoriz, contentDescription = "校区与视图") },
                         ) {
-                            @Composable
-                            fun option(label: String, checked: Boolean, enabled: Boolean = true, onClick: () -> Unit) = AppDropdownMenuItem(
-                                text = { Text(label) },
-                                trailingIcon = if (checked) {
-                                    { Icon(Icons.Default.Check, null, Modifier.size(18.dp), tint = MiuixTheme.colorScheme.primary) }
-                                } else null,
-                                enabled = enabled,
-                                onClick = { menuOpen = false; onClick() },
-                            )
                             // 只读端切不了校区（那是改账号资料的写操作）⇒ 一档都不画
                             if (source.canBook) {
-                                com.xjtu.toolbox.ui.components.AppDropdownSubMenu(title = "校区", summary = "${campus.displayName}校区") {
+                                submenu(title = "校区", summary = "${campus.displayName}校区") {
                                     LibraryCampus.entries.forEach { c ->
-                                        // 切换会写回账号资料（rplace），切换期间别让人连点
-                                        option("${c.displayName}校区", campus == c, enabled = !vm.campusSwitching) { vm.switchCampus(c) }
+                                        // 切换会写回账号资料（rplace），切换期间别让人连点。
+                                        // 原来的勾选图标由 COUI 的 selected 表达
+                                        option("${c.displayName}校区", selected = campus == c, enabled = !vm.campusSwitching) {
+                                            vm.switchCampus(c)
+                                        }
                                     }
                                 }
                             }
                             // 没有布局/底图端点的端不出现「平面图」（切过去只会是一张空图）⇒ 只留列表
-                            com.xjtu.toolbox.ui.components.AppDropdownSubMenu(title = "视图", summary = vm.viewMode) {
+                            submenu(title = "视图", summary = vm.viewMode) {
                                 listOf(VIEW_PLAN, VIEW_LIST)
                                     .filter { it != VIEW_PLAN || source.hasSeatPlan }
                                     .forEach { mode ->
-                                        option(mode, vm.viewMode == mode) { vm.changeViewMode(mode) }
+                                        option(mode, selected = vm.viewMode == mode) { vm.changeViewMode(mode) }
                                     }
                             }
                         }
