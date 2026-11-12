@@ -58,7 +58,7 @@ internal fun HomeTopBar(
     /** 本页正文采样源（背景 + 滚动内容），交给 COUI 渐变模糊；null = 没有可糊的东西，实色底。 */
     pageBackdrop: CouiPageBackdrop?,
     onTapCollapsed: () -> Unit,
-    /** 右上角那一排宿主按钮（`:app` 是扫码、搜索、通知）。null = 这一端没有这排按钮。 */
+    /** 右上角那一排宿主按钮（`:app` 是搜索、通知）。null = 这一端没有这排按钮。 */
     actions: (@Composable () -> Unit)?,
     /** 编辑态：左侧换成「编辑主页」，右侧换成齿轮 + 对勾。 */
     editing: Boolean = false,

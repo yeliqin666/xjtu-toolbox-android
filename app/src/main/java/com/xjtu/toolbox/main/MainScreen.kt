@@ -392,7 +392,7 @@ internal fun MainScreen(
                 agentActions = agentHeaderActions,
                 courseActions = courseHeaderActions,
                 courseBottomContent = courseHeaderBottomContent,
-                onScan = { ProactiveBubbleHost.clear(); revealSource = null; showQrLogin = true },
+                onScan = { source -> ProactiveBubbleHost.clear(); revealSource = source; showQrLogin = true },
                 onSearch = { ProactiveBubbleHost.clear(); revealSource = null; showGlobalSearch = true },
                 onInbox = { ProactiveBubbleHost.clear(); router.open(AppRoute.Inbox) },
             )
@@ -558,10 +558,6 @@ internal fun MainScreen(
                                     }
                                     router.open(AppRoute.Inbox)
                                 },
-                                onScan = { source ->
-                                    revealSource = source
-                                    showQrLogin = true
-                                },
                                 onSearch = { source ->
                                     revealSource = source
                                     showGlobalSearch = true
@@ -686,9 +682,9 @@ private fun RevealOverlay(
     }
 }
 
-/** 「扫一扫」圆钮。[onScan] 收到这颗圆钮，覆盖层从它长出来。 */
+/** 顶栏的「扫一扫」圆钮。[onScan] 收到这颗圆钮，覆盖层从它长出来。 */
 @Composable
-private fun HomeScanAction(onScan: (ExpandOriginSource) -> Unit) {
+private fun ScanAction(onScan: (ExpandOriginSource) -> Unit) {
     val tint = MiuixTheme.colorScheme.onSurface
     val source = rememberExpandOriginSource()
     HomeRoundAction(onClick = { onScan(source) }, source = source) {
@@ -701,11 +697,10 @@ private fun HomeScanAction(onScan: (ExpandOriginSource) -> Unit) {
     }
 }
 
-/** 首页顶栏右上角那一排圆钮：搜索、扫码、消息。 */
+/** 首页顶栏右上角那一排圆钮：搜索、消息。 */
 @Composable
 private fun HomeTopActions(
     onInbox: (ExpandOriginSource) -> Unit,
-    onScan: (ExpandOriginSource) -> Unit,
     onSearch: (ExpandOriginSource) -> Unit,
 ) {
     val tint = MiuixTheme.colorScheme.onSurface
@@ -721,7 +716,6 @@ private fun HomeTopActions(
         ) {
             Icon(Icons.Outlined.Search, contentDescription = "搜索", tint = tint, modifier = Modifier.size(24.dp))
         }
-        HomeScanAction(onScan = onScan)
         // 铃铛：角标画在**圆钮外面这一层**。圆钮的液态玻璃把内容裁成圆形，画在里面的右上角
         // 一定会被那道圆弧削掉一块；角标位置还是原来的（圆钮右上角）。
         Box {
@@ -782,7 +776,7 @@ private fun MainTopBar(
     agentActions: (@Composable RowScope.() -> Unit)?,
     courseActions: (@Composable RowScope.() -> Unit)?,
     courseBottomContent: (@Composable () -> Unit)?,
-    onScan: () -> Unit,
+    onScan: (ExpandOriginSource) -> Unit,
     onSearch: () -> Unit,
     onInbox: () -> Unit,
 ) {
@@ -833,12 +827,16 @@ private fun MainTopBar(
     }
     // 其余主 tab 的大字顶栏就是 COUI 原版 LargeTopAppBar：110dp → 52dp、原版 AppBarLayout 测量与
     // CouiTopAppBarSurface 渐变模糊；折叠进度由 COUI 自己的 scrollBehavior 驱动。
+    // 「我的」右上角放扫一扫：扫的是电脑端登录码 / 图书馆座位码，放在账号这一页更好找。
     CouiPageTopAppBar(
         color = color,
         title = title,
         largeTitle = title,
         scrollBehavior = couiScrollBehavior,
         pageBackdrop = LocalCouiPageBackdrop.current,
+        actions = {
+            if (selectedTab == BottomTab.PROFILE) ScanAction(onScan = onScan)
+        },
     )
 }
 

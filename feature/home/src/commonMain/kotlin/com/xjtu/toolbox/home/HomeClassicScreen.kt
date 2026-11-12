@@ -123,7 +123,7 @@ fun HomeClassicScreen(
     contentTopPadding: Dp = 0.dp,
     /** 壳把整页上移的量（见 `ShellPageInsets.contentTopShift`）；模糊带按它补回屏幕顶边。 */
     contentTopShift: () -> Dp = { 0.dp },
-    /** 首页没有顶栏：消息、扫一扫、搜索这几个按钮由宿主给，放在页面最上面跟着内容一起滚。 */
+    /** 首页没有顶栏：消息、搜索这几个按钮由宿主给，放在页面最上面跟着内容一起滚。 */
     topActions: (@Composable () -> Unit)? = null,
     /** 两套首页共用的滚动位置（见 HomeScreen）：切换布局时不跳回顶部。 */
     scrollState: ScrollState = rememberScrollState(),

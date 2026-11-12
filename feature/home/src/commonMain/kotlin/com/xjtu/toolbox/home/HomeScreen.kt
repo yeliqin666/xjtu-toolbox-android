@@ -42,7 +42,7 @@ fun HomeScreen(
     contentTopPadding: Dp = 0.dp,
     /** 壳把整页上移的量（见 `ShellPageInsets.contentTopShift`）；模糊带按它补回屏幕顶边。 */
     contentTopShift: () -> Dp = { 0.dp },
-    /** 顶栏右上角那一排（`:app` 是扫码、搜索、通知）。null = 这一端没有顶栏。 */
+    /** 顶栏右上角那一排（`:app` 是搜索、通知）。null = 这一端没有顶栏。 */
     topActions: (@Composable () -> Unit)? = null,
 ) {
     val store = remember { SettingsStore() }
