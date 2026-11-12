@@ -12,6 +12,8 @@ local.properties
 /.github/AGENTS.md
 /.github/agents/
 /.github/instructions/*.md
+# 仓库根的 AI 代理约定：本地维护，不进仓库
+/AGENTS.md
 # ZCode 工作区状态（计划文件，含本地会话 ID，勿入库）
 /.zcode/
 # WorkBuddy 工作区记忆（本地笔记，不入库）
