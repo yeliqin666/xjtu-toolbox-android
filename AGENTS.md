@@ -48,3 +48,21 @@ gh issue edit 123 --remove-label "🔧 State:In Progress" --add-label "🔍 Stat
 adb connect <用户当次给出的 IP:端口>
 adb install -r app/build/outputs/apk/debug/app-debug.apk
 ```
+
+### 真机操作边界
+
+**用户没明确让你做，就不要在他的真机上做交互调试——只安装即可。**
+
+不要自作主张做这些：
+
+- 滑动、点击、按键：`adb shell input ...`（tap / swipe / keyevent）
+- 截图、录屏：`adb shell screencap`、`screenrecord`
+- 拉起应用、切页面：`adb shell am start`、`monkey`、切换 tab
+- dump 界面或解析别人的应用：`uiautomator dump`、`dumpsys window` 量尺寸
+- 强制停止用户正在用的应用：`adb shell am force-stop`
+
+只做连接和安装：`adb connect` + `adb install -r`，最多再用 `adb devices` 确认连上了。
+需要真机上的观感、尺寸、截图之类的验证时，**先问用户**，等他说可以再做。
+
+小贴士：设备上若已有正式签名版本，debug 包会因签名不一致装不上，
+可用 `./gradlew :app:assembleDebug -PdebugSuffix` 构建加 `.debug` 后缀的包与正式版共存，不必卸载。
