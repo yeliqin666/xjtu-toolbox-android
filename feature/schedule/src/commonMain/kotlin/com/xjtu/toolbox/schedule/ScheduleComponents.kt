@@ -42,7 +42,7 @@ import kotlin.math.floor
 
 // ── 共享常量 ──────────────────────────────
 
-val DAY_HEADERS = listOf("一", "二", "三", "四", "五", "六", "日")
+val DAY_HEADERS = listOf("周一", "周二", "周三", "周四", "周五", "周六", "周日")
 private val SECTION_HEIGHT: Dp = 50.dp
 /** 一节课多少分钟：时段带放开时按「这么多分钟 = 一个节次行高」的比例。 */
 private const val SECTION_MINUTES = 50f
@@ -51,12 +51,7 @@ private val BAND_MAX_HEIGHT: Dp = SECTION_HEIGHT * 3
 private val LEFT_COL_WIDTH: Dp = 56.dp
 /** 跨作息那一周左轴要多标一行「冬14:00-14:50」，放宽一点才放得下。 */
 private val LEFT_COL_WIDTH_MIXED: Dp = 68.dp
-/**
- * 没课的节次压到本体的多少。0.56（= 28dp）是"刚好放得下节号 + 一行起止时间"的下限：
- * 再矮就只能像以前那样只画节号了，那样虽然更短，但压扁的行看不出上下课时间。
- */
-private const val EMPTY_SECTION_SCALE = 0.56f
-/** 空着的时段带（午休 / 晚休）的高度；带上有条目时按钟点比例放开，见 [ScheduleGrid]。 */
+/** 空着的时段带（早间 / 夜间）的高度；带上有条目时按钟点比例放开，见 [ScheduleGrid]。 */
 private val REST_HEIGHT: Dp = 22.dp
 /** 课程块在格子里的内缩（格间距）。 */
 private val CELL_GAP: Dp = 3.dp
@@ -78,7 +73,6 @@ fun ScheduleGrid(
     isCurrentWeek: Boolean = false,  // 是否显示当前时间线
     weekDates: List<LocalDate>? = null,
     holidayNames: Map<LocalDate, String> = emptyMap(),
-    enableCompression: Boolean = false,  // 没课的节次是否压扁（0.56 高）
     bottomPadding: androidx.compose.ui.unit.Dp = 0.dp,
     /** 顶部留白，放在纵向滚动里面：顶栏是玻璃时，星期头和网格要能从它下面滚过去。 */
     topPadding: androidx.compose.ui.unit.Dp = 0.dp,
@@ -109,9 +103,9 @@ fun ScheduleGrid(
     val axisTimes = layout.times(axisSummer)
     val otherTimes = layout.times(!axisSummer)
     val leftColWidth = if (mixedWeek) LEFT_COL_WIDTH_MIXED else LEFT_COL_WIDTH
-    // 行高：有条目的节次全高，空的节次可压扁（总长度随一周的课量伸缩）。时段带里被条目占着的几段
-    // 按时长画（一节 50 分钟 = 一行高），空着的几段合起来收成一条窄带，不留大片空白。
-    val compressed = rows.indices.map { i -> rows[i].section != null && enableCompression && !layout.isOccupied(i) }
+    // 行高：节次行一律全高（没课的也不再压扁，左轴照常写节号和起止时间）。时段带里被条目占着的
+    // 几段按时长画（一节 50 分钟 = 一行高），空着的几段合起来收成一条窄带；两节之间的无名空档
+    // （午休 / 晚休）空着时高度为 0，等于没有这一行。
     val bandPieces: List<List<Pair<WeekGridLayout.Piece, Dp>>?> = rows.indices.map { i ->
         if (rows[i].section != null || !layout.isOccupied(i)) return@map null
         val pieces = layout.pieces(i)
@@ -126,8 +120,10 @@ fun ScheduleGrid(
     }
     val targetHeights = rows.mapIndexed { i, row ->
         when {
-            row.section != null -> if (compressed[i]) SECTION_HEIGHT * EMPTY_SECTION_SCALE else SECTION_HEIGHT
-            else -> bandPieces[i]?.fold(0.dp) { sum, (_, h) -> sum + h } ?: REST_HEIGHT
+            row.section != null -> SECTION_HEIGHT
+            // 无名的空档（午休 / 晚休）空着时不占高度；早间 / 夜间这类有名的带留一条窄带
+            else -> bandPieces[i]?.fold(0.dp) { sum, (_, h) -> sum + h }
+                ?: if (row.label.isBlank()) 0.dp else REST_HEIGHT
         }
     }
     val rowHeights = rows.mapIndexed { i, row ->
@@ -202,7 +198,7 @@ fun ScheduleGrid(
                         )
                     } else if (date != null) {
                         Text(
-                            "${date.monthNumber}月${date.dayOfMonth}日",
+                            "${date.monthNumber}/${date.dayOfMonth}",
                             fontSize = 8.sp,
                             color = if (isToday) MiuixTheme.colorScheme.primary
                             else MiuixTheme.colorScheme.onSurfaceVariantSummary,
@@ -222,7 +218,7 @@ fun ScheduleGrid(
         ) {
             val dayWidth = (maxWidth - leftColWidth) / 7
 
-            // 背景层：左轴（节号 + 起止时间）+ 时段通栏带。没课的节次被压扁时只留节号。
+            // 背景层：左轴（节号 + 起止时间）+ 时段通栏带。
             val axisTextColor = MiuixTheme.colorScheme.onSurfaceVariantSummary
             Column(Modifier.fillMaxSize()) {
                 rows.forEachIndexed { i, row ->
@@ -233,24 +229,30 @@ fun ScheduleGrid(
                         (if (axisSummer) "冬" else "夏") +
                             "${formatMinuteOfDay(otherTimes[i].first)}-${formatMinuteOfDay(otherTimes[i].second)}"
                     } else null
-                    if (row.section == null && bandPieces[i] == null) {
-                        // 空着的时段带：一条通栏窄带，名字居中
-                        Box(
-                            Modifier.fillMaxWidth().height(rowHeights[i]),
-                            contentAlignment = Alignment.Center,
-                        ) {
-                            Text(row.label, fontSize = 10.sp, color = axisTextColor)
-                        }
-                    } else if (row.section == null) {
-                        // 有条目的时段带：名字和起止挪到左轴，不压在课块上
-                        Column(
-                            Modifier.width(leftColWidth).height(rowHeights[i]),
-                            verticalArrangement = Arrangement.Center,
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                        ) {
-                            Text(row.label, fontSize = 10.sp, fontWeight = FontWeight.Bold, color = axisTextColor)
-                            Text("$startText-$endText", fontSize = 8.sp, color = axisTextColor)
-                            if (otherText != null) Text(otherText, fontSize = 8.sp, color = axisTextColor.copy(alpha = 0.75f))
+                    if (row.section == null) {
+                        // 时段带：空着的「早间 / 夜间」留一条通栏窄带写名字；两节之间的大空档
+                        // （午休 / 晚休）高度为 0，不画。有条目落进来的带只标起止时间，不写名字。
+                        if (bandPieces[i] == null) {
+                            if (row.label.isNotBlank()) {
+                                Box(
+                                    Modifier.fillMaxWidth().height(rowHeights[i]),
+                                    contentAlignment = Alignment.Center,
+                                ) {
+                                    Text(row.label, fontSize = 10.sp, color = axisTextColor)
+                                }
+                            }
+                        } else {
+                            Column(
+                                Modifier.width(leftColWidth).height(rowHeights[i]),
+                                verticalArrangement = Arrangement.Center,
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                            ) {
+                                if (row.label.isNotBlank()) {
+                                    Text(row.label, fontSize = 10.sp, fontWeight = FontWeight.Bold, color = axisTextColor)
+                                }
+                                Text("$startText-$endText", fontSize = 8.sp, color = axisTextColor)
+                                if (otherText != null) Text(otherText, fontSize = 8.sp, color = axisTextColor.copy(alpha = 0.75f))
+                            }
                         }
                     } else {
                         Box(Modifier.fillMaxWidth().height(rowHeights[i])) {
@@ -259,22 +261,7 @@ fun ScheduleGrid(
                                 verticalArrangement = Arrangement.Center,
                                 horizontalAlignment = Alignment.CenterHorizontally,
                             ) {
-                                // 按**目标**（不是动画中的行高）决定排版：行高在动画中会跨过阈值，
-                                // 拿它判断的话文字会在两套排版之间闪一下
-                                if (compressed[i]) {
-                                    // 压扁的行放不下完整三行，收成「节号 + 一行起止时间」
-                                    Text(
-                                        "${row.section}",
-                                        fontSize = 11.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        color = axisTextColor,
-                                    )
-                                    Text(
-                                        "$startText-$endText",
-                                        fontSize = 8.sp,
-                                        color = axisTextColor.copy(alpha = 0.75f),
-                                    )
-                                } else if (otherText != null) {
+                                if (otherText != null) {
                                     Text(
                                         "${row.section}",
                                         fontSize = 15.sp,
