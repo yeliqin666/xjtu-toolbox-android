@@ -1061,6 +1061,9 @@ internal fun CoursesTab(
             contentTopPadding = contentTopPadding,
             topAppBarScrollBehavior = scrollBehavior,
             onNavigate = onNavigate,
+            wallpaperEditor = { courses, week, onDismiss ->
+                com.xjtu.toolbox.schedule.ScheduleWallpaperEditor(courses, week, onDismiss)
+            },
         )
     }
 }

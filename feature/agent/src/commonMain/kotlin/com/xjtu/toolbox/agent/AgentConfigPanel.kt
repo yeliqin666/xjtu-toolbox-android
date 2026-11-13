@@ -414,7 +414,7 @@ internal fun ConfigPanel(
                                 needsOwnKey ->
                                     "聊天没走 DeepSeek，联网搜索要单独一个 DeepSeek Key；留空则不联网搜索。"
                                 else ->
-                                    "DeepSeek 官方搜索，和聊天共用 Key，每千次 0.75 美元。"
+                                    "DeepSeek 官方搜索，和聊天共用 Key，每千次 5 元。"
                             },
                             style = MiuixTheme.textStyles.footnote1,
                             color = MiuixTheme.colorScheme.onSurfaceVariantSummary

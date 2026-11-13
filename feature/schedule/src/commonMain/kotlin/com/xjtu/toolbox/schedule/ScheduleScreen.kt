@@ -109,6 +109,8 @@ fun ScheduleScreen(
     topAppBarScrollBehavior: com.xjtu.toolbox.ui.glass.CouiTopBarScrollBehavior? = null,
     /** 课程详情面板里的下钻入口（教材全文 / 课程回放 / 考勤）要能跳到别的功能页。 */
     onNavigate: (AppRoute) -> Unit = {},
+    /** 课表壁纸取景页（只有能设壁纸的端传）：参数是全部课程、要画的周次和关闭回调。 */
+    wallpaperEditor: (@Composable (courses: List<CourseItem>, week: Int, onDismiss: () -> Unit) -> Unit)? = null,
 ) {
     // 大屏适配由屏内 Composable 自己根据 currentWindowSize() 判断
     val isWideLayout = com.xjtu.toolbox.ui.isWideLayout()
@@ -164,7 +166,11 @@ fun ScheduleScreen(
 
     /** tab 序号 → 这一页放什么：固定今日 / 周视图 / 学期三格。 */
     fun contentOf(tab: Int): String = when (tab) { 0 -> "today"; 1 -> "week"; else -> "semester" }
-    val currentContent = contentOf(selectedTab)
+    // 看的不是本学期时没有「今日」：标签与翻页都从周视图开始，[selectedTab] 仍按三格计
+    val viewingCurrentTerm = vm.selectedTermCode.isEmpty() || vm.selectedTermCode == vm.currentTermCode
+    val firstTab = if (viewingCurrentTerm) 0 else 1
+    LaunchedEffect(firstTab) { if (selectedTab < firstTab) selectedTab = firstTab }
+    val currentContent = contentOf(selectedTab.coerceAtLeast(firstTab))
 
     // 教务课程 + 自定义日程，剔除命中法定节假日的周次
     val mergedCourses = remember(vm.courses, vm.customCourses) { vm.courses + vm.customCourses.map { it.toCourseItem() } }
@@ -236,6 +242,9 @@ fun ScheduleScreen(
         )
     }
 
+    var showWallpaper by remember { mutableStateOf(false) }
+    if (showWallpaper) wallpaperEditor?.invoke(filteredMergedCourses, vm.currentWeek) { showWallpaper = false }
+
     // 学期栏要教材：没加载过就拉；教务会话晚到时随 api 变化补上
     LaunchedEffect(selectedTab, vm.selectedTermCode, vm.textbooksLoaded, vm.activeSource) {
         if (contentOf(selectedTab) == "semester") vm.ensureTextbooks()
@@ -276,16 +285,9 @@ fun ScheduleScreen(
             ) {
                 // 视图切换已经提到工具栏上了，这里不再重复一份——
                 // 同一个开关两个入口，用户按了哪个都得再确认一次状态。
-                // 课表壁纸：本周课表直接设成锁屏或桌面（只在能设壁纸的端上画）
-                if (ScheduleCapability.WALLPAPER in host.honored) {
-                    option("设为锁屏壁纸 (第 ${vm.currentWeek} 周)", icon = Icons.Default.Schedule) {
-                        val ok = host.setWallpaper(filteredMergedCourses, vm.currentWeek, lock = true)
-                        showBriefMessage(if (ok) "已设为锁屏壁纸" else "设置失败，请稍后再试")
-                    }
-                    option("设为桌面壁纸 (第 ${vm.currentWeek} 周)", icon = Icons.Default.Schedule) {
-                        val ok = host.setWallpaper(filteredMergedCourses, vm.currentWeek, lock = false)
-                        showBriefMessage(if (ok) "已设为桌面壁纸" else "设置失败，请稍后再试")
-                    }
+                // 课表壁纸：先进取景页预览，再设锁屏 / 桌面或存相册
+                if (wallpaperEditor != null) {
+                    option("课表壁纸", icon = Icons.Default.Schedule) { showWallpaper = true }
                 }
                 // 上课自动勿扰：开 / 关直接用菜单项的「选中」样式表示（高亮 + 主题色），
                 // 不再在标题后面写「已开启 / 已关闭」。没授权时点它是去系统权限页。
@@ -346,10 +348,11 @@ fun ScheduleScreen(
             val weekLabel = if (vm.showAllWeeks) "全学期" else "第${vm.currentWeek}周"
             Box {
                 AppSegmentedTabs(
-                    // 固定今日 / 周 / 学期三格，不再随布局变化，见 plan2 §1.5。
-                    tabs = listOf("今日", if (selectedTab == 1) "$weekLabel ▾" else weekLabel, "学期"),
-                    selectedTabIndex = selectedTab,
-                    onTabSelected = { tab ->
+                    // 今日 / 周 / 学期三格，见 plan2 §1.5；非本学期去掉今日
+                    tabs = listOf("今日", if (selectedTab == 1) "$weekLabel ▾" else weekLabel, "学期").drop(firstTab),
+                    selectedTabIndex = (selectedTab - firstTab).coerceAtLeast(0),
+                    onTabSelected = { index ->
+                        val tab = index + firstTab
                         if (tab == 1 && selectedTab == 1) {
                             showWeekPicker = true
                             return@AppSegmentedTabs
@@ -359,9 +362,9 @@ fun ScheduleScreen(
                         if (tab == 2) vm.ensureTextbooks(requireApi = false)
                     },
                 )
-                // 三格等宽：中间这块就是「第 N 周」，选周菜单以它为锚点
+                // 各格等宽：「第 N 周」那一格是选周菜单的锚点
                 Row(Modifier.matchParentSize()) {
-                    Spacer(Modifier.weight(1f))
+                    if (firstTab == 0) Spacer(Modifier.weight(1f))
                     Box(Modifier.weight(1f).fillMaxHeight()) {
                         com.xjtu.toolbox.ui.components.AppDropdownMenu(
                             expanded = showWeekPicker,
@@ -371,7 +374,6 @@ fun ScheduleScreen(
                             val weeks = vm.totalWeeks.takeIf { it > 0 }
                                 ?: filteredMergedCourses.maxOfOrNull { it.weekBits.length }?.takeIf { it > 0 }
                                 ?: TermWeeks.DEFAULT_TOTAL_WEEKS
-                            val viewingCurrentTerm = vm.selectedTermCode.isEmpty() || vm.selectedTermCode == vm.currentTermCode
                             WeekPickerMenu(
                                 totalWeeks = weeks,
                                 selectedWeek = vm.currentWeek.takeUnless { vm.showAllWeeks },
@@ -536,16 +538,17 @@ fun ScheduleScreen(
                 // 周视图里原来那个切周的翻页器因此关掉了手滑（见 ScheduleTabContent），
                 // 两个横向手势叠在一起会互相抢；切周点标签行的「第 N 周」。
                 com.xjtu.toolbox.ui.components.AppTabPager(
-                    pageCount = 3,
-                    selectedTabIndex = selectedTab,
-                    onTabSelected = { tab ->
+                    pageCount = 3 - firstTab,
+                    selectedTabIndex = (selectedTab - firstTab).coerceAtLeast(0),
+                    onTabSelected = { index ->
+                        val tab = index + firstTab
                         selectedTab = tab
                         // 学期栏第一次打开时才加载教材，别的栏用不上（和点标签行的逻辑一致）
                         if (tab == 2) vm.ensureTextbooks(requireApi = false)
                     },
                     modifier = Modifier.fillMaxSize(),
-                ) { tab ->
-                    when (contentOf(tab)) {
+                ) { page ->
+                    when (contentOf(page + firstTab)) {
                         "week" -> {
                             val weekTopPadding = listTopPadding
                             AppPullToRefresh(
@@ -666,7 +669,7 @@ fun ScheduleScreen(
                     val weekCourses = remember(filteredMergedCourses, vm.realCurrentWeek) {
                         filteredMergedCourses.filter { it.isInWeek(vm.realCurrentWeek) }
                     }
-                    val onTodayTab = contentOf(selectedTab) == "today"
+                    val onTodayTab = currentContent == "today"
                     val todayFocus = if (unifiedSelectedCourse == null && onTodayTab) {
                         remember(weekCourses, campusNow.date, campusNow.hour, campusNow.minute) { focusCourseOf(weekCourses, campusNow.date, campusNow.time) }
                     } else {
@@ -708,6 +711,13 @@ fun ScheduleScreen(
                         }
                     } else if (onTodayTab) {
                         WeekGlance(courses = weekCourses, today = campusNow.date)
+                    } else if (!viewingCurrentTerm) {
+                        Text(
+                            "点一门课查看详情",
+                            style = MiuixTheme.textStyles.body2,
+                            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                            modifier = Modifier.padding(16.dp),
+                        )
                     } else {
                         Text(
                             "今天的课",

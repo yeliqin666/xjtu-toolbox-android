@@ -45,6 +45,5 @@ object RequestCodes {
     const val SCHEDULE_DAY_PREV = 5010
     const val SCHEDULE_DAY_NEXT = 5011
     const val DYNAMIC_SCHEDULE_ALARM = 5020
-    const val WEEKLY_REPORT_ALARM = 5030
     const val SMART_WIDGET_REFRESH = 5040
 }

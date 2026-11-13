@@ -113,26 +113,6 @@ internal fun DynamicSchedulePreference() {
             }
         }
     }
-    SmallTitle("小岱周报")
-    Card(
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
-        cornerRadius = 16.dp,
-        colors = CardDefaults.defaultColors(color = MiuixTheme.colorScheme.surfaceVariant),
-    ) {
-        var reportOn by remember { mutableStateOf(com.xjtu.toolbox.report.WeeklyReport.isEnabled(context)) }
-        Column {
-            SwitchPreference(
-                title = "每周日晚发小岱周报",
-                summary = "周日 20:00 在消息收纳「小岱简报」里放一份本周作业、DDL 与校园卡消费小结，只读本机数据",
-                checked = reportOn,
-                startAction = { SettingsIcon(Icons.Default.EventNote, SettingsColors.Pink) },
-                onCheckedChange = { on ->
-                    reportOn = on
-                    com.xjtu.toolbox.report.WeeklyReport.setEnabled(context, on)
-                },
-            )
-        }
-    }
     SmallTitle("自动勿扰")
     Card(
         modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),

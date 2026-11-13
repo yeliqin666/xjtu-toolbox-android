@@ -42,11 +42,18 @@ internal fun CastIcon(
     gaze: () -> Offset?,
     glance: PidaiGlance?,
     pokeSerial: Int,
+    kickSerial: Int,
 ) {
     val engine = remember(cast) { CastEngine(cast) }
     val sketch = remember { Sketch() }
     val paths = remember { ArrayList<Path>() }
     val clock = remember { BotClock() }
+    val seenKicks = remember { intArrayOf(kickSerial) }
+    LaunchedEffect(kickSerial, engine) {
+        if (kickSerial == seenKicks[0]) return@LaunchedEffect
+        seenKicks[0] = kickSerial
+        engine.kick(clock.now())
+    }
     var tick by remember { mutableIntStateOf(0) }
     val currentBeat by rememberUpdatedState(beat)
     val currentGaze by rememberUpdatedState(gaze)

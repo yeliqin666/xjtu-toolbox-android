@@ -13,7 +13,7 @@ import kotlin.math.sin
  * - 思考：赛博念经，木槌自己一下下敲，木鱼每挨一下就压扁再弹起来、跟着节奏左右摇，身后转一圈佛光；
  * - 提醒：两眼睁开，原地蹦两下，木槌跃跃欲试地抖；
  * - 被戳：狠狠挨一下，压扁、震出一圈金色冲击波，眯眼笑，连着戳每下各飘一个「+1」；
- * - 彩蛋：连敲三下功德圆满，腾空转一圈、金光四射、长出光环，再落回垫子上。
+ * - 彩蛋：连敲三下功德圆满，腾空转一圈、金光四射、长出光环，再落回垫子上；这时再戳，每下再补一槌、多飘一个「+1」。
  */
 object Muyu : CastCharacter("muyu", "木鱼") {
     override val microSec = 1.2
@@ -61,6 +61,8 @@ object Muyu : CastCharacter("muyu", "木鱼") {
             think * strike((tt % BEAT) / BEAT),
             poke * strike(tp / 1.0),
             combo * comboKnock * (if (tc < 0.9) 1.0 else 0.0),
+            // 功德圆满时再戳：木槌补一下
+            strike(p.kickAgo[0] / 0.6),
         )
 
         // 挨敲的压扁：越敲越狠
@@ -172,7 +174,10 @@ object Muyu : CastCharacter("muyu", "木鱼") {
         }
 
         // 功德 +1：最近每一下敲击各飘一个
-        for (k in 0 until POKE_MEMORY) plusOne(s, p.pokeAgo[k] - 0.08, k)
+        for (k in 0 until POKE_MEMORY) {
+            plusOne(s, p.pokeAgo[k] - 0.08, k)
+            plusOne(s, p.kickAgo[k] - 0.08, k + 1)
+        }
         if (micro > 0.01) plusOne(s, tm - 0.16, 0)
         if (think > 0.01) for (k in 0..1) plusOne(s, (tt % BEAT) + k * BEAT - 0.08, k)
         if (combo > 0.01) for (k in 0..2) plusOne(s, tc - k * 0.28 - 0.08, k)

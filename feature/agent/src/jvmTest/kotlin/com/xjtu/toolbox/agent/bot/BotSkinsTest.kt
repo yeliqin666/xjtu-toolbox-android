@@ -85,7 +85,7 @@ class BotSkinsTest {
     @Test
     fun `不替换身体的动画状态不参与贴合表`() {
         val triangle = botShapeById("triangle")!!.radii
-        for (state in listOf("orbit", "comet", "burst")) {
+        for (state in listOf("orbit", "burst")) {
             val (x, y) = eyeOffsetFor(triangle, state)
             assertEquals("$state 不该有贴合偏移", 0.0, x, 1e-9)
             assertEquals("$state 不该有贴合偏移", 0.0, y, 1e-9)

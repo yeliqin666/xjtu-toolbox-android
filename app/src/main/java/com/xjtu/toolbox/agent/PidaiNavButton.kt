@@ -63,7 +63,7 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
  * | THINKING| 轨道 orbit | 三角翻滚甩出彩色轨道环，整周期循环，生成结束为止     |
  * | ALERT   | notify    | 右上角弹出蓝色通知点并保持，循环直到提醒消失     |
  * | TAP     | poke      | 被按扁、眯眼，弹回来睁眼看你，0.7s            |
- * | COMET   | comet     | 连戳 3 下的彩蛋：缩成小点、彩色彗尾绕一圈再长回  |
+ * | COMET   | dizzy     | 连戳 3 下的彩蛋：被戳成陀螺转两圈，停下晕头转向  |
  *
  * 性能上最要紧的一条：底栏常驻，**待命态只有眨眼和视线漂移在动**（渲染器节流到
  * ~30fps），主动全速播动画的只有微动、提醒、被点击三种情况。
@@ -113,7 +113,7 @@ internal fun PidaiNavButton(
     )
 
     // 状态互斥，优先级：点击 > 思考 > 提醒 > 偶发微动 > 待命。
-    // 用一个 state 表达而不是多个 boolean，避免出现"既在彗星又在思考"的叠加态。
+    // 用一个 state 表达而不是多个 boolean，避免出现"既在彩蛋又在思考"的叠加态。
     var beat by remember { mutableStateOf(PidaiBeat.REST) }
     val pokes = remember { PidaiPokes() }
     val currentThinking by rememberUpdatedState(thinking)
@@ -226,7 +226,7 @@ internal fun PidaiNavButton(
                     modifier = Modifier.size(diameter),
                 )
             } else {
-                // 画布比触摸区大一圈：球和通知点/彗尾需要更多作画空间，触摸目标保持 diameter。
+                // 画布比触摸区大一圈：球和通知点/彩带需要更多作画空间，触摸目标保持 diameter。
                 // 1.5 倍时球径约 1.23 倍触摸区（经典栏 ~46dp），是底栏高度约束下的舒适上限。
                 BloubBotIcon(
                     beat = beat,
@@ -237,6 +237,7 @@ internal fun PidaiNavButton(
                     gaze = gaze,
                     glance = glance,
                     pokeSerial = pokes.serial,
+                    kickSerial = pokes.kicks,
                     modifier = Modifier.size(diameter * 1.5f),
                 )
             }
@@ -289,7 +290,7 @@ private fun PlainPidaiIcon(
 }
 
 
-/** 连戳计数：[COMBO_TAPS] 下落在 [COMBO_WINDOW_MS] 内就放彗星彩蛋。 */
+/** 连戳计数：[COMBO_TAPS] 下落在 [COMBO_WINDOW_MS] 内就放彩蛋。 */
 internal class PidaiPokes {
     private val at = LongArray(COMBO_TAPS)
     private var count = 0
@@ -298,9 +299,16 @@ internal class PidaiPokes {
     var serial by mutableIntStateOf(0)
         private set
 
-    /** 记一次戳，返回这下该播的节拍。彩蛋正在播（[playing] 是 COMET）时不打断、也不重播，返回原节拍。 */
+    /** 彩蛋播放中又戳的次数，交给 [BloubBotIcon] 的 kickSerial 在彩蛋上叠一次反应。 */
+    var kicks by mutableIntStateOf(0)
+        private set
+
+    /** 记一次戳，返回这下该播的节拍。彩蛋正在播（[playing] 是 COMET）时不打断、也不重播，只记一下加戳。 */
     fun poke(playing: PidaiBeat? = null): PidaiBeat {
-        if (playing == PidaiBeat.COMET) return PidaiBeat.COMET
+        if (playing == PidaiBeat.COMET) {
+            kicks++
+            return PidaiBeat.COMET
+        }
         val now = SystemClock.uptimeMillis()
         at[count % COMBO_TAPS] = now
         count++

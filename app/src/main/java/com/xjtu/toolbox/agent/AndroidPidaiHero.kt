@@ -172,6 +172,7 @@ internal fun AndroidPidaiHero(title: String, facts: WelcomeFacts, now: LocalDate
                 cast = look.cast,
                 shape = look.shape,
                 pokeSerial = pokes.serial,
+                kickSerial = pokes.kicks,
                 gaze = gaze.look,
                 modifier = Modifier
                     .then(gaze.track)

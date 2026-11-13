@@ -10,7 +10,7 @@ import kotlin.math.sin
 import kotlin.math.sqrt
 
 /**
- * 装饰元素：burst 的粒子、notify 的通知点、comet 的轨道彩带。
+ * 装饰元素：burst 的粒子、notify 的通知点、orbit 的轨道环、dizzy 的陀螺彩带。
  * 移植自 src/bot/decor.ts 的子集（轨道环、思考点属于未启用的状态，不移植）。
  */
 
@@ -43,7 +43,7 @@ const val NOTIF_POP = 1.14
 /** 凹槽边距恒定 0.054R，随身体缩放。 */
 const val NOTIF_MARGIN = 0.054
 
-/* ------------------------------------------------------- 轨道弧线（彗星） */
+/* --------------------------------------------------------------- 轨道弧线 */
 
 /**
  * 倾斜 3D 椭圆弧的声明：几何留在球半径单位，由引擎（唯一知道 viewBox 的人）
@@ -154,37 +154,28 @@ fun arcRender(seed: ArcSeed, t: Double, scale: Double, opacity: Double, front: P
     )
 }
 
-/* ------------------------------------------------------------------ 彗星 */
-
-private val COMET_RNG = createRng(0xc0e7)
+/* ------------------------------------------------------------ 陀螺彩带 */
 
 /**
- * 与直觉相反，点并不横穿屏幕：它留在中心，是彩带绕着它转。
- * 椭圆 a = 0.85、b = 0.15、长轴倾 +34°，4 条彩带，约 210°/s。
+ * 连戳转圈时腰上甩出的三道彩带：高低错开、绕身体一圈各占三分之一，
+ * 转向与脸一致（正面从左往右），所以速度取负。半长轴 1.12 加线宽不出画布（1.22）。
  */
-val COMET_RIBBONS: List<ArcSeed> = List(4) { i ->
-    val d = i - 1.5
-    val phaseRng = COMET_RNG()
-    val hueRng = COMET_RNG()
+val SPIN_RIBBONS: List<ArcSeed> = List(3) { i ->
+    val d = i - 1.0
     ArcSeed(
-        a = 0.85 * (1 + d * 0.03),
-        // 相差 ±5% 以内的同扁率：彩带构成一束紧凑的束
-        k = (0.15 / 0.85) * (1 + d * 0.16),
-        tilt = (34.0).deg2rad() + d * 0.035,
-        speed = 210.0 / 360.0,
-        // 实测相位差：彩带间 10-20 度，不再多
-        phase = -i * 0.045 + phaseRng * 0.012,
-        sweep = 0.34,
-        hue = i * 85.0 + hueRng * 20.0,
+        a = 1.12,
+        k = 0.2 + d * 0.03,
+        tilt = (d * 8.0).deg2rad(),
+        speed = -1.7,
+        phase = i * TAU / 3,
+        sweep = 0.3,
+        hue = 20.0 + i * 120.0,
         hueSpan = 80.0,
-        width = 0.095,
+        width = 0.07,
         cx = 0.0,
-        cy = 0.0,
+        cy = 0.15 + d * 0.13,
     )
 }
-
-/** 彗星点的半径，实测 0.129。 */
-const val COMET_DOT = 0.129
 
 /* ---------------------------------------------------------------- 轨道环 */
 

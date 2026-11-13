@@ -231,16 +231,6 @@
         </receiver>
 
         <receiver
-            android:name=".report.WeeklyReportReceiver"
-            android:exported="false">
-            <intent-filter>
-                <action android:name="com.xjtu.toolbox.WEEKLY_REPORT" />
-                <action android:name="android.intent.action.BOOT_COMPLETED" />
-                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
-            </intent-filter>
-        </receiver>
-
-        <receiver
             android:name=".widget.WidgetRefreshReceiver"
             android:exported="false">
             <intent-filter>

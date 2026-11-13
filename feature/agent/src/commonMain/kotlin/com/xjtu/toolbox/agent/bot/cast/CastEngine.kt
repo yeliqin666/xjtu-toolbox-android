@@ -44,6 +44,16 @@ class CastPose {
     /** 最近几下戳距今多少秒，0 是最近一下；没戳过是一个很大的数。木鱼连敲时每下各飘一个「+1」。 */
     val pokeAgo = DoubleArray(POKE_MEMORY)
 
+    /** 彩蛋播放中又被戳的那几下距今多少秒，0 是最近一下。整只压扁回弹由引擎统一做，角色只管加自己的小反应。 */
+    val kickAgo = DoubleArray(POKE_MEMORY)
+
+    /** 最近几下加戳的反应强度 0..1：[rise] 秒起来，戳后 [hold] 秒开始退、[end] 秒退完。 */
+    fun kick(rise: Double, hold: Double, end: Double): Double {
+        var m = 0.0
+        for (a in kickAgo) m = maxOf(m, window(a, 0.0, rise, hold, end))
+        return m
+    }
+
     internal val level = DoubleArray(Act.entries.size)
     internal val time = DoubleArray(Act.entries.size)
 
@@ -85,6 +95,7 @@ class CastEngine(private val cast: CastCharacter) {
     private val from = DoubleArray(n)
     private val start = DoubleArray(n) { -10.0 }
     private val pokeTimes = DoubleArray(POKE_MEMORY) { NEVER }
+    private val kickTimes = DoubleArray(POKE_MEMORY) { NEVER }
 
     private var lookTX = 0.0
     private var lookTY = 0.0
@@ -126,6 +137,12 @@ class CastEngine(private val cast: CastCharacter) {
         pokeTimes[0] = now
     }
 
+    /** 彩蛋播放中又被戳了一下：不打断彩蛋，整只压扁回弹一次，角色再叠自己的小反应。 */
+    fun kick(now: Double) {
+        for (i in POKE_MEMORY - 1 downTo 1) kickTimes[i] = kickTimes[i - 1]
+        kickTimes[0] = now
+    }
+
     /** 回到初始：缩略图冻结采样前用。 */
     fun reset() {
         on.fill(false)
@@ -133,6 +150,7 @@ class CastEngine(private val cast: CastCharacter) {
         switchAt.fill(-10.0)
         start.fill(-10.0)
         pokeTimes.fill(NEVER)
+        kickTimes.fill(NEVER)
         lx = 0.0; ly = 0.0; sx = 0.0; sy = 0.0
         last = -1.0
         winkEye = -1
@@ -179,12 +197,25 @@ class CastEngine(private val cast: CastCharacter) {
         p.slowX = sx
         p.slowY = sy
         p.breath = sin(now / 3.4 * Sketch.TAU)
-        for (k in 0 until POKE_MEMORY) p.pokeAgo[k] = now - pokeTimes[k]
+        var squash = 0.0
+        for (k in 0 until POKE_MEMORY) {
+            p.pokeAgo[k] = now - pokeTimes[k]
+            val u = now - kickTimes[k]
+            p.kickAgo[k] = u
+            if (u < 1.0) squash += 0.16 * exp(-u * 7.0) * sin(u * 17.0) * clamp01((1.0 - u) / 0.2)
+        }
         for (i in 0 until n) {
             p.level[i] = level(i, now)
             p.time[i] = (now - start[i]).coerceAtLeast(0.0)
         }
         s.reset()
+        if (squash != 0.0) {
+            // 以脚底为支点整只压扁回弹
+            squash = squash.coerceIn(-0.1, 0.2)
+            s.translate(0.0, FLOOR)
+            s.scale(1 + 0.5 * squash, 1 - squash)
+            s.translate(0.0, -FLOOR)
+        }
         cast.draw(s, p)
     }
 
@@ -192,6 +223,7 @@ class CastEngine(private val cast: CastCharacter) {
         const val FADE_IN = 0.4
         const val FADE_OUT = 0.3
         const val NEVER = -1e6
+        const val FLOOR = 105.0
     }
 }
 

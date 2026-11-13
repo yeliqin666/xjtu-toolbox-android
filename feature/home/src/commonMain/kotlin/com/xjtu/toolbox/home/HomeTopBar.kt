@@ -31,6 +31,7 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.layout.layout
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -143,16 +144,23 @@ internal fun HomeTopBar(
                 val lift = Modifier.graphicsLayer {
                     translationY = if (alignWithGreeting) 0f else -BUTTON_LIFT.toPx() * (1f - progress())
                 }
-                Box(lift) {
-                    // 搜索展开时头像让位：边淡边收窄，搜索框跟着平滑伸过来
-                    androidx.compose.animation.AnimatedVisibility(
-                        visible = !searching,
-                        enter = fadeIn(tween(200)) + androidx.compose.animation.expandHorizontally(tween(260)),
-                        exit = fadeOut(tween(140)) + androidx.compose.animation.shrinkHorizontally(tween(260)),
-                    ) {
-                        AnimatedContent(editing, transitionSpec = { BarSwap }, label = "barLeading") { edit ->
-                            if (!edit) HomeBarAvatar(progress)
+                // 搜索展开时头像当帧让出宽度、只做淡出：搜索组件在展开第一帧记下终点，
+                // 头像若边收窄边让位，终点会偏右一个头像宽，取消胶囊先溢出、动画结束再跳回
+                val avatarAlpha by animateFloatAsState(
+                    if (searching) 0f else 1f,
+                    tween(if (searching) 140 else 200),
+                    label = "homeBarAvatar",
+                )
+                Box(
+                    lift
+                        .layout { measurable, constraints ->
+                            val placeable = measurable.measure(constraints)
+                            layout(if (searching) 0 else placeable.width, placeable.height) { placeable.place(0, 0) }
                         }
+                        .graphicsLayer { alpha = avatarAlpha },
+                ) {
+                    AnimatedContent(editing, transitionSpec = { BarSwap }, label = "barLeading") { edit ->
+                        if (!edit) HomeBarAvatar(progress)
                     }
                 }
                 if (!editing && searchContent != null) {

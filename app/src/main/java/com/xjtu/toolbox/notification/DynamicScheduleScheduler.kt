@@ -56,8 +56,6 @@ internal object DynamicScheduleScheduler {
 
     /** 由应用 IO scope 或广播的 goAsync 调用，只读当前账号的本机缓存与 Room。 */
     suspend fun refresh(context: Context) = lock.withLock {
-        // 周报闹钟与动态通知无关，但同样要在开机、换包后重排，所以挂在这里
-        com.xjtu.toolbox.report.WeeklyReport.syncAlarm(context)
         try {
             val notifyOn = isEnabled(context) && DynamicScheduleNotifier.canPost(context)
             val dndOn = AutoDndScheduler.isEnabled(context)

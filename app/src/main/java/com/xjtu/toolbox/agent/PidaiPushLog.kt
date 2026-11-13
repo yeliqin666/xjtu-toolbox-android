@@ -18,6 +18,7 @@ internal object PidaiPushLog {
     fun kindOf(key: String): String = when {
         key == "morning" -> "今日简报"
         key == "evening" -> "明日预告"
+        key == "weekly" -> "周报"
         else -> "定时任务"
     }
 

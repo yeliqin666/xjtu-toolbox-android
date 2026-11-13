@@ -97,9 +97,6 @@ internal class AppScheduleHost(
         }
     }
 
-    override fun setWallpaper(courses: List<CourseItem>, week: Int, lock: Boolean): Boolean =
-        ScheduleWallpaper.apply(app, courses, week, lock)
-
     override fun postScheduleChange(message: String) {
         InboxStore.post(OwnInbox.scheduleChange(message))
     }

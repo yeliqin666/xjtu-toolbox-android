@@ -55,6 +55,11 @@ class PidaiJobWorker(context: Context, params: WorkerParameters) : CoroutineWork
             if (level == ProactiveLevel.STANDARD && minute in EVENING && PidaiJobBudget.once(app, "evening", today)) {
                 runBrief(app, engine, EVENING_BRIEF, "evening", snapshot(app, tomorrow = true))
             }
+            if (now.date.dayOfWeek == kotlinx.datetime.DayOfWeek.SUNDAY && minute in WEEKLY &&
+                com.xjtu.toolbox.report.WeeklyReport.isEnabled(app) && PidaiJobBudget.once(app, "weekly", today)
+            ) {
+                runWeekly(app, engine, today)
+            }
             PidaiTaskStore.due(now).forEach { task ->
                 PidaiTaskStore.markRun(task.id, Clock.System.now().toEpochMilliseconds())
                 if (!PidaiJobBudget.take(app, today)) return@forEach
@@ -75,6 +80,24 @@ class PidaiJobWorker(context: Context, params: WorkerParameters) : CoroutineWork
         val title = InboxRules.markdownToPlain(ok.json["title"].safeStringOrNull().orEmpty())
         val body = InboxRules.markdownToPlain(ok.json["body"].safeStringOrNull().orEmpty())
         if (title.isEmpty() || body.isEmpty()) return
+        post(context, key, title, body)
+    }
+
+    /** 周报：数据行照本机缓存原样写，模型只补一句点评；没配 Key、额度用完或失败时用模板句。 */
+    private suspend fun runWeekly(context: Context, engine: AgentInsightEngine, today: String) {
+        val account = com.xjtu.toolbox.account.AccountContext.activeAccountId?.takeIf { it.isNotBlank() } ?: return
+        val facts = com.xjtu.toolbox.report.WeeklyReport.facts(context, account, System.currentTimeMillis()) ?: return
+        val data = facts.lines.joinToString("\n")
+        val comment = if (!PidaiJobBudget.take(context, today)) null else {
+            (engine.run(WEEKLY_COMMENT, data, force = true) as? InsightOutcome.Ok)
+                ?.json?.get("comment").safeStringOrNull()
+                ?.let(InboxRules::markdownToPlain)?.takeIf { it.isNotBlank() }
+        }
+        post(context, "weekly", "本周小结", "$data\n小岱：${comment ?: facts.fallbackComment}")
+    }
+
+    /** 进收纳箱「小岱简报」、记入推送记录并发通知。 */
+    private fun post(context: Context, key: String, title: String, body: String) {
         val at = Clock.System.now().toEpochMilliseconds()
         InboxStore.post(
             InboxItem(
@@ -119,6 +142,8 @@ class PidaiJobWorker(context: Context, params: WorkerParameters) : CoroutineWork
 
         private val MORNING = (6 * 60 + 30) until (10 * 60)
         private val EVENING = (20 * 60 + 30) until (23 * 60)
+        /** 周日晚的周报（后台每小时看一次，不精确）。 */
+        private val WEEKLY = (20 * 60) until (23 * 60)
 
         /** 后台能用的工具：都不用登录。 */
         private val BACKGROUND_TOOLS = setOf("get_notifications", "web_search", "web_fetch", "wechat_search", "campus_map", "app_guide", "calculate")
@@ -142,6 +167,18 @@ class PidaiJobWorker(context: Context, params: WorkerParameters) : CoroutineWork
             instruction = """
 任务：写一条晚上的「明日预告」推送：明天第一节几点在哪、要带什么、哪些待办快到期。明天没课就说一声，提醒一件最该做的事。
 只输出：{"title":"不超过 16 字","body":"不超过 100 字，2–3 行"}
+            """.trimIndent() + PLAIN_TEXT,
+        )
+
+        private val WEEKLY_COMMENT = InsightSpec(
+            id = "pidai_weekly",
+            tools = emptySet(),
+            ttlMs = 60 * 60 * 1000L,
+            instruction = """
+任务：给用户的「小岱周报」写一句点评。给你的是他这周的作业、下周 DDL 和校园卡消费，数字已经写在周报里，不要复述。
+- 抓最值得说的一件：没交的作业、扎堆的 DDL、花得明显多或少；都平常就轻松说一句。
+- 用你自己的说话风格，像朋友，不说教。
+只输出：{"comment":"不超过 40 字，一句话"}
             """.trimIndent() + PLAIN_TEXT,
         )
 

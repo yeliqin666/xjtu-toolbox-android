@@ -36,7 +36,7 @@ import com.xjtu.toolbox.ui.components.LocalPageVisible
  * 而不是拿背景色画上去——这样不管底栏是不透明还是玻璃，洞后面露出来的都是
  * 真实背景，不用关心「背景色是什么」。没有离屏合成层的话 Clear 会直接穿透到
  * 更底层的宿主画布，效果就不对了。burst 的粒子在身体后面（先画，被身体的
- * ink 填充遮住），彗星彩带按 z 分量分前后两半（后半段先画、被身体遮住，才是
+ * ink 填充遮住），彩带按 z 分量分前后两半（后半段先画、被身体遮住，才是
  * 「轨道」而不是平面画）。
  *
  * 性能：底栏常驻，待命态只有眨眼和视线漂移在动（渲染器节流到 ~30fps，眨眼
@@ -67,13 +67,21 @@ fun BloubBotIcon(
     glance: PidaiGlance? = null,
     /** 戳的序号（[PidaiPokes.serial]）：变了就把当前节拍从头再播，连戳每下都有反应。 */
     pokeSerial: Int = 0,
+    /** 彩蛋播放中又戳的序号（[PidaiPokes.kicks]）：变了就在彩蛋上叠一次反应，不打断它。 */
+    kickSerial: Int = 0,
 ) {
     if (cast != null) {
-        CastIcon(cast, beat, modifier, frozenAt, gaze, glance, pokeSerial)
+        CastIcon(cast, beat, modifier, frozenAt, gaze, glance, pokeSerial, kickSerial)
         return
     }
     val engine = remember { BotEngine() }
     val clock = remember { BotClock() }
+    val seenKicks = remember { intArrayOf(kickSerial) }
+    LaunchedEffect(kickSerial) {
+        if (kickSerial == seenKicks[0]) return@LaunchedEffect
+        seenKicks[0] = kickSerial
+        engine.kick(clock.now())
+    }
     val currentBeat by rememberUpdatedState(beat)
     val currentGaze by rememberUpdatedState(gaze)
     val currentGlance by rememberUpdatedState(glance)
@@ -100,7 +108,7 @@ fun BloubBotIcon(
         PidaiBeat.THINKING -> "orbit"
         PidaiBeat.ALERT -> "notify"
         PidaiBeat.TAP -> "poke"
-        PidaiBeat.COMET -> "comet"
+        PidaiBeat.COMET -> "dizzy"
     }
 
     var frame by remember { mutableStateOf<BotFrame?>(null) }
@@ -155,7 +163,7 @@ fun BloubBotIcon(
             return@Canvas
         }
         // 引擎单位（球半径 = 100）-> 像素。留 1/1.22 的余量给通知点（半径 1.003R + 凹槽）
-        // 和彗星彩带（半径 0.94R），静息球占画布约 82%。
+        // 和陀螺彩带（半径 1.16R），静息球占画布约 82%。
         val unitPx = size.minDimension / 2f / 1.22f / 100f
         withTransform({
             translate(size.width / 2f, size.height / 2f)

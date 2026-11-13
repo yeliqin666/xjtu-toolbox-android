@@ -11,4 +11,4 @@ Android 的 `get_lms_activity`（带 `file`）和 `read_zyxf_file` 共用文档�
 
 工具实例按账号缓存附件字节 10 分钟，最多 4 份、24 MiB，失败不缓存。
 
-DeepSeek 官方 [Files API](https://api-docs.deepseek.com/guides/files_api/) 当前仅列出图片格式。此实现本地解析 PDF，发送文本或页面图，不向该接口上传 PDF 原件或分片。
+此实现本地解析 PDF，发送文本或页面图，不上传原件。DeepSeek 自 2026-11-13 起支持 [文档解析](https://api-docs.deepseek.com/zh-cn/guides/document_parsing)（`POST /files` 后以 `file_id` 引用，PDF/Office/图片，1.5 元/千页，仅 `deepseek-flash`），另有独立 OCR `POST /v1/tools/ocr` 按页返回文字。2026-11-13 实测：文件块可与 function tools 同一请求共用，但不能放进 tool 消息；两种接口都会随机把整页解析为空且不报错（10 页样本：文件块 8 次中 2 次完整，OCR 12 次中 5 次完整），暂不替换本地解析。

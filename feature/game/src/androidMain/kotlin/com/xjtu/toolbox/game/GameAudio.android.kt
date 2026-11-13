@@ -13,7 +13,7 @@ import java.util.concurrent.ConcurrentHashMap
 
 private object AndroidGameAudio : GameAudio {
     /** 改了合成参数就加一，旧缓存文件不再被读到。 */
-    private const val VERSION = 1
+    private const val VERSION = 2
 
     @Volatile
     private var pool: SoundPool? = null
