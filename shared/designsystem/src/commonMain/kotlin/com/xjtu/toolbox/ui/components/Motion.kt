@@ -6,6 +6,7 @@ import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.AnimationSpec
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
@@ -16,6 +17,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.Stable
 import androidx.compose.runtime.State
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
@@ -114,6 +116,31 @@ fun rememberEnterProgress(index: Int, maxAnimated: Int = ENTER_MAX): State<Float
 /** 这一页的控件要不要各自错峰入场。整页一起放大进来时关掉，否则控件和页面不同步。 */
 val LocalEnterAnimations = androidx.compose.runtime.compositionLocalOf { true }
 
+/** 切页错峰的档数、每档延迟与跟上的弹性（照 SleepDown 的主页切换：6 档、18ms、阻尼 .74 / 刚度 260）。 */
+private const val SWITCH_STAGGER_MS = 18L
+private const val SWITCH_DAMPING = 0.74f
+private const val SWITCH_STIFFNESS = 260f
+
+/**
+ * 底栏切页的运动：只有「正切进来」的那一页会提供。
+ *
+ * 页面整体按 [ShellTabHost] 的进度滑进来，里面的 [enterOnce] 元素再按自己的分档进度追上来——
+ * 于是先滑进来的是空白的页，元素随后错落补齐，而不是整块一起平移。
+ */
+@Stable
+class TabSwitchMotion(
+    /** 这一页第几次被切进来：变了就重播错峰。 */
+    val generation: Int,
+    /** 页面滑动进度 0 → 1。 */
+    val progress: () -> Float,
+    /** 进场方向：+1 从右边进来，-1 从左边进来。 */
+    val direction: () -> Float,
+    /** 页面宽度（px），把「进度差」换算成像素。 */
+    val width: () -> Int,
+)
+
+val LocalTabSwitch = androidx.compose.runtime.staticCompositionLocalOf<TabSwitchMotion?> { null }
+
 /**
  * 常驻循环的相位 0→1（周期 [periodMillis]）：按约 30 帧/秒推进，页面不可见就停。
  * 骨架高光、思考中的呼吸都从这里取，节奏全 App 一致。
@@ -143,11 +170,42 @@ fun breath(phase: Float, low: Float = 0.35f, offset: Float = 0f): Float {
 @Composable
 fun Modifier.enterOnce(index: Int, maxAnimated: Int = ENTER_MAX): Modifier {
     val p = rememberEnterProgress(index, maxAnimated)
+    // 底栏切页时，这一块额外按自己的分档进度横向滞后于页面（见 [TabSwitchMotion]）
+    val switch = LocalTabSwitch.current
+    val track = if (switch != null && index < maxAnimated) rememberTabSwitchTrack(switch, index) else null
     return graphicsLayer {
         val v = p.value
         alpha = v
         translationY = (1f - v) * 8.dp.toPx()
+        if (switch != null && track != null) {
+            val width = switch.width().toFloat()
+            if (width > 0f) {
+                // 页面在滑，这一块按自己的进度跟：进度差 × 页宽 = 还差多少没跟上。
+                // 差值允许为负——弹簧越过 1 的那一点点就是 SleepDown 那种回弹感。
+                translationX = switch.direction() * width * (switch.progress() - track.value)
+            }
+        }
     }
+}
+
+/** 某个分档的跟进进度：页面一切进来就从 0 弹到 1，第 [index] 档晚 [index] × 18ms 起步。 */
+@Composable
+private fun rememberTabSwitchTrack(switch: TabSwitchMotion, index: Int): State<Float> {
+    // 先按「已就位」开局：这块要是切页之后才组合出来的（数据刚回来、条件块刚出现），
+    // 第一帧就不会被「页面进度 1、自己进度 0」推出一整页宽再弹回来。
+    val track = remember { Animatable(1f) }
+    // 记下这一块出生时的世代：同世代里才组合出来的块（晚到的内容）不参与这次错峰。
+    val initialGeneration = remember { switch.generation }
+    LaunchedEffect(switch.generation) {
+        if (switch.generation == initialGeneration) return@LaunchedEffect
+        track.snapTo(0f)
+        if (index > 0) delay(index * SWITCH_STAGGER_MS)
+        track.animateTo(
+            1f,
+            spring(dampingRatio = SWITCH_DAMPING, stiffness = SWITCH_STIFFNESS, visibilityThreshold = 0.0015f),
+        )
+    }
+    return track.asState()
 }
 
 /** 一上来就快、越走越慢的指数减速（取自 HyperOS 系统菜单的实测节奏）：弹出面板、整页放大都用它。 */

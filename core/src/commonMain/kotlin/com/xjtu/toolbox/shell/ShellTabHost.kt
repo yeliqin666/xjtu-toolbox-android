@@ -1,7 +1,7 @@
 package com.xjtu.toolbox.shell
 
 import androidx.compose.animation.core.Animatable
-import androidx.compose.animation.core.LinearOutSlowInEasing
+import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.tween
@@ -29,6 +29,8 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.unit.toSize
 import com.xjtu.toolbox.ui.components.LocalEnterAnimations
+import com.xjtu.toolbox.ui.components.LocalTabSwitch
+import com.xjtu.toolbox.ui.components.TabSwitchMotion
 import com.xjtu.toolbox.nav.ButtonZoom
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
@@ -98,7 +100,11 @@ fun ShellTabHost(
     // 上一次选中的格：第一次打开的页签据此决定从哪一侧滑进来
     val lastIndex = remember { intArrayOf(selectedIndex) }
     SideEffect { lastIndex[0] = selectedIndex }
-    Box(modifier.fillMaxSize().pageBackdropBase(pageBackdropColor).onSizeChanged { zoom?.hostSize = it.toSize() }) {
+    var hostWidth by remember { androidx.compose.runtime.mutableIntStateOf(0) }
+    Box(
+        modifier.fillMaxSize().pageBackdropBase(pageBackdropColor)
+            .onSizeChanged { hostWidth = it.width; zoom?.hostSize = it.toSize() },
+    ) {
         // 别在 key {} 里 return@key：Kotlin 2.4.20 会生成 R8 无法转 dex 的方法名
         nav.tabs.tabs.filter { it.id in composedIds || it.id == selectedId }.forEach { tab ->
             key(tab) {
@@ -127,11 +133,32 @@ fun ShellTabHost(
                 }
                 LaunchedEffect(offsetTarget) {
                     when {
-                        // 起步就是全速、只在末尾减速：缓入曲线开头几帧几乎不动，点了像没反应
-                        slideOnly -> tabOffset.animateTo(offsetTarget, tween(TAB_SLIDE_MS, easing = LinearOutSlowInEasing))
+                        // 照 SleepDown 的整页滑动：一条不弹的减速曲线，末尾收得干净
+                        slideOnly -> tabOffset.animateTo(offsetTarget, tween(TAB_SLIDE_MS, easing = TabSlideEasing))
                         animated -> tabOffset.animateTo(offsetTarget, tween(260))
                         else -> tabOffset.snapTo(offsetTarget)
                     }
+                }
+                // 切页错峰：这一页每次被切进来就 +1，页面里带 enterOnce 的元素据此重播「按档跟进」
+                var switchGeneration by remember { androidx.compose.runtime.mutableIntStateOf(0) }
+                // 进场方向在这一刻定死：页面落位后偏移回到 0，实时判方向会把回弹判到反方向去
+                var switchDirection by remember { androidx.compose.runtime.mutableFloatStateOf(1f) }
+                LaunchedEffect(isActive) {
+                    if (isActive && slideOnly) {
+                        switchDirection = if (tabOffset.value >= 0f) 1f else -1f
+                        switchGeneration++
+                    }
+                }
+                val switchProgress = remember(tabOffset) {
+                    derivedStateOf { (1f - kotlin.math.abs(tabOffset.value)).coerceIn(0f, 1f) }
+                }
+                val tabSwitch = remember(switchGeneration, tabOffset) {
+                    TabSwitchMotion(
+                        generation = switchGeneration,
+                        progress = { switchProgress.value },
+                        direction = { switchDirection },
+                        width = { hostWidth },
+                    )
                 }
                 val tabScale by animateFloatAsState(
                     targetValue = if (isActive || slideOnly) 1f else 0.96f,
@@ -208,6 +235,8 @@ fun ShellTabHost(
                         LocalPageVisible provides (pageVisible && LocalPageVisible.current),
                         // 切过来的页签不演内部入场：整页淡入已经够了，控件再各自动一遍会显得很吵
                         LocalEnterAnimations provides !openedBySwitch,
+                        // 只有正切进来的那一页参与错峰跟进
+                        LocalTabSwitch provides if (isActive && slideOnly) tabSwitch else null,
                     ) {
                         // 同一份对象：host 重组（选中项变化）时，没变的页不跟着重组
                         content(remember(tab) { ShellPage(tab.target, tab) })
@@ -218,7 +247,10 @@ fun ShellTabHost(
     }
 }
 
-private const val TAB_SLIDE_MS = 240
+private const val TAB_SLIDE_MS = 360
+
+/** 照 SleepDown 主页切页的那条减速曲线：起步快、中段稳、末尾缓。 */
+private val TabSlideEasing = CubicBezierEasing(0.22f, 0.72f, 0.20f, 1f)
 private const val TAB_ZOOM_MS = 820
 
 /** 返回时当前页缩回按钮：比打开快，像收起而不是再演一遍。 */
