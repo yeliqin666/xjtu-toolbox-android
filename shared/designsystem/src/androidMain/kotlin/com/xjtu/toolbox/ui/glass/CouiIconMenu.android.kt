@@ -3,7 +3,10 @@ package com.xjtu.toolbox.ui.glass
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.DpOffset
+import androidx.compose.ui.unit.dp
 import com.xjtu.toolbox.ui.glass.coui.LocalCouiDarkTheme
+import com.xjtu.toolbox.ui.glass.coui.menu.CouiMenuPlacement
 import com.xjtu.toolbox.ui.glass.coui.menu.CouiMenuItem
 import com.xjtu.toolbox.ui.glass.coui.menu.Menu
 import com.xjtu.toolbox.ui.glass.coui.menu.couiMenuAnchor
@@ -14,6 +17,9 @@ import com.xjtu.toolbox.ui.theme.LocalIsDarkTheme
  * Android：触发按钮复用自己的顶栏圆钮（[CouiToolbarActionButton]），菜单是 COUI 原厂组件
  * （材质、开合动画、两级子菜单都在那边）。菜单的窗口采样源由 App 根部的
  * `ProvideCouiMenuBackdrop` 提供，没有采样源时菜单退回不透明的实色面板。
+ *
+ * 顶栏按钮的菜单固定在按钮正下方、右边缘与按钮右边缘对齐（[CouiMenuPlacement.BelowElement]）：
+ * 从触点长出来的那套是给设置里需要展开的行用的。
  */
 @Composable
 actual fun CouiIconMenu(
@@ -44,6 +50,9 @@ actual fun CouiIconMenu(
                 item.value.invoke()
             },
             anchor = anchor,
+            placement = CouiMenuPlacement.BelowElement,
+            // 圆钮的触控区是 48dp、可见圆 40dp：内缩 4dp 让面板贴着圆的右下边缘，而不是触控外框。
+            anchorInset = DpOffset(4.dp, 4.dp),
         )
     }
 }

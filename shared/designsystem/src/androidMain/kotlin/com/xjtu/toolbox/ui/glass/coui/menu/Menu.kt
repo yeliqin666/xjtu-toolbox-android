@@ -153,6 +153,9 @@ private fun <T> CouiMenuContent(
     offset: DpOffset = DpOffset.Zero,
     properties: PopupProperties = PopupProperties(focusable = true),
     anchor: CouiMenuAnchor? = null,
+    placement: CouiMenuPlacement = CouiMenuPlacement.Touch,
+    /** 贴元素展开时，可见边缘相对布局边缘的内缩（触控区比可见圆钮大一圈时用）。 */
+    anchorInset: DpOffset = DpOffset.Zero,
     headerText: String? = null,
     headerTextAlign: TextAlign = TextAlign.Center,
     themeTintEnabled: Boolean = true,
@@ -163,7 +166,7 @@ private fun <T> CouiMenuContent(
     if (items.any { it.children.isNotEmpty() }) {
         CouiMenuWithSubMenu(
             expanded, onDismissRequest, items, onItemClick, modifier, offset, properties,
-            anchor, headerText, headerTextAlign, themeTintEnabled,
+            anchor, placement, anchorInset, headerText, headerTextAlign, themeTintEnabled,
         )
         return
     }
@@ -189,6 +192,8 @@ private fun <T> CouiMenuContent(
         motion = motion,
         touchMotion = touchMotion,
         anchor = anchor,
+        placement = placement,
+        anchorInset = anchorInset,
         onDismissRequest = ::dismissMenu,
         offset = offset,
         shape = menuShape,
@@ -450,6 +455,8 @@ internal fun CouiMenuPopup(
     motion: CouiMenuMotion,
     touchMotion: CouiTouchMotion,
     anchor: CouiMenuAnchor?,
+    placement: CouiMenuPlacement = CouiMenuPlacement.Touch,
+    anchorInset: DpOffset = DpOffset.Zero,
     onDismissRequest: () -> Unit,
     offset: DpOffset,
     shape: Shape,
@@ -480,12 +487,25 @@ internal fun CouiMenuPopup(
     val density = LocalDensity.current
     val materialPositionProvider = remember(offset, density) { CouiMenuPositionProvider(offset, density) }
     val touchOffsetY = with(LocalDensity.current) { offset.y.roundToPx() }
-    val positionProvider = remember(materialPositionProvider, motion, anchor, touchOffsetY) {
+    val marginPx = with(density) { 8.dp.roundToPx() }
+    // 贴元素下沿时留一点缝，别让面板直接压住按钮的投影
+    val gapPx = touchOffsetY + with(density) { 4.dp.roundToPx() }
+    val insetX = with(density) { anchorInset.x.roundToPx() }
+    val insetY = with(density) { anchorInset.y.roundToPx() }
+    val positionProvider = remember(
+        materialPositionProvider, motion, anchor, touchOffsetY, placement, marginPx, gapPx, insetX, insetY,
+    ) {
         CouiMenuMotionPositionProvider(
             materialPositionProvider, motion,
             anchorPosition = { anchor?.positionInWindow },
             visibleWindowBounds = { anchor?.visibleWindowBounds },
             touchOffsetY = touchOffsetY,
+            elementBounds = { anchor?.boundsInWindow },
+            belowElement = placement == CouiMenuPlacement.BelowElement,
+            horizontalMarginPx = marginPx,
+            gapPx = gapPx,
+            elementInsetX = insetX,
+            elementInsetY = insetY,
         )
     }
     val currentOnOutsideRequest by rememberUpdatedState(onOutsideRequest)
@@ -770,6 +790,10 @@ fun <T> Menu(
     offset: DpOffset = DpOffset.Zero,
     properties: PopupProperties = PopupProperties(focusable = true),
     anchor: CouiMenuAnchor? = null,
+    /** 贴元素下沿展开（[CouiMenuPlacement.BelowElement]）还是从触点长出来。 */
+    placement: CouiMenuPlacement = CouiMenuPlacement.Touch,
+    /** 贴元素展开时，可见边缘相对布局边缘的内缩（触控区比可见圆钮大一圈时用）。 */
+    anchorInset: DpOffset = DpOffset.Zero,
     headerText: String? = null,
     headerTextAlign: TextAlign = TextAlign.Center,
     onSpotlightDiagnostic: ((SpotlightDiagnostic) -> Unit)? = null,
@@ -780,7 +804,8 @@ fun <T> Menu(
     ) {
         CouiMenuContent(
             expanded, onDismissRequest, items, onItemClick, modifier,
-            offset, properties, anchor, headerText, headerTextAlign, style.themeTint.alpha > 0f,
+            offset, properties, anchor, placement, anchorInset, headerText, headerTextAlign,
+            style.themeTint.alpha > 0f,
         )
     }
 }

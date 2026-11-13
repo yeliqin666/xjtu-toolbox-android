@@ -159,6 +159,8 @@ internal fun <T> CouiMenuWithSubMenu(
     offset: DpOffset,
     properties: PopupProperties,
     anchor: CouiMenuAnchor?,
+    placement: CouiMenuPlacement = CouiMenuPlacement.Touch,
+    anchorInset: DpOffset = DpOffset.Zero,
     headerText: String?,
     headerTextAlign: TextAlign,
     themeTintEnabled: Boolean,
@@ -585,7 +587,7 @@ internal fun <T> CouiMenuWithSubMenu(
             }
         }
     CouiMenuPopup(
-        expanded, motion, mainTouch, anchor,
+        expanded, motion, mainTouch, anchor, placement = placement, anchorInset = anchorInset,
         onDismissRequest = { if (state.open) state.hide() else dismiss() },
         offset = offset, shape = shape, containerColor = color,
         modifier = modifier.then(mainMaterial.drawing).widthIn(min = CouiMenuMinWidth, max = CouiMenuMaxWidth),

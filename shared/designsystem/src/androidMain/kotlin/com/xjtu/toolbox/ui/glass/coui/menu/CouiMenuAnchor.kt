@@ -17,9 +17,19 @@ import androidx.compose.ui.input.pointer.PointerId
 import androidx.compose.ui.input.pointer.changedToDownIgnoreConsumed
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.LayoutCoordinates
+import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.unit.IntRect
+import kotlin.math.roundToInt
+
+/**
+ * 菜单出现的位置。
+ *
+ * - [Touch]：从按下的触点长出来（原厂行为，适合设置行、长按菜单这类「点哪从哪展开」）。
+ * - [BelowElement]：贴在有锚点的那块元素下沿、右边缘与元素右边缘对齐（顶栏圆钮、设置里的下拉行）。
+ */
+enum class CouiMenuPlacement { Touch, BelowElement }
 
 /** 设置行与其菜单共用的触点锚点, 定位时再转换坐标以跟随滚动和布局变化。 */
 @Stable
@@ -35,6 +45,18 @@ class CouiMenuAnchor internal constructor(private val view: View) {
             return layout.localToWindow(position).takeIf {
                 it.isSpecified && it.x.isFinite() && it.y.isFinite()
             }
+        }
+
+    /** 锚点元素的窗口坐标矩形：[CouiMenuPlacement.BelowElement] 用它定位。 */
+    internal val boundsInWindow: IntRect?
+        get() {
+            val layout = coordinates?.takeIf { it.isAttached } ?: return null
+            val bounds = layout.boundsInWindow()
+            if (!bounds.width.isFinite() || !bounds.height.isFinite() || bounds.width <= 0f) return null
+            return IntRect(
+                bounds.left.roundToInt(), bounds.top.roundToInt(),
+                bounds.right.roundToInt(), bounds.bottom.roundToInt(),
+            )
         }
 
     internal val visibleWindowBounds: IntRect?

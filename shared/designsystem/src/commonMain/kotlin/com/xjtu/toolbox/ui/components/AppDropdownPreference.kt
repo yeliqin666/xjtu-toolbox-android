@@ -27,10 +27,12 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 /**
  * 设置里的下拉单选行：和 MIUIX `OverlayDropdownPreference` 同一套参数与行样式。
- * 点开时右侧的当前值淡出，菜单在这一行右侧展开（见 [MenuMorph.FromRow]）。
+ *
+ * 菜单挂在整行上、从这一行展开：Android 是 COUI 原厂菜单（毛玻璃材质、开合动画、两级子菜单），
+ * 贴着这一行下沿、右边缘与行右边缘对齐；其它端仍是窗口快照毛玻璃那一版（[MenuMorph.FromRow]）。
  */
 @Composable
-fun AppDropdownPreference(
+expect fun AppDropdownPreference(
     title: String,
     items: List<String>,
     selectedIndex: Int,
@@ -39,6 +41,59 @@ fun AppDropdownPreference(
     summary: String? = null,
     enabled: Boolean = true,
     startAction: (@Composable () -> Unit)? = null,
+)
+
+/** 行本体：右侧是当前值和展开箭头，菜单展开时淡出。两端共用。 */
+@Composable
+internal fun DropdownPreferenceRow(
+    title: String,
+    summary: String?,
+    enabled: Boolean,
+    startAction: (@Composable () -> Unit)?,
+    value: String,
+    valueAlpha: Float,
+    holdDown: Boolean,
+    onClick: () -> Unit,
+) {
+    val muted = MiuixTheme.colorScheme.onSurfaceVariantActions
+    BasicComponent(
+        title = title,
+        summary = summary,
+        startAction = startAction,
+        endActions = {
+            Row(
+                Modifier.graphicsLayer { alpha = valueAlpha },
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    value,
+                    style = MiuixTheme.textStyles.body2,
+                    color = muted,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.widthIn(max = 140.dp),
+                )
+                Spacer(Modifier.width(4.dp))
+                Icon(Icons.Default.UnfoldMore, contentDescription = null, tint = muted, modifier = Modifier.size(16.dp))
+            }
+        },
+        onClick = onClick,
+        holdDownState = holdDown,
+        enabled = enabled,
+    )
+}
+
+/** 非 Android 端：菜单从这一行右侧展开（窗口快照毛玻璃）。 */
+@Composable
+internal fun DropdownPreferenceLegacy(
+    title: String,
+    items: List<String>,
+    selectedIndex: Int,
+    onSelectedIndexChange: (Int) -> Unit,
+    modifier: Modifier,
+    summary: String?,
+    enabled: Boolean,
+    startAction: (@Composable () -> Unit)?,
 ) {
     var open by remember { mutableStateOf(false) }
     // 当前值：菜单展开时淡掉，收起时等菜单缩回去才回来
@@ -47,33 +102,16 @@ fun AppDropdownPreference(
         if (open) tween(160) else tween(260, delayMillis = 160),
         label = "dropdownValue",
     )
-    val muted = MiuixTheme.colorScheme.onSurfaceVariantActions
-    // 菜单挂在整行的 Box 上：锚点就是这一行
     Box(modifier) {
-        BasicComponent(
+        DropdownPreferenceRow(
             title = title,
             summary = summary,
-            startAction = startAction,
-            endActions = {
-                Row(
-                    Modifier.graphicsLayer { alpha = valueAlpha },
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text(
-                        items.getOrNull(selectedIndex).orEmpty(),
-                        style = MiuixTheme.textStyles.body2,
-                        color = muted,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.widthIn(max = 140.dp),
-                    )
-                    Spacer(Modifier.width(4.dp))
-                    Icon(Icons.Default.UnfoldMore, contentDescription = null, tint = muted, modifier = Modifier.size(16.dp))
-                }
-            },
-            onClick = { open = true },
-            holdDownState = open,
             enabled = enabled,
+            startAction = startAction,
+            value = items.getOrNull(selectedIndex).orEmpty(),
+            valueAlpha = valueAlpha,
+            holdDown = open,
+            onClick = { open = true },
         )
         AppDropdownMenu(expanded = open, onDismissRequest = { open = false }, morph = MenuMorph.FromRow) {
             items.forEachIndexed { index, item ->

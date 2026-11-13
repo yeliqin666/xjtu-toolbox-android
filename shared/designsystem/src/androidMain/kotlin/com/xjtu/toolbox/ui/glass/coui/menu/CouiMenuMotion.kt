@@ -112,6 +112,14 @@ internal class CouiMenuMotionPositionProvider(
     private val anchorPosition: () -> Offset?,
     private val visibleWindowBounds: () -> IntRect?,
     private val touchOffsetY: Int,
+    /** [belowElement] 为真时用这块元素的窗口矩形定位（见 [CouiMenuPlacement.BelowElement]）。 */
+    private val elementBounds: () -> IntRect? = { null },
+    private val belowElement: Boolean = false,
+    private val horizontalMarginPx: Int = 0,
+    private val gapPx: Int = 0,
+    /** 锚点元素可见边缘相对布局边缘的内缩（触控区比可见圆钮大一圈时用）。 */
+    private val elementInsetX: Int = 0,
+    private val elementInsetY: Int = 0,
 ) : PopupPositionProvider {
     var menuSize by mutableStateOf<IntSize?>(null)
     var popupOriginInHostWindow by mutableStateOf<IntOffset?>(null)
@@ -128,6 +136,34 @@ internal class CouiMenuMotionPositionProvider(
     ): IntOffset {
         val contentSize = menuSize ?: return IntOffset.Zero
         val popupOrigin = popupOriginInHostWindow ?: return IntOffset.Zero
+        val element = if (belowElement) elementBounds() else null
+        if (element != null) {
+            // 贴着元素下沿、右边缘对齐展开；下面放不下就翻到上面，仍然右对齐。
+            val visible = visibleWindowBounds() ?: IntRect(IntOffset.Zero, windowSize)
+            val right = element.right - elementInsetX
+            val bottom = element.bottom - elementInsetY
+            val top = element.top + elementInsetY
+            val width = contentSize.width
+            val height = contentSize.height
+            val minX = visible.left + horizontalMarginPx
+            val maxX = (visible.right - horizontalMarginPx - width).coerceAtLeast(minX)
+            val x = (right - width).coerceIn(minX, maxX)
+            val below = bottom + gapPx
+            val above = top - gapPx - height
+            val minY = visible.top + horizontalMarginPx
+            val maxY = (visible.bottom - horizontalMarginPx - height).coerceAtLeast(minY)
+            val y = when {
+                below + height <= visible.bottom - horizontalMarginPx -> below
+                above >= minY -> above
+                else -> below.coerceIn(minY, maxY)
+            }
+            val menuCenter = Offset(x + width / 2f, y + height / 2f)
+            val anchor = Offset(right.toFloat(), bottom.toFloat())
+            anchorCenterX = anchor.x - popupOrigin.x
+            motion.path = CouiMenuMotionPath.from(anchor - menuCenter)
+            menuPosition = IntOffset(x, y) - popupOrigin
+            return IntOffset.Zero
+        }
         val touchPosition = anchorPosition()
         val positioningAnchor = touchPosition?.let { IntRect(it.round(), IntSize.Zero) } ?: anchorBounds
         val defaultPosition = delegate.calculatePosition(
