@@ -10,7 +10,10 @@
 * priority：0 / 1 / 2 / 3；
 * flags：q 加 Question 标签，t 把 Awaiting Assignment 换成 Awaiting Triage；
   顺序无关，大小写不敏感，未定义字符忽略并在回复末尾提示；
-* assignee：@用户名，可省略；flags 位置以 @ 开头时跳过 flags。
+* assignee：@用户名，可省略；flags 位置以 @ 开头时跳过 flags；
+  指定后状态标签用 In Progress（t 优先）。
+
+建出的 issue 正文注明来源链接和触发命令的操作者。
 
 触发位置决定转换对象：顶层回复 → 转换讨论主帖；楼中楼 → 转换该楼中楼本身。
 只有仓库 write / maintain / admin 权限的作者会触发；权限不足时静默跳过。
@@ -55,11 +58,12 @@ PRIORITY_LABELS = {
 }
 LABEL_ASSIGNMENT = "📥 State:Awaiting Assignment"
 LABEL_TRIAGE = "🕒 State:Awaiting Triage"
+LABEL_IN_PROGRESS = "🔧 State:In Progress"
 LABEL_QUESTION = "Question"
 MANAGED_LABELS = frozenset(
     list(TYPE_LABELS.values())
     + list(PRIORITY_LABELS.values())
-    + [LABEL_ASSIGNMENT, LABEL_TRIAGE, LABEL_QUESTION]
+    + [LABEL_ASSIGNMENT, LABEL_TRIAGE, LABEL_IN_PROGRESS, LABEL_QUESTION]
 )
 
 TITLE_PREFIX = {"bug": "[Bug]", "feature": "[功能]"}
@@ -77,7 +81,7 @@ USAGE = """用法：
   - `q`：额外加 `Question` 标签
   - `t`：把 `📥 State:Awaiting Assignment` 换成 `🕒 State:Awaiting Triage`
   - 未定义的字符会被忽略，并在回复末尾提示
-- `assignee`：`@用户名`，可省略
+- `assignee`：`@用户名`，可省略；指定后状态标签用 `🔧 State:In Progress`（`t` 优先）
 - flags 位置以 `@` 开头时跳过 flags，直接按 assignee 解析
 
 示例：`/toissue bug 1 qt @someone`"""
@@ -510,11 +514,13 @@ def parse_toissue(args: list[str]) -> ToIssueArgs:
 
 
 def desired_labels(parsed: ToIssueArgs) -> set[str]:
-    labels = {
-        TYPE_LABELS[parsed.type],
-        PRIORITY_LABELS[parsed.priority],
-        LABEL_TRIAGE if "t" in parsed.flags else LABEL_ASSIGNMENT,
-    }
+    if "t" in parsed.flags:
+        state = LABEL_TRIAGE
+    elif parsed.assignee:
+        state = LABEL_IN_PROGRESS
+    else:
+        state = LABEL_ASSIGNMENT
+    labels = {TYPE_LABELS[parsed.type], PRIORITY_LABELS[parsed.priority], state}
     if "q" in parsed.flags:
         labels.add(LABEL_QUESTION)
     return labels
@@ -676,8 +682,12 @@ def public_api_message(error: GitHubError) -> str:
     return "GitHub API 调用失败，请稍后重试；若持续失败请联系维护者。"
 
 
-def build_issue_body(source_key: str, source_link: str, content: str) -> str:
-    body = f"<!-- toissue:source={source_key} -->\n\n来源：{source_link}\n\n---\n\n"
+def build_issue_body(source_key: str, source_link: str, operator: str, command_url: str, content: str) -> str:
+    body = (
+        f"<!-- toissue:source={source_key} -->\n\n"
+        f"来源：{source_link}\n"
+        f"由 @{operator} 通过 [`/toissue`]({command_url}) 创建\n\n---\n\n"
+    )
     if content.strip():
         body += content.strip() + "\n"
     else:
@@ -735,7 +745,7 @@ class ToIssueHandler(CommandHandler):
             where = "本楼"
 
         title = issue_title(parsed.type, raw_title, f"Discussion #{discussion.number} 的回复")
-        body = build_issue_body(source_key, source_link, content)
+        body = build_issue_body(source_key, source_link, comment.author_login, comment.url, content)
         existing = find_existing_issue(ctx.client, ctx.owner, ctx.repo, source_key)
 
         if existing:
@@ -827,6 +837,11 @@ def self_test() -> None:
 
     assert strip_command_line("/toissue bug 1\n正文", 0) == "正文"
     assert issue_title("bug", "[Bug] 闪退", "fallback") == "[Bug] 闪退"
+    assert "由 @someone 通过 [`/toissue`](u) 创建" in build_issue_body("k", "l", "someone", "u", "正文")
+
+    assert LABEL_ASSIGNMENT in desired_labels(parse("bug 1"))
+    assert LABEL_IN_PROGRESS in desired_labels(parse("bug 1 @someone"))
+    assert LABEL_TRIAGE in desired_labels(parse("bug 1 t @someone"))
 
     for bad in ("", "bug", "bug 4", "bug 1 @", "nope 1"):
         try:

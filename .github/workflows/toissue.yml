@@ -6,7 +6,7 @@ name: Handle /toissue in discussions
 #   type     bug / feature
 #   priority 0 / 1 / 2 / 3
 #   flags    q 加 Question；t 把 Awaiting Assignment 换成 Awaiting Triage
-#   assignee @用户名，可省略
+#   assignee @用户名，可省略；指定后状态标签用 In Progress（t 优先）
 #
 # 只有仓库 write / maintain / admin 权限的作者会触发；权限不足静默跳过。
 # 顶层回复转换讨论主帖，楼中楼转换该楼中楼本身。
