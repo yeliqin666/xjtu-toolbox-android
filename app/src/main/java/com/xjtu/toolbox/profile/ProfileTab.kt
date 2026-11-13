@@ -72,7 +72,6 @@ import com.xjtu.toolbox.ui.glass.CouiTopBarScrollBehavior
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextButton
 import top.yukonga.miuix.kmp.basic.TextField
-import top.yukonga.miuix.kmp.basic.SmallTitle
 import top.yukonga.miuix.kmp.overlay.OverlayBottomSheet
 import top.yukonga.miuix.kmp.preference.ArrowPreference
 import top.yukonga.miuix.kmp.overlay.OverlayDialog
@@ -109,7 +108,7 @@ private fun ProfileInfoCard(p: com.xjtu.toolbox.hello.HelloProfile, modifier: Mo
             icon = Icons.Outlined.School,
             tint = TINT_BLUE,
             title = "学籍信息",
-            subtitle = listOf(p.departmentName, p.className).filter { it.isNotBlank() }.joinToString(" · ").ifBlank { null },
+            subtitle = p.departmentName.takeIf { it.isNotBlank() },
             trailingIcon = if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
             onClick = { expanded = !expanded },
         )
@@ -327,7 +326,7 @@ private val TINT_INDIGO = com.xjtu.toolbox.settings.SettingsColors.Indigo
 private val TINT_ORANGE = com.xjtu.toolbox.settings.SettingsColors.Orange
 
 /**
- * 顶部的身份卡：头像 + 姓名 + 学号 / 专业 + 一行标签。
+ * 顶部的身份卡：头像 + 姓名 + 学号、专业各一行 + 一行标签。
  *
  * 高度固定：第三行在档案没加载到时换成一句提示，而不是空着——以前专业那一行要等档案回来
  * 才出现，整块往下一挤，看着像「抽了一下」。
@@ -435,12 +434,13 @@ private fun ProfileHeroCard(
                 )
                 Spacer(Modifier.height(3.dp))
                 Text(
-                    if (isLoggedIn) listOfNotNull(studentId, profile?.professionName?.takeIf { it.isNotBlank() }).joinToString(" · ")
+                    if (isLoggedIn) listOfNotNull(studentId, profile?.professionName?.takeIf { it.isNotBlank() })
+                        .joinToString("\n")
                     else "登录以使用全部功能",
                     style = MiuixTheme.textStyles.footnote1,
                     color = muted,
-                    // 给两行：专业名长一点（「能源与动力工程（钱学森班）」这类）挤在一行里
-                    // 只能吃省略号，而学号在前面，被截掉的正好是专业名。
+                    // 学号和专业各占一行（以前用「·」串成一行，专业名一长就要折行，
+                    // 折完第二行只剩半截专业名，还顶着上一行的学号）。专业太长时自己吃省略号。
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
                 )
@@ -901,17 +901,14 @@ internal fun ProfileTab(
 
                 if (loginState.accountType == AccountType.UNDERGRADUATE) {
                     var showCertificate by remember { mutableStateOf(false) }
-                    // 标题和卡片一起挂入场：以前这一组没挂，别的卡片在滑入、它一动不动
-                    Column(Modifier.enterOnce(2)) {
-                    SmallTitle("学业材料")
-                    MenuGroup {
+                    // 不再单起「学业材料」小标题：和上面几张卡一样，靠大卡片本身分组
+                    MenuGroup(Modifier.enterOnce(2)) {
                         ProfileMenuRow(Icons.Outlined.School, TINT_TEAL, "学业进度", subtitle = "培养方案与毕业要求", onClick = { onNavigate(AppRoute.DegreeProgress) }, route = AppRoute.DegreeProgress)
                         MenuDivider()
                         ProfileMenuRow(Icons.Outlined.Description, TINT_TEAL, "电子成绩单", onClick = { onNavigate(AppRoute.Transcript) }, route = AppRoute.Transcript)
                         MenuDivider()
                         ProfileMenuRow(Icons.Outlined.School, TINT_TEAL, "在读证明", subtitle = "中文或中英文",
                             onClick = { showCertificate = true })
-                    }
                     }
                     Spacer(Modifier.height(PROFILE_GAP))
                     if (showCertificate) OverlayBottomSheet(
