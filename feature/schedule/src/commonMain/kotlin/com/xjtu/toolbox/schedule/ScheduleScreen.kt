@@ -346,15 +346,19 @@ fun ScheduleScreen(
         Column {
             // 中间一格直接写看的是哪一周；已选中时再点弹出选周，不另占位置
             val weekLabel = if (vm.showAllWeeks) "全学期" else "第${vm.currentWeek}周"
-            Box {
+            // 分段控件按等分排，「第 N 周」那一格就是选周菜单的锚点
+            BoxWithConstraints {
                 AppSegmentedTabs(
                     // 今日 / 周 / 学期三格，见 plan2 §1.5；非本学期去掉今日
                     tabs = listOf("今日", if (selectedTab == 1) "$weekLabel ▾" else weekLabel, "学期").drop(firstTab),
                     selectedTabIndex = (selectedTab - firstTab).coerceAtLeast(0),
+                    // 原版分段控件不重复回调已选中项；选周要靠「第 N 周」二次点击，这里打开
+                    reselectable = true,
                     onTabSelected = { index ->
                         val tab = index + firstTab
-                        if (tab == 1 && selectedTab == 1) {
-                            showWeekPicker = true
+                        if (tab == selectedTab) {
+                            // 已经在这一格：再点才弹选周（其它格没有二次动作）
+                            if (tab == 1) showWeekPicker = true
                             return@AppSegmentedTabs
                         }
                         selectedTab = tab
@@ -362,38 +366,42 @@ fun ScheduleScreen(
                         if (tab == 2) vm.ensureTextbooks(requireApi = false)
                     },
                 )
-                // 各格等宽：「第 N 周」那一格是选周菜单的锚点
-                Row(Modifier.matchParentSize()) {
-                    if (firstTab == 0) Spacer(Modifier.weight(1f))
-                    Box(Modifier.weight(1f).fillMaxHeight()) {
-                        com.xjtu.toolbox.ui.components.AppDropdownMenu(
-                            expanded = showWeekPicker,
-                            onDismissRequest = { showWeekPicker = false },
-                            morph = com.xjtu.toolbox.ui.components.MenuMorph.FromTab,
-                        ) {
-                            val weeks = vm.totalWeeks.takeIf { it > 0 }
-                                ?: filteredMergedCourses.maxOfOrNull { it.weekBits.length }?.takeIf { it > 0 }
-                                ?: TermWeeks.DEFAULT_TOTAL_WEEKS
-                            WeekPickerMenu(
-                                totalWeeks = weeks,
-                                selectedWeek = vm.currentWeek.takeUnless { vm.showAllWeeks },
-                                thisWeek = vm.realCurrentWeek.takeIf { viewingCurrentTerm && it > 0 },
-                                hasCourse = { week -> filteredMergedCourses.any { it.isInWeek(week) } },
-                                onPickWeek = { week ->
-                                    haptics.tick()
-                                    vm.showAllWeeks = false
-                                    vm.currentWeek = week
-                                    showWeekPicker = false
-                                },
-                                onOverview = {
-                                    haptics.tick()
-                                    vm.showAllWeeks = true
-                                    showWeekPicker = false
-                                },
-                            )
-                        }
+                // 和控件同一套几何：外边 16dp + 控件内部 4dp 内边距，再等分；菜单居中挂在那一格下面
+                val segmentCount = 3 - firstTab
+                val weekIndex = (1 - firstTab).coerceIn(0, segmentCount - 1)
+                val trackInset = 16.dp + 4.dp
+                val segmentWidth = (maxWidth - trackInset * 2) / segmentCount
+                Box(
+                    Modifier
+                        .offset(x = trackInset + segmentWidth * weekIndex)
+                        .width(segmentWidth),
+                ) {
+                    com.xjtu.toolbox.ui.components.AppDropdownMenu(
+                        expanded = showWeekPicker,
+                        onDismissRequest = { showWeekPicker = false },
+                        morph = com.xjtu.toolbox.ui.components.MenuMorph.FromTab,
+                    ) {
+                        val weeks = vm.totalWeeks.takeIf { it > 0 }
+                            ?: filteredMergedCourses.maxOfOrNull { it.weekBits.length }?.takeIf { it > 0 }
+                            ?: TermWeeks.DEFAULT_TOTAL_WEEKS
+                        WeekPickerMenu(
+                            totalWeeks = weeks,
+                            selectedWeek = vm.currentWeek.takeUnless { vm.showAllWeeks },
+                            thisWeek = vm.realCurrentWeek.takeIf { viewingCurrentTerm && it > 0 },
+                            hasCourse = { week -> filteredMergedCourses.any { it.isInWeek(week) } },
+                            onPickWeek = { week ->
+                                haptics.tick()
+                                vm.showAllWeeks = false
+                                vm.currentWeek = week
+                                showWeekPicker = false
+                            },
+                            onOverview = {
+                                haptics.tick()
+                                vm.showAllWeeks = true
+                                showWeekPicker = false
+                            },
+                        )
                     }
-                    Spacer(Modifier.weight(1f))
                 }
             }
             campusTimeHint()?.let {

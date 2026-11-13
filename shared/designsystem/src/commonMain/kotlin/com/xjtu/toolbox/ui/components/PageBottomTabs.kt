@@ -14,9 +14,11 @@ import com.xjtu.toolbox.ui.glass.LocalTabBottomPadding
 
 /**
  * 页面级切换条的底部宿主。现在切换条一律放在顶栏下沿（见 [TABS_AT_BOTTOM]），这里只在开关打开时才画；
- * 画时悬浮在页面底部、半透明磨砂（[glass] 为页面采样层；经典风格为 null，退回实底）。
+ * 画时悬浮在页面底部、由 COUI 分类胶囊自己取样。
  *
- * 用法：把整块正文（带 `glassSource` 的那一层）放进 [content]。切换条画在采样层外面（不能把自己录进去）。
+ * [glass] 是滑块时代的页面采样层，切成胶囊后不再使用，保留只为不动调用方。
+ *
+ * 用法：把整块正文（带 `glassSource` 的那一层）放进 [content]，切换条画在采样层外面。
  * 正文里用 `tabContentPadding` 的列表会自动在底部让出切换条的高度（同 App 底栏的做法）。
  *
  * 页面被放到底栏上当 tab 时，底下已经有一排 App 底栏，再叠一排胶囊很难看：这时这里不画，
@@ -55,7 +57,7 @@ fun PageBottomTabsHost(
 }
 
 /**
- * 顶栏下沿的切换条：挂进顶栏的 `bottomContent`，和顶栏一整块玻璃。
+ * 顶栏下沿的切换条：挂进顶栏的 `bottomContent`，即一排 COUI 分类胶囊，和顶栏下沿同一套玻璃取样。
  * [TABS_AT_BOTTOM] 打开时只在页面放到 App 底栏上（底部已有一排 dock）才画，其余时候切换条在页面底部。
  */
 @Composable
