@@ -184,15 +184,13 @@ object HomeStatsRefresher {
                 posts.map { HomeLine(it.title, "app:${AppRoute.CommunityPost(it.number).id}", listOfNotNull(it.author, "${it.comments} 回复").joinToString(" · ")) }) }
         },
         // 评教：一周一次。开没开评教窗口在一周内不会反复变。
-        Source(AppRoute.Judge, 7 * DAY, LoginType.JWXT) { _, site ->
+        Source(AppRoute.Judge, 7 * DAY, LoginType.QMS) { _, site ->
             site ?: return@Source null
             withContext(Dispatchers.IO) {
-                val api = com.xjtu.toolbox.judge.JudgeApi(site)
-                val term = runCatching { api.getCurrentTerm() }.getOrNull()
-                val todo = api.unfinishedQuestionnaires(term).size
-                val done = api.finishedQuestionnaires(term).size
-                val all = todo + done
-                Log.d(TAG, "judge: term=$term todo=$todo done=$done")
+                val (unfinished, finished) = com.xjtu.toolbox.judge.QmsJudgeApi(site).questionnaires()
+                val todo = unfinished.size
+                val all = todo + finished.size
+                Log.d(TAG, "judge: todo=$todo done=${finished.size}")
                 InboxStore.setTodos(
                     InboxCategories.JUDGE,
                     if (todo > 0) listOf(OwnInbox.todo(InboxCategories.JUDGE, "judge", "评教", "还有 $todo 门课没评教", AppRoute.Judge.id)) else emptyList(),
@@ -488,8 +486,6 @@ object HomeStatsRefresher {
             for (s in sources(manager).sortedWith(compareBy<Source> { it.loginType != null }.thenBy { runOrder.indexOf(it.route).let { i -> if (i < 0) Int.MAX_VALUE else i } })) {
                 if (s.loginType != null && !canLogin) continue
                 if (s.loginType == LoginType.ICLASSFACE && accountType != AccountType.UNDERGRADUATE) continue
-                // 首页评教统计走的是本科教务评教；研究生评教在 gste，要单独登录，不在后台刷
-                if (s.route == AppRoute.Judge && accountType != AccountType.UNDERGRADUATE) continue
                 val last = stamps[s.route.id] ?: 0L
                 val hasContent = s.route.id in existing
                 val ttl = s.ttlNow()

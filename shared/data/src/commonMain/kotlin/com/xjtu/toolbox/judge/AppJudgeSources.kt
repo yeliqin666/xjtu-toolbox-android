@@ -6,7 +6,21 @@ import com.xjtu.toolbox.auth.ensureSite
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
-/** 两个 [JudgeSource] 实现（本科 / 研究生）。 */
+/** [JudgeSource] 实现：安卓端走 QMS；教务 / gste 两个旧源只剩桌面端在用。 */
+
+class QmsJudgeSource(site: SiteSession) : JudgeSource<QmsQuestionnaire> {
+    private val api = QmsJudgeApi(site)
+    override val confirmText get() = "（主观题统一填写「${QmsJudgeApi.DEFAULT_COMMENT}」），确定继续？"
+    override suspend fun load() = api.questionnaires()
+    override fun card(q: QmsQuestionnaire) = JudgeCard(
+        key = q.responseId,
+        course = q.courseName,
+        teacher = q.lecturers.joinToString("、").ifEmpty { "未知教师" },
+        tag = listOf("期中", "期末", "过程").firstOrNull { it in q.planTitle }?.let { "${it}评教" } ?: "评教",
+    )
+    override suspend fun judge(q: QmsQuestionnaire) = api.submitBest(q)
+    override val undo: suspend (QmsQuestionnaire) -> String? = { q -> api.recall(q); null }
+}
 
 class UndergraduateJudgeSource(site: SiteSession, private val username: String) : JudgeSource<Questionnaire> {
     private val api = JudgeApi(site)

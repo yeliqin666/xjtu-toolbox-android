@@ -1,7 +1,5 @@
 package com.xjtu.toolbox.nav
 
-import com.xjtu.toolbox.account.AccountContext
-import com.xjtu.toolbox.auth.AccountType
 import com.xjtu.toolbox.auth.LoginType
 import com.xjtu.toolbox.bulletin.Bulletin
 import com.xjtu.toolbox.util.decodeUrlComponentOrNull
@@ -71,8 +69,7 @@ sealed interface AppRoute : NavKey {
     }
     @Serializable data object Judge : AppRoute {
         override val id get() = "judge"
-        // 研究生评教走 gste + gmis，由页面自己登
-        override val loginType get() = if (isPostgraduateSession()) null else LoginType.JWXT
+        override val loginType get() = LoginType.QMS
     }
     @Serializable data object JwappScore : AppRoute {
         override val id get() = "jwapp_score"
@@ -269,10 +266,5 @@ fun appRouteOf(id: String): AppRoute? {
 
 /** 学校系统维护中的页面 → 显示名。命中时入口直接提示，不登录也不跳转（免得批量 401）。 */
 val maintenanceRoutes: Map<AppRoute, String> = mapOf()
-
-/** 当前账号是否研究生。 */
-/** 当前账号是否研究生。 */
-fun isPostgraduateSession(): Boolean =
-    AccountContext.activeAccountType == AccountType.POSTGRADUATE
 
 private fun encode(value: String): String = encodeUrlComponent(value)

@@ -4,7 +4,7 @@ package com.xjtu.toolbox.auth
  * 业务登录类型。运行时会通过 [SessionManager] / [SiteSession] 转换为 siteKey。
  */
 enum class LoginType(val label: String, val description: String) {
-    JWXT("教务系统", "日程/考试/评教"),
+    JWXT("教务系统", "日程/考试"),
     JWAPP("移动教务", "成绩查询"),
     YWTB("一网通办", "个人信息/学期"),
     LIBRARY("图书馆", "座位预约"),
@@ -17,4 +17,5 @@ enum class LoginType(val label: String, val description: String) {
     FITNESS("体测查询", "体质健康测试成绩"),
     ATTENDANCE("考勤", "考勤查询与请假"),
     ICLASSFACE("快速考勤流水", "今日签到/刷卡记录快速查询"),
+    QMS("学生评教", "课程评教"),
 }

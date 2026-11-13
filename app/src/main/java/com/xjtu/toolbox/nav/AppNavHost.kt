@@ -87,7 +87,6 @@ import com.xjtu.toolbox.jiaocai.AppJiaocaiScreen
 import com.xjtu.toolbox.jiaocai1.Jiaocai1ReaderScreen
 import com.xjtu.toolbox.jiaocai1.AppJiaocai1ShelfStore
 import com.xjtu.toolbox.jiaocai1.AppJiaocai1Source
-import com.xjtu.toolbox.judge.GraduateJudgeScreen
 import com.xjtu.toolbox.judge.JudgeScreen
 import com.xjtu.toolbox.jwapp.AppJwappScoreSource
 import com.xjtu.toolbox.jwapp.JwappScoreScreen
@@ -315,12 +314,7 @@ fun NavEntryBuilder.appPageEntries(
             )
         }
         entry<AppRoute.Judge>(transition = expand(AppRoute.Judge::class)) {
-            val sm = loginState.sessionManager
-            when {
-                sm == null -> LaunchedEffect(Unit) { back() }
-                isPostgraduateSession() -> GraduateJudgeScreen(sessionManager = sm, onBack = back)
-                else -> WithSite("jwxt") { JudgeScreen(site = it, username = loginState.activeUsername, onBack = back) }
-            }
+            WithSite("qms") { JudgeScreen(site = it, onBack = back) }
         }
         entry<AppRoute.Library>(transition = expand(AppRoute.Library::class)) {
             val libraryContext = LocalContext.current
