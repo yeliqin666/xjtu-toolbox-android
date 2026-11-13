@@ -30,6 +30,8 @@ fun <K : Any> AppChipTabRow(
     containerColor: Color = Color.Unspecified,
     /** 所在容器的左右内边距：整行伸到容器边缘，滚动渐隐落在边缘上。 */
     bleed: Dp = 0.dp,
+    /** 重复点已选中项是否也回调 [onSelect]（学辅排序靠它翻升 / 降序）。 */
+    reselectable: Boolean = false,
 ) {
     if (options.isEmpty()) return
     PlatformChipTabRow(
@@ -40,6 +42,7 @@ fun <K : Any> AppChipTabRow(
         label = label,
         containerColor = containerColor.takeOrElse { MiuixTheme.colorScheme.surface },
         modifier = modifier.fillMaxWidth().bleedHorizontal(bleed),
+        reselectable = reselectable,
     )
 }
 
@@ -58,6 +61,7 @@ internal expect fun <K : Any> PlatformChipTabRow(
     label: (K) -> String,
     containerColor: Color,
     modifier: Modifier,
+    reselectable: Boolean,
 )
 
 /** 非 Android 端的同款排布。 */

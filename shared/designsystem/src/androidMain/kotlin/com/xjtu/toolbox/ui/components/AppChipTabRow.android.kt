@@ -22,6 +22,7 @@ internal actual fun <K : Any> PlatformChipTabRow(
     label: (K) -> String,
     containerColor: Color,
     modifier: Modifier,
+    reselectable: Boolean,
 ) {
     val labels = options.map(label)
     val items = remember(options, labels) { options.zip(labels) { key, text -> CouiChipTabItem(key, text) } }
@@ -37,6 +38,7 @@ internal actual fun <K : Any> PlatformChipTabRow(
             onSelectedKeyChange = { key -> options.firstOrNull { it == key }?.let(onSelect) },
             backdrop = toolbar ?: own!!,
             dark = LocalIsDarkTheme.current,
+            reselectable = reselectable,
         )
     }
 }

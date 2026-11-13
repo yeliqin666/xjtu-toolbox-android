@@ -121,6 +121,11 @@ fun ChipTabRow(
     disabledContentColor: Color = CouiChipTabDefaults.contentColor(dark, false),
     textStyle: TextStyle = CouiChipTabDefaults.themeTextStyle(),
     contourGlowEnabled: Boolean = LocalCouiContourGlowEnabled.current,
+    /**
+     * 集成侧扩展：重复点已选中项时是否也回调 [onSelectedKeyChange]。
+     * 原版不回调；学辅的排序胶囊靠「再点当前项翻升 / 降序」，那里打开。
+     */
+    reselectable: Boolean = false,
     renderers: List<CouiFloatingRenderer> = remember(items.map { it.key }) { items.map { CouiFloatingRenderer.standalone() } },
 ) {
     require(items.map { it.key }.distinct().size == items.size) { "分类项的 key 必须唯一" }
@@ -221,7 +226,7 @@ fun ChipTabRow(
                             modifier = Modifier.onFocusChanged { if (it.isFocused) scroll.reveal(index) },
                             selected = selectedKey == item.key,
                             onClick = {
-                                if (selectedKey != item.key) onSelect(item.key)
+                                if (selectedKey != item.key || reselectable) onSelect(item.key)
                                 scroll.reveal(index)
                             },
                             label = item.label, backdrop = backdrop, dark = dark, enabled = enabled && item.enabled,

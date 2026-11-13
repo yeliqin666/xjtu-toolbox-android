@@ -2,7 +2,9 @@ package com.xjtu.toolbox.zyxf
 
 import androidx.compose.animation.animateContentSize
 
+import com.xjtu.toolbox.ui.components.AppChipTabRow
 import com.xjtu.toolbox.ui.components.AppPullToRefresh
+import com.xjtu.toolbox.ui.components.enterOnce
 import com.xjtu.toolbox.platform.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -172,7 +174,6 @@ internal fun ZyxfBrowseScreen(
                     SortChipTab(
                         sort = vm.sort,
                         desc = vm.desc,
-                        dark = dark,
                         onPick = vm::pickSort,
                     )
                 }
@@ -184,14 +185,15 @@ internal fun ZyxfBrowseScreen(
                         onPreview = { vm.previewing = it; vm.previewFromSplit = isWide },
                         onDownload = vm::download,
                         downloadState = { vm.downloadState[it] },
-                        modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 4.dp),
+                        modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 4.dp)
+                            .enterOnce(0),
                     )
                 }
             }
             // 面包屑放在排序胶囊下面：先选维度，再看「我在哪、能退到哪」
             if (!searching && stack.size > 1) {
                 item(key = "crumb", contentType = "header") {
-                    Breadcrumb(stack = stack, onJump = vm::goTo)
+                    Box(Modifier.enterOnce(1)) { Breadcrumb(stack = stack, onJump = vm::goTo) }
                 }
             }
             if (searching) {
@@ -290,7 +292,11 @@ internal fun ZyxfBrowseScreen(
                         } else vm.download(entry)
                     }
                     if (folders.isNotEmpty()) {
-                        item(key = "folderHead", contentType = "section") { SectionLabel(if (searching) "匹配的文件夹 · 点开查看内容" else "文件夹", folders.size) }
+                        item(key = "folderHead", contentType = "section") {
+                            Box(Modifier.enterOnce(2)) {
+                                SectionLabel(if (searching) "匹配的文件夹 · 点开查看内容" else "文件夹", folders.size)
+                            }
+                        }
                         items(folders.chunked(2), key = { "folders-${it.first().id}" }, contentType = { "folderRow" }) { pair ->
                             Row(
                                 Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
@@ -305,18 +311,22 @@ internal fun ZyxfBrowseScreen(
                     }
                     if (files.isNotEmpty()) {
                         item(key = "fileHead", contentType = "section") {
-                            if (searching && folders.isNotEmpty()) Spacer(Modifier.height(20.dp))
-                            SectionLabel(if (searching) "独立匹配的文件 · 来源见下方路径" else "文件", files.size)
+                            Box(Modifier.enterOnce(3)) {
+                                if (searching && folders.isNotEmpty()) Spacer(Modifier.height(20.dp))
+                                SectionLabel(if (searching) "独立匹配的文件 · 来源见下方路径" else "文件", files.size)
+                            }
                         }
                         itemsIndexed(files, key = { _, it -> "file-${it.id}" }, contentType = { _, _ -> "file" }) { i, entry ->
-                            FileRow(
-                                entry = entry,
-                                state = vm.downloadState[entry.id],
-                                first = i == 0,
-                                last = i == files.lastIndex,
-                                onClick = { onEntryClick(entry) },
-                                onDownload = { vm.download(entry) },
-                            )
+                            Box(Modifier.enterOnce(4 + i)) {
+                                FileRow(
+                                    entry = entry,
+                                    state = vm.downloadState[entry.id],
+                                    first = i == 0,
+                                    last = i == files.lastIndex,
+                                    onClick = { onEntryClick(entry) },
+                                    onDownload = { vm.download(entry) },
+                                )
+                            }
                         }
                     }
                 }
@@ -491,82 +501,36 @@ internal fun ZyxfTopBarSearch(
 }
 
 /**
- * 排序顺序：COUI `ChipTab` 分类胶囊。
+ * 排序顺序：COUI 分类胶囊行（`AppChipTabRow` → COUI `ChipTabRow`）。
  *
  * 字段与服务端 `SORT_FIELDS` 对齐（默认/名称/时间/大小）。和服务端/网页版一致：
- * 点当前项翻升/降序、点别的项换字段。这里直接铺 `ChipTab` 而不是 `ChipTabRow`：
- * 后者选中项再点不回调，而学辅排序恰恰需要「再点当前项翻方向」；四颗胶囊也放得下，
- * 不需要行内自动滚动。`ChipTab` 自己每次点击都回调。
- * 「默认」本身没有方向，再点由 ViewModel 直接 no-op。
+ * 点当前项翻升/降序、点别的项换字段。原版分类栏点已选中项不回调，这里打开 `reselectable`
+ * 让二次点击翻方向；「默认」本身没有方向，再点由 ViewModel 直接 no-op。
  * 时间默认降序——找资料时想看的是"最近传了什么"，而不是三年前的第一份。
  *
- * 正常都走 COUI 胶囊；个别机型建不起浮层渲染器时，
- * 退回同一排 `AppFilterChip`，字段与方向仍然可用，只是没有玻璃材质与按压动效。
+ * 用 `ChipTabRow` 而不是自己铺一排 `ChipTab`：二次点击和横滑滚动它都自带，而且胶囊的浮层投影
+ * 由整栏共享一层、向下留了 100dp 余量；自己塞进 `horizontalScroll` 的话，投影会在滚动容器的
+ * 下沿被硬裁掉，看起来就是胶囊下面一条深灰 / 浅灰的分界线。顶栏里采顶栏那层模糊，
+ * 列表里由它自己垫一条实色底。
  */
 @Composable
 private fun SortChipTab(
     sort: ZyxfApi.Sort,
     desc: Boolean,
-    dark: Boolean,
     onPick: (ZyxfApi.Sort) -> Unit,
-    /**
-     * 放在 COUI 顶栏表面里时传 `LocalCouiToolbarBackdrop.current`：
-     * 胶囊直接采顶栏那层模糊，不再自己录一条实色底。
-     * null = 列表里（压栈页），保留本地实色采样源。
-     */
-    toolbarBackdrop: CouiBackdrop? = null,
 ) {
     val arrow = when {
         sort == ZyxfApi.Sort.MANUAL -> ""
         desc -> " ↓"
         else -> " ↑"
     }
-    val options = ZyxfApi.Sort.entries
-    val renderers = remember {
-        runCatching { options.map { CouiFloatingRenderer.standalone() } }.getOrNull()
-    }
-    val ownedBackdrop = if (toolbarBackdrop == null) rememberCouiBackdrop() else null
-    val backdrop = toolbarBackdrop ?: ownedBackdrop!!
-    Box(Modifier.fillMaxWidth()) {
-        if (ownedBackdrop != null) {
-            // 分类栏的玻璃同样要一层不透明采样源；采的是这一格的页面底色
-            Box(
-                Modifier
-                    .matchParentSize()
-                    .couiBackdrop(ownedBackdrop)
-                    .background(MiuixTheme.colorScheme.surface),
-            )
-        }
-        Row(
-            Modifier
-                .fillMaxWidth()
-                .horizontalScroll(rememberScrollState())
-                .padding(horizontal = 16.dp, vertical = 8.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            options.forEachIndexed { index, option ->
-                val label = option.label + if (option == sort) arrow else ""
-                val selected = option == sort
-                if (renderers != null) {
-                    ChipTab(
-                        selected = selected,
-                        onClick = { onPick(option) },
-                        label = label,
-                        backdrop = backdrop,
-                        dark = dark,
-                        renderer = renderers[index],
-                    )
-                } else {
-                    AppFilterChip(
-                        selected = selected,
-                        onClick = { onPick(option) },
-                        label = label,
-                    )
-                }
-            }
-        }
-    }
+    AppChipTabRow(
+        options = ZyxfApi.Sort.entries,
+        selected = sort,
+        onSelect = onPick,
+        label = { option -> if (option == sort) option.label + arrow else option.label },
+        reselectable = true,
+    )
 }
 
 /**
@@ -582,13 +546,7 @@ internal fun ZyxfTopBarSortChips(
     desc: Boolean,
     onPick: (ZyxfApi.Sort) -> Unit,
 ) {
-    SortChipTab(
-        sort = sort,
-        desc = desc,
-        dark = LocalIsDarkTheme.current,
-        onPick = onPick,
-        toolbarBackdrop = LocalCouiToolbarBackdrop.current,
-    )
+    SortChipTab(sort = sort, desc = desc, onPick = onPick)
 }
 
 /**
