@@ -1,16 +1,15 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- Splash Screen 启动主题 (Android 12+) -->
-    <style name="Theme.XJTUToolBox.Splash" parent="Theme.SplashScreen">
-        <item name="windowSplashScreenBackground">@android:color/white</item>
-        <item name="windowSplashScreenAnimatedIcon">@mipmap/ic_launcher</item>
-        <item name="postSplashScreenTheme">@style/Theme.XJTUToolBox</item>
-    </style>
-
     <!-- 应用主题 -->
     <style name="Theme.XJTUToolBox" parent="@android:style/Theme.DeviceDefault.DayNight">
         <item name="android:windowActionBar">false</item>
         <item name="android:windowNoTitle">true</item>
         <item name="android:windowBackground">#FFF0F1F3</item>
+    </style>
+
+    <!-- 启动 Activity：系统 SplashScreen 的样式，启动屏结束后沿用应用主题 -->
+    <style name="Theme.XJTUToolBox.Splash">
+        <item name="android:windowSplashScreenBackground">@android:color/white</item>
+        <item name="android:windowSplashScreenAnimatedIcon">@mipmap/ic_launcher</item>
     </style>
 </resources>

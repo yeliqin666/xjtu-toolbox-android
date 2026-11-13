@@ -5,7 +5,6 @@ import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
-import android.os.Build
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
@@ -29,15 +28,8 @@ internal object NoticeNotifier {
     const val EXTRA_ASK_INBOX_IDS = "extra_ask_pidai_inbox_ids"
 
     fun canPost(context: Context): Boolean {
-        if (!AppNotificationChannels.areNotificationsEnabled(context)) return false
-        if (Build.VERSION.SDK_INT >= 33) {
-            val granted = ContextCompat.checkSelfPermission(
-                context,
-                Manifest.permission.POST_NOTIFICATIONS,
-            ) == PackageManager.PERMISSION_GRANTED
-            if (!granted) return false
-        }
-        return true
+        return AppNotificationChannels.areNotificationsEnabled(context) &&
+            ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
     }
 
     /** [tags] 是 `链接 -> AI 标签`，没有就是不带标签（见 [NoticeAiTagger]）。 */

@@ -25,8 +25,7 @@ import androidx.compose.ui.platform.LocalWindowInfo
  * 背景本身是深色的，白色文字直接放上去即可；如果要在亮部放小号字，调用方应再压一层暗色 scrim
  * （首页的液体卡就是这么做的）。
  *
- * Android 13+ 走 RuntimeShader（AGSL），更低版本与桌面 / Web 退化为站点 canvas 加载前的
- * 135° 线性渐变。
+ * Android 走 RuntimeShader（AGSL），桌面 / Web 退化为站点 canvas 加载前的 135° 线性渐变。
  */
 @Composable
 fun LiquidBackground(

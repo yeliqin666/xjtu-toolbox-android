@@ -1,7 +1,5 @@
 package com.xjtu.toolbox.ui.glass
 
-import android.os.Build
-import androidx.annotation.RequiresApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -56,37 +54,6 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
  */
 @Composable
 actual fun CouiGlassCard(
-    color: Color,
-    modifier: Modifier,
-    cornerRadius: Dp,
-    enabled: Boolean,
-    onClick: (() -> Unit)?,
-    content: @Composable BoxScope.() -> Unit,
-) {
-    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-        CouiGlassCardFallback(
-            color = color,
-            modifier = modifier,
-            cornerRadius = cornerRadius,
-            enabled = enabled,
-            onClick = onClick,
-            content = content,
-        )
-        return
-    }
-    CouiGlassCardSurface(
-        color = color,
-        modifier = modifier,
-        cornerRadius = cornerRadius,
-        enabled = enabled,
-        onClick = onClick,
-        content = content,
-    )
-}
-
-@RequiresApi(Build.VERSION_CODES.UPSIDE_DOWN_CAKE)
-@Composable
-private fun CouiGlassCardSurface(
     color: Color,
     modifier: Modifier,
     cornerRadius: Dp,

@@ -3,73 +3,62 @@ package com.xjtu.toolbox.agent
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
-import android.graphics.Color
-import android.graphics.pdf.PdfRenderer
-import android.os.ParcelFileDescriptor
 import android.util.Base64
 import java.io.ByteArrayOutputStream
-import java.io.File
 import java.util.zip.ZipInputStream
 
-/** 文档在本机提取文字，PDF 按需读取目录或渲染页面。 */
+/** 文档在本机提取文字；PDF 见 [AgentPdfReader]，老式 doc/ppt 和扫描页交给 DeepSeek OCR（有 Key 时）。 */
 internal object AgentDocReader {
 
     /** [text] 进工具结果；[images] 由调度循环随后作为一条 user 消息交给模型看。 */
     class Doc(val text: String, val images: List<String> = emptyList())
 
-    const val PAGES_PER_READ = 4
+    /** 工具参数：页码（或段号）、模式、PDF 单页续读偏移、PDF 检索词。 */
+    class Options(val pages: String?, val mode: String = "auto", val textOffset: Int = 0, val query: String? = null)
+
     private const val TEXT_CHARS = 6000
-    private const val PAGE_WIDTH = 1400
 
     private val TEXT_EXTS = setOf("txt", "md", "markdown", "csv", "json", "html", "htm", "xml", "tex", "py", "java", "c", "cpp", "h", "kt", "js", "m", "log")
     private val IMAGE_EXTS = setOf("jpg", "jpeg", "png", "webp", "gif", "bmp")
+    private val OCR_EXTS = setOf("doc", "ppt")
 
     fun ext(name: String) = name.substringAfterLast('.', "").lowercase()
 
     fun canRead(name: String): Boolean = ext(name).let {
-        it in TEXT_EXTS || it in IMAGE_EXTS || it in setOf("pdf", "docx", "pptx", "xlsx")
+        it in TEXT_EXTS || it in IMAGE_EXTS || it in OCR_EXTS || it in setOf("pdf", "docx", "pptx", "xlsx")
     }
 
-    fun read(context: Context, name: String, bytes: ByteArray, pages: String?, mode: String = "auto", textOffset: Int = 0): Doc = when (ext(name)) {
-        "pdf" -> AgentPdfReader.read(context, name, bytes, pages, mode, textOffset)
-        "docx" -> chunk(name, docxText(bytes), pages)
-        "pptx" -> pptx(name, bytes, pages)
-        "xlsx" -> chunk(name, xlsxText(bytes), pages)
+    suspend fun read(context: Context, name: String, bytes: ByteArray, options: Options, ocr: DeepSeekOcr?): Doc = when (ext(name)) {
+        "pdf" -> AgentPdfReader.read(context, name, bytes, options, ocr)
+        "docx" -> chunk(name, docxText(bytes), options.pages)
+        "pptx" -> slides(name, pptxSlides(bytes), options.pages)
+        "xlsx" -> chunk(name, xlsxText(bytes), options.pages)
+        in OCR_EXTS -> legacyOffice(name, bytes, options.pages, ocr)
         in IMAGE_EXTS -> imageDoc(name, bytes)
-        in TEXT_EXTS -> chunk(name, decodeText(bytes), pages)
-        else -> Doc("result: unsupported_type; file: $name; supported: pdf, docx, pptx, xlsx, 图片, 纯文本")
+        in TEXT_EXTS -> chunk(name, decodeText(bytes), options.pages)
+        else -> Doc("result: unsupported_type; file: $name; supported: pdf, doc(x), ppt(x), xlsx, 图片, 纯文本")
     }
 
-    internal fun pdfImages(context: Context, name: String, bytes: ByteArray, pages: String?): Doc {
-        val tmp = File.createTempFile("read-", ".pdf", File(context.cacheDir, "agent_docs").apply { mkdirs() })
-        return try {
-            tmp.writeBytes(bytes)
-            ParcelFileDescriptor.open(tmp, ParcelFileDescriptor.MODE_READ_ONLY).use { fd ->
-                PdfRenderer(fd).use { pdf ->
-                    val total = pdf.pageCount
-                    if (total == 0) return Doc(ToolReply.empty("pdf: $name"))
-                    val r = AgentDocumentPages.select(pages, total, PAGES_PER_READ)
-                    val images = r.map { i ->
-                        pdf.openPage(i - 1).use { page ->
-                            val w = PAGE_WIDTH
-                            val h = (page.height.toFloat() / page.width * w).toInt().coerceAtMost(w * 3)
-                            val bmp = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
-                            bmp.eraseColor(Color.WHITE)
-                            try {
-                                page.render(bmp, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
-                                jpeg(bmp)
-                            } finally {
-                                bmp.recycle()
-                            }
-                        }
-                    }
-                    Doc("file: $name; pages: $total; image_pages: ${r.joinToString(",")}; page_numbering: physical_1_based\n页面图在下一条消息中。\n${ToolReply.EXTERNAL_DATA}", images)
-                }
-            }
-        } catch (e: Exception) {
-            Doc(ToolReply.failed("read_pdf", e.message))
-        } finally {
-            tmp.delete()
+    /** 同一份内容的 OCR 结果缓存，翻页、续读不重复计费。 */
+    private val ocrCache = object : LinkedHashMap<String, List<String>>(16, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, List<String>>) = size > 64
+    }
+
+    suspend fun cachedOcr(ocr: DeepSeekOcr, key: String, name: String, bytes: ByteArray): DeepSeekOcr.Result {
+        synchronized(ocrCache) { ocrCache[key] }?.let { return DeepSeekOcr.Result.Ok(it) }
+        return ocr.recognize(name, bytes).also { r ->
+            if (r is DeepSeekOcr.Result.Ok) synchronized(ocrCache) { ocrCache[key] = r.pages }
+        }
+    }
+
+    fun contentKey(bytes: ByteArray) = "${bytes.size}:${bytes.contentHashCode()}"
+
+    private suspend fun legacyOffice(name: String, bytes: ByteArray, pages: String?, ocr: DeepSeekOcr?): Doc {
+        if (ocr == null) return Doc("result: needs_ocr; file: $name; 老式 doc/ppt 要在设置里开联网搜索（DeepSeek Key）才能识别，也可以用 save_file 存进下载")
+        return when (val r = cachedOcr(ocr, contentKey(bytes), name, bytes)) {
+            is DeepSeekOcr.Result.Failed -> Doc(ToolReply.failed("ocr", r.reason))
+            is DeepSeekOcr.Result.Ok ->
+                if (ext(name) == "ppt") slides(name, r.pages, pages) else chunk(name, r.pages.joinToString("\n"), pages)
         }
     }
 
@@ -82,16 +71,17 @@ internal object AgentDocReader {
         return Doc("「$name」内容${if (parts > 1) "（第 $part/$parts 段）" else ""}：\n$body$more\n${ToolReply.EXTERNAL_DATA}")
     }
 
-    private fun pptx(name: String, bytes: ByteArray, pages: String?): Doc {
-        val slides = zipEntries(bytes) { it.startsWith("ppt/slides/slide") && it.endsWith(".xml") }
-            .sortedBy { (n, _) -> Regex("""slide(\d+)\.xml""").find(n)?.groupValues?.get(1)?.toIntOrNull() ?: 0 }
-            .map { (_, xml) -> xmlTexts(xml, "a:t").joinToString(" ") }
-        if (slides.isEmpty()) return Doc(ToolReply.empty("pptx: $name"))
+    private fun slides(name: String, slides: List<String>, pages: String?): Doc {
+        if (slides.none { it.isNotBlank() }) return Doc(ToolReply.empty("slides: $name"))
         val r = AgentDocumentPages.select(pages, slides.size, 20)
         val body = r.joinToString("\n") { "【第 $it 页】${slides[it - 1]}" }
-        val more = "\n共 ${slides.size} 页；本次页码：${r.joinToString(",")}"
-        return Doc("「$name」幻灯片文字：\n$body$more\n${ToolReply.EXTERNAL_DATA}")
+        return Doc("「$name」幻灯片文字：\n$body\n共 ${slides.size} 页；本次页码：${r.joinToString(",")}\n${ToolReply.EXTERNAL_DATA}")
     }
+
+    private fun pptxSlides(bytes: ByteArray): List<String> =
+        zipEntries(bytes) { it.startsWith("ppt/slides/slide") && it.endsWith(".xml") }
+            .sortedBy { (n, _) -> Regex("""slide(\d+)\.xml""").find(n)?.groupValues?.get(1)?.toIntOrNull() ?: 0 }
+            .map { (_, xml) -> xmlTexts(xml, "a:t").joinToString(" ") }
 
     private fun docxText(bytes: ByteArray): String =
         zipEntries(bytes) { it == "word/document.xml" }.firstOrNull()?.second
@@ -133,12 +123,10 @@ internal object AgentDocReader {
         val bmp = BitmapFactory.decodeByteArray(bytes, 0, bytes.size) ?: return Doc(ToolReply.failed("read_image", "decode"))
         val scale = minOf(1f, 1600f / maxOf(bmp.width, bmp.height))
         val scaled = if (scale < 1f) Bitmap.createScaledBitmap(bmp, (bmp.width * scale).toInt(), (bmp.height * scale).toInt(), true) else bmp
-        return Doc("「$name」是图片，在下一条消息里", listOf(jpeg(scaled)))
+        return Doc("「$name」是图片，在下一条消息里", listOf(dataUrl(jpeg(scaled))))
     }
 
-    private fun jpeg(bmp: Bitmap): String {
-        val out = ByteArrayOutputStream()
-        bmp.compress(Bitmap.CompressFormat.JPEG, 82, out)
-        return "data:image/jpeg;base64," + Base64.encodeToString(out.toByteArray(), Base64.NO_WRAP)
-    }
+    fun jpeg(bmp: Bitmap): ByteArray = ByteArrayOutputStream().also { bmp.compress(Bitmap.CompressFormat.JPEG, 82, it) }.toByteArray()
+
+    fun dataUrl(jpeg: ByteArray) = "data:image/jpeg;base64," + Base64.encodeToString(jpeg, Base64.NO_WRAP)
 }

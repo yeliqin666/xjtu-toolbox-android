@@ -24,6 +24,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import com.xjtu.toolbox.ui.sensitive
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.xjtu.toolbox.platform.keyValueStore
@@ -173,7 +174,7 @@ internal fun ConfigPanel(
                         },
                         label = "API Key *",
                         singleLine = true,
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier = Modifier.fillMaxWidth().sensitive(),
                         visualTransformation = PasswordVisualTransformation(),
                         keyboardOptions = KeyboardOptions(
                             keyboardType = KeyboardType.Password,
@@ -396,7 +397,7 @@ internal fun ConfigPanel(
                                 },
                                 label = "DeepSeek API Key（联网搜索用）",
                                 singleLine = true,
-                                modifier = Modifier.fillMaxWidth(),
+                                modifier = Modifier.fillMaxWidth().sensitive(),
                                 visualTransformation = PasswordVisualTransformation(),
                                 keyboardOptions = KeyboardOptions(
                                     keyboardType = KeyboardType.Password,
@@ -408,13 +409,13 @@ internal fun ConfigPanel(
                         Text(
                             when {
                                 searchEngine == AgentConfig.SEARCH_OFF ->
-                                    "不联网搜索、不读网页。"
+                                    "不联网搜索、不读网页，也不识别扫描件。"
                                 needsOwnKey && apiKeySection != null ->
                                     "搜索用的 DeepSeek Key${if (config.searchKeyConfigured) "已配置" else "未配置"}，在运行 serve 的机器上设置。"
                                 needsOwnKey ->
-                                    "聊天没走 DeepSeek，联网搜索要单独一个 DeepSeek Key；留空则不联网搜索。"
+                                    "聊天没走 DeepSeek，联网搜索和扫描件识别要单独一个 DeepSeek Key；留空则都不用。"
                                 else ->
-                                    "DeepSeek 官方搜索，和聊天共用 Key，每千次 5 元。"
+                                    "DeepSeek 官方搜索（每千次 5 元）与扫描件识别（每千页 1.5 元），和聊天共用 Key。"
                             },
                             style = MiuixTheme.textStyles.footnote1,
                             color = MiuixTheme.colorScheme.onSurfaceVariantSummary

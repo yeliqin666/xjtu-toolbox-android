@@ -1,6 +1,5 @@
 package com.xjtu.toolbox.ui.glass.coui
 
-import androidx.annotation.RequiresApi
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
 import androidx.compose.ui.Modifier
@@ -49,7 +48,6 @@ object CouiShadowDefaults {
  * 需按窗口变换生成网格或控制节点透明度时, 使用 CouiShadowRenderer。
  * 返回的 Modifier 可复用；renderer 与缓存随各节点独立创建。
  */
-@RequiresApi(34)
 @Composable
 fun Modifier.couiShadow(
     style: CouiShadowStyle = CouiShadowDefaults.menu(),
@@ -62,7 +60,6 @@ fun Modifier.couiShadow(
     return then(ShadowElement(style, outline, radius, clipping))
 }
 
-@RequiresApi(34)
 private data class ShadowElement(
     val style: CouiShadowStyle,
     val outline: CouiShadowOutline,
@@ -74,7 +71,6 @@ private data class ShadowElement(
     override fun InspectorInfo.inspectableProperties() { name = "couiShadow" }
 }
 
-@RequiresApi(34)
 private class ShadowNode(var parameters: ShadowElement) : Modifier.Node(), DrawModifierNode {
     private val renderer = CouiShadowRenderer()
 

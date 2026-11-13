@@ -4,7 +4,6 @@ import android.Manifest
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
-import android.os.Build
 import android.provider.Settings
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -224,11 +223,7 @@ private fun NoticeAndReminderSection(context: Context, scope: CoroutineScope) {
             commitReminder(kind, false)
             return
         }
-        val needAsk = Build.VERSION.SDK_INT >= 33 &&
-            ContextCompat.checkSelfPermission(
-                context,
-                Manifest.permission.POST_NOTIFICATIONS
-            ) != PackageManager.PERMISSION_GRANTED
+        val needAsk = ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
         if (needAsk) {
             pendingReminder = kind
             reminderPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
@@ -258,11 +253,7 @@ private fun NoticeAndReminderSection(context: Context, scope: CoroutineScope) {
             startAction = { SettingsIcon(Icons.Default.Notifications, SettingsColors.Orange) },
             onCheckedChange = { on ->
                 if (on) {
-                    val needAsk = Build.VERSION.SDK_INT >= 33 &&
-                        ContextCompat.checkSelfPermission(
-                            context,
-                            Manifest.permission.POST_NOTIFICATIONS
-                        ) != PackageManager.PERMISSION_GRANTED
+                    val needAsk = ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
                     if (needAsk) {
                         noticePermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
                     } else {

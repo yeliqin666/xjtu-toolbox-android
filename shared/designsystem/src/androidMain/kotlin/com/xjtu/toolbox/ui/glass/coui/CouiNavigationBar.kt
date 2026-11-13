@@ -16,7 +16,6 @@
 package com.xjtu.toolbox.ui.glass.coui
 
 import android.graphics.BlendMode
-import androidx.annotation.RequiresApi
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
@@ -108,7 +107,6 @@ import com.xjtu.toolbox.ui.glass.coui.CouiCapsuleShape
 data class CouiNavigationItem(val title: String, val icon: ImageVector, val selectedIcon: ImageVector = icon)
 
 /** 只负责底栏装配，页面状态和导航提交仍由宿主持有。 */
-@RequiresApi(34)
 @Composable
 fun NavigationBar(
     modifier: Modifier = Modifier,

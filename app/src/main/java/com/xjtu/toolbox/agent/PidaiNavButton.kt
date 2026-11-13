@@ -27,7 +27,9 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.FrameRateCategory
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.preferredFrameRate
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
@@ -276,6 +278,7 @@ private fun PlainPidaiIcon(
     }
     Box(
         modifier = modifier
+            .then(if (breathAlpha != null) Modifier.preferredFrameRate(FrameRateCategory.Normal) else Modifier)
             .graphicsLayer { alpha = breathAlpha?.value ?: 1f }
             .background(ink, CircleShape),
         contentAlignment = Alignment.Center,

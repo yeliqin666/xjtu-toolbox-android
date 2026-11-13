@@ -2,7 +2,6 @@ package com.xjtu.toolbox.ui.glass.coui
 
 import android.graphics.RenderEffect
 import android.graphics.Shader
-import androidx.annotation.RequiresApi
 import androidx.compose.animation.animateBounds
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -79,7 +78,6 @@ import kotlin.math.roundToInt
  * action 提供右侧融合胶囊的非交互内容；点击、材质与反馈由组件持有。
  * onActionClick 为 null 时禁用动作；收起时保留融合绘制并立即关闭输入与语义。
  */
-@RequiresApi(34)
 @Composable
 fun TopAppBarSearch(
     modifier: Modifier = Modifier,
@@ -198,7 +196,6 @@ fun TopAppBarSearch(
 }
 
 /** 与展开搜索框共用材质。收起尾段仍允许重新按下入口。 */
-@RequiresApi(34)
 @Composable
 fun TopAppBarSearchButton(
     modifier: Modifier = Modifier,
@@ -248,7 +245,6 @@ fun TopAppBarSearchButton(
 }
 
 /** 退场动作保留原位淡化; 常驻动作连续移动到新布局位置。 */
-@RequiresApi(34)
 @Composable
 fun TopAppBarSearchAction(
     modifier: Modifier = Modifier,
@@ -358,7 +354,6 @@ private fun SearchInput(
     }
 }
 
-@RequiresApi(34)
 @Composable
 private fun SearchSurface(
     modifier: Modifier,

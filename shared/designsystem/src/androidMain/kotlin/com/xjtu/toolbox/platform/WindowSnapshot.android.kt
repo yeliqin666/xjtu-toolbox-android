@@ -4,7 +4,6 @@ import android.app.Activity
 import android.content.Context
 import android.content.ContextWrapper
 import android.graphics.Bitmap
-import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.view.PixelCopy
@@ -39,7 +38,6 @@ actual fun rememberWindowSnapshot(capture: Boolean): WindowSnapshot? {
             shot = null
             return@LaunchedEffect
         }
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return@LaunchedEffect
         val window = view.context.findActivity()?.window ?: return@LaunchedEffect
         val decor = window.decorView
         val w = decor.width

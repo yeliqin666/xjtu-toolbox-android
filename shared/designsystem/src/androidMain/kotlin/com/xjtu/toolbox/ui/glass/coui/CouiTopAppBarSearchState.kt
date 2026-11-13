@@ -1,6 +1,5 @@
 package com.xjtu.toolbox.ui.glass.coui
 
-import androidx.annotation.RequiresApi
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.SideEffect
@@ -28,7 +27,6 @@ class CouiTopAppBarSearchState internal constructor(
     val toolbarAlpha: Float get() = motion.toolbarAlpha
 }
 
-@RequiresApi(34)
 @Composable
 fun rememberCouiTopAppBarSearchState(
     expanded: Boolean,

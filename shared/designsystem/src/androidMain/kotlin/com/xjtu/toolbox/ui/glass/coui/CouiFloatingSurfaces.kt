@@ -6,7 +6,6 @@ import android.graphics.RenderEffect
 import android.graphics.RuntimeShader
 import android.graphics.Shader
 import android.util.DisplayMetrics
-import androidx.annotation.RequiresApi
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -81,7 +80,6 @@ data class CouiFloatingShadow(
 )
 
 /** 创建时直接验证原生片段能否编译; 宿主负责报告失败, 不在绘制时吞没错误。 */
-@RequiresApi(34)
 class CouiFloatingRenderer private constructor(internal val surfaceCount: Int) {
     constructor() : this(3)
 
@@ -108,7 +106,6 @@ class CouiFloatingRenderer private constructor(internal val surfaceCount: Int) {
  * 回调坐标仍为节点本地坐标，变换及裁剪由调用方提供。
  * renderer、contentLayer 与返回的 Modifier 绑定一个绘制节点，不跨节点复用。
  */
-@RequiresApi(34)
 @Composable
 fun Modifier.couiFloatingSurface(
     backdrop: CouiBackdrop,
@@ -124,7 +121,6 @@ fun Modifier.couiFloatingSurface(
 ): Modifier = couiFloatingSurface(backdrop, renderer, material, shadow, shape, contentLayer,
     contourGlowEnabled, foregroundComposition, beforeContent, useMenuLightEdge = false, surface = surface)
 
-@RequiresApi(34)
 @Composable
 internal fun Modifier.couiFloatingSurface(
     backdrop: CouiBackdrop,
@@ -147,7 +143,6 @@ internal fun Modifier.couiFloatingSurface(
 }
 
 /** 三主体在同一节点按 Z 排序，同 Z 保留宿主子项顺序；资源与返回的 Modifier 不跨节点复用。菜单 index 1，两侧附件 index 2。 */
-@RequiresApi(34)
 @Composable
 fun Modifier.couiFloatingSurfaces(
     backdrop: CouiBackdrop,
@@ -166,7 +161,6 @@ fun Modifier.couiFloatingSurfaces(
 }
 
 /** 双主体的采样、融球和光效；顺序与 material.index 必须分别为 1、2。 */
-@RequiresApi(34)
 @Composable
 fun Modifier.couiFloatingPair(
     backdrop: CouiBackdrop,
@@ -190,7 +184,6 @@ fun Modifier.couiFloatingPair(
         beforeContent = beforeContent, drawOrder = drawOrder, surfaces = surfaces)
 }
 
-@RequiresApi(34)
 @Composable
 private fun Modifier.floatingSurfaces(
     backdrop: CouiBackdrop,

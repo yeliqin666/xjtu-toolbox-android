@@ -64,6 +64,7 @@ internal class AndroidAgentHost(
                 context = context,
                 host = this,
                 allowInteractiveLogin = interactiveLogin,
+                ocrKey = config.webSearchKey,
             ),
             // 各 feature 自带的工具（只实现 :shared:model 的 AgentTools），在入口这里并进来
             extras = listOfNotNull(

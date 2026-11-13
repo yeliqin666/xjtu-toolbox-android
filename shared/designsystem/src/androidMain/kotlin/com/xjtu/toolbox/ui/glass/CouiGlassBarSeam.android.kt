@@ -13,7 +13,6 @@ import com.xjtu.toolbox.ui.glass.coui.couiBackdrop
 import com.xjtu.toolbox.ui.glass.coui.rememberCouiBackdrop
 import com.xjtu.toolbox.ui.theme.LocalIsDarkTheme
 
-// minSdk 34 起 AGSL 材质是基线能力，不再按系统版本降级
 actual fun couiGlassBarPlatformSupported(): Boolean = true
 
 private class AndroidCouiBackdrop(val backdrop: CouiBackdrop) : CouiGlassBarBackdrop {

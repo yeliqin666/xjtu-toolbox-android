@@ -1,8 +1,6 @@
 package com.xjtu.toolbox.ui.components
 
 import android.graphics.RuntimeShader
-import android.os.Build
-import androidx.annotation.RequiresApi
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
@@ -32,10 +30,6 @@ internal actual fun PlatformLiquidBackground(
     crease: Float,
     animated: Boolean,
 ) {
-    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
-        FallbackLiquidBackground(modifier, colors)
-        return
-    }
     val lifecycleOwner = LocalLifecycleOwner.current
     val lifecycleState by lifecycleOwner.lifecycle.currentStateAsState()
     val running = animated && LocalPageVisible.current && lifecycleState.isAtLeast(Lifecycle.State.RESUMED)
@@ -121,7 +115,6 @@ half4 main(float2 fragCoord) {
 }
 """
 
-@RequiresApi(Build.VERSION_CODES.TIRAMISU)
 @Composable
 private fun RuntimeLiquid(
     modifier: Modifier,

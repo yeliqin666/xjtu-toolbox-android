@@ -1,9 +1,7 @@
 package com.xjtu.toolbox.ui.glass.coui
 
 import android.graphics.Typeface
-import android.os.Build
 import androidx.compose.foundation.Canvas
-import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Box
@@ -118,8 +116,7 @@ fun SearchBar(
         val size = base * if (fontScale < 1.15f) 1f else 1.15f
         val weight = 500
         val typeface = Typeface.create(Typeface.create("sans-serif-medium", Typeface.NORMAL), weight, false)
-        val lineSpacing = if (Build.VERSION.SDK_INT >= 35) 1.2245f else 1.1f
-        couiTextStyle(typeface, weight, size, lineSpacing, includeFontPadding = true, density = density)
+        couiTextStyle(typeface, weight, size, 1.2245f, includeFontPadding = true, density = density)
     }
     val textMeasurer = rememberTextMeasurer()
     val cancelWidth = remember(cancelText, cancelStyle, density, layoutDirection, textMeasurer) { with(density) {
@@ -134,7 +131,7 @@ fun SearchBar(
     val shape = CouiSearchBarDefaults.shape
     val bodyLayer = rememberGraphicsLayer()
     val cancelLayer = rememberGraphicsLayer()
-    val renderer = if (Build.VERSION.SDK_INT >= 34) remember { CouiFloatingRenderer.pair() } else null
+    val renderer = remember { CouiFloatingRenderer.pair() }
     val bodySource = remember { MutableInteractionSource() }
     val cancelSource = remember { MutableInteractionSource() }
     val press = rememberCouiPressMotion()
@@ -146,7 +143,6 @@ fun SearchBar(
     val (cancelLightInput, cancelLight) = rememberCouiSpotlight(enabled && state.expanded, SpotlightPreset.OpaqueMedium2, dark)
     val foreground = colors.foreground
     val secondary = colors.secondary
-    val background = colors.fallbackBackground
     val requester = remember { FocusRequester() }
     val focus = LocalFocusManager.current
     val keyboard = LocalSoftwareKeyboardController.current
@@ -199,7 +195,7 @@ fun SearchBar(
         else ((state.widthProgress - .8f) / .2f).coerceIn(0f, 1f)
     val baseShadow = CouiTopAppBarButtonDefaults.shadow(dark, true, density.density, contour, search = true, alphaScale = drop)
     val shadow = baseShadow.copy(causticColor = baseShadow.causticColor.copy(alpha = baseShadow.causticColor.alpha * drop))
-    val surfaceModifier = if (Build.VERSION.SDK_INT >= 34 && renderer != null) Modifier.couiFloatingPair(
+    val surfaceModifier = Modifier.couiFloatingPair(
         surfaceBackdrop, renderer, listOf(CouiTopAppBarButtonDefaults.systemMaterial(dark, true).copy(index = 1,
             blurRadius = CouiSearchBarDefaults.blurRadius, extension = with(density) { 4.dp.roundToPx() }, themeTint = themeTint),
             CouiTopAppBarButtonDefaults.systemMaterial(dark, true).copy(index = 2,
@@ -218,13 +214,11 @@ fun SearchBar(
                 withTransform({ scale(node.scaleX, node.scaleY, center) }) { clipPath(path) { draw() } }
             }
         }, surfaces = { listOf(bodySurface(), cancelSurface()) })
-        else Modifier
     Layout(modifier = modifier.fillMaxWidth().height(CouiSearchBarDefaults.height)
         .padding(horizontal = CouiSearchBarDefaults.horizontalMargin).onSizeChanged { boundsSize = it }
         .then(CouiSearchRelocationBoundary)
         .then(surfaceModifier), content = {
-        val recordBody = if (renderer != null) Modifier.drawWithContent { bodyLayer.record { this@drawWithContent.drawContent() } }
-            else Modifier.background(background, shape).clip(shape).drawWithContent { bodyLight?.invoke(this); drawContent() }
+        val recordBody = Modifier.drawWithContent { bodyLayer.record { this@drawWithContent.drawContent() } }
         Box(Modifier.graphicsLayer {
             val node = bodySurface()
             translationX = bodyTouch.translationX.value
@@ -272,9 +266,7 @@ fun SearchBar(
                     }
                 })
         }
-        val recordCancel = if (renderer != null) Modifier.drawWithContent { cancelLayer.record { this@drawWithContent.drawContent() } }
-            else Modifier.background(background, shape)
-                .clip(shape).drawWithContent { cancelLight?.invoke(this); drawContent() }
+        val recordCancel = Modifier.drawWithContent { cancelLayer.record { this@drawWithContent.drawContent() } }
         Box(Modifier.width(with(density) { cancelWidth.toDp() }).height(CouiSearchBarDefaults.surfaceHeight)
             .graphicsLayer {
                 val node = cancelSurface()
@@ -282,7 +274,7 @@ fun SearchBar(
                 translationY = touch.translationY.value
                 scaleX = node.scaleX
                 scaleY = node.scaleY
-                alpha = if (renderer != null) node.alpha else state.cancelProgress.coerceIn(0f, 1f)
+                alpha = node.alpha
             }
             .couiTouchMotion(touch, enabled && state.expanded && !state.running).couiPressMotion(press, enabled && state.expanded)
             .then(cancelLightInput).then(recordCancel).clip(shape).couiToolbarFeedback(dark, cancelSource, enabled && state.expanded)

@@ -113,15 +113,37 @@ class GithubDeviceAuthTest {
     }
 
     @Test
-    fun `轮询本身失败时把失败原样返回，不再重试`() = runTest {
-        val useCase = AwaitGithubDeviceAuthorizationUseCase(
-            repository = FailingRepo(),
-            nowEpochMillis = { 1_000L },
-            delayMillis = { },
-        )
-        val result = useCase(authorization(1_000L))
-        assertTrue(result.isFailure)
-        assertEquals("boom", result.exceptionOrNull()?.message)
+    fun `网络失败是暂时的：接着轮询，后面授权照样成功`() = runTest {
+        var now = 1_000L
+        var polls = 0
+        val repo = object : GithubDeviceAuthRepository {
+            override val isConfigured = true
+            override suspend fun start(): Result<GithubDeviceAuthorization> = Result.failure(IllegalStateException())
+            override suspend fun poll(deviceCode: String): Result<GithubDevicePollResult> =
+                if (polls++ < 2) Result.failure(IllegalStateException("network")) else Result.success(GithubDevicePollResult.Authorized(token))
+        }
+        val useCase = AwaitGithubDeviceAuthorizationUseCase(repo, nowEpochMillis = { now }, delayMillis = { now += it })
+        assertEquals(token, useCase(authorization(1_000L)).getOrNull())
+        assertEquals(3, polls)
+    }
+
+    @Test
+    fun `一直失败到过期时返回最后一次的失败`() = runTest {
+        var now = 1_000L
+        val useCase = AwaitGithubDeviceAuthorizationUseCase(FailingRepo(), nowEpochMillis = { now }, delayMillis = { now += it })
+        assertEquals("boom", useCase(authorization(1_000L, expiresInMillis = 20_000)).exceptionOrNull()?.message)
+    }
+
+    @Test
+    fun `协议错误重试也没用，立即返回`() = runTest {
+        val repo = object : GithubDeviceAuthRepository {
+            override val isConfigured = true
+            override suspend fun start(): Result<GithubDeviceAuthorization> = Result.failure(IllegalStateException())
+            override suspend fun poll(deviceCode: String): Result<GithubDevicePollResult> =
+                Result.failure(GithubDeviceFlowProtocolException("bad"))
+        }
+        val useCase = AwaitGithubDeviceAuthorizationUseCase(repo, nowEpochMillis = { 1_000L }, delayMillis = { })
+        assertTrue(useCase(authorization(1_000L)).exceptionOrNull() is GithubDeviceFlowProtocolException)
     }
 
     // ── 两个 token 校验函数（:app 的 okhttp 实现也用它们）──

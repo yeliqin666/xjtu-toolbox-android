@@ -2,8 +2,6 @@ package com.xjtu.toolbox.ui.glass.coui
 
 import android.graphics.RenderEffect
 import android.graphics.RuntimeShader
-import android.os.Build
-import androidx.annotation.RequiresApi
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import kotlin.math.max
@@ -12,7 +10,6 @@ import kotlin.math.max
 enum class CouiEdgeStyle { Light, Dark }
 
 /** 接收原始模糊图与组件材质配色; contourGlowEnabled 同时控制描边与内光晕。 */
-@RequiresApi(Build.VERSION_CODES.TIRAMISU)
 class CouiEdge(
     style: CouiEdgeStyle,
     private val radiusPx: Float,
@@ -53,7 +50,6 @@ class CouiEdge(
     }
 }
 
-@RequiresApi(33)
 internal fun RuntimeShader.setCouiContourUniforms(
     size: Size,
     density: Float,

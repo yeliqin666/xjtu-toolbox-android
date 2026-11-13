@@ -1,16 +1,15 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- 暗色模式：Splash Screen 启动主题 -->
-    <style name="Theme.XJTUToolBox.Splash" parent="Theme.SplashScreen">
-        <item name="windowSplashScreenBackground">#FF000000</item>
-        <item name="windowSplashScreenAnimatedIcon">@mipmap/ic_launcher</item>
-        <item name="postSplashScreenTheme">@style/Theme.XJTUToolBox</item>
-    </style>
-
     <!-- 暗色模式：应用主题 -->
     <style name="Theme.XJTUToolBox" parent="@android:style/Theme.DeviceDefault.DayNight">
         <item name="android:windowActionBar">false</item>
         <item name="android:windowNoTitle">true</item>
         <item name="android:windowBackground">#FF000000</item>
+    </style>
+
+    <!-- 暗色模式：启动屏 -->
+    <style name="Theme.XJTUToolBox.Splash">
+        <item name="android:windowSplashScreenBackground">#FF000000</item>
+        <item name="android:windowSplashScreenAnimatedIcon">@mipmap/ic_launcher</item>
     </style>
 </resources>

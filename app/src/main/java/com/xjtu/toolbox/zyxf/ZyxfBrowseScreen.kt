@@ -500,7 +500,7 @@ internal fun ZyxfTopBarSearch(
  * 「默认」本身没有方向，再点由 ViewModel 直接 no-op。
  * 时间默认降序——找资料时想看的是"最近传了什么"，而不是三年前的第一份。
  *
- * 本应用 minSdk 已是 34，正常都走 COUI 胶囊；个别机型建不起浮层渲染器时，
+ * 正常都走 COUI 胶囊；个别机型建不起浮层渲染器时，
  * 退回同一排 `AppFilterChip`，字段与方向仍然可用，只是没有玻璃材质与按压动效。
  */
 @Composable

@@ -9,8 +9,6 @@ import androidx.compose.ui.graphics.Color
 data class CouiSearchBarColors(
     val foreground: Color,
     val secondary: Color,
-    /** API 31–33 普通填色背景；API 34 起使用所属原厂材质。 */
-    val fallbackBackground: Color,
     val clear: Color,
 )
 
@@ -20,8 +18,7 @@ object CouiSearchBarDefaults {
     @Composable
     fun colors(dark: Boolean = CouiTheme.isDark): CouiSearchBarColors {
         val theme = CouiTheme.colorSchemeFor(dark)
-        return CouiSearchBarColors(theme.onSurface, theme.onSurfaceVariant, theme.container,
-            theme.onSurface.copy(alpha = if (dark) .3f else .26f))
+        return CouiSearchBarColors(theme.onSurface, theme.onSurfaceVariant, theme.onSurface.copy(alpha = if (dark) .3f else .26f))
     }
 
     val height = 52.dp

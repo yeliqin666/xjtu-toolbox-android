@@ -95,7 +95,7 @@ fun AppShell(
 
     // 玻璃采样源只录 tab 内容区；录整个 Scaffold 会让底栏采样自己，RenderThread 直接崩
     val contentBackdrop = rememberLayerBackdrop(cache = glassStyle)
-    // COUI 材质的页面采样源（Android 14+ 才有实现，其它平台/系统为 null，底栏自动降级）
+    // COUI 材质的页面采样源（只有 Android 有实现，其它平台为 null，底栏自动降级）
     val couiGlassBackdrop = rememberCouiGlassBarBackdrop()
     // 底栏导出成一层，屁岱气泡尖角伸到底栏上时采的是「页面 + 底栏」
     val barBackdrop = rememberLayerBackdrop()

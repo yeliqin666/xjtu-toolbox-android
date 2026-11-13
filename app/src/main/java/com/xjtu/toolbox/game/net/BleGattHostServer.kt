@@ -13,7 +13,6 @@ import android.bluetooth.le.AdvertiseCallback
 import android.bluetooth.le.AdvertiseData
 import android.bluetooth.le.AdvertiseSettings
 import android.content.Context
-import android.os.Build
 import android.os.ParcelUuid
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.channels.Channel
@@ -211,15 +210,8 @@ class BleGattHostServer(private val context: Context) {
             for (fragment in fragments) {
                 val ack = CompletableDeferred<Boolean>()
                 pendingNotifyAck = ack
-                val sent = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                    gattServer?.notifyCharacteristicChanged(device, char, false, fragment) ==
-                        android.bluetooth.BluetoothStatusCodes.SUCCESS
-                } else {
-                    @Suppress("DEPRECATION")
-                    char.value = fragment
-                    @Suppress("DEPRECATION")
-                    gattServer?.notifyCharacteristicChanged(device, char, false) == true
-                }
+                val sent = gattServer?.notifyCharacteristicChanged(device, char, false, fragment) ==
+                    android.bluetooth.BluetoothStatusCodes.SUCCESS
                 if (!sent) break
                 // 等这一片真正发出去（onNotificationSent）再发下一片：GATT 同一时刻只能有一个
                 // 未完成的操作，不排队会互相踩踏、丢片。

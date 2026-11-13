@@ -25,9 +25,8 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 
 /**
- * 手指按在底栏上时那一小片跟手的高光。API 33+ 用着色器画柔和的圆形光斑，
- * 更低版本（`isRuntimeShaderSupported()` 为 false）退化成一层淡淡的白色叠加，
- * 不额外做版本判断（backdrop 库自己处理，见计划 §16.7）。
+ * 手指按在底栏上时那一小片跟手的高光。有 RuntimeShader 时画柔和的圆形光斑，
+ * 桌面 / Web（`isRuntimeShaderSupported()` 为 false）退化成一层淡淡的白色叠加。
  */
 class GlassInteractiveHighlight(
     val animationScope: CoroutineScope,

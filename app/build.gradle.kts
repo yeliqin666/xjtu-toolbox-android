@@ -15,7 +15,7 @@ android {
     namespace = "com.xjtu.toolbox"
     // compileSdk 跟随 miuix（其 AAR metadata 声明 minCompileSdk = 37）：
     // 消费方的 compileSdk 低于它时 CheckAarMetadata 直接失败。这只是「用哪套 SDK 编译」，
-    // 不影响设备兼容范围。minSdk / targetSdk 保持不动。
+    // 不影响设备兼容范围。
     compileSdk {
         version = release(37) {
         }
@@ -23,7 +23,8 @@ android {
 
     defaultConfig {
         applicationId = "com.xjtu.toolbox"
-        minSdk = 34
+        // Android 15：PdfRenderer 取文字/检索、COUI 的 Mesh 投影与 clipShader 都是基线能力，不写降级
+        minSdk = 35
         targetSdk = 36
         versionCode = 93
         versionName = "5.3.0"
@@ -99,7 +100,7 @@ android {
                     keyPassword = p.getProperty("keyPassword")
                 }
             }
-            // minSdk=31 全覆盖 V3 支持范围（API≥28），强制启用以获得更强签名保护和密钥轮换能力
+            // V3 签名（API≥28）支持密钥轮换
             enableV3Signing = true
         }
     }
@@ -177,8 +178,6 @@ android {
         // 存储；运行时跑的是 AOT/JIT 产物，启动速度不受影响（同机交替 A/B 各 18 次冷启动，
         // 压缩 ~335ms vs 不压缩 ~332ms，差异在噪声内）。
         dex { useLegacyPackaging = true }
-        // pdfbox-android 传递引入的 BouncyCastle 带约 4MB 后量子算法参数表（R8 不管 Java 资源），PDF 用不到
-        resources { excludes += "org/bouncycastle/**" }
     }
 }
 
@@ -203,16 +202,6 @@ baselineProfile {
     saveInSrc = true
     // 按 startup profile 把启动要用的类排进主 dex，冷启动少读页
     dexLayoutOptimization = true
-}
-
-val pdfTestAssets by configurations.creating { isTransitive = false }
-val unpackPdfTestAssets by tasks.registering(Sync::class) {
-    from(pdfTestAssets.map { zipTree(it) }) { include("assets/**") }
-    into(layout.buildDirectory.dir("pdf-test-assets"))
-}
-android.sourceSets.getByName("test").resources.srcDir(layout.buildDirectory.dir("pdf-test-assets/assets").get().asFile)
-tasks.matching { it.name.startsWith("process") && it.name.endsWith("UnitTestJavaRes") }.configureEach {
-    dependsOn(unpackPdfTestAssets)
 }
 
 dependencies {
@@ -242,7 +231,6 @@ dependencies {
     // 不支持时由 :app 的 KitOneTake 回落成 App 内现有的 Compose 转场（见 KitOneTake.kt）。
     implementation(libs.sharedview.kit)
     implementation(libs.androidx.core.ktx)
-    implementation(libs.androidx.core.splashscreen)
     implementation(libs.androidx.lifecycle.runtime.ktx)
     implementation(libs.androidx.lifecycle.viewmodel.compose)
     implementation(libs.androidx.activity.compose)
@@ -261,8 +249,6 @@ dependencies {
     implementation(libs.okhttp.brotli)
     implementation(libs.okhttp.java.net.cookiejar)
     implementation(libs.jsoup)
-    implementation("com.tom-roush:pdfbox-android:2.0.27.0")
-    pdfTestAssets("com.tom-roush:pdfbox-android:2.0.27.0@aar")
     implementation(libs.flexmark.html2md)
     implementation(libs.coroutines.android)
     implementation(libs.security.crypto)
@@ -291,8 +277,7 @@ dependencies {
     implementation(libs.miuix.ui)
     implementation(libs.miuix.preference)
     implementation(libs.miuix.icons)
-    // 超椭圆圆角（MIUI/iOS 那种平滑拐角）。设备不支持 RuntimeShader 时库内部
-    // 自动退回普通 RoundedCornerShape，minSdk 31 上安全。
+    // 超椭圆圆角（MIUI/iOS 那种平滑拐角）
     implementation(libs.miuix.squircle)
     // 导航运行时（连续栈、跟手侧滑返回、预测式返回）
     implementation(libs.miuix.nav)

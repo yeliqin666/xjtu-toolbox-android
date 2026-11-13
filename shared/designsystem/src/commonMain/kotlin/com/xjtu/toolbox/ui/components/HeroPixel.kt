@@ -34,7 +34,7 @@ val HeroPixelScrim: Brush = Brush.verticalGradient(
     1f to Color.Black.copy(alpha = 0.40f),
 )
 
-/** 没有 RuntimeShader 的端（以及 Android 12 及以下）用同一套算法逐格渲染成一张位图。 */
+/** 没有 RuntimeShader 的端（桌面 / Web）用同一套算法逐格渲染成一张位图。 */
 @Composable
 internal fun CpuHeroPixelBackground(modifier: Modifier) {
     val cell = with(LocalDensity.current) { 1.dp.toPx() }

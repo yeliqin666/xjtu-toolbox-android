@@ -2,8 +2,6 @@ package com.xjtu.toolbox.ui.glass.coui.menu
 
 import android.graphics.RenderEffect
 import android.graphics.RuntimeShader
-import android.os.Build
-import androidx.annotation.RequiresApi
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.geometry.Offset
@@ -23,7 +21,7 @@ import com.xjtu.toolbox.ui.glass.coui.CouiBackdrop
 import kotlin.math.ceil
 
 @Composable
-fun rememberCouiMenuBlur(backdrop: CouiBackdrop, background: Color): CouiMenuBlur? =
+fun rememberCouiMenuBlur(backdrop: CouiBackdrop, background: Color): CouiMenuBlur =
     rememberCouiKawaseBlur(backdrop, background, CouiMenuBlurRadius)
 
 /** 菜单固定 radius160; 弹窗使用原厂 integer/coui_dialog_blur_radius = 200。 */
@@ -31,8 +29,7 @@ private const val CouiMenuBlurRadius = 160
 
 /** 原厂 BackgroundBlurDrawable 的 Fast Kawase 载体, radius 为引擎等级而不是像素。 */
 @Composable
-internal fun rememberCouiKawaseBlur(backdrop: CouiBackdrop, background: Color, radius: Int): CouiMenuBlur? {
-    if (Build.VERSION.SDK_INT < 33) return null
+internal fun rememberCouiKawaseBlur(backdrop: CouiBackdrop, background: Color, radius: Int): CouiMenuBlur {
     val layers = List(10) { rememberGraphicsLayer() }
     return remember(backdrop, background, radius, layers) {
         CouiMenuBlur(backdrop, background, radius, layers)
@@ -40,7 +37,6 @@ internal fun rememberCouiKawaseBlur(backdrop: CouiBackdrop, background: Color, r
 }
 
 /** 移植 PJZ110 type2 的 Fast Kawase, radius 使用原厂引擎等级; 每轮保留独立像素网格。 */
-@RequiresApi(33)
 class CouiMenuBlur internal constructor(
     private val backdrop: CouiBackdrop,
     private val background: Color,

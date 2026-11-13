@@ -5,7 +5,7 @@ import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Modifier
 
 /**
- * 页面内容的采样源。Android 14+ 由 COUI 的 `CouiBackdrop` 实现（GraphicsLayer 录制 + 逐帧重绘），
+ * 页面内容的采样源。Android 由 COUI 的 `CouiBackdrop` 实现（GraphicsLayer 录制 + 逐帧重绘），
  * 其它平台没有实现，[rememberCouiGlassBarBackdrop] 返回 null。
  */
 interface CouiGlassBarBackdrop {
@@ -23,7 +23,7 @@ interface CouiGlassBarBackdrop {
  */
 const val couiGlassBarMaterialEnabled: Boolean = true
 
-/** 当前平台/系统版本能不能跑 COUI 的 AGSL 浮层材质（Android 14+）。 */
+/** 当前平台能不能跑 COUI 的 AGSL 浮层材质（只有 Android）。 */
 val couiGlassBarSupported: Boolean get() = couiGlassBarPlatformSupported()
 
 expect fun couiGlassBarPlatformSupported(): Boolean

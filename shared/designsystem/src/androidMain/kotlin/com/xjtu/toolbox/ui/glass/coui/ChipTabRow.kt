@@ -9,7 +9,6 @@ import android.graphics.Shader
 import android.view.Choreographer
 import android.view.ViewConfiguration
 import android.view.animation.AnimationUtils
-import androidx.annotation.RequiresApi
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.tween
@@ -105,7 +104,6 @@ data class CouiChipTabItem(
  * 需要退出过渡时保留 leadingAction 内容，只切换 leadingActionVisible。
  * renderers 与项目按顺序对应，不得跨节点复用。
  */
-@RequiresApi(34)
 @Composable
 fun ChipTabRow(
     modifier: Modifier = Modifier,

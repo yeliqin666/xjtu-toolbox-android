@@ -1,7 +1,6 @@
 package com.xjtu.toolbox.ui.glass.coui.menu
 
 import android.graphics.RenderEffect
-import androidx.annotation.RequiresApi
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.geometry.Size
@@ -11,7 +10,6 @@ import com.xjtu.toolbox.ui.glass.coui.CouiEdge
 import com.xjtu.toolbox.ui.glass.coui.CouiEdgeStyle
 import com.xjtu.toolbox.ui.glass.coui.LocalCouiContourGlowEnabled
 
-@RequiresApi(33)
 @Composable
 internal fun rememberCouiMenuEdge(dark: Boolean, radiusPx: Float, cornerWeight: Float, mix: Color, blend: Color): CouiMenuEdge {
     val contourGlowEnabled = LocalCouiContourGlowEnabled.current
@@ -32,7 +30,6 @@ internal fun rememberCouiMenuEdge(dark: Boolean, radiusPx: Float, cornerWeight: 
 }
 
 /** 菜单只提供材质配色并缓存 Compose effect, 原始模糊图直接进入公共 Shader。 */
-@RequiresApi(33)
 internal class CouiMenuEdge(private val edge: CouiEdge) {
     private var lastEdge: RenderEffect? = null
     private var cachedEffect: androidx.compose.ui.graphics.RenderEffect? = null

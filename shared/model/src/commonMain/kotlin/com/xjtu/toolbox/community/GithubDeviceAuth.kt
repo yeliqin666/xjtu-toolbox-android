@@ -70,15 +70,20 @@ class AwaitGithubDeviceAuthorizationUseCase(
         authorization: GithubDeviceAuthorization
     ): Result<GithubDeviceAccessToken> {
         var intervalSeconds = authorization.intervalSeconds.coerceAtLeast(MINIMUM_INTERVAL_SECONDS)
+        var lastError: Throwable? = null
         while (nowEpochMillis() < authorization.expiresAtEpochMillis) {
             delayMillis(intervalSeconds * 1_000L)
-            if (nowEpochMillis() >= authorization.expiresAtEpochMillis) {
-                return Result.failure(GithubDeviceAuthorizationExpiredException())
+            if (nowEpochMillis() >= authorization.expiresAtEpochMillis) break
+            val polled = repository.poll(authorization.deviceCode)
+            val error = polled.exceptionOrNull()
+            // 用户去浏览器授权时本应用在后台、进程常被冻结，这期间的网络失败只算暂时的，接着轮询到过期
+            if (error != null) {
+                if (error.isFatalForPolling()) return Result.failure(error)
+                lastError = error
+                continue
             }
-            val result = repository.poll(authorization.deviceCode).getOrElse {
-                return Result.failure(it)
-            }
-            when (result) {
+            lastError = null
+            when (val result = polled.getOrThrow()) {
                 GithubDevicePollResult.Pending -> Unit
                 GithubDevicePollResult.SlowDown -> {
                     intervalSeconds = (intervalSeconds + SLOW_DOWN_INCREMENT_SECONDS)
@@ -93,7 +98,14 @@ class AwaitGithubDeviceAuthorizationUseCase(
                 }
             }
         }
-        return Result.failure(GithubDeviceAuthorizationExpiredException())
+        return Result.failure(lastError ?: GithubDeviceAuthorizationExpiredException())
+    }
+
+    /** 配置、协议、客户端错误重试也没用；网络、5xx、限流可以等下一轮。 */
+    private fun Throwable.isFatalForPolling(): Boolean = when (this) {
+        is GithubDeviceFlowNotConfiguredException, is GithubDeviceFlowProtocolException, is IllegalArgumentException -> true
+        is GithubApiException -> !rateLimited && statusCode in 400..499 && statusCode != 429
+        else -> false
     }
 
     private companion object {

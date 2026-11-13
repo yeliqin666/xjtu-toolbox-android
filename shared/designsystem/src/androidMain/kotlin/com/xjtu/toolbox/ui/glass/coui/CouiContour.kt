@@ -1,7 +1,6 @@
 package com.xjtu.toolbox.ui.glass.coui
 
 import android.graphics.RuntimeShader
-import androidx.annotation.RequiresApi
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 
@@ -13,7 +12,6 @@ enum class CouiContourStyle { Menu, Dialog, Button }
  * 输出已包含 surfaceColor, 调用方不能再叠加一次底色; effectAlpha 只衰减光效。
  * floating 使用 FAB 的加亮算法并保持表面 alpha, 默认仍使用独立白光覆盖率。
  */
-@RequiresApi(33)
 class CouiContour(private val floating: Boolean = false, private val style: CouiContourStyle = CouiContourStyle.Menu) {
     init { require(!floating || style == CouiContourStyle.Menu) { "浮动轮廓不可同时使用 Drawable 预设" } }
     private val shader = RuntimeShader(if (floating) couiFloatingContourShader() else CouiContourShader)

@@ -5,7 +5,6 @@ ksp = "2.3.12"
 room = "2.8.5"
 work = "2.12.0"
 coreKtx = "1.19.1"
-coreSplashscreen = "1.2.0"
 lifecycle = "2.11.0"
 activityCompose = "1.13.0"
 # 钉死的正式版（latest.release 会让同一份源码构建出不同版本）
@@ -58,7 +57,6 @@ uiautomator = "2.4.0"
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
 # COUI 底栏的弹簧（CouiSpring / CouiTouchMotion / 跟手光）用厂商同款 SpringAnimation，版本与 COUI-Kit 锁定一致
 androidx-dynamicanimation = { group = "androidx.dynamicanimation", name = "dynamicanimation", version = "1.1.0" }
-androidx-core-splashscreen = { group = "androidx.core", name = "core-splashscreen", version.ref = "coreSplashscreen" }
 androidx-lifecycle-runtime-ktx = { group = "androidx.lifecycle", name = "lifecycle-runtime-ktx", version.ref = "lifecycle" }
 androidx-lifecycle-viewmodel-compose = { group = "androidx.lifecycle", name = "lifecycle-viewmodel-compose", version.ref = "lifecycle" }
 androidx-activity-compose = { group = "androidx.activity", name = "activity-compose", version.ref = "activityCompose" }

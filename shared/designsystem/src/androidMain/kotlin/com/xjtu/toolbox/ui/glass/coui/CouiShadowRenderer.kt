@@ -14,8 +14,6 @@ import android.graphics.RenderEffect
 import android.graphics.RenderNode
 import android.graphics.RuntimeShader
 import android.graphics.Shader
-import android.os.Build
-import androidx.annotation.RequiresApi
 import java.nio.ByteBuffer
 import java.nio.FloatBuffer
 import java.nio.ShortBuffer
@@ -29,7 +27,6 @@ import kotlin.math.min
 enum class CouiShadowOutline { Oval, SmoothCapsule, RoundRect }
 
 /** 原 Skia 网格、A8 表与厂商 inverse clip 的公开 API 承载; 每个主体仅保留当前两路资源。 */
-@RequiresApi(34)
 class CouiShadowRenderer(surfaceCount: Int = 1) {
     private val specifications = Array(4) { index ->
         MeshSpecification.make(arrayOf(
@@ -86,7 +83,7 @@ class CouiShadowRenderer(surfaceCount: Int = 1) {
                 canvas.save()
                 canvas.translate(draw.projection.offset.x, draw.projection.offset.y)
                 // 裁剪独立使用局部坐标, Mesh 返回的 LUT 坐标只交给 Paint。
-                if (Build.VERSION.SDK_INT >= 35) draw.clipShader?.let { shader -> canvas.clipShader(shader) }
+                draw.clipShader?.let { shader -> canvas.clipShader(shader) }
                 canvas.drawMesh(it, BlendMode.MODULATE, draw.paint)
                 canvas.restore()
             }
@@ -115,12 +112,6 @@ class CouiShadowRenderer(surfaceCount: Int = 1) {
         val mesh = Mesh(spec, Mesh.TRIANGLES, FloatBuffer.wrap(data.vertices), data.vertices.size / 5,
             ShortBuffer.wrap(data.indices), bounds)
         if (oval && key.clipping) mesh.setFloatUniform("u_rect", rect.left, rect.top, rect.right, rect.bottom)
-        if (!oval && key.clipping && projection.fast && Build.VERSION.SDK_INT < 35) {
-            // Android 14 没有公开的 Shader 裁剪入口, 保留每路独立滤镜。
-            val node = filteredNode(bounds, rect, oval, 0f, key.clipping)
-            paint.shader = lutShader
-            return ProjectionDraw(key, projection, paint, mesh = mesh, node = node)
-        }
         val capsuleClip = if (!oval && key.clipping) RuntimeShader(materialClipSource).apply {
             setFloatUniform("u_rect", rect.left, rect.top, rect.right, rect.bottom)
         } else null

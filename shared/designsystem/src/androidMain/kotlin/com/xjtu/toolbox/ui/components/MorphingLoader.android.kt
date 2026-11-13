@@ -10,7 +10,9 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.ui.FrameRateCategory
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.preferredFrameRate
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asComposePath
@@ -67,7 +69,8 @@ internal actual fun PlatformMorphingLoader(
     )
 
     val androidPath = remember { android.graphics.Path() }
-    Canvas(modifier = modifier.size(size)) {
+    // 慢速形变 60Hz 足够，屏幕可据此降刷新率
+    Canvas(modifier = modifier.size(size).preferredFrameRate(FrameRateCategory.Normal)) {
         val (segment, morphProgress) = morphPhaseToSegment(phaseState.value, morphs.size, morphFraction)
         androidPath.rewind()
         morphs[segment].toPath(progress = morphProgress, path = androidPath)

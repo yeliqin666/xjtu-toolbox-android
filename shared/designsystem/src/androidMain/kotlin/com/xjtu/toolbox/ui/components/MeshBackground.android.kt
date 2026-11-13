@@ -1,8 +1,6 @@
 package com.xjtu.toolbox.ui.components
 
 import android.graphics.RuntimeShader
-import android.os.Build
-import androidx.annotation.RequiresApi
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
@@ -42,7 +40,7 @@ internal actual fun PlatformMeshBackground(
     val gridRows = vertexColors.size
     val gridColumns = vertexColors.firstOrNull()?.size ?: 0
     // 着色器只做 3x3（现在唯一的用法就是 3x3）；别的形状走静止的 MeshGradientPainter
-    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && gridRows == 3 && gridColumns == 3) {
+    if (gridRows == 3 && gridColumns == 3) {
         val lifecycleOwner = LocalLifecycleOwner.current
         val lifecycleState by lifecycleOwner.lifecycle.currentStateAsState()
         val running = animated && LocalPageVisible.current && lifecycleState.isAtLeast(Lifecycle.State.RESUMED)
@@ -103,7 +101,6 @@ half4 main(float2 coord) {
 }
 """
 
-@RequiresApi(Build.VERSION_CODES.TIRAMISU)
 @Composable
 private fun ShaderMesh(
     modifier: Modifier,
@@ -139,7 +136,7 @@ private fun ShaderMesh(
     )
 }
 
-/** Android 12：没有 RuntimeShader，画一张静止的 Mesh 渐变。 */
+/** 非 3x3 网格：静止的 Mesh 渐变。 */
 @Composable
 private fun StaticMesh(modifier: Modifier, colors: List<List<Color>>) {
     val rows = colors.size

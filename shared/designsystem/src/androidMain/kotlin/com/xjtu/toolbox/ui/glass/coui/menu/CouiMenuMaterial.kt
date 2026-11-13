@@ -1,6 +1,5 @@
 package com.xjtu.toolbox.ui.glass.coui.menu
 
-import android.os.Build
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -91,7 +90,6 @@ internal fun couiMenuMaterial(
     val mix = if (dark) Color(0x99262626) else Color(0x99CDCDCD)
     val blend = if (dark) Color(0x99262626) else Color(0xBFEEEEEE)
     val themeTint = LocalCouiMenuStyle.current.themeTint
-    val runtimeShaderSupported = Build.VERSION.SDK_INT >= 33
     val blurredBackdrop = rememberCouiMenuBlur(backdrop, surface)
     val backgroundLayer = rememberGraphicsLayer()
     val source = remember(backgroundLayer, shape) { CouiMenuMaterialSource(backgroundLayer, shape) }
@@ -108,21 +106,10 @@ internal fun couiMenuMaterial(
             BlurEffect(null, edgeFadeRadius, edgeTreatment = TileMode.Decal)
         }
     }
-    val legacyBlurRadius = 12.dp.value * density.density
-    val blurPadding = if (runtimeShaderSupported) 0 else legacyBlurRadius.toInt()
     val edgeRadiusPx = LocalCouiMenuStyle.current.resolvedRadius.value * density.density
     val edgeWeight = (LocalCouiMenuStyle.current.shape as? CouiShape)?.cornerWeight ?: CouiCornerWeight
-    val edge = if (runtimeShaderSupported) {
-        rememberCouiMenuEdge(dark, edgeRadiusPx, edgeWeight, mix, blend)
-    } else null
-    if (!runtimeShaderSupported) {
-        // shortcut: API 33 以下保留旧 Gaussian/Canvas 混合, 不视为厂商逐像素等价实现。
-        backgroundLayer.renderEffect = remember(legacyBlurRadius) {
-            BlurEffect(null, legacyBlurRadius, edgeTreatment = TileMode.Decal)
-        }
-    }
+    val edge = rememberCouiMenuEdge(dark, edgeRadiusPx, edgeWeight, mix, blend)
     backgroundLayer.clip = true
-    backgroundLayer.topLeft = IntOffset(-blurPadding, -blurPadding)
     val (spotlightInput, drawSpotlight) = couiMenuSpotlight(interactive, dark, inputTarget)
     var coordinates: LayoutCoordinates? by remember { mutableStateOf(null, neverEqualPolicy()) }
     val drawing = Modifier
@@ -153,24 +140,10 @@ internal fun couiMenuMaterial(
             if (target != null && target.isAttached && size.width > 0f && size.height > 0f &&
                 scaleX > 0f && scaleY > 0f && translation.isFinite
             ) {
-                if (Build.VERSION.SDK_INT >= 33) {
-                    edge?.let { backgroundLayer.renderEffect = it.renderEffect(size, density.density) }
-                }
+                backgroundLayer.renderEffect = edge.renderEffect(size, density.density)
                 // 背景录制不调用 drawContent, 使用独立 Density 避免作用域密度自引用。
-                backgroundLayer.record(
-                    density = density,
-                    layoutDirection = layoutDirection,
-                    size = IntSize(size.width.toInt() + blurPadding * 2, size.height.toInt() + blurPadding * 2),
-                ) {
-                    if (Build.VERSION.SDK_INT >= 33 && blurredBackdrop != null) {
-                        blurredBackdrop.draw(this, target)
-                    } else {
-                        drawRect(surface)
-                        // Gaussian 的 Decal 采样保留边界外留白, 不把菜单边缘当成源图边缘。
-                        translate(blurPadding.toFloat(), blurPadding.toFloat()) {
-                            backdrop.draw(this, target)
-                        }
-                    }
+                backgroundLayer.record(density, layoutDirection, IntSize(size.width.toInt(), size.height.toInt())) {
+                    blurredBackdrop.draw(this, target)
                 }
                 drawLayer(backgroundLayer)
                 if (mergeLayer != null && mergeSource != null && blendProgress > 0f) {
@@ -181,10 +154,6 @@ internal fun couiMenuMaterial(
                     mergeLayer.alpha = blendProgress
                     drawLayer(mergeLayer)
                 }
-            }
-            if (!runtimeShaderSupported) {
-                drawRect(mix, blendMode = BlendMode.Luminosity)
-                drawRect(blend, blendMode = BlendMode.Overlay)
             }
             if (themeTintEnabled) {
                 // 只引入页面色相, 保留材质亮度, 不让前景参与混色。

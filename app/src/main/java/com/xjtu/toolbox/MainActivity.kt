@@ -18,7 +18,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.Modifier
-import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.lifecycleScope
 import com.xjtu.toolbox.agent.AgentPendingPrompt
@@ -82,12 +81,16 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
-        installSplashScreen().setKeepOnScreenCondition { !isAppReady }
         super.onCreate(savedInstanceState)
+        // 系统启动屏挡到首帧就绪：之前的帧不画，启动屏就一直留着
+        val content = findViewById<android.view.View>(android.R.id.content)
+        content.viewTreeObserver.addOnPreDrawListener(object : android.view.ViewTreeObserver.OnPreDrawListener {
+            override fun onPreDraw(): Boolean = isAppReady.also { if (it) content.viewTreeObserver.removeOnPreDrawListener(this) }
+        })
         applyOrientationPolicy(resources.configuration)
         com.xjtu.toolbox.agent.AgentLocation.register(this)
         if (savedInstanceState == null) consumeLaunchIntent(intent)
-        // 导航条全透明：默认样式在 API 29–34 上会加一层半透明 scrim，三键导航由系统自己保证对比度
+        // 导航条全透明，三键导航由系统自己保证对比度
         enableEdgeToEdge(
             navigationBarStyle = SystemBarStyle.auto(Color.TRANSPARENT, Color.TRANSPARENT),
         )
@@ -115,7 +118,10 @@ class MainActivity : ComponentActivity() {
                             onInitialRouteConsumed = { launchRoute.value = null },
                             initialTab = launchTab.value,
                             onInitialTabConsumed = { launchTab.value = null },
-                            onReady = { isAppReady = true },
+                            onReady = {
+                                if (!isAppReady) reportFullyDrawn() // 进启动统计（ApplicationStartInfo 的 FULLY_DRAWN）
+                                isAppReady = true
+                            },
                         )
                     }
                 }

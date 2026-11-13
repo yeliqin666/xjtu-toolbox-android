@@ -2,7 +2,6 @@ package com.xjtu.toolbox.ui.glass.coui
 
 import android.content.res.Configuration
 import android.graphics.Typeface
-import android.os.Build
 import androidx.compose.foundation.text.BasicText
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
@@ -88,12 +87,12 @@ private fun rememberCouiTextStyle(kind: CouiTextKind, weight: Int, size: Float =
 }
 
 private fun couiLineSpacing(kind: CouiTextKind): Float = when (kind) {
-    CouiTextKind.GroupTitle -> if (Build.VERSION.SDK_INT >= 35) 1.143f else 1f
-    CouiTextKind.GroupFooter -> if (Build.VERSION.SDK_INT >= 35) 1.143f else 1f
-    CouiTextKind.ItemTitle -> if (Build.VERSION.SDK_INT >= 35) 1.158f else 1.05f
-    CouiTextKind.TopBar -> if (Build.VERSION.SDK_INT >= 35) 1.1429f else 1.15f
-    CouiTextKind.ItemSummary -> if (Build.VERSION.SDK_INT >= 35) 1.1739f else 1.1f
+    CouiTextKind.GroupTitle -> 1.143f
+    CouiTextKind.GroupFooter -> 1.143f
+    CouiTextKind.ItemTitle -> 1.158f
+    CouiTextKind.TopBar -> 1.1429f
+    CouiTextKind.ItemSummary -> 1.1739f
     CouiTextKind.HomeTitle -> 1f
-    CouiTextKind.Search -> if (Build.VERSION.SDK_INT >= 35) 1.1321f else 1.1f
-    CouiTextKind.ItemValue -> if (Build.VERSION.SDK_INT >= 35) 1.2245f else 1.1f
+    CouiTextKind.Search -> 1.1321f
+    CouiTextKind.ItemValue -> 1.2245f
 }

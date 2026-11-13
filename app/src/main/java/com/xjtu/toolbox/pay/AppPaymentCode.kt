@@ -1,11 +1,13 @@
 package com.xjtu.toolbox.pay
 
 import android.app.Activity
+import android.view.View
 import android.view.WindowManager
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.remember
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalView
 import com.xjtu.toolbox.auth.SiteSession
 import com.xjtu.toolbox.platform.keyValueStore
 
@@ -17,6 +19,13 @@ fun PaymentCodeDialog(
 ) {
     val context = LocalContext.current
     val activity = context as? Activity
+    // 录屏、投屏、共享屏幕时系统把付款码这块遮掉（不影响自己截图）
+    val view = LocalView.current
+    DisposableEffect(view) {
+        val old = view.contentSensitivity
+        view.contentSensitivity = View.CONTENT_SENSITIVITY_SENSITIVE
+        onDispose { view.contentSensitivity = old }
+    }
     DisposableEffect(Unit) {
         val window = activity?.window ?: return@DisposableEffect onDispose {}
         val orig = window.attributes.screenBrightness

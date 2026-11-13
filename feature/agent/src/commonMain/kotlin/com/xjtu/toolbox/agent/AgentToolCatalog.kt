@@ -5,6 +5,15 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 
+// read_zyxf_file 与 get_lms_activity 读附件共用的参数说明
+private const val DOC_READ_NOTE = "auto 文字优先，扫描页有联网搜索 Key 时 OCR 成文字，否则转页面图；同一附件复用缓存。" +
+    "doc(x)/ppt(x)/xlsx 取正文，图片直接看。"
+private const val DOC_PAGES_PROP = "PDF/ppt 实际页码，从 1 起。5 只读第5页；可用 3-5 或 1,3,7-8。缺省前2页。PDF 文字最多20页，页面图最多4页；其他长文本是段号。"
+private const val DOC_MODE_PROP = "PDF：info=每页首行；search=按 query 找页；text=只取文字；images=页面图（公式/图表）；auto=文字优先，默认。"
+private const val DOC_QUERY_PROP = "mode=search 的检索词。"
+private const val DOC_OFFSET_PROP = "PDF 单页文字过长时，按返回的 next 从此字符偏移续读；默认0。"
+private val DOC_MODES = arrayOf("auto", "info", "search", "text", "images")
+
 /** 送给模型的工具清单（OpenAI function calling 的那一份 JSON 串）。 */
 fun agentToolDefinitions(honored: Set<AgentCapability>): String {
     val arr = mutableListOf<JsonObject>()
@@ -132,12 +141,13 @@ fun agentToolDefinitions(honored: Set<AgentCapability>): String {
             "folder_id" to agentIntProp("目录 ID。缺省或 0：根目录。"),
         )))
     arr.add(agentTool("read_zyxf_file",
-        "读学辅文件。PDF 可先用 mode=info 查看元数据与书签目录定位，再按页取文本或页面图。auto 优先文字，空文字页转图；同一附件复用缓存。docx/pptx/xlsx 取正文，图片直接看。",
+        "读学辅文件。PDF 先用 mode=info 看每页首行定位，或 mode=search 按关键词找页，再按页取文字或页面图。$DOC_READ_NOTE",
         agentParams(
             "file_id" to agentIntProp("文件 ID，来自 list_zyxf。"),
-            "pages" to agentStrProp("PDF/pptx 实际页码，从 1 起。5 只读第5页；可用 3-5 或 1,3,7-8。缺省前2页。PDF 文本最多20页，页面图最多4页；长文本用段号。"),
-            "mode" to agentEnumProp("PDF：info=元数据和自带书签目录；text=只取文字；images=页面图（公式/图表/扫描页）；auto=文字优先，默认。", "auto", "info", "text", "images"),
-            "text_offset" to agentIntProp("PDF 单页文字过长时，按返回的 next 从此字符偏移续读；默认0。"),
+            "pages" to agentStrProp(DOC_PAGES_PROP),
+            "mode" to agentEnumProp(DOC_MODE_PROP, *DOC_MODES),
+            "query" to agentStrProp(DOC_QUERY_PROP),
+            "text_offset" to agentIntProp(DOC_OFFSET_PROP),
             required = listOf("file_id"),
         )))
     arr.add(agentTool("save_file",
@@ -166,14 +176,15 @@ fun agentToolDefinitions(honored: Set<AgentCapability>): String {
             "scope" to agentEnumProp("assignments：全部作业汇总。", "assignments"),
         )))
     arr.add(agentTool("get_lms_activity",
-        "思源活动详情、截止时间、提交状态、分数、教师评语，以及用户自己已提交的内容和附件（结果里的「我的提交附件」）。这些都是用户本人的数据，直接查，不用先问。给 file 读取附件，老师发的和用户自己交的都能读：PDF 用 info 看元数据与书签目录，text 快速取文字，images 看指定页面；auto 文字优先。附件复用缓存，同 read_zyxf_file。需思源登录。",
+        "思源活动详情、截止时间、提交状态、分数、教师评语，以及用户自己已提交的内容和附件（结果里的「我的提交附件」）。这些都是用户本人的数据，直接查，不用先问。给 file 读取附件，老师发的和用户自己交的都能读，参数同 read_zyxf_file。${DOC_READ_NOTE}需思源登录。",
         agentParams(
             "course" to agentStrProp("课程名，模糊。"),
             "activity" to agentStrProp("活动标题，模糊。"),
             "file" to agentStrProp("附件ID或完整名称优先，也可用唯一关键词；多项匹配会返回候选。"),
-            "pages" to agentStrProp("PDF/pptx 实际页码，从1起；5只读第5页，支持1,3,7-8。默认前2页；文本最多20页，图最多4页。"),
-            "mode" to agentEnumProp("PDF：info=元数据和书签目录；text=只取文字；images=页面图；auto=文字优先，空文字页转图（默认）。", "auto", "info", "text", "images"),
-            "text_offset" to agentIntProp("PDF 单页文本续读的字符偏移，使用结果中的 next；默认0。"),
+            "pages" to agentStrProp(DOC_PAGES_PROP),
+            "mode" to agentEnumProp(DOC_MODE_PROP, *DOC_MODES),
+            "query" to agentStrProp(DOC_QUERY_PROP),
+            "text_offset" to agentIntProp(DOC_OFFSET_PROP),
             required = listOf("course", "activity"),
         )))
     arr.add(agentTool("get_fitness_score",

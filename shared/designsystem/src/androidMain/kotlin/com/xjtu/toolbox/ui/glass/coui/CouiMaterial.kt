@@ -2,7 +2,6 @@ package com.xjtu.toolbox.ui.glass.coui
 
 import android.graphics.RenderEffect
 import android.graphics.RuntimeShader
-import androidx.annotation.RequiresApi
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.graphics.Color
@@ -11,7 +10,6 @@ import androidx.compose.ui.graphics.Color
 enum class CouiMaterialBlendMode { Overlay, ColorDodge }
 
 /** 两层材质混色, 只作用于背景输入。组件负责选择颜色和模式预设。 */
-@RequiresApi(33)
 @Composable
 fun rememberCouiMaterialEffect(mix: Color, blend: Color,
     blendMode: CouiMaterialBlendMode = CouiMaterialBlendMode.Overlay): RenderEffect =

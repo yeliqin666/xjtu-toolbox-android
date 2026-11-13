@@ -2,8 +2,6 @@ package com.xjtu.toolbox.ui.glass.coui
 
 import android.graphics.RenderEffect
 import android.graphics.RuntimeShader
-import android.os.Build
-import androidx.annotation.RequiresApi
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.RectangleShape
@@ -30,7 +28,6 @@ private const val BlurOffsetPx = 2f
 private const val SigmaScale = 0.57735f
 
 /** 仅模糊背景；长度为 px，各节点独立持有横纵图层，Shader 在首次绘制创建。 */
-@RequiresApi(Build.VERSION_CODES.TIRAMISU)
 @Composable
 fun Modifier.drawCouiGradientBackdrop(
     backdrop: CouiBackdrop,
@@ -46,7 +43,6 @@ fun Modifier.drawCouiGradientBackdrop(
     }.then(GradientBackdropElement(backdrop, fadeHeightPx, referenceBlurRadiusPx, gradientSpeed))
 }
 
-@RequiresApi(33)
 private data class GradientBackdropElement(
     val backdrop: CouiBackdrop,
     val fadeHeightPx: Float,
@@ -61,7 +57,6 @@ private data class GradientBackdropElement(
     override fun InspectorInfo.inspectableProperties() { name = "drawCouiGradientBackdrop" }
 }
 
-@RequiresApi(33)
 private class GradientBackdropNode(
     backdrop: CouiBackdrop,
     private var fadeHeightPx: Float,
@@ -112,7 +107,6 @@ private class GradientBackdropNode(
 }
 
 /** 原厂渐进 Gaussian 先横后纵, 每遍保留原尺寸中间图, 不使用多级缩小图混合。 */
-@RequiresApi(Build.VERSION_CODES.TIRAMISU)
 private class CouiGradientRenderer(
     private val fadeHeightPx: Float,
     referenceBlurRadiusPx: Float,

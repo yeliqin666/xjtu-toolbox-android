@@ -74,6 +74,8 @@ class AgentToolRegistry(
     /** 端上的能力槽位（见 `:core` 的 [AgentHost]）：闹钟、应用设置那几档由它接。 */
     private val host: AgentHost,
     private val allowInteractiveLogin: Boolean = false,
+    /** DeepSeek Key（同联网搜索），给扫描页和老式 doc/ppt 做 OCR；空串则只在本机读。 */
+    private val ocrKey: String = "",
 ) : AgentTools {
     // [AgentTools] 是 `:core` 调度循环（[AgentRunner]）要的三件事：工具清单 / 限流分组键 / 执行一次调用。
     // `memoryBlock()` 不在其中：它是系统提示那一侧要的，调用方是 ViewModel。
@@ -439,7 +441,7 @@ class AgentToolRegistry(
                 if (keyword.isNotBlank()) searchZyxf(keyword)
                 else browseZyxf(args.argInt("folder_id") ?: 0)
             }
-            "read_zyxf_file" -> readZyxfFile(args.argInt("file_id") ?: 0, args.argStr("pages"), args.argStr("mode") ?: "auto", args.argInt("text_offset") ?: 0)
+            "read_zyxf_file" -> readZyxfFile(args.argInt("file_id") ?: 0, docOptions(args))
             "save_file" -> saveFile(
                 args.argStr("source"), args.argInt("file_id"),
                 args.argStr("course"), args.argStr("activity"), args.argStr("file"),
@@ -459,7 +461,7 @@ class AgentToolRegistry(
             }
             "get_lms_activity" -> {
                 val file = (args.argStr("file")).orEmpty()
-                if (file.isNotBlank()) readLmsAttachment(args.argStr("course"), args.argStr("activity"), file, args.argStr("pages"), args.argStr("mode") ?: "auto", args.argInt("text_offset") ?: 0)
+                if (file.isNotBlank()) readLmsAttachment(args.argStr("course"), args.argStr("activity"), file, docOptions(args))
                 else getLmsActivityDetail(args.argStr("course"), args.argStr("activity"))
             }
             "get_fitness_score" -> getFitnessScore(args.argStr("year"))
@@ -1371,20 +1373,26 @@ class AgentToolRegistry(
 
     override fun drainImages(): List<String> = pendingImages.toList().also { pendingImages.clear() }
 
+    private val ocr = ocrKey.takeIf { it.isNotBlank() }?.let { DeepSeekOcr(it) }
+
     /** 读一份文档：转成文字或页面图（见 [AgentDocReader]），图先攒着等循环来取。 */
-    private fun readDoc(name: String, bytes: ByteArray, pages: String?, mode: String = "auto", textOffset: Int = 0): String {
-        val doc = AgentDocReader.read(context, name, bytes, pages, mode, textOffset)
+    private suspend fun readDoc(name: String, bytes: ByteArray, options: AgentDocReader.Options): String {
+        val doc = AgentDocReader.read(context, name, bytes, options, ocr)
         pendingImages += doc.images
         return doc.text
     }
 
-    private suspend fun readZyxfFile(fileId: Int, pages: String?, mode: String, textOffset: Int): String = withContext(Dispatchers.IO) {
+    private fun docOptions(args: JsonObject) = AgentDocReader.Options(
+        args.argStr("pages"), args.argStr("mode") ?: "auto", args.argInt("text_offset") ?: 0, args.argStr("query"),
+    )
+
+    private suspend fun readZyxfFile(fileId: Int, options: AgentDocReader.Options): String = withContext(Dispatchers.IO) {
         if (fileId <= 0) return@withContext ToolReply.missing("file_id")
         try {
             val document = documentCache.getOrLoad("zyxf:$fileId") {
                 com.xjtu.toolbox.zyxf.ZyxfApi.readBytes(fileId)?.let { (name, bytes) -> AgentDocumentCache.Document(name, bytes) }
             } ?: return@withContext ToolReply.failed("read_zyxf_file", "download_or_too_large")
-            readDoc(document.name, document.bytes, pages, mode, textOffset)
+            readDoc(document.name, document.bytes, options)
         } catch (e: kotlinx.coroutines.CancellationException) {
             throw e
         } catch (e: Exception) {
@@ -1801,11 +1809,11 @@ class AgentToolRegistry(
         return LmsFile.Ok(upload.name, bytes)
     }
 
-    private suspend fun readLmsAttachment(course: String?, activity: String?, file: String?, pages: String?, mode: String, textOffset: Int): String = try {
+    private suspend fun readLmsAttachment(course: String?, activity: String?, file: String?, options: AgentDocReader.Options): String = try {
         when (val r = lmsAttachmentBytes(course, activity, file)) {
             is LmsFile.Error -> r.reply
             is LmsFile.Ok ->
-                if (AgentDocReader.canRead(r.name)) withContext(Dispatchers.IO) { readDoc(r.name, r.bytes, pages, mode, textOffset) }
+                if (AgentDocReader.canRead(r.name)) withContext(Dispatchers.IO) { readDoc(r.name, r.bytes, options) }
                 else "result: unsupported_type; file: ${r.name}; 可以用 save_file 存进下载"
         }
     } catch (e: kotlinx.coroutines.CancellationException) {

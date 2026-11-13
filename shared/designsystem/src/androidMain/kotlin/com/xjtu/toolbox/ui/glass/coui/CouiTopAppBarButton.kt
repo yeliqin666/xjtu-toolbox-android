@@ -1,7 +1,5 @@
 package com.xjtu.toolbox.ui.glass.coui
 
-import android.os.Build
-import androidx.annotation.RequiresApi
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
@@ -53,7 +51,6 @@ import androidx.compose.ui.unit.dp
  *   `couiFloatingSurface` 画 AGSL 浮层，跟手光与按压弹簧各自独立；
  * - [enabled] 为 false 时关掉跟手光、形变、按压与点击，内容色乘 0.38。
  */
-@RequiresApi(Build.VERSION_CODES.UPSIDE_DOWN_CAKE)
 @Composable
 internal fun CouiTopAppBarButton(
     onClick: () -> Unit,

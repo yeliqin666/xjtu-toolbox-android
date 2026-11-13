@@ -3,8 +3,6 @@ package com.xjtu.toolbox.ui.glass.coui
 import android.graphics.BlendMode
 import android.graphics.Paint
 import android.graphics.RuntimeShader
-import android.os.Build
-import androidx.annotation.RequiresApi
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.derivedStateOf
@@ -96,26 +94,22 @@ fun rememberCouiSpotlight(
     inputTarget: ((Offset, Boolean) -> LayoutCoordinates?)? = null,
     cancelOnConsumedMove: Boolean = false,
     onDiagnostic: (SpotlightDiagnostic) -> Unit = {},
-): Pair<Modifier, (DrawScope.() -> Unit)?> =
-    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-        val style = SpotlightStyle(
-            intensity = intensity ?: if (dark) preset.darkIntensity else preset.lightIntensity,
-            ambient = ambient ?: preset.ambient,
-            diffuse = diffuse ?: preset.diffuse,
-            lightHeight = lightHeight ?: 200f,
-            noise = noise ?: preset.noise,
-            dither = dither ?: 0f,
-            blendMode = blendMode ?: if (dark) preset.darkBlendMode else preset.lightBlendMode,
-            startRadius = startRadius ?: 100f,
-            endRadius = endRadius ?: preset.endRadius,
-            color = color ?: Color.White,
-        )
-        runtimeSpotlight(interactive, style, inputTarget, cancelOnConsumedMove, onDiagnostic)
-    } else {
-        Modifier to null
-    }
+): Pair<Modifier, (DrawScope.() -> Unit)?> {
+    val style = SpotlightStyle(
+        intensity = intensity ?: if (dark) preset.darkIntensity else preset.lightIntensity,
+        ambient = ambient ?: preset.ambient,
+        diffuse = diffuse ?: preset.diffuse,
+        lightHeight = lightHeight ?: 200f,
+        noise = noise ?: preset.noise,
+        dither = dither ?: 0f,
+        blendMode = blendMode ?: if (dark) preset.darkBlendMode else preset.lightBlendMode,
+        startRadius = startRadius ?: 100f,
+        endRadius = endRadius ?: preset.endRadius,
+        color = color ?: Color.White,
+    )
+    return runtimeSpotlight(interactive, style, inputTarget, cancelOnConsumedMove, onDiagnostic)
+}
 
-@RequiresApi(Build.VERSION_CODES.TIRAMISU)
 @Composable
 private fun runtimeSpotlight(
     interactive: Boolean,

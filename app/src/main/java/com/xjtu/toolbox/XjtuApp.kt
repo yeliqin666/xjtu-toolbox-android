@@ -77,7 +77,7 @@ class XjtuApp : Application(), coil3.SingletonImageLoader.Factory {
         com.xjtu.toolbox.platform.initDataPlatform(this)
         // 反馈后端的凭据：`:data` 的 FeedbackApi 不读 BuildConfig（`:data` 是 JVM/Android
         // 共用的模块）⇒ 宿主在这里注入一次。必须在下面那发 CrashReporter 上传之前。
-        com.xjtu.toolbox.feedback.AppFeedback.install()
+        com.xjtu.toolbox.feedback.AppFeedback.install(this)
         CrashReporter.install(this)
         // 桌面小组件那条缝：InboxStore 在 :core，写一次收纳就该重画一次小组件，
         // 而重画要 Context 与 AppWidgetManager（都在 :app）⇒ 用回调挂上去（见 InboxWidgetHook）。
