@@ -37,8 +37,7 @@ object CouiCollapsingAppBarDefaults {
     val titleStart = 24.dp
     val titleBottom = 18.dp
     val resultsStartOffset = 108.dp
-    /** 大标题栏的模糊延伸（原版 8dp）；下沿收尾见 CouiTopAppBarDefaults.bottomFade。 */
-    internal val titleOnlyBlurExtension = 20.dp
+    internal val titleOnlyBlurExtension = 8.dp
     internal val searchBlurExtension = 14.dp
     internal const val referenceBlurRadiusPx = 27f
     internal const val snapResponse = .25f

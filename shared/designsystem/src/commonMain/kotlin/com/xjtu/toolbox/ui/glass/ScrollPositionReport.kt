@@ -1,6 +1,5 @@
 package com.xjtu.toolbox.ui.glass
 
-import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.grid.LazyGridState
@@ -28,10 +27,6 @@ val LocalCouiScrollReporter = staticCompositionLocalOf<CouiTopBarScrollBehavior?
  * 否则停在顶部的邻页会把正在看的那页盖掉。`AppTabPager` 按页提供。
  */
 val LocalScrollReportActive = compositionLocalOf { true }
-
-/** 顶栏按钮轮廓的渐变：两头都缓（缓入缓出），不像开关那样「啪」地出现。 */
-val TopBarGlassEasing = CubicBezierEasing(0.42f, 0f, 0.36f, 1f)
-const val TopBarGlassFadeMillis = 600
 
 /** 正文滚过这么多才算压到顶栏下面。 */
 private val ScrolledUnderThreshold = 24.dp

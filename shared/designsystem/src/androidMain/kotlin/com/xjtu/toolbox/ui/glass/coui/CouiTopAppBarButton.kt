@@ -82,7 +82,6 @@ internal fun CouiTopAppBarButton(
         dark = dark,
     )
     val contentColor = style.contentColor
-    val surfaceAlpha = LocalCouiToolbarSurfaceAlpha.current
     Box(
         modifier
             .then(Coui.defaultStyle.minimumInteractiveComponentSize())
@@ -128,8 +127,6 @@ internal fun CouiTopAppBarButton(
                     scaleX = motion.scaleX.value + press.scale.value - 1f,
                     scaleY = motion.scaleY.value + press.scale.value - 1f,
                     cornerWeight = if (capsule) 1f else 2f,
-                    alpha = surfaceAlpha(),
-                    contentAlpha = 1f,
                 )
             },
     ) {

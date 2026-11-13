@@ -33,7 +33,6 @@ actual fun CouiHomeTopBarSurface(
     pageBackdrop: CouiPageBackdrop?,
     gradientColor: Color,
     modifier: Modifier,
-    glassAlpha: () -> Float,
     content: @Composable () -> Unit,
 ) {
     val backdrop = (pageBackdrop as? AndroidCouiPageBackdrop)?.backdrop
@@ -47,11 +46,7 @@ actual fun CouiHomeTopBarSurface(
         }
         return
     }
-    CompositionLocalProvider(
-        LocalCouiDarkTheme provides LocalIsDarkTheme.current,
-        // 模糊底常驻；只有按钮玻璃跟位置淡入：停在顶部时只剩图标，和各页顶栏一样
-        com.xjtu.toolbox.ui.glass.coui.LocalCouiToolbarSurfaceAlpha provides glassAlpha,
-    ) {
+    CompositionLocalProvider(LocalCouiDarkTheme provides LocalIsDarkTheme.current) {
         CouiTopAppBarSurface(
             modifier = modifier,
             backdrop = backdrop,

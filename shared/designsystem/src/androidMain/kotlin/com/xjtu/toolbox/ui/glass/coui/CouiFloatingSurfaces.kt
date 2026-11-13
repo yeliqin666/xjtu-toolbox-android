@@ -46,6 +46,9 @@ import kotlin.math.ceil
 import kotlin.math.floor
 import kotlin.math.min
 
+/** 低于这个不透明度就当完全透明：材质、投影和内容都画不出来，不该再录制/绘制。 */
+private const val InvisibleAlpha = 0.001f
+
 data class CouiFloatingMaterial(
     val firstColor: Color,
     val firstBlendMode: BlendMode,
@@ -282,7 +285,7 @@ private fun Modifier.floatingSurfaces(
                     translationY = node.bounds.top
                     scaleX = node.scaleX
                     scaleY = node.scaleY
-                    alpha = node.contentAlpha ?: node.alpha
+                    alpha = node.alpha
                 }
                 shadowLayers[index].apply {
                     translationX = node.bounds.center.x - node.bounds.width * node.scaleX * 0.5f
@@ -298,8 +301,10 @@ private fun Modifier.floatingSurfaces(
                 contentLayers[index].clip = true
             }
             floatingDrawGroups(shadows.map { it.elevation }).forEach { indices ->
-                val visible = indices.filter { nodes[it].visible }
-                val group = if (drawOrder == null) visible else visible.sortedBy { drawOrder.indexOf(it) }
+                // 全透明的浮层（收起动画的末尾、alpha 归零的按钮）整套都不画：
+                // 阴影、光晕、材质补丁和内容层都录不出一像素，白跑采样与着色器。
+                val drawn = indices.filter { nodes[it].visible && nodes[it].alpha > InvisibleAlpha }
+                val group = if (drawOrder == null) drawn else drawn.sortedBy { drawOrder.indexOf(it) }
                 group.forEach { index ->
                     commands.add(shadowLayers[index])
                     // 前景模式下, 原 Shader 在此阈值内严格输出透明, 无需录制背景或创建光晕图层。
@@ -390,7 +395,7 @@ private fun Modifier.floatingSurfaces(
                 // 子项只录制透明前景; 真实输出遵守 shadow/caustic -> material/content 的 Z 分组顺序。
                 drawContent()
                 shadowLayers.forEachIndexed { index, layer ->
-                    if (!nodes[index].visible) return@forEachIndexed
+                    if (!nodes[index].visible || nodes[index].alpha <= InvisibleAlpha) return@forEachIndexed
                     val bounds = nodes[index].bounds
                     val node = nodes[index]
                     val recordSize = IntSize(ceil(bounds.width * node.scaleX).toInt().coerceAtLeast(1),

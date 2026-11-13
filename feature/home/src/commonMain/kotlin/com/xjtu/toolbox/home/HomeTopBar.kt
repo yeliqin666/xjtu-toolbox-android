@@ -78,23 +78,10 @@ internal fun HomeTopBar(
     // 折叠判据放 derivedStateOf：滚动时每帧都在变，直接读会让整条顶栏跟着重组。
     val latestProgress by rememberUpdatedState(progress)
     val collapsed by remember { derivedStateOf { latestProgress() > 0.5f } }
-    // 和各页顶栏同一条规则：模糊底常驻，停在顶部时按钮只剩图标；刊头往上推开、正文压到顶栏下面后
-    // 按钮玻璃淡入（到点触发的渐变，不跟手逐帧变）
-    val scrolledUnder by remember { derivedStateOf { latestProgress() > SCROLLED_UNDER_PROGRESS } }
-    val glass = animateFloatAsState(
-        targetValue = if (scrolledUnder) 1f else 0f,
-        animationSpec = tween(
-            com.xjtu.toolbox.ui.glass.TopBarGlassFadeMillis,
-            easing = com.xjtu.toolbox.ui.glass.TopBarGlassEasing,
-        ),
-        label = "homeBarGlass",
-    )
     CouiHomeTopBarSurface(
         pageBackdrop = pageBackdrop,
         gradientColor = MiuixTheme.colorScheme.surface,
         modifier = Modifier.fillMaxWidth(),
-        // 固定同一个读取函数：只在绘制时读动画值，过渡时顶栏不逐帧重组
-        glassAlpha = remember(glass) { { glass.value } },
     ) {
         Box(Modifier.fillMaxWidth().height(topInset + BAR_HEIGHT)) {
             // 折叠后点顶栏空白回到顶部；展开时不拦截（内容本来就在上面）
@@ -238,9 +225,6 @@ internal fun HomeSearchLayer(visible: Boolean, topPadding: Dp, content: (@Compos
         Box(Modifier.fillMaxSize().background(MiuixTheme.colorScheme.surface)) { content(topPadding) }
     }
 }
-
-/** 刊头推开到这个比例，正文就压到顶栏下面了（顶栏开始铺模糊、按钮出轮廓）。 */
-private const val SCROLLED_UNDER_PROGRESS = 0.12f
 
 /** 首页折叠顶栏（状态栏以下）的高度，几颗圆钮在里面居中。 */
 internal val BAR_HEIGHT = 52.dp

@@ -63,8 +63,6 @@ expect fun CouiHomeTopBarSurface(
     pageBackdrop: CouiPageBackdrop?,
     gradientColor: Color,
     modifier: Modifier = Modifier,
-    /** 按钮玻璃的不透明度（绘制时读）：正文没滚到顶栏下时为 0。模糊底不受它管，常驻。 */
-    glassAlpha: () -> Float = { 1f },
     content: @Composable () -> Unit,
 )
 
