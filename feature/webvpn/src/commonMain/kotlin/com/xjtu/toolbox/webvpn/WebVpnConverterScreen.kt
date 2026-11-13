@@ -126,7 +126,7 @@ fun WebVpnConverterScreen(
                 .glassSource(glass)
                 .nestedScroll(scrollBehavior.nestedScrollConnection)
                 .overScrollVertical()
-                .verticalScroll(rememberScrollState()).tabContentBottomPadding()
+                .verticalScroll(com.xjtu.toolbox.ui.glass.rememberReportedScrollState(scrollBehavior)).tabContentBottomPadding()
                 .padding(horizontal = 16.dp, vertical = 12.dp),
         ) {
             Spacer(Modifier.height(glassTop))

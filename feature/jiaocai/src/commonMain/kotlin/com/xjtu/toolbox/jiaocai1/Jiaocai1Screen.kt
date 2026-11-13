@@ -39,6 +39,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -135,24 +136,30 @@ fun Jiaocai1LibraryScreen(
                 scrollBehavior = scrollBehavior,
                 onBack = onBack,
                 bottomContent = {
-                    CompositionLocalProvider(LocalOnGlassBar provides (glass != null)) {
-                        AppSegmentedTabs(
-                            tabs = listOf("书架", "全文库"),
-                            selectedTabIndex = selectedTab,
-                            onTabSelected = { selectedTab = it },
-                            modifier = Modifier.readableWidth(),
-                        )
-                    }
+                    com.xjtu.toolbox.ui.components.DockedPageTabs(
+                        tabs = listOf("书架", "全文库"),
+                        selectedTabIndex = selectedTab,
+                        onTabSelected = { selectedTab = it },
+                    )
                 },
             )
         },
     ) { padding ->
         val glassTop = padding.glassTop(glass)
+        // 书架 / 全文库
+        com.xjtu.toolbox.ui.components.PageBottomTabsHost(
+            tabs = listOf("书架", "全文库"),
+            selectedTabIndex = selectedTab,
+            onTabSelected = { selectedTab = it },
+            glass = glass,
+            modifier = Modifier.fillMaxSize(),
+        ) {
         Column(
             Modifier
                 .padding(padding.withoutTop(glass))
                 .fillMaxSize()
                 .glassSource(glass)
+                .nestedScroll(scrollBehavior.nestedScrollConnection)
         ) {
             AppTabPager(
                 pageCount = 2,
@@ -167,6 +174,7 @@ fun Jiaocai1LibraryScreen(
                     }
                 }
             }
+        }
         }
     }
 }

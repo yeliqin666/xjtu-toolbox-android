@@ -34,7 +34,9 @@ fun AppFilterChip(
     onClick: () -> Unit,
     label: String,
     modifier: Modifier = Modifier,
-    leadingIcon: @Composable (() -> Unit)? = null
+    leadingIcon: @Composable (() -> Unit)? = null,
+    /** 尾部小图标，比如下拉胶囊的箭头。 */
+    trailingIcon: @Composable (() -> Unit)? = null,
 ) {
     val cs = MiuixTheme.colorScheme
     val bgColor by animateColorAsState(if (selected) cs.primary else cs.onSurface.copy(alpha = 0.06f), tween(180), label = "chipBg")
@@ -69,6 +71,10 @@ fun AppFilterChip(
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
+            if (trailingIcon != null) {
+                Spacer(Modifier.width(2.dp))
+                trailingIcon()
+            }
         }
     }
 }

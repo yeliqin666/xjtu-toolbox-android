@@ -64,7 +64,14 @@ object CouiTopAppBarDefaults {
 
     val fadeHeight = 96.dp
     val referenceBlurRadius = 10.8.dp
-    val bottomExtension = 12.dp
+    /**
+     * 模糊和渐隐延伸到栏下沿之外多少（原版 12dp）。下沿的收尾由表面自己的渐隐遮罩负责（见 CouiTopAppBarSurface）。
+     * 淡出段大半落在栏外，栏内只占一小截，标题那一带保持满模糊。
+     */
+    val bottomExtension = 36.dp
+
+    /** 背景最下面这一段整体淡到透明；模糊强度与遮罩在同一段里一起降，太短会显得硬。 */
+    internal val bottomFade = 56.dp
     internal val searchActionGap = 12.dp
     internal val searchActionMinWidth = 40.dp
     internal val searchActionMaxWidth = 152.dp

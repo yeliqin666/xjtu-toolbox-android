@@ -169,8 +169,11 @@ fun TodayTimeline(
     // 两边都没内容才是真的空——只要「接下来」有东西，就不该用一整页空状态盖住它。
     if (entries.isEmpty() && upcoming.isEmpty() && showPlan) {
         // 有屁岱卡时整页可滚：卡片展开后（时间线 + 地图）比一屏高
+        val listState = androidx.compose.foundation.lazy.rememberLazyListState()
+        com.xjtu.toolbox.ui.glass.ReportScrollPosition(listState)
         LazyColumn(
             Modifier.fillMaxSize().overScrollVertical(),
+            state = listState,
             contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp + topPadding, bottom = 12.dp + bottomPadding),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
@@ -199,8 +202,12 @@ fun TodayTimeline(
 
     val campusNow = com.xjtu.toolbox.ui.rememberCampusNow()
     val nowMinute = campusNow.time.toMinuteOfDay()
+    // 顶栏毛玻璃 / 按钮轮廓按列表实际位置（短内容回弹时也对得上）
+    val listState = androidx.compose.foundation.lazy.rememberLazyListState()
+    com.xjtu.toolbox.ui.glass.ReportScrollPosition(listState)
     LazyColumn(
         Modifier.fillMaxSize().overScrollVertical(),
+        state = listState,
         contentPadding = PaddingValues(
             start = 16.dp, end = 16.dp, top = 8.dp + topPadding, bottom = 12.dp + bottomPadding,
         ),
@@ -516,8 +523,11 @@ fun SemesterCourseList(
         }
         return
     }
+    val listState = androidx.compose.foundation.lazy.rememberLazyListState()
+    com.xjtu.toolbox.ui.glass.ReportScrollPosition(listState)
     LazyColumn(
         Modifier.fillMaxSize().overScrollVertical(),
+        state = listState,
         contentPadding = PaddingValues(
             start = 16.dp, end = 16.dp, top = 8.dp + topPadding, bottom = 12.dp + bottomPadding,
         ),

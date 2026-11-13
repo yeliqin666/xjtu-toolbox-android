@@ -17,6 +17,8 @@ data class CouiFloatingSurface(
     val alpha: Float = 1f,
     val visible: Boolean = true,
     val cornerRadius: Float? = null,
+    /** 内容层（图标）的不透明度；null 时跟 [alpha] 一起淡。集成侧扩展：顶栏按钮只淡玻璃不淡图标。 */
+    val contentAlpha: Float? = null,
 ) {
     init {
         require(cornerRadius == null || (cornerRadius.isFinite() && cornerRadius >= 0f)) {

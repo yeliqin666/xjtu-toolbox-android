@@ -138,20 +138,16 @@ fun VenueScreen(
                 color = glassBarColor(glass),
                 pageBackdrop = couiPageBackdropFor(glass),
                 scrollBehavior = scrollBehavior,
-                // 二级页：标题钉死成收起态，不随上滑变小（只有正文滚动）
-                pinned = true,
                 navigationIcon = { com.xjtu.toolbox.ui.components.BackButton(navigateBack) },
-                // 分段标签、选日期这些不滚动的头部挂在顶栏里，和顶栏一起做一整块玻璃，
-                // 列表从它们下面滚过去（压在玻璃后面的是列表，不是这几行按钮）
+                // 选日期挂在顶栏里，和顶栏一起做一整块玻璃，列表从它下面滚过去；
+                // 「场馆预订 / 我的订单」
                 bottomContent = {
                     CompositionLocalProvider(LocalOnGlassBar provides (glass != null)) {
                         Column {
-                            AppSegmentedTabs(
+                            com.xjtu.toolbox.ui.components.DockedPageTabs(
                                 tabs = listOf("场馆预订", "我的订单"),
                                 selectedTabIndex = selectedTab,
                                 onTabSelected = onSelectTab,
-                                // 宽屏限宽居中：两格标签拉满整个平板宽度不好点
-                                modifier = Modifier.readableWidth(),
                             )
                             // 选时段时的日期条。放在下拉刷新外面，避免和横向选日抢手势
                             val venue = vm.selectedVenue
@@ -222,13 +218,22 @@ fun VenueScreen(
                 }
             }
         }
+        // 选时段时底部是确认预订的操作条，切换条先收起
+        com.xjtu.toolbox.ui.components.PageBottomTabsHost(
+            tabs = listOf("场馆预订", "我的订单"),
+            selectedTabIndex = selectedTab,
+            onTabSelected = onSelectTab,
+            glass = glass,
+            visible = !(selectedTab == 0 && vm.page == VenuePage.SlotSelection),
+            modifier = Modifier.fillMaxSize(),
+        ) {
         Column(
             Modifier
                 .fillMaxSize()
                 .padding(padding.withoutTop(glass))
                 .glassSource(glass)
         ) {
-            // 标签行在顶栏里（bottomContent），这里的列表各自把 glassTop 放进 contentPadding
+            // 列表各自把 glassTop 放进 contentPadding，底部让出悬浮切换条（tabContentPadding）
             AppTabPager(
                 pageCount = 2,
                 selectedTabIndex = selectedTab,
@@ -310,6 +315,7 @@ fun VenueScreen(
                     }
                 }
             }
+        }
         }
 
         // 弹窗必须写在 Scaffold 的 content 里：miuix 0.9.3 的 Overlay* 默认
@@ -484,7 +490,8 @@ fun VenueScreen(
             // 本端能不能支付/取消：只读端这两条都不画（订单模型自己的 canPay/canCancel 只说明
             // 「服务端允不允许」，不代表「这一端做得到」）
             val canPay = canBook && order.canPay
-            val canCancel = source.canCancel && order.canCancel
+            val canCancel = source.canCancel && order.canCancel &&
+                !order.hasStarted(com.xjtu.toolbox.ui.rememberCampusNow())
             BackHandler { orderDetail = null }
             OverlayDialog(
                 title = "订单详情",
@@ -495,39 +502,54 @@ fun VenueScreen(
                     modifier = Modifier.fillMaxWidth(),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    Text("订单号：${order.orderId}", style = MiuixTheme.textStyles.body2)
-                    Text("状态：${order.statusText}", style = MiuixTheme.textStyles.body2)
-                    if (order.createdAt.isNotBlank()) {
-                        Text("下单时间：${order.createdAt}", style = MiuixTheme.textStyles.body2)
-                    }
-                    if (order.venueName.isNotBlank()) {
-                        Text("场馆：${order.venueName}", style = MiuixTheme.textStyles.body2)
-                    }
-                    Spacer(Modifier.height(2.dp))
-                    if (order.details.isEmpty()) {
+                    val cs = MiuixTheme.colorScheme
+                    // 场馆 + 状态
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                         Text(
-                            "暂无场地明细",
-                            style = MiuixTheme.textStyles.footnote1,
-                            color = MiuixTheme.colorScheme.onSurfaceVariantSummary
+                            order.venueName.ifBlank { "体育场馆订单" },
+                            modifier = Modifier.weight(1f),
+                            style = MiuixTheme.textStyles.body1,
+                            fontWeight = FontWeight.SemiBold,
+                            maxLines = 1,
+                            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
                         )
-                    } else {
-                        order.details.forEachIndexed { index, detail ->
-                            val line = listOf(
-                                detail.date,
-                                detail.timeSlot,
-                                detail.areaName
-                            ).filter { it.isNotBlank() }.joinToString("  ")
-                            Text(
-                                "${index + 1}. ${line.ifBlank { "场地明细" }}  ¥${money2(detail.price)}",
-                                style = MiuixTheme.textStyles.body2
-                            )
+                        Text(
+                            order.statusText,
+                            style = MiuixTheme.textStyles.footnote1,
+                            color = cs.primary,
+                            fontWeight = FontWeight.Medium,
+                        )
+                    }
+                    // 场地明细一块：每行「日期 时段 场地」+ 价格，合计压在下面
+                    Column(
+                        Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp))
+                            .background(cs.onSurface.copy(alpha = 0.04f))
+                            .padding(horizontal = 12.dp, vertical = 10.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        if (order.details.isEmpty()) {
+                            Text("暂无场地明细", style = MiuixTheme.textStyles.footnote1, color = cs.onSurfaceVariantSummary)
+                        } else {
+                            order.details.forEach { detail ->
+                                val line = listOf(detail.date, detail.timeSlot, detail.areaName)
+                                    .filter { it.isNotBlank() }.joinToString("  ")
+                                Row(Modifier.fillMaxWidth()) {
+                                    Text(line.ifBlank { "场地明细" }, modifier = Modifier.weight(1f), style = MiuixTheme.textStyles.body2)
+                                    Text("¥${money2(detail.price)}", style = MiuixTheme.textStyles.body2, color = cs.onSurfaceVariantSummary)
+                                }
+                            }
+                        }
+                        Box(Modifier.fillMaxWidth().height(0.5.dp).background(cs.onSurface.copy(alpha = 0.10f)))
+                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                            Text("合计", modifier = Modifier.weight(1f), style = MiuixTheme.textStyles.body2, color = cs.onSurfaceVariantSummary)
+                            Text("¥${money2(order.price)}", style = MiuixTheme.textStyles.body1, color = cs.primary, fontWeight = FontWeight.Bold)
                         }
                     }
+                    // 订单号、下单时间是备查信息，放小字
                     Text(
-                        "合计：¥${money2(order.price)}",
-                        style = MiuixTheme.textStyles.body1,
-                        color = MiuixTheme.colorScheme.primary,
-                        fontWeight = FontWeight.Bold
+                        "订单号 ${order.orderId}" + if (order.createdAt.isNotBlank()) "\n下单时间 ${order.createdAt}" else "",
+                        style = MiuixTheme.textStyles.footnote1,
+                        color = cs.onSurfaceVariantSummary,
                     )
                     Spacer(Modifier.height(4.dp))
                     Row(Modifier.fillMaxWidth()) {
@@ -675,7 +697,7 @@ private fun VenueListContent(
         else -> AdaptiveCardGrid(
             modifier = Modifier
                 .fillMaxSize(),
-            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp + topPadding, bottom = 8.dp),
+            contentPadding = com.xjtu.toolbox.ui.glass.tabContentPadding(PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp + topPadding, bottom = 8.dp)),
             spacing = 8.dp,
         ) {
             items(sortedVenues, key = { it.id }) { venue ->
@@ -826,7 +848,7 @@ private fun SlotSelectionContent(
                 AdaptiveCardGrid(
                     modifier = Modifier
                         .fillMaxSize(),
-                    contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp + topPadding, bottom = 8.dp),
+                    contentPadding = com.xjtu.toolbox.ui.glass.tabContentPadding(PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp + topPadding, bottom = 8.dp)),
                     spacing = 12.dp,
                 ) {
                     slotsByTime.forEach { (timeSlot, slots) ->
@@ -908,50 +930,18 @@ private fun DateSelector(
         }
     }
 
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 12.dp, vertical = 8.dp),
-        horizontalArrangement = Arrangement.spacedBy(6.dp)
-    ) {
-        dates.forEachIndexed { index, date ->
-            val isSelected = date == selectedDate
-            Box(
-                modifier = Modifier
-                    .weight(1f)
-                    .clip(RoundedCornerShape(8.dp))
-                    .background(
-                        if (isSelected) MiuixTheme.colorScheme.primary
-                        else MiuixTheme.colorScheme.surfaceContainerHigh
-                    )
-                    .clickable(
-                        interactionSource = remember { MutableInteractionSource() },
-                        indication = null
-                    ) { onDateChange(date) }
-                    .padding(vertical = 8.dp),
-                contentAlignment = Alignment.Center
-            ) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text(
-                        dayNames[index],
-                        style = MiuixTheme.textStyles.footnote1,
-                        color = if (isSelected) MiuixTheme.colorScheme.onPrimary
-                               else MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
-                    )
-                    Text(
-                        // `date.monthValue`（java.time）→ kotlinx 的 `month.ordinal + 1`
-                        //（与 SchoolCalendarScreen 的 monthDaySlash 同一个写法）
-                        "${date.month.ordinal + 1}/${date.day}",
-                        style = MiuixTheme.textStyles.footnote1,
-                        color = if (isSelected) MiuixTheme.colorScheme.onPrimary
-                               else MiuixTheme.colorScheme.onSurfaceVariantSummary
-                    )
-                }
-            }
-        }
+    // 分段胶囊：今天 / 明天 / 后天带日期，天数多时自己横向滚动
+    val labels = remember(dayNames, dates) {
+        dates.mapIndexed { i, d -> "${dayNames[i]} ${d.month.ordinal + 1}/${d.day}" }
     }
+    AppSegmentedTabs(
+        tabs = labels,
+        selectedTabIndex = dates.indexOf(selectedDate).coerceAtLeast(0),
+        onTabSelected = { onDateChange(dates[it]) },
+        modifier = Modifier.padding(vertical = 4.dp),
+    )
 }
+
 
 // ─── 时段分组卡片 ───
 @Composable
@@ -981,9 +971,10 @@ private fun TimeSlotGroup(
                     color = MiuixTheme.colorScheme.onSurface
                 )
                 Spacer(Modifier.width(8.dp))
+                val ended = slots.firstOrNull()?.hasEnded(com.xjtu.toolbox.ui.rememberCampusNow()) == true
                 val free = slots.count { it.isAvailable }
                 Text(
-                    if (free > 0) "余 $free" else "已满",
+                    if (ended) "已结束" else if (free > 0) "余 $free" else "已满",
                     style = MiuixTheme.textStyles.footnote1,
                     color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                     modifier = Modifier.weight(1f),
@@ -1003,6 +994,7 @@ private fun TimeSlotGroup(
             Spacer(Modifier.height(12.dp))
 
             // 场地网格
+            val now = com.xjtu.toolbox.ui.rememberCampusNow()
             @OptIn(ExperimentalLayoutApi::class)
             FlowRow(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -1010,7 +1002,8 @@ private fun TimeSlotGroup(
             ) {
                 slots.forEach { slot ->
                     val isSelected = slot in selectedSlots
-                    val canSelect = selectable && slot.isAvailable
+                    // 结束时间不晚于此刻的时段不再允许预订
+                    val canSelect = selectable && slot.isAvailable && !slot.hasEnded(now)
 
                     SlotChip(
                         areaName = slot.areaName,

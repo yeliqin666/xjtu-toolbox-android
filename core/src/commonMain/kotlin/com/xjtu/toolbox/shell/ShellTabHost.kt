@@ -1,6 +1,7 @@
 package com.xjtu.toolbox.shell
 
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.LinearOutSlowInEasing
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.tween
@@ -11,7 +12,9 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.Stable
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -60,6 +63,8 @@ fun ShellTabHost(
     modifier: Modifier = Modifier,
     /** 切页放大的进度与几何；null = 这一形态不做放大（比如侧栏）。 */
     zoom: ShellTabZoom? = null,
+    /** 切页时整页左右滑：往右边的格切，新页从右边进、旧页往左出（没有 [zoom] 时生效）。 */
+    slide: Boolean = false,
     content: @Composable (ShellPage) -> Unit,
 ) {
     val pageBackdropColor = top.yukonga.miuix.kmp.theme.MiuixTheme.colorScheme.surface
@@ -89,14 +94,17 @@ fun ShellTabHost(
     val selectedIndex = nav.tabs.indexOf(selectedId)
     val pageColor = top.yukonga.miuix.kmp.theme.MiuixTheme.colorScheme.surface
     val tabSlideDistance = with(LocalDensity.current) { 28.dp.toPx() }
+    val slideOnly = slide && zoom == null
+    // 上一次选中的格：第一次打开的页签据此决定从哪一侧滑进来
+    val lastIndex = remember { intArrayOf(selectedIndex) }
+    SideEffect { lastIndex[0] = selectedIndex }
     Box(modifier.fillMaxSize().pageBackdropBase(pageBackdropColor).onSizeChanged { zoom?.hostSize = it.toSize() }) {
         // 别在 key {} 里 return@key：Kotlin 2.4.20 会生成 R8 无法转 dex 的方法名
         nav.tabs.tabs.filter { it.id in composedIds || it.id == selectedId }.forEach { tab ->
             key(tab) {
                 val isActive = selectedId == tab.id
-                // zoom 为空 = 这一形态不做切页放大；此时整页切换也不演任何过渡（淡入淡出、横移、缩放、
-                // 入场全部瞬时到位），四个页签之间是硬切。
-                val animated = zoom != null
+                // 三档：zoom = 从底栏按钮放大；slideOnly = 整页左右滑；都没有 = 硬切（侧栏）
+                val animated = zoom != null || slideOnly
                 val tabAlpha by animateFloatAsState(
                     targetValue = if (isActive) 1f else 0f,
                     animationSpec = if (animated) tween(if (isActive) 340 else 260) else snap(),
@@ -104,22 +112,29 @@ fun ShellTabHost(
                 )
                 // 第一次打开的页签也要走入场：animateFloatAsState 的初值就是目标值，不会有过渡
                 val openedBySwitch = remember { tab.id !in composedIds }
-                val firstEntrance = remember { Animatable(if (openedBySwitch && animated) 0f else 1f) }
+                val firstEntrance = remember { Animatable(if (openedBySwitch && zoom != null) 0f else 1f) }
                 val isUnder = zoom != null && !isActive && tab.id == zoom.underId
                 // 返回时正缩回按钮的那页；它在收的时候，当前这页（退回来的）从后面浮上来
                 val isClosing = zoom != null && tab.id == zoom.closingId
-                LaunchedEffect(Unit) { if (animated) firstEntrance.animateTo(1f, tween(340)) }
-                val tabOffset by animateFloatAsState(
-                    targetValue = when {
-                        isActive -> 0f
-                        nav.tabs.indexOf(tab.id) < selectedIndex -> -tabSlideDistance
-                        else -> tabSlideDistance
-                    },
-                    animationSpec = if (animated) tween(260) else snap(),
-                    label = "tabOffset",
-                )
+                LaunchedEffect(Unit) { if (zoom != null) firstEntrance.animateTo(1f, tween(340)) }
+                // 横移量按「几个单位」记：-1 = 在左边，1 = 在右边；一个单位多宽在绘制时定
+                val tabIndex = nav.tabs.indexOf(tab.id)
+                val offsetTarget = if (isActive) 0f else if (tabIndex < selectedIndex) -1f else 1f
+                val tabOffset = remember {
+                    Animatable(
+                        if (openedBySwitch && animated) (if (tabIndex < lastIndex[0]) -1f else 1f) else offsetTarget,
+                    )
+                }
+                LaunchedEffect(offsetTarget) {
+                    when {
+                        // 起步就是全速、只在末尾减速：缓入曲线开头几帧几乎不动，点了像没反应
+                        slideOnly -> tabOffset.animateTo(offsetTarget, tween(TAB_SLIDE_MS, easing = LinearOutSlowInEasing))
+                        animated -> tabOffset.animateTo(offsetTarget, tween(260))
+                        else -> tabOffset.snapTo(offsetTarget)
+                    }
+                }
                 val tabScale by animateFloatAsState(
-                    targetValue = if (isActive) 1f else 0.96f,
+                    targetValue = if (isActive || slideOnly) 1f else 0.96f,
                     animationSpec = if (animated) tween(360) else snap(),
                     label = "tabScale",
                 )
@@ -147,9 +162,15 @@ fun ShellTabHost(
                                     scaleX = s
                                     scaleY = s
                                 }
+                                slideOnly -> {
+                                    // 整页宽度的平移，不淡不缩；完全滑出去的页不画
+                                    val f = tabOffset.value
+                                    alpha = if (f <= -1f || f >= 1f) 0f else 1f
+                                    translationX = f * size.width
+                                }
                                 else -> {
                                     alpha = tabAlpha * firstEntrance.value
-                                    translationX = tabOffset
+                                    translationX = tabOffset.value * tabSlideDistance
                                     val entranceScale = 0.96f + 0.04f * firstEntrance.value
                                     scaleX = tabScale * entranceScale
                                     scaleY = tabScale * entranceScale
@@ -177,9 +198,14 @@ fun ShellTabHost(
                             }
                         },
                 ) {
-                    // 让隐藏 tab 里的常驻动画停下
+                    // 让隐藏 tab 里的常驻动画停下。滑进来的页等滑到位才算「可见」：它一变可见，页内的常驻动画、
+                    // 取数都跟着重组，挤在切页那一帧里会把滑动的开头卡住
+                    val latestActive by rememberUpdatedState(isActive)
+                    val pageVisible by remember {
+                        derivedStateOf { latestActive && (!slideOnly || tabOffset.value == 0f) }
+                    }
                     CompositionLocalProvider(
-                        LocalPageVisible provides (isActive && LocalPageVisible.current),
+                        LocalPageVisible provides (pageVisible && LocalPageVisible.current),
                         // 切过来的页签不演内部入场：整页淡入已经够了，控件再各自动一遍会显得很吵
                         LocalEnterAnimations provides !openedBySwitch,
                     ) {
@@ -192,6 +218,7 @@ fun ShellTabHost(
     }
 }
 
+private const val TAB_SLIDE_MS = 240
 private const val TAB_ZOOM_MS = 820
 
 /** 返回时当前页缩回按钮：比打开快，像收起而不是再演一遍。 */

@@ -86,6 +86,8 @@ fun ScheduleGrid(
     onSlotClick: (ScheduleSlot) -> Unit = {}
 ) {
     val scrollState = rememberScrollState()
+    // 周网格按实际滚动位置告诉顶栏要不要铺毛玻璃：内容不满一屏时上滑只是回弹，不算压到顶栏下面
+    com.xjtu.toolbox.ui.glass.ReportScrollPosition(scrollState)
     val courseColors = rememberCourseColors(allCourseNames)
     // 左轴标哪一套作息：默认跟这一周自己的令时；这一周跨了令时切换（5/1 起夏秋、10/1 起冬春）就按
     // "今天"所在令时标，另一套时间不同的节次在下面补一行。课块各按自己那天的作息对齐（见 WeekGridLayout）。

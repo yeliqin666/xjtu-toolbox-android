@@ -289,7 +289,7 @@ private fun Modifier.floatingSurfaces(
                     translationY = node.bounds.top
                     scaleX = node.scaleX
                     scaleY = node.scaleY
-                    alpha = node.alpha
+                    alpha = node.contentAlpha ?: node.alpha
                 }
                 shadowLayers[index].apply {
                     translationX = node.bounds.center.x - node.bounds.width * node.scaleX * 0.5f

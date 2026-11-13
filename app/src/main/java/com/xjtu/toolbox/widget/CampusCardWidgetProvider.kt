@@ -23,6 +23,8 @@ object CampusCardWidgetUpdater {
         if (ids.isNotEmpty()) {
             update(context, manager, ids)
         }
+        // 智能卡片里的余额也来自这份缓存
+        SmartWidgetUpdater.requestUpdate(context)
     }
 
     fun update(context: Context, appWidgetManager: AppWidgetManager, appWidgetIds: IntArray) {

@@ -198,8 +198,6 @@ fun MatchScreen(
                     color = glassBarColor(glass),
                     pageBackdrop = couiPageBackdropFor(glass),
                     scrollBehavior = scrollBehavior,
-                    // 二级页：标题钉死成收起态，不随上滑变小
-                    pinned = true,
                     navigationIcon = { com.xjtu.toolbox.ui.components.BackButton(onBack) },
                 )
             },
@@ -247,6 +245,7 @@ fun MatchScreen(
                             .then(if (wide) Modifier.width(440.dp) else Modifier.weight(1f))
                             .fillMaxHeight()
                             .overScrollVertical(),
+                        state = com.xjtu.toolbox.ui.glass.rememberReportedLazyListState(scrollBehavior),
                         contentPadding = tabContentPadding(listPadding),
                         verticalArrangement = Arrangement.spacedBy(12.dp),
                     ) {

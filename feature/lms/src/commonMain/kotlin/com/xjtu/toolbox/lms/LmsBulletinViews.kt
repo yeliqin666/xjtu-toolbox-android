@@ -158,6 +158,7 @@ internal fun BulletinDetailPage(
                 .nestedScroll(scrollBehavior.nestedScrollConnection)
         ) {
             LazyColumn(
+                state = com.xjtu.toolbox.ui.glass.rememberReportedLazyListState(scrollBehavior),
                 modifier = Modifier
                     .fillMaxSize()
                     .readableWidth(),

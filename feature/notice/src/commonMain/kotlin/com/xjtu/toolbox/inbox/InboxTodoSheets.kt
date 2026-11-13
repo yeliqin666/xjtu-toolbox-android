@@ -91,6 +91,9 @@ internal fun AddTodoSheet(termStart: LocalDate?, onDismiss: () -> Unit) {
     var title by remember { mutableStateOf("") }
     var note by remember { mutableStateOf("") }
     var colorArgb by remember { mutableStateOf<Int?>(null) }
+    // 选了科目就是作业：显示和颜色都跟思源学堂作业一样走那门课。课名取自看过的课表
+    var course by remember { mutableStateOf<String?>(null) }
+    val courses = remember { com.xjtu.toolbox.schedule.ScheduleColorSeen.names().distinct().sorted() }
     var importance by remember { mutableIntStateOf(InboxRules.IMPORTANCE_NONE) }
     var day by remember { mutableStateOf(today) }
     var hour by remember { mutableIntStateOf(DEFAULT_DUE_HOUR) }
@@ -196,7 +199,18 @@ internal fun AddTodoSheet(termStart: LocalDate?, onDismiss: () -> Unit) {
                         selectedIndex = IMPORTANCE_CHOICES.indexOfFirst { it.second == importance }.coerceAtLeast(0),
                         onSelectedIndexChange = { importance = IMPORTANCE_CHOICES[it].second },
                     )
-                    TodoColorRow(current = colorArgb, onPick = { colorArgb = it })
+                    if (courses.isNotEmpty()) {
+                        AppDropdownPreference(
+                            title = "作业",
+                            summary = if (course == null) "选科目后按作业显示，颜色跟课" else null,
+                            items = listOf("不是作业") + courses,
+                            selectedIndex = course?.let { courses.indexOf(it) + 1 } ?: 0,
+                            onSelectedIndexChange = { course = if (it == 0) null else courses[it - 1] },
+                        )
+                    }
+                    AnimatedVisibility(visible = course == null) {
+                        TodoColorRow(current = colorArgb, onPick = { colorArgb = it })
+                    }
                 }
             }
 
@@ -208,6 +222,7 @@ internal fun AddTodoSheet(termStart: LocalDate?, onDismiss: () -> Unit) {
                         content = note,
                         dueDate = if (noDue) null else SelfTodoRules.dueAt(day, hour, minute),
                         colorArgb = colorArgb,
+                        course = course,
                     )
                     // 重要程度按「收纳里那条」存（学校推来的待办也能标），所以建完再贴
                     if (todo != null && importance != InboxRules.IMPORTANCE_NONE) {

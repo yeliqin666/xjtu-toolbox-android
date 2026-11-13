@@ -7,8 +7,8 @@ import android.provider.Settings
 import com.xjtu.toolbox.schedule.AutoDndAccess
 
 /**
- * 上课自动勿扰：课前、课后各留 3 分钟，窗口内把系统勿扰切到「仅优先」，窗口外还原。
- * 只还原本应用切过的那一次：用户中途手动改过勿扰，就不去动它。
+ * 自动勿扰：上课（课前、课后各留 3 分钟）和在图书馆入座（预约状态「使用中」）时把系统勿扰切到「仅优先」，
+ * 两者都不满足时还原。只还原本应用切过的那一次：用户中途手动改过勿扰，就不去动它。
  * 排程挂在 [DynamicScheduleScheduler.refresh] 里，与通知共用同一个精确闹钟。
  */
 internal object AutoDndScheduler {
@@ -17,6 +17,7 @@ internal object AutoDndScheduler {
     private const val KEY_PROMPT_DISMISSED = "prompt_dismissed"
     private const val KEY_APPLIED = "applied"
     private const val KEY_SAVED_FILTER = "saved_filter"
+    private const val KEY_LIBRARY_INSIDE = "library_inside"
     private const val MARGIN_MS = 3 * 60_000L
 
     private fun prefs(context: Context) = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
@@ -37,6 +38,14 @@ internal object AutoDndScheduler {
         if (!enabled) restore(context)
     }
 
+    /** 图书馆预约状态变了就记一笔（入座 = 「使用中」，暂离、离馆都不算），变了才重排。 */
+    fun setLibraryInside(context: Context, inside: Boolean) {
+        val p = prefs(context)
+        if (p.getBoolean(KEY_LIBRARY_INSIDE, false) == inside) return
+        p.edit().putBoolean(KEY_LIBRARY_INSIDE, inside).apply()
+        DynamicScheduleScheduler.requestRefresh(context)
+    }
+
     /**
      * 按今天的课表切勿扰；返回下一个切换时刻（没有则 null）。
      * 没开或没有授权时只做还原，不排闹钟。
@@ -48,8 +57,8 @@ internal object AutoDndScheduler {
             return null
         }
         val windows = items.map { it.startAt - MARGIN_MS to it.endAt + MARGIN_MS }
-        val inside = windows.any { nowMs in it.first until it.second }
         val p = prefs(context)
+        val inside = windows.any { nowMs in it.first until it.second } || p.getBoolean(KEY_LIBRARY_INSIDE, false)
         if (inside && !p.getBoolean(KEY_APPLIED, false)) {
             p.edit()
                 .putInt(KEY_SAVED_FILTER, nm.currentInterruptionFilter)

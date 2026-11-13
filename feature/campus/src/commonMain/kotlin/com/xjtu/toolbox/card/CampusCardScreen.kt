@@ -3,6 +3,7 @@ package com.xjtu.toolbox.card
 
 import androidx.compose.material.icons.automirrored.filled.MenuBook
 import com.xjtu.toolbox.ui.glass.tabContentPadding
+import com.kyant.backdrop.backdrops.layerBackdrop
 import com.xjtu.toolbox.ui.components.AppPullToRefresh
 import com.xjtu.toolbox.ui.components.BackButton
 import com.xjtu.toolbox.platform.BackHandler
@@ -170,8 +171,11 @@ fun CampusCardScreen(
     // 这一页自己的采样源：顶栏的 COUI 渐变模糊采它，不用全局的 LocalAppBackdrop
     // （这是二级页，有自己的 Scaffold / 顶栏）。其它平台没有 COUI，返回 null。
     val pageBackdrop = rememberCouiPageBackdrop()
-    // 采样本页正文：玻璃风格时才录，经典风格顶栏是实色
-    val pageSource = if (glass) pageBackdrop?.recordInto(Modifier) ?: Modifier else Modifier
+    // 采样本页正文：玻璃风格时才录，经典风格顶栏是实色。顶栏用 COUI 那层，底部悬浮切换条的磨砂用 kyant 那层
+    val frostLayer = com.kyant.backdrop.backdrops.rememberLayerBackdrop()
+    val pageSource = if (glass) {
+        Modifier.layerBackdrop(frostLayer).then(pageBackdrop?.recordInto(Modifier) ?: Modifier)
+    } else Modifier
     // 宽屏「流水 / 分析」两栏的选中项。标签行在顶栏里，所以提到 Scaffold 外面
     val isWideTop = com.xjtu.toolbox.ui.isWideLayout()
     var wideTab by rememberSaveable { mutableIntStateOf(0) }
@@ -184,8 +188,6 @@ fun CampusCardScreen(
                 largeTitle = "校园卡",
                 scrollBehavior = scrollBehavior,
                 pageBackdrop = if (glass) pageBackdrop else null,
-                // 二级页：标题钉死成收起态，不随上滑变小
-                pinned = true,
                 navigationIcon = {
                     BackButton(onBack)
                 },
@@ -221,46 +223,25 @@ fun CampusCardScreen(
                     }
                     }
                 },
-                // 标签行不参与滚动：挂在顶栏里和顶栏一起做一整块玻璃，列表从它下面滚过去。
-                // 宽屏只有右栏有「流水 / 分析」标签，标签行只占右边那一截，和右栏对齐
+                // 换时间范围时的进度条留在顶栏下沿；页面放在 App 底栏上时分栏标签也回到这里
                 bottomContent = {
-                    CompositionLocalProvider(com.xjtu.toolbox.ui.glass.LocalOnGlassBar provides glass) {
-                        Column {
-                            // 整页在转圈 / 报错时（下面 when 的前两支）没有东西可切，不挂标签
-                            val showTabs = !(cardInfo == null && transactions.isEmpty() &&
-                                (vm.isLoading || vm.errorMessage != null))
-                            if (!showTabs) {
-                                // 什么都不放
-                            } else if (isWideTop) {
-                                Row(Modifier.fillMaxWidth()) {
-                                    Spacer(Modifier.weight(0.42f))
-                                    Box(Modifier.weight(0.58f)) {
-                                        AppSegmentedTabs(
-                                            tabs = listOf("流水", "分析"),
-                                            selectedTabIndex = wideTab,
-                                            onTabSelected = { wideTab = it },
-                                        )
-                                    }
-                                }
-                            } else {
-                                AppSegmentedTabs(
-                                    tabs = listOf("概览", "流水", "分析"),
-                                    selectedTabIndex = selectedTab,
-                                    onTabSelected = { selectedTab = it },
-                                    modifier = Modifier.readableWidth(),
-                                )
-                            }
-                            if (vm.isReloadingRange) {
-                                LinearProgressIndicator(
-                                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
-                                    height = 2.dp,
-                                )
-                            }
-                        }
+                    val showTabs = !(cardInfo == null && transactions.isEmpty() &&
+                        (vm.isLoading || vm.errorMessage != null))
+                    com.xjtu.toolbox.ui.components.DockedPageTabs(
+                        tabs = if (isWideTop) listOf("流水", "分析") else listOf("概览", "流水", "分析"),
+                        selectedTabIndex = if (isWideTop) wideTab else selectedTab,
+                        onTabSelected = { if (isWideTop) wideTab = it else selectedTab = it },
+                        visible = showTabs,
+                    )
+                    if (vm.isReloadingRange) {
+                        LinearProgressIndicator(
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+                            height = 2.dp,
+                        )
                     }
                 },
             )
-        }
+        },
     ) { padding ->
         val rangeDates = vm.range
         CustomRangeDialog(
@@ -299,6 +280,14 @@ fun CampusCardScreen(
                 // 三栏是同一份数据的三种看法，经常要对照着看，所以宽屏下并排摆，而不是像设置页那样
                 // 做成左侧目录一次只看一栏。宽屏不再用 readableWidth 限宽，否则左右各空出四分之一。
                 val isWide = isWideTop
+                // 分栏标签（宽屏只有右栏的「流水 / 分析」）
+                com.xjtu.toolbox.ui.components.PageBottomTabsHost(
+                    tabs = if (isWide) listOf("流水", "分析") else listOf("概览", "流水", "分析"),
+                    selectedTabIndex = if (isWide) wideTab else selectedTab,
+                    onTabSelected = { if (isWide) wideTab = it else selectedTab = it },
+                    glass = if (glass) frostLayer else null,
+                    modifier = Modifier.fillMaxSize(),
+                ) {
                 Box(
                     Modifier
                         .fillMaxSize()
@@ -382,6 +371,7 @@ fun CampusCardScreen(
                         }
                     }
                 }
+                }
             }
         }
     }
@@ -456,6 +446,7 @@ private fun OverviewTab(
     allTransactions: List<Transaction> = emptyList(),
 ) {
     LazyColumn(
+        state = com.xjtu.toolbox.ui.glass.rememberReportedLazyListState(),
         // 左右留白放在 contentPadding 里而不是列表外面：余额卡有投影，
         // 列表外面留白的话，列表的边界就在卡片边上，投影左右两侧会被切掉。
         modifier = Modifier.fillMaxSize().overScrollVertical(),
@@ -882,6 +873,7 @@ private fun TransactionTab(
     }
 
     LazyColumn(
+        state = com.xjtu.toolbox.ui.glass.rememberReportedLazyListState(),
         modifier = Modifier.fillMaxSize().overScrollVertical().padding(horizontal = 16.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
         contentPadding = tabContentPadding(PaddingValues(top = topContentPadding + 12.dp, bottom = 12.dp))
@@ -1053,6 +1045,7 @@ private fun AnalyticsTab(
         )
     }
     LazyColumn(
+        state = com.xjtu.toolbox.ui.glass.rememberReportedLazyListState(),
         modifier = Modifier.fillMaxSize().overScrollVertical().padding(horizontal = 16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
         contentPadding = tabContentPadding(PaddingValues(top = topContentPadding + 12.dp, bottom = 12.dp))

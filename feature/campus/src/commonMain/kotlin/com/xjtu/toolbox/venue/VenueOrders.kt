@@ -16,9 +16,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.staggeredgrid.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ReceiptLong
-import androidx.compose.material.icons.filled.CalendarToday
-import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -99,7 +96,7 @@ fun VenueOrdersContent(
             // 宽屏订单卡分两三列（见 AdaptiveCardGrid）
             AdaptiveCardGrid(
                 modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 10.dp + topPadding, bottom = 10.dp),
+                contentPadding = com.xjtu.toolbox.ui.glass.tabContentPadding(PaddingValues(start = 16.dp, end = 16.dp, top = 10.dp + topPadding, bottom = 10.dp)),
                 spacing = 10.dp,
             ) {
                 if (error != null) {
@@ -146,7 +143,7 @@ fun VenueOrdersContent(
                             horizontalArrangement = Arrangement.Center
                         ) {
                             if (isLoadingMore) {
-                                CircularProgressIndicator(modifier = Modifier.size(20.dp))
+                                CircularProgressIndicator(size = 20.dp, strokeWidth = 2.dp)
                             } else {
                                 TextButton(text = "加载更多", onClick = onLoadMore)
                             }
@@ -190,91 +187,64 @@ private fun OrderCard(
         colors = CardDefaults.defaultColors(color = AppCardColor),
     ) {
         Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp)) {
+            // 标题 + 状态胶囊
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Icon(
-                    Icons.AutoMirrored.Filled.ReceiptLong,
-                    contentDescription = null,
-                    modifier = Modifier.size(22.dp),
-                    tint = MiuixTheme.colorScheme.primary
-                )
-                Spacer(Modifier.width(8.dp))
                 Text(
                     order.venueName.ifBlank { "体育场馆订单" },
                     modifier = Modifier.weight(1f),
                     style = MiuixTheme.textStyles.body1,
-                    fontWeight = FontWeight.Medium,
+                    fontWeight = FontWeight.SemiBold,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
+                Spacer(Modifier.width(8.dp))
                 Text(
                     order.statusText,
                     style = MiuixTheme.textStyles.footnote1,
                     color = statusColor,
-                    fontWeight = FontWeight.Medium
+                    fontWeight = FontWeight.Medium,
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(50))
+                        .background(statusColor.copy(alpha = 0.12f))
+                        .padding(horizontal = 9.dp, vertical = 3.dp),
                 )
             }
 
-            Spacer(Modifier.height(8.dp))
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(
-                    Icons.Default.CalendarToday,
-                    contentDescription = null,
-                    modifier = Modifier.size(16.dp),
-                    tint = MiuixTheme.colorScheme.onSurfaceVariantSummary
-                )
-                Spacer(Modifier.width(6.dp))
-                // 空的明细行不参与拼接：**字段缺失时不要把空串冒充成一条明细**。
-                // :app 那侧上游字段齐全，每一行都拼得出来 ⇒ 这条过滤对 Android 的输出没有影响；
-                // 而 Web 那侧 campus-api 的白名单里没有 `areaName`（见 CampusVenueApi 的 KDoc），
-                // 不过滤就会画出一个光秃秃的「、」。全部为空时下面那个 ifBlank 会落到「暂无场地明细」。
-                val summary = order.details
-                    .map { detail ->
-                        listOf(detail.date, detail.timeSlot, detail.areaName)
-                            .filter { it.isNotBlank() }
-                            .joinToString(" ")
-                    }
-                    .filter { it.isNotBlank() }
-                    .joinToString("、")
-                Text(
-                    summary.ifBlank { "暂无场地明细" },
-                    modifier = Modifier.weight(1f),
-                    style = MiuixTheme.textStyles.body2,
-                    color = MiuixTheme.colorScheme.onSurfaceVariantActions,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis
-                )
-                Icon(
-                    Icons.Default.ChevronRight,
-                    contentDescription = "查看详情",
-                    modifier = Modifier.size(20.dp),
-                    tint = MiuixTheme.colorScheme.onSurfaceVariantSummary
-                )
-            }
+            // 场地明细：空的明细行不参与拼接，字段缺失时不要把空串冒充成一条明细
+            //（campus-api 的订单没有 areaName，不过滤会画出一个光秃秃的「、」）
+            val summary = order.details
+                .map { detail ->
+                    listOf(detail.date, detail.timeSlot, detail.areaName)
+                        .filter { it.isNotBlank() }
+                        .joinToString(" ")
+                }
+                .filter { it.isNotBlank() }
+                .joinToString("、")
+            Spacer(Modifier.height(6.dp))
+            Text(
+                summary.ifBlank { "暂无场地明细" },
+                style = MiuixTheme.textStyles.body2,
+                color = MiuixTheme.colorScheme.onSurfaceVariantActions,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis
+            )
 
+            // 下单时间（订单号放详情里）+ 金额
             Spacer(Modifier.height(8.dp))
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically
+                verticalAlignment = Alignment.Bottom
             ) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        "订单号 ${order.orderId}",
-                        style = MiuixTheme.textStyles.footnote1,
-                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                    if (order.createdAt.isNotBlank()) {
-                        Text(
-                            order.createdAt,
-                            style = MiuixTheme.textStyles.footnote1,
-                            color = MiuixTheme.colorScheme.onSurfaceVariantSummary
-                        )
-                    }
-                }
+                Text(
+                    order.createdAt,
+                    modifier = Modifier.weight(1f),
+                    style = MiuixTheme.textStyles.footnote1,
+                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                    maxLines = 1,
+                )
                 Text(
                     "¥${money2(order.price)}",
                     style = MiuixTheme.textStyles.body1,
@@ -285,7 +255,8 @@ private fun OrderCard(
 
             // 整张卡点开就是详情，底下只放真正的操作
             val pay = canPay && order.canPay
-            val cancel = canCancel && order.canCancel
+            // 订单已经到了起效时间就不再给取消
+            val cancel = canCancel && order.canCancel && !order.hasStarted(com.xjtu.toolbox.ui.rememberCampusNow())
             if (pay || cancel) {
                 Spacer(Modifier.height(10.dp))
                 Row(

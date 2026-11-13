@@ -6,7 +6,6 @@ import com.xjtu.toolbox.ui.glass.tabContentBottomPadding
 import com.xjtu.toolbox.ui.components.AppPullToRefresh
 import com.xjtu.toolbox.ui.components.FullPageState
 import androidx.compose.ui.graphics.Color
-import com.xjtu.toolbox.ui.adaptive.readableWidth
 import com.xjtu.toolbox.ui.adaptive.fullLineItem
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.foundation.lazy.staggeredgrid.items
@@ -33,6 +32,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.filled.Face
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -138,6 +138,15 @@ fun AttendanceScreen(
                 glass = glass,
                 scrollBehavior = scrollBehavior,
                 onBack = onBack,
+                // 页面放在 App 底栏上时分栏回到顶栏下沿（不在底部叠两排胶囊）
+                bottomContent = {
+                    com.xjtu.toolbox.ui.components.DockedPageTabs(
+                        tabs = listOf("流水", "打卡流水", "统计", "请假"),
+                        selectedTabIndex = selectedTab,
+                        onTabSelected = { selectedTab = it },
+                        visible = state.hasData || !(state.loading || state.error != null),
+                    )
+                },
                 actions = {
                     Row(
                         horizontalArrangement = Arrangement.spacedBy(2.dp),
@@ -157,55 +166,26 @@ fun AttendanceScreen(
                                 Icon(Icons.Default.Add, contentDescription = "新建请假")
                             }
                         }
-                    }
-                },
-                // 四个分栏标签不跟着滚：挂在顶栏里和顶栏一起做一整块玻璃。
-                // 没数据（加载中 / 出错）时不显示，那时点了也没东西可切
-                bottomContent = {
-                    if (state.hasData || !(state.loading || state.error != null)) {
-                        CompositionLocalProvider(LocalOnGlassBar provides (glass != null)) {
-                            AppSegmentedTabs(
-                                tabs = listOf("流水", "打卡流水", "统计", "请假"),
-                                selectedTabIndex = selectedTab,
-                                onTabSelected = { selectedTab = it },
-                                modifier = Modifier.readableWidth(),
-                            )
+                        // 学期在右上角切一次，四个分栏共用；请假不分学期，那一栏不摆
+                        if (state.terms.size > 1 && selectedTab != 3) {
+                            var termMenuOpen by remember { mutableStateOf(false) }
+                            com.xjtu.toolbox.ui.glass.CouiIconMenu(
+                                expanded = termMenuOpen,
+                                onExpandedChange = { termMenuOpen = it },
+                                icon = { Icon(Icons.Default.DateRange, contentDescription = "切换学期") },
+                            ) {
+                                state.terms.forEach { term ->
+                                    option(term.name, selected = term.bh == state.termBh) { vm.selectTerm(term.bh) }
+                                }
+                            }
                         }
                     }
                 },
             )
         }
     ) { padding ->
-        // 内容铺到顶栏下面；标签行在顶栏里，姓名、学期这一块是每个分栏列表的第一项，跟着列表滚，
-        // 各列表自己把 glassTop 放进 contentPadding
+        // 内容铺到顶栏下面；各列表自己把 glassTop 放进 contentPadding
         val glassTop = padding.glassTop(glass)
-        // 姓名 · 学期 + 学期选择。请假栏不分学期，不放选择器
-        val listHeader: @Composable (Int) -> Unit = { tab ->
-            Column(Modifier.readableWidth().fillMaxWidth()) {
-                if (state.studentName.isNotBlank()) {
-                    Text(
-                        text = state.studentName + (state.window?.semesterName?.let { " · $it" } ?: ""),
-                        style = MiuixTheme.textStyles.subtitle,
-                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp)
-                    )
-                }
-                if (state.terms.isNotEmpty() && tab != 3) {
-                    Card(
-                        modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
-                        colors = CardDefaults.defaultColors(color = AppCardColor)
-                    ) {
-                        com.xjtu.toolbox.ui.components.AppDropdownPreference(
-                            title = "学期",
-                            summary = "选择要查询的学期",
-                            items = state.terms.map { it.name },
-                            selectedIndex = state.terms.indexOfFirst { it.bh == state.termBh }.coerceAtLeast(0),
-                            onSelectedIndexChange = { vm.selectTerm(state.terms[it].bh) }
-                        )
-                    }
-                }
-            }
-        }
         when {
             state.loading && !state.hasData && state.error == null -> {
                 FullPageState(
@@ -219,7 +199,13 @@ fun AttendanceScreen(
                     contentPadding = PaddingValues(top = glassTop)
                 ) { ErrorState(message = state.error.orEmpty(), onRetry = { vm.load() }, modifier = Modifier.fillMaxSize()) }
             }
-            else -> {
+            else -> com.xjtu.toolbox.ui.components.PageBottomTabsHost(
+                tabs = listOf("流水", "打卡流水", "统计", "请假"),
+                selectedTabIndex = selectedTab,
+                onTabSelected = { selectedTab = it },
+                glass = glass,
+                modifier = Modifier.fillMaxSize(),
+            ) {
                 AppPullToRefresh(
                     isRefreshing = state.refreshing,
                     onRefresh = { vm.load(fromPull = true) },
@@ -227,18 +213,17 @@ fun AttendanceScreen(
                     topPadding = glassTop,
                     modifier = Modifier.fillMaxSize().padding(padding.withoutTop(glass)).glassSource(glass),
                 ) {
-                    // 宽屏：姓名和学期块限宽居中，下面的记录分两三列铺开（见 AdaptiveCardGrid）
+                    // 宽屏记录分两三列铺开（见 AdaptiveCardGrid）
                     AppTabPager(
                         pageCount = 4,
                         selectedTabIndex = selectedTab,
                         onTabSelected = { selectedTab = it },
                         modifier = Modifier.fillMaxSize(),
                     ) { tab ->
-                        val header: @Composable () -> Unit = { listHeader(tab) }
                         when (tab) {
-                            0 -> RecordList(state.records, glassTop, header)
-                            1 -> StreamList(state.streams, source.capabilities.streams, glassTop, header)
-                            2 -> StatList(state.stats, source.capabilities.stats, glassTop, header)
+                            0 -> RecordList(state.records, glassTop)
+                            1 -> StreamList(state.streams, source.capabilities.streams, glassTop)
+                            2 -> StatList(state.stats, source.capabilities.stats, glassTop)
                             else -> LeaveList(
                                 leaves = state.leaves,
                                 supported = source.capabilities.leave,
@@ -246,7 +231,6 @@ fun AttendanceScreen(
                                 onWithdraw = { pendingAction = LeaveAction.WITHDRAW to it },
                                 onCancel = { pendingAction = LeaveAction.CANCEL to it },
                                 topPadding = glassTop,
-                                header = header,
                             )
                         }
                     }
@@ -354,25 +338,22 @@ fun AttendanceScreen(
     }
 }
 
-/**
- * 四个分栏共用的列表外壳：[topPadding]（玻璃顶栏连同标签行的高度）放进列表顶部留白，
- * 第一项是姓名 / 学期块 [header]，跟着列表一起滚。没有数据时也保留头部，学期照样能切。
- */
+/** 四个分栏共用的列表外壳：[topPadding]（玻璃顶栏连同标签行的高度）放进列表顶部留白。 */
 @Composable
 private fun AttendanceListShell(
     isEmpty: Boolean,
     empty: @Composable (Modifier) -> Unit,
     topPadding: androidx.compose.ui.unit.Dp,
-    header: @Composable () -> Unit,
     bottomPadding: androidx.compose.ui.unit.Dp = 16.dp,
     content: androidx.compose.foundation.lazy.staggeredgrid.LazyStaggeredGridScope.() -> Unit,
 ) {
     if (isEmpty) {
+        // 空态也报位置：不报的话顶栏退回按滚动事件累计，回弹时按钮轮廓会误亮
         LazyColumn(
             Modifier.fillMaxSize().overScrollVertical(),
+            state = com.xjtu.toolbox.ui.glass.rememberReportedLazyListState(),
             contentPadding = tabContentPadding(PaddingValues(start = 16.dp, end = 16.dp, top = 12.dp + topPadding)),
         ) {
-            item(key = "header") { header() }
             item(key = "empty") { empty(Modifier.fillParentMaxWidth().fillParentMaxHeight(0.6f)) }
         }
         return
@@ -381,23 +362,19 @@ private fun AttendanceListShell(
         modifier = Modifier.fillMaxSize().overScrollVertical(),
         contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 12.dp + topPadding, bottom = bottomPadding),
         spacing = 10.dp,
-    ) {
-        fullLineItem(key = "header") { Box(Modifier.enterOnce(0)) { header() } }
-        content()
-    }
+        content = content,
+    )
 }
 
 @Composable
 private fun RecordList(
     records: List<AttendanceWaterRecord>,
     topPadding: androidx.compose.ui.unit.Dp,
-    header: @Composable () -> Unit,
 ) {
     AttendanceListShell(
         isEmpty = records.isEmpty(),
         empty = { EmptyState(title = "暂无考勤记录", modifier = it) },
         topPadding = topPadding,
-        header = header,
     ) {
         itemsIndexed(records, key = { _, it -> it.sbh }) { i, record ->
             Card(modifier = Modifier.enterOnce(i + 1), colors = CardDefaults.defaultColors(color = AppCardColor)) {
@@ -431,7 +408,6 @@ private fun StreamList(
     /** 本端这一份取数真拿得到打卡流水吗（见 [AttendanceCapabilities.streams]）。 */
     supported: Boolean,
     topPadding: androidx.compose.ui.unit.Dp,
-    header: @Composable () -> Unit,
 ) {
     AttendanceListShell(
         isEmpty = streams.isEmpty(),
@@ -443,7 +419,6 @@ private fun StreamList(
             )
         },
         topPadding = topPadding,
-        header = header,
     ) {
         // 不给 key：id 可能缺失，同一台设备同一秒刷两次时拼出来的 key 会重复，Compose 直接崩。
         itemsIndexed(streams) { i, stream ->
@@ -487,7 +462,6 @@ private fun StatList(
     /** 本端这一份取数真拿得到统计吗（见 [AttendanceCapabilities.stats]）。 */
     supported: Boolean,
     topPadding: androidx.compose.ui.unit.Dp,
-    header: @Composable () -> Unit,
 ) {
     AttendanceListShell(
         isEmpty = stats.isEmpty(),
@@ -499,7 +473,6 @@ private fun StatList(
             )
         },
         topPadding = topPadding,
-        header = header,
     ) {
         itemsIndexed(stats, key = { _, it -> it.subjectName + it.subjectCode }) { i, stat ->
             Card(modifier = Modifier.enterOnce(i + 1), colors = CardDefaults.defaultColors(color = AppCardColor)) {
@@ -538,7 +511,6 @@ private fun LeaveList(
     onWithdraw: (LeaveRecord) -> Unit,
     onCancel: (LeaveRecord) -> Unit,
     topPadding: androidx.compose.ui.unit.Dp,
-    header: @Composable () -> Unit,
 ) {
     AttendanceListShell(
         isEmpty = leaves.isEmpty(),
@@ -554,7 +526,6 @@ private fun LeaveList(
             )
         },
         topPadding = topPadding,
-        header = header,
         bottomPadding = 88.dp,
     ) {
         itemsIndexed(leaves, key = { _, it -> it.leaveId }) { i, rec ->

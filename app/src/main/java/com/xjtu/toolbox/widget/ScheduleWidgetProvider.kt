@@ -142,6 +142,8 @@ object ScheduleWidgetUpdater {
                 putExtra(EXTRA_RESET_TO_TODAY, resetToToday)
             }
         )
+        // 智能卡片也按课表挑场景，课表一变跟着重画
+        SmartWidgetUpdater.requestUpdate(context)
     }
 
     fun handleAction(context: Context, action: String?): Boolean {
@@ -447,7 +449,7 @@ object ScheduleWidgetUpdater {
         }.sortedWith(compareBy({ it.startMinute }, { it.endMinute }))
     }
 
-    private fun todayCourses(context: Context): List<WidgetCourse> =
+    internal fun todayCourses(context: Context): List<WidgetCourse> =
         loadTerm(context)?.coursesOn(LocalDate.now(com.xjtu.toolbox.util.CampusZoneId)).orEmpty()
 
     /**

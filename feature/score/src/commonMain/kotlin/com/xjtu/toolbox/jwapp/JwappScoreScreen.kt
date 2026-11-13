@@ -65,6 +65,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.ui.layout.layout
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.ui.text.font.FontWeight
@@ -219,8 +221,6 @@ fun JwappScoreScreen(
                 color = glassBarColor(glass),
                 pageBackdrop = couiPageBackdropFor(glass),
                 scrollBehavior = scrollBehavior,
-                // 二级页：标题钉死成收起态，不随上滑变小
-                pinned = true,
                 navigationIcon = {
                     // 放在底栏上时没有上一级，只在选课模式下留「关闭」
                     if (gpaSelectMode || !com.xjtu.toolbox.ui.glass.LocalTabRoot.current) CouiToolbarActionButton(onClick = {
@@ -356,37 +356,44 @@ fun JwappScoreScreen(
 
                     fullLineItem {
                         Column(Modifier.enterOnce(1)) {
+                            // 搜索独占一行；学期和分类合成下面一行横滑，同一种胶囊、同一个高度
+                            AppSearchBar(
+                                query = searchQuery,
+                                onQueryChange = { searchQuery = it },
+                                label = "搜索课程",
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                            // 横滑这一行左右出血到屏幕边：滑动区域不在列表的 16dp 边距处截断，
+                            // 边距挪进滑动内容里，静止时首尾仍和上下对齐
                             Row(
-                                Modifier.fillMaxWidth(),
+                                Modifier
+                                    .bleedHorizontally(16.dp)
+                                    .padding(top = 8.dp)
+                                    .horizontalScroll(rememberScrollState())
+                                    .padding(horizontal = 16.dp),
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(8.dp)
                             ) {
                                 if (termList.isNotEmpty()) {
+                                    // 胶囊上只写「2026 夏」这样的简称，别占半行（见 shortTermName）
                                     val termLabel = if (selectedTermIndex == 0) "全部学期"
-                                    else termList.getOrNull(selectedTermIndex - 1)?.second ?: "学期"
+                                    else termList.getOrNull(selectedTermIndex - 1)?.second?.let(::shortTermName) ?: "学期"
+                                    val termPicked = selectedTermIndex != 0
                                     Box {
-                                        Row(
-                                            Modifier
-                                                .clip(RoundedCornerShape(12.dp))
-                                                .clickable { termMenuExpanded = true }
-                                                .padding(horizontal = 10.dp, vertical = 8.dp),
-                                            verticalAlignment = Alignment.CenterVertically
-                                        ) {
-                                            Text(
-                                                termLabel,
-                                                style = MiuixTheme.textStyles.body2,
-                                                fontWeight = FontWeight.Medium,
-                                                maxLines = 1,
-                                                overflow = TextOverflow.Ellipsis,
-                                                modifier = Modifier.widthIn(max = 120.dp)
-                                            )
-                                            Icon(
-                                                Icons.Default.ExpandMore,
-                                                contentDescription = "选择学期",
-                                                modifier = Modifier.size(18.dp),
-                                                tint = MiuixTheme.colorScheme.onSurfaceVariantSummary
-                                            )
-                                        }
+                                        AppFilterChip(
+                                            selected = termPicked,
+                                            onClick = { termMenuExpanded = true },
+                                            label = termLabel,
+                                            trailingIcon = {
+                                                Icon(
+                                                    Icons.Default.ExpandMore,
+                                                    contentDescription = "选择学期",
+                                                    modifier = Modifier.size(16.dp),
+                                                    tint = if (termPicked) MiuixTheme.colorScheme.onPrimary
+                                                    else MiuixTheme.colorScheme.onSurfaceVariantActions,
+                                                )
+                                            },
+                                        )
                                         val termChoices = listOf("全部学期") + termList.map { it.second }
                                         com.xjtu.toolbox.ui.components.AppDropdownMenu(
                                             expanded = termMenuExpanded,
@@ -407,32 +414,11 @@ fun JwappScoreScreen(
                                         }
                                     }
                                 }
-                                AppSearchBar(
-                                    query = searchQuery,
-                                    onQueryChange = { searchQuery = it },
-                                    label = "搜索课程",
-                                    modifier = Modifier.weight(1f)
-                                )
-                            }
-                            if (allCategories.isNotEmpty()) {
-                                if (gpaSelectMode) {
-                                    Text(
-                                        "筛选后可用右上角全选",
-                                        style = MiuixTheme.textStyles.footnote1,
-                                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                                        modifier = Modifier.padding(top = 6.dp)
-                                    )
-                                }
-                                @OptIn(ExperimentalLayoutApi::class)
-                                FlowRow(
-                                    modifier = Modifier.padding(top = 6.dp),
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                                ) {
+                                if (allCategories.isNotEmpty()) {
                                     AppFilterChip(
                                         selected = selectedGroups.isEmpty(),
                                         onClick = { selectedGroups = emptySet() },
-                                        label = "全部"
+                                        label = "全部类别"
                                     )
                                     allCategories.forEach { group ->
                                         val isSelected = group in selectedGroups
@@ -448,6 +434,14 @@ fun JwappScoreScreen(
                                         )
                                     }
                                 }
+                            }
+                            if (allCategories.isNotEmpty() && gpaSelectMode) {
+                                Text(
+                                    "筛选后可用右上角全选",
+                                    style = MiuixTheme.textStyles.footnote1,
+                                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                                    modifier = Modifier.padding(top = 6.dp)
+                                )
                             }
                             if (vm.reportHint != null) {
                                 Text(
@@ -803,18 +797,14 @@ private fun ScoreRow(
                     }
                 }
                 Spacer(Modifier.width(12.dp))
-                // 成绩徽章：分数和这门课的绩点收在一块按分数段着色的底上，右边一列对齐，扫一眼就能比
+                // 分数右对齐成一列，只用字色分档；卡片已经是容器，不再套一块色底
                 Column(
-                    Modifier
-                        .widthIn(min = 58.dp)
-                        .clip(RoundedCornerShape(14.dp))
-                        .background(scoreColor.copy(alpha = 0.10f))
-                        .padding(horizontal = 10.dp, vertical = 6.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally,
+                    Modifier.widthIn(min = 48.dp),
+                    horizontalAlignment = Alignment.End,
                 ) {
                     Text(
                         scoreItem.score,
-                        style = MiuixTheme.textStyles.title3,
+                        style = MiuixTheme.textStyles.title2,
                         fontWeight = FontWeight.SemiBold,
                         color = scoreColor,
                         maxLines = 1,
@@ -828,7 +818,7 @@ private fun ScoreRow(
                         Text(
                             sub,
                             style = MiuixTheme.textStyles.footnote2,
-                            color = scoreColor.copy(alpha = 0.8f),
+                            color = if (reallyPassed) MiuixTheme.colorScheme.onSurfaceVariantSummary else scoreColor,
                             maxLines = 1,
                         )
                     }
@@ -865,6 +855,31 @@ private fun ScoreRow(
     }
 }
 
+/** 宽度向两边各撑出 [amount]（抵掉父级的水平内边距），位置跟着左移，高度不变。 */
+private fun Modifier.bleedHorizontally(amount: androidx.compose.ui.unit.Dp): Modifier =
+    layout { measurable, constraints ->
+        val extra = amount.roundToPx() * 2
+        val placeable = measurable.measure(
+            constraints.copy(minWidth = constraints.minWidth + extra, maxWidth = constraints.maxWidth + extra),
+        )
+        layout(constraints.maxWidth, placeable.height) { placeable.place(-amount.roundToPx(), 0) }
+    }
+
+/**
+ * 胶囊上的学期简称：自然年 + 季节，「2025-2026学年 第一学期」→「2025 秋」、第二学期 →「2026 春」、
+ * 夏季小学期 →「2026 夏」。完整名字留在下拉菜单里。认不出的格式原样返回。
+ */
+private fun shortTermName(name: String): String {
+    val match = Regex("""^(\d{4})-(\d{4})学年\s*(.*)$""").find(name.trim()) ?: return name
+    val (first, second, rest) = match.destructured
+    return when {
+        "第一" in rest || "秋" in rest -> "$first 秋"
+        "夏" in rest || "小学期" in rest -> "$second 夏"
+        "第二" in rest || "春" in rest -> "$second 春"
+        else -> name
+    }
+}
+
 @Composable
 private fun ScoreTag(text: String, color: androidx.compose.ui.graphics.Color, container: androidx.compose.ui.graphics.Color) {
     Text(
@@ -872,10 +887,11 @@ private fun ScoreTag(text: String, color: androidx.compose.ui.graphics.Color, co
         style = MiuixTheme.textStyles.footnote2,
         color = color,
         fontWeight = FontWeight.Medium,
+        // 和筛选胶囊同一种形状
         modifier = Modifier
-            .clip(RoundedCornerShape(6.dp))
+            .clip(RoundedCornerShape(50))
             .background(container)
-            .padding(horizontal = 6.dp, vertical = 2.dp)
+            .padding(horizontal = 8.dp, vertical = 2.dp)
     )
 }
 

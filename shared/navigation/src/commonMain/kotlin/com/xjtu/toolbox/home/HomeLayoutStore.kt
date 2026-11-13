@@ -14,7 +14,7 @@ import com.xjtu.toolbox.settings.SettingsStore
  *
  * **分组结构和尺寸规则与 dev 那套「小组件」一致**（升级后没编辑过的人看到的排法不变）：
  * 最上面一组「常用功能」，下面按 [ServiceCategory] 的目录顺序一组一个（这一类里没有可见功能
- * 就不出组）。尺寸：校园卡、图书馆给 2×2；课表、校历、LMS、考勤、空教室、通知、社区、游戏、
+ * 就不出组）。尺寸：校园卡、付款码、图书馆给 2×2；课表、校历、LMS、考勤、空教室、通知、社区、游戏、
  * 小岱、黄页这些「信息型」给 2×1（放得下一行状态）；常用功能与其余给 1×1。
  *
  * 每组的块按 first-fit 从上到下、从左到右排（与 dev `HomeWidgetLayout.pack` 同一套），
@@ -27,9 +27,12 @@ object HomeLayoutDefaults {
 
     const val QUICK_GROUP = "quick"
 
-    /** 默认放大一档（2×2）：最常看、内容也最多（通知列最近几条标题）。 */
+    /**
+     * 默认放大一档（2×2）：最常看、内容也最多（通知列最近几条标题）。
+     * 付款码要 2×2 才画得下二维码，目录里它紧跟校园卡，两块正好并排占满一行。
+     */
     private val FEATURED = setOf(
-        AppRoute.CampusCard.id, AppRoute.Library.id, AppRoute.DegreeProgress.id, AppRoute.Notification.id,
+        AppRoute.CampusCard.id, AppRoute.PaymentCode.id, AppRoute.Library.id, AppRoute.DegreeProgress.id, AppRoute.Notification.id,
     )
 
     /** 信息型（2×1）：放一行状态比纯图标有用。 */

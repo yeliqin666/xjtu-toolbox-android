@@ -1,14 +1,21 @@
 package com.xjtu.toolbox.ui.glass
 
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.text.BasicText
+import androidx.compose.foundation.text.TextAutoSize
+import androidx.compose.ui.unit.sp
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.MutableState
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
@@ -19,15 +26,22 @@ import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.TextUnit
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.layout.layout
+import androidx.compose.ui.platform.LocalDensity
+import kotlin.math.roundToInt
 import androidx.compose.ui.unit.Velocity
 import com.xjtu.toolbox.ui.glass.coui.CouiBackdrop
+import com.xjtu.toolbox.ui.glass.coui.CouiCollapsingAppBarState
+import com.xjtu.toolbox.ui.glass.coui.rememberCouiCollapsingAppBarState
 import com.xjtu.toolbox.ui.glass.coui.CouiTextKind
 import com.xjtu.toolbox.ui.glass.coui.CouiTopAppBarColors
 import com.xjtu.toolbox.ui.glass.coui.CouiTopAppBarDefaults
 import com.xjtu.toolbox.ui.glass.coui.CouiTopAppBarScrollBehavior
 import com.xjtu.toolbox.ui.glass.coui.LargeTopAppBar
+import com.xjtu.toolbox.ui.glass.coui.LocalCouiToolbarSurfaceAlpha
 import com.xjtu.toolbox.ui.glass.coui.LocalCouiTextStyle
-import com.xjtu.toolbox.ui.glass.coui.LocalCouiToolbarBackdrop
 import com.xjtu.toolbox.ui.glass.coui.Text
 import com.xjtu.toolbox.ui.glass.coui.TopAppBar
 import com.xjtu.toolbox.ui.glass.coui.couiBackdrop
@@ -39,10 +53,15 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
 /**
  * 页面级采样源：直接用 [AndroidCouiPageBackdrop] 包一层 `rememberCouiBackdrop()`，
  * 首页那条自定义顶栏也要 cast 回它取原始采样层，所以不能在旁边另造一个私有包装类。
+ *
+ * 包装对象必须记住：每次重组都新建的话，`rememberPageGlass` 里按它做键的登记会在页面重组后被撤掉，
+ * 正文从此不再录进采样层，顶栏就没有模糊。
  */
 @Composable
-actual fun rememberCouiPageBackdrop(): CouiPageBackdrop? =
-    AndroidCouiPageBackdrop(rememberCouiBackdrop())
+actual fun rememberCouiPageBackdrop(): CouiPageBackdrop? {
+    val backdrop = rememberCouiBackdrop()
+    return remember(backdrop) { AndroidCouiPageBackdrop(backdrop) }
+}
 
 /**
  * Android 的 [CouiTopBarScrollBehavior]：里面就是 COUI-Kit 原版 [CouiTopAppBarScrollBehavior]。
@@ -56,33 +75,91 @@ actual fun rememberCouiPageBackdrop(): CouiPageBackdrop? =
  */
 private class AndroidCouiTopBarScrollBehavior(
     val behavior: CouiTopAppBarScrollBehavior,
+    private val under: MutableState<Boolean>,
+    /** 正文要压到顶栏下面这么多（px）才算「滚到下面了」，碰一下、刚收起时都不切。 */
+    private val thresholdPx: Float,
 ) : CouiTopBarScrollBehavior {
     var pinned: Boolean = false
 
-    private val connection = object : NestedScrollConnection {
-        override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset =
-            if (pinned) Offset.Zero else behavior.nestedScrollConnection.onPreScroll(available, source)
+    /**
+     * 正文滚到顶栏下面了没有。COUI 先收顶栏再滚列表，所以只累计列表自己滚掉的距离（consumed）：
+     * 往上滚加、往下滚减，往下滚到头还有剩余（available > 0）就是回到顶部，清零。超过 [thresholdPx] 才算压到下面。
+     */
+    val scrolledUnder: Boolean get() = under.value
 
-        override fun onPostScroll(consumed: Offset, available: Offset, source: NestedScrollSource): Offset =
-            if (pinned) Offset.Zero else behavior.nestedScrollConnection.onPostScroll(consumed, available, source)
+    /** 列表自己往上滚过的距离；恢复页面时按保存的状态补一个起点。 */
+    private var underPx = if (under.value) thresholdPx * 2f else 0f
+
+    /**
+     * 下拉刷新会把同一次滚动再转发进来一遍（见 AppPullToRefresh），同一事件只能记一次：
+     * 每次事件都是先 onPreScroll 再 onPostScroll，在 onPreScroll 复位、第一次**带位移**的 onPostScroll 记账。
+     * 下拉刷新转发进来的那一遍可能不带列表的位移（consumed 为 0），只认第一次的话真正的位移就被丢掉了。
+     */
+    private var countedThisEvent = false
+
+    /**
+     * 有列表报实际位置以后就只认它（不再按滚动事件累计）：事件累计在程序化滚动、短内容回弹时会和实际位置对不上。
+     * 报的位置同时摆正折叠状态（见 CouiCollapsingAppBarState.alignToContent）。
+     */
+    private var positionReported = false
+
+    override fun reportScrolled(scrolled: Boolean) {
+        positionReported = true
+        underPx = if (scrolled) thresholdPx * 2f else 0f
+        under.value = scrolled
+        if (!pinned) behavior.state.alignToContent(scrolled)
+    }
+
+    private val connection = object : NestedScrollConnection {
+        override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
+            countedThisEvent = false
+            return if (pinned) Offset.Zero else behavior.nestedScrollConnection.onPreScroll(available, source)
+        }
+
+        override fun onPostScroll(consumed: Offset, available: Offset, source: NestedScrollSource): Offset {
+            if (!positionReported && !countedThisEvent && (consumed.y != 0f || available.y > 0f)) {
+                countedThisEvent = true
+                underPx = if (available.y > 0f) 0f else (underPx - consumed.y).coerceAtLeast(0f)
+                under.value = underPx > thresholdPx
+            }
+            return if (pinned) Offset.Zero else behavior.nestedScrollConnection.onPostScroll(consumed, available, source)
+        }
 
         override suspend fun onPostFling(consumed: Velocity, available: Velocity): Velocity =
             if (pinned) Velocity.Zero else behavior.nestedScrollConnection.onPostFling(consumed, available)
     }
 
     override val nestedScrollConnection: NestedScrollConnection get() = connection
-
-    override val collapsedFraction: Float get() = behavior.state.collapsedFraction
-
-    /** 双轨滚动的差值：顶栏可见位置（弹簧）落后逻辑滚动多少。 */
-    override val contentTranslationY: Float get() = behavior.state.contentTranslationY
 }
 
 @Composable
-actual fun rememberCouiTopAppBarScrollBehavior(): CouiTopBarScrollBehavior {
-    val behavior = CouiTopAppBarDefaults.exitUntilCollapsedScrollBehavior()
-    return remember(behavior) { AndroidCouiTopBarScrollBehavior(behavior) }
+actual fun rememberCouiTopAppBarScrollBehavior(): CouiTopBarScrollBehavior =
+    rememberCouiTopAppBarScrollBehavior(rememberCouiCollapsingAppBarState())
+
+/** 页面自己持有折叠状态时（带搜索的 `CollapsingTopAppBar`）用这个：位置上报、按钮轮廓与其它页同一套。 */
+@Composable
+fun rememberCouiTopAppBarScrollBehavior(state: CouiCollapsingAppBarState): CouiTopBarScrollBehavior {
+    // 可保存：返回本页时列表滚动位置会恢复，顶栏状态也要跟着恢复
+    val under = rememberSaveable { mutableStateOf(false) }
+    val thresholdPx = with(LocalDensity.current) { ScrolledUnderThreshold.toPx() }
+    return remember(state, thresholdPx) {
+        AndroidCouiTopBarScrollBehavior(CouiTopAppBarScrollBehavior(state), under, thresholdPx)
+    }
 }
+
+/**
+ * 双轨滚动：顶栏可见高度由弹簧追逻辑滚动，快速滑动时慢半拍。对外报的高度按逻辑位置算
+ *（可见高度 + `contentTranslationY`），页面按它排正文，正文跟手、顶栏自己追。挂在顶栏最外层。
+ */
+fun Modifier.couiContentTrack(state: CouiCollapsingAppBarState?): Modifier =
+    if (state == null) this else layout { measurable, constraints ->
+        val placeable = measurable.measure(constraints)
+        val height = (placeable.height + state.contentTranslationY.roundToInt()).coerceAtLeast(0)
+        layout(placeable.width, height) { placeable.place(0, 0) }
+    }
+
+/** 正文压进顶栏下面多少按钮才出轮廓。 */
+private val ScrolledUnderThreshold = 24.dp
 
 /**
  * COUI 大标题折叠顶栏的 Android 实现。
@@ -93,8 +170,8 @@ actual fun rememberCouiTopAppBarScrollBehavior(): CouiTopBarScrollBehavior {
  *   `CouiTopAppBarSurface` 渐变模糊 + `CouiCollapsingAppBarState` 弹簧）；
  * - 折叠进度由 [CouiTopBarScrollBehavior] 驱动，页面把它接到滚动容器祖先的 `nestedScroll`。
  *
- * 集成侧的三个包装（都不改 COUI 内部）：
- * - `bottomContent`：COUI 顶栏没有底部槽位，放在原版组件下面的 `Column` 里；
+ * 集成侧的三个包装：
+ * - `bottomContent`：COUI 顶栏原本没有底部槽位，给 `TopAppBar`/`LargeTopAppBar` 加了一个，放在表面内；
  * - `subtitle`：COUI 没有副标题槽位，放进 `title` 槽、在原版标题下面多渲一行小字；
  * - `color`：玻璃页传进来的是 Transparent（表面自己铺模糊），用页面底色当原版渐隐色；
  *   经典风格传进来的是不透明底色，正好就是它的背景色。
@@ -124,6 +201,8 @@ actual fun CouiPageTopAppBar(
     // 钉死小标题：页面照旧把 behavior 的连接挂在正文滚动上，但顶栏不折叠时不该再吃那 58dp。
     // 页内顶栏要么都钉死、要么都折叠，同一份 behavior 不会被两种顶栏同时用。
     (scrollBehavior as? AndroidCouiTopBarScrollBehavior)?.pinned = pinned
+    // 双轨滚动挂在最外层，经典与玻璃两个分支都吃到
+    val trackedModifier = Modifier.couiContentTrack(behavior?.state.takeUnless { pinned }).then(modifier)
     val resolvedTitle = if (pinned) title.ifBlank { largeTitle } else largeTitle.ifBlank { title }
     val resolvedSubtitle = subtitle?.takeIf { it.isNotBlank() }
     val resolvedTitleColor = titleColor.takeOrElse { MiuixTheme.colorScheme.onSurface }
@@ -141,8 +220,11 @@ actual fun CouiPageTopAppBar(
             subtitle = resolvedSubtitle,
             subtitleColor = subtitleColor,
             fontSize = titleSize,
+            collapsedFraction = { if (pinned) 0f else behavior?.state?.collapsedFraction ?: 0f },
         )
     }
+    // 副标题在大标题下面占一行：展开高度跟着加高，不然会压到正文上
+    val expandedHeight = CouiTopAppBarDefaults.expandedHeight + if (resolvedSubtitle != null) SubtitleRoom else 0.dp
     if (backdrop == null) {
         // 经典风格：没有页面采样源。COUI 组件照原版排版与折叠，只是背景换成实色。
         // 顶栏按钮仍然需要一层采样源（COUI 原版 `TopAppBarButton` 会 checkNotNull），
@@ -157,7 +239,7 @@ actual fun CouiPageTopAppBar(
             titleColor = resolvedTitleColor,
             dark = dark,
         )
-        Box(modifier.fillMaxWidth()) {
+        Box(trackedModifier.fillMaxWidth()) {
             // 只录这一层实色底，不录顶栏自己的内容（避免按钮采样到旁边的图标）
             Box(Modifier.matchParentSize().couiBackdrop(solidBackdrop).background(sampleColor))
             CouiPageBar(
@@ -166,6 +248,7 @@ actual fun CouiPageTopAppBar(
                 colors = solidColors,
                 behavior = behavior,
                 dark = dark,
+                expandedHeight = expandedHeight,
                 title = titleSlot,
                 navigationIcon = navigationIcon,
                 actions = actions,
@@ -174,22 +257,35 @@ actual fun CouiPageTopAppBar(
         }
         return
     }
-    CouiPageBar(
-        pinned = pinned,
-        backdrop = backdrop,
-        colors = CouiTopAppBarDefaults.colors(
-            backgroundColor = scrimColor,
-            titleColor = resolvedTitleColor,
-            dark = dark,
-        ),
-        behavior = behavior,
-        dark = dark,
-        modifier = modifier,
-        title = titleSlot,
-        navigationIcon = navigationIcon,
-        actions = actions,
-        bottomContent = bottomContent,
+    // 顶栏的模糊底常驻（COUI 原版）：下面没有内容时模糊本来就看不出来，内容一进来就已经是糊的，
+    // 不依赖任何「滚到下面了没有」的判断。跟着位置淡入的只有按钮玻璃：停在顶部时按钮只剩图标。
+    val scrolledUnder = (scrollBehavior as? AndroidCouiTopBarScrollBehavior)?.scrolledUnder ?: true
+    val glassAlpha = animateFloatAsState(
+        targetValue = if (scrolledUnder) 1f else 0f,
+        animationSpec = tween(TopBarGlassFadeMillis, easing = TopBarGlassEasing),
+        label = "topBarGlass",
     )
+    // 同一个读取函数：只在绘制时读动画值，过渡期间顶栏不逐帧重组（逐帧重组会掉帧，过渡就不顺）
+    val glassAlphaReader = remember(glassAlpha) { { glassAlpha.value } }
+    CompositionLocalProvider(LocalCouiToolbarSurfaceAlpha provides glassAlphaReader) {
+        CouiPageBar(
+            pinned = pinned,
+            backdrop = backdrop,
+            colors = CouiTopAppBarDefaults.colors(
+                backgroundColor = scrimColor,
+                titleColor = resolvedTitleColor,
+                dark = dark,
+            ),
+            behavior = behavior,
+            dark = dark,
+            modifier = trackedModifier,
+            expandedHeight = expandedHeight,
+            title = titleSlot,
+            navigationIcon = navigationIcon,
+            actions = actions,
+            bottomContent = bottomContent,
+        )
+    }
 }
 
 /**
@@ -203,39 +299,43 @@ private fun CouiPageBar(
     behavior: CouiTopAppBarScrollBehavior?,
     dark: Boolean,
     modifier: Modifier = Modifier,
+    expandedHeight: Dp = CouiTopAppBarDefaults.expandedHeight,
     title: @Composable () -> Unit,
     navigationIcon: @Composable () -> Unit,
     actions: @Composable RowScope.() -> Unit,
     bottomContent: @Composable () -> Unit,
 ) {
-    Column {
-        if (pinned) {
-            TopAppBar(
-                modifier = modifier,
-                title = title,
-                navigationIcon = navigationIcon,
-                actions = actions,
-                dark = dark,
-                colors = colors,
-                backdrop = backdrop,
-            )
-        } else {
-            LargeTopAppBar(
-                modifier = modifier,
-                title = title,
-                navigationIcon = navigationIcon,
-                actions = actions,
-                scrollBehavior = behavior,
-                dark = dark,
-                colors = colors,
-                backdrop = backdrop,
-            )
-        }
-        // bottomContent 在 COUI 表面之外，但常放搜索胶囊 / 顶栏按钮这类顶栏部件：
-        // 把这一页的采样源交给它，组件不必自己再录一层（COUI 原版 TopAppBarButton 会 checkNotNull）。
-        CompositionLocalProvider(LocalCouiToolbarBackdrop provides backdrop) { bottomContent() }
+    // bottomContent 放进 COUI 表面里：模糊和渐隐盖住整块，下沿才淡出；放在外面时标签行只剩自己的半透明底
+    if (pinned) {
+        TopAppBar(
+            modifier = modifier,
+            title = title,
+            navigationIcon = navigationIcon,
+            actions = actions,
+            dark = dark,
+            colors = colors,
+            backdrop = backdrop,
+            bottomContent = bottomContent,
+        )
+    } else {
+        LargeTopAppBar(
+            modifier = modifier,
+            title = title,
+            navigationIcon = navigationIcon,
+            actions = actions,
+            scrollBehavior = behavior,
+            dark = dark,
+            colors = colors,
+            expandedHeight = expandedHeight,
+            backdrop = backdrop,
+            bottomContent = bottomContent,
+        )
     }
 }
+
+/** 副标题一行要让出的高度。 */
+private val SubtitleRoom = 24.dp
+
 /**
  * 标题槽：原版 COUI `AppBarLayout` 通过 `ProvideCouiContent` 提供展开/收起用的标题样式，
  * 按 COUI 的约定「title 槽位须继承组件提供的样式」直接消费 [LocalCouiTextStyle]，
@@ -248,6 +348,8 @@ private fun CouiPageTitle(
     subtitle: String?,
     subtitleColor: Color,
     fontSize: TextUnit? = null,
+    /** 顶栏折叠进度：副标题随它淡出并收起高度，收起后只剩居中的小标题（布局阶段读）。 */
+    collapsedFraction: () -> Float = { 0f },
 ) {
     // 覆盖字号时按 COUI 的 HomeTitle 排版重新算一遍（字号变了行高要跟着变），
     // 这样和「大标题收起后」的标题字形、字重完全一致。
@@ -263,29 +365,45 @@ private fun CouiPageTitle(
             if (providedStyle.color.isSpecified) style.copy(color = providedStyle.color) else style
         }
     }
-    if (subtitle == null) {
+    // 长标题（课程名等）先缩字号塞进一行，缩到六成还放不下才省略。
+    // 顶栏收起时按缩放比放宽了标题的宽度上限，所以收起后仍是原定的小标题字号。
+    val maxSize = titleStyle.fontSize
+    val autoSize = if (maxSize.isSp) {
+        TextAutoSize.StepBased(minFontSize = (maxSize.value * 0.6f).sp, maxFontSize = maxSize, stepSize = 1.sp)
+    } else null
+    val titleText: @Composable () -> Unit = {
         BasicText(
             text = title,
             style = titleStyle,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
+            autoSize = autoSize,
         )
+    }
+    if (subtitle == null) {
+        titleText()
         return
     }
     Column {
-        BasicText(
-            text = title,
-            style = titleStyle,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-        )
-        Text(
-            text = subtitle,
-            kind = CouiTextKind.ItemSummary,
-            color = subtitleColor,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            textAlign = TextAlign.Start,
-        )
+        titleText()
+        // 副标题不跟着标题一起缩小（那样收起后是一行看不清的小字）：折叠前半程淡掉，高度同步收起
+        Box(
+            Modifier.layout { measurable, constraints ->
+                val placeable = measurable.measure(constraints)
+                val f = collapsedFraction().coerceIn(0f, 1f)
+                layout(placeable.width, (placeable.height * (1f - f)).roundToInt()) {
+                    placeable.placeWithLayer(0, 0) { alpha = (1f - 2f * f).coerceAtLeast(0f) }
+                }
+            },
+        ) {
+            Text(
+                text = subtitle,
+                kind = CouiTextKind.ItemSummary,
+                color = subtitleColor,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                textAlign = TextAlign.Start,
+            )
+        }
     }
 }

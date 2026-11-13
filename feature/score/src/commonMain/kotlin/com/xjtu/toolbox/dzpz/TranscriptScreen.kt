@@ -97,6 +97,7 @@ fun TranscriptScreen(
             else -> {
                 val ctx = vm.formContext ?: return@Scaffold
                 val listState = rememberLazyListState()
+                com.xjtu.toolbox.ui.glass.ReportScrollPosition(listState, scrollBehavior)
 
                 // 成功后自动滚动到底部
                 LaunchedEffect(vm.workflowState) {

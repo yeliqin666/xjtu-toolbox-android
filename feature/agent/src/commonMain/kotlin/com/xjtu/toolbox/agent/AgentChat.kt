@@ -79,7 +79,7 @@ internal fun ChatPanel(
     /** 系统相册挑图（`:app` 实现；没有相册的端那一档不画，见 [AgentCapability.IMAGE_INPUT]）。 */
     imagePicker: AgentImagePicker,
     padding: PaddingValues,
-    scrollBehavior: ScrollBehavior?,
+    scrollBehavior: com.xjtu.toolbox.ui.glass.CouiTopBarScrollBehavior?,
     onNavigate: (AppRoute) -> Unit,
     onOpenConfig: () -> Unit,
     onPushPreferences: () -> Unit = onOpenConfig,
@@ -243,6 +243,9 @@ internal fun ChatPanel(
                     }
                 }
                 val lastUser = messages.lastOrNull { it.role == "user" }
+                // 对话会自动滚到底、换会话（都不经过嵌套滚动）：顶栏的按钮轮廓和折叠按列表实际位置来。
+                // 只有当前会话报：换会话时退场那一屏还在组合里，它晚一步离场会把顶栏摆回「在顶部」
+                if (live) com.xjtu.toolbox.ui.glass.ReportScrollPosition(listState, scrollBehavior)
                 LazyColumn(
                     state = listState,
                     modifier = Modifier
@@ -588,6 +591,8 @@ private fun ReasoningBar(
                     color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                     images = images,
                     onLink = { url -> onNavigate(AppRoute.Browser(url)) },
+                    // 和流式阶段的纯文本同一字号，结束时不跳
+                    bodyStyle = MiuixTheme.textStyles.body2,
                 )
             }
         },

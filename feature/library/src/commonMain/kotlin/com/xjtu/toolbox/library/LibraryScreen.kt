@@ -56,6 +56,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.MoreHoriz
+import androidx.compose.material.icons.filled.QrCodeScanner
 import com.xjtu.toolbox.ui.components.AppDropdownMenu
 import top.yukonga.miuix.kmp.basic.IconButton
 import androidx.compose.material.icons.filled.EventSeat
@@ -99,6 +100,8 @@ fun LibraryScreen(
     /** 「首次使用提示」还没读过吗。 */
     showFirstUseHint: Boolean = false,
     onFirstUseHintRead: () -> Unit = {},
+    /** 顶栏「扫一扫」：宿主打开扫码层，扫到座位码时调传进去的回调。`null` = 这一端扫不了码。 */
+    onScan: ((onSeat: (LibraryFocus.Target) -> Unit) -> Unit)? = null,
 ) {
     val appAuthExpiry = LocalAuthExpiry.current
     val scope = rememberCoroutineScope()
@@ -231,6 +234,12 @@ fun LibraryScreen(
                     ) {
                     // 校区、平面图 / 列表都收进这个菜单：一次选定就很少再改，不值得各占一整行
                     if (vm.campusSwitching) CircularProgressIndicator(size = 16.dp, strokeWidth = 2.dp)
+                    // 扫桌上的座位码：在这一页直接定位、弹出预约
+                    if (onScan != null && source.canBook) {
+                        com.xjtu.toolbox.ui.glass.CouiToolbarActionButton(onClick = { onScan(vm::focusOn) }) {
+                            Icon(Icons.Default.QrCodeScanner, contentDescription = "扫座位码")
+                        }
+                    }
                     Box {
                         com.xjtu.toolbox.ui.glass.CouiIconMenu(
                             expanded = menuOpen,
@@ -607,6 +616,7 @@ fun LibraryScreen(
             properties = fullscreenDialogProperties,
         )
         val gridState = androidx.compose.foundation.lazy.grid.rememberLazyGridState()
+        com.xjtu.toolbox.ui.glass.ReportScrollPosition(gridState, scrollBehavior)
         Row(Modifier.fillMaxSize().nestedScroll(scrollBehavior.nestedScrollConnection)) {
         if (wideLibrary) {
             Column(

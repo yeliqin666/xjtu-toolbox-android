@@ -120,8 +120,6 @@ fun SchoolCalendarScreen(
                 subtitle = terms.getOrNull(selectedTermIndex)?.termName.orEmpty(),
                 color = glassBarColor(glass),
                 pageBackdrop = couiPageBackdropFor(glass),
-                // 二级页：标题钉死成收起态，不随上滑变小
-                pinned = true,
                 actions = {
                     if (terms.size > 1) {
                         var termMenuOpen by remember { mutableStateOf(false) }
@@ -260,22 +258,14 @@ private fun TermContent(
     // ── 事件时间轴 ──────────────────────────────────
     val timelineItems: androidx.compose.foundation.lazy.LazyListScope.() -> Unit = {
         item {
-            Row(
-                Modifier.enterOnce(2).fillMaxWidth().padding(start = 20.dp, end = 20.dp, top = 20.dp, bottom = 10.dp),
-                verticalAlignment = Alignment.Bottom,
-            ) {
-                Text(
-                    "日程安排",
-                    style = MiuixTheme.textStyles.subtitle,
-                    fontWeight = FontWeight.Bold,
-                    modifier = Modifier.weight(1f),
-                )
-                Text(
-                    "${currentTerm.events.size} 项",
-                    style = MiuixTheme.textStyles.footnote1,
-                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                )
-            }
+            // 分组小标题：和设置页各组同一种（小号、次要色），不再用一行粗体大字压在列表上
+            Text(
+                "日程安排 · ${currentTerm.events.size} 项",
+                style = MiuixTheme.textStyles.footnote1,
+                fontWeight = FontWeight.Medium,
+                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                modifier = Modifier.enterOnce(2).padding(start = 32.dp, end = 32.dp, top = 20.dp, bottom = 8.dp),
+            )
         }
 
         itemsIndexed(currentTerm.events) { index, event ->
@@ -292,6 +282,7 @@ private fun TermContent(
         }
     }
 
+    com.xjtu.toolbox.ui.glass.ReportScrollPosition(listState, scrollBehavior)
     if (!wide) {
         LazyColumn(
             state = listState,
@@ -502,7 +493,8 @@ private fun StatChip(value: String, label: String, modifier: Modifier = Modifier
 
 /**
  * 日程表的一行，整列连成一张卡（首行圆上角、末行圆下角，行间细线）：
- * 左边开始日期，中间一条事件色竖条，右边名字和起止。进行中的那行淡淡染上事件色，过去的压淡。
+ * 左边一颗事件色圆点，中间名字和天数，右边日期右对齐成一列。
+ * 进行中的那行日期用事件色、带「进行中」；过去的只把文字换成次要色，不整行半透明（半透明会透出卡片底下的东西）。
  */
 @Composable
 private fun EventTimelineItem(
@@ -531,30 +523,18 @@ private fun EventTimelineItem(
             .clip(shape)
             .background(AppCardColor)
     ) {
+        val ink = if (isPast) muted else MiuixTheme.colorScheme.onSurface
         Row(
             Modifier
                 .fillMaxWidth()
-                .then(if (isCurrent) Modifier.background(accentColor.copy(alpha = 0.07f)) else Modifier)
-                .padding(horizontal = 16.dp, vertical = 12.dp)
-                .alpha(if (isPast) 0.45f else 1f),
+                .padding(horizontal = 16.dp, vertical = 14.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Column(Modifier.width(40.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                Text("${event.startDate.month.ordinal + 1}月", fontSize = 11.sp, color = muted)
-                Text(
-                    "${event.startDate.day}",
-                    fontSize = 20.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = if (isCurrent) accentColor else MiuixTheme.colorScheme.onSurface,
-                )
-            }
-            Spacer(Modifier.width(12.dp))
             Box(
                 Modifier
-                    .width(3.dp)
-                    .height(34.dp)
+                    .size(8.dp)
                     .clip(RoundedCornerShape(50))
-                    .background(accentColor.copy(alpha = if (isCurrent) 1f else 0.7f))
+                    .background(accentColor.copy(alpha = if (isPast) 0.4f else 1f))
             )
             Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f)) {
@@ -563,7 +543,7 @@ private fun EventTimelineItem(
                         event.name,
                         style = MiuixTheme.textStyles.body1,
                         fontWeight = if (isCurrent) FontWeight.SemiBold else FontWeight.Medium,
-                        color = MiuixTheme.colorScheme.onSurface,
+                        color = ink,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.weight(1f, fill = false),
@@ -582,13 +562,11 @@ private fun EventTimelineItem(
                         )
                     }
                 }
-                val dateRange = if (event.startDate == event.endDate)
-                    weekdayCn(event.startDate)
-                else
-                    "至 ${monthDayCn(event.endDate)}"
+                val span = if (event.startDate == event.endDate) "${event.days}天"
+                else "${event.days}天 · 至 ${monthDayCn(event.endDate)}"
                 Text(
-                    "$dateRange · ${event.days}天",
-                    fontSize = 12.sp,
+                    span,
+                    style = MiuixTheme.textStyles.footnote1,
                     color = muted,
                     modifier = Modifier.padding(top = 2.dp)
                 )
@@ -603,9 +581,24 @@ private fun EventTimelineItem(
                     )
                 }
             }
+            Spacer(Modifier.width(12.dp))
+            Column(horizontalAlignment = Alignment.End) {
+                Text(
+                    monthDayCn(event.startDate),
+                    style = MiuixTheme.textStyles.body2,
+                    fontWeight = FontWeight.Medium,
+                    color = if (isCurrent) accentColor else ink,
+                )
+                Text(
+                    weekdayCn(event.startDate),
+                    style = MiuixTheme.textStyles.footnote2,
+                    color = muted,
+                    modifier = Modifier.padding(top = 2.dp),
+                )
+            }
         }
-        // 文字起点：16 边距 + 40 日期 + 12 + 3 竖条 + 12
-        if (!isLast) com.xjtu.toolbox.ui.components.RowDivider(startInset = 83.dp)
+        // 文字起点：16 边距 + 8 圆点 + 12
+        if (!isLast) com.xjtu.toolbox.ui.components.RowDivider(startInset = 36.dp)
     }
 }
 

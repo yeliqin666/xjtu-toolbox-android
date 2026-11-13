@@ -30,6 +30,7 @@ fun EulaScreen(onAccept: () -> Unit) {
     val scrollState = rememberScrollState()
     var canAccept by remember { mutableStateOf(false) }
     val scrollBehavior = rememberCouiTopAppBarScrollBehavior()
+    com.xjtu.toolbox.ui.glass.ReportScrollPosition(scrollState, scrollBehavior)
 
     // 滚动到底部才可同意。
     //
@@ -58,8 +59,6 @@ fun EulaScreen(onAccept: () -> Unit) {
                 color = com.xjtu.toolbox.ui.glass.glassBarColor(glass),
                 pageBackdrop = com.xjtu.toolbox.ui.glass.couiPageBackdropFor(glass),
                 scrollBehavior = scrollBehavior,
-                // 二级页：标题钉死成收起态，不随上滑变小
-                pinned = true,
             )
         }
     ) { padding ->

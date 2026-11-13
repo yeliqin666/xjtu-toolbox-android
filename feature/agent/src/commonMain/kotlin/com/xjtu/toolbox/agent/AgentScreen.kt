@@ -52,7 +52,8 @@ fun AgentScreen(
     onNavigate: (AppRoute) -> Unit = {},
     /** tab 模式下需要额外空出的底部高度（悬浮胶囊底栏不占宿主 contentPadding，见调用处）。 */
     extraBottomPadding: Dp = 0.dp,
-    scrollBehavior: ScrollBehavior? = null,
+    /** 宿主 COUI 大标题顶栏的折叠行为，挂到对话列表上。 */
+    scrollBehavior: com.xjtu.toolbox.ui.glass.CouiTopBarScrollBehavior? = null,
     onTitleChange: (String) -> Unit = {},
     onActionsChange: ((@Composable RowScope.() -> Unit)?) -> Unit = {},
     onNavIconChange: ((@Composable () -> Unit)?) -> Unit = {},
@@ -189,22 +190,20 @@ fun AgentScreen(
         drawerOpen = false
     }
 
-    // 顶栏：左边历史对话，右边新对话与设置。两种宿主形态共用同一份，tab 模式下交给 MainScreen 的 TopAppBar。
-    // 这些 lambda 捕获的是 showConfig / drawerOpen 的委托属性，状态变化时读它们的宿主会自己重组。
+    // 顶栏按钮都在右边：历史对话、新对话、设置；历史侧栏也从右边展开。两种宿主形态共用同一份，
+    // tab 模式下交给 MainScreen 的顶栏。lambda 捕获的是委托属性，状态变化时宿主自己重组。
     // 设置页打开时宿主顶栏被盖住（没有 [overlays] 的端盖不住，所以回调里也要拦）。
     // 宽屏的历史对话常驻左栏，不送开关按钮。
-    val headerNavIcon: (@Composable () -> Unit)? = if (isWide) null else {
-        {
-            CouiToolbarActionButton(onClick = { if (!showConfig) drawerOpen = !drawerOpen }) {
-                Icon(Icons.Default.History, contentDescription = if (drawerOpen) "收起历史对话" else "历史对话")
-            }
-        }
-    }
     val headerActions: @Composable RowScope.() -> Unit = {
         Row(
             horizontalArrangement = Arrangement.spacedBy(2.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
+            if (!isWide) {
+                CouiToolbarActionButton(onClick = { if (!showConfig) drawerOpen = !drawerOpen }) {
+                    Icon(Icons.Default.History, contentDescription = if (drawerOpen) "收起历史对话" else "历史对话")
+                }
+            }
             CouiToolbarActionButton(onClick = { if (!showConfig) startNewChat() }) {
                 Icon(Icons.Default.Add, contentDescription = "新对话")
             }
@@ -223,10 +222,9 @@ fun AgentScreen(
     LaunchedEffect(hostTitle) { onTitleChange(hostTitle) }
     // 交出去的是固定的转发，画的时候读最新那一版：直接交闭包，宿主拿着的永远是交出那一刻的
     val latestActions by rememberUpdatedState(headerActions)
-    val latestNavIcon by rememberUpdatedState(headerNavIcon)
     DisposableEffect(isWide) {
         onActionsChange { latestActions(this) }
-        onNavIconChange(if (isWide) null else { { latestNavIcon?.invoke() } })
+        onNavIconChange(null)
         // 切走时把按钮撤掉，否则别的 tab 顶栏上会残留屁岱的图标。
         onDispose {
             onActionsChange(null)

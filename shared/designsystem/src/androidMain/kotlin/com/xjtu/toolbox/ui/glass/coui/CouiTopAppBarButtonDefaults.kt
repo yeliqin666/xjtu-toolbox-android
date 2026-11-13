@@ -17,7 +17,13 @@ import androidx.compose.ui.unit.dp
 
 internal val LocalCouiToolbarContentColor = staticCompositionLocalOf { Color.Unspecified }
 
-/** 沿用 ToolbarMaterialEffectDelegate 的光效几何及底栏混色方案, 略增强底色权重以改善可读性, 普通投影适当减弱。 */
+/**
+ * 顶栏按钮玻璃（材质、投影、边缘光）的不透明度，绘制时读取；图标不受影响。
+ * 页面顶栏在正文没滚到下面时给 0：按钮只剩图标、融进标题栏，滚到下面再和顶栏毛玻璃一起淡入。
+ */
+internal val LocalCouiToolbarSurfaceAlpha = staticCompositionLocalOf<() -> Float> { { 1f } }
+
+/** 沿用 ToolbarMaterialEffectDelegate 的光效几何；浅色材质改成白磨砂、投影加重（见 [CouiTopAppBarButtonDefaults.material]）。 */
 object CouiTopAppBarButtonDefaults {
     val circleShape = CouiShape(999.dp, cornerWeight = 2f)
 
@@ -27,7 +33,7 @@ object CouiTopAppBarButtonDefaults {
         val contour = LocalCouiContourGlowEnabled.current
         val colors = CouiTheme.colorSchemeFor(dark)
         return CouiToolbarStyle(dark, circleShape, CouiCapsuleShape,
-            material = { capsule -> material(dark, capsule, search) },
+            material = { capsule -> material(dark, capsule, search, blurRadius = selfBlur.value * density) },
             shadow = { capsule -> shadow(dark, capsule, density, contour, search) },
             contentColor = LocalCouiToolbarContentColor.current.takeOrElse { colors.onSurface },
             textStyle = CouiTheme.typography.body,
@@ -46,14 +52,24 @@ object CouiTopAppBarButtonDefaults {
         innerGlowScale = if (capsule && !dark) 1.15f else 1f,
     )
 
-    fun material(dark: Boolean, capsule: Boolean, search: Boolean = false): CouiFloatingMaterial = CouiFloatingMaterial(
-        firstColor = Color(if (dark) 0x80666666 else 0xA3666666),
+    /**
+     * 按钮自身的模糊（原版为 0，只给顶栏背景层重新上色）。顶栏背景的渐进模糊越往下越弱，
+     * 按钮叠一层自己的模糊，透出来的内容才不会发清。
+     */
+    val selfBlur = 12.dp
+
+    /**
+     * 浅色：偏白的透明磨砂——轻提亮（dodge）后盖一层约六成的白，而不是原版那层 LUMINOSITY 灰
+     * （它把底下的颜色压成灰，按钮看着发脏）。边缘光加强一点，配合投影出一圈质感。深色照原版。
+     */
+    fun material(dark: Boolean, capsule: Boolean, search: Boolean = false, blurRadius: Float = 0f): CouiFloatingMaterial = CouiFloatingMaterial(
+        firstColor = Color(if (dark) 0x80666666 else 0x40808080),
         firstBlendMode = if (dark) BlendMode.OVERLAY else BlendMode.COLOR_DODGE,
-        secondColor = Color(if (dark) 0xBF262626 else 0x99F0F0F0),
-        secondBlendMode = BlendMode.LUMINOSITY,
-        blurRadius = 0f,
+        secondColor = Color(if (dark) 0xBF262626 else 0x9EFFFFFF),
+        secondBlendMode = if (dark) BlendMode.LUMINOSITY else BlendMode.SRC_OVER,
+        blurRadius = blurRadius,
         strokeType = if (capsule) 1 else 2,
-        edgeAlpha = if (dark) 0.6f else 0.2f,
+        edgeAlpha = if (dark) 0.6f else 0.45f,
         edgeWidthDp = if (capsule) 2.2f else 1.9f,
         innerGlowAlpha = (if (capsule) {
             if (dark) 0.01f else 0.1f
@@ -69,7 +85,8 @@ object CouiTopAppBarButtonDefaults {
         density: Float,
         contour: Boolean,
         search: Boolean = false,
-        alphaScale: Float = if (search) 1f else 0.75f,
+        // 浅色的白磨砂按钮靠一圈投影托出来，比原版重一些
+        alphaScale: Float = if (search) 1f else if (dark) 0.75f else 1.3f,
     ): CouiFloatingShadow {
         fun pixelSize(dp: Float): Float {
             val px = dp * density

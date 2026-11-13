@@ -76,7 +76,6 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
-import androidx.compose.ui.unit.sp
 import com.xjtu.toolbox.account.AccountManager
 import com.xjtu.toolbox.agent.AgentOverlays
 import com.xjtu.toolbox.agent.AgentInsightEngine
@@ -139,6 +138,7 @@ import com.xjtu.toolbox.ui.glass.LocalCouiPageBackdrop
 import com.xjtu.toolbox.ui.glass.LocalAppBackdrop
 import com.xjtu.toolbox.ui.glass.LocalOnGlassBar
 import com.xjtu.toolbox.ui.glass.rememberCouiTopAppBarScrollBehavior
+import com.xjtu.toolbox.ui.glass.couiContentTrack
 import com.xjtu.toolbox.ui.isWideLayout
 import com.xjtu.toolbox.ui.rememberHaptics
 import com.xjtu.toolbox.ui.theme.LocalIsDarkTheme
@@ -149,17 +149,13 @@ import com.xjtu.toolbox.zyxf.ZyxfTopBarSortChips
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
-import androidx.compose.ui.draw.drawBehind
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import top.yukonga.miuix.kmp.basic.ButtonDefaults
 import top.yukonga.miuix.kmp.basic.Icon
-import top.yukonga.miuix.kmp.basic.MiuixScrollBehavior
-import top.yukonga.miuix.kmp.basic.ScrollBehavior
 import top.yukonga.miuix.kmp.basic.SnackbarHost
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextButton
-import top.yukonga.miuix.kmp.basic.rememberTopAppBarState
 import top.yukonga.miuix.kmp.overlay.OverlayDialog
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import java.time.Duration
@@ -205,12 +201,10 @@ internal fun MainScreen(
     LaunchedEffect(selectedBarTab.id) { tabs.selectedId = selectedBarTab.id }
     /** 选中的原生格；选中的是放上来的子页时为 null。 */
     val selectedTab: BottomTab? = selectedBarTab.core
-    // 学辅 tab 的搜索在顶栏里，查询归 ViewModel，输入框常驻展开（和组件页上方那条一样可直接输入）。
-    // ViewModel 建在这一层；它不在构造时发请求，第一次真正上屏才 reload（见 ensureStarted）。
-    // 这样又不会因为「切走 / 切回」把页面组合拆掉，学辅页的滚动位置和查询都能保留。
+    // 学辅的搜索在顶栏里，ViewModel 提到这一层和页面共用；第一次上屏才发请求（见 ensureStarted）
     val zyxfVm: ZyxfBrowseViewModel = viewModel(key = "zyxf") { ZyxfBrowseViewModel(context) }
     val zyxfSearchState = rememberCouiSearchBarState(expanded = true)
-    // 在宿主层读这几项：顶栏是子组合，宿主跟着重组一次，排序胶囊就不会拿到旧的选中态。
+    // 在宿主层读：顶栏是子组合，这样排序胶囊不会拿到旧的选中态
     val zyxfSort = zyxfVm.sort
     val zyxfDesc = zyxfVm.desc
     val zyxfSearching = zyxfVm.searching
@@ -248,8 +242,9 @@ internal fun MainScreen(
             onActionClick = { homeSearchExpanded = false },
         ) { }
     }
-    val homeSearchBody: @Composable () -> Unit = {
+    val homeSearchBody: @Composable (Dp) -> Unit = { top ->
         GlobalSearchBody(
+            topPadding = top,
             query = homeSearchQuery,
             onQueryChange = { homeSearchQuery = it },
             accountType = loginState.accountType,
@@ -286,23 +281,12 @@ internal fun MainScreen(
     // 主 tab 的大字顶栏是 COUI 原版 LargeTopAppBar，折叠状态就是 COUI 的
     // CouiCollapsingAppBarState（弹簧、吸附、反向展开全在原厂代码里）。
     val coursesScrollBehavior = rememberCouiTopAppBarScrollBehavior()
-    // 学辅这一格用 COUI 原版 CollapsingTopAppBar（标题 + 常驻搜索同属一块表面）。
-    // 列表滚动直接喂它的 CouiCollapsingAppBarState；另包一层只是给内容/下拉刷新提供
-    // 与其它 tab 相同的 CouiTopBarScrollBehavior 接口。
-    val toolsAppBarState = rememberCouiCollapsingAppBarState(
-        // 列表为空时松手要把标题放回来，否则只留下一块收起的搜索栏
-        canScroll = { zyxfVm.entries.isNotEmpty() },
-    )
-    val toolsScrollBehavior = remember(toolsAppBarState) {
-        object : CouiTopBarScrollBehavior {
-            override val nestedScrollConnection get() = toolsAppBarState.nestedScrollConnection
-            override val collapsedFraction get() = toolsAppBarState.collapsedFraction
-            override val contentTranslationY get() = toolsAppBarState.contentTranslationY
-        }
-    }
+    // 学辅用 COUI 原版 CollapsingTopAppBar（标题 + 常驻搜索同属一块表面），折叠状态由这里持有，
+    // 行为照样走统一的位置上报。列表为空时松手要把标题放回来，否则只剩一块收起的搜索栏。
+    val toolsAppBarState = rememberCouiCollapsingAppBarState(canScroll = { zyxfVm.entries.isNotEmpty() })
+    val toolsScrollBehavior = rememberCouiTopAppBarScrollBehavior(toolsAppBarState)
     val profileScrollBehavior = rememberCouiTopAppBarScrollBehavior()
-    // 小岱的聊天列表仍用 MIUIX 滚动行为驱动自己的列表联动（顶栏已换成钉死的 COUI 小标题）
-    val agentScrollBehavior = MiuixScrollBehavior(rememberTopAppBarState())
+    val agentScrollBehavior = rememberCouiTopAppBarScrollBehavior()
 
     val isWide = isWideLayout()
 
@@ -506,8 +490,8 @@ internal fun MainScreen(
             MainTopBar(
                 selectedTab = barTab,
                 glassStyle = glassStyle,
-                // 主 tab 的折叠行为来自 COUI；小岱 tab 的 SmallTopAppBar 仍吃 MIUIX
                 couiScrollBehavior = when (barTab) {
+                    BottomTab.PIDAI -> agentScrollBehavior
                     BottomTab.COURSES -> coursesScrollBehavior
                     BottomTab.TOOLS -> toolsScrollBehavior
                     BottomTab.PROFILE -> profileScrollBehavior
@@ -921,11 +905,10 @@ private fun MainTopBar(
     // 首页没有顶栏（标题「岱宗盒子」没有信息量）：按钮挪进首页内容里，状态栏留白由 Scaffold 的 insets 给；
     // 放到底栏上的子页自带顶栏
     if (selectedTab == null || selectedTab == BottomTab.HOME) return
-    // 小岱是自下而上的聊天，只用钉死的小标题（COUI 原版 TopAppBar，52dp）
     if (selectedTab == BottomTab.PIDAI) {
         CouiPageTopAppBar(
             title = agentTitle,
-            pinned = true,
+            scrollBehavior = couiScrollBehavior,
             color = color,
             pageBackdrop = LocalCouiPageBackdrop.current,
             navigationIcon = { agentNavIcon?.invoke() },
@@ -938,60 +921,36 @@ private fun MainTopBar(
         BottomTab.TOOLS -> ZYXF_TITLE
         else -> selectedTab.label
     }
-    // 学辅：COUI 原版 CollapsingTopAppBar——标题和常驻搜索在同一块表面里。
-    // 搜索胶囊自己一直是展开的输入态（见 ZyxfTopBarSearch）；顶栏这边只跟着列表滚动折叠，
-    // 所以不传 searchState，标题不会被搜索抢走，点搜索结果时也不用先收顶栏。
+    // 学辅：COUI 原版 CollapsingTopAppBar，标题和常驻搜索同一块表面；顶栏只跟列表滚动折叠，不传 searchState。
     if (selectedTab == BottomTab.TOOLS && toolsAppBarState != null && toolsSearchBar != null) {
         val pageBackdrop = LocalCouiPageBackdrop.current.androidBackdrop()
-        if (pageBackdrop != null) {
+        // 经典风格没有页面采样源：录一层实色底给顶栏渐变和搜索胶囊取样
+        val solid = if (pageBackdrop == null) rememberCouiBackdrop() else null
+        Box(Modifier.fillMaxWidth().couiContentTrack(toolsAppBarState)) {
+            if (solid != null) {
+                Box(Modifier.matchParentSize().couiBackdrop(solid).background(MiuixTheme.colorScheme.surface))
+            }
             CollapsingTopAppBar(
                 modifier = Modifier.fillMaxWidth(),
                 state = toolsAppBarState,
                 title = title,
                 color = MiuixTheme.colorScheme.onSurface,
-                backdrop = pageBackdrop,
+                backdrop = pageBackdrop ?: solid!!,
                 backgroundColor = MiuixTheme.colorScheme.surface,
                 dark = LocalIsDarkTheme.current,
                 searchBar = toolsSearchBar,
             )
-        } else {
-            // 经典风格：没有页面采样源。录一层实色底，供顶栏渐变和搜索胶囊材质取样。
-            val solid = rememberCouiBackdrop()
-            Box(Modifier.fillMaxWidth()) {
-                Box(
-                    Modifier
-                        .matchParentSize()
-                        .couiBackdrop(solid)
-                        .background(MiuixTheme.colorScheme.surface),
-                )
-                CollapsingTopAppBar(
-                    modifier = Modifier.fillMaxWidth(),
-                    state = toolsAppBarState,
-                    title = title,
-                    color = MiuixTheme.colorScheme.onSurface,
-                    backdrop = solid,
-                    backgroundColor = MiuixTheme.colorScheme.surface,
-                    dark = LocalIsDarkTheme.current,
-                    searchBar = toolsSearchBar,
-                )
-            }
         }
         return
     }
-    // 日程：顶栏按二级页那套版式——钉死的小标题（COUI 原版 TopAppBar，52dp），
-    // 但它挂在底栏上、没有上一级，所以不放返回键。
-    // 折叠行为仍然传进去：`pinned = true` 会让正文的 nestedScroll 连接停用，
-    // 否则正文会先被吃掉 58dp 才开始滚（见 AndroidCouiTopBarScrollBehavior.pinned）。
+    // 日程：和其它主 tab 一样的可折叠大标题，多一行标签（今日 / 周 / 学期）挂在顶栏里
     if (selectedTab == BottomTab.COURSES) {
         CouiPageTopAppBar(
             title = title,
-            pinned = true,
+            largeTitle = title,
             color = color,
             scrollBehavior = couiScrollBehavior,
             pageBackdrop = LocalCouiPageBackdrop.current,
-            // 标题「日程」用「我的」收起后的字号（COUI 无返回键大标题的收起尺寸），
-            // 这样两页的小标题视觉上一样大。
-            titleSize = CouiTopAppBarDefaults.titleOnlyCollapsedSize,
             actions = { courseActions?.invoke(this) },
             bottomContent = {
                 // 标签行、周标题栏和顶栏是一整块玻璃，分开画接缝处会有模糊边
@@ -1092,14 +1051,7 @@ internal fun CoursesTab(
     val scheduleHost = remember(loginState) {
         com.xjtu.toolbox.schedule.AppScheduleHost(context, loginState)
     }
-    // 日程页内容也吃双轨滚动的差值：压栈的大标题顶栏下，整页内容会先追进顶栏空隙再弹回；
-    // 挂在底栏上时顶栏是钉死小标题，差值恒为 0，这一层什么都不做。
-    Box(
-        Modifier
-            .fillMaxSize()
-            .nestedScroll(scrollBehavior.nestedScrollConnection)
-            .graphicsLayer { translationY = scrollBehavior.contentTranslationY },
-    ) {
+    Box(Modifier.fillMaxSize().nestedScroll(scrollBehavior.nestedScrollConnection)) {
         ScheduleScreen(
             host = scheduleHost,
             onBack = {},

@@ -69,9 +69,10 @@ object TodoWidgetUpdater {
 
         val now = System.currentTimeMillis()
         val todos = InboxRules.todos(InboxStore.load(), now)
-        val courseColors = courseColorMap(todos.filter { it.category == InboxCategories.LMS }.map { it.source })
-        fun accent(item: InboxItem) =
-            if (item.category == InboxCategories.LMS) courseColors.colorOf(item.source).toArgb() else InboxCategories.argb(item.category)
+        val courseColors = courseColorMap(todos.mapNotNull { it.colorCourse })
+        // 思源学堂作业和自建作业按课程上色，自建待办用自己挑的色，其余按分类
+        fun accent(item: InboxItem) = item.colorCourse?.let { courseColors.colorOf(it).toArgb() }
+            ?: item.colorArgb ?: InboxCategories.argb(item.category)
 
         val launchIntent = Intent(context, MainActivity::class.java).apply {
             putExtra(MainActivity.EXTRA_LAUNCH_ROUTE, AppRoute.Inbox.id)

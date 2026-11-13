@@ -45,11 +45,12 @@ class ExpandGeometryTest {
     }
 
     @Test
-    fun flightEndsBeforeGrowing() {
+    fun growthOverlapsFlight() {
         val source = sources.first()
-        // 飞行段结束后中心已到屏幕中央，但窗口还没铺满：后段是原地放大
-        val mid = ButtonZoom.window(source, full, 0.55f)
+        // 飞到中央时窗口已经明显长大（和飞行重叠），但还没铺满
+        val mid = ButtonZoom.window(source, full, ButtonZoom.FLIGHT_END)
         assertTrue(abs(mid.center.x - full.width / 2f) < 1f && abs(mid.center.y - full.height / 2f) < 1f)
+        assertTrue(mid.width > source.width * 2f)
         assertTrue(mid.width < full.width * 0.8f)
     }
 
@@ -57,7 +58,7 @@ class ExpandGeometryTest {
     fun noVelocityBreakAtPhaseBoundaries() {
         val source = sources.first()
         val delta = 0.001f
-        for (phase in listOf(0.34f, 0.38f, 0.55f)) {
+        for (phase in listOf(ButtonZoom.GROW_START_H, ButtonZoom.GROW_START, ButtonZoom.FLIGHT_END)) {
             val before = ButtonZoom.window(source, full, phase - delta)
             val middle = ButtonZoom.window(source, full, phase)
             val after = ButtonZoom.window(source, full, phase + delta)

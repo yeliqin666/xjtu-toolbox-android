@@ -32,7 +32,7 @@ internal fun HomeTab(
     topBarSearch: (@Composable () -> Unit)? = null,
     /** 搜索展开态与搜索结果内容层（`:app` 提供）；null = 没有。 */
     searching: Boolean = false,
-    searchContent: (@Composable () -> Unit)? = null,
+    searchContent: (@Composable (topPadding: androidx.compose.ui.unit.Dp) -> Unit)? = null,
 ) {
     val home = rememberAppHome(
         loginState = loginState,

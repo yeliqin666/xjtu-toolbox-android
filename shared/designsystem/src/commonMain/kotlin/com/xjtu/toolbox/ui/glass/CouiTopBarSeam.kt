@@ -40,17 +40,11 @@ interface CouiTopBarScrollBehavior {
     /** 挂到滚动容器祖先上的连接；行为语义见 COUI `CouiCollapsingAppBarState`。 */
     val nestedScrollConnection: NestedScrollConnection
 
-    /** 顶栏折叠比例（0 = 全展开，1 = 全收起）。下拉刷新要等它为 0 才开始拉。 */
-    val collapsedFraction: Float get() = 0f
-
     /**
-     * COUI 折叠顶栏「可见位置 - 逻辑滚动位置」的差值（px）。
-     *
-     * 顶栏可见位置由临界阻尼弹簧追逻辑滚动，快速滑动时会滞后；把这段差值加进滚动内容的
-     * 顶部留白，列表就会先追进顶栏下面的空隙、松手后再被弹簧拉回原位。
-     * 0 = 没有双轨联动（钉死顶栏、非 COUI 顶栏、非 Android 端）。
+     * 正文是不是滚到顶栏下面了（按钮据此从纯图标切成玻璃钮，折叠状态据此摆正）。一般由连接自己从滚动事件里判断；
+     * 不经过嵌套滚动的程序化滚动（聊天自动滚到底等）由页面用这里补报。
      */
-    val contentTranslationY: Float get() = 0f
+    fun reportScrolled(scrolled: Boolean) {}
 }
 
 /** 每页（或每个 tab）一份 COUI 折叠状态；与 COUI `CouiTopAppBarDefaults.exitUntilCollapsedScrollBehavior` 等价。 */
@@ -69,6 +63,8 @@ expect fun CouiHomeTopBarSurface(
     pageBackdrop: CouiPageBackdrop?,
     gradientColor: Color,
     modifier: Modifier = Modifier,
+    /** 按钮玻璃的不透明度（绘制时读）：正文没滚到顶栏下时为 0。模糊底不受它管，常驻。 */
+    glassAlpha: () -> Float = { 1f },
     content: @Composable () -> Unit,
 )
 

@@ -41,7 +41,12 @@ data class InboxItem(
     val colorArgb: Int? = null,
     /** 开始后才进入待办；0 表示立即可见。 */
     val availableAt: Long = 0L,
-)
+    /** 自建的作业所属科目：图标取那门课的颜色，和思源学堂作业一样。 */
+    val course: String? = null,
+) {
+    /** 按哪门课上色：思源学堂作业是来源，自建作业是 [course]；null = 不按课程上色。 */
+    val colorCourse: String? get() = if (category == InboxCategories.LMS) source else course
+}
 
 /** 办完（或被用户忽略）的待办，灰着留 [InboxRules.FINISHED_KEEP_MS]。 */
 @Serializable

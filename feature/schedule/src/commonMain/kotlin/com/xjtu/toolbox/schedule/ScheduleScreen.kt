@@ -69,6 +69,13 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.LinkAnnotation
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.TextLinkStyles
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.style.TextDecoration
+import androidx.compose.ui.text.withLink
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.ui.unit.dp
 import androidx.compose.foundation.text.selection.SelectionContainer
 import com.xjtu.toolbox.ui.components.AppSegmentedTabs
@@ -138,8 +145,8 @@ fun ScheduleScreen(
 
     var showAddCourseDialog by remember { mutableStateOf(false) }
     var editingCourse by remember { mutableStateOf<CustomCourse?>(null) }
-    // 默认落在周视图；本次会话里切走再回来还停在自己选的那栏
-    var selectedTab by rememberSaveable { mutableIntStateOf(1) }
+    // 默认落在今日；本次会话里切走再回来还停在自己选的那栏
+    var selectedTab by rememberSaveable { mutableIntStateOf(0) }
     /** 今日 / 学期两级点课后要弹的详情。周视图有自己那份，见 ScheduleTabContent。 */
     var unifiedSelectedCourse by remember { mutableStateOf<CourseItem?>(null) }
     /** 今日那一级点课时带上今天；学期那一级说不出是哪一次，保持 null。 */
@@ -284,7 +291,7 @@ fun ScheduleScreen(
                 // 不再在标题后面写「已开启 / 已关闭」。没授权时点它是去系统权限页。
                 host.autoDnd?.takeIf { ScheduleCapability.AUTO_DND in host.honored }?.let { dnd ->
                     option(
-                        text = "上课自动勿扰",
+                        text = "上课、在馆自动勿扰",
                         selected = dnd.granted && dnd.enabled,
                         icon = Icons.Default.Notifications,
                     ) {
@@ -444,7 +451,13 @@ fun ScheduleScreen(
                     ((currentContent == "week" && vm.isSwitching) || nextExam != null))
             if (staticHeaderShown && contentTopPadding > 0.dp) Spacer(Modifier.height(contentTopPadding))
             val listTopPadding = if (staticHeaderShown) 0.dp else contentTopPadding
-            dndPrompt?.let { AutoDndPromptCard(it) }
+            dndPrompt?.let {
+                AutoDndPromptCard(it, onDismissed = {
+                    scope.launch {
+                        snackbarHostState.showSnackbar("以后想开，在右上角「更多」里点「上课、在馆自动勿扰」", duration = SnackbarDuration.Long)
+                    }
+                })
+            }
 
             // 缓存数据提示：刷新失败但有缓存时，顶部一条小 banner 告知用户「这可能是旧数据」
             if (vm.showingStaleData && !vm.isLoading) {
@@ -896,10 +909,12 @@ private fun ScheduleTabContent(
             // 空状态也要能下拉刷新（副文案就是这么引导的）：PullToRefresh 的拖动量
             // 全靠嵌套滚动分发，内容不满一屏又没有滚动容器时手势根本传不到它，
             // 垫一层 verticalScroll 只为建立滚动链，内容没有可滚的距离、视觉无变化。
+            val emptyScroll = rememberScrollState()
+            com.xjtu.toolbox.ui.glass.ReportScrollPosition(emptyScroll)
             EmptyState(
                 title = "本学期没有课程",
                 subtitle = "教务还没排课。可下拉刷新、在「更多」里切换学期，或点 + 添加日程",
-                modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(top = gridTopPadding, bottom = bottomPadding)
+                modifier = Modifier.fillMaxSize().verticalScroll(emptyScroll).padding(top = gridTopPadding, bottom = bottomPadding)
             )
             return@Column
         }
@@ -945,11 +960,13 @@ private fun ScheduleTabContent(
                     } else null
                 }
                 if (weekCourses.isEmpty() && courses.isNotEmpty()) {
+                    val emptyScroll = rememberScrollState()
+                    com.xjtu.toolbox.ui.glass.ReportScrollPosition(emptyScroll)
                     EmptyState(
                         title = "这周没课",
                         subtitle = "第${weekN}周整周空着",
                         // 同上：整周空着时页面没有滚动容器，PullToRefresh 收不到拖动量
-                        modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(top = gridTopPadding, bottom = bottomPadding)
+                        modifier = Modifier.fillMaxSize().verticalScroll(emptyScroll).padding(top = gridTopPadding, bottom = bottomPadding)
                     )
                 } else {
                     ScheduleGrid(
@@ -1093,32 +1110,48 @@ private fun WeekPickerAction(
     }
 }
 
-/** 课表有内容、还没开自动勿扰时在顶部提示一次；「不再提示」之后就不再出现。 */
+/**
+ * 课表有内容、还没开自动勿扰时在顶部提示一次。开启是说明文字末尾的一个链接，不再占一行按钮；
+ * 右上角 ✕ 即「不再提示」，关掉后由 [onDismissed] 告诉用户以后去哪儿找。
+ */
 @Composable
-private fun AutoDndPromptCard(dnd: AutoDndAccess) {
+private fun AutoDndPromptCard(dnd: AutoDndAccess, onDismissed: () -> Unit) {
     var hidden by remember { mutableStateOf(false) }
     if (hidden) return
+    val summary = MiuixTheme.colorScheme.onSurfaceVariantSummary
+    val primary = MiuixTheme.colorScheme.primary
+    val description = buildAnnotatedString {
+        val window = "课前 3 分钟到课后 3 分钟、图书馆签到入座期间自动切换"
+        append(if (dnd.granted) "$window。" else "$window，需要在系统里授权一次。")
+        withLink(
+            LinkAnnotation.Clickable(
+                tag = "auto_dnd",
+                styles = TextLinkStyles(SpanStyle(color = primary, fontWeight = FontWeight.Medium, textDecoration = TextDecoration.Underline)),
+            ) {
+                if (dnd.granted) dnd.setEnabled(true) else dnd.openAccessSettings()
+                hidden = true
+            },
+        ) { append(if (dnd.granted) "开启" else "去授权") }
+    }
     Card(
         modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp),
         cornerRadius = 14.dp,
     ) {
-        Column(Modifier.padding(horizontal = 14.dp, vertical = 10.dp)) {
-            Text("上课时自动开启勿扰？", style = MiuixTheme.textStyles.body1, color = MiuixTheme.colorScheme.onSurfaceContainer)
-            Text(
-                "课前 3 分钟到课后 3 分钟自动切换，需要在系统里授权一次。",
-                style = MiuixTheme.textStyles.footnote1,
-                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-            )
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                TextButton(text = "不再提示", onClick = { dnd.dismissPrompt(); hidden = true })
-                Spacer(Modifier.width(8.dp))
-                TextButton(
-                    text = if (dnd.granted) "开启" else "去授权",
-                    onClick = {
-                        if (dnd.granted) dnd.setEnabled(true) else dnd.openAccessSettings()
-                        hidden = true
-                    },
-                )
+        Box {
+            Column(Modifier.padding(start = 14.dp, end = 40.dp, top = 10.dp, bottom = 10.dp)) {
+                Text("上课时自动开启勿扰？", style = MiuixTheme.textStyles.body1, color = MiuixTheme.colorScheme.onSurfaceContainer)
+                androidx.compose.foundation.text.BasicText(description, style = MiuixTheme.textStyles.footnote1.copy(color = summary))
+            }
+            Box(
+                Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(4.dp)
+                    .size(36.dp)
+                    .clip(CircleShape)
+                    .clickable { dnd.dismissPrompt(); hidden = true; onDismissed() },
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(Icons.Default.Close, contentDescription = "不再提示", modifier = Modifier.size(16.dp), tint = summary)
             }
         }
     }

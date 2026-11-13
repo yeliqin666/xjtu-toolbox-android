@@ -14,6 +14,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.xjtu.toolbox.auth.LocalAuthExpiry
 import com.xjtu.toolbox.jiaocai1.Jiaocai1BrowseContent
@@ -120,27 +121,34 @@ fun TextbookScreen(
                 glass = glass,
                 scrollBehavior = scrollBehavior,
                 onBack = onBack,
-                // 分段标签挂在顶栏里，和顶栏一起做一整块玻璃
                 bottomContent = {
-                    CompositionLocalProvider(LocalOnGlassBar provides (glass != null)) {
-                        AppSegmentedTabs(
-                            tabs = tabs,
-                            selectedTabIndex = selectedTab,
-                            onTabSelected = { selectedTab = it },
-                            modifier = Modifier.readableWidth(),
-                        )
-                    }
+                    com.xjtu.toolbox.ui.components.DockedPageTabs(
+                        tabs = tabs,
+                        selectedTabIndex = selectedTab,
+                        onTabSelected = { selectedTab = it },
+                        visible = tabs.size > 1,
+                    )
                 },
             )
         }
     ) { padding ->
         val glassTop = padding.glassTop(glass)
-        // 宽屏不再整页限宽 720：三栏里的书目卡片分列铺开，只有标签行还限宽居中
+        // 只有一栏（没有全文库）时不挂分栏
+        com.xjtu.toolbox.ui.components.PageBottomTabsHost(
+            tabs = tabs,
+            selectedTabIndex = selectedTab,
+            onTabSelected = { selectedTab = it },
+            glass = glass,
+            visible = tabs.size > 1,
+            modifier = Modifier.fillMaxSize(),
+        ) {
+        // 宽屏不再整页限宽 720：三栏里的书目卡片分列铺开
         Column(
             Modifier
                 .padding(padding.withoutTop(glass))
                 .fillMaxSize()
                 .glassSource(glass)
+                .nestedScroll(scrollBehavior.nestedScrollConnection)
         ) {
             // 三栏顶上都是不滚动的检索框 / 分类条，整栏让出顶栏高度，不压到玻璃后面
             AppTabPager(
@@ -179,6 +187,7 @@ fun TextbookScreen(
                 }
               }
             }
+        }
         }
     }
 }

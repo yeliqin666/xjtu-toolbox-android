@@ -3,12 +3,15 @@ package com.xjtu.toolbox.home
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.ContentTransform
 import androidx.compose.animation.SizeTransform
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
@@ -74,10 +77,23 @@ internal fun HomeTopBar(
     // 折叠判据放 derivedStateOf：滚动时每帧都在变，直接读会让整条顶栏跟着重组。
     val latestProgress by rememberUpdatedState(progress)
     val collapsed by remember { derivedStateOf { latestProgress() > 0.5f } }
+    // 和各页顶栏同一条规则：模糊底常驻，停在顶部时按钮只剩图标；刊头往上推开、正文压到顶栏下面后
+    // 按钮玻璃淡入（到点触发的渐变，不跟手逐帧变）
+    val scrolledUnder by remember { derivedStateOf { latestProgress() > SCROLLED_UNDER_PROGRESS } }
+    val glass = animateFloatAsState(
+        targetValue = if (scrolledUnder) 1f else 0f,
+        animationSpec = tween(
+            com.xjtu.toolbox.ui.glass.TopBarGlassFadeMillis,
+            easing = com.xjtu.toolbox.ui.glass.TopBarGlassEasing,
+        ),
+        label = "homeBarGlass",
+    )
     CouiHomeTopBarSurface(
         pageBackdrop = pageBackdrop,
         gradientColor = MiuixTheme.colorScheme.surface,
         modifier = Modifier.fillMaxWidth(),
+        // 固定同一个读取函数：只在绘制时读动画值，过渡时顶栏不逐帧重组
+        glassAlpha = remember(glass) { { glass.value } },
     ) {
         Box(Modifier.fillMaxWidth().height(topInset + BAR_HEIGHT)) {
             // 折叠后点顶栏空白回到顶部；展开时不拦截（内容本来就在上面）
@@ -128,7 +144,12 @@ internal fun HomeTopBar(
                     translationY = if (alignWithGreeting) 0f else -BUTTON_LIFT.toPx() * (1f - progress())
                 }
                 Box(lift) {
-                    if (!searching) {
+                    // 搜索展开时头像让位：边淡边收窄，搜索框跟着平滑伸过来
+                    androidx.compose.animation.AnimatedVisibility(
+                        visible = !searching,
+                        enter = fadeIn(tween(200)) + androidx.compose.animation.expandHorizontally(tween(260)),
+                        exit = fadeOut(tween(140)) + androidx.compose.animation.shrinkHorizontally(tween(260)),
+                    ) {
                         AnimatedContent(editing, transitionSpec = { BarSwap }, label = "barLeading") { edit ->
                             if (!edit) HomeBarAvatar(progress)
                         }
@@ -197,6 +218,21 @@ private val BarSwap = ContentTransform(
     initialContentExit = fadeOut(tween(120)) + scaleOut(tween(120), targetScale = 0.8f),
     sizeTransform = SizeTransform(clip = false),
 )
+
+/**
+ * 首页搜索结果层。放在录进顶栏采样层的那一层里（顶栏糊的就是它），结果从顶栏下面开始排、能滚到顶栏下面；
+ * [topPadding] 交给结果列表当顶部留白。
+ */
+@Composable
+internal fun HomeSearchLayer(visible: Boolean, topPadding: Dp, content: (@Composable (topPadding: Dp) -> Unit)?) {
+    if (content == null) return
+    androidx.compose.animation.AnimatedVisibility(visible, enter = fadeIn(tween(200)), exit = fadeOut(tween(160))) {
+        Box(Modifier.fillMaxSize().background(MiuixTheme.colorScheme.surface)) { content(topPadding) }
+    }
+}
+
+/** 刊头推开到这个比例，正文就压到顶栏下面了（顶栏开始铺模糊、按钮出轮廓）。 */
+private const val SCROLLED_UNDER_PROGRESS = 0.12f
 
 /** 首页折叠顶栏（状态栏以下）的高度，几颗圆钮在里面居中。 */
 internal val BAR_HEIGHT = 52.dp

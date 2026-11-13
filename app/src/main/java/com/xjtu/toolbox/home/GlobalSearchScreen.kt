@@ -1,7 +1,6 @@
 package com.xjtu.toolbox.home
 
 import com.xjtu.toolbox.nav.AppRoute
-import com.xjtu.toolbox.platform.BackHandler
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -21,7 +20,6 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.navigationBars
-import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.union
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -32,35 +30,19 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.derivedStateOf
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.runtime.setValue
-import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
-import com.xjtu.toolbox.ui.components.FullScreenOverlay
 import com.xjtu.toolbox.auth.AccountType
-import com.xjtu.toolbox.ui.glass.coui.CouiTopAppBarButtonDefaults
-import com.xjtu.toolbox.ui.glass.coui.CouiTopAppBarSurface
-import com.xjtu.toolbox.ui.glass.coui.LocalCouiContentColor
-import com.xjtu.toolbox.ui.glass.coui.TopAppBarSearch
-import com.xjtu.toolbox.ui.glass.coui.TopAppBarSearchButton
-import com.xjtu.toolbox.ui.glass.coui.couiBackdrop
-import com.xjtu.toolbox.ui.glass.coui.rememberCouiBackdrop
-import com.xjtu.toolbox.ui.glass.coui.rememberCouiTopAppBarSearchState
-import com.xjtu.toolbox.ui.theme.LocalIsDarkTheme
 import com.xjtu.toolbox.webvpn.WebVpnUtil
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.Surface
@@ -155,141 +137,6 @@ internal fun searchUrlOf(input: String): String? {
     return if (UrlHost.matches(host)) "https://$text" else null
 }
 
-/**
- * 全局搜索。盖在主界面最外层的整屏浮层（见 [FullScreenOverlay]），盖过首页大标题和悬浮底栏。
- */
-@OptIn(ExperimentalLayoutApi::class)
-@Composable
-fun GlobalSearchScreen(
-    onBack: () -> Unit,
-    onNavigate: (AppRoute) -> Unit,
-    onAskAgent: (String) -> Unit,
-    onOpenUrl: (String) -> Unit,
-    /** 已转成 WebVPN 域的网址。 */
-    onOpenWithWebVpn: (String) -> Unit,
-    accountType: AccountType = AccountType.UNDERGRADUATE,
-    /** 从首页顶栏搜索带过来的初始关键词；空串 = 从头搜。 */
-    initialQuery: String = "",
-) {
-    FullScreenOverlay {
-        var query by rememberSaveable(initialQuery) { mutableStateOf(initialQuery) }
-        val results by remember(accountType) { derivedStateOf { GlobalSearchIndex.search(query, accountType) } }
-        BackHandler(onBack = onBack)
-
-        // 纯色底：整页模糊会把首页头卡的液体色透成一大片色块，反而脏
-        val scaffoldColor = MiuixTheme.colorScheme.surface
-        // 顶栏是 COUI 搜索钮组件本身：一个圆球按钮展开成「输入框 + 取消」两个主体，
-        // 图标连续；页面正文是另一层，两者分开写。
-        var searchExpanded by rememberSaveable { mutableStateOf(false) }
-        val searchState = rememberCouiTopAppBarSearchState(searchExpanded)
-        val searchStyle = CouiTopAppBarButtonDefaults.style(
-            dark = LocalIsDarkTheme.current,
-            search = true,
-        )
-        val keyboard = LocalSoftwareKeyboardController.current
-        // 等按钮落位、记下展开起点后再展开，图标才会从圆钮连续长过去。
-        LaunchedEffect(Unit) {
-            withFrameNanos { }
-            searchExpanded = true
-        }
-        // 取消时先让两个主体合并，再淡出整页。
-        var searchOpened by remember { mutableStateOf(false) }
-        LaunchedEffect(searchExpanded) {
-            if (searchExpanded) {
-                searchOpened = true
-            } else if (searchOpened) {
-                kotlinx.coroutines.delay(450)
-                onBack()
-            }
-        }
-        val topBarBackdrop = rememberCouiBackdrop()
-
-        Box(Modifier.fillMaxSize().background(scaffoldColor)) {
-            Column(Modifier.fillMaxSize()) {
-                Box(Modifier.fillMaxWidth().statusBarsPadding()) {
-                    // 搜索栏材质要一层不透明采样源；这一条就是页面底色本身
-                    Box(
-                        Modifier
-                            .matchParentSize()
-                            .couiBackdrop(topBarBackdrop)
-                            .background(scaffoldColor),
-                    )
-                    CouiTopAppBarSurface(
-                        modifier = Modifier.fillMaxWidth(),
-                        backdrop = topBarBackdrop,
-                        gradientColor = scaffoldColor,
-                        dark = LocalIsDarkTheme.current,
-                    ) {
-                        Row(
-                            Modifier.fillMaxWidth().height(64.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            TopAppBarSearch(
-                                modifier = Modifier.weight(1f),
-                                state = searchState,
-                                style = searchStyle,
-                                query = query,
-                                onQueryChange = { query = it },
-                                onSearch = { keyboard?.hide() },
-                                placeholder = "搜索功能、成绩、课表、空教室…",
-                                focusPending = searchExpanded,
-                                onFocused = {},
-                                action = {
-                                    Text(
-                                        "取消",
-                                        color = LocalCouiContentColor.current,
-                                        fontSize = 15.sp,
-                                        fontWeight = FontWeight.Medium,
-                                    )
-                                },
-                                onActionClick = { searchExpanded = false },
-                            ) { }
-                            TopAppBarSearchButton(
-                                state = searchState,
-                                style = searchStyle,
-                                onClick = { searchExpanded = true },
-                                contentDescription = "搜索",
-                            )
-                        }
-                    }
-                }
-                Column(
-                    Modifier
-                        .fillMaxSize()
-                        .padding(horizontal = 16.dp),
-                ) {
-                    Spacer(Modifier.height(4.dp))
-                    AnimatedContent(
-                        targetState = query.isBlank(),
-                        transitionSpec = {
-                            (fadeIn(tween(180)) + slideInVertically(tween(220)) { it / 12 })
-                                .togetherWith(fadeOut(tween(120)))
-                        },
-                        label = "searchBody",
-                        modifier = Modifier.fillMaxSize(),
-                    ) { blank ->
-                        if (blank) {
-                            SearchEmptyHints(
-                                onChip = { query = it },
-                                onAskAgent = onAskAgent,
-                            )
-                        } else {
-                            SearchResultList(
-                                query = query,
-                                results = results,
-                                onNavigate = onNavigate,
-                                onAskAgent = onAskAgent,
-                                onOpenUrl = onOpenUrl,
-                                onOpenWithWebVpn = onOpenWithWebVpn,
-                            )
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 internal fun GlobalSearchBody(
@@ -301,10 +148,12 @@ internal fun GlobalSearchBody(
     onOpenUrl: (String) -> Unit,
     onOpenWithWebVpn: (String) -> Unit,
     modifier: Modifier = Modifier,
+    /** 顶栏占掉的高度：结果从它下面开始排，滚动时能滑到顶栏的模糊下面。 */
+    topPadding: Dp = 0.dp,
 ) {
-    val results by remember(accountType) { derivedStateOf { GlobalSearchIndex.search(query, accountType) } }
+    // query 是参数不是状态，derivedStateOf 会一直拿着第一次的值，得按它重算
+    val results = remember(query, accountType) { GlobalSearchIndex.search(query, accountType) }
     Column(modifier.fillMaxSize().padding(horizontal = 16.dp)) {
-        Spacer(Modifier.height(4.dp))
         AnimatedContent(
             targetState = query.isBlank(),
             transitionSpec = {
@@ -318,6 +167,7 @@ internal fun GlobalSearchBody(
                 SearchEmptyHints(
                     onChip = onQueryChange,
                     onAskAgent = onAskAgent,
+                    topPadding = topPadding,
                 )
             } else {
                 SearchResultList(
@@ -327,6 +177,7 @@ internal fun GlobalSearchBody(
                     onAskAgent = onAskAgent,
                     onOpenUrl = onOpenUrl,
                     onOpenWithWebVpn = onOpenWithWebVpn,
+                    topPadding = topPadding,
                 )
             }
         }
@@ -338,8 +189,9 @@ internal fun GlobalSearchBody(
 private fun SearchEmptyHints(
     onChip: (String) -> Unit,
     onAskAgent: (String) -> Unit,
+    topPadding: Dp,
 ) {
-    Column(Modifier.fillMaxWidth().padding(top = 20.dp)) {
+    Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(top = topPadding + 20.dp)) {
         SectionLabel("常用入口")
         FlowRow(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -375,6 +227,7 @@ private fun SearchResultList(
     onAskAgent: (String) -> Unit,
     onOpenUrl: (String) -> Unit,
     onOpenWithWebVpn: (String) -> Unit,
+    topPadding: Dp,
 ) {
     val url = remember(query) { searchUrlOf(query) }
     val screens = results.filterIsInstance<SearchEntry.Screen>()
@@ -382,7 +235,7 @@ private fun SearchResultList(
 
     // 末尾让出小白条和键盘，最后一条结果能滚到它们上面
     val bottomInset = WindowInsets.navigationBars.union(WindowInsets.ime).asPaddingValues().calculateBottomPadding()
-    LazyColumn(contentPadding = PaddingValues(top = 16.dp, bottom = 12.dp + bottomInset)) {
+    LazyColumn(contentPadding = PaddingValues(top = topPadding + 16.dp, bottom = 12.dp + bottomInset)) {
         if (url != null) {
             item(key = "url") {
                 SectionLabel("网址")

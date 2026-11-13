@@ -193,6 +193,7 @@ fun FacultyScreen(
             }
             }
 
+            com.xjtu.toolbox.ui.glass.ReportScrollPosition(listState, scrollBehavior)
             LazyColumn(
                 state = listState,
                 modifier = Modifier.fillMaxSize().overScrollVertical(),

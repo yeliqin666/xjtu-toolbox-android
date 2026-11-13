@@ -30,29 +30,7 @@ import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.overlay.OverlayBottomSheet
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
-@Composable
-internal fun NoticeSourceBar(sources: Set<NotificationSource>, onOpen: () -> Unit) {
-    val primary = MiuixTheme.colorScheme.primary
-    Row(
-        Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)
-            .clip(RoundedCornerShape(18.dp)).background(AppCardColor)
-            .semantics { contentDescription = "选择通知来源" }.clickable(onClick = onOpen)
-            .padding(horizontal = 14.dp, vertical = 12.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
-    ) {
-        Box(Modifier.size(36.dp).clip(RoundedCornerShape(11.dp)).background(primary.copy(alpha = 0.10f)), contentAlignment = Alignment.Center) {
-            Icon(Icons.Outlined.Newspaper, null, Modifier.size(20.dp), tint = primary)
-        }
-        Text(sources.joinToString("、") { it.displayName }, modifier = Modifier.weight(1f),
-            style = MiuixTheme.textStyles.body1, fontWeight = FontWeight.SemiBold,
-            maxLines = 1, overflow = TextOverflow.Ellipsis)
-        Text("${sources.size} 个来源", style = MiuixTheme.textStyles.footnote1, color = primary)
-        Icon(Icons.Default.KeyboardArrowDown, null, Modifier.size(20.dp), tint = primary)
-    }
-}
-
-/** 多选先保存在面板内，确认后只重新加载一次。搜索不受分类限制。 */
+/** 多选先保存在面板内，确认后只重新加载一次。搜索不受分类限制。来源入口在通知页顶栏右上角，当前来源写在副标题里。 */
 @Composable
 internal fun NoticeSourceSheet(
     show: Boolean,

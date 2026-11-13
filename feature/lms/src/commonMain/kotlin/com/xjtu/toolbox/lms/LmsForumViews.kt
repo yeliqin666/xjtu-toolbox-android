@@ -379,6 +379,7 @@ internal fun LmsForumTopicDetailPage(
                 .glassSource(glass)
                 .nestedScroll(scrollBehavior.nestedScrollConnection)
         ) {
+            com.xjtu.toolbox.ui.glass.ReportScrollPosition(listState, scrollBehavior)
             LazyColumn(
                 state = listState,
                 modifier = Modifier.fillMaxSize().readableWidth(),

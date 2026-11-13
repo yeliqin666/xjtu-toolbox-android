@@ -1,6 +1,8 @@
 package com.xjtu.toolbox.venue
 
 import com.xjtu.toolbox.util.AppJson
+import kotlinx.datetime.LocalDate
+import kotlinx.datetime.LocalDateTime
 import kotlinx.serialization.Serializable
 
 /** 体育场馆的数据模型。 */
@@ -31,6 +33,17 @@ data class AreaSlot(
     val serviceid: String
 ) {
     val isAvailable: Boolean get() = surplus > 0
+
+    /** 这个时段的结束时间不晚于 [now] 就订不了。日期或时段解析不出来时按没结束处理（交给服务端判）。 */
+    fun hasEnded(now: LocalDateTime): Boolean {
+        val day = runCatching { LocalDate.parse(date) }.getOrNull() ?: return false
+        if (day < now.date) return true
+        if (day > now.date) return false
+        val end = timeSlot.substringAfter('-', "").trim()
+        val hour = end.substringBefore(':').toIntOrNull() ?: return false
+        val minute = end.substringAfter(':', "").take(2).toIntOrNull() ?: return false
+        return hour * 60 + minute <= now.hour * 60 + now.minute
+    }
 }
 
 /** 验证码数据 */
@@ -89,6 +102,22 @@ data class OrderInfo(
 
     /** 服务端允许对预订中/预订成功订单发起取消。 */
     val canCancel: Boolean get() = status == 0 || status == 1
+
+    /**
+     * 订单已经起效：此刻不早于最早一个时段的开始时间。起效后不再给取消入口。
+     * 明细里的日期或时段解析不出来的忽略；一条都解析不出来就按没起效处理（交给服务端判）。
+     */
+    fun hasStarted(now: LocalDateTime): Boolean {
+        val starts = details.mapNotNull { detail ->
+            val day = runCatching { LocalDate.parse(detail.date) }.getOrNull() ?: return@mapNotNull null
+            val start = detail.timeSlot.substringBefore('-').trim()
+            val hour = start.substringBefore(':').toIntOrNull() ?: return@mapNotNull null
+            val minute = start.substringAfter(':', "").take(2).toIntOrNull() ?: return@mapNotNull null
+            LocalDateTime(day, kotlinx.datetime.LocalTime(hour, minute))
+        }
+        val earliest = starts.minOrNull() ?: return false
+        return now >= earliest
+    }
 }
 
 /** 订单分页响应。服务端不同部署可能返回数组或带 rows/object 的对象，统一成此模型。 */

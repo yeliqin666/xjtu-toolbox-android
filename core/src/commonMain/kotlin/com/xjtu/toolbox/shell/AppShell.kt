@@ -87,7 +87,7 @@ fun AppShell(
     val navIconBox = remember(nav.tabs) { nav.tabs.tabs.maxOf { it.iconSize } }
 
     // 切页不做「从底栏那一格长出来」的放大（ShellTabZoom）：起点在左下/右下角，看着像弹出，
-    // 已按需求关掉，切页走普通淡入。机制本身留在 ShellTabHost 里，恢复时把下面换成
+    // 已按需求关掉，底栏切页走整页左右滑（见 ShellTabHost 的 slide）。机制本身留在 ShellTabHost 里，恢复时把下面换成
     // rememberShellTabZoom(nav, enabled = form == ShellForm.GLASS_BAR) 即可。
     val tabZoom: ShellTabZoom? = null
     // 底栏与页面容器在窗口里的位置：只在绘制阶段读，不用 state
@@ -186,6 +186,8 @@ fun AppShell(
                     ShellTabHost(
                         nav = nav,
                         pageHost = pageHost,
+                        // 底栏形态才滑；侧栏是上下排的，左右滑对不上
+                        slide = !isWide,
                         modifier = (if (glassStyle) Modifier.layerBackdrop(contentBackdrop) else Modifier)
                             .then(couiGlassBackdrop?.recordInto(Modifier) ?: Modifier),
                         zoom = tabZoom?.apply {

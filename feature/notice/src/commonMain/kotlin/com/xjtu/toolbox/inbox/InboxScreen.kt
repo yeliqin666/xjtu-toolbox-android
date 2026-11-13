@@ -131,13 +131,11 @@ fun InboxScreen(
     val groups = remember(data, now) { InboxRules.groups(data, now) }
     val unread = groups.count { it.unread }
     // 作业按科目取课表里那门课的颜色，和课表、思源学堂一致
-    val courseNames = remember(data) { (todos + finished.map { it.item }).filter { it.category == InboxCategories.LMS }.map { it.source }.distinct() }
+    val courseNames = remember(data) { (todos + finished.map { it.item }).mapNotNull { it.colorCourse }.distinct() }
     val courseColors = rememberCourseColors(courseNames)
-    // 自建待办可以自己挑色（存在 SelfTodo 上，投影到条目的 colorArgb）；没挑过就走分类色
-    fun accentOf(item: InboxItem): Color? = when {
-        item.category == InboxCategories.LMS -> courseColors.colorOf(item.source)
-        else -> item.colorArgb?.let { Color(it) }
-    }
+    // 自建待办可以自己挑色（存在 SelfTodo 上，投影到条目的 colorArgb）；自建作业跟课；没挑过就走分类色
+    fun accentOf(item: InboxItem): Color? =
+        item.colorCourse?.let { courseColors.colorOf(it) } ?: item.colorArgb?.let { Color(it) }
     // 这次进来之前没看过的待办标个红点；一看到就记成看过，首页红点随之熄掉，这页的红点留到下次进来
     val seenAtOpen = remember { data.seenTodos }
     // 点开过的这次就算看了，返回时红点立刻熄掉
@@ -223,6 +221,16 @@ fun InboxScreen(
                 glass = glass,
                 scrollBehavior = scrollBehavior,
                 onBack = onBack,
+                bottomContent = {
+                    com.xjtu.toolbox.ui.components.DockedPageTabs(
+                        tabs = listOf(
+                            if (todos.isEmpty()) "待办" else "待办 ${todos.size}",
+                            if (unread == 0) "消息" else "消息 $unread",
+                        ),
+                        selectedTabIndex = tab,
+                        onTabSelected = { tab = it },
+                    )
+                },
                 actions = {
                     Row(
                         horizontalArrangement = Arrangement.spacedBy(2.dp),
@@ -243,23 +251,21 @@ fun InboxScreen(
                         }
                     }
                 },
-                bottomContent = {
-                    CompositionLocalProvider(LocalOnGlassBar provides (glass != null)) {
-                        AppSegmentedTabs(
-                            tabs = listOf(
-                                if (todos.isEmpty()) "待办" else "待办 ${todos.size}",
-                                if (unread == 0) "消息" else "消息 $unread",
-                            ),
-                            selectedTabIndex = tab,
-                            onTabSelected = { tab = it },
-                            modifier = Modifier.readableWidth(),
-                        )
-                    }
-                },
             )
         },
     ) { padding ->
         val glassTop = padding.glassTop(glass)
+        // 待办 / 消息
+        com.xjtu.toolbox.ui.components.PageBottomTabsHost(
+            tabs = listOf(
+                if (todos.isEmpty()) "待办" else "待办 ${todos.size}",
+                if (unread == 0) "消息" else "消息 $unread",
+            ),
+            selectedTabIndex = tab,
+            onTabSelected = { tab = it },
+            glass = glass,
+            modifier = Modifier.fillMaxSize(),
+        ) {
         AppPullToRefresh(
             isRefreshing = refreshing,
             onRefresh = { refresh() },
@@ -269,8 +275,12 @@ fun InboxScreen(
         ) {
             // 待办、消息两栏可以左右滑：标签行和页面同步
             AppTabPager(pageCount = 2, selectedTabIndex = tab, onTabSelected = { tab = it }, modifier = Modifier.fillMaxSize()) { page ->
+                // 顶栏按钮轮廓按列表实际位置来（滚动事件里混着回弹的距离，不能当位置用）
+                val listState = androidx.compose.foundation.lazy.rememberLazyListState()
+                com.xjtu.toolbox.ui.glass.ReportScrollPosition(listState)
                 LazyColumn(
                     Modifier.fillMaxSize().overScrollVertical(),
+                    state = listState,
                     contentPadding = tabContentPadding(PaddingValues(top = glassTop, bottom = 24.dp)),
                 ) {
                     error?.let { msg ->
@@ -352,6 +362,7 @@ fun InboxScreen(
                 }
             }
         }
+        }
         // Overlay 系弹窗要挂在 Scaffold 里面才有宿主，放在外面弹不出来
         InboxSettingsSheet(showSettings, data) { showSettings = false }
     }
@@ -420,7 +431,8 @@ private fun RowActionsDialog(a: RowActions, onDismiss: () -> Unit) {
     WindowDialog(show = true, title = a.item.title, summary = a.item.source, onDismissRequest = onDismiss) {
         Column(Modifier.heightIn(max = 460.dp).verticalScroll(rememberScrollState())) {
             val todoId = a.todoId
-            if (todoId != null) {
+            // 自建作业的颜色跟课，不单独挑
+            if (todoId != null && a.item.course == null) {
                 var color by remember(todoId) { mutableStateOf(a.item.colorArgb) }
                 TodoColorField(current = color, onPick = {
                     color = it

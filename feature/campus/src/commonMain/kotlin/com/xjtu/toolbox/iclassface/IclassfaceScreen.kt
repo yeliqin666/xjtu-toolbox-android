@@ -164,6 +164,7 @@ fun IclassfaceScreen(
                 )
             }
             else -> LazyColumn(
+                state = com.xjtu.toolbox.ui.glass.rememberReportedLazyListState(),
                 modifier = Modifier
                     .fillMaxSize()
                     .overScrollVertical(),

@@ -23,13 +23,14 @@ import androidx.compose.ui.util.lerp
 @Composable
 fun OriginContentOverlay(screenCornerPx: Float, windowColor: androidx.compose.ui.graphics.Color) {
     val transition = ExpandOrigins.contentTransition.value ?: return
-    // 转场结束后原卡已经放出来了，叠加层再盖两帧才撤，保证交接那一下没有空帧
-    if (transition.ending) {
-        androidx.compose.runtime.LaunchedEffect(transition) {
-            androidx.compose.runtime.withFrameNanos { }
-            androidx.compose.runtime.withFrameNanos { }
-            ExpandOrigins.finishContent(transition)
-        }
+    // 换手放在帧开头（帧回调里，绘制之前）：导航库在绘制阶段报的结束只记了一笔，这里下一帧才切 ending，
+    // 原卡「放出来」和叠加层「不画」在同一帧的绘制里同时生效，中间没有空帧。之后再盖两帧才撤
+    androidx.compose.runtime.LaunchedEffect(transition) {
+        while (!transition.endRequested) androidx.compose.runtime.withFrameNanos { }
+        transition.ending = true
+        androidx.compose.runtime.withFrameNanos { }
+        androidx.compose.runtime.withFrameNanos { }
+        ExpandOrigins.finishContent(transition)
     }
     val origin = transition.origin
     val snapshot = origin.snapshot ?: return
@@ -64,7 +65,8 @@ fun OriginContentOverlay(screenCornerPx: Float, windowColor: androidx.compose.ui
             // 窗口比卡片长得快：多出来的部分用页面底色填上。
             // 回到原位附近时底色退掉，只剩卡面本身的材质，和原处的玻璃卡对得上
             .drawBehind {
-                val t = ((transition.progress - 0.03f) / 0.17f).coerceIn(0f, 1f)
+                // 0.12 前铺满：页面从 0.12 起才垫到下面（见 expandFromOrigin），之前不能透出来
+                val t = ((transition.progress - 0.02f) / 0.10f).coerceIn(0f, 1f)
                 val fill = t * t * (3f - 2f * t)
                 if (fill > 0f) drawRect(windowColor.copy(alpha = windowColor.alpha * fill))
             },

@@ -24,6 +24,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import com.xjtu.toolbox.platform.BackHandler
 import androidx.compose.material.icons.outlined.WarningAmber
+import androidx.compose.material.icons.outlined.Newspaper
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -91,11 +92,23 @@ fun NotificationScreen(
     val glass = rememberPageGlass()
     Scaffold(
         topBar = {
+            // 当前来源写在大标题下面，右上角一颗按钮换来源：不再在正文里放一条来源横幅
+            val sources = vm.selectedSources
             GlassTopAppBar(
                 title = "通知公告",
                 glass = glass,
                 scrollBehavior = scrollBehavior,
                 onBack = onBack,
+                subtitle = when {
+                    sources.isEmpty() -> "还没选来源"
+                    sources.size <= 2 -> sources.joinToString("、") { it.displayName }
+                    else -> sources.take(2).joinToString("、") { it.displayName } + " 等 ${sources.size} 个来源"
+                },
+                actions = {
+                    com.xjtu.toolbox.ui.glass.CouiToolbarActionButton(onClick = { showSourceSheet = true }) {
+                        Icon(Icons.Outlined.Newspaper, contentDescription = "选择通知来源")
+                    }
+                },
             )
         }
     ) { padding ->
@@ -117,19 +130,14 @@ fun NotificationScreen(
                 .fillMaxSize()
                 .nestedScroll(scrollBehavior.nestedScrollConnection)
         ) {
-            // 来源入口在顶栏里（bottomContent）；列表把 glassTop 放进 contentPadding，
-            // 不是列表的几种状态（加载中 / 出错 / 暂无）在这里让出顶栏高度
+            // 列表把 glassTop 放进 contentPadding；不是列表的几种状态（加载中 / 出错 / 暂无）在这里让出顶栏高度
             val listShown = !(vm.isLoading && notifications.isEmpty()) &&
                 !(vm.errorMessage != null && notifications.isEmpty()) &&
                 notifications.isNotEmpty()
             if (!listShown) Spacer(Modifier.height(glassTop))
-            // 来源入口：有列表时是列表第一项，跟着内容滚走；没有列表时放在上面。
-            // 以前它挂在顶栏的 bottomContent 里，折叠的顶栏动，它不动，就「钉」在顶上。
-            if (!listShown) NoticeSourceBar(vm.selectedSources) { showSourceSheet = true }
 
             // 搜索框和「有源不可达」提示：有通知列表时是列表的头两项，跟着列表滚走；
-            // 来源入口是导航，留在顶上。以前这一整段都钉在顶部，占掉小半屏，
-            // 往上划只有下面一截通知在动。没有列表（加载中 / 出错 / 暂无通知）时它们照旧放在这里。
+            // 没有列表（加载中 / 出错 / 暂无通知）时它们照旧放在这里。
             // 搜不到匹配项时列表还在（只剩搜索框和一行「没有匹配」）：要是这时把搜索框挪出列表，
             // 输入框换了位置就会丢焦点，打字打到一半键盘收起来。
             val searchBar: @Composable (Modifier) -> Unit = { m ->
@@ -216,7 +224,6 @@ fun NotificationScreen(
                             contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp + glassTop, bottom = 8.dp),
                             spacing = 8.dp,
                         ) {
-                            fullLineItem(key = "sources") { NoticeSourceBar(vm.selectedSources) { showSourceSheet = true } }
                             fullLineItem(key = "loading") {
                                 AnimatedVisibility((vm.isLoading && notifications.isNotEmpty()) || vm.searchLoading, enter = fadeIn(), exit = fadeOut()) {
                                     LinearProgressIndicator(Modifier.fillMaxWidth())

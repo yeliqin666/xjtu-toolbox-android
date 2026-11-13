@@ -170,8 +170,6 @@ fun GamesScreen(
                 color = if (glass != null) Color.Transparent else MiuixTheme.colorScheme.background,
                 pageBackdrop = couiPageBackdropFor(glass),
                 scrollBehavior = scrollBehavior,
-                // 二级页：标题钉死成收起态，不随上滑变小
-                pinned = true,
                 navigationIcon = { com.xjtu.toolbox.ui.components.BackButton(onBack) },
                 actions = {
                     // 所有小游戏共用这一个音效开关
@@ -196,7 +194,7 @@ fun GamesScreen(
                     .fillMaxSize()
                     .nestedScroll(scrollBehavior.nestedScrollConnection)
                     .overScrollVertical()
-                    .verticalScroll(rememberScrollState()).tabContentBottomPadding()
+                    .verticalScroll(com.xjtu.toolbox.ui.glass.rememberReportedScrollState(scrollBehavior)).tabContentBottomPadding()
                     .padding(horizontal = 16.dp),
             ) {
                 Spacer(Modifier.height(glassTop + 8.dp))

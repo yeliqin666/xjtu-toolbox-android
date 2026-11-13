@@ -328,7 +328,11 @@ fun NavEntryBuilder.appPageEntries(
                 val hintPrefs = remember(libraryContext) {
                     libraryContext.getSharedPreferences("feature_hints", Context.MODE_PRIVATE)
                 }
+                // 页内扫一扫：扫码层盖在图书馆页上，扫到座位码交回页面定位（null = 没在扫）
+                var onScannedSeat by remember { mutableStateOf<((com.xjtu.toolbox.library.LibraryFocus.Target) -> Unit)?>(null) }
+                Box(Modifier.fillMaxSize()) {
                 LibraryScreen(
+                    onScan = { onSeat -> onScannedSeat = onSeat },
                     source = remember(site) { AppLibrarySource(site, libraryContext) },
                     onBack = back,
                     onBookingChanged = { LibraryStatus.publish(libraryContext, it) },
@@ -353,6 +357,23 @@ fun NavEntryBuilder.appPageEntries(
                     showFirstUseHint = !hintPrefs.getBoolean("library_hint_shown", false),
                     onFirstUseHintRead = { hintPrefs.edit().putBoolean("library_hint_shown", true).apply() },
                 )
+                onScannedSeat?.let { onSeat ->
+                    com.xjtu.toolbox.qrlogin.QrLoginScreen(
+                        sessionManager = loginState.sessionManager,
+                        onBack = { onScannedSeat = null },
+                        onLibrarySeat = { qr ->
+                            onScannedSeat = null
+                            onSeat(
+                                com.xjtu.toolbox.library.LibraryFocus.Target(
+                                    campusId = com.xjtu.toolbox.library.LibraryQrArea.campusOf(qr.areaCode).id,
+                                    areaCode = qr.areaCode,
+                                    seatId = qr.seat,
+                                ),
+                            )
+                        },
+                    )
+                }
+                }
             }
         }
         entry<AppRoute.CampusCard>(transition = expand(AppRoute.CampusCard::class)) {

@@ -157,7 +157,7 @@ import top.yukonga.miuix.kmp.window.WindowDialog
  *
  * 合并时从小组件那套搬过来的能力：材质四态里的纯色 / 渐变薄底（§1）、
  * 一镜到底接线（`HomeTileBoard` 的 `tileOpen`、本文件的 `rowOf` 里 `onSeamlessClick`）、
- * 校园卡大卡的付款码（`HomeTileBoard` 的 `PaymentCodeOverlay`）。
+ * 付款码大卡的二维码（`HomeTileBoard` 的 `PaymentCodeOverlay`）。
  * 只剩「经典分类卡」作为回落，见 [HomeClassicScreen]；入口分派在 [HomeScreen]。
  */
 @OptIn(ExperimentalFoundationApi::class)
@@ -178,7 +178,7 @@ fun HomeCardGroupScreen(
     topBarSearch: (@Composable () -> Unit)? = null,
     /** 搜索展开态与搜索结果内容层（`:app` 提供）；null = 没有。 */
     searching: Boolean = false,
-    searchContent: (@Composable () -> Unit)? = null,
+    searchContent: (@Composable (topPadding: Dp) -> Unit)? = null,
     /** 两套首页共用的滚动位置（见 HomeScreen）：切换布局时不跳回顶部。 */
     scrollState: ScrollState = rememberScrollState(),
 ) {
@@ -1163,7 +1163,7 @@ fun HomeCardGroupScreen(
                                             )
                                         }
                                     },
-                                    // 校园卡大卡的付款码：用餐时段才真去取（原「小组件」那套能力）
+                                    // 付款码大卡的二维码：用餐时段才真去取（原「小组件」那套能力）
                                     paymentCode = { host.paymentCode() },
                                     session = session,
                                     budgetRows = rowBudget?.get(group.id),
@@ -1222,22 +1222,7 @@ fun HomeCardGroupScreen(
                 }
                 Spacer(Modifier.height(SECTION_GAP + extraBottomPadding + 8.dp))
             }
-        }
-
-        // 搜索内容层：铺在首页正文之上、顶栏之下；展开/收起各自淡入淡出。
-        if (searchContent != null) {
-            AnimatedVisibility(
-                visible = searching,
-                enter = fadeIn(tween(150)),
-                exit = fadeOut(tween(150)),
-            ) {
-                Box(
-                    Modifier
-                        .fillMaxSize()
-                        .background(MiuixTheme.colorScheme.surface)
-                        .padding(top = contentTopPadding + BAR_HEIGHT),
-                ) { searchContent() }
-            }
+            HomeSearchLayer(searching, contentTopPadding + BAR_HEIGHT, searchContent)
         }
 
         // 编辑态顶栏（取消 / 设置 / 保存）不需要宿主给按钮，所以这一端没有 topActions 也要画，

@@ -144,6 +144,8 @@ internal class VenueViewModel(
     /** 选中/取消一个时段。只读端（[VenueSource.canBook] = false）屏上根本不给勾，这里再兜一层。 */
     fun toggleSlot(slot: AreaSlot) {
         if (!source.canBook) return
+        // 结束时间已过的时段不能订（屏上也不给点，这里再兜一层）
+        if (slot !in selectedSlots && slot.hasEnded(com.xjtu.toolbox.util.nowOnCampus())) return
         selectedSlots = if (slot in selectedSlots) selectedSlots - slot else selectedSlots + slot
     }
 
@@ -310,6 +312,8 @@ internal class VenueViewModel(
     fun cancelOrder(order: OrderInfo) {
         // 只读端屏上不画「取消订单」（[VenueSource.canCancel] = false），这里再兜一层
         if (!source.canCancel) return
+        // 订单已到起效时间不再允许取消（屏上也不画入口）
+        if (order.hasStarted(com.xjtu.toolbox.util.nowOnCampus())) return
         if (orderActionLoading) return
         orderActionLoading = true
         viewModelScope.launch {

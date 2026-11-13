@@ -72,7 +72,7 @@ import com.xjtu.toolbox.zyxf.ZyxfBrowseScreen
 import com.xjtu.toolbox.zyxf.ZyxfBrowseViewModel
 import com.xjtu.toolbox.ui.glass.rememberCouiTopAppBarScrollBehavior
 import top.yukonga.miuix.kmp.basic.Scaffold
-import top.yukonga.miuix.kmp.basic.ScrollBehavior
+import com.xjtu.toolbox.ui.glass.CouiTopBarScrollBehavior
 
 /*
  * 底栏那几格的页，在两种宿主里画：挂在底栏上（MainScreen，顶栏由主界面画），
@@ -178,8 +178,8 @@ internal fun AndroidAgentScreen(
     onNavigate: (AppRoute) -> Unit,
     extraBottomPadding: Dp,
     contentTopPadding: Dp,
-    /** 小岱页内部的 MIUIX 折叠状态；宿主是 COUI 顶栏时传 null（钉死的 COUI 顶栏不折叠）。 */
-    scrollBehavior: ScrollBehavior? = null,
+    /** 宿主 COUI 大标题顶栏的折叠行为，挂到对话列表上。 */
+    scrollBehavior: CouiTopBarScrollBehavior? = null,
     onTitleChange: (String) -> Unit,
     onActionsChange: ((@Composable RowScope.() -> Unit)?) -> Unit,
     onNavIconChange: ((@Composable () -> Unit)?) -> Unit,
@@ -225,7 +225,6 @@ internal fun AgentRoutePage(loginState: AppLoginState, onNavigate: (AppRoute) ->
                 color = glassBarColor(glass),
                 scrollBehavior = scrollBehavior,
                 pageBackdrop = couiPageBackdropFor(glass),
-                pinned = true,
                 navigationIcon = {
                     Row(
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -244,8 +243,7 @@ internal fun AgentRoutePage(loginState: AppLoginState, onNavigate: (AppRoute) ->
             onNavigate = onNavigate,
             extraBottomPadding = tabBottomPadding,
             contentTopPadding = topPadding,
-            // 这一页的顶栏是钉死的 COUI 小标题，聊天列表不用再驱动折叠
-            scrollBehavior = null,
+            scrollBehavior = scrollBehavior,
             onTitleChange = { title = it },
             onActionsChange = { actions = it },
             onNavIconChange = { navIcon = it },
@@ -272,8 +270,6 @@ internal fun ScheduleRoutePage(loginState: AppLoginState, onNavigate: (AppRoute)
                 scrollBehavior = scrollBehavior,
                 pageBackdrop = couiPageBackdropFor(glass),
                 navigationIcon = { BackButton(onBack) },
-                // 和底栏上的日程 tab 同字号：用「我的」收起后的小标题尺寸
-                titleSize = CouiTopAppBarDefaults.titleOnlyCollapsedSize,
                 actions = { actions?.invoke(this) },
                 bottomContent = {
                     // 标签行、周标题栏和顶栏是一整块玻璃

@@ -138,7 +138,10 @@ fun CommunityPage(
                 .glassSource(glass)
                 .nestedScroll(scrollBehavior.nestedScrollConnection)
         ) {
-            CompositionLocalProvider(LocalCommunityBarScroll provides scrollBehavior) {
+            CompositionLocalProvider(
+                LocalCommunityBarScroll provides scrollBehavior,
+                com.xjtu.toolbox.ui.glass.LocalCouiScrollReporter provides scrollBehavior,
+            ) {
                 content(top)
             }
         }

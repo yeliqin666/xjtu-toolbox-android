@@ -1,6 +1,7 @@
 package com.xjtu.toolbox.ui.glass.coui
 
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.WindowInsets
@@ -45,12 +46,18 @@ fun TopAppBar(
     backdrop: CouiBackdrop = checkNotNull(LocalCouiBackdrop.current) {
         "顶栏需要显式 backdrop 或 ProvideCouiBackdrop 作用域"
     },
+    /** 集成侧扩展：标签行等跟在标题下面的控件，放进同一块模糊表面里。 */
+    bottomContent: @Composable () -> Unit = {},
 ) {
     CouiTopAppBarSurface(modifier.fillMaxWidth(), backdrop,
+        fadeHeight = CouiTopAppBarDefaults.bottomFade,
         gradientColor = colors.backgroundColor, dark = dark) {
-        CompositionLocalProvider(LocalCouiDarkTheme provides dark) {
-            AppBarLayout(title, navigationIcon, actions, colors, windowInsets,
-                CouiTopAppBarDefaults.height, CouiTopAppBarDefaults.height, null)
+        Column {
+            CompositionLocalProvider(LocalCouiDarkTheme provides dark) {
+                AppBarLayout(title, navigationIcon, actions, colors, windowInsets,
+                    CouiTopAppBarDefaults.height, CouiTopAppBarDefaults.height, null)
+            }
+            bottomContent()
         }
     }
 }
@@ -80,6 +87,8 @@ fun LargeTopAppBar(
     },
     expandedTitleStyle: TextStyle = TextStyle.Default,
     collapsedTitleStyle: TextStyle = TextStyle.Default,
+    /** 集成侧扩展：标签行等跟在标题下面的控件，放进同一块模糊表面里。 */
+    bottomContent: @Composable () -> Unit = {},
 ) {
     require(expandedHeight.value.isFinite() && collapsedHeight.value.isFinite() &&
         collapsedHeight > 0.dp && expandedHeight > collapsedHeight) {
@@ -103,17 +112,25 @@ fun LargeTopAppBar(
     }
     CouiTopAppBarSurface(modifier.fillMaxWidth(), backdrop,
         referenceBlurRadius = with(density) { CouiCollapsingAppBarDefaults.referenceBlurRadiusPx.toDp() },
-        bottomExtension = CouiCollapsingAppBarDefaults.titleOnlyBlurExtension,
-        gradientSpeed = 3f, gradientColor = colors.backgroundColor, dark = dark,
+        bottomExtension = CouiTopAppBarDefaults.bottomExtension,
+        // 集成侧改动：原版 gradientSpeed = 3 按整块高度幂衰减、最强处在最顶端。收起时背景整体上移，
+        // 最强那段移出屏幕；顶栏里再挂切换条后整块更高，标题和切换条下面几乎没有模糊。
+        // 改用固定渐隐：上面满模糊，只在下沿那一段淡出。淡出段必须短（默认 96dp 比收起后的栏还高，
+        // 标题那一带整个落在淡出段里，等于没模糊；带副标题的栏更高、更明显）
+        fadeHeight = CouiTopAppBarDefaults.bottomFade,
+        gradientSpeed = null, gradientColor = colors.backgroundColor, dark = dark,
         topExtension = {
             with(density) {
                 val range = (expandedHeight.roundToPx() - collapsedHeight.roundToPx()).coerceAtLeast(0)
                 (state?.offsetPx ?: 0f).coerceIn(0f, range.toFloat()).toDp()
             }
         }) {
-        CompositionLocalProvider(LocalCouiDarkTheme provides dark) {
-            AppBarLayout(title, navigationIcon, actions, colors, windowInsets, expandedHeight, collapsedHeight, state,
-                expandedTitleStyle, collapsedTitleStyle)
+        Column {
+            CompositionLocalProvider(LocalCouiDarkTheme provides dark) {
+                AppBarLayout(title, navigationIcon, actions, colors, windowInsets, expandedHeight, collapsedHeight, state,
+                    expandedTitleStyle, collapsedTitleStyle)
+            }
+            bottomContent()
         }
     }
 }
@@ -205,8 +222,12 @@ private fun AppBarLayout(
             navigation.placeRelative(padding, navigationY, zIndex = 1f)
             action.placeRelative(width - padding - action.width, (toolbarHeight - action.height) / 2, zIndex = 1f)
             val titleY = if (large) {
-                val expandedY = expanded - (CouiTopAppBarDefaults.expandedHeight -
-                    CouiCollapsingAppBarDefaults.titleOnlyTop).toPx()
+                // 默认高度下两种算法一致；栏加高（集成侧给带副标题的标题让出一行）时标题顶仍停在原位，
+                // 多出来的高度留给标题下面的副标题，而不是把整块标题往下推出栏外
+                val expandedY = minOf(
+                    expanded - (CouiTopAppBarDefaults.expandedHeight - CouiCollapsingAppBarDefaults.titleOnlyTop).toPx(),
+                    CouiCollapsingAppBarDefaults.titleOnlyTop.toPx(),
+                )
                 val collapsedY = (collapsed - titleNode.height * scale) / 2f
                 if (curvedTitle) {
                     val verticalProgress = progress - arcOffset

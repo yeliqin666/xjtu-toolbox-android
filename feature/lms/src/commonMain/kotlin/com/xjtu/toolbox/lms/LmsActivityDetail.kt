@@ -105,6 +105,17 @@ internal fun ActivityDetailPage(
         }
     }
 
+    // 回放在下载队列里的状态（卡片据此画「下载 / 下载中 / 已下载」）。进页面读一次，
+    // 排进新任务后重读；还有没下完的就隔一会儿再读，直到都停下来。
+    var replayStates by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
+    var replayStatesTick by remember { mutableStateOf(0) }
+    LaunchedEffect(activity.id, replayStatesTick) {
+        do {
+            replayStates = runCatching { source.replayDownloadStates(activity.id) }.getOrDefault(emptyMap())
+            kotlinx.coroutines.delay(1500)
+        } while (replayStates.values.any { it in ReplayActiveStates })
+    }
+
     // 思源学堂回放下载：走 media.DownloadManager 队列。
     // download_url 本身就是直链，不必再解析。
     // 直播流（HLS/m3u8）不提供下载——它不是单文件，按分片下载另属一套实现。
@@ -123,6 +134,7 @@ internal fun ActivityDetailPage(
                     videos = listOf(video),
                 )
             }.onSuccess { n ->
+                replayStatesTick++
                 showBriefMessage(if (n > 0) "已加入下载队列" else "本端不支持排队下载")
             }.onFailure {
                 Log.e(TAG, "enqueue lms download failed", it)
@@ -206,6 +218,7 @@ internal fun ActivityDetailPage(
                         "Origin" to "https://lms.xjtu.edu.cn",
                         "Referer" to "https://lms.xjtu.edu.cn/",
                     )
+                    com.xjtu.toolbox.ui.glass.ReportScrollPosition(listState, scrollBehavior)
                     LazyColumn(
                         state = listState,
                         // 活动详情是一篇从上往下读的内容，宽屏限宽居中，不拉满整个平板
@@ -302,6 +315,7 @@ internal fun ActivityDetailPage(
                             items(d.replayVideos, key = { "replay_${it.id}" }) { video ->
                                 ReplayVideoCard(
                                     video,
+                                    downloadState = replayStates[replayDownloadKey(video.downloadUrl)],
                                     onDownload = { enqueueDownload(video, d.title) },
                                 ) {
                                     // 单机位播放
@@ -402,6 +416,7 @@ internal fun ActivityDetailPage(
                                     item(key = "live_replay_${idx}_${video.id}") {
                                         ReplayVideoCard(
                                             video,
+                                            downloadState = replayStates[replayDownloadKey(video.downloadUrl)],
                                             onDownload = { enqueueDownload(video, d.title) },
                                         ) {
                                             if (video.downloadUrl.isNotEmpty()) {
@@ -845,9 +860,15 @@ private fun SubmissionCard(
         }
     }
 }
+
+/** 下载队列里「还没下完」的状态（等待、下载中、暂停）。 */
+private val ReplayActiveStates = setOf("pending", "downloading", "paused")
+
 @Composable
 private fun ReplayVideoCard(
     video: LmsReplayVideo,
+    /** 这路回放在下载队列里的状态；null = 没排过（或失败、取消了，可以再下）。 */
+    downloadState: String? = null,
     onDownload: (() -> Unit)? = null,
     // onPlay 必须是最后一个参数：调用方用尾随 lambda 传它，
     // 放在 onDownload 之前会让尾随 lambda 绑错形参。
@@ -880,8 +901,15 @@ private fun ReplayVideoCard(
                 }
             }
             // 只有拿得到可直接 GET 的地址才给下载入口（HLS 已在调用方排除）
-            if (onDownload != null) {
-                IconButton(onClick = onDownload) {
+            // 已经在队列里的不再给下载入口：下完了打勾，还在下的转圈
+            when {
+                downloadState == "completed" -> Box(Modifier.size(40.dp), contentAlignment = Alignment.Center) {
+                    Icon(Icons.Default.DownloadDone, contentDescription = "已下载", tint = MiuixTheme.colorScheme.onSurfaceVariantSummary)
+                }
+                downloadState in ReplayActiveStates -> Box(Modifier.size(40.dp), contentAlignment = Alignment.Center) {
+                    CircularProgressIndicator(size = 18.dp, strokeWidth = 2.dp)
+                }
+                onDownload != null -> IconButton(onClick = onDownload) {
                     Icon(
                         Icons.Default.Download,
                         contentDescription = "下载",

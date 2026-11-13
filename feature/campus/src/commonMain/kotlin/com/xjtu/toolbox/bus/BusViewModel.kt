@@ -33,6 +33,9 @@ internal class BusViewModel(
 
     private var job: Job? = null
 
+    /** 线路名 → 分类，从带标签的那几天学来。 */
+    private val lineCategories = mutableMapOf<String, String>()
+
     init {
         load()
     }
@@ -51,7 +54,14 @@ internal class BusViewModel(
         val target = date
         job = viewModelScope.launch {
             try {
-                runs = source.runs(target)
+                val loaded = source.runs(target)
+                loaded.forEach { if (it.category.isNotEmpty()) lineCategories[it.lineName] = it.category }
+                // 明后天的班次上游常常还没打分类标签：按线路名补上已知的分类，补不上就拿线路名当分类，
+                // 不然这两天整排筛选都不出来
+                runs = loaded.map { run ->
+                    if (run.category.isNotEmpty()) run
+                    else run.copy(category = lineCategories[run.lineName] ?: run.lineName)
+                }
                 // 兴庆班车不是天天有：换天后选中的分类可能没了，别留一个空列表
                 if (category !in categories) category = null
                 isLoading = false

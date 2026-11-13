@@ -13,6 +13,7 @@ actual fun CouiHomeTopBarSurface(
     pageBackdrop: CouiPageBackdrop?,
     gradientColor: Color,
     modifier: Modifier,
+    glassAlpha: () -> Float,
     content: @Composable () -> Unit,
 ) {
     Box(modifier.background(gradientColor)) { content() }

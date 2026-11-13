@@ -560,8 +560,6 @@ private fun SettingsHome(
                 color = glassBarColor(glass),
                 pageBackdrop = couiPageBackdropFor(glass),
                 scrollBehavior = scrollBehavior,
-                // 二级页：标题钉死成收起态，不随上滑变小
-                pinned = true,
                 navigationIcon = {
                     CouiToolbarActionButton(onClick = onBack) {
                         Icon(MiuixIcons.Back, contentDescription = "返回")
@@ -609,7 +607,7 @@ private fun SettingsHome(
                             .fillMaxSize()
                             .nestedScroll(scrollBehavior.nestedScrollConnection)
                             .overScrollVertical()
-                            .verticalScroll(rememberScrollState()).tabContentBottomPadding()
+                            .verticalScroll(com.xjtu.toolbox.ui.glass.rememberReportedScrollState(scrollBehavior)).tabContentBottomPadding()
                     ) {
                         Spacer(Modifier.height(glassTop))
                         groups[selectedGroup.coerceIn(groups.indices)].body()
@@ -628,7 +626,7 @@ private fun SettingsHome(
                     .background(MiuixTheme.colorScheme.surface)
                     .nestedScroll(scrollBehavior.nestedScrollConnection)
                     .overScrollVertical()
-                    .verticalScroll(rememberScrollState()).tabContentBottomPadding()
+                    .verticalScroll(com.xjtu.toolbox.ui.glass.rememberReportedScrollState(scrollBehavior)).tabContentBottomPadding()
                     .padding(padding.withoutTop(glass))
             ) {
                 Spacer(Modifier.height(glassTop + 8.dp))
@@ -661,8 +659,6 @@ private fun SettingsSubPage(title: String, onBack: () -> Unit, content: @Composa
                 color = glassBarColor(glass),
                 pageBackdrop = couiPageBackdropFor(glass),
                 scrollBehavior = scrollBehavior,
-                // 二级页：标题钉死成收起态，不随上滑变小
-                pinned = true,
                 navigationIcon = {
                     CouiToolbarActionButton(onClick = onBack) {
                         Icon(MiuixIcons.Back, contentDescription = "返回")
@@ -678,7 +674,7 @@ private fun SettingsSubPage(title: String, onBack: () -> Unit, content: @Composa
                 .background(MiuixTheme.colorScheme.surface)
                 .nestedScroll(scrollBehavior.nestedScrollConnection)
                 .overScrollVertical()
-                .verticalScroll(rememberScrollState())
+                .verticalScroll(com.xjtu.toolbox.ui.glass.rememberReportedScrollState(scrollBehavior))
                 .padding(padding.withoutTop(glass))
         ) {
             Spacer(Modifier.height(padding.glassTop(glass)))

@@ -6,6 +6,7 @@ import com.xjtu.toolbox.home.HomeSignals
 import com.xjtu.toolbox.inbox.InboxCategories
 import com.xjtu.toolbox.inbox.InboxStore
 import com.xjtu.toolbox.inbox.OwnInbox
+import com.xjtu.toolbox.notification.AutoDndScheduler
 import com.xjtu.toolbox.notification.LibraryReminderScheduler
 
 /**
@@ -18,6 +19,8 @@ object LibraryStatus {
 
     fun publish(context: Context, booking: MyBookingInfo?, account: String? = AccountContext.activeAccountId) {
         LibraryReminderScheduler.sync(context, booking)
+        // 入座即勿扰（与上课自动勿扰共用一个开关）；只认当前账号的预约
+        if (account == AccountContext.activeAccountId) AutoDndScheduler.setLibraryInside(context, booking?.statusText == "使用中")
         val action = urgentAction(booking)
         if (account == AccountContext.activeAccountId) HomeSignals.libraryUrgentAction = action
         InboxStore.setTodos(InboxCategories.LIBRARY, listOfNotNull(action?.let { OwnInbox.library(it, booking) }), account)

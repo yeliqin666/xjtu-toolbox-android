@@ -1,10 +1,6 @@
 package com.xjtu.toolbox.home
 
 import androidx.compose.foundation.ExperimentalFoundationApi
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -133,7 +129,7 @@ fun HomeClassicScreen(
     topBarSearch: (@Composable () -> Unit)? = null,
     /** 搜索展开态与搜索结果内容层（`:app` 提供）；null = 没有。 */
     searching: Boolean = false,
-    searchContent: (@Composable () -> Unit)? = null,
+    searchContent: (@Composable (topPadding: Dp) -> Unit)? = null,
     /** 两套首页共用的滚动位置（见 HomeScreen）：切换布局时不跳回顶部。 */
     scrollState: ScrollState = rememberScrollState(),
 ) {
@@ -289,23 +285,9 @@ fun HomeClassicScreen(
             }
             Spacer(Modifier.height(SECTION_GAP + extraBottomPadding + 8.dp))
         }
+        if (topActions != null) HomeSearchLayer(searching, contentTopPadding + BAR_HEIGHT, searchContent)
         }
         if (topActions != null) {
-            // 搜索内容层：铺在首页正文之上、顶栏之下；展开/收起各自淡入淡出。
-            if (searchContent != null) {
-                AnimatedVisibility(
-                    visible = searching,
-                    enter = fadeIn(tween(150)),
-                    exit = fadeOut(tween(150)),
-                ) {
-                    Box(
-                        Modifier
-                            .fillMaxSize()
-                            .background(MiuixTheme.colorScheme.surface)
-                            .padding(top = contentTopPadding + BAR_HEIGHT),
-                    ) { searchContent() }
-                }
-            }
             val scope = rememberCoroutineScope()
             // 两套首页共用同一份顶栏（见 HomeTopBar）；经典版没有编辑态，只递宿主那排按钮。
             HomeTopBar(

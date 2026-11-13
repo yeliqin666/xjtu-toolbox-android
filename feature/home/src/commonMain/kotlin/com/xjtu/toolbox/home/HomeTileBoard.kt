@@ -227,7 +227,7 @@ internal fun HomeGroupSection(
     onOpen: (HomeServiceRow) -> Unit,
     onStartEdit: () -> Unit,
     /**
-     * 付款码取数（校园卡 2×2 以上的大卡直接画二维码）。
+     * 付款码取数（付款码 2×2 以上的大卡直接画二维码）。
      *
      * 这条是原「小组件」那套的能力，合并进卡片组后保留：只在用餐时段 + 页面可见时取，取不到就
      * 照常画大卡内容。默认返回 null = 这一端拿不到（桌面 / Web 就靠这个默认值什么都不画）。
@@ -520,7 +520,7 @@ private fun GroupRoundButton(
 }
 
 /**
- * 校园卡大卡上的付款码。
+ * 付款码大卡上的二维码。
  *
  * 只在「用餐时段 + 这一页可见」时去取码（[isMealPaymentTime]，见 `PaymentCodeTime.kt`），取到就
  * 整块盖成二维码并每 30 秒自动刷新；取不到 / 不在时段就什么都不画，底下的大卡内容照旧——所以
@@ -875,9 +875,9 @@ private fun HomeTileItem(
             liveSpan = liveSpan,
         )
 
-        // 校园卡的 2×2 大卡：用餐时段直接把付款码画在这块上（原「小组件」那套能力，
-        // 合并进卡片组后保留）。取不到码 / 不在时段就什么都不画，下面的大卡内容照旧。
-        if (!editing && large && face.key == AppRoute.CampusCard.id) {
+        // 付款码的 2×2 大卡：用餐时段直接把码画在这块上。取不到码 / 不在时段就什么都不画，
+        // 下面的卡面照旧。校园卡那块只管余额与消费，不盖码。
+        if (!editing && large && face.key == AppRoute.PaymentCode.id) {
             PaymentCodeOverlay(fetch = paymentCode, radius = radius)
         }
 

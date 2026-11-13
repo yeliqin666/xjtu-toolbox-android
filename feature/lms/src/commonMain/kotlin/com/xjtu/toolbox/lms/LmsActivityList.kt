@@ -153,27 +153,25 @@ internal fun ActivityListPage(
                 glass = glass,
                 scrollBehavior = scrollBehavior,
                 onBack = onBack,
-                // 分类挂在顶栏底部，和顶栏一整块玻璃，列表从它下面滚过去（同校园卡的标签行）
                 bottomContent = {
-                    if (filters.size > 2) CompositionLocalProvider(com.xjtu.toolbox.ui.glass.LocalOnGlassBar provides (glass != null)) {
-                        AppSegmentedTabs(
-                            tabs = filters.map {
-                                when (it) {
-                                    CourseContentFilter.All -> "全部"
-                                    CourseContentFilter.Bulletin -> "公告"
-                                    is CourseContentFilter.Activity -> it.type.displayName()
-                                }
-                            },
-                            selectedTabIndex = filters.indexOf(filter).coerceAtLeast(0),
-                            onTabSelected = { i ->
-                                filter = filters[i]
-                                if (filter is CourseContentFilter.Bulletin) {
-                                    selecting = false
-                                    picked.clear()
-                                }
-                            },
-                        )
-                    }
+                    com.xjtu.toolbox.ui.components.DockedPageTabs(
+                        tabs = filters.map {
+                            when (it) {
+                                CourseContentFilter.All -> "全部"
+                                CourseContentFilter.Bulletin -> "公告"
+                                is CourseContentFilter.Activity -> it.type.displayName()
+                            }
+                        },
+                        selectedTabIndex = filters.indexOf(filter).coerceAtLeast(0),
+                        onTabSelected = { i ->
+                            filter = filters[i]
+                            if (filter is CourseContentFilter.Bulletin) {
+                                selecting = false
+                                picked.clear()
+                            }
+                        },
+                        visible = filters.size > 2,
+                    )
                 },
                 actions = {
                     Row(
@@ -219,6 +217,27 @@ internal fun ActivityListPage(
                 },
             )
         }
+        // 批量下载时底部换成操作条，分类先收起
+        com.xjtu.toolbox.ui.components.PageBottomTabsHost(
+            tabs = filters.map {
+                when (it) {
+                    CourseContentFilter.All -> "全部"
+                    CourseContentFilter.Bulletin -> "公告"
+                    is CourseContentFilter.Activity -> it.type.displayName()
+                }
+            },
+            selectedTabIndex = filters.indexOf(filter).coerceAtLeast(0),
+            onTabSelected = { i ->
+                filter = filters[i]
+                if (filter is CourseContentFilter.Bulletin) {
+                    selecting = false
+                    picked.clear()
+                }
+            },
+            glass = glass,
+            visible = filters.size > 2 && !selecting,
+            modifier = Modifier.fillMaxSize(),
+        ) {
         Box(Modifier.fillMaxSize().padding(padding.withoutTop(glass)).glassSource(glass).nestedScroll(scrollBehavior.nestedScrollConnection)) {
             val hasContent = activities.isNotEmpty() || bulletins.isNotEmpty()
             when {
@@ -232,7 +251,7 @@ internal fun ActivityListPage(
                     AdaptiveCardGrid(
                         state = listState,
                         modifier = Modifier.fillMaxSize(),
-                        contentPadding = PaddingValues(top = glassTop, bottom = 16.dp),
+                        contentPadding = tabContentPadding(PaddingValues(top = glassTop, bottom = 16.dp)),
                         spacing = 0.dp,
                         horizontalSpacing = 0.dp,
                     ) {
@@ -359,6 +378,7 @@ internal fun ActivityListPage(
                     }
                 }
             }
+        }
         }
     }
 }

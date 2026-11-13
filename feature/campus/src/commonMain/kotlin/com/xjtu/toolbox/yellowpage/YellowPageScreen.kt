@@ -9,7 +9,6 @@ import com.xjtu.toolbox.ui.components.enterOnce
 import androidx.compose.foundation.background
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.combinedClickable
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -22,7 +21,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -50,7 +48,6 @@ import com.xjtu.toolbox.ui.glass.*
 import com.xjtu.toolbox.platform.copyOnLongPress
 import com.xjtu.toolbox.platform.rememberCopyText
 import com.xjtu.toolbox.platform.rememberPhoneDialer
-import com.xjtu.toolbox.ui.components.AppFilterChip
 import com.xjtu.toolbox.ui.components.EmptyState
 import com.xjtu.toolbox.ui.components.ErrorState
 import com.xjtu.toolbox.ui.glass.rememberCouiTopAppBarScrollBehavior
@@ -112,7 +109,6 @@ fun YellowPageScreen(
             all.filter { it.categoryId == selectedCategory }
         }
     }
-    val categoryName = data?.categories?.firstOrNull { it.id == selectedCategory }?.name.orEmpty()
 
     // 玻璃顶栏（经典风格下为 null，一切照旧），用法见 ui/glass/GlassTopBar.kt
     val glass = rememberPageGlass()
@@ -163,42 +159,26 @@ fun YellowPageScreen(
                             .padding(top = 8.dp)
                     )
                 }
-                if (query.isBlank()) {
+                val categories = data?.categories.orEmpty()
+                if (query.isBlank() && categories.isNotEmpty()) {
                     fullLineItem {
-                        Row(
-                            Modifier
-                                .fillMaxWidth()
-                                .horizontalScroll(rememberScrollState())
-                                .padding(horizontal = 16.dp),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            data?.categories.orEmpty().forEach { category ->
-                                AppFilterChip(
-                                    selected = selectedCategory == category.id,
-                                    onClick = { selectedCategory = category.id },
-                                    label = category.name
-                                )
-                            }
-                        }
+                        com.xjtu.toolbox.ui.components.AppChipTabRow(
+                            options = categories.map { it.id },
+                            selected = selectedCategory,
+                            onSelect = { selectedCategory = it },
+                            label = { id -> categories.firstOrNull { it.id == id }?.name.orEmpty() },
+                        )
                     }
                 }
+                // 分类名胶囊上已经有了，这里只给数量和更新时间
                 fullLineItem {
-                    Row(
-                        Modifier.padding(start = 20.dp, end = 20.dp, top = 4.dp),
-                        verticalAlignment = Alignment.Bottom
-                    ) {
-                        Text(
-                            if (query.isBlank()) categoryName else "搜索结果",
-                            style = MiuixTheme.textStyles.title4,
-                            fontWeight = FontWeight.SemiBold,
-                            modifier = Modifier.weight(1f)
-                        )
-                        Text(
-                            "${shown.size} 个" + data?.updateTime?.takeIf { it.isNotBlank() }?.let { " · 更新于 $it" }.orEmpty(),
-                            style = MiuixTheme.textStyles.footnote1,
-                            color = MiuixTheme.colorScheme.onSurfaceVariantSummary
-                        )
-                    }
+                    Text(
+                        (if (query.isBlank()) "" else "搜索结果 · ") + "${shown.size} 个" +
+                            data?.updateTime?.takeIf { it.isNotBlank() }?.let { " · 更新于 $it" }.orEmpty(),
+                        style = MiuixTheme.textStyles.footnote1,
+                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                        modifier = Modifier.padding(horizontal = 20.dp),
+                    )
                 }
                 if (shown.isEmpty()) {
                     fullLineItem {

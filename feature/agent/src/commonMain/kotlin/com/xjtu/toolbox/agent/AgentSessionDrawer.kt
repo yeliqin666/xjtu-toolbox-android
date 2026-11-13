@@ -67,16 +67,18 @@ internal fun SessionDrawer(
         )
     }
     BoxWithConstraints(Modifier.fillMaxSize().zIndex(2f)) {
+        // 开关按钮在顶栏右边，侧栏也从右边滑出
         AnimatedVisibility(
             visible = open,
-            enter = slideInHorizontally(animationSpec = tween(260)) { -it },
-            exit = slideOutHorizontally(animationSpec = tween(220)) { -it },
+            enter = slideInHorizontally(animationSpec = tween(260)) { it },
+            exit = slideOutHorizontally(animationSpec = tween(220)) { it },
+            modifier = Modifier.align(Alignment.CenterEnd),
         ) {
             Surface(
                 modifier = Modifier
                     .fillMaxHeight()
                     .width(minOf(maxWidth * 0.85f, 320.dp)),
-                shape = RoundedCornerShape(topEnd = 24.dp, bottomEnd = 24.dp),
+                shape = RoundedCornerShape(topStart = 24.dp, bottomStart = 24.dp),
                 color = MiuixTheme.colorScheme.surfaceContainer,
             ) {
                 SessionListPane(

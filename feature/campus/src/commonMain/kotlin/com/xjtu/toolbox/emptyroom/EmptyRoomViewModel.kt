@@ -221,7 +221,8 @@ internal class EmptyRoomViewModel(
                         }
                     }
                     schedule = rows.associateBy { it.name }
-                    note = if (rows.isNotEmpty()) "CDN 课表不可用，已改直查教务（${targets.joinToString("、")}）" else null
+                    // 查的就是上面楼栋胶囊里那几栋，不再把楼名列一遍
+                    note = if (rows.isNotEmpty()) "CDN 课表不可用，已改直查教务" else null
                 }
                 if (schedule.isEmpty()) note = "当天课表暂时拿不到，只按此刻实况列出"
             }

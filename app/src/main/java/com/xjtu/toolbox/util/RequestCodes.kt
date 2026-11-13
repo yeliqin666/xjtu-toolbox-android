@@ -18,6 +18,7 @@ object RequestCodes {
     const val TODO_WIDGET = 1300
     /** + 行号（< 10）。 */
     const val TODO_WIDGET_ROW = 1310
+    const val SMART_WIDGET = 1400
 
     // 2xxx 系统通知
     const val NOTICE_PUSH = 2000
@@ -45,4 +46,5 @@ object RequestCodes {
     const val SCHEDULE_DAY_NEXT = 5011
     const val DYNAMIC_SCHEDULE_ALARM = 5020
     const val WEEKLY_REPORT_ALARM = 5030
+    const val SMART_WIDGET_REFRESH = 5040
 }

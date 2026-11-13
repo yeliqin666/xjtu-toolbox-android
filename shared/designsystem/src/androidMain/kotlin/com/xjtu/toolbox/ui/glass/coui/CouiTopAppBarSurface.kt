@@ -23,6 +23,8 @@ import androidx.compose.ui.graphics.takeOrElse
 import androidx.compose.ui.graphics.colorspace.ColorSpaces
 import androidx.compose.ui.graphics.asComposeRenderEffect
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.CompositingStrategy
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.Constraints
@@ -106,7 +108,33 @@ fun CouiTopAppBarSurface(
             modifier = modifier.then(overlayModifier),
             content = {
                 Box(Modifier.couiBackdrop(destination)) {
-                    Box(Modifier.matchParentSize().graphicsLayer { alpha = backgroundAlpha.coerceIn(0f, 1f) }) {
+                    Box(
+                        Modifier
+                            .matchParentSize()
+                            .graphicsLayer {
+                                alpha = backgroundAlpha.coerceIn(0f, 1f)
+                                // 离屏合成，下面的渐隐遮罩才只作用在这块背景上
+                                compositingStrategy = CompositingStrategy.Offscreen
+                            }
+                            // 集成侧扩展：最下面一段整体淡到透明。模糊着色器在区域底边不一定正好归零，
+                            // 不加这层就是一道硬边；带切换条时整块更高，硬边更显眼
+                            .drawWithContent {
+                                drawContent()
+                                val fade = CouiTopAppBarDefaults.bottomFade.toPx().coerceAtMost(size.height)
+                                if (fade > 0f) {
+                                    val start = ((size.height - fade) / size.height).coerceIn(0f, 1f)
+                                    // S 形曲线：起止两端都不起拐角，看不出从哪儿开始淡
+                                    val stops = Array(9) { i ->
+                                        val t = i / 8f
+                                        (start + (1f - start) * t) to Color.Black.copy(alpha = 1f - t * t * (3f - 2f * t))
+                                    }
+                                    drawRect(
+                                        brush = Brush.verticalGradient(*stops),
+                                        blendMode = androidx.compose.ui.graphics.BlendMode.DstIn,
+                                    )
+                                }
+                            },
+                    ) {
                         Spacer(Modifier.matchParentSize().then(backgroundModifier))
                         if (resolvedGradientColor.alpha > 0f) Spacer(Modifier.matchParentSize().background(gradient))
                     }

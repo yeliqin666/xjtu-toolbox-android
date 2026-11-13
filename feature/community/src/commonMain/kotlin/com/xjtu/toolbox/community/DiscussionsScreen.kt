@@ -15,7 +15,6 @@ import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
@@ -140,6 +139,7 @@ fun DiscussionsScreen(
             topPadding = top,
             modifier = Modifier.fillMaxSize(),
         ) {
+            com.xjtu.toolbox.ui.glass.ReportScrollPosition(listState)
             LazyColumn(
                 state = listState,
                 modifier = Modifier.fillMaxSize().overScrollVertical(),
@@ -147,12 +147,16 @@ fun DiscussionsScreen(
                 verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
                 if (state.categories.isNotEmpty()) item(key = "filters") {
-                    LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        item { AppFilterChip(selected = state.filter == null, onClick = { onFilter(null) }, label = "全部") }
-                        items(state.categories, key = { it.id }) { category ->
-                            AppFilterChip(selected = state.filter == category.id, onClick = { onFilter(category.id) }, label = category.name)
-                        }
-                    }
+                    // 空串代表「全部」
+                    val names = state.categories.associate { it.id to it.name }
+                    com.xjtu.toolbox.ui.components.AppChipTabRow(
+                        options = listOf("") + state.categories.map { it.id },
+                        selected = state.filter.orEmpty(),
+                        onSelect = { onFilter(it.ifEmpty { null }) },
+                        label = { names[it] ?: "全部" },
+                        // 列表左右留了 12dp：整行伸到屏幕边，滚动渐隐落在边上
+                        bleed = 12.dp,
+                    )
                 }
                 when {
                     state.items.isEmpty() && state.loading -> item(key = "loading") {

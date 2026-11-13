@@ -61,21 +61,25 @@ fun <Q> JudgeListScreen(title: String, vm: JudgeViewModel<Q>, onBack: () -> Unit
                 glass = glass,
                 scrollBehavior = scrollBehavior,
                 onBack = onBack,
-                // 分段标签不跟着滚：挂在顶栏里和顶栏一起做一整块玻璃，课程卡从它下面滚过去
                 bottomContent = {
-                    CompositionLocalProvider(LocalOnGlassBar provides (glass != null)) {
-                        AppSegmentedTabs(
-                            tabs = listOf("未评 (${vm.unfinished.size})", "已评 (${vm.finished.size})"),
-                            selectedTabIndex = selectedTab,
-                            onTabSelected = { selectedTab = it },
-                            modifier = Modifier.readableWidth(),
-                        )
-                    }
+                    com.xjtu.toolbox.ui.components.DockedPageTabs(
+                        tabs = listOf("未评 (${vm.unfinished.size})", "已评 (${vm.finished.size})"),
+                        selectedTabIndex = selectedTab,
+                        onTabSelected = { selectedTab = it },
+                    )
                 },
             )
-        }
+        },
     ) { padding ->
         val glassTop = padding.glassTop(glass)
+        // 未评 / 已评
+        com.xjtu.toolbox.ui.components.PageBottomTabsHost(
+            tabs = listOf("未评 (${vm.unfinished.size})", "已评 (${vm.finished.size})"),
+            selectedTabIndex = selectedTab,
+            onTabSelected = { selectedTab = it },
+            glass = glass,
+            modifier = Modifier.fillMaxSize(),
+        ) {
         // 课程卡分两三列铺开（AdaptiveCardGrid），标签和「一键好评」这种控件限宽居中
         Column(
             Modifier
@@ -132,7 +136,7 @@ fun <Q> JudgeListScreen(title: String, vm: JudgeViewModel<Q>, onBack: () -> Unit
                             com.xjtu.toolbox.ui.adaptive.AdaptiveCardGrid(
                                 modifier = Modifier.fillMaxSize().overScrollVertical(),
                                 spacing = 10.dp,
-                                contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 12.dp + glassTop, bottom = 12.dp)
+                                contentPadding = tabContentPadding(PaddingValues(start = 16.dp, end = 16.dp, top = 12.dp + glassTop, bottom = 12.dp))
                             ) {
                                 // 一键好评是「未评」列表的第一项，跟着列表滚
                                 // 一键好评是「未评」列表的第一项，跟着列表滚。
@@ -152,6 +156,7 @@ fun <Q> JudgeListScreen(title: String, vm: JudgeViewModel<Q>, onBack: () -> Unit
                     }
                 }
             }
+        }
         }
     }
 }

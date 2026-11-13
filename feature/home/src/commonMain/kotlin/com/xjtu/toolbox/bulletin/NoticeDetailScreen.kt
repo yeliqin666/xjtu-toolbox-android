@@ -20,6 +20,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.xjtu.toolbox.nav.AppRoute
@@ -68,7 +69,8 @@ fun NoticeDetailScreen(
                 .fillMaxSize()
                 .padding(padding.withoutTop(glass))
                 .glassSource(glass)
-                .verticalScroll(rememberScrollState()),
+                .nestedScroll(scrollBehavior.nestedScrollConnection)
+                .verticalScroll(com.xjtu.toolbox.ui.glass.rememberReportedScrollState(scrollBehavior)),
         ) {
             Spacer(Modifier.height(padding.glassTop(glass)))
             Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 16.dp)) {

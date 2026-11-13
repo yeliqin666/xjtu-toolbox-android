@@ -151,7 +151,8 @@ internal fun ZyxfBrowseScreen(
             .fillMaxSize()
             .background(MiuixTheme.colorScheme.surface),
     ) {
-        val header: LazyListScope.() -> Unit = {            // 搜索在顶栏里时（学辅 tab），列表不再重复一只；压栈页没有顶栏搜索，走这里
+        val header: LazyListScope.() -> Unit = {
+            // 学辅 tab 的搜索和排序在顶栏里；压栈页没有那条顶栏，放在列表头部
             if (!searchInTopBar) {
                 item(key = "search", contentType = "header") {
                     CouiSearchHeader(
@@ -166,8 +167,6 @@ internal fun ZyxfBrowseScreen(
                     )
                 }
             }
-            // 学辅 tab 的排序胶囊和搜索框一起放在顶栏里（见 ZyxfTopBarSortChips）；
-            // 压栈页没有那条顶栏，排序留在列表头部。
             if (!searchInTopBar && !searching) {
                 item(key = "sort", contentType = "header") {
                     SortChipTab(
@@ -219,16 +218,9 @@ internal fun ZyxfBrowseScreen(
             topPadding = contentTopPadding,
             modifier = Modifier.fillMaxSize(),
         ) {
-            // 顶栏双轨滚动：列表顶部留白跟着 contentTranslationY 伸缩（布局阶段读，不逐帧重组）。
-            val listPadding = com.xjtu.toolbox.ui.rememberCouiScrollContentPadding(
-                base = PaddingValues(
-                    top = contentTopPadding,
-                    bottom = 16.dp + contentPadding.calculateBottomPadding(),
-                ),
-                behavior = scrollBehavior,
-            )
             LazyColumn(
-                Modifier
+                state = com.xjtu.toolbox.ui.glass.rememberReportedLazyListState(),
+                modifier = Modifier
                     .fillMaxSize()
                     .then(
                         scrollBehavior?.let {
@@ -240,7 +232,10 @@ internal fun ZyxfBrowseScreen(
                 // 外层是「先铺底色、再 padding」，垫上去等于在悬浮底栏下面留了一整条
                 // 死的纯色带（底栏高 + 导航条，实测 80dp 上下），看着就是「底部一条很宽的状态栏」。
                 // 放进 contentPadding 则是列表能滚过去、玻璃底栏下面透出的是真内容。
-                contentPadding = listPadding,
+                contentPadding = PaddingValues(
+                    top = contentTopPadding,
+                    bottom = 16.dp + contentPadding.calculateBottomPadding(),
+                ),
             ) {
                 header()
                 // 加载、出错、空目录也是列表里的一项：头部照样在，能改搜索词、能点面包屑回上一级

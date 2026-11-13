@@ -37,7 +37,8 @@ object CouiCollapsingAppBarDefaults {
     val titleStart = 24.dp
     val titleBottom = 18.dp
     val resultsStartOffset = 108.dp
-    internal val titleOnlyBlurExtension = 8.dp
+    /** 大标题栏的模糊延伸（原版 8dp）；下沿收尾见 CouiTopAppBarDefaults.bottomFade。 */
+    internal val titleOnlyBlurExtension = 20.dp
     internal val searchBlurExtension = 14.dp
     internal const val referenceBlurRadiusPx = 27f
     internal const val snapResponse = .25f
@@ -140,6 +141,15 @@ class CouiCollapsingAppBarState internal constructor(rangePx: Float, initialFrac
         // COUIViewOffsetHelper 每次重定向都把可见的整数位置设回 start，保留运行速度。
         animation.setStartValue(offsetPx)
         animation.animateToFinalPosition(target)
+    }
+
+    /**
+     * 集成侧扩展：按正文的实际位置对齐折叠状态。程序化滚动（换会话、自动滚到底、恢复位置）不经过嵌套滚动，
+     * 顶栏不会自己收；正文已经滚开却还展开着、或回到顶部却还收着，就用它摆正。
+     */
+    internal fun alignToContent(scrolled: Boolean) {
+        val target = if (scrolled) rangePx else 0f
+        if (logicalOffset != target) animateOffset(target, animateContent = true)
     }
 
     internal fun updateSearch(expanded: Boolean, active: Boolean) {

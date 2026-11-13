@@ -133,7 +133,7 @@ internal fun DynamicSchedulePreference() {
             )
         }
     }
-    SmallTitle("上课自动勿扰")
+    SmallTitle("自动勿扰")
     Card(
         modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
         cornerRadius = 16.dp,
@@ -141,8 +141,8 @@ internal fun DynamicSchedulePreference() {
     ) {
         Column {
             SwitchPreference(
-                title = "上课时自动开启勿扰",
-                summary = if (dndGranted) "课前 3 分钟到课后 3 分钟切为「仅优先」，结束后恢复；手动改过的不会被还原"
+                title = "上课、在馆时自动开启勿扰",
+                summary = if (dndGranted) "课前 3 分钟到课后 3 分钟、图书馆签到入座期间切为「仅优先」，结束后恢复；手动改过的不会被还原"
                     else "需要先在系统里授权「勿扰模式访问」（应用可以切换勿扰，不读取通知内容）",
                 checked = dndOn,
                 startAction = { SettingsIcon(Icons.Default.Notifications, SettingsColors.Purple) },

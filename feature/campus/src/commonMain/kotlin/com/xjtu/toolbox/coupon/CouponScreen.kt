@@ -86,21 +86,25 @@ fun CouponScreen(
                 glass = glass,
                 scrollBehavior = scrollBehavior,
                 onBack = onBack,
-                // 分段标签不跟着滚：挂在顶栏里和顶栏一起做一整块玻璃，券卡从它下面滚过去
                 bottomContent = {
-                    CompositionLocalProvider(LocalOnGlassBar provides (glass != null)) {
-                        AppSegmentedTabs(
-                            tabs = CouponFilter.entries.map { it.label },
-                            selectedTabIndex = CouponFilter.entries.indexOf(selectedFilter),
-                            onTabSelected = { vm.selectFilter(CouponFilter.entries[it]) },
-                            modifier = Modifier.readableWidth(),
-                        )
-                    }
+                    com.xjtu.toolbox.ui.components.DockedPageTabs(
+                        tabs = CouponFilter.entries.map { it.label },
+                        selectedTabIndex = CouponFilter.entries.indexOf(selectedFilter),
+                        onTabSelected = { vm.selectFilter(CouponFilter.entries[it]) },
+                    )
                 },
             )
-        }
+        },
     ) { padding ->
         val glassTop = padding.glassTop(glass)
+        // 分类切换
+        com.xjtu.toolbox.ui.components.PageBottomTabsHost(
+            tabs = CouponFilter.entries.map { it.label },
+            selectedTabIndex = CouponFilter.entries.indexOf(selectedFilter),
+            onTabSelected = { vm.selectFilter(CouponFilter.entries[it]) },
+            glass = glass,
+            modifier = Modifier.fillMaxSize(),
+        ) {
         // 宽屏不再整页限宽 720：券卡分两三列铺开，只有标签行还限宽居中
         Column(
             Modifier
@@ -166,6 +170,7 @@ fun CouponScreen(
                 }
             }
         }
+        }
     }
 }
 
@@ -211,7 +216,7 @@ private fun CouponList(
             .fillMaxSize()
             .overScrollVertical(),
         spacing = 10.dp,
-        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 12.dp + topPadding, bottom = 12.dp)
+        contentPadding = tabContentPadding(PaddingValues(start = 16.dp, end = 16.dp, top = 12.dp + topPadding, bottom = 12.dp))
     ) {
         fullLineItem {
             CouponSummaryCard(

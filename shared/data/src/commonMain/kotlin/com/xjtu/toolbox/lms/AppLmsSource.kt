@@ -98,5 +98,8 @@ class AppLmsSource private constructor(
         sink.queueReplayVideos(courseName, activityTitle, activityId, videos)
     }
 
+    override suspend fun replayDownloadStates(activityId: Int): Map<String, String> =
+        withContext(Dispatchers.IO) { sink.replayDownloadStates(activityId) }
+
     override fun publicPathLabel(): String = sink.publicPathLabel()
 }

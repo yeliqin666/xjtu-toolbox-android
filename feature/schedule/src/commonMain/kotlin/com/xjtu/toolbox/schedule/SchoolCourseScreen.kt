@@ -466,7 +466,8 @@ fun SchoolCourseScreen(
                             colors = ButtonDefaults.buttonColorsPrimary(),
                         ) {
                             if (vm.isSearching) {
-                                CircularProgressIndicator(modifier = Modifier.size(18.dp))
+                                // 尺寸要用组件自己的 size 参数：只给 Modifier.size 时圈还是默认大小，会溢出按钮盖到字上
+                                CircularProgressIndicator(size = 18.dp, strokeWidth = 2.dp)
                                 Spacer(Modifier.width(8.dp))
                             }
                             Text(if (vm.isSearching) "搜索中..." else "搜索", color = MiuixTheme.colorScheme.onPrimary)

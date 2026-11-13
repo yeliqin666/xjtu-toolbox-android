@@ -159,10 +159,9 @@ fun DownloadManagerScreen(
     Scaffold(
         topBar = {
             if (isCleanupMode) {
-                // 批量模式也走 COUI 原版小标题顶栏（钉死 52dp），整页只需要一种 COUI 滚动行为
+                // 批量模式和普通模式同一种 COUI 大标题折叠顶栏，共用一份滚动行为
                 CouiPageTopAppBar(
                     title = "批量管理",
-                    pinned = true,
                     color = glassBarColor(glass),
                     pageBackdrop = couiPageBackdropFor(glass),
                     scrollBehavior = scrollBehavior,
@@ -302,6 +301,7 @@ fun DownloadManagerScreen(
                 )
                 LazyColumn(
                     Modifier.fillMaxSize().overScrollVertical(),
+                    state = com.xjtu.toolbox.ui.glass.rememberReportedLazyListState(scrollBehavior),
                     contentPadding = tabContentPadding(PaddingValues(start = 12.dp, end = 12.dp, top = glassTop, bottom = 24.dp)),
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {

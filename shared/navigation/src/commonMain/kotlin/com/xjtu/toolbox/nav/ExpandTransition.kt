@@ -78,9 +78,16 @@ object ExpandOrigins {
         var full by mutableStateOf(full)
             internal set
 
-        /** 转场已结束：原卡先放出来，叠加层再留两帧才撤（见 [finishContent]），中间不会有一帧两边都不画。 */
+        /** 转场已结束：原卡放出来、叠加层同一帧不画，再留两帧才撤（见 [finishContent]）。 */
         var ending by mutableStateOf(false)
             internal set
+
+        /**
+         * 导航库报了结束，但还没切到 [ending]。结束通常是在绘制阶段报的，那一帧原卡已经按「藏着」画完了，
+         * 叠加层却排在后面画：要是当场切，叠加层这一帧就不画了，两边都空，就是返回最后闪的那一下。
+         * 所以只记一笔（不是 State，不触发重画），由叠加层在下一帧开头统一切，原卡和叠加层同一帧换手。
+         */
+        internal var endRequested = false
     }
 
     /** 返回窗口：屏幕坐标里的矩形，以及窗口从格子长到全屏的进度（0 = 格子，1 = 全屏）。 */
@@ -115,17 +122,19 @@ object ExpandOrigins {
         } else {
             current.progress = progress
             current.full = full
+            // 报了结束又接着动（返回手势反悔后重来）：撤销那次结束
+            current.endRequested = false
         }
     }
 
     /**
-     * 转场结束。不直接置空：这个调用常发生在绘制阶段，叠加层靠重组撤掉、原卡靠重绘放出来，
-     * 两条路不保证同一帧生效，实测会空出一帧什么都没画（卡片闪一下）。
-     * 所以先标 [ContentTransition.ending]：原卡立刻放出来，叠加层留两帧再由 [finishContent] 撤。
+     * 转场结束。不直接置空，也不当场切 [ContentTransition.ending]：这个调用常发生在绘制阶段，
+     * 当场切会空出一帧什么都没画（卡片闪一下，见 [ContentTransition.endRequested]）。
+     * 有叠加层的只记一笔，由 [OriginContentOverlay] 在下一帧开头切 ending、再留两帧撤掉。
      */
     fun clearContent() {
         val current = contentState.value ?: return
-        if (current.origin.snapshot == null) contentState.value = null else current.ending = true
+        if (current.origin.snapshot == null) contentState.value = null else current.endRequested = true
     }
 
     /** 叠加层收尾：只撤自己那一次，期间若已开始新的转场就不动。 */
@@ -139,7 +148,7 @@ object ExpandOrigins {
      */
     fun pageContentAlpha(progress: Float, popping: Boolean = false): Float {
         val t = if (popping) ((progress - 0.40f) / 0.40f).coerceIn(0f, 1f)
-        else ((progress - 0.26f) / 0.36f).coerceIn(0f, 1f)
+        else ((progress - 0.18f) / 0.32f).coerceIn(0f, 1f)
         return t * t * (3f - 2f * t)
     }
 
@@ -224,23 +233,24 @@ object ButtonZoom {
         origin.cornerPx * 2f >= origin.bounds.minDimension * 0.95f
 
     /**
-     * 和弹出菜单同一种节奏，分两段：前段边移边放大，飞到屏幕中央；
-     * 后段位置已经停稳，原地继续放大铺满。尺寸是两段叠加，交接处速度连续，高度比宽度晚一点撑开。
+     * 移动和放大重叠进行：飞向屏幕中央的同时就开始铺开，不再「先飞到中央、再原地放大」排成两段
+     * （那样前半程只是一小块在挪，打开显得慢）。尺寸是两条曲线叠加，交接处速度连续，高度比宽度晚一点撑开。
      */
     fun window(from: Rect, full: Size, u: Float, risesFromBottom: Boolean = false): Rect {
         val p = u.coerceIn(0f, 1f)
-        // 起步速度为 0：卡片先以原样动起来，不会一下子跳大
-        val flight = smoothStep(p / FLIGHT_END)
-        // 飞行段只长一点，看得清是一小块在移动；铺满主要靠后段
-        val growW = 0.22f * flight + 0.78f * smoothStep((p - 0.38f) / 0.62f)
-        val growH = 0.16f * flight + 0.84f * smoothStep((p - 0.34f) / 0.66f)
+        // 起步就有速度（减速曲线）：松手那一刻卡片就开始飞，不先停在原地等按压回弹，
+        // 按下时的缩小和打开是同时发生的，而不是先缩、再开
+        val flight = easeOut(p / FLIGHT_END)
+        // 飞行时就开始长，铺满的大头在飞行后半段和之后
+        val growW = 0.18f * flight + 0.82f * smoothStep((p - GROW_START) / (1f - GROW_START))
+        val growH = 0.14f * flight + 0.86f * smoothStep((p - GROW_START_H) / (1f - GROW_START_H))
         val cx = lerp(from.center.x, full.width / 2f, flight)
         // 底栏盖在页面上层：先升到它上方、屏幕偏下处，看得见离开了底栏，再放大回到全屏中心
         val cy = if (risesFromBottom) {
             lerp(
                 lerp(from.center.y, full.height * BAR_FLIGHT_TARGET, flight),
                 full.height / 2f,
-                smoothStep((p - 0.38f) / 0.62f),
+                smoothStep((p - GROW_START) / (1f - GROW_START)),
             )
         } else {
             lerp(from.center.y, full.height / 2f, flight)
@@ -262,8 +272,12 @@ object ButtonZoom {
     /** 面板底色从按钮那种半透明长成实底，起步时看起来还是那颗按钮。 */
     fun coverFill(u: Float): Float = 0.55f + 0.45f * smoothStep(u / 0.12f)
 
-    /** 飞行段在总进度的这个位置结束，之后只原地放大。 */
-    private const val FLIGHT_END = 0.55f
+    /** 飞行段在总进度的这个位置结束（中心到屏幕中央）。 */
+    internal const val FLIGHT_END = 0.5f
+
+    /** 宽、高的主体放大从这里开始，几乎和飞行同时起步。 */
+    internal const val GROW_START = 0.06f
+    internal const val GROW_START_H = 0.04f
 
     /** 从底栏打开时，飞行段停在屏幕高度的这个位置。 */
     private const val BAR_FLIGHT_TARGET = 0.68f
@@ -271,6 +285,12 @@ object ButtonZoom {
     private fun smoothStep(x: Float): Float {
         val t = x.coerceIn(0f, 1f)
         return t * t * (3f - 2f * t)
+    }
+
+    /** 起步最快、到终点速度归零的减速曲线。 */
+    private fun easeOut(x: Float): Float {
+        val t = x.coerceIn(0f, 1f)
+        return 1f - (1f - t) * (1f - t)
     }
 
     /** [progress]：0 = 按钮，1 = 全屏。[full] 是整页尺寸，[from] 与它在同一坐标系。 */
@@ -514,8 +534,8 @@ fun expandFromOrigin(type: KClass<out AppRoute>, screenCornerPx: Float): NavTran
                 // 返回：卡片接手过半后页面跟着淡掉，不能一直垫在下面——卡片落地时是透明玻璃，会把页面透出来
                 (ExpandOrigins.pageContentAlpha(p, popping = true) * 2.5f).coerceIn(0f, 1f)
             } else {
-                // 打开：卡片起步时是透明玻璃，页面先不出现；卡面底色铺满后、开始交接前页面才垫上来
-                val t = ((p - 0.20f) / 0.06f).coerceIn(0f, 1f)
+                // 打开：卡片起步时是透明玻璃，页面先不出现；卡面底色铺满后（0.2，见叠加层）、开始交接前页面才垫上来
+                val t = ((p - 0.12f) / 0.06f).coerceIn(0f, 1f)
                 t * t * (3f - 2f * t)
             }
         } else if (isPop) {
@@ -572,7 +592,7 @@ private val ExpandMotion = top.yukonga.miuix.kmp.nav.transition.NavMotion(
     ),
 )
 
-private const val EXPAND_DURATION_MS = 660
+private const val EXPAND_DURATION_MS = 440
 private const val GESTURE_SETTLE_MS = 420
 
 /** 裁剪用的形状：页面上的一块圆角矩形，[radius] 是缩放前的像素半径。 */
