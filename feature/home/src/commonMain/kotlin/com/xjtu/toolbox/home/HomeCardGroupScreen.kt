@@ -174,6 +174,11 @@ fun HomeCardGroupScreen(
     contentTopShift: () -> Dp = { 0.dp },
     /** 顶栏右上角那一排圆钮（`:app` 是搜索、通知）。null = 这一端没有顶栏。 */
     topActions: (@Composable () -> Unit)? = null,
+    /** 顶栏中段的可展开搜索（`:app` 是 COUI 搜索组件）；null = 没有。 */
+    topBarSearch: (@Composable () -> Unit)? = null,
+    /** 搜索展开态与搜索结果内容层（`:app` 提供）；null = 没有。 */
+    searching: Boolean = false,
+    searchContent: (@Composable () -> Unit)? = null,
     /** 两套首页共用的滚动位置（见 HomeScreen）：切换布局时不跳回顶部。 */
     scrollState: ScrollState = rememberScrollState(),
 ) {
@@ -1219,6 +1224,22 @@ fun HomeCardGroupScreen(
             }
         }
 
+        // 搜索内容层：铺在首页正文之上、顶栏之下；展开/收起各自淡入淡出。
+        if (searchContent != null) {
+            AnimatedVisibility(
+                visible = searching,
+                enter = fadeIn(tween(150)),
+                exit = fadeOut(tween(150)),
+            ) {
+                Box(
+                    Modifier
+                        .fillMaxSize()
+                        .background(MiuixTheme.colorScheme.surface)
+                        .padding(top = contentTopPadding + BAR_HEIGHT),
+                ) { searchContent() }
+            }
+        }
+
         // 编辑态顶栏（取消 / 设置 / 保存）不需要宿主给按钮，所以这一端没有 topActions 也要画，
         // 否则桌面、Web 长按进了编辑态就出不来了。顶栏本体与经典版共用（见 HomeTopBar）：
         // 两套布局切换时它不该跟着换，功能区只换头卡以下。
@@ -1229,6 +1250,8 @@ fun HomeCardGroupScreen(
                 pageBackdrop = pageBackdrop.takeIf { collapsible },
                 onTapCollapsed = { scope.launch { scroll.animateScrollTo(0) } },
                 actions = topActions,
+                searchContent = topBarSearch,
+                searching = searching,
                 editing = editing.on,
                 onSaveEdit = { saveAndQuitEdit() },
                 onHomeSettings = {

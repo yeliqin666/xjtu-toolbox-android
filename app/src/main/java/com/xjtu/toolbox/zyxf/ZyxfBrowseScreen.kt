@@ -3,7 +3,6 @@ package com.xjtu.toolbox.zyxf
 import androidx.compose.animation.animateContentSize
 
 import com.xjtu.toolbox.ui.components.AppPullToRefresh
-import androidx.lifecycle.viewmodel.compose.viewModel
 import com.xjtu.toolbox.platform.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -21,6 +20,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
@@ -30,9 +30,6 @@ import androidx.compose.material.icons.filled.CloudOff
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.SearchOff
-import androidx.compose.material.icons.filled.Sort
-import androidx.compose.material.icons.filled.ExpandLess
-import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
@@ -41,13 +38,23 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
-import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.unit.dp
+import com.xjtu.toolbox.ui.components.AppFilterChip
+import com.xjtu.toolbox.ui.glass.coui.ChipTab
+import com.xjtu.toolbox.ui.glass.coui.CouiBackdrop
+import com.xjtu.toolbox.ui.glass.coui.CouiFloatingRenderer
+import com.xjtu.toolbox.ui.glass.coui.CouiSearchBarState
+import com.xjtu.toolbox.ui.glass.coui.LocalCouiToolbarBackdrop
+import com.xjtu.toolbox.ui.glass.coui.SearchBar
+import com.xjtu.toolbox.ui.glass.coui.couiBackdrop
+import com.xjtu.toolbox.ui.glass.coui.rememberCouiBackdrop
+import com.xjtu.toolbox.ui.glass.coui.rememberCouiSearchBarState
+import com.xjtu.toolbox.ui.theme.LocalIsDarkTheme
 import top.yukonga.miuix.kmp.basic.CircularProgressIndicator
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.IconButton
@@ -70,26 +77,27 @@ import top.yukonga.miuix.kmp.utils.overScrollVertical
  * 预览另见 [ZyxfPreviewSheet]：那一层的渲染借阿里云 IMM，不自己造。
  */
 @Composable
-fun ZyxfBrowseScreen(
+internal fun ZyxfBrowseScreen(
+    vm: ZyxfBrowseViewModel,
     onBack: (() -> Unit)? = null,
     contentPadding: PaddingValues = PaddingValues(0.dp),
     /** 宿主的折叠标题栏。列表滚动要驱动它，否则大标题永远不收。 */
     scrollBehavior: com.xjtu.toolbox.ui.glass.CouiTopBarScrollBehavior? = null,
     /** 宿主玻璃顶栏的高度：列表铺到顶栏下面，这段留白放进列表的 contentPadding。经典风格为 0。 */
     contentTopPadding: androidx.compose.ui.unit.Dp = 0.dp,
+    /** 顶栏是否已经承载搜索（学辅 tab）。true 时列表顶部不再重复一只搜索框。 */
+    searchInTopBar: Boolean = false,
 ) {
-    val context = androidx.compose.ui.platform.LocalContext.current
-    val vm: ZyxfBrowseViewModel = viewModel { ZyxfBrowseViewModel(context) }
     val focus = androidx.compose.ui.platform.LocalFocusManager.current
     val keyboard = androidx.compose.ui.platform.LocalSoftwareKeyboardController.current
-    var searchFocused by remember { mutableStateOf(false) }
+    val dark = LocalIsDarkTheme.current
     val visible = com.xjtu.toolbox.ui.components.LocalPageVisible.current
     LaunchedEffect(visible) {
         if (!visible) {
-            if (searchFocused) {
-                focus.clearFocus(force = true)
-                keyboard?.hide()
-            }
+            // 离开这一页只释放输入：查询词留给 ViewModel，回来时按原样重跑检索，
+            // 不在这里 clearSearch()——那会顺手多发一次目录请求，而资料站是按 IP 限流的。
+            focus.clearFocus(force = true)
+            keyboard?.hide()
             vm.cancelPendingSearch()
         } else if (vm.query.isNotBlank()) {
             vm.runSearch()
@@ -100,6 +108,8 @@ fun ZyxfBrowseScreen(
     val searching = vm.searching
     var refreshing by remember { mutableStateOf(false) }
     LaunchedEffect(vm.loading) { if (!vm.loading) refreshing = false }
+    // 第一次上屏才发目录请求（ViewModel 可能提前建在宿主层，见 ensureStarted）
+    LaunchedEffect(vm) { vm.ensureStarted() }
     // 上次没拉成（比如当时没网），再进这一页就自己重试，不用非得下拉
     LaunchedEffect(Unit) { if (vm.error != null && !vm.loading) vm.reload() }
 
@@ -108,7 +118,8 @@ fun ZyxfBrowseScreen(
     // 目录内返回上一级；已在根目录时交给宿主。
     // 宽屏右栏的预览不算一层：返回不先关预览（和教师主页、日程的分屏同一个约定）。
     // 窄屏下预览是弹窗，它自己接返回。
-    BackHandler(enabled = stack.size > 1 || searching) {
+    // 隐藏的 visited tab 仍留在组合里，返回键只该由当前可见的这一页接管
+    BackHandler(enabled = visible && (stack.size > 1 || searching)) {
         when {
             searching -> vm.clearSearch()
             else -> vm.goTo(stack.lastIndex - 1)
@@ -140,8 +151,34 @@ fun ZyxfBrowseScreen(
             .fillMaxSize()
             .background(MiuixTheme.colorScheme.surface),
     ) {
-        val header: androidx.compose.foundation.lazy.LazyListScope.() -> Unit = {
-            // 屁岱「为你找资料」：只在根目录、没在搜的时候出现
+        val header: LazyListScope.() -> Unit = {            // 搜索在顶栏里时（学辅 tab），列表不再重复一只；压栈页没有顶栏搜索，走这里
+            if (!searchInTopBar) {
+                item(key = "search", contentType = "header") {
+                    CouiSearchHeader(
+                        query = vm.query,
+                        dark = dark,
+                        onQueryChange = vm::updateQuery,
+                        onSearch = {
+                            vm.runSearch()
+                            focus.clearFocus(force = true)
+                            keyboard?.hide()
+                        },
+                    )
+                }
+            }
+            // 学辅 tab 的排序胶囊和搜索框一起放在顶栏里（见 ZyxfTopBarSortChips）；
+            // 压栈页没有那条顶栏，排序留在列表头部。
+            if (!searchInTopBar && !searching) {
+                item(key = "sort", contentType = "header") {
+                    SortChipTab(
+                        sort = vm.sort,
+                        desc = vm.desc,
+                        dark = dark,
+                        onPick = vm::pickSort,
+                    )
+                }
+            }
+            // 屁岱「为你找资料」：排序胶囊下面（只在根目录、没在搜的时候出现）
             if (stack.size <= 1 && !searching && com.xjtu.toolbox.agent.AgentInsightHub.insights.available) {
                 item(key = "pidai_picks", contentType = "pidai") {
                     ZyxfPicksCard(
@@ -152,29 +189,10 @@ fun ZyxfBrowseScreen(
                     )
                 }
             }
-            item(key = "search", contentType = "header") {
-                com.xjtu.toolbox.ui.components.AppSearchBar(
-                    query = vm.query,
-                    onQueryChange = vm::updateQuery,
-                    label = "搜课件、历年卷、笔记…",
-                    onSearch = { vm.runSearch(); focus.clearFocus(force = true); keyboard?.hide() },
-                    modifier = Modifier
-                        .padding(horizontal = 16.dp, vertical = 8.dp)
-                        .onFocusChanged { searchFocused = it.hasFocus },
-                )
-            }
+            // 面包屑放在排序胶囊下面：先选维度，再看「我在哪、能退到哪」
             if (!searching && stack.size > 1) {
                 item(key = "crumb", contentType = "header") {
                     Breadcrumb(stack = stack, onJump = vm::goTo)
-                }
-            }
-            if (!searching) {
-                item(key = "sort", contentType = "header") {
-                    SortBar(
-                        sort = vm.sort,
-                        desc = vm.desc,
-                        onPick = vm::pickSort,
-                    )
                 }
             }
             if (searching) {
@@ -201,6 +219,14 @@ fun ZyxfBrowseScreen(
             topPadding = contentTopPadding,
             modifier = Modifier.fillMaxSize(),
         ) {
+            // 顶栏双轨滚动：列表顶部留白跟着 contentTranslationY 伸缩（布局阶段读，不逐帧重组）。
+            val listPadding = com.xjtu.toolbox.ui.rememberCouiScrollContentPadding(
+                base = PaddingValues(
+                    top = contentTopPadding,
+                    bottom = 16.dp + contentPadding.calculateBottomPadding(),
+                ),
+                behavior = scrollBehavior,
+            )
             LazyColumn(
                 Modifier
                     .fillMaxSize()
@@ -214,10 +240,7 @@ fun ZyxfBrowseScreen(
                 // 外层是「先铺底色、再 padding」，垫上去等于在悬浮底栏下面留了一整条
                 // 死的纯色带（底栏高 + 导航条，实测 80dp 上下），看着就是「底部一条很宽的状态栏」。
                 // 放进 contentPadding 则是列表能滚过去、玻璃底栏下面透出的是真内容。
-                contentPadding = PaddingValues(
-                    top = contentTopPadding,
-                    bottom = 16.dp + contentPadding.calculateBottomPadding(),
-                ),
+                contentPadding = listPadding,
             ) {
                 header()
                 // 加载、出错、空目录也是列表里的一项：头部照样在，能改搜索词、能点面包屑回上一级
@@ -386,72 +409,191 @@ private fun Breadcrumb(stack: List<Crumb>, onJump: (Int) -> Unit) {
 }
 
 /**
- * 排序条。
+ * 搜索头：COUI 常驻搜索胶囊（组件页上方那条）。
  *
- * 字段与服务端 `SORT_FIELDS` 对齐（默认/名称/时间/大小），沿用网页版的交互：
- * 点当前项翻方向、点别项换字段。时间默认降序——找资料时想看的是"最近传了什么"，
- * 而不是三年前的第一份。
+ * 视觉来自 COUI-Kit 的 `SearchBar`：带放大镜的输入胶囊、占位提示、输入后的圆点清空叉。
+ * 与顶栏里那条的区别是**一直展开**：学辅页的搜索就长在列表里，不需要「点开 / 取消」的
+ * 分裂胶囊，所以关掉右侧取消（`showCancel = false`），输入区始终铺满整行。
+ *
+ * 材质需要一层不透明的采样源，这里就地录一条页面底色（和 COUI Demo 的分类栏同一个做法），
+ * 不去采整页正文——页面采样源包含搜索框自己，采自己会形成反馈。
  */
 @Composable
-private fun SortBar(
+private fun CouiSearchHeader(
+    query: String,
+    dark: Boolean,
+    onQueryChange: (String) -> Unit,
+    onSearch: () -> Unit,
+) {
+    val backdrop = rememberCouiBackdrop()
+    val state = rememberCouiSearchBarState(expanded = true)
+    Box(Modifier.fillMaxWidth()) {
+        Box(
+            Modifier
+                .matchParentSize()
+                .couiBackdrop(backdrop)
+                .background(MiuixTheme.colorScheme.surface),
+        )
+        SearchBar(
+            // 上下各留 8dp：浮层投影要有一圈可采样的底色，否则阴影外沿会采到透明
+            modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+            state = state,
+            query = query,
+            onQueryChange = onQueryChange,
+            // 常驻展开态没有「退出搜索」，取消胶囊在这个页面没有落点
+            onExpandedChange = {},
+            showCancel = false,
+            // 进页面就弹键盘会挡住半屏资料；点输入框时 BasicTextField 自己会取焦
+            requestFocusOnExpand = false,
+            placeholder = "搜课件、历年卷、笔记…",
+            cancelText = "取消",
+            clearDescription = "清空搜索",
+            dark = dark,
+            backdrop = backdrop,
+            onSearch = onSearch,
+        )
+    }
+}
+
+/**
+ * 学辅 tab 顶栏里的 COUI 搜索栏。
+ *
+ * 顶栏（[CollapsingTopAppBar]）把它和标题一起画在同一块 COUI 表面里：收起时是标题下方
+ * 一条全宽搜索胶囊，点开输入时标题收走、搜索胶囊分裂出「取消」，滚动锁定；这些弹簧和
+ * 测量都在 COUI 原版里，宿主只持有查询和展开目标。
+ *
+ * 与顶栏联动所需的状态（[CouiSearchBarState] / 折叠 state）由宿主创建；这里只负责把
+ * ViewModel 的查询接到组件上。材质采的是顶栏表面通过 `LocalCouiToolbarBackdrop` 交下来的
+ * 那一层，不需要自己再录。
+ */
+@Composable
+internal fun ZyxfTopBarSearch(
+    vm: ZyxfBrowseViewModel,
+    searchState: CouiSearchBarState,
+    shadowProgress: Float,
+) {
+    val focus = androidx.compose.ui.platform.LocalFocusManager.current
+    val keyboard = androidx.compose.ui.platform.LocalSoftwareKeyboardController.current
+    SearchBar(
+        state = searchState,
+        query = vm.query,
+        onQueryChange = vm::updateQuery,
+        // 常驻展开：输入框一直在，没有「点开 / 取消」这一步
+        onExpandedChange = {},
+        showCancel = false,
+        requestFocusOnExpand = false,
+        placeholder = "搜课件、历年卷、笔记…",
+        cancelText = "取消",
+        clearDescription = "清空搜索",
+        dark = LocalIsDarkTheme.current,
+        onSearch = {
+            vm.runSearch()
+            focus.clearFocus(force = true)
+            keyboard?.hide()
+        },
+        shadowProgress = shadowProgress,
+    )
+}
+
+/**
+ * 排序顺序：COUI `ChipTab` 分类胶囊。
+ *
+ * 字段与服务端 `SORT_FIELDS` 对齐（默认/名称/时间/大小）。和服务端/网页版一致：
+ * 点当前项翻升/降序、点别的项换字段。这里直接铺 `ChipTab` 而不是 `ChipTabRow`：
+ * 后者选中项再点不回调，而学辅排序恰恰需要「再点当前项翻方向」；四颗胶囊也放得下，
+ * 不需要行内自动滚动。`ChipTab` 自己每次点击都回调。
+ * 「默认」本身没有方向，再点由 ViewModel 直接 no-op。
+ * 时间默认降序——找资料时想看的是"最近传了什么"，而不是三年前的第一份。
+ *
+ * 本应用 minSdk 已是 34，正常都走 COUI 胶囊；个别机型建不起浮层渲染器时，
+ * 退回同一排 `AppFilterChip`，字段与方向仍然可用，只是没有玻璃材质与按压动效。
+ */
+@Composable
+private fun SortChipTab(
     sort: ZyxfApi.Sort,
     desc: Boolean,
+    dark: Boolean,
     onPick: (ZyxfApi.Sort) -> Unit,
+    /**
+     * 放在 COUI 顶栏表面里时传 `LocalCouiToolbarBackdrop.current`：
+     * 胶囊直接采顶栏那层模糊，不再自己录一条实色底。
+     * null = 列表里（压栈页），保留本地实色采样源。
+     */
+    toolbarBackdrop: CouiBackdrop? = null,
 ) {
-    // 排序是低频操作：平时只留一行小字，点开才展开四个选项，别让它和搜索框叠着占首屏
-    var open by remember { mutableStateOf(false) }
-    fun arrowOf(option: ZyxfApi.Sort) = when {
-        option != sort || option == ZyxfApi.Sort.MANUAL -> ""
+    val arrow = when {
+        sort == ZyxfApi.Sort.MANUAL -> ""
         desc -> " ↓"
         else -> " ↑"
     }
-    Column(
-        Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp)
-            .clip(RoundedCornerShape(16.dp))
-            .background(com.xjtu.toolbox.ui.components.AppCardColor),
-    ) {
+    val options = ZyxfApi.Sort.entries
+    val renderers = remember {
+        runCatching { options.map { CouiFloatingRenderer.standalone() } }.getOrNull()
+    }
+    val ownedBackdrop = if (toolbarBackdrop == null) rememberCouiBackdrop() else null
+    val backdrop = toolbarBackdrop ?: ownedBackdrop!!
+    Box(Modifier.fillMaxWidth()) {
+        if (ownedBackdrop != null) {
+            // 分类栏的玻璃同样要一层不透明采样源；采的是这一格的页面底色
+            Box(
+                Modifier
+                    .matchParentSize()
+                    .couiBackdrop(ownedBackdrop)
+                    .background(MiuixTheme.colorScheme.surface),
+            )
+        }
         Row(
             Modifier
                 .fillMaxWidth()
-                .clickable { open = !open }
-                .padding(horizontal = 14.dp, vertical = 12.dp),
+                .horizontalScroll(rememberScrollState())
+                .padding(horizontal = 16.dp, vertical = 8.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            Icon(Icons.Default.Sort, contentDescription = null, tint = MiuixTheme.colorScheme.primary, modifier = Modifier.size(18.dp))
-            Text(
-                "排序",
-                style = MiuixTheme.textStyles.body2,
-                fontWeight = FontWeight.Medium,
-                modifier = Modifier.weight(1f),
-            )
-            Text(
-                if (sort == ZyxfApi.Sort.MANUAL) "默认顺序" else "${sort.label} · ${if (desc) "降序" else "升序"}",
-                style = MiuixTheme.textStyles.footnote1,
-                color = MiuixTheme.colorScheme.primary,
-            )
-            Icon(if (open) Icons.Default.ExpandLess else Icons.Default.ExpandMore, contentDescription = if (open) "收起排序选项" else "展开排序选项",
-                tint = MiuixTheme.colorScheme.onSurfaceVariantSummary, modifier = Modifier.size(18.dp))
-        }
-        androidx.compose.animation.AnimatedVisibility(visible = open) {
-            Row(
-                Modifier
-                    .fillMaxWidth()
-                    .horizontalScroll(rememberScrollState())
-                        .padding(start = 12.dp, end = 12.dp, bottom = 12.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                ZyxfApi.Sort.entries.forEach { option ->
-                    com.xjtu.toolbox.ui.components.AppFilterChip(
-                        selected = option == sort,
+            options.forEachIndexed { index, option ->
+                val label = option.label + if (option == sort) arrow else ""
+                val selected = option == sort
+                if (renderers != null) {
+                    ChipTab(
+                        selected = selected,
                         onClick = { onPick(option) },
-                        label = option.label + arrowOf(option),
+                        label = label,
+                        backdrop = backdrop,
+                        dark = dark,
+                        renderer = renderers[index],
+                    )
+                } else {
+                    AppFilterChip(
+                        selected = selected,
+                        onClick = { onPick(option) },
+                        label = label,
                     )
                 }
             }
         }
     }
+}
+
+/**
+ * 学辅 tab 顶栏里的排序胶囊：和搜索框在同一个 COUI 顶栏表面里，
+ * 上滑后大标题收起，搜索 + 排序一起悬浮在页面顶部。
+ *
+ * 排序字段/方向由宿主从 ViewModel 读出来后传进来，宿主那一层也跟着重组，
+ * 避免顶栏子组合拿到旧的选中态。
+ */
+@Composable
+internal fun ZyxfTopBarSortChips(
+    sort: ZyxfApi.Sort,
+    desc: Boolean,
+    onPick: (ZyxfApi.Sort) -> Unit,
+) {
+    SortChipTab(
+        sort = sort,
+        desc = desc,
+        dark = LocalIsDarkTheme.current,
+        onPick = onPick,
+        toolbarBackdrop = LocalCouiToolbarBackdrop.current,
+    )
 }
 
 /**

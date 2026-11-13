@@ -13,3 +13,11 @@ import com.xjtu.toolbox.ui.glass.coui.couiBackdrop
 class AndroidCouiPageBackdrop(internal val backdrop: CouiBackdrop) : CouiPageBackdrop {
     override fun recordInto(modifier: Modifier): Modifier = modifier.couiBackdrop(backdrop)
 }
+
+/**
+ * 把 commonMain 的页面采样源解回 Android 原始 [CouiBackdrop]；null = 经典风格 / 没有采样源。
+ *
+ * `CouiPageTopAppBar` 内部自己解包；直接调用 COUI 原版组件（如 `CollapsingTopAppBar`）的
+ * Android 页面需要这一个公开入口。
+ */
+fun CouiPageBackdrop?.androidBackdrop(): CouiBackdrop? = (this as? AndroidCouiPageBackdrop)?.backdrop

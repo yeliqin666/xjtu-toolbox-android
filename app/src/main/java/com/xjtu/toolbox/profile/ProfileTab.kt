@@ -68,6 +68,7 @@ import top.yukonga.miuix.kmp.basic.IconButton
 import top.yukonga.miuix.kmp.basic.LinearProgressIndicator
 import top.yukonga.miuix.kmp.basic.ProgressIndicatorDefaults
 import com.xjtu.toolbox.ui.glass.CouiTopBarScrollBehavior
+import com.xjtu.toolbox.ui.couiTopBarSpace
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextButton
 import top.yukonga.miuix.kmp.basic.TextField
@@ -763,7 +764,8 @@ internal fun ProfileTab(
             .verticalScroll(rememberScrollState())
     ) {
         // 玻璃顶栏：内容铺到顶栏下面，留白放在滚动内容里
-        Spacer(Modifier.height(contentTopPadding))
+        // 双轨滚动：快速滑动时顶栏弹簧滞后，这段留白跟着 contentTranslationY 收缩/回弹
+        Spacer(Modifier.fillMaxWidth().couiTopBarSpace(contentTopPadding, scrollBehavior))
         Column(
             Modifier
                 .fillMaxWidth()

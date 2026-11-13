@@ -28,6 +28,11 @@ internal fun HomeTab(
     /** 壳把整页上移的量（见 `ShellPageInsets.contentTopShift`）；首页模糊带按它补回屏幕顶边。 */
     contentTopShift: () -> androidx.compose.ui.unit.Dp = { 0.dp },
     topActions: (@Composable () -> Unit)? = null,
+    /** 顶栏中段的可展开搜索（`:app` 是 COUI 搜索组件）；null = 没有。 */
+    topBarSearch: (@Composable () -> Unit)? = null,
+    /** 搜索展开态与搜索结果内容层（`:app` 提供）；null = 没有。 */
+    searching: Boolean = false,
+    searchContent: (@Composable () -> Unit)? = null,
 ) {
     val home = rememberAppHome(
         loginState = loginState,
@@ -51,5 +56,8 @@ internal fun HomeTab(
         contentTopPadding = contentTopPadding,
         contentTopShift = contentTopShift,
         topActions = topActions,
+        topBarSearch = topBarSearch,
+        searching = searching,
+        searchContent = searchContent,
     )
 }

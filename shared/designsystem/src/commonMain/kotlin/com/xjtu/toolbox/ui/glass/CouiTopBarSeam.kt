@@ -42,6 +42,15 @@ interface CouiTopBarScrollBehavior {
 
     /** 顶栏折叠比例（0 = 全展开，1 = 全收起）。下拉刷新要等它为 0 才开始拉。 */
     val collapsedFraction: Float get() = 0f
+
+    /**
+     * COUI 折叠顶栏「可见位置 - 逻辑滚动位置」的差值（px）。
+     *
+     * 顶栏可见位置由临界阻尼弹簧追逻辑滚动，快速滑动时会滞后；把这段差值加进滚动内容的
+     * 顶部留白，列表就会先追进顶栏下面的空隙、松手后再被弹簧拉回原位。
+     * 0 = 没有双轨联动（钉死顶栏、非 COUI 顶栏、非 Android 端）。
+     */
+    val contentTranslationY: Float get() = 0f
 }
 
 /** 每页（或每个 tab）一份 COUI 折叠状态；与 COUI `CouiTopAppBarDefaults.exitUntilCollapsedScrollBehavior` 等价。 */

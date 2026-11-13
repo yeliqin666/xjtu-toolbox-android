@@ -299,6 +299,19 @@ RuntimeShader（AGSL）、边缘光/内发光/轮廓光、网格投影与焦散�
 
 - 包名从 `com.itos.coui.*` 扁平化为同一模块内的 `com.xjtu.toolbox.ui.glass.coui`，
   文件内容与 alpha10 原版一致（仅 `NavigationBar.kt` 有下述宿主接缝）。
+- 学辅页的搜索与排序另外并入了 alpha10 的 `search/SearchBar.kt`、`CouiSearchBarDefaults.kt`、
+  `CouiSearchBarState.kt`、`CouiSearchIcon.kt`、`chip/ChipTab.kt`、`ChipTabRow.kt`、
+  `CouiChipTabDefaults.kt`，以及它们依赖的 `input/CouiMovingActionClick.kt`、
+  `input/CouiSearchRelocationBoundary.kt`、`scroll/CouiScrollPhysics.kt`、`topappbar/CollapsingTopAppBar.kt`。
+  首页右上角可展开搜索另外并入了 `topappbar/TopAppBarSearch.kt`、`TopAppBarSearchPair.kt`、
+  `CouiTopAppBarSearchState.kt`、`CouiTopAppBarSearchPairGeometry.kt` 和 `motion/CouiSearchMotion.kt`。
+  同版本 `topappbar/TopAppBarButtonGroup.kt` 只并入分类栏用到的 `TopAppBarActionVisibility`
+  （本工程没有移植顶栏共享转场作用域，原文件的 `TopAppBarButtonGroup` 未被使用）。
+  这些文件同样只做包名扁平化，组件行为与 alpha10 原版一致（`SearchBar.kt` 的宿主接缝见下一条）。
+- `SearchBar.kt` 另加两个宿主接缝参数 `showCancel` / `requestFocusOnExpand`（默认值都保持
+  原版行为）：学辅页需要一直展开的输入态，不要右侧分裂取消，也不要在进页面时自动弹键盘。
+- `CouiFloatingSurfaces.kt` 的就绪判断允许不可见主体尺寸为 0：搜索栏收起取消胶囊时那一面
+  可以是 0 宽，输入胶囊仍要正常绘制。原版所有主体都可见时行为不变。
 - `CouiNavigationBar.kt`：允许 `selectedIndex = -1`（当前页不属于任何一格时不高亮）；
   新增 `itemContent` 槽，用于把本机每格内容（屁岱头像、徽标）整格替换原厂「图标 + 文字」；
   底栏只用得到单主体，接入 `CouiFloatingRenderer.standalone()` + `couiFloatingSurface()`；

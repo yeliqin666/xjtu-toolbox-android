@@ -234,7 +234,9 @@ private fun Modifier.floatingSurfaces(
         val nodes = surfaces()
         require(nodes.size == renderer.surfaceCount)
         if (target?.isAttached == true && size.width > 0f && size.height > 0f &&
-            nodes.all { it.bounds.width > 0f && it.bounds.height > 0f }
+            // 不可见的主体不参与绘制，也不该用它的尺寸卡住整条链：
+            // 搜索栏收起取消胶囊时那一面可以是 0 宽，但输入胶囊本身还要正常画。
+            nodes.all { !it.visible || (it.bounds.width > 0f && it.bounds.height > 0f) }
         ) {
             val viewport = target.localBoundingBoxOf(target.findRootCoordinates(), false)
             val commands = mutableListOf<GraphicsLayer>()

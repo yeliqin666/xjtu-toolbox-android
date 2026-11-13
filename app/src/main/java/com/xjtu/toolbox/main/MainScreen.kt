@@ -10,6 +10,7 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
@@ -17,6 +18,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.asPaddingValues
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.displayCutout
 import androidx.compose.foundation.layout.exclude
@@ -28,7 +30,6 @@ import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.union
 import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.Search
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
@@ -47,6 +48,11 @@ import androidx.compose.ui.geometry.Rect
 import androidx.compose.runtime.Stable
 import androidx.compose.ui.unit.toSize
 import androidx.compose.ui.layout.layout
+import androidx.compose.ui.unit.Constraints
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.sp
 import androidx.compose.material.icons.outlined.Notifications
 import kotlin.math.roundToInt
 import androidx.compose.ui.graphics.graphicsLayer
@@ -69,6 +75,8 @@ import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.compose.ui.unit.sp
 import com.xjtu.toolbox.account.AccountManager
 import com.xjtu.toolbox.agent.AgentOverlays
 import com.xjtu.toolbox.agent.AgentInsightEngine
@@ -87,7 +95,7 @@ import com.xjtu.toolbox.card.CampusCardCache
 import com.xjtu.toolbox.data.AppearanceSettings
 import com.xjtu.toolbox.data.CredentialStore
 import com.xjtu.toolbox.feedback.FeedbackPromptSheet
-import com.xjtu.toolbox.home.GlobalSearchScreen
+import com.xjtu.toolbox.home.GlobalSearchBody
 import com.xjtu.toolbox.home.HomeSignals
 import com.xjtu.toolbox.home.HomeStats
 import com.xjtu.toolbox.home.HomeStatsRefresher
@@ -110,7 +118,21 @@ import com.xjtu.toolbox.shell.ShellHandles
 import com.xjtu.toolbox.shell.ShellNavState
 import com.xjtu.toolbox.shell.ShellTab
 import com.xjtu.toolbox.ui.glass.CouiPageTopAppBar
+import com.xjtu.toolbox.ui.glass.androidBackdrop
+import com.xjtu.toolbox.ui.glass.coui.CollapsingTopAppBar
+import com.xjtu.toolbox.ui.glass.coui.CouiCollapsingAppBarState
+import com.xjtu.toolbox.ui.glass.coui.CouiTopAppBarButtonDefaults
+import com.xjtu.toolbox.ui.glass.coui.CouiTopAppBarSearchState
+import com.xjtu.toolbox.ui.glass.coui.CouiToolbarStyle
 import com.xjtu.toolbox.ui.glass.coui.CouiTopAppBarDefaults
+import com.xjtu.toolbox.ui.glass.coui.LocalCouiContentColor
+import com.xjtu.toolbox.ui.glass.coui.TopAppBarSearch
+import com.xjtu.toolbox.ui.glass.coui.TopAppBarSearchButton
+import com.xjtu.toolbox.ui.glass.coui.couiBackdrop
+import com.xjtu.toolbox.ui.glass.coui.rememberCouiBackdrop
+import com.xjtu.toolbox.ui.glass.coui.rememberCouiCollapsingAppBarState
+import com.xjtu.toolbox.ui.glass.coui.rememberCouiSearchBarState
+import com.xjtu.toolbox.ui.glass.coui.rememberCouiTopAppBarSearchState
 import com.xjtu.toolbox.ui.glass.CouiTopBarScrollBehavior
 import com.xjtu.toolbox.ui.glass.CouiToolbarActionButton
 import com.xjtu.toolbox.ui.glass.LocalCouiPageBackdrop
@@ -119,7 +141,11 @@ import com.xjtu.toolbox.ui.glass.LocalOnGlassBar
 import com.xjtu.toolbox.ui.glass.rememberCouiTopAppBarScrollBehavior
 import com.xjtu.toolbox.ui.isWideLayout
 import com.xjtu.toolbox.ui.rememberHaptics
+import com.xjtu.toolbox.ui.theme.LocalIsDarkTheme
 import com.xjtu.toolbox.zyxf.ZyxfBrowseScreen
+import com.xjtu.toolbox.zyxf.ZyxfBrowseViewModel
+import com.xjtu.toolbox.zyxf.ZyxfTopBarSearch
+import com.xjtu.toolbox.zyxf.ZyxfTopBarSortChips
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
@@ -131,6 +157,7 @@ import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.MiuixScrollBehavior
 import top.yukonga.miuix.kmp.basic.ScrollBehavior
 import top.yukonga.miuix.kmp.basic.SnackbarHost
+import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextButton
 import top.yukonga.miuix.kmp.basic.rememberTopAppBarState
 import top.yukonga.miuix.kmp.overlay.OverlayDialog
@@ -178,21 +205,101 @@ internal fun MainScreen(
     LaunchedEffect(selectedBarTab.id) { tabs.selectedId = selectedBarTab.id }
     /** 选中的原生格；选中的是放上来的子页时为 null。 */
     val selectedTab: BottomTab? = selectedBarTab.core
+    // 学辅 tab 的搜索在顶栏里，查询归 ViewModel，输入框常驻展开（和组件页上方那条一样可直接输入）。
+    // ViewModel 建在这一层；它不在构造时发请求，第一次真正上屏才 reload（见 ensureStarted）。
+    // 这样又不会因为「切走 / 切回」把页面组合拆掉，学辅页的滚动位置和查询都能保留。
+    val zyxfVm: ZyxfBrowseViewModel = viewModel(key = "zyxf") { ZyxfBrowseViewModel(context) }
+    val zyxfSearchState = rememberCouiSearchBarState(expanded = true)
+    // 在宿主层读这几项：顶栏是子组合，宿主跟着重组一次，排序胶囊就不会拿到旧的选中态。
+    val zyxfSort = zyxfVm.sort
+    val zyxfDesc = zyxfVm.desc
+    val zyxfSearching = zyxfVm.searching
     val navAccountCount = remember(loginState.accountId) { accountManager.accountList().size }
     var lastBackPressTime by remember { mutableLongStateOf(0L) }
-    var showGlobalSearch by remember { mutableStateOf(false) }
     var showQrLogin by remember { mutableStateOf(false) }
-    // 搜索 / 扫一扫从哪颗圆钮长出来；null = 从别处打开，直接淡入
+    // 首页搜索：顶栏是 COUI 搜索组件这一层，下面是搜索结果内容层，两者分开。
+    var homeSearchExpanded by rememberSaveable { mutableStateOf(false) }
+    var homeSearchQuery by rememberSaveable { mutableStateOf("") }
+    val homeSearchState = rememberCouiTopAppBarSearchState(homeSearchExpanded)
+    val homeSearchStyle = CouiTopAppBarButtonDefaults.style(
+        dark = LocalIsDarkTheme.current,
+        search = true,
+    )
+    val homeSearchKeyboard = LocalSoftwareKeyboardController.current
+    val homeSearchContent: @Composable () -> Unit = {
+        TopAppBarSearch(
+            modifier = Modifier.fillMaxWidth(),
+            state = homeSearchState,
+            style = homeSearchStyle,
+            query = homeSearchQuery,
+            onQueryChange = { homeSearchQuery = it },
+            onSearch = { homeSearchKeyboard?.hide() },
+            placeholder = "搜索功能、成绩、课表、空教室…",
+            focusPending = homeSearchExpanded,
+            onFocused = {},
+            action = {
+                Text(
+                    "取消",
+                    color = LocalCouiContentColor.current,
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.Medium,
+                )
+            },
+            onActionClick = { homeSearchExpanded = false },
+        ) { }
+    }
+    val homeSearchBody: @Composable () -> Unit = {
+        GlobalSearchBody(
+            query = homeSearchQuery,
+            onQueryChange = { homeSearchQuery = it },
+            accountType = loginState.accountType,
+            onNavigate = { route ->
+                homeSearchExpanded = false
+                router.open(route)
+            },
+            onAskAgent = { prompt ->
+                homeSearchExpanded = false
+                AgentPendingPrompt.set(prompt)
+                router.selectTab(BottomTab.PIDAI)
+            },
+            onOpenUrl = { url ->
+                homeSearchExpanded = false
+                router.open(AppRoute.Browser(url))
+            },
+            onOpenWithWebVpn = { vpnUrl ->
+                homeSearchExpanded = false
+                pageDeps.onOpenWithWebVpn(vpnUrl)
+            },
+            modifier = Modifier.fillMaxSize(),
+        )
+    }
+    BackHandler(enabled = homeSearchExpanded) { homeSearchExpanded = false }
+    LaunchedEffect(selectedTab) {
+        if (selectedTab != BottomTab.HOME) homeSearchExpanded = false
+    }
+    // 扫一扫从哪颗圆钮长出来；null = 从别处打开，直接淡入
     var revealSource by remember { mutableStateOf<ExpandOriginSource?>(null) }
-    // 两个覆盖层的展开进度：提到这里，底下的页面才能跟着往后退
-    val searchReveal = remember { androidx.compose.animation.core.Animatable(0f) }
+    // 扫一扫覆盖层的展开进度：底下的页面跟着往后退
     val qrReveal = remember { androidx.compose.animation.core.Animatable(0f) }
 
     // ── 各 Tab 独立的滚动折叠状态 ──
     // 主 tab 的大字顶栏是 COUI 原版 LargeTopAppBar，折叠状态就是 COUI 的
     // CouiCollapsingAppBarState（弹簧、吸附、反向展开全在原厂代码里）。
     val coursesScrollBehavior = rememberCouiTopAppBarScrollBehavior()
-    val toolsScrollBehavior = rememberCouiTopAppBarScrollBehavior()
+    // 学辅这一格用 COUI 原版 CollapsingTopAppBar（标题 + 常驻搜索同属一块表面）。
+    // 列表滚动直接喂它的 CouiCollapsingAppBarState；另包一层只是给内容/下拉刷新提供
+    // 与其它 tab 相同的 CouiTopBarScrollBehavior 接口。
+    val toolsAppBarState = rememberCouiCollapsingAppBarState(
+        // 列表为空时松手要把标题放回来，否则只留下一块收起的搜索栏
+        canScroll = { zyxfVm.entries.isNotEmpty() },
+    )
+    val toolsScrollBehavior = remember(toolsAppBarState) {
+        object : CouiTopBarScrollBehavior {
+            override val nestedScrollConnection get() = toolsAppBarState.nestedScrollConnection
+            override val collapsedFraction get() = toolsAppBarState.collapsedFraction
+            override val contentTranslationY get() = toolsAppBarState.contentTranslationY
+        }
+    }
     val profileScrollBehavior = rememberCouiTopAppBarScrollBehavior()
     // 小岱的聊天列表仍用 MIUIX 滚动行为驱动自己的列表联动（顶栏已换成钉死的 COUI 小标题）
     val agentScrollBehavior = MiuixScrollBehavior(rememberTopAppBarState())
@@ -353,6 +460,25 @@ internal fun MainScreen(
     // 宽屏气泡定位用：侧栏小岱的根坐标，减去覆盖层自己的根坐标（转场平移时两者会不同）
     var overlayOrigin by remember { mutableStateOf(Offset.Zero) }
 
+    // 学辅 tab 顶栏里的搜索槽。搜索框和排序胶囊绑在一起，都在 COUI 顶栏表面里；
+    // 上滑后标题收起，搜索 + 排序一起悬浮在页面顶部。检索中排序让位给结果。
+    val toolsSearchBar: @Composable () -> Unit = {
+        Column {
+            ZyxfTopBarSearch(
+                vm = zyxfVm,
+                searchState = zyxfSearchState,
+                shadowProgress = toolsAppBarState.collapsedFraction,
+            )
+            if (!zyxfSearching) {
+                ZyxfTopBarSortChips(
+                    sort = zyxfSort,
+                    desc = zyxfDesc,
+                    onPick = zyxfVm::pickSort,
+                )
+            }
+        }
+    }
+
     AppShell(
         nav = navState,
         rootModifier = Modifier
@@ -392,9 +518,9 @@ internal fun MainScreen(
                 agentActions = agentHeaderActions,
                 courseActions = courseHeaderActions,
                 courseBottomContent = courseHeaderBottomContent,
+                toolsAppBarState = toolsAppBarState,
+                toolsSearchBar = toolsSearchBar,
                 onScan = { source -> ProactiveBubbleHost.clear(); revealSource = source; showQrLogin = true },
-                onSearch = { ProactiveBubbleHost.clear(); revealSource = null; showGlobalSearch = true },
-                onInbox = { ProactiveBubbleHost.clear(); router.open(AppRoute.Inbox) },
             )
         },
         barBubble = { handles ->
@@ -420,38 +546,6 @@ internal fun MainScreen(
         overlays = { handles ->
             // 小岱的历史对话侧栏和设置页：盖住顶栏和底栏
             if (selectedTab == BottomTab.PIDAI) agentOverlays.Content()
-            RevealOverlay(
-                visible = showGlobalSearch,
-                source = revealSource,
-                progress = searchReveal,
-            ) {
-                CompositionLocalProvider(
-                    LocalAppBackdrop provides if (glassStyle) handles.contentBackdrop else null,
-                ) {
-                    GlobalSearchScreen(
-                        onBack = { showGlobalSearch = false },
-                        onNavigate = { route ->
-                            showGlobalSearch = false
-                            router.open(route)
-                        },
-                        onAskAgent = { prompt ->
-                            showGlobalSearch = false
-                            AgentPendingPrompt.set(prompt)
-                            router.selectTab(BottomTab.PIDAI)
-                        },
-                        onOpenUrl = { url ->
-                            showGlobalSearch = false
-                            router.open(AppRoute.Browser(url))
-                        },
-                        onOpenWithWebVpn = { vpnUrl ->
-                            showGlobalSearch = false
-                            pageDeps.onOpenWithWebVpn(vpnUrl)
-                        },
-                        accountType = loginState.accountType,
-                    )
-                }
-            }
-
             RevealOverlay(
                 visible = showQrLogin,
                 source = revealSource,
@@ -487,7 +581,7 @@ internal fun MainScreen(
         onBack = {
             when {
                 showQrLogin -> showQrLogin = false
-                showGlobalSearch -> showGlobalSearch = false
+                homeSearchExpanded -> homeSearchExpanded = false
                 // 先退回上一格（当前页缩回自己的按钮）；没有历史了再回首页
                 tabs.back(bar.mapTo(HashSet()) { it.id }) -> Unit
                 selectedTab != BottomTab.HOME -> tabs.jumpHome()
@@ -506,8 +600,8 @@ internal fun MainScreen(
         restoreStep = restoreStep,
         page = { shellPage, insets ->
             Box(Modifier.fillMaxSize().graphicsLayer {
-                // 覆盖层放大时，底下的页面慢慢往后退
-                val reveal = maxOf(searchReveal.value, qrReveal.value)
+                // 扫一扫覆盖层放大时，底下的页面慢慢往后退（搜索页只做淡入，不后退）
+                val reveal = qrReveal.value
                 val s = androidx.compose.ui.util.lerp(1f, com.xjtu.toolbox.nav.ButtonZoom.RECEDE_SCALE, reveal)
                 scaleX = s
                 scaleY = s
@@ -537,6 +631,9 @@ internal fun MainScreen(
                         onBulletinDismiss = onHeroBulletinDismiss,
                         contentTopPadding = insets.contentTopPadding,
                         contentTopShift = insets.contentTopShift,
+                        topBarSearch = homeSearchContent,
+                        searching = homeSearchExpanded,
+                        searchContent = homeSearchBody,
                         topActions = {
                             HomeTopActions(
                                 onInbox = { source ->
@@ -558,10 +655,11 @@ internal fun MainScreen(
                                     }
                                     router.open(AppRoute.Inbox)
                                 },
-                                onSearch = { source ->
-                                    revealSource = source
-                                    showGlobalSearch = true
-                                },
+                                // 搜索钮展开时，右侧铃铛按同一进度渐小、渐淡让位；
+                                // 收起时反过来长回来。
+                                searchState = homeSearchState,
+                                searchStyle = homeSearchStyle,
+                                onSearchExpand = { homeSearchExpanded = true },
                             )
                         },
                     )
@@ -590,9 +688,11 @@ internal fun MainScreen(
                     )
 
                     BottomTab.TOOLS.name -> ZyxfBrowseScreen(
+                        vm = zyxfVm,
                         contentPadding = PaddingValues(bottom = insets.bottomBarReserve),
                         scrollBehavior = toolsScrollBehavior,
                         contentTopPadding = insets.contentTopPadding,
+                        searchInTopBar = true,
                     )
 
                     BottomTab.PROFILE.name -> ProfileTab(
@@ -697,46 +797,82 @@ private fun ScanAction(onScan: (ExpandOriginSource) -> Unit) {
     }
 }
 
-/** 首页顶栏右上角那一排圆钮：搜索、消息。 */
+/** 首页顶栏右上角那一排圆钮：可展开搜索、消息。 */
 @Composable
 private fun HomeTopActions(
     onInbox: (ExpandOriginSource) -> Unit,
-    onSearch: (ExpandOriginSource) -> Unit,
+    searchState: CouiTopAppBarSearchState,
+    searchStyle: CouiToolbarStyle,
+    onSearchExpand: () -> Unit,
 ) {
-    val tint = MiuixTheme.colorScheme.onSurface
-    val searchSource = rememberExpandOriginSource()
     val inboxSource = rememberExpandOriginSource()
+    val density = LocalDensity.current
+    val actionFullWidth = with(density) { 48.dp.roundToPx() }
+    // 融球展开/收起同一条进度：0 = 圆钮，1 = 搜索框 + 取消胶囊。
+    val searchProgress = searchState.progress.coerceIn(0f, 1f)
     Row(
         horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(2.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        HomeRoundAction(
-            onClick = { onSearch(searchSource) },
-            source = searchSource,
+        // 搜索圆钮是融球的起点：展开时它让出宽度，取消胶囊正好落到右侧这个位置。
+        Box(
+            Modifier
+                .layout { measurable, constraints ->
+                    val width = (actionFullWidth * (1f - searchProgress)).roundToInt().coerceAtLeast(0)
+                    val placeable = measurable.measure(Constraints.fixed(width, constraints.maxHeight))
+                    layout(width, placeable.height) { placeable.place(0, 0) }
+                }
+                .graphicsLayer {
+                    val f = 1f - searchProgress
+                    alpha = f
+                    scaleX = f
+                    scaleY = f
+                },
         ) {
-            Icon(Icons.Outlined.Search, contentDescription = "搜索", tint = tint, modifier = Modifier.size(24.dp))
+            TopAppBarSearchButton(
+                state = searchState,
+                style = searchStyle,
+                onClick = onSearchExpand,
+                contentDescription = "搜索",
+            )
         }
-        // 铃铛：角标画在**圆钮外面这一层**。圆钮的液态玻璃把内容裁成圆形，画在里面的右上角
-        // 一定会被那道圆弧削掉一块；角标位置还是原来的（圆钮右上角）。
-        Box {
-            HomeRoundAction(
-                onClick = { onInbox(inboxSource) },
-                source = inboxSource,
-            ) {
-                InboxBell(
-                    {},
-                    clickable = false,
-                    iconSize = 24.dp,
-                    containerSize = HomeTopActionSize,
-                    showBadge = false,
+        // 右侧铃铛也给取消胶囊让位：宽度、缩放、透明度都跟融球同一条进度；
+        // 消失时渐小渐淡，收回时反过来长回来，不会和分裂中的取消胶囊重叠。
+        Box(
+            Modifier
+                .layout { measurable, constraints ->
+                    val width = (actionFullWidth * (1f - searchProgress)).roundToInt().coerceAtLeast(0)
+                    val placeable = measurable.measure(Constraints.fixed(width, constraints.maxHeight))
+                    layout(width, placeable.height) { placeable.place(0, 0) }
+                }
+                .graphicsLayer {
+                    // 视觉宽度始终不超过布局宽度，避免和分裂中的取消胶囊重叠
+                    val f = 1f - searchProgress
+                    alpha = f
+                    scaleX = f
+                    scaleY = f
+                },
+        ) {
+            Box {
+                HomeRoundAction(
+                    onClick = { onInbox(inboxSource) },
+                    source = inboxSource,
+                ) {
+                    InboxBell(
+                        {},
+                        clickable = false,
+                        iconSize = 24.dp,
+                        containerSize = HomeTopActionSize,
+                        showBadge = false,
+                    )
+                }
+                com.xjtu.toolbox.inbox.InboxUnreadBadge(
+                    Modifier
+                        .align(Alignment.TopEnd)
+                        .offset(x = (-2).dp, y = 8.dp)
+                        .graphicsLayer { alpha = if (com.xjtu.toolbox.nav.ExpandOrigins.isHidden(inboxSource)) 0f else 1f },
                 )
             }
-            com.xjtu.toolbox.inbox.InboxUnreadBadge(
-                Modifier
-                    .align(Alignment.TopEnd)
-                    .offset(x = (-2).dp, y = 8.dp)
-                    .graphicsLayer { alpha = if (com.xjtu.toolbox.nav.ExpandOrigins.isHidden(inboxSource)) 0f else 1f },
-            )
         }
     }
 }
@@ -776,9 +912,10 @@ private fun MainTopBar(
     agentActions: (@Composable RowScope.() -> Unit)?,
     courseActions: (@Composable RowScope.() -> Unit)?,
     courseBottomContent: (@Composable () -> Unit)?,
+    /** 学辅 tab：标题 + 常驻搜索同属 COUI CollapsingTopAppBar。 */
+    toolsAppBarState: CouiCollapsingAppBarState?,
+    toolsSearchBar: (@Composable () -> Unit)?,
     onScan: (ExpandOriginSource) -> Unit,
-    onSearch: () -> Unit,
-    onInbox: () -> Unit,
 ) {
     val color = if (glassStyle) Color.Transparent else MiuixTheme.colorScheme.surface
     // 首页没有顶栏（标题「岱宗盒子」没有信息量）：按钮挪进首页内容里，状态栏留白由 Scaffold 的 insets 给；
@@ -800,6 +937,46 @@ private fun MainTopBar(
         BottomTab.PIDAI -> agentTitle
         BottomTab.TOOLS -> ZYXF_TITLE
         else -> selectedTab.label
+    }
+    // 学辅：COUI 原版 CollapsingTopAppBar——标题和常驻搜索在同一块表面里。
+    // 搜索胶囊自己一直是展开的输入态（见 ZyxfTopBarSearch）；顶栏这边只跟着列表滚动折叠，
+    // 所以不传 searchState，标题不会被搜索抢走，点搜索结果时也不用先收顶栏。
+    if (selectedTab == BottomTab.TOOLS && toolsAppBarState != null && toolsSearchBar != null) {
+        val pageBackdrop = LocalCouiPageBackdrop.current.androidBackdrop()
+        if (pageBackdrop != null) {
+            CollapsingTopAppBar(
+                modifier = Modifier.fillMaxWidth(),
+                state = toolsAppBarState,
+                title = title,
+                color = MiuixTheme.colorScheme.onSurface,
+                backdrop = pageBackdrop,
+                backgroundColor = MiuixTheme.colorScheme.surface,
+                dark = LocalIsDarkTheme.current,
+                searchBar = toolsSearchBar,
+            )
+        } else {
+            // 经典风格：没有页面采样源。录一层实色底，供顶栏渐变和搜索胶囊材质取样。
+            val solid = rememberCouiBackdrop()
+            Box(Modifier.fillMaxWidth()) {
+                Box(
+                    Modifier
+                        .matchParentSize()
+                        .couiBackdrop(solid)
+                        .background(MiuixTheme.colorScheme.surface),
+                )
+                CollapsingTopAppBar(
+                    modifier = Modifier.fillMaxWidth(),
+                    state = toolsAppBarState,
+                    title = title,
+                    color = MiuixTheme.colorScheme.onSurface,
+                    backdrop = solid,
+                    backgroundColor = MiuixTheme.colorScheme.surface,
+                    dark = LocalIsDarkTheme.current,
+                    searchBar = toolsSearchBar,
+                )
+            }
+        }
+        return
     }
     // 日程：顶栏按二级页那套版式——钉死的小标题（COUI 原版 TopAppBar，52dp），
     // 但它挂在底栏上、没有上一级，所以不放返回键。
@@ -915,7 +1092,14 @@ internal fun CoursesTab(
     val scheduleHost = remember(loginState) {
         com.xjtu.toolbox.schedule.AppScheduleHost(context, loginState)
     }
-    Box(Modifier.fillMaxSize().nestedScroll(scrollBehavior.nestedScrollConnection)) {
+    // 日程页内容也吃双轨滚动的差值：压栈的大标题顶栏下，整页内容会先追进顶栏空隙再弹回；
+    // 挂在底栏上时顶栏是钉死小标题，差值恒为 0，这一层什么都不做。
+    Box(
+        Modifier
+            .fillMaxSize()
+            .nestedScroll(scrollBehavior.nestedScrollConnection)
+            .graphicsLayer { translationY = scrollBehavior.contentTranslationY },
+    ) {
         ScheduleScreen(
             host = scheduleHost,
             onBack = {},

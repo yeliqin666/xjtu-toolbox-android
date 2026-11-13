@@ -44,6 +44,11 @@ fun HomeScreen(
     contentTopShift: () -> Dp = { 0.dp },
     /** 顶栏右上角那一排（`:app` 是搜索、通知）。null = 这一端没有顶栏。 */
     topActions: (@Composable () -> Unit)? = null,
+    /** 顶栏中段的可展开搜索（`:app` 是 COUI 搜索组件）；null = 没有。 */
+    topBarSearch: (@Composable () -> Unit)? = null,
+    /** 搜索展开态与搜索结果内容层（`:app` 提供）；null = 没有。 */
+    searching: Boolean = false,
+    searchContent: (@Composable () -> Unit)? = null,
 ) {
     val store = remember { SettingsStore() }
     val layout = remember(HomeLayoutRevision.current) { store.homeLayout }
@@ -63,6 +68,9 @@ fun HomeScreen(
                 contentTopPadding = contentTopPadding,
                 contentTopShift = contentTopShift,
                 topActions = topActions,
+                topBarSearch = topBarSearch,
+                searching = searching,
+                searchContent = searchContent,
                 scrollState = scrollState,
             )
         } else {
@@ -74,6 +82,9 @@ fun HomeScreen(
                 contentTopPadding = contentTopPadding,
                 contentTopShift = contentTopShift,
                 topActions = topActions,
+                topBarSearch = topBarSearch,
+                searching = searching,
+                searchContent = searchContent,
                 scrollState = scrollState,
             )
         }

@@ -1,7 +1,5 @@
 package com.xjtu.toolbox.home
 
-import com.xjtu.toolbox.ui.components.BackButton
-import com.xjtu.toolbox.ui.glass.CouiPageTopAppBar
 import com.xjtu.toolbox.nav.AppRoute
 import com.xjtu.toolbox.platform.BackHandler
 import androidx.compose.animation.AnimatedContent
@@ -20,13 +18,10 @@ import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.asPaddingValues
-import androidx.compose.foundation.layout.displayCutout
 import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.navigationBars
-import androidx.compose.foundation.layout.only
-import androidx.compose.foundation.layout.systemBars
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.union
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -45,31 +40,36 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.xjtu.toolbox.ui.components.FullScreenOverlay
 import com.xjtu.toolbox.auth.AccountType
-import com.xjtu.toolbox.ui.glass.CouiToolbarActionButton
+import com.xjtu.toolbox.ui.glass.coui.CouiTopAppBarButtonDefaults
+import com.xjtu.toolbox.ui.glass.coui.CouiTopAppBarSurface
+import com.xjtu.toolbox.ui.glass.coui.LocalCouiContentColor
+import com.xjtu.toolbox.ui.glass.coui.TopAppBarSearch
+import com.xjtu.toolbox.ui.glass.coui.TopAppBarSearchButton
+import com.xjtu.toolbox.ui.glass.coui.couiBackdrop
+import com.xjtu.toolbox.ui.glass.coui.rememberCouiBackdrop
+import com.xjtu.toolbox.ui.glass.coui.rememberCouiTopAppBarSearchState
+import com.xjtu.toolbox.ui.theme.LocalIsDarkTheme
 import com.xjtu.toolbox.webvpn.WebVpnUtil
-import com.xjtu.toolbox.ui.components.AppSearchBar
 import top.yukonga.miuix.kmp.basic.Icon
-import top.yukonga.miuix.kmp.basic.Scaffold
 import top.yukonga.miuix.kmp.basic.Surface
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.TravelExplore
 import androidx.compose.material.icons.outlined.ChevronRight
-import kotlinx.coroutines.delay
 
 /**
  * 搜索结果条目。两种类型：
@@ -165,66 +165,100 @@ fun GlobalSearchScreen(
     onNavigate: (AppRoute) -> Unit,
     onAskAgent: (String) -> Unit,
     onOpenUrl: (String) -> Unit,
-    /** 参数是已转成 WebVPN 域的网址。 */
+    /** 已转成 WebVPN 域的网址。 */
     onOpenWithWebVpn: (String) -> Unit,
     accountType: AccountType = AccountType.UNDERGRADUATE,
+    /** 从首页顶栏搜索带过来的初始关键词；空串 = 从头搜。 */
+    initialQuery: String = "",
 ) {
     FullScreenOverlay {
-        var query by rememberSaveable { mutableStateOf("") }
+        var query by rememberSaveable(initialQuery) { mutableStateOf(initialQuery) }
         val results by remember(accountType) { derivedStateOf { GlobalSearchIndex.search(query, accountType) } }
-        val focusRequester = remember { FocusRequester() }
-        LaunchedEffect(Unit) {
-            delay(80)
-            runCatching { focusRequester.requestFocus() }
-        }
-
         BackHandler(onBack = onBack)
 
         // 纯色底：整页模糊会把首页头卡的液体色透成一大片色块，反而脏
         val scaffoldColor = MiuixTheme.colorScheme.surface
+        // 顶栏是 COUI 搜索钮组件本身：一个圆球按钮展开成「输入框 + 取消」两个主体，
+        // 图标连续；页面正文是另一层，两者分开写。
+        var searchExpanded by rememberSaveable { mutableStateOf(false) }
+        val searchState = rememberCouiTopAppBarSearchState(searchExpanded)
+        val searchStyle = CouiTopAppBarButtonDefaults.style(
+            dark = LocalIsDarkTheme.current,
+            search = true,
+        )
+        val keyboard = LocalSoftwareKeyboardController.current
+        // 等按钮落位、记下展开起点后再展开，图标才会从圆钮连续长过去。
+        LaunchedEffect(Unit) {
+            withFrameNanos { }
+            searchExpanded = true
+        }
+        // 取消时先让两个主体合并，再淡出整页。
+        var searchOpened by remember { mutableStateOf(false) }
+        LaunchedEffect(searchExpanded) {
+            if (searchExpanded) {
+                searchOpened = true
+            } else if (searchOpened) {
+                kotlinx.coroutines.delay(450)
+                onBack()
+            }
+        }
+        val topBarBackdrop = rememberCouiBackdrop()
 
         Box(Modifier.fillMaxSize().background(scaffoldColor)) {
-            Scaffold(
-                containerColor = scaffoldColor,
-                // 底部不让位：结果列表从小白条下面滚过，末尾净空由列表自己补（见 SearchResultList）
-                contentWindowInsets = WindowInsets.systemBars
-                    .union(WindowInsets.displayCutout)
-                    .only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal),
-                topBar = {
-                    CouiPageTopAppBar(
-                        title = "搜索",
-                        color = scaffoldColor,
-                        // 二级页：标题钉死成收起态
-                        pinned = true,
-                        navigationIcon = {
-                            BackButton(onBack)
-                        },
-                        actions = {
-                            if (query.isNotEmpty()) {
-                                CouiToolbarActionButton(onClick = { query = "" }) {
-                                    Icon(Icons.Default.Close, contentDescription = "清空")
-                                }
-                            }
-                        }
+            Column(Modifier.fillMaxSize()) {
+                Box(Modifier.fillMaxWidth().statusBarsPadding()) {
+                    // 搜索栏材质要一层不透明采样源；这一条就是页面底色本身
+                    Box(
+                        Modifier
+                            .matchParentSize()
+                            .couiBackdrop(topBarBackdrop)
+                            .background(scaffoldColor),
                     )
+                    CouiTopAppBarSurface(
+                        modifier = Modifier.fillMaxWidth(),
+                        backdrop = topBarBackdrop,
+                        gradientColor = scaffoldColor,
+                        dark = LocalIsDarkTheme.current,
+                    ) {
+                        Row(
+                            Modifier.fillMaxWidth().height(64.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            TopAppBarSearch(
+                                modifier = Modifier.weight(1f),
+                                state = searchState,
+                                style = searchStyle,
+                                query = query,
+                                onQueryChange = { query = it },
+                                onSearch = { keyboard?.hide() },
+                                placeholder = "搜索功能、成绩、课表、空教室…",
+                                focusPending = searchExpanded,
+                                onFocused = {},
+                                action = {
+                                    Text(
+                                        "取消",
+                                        color = LocalCouiContentColor.current,
+                                        fontSize = 15.sp,
+                                        fontWeight = FontWeight.Medium,
+                                    )
+                                },
+                                onActionClick = { searchExpanded = false },
+                            ) { }
+                            TopAppBarSearchButton(
+                                state = searchState,
+                                style = searchStyle,
+                                onClick = { searchExpanded = true },
+                                contentDescription = "搜索",
+                            )
+                        }
+                    }
                 }
-            ) { padding ->
                 Column(
                     Modifier
                         .fillMaxSize()
-                        .padding(padding)
-                        .padding(horizontal = 16.dp)
+                        .padding(horizontal = 16.dp),
                 ) {
                     Spacer(Modifier.height(4.dp))
-                    AppSearchBar(
-                        query = query,
-                        onQueryChange = { query = it },
-                        label = "课表、成绩、空教室、问小岱…",
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .focusRequester(focusRequester)
-                    )
-
                     AnimatedContent(
                         targetState = query.isBlank(),
                         transitionSpec = {
@@ -251,6 +285,49 @@ fun GlobalSearchScreen(
                         }
                     }
                 }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+internal fun GlobalSearchBody(
+    query: String,
+    onQueryChange: (String) -> Unit,
+    accountType: AccountType,
+    onNavigate: (AppRoute) -> Unit,
+    onAskAgent: (String) -> Unit,
+    onOpenUrl: (String) -> Unit,
+    onOpenWithWebVpn: (String) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val results by remember(accountType) { derivedStateOf { GlobalSearchIndex.search(query, accountType) } }
+    Column(modifier.fillMaxSize().padding(horizontal = 16.dp)) {
+        Spacer(Modifier.height(4.dp))
+        AnimatedContent(
+            targetState = query.isBlank(),
+            transitionSpec = {
+                (fadeIn(tween(180)) + slideInVertically(tween(220)) { it / 12 })
+                    .togetherWith(fadeOut(tween(120)))
+            },
+            label = "searchBody",
+            modifier = Modifier.fillMaxSize(),
+        ) { blank ->
+            if (blank) {
+                SearchEmptyHints(
+                    onChip = onQueryChange,
+                    onAskAgent = onAskAgent,
+                )
+            } else {
+                SearchResultList(
+                    query = query,
+                    results = results,
+                    onNavigate = onNavigate,
+                    onAskAgent = onAskAgent,
+                    onOpenUrl = onOpenUrl,
+                    onOpenWithWebVpn = onOpenWithWebVpn,
+                )
             }
         }
     }

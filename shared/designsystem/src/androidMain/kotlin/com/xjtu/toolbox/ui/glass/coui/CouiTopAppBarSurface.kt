@@ -28,7 +28,8 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.dp
 
-internal val LocalCouiToolbarBackdrop = staticCompositionLocalOf<CouiBackdrop?> { null }
+/** 顶栏表面录下的那层模糊/渐隐；顶栏里的搜索、分类胶囊和圆钮都采它。 */
+val LocalCouiToolbarBackdrop = staticCompositionLocalOf<CouiBackdrop?> { null }
 internal val LocalCouiToolbarOverlay = staticCompositionLocalOf<SharedTransitionScope?> { null }
 
 private const val FadeStopCount = 65

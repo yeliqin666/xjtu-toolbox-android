@@ -7,10 +7,12 @@ import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.text.BasicText
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.isSpecified
 import androidx.compose.ui.graphics.takeOrElse
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
@@ -25,6 +27,7 @@ import com.xjtu.toolbox.ui.glass.coui.CouiTopAppBarDefaults
 import com.xjtu.toolbox.ui.glass.coui.CouiTopAppBarScrollBehavior
 import com.xjtu.toolbox.ui.glass.coui.LargeTopAppBar
 import com.xjtu.toolbox.ui.glass.coui.LocalCouiTextStyle
+import com.xjtu.toolbox.ui.glass.coui.LocalCouiToolbarBackdrop
 import com.xjtu.toolbox.ui.glass.coui.Text
 import com.xjtu.toolbox.ui.glass.coui.TopAppBar
 import com.xjtu.toolbox.ui.glass.coui.couiBackdrop
@@ -70,6 +73,9 @@ private class AndroidCouiTopBarScrollBehavior(
     override val nestedScrollConnection: NestedScrollConnection get() = connection
 
     override val collapsedFraction: Float get() = behavior.state.collapsedFraction
+
+    /** 双轨滚动的差值：顶栏可见位置（弹簧）落后逻辑滚动多少。 */
+    override val contentTranslationY: Float get() = behavior.state.contentTranslationY
 }
 
 @Composable
@@ -225,10 +231,11 @@ private fun CouiPageBar(
                 backdrop = backdrop,
             )
         }
-        bottomContent()
+        // bottomContent 在 COUI 表面之外，但常放搜索胶囊 / 顶栏按钮这类顶栏部件：
+        // 把这一页的采样源交给它，组件不必自己再录一层（COUI 原版 TopAppBarButton 会 checkNotNull）。
+        CompositionLocalProvider(LocalCouiToolbarBackdrop provides backdrop) { bottomContent() }
     }
 }
-
 /**
  * 标题槽：原版 COUI `AppBarLayout` 通过 `ProvideCouiContent` 提供展开/收起用的标题样式，
  * 按 COUI 的约定「title 槽位须继承组件提供的样式」直接消费 [LocalCouiTextStyle]，
@@ -244,10 +251,17 @@ private fun CouiPageTitle(
 ) {
     // 覆盖字号时按 COUI 的 HomeTitle 排版重新算一遍（字号变了行高要跟着变），
     // 这样和「大标题收起后」的标题字形、字重完全一致。
+    //
+    // 重新算出来的样式**不带颜色**（COUI 的排版预设只管字形），而标题色是顶栏通过
+    // `LocalCouiTextStyle` 交下来的原厂 `titleColor`。漏掉这一步，BasicText 会退回默认黑字：
+    // 浅色下碰巧是对的，暗色下「日程」这种钉死小标题就一直是黑的。把颜色补回去。
+    val providedStyle = LocalCouiTextStyle.current
     val titleStyle = if (fontSize == null) {
-        LocalCouiTextStyle.current
+        providedStyle
     } else {
-        rememberCouiSystemTextStyle(CouiTextKind.HomeTitle, size = fontSize.value)
+        rememberCouiSystemTextStyle(CouiTextKind.HomeTitle, size = fontSize.value).let { style ->
+            if (providedStyle.color.isSpecified) style.copy(color = providedStyle.color) else style
+        }
     }
     if (subtitle == null) {
         BasicText(

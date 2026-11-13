@@ -33,6 +33,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.viewmodel.compose.viewModel
 import com.xjtu.toolbox.ui.glass.LocalTabBottomPadding
 import com.xjtu.toolbox.auth.LoginType
 import com.xjtu.toolbox.auth.ensureSite
@@ -68,6 +69,7 @@ import com.xjtu.toolbox.ui.glass.glassTop
 import com.xjtu.toolbox.ui.glass.rememberPageGlass
 import com.xjtu.toolbox.ui.glass.withoutTop
 import com.xjtu.toolbox.zyxf.ZyxfBrowseScreen
+import com.xjtu.toolbox.zyxf.ZyxfBrowseViewModel
 import com.xjtu.toolbox.ui.glass.rememberCouiTopAppBarScrollBehavior
 import top.yukonga.miuix.kmp.basic.Scaffold
 import top.yukonga.miuix.kmp.basic.ScrollBehavior
@@ -297,6 +299,10 @@ internal fun ScheduleRoutePage(loginState: AppLoginState, onNavigate: (AppRoute)
 internal fun ZyxfRoutePage(onBack: () -> Unit) {
     val tabBottomPadding = LocalTabBottomPadding.current
     val scrollBehavior = rememberCouiTopAppBarScrollBehavior()
+    val context = LocalContext.current
+    // 搜索框画在页面顶部的列表里（压栈页没有学辅 tab 那条带搜索的顶栏），
+    // ViewModel 提到这里只是为了和 tab 共用同一份数据与包名。
+    val vm: ZyxfBrowseViewModel = viewModel { ZyxfBrowseViewModel(context) }
     StandalonePage(
         topBar = { glass ->
             CouiPageTopAppBar(
@@ -310,6 +316,7 @@ internal fun ZyxfRoutePage(onBack: () -> Unit) {
         },
     ) { topPadding, _ ->
         ZyxfBrowseScreen(
+            vm = vm,
             contentPadding = PaddingValues(bottom = tabBottomPadding),
             scrollBehavior = scrollBehavior,
             contentTopPadding = topPadding,

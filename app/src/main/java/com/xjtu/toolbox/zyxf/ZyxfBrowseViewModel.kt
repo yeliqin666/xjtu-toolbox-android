@@ -52,8 +52,19 @@ internal class ZyxfBrowseViewModel(context: Context) : ViewModel() {
     private var job: Job? = null
     private var searchJob: Job? = null
     private var searchedQuery: String? = null
+    private var started = false
 
-    init { reload() }
+    /**
+     * 第一次真正上屏时才拉目录。
+     *
+     * ViewModel 现在建在宿主层（学辅 tab 的顶栏要读 query），不能再在 `init` 里请求：
+     * 应用启动/常驻 tab 里建了实例但用户没点进学辅时，不该白打一次按 IP 限流的资料站接口。
+     */
+    fun ensureStarted() {
+        if (started) return
+        started = true
+        reload()
+    }
 
     /** 重新拉当前目录（或重跑当前检索）。 */
     fun reload() {
@@ -142,6 +153,14 @@ internal class ZyxfBrowseViewModel(context: Context) : ViewModel() {
 
     /** 再点当前项＝翻转方向，换一项＝切字段并回到默认方向（时间默认新的在前）。 */
     fun pickSort(picked: ZyxfApi.Sort) {
+        if (picked == ZyxfApi.Sort.MANUAL) {
+            // 「默认」没有方向：已经默认时再点不做事，也不白发一次目录请求
+            if (sort == ZyxfApi.Sort.MANUAL) return
+            sort = ZyxfApi.Sort.MANUAL
+            desc = false
+            reload()
+            return
+        }
         if (picked == sort) desc = !desc else { sort = picked; desc = picked == ZyxfApi.Sort.TIME }
         reload()
     }

@@ -60,6 +60,10 @@ internal fun HomeTopBar(
     onTapCollapsed: () -> Unit,
     /** 右上角那一排宿主按钮（`:app` 是搜索、通知）。null = 这一端没有这排按钮。 */
     actions: (@Composable () -> Unit)?,
+    /** 顶栏中段的可展开搜索（`:app` 是 COUI 搜索组件）；null = 这一端没有。 */
+    searchContent: (@Composable () -> Unit)? = null,
+    /** 搜索展开态：收起头像，把中段整段让给搜索组件。 */
+    searching: Boolean = false,
     /** 编辑态：左侧换成「编辑主页」，右侧换成齿轮 + 对勾。 */
     editing: Boolean = false,
     onHomeSettings: () -> Unit = {},
@@ -124,11 +128,17 @@ internal fun HomeTopBar(
                     translationY = if (alignWithGreeting) 0f else -BUTTON_LIFT.toPx() * (1f - progress())
                 }
                 Box(lift) {
-                    AnimatedContent(editing, transitionSpec = { BarSwap }, label = "barLeading") { edit ->
-                        if (!edit) HomeBarAvatar(progress)
+                    if (!searching) {
+                        AnimatedContent(editing, transitionSpec = { BarSwap }, label = "barLeading") { edit ->
+                            if (!edit) HomeBarAvatar(progress)
+                        }
                     }
                 }
-                Spacer(Modifier.weight(1f))
+                if (!editing && searchContent != null) {
+                    Box(Modifier.weight(1f).then(lift)) { searchContent() }
+                } else {
+                    Spacer(Modifier.weight(1f))
+                }
                 Box(lift) {
                     AnimatedContent(
                         editing,
