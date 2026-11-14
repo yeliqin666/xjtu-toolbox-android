@@ -29,6 +29,8 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.lerp
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.layer.drawLayer
 import androidx.compose.ui.graphics.rememberGraphicsLayer
 import androidx.compose.ui.text.TextStyle
@@ -48,14 +50,19 @@ import kotlinx.datetime.LocalDate
 import kotlinx.datetime.number
 
 /**
- * 海报用固定的纸色和墨色，不跟深浅色走：存成图发出去，在别人手机上也该是同一张。
- * 一个朱红做强调，落款盖一方「岱」字印。
+ * 海报始终是浅纸深墨，不跟深浅色走：存成图发出去，在别人手机上也该是同一张。
+ * 强调色（数字、条形、落款印）取主题色，纸面也略带一点主题色。
  */
-private val PAPER = Color(0xFFF6F1E7)
 private val INK = Color(0xFF1F1B16)
 private val INK_MUTED = Color(0xFF6E665B)
-private val VERMILION = Color(0xFFB23A2B)
 private val RULE = Color(0x331F1B16)
+private val PAPER_BASE = Color(0xFFF7F6F3)
+
+/** 主题色；深色模式下的主题色偏亮，在浅纸上压暗一些保证对比。 */
+private val Accent: Color
+    @Composable get() = MiuixTheme.colorScheme.primary.let { if (it.luminance() > 0.4f) lerp(it, Color.Black, 0.3f) else it }
+private val Paper: Color @Composable get() = lerp(PAPER_BASE, Accent, 0.05f)
+private val PaperInset: Color @Composable get() = lerp(PAPER_BASE, Accent, 0.11f)
 
 /**
  * 海报「存图」交给宿主：Android 存进缓存再弹系统分享，桌面弹保存对话框写 PNG。
@@ -74,13 +81,13 @@ internal fun MealReportEntry(report: MealReport, onOpen: () -> Unit) {
         Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(20.dp))
-            .background(PAPER)
+            .background(Paper)
             .clickable(onClick = onOpen)
             .padding(horizontal = 18.dp, vertical = 16.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Column(Modifier.weight(1f)) {
-            Text("MEAL REPORT", style = Editorial.kicker, color = VERMILION)
+            Text("MEAL REPORT", style = Editorial.kicker, color = Accent)
             Spacer(Modifier.height(4.dp))
             Text("干饭人账单", style = Editorial.headline, color = INK)
             Text(
@@ -139,16 +146,17 @@ fun MealReportPoster(report: MealReport, modifier: Modifier = Modifier) {
     fun money(v: Double) = "¥" + if (v >= 100) money0(v) else money1(v)
     fun clock(tx: Transaction) = tx.time.substringAfter(' ', "").take(5)
     val body = TextStyle(fontSize = 13.sp, lineHeight = 19.sp, color = INK_MUTED)
+    val accent = Accent
 
     Column(
         modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(6.dp))
-            .background(PAPER)
+            .background(Paper)
             .padding(horizontal = 26.dp, vertical = 30.dp),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("XJTU · MEAL REPORT", style = Editorial.kicker, color = VERMILION, modifier = Modifier.weight(1f))
+            Text("XJTU · MEAL REPORT", style = Editorial.kicker, color = accent, modifier = Modifier.weight(1f))
             Text("${report.from.dotted()} — ${report.to.dotted()}", style = Editorial.kicker.copy(letterSpacing = 0.5.sp), color = INK_MUTED)
         }
         Spacer(Modifier.height(10.dp))
@@ -162,7 +170,7 @@ fun MealReportPoster(report: MealReport, modifier: Modifier = Modifier) {
 
         Text("这段时间的餐饮消费", style = body)
         Row(verticalAlignment = Alignment.Bottom) {
-            Text("${report.meals}", style = Editorial.figure.copy(fontSize = 64.sp, lineHeight = 70.sp), color = VERMILION)
+            Text("${report.meals}", style = Editorial.figure.copy(fontSize = 64.sp, lineHeight = 70.sp), color = accent)
             Spacer(Modifier.width(6.dp))
             Text("笔", style = Editorial.headline, color = INK, modifier = Modifier.padding(bottom = 10.dp))
         }
@@ -184,7 +192,7 @@ fun MealReportPoster(report: MealReport, modifier: Modifier = Modifier) {
             Spacer(Modifier.height(4.dp))
             Text("各时段餐饮消费笔数", style = body.copy(fontSize = 11.sp))
             Spacer(Modifier.height(12.dp))
-            MealRhythm(report.hourlyCounts)
+            MealRhythm(report.hourlyCounts, accent)
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                 listOf("00:00", "06:00", "12:00", "18:00", "24:00").forEach {
                     Text(it, style = body.copy(fontSize = 9.sp))
@@ -197,13 +205,13 @@ fun MealReportPoster(report: MealReport, modifier: Modifier = Modifier) {
             Spacer(Modifier.height(10.dp))
             report.favoriteMerchants.forEachIndexed { index, (name, count) ->
                 Row(Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Text("0${index + 1}", style = Editorial.figure.copy(fontSize = 22.sp), color = VERMILION, modifier = Modifier.width(38.dp))
+                    Text("0${index + 1}", style = Editorial.figure.copy(fontSize = 22.sp), color = accent, modifier = Modifier.width(38.dp))
                     Text(name, modifier = Modifier.weight(1f), style = body.copy(color = INK), maxLines = 2, overflow = TextOverflow.Ellipsis)
-                    Text("$count 次", style = body.copy(color = VERMILION), modifier = Modifier.padding(start = 8.dp))
+                    Text("$count 次", style = body.copy(color = accent), modifier = Modifier.padding(start = 8.dp))
                 }
                 val ratio = count.toFloat() / report.favoriteMerchants.first().second.coerceAtLeast(1)
                 Box(Modifier.fillMaxWidth().height(3.dp).background(RULE)) {
-                    Box(Modifier.fillMaxWidth(ratio).height(3.dp).background(VERMILION))
+                    Box(Modifier.fillMaxWidth(ratio).height(3.dp).background(accent))
                 }
             }
         }
@@ -231,7 +239,7 @@ fun MealReportPoster(report: MealReport, modifier: Modifier = Modifier) {
 
 @Composable
 private fun ReportMetric(label: String, value: String, unit: String, modifier: Modifier) {
-    Column(modifier.clip(RoundedCornerShape(10.dp)).background(Color(0xFFEDE4D5)).padding(10.dp)) {
+    Column(modifier.clip(RoundedCornerShape(10.dp)).background(PaperInset).padding(10.dp)) {
         Text(label, style = TextStyle(fontSize = 10.sp, color = INK_MUTED))
         Row(verticalAlignment = Alignment.Bottom) {
             Text(value, style = Editorial.figure.copy(fontSize = 24.sp), color = INK)
@@ -241,7 +249,7 @@ private fun ReportMetric(label: String, value: String, unit: String, modifier: M
 }
 
 @Composable
-private fun MealRhythm(counts: List<Int>) {
+private fun MealRhythm(counts: List<Int>, accent: Color) {
     Canvas(Modifier.fillMaxWidth().height(82.dp)) {
         val peak = counts.maxOrNull()?.coerceAtLeast(1) ?: 1
         val step = size.width / 24
@@ -249,7 +257,7 @@ private fun MealRhythm(counts: List<Int>) {
             val value = counts.getOrElse(hour) { 0 }
             val height = (size.height * value / peak).coerceAtLeast(2.dp.toPx())
             drawRoundRect(
-                brush = Brush.verticalGradient(listOf(VERMILION.copy(alpha = 0.55f), VERMILION)),
+                brush = Brush.verticalGradient(listOf(accent.copy(alpha = 0.55f), accent)),
                 topLeft = Offset(hour * step + step * 0.12f, size.height - height),
                 size = Size(step * 0.76f, height),
                 cornerRadius = androidx.compose.ui.geometry.CornerRadius(2.dp.toPx()),
@@ -272,13 +280,13 @@ private fun PosterItem(label: String, value: String, note: String) {
     }
 }
 
-/** 落款的方印：朱红底、白色「岱」。 */
+/** 落款的方印：主题色底、纸色「岱」。 */
 @Composable
 private fun Seal() {
     Box(
-        Modifier.size(38.dp).clip(RoundedCornerShape(4.dp)).background(VERMILION),
+        Modifier.size(38.dp).clip(RoundedCornerShape(4.dp)).background(Accent),
         contentAlignment = Alignment.Center,
     ) {
-        Text("岱", style = Editorial.headline.copy(fontSize = 22.sp, lineHeight = 24.sp), color = PAPER)
+        Text("岱", style = Editorial.headline.copy(fontSize = 22.sp, lineHeight = 24.sp), color = Paper)
     }
 }
