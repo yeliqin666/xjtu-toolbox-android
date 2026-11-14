@@ -8,12 +8,9 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Fullscreen
 import androidx.compose.material.icons.filled.FullscreenExit
 import androidx.compose.material.icons.filled.Whatshot
-import androidx.compose.material.icons.filled.Layers
-import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.foundation.border
-import androidx.compose.foundation.layout.wrapContentHeight
-import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.window.Dialog
@@ -507,6 +504,8 @@ class SeatPlanUiState {
 fun SeatPlanPanel(
     floor: Pair<SeatLayout, PlanImages>?,
     pickableAreas: Set<String>,
+    /** 区域码 → 名字：没有整层图时，换区域的菜单用它。 */
+    areaNames: Map<String, String>,
     selectedArea: String,
     areaName: String,
     freeText: String?,
@@ -547,120 +546,67 @@ fun SeatPlanPanel(
     }
     val floorBounds = remember(floor) { floor?.first?.seats?.takeIf { it.isNotEmpty() }?.let(::paddedBounds) }
 
-    // 两张卡有层级：区域图在后、座位图在前，像系统多任务那样叠放。区域图平时只露出上沿一条
-    // （写着当前区域），点开才展开整层图；在整层图上点了区域就自动收回，注意力还给座位图。
-    // 前卡只压住后卡底下那一截留白，两张卡的内容都不被挡住。
+    // 一张卡从上到下：区域行 →（展开时）整层图 → 座位图 → 信息条。区域只在这一行出现一次，
+    // 能换就带 ▾：有整层图就在下面展开点选，选完自动收回；没有整层图退回菜单。
     var floorOpen by remember { mutableStateOf(false) }
+    var areaMenuOpen by remember { mutableStateOf(false) }
     val hasFloor = floor != null && floorBounds != null
-    val cardShape = RoundedCornerShape(20.dp)
-    val cardColor = com.xjtu.toolbox.ui.components.AppCardColor
-    val primary = MiuixTheme.colorScheme.primary
-    val muted = MiuixTheme.colorScheme.onSurfaceVariantSummary
+    val switchable = pickableAreas.size > 1
 
     androidx.compose.foundation.layout.BoxWithConstraints(modifier.fillMaxWidth()) {
         val width = maxWidth
         val barHeight = 58.dp
-        val headerHeight = 52.dp
-        val peekHeight = 46.dp
-        val overlap = 14.dp
         val floorFull = floorBounds?.let { (width * (it.height / it.width)).coerceIn(130.dp, 220.dp) } ?: 0.dp
-        // 不能冲过头：内边距一瞬间变成负数，Compose 直接抛异常
-        val stackSpring = tween<Dp>(360, easing = androidx.compose.animation.core.FastOutSlowInEasing)
-        val backHeight by androidx.compose.animation.core.animateDpAsState(
-            when {
-                !hasFloor -> 0.dp
-                floorOpen -> peekHeight + floorFull + overlap
-                else -> peekHeight + overlap
-            },
-            stackSpring,
-            label = "floorCardHeight",
-        )
-        // 收起时后卡比前卡窄一圈，看得出是「在后面」；展开时铺满，和前卡平起平坐
-        val backInset by androidx.compose.animation.core.animateDpAsState(if (floorOpen) 0.dp else 12.dp, stackSpring, label = "floorCardInset")
-        val mapBudget = (maxHeight - (if (hasFloor) peekHeight else 0.dp) - headerHeight - barHeight).coerceAtLeast(200.dp)
+        val mapBudget = (maxHeight - AreaRowHeight - barHeight).coerceAtLeast(200.dp)
 
-        if (hasFloor) androidx.compose.foundation.layout.Box(
-            Modifier
-                .fillMaxWidth()
-                .padding(horizontal = backInset.coerceAtLeast(0.dp))
-                .height(backHeight.coerceAtLeast(0.dp))
-                .clip(cardShape)
-                .background(cardColor)
-                .background(primary.copy(alpha = 0.07f)),
-        ) {
-            Column(Modifier.fillMaxWidth()) {
-                Row(
-                    Modifier
-                        .fillMaxWidth()
-                        .height(peekHeight)
-                        .clickable { floorOpen = !floorOpen }
-                        .padding(horizontal = 14.dp),
-                    verticalAlignment = Alignment.CenterVertically,
+        Column(Modifier.fillMaxWidth()) {
+            androidx.compose.foundation.layout.Box {
+                AreaSwitchRow(
+                    // 整层只有一个区域时它就叫楼层名，上面的楼层切换已经说过了，只留空闲数
+                    areaName = areaName.takeIf { switchable },
+                    freeText = freeText,
+                    switchable = switchable,
+                    open = floorOpen || areaMenuOpen,
+                    onClick = { if (hasFloor) floorOpen = !floorOpen else areaMenuOpen = true },
+                    trailing = { if (layout != null && images != null && error == null) HeatToggle(heatOn) { heatOn = !heatOn } },
+                )
+                if (!hasFloor) com.xjtu.toolbox.ui.components.AppDropdownMenu(
+                    expanded = areaMenuOpen,
+                    onDismissRequest = { areaMenuOpen = false },
+                    morph = com.xjtu.toolbox.ui.components.MenuMorph.FromRow,
                 ) {
-                    Icon(Icons.Default.Layers, contentDescription = null, tint = primary, modifier = Modifier.size(18.dp))
-                    Spacer(Modifier.size(8.dp))
-                    Text("区域", style = MiuixTheme.textStyles.footnote2, color = muted)
-                    Spacer(Modifier.size(6.dp))
-                    Text(
-                        areaName,
-                        style = MiuixTheme.textStyles.body2,
-                        fontWeight = FontWeight.Bold,
-                        maxLines = 1,
-                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
-                        modifier = Modifier.weight(1f),
-                    )
-                    Text(if (floorOpen) "收起" else "换区域", style = MiuixTheme.textStyles.footnote1, color = primary, fontWeight = FontWeight.Medium)
-                    Icon(
-                        if (floorOpen) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
-                        contentDescription = if (floorOpen) "收起楼层平面图" else "展开楼层平面图",
-                        tint = primary,
-                        modifier = Modifier.size(18.dp),
-                    )
+                    pickableAreas.forEach { code ->
+                        com.xjtu.toolbox.ui.components.AppDropdownOption(
+                            text = areaNames[code] ?: code,
+                            selected = code == selectedArea,
+                            onClick = { areaMenuOpen = false; onPickArea(code) },
+                        )
+                    }
                 }
-                if (floorOpen) FloorPlanView(
-                    layout = floor!!.first,
-                    images = floor.second,
-                    bounds = floorBounds!!,
+            }
+            androidx.compose.animation.AnimatedVisibility(
+                visible = floorOpen && hasFloor,
+                enter = androidx.compose.animation.expandVertically() + androidx.compose.animation.fadeIn(),
+                exit = androidx.compose.animation.shrinkVertically() + androidx.compose.animation.fadeOut(),
+            ) {
+                val f = floor
+                val b = floorBounds
+                if (f != null && b != null) FloorPlanView(
+                    layout = f.first,
+                    images = f.second,
+                    bounds = b,
                     pickable = pickableAreas,
                     selectedArea = selectedArea,
                     onPick = {
                         onPickArea(it)
                         floorOpen = false
                     },
-                    // 展开动画途中卡片还没长到位，图按最终高度排版、被卡片裁掉，视野不会跟着动画抖
                     modifier = Modifier
                         .fillMaxWidth()
-                        .wrapContentHeight(Alignment.Top, unbounded = true)
+                        .padding(start = 12.dp, end = 12.dp, bottom = 10.dp)
+                        .clip(RoundedCornerShape(14.dp))
                         .height(floorFull),
                 )
-            }
-        }
-
-        // 前卡：座位图。顶上是区域名、空闲数和热力图开关
-        Column(
-            Modifier
-                .padding(top = (backHeight - overlap).coerceAtLeast(0.dp))
-                .fillMaxWidth()
-                .shadow(if (hasFloor) 10.dp else 0.dp, cardShape, clip = false)
-                .clip(cardShape)
-                .background(cardColor),
-        ) {
-            Row(
-                Modifier.fillMaxWidth().height(headerHeight).padding(horizontal = 14.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Column(Modifier.weight(1f)) {
-                    // 整层只有一个区域时它就叫楼层名，上面的楼层切换已经说过了
-                    if (pickableAreas.size > 1) Text(
-                        areaName,
-                        style = MiuixTheme.textStyles.body1,
-                        fontWeight = FontWeight.Bold,
-                        maxLines = 1,
-                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
-                    )
-                    if (freeText != null) Text(freeText, style = MiuixTheme.textStyles.footnote2, color = muted, maxLines = 1)
-                }
-                if (layout != null && images != null && error == null) HeatToggle(heatOn) { heatOn = !heatOn }
             }
             when {
                 error != null -> Column(
@@ -698,8 +644,6 @@ fun SeatPlanPanel(
                             )
                         }
                         PlanInfoBar(
-                            areaName = areaName,
-                            freeText = freeText,
                             seat = selectedSeat,
                             favorite = selectedSeat?.seatId in favorites,
                             canBook = canBook,
@@ -725,6 +669,65 @@ fun SeatPlanPanel(
                 }
             }
         }
+    }
+}
+
+internal val AreaRowHeight = 56.dp
+
+/**
+ * 区域行：区域名（能换就带 ▾，点它换区域）+ 空闲数，右边留给 [trailing]。
+ * 平面图卡和列表模式共用，区域名在页面上只出现这一处。
+ * @param areaName null = 这一层只有一个区域，不写名字，只留空闲数
+ */
+@Composable
+internal fun AreaSwitchRow(
+    areaName: String?,
+    freeText: String?,
+    switchable: Boolean,
+    open: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    trailing: @Composable () -> Unit = {},
+) {
+    val primary = MiuixTheme.colorScheme.primary
+    Row(
+        modifier.fillMaxWidth().height(AreaRowHeight).padding(horizontal = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(
+            Modifier
+                .weight(1f)
+                .clip(RoundedCornerShape(12.dp))
+                .clickable(enabled = switchable, onClick = onClick)
+                .padding(horizontal = 8.dp, vertical = 4.dp),
+        ) {
+            if (areaName != null) Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    areaName,
+                    style = MiuixTheme.textStyles.body1,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f, fill = false),
+                )
+                if (switchable) {
+                    val turn by androidx.compose.animation.core.animateFloatAsState(if (open) 180f else 0f, label = "areaChevron")
+                    Icon(
+                        Icons.Default.ExpandMore,
+                        contentDescription = if (open) "收起" else "换区域",
+                        tint = primary,
+                        modifier = Modifier.size(20.dp).graphicsLayer { rotationZ = turn },
+                    )
+                }
+            }
+            if (freeText != null) Text(
+                freeText,
+                style = if (areaName != null) MiuixTheme.textStyles.footnote2 else MiuixTheme.textStyles.body2,
+                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                maxLines = 1,
+            )
+        }
+        trailing()
     }
 }
 
@@ -932,7 +935,7 @@ private fun PlanFullscreen(
 }
 
 /**
- * 没选座时给区域名、空闲数和操作提示；选中后给座位状态和预约按钮。
+ * 没选座时给操作提示（热力图开着就给推荐座），选中后给座位状态和预约按钮。区域名、空闲数在上面的区域行。
  *
  * @param canBook 本端能不能预约（见 [LibrarySource.canBook]）：false 时连按钮都不画 ——
  *   只读端不留一个点了会失败的入口（而 [LibrarySource.hasSeatPlan] = false 时这整个平面图都不出现，
@@ -941,8 +944,6 @@ private fun PlanFullscreen(
  */
 @Composable
 private fun PlanInfoBar(
-    areaName: String,
-    freeText: String?,
     seat: PlanSeat?,
     favorite: Boolean,
     canBook: Boolean,

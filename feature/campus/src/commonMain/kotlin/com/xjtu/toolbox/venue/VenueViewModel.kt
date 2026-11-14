@@ -268,6 +268,8 @@ internal class VenueViewModel(
                 bookingInProgress = false
             }
             showCaptcha = false
+            // 订成了就把「我的订单」拉一遍，切过去就是新单，不用等手动下拉
+            if (bookingResult?.success == true) loadOrders(reset = true)
         }
     }
 
@@ -283,7 +285,11 @@ internal class VenueViewModel(
 
     /** 订单：[reset] 为 true 拉第一页，保留旧列表让刷新时页面仍可操作。 */
     fun loadOrders(reset: Boolean = true) {
-        if (ordersLoading || ordersLoadingMore) return
+        if (ordersLoading || ordersLoadingMore) {
+            // 正在拉的那一页可能是下单前发出的：记一笔，拉完再刷一次，新单不会漏
+            if (reset) ordersStale = true
+            return
+        }
         if (!reset && !ordersHasMore) return
         val page = if (reset) 1 else nextOrderPage
         if (reset) { ordersLoading = true; nextOrderPage = 1; ordersHasMore = false } else ordersLoadingMore = true
@@ -301,9 +307,14 @@ internal class VenueViewModel(
                 else ordersError = FriendlyError.of(e, "加载订单")
             } finally {
                 if (reset) ordersLoading = false else ordersLoadingMore = false
+                if (ordersStale) {
+                    ordersStale = false
+                    loadOrders(reset = true)
+                }
             }
         }
     }
+    private var ordersStale = false
 
     fun loadOrdersOnce() {
         if (orders.isEmpty() && !ordersLoading) loadOrders(reset = true)

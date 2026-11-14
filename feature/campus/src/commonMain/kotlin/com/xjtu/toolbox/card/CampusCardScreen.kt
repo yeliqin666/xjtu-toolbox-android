@@ -459,6 +459,8 @@ private fun OverviewTab(
     onOpenAnalytics: () -> Unit = {},
     onOpenTransactions: () -> Unit = {},
 ) {
+    // 近三周没吃过饭时「今天吃啥」自己什么都不画，先在这里判掉：留个空项，列表间距照算，会多出一截空白
+    val hasMeals = remember(allTransactions) { mealPicksInput(allTransactions, null, null) != null }
     LazyColumn(
         state = com.xjtu.toolbox.ui.glass.rememberReportedLazyListState(),
         // 左右留白放在 contentPadding 里：放在列表外面会切掉余额卡投影
@@ -470,7 +472,7 @@ private fun OverviewTab(
         cardInfo?.let { info ->
             item { Box(Modifier.enterOnce(0)) { BalanceCard(info, runwayDays(info.balance, dailyRate), dailyRate, today) } }
         }
-        if (allTransactions.isNotEmpty() && com.xjtu.toolbox.agent.AgentInsightHub.insights.available) {
+        if (hasMeals && com.xjtu.toolbox.agent.AgentInsightHub.insights.available) {
             item { Box(Modifier.enterOnce(1)) { MealPicksCard(allTransactions, cardInfo?.balance, dailyRate) } }
         }
         item {

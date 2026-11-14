@@ -213,8 +213,6 @@ fun LibraryScreen(
             fl.copy(seats = fl.seats.filter { it.seatId in areaCodes }).takeIf { it.seats.isNotEmpty() }?.let { it to fi }
         }
     }
-    // 整层只有一个区域时没得选，不占位置
-    val showAreaChips = areaCodes.size >= 2 && (!planMode || (!vm.floorPlanLoading && floorAreasOnPlan == null))
 
     // ══════ UI ══════
     val scrollBehavior = rememberCouiTopAppBarScrollBehavior()
@@ -439,22 +437,17 @@ fun LibraryScreen(
                         embedded = true,
                     )
                 }
-                if (showAreaChips) {
+                // 平面图模式下区域行长在座位图卡里（能在整层图上点选），这里只管列表模式
+                if (!planMode && areaCodes.size >= 2) {
                     var areaMenuOpen by remember { mutableStateOf(false) }
                     Box {
-                        Row(
-                            Modifier
-                                .fillMaxWidth()
-                                .clickable { areaMenuOpen = true }
-                                .padding(horizontal = 16.dp, vertical = 8.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            Text("区域", style = MiuixTheme.textStyles.footnote1, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
-                            Spacer(Modifier.width(8.dp))
-                            Text(selectedArea, style = MiuixTheme.textStyles.body2, fontWeight = FontWeight.Medium, modifier = Modifier.weight(1f), maxLines = 1)
-                            Text("换区域", style = MiuixTheme.textStyles.footnote1, color = MiuixTheme.colorScheme.primary)
-                            Icon(Icons.Default.ExpandMore, null, Modifier.size(18.dp), tint = MiuixTheme.colorScheme.primary)
-                        }
+                        AreaSwitchRow(
+                            areaName = selectedArea,
+                            freeText = null,
+                            switchable = true,
+                            open = areaMenuOpen,
+                            onClick = { areaMenuOpen = true },
+                        )
                         com.xjtu.toolbox.ui.components.AppDropdownMenu(
                             expanded = areaMenuOpen,
                             onDismissRequest = { areaMenuOpen = false },
@@ -740,6 +733,7 @@ fun LibraryScreen(
                             // 整层图照全部矩形取景，只有开放的区域能点，楼梯、出口按钮不响应
                             floor = if (floorAreasOnPlan != null) vm.floorPlan else null,
                             pickableAreas = areaCodes.toSet(),
+                            areaNames = vm.floorAreas,
                             selectedArea = vm.selectedAreaCode,
                             areaName = selectedArea,
                             freeText = if (totalCount > 0) "空闲 $availableCount / $totalCount" else null,

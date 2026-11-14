@@ -216,6 +216,7 @@ fun NotificationScreen(
                             topPadding = glassTop,
                             modifier = Modifier.fillMaxSize(),
                         ) {
+                        Box(Modifier.fillMaxSize()) {
                         // 宽屏分两三列排卡片（见 AdaptiveCardGrid），窄屏和原来的单列一样
                         com.xjtu.toolbox.ui.adaptive.AdaptiveCardGrid(
                             modifier = Modifier.fillMaxSize().overScrollVertical(),
@@ -223,11 +224,6 @@ fun NotificationScreen(
                             contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp + glassTop, bottom = 8.dp),
                             spacing = 8.dp,
                         ) {
-                            fullLineItem(key = "loading") {
-                                AnimatedVisibility((vm.isLoading && notifications.isNotEmpty()) || vm.searchLoading, enter = fadeIn(), exit = fadeOut()) {
-                                    LinearProgressIndicator(Modifier.fillMaxWidth())
-                                }
-                            }
                             if (!searching && com.xjtu.toolbox.agent.AgentInsightHub.insights.available) {
                                 fullLineItem(key = "picks") {
                                     NoticePicksCard(onOpen = { onNavigate(AppRoute.Browser(it)) })
@@ -322,6 +318,16 @@ fun NotificationScreen(
                                     }
                                 }
                             }
+                        }
+                        // 刷新 / 站内搜索的进度条浮在顶栏下沿，不占列表位置：放成列表项的话，
+                        // 不在加载时它是一个零高的空项，列表间距照算，顶栏和搜索框之间就多出一截空白
+                        androidx.compose.animation.AnimatedVisibility(
+                            visible = (vm.isLoading && notifications.isNotEmpty()) || vm.searchLoading,
+                            enter = fadeIn(), exit = fadeOut(),
+                            modifier = Modifier.align(Alignment.TopCenter).padding(top = glassTop, start = 16.dp, end = 16.dp),
+                        ) {
+                            LinearProgressIndicator(Modifier.fillMaxWidth(), height = 2.dp)
+                        }
                         }
                         }
                     }

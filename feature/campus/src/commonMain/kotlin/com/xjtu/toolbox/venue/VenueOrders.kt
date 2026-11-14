@@ -17,6 +17,8 @@ import androidx.compose.foundation.lazy.staggeredgrid.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -93,8 +95,21 @@ fun VenueOrdersContent(
         orders.isEmpty() -> FullPageState(Modifier.fillMaxSize().padding(top = topPadding)) { EmptyState(title = "还没订过场馆", modifier = Modifier.fillMaxSize()) }
 
         else -> {
+            val gridState = androidx.compose.foundation.lazy.staggeredgrid.rememberLazyStaggeredGridState()
+            // 新单插到最前面时，列表默认按 key 守住原来那张卡：人在顶上也会被悄悄往下挪一格，
+            // 新单藏在顶栏上面，顶栏的折叠跟着这一挪乱跳。原本就在顶上就留在顶上（新单露出来）；
+            // 已经往下翻了就照旧守住正在看的那张。requestScrollToItem 和数据变化在同一次测量里生效，不会先跳再回。
+            val firstOrderId = orders.firstOrNull()?.orderId
+            var shownFirstId by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(firstOrderId) }
+            if (firstOrderId != shownFirstId) {
+                if (gridState.firstVisibleItemIndex == 0 && gridState.firstVisibleItemScrollOffset == 0) {
+                    gridState.requestScrollToItem(0)
+                }
+                shownFirstId = firstOrderId
+            }
             // 宽屏订单卡分两三列（见 AdaptiveCardGrid）
             AdaptiveCardGrid(
+                state = gridState,
                 modifier = Modifier.fillMaxSize(),
                 contentPadding = com.xjtu.toolbox.ui.glass.tabContentPadding(PaddingValues(start = 16.dp, end = 16.dp, top = 10.dp + topPadding, bottom = 10.dp)),
                 spacing = 10.dp,
