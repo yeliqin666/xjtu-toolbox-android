@@ -60,7 +60,6 @@ import com.xjtu.toolbox.game.net.GameKind
 import com.xjtu.toolbox.game.net.OnlineConnState
 import com.xjtu.toolbox.game.net.OnlineGameEvent
 import com.xjtu.toolbox.game.net.OnlineGameSession
-import com.xjtu.toolbox.game.net.LobbyChip
 import com.xjtu.toolbox.game.net.LobbyOptionRow
 import com.xjtu.toolbox.game.net.OnlineLobby
 import com.xjtu.toolbox.game.net.OnlineLobbyState
@@ -554,9 +553,12 @@ private fun GoOnlineSection(
             onCancel = {},
             hostOptions = {
                 LobbyOptionRow("棋盘") {
-                    ONLINE_GO_SIZES.forEach { size ->
-                        LobbyChip("$size 路", match.hostSize == size) { match.hostSize = size }
-                    }
+                    com.xjtu.toolbox.ui.components.AppSegmentedTabs(
+                        tabs = ONLINE_GO_SIZES.map { "$it 路" },
+                        selectedTabIndex = ONLINE_GO_SIZES.indexOf(match.hostSize).coerceAtLeast(0),
+                        onTabSelected = { match.hostSize = ONLINE_GO_SIZES[it] },
+                        compact = true,
+                    )
                 }
             },
         )

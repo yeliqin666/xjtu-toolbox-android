@@ -48,7 +48,7 @@ import com.xjtu.toolbox.schedule.CourseColors
 import com.xjtu.toolbox.schedule.TermWeeks
 import com.xjtu.toolbox.ui.components.AppDatePickerDialog
 import com.xjtu.toolbox.ui.components.AppDropdownPreference
-import com.xjtu.toolbox.ui.components.AppFilterChip
+import com.xjtu.toolbox.ui.components.AppSegmentedTabs
 import com.xjtu.toolbox.ui.components.AppOptionGroup
 import com.xjtu.toolbox.util.CampusTimeZone
 import com.xjtu.toolbox.util.formatTwoDigits
@@ -447,10 +447,12 @@ internal fun EditDueDialog(
                         onHour = { hour = it },
                         onMinute = { minute = it },
                     )
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        AppFilterChip(selected = !noDue, onClick = { noDue = false }, label = "按时截止")
-                        AppFilterChip(selected = noDue, onClick = { noDue = true }, label = "不设截止")
-                    }
+                    AppSegmentedTabs(
+                        tabs = listOf("按时截止", "不设截止"),
+                        selectedTabIndex = if (noDue) 1 else 0,
+                        onTabSelected = { noDue = it == 1 },
+                        compact = true,
+                    )
                 }
             }
             Spacer(Modifier.height(16.dp))
@@ -565,14 +567,12 @@ internal fun TodoColorField(current: Int?, onPick: (Int?) -> Unit) {
 internal fun ImportanceRow(level: Int, onPick: (Int) -> Unit) {
     Text("重要程度", style = MiuixTheme.textStyles.footnote1, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
     Spacer(Modifier.height(6.dp))
-    FlowRow(
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        IMPORTANCE_CHOICES.forEach { (label, value) ->
-            AppFilterChip(selected = level == value, onClick = { onPick(value) }, label = label)
-        }
-    }
+    AppSegmentedTabs(
+        tabs = IMPORTANCE_CHOICES.map { it.first },
+        selectedTabIndex = IMPORTANCE_CHOICES.indexOfFirst { it.second == level }.coerceAtLeast(0),
+        onTabSelected = { onPick(IMPORTANCE_CHOICES[it].second) },
+        compact = true,
+    )
 }
 
 /** 列表里的重要程度角标：紧急红、重要橙、次要灰；普通不画。 */

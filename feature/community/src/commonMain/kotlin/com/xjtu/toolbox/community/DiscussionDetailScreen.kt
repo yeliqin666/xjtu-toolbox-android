@@ -610,7 +610,7 @@ private fun ReplyComposer(
                     .padding(6.dp),
                 verticalAlignment = Alignment.Bottom,
             ) {
-                CommunityImageActions(enabled = canReply && !sending, iconOnly = true) { markdown ->
+                CommunityImageActions(enabled = canReply && !sending) { markdown ->
                     val start = field.selection.min
                     val inserted = text.replaceRange(start, field.selection.max, markdown)
                     require(inserted.length <= 65536) { "正文已接近长度上限，请缩短后再插入图片" }

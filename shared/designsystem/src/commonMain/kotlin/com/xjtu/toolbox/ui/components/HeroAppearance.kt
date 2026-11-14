@@ -225,16 +225,13 @@ fun HeroAppearanceDialog(
                     verticalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
                     Text("样式", style = MiuixTheme.textStyles.body2)
-                    FlowRow(
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        verticalArrangement = Arrangement.spacedBy(6.dp),
-                    ) {
-                        AppFilterChip(selected = draft.background == "liquid", onClick = { draft = draft.copy(background = "liquid") }, label = "液体")
-                        AppFilterChip(selected = draft.background == "pixel", onClick = { draft = draft.copy(background = "pixel") }, label = "像素")
-                        AppFilterChip(selected = draft.background == "forest", onClick = { draft = draft.copy(background = "forest") }, label = "森林")
-                        AppFilterChip(selected = draft.background == "solid", onClick = { draft = draft.copy(background = "solid") }, label = "纯色")
-                        AppFilterChip(selected = draft.background == "custom", onClick = { draft = draft.copy(background = "custom") }, label = "自定义")
-                    }
+                    val styles = listOf("liquid" to "液体", "pixel" to "像素", "forest" to "森林", "solid" to "纯色", "custom" to "自定义")
+                    AppSegmentedTabs(
+                        tabs = styles.map { it.second },
+                        selectedTabIndex = styles.indexOfFirst { it.first == draft.background }.coerceAtLeast(0),
+                        onTabSelected = { draft = draft.copy(background = styles[it].first) },
+                        compact = true,
+                    )
                     Box(Modifier.fillMaxWidth().height(104.dp).clip(RoundedCornerShape(20.dp))) {
                         when (draft.background) {
                             "solid" -> Box(Modifier.matchParentSize().background(draft.solidColor))
@@ -351,23 +348,25 @@ fun HeroAppearanceDialog(
                     }
                     if (draft.background == "liquid") {
                         Text("流动方式", style = MiuixTheme.textStyles.body2)
-                        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                            listOf(
-                                "auto" to "自动", "gentle" to "轻柔", "flowing" to "舒缓", "lively" to "活跃", "still" to "静止",
-                            ).forEach { (key, label) -> AppFilterChip(selected = draft.motion == key, onClick = { draft = draft.copy(motion = key) }, label = label) }
-                        }
+                        val motions = listOf("auto" to "自动", "gentle" to "轻柔", "flowing" to "舒缓", "lively" to "活跃", "still" to "静止")
+                        AppSegmentedTabs(
+                            tabs = motions.map { it.second },
+                            selectedTabIndex = motions.indexOfFirst { it.first == draft.motion }.coerceAtLeast(0),
+                            onTabSelected = { draft = draft.copy(motion = motions[it].first) },
+                            compact = true,
+                        )
                         Text("纹理形状", style = MiuixTheme.textStyles.body2)
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            AppFilterChip(selected = draft.seed < 0, onClick = { draft = draft.copy(seed = -1) }, label = "每天自动换纹理")
-                            AppFilterChip(
-                                selected = draft.seed >= 0,
-                                onClick = {
-                                    // 每次都换一种，并固定到下一次用户主动修改。
-                                    draft = draft.copy(seed = (draft.seed + Random.nextInt(1, 10000)) % 10000)
-                                },
-                                label = "随机纹理并固定",
-                            )
-                        }
+                        AppSegmentedTabs(
+                            tabs = listOf("每天自动换", "随机并固定"),
+                            selectedTabIndex = if (draft.seed < 0) 0 else 1,
+                            onTabSelected = {
+                                // 再点「随机并固定」就再换一种，固定到下一次主动修改
+                                draft = if (it == 0) draft.copy(seed = -1)
+                                else draft.copy(seed = (draft.seed.coerceAtLeast(0) + Random.nextInt(1, 10000)) % 10000)
+                            },
+                            compact = true,
+                            reselectable = true,
+                        )
                     }
                 }
                 Spacer(Modifier.height(16.dp))

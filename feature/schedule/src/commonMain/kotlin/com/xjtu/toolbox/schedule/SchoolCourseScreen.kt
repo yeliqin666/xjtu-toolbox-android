@@ -32,7 +32,9 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.dp
 import com.xjtu.toolbox.ui.glass.*
-import com.xjtu.toolbox.ui.components.AppFilterChip
+import com.xjtu.toolbox.ui.components.AppCardColor
+import com.xjtu.toolbox.ui.components.AppChipTabRow
+import com.xjtu.toolbox.ui.components.AppSegmentedTabs
 import com.xjtu.toolbox.ui.components.ErrorState
 import com.xjtu.toolbox.ui.components.LoadingState
 import top.yukonga.miuix.kmp.basic.*
@@ -317,44 +319,27 @@ fun SchoolCourseScreen(
 
                                 // 校区筛选
                                 Text("校区", style = MiuixTheme.textStyles.footnote1, fontWeight = FontWeight.Medium)
-                                Spacer(Modifier.height(6.dp))
-                                val campusList = vm.campusList
-                                FlowRow(
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                    verticalArrangement = Arrangement.spacedBy(6.dp)
-                                ) {
-                                    AppFilterChip(
-                                        selected = selectedCampusCode.isBlank(),
-                                        onClick = { selectedCampusCode = "" },
-                                        label = "全部"
-                                    )
-                                    campusList.forEach { campus ->
-                                        AppFilterChip(
-                                            selected = selectedCampusCode == campus.code,
-                                            onClick = { selectedCampusCode = if (selectedCampusCode == campus.code) "" else campus.code },
-                                            label = campus.name
-                                        )
-                                    }
-                                }
+                                val campusNames = vm.campusList.associate { it.code to it.name }
+                                AppChipTabRow(
+                                    options = listOf("") + campusNames.keys,
+                                    selected = selectedCampusCode,
+                                    onSelect = { selectedCampusCode = it },
+                                    label = { campusNames[it] ?: "全部" },
+                                    containerColor = AppCardColor,
+                                    bleed = 16.dp,
+                                )
 
-                                Spacer(Modifier.height(12.dp))
+                                Spacer(Modifier.height(6.dp))
 
                                 // 星期筛选
                                 Text("星期", style = MiuixTheme.textStyles.footnote1, fontWeight = FontWeight.Medium)
                                 Spacer(Modifier.height(6.dp))
-                                val weekDayLabels = listOf("不限", "一", "二", "三", "四", "五", "六", "日")
-                                FlowRow(
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                    verticalArrangement = Arrangement.spacedBy(6.dp)
-                                ) {
-                                    weekDayLabels.forEachIndexed { index, label ->
-                                        AppFilterChip(
-                                            selected = selectedWeekday == index,
-                                            onClick = { selectedWeekday = index },
-                                            label = label
-                                        )
-                                    }
-                                }
+                                AppSegmentedTabs(
+                                    tabs = listOf("不限", "一", "二", "三", "四", "五", "六", "日"),
+                                    selectedTabIndex = selectedWeekday,
+                                    onTabSelected = { selectedWeekday = it },
+                                    compact = true,
+                                )
 
                                 Spacer(Modifier.height(12.dp))
 
@@ -400,56 +385,31 @@ fun SchoolCourseScreen(
                                 if (source.supportsElectiveFilter) {
                                 Text("课程类型", style = MiuixTheme.textStyles.footnote1, fontWeight = FontWeight.Medium)
                                 Spacer(Modifier.height(6.dp))
-                                FlowRow(
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                    verticalArrangement = Arrangement.spacedBy(6.dp)
-                                ) {
-                                    AppFilterChip(
-                                        selected = isPublicElectiveFilter == null,
-                                        onClick = { isPublicElectiveFilter = null; selectedElectiveCat = "" },
-                                        label = "全部"
-                                    )
-                                    AppFilterChip(
-                                        selected = isPublicElectiveFilter == true,
-                                        onClick = {
-                                            isPublicElectiveFilter = if (isPublicElectiveFilter == true) null else true
-                                        },
-                                        label = "校公选课"
-                                    )
-                                    AppFilterChip(
-                                        selected = isPublicElectiveFilter == false,
-                                        onClick = {
-                                            isPublicElectiveFilter = if (isPublicElectiveFilter == false) null else false
-                                            selectedElectiveCat = ""
-                                        },
-                                        label = "非公选课"
-                                    )
-                                }
+                                val electiveChoices = listOf(null, true, false)
+                                AppSegmentedTabs(
+                                    tabs = listOf("全部", "校公选课", "非公选课"),
+                                    selectedTabIndex = electiveChoices.indexOf(isPublicElectiveFilter),
+                                    onTabSelected = {
+                                        isPublicElectiveFilter = electiveChoices[it]
+                                        if (isPublicElectiveFilter != true) selectedElectiveCat = ""
+                                    },
+                                    compact = true,
+                                )
 
                                 // 公选课类别
                                 AnimatedVisibility(isPublicElectiveFilter == true) {
                                     Column {
-                                        Spacer(Modifier.height(8.dp))
+                                        Spacer(Modifier.height(12.dp))
                                         Text("公选课类别", style = MiuixTheme.textStyles.footnote1, fontWeight = FontWeight.Medium)
-                                        Spacer(Modifier.height(6.dp))
-                                        val categories = vm.electiveCategories
-                                        FlowRow(
-                                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                            verticalArrangement = Arrangement.spacedBy(6.dp)
-                                        ) {
-                                            AppFilterChip(
-                                                selected = selectedElectiveCat.isBlank(),
-                                                onClick = { selectedElectiveCat = "" },
-                                                label = "全部"
-                                            )
-                                            categories.forEach { cat ->
-                                                AppFilterChip(
-                                                    selected = selectedElectiveCat == cat.code,
-                                                    onClick = { selectedElectiveCat = if (selectedElectiveCat == cat.code) "" else cat.code },
-                                                    label = cat.name
-                                                )
-                                            }
-                                        }
+                                        val categoryNames = vm.electiveCategories.associate { it.code to it.name }
+                                        AppChipTabRow(
+                                            options = listOf("") + categoryNames.keys,
+                                            selected = selectedElectiveCat,
+                                            onSelect = { selectedElectiveCat = it },
+                                            label = { categoryNames[it] ?: "全部" },
+                                            containerColor = AppCardColor,
+                                            bleed = 16.dp,
+                                        )
                                     }
                                 }
                                 }

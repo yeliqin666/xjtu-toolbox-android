@@ -43,6 +43,31 @@ fun <K : Any> AppChipTabRow(
         containerColor = containerColor.takeOrElse { MiuixTheme.colorScheme.surface },
         modifier = modifier.fillMaxWidth().bleedHorizontal(bleed),
         reselectable = reselectable,
+        multi = null,
+    )
+}
+
+/** [AppChipTabRow] 的多选版：落在 [selected] 里的都高亮，点一项回调 [onToggle]，增删由宿主决定。 */
+@Composable
+fun <K : Any> AppMultiChipTabRow(
+    options: List<K>,
+    selected: Set<K>,
+    onToggle: (K) -> Unit,
+    label: (K) -> String,
+    modifier: Modifier = Modifier,
+    containerColor: Color = Color.Unspecified,
+    bleed: Dp = 0.dp,
+) {
+    if (options.isEmpty()) return
+    PlatformChipTabRow(
+        options = options,
+        selected = options.first(),
+        onSelect = onToggle,
+        label = label,
+        containerColor = containerColor.takeOrElse { MiuixTheme.colorScheme.surface },
+        modifier = modifier.fillMaxWidth().bleedHorizontal(bleed),
+        reselectable = true,
+        multi = selected,
     )
 }
 
@@ -62,6 +87,8 @@ internal expect fun <K : Any> PlatformChipTabRow(
     containerColor: Color,
     modifier: Modifier,
     reselectable: Boolean,
+    /** 非 null 即多选，[selected] 不再参与。 */
+    multi: Set<K>?,
 )
 
 /** 非 Android 端的同款排布。 */
@@ -72,13 +99,14 @@ internal fun <K : Any> FilterChipRow(
     onSelect: (K) -> Unit,
     label: (K) -> String,
     modifier: Modifier,
+    multi: Set<K>?,
 ) {
     Row(
         modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 8.dp),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         options.forEach { option ->
-            AppFilterChip(selected = option == selected, onClick = { onSelect(option) }, label = label(option))
+            AppFilterChip(selected = multi?.contains(option) ?: (option == selected), onClick = { onSelect(option) }, label = label(option))
         }
     }
 }

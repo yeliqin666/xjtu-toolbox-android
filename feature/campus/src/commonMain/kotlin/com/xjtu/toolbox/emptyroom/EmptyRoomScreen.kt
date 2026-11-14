@@ -66,7 +66,6 @@ import kotlinx.datetime.LocalTime
 import com.xjtu.toolbox.util.nowOnCampus
 import com.xjtu.toolbox.util.todayOnCampus
 import kotlin.math.roundToInt
-import com.xjtu.toolbox.ui.components.AppFilterChip
 import com.xjtu.toolbox.ui.components.AppChipTabRow
 import com.xjtu.toolbox.ui.components.AppSearchBar
 import com.xjtu.toolbox.auth.AccountType
@@ -636,18 +635,19 @@ fun EmptyRoomScreen(
                                         fontWeight = FontWeight.Bold,
                                     )
                                 }
-                                if (!isLive) availableDates.forEachIndexed { index, date ->
-                                    AppFilterChip(
-                                        selected = selectedDate == date,
-                                        onClick = { vm.selectDate(date) },
-                                        label = when (index) {
+                                if (!isLive && availableDates.isNotEmpty()) com.xjtu.toolbox.ui.components.AppSegmentedTabs(
+                                    tabs = availableDates.mapIndexed { index, date ->
+                                        when (index) {
                                             0 -> "今天"
                                             1 -> "明天"
                                             else -> date.takeLast(5).replace("-", "/")
-                                        },
-                                        modifier = Modifier.padding(start = 6.dp),
-                                    )
-                                }
+                                        }
+                                    },
+                                    selectedTabIndex = availableDates.indexOf(selectedDate).coerceAtLeast(0),
+                                    onTabSelected = { vm.selectDate(availableDates[it]) },
+                                    modifier = Modifier.padding(start = 8.dp).width(56.dp * availableDates.size),
+                                    compact = true,
+                                )
                             }
                             Spacer(Modifier.height(12.dp))
                             if (isLive) {

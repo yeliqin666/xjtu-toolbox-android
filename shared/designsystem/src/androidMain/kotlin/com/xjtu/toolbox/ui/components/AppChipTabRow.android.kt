@@ -23,6 +23,7 @@ internal actual fun <K : Any> PlatformChipTabRow(
     containerColor: Color,
     modifier: Modifier,
     reselectable: Boolean,
+    multi: Set<K>?,
 ) {
     val labels = options.map(label)
     val items = remember(options, labels) { options.zip(labels) { key, text -> CouiChipTabItem(key, text) } }
@@ -39,6 +40,7 @@ internal actual fun <K : Any> PlatformChipTabRow(
             backdrop = toolbar ?: own!!,
             dark = LocalIsDarkTheme.current,
             reselectable = reselectable,
+            selectedKeys = multi,
         )
     }
 }

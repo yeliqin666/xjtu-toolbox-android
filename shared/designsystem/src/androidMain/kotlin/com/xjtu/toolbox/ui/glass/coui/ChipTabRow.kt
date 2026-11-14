@@ -126,11 +126,14 @@ fun ChipTabRow(
      * 原版不回调；学辅的排序胶囊靠「再点当前项翻升 / 降序」，那里打开。
      */
     reselectable: Boolean = false,
+    /** 集成侧扩展：非 null 时按多选画（落在集合里的都高亮），每次点击都回调，由宿主切换；[selectedKey] 不再参与。 */
+    selectedKeys: Set<Any>? = null,
     renderers: List<CouiFloatingRenderer> = remember(items.map { it.key }) { items.map { CouiFloatingRenderer.standalone() } },
 ) {
     require(items.map { it.key }.distinct().size == items.size) { "分类项的 key 必须唯一" }
-    val selectedIndex = items.indexOfFirst { it.key == selectedKey }
-    require(if (items.isEmpty()) selectedKey == null else selectedIndex >= 0) { "选中分类必须属于当前列表" }
+    val multi = selectedKeys != null
+    val selectedIndex = if (multi) -1 else items.indexOfFirst { it.key == selectedKey }
+    require(multi || if (items.isEmpty()) selectedKey == null else selectedIndex >= 0) { "选中分类必须属于当前列表" }
     require(itemSpacing.value.isFinite() && itemSpacing >= 0.dp) { "分类间距必须为有限非负值" }
     require(animationLevel in 1..4) { "动画等级必须在 1 到 4 之间" }
     require(renderers.size == items.size && renderers.distinct().size == renderers.size) { "每个分类项必须使用独立渲染器" }
@@ -224,9 +227,9 @@ fun ChipTabRow(
                     key(item.key) {
                         ChipTab(
                             modifier = Modifier.onFocusChanged { if (it.isFocused) scroll.reveal(index) },
-                            selected = selectedKey == item.key,
+                            selected = selectedKeys?.contains(item.key) ?: (selectedKey == item.key),
                             onClick = {
-                                if (selectedKey != item.key || reselectable) onSelect(item.key)
+                                if (multi || selectedKey != item.key || reselectable) onSelect(item.key)
                                 scroll.reveal(index)
                             },
                             label = item.label, backdrop = backdrop, dark = dark, enabled = enabled && item.enabled,
@@ -254,7 +257,7 @@ fun ChipTabRow(
                 used += child.width + spacing
             }
             scroll.layout(width, padding, contentWidth, lefts, children.map { it.width }.toIntArray(), rtl,
-                selectedKey, selectedIndex)
+                if (multi) null else selectedKey, selectedIndex)
             layout(width, height) {
                 children.forEachIndexed { index, child -> child.place(padding + lefts[index] - scroll.position, verticalPadding) }
             }

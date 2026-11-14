@@ -170,8 +170,12 @@ fun OnlineLobbyContent(
                 Spacer12()
                 // 开房的人定规则：先后手、以及各棋自己的参数（围棋路数）
                 LobbyOptionRow("先后手") {
-                    LobbyChip("我先走", state.hostFirst) { state.hostFirst = true }
-                    LobbyChip("对方先走", !state.hostFirst) { state.hostFirst = false }
+                    com.xjtu.toolbox.ui.components.AppSegmentedTabs(
+                        tabs = listOf("我先走", "对方先走"),
+                        selectedTabIndex = if (state.hostFirst) 0 else 1,
+                        onTabSelected = { state.hostFirst = it == 0 },
+                        compact = true,
+                    )
                 }
                 hostOptions?.let {
                     Box(Modifier.height(8.dp))

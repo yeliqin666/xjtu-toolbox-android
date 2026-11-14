@@ -13,4 +13,5 @@ internal actual fun <K : Any> PlatformChipTabRow(
     containerColor: Color,
     modifier: Modifier,
     reselectable: Boolean,
-) = FilterChipRow(options, selected, onSelect, label, modifier)
+    multi: Set<K>?,
+) = FilterChipRow(options, selected, onSelect, label, modifier, multi)

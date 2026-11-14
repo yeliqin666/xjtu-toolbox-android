@@ -65,8 +65,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.horizontalScroll
-import androidx.compose.ui.layout.layout
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.ui.text.font.FontWeight
@@ -78,7 +76,8 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.background
 import androidx.compose.foundation.BorderStroke
 import com.xjtu.toolbox.ui.components.AppCardColor
-import com.xjtu.toolbox.ui.components.AppFilterChip
+import com.xjtu.toolbox.ui.components.AppChipTabRow
+import com.xjtu.toolbox.ui.components.AppMultiChipTabRow
 import com.xjtu.toolbox.ui.components.AppSearchBar
 import com.xjtu.toolbox.ui.components.LoadingState
 import com.xjtu.toolbox.ui.components.ErrorState
@@ -209,7 +208,6 @@ fun JwappScoreScreen(
     var showReport by remember { mutableStateOf(false) }
 
     val scrollBehavior = rememberCouiTopAppBarScrollBehavior()
-    var termMenuExpanded by remember { mutableStateOf(false) }
     // 玻璃顶栏（经典风格下为 null，一切照旧），用法见 ui/glass/GlassTopBar.kt
     val glass = rememberPageGlass()
     Scaffold(
@@ -363,77 +361,31 @@ fun JwappScoreScreen(
                                 label = "搜索课程",
                                 modifier = Modifier.fillMaxWidth()
                             )
-                            // 横滑这一行左右出血到屏幕边：滑动区域不在列表的 16dp 边距处截断，
-                            // 边距挪进滑动内容里，静止时首尾仍和上下对齐
-                            Row(
-                                Modifier
-                                    .bleedHorizontally(16.dp)
-                                    .padding(top = 8.dp)
-                                    .horizontalScroll(rememberScrollState())
-                                    .padding(horizontal = 16.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
-                            ) {
-                                if (termList.isNotEmpty()) {
-                                    // 胶囊上只写「2026 夏」这样的简称，别占半行（见 shortTermName）
-                                    val termLabel = if (selectedTermIndex == 0) "全部学期"
-                                    else termList.getOrNull(selectedTermIndex - 1)?.second?.let(::shortTermName) ?: "学期"
-                                    val termPicked = selectedTermIndex != 0
-                                    Box {
-                                        AppFilterChip(
-                                            selected = termPicked,
-                                            onClick = { termMenuExpanded = true },
-                                            label = termLabel,
-                                            trailingIcon = {
-                                                Icon(
-                                                    Icons.Default.ExpandMore,
-                                                    contentDescription = "选择学期",
-                                                    modifier = Modifier.size(16.dp),
-                                                    tint = if (termPicked) MiuixTheme.colorScheme.onPrimary
-                                                    else MiuixTheme.colorScheme.onSurfaceVariantActions,
-                                                )
-                                            },
-                                        )
-                                        val termChoices = listOf("全部学期") + termList.map { it.second }
-                                        com.xjtu.toolbox.ui.components.AppDropdownMenu(
-                                            expanded = termMenuExpanded,
-                                            onDismissRequest = { termMenuExpanded = false },
-                                            alignment = Alignment.TopStart,
-                                        ) {
-                                            termChoices.forEachIndexed { idx, name ->
-                                                com.xjtu.toolbox.ui.components.AppDropdownOption(
-                                                    text = name,
-                                                    selected = idx == selectedTermIndex,
-                                                    onClick = {
-                                                        selectedTermIndex = idx
-                                                        expandedCourseId = null
-                                                        termMenuExpanded = false
-                                                    },
-                                                )
-                                            }
+                            // 学期一排单选、类别一排多选，都是 COUI 分类胶囊；出血到屏幕边，滚动渐隐落在边缘
+                            if (termList.isNotEmpty()) {
+                                AppChipTabRow(
+                                    options = (0..termList.size).toList(),
+                                    selected = selectedTermIndex,
+                                    onSelect = { selectedTermIndex = it; expandedCourseId = null },
+                                    // 只写「2026 夏」这样的简称（见 shortTermName）
+                                    label = { if (it == 0) "全部学期" else shortTermName(termList[it - 1].second) },
+                                    bleed = 16.dp,
+                                )
+                            }
+                            if (allCategories.isNotEmpty()) {
+                                val all = "全部类别"
+                                AppMultiChipTabRow(
+                                    options = listOf<Any>(all) + allCategories,
+                                    selected = if (selectedGroups.isEmpty()) setOf(all) else selectedGroups,
+                                    onToggle = { picked ->
+                                        selectedGroups = when (picked) {
+                                            is CourseGroup -> if (picked in selectedGroups) selectedGroups - picked else selectedGroups + picked
+                                            else -> emptySet()
                                         }
-                                    }
-                                }
-                                if (allCategories.isNotEmpty()) {
-                                    AppFilterChip(
-                                        selected = selectedGroups.isEmpty(),
-                                        onClick = { selectedGroups = emptySet() },
-                                        label = "全部类别"
-                                    )
-                                    allCategories.forEach { group ->
-                                        val isSelected = group in selectedGroups
-                                        AppFilterChip(
-                                            selected = isSelected,
-                                            onClick = {
-                                                selectedGroups = if (isSelected)
-                                                    (selectedGroups - group).let { if (it.isEmpty()) emptySet() else it }
-                                                else
-                                                    selectedGroups + group
-                                            },
-                                            label = group.label
-                                        )
-                                    }
-                                }
+                                    },
+                                    label = { (it as? CourseGroup)?.label ?: all },
+                                    bleed = 16.dp,
+                                )
                             }
                             if (allCategories.isNotEmpty() && gpaSelectMode) {
                                 Text(
@@ -854,16 +806,6 @@ private fun ScoreRow(
         }
     }
 }
-
-/** 宽度向两边各撑出 [amount]（抵掉父级的水平内边距），位置跟着左移，高度不变。 */
-private fun Modifier.bleedHorizontally(amount: androidx.compose.ui.unit.Dp): Modifier =
-    layout { measurable, constraints ->
-        val extra = amount.roundToPx() * 2
-        val placeable = measurable.measure(
-            constraints.copy(minWidth = constraints.minWidth + extra, maxWidth = constraints.maxWidth + extra),
-        )
-        layout(constraints.maxWidth, placeable.height) { placeable.place(-amount.roundToPx(), 0) }
-    }
 
 /**
  * 胶囊上的学期简称：自然年 + 季节，「2025-2026学年 第一学期」→「2025 秋」、第二学期 →「2026 春」、

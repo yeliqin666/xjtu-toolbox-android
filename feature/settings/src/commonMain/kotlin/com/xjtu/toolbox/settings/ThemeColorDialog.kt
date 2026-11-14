@@ -10,7 +10,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import com.xjtu.toolbox.schedule.CourseColors
 import com.xjtu.toolbox.ui.components.AppColorPicker
-import com.xjtu.toolbox.ui.components.AppFilterChip
 import com.xjtu.toolbox.ui.theme.LocalIsDarkTheme
 import com.xjtu.toolbox.ui.theme.XJTUToolBoxTheme
 import top.yukonga.miuix.kmp.basic.*
@@ -47,10 +46,12 @@ internal fun ThemeColorDialog(
         onDismissRequest = onDismiss,
     ) {
         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                AppFilterChip(selected = !editingDark, onClick = { editingDark = false }, label = "浅色")
-                AppFilterChip(selected = editingDark, onClick = { editingDark = true }, label = "深色")
-            }
+            com.xjtu.toolbox.ui.components.AppSegmentedTabs(
+                tabs = listOf("浅色", "深色"),
+                selectedTabIndex = if (editingDark) 1 else 0,
+                onTabSelected = { editingDark = it == 1 },
+                compact = true,
+            )
             // 色板和输入框只认当前这一档，切按钮就把它们换成那一档的颜色
             // 不要取色器自带的色条：下面的预览已经把这个色画在真实界面上了
             AppColorPicker(color = color, onColorChanged = { setHex(CourseColors.toHex(it)) }, showPreview = false)

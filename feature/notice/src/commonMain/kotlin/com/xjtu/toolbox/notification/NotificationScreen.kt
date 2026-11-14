@@ -18,7 +18,6 @@ import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -239,24 +238,14 @@ fun NotificationScreen(
                             val tagOptions = noticeTagOptions(notifications)
                             if (!searching && (tagOptions.size > 1 || vm.selectedTag != null)) {
                                 fullLineItem(key = "tags") {
-                                    Row(
-                                        Modifier.fillMaxWidth().horizontalScroll(androidx.compose.foundation.rememberScrollState()),
-                                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                        verticalAlignment = Alignment.CenterVertically,
-                                    ) {
-                                        com.xjtu.toolbox.ui.components.AppFilterChip(
-                                            selected = vm.selectedTag == null,
-                                            onClick = { vm.selectTag(null) },
-                                            label = "全部",
-                                        )
-                                        (listOfNotNull(vm.selectedTag) + tagOptions).distinct().forEach { tag ->
-                                            com.xjtu.toolbox.ui.components.AppFilterChip(
-                                                selected = vm.selectedTag == tag,
-                                                onClick = { vm.selectTag(tag) },
-                                                label = tag,
-                                            )
-                                        }
-                                    }
+                                    // "" 代表「全部」
+                                    com.xjtu.toolbox.ui.components.AppChipTabRow(
+                                        options = (listOf("") + listOfNotNull(vm.selectedTag) + tagOptions).distinct(),
+                                        selected = vm.selectedTag.orEmpty(),
+                                        onSelect = { vm.selectTag(it.ifEmpty { null }) },
+                                        label = { it.ifEmpty { "全部" } },
+                                        bleed = 16.dp,
+                                    )
                                 }
                             }
                             if (bannerText != null) {

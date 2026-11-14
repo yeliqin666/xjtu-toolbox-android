@@ -43,7 +43,6 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
 import androidx.compose.animation.core.tween
 import com.xjtu.toolbox.ui.components.AppCardColor
-import com.xjtu.toolbox.ui.components.AppFilterChip
 import com.xjtu.toolbox.ui.components.EmptyState
 import com.xjtu.toolbox.ui.components.ErrorState
 import com.xjtu.toolbox.ui.components.LoadingState
@@ -466,8 +465,13 @@ fun MarkdownEditor(
 
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-            AppFilterChip(selected = !preview, onClick = { onPreviewChange(false) }, label = "编辑")
-            AppFilterChip(selected = preview, onClick = { onPreviewChange(true) }, label = "预览")
+            com.xjtu.toolbox.ui.components.AppSegmentedTabs(
+                tabs = listOf("编辑", "预览"),
+                selectedTabIndex = if (preview) 1 else 0,
+                onTabSelected = { onPreviewChange(it == 1) },
+                modifier = Modifier.width(144.dp),
+                compact = true,
+            )
             Spacer(Modifier.weight(1f))
             CommunityImageActions(enabled = enabled) { markdown ->
                 val start = field.selection.min

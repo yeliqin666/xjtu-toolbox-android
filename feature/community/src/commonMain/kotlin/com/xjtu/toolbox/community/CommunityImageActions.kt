@@ -9,35 +9,24 @@ import androidx.compose.material.icons.outlined.Image
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
-import com.xjtu.toolbox.ui.components.AppFilterChip
 import top.yukonga.miuix.kmp.basic.*
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.window.WindowDialog
 
 /** 编辑器工具栏里的「图片」：贴一个图片链接，插成 Markdown 图片。 */
 @Composable
-internal fun CommunityImageActions(enabled: Boolean, iconOnly: Boolean = false, onInsert: (String) -> Unit) {
+internal fun CommunityImageActions(enabled: Boolean, onInsert: (String) -> Unit) {
     var show by remember { mutableStateOf(false) }
-    if (iconOnly) {
-        androidx.compose.foundation.layout.Box(
-            Modifier
-                .size(36.dp)
-                .clip(CircleShape)
-                .clickable(enabled = enabled) { show = true },
-            contentAlignment = androidx.compose.ui.Alignment.Center,
-        ) {
-            Icon(Icons.Outlined.Image, contentDescription = "插入图片",
-                tint = MiuixTheme.colorScheme.onSurfaceVariantSummary, modifier = Modifier.size(20.dp))
-        }
-    } else AppFilterChip(
-        selected = false,
-        onClick = { if (enabled) show = true },
-        label = "图片",
-        leadingIcon = {
-            Icon(Icons.Outlined.Image, contentDescription = null,
-                tint = MiuixTheme.colorScheme.onSurfaceVariantSummary, modifier = Modifier.size(16.dp))
-        },
-    )
+    Box(
+        Modifier
+            .size(36.dp)
+            .clip(CircleShape)
+            .clickable(enabled = enabled) { show = true },
+        contentAlignment = androidx.compose.ui.Alignment.Center,
+    ) {
+        Icon(Icons.Outlined.Image, contentDescription = "插入图片",
+            tint = MiuixTheme.colorScheme.onSurfaceVariantSummary, modifier = Modifier.size(20.dp))
+    }
     if (!show) return
     var url by remember { mutableStateOf("") }
     var error by remember { mutableStateOf<String?>(null) }

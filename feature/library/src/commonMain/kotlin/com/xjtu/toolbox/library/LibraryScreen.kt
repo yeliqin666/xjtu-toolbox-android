@@ -471,23 +471,18 @@ fun LibraryScreen(
                     }
                 }
                 // 列表模式的筛选；空闲数就写在「可用」上，平面图模式写在图下的信息条里
-                if (!planMode && seats.isNotEmpty()) Row(
-                    Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 10.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    listOf(
+                if (!planMode && seats.isNotEmpty()) {
+                    val scopes = listOf(
                         "可用" to availableCount,
                         "收藏" to seats.count { it.seatId in favorites },
                         "全部" to totalCount
-                    ).forEach { (label, count) ->
-                        com.xjtu.toolbox.ui.components.AppFilterChip(
-                            selected = seatScope == label,
-                            onClick = { seatScope = label },
-                            label = "$label $count",
-                            modifier = Modifier.weight(1f)
-                        )
-                    }
+                    )
+                    com.xjtu.toolbox.ui.components.AppSegmentedTabs(
+                        tabs = scopes.map { (label, count) -> "$label $count" },
+                        selectedTabIndex = scopes.indexOfFirst { it.first == seatScope }.coerceAtLeast(0),
+                        onTabSelected = { seatScope = scopes[it].first },
+                        modifier = Modifier.padding(top = 8.dp, bottom = 10.dp),
+                    )
                 }
             }
         }

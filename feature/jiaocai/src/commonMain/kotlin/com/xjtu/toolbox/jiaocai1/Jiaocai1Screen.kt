@@ -52,7 +52,6 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.xjtu.toolbox.ui.components.AppCardColor
-import com.xjtu.toolbox.ui.components.AppFilterChip
 import com.xjtu.toolbox.ui.components.AppInsetColor
 import com.xjtu.toolbox.ui.components.AppSearchBar
 import com.xjtu.toolbox.ui.components.EmptyState
@@ -475,18 +474,12 @@ private fun SearchTab(
                     modifier = Modifier.fillMaxWidth(),
                 )
                 Spacer(Modifier.height(10.dp))
-                FlowRow(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    Jiaocai1SearchField.entries.forEach { f ->
-                        AppFilterChip(
-                            selected = f == field,
-                            onClick = { onFieldChange(f) },
-                            label = f.label,
-                        )
-                    }
-                }
+                com.xjtu.toolbox.ui.components.AppSegmentedTabs(
+                    tabs = Jiaocai1SearchField.entries.map { it.label },
+                    selectedTabIndex = field.ordinal,
+                    onTabSelected = { onFieldChange(Jiaocai1SearchField.entries[it]) },
+                    compact = true,
+                )
                 if (clsName.isNotBlank()) {
                     Spacer(Modifier.height(10.dp))
                     Row(
