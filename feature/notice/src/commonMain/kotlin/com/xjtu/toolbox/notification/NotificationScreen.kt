@@ -301,10 +301,9 @@ fun NotificationScreen(
 
                             if (!searching && !vm.tagAutoLoad && vm.hasMorePages && !vm.isLoadingMore) {
                                 fullLineItem(key = "keep_looking") {
-                                    top.yukonga.miuix.kmp.basic.TextButton(
+                                    com.xjtu.toolbox.ui.components.TextLink(
                                         text = "继续往前找",
                                         onClick = vm::keepLookingForTag,
-                                        modifier = Modifier.fillMaxWidth(),
                                     )
                                 }
                             }

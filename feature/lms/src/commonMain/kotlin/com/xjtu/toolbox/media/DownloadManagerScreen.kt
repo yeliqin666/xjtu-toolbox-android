@@ -555,7 +555,7 @@ private fun GlobalControls(
                         color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                     )
                 }
-                TextButton(
+                com.xjtu.toolbox.ui.components.TextLink(
                     text = "取消全部",
                     onClick = {
                         scope.launch {
@@ -564,7 +564,7 @@ private fun GlobalControls(
                             onRefresh()
                         }
                     },
-                    colors = ButtonDefaults.textButtonColors(color = Color.Transparent),
+                    color = MiuixTheme.colorScheme.error,
                 )
             }
             Spacer(Modifier.height(10.dp))
@@ -811,7 +811,8 @@ private fun DownloadDirInfoDialog(show: MutableState<Boolean>, dirInfo: Download
             TextButton(
                 text = "知道了",
                 onClick = { show.value = false },
-                modifier = Modifier.fillMaxWidth()
+                modifier = Modifier.fillMaxWidth(),
+                colors = ButtonDefaults.textButtonColorsPrimary(),
             )
         }
     }

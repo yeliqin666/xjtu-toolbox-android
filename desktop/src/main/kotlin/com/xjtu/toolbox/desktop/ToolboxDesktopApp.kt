@@ -133,9 +133,11 @@ import com.xjtu.toolbox.webvpn.WebVpnUtil
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import com.xjtu.toolbox.ui.components.TextLink
+import top.yukonga.miuix.kmp.basic.Button
+import top.yukonga.miuix.kmp.basic.ButtonDefaults
 import top.yukonga.miuix.kmp.basic.CircularProgressIndicator
 import top.yukonga.miuix.kmp.basic.Text
-import top.yukonga.miuix.kmp.basic.TextButton
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 /** 桌面外壳（窗口模式）。 */
@@ -358,7 +360,9 @@ private fun DesktopSiteGate(
                 color = MiuixTheme.colorScheme.onBackgroundVariant,
                 fontSize = 12.sp,
             )
-            TextButton(text = "重试", onClick = { attempt++ }, minWidth = 120.dp)
+            Button(onClick = { attempt++ }, colors = ButtonDefaults.buttonColorsPrimary()) {
+                Text("重试", color = MiuixTheme.colorScheme.onPrimary)
+            }
         }
         else -> Column(
             modifier = Modifier.fillMaxSize(),
@@ -850,10 +854,11 @@ internal fun RoutesPage(auth: DesktopAuth, onNavigate: (DesktopTarget) -> Unit) 
 
         Text("真能用（${DESKTOP_SUPPORTED_ROUTES.size}）", color = cs.onSurface, fontSize = 13.sp, fontWeight = FontWeight.Bold)
         DESKTOP_SUPPORTED_ROUTES.forEach { (route, label) ->
-            TextButton(
+            TextLink(
                 text = "$label（${route.id}）",
                 onClick = { onNavigate(DesktopTarget.App(route)) },
                 modifier = Modifier.fillMaxWidth(),
+                chevron = true,
             )
         }
 
@@ -875,17 +880,19 @@ internal fun RoutesPage(auth: DesktopAuth, onNavigate: (DesktopTarget) -> Unit) 
             fontSize = 12.sp,
         )
         DESKTOP_PENDING_ROUTES.forEach { (route, label) ->
-            TextButton(
+            TextLink(
                 text = "$label（${route.id}）",
                 onClick = { onNavigate(DesktopTarget.App(route)) },
                 modifier = Modifier.fillMaxWidth(),
+                chevron = true,
             )
         }
 
-        TextButton(
+        TextLink(
             text = "退出登录（清除这条账号的凭据、会话与记录）",
             onClick = { auth.logout() },
             modifier = Modifier.fillMaxWidth(),
+            color = cs.error,
         )
         Text(
             "退出会删掉：这条账号的记录、它的 cookie 与站点快照。" +
@@ -923,11 +930,10 @@ private fun NotPortedScreen(route: AppRoute, onNavigate: (DesktopTarget) -> Unit
             color = cs.onBackgroundVariant,
             fontSize = 12.sp,
         )
-        TextButton(
-            text = "回全部页面",
+        Button(
             onClick = { onNavigate(DesktopTarget.Routes) },
-            minWidth = 120.dp,
-        )
+            colors = ButtonDefaults.buttonColorsPrimary(),
+        ) { Text("回全部页面", color = cs.onPrimary) }
     }
 }
 
@@ -952,11 +958,10 @@ private fun HostUnavailableScreen(
         lines.forEach { line ->
             Text(line, color = cs.onBackgroundVariant, fontSize = 12.sp)
         }
-        TextButton(
-            text = "回全部页面",
+        Button(
             onClick = { onNavigate(DesktopTarget.Routes) },
-            minWidth = 120.dp,
-        )
+            colors = ButtonDefaults.buttonColorsPrimary(),
+        ) { Text("回全部页面", color = cs.onPrimary) }
     }
 }
 /** 「没有身份就取不了数」的说明。 */
@@ -979,11 +984,10 @@ private fun MissingIdentityPage(
                 fontSize = if (index == 0) 13.sp else 12.sp,
             )
         }
-        TextButton(
-            text = "回全部页面",
+        Button(
             onClick = { onNavigate(DesktopTarget.Routes) },
-            minWidth = 120.dp,
-        )
+            colors = ButtonDefaults.buttonColorsPrimary(),
+        ) { Text("回全部页面", color = cs.onPrimary) }
     }
 }
 

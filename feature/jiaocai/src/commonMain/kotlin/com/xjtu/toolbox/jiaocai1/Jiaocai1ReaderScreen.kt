@@ -414,7 +414,7 @@ private fun PageImage(
                     color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                 )
                 Spacer(Modifier.height(8.dp))
-                TextButton(text = "重新打开", onClick = onFailed)
+                com.xjtu.toolbox.ui.components.TextLink(text = "重新打开", onClick = onFailed)
             }
             else -> Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 CircularProgressIndicator()

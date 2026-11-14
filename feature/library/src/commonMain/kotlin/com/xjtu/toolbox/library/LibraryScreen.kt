@@ -306,7 +306,8 @@ fun LibraryScreen(
                             showHint = false
                             onFirstUseHintRead()
                         },
-                        modifier = Modifier.fillMaxWidth()
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = ButtonDefaults.textButtonColorsPrimary(),
                     )
                 }
             }

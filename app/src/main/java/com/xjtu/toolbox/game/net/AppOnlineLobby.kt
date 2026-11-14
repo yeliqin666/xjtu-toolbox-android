@@ -205,7 +205,7 @@ fun OnlineLobbyContent(
                 Spacer(8.dp)
                 Text(state.statusText, style = MiuixTheme.textStyles.body2, textAlign = TextAlign.Center)
                 Spacer12()
-                TextButton(text = "取消等待", onClick = cancel)
+                com.xjtu.toolbox.ui.components.TextLink(text = "取消等待", onClick = cancel)
             }
 
             LobbyStage.JOIN_SCANNING -> {
@@ -226,7 +226,7 @@ fun OnlineLobbyContent(
                     )
                 }
                 Spacer12()
-                TextButton(text = "取消", onClick = cancel)
+                com.xjtu.toolbox.ui.components.TextLink(text = "取消", onClick = cancel)
             }
 
             LobbyStage.JOIN_CONNECTING -> {
@@ -234,7 +234,7 @@ fun OnlineLobbyContent(
                 Spacer(8.dp)
                 Text(state.statusText, style = MiuixTheme.textStyles.body2, textAlign = TextAlign.Center)
                 Spacer12()
-                TextButton(text = "取消", onClick = cancel)
+                com.xjtu.toolbox.ui.components.TextLink(text = "取消", onClick = cancel)
             }
 
             LobbyStage.FAILED -> {
@@ -246,7 +246,7 @@ fun OnlineLobbyContent(
                     Text("重试", color = MiuixTheme.colorScheme.onPrimary)
                 }
                 Spacer(8.dp)
-                TextButton(text = "返回", onClick = cancel)
+                com.xjtu.toolbox.ui.components.TextLink(text = "返回", onClick = cancel)
             }
         }
     }

@@ -43,8 +43,9 @@ import com.xjtu.toolbox.home.BottomBarTabs
 import com.xjtu.toolbox.ui.components.MorphingLoader
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.withTimeoutOrNull
+import top.yukonga.miuix.kmp.basic.Button
+import top.yukonga.miuix.kmp.basic.ButtonDefaults
 import top.yukonga.miuix.kmp.basic.Text
-import top.yukonga.miuix.kmp.basic.TextButton
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import com.kyant.backdrop.backdrops.LayerBackdrop
 import com.xjtu.toolbox.agent.AgentOverlays
@@ -163,7 +164,11 @@ private fun TabLoginGate(type: LoginType, title: String, loginState: AppLoginSta
             Text("正在连接${type.label}…", color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
         } else {
             Text(message, color = MiuixTheme.colorScheme.onSurfaceVariantSummary, textAlign = TextAlign.Center)
-            if (loginState.hasCredentials) TextButton(text = "重试", onClick = { attempt++ })
+            if (loginState.hasCredentials) {
+                Button(onClick = { attempt++ }, colors = ButtonDefaults.buttonColorsPrimary()) {
+                    Text("重试", color = MiuixTheme.colorScheme.onPrimary)
+                }
+            }
         }
     }
 }

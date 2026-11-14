@@ -831,7 +831,7 @@ private fun SubmissionCard(
                     val jobSource = source
                     if (upload.attachmentUrl.isNotEmpty() && jobSource != null) {
                         var downloadingMarked by remember { mutableStateOf(false) }
-                        TextButton(
+                        com.xjtu.toolbox.ui.components.TextLink(
                             text = if (downloadingMarked) "正在下载批改版…" else "下载批改版",
                             enabled = !downloadingMarked,
                             onClick = {

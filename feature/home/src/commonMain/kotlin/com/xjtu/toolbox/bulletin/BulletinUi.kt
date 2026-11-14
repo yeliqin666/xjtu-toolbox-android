@@ -18,6 +18,7 @@ import androidx.compose.material.icons.outlined.*
 import top.yukonga.miuix.kmp.window.WindowBottomSheet
 import top.yukonga.miuix.kmp.basic.HorizontalDivider
 import top.yukonga.miuix.kmp.basic.Button
+import top.yukonga.miuix.kmp.basic.ButtonDefaults
 import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.Checkbox
 import top.yukonga.miuix.kmp.basic.RadioButton
@@ -410,12 +411,14 @@ fun BulletinLaunchDialog(
                     text = "稍后",
                     onClick = onDismiss,
                     modifier = Modifier.fillMaxWidth(),
+                    colors = com.xjtu.toolbox.ui.components.appTonalTextButtonColors(),
                 )
             } else {
                 TextButton(
                     text = "知道了",
                     onClick = onDismiss,
                     modifier = Modifier.fillMaxWidth(),
+                    colors = ButtonDefaults.textButtonColorsPrimary(),
                 )
             }
             Spacer(Modifier.height(8.dp))

@@ -119,7 +119,7 @@ fun DirectVideoPlayerScreen(
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 Text("没有可用的视频流", color = Color(0xFFEF5350), fontSize = 15.sp)
                 Spacer(Modifier.height(12.dp))
-                TextButton(text = "返回", onClick = onBack)
+                com.xjtu.toolbox.ui.components.TextLink(text = "返回", onClick = onBack, color = Color.White)
             }
         }
         return
@@ -725,7 +725,7 @@ private fun VideoPanel(
                 Text(error, color = Color(0xFFEF5350), fontSize = 14.sp)
                 if (onRetry != null) {
                     Spacer(Modifier.height(10.dp))
-                    TextButton(text = "重试", onClick = onRetry)
+                    com.xjtu.toolbox.ui.components.TextLink(text = "重试", onClick = onRetry, color = Color.White)
                 }
             }
         } else if (buffering) {

@@ -34,8 +34,9 @@ import com.xjtu.toolbox.ui.glass.rememberCouiTopAppBarScrollBehavior
 import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.CardDefaults
 import top.yukonga.miuix.kmp.basic.Scaffold
+import top.yukonga.miuix.kmp.basic.Button
+import top.yukonga.miuix.kmp.basic.ButtonDefaults
 import top.yukonga.miuix.kmp.basic.Text
-import top.yukonga.miuix.kmp.basic.TextButton
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 /**
@@ -106,11 +107,11 @@ fun NoticeDetailScreen(
                 }
                 if (notice.url.isNotBlank()) {
                     Spacer(Modifier.height(16.dp))
-                    TextButton(
-                        text = "在浏览器中打开",
+                    Button(
                         onClick = { onOpenUrl(notice.url) },
                         modifier = Modifier.fillMaxWidth(),
-                    )
+                        colors = ButtonDefaults.buttonColorsPrimary(),
+                    ) { Text("在浏览器中打开", color = MiuixTheme.colorScheme.onPrimary) }
                 }
             }
         }

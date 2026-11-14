@@ -92,8 +92,9 @@ import com.xjtu.toolbox.ui.calculateIsWideLayout
 import com.xjtu.toolbox.yellowpage.YellowPageScreen
 import io.ktor.client.HttpClient
 import kotlinx.coroutines.withTimeoutOrNull
+import top.yukonga.miuix.kmp.basic.Button
+import top.yukonga.miuix.kmp.basic.ButtonDefaults
 import top.yukonga.miuix.kmp.basic.Text
-import top.yukonga.miuix.kmp.basic.TextButton
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 /** Web 外壳：共享壳 + `:core` 的屏。 */
@@ -668,6 +669,9 @@ private fun NotPortedScreen(route: AppRoute, onNavigate: (WebTarget) -> Unit) {
             color = cs.onBackgroundVariant,
             fontSize = 12.sp,
         )
-        TextButton(text = "回日程", onClick = { onNavigate(WebTarget.App(AppRoute.Schedule)) }, minWidth = 96.dp)
+        Button(
+            onClick = { onNavigate(WebTarget.App(AppRoute.Schedule)) },
+            colors = ButtonDefaults.buttonColorsPrimary(),
+        ) { Text("回日程", color = cs.onPrimary) }
     }
 }

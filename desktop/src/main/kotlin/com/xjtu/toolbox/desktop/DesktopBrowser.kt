@@ -11,6 +11,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.text.AnnotatedString
@@ -19,8 +20,10 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.xjtu.toolbox.browser.shareableUrl
 import com.xjtu.toolbox.webvpn.WebVpnCodec
+import com.xjtu.toolbox.ui.components.TextLink
+import top.yukonga.miuix.kmp.basic.Button
+import top.yukonga.miuix.kmp.basic.ButtonDefaults
 import top.yukonga.miuix.kmp.basic.Text
-import top.yukonga.miuix.kmp.basic.TextButton
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 /** `AppRoute.Browser` 在桌面端的等价物 —— 外链中转页（把地址交给系统浏览器）。 */
@@ -74,19 +77,18 @@ internal fun DesktopBrowserScreen(
                 Text(external, color = cs.primary, fontSize = 12.sp)
             }
 
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                TextButton(
-                    text = "在系统浏览器打开",
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
+                Button(
                     onClick = { openInBrowser(external) },
-                    minWidth = 160.dp,
-                )
-                TextButton(
+                    colors = ButtonDefaults.buttonColorsPrimary(),
+                ) { Text("在系统浏览器打开", color = cs.onPrimary) }
+                TextLink(
                     text = if (copied) "已复制" else "复制链接",
                     onClick = {
                         clipboard.setText(AnnotatedString(external))
                         copied = true
                     },
-                    minWidth = 120.dp,
+                    enabled = !copied,
                 )
             }
             Text(
@@ -105,11 +107,10 @@ internal fun DesktopBrowserScreen(
             )
         }
 
-        TextButton(
-            text = "回全部页面",
+        Button(
             onClick = { onNavigate(DesktopTarget.Routes) },
-            minWidth = 120.dp,
-        )
+            colors = ButtonDefaults.buttonColorsPrimary(),
+        ) { Text("回全部页面", color = cs.onPrimary) }
     }
 }
 

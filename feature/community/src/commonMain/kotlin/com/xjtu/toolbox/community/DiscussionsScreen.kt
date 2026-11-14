@@ -180,7 +180,7 @@ fun DiscussionsScreen(
                     Box(Modifier.fillMaxWidth().padding(vertical = 12.dp), contentAlignment = Alignment.Center) {
                         when {
                             state.loading -> CircularProgressIndicator(size = 22.dp)
-                            state.loadError -> TextButton(text = "加载失败，点这里重试", onClick = onLoadMore)
+                            state.loadError -> com.xjtu.toolbox.ui.components.TextLink(text = "加载失败，点这里重试", onClick = onLoadMore)
                             state.nextCursor == null -> Text(
                                 "没有更多帖子了",
                                 style = MiuixTheme.textStyles.footnote1,

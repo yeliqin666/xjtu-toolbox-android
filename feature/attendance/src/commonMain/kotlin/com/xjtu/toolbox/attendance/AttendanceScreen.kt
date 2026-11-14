@@ -331,7 +331,12 @@ fun AttendanceScreen(
                         Text("附件 ${file.fileName}", style = MiuixTheme.textStyles.body2, modifier = Modifier.padding(top = 4.dp))
                     }
                     Spacer(Modifier.height(12.dp))
-                    TextButton(text = "关闭", onClick = { detail = null }, modifier = Modifier.fillMaxWidth())
+                    TextButton(
+                        text = "关闭",
+                        onClick = { detail = null },
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = ButtonDefaults.textButtonColorsPrimary(),
+                    )
                 }
             }
         }
@@ -566,10 +571,10 @@ private fun LeaveList(
                             modifier = Modifier.padding(top = 8.dp)
                         ) {
                             if (rec.withdrawable) {
-                                TextButton(text = "撤回", onClick = { onWithdraw(rec) })
+                                com.xjtu.toolbox.ui.components.TextLink(text = "撤回", onClick = { onWithdraw(rec) })
                             }
                             if (rec.cancellable) {
-                                TextButton(text = "销假", onClick = { onCancel(rec) })
+                                com.xjtu.toolbox.ui.components.TextLink(text = "销假", onClick = { onCancel(rec) })
                             }
                         }
                     }

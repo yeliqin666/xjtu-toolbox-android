@@ -686,6 +686,10 @@ internal fun ProfileTab(
                 if (hasCustomAvatar) {
                     TextButton(
                         text = "恢复默认头像",
+                        colors = ButtonDefaults.textButtonColors(
+                            color = MiuixTheme.colorScheme.error.copy(alpha = 0.10f),
+                            textColor = MiuixTheme.colorScheme.error,
+                        ),
                         onClick = {
                             if (!avatarSaving) {
                                 com.xjtu.toolbox.hello.HelloProfileStore.clearCustomAvatar(ctx)

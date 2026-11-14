@@ -505,6 +505,7 @@ private fun MyCodeCard(
             onClick = onCopy,
             enabled = code.isNotEmpty(),
             modifier = Modifier.fillMaxWidth(),
+            colors = ButtonDefaults.textButtonColorsPrimary(),
         )
     }
 }
@@ -532,7 +533,12 @@ private fun TheirCodeCard(
                     )
                 }
                 if (onPickImage != null) {
-                    TextButton(text = "从相册选图", onClick = onPickImage, modifier = Modifier.weight(1f))
+                    TextButton(
+                        text = "从相册选图",
+                        onClick = onPickImage,
+                        modifier = Modifier.weight(1f),
+                        colors = com.xjtu.toolbox.ui.components.appTonalTextButtonColors(),
+                    )
                 }
             }
             Spacer(Modifier.height(14.dp))
@@ -574,6 +580,7 @@ private fun TheirCodeCard(
             onClick = onCompute,
             modifier = Modifier.fillMaxWidth(),
             enabled = code.isNotBlank(),
+            colors = ButtonDefaults.textButtonColorsPrimary(),
         )
     }
 }
@@ -902,7 +909,12 @@ private fun ResultCard(
 
             Spacer(Modifier.height(12.dp))
             FriendTimetableAction(hasTimetable, onSaveFriend)
-            TextButton(text = "复制结果", onClick = onCopy, modifier = Modifier.fillMaxWidth())
+            TextButton(
+                text = "复制结果",
+                onClick = onCopy,
+                modifier = Modifier.fillMaxWidth(),
+                colors = com.xjtu.toolbox.ui.components.appTonalTextButtonColors(),
+            )
         }
     }
 }
@@ -980,7 +992,11 @@ private fun FriendListCard(termNames: Map<String, String>) {
                         color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                     )
                 }
-                TextButton(text = "删除", onClick = { FriendTimetables.delete(f.id) })
+                com.xjtu.toolbox.ui.components.TextLink(
+                    text = "删除",
+                    onClick = { FriendTimetables.delete(f.id) },
+                    color = MiuixTheme.colorScheme.error,
+                )
             }
         }
     }

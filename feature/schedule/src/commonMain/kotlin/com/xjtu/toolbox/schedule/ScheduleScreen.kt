@@ -212,6 +212,7 @@ fun ScheduleScreen(
                     text = "替换原有日程",
                     onClick = { vm.commitCustomCourse(entity, conflicts) },
                     modifier = Modifier.fillMaxWidth(),
+                    colors = com.xjtu.toolbox.ui.components.appTonalTextButtonColors(),
                 )
                 TextButton(text = "取消", onClick = { vm.pendingSave = null }, modifier = Modifier.fillMaxWidth())
             }
@@ -1111,7 +1112,7 @@ private fun FriendOverlayBar(name: String, otherTerm: Boolean, onClear: () -> Un
                 style = MiuixTheme.textStyles.footnote1,
                 color = MiuixTheme.colorScheme.onSecondaryContainer,
             )
-            TextButton(text = "关闭", onClick = onClear)
+            com.xjtu.toolbox.ui.components.TextLink(text = "关闭", onClick = onClear)
         }
     }
 }

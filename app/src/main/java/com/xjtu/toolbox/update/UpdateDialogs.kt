@@ -122,7 +122,12 @@ internal fun UpdateNoticeDialog(
                 }
             }
             Spacer(Modifier.height(12.dp))
-            TextButton(text = "知道了", onClick = onDismiss, modifier = Modifier.fillMaxWidth())
+            TextButton(
+                text = "知道了",
+                onClick = onDismiss,
+                modifier = Modifier.fillMaxWidth(),
+                colors = top.yukonga.miuix.kmp.basic.ButtonDefaults.textButtonColorsPrimary(),
+            )
             Spacer(Modifier.height(8.dp))
             Spacer(Modifier.windowInsetsBottomHeight(WindowInsets.navigationBars))
         }
@@ -288,7 +293,8 @@ fun AutoUpdateDialog(
                     show.value = false
                     onDismiss()
                 },
-                modifier = Modifier.fillMaxWidth()
+                modifier = Modifier.fillMaxWidth(),
+                colors = com.xjtu.toolbox.ui.components.appTonalTextButtonColors(),
             )
             Spacer(Modifier.height(16.dp))
             Spacer(Modifier.windowInsetsBottomHeight(WindowInsets.navigationBars))

@@ -358,7 +358,7 @@ internal fun ActivityListPage(
                         .padding(horizontal = 12.dp, vertical = 10.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    TextButton(
+                    com.xjtu.toolbox.ui.components.TextLink(
                         text = if (allPicked) "取消全选" else "全选",
                         onClick = {
                             if (allPicked) picked.removeAll(pickable.map { it.id }.toSet())
@@ -465,7 +465,7 @@ private fun BatchProgressCard(state: LmsBatchDownload.State, pathLabel: String) 
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text("正在下载 ${state.done}/${state.total}" + if (state.failed > 0) "，失败 ${state.failed}" else "",
                             style = MiuixTheme.textStyles.body2, fontWeight = FontWeight.Medium, modifier = Modifier.weight(1f))
-                        TextButton(text = "停止", onClick = { LmsBatchDownload.cancel() })
+                        com.xjtu.toolbox.ui.components.TextLink(text = "停止", onClick = { LmsBatchDownload.cancel() })
                     }
                     Text(state.current, style = MiuixTheme.textStyles.footnote1, maxLines = 1, overflow = TextOverflow.Ellipsis,
                         color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
@@ -493,7 +493,7 @@ private fun BatchProgressCard(state: LmsBatchDownload.State, pathLabel: String) 
                             Text("在「${pathLabel}${state.courseName}」",
                                 style = MiuixTheme.textStyles.footnote2, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
                         }
-                        TextButton(text = "知道了", onClick = { LmsBatchDownload.dismiss() })
+                        com.xjtu.toolbox.ui.components.TextLink(text = "知道了", onClick = { LmsBatchDownload.dismiss() })
                     }
                 }
                 LmsBatchDownload.State.Idle -> Unit

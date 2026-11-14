@@ -298,7 +298,7 @@ fun DiscussionDetailScreen(
                         when {
                             comments.failed && comments.items.isEmpty() ->
                                 ErrorState("回复加载失败", onRetry = { loader.fetch(true) }, modifier = Modifier.fillMaxWidth())
-                            comments.failed -> TextButton(text = "加载失败，点这里重试", onClick = { loader.fetch(false) })
+                            comments.failed -> com.xjtu.toolbox.ui.components.TextLink(text = "加载失败，点这里重试", onClick = { loader.fetch(false) })
                             comments.loading -> CircularProgressIndicator(size = 22.dp)
                             comments.loaded && comments.items.isEmpty() -> Text(
                                 "还没有人回复，来抢沙发",

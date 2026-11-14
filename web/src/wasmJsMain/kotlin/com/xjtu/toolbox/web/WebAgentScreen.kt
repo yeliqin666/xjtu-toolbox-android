@@ -31,9 +31,10 @@ import com.xjtu.toolbox.shell.ShellPageInsets
 import io.ktor.client.HttpClient
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
+import top.yukonga.miuix.kmp.basic.Button
+import top.yukonga.miuix.kmp.basic.ButtonDefaults
 import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.Text
-import top.yukonga.miuix.kmp.basic.TextButton
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 /** 小岱（`AppRoute.Agent`）在浏览器上的那一屏（设计真源 `docs/agent-web-spec.md` §4）。 */
@@ -60,11 +61,10 @@ internal fun WebAgentScreen(
                 "配置没读回来之前不画屏：拿默认值画出来的表单一保存就会把 serve 上的配置覆盖掉",
             ),
         ) {
-            TextButton(
-                text = "重新读一次",
+            Button(
                 onClick = { reloadNonce++ },
-                minWidth = 128.dp,
-            )
+                colors = ButtonDefaults.buttonColorsPrimary(),
+            ) { Text("重新读一次", color = MiuixTheme.colorScheme.onPrimary) }
         }
         return
     }
@@ -219,8 +219,9 @@ private fun WebAgentMemorySection(session: WebAgentSession) {
                         Text(key, style = MiuixTheme.textStyles.body2, fontWeight = FontWeight.Medium)
                         Text(value, style = MiuixTheme.textStyles.footnote1, color = cs.onSurfaceVariantSummary)
                     }
-                    TextButton(
+                    com.xjtu.toolbox.ui.components.TextLink(
                         text = "删除",
+                        color = cs.error,
                         onClick = {
                             scope.launch {
                                 session.forgetMemory(key)
@@ -231,8 +232,9 @@ private fun WebAgentMemorySection(session: WebAgentSession) {
                     )
                 }
             }
-            TextButton(
+            com.xjtu.toolbox.ui.components.TextLink(
                 text = "全部清空",
+                color = cs.error,
                 onClick = {
                     scope.launch {
                         session.clearMemory()

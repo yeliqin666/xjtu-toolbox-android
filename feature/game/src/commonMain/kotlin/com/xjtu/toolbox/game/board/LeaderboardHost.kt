@@ -230,7 +230,7 @@ private fun RankingDialog(sheet: Leaderboard.Sheet.Ranking) {
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 Text(error!!, style = MiuixTheme.textStyles.footnote1, color = muted, textAlign = TextAlign.Center)
-                TextButton(text = "重试", onClick = { reload++ }, modifier = Modifier.fillMaxWidth())
+                com.xjtu.toolbox.ui.components.TextLink(text = "重试", onClick = { reload++ })
             }
 
             else -> Column {

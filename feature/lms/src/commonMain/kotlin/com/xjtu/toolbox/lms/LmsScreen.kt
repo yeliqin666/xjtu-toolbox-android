@@ -292,7 +292,8 @@ fun LmsScreen(
                 TextButton(
                     text = "知道了",
                     onClick = { dismissHint() },
-                    modifier = Modifier.fillMaxWidth()
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = ButtonDefaults.textButtonColorsPrimary(),
                 )
             }
         }
@@ -439,8 +440,10 @@ internal fun BoxScope.LoadingIndicator(text: String) {
 internal fun BoxScope.ErrorRetry(message: String, onRetry: () -> Unit) {
     Column(Modifier.align(Alignment.Center).padding(16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
         Text(message, color = MiuixTheme.colorScheme.error)
-        Spacer(Modifier.height(8.dp))
-        TextButton(text = "重试", onClick = onRetry)
+        Spacer(Modifier.height(12.dp))
+        Button(onClick = onRetry, colors = ButtonDefaults.buttonColorsPrimary()) {
+            Text("重试", color = MiuixTheme.colorScheme.onPrimary)
+        }
     }
 }
 @Composable
@@ -517,7 +520,9 @@ private fun LmsVideoUnavailable(request: VideoPlayRequest, onBack: () -> Unit) {
             color = MiuixTheme.colorScheme.error,
             fontSize = 13.sp,
         )
-        TextButton(text = "返回", onClick = onBack, minWidth = 120.dp)
+        Button(onClick = onBack, colors = ButtonDefaults.buttonColorsPrimary()) {
+            Text("返回", color = MiuixTheme.colorScheme.onPrimary)
+        }
     }
 }
 internal fun fileTypeIcon(type: String): ImageVector = when {

@@ -440,9 +440,10 @@ private fun MyTextbookRow(
             // 「读全文」要打全文库：本端没有那条链（serve 形态）时这一格的按钮不画
             val lib = jiaocai1
             if (lib != null) {
-                TextButton(
+                com.xjtu.toolbox.ui.components.TextLink(
                     text = if (resolving) "查找中…" else "读全文",
                     enabled = !resolving,
+                    chevron = true,
                     onClick = {
                         resolving = true
                         scope.launch {

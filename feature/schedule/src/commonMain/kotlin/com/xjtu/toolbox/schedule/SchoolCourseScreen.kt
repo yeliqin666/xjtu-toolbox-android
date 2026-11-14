@@ -732,10 +732,10 @@ private fun PaginationBar(
             verticalAlignment = Alignment.CenterVertically
         ) {
             // 上一页
-            TextButton(
+            com.xjtu.toolbox.ui.components.TextLink(
                 text = "上一页",
                 onClick = { if (currentPage > 1) onPageChange(currentPage - 1) },
-                enabled = currentPage > 1 && !isSearching
+                enabled = currentPage > 1 && !isSearching,
             )
 
             Spacer(Modifier.width(8.dp))
@@ -774,10 +774,11 @@ private fun PaginationBar(
             Spacer(Modifier.width(8.dp))
 
             // 下一页
-            TextButton(
+            com.xjtu.toolbox.ui.components.TextLink(
                 text = "下一页",
                 onClick = { if (currentPage < totalPages) onPageChange(currentPage + 1) },
-                enabled = currentPage < totalPages && !isSearching
+                enabled = currentPage < totalPages && !isSearching,
+                chevron = true,
             )
         }
     }

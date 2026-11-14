@@ -39,6 +39,21 @@ fun appTonalButtonColors() = top.yukonga.miuix.kmp.basic.ButtonDefaults.buttonCo
     color = top.yukonga.miuix.kmp.theme.MiuixTheme.colorScheme.primary.copy(alpha = 0.12f),
 )
 
+/**
+ * 和主按钮并排、或单独放在表单里的次要 [top.yukonga.miuix.kmp.basic.TextButton]。
+ * 默认色是灰胶囊，和主按钮叠在一起像两块砖。
+ */
+@Composable
+fun appTonalTextButtonColors(): top.yukonga.miuix.kmp.basic.TextButtonColors {
+    val primary = top.yukonga.miuix.kmp.theme.MiuixTheme.colorScheme.primary
+    return top.yukonga.miuix.kmp.basic.ButtonDefaults.textButtonColors(
+        color = primary.copy(alpha = 0.12f),
+        disabledColor = primary.copy(alpha = 0.06f),
+        textColor = primary,
+        disabledTextColor = primary.copy(alpha = 0.38f),
+    )
+}
+
 /** 卡片内部再嵌一层时用（比卡片略重），例如统计块、内嵌列表行。 */
 val AppInsetColor: Color
     @Composable get() = top.yukonga.miuix.kmp.theme.MiuixTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.5f)

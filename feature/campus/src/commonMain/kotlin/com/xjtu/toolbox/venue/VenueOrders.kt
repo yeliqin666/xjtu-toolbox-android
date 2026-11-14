@@ -43,7 +43,7 @@ import top.yukonga.miuix.kmp.basic.Icon
 import com.xjtu.toolbox.ui.glass.CouiTopBarScrollBehavior
 import top.yukonga.miuix.kmp.basic.Surface
 import top.yukonga.miuix.kmp.basic.Text
-import top.yukonga.miuix.kmp.basic.TextButton
+import com.xjtu.toolbox.ui.components.TextLink
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 /**
@@ -132,7 +132,7 @@ fun VenueOrdersContent(
                                     maxLines = 2,
                                     overflow = TextOverflow.Ellipsis
                                 )
-                                TextButton(text = "重试", onClick = onRetry)
+                                TextLink(text = "重试", onClick = onRetry)
                             }
                         }
                     }
@@ -160,7 +160,7 @@ fun VenueOrdersContent(
                             if (isLoadingMore) {
                                 CircularProgressIndicator(size = 20.dp, strokeWidth = 2.dp)
                             } else {
-                                TextButton(text = "加载更多", onClick = onLoadMore)
+                                TextLink(text = "加载更多", onClick = onLoadMore)
                             }
                         }
                     } else {

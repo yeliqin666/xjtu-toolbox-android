@@ -349,7 +349,7 @@ private fun QrLoginContent(
                                 Text("重新扫描", color = MiuixTheme.colorScheme.onPrimary)
                             }
                             Spacer(Modifier.height(8.dp))
-                            TextButton(text = "返回", onClick = onBack, modifier = Modifier.fillMaxWidth())
+                            com.xjtu.toolbox.ui.components.TextLink(text = "返回", onClick = onBack)
                         } else {
                             Button(
                                 onClick = onBack,
@@ -382,7 +382,7 @@ private fun QrLoginContent(
                             Text("重新授权", color = MiuixTheme.colorScheme.onPrimary)
                         }
                         Spacer(Modifier.height(8.dp))
-                        TextButton(text = "返回", onClick = onBack, modifier = Modifier.fillMaxWidth())
+                        com.xjtu.toolbox.ui.components.TextLink(text = "返回", onClick = onBack)
                     }
 
                     is UiState.NeedPermission -> { }

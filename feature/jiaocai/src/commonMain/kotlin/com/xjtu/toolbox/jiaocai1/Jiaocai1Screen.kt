@@ -563,7 +563,7 @@ private fun SearchTab(
                             Box(
                                 Modifier.fillMaxWidth().padding(vertical = 16.dp),
                                 contentAlignment = Alignment.Center
-                            ) { TextButton(text = "加载失败，点击重试", onClick = onLoadMore) }
+                            ) { com.xjtu.toolbox.ui.components.TextLink(text = "加载失败，点击重试", onClick = onLoadMore) }
                         } else {
                             LaunchedEffect(result.currentPage) { onLoadMore() }
                             Box(

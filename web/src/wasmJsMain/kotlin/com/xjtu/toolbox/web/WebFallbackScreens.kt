@@ -21,9 +21,11 @@ import com.xjtu.toolbox.core.net.ApiMode
 import com.xjtu.toolbox.home.AppService
 import com.xjtu.toolbox.home.ServiceCategory
 import com.xjtu.toolbox.nav.AppRoute
+import com.xjtu.toolbox.ui.components.TextLink
+import top.yukonga.miuix.kmp.basic.Button
+import top.yukonga.miuix.kmp.basic.ButtonDefaults
 import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.Text
-import top.yukonga.miuix.kmp.basic.TextButton
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 /** Web 这一端做不到的那几格的落点，以及「学辅」那一格自己的页。 */
@@ -66,11 +68,10 @@ internal fun WebSupportMismatchScreen(route: AppRoute, onNavigate: (WebTarget) -
         why = "请返回首页重试；仍有问题可提交反馈。",
         missing = emptyList(),
     ) {
-        TextButton(
-            text = "回首页",
+        Button(
             onClick = { onNavigate(WebTarget.App(AppRoute.Main)) },
-            minWidth = 128.dp,
-        )
+            colors = ButtonDefaults.buttonColorsPrimary(),
+        ) { Text("回首页", color = MiuixTheme.colorScheme.onPrimary) }
     }
 }
 
@@ -117,11 +118,7 @@ internal fun WebServicesScreen(serveMode: Boolean, onNavigate: (WebTarget) -> Un
                 color = cs.onBackgroundVariant,
                 fontSize = 12.sp,
             )
-            TextButton(
-                text = "登录管理",
-                onClick = { onNavigate(WebTarget.Serve) },
-                minWidth = 128.dp,
-            )
+            TextLink(text = "登录管理", onClick = { onNavigate(WebTarget.Serve) }, chevron = true)
         } else {
             Text(
                 "当前服务由管理员管理登录信息。",
@@ -129,11 +126,7 @@ internal fun WebServicesScreen(serveMode: Boolean, onNavigate: (WebTarget) -> Un
                 fontSize = 12.sp,
             )
         }
-        TextButton(
-            text = "后端自检",
-            onClick = { onNavigate(WebTarget.Probe) },
-            minWidth = 128.dp,
-        )
+        TextLink(text = "后端自检", onClick = { onNavigate(WebTarget.Probe) }, chevron = true)
     }
 }
 

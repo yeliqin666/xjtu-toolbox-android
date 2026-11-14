@@ -439,7 +439,11 @@ internal fun ConfigPanel(
                         TextField(value = mcpToken, onValueChange = { mcpToken = it; mcpStatus = null; scheduleSave() },
                             label = "Bearer 令牌（可选）", visualTransformation = PasswordVisualTransformation(),
                             singleLine = true, modifier = Modifier.fillMaxWidth())
-                        TextButton(text = if (mcpTesting) "连接中…" else "测试连接", enabled = !mcpTesting && mcpEndpoint.isNotBlank(), onClick = {
+                        TextButton(
+                            text = if (mcpTesting) "连接中…" else "测试连接",
+                            enabled = !mcpTesting && mcpEndpoint.isNotBlank(),
+                            colors = com.xjtu.toolbox.ui.components.appTonalTextButtonColors(),
+                            onClick = {
                             val snapshot = config.copy(mcpEnabled = true, mcpEndpoint = mcpEndpoint.trim(), mcpToken = mcpToken.trim())
                             mcpTesting = true
                             scope.launch {
@@ -531,13 +535,13 @@ private fun AgentMemorySection() {
                         }
                     }
                 }
-                TextButton(
+                com.xjtu.toolbox.ui.components.TextLink(
                     text = "全部清空",
                     onClick = {
                         memory.clear()
                         memories = memory.all()
                     },
-                    modifier = Modifier.fillMaxWidth(),
+                    color = MiuixTheme.colorScheme.error,
                 )
             }
         }

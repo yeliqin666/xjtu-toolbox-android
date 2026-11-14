@@ -1424,16 +1424,7 @@ private fun RoomStateBlock(
         }
         if (secondaryLabel != null) {
             Spacer(Modifier.height(if (primaryLabel != null) 6.dp else 14.dp))
-            Text(
-                secondaryLabel,
-                style = MiuixTheme.textStyles.body2,
-                color = MiuixTheme.colorScheme.primary,
-                fontWeight = FontWeight.Medium,
-                modifier = Modifier
-                    .clip(RoundedCornerShape(50))
-                    .clickable(onClick = onSecondary)
-                    .padding(horizontal = 14.dp, vertical = 8.dp),
-            )
+            com.xjtu.toolbox.ui.components.TextLink(text = secondaryLabel, onClick = onSecondary)
         }
     }
 }

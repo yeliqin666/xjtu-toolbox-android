@@ -483,8 +483,12 @@ private fun OverviewTab(
         if (recentTransactions.isNotEmpty()) {
             item {
                 OverviewCard(Modifier.enterOnce(3)) {
-                    OverviewHeader("最近交易", Modifier.padding(start = 16.dp, end = 8.dp, top = 8.dp)) {
-                        TextButton(text = "全部", onClick = onOpenTransactions)
+                    OverviewHeader("最近交易", Modifier.padding(start = 16.dp, end = 4.dp, top = 8.dp)) {
+                        com.xjtu.toolbox.ui.components.TextLink(
+                            text = "全部",
+                            onClick = onOpenTransactions,
+                            chevron = true,
+                        )
                     }
                     TransactionRows(recentTransactions)
                     Spacer(Modifier.height(6.dp))
@@ -849,7 +853,7 @@ private fun TransactionTab(
             item {
                 Box(Modifier.fillMaxWidth().padding(16.dp), contentAlignment = Alignment.Center) {
                     if (isLoadingMore) CircularProgressIndicator(size = 24.dp)
-                    else TextButton(text = "加载更多", onClick = onLoadMore)
+                    else com.xjtu.toolbox.ui.components.TextLink(text = "加载更多", onClick = onLoadMore)
                 }
             }
         }

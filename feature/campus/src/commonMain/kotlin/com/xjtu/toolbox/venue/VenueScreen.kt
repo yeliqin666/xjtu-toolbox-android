@@ -215,7 +215,8 @@ fun VenueScreen(
                             showHint = false
                             onFirstUseHintRead()
                         },
-                        modifier = Modifier.fillMaxWidth()
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = ButtonDefaults.textButtonColorsPrimary(),
                     )
                 }
             }
@@ -396,7 +397,9 @@ fun VenueScreen(
                         vm.captchaError != null -> {
                             Text(vm.captchaError!!, color = MiuixTheme.colorScheme.error)
                             Spacer(Modifier.height(12.dp))
-                            TextButton(text = "重试", onClick = vm::startBooking)
+                            Button(onClick = vm::startBooking, colors = ButtonDefaults.buttonColorsPrimary()) {
+                                Text("重试", color = MiuixTheme.colorScheme.onPrimary)
+                            }
                         }
                         vm.captchaData != null -> {
                             val captcha = vm.captchaData!!
@@ -412,7 +415,7 @@ fun VenueScreen(
                             // 一条 SliderResult），桌面传 `DesktopSlideCaptchaHost`（同一条路径）
                             host.CaptchaView(captcha, vm::submitBooking)
                             Spacer(Modifier.height(8.dp))
-                            TextButton(text = "换一张", onClick = vm::reloadCaptcha)
+                            com.xjtu.toolbox.ui.components.TextLink(text = "换一张", onClick = vm::reloadCaptcha)
                         }
                     }
                 }
