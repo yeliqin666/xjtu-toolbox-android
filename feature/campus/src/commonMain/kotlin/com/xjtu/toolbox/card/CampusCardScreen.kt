@@ -317,6 +317,7 @@ fun CampusCardScreen(
                                         cardInfo, stats.monthly, emptyList(), todaySummary, stats.dailyRate,
                                         stats.activeDays, rangeDates.first, rangeDates.second, topInset,
                                         allTransactions = vm.transactions,
+                                        onOpenAnalytics = { wideTab = 1 },
                                     )
                                 }
                                 Box(Modifier.weight(0.58f).fillMaxHeight()) {
@@ -354,6 +355,8 @@ fun CampusCardScreen(
                                     cardInfo, stats.monthly, transactions.take(5), todaySummary, stats.dailyRate,
                                     stats.activeDays, rangeDates.first, rangeDates.second, topContentPadding,
                                     allTransactions = vm.transactions,
+                                    onOpenAnalytics = { selectedTab = 2 },
+                                    onOpenTransactions = { selectedTab = 1 },
                                 )
                                 1 -> TransactionTab(
                                     transactions, transactions.size, vm.isLoadingMore, searchQuery,
@@ -444,52 +447,64 @@ private fun OverviewTab(
     topContentPadding: Dp = 0.dp,
     /** 全部已加载流水，「今天吃啥」按它算就餐习惯。 */
     allTransactions: List<Transaction> = emptyList(),
+    onOpenAnalytics: () -> Unit = {},
+    onOpenTransactions: () -> Unit = {},
 ) {
     LazyColumn(
         state = com.xjtu.toolbox.ui.glass.rememberReportedLazyListState(),
-        // 左右留白放在 contentPadding 里而不是列表外面：余额卡有投影，
-        // 列表外面留白的话，列表的边界就在卡片边上，投影左右两侧会被切掉。
+        // 左右留白放在 contentPadding 里：放在列表外面会切掉余额卡投影
         modifier = Modifier.fillMaxSize().overScrollVertical(),
         verticalArrangement = Arrangement.spacedBy(12.dp),
         contentPadding = tabContentPadding(PaddingValues(start = 16.dp, end = 16.dp, top = topContentPadding + 12.dp, bottom = 12.dp))
     ) {
-        // 整页依次登场：余额 → 今天 → 区间消费 → 最近交易，每块错开一拍
-        item {
-            Box(Modifier.enterOnce(0)) {
-                cardInfo?.let { BalanceCard(it, runwayDays(it.balance, dailyRate), dailyRate) }
-            }
+        // 现在（余额 + 今天）→ 今天吃啥 → 这段时间 → 最近交易；后两块是流水、分析两栏的入口
+        cardInfo?.let { info ->
+            item { Box(Modifier.enterOnce(0)) { BalanceCard(info, runwayDays(info.balance, dailyRate), dailyRate, today) } }
         }
-        // 卡状态正常时不占一整张卡，异常（挂失 / 冻结）才单独拎出来
-        cardInfo?.takeIf { it.lostFlag || it.frozenFlag }?.let { info ->
-            item { Box(Modifier.enterOnce(1)) { CardStatusPanel(info) } }
-        }
-        item { Box(Modifier.enterOnce(1)) { TodayMealsCard(today) } }
         if (allTransactions.isNotEmpty() && com.xjtu.toolbox.agent.AgentInsightHub.insights.available) {
             item { Box(Modifier.enterOnce(1)) { MealPicksCard(allTransactions, cardInfo?.balance, dailyRate) } }
         }
         item {
             Box(Modifier.enterOnce(2)) {
-                RangeSpendCard(CampusCardAnalysis.summarizeRange(monthlyStats, rangeStart, rangeEnd), activeCampusDays)
+                RangeSpendCard(CampusCardAnalysis.summarizeRange(monthlyStats, rangeStart, rangeEnd), activeCampusDays, onOpenAnalytics)
             }
         }
         if (recentTransactions.isNotEmpty()) {
             item {
-                Card(
-                    modifier = Modifier.fillMaxWidth().enterOnce(3),
-                    colors = CardDefaults.defaultColors(color = MiuixTheme.colorScheme.surfaceVariant)
-                ) {
-                    Column {
-                        Text(
-                            "最近交易",
-                            style = MiuixTheme.textStyles.body1,
-                            fontWeight = FontWeight.Medium,
-                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp)
-                        )
-                        TransactionRows(recentTransactions)
+                OverviewCard(Modifier.enterOnce(3)) {
+                    OverviewHeader("最近交易", Modifier.padding(start = 16.dp, end = 8.dp, top = 8.dp)) {
+                        TextButton(text = "全部", onClick = onOpenTransactions)
                     }
+                    TransactionRows(recentTransactions)
+                    Spacer(Modifier.height(6.dp))
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun OverviewCard(modifier: Modifier = Modifier, onClick: (() -> Unit)? = null, content: @Composable ColumnScope.() -> Unit) {
+    val colors = CardDefaults.defaultColors(color = com.xjtu.toolbox.ui.components.AppCardColor)
+    if (onClick == null) {
+        Card(modifier.fillMaxWidth(), cornerRadius = 20.dp, colors = colors) { content() }
+    } else {
+        Card(
+            modifier = modifier.fillMaxWidth(),
+            cornerRadius = 20.dp,
+            colors = colors,
+            pressFeedbackType = top.yukonga.miuix.kmp.utils.PressFeedbackType.Sink,
+            onClick = onClick,
+        ) { content() }
+    }
+}
+
+/** 概览各块统一的标题行。 */
+@Composable
+private fun OverviewHeader(title: String, modifier: Modifier = Modifier, trailing: @Composable RowScope.() -> Unit = {}) {
+    Row(modifier.fillMaxWidth().heightIn(min = 40.dp), verticalAlignment = Alignment.CenterVertically) {
+        Text(title, style = MiuixTheme.textStyles.subtitle, fontWeight = FontWeight.Medium, modifier = Modifier.weight(1f))
+        trailing()
     }
 }
 
@@ -509,7 +524,7 @@ private val BalanceCardMeshDark = listOf(
 )
 
 @Composable
-private fun BalanceCard(info: CardInfo, runway: Int?, dailyRate: Double?) {
+private fun BalanceCard(info: CardInfo, runway: Int?, dailyRate: Double?, today: TodaySpendSummary) {
     // 浅色卡：余额和图标用主题色，其余文字用常规的正文 / 次要文字颜色
     val accent = MiuixTheme.colorScheme.primary
     val secondary = MiuixTheme.colorScheme.onSurfaceVariantSummary
@@ -529,10 +544,10 @@ private fun BalanceCard(info: CardInfo, runway: Int?, dailyRate: Double?) {
                 // 这张卡在玻璃顶栏的取样范围里：一直流动的话，静止时顶栏也在持续重新模糊
                 runForMillis = 6_000L,
             )
-            Column(Modifier.fillMaxWidth().padding(24.dp)) {
+            Column(Modifier.fillMaxWidth().padding(20.dp)) {
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically) {
-                    Column {
+                    Column(Modifier.weight(1f)) {
                         Text("校园卡余额", style = MiuixTheme.textStyles.body2,
                             color = secondary)
                         Spacer(Modifier.height(6.dp))
@@ -554,19 +569,39 @@ private fun BalanceCard(info: CardInfo, runway: Int?, dailyRate: Double?) {
                     }
                     Surface(shape = CircleShape,
                         color = accent.copy(alpha = 0.12f),
-                        modifier = Modifier.size(56.dp)) {
+                        modifier = Modifier.size(48.dp)) {
                         Box(contentAlignment = Alignment.Center) {
                             Icon(Icons.Default.CreditCard, null,
                                 tint = accent,
-                                modifier = Modifier.size(28.dp))
+                                modifier = Modifier.size(24.dp))
                         }
                     }
                 }
-                if (info.pendingAmount > 0) {
-                    Spacer(Modifier.height(8.dp))
-                    Text("待入账: ¥" + money2(info.pendingAmount),
-                        style = MiuixTheme.textStyles.footnote1,
-                        color = secondary)
+                val identity = listOf(info.name, info.cardType, info.account.takeIf { it.isNotBlank() }?.let { "一卡通号 $it" })
+                    .filter { !it.isNullOrBlank() }.joinToString(" · ")
+                val pending = if (info.pendingAmount > 0) "待入账 ¥" + money2(info.pendingAmount) else null
+                listOfNotNull(pending, identity.ifBlank { null }).joinToString("　").takeIf { it.isNotEmpty() }?.let {
+                    Spacer(Modifier.height(4.dp))
+                    Text(it, style = MiuixTheme.textStyles.footnote1, color = secondary,
+                        maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
+                if (info.lostFlag || info.frozenFlag) {
+                    val error = MiuixTheme.colorScheme.error
+                    Spacer(Modifier.height(12.dp))
+                    Row(
+                        Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp))
+                            .background(error.copy(alpha = 0.10f)).padding(horizontal = 12.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Icon(if (info.frozenFlag) Icons.Default.Lock else Icons.Default.Warning, null,
+                            tint = error, modifier = Modifier.size(16.dp))
+                        Spacer(Modifier.width(6.dp))
+                        Text(
+                            listOfNotNull("已挂失".takeIf { info.lostFlag }, "已冻结".takeIf { info.frozenFlag })
+                                .joinToString("、") + "，消费和付款码可能暂不可用",
+                            style = MiuixTheme.textStyles.footnote1, fontWeight = FontWeight.Medium, color = error,
+                        )
+                    }
                 }
                 if (runway != null && dailyRate != null) {
                     // 油表：满格按 30 天算，三天以内变红
@@ -591,45 +626,68 @@ private fun BalanceCard(info: CardInfo, runway: Int?, dailyRate: Double?) {
                     )
                 }
                 Spacer(Modifier.height(16.dp))
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    InfoPill(info.name, accent)
-                    if (info.lostFlag) InfoPill("已挂失", MiuixTheme.colorScheme.error)
-                    if (info.frozenFlag) InfoPill("已冻结", MiuixTheme.colorScheme.error)
-                    InfoPill(info.cardType, accent)
-                    if (info.account.isNotBlank()) {
-                        InfoPill("一卡通号: ${info.account}", accent)
-                    }
-                }
+                TodayMealsStrip(today, secondary)
             }
         }
     }
 }
 
+/** 余额卡底部的今天三餐：「现在」的另一半，和余额放一起看。 */
 @Composable
-private fun InfoPill(text: String, color: Color) {
-    if (text.isBlank()) return
-    Surface(shape = RoundedCornerShape(8.dp), color = color.copy(alpha = 0.10f)) {
-        Text(text, Modifier.padding(horizontal = 9.dp, vertical = 4.dp),
-            style = MiuixTheme.textStyles.footnote1, color = color.copy(alpha = 0.95f),
-            maxLines = 1, overflow = TextOverflow.Ellipsis)
+private fun TodayMealsStrip(today: TodaySpendSummary, secondary: Color) {
+    val hour = Clock.System.now().toLocalDateTime(CampusTimeZone).hour
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Text("今天", style = MiuixTheme.textStyles.body2, fontWeight = FontWeight.Medium,
+            modifier = Modifier.weight(1f))
+        Text(if (today.total > 0) "共 ¥" + money2(today.total) else "还没刷卡",
+            style = MiuixTheme.textStyles.footnote1, color = secondary)
+    }
+    Spacer(Modifier.height(8.dp))
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        val palette = campusCardPalette()
+        listOf(
+            Triple("早餐", today.breakfast, 5..10) to palette[3],
+            Triple("午餐", today.lunch, 11..14) to palette[7],
+            Triple("晚餐", today.dinner, 17..21) to palette[2],
+        ).forEach { (meal, color) ->
+            val (name, amount, hours) = meal
+            val eaten = amount > 0
+            Column(
+                Modifier.weight(1f).clip(RoundedCornerShape(14.dp))
+                    .background(color.copy(alpha = if (eaten) 0.16f else 0.07f))
+                    .padding(vertical = 8.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                Text(name, style = MiuixTheme.textStyles.footnote1, color = color, fontWeight = FontWeight.Medium)
+                Text(
+                    when {
+                        eaten -> "¥" + money1(amount)
+                        hour > hours.last -> "没刷卡"
+                        hour >= hours.first -> "饭点中"
+                        else -> "—"
+                    },
+                    style = MiuixTheme.textStyles.body2,
+                    fontWeight = if (eaten) FontWeight.Bold else FontWeight.Normal,
+                    color = if (eaten) MiuixTheme.colorScheme.onSurface else secondary,
+                )
+            }
+        }
     }
 }
 
+/** 这段时间的总账；明细在分析栏，整卡点进去。 */
 @Composable
-private fun RangeSpendCard(summary: RangeSpendSummary, activeDays: Int) {
-    top.yukonga.miuix.kmp.basic.Card(modifier = Modifier.fillMaxWidth(), cornerRadius = 20.dp) {
-        Column(Modifier.padding(20.dp)) {
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically) {
-                Column(Modifier.weight(1f)) {
-                    Text(summary.title, style = MiuixTheme.textStyles.subtitle,
-                        fontWeight = FontWeight.Medium)
-                    summary.subtitle?.let {
-                        Spacer(Modifier.height(2.dp))
-                        Text(it, style = MiuixTheme.textStyles.footnote1,
-                            color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
-                    }
-                }
+private fun RangeSpendCard(summary: RangeSpendSummary, activeDays: Int, onOpen: () -> Unit) {
+    val secondary = MiuixTheme.colorScheme.onSurfaceVariantSummary
+    OverviewCard(onClick = onOpen) {
+        Column(Modifier.padding(start = 20.dp, end = 16.dp, top = 8.dp, bottom = 18.dp)) {
+            OverviewHeader(summary.title) {
+                summary.subtitle?.let { Text(it, style = MiuixTheme.textStyles.footnote1, color = secondary) }
+                Icon(Icons.Default.ChevronRight, null, tint = secondary, modifier = Modifier.size(20.dp))
+            }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("¥" + money0(summary.totalSpend), style = MiuixTheme.textStyles.title2,
+                    fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
                 if (summary.changePercent != null && summary.changeCaption != null) {
                     val change = summary.changePercent
                     val isUp = change > 0
@@ -658,186 +716,26 @@ private fun RangeSpendCard(summary: RangeSpendSummary, activeDays: Int) {
                     }
                 }
             }
-            Spacer(Modifier.height(12.dp))
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
-                StatColumn("总支出", "¥" + money0(summary.totalSpend),
-                    MiuixTheme.colorScheme.error)
-                StatColumn("充值", "¥" + money0(summary.totalIncome),
-                    MiuixTheme.colorScheme.primary)
-                StatColumn("笔数", "${summary.transactionCount}",
-                    MiuixTheme.colorScheme.primaryVariant)
+            Spacer(Modifier.height(14.dp))
+            Row(
+                Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp))
+                    .background(com.xjtu.toolbox.ui.components.AppInsetColor).padding(vertical = 10.dp),
+            ) {
+                StatColumn("充值", "¥" + money0(summary.totalIncome))
+                StatColumn("笔数", "${summary.transactionCount}")
                 // 按刷过卡的天数摊，和分析页头卡同一口径；放假的日子不算进分母
-                if (activeDays > 0) {
-                    StatColumn("在校日均", "¥" + money1(summary.totalSpend / activeDays),
-                        MiuixTheme.colorScheme.onSurfaceVariantSummary)
-                } else {
-                    StatColumn("日均", "¥" + money1(summary.avgDailySpend),
-                        MiuixTheme.colorScheme.onSurfaceVariantSummary)
-                }
-            }
-            if (summary.peakDay.isNotEmpty()) {
-                Spacer(Modifier.height(12.dp))
-                com.xjtu.toolbox.ui.components.RowDivider(startInset = 0.dp)
-                Spacer(Modifier.height(8.dp))
-                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Default.LocalFireDepartment, null,
-                        tint = MiuixTheme.colorScheme.error.copy(alpha = 0.7f),
-                        modifier = Modifier.size(16.dp))
-                    Spacer(Modifier.width(4.dp))
-                    Text(
-                        "消费最多: ${CampusCardAnalysis.formatPeakDay(summary.peakDay, spanYears = true)} ¥" + money0(summary.peakDayAmount),
-                        style = MiuixTheme.textStyles.footnote1,
-                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
-                }
-            }
-            if (summary.topMerchants.isNotEmpty()) {
-                Spacer(Modifier.height(12.dp))
-                com.xjtu.toolbox.ui.components.RowDivider(startInset = 0.dp)
-                Spacer(Modifier.height(12.dp))
-                Text("消费去向", style = MiuixTheme.textStyles.body2,
-                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
-                Spacer(Modifier.height(8.dp))
-                summary.topMerchants.forEach { merchant ->
-                    Row(Modifier.fillMaxWidth().padding(vertical = 2.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically) {
-                        Text(merchant.name, style = MiuixTheme.textStyles.footnote1,
-                            modifier = Modifier.weight(1f), maxLines = 1,
-                            overflow = TextOverflow.Ellipsis)
-                        Text("${merchant.count}笔", style = MiuixTheme.textStyles.footnote1,
-                            color = MiuixTheme.colorScheme.onSurfaceVariantSummary.copy(alpha = 0.6f))
-                        Spacer(Modifier.width(8.dp))
-                        Text("¥" + money0(merchant.totalAmount),
-                            style = MiuixTheme.textStyles.footnote1,
-                            fontWeight = FontWeight.Medium, color = MiuixTheme.colorScheme.error)
-                    }
-                }
-            }
-        }
-    }
-}
-
-/** 今天三餐各花了多少。区间统计在分析页，概览页只管「现在」。 */
-@Composable
-private fun TodayMealsCard(today: TodaySpendSummary) {
-    val hour = Clock.System.now().toLocalDateTime(CampusTimeZone).hour
-    top.yukonga.miuix.kmp.basic.Card(modifier = Modifier.fillMaxWidth(), cornerRadius = 20.dp) {
-        Column(Modifier.padding(20.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.Default.Restaurant, null,
-                    tint = MiuixTheme.colorScheme.primaryVariant, modifier = Modifier.size(18.dp))
-                Spacer(Modifier.width(6.dp))
-                Text("今天", style = MiuixTheme.textStyles.subtitle, fontWeight = FontWeight.Medium)
-                Spacer(Modifier.weight(1f))
-                Text(
-                    if (today.total > 0) "共 ¥" + money2(today.total) else "还没刷卡",
-                    style = MiuixTheme.textStyles.footnote1,
-                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                )
-            }
-            Spacer(Modifier.height(12.dp))
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                listOf(
-                    Triple("早餐", today.breakfast, 5..10),
-                    Triple("午餐", today.lunch, 11..14),
-                    Triple("晚餐", today.dinner, 17..21),
-                ).forEach { (name, amount, hours) ->
-                    val color = when (name) {
-                        "早餐" -> campusCardPalette()[3]
-                        "午餐" -> campusCardPalette()[7]
-                        else -> campusCardPalette()[2]
-                    }
-                    val eaten = amount > 0
-                    Column(
-                        Modifier.weight(1f).clip(RoundedCornerShape(14.dp))
-                            .background(color.copy(alpha = if (eaten) 0.16f else 0.06f))
-                            .padding(vertical = 10.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                    ) {
-                        Text(name, style = MiuixTheme.textStyles.footnote1, color = color,
-                            fontWeight = FontWeight.Medium)
-                        Text(
-                            when {
-                                eaten -> "¥" + money1(amount)
-                                hour > hours.last -> "没刷卡"
-                                hour >= hours.first -> "饭点中"
-                                else -> "—"
-                            },
-                            style = MiuixTheme.textStyles.body1,
-                            fontWeight = if (eaten) FontWeight.Bold else FontWeight.Normal,
-                            color = if (eaten) MiuixTheme.colorScheme.onSurface
-                            else MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                        )
-                    }
-                }
+                if (activeDays > 0) StatColumn("在校日均", "¥" + money1(summary.totalSpend / activeDays))
+                else StatColumn("日均", "¥" + money1(summary.avgDailySpend))
             }
         }
     }
 }
 
 @Composable
-private fun StatColumn(label: String, value: String, color: Color) {
-    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-        Text(value, style = MiuixTheme.textStyles.subtitle,
-            fontWeight = FontWeight.Bold, color = color, maxLines = 1)
-        Text(label, style = MiuixTheme.textStyles.footnote1,
-            color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
-    }
-}
-
-@Composable
-private fun CardStatusPanel(info: CardInfo) {
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        cornerRadius = 20.dp,
-        colors = CardDefaults.defaultColors(color = MiuixTheme.colorScheme.surfaceVariant)
-    ) {
-        Column(Modifier.fillMaxWidth().padding(16.dp)) {
-            Text(
-                "卡片状态",
-                style = MiuixTheme.textStyles.subtitle,
-                fontWeight = FontWeight.Medium
-            )
-            Spacer(Modifier.height(10.dp))
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                StatusChip(
-                    icon = if (info.lostFlag) Icons.Default.Warning else Icons.Default.CheckCircle,
-                    text = if (info.lostFlag) "已挂失" else "使用正常",
-                    isWarning = info.lostFlag, modifier = Modifier.weight(1f))
-                StatusChip(
-                    icon = if (info.frozenFlag) Icons.Default.Lock else Icons.Default.LockOpen,
-                    text = if (info.frozenFlag) "已冻结" else "账户可用",
-                    isWarning = info.frozenFlag, modifier = Modifier.weight(1f))
-            }
-            Spacer(Modifier.height(8.dp))
-            Text(
-                if (info.lostFlag || info.frozenFlag) "部分校园卡功能可能暂不可用"
-                else "消费、充值与付款码均可正常使用",
-                style = MiuixTheme.textStyles.footnote1,
-                color = MiuixTheme.colorScheme.onSurfaceVariantSummary
-            )
-        }
-    }
-}
-
-@Composable
-private fun StatusChip(icon: ImageVector, text: String, isWarning: Boolean, modifier: Modifier = Modifier) {
-    // "正常"用主题 success 语义色（如果有），否则降级到 MiuixTheme.colorScheme.primary
-    val okColor = MiuixTheme.colorScheme.primary  // primary 在两个主题下都有合理对比度
-    val accent = if (isWarning) MiuixTheme.colorScheme.error else okColor
-    Surface(
-        modifier = modifier, shape = RoundedCornerShape(12.dp),
-        color = accent.copy(alpha = 0.10f)
-    ) {
-        Row(Modifier.padding(horizontal = 10.dp, vertical = 9.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.Center) {
-            Icon(icon, null, modifier = Modifier.size(15.dp), tint = accent)
-            Spacer(Modifier.width(5.dp))
-            Text(text, style = MiuixTheme.textStyles.footnote1,
-                fontWeight = FontWeight.Medium, color = accent,
-                maxLines = 1, overflow = TextOverflow.Ellipsis)
-        }
+private fun RowScope.StatColumn(label: String, value: String) {
+    Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
+        Text(value, style = MiuixTheme.textStyles.body1, fontWeight = FontWeight.Bold, maxLines = 1)
+        Text(label, style = MiuixTheme.textStyles.footnote1, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
     }
 }
 

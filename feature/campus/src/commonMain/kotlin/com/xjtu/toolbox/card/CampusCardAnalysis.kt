@@ -19,9 +19,6 @@ data class RangeSpendSummary(
     val totalIncome: Double,
     val transactionCount: Int,
     val avgDailySpend: Double,
-    val peakDay: String,
-    val peakDayAmount: Double,
-    val topMerchants: List<MerchantStat>,
     val changePercent: Double?,
     val changeCaption: String?,
 )
@@ -91,12 +88,6 @@ object CampusCardAnalysis {
         today: LocalDate = todayOnCampus(),
     ): RangeSpendSummary {
         val days = calendarDays(start, end)
-        val topMerchants = stats.flatMap { it.topMerchants }
-            .groupBy { it.name }
-            .map { (name, items) -> MerchantStat(name, items.sumOf { it.totalAmount }, items.sumOf { it.count }) }
-            .sortedByDescending { it.totalAmount }
-            .take(3)
-        val peak = stats.maxByOrNull { it.peakDayAmount }
         val change = monthChange(stats, start, end, today)
         return RangeSpendSummary(
             title = periodTitle(start, end, today),
@@ -105,9 +96,6 @@ object CampusCardAnalysis {
             totalIncome = stats.sumOf { it.totalIncome },
             transactionCount = stats.sumOf { it.transactionCount },
             avgDailySpend = stats.sumOf { it.totalSpend } / days,
-            peakDay = peak?.peakDay.orEmpty(),
-            peakDayAmount = peak?.peakDayAmount ?: 0.0,
-            topMerchants = topMerchants,
             changePercent = change?.first,
             changeCaption = change?.second,
         )
