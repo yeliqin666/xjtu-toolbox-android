@@ -145,7 +145,7 @@ internal fun MealRhythmCard(hourly: List<Int>, mealStats: Map<String, MealTimeSt
     val mealColors = linkedMapOf("早餐" to palette[3], "午餐" to palette[7], "晚餐" to palette[2], "夜宵" to palette[4])
     val max = hourly.max().toFloat()
     val peak = hourly.indices.maxBy { hourly[it] }
-    val grow = rememberRevealProgress(hourly, spec = tween(1100, easing = FastOutSlowInEasing))
+    val grow = rememberRevealProgress(hourly, spec = tween(600, easing = FastOutSlowInEasing))
     val idle = MiuixTheme.colorScheme.onSurfaceVariantSummary.copy(alpha = 0.35f)
     val track = MiuixTheme.colorScheme.onSurfaceVariantSummary.copy(alpha = 0.06f)
     val summary = MiuixTheme.colorScheme.onSurfaceVariantSummary

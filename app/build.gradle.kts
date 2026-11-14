@@ -26,8 +26,8 @@ android {
         // Android 15：PdfRenderer 取文字/检索、COUI 的 Mesh 投影与 clipShader 都是基线能力，不写降级
         minSdk = 35
         targetSdk = 36
-        versionCode = 93
-        versionName = "5.3.0"
+        versionCode = 94
+        versionName = "6.0.0"
 
         // 反馈后端（飞书多维表格）的凭据。优先读环境变量（CI），否则读
         // 仓库根目录 feedback.properties（已 gitignore）。两者都没有时留空字符串——
@@ -133,6 +133,12 @@ android {
                 "proguard-rules.pro"
             )
             signingConfig = signingConfigs.getByName("release")
+            // 发版前想拿正式构建的方式连验几轮：CI 传 -PreleasePreviewSuffix=dev.N，
+            // 正式包的版本号就补上预览后缀（6.0.0 → 6.0.0-dev.N），仍低于同号正式版，
+            // 正式发布时不带这个参数，版本号原样。
+            providers.gradleProperty("releasePreviewSuffix").orNull
+                ?.takeIf { it.isNotBlank() }
+                ?.let { versionNameSuffix = "-$it" }
         }
         create("preview") {
             // 预览渠道包：给愿意尝鲜的用户，也是我们抓问题的主要来源。

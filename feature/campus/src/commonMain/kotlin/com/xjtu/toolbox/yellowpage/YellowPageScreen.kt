@@ -184,7 +184,7 @@ fun YellowPageScreen(
                     fullLineItem {
                         EmptyState(
                             title = "没有找到相关机构",
-                            subtitle = "可以搜机构简称或电话号码",
+                            subtitle = "可搜简称或电话",
                             modifier = Modifier.fillMaxWidth().padding(top = 36.dp)
                         )
                     }

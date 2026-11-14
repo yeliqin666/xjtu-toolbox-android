@@ -9,7 +9,9 @@ import top.yukonga.miuix.kmp.basic.CardDefaults
 import top.yukonga.miuix.kmp.basic.Text
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.rememberScrollState
@@ -55,6 +57,11 @@ private val LEFT_COL_WIDTH_MIXED: Dp = 68.dp
 private val REST_HEIGHT: Dp = 22.dp
 /** 课程块在格子里的内缩（格间距）。 */
 private val CELL_GAP: Dp = 3.dp
+/** 好友课的圆角，与课程卡片一致，虚线框才贴得住。 */
+private val FRIEND_CORNER: Dp = 12.dp
+
+/** 叠加对比的好友课：包一层只为在排好的条目里认出它。节次课，起止按作息表查。 */
+private class FriendSlot(val course: CourseItem) : ScheduleSlot by course
 
 // 纵轴按节次排版（节号与起止时间画在左轴，大空档插成「午休」「晚休」带），条目按真实钟点落位，
 // 见 WeekGridLayout。
@@ -83,6 +90,9 @@ fun ScheduleGrid(
      * 它在每一格的组合里被调用，做 IO 就等于把课表渲染绑在别的站点上。
      */
     slotBadge: (ScheduleSlot) -> SlotMark? = { null },
+    /** 叠加对比的好友课：只画不参与冲突分组，见下面「好友课」两层。 */
+    overlaySlots: List<CourseItem> = emptyList(),
+    onOverlayClick: (CourseItem) -> Unit = {},
     onSlotClick: (ScheduleSlot) -> Unit = {}
 ) {
     val scrollState = rememberScrollState()
@@ -96,8 +106,9 @@ fun ScheduleGrid(
     val mixedWeek = (weekSeasons?.size ?: 1) > 1
     val axisSummer = if (mixedWeek) todaySummer else (weekSeasons?.firstOrNull() ?: todaySummer)
 
-    val layout = remember(slots, weekDates, axisSummer) {
-        layoutWeekGrid(slots) { day ->
+    // 好友课一起参与排行（早课、第 11 节也要放开行），分组和画法与自己的课分开
+    val layout = remember(slots, overlaySlots, weekDates, axisSummer) {
+        layoutWeekGrid(slots + overlaySlots.map(::FriendSlot)) { day ->
             weekDates?.getOrNull(day - 1)?.let { XjtuTime.isSummerTime(it.monthNumber) } ?: axisSummer
         }
     }
@@ -288,8 +299,35 @@ fun ScheduleGrid(
                 }
             }
 
+            // 好友课底层：浅底加课名，压在自己的课下面，只在自己空着的格子里露出来
+            val friendPlaced = remember(layout) { layout.slots.filter { it.slot is FriendSlot } }
+            val friendInk = MiuixTheme.colorScheme.onSurfaceVariantSummary
+            fun Modifier.friendCell(placed: PlacedSlot): Modifier {
+                val top = yOf(placed.start)
+                return offset(x = leftColWidth + dayWidth * (placed.slot.slotDayOfWeek - 1), y = top)
+                    .width(dayWidth)
+                    .height(yOf(placed.end) - top)
+                    .padding(CELL_GAP)
+            }
+            friendPlaced.forEach { placed ->
+                val course = (placed.slot as FriendSlot).course
+                Column(
+                    Modifier
+                        .friendCell(placed)
+                        .clip(RoundedCornerShape(FRIEND_CORNER))
+                        .background(friendInk.copy(alpha = 0.10f))
+                        .clickable { onOverlayClick(course) }
+                        .padding(4.dp),
+                ) {
+                    Text(course.courseName, fontSize = 10.sp, lineHeight = 12.sp, color = friendInk, maxLines = 4, overflow = TextOverflow.Ellipsis)
+                    if (course.location.isNotBlank()) {
+                        Text(course.location, fontSize = 8.sp, lineHeight = 10.sp, color = friendInk, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                    }
+                }
+            }
+
             // 前景层：课程卡片（冲突课程翻页显示）
-            val conflictGroups = remember(layout) { buildConflictGroups(layout.slots) }
+            val conflictGroups = remember(layout) { buildConflictGroups(layout.slots.filter { it.slot !is FriendSlot }) }
 
             conflictGroups.forEach { group ->
                 val topOffset = yOf(group.start)
@@ -335,6 +373,22 @@ fun ScheduleGrid(
                         )
                     }
                 }
+            }
+
+            // 好友课顶层：只描虚线框，压在自己的课上就是两人这时都有课。不接点击，点到的仍是自己的课
+            friendPlaced.forEach { placed ->
+                Box(
+                    Modifier.friendCell(placed).drawBehind {
+                        drawRoundRect(
+                            color = friendInk,
+                            cornerRadius = androidx.compose.ui.geometry.CornerRadius(FRIEND_CORNER.toPx()),
+                            style = androidx.compose.ui.graphics.drawscope.Stroke(
+                                width = 1.5.dp.toPx(),
+                                pathEffect = androidx.compose.ui.graphics.PathEffect.dashPathEffect(floatArrayOf(4.dp.toPx(), 3.dp.toPx())),
+                            ),
+                        )
+                    },
+                )
             }
 
             // ── 当前时间线（横跨整行 + "现在"标签）──

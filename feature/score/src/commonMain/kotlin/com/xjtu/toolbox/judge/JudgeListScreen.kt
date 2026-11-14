@@ -173,7 +173,7 @@ private fun <Q> AutoJudgeBlock(vm: JudgeViewModel<Q>, onClick: () -> Unit) {
         ) {
             Icon(Icons.Default.ThumbUp, contentDescription = null, tint = MiuixTheme.colorScheme.onPrimary)
             Spacer(Modifier.width(8.dp))
-            Text(if (vm.isAutoJudging) "评教中..." else "一键全部好评", color = MiuixTheme.colorScheme.onPrimary)
+            Text(if (vm.isAutoJudging) "评教中…" else "一键全部好评", color = MiuixTheme.colorScheme.onPrimary)
         }
         if (!vm.isAutoJudging && vm.autoJudgeMessage.isEmpty()) return@Column
         Spacer(Modifier.height(8.dp))
@@ -248,7 +248,7 @@ private fun QuestionnaireCard(card: JudgeCard, finished: Boolean, undoing: Boole
                     colors = ButtonDefaults.buttonColors(color = MiuixTheme.colorScheme.secondaryContainer)
                 ) {
                     Text(
-                        if (undoing) "撤回中..." else "撤回评教",
+                        if (undoing) "撤回中…" else "撤回评教",
                         color = MiuixTheme.colorScheme.onSecondaryContainer,
                         style = MiuixTheme.textStyles.footnote1,
                         fontWeight = FontWeight.Medium

@@ -190,7 +190,6 @@ fun IclassfaceScreen(
                     item {
                         EmptyState(
                             title = if (isToday) "今天还没有签到/刷卡记录" else "当天没有签到/刷卡记录",
-                            subtitle = "数据来自人脸识别签到系统"
                         )
                     }
                 } else {

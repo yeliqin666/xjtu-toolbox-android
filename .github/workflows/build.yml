@@ -16,6 +16,10 @@ on:
         description: "在 dev 上发布预览版（main 忽略此项）"
         type: boolean
         default: true
+      release_preview:
+        description: "以 release 方式构建预览版：真 R8、正式签名，版本号仍带 -dev；发版前真机检查用，仍不是正式版"
+        type: boolean
+        default: false
 
 concurrency:
   group: build-${{ github.ref }}
@@ -30,6 +34,12 @@ jobs:
       # dev 推送默认发布预览版；head commit 带 [skip preview] 时只跑检查、不发布。
       # 手动触发时用 publish_preview 输入控制，便于把之前跳过的改动补发成一个 beta。
       PUBLISH_PREVIEW: ${{ github.ref == 'refs/heads/dev' && ((github.event_name == 'workflow_dispatch' && (github.event.inputs.publish_preview == true || github.event.inputs.publish_preview == 'true')) || (github.event_name == 'push' && !contains(github.event.head_commit.message, '[skip preview]'))) }}
+      # 手动在 dev 上勾选 release_preview 时，用正式变体（assembleRelease）出包并发到预览渠道：
+      # 包与正式版同一套 R8、同一份签名，版本号仍带 -dev（靠 -PreleasePreviewSuffix 补上），
+      # 只是不写 stable.json、不动 latest 别名、不打 v* tag、不同步 Gitee，所以它仍然只是预览版。
+      # 发版前想拿接近正式版的包在真机上连验几轮，用它；日常预览仍走 preview 变体。
+      # 推送时也可以不问人：head commit 带 [release preview] 就走这种方式（与 [skip preview] 同一套约定）。
+      PREVIEW_RELEASE_BUILD: ${{ github.ref == 'refs/heads/dev' && ((github.event_name == 'workflow_dispatch' && (github.event.inputs.release_preview == true || github.event.inputs.release_preview == 'true')) || (github.event_name == 'push' && contains(github.event.head_commit.message, '[release preview]'))) }}
 
     steps:
       - name: Checkout
@@ -436,16 +446,22 @@ jobs:
             echo "::error::AppChangelog.kt 缺少 \"$BASE\" 条目，预览包会启动即崩。升版本号时请同时在 ENTRIES 顶部加一个条目（可先占位）"
             exit 1
           fi
+          # 两种方式都发预览号：release 方式只是换变体构建，版本号照样补 -dev.N。
+          if [ "$PREVIEW_RELEASE_BUILD" = "true" ]; then
+            VARIANT="release"
+          else
+            VARIANT="preview"
+          fi
           VER="${BASE}-dev.${GITHUB_RUN_NUMBER}"
+          echo "variant=$VARIANT" >> $GITHUB_OUTPUT
           echo "version=$VER" >> $GITHUB_OUTPUT
           echo "tag=dev-${GITHUB_RUN_NUMBER}" >> $GITHUB_OUTPUT
 
       - name: Unit tests + preview lint + Build Preview APK
-        # 三步合成一次 Gradle 调用：单测 / lint / 打包共用同一份 preview 编译产物，
+        # 三步合成一次 Gradle 调用：单测 / lint / 打包共用同一份编译产物，
         # lint 还能和 R8、打包并行；[skip preview] 时只跑测试和 lint。
-        # dev 上不再单独跑 `minifyReleaseWithR8`：preview 变体是 initWith(release) 的，
-        # proguardFiles / minify / shrinkResources 与正式版完全同一套，混淆规则坏了
-        # 这里就会红；正式包另有 main 的 assembleRelease 兜底。
+        # 默认用 preview 变体（initWith(release)，proguardFiles / minify / shrinkResources
+        # 与正式版同一套）；勾了 release_preview 时改用正式变体，命令与 main 上完全一致。
         if: github.ref == 'refs/heads/dev'
         env:
           KEYSTORE_PATH: ${{ runner.temp }}/release.jks
@@ -458,21 +474,29 @@ jobs:
           FEEDBACK_TABLE_SUBMIT: ${{ secrets.FEEDBACK_TABLE_SUBMIT }}
           FEEDBACK_TABLE_REPLY: ${{ secrets.FEEDBACK_TABLE_REPLY }}
         run: |
-          TASKS=":app:testPreviewUnitTest :app:lintVitalPreview"
-          if [ "$PUBLISH_PREVIEW" = "true" ]; then
-            TASKS="$TASKS :app:assemblePreview"
+          # release 方式的预览跑正式变体的单测、lint 和打包，命令与 main 上的正式发布一致，
+          # 只多一个后缀参数，让正式包的版本号带上 -dev.N。
+          EXTRA=""
+          if [ "$PREVIEW_RELEASE_BUILD" = "true" ]; then
+            TASKS=":app:testReleaseUnitTest :app:lintVitalRelease"
+            if [ "$PUBLISH_PREVIEW" = "true" ]; then TASKS="$TASKS :app:assembleRelease"; fi
+            EXTRA="-PreleasePreviewSuffix=dev.${GITHUB_RUN_NUMBER}"
+          else
+            TASKS=":app:testPreviewUnitTest :app:lintVitalPreview"
+            if [ "$PUBLISH_PREVIEW" = "true" ]; then TASKS="$TASKS :app:assemblePreview"; fi
           fi
-          echo "Gradle tasks: $TASKS"
-          ./gradlew $TASKS -Pandroid.onlyEnableUnitTestForTheTestedBuildType=false
+          echo "Gradle tasks: $TASKS $EXTRA"
+          ./gradlew $TASKS $EXTRA -Pandroid.onlyEnableUnitTestForTheTestedBuildType=false
 
       - name: Verify preview APK
         if: env.PUBLISH_PREVIEW == 'true'
         env:
           VERSION: ${{ steps.preview.outputs.version }}
+          VARIANT: ${{ steps.preview.outputs.variant }}
         run: |
-          APK=app/build/outputs/apk/preview/app-preview.apk
-          test -f "$APK" || { echo "::error::app-preview.apk 不存在"; ls -la app/build/outputs/apk/preview/ || true; exit 1; }
-          # 必须是正式签名（未签名时文件名会是 app-preview-unsigned.apk，上面已拦）
+          APK=app/build/outputs/apk/$VARIANT/app-$VARIANT.apk
+          test -f "$APK" || { echo "::error::app-$VARIANT.apk 不存在"; ls -la app/build/outputs/apk/$VARIANT/ || true; exit 1; }
+          # 必须是正式签名（未签名时文件名会带 -unsigned，上面已拦）
           BT=$ANDROID_HOME/build-tools/37.0.0
           $BT/aapt dump badging "$APK" | grep -E "package:|application-debuggable" || true
           if $BT/aapt dump badging "$APK" | grep -q application-debuggable; then
@@ -481,16 +505,16 @@ jobs:
           $BT/aapt dump badging "$APK" | grep -q "versionName='$VERSION'" \
             || { echo "::error::APK 内 versionName 与预期 $VERSION 不一致"; exit 1; }
           cp "$APK" "xjtu-toolbox-$VERSION.apk"
-          # 预览版现在与正式版同一套 R8 规则，堆栈已混淆，mapping 必须随构建留档供 retrace
-          test -f app/build/outputs/mapping/preview/mapping.txt \
-            || { echo "::error::preview mapping.txt 缺失，崩溃堆栈无法 retrace"; exit 1; }
+          # 预览版与正式版同一套 R8 规则，堆栈已混淆，mapping 必须随构建留档供 retrace
+          test -f app/build/outputs/mapping/$VARIANT/mapping.txt \
+            || { echo "::error::$VARIANT mapping.txt 缺失，崩溃堆栈无法 retrace"; exit 1; }
 
       - name: Upload preview R8 mapping
         if: env.PUBLISH_PREVIEW == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: mapping-preview-${{ steps.preview.outputs.version }}
-          path: app/build/outputs/mapping/preview/mapping.txt
+          path: app/build/outputs/mapping/${{ steps.preview.outputs.variant }}/mapping.txt
           retention-days: 90
 
       - name: Publish preview to OSS (primary)
@@ -501,7 +525,7 @@ jobs:
           VERSION: ${{ steps.preview.outputs.version }}
           VERSION_CODE: ${{ steps.version.outputs.version_code }}
           # 预览版已改为全量推送：rollout 固定 100，保留字段只为兼容旧客户端。
-          RUN_NUMBER: ${{ github.run_number }}
+          TAG: ${{ steps.preview.outputs.tag }}
           COMMIT_SHA: ${{ github.sha }}
           OSS_ACCESS_KEY_ID: ${{ secrets.OSS_ACCESS_KEY_ID }}
           OSS_ACCESS_KEY_SECRET: ${{ secrets.OSS_ACCESS_KEY_SECRET }}
@@ -526,7 +550,7 @@ jobs:
           version = os.environ["VERSION"]
           base = os.environ["OSS_PUBLIC_BASE"].rstrip("/")
           repo = os.environ["GITHUB_REPO"]
-          run_number = os.environ["RUN_NUMBER"]
+          tag = os.environ["TAG"]
           apk = f"xjtu-toolbox-{version}.apk"
           manifest = {
               "schema": 1,
@@ -535,12 +559,12 @@ jobs:
               "versionCode": int(os.environ["VERSION_CODE"]),
               "apkUrl": f"{base}/apk/preview/{version}/app-preview.apk",
               "mirrors": [
-                  f"https://github.com/{repo}/releases/download/dev-{run_number}/xjtu-toolbox-{version}.apk",
+                  f"https://github.com/{repo}/releases/download/{tag}/xjtu-toolbox-{version}.apk",
               ],
               "sha256": hashlib.sha256(open(apk, "rb").read()).hexdigest(),
               "size": os.path.getsize(apk),
               "notes": f"预览版 {version}（提交 {os.environ['COMMIT_SHA']}）\n\n这是尚在测试的版本，仅推送给在设置中开启「接收预览版更新」的用户。",
-              "releaseUrl": f"https://github.com/{repo}/releases/tag/dev-{run_number}",
+              "releaseUrl": f"https://github.com/{repo}/releases/tag/{tag}",
               "publishedAt": datetime.datetime.now(datetime.timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z"),
               "rollout": 100,
           }
@@ -593,6 +617,8 @@ jobs:
             预览版 ${{ steps.preview.outputs.version }}（提交 ${{ github.sha }}）
 
             这是尚在测试的版本，仅推送给在设置中开启「接收预览版更新」的用户。
+
+            ${{ steps.preview.outputs.variant == 'release' && '本包按正式版的方式构建（R8、正式签名，版本号仍带 -dev），用于发版前的真机检查，不是正式版。' || '' }}
 
             rollout: 100
           files: xjtu-toolbox-${{ steps.preview.outputs.version }}.apk

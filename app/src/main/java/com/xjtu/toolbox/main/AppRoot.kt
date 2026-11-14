@@ -336,7 +336,7 @@ private class SessionRestore(
                 }
                 try {
                     val startTime = System.currentTimeMillis()
-                    step = "正在认证..."
+                    step = "正在认证…"
                     val jwxt = loginState.sessionManager?.ensureSite(LoginType.JWXT)
                     Log.d("Restore", "完成 ${System.currentTimeMillis() - startTime}ms: JWXT=${jwxt != null}, campus=${loginState.isOnCampus}")
                 } catch (e: Exception) {

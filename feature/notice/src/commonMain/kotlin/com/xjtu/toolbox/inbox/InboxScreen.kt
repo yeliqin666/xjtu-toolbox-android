@@ -296,7 +296,7 @@ fun InboxScreen(
                     if (page == 0) {
                         if (todos.isEmpty()) {
                             item(key = "empty") {
-                                EmptyState("没有待办", "学校事务、作业截止、加餐券都会出现在这里，也可以点右上角 ＋ 记自己的事", Icons.Outlined.TaskAlt, Modifier.padding(top = 48.dp))
+                                EmptyState("诸事已毕","点右上角 ＋ 记一笔", Icons.Outlined.TaskAlt, Modifier.padding(top = 48.dp))
                             }
                         }
                         todos.groupBy { todoSection(it, now) }.forEach { (title, list) ->
@@ -336,7 +336,7 @@ fun InboxScreen(
                     } else {
                         if (groups.isEmpty()) {
                             item(key = "empty") {
-                                EmptyState("没有消息", "新成绩、调课、学校通知、工具箱公告都会出现在这里", Icons.Outlined.NotificationsNone, Modifier.padding(top = 48.dp))
+                                EmptyState("没有消息", icon = Icons.Outlined.NotificationsNone, modifier = Modifier.padding(top = 48.dp))
                             }
                         }
                         groups.groupBy { daySection(it.latest.time) }.forEach { (title, list) ->

@@ -153,7 +153,7 @@ fun SchoolCalendarScreen(
                             CircularProgressIndicator(size = 40.dp, strokeWidth = 3.dp)
                             Spacer(Modifier.height(12.dp))
                             Text(
-                                "正在加载校历...",
+                                "正在加载校历…",
                                 color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                             )
                         }

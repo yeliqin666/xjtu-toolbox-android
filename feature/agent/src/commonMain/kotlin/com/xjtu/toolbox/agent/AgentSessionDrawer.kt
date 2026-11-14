@@ -140,7 +140,7 @@ internal fun SessionListPane(
                 item {
                     EmptyHint(
                         title = if (sessions.isEmpty()) "还没有任何对话" else "没有匹配的对话",
-                        detail = if (sessions.isEmpty()) "聊过的对话会出现在这里" else "换个关键词试试",
+                        detail = if (sessions.isEmpty()) "" else "换个关键词试试",
                     )
                 }
             }
@@ -194,12 +194,14 @@ private fun EmptyHint(title: String, detail: String) {
         )
         Spacer(Modifier.height(12.dp))
         Text(title, style = MiuixTheme.textStyles.body2, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
-        Spacer(Modifier.height(4.dp))
-        Text(
-            detail,
-            style = MiuixTheme.textStyles.footnote1,
-            color = MiuixTheme.colorScheme.onSurfaceVariantSummary.copy(alpha = 0.7f),
-        )
+        if (detail.isNotBlank()) {
+            Spacer(Modifier.height(4.dp))
+            Text(
+                detail,
+                style = MiuixTheme.textStyles.footnote1,
+                color = MiuixTheme.colorScheme.onSurfaceVariantSummary.copy(alpha = 0.7f),
+            )
+        }
     }
 }
 

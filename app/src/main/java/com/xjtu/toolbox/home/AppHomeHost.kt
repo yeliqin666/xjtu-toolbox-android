@@ -294,7 +294,6 @@ internal fun rememberAppHome(
                 !isLoggedIn -> HomeNextUp(
                     icon = HomeHero.LOGIN_ICON,
                     title = "登录后查看课表和余额",
-                    detail = "课表、校园卡会显示在这里",
                 )
                 !isScheduleReminderLoaded -> HomeNextUp(
                     icon = HomeHero.LOADING_ICON,

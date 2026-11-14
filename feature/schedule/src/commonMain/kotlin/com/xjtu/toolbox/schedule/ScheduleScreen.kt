@@ -55,6 +55,8 @@ import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.SwapHoriz
+import androidx.compose.material.icons.filled.Group
+import com.xjtu.toolbox.social.FriendTimetables
 import androidx.compose.material.icons.filled.Event
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.outlined.CloudOff
@@ -242,6 +244,15 @@ fun ScheduleScreen(
         )
     }
 
+    // 好友课表（匹配页存下的）：周视图可以挑一位叠上去，只叠同一学期的
+    val friends = remember(FriendTimetables.revision, host.login.accountId) { FriendTimetables.all() }
+    val overlayFriend = remember(friends) { FriendTimetables.overlayId?.let { id -> friends.firstOrNull { it.id == id } } }
+    val friendCourses = remember(overlayFriend, vm.selectedTermCode, vm.startOfTerm, vm.holidayDates) {
+        overlayFriend?.takeIf { it.term == vm.selectedTermCode }
+            ?.let { ScheduleCache.filterByHolidays(it.courses, vm.startOfTerm, vm.holidayDates) }
+            .orEmpty()
+    }
+
     var showWallpaper by remember { mutableStateOf(false) }
     if (showWallpaper) wallpaperEditor?.invoke(filteredMergedCourses, vm.currentWeek) { showWallpaper = false }
 
@@ -288,6 +299,18 @@ fun ScheduleScreen(
                 // 课表壁纸：先进取景页预览，再设锁屏 / 桌面或存相册
                 if (wallpaperEditor != null) {
                     option("课表壁纸", icon = Icons.Default.Schedule) { showWallpaper = true }
+                }
+                if (friends.isNotEmpty()) {
+                    submenu(title = "好友课表", icon = Icons.Default.Group) {
+                        option(text = "不叠加", selected = overlayFriend == null) { FriendTimetables.overlayId = null }
+                        friends.forEach { f ->
+                            val label = if (f.term == vm.selectedTermCode) f.name else "${f.name}（${vm.termLabel(f.term)}）"
+                            option(text = label, selected = f.id == overlayFriend?.id) {
+                                FriendTimetables.overlayId = f.id
+                                selectedTab = 1
+                            }
+                        }
+                    }
                 }
                 // 上课自动勿扰：开 / 关直接用菜单项的「选中」样式表示（高亮 + 主题色），
                 // 不再在标题后面写「已开启 / 已关闭」。没授权时点它是去系统权限页。
@@ -508,7 +531,7 @@ fun ScheduleScreen(
                 }
             }
             if (vm.isLoading) {
-                LoadingState(message = "\u52a0\u8f7d\u65e5\u7a0b...", modifier = Modifier.fillMaxSize())
+                LoadingState(message = "\u52a0\u8f7d\u65e5\u7a0b\u2026", modifier = Modifier.fillMaxSize())
             } else if (vm.errorMessage != null) {
                 ErrorState(
                     message = vm.errorMessage!!,
@@ -582,6 +605,10 @@ fun ScheduleScreen(
                                     onToggleMode = { vm.showAllWeeks = !vm.showAllWeeks },
                                     holidayDates = vm.holidayDates,
                                     customCourses = vm.customCourses,
+                                    friendName = overlayFriend?.name,
+                                    friendCourses = friendCourses,
+                                    friendOtherTerm = overlayFriend != null && overlayFriend.term != vm.selectedTermCode,
+                                    onClearFriend = { FriendTimetables.overlayId = null },
                                     onEditCustomCourse = { editingCourse = it },
                                     bottomPadding = contentBottomPadding,
                                     topPadding = weekTopPadding,
@@ -650,6 +677,8 @@ fun ScheduleScreen(
                                     onCourseClick = {
                                         selectCourse(it, null)
                                     },
+                                    // 只有看本学期时才分得出哪些课已经上完
+                                    currentWeek = if (viewingCurrentTerm) vm.realCurrentWeek else 0,
                                     bottomPadding = contentBottomPadding,
                                     topPadding = listTopPadding,
                                 )
@@ -833,6 +862,12 @@ private fun ScheduleTabContent(
     onWeekChange: (Int) -> Unit, onToggleMode: () -> Unit, onAddSchedule: () -> Unit = {},
     customCourses: List<CustomCourse> = emptyList(),
     holidayDates: Map<LocalDate, String> = emptyMap(),
+    /** 叠加对比的好友：null = 不叠。[friendCourses] 已按学期和节假日筛过。 */
+    friendName: String? = null,
+    friendCourses: List<CourseItem> = emptyList(),
+    /** 选的好友课表是别的学期的，叠不上。 */
+    friendOtherTerm: Boolean = false,
+    onClearFriend: () -> Unit = {},
     onEditCustomCourse: (CustomCourse) -> Unit = {},
     bottomPadding: androidx.compose.ui.unit.Dp = 0.dp,
     topPadding: androidx.compose.ui.unit.Dp = 0.dp,
@@ -901,9 +936,13 @@ private fun ScheduleTabContent(
     // 顶栏是玻璃、盖在内容上时：有「学期已结束 / 距开学」这条提示，就由提示先让出顶栏高度，
     // 网格不再重复留；没有提示时，留白交给网格的纵向滚动，网格才能从顶栏下面滚过去。
     // 以前漏了这一条，提示整条被压在玻璃顶栏后面。
-    val gridTopPadding = if (weekNote != null) 0.dp else topPadding
+    // 好友叠加只在单周视图里画；那条说明和学期提示一样占在网格上方
+    val friendBar = friendName?.takeIf { !showAllWeeks }
+    val hasBanner = weekNote != null || friendBar != null
+    val gridTopPadding = if (hasBanner) 0.dp else topPadding
     Column(Modifier.fillMaxSize().overScrollVertical()) {
-        if (weekNote != null && topPadding > 0.dp) Spacer(Modifier.height(topPadding))
+        if (hasBanner && topPadding > 0.dp) Spacer(Modifier.height(topPadding))
+        friendBar?.let { FriendOverlayBar(it, friendOtherTerm, onClearFriend) }
         // 学期状态提示（未开学/已结束）
         if (weekNote != null) {
             Surface(
@@ -931,7 +970,7 @@ private fun ScheduleTabContent(
             com.xjtu.toolbox.ui.glass.ReportScrollPosition(emptyScroll)
             EmptyState(
                 title = "本学期没有课程",
-                subtitle = "教务还没排课。可下拉刷新、在「更多」里切换学期，或点 + 添加日程",
+                subtitle = "可下拉刷新、在「更多」里切换学期，或点 + 添加日程",
                 modifier = Modifier.fillMaxSize().verticalScroll(emptyScroll).padding(top = gridTopPadding, bottom = bottomPadding)
             )
             return@Column
@@ -969,6 +1008,7 @@ private fun ScheduleTabContent(
             HorizontalPager(state = pagerState, modifier = Modifier.fillMaxSize(), userScrollEnabled = false) { page ->
                 val weekN = page + 1
                 val weekCourses = remember(courses, weekN) { courses.filter { it.isInWeek(weekN) } }
+                val weekFriend = remember(friendCourses, weekN) { friendCourses.filter { it.isInWeek(weekN) } }
                 val weekDates = remember(startOfTerm, weekN) {
                     if (startOfTerm != null && weekN > 0) {
                         // 第 1 周的周一是开学那一周的周一（与 TermWeeks.dateOf 同一个锚点），
@@ -977,12 +1017,12 @@ private fun ScheduleTabContent(
                         (0..6).map { civilFromEpochDay(monday.toEpochDays().toLong() + it) }
                     } else null
                 }
-                if (weekCourses.isEmpty() && courses.isNotEmpty()) {
+                if (weekCourses.isEmpty() && weekFriend.isEmpty() && courses.isNotEmpty()) {
                     val emptyScroll = rememberScrollState()
                     com.xjtu.toolbox.ui.glass.ReportScrollPosition(emptyScroll)
                     EmptyState(
                         title = "这周没课",
-                        subtitle = "第${weekN}周整周空着",
+                        subtitle = "第 $weekN 周，课表留白",
                         // 同上：整周空着时页面没有滚动容器，PullToRefresh 收不到拖动量
                         modifier = Modifier.fillMaxSize().verticalScroll(emptyScroll).padding(top = gridTopPadding, bottom = bottomPadding)
                     )
@@ -995,6 +1035,10 @@ private fun ScheduleTabContent(
                         bottomPadding = bottomPadding,
                         topPadding = gridTopPadding,
                         slotBadge = { badgeOf(it, weekN) },
+                        overlaySlots = weekFriend,
+                        onOverlayClick = { c ->
+                            showBriefMessage("$friendName：${c.courseName}" + c.location.takeIf { it.isNotBlank() }?.let { " · $it" }.orEmpty())
+                        },
                         onSlotClick = { item ->
                             val course = item as? CourseItem ?: return@ScheduleGrid
                             val customEntity = customCourses.find { it.toCourseItem().courseCode == course.courseCode }
@@ -1048,6 +1092,27 @@ private fun ScheduleTabContent(
             onRequestTextbooks = onRequestTextbooks,
             onNavigate = onNavigate,
         )
+    }
+}
+
+/** 叠着好友课表时网格上方那一条：说清怎么读，随手能关。 */
+@Composable
+private fun FriendOverlayBar(name: String, otherTerm: Boolean, onClear: () -> Unit) {
+    Surface(
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 2.dp),
+        shape = RoundedCornerShape(8.dp),
+        color = MiuixTheme.colorScheme.secondaryContainer,
+    ) {
+        Row(Modifier.padding(start = 12.dp, end = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                if (otherTerm) "$name 的课表不是这学期的"
+                else "叠加 $name：灰底他有课，虚线框都有课",
+                modifier = Modifier.weight(1f).padding(vertical = 6.dp),
+                style = MiuixTheme.textStyles.footnote1,
+                color = MiuixTheme.colorScheme.onSecondaryContainer,
+            )
+            TextButton(text = "关闭", onClick = onClear)
+        }
     }
 }
 

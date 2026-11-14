@@ -67,16 +67,12 @@ fun Modifier.appCardShadow(
     shape: Shape = RoundedCornerShape(16.dp),
     strong: Boolean = false,
 ): Modifier {
-    val isDark = LocalIsDarkTheme.current
+    // 深色下不画：深底上的主色投影成了一圈彩色外发光（#419），层级靠更亮的卡面表现
+    if (LocalIsDarkTheme.current) return this
     val tint = top.yukonga.miuix.kmp.theme.MiuixTheme.colorScheme.primary
     val radiusDp = if (strong) 16.dp else 10.dp
     val offsetYDp = if (strong) 6.dp else 3.dp
-    val alpha = when {
-        isDark && strong -> 0.28f
-        isDark -> 0.20f
-        strong -> 0.10f
-        else -> 0.06f
-    }
+    val alpha = if (strong) 0.10f else 0.06f
     return this.dropShadow(shape) {
         // ShadowScope 继承自 Density：radius/offset 要的是像素 Float，不是 Dp，这里手动转一下。
         this.radius = radiusDp.toPx()

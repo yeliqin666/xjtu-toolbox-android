@@ -90,7 +90,7 @@ fun VenueOrdersContent(
 
         error != null && orders.isEmpty() -> FullPageState(Modifier.fillMaxSize().padding(top = topPadding)) { ErrorState(message = error, onRetry = onRetry, modifier = Modifier.fillMaxSize()) }
 
-        orders.isEmpty() -> FullPageState(Modifier.fillMaxSize().padding(top = topPadding)) { EmptyState(title = "还没订过场馆", subtitle = "预约场馆后，订单会显示在这里", modifier = Modifier.fillMaxSize()) }
+        orders.isEmpty() -> FullPageState(Modifier.fillMaxSize().padding(top = topPadding)) { EmptyState(title = "还没订过场馆", modifier = Modifier.fillMaxSize()) }
 
         else -> {
             // 宽屏订单卡分两三列（见 AdaptiveCardGrid）

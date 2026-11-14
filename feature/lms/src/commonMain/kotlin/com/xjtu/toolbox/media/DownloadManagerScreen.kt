@@ -287,7 +287,6 @@ fun DownloadManagerScreen(
             if (allTasks.isEmpty() && fileDownloads.isEmpty()) {
                 EmptyState(
                     title = "还没下载过东西",
-                    subtitle = "思源课件和课堂回放会统一显示在这里",
                     icon = Icons.Outlined.CloudOff,
                     modifier = Modifier.align(Alignment.Center),
                 )

@@ -8,24 +8,22 @@ import com.xjtu.toolbox.ui.glass.tabContentBottomPadding
 import com.xjtu.toolbox.platform.BackHandler
 import com.xjtu.toolbox.platform.CodeMatrix
 import com.xjtu.toolbox.platform.qrCodeModules
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.LinearOutSlowInEasing
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
-import androidx.compose.animation.expandVertically
-import androidx.compose.animation.fadeIn
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -49,14 +47,21 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.drawText
+import androidx.compose.ui.text.rememberTextMeasurer
+import androidx.compose.ui.unit.Density
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -120,6 +125,8 @@ fun MatchScreen(
     var theirCode by remember { mutableStateOf("") }
     var result by remember { mutableStateOf<MatchProfile.Result?>(null) }
     var theirName by remember { mutableStateOf("") }
+    var theirTimetable by remember { mutableStateOf<MatchProfile.Profile?>(null) }
+    var savingFriend by remember { mutableStateOf(false) }
     var decodeError by remember { mutableStateOf<String?>(null) }
 
     // 全部读本地缓存，这个功能不为自己发任何请求，也不触发登录。
@@ -153,17 +160,18 @@ fun MatchScreen(
         val theirs = MatchProfile.decode(compact)
         when {
             theirs == null -> {
-                decodeError = "这段码读不出来。确认是对方在这个页面里生成的，而且他的版本不比你旧。"
+                decodeError = "读不出这段码。确认是对方在此页生成的，且版本不旧于你"
                 result = null
             }
             // 自己跟自己算必然是满分，与其展示一个假的 100%，不如说穿。
             compact == myCode -> {
-                decodeError = "这是你自己的码。跟自己当然处处合拍，扫对方那张。"
+                decodeError = "这是你自己的码"
                 result = null
             }
             else -> {
                 decodeError = null
                 theirName = theirs.nickname.ifBlank { "对方" }
+                theirTimetable = theirs.takeIf { it.timetable.isNotEmpty() }
                 result = MatchProfile.compare(myProfile, theirs)
             }
         }
@@ -222,6 +230,8 @@ fun MatchScreen(
                             ResultCard(
                                 theirName = theirName,
                                 result = r,
+                                hasTimetable = theirTimetable != null,
+                                onSaveFriend = { savingFriend = true },
                                 onCopy = {
                                     clipboard.setText(
                                         AnnotatedString(MatchProfile.summaryText(theirName, r))
@@ -233,6 +243,13 @@ fun MatchScreen(
                     // 宽屏两栏：左边交换码（我的码、对方的码），右边是匹配结果。以前整页限宽 720 居中，
                     // 结果卡要往下滚过两张码才看得到，平板横屏左右各空一大块。
                     val wide = com.xjtu.toolbox.ui.isWideLayout()
+                    val listState = com.xjtu.toolbox.ui.glass.rememberReportedLazyListState(scrollBehavior)
+                    // 窄屏结果排在两张码下面：算出来就滚过去，不然点完「算一算」屏幕上什么都没变
+                    LaunchedEffect(result) {
+                        if (!wide && result != null) {
+                            listState.animateScrollToItem((if (loadError != null) 1 else 0) + (if (!local.hasAnything) 1 else 0) + 2)
+                        }
+                    }
                     Row(
                         Modifier
                             .fillMaxSize()
@@ -245,7 +262,7 @@ fun MatchScreen(
                             .then(if (wide) Modifier.width(440.dp) else Modifier.weight(1f))
                             .fillMaxHeight()
                             .overScrollVertical(),
-                        state = com.xjtu.toolbox.ui.glass.rememberReportedLazyListState(scrollBehavior),
+                        state = listState,
                         contentPadding = tabContentPadding(listPadding),
                         verticalArrangement = Arrangement.spacedBy(12.dp),
                     ) {
@@ -295,6 +312,7 @@ fun MatchScreen(
                         if (!wide && result != null) {
                             item { resultItem() }
                         }
+                        item { FriendListCard(termNames = local.termNames) }
                     }
                     if (wide) {
                         LazyColumn(
@@ -306,9 +324,9 @@ fun MatchScreen(
                                 item { resultItem() }
                             } else {
                                 item {
-                                    SectionCard("匹配结果会出现在这里") {
+                                    SectionCard("等对方的码") {
                                         Text(
-                                            "互扫或粘贴文字码，点「算一算」看课表重合、共同老师和考试。",
+                                            "扫码或粘贴后点「算一算」",
                                             style = MiuixTheme.textStyles.footnote1,
                                             color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                                         )
@@ -333,6 +351,17 @@ fun MatchScreen(
                         onDietInput = { dietInput = it },
                         onTermPicked = { code -> pickedTerm = code.takeIf { it != local.currentTerm } },
                         onDismiss = { showShareSettings = false },
+                    )
+                }
+                theirTimetable?.takeIf { savingFriend }?.let { theirs ->
+                    SaveFriendDialog(
+                        initialName = theirName.takeUnless { it == "对方" }.orEmpty(),
+                        onSave = { name ->
+                            FriendTimetables.save(name, theirs.timetableTerm, theirs.timetable)
+                            savingFriend = false
+                            com.xjtu.toolbox.platform.showBriefMessage("已存，可在日程「更多 › 好友课表」中叠加")
+                        },
+                        onDismiss = { savingFriend = false },
                     )
                 }
             }
@@ -386,18 +415,11 @@ private fun MyCodeCard(
                 QrState.Failed("没能生成分享码。退出去重进一次试试。")
 
             code.length > MatchProfile.CODE_MAX_SCANNABLE ->
-                QrState.Failed(
-                    "开的项太多，${code.length} 字的码密到扫不出来了" +
-                        "（扫得动的上限约 ${MatchProfile.CODE_MAX_SCANNABLE} 字）。" +
-                        "点「挑选」关掉几项，或者把下面的文字直接发给对方。"
-                )
+                QrState.Failed("码太长（${code.length} 字），扫不出来。少开几项，或复制文字发给对方")
 
             else -> withContext(Dispatchers.Default) { qrCodeModules(code) }
                 ?.let { QrState.Ready(it) }
-                ?: QrState.Failed(
-                    "这段 ${code.length} 字的码画不成二维码。点「挑选」关掉几项再试，" +
-                        "或者把下面的文字发给对方。"
-                )
+                ?: QrState.Failed("生成二维码失败。少开几项再试，或复制文字发给对方")
         }
     }
 
@@ -410,20 +432,21 @@ private fun MyCodeCard(
             }
 
             is QrState.Ready -> {
-                Box(
-                    Modifier
-                        .size(232.dp)
-                        .clip(RoundedCornerShape(12.dp))
-                        // 二维码得是深色印在浅色上才扫得出，这一块不跟随深色主题。
-                        .background(Color.White)
-                        .padding(10.dp),
-                    Alignment.Center,
-                ) {
-                    CodeMatrixView(
-                        matrix = s.matrix,
-                        quietZoneModules = 1,
-                        modifier = Modifier.fillMaxSize(),
-                    )
+                Box(Modifier.fillMaxWidth(), Alignment.Center) {
+                    Box(
+                        Modifier
+                            .size(232.dp)
+                            .clip(RoundedCornerShape(12.dp))
+                            // 二维码得是深色印在浅色上才扫得出，这一块不跟随深色主题。
+                            .background(Color.White)
+                            .padding(10.dp),
+                    ) {
+                        CodeMatrixView(
+                            matrix = s.matrix,
+                            quietZoneModules = 1,
+                            modifier = Modifier.fillMaxSize(),
+                        )
+                    }
                 }
                 Spacer(Modifier.height(10.dp))
                 Text(
@@ -497,17 +520,21 @@ private fun TheirCodeCard(
     onCompute: () -> Unit,
 ) {
     SectionCard("对方的码") {
-        if (onScan != null) {
-            TextButton(
-                text = "扫一扫",
-                onClick = onScan,
-                modifier = Modifier.fillMaxWidth(),
-                colors = ButtonDefaults.textButtonColorsPrimary(),
-            )
-            Spacer(Modifier.height(8.dp))
-        }
-        if (onPickImage != null) {
-            TextButton(text = "从相册选图", onClick = onPickImage, modifier = Modifier.fillMaxWidth())
+        // 两种取码并排：都是「拿到对方的码」，竖着叠三颗整宽按钮看不出主次
+        if (onScan != null || onPickImage != null) {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                if (onScan != null) {
+                    TextButton(
+                        text = "扫一扫",
+                        onClick = onScan,
+                        modifier = Modifier.weight(1f),
+                        colors = ButtonDefaults.textButtonColorsPrimary(),
+                    )
+                }
+                if (onPickImage != null) {
+                    TextButton(text = "从相册选图", onClick = onPickImage, modifier = Modifier.weight(1f))
+                }
+            }
             Spacer(Modifier.height(14.dp))
         }
         if (onScan == null && onPickImage == null) {
@@ -586,7 +613,7 @@ private fun ShareSettingsDialog(
     OverlayDialog(
         show = true,
         title = "分享哪些",
-        summary = "都在你手机上算，不上传。关掉的项不会写进码里，对方看不到。",
+        summary = "本机计算，不上传；关掉的项不进码",
         onDismissRequest = onDismiss,
     ) {
         Column {
@@ -637,6 +664,11 @@ private fun ShareSettingsDialog(
                     if (hasTeachers) "只有姓名" else "课表里没写老师",
                     dims.teachers, hasTeachers,
                 ) { onDims(dims.copy(teachers = it)) }
+                DimRow(
+                    "完整课表",
+                    if (hasSchedule) "含教室，对方可存为好友课表；码外传会暴露上课位置" else noSchedule,
+                    dims.timetable, hasSchedule,
+                ) { onDims(dims.copy(timetable = it)) }
                 DimRow(
                     "以前的课",
                     if (local.pastCourseCodes.isEmpty()) "缓存里只有这一个学期"
@@ -745,6 +777,9 @@ private fun DimRow(
 private fun ResultCard(
     theirName: String,
     result: MatchProfile.Result,
+    /** 对方码里带了完整课表，可以存成好友课表。 */
+    hasTimetable: Boolean,
+    onSaveFriend: () -> Unit,
     onCopy: () -> Unit,
 ) {
     Card(
@@ -758,7 +793,7 @@ private fun ResultCard(
                 Spacer(Modifier.height(8.dp))
                 Text(
                     if (result.commonDims == 0) {
-                        "没有双方都分享的项。可能有一方还没打开过日程页，打开后多勾几项再生成一次码。"
+                        "没有双方都分享的项，多勾几项再生成码"
                     } else {
                         "课程、老师、考试和时间表都没有重合。"
                     },
@@ -774,6 +809,8 @@ private fun ResultCard(
                     Spacer(Modifier.height(6.dp))
                     Text(it, style = MiuixTheme.textStyles.footnote1, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
                 }
+                Spacer(Modifier.height(12.dp))
+                FriendTimetableAction(hasTimetable, onSaveFriend)
                 return@Column
             }
 
@@ -785,7 +822,7 @@ private fun ResultCard(
                 Text("和 $theirName 的交集", style = MiuixTheme.textStyles.title3, fontWeight = FontWeight.Bold)
                 Spacer(Modifier.height(4.dp))
                 Text(
-                    "谁都没分享课表，分数算不出来。不过还是翻到了这些：",
+                    "双方都没分享课表，无法打分",
                     style = MiuixTheme.textStyles.footnote1,
                     color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                 )
@@ -821,7 +858,7 @@ private fun ResultCard(
                 Text("翻到的交集", style = MiuixTheme.textStyles.body2, fontWeight = FontWeight.Bold)
                 Spacer(Modifier.height(2.dp))
                 Text(
-                    "这些不算分。有就是有，没有也不说明你俩不合。",
+                    "不计入分数",
                     style = MiuixTheme.textStyles.footnote2,
                     color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                 )
@@ -839,7 +876,7 @@ private fun ResultCard(
                 Spacer(Modifier.height(10.dp))
                 if (result.freeBlocks.isEmpty()) {
                     Text(
-                        "工作日没有连着两节都空的时候，只能挤课间，或者约周末。",
+                        "工作日没有连续两节的共同空闲",
                         style = MiuixTheme.textStyles.footnote1,
                         color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                     )
@@ -857,15 +894,94 @@ private fun ResultCard(
                 Text(
                     // 说清这个数是怎么来的。只对双方都开的项算，
                     // 否则"对方注重隐私"会被读成"你俩不合"。
-                    "只看这 ${result.facets.size} 项，共同空闲的分量最重。" +
-                        "空闲只算周一到周五——周末谁都空，算进去分不出高低。",
+                    "共同空闲权重最高，只算工作日",
                     style = MiuixTheme.textStyles.footnote2,
                     color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                 )
             }
 
             Spacer(Modifier.height(12.dp))
+            FriendTimetableAction(hasTimetable, onSaveFriend)
             TextButton(text = "复制结果", onClick = onCopy, modifier = Modifier.fillMaxWidth())
+        }
+    }
+}
+
+/** 结果卡底部：对方带了完整课表就能存，没带就说清怎么让他带上。 */
+@Composable
+private fun FriendTimetableAction(hasTimetable: Boolean, onSave: () -> Unit) {
+    if (hasTimetable) {
+        TextButton(
+            text = "存为好友课表",
+            onClick = onSave,
+            modifier = Modifier.fillMaxWidth(),
+            colors = ButtonDefaults.textButtonColorsPrimary(),
+        )
+        Spacer(Modifier.height(8.dp))
+    } else {
+        Text(
+            "对方打开「完整课表」后，可存为好友课表",
+            style = MiuixTheme.textStyles.footnote2,
+            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+        )
+        Spacer(Modifier.height(8.dp))
+    }
+}
+
+@Composable
+private fun SaveFriendDialog(initialName: String, onSave: (String) -> Unit, onDismiss: () -> Unit) {
+    var name by remember { mutableStateOf(initialName) }
+    BackHandler(onBack = onDismiss)
+    OverlayDialog(
+        show = true,
+        title = "存为好友课表",
+        summary = "仅存本机，同名覆盖",
+        onDismissRequest = onDismiss,
+    ) {
+        Column {
+            TextField(
+                value = name,
+                onValueChange = { name = it.take(12) },
+                label = "备注名",
+                modifier = Modifier.fillMaxWidth(),
+                singleLine = true,
+            )
+            Spacer(Modifier.height(16.dp))
+            TextButton(
+                text = "存下",
+                onClick = { onSave(name.trim()) },
+                enabled = name.isNotBlank(),
+                modifier = Modifier.fillMaxWidth(),
+                colors = ButtonDefaults.textButtonColorsPrimary(),
+            )
+        }
+    }
+}
+
+/** 已存的好友课表。没有就不占位置。 */
+@Composable
+private fun FriendListCard(termNames: Map<String, String>) {
+    val friends = remember(FriendTimetables.revision) { FriendTimetables.all() }
+    if (friends.isEmpty()) return
+    SectionCard("好友课表") {
+        Text(
+            "在日程「更多 › 好友课表」中叠加查看",
+            style = MiuixTheme.textStyles.footnote1,
+            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+        )
+        Spacer(Modifier.height(6.dp))
+        friends.forEach { f ->
+            Row(Modifier.fillMaxWidth().padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text(f.name, style = MiuixTheme.textStyles.body2, fontWeight = FontWeight.Medium)
+                    Text(
+                        "${termNames[f.term] ?: f.term.ifBlank { "学期未知" }} · ${f.courses.size} 节课",
+                        style = MiuixTheme.textStyles.footnote2,
+                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                    )
+                }
+                TextButton(text = "删除", onClick = { FriendTimetables.delete(f.id) })
+            }
         }
     }
 }
@@ -873,17 +989,14 @@ private fun ResultCard(
 /** 一条交集。标题一行，具体名字排成胶囊。 */
 @Composable
 private fun DiscoveryRow(d: MatchProfile.Discovery, index: Int) {
-    var appeared by remember(d.title) { mutableStateOf(false) }
-    LaunchedEffect(d.title) { appeared = true }
-    AnimatedVisibility(visible = appeared, enter = fadeIn(tween(delayMillis = 60 * index)) + expandVertically()) {
-        Column(Modifier.fillMaxWidth().padding(vertical = 5.dp)) {
-            Text("${d.emoji}  ${d.title}", style = MiuixTheme.textStyles.body2, fontWeight = FontWeight.Medium)
-            if (d.items.isNotEmpty()) {
-                Spacer(Modifier.height(4.dp))
-                FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    d.items.take(8).forEach { TagChip(it) }
-                    if (d.items.size > 8) TagChip("还有 ${d.items.size - 8} 项")
-                }
+    val entrance = rememberStaggeredEntrance(d.title, index, durationMillis = 360)
+    Column(Modifier.fillMaxWidth().padding(vertical = 5.dp).graphicsLayer { alpha = entrance.value }) {
+        Text("${d.emoji}  ${d.title}", style = MiuixTheme.textStyles.body2, fontWeight = FontWeight.Medium)
+        if (d.items.isNotEmpty()) {
+            Spacer(Modifier.height(4.dp))
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                d.items.take(8).forEach { TagChip(it) }
+                if (d.items.size > 8) TagChip("还有 ${d.items.size - 8} 项")
             }
         }
     }
@@ -894,16 +1007,16 @@ private fun DiscoveryRow(d: MatchProfile.Discovery, index: Int) {
 private fun ScoreRing(score: Int, verdict: String, theirName: String) {
     val sweep by animateFloatAsState(
         targetValue = score / 100f,
-        animationSpec = tween(durationMillis = 900, easing = LinearOutSlowInEasing),
+        animationSpec = tween(durationMillis = 700, easing = LinearOutSlowInEasing),
         label = "matchSweep",
     )
     val shown by animateFloatAsState(
         targetValue = score.toFloat(),
-        animationSpec = tween(durationMillis = 900, easing = LinearOutSlowInEasing),
+        animationSpec = tween(durationMillis = 700, easing = LinearOutSlowInEasing),
         label = "matchNumber",
     )
     val track = MiuixTheme.colorScheme.onSurface.copy(alpha = 0.08f)
-    val ink = scoreColor(score)
+    val ink = MiuixTheme.colorScheme.primary
 
     Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
         Box(Modifier.size(148.dp), Alignment.Center) {
@@ -935,7 +1048,6 @@ private fun ScoreRing(score: Int, verdict: String, theirName: String) {
                     "${shown.toInt()}",
                     style = MiuixTheme.textStyles.headline1,
                     fontWeight = FontWeight.Bold,
-                    color = ink,
                 )
                 Text(
                     "分",
@@ -954,75 +1066,136 @@ private fun ScoreRing(score: Int, verdict: String, theirName: String) {
     }
 }
 
+/** 同一栋楼：另起一个色相（与空闲教室「使用中」同系的暖橙，和主色蓝在色盲下也分得开，深浅两色模式都过了校验）。 */
+private val SAME_BUILDING_COLOR = Color(0xFFC8731F)
+
+/** 网格四档的颜色：深浅是同一主色的三档（都空 > 一个人空 > 都有课），同一栋楼单独一个色相。 */
+private class GridColors(val both: Color, val one: Color, val same: Color, val none: Color) {
+    fun of(cell: Char) = when (cell) {
+        MatchProfile.Cell.BOTH_FREE -> both
+        MatchProfile.Cell.ONE_FREE -> one
+        MatchProfile.Cell.SAME_BUILDING -> same
+        else -> none
+    }
+}
+
+@Composable
+private fun gridColors(): GridColors {
+    val primary = MiuixTheme.colorScheme.primary
+    return GridColors(primary, primary.copy(alpha = 0.22f), SAME_BUILDING_COLOR, MiuixTheme.colorScheme.onSurface.copy(alpha = 0.06f))
+}
+
+private fun cellMeaning(cell: Char) = when (cell) {
+    MatchProfile.Cell.BOTH_FREE -> "你俩都空"
+    MatchProfile.Cell.ONE_FREE -> "只有一个人空"
+    MatchProfile.Cell.SAME_BUILDING -> "都有课，在同一栋楼"
+    else -> "都有课"
+}
+
+/** 网格几何（px）：上午 / 下午 / 晚上之间、工作日与周末之间各多留一道缝，点击和绘制共用。 */
+private class GridGeometry(width: Float, density: Density) {
+    val label = with(density) { 18.dp.toPx() }
+    val header = with(density) { 18.dp.toPx() }
+    val gap = with(density) { 3.dp.toPx() }
+    val split = with(density) { 5.dp.toPx() }
+    val corner = with(density) { 3.dp.toPx() }
+    val cellW = (width - label - gap * (MatchProfile.DAYS - 1) - split) / MatchProfile.DAYS
+    val cellH = cellW / 1.6f
+    val height = header + cellH * MatchProfile.SECTIONS + gap * (MatchProfile.SECTIONS - 1) + split * 2
+
+    fun x(day: Int) = label + day * (cellW + gap) + if (day >= MatchProfile.WEEKDAYS) split else 0f
+
+    /** [section] 从 0 起；第 5、9 节前各是一段新的（下午、晚上）。 */
+    fun y(section: Int) = header + section * (cellH + gap) +
+        split * ((if (section >= 4) 1 else 0) + (if (section >= 8) 1 else 0))
+
+    fun hit(at: Offset): Pair<Int, Int>? {
+        val day = (0 until MatchProfile.DAYS).firstOrNull { at.x >= x(it) - gap && at.x < x(it) + cellW + gap } ?: return null
+        val section = (0 until MatchProfile.SECTIONS).firstOrNull { at.y >= y(it) - gap && at.y < y(it) + cellH + gap } ?: return null
+        return day to section
+    }
+}
+
 /**
- * 7 列 × 11 行的叠加网格。
- *
- * 四档：都空、一个人空、同一栋楼、都有课。"同一栋楼"单独一档，是因为它是这张图里
- * 唯一一件意料之外的事——两个人同一时刻待在同一栋楼，值得比"都有课"更显眼。
+ * 7 列 × 11 节的叠加网格，一张 Canvas 画完。点一格，下面说清是哪天哪节、什么情况——
+ * 颜色不是唯一的说法，色弱或看不清那几档时照样读得出。
  */
 @Composable
 private fun OverlapGrid(grid: String) {
-    val both = MiuixTheme.colorScheme.primary
-    val one = MiuixTheme.colorScheme.primary.copy(alpha = 0.18f)
-    val same = MiuixTheme.colorScheme.onSurface.copy(alpha = 0.32f)
-    val none = MiuixTheme.colorScheme.onSurface.copy(alpha = 0.06f)
+    val colors = gridColors()
+    val labelStyle = MiuixTheme.textStyles.footnote2.copy(color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
+    val ring = MiuixTheme.colorScheme.onSurface
+    val measurer = rememberTextMeasurer()
+    val density = LocalDensity.current
+    var picked by remember(grid) { mutableStateOf<Pair<Int, Int>?>(null) }
 
     Column(Modifier.fillMaxWidth()) {
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(3.dp)) {
-            Spacer(Modifier.width(18.dp))
-            MatchProfile.DAY_NAMES.forEach { day ->
-                Text(
-                    day.removePrefix("周"),
-                    modifier = Modifier.weight(1f),
-                    style = MiuixTheme.textStyles.footnote2,
-                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                    textAlign = TextAlign.Center,
-                )
-            }
-        }
-        Spacer(Modifier.height(3.dp))
-        for (section in 1..MatchProfile.SECTIONS) {
-            Row(
-                Modifier.fillMaxWidth().padding(bottom = 3.dp),
-                horizontalArrangement = Arrangement.spacedBy(3.dp),
-                verticalAlignment = Alignment.CenterVertically,
+        BoxWithConstraints(Modifier.fillMaxWidth()) {
+            val geometry = remember(constraints.maxWidth, density) { GridGeometry(constraints.maxWidth.toFloat(), density) }
+            Canvas(
+                Modifier
+                    .fillMaxWidth()
+                    .height(with(density) { geometry.height.toDp() })
+                    .pointerInput(geometry) {
+                        detectTapGestures { at ->
+                            val hit = geometry.hit(at)
+                            picked = if (hit == picked) null else hit
+                        }
+                    },
             ) {
-                Text(
-                    "$section",
-                    modifier = Modifier.width(18.dp),
-                    style = MiuixTheme.textStyles.footnote2,
-                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                    textAlign = TextAlign.Center,
-                )
-                for (day in 0 until MatchProfile.DAYS) {
-                    val cell = grid[day * MatchProfile.SECTIONS + (section - 1)]
-                    Box(
-                        Modifier
-                            .weight(1f)
-                            .aspectRatio(1.6f)
-                            .clip(RoundedCornerShape(3.dp))
-                            .background(
-                                when (cell) {
-                                    MatchProfile.Cell.BOTH_FREE -> both
-                                    MatchProfile.Cell.ONE_FREE -> one
-                                    MatchProfile.Cell.SAME_BUILDING -> same
-                                    else -> none
-                                }
-                            )
+                MatchProfile.DAY_NAMES.forEachIndexed { day, name ->
+                    val text = measurer.measure(name.removePrefix("周"), labelStyle)
+                    drawText(text, topLeft = Offset(geometry.x(day) + (geometry.cellW - text.size.width) / 2, 0f))
+                }
+                for (section in 0 until MatchProfile.SECTIONS) {
+                    val y = geometry.y(section)
+                    val text = measurer.measure("${section + 1}", labelStyle)
+                    drawText(
+                        text,
+                        topLeft = Offset((geometry.label - text.size.width) / 2, y + (geometry.cellH - text.size.height) / 2),
+                    )
+                    for (day in 0 until MatchProfile.DAYS) {
+                        drawRoundRect(
+                            color = colors.of(grid[day * MatchProfile.SECTIONS + section]),
+                            topLeft = Offset(geometry.x(day), y),
+                            size = Size(geometry.cellW, geometry.cellH),
+                            cornerRadius = CornerRadius(geometry.corner),
+                        )
+                    }
+                }
+                picked?.let { (day, section) ->
+                    val stroke = 2.dp.toPx()
+                    drawRoundRect(
+                        color = ring,
+                        topLeft = Offset(geometry.x(day) - stroke / 2, geometry.y(section) - stroke / 2),
+                        size = Size(geometry.cellW + stroke, geometry.cellH + stroke),
+                        cornerRadius = CornerRadius(geometry.corner + stroke / 2),
+                        style = Stroke(width = stroke),
                     )
                 }
             }
         }
+        Spacer(Modifier.height(6.dp))
+        Text(
+            picked?.let { (day, section) ->
+                "${MatchProfile.DAY_NAMES[day]} 第 ${section + 1} 节 · " +
+                    "${XjtuTime.getTimeRangeStr(section + 1, section + 1)} · " +
+                    cellMeaning(grid[day * MatchProfile.SECTIONS + section])
+            } ?: "点一格看是哪天哪节",
+            style = MiuixTheme.textStyles.footnote1,
+            color = if (picked != null) MiuixTheme.colorScheme.onSurface else MiuixTheme.colorScheme.onSurfaceVariantSummary,
+        )
     }
 }
 
 @Composable
 private fun GridLegend(hasEncounters: Boolean) {
+    val colors = gridColors()
     FlowRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-        LegendDot(MiuixTheme.colorScheme.primary, "都空")
-        LegendDot(MiuixTheme.colorScheme.primary.copy(alpha = 0.18f), "一个人空")
-        if (hasEncounters) LegendDot(MiuixTheme.colorScheme.onSurface.copy(alpha = 0.32f), "同一栋楼")
-        LegendDot(MiuixTheme.colorScheme.onSurface.copy(alpha = 0.06f), "都有课")
+        LegendDot(colors.both, "都空")
+        LegendDot(colors.one, "一个人空")
+        if (hasEncounters) LegendDot(colors.same, "同一栋楼")
+        LegendDot(colors.none, "都有课")
     }
 }
 
@@ -1073,53 +1246,45 @@ private fun FreeBlockRow(block: MatchProfile.FreeBlock) {
     }
 }
 
-/** 分项条。逐条错开进场，让"一项项算出来"这件事看得见。 */
+/**
+ * 进场：逐条错开淡入，只动透明度，不撑高度——撑高度会让结果卡一路往下顶，列表跟着跳。
+ * 进度在绘制阶段读，动画期间不重组。
+ */
+@Composable
+private fun rememberStaggeredEntrance(key: Any, index: Int, durationMillis: Int = 600): androidx.compose.runtime.State<Float> {
+    val progress = remember(key) { androidx.compose.animation.core.Animatable(0f) }
+    LaunchedEffect(key) {
+        progress.animateTo(1f, tween(durationMillis, delayMillis = 70 * index, easing = LinearOutSlowInEasing))
+    }
+    return progress.asState()
+}
+
+/** 分项条：条长就是分数，一律主色；百分比用正文色，颜色不重复表达同一件事。 */
 @Composable
 private fun FacetBar(facet: MatchProfile.Facet, index: Int) {
-    var appeared by remember(facet.label) { mutableStateOf(false) }
-    LaunchedEffect(facet.label, facet.score) { appeared = true }
-    val fraction by animateFloatAsState(
-        targetValue = if (appeared) facet.score / 100f else 0f,
-        animationSpec = tween(durationMillis = 700, delayMillis = 120 * index, easing = LinearOutSlowInEasing),
-        label = "facet_${facet.label}",
-    )
-    val ink = scoreColor(facet.score)
+    val entrance = rememberStaggeredEntrance(facet.label to facet.score, index)
+    val bar = MiuixTheme.colorScheme.primary
+    val track = MiuixTheme.colorScheme.onSurface.copy(alpha = 0.08f)
 
-    AnimatedVisibility(visible = appeared, enter = fadeIn() + expandVertically()) {
-        Column(Modifier.fillMaxWidth().padding(vertical = 5.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("${facet.emoji}  ${facet.label}", style = MiuixTheme.textStyles.body2)
-                Spacer(Modifier.weight(1f))
-                Text(
-                    "${facet.score}%",
-                    style = MiuixTheme.textStyles.body2,
-                    fontWeight = FontWeight.Bold,
-                    color = ink,
-                )
-            }
-            Spacer(Modifier.height(4.dp))
-            Box(
-                Modifier
-                    .fillMaxWidth()
-                    .height(6.dp)
-                    .clip(RoundedCornerShape(3.dp))
-                    .background(MiuixTheme.colorScheme.onSurface.copy(alpha = 0.08f))
-            ) {
-                Box(
-                    Modifier
-                        .fillMaxWidth(fraction)
-                        .height(6.dp)
-                        .clip(RoundedCornerShape(3.dp))
-                        .background(ink)
-                )
-            }
-            Spacer(Modifier.height(4.dp))
-            Text(
-                facet.detail,
-                style = MiuixTheme.textStyles.footnote2,
-                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-            )
+    Column(Modifier.fillMaxWidth().padding(vertical = 5.dp).graphicsLayer { alpha = entrance.value }) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("${facet.emoji}  ${facet.label}", style = MiuixTheme.textStyles.body2)
+            Spacer(Modifier.weight(1f))
+            Text("${facet.score}%", style = MiuixTheme.textStyles.body2, fontWeight = FontWeight.Bold)
         }
+        Spacer(Modifier.height(4.dp))
+        Canvas(Modifier.fillMaxWidth().height(6.dp)) {
+            val radius = CornerRadius(size.height / 2)
+            drawRoundRect(track, cornerRadius = radius)
+            val width = size.width * facet.score / 100f * entrance.value
+            if (width > 0f) drawRoundRect(bar, size = Size(width, size.height), cornerRadius = radius)
+        }
+        Spacer(Modifier.height(4.dp))
+        Text(
+            facet.detail,
+            style = MiuixTheme.textStyles.footnote2,
+            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+        )
     }
 }
 
@@ -1142,14 +1307,6 @@ private fun TagChip(label: String, accent: Boolean = false) {
             else MiuixTheme.colorScheme.onSecondaryContainer,
         )
     }
-}
-
-/** 低分不该跟高分一个颜色，但也不该用 error 红——那是"出错了"，不是"约不上"。 */
-@Composable
-private fun scoreColor(score: Int): Color = when {
-    score >= 70 -> MiuixTheme.colorScheme.primary
-    score >= 40 -> MiuixTheme.colorScheme.primaryVariant
-    else -> MiuixTheme.colorScheme.onSurfaceVariantSummary
 }
 
 @Composable

@@ -181,7 +181,7 @@ object HomeStatsRefresher {
                 com.xjtu.toolbox.community.DiscussionQuery(sort = com.xjtu.toolbox.community.DiscussionSort.CREATED)).getOrThrow()
             val posts = page.items.sortedByDescending { it.createdAt }.take(TILE_LINES)
             posts.firstOrNull()?.let { first -> HomeStat(first.title, "社区最新发布",
-                posts.map { HomeLine(it.title, "app:${AppRoute.CommunityPost(it.number).id}", listOfNotNull(it.author, "${it.comments} 回复").joinToString(" · ")) }) }
+                posts.map { HomeLine(it.title, "app:${AppRoute.CommunityPost(it.number).id}", listOfNotNull(it.author, "${it.comments} 回复").joinToString(" · "), badge = "${it.comments}") }) }
         },
         // 评教：一周一次。开没开评教窗口在一周内不会反复变。
         Source(AppRoute.Judge, 7 * DAY, LoginType.QMS) { _, site ->

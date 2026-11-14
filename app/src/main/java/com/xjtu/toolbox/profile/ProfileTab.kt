@@ -578,7 +578,7 @@ internal fun ProfileTab(
         loginState.prepareCredentialsForLogin(user, pwd)
 
         scope.launch {
-            loginStage = "认证中..."
+            loginStage = "认证中…"
             loginProgress = 0.1f
             try {
                 withContext(Dispatchers.IO) {
@@ -672,7 +672,7 @@ internal fun ProfileTab(
         ) {
             Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 TextButton(
-                    text = if (avatarSaving) "处理中..." else "从相册选择",
+                    text = if (avatarSaving) "处理中…" else "从相册选择",
                     onClick = {
                         if (!avatarSaving) {
                             avatarPicker.launch(

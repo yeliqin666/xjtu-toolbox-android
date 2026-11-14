@@ -133,7 +133,7 @@ fun SchoolCourseScreen(
     ) { padding ->
         val glassTop = padding.glassTop(glass)
         if (vm.isInitializing) {
-            LoadingState("正在加载课程查询...", Modifier.fillMaxSize().padding(padding.withoutTop(glass)).glassSource(glass).padding(top = glassTop))
+            LoadingState("正在加载课程查询…", Modifier.fillMaxSize().padding(padding.withoutTop(glass)).glassSource(glass).padding(top = glassTop))
             return@Scaffold
         }
 
@@ -470,7 +470,7 @@ fun SchoolCourseScreen(
                                 CircularProgressIndicator(size = 18.dp, strokeWidth = 2.dp)
                                 Spacer(Modifier.width(8.dp))
                             }
-                            Text(if (vm.isSearching) "搜索中..." else "搜索", color = MiuixTheme.colorScheme.onPrimary)
+                            Text(if (vm.isSearching) "搜索中…" else "搜索", color = MiuixTheme.colorScheme.onPrimary)
                         }
                     }
                 }
@@ -512,7 +512,7 @@ fun SchoolCourseScreen(
             // ── 搜索中/空状态 ──
             if (vm.isSearching && vm.result == null) {
                 fullLineItem(key = "loading") {
-                    LoadingState("正在查询...")
+                    LoadingState("正在查询…")
                 }
             }
 

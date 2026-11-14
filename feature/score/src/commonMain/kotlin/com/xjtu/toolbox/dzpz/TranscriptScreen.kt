@@ -86,7 +86,7 @@ fun TranscriptScreen(
         val glassTop = padding.glassTop(glass)
         when {
             vm.isLoading -> LoadingState(
-                message = "正在连接成绩单服务...",
+                message = "正在连接成绩单服务…",
                 modifier = Modifier.fillMaxSize().padding(padding.withoutTop(glass)).glassSource(glass).padding(top = glassTop)
             )
             vm.errorMessage != null -> ErrorState(

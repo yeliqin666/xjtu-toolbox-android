@@ -78,6 +78,7 @@ internal fun HomeTopBar(
     // 折叠判据放 derivedStateOf：滚动时每帧都在变，直接读会让整条顶栏跟着重组。
     val latestProgress by rememberUpdatedState(progress)
     val collapsed by remember { derivedStateOf { latestProgress() > 0.5f } }
+    // 首页圆钮常驻玻璃底（不像各页那样停在顶部时只剩图标）：搜索钮自带底，铃铛等也得一样；首页叠在壁纸上，有底更好认
     CouiHomeTopBarSurface(
         pageBackdrop = pageBackdrop,
         gradientColor = MiuixTheme.colorScheme.surface,

@@ -26,7 +26,12 @@ fun OriginContentOverlay(screenCornerPx: Float, windowColor: androidx.compose.ui
     // 换手放在帧开头（帧回调里，绘制之前）：导航库在绘制阶段报的结束只记了一笔，这里下一帧才切 ending，
     // 原卡「放出来」和叠加层「不画」在同一帧的绘制里同时生效，中间没有空帧。之后再盖两帧才撤
     androidx.compose.runtime.LaunchedEffect(transition) {
-        while (!transition.endRequested) androidx.compose.runtime.withFrameNanos { }
+        while (!transition.endRequested) {
+            androidx.compose.runtime.withFrameNanos { }
+            // 导航库不报转场结束，收尾动画每帧都会上报：手势没按着、却连着几帧没人报，就是没人会来收尾的残留，
+            // 不管起点在哪一层页面都在这里收掉，原件不会一直藏着
+            if (!transition.held && ++transition.framesSinceReport > STALE_FRAMES) break
+        }
         transition.ending = true
         androidx.compose.runtime.withFrameNanos { }
         androidx.compose.runtime.withFrameNanos { }
@@ -181,6 +186,9 @@ private fun nearButton(u: Float): Float {
     val t = (u / 0.12f).coerceIn(0f, 1f)
     return t * t * (3f - 2f * t)
 }
+
+/** 连着这么多帧没人上报进度就当残留：正常转场每帧都报，留几帧余量给卡顿。 */
+private const val STALE_FRAMES = 4
 
 private class ContentWindowShape(private val window: Size, private val radius: Float) : Shape {
     override fun createOutline(size: Size, layoutDirection: LayoutDirection, density: Density): Outline =

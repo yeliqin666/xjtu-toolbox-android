@@ -256,7 +256,7 @@ fun CampusCardScreen(
         )
         when {
             vm.isLoading && cardInfo == null && transactions.isEmpty() ->
-                LoadingState("正在加载校园卡数据...", Modifier.fillMaxSize().padding(padding))
+                LoadingState("正在加载校园卡数据…", Modifier.fillMaxSize().padding(padding))
             vm.errorMessage != null && transactions.isEmpty() && cardInfo == null ->
                 ErrorState(vm.errorMessage.orEmpty(), { vm.load() }, Modifier.fillMaxSize().padding(padding))
             else -> {
@@ -1053,8 +1053,7 @@ private fun AnalyticsTab(
         if (categorySpending.isEmpty() && monthlyStats.isEmpty() && mealTimeStats.isEmpty()) {
             item {
                 EmptyState(
-                    title = "暂无消费分析数据",
-                    subtitle = "所选时间段内暂无消费记录",
+                    title = "这段时间没有消费记录",
                     modifier = Modifier.fillParentMaxSize()
                 )
             }
@@ -1221,7 +1220,7 @@ private fun FoodBreakdownCard(breakdown: Map<String, Double>, mealCount: Int, fo
 
     // 一次扫过整圈的入场动画。进度在 drawBehind 里读，动画期间只重画这一个环。
     val sweep = com.xjtu.toolbox.ui.components.rememberRevealProgress(
-        breakdown, spec = tween(900, easing = androidx.compose.animation.core.FastOutSlowInEasing),
+        breakdown, spec = tween(600, easing = androidx.compose.animation.core.FastOutSlowInEasing),
     )
     val trackColor = MiuixTheme.colorScheme.onSurfaceVariantSummary.copy(alpha = 0.12f)
 

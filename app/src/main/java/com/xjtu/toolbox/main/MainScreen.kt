@@ -726,9 +726,9 @@ private fun RevealOverlay(
     LaunchedEffect(visible) {
         if (visible) {
             if (from != null) button?.lifted = { progress.value }
-            progress.animateTo(1f, tween(800, easing = com.xjtu.toolbox.nav.ButtonZoom.Easing))
+            progress.animateTo(1f, tween(480, easing = com.xjtu.toolbox.nav.ButtonZoom.Easing))
         } else if (shown) {
-            progress.animateTo(0f, tween(620, easing = com.xjtu.toolbox.nav.ButtonZoom.Easing))
+            progress.animateTo(0f, tween(400, easing = com.xjtu.toolbox.nav.ButtonZoom.Easing))
             // 同一帧：覆盖层撤走、圆钮回原位
             button?.lifted = null
             shown = false

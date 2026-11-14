@@ -684,8 +684,8 @@ private class MenuSub {
     }
 }
 
-private const val SUB_OPEN_MS = 420
-private const val SUB_CLOSE_MS = 340
+private const val SUB_OPEN_MS = 340
+private const val SUB_CLOSE_MS = 280
 private const val SUB_PARENT_SCALE = 0.95f
 
 /** 二级面板比触发行低多少，上一层的顶边从这里露出来。 */
@@ -695,10 +695,10 @@ private val MENU_RADIUS = 18.dp
 
 /** 铺了毛玻璃底时面板的不透明度：下面糊开的颜色要透得出来才看得出是玻璃，字仍清楚。 */
 private const val MENU_FROSTED_ALPHA = 0.62f
-private const val MENU_OPEN_MS = 440
-private const val MENU_CLOSE_MS = 340
-private const val ICON_OPEN_MS = 660
-private const val ICON_CLOSE_MS = 500
+private const val MENU_OPEN_MS = 360
+private const val MENU_CLOSE_MS = 280
+private const val ICON_OPEN_MS = 460
+private const val ICON_CLOSE_MS = 360
 
 // 按钮 → 菜单（入参是时间进度）：位置在前段走完，横向先于纵向，路径带弧线。
 // 尺寸是两段叠加：前段随位移撑开，后段提前柔和接入，轻轻越过目标再落稳。

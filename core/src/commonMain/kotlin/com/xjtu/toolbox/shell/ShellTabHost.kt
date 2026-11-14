@@ -254,7 +254,7 @@ private val TabSlideEasing = CubicBezierEasing(0.22f, 0.72f, 0.20f, 1f)
 private const val TAB_ZOOM_MS = 820
 
 /** 返回时当前页缩回按钮：比打开快，像收起而不是再演一遍。 */
-private const val TAB_CLOSE_MS = 420
+private const val TAB_CLOSE_MS = 360
 private const val UNDER_FADE_END = 0.3f
 
 /**

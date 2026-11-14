@@ -32,6 +32,7 @@ import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
@@ -1246,7 +1247,7 @@ internal fun HomeTileFaceBox(
                             }
                             if (lines.isNotEmpty()) {
                                 Spacer(Modifier.height(if (stat != null) 8.dp else 6.dp))
-                                TileLines(lines, ink, muted, onLine, compact = false, modifier = Modifier.weight(1f))
+                                TileLines(lines, ink, muted, onLine, compact = false, brief = true, modifier = Modifier.weight(1f))
                             }
                         }
                     }
@@ -1349,11 +1350,15 @@ private fun TileLines(
     muted: Color,
     onLine: ((String) -> Unit)?,
     compact: Boolean,
+    /** 窄卡（2×2）：有 [HomeLine.badge] 的只显示它，把宽度让给标题。 */
+    brief: Boolean = false,
     modifier: Modifier = Modifier,
 ) {
     val rowHeight = if (compact) 16.dp else 20.dp
     BoxWithConstraints(modifier.fillMaxWidth()) {
         val fit = (maxHeight / rowHeight).toInt()
+        // 说明不设上限时 Row 先量它，长作者名会把标题挤成省略号
+        val detailMax = maxWidth * 0.45f
         Column {
             lines.take(fit).forEach { line ->
                 val link = line.link
@@ -1387,9 +1392,18 @@ private fun TileLines(
                         overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.weight(1f),
                     )
-                    if (!compact && !line.detail.isNullOrBlank()) {
+                    val detail = if (brief) line.badge ?: line.detail else line.detail
+                    if (!compact && !detail.isNullOrBlank()) {
                         Spacer(Modifier.width(6.dp))
-                        Text(line.detail, fontSize = 10.sp, lineHeight = 13.sp, color = muted, maxLines = 1)
+                        Text(
+                            detail,
+                            fontSize = 10.sp,
+                            lineHeight = 13.sp,
+                            color = muted,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.widthIn(max = detailMax),
+                        )
                     }
                 }
             }

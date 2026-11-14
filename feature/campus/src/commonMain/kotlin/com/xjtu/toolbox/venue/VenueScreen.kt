@@ -108,6 +108,8 @@ fun VenueScreen(
         onOpenBrowser(source.browserLoginUrl, source.paymentUrl(order.orderId))
 
     val scrollBehavior = rememberCouiTopAppBarScrollBehavior()
+    // 和顶栏同级：选时段时场馆列表离开组合，返回后列表位置要和仍折叠着的顶栏对得上
+    val venueGridState = androidx.compose.foundation.lazy.staggeredgrid.rememberLazyStaggeredGridState()
     // 玻璃顶栏（经典风格下为 null，一切照旧），用法见 ui/glass/GlassTopBar.kt
     val glass = rememberPageGlass()
     // 「场馆预订」「我的订单」两个顶层标签共用的选中回调：标签行点击、
@@ -290,6 +292,7 @@ fun VenueScreen(
                                 onVenueSelected = vm::openVenue,
                                 favoriteIds = favoriteIds,
                                 onToggleFavorite = vm::toggleFavorite,
+                                gridState = venueGridState,
                                 modifier = Modifier.fillMaxSize(),
                                 scrollBehavior = scrollBehavior,
                                 topPadding = glassTop,
@@ -673,6 +676,7 @@ private fun VenueListContent(
     onVenueSelected: (Venue) -> Unit,
     favoriteIds: Set<Int>,
     onToggleFavorite: (Venue) -> Unit,
+    gridState: androidx.compose.foundation.lazy.staggeredgrid.LazyStaggeredGridState,
     modifier: Modifier = Modifier,
     scrollBehavior: CouiTopBarScrollBehavior,
     /** 玻璃顶栏（含标签行）的高度，放进列表顶部留白。 */
@@ -695,6 +699,7 @@ private fun VenueListContent(
         sortedVenues.isEmpty() -> FullPageState(Modifier.fillMaxSize().padding(top = topPadding)) { EmptyState(title = "暂无可预订场馆", modifier = Modifier.fillMaxSize()) }
         // 宽屏场馆卡分两三列（见 AdaptiveCardGrid）
         else -> AdaptiveCardGrid(
+            state = gridState,
             modifier = Modifier
                 .fillMaxSize(),
             contentPadding = com.xjtu.toolbox.ui.glass.tabContentPadding(PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp + topPadding, bottom = 8.dp)),
@@ -833,9 +838,9 @@ private fun SlotSelectionContent(
             modifier = Modifier.weight(1f).fillMaxWidth(),
         ) {
         when {
-            isLoading -> FullPageState(Modifier.fillMaxSize().padding(top = topPadding)) { LoadingState(message = "加载可用时段...", modifier = Modifier.fillMaxSize()) }
+            isLoading -> FullPageState(Modifier.fillMaxSize().padding(top = topPadding)) { LoadingState(message = "加载可用时段…", modifier = Modifier.fillMaxSize()) }
             error != null && availableSlots.isEmpty() -> FullPageState(Modifier.fillMaxSize().padding(top = topPadding)) { ErrorState(message = error, onRetry = onRetry, modifier = Modifier.fillMaxSize()) }
-            availableSlots.isEmpty() -> FullPageState(Modifier.fillMaxSize().padding(top = topPadding)) { EmptyState(title = "该日期暂无可预订时段", subtitle = "请尝试其他日期", modifier = Modifier.fillMaxSize()) }
+            availableSlots.isEmpty() -> FullPageState(Modifier.fillMaxSize().padding(top = topPadding)) { EmptyState(title = "该日期暂无可预订时段", subtitle = "换个日期看看", modifier = Modifier.fillMaxSize()) }
             else -> {
                 // 按时段分组（同一时段可能有多个场地）
                 val slotsByTime = remember(availableSlots) {

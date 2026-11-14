@@ -88,7 +88,16 @@ object ExpandOrigins {
          * 所以只记一笔（不是 State，不触发重画），由叠加层在下一帧开头统一切，原卡和叠加层同一帧换手。
          */
         internal var endRequested = false
+
+        /** 最近一次上报时手势正按着：按住不动时导航库不续报，不能当残留收掉。 */
+        internal var held = false
+
+        /** 距上次上报过了几帧：叠加层每帧加一，上报时清零（见 [OriginContentOverlay]）。 */
+        internal var framesSinceReport = 0
     }
+
+    /** 转场每帧上报后，这一帧页面怎么画。 */
+    internal enum class Frame { Draw, Hide }
 
     /** 返回窗口：屏幕坐标里的矩形，以及窗口从格子长到全屏的进度（0 = 格子，1 = 全屏）。 */
     data class Window(val bounds: Rect, val grow: Float)
@@ -115,16 +124,40 @@ object ExpandOrigins {
 
     val contentTransition: State<ContentTransition?> get() = contentState
 
-    internal fun updateContent(origin: Origin, progress: Float, full: Size, popping: Boolean) {
+    /** 最近一次结束的转场，用来认出它结束后退场页多画的那一帧。 */
+    private var lastEnded: ContentTransition? = null
+
+    /**
+     * 转场每帧上报（绘制阶段）。同一起点的进度一帧跳过半程不可能是动画：出栈收尾时导航库会再报一帧深度 0
+     *（≈0 跳回 1，isRunning 还是 true，change 也可能已不是 Pop），转场结束后退场页也可能多画一帧。
+     * 都按结束处理，不能拿它续上或重开转场——重开了没人再报结束，原卡一直藏着、原处留一块空白。
+     * 刚结束的是出栈时返回 [Frame.Hide]：退场页这一帧不能按 p=1 整页画出来。
+     */
+    internal fun report(origin: Origin, progress: Float, full: Size, popping: Boolean, running: Boolean, held: Boolean): Frame {
         val current = contentState.value
-        if (current?.origin !== origin || current.popping != popping || current.ending) {
-            contentState.value = ContentTransition(origin, progress, full, popping)
+        // 也比对刚结束的那次：新转场已经开始时，上一页的残帧不能把它顶掉
+        val reference = if (current?.origin === origin) current else lastEnded?.takeIf { it.origin === origin }
+        if (reference != null && kotlin.math.abs(progress - reference.progress) > 0.5f) {
+            if (reference === current) clearContent()
+            return if (reference.popping) Frame.Hide else Frame.Draw
+        }
+        if (!running) {
+            // 只收自己这一次：别的起点的转场由它自己或叠加层的残留检测收尾
+            if (current?.origin === origin) clearContent()
+            return Frame.Draw
+        }
+        val live = if (current?.origin !== origin || current.popping != popping || current.ending) {
+            ContentTransition(origin, progress, full, popping).also { contentState.value = it }
         } else {
             current.progress = progress
             current.full = full
             // 报了结束又接着动（返回手势反悔后重来）：撤销那次结束
             current.endRequested = false
+            current
         }
+        live.held = held
+        live.framesSinceReport = 0
+        return Frame.Draw
     }
 
     /**
@@ -132,14 +165,22 @@ object ExpandOrigins {
      * 当场切会空出一帧什么都没画（卡片闪一下，见 [ContentTransition.endRequested]）。
      * 有叠加层的只记一笔，由 [OriginContentOverlay] 在下一帧开头切 ending、再留两帧撤掉。
      */
-    fun clearContent() {
+    internal fun clearContent() {
         val current = contentState.value ?: return
-        if (current.origin.snapshot == null) contentState.value = null else current.endRequested = true
+        if (current.origin.snapshot == null) {
+            lastEnded = current
+            contentState.value = null
+        } else {
+            current.endRequested = true
+        }
     }
 
     /** 叠加层收尾：只撤自己那一次，期间若已开始新的转场就不动。 */
     internal fun finishContent(transition: ContentTransition) {
-        if (contentState.value === transition) contentState.value = null
+        if (contentState.value === transition) {
+            lastEnded = transition
+            contentState.value = null
+        }
     }
 
     /**
@@ -177,9 +218,10 @@ object ExpandOrigins {
     /**
      * [AppNavigator] 每次压栈时调用：只有紧接在格子点击之后、去同一个路由的那一次才用起点，
      * 否则把这个类型的旧起点清掉，免得从搜索进同一页时从上次那一格飞出来。
+     * 上一次转场还挂着就当场收掉（不在绘制阶段，不必等下一帧换手），不和新转场交错。
      */
     fun onPush(route: AppRoute, aboveRoot: Boolean) {
-        clearContent()
+        contentState.value?.let { lastEnded = it; contentState.value = null }
         val a = armed
         armed = null
         val fromOrigin = a != null && a.first == route.id
@@ -196,6 +238,7 @@ object ExpandOrigins {
         armed = null
         byType.clear()
         contentState.value = null
+        lastEnded = null
         coveredFromOriginState.value = false
     }
 
@@ -451,8 +494,10 @@ fun expandFromOrigin(type: KClass<out AppRoute>, screenCornerPx: Float): NavTran
         val rtl = scope.layoutDirection == LayoutDirection.Rtl
         if (d > 0f) {
             if (origin == null) {
-                // 和 NavTransitions.MiuixDefault 一样：被盖住时往前缘视差四分之一屏宽，略微变淡
-                val cover = d.coerceIn(0f, 1f)
+                // 和 NavTransitions.MiuixDefault 一样：被盖住时往前缘视差四分之一屏宽，略微变淡；
+                // 程序跳转时和上面那页同一条减速曲线
+                val covered = d.coerceIn(0f, 1f)
+                val cover = if (scope.gesture == null) 1f - (1f - covered).let { it * it * it } else covered
                 translationX = (if (rtl) 1f else -1f) * cover * width * 0.25f
                 alpha = 1f - 0.1f * cover
             } else {
@@ -472,8 +517,11 @@ fun expandFromOrigin(type: KClass<out AppRoute>, screenCornerPx: Float): NavTran
             return@navGraphicsTransition
         }
         if (origin == null) {
-            // 默认转场的进场：从后缘整屏滑入。取整到整像素，避免圆角边缘在小数位置上闪一条细线
-            translationX = kotlin.math.round((if (rtl) -1f else 1f) * (-d).coerceIn(0f, 1f) * width)
+            // 默认转场的进场：从后缘整屏滑入。时钟接近匀速，程序跳转时再叠一层减速（先快后稳），
+            // 整屏匀速平移显得拖；手势跟手不叠。取整到整像素，避免圆角边缘在小数位置上闪一条细线
+            val t = (-d).coerceIn(0f, 1f)
+            val offset = if (scope.gesture == null) t * t * t else t
+            translationX = kotlin.math.round((if (rtl) -1f else 1f) * offset * width)
             return@navGraphicsTransition
         }
         val p = (1f + d).coerceIn(0f, 1f) // 0 = 还在那一格里，1 = 全屏
@@ -482,18 +530,9 @@ fun expandFromOrigin(type: KClass<out AppRoute>, screenCornerPx: Float): NavTran
 
         val isPop = scope.change is NavChange.Pop
 
-        // miuix-nav 出栈收尾时会再报一帧深度 0（p 从 ≈0 跳回 1），isRunning 却还是 true，
-        // 而且这一帧的 change 可能已经不是 Pop 了。照这一帧去画，叠加层按 p=1 全透明、原卡仍藏着，
-        // 落地那一下就空一帧（真机日志实测）。所以不看方向：同一个起点、还没结束的转场里
-        // 进度一帧跳过半程不可能是动画，一律按「已结束」处理
-        val current = ExpandOrigins.contentTransition.value
-        val reset = scope.isRunning && current != null && current.origin === origin &&
-            !current.ending && kotlin.math.abs(p - current.progress) > 0.5f
-
-        // 转场进行时登记进度：叠加层和「藏原件」都读它，结束就清掉
-        if (scope.isRunning && !reset) ExpandOrigins.updateContent(origin, p, full, isPop) else ExpandOrigins.clearContent()
-        // 刚走完的是出栈：退场页已经不该出现，这一帧不能按 p=1 整页画出来
-        if (reset && current?.popping == true) {
+        // 登记进度：叠加层和「藏原件」都读它；收尾那一帧的跳变和残帧在 report 里按结束处理
+        val frame = ExpandOrigins.report(origin, p, full, isPop, running = scope.isRunning, held = scope.gesture != null)
+        if (frame == ExpandOrigins.Frame.Hide) {
             alpha = 0f
             return@navGraphicsTransition
         }
@@ -566,13 +605,13 @@ private const val POP_FADE_START = 0.06f
 private const val POP_FADE_END = 0.015f
 
 /**
- * 子页转场（程序化跳转）的节奏：420ms，ease-in-out(0.4, 0, 0.2, 1)。
+ * 子页转场（程序化跳转）的节奏：360ms，ease-in-out(0.4, 0, 0.2, 1)。
  *
  * 页面内部的二级页如果自己做滑入（比如设置里的致谢页），也用这组值，
  * 这样点进去和压栈打开子页是同一个手感。
  */
 object AppPageMotion {
-    const val DurationMillis = 420
+    const val DurationMillis = 360
     val Easing: Easing = CubicBezierEasing(0.4f, 0f, 0.2f, 1f)
 }
 
@@ -592,8 +631,8 @@ private val ExpandMotion = top.yukonga.miuix.kmp.nav.transition.NavMotion(
     ),
 )
 
-private const val EXPAND_DURATION_MS = 440
-private const val GESTURE_SETTLE_MS = 420
+private const val EXPAND_DURATION_MS = 380
+private const val GESTURE_SETTLE_MS = 340
 
 /** 裁剪用的形状：页面上的一块圆角矩形，[radius] 是缩放前的像素半径。 */
 private class PixelRoundRectShape(private val rect: Rect, private val radius: Float) : Shape {

@@ -14,9 +14,12 @@ data class HomeStat(
     val count: Int? = null,
 )
 
-/** 小组件里的一条明细；[link] 非空时点这一行直接打开它（如某条通知的原文）。 */
+/**
+ * 小组件里的一条明细；[link] 非空时点这一行直接打开它（如某条通知的原文）。
+ * [badge] 是窄卡里代替 [detail] 的短标记（如回复数），没有就照常显示 [detail]。
+ */
 @Serializable
-data class HomeLine(val text: String, val link: String? = null, val detail: String? = null)
+data class HomeLine(val text: String, val link: String? = null, val detail: String? = null, val badge: String? = null)
 
 /** 最近一场考试（名称 + 倒计时）在 `HomeStats.collect` 结果里的键。 */
 const val EXAM_KEY = "exam_next"

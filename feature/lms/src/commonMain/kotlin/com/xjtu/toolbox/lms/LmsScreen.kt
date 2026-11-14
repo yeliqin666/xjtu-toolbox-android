@@ -137,6 +137,16 @@ private sealed class LmsPage {
         val startInDual: Boolean = false,
     ) : LmsPage()
 }
+
+/** 子页面 rememberSaveable 状态的键，与各页 ScrollMemory 的键同粒度。 */
+private val LmsPage.stateKey: String get() = when (this) {
+    LmsPage.CourseList -> "courses"
+    is LmsPage.ActivityList -> "activities_${course.id}"
+    is LmsPage.ActivityDetail -> "detail_${activity.id}"
+    is LmsPage.BulletinDetail -> "bulletin_${bulletin.id}"
+    is LmsPage.ForumTopicDetail -> "topic_${topic.id}"
+    is LmsPage.VideoPlayer -> "video"
+}
 // ════════════════════════════════════════
 //  入口
 // ════════════════════════════════════════
@@ -166,6 +176,8 @@ fun LmsScreen(
     val authExpiry = LocalAuthExpiry.current
 
     var currentPage by remember { mutableStateOf<LmsPage>(LmsPage.CourseList) }
+    // 子页面切走即销毁：列表位置由 ScrollMemory 恢复，顶栏折叠等 rememberSaveable 状态靠它一起恢复
+    val pageStates = androidx.compose.runtime.saveable.rememberSaveableStateHolder()
     // 落盘缓存按账号分命名空间（`:app` 的实现是 `AppLmsCache`，切账号会换新实例），
     // 所以那份实例由调用方 remember 后传进来，这里只按它缓存数据。
     val cache = remember(cacheStore) { LmsPageCache(cacheStore) }
@@ -316,7 +328,7 @@ fun LmsScreen(
         },
         label = "LmsPage"
     ) { page ->
-        when (page) {
+        pageStates.SaveableStateProvider(page.stateKey) { when (page) {
             // 带着 courseId 进来时先显示占位：课程列表要等接口回来才能匹配到那门课，
             // 这中间把列表画出来，用户看到的就是"闪一下列表又跳走"。
             is LmsPage.CourseList -> if (listPlaceholder) {
@@ -378,7 +390,7 @@ fun LmsScreen(
                 onBack = { currentPage = LmsPage.ActivityList(page.course) }
             )
             is LmsPage.VideoPlayer -> { /* handled above */ }
-        }
+        } }
     }
 }
 // ════════════════════════════════════════

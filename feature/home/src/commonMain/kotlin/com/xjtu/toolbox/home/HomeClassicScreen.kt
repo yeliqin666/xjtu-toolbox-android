@@ -236,7 +236,7 @@ fun HomeClassicScreen(
                 EditorialMasthead(
                     greeting = Greeting.of(),
                     name = host.greetingName,
-                    dateLabel = host.dateLabel,
+                    dateLabel = host.dateLabel + SolarTerms.today()?.let { " · $it" }.orEmpty(),
                     weekNumber = if (HomeCard.WEEK_NUMBER in honored) host.weekNumber else 0,
                     status = host.statusLine,
                     ink = pageInk,

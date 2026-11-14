@@ -6,6 +6,7 @@ import com.xjtu.toolbox.platform.base64UrlEncode
 import com.xjtu.toolbox.platform.deflateAvailable
 import com.xjtu.toolbox.platform.deflateBytes
 import com.xjtu.toolbox.platform.inflateBytes
+import com.xjtu.toolbox.schedule.CourseItem
 import kotlinx.datetime.LocalDate
 import kotlinx.datetime.daysUntil
 
@@ -69,6 +70,9 @@ object MatchProfile {
     /** 教学楼用 base36 下标编进网格，最多 36 栋——一个人一学期不会在这么多楼里上课。 */
     private const val MAX_BUILDINGS = 36
 
+    /** 周次位图最多编几周，一个 Long 装得下；一学期不会超过。 */
+    private const val MAX_WEEKS = 62
+
     /** 解压上限。分享码来自别人，别让一段几百字节的输入膨胀成几十兆。 */
     private const val MAX_INFLATED = 256 * 1024
 
@@ -95,6 +99,8 @@ object MatchProfile {
         val diningHours: Boolean = false,
         val canteens: Boolean = false,
         val dietTags: Boolean = false,
+        /** 完整课表（课名、星期、节次、周次、教室），对方可以存成好友课表。带教室，默认关。 */
+        val timetable: Boolean = false,
     )
 
     /** 共享的课程条目。课程号用来判同课，课名只为了让结果能写出"你俩都上《大学物理》"。 */
@@ -131,6 +137,10 @@ object MatchProfile {
         val className: String = "",
         /** 生源地省份，从学号推——见 [com.xjtu.toolbox.account.ProvinceCode]，跟屁岱画像同一份映射。 */
         val province: String = "",
+        /** [timetable] 是哪个学期的；好友课表只叠到同一学期上。 */
+        val timetableTerm: String = "",
+        /** 完整课表，只有课名、星期、节次、周次和教室；课程号、老师不带。 */
+        val timetable: List<CourseItem> = emptyList(),
     ) {
         val courseCodes: Set<String> get() = courses.map { it.code }.toSet()
 
@@ -153,6 +163,7 @@ object MatchProfile {
                 canteens.isNotEmpty(),
                 dietTags.isNotEmpty(),
                 grade > 0 || campus.isNotEmpty() || profession.isNotEmpty() || province.isNotEmpty(),
+                timetable.isNotEmpty(),
             ).count { it }
     }
 
@@ -277,7 +288,32 @@ object MatchProfile {
             province = if (dims.identity) {
                 local.identity?.sno?.let { com.xjtu.toolbox.account.ProvinceCode.of(it) }.orEmpty()
             } else "",
+            timetableTerm = if (dims.timetable && hasSchedule) clean(local.term.orEmpty()) else "",
+            // 只取教务排的课：自建日程不在这份缓存里，这里再挡一道
+            timetable = if (dims.timetable) {
+                courses.filter { it.dayOfWeek in 1..DAYS && !it.isUserCreated && it.weekBits.contains('1') }.map { c ->
+                    val from = c.startSection.coerceIn(1, SECTIONS)
+                    CourseItem(
+                        courseName = clean(c.courseName).take(16),
+                        location = clean(c.location).take(20),
+                        weekBits = c.weekBits.take(MAX_WEEKS),
+                        dayOfWeek = c.dayOfWeek,
+                        startSection = from,
+                        endSection = c.endSection.coerceIn(from, SECTIONS),
+                    )
+                }
+            } else emptyList(),
         )
+    }
+
+    /** 周次位图压成一个 base36 数：第 i 周对应第 i-1 位。 */
+    private fun weeksToB36(bits: String): String =
+        bits.take(MAX_WEEKS).foldIndexed(0L) { i, acc, c -> if (c == '1') acc or (1L shl i) else acc }.toString(36)
+
+    private fun weeksFromB36(s: String): String? {
+        val v = s.toLongOrNull(36)?.takeIf { it > 0 } ?: return null
+        val length = Long.SIZE_BITS - v.countLeadingZeroBits()
+        return CharArray(length) { if ((v shr it) and 1L == 1L) '1' else '0' }.concatToString()
     }
 
     private fun b36(i: Int): Char = if (i < 10) '0' + i else 'a' + (i - 10)
@@ -321,6 +357,11 @@ object MatchProfile {
             p.campus,
             p.className,
             p.province,
+            // 后加的两个字段排在最后：旧版只读前 20 个，扫新码照常算，只是不认课表
+            p.timetableTerm,
+            p.timetable.joinToString(",") {
+                "${it.courseName}~${it.dayOfWeek}~${it.startSection}~${it.endSection}~${weeksToB36(it.weekBits)}~${it.location}"
+            },
         ).joinToString("|")
         val packed = deflate(raw) ?: return ""
         return base64UrlEncode(packed)
@@ -367,6 +408,15 @@ object MatchProfile {
                 campus = parts[17],
                 className = parts[18],
                 province = parts[19],
+                timetableTerm = parts.getOrElse(20) { "" },
+                timetable = parts.getOrElse(21) { "" }.splitEntries { f ->
+                    val day = f.getOrNull(1)?.toIntOrNull()?.takeIf { it in 1..DAYS }
+                    val from = f.getOrNull(2)?.toIntOrNull()?.takeIf { it in 1..SECTIONS }
+                    val to = f.getOrNull(3)?.toIntOrNull()?.takeIf { from != null && it in from..SECTIONS }
+                    val weeks = f.getOrNull(4)?.let(::weeksFromB36)
+                    if (f.size < 6 || f[0].isBlank() || day == null || from == null || to == null || weeks == null) null
+                    else CourseItem(courseName = f[0], location = f[5], weekBits = weeks, dayOfWeek = day, startSection = from, endSection = to)
+                },
             )
         }
     } catch (_: Exception) {

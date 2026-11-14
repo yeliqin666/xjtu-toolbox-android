@@ -342,7 +342,7 @@ private fun NoticeAndReminderSection(context: Context, scope: CoroutineScope) {
 
 @Composable
 private fun DataPrivacySection(context: Context, scope: CoroutineScope) {
-    var cacheSizeText by remember { mutableStateOf("计算中...") }
+    var cacheSizeText by remember { mutableStateOf("计算中…") }
     var showClearCacheDialog by remember { mutableStateOf(false) }
     var crashReportEnabled by remember { mutableStateOf(com.xjtu.toolbox.error.CrashReporter.isEnabled(context)) }
 

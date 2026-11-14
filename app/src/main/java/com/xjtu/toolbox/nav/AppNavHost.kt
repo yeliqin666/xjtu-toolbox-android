@@ -189,16 +189,6 @@ fun AppNavHost(
                 val navScope = LocalNavTransitionScope.current
                 // 上面的页缩回去时还算盖着，落定才恢复
                 val covered by remember(navScope) { derivedStateOf { navScope.relativeDepth > 0.001f } }
-                // 落定时清掉交接状态；打开中途被返回打断时退场页可能在清理之后又画一帧，两帧后再补清一次。
-                // 不能持续监听：极慢的返回手势里转场每帧都在写，持续清会和它互相触发卡死主线程
-                LaunchedEffect(covered, backStack.size) {
-                    if (!covered && backStack.size <= 1) {
-                        ExpandOrigins.clearContent()
-                        androidx.compose.runtime.withFrameNanos { }
-                        androidx.compose.runtime.withFrameNanos { }
-                        ExpandOrigins.clearContent()
-                    }
-                }
                 Box(Modifier.fillMaxSize()) {
                     // 被上面的页盖住时算不可见：液态背景这些循环动画要停下，
                     // 否则它每帧都让整页玻璃重画，正好和转场抢时间

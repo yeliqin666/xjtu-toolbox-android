@@ -287,7 +287,7 @@ fun JwappScoreScreen(
                 FullPageState(
                     Modifier.fillMaxSize().padding(padding.withoutTop(glass)).glassSource(glass),
                     contentPadding = PaddingValues(top = glassTop),
-                ) { LoadingState(message = "正在加载成绩数据...", modifier = Modifier.fillMaxSize()) }
+                ) { LoadingState(message = "正在加载成绩数据…", modifier = Modifier.fillMaxSize()) }
             }
 
             vm.errorMessage != null -> {
