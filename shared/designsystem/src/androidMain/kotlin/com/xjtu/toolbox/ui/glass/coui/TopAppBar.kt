@@ -208,7 +208,11 @@ private fun AppBarLayout(
             else compactEnd.toFloat()
         // 集成侧改动：标题按展开、收起两端都放得下的固定宽度量（收起端按缩放折算），整个折叠过程不变。
         // 原版逐帧按「当前可用宽 ÷ 当前缩放」量，长标题的自动缩字号会在相邻档位间来回跳，看着像抽搐着避让按钮。
-        val expandedRoom = width - (if (large) expandedStart else compactStart) - end
+        // 展开态标题在导航行下面自成一行、右上角按钮在上面那一行，不必给它们让出整列宽度：
+        // 否则「“人工智能+”创新创业实践」这类长课程名会先缩到最小字号、右边明明空着还得截成省略号。
+        // 收起态仍按 compactStart / compactEnd（落在返回键和按钮之间）卡死，折叠结束时不会压到按钮。
+        val expandedEnd = if (large && action.width > 0) padding.toFloat() else end
+        val expandedRoom = width - (if (large) expandedStart else compactStart) - expandedEnd
         val collapsedRoom = (width - compactStart - end) / collapsedScale
         val titleWidth = minOf(expandedRoom, collapsedRoom).coerceAtLeast(0f).roundToInt()
         val titleNode = nodes[2].measure(Constraints(maxWidth = titleWidth))
