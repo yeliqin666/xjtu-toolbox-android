@@ -103,6 +103,8 @@ import com.xjtu.toolbox.library.LibraryQrArea
 import com.xjtu.toolbox.nav.AppRoute
 import com.xjtu.toolbox.nav.AppPageAsTab
 import com.xjtu.toolbox.nav.AppPageDeps
+import com.xjtu.toolbox.nav.LocalSeamlessOpener
+import com.xjtu.toolbox.nav.SeamlessCardSource
 import com.xjtu.toolbox.inbox.InboxBell
 import com.xjtu.toolbox.profile.ProfileTab
 import com.xjtu.toolbox.qrlogin.QrLoginScreen
@@ -178,6 +180,9 @@ internal fun MainScreen(
     onHeroBulletinDismiss: (Bulletin) -> Unit,
 ) {
     val context = LocalContext.current
+    // 顶栏圆钮也是「从这一块打开某页」的起点：ROM 支持一镜到底时走系统转场，否则用原来的 Compose 浮层/放大。
+    val seamlessOpener = LocalSeamlessOpener.current
+    val density = LocalDensity.current
     val appearance = AppearanceSettings.get(context)
     val navBarStyle by appearance.navBarStyle.collectAsStateWithLifecycle()
     val showQuickActions by appearance.showQuickActions.collectAsStateWithLifecycle()
@@ -227,7 +232,7 @@ internal fun MainScreen(
             query = homeSearchQuery,
             onQueryChange = { homeSearchQuery = it },
             onSearch = { homeSearchKeyboard?.hide() },
-            placeholder = "搜索功能、成绩、课表、空教室…",
+            placeholder = "搜索功能",
             focusPending = homeSearchExpanded,
             onFocused = {},
             action = {
@@ -500,7 +505,22 @@ internal fun MainScreen(
                 courseBottomContent = courseHeaderBottomContent,
                 toolsAppBarState = toolsAppBarState,
                 toolsSearchBar = toolsSearchBar,
-                onScan = { source -> ProactiveBubbleHost.clear(); revealSource = source; showQrLogin = true },
+                onScan = { source ->
+                    ProactiveBubbleHost.clear()
+                    val from = source.boundsInWindow()
+                    val opener = seamlessOpener
+                    if (from != null && opener != null && com.xjtu.toolbox.sharedview.KitOneTake.supported) {
+                        // 扫一扫也有独立一镜到底宿主：ROM 支持时从这颗圆钮长成整屏扫码页。
+                        opener(
+                            AppRoute.QrScan,
+                            SeamlessCardSource(from, with(density) { (from.width / 2f).toDp() }),
+                        )
+                    } else {
+                        // 不支持 / 拿不到起点：还是原来那颗圆钮长出来的整屏浮层。
+                        revealSource = source
+                        showQrLogin = true
+                    }
+                },
             )
         },
         barBubble = { handles ->
@@ -631,13 +651,20 @@ internal fun MainScreen(
                                             ),
                                         )
                                     }
-                                    router.open(AppRoute.Inbox)
+                                    // 交给宿主决定走 KIT 还是 Compose 放大；两条路都以这颗圆钮为起点。
+                                    val opener = seamlessOpener
+                                    if (from != null && opener != null) {
+                                        opener(AppRoute.Inbox, SeamlessCardSource(from, with(density) { (from.width / 2f).toDp() }))
+                                    } else {
+                                        router.open(AppRoute.Inbox)
+                                    }
                                 },
                                 // 搜索钮展开时，右侧铃铛按同一进度渐小、渐淡让位；
                                 // 收起时反过来长回来。
                                 searchState = homeSearchState,
                                 searchStyle = homeSearchStyle,
                                 onSearchExpand = { homeSearchExpanded = true },
+                                searching = homeSearchExpanded,
                             )
                         },
                     )
@@ -782,6 +809,8 @@ private fun HomeTopActions(
     searchState: CouiTopAppBarSearchState,
     searchStyle: CouiToolbarStyle,
     onSearchExpand: () -> Unit,
+    /** 搜索是否处于展开态：动作区的布局宽度要在第一帧就让到位，见下面的注释。 */
+    searching: Boolean,
 ) {
     val inboxSource = rememberExpandOriginSource()
     val density = LocalDensity.current
@@ -792,11 +821,13 @@ private fun HomeTopActions(
         horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(2.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        // 搜索圆钮是融球的起点：展开时它让出宽度，取消胶囊正好落到右侧这个位置。
+        // 搜索圆钮是融球的起点：展开时和头像一样**当帧**让出宽度。
+        // 让位不能跟着 progress 慢慢来：搜索槽的终边如果还在动画里继续右移，
+        // 搜索框的右边缘就会先向左再回来（宽度增长落后于左端点的左移）。
         Box(
             Modifier
                 .layout { measurable, constraints ->
-                    val width = (actionFullWidth * (1f - searchProgress)).roundToInt().coerceAtLeast(0)
+                    val width = if (searching) 0 else (actionFullWidth * (1f - searchProgress)).roundToInt().coerceAtLeast(0)
                     val placeable = measurable.measure(Constraints.fixed(width, constraints.maxHeight))
                     layout(width, placeable.height) { placeable.place(0, 0) }
                 }
@@ -814,24 +845,26 @@ private fun HomeTopActions(
                 contentDescription = "搜索",
             )
         }
-        // 右侧铃铛也给取消胶囊让位：宽度、缩放、透明度都跟融球同一条进度；
-        // 消失时渐小渐淡，收回时反过来长回来，不会和分裂中的取消胶囊重叠。
+        // 右侧铃铛也给取消胶囊让位：布局宽度当帧交还（同搜索圆钮），
+        // 缩放/透明度仍跟融球同一条进度。内容固定按 48dp 量、右边缘钉在动作区末端，
+        // 所以布局让位时铃铛画在原位，不会跟着布局一起缩走。
         Box(
             Modifier
                 .layout { measurable, constraints ->
-                    val width = (actionFullWidth * (1f - searchProgress)).roundToInt().coerceAtLeast(0)
-                    val placeable = measurable.measure(Constraints.fixed(width, constraints.maxHeight))
-                    layout(width, placeable.height) { placeable.place(0, 0) }
-                }
-                .graphicsLayer {
+                    val width = if (searching) 0 else (actionFullWidth * (1f - searchProgress)).roundToInt().coerceAtLeast(0)
+                    val placeable = measurable.measure(Constraints.fixed(actionFullWidth, constraints.maxHeight))
+                    layout(width, placeable.height) { placeable.place(width - placeable.width, 0) }
+                },
+        ) {
+            Box(
+                Modifier.graphicsLayer {
                     // 视觉宽度始终不超过布局宽度，避免和分裂中的取消胶囊重叠
                     val f = 1f - searchProgress
                     alpha = f
                     scaleX = f
                     scaleY = f
                 },
-        ) {
-            Box {
+            ) {
                 HomeRoundAction(
                     onClick = { onInbox(inboxSource) },
                     source = inboxSource,

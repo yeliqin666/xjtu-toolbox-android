@@ -393,18 +393,30 @@ fun CampusCardScreen(
 private fun CouponTopAction(badge: Int, onOpen: () -> Unit) {
     val source = com.xjtu.toolbox.nav.rememberExpandOriginSource()
     val density = androidx.compose.ui.platform.LocalDensity.current
+    // 宿主提供了「从这一块打开某页」时先问它：ROM 支持金标联盟一镜到底就走系统级转场，
+    // 否则照旧用下面登记的 Compose 起点放大。一镜到底的独立宿主里这里没有它，直接走 onOpen。
+    val seamlessOpener = com.xjtu.toolbox.nav.LocalSeamlessOpener.current
     val tint = MiuixTheme.colorScheme.onSurface
     // 不再额外留 4dp：多钮间距统一由外层 Row(2dp) + 每颗钮 4dp 内边距给出 10dp（对齐小布记忆）
     Box {
         com.xjtu.toolbox.ui.glass.CouiToolbarActionButton(
             onClick = {
+                // KIT 的 Bitmap 源要点击这一刻的窗口矩形；先读，再登记 Compose 回落起点。
+                val bounds = source.boundsInWindow()
                 // 不给替身：转场里叠加层画的就是这颗按钮此刻的真实画面（含圆底），
                 // 面板底色贴近按钮时透明，落地前后是同一份像素
                 source.arm(
                     AppRoute.Coupon.id, cornerRadius = 20.dp, density = density,
                     restFill = androidx.compose.ui.graphics.Color.Transparent, restShadow = false,
                 )
-                onOpen()
+                if (bounds != null && seamlessOpener != null) {
+                    seamlessOpener(
+                        AppRoute.Coupon,
+                        com.xjtu.toolbox.nav.SeamlessCardSource(bounds, 20.dp),
+                    )
+                } else {
+                    onOpen()
+                }
             },
             modifier = Modifier
                 .expandOriginSource(source)

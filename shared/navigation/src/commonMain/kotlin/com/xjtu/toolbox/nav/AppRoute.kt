@@ -155,6 +155,12 @@ sealed interface AppRoute : NavKey {
     @Serializable data object Settings : AppRoute { override val id get() = "settings" }
     /** 消息收纳：待办与消息。 */
     @Serializable data object Inbox : AppRoute { override val id get() = "inbox" }
+
+    /**
+     * 扫一扫（电脑端登录二维码 / 图书馆座位码）。Android 顶栏圆钮的落点；
+     * ROM 支持金标联盟一镜到底时由独立 Activity 宿主承载，其它端没有这一屏。
+     */
+    @Serializable data object QrScan : AppRoute { override val id get() = "qr_scan" }
     @Serializable data object Community : AppRoute { override val id get() = "community" }
     /** 直达社区里的某一帖（首页卡片、链接）；返回时直接退出社区。 */
     @Serializable data class CommunityPost(val number: Int) : AppRoute { override val id get() = "community/$number" }
@@ -217,7 +223,7 @@ private val simpleRoutes: Map<String, AppRoute> = listOf(
     AppRoute.JwappScore, AppRoute.Library, AppRoute.CampusCard, AppRoute.Coupon,
     AppRoute.Transcript, AppRoute.Venue, AppRoute.DownloadManager,
     AppRoute.Jiaocai, AppRoute.Jiaocai1, AppRoute.SchoolCourse, AppRoute.SchoolCalendar,
-    AppRoute.YellowPage, AppRoute.CampusBus, AppRoute.DegreeProgress, AppRoute.Fitness, AppRoute.Iclassface, AppRoute.Settings, AppRoute.Inbox,
+    AppRoute.YellowPage, AppRoute.CampusBus, AppRoute.DegreeProgress, AppRoute.Fitness, AppRoute.Iclassface, AppRoute.Settings, AppRoute.Inbox, AppRoute.QrScan,
     AppRoute.Community, AppRoute.Faculty, AppRoute.Accounts,
     AppRoute.WebVpnConverter, AppRoute.Games, AppRoute.Game2048, AppRoute.GameMerge,
     AppRoute.GameBlocks, AppRoute.GameHop, AppRoute.GameGomoku, AppRoute.GameGo, AppRoute.GameXiangqi, AppRoute.Match,

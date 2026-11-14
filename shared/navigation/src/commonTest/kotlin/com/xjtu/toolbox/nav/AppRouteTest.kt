@@ -21,7 +21,7 @@ class AppRouteTest {
 
     @Test
     fun `无参数路由来回一致`() {
-        listOf(AppRoute.Main, AppRoute.Settings, AppRoute.Jiaocai1, AppRoute.Match, AppRoute.Game2048).forEach { route ->
+        listOf(AppRoute.Main, AppRoute.Settings, AppRoute.Jiaocai1, AppRoute.Match, AppRoute.Game2048, AppRoute.QrScan).forEach { route ->
             assertEquals(route, appRouteOf(route.id))
         }
     }

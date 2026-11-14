@@ -41,7 +41,7 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 /**
  * 站内公告详情。首页公告条「查看详情」的目标页：
- * - ROM 支持金标联盟一镜到底时，本屏由 [com.xjtu.toolbox.sharedview.NoticeDetailActivity] 承载（独立 Activity）；
+ * - ROM 支持金标联盟一镜到底时，本屏由 [com.xjtu.toolbox.sharedview.SeamlessPageActivity] 承载（独立 Activity）；
  * - 其它设备压 [AppRoute.NoticeDetail] 路由，由首页公告卡经 Compose 转场放大进来。
  */
 @Composable

@@ -261,11 +261,11 @@ class AppRouter(
 
     private companion object {
         const val TAG = "AppRouter"
-
-        /** 多跳 OAuth 链路（加餐券、体测、考勤）明显更慢。 */
-        fun autoLoginTimeoutMs(type: LoginType): Long = when (type) {
-            LoginType.COUPON, LoginType.FITNESS, LoginType.ATTENDANCE -> 180_000L
-            else -> 60_000L
-        }
     }
+}
+
+/** 自动登录的等待上限（多跳 OAuth 链路明显更慢）；一镜到底宿主在转场后补登录也用它。 */
+internal fun autoLoginTimeoutMs(type: LoginType): Long = when (type) {
+    LoginType.COUPON, LoginType.FITNESS, LoginType.ATTENDANCE -> 180_000L
+    else -> 60_000L
 }

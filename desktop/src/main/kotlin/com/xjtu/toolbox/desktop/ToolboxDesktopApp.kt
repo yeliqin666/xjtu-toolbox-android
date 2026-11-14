@@ -791,6 +791,8 @@ private fun DesktopPage(
         AppRoute.DegreeProgress -> NotPortedScreen(route, onNavigate)
         is AppRoute.CommunityPost -> NotPortedScreen(route, onNavigate)
         is AppRoute.NoticeDetail -> NotPortedScreen(route, onNavigate)
+        // 扫一扫是 Android 顶栏的相机入口，桌面端没有这一屏。
+        AppRoute.QrScan -> NotPortedScreen(route, onNavigate)
 
         // 其余路由显示「没搬过来」，不拿有数据的屏冒充。
         else -> NotPortedScreen(route, onNavigate)

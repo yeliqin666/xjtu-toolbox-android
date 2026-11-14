@@ -161,7 +161,7 @@ private val standaloneHostedRoutes: Set<AppRoute> = setOf(
     AppRoute.JwappScore, AppRoute.Library, AppRoute.CampusCard, AppRoute.Coupon,
     AppRoute.Transcript, AppRoute.Venue, AppRoute.DownloadManager, AppRoute.Jiaocai,
     AppRoute.Jiaocai1, AppRoute.SchoolCourse, AppRoute.SchoolCalendar, AppRoute.YellowPage, AppRoute.CampusBus, AppRoute.DegreeProgress,
-    AppRoute.Fitness, AppRoute.Iclassface, AppRoute.Settings, AppRoute.Inbox,
+    AppRoute.Fitness, AppRoute.Iclassface, AppRoute.Settings, AppRoute.Inbox, AppRoute.QrScan,
     AppRoute.Community, AppRoute.Faculty, AppRoute.Accounts, AppRoute.WebVpnConverter,
     AppRoute.Games, AppRoute.Game2048, AppRoute.GameMerge, AppRoute.GameBlocks,
     AppRoute.GameHop, AppRoute.GameGomoku, AppRoute.GameGo, AppRoute.GameXiangqi,
@@ -637,8 +637,26 @@ fun NavEntryBuilder.appPageEntries(
                 }.value,
             )
         }
+        // 扫一扫：顶栏圆钮的落点。ROM 支持金标联盟一镜到底时由 sharedview.SeamlessPageActivity
+        // 承载这一屏；其余设备由主界面自己的整屏浮层承载（不压这条路由，见 MainScreen 的 onScan）。
+        entry<AppRoute.QrScan>(transition = expand(AppRoute.QrScan::class)) {
+            com.xjtu.toolbox.qrlogin.QrLoginScreen(
+                sessionManager = loginState.sessionManager,
+                onBack = back,
+                onLibrarySeat = { qr ->
+                    com.xjtu.toolbox.library.LibraryFocus.request(
+                        com.xjtu.toolbox.library.LibraryFocus.Target(
+                            campusId = com.xjtu.toolbox.library.LibraryQrArea.campusOf(qr.areaCode).id,
+                            areaCode = qr.areaCode,
+                            seatId = qr.seat,
+                        ),
+                    )
+                    router.open(AppRoute.Library)
+                },
+            )
+        }
         // 公告详情：首页公告条「查看详情」的落点。ROM 支持金标联盟一镜到底时由
-        // sharedview.NoticeDetailActivity 承载同一个屏；其余设备压这条路由，从公告卡放大进来。
+        // sharedview.SeamlessPageActivity 承载同一个屏；其余设备压这条路由，从公告卡放大进来。
         entry<AppRoute.NoticeDetail>(transition = expand(AppRoute.NoticeDetail::class)) { route ->
             NoticeDetailScreen(
                 notice = route,

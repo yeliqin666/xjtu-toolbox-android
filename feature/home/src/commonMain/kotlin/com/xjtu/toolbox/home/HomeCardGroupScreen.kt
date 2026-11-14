@@ -1774,13 +1774,16 @@ private fun EditorialNextUpLead(
 @Composable
 @OptIn(ExperimentalFoundationApi::class)
 private fun InboxBrief(summary: HomeInboxSummary, ink: Color, muted: Color, onLongClick: () -> Unit, onClick: () -> Unit) {
+    // 点开收纳页：ROM 支持时从这一行一镜到底（与经典布局那版同一套接线，见 HomeClassicScreen）。
+    val origin = com.xjtu.toolbox.nav.rememberSeamlessOrigin(0.dp)
     Row(
         Modifier
             .fillMaxWidth()
+            .then(origin.modifier)
             .combinedClickable(
                 interactionSource = remember { MutableInteractionSource() },
                 indication = SinkFeedback(),
-                onClick = onClick,
+                onClick = { origin.open(AppRoute.Inbox, onClick) },
                 onLongClick = onLongClick,
                 onLongClickLabel = "设置卡片外观",
             )

@@ -28,7 +28,7 @@ import kotlin.math.roundToInt
  * 目标必须是独立 Activity；ROM 不声明支持时 [makeViewAnimationOptions] 会返回 null / 探测为 0，
  * 这里统一回落成 App 内现有的 Compose 转场（压路由，不丢交互）。
  *
- * 只给「公告卡 → 公告详情」这一条英雄流程用，所以不把 KIT 类型往 `:shared:*` / `:feature:*` 里带。
+ * 只给 `:app` 用：KIT 的类型和 `ActivityOptions` 都不往 `:shared:*` / `:feature:*` 里带。
  */
 object KitOneTake {
 
