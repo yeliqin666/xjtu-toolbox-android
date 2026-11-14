@@ -4,6 +4,8 @@ import android.graphics.Paint
 import androidx.annotation.RequiresApi
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Box
@@ -25,6 +27,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -170,11 +173,17 @@ fun SegmentedControl(
     }
     DisposableEffect(motion) { onDispose { motion.dispose() } }
 
-    BoxWithConstraints(modifier.height(if (small) CouiSegmentedControlDefaults.smallHeight else CouiSegmentedControlDefaults.height)) {
+    // 标签总宽超过一屏时整条横向滚动（见下面的 BoxWithConstraints）。
+    val scrollState = rememberScrollState()
+    BoxWithConstraints(modifier.height(if (small) CouiSegmentedControlDefaults.smallHeight else CouiSegmentedControlDefaults.height)
+        .horizontalScroll(scrollState)) {
         val defaultPadding = with(density) {
             (if (small) CouiSegmentedControlDefaults.smallPadding else CouiSegmentedControlDefaults.padding).roundToPx()
         }
         val desired = (naturalWidths.sum() + defaultPadding * 2f).roundToInt()
+        // 这里的约束来自外面那层 horizontalScroll，宽度是无限的：整条按自然宽度排布，宽过一屏就由那层滚动平移。
+        // 原版把各格平均压到可用宽度里，一屏塞不下时每格都会被压到比文字还窄，所有标签一起缩成「…」
+        // （学习通课程页 7 个分类窄屏就是这样）。收起一屏放得下时内容自然宽 < 可视宽，滚动量恒为 0，行为和以前一致。
         val actualWidth = constraints.constrainWidth(desired)
         val actualHeight = constraints.maxHeight
         val padding = defaultPadding.coerceAtMost(actualWidth / 2)
@@ -183,6 +192,23 @@ fun SegmentedControl(
                 segmentWidths(naturalWidths, actualWidth - padding * 2), rtl, small)
         }
         LaunchedEffect(session.preview, geometry) { motion.select(session.preview, geometry, density.density) }
+        // 整条能滚时把选中项滚进可视区：进页面恢复的可能是屏外的分类，点右边缘那一格也容易半个身子在屏外。
+        // 可视宽 = 内容宽 − 最大滚动量，两者都要布局后才有值；放得下一屏时 maxValue 为 0，直接跳过。
+        LaunchedEffect(selectedIndex, geometry) {
+            // 手指还按在上面时不自动滚：拖选会连续改选中项，跟着滚会跟手势打架。
+            if (session.touching) return@LaunchedEffect
+            if (scrollState.maxValue == 0) withFrameNanos { }
+            val viewport = actualWidth - scrollState.maxValue
+            if (scrollState.maxValue <= 0 || viewport <= 0) return@LaunchedEffect
+            val start = geometry.padding.toInt() + geometry.widths.take(selectedIndex).sum()
+            val end = start + geometry.widths[selectedIndex]
+            val target = when {
+                start < scrollState.value -> start
+                end > scrollState.value + viewport -> end - viewport
+                else -> return@LaunchedEffect
+            }
+            scrollState.animateScrollTo(target.coerceIn(0, scrollState.maxValue))
+        }
         var bounds by remember { mutableStateOf(IntSize.Zero) }
         val surface = if (backdrop != null) {
             Modifier.couiFloatingSurface(backdrop, checkNotNull(renderer), material, shadow, CouiCapsuleShape,
@@ -252,7 +278,11 @@ fun SegmentedControl(
                             session.begin(current.value)
                             val downPosition = down.position + Offset(padding.toFloat(), 0f)
                             val indicator = motion.rect(geometry, indicatorPress.scale.value).inflate(10f)
-                            val dragging = geometry.hit(downPosition.x) == current.value || indicator.contains(downPosition)
+                            // 整条能横滚时（滚动量 > 0）不再「按住选中项拖就滑选」：那条横拖要留给外层滚动，
+                            // 否则从选中那一格起手就滚不动。能滚时横拖一律滚，点按照旧选中——只在溢出时有区别。
+                            val dragSelects = scrollState.maxValue <= 0
+                            val dragging = dragSelects &&
+                                (geometry.hit(downPosition.x) == current.value || indicator.contains(downPosition))
                             if (dragging) {
                                 motion.beginDrag()
                                 indicatorPress.press(IntSize(motion.indicatorWidth.roundToInt(), geometry.indicatorHeight.roundToInt()))
