@@ -68,7 +68,7 @@ priority：3 先做，2 这几天做，1 知道就行。最多 8 项；什么都
 )
 
 /** 只整理当前学期课程；历史课程和查询失败单独标明，避免误判没有待办。 */
-private suspend fun gatherTodos(source: LmsSource, courses: List<LmsCourseSummary>): String? {
+private suspend fun gatherTodos(source: LmsSource, courses: List<LmsCourseSummary>, cache: LmsPageCache): String? {
     val now = Clock.System.now()
     val today = now.toLocalDateTime(CampusTimeZone).date
     val latest = currentLmsSemester(today)
@@ -84,10 +84,12 @@ private suspend fun gatherTodos(source: LmsSource, courses: List<LmsCourseSummar
         current.map { c ->
             async {
                 gate.withPermit {
-                    val activityResult = runCatching { source.courseActivities(c.id) }
+                    // 课程列表已经扫过活动、查过作业交没交，这里直接用；列表接口不给交没交，作业只认查过的
+                    val activityResult = cache.activities[c.id]?.let { Result.success(it) } ?: runCatching { source.courseActivities(c.id) }
                     if (activityResult.exceptionOrNull() is kotlinx.coroutines.CancellationException) throw activityResult.exceptionOrNull()!!
+                    val pending = cache.pendingOf(c.id).map { it.id }.toSet()
                     val tasks = activityResult.getOrDefault(emptyList())
-                        .filter { (it.type == LmsActivityType.HOMEWORK || it.type == LmsActivityType.EXAM) && !it.isClosed && it.userSubmitCount == 0 }
+                        .filter { !it.isClosed && (if (it.type == LmsActivityType.HOMEWORK) it.id in pending else it.type == LmsActivityType.EXAM && it.userSubmitCount == 0) }
                         .mapNotNull { a ->
                             val raw = (if (a.type == LmsActivityType.HOMEWORK) a.deadline ?: a.endTime else a.endTime) ?: return@mapNotNull null
                             val due = runCatching { Instant.parse(raw) }.getOrNull()?.takeIf { it > now } ?: return@mapNotNull null
@@ -124,15 +126,18 @@ internal fun currentLmsSemester(date: kotlinx.datetime.LocalDate): String = when
 internal fun LmsTodoCard(
     source: LmsSource,
     courses: List<LmsCourseSummary>,
+    cache: LmsPageCache,
     onOpenCourse: (LmsCourseSummary) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     var input by remember { mutableStateOf<String?>(null) }
     var gathering by remember { mutableStateOf(false) }
-    LaunchedEffect(courses) {
-        if (courses.isEmpty()) return@LaunchedEffect
+    // 等课程列表那一遍扫完再汇总，不重复请求
+    val scanned = cache.openHomework != null
+    LaunchedEffect(courses, scanned) {
+        if (courses.isEmpty() || !scanned) return@LaunchedEffect
         gathering = true
-        input = gatherTodos(source, courses)
+        input = gatherTodos(source, courses, cache)
         gathering = false
     }
     val state = rememberInsight(LMS_TODOS, input)
@@ -140,7 +145,7 @@ internal fun LmsTodoCard(
         title = "待办",
         state = state,
         modifier = modifier,
-        subtitle = if (gathering) "在汇总本学期没交的作业、测试和公告…" else "本学期没交的作业、测试和新公告",
+        subtitle = if (gathering || !scanned) "在汇总本学期没交的作业、测试和公告…" else "本学期没交的作业、测试和新公告",
         askPrompt = { "思源这些作业，帮我具体规划一下这周怎么做完？" },
     ) { json ->
         json["summary"].safeStringOrNull()?.takeIf { it.isNotBlank() }?.let {

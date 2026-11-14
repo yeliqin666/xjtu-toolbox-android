@@ -37,6 +37,7 @@ import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
+import kotlinx.datetime.daysUntil
 import top.yukonga.miuix.kmp.basic.*
 import top.yukonga.miuix.kmp.window.WindowDialog
 import top.yukonga.miuix.kmp.theme.MiuixTheme
@@ -109,6 +110,35 @@ internal class LmsPageCache(private val disk: LmsCacheStore?) {
         }
         submittedById.putAll(found)
     }
+
+    /** 本学期各课还没截止的作业（课 id → 按截止排好）；null = 还没扫。交没交由 [submitted] 现查，交完返回即更新。 */
+    var openHomework by mutableStateOf<Map<Int, List<LmsActivity>>?>(null)
+        private set
+    private var scanStarted = false
+
+    /** 进课程列表时扫一遍本学期每门课的活动（顺带预热了点进课程要用的缓存），再查这些作业交没交。每次进入只扫一次。 */
+    suspend fun scanOpenHomework(source: LmsSource, current: List<LmsCourseSummary>) {
+        if (scanStarted) return
+        scanStarted = true
+        val gate = Semaphore(3)
+        coroutineScope {
+            current.filter { !activitiesSynced(it.id) }.map { c ->
+                async { gate.withPermit { runCatching { syncActivities(source, c.id) } } }
+            }.awaitAll()
+        }
+        val now = kotlin.time.Clock.System.now()
+        val open = current.associate { c ->
+            c.id to activities[c.id].orEmpty()
+                .filter { it.type == LmsActivityType.HOMEWORK && !it.isClosed && (it.deadlineInstant()?.let { d -> d > now } == true) }
+                .sortedBy { it.deadlineInstant() }
+        }
+        runCatching { syncSubmitted(source, open.values.flatten()) }
+        openHomework = open
+    }
+
+    /** 没交的（查不到交没交的不算，免得误报）。 */
+    fun pendingOf(courseId: Int): List<LmsActivity> =
+        openHomework?.get(courseId).orEmpty().filter { submitted(it) == false }
 
     /** 落盘失败只记日志，不影响这一次取数的结果。 */
     private inline fun writeSafe(block: () -> Unit) {
@@ -529,6 +559,19 @@ fun lmsActivityTimeLine(activity: LmsActivity): String {
     }
 }
 /** 将带偏移量的上游时间转换为学校时区；无偏移量的旧格式视为学校墙钟时间。 */
+/** 截止的口语说法：今天 / 明天 / 周几（一周内）/ M/d，后跟 HH:mm。 */
+internal fun dueLabel(due: kotlin.time.Instant): String {
+    val at = com.xjtu.toolbox.util.campusDateTimeOf(due.toEpochMilliseconds())
+    val days = com.xjtu.toolbox.util.todayOnCampus().daysUntil(at.date)
+    val day = when (days) {
+        0 -> "今天"
+        1 -> "明天"
+        in 2..6 -> "周" + "一二三四五六日"[at.date.dayOfWeek.ordinal]
+        else -> "${at.month.ordinal + 1}/${at.day}"
+    }
+    return "$day ${at.hour.toString().padStart(2, '0')}:${at.minute.toString().padStart(2, '0')}"
+}
+
 fun formatLmsTime(raw: String): String {
     val text = raw.trim()
     val instant = lmsInstant(text)
