@@ -162,11 +162,10 @@ class SettingsStore(private val store: KeyValueStore = keyValueStore(APP_SETTING
      * 小组件用液态玻璃（折射 + 高光，较耗电）；只在图片背景上真能看出效果，纯色 / 渐变与
      * 「糊到没有细节的图片」一律退成薄色卡片（见 `SettingsStore.HOME_WALLPAPER_BLUR_HIDES_GLASS`）。
      *
-     * **默认开**（2026-11 按维护者要求改）：这套玻璃是首页现在的默认观感，觉得卡 / 费电的人
-     * 自己去主页设置里关，或者只关折射。
+     * 默认关（维护者定）：想要的人去主页设置里开。只影响没动过这个开关的人。
      */
     var homeLiquidGlass: Boolean
-        get() = store.getBoolean("home_liquid_card", true)
+        get() = store.getBoolean("home_liquid_card", false)
         set(value) = store.putBoolean("home_liquid_card", value)
 
     var homeBackground: String
