@@ -18,7 +18,6 @@ import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.History
-import androidx.compose.material.icons.filled.Settings
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
@@ -206,12 +205,6 @@ fun AgentScreen(
             }
             CouiToolbarActionButton(onClick = { if (!showConfig) startNewChat() }) {
                 Icon(Icons.Default.Add, contentDescription = "新对话")
-            }
-            CouiToolbarActionButton(onClick = {
-                drawerOpen = false
-                showConfig = true
-            }) {
-                Icon(Icons.Default.Settings, contentDescription = "设置")
             }
         }
     }

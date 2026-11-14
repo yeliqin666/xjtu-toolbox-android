@@ -593,6 +593,16 @@ fun NavEntryBuilder.appPageEntries(
                 host = rememberAppSettingsHost(
                     credentialStore = credentialStore,
                     onNetworkModeChanged = { loginState.onNetworkChanged() },
+                    agentPage = { onAgentBack ->
+                        val agentContext = androidx.compose.ui.platform.LocalContext.current
+                        com.xjtu.toolbox.agent.AgentSettingsStandalone(
+                            host = remember(agentContext, loginState) {
+                                com.xjtu.toolbox.agent.AndroidAgentHost(agentContext, loginState)
+                            },
+                            onBack = onAgentBack,
+                            appearanceSection = { com.xjtu.toolbox.agent.PidaiAppearancePanel() },
+                        )
+                    },
                 ),
                 onBack = back,
             )

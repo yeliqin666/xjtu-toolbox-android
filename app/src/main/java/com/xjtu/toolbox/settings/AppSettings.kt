@@ -101,12 +101,14 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
 fun rememberAppSettingsHost(
     credentialStore: CredentialStore,
     onNetworkModeChanged: suspend () -> Unit,
+    /** 「设置 → 小岱」那一整页；`AppSettings` 在 `:app`，小岱面板在 `:feature:agent`，从外面递进来。 */
+    agentPage: (@Composable (onBack: () -> Unit) -> Unit)? = null,
 ): SettingsHost {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val uriHandler = LocalUriHandler.current
-    return remember(credentialStore, context, scope, uriHandler) {
-        AppSettingsHost(context, credentialStore, scope, onNetworkModeChanged) { uriHandler.openUri(it) }
+    return remember(credentialStore, context, scope, uriHandler, agentPage) {
+        AppSettingsHost(context, credentialStore, scope, onNetworkModeChanged, agentPage) { uriHandler.openUri(it) }
     }
 }
 
@@ -115,8 +117,11 @@ private class AppSettingsHost(
     private val credentialStore: CredentialStore,
     private val scope: CoroutineScope,
     private val notifyNetworkModeChanged: suspend () -> Unit,
+    private val agentPageImpl: (@Composable (onBack: () -> Unit) -> Unit)?,
     private val openUri: (String) -> Unit,
 ) : SettingsHost {
+
+    override val agentPage: (@Composable (onBack: () -> Unit) -> Unit)? get() = agentPageImpl
 
     override val versionText: String =
         "v${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})${if (BuildConfig.IS_PREVIEW) "（预览版）" else ""}"

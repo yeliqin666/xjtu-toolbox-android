@@ -16,6 +16,7 @@ import androidx.compose.material.icons.filled.Layers
 import androidx.compose.material.icons.filled.Wifi
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Palette
+import androidx.compose.material.icons.filled.SmartToy
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.Tab
 import androidx.compose.material.icons.filled.Wallpaper
@@ -457,6 +458,9 @@ fun SettingsScreen(
         host.noticeSection?.let {
             add(SettingsGroup("通知与提醒", Icons.Default.Notifications, cOrange, it))
         }
+        host.agentPage?.let {
+            add(SettingsGroup("小岱", Icons.Default.SmartToy, cPurple, fullPage = true))
+        }
         add(SettingsGroup("关于", MiuixIcons.Info, cBlue, aboutGroup))
     }
 
@@ -492,6 +496,7 @@ fun SettingsScreen(
         SettingsHome(
             groups, onBack,
             onOpenGroup = { page = it },
+            onOpenFullPage = { page = AGENT_PAGE },
             modifier = Modifier.graphicsLayer {
                 translationX = (if (rtl) 1f else -1f) * cover * size.width * 0.25f
                 alpha = 1f - 0.1f * cover
@@ -538,6 +543,19 @@ fun SettingsScreen(
                 else -> CreditsScreen(host = host, onBack = close)
             }
         }
+        // 小岱设置整页：面板本身是 LazyColumn，塞不进二级页那层 verticalScroll，只能整页盖上来
+        AnimatedVisibility(
+            visible = page == AGENT_PAGE,
+            enter = slideInHorizontally(
+                tween(AppPageMotion.DurationMillis, easing = AppPageMotion.Easing),
+            ) { if (rtl) -it else it },
+            exit = slideOutHorizontally(
+                tween(AppPageMotion.DurationMillis, easing = AppPageMotion.Easing),
+            ) { if (rtl) -it else it },
+        ) {
+            BackHandler(enabled = page == AGENT_PAGE) { page = NO_PAGE }
+            host.agentPage?.invoke({ page = NO_PAGE })
+        }
     }
 }
 
@@ -546,6 +564,7 @@ private fun SettingsHome(
     groups: List<SettingsGroup>,
     onBack: () -> Unit,
     onOpenGroup: (Int) -> Unit,
+    onOpenFullPage: (Int) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val scrollBehavior = rememberCouiTopAppBarScrollBehavior()
@@ -594,7 +613,7 @@ private fun SettingsHome(
                                     title = group.title,
                                     startAction = { SettingsIcon(group.icon, group.color) },
                                     holdDownState = selectedGroup == i,
-                                    onClick = { selectedGroup = i },
+                                    onClick = { if (group.fullPage) onOpenFullPage(i) else selectedGroup = i },
                                 )
                             }
                         }
@@ -635,7 +654,7 @@ private fun SettingsHome(
                         ArrowPreference(
                             title = group.title,
                             startAction = { SettingsIcon(group.icon, group.color) },
-                            onClick = { onOpenGroup(i) },
+                            onClick = { if (group.fullPage) onOpenFullPage(i) else onOpenGroup(i) },
                         )
                     }
                 }
@@ -689,16 +708,19 @@ private const val NO_PAGE = -1
 private const val CREDITS_PAGE = -2
 private const val CHANGELOG_PAGE = -3
 private const val EULA_PAGE = -4
+private const val AGENT_PAGE = -5
 
 /** 从「关于」点进去、叠在它上面的那几页。 */
 private val ABOUT_CHILD_PAGES = setOf(CREDITS_PAGE, CHANGELOG_PAGE, EULA_PAGE)
 
-/** 一组设置：组名列表拿 [title]/[icon]/[color]，组内容拿 [body]。 */
+/** 一组设置：组名列表拿 [title]/[icon]/[color]，组内容拿 [body]。
+ *  [fullPage] 的组不在二级页里展开，点开是整页（内容自带顶栏，见 [SettingsHost.agentPage]）。 */
 private class SettingsGroup(
     val title: String,
     val icon: ImageVector,
     val color: Color,
-    val body: @Composable () -> Unit,
+    val body: @Composable () -> Unit = {},
+    val fullPage: Boolean = false,
 )
 
 @Composable

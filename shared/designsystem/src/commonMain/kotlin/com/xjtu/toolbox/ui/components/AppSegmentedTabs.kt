@@ -56,17 +56,20 @@ fun AppSegmentedTabs(
 ) {
     if (tabs.isEmpty()) return
     // 和页面卡片的外边距对齐：轨道左右各让 16dp，正好压在下方卡片的边缘上；
-    // embedded（已经在卡片里）收窄到 4dp，compact（壁纸编辑器的表格）由外层自己给边距。
+    // embedded（已经在卡片里）让 12dp、上下再留 10dp——让得再少，轨道的灰和卡片外的页面底色
+    // 在圆角处就连成一片，看着像卡片缺了一角。上下那点留白就是卡片里的呼吸空间。
+    // compact（壁纸编辑器的表格）由外层自己给边距。
     val inset = when {
         compact -> 0.dp
-        embedded -> 4.dp
+        embedded -> 12.dp
         else -> 16.dp
     }
+    val vertical = if (embedded) 10.dp else 0.dp
     PlatformSegmentedTabs(
         labels = tabs,
         selectedIndex = selectedTabIndex.coerceIn(0, tabs.lastIndex),
         onSelected = onTabSelected,
-        modifier = modifier.padding(horizontal = inset).fillMaxWidth(),
+        modifier = modifier.padding(horizontal = inset, vertical = vertical).fillMaxWidth(),
         small = compact,
         reselectable = reselectable,
     )
