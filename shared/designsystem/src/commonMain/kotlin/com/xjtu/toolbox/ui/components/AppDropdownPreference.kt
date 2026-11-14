@@ -18,6 +18,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import top.yukonga.miuix.kmp.basic.BasicComponent
@@ -55,31 +56,36 @@ internal fun DropdownPreferenceRow(
     holdDown: Boolean,
     onClick: () -> Unit,
 ) {
-    val muted = MiuixTheme.colorScheme.onSurfaceVariantActions
-    BasicComponent(
+    val muted = MiuixTheme.colorScheme.onSurfaceVariantSummary
+    CouiPreferenceItem(
         title = title,
         summary = summary,
-        startAction = startAction,
-        endActions = {
+        icon = startAction,
+        enabled = enabled,
+        onClick = onClick,
+        trailing = {
             Row(
                 Modifier.graphicsLayer { alpha = valueAlpha },
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(
                     value,
-                    style = MiuixTheme.textStyles.body2,
+                    fontSize = CouiPreferenceSpec.valueSize,
                     color = muted,
-                    maxLines = 1,
+                    maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.widthIn(max = 140.dp),
+                    modifier = Modifier.widthIn(max = CouiPreferenceSpec.valueMaxWidth - 20.dp),
+                    textAlign = TextAlign.End,
                 )
-                Spacer(Modifier.width(4.dp))
-                Icon(Icons.Default.UnfoldMore, contentDescription = null, tint = muted, modifier = Modifier.size(16.dp))
+                Spacer(Modifier.size(4.dp))
+                Icon(
+                    Icons.Default.UnfoldMore,
+                    contentDescription = null,
+                    tint = muted,
+                    modifier = Modifier.size(16.dp),
+                )
             }
         },
-        onClick = onClick,
-        holdDownState = holdDown,
-        enabled = enabled,
     )
 }
 

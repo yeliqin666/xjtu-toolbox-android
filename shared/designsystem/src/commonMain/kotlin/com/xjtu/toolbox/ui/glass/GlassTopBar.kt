@@ -22,13 +22,12 @@ import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.constrainHeight
 import androidx.compose.ui.unit.dp
-import com.kyant.backdrop.Backdrop
 import com.kyant.backdrop.backdrops.LayerBackdrop
-import com.kyant.backdrop.backdrops.layerBackdrop
 import com.kyant.backdrop.backdrops.rememberLayerBackdrop
 import com.xjtu.toolbox.ui.components.BackButton
 import androidx.compose.foundation.layout.RowScope
 import top.yukonga.miuix.kmp.theme.MiuixTheme
+import com.xjtu.toolbox.ui.theme.LocalIsDarkTheme
 
 /**
  * 二级页的玻璃顶栏。用法：
@@ -87,7 +86,9 @@ fun couiPageBackdropFor(glass: LayerBackdrop?): CouiPageBackdrop? =
 fun Modifier.glassSource(backdrop: LayerBackdrop?): Modifier {
     if (backdrop == null) return this
     val couiBackdrop = couiPageBackdrops[backdrop]
-    return this.layerBackdrop(backdrop)
+    // 旧的 kyant 采样层已经没人消费了（顶栏用 COUI 那层、切换条改胶囊后不再取样），
+    // 这里只挂 COUI 的采样节点，页面不再多录一份整屏离屏图。
+    return this
         .then(if (couiBackdrop != null) couiBackdrop.recordInto(Modifier) else Modifier)
         // 采样层自己垫一层页面底色：页面底色是 Scaffold 在采样层外面画的，录下来是透明的，
         // 顶栏的模糊遇到透明像素直接放行，不在卡片上的字（「共 N 项」之类）就会清清楚楚透出顶栏
@@ -168,40 +169,13 @@ fun GlassTopAppBar(
     )
 }
 
-/** 顶栏底色：COUI 顶栏自己画背景，玻璃时透明；经典风格是 surface。 */
+/** 顶栏底色：COUI 顶栏自己画背景，玻璃时透明；经典风格是纯白 / 纯黑（与所有兜底表面一致）。 */
 @Composable
 fun glassBarColor(backdrop: LayerBackdrop?): Color =
     // COUI 的折叠顶栏由 CouiTopAppBarSurface 铺模糊（渐隐色那层已去掉），底色必须透出来；
-    // 经典风格（没有采样源）才用实色，页面传进来的这个值最终就是它的背景。
-    if (backdrop != null) Color.Transparent else MiuixTheme.colorScheme.surface
-
-/** 二级页顶栏的玻璃，见 [glassBarSurface]。 */
-@Composable
-fun Modifier.glassTopBar(backdrop: LayerBackdrop?): Modifier {
-    if (backdrop == null) return this
-    // COUI 的折叠顶栏自己铺渐隐模糊，再叠一层 kyant 渐进模糊就是两层模糊
-    if (couiGlassBarSupported) return this
-    return glassBarSurface(backdrop, glassBarTint())
-}
-
-/**
- * 旧玻璃兜底：给仍然用 MIUIX 钉死小标题顶栏的页准备（那种顶栏没有自己的表面，
- * 只能靠 [glassBarSurface] 压在内容上）。Android 各页的顶栏已全部换成
- * [CouiPageTopAppBar]（pinned = true）的 COUI 表面，这里目前没有调用方，留作回退入口。
- */
-@Composable
-fun Modifier.glassPinnedTopBar(backdrop: LayerBackdrop?): Modifier {
-    if (backdrop == null) return this
-    return glassBarSurface(backdrop, glassBarTint())
-}
-
-/** 顶栏玻璃上压的表面色，保证字看得清。 */
-@Composable
-fun glassBarTint(): Color = MiuixTheme.colorScheme.surface.copy(alpha = 0.72f)
-
-/** 贴边顶栏的玻璃：与首页同一套无边界渐变模糊，见 [progressiveBlurBar]。只画不量。 */
-@Composable
-fun Modifier.glassBarSurface(backdrop: Backdrop, tint: Color): Modifier = progressiveBlurBar(backdrop, tint)
+    // 经典风格（没有采样源）用兜底那套纯白 / 纯黑。
+    if (backdrop != null) Color.Transparent
+    else if (LocalIsDarkTheme.current) Color.Black else Color.White
 
 /** 玻璃时内容容器不吃顶部 padding（铺到顶栏下面）；经典时原样返回。 */
 @Composable

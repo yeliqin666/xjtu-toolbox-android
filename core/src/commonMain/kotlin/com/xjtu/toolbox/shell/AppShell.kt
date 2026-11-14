@@ -30,11 +30,6 @@ import androidx.compose.ui.unit.dp
 import com.xjtu.toolbox.ui.glass.GLASS_BAR_HEIGHT
 import com.xjtu.toolbox.ui.glass.rememberCouiGlassBarBackdrop
 import com.xjtu.toolbox.ui.glass.LocalCouiGlassBarBackdrop
-import com.kyant.backdrop.Backdrop
-import com.kyant.backdrop.backdrops.LayerBackdrop
-import com.kyant.backdrop.backdrops.layerBackdrop
-import com.kyant.backdrop.backdrops.rememberCombinedBackdrop
-import com.kyant.backdrop.backdrops.rememberLayerBackdrop
 import com.xjtu.toolbox.platform.smallestScreenWidthDp
 import com.xjtu.toolbox.ui.WindowSize
 import com.xjtu.toolbox.ui.currentWindowSize
@@ -93,18 +88,9 @@ fun AppShell(
     // 底栏与页面容器在窗口里的位置：只在绘制阶段读，不用 state
     val barGeometry = remember { BarGeometry() }
 
-    // 玻璃采样源只录 tab 内容区；录整个 Scaffold 会让底栏采样自己，RenderThread 直接崩
-    val contentBackdrop = rememberLayerBackdrop(cache = glassStyle)
     // COUI 材质的页面采样源（只有 Android 有实现，其它平台为 null，底栏自动降级）
     val couiGlassBackdrop = rememberCouiGlassBarBackdrop()
-    // 底栏导出成一层，屁岱气泡尖角伸到底栏上时采的是「页面 + 底栏」
-    val barBackdrop = rememberLayerBackdrop()
-    val handles = ShellHandles(
-        contentBackdrop = contentBackdrop,
-        barBackdrop = barBackdrop,
-        combinedBackdrop = rememberCombinedBackdrop(contentBackdrop, barBackdrop),
-        glassBarPresent = layout.glassBarPresent,
-    )
+    val handles = ShellHandles(glassBarPresent = layout.glassBarPresent)
 
     // 端上那只气泡：底栏版和侧栏版共用同一份，各自只管定位
     val bubble: @Composable () -> Unit = { barBubble?.invoke(handles) }
@@ -147,8 +133,6 @@ fun AppShell(
                                 selectedColor = navSelectedContent,
                                 unselectedColor = navUnselectedContent,
                                 iconBox = navIconBox,
-                                backdrop = contentBackdrop,
-                                exportedBackdrop = barBackdrop,
                                 bottomPadding = layout.glassBarSlotBottomPadding,
                                 bubble = bubble,
                                 tabArt = tabArt,
@@ -188,7 +172,7 @@ fun AppShell(
                         pageHost = pageHost,
                         // 底栏形态才滑；侧栏是上下排的，左右滑对不上
                         slide = !isWide,
-                        modifier = (if (glassStyle) Modifier.layerBackdrop(contentBackdrop) else Modifier)
+                        modifier = Modifier
                             .then(couiGlassBackdrop?.recordInto(Modifier) ?: Modifier),
                         zoom = tabZoom?.apply {
                             val density = LocalDensity.current
@@ -214,11 +198,8 @@ fun AppShell(
                             edgeToEdge = p.tab?.edgeToEdge == true,
                             statusTop = statusTop,
                             bar = if (topBar != null && p.tab?.drawsOwnTopBar != true) {
-                                { backdrop ->
-                                    topBar(
-                                        p.tab,
-                                        ShellHandles(backdrop, barBackdrop, handles.combinedBackdrop, handles.glassBarPresent),
-                                    )
+                                {
+                                    topBar(p.tab, ShellHandles(glassBarPresent = handles.glassBarPresent))
                                 }
                             } else {
                                 null
@@ -273,13 +254,7 @@ class ShellPageInsets(
 
 /** 共享壳交给端上插槽的那几样把手。 */
 class ShellHandles(
-    /** 采样层：交给顶栏时是这一页自己的内容层，交给其它插槽时是整个 tab 区。 */
-    val contentBackdrop: LayerBackdrop,
-    /** 底栏导出的一层。 */
-    val barBackdrop: LayerBackdrop,
-    /** [contentBackdrop] 与 [barBackdrop] 的合成层（kyant 的 `rememberCombinedBackdrop` 给的就是它）。 */
-    val combinedBackdrop: Backdrop,
-    /** 玻璃胶囊底栏在场（决定气泡尖角朝下时该采哪一层）。 */
+    /** 玻璃胶囊底栏在场（决定气泡该不该用 COUI 材质）。 */
     val glassBarPresent: Boolean,
 )
 

@@ -21,18 +21,12 @@ import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.Tab
 import androidx.compose.material.icons.filled.Wallpaper
 import com.xjtu.toolbox.ui.glass.CouiToolbarActionButton
-import top.yukonga.miuix.kmp.icon.MiuixIcons
-import top.yukonga.miuix.kmp.icon.extended.Back
-import top.yukonga.miuix.kmp.icon.extended.Carrier
-import top.yukonga.miuix.kmp.icon.extended.File
-import top.yukonga.miuix.kmp.icon.extended.Forward
-import top.yukonga.miuix.kmp.icon.extended.Info
-import top.yukonga.miuix.kmp.icon.extended.Recent
-import top.yukonga.miuix.kmp.icon.extended.Settings
-import top.yukonga.miuix.kmp.icon.extended.Theme
 import com.xjtu.toolbox.ui.glass.tabContentBottomPadding
 import com.xjtu.toolbox.home.BottomBarTabs
 import com.xjtu.toolbox.ui.components.HeroAppearance
+import com.xjtu.toolbox.ui.components.ArrowPreference
+import com.xjtu.toolbox.ui.components.CouiSettingsCard
+import com.xjtu.toolbox.ui.components.SwitchPreference
 import com.xjtu.toolbox.ui.components.HeroAppearanceRevision
 import com.xjtu.toolbox.ui.components.HomeHeroAppearanceDialog
 import com.xjtu.toolbox.ui.components.JiaoxiaoxiAvatar
@@ -67,6 +61,12 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Description
+import androidx.compose.material.icons.filled.History
+import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.OpenInNew
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -92,14 +92,12 @@ import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.CardDefaults
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.Scaffold
-import top.yukonga.miuix.kmp.basic.SmallTitle
+import com.xjtu.toolbox.ui.components.SmallTitle
 import top.yukonga.miuix.kmp.basic.Surface
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.overlay.OverlayBottomSheet
-import top.yukonga.miuix.kmp.preference.ArrowPreference
 import com.xjtu.toolbox.ui.components.AppDropdownPreference
 import com.xjtu.toolbox.ui.glass.rememberCouiTopAppBarScrollBehavior
-import top.yukonga.miuix.kmp.preference.SwitchPreference
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.utils.overScrollVertical
 
@@ -194,7 +192,7 @@ fun SettingsScreen(
         SettingsStore.DARK_MODE_LIGHT,
         SettingsStore.DARK_MODE_DARK
     )
-    val navStyleOptions = listOf("玻璃（默认）", "经典")
+    val navStyleOptions = listOf("玻璃", "经典")
     val navStyleValues = listOf(
         SettingsStore.NAV_STYLE_FLOATING,
         SettingsStore.NAV_STYLE_CLASSIC
@@ -278,7 +276,6 @@ fun SettingsScreen(
                 // 管所有玻璃（底栏、侧栏、气泡、顶栏），宽屏也显示
                 AppDropdownPreference(
                     title = "界面质感",
-                    summary = "顶栏、底栏和气泡用玻璃还是实色",
                     items = navStyleOptions,
                     selectedIndex = navStyleValues.indexOf(navBarStyle).coerceAtLeast(0),
                     startAction = { SettingsIcon(Icons.Default.Layers, cBlue) },
@@ -310,7 +307,6 @@ fun SettingsScreen(
                 if (showQuickActions) {
                     SwitchPreference(
                         title = "常用功能",
-                        summary = "按你的使用习惯，把最常点的几项排在首页最前面",
                         checked = showQuickActionsOn,
                         startAction = { SettingsIcon(Icons.Default.Star, cTeal) },
                         onCheckedChange = { v ->
@@ -327,8 +323,8 @@ fun SettingsScreen(
             SettingsCard {
                 if (showBottomTabs) {
                     ArrowPreference(
-                        title = "底栏放哪些页",
-                        summary = tabOptions.joinToString(" · "),
+                        title = "底栏页面",
+                        summary = tabOptions.joinToString(" "),
                         startAction = { SettingsIcon(Icons.Default.Tab, cIndigo) },
                         onClick = { showBottomBarDialog = true },
                     )
@@ -415,20 +411,20 @@ fun SettingsScreen(
                 modifier = Modifier.copyOnLongPress(versionText, copy),
                 title = "版本号",
                 summary = versionText,
-                startAction = { SettingsIcon(MiuixIcons.Info, cGreen) }
+                startAction = { SettingsIcon(Icons.Default.Info, cGreen) }
             )
             if (host.changelog.isNotEmpty()) {
                 ArrowPreference(
                     title = "更新日志",
                     summary = "查看历史版本变化",
-                    startAction = { SettingsIcon(MiuixIcons.Recent, cTeal) },
+                    startAction = { SettingsIcon(Icons.Default.History, cTeal) },
                     onClick = { page = CHANGELOG_PAGE }
                 )
             }
             ArrowPreference(
                 title = "项目主页",
                 summary = "GitHub · yeliqin666/xjtu-toolbox-android",
-                startAction = { SettingsIcon(MiuixIcons.Forward, cBlue) },
+                startAction = { SettingsIcon(Icons.Default.OpenInNew, cBlue) },
                 onClick = { host.onOpenUrl("https://github.com/yeliqin666/xjtu-toolbox-android") }
             )
             ArrowPreference(
@@ -439,7 +435,7 @@ fun SettingsScreen(
             )
             ArrowPreference(
                 title = "用户协议与隐私政策",
-                startAction = { SettingsIcon(MiuixIcons.File, cPurple) },
+                startAction = { SettingsIcon(Icons.Default.Description, cPurple) },
                 onClick = { page = EULA_PAGE }
             )
         }
@@ -453,7 +449,7 @@ fun SettingsScreen(
             add(SettingsGroup("外观", Icons.Default.Palette, cPurple, appearanceGroup))
         }
         if (generalRows || scheduleRows) {
-            add(SettingsGroup("通用", MiuixIcons.Settings, cTeal, generalGroup))
+            add(SettingsGroup("通用", Icons.Default.Settings, cTeal, generalGroup))
         }
         host.noticeSection?.let {
             add(SettingsGroup("通知与提醒", Icons.Default.Notifications, cOrange, it))
@@ -461,7 +457,7 @@ fun SettingsScreen(
         host.agentPage?.let {
             add(SettingsGroup("小岱", Icons.Default.SmartToy, cPurple, fullPage = true))
         }
-        add(SettingsGroup("关于", MiuixIcons.Info, cBlue, aboutGroup))
+        add(SettingsGroup("关于", Icons.Default.Info, cBlue, aboutGroup))
     }
 
     // 「关于」里点进去的页（致谢、更新日志、用户协议）叠在「关于」上面：两层各滑各的，「关于」一直在底下，
@@ -581,7 +577,7 @@ private fun SettingsHome(
                 scrollBehavior = scrollBehavior,
                 navigationIcon = {
                     CouiToolbarActionButton(onClick = onBack) {
-                        Icon(MiuixIcons.Back, contentDescription = "返回")
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
                     }
                 }
             )
@@ -680,7 +676,7 @@ private fun SettingsSubPage(title: String, onBack: () -> Unit, content: @Composa
                 scrollBehavior = scrollBehavior,
                 navigationIcon = {
                     CouiToolbarActionButton(onClick = onBack) {
-                        Icon(MiuixIcons.Back, contentDescription = "返回")
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
                     }
                 }
             )
@@ -724,16 +720,8 @@ private class SettingsGroup(
 )
 
 @Composable
-private fun SettingsCard(content: @Composable ColumnScope.() -> Unit) {
-    Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 4.dp),
-        cornerRadius = 16.dp,
-        colors = CardDefaults.defaultColors(color = MiuixTheme.colorScheme.surfaceVariant)
-    ) {
-        Column(content = content)
-    }
+private fun SettingsCard(content: @Composable () -> Unit) {
+    CouiSettingsCard(content = content)
 }
 
 /** 更新日志页的正文：每个版本一张卡，版本号作卡头。 */
@@ -777,7 +765,7 @@ private fun CreditsScreen(host: SettingsHost, onBack: () -> Unit) {
             ArrowPreference(
                 title = "B 站主页",
                 summary = "space.bilibili.com/3494379805215567",
-                startAction = { SettingsIcon(MiuixIcons.Forward, cBlue) },
+                startAction = { SettingsIcon(Icons.Default.OpenInNew, cBlue) },
                 onClick = { host.onOpenUrl("https://space.bilibili.com/3494379805215567") }
             )
         }
@@ -792,7 +780,7 @@ private fun CreditsScreen(host: SettingsHost, onBack: () -> Unit) {
             ArrowPreference(
                 title = "项目贡献者",
                 summary = "GitHub 上的贡献者列表",
-                startAction = { SettingsIcon(MiuixIcons.Forward, cBlue) },
+                startAction = { SettingsIcon(Icons.Default.OpenInNew, cBlue) },
                 onClick = { host.onOpenUrl("https://github.com/yeliqin666/xjtu-toolbox-android/graphs/contributors") }
             )
         }
@@ -801,13 +789,13 @@ private fun CreditsScreen(host: SettingsHost, onBack: () -> Unit) {
             ArrowPreference(
                 title = "岱宗盒子",
                 summary = "GPL-3.0",
-                startAction = { SettingsIcon(MiuixIcons.File, cPurple) },
+                startAction = { SettingsIcon(Icons.Default.Description, cPurple) },
                 onClick = { host.onOpenUrl("https://github.com/yeliqin666/xjtu-toolbox-android/blob/main/LICENSE") }
             )
             ArrowPreference(
                 title = "第三方声明",
                 summary = "上游项目的改动说明与许可证全文",
-                startAction = { SettingsIcon(MiuixIcons.File, cPurple) },
+                startAction = { SettingsIcon(Icons.Default.Description, cPurple) },
                 onClick = { host.onOpenUrl("https://github.com/yeliqin666/xjtu-toolbox-android/blob/main/THIRD_PARTY_NOTICES.md") }
             )
         }
@@ -816,7 +804,7 @@ private fun CreditsScreen(host: SettingsHost, onBack: () -> Unit) {
             ArrowPreference(
                 title = "XJTUToolBox by yan-xiaoo",
                 summary = "开源社区项目",
-                startAction = { SettingsIcon(MiuixIcons.Info, cLime) },
+                startAction = { SettingsIcon(Icons.Default.Info, cLime) },
                 onClick = { host.onOpenUrl("https://github.com/yan-xiaoo/XJTUToolBox") }
             )
         }
@@ -827,31 +815,31 @@ private fun CreditsScreen(host: SettingsHost, onBack: () -> Unit) {
             ArrowPreference(
                 title = "suika-game by moonfloof",
                 summary = "「合成西交大」的玩法与实现基础 · Unlicense",
-                startAction = { SettingsIcon(MiuixIcons.Info, cLime) },
+                startAction = { SettingsIcon(Icons.Default.Info, cLime) },
                 onClick = { host.onOpenUrl("https://github.com/moonfloof/suika-game") }
             )
             ArrowPreference(
                 title = "Matter.js by liabru",
                 summary = "「合成西交大」的物理引擎 · MIT",
-                startAction = { SettingsIcon(MiuixIcons.Info, cLime) },
+                startAction = { SettingsIcon(Icons.Default.Info, cLime) },
                 onClick = { host.onOpenUrl("https://github.com/liabru/matter-js") }
             )
             ArrowPreference(
                 title = "chinese-chess-fish-android by zfdang",
                 summary = "象棋规则引擎 · MIT",
-                startAction = { SettingsIcon(MiuixIcons.Info, cLime) },
+                startAction = { SettingsIcon(Icons.Default.Info, cLime) },
                 onClick = { host.onOpenUrl("https://github.com/zfdang/chinese-chess-fish-android") }
             )
             ArrowPreference(
                 title = "Etoile by JoyinJoester",
                 summary = "社区讨论区与 GitHub 登录 · GPL-3.0",
-                startAction = { SettingsIcon(MiuixIcons.Info, cLime) },
+                startAction = { SettingsIcon(Icons.Default.Info, cLime) },
                 onClick = { host.onOpenUrl("https://github.com/JoyinJoester/Etoile") }
             )
             ArrowPreference(
                 title = "blackstone by haslam22",
                 summary = "五子棋 AI 的思路来源（未并入代码）· MIT",
-                startAction = { SettingsIcon(MiuixIcons.Info, cLime) },
+                startAction = { SettingsIcon(Icons.Default.Info, cLime) },
                 onClick = { host.onOpenUrl("https://github.com/haslam22/blackstone") }
             )
         }

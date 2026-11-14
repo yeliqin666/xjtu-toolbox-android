@@ -11,6 +11,12 @@ import androidx.compose.ui.Modifier
 interface CouiGlassBarBackdrop {
     /** 把采样层挂到页面内容节点上。同一子树只能挂一次。 */
     fun recordInto(modifier: Modifier): Modifier
+
+    /**
+     * 把这层采样源当普通面板采样用（[CouiGlassPanel] 的 `pageBackdrop`）。
+     * Android 上就是同一个 `CouiBackdrop`；其它平台没有实现。
+     */
+    fun asPageBackdrop(): CouiPageBackdrop?
 }
 
 /**

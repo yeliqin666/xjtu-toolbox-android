@@ -138,7 +138,6 @@ fun TextbookScreen(
             tabs = tabs,
             selectedTabIndex = selectedTab,
             onTabSelected = { selectedTab = it },
-            glass = glass,
             visible = tabs.size > 1,
             modifier = Modifier.fillMaxSize(),
         ) {

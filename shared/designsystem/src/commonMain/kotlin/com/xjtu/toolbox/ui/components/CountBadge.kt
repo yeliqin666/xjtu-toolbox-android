@@ -4,9 +4,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -14,10 +12,8 @@ import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.kyant.backdrop.backdrops.emptyBackdrop
-import com.kyant.backdrop.drawBackdrop
-import com.kyant.backdrop.highlight.Highlight
-import com.xjtu.toolbox.ui.glass.floatingGlassShadow
+import com.xjtu.toolbox.ui.glass.CouiGlassPanel
+import com.xjtu.toolbox.ui.glass.LocalCouiPageBackdrop
 import com.xjtu.toolbox.ui.theme.LocalIsDarkTheme
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.theme.MiuixTheme
@@ -25,12 +21,9 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
 /**
  * 一枚「有几个」的小圆标（`1` / `12` / `99+`）。
  *
- * **和卡片同一套液态玻璃的参数，但不采样**（2026-11 维护者定）：轮廓高光是同一份
- * `Highlight.Default.copy(alpha = 0.65f)`、环境光投影是同一份 [floatingGlassShadow]，
- * 走 `drawBackdrop` 但 **`sampling = false`**（vendored backdrop 的开关，见 
- * `thirdparty/backdrop/README.md`）：不录采样层、不跑 `effects`、不建离屏层，而高光与投影
- * 仍由库自己画——这枚 15dp 的小圆标下面本来就没有可采的东西，`vibrancy` / `blur` / `lens` 
- * 一个都用不上。参数只有一处来源，所以它和卡片之间不会慢慢漂成两套材质。
+ * 材质用 [CouiGlassPanel]：顶栏 / 底栏里有 COUI 采样源时就是原厂浮层材质（AGSL、边缘光、内光晕），
+ * 拿不到采样源（经典风格、模态层里）时落到兜底的染色实底。旧的 kyant `Highlight` +
+ * `floatingGlassShadow` 那套（`drawBackdrop(sampling = false)`）已删掉，不再和首页卡片共用参数。
  *
  * 放在 `:shared:designsystem` 而不是某个 feature 里，是因为首页悬浮条与通知铃铛分属两个 feature，
  * 而 feature 之间不许互相依赖。
@@ -47,36 +40,25 @@ fun CountBadge(count: Int, modifier: Modifier = Modifier, accent: Color = Color.
     val ink = if (dark) lerp(tint, Color.White, 0.45f) else lerp(tint, Color.Black, 0.3f)
     // 染色面：比实心色淡得多——它的作用是「往底下那块玻璃里掺一点色」，不是盖住它
     val wash = tint.copy(alpha = if (dark) 0.50f else 0.42f)
-    val glow = remember(tint, dark) { floatingGlassShadow(tint, dark) }
-    val rim = remember { Highlight.Default.copy(alpha = 0.65f) }
-
-    // 和首页卡片同一条路：sampling = false 只跳过「录一层采样结果」，高光 / 投影由库自己画，
-    // 所以这枚小圆标与卡片之间不会漂成两套材质
-    val material = remember(wash, glow, rim) {
-        Modifier.drawBackdrop(
-            backdrop = emptyBackdrop(),
-            shape = { CircleShape },
-            sampling = false,
-            effects = {},
-            highlight = { rim },
-            shadow = { glow },
-            onDrawSurface = { drawRect(wash) },
-        )
-    }
-    Box(
-        modifier
-            .height(15.dp)
-            .widthIn(min = 15.dp)
-            .then(material)
-            .padding(horizontal = 3.5.dp),
-        contentAlignment = Alignment.Center,
+    CouiGlassPanel(
+        pageBackdrop = LocalCouiPageBackdrop.current,
+        modifier = modifier,
+        cornerRadius = 7.5.dp,
+        tint = wash,
+        // 兜底（没有采样源）用染色实底：角标上承的是深色数字，不能是纯白 / 纯黑。
+        fallbackColor = tint.copy(alpha = if (dark) 0.9f else 0.82f),
     ) {
-        Text(
-            label,
-            fontSize = 9.5.sp,
-            lineHeight = 9.5.sp,
-            fontWeight = FontWeight.Bold,
-            color = ink,
-        )
+        Box(
+            Modifier.height(15.dp).widthIn(min = 15.dp).padding(horizontal = 3.5.dp),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text(
+                label,
+                fontSize = 9.5.sp,
+                lineHeight = 9.5.sp,
+                fontWeight = FontWeight.Bold,
+                color = ink,
+            )
+        }
     }
 }

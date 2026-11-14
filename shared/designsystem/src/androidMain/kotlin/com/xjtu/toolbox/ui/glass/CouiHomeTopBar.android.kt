@@ -41,7 +41,8 @@ actual fun CouiHomeTopBarSurface(
         // （COUI 原版 `TopAppBarButton` 会 checkNotNull），这里录一层实色当采样源：
         // 材质照原版画，只是采到的是这层底色而不是背后的画面。
         val solidBackdrop = rememberCouiBackdrop()
-        Box(modifier.fillMaxSize().couiBackdrop(solidBackdrop).background(gradientColor)) {
+        // 经典风格 = 兜底：纯白 / 纯黑实底（不再用主题表面色，和所有兜底表面同一观感）。
+        Box(modifier.fillMaxSize().couiBackdrop(solidBackdrop).background(if (LocalIsDarkTheme.current) Color.Black else Color.White)) {
             CompositionLocalProvider(LocalCouiToolbarBackdrop provides solidBackdrop, content = content)
         }
         return

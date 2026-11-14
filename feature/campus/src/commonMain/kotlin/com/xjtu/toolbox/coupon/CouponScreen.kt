@@ -102,7 +102,6 @@ fun CouponScreen(
             tabs = CouponFilter.entries.map { it.label },
             selectedTabIndex = CouponFilter.entries.indexOf(selectedFilter),
             onTabSelected = { vm.selectFilter(CouponFilter.entries[it]) },
-            glass = glass,
             modifier = Modifier.fillMaxSize(),
         ) {
         // 宽屏不再整页限宽 720：券卡分两三列铺开，只有标签行还限宽居中

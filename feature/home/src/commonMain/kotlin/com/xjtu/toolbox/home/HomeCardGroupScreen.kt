@@ -202,7 +202,8 @@ fun HomeCardGroupScreen(
     }
     val layout = editing.draft ?: stored
     val grid = layoutStore.grid
-    val liquid = remember(settingsRevision) { settings.homeLiquidGlass }
+    // 卡片材质固定为柔光玻璃（'液态玻璃' 开关已删）。
+    val liquid = true
     // 液态玻璃的折射子项：只在 liquid 为真时有意义，关掉省一层离屏位移采样（见 HomeLayoutStore）
     // 背景样式：主题底色 / 主题色渐变 / 自定义图片（取值与经典版同一套字符串）
     val backgroundMode = remember(settingsRevision) { settings.homeBackground }
@@ -1038,10 +1039,8 @@ fun HomeCardGroupScreen(
                         }
                     }
                     HomeLayoutStore.BACKGROUND_GRADIENT -> {
-                        val gradient = remember(barSurface, barPrimary, barDark) {
-                            themeBackgroundGradient(barSurface, barPrimary, barDark)
-                        }
-                        Box(Modifier.matchParentSize().background(gradient))
+                        // 「主题色渐变」选项已删：老存档里还是这个值时按默认底色画（不再铺渐变）。
+                        Unit
                     }
                     // 主题底色：上面那层 surface 已经铺好了
                     else -> Unit
@@ -1415,25 +1414,6 @@ private fun defaultGroupIds(): Set<String> =
     ServiceCategory.entries.mapTo(mutableSetOf(HomeLayoutDefaults.QUICK_GROUP)) { it.name }
 
 private fun newGroupId(): String = "custom-" + kotlin.random.Random.nextInt(100000, 999999)
-
-/**
- * 「主题色渐变背景」：把主题色按 22% → 10% → 4%（深色 30% → 18% → 8%）的比例**融进底色**，
- * 从左上一路铺到右下，最后收在底色本身。
- *
- * 关键是**不铺纯主题色**：整屏浓色会把卡片与正文压掉，上半屏还会像换了一套配色；
- * 从「透明度适中」的混色起步、越往下越接近底色，才是壁纸缺席时该有的那种轻渐变。
- */
-private fun themeBackgroundGradient(surface: Color, primary: Color, dark: Boolean): Brush =
-    Brush.linearGradient(
-        listOf(
-            lerp(surface, primary, if (dark) 0.30f else 0.22f),
-            lerp(surface, primary, if (dark) 0.18f else 0.10f),
-            lerp(surface, primary, if (dark) 0.08f else 0.04f),
-            surface,
-        ),
-        start = Offset.Zero,
-        end = Offset(Float.POSITIVE_INFINITY, Float.POSITIVE_INFINITY),
-    )
 
 // ── 首页版式 ──
 

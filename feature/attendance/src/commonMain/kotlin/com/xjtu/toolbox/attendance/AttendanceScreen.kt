@@ -4,6 +4,7 @@ import com.xjtu.toolbox.ui.glass.CouiToolbarActionButton
 import com.xjtu.toolbox.ui.glass.tabContentPadding
 import com.xjtu.toolbox.ui.glass.tabContentBottomPadding
 import com.xjtu.toolbox.ui.components.AppPullToRefresh
+import com.xjtu.toolbox.ui.components.ArrowPreference
 import com.xjtu.toolbox.ui.components.FullPageState
 import androidx.compose.ui.graphics.Color
 import com.xjtu.toolbox.ui.adaptive.fullLineItem
@@ -69,7 +70,6 @@ import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextButton
 import top.yukonga.miuix.kmp.basic.TextField
 import top.yukonga.miuix.kmp.overlay.OverlayDialog
-import top.yukonga.miuix.kmp.preference.ArrowPreference
 import top.yukonga.miuix.kmp.preference.OverlaySpinnerPreference
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.utils.SinkFeedback
@@ -203,7 +203,6 @@ fun AttendanceScreen(
                 tabs = listOf("流水", "打卡流水", "统计", "请假"),
                 selectedTabIndex = selectedTab,
                 onTabSelected = { selectedTab = it },
-                glass = glass,
                 modifier = Modifier.fillMaxSize(),
             ) {
                 AppPullToRefresh(

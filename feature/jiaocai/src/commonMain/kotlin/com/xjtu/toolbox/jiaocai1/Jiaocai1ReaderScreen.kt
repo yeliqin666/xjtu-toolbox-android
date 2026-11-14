@@ -52,7 +52,6 @@ import com.xjtu.toolbox.auth.LocalAuthExpiry
 import com.xjtu.toolbox.ui.components.AppDropdownMenu
 import com.xjtu.toolbox.ui.glass.glassSource
 import com.xjtu.toolbox.ui.glass.glassTop
-import com.xjtu.toolbox.ui.glass.glassPinnedTopBar
 import com.xjtu.toolbox.ui.glass.withoutTop
 import androidx.compose.foundation.layout.PaddingValues
 import com.xjtu.toolbox.ui.components.ErrorState

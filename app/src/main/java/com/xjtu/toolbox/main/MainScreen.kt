@@ -82,7 +82,6 @@ import com.xjtu.toolbox.agent.AgentInsightEngine
 import com.xjtu.toolbox.agent.AgentInsightHub
 import com.xjtu.toolbox.agent.AgentPendingPrompt
 import com.xjtu.toolbox.agent.AndroidAgentHost
-import com.xjtu.toolbox.agent.BubbleArrowSide
 import com.xjtu.toolbox.agent.ProactiveBubbleHost
 import com.xjtu.toolbox.agent.ProactiveBubbleView
 import com.xjtu.toolbox.agent.ProactiveMessage
@@ -117,6 +116,7 @@ import com.xjtu.toolbox.shell.ShellHandles
 import com.xjtu.toolbox.shell.ShellNavState
 import com.xjtu.toolbox.shell.ShellTab
 import com.xjtu.toolbox.ui.glass.CouiPageTopAppBar
+import com.xjtu.toolbox.ui.glass.LocalCouiGlassBarBackdrop
 import com.xjtu.toolbox.ui.glass.androidBackdrop
 import com.xjtu.toolbox.ui.glass.coui.CollapsingTopAppBar
 import com.xjtu.toolbox.ui.glass.coui.CouiCollapsingAppBarState
@@ -135,7 +135,6 @@ import com.xjtu.toolbox.ui.glass.coui.rememberCouiTopAppBarSearchState
 import com.xjtu.toolbox.ui.glass.CouiTopBarScrollBehavior
 import com.xjtu.toolbox.ui.glass.CouiToolbarActionButton
 import com.xjtu.toolbox.ui.glass.LocalCouiPageBackdrop
-import com.xjtu.toolbox.ui.glass.LocalAppBackdrop
 import com.xjtu.toolbox.ui.glass.LocalOnGlassBar
 import com.xjtu.toolbox.ui.glass.rememberCouiTopAppBarScrollBehavior
 import com.xjtu.toolbox.ui.glass.couiContentTrack
@@ -404,20 +403,17 @@ internal fun MainScreen(
     }
 
     // 小岱提醒气泡，底栏版和侧栏版共用这一份，各自只管定位。玻璃采样层从共享壳手里拿
-    // （见 `ShellHandles`）：尖角伸到底栏上时采「页面 + 底栏」的合成层。
-    val bubbleView: @Composable (ShellHandles, ProactiveMessage, BubbleArrowSide, Dp, Dp?) -> Unit =
-        { handles, msg, arrowSide, maxWidth, arrowFromStart ->
+    // （见 `ShellHandles` 与 `LocalCouiGlassBarBackdrop`）：COUI 面板采的就是页面内容那层。
+    val bubbleView: @Composable (ShellHandles, ProactiveMessage, Dp) -> Unit =
+        { handles, msg, maxWidth ->
             ProactiveBubbleView(
                 message = msg,
-                arrowSide = arrowSide,
-                arrowFromStart = arrowFromStart,
                 maxWidth = maxWidth,
-                backdrop = if (arrowSide != BubbleArrowSide.Start && handles.glassBarPresent) {
-                    handles.combinedBackdrop
+                pageBackdrop = if (handles.glassBarPresent) {
+                    LocalCouiGlassBarBackdrop.current?.asPageBackdrop()
                 } else {
-                    handles.contentBackdrop
+                    null
                 },
-                glass = glassStyle,
                 onOpen = {
                     ProactiveRules.markUseful(context, msg.id)
                     ProactiveBubbleHost.clear()
@@ -511,10 +507,8 @@ internal fun MainScreen(
             val msg = ProactiveBubbleHost.message
             if (msg != null && selectedTab != BottomTab.PIDAI) {
                 val screenWidth = with(LocalDensity.current) { LocalWindowInfo.current.containerSize.width.toDp() }
-                // 小岱不在底栏上时没有可指的，气泡不画尖角
-                val side = if (pidaiInBar) BubbleArrowSide.Bottom else BubbleArrowSide.None
-                BarBubbleSlot(anchorX = pidaiAnchor?.center?.x?.takeIf { pidaiInBar }) { arrowFromStart ->
-                    bubbleView(handles, msg, side, (screenWidth - 32.dp).coerceAtLeast(200.dp), arrowFromStart)
+                BarBubbleSlot(anchorX = pidaiAnchor?.center?.x?.takeIf { pidaiInBar }) {
+                    bubbleView(handles, msg, (screenWidth - 32.dp).coerceAtLeast(200.dp))
                 }
             }
         },
@@ -523,7 +517,7 @@ internal fun MainScreen(
             RailProactiveBubble(
                 anchor = { pidaiAnchor?.takeIf { pidaiInBar } },
                 overlayOrigin = { overlayOrigin },
-                bubbleView = { msg, side, maxWidth -> bubbleView(handles, msg, side, maxWidth, null) },
+                bubbleView = { msg, maxWidth -> bubbleView(handles, msg, maxWidth) },
             )
         },
         // 搜索、扫一扫是盖满整屏的浮层：共享壳把它们放在最外层，不放进 Scaffold 的内容区
@@ -928,7 +922,11 @@ private fun MainTopBar(
         val solid = if (pageBackdrop == null) rememberCouiBackdrop() else null
         Box(Modifier.fillMaxWidth().couiContentTrack(toolsAppBarState)) {
             if (solid != null) {
-                Box(Modifier.matchParentSize().couiBackdrop(solid).background(MiuixTheme.colorScheme.surface))
+                // 经典风格 = 兜底：纯白 / 纯黑实底
+                Box(
+                    Modifier.matchParentSize().couiBackdrop(solid)
+                        .background(if (LocalIsDarkTheme.current) Color.Black else Color.White),
+                )
             }
             CollapsingTopAppBar(
                 modifier = Modifier.fillMaxWidth(),

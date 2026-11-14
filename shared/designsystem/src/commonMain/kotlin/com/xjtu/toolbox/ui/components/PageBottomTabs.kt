@@ -8,7 +8,6 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
-import com.kyant.backdrop.Backdrop
 import com.xjtu.toolbox.ui.adaptive.readableWidth
 import com.xjtu.toolbox.ui.glass.LocalTabBottomPadding
 
@@ -16,9 +15,7 @@ import com.xjtu.toolbox.ui.glass.LocalTabBottomPadding
  * 页面级切换条的底部宿主。现在切换条一律放在顶栏下沿（见 [TABS_AT_BOTTOM]），这里只在开关打开时才画；
  * 画时悬浮在页面底部、由 COUI 分类胶囊自己取样。
  *
- * [glass] 是滑块时代的页面采样层，切成胶囊后不再使用，保留只为不动调用方。
- *
- * 用法：把整块正文（带 `glassSource` 的那一层）放进 [content]，切换条画在采样层外面。
+ * 用法：把整块正文放进 [content]，切换条画在采样层外面。
  * 正文里用 `tabContentPadding` 的列表会自动在底部让出切换条的高度（同 App 底栏的做法）。
  *
  * 页面被放到底栏上当 tab 时，底下已经有一排 App 底栏，再叠一排胶囊很难看：这时这里不画，
@@ -29,7 +26,6 @@ fun PageBottomTabsHost(
     tabs: List<String>,
     selectedTabIndex: Int,
     onTabSelected: (Int) -> Unit,
-    glass: Backdrop?,
     modifier: Modifier = Modifier,
     visible: Boolean = true,
     content: @Composable () -> Unit,
@@ -50,7 +46,6 @@ fun PageBottomTabsHost(
                     .align(Alignment.BottomCenter)
                     .navigationBarsPadding()
                     .readableWidth(),
-                backdrop = glass,
             )
         }
     }

@@ -77,7 +77,6 @@ fun <Q> JudgeListScreen(title: String, vm: JudgeViewModel<Q>, onBack: () -> Unit
             tabs = listOf("未评 (${vm.unfinished.size})", "已评 (${vm.finished.size})"),
             selectedTabIndex = selectedTab,
             onTabSelected = { selectedTab = it },
-            glass = glass,
             modifier = Modifier.fillMaxSize(),
         ) {
         // 课程卡分两三列铺开（AdaptiveCardGrid），标签和「一键好评」这种控件限宽居中

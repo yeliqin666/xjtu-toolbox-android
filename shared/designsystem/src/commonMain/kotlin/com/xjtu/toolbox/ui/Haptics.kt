@@ -1,9 +1,8 @@
 package com.xjtu.toolbox.ui
 
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Vibration
 import androidx.compose.runtime.Composable
@@ -11,13 +10,12 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import com.xjtu.toolbox.platform.keyValueStore
+import com.xjtu.toolbox.ui.components.SwitchPreference
 import top.yukonga.miuix.kmp.basic.Icon
-import top.yukonga.miuix.kmp.basic.Surface
-import top.yukonga.miuix.kmp.preference.SwitchPreference
 
 /** 触感反馈。 */
 
@@ -74,18 +72,13 @@ fun HapticsSettingItem() {
     )
 }
 
-/** 与 `SettingsScreen.kt` 私有的 `SettingsIcon` 视觉一致的设置图标。 */
+/**
+ * 与设置页其余行一致的纯图标：24dp、不带圆底、直接填调色板里的粉色
+ * （与设置页同一套固定色，不跟主题色——主题色设成黑色时这里会变成一颗灰黑图标）。
+ */
 @Composable
 private fun HapticsSettingIcon() {
-    // 与设置页其余图标同一套固定色（SettingsColors.Pink），不跟主题色：主题色设成黑色时这里会变成一颗灰黑圆
-    val color = androidx.compose.ui.graphics.Color(0xFFEC407A)
-    Surface(
-        shape = CircleShape,
-        color = color.copy(alpha = 0.12f),
-        modifier = Modifier.size(32.dp),
-    ) {
-        Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
-            Icon(Icons.Default.Vibration, contentDescription = null, modifier = Modifier.size(18.dp), tint = color)
-        }
-    }
+    val color = Color(0xFFEC407A)
+    Icon(Icons.Default.Vibration, contentDescription = null, modifier = Modifier.size(24.dp), tint = color)
+    Spacer(Modifier.width(16.dp))
 }

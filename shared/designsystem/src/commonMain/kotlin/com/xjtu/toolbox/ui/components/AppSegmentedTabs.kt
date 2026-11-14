@@ -27,7 +27,6 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
-import com.kyant.backdrop.Backdrop
 import com.xjtu.toolbox.ui.theme.LocalIsDarkTheme
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.theme.MiuixTheme
@@ -39,7 +38,7 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
  * 放不下时截断长标签；`compact` 用 32dp / 2dp 的紧凑预设（原版 `small`）。
  * 其它平台没有 AGSL，退回同样式样的普通绘制版本。
  *
- * 名字和参数沿用旧调用点：[embedded]、[backdrop] 是滑块时代的排版 / 采样参数，新控件不需要。
+ * 名字和参数沿用旧调用点：[embedded] 是滑块时代的排布参数，新控件不需要；页面采样参数已删除。
  */
 @Suppress("UNUSED_PARAMETER")
 @Composable
@@ -49,7 +48,6 @@ fun AppSegmentedTabs(
     onTabSelected: (Int) -> Unit,
     modifier: Modifier = Modifier,
     embedded: Boolean = false,
-    backdrop: Backdrop? = null,
     compact: Boolean = false,
     /** 已选中的那一格再点是否也回调 [onTabSelected]（原版不回调；日程「第 N 周」靠它弹选周菜单）。 */
     reselectable: Boolean = false,

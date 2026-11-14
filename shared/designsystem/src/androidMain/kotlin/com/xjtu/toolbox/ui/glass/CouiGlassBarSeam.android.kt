@@ -17,6 +17,7 @@ actual fun couiGlassBarPlatformSupported(): Boolean = true
 
 private class AndroidCouiBackdrop(val backdrop: CouiBackdrop) : CouiGlassBarBackdrop {
     override fun recordInto(modifier: Modifier): Modifier = modifier.couiBackdrop(backdrop)
+    override fun asPageBackdrop(): CouiPageBackdrop = AndroidCouiPageBackdrop(backdrop)
 }
 
 @Composable

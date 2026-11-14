@@ -69,22 +69,14 @@ data class HeroAppearance(
     val contentColor: Color
         get() = if (background == "solid" && solidColor.luminance() > 0.179f) Color.Black else Color.White
 
-    /** 设置页那一行右侧的摘要。 */
+    /** 设置页那一行右侧的摘要：只报样式名（液体 / 森林 / 像素 / 纯色 / 自定义）。 */
     val summary: String
         get() = when (background) {
-            "solid" -> "纯色 · $colorHex"
+            "solid" -> "纯色"
             "forest" -> "森林"
             "pixel" -> "像素"
-            "custom" -> when {
-                imageData.isEmpty() -> "自定义 · 未选图"
-                imageBlur > 0 || imageBrightness < 100 ->
-                    "自定义 · " + listOfNotNull(
-                        imageBlur.takeIf { it > 0 }?.let { "模糊 $it dp" },
-                        imageBrightness.takeIf { it < 100 }?.let { "亮度 $it%" },
-                    ).joinToString(" · ")
-                else -> "自定义"
-            }
-            else -> "液体 · ${paletteLabel(palette)} · ${motionLabel(motion)}"
+            "custom" -> "自定义"
+            else -> "液体"
         }
 
     fun save(store: SettingsStore, dark: Boolean) {

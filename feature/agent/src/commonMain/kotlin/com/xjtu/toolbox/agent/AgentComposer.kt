@@ -21,11 +21,7 @@ import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.ui.graphics.TileMode
-import com.kyant.backdrop.Backdrop
-import com.kyant.backdrop.drawBackdrop
-import com.kyant.backdrop.effects.blur
-import com.kyant.backdrop.effects.vibrancy
+import com.xjtu.toolbox.ui.glass.CouiGlassPanel
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.automirrored.filled.Send
@@ -69,8 +65,8 @@ internal fun AgentComposer(
     visionEnabled: Boolean = false,
     onPickImage: () -> Unit = {},
     onRemoveAttachment: (String) -> Unit = {},
-    /** 玻璃模式下的采样源：聊天内容层。null 时退回原来的实底输入框。 */
-    backdrop: Backdrop? = null,
+    /** 玻璃模式下的采样源：聊天内容那层 COUI 采样；null（经典风格 / 非 Android）时纯白/黑实底。 */
+    pageBackdrop: com.xjtu.toolbox.ui.glass.CouiPageBackdrop? = null,
     onOpenShared: (() -> Unit)? = null,
 ) {
     // 只发图不打字是合理的（「这是什么」「帮我看看这张课表」）。
@@ -153,32 +149,16 @@ internal fun AgentComposer(
             }
         }
         val pillTint = MiuixTheme.colorScheme.surfaceVariant
-        val pillSurface = remember(backdrop, pillTint) {
-            if (backdrop != null) {
-                Modifier.drawBackdrop(
-                    backdrop = backdrop,
-                    shape = { RoundedCornerShape(24.dp) },
-                    effects = {
-                        padding = maxOf(padding, 24.dp.toPx())
-                        vibrancy()
-                        blur(18.dp.toPx(), TileMode.Decal)
-                    },
-                    highlight = null,
-                    shadow = null,
-                    // 采样层只有聊天内容、没有页面底色，先垫一层实底，模糊后的内容再透上来。
-                    onDrawBehind = { drawRect(pillTint.copy(alpha = 1f)) },
-                    onDrawSurface = { drawRect(pillTint.copy(alpha = 0.55f)) },
-                )
-            } else {
-                Modifier
-            }
-        }
+        // 玻璃底交给 COUI 面板：采样源是聊天列表那层（不含输入框自己），拿不到就纯白/黑。
+        CouiGlassPanel(
+            pageBackdrop = pageBackdrop,
+            modifier = Modifier.fillMaxWidth(),
+            cornerRadius = 24.dp,
+            tint = pillTint.copy(alpha = 0.55f),
+        ) {
         Row(
             Modifier
                 .fillMaxWidth()
-                .clip(RoundedCornerShape(24.dp))
-                .then(pillSurface)
-                .then(if (backdrop == null) Modifier.background(pillTint) else Modifier)
                 .border(1.dp, borderColor, RoundedCornerShape(24.dp))
                 .padding(start = 6.dp, end = 6.dp, top = 6.dp, bottom = 6.dp),
             verticalAlignment = Alignment.Bottom,
@@ -266,6 +246,7 @@ internal fun AgentComposer(
                     modifier = Modifier.size(18.dp),
                 )
             }
+        }
         }
     }
 }

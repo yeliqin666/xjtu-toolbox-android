@@ -5,6 +5,7 @@ package com.xjtu.toolbox.agent
 import com.xjtu.toolbox.nav.appRouteOf
 import com.xjtu.toolbox.nav.AppRoute
 import com.xjtu.toolbox.ui.glass.LocalGlassStyle
+import com.xjtu.toolbox.ui.glass.rememberCouiPageBackdrop
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.animation.scaleIn
@@ -50,8 +51,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
-import com.kyant.backdrop.backdrops.layerBackdrop
-import com.kyant.backdrop.backdrops.rememberLayerBackdrop
 import com.xjtu.toolbox.platform.showBriefMessage
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.font.FontWeight
@@ -183,7 +182,8 @@ internal fun ChatPanel(
             }
         },
     )
-    val chatBackdrop = rememberLayerBackdrop(cache = true)
+    // 聊天列表的 COUI 采样层：输入栏的玻璃底采它（不含输入栏自己，避免 RenderNode 环）。
+    val couiChatBackdrop = if (glass) rememberCouiPageBackdrop() else null
     var composerHeightPx by remember { mutableIntStateOf(0) }
     val composerHeight = with(LocalDensity.current) { composerHeightPx.toDp() }
 
@@ -201,7 +201,7 @@ internal fun ChatPanel(
         Box(
             Modifier
                 .fillMaxSize()
-                .then(if (glass) Modifier.layerBackdrop(chatBackdrop) else Modifier)
+                .then(if (glass) couiChatBackdrop?.recordInto(Modifier) ?: Modifier else Modifier)
         ) {
             Box(Modifier.fillMaxSize().clipToBounds()) {
             // 切会话（含首屏「接着聊」）：旧会话淡出、新会话略微上浮淡入
@@ -418,7 +418,7 @@ internal fun ChatPanel(
                 // 还没发出去就撤了，压缩件留着没用。
                 host.deleteImageFiles(listOf(path))
             },
-            backdrop = if (glass) chatBackdrop else null,
+            pageBackdrop = if (glass) couiChatBackdrop else null,
             onOpenShared = if (sharedMaterials != null) ({ showSharedMaterials = true }) else null,
         )
         }

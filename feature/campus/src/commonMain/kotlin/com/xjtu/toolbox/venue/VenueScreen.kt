@@ -226,7 +226,6 @@ fun VenueScreen(
             tabs = listOf("场馆预订", "我的订单"),
             selectedTabIndex = selectedTab,
             onTabSelected = onSelectTab,
-            glass = glass,
             visible = !(selectedTab == 0 && vm.page == VenuePage.SlotSelection),
             modifier = Modifier.fillMaxSize(),
         ) {

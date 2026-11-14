@@ -34,6 +34,7 @@ import androidx.compose.material.icons.filled.Wallpaper
 import androidx.compose.material.icons.filled.WaterDrop
 import androidx.compose.material.icons.filled.Widgets
 import androidx.compose.runtime.Composable
+import com.xjtu.toolbox.ui.components.CouiSettingsCard
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -61,14 +62,14 @@ import top.yukonga.miuix.kmp.basic.ButtonDefaults
 import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.CardDefaults
 import top.yukonga.miuix.kmp.basic.Icon
-import top.yukonga.miuix.kmp.basic.SmallTitle
+import com.xjtu.toolbox.ui.components.SmallTitle
 import top.yukonga.miuix.kmp.basic.Surface
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextButton
 import top.yukonga.miuix.kmp.overlay.OverlayBottomSheet
 import com.xjtu.toolbox.ui.components.AppDropdownPreference
+import com.xjtu.toolbox.ui.components.SwitchPreference
 import top.yukonga.miuix.kmp.preference.SliderPreference
-import top.yukonga.miuix.kmp.preference.SwitchPreference
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.window.WindowDialog
 
@@ -122,7 +123,6 @@ internal fun HomeSettingsBody(onDismiss: () -> Unit, modifier: Modifier = Modifi
     val revision = HomeLayoutRevision.current
 
     var layout by remember(revision) { mutableStateOf(settings.homeLayout) }
-    var liquid by remember(revision) { mutableStateOf(settings.homeLiquidGlass) }
     var corner by remember { mutableIntStateOf(store.cardCorner) }
     var opacity by remember { mutableIntStateOf(store.backgroundOpacity) }
     var confirmReset by remember { mutableStateOf(false) }
@@ -133,10 +133,6 @@ internal fun HomeSettingsBody(onDismiss: () -> Unit, modifier: Modifier = Modifi
     // 只有在卡片组 + 自定义图片这一档，不透明度才有可调的对象
     val wallpaper = remember(revision) {
         settings.homeBackground == HomeLayoutStore.BACKGROUND_IMAGE && settings.homeWallpaperImage.isNotEmpty()
-    }
-    // 卡片那层玻璃还能不能看出模糊 / 折射：壁纸糊到阈值以上时就看不出差别了
-    val glassHasDetail = remember(wallpaper, revision) {
-        wallpaper && settings.homeWallpaperBlur < SettingsStore.HOME_WALLPAPER_BLUR_HIDES_GLASS
     }
     // 导出的是用户**自己摆过**的那份快照：没有快照 = 首页还在用默认布局，没什么可导
     val savedLayout = remember(revision) { store.saved }
@@ -164,7 +160,6 @@ internal fun HomeSettingsBody(onDismiss: () -> Unit, modifier: Modifier = Modifi
         HomeSettingsCard {
             AppDropdownPreference(
                 title = "功能区",
-                summary = if (cards) "长按主页空白处进入编辑" else "功能按分类排成卡片",
                 items = HOME_LAYOUT_LABELS,
                 selectedIndex = HOME_LAYOUT_VALUES.indexOf(layout).coerceAtLeast(0),
                 startAction = { SettingsIcon(Icons.Default.Dashboard, cBlue) },
@@ -210,21 +205,6 @@ internal fun HomeSettingsBody(onDismiss: () -> Unit, modifier: Modifier = Modifi
                     },
                 )
             }
-            SwitchPreference(
-                title = "液态玻璃",
-                summary = when {
-                    !liquid -> "毛玻璃：半透明纸面"
-                    glassHasDetail -> "透出壁纸并带折射"
-                    else -> "纯色背景上只留高光轮廓"
-                },
-                checked = liquid,
-                startAction = { SettingsIcon(Icons.Default.WaterDrop, cBlue) },
-                onCheckedChange = {
-                    liquid = it
-                    settings.homeLiquidGlass = it
-                    HomeLayoutRevision.bump()
-                },
-            )
         }
 
         // ── 备份与恢复：三个动作收进一个入口，不常用 ──
@@ -450,18 +430,10 @@ private val HOME_LAYOUT_VALUES = listOf(
     SettingsStore.HOME_LAYOUT_CLASSIC,
     SettingsStore.HOME_LAYOUT_CARDS,
 )
-private val HOME_LAYOUT_LABELS = listOf("经典分类卡", "卡片组")
+private val HOME_LAYOUT_LABELS = listOf("分类卡片", "自定义卡片")
 
 @Composable
-private fun HomeSettingsCard(content: @Composable ColumnScope.() -> Unit) {
-    Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 4.dp),
-        cornerRadius = 16.dp,
-        colors = CardDefaults.defaultColors(color = MiuixTheme.colorScheme.surfaceVariant),
-    ) {
-        Column(content = content)
-    }
+private fun HomeSettingsCard(content: @Composable () -> Unit) {
+    CouiSettingsCard(content = content)
 }
 

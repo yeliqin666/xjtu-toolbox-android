@@ -16,6 +16,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
@@ -68,7 +69,8 @@ internal fun CouiToolbarActionButtonFallback(
             Modifier
                 .size(FallbackVisualSize)
                 .clip(CircleShape)
-                .background(MiuixTheme.colorScheme.surfaceContainerHigh.copy(alpha = if (dark) 0.52f else 0.6f))
+                // 兜底一律纯白 / 纯黑：不再摆半透明玻璃圆，免得看着像玻璃没生效。
+                .background(if (dark) Color.Black else Color.White)
                 .pressScale(interaction, pressed = 0.92f),
             contentAlignment = Alignment.Center,
         ) {
@@ -117,7 +119,8 @@ internal fun CouiToolbarTextButtonFallback(
                 .widthIn(min = FallbackTextMinWidth)
                 .height(FallbackTextHeight)
                 .clip(RoundedCornerShape(percent = 50))
-                .background(MiuixTheme.colorScheme.surfaceContainerHigh.copy(alpha = if (dark) 0.52f else 0.6f))
+                // 兜底一律纯白 / 纯黑
+                .background(if (dark) Color.Black else Color.White)
                 .pressScale(interaction, pressed = 0.92f)
                 .padding(horizontal = 12.dp),
             contentAlignment = Alignment.Center,

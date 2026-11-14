@@ -44,14 +44,11 @@ import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.delay
-import com.kyant.backdrop.Backdrop
-import com.kyant.backdrop.drawBackdrop
-import com.kyant.backdrop.effects.blur
-import com.kyant.backdrop.effects.vibrancy
-import com.kyant.backdrop.highlight.Highlight
 import com.xjtu.toolbox.util.toKx
 import com.xjtu.toolbox.auth.AccountType
 import com.xjtu.toolbox.ui.theme.LocalIsDarkTheme
+import com.xjtu.toolbox.ui.glass.CouiGlassPanel
+import com.xjtu.toolbox.ui.glass.CouiPageBackdrop
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.theme.MiuixTheme
@@ -490,87 +487,11 @@ object ProactiveRules {
 }
 
 /**
- * 气泡尖角朝向。底栏屁岱在气泡正下方 → [Bottom]；侧栏屁岱在气泡左边 → [Start]；
- * 屁岱不在底栏上（没有可指的）→ [None]，浮在底栏上方的圆角卡片。
- */
-enum class BubbleArrowSide { Bottom, Start, None }
-
-/** 尖角的伸出深度与底宽，外形与布局内边距都按它算，两处必须一致。 */
-private val ArrowDepth = 7.dp
-private val ArrowBase = 12.dp
-
-/**
- * 气泡外形。[arrowOffset] 为 null 时尖角取气泡**自身**在该轴上的中心
- * （[BubbleArrowSide.Bottom] 取水平中心，[BubbleArrowSide.Start] 取垂直中心）。
- * 挂在底栏正中的气泡必须走这一支：锚点固定在屏幕中线，尖角要随气泡宽度走，
- * 用固定 dp 的话文案一长一短尖角就偏出锚点了。
- */
-private class BubbleShape(
-    private val side: BubbleArrowSide,
-    private val arrowOffset: androidx.compose.ui.unit.Dp?,
-) : Shape {
-    override fun createOutline(
-        size: androidx.compose.ui.geometry.Size,
-        layoutDirection: LayoutDirection,
-        density: Density,
-    ): Outline {
-        val arrowH = with(density) { ArrowDepth.toPx() }
-        val arrowW = with(density) { ArrowBase.toPx() }
-        val r = with(density) { 14.dp.toPx() }
-        val offsetPx = arrowOffset?.let { with(density) { it.toPx() } }
-        val path = Path().apply {
-            when (side) {
-                BubbleArrowSide.Bottom -> {
-                    val bodyBottom = size.height - arrowH
-                    val cx = (offsetPx ?: (size.width / 2f))
-                        .coerceIn(arrowW, (size.width - arrowW).coerceAtLeast(arrowW))
-                    addRoundRect(
-                        androidx.compose.ui.geometry.RoundRect(
-                            left = 0f, top = 0f, right = size.width, bottom = bodyBottom,
-                            cornerRadius = androidx.compose.ui.geometry.CornerRadius(r, r),
-                        )
-                    )
-                    moveTo(cx - arrowW / 2, bodyBottom)
-                    lineTo(cx, size.height)
-                    lineTo(cx + arrowW / 2, bodyBottom)
-                    close()
-                }
-                BubbleArrowSide.Start -> {
-                    val bodyLeft = arrowH
-                    val cy = (offsetPx ?: (size.height / 2f))
-                        .coerceIn(arrowW, (size.height - arrowW).coerceAtLeast(arrowW))
-                    addRoundRect(
-                        androidx.compose.ui.geometry.RoundRect(
-                            left = bodyLeft, top = 0f, right = size.width, bottom = size.height,
-                            cornerRadius = androidx.compose.ui.geometry.CornerRadius(r, r),
-                        )
-                    )
-                    moveTo(bodyLeft, cy - arrowW / 2)
-                    lineTo(0f, cy)
-                    lineTo(bodyLeft, cy + arrowW / 2)
-                    close()
-                }
-                BubbleArrowSide.None -> addRoundRect(
-                    androidx.compose.ui.geometry.RoundRect(
-                        left = 0f, top = 0f, right = size.width, bottom = size.height,
-                        cornerRadius = androidx.compose.ui.geometry.CornerRadius(r, r),
-                    )
-                )
-            }
-        }
-        return Outline.Generic(path)
-    }
-}
-
-/**
  * 屁岱主动气泡。
  *
- * 玻璃只用模糊、色彩增强（vibrancy）和高光，**不开折射**：[BubbleShape] 带尖角，
- * 是自定义 [Shape]，backdrop 库的 `lens()` 只认圆角类形状（`RoundedRectangularShape`
- * / `AbsoluteRoundedCornerShape` / `CornerBasedShape`），遇到别的形状会直接
- * `throwUnsupportedSDFException()` 闪退。真要给气泡开折射，得先把尖角从
- * [BubbleShape] 里拆出来单独画（气泡主体用圆角矩形折射，尖角保持不透明），
- * 这里先做「全部不开折射」这一版。
+ * 材质换成 COUI 浮层（[CouiGlassPanel]）：原来那套 kyant `drawBackdrop` + 自定义尖角形状
+ * 一起删掉了——COUI 的浮层只认圆角矩形（SDF），尖角画不了，所以气泡现在是一块圆角卡片，
+ * 从自己底边中点弹出来。
  */
 @Composable
 fun ProactiveBubbleView(
@@ -578,28 +499,14 @@ fun ProactiveBubbleView(
     onOpen: () -> Unit,
     onDismiss: () -> Unit,
     onTimeout: () -> Unit,
-    /** 尖角朝向。默认朝下（底栏屁岱在气泡正下方）；[BubbleArrowSide.None] 不画尖角。 */
-    arrowSide: BubbleArrowSide = BubbleArrowSide.Bottom,
-    /** [BubbleArrowSide.Bottom] 时尖角距起始边的距离；null = 气泡自身水平中心。 */
-    arrowFromStart: androidx.compose.ui.unit.Dp? = null,
-    /** [BubbleArrowSide.Start] 时尖角距顶边的距离；null = 气泡自身垂直中心。 */
-    arrowFromTop: androidx.compose.ui.unit.Dp? = null,
     maxWidth: androidx.compose.ui.unit.Dp = 280.dp,
     /**
-     * 玻璃采样源；null（或 [glass] 为 false）时退回原来的不透明样式。由调用方接——
-     * 手机上要采「页面内容 + 底栏」合起来那一层，宽屏侧栏气泡只采页面内容，
-     * 这层合成不归这个组件管，见 [ProactiveBubbleView] 的类注释。
+     * 玻璃采样源：页面内容那层（`LocalCouiGlassBarBackdrop` 转出来的）。
+     * null（经典风格 / 非 Android）时退回主色实底——气泡承白字，兜底不能是纯白/黑。
      */
-    backdrop: Backdrop? = null,
-    /** 「界面风格」选经典时为 false：所有玻璃点统一退回不透明样式。 */
-    glass: Boolean = false,
+    pageBackdrop: CouiPageBackdrop? = null,
     modifier: Modifier = Modifier,
 ) {
-    val arrowOffset = when (arrowSide) {
-        BubbleArrowSide.Bottom -> arrowFromStart
-        BubbleArrowSide.Start -> arrowFromTop
-        BubbleArrowSide.None -> null
-    }
     // visible 只管"气泡在不在"，**不跟着文案走**。
     //
     // 之前它 remember(id, text)：换一条闲话时先被重置成 false 再由下面的 effect 置回 true，
@@ -616,12 +523,8 @@ fun ProactiveBubbleView(
         delay(200)
         onTimeout()
     }
-    // 缩放锚点跟着尖角走：尖角在哪，气泡就从哪「长出来」；没有尖角时从底边中点长出来。
-    val pivot = when {
-        arrowSide == BubbleArrowSide.Start -> TransformOrigin(0f, 0.5f)
-        arrowOffset == null -> TransformOrigin(0.5f, 1f)
-        else -> TransformOrigin(0.12f, 1f)
-    }
+    // 没有尖角了：气泡一律从底边中点「长出来」。
+    val pivot = TransformOrigin(0.5f, 1f)
     AnimatedVisibility(
         visible = visible,
         // 从尖角那一点**弹出来**，而不是淡入。初始缩放压到 0.35 再用欠阻尼 spring 回弹，
@@ -640,14 +543,12 @@ fun ProactiveBubbleView(
                 transformOrigin = pivot,
                 animationSpec = tween(160),
             ),
-        // 没有尖角时把尖角那段高度留成空隙，卡片底边与有尖角时的气泡主体同高，不贴着底栏
-        modifier = modifier.wrapContentWidth()
-            .then(if (arrowSide == BubbleArrowSide.None) Modifier.padding(bottom = ArrowDepth) else Modifier),
+        modifier = modifier.wrapContentWidth(),
     ) {
         AnimatedContent(
             targetState = message,
             transitionSpec = {
-                // 新的一条从尖角弹出来，旧的一条同时缩回尖角。两者叠在一起，
+                // 新的一条从底边弹出来，旧的一条同时缩回底边。两者叠在一起，
                 // 看着就是"它又说了一句"，而不是"文字被替换了"。
                 (
                     fadeIn(animationSpec = tween(90)) +
@@ -666,61 +567,38 @@ fun ProactiveBubbleView(
                 // 尺寸变化不裁剪：长短不一的两条在交叉淡入淡出时不该被对方的框切掉。
                 ) using SizeTransform(clip = false)
             },
-            contentAlignment = if (arrowSide == BubbleArrowSide.Start) {
-                Alignment.CenterStart
-            } else {
-                Alignment.BottomCenter
-            },
+            contentAlignment = Alignment.BottomCenter,
             label = "proactiveBubbleSwap",
         ) { shown ->
-        val bubbleShape = remember(arrowSide, arrowOffset) { BubbleShape(arrowSide, arrowOffset) }
+        val bubbleShape = RoundedCornerShape(18.dp)
         val isDark = LocalIsDarkTheme.current
         val accent = MiuixTheme.colorScheme.primary
         // 玻璃之上还要叠一层够浓的主色，不然文字在模糊+高光背景上会花。深色模式下
         // 背景本身更暗，主色不用叠那么浓也能撑住对比度；浅色模式下背景更亮，要叠浓一点。
         val glassSurfaceTint = accent.copy(alpha = if (isDark) 0.72f else 0.85f)
-        Row(
-            Modifier
+        CouiGlassPanel(
+            pageBackdrop = pageBackdrop,
+            modifier = Modifier
                 .wrapContentWidth()
                 .widthIn(max = maxWidth)
                 // 气泡是冒出来浮在页面上的，给它一圈和自己同色的柔影：像主色的光晕，
-                // 不是灰黑的投影。写在 clip 前面，不然影子被裁掉。
+                // 不是灰黑的投影。
                 .dropShadow(bubbleShape) {
                     radius = 14.dp.toPx()
                     color = accent
                     alpha = if (isDark) 0.45f else 0.30f
                     offset = androidx.compose.ui.geometry.Offset(0f, 4.dp.toPx())
                 }
-                .clip(bubbleShape)
-                .then(
-                    if (glass && backdrop != null) {
-                        Modifier.drawBackdrop(
-                            backdrop = backdrop,
-                            shape = { bubbleShape },
-                            effects = {
-                                // 采样范围往外扩一圈，边缘处也有真实内容可混，模糊不会在轮廓边上变弱
-                                padding = maxOf(padding, 12.dp.toPx())
-                                vibrancy()
-                                blur(6.dp.toPx())
-                            },
-                            // 尖角是自定义形状，不能用 lens()——高光走轮廓描边，对任意
-                            // Shape 都安全，只是不折射。
-                            highlight = { Highlight.Default.copy(alpha = 0.7f) },
-                            onDrawSurface = { drawRect(glassSurfaceTint) },
-                        )
-                    } else {
-                        Modifier.background(accent)
-                    },
-                )
-                .clickable(onClick = onOpen)
-                // 尖角那一侧要多留出它的伸出深度，否则文字会压到三角上。
-                // 朝下时 10+7=17dp，与改造前的固定值一致。
-                .padding(
-                    start = if (arrowSide == BubbleArrowSide.Start) 14.dp + ArrowDepth else 14.dp,
-                    end = 8.dp,
-                    top = 10.dp,
-                    bottom = if (arrowSide == BubbleArrowSide.Bottom) 10.dp + ArrowDepth else 10.dp,
-                ),
+                .clickable(onClick = onOpen),
+            cornerRadius = 18.dp,
+            tint = glassSurfaceTint,
+            // 兜底不能是纯白/纯黑：气泡上承的是白字。
+            fallbackColor = accent,
+        ) {
+        Row(
+            Modifier
+                .wrapContentWidth()
+                .padding(start = 14.dp, end = 8.dp, top = 10.dp, bottom = 10.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text(
@@ -747,6 +625,7 @@ fun ProactiveBubbleView(
                     modifier = Modifier.size(13.dp),
                 )
             }
+        }
         }
         }
     }

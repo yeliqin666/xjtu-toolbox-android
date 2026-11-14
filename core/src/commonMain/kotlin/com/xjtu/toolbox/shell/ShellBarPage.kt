@@ -13,9 +13,6 @@ import androidx.compose.ui.layout.SubcomposeLayout
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import com.kyant.backdrop.backdrops.LayerBackdrop
-import com.kyant.backdrop.backdrops.layerBackdrop
-import com.kyant.backdrop.backdrops.rememberLayerBackdrop
 import com.xjtu.toolbox.ui.glass.LocalCouiPageBackdrop
 import com.xjtu.toolbox.ui.glass.rememberCouiPageBackdrop
 
@@ -37,18 +34,16 @@ internal fun ShellBarPage(
     glass: Boolean,
     edgeToEdge: Boolean,
     statusTop: Dp,
-    bar: (@Composable (LayerBackdrop) -> Unit)?,
+    bar: (@Composable () -> Unit)?,
     page: @Composable (contentTop: Dp, contentShift: () -> Dp) -> Unit,
 ) {
     val density = LocalDensity.current
-    val backdrop = rememberLayerBackdrop(cache = glass && bar != null)
     // 这一页正文的 COUI 采样源；非 Android 平台、经典风格（顶栏实色）都不建
     val couiPageBackdrop = if (glass) rememberCouiPageBackdrop() else null
     val couiGlass = glass && bar != null
     val heights = remember { BarHeights() }
     val pageModifier = Modifier
         .fillMaxSize()
-        .then(if (glass && bar != null) Modifier.layerBackdrop(backdrop) else Modifier)
         .then(if (couiGlass) couiPageBackdrop?.recordInto(Modifier) ?: Modifier else Modifier)
     val shift: () -> Dp = { with(density) { (heights.stable - heights.actual).toDp() } }
 
@@ -58,7 +53,7 @@ internal fun ShellBarPage(
                 CompositionLocalProvider(
                     LocalCouiPageBackdrop provides if (couiGlass) couiPageBackdrop else null,
                 ) {
-                    bar(backdrop)
+                    bar()
                 }
             }.map { it.measure(constraints.copy(minWidth = 0, minHeight = 0)) }
         } else {

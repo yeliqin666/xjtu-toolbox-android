@@ -36,10 +36,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.util.lerp
 import com.xjtu.toolbox.agent.AgentThinkingHost
-import com.xjtu.toolbox.agent.BubbleArrowSide
+import com.xjtu.toolbox.agent.ProactiveBubbleHost
 import com.xjtu.toolbox.agent.PidaiGlance
 import com.xjtu.toolbox.agent.PidaiNavButton
-import com.xjtu.toolbox.agent.ProactiveBubbleHost
 import com.xjtu.toolbox.agent.ProactiveMessage
 import com.xjtu.toolbox.agent.pidaiNavAppearance
 import com.xjtu.toolbox.agent.rememberPidaiGaze
@@ -220,19 +219,17 @@ internal class AndroidShellTabArt(
 
 /**
  * 底栏上方气泡的落点：零高度 layout 往上溢出绘制，出现时不撑高底栏、页面不跳。
- * [anchorX] 是屁岱那一格中心的根坐标：气泡尽量居中于它（夹在栏宽内），尖角对准它；
- * null（屁岱不在底栏上）时气泡居中、尖角朝自身中心。
+ * [anchorX] 是屁岱那一格中心的根坐标：气泡尽量居中于它（夹在栏宽内）。
+ * null（屁岱不在底栏上）时气泡居中。
  */
 @Composable
-internal fun BarBubbleSlot(anchorX: Float?, content: @Composable (arrowFromStart: Dp?) -> Unit) {
-    val density = LocalDensity.current
+internal fun BarBubbleSlot(anchorX: Float?, content: @Composable () -> Unit) {
     var hostLeft by remember { mutableFloatStateOf(0f) }
     var hostWidth by remember { mutableIntStateOf(0) }
     var bubbleWidth by remember { mutableIntStateOf(0) }
     fun leftOf(width: Int): Int? = anchorX?.let {
         (it - hostLeft - width / 2f).roundToInt().coerceIn(0, (hostWidth - width).coerceAtLeast(0))
     }
-    val arrowFromStart = anchorX?.let { with(density) { (it - hostLeft - (leftOf(bubbleWidth) ?: 0)).toDp() } }
     Box(
         Modifier
             .fillMaxWidth()
@@ -253,7 +250,7 @@ internal fun BarBubbleSlot(anchorX: Float?, content: @Composable (arrowFromStart
                     layout(constraints.maxWidth, placeable.height) { placeable.place(x, 0) }
                 }
                 .onSizeChanged { bubbleWidth = it.width },
-        ) { content(arrowFromStart) }
+        ) { content() }
     }
 }
 
@@ -265,7 +262,7 @@ internal fun BarBubbleSlot(anchorX: Float?, content: @Composable (arrowFromStart
 internal fun RailProactiveBubble(
     anchor: () -> Rect?,
     overlayOrigin: () -> Offset,
-    bubbleView: @Composable (ProactiveMessage, BubbleArrowSide, Dp) -> Unit,
+    bubbleView: @Composable (ProactiveMessage, Dp) -> Unit,
 ) {
     val bubbleMsg = ProactiveBubbleHost.message ?: return
     val rect = anchor() ?: return
@@ -286,7 +283,7 @@ internal fun RailProactiveBubble(
             }
         },
     ) {
-        bubbleView(bubbleMsg, BubbleArrowSide.Start, bubbleMax)
+        bubbleView(bubbleMsg, bubbleMax)
     }
 }
 

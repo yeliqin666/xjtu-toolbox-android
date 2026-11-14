@@ -1,6 +1,8 @@
 package com.xjtu.toolbox.shortcuts
 
 import androidx.compose.foundation.layout.*
+import com.xjtu.toolbox.ui.components.ArrowPreference
+import com.xjtu.toolbox.ui.components.SwitchPreference
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
@@ -25,8 +27,6 @@ import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.IconButton
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.overlay.OverlayBottomSheet
-import top.yukonga.miuix.kmp.preference.ArrowPreference
-import top.yukonga.miuix.kmp.preference.SwitchPreference
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 @Composable
@@ -48,7 +48,7 @@ internal fun LauncherShortcutPreference() {
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
-    ArrowPreference(title = "桌面快捷方式", summary = selected.mapNotNull { id -> candidates.firstOrNull { it.route.id == id }?.title }.joinToString(" · "),
+    ArrowPreference(title = "桌面快捷方式", summary = "长按桌面图标展开快捷方式",
         startAction = { SettingsIcon(Icons.Default.Apps, SettingsColors.Blue) },
         onClick = { show = true })
     if (show) OverlayBottomSheet(show = true, title = "桌面快捷方式", onDismissRequest = { show = false }) {

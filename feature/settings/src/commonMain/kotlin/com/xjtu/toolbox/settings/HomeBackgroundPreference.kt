@@ -4,6 +4,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import kotlin.math.roundToInt
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -14,6 +15,7 @@ import com.xjtu.toolbox.platform.decodeImage
 import com.xjtu.toolbox.platform.decodeImageSize
 import com.xjtu.toolbox.settings.SettingsColors.Purple as cPurple
 import com.xjtu.toolbox.ui.components.encodeHeroImage
+import com.xjtu.toolbox.ui.components.ArrowPreference
 import com.xjtu.toolbox.ui.components.rememberHeroImagePicker
 import com.xjtu.toolbox.ui.components.ImageCropContent
 import androidx.compose.ui.graphics.ImageBitmap
@@ -25,13 +27,19 @@ import kotlin.io.encoding.ExperimentalEncodingApi
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import top.yukonga.miuix.kmp.preference.ArrowPreference
 import com.xjtu.toolbox.ui.components.AppDropdownPreference
 
 @OptIn(ExperimentalEncodingApi::class)
 @Composable
 internal fun HomeBackgroundPreference(store: SettingsStore, startAction: @Composable () -> Unit) {
-    var mode by remember(HomeLayoutRevision.current) { mutableStateOf(store.homeBackground) }
+    var mode by remember(HomeLayoutRevision.current) { mutableStateOf(if (store.homeBackground == "image") "image" else "solid") }
+    // 旧的「主题色 / 主题色渐变」两档已删：存档里还是这两个值时归一到「默认」。
+    LaunchedEffect(Unit) {
+        if (store.homeBackground != "solid" && store.homeBackground != "image") {
+            store.homeBackground = "solid"
+            HomeLayoutRevision.bump()
+        }
+    }
     val scope = rememberCoroutineScope()
     var cropSource by remember { mutableStateOf<ImageBitmap?>(null) }
     var busy by remember { mutableStateOf(false) }
@@ -44,11 +52,10 @@ internal fun HomeBackgroundPreference(store: SettingsStore, startAction: @Compos
             error = if (cropSource == null) "这张图片读不出来，换一张试试" else null
         }
     }
-    val modes = listOf("solid", "gradient", "image")
+    val modes = listOf("solid", "image")
     AppDropdownPreference(
         title = "主页背景",
-        summary = if (mode == "solid") "素笺 · 随主题变化" else null,
-        items = listOf("主题色", "主题色渐变", "自定义图片"),
+        items = listOf("默认", "自定义图片"),
         selectedIndex = modes.indexOf(mode).coerceAtLeast(0),
         startAction = startAction,
         onSelectedIndexChange = { index ->

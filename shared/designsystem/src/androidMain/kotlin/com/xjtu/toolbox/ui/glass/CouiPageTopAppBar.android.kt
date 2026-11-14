@@ -182,9 +182,8 @@ actual fun CouiPageTopAppBar(
         // 所以把这块实色底也录进采样层：材质照原版画，只是采到的是顶栏底色而不是背后的画面
         // （和首页经典风格的 `CouiHomeTopBarSurface` 同一个做法）。
         val solidBackdrop = rememberCouiBackdrop()
-        val solidColor = color.takeOrElse { MiuixTheme.colorScheme.surface }
-        // 透明底色（页顶栏本身不画底）也要有东西可采，用表面色顶上
-        val sampleColor = if (solidColor.alpha == 0f) MiuixTheme.colorScheme.surface else solidColor
+        // 经典风格 = 兜底：纯白 / 纯黑实底，不跟主题表面色走（和玻璃关掉时同一种观感）。
+        val sampleColor = if (dark) Color.Black else Color.White
         val solidColors = CouiTopAppBarDefaults.colors(
             backgroundColor = Color.Transparent,
             titleColor = resolvedTitleColor,

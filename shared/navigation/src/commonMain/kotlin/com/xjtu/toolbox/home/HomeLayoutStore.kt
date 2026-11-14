@@ -230,18 +230,6 @@ class HomeLayoutStore(
         set(value) = store.putInt(KEY_CARD_CORNER, value.coerceIn(CARD_CORNER_MIN, CARD_CORNER_MAX))
 
     /**
-     * 主页卡片材质：false = 毛玻璃（默认），true = 液态玻璃。
-     *
-     * 键 `home_liquid_card` 与 `SettingsStore.homeLiquidGlass` 是**同一个**：那边是真正在用的
-     * 那个访问器（首页与设置面板都读它），这里只是个同键的口子，两边的默认值必须一致，
-     * 否则「谁先读到」就决定了首启是玻璃还是毛玻璃。
-     */
-    var liquidCard: Boolean
-        get() = store.getBoolean(KEY_LIQUID_CARD, false)
-        set(value) = store.putBoolean(KEY_LIQUID_CARD, value)
-
-
-    /**
      * 主页背景样式：**主题底色**（[BACKGROUND_SOLID]）/ **主题色渐变**（[BACKGROUND_GRADIENT]）/
      * **自定义图片**（[BACKGROUND_IMAGE]，图本体存在 [backgroundImage]）。
      *
@@ -320,7 +308,6 @@ private const val KEY_LEGACY_WIDGETS = "home_widgets"
         /** 旧的网格开关：只在读取时用来把自由摆放的存档取整一次。 */
         private const val KEY_LEGACY_GRID = "home_grid"
 private const val KEY_CARD_CORNER = "home_card_corner"
-        private const val KEY_LIQUID_CARD = "home_liquid_card"
         private const val KEY_BACKGROUND_MODE = "home_background_mode"
         private const val KEY_BACKGROUND_IMAGE = "home_background_image"
         private const val KEY_BACKGROUND_BLUR = "home_background_blur"

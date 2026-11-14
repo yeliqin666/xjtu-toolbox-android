@@ -3,8 +3,8 @@ package com.xjtu.toolbox.card
 
 import androidx.compose.material.icons.automirrored.filled.MenuBook
 import com.xjtu.toolbox.ui.glass.tabContentPadding
-import com.kyant.backdrop.backdrops.layerBackdrop
 import com.xjtu.toolbox.ui.components.AppPullToRefresh
+import com.xjtu.toolbox.ui.components.ArrowPreference
 import com.xjtu.toolbox.ui.components.BackButton
 import com.xjtu.toolbox.platform.BackHandler
 import androidx.compose.animation.*
@@ -82,7 +82,6 @@ import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextButton
 import top.yukonga.miuix.kmp.overlay.OverlayDialog
 import top.yukonga.miuix.kmp.overlay.OverlayListPopup
-import top.yukonga.miuix.kmp.preference.ArrowPreference
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.utils.overScrollVertical
 import com.xjtu.toolbox.nav.AppRoute
@@ -171,12 +170,10 @@ fun CampusCardScreen(
     // 这一页自己的采样源：顶栏的 COUI 渐变模糊采它，不用全局的 LocalAppBackdrop
     // （这是二级页，有自己的 Scaffold / 顶栏）。其它平台没有 COUI，返回 null。
     val pageBackdrop = rememberCouiPageBackdrop()
-    // 采样本页正文：玻璃风格时才录，经典风格顶栏是实色。顶栏用 COUI 那层，底部悬浮切换条的磨砂用 kyant 那层
-    val frostLayer = com.kyant.backdrop.backdrops.rememberLayerBackdrop()
+    // 采样本页正文：玻璃风格时才录，经典风格顶栏是实色。
     val pageSource = if (glass) {
         // 垫页面底色：录下来透明的地方顶栏模糊会直接放行（见 glassSource）
-        Modifier.layerBackdrop(frostLayer).then(pageBackdrop?.recordInto(Modifier) ?: Modifier)
-            .background(MiuixTheme.colorScheme.surface)
+        (pageBackdrop?.recordInto(Modifier) ?: Modifier).background(MiuixTheme.colorScheme.surface)
     } else Modifier
     // 宽屏「流水 / 分析」两栏的选中项。标签行在顶栏里，所以提到 Scaffold 外面
     val isWideTop = com.xjtu.toolbox.ui.isWideLayout()
@@ -292,7 +289,6 @@ fun CampusCardScreen(
                     tabs = if (isWide) listOf("流水", "分析") else listOf("概览", "流水", "分析"),
                     selectedTabIndex = if (isWide) wideTab else selectedTab,
                     onTabSelected = { if (isWide) wideTab = it else selectedTab = it },
-                    glass = if (glass) frostLayer else null,
                     modifier = Modifier.fillMaxSize(),
                 ) {
                 Box(

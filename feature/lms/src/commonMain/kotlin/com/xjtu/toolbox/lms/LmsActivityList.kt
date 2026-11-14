@@ -234,7 +234,6 @@ internal fun ActivityListPage(
                     picked.clear()
                 }
             },
-            glass = glass,
             visible = filters.size > 2 && !selecting,
             modifier = Modifier.fillMaxSize(),
         ) {

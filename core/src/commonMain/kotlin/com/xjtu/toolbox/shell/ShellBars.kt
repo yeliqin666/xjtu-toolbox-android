@@ -23,7 +23,6 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.sp
-import com.kyant.backdrop.backdrops.LayerBackdrop
 import com.xjtu.toolbox.ui.glass.GlassBottomTabs
 import com.xjtu.toolbox.ui.glass.GlassTab
 import com.xjtu.toolbox.ui.glass.LocalCouiGlassBarBackdrop
@@ -97,8 +96,6 @@ fun GlassBottomBar(
     selectedColor: Color,
     unselectedColor: Color,
     iconBox: Dp,
-    backdrop: LayerBackdrop,
-    exportedBackdrop: LayerBackdrop,
     bottomPadding: Dp,
     bubble: @Composable () -> Unit,
     tabArt: ShellTabArt = ShellTabArt.None,
@@ -155,9 +152,6 @@ fun GlassBottomBar(
             onTabSelected = { index ->
                 nav.onSelect(nav.tabs[index])
             },
-            backdrop = backdrop,
-            exportedBackdrop = exportedBackdrop,
-            glass = true,
             modifier = if (couiBar) Modifier.offset(y = MIUIX_FLOATING_TOOLBAR_SPACING) else Modifier,
         )
     }

@@ -72,6 +72,8 @@ import com.xjtu.toolbox.notification.SourceCategory
 import com.xjtu.toolbox.platform.BackHandler
 import com.xjtu.toolbox.schedule.ScheduleSource
 import com.xjtu.toolbox.ui.components.AppFilterChip
+import com.xjtu.toolbox.ui.components.ArrowPreference
+import com.xjtu.toolbox.ui.components.SwitchPreference
 import com.xjtu.toolbox.update.AppChangelog
 import com.xjtu.toolbox.update.AppUpdateInfo
 import com.xjtu.toolbox.update.AppUpdater
@@ -85,15 +87,13 @@ import top.yukonga.miuix.kmp.basic.CardDefaults
 import top.yukonga.miuix.kmp.basic.Surface
 import top.yukonga.miuix.kmp.basic.ButtonDefaults
 import top.yukonga.miuix.kmp.basic.Icon
-import top.yukonga.miuix.kmp.basic.SmallTitle
+import com.xjtu.toolbox.ui.components.SmallTitle
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextButton
 import top.yukonga.miuix.kmp.basic.TextField
 import top.yukonga.miuix.kmp.overlay.OverlayBottomSheet
 import top.yukonga.miuix.kmp.overlay.OverlayDialog
-import top.yukonga.miuix.kmp.preference.ArrowPreference
 import top.yukonga.miuix.kmp.preference.OverlayDropdownPreference
-import top.yukonga.miuix.kmp.preference.SwitchPreference
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 /** Android 侧的设置页宿主。 */
@@ -681,16 +681,8 @@ private fun NoticeSourceSheet(
 
 /** 设置页分组卡片的外壳（与共享屏的私有 `SettingsCard` 一致）。 */
 @Composable
-private fun SettingsCard(content: @Composable androidx.compose.foundation.layout.ColumnScope.() -> Unit) {
-    top.yukonga.miuix.kmp.basic.Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 4.dp),
-        cornerRadius = 16.dp,
-        colors = top.yukonga.miuix.kmp.basic.CardDefaults.defaultColors(color = MiuixTheme.colorScheme.surfaceVariant)
-    ) {
-        Column(content = content)
-    }
+private fun SettingsCard(content: @Composable () -> Unit) {
+    com.xjtu.toolbox.ui.components.CouiSettingsCard(content = content)
 }
 
 /** 清缓存时保留 cacheDir 下的 updates/：已经下载好、等着安装的更新包。 */

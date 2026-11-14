@@ -29,9 +29,10 @@ import com.xjtu.toolbox.notification.DynamicScheduleNotifier
 import com.xjtu.toolbox.notification.AutoDndScheduler
 import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.CardDefaults
-import top.yukonga.miuix.kmp.basic.SmallTitle
-import top.yukonga.miuix.kmp.preference.ArrowPreference
-import top.yukonga.miuix.kmp.preference.SwitchPreference
+import com.xjtu.toolbox.ui.components.SmallTitle
+import com.xjtu.toolbox.ui.components.ArrowPreference
+import com.xjtu.toolbox.ui.components.CouiSettingsCard
+import com.xjtu.toolbox.ui.components.SwitchPreference
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 @Composable
@@ -64,15 +65,10 @@ internal fun DynamicSchedulePreference() {
         }
     }
     SmallTitle("动态通知")
-    Card(
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
-        cornerRadius = 16.dp,
-        colors = CardDefaults.defaultColors(color = MiuixTheme.colorScheme.surfaceVariant),
-    ) {
-        Column {
+    CouiSettingsCard {
             SwitchPreference(
                 title = "动态课程与日程通知",
-                summary = "显示今日当前或下一项安排与倒计时；需先同步课表，今日安排结束后自动收起",
+                summary = "显示今天正在上的或下一节安排和倒计时，要先同步课表，安排结束后自动收起",
                 checked = enabled,
                 startAction = { SettingsIcon(Icons.Default.EventNote, SettingsColors.Blue) },
                 onCheckedChange = { on ->
@@ -85,7 +81,7 @@ internal fun DynamicSchedulePreference() {
                 var walkOn by remember { mutableStateOf(DynamicScheduleScheduler.isWalkHintOn(context)) }
                 SwitchPreference(
                     title = "跨楼时提醒出发",
-                    summary = "上一节与下一节不在同一栋楼时，按步行时间在开课前提醒该出发了",
+                    summary = "上一节和下一节不在一栋楼时，按步行时间提醒你该出发了",
                     checked = walkOn,
                     startAction = { SettingsIcon(Icons.Default.EventNote, SettingsColors.Green) },
                     onCheckedChange = { on ->
@@ -95,7 +91,7 @@ internal fun DynamicSchedulePreference() {
                 )
                 ArrowPreference(
                     title = "准时切换通知",
-                    summary = if (exact) "已允许在课程、日程开始和结束时切换" else "未允许精确闹钟，后台切换可能延迟；倒计时仍自动更新",
+                    summary = if (exact) "已经允许在课程和日程开始时切换" else "还没允许精确闹钟，后台切换可能晚一点，倒计时照常更新",
                     startAction = { SettingsIcon(Icons.Default.Alarm, SettingsColors.Orange) },
                     onClick = {
                         openSettings(Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM, Uri.parse("package:${context.packageName}")))
@@ -103,26 +99,20 @@ internal fun DynamicSchedulePreference() {
                 )
                 ArrowPreference(
                     title = "系统通知设置",
-                    summary = if (canPost) "可单独关闭动态课程与日程渠道" else "系统通知未允许，当前无法展示",
+                    summary = if (canPost) "可以单独关掉动态课程和日程的通知" else "系统通知还没允许，现在没法展示",
                     startAction = { SettingsIcon(Icons.Default.Notifications, SettingsColors.Teal) },
                     onClick = {
                         openSettings(Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName))
                     },
                 )
             }
-        }
     }
     SmallTitle("自动勿扰")
-    Card(
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
-        cornerRadius = 16.dp,
-        colors = CardDefaults.defaultColors(color = MiuixTheme.colorScheme.surfaceVariant),
-    ) {
-        Column {
+    CouiSettingsCard {
             SwitchPreference(
                 title = "上课、在馆时自动开启勿扰",
-                summary = if (dndGranted) "课前 3 分钟到课后 3 分钟、图书馆签到入座期间切为「仅优先」，结束后恢复；手动改过的不会被还原"
-                    else "需要先在系统里授权「勿扰模式访问」（应用可以切换勿扰，不读取通知内容）",
+                summary = if (dndGranted) "课前 3 分钟到课后 3 分钟和图书馆入座期间自动切到仅优先，结束后恢复，手动改过的不会还原"
+                    else "要先在系统里允许勿扰模式访问，应用只会切换勿扰，不读取通知内容",
                 checked = dndOn,
                 startAction = { SettingsIcon(Icons.Default.Notifications, SettingsColors.Purple) },
                 onCheckedChange = { on ->
@@ -134,6 +124,5 @@ internal fun DynamicSchedulePreference() {
                     }
                 },
             )
-        }
     }
 }

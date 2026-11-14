@@ -150,7 +150,6 @@ fun Jiaocai1LibraryScreen(
             tabs = listOf("书架", "全文库"),
             selectedTabIndex = selectedTab,
             onTabSelected = { selectedTab = it },
-            glass = glass,
             modifier = Modifier.fillMaxSize(),
         ) {
         Column(
