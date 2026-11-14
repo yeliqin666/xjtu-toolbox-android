@@ -210,14 +210,19 @@ fun CampusCardScreen(
                             onExpandedChange = { showRangeMenu = it },
                             icon = { Icon(Icons.Default.DateRange, contentDescription = "时间范围：$rangeLabel") },
                         ) {
-                            TimeRange.entries.forEach { range ->
-                                option(
-                                    text = if (range == TimeRange.CUSTOM) "自定义…" else "近${range.label}",
-                                    selected = range == vm.timeRange,
-                                ) {
-                                    if (range == TimeRange.CUSTOM) showCustomRange = true
-                                    else vm.selectRange(range)
+                            TimeRange.entries.filter { it != TimeRange.CUSTOM }.forEach { range ->
+                                option("近${range.label}", selected = range == vm.timeRange) { vm.selectRange(range) }
+                            }
+                            divider()
+                            val custom = vm.timeRange == TimeRange.CUSTOM
+                            submenu("自定义", summary = rangeLabel.takeIf { custom }) {
+                                quickRanges(todayOnCampus()).forEach { (label, dates) ->
+                                    option(label, selected = custom && vm.range == dates) {
+                                        vm.selectCustomRange(dates.first, dates.second)
+                                    }
                                 }
+                                divider()
+                                option("选择日期…") { showCustomRange = true }
                             }
                         }
                     }
