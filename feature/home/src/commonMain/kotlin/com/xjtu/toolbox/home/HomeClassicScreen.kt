@@ -843,9 +843,9 @@ private fun RowScope.IndexEntryBody(
     muted: Color,
     iconColor: Color,
 ) {
-    Box(Modifier.size(34.dp).background(row.color.copy(alpha = if (dark) 0.18f else 0.10f),
-        RoundedCornerShape(11.dp)), contentAlignment = Alignment.Center) {
-        Icon(row.icon, null, tint = iconColor, modifier = Modifier.size(19.dp))
+    Box(Modifier.size(34.dp), contentAlignment = Alignment.Center) {
+        // 纯色图标：去掉原来的 34dp 淡色圆角底块，只留彩色字形
+        Icon(row.icon, null, tint = iconColor, modifier = Modifier.size(22.dp))
     }
     Spacer(Modifier.width(9.dp))
     Column(Modifier.weight(1f)) {

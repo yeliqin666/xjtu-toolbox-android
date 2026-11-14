@@ -103,30 +103,11 @@ fun ExpressiveIcon(
     color: Color,
     modifier: Modifier = Modifier,
     size: Dp = 54.dp,
-    iconSize: Dp = 27.dp,
+    @Suppress("UNUSED_PARAMETER") iconSize: Dp = 27.dp,
 ) {
-    Box(
-        modifier = modifier
-            .size(size)
-            .squircleSurface(
-                color = color.copy(alpha = 0.16f),
-                cornerRadius = size * 0.31f,
-            ),
-        contentAlignment = Alignment.Center,
-    ) {
-        // 浅色下这团白光融进浅底，只是提亮；深色底上它会变成字形背后一圈灰白光环，所以只在浅色画。
-        if (!LocalIsDarkTheme.current) {
-            Box(
-                Modifier
-                    .size(size * 0.7f)
-                    .clip(androidx.compose.foundation.shape.CircleShape)
-                    .background(
-                        Brush.radialGradient(
-                            listOf(Color.White.copy(alpha = 0.2f), Color.Transparent),
-                        ),
-                    ),
-            )
-        }
-        Icon(icon, contentDescription = null, tint = color, modifier = Modifier.size(iconSize))
+    // 纯色图标：不再垫那层 16% 的圆角色块与浅色下的白光，只留彩色字形。
+    // 字形按槽位的 62% 画（54dp 槽 → 33dp 字形），比原来垫色块时的 27dp 大一档。
+    Box(modifier.size(size), contentAlignment = Alignment.Center) {
+        Icon(icon, contentDescription = null, tint = color, modifier = Modifier.size(size * 0.62f))
     }
 }
