@@ -52,6 +52,8 @@ internal data class CardStats(
     val weekdayWeekend: Pair<DayTypeStats, DayTypeStats>? = null,
     /** 干饭人账单，按当前选的时间范围算。 */
     val mealReport: MealReport? = null,
+    /** 吃饭画像标签，见 [CampusCardAnalysis.personaTags]。 */
+    val tags: List<Pair<String, String>> = emptyList(),
 )
 
 internal sealed interface CampusCardEvent {
@@ -138,16 +140,19 @@ internal class CampusCardViewModel(
 
     private fun computeStats(all: List<Transaction>, start: LocalDate, end: LocalDate): CardStats {
         val (meals, days) = analyzeMealTimes(all)
+        val food = breakdownFood(all)
+        val hourly = hourlyMeals(all)
         return CardStats(
             monthly = calculateMonthlyStats(all, start, end),
             categories = categorizeSpending(all),
-            food = breakdownFood(all),
+            food = food,
             mealTimes = meals,
             activeDays = days,
-            hourly = hourlyMeals(all),
+            hourly = hourly,
             dailyRate = dailySpendRate(all),
             weekdayWeekend = analyzeWeekdayVsWeekend(all),
             mealReport = MealReport.build(all) { categoryOf(it) == "餐饮" },
+            tags = CampusCardAnalysis.personaTags(food, meals, days, hourly, slotRegular(all)),
         )
     }
 

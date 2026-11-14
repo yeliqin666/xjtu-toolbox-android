@@ -339,6 +339,7 @@ fun CampusCardScreen(
                                                 cardInfo?.balance ?: 0.0, stats.dailyRate, stats.food, stats.hourly,
                                                 topContentPadding = topContentPadding, rangeLabel = rangeLabel,
                                                 mealReport = stats.mealReport.takeIf { mealReportExport != null }, mealReportExport = mealReportExport,
+                                                tags = stats.tags,
                                             )
                                         }
                                     }
@@ -369,6 +370,7 @@ fun CampusCardScreen(
                                     cardInfo?.balance ?: 0.0, stats.dailyRate, stats.food, stats.hourly,
                                     topContentPadding = topContentPadding, rangeLabel = rangeLabel,
                                     mealReport = stats.mealReport.takeIf { mealReportExport != null }, mealReportExport = mealReportExport,
+                                    tags = stats.tags,
                                 )
                             }
                         }
@@ -924,6 +926,7 @@ private fun AnalyticsTab(
     rangeLabel: String = "",
     mealReport: MealReport? = null,
     mealReportExport: MealReportExport? = null,
+    tags: List<Pair<String, String>> = emptyList(),
 ) {
     var showReport by remember { mutableStateOf(false) }
     if (showReport && mealReport != null && mealReportExport != null) {
@@ -932,16 +935,6 @@ private fun AnalyticsTab(
     val foodSpend = categorySpending["餐饮"] ?: 0.0
     val meals = mealTimeStats.values.sumOf { it.count }
     val totalSpend = monthlyStats.sumOf { it.totalSpend }
-    val tags = remember(foodBreakdown, mealTimeStats, activeCampusDays, monthlyStats) {
-        val top = monthlyStats.flatMap { it.topMerchants }
-            .groupBy { it.name }
-            .map { (name, s) -> MerchantStat(name, s.sumOf { it.totalAmount }, s.sumOf { it.count }) }
-            .maxByOrNull { it.count }
-        CampusCardAnalysis.personaTags(
-            foodBreakdown, mealTimeStats, activeCampusDays, foodSpend, top,
-            monthlyStats.sumOf { it.transactionCount },
-        )
-    }
     LazyColumn(
         state = com.xjtu.toolbox.ui.glass.rememberReportedLazyListState(),
         modifier = Modifier.fillMaxSize().overScrollVertical().padding(horizontal = 16.dp),
@@ -959,7 +952,7 @@ private fun AnalyticsTab(
             // 各统计卡依次登场，卡里的条形图随后从左边长出来
             item {
                 Box(Modifier.enterOnce(0)) {
-                    SpendingHeroCard(totalSpend, activeCampusDays, foodSpend, meals, tags, rangeLabel)
+                    SpendingHeroCard(totalSpend, activeCampusDays, CampusCardAnalysis.perMeal(mealTimeStats), tags, rangeLabel)
                 }
             }
             if (mealReport != null) {
@@ -1061,16 +1054,7 @@ private fun CategoryCard(categories: Map<String, Double>) {
 
     top.yukonga.miuix.kmp.basic.Card(modifier = Modifier.fillMaxWidth(), cornerRadius = 20.dp) {
         Column(Modifier.padding(20.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.Default.PieChart, null,
-                    tint = MiuixTheme.colorScheme.primary, modifier = Modifier.size(18.dp))
-                Spacer(Modifier.width(6.dp))
-                Text("消费类别", style = MiuixTheme.textStyles.subtitle,
-                    fontWeight = FontWeight.Medium)
-                Spacer(Modifier.weight(1f))
-                Text("总计 ¥" + money0(total), style = MiuixTheme.textStyles.footnote1,
-                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
-            }
+            AnalyticsHeader(Icons.Default.PieChart, "消费类别", "总计 ¥" + money0(total))
             Spacer(Modifier.height(16.dp))
             categories.entries.forEach { (category, amount) ->
                 val percent = if (total > 0) amount / total else 0.0
@@ -1124,20 +1108,7 @@ private fun FoodBreakdownCard(breakdown: Map<String, Double>, mealCount: Int, fo
 
     top.yukonga.miuix.kmp.basic.Card(modifier = Modifier.fillMaxWidth(), cornerRadius = 20.dp) {
         Column(Modifier.padding(20.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(
-                    Icons.Default.Restaurant, null,
-                    tint = MiuixTheme.colorScheme.primary, modifier = Modifier.size(18.dp)
-                )
-                Spacer(Modifier.width(6.dp))
-                Text("主食构成", style = MiuixTheme.textStyles.subtitle, fontWeight = FontWeight.Medium)
-                Spacer(Modifier.weight(1f))
-                Text(
-                    "¥" + money0(if (foodSpend > 0) foodSpend else total),
-                    style = MiuixTheme.textStyles.footnote1,
-                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary
-                )
-            }
+            AnalyticsHeader(Icons.Default.Restaurant, "主食构成", "¥" + money0(if (foodSpend > 0) foodSpend else total))
             Spacer(Modifier.height(18.dp))
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Box(
@@ -1222,85 +1193,79 @@ private fun FoodBreakdownCard(breakdown: Map<String, Double>, mealCount: Int, fo
 
 @Composable
 private fun MonthlyTrendCard(stats: List<MonthlyStats>, rangeStart: LocalDate, rangeEnd: LocalDate) {
-    // 掐掉首尾的空月。选「近 1 年」时区间前几个月往往还没办卡、或者数据拉不到，
-    // 寒暑假也整月没有一笔——这些月份渲染出来就是一行月份名配一条空轨和「¥0」，
-    // 占着位置还让人以为漏了数据。中间的空月留着：那是真的一个月没消费，本身是信息。
-    val trimmed = stats
-        .dropWhile { it.totalSpend <= 0 && it.totalIncome <= 0 }
-        .dropLastWhile { it.totalSpend <= 0 && it.totalIncome <= 0 }
-    if (trimmed.isEmpty()) return
-    @Suppress("NAME_SHADOWING") val stats = trimmed
-    val maxValue = stats.maxOfOrNull { maxOf(it.totalSpend, it.totalIncome) } ?: 1.0
+    // 掐掉首尾的空月（还没办卡、整段假期）；中间的空月留着，那是真的一个月没消费
+    val months = stats.sortedBy { it.month }
+        .dropWhile { it.totalSpend <= 0 }
+        .dropLastWhile { it.totalSpend <= 0 }
+    if (months.isEmpty()) return
     val spanYears = CampusCardAnalysis.spansYears(rangeStart, rangeEnd)
-    top.yukonga.miuix.kmp.basic.Card(modifier = Modifier.fillMaxWidth(), cornerRadius = 20.dp) {
+    fun label(m: MonthlyStats) =
+        if (spanYears) "${m.month.year % 100}/${m.month.month.number}" else "${m.month.month.number}月"
+    val max = months.maxOf { it.totalSpend }
+    // 刷卡不足 5 天的月份多半是假期，画浅色，也不进月均
+    val inSchool = months.filter { it.spendDays >= 5 }
+    val avg = if (inSchool.isEmpty()) null else inSchool.sumOf { it.totalSpend } / inSchool.size
+    val peak = months.maxBy { it.totalSpend }
+    val accent = MiuixTheme.colorScheme.primary
+    val guide = MiuixTheme.colorScheme.onSurfaceVariantSummary.copy(alpha = 0.5f)
+    val grow = com.xjtu.toolbox.ui.components.rememberRevealProgress(
+        months, spec = tween(600, easing = androidx.compose.animation.core.FastOutSlowInEasing),
+    )
+    // 月份多时隔几个标一次，最多 8 个
+    val labelEvery = (months.size + 7) / 8
+
+    Card(modifier = Modifier.fillMaxWidth(), cornerRadius = 20.dp) {
         Column(Modifier.padding(20.dp)) {
-            Text("月度趋势", style = MiuixTheme.textStyles.subtitle,
-                fontWeight = FontWeight.Medium)
-            CampusCardAnalysis.periodSubtitle(rangeStart, rangeEnd)?.let { subtitle ->
-                Spacer(Modifier.height(2.dp))
-                Text(
-                    subtitle,
-                    style = MiuixTheme.textStyles.footnote1,
-                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary
-                )
-            }
-            Spacer(Modifier.height(4.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Box(Modifier.size(8.dp).clip(CircleShape)
-                        .background(MiuixTheme.colorScheme.error))
-                    Spacer(Modifier.width(4.dp))
-                    Text("支出", style = MiuixTheme.textStyles.footnote1,
-                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
-                }
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Box(Modifier.size(8.dp).clip(CircleShape)
-                        .background(MiuixTheme.colorScheme.primary))
-                    Spacer(Modifier.width(4.dp))
-                    Text("收入", style = MiuixTheme.textStyles.footnote1,
-                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
-                }
-            }
-            Spacer(Modifier.height(12.dp))
-            stats.sortedBy { it.month }.forEach { monthStat ->
-                val monthLabel = CampusCardAnalysis.monthLabel(monthStat.month, spanYears)
-                val spendBar = (monthStat.totalSpend / maxValue).toFloat().coerceIn(0f, 1f)
-                val incomeBar = (monthStat.totalIncome / maxValue).toFloat().coerceIn(0f, 1f)
-                Column(Modifier.padding(vertical = 4.dp)) {
-                    Text(monthLabel, style = MiuixTheme.textStyles.footnote1,
-                        fontWeight = FontWeight.Medium)
-                    Spacer(Modifier.height(4.dp))
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        com.xjtu.toolbox.ui.components.AnimatedBar(
-                            progress = spendBar,
-                            color = MiuixTheme.colorScheme.error,
-                            modifier = Modifier.weight(1f),
-                            trackColor = MiuixTheme.colorScheme.error.copy(alpha = 0.1f),
-                            height = 10.dp,
+            AnalyticsHeader(Icons.Default.BarChart, "月度趋势", avg?.let { "在校月均 ¥" + money0(it) })
+            Spacer(Modifier.height(18.dp))
+            Box(
+                Modifier.fillMaxWidth().height(120.dp).drawBehind {
+                    val slot = size.width / months.size
+                    val barW = minOf(slot * 0.58f, 26.dp.toPx())
+                    val radius = androidx.compose.ui.geometry.CornerRadius(minOf(barW / 2f, 6.dp.toPx()))
+                    months.forEachIndexed { i, m ->
+                        val h = (size.height * (m.totalSpend / max).toFloat() * grow.value).coerceAtLeast(if (m.totalSpend > 0) 2.dp.toPx() else 0f)
+                        drawRoundRect(
+                            color = if (m.spendDays >= 5) accent else accent.copy(alpha = 0.3f),
+                            topLeft = androidx.compose.ui.geometry.Offset(i * slot + (slot - barW) / 2f, size.height - h),
+                            size = androidx.compose.ui.geometry.Size(barW, h),
+                            cornerRadius = radius,
                         )
-                        Spacer(Modifier.width(8.dp))
-                        Text("¥" + money0(monthStat.totalSpend),
-                            style = MiuixTheme.textStyles.footnote1,
-                            modifier = Modifier.width(60.dp), color = MiuixTheme.colorScheme.error)
                     }
-                    if (monthStat.totalIncome > 0) {
-                        Spacer(Modifier.height(2.dp))
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            com.xjtu.toolbox.ui.components.AnimatedBar(
-                            progress = incomeBar,
-                            color = MiuixTheme.colorScheme.primary,
-                            modifier = Modifier.weight(1f),
-                            trackColor = MiuixTheme.colorScheme.primary.copy(alpha = 0.1f),
-                            height = 6.dp,
+                    avg?.let {
+                        val y = size.height * (1f - (it / max).toFloat())
+                        drawLine(
+                            guide, androidx.compose.ui.geometry.Offset(0f, y), androidx.compose.ui.geometry.Offset(size.width, y),
+                            strokeWidth = 1.dp.toPx(),
+                            pathEffect = androidx.compose.ui.graphics.PathEffect.dashPathEffect(floatArrayOf(6.dp.toPx(), 4.dp.toPx())),
                         )
-                            Spacer(Modifier.width(8.dp))
-                            Text("¥" + money0(monthStat.totalIncome),
-                                style = MiuixTheme.textStyles.footnote1,
-                                modifier = Modifier.width(60.dp), color = MiuixTheme.colorScheme.primary)
+                    }
+                },
+            )
+            Spacer(Modifier.height(6.dp))
+            Row(Modifier.fillMaxWidth()) {
+                // 标签居中对准柱子，可以溢出到旁边没标的格子里
+                months.forEachIndexed { i, m ->
+                    Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
+                        if (i % labelEvery == 0) {
+                            Text(
+                                label(m), style = MiuixTheme.textStyles.footnote2,
+                                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                                maxLines = 1, softWrap = false,
+                                modifier = Modifier.wrapContentWidth(unbounded = true),
+                            )
                         }
                     }
                 }
             }
+            Spacer(Modifier.height(12.dp))
+            Text(
+                "最高 ${label(peak)} ¥${money0(peak.totalSpend)}" +
+                    (if (avg != null) " · 虚线为在校月均" else "") +
+                    (if (inSchool.size < months.size) " · 浅色为假期月" else ""),
+                style = MiuixTheme.textStyles.footnote1,
+                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+            )
         }
     }
 }
@@ -1325,25 +1290,25 @@ private fun SpendingInsightsCard(
 
     top.yukonga.miuix.kmp.basic.Card(modifier = Modifier.fillMaxWidth(), cornerRadius = 20.dp) {
         Column(Modifier.padding(20.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.Default.Lightbulb, null,
-                    tint = MiuixTheme.colorScheme.primaryVariant, modifier = Modifier.size(20.dp))
-                Spacer(Modifier.width(8.dp))
-                Text("消费小结", style = MiuixTheme.textStyles.subtitle,
-                    fontWeight = FontWeight.Medium)
-            }
+            AnalyticsHeader(Icons.Default.Lightbulb, "消费小结")
             Spacer(Modifier.height(12.dp))
-            insights.forEachIndexed { i, (icon, text) ->
-                val tint = tints[i % tints.size]
-                Row(Modifier.padding(vertical = 5.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Box(
-                        Modifier.size(30.dp).clip(CircleShape).background(tint.copy(alpha = 0.16f)),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Icon(icon, null, modifier = Modifier.size(16.dp), tint = tint)
+            Column(
+                Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp))
+                    .background(com.xjtu.toolbox.ui.components.AppInsetColor).padding(vertical = 4.dp),
+            ) {
+                insights.forEachIndexed { i, (icon, text) ->
+                    if (i > 0) com.xjtu.toolbox.ui.components.RowDivider(startInset = 52.dp, endInset = 14.dp)
+                    val tint = tints[i % tints.size]
+                    Row(Modifier.padding(horizontal = 12.dp, vertical = 9.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Box(
+                            Modifier.size(28.dp).clip(CircleShape).background(tint.copy(alpha = 0.16f)),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Icon(icon, null, modifier = Modifier.size(15.dp), tint = tint)
+                        }
+                        Spacer(Modifier.width(12.dp))
+                        Text(text, style = MiuixTheme.textStyles.body2)
                     }
-                    Spacer(Modifier.width(10.dp))
-                    Text(text, style = MiuixTheme.textStyles.body2)
                 }
             }
         }
@@ -1400,7 +1365,7 @@ private fun generateInsights(
     // 上面几张卡已经画出来的（餐饮占比、最常去的商户、每月高低、水电）这里不再复述，
     // 只留图上看不出来、要算一下才知道的结论。
 
-    CampusCardAnalysis.monthChangeInsight(stats, rangeStart, rangeEnd)?.let { line ->
+    CampusCardAnalysis.monthChangeInsight(stats, rangeEnd)?.let { line ->
         val up = "增长" in line
         insights.add(
             (if (up) Icons.AutoMirrored.Filled.TrendingUp else Icons.AutoMirrored.Filled.TrendingDown) to line

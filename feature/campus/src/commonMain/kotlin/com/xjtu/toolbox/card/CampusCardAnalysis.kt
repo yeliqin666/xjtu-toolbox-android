@@ -49,9 +49,6 @@ object CampusCardAnalysis {
         return "${start.year}/${start.month.number}/${start.day}–${end.year}/${end.month.number}/${end.day}"
     }
 
-    fun monthLabel(month: YearMonth, spanYears: Boolean): String =
-        if (spanYears) "${month.year}年${month.month.number}月" else "${month.month.number}月"
-
     fun monthName(
         month: YearMonth,
         rangeEnd: LocalDate,
@@ -75,12 +72,6 @@ object CampusCardAnalysis {
         }
     }
 
-    fun monthFullyInRange(month: YearMonth, start: LocalDate, end: LocalDate): Boolean {
-        val monthStart = month.firstDay
-        val monthEnd = month.lastDay
-        return monthStart >= start && monthEnd <= end
-    }
-
     fun summarizeRange(
         stats: List<MonthlyStats>,
         start: LocalDate,
@@ -88,7 +79,7 @@ object CampusCardAnalysis {
         today: LocalDate = todayOnCampus(),
     ): RangeSpendSummary {
         val days = calendarDays(start, end)
-        val change = monthChange(stats, start, end, today)
+        val change = monthChange(stats)
         return RangeSpendSummary(
             title = periodTitle(start, end, today),
             subtitle = periodSubtitle(start, end, today),
@@ -96,71 +87,71 @@ object CampusCardAnalysis {
             totalIncome = stats.sumOf { it.totalIncome },
             transactionCount = stats.sumOf { it.transactionCount },
             avgDailySpend = stats.sumOf { it.totalSpend } / days,
-            changePercent = change?.first,
-            changeCaption = change?.second,
+            changePercent = change?.third,
+            changeCaption = change?.let { "日均比${monthName(it.second.month, end, today)}" },
         )
     }
 
     fun monthChangeInsight(
         stats: List<MonthlyStats>,
-        start: LocalDate,
         end: LocalDate,
         today: LocalDate = todayOnCampus(),
     ): String? {
-        val change = monthChange(stats, start, end, today) ?: return null
-        val consecutive = consecutiveTail(stats) ?: return null
-        val (latest, prev) = consecutive
-        val latestName = monthName(latest.month, end, today)
-        val prevName = monthName(prev.month, end, today)
-        val latestFull = monthFullyInRange(latest.month, start, end) ||
-            (latest.month == today.yearMonth && end == today)
-        val direction = if (change.first > 0) "增长" else "减少"
-        return if (latestFull && monthFullyInRange(prev.month, start, end)) {
-            "${latestName}消费比${prevName}${direction} ${percent0(abs(change.first))}（¥${money0(prev.totalSpend)} → ¥${money0(latest.totalSpend)}）"
-        } else {
-            "${latestName}日均比${prevName}${direction} ${percent0(abs(change.first))}（¥${money1(prev.avgDailySpend)} → ¥${money1(latest.avgDailySpend)}）"
-        }
+        val (latest, prev, percent) = monthChange(stats) ?: return null
+        val direction = if (percent > 0) "增长" else "减少"
+        return "${monthName(latest.month, end, today)}刷卡日均比${monthName(prev.month, end, today)}$direction " +
+            "${percent0(abs(percent))}（¥${money1(prev.perSpendDay)} → ¥${money1(latest.perSpendDay)}）"
     }
 
-    /** 吃饭画像：从主食构成、各餐天数、每顿均价里挑几个够显著的特征，最多四个。 */
+    /** 每顿均价：各顿（同一天同一顿的几笔算一顿）的花费 ÷ 顿数。 */
+    fun perMeal(meals: Map<String, MealTimeStats>): Double? {
+        val n = meals.values.sumOf { it.count }
+        return if (n == 0) null else meals.values.sumOf { it.totalAmount } / n
+    }
+
+    /**
+     * 吃饭画像，最多四个。不只抓极端：口味分散给「什么都吃」，饭点集中给「饭点很准」，
+     * 某一顿总去同一家给「常去」，规律的人也能拿到几个像样的标签。
+     * [regular] 是 [slotRegular] 的结果。
+     */
     fun personaTags(
         food: Map<String, Double>,
         meals: Map<String, MealTimeStats>,
         activeDays: Int,
-        foodSpend: Double,
-        topMerchant: MerchantStat?,
-        spendCount: Int,
+        hourly: List<Int>,
+        regular: Pair<String, String>?,
     ): List<Pair<String, String>> {
+        if (activeDays < 7) return emptyList()
         val tags = mutableListOf<Pair<String, String>>()
         val foodTotal = food.values.sum()
-        food.maxByOrNull { it.value }?.let { (name, amount) ->
-            if (foodTotal > 0 && amount / foodTotal >= 0.3) {
-                FOOD_PERSONA[name]?.let(tags::add)
-            }
-        }
-        if (activeDays >= 7) {
-            val breakfastRate = (meals["早餐"]?.count ?: 0).toDouble() / activeDays
+        if (foodTotal > 0) {
+            val (top, amount) = food.maxBy { it.value }
             when {
-                breakfastRate >= 0.6 -> tags += "🌅" to "早饭从不落"
-                breakfastRate <= 0.2 -> tags += "😴" to "基本不吃早饭"
-            }
-            val night = meals["夜宵"]?.count ?: 0
-            if (night >= 5 && night >= activeDays * 0.15) tags += "🌙" to "夜宵常客"
-        }
-        val mealCount = meals.values.sumOf { it.count }
-        if (mealCount >= 10 && foodSpend > 0) {
-            val perMeal = foodSpend / mealCount
-            when {
-                perMeal < 9 -> tags += "🪙" to "精打细算"
-                perMeal > 20 -> tags += "🍱" to "吃得不含糊"
+                amount / foodTotal >= 0.3 -> FOOD_PERSONA[top]?.let(tags::add)
+                food.values.count { it / foodTotal >= 0.08 } >= 4 -> tags += "🍽️" to "什么都吃"
             }
         }
-        // 「电子账户」是没带商户名的扫码付，不是哪一家店
-        if (topMerchant != null && "电子账户" !in topMerchant.name &&
-            spendCount >= 20 && topMerchant.count >= spendCount * 0.2
-        ) {
-            tags += "📌" to "「${topMerchant.name.take(6)}」老主顾"
+        val breakfastRate = (meals["早餐"]?.count ?: 0).toDouble() / activeDays
+        when {
+            breakfastRate >= 0.6 -> tags += "🌅" to "早饭从不落"
+            breakfastRate <= 0.2 -> tags += "😴" to "基本不吃早饭"
         }
+        val night = meals["夜宵"]?.count ?: 0
+        if (night >= 5 && night >= activeDays * 0.15) tags += "🌙" to "夜宵常客"
+        val avg = perMeal(meals)
+        if (avg != null && meals.values.sumOf { it.count } >= 10) {
+            if (avg < 9) tags += "🪙" to "精打细算"
+            else if (avg > 20) tags += "🍱" to "吃得不含糊"
+        }
+        // 每顿里最集中的那个钟点占几成；早饭常在两个钟点间摆动，三顿平均六成就算准
+        if (hourly.size == 24) {
+            val shares = MEAL_HOURS.values.mapNotNull { r ->
+                val n = r.sumOf { hourly[it] }
+                if (n < 10) null else r.maxOf { hourly[it] }.toDouble() / n
+            }
+            if (shares.size >= 2 && shares.average() >= 0.6) tags += "⏰" to "饭点很准"
+        }
+        regular?.let { (slot, name) -> tags += "📌" to "${slot}常去「${name.take(6)}」" }
         return tags.take(4)
     }
 
@@ -183,24 +174,15 @@ object CampusCardAnalysis {
         return latest to prev
     }
 
-    private fun monthChange(
-        stats: List<MonthlyStats>,
-        start: LocalDate,
-        end: LocalDate,
-        today: LocalDate,
-    ): Pair<Double, String>? {
+    /**
+     * 相邻两月按「刷卡日均」比：学生一放假整月只刷几天，按总额或自然日摊都会把假期算成「省了六成」。
+     * 任一个月刷卡不足 5 天不比。
+     */
+    private fun monthChange(stats: List<MonthlyStats>): Triple<MonthlyStats, MonthlyStats, Double>? {
         val (latest, prev) = consecutiveTail(stats) ?: return null
-        val latestFull = monthFullyInRange(latest.month, start, end) ||
-            (latest.month == today.yearMonth && end == today)
-        val percent = if (latestFull && monthFullyInRange(prev.month, start, end)) {
-            if (prev.totalSpend <= 0) return null
-            (latest.totalSpend - prev.totalSpend) / prev.totalSpend * 100
-        } else {
-            if (prev.avgDailySpend <= 0) return null
-            (latest.avgDailySpend - prev.avgDailySpend) / prev.avgDailySpend * 100
-        }
-        val caption = "比${monthName(prev.month, end, today)}"
-        return percent to caption
+        if (latest.spendDays < 5 || prev.spendDays < 5 || prev.totalSpend <= 0) return null
+        val percent = (latest.perSpendDay - prev.perSpendDay) / prev.perSpendDay * 100
+        return Triple(latest, prev, percent)
     }
 }
 
@@ -220,15 +202,19 @@ private val FOOD_MERCHANT_KEYS = arrayOf(
     "饺", "自选", "豆花", "豆苗", "江记", "旧迹", "丸子", "肠粉",
     "迈德思客", "麦当劳", "肯德基", "汉堡", "披萨", "必胜客",
     "风味", "拉面", "米皮", "凉粉", "胡辣汤", "砂锅", "麻食",
+    "瑞幸", "库迪", "蜜雪", "星巴克",
 )
 
-/** 餐饮内部的主食分类。 */
+/**
+ * 餐饮内部的主食分类，按顺序取第一个命中的。饺包排在汤粥前（砂锅饺子、汤包），
+ * 米饭排在饮品前（茶泡饭）；饮品不用单字「饮」，它会吃掉「饮食中心」。
+ */
 private val FOOD_SUB_RULES: List<Pair<String, Array<String>>> = listOf(
-    "饮品" to arrayOf("水吧", "吧台", "咖啡", "奶茶", "茶", "果汁", "豆浆", "饮"),
+    "饺包" to arrayOf("饺", "包子", "汤包", "小笼", "生煎", "馒头"),
     "汤粥" to arrayOf("粥", "汤", "瓦罐", "砂锅", "胡辣", "馄饨", "丸子"),
-    "饺包" to arrayOf("饺", "包子", "小笼", "生煎", "馒头"),
     "自选" to arrayOf("自选", "自助", "称量", "智盘", "菜组", "小碗菜", "蒸菜"),
     "米饭" to arrayOf("饭", "盖浇", "烧腊", "煲"),
+    "饮品" to arrayOf("水吧", "吧台", "咖啡", "奶茶", "茶", "果汁", "豆浆", "饮品", "瑞幸", "库迪", "蜜雪", "星巴克"),
     "面食" to arrayOf("面", "粉", "米线", "饸络", "凉皮", "米皮", "麻食", "削筋"),
     // 小吃排在最后，当兜底用：这里的「卤」「鱼」「炒」不会抢走前面的分类，
     // 卤肉饭/酸菜鱼米饭先被「米饭」接走，五谷鱼粉先被「面食」接走。
@@ -299,24 +285,18 @@ fun calculateMonthlyStats(
             .sortedByDescending { it.totalAmount }
             .take(10)
         // 逐笔取反再求和，不写 -sumOf：没有消费的月份 -(0.0) 是 -0.0，趋势图上印成「¥-0」。
-        val totalSpend = spending.sumOf { -it.amount }
-        val overlapStart = maxOf(month.firstDay, inferredStart)
-        val overlapEnd = minOf(month.lastDay, inferredEnd)
-        val daysCovered = overlapStart.daysUntil(overlapEnd) + 1
-        val safeDays = daysCovered.coerceAtLeast(1)
         val dailySpend = spending.groupBy { it.time.substringBefore(" ") }
             .mapValues { (_, txs) -> -txs.sumOf { it.amount } }
         val peakEntry = dailySpend.maxByOrNull { it.value }
         MonthlyStats(
             month = month,
-            totalSpend = totalSpend,
+            totalSpend = spending.sumOf { -it.amount },
             totalIncome = income.sumOf { it.amount },
             transactionCount = txList.size,
             topMerchants = merchantStats,
-            avgDailySpend = totalSpend / safeDays,
             peakDay = peakEntry?.key ?: "",
             peakDayAmount = peakEntry?.value ?: 0.0,
-            daysCovered = safeDays
+            spendDays = dailySpend.size,
         )
     }.toList().sortedByDescending { it.month }
 }
@@ -338,11 +318,33 @@ fun hourlyMeals(transactions: List<Transaction>): List<Int> {
     for (tx in transactions) {
         if (tx.amount >= 0) continue
         if (classifyMerchant(tx.displayMerchant, tx.description, tx.time) != "餐饮") continue
-        val hour = tx.time.substringAfter(" ").substringBefore(":").toIntOrNull() ?: continue
-        if (hour in 0..23) out[hour]++
+        tx.hour()?.let { out[it]++ }
     }
     return out.toList()
 }
+
+/** 三顿正餐的钟点。15、16 点是下午茶不算正餐，22 点到凌晨 4 点是夜宵。全模块分顿都用这一份。 */
+internal val MEAL_HOURS = linkedMapOf("早餐" to 5..10, "午餐" to 11..14, "晚餐" to 17..21)
+
+internal fun mealSlotOf(hour: Int): String? =
+    MEAL_HOURS.entries.firstOrNull { hour in it.value }?.key ?: if (hour >= 22 || hour <= 4) "夜宵" else null
+
+private fun Transaction.hour(): Int? = time.substringAfter(" ").substringBefore(":").toIntOrNull()?.takeIf { it in 0..23 }
+
+/**
+ * 哪一顿最认一家店：这一顿至少 20 次、那家占两成半以上，几顿都够格取占比最高的。
+ * 返回（顿，店名）。没带商户名的「电子账户」不算一家店。
+ */
+fun slotRegular(transactions: List<Transaction>): Pair<String, String>? =
+    transactions.filter { it.amount < 0 && categoryOf(it) == "餐饮" && "电子账户" !in it.displayMerchant }
+        .groupBy { tx -> tx.hour()?.let(::mealSlotOf) }
+        .mapNotNull { (slot, txs) ->
+            if (slot == null || txs.size < 20) return@mapNotNull null
+            val (name, n) = txs.groupingBy { it.displayMerchant }.eachCount().maxBy { it.value }
+            Triple(slot, name, n.toDouble() / txs.size).takeIf { it.third >= 0.25 }
+        }
+        .maxByOrNull { it.third }
+        ?.let { it.first to it.second }
 
 /** 用餐时段分析（早/中/晚/夜宵），按天数统计次数，并返回在校天数。 */
 fun analyzeMealTimes(transactions: List<Transaction>): Pair<Map<String, MealTimeStats>, Int> {
@@ -356,20 +358,7 @@ fun analyzeMealTimes(transactions: List<Transaction>): Pair<Map<String, MealTime
         if (tx.amount >= 0) continue
         val category = classifyMerchant(tx.displayMerchant, tx.description, tx.time)
         if (category != "餐饮") continue
-
-        val hour = try {
-            tx.time.substringAfter(" ").substringBefore(":").toInt()
-        } catch (_: Exception) { continue }
-
-        // 时段划分：下午3-4点（15/16时）不归入正餐，避免把"买杯下午茶"算成晚餐
-        val period = when (hour) {
-            in 5..10 -> "早餐"   // 5am-10am
-            in 11..14 -> "午餐"  // 11am-2pm
-            in 17..21 -> "晚餐"  // 5pm-9pm
-            in 22..23, in 0..4 -> "夜宵"  // 10pm-4am
-            else -> null        // 3pm-4pm(15/16时) — 下午茶/零食，不计入
-        }
-        if (period == null) continue
+        val period = tx.hour()?.let(::mealSlotOf) ?: continue
         val date = tx.time.substringBefore(" ")
         rawMeals[period]?.getOrPut(date) { mutableListOf() }?.add(-tx.amount)
     }
@@ -453,14 +442,12 @@ private val UTILITY_KEYS = listOf("电控", "水控", "能源", "电量", "电�
 fun todaySummaryOf(transactions: List<Transaction>, today: LocalDate = todayOnCampus()): TodaySpendSummary {
     val todayStr = today.toString()
     val spends = transactions.filter { it.time.startsWith(todayStr) && it.amount < 0 }
-    fun sumInHours(hours: IntRange) = spends.filter { tx ->
-        tx.time.substringAfter(" ").substringBefore(":").toIntOrNull()?.let { it in hours } == true
-    }.sumOf { -it.amount }
+    fun sumIn(slot: String) = spends.filter { tx -> tx.hour()?.let(::mealSlotOf) == slot }.sumOf { -it.amount }
     return TodaySpendSummary(
         total = spends.sumOf { -it.amount },
-        breakfast = sumInHours(5..10),
-        lunch = sumInHours(11..14),
-        dinner = sumInHours(17..21),
+        breakfast = sumIn("早餐"),
+        lunch = sumIn("午餐"),
+        dinner = sumIn("晚餐"),
     )
 }
 

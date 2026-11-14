@@ -17,7 +17,7 @@ data class MealReport(
     val totalSpend: Double,
     /** 有吃饭记录的天数。 */
     val days: Int,
-    /** 最常去的食堂和次数。 */
+    /** 最常去的食堂和次数。档口名大多不带食堂名，能认出食堂的不到一半时为 null。 */
     val canteen: Pair<String, Int>?,
     /** 最常去的档口和次数。 */
     val stall: Pair<String, Int>?,
@@ -27,9 +27,9 @@ data class MealReport(
     val latest: Transaction?,
     /** 吃了早饭（10 点前）的天数。 */
     val breakfastDays: Int,
-    /** 21 点后到凌晨 4 点的夜宵次数。 */
+    /** 22 点后到凌晨 4 点的夜宵次数，与分析页「夜宵」同一口径。 */
     val lateNights: Int,
-    /** 咖啡、奶茶这类饮品的次数。 */
+    /** 饮品次数，按主食分类里的「饮品」算。 */
     val drinks: Int,
     /** 单笔最贵的一顿。 */
     val priciest: Transaction?,
@@ -51,7 +51,6 @@ data class MealReport(
 
     companion object {
         private val CANTEEN = Regex("""[一-龥]{1,4}(?:苑|食堂|餐厅|美食城|餐饮中心)""")
-        private val DRINK_KEYS = listOf("咖啡", "奶茶", "茶饮", "瑞幸", "库迪", "蜜雪", "星巴克", "饮品", "果茶")
 
         /** 流水时间形如 "2026-01-05 12:03:21"。取「几点几分」换成分钟，凌晨 0–3 点算前一天的 24–27 点。 */
         internal fun clockOf(tx: Transaction): Int? {
@@ -76,6 +75,7 @@ data class MealReport(
             val dates = spends.mapNotNull { runCatching { LocalDate.parse(it.time.take(10)) }.getOrNull() }
             val clocked = meals.mapNotNull { tx -> clockOf(tx)?.let { tx to it } }
             fun top(keys: List<String>) = keys.groupingBy { it }.eachCount().maxByOrNull { it.value }?.toPair()
+            val canteens = meals.mapNotNull(::canteenOf)
             return MealReport(
                 from = dates.min(),
                 to = dates.max(),
@@ -83,14 +83,14 @@ data class MealReport(
                 mealSpend = meals.sumOf { -it.amount },
                 totalSpend = spends.sumOf { -it.amount },
                 days = meals.map { it.time.take(10) }.distinct().size,
-                canteen = top(meals.mapNotNull(::canteenOf)),
+                canteen = if (canteens.size * 2 >= meals.size) top(canteens) else null,
                 stall = top(meals.map { it.displayMerchant }.filter { it.isNotBlank() && it != "未知商户" }),
                 // 最早只认 5 点以后，免得把通宵后的那一顿算成「最早」
                 earliest = clocked.filter { it.second >= 5 * 60 }.minByOrNull { it.second }?.first,
                 latest = clocked.maxByOrNull { it.second }?.first,
                 breakfastDays = clocked.filter { it.second in 5 * 60 until 10 * 60 }.map { it.first.time.take(10) }.distinct().size,
-                lateNights = clocked.count { it.second >= 21 * 60 },
-                drinks = meals.count { tx -> DRINK_KEYS.any { tx.displayMerchant.contains(it) } },
+                lateNights = clocked.count { it.second >= 22 * 60 },
+                drinks = meals.count { foodSubCategory(it) == "饮品" },
                 priciest = meals.minByOrNull { it.amount },
                 hourlyCounts = (0..23).map { hour -> meals.count { it.time.substringAfter(' ', "").take(2).toIntOrNull() == hour } },
                 favoriteMerchants = meals.map { it.displayMerchant }.filter { it.isNotBlank() && it != "未知商户" }

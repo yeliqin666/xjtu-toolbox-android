@@ -52,11 +52,13 @@ data class MonthlyStats(
     val totalIncome: Double,     // 总收入
     val transactionCount: Int,   // 交易笔数
     val topMerchants: List<MerchantStat>,  // 商户消费排行
-    val avgDailySpend: Double = 0.0,       // 按该月落在统计区间内的天数摊
     val peakDay: String = "",              // 消费最多的一天
     val peakDayAmount: Double = 0.0,       // 该天消费额
-    val daysCovered: Int = 0               // 该月与查询区间重叠的天数
-)
+    val spendDays: Int = 0,                // 有刷卡支出的天数
+) {
+    /** 刷卡日均：只摊到真刷了卡的日子，放假不在校的天不拉低。 */
+    val perSpendDay: Double get() = if (spendDays == 0) 0.0 else totalSpend / spendDays
+}
 
 /** 商户消费统计 */
 data class MerchantStat(

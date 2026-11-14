@@ -22,6 +22,7 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -37,17 +38,27 @@ import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
-/** 与 [CampusCardAnalysis.analyzeMealTimes] 的时段划分一致；15、16 点不算正餐，给灰色。 */
-private fun mealOfHour(hour: Int): String? = when (hour) {
-    in 5..10 -> "早餐"
-    in 11..14 -> "午餐"
-    in 17..21 -> "晚餐"
-    in 22..23, in 0..4 -> "夜宵"
-    else -> null
+/** 分析页各卡统一的标题行：主题色小方块图标 + 标题 + 右侧一句小字。 */
+@Composable
+internal fun AnalyticsHeader(icon: ImageVector, title: String, trailing: String? = null) {
+    val tint = MiuixTheme.colorScheme.primary
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Box(
+            Modifier.size(28.dp).clip(RoundedCornerShape(9.dp)).background(tint.copy(alpha = 0.12f)),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(icon, null, tint = tint, modifier = Modifier.size(16.dp))
+        }
+        Spacer(Modifier.width(10.dp))
+        Text(title, style = MiuixTheme.textStyles.subtitle, fontWeight = FontWeight.Medium, modifier = Modifier.weight(1f))
+        trailing?.let {
+            Text(it, style = MiuixTheme.textStyles.footnote1, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
+        }
+    }
 }
 
 /**
- * 分析页的头卡：区间总支出滚动出来，下面一行在校天数 / 日均 / 每顿，再往下是吃饭画像标签，
+ * 分析页的头卡：区间总支出滚动出来，下面三格在校天数 / 日均 / 每顿，再往下是吃饭画像标签，
  * 一个接一个弹出来。底色是和「我的」页头卡同一套流动网格。
  */
 @OptIn(ExperimentalLayoutApi::class)
@@ -55,8 +66,7 @@ private fun mealOfHour(hour: Int): String? = when (hour) {
 internal fun SpendingHeroCard(
     totalSpend: Double,
     activeDays: Int,
-    foodSpend: Double,
-    mealCount: Int,
+    perMeal: Double?,
     tags: List<Pair<String, String>>,
     rangeLabel: String,
 ) {
@@ -87,14 +97,25 @@ internal fun SpendingHeroCard(
             )
             val facts = buildList {
                 if (activeDays > 0) {
-                    add("在校 $activeDays 天")
-                    add("日均 ¥" + money1(totalSpend / activeDays))
+                    add("在校" to "$activeDays 天")
+                    add("在校日均" to "¥" + money1(totalSpend / activeDays))
                 }
-                if (mealCount > 0 && foodSpend > 0) add("每顿 ¥" + money1(foodSpend / mealCount))
+                perMeal?.let { add("每顿" to "¥" + money1(it)) }
             }
             if (facts.isNotEmpty()) {
-                Spacer(Modifier.height(2.dp))
-                Text(facts.joinToString("  ·  "), style = MiuixTheme.textStyles.footnote1, color = summary)
+                Spacer(Modifier.height(14.dp))
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    facts.forEach { (label, value) ->
+                        Column(
+                            Modifier.weight(1f).clip(RoundedCornerShape(14.dp))
+                                .background(MiuixTheme.colorScheme.surface.copy(alpha = 0.55f))
+                                .padding(horizontal = 12.dp, vertical = 9.dp),
+                        ) {
+                            Text(label, style = MiuixTheme.textStyles.footnote2, color = summary)
+                            Text(value, style = MiuixTheme.textStyles.body1, fontWeight = FontWeight.Bold, maxLines = 1)
+                        }
+                    }
+                }
             }
             if (tags.isNotEmpty()) {
                 Spacer(Modifier.height(14.dp))
@@ -152,16 +173,7 @@ internal fun MealRhythmCard(hourly: List<Int>, mealStats: Map<String, MealTimeSt
 
     Card(modifier = Modifier.fillMaxWidth(), cornerRadius = 20.dp) {
         Column(Modifier.padding(20.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(
-                    Icons.Default.Schedule, null,
-                    tint = MiuixTheme.colorScheme.primaryVariant, modifier = Modifier.size(18.dp)
-                )
-                Spacer(Modifier.width(6.dp))
-                Text("一天的饭点", style = MiuixTheme.textStyles.subtitle, fontWeight = FontWeight.Medium)
-                Spacer(Modifier.weight(1f))
-                Text("最常 $peak 点刷卡", style = MiuixTheme.textStyles.footnote1, color = summary)
-            }
+            AnalyticsHeader(Icons.Default.Schedule, "一天的饭点", "最常 $peak 点刷卡")
             Spacer(Modifier.height(16.dp))
             Box(
                 Modifier
@@ -179,7 +191,7 @@ internal fun MealRhythmCard(hourly: List<Int>, mealStats: Map<String, MealTimeSt
                             val barH = size.height * full * local
                             drawRoundRect(track, Offset(x, 0f), Size(barW, size.height), r)
                             if (barH > 0f) {
-                                val c = mealOfHour(h)?.let { mealColors[it] } ?: idle
+                                val c = mealSlotOf(h)?.let { mealColors[it] } ?: idle
                                 drawRoundRect(c, Offset(x, size.height - barH), Size(barW, barH), r)
                             }
                         }
@@ -241,14 +253,7 @@ internal fun TopMerchantsCard(monthlyStats: List<MonthlyStats>) {
 
     Card(modifier = Modifier.fillMaxWidth(), cornerRadius = 20.dp) {
         Column(Modifier.padding(20.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(
-                    Icons.Default.EmojiEvents, null,
-                    tint = Color(0xFFB59A63), modifier = Modifier.size(18.dp)
-                )
-                Spacer(Modifier.width(6.dp))
-                Text("消费排行", style = MiuixTheme.textStyles.subtitle, fontWeight = FontWeight.Medium)
-            }
+            AnalyticsHeader(Icons.Default.EmojiEvents, "消费排行", "按金额")
             Spacer(Modifier.height(16.dp))
             val onPodium = if (merchants.size >= 3) 3 else 0
             if (onPodium == 3) {

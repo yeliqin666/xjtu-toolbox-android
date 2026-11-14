@@ -222,7 +222,7 @@ fun MealReportPoster(report: MealReport, modifier: Modifier = Modifier) {
         report.earliest?.let { PosterItem("最早消费", clock(it), "${it.time.take(10)} · ${it.displayMerchant}") }
         report.latest?.let { PosterItem("最晚消费", clock(it), "${it.time.take(10)} · ${it.displayMerchant}") }
         if (report.lateNights > 0 || report.drinks > 0) {
-            PosterItem("夜宵与饮品", "${report.lateNights} 笔 · ${report.drinks} 笔", "21 点后消费 · 咖啡奶茶消费")
+            PosterItem("夜宵与饮品", "${report.lateNights} 笔 · ${report.drinks} 笔", "22 点后消费 · 咖啡奶茶等饮品")
         }
         report.priciest?.let { PosterItem("最高单笔", money(-it.amount), it.displayMerchant) }
 
