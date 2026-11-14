@@ -56,6 +56,7 @@ import com.xjtu.toolbox.nav.SeamlessCardSource
 import com.xjtu.toolbox.nav.expandOriginSource
 import com.xjtu.toolbox.nav.rememberExpandOriginSource
 import com.xjtu.toolbox.ui.components.ExpressiveIcon
+import com.xjtu.toolbox.ui.theme.LocalIsDarkTheme
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.theme.MiuixTheme
@@ -102,7 +103,10 @@ internal fun QuickActionsGrid(
                 Text(
                     if (editing) "拖动排序，点 × 移除" else "常用功能",
                     style = MiuixTheme.textStyles.footnote1,
-                    color = contentColor?.copy(alpha = 0.78f) ?: MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                    // 经典分类卡是白纸面：这四个字用纯黑，不再取 onSurfaceVariantSummary 的灰；
+                    // 深色液体底上仍跟 contentColor / 主题色，避免纯黑没在深底上
+                    color = contentColor?.copy(alpha = 0.78f)
+                        ?: if (LocalIsDarkTheme.current) MiuixTheme.colorScheme.onSurface else Color.Black,
                     modifier = Modifier.weight(1f),
                 )
                 Text(

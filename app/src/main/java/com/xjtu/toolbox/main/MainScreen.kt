@@ -936,7 +936,6 @@ private fun MainTopBar(
                 title = title,
                 color = MiuixTheme.colorScheme.onSurface,
                 backdrop = pageBackdrop ?: solid!!,
-                backgroundColor = MiuixTheme.colorScheme.surface,
                 dark = LocalIsDarkTheme.current,
                 searchBar = toolsSearchBar,
             )

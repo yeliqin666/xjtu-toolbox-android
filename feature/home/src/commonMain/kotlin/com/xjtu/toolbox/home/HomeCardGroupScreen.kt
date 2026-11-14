@@ -1831,10 +1831,8 @@ private fun InboxBrief(summary: HomeInboxSummary, ink: Color, muted: Color, onLo
         )
         Spacer(Modifier.width(8.dp))
         Text(
-            listOfNotNull(
-                summary.todoCount.takeIf { it > 0 }?.let { "$it 件没办" },
-                summary.unreadCount.takeIf { it > 0 }?.let { "$it 组未读" },
-            ).joinToString(" · "),
+            // 头卡右下角只报待办总数：「n 项待办」（原来「n 件没办 · m 组未读」两段并排）
+            summary.todoCount.takeIf { it > 0 }?.let { "$it 项待办" }.orEmpty(),
             style = MiuixTheme.textStyles.footnote2,
             color = muted,
             maxLines = 1,

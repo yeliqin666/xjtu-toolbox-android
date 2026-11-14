@@ -275,7 +275,6 @@ fun HomeClassicScreen(
                     sections = groups.map { group ->
                         IndexCategorySection(
                             title = group.category.title,
-                            subtitle = group.category.subtitle,
                             accent = serviceColor(HomeIcons.accentKey(group.category)),
                             rows = group.rows.map { indexRow(it.service, it.stat, it.statDetail) },
                         )
@@ -734,10 +733,8 @@ private fun InboxBrief(summary: HomeInboxSummary, ink: Color, muted: Color, onLo
         )
         Spacer(Modifier.width(8.dp))
         Text(
-            listOfNotNull(
-                summary.todoCount.takeIf { it > 0 }?.let { "$it 件没办" },
-                summary.unreadCount.takeIf { it > 0 }?.let { "$it 组未读" },
-            ).joinToString(" · "),
+            // 头卡右下角只报待办总数：「n 项待办」（原来「n 件没办 · m 组未读」两段并排）
+            summary.todoCount.takeIf { it > 0 }?.let { "$it 项待办" }.orEmpty(),
             style = MiuixTheme.textStyles.footnote2,
             color = muted,
             maxLines = 1,
@@ -754,7 +751,6 @@ private fun InboxBrief(summary: HomeInboxSummary, ink: Color, muted: Color, onLo
 
 private data class IndexCategorySection(
     val title: String,
-    val subtitle: String,
     val accent: Color,
     val rows: List<HomeServiceRow>,
 )
@@ -788,7 +784,6 @@ private fun ServiceSection(section: IndexCategorySection) {
     val dark = LocalIsDarkTheme.current
     val accent = if (dark) lerp(section.accent, Color.White, 0.3f) else section.accent
     val ink = MiuixTheme.colorScheme.onSurface
-    val muted = MiuixTheme.colorScheme.onSurfaceVariantSummary
     Column(
         Modifier.fillMaxWidth().editorialPaper()
             .drawBehind {
@@ -803,10 +798,8 @@ private fun ServiceSection(section: IndexCategorySection) {
             Box(Modifier.width(3.dp).height(28.dp).background(accent, RoundedCornerShape(2.dp)))
             Spacer(Modifier.width(10.dp))
             Column(Modifier.weight(1f)) {
+                // 分类卡只留标题：原来那行小字（如「支付场馆与校园服务」）按需求去掉
                 Text(section.title, fontSize = 17.sp, fontWeight = FontWeight.Bold, color = ink)
-                Spacer(Modifier.height(3.dp))
-                Text(section.subtitle, fontSize = 11.sp, color = muted, maxLines = 1,
-                    overflow = TextOverflow.Ellipsis)
             }
         }
         section.rows.chunked(2).forEachIndexed { lineIndex, line ->

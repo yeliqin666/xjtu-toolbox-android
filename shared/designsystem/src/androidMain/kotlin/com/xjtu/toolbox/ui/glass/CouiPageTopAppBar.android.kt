@@ -158,8 +158,8 @@ actual fun CouiPageTopAppBar(
     val resolvedSubtitle = subtitle?.takeIf { it.isNotBlank() }
     val resolvedTitleColor = titleColor.takeOrElse { MiuixTheme.colorScheme.onSurface }
     val subtitleColor = MiuixTheme.colorScheme.onSurfaceVariantSummary
-    // COUI 顶栏的渐隐色：玻璃页用页面底色（玻璃页传进来的 color 是 Transparent），
-    // 经典风格用它自己的不透明底色，两者都落在原版 `backgroundColor` 参数上。
+    // 顶栏底色：玻璃页传进来的 color 是 Transparent，经典风格是不透明底色。
+    // 渐隐色层已从 CouiTopAppBarSurface 摘掉，这里只算给经典风格的实底兜底用。
     val scrimColor = if (color == Color.Unspecified || color.alpha == 0f) {
         MiuixTheme.colorScheme.surface
     } else {

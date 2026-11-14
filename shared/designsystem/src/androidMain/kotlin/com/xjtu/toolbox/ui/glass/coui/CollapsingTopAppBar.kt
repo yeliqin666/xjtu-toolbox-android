@@ -38,7 +38,6 @@ fun CollapsingTopAppBar(
     backdrop: CouiBackdrop = checkNotNull(LocalCouiBackdrop.current) {
         "顶栏需要显式 backdrop 或 ProvideCouiBackdrop 作用域"
     },
-    backgroundColor: Color = Color.Unspecified,
     dark: Boolean = CouiTheme.isDark,
     searchBar: (@Composable () -> Unit)? = null,
 ) {
@@ -82,7 +81,7 @@ fun CollapsingTopAppBar(
         referenceBlurRadius = with(density) { CouiCollapsingAppBarDefaults.referenceBlurRadiusPx.toDp() },
         bottomExtension = if (hasSearchBar) CouiCollapsingAppBarDefaults.searchBlurExtension
             else CouiCollapsingAppBarDefaults.titleOnlyBlurExtension,
-        gradientSpeed = 3f, gradientColor = backgroundColor, dark = dark,
+        gradientSpeed = 3f,
         // 正文直接跟随已接受的滚动，标题保留弹簧跟随；模糊不能等标题追上后才补亮。
         backgroundAlpha = if (!hasSearchBar || searchActive) 1f else
             (state.contentOffsetPx / (30 * density.density)).coerceIn(0f, 1f),

@@ -171,7 +171,7 @@ fun GlassTopAppBar(
 /** 顶栏底色：COUI 顶栏自己画背景，玻璃时透明；经典风格是 surface。 */
 @Composable
 fun glassBarColor(backdrop: LayerBackdrop?): Color =
-    // COUI 的折叠顶栏由 CouiTopAppBarSurface 铺模糊 + 渐隐色，底色必须透出来；
+    // COUI 的折叠顶栏由 CouiTopAppBarSurface 铺模糊（渐隐色那层已去掉），底色必须透出来；
     // 经典风格（没有采样源）才用实色，页面传进来的这个值最终就是它的背景。
     if (backdrop != null) Color.Transparent else MiuixTheme.colorScheme.surface
 

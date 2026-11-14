@@ -49,8 +49,7 @@ fun TopAppBar(
     /** 见 [LargeTopAppBar] 同名参数。 */
     bottomContent: (@Composable () -> Unit)? = null,
 ) {
-    CouiTopAppBarSurface(modifier.fillMaxWidth(), backdrop,
-        gradientColor = colors.backgroundColor, dark = dark) {
+    CouiTopAppBarSurface(modifier.fillMaxWidth(), backdrop) {
         CompositionLocalProvider(LocalCouiDarkTheme provides dark) {
             Column {
                 AppBarLayout(title, navigationIcon, actions, colors, windowInsets,
@@ -112,7 +111,7 @@ fun LargeTopAppBar(
     CouiTopAppBarSurface(modifier.fillMaxWidth(), backdrop,
         referenceBlurRadius = with(density) { CouiCollapsingAppBarDefaults.referenceBlurRadiusPx.toDp() },
         bottomExtension = CouiCollapsingAppBarDefaults.titleOnlyBlurExtension,
-        gradientSpeed = 3f, gradientColor = colors.backgroundColor, dark = dark,
+        gradientSpeed = 3f,
         topExtension = {
             with(density) {
                 val range = (expandedHeight.roundToPx() - collapsedHeight.roundToPx()).coerceAtLeast(0)

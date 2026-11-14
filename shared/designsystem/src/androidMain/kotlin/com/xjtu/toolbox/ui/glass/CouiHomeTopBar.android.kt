@@ -50,8 +50,6 @@ actual fun CouiHomeTopBarSurface(
         CouiTopAppBarSurface(
             modifier = modifier,
             backdrop = backdrop,
-            gradientColor = gradientColor,
-            dark = LocalIsDarkTheme.current,
             content = content,
         )
     }
