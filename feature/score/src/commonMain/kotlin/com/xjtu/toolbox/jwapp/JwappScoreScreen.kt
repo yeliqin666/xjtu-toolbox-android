@@ -350,7 +350,7 @@ fun JwappScoreScreen(
                     onOpenTranscript?.let { open ->
                         fullLineItem { com.xjtu.toolbox.ui.components.SecondaryEntry(
                             androidx.compose.material.icons.Icons.Default.Description, com.xjtu.toolbox.ui.theme.serviceColor(com.xjtu.toolbox.nav.AppRoute.Transcript.id),
-                            "电子成绩单", "生成官方成绩单 PDF，可下载分享", onClick = open,
+                            "电子成绩单", "官方签章 PDF，升学求职可直接提交", onClick = open,
                         ) }
                     }
 
