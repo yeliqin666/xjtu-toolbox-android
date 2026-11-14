@@ -1,6 +1,7 @@
 package com.xjtu.toolbox.ui.glass.coui
 
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.WindowInsets
@@ -45,12 +46,17 @@ fun TopAppBar(
     backdrop: CouiBackdrop = checkNotNull(LocalCouiBackdrop.current) {
         "顶栏需要显式 backdrop 或 ProvideCouiBackdrop 作用域"
     },
+    /** 见 [LargeTopAppBar] 同名参数。 */
+    bottomContent: (@Composable () -> Unit)? = null,
 ) {
     CouiTopAppBarSurface(modifier.fillMaxWidth(), backdrop,
         gradientColor = colors.backgroundColor, dark = dark) {
         CompositionLocalProvider(LocalCouiDarkTheme provides dark) {
-            AppBarLayout(title, navigationIcon, actions, colors, windowInsets,
-                CouiTopAppBarDefaults.height, CouiTopAppBarDefaults.height, null)
+            Column {
+                AppBarLayout(title, navigationIcon, actions, colors, windowInsets,
+                    CouiTopAppBarDefaults.height, CouiTopAppBarDefaults.height, null)
+                bottomContent?.invoke()
+            }
         }
     }
 }
@@ -80,6 +86,8 @@ fun LargeTopAppBar(
     },
     expandedTitleStyle: TextStyle = TextStyle.Default,
     collapsedTitleStyle: TextStyle = TextStyle.Default,
+    /** 集成侧扩展：标题行下面的一排部件（分段控件、分类胶囊），放在同一块模糊表面里、采它的模糊层。 */
+    bottomContent: (@Composable () -> Unit)? = null,
 ) {
     require(expandedHeight.value.isFinite() && collapsedHeight.value.isFinite() &&
         collapsedHeight > 0.dp && expandedHeight > collapsedHeight) {
@@ -112,8 +120,11 @@ fun LargeTopAppBar(
             }
         }) {
         CompositionLocalProvider(LocalCouiDarkTheme provides dark) {
-            AppBarLayout(title, navigationIcon, actions, colors, windowInsets, expandedHeight, collapsedHeight, state,
-                expandedTitleStyle, collapsedTitleStyle)
+            Column {
+                AppBarLayout(title, navigationIcon, actions, colors, windowInsets, expandedHeight, collapsedHeight, state,
+                    expandedTitleStyle, collapsedTitleStyle)
+                bottomContent?.invoke()
+            }
         }
     }
 }
@@ -177,12 +188,12 @@ private fun AppBarLayout(
         val hasNavigationIcon = navigation.width > 0
         val progress = if (large)
             CouiCollapsingAppBarDefaults.titleEasing.transform(state?.collapsedFraction ?: 0f) else 0f
-        val scale = if (large) {
+        val collapsedScale = if (large) {
             val targetSize = if (collapsedSize != TextUnit.Unspecified) collapsedSize
                 else if (hasNavigationIcon) compactTitleStyle.fontSize else CouiTopAppBarDefaults.titleOnlyCollapsedSize
-            val collapsedScale = with(density) { targetSize.toPx() / titleStyle.fontSize.toPx() }
-            if (useCollapsedStyle) collapsedScale else 1f + (collapsedScale - 1f) * progress
+            with(density) { targetSize.toPx() / titleStyle.fontSize.toPx() }
         } else 1f
+        val scale = if (!large) 1f else if (useCollapsedStyle) collapsedScale else 1f + (collapsedScale - 1f) * progress
         val compactStart = if (large && !hasNavigationIcon) CouiCollapsingAppBarDefaults.titleOnlyStart.toPx()
             else (padding + navigation.width + if (hasNavigationIcon) gap else 0).toFloat()
         val compactEnd = padding + action.width + if (action.width > 0) gap else 0
@@ -196,9 +207,12 @@ private fun AppBarLayout(
             expandedStart + (compactStart - expandedStart) * horizontalProgress else compactStart
         val end = if (large && action.width == 0) CouiCollapsingAppBarDefaults.titleOnlyStart.toPx()
             else compactEnd.toFloat()
-        // 用缩放后的可见宽度限制标题，避免收起时覆盖导航或操作按钮。
-        val titleWidth = ((width - start - end).coerceAtLeast(0f) / scale).roundToInt()
-        val titleNode = nodes[2].measure(Constraints(maxWidth = titleWidth, maxHeight = (height / scale).toInt()))
+        // 集成侧改动：标题按展开、收起两端都放得下的固定宽度量（收起端按缩放折算），整个折叠过程不变。
+        // 原版逐帧按「当前可用宽 ÷ 当前缩放」量，长标题的自动缩字号会在相邻档位间来回跳，看着像抽搐着避让按钮。
+        val expandedRoom = width - (if (large) expandedStart else compactStart) - end
+        val collapsedRoom = (width - compactStart - end) / collapsedScale
+        val titleWidth = minOf(expandedRoom, collapsedRoom).coerceAtLeast(0f).roundToInt()
+        val titleNode = nodes[2].measure(Constraints(maxWidth = titleWidth))
         val titleOrigin = TransformOrigin(if (layoutDirection == LayoutDirection.Rtl) 1f else 0f, 0f)
         layout(width, height) {
             val navigationY = (toolbarHeight - navigation.height) / 2

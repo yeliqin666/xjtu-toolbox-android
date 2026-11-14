@@ -174,7 +174,9 @@ fun CampusCardScreen(
     // 采样本页正文：玻璃风格时才录，经典风格顶栏是实色。顶栏用 COUI 那层，底部悬浮切换条的磨砂用 kyant 那层
     val frostLayer = com.kyant.backdrop.backdrops.rememberLayerBackdrop()
     val pageSource = if (glass) {
+        // 垫页面底色：录下来透明的地方顶栏模糊会直接放行（见 glassSource）
         Modifier.layerBackdrop(frostLayer).then(pageBackdrop?.recordInto(Modifier) ?: Modifier)
+            .background(MiuixTheme.colorScheme.surface)
     } else Modifier
     // 宽屏「流水 / 分析」两栏的选中项。标签行在顶栏里，所以提到 Scaffold 外面
     val isWideTop = com.xjtu.toolbox.ui.isWideLayout()

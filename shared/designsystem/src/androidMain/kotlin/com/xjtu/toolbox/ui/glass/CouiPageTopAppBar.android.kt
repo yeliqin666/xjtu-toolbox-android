@@ -9,7 +9,6 @@ import androidx.compose.foundation.text.BasicText
 import androidx.compose.foundation.text.TextAutoSize
 import androidx.compose.ui.unit.sp
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
@@ -35,7 +34,6 @@ import com.xjtu.toolbox.ui.glass.coui.CouiTopAppBarDefaults
 import com.xjtu.toolbox.ui.glass.coui.CouiTopAppBarScrollBehavior
 import com.xjtu.toolbox.ui.glass.coui.LargeTopAppBar
 import com.xjtu.toolbox.ui.glass.coui.LocalCouiTextStyle
-import com.xjtu.toolbox.ui.glass.coui.LocalCouiToolbarBackdrop
 import com.xjtu.toolbox.ui.glass.coui.Text
 import com.xjtu.toolbox.ui.glass.coui.TopAppBar
 import com.xjtu.toolbox.ui.glass.coui.couiBackdrop
@@ -124,7 +122,7 @@ fun Modifier.couiContentTrack(state: CouiCollapsingAppBarState?): Modifier =
  * - 折叠进度由 [CouiTopBarScrollBehavior] 驱动，页面把它接到滚动容器祖先的 `nestedScroll`。
  *
  * 集成侧的三个包装：
- * - `bottomContent`：COUI 顶栏没有底部槽位，放在原版组件下面的 `Column` 里；
+ * - `bottomContent`：COUI 顶栏没有底部槽位，集成侧给原版组件加了一个，排在标题行下面、同一块表面里；
  * - `subtitle`：COUI 没有副标题槽位，放进 `title` 槽、在原版标题下面多渲一行小字；
  * - `color`：玻璃页传进来的是 Transparent（表面自己铺模糊），用页面底色当原版渐隐色；
  *   经典风格传进来的是不透明底色，正好就是它的背景色。
@@ -246,33 +244,33 @@ private fun CouiPageBar(
     actions: @Composable RowScope.() -> Unit,
     bottomContent: @Composable () -> Unit,
 ) {
-    Column {
-        if (pinned) {
-            TopAppBar(
-                modifier = modifier,
-                title = title,
-                navigationIcon = navigationIcon,
-                actions = actions,
-                dark = dark,
-                colors = colors,
-                backdrop = backdrop,
-            )
-        } else {
-            LargeTopAppBar(
-                modifier = modifier,
-                title = title,
-                navigationIcon = navigationIcon,
-                actions = actions,
-                scrollBehavior = behavior,
-                dark = dark,
-                colors = colors,
-                expandedHeight = expandedHeight,
-                backdrop = backdrop,
-            )
-        }
-        // bottomContent 在 COUI 表面之外，但常放搜索胶囊 / 顶栏按钮这类顶栏部件：
-        // 把这一页的采样源交给它，组件不必自己再录一层（COUI 原版 TopAppBarButton 会 checkNotNull）。
-        CompositionLocalProvider(LocalCouiToolbarBackdrop provides backdrop) { bottomContent() }
+    // bottomContent（分段控件、分类胶囊）放进 COUI 表面里：模糊和渐隐从标题一直铺到它下沿再淡出，
+    // 它采的是顶栏那层模糊（和顶栏圆钮同一个源），和标题是一整块。放在表面外面的话，
+    // 渐隐在标题行下沿就到头了，切换条底下直接是清晰的正文，像单独浮着的一块。
+    if (pinned) {
+        TopAppBar(
+            modifier = modifier,
+            title = title,
+            navigationIcon = navigationIcon,
+            actions = actions,
+            dark = dark,
+            colors = colors,
+            backdrop = backdrop,
+            bottomContent = bottomContent,
+        )
+    } else {
+        LargeTopAppBar(
+            modifier = modifier,
+            title = title,
+            navigationIcon = navigationIcon,
+            actions = actions,
+            scrollBehavior = behavior,
+            dark = dark,
+            colors = colors,
+            expandedHeight = expandedHeight,
+            backdrop = backdrop,
+            bottomContent = bottomContent,
+        )
     }
 }
 
@@ -309,7 +307,7 @@ private fun CouiPageTitle(
         }
     }
     // 长标题（课程名等）先缩字号塞进一行，缩到六成还放不下才省略。
-    // 顶栏收起时按缩放比放宽了标题的宽度上限，所以收起后仍是原定的小标题字号。
+    // 宽度上限是顶栏给的固定值（展开、收起两端都放得下），折叠过程中不变，字号不会逐帧跳。
     val maxSize = titleStyle.fontSize
     val autoSize = if (maxSize.isSp) {
         TextAutoSize.StepBased(minFontSize = (maxSize.value * 0.6f).sp, maxFontSize = maxSize, stepSize = 1.sp)

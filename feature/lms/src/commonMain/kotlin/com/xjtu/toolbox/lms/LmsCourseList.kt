@@ -104,7 +104,11 @@ internal fun CourseListPage(
     }
 
     val semesters = remember(courses) {
-        courses.map { it.semesterLabel }.distinct().sortedDescending()
+        // 新学期在前。不能按字符串排：同一学年里「秋」的码位比「春」大，会把上学期排到下学期前面
+        courses.map { it.semesterLabel }.distinct().sortedByDescending { label ->
+            val startYear = label.substringBefore('-').toIntOrNull() ?: return@sortedByDescending -1
+            startYear * 2 + if (label.endsWith("春")) 1 else 0
+        }
     }
     val semester = selectedSemester ?: currentSemester.takeIf { it in semesters } ?: ALL_SEMESTERS
     val pendingByCourse = courses.associate { it.id to cache.pendingOf(it.id) }

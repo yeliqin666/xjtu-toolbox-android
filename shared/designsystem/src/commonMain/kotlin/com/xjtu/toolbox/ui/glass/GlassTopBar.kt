@@ -1,6 +1,8 @@
 package com.xjtu.toolbox.ui.glass
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.ui.composed
 import androidx.compose.foundation.layout.calculateEndPadding
 import androidx.compose.foundation.layout.calculateStartPadding
 import androidx.compose.runtime.Composable
@@ -87,6 +89,9 @@ fun Modifier.glassSource(backdrop: LayerBackdrop?): Modifier {
     val couiBackdrop = couiPageBackdrops[backdrop]
     return this.layerBackdrop(backdrop)
         .then(if (couiBackdrop != null) couiBackdrop.recordInto(Modifier) else Modifier)
+        // 采样层自己垫一层页面底色：页面底色是 Scaffold 在采样层外面画的，录下来是透明的，
+        // 顶栏的模糊遇到透明像素直接放行，不在卡片上的字（「共 N 项」之类）就会清清楚楚透出顶栏
+        .composed { background(MiuixTheme.colorScheme.surface) }
         .shiftUpBy {
             val follow = topBarFollows[backdrop] ?: return@shiftUpBy 0.dp
             follow.stable - follow.current()
