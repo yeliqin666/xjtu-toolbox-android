@@ -515,7 +515,7 @@ fun HopScreen(
 
 private val ACCENT = Color(0xFF6C63FF)
 
-/** 选角色：四格，每格里角色在原地做它的待机动作，点一下就换。 */
+/** 选角色：每格里角色在原地做它的待机动作，点一下就换。 */
 @Composable
 private fun SkinPicker(current: HopSkin, panel: Color, ink: Color, fx: HopFx, frame: Int, onPick: (HopSkin) -> Unit) {
     Box(
