@@ -21,9 +21,7 @@ import com.xjtu.toolbox.platform.decodeImageFull
 import com.xjtu.toolbox.venue.CaptchaData
 import com.xjtu.toolbox.venue.SlideCaptchaHost
 import com.xjtu.toolbox.venue.SliderResult
-import com.xjtu.toolbox.venue.SolvedCaptcha
 import com.xjtu.toolbox.venue.TrackPoint
-import com.xjtu.toolbox.venue.VenueSlideCaptchaHost
 import java.util.Base64
 import kotlin.math.roundToInt
 import top.yukonga.miuix.kmp.basic.Text
@@ -46,10 +44,6 @@ object DesktopSlideCaptchaHost : SlideCaptchaHost {
             onSlideComplete = onSolved,
         )
     }
-
-    override suspend fun solve(data: CaptchaData, shownAtMillis: Long): SolvedCaptcha? =
-        // 识别器与提交逻辑在 `:data`（共享）：桌面宿主直接复用同一份解算与盖章。
-        VenueSlideCaptchaHost.solve(data, shownAtMillis)
 }
 
 /** 桌面端的滑块面板：与 `:data` 的 `SliderCaptchaView` 同协议（260 显示坐标系、down/move/up 轨迹、ISO_INSTANT 时刻）。 */

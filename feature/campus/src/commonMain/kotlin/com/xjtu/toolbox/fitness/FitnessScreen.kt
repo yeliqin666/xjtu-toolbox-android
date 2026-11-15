@@ -16,13 +16,11 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.DirectionsRun
+import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -55,6 +53,7 @@ import com.xjtu.toolbox.ui.glass.glassTop
 import com.xjtu.toolbox.ui.glass.rememberPageGlass
 import com.xjtu.toolbox.ui.glass.withoutTop
 import com.xjtu.toolbox.ui.isWideLayout
+import com.xjtu.toolbox.ui.glass.rememberCouiTopAppBarScrollBehavior
 import kotlin.math.roundToInt
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
@@ -62,10 +61,8 @@ import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.CardDefaults
 import top.yukonga.miuix.kmp.basic.HorizontalDivider
 import top.yukonga.miuix.kmp.basic.Icon
-import top.yukonga.miuix.kmp.basic.MiuixScrollBehavior
 import top.yukonga.miuix.kmp.basic.Scaffold
 import top.yukonga.miuix.kmp.basic.Text
-import top.yukonga.miuix.kmp.basic.rememberTopAppBarState
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.utils.overScrollVertical
 
@@ -173,16 +170,9 @@ fun FitnessScreen(
         }
     }
 
-    val yearListState = rememberLazyListState()
-    // 选中的学年滚进可视区
-    LaunchedEffect(selectedYear, years) {
-        val index = years.indexOf(selectedYear)
-        if (index >= 0) runCatching { yearListState.animateScrollToItem(index) }
-    }
-
     LaunchedEffect(source) { loadYears() }
 
-    val scrollBehavior = MiuixScrollBehavior(rememberTopAppBarState())
+    val scrollBehavior = rememberCouiTopAppBarScrollBehavior()
     // 玻璃顶栏（经典风格下为 null，一切照旧），用法见 ui/glass/GlassTopBar.kt
     val glass = rememberPageGlass()
 
@@ -190,9 +180,27 @@ fun FitnessScreen(
         topBar = {
             GlassTopAppBar(
                 title = "体测查询",
+                // 学年切换收在右上角，当前是哪个学年写在这里
+                subtitle = selectedYear?.name,
                 glass = glass,
                 scrollBehavior = scrollBehavior,
                 onBack = onBack,
+                actions = {
+                    if (years.size > 1) {
+                        var yearMenuOpen by remember { mutableStateOf(false) }
+                        com.xjtu.toolbox.ui.glass.CouiIconMenu(
+                            expanded = yearMenuOpen,
+                            onExpandedChange = { yearMenuOpen = it },
+                            icon = { Icon(Icons.Default.DateRange, contentDescription = "切换学年") },
+                        ) {
+                            years.forEach { year ->
+                                option(year.name, selected = year == selectedYear) {
+                                    scope.launch { selectYear(year) }
+                                }
+                            }
+                        }
+                    }
+                },
             )
         }
     ) { padding ->
@@ -246,6 +254,7 @@ fun FitnessScreen(
                     }
                     Row(Modifier.fillMaxSize()) {
                         LazyColumn(
+                            state = com.xjtu.toolbox.ui.glass.rememberReportedLazyListState(),
                             modifier = Modifier
                                 .then(if (wide) Modifier.width(460.dp) else Modifier.weight(1f))
                                 .fillMaxHeight()
@@ -253,22 +262,6 @@ fun FitnessScreen(
                             contentPadding = tabContentPadding(PaddingValues(top = glassTop + 16.dp, bottom = 28.dp)),
                             verticalArrangement = Arrangement.spacedBy(12.dp)
                         ) {
-                            item {
-                                LazyRow(
-                                    state = yearListState,
-                                    modifier = Modifier.enterOnce(0).fillMaxWidth(),
-                                    contentPadding = PaddingValues(horizontal = 16.dp),
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                ) {
-                                    items(years) { year ->
-                                        YearChip(
-                                            year = year,
-                                            selected = year == selectedYear,
-                                            onClick = { scope.launch { selectYear(year) } }
-                                        )
-                                    }
-                                }
-                            }
                             score?.let { result ->
                                 item { Box(Modifier.enterOnce(1)) { ScoreHero(result) } }
                             }
@@ -302,10 +295,6 @@ fun FitnessScreen(
 /** 会话失效的判据。 */
 private fun Throwable.isAuthExpiry(): Boolean =
     this is com.xjtu.toolbox.error.SessionExpiredFailure
-
-@Composable
-private fun YearChip(year: FitnessYear, selected: Boolean, onClick: () -> Unit) =
-    com.xjtu.toolbox.ui.components.AppFilterChip(selected = selected, onClick = onClick, label = year.name)
 
 @Composable
 private fun ScoreHero(score: FitnessScore) {

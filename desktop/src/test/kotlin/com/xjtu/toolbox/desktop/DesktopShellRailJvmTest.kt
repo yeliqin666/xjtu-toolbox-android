@@ -16,6 +16,7 @@ import androidx.compose.ui.semantics.getOrNull
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
 import com.xjtu.toolbox.nav.AppRoute
+import com.xjtu.toolbox.settings.SettingsStore
 import com.xjtu.toolbox.shell.AppShell
 import com.xjtu.toolbox.shell.ShellNavState
 import com.xjtu.toolbox.shell.ShellPageHost
@@ -23,9 +24,11 @@ import com.xjtu.toolbox.shell.ShellTab
 import com.xjtu.toolbox.shell.ShellTarget
 import com.xjtu.toolbox.ui.LocalIsWideLayout
 import com.xjtu.toolbox.ui.calculateIsWideLayout
+import com.xjtu.toolbox.ui.glass.glassNavStyle
 import com.xjtu.toolbox.ui.theme.XJTUToolBoxTheme
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 import top.yukonga.miuix.kmp.basic.Text
@@ -64,7 +67,12 @@ class DesktopShellRailJvmTest {
         }
 
     /** 把窗口形状喂给共享壳，壳自己判「底栏还是侧栏」（与 `ToolboxDesktopApp` 同型）。 */
-    private fun shellScene(width: Int, height: Int, onSelect: (ShellTab) -> Unit = {}): ImageComposeScene =
+    private fun shellScene(
+        width: Int,
+        height: Int,
+        glass: Boolean = false,
+        onSelect: (ShellTab) -> Unit = {},
+    ): ImageComposeScene =
         renderScene(width, height) {
             CompositionLocalProvider(LocalIsWideLayout provides calculateIsWideLayout()) {
                 AppShell(
@@ -74,7 +82,8 @@ class DesktopShellRailJvmTest {
                         onSelect = onSelect,
                     ),
                     pageHost = ShellPageHost.CURRENT_ONLY,
-                    glassStyle = false,
+                    // 玻璃/经典两个形态都跑得动（宽窗玻璃下侧栏同形，见下面那条测试）
+                    glassStyle = glass,
                     bottomInset = 0.dp,
                     contentWindowInsets = WindowInsets(0),
                     page = { _, _ -> Box(Modifier.fillMaxSize()) { Text("当前页") } },
@@ -154,5 +163,47 @@ class DesktopShellRailJvmTest {
         } finally {
             scene.close()
         }
+    }
+
+    @Test
+    fun `玻璃风格在宽窗里与经典同形：六格仍然在左侧栏里`() {
+        val tabs = desktopTabs()
+        val scene = shellScene(width = 900, height = 900, glass = true)
+        try {
+            scene.render(0L)
+            val owner = assertNotNull(scene.semanticsOwners.firstOrNull(), "读不到语义树")
+            val nodes = nodesOf(owner)
+
+            tabs.tabs.forEach { tab ->
+                val box = assertNotNull(nodes.clickable(tab.label), "宽窗玻璃下找不到「${tab.label}」那一格").boundsInRoot
+                assertTrue(
+                    box.left >= 0f && box.right <= railStripRight,
+                    "宽窗 + 玻璃下「${tab.label}」跑出侧栏了：left=${box.left} right=${box.right}" +
+                        "—— 宽屏本来就该把玻璃关掉（见 :shared:designsystem 的 glassNavStyle）",
+                )
+            }
+        } finally {
+            scene.close()
+        }
+    }
+
+    @Test
+    fun `界面风格到玻璃开关：只有浮动（默认）且不宽屏才给玻璃`() {
+        assertTrue(
+            glassNavStyle(SettingsStore.NAV_STYLE_FLOATING, isWide = false),
+            "默认那一档（玻璃 + 窄窗）应该是玻璃底栏",
+        )
+        assertFalse(
+            glassNavStyle(SettingsStore.NAV_STYLE_CLASSIC, isWide = false),
+            "选了经典就不该有玻璃",
+        )
+        assertFalse(
+            glassNavStyle(SettingsStore.NAV_STYLE_FLOATING, isWide = true),
+            "宽屏壳走侧栏，玻璃底栏不会出现 ⇒ 不开玻璃（省掉一整窗的采样层）",
+        )
+        assertFalse(
+            glassNavStyle("老文件里的垃圾值", isWide = false),
+            "认不出的值按经典（与 :app 同一个判据），不猜",
+        )
     }
 }

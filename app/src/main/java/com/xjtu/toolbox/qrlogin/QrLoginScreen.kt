@@ -40,11 +40,12 @@ import androidx.core.content.ContextCompat
 import com.xjtu.toolbox.auth.SessionManager
 import com.xjtu.toolbox.library.LibrarySeatQr
 import com.xjtu.toolbox.library.parseLibrarySeatQr
+import com.xjtu.toolbox.ui.glass.CouiPageTopAppBar
+import com.xjtu.toolbox.ui.glass.CouiToolbarActionButton
 import kotlinx.coroutines.launch
 import top.yukonga.miuix.kmp.basic.Button
 import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.Icon
-import top.yukonga.miuix.kmp.basic.IconButton
 import top.yukonga.miuix.kmp.basic.InfiniteProgressIndicator
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.navigationBars
@@ -52,7 +53,6 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.windowInsetsPadding
 import top.yukonga.miuix.kmp.basic.ButtonDefaults
-import top.yukonga.miuix.kmp.basic.SmallTopAppBar
 import top.yukonga.miuix.kmp.basic.Surface
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextButton
@@ -70,7 +70,7 @@ private sealed class UiState {
 }
 
 /**
- * 首页扫一扫：电脑端的统一身份认证登录码，或图书馆桌面上的座位码。
+ * 「我的」页扫一扫：电脑端的统一身份认证登录码，或图书馆桌面上的座位码。
  * 座位码不在这里处理，交给 [onLibrarySeat] 跳图书馆页——那边有平面图、我的预约、换座，
  * 这里只负责认码。盖在主界面最外层的整屏浮层，和全局搜索同一套层级，见 [FullScreenOverlay]。
  */
@@ -197,20 +197,23 @@ private fun QrLoginContent(
             ScanningContent(onResult = ::onDecoded)
         }
 
-        // 不要在这里再补 statusBars 让位：SmallTopAppBar 的
-        // defaultWindowInsetsPadding 默认就是 true，自己会让，叠一层就是双倍留白。
+        // 不要在这里再补 statusBars 让位：COUI 顶栏自己带 windowInsets 会让，
+        // 叠一层就是双倍留白。
         Column(Modifier.fillMaxSize()) {
-            // 始终折叠：这一页没有可滚动的长内容，大标题只会占掉取景空间，
-            // miuix 的 SmallTopAppBar 就是钉死在折叠态的版本。
+            // 钉死的小标题：这一页没有可滚动的长内容，大标题只会占掉取景空间，
+            // COUI 原版 TopAppBar（pinned = true）就是钉死在折叠态的版本。
             // 外面再套一层同色底：标题栏先让出状态栏再画自己的底色，状态栏那一段要靠这层补上，
             // 状态栏和标题栏才连成一块；标题也不会压在取景画面上看不清。
             Box(Modifier.fillMaxWidth().background(MiuixTheme.colorScheme.background)) {
-                SmallTopAppBar(
+                // 取景画面是相机流，录不进 COUI 的页面采样层：顶栏照原版钉死小标题的版式，
+                // 按钮材质采的是这层不透明顶栏底色（没有页面采样源时也不会崩）。
+                CouiPageTopAppBar(
                     title = "扫一扫",
                     color = MiuixTheme.colorScheme.background,
                     titleColor = MiuixTheme.colorScheme.onSurface,
+                    pinned = true,
                     navigationIcon = {
-                        IconButton(onClick = onBack) {
+                        CouiToolbarActionButton(onClick = onBack) {
                             Icon(
                                 Icons.AutoMirrored.Filled.ArrowBack,
                                 contentDescription = "返回",
@@ -346,7 +349,7 @@ private fun QrLoginContent(
                                 Text("重新扫描", color = MiuixTheme.colorScheme.onPrimary)
                             }
                             Spacer(Modifier.height(8.dp))
-                            TextButton(text = "返回", onClick = onBack, modifier = Modifier.fillMaxWidth())
+                            com.xjtu.toolbox.ui.components.TextLink(text = "返回", onClick = onBack)
                         } else {
                             Button(
                                 onClick = onBack,
@@ -379,7 +382,7 @@ private fun QrLoginContent(
                             Text("重新授权", color = MiuixTheme.colorScheme.onPrimary)
                         }
                         Spacer(Modifier.height(8.dp))
-                        TextButton(text = "返回", onClick = onBack, modifier = Modifier.fillMaxWidth())
+                        com.xjtu.toolbox.ui.components.TextLink(text = "返回", onClick = onBack)
                     }
 
                     is UiState.NeedPermission -> { }

@@ -23,8 +23,8 @@ internal object DynamicScheduleNotifier {
             ?.getNotificationChannel(AppNotificationChannels.CHANNEL_DYNAMIC_SCHEDULE)
             ?.importance != NotificationManager.IMPORTANCE_NONE
 
-    fun post(context: Context, plan: DynamicSchedulePlan, nowMs: Long) {
-        val notification = build(context, plan, nowMs) ?: return cancel(context)
+    fun post(context: Context, plan: DynamicSchedulePlan, nowMs: Long, walkHint: String? = null) {
+        val notification = build(context, plan, nowMs, walkHint) ?: return cancel(context)
         if (!canPost(context)) return cancel(context)
         try {
             NotificationManagerCompat.from(context).notify(ID, notification)
@@ -34,13 +34,18 @@ internal object DynamicScheduleNotifier {
         }
     }
 
-    internal fun build(context: Context, plan: DynamicSchedulePlan, nowMs: Long): Notification? {
+    internal fun build(
+        context: Context,
+        plan: DynamicSchedulePlan,
+        nowMs: Long,
+        walkHint: String? = null,
+    ): Notification? {
         val item = plan.current ?: return null
         if (plan.nextRefreshAt <= nowMs) return null
         val kind = if (item.isAgenda) "日程" else "课程"
         val state = if (plan.ongoing) "正在进行" else "接下来"
         val time = "${clock(item.startMinute)}–${clock(item.endMinute)}"
-        val detail = listOf(time, item.course.location.takeIf { it.isNotBlank() }).filterNotNull().joinToString(" · ")
+        val detail = walkHint ?: listOf(time, item.course.location.takeIf { it.isNotBlank() }).filterNotNull().joinToString(" · ")
         val left = "今日剩余 ${plan.coursesLeft} 项课程 · ${plan.agendasLeft} 项日程"
         val launch = Intent(context, MainActivity::class.java).apply {
             putExtra(MainActivity.EXTRA_LAUNCH_ROUTE, AppRoute.Schedule.id)

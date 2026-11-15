@@ -19,7 +19,12 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.withContext
+import kotlinx.datetime.toLocalDateTime
 import com.xjtu.toolbox.nav.AppRoute
+import com.xjtu.toolbox.lms.lmsTermOrder
+import com.xjtu.toolbox.lms.newestTermCourses
+import kotlin.math.roundToInt
+import kotlin.time.Clock
 
 /** 首页后台刷新：公开源优先，站点串行静默登录；按源缓存，取到一项就更新一项。 */
 object HomeStatsRefresher {
@@ -30,6 +35,9 @@ object HomeStatsRefresher {
     private const val GAP_MS = 1_500L
 
     private const val DAY = 24L * 60 * 60 * 1000L
+
+    /** 卡片明细最多给几条：4×4 的大卡放得下这么多，小卡按高度能放几条就画几条。 */
+    private const val TILE_LINES = 8
 
     private val runLock = Mutex()
 
@@ -82,10 +90,11 @@ object HomeStatsRefresher {
     )
 
     /**
-     * 兴庆校区此刻（当前或下一节）各楼空着几间，取空得最多的三栋。只认 CDN 的当天表；
+     * 此刻（当前或下一节）空着的教室，用户在空教室页常看的楼排前面。只认 CDN 的当天表，
+     * 和空教室页共用同一份磁盘缓存：页里已经查过今天的表就直接用，不再下一遍；
      * 晚上 22 点后没有节次可看就不出。
      */
-    private fun emptyRoomOverview(): HomeStat? {
+    private fun emptyRoomOverview(context: Context): HomeStat? {
         val now = com.xjtu.toolbox.util.nowOnCampus()
         val minute = now.hour * 60 + now.minute
         val section = com.xjtu.toolbox.schedule.XjtuTime.getAllTimes()
@@ -95,7 +104,8 @@ object HomeStatsRefresher {
             ?: "兴庆校区"
         val buildings = com.xjtu.toolbox.emptyroom.CAMPUS_BUILDINGS[campus].orEmpty()
         val rooms = runCatching {
-            com.xjtu.toolbox.emptyroom.EmptyRoomApi().getEmptyRoomsMulti(campus, buildings.toSet())
+            com.xjtu.toolbox.emptyroom.EmptyRoomApi(com.xjtu.toolbox.emptyroom.EmptyRoomCache(context))
+                .getEmptyRoomsMulti(campus, buildings.toSet())
         }.getOrNull() ?: return null
         val free = rooms.filter { it.status.getOrNull(section - 1) == 0 }
         if (free.isEmpty()) return null
@@ -103,15 +113,56 @@ object HomeStatsRefresher {
         fun freeUntil(room: com.xjtu.toolbox.emptyroom.RoomInfo): Int =
             (section..room.status.size).takeWhile { room.status[it - 1] == 0 }.lastOrNull() ?: section
         val picks = free.sortedWith(compareByDescending<com.xjtu.toolbox.emptyroom.RoomInfo> { r -> favorites.any { r.name.startsWith(it) && it.isNotBlank() } }
-            .thenByDescending { freeUntil(it) }.thenBy { it.name }).take(4)
+            .thenByDescending { freeUntil(it) }.thenBy { it.name }).take(TILE_LINES)
+        // 大字是空着的间数，明细列具体教室：卡片多大都有一个一眼能读的数
         return HomeStat(
-            picks.first().name,
-            "$campus · 第 $section 节起 · 课表空闲",
-            picks.map { r -> HomeLine("${r.name} · 空至第 ${freeUntil(r)} 节", "app:${AppRoute.EmptyRoom.id}") },
+            "${free.size} 间",
+            "${campus.removeSuffix("校区")} · 第 $section 节空闲",
+            picks.map { r -> HomeLine(r.name, "app:${AppRoute.EmptyRoom.id}", "空至第 ${freeUntil(r)} 节") },
         )
     }
 
-    private val sources: List<Source> = listOf(
+    /**
+     * 首页各卡片的状态源。`manager` 只在需要「整条会话」的源里用（学业进度要按培养方案取一遍），
+     * 所以这张表按轮次构造而不是写成常量表。
+     */
+    private fun sources(manager: SessionManager?): List<Source> = listOf(
+        // 校车：下一班 + 余座。10 分钟一刷够用（班次表本身是按点走的），不登录取公开信息。
+        Source(AppRoute.CampusBus, 10 * 60 * 1000L, null) { _, _ ->
+            withContext(Dispatchers.IO) {
+                val runs = runCatching {
+                    com.xjtu.toolbox.bus.appBusApi.runs(com.xjtu.toolbox.util.todayOnCampus())
+                }.getOrNull() ?: return@withContext null
+                if (runs.isEmpty()) return@withContext null
+                // 「现在几点」用校区时区（和校车页同一套），不跟设备时区走
+                val nowMinutes = with(Clock.System.now()
+                    .toLocalDateTime(com.xjtu.toolbox.util.CampusTimeZone).time) { hour * 60 + minute }
+                fun minutes(run: com.xjtu.toolbox.bus.BusRun): Int {
+                    val h = run.time.substringBefore(':').toIntOrNull() ?: 0
+                    val m = run.time.substringAfter(':', "0").toIntOrNull() ?: 0
+                    return h * 60 + m
+                }
+                val next = runs.filter { minutes(it) >= nowMinutes }.minByOrNull(::minutes)
+                    ?: runs.minByOrNull(::minutes)
+                    ?: return@withContext null
+                HomeStat(next.time, "${next.from} → ${next.to} · 余 ${next.seatsLeft} 座")
+            }
+        },
+        // 学业进度：已修学分 / 要求学分。按天刷（培养方案不会一天变几次），要登录教务。
+        Source(AppRoute.DegreeProgress, 1 * DAY, LoginType.JWXT) { ctx, _ ->
+            val m = manager ?: return@Source null
+            withContext(Dispatchers.IO) {
+                val raw = runCatching { com.xjtu.toolbox.degree.appDegreeSource(ctx, m).fetch() }.getOrNull()
+                    ?: return@withContext null
+                // 同一门课重修只算一次、只算通过的：这是「已修学分」的通用口径。
+                // 字面用「112/160」而不是「112 / 160」：卡片把 ≤8 字的短值排成大字，多两个
+                // 空格就掉回正文档，看着像一句话而不是进度
+                val earned = raw.grades.filter { it.passed }.distinctBy { it.code }.sumOf { it.credit }
+                val value = raw.required?.let { "${earned.roundToInt()}/${it.roundToInt()}" }
+                    ?: "${earned.roundToInt()}"
+                HomeStat(value, "${raw.planName} · 已修学分")
+            }
+        },
         Source(AppRoute.YellowPage, 7 * DAY, null) { ctx, _ ->
             val data = com.xjtu.toolbox.yellowpage.appYellowPageApi(ctx, roundAccount).getData()
             HomeStat("${data.departments.size} 个机构", "常用校内电话")
@@ -121,7 +172,7 @@ object HomeStatsRefresher {
             val today = com.xjtu.toolbox.util.todayOnCampus()
             val term = terms.firstOrNull { it.currentWeek(today) > 0 } ?: terms.firstOrNull { it.startDate > today }
                 ?: return@Source null
-            val events = term.events.filter { it.endDate >= today }.sortedBy { it.startDate }.take(4)
+            val events = term.events.filter { it.endDate >= today }.sortedBy { it.startDate }.take(TILE_LINES)
             HomeStat(term.currentWeek(today).takeIf { it > 0 }?.let { "第 $it 周" } ?: "学期未开始", term.termName,
                 events.map { HomeLine("${it.startDate.monthNumber}/${it.startDate.dayOfMonth} · ${it.name}") })
         },
@@ -130,20 +181,18 @@ object HomeStatsRefresher {
             if (session.login.value == null) return@Source null
             val page = session.repository.list(com.xjtu.toolbox.community.CommunityRepo.OWNER, com.xjtu.toolbox.community.CommunityRepo.NAME, null,
                 com.xjtu.toolbox.community.DiscussionQuery(sort = com.xjtu.toolbox.community.DiscussionSort.CREATED)).getOrThrow()
-            val posts = page.items.sortedByDescending { it.createdAt }.take(4)
+            val posts = page.items.sortedByDescending { it.createdAt }.take(TILE_LINES)
             posts.firstOrNull()?.let { first -> HomeStat(first.title, "社区最新发布",
-                posts.map { HomeLine(it.title, "app:${AppRoute.CommunityPost(it.number).id}", listOfNotNull(it.author, "${it.comments} 回复").joinToString(" · ")) }) }
+                posts.map { HomeLine(it.title, "app:${AppRoute.CommunityPost(it.number).id}", listOfNotNull(it.author, "${it.comments} 回复").joinToString(" · "), badge = "${it.comments}") }) }
         },
         // 评教：一周一次。开没开评教窗口在一周内不会反复变。
-        Source(AppRoute.Judge, 7 * DAY, LoginType.JWXT) { _, site ->
+        Source(AppRoute.Judge, 7 * DAY, LoginType.QMS) { _, site ->
             site ?: return@Source null
             withContext(Dispatchers.IO) {
-                val api = com.xjtu.toolbox.judge.JudgeApi(site)
-                val term = runCatching { api.getCurrentTerm() }.getOrNull()
-                val todo = api.unfinishedQuestionnaires(term).size
-                val done = api.finishedQuestionnaires(term).size
-                val all = todo + done
-                Log.d(TAG, "judge: term=$term todo=$todo done=$done")
+                val (unfinished, finished) = com.xjtu.toolbox.judge.QmsJudgeApi(site).questionnaires()
+                val todo = unfinished.size
+                val all = todo + finished.size
+                Log.d(TAG, "judge: todo=$todo done=${finished.size}")
                 InboxStore.setTodos(
                     InboxCategories.JUDGE,
                     if (todo > 0) listOf(OwnInbox.todo(InboxCategories.JUDGE, "judge", "评教", "还有 $todo 门课没评教", AppRoute.Judge.id)) else emptyList(),
@@ -178,9 +227,9 @@ object HomeStatsRefresher {
         },
 
         // 思源学堂：一天一次。要逐门课查活动，比别的源贵，别刷太勤。
-        Source(AppRoute.Lms(), 1 * DAY, LoginType.LMS) { ctx, site ->
+        Source(AppRoute.Lms(), 1 * DAY, LoginType.LMS) { _, site ->
             site ?: return@Source null
-            withContext(Dispatchers.IO) { lmsLatest(site, ctx) }
+            withContext(Dispatchers.IO) { lmsLatest(site) }
         },
 
         // 快速考勤流水：最新一条刷卡记录。用户要求"打开时立即请求"，
@@ -245,7 +294,7 @@ object HomeStatsRefresher {
                 val shownCount = shown?.scoreList?.size ?: 0
                 // 小组件明细：最近出分的几门（取不到本学期就用有成绩的最新学期）
                 val recent = (shown ?: terms.maxByOrNull { it.termCode })?.scoreList.orEmpty()
-                    .take(4).map { com.xjtu.toolbox.home.HomeLine("${it.courseName.take(10)}  ${it.score}") }
+                    .take(TILE_LINES).map { com.xjtu.toolbox.home.HomeLine("${it.courseName.take(10)}  ${it.score}") }
                 when {
                     newCount > 0 -> HomeStat("$newCount 门新成绩", "共 $total 门 · 有更新", recent)
                     shownCount > 0 -> HomeStat("$shownCount 门", "${shown?.termName.orEmpty()} 学期", recent)
@@ -307,9 +356,9 @@ object HomeStatsRefresher {
             }
         },
 
-        // 空教室：读 CDN 的当天占用表（不用登录），算出此刻各楼空着几间。不必及时，两小时一次。
-        Source(AppRoute.EmptyRoom, 10 * 60 * 1000L, null) { _, _ ->
-            withContext(Dispatchers.IO) { emptyRoomOverview() }
+        // 空教室：读 CDN 的当天占用表（不用登录），算出此刻空着哪些教室。十分钟一算，表本身当天只下一次。
+        Source(AppRoute.EmptyRoom, 10 * 60 * 1000L, null) { ctx, _ ->
+            withContext(Dispatchers.IO) { emptyRoomOverview(ctx) }
         },
 
         // 教务通知：来源跟用户在设置里勾的一致，小组件和系统通知共用。
@@ -348,7 +397,7 @@ object HomeStatsRefresher {
      * 不能只取前几门：待办和日程页的作业截止也从这一轮出，课程列表又不按重要性排，
      * 截断后排在后面的课（#121 里的英语排第 9）作业就永远进不了待办。
      */
-    private suspend fun lmsLatest(site: SiteSession, ctx: Context): HomeStat? {
+    private suspend fun lmsLatest(site: SiteSession): HomeStat? {
         val api = com.xjtu.toolbox.lms.LmsApi(site)
         val courses = runCatching { api.getMyCourses() }
             .onFailure { Log.w(TAG, "lms: getMyCourses 失败 ${it.message}") }
@@ -362,7 +411,7 @@ object HomeStatsRefresher {
 
         val perCourse = com.xjtu.toolbox.lms.LmsDueCollector.activities(api, inTerm)
         // 待办和日程页「接下来」读的截止缓存（LmsDueStore）也从这一轮写，它们自己从不发请求
-        com.xjtu.toolbox.lms.LmsDueCollector.collect(ctx, api, perCourse, roundAccount.orEmpty(), ::roundIsCurrent)
+        com.xjtu.toolbox.lms.LmsDueCollector.collect(api, perCourse, roundAccount.orEmpty(), ::roundIsCurrent)
 
         val wanted = setOf(
             com.xjtu.toolbox.lms.LmsActivityType.HOMEWORK,
@@ -375,7 +424,7 @@ object HomeStatsRefresher {
         val acts = all.filter { it.third.type in wanted }
         Log.d(TAG, "lms: 命中作业/资料 ${acts.size} 条")
         if (acts.isEmpty()) return HomeStat("${inTerm.size} 门课程", "本学期暂无作业或资料",
-            inTerm.take(4).map { HomeLine(it.name, "app:${AppRoute.Lms(courseId = it.id).id}") })
+            inTerm.take(TILE_LINES).map { HomeLine(it.name, "app:${AppRoute.Lms(courseId = it.id).id}") })
 
         // 排序时间要逐级兜底：**部分作业既没有 updated_at 也没有 created_at**
         // （用户实测遇到过），只用这两个字段的话它们会以空串排到最后，永远选不中。
@@ -386,7 +435,7 @@ object HomeStatsRefresher {
                 .ifBlank { a.deadline.orEmpty() }
                 .ifBlank { a.endTime.orEmpty() }
                 .ifBlank { a.startTime.orEmpty() }
-        }.take(4)
+        }.take(TILE_LINES)
 
         fun label(triple: Triple<Int, String, com.xjtu.toolbox.lms.LmsActivity>): String {
             val (_, course, a) = triple
@@ -428,7 +477,7 @@ object HomeStatsRefresher {
             val roundAccount = com.xjtu.toolbox.account.AccountContext.activeAccountId
             this.roundAccount = roundAccount
             fun accountChanged() = !roundIsCurrent()
-            val stamps = HomeStats.stamps(context, sources.map { it.route }, roundAccount)
+            val stamps = HomeStats.stamps(context, sources(manager).map { it.route }, roundAccount)
             val now = System.currentTimeMillis()
             // 上一个源是否可能刚和统一认证打过交道（登录成功算；取站点出异常时保守地也算），是的话下一个源前留间隔
             var justLoggedIn = false
@@ -436,11 +485,9 @@ object HomeStatsRefresher {
             firstRunInProcess = false
             val existing = HomeStats.collect(context, null).keys
             Log.d(TAG, "start; coldStart=$coldStart 已有内容=$existing stamps=${stamps.mapValues { (now - it.value) / 60000 }} (分钟前)")
-            for (s in sources.sortedWith(compareBy<Source> { it.loginType != null }.thenBy { runOrder.indexOf(it.route).let { i -> if (i < 0) Int.MAX_VALUE else i } })) {
+            for (s in sources(manager).sortedWith(compareBy<Source> { it.loginType != null }.thenBy { runOrder.indexOf(it.route).let { i -> if (i < 0) Int.MAX_VALUE else i } })) {
                 if (s.loginType != null && !canLogin) continue
                 if (s.loginType == LoginType.ICLASSFACE && accountType != AccountType.UNDERGRADUATE) continue
-                // 首页评教统计走的是本科教务评教；研究生评教在 gste，要单独登录，不在后台刷
-                if (s.route == AppRoute.Judge && accountType != AccountType.UNDERGRADUATE) continue
                 val last = stamps[s.route.id] ?: 0L
                 val hasContent = s.route.id in existing
                 val ttl = s.ttlNow()
@@ -582,13 +629,14 @@ object HomeStatsRefresher {
         }
 
         val usableCount = usable?.records?.size ?: 0
-        if (pending == 0 && usableCount == 0) return HomeStat("暂无", "没有可领或可用的券")
+        if (pending == 0 && usableCount == 0) return HomeStat("暂无", "没有可领或可用的券", count = 0)
         return HomeStat(
             if (pending > 0) "$pending 张待领" else "$usableCount 张可用",
             listOfNotNull(
                 if (pending > 0 && usableCount > 0) "另有 $usableCount 张可用" else null,
                 daysLeft?.let { if (it == 0) "今天到期" else "最近 $it 天后到期" },
             ).joinToString(" · ").ifBlank { null },
+            count = pending + usableCount,
         )
     }
 
@@ -630,37 +678,9 @@ object HomeStatsRefresher {
         return HomeStat(
             "$rate%",
             if (abnormal > 0) "本周 $ok/$total 次正常 · $abnormal 次异常" else "本周 $ok/$total 次正常",
-            stats.sortedByDescending { it.abnormalCount }.take(4).map {
+            stats.sortedByDescending { it.abnormalCount }.take(TILE_LINES).map {
                 HomeLine("${it.subjectName} · " + if (it.abnormalCount > 0) "迟到 ${it.lateCount} / 缺勤 ${it.absenceCount}" else "${it.actualCount}/${it.total} 次正常")
             },
         )
     }
-}
-
-/**
- * 选出"最新学期"的全部课程。
- *
- * 认不出学期的课（`academic_year` / `semester` 为 null）不参与，也不会被当成最新；
- * 一门都认不出时退化成不筛——宁可多查几门，也别让首页和待办空着。
- */
-internal fun newestTermCourses(courses: List<LmsCourseSummary>): List<LmsCourseSummary> {
-    fun order(c: LmsCourseSummary) = lmsTermOrder(c.semester.code, c.academicYear.code)
-    val newest = courses.mapNotNull(::order).maxOrNull() ?: return courses
-    return courses.filter { order(it) == newest }
-}
-
-/**
- * 思源学期排序键：`2026-1` → `202601`，越大越新；认不出返回 null。
- *
- * 为什么不用 `academicYear.sort` + `semester.sort`：实测 `academic_year.sort` 恒为 0
- * （字段在，值不区分学年），退化后只剩 `semester.sort`，而它的顺序是**越旧越大**
- * （2025-1=5 > 2025-2=4 > 2026-1=1），于是"最新学期"恰好选中一年前那个。
- * `semester.name` / `real_name` 实测全是 null，`code` 是唯一单调可比的锚点。
- */
-internal fun lmsTermOrder(semesterCode: String?, academicYearCode: String?): Int? {
-    val year = semesterCode?.substringBefore('-')?.trim()?.toIntOrNull()
-        ?: academicYearCode?.substringBefore('-')?.trim()?.toIntOrNull()
-        ?: return null
-    val term = semesterCode?.substringAfter('-', "")?.trim()?.toIntOrNull() ?: 0
-    return year * 100 + term
 }

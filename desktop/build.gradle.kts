@@ -7,7 +7,7 @@ import org.jetbrains.compose.desktop.application.dsl.TargetFormat
  * 桌面包的版本号（jpackage 的 `--app-version`）。⚠️ 必须与 `:app` 的 `versionName` 逐字相同：
  * 两个手抄本会漂（App 5.2.0 / 安装包 5.1.1 就是这么来的），`DesktopPackageVersionJvmTest` 盯着这件事。
  */
-val desktopPackageVersion = "5.3.0"
+val desktopPackageVersion = "6.0.1"
 
 /** 反馈后端的凭据（与 `:app` 同一份来源） */
 val desktopFeedbackConfig: Map<String, String> = run {
@@ -98,7 +98,6 @@ compose.desktop {
             targetFormats(
                 TargetFormat.Deb,
                 TargetFormat.AppImage,
-                TargetFormat.Msi,
                 TargetFormat.Exe,
             )
             packageName = "xjtu-toolbox"
@@ -112,6 +111,13 @@ compose.desktop {
             description = "XJTU ToolBox (desktop preview)"
             vendor = "XJTU ToolBox"
             copyright = "Copyright © XJTU ToolBox contributors"
+
+            // jlink 要收进运行时的那套 JDK 模块。插件自带的只有 java.base / java.desktop /
+            // java.logging / jdk.crypto.ec 四个，其余靠 jdeps 看完字节码去猜。
+            // 这里的回环代理直接用 `com.sun.net.httpserver.HttpServer`（media/LoopbackStreamProxy.kt），
+            // 不赌 jdeps 的自动建议 —— 漏了不会编译失败，只会在**装好的包**里「取不到流」，
+            // 而那台机器上没 JDK、看不到 stacktrace。重复点名无害（jlink 多给 --add-modules 是并集）。
+            modules("jdk.httpserver")
 
             linux {
                 // 应用自己的图标（由自适应图标矢量光栅化，见 docs/linux-delivery.md §2.1）；⚠️ 不要用 `mipmap-*/ic_launcher.webp`，那是模板占位图。
@@ -140,6 +146,22 @@ tasks.register<JavaExec>("renderScreens") {
     mainClass.set("com.xjtu.toolbox.desktop.RenderScreensKt")
     classpath = sourceSets["test"].runtimeClasspath
     args = listOf(layout.buildDirectory.dir("screenshots").get().asFile.absolutePath)
+}
+
+tasks.register<JavaExec>("renderDegreePreview") {
+    group = "verification"
+    description = "Render the degree progress screen with offline fixtures"
+    mainClass.set("com.xjtu.toolbox.desktop.RenderDegreePreviewKt")
+    classpath = sourceSets["test"].runtimeClasspath
+    args = listOf(layout.buildDirectory.dir("degree-preview").get().asFile.absolutePath)
+}
+
+tasks.register<JavaExec>("renderBusPreview") {
+    group = "verification"
+    description = "Render the campus bus screen with offline fixtures at phone, landscape and tablet sizes"
+    mainClass.set("com.xjtu.toolbox.desktop.RenderBusPreviewKt")
+    classpath = sourceSets["test"].runtimeClasspath
+    args = listOf(layout.buildDirectory.dir("bus-preview").get().asFile.absolutePath)
 }
 
 tasks.register<JavaExec>("renderHomePreview") {

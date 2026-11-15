@@ -17,7 +17,12 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
+import com.xjtu.toolbox.report.WeeklyReport
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
@@ -206,6 +211,7 @@ fun PidaiPushPreferences() {
                 selected = proactiveLevel == ProactiveLevel.STANDARD,
                 onClick = { ProactiveRules.setProactiveLevel(context, ProactiveLevel.STANDARD) },
             )
+            WeeklyReportRow(enabled = proactiveLevel != ProactiveLevel.OFF)
             Text(
                 "后台任务使用你的 API Key，每天最多 ${PidaiJobWorker.DAILY_BUDGET} 次，仅使用已同步的数据。",
                 style = MiuixTheme.textStyles.footnote1,
@@ -335,6 +341,35 @@ private fun ColorDot(
                 )
             }
         }
+    }
+}
+
+/** 周报开关：跟着「主动提醒」走，关掉主动提醒时一并不发。 */
+@Composable
+private fun WeeklyReportRow(enabled: Boolean) {
+    val context = LocalContext.current
+    var on by rememberSaveable { mutableStateOf(WeeklyReport.isEnabled(context)) }
+    Row(
+        Modifier.fillMaxWidth().alpha(if (enabled) 1f else 0.45f).padding(vertical = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(Modifier.weight(1f)) {
+            Text("每周日晚发周报", style = MiuixTheme.textStyles.body2)
+            Text(
+                "本周作业、下周 DDL、校园卡消费，外加小岱一句点评；进消息收纳并发通知",
+                style = MiuixTheme.textStyles.footnote1,
+                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+            )
+        }
+        Spacer(Modifier.width(12.dp))
+        Switch(
+            checked = on,
+            enabled = enabled,
+            onCheckedChange = {
+                on = it
+                WeeklyReport.setEnabled(context, it)
+            },
+        )
     }
 }
 

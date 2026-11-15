@@ -22,6 +22,13 @@ dependencyResolutionManagement {
     repositories {
         google()
         mavenCentral()
+        // 金标联盟 SharedViewKit（一镜到底）发布在联盟内测 Nexus：HTTP + 内测仓库，
+        // 只对 gsai.sdk 生效，版本在 gradle/libs.versions.toml 里钉死。
+        maven {
+            url = uri("http://nexus.itgsa.com:5566/repository/sharedViewKit/")
+            isAllowInsecureProtocol = true
+            content { includeGroup("gsai.sdk") }
+        }
         // Node / Yarn 发行包，includeModule 锁死到这两个构件；Yarn 在 GitHub Releases，校园网要走代理。
         ivy("https://nodejs.org/dist") {
             name = "Node Distributions at https://nodejs.org/dist"
@@ -50,6 +57,9 @@ include(":app")
 // 只在本地/CI 手动跑 generateBaselineProfile 时用到；日常 assemble 不会构建它的测试代码
 include(":baselineprofile")
 include(":core")
+// vendor 进来的 kyant backdrop（见 thirdparty/backdrop/README.md）；根 build.gradle.kts 用
+// dependencySubstitution 把 io.github.kyant0:backdrop 顶替成它，调用点不用改。
+include(":thirdparty:backdrop")
 include(":web")
 include(":data")
 

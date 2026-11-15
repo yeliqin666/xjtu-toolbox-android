@@ -2,6 +2,7 @@ package com.xjtu.toolbox.ui.components
 
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.basic.Button
+import top.yukonga.miuix.kmp.basic.ButtonDefaults
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.Icon
 
@@ -106,8 +107,8 @@ fun ErrorState(
             )
             if (onRetry != null) {
                 Spacer(Modifier.height(16.dp))
-                Button(onClick = onRetry) {
-                    Text("重试")
+                Button(onClick = onRetry, colors = ButtonDefaults.buttonColorsPrimary()) {
+                    Text("重试", color = MiuixTheme.colorScheme.onPrimary)
                 }
             }
         }

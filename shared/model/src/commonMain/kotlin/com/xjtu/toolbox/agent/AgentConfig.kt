@@ -115,10 +115,14 @@ data class AgentConfig(
     }
 }
 
-fun sanitizeAgentTitle(raw: String, fallback: String = AgentConfig.DEFAULT_ASSISTANT_NAME): String {
+/** 会话标题的硬上限（字）：模型被要求写 8 字以内，留两字余量。助手名字仍按默认的 12 字。 */
+const val AGENT_TITLE_MAX_CHARS = 10
+
+/** 折叠空白、空则回落 [fallback]；超过 [maxChars] 截断加省略号。 */
+fun sanitizeAgentTitle(raw: String, fallback: String = AgentConfig.DEFAULT_ASSISTANT_NAME, maxChars: Int = 12): String {
     val normalized = raw
         .replace(Regex("\\s+"), " ")
         .trim()
         .ifBlank { fallback }
-    return if (normalized.length <= 12) normalized else normalized.take(12) + "…"
+    return if (normalized.length <= maxChars) normalized else normalized.take(maxChars) + "…"
 }

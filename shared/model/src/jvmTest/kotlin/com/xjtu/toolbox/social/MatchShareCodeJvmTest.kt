@@ -84,7 +84,7 @@ class MatchShareCodeJvmTest {
     }
 
     @Test
-    fun `分享码仍是 版本号 + 二十个字段，而且跨实现解得回来`() {
+    fun `分享码仍是 版本号 + 二十二个字段（前二十个与旧版同位），而且跨实现解得回来`() {
         val nickname = "阿离"
         val grid = "1" + "0".repeat(MatchProfile.DAYS * MatchProfile.SECTIONS - 1)
         val mine = MatchProfile.Profile(nickname = nickname, busyGrid = grid)
@@ -99,7 +99,8 @@ class MatchShareCodeJvmTest {
         // 用 java 那一份实现解回来（不碰 `:core` 的解码器），看线上格式有没有变。
         val raw = jdkInflate(Base64.getUrlDecoder().decode(code))
         val parts = raw.split("|")
-        assertEquals(20, parts.size, "字段数变了：$raw")
+        // 好友课表的两个字段追加在末尾，旧版只读前 20 个
+        assertEquals(22, parts.size, "字段数变了：$raw")
         assertEquals("5", parts[0], "版本号变了")
         assertEquals(nickname, parts[1])
         assertEquals(grid, parts[2])

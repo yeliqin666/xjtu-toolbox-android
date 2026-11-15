@@ -7,15 +7,20 @@ import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.vector.path
 import androidx.compose.ui.unit.dp
+import com.xjtu.toolbox.ui.glass.CouiToolbarActionButton
 import com.xjtu.toolbox.ui.glass.LocalTabRoot
 import top.yukonga.miuix.kmp.basic.Icon
-import top.yukonga.miuix.kmp.basic.IconButton
 
-/** 顶栏左上角的返回按钮。页面被放到底栏上时（[LocalTabRoot]）没有上一级，不画。 */
+/**
+ * 顶栏左上角的返回按钮。页面被放到底栏上时（[LocalTabRoot]）没有上一级，不画。
+ *
+ * 走 [CouiToolbarActionButton]：在 COUI 顶栏里就是和右上角动作按钮同一套材质
+ * （40dp 圆钮 + 48dp 交互、AGSL 浮层、边缘光、跟手、按压）；没有顶栏采样源时退回半透明圆钮。
+ */
 @Composable
 fun BackButton(onClick: () -> Unit, modifier: Modifier = Modifier) {
     if (LocalTabRoot.current) return
-    IconButton(onClick = onClick, modifier = modifier) {
+    CouiToolbarActionButton(onClick = onClick, modifier = modifier) {
         Icon(BackArrow, contentDescription = "返回")
     }
 }

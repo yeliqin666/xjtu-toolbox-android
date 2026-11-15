@@ -36,6 +36,8 @@ internal class AppScheduleHost(
     override val customCourses: CustomCourseStore =
         RoomCustomCourseStore(AppDatabase.getInstance(app).customCourseDao())
 
+    override val autoDnd: AutoDndAccess = com.xjtu.toolbox.notification.AndroidAutoDnd(app)
+
     override val login: ScheduleLogin = object : ScheduleLogin {
         override val accountId: String get() = loginState.accountId
         override val studentId: String get() = loginState.activeUsername
@@ -54,7 +56,7 @@ internal class AppScheduleHost(
         accountType = loginState.accountType,
     )
 
-    override suspend fun dueHomeworks(accountId: String): List<LmsDue> = LmsDueStore.load(app, accountId)
+    override suspend fun dueHomeworks(accountId: String): List<LmsDue> = LmsDueStore.load(accountId)
 
     override suspend fun roomSeatCount(location: String): Int? =
         com.xjtu.toolbox.emptyroom.EmptyRoomApi().getRoomSeatCount(location)

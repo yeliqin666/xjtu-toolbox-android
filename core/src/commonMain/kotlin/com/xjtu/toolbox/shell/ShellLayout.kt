@@ -25,7 +25,7 @@ enum class ShellForm {
 val FLOATING_BAR_HEIGHT = 52.dp
 
 /** floatingToolbar 槽位离屏幕底边有 miuix 私有的 4dp（FloatingToolbarSpacing），要补偿掉。 */
-private val MIUIX_FLOATING_TOOLBAR_SPACING = 4.dp
+internal val MIUIX_FLOATING_TOOLBAR_SPACING = 4.dp
 
 /** 判据：屏形状决定底栏/侧栏，界面风格决定玻璃/经典，窗口宽度区分手机与平板竖屏。 */
 fun shellForm(isWide: Boolean, windowSize: WindowSize, glass: Boolean): ShellForm = when {
@@ -59,7 +59,9 @@ class ShellLayout(
     /** 浮在上面的底栏一共占掉多少高度 —— 各 tab 的滚动内容末尾要留出这么多，否则最后一行被底栏压住。 */
     val bottomBarReserve: Dp
         get() = when (form) {
-            ShellForm.GLASS_BAR -> GLASS_BAR_HEIGHT + glassBarBottomGap + bottomInset
+            // COUI 底栏的下空隙是 16dp + tappableElement（无导航条时 24dp）：上沿最高到
+            // 56 + 24 = 80dp，再叠导航条取上限，保证末尾内容一定滚得到胶囊之上
+            ShellForm.GLASS_BAR -> GLASS_BAR_HEIGHT + 24.dp + bottomInset
             ShellForm.FLOATING_PILL -> FLOATING_BAR_HEIGHT + (if (bottomInset > 0.dp) 26.dp + bottomInset else 36.dp)
             ShellForm.CLASSIC_BAR, ShellForm.RAIL -> 0.dp
         }

@@ -35,7 +35,8 @@ class AppAttendanceSource(private val site: SiteSession) : AttendanceSource {
     override suspend fun getStreams(startDate: String, endDate: String): List<AttendanceStream> =
         withContext(Dispatchers.IO) { api.getStreams(startDate, endDate) }
 
-    override fun computeCourseStatsFromRecords(records: List<AttendanceWaterRecord>): List<CourseAttendanceStat> =
+    /** 端口改 suspend 只是为了让 serve 那一份能打端点；本机这一份仍是同一个纯函数（语义一字未改）。 */
+    override suspend fun computeCourseStatsFromRecords(records: List<AttendanceWaterRecord>): List<CourseAttendanceStat> =
         api.computeCourseStatsFromRecords(records)
 
     // ── 请假（LeaveApi 那半）─────────────────────────────────────────

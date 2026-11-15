@@ -33,6 +33,27 @@ import top.yukonga.miuix.kmp.squircle.squircleSurface
 val AppCardColor: Color
     @Composable get() = top.yukonga.miuix.kmp.theme.MiuixTheme.colorScheme.surfaceVariant
 
+/** 次要按钮：浅主题色底，文字沿用正文色。主操作用 `ButtonDefaults.buttonColorsPrimary()`；默认色和背景分不开。 */
+@Composable
+fun appTonalButtonColors() = top.yukonga.miuix.kmp.basic.ButtonDefaults.buttonColors(
+    color = top.yukonga.miuix.kmp.theme.MiuixTheme.colorScheme.primary.copy(alpha = 0.12f),
+)
+
+/**
+ * 和主按钮并排、或单独放在表单里的次要 [top.yukonga.miuix.kmp.basic.TextButton]。
+ * 默认色是灰胶囊，和主按钮叠在一起像两块砖。
+ */
+@Composable
+fun appTonalTextButtonColors(): top.yukonga.miuix.kmp.basic.TextButtonColors {
+    val primary = top.yukonga.miuix.kmp.theme.MiuixTheme.colorScheme.primary
+    return top.yukonga.miuix.kmp.basic.ButtonDefaults.textButtonColors(
+        color = primary.copy(alpha = 0.12f),
+        disabledColor = primary.copy(alpha = 0.06f),
+        textColor = primary,
+        disabledTextColor = primary.copy(alpha = 0.38f),
+    )
+}
+
 /** 卡片内部再嵌一层时用（比卡片略重），例如统计块、内嵌列表行。 */
 val AppInsetColor: Color
     @Composable get() = top.yukonga.miuix.kmp.theme.MiuixTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.5f)
@@ -61,16 +82,12 @@ fun Modifier.appCardShadow(
     shape: Shape = RoundedCornerShape(16.dp),
     strong: Boolean = false,
 ): Modifier {
-    val isDark = LocalIsDarkTheme.current
+    // 深色下不画：深底上的主色投影成了一圈彩色外发光（#419），层级靠更亮的卡面表现
+    if (LocalIsDarkTheme.current) return this
     val tint = top.yukonga.miuix.kmp.theme.MiuixTheme.colorScheme.primary
     val radiusDp = if (strong) 16.dp else 10.dp
     val offsetYDp = if (strong) 6.dp else 3.dp
-    val alpha = when {
-        isDark && strong -> 0.28f
-        isDark -> 0.20f
-        strong -> 0.10f
-        else -> 0.06f
-    }
+    val alpha = if (strong) 0.10f else 0.06f
     return this.dropShadow(shape) {
         // ShadowScope 继承自 Density：radius/offset 要的是像素 Float，不是 Dp，这里手动转一下。
         this.radius = radiusDp.toPx()
@@ -86,30 +103,11 @@ fun ExpressiveIcon(
     color: Color,
     modifier: Modifier = Modifier,
     size: Dp = 54.dp,
-    iconSize: Dp = 27.dp,
+    @Suppress("UNUSED_PARAMETER") iconSize: Dp = 27.dp,
 ) {
-    Box(
-        modifier = modifier
-            .size(size)
-            .squircleSurface(
-                color = color.copy(alpha = 0.16f),
-                cornerRadius = size * 0.31f,
-            ),
-        contentAlignment = Alignment.Center,
-    ) {
-        // 浅色下这团白光融进浅底，只是提亮；深色底上它会变成字形背后一圈灰白光环，所以只在浅色画。
-        if (!LocalIsDarkTheme.current) {
-            Box(
-                Modifier
-                    .size(size * 0.7f)
-                    .clip(androidx.compose.foundation.shape.CircleShape)
-                    .background(
-                        Brush.radialGradient(
-                            listOf(Color.White.copy(alpha = 0.2f), Color.Transparent),
-                        ),
-                    ),
-            )
-        }
-        Icon(icon, contentDescription = null, tint = color, modifier = Modifier.size(iconSize))
+    // 纯色图标：不再垫那层 16% 的圆角色块与浅色下的白光，只留彩色字形。
+    // 字形按槽位的 62% 画（54dp 槽 → 33dp 字形），比原来垫色块时的 27dp 大一档。
+    Box(modifier.size(size), contentAlignment = Alignment.Center) {
+        Icon(icon, contentDescription = null, tint = color, modifier = Modifier.size(size * 0.62f))
     }
 }

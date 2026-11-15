@@ -4,12 +4,27 @@ package com.xjtu.toolbox.community
 // DiscussionCommentActions.kt。界面改用 MIUIX，按论坛楼层重排：主帖卡片、N 楼、楼主标记、楼中楼预览、
 // 表情回应、投票、引用、分享、关闭 / 锁定 / 折叠、底部回帖栏、全屏编辑页（编辑 / 预览）。
 
-import com.xjtu.toolbox.ui.glass.tabContentPadding
+import com.xjtu.toolbox.ui.glass.CouiToolbarTextButton
+import com.xjtu.toolbox.ui.glass.LocalTabBottomPadding
+import com.xjtu.toolbox.ui.glass.tabContentBottomPadding
 import com.xjtu.toolbox.ui.components.AppPullToRefresh
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.xjtu.toolbox.platform.BackHandler
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.foundation.border
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.material.icons.automirrored.filled.Send
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.outlined.Visibility
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.text.TextRange
+import androidx.compose.ui.text.input.TextFieldValue
+import top.yukonga.miuix.kmp.basic.CircularProgressIndicator
 import androidx.compose.material.icons.filled.ThumbDown
 import androidx.compose.material.icons.filled.ThumbUp
 import androidx.compose.foundation.background
@@ -45,9 +60,6 @@ import top.yukonga.miuix.kmp.overlay.OverlayDialog
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.utils.overScrollVertical
 
-/** 楼中楼里某条被编辑（[edited]）或删除（[deletedId]）了；[seq] 保证同一条连改两次也会触发。 */
-data class ReplyPatch(val edited: GithubDiscussionComment?, val deletedId: String?, val seq: Int)
-
 /** 编辑页正在写什么。 */
 sealed interface EditorTarget {
     data object NewComment : EditorTarget
@@ -57,6 +69,9 @@ sealed interface EditorTarget {
     data class ReplyTo(val comment: GithubDiscussionComment, val prefill: String?) : EditorTarget
     data class EditComment(val comment: GithubDiscussionComment) : EditorTarget
     data object EditDiscussion : EditorTarget
+
+    /** 回帖就在详情页底部的输入框里写；编辑已有内容才进全屏页。 */
+    val inline: Boolean get() = this !is EditComment && this != EditDiscussion
 }
 
 @Composable
@@ -83,7 +98,6 @@ fun DiscussionDetailScreen(
     var editor by remember { mutableStateOf<EditorTarget?>(null) }
     var deleting by remember { mutableStateOf<GithubDiscussionComment?>(null) }
     var deletingPost by remember { mutableStateOf(false) }
-    var minimizing by remember { mutableStateOf<GithubDiscussionComment?>(null) }
     var closing by remember { mutableStateOf(false) }
     var locking by remember { mutableStateOf(false) }
     // 本帖参与者，写回复时 @ 联想用
@@ -104,7 +118,7 @@ fun DiscussionDetailScreen(
         if (comment.url.isNotEmpty()) add(MenuAction("分享") { share(discussion.title, comment.url) })
         if (comment.canEdit) add(MenuAction("编辑") { editor = EditorTarget.EditComment(comment) })
         if (comment.canUnminimize && comment.minimized) add(MenuAction("取消折叠") { vm.unminimize(comment) })
-        else if (comment.canMinimize && !comment.minimized) add(MenuAction("折叠") { minimizing = comment })
+        else if (comment.canMinimize && !comment.minimized) add(MenuAction("折叠", options = MINIMIZE_REASONS, onPick = { vm.minimize(comment, it) }))
         if (comment.canDelete) add(MenuAction("删除", danger = true) { deleting = comment })
     }
     // 锁帖后只有管理员还能回复
@@ -154,15 +168,6 @@ fun DiscussionDetailScreen(
             },
         )
     }
-    minimizing?.let { comment ->
-        ReasonDialog(
-            title = "折叠这条回复",
-            summary = "折叠后默认只显示原因，别人点开仍能看到。",
-            reasons = MINIMIZE_REASONS,
-            onDismiss = { minimizing = null },
-            onPick = { minimizing = null; vm.minimize(comment, it) },
-        )
-    }
     if (closing) {
         ReasonDialog(
             title = "关闭帖子",
@@ -185,50 +190,61 @@ fun DiscussionDetailScreen(
         LaunchedEffect(text) { kotlinx.coroutines.delay(2500); vm.message = null }
     }
 
-
+    // 开全屏编辑页时帖子页会被销毁：大标题折叠这类 rememberSaveable 状态存在这里，编辑完回来原样
+    val saved = androidx.compose.runtime.saveable.rememberSaveableStateHolder()
     AnimatedContent(
-        targetState = editor,
+        targetState = editor?.takeUnless { it.inline },
         contentKey = { it?.let { t -> "editor:${t.hashCode()}" } ?: "detail" },
         transitionSpec = { communitySlide(forward = targetState != null) },
         label = "detailEditor",
     ) { shownEditor ->
-    // ── 全屏编辑页：回帖 / 回复某楼 / 编辑 ──
+    // ── 全屏编辑页：编辑回复 / 编辑主帖 ──
     if (shownEditor != null) {
         val target = shownEditor
-        CommunityEditorPage(
+        CommunityEditor(
             target = target,
             discussion = discussion,
             onClose = { editor = null },
             mentionCandidates = participants,
             onSubmit = { title, body -> vm.submit(target, title, body) },
         )
-    } else {
+    } else saved.SaveableStateProvider("detail") {
     CommunityPage(
         title = discussion.category.name,
         onBack = onBack,
         actions = {
-            CommunityBarAction(Icons.Outlined.Share, "分享") { share(discussion.title, discussion.url) }
-            CommunityBarAction(Icons.Outlined.OpenInBrowser, "在浏览器打开") { uriHandler.openUri(discussion.url) }
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(2.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                CommunityBarAction(Icons.Outlined.Share, "分享") { share(discussion.title, discussion.url) }
+                CommunityBarAction(Icons.Outlined.OpenInBrowser, "在浏览器打开") { uriHandler.openUri(discussion.url) }
+            }
         },
         bottomBar = {
-            ReplyBar(
+            ReplyComposer(
                 discussion = discussion,
                 canReply = canReply,
-                onReply = { editor = EditorTarget.NewComment },
+                target = editor?.takeIf { it.inline },
+                onClearTarget = { editor = null },
+                mentionCandidates = participants,
                 onLike = { vm.reactDiscussion(LIKE) },
+                onSubmit = { target, body -> vm.submit(target, null, body) },
             )
         },
     ) { top ->
         AppPullToRefresh(
             isRefreshing = refreshing,
             onRefresh = { refreshing = true; vm.reloadAll() },
+            scrollBehavior = LocalCommunityBarScroll.current,
             topPadding = top,
             modifier = Modifier.fillMaxSize(),
         ) {
             LazyColumn(
                 state = listState,
                 modifier = Modifier.fillMaxSize().overScrollVertical(),
-                contentPadding = tabContentPadding(PaddingValues(start = 12.dp, end = 12.dp, top = top + 8.dp, bottom = 16.dp)),
+                // 底部的底栏避让已经由回帖栏让过了（Scaffold 的内容区不含它），这里不再叠一次
+                contentPadding = PaddingValues(start = 12.dp, end = 12.dp, top = top + 8.dp, bottom = 16.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 item(key = "op") {
@@ -268,15 +284,13 @@ fun DiscussionDetailScreen(
                         comment = comment,
                         op = discussion.author,
                         answerable = discussion.category.acceptsAnswers,
-                        refreshKey = vm.replyRefresh[comment.id] ?: 0,
-                        repo = repo,
+                        replies = vm.replies(comment),
                         canReply = canReply,
                         onReact = vm::reactComment,
                         onReactFloor = { content -> vm.reactComment(comment, content) { loader.edited(it) } },
                         onReply = { prefill -> editor = EditorTarget.ReplyTo(comment, prefill) },
                         menu = ::commentMenu,
                         onToggleAnswer = { vm.moderate("采纳") { markAnswer(comment.id, !comment.isAnswer) } },
-                        patch = vm.patch,
                     )
                 }
                 item(key = "footer") {
@@ -284,7 +298,7 @@ fun DiscussionDetailScreen(
                         when {
                             comments.failed && comments.items.isEmpty() ->
                                 ErrorState("回复加载失败", onRetry = { loader.fetch(true) }, modifier = Modifier.fillMaxWidth())
-                            comments.failed -> TextButton(text = "加载失败，点这里重试", onClick = { loader.fetch(false) })
+                            comments.failed -> com.xjtu.toolbox.ui.components.TextLink(text = "加载失败，点这里重试", onClick = { loader.fetch(false) })
                             comments.loading -> CircularProgressIndicator(size = 22.dp)
                             comments.loaded && comments.items.isEmpty() -> Text(
                                 "还没有人回复，来抢沙发",
@@ -398,15 +412,13 @@ private fun Floor(
     comment: GithubDiscussionComment,
     op: String?,
     answerable: Boolean,
-    refreshKey: Int,
-    repo: GithubDiscussionsRepository,
+    replies: FloorReplies,
     canReply: Boolean,
     onReact: (GithubDiscussionComment, String, (GithubDiscussionComment) -> Unit) -> Unit,
     onReactFloor: (String) -> Unit,
     onReply: (prefill: String?) -> Unit,
     menu: (GithubDiscussionComment) -> List<MenuAction>,
     onToggleAnswer: () -> Unit,
-    patch: ReplyPatch?,
 ) {
     var expanded by remember(comment.id) { mutableStateOf(false) }
     Card(
@@ -442,14 +454,12 @@ private fun Floor(
             DiscussionReplies(
                 comment = comment,
                 op = op,
-                refreshKey = refreshKey,
-                load = { cursor -> repo.replies(comment.id, cursor) },
+                state = replies,
                 canReply = canReply,
                 onReact = onReact,
                 // GitHub 的楼中楼只有一层，回的是其中哪条只能靠引用说明
                 onReply = { reply -> onReply(quoteMarkdown(reply)) },
                 menu = menu,
-                patch = patch,
             )
         }
         Spacer(Modifier.height(4.dp))
@@ -476,40 +486,211 @@ fun AuthorLine(comment: GithubDiscussionComment, op: String?, avatar: androidx.c
     }
 }
 
-/** 详情页底部常驻的回帖栏：像论坛一样点一下就开写；锁帖后改成提示。 */
+/**
+ * 详情页底部常驻的回帖输入框，和小岱的输入框一个样子：点一下原地开写，跟着文字长高，
+ * 草稿一直留着。从某一楼点「回复」只是给它定个对象。锁帖后改成提示。
+ */
 @Composable
-private fun ReplyBar(discussion: GithubDiscussion, canReply: Boolean, onReply: () -> Unit, onLike: () -> Unit) {
+private fun ReplyComposer(
+    discussion: GithubDiscussion,
+    canReply: Boolean,
+    target: EditorTarget?,
+    onClearTarget: () -> Unit,
+    mentionCandidates: List<CommunityUser>,
+    onLike: () -> Unit,
+    onSubmit: suspend (EditorTarget, String) -> Result<Unit>,
+) {
     val colors = MiuixTheme.colorScheme
-    Row(
+    val scope = rememberCoroutineScope()
+    var field by rememberSaveable(stateSaver = TextFieldValue.Saver) { mutableStateOf(TextFieldValue()) }
+    var focused by remember { mutableStateOf(false) }
+    var sending by remember { mutableStateOf(false) }
+    var error by remember { mutableStateOf<String?>(null) }
+    var preview by remember { mutableStateOf(false) }
+    val focus = remember { FocusRequester() }
+    val focusManager = androidx.compose.ui.platform.LocalFocusManager.current
+    val keyboard = androidx.compose.ui.platform.LocalSoftwareKeyboardController.current
+
+    LaunchedEffect(target) {
+        if (target == null) return@LaunchedEffect
+        val prefill = when (target) {
+            is EditorTarget.Quote -> quoteMarkdown(target.comment)
+            is EditorTarget.ReplyTo -> target.prefill.orEmpty()
+            else -> ""
+        }
+        if (prefill.isNotEmpty() && field.text.isBlank()) field = TextFieldValue(prefill, TextRange(prefill.length))
+        focus.requestFocus()
+        keyboard?.show()
+    }
+    BackHandler(enabled = target != null, onBack = onClearTarget)
+
+    val text = field.text
+    val canSend = canReply && !sending && text.isNotBlank()
+    val send = {
+        sending = true
+        error = null
+        scope.launch {
+            onSubmit(target ?: EditorTarget.NewComment, text).fold(
+                onSuccess = {
+                    field = TextFieldValue()
+                    preview = false
+                    onClearTarget()
+                    focusManager.clearFocus()
+                },
+                onFailure = { e -> error = (e as? GithubDiscussionException)?.message?.let { "没成功：$it" } ?: "没成功，检查网络后重试" },
+            )
+            sending = false
+        }
+        Unit
+    }
+    val query = if (focused && field.selection.collapsed) mentionQuery(text, field.selection.start) else null
+    val density = androidx.compose.ui.platform.LocalDensity.current
+    val tabBottom = LocalTabBottomPadding.current
+    // 悬浮底栏下页面铺到窗口底边，底栏占位只是「不让子页再垫导航条」的声明，并没真垫：键盘按原始高度让。
+    // 其余宿主（经典底栏、独立页）垫了多少都声明了消费，走 windowInsetsPadding 自动扣掉
+    val keyboardAvoid = if (tabBottom > 0.dp) {
+        Modifier.padding(bottom = with(density) { WindowInsets.ime.getBottom(density).toDp() }.coerceAtLeast(tabBottom))
+    } else {
+        Modifier.windowInsetsPadding(WindowInsets.ime.union(WindowInsets.navigationBars))
+    }
+    val borderColor by androidx.compose.animation.animateColorAsState(
+        if (focused) colors.primary.copy(alpha = 0.55f) else colors.outline.copy(alpha = 0.25f),
+        androidx.compose.animation.core.tween(180),
+        label = "replyBorder",
+    )
+
+    Column(
         Modifier
             .fillMaxWidth()
             .background(colors.surface)
-            .navigationBarsPadding()
+            .then(keyboardAvoid)
             .padding(horizontal = 12.dp, vertical = 8.dp),
-        verticalAlignment = Alignment.CenterVertically,
+        verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
-        Box(
-            Modifier
-                .weight(1f)
-                .clip(RoundedCornerShape(20.dp))
-                .background(colors.surfaceContainerHigh)
-                .clickable(enabled = canReply, onClick = onReply)
-                .padding(horizontal = 16.dp, vertical = 10.dp),
-        ) {
-            Text(
-                if (canReply) "说点什么…" else "帖子已锁定，暂不能回复",
-                style = MiuixTheme.textStyles.body2,
-                color = colors.onSurfaceVariantSummary,
-            )
+        val targetLabel = when (target) {
+            is EditorTarget.Quote -> "引用回复"
+            is EditorTarget.ReplyTo -> "回复 ${target.comment.author ?: "这一楼"}"
+            else -> null
         }
-        Spacer(Modifier.width(8.dp))
-        LikeAction(discussion.reactions, discussion.canReact, "赞", onClick = onLike)
+        if (targetLabel != null) {
+            Row(Modifier.padding(start = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text(targetLabel, style = MiuixTheme.textStyles.footnote1, color = colors.primary, modifier = Modifier.weight(1f))
+                Box(Modifier.size(24.dp).clip(CircleShape).clickable(onClick = onClearTarget), contentAlignment = Alignment.Center) {
+                    Icon(Icons.Default.Close, "不回复这一楼了", Modifier.size(15.dp), tint = colors.onSurfaceVariantSummary)
+                }
+            }
+        }
+        error?.let { Text(it, color = colors.error, style = MiuixTheme.textStyles.footnote1, modifier = Modifier.padding(start = 12.dp)) }
+        if (preview && text.isNotBlank()) {
+            Box(
+                Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = 240.dp)
+                    .clip(RoundedCornerShape(16.dp))
+                    .background(AppCardColor)
+                    .verticalScroll(rememberScrollState())
+                    .padding(14.dp),
+            ) { MarkdownText(text) }
+        }
+        if (query != null) {
+            MentionSuggestions(mentionCandidates, query) { user ->
+                val cursor = field.selection.start
+                val start = cursor - query.length - 1
+                val inserted = "@${user.login} "
+                field = TextFieldValue(text.replaceRange(start, cursor, inserted), TextRange(start + inserted.length))
+            }
+        }
+        Row(verticalAlignment = Alignment.Bottom) {
+            Row(
+                Modifier
+                    .weight(1f)
+                    .clip(RoundedCornerShape(24.dp))
+                    .background(AppCardColor)
+                    .border(1.dp, borderColor, RoundedCornerShape(24.dp))
+                    .padding(6.dp),
+                verticalAlignment = Alignment.Bottom,
+            ) {
+                CommunityImageActions(enabled = canReply && !sending) { markdown ->
+                    val start = field.selection.min
+                    val inserted = text.replaceRange(start, field.selection.max, markdown)
+                    require(inserted.length <= 65536) { "正文已接近长度上限，请缩短后再插入图片" }
+                    field = TextFieldValue(inserted, TextRange(start + markdown.length))
+                }
+                Box(
+                    Modifier.weight(1f).defaultMinSize(minHeight = 36.dp).padding(end = 6.dp),
+                    contentAlignment = Alignment.CenterStart,
+                ) {
+                    BasicTextField(
+                        value = field,
+                        onValueChange = { if (it.text.length <= 65536) { field = it; error = null } },
+                        enabled = canReply && !sending,
+                        textStyle = MiuixTheme.textStyles.body1.copy(color = colors.onSurface),
+                        cursorBrush = SolidColor(colors.primary),
+                        maxLines = 6,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 8.dp)
+                            .focusRequester(focus)
+                            .onFocusChanged { focused = it.isFocused },
+                    )
+                    if (text.isEmpty()) {
+                        Text(
+                            if (canReply) "说点什么…" else "帖子已锁定，暂不能回复",
+                            style = MiuixTheme.textStyles.body1,
+                            color = colors.onSurfaceVariantSummary,
+                            maxLines = 1,
+                        )
+                    }
+                }
+                if (text.isNotBlank()) {
+                    Box(
+                        Modifier.size(36.dp).clip(CircleShape).clickable { preview = !preview },
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Icon(
+                            Icons.Outlined.Visibility,
+                            if (preview) "收起预览" else "预览 Markdown",
+                            Modifier.size(20.dp),
+                            tint = if (preview) colors.primary else colors.onSurfaceVariantSummary,
+                        )
+                    }
+                }
+                if (focused || text.isNotEmpty()) {
+                    Box(
+                        Modifier
+                            .size(36.dp)
+                            .clip(CircleShape)
+                            .background(if (canSend) colors.primary else colors.onSurface.copy(alpha = 0.10f))
+                            .clickable(enabled = canSend, onClick = send),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        if (sending) {
+                            CircularProgressIndicator(size = 16.dp, strokeWidth = 2.dp)
+                        } else {
+                            Icon(
+                                Icons.AutoMirrored.Filled.Send,
+                                "发送",
+                                Modifier.size(18.dp),
+                                tint = if (canSend) colors.onPrimary else colors.onSurfaceVariantSummary,
+                            )
+                        }
+                    }
+                }
+            }
+            // 没在写的时候，右边是赞
+            if (!focused && text.isEmpty()) {
+                Spacer(Modifier.width(8.dp))
+                Box(Modifier.height(50.dp), contentAlignment = Alignment.Center) {
+                    LikeAction(discussion.reactions, discussion.canReact, "赞", onClick = onLike)
+                }
+            }
+        }
     }
 }
 
-/** 全屏编辑页：回帖、回复某楼、编辑回复、编辑主帖都用它。 */
+/** 编辑已有内容的全屏页：编辑回复、编辑主帖。回帖走 [ReplyComposer]。 */
 @Composable
-private fun CommunityEditorPage(
+private fun CommunityEditor(
     target: EditorTarget,
     discussion: GithubDiscussion,
     onClose: () -> Unit,
@@ -556,47 +737,7 @@ private fun CommunityEditorPage(
         Unit
     }
 
-    CommunityPage(
-        title = pageTitle,
-        onBack = close,
-        actions = {
-            TextButton(
-                text = if (sending) "$submitLabel…" else submitLabel,
-                onClick = submit,
-                enabled = canSubmit,
-                colors = ButtonDefaults.textButtonColorsPrimary(),
-                minHeight = 36.dp,
-            )
-        },
-    ) { top ->
-        Column(
-            Modifier
-                .fillMaxSize()
-                .imePadding()
-                .verticalScroll(rememberScrollState())
-                .padding(horizontal = 16.dp)
-                .padding(top = top + 8.dp, bottom = 24.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
-            if (target is EditorTarget.ReplyTo) {
-                // 引用被回复的那一楼，写的时候知道在回谁
-                Column(
-                    Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(12.dp))
-                        .background(MiuixTheme.colorScheme.surfaceContainer)
-                        .padding(12.dp),
-                ) {
-                    Text(target.comment.author ?: "已注销用户", style = MiuixTheme.textStyles.footnote1, fontWeight = FontWeight.SemiBold)
-                    Text(
-                        discussionSummary(target.comment.body),
-                        style = MiuixTheme.textStyles.body2,
-                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                        maxLines = 3,
-                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
-                    )
-                }
-            }
+    val form: @Composable ColumnScope.() -> Unit = {
             if (withTitle) {
                 TextField(
                     value = title,
@@ -614,11 +755,36 @@ private fun CommunityEditorPage(
                 onPreviewChange = { preview = it },
                 label = "支持 Markdown，输入 @ 可提到别人",
                 enabled = !sending,
-                minLines = if (withTitle) 10 else 6,
+                minLines = 10,
                 mentionCandidates = mentionCandidates,
             )
             error?.let { Text(it, color = MiuixTheme.colorScheme.error, style = MiuixTheme.textStyles.body2) }
-        }
+    }
+    val submitText = if (sending) "$submitLabel…" else submitLabel
+
+    CommunityPage(
+        title = pageTitle,
+        onBack = close,
+        actions = {
+            // 顶栏文字动作：与右侧圆钮同一套 COUI 玻璃材质（原版 text 分支，40dp 高胶囊）
+            CouiToolbarTextButton(
+                text = submitText,
+                onClick = submit,
+                enabled = canSubmit,
+            )
+        },
+    ) { top ->
+        Column(
+            Modifier
+                .fillMaxSize()
+                .imePadding()
+                .verticalScroll(rememberScrollState())
+                .tabContentBottomPadding()
+                .padding(horizontal = 16.dp)
+                .padding(top = top + 8.dp, bottom = 24.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+            content = form,
+        )
     }
 
     if (confirmDiscard) {

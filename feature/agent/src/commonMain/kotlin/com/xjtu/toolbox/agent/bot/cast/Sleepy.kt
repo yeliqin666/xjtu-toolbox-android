@@ -5,21 +5,24 @@ import kotlin.math.max
 import kotlin.math.sin
 
 /**
- * 早八人：一颗永远睡不醒的大学生脑袋，呆毛、黑眼圈、鼻涕泡。动作都是整颗头在动：
+ * 早八人：一颗永远睡不醒的大学生脑袋，圆刘海、呆毛、鼓腮帮上两团红晕、黑眼圈、鼻涕泡。
+ * 动作都是整颗头在动：
  * - 待命：钓鱼式点头，泡泡跟着胀缩；
  * - 微动：仰头打个大哈欠，嘴张到半张脸；
  * - 思考：火柴棍撑着眼皮硬撑，头还是一点点往下栽，栽到底猛地弹回来，三个「Z」绕着脑袋转；
  * - 提醒：一激灵，整颗头弹一下、泡泡啪地破；
  * - 被戳：像被点名，先一缩再蹦起来举手「到！」，落地一墩，左右张望，然后又慢慢睡回去；
- * - 彩蛋：整颗头侧着栽倒趴在课本上睡死，冒 Zzz，最后爬起来打个哈欠。
+ * - 彩蛋：整颗头侧着栽倒趴在课本上睡死，冒 Zzz，最后爬起来打个哈欠；睡着时再戳，半睁眼瞪你一下又睡回去。
  */
 object Sleepy : CastCharacter("sleepy", "早八人") {
     override val microSec = 1.8
     override val pokeSec = 2.4
     override val comboSec = 3.4
 
-    private const val HAIR = 0xFF3A3346
-    private const val SKIN = 0xFFFFD7B5
+    // 头发要在深色底栏上也看得见，不能接近黑
+    private const val HAIR = 0xFF5A4E85
+    private const val SKIN = 0xFFFFDDC2
+    private const val BLUSH = 0xFFFF9C9C
     private const val SLEEVE = 0xFF6FA8E8
     private const val BAGS = 0xFFB9A3D6
     private const val BUBBLE = 0xFFAEDBFF
@@ -30,7 +33,7 @@ object Sleepy : CastCharacter("sleepy", "早八人") {
     private const val BOOK = 0xFF5B8DEF
     private const val PAGES = 0xFFF4F1EA
 
-    private const val EY = 38.0
+    private const val EY = 42.0
     /** 下巴：压扁、点头都以这里为支点。 */
     private const val CHIN = 92.0
     /** 思考时栽头的一个来回。 */
@@ -69,6 +72,8 @@ object Sleepy : CastCharacter("sleepy", "早八人") {
         val fallBounce = combo * wobble(tc - 0.4, 14.0, 5.0) * (if (tc < 2.4) 1.0 else 0.0)
 
         val yawn = micro * bump(tm / 1.6) + combo * bump((tc - 2.5) / 0.85)
+        // 趴着睡时又被戳：半睁眼瞪一下，鼻涕泡破掉，再睡回去
+        val nudge = p.kick(0.06, 0.45, 0.65)
         val jolt = alert * wobble(ta, 20.0, 5.0)
         val startle = alert * bump(ta / 0.3)
         val awake = max(max(think, alert), called)
@@ -119,7 +124,7 @@ object Sleepy : CastCharacter("sleepy", "早八人") {
             val hand = poke * window(tp, 0.1, 0.26, 1.0, 1.4)
             if (hand > 0.01) {
                 s.group {
-                    translate(76.0, mix(40.0, -60.0, hand))
+                    translate(82.0, mix(40.0, -60.0, hand))
                     rotate(12 * (1 - hand) + 5 * sin(tp * 16) * hand)
                     s.rrect(4.0, 44.0, 28.0, 60.0, 13.0)
                     s.fill(SLEEVE)
@@ -136,34 +141,38 @@ object Sleepy : CastCharacter("sleepy", "早八人") {
                 s.moveTo(0.0, 0.0)
                 s.cubicTo(4.0, -16.0, 22.0, -26.0, 20.0, -35.0)
                 s.cubicTo(18.0, -41.0, 9.0, -39.0, 11.0, -32.0)
-                s.stroke(9.0, HAIR)
+                s.stroke(10.0, HAIR)
             }
 
-            s.circle(0.0, 6.0, 84.0)
+            // 后脑勺：方圆的一团，比脸高出一截额头
+            s.blob(0.0, 4.0, 64) { th -> superR(th, 88.0, 82.0, 2.4) }
             s.fill(HAIR)
-            s.ellipse(0.0, 34.0, 70.0, 58.0)
+            // 脸：下半截比头发宽，腮帮鼓出来
+            s.ellipse(0.0, 38.0, 77.0, 54.0)
             s.fill(SKIN)
-            // 刘海
-            s.moveTo(-72.0, 12.0)
-            val bangs = doubleArrayOf(-52.0, -6.0, -38.0, 12.0, -18.0, -8.0, 2.0, 10.0, 22.0, -8.0, 40.0, 12.0, 54.0, -6.0, 72.0, 12.0)
-            var i = 0
-            while (i < bangs.size) { s.lineTo(bangs[i], bangs[i + 1]); i += 2 }
-            s.lineTo(70.0, -36.0)
-            s.lineTo(-70.0, -36.0)
+            // 刘海：三绺圆弧，中间两道小豁口
+            s.moveTo(-80.0, 30.0)
+            s.quadTo(-46.0, 30.0, -30.0, 0.0)
+            s.quadTo(-2.0, 26.0, 26.0, 0.0)
+            s.quadTo(42.0, 30.0, 80.0, 30.0)
+            s.lineTo(80.0, -30.0)
+            s.lineTo(-80.0, -30.0)
             s.close()
             s.fill(HAIR)
-            s.stroke(6.0, HAIR)
 
             val ex = lookX * 10
             for (side in intArrayOf(-1, 1)) {
-                s.moveTo(ex + side * 25 - 13, EY + 18)
-                s.quadTo(ex + side * 25, EY + 27, ex + side * 25 + 13, EY + 18)
-                s.stroke(6.0, BAGS)
+                s.ellipse(side * 52.0, EY + 24, 13.0, 7.5)
+                s.fill(BLUSH, 0.7)
+                s.moveTo(ex + side * 27 - 12, EY + 16)
+                s.quadTo(ex + side * 27, EY + 23, ex + side * 27 + 12, EY + 16)
+                s.stroke(4.5, BAGS)
             }
             when {
-                dead > 0.2 || yawn > 0.3 -> s.asleep(ex, EY + 4, 0.85, 25.0, EYE_DARK)
-                open < 0.18 -> s.asleep(ex, EY + 2, 0.85, 25.0, EYE_DARK)
-                else -> for (side in intArrayOf(-1, 1)) droopyEye(s, ex + side * 25, EY, open, max(called, alert))
+                nudge > 0.5 -> for (side in intArrayOf(-1, 1)) droopyEye(s, ex + side * EYE_GAP, EY, 0.42, 0.0)
+                dead > 0.2 || yawn > 0.3 -> s.asleep(ex, EY + 2, 1.0, EYE_GAP, EYE_DARK)
+                open < 0.18 -> s.asleep(ex, EY, 1.0, EYE_GAP, EYE_DARK)
+                else -> for (side in intArrayOf(-1, 1)) droopyEye(s, ex + side * EYE_GAP, EY, open, max(called, alert))
             }
 
             // 火柴棍：一端红头，竖着卡在眼皮之间
@@ -179,15 +188,15 @@ object Sleepy : CastCharacter("sleepy", "早八人") {
 
             // 哈欠：嘴张到半张脸
             if (yawn > 0.02) {
-                s.ellipse(lookX * 4, 70.0, 10 + 16 * yawn, 4 + 18 * yawn)
+                s.ellipse(lookX * 4, 74.0, 10 + 14 * yawn, 3 + 13 * yawn)
                 s.fill(MOUTH)
             }
 
             // 鼻涕泡：跟着点头胀缩；醒着就没有，被吓醒时啪地破，睡回去再慢慢吹起来
             val regrow = 1 - poke * (1 - ss(ramp(tp, 1.5, 2.3)))
-            val br = (6 + 16 * droop + 10 * dead) * (1 - think) * (1 - alert) * regrow * (1 - yawn)
-            val bx = 14.0 + br * 0.7
-            val by = 64.0 + br * 0.2
+            val br = (6 + 16 * droop + 10 * dead) * (1 - think) * (1 - alert) * regrow * (1 - yawn) * (1 - nudge)
+            val bx = 12.0 + br * 0.7
+            val by = 70.0 + br * 0.15
             if (br > 1.5) {
                 s.circle(bx, by, br)
                 s.fill(BUBBLE, 0.85)
@@ -197,7 +206,7 @@ object Sleepy : CastCharacter("sleepy", "早八人") {
             if (pop > 0.0) {
                 for (k in 0 until 6) {
                     val a = k * 1.05 + 0.3
-                    s.dot(30 + cos(a) * (14 + 30 * pop), 66 + sin(a) * (14 + 30 * pop), 5.0 * (1 - pop), Tone.COLOR, 0.9, BUBBLE)
+                    s.dot(28 + cos(a) * (14 + 30 * pop), 72 + sin(a) * (14 + 30 * pop), 5.0 * (1 - pop), Tone.COLOR, 0.9, BUBBLE)
                 }
             }
         }
@@ -235,10 +244,13 @@ object Sleepy : CastCharacter("sleepy", "早八人") {
      * [wide] 吓醒时眼珠放大、露出高光。
      */
     private fun droopyEye(s: Sketch, x: Double, y: Double, open: Double, wide: Double) {
-        val r = 12.0 * (1 + 0.25 * wide)
+        val r = 13.0 * (1 + 0.2 * wide)
         s.circle(x, y + 2, r)
         s.fill(EYE_DARK)
-        if (open > 0.6) s.dot(x + r * 0.35, y + 2 - r * 0.35, r * 0.28, Tone.COLOR, 1.0, WHITE)
+        if (open > 0.6) {
+            s.dot(x + r * 0.34, y + 2 - r * 0.36, r * 0.32, Tone.COLOR, 1.0, WHITE)
+            s.dot(x - r * 0.4, y + 2 + r * 0.38, r * 0.15, Tone.COLOR, 1.0, WHITE)
+        }
         if (open < 0.97) {
             val top = y + 2 - r - 6
             val lid = y + 2 + r - 2 * r * open

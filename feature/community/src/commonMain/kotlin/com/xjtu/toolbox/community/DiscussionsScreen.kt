@@ -3,14 +3,18 @@ package com.xjtu.toolbox.community
 // 改编自 JoyinJoester/Etoile（GPL-3.0）：github/feature/discussions/DiscussionsScreen.kt。
 // 界面改用 MIUIX，按论坛帖子列表重排：作者头像、时间、分类、回复数、点赞、状态标签，分类筛选，下拉刷新，滑到底自动翻页。
 
+import com.xjtu.toolbox.ui.glass.CouiToolbarTextButton
 import com.xjtu.toolbox.ui.glass.tabContentPadding
 import com.xjtu.toolbox.ui.glass.tabContentBottomPadding
 import com.xjtu.toolbox.ui.components.AppPullToRefresh
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.outlined.Edit
+import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.LazyListState
-import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
@@ -39,7 +43,6 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
 import androidx.compose.animation.core.tween
 import com.xjtu.toolbox.ui.components.AppCardColor
-import com.xjtu.toolbox.ui.components.AppFilterChip
 import com.xjtu.toolbox.ui.components.EmptyState
 import com.xjtu.toolbox.ui.components.ErrorState
 import com.xjtu.toolbox.ui.components.LoadingState
@@ -63,9 +66,8 @@ fun DiscussionsScreen(
     /** 当前登录的 GitHub 用户名，「我发的」用。 */
     me: String,
     onAccount: () -> Unit,
-    /** 由外层持有：进帖子时这一页会被换掉，回来要停在原来的位置。 */
-    listState: LazyListState = rememberLazyListState(),
 ) {
+    val listState = rememberLazyListState()
     // 顶部的刷新圈只跟用户下拉触发的那一次走，滑到底翻页时不转
     var pulling by remember { mutableStateOf(false) }
     LaunchedEffect(state.loading) { if (!state.loading) pulling = false }
@@ -88,39 +90,55 @@ fun DiscussionsScreen(
     CommunityPage(
         title = "社区",
         onBack = onBack,
+        root = true,
         actions = {
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(2.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
             Box {
-                CommunityBarAction(Icons.Outlined.FilterList, "筛选与排序", onClick = { showOptions = true })
+                com.xjtu.toolbox.ui.glass.CouiIconMenu(
+                    expanded = showOptions,
+                    onExpandedChange = { showOptions = it },
+                    icon = { Icon(Icons.Outlined.FilterList, contentDescription = "筛选与排序", tint = MiuixTheme.colorScheme.onSurface) },
+                ) {
+                    submenu(title = "状态", summary = state.stateFilter.label) {
+                        DiscussionStateFilter.entries.forEach { filter ->
+                            option(filter.label, selected = filter == state.stateFilter) {
+                                onState(filter)
+                            }
+                        }
+                    }
+                    submenu(title = "排序", summary = state.sort.label) {
+                        DiscussionSort.entries.forEach { sort ->
+                            option(sort.label, selected = sort == state.sort) {
+                                onSort(sort)
+                            }
+                        }
+                    }
+                    option("只看我发的", selected = mine) {
+                        onAuthor(if (mine) null else me)
+                    }
+                }
                 // 改过默认筛选时亮一个小点，免得忘了自己筛过
                 if (customized) Box(
                     Modifier.align(Alignment.TopEnd).padding(top = 10.dp, end = 10.dp).size(7.dp)
                         .background(MiuixTheme.colorScheme.primary, androidx.compose.foundation.shape.CircleShape),
                 )
             }
+            CommunityBarAction(Icons.Outlined.Edit, "发帖", onClick = onCreate)
             CommunityBarAction(Icons.Outlined.AccountCircle, "GitHub 账号", onClick = onAccount)
-        },
-        floatingActionButton = {
-            FloatingActionButton(onClick = onCreate) {
-                Icon(Icons.Filled.Add, contentDescription = "发帖", tint = Color.White)
             }
         },
     ) { top ->
-        // 弹窗靠 Scaffold 提供的宿主渲染，必须放在页面内容里
-        DiscussionOptionsSheet(
-            show = showOptions,
-            state = state,
-            mine = mine,
-            onState = onState,
-            onSort = onSort,
-            onMine = { onAuthor(if (it) me else null) },
-            onDismiss = { showOptions = false },
-        )
         AppPullToRefresh(
             isRefreshing = pulling && state.loading,
             onRefresh = { pulling = true; onRefresh() },
+            scrollBehavior = LocalCommunityBarScroll.current,
             topPadding = top,
             modifier = Modifier.fillMaxSize(),
         ) {
+            com.xjtu.toolbox.ui.glass.ReportScrollPosition(listState)
             LazyColumn(
                 state = listState,
                 modifier = Modifier.fillMaxSize().overScrollVertical(),
@@ -128,12 +146,16 @@ fun DiscussionsScreen(
                 verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
                 if (state.categories.isNotEmpty()) item(key = "filters") {
-                    LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        item { AppFilterChip(selected = state.filter == null, onClick = { onFilter(null) }, label = "全部") }
-                        items(state.categories, key = { it.id }) { category ->
-                            AppFilterChip(selected = state.filter == category.id, onClick = { onFilter(category.id) }, label = category.name)
-                        }
-                    }
+                    // 空串代表「全部」
+                    val names = state.categories.associate { it.id to it.name }
+                    com.xjtu.toolbox.ui.components.AppChipTabRow(
+                        options = listOf("") + state.categories.map { it.id },
+                        selected = state.filter.orEmpty(),
+                        onSelect = { onFilter(it.ifEmpty { null }) },
+                        label = { names[it] ?: "全部" },
+                        // 列表左右留了 12dp：整行伸到屏幕边，滚动渐隐落在边上
+                        bleed = 12.dp,
+                    )
                 }
                 when {
                     state.items.isEmpty() && state.loading -> item(key = "loading") {
@@ -158,7 +180,7 @@ fun DiscussionsScreen(
                     Box(Modifier.fillMaxWidth().padding(vertical = 12.dp), contentAlignment = Alignment.Center) {
                         when {
                             state.loading -> CircularProgressIndicator(size = 22.dp)
-                            state.loadError -> TextButton(text = "加载失败，点这里重试", onClick = onLoadMore)
+                            state.loadError -> com.xjtu.toolbox.ui.components.TextLink(text = "加载失败，点这里重试", onClick = onLoadMore)
                             state.nextCursor == null -> Text(
                                 "没有更多帖子了",
                                 style = MiuixTheme.textStyles.footnote1,
@@ -246,43 +268,6 @@ private fun DiscussionCard(discussion: GithubDiscussion, onClick: () -> Unit, mo
     }
 }
 
-/** 列表筛选：状态、排序两个下拉，加「只看我发的」开关。改完即生效，不用点确定。 */
-@Composable
-private fun DiscussionOptionsSheet(
-    show: Boolean,
-    state: DiscussionsUiState,
-    mine: Boolean,
-    onState: (DiscussionStateFilter) -> Unit,
-    onSort: (DiscussionSort) -> Unit,
-    onMine: (Boolean) -> Unit,
-    onDismiss: () -> Unit,
-) {
-    com.xjtu.toolbox.platform.BackHandler(enabled = show) { onDismiss() }
-    top.yukonga.miuix.kmp.overlay.OverlayBottomSheet(show = show, title = "筛选与排序", onDismissRequest = onDismiss) {
-        Column(Modifier.fillMaxWidth().navigationBarsPadding().padding(bottom = 12.dp)) {
-            val states = DiscussionStateFilter.entries
-            top.yukonga.miuix.kmp.preference.OverlayDropdownPreference(
-                title = "状态",
-                items = states.map { it.label },
-                selectedIndex = states.indexOf(state.stateFilter).coerceAtLeast(0),
-                onSelectedIndexChange = { onState(states[it]) },
-            )
-            val sorts = DiscussionSort.entries
-            top.yukonga.miuix.kmp.preference.OverlayDropdownPreference(
-                title = "排序",
-                items = sorts.map { it.label },
-                selectedIndex = sorts.indexOf(state.sort).coerceAtLeast(0),
-                onSelectedIndexChange = { onSort(sorts[it]) },
-            )
-            top.yukonga.miuix.kmp.preference.SwitchPreference(
-                title = "只看我发的",
-                checked = mine,
-                onCheckedChange = onMine,
-            )
-        }
-    }
-}
-
 @Composable
 private fun CountLabel(icon: ImageVector, text: String, active: Boolean = false) {
     val tint = if (active) MiuixTheme.colorScheme.primary else MiuixTheme.colorScheme.onSurfaceVariantSummary
@@ -326,12 +311,11 @@ fun DiscussionComposer(
         title = "发帖",
         onBack = { if (!state.submitting) onBack() },
         actions = {
-            TextButton(
+            // 顶栏文字动作：与右侧圆钮同一套 COUI 玻璃材质（原版 text 分支，40dp 高胶囊）
+            CouiToolbarTextButton(
                 text = if (state.submitting) "发布中…" else "发布",
                 onClick = onSubmit,
                 enabled = canSubmit,
-                colors = ButtonDefaults.textButtonColorsPrimary(),
-                minHeight = 36.dp,
             )
         },
     ) { top ->
@@ -344,23 +328,42 @@ fun DiscussionComposer(
                 .padding(top = top + 8.dp, bottom = 24.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            Text("选个分类", style = MiuixTheme.textStyles.subtitle, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
-            if (state.categoriesError) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("分类加载失败", color = MiuixTheme.colorScheme.error, style = MiuixTheme.textStyles.body2)
-                    TextButton(text = "重试", onClick = onRetryCategories, enabled = !state.submitting)
-                }
-            } else if (state.categories.isEmpty()) {
-                CircularProgressIndicator(size = 20.dp)
-            }
-            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                postable.forEach { category ->
-                    AppFilterChip(
-                        selected = state.categoryId == category.id,
-                        onClick = { if (!state.submitting) onEdit(state.title, state.body, category.id) },
-                        label = category.name,
-                    )
-                }
+            // 灰色输入框要放在白卡片上：直接放在同样灰的页面上就分不出来了
+            Column(
+                Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(20.dp))
+                    .background(AppCardColor)
+                    .padding(12.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                DiscussionCategoryRow(
+                    categories = postable,
+                    selectedId = state.categoryId,
+                    loading = state.categories.isEmpty() && !state.categoriesError,
+                    failed = state.categoriesError,
+                    enabled = !state.submitting,
+                    onRetry = onRetryCategories,
+                    onPick = { onEdit(state.title, state.body, it) },
+                )
+                TextField(
+                    value = state.title,
+                    onValueChange = { if (it.length <= 256) onEdit(it, state.body, state.categoryId) },
+                    label = "标题",
+                    singleLine = true,
+                    enabled = !state.submitting,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                MarkdownEditor(
+                    value = state.body,
+                    onValueChange = { onEdit(state.title, it, state.categoryId) },
+                    preview = preview,
+                    onPreviewChange = { preview = it },
+                    label = "正文，支持 Markdown，输入 @ 可提到别人",
+                    enabled = !state.submitting,
+                    minLines = 10,
+                    mentionCandidates = candidates,
+                )
             }
             if (postable.firstOrNull { it.id == state.categoryId }?.acceptsAnswers == true) {
                 Text(
@@ -369,24 +372,6 @@ fun DiscussionComposer(
                     color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                 )
             }
-            TextField(
-                value = state.title,
-                onValueChange = { if (it.length <= 256) onEdit(it, state.body, state.categoryId) },
-                label = "标题",
-                singleLine = true,
-                enabled = !state.submitting,
-                modifier = Modifier.fillMaxWidth(),
-            )
-            MarkdownEditor(
-                value = state.body,
-                onValueChange = { onEdit(state.title, it, state.categoryId) },
-                preview = preview,
-                onPreviewChange = { preview = it },
-                label = "正文，支持 Markdown，输入 @ 可提到别人",
-                enabled = !state.submitting,
-                minLines = 10,
-                mentionCandidates = candidates,
-            )
             if (state.submitError) {
                 Text(
                     state.submitMessage?.let { "发布失败：$it" } ?: "发布失败，检查网络后重试。",
@@ -399,6 +384,61 @@ fun DiscussionComposer(
                 style = MiuixTheme.textStyles.footnote1,
                 color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
             )
+        }
+    }
+}
+
+/** 选分类：和输入框同样的灰底一行，点开是下拉菜单。 */
+@Composable
+private fun DiscussionCategoryRow(
+    categories: List<GithubDiscussionCategory>,
+    selectedId: String?,
+    loading: Boolean,
+    failed: Boolean,
+    enabled: Boolean,
+    onRetry: () -> Unit,
+    onPick: (String) -> Unit,
+) {
+    val colors = MiuixTheme.colorScheme
+    var open by remember { mutableStateOf(false) }
+    Box {
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(16.dp))
+                .background(colors.secondaryContainer)
+                .clickable(enabled = enabled && !loading) { if (failed) onRetry() else open = true }
+                .padding(horizontal = 16.dp, vertical = 14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text("分类", style = MiuixTheme.textStyles.body2, color = colors.onSurfaceVariantSummary)
+            Spacer(Modifier.width(12.dp))
+            Text(
+                when {
+                    failed -> "加载失败，点这里重试"
+                    loading -> "加载中…"
+                    else -> categories.firstOrNull { it.id == selectedId }?.name ?: "选个分类"
+                },
+                style = MiuixTheme.textStyles.body2,
+                fontWeight = FontWeight.Medium,
+                color = if (failed) colors.error else colors.onSurface,
+                modifier = Modifier.weight(1f),
+            )
+            if (loading) CircularProgressIndicator(size = 16.dp, strokeWidth = 2.dp)
+            else if (!failed) Icon(Icons.Default.KeyboardArrowDown, null, Modifier.size(20.dp), tint = colors.onSurfaceVariantSummary)
+        }
+        com.xjtu.toolbox.ui.components.AppDropdownMenu(
+            expanded = open,
+            onDismissRequest = { open = false },
+            morph = com.xjtu.toolbox.ui.components.MenuMorph.FromRow,
+        ) {
+            categories.forEach { category ->
+                com.xjtu.toolbox.ui.components.AppDropdownOption(
+                    text = category.name,
+                    selected = category.id == selectedId,
+                    onClick = { open = false; onPick(category.id) },
+                )
+            }
         }
     }
 }
@@ -425,8 +465,13 @@ fun MarkdownEditor(
 
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-            AppFilterChip(selected = !preview, onClick = { onPreviewChange(false) }, label = "编辑")
-            AppFilterChip(selected = preview, onClick = { onPreviewChange(true) }, label = "预览")
+            com.xjtu.toolbox.ui.components.AppSegmentedTabs(
+                tabs = listOf("编辑", "预览"),
+                selectedTabIndex = if (preview) 1 else 0,
+                onTabSelected = { onPreviewChange(it == 1) },
+                modifier = Modifier.width(144.dp),
+                compact = true,
+            )
             Spacer(Modifier.weight(1f))
             CommunityImageActions(enabled = enabled) { markdown ->
                 val start = field.selection.min
@@ -445,10 +490,12 @@ fun MarkdownEditor(
         ) { showPreview ->
             if (showPreview) {
                 Card(Modifier.fillMaxWidth(), cornerRadius = 16.dp, colors = CardDefaults.defaultColors(color = AppCardColor)) {
-                    if (value.isBlank()) {
-                        Text("还没写内容", color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
-                    } else {
-                        MarkdownText(value)
+                    Column(Modifier.fillMaxWidth().padding(16.dp)) {
+                        if (value.isBlank()) {
+                            Text("还没写内容", color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
+                        } else {
+                            MarkdownText(value)
+                        }
                     }
                 }
             } else {

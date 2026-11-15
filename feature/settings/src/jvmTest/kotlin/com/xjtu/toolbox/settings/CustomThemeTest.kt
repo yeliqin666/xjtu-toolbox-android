@@ -10,6 +10,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
 import com.xjtu.toolbox.ui.theme.XJTUToolBoxTheme
+import com.xjtu.toolbox.ui.theme.readableOn
 import java.io.File
 import javax.swing.SwingUtilities
 import kotlin.test.*
@@ -20,7 +21,7 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
 class CustomThemeTest {
     /**
      * 用户挑的色就是主题色本身：明暗两档各用各的，不再按种子色重新推一档色阶；
-     * 主题色上的字只看明暗（深色白字、浅色黑字），不按颜色亮度算对比度。
+     * 主题色上的字优先按明暗（深色白字、浅色黑字），对比度不够时才换成黑白里更清楚的那个。
      */
     @Test
     fun customColorsAreUsedVerbatimInBothModes() {
@@ -56,9 +57,9 @@ class CustomThemeTest {
                             val expected = Color(0xFF000000 or hex.drop(1).toLong(16))
                             assertEquals(expected, assertNotNull(primary), "$mode $hex 应当原样用作主题色")
                             assertEquals(
-                                if (mode == "dark") Color.White else Color.Black,
+                                readableOn(expected, preferred = if (mode == "dark") Color.White else Color.Black),
                                 assertNotNull(foreground),
-                                "$mode 的主题色上，字色只跟明暗走",
+                                "$mode $hex 的主题色上，字色按明暗优先、对比度兜底",
                             )
                             val out = File("build/reports/theme/${mode}-${hex.drop(1)}.png")
                             out.parentFile.mkdirs()

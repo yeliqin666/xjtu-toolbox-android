@@ -65,8 +65,12 @@ fun MarkdownText(
     images: AgentImageLoader = AgentImageLoader.None,
     /** 为 false 时公式只显示源码。 */
     typesetMath: Boolean = true,
+    /** 正文字号；标题不会比它小。思考块传小一号的，和流式阶段的纯文本一致。 */
+    bodyStyle: TextStyle = MiuixTheme.textStyles.body1,
 ) {
     val blocks = remember(text) { parseBlocks(text) }
+    // 小字正文里标题不放大，只加粗
+    val compact = bodyStyle.fontSize < MiuixTheme.textStyles.body1.fontSize
     // 文本停止变化后才排版公式，排版过就不再退回源码
     var stableText by remember { mutableStateOf(text) }
     var typesetOnce by remember { mutableStateOf(false) }
@@ -90,29 +94,30 @@ fun MarkdownText(
                     mathLive, rememberInline(block.text, linkColor, codeBg, errorColor, linkHandler),
                     color = color,
                     fontWeight = FontWeight.Bold,
-                    style = when (block.level) {
-                        1 -> MiuixTheme.textStyles.title2
-                        2 -> MiuixTheme.textStyles.title3
-                        3 -> MiuixTheme.textStyles.subtitle
-                        else -> MiuixTheme.textStyles.body1
+                    style = when {
+                        compact -> bodyStyle
+                        block.level == 1 -> MiuixTheme.textStyles.title2
+                        block.level == 2 -> MiuixTheme.textStyles.title3
+                        block.level == 3 -> MiuixTheme.textStyles.subtitle
+                        else -> bodyStyle
                     }
                 )
-                is MdBlock.Bullet -> ListRow(block.indent, "•") {
+                is MdBlock.Bullet -> ListRow(block.indent, "•", bodyStyle) {
                     MdText(mathLive, rememberInline(block.text, linkColor, codeBg, errorColor, linkHandler), color = color,
-                        style = MiuixTheme.textStyles.body1, modifier = Modifier.weight(1f))
+                        style = bodyStyle, modifier = Modifier.weight(1f))
                 }
-                is MdBlock.Task -> ListRow(block.indent, if (block.checked) "☑" else "☐") {
+                is MdBlock.Task -> ListRow(block.indent, if (block.checked) "☑" else "☐", bodyStyle) {
                     MdText(
                         mathLive, rememberInline(block.text, linkColor, codeBg, errorColor, linkHandler),
                         color = if (block.checked) MiuixTheme.colorScheme.onSurfaceVariantSummary else color,
-                        style = MiuixTheme.textStyles.body1,
+                        style = bodyStyle,
                         textDecoration = if (block.checked) TextDecoration.LineThrough else null,
                         modifier = Modifier.weight(1f)
                     )
                 }
-                is MdBlock.Numbered -> ListRow(block.indent, "${block.num}.") {
+                is MdBlock.Numbered -> ListRow(block.indent, "${block.num}.", bodyStyle) {
                     MdText(mathLive, rememberInline(block.text, linkColor, codeBg, errorColor, linkHandler), color = color,
-                        style = MiuixTheme.textStyles.body1, modifier = Modifier.weight(1f))
+                        style = bodyStyle, modifier = Modifier.weight(1f))
                 }
                 is MdBlock.Quote -> Row(Modifier.fillMaxWidth().height(IntrinsicSize.Min)) {
                     Box(Modifier.width(3.dp).fillMaxHeight()
@@ -163,7 +168,7 @@ fun MarkdownText(
                     }
                 }
                 is MdBlock.Para -> MdText(mathLive, rememberInline(block.text, linkColor, codeBg, errorColor, linkHandler), color = color,
-                    style = MiuixTheme.textStyles.body1)
+                    style = bodyStyle)
                 is MdBlock.Math -> MathBlock(block, color, codeBg, mathLive)
                 is MdBlock.Image -> MdImage(block.alt, block.url, images, linkColor, onClick = { linkHandler(block.url) })
             }
@@ -172,9 +177,9 @@ fun MarkdownText(
 }
 
 @Composable
-private fun ListRow(indent: Int, marker: String, content: @Composable RowScope.() -> Unit) {
+private fun ListRow(indent: Int, marker: String, style: TextStyle, content: @Composable RowScope.() -> Unit) {
     Row(Modifier.fillMaxWidth().padding(start = (indent.coerceIn(0, 4) * 16).dp)) {
-        Text("$marker ", style = MiuixTheme.textStyles.body1,
+        Text("$marker ", style = style,
             color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
         content()
     }

@@ -40,6 +40,12 @@ class Jiaocai1ViewModel(
     private val _shelf = MutableStateFlow<List<Jiaocai1ShelfRecord>>(emptyList())
     val shelf: StateFlow<List<Jiaocai1ShelfRecord>> = _shelf
 
+    /**
+     * 书架取数失败的一句话（见 [Jiaocai1ShelfStore.notices]）；读得回来时为 `null`。
+     *
+     * 书架栏据此画 `ErrorState` —— 空书架与「没读到」在屏上必须是两件事。
+     */
+    var shelfError by mutableStateOf<String?>(null)
     private var searchJob: Job? = null
     private var bound = false
 
@@ -49,6 +55,10 @@ class Jiaocai1ViewModel(
         bound = true
         viewModelScope.launch {
             shelfStore.observeAll().collect { _shelf.value = it }
+        }
+        // 失败通道（默认空流：Android / 桌面那一份从不发）
+        viewModelScope.launch {
+            shelfStore.notices.collect { shelfError = it.ifBlank { null } }
         }
     }
 
@@ -141,6 +151,12 @@ class Jiaocai1ViewModel(
     suspend fun removeFromShelf(ssno: String) {
         shelfStore.delete(ssno)
         source.evictBook(ssno)
+    }
+
+    /** 书架栏的「重试」：把那一句话清掉，再让存储那一端去取一份（见 [Jiaocai1ShelfStore.refresh]）。 */
+    fun reloadShelf() {
+        shelfError = null
+        viewModelScope.launch { shelfStore.refresh() }
     }
 }
 

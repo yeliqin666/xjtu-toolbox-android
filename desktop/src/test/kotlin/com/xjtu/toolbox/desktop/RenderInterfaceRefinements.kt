@@ -79,7 +79,13 @@ fun main(args: Array<String>) {
         override fun renameSession(id: String, title: String) {}
         override fun stop() { isLoading = false }
         override fun replaceLastUserAndSend(newText: String, config: AgentConfig) {}
-        override fun sendMessage(userText: String, config: AgentConfig, llmAnnex: String?, images: List<String>) {
+        override fun sendMessage(
+            userText: String,
+            config: AgentConfig,
+            llmAnnex: String?,
+            images: List<String>,
+            contextLabel: String?,
+        ) {
             sentPrompts += userText
             sentImages += images
             messages += ChatMessage("user", userText)
@@ -164,9 +170,18 @@ fun main(args: Array<String>) {
     val community = scene {
         Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp)) {
             Text("楼中楼回复", style = MiuixTheme.textStyles.title3)
-            DiscussionReplies(parent, null, 0,
-                load = { Result.success(GithubDiscussionComments(replies, null)) }, canReply = false,
-                onReact = { _, _, _ -> }, onReply = {}, menu = { emptyList() }, patch = null)
+            // 楼中楼的 loader 归宿主所有（真实页面在 ViewModel 里），这里用组合作用域造一个
+            val scope = rememberCoroutineScope()
+            val state = remember {
+                FloorReplies(scope, parent.previewReplies) {
+                    Result.success(GithubDiscussionComments(replies, null))
+                }
+            }
+            DiscussionReplies(
+                parent, null, state,
+                canReply = false,
+                onReact = { _, _, _ -> }, onReply = {}, menu = { emptyList() },
+            )
         }
     }
     save(community, "community-replies.png")

@@ -16,7 +16,6 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.rememberScrollState
@@ -64,17 +63,19 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
+import com.xjtu.toolbox.ui.glass.CouiToolbarActionButton
 import com.xjtu.toolbox.ui.glass.tabContentPadding
 import com.xjtu.toolbox.auth.LoginType
 import com.xjtu.toolbox.schedule.colorOf
 import com.xjtu.toolbox.schedule.rememberCourseColors
 import com.xjtu.toolbox.ui.adaptive.readableWidth
 import com.xjtu.toolbox.ui.components.AppPullToRefresh
+import com.xjtu.toolbox.ui.components.SwitchPreference
 import com.xjtu.toolbox.ui.components.AppSegmentedTabs
 import top.yukonga.miuix.kmp.overlay.OverlayBottomSheet
 import com.xjtu.toolbox.ui.components.SelectionTile
 import com.xjtu.toolbox.ui.components.AppTabPager
+import com.xjtu.toolbox.ui.components.CountBadge
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.navigationBarsPadding
 import com.xjtu.toolbox.platform.BackHandler
@@ -88,16 +89,12 @@ import com.xjtu.toolbox.ui.glass.withoutTop
 import kotlinx.coroutines.launch
 import top.yukonga.miuix.kmp.basic.ButtonDefaults
 import top.yukonga.miuix.kmp.basic.Card
-import top.yukonga.miuix.kmp.basic.HorizontalDivider
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.IconButton
-import top.yukonga.miuix.kmp.basic.MiuixScrollBehavior
 import top.yukonga.miuix.kmp.basic.Scaffold
-import top.yukonga.miuix.kmp.basic.SmallTitle
+import com.xjtu.toolbox.ui.components.SmallTitle
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextButton
-import top.yukonga.miuix.kmp.basic.rememberTopAppBarState
-import top.yukonga.miuix.kmp.preference.SwitchPreference
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.utils.overScrollVertical
 import top.yukonga.miuix.kmp.window.WindowDialog
@@ -107,6 +104,7 @@ import kotlinx.datetime.LocalDate
 import kotlinx.datetime.minus
 import com.xjtu.toolbox.util.campusDateTimeOf
 import com.xjtu.toolbox.util.todayOnCampus
+import com.xjtu.toolbox.ui.glass.rememberCouiTopAppBarScrollBehavior
 
 @Composable
 fun InboxScreen(
@@ -117,9 +115,13 @@ fun InboxScreen(
     account: String? = null,
     /** 小岱消息弹窗里的「接着问小岱」：宿主把这条消息当快照带进对话。null = 只按路由打开小岱页。 */
     onAskPidai: ((InboxItem) -> Unit)? = null,
+    /** 长按一条学校通知转给小岱。没接小岱的端传 null，长按里不出现这一项。 */
+    onForwardToAgent: ((com.xjtu.toolbox.agent.AgentForward) -> Unit)? = null,
+    /** 本学期开学日期，截止日期旁标「第几周」用；null = 不知道，只标星期。 */
+    termStart: LocalDate? = null,
 ) {
     val scope = rememberCoroutineScope()
-    val scrollBehavior = MiuixScrollBehavior(rememberTopAppBarState())
+    val scrollBehavior = rememberCouiTopAppBarScrollBehavior()
     val glass = rememberPageGlass()
 
     val data = InboxStore.snapshot()
@@ -129,13 +131,11 @@ fun InboxScreen(
     val groups = remember(data, now) { InboxRules.groups(data, now) }
     val unread = groups.count { it.unread }
     // 作业按科目取课表里那门课的颜色，和课表、思源学堂一致
-    val courseNames = remember(data) { (todos + finished.map { it.item }).filter { it.category == InboxCategories.LMS }.map { it.source }.distinct() }
+    val courseNames = remember(data) { (todos + finished.map { it.item }).mapNotNull { it.colorCourse }.distinct() }
     val courseColors = rememberCourseColors(courseNames)
-    // 自建待办可以自己挑色（存在 SelfTodo 上，投影到条目的 colorArgb）；没挑过就走分类色
-    fun accentOf(item: InboxItem): Color? = when {
-        item.category == InboxCategories.LMS -> courseColors.colorOf(item.source)
-        else -> item.colorArgb?.let { Color(it) }
-    }
+    // 自建待办可以自己挑色（存在 SelfTodo 上，投影到条目的 colorArgb）；自建作业跟课；没挑过就走分类色
+    fun accentOf(item: InboxItem): Color? =
+        item.colorCourse?.let { courseColors.colorOf(it) } ?: item.colorArgb?.let { Color(it) }
     // 这次进来之前没看过的待办标个红点；一看到就记成看过，首页红点随之熄掉，这页的红点留到下次进来
     val seenAtOpen = remember { data.seenTodos }
     // 点开过的这次就算看了，返回时红点立刻熄掉
@@ -143,6 +143,7 @@ fun InboxScreen(
 
     var tab by rememberSaveable { mutableIntStateOf(0) }
     var refreshing by remember { mutableStateOf(false) }
+    var schoolTodoOpened by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
     var showSettings by remember { mutableStateOf(false) }
     var showAdd by remember { mutableStateOf(false) }
@@ -180,7 +181,37 @@ fun InboxScreen(
         openedTodos = openedTodos + ids
         // 小岱的简报正文就是全部内容，小岱页里没有它：先弹窗看全文，想接着聊再进小岱
         val route = item.resolvedRouteId()
-        if (route == null || item.category == InboxCategories.PIDAI) detail = item else onOpen(route)
+        if (route == null || item.category == InboxCategories.PIDAI) {
+            detail = item
+        } else {
+            // 事务中心是在网页里办的，App 不知道结果：回来时重拉这一类，办完的那条才会消失
+            if (item.category == InboxCategories.SCHOOL_TODO) schoolTodoOpened = true
+            onOpen(route)
+        }
+    }
+
+    fun refreshIfBackFromSchoolTodo() {
+        if (!schoolTodoOpened) return
+        schoolTodoOpened = false
+        scope.launch {
+            try {
+                source.refreshSchoolTodos(account)
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                // 列表还是旧的，不打扰用户；下拉刷新还能再试
+            }
+        }
+    }
+    // 返回时这一页可能是重新组合的（导航栈），也可能一直在、只是恢复（系统转场另开了 Activity）
+    androidx.compose.runtime.LaunchedEffect(Unit) { refreshIfBackFromSchoolTodo() }
+    val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
+    androidx.compose.runtime.DisposableEffect(lifecycleOwner) {
+        val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
+            if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) refreshIfBackFromSchoolTodo()
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
     Scaffold(
@@ -190,38 +221,50 @@ fun InboxScreen(
                 glass = glass,
                 scrollBehavior = scrollBehavior,
                 onBack = onBack,
-                actions = {
-                    if (tab == 0) {
-                        IconButton(onClick = { showAdd = true }) {
-                            Icon(Icons.Default.Add, contentDescription = "新建待办")
-                        }
-                    }
-                    if (tab == 1 && unread > 0) {
-                        IconButton(onClick = { InboxStore.markAllRead() }) {
-                            Icon(Icons.Default.DoneAll, contentDescription = "全部已读")
-                        }
-                    }
-                    IconButton(onClick = { showSettings = true }) {
-                        Icon(Icons.Default.Tune, contentDescription = "收纳设置")
-                    }
-                },
                 bottomContent = {
-                    CompositionLocalProvider(LocalOnGlassBar provides (glass != null)) {
-                        AppSegmentedTabs(
-                            tabs = listOf(
-                                if (todos.isEmpty()) "待办" else "待办 ${todos.size}",
-                                if (unread == 0) "消息" else "消息 $unread",
-                            ),
-                            selectedTabIndex = tab,
-                            onTabSelected = { tab = it },
-                            modifier = Modifier.readableWidth(),
-                        )
+                    com.xjtu.toolbox.ui.components.DockedPageTabs(
+                        tabs = listOf(
+                            if (todos.isEmpty()) "待办" else "待办 ${todos.size}",
+                            if (unread == 0) "消息" else "消息 $unread",
+                        ),
+                        selectedTabIndex = tab,
+                        onTabSelected = { tab = it },
+                    )
+                },
+                actions = {
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(2.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        if (tab == 0) {
+                            CouiToolbarActionButton(onClick = { showAdd = true }) {
+                                Icon(Icons.Default.Add, contentDescription = "新建待办")
+                            }
+                        }
+                        if (tab == 1 && unread > 0) {
+                            CouiToolbarActionButton(onClick = { InboxStore.markAllRead() }) {
+                                Icon(Icons.Default.DoneAll, contentDescription = "全部已读")
+                            }
+                        }
+                        CouiToolbarActionButton(onClick = { showSettings = true }) {
+                            Icon(Icons.Default.Tune, contentDescription = "收纳设置")
+                        }
                     }
                 },
             )
         },
     ) { padding ->
         val glassTop = padding.glassTop(glass)
+        // 待办 / 消息
+        com.xjtu.toolbox.ui.components.PageBottomTabsHost(
+            tabs = listOf(
+                if (todos.isEmpty()) "待办" else "待办 ${todos.size}",
+                if (unread == 0) "消息" else "消息 $unread",
+            ),
+            selectedTabIndex = tab,
+            onTabSelected = { tab = it },
+            modifier = Modifier.fillMaxSize(),
+        ) {
         AppPullToRefresh(
             isRefreshing = refreshing,
             onRefresh = { refresh() },
@@ -231,8 +274,12 @@ fun InboxScreen(
         ) {
             // 待办、消息两栏可以左右滑：标签行和页面同步
             AppTabPager(pageCount = 2, selectedTabIndex = tab, onTabSelected = { tab = it }, modifier = Modifier.fillMaxSize()) { page ->
+                // 顶栏按钮轮廓按列表实际位置来（滚动事件里混着回弹的距离，不能当位置用）
+                val listState = androidx.compose.foundation.lazy.rememberLazyListState()
+                com.xjtu.toolbox.ui.glass.ReportScrollPosition(listState)
                 LazyColumn(
                     Modifier.fillMaxSize().overScrollVertical(),
+                    state = listState,
                     contentPadding = tabContentPadding(PaddingValues(top = glassTop, bottom = 24.dp)),
                 ) {
                     error?.let { msg ->
@@ -248,7 +295,7 @@ fun InboxScreen(
                     if (page == 0) {
                         if (todos.isEmpty()) {
                             item(key = "empty") {
-                                EmptyState("没有待办", "学校事务、作业截止、加餐券都会出现在这里，也可以点右上角 ＋ 记自己的事", Icons.Outlined.TaskAlt, Modifier.padding(top = 48.dp))
+                                EmptyState("诸事已毕","点右上角 ＋ 记一笔", Icons.Outlined.TaskAlt, Modifier.padding(top = 48.dp))
                             }
                         }
                         todos.groupBy { todoSection(it, now) }.forEach { (title, list) ->
@@ -288,15 +335,24 @@ fun InboxScreen(
                     } else {
                         if (groups.isEmpty()) {
                             item(key = "empty") {
-                                EmptyState("没有消息", "新成绩、调课、学校通知、工具箱公告都会出现在这里", Icons.Outlined.NotificationsNone, Modifier.padding(top = 48.dp))
+                                EmptyState("没有消息", icon = Icons.Outlined.NotificationsNone, modifier = Modifier.padding(top = 48.dp))
                             }
                         }
                         groups.groupBy { daySection(it.latest.time) }.forEach { (title, list) ->
                             section(title, list.map { g ->
+                                val rowActions = buildList<Pair<String, () -> Unit>> {
+                                    if (g.unread) add("标为已读" to { InboxStore.markRead(g.ids) })
+                                    if (onForwardToAgent != null && g.latest.category == InboxCategories.NOTICE) {
+                                        add("问小岱" to {
+                                            InboxStore.markRead(g.ids)
+                                            onForwardToAgent(com.xjtu.toolbox.agent.AgentForward.inboxNotice(g.latest))
+                                        })
+                                    }
+                                }
                                 Entry(
                                     g.latest, g.latest.id, g.unread, g.count, dimmed = !g.unread,
-                                    onLongClick = if (g.unread) {
-                                        { actions = RowActions(g.latest, listOf("标为已读" to { InboxStore.markRead(g.ids) })) }
+                                    onLongClick = if (rowActions.isNotEmpty()) {
+                                        { actions = RowActions(g.latest, rowActions) }
                                     } else null,
                                 ) { open(g.latest, g.ids) }
                             })
@@ -304,6 +360,7 @@ fun InboxScreen(
                     }
                 }
             }
+        }
         }
         // Overlay 系弹窗要挂在 Scaffold 里面才有宿主，放在外面弹不出来
         InboxSettingsSheet(showSettings, data) { showSettings = false }
@@ -323,6 +380,7 @@ fun InboxScreen(
             EditDueDialog(
                 title = todo.title,
                 currentDue = SelfTodoRules.dueMillis(todo).takeIf { it > 0 },
+                termStart = termStart,
                 onDismiss = { editingDue = null },
                 onConfirm = { due ->
                     SelfTodoStore.setDue(id, due)
@@ -331,7 +389,7 @@ fun InboxScreen(
             )
         }
     }
-    if (showAdd) AddTodoSheet { showAdd = false }
+    if (showAdd) AddTodoSheet(termStart) { showAdd = false }
 }
 
 private class Entry(
@@ -372,7 +430,8 @@ private fun RowActionsDialog(a: RowActions, onDismiss: () -> Unit) {
     WindowDialog(show = true, title = a.item.title, summary = a.item.source, onDismissRequest = onDismiss) {
         Column(Modifier.heightIn(max = 460.dp).verticalScroll(rememberScrollState())) {
             val todoId = a.todoId
-            if (todoId != null) {
+            // 自建作业的颜色跟课，不单独挑
+            if (todoId != null && a.item.course == null) {
                 var color by remember(todoId) { mutableStateOf(a.item.colorArgb) }
                 TodoColorField(current = color, onPick = {
                     color = it
@@ -406,7 +465,7 @@ private fun LazyListScope.section(title: String, entries: List<Entry>) {
                 key(e.key) {
                     InboxRow(e)
                     if (i != entries.lastIndex) {
-                        HorizontalDivider(Modifier.padding(start = 64.dp), color = MiuixTheme.colorScheme.onSurface.copy(alpha = 0.08f))
+                        com.xjtu.toolbox.ui.components.RowDivider(startInset = 64.dp)
                     }
                 }
             }
@@ -463,6 +522,11 @@ fun InboxBell(
     iconSize: Dp = 24.dp,
     /** 非点击模式的容器边长；嵌在圆钮里时传圆钮的尺寸，角标才会和圆钮对齐。 */
     containerSize: Dp = 48.dp,
+    /**
+     * 自己画不画角标。嵌在圆形玻璃钮里时传 `false`，改由圆钮的父层用 [InboxUnreadBadge]
+     * 画在玻璃层**外面**——玻璃会把内容裁成圆形，画在里面角上会被弧边削掉。
+     */
+    showBadge: Boolean = true,
 ) {
     val data = InboxStore.snapshot()
     val count = remember(data) { InboxRules.badge(data, Clock.System.now().toEpochMilliseconds()) }
@@ -486,28 +550,36 @@ fun InboxBell(
                 )
             }
         }
-        if (count > 0) {
-            Box(
-                Modifier
-                    .align(Alignment.TopEnd)
-                    .offset(x = (-2).dp, y = 4.dp)
-                    .height(16.dp)
-                    .widthIn(min = 16.dp)
-                    .background(MiuixTheme.colorScheme.error, CircleShape)
-                    .padding(horizontal = 4.dp),
-                contentAlignment = Alignment.Center,
-            ) {
-                Text(
-                    if (count > 99) "99+" else "$count",
-                    fontSize = 10.sp,
-                    lineHeight = 10.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = Color.White,
-                )
-            }
-        }
+        // 角标画在本层（容器右上角）。**嵌在圆钮玻璃里的时候要把 showBadge 关掉、由圆钮的
+        // 父层用 [InboxUnreadBadge] 画**——圆钮那层玻璃会把内容裁成圆形，画在里面必被弧边削掉。
+        if (showBadge && count > 0) UnreadBadge(count, Modifier.align(Alignment.TopEnd).offset(x = (-2).dp, y = 4.dp))
     }
 }
+
+/**
+ * 未读角标（可单独调用）：**玻璃小圆标**——与首页悬浮条里那枚「已添加几块」是同一个组件
+ * （`:shared:designsystem` 的 `CountBadge`），只是底色换成品牌红。
+ *
+ * 玻璃感来自「半透明染色面 + 白细高光边 + 同色柔光投影」，**不采样、不模糊、不折射**：它自己
+ * 不吃模糊与折射，那就没有理由为它跑一次离屏采样——直接半透明叠在下面那块玻璃（圆钮）上，
+ * 透出它本身的颜色即可，这也是纯色背景下卡片的同一条做法（2026-11 维护者定）。
+ *
+ * 嵌在圆形玻璃钮里时，调用方应该把它画在**圆钮外面那一层**，否则会被玻璃的圆形裁剪削掉。
+ */
+@Composable
+fun InboxUnreadBadge(modifier: Modifier = Modifier) {
+    val data = InboxStore.snapshot()
+    val count = remember(data) { InboxRules.badge(data, Clock.System.now().toEpochMilliseconds()) }
+    if (count > 0) UnreadBadge(count, modifier)
+}
+
+@Composable
+private fun UnreadBadge(count: Int, modifier: Modifier = Modifier) {
+    CountBadge(count, modifier, accent = UnreadAccent)
+}
+
+/** 未读角标的品牌红：icon 与角标共用，别在别处另写一个红。 */
+private val UnreadAccent = Color(0xFFE8453A)
 
 // `DateTimeFormatter.ofPattern("M月d日")` / `("HH:mm")` 是 JVM 专属 ⇒ 手写（:core 的既有做法）
 private fun dayText(date: LocalDate): String = "${date.monthNumber}月${date.dayOfMonth}日"
@@ -644,29 +716,44 @@ private fun InboxRow(e: Entry) {
 @Composable
 private fun InboxSettingsSheet(show: Boolean, data: InboxData, onDismiss: () -> Unit) {
     BackHandler(enabled = show) { onDismiss() }
-    OverlayBottomSheet(show = show, title = "收纳设置", onDismissRequest = onDismiss) {
+    OverlayBottomSheet(
+        show = show,
+        title = "收纳设置",
+        backgroundColor = MiuixTheme.colorScheme.surface,
+        onDismissRequest = onDismiss,
+    ) {
         val school = InboxStore.schoolCategories(data).map { InboxCategory(it, InboxCategories.schoolLabel(it)) }
         Column(Modifier.fillMaxWidth().navigationBarsPadding().heightIn(max = 520.dp).verticalScroll(rememberScrollState())) {
-            Text("勾掉的类别不进列表、不计数，小岱也不再提。", style = MiuixTheme.textStyles.footnote1, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
             SettingsGroup("待办", InboxCategories.todos, data)
             SettingsGroup("消息", InboxCategories.messages, data)
             if (school.isNotEmpty()) SettingsGroup("学校消息", school, data)
-            Spacer(Modifier.height(12.dp))
+            Text(
+                "关掉的类别不进列表、不计数，小岱也不再提。",
+                style = MiuixTheme.textStyles.footnote1,
+                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                modifier = Modifier.padding(start = 4.dp, top = 12.dp, bottom = 12.dp),
+            )
         }
     }
 }
 
-/** 一组类别，两列勾选块。 */
+/** 一组类别：和设置页一样的开关行。 */
 @Composable
 private fun SettingsGroup(title: String, categories: List<InboxCategory>, data: InboxData) {
-    Text(title, style = MiuixTheme.textStyles.subtitle, modifier = Modifier.padding(start = 4.dp, top = 14.dp, bottom = 8.dp))
-    categories.chunked(2).forEach { row ->
-        Row(Modifier.fillMaxWidth().padding(vertical = 4.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            row.forEach { c ->
-                val on = c.key !in data.off
-                SelectionTile(c.label, on, Modifier.weight(1f), maxLines = 2) { InboxStore.setEnabled(c.key, !on) }
-            }
-            if (row.size == 1) Spacer(Modifier.weight(1f))
+    Text(
+        title,
+        style = MiuixTheme.textStyles.footnote1,
+        fontWeight = FontWeight.SemiBold,
+        color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+        modifier = Modifier.padding(start = 4.dp, top = 14.dp, bottom = 6.dp),
+    )
+    com.xjtu.toolbox.ui.components.AppOptionGroup {
+        categories.forEach { c ->
+            top.yukonga.miuix.kmp.preference.SwitchPreference(
+                title = c.label,
+                checked = c.key !in data.off,
+                onCheckedChange = { InboxStore.setEnabled(c.key, it) },
+            )
         }
     }
 }

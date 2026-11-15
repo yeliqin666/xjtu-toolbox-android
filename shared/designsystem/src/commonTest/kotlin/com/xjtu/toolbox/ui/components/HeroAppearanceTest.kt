@@ -52,11 +52,11 @@ class HeroAppearanceTest {
 
     @Test
     fun summaryDescribesTheCurrentChoice() {
-        assertEquals("液体 · 午夜蓝 · 轻柔", HeroAppearance(palette = "midnight", motion = "gentle").summary)
-        assertEquals("纯色 · #FFFFFF", HeroAppearance(background = "solid", colorHex = "#FFFFFF").summary)
+        assertEquals("液体", HeroAppearance(palette = "midnight", motion = "gentle").summary)
+        assertEquals("纯色", HeroAppearance(background = "solid", colorHex = "#FFFFFF").summary)
         assertEquals("森林", HeroAppearance(background = "forest").summary)
         assertEquals("像素", HeroAppearance(background = "pixel").summary)
-        assertEquals("自定义 · 未选图", HeroAppearance(background = "custom").summary)
+        assertEquals("自定义", HeroAppearance(background = "custom").summary)
         assertEquals("自定义", HeroAppearance(background = "custom", imageData = "abc").summary)
     }
 }

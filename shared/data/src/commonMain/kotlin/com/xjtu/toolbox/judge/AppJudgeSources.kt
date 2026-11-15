@@ -6,24 +6,22 @@ import com.xjtu.toolbox.auth.ensureSite
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
-/** 两个 [JudgeSource] 实现（本科 / 研究生）。 */
+/** [JudgeSource] 实现：QMS 三端共用；gste / gmis 只剩桌面端研究生在用。 */
 
-class UndergraduateJudgeSource(site: SiteSession, private val username: String) : JudgeSource<Questionnaire> {
-    private val api = JudgeApi(site)
-    override val confirmText get() = "，确定继续？"
-    override suspend fun load() = api.unfinishedQuestionnaires() to api.finishedQuestionnaires()
-    override fun card(q: Questionnaire) = JudgeCard(
-        key = "${q.WJDM}_${q.JXBID}_${q.BPR}",
-        course = q.KCM,
-        teacher = q.BPJS,
-        tag = when (q.PGLXDM) { "01" -> "期末评教"; "05" -> "过程评教"; else -> "评教" },
+class QmsJudgeSource(site: SiteSession) : JudgeSource<QmsQuestionnaire> {
+    private val api = QmsJudgeApi(site)
+    override val confirmText get() = "（主观题统一填写「${QmsJudgeApi.DEFAULT_COMMENT}」），确定继续？"
+    override suspend fun load() = api.questionnaires()
+    override fun card(q: QmsQuestionnaire) = JudgeCard(
+        key = q.responseId,
+        course = q.courseName,
+        teacher = q.lecturers.joinToString("、").ifEmpty { "未知教师" },
+        tag = listOf("期中", "期末", "过程").firstOrNull { it in q.planTitle }?.let { "${it}评教" } ?: "评教",
     )
-    override suspend fun judge(q: Questionnaire) { api.submitQuestionnaire(q, api.autoFillQuestionnaire(q, username)) }
-    override val undo: suspend (Questionnaire) -> String? = { q ->
-        val (ok, msg) = api.editQuestionnaire(q, username)
-        if (ok) null else msg
-    }
+    override suspend fun judge(q: QmsQuestionnaire) = api.submitBest(q)
+    override val undo: suspend (QmsQuestionnaire) -> String? = { q -> api.recall(q); null }
 }
+
 
 /** 两个站都在用户进入本页时按需登录（允许弹短信验证），gmis 到一键评教时才登。 */
 class GraduateJudgeSource(private val sessions: SessionManager) : JudgeSource<GraduateQuestionnaire> {

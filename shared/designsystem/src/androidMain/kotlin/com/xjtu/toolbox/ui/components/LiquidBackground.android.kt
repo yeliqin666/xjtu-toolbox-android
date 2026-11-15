@@ -1,8 +1,6 @@
 package com.xjtu.toolbox.ui.components
 
 import android.graphics.RuntimeShader
-import android.os.Build
-import androidx.annotation.RequiresApi
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
@@ -13,6 +11,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.FrameRateCategory
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawWithCache
+import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.ShaderBrush
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.preferredFrameRate
@@ -21,7 +20,6 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.currentStateAsState
 import kotlin.time.TimeSource
 import kotlinx.coroutines.delay
-
 /** Android 侧的液体背景实现。 */
 @Composable
 internal actual fun PlatformLiquidBackground(
@@ -32,10 +30,6 @@ internal actual fun PlatformLiquidBackground(
     crease: Float,
     animated: Boolean,
 ) {
-    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
-        FallbackLiquidBackground(modifier, colors)
-        return
-    }
     val lifecycleOwner = LocalLifecycleOwner.current
     val lifecycleState by lifecycleOwner.lifecycle.currentStateAsState()
     val running = animated && LocalPageVisible.current && lifecycleState.isAtLeast(Lifecycle.State.RESUMED)
@@ -121,7 +115,6 @@ half4 main(float2 fragCoord) {
 }
 """
 
-@RequiresApi(Build.VERSION_CODES.TIRAMISU)
 @Composable
 private fun RuntimeLiquid(
     modifier: Modifier,
@@ -137,7 +130,9 @@ private fun RuntimeLiquid(
         modifier
             .fillMaxSize()
             .preferredFrameRate(FrameRateCategory.Normal)
-            .graphicsLayer()
+            // 画进硬件缓存层：滚动时卡片只是平移，直接复用缓存好的像素，着色器只在自己 30 帧/秒的
+            // 节拍上重算。不加的话这道逐像素 fbm 会跟着 120Hz 的滚动每帧整卡重算一遍（首页滑动掉帧的大头）
+            .graphicsLayer(compositingStrategy = CompositingStrategy.Offscreen)
             .drawWithCache {
                 shader.setFloatUniform("size", size.width, size.height)
                 shader.setFloatUniform("seed", seed)

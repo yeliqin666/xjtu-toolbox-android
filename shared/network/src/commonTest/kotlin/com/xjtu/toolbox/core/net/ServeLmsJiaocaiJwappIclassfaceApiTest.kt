@@ -274,12 +274,17 @@ class ServeLmsJiaocaiJwappIclassfaceApiTest {
                "djcjlxdm":"","djcjmc":null,"pscj":88.0,"pscjxs":"88","qmcj":98.0,"qmcjxs":"98",
                "kch":"MATH1001","jxbid":"JXB-1","passFlag":true,"examProp":"必修","kclbdm":"01"}]}}
         """.trimIndent()
+        val gradesBody = """
+            {"code":0,"data":{"grades":[
+              {"courseName":"高等数学（上）","coursePoint":5.0,"score":"95","gpa":4.0,"term":"2026-2027-1"}]}}
+        """.trimIndent()
         val calls = mutableListOf<Call>()
         val engine = MockEngine { request ->
             record(calls, request)
             val body = when {
                 request.url.encodedPath.endsWith("/api/jwapp/scores") -> scoresBody
                 request.url.encodedPath.endsWith("/api/jwapp/precise-scores") -> preciseBody
+                request.url.encodedPath.endsWith("/api/jwxt/grades") -> gradesBody
                 else -> error("没有为 ${request.url.encodedPath} 准备响应")
             }
             respond(body, HttpStatusCode.OK, headersOf(HttpHeaders.ContentType to listOf("application/json")))
@@ -332,7 +337,16 @@ class ServeLmsJiaocaiJwappIclassfaceApiTest {
         // 分项成绩已于 2026-10-14 端出（§5.8）：serve 形态下这个开关报 true，屏上那一格能展开，
         // 取数（含「detail:null ⇒ 空明细」那一支）钉在 ServeJwappScoreDetailApiTest 里
         assertTrue(api.canFetchScoreDetail, "§5.8 端了分项成绩 ⇒ serve 形态下屏上那一格能展开")
-        assertFailsWith<UnsupportedOperationException> { api.reportedGrades("20260001") }
+
+        // 成绩报表走教务那一站的 `/api/jwxt/grades`：不带学号，服务端按当前账号取（§5.2）
+        val reported = api.reportedGrades().single()
+        assertEquals("/api/jwxt/grades", calls.last().first)
+        assertTrue(calls.last().second.isEmpty(), "报表那一发不带学号")
+        assertEquals("高等数学（上）", reported.courseName)
+        assertEquals("95", reported.score)
+        assertEquals(5.0, reported.coursePoint)
+        assertEquals(4.0, reported.gpa)
+        assertEquals("2026-2027-1", reported.term)
 
         // ⚠️ 第二条端点 502 可容忍（VM catch 住就用 jwapp 那一份）；本层照实抛出服务端那句中文
         val failing = CampusJwappScoreApi(

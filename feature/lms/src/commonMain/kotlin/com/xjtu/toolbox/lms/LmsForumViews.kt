@@ -29,6 +29,7 @@ import com.xjtu.toolbox.html.HtmlContent
 import com.xjtu.toolbox.ui.adaptive.readableWidth
 import com.xjtu.toolbox.ui.components.rememberRetainedLazyListState
 import com.xjtu.toolbox.ui.glass.*
+import com.xjtu.toolbox.ui.glass.rememberCouiTopAppBarScrollBehavior
 import kotlinx.coroutines.launch
 import top.yukonga.miuix.kmp.basic.*
 import top.yukonga.miuix.kmp.theme.MiuixTheme
@@ -357,7 +358,7 @@ internal fun LmsForumTopicDetailPage(
         if (cache.topicReplies[topic.id] == null) loadReplies()
     }
 
-    val scrollBehavior = MiuixScrollBehavior(rememberTopAppBarState())
+    val scrollBehavior = rememberCouiTopAppBarScrollBehavior()
     val glass = rememberPageGlass()
 
     Scaffold(
@@ -378,6 +379,7 @@ internal fun LmsForumTopicDetailPage(
                 .glassSource(glass)
                 .nestedScroll(scrollBehavior.nestedScrollConnection)
         ) {
+            com.xjtu.toolbox.ui.glass.ReportScrollPosition(listState, scrollBehavior)
             LazyColumn(
                 state = listState,
                 modifier = Modifier.fillMaxSize().readableWidth(),
@@ -476,7 +478,7 @@ internal fun LmsForumTopicDetailPage(
                         item(key = "replies_empty") {
                             Box(Modifier.fillMaxWidth().padding(24.dp), contentAlignment = Alignment.Center) {
                                 Text(
-                                    "暂无回复，快来抢沙发吧~",
+                                    "暂无回复",
                                     fontSize = 14.sp,
                                     color = MiuixTheme.colorScheme.onSurfaceVariantSummary
                                 )

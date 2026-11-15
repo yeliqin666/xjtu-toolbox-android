@@ -9,6 +9,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
@@ -34,6 +35,7 @@ fun ZoomableBox(
     var scale by remember(key) { mutableFloatStateOf(1f) }
     var offset by remember(key) { mutableStateOf(Offset.Zero) }
     var boxSize by remember { mutableStateOf(IntSize.Zero) }
+    val latestTap by rememberUpdatedState(onTap)
 
     fun clamp(o: Offset, s: Float): Offset {
         val maxX = boxSize.width * (s - 1f) / 2f
@@ -46,7 +48,7 @@ fun ZoomableBox(
             .onSizeChanged { boxSize = it }
             .pointerInput(key) {
                 detectTapGestures(
-                    onTap = { if (scale <= 1f) onTap?.invoke() },
+                    onTap = { if (scale <= 1f) latestTap?.invoke() },
                     onDoubleTap = { if (scale > 1f) { scale = 1f; offset = Offset.Zero } else scale = 2.5f },
                 )
             }

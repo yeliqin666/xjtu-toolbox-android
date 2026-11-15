@@ -56,15 +56,18 @@ import androidx.compose.ui.state.ToggleableState
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.xjtu.toolbox.ui.glass.CouiToolbarActionButton
 import com.xjtu.toolbox.ui.glass.tabContentPadding
 import com.xjtu.toolbox.platform.BackHandler
 import com.xjtu.toolbox.ui.adaptive.readableWidth
 import com.xjtu.toolbox.ui.components.EmptyState
 import com.xjtu.toolbox.ui.glass.GlassTopAppBar
+import com.xjtu.toolbox.ui.glass.CouiPageTopAppBar
+import com.xjtu.toolbox.ui.glass.couiPageBackdropFor
 import com.xjtu.toolbox.ui.glass.glassBarColor
+import com.xjtu.toolbox.ui.glass.rememberCouiTopAppBarScrollBehavior
 import com.xjtu.toolbox.ui.glass.glassSource
 import com.xjtu.toolbox.ui.glass.glassTop
-import com.xjtu.toolbox.ui.glass.glassTopBar
 import com.xjtu.toolbox.ui.glass.rememberPageGlass
 import com.xjtu.toolbox.ui.glass.withoutTop
 import kotlinx.coroutines.delay
@@ -77,13 +80,10 @@ import top.yukonga.miuix.kmp.basic.Checkbox
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.IconButton
 import top.yukonga.miuix.kmp.basic.LinearProgressIndicator
-import top.yukonga.miuix.kmp.basic.MiuixScrollBehavior
 import top.yukonga.miuix.kmp.basic.Scaffold
-import top.yukonga.miuix.kmp.basic.SmallTopAppBar
 import top.yukonga.miuix.kmp.basic.Surface
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextButton
-import top.yukonga.miuix.kmp.basic.rememberTopAppBarState
 import top.yukonga.miuix.kmp.overlay.OverlayDialog
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.utils.PressFeedbackType
@@ -92,18 +92,21 @@ import top.yukonga.miuix.kmp.utils.overScrollVertical
 /**
  * 下载管理页面（共享屏）。
  *
- * @param files 另一类下载（成绩单 / 思源课件 / 资料站文件）。桌面端没有那张登记表
- *   ⇒ 传 null，屏上只列排队下载的回放视频（如实，不是列表被吞了）。
+ * @param files 另一类下载（成绩单 / 思源课件 / 资料站文件）。传 null = 这一端没有落盘通道
+ *   ⇒ 屏上只列排队下载的回放视频（如实，不是列表被吞了）。桌面端传的是一份
+ *   **直接扫 `~/Downloads`** 的实现（见 `DesktopDownloadedFilesHost`）：那边没有登记表，目录本身就是登记表。
  * @param onPlayTask 播放一个**已下载完**的回放文件：Android = 外部播放器（Media3 那套只播流，
  *   播本地文件走的还是 `ACTION_VIEW`），桌面 = 系统播放器。
+ *   **传 `null` = 这一端播不了本机文件**（web：文件在**运行 serve 那台机器**上，浏览器打不开它）
+ *   ⇒ 那一格**不画**（与 `files = null` 同一条口径：不画假按钮）。
  */
 @Composable
 fun DownloadManagerScreen(
-    manager: DownloadManager,
+    host: DownloadsHost,
     onBack: () -> Unit,
     dirInfo: DownloadDirInfo,
     files: DownloadedFilesHost? = null,
-    onPlayTask: (DownloadTask) -> Unit = {},
+    onPlayTask: ((DownloadTask) -> Unit)? = null,
 ) {
     val scope = rememberCoroutineScope()
 
@@ -114,34 +117,49 @@ fun DownloadManagerScreen(
     // 多选批量管理。两份选中集合，因为本页有两套彼此独立的数据源：
     // 回放视频任务在存储里（按 id），文件类下载在宿主的登记表里（按 uri）。
     var isCleanupMode by remember { mutableStateOf(false) }
+    // 清理选择态下返回只退出选择，和顶栏的取消按钮一样，不离开页面
+    BackHandler(enabled = isCleanupMode) { isCleanupMode = false }
     val selectedTaskIds = remember { mutableStateListOf<Long>() }
     val selectedFileUris = remember { mutableStateListOf<String>() }
 
     // 显示下载目录信息弹窗
     val showDirInfo = remember { mutableStateOf(false) }
-    val scrollBehavior = MiuixScrollBehavior(rememberTopAppBarState())
+
+    // 宿主报上来的一句「没做成」（serve 那一份的 409 / 网络故障）—— 一次性提示，看完就关
+    var notice by remember { mutableStateOf<String?>(null) }
+    val scrollBehavior = rememberCouiTopAppBarScrollBehavior()
     // 玻璃顶栏（经典风格下为 null，一切照旧），用法见 ui/glass/GlassTopBar.kt。
-    // 批量管理模式下换成 SmallTopAppBar，同样要玻璃化。
+    // 批量管理模式下换成 COUI 钉死的小标题顶栏，同样要玻璃化。
     val glass = rememberPageGlass()
 
-    // 加载任务列表（Room 的挂起查询自带线程，无需切 IO）。
+    // 加载任务列表（一次拿一个快照：任务与计数来自同一发，不会一前一后对不上）。
     fun loadTasks() {
         scope.launch {
-            allTasks = manager.getAllTasks()
-            stats = manager.getDownloadStats()
+            val snap = host.snapshot()
+            allTasks = snap.tasks
+            stats = snap.stats
             fileDownloads = files?.list() ?: emptyList()
         }
     }
 
-    LaunchedEffect(Unit) {
+    // 首次进屏读一次；**换账号也要重读**：
+    // 桌面的 `DesktopDownloads.manager` 是按账号一份（换账号 = 换一份实例），`LaunchedEffect(Unit)`
+    // 的 key 不变就永远不会再跑 ⇒ 这一页会抱着上一个账号的任务列表不放。`files?.accountId` 兜另一头：
+    // 管理器由各账号共用的端，换账号时靠它也重读一次（默认 null ⇒ 行为与以前一样）。
+    LaunchedEffect(host, files?.accountId) {
         loadTasks()
     }
 
     // 监听下载进度
-    LaunchedEffect(manager) {
-        manager.progressFlow.collect { _ ->
+    LaunchedEffect(host) {
+        host.changes.collect { _ ->
             loadTasks()
         }
+    }
+
+    // 宿主报上来的话（见 [DownloadsHost.notices]）：本机那一份永远不发，serve 那一份会（409 / 网络）
+    LaunchedEffect(host) {
+        host.notices.collect { notice = it }
     }
 
     // 退出批量模式时清空两类选择
@@ -157,18 +175,20 @@ fun DownloadManagerScreen(
     Scaffold(
         topBar = {
             if (isCleanupMode) {
-                SmallTopAppBar(
+                // 批量模式和普通模式同一种 COUI 大标题折叠顶栏，共用一份滚动行为
+                CouiPageTopAppBar(
                     title = "批量管理",
                     color = glassBarColor(glass),
-                    modifier = Modifier.glassTopBar(glass),
+                    pageBackdrop = couiPageBackdropFor(glass),
+                    scrollBehavior = scrollBehavior,
                     navigationIcon = {
-                        IconButton(onClick = { isCleanupMode = false }) {
+                        CouiToolbarActionButton(onClick = { isCleanupMode = false }) {
                             Icon(Icons.Default.Close, contentDescription = "取消清理")
                         }
                     },
                     actions = {
                         // 全选覆盖两类数据源：回放任务（存储）+ 文件类下载（宿主登记表）
-                        IconButton(onClick = {
+                        CouiToolbarActionButton(onClick = {
                             val allSelected = selectedTaskIds.size == allTasks.size &&
                                 selectedFileUris.size == fileDownloads.size &&
                                 (allTasks.isNotEmpty() || fileDownloads.isNotEmpty())
@@ -190,15 +210,20 @@ fun DownloadManagerScreen(
                     scrollBehavior = scrollBehavior,
                     onBack = onBack,
                     actions = {
-                        // 信息按钮 - 显示下载目录
-                        IconButton(onClick = { showDirInfo.value = true }) {
-                            Icon(Icons.Default.Info, contentDescription = "下载目录信息")
-                        }
-                        // 有任何可管理的条目就显示入口。条件不能只看回放任务，
-                        // 否则只下载过文件的用户进不去批量模式。
-                        if (allTasks.isNotEmpty() || fileDownloads.isNotEmpty()) {
-                            IconButton(onClick = { isCleanupMode = true }) {
-                                Icon(Icons.Default.DeleteSweep, contentDescription = "批量管理")
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(2.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            // 信息按钮 - 显示下载目录
+                            CouiToolbarActionButton(onClick = { showDirInfo.value = true }) {
+                                Icon(Icons.Default.Info, contentDescription = "下载目录信息")
+                            }
+                            // 有任何可管理的条目就显示入口。条件不能只看回放任务，
+                            // 否则只下载过文件的用户进不去批量模式。
+                            if (allTasks.isNotEmpty() || fileDownloads.isNotEmpty()) {
+                                CouiToolbarActionButton(onClick = { isCleanupMode = true }) {
+                                    Icon(Icons.Default.DeleteSweep, contentDescription = "批量管理")
+                                }
                             }
                         }
                     },
@@ -252,7 +277,7 @@ fun DownloadManagerScreen(
                             onClick = {
                                 scope.launch {
                                     selectedTaskIds.toList().forEach { id ->
-                                        manager.deleteTask(id, deleteFile = deleteFiles)
+                                        host.deleteTask(id, deleteFile = deleteFiles)
                                     }
                                     // 文件类下载的删除是宿主的事（Android = 删 MediaStore 那条 + 撤销登记）
                                     selectedFileUris.toList().forEach { uri ->
@@ -263,6 +288,7 @@ fun DownloadManagerScreen(
                                     loadTasks()
                                 }
                             },
+                            colors = com.xjtu.toolbox.ui.components.appTonalButtonColors(),
                             modifier = Modifier.fillMaxWidth(),
                         ) {
                             Text("删除选中")
@@ -277,7 +303,6 @@ fun DownloadManagerScreen(
             if (allTasks.isEmpty() && fileDownloads.isEmpty()) {
                 EmptyState(
                     title = "还没下载过东西",
-                    subtitle = "思源课件和课堂回放会统一显示在这里",
                     icon = Icons.Outlined.CloudOff,
                     modifier = Modifier.align(Alignment.Center),
                 )
@@ -291,6 +316,7 @@ fun DownloadManagerScreen(
                 )
                 LazyColumn(
                     Modifier.fillMaxSize().overScrollVertical(),
+                    state = com.xjtu.toolbox.ui.glass.rememberReportedLazyListState(scrollBehavior),
                     contentPadding = tabContentPadding(PaddingValues(start = 12.dp, end = 12.dp, top = glassTop, bottom = 24.dp)),
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
@@ -298,7 +324,7 @@ fun DownloadManagerScreen(
                         item(key = "global_controls") {
                             GlobalControls(
                                 stats = stats!!,
-                                manager = manager,
+                                host = host,
                                 onRefresh = { loadTasks() },
                             )
                         }
@@ -322,21 +348,23 @@ fun DownloadManagerScreen(
                                 },
                                 onPause = {
                                     scope.launch {
-                                        manager.pauseDownload(task.id)
+                                        host.pauseDownload(task.id)
                                         loadTasks()
                                     }
                                 },
                                 onResume = {
-                                    manager.resumeDownload(task.id)
-                                    loadTasks()
-                                },
-                                onCancel = {
                                     scope.launch {
-                                        manager.cancelDownload(task.id)
+                                        host.resumeDownload(task.id)
                                         loadTasks()
                                     }
                                 },
-                                onPlay = { onPlayTask(task) },
+                                onCancel = {
+                                    scope.launch {
+                                        host.cancelDownload(task.id)
+                                        loadTasks()
+                                    }
+                                },
+                                onPlay = onPlayTask?.let { play -> { play(task) } },
                             )
                         }
                     }
@@ -375,7 +403,10 @@ fun DownloadManagerScreen(
             // 必须在 Scaffold 的 content 内：OverlayBottomSheet 靠 Scaffold 提供的
             // LocalDialogStates 宿主渲染，写在 Scaffold 外面会静默不显示。
             // 下载目录信息弹窗
-            DownloadDirInfoDialog(show = showDirInfo, dirInfo = dirInfo, videoDir = manager.videoDirPath)
+            DownloadDirInfoDialog(show = showDirInfo, dirInfo = dirInfo, videoDir = host.videoDirPath)
+
+            // 「没做成」那一句（见 [DownloadsHost.notices]）
+            DownloadNoticeDialog(message = notice, onDismiss = { notice = null })
         }
     }
 }
@@ -514,7 +545,7 @@ private fun DownloadedFileCard(
 @Composable
 private fun GlobalControls(
     stats: DownloadStats,
-    manager: DownloadManager,
+    host: DownloadsHost,
     onRefresh: () -> Unit,
 ) {
     val scope = rememberCoroutineScope()
@@ -545,16 +576,16 @@ private fun GlobalControls(
                         color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                     )
                 }
-                TextButton(
+                com.xjtu.toolbox.ui.components.TextLink(
                     text = "取消全部",
                     onClick = {
                         scope.launch {
-                            manager.cancelAll()
+                            host.cancelAll()
                             delay(300)
                             onRefresh()
                         }
                     },
-                    colors = ButtonDefaults.textButtonColors(color = Color.Transparent),
+                    color = MiuixTheme.colorScheme.error,
                 )
             }
             Spacer(Modifier.height(10.dp))
@@ -562,27 +593,28 @@ private fun GlobalControls(
                 Button(
                     onClick = {
                         scope.launch {
-                            manager.pauseAll()
+                            host.pauseAll()
                             delay(300)
                             onRefresh()
                         }
                     },
                     modifier = Modifier.weight(1f),
-                    colors = ButtonDefaults.buttonColors(color = MiuixTheme.colorScheme.secondaryContainer),
+                    colors = com.xjtu.toolbox.ui.components.appTonalButtonColors(),
                 ) {
-                    Text("全部暂停", color = MiuixTheme.colorScheme.onSecondaryContainer)
+                    Text("全部暂停")
                 }
                 Button(
                     onClick = {
-                        manager.resumeAll()
+                        scope.launch { host.resumeAll() }
                         scope.launch {
                             delay(500)
                             onRefresh()
                         }
                     },
                     modifier = Modifier.weight(1f),
+                    colors = ButtonDefaults.buttonColorsPrimary(),
                 ) {
-                    Text("全部继续")
+                    Text("全部继续", color = MiuixTheme.colorScheme.onPrimary)
                 }
             }
         }
@@ -598,7 +630,7 @@ private fun DownloadTaskCard(
     onPause: () -> Unit = {},
     onResume: () -> Unit = {},
     onCancel: () -> Unit = {},
-    onPlay: () -> Unit = {},
+    onPlay: (() -> Unit)? = null,
 ) {
     val statusTint = when (task.status) {
         DownloadStatus.DOWNLOADING -> MiuixTheme.colorScheme.primary
@@ -609,7 +641,7 @@ private fun DownloadTaskCard(
     Card(
         onClick = if (isCleanupMode) onToggleSelection else {
             when (task.status) {
-                DownloadStatus.COMPLETED -> onPlay
+                DownloadStatus.COMPLETED -> onPlay ?: ({})
                 DownloadStatus.PAUSED, DownloadStatus.PENDING, DownloadStatus.FAILED -> onResume
                 DownloadStatus.DOWNLOADING -> onPause
                 else -> ({})
@@ -695,7 +727,8 @@ private fun DownloadTaskCard(
                                 )
                             }
                         }
-                        DownloadStatus.COMPLETED -> {
+                        // 这一端播不了本机文件时不画这个按钮（`onPlay` 为 null，见那一个参数的说明）
+                        DownloadStatus.COMPLETED -> if (onPlay != null) {
                             IconButton(onClick = onPlay) {
                                 Icon(
                                     Icons.Default.PlayArrow,
@@ -800,7 +833,47 @@ private fun DownloadDirInfoDialog(show: MutableState<Boolean>, dirInfo: Download
             TextButton(
                 text = "知道了",
                 onClick = { show.value = false },
-                modifier = Modifier.fillMaxWidth()
+                modifier = Modifier.fillMaxWidth(),
+                colors = ButtonDefaults.textButtonColorsPrimary(),
+            )
+        }
+    }
+}
+
+/**
+ * 「没做成」那一句（见 [DownloadsHost.notices]）。
+ *
+ * 为什么屏自己画一个弹窗而不是只写日志：serve 那一份的动作会**正经被拒**（`409`：
+ * 「这条任务是『已完成』，现在这个动作对它没有意义」）—— 点了要有说法，不能像没反应一样。
+ * 本机那一份永远不发话（它没有会失败的远端动作），所以这一格在 App / 桌面上一辈子不出现。
+ */
+@Composable
+private fun DownloadNoticeDialog(message: String?, onDismiss: () -> Unit) {
+    val show = remember { mutableStateOf(false) }
+    LaunchedEffect(message) { show.value = message != null }
+    if (message == null) return
+    OverlayDialog(
+        show = show.value,
+        title = "没做成",
+        onDismissRequest = onDismiss,
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .overScrollVertical()
+                .verticalScroll(rememberScrollState()),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Text(
+                message,
+                style = MiuixTheme.textStyles.body2,
+                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+            )
+            Spacer(Modifier.height(4.dp))
+            TextButton(
+                text = "知道了",
+                onClick = onDismiss,
+                modifier = Modifier.fillMaxWidth(),
             )
         }
     }

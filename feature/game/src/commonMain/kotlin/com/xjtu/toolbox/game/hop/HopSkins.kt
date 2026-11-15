@@ -8,7 +8,9 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.DrawScope
+import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.graphics.drawscope.scale
@@ -23,7 +25,8 @@ import kotlin.math.sin
  * - 棋子：蓄力压扁，空中翻跟头；
  * - 小岱：果冻身子，蓄力压成扁团，空中拉长不翻身，眼睛看着要去的方向，站着会眨眼；
  * - 小猫：蓄力伏低、尾巴翘起，空中身子前探像扑过去，站着尾巴慢慢摆；
- * - 宇航员：轻飘飘地原地浮动，起跳往前倾、背包喷一口气，落地很轻。
+ * - 宇航员：轻飘飘地原地浮动，起跳往前倾、背包喷一口气，落地很轻；
+ * - MJ：胖红头套，站着肚子一颤一颤、隔一阵掂手喊「67」，空中张嘴喊「MJ」，落地像果冻一样晃。
  * 规则不管画成什么，只给位置；动作全在这里按状态算。
  */
 
@@ -32,6 +35,7 @@ enum class HopSkin(val id: String, val title: String) {
     PIDAI("pidai", "小岱"),
     CAT("cat", "小猫"),
     ASTRONAUT("astronaut", "宇航员"),
+    MJ("mj", "MJ"),
 }
 
 /** 画一帧角色需要的全部状态。[side] 是面朝屏幕右（1）还是左（-1）。 */
@@ -61,6 +65,7 @@ fun DrawScope.drawSkin(skin: HopSkin, s: PieceState) {
             HopSkin.PIDAI -> drawPidai(s)
             HopSkin.CAT -> drawCat(s)
             HopSkin.ASTRONAUT -> drawAstronaut(s)
+            HopSkin.MJ -> drawMj(s)
         }
     }
 }
@@ -260,5 +265,103 @@ private fun DrawScope.drawAstronaut(s: PieceState) {
             Color.White, Offset(visor.left + visor.width * 0.15f, visor.top + visor.height * (0.15f + float / sc * 3f)),
             Size(visor.width * 0.28f, visor.height * 0.16f), CornerRadius(headR * 0.1f), alpha = 0.55f,
         )
+    }
+}
+
+// ── MJ ──
+
+private val MJ_RED = Color(0xFFE0312F)
+private val MJ_DARK = Color(0xFFB5222A)
+private val MJ_BLUE = Color(0xFF2B4DB8)
+private val MJ_WEB = Color(0xFF7E1219)
+private val MJ_RIM = Color(0xFF2A1416)
+
+private fun DrawScope.drawMj(s: PieceState) {
+    val sc = s.scale
+    val feet = s.feet
+    val still = !s.flying && s.squash <= 0f && s.tilt == 0f
+    // 胖：站着肚子颤得比小岱明显，落地晃得也更狠
+    val breathe = if (still) 0.035f * sin(s.time * 3.2f) else 0f
+    val jelly = landBounce(s.sinceLand, 0.4f)
+    val stretch = if (s.flying) 0.22f * (1f - s.flight) * (1f - s.flight) else 0f
+    val squash = s.squash.coerceAtLeast(0f)
+    val h = 0.36f * sc * (1f - 0.4f * squash + stretch + breathe - jelly)
+    val w = 0.44f * sc * (1f + 0.3f * squash - stretch * 0.5f - breathe + jelly)
+    val c = Offset(feet.x, feet.y - h / 2)
+    val look = s.side * w * (if (s.flying) 0.08f else 0.04f)
+    // 每 4.5 秒掂 1.4 秒手，喊「67」
+    val gesture = if (still) (s.time % 4.5f).let { if (it < 1.4f) sin(it / 1.4f * PI.toFloat()) else 0f } else 0f
+    val yell = if (s.flying) sin(s.flight * PI.toFloat()) else 0f
+    rotate(s.tilt, feet) {
+        if (gesture > 0.01f) for (side in listOf(-1f, 1f)) {
+            val dy = side * h * 0.18f * sin(s.time * 12f) * gesture
+            drawOval(MJ_DARK, Offset(c.x + side * w * 0.56f - w * 0.11f, c.y + dy - h * 0.06f), Size(w * 0.22f, h * 0.12f))
+        }
+        // 下半身蓝、上半身红，红的部分压一层蛛网
+        val body = Rect(c.x - w / 2, c.y - h / 2, c.x + w / 2, c.y + h / 2)
+        val light = c + Offset(-w * 0.2f, -h * 0.25f)
+        drawOval(Brush.radialGradient(listOf(Color(0xFF4F72E0), MJ_BLUE, Color(0xFF1B3280)), light, w * 0.8f), body.topLeft, body.size)
+        clipRect(body.left, body.top, body.right, c.y + h * 0.22f) {
+            drawOval(Brush.radialGradient(listOf(Color(0xFFFF6A5E), MJ_RED, MJ_DARK), light, w * 0.8f), body.topLeft, body.size)
+            val hub = Offset(c.x + look, c.y - h * 0.1f)
+            for (k in 0..6) {
+                val a = PI.toFloat() * (1f + k / 6f)
+                drawLine(MJ_WEB, hub, Offset(c.x + cos(a) * w * 0.5f, c.y + sin(a) * h * 0.5f), sc * 0.006f, alpha = 0.5f)
+            }
+            drawOval(MJ_WEB, Offset(hub.x - w * 0.28f, hub.y - h * 0.28f), Size(w * 0.56f, h * 0.56f), alpha = 0.5f, style = Stroke(sc * 0.006f))
+        }
+        // 白镜片：内眼角往下斜；站着偶尔眨眼，蓄力眯起来
+        val open = when {
+            still && (s.time % 3.4f) < 0.12f -> 0.12f
+            squash > 0.3f -> 0.45f
+            else -> 1f
+        }
+        for (side in listOf(-1f, 1f)) {
+            val e = Offset(c.x + side * w * 0.19f + look, c.y - h * 0.12f)
+            val lw = w * 0.27f
+            val lh = h * 0.24f * open
+            rotate(-side * 20f, e) {
+                drawOval(MJ_RIM, Offset(e.x - lw / 2, e.y - lh / 2), Size(lw, lh))
+                drawOval(Color.White, Offset(e.x - lw * 0.4f, e.y - lh * 0.36f), Size(lw * 0.8f, lh * 0.72f))
+            }
+        }
+        val mouth = maxOf(yell, 0.4f * gesture)
+        if (mouth > 0.02f) {
+            val mw = w * 0.16f * (0.6f + 0.4f * mouth)
+            val mh = h * 0.2f * mouth
+            drawOval(Color(0xFF3A0A10), Offset(c.x + look - mw / 2, c.y + h * 0.1f - mh / 2), Size(mw, mh))
+        }
+        val above = Offset(c.x, c.y - h / 2 - sc * 0.1f)
+        if (yell > 0.05f) drawShout("MJ", above, sc * 0.11f, yell)
+        if (gesture > 0.05f) drawShout("67", above, sc * 0.09f, gesture)
+    }
+}
+
+/** 白字深边，[size] 是字高。只认 M J 6 7。 */
+private fun DrawScope.drawShout(text: String, center: Offset, size: Float, alpha: Float) {
+    val adv = size * 0.95f
+    val x0 = center.x - (text.length - 1) * adv / 2
+    for ((width, color) in listOf(size * 0.5f to MJ_WEB, size * 0.26f to Color.White)) {
+        val style = Stroke(width, cap = StrokeCap.Round, join = StrokeJoin.Round)
+        for ((i, ch) in text.withIndex()) {
+            drawPath(glyphPath(ch, Offset(x0 + i * adv, center.y), size / 2) ?: continue, color, alpha = alpha, style = style)
+        }
+    }
+}
+
+/** 以 [o] 为中心、半高 [r] 的一个字。 */
+private fun glyphPath(ch: Char, o: Offset, r: Float): Path? {
+    fun Path.to(x: Float, y: Float) = lineTo(o.x + x * r, o.y + y * r)
+    fun Path.at(x: Float, y: Float) = moveTo(o.x + x * r, o.y + y * r)
+    fun Path.q(cx: Float, cy: Float, x: Float, y: Float) = quadraticTo(o.x + cx * r, o.y + cy * r, o.x + x * r, o.y + y * r)
+    return when (ch) {
+        'M' -> Path().apply { at(-0.77f, 1f); to(-0.77f, -1f); to(0f, 0.23f); to(0.77f, -1f); to(0.77f, 1f) }
+        'J' -> Path().apply { at(0.46f, -1f); to(0.46f, 0.3f); q(0.46f, 1.08f, -0.15f, 1.08f); q(-0.7f, 1.08f, -0.7f, 0.4f) }
+        '6' -> Path().apply {
+            at(0.54f, -1f); q(-0.7f, -0.7f, -0.62f, 0.46f)
+            addOval(Rect(Offset(o.x, o.y + 0.46f * r), 0.62f * r))
+        }
+        '7' -> Path().apply { at(-0.62f, -1f); to(0.62f, -1f); to(-0.23f, 1f) }
+        else -> null
     }
 }

@@ -12,6 +12,8 @@ object DeepLinkRouter {
     private val BARE_URL = Regex("""https?://\S+""")
     const val PIDAI_LINK_ALIAS = "com.xjtu.toolbox.agent.ReadWithPidai"
     const val PIDAI_SHARE_ALIAS = "com.xjtu.toolbox.agent.ShareWithPidai"
+    /** 通知栏「问小岱」专用，manifest 里不导出，外部应用发不了。 */
+    const val PIDAI_NOTICE_ALIAS = "com.xjtu.toolbox.agent.AskPidaiFromNotice"
 
     data class DeepLinkTarget(
         val route: AppRoute,
@@ -67,6 +69,16 @@ object DeepLinkRouter {
             "payment_code", "pay" -> DeepLinkTarget(AppRoute.PaymentCode)
             "notification" -> DeepLinkTarget(AppRoute.Notification)
             "score", "grade" -> DeepLinkTarget(AppRoute.JwappScore)
+            // 站内公告详情（内容随链接带上；首页公告卡「查看详情」走同一屏）。
+            "notice_detail" -> DeepLinkTarget(
+                AppRoute.NoticeDetail(
+                    noticeId = uri.getQueryParameter("id").orEmpty().ifBlank { "link" },
+                    level = uri.getQueryParameter("level").orEmpty().ifBlank { "info" },
+                    title = uri.getQueryParameter("title").orEmpty(),
+                    body = uri.getQueryParameter("body").orEmpty(),
+                    url = uri.getQueryParameter("url").orEmpty(),
+                ),
+            )
             else -> null
         }
     }

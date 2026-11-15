@@ -10,4 +10,7 @@
 
     <string name="notice_widget_name">Notices</string>
     <string name="notice_widget_desc">Last 4 notices from selected sources</string>
+
+    <string name="smart_widget_name">Smart Card</string>
+    <string name="smart_widget_desc">Switches by time: the current class before it starts, balance and payment code at mealtimes</string>
 </resources>

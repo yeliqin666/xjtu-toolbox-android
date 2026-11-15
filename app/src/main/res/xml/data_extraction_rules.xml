@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <data-extraction-rules>
-    <!-- minSdk 31：只有这套规则生效。path 可带 *；sharedpref 写文件名（可带或不带 .xml），file 是 filesDir 下的路径。
+    <!-- path 可带 *；sharedpref 写文件名（可带或不带 .xml），file 是 filesDir 下的路径。
          数据库（学号、日程、书架）和 files 目录（屁岱会话与照片、头像、页面缓存）整块不备份；
          SharedPreferences 只留外观、收藏这类换机想带走的，凭据、令牌、聊天记忆、待办、收纳都排除。 -->
     <cloud-backup>

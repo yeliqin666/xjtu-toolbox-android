@@ -1,12 +1,14 @@
 package com.xjtu.toolbox.community
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.ui.draw.clip
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Image
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
-import com.xjtu.toolbox.ui.components.AppFilterChip
 import top.yukonga.miuix.kmp.basic.*
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.window.WindowDialog
@@ -15,15 +17,16 @@ import top.yukonga.miuix.kmp.window.WindowDialog
 @Composable
 internal fun CommunityImageActions(enabled: Boolean, onInsert: (String) -> Unit) {
     var show by remember { mutableStateOf(false) }
-    AppFilterChip(
-        selected = false,
-        onClick = { if (enabled) show = true },
-        label = "图片",
-        leadingIcon = {
-            Icon(Icons.Outlined.Image, contentDescription = null,
-                tint = MiuixTheme.colorScheme.onSurfaceVariantSummary, modifier = Modifier.size(16.dp))
-        },
-    )
+    Box(
+        Modifier
+            .size(36.dp)
+            .clip(CircleShape)
+            .clickable(enabled = enabled) { show = true },
+        contentAlignment = androidx.compose.ui.Alignment.Center,
+    ) {
+        Icon(Icons.Outlined.Image, contentDescription = "插入图片",
+            tint = MiuixTheme.colorScheme.onSurfaceVariantSummary, modifier = Modifier.size(20.dp))
+    }
     if (!show) return
     var url by remember { mutableStateOf("") }
     var error by remember { mutableStateOf<String?>(null) }

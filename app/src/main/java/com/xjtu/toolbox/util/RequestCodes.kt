@@ -18,9 +18,12 @@ object RequestCodes {
     const val TODO_WIDGET = 1300
     /** + 行号（< 10）。 */
     const val TODO_WIDGET_ROW = 1310
+    const val SMART_WIDGET = 1400
 
     // 2xxx 系统通知
     const val NOTICE_PUSH = 2000
+    /** 通知栏新通知上的「问小岱」按钮。 */
+    const val NOTICE_ASK_PIDAI = 2001
     const val REMINDER_LIBRARY = 2101
     const val REMINDER_SCHEDULE = 2102
     const val REMINDER_EXAM = 2103
@@ -42,4 +45,5 @@ object RequestCodes {
     const val SCHEDULE_DAY_PREV = 5010
     const val SCHEDULE_DAY_NEXT = 5011
     const val DYNAMIC_SCHEDULE_ALARM = 5020
+    const val SMART_WIDGET_REFRESH = 5040
 }

@@ -16,6 +16,7 @@ import com.xjtu.toolbox.lms.LmsFakeUpstream
 import com.xjtu.toolbox.iclassface.IclassfaceFakeUpstream
 import com.xjtu.toolbox.community.CommunityFakeUpstream
 import com.xjtu.toolbox.notification.NotificationFakeUpstream
+import com.xjtu.toolbox.qms.QmsFakeUpstream
 import com.xjtu.toolbox.venue.VenueFakeUpstream
 import com.xjtu.toolbox.ywtb.YwtbFakeUpstream
 import com.xjtu.toolbox.feedback.FeedbackFakeUpstream
@@ -82,6 +83,9 @@ class FakeCampusProxy(private val casEnabled: Boolean = true) : AutoCloseable {
     /** 教材全文库：两个域名一个夹具。 */
     val jiaocai1: Jiaocai1FakeUpstream = Jiaocai1FakeUpstream()
 
+    /** 学生评教 QMS（`qms.xjtu.edu.cn`，https）。 */
+    val qms: QmsFakeUpstream = QmsFakeUpstream()
+
     private val server: FakeUpstreamFront =
         FakeUpstreamFront(::dispatch, HTTPS_HOSTS)
 
@@ -134,6 +138,7 @@ class FakeCampusProxy(private val casEnabled: Boolean = true) : AutoCloseable {
             Jiaocai1FakeUpstream.JIAOCAI_HOST -> jiaocai1.handleJiaocai(exchange)
             Jiaocai1FakeUpstream.JIAOCAI1_HOST -> jiaocai1.handleJiaocai1(exchange)
             IclassfaceFakeUpstream.HOST -> iclassface.handle(exchange)
+            QmsFakeUpstream.HOST -> qms.handle(exchange)
             YwtbFakeUpstream.TRANSACTION_HOST -> ywtb.handleTodos(exchange)
             YwtbFakeUpstream.RESERVATION_HOST -> ywtb.handleBookings(exchange)
             YwtbFakeUpstream.BUS_HOST -> ywtb.handleBus(exchange)
@@ -203,6 +208,7 @@ class FakeCampusProxy(private val casEnabled: Boolean = true) : AutoCloseable {
             FeedbackFakeUpstream.HOST,
             Jiaocai1FakeUpstream.JIAOCAI_HOST,
             Jiaocai1FakeUpstream.JIAOCAI1_HOST,
+            QmsFakeUpstream.HOST,
         ) + NotificationFakeUpstream.HOSTS
     }
 }

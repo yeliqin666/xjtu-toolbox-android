@@ -60,24 +60,21 @@ class CampusCardAnalysisTest {
             totalIncome = 0.0,
             transactionCount = 10,
             topMerchants = emptyList(),
-            avgDailySpend = 400.0 / 30,
-            daysCovered = 30
+            spendDays = 20,
         )
-        val may = june.copy(month = YearMonth(2023, 5), totalSpend = 200.0, avgDailySpend = 200.0 / 31, daysCovered = 31)
-        val line = CampusCardAnalysis.monthChangeInsight(
-            listOf(june, may),
-            LocalDate(2023, 5, 1),
-            LocalDate(2023, 6, 30),
-            today
-        )
+        val may = june.copy(month = YearMonth(2023, 5), totalSpend = 200.0)
+        val line = CampusCardAnalysis.monthChangeInsight(listOf(june, may), LocalDate(2023, 6, 30), today)
         assertTrue(line!!.contains("2023年6月"))
         assertTrue(line.contains("2023年5月"))
         assertFalse(line.contains("本月"))
         assertTrue(line.contains("增长"))
+
+        // 放假只刷了几天：总额少一大截，但不比
+        assertNull(CampusCardAnalysis.monthChangeInsight(listOf(june.copy(totalSpend = 60.0, spendDays = 3), may), LocalDate(2023, 6, 30), today))
     }
 
     @Test
-    fun personaTags_onlyTagsStrongSignals() {
+    fun personaTags_coversExtremeAndRegularEaters() {
         val meals = mapOf(
             "早餐" to MealTimeStats(count = 2, totalAmount = 10.0, avgAmount = 5.0),
             "午餐" to MealTimeStats(count = 40, totalAmount = 480.0, avgAmount = 12.0),
@@ -87,25 +84,29 @@ class CampusCardAnalysisTest {
             food = mapOf("面食" to 400.0, "米饭" to 200.0),
             meals = meals,
             activeDays = 40,
-            foodSpend = 610.0,
-            topMerchant = MerchantStat("康桥苑一楼面食", 300.0, 30),
-            spendCount = 100,
+            hourly = emptyList(),
+            regular = "午餐" to "康桥苑一楼面食",
         ).map { it.second }
-        assertEquals(listOf("面食派", "基本不吃早饭", "夜宵常客", "「康桥苑一楼面」老主顾"), tags)
+        assertEquals(listOf("面食派", "基本不吃早饭", "夜宵常客", "午餐常去「康桥苑一楼面」"), tags)
+
+        // 口味分散、饭点集中的规律食客也有标签
+        val hourly = List(24) { h -> mapOf(7 to 20, 8 to 10, 12 to 30, 11 to 6, 18 to 30, 17 to 4)[h] ?: 0 }
+        val regular = CampusCardAnalysis.personaTags(
+            food = mapOf("面食" to 28.0, "米饭" to 21.0, "汤粥" to 17.0, "自选" to 15.0, "小吃" to 13.0),
+            meals = mapOf("早餐" to MealTimeStats(30, 210.0, 7.0), "午餐" to MealTimeStats(36, 480.0, 13.3)),
+            activeDays = 40,
+            hourly = hourly,
+            regular = null,
+        ).map { it.second }
+        assertEquals(listOf("什么都吃", "早饭从不落", "饭点很准"), regular)
 
         // 样本太少：什么都不贴
         assertTrue(
             CampusCardAnalysis.personaTags(
                 food = mapOf("面食" to 10.0, "米饭" to 10.0, "自选" to 10.0, "汤粥" to 10.0),
                 meals = mapOf("夜宵" to MealTimeStats(2, 20.0, 10.0)),
-                activeDays = 3, foodSpend = 40.0, topMerchant = null, spendCount = 4,
+                activeDays = 3, hourly = emptyList(), regular = null,
             ).isEmpty()
         )
-    }
-
-    @Test
-    fun monthLabel_showsYearWhenRangeCrossesYears() {
-        assertEquals("3月", CampusCardAnalysis.monthLabel(YearMonth(2023, 3), spanYears = false))
-        assertEquals("2023年3月", CampusCardAnalysis.monthLabel(YearMonth(2023, 3), spanYears = true))
     }
 }

@@ -21,6 +21,9 @@ enum class SettingsRow {
     /** 首页头卡的背景与流动效果（首页和设置页共用 `:shared:designsystem` 的弹窗）。 */
     HOME_HERO,
 
+    /** 「主页设置」二级页：背景壁纸、卡片材质、网格开关、恢复默认分组和布局。 */
+    HOME_SETTINGS,
+
     /** 默认启动 Tab。 */
     DEFAULT_TAB,
 
@@ -38,9 +41,6 @@ enum class SettingsRow {
 
     /** 课表显示考勤角标。 */
     SCHEDULE_ATTENDANCE,
-
-    /** 自动识别场馆验证码。 */
-    VENUE_CAPTCHA,
 }
 
 /** 一条更新日志。 */
@@ -57,6 +57,14 @@ interface SettingsHost {
 
     /** 这一端**真会照着办**的那些行（见 [SettingsRow]）。 */
     val honoredRows: Set<SettingsRow>
+
+    /**
+     * 屏底那一句「这一端缺了哪些设置」的汇总说明（`null` = 不画，也是默认值 ⇒ 不填的端行为不变）。
+     *
+     * 缺的行不逐条写：设置页里缺十行就等于十句“没有”，读起来像故障报告。这里只挤成一句，
+     * 说清缺的是哪几类设置 / 为什么缺 / 要调去哪儿。文案要能对上 [honoredRows] 里没列的那些行。
+     */
+    val gapNote: String? get() = null
 
     /** 更新日志（空 = 本端没有更新日志，那一行不画）。 */
     val changelog: List<ChangelogEntry>
@@ -85,4 +93,7 @@ interface SettingsHost {
     /** 功能图标（底栏候选列表用，与首页宫格同一套）；null = 不画图标。 */
     val serviceIcon: ((AppRoute) -> ImageVector)? get() = null
     val launcherShortcutPreference: (@Composable () -> Unit)? get() = null
+
+    /** 「小岱」整页设置；没接小岱的端（桌面 / Web）为 null，整条不出现。 */
+    val agentPage: (@Composable (onBack: () -> Unit) -> Unit)? get() = null
 }

@@ -71,7 +71,9 @@ data class BarTab(
             else -> ShellTarget.App(route!!)
         },
         showsAccountBadge = core == BottomTab.PROFILE,
-        drawsOwnTopBar = isRouteTab,
+        // 首页的按钮和模糊带都在页面内容里
+        drawsOwnTopBar = isRouteTab || core == BottomTab.HOME,
+        edgeToEdge = core == BottomTab.HOME,
     )
 
     companion object {

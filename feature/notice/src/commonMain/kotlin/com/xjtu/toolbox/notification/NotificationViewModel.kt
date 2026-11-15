@@ -34,6 +34,22 @@ internal class NotificationViewModel(
     ); private set
     var searchQuery by mutableStateOf("")
 
+    /** 通知自带的分类（教务、OA 那行灰字）筛选，只筛列表（#357）。 */
+    var selectedTag by mutableStateOf<String?>(null); private set
+    /** 选了分类后自动往后翻了几页。冷门分类可能翻遍全站都凑不满一屏，要有个头。 */
+    private var tagPagesLoaded by mutableIntStateOf(0)
+    val tagAutoLoad: Boolean get() = selectedTag == null || tagPagesLoaded < MAX_TAG_PAGES
+
+    fun selectTag(tag: String?) {
+        selectedTag = tag
+        tagPagesLoaded = 0
+    }
+
+    /** 自动翻页到头后，用户点「继续往前找」。 */
+    fun keepLookingForTag() {
+        tagPagesLoaded = 0
+    }
+
     var notifications by mutableStateOf<List<Notification>>(emptyList()); private set
     var isLoading by mutableStateOf(true); private set
     var isLoadingMore by mutableStateOf(false); private set
@@ -73,6 +89,8 @@ internal class NotificationViewModel(
         if (sources.isNotEmpty()) {
             preferences.putStringSet("sources", sources.map { it.name }.toSet())
             selectedSources = sources.toSet()
+            // 分类是各来源自己的，换来源后旧分类大概率没有了
+            selectTag(null)
         }
     }
 
@@ -94,8 +112,9 @@ internal class NotificationViewModel(
     }
 
     fun loadMore() {
-        if (searching || isLoading || isLoadingMore || !hasMorePages || notifications.isEmpty()) return
+        if (searching || isLoading || isLoadingMore || !hasMorePages || notifications.isEmpty() || !tagAutoLoad) return
         isLoadingMore = true
+        if (selectedTag != null) tagPagesLoaded++
         viewModelScope.launch { load(page = page + 1, append = true) }
     }
 
@@ -157,3 +176,12 @@ internal class NotificationViewModel(
         }
     }
 }
+
+/** 选了分类后最多自动翻几页。 */
+private const val MAX_TAG_PAGES = 5
+
+/** 当前已加载通知里出现过的分类，多的排前面。 */
+internal fun noticeTagOptions(notices: List<Notification>): List<String> =
+    notices.flatMap { it.tags }.groupingBy { it }.eachCount().entries
+        .sortedWith(compareByDescending<Map.Entry<String, Int>> { it.value }.thenBy { it.key })
+        .map { it.key }

@@ -76,6 +76,19 @@ object HomeCards {
         else -> stats[key]
     }
 
+    /**
+     * 大卡里列的明细：功能页落盘的明细优先；小岱没有状态可列，给几条常用提问。
+     * 校园卡、校历的状态在 [statOf] 里让给了速览格，卡片组要的是全量，所以这里不经它。
+     */
+    fun linesOf(key: String, stats: Map<String, HomeStat>): List<HomeLine> =
+        stats[key]?.lines.orEmpty().ifEmpty { if (key == AppRoute.Agent.id) AGENT_PROMPTS else emptyList() }
+
+    private val AGENT_PROMPTS = listOf(
+        HomeLine("安排今天", "agent:看看我今天的课表和待办，帮我安排今天。"),
+        HomeLine("找自习教室", "agent:帮我找现在适合自习的空闲教室。"),
+        HomeLine("收纳一件事", "agent:帮我把下面的事情整理成日程或待办："),
+    )
+
     /** 「待办与消息」那一格：待办条数 / 未读消息组数 / 最该先办的那条待办的标题。 */
     fun inboxSummary(data: InboxData, now: Long): HomeInboxSummary {
         val todos = InboxRules.todos(data, now)

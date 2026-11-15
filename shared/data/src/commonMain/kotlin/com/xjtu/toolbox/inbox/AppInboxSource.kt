@@ -16,6 +16,12 @@ class AppInboxSource(
         SchoolInbox.refresh(manager.ensureSite(LoginType.YWTB, userInitiated = true), account)
     }
 
+    /** 用户没主动要刷新，登录要静默。 */
+    override suspend fun refreshSchoolTodos(account: String?) {
+        val manager = sessionManager ?: return
+        SchoolInbox.refreshTodos(manager.ensureSite(LoginType.YWTB, silent = true), account)
+    }
+
     override fun isDue(account: String?, now: Long): Boolean = SchoolInbox.isDue(account, now)
 
     override suspend fun afterRefresh(data: InboxData) {

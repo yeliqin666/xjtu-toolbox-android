@@ -1,11 +1,12 @@
 package com.xjtu.toolbox.attendance
 
+import com.xjtu.toolbox.ui.glass.CouiToolbarActionButton
 import com.xjtu.toolbox.ui.glass.tabContentPadding
 import com.xjtu.toolbox.ui.glass.tabContentBottomPadding
 import com.xjtu.toolbox.ui.components.AppPullToRefresh
+import com.xjtu.toolbox.ui.components.ArrowPreference
 import com.xjtu.toolbox.ui.components.FullPageState
 import androidx.compose.ui.graphics.Color
-import com.xjtu.toolbox.ui.adaptive.readableWidth
 import com.xjtu.toolbox.ui.adaptive.fullLineItem
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.foundation.lazy.staggeredgrid.items
@@ -32,6 +33,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.filled.Face
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -61,17 +63,13 @@ import top.yukonga.miuix.kmp.basic.CardDefaults
 import top.yukonga.miuix.kmp.basic.DropdownItem
 import top.yukonga.miuix.kmp.basic.HorizontalDivider
 import top.yukonga.miuix.kmp.basic.Icon
-import top.yukonga.miuix.kmp.basic.IconButton
-import top.yukonga.miuix.kmp.basic.MiuixScrollBehavior
 import top.yukonga.miuix.kmp.basic.Scaffold
 import top.yukonga.miuix.kmp.basic.SnackbarHost
 import top.yukonga.miuix.kmp.basic.SnackbarHostState
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextButton
 import top.yukonga.miuix.kmp.basic.TextField
-import top.yukonga.miuix.kmp.basic.rememberTopAppBarState
 import top.yukonga.miuix.kmp.overlay.OverlayDialog
-import top.yukonga.miuix.kmp.preference.ArrowPreference
 import top.yukonga.miuix.kmp.preference.OverlaySpinnerPreference
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.utils.SinkFeedback
@@ -89,6 +87,7 @@ import com.xjtu.toolbox.util.CampusTimeZone
 import com.xjtu.toolbox.util.nowOnCampus
 import com.xjtu.toolbox.util.todayOnCampus
 import com.xjtu.toolbox.nav.AppRoute
+import com.xjtu.toolbox.ui.glass.rememberCouiTopAppBarScrollBehavior
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.CreationExtras
 import androidx.lifecycle.SavedStateHandle
@@ -103,7 +102,7 @@ fun AttendanceScreen(
     onOpenIclassface: (() -> Unit)? = null,
     /** 宿主的 saved state（「上次选的学期」在进程被回收后要还在）。 */
     savedState: CreationExtras.() -> SavedStateHandle = { SavedStateHandle() },
-    /** 请假表单「添加附件」的取文件槽位：Android = 系统多选文件；桌面还没有文件选择宿主⇒ 默认返回空（不发附件，表单其余功能照旧）。 */
+    /** 请假表单「添加附件」的取文件槽位：Android = 系统多选文件（SAF），桌面 = AWT 文件对话框（`DesktopFileDialogs.pickEvidenceFiles`）。不传 = 这一端没有选择器（web）：默认返回空（不发附件，表单其余功能照旧）。 */
     pickEvidenceFiles: suspend () -> List<Pair<String, ByteArray>> = { emptyList() },
 ) {
     val authExpiry = LocalAuthExpiry.current
@@ -128,7 +127,7 @@ fun AttendanceScreen(
         }
     }
 
-    val scrollBehavior = MiuixScrollBehavior(rememberTopAppBarState())
+    val scrollBehavior = rememberCouiTopAppBarScrollBehavior()
     // 玻璃顶栏（经典风格下为 null，一切照旧），用法见 ui/glass/GlassTopBar.kt
     val glass = rememberPageGlass()
     Scaffold(
@@ -139,69 +138,54 @@ fun AttendanceScreen(
                 glass = glass,
                 scrollBehavior = scrollBehavior,
                 onBack = onBack,
-                actions = {
-                    // 快速考勤流水（电子班牌刷卡、人脸签到）：另一个系统的打卡记录，
-                    // 首页不再单独放入口，改从这里进去，做法照搬成绩页右上角的「成绩报表」。
-                    // 少了这一档（`onOpenIclassface == null`）就不画这个图标：点了会落到降级页的
-                    // 按钮不摆出来（见那个参数的 KDoc）。
-                    onOpenIclassface?.let { open ->
-                        IconButton(onClick = open) {
-                            Icon(Icons.Default.Face, contentDescription = "快速考勤流水（电子班牌刷卡、人脸签到）")
-                        }
-                    }
-                    if (selectedTab == 3 && source.capabilities.leave) {
-                        IconButton(onClick = { showForm = true }) {
-                            Icon(Icons.Default.Add, contentDescription = "新建请假")
-                        }
-                    }
-                },
-                // 四个分栏标签不跟着滚：挂在顶栏里和顶栏一起做一整块玻璃。
-                // 没数据（加载中 / 出错）时不显示，那时点了也没东西可切
+                // 页面放在 App 底栏上时分栏回到顶栏下沿（不在底部叠两排胶囊）
                 bottomContent = {
-                    if (state.hasData || !(state.loading || state.error != null)) {
-                        CompositionLocalProvider(LocalOnGlassBar provides (glass != null)) {
-                            AppSegmentedTabs(
-                                tabs = listOf("流水", "打卡流水", "统计", "请假"),
-                                selectedTabIndex = selectedTab,
-                                onTabSelected = { selectedTab = it },
-                                modifier = Modifier.readableWidth(),
-                            )
+                    com.xjtu.toolbox.ui.components.DockedPageTabs(
+                        tabs = listOf("流水", "打卡流水", "统计", "请假"),
+                        selectedTabIndex = selectedTab,
+                        onTabSelected = { selectedTab = it },
+                        visible = state.hasData || !(state.loading || state.error != null),
+                    )
+                },
+                actions = {
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(2.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        // 快速考勤流水（电子班牌刷卡、人脸签到）：另一个系统的打卡记录，
+                        // 首页不再单独放入口，改从这里进去，做法照搬成绩页右上角的「成绩报表」。
+                        // 少了这一档（`onOpenIclassface == null`）就不画这个图标：点了会落到降级页的
+                        // 按钮不摆出来（见那个参数的 KDoc）。
+                        onOpenIclassface?.let { open ->
+                            CouiToolbarActionButton(onClick = open) {
+                                Icon(Icons.Default.Face, contentDescription = "快速考勤流水（电子班牌刷卡、人脸签到）")
+                            }
+                        }
+                        if (selectedTab == 3 && source.capabilities.leave) {
+                            CouiToolbarActionButton(onClick = { showForm = true }) {
+                                Icon(Icons.Default.Add, contentDescription = "新建请假")
+                            }
+                        }
+                        // 学期在右上角切一次，四个分栏共用；请假不分学期，那一栏不摆
+                        if (state.terms.size > 1 && selectedTab != 3) {
+                            var termMenuOpen by remember { mutableStateOf(false) }
+                            com.xjtu.toolbox.ui.glass.CouiIconMenu(
+                                expanded = termMenuOpen,
+                                onExpandedChange = { termMenuOpen = it },
+                                icon = { Icon(Icons.Default.DateRange, contentDescription = "切换学期") },
+                            ) {
+                                state.terms.forEach { term ->
+                                    option(term.name, selected = term.bh == state.termBh) { vm.selectTerm(term.bh) }
+                                }
+                            }
                         }
                     }
                 },
             )
         }
     ) { padding ->
-        // 内容铺到顶栏下面；标签行在顶栏里，姓名、学期这一块是每个分栏列表的第一项，跟着列表滚，
-        // 各列表自己把 glassTop 放进 contentPadding
+        // 内容铺到顶栏下面；各列表自己把 glassTop 放进 contentPadding
         val glassTop = padding.glassTop(glass)
-        // 姓名 · 学期 + 学期选择。请假栏不分学期，不放选择器
-        val listHeader: @Composable (Int) -> Unit = { tab ->
-            Column(Modifier.readableWidth().fillMaxWidth()) {
-                if (state.studentName.isNotBlank()) {
-                    Text(
-                        text = state.studentName + (state.window?.semesterName?.let { " · $it" } ?: ""),
-                        style = MiuixTheme.textStyles.subtitle,
-                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp)
-                    )
-                }
-                if (state.terms.isNotEmpty() && tab != 3) {
-                    Card(
-                        modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
-                        colors = CardDefaults.defaultColors(color = AppCardColor)
-                    ) {
-                        OverlaySpinnerPreference(
-                            title = "学期",
-                            summary = "选择要查询的学期",
-                            items = state.terms.map { DropdownItem(text = it.name) },
-                            selectedIndex = state.terms.indexOfFirst { it.bh == state.termBh }.coerceAtLeast(0),
-                            onSelectedIndexChange = { vm.selectTerm(state.terms[it].bh) }
-                        )
-                    }
-                }
-            }
-        }
         when {
             state.loading && !state.hasData && state.error == null -> {
                 FullPageState(
@@ -215,7 +199,12 @@ fun AttendanceScreen(
                     contentPadding = PaddingValues(top = glassTop)
                 ) { ErrorState(message = state.error.orEmpty(), onRetry = { vm.load() }, modifier = Modifier.fillMaxSize()) }
             }
-            else -> {
+            else -> com.xjtu.toolbox.ui.components.PageBottomTabsHost(
+                tabs = listOf("流水", "打卡流水", "统计", "请假"),
+                selectedTabIndex = selectedTab,
+                onTabSelected = { selectedTab = it },
+                modifier = Modifier.fillMaxSize(),
+            ) {
                 AppPullToRefresh(
                     isRefreshing = state.refreshing,
                     onRefresh = { vm.load(fromPull = true) },
@@ -223,18 +212,17 @@ fun AttendanceScreen(
                     topPadding = glassTop,
                     modifier = Modifier.fillMaxSize().padding(padding.withoutTop(glass)).glassSource(glass),
                 ) {
-                    // 宽屏：姓名和学期块限宽居中，下面的记录分两三列铺开（见 AdaptiveCardGrid）
+                    // 宽屏记录分两三列铺开（见 AdaptiveCardGrid）
                     AppTabPager(
                         pageCount = 4,
                         selectedTabIndex = selectedTab,
                         onTabSelected = { selectedTab = it },
                         modifier = Modifier.fillMaxSize(),
                     ) { tab ->
-                        val header: @Composable () -> Unit = { listHeader(tab) }
                         when (tab) {
-                            0 -> RecordList(state.records, glassTop, header)
-                            1 -> StreamList(state.streams, source.capabilities.streams, glassTop, header)
-                            2 -> StatList(state.stats, source.capabilities.stats, glassTop, header)
+                            0 -> RecordList(state.records, glassTop)
+                            1 -> StreamList(state.streams, source.capabilities.streams, glassTop)
+                            2 -> StatList(state.stats, source.capabilities.stats, glassTop)
                             else -> LeaveList(
                                 leaves = state.leaves,
                                 supported = source.capabilities.leave,
@@ -242,7 +230,6 @@ fun AttendanceScreen(
                                 onWithdraw = { pendingAction = LeaveAction.WITHDRAW to it },
                                 onCancel = { pendingAction = LeaveAction.CANCEL to it },
                                 topPadding = glassTop,
-                                header = header,
                             )
                         }
                     }
@@ -343,32 +330,34 @@ fun AttendanceScreen(
                         Text("附件 ${file.fileName}", style = MiuixTheme.textStyles.body2, modifier = Modifier.padding(top = 4.dp))
                     }
                     Spacer(Modifier.height(12.dp))
-                    TextButton(text = "关闭", onClick = { detail = null }, modifier = Modifier.fillMaxWidth())
+                    TextButton(
+                        text = "关闭",
+                        onClick = { detail = null },
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = ButtonDefaults.textButtonColorsPrimary(),
+                    )
                 }
             }
         }
     }
 }
 
-/**
- * 四个分栏共用的列表外壳：[topPadding]（玻璃顶栏连同标签行的高度）放进列表顶部留白，
- * 第一项是姓名 / 学期块 [header]，跟着列表一起滚。没有数据时也保留头部，学期照样能切。
- */
+/** 四个分栏共用的列表外壳：[topPadding]（玻璃顶栏连同标签行的高度）放进列表顶部留白。 */
 @Composable
 private fun AttendanceListShell(
     isEmpty: Boolean,
     empty: @Composable (Modifier) -> Unit,
     topPadding: androidx.compose.ui.unit.Dp,
-    header: @Composable () -> Unit,
     bottomPadding: androidx.compose.ui.unit.Dp = 16.dp,
     content: androidx.compose.foundation.lazy.staggeredgrid.LazyStaggeredGridScope.() -> Unit,
 ) {
     if (isEmpty) {
+        // 空态也报位置：不报的话顶栏退回按滚动事件累计，回弹时按钮轮廓会误亮
         LazyColumn(
             Modifier.fillMaxSize().overScrollVertical(),
+            state = com.xjtu.toolbox.ui.glass.rememberReportedLazyListState(),
             contentPadding = tabContentPadding(PaddingValues(start = 16.dp, end = 16.dp, top = 12.dp + topPadding)),
         ) {
-            item(key = "header") { header() }
             item(key = "empty") { empty(Modifier.fillParentMaxWidth().fillParentMaxHeight(0.6f)) }
         }
         return
@@ -377,23 +366,19 @@ private fun AttendanceListShell(
         modifier = Modifier.fillMaxSize().overScrollVertical(),
         contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 12.dp + topPadding, bottom = bottomPadding),
         spacing = 10.dp,
-    ) {
-        fullLineItem(key = "header") { Box(Modifier.enterOnce(0)) { header() } }
-        content()
-    }
+        content = content,
+    )
 }
 
 @Composable
 private fun RecordList(
     records: List<AttendanceWaterRecord>,
     topPadding: androidx.compose.ui.unit.Dp,
-    header: @Composable () -> Unit,
 ) {
     AttendanceListShell(
         isEmpty = records.isEmpty(),
         empty = { EmptyState(title = "暂无考勤记录", modifier = it) },
         topPadding = topPadding,
-        header = header,
     ) {
         itemsIndexed(records, key = { _, it -> it.sbh }) { i, record ->
             Card(modifier = Modifier.enterOnce(i + 1), colors = CardDefaults.defaultColors(color = AppCardColor)) {
@@ -427,7 +412,6 @@ private fun StreamList(
     /** 本端这一份取数真拿得到打卡流水吗（见 [AttendanceCapabilities.streams]）。 */
     supported: Boolean,
     topPadding: androidx.compose.ui.unit.Dp,
-    header: @Composable () -> Unit,
 ) {
     AttendanceListShell(
         isEmpty = streams.isEmpty(),
@@ -439,7 +423,6 @@ private fun StreamList(
             )
         },
         topPadding = topPadding,
-        header = header,
     ) {
         // 不给 key：id 可能缺失，同一台设备同一秒刷两次时拼出来的 key 会重复，Compose 直接崩。
         itemsIndexed(streams) { i, stream ->
@@ -483,7 +466,6 @@ private fun StatList(
     /** 本端这一份取数真拿得到统计吗（见 [AttendanceCapabilities.stats]）。 */
     supported: Boolean,
     topPadding: androidx.compose.ui.unit.Dp,
-    header: @Composable () -> Unit,
 ) {
     AttendanceListShell(
         isEmpty = stats.isEmpty(),
@@ -495,7 +477,6 @@ private fun StatList(
             )
         },
         topPadding = topPadding,
-        header = header,
     ) {
         itemsIndexed(stats, key = { _, it -> it.subjectName + it.subjectCode }) { i, stat ->
             Card(modifier = Modifier.enterOnce(i + 1), colors = CardDefaults.defaultColors(color = AppCardColor)) {
@@ -534,7 +515,6 @@ private fun LeaveList(
     onWithdraw: (LeaveRecord) -> Unit,
     onCancel: (LeaveRecord) -> Unit,
     topPadding: androidx.compose.ui.unit.Dp,
-    header: @Composable () -> Unit,
 ) {
     AttendanceListShell(
         isEmpty = leaves.isEmpty(),
@@ -550,7 +530,6 @@ private fun LeaveList(
             )
         },
         topPadding = topPadding,
-        header = header,
         bottomPadding = 88.dp,
     ) {
         itemsIndexed(leaves, key = { _, it -> it.leaveId }) { i, rec ->
@@ -591,10 +570,10 @@ private fun LeaveList(
                             modifier = Modifier.padding(top = 8.dp)
                         ) {
                             if (rec.withdrawable) {
-                                TextButton(text = "撤回", onClick = { onWithdraw(rec) })
+                                com.xjtu.toolbox.ui.components.TextLink(text = "撤回", onClick = { onWithdraw(rec) })
                             }
                             if (rec.cancellable) {
-                                TextButton(text = "销假", onClick = { onCancel(rec) })
+                                com.xjtu.toolbox.ui.components.TextLink(text = "销假", onClick = { onCancel(rec) })
                             }
                         }
                     }
@@ -678,9 +657,9 @@ private fun LeaveFormDialog(
                 color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
             )
             Spacer(Modifier.height(8.dp))
-            OverlaySpinnerPreference(
+            com.xjtu.toolbox.ui.components.AppDropdownPreference(
                 title = "请假类型",
-                items = LeaveType.entries.map { DropdownItem(text = it.displayName) },
+                items = LeaveType.entries.map { it.displayName },
                 selectedIndex = LeaveType.entries.indexOf(type),
                 onSelectedIndexChange = { type = LeaveType.entries[it] }
             )
@@ -689,9 +668,9 @@ private fun LeaveFormDialog(
                 summary = startDate.toString(),
                 onClick = { pickingStartDate = true },
             )
-            OverlaySpinnerPreference(
+            com.xjtu.toolbox.ui.components.AppDropdownPreference(
                 title = "开始整点",
-                items = (0..23).map { DropdownItem(text = "${it}:00") },
+                items = (0..23).map { "${it}:00" },
                 selectedIndex = startHour,
                 onSelectedIndexChange = { startHour = it }
             )
@@ -700,16 +679,16 @@ private fun LeaveFormDialog(
                 summary = endDate.toString(),
                 onClick = { pickingEndDate = true },
             )
-            OverlaySpinnerPreference(
+            com.xjtu.toolbox.ui.components.AppDropdownPreference(
                 title = "结束整点",
-                items = (0..23).map { DropdownItem(text = "${it}:00") },
+                items = (0..23).map { "${it}:00" },
                 selectedIndex = endHour,
                 onSelectedIndexChange = { endHour = it }
             )
             if (approvers.isNotEmpty()) {
-                OverlaySpinnerPreference(
+                com.xjtu.toolbox.ui.components.AppDropdownPreference(
                     title = "下一审批人",
-                    items = approvers.map { DropdownItem(text = it.name.ifBlank { it.userId }) },
+                    items = approvers.map { it.name.ifBlank { it.userId } },
                     selectedIndex = approverIndex.coerceAtMost(approvers.lastIndex),
                     onSelectedIndexChange = { approverIndex = it }
                 )

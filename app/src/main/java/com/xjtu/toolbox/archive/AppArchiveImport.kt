@@ -33,24 +33,60 @@ object AppArchiveImport {
         entries: Map<String, String>,
         targetOf: (ArchiveManifest) -> ArchiveImportTarget,
     ): ArchiveImportOutcome {
-        val validated = StoreArchive.inspect(archiveSourceOf(entries))
-        if (validated is ArchiveInspection.Failed) return ArchiveImportOutcome.Failed(validated.reason)
+        return when (val planned = plan(archive, entries, ArchiveImportMode.MERGE, targetOf)) {
+            is AppArchivePlanOutcome.Planned -> apply(planned)
+            is AppArchivePlanOutcome.AlreadyImported ->
+                ArchiveImportOutcome.AlreadyImported(planned.archive, planned.identity)
+            is AppArchivePlanOutcome.Failed -> ArchiveImportOutcome.Failed(planned.reason)
+        }
+    }
+
+    /**
+     * 第一步：算差异，**端内一个字节不动**（§6.4「显式镜像档」的三端同一步）。
+     *
+     * 链路与 [run] 完全同一套：自校验 → 幂等标记 → 行数组预检 → [StoreArchive.plan]。
+     * 拿到的 [AppArchivePlanOutcome.Planned] 就是弹窗的全部素材（档位话术见 [ArchiveImportPrompt]），
+     * 用户确认之后交给 [apply]。
+     */
+    fun plan(
+        archive: File,
+        entries: Map<String, String>,
+        mode: ArchiveImportMode = ArchiveImportMode.MERGE,
+        targetOf: (ArchiveManifest) -> ArchiveImportTarget,
+    ): AppArchivePlanOutcome {
+        val source = archiveSourceOf(entries)
+        val validated = StoreArchive.inspect(source)
+        if (validated is ArchiveInspection.Failed) return AppArchivePlanOutcome.Failed(validated.reason)
         val manifest = (validated as ArchiveInspection.Ok).manifest
 
         val marker = markerFileFor(archive)
         val identity = identityOf(manifest)
-        if (readMarkerIdentity(marker) == identity) return ArchiveImportOutcome.AlreadyImported(archive, identity)
+        if (readMarkerIdentity(marker) == identity) {
+            return AppArchivePlanOutcome.AlreadyImported(archive, identity)
+        }
 
-        checkRows(entries)?.let { return ArchiveImportOutcome.Failed(it) }
+        checkRows(entries)?.let { return AppArchivePlanOutcome.Failed(it) }
 
-        return when (val result = StoreArchive.import(archiveSourceOf(entries), targetOf(manifest))) {
-            is ImportResult.Failed -> ArchiveImportOutcome.Failed(result.reason)
-            is ImportResult.Ok -> {
-                writeMarker(marker, identity, result)
-                ArchiveImportOutcome.Imported(archive, identity, result)
-            }
+        val target = targetOf(manifest)
+        return when (val planned = StoreArchive.plan(source, target, mode)) {
+            is ArchivePlanOutcome.Failed -> AppArchivePlanOutcome.Failed(planned.reason)
+            is ArchivePlanOutcome.Ok -> AppArchivePlanOutcome.Planned(archive, identity, planned.plan, target)
         }
     }
+
+    /**
+     * 第二步：把算好的差异一次性落地，成了就落「已导入」标记。
+     *
+     * 镜像档中途失败已经在共享层整体回滚了（[ImportResult.Failed]）⇒ 这里只把原因往上抬，不写标记。
+     */
+    fun apply(planned: AppArchivePlanOutcome.Planned): ArchiveImportOutcome =
+        when (val result = StoreArchive.apply(planned.plan, planned.target)) {
+            is ImportResult.Failed -> ArchiveImportOutcome.Failed(result.reason)
+            is ImportResult.Ok -> {
+                writeMarker(markerFileFor(planned.archive), planned.identity, result)
+                ArchiveImportOutcome.Imported(planned.archive, planned.identity, result)
+            }
+        }
 
     /** Room 三族的行数组预检：不是 JSON 行数组 ⇒ 一句明确的原因（写第一笔之前就停住）。 */
     private fun checkRows(entries: Map<String, String>): String? {
@@ -72,6 +108,9 @@ object AppArchiveImport {
                 appendLine("keysWritten=${result.keysWritten}")
                 appendLine("keysKept=${result.keysKept}")
                 appendLine("filesWritten=${result.filesWritten}")
+                appendLine("filesSkipped=${result.filesSkipped}")
+                if (result.keysDeleted > 0) appendLine("keysDeleted=${result.keysDeleted}")
+                if (result.filesDeleted > 0) appendLine("filesDeleted=${result.filesDeleted}")
             },
         )
     }
@@ -88,4 +127,23 @@ sealed interface ArchiveImportOutcome {
 
     /** 明确失败，端内零改动。 */
     data class Failed(val reason: String) : ArchiveImportOutcome
+}
+
+/** [AppArchiveImport.plan] 的结论（第一步：端内零改动）。 */
+sealed interface AppArchivePlanOutcome {
+
+    /** 差异算好了：[plan] 给用户看，[AppArchiveImport.apply] 才真落地。 */
+    data class Planned(
+        val archive: File,
+        val identity: String,
+        val plan: ArchiveImportPlan,
+        /** 算差异时用的那一份写入缝（落地也用它，不回炉重取）。 */
+        val target: ArchiveImportTarget,
+    ) : AppArchivePlanOutcome
+
+    /** 这份档案已经导过（标记与它一致）⇒ 不必再问用户选哪一档。 */
+    data class AlreadyImported(val archive: File, val identity: String) : AppArchivePlanOutcome
+
+    /** 档案本身不成立 / 行数组预检不过；端内零改动。 */
+    data class Failed(val reason: String) : AppArchivePlanOutcome
 }

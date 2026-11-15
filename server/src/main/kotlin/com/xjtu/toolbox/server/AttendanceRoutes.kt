@@ -1,7 +1,9 @@
 package com.xjtu.toolbox.server
 
 import com.xjtu.toolbox.attendance.AppAttendanceSource
+import com.xjtu.toolbox.attendance.AttendanceStream
 import com.xjtu.toolbox.attendance.AttendanceWaterRecord
+import com.xjtu.toolbox.attendance.CourseAttendanceStat
 import com.xjtu.toolbox.attendance.LeaveApprovalNode
 import com.xjtu.toolbox.attendance.LeaveApprover
 import com.xjtu.toolbox.attendance.LeaveCourse
@@ -63,6 +65,64 @@ internal fun Route.attendanceRoutes(session: ServeSession) {
                 )
             } catch (e: Exception) {
                 call.respondUpstreamFailure(e, "加载考勤流水")
+            }
+        }
+
+        // ── 按课程的考勤统计（整学期；与 `:core` 的 AttendanceViewModel 同一条算路）────
+        //
+        // 不端 `getKqtjCurrentWeek`：那个接口只有**本周**，APP 端 #134 就是因为它漏掉前几周的缺勤才改成
+        // 「拉整学期流水 + `computeCourseStatsFromRecords`」。这里照同一口径，不另算一份。
+        get(ATTENDANCE_STATS) {
+            if (!session.authenticated) return@get call.respondLoginRequired()
+            val params = call.request.queryParameters
+            val requestedTerm = params[ATTENDANCE_PARAM_TERM]?.trim()?.takeIf { it.isNotEmpty() }
+            if (requestedTerm != null && !requestedTerm.all { it.isDigit() }) {
+                return@get call.respondBadRequestMessage(ATTENDANCE_TERM_SHAPE_MESSAGE)
+            }
+            try {
+                val source = AppAttendanceSource(session.attendanceSite())
+                val term = requestedTerm ?: source.getTermBh()
+                val window = source.termWindow(term)
+                val records = source.getWaterRecords(
+                    termBh = term,
+                    startDate = window?.startDate.orEmpty(),
+                    endDate = window?.endDate.orEmpty(),
+                )
+                val stats = source.computeCourseStatsFromRecords(records)
+                call.respond(
+                    ApiEnvelope.ok(
+                        AttendanceStatsData(term = term, count = stats.size, stats = stats.map { it.toDto() }),
+                    ),
+                )
+            } catch (e: Exception) {
+                call.respondUpstreamFailure(e, "统计考勤")
+            }
+        }
+
+        // ── 打卡原始流水（原始刷卡数据，与上面那张流水表**不是**一回事）──────────
+        //
+        // `getStreams` 要一对日期，而 `:data` 那个取数口没有兜底（流水表那一条有）：日期由服务端按
+        // 该学期的 `startDate` / `endDate` 填，与 AttendanceViewModel 的做法逐条相同。
+        get(ATTENDANCE_STREAMS) {
+            if (!session.authenticated) return@get call.respondLoginRequired()
+            val params = call.request.queryParameters
+            val requestedTerm = params[ATTENDANCE_PARAM_TERM]?.trim()?.takeIf { it.isNotEmpty() }
+            if (requestedTerm != null && !requestedTerm.all { it.isDigit() }) {
+                return@get call.respondBadRequestMessage(ATTENDANCE_TERM_SHAPE_MESSAGE)
+            }
+            try {
+                val source = AppAttendanceSource(session.attendanceSite())
+                val term = requestedTerm ?: source.getTermBh()
+                val window = source.termWindow(term)
+                    ?: return@get call.respondBadRequestMessage(ATTENDANCE_STREAM_TERM_MESSAGE)
+                val streams = source.getStreams(window.startDate, window.endDate)
+                call.respond(
+                    ApiEnvelope.ok(
+                        AttendanceStreamsData(term = term, count = streams.size, streams = streams.map { it.toDto() }),
+                    ),
+                )
+            } catch (e: Exception) {
+                call.respondUpstreamFailure(e, "加载打卡流水")
             }
         }
 
@@ -251,10 +311,56 @@ internal data class AttendanceRecordDto(
     /** 结束节次（`:core` 的 `endTime`）。 */
     val endSection: Int,
     val location: String,
+    /** 当堂上课的教师名（契约 §5.2 例外 ⑤，2026-10-19 会议批准：与我自己的那条记录同性质）。 */
+    val teacher: String,
     /** `WaterType.value`：1 正常 / 2 迟到 / 3 缺勤 / 5 请假 / **-1 未识别**。 */
     val status: Int,
     /** 配套中文：正常 / 迟到 / 缺勤 / 请假 / **未知**（`-1` 必须按这一格显示）。 */
     val statusText: String,
+)
+
+/** `GET /api/attendance/stats` 的 `data`：整学期按课程的统计。 */
+@Serializable
+internal data class AttendanceStatsData(
+    /** 本次统计的学期号（请求没给就是当前学期）。 */
+    val term: String,
+    val count: Int,
+    val stats: List<AttendanceCourseStatDto>,
+)
+
+/** [CourseAttendanceStat] 的线上形状（八格）。`actualCount` / `abnormalCount` 是换算属性，不进线上形状。 */
+@Serializable
+internal data class AttendanceCourseStatDto(
+    /** ← `:core` 的 `subjectName`（与 `/records` 用同一个名字，免得消费方两套叫法）。 */
+    val courseName: String,
+    /** ← `:core` 的 `subjectCode`。 */
+    val courseCode: String,
+    val normalCount: Int,
+    val lateCount: Int,
+    val absenceCount: Int,
+    /** 早退（上游有这一栏，`WaterType` 里没有对应状态）。 */
+    val leaveEarlyCount: Int,
+    val leaveCount: Int,
+    val total: Int,
+)
+
+/** `GET /api/attendance/streams` 的 `data`。 */
+@Serializable
+internal data class AttendanceStreamsData(
+    val term: String,
+    val count: Int,
+    val streams: List<AttendanceStreamDto>,
+)
+
+/** 一条打卡流水（[AttendanceStream] 的四格原样投影）。 */
+@Serializable
+internal data class AttendanceStreamDto(
+    val id: String,
+    val location: String,
+    /** 刷卡时刻：上游给的 `2026-09-16 08:05:00` 原样投影（`:data` 不转，本层也不编一个时区）。 */
+    val collectTime: String,
+    /** 这次刷卡算不算有效（上游 `effective`）。 */
+    val effective: Boolean,
 )
 
 // ── 投影 helpers ─────────────────────────────────────────────────────
@@ -271,13 +377,36 @@ private fun AttendanceWaterRecord.toDto() = AttendanceRecordDto(
     startSection = startTime,
     endSection = endTime,
     location = location,
+    teacher = teacher,
     status = status.value,
     statusText = status.displayName,
+)
+
+private fun CourseAttendanceStat.toDto() = AttendanceCourseStatDto(
+    courseName = subjectName,
+    courseCode = subjectCode,
+    normalCount = normalCount,
+    lateCount = lateCount,
+    absenceCount = absenceCount,
+    leaveEarlyCount = leaveEarlyCount,
+    leaveCount = leaveCount,
+    total = total,
+)
+
+private fun AttendanceStream.toDto() = AttendanceStreamDto(
+    id = id,
+    location = location,
+    collectTime = collectTime,
+    effective = effective,
 )
 
 /** `YYYY-MM-DD` 的形状判据（与 `/api/card/transactions` 的 `from`/`to` 同一条）。 */
 private fun isIsoDate(value: String): Boolean =
     value.length == 10 && runCatching { kotlinx.datetime.LocalDate.parse(value) }.isSuccess
+
+/** 学期号定下来之后那一对起止日期（`:data` 的 `TermInfo`）；学期列表里没有就是 null。 */
+private suspend fun AppAttendanceSource.termWindow(term: String): TermInfo? =
+    getTermList().firstOrNull { it.bh == term }
 
 // ── 常量 ─────────────────────────────────────────────────────────────
 
@@ -287,12 +416,18 @@ internal fun ServeSession.attendanceSite(): SiteSession = sessionManager.getSite
 internal const val ATTENDANCE_SEGMENT = "attendance"
 internal const val ATTENDANCE_TERMS = "terms"
 internal const val ATTENDANCE_RECORDS = "records"
+internal const val ATTENDANCE_STATS = "stats"
+internal const val ATTENDANCE_STREAMS = "streams"
 internal const val ATTENDANCE_PARAM_TERM = "term"
 internal const val ATTENDANCE_PARAM_FROM = "from"
 internal const val ATTENDANCE_PARAM_TO = "to"
 
 /** `?term=` 的形状（学期号 = `bh`，形如 `646`；不是就 400）。 */
 private const val ATTENDANCE_TERM_SHAPE_MESSAGE = "term 需要是学期号，形如 646（取自 /api/attendance/terms 的 bh）"
+
+/** `streams` 那一格要一对日期，而学期列表里查不到这个学期 ⇒ 400（不是默默用空日期）。 */
+private const val ATTENDANCE_STREAM_TERM_MESSAGE =
+    "term 不在学期列表里：请传 /api/attendance/terms 里的 bh（打卡流水要按该学期的起止日期取）"
 
 
 /** `GET /api/attendance/leave/window` 的 `data`：`LeaveSemesterWindow` 的六格原样投影。 */

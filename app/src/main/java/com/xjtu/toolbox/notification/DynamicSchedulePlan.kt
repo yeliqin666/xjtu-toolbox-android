@@ -28,6 +28,33 @@ internal data class DynamicSchedulePlan(
     val nextRefreshAt: Long,
 )
 
+/** 今天全部条目（含已结束的），按开始时间排序；自动勿扰的窗口也从这里算。 */
+internal fun todayScheduleItems(
+    courses: List<CourseItem>,
+    termStart: LocalDate?,
+    now: ZonedDateTime,
+    holidays: Set<LocalDate> = emptySet(),
+): List<DynamicScheduleItem> {
+    val campusNow = now.withZoneSameInstant(CampusZoneId)
+    val today = campusNow.toLocalDate()
+    // 不猜周次：缺开学日期时等用户同步课表，而不是把整个学期的同星期课程都推出来。
+    val week = termStart?.let { TermWeeks.weekOf(it.toKx(), today.toKx()) }
+    val dayStart = today.atStartOfDay(CampusZoneId)
+    return courses.asSequence()
+        .filter { week != null && it.isInWeek(week) && it.dayOfWeek == today.dayOfWeek.value }
+        .filter { today !in holidays || it.isUserCreated }
+        .filter { it.courseName.isNotBlank() }
+        .map { course ->
+            val (start, end) = course.clockMinutes(XjtuTime.isSummerTime(today.monthValue))
+            DynamicScheduleItem(
+                course, dayStart.plusMinutes(start.toLong()).toInstant().toEpochMilli(),
+                dayStart.plusMinutes(end.toLong()).toInstant().toEpochMilli(), start, end,
+            )
+        }
+        .sortedWith(compareBy<DynamicScheduleItem> { it.startAt }.thenBy { it.endAt }.thenBy { it.course.courseCode })
+        .toList()
+}
+
 internal fun planDynamicSchedule(
     courses: List<CourseItem>,
     termStart: LocalDate?,
@@ -38,22 +65,7 @@ internal fun planDynamicSchedule(
     val today = campusNow.toLocalDate()
     val nowMs = campusNow.toInstant().toEpochMilli()
     val midnight = today.plusDays(1).atStartOfDay(CampusZoneId).toInstant().toEpochMilli()
-    // 不猜周次：缺开学日期时等用户同步课表，而不是把整个学期的同星期课程都推出来。
-    val week = termStart?.let { TermWeeks.weekOf(it.toKx(), today.toKx()) }
-    val dayStart = today.atStartOfDay(CampusZoneId)
-    val remaining = courses.asSequence()
-        .filter { week != null && it.isInWeek(week) && it.dayOfWeek == today.dayOfWeek.value }
-        .filter { today !in holidays || it.isUserCreated }
-        .filter { it.courseName.isNotBlank() }
-        .mapNotNull { course ->
-            val (start, end) = course.clockMinutes(XjtuTime.isSummerTime(today.monthValue))
-            DynamicScheduleItem(
-                course, dayStart.plusMinutes(start.toLong()).toInstant().toEpochMilli(),
-                dayStart.plusMinutes(end.toLong()).toInstant().toEpochMilli(), start, end,
-            ).takeIf { it.endAt > nowMs }
-        }
-        .sortedWith(compareBy<DynamicScheduleItem> { it.startAt }.thenBy { it.endAt }.thenBy { it.course.courseCode })
-        .toList()
+    val remaining = todayScheduleItems(courses, termStart, now, holidays).filter { it.endAt > nowMs }
     // 正在进行的优先；有重叠时先展示最早结束的一项，结束后自然切到另一项。
     val ongoing = remaining.filter { it.startAt <= nowMs }.minByOrNull { it.endAt }
     val current = ongoing ?: remaining.firstOrNull()

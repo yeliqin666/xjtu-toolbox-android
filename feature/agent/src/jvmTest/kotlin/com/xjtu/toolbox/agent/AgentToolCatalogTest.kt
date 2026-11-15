@@ -18,24 +18,25 @@ class AgentToolCatalogTest {
         (AppJson.parseToJsonElement(agentToolDefinitions(honored)) as JsonArray)
             .map { it.jsonObject["function"]!!.jsonObject["name"]!!.jsonPrimitive.content }
 
-    /** 所有端都画的那 23 档（纯逻辑 + 取数）。 */
+    /** 所有端都画的那 22 档（纯逻辑 + 取数）。 */
     private val alwaysDrawn = listOf(
         "get_calendar", "get_schedule", "get_exam_schedule", "search_school_courses",
         "get_empty_rooms", "get_attendance", "get_grades", "get_card_info", "get_notifications",
         "search_yellow_page", "preference", "find_faculty",
-        "get_library", "list_zyxf", "read_zyxf_file", "save_file", "get_textbooks", "get_coupons",
+        "get_library", "list_zyxf", "read_zyxf_file", "get_textbooks", "get_coupons",
         "get_lms", "get_lms_activity", "get_fitness_score", "app_guide", "calculate",
     )
 
-    /** 进工具表的那三档（[AgentCapability.toolGated]）；另两档（相册、存进下载）只管屏。 */
+    /** 进工具表的那四档（[AgentCapability.toolGated]）；剩下一档（相册）只管屏。 */
     private val gated = AgentCapability.toolGated.map { it.tool!! }
 
     @Test
     fun `进工具表的端能力就是清单里那三个工具名`() {
-        assertEquals(listOf("set_alarm", "app_setting", "add_schedule_event"), gated)
-        // 五档总数与「只管屏的那两档」也一并钉住：加减一档要两边一起改
+        assertEquals(listOf("set_alarm", "app_setting", "add_schedule_event", "save_file"), gated)
+        // 五档总数与「只管屏的那一档」也一并钉住：加减一档要两边一起改
         assertEquals(5, AgentCapability.entries.size)
-        assertEquals(listOf(AgentCapability.IMAGE_INPUT, AgentCapability.FILE_SAVE), AgentCapability.entries.filter { it.tool == null })
+        // 只剩相册那一档没有工具名：`save_file` 现在由 FILE_SAVE 一并把门（见那一档的 KDoc）。
+        assertEquals(listOf(AgentCapability.IMAGE_INPUT), AgentCapability.entries.filter { it.tool == null })
     }
 
     @Test
@@ -47,7 +48,7 @@ class AgentToolCatalogTest {
     }
 
     @Test
-    fun `什么都不接的端只画那 23 档`() {
+    fun `什么都不接的端只画那 22 档`() {
         val drawn = tools(emptySet())
         assertEquals(alwaysDrawn.size, drawn.size)
         assertEquals(alwaysDrawn.sorted(), drawn.sorted())
@@ -68,7 +69,7 @@ class AgentToolCatalogTest {
         assertEquals(AgentCapability.ALARM, AgentCapability.ofTool("set_alarm"))
         assertEquals(AgentCapability.APP_SETTINGS, AgentCapability.ofTool("app_setting"))
         assertEquals(AgentCapability.SCHEDULE_EVENT_WRITE, AgentCapability.ofTool("add_schedule_event"))
-        // 纯逻辑与取数那 23 档都不在清单里（= 任何端都放行）
+        // 纯逻辑与取数那 22 档都不在清单里（= 任何端都放行）
         alwaysDrawn.forEach { assertNull(AgentCapability.ofTool(it), "$it 不该被当成端能力") }
         assertNull(AgentCapability.ofTool("不存在的工具"))
     }

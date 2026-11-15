@@ -1,7 +1,7 @@
 package com.xjtu.toolbox.community
 
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateMapOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModel
@@ -23,10 +23,12 @@ class DiscussionDetailViewModel(
     val loader = DiscussionCommentsLoader(viewModelScope) { cursor -> repo.comments(initial.id, cursor) }
     /** 最近一次失败的说明，界面显示几秒后清掉。 */
     var message by mutableStateOf<String?>(null)
-    /** 某一楼刚收到新回复：把它的楼中楼展开并重新拉一遍。 */
-    val replyRefresh = mutableStateMapOf<String, Int>()
-    /** 楼中楼不在 loader 里：编辑 / 删除了其中一条，靠这个补丁通知各楼自己改。 */
-    var patch by mutableStateOf<ReplyPatch?>(null); private set
+    /** 各楼的楼中楼。放在这里而不是楼层的组合里：楼层滚出屏幕会被回收，展开状态和进行中的请求不能跟着没 */
+    private val floorReplies = mutableMapOf<String, FloorReplies>()
+
+    fun replies(comment: GithubDiscussionComment): FloorReplies = floorReplies.getOrPut(comment.id) {
+        FloorReplies(viewModelScope, comment.previewReplies) { cursor -> repo.replies(comment.id, cursor) }
+    }
     /** 刚发了新楼：拉完以后滚到最后一楼。 */
     var scrollToEnd by mutableStateOf(false)
     private val deletedChannel = Channel<Unit>(Channel.CONFLATED)
@@ -73,10 +75,10 @@ class DiscussionDetailViewModel(
         viewModelScope.launch { repo.vote(option.id).onFailure { discussion = before; fail("投票", it) } }
     }
 
-    /** 楼层和楼中楼都可能是它：两边都通知一遍。 */
+    /** 楼层和楼中楼都可能是它：两边都改一遍。 */
     private fun patchComment(comment: GithubDiscussionComment) {
         loader.edited(comment)
-        patch = ReplyPatch(edited = comment, deletedId = null, seq = (patch?.seq ?: 0) + 1)
+        floorReplies.values.forEach { it.edited(comment) }
     }
 
     /** 改帖子状态（关闭、锁定、采纳…），成功后整帖重拉拿最新权限。 */
@@ -104,7 +106,7 @@ class DiscussionDetailViewModel(
                 val topLevel = loader.state.value.items.any { it.id == comment.id }
                 loader.deleted(comment.id)
                 if (topLevel) discussion = discussion.copy(comments = (discussion.comments - 1).coerceAtLeast(0))
-                else patch = ReplyPatch(edited = null, deletedId = comment.id, seq = (patch?.seq ?: 0) + 1)
+                else floorReplies.values.forEach { it.deleted(comment.id) }
             },
             onFailure = { fail("删除", it) },
         )
@@ -127,7 +129,8 @@ class DiscussionDetailViewModel(
         is EditorTarget.ReplyTo -> repo.replyToComment(discussion.id, target.comment.id, body).map {
             loader.state.value.items.firstOrNull { it.id == target.comment.id }
                 ?.let { loader.edited(it.copy(replyCount = it.replyCount + 1)) }
-            replyRefresh[target.comment.id] = (replyRefresh[target.comment.id] ?: 0) + 1
+            // 展开这一楼并重拉，新回复立刻能看到
+            replies(target.comment).expand()
         }
         is EditorTarget.EditComment -> repo.editComment(target.comment.id, body).map { patchComment(it) }
         EditorTarget.EditDiscussion -> repo.edit(discussion.id, title.orEmpty(), body).map { discussion = it.keepPinned() }

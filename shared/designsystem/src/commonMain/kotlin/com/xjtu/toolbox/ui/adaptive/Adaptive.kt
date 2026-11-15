@@ -90,6 +90,8 @@ fun AdaptiveCardGrid(
     content: LazyStaggeredGridScope.() -> Unit,
 ) {
     val wide = isWideLayout()
+    // 实际滚动位置报给本页顶栏（按钮轮廓、折叠状态都按它）；外面没有顶栏时不报
+    com.xjtu.toolbox.ui.glass.ReportScrollPosition(state)
     LazyVerticalStaggeredGrid(
         columns = if (wide) StaggeredGridCells.Adaptive(minColumnWidth) else StaggeredGridCells.Fixed(1),
         modifier = if (wide) {
@@ -125,6 +127,7 @@ fun AdaptiveRowGrid(
     content: LazyGridScope.() -> Unit,
 ) {
     val wide = isWideLayout()
+    com.xjtu.toolbox.ui.glass.ReportScrollPosition(state)
     LazyVerticalGrid(
         columns = if (wide) GridCells.Adaptive(minColumnWidth) else GridCells.Fixed(1),
         modifier = if (wide) {

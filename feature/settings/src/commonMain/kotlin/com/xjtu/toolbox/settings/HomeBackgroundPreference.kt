@@ -1,17 +1,11 @@
 package com.xjtu.toolbox.settings
 
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.width
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Image
+import androidx.compose.material.icons.filled.Tune
 import androidx.compose.runtime.Composable
-import androidx.compose.ui.Alignment
-import androidx.compose.ui.Modifier
-import androidx.compose.ui.unit.dp
+import androidx.compose.runtime.LaunchedEffect
 import kotlin.math.roundToInt
-import top.yukonga.miuix.kmp.basic.Slider
-import top.yukonga.miuix.kmp.theme.MiuixTheme
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -19,7 +13,9 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import com.xjtu.toolbox.platform.decodeImage
 import com.xjtu.toolbox.platform.decodeImageSize
+import com.xjtu.toolbox.settings.SettingsColors.Purple as cPurple
 import com.xjtu.toolbox.ui.components.encodeHeroImage
+import com.xjtu.toolbox.ui.components.ArrowPreference
 import com.xjtu.toolbox.ui.components.rememberHeroImagePicker
 import com.xjtu.toolbox.ui.components.ImageCropContent
 import androidx.compose.ui.graphics.ImageBitmap
@@ -31,13 +27,19 @@ import kotlin.io.encoding.ExperimentalEncodingApi
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import top.yukonga.miuix.kmp.preference.ArrowPreference
-import top.yukonga.miuix.kmp.preference.OverlayDropdownPreference
+import com.xjtu.toolbox.ui.components.AppDropdownPreference
 
 @OptIn(ExperimentalEncodingApi::class)
 @Composable
 internal fun HomeBackgroundPreference(store: SettingsStore, startAction: @Composable () -> Unit) {
-    var mode by remember(HomeLayoutRevision.current) { mutableStateOf(store.homeBackground) }
+    var mode by remember(HomeLayoutRevision.current) { mutableStateOf(if (store.homeBackground == "image") "image" else "solid") }
+    // 旧的「主题色 / 主题色渐变」两档已删：存档里还是这两个值时归一到「默认」。
+    LaunchedEffect(Unit) {
+        if (store.homeBackground != "solid" && store.homeBackground != "image") {
+            store.homeBackground = "solid"
+            HomeLayoutRevision.bump()
+        }
+    }
     val scope = rememberCoroutineScope()
     var cropSource by remember { mutableStateOf<ImageBitmap?>(null) }
     var busy by remember { mutableStateOf(false) }
@@ -50,11 +52,10 @@ internal fun HomeBackgroundPreference(store: SettingsStore, startAction: @Compos
             error = if (cropSource == null) "这张图片读不出来，换一张试试" else null
         }
     }
-    val modes = listOf("solid", "gradient", "image")
-    OverlayDropdownPreference(
+    val modes = listOf("solid", "image")
+    AppDropdownPreference(
         title = "主页背景",
-        summary = if (mode == "solid") "素笺 · 随主题变化" else null,
-        items = listOf("主题色", "主题色渐变", "自定义图片"),
+        items = listOf("默认", "自定义图片"),
         selectedIndex = modes.indexOf(mode).coerceAtLeast(0),
         startAction = startAction,
         onSelectedIndexChange = { index ->
@@ -67,17 +68,28 @@ internal fun HomeBackgroundPreference(store: SettingsStore, startAction: @Compos
         },
     )
     if (mode == "image") {
-        ArrowPreference(title = "更换背景图片", onClick = pickImage)
+        ArrowPreference(
+            title = "更换背景图片",
+            startAction = { SettingsIcon(Icons.Default.Image, cPurple) },
+            onClick = pickImage,
+        )
         var blur by remember { mutableStateOf(store.homeWallpaperBlur) }
-        var brightness by remember { mutableStateOf(store.homeWallpaperBrightness) }
-        WallpaperSlider("模糊程度", blur, SettingsStore.HERO_IMAGE_BLUR_MIN..SettingsStore.HERO_IMAGE_BLUR_MAX,
-            label = { if (it == 0) "无" else "$it dp" }) {
-            blur = it; store.homeWallpaperBlur = it; HomeLayoutRevision.bump()
-        }
-        WallpaperSlider("亮度", brightness, SettingsStore.HERO_IMAGE_BRIGHTNESS_MIN..SettingsStore.HERO_IMAGE_BRIGHTNESS_MAX,
-            label = { "$it%" }) {
-            brightness = it; store.homeWallpaperBrightness = it; HomeLayoutRevision.bump()
-        }
+        // 只有「模糊程度」一条：亮度已经删了（壁纸的明暗交给「背景不透明度」，
+        // 两张滑条调的是同一件事，留着只会互相抵消；见 SettingsStore.homeWallpaperBlur 的说明）
+        SettingsSliderRow(
+            title = "模糊程度",
+            valueText = if (blur == 0) "无" else "$blur dp",
+            value = blur.toFloat(),
+            range = SettingsStore.HERO_IMAGE_BLUR_MIN.toFloat()..SettingsStore.HERO_IMAGE_BLUR_MAX.toFloat(),
+            icon = Icons.Default.Tune,
+            color = cPurple,
+            onChange = {
+                blur = it.roundToInt()
+                store.homeWallpaperBlur = blur
+            },
+            // 和圆角那条一样：拖的时候只写盘，松手才让首页重读一次（逐帧 bump 会整页重组）
+            onValueChangeFinished = { HomeLayoutRevision.bump() },
+        )
     }
     val source = cropSource
     if (source != null) {
@@ -104,21 +116,4 @@ internal fun HomeBackgroundPreference(store: SettingsStore, startAction: @Compos
             error?.let { Text(it) }
         }
     } else error?.let { Text(it) }
-}
-
-/** 与首页大卡自定义背景同一套滑块，缩进对齐设置行的文字。 */
-@Composable
-private fun WallpaperSlider(title: String, value: Int, range: IntRange, label: (Int) -> String, onChange: (Int) -> Unit) {
-    Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp)) {
-        Text(title, style = MiuixTheme.textStyles.body2)
-        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            Slider(
-                value = value.toFloat(),
-                onValueChange = { onChange(it.roundToInt()) },
-                valueRange = range.first.toFloat()..range.last.toFloat(),
-                modifier = Modifier.weight(1f),
-            )
-            Text(label(value), style = MiuixTheme.textStyles.footnote2, modifier = Modifier.padding(start = 12.dp).width(48.dp))
-        }
-    }
 }

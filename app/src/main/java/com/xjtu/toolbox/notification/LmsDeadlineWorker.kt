@@ -57,7 +57,7 @@ class LmsDeadlineWorker(
             withContext(Dispatchers.IO) {
                 val api = LmsApi(site)
                 val perCourse = LmsDueCollector.activities(api, api.getMyCourses())
-                LmsDueCollector.collect(app, api, perCourse, account.orEmpty()) { AccountContext.activeAccountId == account }
+                LmsDueCollector.collect(api, perCourse, account.orEmpty()) { AccountContext.activeAccountId == account }
             }
         } catch (e: CancellationException) {
             throw e

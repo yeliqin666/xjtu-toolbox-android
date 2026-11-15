@@ -4,7 +4,7 @@ import com.xjtu.toolbox.ui.glass.tabContentBottomPadding
 import com.xjtu.toolbox.jiaocai1.Jiaocai1Source
 import com.xjtu.toolbox.platform.BackHandler
 import androidx.compose.animation.AnimatedContent
-import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
@@ -119,7 +119,7 @@ internal fun JiaocaiSearchContent(
                 targetState = Triple(isLoading, errorMsg, books),
                 contentKey = { (l, e, b) -> "$l|${e != null}|${b.size}" },
                 transitionSpec = {
-                    fadeIn(spring(stiffness = 500f)) togetherWith fadeOut(spring(stiffness = 500f))
+                    fadeIn(tween(240)) togetherWith fadeOut(tween(240))
                 },
                 label = "jiaocaiResult",
                 modifier = Modifier.weight(1f),
@@ -440,9 +440,10 @@ private fun MyTextbookRow(
             // 「读全文」要打全文库：本端没有那条链（serve 形态）时这一格的按钮不画
             val lib = jiaocai1
             if (lib != null) {
-                TextButton(
+                com.xjtu.toolbox.ui.components.TextLink(
                     text = if (resolving) "查找中…" else "读全文",
                     enabled = !resolving,
+                    chevron = true,
                     onClick = {
                         resolving = true
                         scope.launch {

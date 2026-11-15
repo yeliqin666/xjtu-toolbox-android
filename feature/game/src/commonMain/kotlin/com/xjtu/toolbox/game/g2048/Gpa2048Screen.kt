@@ -3,9 +3,7 @@ package com.xjtu.toolbox.game.g2048
 import com.xjtu.toolbox.platform.BackHandler
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateIntOffsetAsState
-import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.focusable
@@ -66,6 +64,8 @@ import com.xjtu.toolbox.game.ui.RestartConfirmMenu
 import com.xjtu.toolbox.game.ui.rememberLeaveGuard
 import com.xjtu.toolbox.game.ui.ScoreCard
 import com.xjtu.toolbox.ui.adaptive.readableWidth
+import com.xjtu.toolbox.ui.glass.CouiPageTopAppBar
+import com.xjtu.toolbox.ui.glass.CouiToolbarActionButton
 import com.xjtu.toolbox.ui.rememberHaptics
 import com.xjtu.toolbox.ui.theme.LocalIsDarkTheme
 import kotlinx.coroutines.delay
@@ -75,7 +75,6 @@ import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.IconButton
 import top.yukonga.miuix.kmp.basic.Scaffold
 import top.yukonga.miuix.kmp.basic.Text
-import top.yukonga.miuix.kmp.basic.TopAppBar
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 /**
@@ -213,15 +212,19 @@ fun Gpa2048Screen(onBack: () -> Unit) {
 
     Scaffold(
         topBar = {
-            TopAppBar(
+            // 不滚动的页面，大标题只占地方；透明才和页面连成一片
+            // 棋盘是自绘的不透明画面，不上页面采样层，顶栏用页面底色（Scaffold 的 surface，
+            // 和原来透明顶栏看到的一致）；按钮材质采这层底色，没有页面采样源也不会崩。
+            CouiPageTopAppBar(
                 title = "GPA 2048",
                 navigationIcon = {
                     LeaveButton(inProgress, leave::request)
                 },
-                color = MiuixTheme.colorScheme.background,
+                color = MiuixTheme.colorScheme.surface,
+                pinned = true,
                 actions = {
                     if (Leaderboard.enabled) {
-                        IconButton(onClick = { Leaderboard.openRanking(GameIds.G2048) }) {
+                        CouiToolbarActionButton(onClick = { Leaderboard.openRanking(GameIds.G2048) }) {
                             Icon(Icons.Default.EmojiEvents, contentDescription = "排行榜")
                         }
                     }
@@ -380,6 +383,8 @@ private fun BoardView(
 ) {
     val density = LocalDensity.current
     val thresholdPx = with(density) { DRAG_THRESHOLD_DP.toPx() }
+    // 手势协程只启动一次：滑动要交给最新的那份处理（局面在它的闭包里）
+    val latestSwipe by androidx.compose.runtime.rememberUpdatedState(onSwipe)
     val dark = LocalIsDarkTheme.current
     val boardColor = if (dark) Color(0xFF1C2330) else Color(0xFFE6ECF5)
     val emptyColor = if (dark) Color(0xFF263041) else Color(0xFFF4F7FC)
@@ -408,7 +413,7 @@ private fun BoardView(
                             dragX += amount.x
                             dragY += amount.y
                             if (!fired) {
-                                resolveSwipeDirection(dragX, dragY, thresholdPx)?.let { fired = true; onSwipe(it) }
+                                resolveSwipeDirection(dragX, dragY, thresholdPx)?.let { fired = true; latestSwipe(it) }
                             }
                         },
                     )
@@ -448,12 +453,12 @@ private fun TileView(tile: UiTile, cell: Dp, cellPx: Int, gapPx: Int) {
         when (tile.kind) {
             TileKind.SPAWN -> {
                 delay(SLIDE_MS.toLong())
-                scale.animateTo(1f, spring(dampingRatio = 0.6f, stiffness = Spring.StiffnessMedium))
+                scale.animateTo(1f, tween(160, easing = FastOutSlowInEasing))
             }
             TileKind.MERGED -> {
                 delay(SLIDE_MS - 20L)
                 scale.animateTo(1.14f, tween(80))
-                scale.animateTo(1f, spring(dampingRatio = 0.5f, stiffness = Spring.StiffnessMedium))
+                scale.animateTo(1f, tween(160, easing = FastOutSlowInEasing))
             }
             // 连滑太快时上一段弹跳/冒出还没播完就被打断，直接归位，别卡在半大不小
             else -> scale.snapTo(1f)

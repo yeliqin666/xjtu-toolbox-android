@@ -57,11 +57,10 @@ import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.Scaffold
 import top.yukonga.miuix.kmp.basic.Surface
 import top.yukonga.miuix.kmp.basic.Text
-import top.yukonga.miuix.kmp.basic.rememberTopAppBarState
-import top.yukonga.miuix.kmp.basic.MiuixScrollBehavior
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.utils.overScrollVertical
 import com.xjtu.toolbox.nav.AppRoute
+import com.xjtu.toolbox.ui.glass.rememberCouiTopAppBarScrollBehavior
 
 /** 加餐券：四个分类的分段页签 + 瀑布流券卡 + 领取，翻页触底自动加载。 */
 @Composable
@@ -70,12 +69,12 @@ fun CouponScreen(
     source: CouponSource,
     onBack: () -> Unit,
     /** 首页摘要回写（见 [CouponViewModel.onSummary]）：Android = `HomeStats.push(…, AppRoute.Coupon, …)` ；桌面/Web 没有那份首页摘要⇒ 默认空实现。 */
-    onSummary: (summary: String, detail: String?) -> Unit = { _, _ -> },
+    onSummary: (summary: String, detail: String?, count: Int?) -> Unit = { _, _, _ -> },
 ) {
     val authExpiry = LocalAuthExpiry.current
     val vm: CouponViewModel = viewModel(key = "coupon") { CouponViewModel(source, onSummary) }
     LaunchedEffect(vm) { vm.authExpired.collect { authExpiry.onAuthExpired(AppRoute.Coupon, onBack) } }
-    val scrollBehavior = MiuixScrollBehavior(rememberTopAppBarState())
+    val scrollBehavior = rememberCouiTopAppBarScrollBehavior()
     val selectedFilter = vm.filter
 
     // 玻璃顶栏（经典风格下为 null，一切照旧），用法见 ui/glass/GlassTopBar.kt
@@ -87,21 +86,24 @@ fun CouponScreen(
                 glass = glass,
                 scrollBehavior = scrollBehavior,
                 onBack = onBack,
-                // 分段标签不跟着滚：挂在顶栏里和顶栏一起做一整块玻璃，券卡从它下面滚过去
                 bottomContent = {
-                    CompositionLocalProvider(LocalOnGlassBar provides (glass != null)) {
-                        AppSegmentedTabs(
-                            tabs = CouponFilter.entries.map { it.label },
-                            selectedTabIndex = CouponFilter.entries.indexOf(selectedFilter),
-                            onTabSelected = { vm.selectFilter(CouponFilter.entries[it]) },
-                            modifier = Modifier.readableWidth(),
-                        )
-                    }
+                    com.xjtu.toolbox.ui.components.DockedPageTabs(
+                        tabs = CouponFilter.entries.map { it.label },
+                        selectedTabIndex = CouponFilter.entries.indexOf(selectedFilter),
+                        onTabSelected = { vm.selectFilter(CouponFilter.entries[it]) },
+                    )
                 },
             )
-        }
+        },
     ) { padding ->
         val glassTop = padding.glassTop(glass)
+        // 分类切换
+        com.xjtu.toolbox.ui.components.PageBottomTabsHost(
+            tabs = CouponFilter.entries.map { it.label },
+            selectedTabIndex = CouponFilter.entries.indexOf(selectedFilter),
+            onTabSelected = { vm.selectFilter(CouponFilter.entries[it]) },
+            modifier = Modifier.fillMaxSize(),
+        ) {
         // 宽屏不再整页限宽 720：券卡分两三列铺开，只有标签行还限宽居中
         Column(
             Modifier
@@ -167,6 +169,7 @@ fun CouponScreen(
                 }
             }
         }
+        }
     }
 }
 
@@ -212,7 +215,7 @@ private fun CouponList(
             .fillMaxSize()
             .overScrollVertical(),
         spacing = 10.dp,
-        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 12.dp + topPadding, bottom = 12.dp)
+        contentPadding = tabContentPadding(PaddingValues(start = 16.dp, end = 16.dp, top = 12.dp + topPadding, bottom = 12.dp))
     ) {
         fullLineItem {
             CouponSummaryCard(
@@ -259,8 +262,8 @@ private fun CouponList(
                         color = MiuixTheme.colorScheme.onSurfaceVariantSummary
                     )
                     Spacer(Modifier.height(8.dp))
-                    Button(onClick = onLoadMore, enabled = !isLoadingMore) {
-                        Text("重试")
+                    Button(onClick = onLoadMore, enabled = !isLoadingMore, colors = top.yukonga.miuix.kmp.basic.ButtonDefaults.buttonColorsPrimary()) {
+                        Text("重试", color = MiuixTheme.colorScheme.onPrimary)
                     }
                 }
             }
@@ -407,12 +410,13 @@ private fun CouponRecordCard(
                     Button(
                         onClick = { onReceive(coupon) },
                         enabled = !isReceiving && coupon.showCardId.isNotBlank(),
+                        colors = top.yukonga.miuix.kmp.basic.ButtonDefaults.buttonColorsPrimary(),
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         if (isReceiving) {
                             CircularProgressIndicator(size = 16.dp, strokeWidth = 2.dp)
                         } else {
-                            Text("领取")
+                            Text("领取", color = MiuixTheme.colorScheme.onPrimary)
                         }
                     }
                 }

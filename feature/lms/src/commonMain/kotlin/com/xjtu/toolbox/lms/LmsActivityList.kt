@@ -30,12 +30,14 @@ import com.xjtu.toolbox.ui.adaptive.AdaptiveCardGrid
 import com.xjtu.toolbox.ui.adaptive.fullLineItem
 import androidx.compose.foundation.lazy.staggeredgrid.items
 import com.xjtu.toolbox.ui.glass.*
+import com.xjtu.toolbox.ui.glass.CouiToolbarActionButton
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 import top.yukonga.miuix.kmp.basic.*
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.utils.PressFeedbackType
 import com.xjtu.toolbox.nav.AppRoute
+import com.xjtu.toolbox.ui.glass.rememberCouiTopAppBarScrollBehavior
 
 private const val TAG = "LmsScreen"
 
@@ -57,6 +59,7 @@ internal fun ActivityListPage(
     onBack: () -> Unit,
     onActivitySelected: (LmsActivity) -> Unit,
     onBulletinSelected: (LmsBulletin) -> Unit,
+    onAskAgent: ((com.xjtu.toolbox.agent.AgentForward) -> Unit)? = null,
 ) {
     val authExpiry = LocalAuthExpiry.current
     val activities = cache.activities[course.id].orEmpty()
@@ -82,7 +85,7 @@ internal fun ActivityListPage(
     }
 
     val listState = rememberRetainedLazyStaggeredGridState("lms_activities_${course.id}")
-    val scrollBehavior = MiuixScrollBehavior(rememberTopAppBarState())
+    val scrollBehavior = rememberCouiTopAppBarScrollBehavior()
     // 玻璃顶栏（经典风格下为 null，一切照旧），用法见 ui/glass/GlassTopBar.kt
     val glass = rememberPageGlass()
 
@@ -150,44 +153,47 @@ internal fun ActivityListPage(
                 glass = glass,
                 scrollBehavior = scrollBehavior,
                 onBack = onBack,
-                // 分类挂在顶栏底部，和顶栏一整块玻璃，列表从它下面滚过去（同校园卡的标签行）
                 bottomContent = {
-                    if (filters.size > 2) CompositionLocalProvider(com.xjtu.toolbox.ui.glass.LocalOnGlassBar provides (glass != null)) {
-                        AppSegmentedTabs(
-                            tabs = filters.map {
-                                when (it) {
-                                    CourseContentFilter.All -> "全部"
-                                    CourseContentFilter.Bulletin -> "公告"
-                                    is CourseContentFilter.Activity -> it.type.displayName()
-                                }
-                            },
-                            selectedTabIndex = filters.indexOf(filter).coerceAtLeast(0),
-                            onTabSelected = { i ->
-                                filter = filters[i]
-                                if (filter is CourseContentFilter.Bulletin) {
-                                    selecting = false
-                                    picked.clear()
-                                }
-                            },
-                        )
-                    }
+                    com.xjtu.toolbox.ui.components.DockedPageTabs(
+                        tabs = filters.map {
+                            when (it) {
+                                CourseContentFilter.All -> "全部"
+                                CourseContentFilter.Bulletin -> "公告"
+                                is CourseContentFilter.Activity -> it.type.displayName()
+                            }
+                        },
+                        selectedTabIndex = filters.indexOf(filter).coerceAtLeast(0),
+                        onTabSelected = { i ->
+                            filter = filters[i]
+                            if (filter is CourseContentFilter.Bulletin) {
+                                selecting = false
+                                picked.clear()
+                            }
+                        },
+                        visible = filters.size > 2,
+                    )
                 },
                 actions = {
-                    IconButton(onClick = { pickColor = true }) {
-                        Icon(Icons.Default.Palette, contentDescription = "课程颜色", tint = lmsAccent(course))
-                    }
-                    // 批量下载要能把文件落下来（`source.saveDownload` = 取字节 + 写下载位置）：
-                    // serve 形态两样都没有（契约 §5.6）⇒ 这一档整个不出现 —— 与「课堂回放」那一行
-                    // 按 `supportsVideoQueue` 收口同一条规矩（点了会失败的东西不摆出来）。
-                    if (activities.any { it.type in BATCH_TYPES } && source.supportsDownload && filter !is CourseContentFilter.Bulletin) {
-                        IconButton(onClick = {
-                            selecting = !selecting
-                            if (!selecting) picked.clear()
-                        }) {
-                            Icon(
-                                if (selecting) Icons.Default.Close else Icons.Default.Download,
-                                contentDescription = if (selecting) "退出批量下载" else "批量下载",
-                            )
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(2.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        CouiToolbarActionButton(onClick = { pickColor = true }) {
+                            Icon(Icons.Default.Palette, contentDescription = "课程颜色", tint = lmsAccent(course))
+                        }
+                        // 批量下载要能把文件落下来（`source.saveDownload` = 取字节 + 写下载位置）：
+                        // serve 形态两样都没有（契约 §5.6）⇒ 这一档整个不出现 —— 与「课堂回放」那一行
+                        // 按 `supportsVideoQueue` 收口同一条规矩（点了会失败的东西不摆出来）。
+                        if (activities.any { it.type in BATCH_TYPES } && source.supportsDownload && filter !is CourseContentFilter.Bulletin) {
+                            CouiToolbarActionButton(onClick = {
+                                selecting = !selecting
+                                if (!selecting) picked.clear()
+                            }) {
+                                Icon(
+                                    if (selecting) Icons.Default.Close else Icons.Default.Download,
+                                    contentDescription = if (selecting) "退出批量下载" else "批量下载",
+                                )
+                            }
                         }
                     }
                 },
@@ -211,18 +217,40 @@ internal fun ActivityListPage(
                 },
             )
         }
+        // 批量下载时底部换成操作条，分类先收起
+        com.xjtu.toolbox.ui.components.PageBottomTabsHost(
+            tabs = filters.map {
+                when (it) {
+                    CourseContentFilter.All -> "全部"
+                    CourseContentFilter.Bulletin -> "公告"
+                    is CourseContentFilter.Activity -> it.type.displayName()
+                }
+            },
+            selectedTabIndex = filters.indexOf(filter).coerceAtLeast(0),
+            onTabSelected = { i ->
+                filter = filters[i]
+                if (filter is CourseContentFilter.Bulletin) {
+                    selecting = false
+                    picked.clear()
+                }
+            },
+            visible = filters.size > 2 && !selecting,
+            modifier = Modifier.fillMaxSize(),
+        ) {
         Box(Modifier.fillMaxSize().padding(padding.withoutTop(glass)).glassSource(glass).nestedScroll(scrollBehavior.nestedScrollConnection)) {
             val hasContent = activities.isNotEmpty() || bulletins.isNotEmpty()
             when {
-                isLoading && !hasContent -> LoadingIndicator("加载课程内容…")
-                errorMsg != null && !hasContent -> ErrorRetry(errorMsg!!) { loadActivities() }
+                // 两边都到了才出列表：先回来的一边单独露面，另一边再插进来，整页会跳
+                isLoading && (cache.activities[course.id] == null || cache.bulletins[course.id] == null) ->
+                    LoadingIndicator("加载课程内容…")
+                errorMsg != null && activities.isEmpty() -> ErrorRetry(errorMsg!!) { loadActivities() }
                 !hasContent -> EmptyState(Icons.Default.Inbox, "暂无内容", "该课程还没有发布任何活动或公告")
                 else -> {
                     // 宽屏卡片分两三列（见 AdaptiveCardGrid）；卡片自带外边距，间距给 0
                     AdaptiveCardGrid(
                         state = listState,
                         modifier = Modifier.fillMaxSize(),
-                        contentPadding = PaddingValues(top = glassTop, bottom = 16.dp),
+                        contentPadding = tabContentPadding(PaddingValues(top = glassTop, bottom = 16.dp)),
                         spacing = 0.dp,
                         horizontalSpacing = 0.dp,
                     ) {
@@ -267,6 +295,9 @@ internal fun ActivityListPage(
                                         submitted = cache.submitted(activity) == true,
                                         selected = if (selecting) activity.id in picked else null,
                                         enabled = !selecting || canPick,
+                                        onAskAgent = if (selecting) null else onAskAgent?.let { ask ->
+                                            { ask(com.xjtu.toolbox.agent.AgentForward.lmsActivity(course, activity, activity.type.displayName())) }
+                                        },
                                     ) {
                                         when {
                                             !selecting -> onActivitySelected(activity)
@@ -293,6 +324,9 @@ internal fun ActivityListPage(
                                         submitted = cache.submitted(activity) == true,
                                         selected = if (selecting) activity.id in picked else null,
                                         enabled = !selecting || canPick,
+                                        onAskAgent = if (selecting) null else onAskAgent?.let { ask ->
+                                            { ask(com.xjtu.toolbox.agent.AgentForward.lmsActivity(course, activity, activity.type.displayName())) }
+                                        },
                                     ) {
                                         when {
                                             !selecting -> onActivitySelected(activity)
@@ -323,7 +357,7 @@ internal fun ActivityListPage(
                         .padding(horizontal = 12.dp, vertical = 10.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    TextButton(
+                    com.xjtu.toolbox.ui.components.TextLink(
                         text = if (allPicked) "取消全选" else "全选",
                         onClick = {
                             if (allPicked) picked.removeAll(pickable.map { it.id }.toSet())
@@ -343,6 +377,7 @@ internal fun ActivityListPage(
                     }
                 }
             }
+        }
         }
     }
 }
@@ -414,7 +449,7 @@ private fun BatchOptionRow(title: String, summary: String, checked: Boolean, onC
 private fun BatchProgressCard(state: LmsBatchDownload.State, pathLabel: String) {
     Card(
         modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp),
-        colors = CardDefaults.defaultColors(color = MiuixTheme.colorScheme.secondaryContainer),
+        colors = CardDefaults.defaultColors(color = com.xjtu.toolbox.ui.components.AppCardColor),
     ) {
         Column(Modifier.padding(14.dp)) {
             when (state) {
@@ -429,7 +464,7 @@ private fun BatchProgressCard(state: LmsBatchDownload.State, pathLabel: String) 
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text("正在下载 ${state.done}/${state.total}" + if (state.failed > 0) "，失败 ${state.failed}" else "",
                             style = MiuixTheme.textStyles.body2, fontWeight = FontWeight.Medium, modifier = Modifier.weight(1f))
-                        TextButton(text = "停止", onClick = { LmsBatchDownload.cancel() })
+                        com.xjtu.toolbox.ui.components.TextLink(text = "停止", onClick = { LmsBatchDownload.cancel() })
                     }
                     Text(state.current, style = MiuixTheme.textStyles.footnote1, maxLines = 1, overflow = TextOverflow.Ellipsis,
                         color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
@@ -457,7 +492,7 @@ private fun BatchProgressCard(state: LmsBatchDownload.State, pathLabel: String) 
                             Text("在「${pathLabel}${state.courseName}」",
                                 style = MiuixTheme.textStyles.footnote2, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
                         }
-                        TextButton(text = "知道了", onClick = { LmsBatchDownload.dismiss() })
+                        com.xjtu.toolbox.ui.components.TextLink(text = "知道了", onClick = { LmsBatchDownload.dismiss() })
                     }
                 }
                 LmsBatchDownload.State.Idle -> Unit
@@ -473,11 +508,56 @@ private fun LmsActivityCard(
     /** 批量选择时的勾选状态；null 表示不在选择模式。 */
     selected: Boolean? = null,
     enabled: Boolean = true,
+    onAskAgent: (() -> Unit)? = null,
+    onClick: () -> Unit,
+) {
+    var menuOpen by remember { mutableStateOf(false) }
+    val haptics = androidx.compose.ui.platform.LocalHapticFeedback.current
+    Box {
+        LmsActivityCardBody(
+            activity = activity,
+            submitted = submitted,
+            selected = selected,
+            enabled = enabled,
+            onLongPress = onAskAgent?.let {
+                {
+                    haptics.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
+                    menuOpen = true
+                }
+            },
+            onClick = onClick,
+        )
+        if (onAskAgent != null) {
+            com.xjtu.toolbox.ui.components.AppDropdownMenu(
+                expanded = menuOpen,
+                onDismissRequest = { menuOpen = false },
+                morph = com.xjtu.toolbox.ui.components.MenuMorph.FromRow,
+            ) {
+                com.xjtu.toolbox.ui.components.AppDropdownMenuItem(
+                    text = { Text("问小岱") },
+                    onClick = {
+                        menuOpen = false
+                        onAskAgent()
+                    },
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun LmsActivityCardBody(
+    activity: LmsActivity,
+    submitted: Boolean,
+    selected: Boolean?,
+    enabled: Boolean,
+    onLongPress: (() -> Unit)?,
     onClick: () -> Unit,
 ) {
     val (icon, color) = activityTypeVisual(activity.type)
     Card(
         onClick = onClick,
+        onLongPress = onLongPress,
         pressFeedbackType = PressFeedbackType.Sink,
         modifier = Modifier
             .fillMaxWidth()

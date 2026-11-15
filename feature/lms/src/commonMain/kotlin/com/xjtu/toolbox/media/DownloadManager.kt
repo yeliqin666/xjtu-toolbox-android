@@ -8,9 +8,11 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
@@ -20,17 +22,22 @@ import kotlinx.coroutines.sync.withLock
 /** 并发上限：最多同时下载 3 个。 */
 private const val MAX_CONCURRENT_DOWNLOADS = 3
 
-/** 下载管理器：任务队列 / 状态机 / 进度广播。 */
+/**
+ * 下载管理器：任务队列 / 状态机 / 进度广播。
+ *
+ * 它就是 [DownloadsHost] 的**本机实现**（Android / 桌面）：屏只认那个窄接口，
+ * 浏览器那一份走 `/api/downloads`（见 [DownloadsHost] 的 KDoc）。
+ */
 class DownloadManager(
     private val store: DownloadTaskStore,
     private val engine: DownloadEngine,
     private val fileSystem: DownloadFileSystem,
     /** 跑下载任务的作用域（Android 传 `Dispatchers.IO + SupervisorJob()`）。 */
     private val scope: CoroutineScope = CoroutineScope(Dispatchers.Default + SupervisorJob()),
-) {
+) : DownloadsHost {
 
     /** 回放视频的保存目录，供界面展示用。别在 UI 里另写一份字符串，改了目录就会不一致。 */
-    val videoDirPath: String get() = fileSystem.downloadRoot
+    override val videoDirPath: String get() = fileSystem.downloadRoot
 
     /** 正在运行的下载任务。 */
     private val activeDownloads = mutableMapOf<Long, Job>()
@@ -43,6 +50,9 @@ class DownloadManager(
     private val _progressFlow = MutableSharedFlow<DownloadProgress>(extraBufferCapacity = 1)
     val progressFlow: SharedFlow<DownloadProgress> = _progressFlow.asSharedFlow()
 
+    /** 屏只认「有变化」这一个信号（见 [DownloadsHost.changes]）：把真进度流摊平成一发一发。 */
+    override val changes: Flow<Unit> get() = progressFlow.map { }
+
     init {
         // 启动时：将之前正在下载的任务标记为暂停
         scope.launch {
@@ -52,8 +62,16 @@ class DownloadManager(
         }
     }
 
-    /** 全表（屏上那个列表读的就是它，创建时间倒序）。 */
+    /**
+     * 全表（创建时间倒序）。
+     *
+     * 屏走 [snapshot]（一次拿任务与计数）；这一条留给测试与别的调用方（`:desktop:test` 的渲染测试就读它）。
+     */
     suspend fun getAllTasks(): List<DownloadTask> = store.getAll()
+
+    /** 一次快照（任务全表 + 计数）：屏上的列表与那一行计数都读它。 */
+    override suspend fun snapshot(): DownloadsSnapshot =
+        DownloadsSnapshot(tasks = getAllTasks(), stats = getDownloadStats())
 
     /** 批量创建下载任务。 */
     suspend fun enqueueDownloads(
@@ -169,18 +187,18 @@ class DownloadManager(
     }
 
     /** 暂停下载。 */
-    suspend fun pauseDownload(taskId: Long) {
+    override suspend fun pauseDownload(taskId: Long) {
         store.updateStatus(taskId, DownloadStatus.PAUSED)
         cancelActive(taskId)
     }
 
     /** 恢复下载。 */
-    fun resumeDownload(taskId: Long) {
+    override suspend fun resumeDownload(taskId: Long) {
         scope.launch { launchDownload(taskId) }
     }
 
     /** 取消下载（删除文件）。 */
-    suspend fun cancelDownload(taskId: Long) {
+    override suspend fun cancelDownload(taskId: Long) {
         cancelActive(taskId)
 
         val task = store.getAll().find { it.id == taskId }
@@ -191,7 +209,7 @@ class DownloadManager(
     }
 
     /** 暂停所有下载。 */
-    suspend fun pauseAll() {
+    override suspend fun pauseAll() {
         val activeTasks = store.getActiveTasks()
         activeTasks.forEach { task ->
             if (task.status == DownloadStatus.DOWNLOADING) {
@@ -201,7 +219,7 @@ class DownloadManager(
     }
 
     /** 恢复所有下载。 */
-    fun resumeAll() {
+    override suspend fun resumeAll() {
         scope.launch {
             val pausedTasks = store.getActiveTasks()
                 .filter { it.status == DownloadStatus.PAUSED || it.status == DownloadStatus.PENDING }
@@ -212,7 +230,7 @@ class DownloadManager(
     }
 
     /** 取消所有下载。 */
-    suspend fun cancelAll() {
+    override suspend fun cancelAll() {
         store.getActiveTasks().forEach { task ->
             cancelDownload(task.id)
         }
@@ -226,7 +244,7 @@ class DownloadManager(
     }
 
     /** 删除单个任务记录。 */
-    suspend fun deleteTask(taskId: Long, deleteFile: Boolean = true) {
+    override suspend fun deleteTask(taskId: Long, deleteFile: Boolean) {
         val task = store.getAll().find { it.id == taskId }
         if (task != null && task.status != DownloadStatus.DOWNLOADING) {
             // 暂停/等待中的任务：取消活跃下载并始终删除文件
@@ -243,7 +261,7 @@ class DownloadManager(
         }
     }
 
-    /** 获取下载统计信息。 */
+    /** 计数那三个数（[snapshot] 与屏上那一行都读它）。 */
     suspend fun getDownloadStats(): DownloadStats {
         val downloading = store.getDownloadingCount()
         val completed = store.getCompletedCount()

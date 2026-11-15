@@ -73,16 +73,18 @@ class WeekGridLayoutTest {
     // ── 纵轴 ──
 
     @Test
-    fun `plain week draws sections 1-10 with lunch and dinner bands only`() {
+    fun `plain week draws sections 1-10 with unnamed lunch and dinner gaps`() {
         val layout = summerWeek(section("高数", 1, 1, 2))
-        assertEquals(listOf("1", "2", "3", "4", "午休", "5", "6", "7", "8", "晚休", "9", "10"), layout.labels())
+        // 午休 / 晚休不再有自己的名字和行高：只留一条无名时段带（空着时高度 0，见 ScheduleGrid）
+        assertEquals(listOf("1", "2", "3", "4", "", "5", "6", "7", "8", "", "9", "10"), layout.labels())
+        assertTrue(layout.rows.filter { it.section == null }.all { it.label.isEmpty() })
     }
 
     @Test
     fun `section courses cover exactly their rows`() {
         val layout = summerWeek(section("物理", 1, 3, 4), section("线代", 1, 5, 6))
         assertEquals(layout.rowOf(3).toFloat(), layout.placed("物理").start)
-        // 3-4 节的下沿是午休带的上沿，不盖住午休
+        // 3-4 节的下沿是大空档带的上沿，不盖住空档
         assertEquals((layout.rowOf(4) + 1).toFloat(), layout.placed("物理").end)
         assertEquals(layout.rowOf(5).toFloat(), layout.placed("线代").start)
         assertEquals((layout.rowOf(6) + 1).toFloat(), layout.placed("线代").end)
@@ -122,7 +124,8 @@ class WeekGridLayoutTest {
     @Test
     fun `entries inside a rest band land in the band`() {
         val layout = summerWeek(timed("午饭会", 2, "12:30", "13:30"))
-        val lunch = layout.rows.indexOfFirst { it.label == "午休" }
+        val lunch = layout.rowOf(4) + 1
+        assertTrue(layout.rows[lunch].label.isEmpty())
         val meeting = layout.placed("午饭会")
         // 夏令午休 12:00–14:30
         assertEquals(lunch + 0.2f, meeting.start, 1e-4f)
@@ -136,7 +139,7 @@ class WeekGridLayoutTest {
             timed("午饭会", 2, "12:30", "13:30"),
             timed("答疑", 3, "13:00", "13:45"),
         )
-        val lunch = layout.rows.indexOfFirst { it.label == "午休" }
+        val lunch = layout.rowOf(4) + 1
         val pieces = layout.pieces(lunch)
         assertEquals(listOf(false, true, false), pieces.map { it.occupied })
         assertEquals(0.2f, pieces[1].from, 1e-4f)
@@ -183,7 +186,7 @@ class WeekGridLayoutTest {
     @Test
     fun `now line sits inside the dinner band during dinner`() {
         val layout = summerWeek()
-        val dinner = layout.rows.indexOfFirst { it.label == "晚休" }
+        val dinner = layout.rowOf(8) + 1
         val pos = layout.positionOf("18:33".minutes(), summer = true)
         assertTrue(pos > dinner && pos < dinner + 1)
     }

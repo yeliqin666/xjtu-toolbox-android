@@ -1,10 +1,13 @@
 package com.xjtu.toolbox.schedule
 
 import com.xjtu.toolbox.ui.components.enterOnce
+import com.xjtu.toolbox.ui.components.GapNote
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.animation.animateContentSize
+import top.yukonga.miuix.kmp.basic.HorizontalDivider
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -89,6 +92,7 @@ fun TodayTimeline(
     upcoming: List<UpcomingItem> = emptyList(),
     /** 今天截止的作业，插进时间轴对应的时刻（不是「接下来」——那是给以后的）。 */
     todayHomework: List<LmsDue> = emptyList(),
+    dueHomeworkGap: String? = null,
     /** 屁岱排日程卡里的安排写进日程（见 [DayPlanCard]）。 */
     onAddPlan: ((LocalDate, List<PlanItem>) -> Unit)? = null,
     onNavigate: (AppRoute) -> Unit = {},
@@ -169,8 +173,11 @@ fun TodayTimeline(
     // 两边都没内容才是真的空——只要「接下来」有东西，就不该用一整页空状态盖住它。
     if (entries.isEmpty() && upcoming.isEmpty() && showPlan) {
         // 有屁岱卡时整页可滚：卡片展开后（时间线 + 地图）比一屏高
+        val listState = androidx.compose.foundation.lazy.rememberLazyListState()
+        com.xjtu.toolbox.ui.glass.ReportScrollPosition(listState)
         LazyColumn(
             Modifier.fillMaxSize().overScrollVertical(),
+            state = listState,
             contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp + topPadding, bottom = 12.dp + bottomPadding),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
@@ -199,8 +206,12 @@ fun TodayTimeline(
 
     val campusNow = com.xjtu.toolbox.ui.rememberCampusNow()
     val nowMinute = campusNow.time.toMinuteOfDay()
+    // 顶栏毛玻璃 / 按钮轮廓按列表实际位置（短内容回弹时也对得上）
+    val listState = androidx.compose.foundation.lazy.rememberLazyListState()
+    com.xjtu.toolbox.ui.glass.ReportScrollPosition(listState)
     LazyColumn(
         Modifier.fillMaxSize().overScrollVertical(),
+        state = listState,
         contentPadding = PaddingValues(
             start = 16.dp, end = 16.dp, top = 8.dp + topPadding, bottom = 12.dp + bottomPadding,
         ),
@@ -228,6 +239,7 @@ fun TodayTimeline(
             item { Box(Modifier.enterOnce(base)) { SectionLabel("接下来") } }
             itemsIndexed(upcoming) { i, item -> Box(Modifier.enterOnce(base + 1 + i)) { UpcomingRow(item, onNavigate) } }
         }
+        dueHomeworkGap?.let { gap -> item { GapNote(gap) } }
     }
 }
 
@@ -482,6 +494,8 @@ fun SemesterCourseList(
     topPadding: Dp = 0.dp,
     /** 整学期的考试。分级布局没有独立的「考试」页，它们排在课程列表前面。 */
     exams: List<ExamItem> = emptyList(),
+    /** 本周是第几周；0 = 不看本学期，不判断哪些已经上完。 */
+    currentWeek: Int = 0,
 ) {
     // 同一门课一周上两次会有两条记录，按课程号合并，周次取并集。
     val merged = remember(courses) {
@@ -502,6 +516,12 @@ fun SemesterCourseList(
             }
             .sortedBy { it.course.courseName }
     }
+    // 课程、日程（自建的、教务排的活动）分开列；最后一周早于本周的整段沉底折叠
+    val (ended, active) = remember(merged, currentWeek) {
+        merged.partition { currentWeek > 0 && it.weeks.isNotEmpty() && it.weeks.last() < currentWeek }
+    }
+    val (activeSchedules, activeCourses) = remember(active) { active.partition { it.isSchedule } }
+    var coursesEndedExpanded by rememberSaveable { mutableStateOf(false) }
     // 排好序的考试：未结束在前、已结束折叠。与考试倒计时横幅点开的弹窗共用同一套排序，见 ExamList.kt。
     val examData = remember(exams) { sortExamsForList(exams) }
     var examsEndedExpanded by rememberSaveable { mutableStateOf(false) }
@@ -516,8 +536,11 @@ fun SemesterCourseList(
         }
         return
     }
+    val listState = androidx.compose.foundation.lazy.rememberLazyListState()
+    com.xjtu.toolbox.ui.glass.ReportScrollPosition(listState)
     LazyColumn(
         Modifier.fillMaxSize().overScrollVertical(),
+        state = listState,
         contentPadding = PaddingValues(
             start = 16.dp, end = 16.dp, top = 8.dp + topPadding, bottom = 12.dp + bottomPadding,
         ),
@@ -530,73 +553,102 @@ fun SemesterCourseList(
                 item { SectionLabel("考试安排 · 还有 ${examData.active.size} 场") }
             }
             examListItems(examData, examsEndedExpanded, { examsEndedExpanded = !examsEndedExpanded })
-            if (merged.isNotEmpty()) item { SectionLabel("本学期课程 · ${merged.size} 门") }
         }
-        items(merged) { row ->
-            val course = row.course
-            val books = remember(course.courseName, course.courseCode, textbooks) {
-                TextbookLinks.textbooksFor(course.courseName, textbooks, course.courseCode)
-            }
+        // 只有一段时不写分组标题
+        val labelled = examData.total > 0 || activeSchedules.isNotEmpty() || ended.isNotEmpty()
+        if (labelled && activeCourses.isNotEmpty()) item { SectionLabel("本学期课程 · ${activeCourses.size} 门") }
+        items(activeCourses) { row -> SemesterRowCard(row, textbooks, onCourseClick) }
+        if (activeSchedules.isNotEmpty()) item { SectionLabel("日程 · ${activeSchedules.size} 项") }
+        items(activeSchedules) { row -> SemesterRowCard(row, textbooks, onCourseClick) }
+        if (ended.isNotEmpty()) item(key = "semester_ended_group") {
             Card(
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier.fillMaxWidth().animateContentSize(),
                 cornerRadius = 14.dp,
-                // 页面底色就是 surface，卡片再用 surface 就等于没有卡片——
-                // 看上去是一堆字直接浮在背景上。全 app 的卡片都用 surfaceVariant。
                 colors = CardDefaults.defaultColors(color = MiuixTheme.colorScheme.surfaceVariant),
-                onClick = { onCourseClick(course) },
             ) {
-                Column(Modifier.padding(14.dp)) {
-                    Text(
-                        course.courseName,
-                        style = MiuixTheme.textStyles.body1,
-                        fontWeight = FontWeight.Bold,
-                        color = MiuixTheme.colorScheme.onSurface,
-                    )
-                    // 第一行给上课时间——整学期视图里这是最常被问的（"这课周几"），
-                    // 之前只有老师、地点、周次，恰恰缺了它。
-                    val slotLine = row.slots.joinToString("，") { (dow, sec) ->
-                        "周${DOW_NAMES.getOrElse(dow) { "?" }} ${sec.first}-${sec.second}节"
-                    }
-                    if (slotLine.isNotBlank()) {
-                        Spacer(Modifier.height(4.dp))
-                        Text(
-                            slotLine,
-                            style = MiuixTheme.textStyles.footnote1,
-                            fontWeight = FontWeight.Medium,
-                            color = MiuixTheme.colorScheme.onSurface,
+                Column {
+                    EndedToggleRow("已结束 · ${ended.size} 项", coursesEndedExpanded, { coursesEndedExpanded = !coursesEndedExpanded })
+                    if (coursesEndedExpanded) ended.forEach { row ->
+                        HorizontalDivider(
+                            modifier = Modifier.padding(horizontal = 14.dp),
+                            color = MiuixTheme.colorScheme.outline.copy(alpha = 0.12f),
                         )
-                    }
-                    val line = listOfNotNull(
-                        course.teacher.takeIf { it.isNotBlank() },
-                        course.location.takeIf { it.isNotBlank() },
-                        row.weeks.takeIf { it.isNotEmpty() }?.let { "${TermWeeks.formatRanges(it)}周" },
-                    ).joinToString("  ·  ")
-                    if (line.isNotBlank()) {
-                        Spacer(Modifier.height(2.dp))
-                        Text(
-                            line,
-                            style = MiuixTheme.textStyles.footnote1,
-                            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                        )
-                    }
-                    if (books.isNotEmpty()) {
-                        Spacer(Modifier.height(6.dp))
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(
-                                Icons.Default.EditCalendar, null, Modifier.size(14.dp),
-                                tint = MiuixTheme.colorScheme.primary,
-                            )
-                            Spacer(Modifier.width(5.dp))
-                            Text(
-                                books.joinToString("；") { it.textbookName },
-                                style = MiuixTheme.textStyles.footnote1,
-                                color = MiuixTheme.colorScheme.primary,
-                                maxLines = 2,
-                                overflow = TextOverflow.Ellipsis,
-                            )
-                        }
+                        SemesterRowContent(row, textbooks, Modifier.clickable { onCourseClick(row.course) })
                     }
                 }
+            }
+        }
+    }
+}
+
+@Composable
+private fun SemesterRowCard(row: SemesterRow, textbooks: List<TextbookItem>, onCourseClick: (CourseItem) -> Unit) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        cornerRadius = 14.dp,
+        // 页面底色就是 surface，卡片再用 surface 就等于没有卡片——
+        // 看上去是一堆字直接浮在背景上。全 app 的卡片都用 surfaceVariant。
+        colors = CardDefaults.defaultColors(color = MiuixTheme.colorScheme.surfaceVariant),
+        onClick = { onCourseClick(row.course) },
+    ) {
+        SemesterRowContent(row, textbooks)
+    }
+}
+
+@Composable
+private fun SemesterRowContent(row: SemesterRow, textbooks: List<TextbookItem>, modifier: Modifier = Modifier) {
+    val course = row.course
+    val books = remember(course.courseName, course.courseCode, textbooks) {
+        TextbookLinks.textbooksFor(course.courseName, textbooks, course.courseCode)
+    }
+    Column(modifier.fillMaxWidth().padding(14.dp)) {
+        Text(
+            course.courseName,
+            style = MiuixTheme.textStyles.body1,
+            fontWeight = FontWeight.Bold,
+            color = MiuixTheme.colorScheme.onSurface,
+        )
+        // 第一行给上课时间：整学期视图里最常被问的是「这课周几」
+        val slotLine = row.slots.joinToString("，") { (dow, sec) ->
+            "周${DOW_NAMES.getOrElse(dow) { "?" }} ${sec.first}-${sec.second}节"
+        }
+        if (slotLine.isNotBlank()) {
+            Spacer(Modifier.height(4.dp))
+            Text(
+                slotLine,
+                style = MiuixTheme.textStyles.footnote1,
+                fontWeight = FontWeight.Medium,
+                color = MiuixTheme.colorScheme.onSurface,
+            )
+        }
+        val line = listOfNotNull(
+            course.teacher.takeIf { it.isNotBlank() },
+            course.location.takeIf { it.isNotBlank() },
+            row.weeks.takeIf { it.isNotEmpty() }?.let { "${TermWeeks.formatRanges(it)}周" },
+        ).joinToString("  ·  ")
+        if (line.isNotBlank()) {
+            Spacer(Modifier.height(2.dp))
+            Text(
+                line,
+                style = MiuixTheme.textStyles.footnote1,
+                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+            )
+        }
+        if (books.isNotEmpty()) {
+            Spacer(Modifier.height(6.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    Icons.Default.EditCalendar, null, Modifier.size(14.dp),
+                    tint = MiuixTheme.colorScheme.primary,
+                )
+                Spacer(Modifier.width(5.dp))
+                Text(
+                    books.joinToString("；") { it.textbookName },
+                    style = MiuixTheme.textStyles.footnote1,
+                    color = MiuixTheme.colorScheme.primary,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
             }
         }
     }
@@ -608,7 +660,11 @@ private data class SemesterRow(
     val weeks: List<Int>,
     /** (星期, (起始节, 结束节))，已按星期、节次排序。 */
     val slots: List<Pair<Int, Pair<Int, Int>>>,
-)
+) {
+    /** 不是课而是日程：自建的，或教务排的活动（没有课程号，或没有老师且只排一两周，如舍长大会）。 */
+    val isSchedule: Boolean
+        get() = course.isUserCreated || course.courseCode.isBlank() || (course.teacher.isBlank() && weeks.size <= 2)
+}
 
 private val DOW_NAMES = listOf("", "一", "二", "三", "四", "五", "六", "日")
 

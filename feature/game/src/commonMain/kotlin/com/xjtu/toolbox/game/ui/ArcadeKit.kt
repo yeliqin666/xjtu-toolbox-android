@@ -9,6 +9,7 @@ import androidx.compose.animation.scaleIn
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import com.xjtu.toolbox.ui.glass.CouiToolbarActionButton
 import top.yukonga.miuix.kmp.utils.SinkFeedback
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -39,7 +40,6 @@ import androidx.compose.ui.unit.sp
 import com.xjtu.toolbox.platform.BackHandler
 import com.xjtu.toolbox.ui.glass.LocalTabRoot
 import top.yukonga.miuix.kmp.basic.Icon
-import top.yukonga.miuix.kmp.basic.IconButton
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
@@ -144,11 +144,13 @@ fun GameMenu(
 fun leaveIcon(inProgress: Boolean): ImageVector =
     if (inProgress) Icons.Filled.Pause else Icons.AutoMirrored.Filled.ArrowBack
 
-/** Miuix 顶栏用的左上角按钮；页面被放到底栏上时（[LocalTabRoot]）没有上一级，不画。 */
+/** 顶栏左上角的 COUI 圆钮；页面被放到底栏上时（[LocalTabRoot]）没有上一级，不画。 */
 @Composable
 fun LeaveButton(inProgress: Boolean, onClick: () -> Unit) {
     if (LocalTabRoot.current) return
-    IconButton(onClick = onClick) { Icon(leaveIcon(inProgress), contentDescription = if (inProgress) "暂停" else "返回") }
+    CouiToolbarActionButton(onClick = onClick) {
+        Icon(leaveIcon(inProgress), contentDescription = if (inProgress) "暂停" else "返回")
+    }
 }
 
 /** 暂停菜单：继续 / 重新开始 / 退出。配色默认跟 Miuix 主题，街机类游戏传自己的。 */

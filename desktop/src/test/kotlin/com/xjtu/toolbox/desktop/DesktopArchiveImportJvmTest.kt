@@ -273,6 +273,59 @@ class DesktopArchiveImportJvmTest {
     }
 
     @Test
+    fun `课表缓存族（B-9）：files schedule 并回 schedule_cache 店，端内已有则不动`() = withRoot { root ->
+        val suffix = "_2253415556"
+        val storeName = DesktopScheduleHost.SCHEDULE_CACHE_STORE + suffix
+        wipeSecureStore(storeName)
+        val cache = KeyValueScheduleCacheStore(secureKeyValueStore(storeName), nowMs = { FIXED_NOW })
+        ScheduleCache.writeCurrentTerm(cache, "2026-2027-1")
+
+        val entries = archiveOf(
+            stores = emptyList(),
+            files = listOf(
+                ArchiveFile(suffix, "schedule/schedule_current_term.json", "\"2027-2028-1\""),
+                ArchiveFile(suffix, "schedule/exams_2026-2027-1.json", """[{"name":"高等数学"}]"""),
+            ),
+        )
+        val outcome = DesktopArchiveImport.run(dropArchiveDir(root, entries), entries)
+
+        // 第一条端内已有 ⇒ 「保持不变」不算写；第二条才落 ⇒ filesWritten = 1、没有未落地的
+        assertEquals(
+            ImportResult.Ok(keysWritten = 0, keysKept = 0, filesWritten = 1),
+            (outcome as DesktopImportOutcome.Imported).result,
+        )
+        assertEquals("2026-2027-1", ScheduleCache.readCurrentTerm(cache), "端内已有 ⇒ 保持不变（§6.4 文件层）")
+        assertEquals(
+            """[{"name":"高等数学"}]""",
+            cache.readJsonStale("exams_2026-2027-1"),
+            "课表缓存族的落地路径就是店里的同名键",
+        )
+        assertTrue(
+            props(root, storeName).getProperty("exams_2026-2027-1${ArchiveCodec.WRITTEN_AT_SUFFIX}") != null,
+            "侧挂时间戳也补上（下一次才判得出新旧）",
+        )
+        wipeSecureStore(storeName)
+    }
+
+    @Test
+    fun `桌面没有落点的族如实计进 filesSkipped`() = withRoot { root ->
+        val suffix = "_2253415556"
+        val entries = archiveOf(
+            stores = emptyList(),
+            files = listOf(
+                ArchiveFile(suffix, "download_tasks/rows.json", "[]"),
+            ),
+        )
+        val outcome = DesktopArchiveImport.run(dropArchiveDir(root, entries), entries)
+
+        assertEquals(
+            ImportResult.Ok(keysWritten = 0, keysKept = 0, filesWritten = 0, filesSkipped = 1),
+            (outcome as DesktopImportOutcome.Imported).result,
+            "没有落点的族：宁可计数也不静默丢",
+        )
+    }
+
+    @Test
     fun `zip 形态的标记写在 zip 旁边`() = withRoot { root ->
         wipeSecureStore("app_settings")
         val entries = archiveOf(listOf(StoreSnapshot("app_settings", mapOf("default_tab" to StoreValue.S("HOME")))))

@@ -64,12 +64,15 @@ internal class AndroidAgentHost(
                 context = context,
                 host = this,
                 allowInteractiveLogin = interactiveLogin,
+                ocrKey = config.webSearchKey,
             ),
             // 各 feature 自带的工具（只实现 :shared:model 的 AgentTools），在入口这里并进来
             extras = listOfNotNull(
                 com.xjtu.toolbox.inbox.SelfTodoAgentTools,
                 com.xjtu.toolbox.campusmap.CampusMapAgentTools(locate = { AgentLocation.current(context) }),
                 PidaiTaskAgentTools,
+                com.xjtu.toolbox.bus.BusAgentTools(com.xjtu.toolbox.bus.appBusApi),
+                loginState.sessionManager?.let { com.xjtu.toolbox.degree.DegreeAgentTools(com.xjtu.toolbox.degree.appDegreeSource(context, it)) },
                 config.webSearchKey.takeIf { it.isNotEmpty() }?.let { DeepSeekWebTools(it, localFetch = wechat::readArticle) },
                 wechat,
             ),
@@ -137,7 +140,7 @@ internal class AndroidAgentHost(
     /** `app_setting` 只认这几项：改名/新增都要两边一起动（工具表的 enum 与这里）。 */
     private val writableSettingKeys = listOf(
         "dark_mode", "dynamic_color", "nav_bar_style", "show_quick_actions",
-        "default_tab", "network_mode", "account_type", "venue_auto_solve_captcha",
+        "default_tab", "network_mode", "account_type",
         "update_channel", "receive_preview_updates",
     )
 
@@ -149,10 +152,9 @@ internal class AndroidAgentHost(
             append("• dynamic_color（跟随系统取色）：${cs.dynamicColor}　可选 true/false\n")
             append("• nav_bar_style（界面风格）：${cs.navBarStyle}　可选 floating（玻璃，默认）/classic（经典，不透明、更省电）\n")
             append("• show_quick_actions（首页常用功能）：${cs.showQuickActions}　可选 true/false\n")
-            append("• default_tab（启动页）：${cs.defaultTab}　可选当前底栏上的格子 ${cs.bottomTabs.joinToString("/")}（底栏组成在 设置 → 首页与底栏 → 底栏 里改）\n")
+            append("• default_tab（启动页）：${cs.defaultTab}　可选当前底栏上的格子 ${cs.bottomTabs.joinToString("/")}（底栏组成在 设置 → 外观 → 底栏 里改）\n")
             append("• network_mode（网络模式）：${cs.networkMode}　可选 auto/direct/vpn\n")
             append("• account_type（账号类型）：${cs.accountType.key}　可选 undergraduate/postgraduate\n")
-            append("• venue_auto_solve_captcha（场馆验证码自动识别）：${cs.venueAutoSolveCaptchaEnabled}　可选 true/false\n")
             append("• update_channel（更新通道）：${cs.updateChannel}（${com.xjtu.toolbox.update.AppUpdater.channelLabel(cs.updateChannel)}）　可选 ${com.xjtu.toolbox.update.AppUpdater.channelKeys.joinToString("/")}\n")
             append("• receive_preview_updates（接收预览版更新）：${cs.receivePreviewUpdates}　可选 true/false")
         }
@@ -211,11 +213,6 @@ internal class AndroidAgentHost(
                 }
                 cs.accountType = type
                 "已将账号类型设为 ${type.displayName}。"
-            }
-            "venue_auto_solve_captcha" -> {
-                val b = agentParseBoolSetting(value) ?: return ToolReply.badValue("venue_auto_solve_captcha", "true/false")
-                cs.venueAutoSolveCaptchaEnabled = b
-                "已${if (b) "开启" else "关闭"}场馆验证码自动识别。"
             }
             "update_channel" -> {
                 val raw = value.trim().lowercase()

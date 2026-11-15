@@ -23,7 +23,9 @@ import com.xjtu.toolbox.inbox.InboxStore
 import com.xjtu.toolbox.fitness.FitnessProtocol
 import com.xjtu.toolbox.fitness.FitnessYear
 import com.xjtu.toolbox.judge.JudgeCard
-import com.xjtu.toolbox.judge.UndergraduateJudgeSource
+import com.xjtu.toolbox.judge.QmsJudgeApi
+import com.xjtu.toolbox.judge.QmsJudgeSource
+import com.xjtu.toolbox.qms.QmsFakeUpstream
 import com.xjtu.toolbox.card.AppCampusCardSource
 import com.xjtu.toolbox.card.CampusCardFakeUpstream
 import com.xjtu.toolbox.card.allTransactions
@@ -425,66 +427,50 @@ class DesktopAuthLibraryJvmTest {
     }
 
 
-    /** 真登录链之后走「评教」那一屏用的那个源（`UndergraduateJudgeSource`） */
+    /** 真登录链之后走「评教」那一屏用的那个源（`QmsJudgeSource`，本科走 QMS，与安卓同一个平台） */
     @Test
-    fun `真登录之后：本科评教读出夹具样本，未评两份与卡片口径都对`() = withFakeCampus {
+    fun `真登录之后：本科评教走 QMS，未评两份、已评一份与卡片口径都对`() = withFakeCampus {
         val (auth, _) = newAuth()
         assertTrue(login(auth))
         val postsAfterLogin = fake.library.credentialPosts.get()
 
-        runBlocking { auth.ensureSession(DesktopAuth.JWXT_SITE_KEY) }
-        assertEquals(
-            postsAfterLogin,
-            fake.library.credentialPosts.get(),
-            "评教与课表/成绩共用一份会话，不该再提交一次凭据",
-        )
+        runBlocking { auth.ensureSession(DesktopAuth.QMS_SITE_KEY) }
+        assertEquals(postsAfterLogin, fake.library.credentialPosts.get(), "登录时已预热 QMS，不该再提交一次凭据")
 
-        // 桌面端选哪条链路看的是 `AccountContext` 里的身份（默认本科生 ⇒ 走教务那一条）
         assertEquals(AccountType.UNDERGRADUATE, AccountContext.activeAccountType)
-        val username = assertNotNull(AccountContext.activeAccountId, "登录之后应当有账号 id")
-        val source = UndergraduateJudgeSource(auth.jwxtSite, username)
+        val source = QmsJudgeSource(auth.sessionManager.getSite(DesktopAuth.QMS_SITE_KEY))
 
         val (unfinished, finished) = runBlocking { source.load() }
-        assertEquals(
-            listOf(
-                JwxtFakeUpstream.JUDGE_COURSE_MID,
-                JwxtFakeUpstream.JUDGE_COURSE_FINAL,
-                JwxtFakeUpstream.JUDGE_COURSE_FINAL_BARE,
-            ),
-            unfinished.map { it.KCM },
-        )
-        assertEquals(listOf(JwxtFakeUpstream.JUDGE_COURSE_DONE), finished.map { it.KCM })
+        assertEquals(listOf(QmsFakeUpstream.RESPONSE_DRAFT_B, QmsFakeUpstream.RESPONSE_DRAFT_A), unfinished.map { it.responseId })
+        assertEquals(listOf(QmsFakeUpstream.RESPONSE_DONE), finished.map { it.responseId })
 
         assertEquals(
             listOf(
                 JudgeCard(
-                    key = "${JwxtFakeUpstream.JUDGE_WJDM_MID}_${JwxtFakeUpstream.JUDGE_JXBID_MID}_" +
-                        JwxtFakeUpstream.JUDGE_TEACHER_MID,
-                    course = JwxtFakeUpstream.JUDGE_COURSE_MID,
-                    teacher = JwxtFakeUpstream.JUDGE_TEACHER_MID,
-                    tag = "过程评教",
-                ),
-                JudgeCard(
-                    key = "${JwxtFakeUpstream.JUDGE_WJDM_FINAL}_${JwxtFakeUpstream.JUDGE_JXBID_FINAL}_" +
-                        JwxtFakeUpstream.JUDGE_BPR_FINAL,
-                    course = JwxtFakeUpstream.JUDGE_COURSE_FINAL,
-                    teacher = JwxtFakeUpstream.JUDGE_TEACHER_FINAL,
+                    key = QmsFakeUpstream.RESPONSE_DRAFT_B,
+                    course = QmsFakeUpstream.COURSE_B,
+                    teacher = "未知教师",
                     tag = "期末评教",
                 ),
                 JudgeCard(
-                    key = "${JwxtFakeUpstream.JUDGE_WJDM_FINAL_BARE}_" +
-                        "${JwxtFakeUpstream.JUDGE_JXBID_FINAL_BARE}_示例庚",
-                    course = JwxtFakeUpstream.JUDGE_COURSE_FINAL_BARE,
-                    teacher = JwxtFakeUpstream.JUDGE_TEACHER_FINAL_BARE,
+                    key = QmsFakeUpstream.RESPONSE_DRAFT_A,
+                    course = QmsFakeUpstream.COURSE_A,
+                    teacher = "${QmsFakeUpstream.LECTURER_A1}、${QmsFakeUpstream.LECTURER_A2}",
                     tag = "期末评教",
                 ),
             ),
             unfinished.map { source.card(it) },
         )
-        // 已评那一张：本科端可提交也可撤回（`canSubmit` 默认 true、`undo` 非空 ⇒ 屏上会出现那两个按钮）
-        assertEquals("期末评教", source.card(finished[0]).tag)
-        assertNotNull(source.undo, "本科端能撤回（屏上那个按钮据此出现）")
-        assertEquals("，确定继续？", source.confirmText)
+
+        // 一键评教：PUT 一发，之后那份从未评里消失
+        runBlocking { source.judge(unfinished.last()) }
+        assertEquals(1, fake.qms.submitCalls.get())
+        assertEquals(QmsFakeUpstream.RESPONSE_DRAFT_A, fake.qms.submissions.single().first)
+        val (after, _) = runBlocking { source.load() }
+        assertEquals(listOf(QmsFakeUpstream.RESPONSE_DRAFT_B), after.map { it.responseId })
+
+        assertNotNull(source.undo, "QMS 能撤回（屏上那个按钮据此出现）")
+        assertTrue(source.confirmText.contains(QmsJudgeApi.DEFAULT_COMMENT))
     }
 
 
@@ -793,19 +779,6 @@ class DesktopAuthLibraryJvmTest {
         assertEquals("up", result.trackList.last().type)
         assertEquals(130, result.trackList.last().x, "(130 * 260 / 260) 落在 260 坐标系")
         assertEquals(900L + 1600L, result.trackList.last().t, "up 点时刻 = 出现延迟 + 真实拖动时长")
-
-        // ── 识别委托：合成图上有缺口 ⇒ 盖章后的轨迹与 release 时长都非空 ──
-        val data = CaptchaData(
-            id = VenueFakeUpstream.CAPTCHA_ID,
-            backgroundImage = VenueCaptchaFixture.backgroundDataUri(),
-            sliderImage = VenueCaptchaFixture.sliderDataUri(),
-            bgWidth = 260, bgHeight = 160, sliderWidth = 50, sliderHeight = 50,
-        )
-        val solved = runBlocking { DesktopSlideCaptchaHost.solve(data, now) }
-        assertNotNull(solved, "共享路径应当识别出合成图上的缺口")
-        assertEquals(VenueCaptchaFixture.EXPECTED_SOLVE_TARGET_X, solved.sliderResult.trackList.last().x)
-        assertTrue(solved.sliderResult.startSlidingTime.isNotBlank())
-        assertTrue(solved.releaseAfterMillis > 0)
     }
 
 

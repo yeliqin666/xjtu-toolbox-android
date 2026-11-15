@@ -71,6 +71,7 @@ object AppServices {
             )),
         AppService(AppRoute.Zyxf, "学辅资料", "历年卷与复习资料", ServiceCategory.STUDY, listOf("学辅", "仲英学辅", "历年卷", "真题", "复习资料", "课件", "笔记"),
             features = listOf("小岱找资料：说要找什么，小岱帮你挑")),
+        AppService(AppRoute.DegreeProgress, "学业进度", "培养方案与毕业要求", ServiceCategory.CLASS, listOf("培养方案", "毕业进度", "毕业要求", "学分", "还差多少学分", "方案树", "转专业"), audience = AccountType.UNDERGRADUATE),
         AppService(AppRoute.Transcript, "成绩单", "电子成绩单", ServiceCategory.CLASS, listOf("成绩证明", "打印成绩"), showOnHome = false, audience = AccountType.UNDERGRADUATE),
         AppService(AppRoute.Browser(EnrollmentCertificate.CHINESE.url), "在读证明（中文）", "电子凭证平台申请与下载", ServiceCategory.CLASS,
             listOf("在读证明", "学籍证明", "在校证明"), showOnHome = false, audience = AccountType.UNDERGRADUATE,
@@ -95,6 +96,7 @@ object AppServices {
             features = listOf("我的订单：查看、支付、取消订单", "验证码自动识别：预订时自动滑过滑块验证码")),
         AppService(AppRoute.Fitness, "体测查询", "体测成绩与明细", ServiceCategory.LIFE, listOf("体测", "体育", "体能", "fitness")),
         AppService(AppRoute.YellowPage, "校园黄页", "校内电话与机构", ServiceCategory.LIFE, listOf("黄页", "电话", "分机")),
+        AppService(AppRoute.CampusBus, "校车查询", "班次、站点与余量", ServiceCategory.LIFE, listOf("校车", "班车", "通勤车", "创新港班车", "兴庆班车", "bus")),
 
         AppService(AppRoute.WebVpnConverter, "WebVPN", "非校园网访问转换", ServiceCategory.TOOL, listOf("vpn", "webvpn")),
         AppService(AppRoute.Agent, "小岱", "校园 AI 助手", ServiceCategory.TOOL, listOf("问小岱", "屁岱", "ai", "助手")),

@@ -3,8 +3,6 @@ package com.xjtu.toolbox.game.ui
 import androidx.compose.animation.togetherWith
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Animatable
-import androidx.compose.animation.core.Spring
-import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
@@ -136,7 +134,7 @@ fun rememberDropProgress(key: Any?): Animatable<Float, *> {
             return@LaunchedEffect
         }
         anim.snapTo(0f)
-        anim.animateTo(1f, spring(dampingRatio = 0.55f, stiffness = Spring.StiffnessMediumLow))
+        anim.animateTo(1f, tween(280, easing = androidx.compose.animation.core.FastOutSlowInEasing))
     }
     return anim
 }
@@ -266,7 +264,7 @@ fun GameHint(text: String?, modifier: Modifier = Modifier, color: Color = MiuixT
                 (androidx.compose.animation.fadeIn(androidx.compose.animation.core.tween(180)) +
                     androidx.compose.animation.scaleIn(
                         initialScale = 0.9f,
-                        animationSpec = androidx.compose.animation.core.spring(dampingRatio = 0.55f, stiffness = 600f),
+                        animationSpec = tween(260, easing = androidx.compose.animation.core.FastOutSlowInEasing),
                     )) togetherWith androidx.compose.animation.fadeOut(androidx.compose.animation.core.tween(120))
             },
             label = "gameHint",

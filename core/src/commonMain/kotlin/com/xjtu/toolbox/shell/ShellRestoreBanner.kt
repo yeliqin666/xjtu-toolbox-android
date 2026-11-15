@@ -20,7 +20,7 @@ import top.yukonga.miuix.kmp.basic.Surface
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
-/** 「正在恢复登录...」那条页脚横幅：由壳画，因为它压在底栏上方（`bottomBarReserve` 那一格）。 */
+/** 「正在恢复登录…」那条页脚横幅：由壳画，因为它压在底栏上方（`bottomBarReserve` 那一格）。 */
 @Composable
 fun ShellRestoreBanner(visible: Boolean, step: String, modifier: Modifier = Modifier) {
     AnimatedVisibility(
@@ -38,7 +38,7 @@ fun ShellRestoreBanner(visible: Boolean, step: String, modifier: Modifier = Modi
                 CircularProgressIndicator(size = 16.dp, strokeWidth = 2.dp)
                 Spacer(Modifier.width(12.dp))
                 Text(
-                    step.ifEmpty { "正在恢复登录..." },
+                    step.ifEmpty { "正在恢复登录…" },
                     style = MiuixTheme.textStyles.body2,
                     color = MiuixTheme.colorScheme.onSecondaryContainer,
                 )

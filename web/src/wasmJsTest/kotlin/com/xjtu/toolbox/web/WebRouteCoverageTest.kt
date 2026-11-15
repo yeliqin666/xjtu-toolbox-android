@@ -66,19 +66,25 @@ class WebRouteCoverageTest {
     // ── 断言 ──
 
     @Test
-    fun `路由差集只剩那 5 条，且每条都在 WebSupport 的文件头里有如实说明`() {
+    fun `路由差集只剩那几条登记过的，且每条都在 WebSupport 的文件头里有如实说明`() {
         assertEquals(
-            42,
+            46,
             declaredRoutes.size,
-            "AppRoute 的声明数不是 42 了（现在 ${declaredRoutes.size}）：$criterion；" +
+            "AppRoute 的声明数不是 46 了（现在 ${declaredRoutes.size}）：$criterion；" +
                 "加/删一条声明要同时看这里与 desktop 那份 DesktopRouteCoverageJvmTest",
         )
         assertEquals(
-            listOf("Browser", "DownloadManager", "Jiaocai1", "Jiaocai1Reader", "Zyxf"),
+            listOf(
+                "Browser",
+                "NoticeDetail",
+                "QrScan",
+                "Zyxf",
+            ),
             notOpenableNames.sorted(),
             "差集变了（现在 ${notOpenableNames}）：$criterion；" +
                 "新补上一屏就把它从差集里拿掉（同时改 AppPage 的分支与 WebSupport 的文件头说明），" +
-                "差集里多出新的一条就要在文件头里写清「为什么这一端做不到」",
+                "差集里多出新的一条就要在文件头里写清「为什么它进不了这份清单」" +
+                "（本端做不到 / 清单只认定值 id，两句都要写出来）",
         )
 
         val explained = WebSourceSnapshot.WEB_SUPPORT
@@ -143,7 +149,8 @@ class WebRouteCoverageTest {
         assertTrue(WebSupport.isOpenable(AppRoute.Lms()))
         assertTrue(WebSupport.isOpenable(AppRoute.Lms(courseId = 42, activityId = 7)))
         assertFalse(WebSupport.isOpenable(AppRoute.Browser("https://example.com")))
-        assertFalse(WebSupport.isOpenable(AppRoute.DownloadManager))
-        assertFalse(WebSupport.isOpenable(AppRoute.Jiaocai1Reader("123", "教材")))
+        assertTrue(WebSupport.isOpenable(AppRoute.DownloadManager))
+        assertTrue(WebSupport.isOpenable(AppRoute.Jiaocai1Reader("123", "教材")))
+        assertFalse(WebSupport.isOpenable(AppRoute.Zyxf))
     }
 }

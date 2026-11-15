@@ -217,6 +217,14 @@ internal class LibraryViewModel(private val source: LibrarySource) : ViewModel()
         null
     }
 
+    /** 在图书馆页里扫到座位码：和从外面扫码进来一样定位并弹出这个座位。 */
+    fun focusOn(target: LibraryFocus.Target) {
+        viewModelScope.launch {
+            focus(target, runCatching { source.campus() }.getOrNull())
+            loadMyBooking()
+        }
+    }
+
     /** 从屁岱的座位卡片或扫码进来：定位到那个区域，用平面图看。 */
     private suspend fun focus(focus: LibraryFocus.Target, actual: LibraryCampus?) {
         val target = LibraryCampus.byId(focus.campusId)

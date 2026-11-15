@@ -2,6 +2,7 @@ package com.xjtu.toolbox.settings
 
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import com.xjtu.toolbox.platform.KeyValueStore
 import com.xjtu.toolbox.platform.keyValueStore
@@ -14,6 +15,11 @@ object HomeLayoutRevision {
     fun bump() {
         current++
     }
+}
+
+/** 主页设置抽屉此刻是否开着：首页据此停掉背后的持续动画，抽屉拖动与滚动才不卡。 */
+object HomeSettingsOverlay {
+    var open by mutableStateOf(false)
 }
 
 /** 设置页那些偏好的读写。 */
@@ -56,7 +62,13 @@ class SettingsStore(private val store: KeyValueStore = keyValueStore(APP_SETTING
     /** 主题实际采用的自选色（按当前明暗取那一档）：未启用自定义时为空串。 */
     fun themeSeedHex(dark: Boolean): String = if (customColorEnabled) customColorHex(dark) else ""
 
-    /** 默认启动 tab。不在底栏上时由读的一方回首页（`BottomBarTabs.defaultTab`）。 */
+    /**
+     * 默认启动 tab。**这里不翻译**：存的是哪一端的 id 就原样读出来 —— `:app` 的底栏格可以是任意一级功能的
+     * 路由 id（`notification`、`library` ……），不是只有那五个规范化值，翻译在这里做会把这些值吃掉。
+     *
+     * 翻译在各端读的时候做：`:app` = `BottomBarTabs.defaultTab`（先认原样、再认规范化值），
+     * 桌面 = `desktopStartTarget`，浏览器 = `webStartTarget`（都对 `TAB_KEY_*` 做映射，认不出退日程）。
+     */
     var defaultTab: String
         get() = store.getString(KEY_DEFAULT_TAB) ?: TAB_COURSES
         set(value) = store.putString(KEY_DEFAULT_TAB, value)
@@ -65,7 +77,6 @@ class SettingsStore(private val store: KeyValueStore = keyValueStore(APP_SETTING
     var bottomBar: String?
         get() = store.getString(KEY_BOTTOM_BAR)
         set(value) = store.putString(KEY_BOTTOM_BAR, value)
-
     var networkMode: String
         get() = store.getString(KEY_NETWORK_MODE) ?: NETWORK_AUTO
         set(value) = store.putString(KEY_NETWORK_MODE, value)
@@ -126,31 +137,38 @@ class SettingsStore(private val store: KeyValueStore = keyValueStore(APP_SETTING
             .coerceIn(HERO_IMAGE_BRIGHTNESS_MIN, HERO_IMAGE_BRIGHTNESS_MAX)
         set(value) = store.putInt("hero_image_brightness", value.coerceIn(HERO_IMAGE_BRIGHTNESS_MIN, HERO_IMAGE_BRIGHTNESS_MAX))
 
-    /** 首页功能区：classic = 分类卡，widgets = 可调尺寸的小组件。 */
+    /**
+     * 首页功能区用哪一套：`classic` = 经典分类卡（回落），`cards` = 卡片组（合并了原「小组件」那套
+     * 能力的唯一现代实现）。
+     *
+     * 老存档里的 `widgets`（dev 上那套小组件）**没有独立选项了**：它已经并进卡片组，读到就当成
+     * `cards`，升级后用户看到的是合并后的新实现；没设置过的也按 `cards` 走。
+     */
     var homeLayout: String
-        get() = store.getString("home_layout")?.takeIf { it == HOME_LAYOUT_WIDGETS || it == HOME_LAYOUT_CLASSIC } ?: HOME_LAYOUT_WIDGETS
-        set(value) = store.putString("home_layout", value.takeIf { it == HOME_LAYOUT_WIDGETS } ?: HOME_LAYOUT_CLASSIC)
+        get() = when (store.getString("home_layout")) {
+            HOME_LAYOUT_CLASSIC -> HOME_LAYOUT_CLASSIC
+            else -> HOME_LAYOUT_CARDS
+        }
+        set(value) = store.putString("home_layout", value.takeIf { it in HOME_LAYOUTS } ?: HOME_LAYOUT_CARDS)
 
-    /** 小组件的分组、排列与尺寸（格式见 `HomeWidgetLayout.encodeGroups`）；null = 没编辑过，用默认布局。 */
+    /**
+     * **历史键**：原「小组件」那套布局的分组与尺寸（每组一行 `#id\t标题\t颜色`，下面跟本组的
+     * `路由id:尺寸`）；null = 没编辑过。
+     *
+     * 小组件那套实现已经并进卡片组（见 `HOME_LAYOUT_CARDS`），卡片组用的是 `HomeLayoutStore` 里
+     * 那份整页快照，所以这个键现在**只读不写**，留着是为了不删用户硬盘上的旧数据、将来要迁移
+     * 旧布局时还有得读。
+     */
     var homeWidgets: List<String>?
         get() = store.getString("home_widgets")?.split('\n')?.filter { it.isNotBlank() }
         set(value) = store.putString("home_widgets", value?.joinToString("\n"))
 
-    /** 小组件用液态玻璃（折射 + 高光，较耗电）；只在渐变与图片背景上生效，纯色背景一律是实心卡片。 */
-    var homeLiquidGlass: Boolean
-        get() = store.getBoolean("home_liquid_card", false)
-        set(value) = store.putBoolean("home_liquid_card", value)
-
-    /** 首页顶栏：true = 扫码、搜索、消息统一靠右（默认），false = 扫码单独靠左、标题居中。 */
-    var homeTopActionsRight: Boolean
-        get() = store.getBoolean("home_top_actions_right", true)
-        set(value) = store.putBoolean("home_top_actions_right", value)
 
     var homeBackground: String
         get() = store.getString("home_background") ?: when {
             store.getString("home_widget_material") == WIDGET_MATERIAL_PAPER -> "solid"
             homeWallpaperImage.isNotEmpty() -> "image"
-            else -> "gradient"
+            else -> "solid"
         }
         set(value) = store.putString("home_background", value)
 
@@ -159,20 +177,19 @@ class SettingsStore(private val store: KeyValueStore = keyValueStore(APP_SETTING
         get() = store.getString("home_wallpaper_image").orEmpty()
         set(value) = store.putString("home_wallpaper_image", value.ifEmpty { null })
 
-    /** 首页背景图的模糊与亮度，取值范围同首页大卡的自定义背景。 */
+    /**
+     * 首页背景图的模糊半径，取值范围同首页大卡的自定义背景。
+     *
+     * 糊到 [HOME_WALLPAPER_BLUR_HIDES_GLASS] 及以上时，卡片上的模糊与折射就看不出差别了，
+     * 那时卡片退成薄色玻璃（见那个常量的说明）——这里只负责存值，判定在渲染与设置面板。
+     *
+     * 原来还有一条「亮度」（键 `home_wallpaper_brightness`）：那**功能整个删掉了**（2026-11），
+     * 键不再读也不再写，壁纸按原图铺。自定义壁纸的明暗交给「背景不透明度」那条滑条调
+     * （往下拨就把主题底色盖回去）——亮度与它调的是同一件事，两条一起拨只会互相抵消。
+     */
     var homeWallpaperBlur: Int
         get() = store.getInt("home_wallpaper_blur", HERO_IMAGE_BLUR_MIN).coerceIn(HERO_IMAGE_BLUR_MIN, HERO_IMAGE_BLUR_MAX)
         set(value) = store.putInt("home_wallpaper_blur", value.coerceIn(HERO_IMAGE_BLUR_MIN, HERO_IMAGE_BLUR_MAX))
-
-    var homeWallpaperBrightness: Int
-        get() = store.getInt("home_wallpaper_brightness", HERO_IMAGE_BRIGHTNESS_MAX)
-            .coerceIn(HERO_IMAGE_BRIGHTNESS_MIN, HERO_IMAGE_BRIGHTNESS_MAX)
-        set(value) = store.putInt("home_wallpaper_brightness", value.coerceIn(HERO_IMAGE_BRIGHTNESS_MIN, HERO_IMAGE_BRIGHTNESS_MAX))
-
-    /** 场馆滑块验证码自动识别开关。 */
-    var venueAutoSolveCaptchaEnabled: Boolean
-        get() = store.getBoolean(KEY_VENUE_AUTO_SOLVE_CAPTCHA, true)
-        set(value) = store.putBoolean(KEY_VENUE_AUTO_SOLVE_CAPTCHA, value)
 
     /** 课表格子上叠考勤角标。 */
     var scheduleAttendanceBadge: Boolean
@@ -196,11 +213,34 @@ class SettingsStore(private val store: KeyValueStore = keyValueStore(APP_SETTING
         /** 非敏感的应用设置（外观、协议、更新……），普通 SharedPreferences。 */
         const val APP_SETTINGS_FILE = "app_settings"
         const val HOME_LAYOUT_CLASSIC = "classic"
+        const val HOME_LAYOUT_CARDS = "cards"
+
+        /**
+         * 历史值：dev 上那套「小组件」布局。它已经并进 [HOME_LAYOUT_CARDS]，不再是可选项，
+         * 只在读老存档时被认出来并映射过去。
+         */
         const val HOME_LAYOUT_WIDGETS = "widgets"
+
+        /** 合法的首页布局取值（写盘校验用）；`widgets` 只进不出。 */
+        val HOME_LAYOUTS = setOf(HOME_LAYOUT_CLASSIC, HOME_LAYOUT_CARDS)
         const val WIDGET_MATERIAL_PAPER = "paper"
 
         const val HERO_IMAGE_BLUR_MIN = 0
         const val HERO_IMAGE_BLUR_MAX = 10
+
+        /**
+         * 背景图糊到这个半径（dp）及以上，卡片上的**模糊与折射就都看不出差别**了
+         * （2026-11 维护者给的阈值）。
+         *
+         * 模糊是真高斯，半径翻倍等于细节对折再对折：到 5dp 时壁纸已经是一片色块，卡片再采它一遍
+         * 糊出来的和「薄色底」几乎分不出，折射折的也是同一片色块——但这两层是全页最贵的
+         * （每张卡一次离屏位移采样）。所以此时按「纯色 / 渐变背景」那套处理：
+         * 不录卡片那层、不模糊、不折射，只留活力 / 高光 / 轮廓 / 投影。
+         *
+         * 注意这**不是**把用户的折射开关改成关：开关照原样显示、只是置灰（见主页设置），
+         * 换回不糊的图片或把模糊调小就立刻恢复。
+         */
+        const val HOME_WALLPAPER_BLUR_HIDES_GLASS = 5
         const val HERO_IMAGE_BRIGHTNESS_MIN = 20
         const val HERO_IMAGE_BRIGHTNESS_MAX = 100
 
@@ -211,7 +251,6 @@ class SettingsStore(private val store: KeyValueStore = keyValueStore(APP_SETTING
         private const val KEY_BOTTOM_BAR = "bottom_bar_tabs"
         private const val KEY_NETWORK_MODE = "network_mode"
         private const val KEY_SHOW_QUICK_ACTIONS = "show_quick_actions"
-        private const val KEY_VENUE_AUTO_SOLVE_CAPTCHA = "venue_auto_solve_captcha"
         private const val KEY_SCHEDULE_ATTENDANCE_BADGE = "schedule_attendance_badge"
         private const val KEY_SCHEDULE_SOURCE = "schedule_source"
 
@@ -227,11 +266,48 @@ class SettingsStore(private val store: KeyValueStore = keyValueStore(APP_SETTING
         const val DARK_MODE_SYSTEM = "system"
         const val DARK_MODE_LIGHT = "light"
         const val DARK_MODE_DARK = "dark"
+        const val THEME_CARD = "card"
+        const val THEME_ICON = "icon"
         const val TAB_HOME = "HOME"
         const val TAB_COURSES = "COURSES"
         const val TAB_PIDAI = "PIDAI"
         const val TAB_TOOLS = "TOOLS"
         const val TAB_PROFILE = "PROFILE"
+
+        /** 规范化落点：与任何一端的 tab id 都无关，各端自己映射（见 [defaultTab]）。 */
+        const val TAB_KEY_HOME = "home"
+        const val TAB_KEY_SCHEDULE = "schedule"
+        const val TAB_KEY_AGENT = "agent"
+        const val TAB_KEY_SERVICES = "services"
+        const val TAB_KEY_PROFILE = "profile"
+
+        /** 规范值全集，顺序 = 设置页「默认启动 Tab」那五格。 */
+        val DEFAULT_TAB_KEYS = listOf(
+            TAB_KEY_HOME,
+            TAB_KEY_SCHEDULE,
+            TAB_KEY_AGENT,
+            TAB_KEY_SERVICES,
+            TAB_KEY_PROFILE,
+        )
+
+        /** 没设过 / 认不出来时落到哪：日程（与 `:app` 一直以来的默认一致：课表是最常用的那一屏）。 */
+        const val TAB_KEY_DEFAULT = TAB_KEY_SCHEDULE
+
+        /**
+         * 任何写法 → 规范值。
+         *
+         * 认得出：规范值本身（大小写不敏感）、老写法 `HOME/COURSES/PIDAI/TOOLS/PROFILE`；
+         * 认不出（手工改过的文件、将来删掉的那一格）：退 [TAB_KEY_DEFAULT]——不抛、也不把脏值留在设置里。
+         */
+        fun normalizeDefaultTab(raw: String?): String = when (raw?.trim()?.lowercase()) {
+            TAB_KEY_HOME -> TAB_KEY_HOME
+            TAB_KEY_SCHEDULE, "courses" -> TAB_KEY_SCHEDULE
+            TAB_KEY_AGENT, "pidai" -> TAB_KEY_AGENT
+            TAB_KEY_SERVICES, "tools" -> TAB_KEY_SERVICES
+            TAB_KEY_PROFILE -> TAB_KEY_PROFILE
+            else -> TAB_KEY_DEFAULT
+        }
+
         const val NETWORK_AUTO = "auto"
         const val NETWORK_DIRECT = "direct"
         const val NETWORK_VPN = "vpn"

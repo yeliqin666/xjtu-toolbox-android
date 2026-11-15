@@ -2,6 +2,7 @@
 
 package com.xjtu.toolbox.agent
 
+import androidx.compose.ui.Alignment
 import com.xjtu.toolbox.nav.AppRoute
 import com.xjtu.toolbox.platform.BackHandler
 import androidx.compose.animation.AnimatedVisibility
@@ -13,12 +14,10 @@ import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.History
-import androidx.compose.material.icons.filled.Settings
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
@@ -26,6 +25,7 @@ import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.xjtu.toolbox.ui.glass.CouiToolbarActionButton
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withTimeoutOrNull
 import top.yukonga.miuix.kmp.basic.*
@@ -51,9 +51,8 @@ fun AgentScreen(
     onNavigate: (AppRoute) -> Unit = {},
     /** tab 模式下需要额外空出的底部高度（悬浮胶囊底栏不占宿主 contentPadding，见调用处）。 */
     extraBottomPadding: Dp = 0.dp,
-    /** 宿主 Scaffold 的 contentPadding 底部值。输入栏算自己的让位时要把它减掉，见 AgentComposer。 */
-    hostBottomPadding: Dp = 0.dp,
-    scrollBehavior: ScrollBehavior? = null,
+    /** 宿主 COUI 大标题顶栏的折叠行为，挂到对话列表上。 */
+    scrollBehavior: com.xjtu.toolbox.ui.glass.CouiTopBarScrollBehavior? = null,
     onTitleChange: (String) -> Unit = {},
     onActionsChange: ((@Composable RowScope.() -> Unit)?) -> Unit = {},
     onNavIconChange: ((@Composable () -> Unit)?) -> Unit = {},
@@ -125,10 +124,18 @@ fun AgentScreen(
         showConfig = false
         vm.newSession()
         if (pending.draftOnly) {
+            // 只填进输入框等用户自己发；带进来的页面内容挂成输入框上方的标签，发送时一起带上
             vm.draft = pending.text
+            vm.draftContext = pending.snapshot?.let { AgentDraftContext(pending.label ?: "页面内容", it) }
             return@LaunchedEffect
         }
-        vm.sendMessage(pending.text, config, llmAnnex = pending.snapshot?.let(AgentAnnex::snapshot), images = pending.images)
+        vm.sendMessage(
+            pending.text,
+            config,
+            llmAnnex = pending.snapshot?.let(AgentAnnex::snapshot),
+            images = pending.images,
+            contextLabel = pending.label,
+        )
     }
 
     // 点屁岱推送的通知进来：切到「推送记录」，定位并闪一下那一条（#194）
@@ -163,9 +170,10 @@ fun AgentScreen(
         if (drawerOpen) keyboard?.hide()
     }
 
-    // 宿主给了就用宿主的（顶栏在宿主那儿，折叠状态必须共用同一份），没给才自己建。
-    val ownScrollBehavior = MiuixScrollBehavior(rememberTopAppBarState())
-    val effectiveScrollBehavior = scrollBehavior ?: ownScrollBehavior
+    // 只用宿主给的折叠行为（顶栏在宿主那儿，折叠状态必须共用同一份）。没给就不挂任何滚动连接：
+    // 以前这里会自己建一个没有顶栏在用的 MIUIX 行为，列表照样挂着它，手指上滑会被它吃掉，
+    // 小岱的列表于是只能下滑。
+    val effectiveScrollBehavior = scrollBehavior
     // 宽屏不拦抽屉：没有抽屉可关，再拦就是吃掉一次返回。
     BackHandler(enabled = showConfig || (drawerOpen && !isWide) || showContextExhaustedDialog) {
         when {
@@ -181,26 +189,23 @@ fun AgentScreen(
         drawerOpen = false
     }
 
-    // 顶栏：左边历史对话，右边新对话与设置。两种宿主形态共用同一份，tab 模式下交给 MainScreen 的 TopAppBar。
-    // 这些 lambda 捕获的是 showConfig / drawerOpen 的委托属性，状态变化时读它们的宿主会自己重组。
+    // 顶栏按钮都在右边：历史对话、新对话、设置；历史侧栏也从右边展开。两种宿主形态共用同一份，
+    // tab 模式下交给 MainScreen 的顶栏。lambda 捕获的是委托属性，状态变化时宿主自己重组。
     // 设置页打开时宿主顶栏被盖住（没有 [overlays] 的端盖不住，所以回调里也要拦）。
     // 宽屏的历史对话常驻左栏，不送开关按钮。
-    val headerNavIcon: (@Composable () -> Unit)? = if (isWide) null else {
-        {
-            IconButton(onClick = { if (!showConfig) drawerOpen = !drawerOpen }) {
-                Icon(Icons.Default.History, contentDescription = if (drawerOpen) "收起历史对话" else "历史对话")
-            }
-        }
-    }
     val headerActions: @Composable RowScope.() -> Unit = {
-        IconButton(onClick = { if (!showConfig) startNewChat() }) {
-            Icon(Icons.Default.Add, contentDescription = "新对话")
-        }
-        IconButton(onClick = {
-            drawerOpen = false
-            showConfig = true
-        }) {
-            Icon(Icons.Default.Settings, contentDescription = "设置")
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(2.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            if (!isWide) {
+                CouiToolbarActionButton(onClick = { if (!showConfig) drawerOpen = !drawerOpen }) {
+                    Icon(Icons.Default.History, contentDescription = if (drawerOpen) "收起历史对话" else "历史对话")
+                }
+            }
+            CouiToolbarActionButton(onClick = { if (!showConfig) startNewChat() }) {
+                Icon(Icons.Default.Add, contentDescription = "新对话")
+            }
         }
     }
 
@@ -208,9 +213,11 @@ fun AgentScreen(
     val hostTitle = vm.sessions.firstOrNull { it.id == vm.currentSessionId }?.title
         ?.takeIf { it.isNotBlank() } ?: config.effectiveName
     LaunchedEffect(hostTitle) { onTitleChange(hostTitle) }
-    DisposableEffect(Unit) {
-        onActionsChange(headerActions)
-        onNavIconChange(headerNavIcon)
+    // 交出去的是固定的转发，画的时候读最新那一版：直接交闭包，宿主拿着的永远是交出那一刻的
+    val latestActions by rememberUpdatedState(headerActions)
+    DisposableEffect(isWide) {
+        onActionsChange { latestActions(this) }
+        onNavIconChange(null)
         // 切走时把按钮撤掉，否则别的 tab 顶栏上会残留屁岱的图标。
         onDispose {
             onActionsChange(null)
@@ -226,7 +233,6 @@ fun AgentScreen(
                 sessions = vm.sessions,
                 currentId = vm.currentSessionId,
                 onClose = { drawerOpen = false },
-                onNew = ::startNewChat,
                 onSelect = { vm.switchSession(it); drawerOpen = false },
                 // 对话框在 Scaffold 的弹窗宿主里，侧栏盖在它上面，先收起来
                 onLongPress = { actionTarget = it; drawerOpen = false },
@@ -269,6 +275,7 @@ fun AgentScreen(
                 config = config,
                 host = host,
                 imagePicker = imagePicker,
+                gapNote = host.gapNote,
                 hero = hero,
                 pokeWhisper = pokeWhisper,
                 padding = padding,
@@ -418,9 +425,7 @@ fun AgentScreen(
                 modifier = Modifier
                     .width(300.dp)
                     .fillMaxHeight()
-                    // 列表底部自带 navigationBarsPadding（抽屉需要）。宿主 Scaffold 已经让过一次
-                    // 底部，不声明消费就会再让一条导航条的高度；顶部让出玻璃顶栏
-                    .consumeWindowInsets(PaddingValues(bottom = hostBottomPadding))
+                    // 顶部让出玻璃顶栏
                     .padding(top = contentTopPadding),
                 // 和顶栏、聊天区同一个底色，两栏之间只靠那条竖分隔线分开。原来是 surfaceContainer（白），
                 // 从顶栏下沿才开始，灰色顶栏和白色面板之间就出现一道横向断口
@@ -429,23 +434,13 @@ fun AgentScreen(
                 SessionListPane(
                     sessions = vm.sessions,
                     currentId = vm.currentSessionId,
-                    onNew = ::startNewChat,
                     onSelect = { vm.switchSession(it) },
                     onLongPress = { actionTarget = it },
                 )
             }
             VerticalDivider()
         }
-        // 把"宿主已经让出底部 hostBottomPadding"这件事声明出来。
-        // 宿主 Scaffold 只 padding(padding)、没 consumeWindowInsets(padding)，
-        // 消费链是断的；在这里补一次，子树里的 windowInsetsPadding（输入栏那处）
-        // 才能正确扣除已让的部分，不至于把 ime 再整段加一遍。
-        Box(
-            Modifier
-                .weight(1f)
-                .fillMaxHeight()
-                .consumeWindowInsets(PaddingValues(bottom = hostBottomPadding))
-        ) {
+        Box(Modifier.weight(1f).fillMaxHeight()) {
             body(PaddingValues())
         }
         }

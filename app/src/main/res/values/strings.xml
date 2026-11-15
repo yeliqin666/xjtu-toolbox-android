@@ -11,6 +11,9 @@
     <string name="notice_widget_name">教务通知</string>
     <string name="notice_widget_desc">显示所选来源的最近 4 条通知</string>
 
+    <string name="smart_widget_name">智能卡片</string>
+    <string name="smart_widget_desc">按时间自动切换：课前显示这节课和考勤入口，饭点显示余额和付款码</string>
+
     <string name="todo_widget_name">待办</string>
     <string name="todo_widget_desc">显示最近 4 条待办，作业按科目上色</string>
     <string name="todo_widget_empty_title">没有待办</string>

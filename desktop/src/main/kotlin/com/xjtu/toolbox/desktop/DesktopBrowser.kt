@@ -11,6 +11,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.text.AnnotatedString
@@ -19,8 +20,10 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.xjtu.toolbox.browser.shareableUrl
 import com.xjtu.toolbox.webvpn.WebVpnCodec
+import com.xjtu.toolbox.ui.components.TextLink
+import top.yukonga.miuix.kmp.basic.Button
+import top.yukonga.miuix.kmp.basic.ButtonDefaults
 import top.yukonga.miuix.kmp.basic.Text
-import top.yukonga.miuix.kmp.basic.TextButton
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 /** `AppRoute.Browser` 在桌面端的等价物 —— 外链中转页（把地址交给系统浏览器）。 */
@@ -74,19 +77,18 @@ internal fun DesktopBrowserScreen(
                 Text(external, color = cs.primary, fontSize = 12.sp)
             }
 
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                TextButton(
-                    text = "在系统浏览器打开",
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
+                Button(
                     onClick = { openInBrowser(external) },
-                    minWidth = 160.dp,
-                )
-                TextButton(
+                    colors = ButtonDefaults.buttonColorsPrimary(),
+                ) { Text("在系统浏览器打开", color = cs.onPrimary) }
+                TextLink(
                     text = if (copied) "已复制" else "复制链接",
                     onClick = {
                         clipboard.setText(AnnotatedString(external))
                         copied = true
                     },
-                    minWidth = 120.dp,
+                    enabled = !copied,
                 )
             }
             Text(
@@ -98,24 +100,27 @@ internal fun DesktopBrowserScreen(
 
         if (then.isNotBlank()) {
             Text(
-                "这条路由还带了 then=…（:app 在页面加载完、走完登录之后自动跳下一站）。" +
-                    "那个动作发生在内置浏览器里 —— 本端没有那一层，跳不过去，如实说明。",
+                "这条路由还带了 then=…（:app 在内置浏览器里把上面那个地址加载完、走完登录之后自动跳下一站）。" +
+                    "这个动作要有内置浏览器那一层才做得到 —— 本端没有，所以**跳不过去**：交出去的只有上面那个地址。" +
+                    "要走到那一站，请先在那个站里登录，再自己点过去（本端不假装替你跳）。",
                 color = cs.onBackgroundVariant,
                 fontSize = 12.sp,
             )
         }
 
-        TextButton(
-            text = "回全部页面",
+        Button(
             onClick = { onNavigate(DesktopTarget.Routes) },
-            minWidth = 120.dp,
-        )
+            colors = ButtonDefaults.buttonColorsPrimary(),
+        ) { Text("回全部页面", color = cs.onPrimary) }
     }
 }
 
-/** 「带 then 的」跳转，该把哪一个地址交给系统浏览器（纯函数：宿主与单测同一份判据）。 */
-internal fun desktopBrowserTarget(url: String, then: String): String? = when {
-    then.isNotBlank() -> then
-    url.isNotBlank() -> url
-    else -> null
-}
+/**
+ * 「带 then 的」跳转，该把哪一个地址交给系统浏览器（纯函数：宿主与单测同一份判据）。
+ *
+ * **只交第一跳 `url`**：`then` 的约定是「先加载 url、走完登录，再自动跳到 then」——那第二跳只有内置浏览器
+ * 收得到回调（`:app` 的 `isAuthHop` 那条路）才成立。桌面把地址交给系统浏览器之后什么都没有了，若直开
+ * `then`（以前的写法）等于**跳过登录直接敲支付页**，正是 `then` 想避免的那件事。所以这里只给第一跳，
+ * 屏上如实说明「跳不过去，请先在该站登录」（`DesktopBrowserScreen` 里那段话）。
+ */
+internal fun desktopBrowserTarget(url: String): String? = url.takeIf { it.isNotBlank() }

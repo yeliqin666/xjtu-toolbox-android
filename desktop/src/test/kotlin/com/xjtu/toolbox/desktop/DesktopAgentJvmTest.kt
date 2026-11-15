@@ -9,7 +9,9 @@ import com.xjtu.toolbox.faculty.FacultyApi
 import com.xjtu.toolbox.platform.dataRootOverride
 import com.xjtu.toolbox.platform.SecretProtectionException
 import com.xjtu.toolbox.platform.SecretProtector
+import com.xjtu.toolbox.platform.secureKeyValueStore
 import com.xjtu.toolbox.platform.wipeSecureStore
+import com.xjtu.toolbox.schedule.KeyValueScheduleCacheStore
 import com.xjtu.toolbox.util.AppJson
 import com.xjtu.toolbox.yellowpage.YellowPageApi
 import java.io.File
@@ -158,27 +160,38 @@ class DesktopAgentJvmTest {
     }
 
     @Test
-    fun `工具表只画接得上的那五件，没接的一档都不画`() {
+    fun `工具表与 serve 同档：九件都画，没接的一档都不画`() {
         val host = newHost()
         val tools = host.tools(AgentConfig())
 
         val names = (AppJson.parseToJsonElement(tools.toolDefinitions) as JsonArray)
             .map { it.jsonObject.getValue("function").jsonObject.getValue("name").jsonPrimitive.content }
         // 末尾是各端共用的校园地图；没配搜索 Key 时不带联网搜索
-        assertEquals(DESKTOP_AGENT_TOOLS + "campus_map", names, "工具表与「这一端接得上的那几件」对不上")
+        assertEquals(DESKTOP_AGENT_TOOLS + "campus_map" + "get_campus_bus", names, "工具表与「这一端接得上的那几件」对不上")
 
         // 没接的档一个字都不画（画了就得能用）——调过来只会回 not_found
-        for (missing in listOf("get_schedule", "get_grades", "get_empty_rooms", "web_search", "web_fetch", "set_alarm", "app_setting", "add_schedule_event")) {
+        for (missing in listOf(
+            "get_grades", "web_search", "web_fetch", "set_alarm", "app_setting", "add_schedule_event",
+        )) {
             assertTrue(missing !in names, "没接的档画出来了：$missing")
         }
         runBlocking {
             assertEquals(
-                "error: not_found; tool: get_schedule",
+                "error: not_found; tool: get_grades",
+                tools.execute("get_grades", "{}"),
+            )
+            // 课表族四件现在是真的：缓存空时直说“去日程页刷一次”，而不是说没有这个工具
+            assertEquals(
+                DesktopAgentTools.CACHE_MISS_SCHEDULE,
                 tools.execute("get_schedule", "{}"),
             )
         }
 
-        assertTrue(host.honored.isEmpty(), "honored 不该有值：${host.honored}")
+        assertEquals(
+            setOf(com.xjtu.toolbox.agent.AgentCapability.IMAGE_INPUT),
+            host.honored,
+            "桌面只声明它真接得上的那一档（挑图；见 DesktopAgentHost 的表）",
+        )
     }
 
     @Test
@@ -218,6 +231,8 @@ class DesktopAgentJvmTest {
             memory = AgentMemory(),
             yellowPage = YellowPageApi(mockYellowPageClient()),
             faculty = FacultyApi(mockFacultyClient()),
+            // 这两件用不到缓存，给一格真存储就行（同一个账号命名空间）。
+            cache = KeyValueScheduleCacheStore(secureKeyValueStore("agent_tools_test_cache")),
         )
 
         runBlocking {

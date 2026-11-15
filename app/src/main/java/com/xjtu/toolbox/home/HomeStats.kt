@@ -44,12 +44,14 @@ object HomeStats {
         accountId: String? = com.xjtu.toolbox.account.AccountContext.activeAccountId,
         /** 小组件里列的明细。 */
         lines: List<HomeLine> = emptyList(),
+        /** 待处理件数（入口按钮的数字气泡），见 [HomeStat.count]。 */
+        count: Int? = null,
     ) {
         runCatching {
             val cache = DataCache(context, accountId)
             val k = PUSHED_PREFIX + route.id
             if (value.isNullOrBlank()) cache.invalidate(k)
-            else cache.write(k, HomeStat(value, detail, lines))
+            else cache.write(k, HomeStat(value, detail, lines, count))
         }
     }
 
@@ -112,6 +114,16 @@ object HomeStats {
             val fakeLast = System.currentTimeMillis() - ttlMs + EMPTY_RETRY_MS
             DataCache(context, accountId).put(stampKey(route.id), fakeLast.toString())
         }
+    }
+
+    private const val SNAPSHOT_KEY = "home_stats_snapshot"
+
+    /** 上次 [collect] 的完整结果，冷启动首帧直接显示。 */
+    fun snapshot(context: Context): Map<String, HomeStat> =
+        runCatching { DataCache(context).read<Map<String, HomeStat>>(SNAPSHOT_KEY, PUSHED_TTL_MS) }.getOrNull().orEmpty()
+
+    fun saveSnapshot(context: Context, stats: Map<String, HomeStat>) {
+        runCatching { DataCache(context).write(SNAPSHOT_KEY, stats) }
     }
 
     /** 某个功能推送过的摘要（没有或过期返回 null），给功能页顶部的入口卡显示状态。 */

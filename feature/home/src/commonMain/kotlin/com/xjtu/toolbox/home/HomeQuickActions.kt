@@ -44,6 +44,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.layout.boundsInRoot
+import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
@@ -51,9 +52,11 @@ import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
+import com.xjtu.toolbox.nav.SeamlessCardSource
 import com.xjtu.toolbox.nav.expandOriginSource
 import com.xjtu.toolbox.nav.rememberExpandOriginSource
 import com.xjtu.toolbox.ui.components.ExpressiveIcon
+import com.xjtu.toolbox.ui.theme.LocalIsDarkTheme
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.theme.MiuixTheme
@@ -76,6 +79,8 @@ internal fun QuickActionsGrid(
     contentColor: Color? = null,
 ) {
     var editing by remember { mutableStateOf(false) }
+    // 编辑态下返回只退出编辑，和「完成」一样；切到别的 tab 时不拦
+    com.xjtu.toolbox.platform.BackHandler(enabled = editing && com.xjtu.toolbox.ui.components.LocalPageVisible.current) { editing = false }
     var picking by remember { mutableStateOf(false) }
     val order = remember { mutableStateListOf<String>() }
     // 普通 Map：滚动时每帧都在更新，写成状态会白白触发失效；拖动时 finger 变化自然会重读它
@@ -98,7 +103,10 @@ internal fun QuickActionsGrid(
                 Text(
                     if (editing) "拖动排序，点 × 移除" else "常用功能",
                     style = MiuixTheme.textStyles.footnote1,
-                    color = contentColor?.copy(alpha = 0.78f) ?: MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                    // 经典分类卡是白纸面：这四个字用纯黑，不再取 onSurfaceVariantSummary 的灰；
+                    // 深色液体底上仍跟 contentColor / 主题色，避免纯黑没在深底上
+                    color = contentColor?.copy(alpha = 0.78f)
+                        ?: if (LocalIsDarkTheme.current) MiuixTheme.colorScheme.onSurface else Color.Black,
                     modifier = Modifier.weight(1f),
                 )
                 Text(
@@ -148,6 +156,7 @@ internal fun QuickActionsGrid(
                             onClick = { if (!editing) row.onClick() },
                             onLongClick = if (editable && !editing) ::startEditing else null,
                             originKey = row.key.takeUnless { editing },
+                            onSeamlessClick = row.onSeamlessClick.takeUnless { editing },
                             iconSize = iconSize,
                             labelColor = contentColor,
                         )
@@ -230,6 +239,7 @@ private fun HomeQuickAction(
     iconSize: Dp,
     onLongClick: (() -> Unit)? = null,
     originKey: String? = null,
+    onSeamlessClick: ((SeamlessCardSource) -> Unit)? = null,
     labelColor: Color? = null,
 ) {
     val origin = rememberExpandOriginSource()
@@ -251,14 +261,23 @@ private fun HomeQuickAction(
                 indication = SinkFeedback(),
                 onLongClick = onLongClick,
                 onClick = {
+                    // 先登记 Compose 起点：KIT 走独立 Activity 时会被 KitOneTake 清掉，回落时正好用它做放大转场。
                     originKey?.let { origin.arm(it, iconRadius, density, snapshot) }
-                    onClick()
+                    val seamless = onSeamlessClick
+                    val bounds = origin.boundsInWindow()
+                    if (seamless != null && bounds != null) {
+                        seamless(SeamlessCardSource(bounds, iconRadius))
+                    } else {
+                        onClick()
+                    }
                 },
             )
             .padding(horizontal = 4.dp, vertical = 6.dp)
     ) {
         // 转场从图标本身长出来：坐标取图标方块，不含下面的名称。
-        Box(if (originKey != null) Modifier.expandOriginSource(origin) else Modifier) {
+        Box(
+            Modifier.then(if (originKey != null) Modifier.expandOriginSource(origin) else Modifier),
+        ) {
             ExpressiveIcon(icon = icon, color = color, size = iconSize, iconSize = iconSize * 0.5f)
         }
         Spacer(Modifier.height(6.dp))

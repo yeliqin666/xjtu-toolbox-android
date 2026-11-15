@@ -14,7 +14,6 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.union
 import androidx.compose.foundation.layout.add
 import androidx.compose.foundation.layout.windowInsetsPadding
@@ -22,11 +21,7 @@ import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.ui.graphics.TileMode
-import com.kyant.backdrop.Backdrop
-import com.kyant.backdrop.drawBackdrop
-import com.kyant.backdrop.effects.blur
-import com.kyant.backdrop.effects.vibrancy
+import com.xjtu.toolbox.ui.glass.CouiGlassPanel
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.automirrored.filled.Send
@@ -70,8 +65,8 @@ internal fun AgentComposer(
     visionEnabled: Boolean = false,
     onPickImage: () -> Unit = {},
     onRemoveAttachment: (String) -> Unit = {},
-    /** 玻璃模式下的采样源：聊天内容层。null 时退回原来的实底输入框。 */
-    backdrop: Backdrop? = null,
+    /** 玻璃模式下的采样源：聊天内容那层 COUI 采样；null（经典风格 / 非 Android）时纯白/黑实底。 */
+    pageBackdrop: com.xjtu.toolbox.ui.glass.CouiPageBackdrop? = null,
     onOpenShared: (() -> Unit)? = null,
 ) {
     // 只发图不打字是合理的（「这是什么」「帮我看看这张课表」）。
@@ -98,15 +93,8 @@ internal fun AgentComposer(
 
     // ── 底部让位 ──
     //
-    // 手算 inset 是错的路，之前两版都栽在这儿：先是 navigationBarsPadding + imePadding +
-    // reserve 三段相加把输入框顶到屏幕中间；改成手动取最大值后，又因为没扣掉宿主 Scaffold
-    // 已经为底栏让出的那段而多空 90dp；手动减一下，数又对不上。
-    //
-    // 根因是 `WindowInsets.ime.getBottom()` 拿的是**相对整块屏幕**的原始值，
-    // 完全不知道祖先已经让过多少。正确做法是走 `windowInsetsPadding`，它会自动扣除
-    // 已被消费的部分——前提是有人把"我已经让过了"声明出来。宿主只做了 padding(padding)
-    // 没做 consumeWindowInsets，所以这里在屁岱自己的子树里补一次声明（见 body 的调用处），
-    // 消费链建立后下面这一行就成立了。作用域只在屁岱内，不影响其它 tab。
+    // 走 windowInsetsPadding 而不是手取 `WindowInsets.ime.getBottom()`：后者是相对整块屏幕的原始值，
+    // 不知道祖先（经典底栏、宿主 Scaffold）已经让过多少；前者会扣掉祖先声明消费过的部分。
     //
     // 悬浮底栏的 bottomBarReserve 已经把系统导航条算进去了，不能再叠 navigationBars，
     // 否则输入框会多让一条导航条（实测多出 24dp）。只有 reserve = 0 的经典 / 侧栏形态
@@ -161,32 +149,16 @@ internal fun AgentComposer(
             }
         }
         val pillTint = MiuixTheme.colorScheme.surfaceVariant
-        val pillSurface = remember(backdrop, pillTint) {
-            if (backdrop != null) {
-                Modifier.drawBackdrop(
-                    backdrop = backdrop,
-                    shape = { RoundedCornerShape(24.dp) },
-                    effects = {
-                        padding = maxOf(padding, 24.dp.toPx())
-                        vibrancy()
-                        blur(18.dp.toPx(), TileMode.Decal)
-                    },
-                    highlight = null,
-                    shadow = null,
-                    // 采样层只有聊天内容、没有页面底色，先垫一层实底，模糊后的内容再透上来。
-                    onDrawBehind = { drawRect(pillTint.copy(alpha = 1f)) },
-                    onDrawSurface = { drawRect(pillTint.copy(alpha = 0.55f)) },
-                )
-            } else {
-                Modifier
-            }
-        }
+        // 玻璃底交给 COUI 面板：采样源是聊天列表那层（不含输入框自己），拿不到就纯白/黑。
+        CouiGlassPanel(
+            pageBackdrop = pageBackdrop,
+            modifier = Modifier.fillMaxWidth(),
+            cornerRadius = 24.dp,
+            tint = pillTint.copy(alpha = 0.55f),
+        ) {
         Row(
             Modifier
                 .fillMaxWidth()
-                .clip(RoundedCornerShape(24.dp))
-                .then(pillSurface)
-                .then(if (backdrop == null) Modifier.background(pillTint) else Modifier)
                 .border(1.dp, borderColor, RoundedCornerShape(24.dp))
                 .padding(start = 6.dp, end = 6.dp, top = 6.dp, bottom = 6.dp),
             verticalAlignment = Alignment.Bottom,
@@ -275,6 +247,7 @@ internal fun AgentComposer(
                 )
             }
         }
+        }
     }
 }
 /**
@@ -289,7 +262,7 @@ internal fun AttachmentThumb(path: String, host: AgentHost, size: Dp = 62.dp) {
     val bitmap = remember(path) {
         runCatching {
             // 读盘与解码都是平台的事（`:app` = `BitmapFactory.decodeFile`，全尺寸 ARGB_8888）；
-            // 桌面没有本地附件（相册那一档不画）⇒ 读不到就画下面那个占位。
+            // 读不到（文件被清掉、或这一端根本没有挑图那一档）就画下面那个占位。
             host.readImageBytes(path)?.let { decodeImageFull(it) }
         }.getOrNull()
     }
@@ -323,11 +296,16 @@ internal fun AttachmentThumb(path: String, host: AgentHost, size: Dp = 62.dp) {
 @Composable
 internal fun PushLogFooter(bottomReserve: Dp, onNewChat: () -> Unit) {
     val resting = if (bottomReserve > 0.dp) WindowInsets(bottom = bottomReserve) else WindowInsets.navigationBars
+    // 和输入框同款的胶囊实底（#379）：聊天记录滚到底栏后面时，提示文字不再和内容叠在一起
     Row(
         Modifier
             .fillMaxWidth()
             .windowInsetsPadding(resting)
-            .padding(horizontal = 20.dp, vertical = 14.dp),
+            .padding(horizontal = 12.dp, vertical = 8.dp)
+            .clip(RoundedCornerShape(24.dp))
+            .background(MiuixTheme.colorScheme.surfaceVariant)
+            .border(1.dp, MiuixTheme.colorScheme.onSurface.copy(alpha = 0.08f), RoundedCornerShape(24.dp))
+            .padding(start = 16.dp, end = 6.dp, top = 6.dp, bottom = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(

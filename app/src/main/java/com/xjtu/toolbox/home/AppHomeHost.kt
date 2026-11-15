@@ -1,5 +1,8 @@
 package com.xjtu.toolbox.home
 
+import android.app.Activity
+import android.content.Context
+import com.xjtu.toolbox.notification.AutoDndScheduler
 import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.EventNote
@@ -23,24 +26,39 @@ import com.xjtu.toolbox.bulletin.Bulletin
 import com.xjtu.toolbox.card.CampusCardCache
 import com.xjtu.toolbox.data.DataCache
 import com.xjtu.toolbox.nav.AppRoute
+import com.xjtu.toolbox.nav.SeamlessCardSource
+import com.xjtu.toolbox.sharedview.seamlessOpener
 import com.xjtu.toolbox.schedule.HolidayApi
 import com.xjtu.toolbox.schedule.ScheduleCache
 import com.xjtu.toolbox.util.toJavaTime
+import com.xjtu.toolbox.util.CampusZoneId
+import com.xjtu.toolbox.notification.freeGapHint
+import com.xjtu.toolbox.notification.todayScheduleItems
+import java.time.ZonedDateTime
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.time.LocalDate
 import java.util.Locale
 import com.xjtu.toolbox.util.todayOnCampus
 
-/** 首页在 `:app` 这一端的两半：宿主面（[host]）+ 它自己的那一层弹窗（[showStatusSheet]）。 */
+/** 首页在 `:app` 这一端：宿主面（[host]）+ 主页设置抽屉的开关。 */
 @Stable
 internal class AppHome(
     val host: HomeHost,
-    /** 「子系统连接状态」弹窗的开关，由调用方（[HomeTab]）在组合里读并画那个弹窗。 */
-    val showStatusSheet: MutableState<Boolean>,
     /** 「主页设置」抽屉的开关（首页编辑态里点「设置」）。 */
     val showSettingsSheet: MutableState<Boolean>,
 )
+
+/**
+ * 「下一项」的副行：饭点时换成食堂推荐（[meal]）；上课自动勿扰开着时末尾带一句状态。
+ * 只改有路由的项（即日程、饭点相关），登录、加载等占位不动。
+ */
+private fun withHomeHints(context: Context, up: HomeNextUp?, meal: String?, gap: String?): HomeNextUp? {
+    val dnd = AutoDndScheduler.isEnabled(context)
+    if (up?.route == null || (meal == null && gap == null && !dnd)) return up
+    val detail = listOfNotNull(meal ?: gap ?: up.detail, "上课勿扰已开".takeIf { dnd }).joinToString(" · ")
+    return up.copy(detail = detail)
+}
 
 /** 首页的宿主面（`:app` 这一端）—— 把「首页要的数据从哪来」收成一个对象。 */
 @Composable
@@ -64,6 +82,8 @@ internal fun rememberAppHome(
     // true 表示「下一项安排」算不出来是因为课表数据不可用（学期代码 / 开学日期缺失、
     // 读缓存抛异常），而不是真的未来两周没课——两种情况在 Hero 卡上要分开说话。
     var scheduleDataMissing by remember { mutableStateOf(false) }
+    var mealHint by remember { mutableStateOf<String?>(null) }
+    var freeGap by remember { mutableStateOf<String?>(null) }
     var currentWeekNumber by remember { mutableIntStateOf(0) }
     val cardPrefs = remember(AccountContext.activeAccountId) { CampusCardCache.cardPrefs(context) }
     var cachedBalance by remember { mutableStateOf(cardPrefs.getFloat("card_balance_cache", -1f)) }
@@ -82,6 +102,7 @@ internal fun rememberAppHome(
             isScheduleReminderLoaded = false
             scheduleReminder = null
             scheduleDataMissing = false
+            mealHint = null
             currentWeekNumber = 0
         }
         if (loginState.accountId.isEmpty()) return@LaunchedEffect
@@ -90,6 +111,7 @@ internal fun rememberAppHome(
         cachedDailyRate = cardPrefs.getFloat("card_daily_rate_cache", -1f)
         // 返回 Triple(下一项安排, 当前周次, 课表数据是否不可用)。第三位 true 时
         // Hero 卡显示「课表还没同步」而不是「接下来两周没有安排」，见 scheduleDataMissing。
+        var gapText: String? = null
         val loadedFocus = withContext(Dispatchers.IO) {
             try {
                 val dataCache = DataCache(context)
@@ -118,21 +140,37 @@ internal fun rememberAppHome(
                     holidayDates = holidayDates,
                     route = AppRoute.Schedule,
                 )
+                // 空堂建议也在这里算：只看今天的课，失败就不给
+                gapText = runCatching {
+                    val holidaySet = holidayDates.map { it.toJavaTime() }.toSet()
+                    val items = todayScheduleItems(allSchedules, startDate.toJavaTime(), ZonedDateTime.now(CampusZoneId), holidaySet)
+                    freeGapHint(items, System.currentTimeMillis())
+                }.getOrNull()
                 Triple(nextUp, weekNumber, false)
             } catch (_: Exception) {
                 Triple(null, 0, true)
             }
         }
         scheduleReminder = loadedFocus.first
+        freeGap = gapText
         currentWeekNumber = loadedFocus.second
         scheduleDataMissing = loadedFocus.third
         isScheduleReminderLoaded = true
+        // 饭点推荐只读本地校园卡流水，在 IO 线程算好，首页读的是结果
+        mealHint = withContext(Dispatchers.IO) {
+            runCatching {
+                CampusCardCache.load(context)?.transactions?.let {
+                    com.xjtu.toolbox.card.mealHomeHint(it, com.xjtu.toolbox.util.todayOnCampus(), campusNow.hour)
+                }
+            }.getOrNull()
+        }
         // 提醒评估在 MainScreen 层跑，够不到这里的状态，用共享信号带过去。
         val focus = loadedFocus.first
         HomeSignals.scheduleReminder = focus?.startAt?.let { HomeSignals.ScheduleFocus(focus.title, it.toJavaTime()) }
     }
 
-    var homeStats by remember { mutableStateOf<Map<String, HomeStat>>(emptyMap()) }
+    // 首帧就显示上次的内容，不从空白跳过来；只读一个小文件，放在组合里同步读
+    var homeStats by remember(loginState.accountId) { mutableStateOf(HomeStats.snapshot(context)) }
     LaunchedEffect(
         loginState.accountId,
         loginState.campusCardCacheVersion,
@@ -145,7 +183,11 @@ internal fun rememberAppHome(
         val term = withContext(Dispatchers.IO) {
             runCatching { ScheduleCache.readCurrentTerm(DataCache(context)) }.getOrNull()
         }
-        homeStats = HomeStats.collect(context, term)
+        val fresh = HomeStats.collect(context, term)
+        if (fresh != homeStats) {
+            homeStats = fresh
+            withContext(Dispatchers.IO) { HomeStats.saveSnapshot(context, fresh) }
+        }
         // 校园卡由 refresher 写进 CampusCardCache 的 prefs，不经过 homeStats，单独重读一次。
         cachedBalance = cardPrefs.getFloat("card_balance_cache", -1f)
         cachedDailyRate = cardPrefs.getFloat("card_daily_rate_cache", -1f)
@@ -153,7 +195,6 @@ internal fun rememberAppHome(
 
     val audience = loginState.accountType
     val isLoggedIn = loginState.isLoggedIn
-    val showStatusSheet = remember { mutableStateOf(false) }
     val showSettingsSheet = remember { mutableStateOf(false) }
 
     // 常用入口：用户置顶过就按置顶的来，否则按使用频率取 4 个。它是**额外**的入口，分类里照常保留。
@@ -197,6 +238,7 @@ internal fun rememberAppHome(
         val types = LoginType.entries
         val ok = types.count { loginState.sessionManager?.getSiteOrNull(it.siteKey())?.hasLogin == true }
         HomeStatusLine(
+            subsystems = types.map { HomeSubsystem(it.label, loginState.sessionManager?.getSiteOrNull(it.siteKey())?.hasLogin == true) },
             label = netLabel,
             detail = when {
                 isRestoring -> "连接中…"
@@ -248,11 +290,10 @@ internal fun rememberAppHome(
         }
 
         override val nextUp: HomeNextUp?
-            get() = scheduleReminder ?: when {
+            get() = withHomeHints(context, scheduleReminder ?: when {
                 !isLoggedIn -> HomeNextUp(
                     icon = HomeHero.LOGIN_ICON,
                     title = "登录后查看课表和余额",
-                    detail = "课表、校园卡会显示在这里",
                 )
                 !isScheduleReminderLoaded -> HomeNextUp(
                     icon = HomeHero.LOADING_ICON,
@@ -272,7 +313,7 @@ internal fun rememberAppHome(
                     detail = "问问小岱怎么安排",
                     route = AppRoute.Schedule,
                 )
-            }
+            }, mealHint, freeGap)
 
         override val glances: List<HomeGlanceItem>
             get() {
@@ -343,17 +384,23 @@ internal fun rememberAppHome(
             return com.xjtu.toolbox.pay.PaymentCodeApi(site).getBarCode()
         }
         override fun onBulletinTap(bulletin: Bulletin) = onBulletinTap(bulletin)
+        // 「查看详情」走站内公告详情页：ROM 支持金标联盟一镜到底时由 KitOneTake 换成独立 Activity，
+        // 否则压 AppRoute.NoticeDetail，走同一条 Compose 放大转场（BulletinNoticePanel 已登记起点）。
+        override fun onBulletinDetail(bulletin: Bulletin, source: SeamlessCardSource?) =
+            seamlessOpener(context, loginState, onNavigate)(AppRoute.NoticeDetail.of(bulletin), source)
+
+        // 首页常用功能 / 功能小组件 / 分类入口行：判断规则与全应用一致（见 seamlessOpener）
+        override fun onRouteSeamless(route: AppRoute, source: SeamlessCardSource?) =
+            seamlessOpener(context, loginState, ::onRoute)(route, source)
+
         override fun onBulletinDismiss(bulletin: Bulletin) = onBulletinDismiss(bulletin)
-        override fun onOpenStatus() {
-            showStatusSheet.value = true
-        }
         override fun onOpenHomeSettings() {
             showSettingsSheet.value = true
         }
         override val hasHomeSettings get() = true
     }
 
-    return AppHome(host, showStatusSheet, showSettingsSheet)
+    return AppHome(host, showSettingsSheet)
 }
 
 /** 「10月12日」那一段。`:app` 这一端读的是 `java.time` 的月份与日。 */

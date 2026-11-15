@@ -97,8 +97,16 @@ data class GithubDiscussionComments(val items: List<GithubDiscussionComment>, va
 class GithubDiscussionException(message: String? = null) :
     IllegalStateException(message ?: "GitHub discussion request failed")
 
+/** 仓库里一个 `#编号` 指向什么；issue、PR、讨论共用一套编号。 */
+enum class GithubRefKind { DISCUSSION, ISSUE, PULL_REQUEST }
+
 /** 取数接口：只声明共享 UI 真正用到的三个方法。 */
 interface GithubDiscussionsRepository {
+    /** 批量查编号的类型；不存在的编号不出现在结果里。 */
+    suspend fun referenceKinds(owner: String, name: String, numbers: Set<Int>): Result<Map<Int, GithubRefKind>> =
+        Result.success(emptyMap())
+
+
     suspend fun list(owner: String, name: String, cursor: String?, query: DiscussionQuery = DiscussionQuery()): Result<GithubDiscussionPage>
 
     suspend fun categories(owner: String, name: String): Result<List<GithubDiscussionCategory>>

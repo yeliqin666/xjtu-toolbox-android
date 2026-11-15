@@ -3,7 +3,7 @@ package com.xjtu.toolbox.judge
 /** 列表里一门课的展示内容。 */
 data class JudgeCard(val key: String, val course: String, val teacher: String, val tag: String)
 
-/** 评教的数据来源：本科走教务，研究生走 gste + gmis。 */
+/** 评教的数据来源：QMS（本科研究生共用），旧的教务 / gste + gmis 源仅桌面端保留。 */
 interface JudgeSource<Q> {
     /** 这一端能不能提交评教。 */
     val canSubmit: Boolean get() = true

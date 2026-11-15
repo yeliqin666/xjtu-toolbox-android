@@ -88,6 +88,11 @@ data class SelfTodo(
      * 本端自己加的字段（滴答那边没有），只影响收纳里这条的图标底色，不参与任何规则。
      */
     val colorArgb: Int? = null,
+    /**
+     * 作业的科目（课表里的课名）。非空 = 这条是「作业」：收纳和桌面小组件按思源学堂作业那样显示，
+     * 来源写科目、图标取那门课的颜色（[colorArgb] 不再起作用）。本端字段，滴答那边没有。
+     */
+    val course: String? = null,
 ) {
     val done: Boolean get() = status == SelfTodoRules.STATUS_DONE
 }
@@ -257,14 +262,18 @@ object SelfTodoRules {
     fun toInboxItem(todo: SelfTodo, now: Long): InboxItem = InboxItem(
         id = inboxId(todo.id),
         category = InboxCategories.SELF,
-        source = todo.tags.firstOrNull()?.takeIf { it.isNotBlank() } ?: "我的待办",
+        source = todo.course ?: todo.tags.firstOrNull()?.takeIf { it.isNotBlank() } ?: "我的待办",
         title = todo.title,
         body = todo.content,
         time = now,
         expiresAt = dueMillis(todo),
         sticky = true,
-        colorArgb = todo.colorArgb,
+        colorArgb = todo.colorArgb.takeIf { todo.course == null },
+        course = todo.course,
     )
+
+    /** 作业的标签：和思源学堂那边的「作业」同名。 */
+    const val HOMEWORK_TAG = "作业"
 
     /**
      * @param allDay 截止只精确到天（全天待办）：截止放当天 23:59。
@@ -281,13 +290,19 @@ object SelfTodoRules {
         remind: Boolean = false,
         colorArgb: Int? = null,
         now: Long,
-    ): SelfTodo =
-        SelfTodo(
+        course: String? = null,
+    ): SelfTodo {
+        val subject = course?.trim()?.takeIf { it.isNotEmpty() }
+        return SelfTodo(
             title = title.trim(), content = content.trim(), dueDate = dueDate, priority = priority,
             isAllDay = allDay && dueDate != null,
             reminders = if (remind && dueDate != null) listOf(if (allDay) REMIND_ALL_DAY_9AM else REMIND_AT_DUE) else emptyList(),
-            createdTime = now, modifiedTime = now, source = source, colorArgb = colorArgb,
+            createdTime = now, modifiedTime = now, source = source,
+            colorArgb = colorArgb.takeIf { subject == null },
+            tags = if (subject != null) listOf(HOMEWORK_TAG) else emptyList(),
+            course = subject,
         )
+    }
 
     fun complete(todo: SelfTodo, now: Long): SelfTodo =
         if (todo.done) todo
@@ -371,9 +386,11 @@ object SelfTodoStore {
         remind: Boolean = false,
         colorArgb: Int? = null,
         account: String? = AccountContext.activeAccountId,
+        /** 作业的科目；null = 普通待办。见 [SelfTodo.course]。 */
+        course: String? = null,
     ): SelfTodo? {
         if (title.isBlank()) return null
-        val todo = SelfTodoRules.newTodo(title, content, dueDate, priority, source, allDay, remind, colorArgb, nowMs())
+        val todo = SelfTodoRules.newTodo(title, content, dueDate, priority, source, allDay, remind, colorArgb, nowMs(), course)
         save(account, all(account) + todo)
         return todo
     }

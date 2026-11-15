@@ -24,10 +24,11 @@ import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import com.xjtu.toolbox.ui.components.TextLink
 import top.yukonga.miuix.kmp.basic.Button
+import top.yukonga.miuix.kmp.basic.ButtonDefaults
 import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.Text
-import top.yukonga.miuix.kmp.basic.TextButton
 import top.yukonga.miuix.kmp.basic.TextField
 import top.yukonga.miuix.kmp.overlay.OverlayDialog
 import top.yukonga.miuix.kmp.theme.MiuixTheme
@@ -96,7 +97,7 @@ fun WebServeSessionScreen(session: WebServeSession, onBack: () -> Unit) {
     ) {
         Row {
             Text("serve 会话", color = colors.onSurface, fontSize = 18.sp, modifier = Modifier.weight(1f))
-            TextButton(text = "回课表", onClick = onBack, minWidth = 84.dp)
+            TextLink(text = "回课表", onClick = onBack, chevron = true)
         }
         Text(
             "这一屏是 serve 模式（`:server` 托管本页）的登录口：会话在 `:server` 进程里，" +
@@ -124,7 +125,8 @@ fun WebServeSessionScreen(session: WebServeSession, onBack: () -> Unit) {
                 onClick = { session.setToken(tokenInput); scope.launch { refresh() } },
                 enabled = tokenInput.isNotBlank() && !busy,
                 modifier = Modifier.fillMaxWidth(),
-            ) { Text("用这枚令牌问会话") }
+                colors = ButtonDefaults.buttonColorsPrimary(),
+            ) { Text("用这枚令牌问会话", color = colors.onPrimary) }
         }
 
         when (authenticated) {
@@ -138,7 +140,7 @@ fun WebServeSessionScreen(session: WebServeSession, onBack: () -> Unit) {
                         color = colors.onBackgroundVariant,
                         fontSize = 11.sp,
                     )
-                    TextButton(text = "登出", onClick = { doLogout() }, enabled = !busy, minWidth = 96.dp)
+                    TextLink(text = "登出", onClick = { doLogout() }, enabled = !busy, color = colors.error)
                 }
             }
             false -> Card(modifier = Modifier.fillMaxWidth(), insideMargin = PaddingValues(14.dp)) {
@@ -162,7 +164,13 @@ fun WebServeSessionScreen(session: WebServeSession, onBack: () -> Unit) {
                         onClick = { doLogin() },
                         enabled = !busy && username.isNotBlank() && password.isNotBlank(),
                         modifier = Modifier.fillMaxWidth(),
-                    ) { Text(if (busy) "正在登录…（挂短信二验时最长 150 秒）" else "登录") }
+                        colors = ButtonDefaults.buttonColorsPrimary(),
+                    ) {
+                        Text(
+                            if (busy) "正在登录…（挂短信二验时最长 150 秒）" else "登录",
+                            color = colors.onPrimary,
+                        )
+                    }
                 }
             }
         }
@@ -200,8 +208,9 @@ fun WebServeSessionScreen(session: WebServeSession, onBack: () -> Unit) {
                         onClick = { scope.launch { session.submitMfa(code.trim()).onSuccess { mfa = it } } },
                         enabled = code.isNotBlank(),
                         modifier = Modifier.weight(1f),
-                    ) { Text("提交") }
-                    TextButton(
+                        colors = ButtonDefaults.buttonColorsPrimary(),
+                    ) { Text("提交", color = MiuixTheme.colorScheme.onPrimary) }
+                    TextLink(
                         text = "取消这次登录",
                         onClick = { scope.launch { session.cancelMfa().onSuccess { mfa = it } } },
                         modifier = Modifier.weight(1f),

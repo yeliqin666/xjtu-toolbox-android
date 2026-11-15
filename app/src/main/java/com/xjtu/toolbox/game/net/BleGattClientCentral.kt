@@ -12,7 +12,6 @@ import android.bluetooth.le.ScanFilter
 import android.bluetooth.le.ScanResult
 import android.bluetooth.le.ScanSettings
 import android.content.Context
-import android.os.Build
 import android.os.ParcelUuid
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.channels.Channel
@@ -109,14 +108,7 @@ class BleGattClientCentral(private val context: Context) {
                     if (!readyDeferred.isCompleted) readyDeferred.complete(false)
                     return
                 }
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                    gatt.writeDescriptor(cccd, BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE)
-                } else {
-                    @Suppress("DEPRECATION")
-                    cccd.value = BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE
-                    @Suppress("DEPRECATION")
-                    gatt.writeDescriptor(cccd)
-                }
+                gatt.writeDescriptor(cccd, BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE)
             }
 
             override fun onDescriptorWrite(gatt: BluetoothGatt, descriptor: BluetoothGattDescriptor, status: Int) {
@@ -167,18 +159,9 @@ class BleGattClientCentral(private val context: Context) {
                 for (fragment in fragments) {
                     val ack = CompletableDeferred<Boolean>()
                     pendingWriteAck = ack
-                    val ok2 = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                        gattRef?.writeCharacteristic(
-                            char, fragment, BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT,
-                        ) == android.bluetooth.BluetoothStatusCodes.SUCCESS
-                    } else {
-                        @Suppress("DEPRECATION")
-                        char.value = fragment
-                        @Suppress("DEPRECATION")
-                        char.writeType = BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT
-                        @Suppress("DEPRECATION")
-                        gattRef?.writeCharacteristic(char) == true
-                    }
+                    val ok2 = gattRef?.writeCharacteristic(
+                        char, fragment, BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT,
+                    ) == android.bluetooth.BluetoothStatusCodes.SUCCESS
                     if (!ok2) break
                     withTimeoutOrNull(2_000) { ack.await() }
                 }

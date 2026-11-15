@@ -101,6 +101,10 @@ class BotEngine(
     companion object {
         /** 换形状时的形变时长（秒）。与状态形变共用同一条 ease-out 曲线。 */
         const val SHAPE_MORPH = 0.45
+
+        /** 记住最近几下加戳；一下的反应 [KICK_SECONDS] 秒内收完。 */
+        private const val KICK_MEMORY = 6
+        private const val KICK_SECONDS = 1.0
     }
 
     private var cur: String = initial
@@ -137,8 +141,18 @@ class BotEngine(
     private var lastSampleAt = -1.0
     private var winkIndex = -1
     private var winkAt = -10.0
+    private val kicks = DoubleArray(KICK_MEMORY) { -10.0 }
 
     val state: String get() = cur
+
+    /**
+     * 彩蛋播放中又被戳了一下：不打断当前状态，叠一次压扁回弹，脸再甩一整圈。
+     * 一整圈转完正好回到原朝向，所以随时叠、叠几次画面都连续。
+     */
+    fun kick(now: Double) {
+        for (i in KICK_MEMORY - 1 downTo 1) kicks[i] = kicks[i - 1]
+        kicks[0] = now
+    }
 
     /** 往某个方向看（度）：yaw 正为往右，pitch 正为往上；传 0, 0 回正。 */
     fun lookAt(yaw: Double, pitch: Double) {
@@ -296,6 +310,7 @@ class BotEngine(
         tCur = now
         tPrev = now
         blinkAt = -10.0
+        kicks.fill(-10.0)
     }
 
     fun sample(now: Double): BotFrame {
@@ -350,8 +365,19 @@ class BotEngine(
         val follow = 1.0 - exp(-dt * 14.0)
         lookYaw += (lookYawTarget - lookYaw) * follow
         lookPitch += (lookPitchTarget - lookPitch) * follow
+        // 加戳：压扁量（负 = 变矮）与多转的角度
+        var kickSquash = 0.0
+        var kickYaw = 0.0
+        for (at in kicks) {
+            val u = now - at
+            if (u < 0.0 || u > KICK_SECONDS) continue
+            kickSquash -= 0.2 * exp(-u * 7.0) * sin(u * 17.0) * clamp01((KICK_SECONDS - u) / 0.2)
+            kickYaw += 360.0 * Easings.easeOutCubic(clamp01(u / 0.7))
+        }
+        kickSquash = kickSquash.coerceIn(-0.25, 0.1)
+
         val gaze = HeadGaze(
-            yaw = pose.gaze.yaw + life.dYaw + lookYaw,
+            yaw = pose.gaze.yaw + life.dYaw + lookYaw + kickYaw,
             pitch = pose.gaze.pitch + life.dPitch + lookPitch,
             // roll 不跟随任何东西：头的倾角是视频的签名
             roll = pose.gaze.roll + life.dRoll,
@@ -370,9 +396,9 @@ class BotEngine(
             pose.sil.radii,
             rot = pose.sil.rot,
             cx = pose.sil.cx + offX,
-            cy = pose.sil.cy + offY,
-            sx = pose.sil.sx,
-            sy = pose.sil.sy * life.breath,
+            cy = pose.sil.cy + offY - kickSquash * 0.6,
+            sx = pose.sil.sx * (1.0 - kickSquash * 0.5),
+            sy = pose.sil.sy * life.breath * (1.0 + kickSquash),
         )
         closedPath(toPoints(sil, R, pts), bodyPath)
 
@@ -425,7 +451,7 @@ class BotEngine(
             .filter { it.opacity > 0.01 && it.r > 0.0005 }
             .map { DotDraw((it.x + offX) * R, (it.y + offY) * R, it.r * R, it.opacity, it.depth) }
 
-        // 弧线（彗星彩带）：状态声明球半径单位，引擎统一光栅化
+        // 弧线（轨道环、陀螺彩带）：状态声明球半径单位，引擎统一光栅化
         val arcs = pose.arcs
             .filter { it.opacity > 0.01 }
             .mapIndexed { i, it -> arcRender(it.seed, it.t, R, it.opacity, arcPath(2 * i), arcPath(2 * i + 1)) }

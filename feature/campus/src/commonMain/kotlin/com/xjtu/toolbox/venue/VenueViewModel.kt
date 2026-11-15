@@ -8,14 +8,10 @@ import androidx.lifecycle.viewModelScope
 import com.xjtu.toolbox.error.FriendlyError
 import com.xjtu.toolbox.error.SessionExpiredFailure
 import com.xjtu.toolbox.util.todayOnCampus
-import kotlin.time.Clock
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.Channel
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 import kotlinx.datetime.LocalDate
 
 internal sealed interface VenuePage {
@@ -32,10 +28,6 @@ internal sealed interface VenueEvent {
 internal class VenueViewModel(
     /** 本端的取数 + 收藏实现（Android = `AppVenueSource`，Web = `CampusVenueApi`）。 */
     private val source: VenueSource,
-    /** 「验证码自动识别」这个设置项，**每次现读**（见类 KDoc）。 */
-    private val autoSolveCaptcha: () -> Boolean = { false },
-    /** 滑块验证码宿主槽位（见类 KDoc）：null = 本端没有这条路径。 */
-    private val captchaHost: SlideCaptchaHost? = null,
 ) : ViewModel() {
     private val eventChannel = Channel<VenueEvent>(Channel.BUFFERED)
     val events = eventChannel.receiveAsFlow()
@@ -64,10 +56,9 @@ internal class VenueViewModel(
     var captchaData by mutableStateOf<CaptchaData?>(null); private set
     var captchaLoading by mutableStateOf(false); private set
     var captchaError by mutableStateOf<String?>(null); private set
-    var captchaAutoSolving by mutableStateOf(false); private set
     var captchaNotice by mutableStateOf<String?>(null); private set
     private var pendingOrder: PendingOrder? = null
-    // 每次加载 / 关闭验证码都递增，丢弃旧协程的结果，免得换图后旧识别结果误提交
+    // 每次加载 / 关闭验证码都递增，丢弃旧协程的结果，免得换图后旧请求的结果顶掉新图
     private var captchaToken = 0
 
     var orders by mutableStateOf<List<OrderInfo>>(emptyList()); private set
@@ -153,6 +144,8 @@ internal class VenueViewModel(
     /** 选中/取消一个时段。只读端（[VenueSource.canBook] = false）屏上根本不给勾，这里再兜一层。 */
     fun toggleSlot(slot: AreaSlot) {
         if (!source.canBook) return
+        // 结束时间已过的时段不能订（屏上也不给点，这里再兜一层）
+        if (slot !in selectedSlots && slot.hasEnded(com.xjtu.toolbox.util.nowOnCampus())) return
         selectedSlots = if (slot in selectedSlots) selectedSlots - slot else selectedSlots + slot
     }
 
@@ -190,7 +183,7 @@ internal class VenueViewModel(
                 if (token != captchaToken || !showCaptcha) return@launch
                 pendingOrder = order
                 val data = source.captcha(venue.id)
-                processCaptcha(data, token)
+                showCaptchaData(data, token)
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -201,7 +194,7 @@ internal class VenueViewModel(
                     captchaError = FriendlyError.of(e, "获取验证码")
                 }
             } finally {
-                if (token == captchaToken) { captchaLoading = false; captchaAutoSolving = false }
+                if (token == captchaToken) captchaLoading = false
             }
         }
     }
@@ -212,7 +205,7 @@ internal class VenueViewModel(
         viewModelScope.launch {
             try {
                 val data = source.captcha(venue.id)
-                processCaptcha(data, token)
+                showCaptchaData(data, token)
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -223,7 +216,7 @@ internal class VenueViewModel(
                     captchaError = FriendlyError.of(e, "获取验证码")
                 }
             } finally {
-                if (token == captchaToken) { captchaLoading = false; captchaAutoSolving = false }
+                if (token == captchaToken) captchaLoading = false
             }
         }
     }
@@ -231,7 +224,6 @@ internal class VenueViewModel(
     private fun beginCaptcha(): Int {
         bookingSubmitted = false
         captchaLoading = true
-        captchaAutoSolving = false
         captchaError = null
         captchaNotice = null
         captchaData = null
@@ -242,37 +234,13 @@ internal class VenueViewModel(
         showCaptcha = false
         captchaToken++
         captchaLoading = false
-        captchaAutoSolving = false
     }
 
-    /** 自动识别是设置项，默认开；识别失败只提示，保留当前验证码让用户手滑。 */
-    private suspend fun processCaptcha(data: CaptchaData, token: Int) {
+    /** 验证码图到了：画出来等用户手动拖。 */
+    private fun showCaptchaData(data: CaptchaData, token: Int) {
         if (token != captchaToken || !showCaptcha) return
         captchaData = data
         captchaNotice = null
-        val host = captchaHost ?: return
-        if (!autoSolveCaptcha()) return
-        val shownAt = Clock.System.now().toEpochMilliseconds()
-        captchaAutoSolving = true
-        val solved = try {
-            withContext(Dispatchers.Default) { host.solve(data, shownAt) }
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            null
-        }
-        if (token != captchaToken || !showCaptcha) return
-        if (solved == null) {
-            captchaAutoSolving = false
-            captchaNotice = "自动识别未通过，请手动滑动滑块"
-            return
-        }
-        // 按轨迹的节奏等到「松手」那一刻再提交，时间戳才对得上（轨迹里的两个时刻由实现方按
-        // shownAt 盖好，见 SolvedCaptcha 的 KDoc）
-        delay((shownAt + solved.releaseAfterMillis - Clock.System.now().toEpochMilliseconds()).coerceAtLeast(0L))
-        if (token != captchaToken || !showCaptcha) return
-        captchaAutoSolving = false
-        submitBooking(solved.sliderResult)
     }
 
     fun submitBooking(slider: SliderResult) {
@@ -282,7 +250,6 @@ internal class VenueViewModel(
         if (bookingInProgress) return
         captchaToken++
         captchaLoading = false
-        captchaAutoSolving = false
         bookingInProgress = true
         bookingSubmitted = true
         viewModelScope.launch {
@@ -301,6 +268,8 @@ internal class VenueViewModel(
                 bookingInProgress = false
             }
             showCaptcha = false
+            // 订成了就把「我的订单」拉一遍，切过去就是新单，不用等手动下拉
+            if (bookingResult?.success == true) loadOrders(reset = true)
         }
     }
 
@@ -316,7 +285,11 @@ internal class VenueViewModel(
 
     /** 订单：[reset] 为 true 拉第一页，保留旧列表让刷新时页面仍可操作。 */
     fun loadOrders(reset: Boolean = true) {
-        if (ordersLoading || ordersLoadingMore) return
+        if (ordersLoading || ordersLoadingMore) {
+            // 正在拉的那一页可能是下单前发出的：记一笔，拉完再刷一次，新单不会漏
+            if (reset) ordersStale = true
+            return
+        }
         if (!reset && !ordersHasMore) return
         val page = if (reset) 1 else nextOrderPage
         if (reset) { ordersLoading = true; nextOrderPage = 1; ordersHasMore = false } else ordersLoadingMore = true
@@ -334,9 +307,14 @@ internal class VenueViewModel(
                 else ordersError = FriendlyError.of(e, "加载订单")
             } finally {
                 if (reset) ordersLoading = false else ordersLoadingMore = false
+                if (ordersStale) {
+                    ordersStale = false
+                    loadOrders(reset = true)
+                }
             }
         }
     }
+    private var ordersStale = false
 
     fun loadOrdersOnce() {
         if (orders.isEmpty() && !ordersLoading) loadOrders(reset = true)
@@ -345,6 +323,8 @@ internal class VenueViewModel(
     fun cancelOrder(order: OrderInfo) {
         // 只读端屏上不画「取消订单」（[VenueSource.canCancel] = false），这里再兜一层
         if (!source.canCancel) return
+        // 订单已到起效时间不再允许取消（屏上也不画入口）
+        if (order.hasStarted(com.xjtu.toolbox.util.nowOnCampus())) return
         if (orderActionLoading) return
         orderActionLoading = true
         viewModelScope.launch {

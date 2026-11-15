@@ -1,6 +1,8 @@
 package com.xjtu.toolbox.ui.glass
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.ui.composed
 import androidx.compose.foundation.layout.calculateEndPadding
 import androidx.compose.foundation.layout.calculateStartPadding
 import androidx.compose.runtime.Composable
@@ -20,22 +22,21 @@ import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.constrainHeight
 import androidx.compose.ui.unit.dp
-import com.kyant.backdrop.Backdrop
 import com.kyant.backdrop.backdrops.LayerBackdrop
-import com.kyant.backdrop.backdrops.layerBackdrop
 import com.kyant.backdrop.backdrops.rememberLayerBackdrop
 import com.xjtu.toolbox.ui.components.BackButton
 import androidx.compose.foundation.layout.RowScope
-import top.yukonga.miuix.kmp.basic.ScrollBehavior
-import top.yukonga.miuix.kmp.basic.TopAppBar
 import top.yukonga.miuix.kmp.theme.MiuixTheme
+import com.xjtu.toolbox.ui.theme.LocalIsDarkTheme
 
 /**
  * 二级页的玻璃顶栏。用法：
  * ```
  * val glass = rememberPageGlass()                        // 经典风格下是 null
  * Scaffold(topBar = {
- *     TopAppBar(..., color = glassBarColor(glass), modifier = Modifier.glassTopBar(glass))
+ *     GlassTopAppBar(title = "标题", glass = glass, scrollBehavior = scrollBehavior, onBack = onBack)
+ *     // 或者直接写 CouiPageTopAppBar(..., color = glassBarColor(glass),
+ *     //     pageBackdrop = couiPageBackdropFor(glass))
  * }) { padding ->
  *     // 内容铺到顶栏下面并作为采样源；采样源要挂在滚动容器外面
  *     Box(Modifier.fillMaxSize().padding(padding.withoutTop(glass)).glassSource(glass)) {
@@ -55,9 +56,28 @@ val LocalTabRoot = compositionLocalOf { false }
 /** 这一页的玻璃采样源；经典风格时为 null。每页自己建一份，不借主界面的。 */
 @Composable
 fun rememberPageGlass(): LayerBackdrop? {
-    val backdrop = rememberLayerBackdrop()
-    return if (LocalGlassStyle.current) backdrop else null
+    val glassStyle = LocalGlassStyle.current
+    val backdrop = rememberLayerBackdrop(cache = true)
+    // COUI 顶栏的模糊采的是这一页正文，和 kyant 的采样层一起建；经典风格顶栏是实色，
+    // 不必白录一层（非 Android 平台这里也返回 null）。
+    val couiBackdrop = if (glassStyle) rememberCouiPageBackdrop() else null
+    couiPageBackdrops[backdrop] = couiBackdrop
+    // 页面离开组合后把登记撤掉，别把整页的采样层留在内存里
+    DisposableEffect(backdrop, couiBackdrop) {
+        onDispose { couiPageBackdrops.remove(backdrop) }
+    }
+    return if (glassStyle) backdrop else null
 }
+
+/** 页面的 COUI 采样源，键是这一页的 kyant 采样层；见 [rememberPageGlass]。 */
+private val couiPageBackdrops = mutableMapOf<LayerBackdrop, CouiPageBackdrop?>()
+
+/**
+ * 取 [glass] 这一页的 COUI 采样源：null = 经典风格 / 非 Android / 页面没有建。
+ * 顶栏拿它决定是铺 COUI 渐变模糊还是画实色底。
+ */
+fun couiPageBackdropFor(glass: LayerBackdrop?): CouiPageBackdrop? =
+    if (glass == null) null else couiPageBackdrops[glass]
 
 /**
  * 录下这一层作为采样源；[backdrop] 为 null 时什么都不做。
@@ -65,10 +85,18 @@ fun rememberPageGlass(): LayerBackdrop? {
  */
 fun Modifier.glassSource(backdrop: LayerBackdrop?): Modifier {
     if (backdrop == null) return this
-    return this.layerBackdrop(backdrop).shiftUpBy {
-        val follow = topBarFollows[backdrop] ?: return@shiftUpBy 0.dp
-        follow.stable - follow.current()
-    }
+    val couiBackdrop = couiPageBackdrops[backdrop]
+    // 旧的 kyant 采样层已经没人消费了（顶栏用 COUI 那层、切换条改胶囊后不再取样），
+    // 这里只挂 COUI 的采样节点，页面不再多录一份整屏离屏图。
+    return this
+        .then(if (couiBackdrop != null) couiBackdrop.recordInto(Modifier) else Modifier)
+        // 采样层自己垫一层页面底色：页面底色是 Scaffold 在采样层外面画的，录下来是透明的，
+        // 顶栏的模糊遇到透明像素直接放行，不在卡片上的字（「共 N 项」之类）就会清清楚楚透出顶栏
+        .composed { background(MiuixTheme.colorScheme.surface) }
+        .shiftUpBy {
+            val follow = topBarFollows[backdrop] ?: return@shiftUpBy 0.dp
+            follow.stable - follow.current()
+        }
 }
 
 /**
@@ -111,48 +139,43 @@ private class TopBarFollow(initial: Dp) {
 /** 顶栏跟随状态。 */
 private val topBarFollows = mutableMapOf<LayerBackdrop, TopBarFollow>()
 
-/** 二级页的标准顶栏：玻璃（经典风格下不透明）、大标题随滚动折叠、左上角返回。 */
+/**
+ * 二级页的标准顶栏：COUI 大标题折叠顶栏（非 Android 回退 MIUIX 顶栏）、左上角返回。
+ * 和一级页同一套：上滑先收标题，模糊底常驻。[scrollBehavior] 必须接到正文的滚动上
+ * （`Modifier.nestedScroll` 或交给 `AppPullToRefresh`），否则大标题收不起来。
+ */
 @Composable
 fun GlassTopAppBar(
     title: String,
     glass: LayerBackdrop?,
-    scrollBehavior: ScrollBehavior,
+    scrollBehavior: CouiTopBarScrollBehavior,
     onBack: () -> Unit,
     largeTitle: String = title,
+    /** 大标题下面的一行小字，收起时淡出。 */
+    subtitle: String? = null,
     actions: @Composable RowScope.() -> Unit = {},
     bottomContent: @Composable () -> Unit = {},
 ) {
-    TopAppBar(
+    CouiPageTopAppBar(
         title = title,
         largeTitle = largeTitle,
+        subtitle = subtitle,
         color = glassBarColor(glass),
-        modifier = Modifier.glassTopBar(glass),
         scrollBehavior = scrollBehavior,
+        pageBackdrop = couiPageBackdropFor(glass),
         navigationIcon = { BackButton(onBack) },
         actions = actions,
         bottomContent = bottomContent,
     )
 }
 
-/** 顶栏底色：玻璃时透明，否则是 surface。 */
+/** 顶栏底色：COUI 顶栏自己画背景，玻璃时透明；经典风格是纯白 / 纯黑（与所有兜底表面一致）。 */
 @Composable
 fun glassBarColor(backdrop: LayerBackdrop?): Color =
-    if (backdrop != null) Color.Transparent else MiuixTheme.colorScheme.surface
-
-/** 二级页顶栏的玻璃，见 [glassBarSurface]。 */
-@Composable
-fun Modifier.glassTopBar(backdrop: LayerBackdrop?): Modifier {
-    if (backdrop == null) return this
-    return glassBarSurface(backdrop, glassBarTint())
-}
-
-/** 顶栏玻璃上压的表面色，保证字看得清。 */
-@Composable
-fun glassBarTint(): Color = MiuixTheme.colorScheme.surface.copy(alpha = 0.72f)
-
-/** 贴边顶栏的玻璃：与首页同一套无边界渐变模糊，见 [progressiveBlurBar]。只画不量。 */
-@Composable
-fun Modifier.glassBarSurface(backdrop: Backdrop, tint: Color): Modifier = progressiveBlurBar(backdrop, tint)
+    // COUI 的折叠顶栏由 CouiTopAppBarSurface 铺模糊（渐隐色那层已去掉），底色必须透出来；
+    // 经典风格（没有采样源）用兜底那套纯白 / 纯黑。
+    if (backdrop != null) Color.Transparent
+    else if (LocalIsDarkTheme.current) Color.Black else Color.White
 
 /** 玻璃时内容容器不吃顶部 padding（铺到顶栏下面）；经典时原样返回。 */
 @Composable

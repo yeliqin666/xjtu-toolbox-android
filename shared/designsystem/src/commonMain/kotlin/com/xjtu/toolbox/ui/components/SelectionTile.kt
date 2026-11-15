@@ -11,7 +11,10 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
@@ -34,6 +37,41 @@ import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.utils.SinkFeedback
+
+/** 弹窗里一组选项的白卡片；弹窗底色要用 `surface`，卡片才分得出来。 */
+@Composable
+fun AppOptionGroup(modifier: Modifier = Modifier, content: @Composable ColumnScope.() -> Unit) {
+    Column(
+        modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(AppCardColor),
+        content = content,
+    )
+}
+
+/** [AppOptionGroup] 里的一行多选：选中时主题色字和右侧小勾，长短不一的文字也排得齐。 */
+@Composable
+fun AppCheckRow(text: String, selected: Boolean, onClick: () -> Unit) {
+    val primary = MiuixTheme.colorScheme.primary
+    val content by animateColorAsState(if (selected) primary else MiuixTheme.colorScheme.onSurface, tween(160), label = "rowInk")
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .heightIn(min = 48.dp)
+            .clickable(onClick = onClick)
+            .padding(horizontal = 16.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            text,
+            style = MiuixTheme.textStyles.body2,
+            fontWeight = if (selected) FontWeight.Medium else FontWeight.Normal,
+            color = content,
+            modifier = Modifier.weight(1f),
+        )
+        AnimatedVisibility(selected, enter = fadeIn(tween(160)), exit = fadeOut(tween(160))) {
+            Icon(Icons.Filled.Check, contentDescription = "已选", tint = primary, modifier = Modifier.padding(start = 8.dp).size(18.dp))
+        }
+    }
+}
 
 /**
  * 底部弹窗里的多选块：整块可点。未选是一层很淡的底；选中换成主题色淡底、主题色字和右侧小勾，

@@ -24,8 +24,8 @@ interface JwxtScoreSupplement {
     /** `xscjcx.do` 的全部有效成绩（自动分页），按学期 + 课程名替换 jwapp 的粗分。 */
     suspend fun preciseScores(): List<CjcxScore>
 
-    /** 成绩报表的全部成绩：jwapp 对未评教的课不给分，最新学期从这里补。 */
-    suspend fun reportedGrades(studentId: String): List<ReportedGrade>
+    /** 成绩报表的全部成绩：jwapp 对未评教的课不给分，最新学期从这里补。学号由实现按当前登录账号取。 */
+    suspend fun reportedGrades(): List<ReportedGrade>
 }
 
 /** 成绩的落盘缓存端口（先给旧值秒显、后台再刷）。 */

@@ -99,6 +99,44 @@ data class CardWidget(
 @Serializable
 data class ZyxfWidget(val query: String = "", val items: List<ZyxfEntryRef> = emptyList(), val display: WidgetDisplay = WidgetDisplay()) : AgentWidget
 
+/** 校车结果。点一下进校车页。 */
+@Serializable
+data class BusWidget(val title: String = "", val items: List<BusWidgetItem> = emptyList(), val display: WidgetDisplay = WidgetDisplay()) : AgentWidget
+
+@Serializable
+data class BusWidgetItem(
+    val time: String = "",
+    val line: String = "",
+    val route: String = "",
+    val seatsLeft: Int = 0,
+    val seats: Int = 0,
+    val plate: String = "",
+    val tight: Boolean = false,
+)
+
+/**
+ * 思源某个活动的附件入口。只存 id 不存下载地址：地址带登录态也会过期，要用的时候现取，
+ * 也不接受模型写的链接，只能选工具真正查到的文件。
+ */
+@Serializable
+data class LmsFileWidget(
+    val courseName: String = "",
+    val activityTitle: String = "",
+    val courseId: Int = 0,
+    val activityId: Int = 0,
+    val items: List<LmsFileRef> = emptyList(),
+    val display: WidgetDisplay = WidgetDisplay(),
+) : AgentWidget
+
+@Serializable
+data class LmsFileRef(
+    val id: Int = 0,
+    val name: String = "",
+    val sizeText: String = "",
+    /** 用户自己交的，不是老师发的。 */
+    val mine: Boolean = false,
+)
+
 /** 卡片里的一条。卡片要随会话一起存盘。 */
 @Serializable
 data class ZyxfEntryRef(
@@ -175,6 +213,8 @@ fun AgentWidget.toStored(): StoredWidget = when (this) {
     is LibraryWidget -> StoredWidget("LibraryWidget", AppJson.encodeToString(this))
     is CampusMapWidget -> StoredWidget("CampusMapWidget", AppJson.encodeToString(this))
     is PlanWidget -> StoredWidget("PlanWidget", AppJson.encodeToString(this))
+    is BusWidget -> StoredWidget("BusWidget", AppJson.encodeToString(this))
+    is LmsFileWidget -> StoredWidget("LmsFileWidget", AppJson.encodeToString(this))
 }
 
 /** 读不回来（旧版半截写入、未知类型）就丢掉这张卡片，不影响整段会话。 */
@@ -192,6 +232,8 @@ fun storedToWidget(stored: StoredWidget): AgentWidget? = runCatching {
         "LibraryWidget" -> AppJson.decodeFromString<LibraryWidget>(stored.json)
         "CampusMapWidget" -> AppJson.decodeFromString<CampusMapWidget>(stored.json)
         "PlanWidget" -> AppJson.decodeFromString<PlanWidget>(stored.json)
+        "BusWidget" -> AppJson.decodeFromString<BusWidget>(stored.json)
+        "LmsFileWidget" -> AppJson.decodeFromString<LmsFileWidget>(stored.json)
         else -> null
     }
 }.getOrNull()

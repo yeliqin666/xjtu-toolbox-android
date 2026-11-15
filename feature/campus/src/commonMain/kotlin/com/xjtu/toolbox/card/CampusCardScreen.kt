@@ -1,8 +1,10 @@
 package com.xjtu.toolbox.card
 
+
 import androidx.compose.material.icons.automirrored.filled.MenuBook
 import com.xjtu.toolbox.ui.glass.tabContentPadding
 import com.xjtu.toolbox.ui.components.AppPullToRefresh
+import com.xjtu.toolbox.ui.components.ArrowPreference
 import com.xjtu.toolbox.ui.components.BackButton
 import com.xjtu.toolbox.platform.BackHandler
 import androidx.compose.animation.*
@@ -29,12 +31,16 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.unit.sp
+import com.xjtu.toolbox.nav.expandOriginSource
+import androidx.compose.foundation.clickable
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import com.kyant.backdrop.backdrops.layerBackdrop
-import com.kyant.backdrop.backdrops.rememberLayerBackdrop
 import com.xjtu.toolbox.auth.LocalAuthExpiry
 import com.xjtu.toolbox.ui.adaptive.readableWidth
 import com.xjtu.toolbox.ui.components.AppDatePickerDialog
@@ -46,9 +52,9 @@ import com.xjtu.toolbox.ui.components.LoadingState
 import com.xjtu.toolbox.ui.components.MeshBackground
 import com.xjtu.toolbox.ui.components.appCardShadow
 import com.xjtu.toolbox.ui.components.enterOnce
+import com.xjtu.toolbox.ui.glass.CouiPageTopAppBar
 import com.xjtu.toolbox.ui.glass.followTopBar
-import com.xjtu.toolbox.ui.glass.glassBarSurface
-import com.xjtu.toolbox.ui.glass.glassBarTint
+import com.xjtu.toolbox.ui.glass.rememberCouiPageBackdrop
 import com.xjtu.toolbox.util.todayOnCampus
 import kotlin.math.abs
 import kotlin.time.Clock
@@ -62,12 +68,10 @@ import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.CardDefaults
 import top.yukonga.miuix.kmp.basic.CircularProgressIndicator
 import top.yukonga.miuix.kmp.basic.DropdownImpl
-import top.yukonga.miuix.kmp.basic.HorizontalDivider
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.IconButton
 import top.yukonga.miuix.kmp.basic.LinearProgressIndicator
 import top.yukonga.miuix.kmp.basic.ListPopupColumn
-import top.yukonga.miuix.kmp.basic.MiuixScrollBehavior
 import top.yukonga.miuix.kmp.basic.PopupPositionProvider
 import top.yukonga.miuix.kmp.basic.Scaffold
 import top.yukonga.miuix.kmp.basic.SnackbarDuration
@@ -76,11 +80,8 @@ import top.yukonga.miuix.kmp.basic.SnackbarHostState
 import top.yukonga.miuix.kmp.basic.Surface
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextButton
-import top.yukonga.miuix.kmp.basic.TopAppBar
-import top.yukonga.miuix.kmp.basic.rememberTopAppBarState
 import top.yukonga.miuix.kmp.overlay.OverlayDialog
 import top.yukonga.miuix.kmp.overlay.OverlayListPopup
-import top.yukonga.miuix.kmp.preference.ArrowPreference
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.utils.overScrollVertical
 import com.xjtu.toolbox.nav.AppRoute
@@ -88,6 +89,7 @@ import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.viewmodel.CreationExtras
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.xjtu.toolbox.util.CampusTimeZone
+import com.xjtu.toolbox.ui.glass.rememberCouiTopAppBarScrollBehavior
 
 // ==================== 时间范围枚举 ====================
 
@@ -105,8 +107,8 @@ private fun formatRangeChip(start: LocalDate, end: LocalDate): String {
     }
 }
 
-/** 「加餐券」那条二级入口要的两行状态（值 + 说明）。 */
-data class CouponEntryStat(val value: String = "", val detail: String? = null)
+/** 加餐券入口的状态：值 + 说明 + 待领与待用的总张数（右上角按钮的数字气泡）。 */
+data class CouponEntryStat(val value: String = "", val detail: String? = null, val badge: Int = 0)
 
 /** 校园卡：概览 / 流水 / 分析三栏（宽屏左概览右「流水 / 分析」）。 */
 @Composable
@@ -157,7 +159,7 @@ fun CampusCardScreen(
     var showCustomRange by remember { mutableStateOf(false) }
     var searchQuery by rememberSaveable { mutableStateOf("") }
 
-    val scrollBehavior = MiuixScrollBehavior(rememberTopAppBarState())
+    val scrollBehavior = rememberCouiTopAppBarScrollBehavior()
     var showRangeMenu by remember { mutableStateOf(false) }
     // 当前时间范围的一句话说法：顶栏菜单按钮的无障碍描述、流水和分析栏的小字共用
     val rangeLabel = if (vm.timeRange == TimeRange.CUSTOM) {
@@ -165,101 +167,85 @@ fun CampusCardScreen(
     } else {
         "近${vm.timeRange.label}"
     }
-    // 这一页自己的采样源：顶栏采它，不用全局的 LocalAppBackdrop（这是二级页，有自己
-    // 的 Scaffold/TopAppBar）。
-    val cardBackdrop = rememberLayerBackdrop()
+    // 这一页自己的采样源：顶栏的 COUI 渐变模糊采它，不用全局的 LocalAppBackdrop
+    // （这是二级页，有自己的 Scaffold / 顶栏）。其它平台没有 COUI，返回 null。
+    val pageBackdrop = rememberCouiPageBackdrop()
+    // 采样本页正文：玻璃风格时才录，经典风格顶栏是实色。
+    val pageSource = if (glass) {
+        // 垫页面底色：录下来透明的地方顶栏模糊会直接放行（见 glassSource）
+        (pageBackdrop?.recordInto(Modifier) ?: Modifier).background(MiuixTheme.colorScheme.surface)
+    } else Modifier
     // 宽屏「流水 / 分析」两栏的选中项。标签行在顶栏里，所以提到 Scaffold 外面
     val isWideTop = com.xjtu.toolbox.ui.isWideLayout()
     var wideTab by rememberSaveable { mutableIntStateOf(0) }
     Scaffold(
         snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
-            TopAppBar(
+            CouiPageTopAppBar(
                 title = "校园卡",
                 color = if (glass) Color.Transparent else MiuixTheme.colorScheme.surface,
                 largeTitle = "校园卡",
                 scrollBehavior = scrollBehavior,
+                pageBackdrop = if (glass) pageBackdrop else null,
                 navigationIcon = {
                     BackButton(onBack)
                 },
                 actions = {
-                    // 时间范围收进顶栏菜单：它同时作用于概览、流水、分析三栏，是整页的设置，
-                    // 不该在标签行下面单独占一排胶囊。当前范围由各栏里的小字标出（rangeLabel）。
-                    Box {
-                        IconButton(onClick = { showRangeMenu = true }) {
-                            Icon(Icons.Default.DateRange, contentDescription = "时间范围：$rangeLabel")
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(2.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        // 加餐券：右上角一颗按钮，点开从按钮长成页面（同首页右上角圆钮），气泡是待领 + 待用张数。
+                        // 宿主没给状态（Web）⇒ 不画
+                        if (couponStat != null) {
+                            val stat by produceState<CouponEntryStat?>(null) { value = couponStat.invoke() }
+                            CouponTopAction(badge = stat?.badge ?: 0, onOpen = onOpenCoupon)
                         }
-                        OverlayListPopup(
-                            show = showRangeMenu,
-                            alignment = PopupPositionProvider.Align.End,
-                            onDismissRequest = { showRangeMenu = false },
+                        // 时间范围收进顶栏菜单：它同时作用于概览、流水、分析三栏，是整页的设置，
+                        // 不该在标签行下面单独占一排胶囊。当前范围由各栏里的小字标出（rangeLabel）。
+                        Box {
+                        com.xjtu.toolbox.ui.glass.CouiIconMenu(
+                            expanded = showRangeMenu,
+                            onExpandedChange = { showRangeMenu = it },
+                            icon = { Icon(Icons.Default.DateRange, contentDescription = "时间范围：$rangeLabel") },
                         ) {
-                            ListPopupColumn {
-                                TimeRange.entries.forEachIndexed { idx, range ->
-                                    DropdownImpl(
-                                        text = if (range == TimeRange.CUSTOM) "自定义…" else "近${range.label}",
-                                        optionSize = TimeRange.entries.size,
-                                        isSelected = range == vm.timeRange,
-                                        onSelectedIndexChange = {
-                                            showRangeMenu = false
-                                            if (range == TimeRange.CUSTOM) showCustomRange = true
-                                            else vm.selectRange(range)
-                                        },
-                                        index = idx,
-                                    )
-                                }
+                            TimeRange.entries.filter { it != TimeRange.CUSTOM }.forEach { range ->
+                                option("近${range.label}", selected = range == vm.timeRange) { vm.selectRange(range) }
                             }
-                        }
-                    }
-                },
-                // 标签行不参与滚动：挂在顶栏里和顶栏一起做一整块玻璃，列表从它下面滚过去。
-                // 宽屏只有右栏有「流水 / 分析」标签，标签行只占右边那一截，和右栏对齐
-                bottomContent = {
-                    CompositionLocalProvider(com.xjtu.toolbox.ui.glass.LocalOnGlassBar provides glass) {
-                        Column {
-                            // 整页在转圈 / 报错时（下面 when 的前两支）没有东西可切，不挂标签
-                            val showTabs = !(cardInfo == null && transactions.isEmpty() &&
-                                (vm.isLoading || vm.errorMessage != null))
-                            if (!showTabs) {
-                                // 什么都不放
-                            } else if (isWideTop) {
-                                Row(Modifier.fillMaxWidth()) {
-                                    Spacer(Modifier.weight(0.42f))
-                                    Box(Modifier.weight(0.58f)) {
-                                        AppSegmentedTabs(
-                                            tabs = listOf("流水", "分析"),
-                                            selectedTabIndex = wideTab,
-                                            onTabSelected = { wideTab = it },
-                                        )
+                            divider()
+                            val custom = vm.timeRange == TimeRange.CUSTOM
+                            submenu("自定义", summary = rangeLabel.takeIf { custom }) {
+                                quickRanges(todayOnCampus()).forEach { (label, dates) ->
+                                    option(label, selected = custom && vm.range == dates) {
+                                        vm.selectCustomRange(dates.first, dates.second)
                                     }
                                 }
-                            } else {
-                                AppSegmentedTabs(
-                                    tabs = listOf("概览", "流水", "分析"),
-                                    selectedTabIndex = selectedTab,
-                                    onTabSelected = { selectedTab = it },
-                                    modifier = Modifier.readableWidth(),
-                                )
-                            }
-                            if (vm.isReloadingRange) {
-                                LinearProgressIndicator(
-                                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
-                                    height = 2.dp,
-                                )
+                                divider()
+                                option("选择日期…") { showCustomRange = true }
                             }
                         }
                     }
+                    }
                 },
-                modifier = if (glass) {
-                    // 和其他二级页顶栏同一套画法：不投影、不折射、底边渐隐，见 glassBarSurface。
-                    // 以前这里单独写了一份：只模糊 4dp、没压表面色，还开了 24dp 的强折射，
-                    // 余额卡滚上去时标题下面一大片被拉弯。
-                    Modifier.glassBarSurface(cardBackdrop, glassBarTint())
-                } else {
-                    Modifier
+                // 换时间范围时的进度条留在顶栏下沿；页面放在 App 底栏上时分栏标签也回到这里
+                bottomContent = {
+                    val showTabs = !(cardInfo == null && transactions.isEmpty() &&
+                        (vm.isLoading || vm.errorMessage != null))
+                    com.xjtu.toolbox.ui.components.DockedPageTabs(
+                        tabs = if (isWideTop) listOf("流水", "分析") else listOf("概览", "流水", "分析"),
+                        selectedTabIndex = if (isWideTop) wideTab else selectedTab,
+                        onTabSelected = { if (isWideTop) wideTab = it else selectedTab = it },
+                        visible = showTabs,
+                    )
+                    if (vm.isReloadingRange) {
+                        LinearProgressIndicator(
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+                            height = 2.dp,
+                        )
+                    }
                 },
             )
-        }
+        },
     ) { padding ->
         val rangeDates = vm.range
         CustomRangeDialog(
@@ -274,7 +260,7 @@ fun CampusCardScreen(
         )
         when {
             vm.isLoading && cardInfo == null && transactions.isEmpty() ->
-                LoadingState("正在加载校园卡数据...", Modifier.fillMaxSize().padding(padding))
+                LoadingState("正在加载校园卡数据…", Modifier.fillMaxSize().padding(padding))
             vm.errorMessage != null && transactions.isEmpty() && cardInfo == null ->
                 ErrorState(vm.errorMessage.orEmpty(), { vm.load() }, Modifier.fillMaxSize().padding(padding))
             else -> {
@@ -298,6 +284,13 @@ fun CampusCardScreen(
                 // 三栏是同一份数据的三种看法，经常要对照着看，所以宽屏下并排摆，而不是像设置页那样
                 // 做成左侧目录一次只看一栏。宽屏不再用 readableWidth 限宽，否则左右各空出四分之一。
                 val isWide = isWideTop
+                // 分栏标签（宽屏只有右栏的「流水 / 分析」）
+                com.xjtu.toolbox.ui.components.PageBottomTabsHost(
+                    tabs = if (isWide) listOf("流水", "分析") else listOf("概览", "流水", "分析"),
+                    selectedTabIndex = if (isWide) wideTab else selectedTab,
+                    onTabSelected = { if (isWide) wideTab = it else selectedTab = it },
+                    modifier = Modifier.fillMaxSize(),
+                ) {
                 Box(
                     Modifier
                         .fillMaxSize()
@@ -320,13 +313,14 @@ fun CampusCardScreen(
                         // AppSegmentedTabs 负责点击切换，两者共用同一个 selectedTab。挂上
                         // layerBackdrop，顶栏才能采到「余额卡从这里滚过去」的画面。
                         if (isWide) {
-                            Row(Modifier.fillMaxSize().layerBackdrop(cardBackdrop).followTopBar({ stableTop.value }, padding)) {
+                            Row(Modifier.fillMaxSize().then(pageSource).followTopBar({ stableTop.value }, padding)) {
                                 Box(Modifier.weight(0.42f).fillMaxHeight()) {
                                     // 右栏就是完整的流水，左栏不再重复「最近交易」
                                     OverviewTab(
                                         cardInfo, stats.monthly, emptyList(), todaySummary, stats.dailyRate,
-                                        stats.activeDays, rangeDates.first, rangeDates.second, topInset, onOpenCoupon,
-                                        couponStat, allTransactions = vm.transactions,
+                                        stats.activeDays, rangeDates.first, rangeDates.second, topInset,
+                                        allTransactions = vm.transactions,
+                                        onOpenAnalytics = { wideTab = 1 },
                                     )
                                 }
                                 Box(Modifier.weight(0.58f).fillMaxHeight()) {
@@ -348,6 +342,7 @@ fun CampusCardScreen(
                                                 cardInfo?.balance ?: 0.0, stats.dailyRate, stats.food, stats.hourly,
                                                 topContentPadding = topContentPadding, rangeLabel = rangeLabel,
                                                 mealReport = stats.mealReport.takeIf { mealReportExport != null }, mealReportExport = mealReportExport,
+                                                tags = stats.tags,
                                             )
                                         }
                                     }
@@ -357,13 +352,15 @@ fun CampusCardScreen(
                             pageCount = 3,
                             selectedTabIndex = selectedTab,
                             onTabSelected = { selectedTab = it },
-                            modifier = Modifier.fillMaxSize().layerBackdrop(cardBackdrop).followTopBar({ stableTop.value }, padding),
+                            modifier = Modifier.fillMaxSize().then(pageSource).followTopBar({ stableTop.value }, padding),
                         ) { tab ->
                             when (tab) {
                                 0 -> OverviewTab(
                                     cardInfo, stats.monthly, transactions.take(5), todaySummary, stats.dailyRate,
-                                    stats.activeDays, rangeDates.first, rangeDates.second, topContentPadding, onOpenCoupon,
-                                    couponStat, allTransactions = vm.transactions,
+                                    stats.activeDays, rangeDates.first, rangeDates.second, topContentPadding,
+                                    allTransactions = vm.transactions,
+                                    onOpenAnalytics = { selectedTab = 2 },
+                                    onOpenTransactions = { selectedTab = 1 },
                                 )
                                 1 -> TransactionTab(
                                     transactions, transactions.size, vm.isLoadingMore, searchQuery,
@@ -376,12 +373,77 @@ fun CampusCardScreen(
                                     cardInfo?.balance ?: 0.0, stats.dailyRate, stats.food, stats.hourly,
                                     topContentPadding = topContentPadding, rangeLabel = rangeLabel,
                                     mealReport = stats.mealReport.takeIf { mealReportExport != null }, mealReportExport = mealReportExport,
+                                    tags = stats.tags,
                                 )
                             }
                         }
                     }
                 }
+                }
             }
+        }
+    }
+}
+
+/**
+ * 顶栏右上角的加餐券按钮：点开从这颗按钮长成加餐券页（[com.xjtu.toolbox.nav.ExpandOrigins]，同首页右上角圆钮），
+ * 右上角气泡是待领 + 待用的张数，转场时跟按钮一起藏起来。
+ */
+@Composable
+private fun CouponTopAction(badge: Int, onOpen: () -> Unit) {
+    val source = com.xjtu.toolbox.nav.rememberExpandOriginSource()
+    val density = androidx.compose.ui.platform.LocalDensity.current
+    // 宿主提供了「从这一块打开某页」时先问它：ROM 支持金标联盟一镜到底就走系统级转场，
+    // 否则照旧用下面登记的 Compose 起点放大。一镜到底的独立宿主里这里没有它，直接走 onOpen。
+    val seamlessOpener = com.xjtu.toolbox.nav.LocalSeamlessOpener.current
+    val tint = MiuixTheme.colorScheme.onSurface
+    // 不再额外留 4dp：多钮间距统一由外层 Row(2dp) + 每颗钮 4dp 内边距给出 10dp（对齐小布记忆）
+    Box {
+        com.xjtu.toolbox.ui.glass.CouiToolbarActionButton(
+            onClick = {
+                // KIT 的 Bitmap 源要点击这一刻的窗口矩形；先读，再登记 Compose 回落起点。
+                val bounds = source.boundsInWindow()
+                // 不给替身：转场里叠加层画的就是这颗按钮此刻的真实画面（含圆底），
+                // 面板底色贴近按钮时透明，落地前后是同一份像素
+                source.arm(
+                    AppRoute.Coupon.id, cornerRadius = 20.dp, density = density,
+                    restFill = androidx.compose.ui.graphics.Color.Transparent, restShadow = false,
+                )
+                if (bounds != null && seamlessOpener != null) {
+                    seamlessOpener(
+                        AppRoute.Coupon,
+                        com.xjtu.toolbox.nav.SeamlessCardSource(bounds, 20.dp),
+                    )
+                } else {
+                    onOpen()
+                }
+            },
+            modifier = Modifier
+                .expandOriginSource(source)
+                .semantics(mergeDescendants = true) {
+                    contentDescription = if (badge > 0) "加餐券，$badge 张待领或待用" else "加餐券"
+                },
+        ) {
+            Icon(Icons.Default.Restaurant, contentDescription = null, tint = tint, modifier = Modifier.size(24.dp))
+        }
+        if (badge > 0) {
+            Text(
+                if (badge > 99) "99+" else "$badge",
+                fontSize = 10.sp,
+                lineHeight = 12.sp,
+                fontWeight = FontWeight.Bold,
+                color = androidx.compose.ui.graphics.Color.White,
+                textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    // 圆钮视觉直径还是 40dp，但交互区 48dp，角标按内圈往外让 4dp
+                    .offset(x = 2.dp, y = 8.dp)
+                    .graphicsLayer { alpha = if (com.xjtu.toolbox.nav.ExpandOrigins.isHidden(source)) 0f else 1f }
+                    .defaultMinSize(minWidth = 16.dp, minHeight = 16.dp)
+                    .clip(RoundedCornerShape(50))
+                    .background(MiuixTheme.colorScheme.error)
+                    .padding(horizontal = 4.dp, vertical = 2.dp),
+            )
         }
     }
 }
@@ -400,76 +462,72 @@ private fun OverviewTab(
     rangeEnd: LocalDate,
     // 顶栏 + 标签行 + 时间选择器的高度，给列表让出来（plan2 §16.2）。
     topContentPadding: Dp = 0.dp,
-    onOpenCoupon: () -> Unit = {},
-    /** 见 [CampusCardScreen] 的 [couponStat]：加餐券入口的状态，null = 本端没有这份摘要，不画。 */
-    couponStat: (suspend () -> CouponEntryStat?)? = null,
     /** 全部已加载流水，「今天吃啥」按它算就餐习惯。 */
     allTransactions: List<Transaction> = emptyList(),
+    onOpenAnalytics: () -> Unit = {},
+    onOpenTransactions: () -> Unit = {},
 ) {
+    // 近三周没吃过饭时「今天吃啥」自己什么都不画，先在这里判掉：留个空项，列表间距照算，会多出一截空白
+    val hasMeals = remember(allTransactions) { mealPicksInput(allTransactions, null, null) != null }
     LazyColumn(
-        // 左右留白放在 contentPadding 里而不是列表外面：余额卡有投影，
-        // 列表外面留白的话，列表的边界就在卡片边上，投影左右两侧会被切掉。
+        state = com.xjtu.toolbox.ui.glass.rememberReportedLazyListState(),
+        // 左右留白放在 contentPadding 里：放在列表外面会切掉余额卡投影
         modifier = Modifier.fillMaxSize().overScrollVertical(),
         verticalArrangement = Arrangement.spacedBy(12.dp),
         contentPadding = tabContentPadding(PaddingValues(start = 16.dp, end = 16.dp, top = topContentPadding + 12.dp, bottom = 12.dp))
     ) {
-        // 整页依次登场：余额 → 今天 → 区间消费 → 最近交易，每块错开一拍
-        item {
-            Box(Modifier.enterOnce(0)) {
-                cardInfo?.let { BalanceCard(it, runwayDays(it.balance, dailyRate), dailyRate) }
-            }
+        // 现在（余额 + 今天）→ 今天吃啥 → 这段时间 → 最近交易；后两块是流水、分析两栏的入口
+        cardInfo?.let { info ->
+            item { Box(Modifier.enterOnce(0)) { BalanceCard(info, runwayDays(info.balance, dailyRate), dailyRate, today) } }
         }
-        // 卡状态正常时不占一整张卡，异常（挂失 / 冻结）才单独拎出来
-        cardInfo?.takeIf { it.lostFlag || it.frozenFlag }?.let { info ->
-            item { Box(Modifier.enterOnce(1)) { CardStatusPanel(info) } }
-        }
-        // 紧跟余额卡：放到最近交易后面就被长列表埋掉了
-        // 加餐券入口：状态（待领 / 可用张数、最近到期）由宿主从首页摘要里读，见 [couponStat]。
-        // 宿主没给（Web）⇒ 整条不画 —— 不画一条点进去落到占位页的入口。
-        if (couponStat != null) {
-            item {
-                Box(Modifier.enterOnce(1)) {
-                    val stat by produceState<CouponEntryStat?>(null) { value = couponStat.invoke() }
-                    com.xjtu.toolbox.ui.components.SecondaryEntry(
-                        Icons.Default.Restaurant, com.xjtu.toolbox.ui.theme.serviceColor(AppRoute.Coupon.id),
-                        "加餐券", stat?.detail ?: "领取和使用食堂加餐券",
-                        status = stat?.value,
-                        highlight = stat?.value?.contains("待领") == true || stat?.detail?.contains("到期") == true,
-                        onClick = onOpenCoupon,
-                    )
-                }
-            }
-        }
-        item { Box(Modifier.enterOnce(1)) { TodayMealsCard(today) } }
-        if (allTransactions.isNotEmpty() && com.xjtu.toolbox.agent.AgentInsightHub.insights.available) {
+        if (hasMeals && com.xjtu.toolbox.agent.AgentInsightHub.insights.available) {
             item { Box(Modifier.enterOnce(1)) { MealPicksCard(allTransactions, cardInfo?.balance, dailyRate) } }
         }
         item {
             Box(Modifier.enterOnce(2)) {
-                RangeSpendCard(CampusCardAnalysis.summarizeRange(monthlyStats, rangeStart, rangeEnd), activeCampusDays)
+                RangeSpendCard(CampusCardAnalysis.summarizeRange(monthlyStats, rangeStart, rangeEnd), activeCampusDays, onOpenAnalytics)
             }
         }
         if (recentTransactions.isNotEmpty()) {
             item {
-                Card(
-                    modifier = Modifier.fillMaxWidth().enterOnce(3),
-                    colors = CardDefaults.defaultColors(color = MiuixTheme.colorScheme.surfaceVariant)
-                ) {
-                    Column {
-                        Text(
-                            "最近交易",
-                            style = MiuixTheme.textStyles.body1,
-                            fontWeight = FontWeight.Medium,
-                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp)
+                OverviewCard(Modifier.enterOnce(3)) {
+                    OverviewHeader("最近交易", Modifier.padding(start = 16.dp, end = 4.dp, top = 8.dp)) {
+                        com.xjtu.toolbox.ui.components.TextLink(
+                            text = "全部",
+                            onClick = onOpenTransactions,
+                            chevron = true,
                         )
-                        recentTransactions.forEach { tx ->
-                            HorizontalDivider(Modifier.padding(horizontal = 16.dp))
-                            TransactionItem(tx)
-                        }
                     }
+                    TransactionRows(recentTransactions)
+                    Spacer(Modifier.height(6.dp))
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun OverviewCard(modifier: Modifier = Modifier, onClick: (() -> Unit)? = null, content: @Composable ColumnScope.() -> Unit) {
+    val colors = CardDefaults.defaultColors(color = com.xjtu.toolbox.ui.components.AppCardColor)
+    if (onClick == null) {
+        Card(modifier.fillMaxWidth(), cornerRadius = 20.dp, colors = colors) { content() }
+    } else {
+        Card(
+            modifier = modifier.fillMaxWidth(),
+            cornerRadius = 20.dp,
+            colors = colors,
+            pressFeedbackType = top.yukonga.miuix.kmp.utils.PressFeedbackType.Sink,
+            onClick = onClick,
+        ) { content() }
+    }
+}
+
+/** 概览各块统一的标题行。 */
+@Composable
+private fun OverviewHeader(title: String, modifier: Modifier = Modifier, trailing: @Composable RowScope.() -> Unit = {}) {
+    Row(modifier.fillMaxWidth().heightIn(min = 40.dp), verticalAlignment = Alignment.CenterVertically) {
+        Text(title, style = MiuixTheme.textStyles.subtitle, fontWeight = FontWeight.Medium, modifier = Modifier.weight(1f))
+        trailing()
     }
 }
 
@@ -489,7 +547,7 @@ private val BalanceCardMeshDark = listOf(
 )
 
 @Composable
-private fun BalanceCard(info: CardInfo, runway: Int?, dailyRate: Double?) {
+private fun BalanceCard(info: CardInfo, runway: Int?, dailyRate: Double?, today: TodaySpendSummary) {
     // 浅色卡：余额和图标用主题色，其余文字用常规的正文 / 次要文字颜色
     val accent = MiuixTheme.colorScheme.primary
     val secondary = MiuixTheme.colorScheme.onSurfaceVariantSummary
@@ -509,10 +567,10 @@ private fun BalanceCard(info: CardInfo, runway: Int?, dailyRate: Double?) {
                 // 这张卡在玻璃顶栏的取样范围里：一直流动的话，静止时顶栏也在持续重新模糊
                 runForMillis = 6_000L,
             )
-            Column(Modifier.fillMaxWidth().padding(24.dp)) {
+            Column(Modifier.fillMaxWidth().padding(20.dp)) {
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically) {
-                    Column {
+                    Column(Modifier.weight(1f)) {
                         Text("校园卡余额", style = MiuixTheme.textStyles.body2,
                             color = secondary)
                         Spacer(Modifier.height(6.dp))
@@ -534,19 +592,39 @@ private fun BalanceCard(info: CardInfo, runway: Int?, dailyRate: Double?) {
                     }
                     Surface(shape = CircleShape,
                         color = accent.copy(alpha = 0.12f),
-                        modifier = Modifier.size(56.dp)) {
+                        modifier = Modifier.size(48.dp)) {
                         Box(contentAlignment = Alignment.Center) {
                             Icon(Icons.Default.CreditCard, null,
                                 tint = accent,
-                                modifier = Modifier.size(28.dp))
+                                modifier = Modifier.size(24.dp))
                         }
                     }
                 }
-                if (info.pendingAmount > 0) {
-                    Spacer(Modifier.height(8.dp))
-                    Text("待入账: ¥" + money2(info.pendingAmount),
-                        style = MiuixTheme.textStyles.footnote1,
-                        color = secondary)
+                val identity = listOf(info.name, info.cardType, info.account.takeIf { it.isNotBlank() }?.let { "一卡通号 $it" })
+                    .filter { !it.isNullOrBlank() }.joinToString(" · ")
+                val pending = if (info.pendingAmount > 0) "待入账 ¥" + money2(info.pendingAmount) else null
+                listOfNotNull(pending, identity.ifBlank { null }).joinToString("　").takeIf { it.isNotEmpty() }?.let {
+                    Spacer(Modifier.height(4.dp))
+                    Text(it, style = MiuixTheme.textStyles.footnote1, color = secondary,
+                        maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
+                if (info.lostFlag || info.frozenFlag) {
+                    val error = MiuixTheme.colorScheme.error
+                    Spacer(Modifier.height(12.dp))
+                    Row(
+                        Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp))
+                            .background(error.copy(alpha = 0.10f)).padding(horizontal = 12.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Icon(if (info.frozenFlag) Icons.Default.Lock else Icons.Default.Warning, null,
+                            tint = error, modifier = Modifier.size(16.dp))
+                        Spacer(Modifier.width(6.dp))
+                        Text(
+                            listOfNotNull("已挂失".takeIf { info.lostFlag }, "已冻结".takeIf { info.frozenFlag })
+                                .joinToString("、") + "，消费和付款码可能暂不可用",
+                            style = MiuixTheme.textStyles.footnote1, fontWeight = FontWeight.Medium, color = error,
+                        )
+                    }
                 }
                 if (runway != null && dailyRate != null) {
                     // 油表：满格按 30 天算，三天以内变红
@@ -571,45 +649,68 @@ private fun BalanceCard(info: CardInfo, runway: Int?, dailyRate: Double?) {
                     )
                 }
                 Spacer(Modifier.height(16.dp))
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    InfoPill(info.name, accent)
-                    if (info.lostFlag) InfoPill("已挂失", MiuixTheme.colorScheme.error)
-                    if (info.frozenFlag) InfoPill("已冻结", MiuixTheme.colorScheme.error)
-                    InfoPill(info.cardType, accent)
-                    if (info.account.isNotBlank()) {
-                        InfoPill("一卡通号: ${info.account}", accent)
-                    }
-                }
+                TodayMealsStrip(today, secondary)
             }
         }
     }
 }
 
+/** 余额卡底部的今天三餐：「现在」的另一半，和余额放一起看。 */
 @Composable
-private fun InfoPill(text: String, color: Color) {
-    if (text.isBlank()) return
-    Surface(shape = RoundedCornerShape(8.dp), color = color.copy(alpha = 0.10f)) {
-        Text(text, Modifier.padding(horizontal = 9.dp, vertical = 4.dp),
-            style = MiuixTheme.textStyles.footnote1, color = color.copy(alpha = 0.95f),
-            maxLines = 1, overflow = TextOverflow.Ellipsis)
+private fun TodayMealsStrip(today: TodaySpendSummary, secondary: Color) {
+    val hour = Clock.System.now().toLocalDateTime(CampusTimeZone).hour
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Text("今天", style = MiuixTheme.textStyles.body2, fontWeight = FontWeight.Medium,
+            modifier = Modifier.weight(1f))
+        Text(if (today.total > 0) "共 ¥" + money2(today.total) else "还没刷卡",
+            style = MiuixTheme.textStyles.footnote1, color = secondary)
+    }
+    Spacer(Modifier.height(8.dp))
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        val palette = campusCardPalette()
+        listOf(
+            Triple("早餐", today.breakfast, 5..10) to palette[3],
+            Triple("午餐", today.lunch, 11..14) to palette[7],
+            Triple("晚餐", today.dinner, 17..21) to palette[2],
+        ).forEach { (meal, color) ->
+            val (name, amount, hours) = meal
+            val eaten = amount > 0
+            Column(
+                Modifier.weight(1f).clip(RoundedCornerShape(14.dp))
+                    .background(color.copy(alpha = if (eaten) 0.16f else 0.07f))
+                    .padding(vertical = 8.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                Text(name, style = MiuixTheme.textStyles.footnote1, color = color, fontWeight = FontWeight.Medium)
+                Text(
+                    when {
+                        eaten -> "¥" + money1(amount)
+                        hour > hours.last -> "没刷卡"
+                        hour >= hours.first -> "饭点中"
+                        else -> "—"
+                    },
+                    style = MiuixTheme.textStyles.body2,
+                    fontWeight = if (eaten) FontWeight.Bold else FontWeight.Normal,
+                    color = if (eaten) MiuixTheme.colorScheme.onSurface else secondary,
+                )
+            }
+        }
     }
 }
 
+/** 这段时间的总账；明细在分析栏，整卡点进去。 */
 @Composable
-private fun RangeSpendCard(summary: RangeSpendSummary, activeDays: Int) {
-    top.yukonga.miuix.kmp.basic.Card(modifier = Modifier.fillMaxWidth(), cornerRadius = 20.dp) {
-        Column(Modifier.padding(20.dp)) {
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically) {
-                Column(Modifier.weight(1f)) {
-                    Text(summary.title, style = MiuixTheme.textStyles.subtitle,
-                        fontWeight = FontWeight.Medium)
-                    summary.subtitle?.let {
-                        Spacer(Modifier.height(2.dp))
-                        Text(it, style = MiuixTheme.textStyles.footnote1,
-                            color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
-                    }
-                }
+private fun RangeSpendCard(summary: RangeSpendSummary, activeDays: Int, onOpen: () -> Unit) {
+    val secondary = MiuixTheme.colorScheme.onSurfaceVariantSummary
+    OverviewCard(onClick = onOpen) {
+        Column(Modifier.padding(start = 20.dp, end = 16.dp, top = 8.dp, bottom = 18.dp)) {
+            OverviewHeader(summary.title) {
+                summary.subtitle?.let { Text(it, style = MiuixTheme.textStyles.footnote1, color = secondary) }
+                Icon(Icons.Default.ChevronRight, null, tint = secondary, modifier = Modifier.size(20.dp))
+            }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("¥" + money0(summary.totalSpend), style = MiuixTheme.textStyles.title2,
+                    fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
                 if (summary.changePercent != null && summary.changeCaption != null) {
                     val change = summary.changePercent
                     val isUp = change > 0
@@ -638,186 +739,26 @@ private fun RangeSpendCard(summary: RangeSpendSummary, activeDays: Int) {
                     }
                 }
             }
-            Spacer(Modifier.height(12.dp))
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
-                StatColumn("总支出", "¥" + money0(summary.totalSpend),
-                    MiuixTheme.colorScheme.error)
-                StatColumn("充值", "¥" + money0(summary.totalIncome),
-                    MiuixTheme.colorScheme.primary)
-                StatColumn("笔数", "${summary.transactionCount}",
-                    MiuixTheme.colorScheme.primaryVariant)
+            Spacer(Modifier.height(14.dp))
+            Row(
+                Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp))
+                    .background(com.xjtu.toolbox.ui.components.AppInsetColor).padding(vertical = 10.dp),
+            ) {
+                StatColumn("充值", "¥" + money0(summary.totalIncome))
+                StatColumn("笔数", "${summary.transactionCount}")
                 // 按刷过卡的天数摊，和分析页头卡同一口径；放假的日子不算进分母
-                if (activeDays > 0) {
-                    StatColumn("在校日均", "¥" + money1(summary.totalSpend / activeDays),
-                        MiuixTheme.colorScheme.onSurfaceVariantSummary)
-                } else {
-                    StatColumn("日均", "¥" + money1(summary.avgDailySpend),
-                        MiuixTheme.colorScheme.onSurfaceVariantSummary)
-                }
-            }
-            if (summary.peakDay.isNotEmpty()) {
-                Spacer(Modifier.height(12.dp))
-                HorizontalDivider()
-                Spacer(Modifier.height(8.dp))
-                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Default.LocalFireDepartment, null,
-                        tint = MiuixTheme.colorScheme.error.copy(alpha = 0.7f),
-                        modifier = Modifier.size(16.dp))
-                    Spacer(Modifier.width(4.dp))
-                    Text(
-                        "消费最多: ${CampusCardAnalysis.formatPeakDay(summary.peakDay, spanYears = true)} ¥" + money0(summary.peakDayAmount),
-                        style = MiuixTheme.textStyles.footnote1,
-                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
-                }
-            }
-            if (summary.topMerchants.isNotEmpty()) {
-                Spacer(Modifier.height(12.dp))
-                HorizontalDivider()
-                Spacer(Modifier.height(12.dp))
-                Text("消费去向", style = MiuixTheme.textStyles.body2,
-                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
-                Spacer(Modifier.height(8.dp))
-                summary.topMerchants.forEach { merchant ->
-                    Row(Modifier.fillMaxWidth().padding(vertical = 2.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically) {
-                        Text(merchant.name, style = MiuixTheme.textStyles.footnote1,
-                            modifier = Modifier.weight(1f), maxLines = 1,
-                            overflow = TextOverflow.Ellipsis)
-                        Text("${merchant.count}笔", style = MiuixTheme.textStyles.footnote1,
-                            color = MiuixTheme.colorScheme.onSurfaceVariantSummary.copy(alpha = 0.6f))
-                        Spacer(Modifier.width(8.dp))
-                        Text("¥" + money0(merchant.totalAmount),
-                            style = MiuixTheme.textStyles.footnote1,
-                            fontWeight = FontWeight.Medium, color = MiuixTheme.colorScheme.error)
-                    }
-                }
-            }
-        }
-    }
-}
-
-/** 今天三餐各花了多少。区间统计在分析页，概览页只管「现在」。 */
-@Composable
-private fun TodayMealsCard(today: TodaySpendSummary) {
-    val hour = Clock.System.now().toLocalDateTime(CampusTimeZone).hour
-    top.yukonga.miuix.kmp.basic.Card(modifier = Modifier.fillMaxWidth(), cornerRadius = 20.dp) {
-        Column(Modifier.padding(20.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.Default.Restaurant, null,
-                    tint = MiuixTheme.colorScheme.primaryVariant, modifier = Modifier.size(18.dp))
-                Spacer(Modifier.width(6.dp))
-                Text("今天", style = MiuixTheme.textStyles.subtitle, fontWeight = FontWeight.Medium)
-                Spacer(Modifier.weight(1f))
-                Text(
-                    if (today.total > 0) "共 ¥" + money2(today.total) else "还没刷卡",
-                    style = MiuixTheme.textStyles.footnote1,
-                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                )
-            }
-            Spacer(Modifier.height(12.dp))
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                listOf(
-                    Triple("早餐", today.breakfast, 5..10),
-                    Triple("午餐", today.lunch, 11..14),
-                    Triple("晚餐", today.dinner, 17..21),
-                ).forEach { (name, amount, hours) ->
-                    val color = when (name) {
-                        "早餐" -> campusCardPalette()[3]
-                        "午餐" -> campusCardPalette()[7]
-                        else -> campusCardPalette()[2]
-                    }
-                    val eaten = amount > 0
-                    Column(
-                        Modifier.weight(1f).clip(RoundedCornerShape(14.dp))
-                            .background(color.copy(alpha = if (eaten) 0.16f else 0.06f))
-                            .padding(vertical = 10.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                    ) {
-                        Text(name, style = MiuixTheme.textStyles.footnote1, color = color,
-                            fontWeight = FontWeight.Medium)
-                        Text(
-                            when {
-                                eaten -> "¥" + money1(amount)
-                                hour > hours.last -> "没刷卡"
-                                hour >= hours.first -> "饭点中"
-                                else -> "—"
-                            },
-                            style = MiuixTheme.textStyles.body1,
-                            fontWeight = if (eaten) FontWeight.Bold else FontWeight.Normal,
-                            color = if (eaten) MiuixTheme.colorScheme.onSurface
-                            else MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                        )
-                    }
-                }
+                if (activeDays > 0) StatColumn("在校日均", "¥" + money1(summary.totalSpend / activeDays))
+                else StatColumn("日均", "¥" + money1(summary.avgDailySpend))
             }
         }
     }
 }
 
 @Composable
-private fun StatColumn(label: String, value: String, color: Color) {
-    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-        Text(value, style = MiuixTheme.textStyles.subtitle,
-            fontWeight = FontWeight.Bold, color = color, maxLines = 1)
-        Text(label, style = MiuixTheme.textStyles.footnote1,
-            color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
-    }
-}
-
-@Composable
-private fun CardStatusPanel(info: CardInfo) {
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        cornerRadius = 20.dp,
-        colors = CardDefaults.defaultColors(color = MiuixTheme.colorScheme.surfaceVariant)
-    ) {
-        Column(Modifier.fillMaxWidth().padding(16.dp)) {
-            Text(
-                "卡片状态",
-                style = MiuixTheme.textStyles.subtitle,
-                fontWeight = FontWeight.Medium
-            )
-            Spacer(Modifier.height(10.dp))
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                StatusChip(
-                    icon = if (info.lostFlag) Icons.Default.Warning else Icons.Default.CheckCircle,
-                    text = if (info.lostFlag) "已挂失" else "使用正常",
-                    isWarning = info.lostFlag, modifier = Modifier.weight(1f))
-                StatusChip(
-                    icon = if (info.frozenFlag) Icons.Default.Lock else Icons.Default.LockOpen,
-                    text = if (info.frozenFlag) "已冻结" else "账户可用",
-                    isWarning = info.frozenFlag, modifier = Modifier.weight(1f))
-            }
-            Spacer(Modifier.height(8.dp))
-            Text(
-                if (info.lostFlag || info.frozenFlag) "部分校园卡功能可能暂不可用"
-                else "消费、充值与付款码均可正常使用",
-                style = MiuixTheme.textStyles.footnote1,
-                color = MiuixTheme.colorScheme.onSurfaceVariantSummary
-            )
-        }
-    }
-}
-
-@Composable
-private fun StatusChip(icon: ImageVector, text: String, isWarning: Boolean, modifier: Modifier = Modifier) {
-    // "正常"用主题 success 语义色（如果有），否则降级到 MiuixTheme.colorScheme.primary
-    val okColor = MiuixTheme.colorScheme.primary  // primary 在两个主题下都有合理对比度
-    val accent = if (isWarning) MiuixTheme.colorScheme.error else okColor
-    Surface(
-        modifier = modifier, shape = RoundedCornerShape(12.dp),
-        color = accent.copy(alpha = 0.10f)
-    ) {
-        Row(Modifier.padding(horizontal = 10.dp, vertical = 9.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.Center) {
-            Icon(icon, null, modifier = Modifier.size(15.dp), tint = accent)
-            Spacer(Modifier.width(5.dp))
-            Text(text, style = MiuixTheme.textStyles.footnote1,
-                fontWeight = FontWeight.Medium, color = accent,
-                maxLines = 1, overflow = TextOverflow.Ellipsis)
-        }
+private fun RowScope.StatColumn(label: String, value: String) {
+    Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
+        Text(value, style = MiuixTheme.textStyles.body1, fontWeight = FontWeight.Bold, maxLines = 1)
+        Text(label, style = MiuixTheme.textStyles.footnote1, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
     }
 }
 
@@ -853,6 +794,7 @@ private fun TransactionTab(
     }
 
     LazyColumn(
+        state = com.xjtu.toolbox.ui.glass.rememberReportedLazyListState(),
         modifier = Modifier.fillMaxSize().overScrollVertical().padding(horizontal = 16.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
         contentPadding = tabContentPadding(PaddingValues(top = topContentPadding + 12.dp, bottom = 12.dp))
@@ -910,10 +852,7 @@ private fun TransactionTab(
                                     color = MiuixTheme.colorScheme.error.copy(alpha = 0.7f))
                             }
                         }
-                        txList.forEach { tx ->
-                            HorizontalDivider(Modifier.padding(horizontal = 16.dp))
-                            TransactionItem(tx)
-                        }
+                        TransactionRows(txList)
                     }
                 }
             }
@@ -922,7 +861,7 @@ private fun TransactionTab(
             item {
                 Box(Modifier.fillMaxWidth().padding(16.dp), contentAlignment = Alignment.Center) {
                     if (isLoadingMore) CircularProgressIndicator(size = 24.dp)
-                    else TextButton(text = "加载更多", onClick = onLoadMore)
+                    else com.xjtu.toolbox.ui.components.TextLink(text = "加载更多", onClick = onLoadMore)
                 }
             }
         }
@@ -939,6 +878,15 @@ private fun TransactionTab(
                 }
             }
         }
+    }
+}
+
+/** 一组流水，行间细线从文字起点开始（16 边距 + 40 图标 + 12 间距）。 */
+@Composable
+private fun TransactionRows(list: List<Transaction>) {
+    list.forEachIndexed { i, tx ->
+        if (i > 0) com.xjtu.toolbox.ui.components.RowDivider(startInset = 68.dp, endInset = 16.dp)
+        TransactionItem(tx)
     }
 }
 
@@ -999,6 +947,7 @@ private fun AnalyticsTab(
     rangeLabel: String = "",
     mealReport: MealReport? = null,
     mealReportExport: MealReportExport? = null,
+    tags: List<Pair<String, String>> = emptyList(),
 ) {
     var showReport by remember { mutableStateOf(false) }
     if (showReport && mealReport != null && mealReportExport != null) {
@@ -1007,17 +956,8 @@ private fun AnalyticsTab(
     val foodSpend = categorySpending["餐饮"] ?: 0.0
     val meals = mealTimeStats.values.sumOf { it.count }
     val totalSpend = monthlyStats.sumOf { it.totalSpend }
-    val tags = remember(foodBreakdown, mealTimeStats, activeCampusDays, monthlyStats) {
-        val top = monthlyStats.flatMap { it.topMerchants }
-            .groupBy { it.name }
-            .map { (name, s) -> MerchantStat(name, s.sumOf { it.totalAmount }, s.sumOf { it.count }) }
-            .maxByOrNull { it.count }
-        CampusCardAnalysis.personaTags(
-            foodBreakdown, mealTimeStats, activeCampusDays, foodSpend, top,
-            monthlyStats.sumOf { it.transactionCount },
-        )
-    }
     LazyColumn(
+        state = com.xjtu.toolbox.ui.glass.rememberReportedLazyListState(),
         modifier = Modifier.fillMaxSize().overScrollVertical().padding(horizontal = 16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
         contentPadding = tabContentPadding(PaddingValues(top = topContentPadding + 12.dp, bottom = 12.dp))
@@ -1025,8 +965,7 @@ private fun AnalyticsTab(
         if (categorySpending.isEmpty() && monthlyStats.isEmpty() && mealTimeStats.isEmpty()) {
             item {
                 EmptyState(
-                    title = "暂无消费分析数据",
-                    subtitle = "所选时间段内暂无消费记录",
+                    title = "这段时间没有消费记录",
                     modifier = Modifier.fillParentMaxSize()
                 )
             }
@@ -1034,7 +973,7 @@ private fun AnalyticsTab(
             // 各统计卡依次登场，卡里的条形图随后从左边长出来
             item {
                 Box(Modifier.enterOnce(0)) {
-                    SpendingHeroCard(totalSpend, activeCampusDays, foodSpend, meals, tags, rangeLabel)
+                    SpendingHeroCard(totalSpend, activeCampusDays, CampusCardAnalysis.perMeal(mealTimeStats), tags, rangeLabel)
                 }
             }
             if (mealReport != null) {
@@ -1076,7 +1015,6 @@ private fun CustomRangeDialog(
     OverlayDialog(
         show = show,
         title = "自定义时间段",
-        summary = "流水和分析共用这一段。",
         onDismissRequest = onDismiss
     ) {
         ArrowPreference(
@@ -1137,16 +1075,7 @@ private fun CategoryCard(categories: Map<String, Double>) {
 
     top.yukonga.miuix.kmp.basic.Card(modifier = Modifier.fillMaxWidth(), cornerRadius = 20.dp) {
         Column(Modifier.padding(20.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.Default.PieChart, null,
-                    tint = MiuixTheme.colorScheme.primary, modifier = Modifier.size(18.dp))
-                Spacer(Modifier.width(6.dp))
-                Text("消费类别", style = MiuixTheme.textStyles.subtitle,
-                    fontWeight = FontWeight.Medium)
-                Spacer(Modifier.weight(1f))
-                Text("总计 ¥" + money0(total), style = MiuixTheme.textStyles.footnote1,
-                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
-            }
+            AnalyticsHeader(Icons.Default.PieChart, "消费类别", "总计 ¥" + money0(total))
             Spacer(Modifier.height(16.dp))
             categories.entries.forEach { (category, amount) ->
                 val percent = if (total > 0) amount / total else 0.0
@@ -1194,26 +1123,13 @@ private fun FoodBreakdownCard(breakdown: Map<String, Double>, mealCount: Int, fo
 
     // 一次扫过整圈的入场动画。进度在 drawBehind 里读，动画期间只重画这一个环。
     val sweep = com.xjtu.toolbox.ui.components.rememberRevealProgress(
-        breakdown, spec = tween(900, easing = androidx.compose.animation.core.FastOutSlowInEasing),
+        breakdown, spec = tween(600, easing = androidx.compose.animation.core.FastOutSlowInEasing),
     )
     val trackColor = MiuixTheme.colorScheme.onSurfaceVariantSummary.copy(alpha = 0.12f)
 
     top.yukonga.miuix.kmp.basic.Card(modifier = Modifier.fillMaxWidth(), cornerRadius = 20.dp) {
         Column(Modifier.padding(20.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(
-                    Icons.Default.Restaurant, null,
-                    tint = MiuixTheme.colorScheme.primary, modifier = Modifier.size(18.dp)
-                )
-                Spacer(Modifier.width(6.dp))
-                Text("主食构成", style = MiuixTheme.textStyles.subtitle, fontWeight = FontWeight.Medium)
-                Spacer(Modifier.weight(1f))
-                Text(
-                    "¥" + money0(if (foodSpend > 0) foodSpend else total),
-                    style = MiuixTheme.textStyles.footnote1,
-                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary
-                )
-            }
+            AnalyticsHeader(Icons.Default.Restaurant, "主食构成", "¥" + money0(if (foodSpend > 0) foodSpend else total))
             Spacer(Modifier.height(18.dp))
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Box(
@@ -1298,85 +1214,79 @@ private fun FoodBreakdownCard(breakdown: Map<String, Double>, mealCount: Int, fo
 
 @Composable
 private fun MonthlyTrendCard(stats: List<MonthlyStats>, rangeStart: LocalDate, rangeEnd: LocalDate) {
-    // 掐掉首尾的空月。选「近 1 年」时区间前几个月往往还没办卡、或者数据拉不到，
-    // 寒暑假也整月没有一笔——这些月份渲染出来就是一行月份名配一条空轨和「¥0」，
-    // 占着位置还让人以为漏了数据。中间的空月留着：那是真的一个月没消费，本身是信息。
-    val trimmed = stats
-        .dropWhile { it.totalSpend <= 0 && it.totalIncome <= 0 }
-        .dropLastWhile { it.totalSpend <= 0 && it.totalIncome <= 0 }
-    if (trimmed.isEmpty()) return
-    @Suppress("NAME_SHADOWING") val stats = trimmed
-    val maxValue = stats.maxOfOrNull { maxOf(it.totalSpend, it.totalIncome) } ?: 1.0
+    // 掐掉首尾的空月（还没办卡、整段假期）；中间的空月留着，那是真的一个月没消费
+    val months = stats.sortedBy { it.month }
+        .dropWhile { it.totalSpend <= 0 }
+        .dropLastWhile { it.totalSpend <= 0 }
+    if (months.isEmpty()) return
     val spanYears = CampusCardAnalysis.spansYears(rangeStart, rangeEnd)
-    top.yukonga.miuix.kmp.basic.Card(modifier = Modifier.fillMaxWidth(), cornerRadius = 20.dp) {
+    fun label(m: MonthlyStats) =
+        if (spanYears) "${m.month.year % 100}/${m.month.month.number}" else "${m.month.month.number}月"
+    val max = months.maxOf { it.totalSpend }
+    // 刷卡不足 5 天的月份多半是假期，画浅色，也不进月均
+    val inSchool = months.filter { it.spendDays >= 5 }
+    val avg = if (inSchool.isEmpty()) null else inSchool.sumOf { it.totalSpend } / inSchool.size
+    val peak = months.maxBy { it.totalSpend }
+    val accent = MiuixTheme.colorScheme.primary
+    val guide = MiuixTheme.colorScheme.onSurfaceVariantSummary.copy(alpha = 0.5f)
+    val grow = com.xjtu.toolbox.ui.components.rememberRevealProgress(
+        months, spec = tween(600, easing = androidx.compose.animation.core.FastOutSlowInEasing),
+    )
+    // 月份多时隔几个标一次，最多 8 个
+    val labelEvery = (months.size + 7) / 8
+
+    Card(modifier = Modifier.fillMaxWidth(), cornerRadius = 20.dp) {
         Column(Modifier.padding(20.dp)) {
-            Text("月度趋势", style = MiuixTheme.textStyles.subtitle,
-                fontWeight = FontWeight.Medium)
-            CampusCardAnalysis.periodSubtitle(rangeStart, rangeEnd)?.let { subtitle ->
-                Spacer(Modifier.height(2.dp))
-                Text(
-                    subtitle,
-                    style = MiuixTheme.textStyles.footnote1,
-                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary
-                )
-            }
-            Spacer(Modifier.height(4.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Box(Modifier.size(8.dp).clip(CircleShape)
-                        .background(MiuixTheme.colorScheme.error))
-                    Spacer(Modifier.width(4.dp))
-                    Text("支出", style = MiuixTheme.textStyles.footnote1,
-                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
-                }
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Box(Modifier.size(8.dp).clip(CircleShape)
-                        .background(MiuixTheme.colorScheme.primary))
-                    Spacer(Modifier.width(4.dp))
-                    Text("收入", style = MiuixTheme.textStyles.footnote1,
-                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
-                }
-            }
-            Spacer(Modifier.height(12.dp))
-            stats.sortedBy { it.month }.forEach { monthStat ->
-                val monthLabel = CampusCardAnalysis.monthLabel(monthStat.month, spanYears)
-                val spendBar = (monthStat.totalSpend / maxValue).toFloat().coerceIn(0f, 1f)
-                val incomeBar = (monthStat.totalIncome / maxValue).toFloat().coerceIn(0f, 1f)
-                Column(Modifier.padding(vertical = 4.dp)) {
-                    Text(monthLabel, style = MiuixTheme.textStyles.footnote1,
-                        fontWeight = FontWeight.Medium)
-                    Spacer(Modifier.height(4.dp))
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        com.xjtu.toolbox.ui.components.AnimatedBar(
-                            progress = spendBar,
-                            color = MiuixTheme.colorScheme.error,
-                            modifier = Modifier.weight(1f),
-                            trackColor = MiuixTheme.colorScheme.error.copy(alpha = 0.1f),
-                            height = 10.dp,
+            AnalyticsHeader(Icons.Default.BarChart, "月度趋势", avg?.let { "在校月均 ¥" + money0(it) })
+            Spacer(Modifier.height(18.dp))
+            Box(
+                Modifier.fillMaxWidth().height(120.dp).drawBehind {
+                    val slot = size.width / months.size
+                    val barW = minOf(slot * 0.58f, 26.dp.toPx())
+                    val radius = androidx.compose.ui.geometry.CornerRadius(minOf(barW / 2f, 6.dp.toPx()))
+                    months.forEachIndexed { i, m ->
+                        val h = (size.height * (m.totalSpend / max).toFloat() * grow.value).coerceAtLeast(if (m.totalSpend > 0) 2.dp.toPx() else 0f)
+                        drawRoundRect(
+                            color = if (m.spendDays >= 5) accent else accent.copy(alpha = 0.3f),
+                            topLeft = androidx.compose.ui.geometry.Offset(i * slot + (slot - barW) / 2f, size.height - h),
+                            size = androidx.compose.ui.geometry.Size(barW, h),
+                            cornerRadius = radius,
                         )
-                        Spacer(Modifier.width(8.dp))
-                        Text("¥" + money0(monthStat.totalSpend),
-                            style = MiuixTheme.textStyles.footnote1,
-                            modifier = Modifier.width(60.dp), color = MiuixTheme.colorScheme.error)
                     }
-                    if (monthStat.totalIncome > 0) {
-                        Spacer(Modifier.height(2.dp))
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            com.xjtu.toolbox.ui.components.AnimatedBar(
-                            progress = incomeBar,
-                            color = MiuixTheme.colorScheme.primary,
-                            modifier = Modifier.weight(1f),
-                            trackColor = MiuixTheme.colorScheme.primary.copy(alpha = 0.1f),
-                            height = 6.dp,
+                    avg?.let {
+                        val y = size.height * (1f - (it / max).toFloat())
+                        drawLine(
+                            guide, androidx.compose.ui.geometry.Offset(0f, y), androidx.compose.ui.geometry.Offset(size.width, y),
+                            strokeWidth = 1.dp.toPx(),
+                            pathEffect = androidx.compose.ui.graphics.PathEffect.dashPathEffect(floatArrayOf(6.dp.toPx(), 4.dp.toPx())),
                         )
-                            Spacer(Modifier.width(8.dp))
-                            Text("¥" + money0(monthStat.totalIncome),
-                                style = MiuixTheme.textStyles.footnote1,
-                                modifier = Modifier.width(60.dp), color = MiuixTheme.colorScheme.primary)
+                    }
+                },
+            )
+            Spacer(Modifier.height(6.dp))
+            Row(Modifier.fillMaxWidth()) {
+                // 标签居中对准柱子，可以溢出到旁边没标的格子里
+                months.forEachIndexed { i, m ->
+                    Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
+                        if (i % labelEvery == 0) {
+                            Text(
+                                label(m), style = MiuixTheme.textStyles.footnote2,
+                                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                                maxLines = 1, softWrap = false,
+                                modifier = Modifier.wrapContentWidth(unbounded = true),
+                            )
                         }
                     }
                 }
             }
+            Spacer(Modifier.height(12.dp))
+            Text(
+                "最高 ${label(peak)} ¥${money0(peak.totalSpend)}" +
+                    (if (avg != null) " · 虚线为在校月均" else "") +
+                    (if (inSchool.size < months.size) " · 浅色为假期月" else ""),
+                style = MiuixTheme.textStyles.footnote1,
+                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+            )
         }
     }
 }
@@ -1401,25 +1311,25 @@ private fun SpendingInsightsCard(
 
     top.yukonga.miuix.kmp.basic.Card(modifier = Modifier.fillMaxWidth(), cornerRadius = 20.dp) {
         Column(Modifier.padding(20.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.Default.Lightbulb, null,
-                    tint = MiuixTheme.colorScheme.primaryVariant, modifier = Modifier.size(20.dp))
-                Spacer(Modifier.width(8.dp))
-                Text("消费小结", style = MiuixTheme.textStyles.subtitle,
-                    fontWeight = FontWeight.Medium)
-            }
+            AnalyticsHeader(Icons.Default.Lightbulb, "消费小结")
             Spacer(Modifier.height(12.dp))
-            insights.forEachIndexed { i, (icon, text) ->
-                val tint = tints[i % tints.size]
-                Row(Modifier.padding(vertical = 5.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Box(
-                        Modifier.size(30.dp).clip(CircleShape).background(tint.copy(alpha = 0.16f)),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Icon(icon, null, modifier = Modifier.size(16.dp), tint = tint)
+            Column(
+                Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp))
+                    .background(com.xjtu.toolbox.ui.components.AppInsetColor).padding(vertical = 4.dp),
+            ) {
+                insights.forEachIndexed { i, (icon, text) ->
+                    if (i > 0) com.xjtu.toolbox.ui.components.RowDivider(startInset = 52.dp, endInset = 14.dp)
+                    val tint = tints[i % tints.size]
+                    Row(Modifier.padding(horizontal = 12.dp, vertical = 9.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Box(
+                            Modifier.size(28.dp).clip(CircleShape).background(tint.copy(alpha = 0.16f)),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Icon(icon, null, modifier = Modifier.size(15.dp), tint = tint)
+                        }
+                        Spacer(Modifier.width(12.dp))
+                        Text(text, style = MiuixTheme.textStyles.body2)
                     }
-                    Spacer(Modifier.width(10.dp))
-                    Text(text, style = MiuixTheme.textStyles.body2)
                 }
             }
         }
@@ -1476,7 +1386,7 @@ private fun generateInsights(
     // 上面几张卡已经画出来的（餐饮占比、最常去的商户、每月高低、水电）这里不再复述，
     // 只留图上看不出来、要算一下才知道的结论。
 
-    CampusCardAnalysis.monthChangeInsight(stats, rangeStart, rangeEnd)?.let { line ->
+    CampusCardAnalysis.monthChangeInsight(stats, rangeEnd)?.let { line ->
         val up = "增长" in line
         insights.add(
             (if (up) Icons.AutoMirrored.Filled.TrendingUp else Icons.AutoMirrored.Filled.TrendingDown) to line

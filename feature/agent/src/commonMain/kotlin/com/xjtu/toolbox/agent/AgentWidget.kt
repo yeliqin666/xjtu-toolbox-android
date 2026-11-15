@@ -7,6 +7,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.getValue
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.EventNote
 import androidx.compose.material.icons.filled.Assessment
@@ -14,6 +16,10 @@ import androidx.compose.material.icons.filled.AssignmentTurnedIn
 import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.CreditCard
 import androidx.compose.material.icons.filled.Description
+import androidx.compose.material.icons.filled.DirectionsBus
+import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.Image
+import androidx.compose.material.icons.filled.PictureAsPdf
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.MeetingRoom
@@ -92,6 +98,8 @@ fun AgentWidgetView(
         is ZyxfWidget       -> ZyxfWidgetView(widget, host, modifier, onAsk)
         is CampusMapWidget  -> CampusMapWidgetView(widget, modifier)
         is PlanWidget       -> PlanWidgetView(widget, modifier, onTool)
+        is BusWidget        -> BusWidgetView(widget, modifier, onNavigate)
+        is LmsFileWidget    -> LmsFileWidgetView(widget, host, modifier, onNavigate, onTool)
     }
 }
 
@@ -944,3 +952,103 @@ private fun PlanProposalRow(p: PlanProposal, state: PlanAddState, onAdd: ((Boole
         }
     }
 }
+
+@Composable
+private fun BusWidgetView(w: BusWidget, modifier: Modifier, onNavigate: (AppRoute) -> Unit) {
+    val cs = MiuixTheme.colorScheme
+    val shown = w.items.take(w.display.limit)
+    WidgetCard(title = "校车", icon = Icons.Default.DirectionsBus, accent = cs.primary, subtitle = w.title.ifBlank { null }, modifier = modifier) {
+        if (shown.isEmpty()) WidgetMore("没有匹配的班次")
+        shown.forEach { run ->
+            WidgetRow(
+                primary = "${run.time}  ${run.line}",
+                secondary = listOfNotNull(
+                    run.route.takeIf { w.display.shows("route") && it.isNotBlank() },
+                    run.plate.takeIf { w.display.shows("plate") && it.isNotBlank() },
+                ).joinToString(" · "),
+                modifier = Modifier.clip(RoundedCornerShape(12.dp)).clickable { onNavigate(AppRoute.CampusBus) },
+                trailing = {
+                    Text(
+                        if (run.seatsLeft <= 0) "已满" else "余 ${run.seatsLeft}",
+                        style = MiuixTheme.textStyles.footnote1,
+                        fontWeight = FontWeight.Bold,
+                        color = if (run.tight || run.seatsLeft <= 0) cs.error else cs.onSurface,
+                    )
+                },
+            )
+        }
+        if (w.items.size > shown.size) WidgetMore("还有 ${w.items.size - shown.size} 班，点开校车页看全部")
+        WidgetMore(com.xjtu.toolbox.bus.BusRules.BOARDING_TIP)
+    }
+}
+
+/** 点一行去活动详情（预览在那边，地址现取）；右边的按钮直接存进下载管理。 */
+@Composable
+private fun LmsFileWidgetView(
+    w: LmsFileWidget,
+    host: AgentHost,
+    modifier: Modifier,
+    onNavigate: (AppRoute) -> Unit,
+    onTool: (suspend (name: String, args: String) -> String)?,
+) {
+    val cs = MiuixTheme.colorScheme
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
+    val canSave = AgentCapability.FILE_SAVE in host.honored && onTool != null
+    val states = androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateMapOf<Int, String>() }
+    val shown = w.items.take(w.display.limit)
+    WidgetCard(
+        title = w.activityTitle.ifBlank { "思源附件" },
+        icon = Icons.Default.FolderOpen,
+        accent = cs.primary,
+        subtitle = w.courseName.ifBlank { null },
+        modifier = modifier,
+    ) {
+        if (shown.isEmpty()) WidgetMore("没有匹配的附件")
+        shown.forEach { file ->
+            val lower = file.name.lowercase()
+            val icon = when {
+                lower.endsWith(".pdf") -> Icons.Default.PictureAsPdf
+                listOf(".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp").any(lower::endsWith) -> Icons.Default.Image
+                else -> Icons.Default.Description
+            }
+            val state = states[file.id]
+            WidgetRow(
+                primary = file.name,
+                secondary = listOfNotNull(
+                    file.sizeText.takeIf { w.display.shows("size") && it.isNotBlank() },
+                    "我提交的".takeIf { file.mine },
+                    state,
+                ).joinToString(" · "),
+                modifier = Modifier.clip(RoundedCornerShape(12.dp)).clickable {
+                    onNavigate(AppRoute.Lms(w.courseId.takeIf { it > 0 }, w.activityId.takeIf { it > 0 }))
+                },
+                leading = { Icon(icon, null, tint = cs.primary, modifier = Modifier.size(22.dp)) },
+                trailing = if (!canSave) null else {
+                    {
+                        Icon(
+                            Icons.Default.Download,
+                            contentDescription = "保存到下载管理",
+                            tint = cs.onSurfaceVariantSummary,
+                            modifier = Modifier.size(32.dp).clip(RoundedCornerShape(8.dp)).clickable(enabled = state != LMS_SAVING) {
+                                states[file.id] = LMS_SAVING
+                                scope.launch {
+                                    val args = buildJsonObject {
+                                        put("source", "lms")
+                                        put("course", w.courseName)
+                                        put("activity", w.activityTitle)
+                                        put("file", file.id.toString())
+                                    }.toString()
+                                    val reply = runCatching { onTool?.invoke("save_file", args) }.getOrNull().orEmpty()
+                                    states[file.id] = if (reply.startsWith("ok")) "已存到下载管理" else "保存失败"
+                                }
+                            }.padding(6.dp),
+                        )
+                    }
+                },
+            )
+        }
+        if (w.items.size > shown.size) WidgetMore("还有 ${w.items.size - shown.size} 个附件，点开活动看全部")
+    }
+}
+
+private const val LMS_SAVING = "保存中…"

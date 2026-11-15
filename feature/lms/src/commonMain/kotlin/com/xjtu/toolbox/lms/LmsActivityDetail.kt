@@ -1,6 +1,9 @@
 package com.xjtu.toolbox.lms
 
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Row
 import androidx.compose.material.icons.automirrored.filled.ScreenShare
+import androidx.compose.material.icons.automirrored.filled.MenuBook
 import androidx.compose.material.icons.automirrored.filled.Comment
 import androidx.compose.material.icons.automirrored.filled.TrendingDown
 import androidx.compose.material.icons.automirrored.filled.TrendingUp
@@ -42,6 +45,7 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.utils.PressFeedbackType
 import com.xjtu.toolbox.nav.AppRoute
 import com.xjtu.toolbox.html.HtmlContent
+import com.xjtu.toolbox.ui.glass.rememberCouiTopAppBarScrollBehavior
 
 private const val TAG = "LmsScreen"
 
@@ -56,7 +60,10 @@ internal fun ActivityDetailPage(
     course: LmsCourseSummary,
     activity: LmsActivity,
     onBack: () -> Unit,
+    /** 从别处直达这项作业时去课程页的入口；null = 不显示。 */
+    onOpenCourse: (() -> Unit)? = null,
     onTopicSelected: (LmsForumTopic) -> Unit = {},
+    onAskAgent: ((com.xjtu.toolbox.agent.AgentForward) -> Unit)? = null,
     onPlayVideo: (title: String, instructorUrl: String?, encoderUrl: String?, isLive: Boolean, headers: Map<String, String>, startInDual: Boolean) -> Unit
 ) {
     val authExpiry = LocalAuthExpiry.current
@@ -98,6 +105,17 @@ internal fun ActivityDetailPage(
         }
     }
 
+    // 回放在下载队列里的状态（卡片据此画「下载 / 下载中 / 已下载」）。进页面读一次，
+    // 排进新任务后重读；还有没下完的就隔一会儿再读，直到都停下来。
+    var replayStates by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
+    var replayStatesTick by remember { mutableStateOf(0) }
+    LaunchedEffect(activity.id, replayStatesTick) {
+        do {
+            replayStates = runCatching { source.replayDownloadStates(activity.id) }.getOrDefault(emptyMap())
+            kotlinx.coroutines.delay(1500)
+        } while (replayStates.values.any { it in ReplayActiveStates })
+    }
+
     // 思源学堂回放下载：走 media.DownloadManager 队列。
     // download_url 本身就是直链，不必再解析。
     // 直播流（HLS/m3u8）不提供下载——它不是单文件，按分片下载另属一套实现。
@@ -116,6 +134,7 @@ internal fun ActivityDetailPage(
                     videos = listOf(video),
                 )
             }.onSuccess { n ->
+                replayStatesTick++
                 showBriefMessage(if (n > 0) "已加入下载队列" else "本端不支持排队下载")
             }.onFailure {
                 Log.e(TAG, "enqueue lms download failed", it)
@@ -146,7 +165,7 @@ internal fun ActivityDetailPage(
 
     LaunchedEffect(Unit) { if (cache.details[activity.id] == null) loadDetail() }
 
-    val scrollBehavior = MiuixScrollBehavior(rememberTopAppBarState())
+    val scrollBehavior = rememberCouiTopAppBarScrollBehavior()
     // 玻璃顶栏（经典风格下为 null，一切照旧），用法见 ui/glass/GlassTopBar.kt；
     // 播放器另开全屏页（本函数外的 VideoPlayer 分支），不在这里，不受影响。
     val glass = rememberPageGlass()
@@ -157,6 +176,29 @@ internal fun ActivityDetailPage(
                 glass = glass,
                 scrollBehavior = scrollBehavior,
                 onBack = onBack,
+                actions = {
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(2.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        // 书本图标而不是四个字（#380）：顶栏右侧和小岱按钮并排，图标更整齐
+                        if (onOpenCourse != null) {
+                            com.xjtu.toolbox.ui.glass.CouiToolbarActionButton(onClick = onOpenCourse) {
+                                top.yukonga.miuix.kmp.basic.Icon(
+                                    Icons.AutoMirrored.Filled.MenuBook,
+                                    contentDescription = "打开课程",
+                                    tint = top.yukonga.miuix.kmp.theme.MiuixTheme.colorScheme.onSurface,
+                                )
+                            }
+                        }
+                        if (onAskAgent != null) {
+                            com.xjtu.toolbox.ui.components.AskAgentAction(summary = "把这项${activity.type.displayName()}的标题和说明发给小岱") {
+                                // 详情加载完就带上说明，没加载完也能发（小岱可以自己查）
+                                onAskAgent(com.xjtu.toolbox.agent.AgentForward.lmsActivity(course, detail ?: activity, activity.type.displayName()))
+                            }
+                        }
+                    }
+                },
             )
         }
     ) { padding ->
@@ -176,6 +218,7 @@ internal fun ActivityDetailPage(
                         "Origin" to "https://lms.xjtu.edu.cn",
                         "Referer" to "https://lms.xjtu.edu.cn/",
                     )
+                    com.xjtu.toolbox.ui.glass.ReportScrollPosition(listState, scrollBehavior)
                     LazyColumn(
                         state = listState,
                         // 活动详情是一篇从上往下读的内容，宽屏限宽居中，不拉满整个平板
@@ -259,11 +302,12 @@ internal fun ActivityDetailPage(
                                                 true,
                                             )
                                         },
+                                        colors = ButtonDefaults.buttonColorsPrimary(),
                                         modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)
                                     ) {
-                                        Icon(Icons.Default.PlayCircle, null, Modifier.size(18.dp))
+                                        Icon(Icons.Default.PlayCircle, null, Modifier.size(18.dp), tint = MiuixTheme.colorScheme.onPrimary)
                                         Spacer(Modifier.width(6.dp))
-                                        Text("多机位播放器")
+                                        Text("多机位播放器", color = MiuixTheme.colorScheme.onPrimary)
                                     }
                                 }
                             }
@@ -271,6 +315,7 @@ internal fun ActivityDetailPage(
                             items(d.replayVideos, key = { "replay_${it.id}" }) { video ->
                                 ReplayVideoCard(
                                     video,
+                                    downloadState = replayStates[replayDownloadKey(video.downloadUrl)],
                                     onDownload = { enqueueDownload(video, d.title) },
                                 ) {
                                     // 单机位播放
@@ -310,11 +355,12 @@ internal fun ActivityDetailPage(
                                                 true,
                                             )
                                         },
+                                        colors = ButtonDefaults.buttonColorsPrimary(),
                                         modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)
                                     ) {
-                                        Icon(Icons.Default.LiveTv, null, Modifier.size(18.dp))
+                                        Icon(Icons.Default.LiveTv, null, Modifier.size(18.dp), tint = MiuixTheme.colorScheme.onPrimary)
                                         Spacer(Modifier.width(6.dp))
-                                        Text("多机位观看直播")
+                                        Text("多机位观看直播", color = MiuixTheme.colorScheme.onPrimary)
                                     }
                                 }
                                 // 单独的流列表
@@ -356,11 +402,12 @@ internal fun ActivityDetailPage(
                                                     true,
                                                 )
                                             },
+                                            colors = ButtonDefaults.buttonColorsPrimary(),
                                             modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)
                                         ) {
-                                            Icon(Icons.Default.PlayCircle, null, Modifier.size(18.dp))
+                                            Icon(Icons.Default.PlayCircle, null, Modifier.size(18.dp), tint = MiuixTheme.colorScheme.onPrimary)
                                             Spacer(Modifier.width(6.dp))
-                                            Text("多机位播放器")
+                                            Text("多机位播放器", color = MiuixTheme.colorScheme.onPrimary)
                                         }
                                     }
                                 }
@@ -369,6 +416,7 @@ internal fun ActivityDetailPage(
                                     item(key = "live_replay_${idx}_${video.id}") {
                                         ReplayVideoCard(
                                             video,
+                                            downloadState = replayStates[replayDownloadKey(video.downloadUrl)],
                                             onDownload = { enqueueDownload(video, d.title) },
                                         ) {
                                             if (video.downloadUrl.isNotEmpty()) {
@@ -783,7 +831,7 @@ private fun SubmissionCard(
                     val jobSource = source
                     if (upload.attachmentUrl.isNotEmpty() && jobSource != null) {
                         var downloadingMarked by remember { mutableStateOf(false) }
-                        TextButton(
+                        com.xjtu.toolbox.ui.components.TextLink(
                             text = if (downloadingMarked) "正在下载批改版…" else "下载批改版",
                             enabled = !downloadingMarked,
                             onClick = {
@@ -812,9 +860,15 @@ private fun SubmissionCard(
         }
     }
 }
+
+/** 下载队列里「还没下完」的状态（等待、下载中、暂停）。 */
+private val ReplayActiveStates = setOf("pending", "downloading", "paused")
+
 @Composable
 private fun ReplayVideoCard(
     video: LmsReplayVideo,
+    /** 这路回放在下载队列里的状态；null = 没排过（或失败、取消了，可以再下）。 */
+    downloadState: String? = null,
     onDownload: (() -> Unit)? = null,
     // onPlay 必须是最后一个参数：调用方用尾随 lambda 传它，
     // 放在 onDownload 之前会让尾随 lambda 绑错形参。
@@ -847,8 +901,15 @@ private fun ReplayVideoCard(
                 }
             }
             // 只有拿得到可直接 GET 的地址才给下载入口（HLS 已在调用方排除）
-            if (onDownload != null) {
-                IconButton(onClick = onDownload) {
+            // 已经在队列里的不再给下载入口：下完了打勾，还在下的转圈
+            when {
+                downloadState == "completed" -> Box(Modifier.size(40.dp), contentAlignment = Alignment.Center) {
+                    Icon(Icons.Default.DownloadDone, contentDescription = "已下载", tint = MiuixTheme.colorScheme.onSurfaceVariantSummary)
+                }
+                downloadState in ReplayActiveStates -> Box(Modifier.size(40.dp), contentAlignment = Alignment.Center) {
+                    CircularProgressIndicator(size = 18.dp, strokeWidth = 2.dp)
+                }
+                onDownload != null -> IconButton(onClick = onDownload) {
                     Icon(
                         Icons.Default.Download,
                         contentDescription = "下载",
