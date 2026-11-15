@@ -32,7 +32,7 @@ class CouponViewModelTest {
     fun `打开即加载「可使用」，摘要只回写两档`() {
         val source = FakeCouponSource()
         val summary = mutableListOf<Pair<String, String?>>()
-        val vm = CouponViewModel(source) { value, detail -> summary += value to detail }
+        val vm = CouponViewModel(source) { value, detail, _ -> summary += value to detail }
 
         assertEquals(CouponFilter.USABLE, vm.filter)
         assertEquals(2, vm.records.size)

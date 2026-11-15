@@ -49,7 +49,8 @@ class ShareCodeInteropJvmTest {
             .decodeToString()
 
         val parts = raw.split("|")
-        assertEquals(20, parts.size, "字段数变了：$raw")
+        // 好友课表的两个字段追加在末尾，旧版只读前 20 个
+        assertEquals(22, parts.size, "字段数变了：$raw")
         assertEquals("5", parts[0], "版本号变了")
         assertEquals(fixture.nickname, parts[1])
         assertEquals(fixture.busyGrid, parts[2])
