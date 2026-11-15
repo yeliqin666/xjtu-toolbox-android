@@ -1589,7 +1589,7 @@ Location: http://202.117.17.144/pay/show.html?id=VT20261013001
 | `POST /api/dzpz/transcript/submit` | POST | `{type?}` | `{created,requestId,…}` | **① 两段式第一步**：建申请单（**真的会在教务留一条待审批记录** ⇒ 消费方按钮文案必须写清）；**幂等**：10 分钟内重复点 ⇒ `created:false` 同一个 `requestId` |
 | `POST /api/dzpz/transcript/preview` | POST | — | `{ok,filename,filesize,downloadPath}` | 第二步：生成预览 PDF + 取下载信息 |
 | `GET /api/dzpz/transcript/download?ticket=` | GET | 一次性内存票据 | `application/pdf`（RFC 5987 文件名） | **契约第三条例外**（`application/pdf`）落在这里；**上游 host / link 永不出现在响应里**；票据重放 ⇒ 404 |
-| `/api/lms/due` | GET | — | `{count,items[]}` | 作业截止：读 `:data` 的 `LmsDueStore` 落盘缓存，**不为作业发任何请求** |
+| `/api/lms/due` | GET | — | `{count,items[]}` | 作业截止：缓存过了 30 分钟先静默采一轮学堂（`LmsDueCollector.refreshIfStale`），再读 `:data` 的 `LmsDueStore`；采集失败照旧回缓存，不报 502（见 §5.17） |
 | `/api/lms/course-match` | GET | `courseCode?/courseName?/teacher?` | `{matched,course|null}` | 思源课程配对；判据复用 `:model` 的 `lmsCourseMatched`（与桌面/App 同一份） |
 
 **B-4 的说明（避免被当成漏做）**：日程屏那三格（考勤角标 / 思源下钻 / 本次考勤）在 web 上**不需要新端点** —— `/api/attendance/records` 已给 `week/startSection/date/status`，web 侧直接用 `:model` 的纯函数 `attendanceMarksOf` 建索引即可（匹配器已由 B-4 下沉到 `shared/model/.../schedule/CourseLinkMatching.kt`）。
@@ -2355,3 +2355,21 @@ Kotlin 那一格）在本测试源集里**断言不了** —— `kotlin.test` �
 - **消费方（`:web`）**：`CampusJudgeApi` 在 serve 形态读上面的形状，提交只发 `{responseId}`，确认文案带上 `comment`；屏标题改为「学生评教」。campus-api 形态不变（只读）。
 - **桌面**：本科分支改用 `QmsJudgeSource`；研究生仍走 gste / gmis（`GraduateJudgeSource`）。`UndergraduateJudgeSource` 已无调用方，已删除。
 - **夹具**：`testkit` 新增 `QmsFakeUpstream`（任务列表 → 分组课程 → 答卷详情 → PUT 提交），`ServeP0Group2Test` 与 `DesktopAuthLibraryJvmTest` 按它重写。上游请求形状只在这份夹具上验证过。
+
+---
+
+### 5.17 作业截止的采集与成绩报表补分（批 B，C 路）
+
+#### `GET /api/lms/due`：读之前先按 TTL 采集
+
+- 采集器 `LmsDueCollector` 已从 `:app` 移到 `:data`（`data/.../lms/LmsDueCollector.kt`），Android、桌面、serve 共用一份。
+- serve 和桌面都没有后台排程，所以就在读缓存的入口采集：距上次采集超过 `LmsDueCollector.REFRESH_TTL`（30 分钟）时，按当前账号静默确保学堂会话（`silent = true`，碰到短信验证直接放弃、不弹窗），拉最新学期的课程和活动，补上提交状态，再写回 `LmsDueStore`。
+- 节流按账号分别计时，同一时刻只跑一轮；采集失败也计时，免得学堂登不上时每次请求都卡在重新登录上。
+- 采集失败只写日志：这个端点照旧返回缓存（可能为空），不因为学堂而返回 502。响应形状不变，仍然是 `{count, items[]}`。
+- 桌面的 `DesktopScheduleHost.dueHomeworks` 走同一个入口，所以日程页「接下来」那一栏在桌面上也能看到数据。
+
+#### Web 的成绩报表补分：复用 `GET /api/jwxt/grades`
+
+- 不新增端点。`JwxtScoreSupplement.reportedGrades()` 不再带学号参数，由实现按当前账号自己取：serve 和桌面的账号 id 就是学号，Android 用登录态里的用户名。
+- `:web` 的 `CampusJwappScoreApi.reportedGrades()` 调 `GET /api/jwxt/grades`（不带参数），`data.grades[]` 的字段和 `ReportedGrade` 一一对应。学号只在服务端由会话决定，请求里不带，符合 §5.2 的红线。
+- 成绩页的 VM 和屏里不再有 `studentId`：有教务端口（`jwxt != null`）就显示报表入口，最新学期没出分的课从报表补上，三端行为一致。

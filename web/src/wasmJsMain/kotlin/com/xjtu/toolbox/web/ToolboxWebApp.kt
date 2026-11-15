@@ -654,8 +654,8 @@ private fun AppPage(
         } else {
             Column(Modifier.fillMaxSize()) {
                 WebGapNote(
-                    "一处如实缺口：未评教名单与「按学号补的报表」那两路 —— 一个属评教那一侧、" +
-                        "一个要学号（红线），本端都不调（学号那一格传空串）。其余都真读：学期成绩 + GPA + " +
+                    "一处如实缺口：未评教名单属评教那一侧，本端不调。最新学期没出分的课照常从教务成绩报表补" +
+                        "（`/api/jwxt/grades`，学号由服务端按当前账号取）。其余都真读：学期成绩 + GPA + " +
                         "「点开一门课」的分项（`/api/jwapp/score-detail`，课程没有分项时出的是空明细而不是" +
                         "「加载失败」）。成绩是两份上游拼的：移动教务的粗分 + 教务的精确成绩，**后者拿不到时" +
                         "只出前一份**（那条端点的失败被屏的 VM 容忍），所以整屏照常可用。",
@@ -664,7 +664,6 @@ private fun AppPage(
                     val scoreSource = remember(client, mode) { CampusJwappScoreApi(client, API_BASE, mode) }
                     JwappScoreScreen(
                         source = scoreSource,
-                        studentId = "",
                         onBack = back,
                         // 成绩单只有本科生的流程，而「是不是本科生」要身份才知道（本端没有那条链）
                         // ⇒ 不画那个入口（成绩单在首页宫格里本来就有入口，见 WebSupport）。

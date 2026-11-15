@@ -1,12 +1,14 @@
 package com.xjtu.toolbox.server
 
 import com.xjtu.toolbox.auth.SiteSession
+import com.xjtu.toolbox.auth.ensureSite
 import com.xjtu.toolbox.lms.AppLmsSource
 import com.xjtu.toolbox.lms.LmsAcademicYear
 import com.xjtu.toolbox.lms.LmsActivity
 import com.xjtu.toolbox.lms.LmsActivityType
 import com.xjtu.toolbox.account.AccountContext
 import com.xjtu.toolbox.lms.LmsDue
+import com.xjtu.toolbox.lms.LmsDueCollector
 import com.xjtu.toolbox.lms.LmsDueStore
 import com.xjtu.toolbox.lms.LmsCourseAttributes
 import com.xjtu.toolbox.schedule.CourseItem
@@ -73,12 +75,18 @@ internal fun Route.lmsRoutes(session: ServeSession) {
             }
         }
 
-        // ── 作业截止（B-5）：读 `:data` 那份落盘缓存，不为作业再发请求 ──
+        // ── 作业截止（B-5）：缓存过了 TTL 先静默采一轮学堂，再读 `:data` 那份落盘缓存 ──
         get(LMS_DUE) {
             if (!session.authenticated) return@get call.respondLoginRequired()
             val account = AccountContext.activeAccountId?.trim().orEmpty()
             if (account.isEmpty()) return@get call.respondLoginRequired()
-            // `load` 自己吞错（读不到就是空表），所以这里不会因为存储没装而 502
+            // serve 没有后台排程，这个端点就是采集时机；采集失败（含撞短信验证）只记日志，照旧读缓存。
+            // `load` 自己吞错（读不到就是空表），所以这里不会因为存储没装或学堂登不上而 502。
+            LmsDueCollector.refreshIfStale(
+                account = account,
+                site = { session.sessionManager.ensureSite(ServeSession.LMS_SITE_KEY, silent = true) },
+                isCurrent = { AccountContext.activeAccountId?.trim() == account },
+            )
             val items = LmsDueStore.load(account)
             call.respond(ApiEnvelope.ok(LmsDueData(count = items.size, items = items.map { it.toDto() })))
         }

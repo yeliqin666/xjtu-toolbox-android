@@ -289,11 +289,10 @@ fun NavEntryBuilder.appPageEntries(
         entry<AppRoute.JwappScore>(transition = expand(AppRoute.JwappScore::class)) {
             val scoreContext = LocalContext.current
             val scoreSource = remember(loginState.sessionManager) {
-                loginState.sessionManager?.let { AppJwappScoreSource(it) }
+                loginState.sessionManager?.let { AppJwappScoreSource(it) { loginState.activeUsername } }
             }
             JwappScoreScreen(
                 source = scoreSource,
-                studentId = loginState.activeUsername,
                 onBack = back,
                 // 成绩单只有本科生的流程，研究生不显示入口
                 onOpenTranscript = if (loginState.accountType == AccountType.UNDERGRADUATE) { { router.open(AppRoute.Transcript) } } else null,

@@ -1,10 +1,14 @@
 package com.xjtu.toolbox.desktop
 
 import com.xjtu.toolbox.account.AccountContext
+import com.xjtu.toolbox.auth.ensureSite
 import com.xjtu.toolbox.desktop.notify.DesktopReminders
 import com.xjtu.toolbox.emptyroom.EmptyRoomApi
 import com.xjtu.toolbox.inbox.InboxStore
 import com.xjtu.toolbox.inbox.OwnInbox
+import com.xjtu.toolbox.lms.LmsDue
+import com.xjtu.toolbox.lms.LmsDueCollector
+import com.xjtu.toolbox.lms.LmsDueStore
 import com.xjtu.toolbox.platform.secureKeyValueStore
 import com.xjtu.toolbox.platform.showBriefMessage
 import com.xjtu.toolbox.schedule.CourseLinkAccess
@@ -66,8 +70,18 @@ internal class DesktopScheduleHost(private val auth: DesktopAuth) : ScheduleHost
     // 「没接」已经不是事实，留着就是骗人。
     override val gapNotes: Map<ScheduleCapability, String> = emptyMap()
 
-    /** 「接下来」的作业截止：读 `:data` 那份落盘缓存（B-5 下沉后桌面直接可读；web 仍要走 serve 端点）。 */
-    override suspend fun dueHomeworks(accountId: String) = com.xjtu.toolbox.lms.LmsDueStore.load(accountId)
+    /**
+     * 「接下来」的作业截止：缓存过了 [LmsDueCollector.REFRESH_TTL] 就先静默采一轮学堂，再读 `:data` 那份落盘缓存。
+     * 桌面没有后台排程，进日程页是唯一的采集时机；学堂登不上（含撞短信验证）只记日志，照旧读缓存。
+     */
+    override suspend fun dueHomeworks(accountId: String): List<LmsDue> {
+        LmsDueCollector.refreshIfStale(
+            account = accountId,
+            site = { auth.sessionManager.ensureSite(DesktopAuth.LMS_SITE_KEY, silent = true) },
+            isCurrent = { AccountContext.activeAccountId == accountId },
+        )
+        return LmsDueStore.load(accountId)
+    }
 
     override val io: CoroutineDispatcher = Dispatchers.IO
     /** 课表落地之后要通知的事：桌面只有一件 —— 让首页重读一次缓存。（`:app` 那一份还挂着桌面小组件刷新与提醒评估，桌面上没有那两样；桌面真能发的提醒是「课表变更」那一条，它走 [postScheduleChange]，见 `notify/DesktopReminders`。） */

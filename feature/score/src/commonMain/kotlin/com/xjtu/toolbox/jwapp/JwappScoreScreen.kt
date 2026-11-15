@@ -96,15 +96,14 @@ private const val SCORE_ENTER_MAX = 12
 @Composable
 fun JwappScoreScreen(
     source: JwappScoreSource?,
-    studentId: String = "",
     onBack: () -> Unit,
     /** 电子成绩单入口；只有本科生传，研究生不传就不显示。 */
     onOpenTranscript: (() -> Unit)? = null,
     jwxt: JwxtScoreSupplement? = null,
     cache: JwappScoreCache? = null,
 ) {
-    val vm: JwappScoreViewModel = viewModel(key = "score-$studentId") {
-        JwappScoreViewModel(source, jwxt, studentId, cache)
+    val vm: JwappScoreViewModel = viewModel {
+        JwappScoreViewModel(source, jwxt, cache)
     }
     // 本端能不能「点开一门课看分项」（见 `JwappScoreSource.canFetchScoreDetail` 的 KDoc）：
     // serve 形态没有那一条端点 ⇒ 卡片点了不展开 —— 展开的是一个拿不到数据的格子，只会画出

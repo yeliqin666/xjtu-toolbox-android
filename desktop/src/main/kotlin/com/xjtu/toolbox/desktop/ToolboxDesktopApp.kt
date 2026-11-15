@@ -626,7 +626,6 @@ private fun DesktopPage(
             val source = remember(auth) { AppJwappScoreSource(auth.sessionManager) }
             JwappScoreScreen(
                 source = source,
-                studentId = AccountContext.activeAccountId.orEmpty(),
                 onBack = back,
                 onOpenTranscript = if (AccountContext.activeAccountType == AccountType.UNDERGRADUATE) {
                     { onNavigate(DesktopTarget.App(AppRoute.Transcript)) }

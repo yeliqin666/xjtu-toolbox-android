@@ -30,7 +30,6 @@ data class ScoreMessage(val text: String, val long: Boolean = false)
 class JwappScoreViewModel(
     private val source: JwappScoreSource?,
     private val jwxt: JwxtScoreSupplement?,
-    private val studentId: String,
     private val cache: JwappScoreCache? = null,
 ) : ViewModel() {
     private val messageChannel = Channel<ScoreMessage>(Channel.BUFFERED)
@@ -53,7 +52,7 @@ class JwappScoreViewModel(
     /** 补全了哪几行：成绩行 id → 报表那门。 */
     var reportFilled by mutableStateOf<Map<String, ReportedGrade>>(emptyMap()); private set
     /** 有教务会话才能拉报表。 */
-    val canOpenReport get() = jwxt != null && studentId.isNotEmpty()
+    val canOpenReport get() = jwxt != null
     val canRefresh get() = source != null
 
     init { load() }
@@ -203,10 +202,9 @@ class JwappScoreViewModel(
     /** 最新学期的报表成绩；失败返回 null，抽屉里显示重试。 */
     private suspend fun fetchReport(term: String): List<ReportedGrade>? {
         val jwxt = jwxt ?: return null
-        if (studentId.isEmpty()) return null
         reportLoading = true
         return try {
-            jwxt.reportedGrades(studentId).filter { it.term == term }.also { reportGrades = it }
+            jwxt.reportedGrades().filter { it.term == term }.also { reportGrades = it }
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {

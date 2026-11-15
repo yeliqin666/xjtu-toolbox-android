@@ -16,9 +16,9 @@ private const val TAG = "LmsDueStore"
 /**
  * 作业截止时间的落盘缓存。
  *
- * 日程页**不为作业发任何请求**——仓库主担心过"一个功能牵涉多套登录，加载不及时就断了"。
- * 这里只读别处已经拉到的数据。两个写入方（首页刷新扫最新学期、截止提醒扫全部课，都经 `LmsDueCollector`）
- * 覆盖的课程范围不一样，所以按 (courseId, activityId) 合并，不能直接覆盖。
+ * 这里只读写缓存，不发请求；采集都经 [LmsDueCollector]。Android 由首页刷新（最新学期）和截止提醒
+ * Worker（全部课）写入；桌面和 serve 在读缓存前调 [LmsDueCollector.refreshIfStale]，按 TTL 节流、
+ * 静默登录，登不上就照旧读旧缓存。各写入方覆盖的课程范围不一样，所以按 (courseId, activityId) 合并，不能直接覆盖。
  *
  * ## 为什么不在 `:app`
  *

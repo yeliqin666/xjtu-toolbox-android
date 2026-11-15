@@ -21,6 +21,8 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.withContext
 import kotlinx.datetime.toLocalDateTime
 import com.xjtu.toolbox.nav.AppRoute
+import com.xjtu.toolbox.lms.lmsTermOrder
+import com.xjtu.toolbox.lms.newestTermCourses
 import kotlin.math.roundToInt
 import kotlin.time.Clock
 
@@ -225,9 +227,9 @@ object HomeStatsRefresher {
         },
 
         // 思源学堂：一天一次。要逐门课查活动，比别的源贵，别刷太勤。
-        Source(AppRoute.Lms(), 1 * DAY, LoginType.LMS) { ctx, site ->
+        Source(AppRoute.Lms(), 1 * DAY, LoginType.LMS) { _, site ->
             site ?: return@Source null
-            withContext(Dispatchers.IO) { lmsLatest(site, ctx) }
+            withContext(Dispatchers.IO) { lmsLatest(site) }
         },
 
         // 快速考勤流水：最新一条刷卡记录。用户要求"打开时立即请求"，
@@ -395,7 +397,7 @@ object HomeStatsRefresher {
      * 不能只取前几门：待办和日程页的作业截止也从这一轮出，课程列表又不按重要性排，
      * 截断后排在后面的课（#121 里的英语排第 9）作业就永远进不了待办。
      */
-    private suspend fun lmsLatest(site: SiteSession, ctx: Context): HomeStat? {
+    private suspend fun lmsLatest(site: SiteSession): HomeStat? {
         val api = com.xjtu.toolbox.lms.LmsApi(site)
         val courses = runCatching { api.getMyCourses() }
             .onFailure { Log.w(TAG, "lms: getMyCourses 失败 ${it.message}") }
@@ -409,7 +411,7 @@ object HomeStatsRefresher {
 
         val perCourse = com.xjtu.toolbox.lms.LmsDueCollector.activities(api, inTerm)
         // 待办和日程页「接下来」读的截止缓存（LmsDueStore）也从这一轮写，它们自己从不发请求
-        com.xjtu.toolbox.lms.LmsDueCollector.collect(ctx, api, perCourse, roundAccount.orEmpty(), ::roundIsCurrent)
+        com.xjtu.toolbox.lms.LmsDueCollector.collect(api, perCourse, roundAccount.orEmpty(), ::roundIsCurrent)
 
         val wanted = setOf(
             com.xjtu.toolbox.lms.LmsActivityType.HOMEWORK,
@@ -681,32 +683,4 @@ object HomeStatsRefresher {
             },
         )
     }
-}
-
-/**
- * 选出"最新学期"的全部课程。
- *
- * 认不出学期的课（`academic_year` / `semester` 为 null）不参与，也不会被当成最新；
- * 一门都认不出时退化成不筛——宁可多查几门，也别让首页和待办空着。
- */
-internal fun newestTermCourses(courses: List<LmsCourseSummary>): List<LmsCourseSummary> {
-    fun order(c: LmsCourseSummary) = lmsTermOrder(c.semester.code, c.academicYear.code)
-    val newest = courses.mapNotNull(::order).maxOrNull() ?: return courses
-    return courses.filter { order(it) == newest }
-}
-
-/**
- * 思源学期排序键：`2026-1` → `202601`，越大越新；认不出返回 null。
- *
- * 为什么不用 `academicYear.sort` + `semester.sort`：实测 `academic_year.sort` 恒为 0
- * （字段在，值不区分学年），退化后只剩 `semester.sort`，而它的顺序是**越旧越大**
- * （2025-1=5 > 2025-2=4 > 2026-1=1），于是"最新学期"恰好选中一年前那个。
- * `semester.name` / `real_name` 实测全是 null，`code` 是唯一单调可比的锚点。
- */
-internal fun lmsTermOrder(semesterCode: String?, academicYearCode: String?): Int? {
-    val year = semesterCode?.substringBefore('-')?.trim()?.toIntOrNull()
-        ?: academicYearCode?.substringBefore('-')?.trim()?.toIntOrNull()
-        ?: return null
-    val term = semesterCode?.substringAfter('-', "")?.trim()?.toIntOrNull() ?: 0
-    return year * 100 + term
 }

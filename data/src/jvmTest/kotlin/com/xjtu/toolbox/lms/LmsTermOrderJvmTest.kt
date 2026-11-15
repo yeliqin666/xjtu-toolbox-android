@@ -1,12 +1,9 @@
-package com.xjtu.toolbox.home
+package com.xjtu.toolbox.lms
 
-import com.xjtu.toolbox.lms.LmsAcademicYear
-import com.xjtu.toolbox.lms.LmsCourseSummary
-import com.xjtu.toolbox.lms.LmsSemester
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNull
-import org.junit.Assert.assertTrue
-import org.junit.Test
+import kotlin.test.Test
+import kotlin.test.assertEquals
+import kotlin.test.assertNull
+import kotlin.test.assertTrue
 
 /**
  * 首页「思源」卡片选学期的回归测试。
@@ -16,7 +13,7 @@ import org.junit.Test
  * `semester.name` / `real_name` 全是 null。旧公式 `yearSort * 1000 + semSort` 因此在真实数据上
  * 会选中 **2025-1（最旧学期）**，首页于是长期显示一年前的作业。
  */
-class LmsTermOrderTest {
+class LmsTermOrderJvmTest {
 
     private fun course(
         name: String,

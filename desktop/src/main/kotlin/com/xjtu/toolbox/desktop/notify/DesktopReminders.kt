@@ -11,7 +11,7 @@ package com.xjtu.toolbox.desktop.notify
  * |---|---|---|
  * | 课表变更（调课 / 停课 / 换教室） | `ScheduleDiff.diffAndStore` + `summarize`，在 `feature/schedule` 的 `ScheduleViewModel.paintCourses` 里判完，判出东西才回调 `ScheduleHost.postScheduleChange` | **有**（同一份共享代码，桌面这一端就在跑） |
  * | 通知公告有新的一条 | `:app` 的 `NoticeWatchWorker`：`ReminderStore`（`reminder_watch` 那份 SharedPreferences）存开关与游标，WorkManager 4h 排程 | 没有 |
- * | 作业截止（48h 内） | `:app` 的 `LmsDeadlineWorker` + `LmsDueCollector`，同样挂 WorkManager | 没有 |
+ * | 作业截止（48h 内） | `:app` 的 `LmsDeadlineWorker`（采集用 `:data` 的 `LmsDueCollector`），同样挂 WorkManager | 没有 |
  * | 图书馆座位 / 考试临近 | `:app` 的 `LibraryReminderWorker` / `ScheduleWatchWorker`（`ExamCountdown`，提前 3 天） | 没有 |
  * | 后台排程载体本身 | Android 的 `WorkManager` | 没有（见 `docs/desktop-port-plan.md` 的 D6：后台能力只放 serve 模式） |
  *
