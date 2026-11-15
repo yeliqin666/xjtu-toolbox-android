@@ -112,15 +112,37 @@ jobs:
           PREVIEW_NAME=""
           PREVIEW_CODE=0
           PREVIEW_LABEL="未校验"
-          if [ -n "${OSS_PUBLIC_BASE:-}" ] && curl -fsS --max-time 15 --retry 2 \
-              -o /tmp/preview.json "${OSS_PUBLIC_BASE%/}/preview.json" 2>/dev/null; then
-            read -r PREVIEW_NAME PREVIEW_CODE <<<"$(python3 -c 'import json; m = json.load(open("/tmp/preview.json", encoding="utf-8")); print(str(m.get("versionName") or "-"), int(m.get("versionCode") or 0))')"
-            case "${PREVIEW_CODE:-}" in
-              ''|*[!0-9]*) echo "::error::preview.json 里的 versionCode 不合法"; exit 1 ;;
-            esac
-            PREVIEW_LABEL="$PREVIEW_CODE"
-          else
-            echo "::warning::读不到 preview.json，本次跳过「不低于最近预览版」的比对"
+          PREVIEW_OK=0
+          # preview.json 是对外公开的：先走 secrets 里的公网直链，取不到再退到客户端用的同一个域名。
+          # 都失败时把 curl 原文打出来，别让它静默。
+          rm -f /tmp/preview.json /tmp/curl_err.txt
+          for url in "${OSS_PUBLIC_BASE:+${OSS_PUBLIC_BASE%/}/preview.json}" \
+                     "https://dzhz.zyxf.top/xjtu-toolbox/preview.json"; do
+            [ -n "$url" ] || continue
+            if curl -fsSL --max-time 20 --retry 2 -o /tmp/preview.json "$url" 2>/tmp/curl_err.txt; then
+              echo "preview 清单来自 $url"
+              VALUES=$(python3 -c 'import json; m = json.load(open("/tmp/preview.json", encoding="utf-8")); print(str(m.get("versionName") or "-"), int(m.get("versionCode") or 0))' 2>/tmp/curl_err.txt || true)
+              if [ -n "$VALUES" ]; then
+                read -r PREVIEW_NAME PREVIEW_CODE <<<"$VALUES"
+                case "${PREVIEW_CODE:-}" in
+                  ''|*[!0-9]*) echo "::error::preview.json 里的 versionCode 不合法"; exit 1 ;;
+                esac
+                PREVIEW_LABEL="$PREVIEW_CODE"
+                PREVIEW_OK=1
+                break
+              fi
+              echo "::warning::$url 不是合法的预览清单：$(tr '\n' ' ' < /tmp/curl_err.txt)"
+            else
+              echo "::warning::取不到 $url：$(tr '\n' ' ' < /tmp/curl_err.txt)"
+            fi
+          done
+          if [ "$PREVIEW_OK" != "1" ]; then
+            # dev 推送不因 CDN 抖动红掉；正式发布则必须能校验「不低于同核心版本的 beta」
+            if [ "${GITHUB_REF:-}" = "refs/heads/main" ]; then
+              echo "::error::正式发布前读不到 preview.json，无法校验同核心版本 beta 的 versionCode；稍后重跑一次"
+              exit 1
+            fi
+            echo "::warning::没有可用的 preview.json，本次跳过「不低于最近预览版」的比对"
           fi
           CORE_CURRENT="${VERSION%%-*}"
           CORE_PREVIEW="${PREVIEW_NAME%%-*}"
