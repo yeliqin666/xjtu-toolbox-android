@@ -76,6 +76,78 @@ jobs:
           echo "version_code=$VERSION_CODE" >> $GITHUB_OUTPUT
           echo "tag=v$VERSION" >> $GITHUB_OUTPUT
 
+      - name: Validate versionCode
+        # versionCode 是安装器判升降级的唯一依据（客户端判更新只看 versionName），所以必须
+        # 不低于线上任何已发布包；正式版之间还要真正往前推。拦两类真实事故：
+        #   1) dev 上把 versionCode 改小 → 新预览包比已装的旧预览低，安装器直接拒绝降级；
+        #   2) 忘了递增 → 正式版 code 不高于上一个正式版，用户收不到更新（DEVELOP.md §1.7）。
+        # 规则（正式版可以与同核心版本的 beta 同号）：
+        #   - 重发已发布过的 versionName（tag 已存在）：code 不得低于当时发布的号；
+        #   - 新版本（tag 不存在）：code 必须严格大于上一个正式版 —— 正式版之间要真正往前推，
+        #     dev 的预览包也必须盖得过线上正式版，忘了递增就在这里红；
+        #   - 最近预览版与本次同核心版本时：code 不得低于它（正式版可与它同号，不能更低）；
+        #     预览版核心号不同（更旧或更新）只打印不拦 —— 老版本的 main 重发不该被新预览卡住。
+        # 正式版的 code 从 tag 里读（离线、判定稳）；预览版的 code 只在公开清单里，
+        # 拿不到清单时只警告，不因 OSS 抖动红掉构建。
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          VERSION_CODE: ${{ steps.version.outputs.version_code }}
+          OSS_PUBLIC_BASE: ${{ secrets.OSS_PUBLIC_BASE }}
+        run: |
+          set -euo pipefail
+          case "${VERSION_CODE:-}" in
+            ''|*[!0-9]*) echo "::error::versionCode 解析失败: '${VERSION_CODE:-}'"; exit 1 ;;
+          esac
+          # 上一个正式版：按创建时间取最新非预发布 tag（与 dev 的核心版本校验同一套口径）
+          STABLE_TAG=$(git tag -l 'v*' --sort=-creatordate | { grep -vE -- '-(beta|alpha|rc)\.' || true; } | head -1)
+          STABLE_NAME=""
+          STABLE_CODE=0
+          if [ -n "$STABLE_TAG" ]; then
+            STABLE_NAME="${STABLE_TAG#v}"
+            STABLE_CODE=$(git show "${STABLE_TAG}:app/build.gradle.kts" | grep -m1 "versionCode" | sed -E "s/.*=[[:space:]]*([0-9]+).*/\1/")
+            case "${STABLE_CODE:-}" in
+              ''|*[!0-9]*) echo "::error::读不出 $STABLE_TAG 的 versionCode"; exit 1 ;;
+            esac
+          fi
+          PREVIEW_NAME=""
+          PREVIEW_CODE=0
+          PREVIEW_LABEL="未校验"
+          if [ -n "${OSS_PUBLIC_BASE:-}" ] && curl -fsS --max-time 15 --retry 2 \
+              -o /tmp/preview.json "${OSS_PUBLIC_BASE%/}/preview.json" 2>/dev/null; then
+            read -r PREVIEW_NAME PREVIEW_CODE <<<"$(python3 -c 'import json; m = json.load(open("/tmp/preview.json", encoding="utf-8")); print(str(m.get("versionName") or "-"), int(m.get("versionCode") or 0))')"
+            case "${PREVIEW_CODE:-}" in
+              ''|*[!0-9]*) echo "::error::preview.json 里的 versionCode 不合法"; exit 1 ;;
+            esac
+            PREVIEW_LABEL="$PREVIEW_CODE"
+          else
+            echo "::warning::读不到 preview.json，本次跳过「不低于最近预览版」的比对"
+          fi
+          CORE_CURRENT="${VERSION%%-*}"
+          CORE_PREVIEW="${PREVIEW_NAME%%-*}"
+          echo "current=$VERSION ($VERSION_CODE) | stable=$STABLE_NAME ($STABLE_CODE) | preview=$PREVIEW_NAME ($PREVIEW_LABEL)"
+          if git rev-parse -q --verify "refs/tags/v${VERSION}" >/dev/null; then
+            # 重发同一个 versionName（main 重跑）：不低于当初发布的号即可
+            REPUBLISH_CODE=$(git show "v${VERSION}:app/build.gradle.kts" | grep -m1 "versionCode" | sed -E "s/.*=[[:space:]]*([0-9]+).*/\1/")
+            case "${REPUBLISH_CODE:-}" in
+              ''|*[!0-9]*) echo "::error::读不出 v${VERSION} 的 versionCode"; exit 1 ;;
+            esac
+            echo "重发 $VERSION：该 tag 当初的 versionCode=$REPUBLISH_CODE"
+            if [ "$VERSION_CODE" -lt "$REPUBLISH_CODE" ]; then
+              echo "::error::重发 $VERSION 的 versionCode $VERSION_CODE 低于已发布的 $REPUBLISH_CODE，用户不会收到这个包"
+              exit 1
+            fi
+          elif [ "$VERSION_CODE" -le "$STABLE_CODE" ]; then
+            # 新版本（正式发布或 dev 预览）要严格越过上一个正式版
+            echo "::error::versionCode $VERSION_CODE 必须大于上一个正式版 $STABLE_NAME 的 $STABLE_CODE；请在 app/build.gradle.kts 递增 versionCode"
+            exit 1
+          fi
+          # 同核心版本的 beta：正式版可以与它同号，但不能更低
+          if [ -n "$PREVIEW_NAME" ] && [ "$CORE_PREVIEW" = "$CORE_CURRENT" ] && [ "$VERSION_CODE" -lt "$PREVIEW_CODE" ]; then
+            echo "::error::versionCode $VERSION_CODE 低于同核心版本已发布的预览版 $PREVIEW_NAME 的 $PREVIEW_CODE，预览用户装不上这次正式版；请递增 versionCode"
+            exit 1
+          fi
+          echo "versionCode ok"
+
       - name: Decode Keystore
         env:
           KEYSTORE_B64: ${{ secrets.SIGNING_KEYSTORE }}

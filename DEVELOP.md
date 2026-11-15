@@ -159,7 +159,7 @@ grep -rn "5\.[0-9]\+\.[0-9]\+" --include="*.kts" --include="*.kt" --include="*.m
 - 预览 tag 不是 CI 生成的 `v<核心版本>-beta.<N>`，或同一个 beta 序号被不同内容复用（只允许同一次构建的重跑）；
 - `AppChangelog.kt` 缺少当前核心版本的条目；
 - `desktopPackageVersion` 与 `app` 的 `versionName` 不一致；
-- 正式版的 `versionCode` 低于同核心版本的 beta 包；
+- 新版本（该 `versionName` 还没有 tag）的 `versionCode` 不大于上一个正式版；或低于同核心版本已发布的 beta 包（正式版可以与 beta 同号，但不能更低）。CI 的 `Validate versionCode` 步骤执行这条；
 - 带 `[skip preview]` 的推送跳过了单元测试、版本号校验或更新日志校验。该标记只允许跳过预览包的构建与发布。
 
 ### 1.8 从 `-dev.N` 迁移（已随 `6.0.1` 完成）
