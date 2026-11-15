@@ -76,7 +76,7 @@ internal class WebAccountsController(private val api: CampusAccountsApi) : Accou
         loggedOutAfterDelete = false
         val result = requireOk(api.switchAccount(accountId), "切换账号")
         result.snapshot?.let(::applySnapshot)
-        return rows.firstOrNull { it.accountId == accountId } ?: rows.firstOrNull { it.active }
+        return rows.firstOrNull { it.accountId == accountId } ?: rows.firstOrNull { it.accountId == activeAccountId }
     }
 
     override suspend fun addAccount(
@@ -90,7 +90,7 @@ internal class WebAccountsController(private val api: CampusAccountsApi) : Accou
         val result = requireOk(api.addAccount(username, password, accountType, activate = true), "添加账号")
         result.snapshot?.let(::applySnapshot)
         // 投影里没有密码：返回的 Account.password 保持空串，避免进入 UI 状态或 toString。
-        val added = rows.firstOrNull { it.active } ?: rows.lastOrNull()
+        val added = rows.firstOrNull { it.accountId == activeAccountId } ?: rows.lastOrNull()
             ?: Account(accountId = "", accountType = accountType)
         Result.success(added)
     } catch (e: CancellationException) {
