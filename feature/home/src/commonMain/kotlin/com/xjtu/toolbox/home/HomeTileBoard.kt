@@ -74,6 +74,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.input.pointer.pointerInput
@@ -186,6 +187,12 @@ internal val GROUP_HEADER_ROW = 34.dp
 /** 组标题行 + 它与网格之间的间距：首页算几何表用的「标题区总高」。 */
 internal val GROUP_HEADER_HEIGHT = 42.dp
 
+/** 前几组参与入场；再往下的组首屏看不到，直接就位。 */
+private const val GROUP_ENTER_MAX = 4
+
+/** 第 [index] 组整组顺延的入场延迟：上一组第一排起跳后再接下一组，整页从上到下连成一串。 */
+private fun groupEnterDelay(index: Int): Long = index.coerceIn(0, GROUP_ENTER_MAX) * 60L
+
 /**
  * 一个卡片组：标题行 + 组件网格。
  *
@@ -251,6 +258,8 @@ internal fun HomeGroupSection(
     addTileMenu: @Composable () -> Unit,
     onDeleteGroup: () -> Unit,
     onRemoveTile: (tileId: String) -> Unit,
+    /** 这一组在页面上排第几（从 0 起）：入场按它整组顺延，组头与卡片从上到下依次弹入。 */
+    enterIndex: Int = 0,
     modifier: Modifier = Modifier,
 ) {
     val density = LocalDensity.current
@@ -283,17 +292,36 @@ internal fun HomeGroupSection(
             },
     ) {
         if (editing || group.title.isNotBlank()) {
-            GroupHeader(
-                group = group,
-                editing = editing,
-                liquid = liquid,
-                refraction = refraction,
-                backdrop = backdrop,
-                onEditGroup = onEditGroup,
-                onAddTile = onAddTile,
-                addTileMenu = addTileMenu,
-                onDeleteGroup = onDeleteGroup,
+            // 组头和本组第一排卡片同一拍弹入（同一套缩放 + 上浮 + 淡入），不再在卡片弹入时干杵着
+            val headerEntrance = rememberRevealProgress(
+                key = group.id,
+                delayMillis = groupEnterDelay(enterIndex),
+                spec = HomeTileMotion,
+                skip = editing || enterIndex >= GROUP_ENTER_MAX || !LocalEnterAnimations.current,
             )
+            Box(
+                Modifier.graphicsLayer {
+                    val entry = headerEntrance.value
+                    val s = 0.92f + 0.08f * entry
+                    scaleX = s
+                    scaleY = s
+                    transformOrigin = TransformOrigin(0f, 0.5f)
+                    translationY = 16.dp.toPx() * (1f - entry)
+                    alpha = entry.coerceIn(0f, 1f)
+                },
+            ) {
+                GroupHeader(
+                    group = group,
+                    editing = editing,
+                    liquid = liquid,
+                    refraction = refraction,
+                    backdrop = backdrop,
+                    onEditGroup = onEditGroup,
+                    onAddTile = onAddTile,
+                    addTileMenu = addTileMenu,
+                    onDeleteGroup = onDeleteGroup,
+                )
+            }
             Spacer(Modifier.height(GROUP_HEADER_HEIGHT - GROUP_HEADER_ROW))
         }
 
@@ -384,6 +412,7 @@ internal fun HomeGroupSection(
                                 onOpen = { onOpen(face) },
                                 onStartEdit = onStartEdit,
                                 onRemoveTile = onRemoveTile,
+                                enterIndex = enterIndex,
                             )
                         }
                     }
@@ -761,6 +790,8 @@ private fun HomeTileItem(
     onOpen: () -> Unit,
     onStartEdit: () -> Unit,
     onRemoveTile: (tileId: String) -> Unit,
+    /** 所在组的页面序号，见 [HomeGroupSection] 的同名参数。 */
+    enterIndex: Int = 0,
 ) {
     val density = LocalDensity.current
     // 移除热区的手势按 tile.id 只起一次，回调闭包里的网格开关等会变：经 rememberUpdatedState 读最新值
@@ -827,9 +858,9 @@ private fun HomeTileItem(
     // 从上到下、从左到右依次起跳；下方未露面的行不入场，编辑中新建 / 拖回的卡片直接就位。
     val entrance = rememberRevealProgress(
         key = tile.id,
-        delayMillis = (tile.y.toInt().coerceIn(0, 2) * 24 + tile.x.toInt().coerceIn(0, 3) * 12).toLong(),
+        delayMillis = groupEnterDelay(enterIndex) + (tile.y.toInt().coerceIn(0, 2) * 24 + tile.x.toInt().coerceIn(0, 3) * 12).toLong(),
         spec = HomeTileMotion,
-        skip = editing || tile.y >= 3f || !LocalEnterAnimations.current,
+        skip = editing || tile.y >= 3f || enterIndex >= GROUP_ENTER_MAX || !LocalEnterAnimations.current,
     )
 
     Box(

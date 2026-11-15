@@ -1202,7 +1202,8 @@ fun HomeCardGroupScreen(
                                     onDeleteGroup = { editing.confirmDeleteGroup = group },
                                     // 网格模式下删完顺手收空行（空行不该留着，下面的块与组一起上移）
                                     onRemoveTile = { tileId -> update { it.removeTile(tileId, grid) } },
-                                    // 功能卡各自错峰起跳，避免再叠加整组的上浮。
+                                    // 功能卡各自错峰起跳，避免再叠加整组的上浮；按组序整组顺延，全页从上到下连成一串（#424）。
+                                    enterIndex = index,
                                     modifier = Modifier,
                                 )
                             }
