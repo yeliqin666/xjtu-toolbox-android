@@ -650,6 +650,14 @@ private fun DesktopPage(
             },
             onBack = back,
         )
+        is AppRoute.CommunityPost -> CommunityScreen(
+            session = remember { SecureGithubSession.get() },
+            deviceAuth = remember {
+                GithubOAuthDeviceAuthRepository(GithubNetwork.client, CommunityRepo.CLIENT_ID)
+            },
+            onBack = back,
+            discussionNumber = route.number,
+        )
 
         AppRoute.Jiaocai1 -> DesktopSiteGate(auth, DesktopAuth.JIAOCAI_SITE_KEY, "教材中心") { site ->
             val source = remember(site) { AppJiaocai1Source(site, jiaocai1CacheRoot()) }
@@ -812,9 +820,7 @@ private fun DesktopPage(
             }
             com.xjtu.toolbox.degree.DegreeScreen(source = source, onBack = back)
         }
-        // 下面两条同样是「这一端还没接」，也显式列出来——`else` 只留给「加了路由却忘了加分支」：
-        // 社区帖子详情 / 公告详情在桌面端是从列表里内联展开的，没有独立一屏。
-        is AppRoute.CommunityPost -> NotPortedScreen(route, onNavigate)
+        // 公告详情在桌面端是从列表里内联展开的，没有独立一屏；`else` 只留给「加了路由却忘了加分支」。
         is AppRoute.NoticeDetail -> NotPortedScreen(route, onNavigate)
         // 扫一扫是 Android 顶栏的相机入口，桌面端没有这一屏。
         AppRoute.QrScan -> NotPortedScreen(route, onNavigate)

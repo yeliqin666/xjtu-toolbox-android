@@ -816,6 +816,7 @@ class ServeAgentTest {
                 listOf(
                     "get_calendar", "get_schedule", "get_exam_schedule", "get_empty_rooms",
                     "search_yellow_page", "preference", "find_faculty", "app_guide", "calculate", "campus_map",
+                    "get_campus_bus",
                 ),
                 agent.toolAllowlist(AgentConfig()),
             )

@@ -76,7 +76,6 @@ class WebRouteCoverageTest {
         assertEquals(
             listOf(
                 "Browser",
-                "CampusBus",
                 "NoticeDetail",
                 "QrScan",
                 "Zyxf",

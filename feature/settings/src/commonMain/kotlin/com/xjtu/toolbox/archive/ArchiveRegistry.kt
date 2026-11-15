@@ -90,6 +90,8 @@ object ArchiveRegistry {
         put("custom_courses", Entry(Scope.GLOBAL, Carrier.ROOM_ROWS))
         put("score_report", Entry(Scope.GLOBAL, Carrier.PLAIN_KV))
         put("score_report_cache", Entry(Scope.GLOBAL, Carrier.PLAIN_KV))
+        // 店名不带后缀，账号写在键里（`list_<后缀>` / `overlay_<后缀>`），按店名记全局。
+        put("friend_timetables", Entry(Scope.GLOBAL, Carrier.PLAIN_KV))
 
         // ── 账号档（base，尾部还有账号 suffix） ──
         put("cookies_normal", Entry(Scope.ACCOUNT, Carrier.SECURE_KV, credential = true))
@@ -114,6 +116,11 @@ object ArchiveRegistry {
         put("attendance_records_pg", Entry(Scope.ACCOUNT, Carrier.PLAIN_KV))
         put("score_cursor", Entry(Scope.ACCOUNT, Carrier.PLAIN_KV))
         put("schedule_cache", Entry(Scope.ACCOUNT, Carrier.PLAIN_KV, rebuildable = true))
+        put("self_todos", Entry(Scope.ACCOUNT, Carrier.PLAIN_KV))
+        // 学业进度里用户自己确认的抵扣；进度本身每次现查，不落盘。
+        put("degree", Entry(Scope.ACCOUNT, Carrier.PLAIN_KV))
+        // 分享给小岱的材料：只存文字和图片路径，图片文件不随档案走。
+        put("agent_shares", Entry(Scope.ACCOUNT, Carrier.PLAIN_KV))
     }
 
     /** 查分类；没登记的名字默认按全局 plain KV 对待（不猜、不拦）。 */

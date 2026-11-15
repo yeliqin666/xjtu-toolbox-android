@@ -364,6 +364,19 @@ private fun AppPage(
             onBack = back,
             errorText = { FriendlyError.of(it, "加载黄页") },
         )
+        AppRoute.CampusBus -> if (mode != ApiMode.SERVE) {
+            WebServeOnlyScreen(
+                title = "校车查询",
+                endpoints = "GET /api/bus/runs",
+                why = "浏览器直连 xjbus 没有 CORS，班次由 serve 转发。",
+                section = "§5.18",
+            )
+        } else {
+            com.xjtu.toolbox.bus.BusScreen(
+                source = remember(client) { com.xjtu.toolbox.bus.CampusBusApi(client, API_BASE) },
+                onBack = back,
+            )
+        }
         AppRoute.Games -> GamesScreen(
             onBack = back,
             onNavigate = { onNavigate(WebTarget.App(it)) },

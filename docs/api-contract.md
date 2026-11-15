@@ -2399,3 +2399,21 @@ Kotlin 那一格）在本测试源集里**断言不了** —— `kotlin.test` �
   小岱的 `get_degree_progress` 在 serve 上由 `DegreeAgentTools` 挂进工具表（`ServeAgent` 的 `extras`），取数是同一份 `AppDegreeSource`。
 - **测试**：`ServeDegreeTest` 用假的 `DegreeSource` 钉住 401、400、逐字段、身份剥离、换方案参数、`recalculate` 与 `502`。
   教务那串培养方案请求本身只靠 Android 端既有实现，serve 侧没有夹具。
+
+---
+
+### 5.18 校车（2026-11-15，B 批 D 路）：`GET /api/bus/runs`
+
+免登录。serve 用 `:shared:network` 的 `BusApi` 转发 `xjbus.xjtu.edu.cn` 的司机页接口（安卓、桌面直连用的同一份），只做投影。
+
+| 端点 | 方法 | 参数 | 响应 `data` |
+|---|---|---|---|
+| `/api/bus/runs` | GET | `date`：`yyyy-MM-dd`，缺省 = 校园时区今天；形状不对 ⇒ `400` | `{date, runs:[{lineName,time,category,seats,usedSeats,plate,from,to,stops:[{name,time,remark}]}]}` |
+
+- `runs` 按发车时间升序；`time` 是 `HH:mm`。`stops[].time` 多数站点为 `null`，发车站的上游占位 `00:00` 已换成发车时间；`remark` 已去掉重复的站名前缀。
+- 余量、是否满员等由客户端按 `seats` / `usedSeats` 算（`BusRun.seatsLeft` 等），不另投影。
+- 上游响应里的乘客名单（`stationUserMap`）在 `BusApi` 解析时就不读，不会出现在响应、日志或落盘里。
+- 失败：上游非 2xx 或 `success != true` ⇒ `502`；当天没有班次是 `200` + 空 `runs`。
+- 与其他端点同一道令牌闸门。
+- 消费方：Web `CampusBusApi`（serve 形态画 `BusScreen`，campus-api 形态画 `WebServeOnlyScreen`）。
+- 小岱：serve 的工具表在 `ServeAgent` 的 `extras` 里并入 `BusAgentTools`（`get_campus_bus`），与安卓、桌面同一份实现；它不在 `:core` 的工具目录里，所以不经 `ServeAgentTools.NAMES`。
