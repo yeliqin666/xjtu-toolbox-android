@@ -105,7 +105,7 @@
   - `core/net/JwxtSchedule.kt`；
   - `MatchProfile`；
   - `DzpzDocuments`。
-- 测试跟着源码走。CI `core-gate` 已经改成逐个模块跑 `jvmTest`；`desktop-linux` 的路径过滤覆盖 `:desktop` 的全部依赖（`shared/**`、`feature/**`、`build-logic/**`），`desktop-windows` 只看 Windows 专属面（`desktop/**`、`data/**`、`shared/data/**`）。
+- 测试跟着源码走。CI `pr-gate` 在根上按任务名跑 `jvmTest`，新模块自动纳入；`desktop-linux` / `desktop-windows` 只在打包配置、图标、版本目录（Windows 另加 DPAPI 代码）变动时出包。
 - 编译警告，不影响构建：
   - 各个 KMP 库有 `commonTest`，但没开 Android host test，AGP 会提示；
   - 约定插件里用了已弃用的 `compose.runtime` 等访问器；

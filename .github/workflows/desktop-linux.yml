@@ -1,151 +1,73 @@
 name: Desktop Linux Packaging
 
-# Linux 出包通道（`.deb` + app-image）。与 desktop-windows.yml 对称：那边出 `.msi`/`.exe`（只能在
-# Windows 上打），这边出 Linux 那两样（只能在 Linux 上打）。
-#
-# 这一条比 Windows 那条简单：jpackage 在 Linux 上出 `.deb` 只用得上 dpkg 自己的 `dpkg-deb`
-# （ubuntu-latest 自带），不需要 WiX 那种要单独下载的工具链。而 Compose Desktop 的
-# `TargetFormat.AppImage` 是 **jpackage 的 app-image**（一个自带运行时的目录），**不是**
-# AppImage.org 那种单文件 `.AppImage` ⇒ 这里也**不需要** appimagetool / FUSE
-# （口径见 docs/desktop-port-plan.md §7.1 与 docs/linux-delivery.md §1）。
-#
-# 与 core-gate.yml / desktop-windows.yml 同一种风格：独立触发、按路径过滤、并发去重。
-# 这里**不做**发布（不上传 Release）—— 桌面产物现在只作为 artifact 留档。
+# 出 .deb 与免安装 tar.gz。PR 上只在打包配置、图标或版本目录变动时验证出包（编译与测试在 pr-gate.yml）；
+# 正式发版时由 build.yml 在安卓 Release 发完后调用，把产物挂到同一个 Release（不走 OSS）。
 
 on:
   pull_request:
     paths:
-      - 'desktop/**'
-      - 'data/**'
-      - 'core/**'
-      - 'shared/**'
-      - 'feature/**'
-      - 'build-logic/**'
-      - 'gradle/**'
-      - 'gradlew'
-      - 'gradlew.bat'
-      - 'settings.gradle.kts'
+      - 'desktop/build.gradle.kts'
+      - 'desktop/icons/**'
+      - 'gradle/libs.versions.toml'
       - '.github/workflows/desktop-linux.yml'
+  workflow_call:
+    inputs:
+      release_tag:
+        type: string
+        required: true
   workflow_dispatch:
 
 concurrency:
-  group: desktop-linux-${{ github.ref }}
-  cancel-in-progress: true
+  group: desktop-linux-${{ github.ref }}-${{ inputs.release_tag }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   package:
     runs-on: ubuntu-latest
-    # 卡死的护栏：jlink / jpackage 卡住时 GitHub 默认会白白跑 6 小时。60 分钟是拍的
-    # —— 本机出包实测 6 分 39 秒（docs/linux-delivery.md §3.1），留给冷缓存 ~9 倍余量。
-    # ⚠️ 这个数字没在 CI 上量过（本机连不上 GitHub 跑 workflow）。
-    timeout-minutes: 60
+    timeout-minutes: 30
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Set up JDK 21
-        # 与 gradle/libs.versions.toml 的 kotlin 2.4.20 + 三个模块的 jvmToolchain(21) 对齐
-        uses: actions/setup-java@v4
+      - uses: actions/setup-java@v4
         with:
           java-version: "21"
           distribution: "temurin"
 
-      - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@v4
+      - uses: gradle/actions/setup-gradle@v4
 
-      - name: Grant execute permission
-        run: chmod +x gradlew
+      - name: 打 .deb 与 tar.gz
+        env:
+          FEEDBACK_APP_ID: ${{ secrets.FEEDBACK_APP_ID }}
+          FEEDBACK_APP_SECRET: ${{ secrets.FEEDBACK_APP_SECRET }}
+          FEEDBACK_BASE_TOKEN: ${{ secrets.FEEDBACK_BASE_TOKEN }}
+          FEEDBACK_TABLE_SUBMIT: ${{ secrets.FEEDBACK_TABLE_SUBMIT }}
+          FEEDBACK_TABLE_REPLY: ${{ secrets.FEEDBACK_TABLE_REPLY }}
+        run: ./gradlew :desktop:packageDeb :desktop:packageTarGz
 
-      - name: 确认 Android SDK 在（:app 的 AGP 在**配置期**就要它）
-        # 我们只编 :desktop，但 Gradle 会配置整个构建，包括 apply 了 AGP 的 :app。
-        # ubuntu-latest 的镜像自带 Android SDK（ANDROID_HOME/ANDROID_SDK_ROOT 已设）；
-        # 万一将来镜像变了，这一步会**响亮地**失败在这里，而不是让人去猜后面那条报错。
-        run: |
-          if [ -z "$ANDROID_HOME" ] && [ -z "$ANDROID_SDK_ROOT" ]; then
-            echo "::error::镜像里没有 Android SDK：:app 的 AGP 在配置期就要 ANDROID_HOME"
-            exit 1
-          fi
-          echo "ANDROID_HOME=$ANDROID_HOME"
-
-      - name: 编译桌面端
-        # 先编一遍：编译错误（比如只有 Linux 才走的分支）在这里就报，不必等到 jlink 跑完
-        run: ./gradlew :desktop:compileKotlin
-
-      - name: 打 Linux 安装包（.deb 与 app-image）
-        # `packageDeb` 走 jpackage + dpkg-deb；`packageAppImage` 是 jpackage 的 app-image
-        # （落点 desktop/build/compose/binaries/main/app/），与 `createDistributable` 同一个产物。
-        run: ./gradlew :desktop:packageDeb :desktop:packageAppImage
-
-      - name: 列出产物
-        # `.deb` 顺带把控制信息（包名/版本/依赖/安装体积）打出来：这几行进不了 artifact，
-        # 但它是「包里的元数据对不对」最快的证据。
-        run: |
-          set -x
-          ls -la desktop/build/compose/binaries/main/deb/
-          dpkg-deb -I desktop/build/compose/binaries/main/deb/*.deb
-          du -sh desktop/build/compose/binaries/main/app/
-
-      - name: 核对包里的桌面项图标就是我们自己那份
-        # 为什么要这一步：`linux.iconFile` 指错人不会报错 —— jpackage 只是把给它的文件拷进包里，
-        # 「没给」与「给对了」在日志里长得差不多（上一轮就是没给 ⇒ 包里是 Compose 的默认图标，
-        # 见 docs/linux-delivery.md §3.3 的 md5）。所以这里把**包里那一张**与仓库里的
-        # `desktop/icons/linux.png` 比 md5：不相等就是 `iconFile` 没生效（或图标源换了没重转）。
-        # 与 `if-no-files-found: error` 同一个用意：把「静默变成默认行为」变成响亮失败。
+      # linux.iconFile 指错不会报错，只会静默换成 Compose 默认图标，所以比对包里那张与仓库里的 md5
+      - name: 核对包内图标
         run: |
           set -eux
           deb=$(ls desktop/build/compose/binaries/main/deb/*.deb)
+          dpkg-deb -I "$deb"
           packed=$(dpkg-deb --fsys-tarfile "$deb" | tar -xO ./opt/xjtu-toolbox/lib/xjtu-toolbox.png | md5sum | cut -d' ' -f1)
           ours=$(md5sum desktop/icons/linux.png | cut -d' ' -f1)
-          echo "包里 opt/xjtu-toolbox/lib/xjtu-toolbox.png = $packed"
-          echo "仓库 desktop/icons/linux.png            = $ours"
-          # `.desktop` 里的 Icon= 指的就是包里那一张（桌面环境读的是这一行）
-          dpkg-deb --fsys-tarfile "$deb" | tar -xO ./opt/xjtu-toolbox/lib/xjtu-toolbox-xjtu-toolbox.desktop | grep '^Icon='
           [ "$packed" = "$ours" ]
 
-      - name: 上传产物
-        uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v4
         with:
           name: xjtu-toolbox-linux
           path: |
             desktop/build/compose/binaries/main/deb/*.deb
-            desktop/build/compose/binaries/main/app/
-          # 没产物就是出包失败，别当成「跑过了」：Compose Desktop 对与宿主不兼容的 target
-          # 会把任务**静默 SKIPPED**（连任务体都不跑，命令却仍然是绿的 —— 实测见
-          # docs/windows-delivery.md §1，两条工作流各自那一节：docs/linux-delivery.md §4 /
-          # docs/windows-delivery.md §3），所以「命令绿了但什么都没出包」是可能的 —— 这条设置把它变成响亮失败。
+            desktop/build/compose/binaries/main/tar/*.tar.gz
+          # Compose 对宿主不支持的格式会静默 SKIPPED，没产物就当失败
           if-no-files-found: error
 
-      # ── 验证步骤刻意放在出包**之后**：万一有用例红了，`.deb` 与 app-image 仍然留得下来给人查。
-      #    这里跑的是 :desktop 自己的整套；:core / :data / :testkit 那几道在 core-gate.yml 里
-      #    （同一个 ubuntu-latest，不重复一遍）。
-      - name: 装中日字体（用例量的是离屏渲染的文字宽度）
-        # 为什么：`DesktopShellRailJvmTest` 把界面离屏渲染一遍，再量「首页」这类汉字的**文字宽度**；
-        # ubuntu-latest 镜像里没有中日字体 ⇒ 字形缺失、量出来的宽度不对（CI 上报 15.0，本机有
-        # WenQuanYi 就是绿的）。本应用是中文应用，CI 本来就该有中日字体。
-        # 不写 `apt-get upgrade`：又慢又跟本次无关。
-        run: |
-          set -x
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends fonts-noto-cjk
-          # 只要这一个包：Noto Sans CJK 一个 .ttc 就覆盖简繁日韩。没要 `-extra` ——
-          # 它多下 ~145MB，给的只是按语言切分的同一批字形，这条用例用不上。
-          # 装完就得查得到：查不到就在这里响亮失败，别让人去猜后面那条 15.0px 的断言
-          # （同「确认 Android SDK 在」那一步的用意）。
-          fc-list :lang=zh > "$RUNNER_TEMP/chinese-fonts.txt"
-          test -s "$RUNNER_TEMP/chinese-fonts.txt" || { echo "::error::装完 fonts-noto-cjk 仍查不到中文字体"; exit 1; }
-          head -3 "$RUNNER_TEMP/chinese-fonts.txt"
-
-      - name: 桌面端单元测试
-        run: ./gradlew :desktop:test
-
-      - name: 失败时保留诊断报告
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: desktop-linux-failure-reports
-          retention-days: 7
-          if-no-files-found: warn
-          path: |
-            desktop/build/reports/tests/**
-            desktop/build/test-results/**
-            desktop/build/compose/logs/**
+      - name: 挂到 Release
+        if: inputs.release_tag != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >-
+          gh release upload "${{ inputs.release_tag }}" --repo "${{ github.repository }}" --clobber
+          desktop/build/compose/binaries/main/deb/*.deb
+          desktop/build/compose/binaries/main/tar/*.tar.gz

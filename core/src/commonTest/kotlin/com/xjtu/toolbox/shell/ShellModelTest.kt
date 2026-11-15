@@ -176,14 +176,15 @@ class ShellModelTest {
     fun `底栏占位与槽位补偿`() {
         val glassBar = ShellLayout(ShellForm.GLASS_BAR, glass = true, bottomInset = 24.dp)
         assertTrue(glassBar.glassBarPresent)
-        assertEquals(GLASS_BAR_HEIGHT + 8.dp + 24.dp, glassBar.bottomBarReserve)
+        // 占位取 COUI 下空隙上限 24dp + 导航条
+        assertEquals(GLASS_BAR_HEIGHT + 24.dp + 24.dp, glassBar.bottomBarReserve)
         // 塞进 floatingToolbar 槽位时要扣掉 miuix 私有的 4dp
         assertEquals(28.dp, glassBar.glassBarSlotBottomPadding)
         assertEquals(0.dp, glassBar.bottomBarSlotOffsetY)
 
-        // 手势条（量不到导航条）：空隙变成 20dp
+        // 手势条（量不到导航条）：槽位空隙变成 20dp，占位仍是 24dp
         val noInset = ShellLayout(ShellForm.GLASS_BAR, glass = true, bottomInset = 0.dp)
-        assertEquals(GLASS_BAR_HEIGHT + 20.dp, noInset.bottomBarReserve)
+        assertEquals(GLASS_BAR_HEIGHT + 24.dp, noInset.bottomBarReserve)
         assertEquals(16.dp, noInset.glassBarSlotBottomPadding)
 
         // 悬浮胶囊：本体 52 + 26 + inset（没有导航条时 36）

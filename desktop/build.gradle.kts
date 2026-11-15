@@ -98,7 +98,6 @@ compose.desktop {
             targetFormats(
                 TargetFormat.Deb,
                 TargetFormat.AppImage,
-                TargetFormat.Msi,
                 TargetFormat.Exe,
             )
             packageName = "xjtu-toolbox"
