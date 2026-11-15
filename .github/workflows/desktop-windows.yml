@@ -93,8 +93,9 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          $files = Get-ChildItem desktop\build\compose\binaries\main\exe\*.exe | ForEach-Object FullName
-          gh release upload "${{ inputs.release_tag }}" --repo "${{ github.repository }}" --clobber @files
+          # @() 保证只有一个文件时也是数组，原样展开成各自一个参数
+          $files = @(Get-ChildItem desktop\build\compose\binaries\main\exe\*.exe | ForEach-Object FullName)
+          gh release upload "${{ inputs.release_tag }}" --repo "${{ github.repository }}" --clobber $files
           if ($LASTEXITCODE -ne 0) { throw "上传 Release 失败" }
 
       - name: 失败时保留诊断报告
