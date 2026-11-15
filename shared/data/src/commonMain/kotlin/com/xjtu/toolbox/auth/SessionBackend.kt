@@ -96,6 +96,8 @@ class SessionBackend(
 
         /** 删掉某账号两边的会话存储，不需要 backend 实例（删账号时用）。 */
         fun wipe(accountSuffix: String) {
+            // 快照读写是异步排队的：先等它们落完，否则排在后面的 clear/save 会把刚删的文件写回来
+            SiteSnapshots.awaitPending()
             AccessMode.entries.forEach { mode ->
                 runCatching { PersistentCookieJar(cookiePrefs(mode, accountSuffix)).clear() }
                 runCatching { wipeSecureStore(snapshotPrefs(mode, accountSuffix)) }

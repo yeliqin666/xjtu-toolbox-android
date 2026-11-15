@@ -51,6 +51,11 @@ class SiteSnapshots(private val store: KeyValueStore) {
 
         private val io = Executors.newSingleThreadExecutor { Thread(it, "site-snapshots").apply { isDaemon = true } }
 
+        /** 阻塞到此前排队的快照读写全部执行完。 */
+        fun awaitPending() {
+            io.submit {}.get()
+        }
+
         internal fun encode(tokens: Map<String, String>, savedAt: Long): String = buildJsonObject {
             put("at", savedAt)
             put("tokens", buildJsonObject { tokens.toSortedMap().forEach { (k, v) -> put(k, v) } })
