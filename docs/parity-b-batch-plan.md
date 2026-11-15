@@ -1,5 +1,11 @@
 # 三端一致 B 批：5 路并行计划（目标 3 小时）
 
+> **2026-11-15 变更（优先于下文）**
+>
+> - 不单开 PR，不推送。各路只在本地分支 `parity-b/<代号>` 提交，把提交哈希和摘要交给审计员；审计员按 A → C → B → D → E 的顺序 cherry-pick 到 `chore/parity-a-batch`，统一推送一次，更新 PR #150。下文里“开 PR / rebase / PR 正文”都按这条理解：摘要的内容就是原来 PR 正文要写的。
+> - 不强求真机验证。交付时不再列“需真机验证”清单；只用假上游验证过、把握不足的请求，在摘要里用一句话标注。
+> - 每路使用独立工作区 `D:\XJTUAPP-b-<代号>`，不要在 `D:\XJTUApp` 和 `D:\XJTUAPP-parity` 里改动或构建；所有命令在后台隐藏运行。
+
 基线：`chore/parity-a-batch`（PR #150）最新提交。安卓是基准，桌面 / Web（serve 形态）跟进。
 背景与判据见 `docs/parity-ledger.md`（§8.14 是本批起点）和 `docs/api-contract.md`。
 
