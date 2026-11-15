@@ -1,22 +1,46 @@
 package com.xjtu.toolbox.ui.components
 
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import top.yukonga.miuix.kmp.basic.Surface
-import top.yukonga.miuix.kmp.basic.TabRowDefaults
-import top.yukonga.miuix.kmp.basic.TabRowWithContour
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
+import com.xjtu.toolbox.ui.theme.LocalIsDarkTheme
+import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 /**
- * 页面级分段选择。缩进的 `surfaceContainer` 托盘托住 [TabRowWithContour]，
- * 避免通栏白板切顶栏，也避免轨道默认 `surface` 叠在页面灰上隐形。
+ * 页面级分段选择器：COUI 的胶囊分段控件（Android 上是 COUI `SegmentedControl` 的移植）。
  *
- * 已经在白卡片内部时用 [embedded]：不再外套托盘，只给组件自带轨道一层浅底。
+ * 外观是「一枚圆角轨道 + 底下白色滑块」：滑块跟着选中项滑、拖过新项就切，宽度按标签自然宽度分配、
+ * 放不下时截断长标签；`compact` 用 32dp / 2dp 的紧凑预设（原版 `small`）。
+ * 其它平台没有 AGSL，退回同样式样的普通绘制版本。
+ *
+ * 名字和参数沿用旧调用点：[embedded] 是滑块时代的排布参数，新控件不需要；页面采样参数已删除。
  */
+@Suppress("UNUSED_PARAMETER")
 @Composable
 fun AppSegmentedTabs(
     tabs: List<String>,
@@ -24,44 +48,95 @@ fun AppSegmentedTabs(
     onTabSelected: (Int) -> Unit,
     modifier: Modifier = Modifier,
     embedded: Boolean = false,
+    compact: Boolean = false,
+    /** 已选中的那一格再点是否也回调 [onTabSelected]（原版不回调；日程「第 N 周」靠它弹选周菜单）。 */
+    reselectable: Boolean = false,
 ) {
-    // 画在玻璃顶栏上时，托盘和轨道都换成半透明，让玻璃从底下透上来；选中的那一格保持不透明，
-    // 选中态仍然一眼看得出（见 LocalOnGlassBar）。
-    val onGlass = com.xjtu.toolbox.ui.glass.LocalOnGlassBar.current
-    val row: @Composable () -> Unit = {
-        TabRowWithContour(
-            tabs = tabs,
-            selectedTabIndex = selectedTabIndex,
-            onTabSelected = onTabSelected,
-            colors = if (embedded || onGlass) {
-                TabRowDefaults.tabRowColors(
-                    backgroundColor = MiuixTheme.colorScheme.onBackground.copy(alpha = 0.06f),
-                )
-            } else {
-                TabRowDefaults.tabRowColors()
-            },
-            // miuix 默认每格至少 62dp，手机上 5 格（兴庆/雁塔/曲江/创新港/苏州）放不下就变成横滑，
-            // 最后一格被截掉、看不出能滑。放宽到 44dp（三个汉字的宽度），常见格数都能一屏排满。
-            minWidth = 44.dp,
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 8.dp, vertical = 6.dp),
-        )
+    if (tabs.isEmpty()) return
+    // 和页面卡片的外边距对齐：轨道左右各让 16dp，正好压在下方卡片的边缘上；
+    // embedded（已经在卡片里）让 12dp、上下再留 10dp——让得再少，轨道的灰和卡片外的页面底色
+    // 在圆角处就连成一片，看着像卡片缺了一角。上下那点留白就是卡片里的呼吸空间。
+    // compact（壁纸编辑器的表格）由外层自己给边距。
+    val inset = when {
+        compact -> 0.dp
+        embedded -> 12.dp
+        else -> 16.dp
     }
-    if (embedded) {
-        androidx.compose.foundation.layout.Box(
-            modifier
-                .fillMaxWidth()
-                .padding(horizontal = 12.dp, vertical = 10.dp),
-        ) { row() }
-    } else {
-        Surface(
-            modifier = modifier
-                .fillMaxWidth()
-                .padding(horizontal = 12.dp, vertical = 8.dp),
-            shape = RoundedCornerShape(14.dp),
-            color = if (onGlass) MiuixTheme.colorScheme.surfaceContainer.copy(alpha = 0.35f)
-                else MiuixTheme.colorScheme.surfaceContainer,
-        ) { row() }
+    val vertical = if (embedded) 10.dp else 0.dp
+    PlatformSegmentedTabs(
+        labels = tabs,
+        selectedIndex = selectedTabIndex.coerceIn(0, tabs.lastIndex),
+        onSelected = onTabSelected,
+        modifier = modifier.padding(horizontal = inset, vertical = vertical).fillMaxWidth(),
+        small = compact,
+        reselectable = reselectable,
+    )
+}
+
+@Composable
+internal expect fun PlatformSegmentedTabs(
+    labels: List<String>,
+    selectedIndex: Int,
+    onSelected: (Int) -> Unit,
+    modifier: Modifier,
+    small: Boolean,
+    reselectable: Boolean,
+)
+
+/** 非 Android 端的同款样式：普通填色轨道 + 白色滑块，点击切换。 */
+@Composable
+internal fun SegmentedTabsFallback(
+    labels: List<String>,
+    selectedIndex: Int,
+    onSelected: (Int) -> Unit,
+    modifier: Modifier,
+    small: Boolean,
+    reselectable: Boolean,
+) {
+    if (labels.isEmpty()) return
+    val dark = LocalIsDarkTheme.current
+    val height = if (small) 32.dp else 40.dp
+    val inset = if (small) 2.dp else 4.dp
+    val track = if (dark) Color.White.copy(alpha = .12f) else Color.Black.copy(alpha = .06f)
+    val thumb = if (dark) Color.White.copy(alpha = .2f) else Color.White.copy(alpha = .72f)
+    val shape = RoundedCornerShape(percent = 50)
+    val progress by animateFloatAsState(
+        selectedIndex.toFloat(),
+        tween(240),
+        label = "segmentedFallback",
+    )
+    BoxWithConstraints(
+        modifier.height(height).clip(shape).background(track).drawBehind {
+            val px = inset.toPx()
+            val cell = (size.width - px * 2f) / labels.size
+            drawRoundRect(
+                color = thumb,
+                topLeft = Offset(px + cell * progress, px),
+                size = Size(cell, size.height - px * 2f),
+                cornerRadius = CornerRadius((size.height - px * 2f) / 2f),
+            )
+        },
+    ) {
+        Row(Modifier.fillMaxSize().padding(horizontal = inset)) {
+            labels.forEachIndexed { index, label ->
+                val interaction = remember { MutableInteractionSource() }
+                Box(
+                    Modifier
+                        .weight(1f)
+                        .fillMaxHeight()
+                        .clickable(interactionSource = interaction, indication = null) { onSelected(index) },
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(
+                        text = label,
+                        style = MiuixTheme.textStyles.body2,
+                        color = if (index == selectedIndex) MiuixTheme.colorScheme.onSurface
+                        else MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+            }
+        }
     }
 }

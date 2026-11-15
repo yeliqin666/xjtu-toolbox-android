@@ -19,7 +19,7 @@ body:
     attributes:
       label: 应用版本
       description: 设置 → 关于 里能看到
-      placeholder: 例如 5.2.1 或 5.2.1-dev.225
+      placeholder: 例如 6.0.1 或 6.0.1-beta.3
     validations:
       required: true
   - type: input

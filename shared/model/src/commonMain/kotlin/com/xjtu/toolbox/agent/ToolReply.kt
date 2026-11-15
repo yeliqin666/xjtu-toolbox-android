@@ -7,7 +7,6 @@ import kotlinx.serialization.json.jsonObject
 /** 兼容旧历史中的 show 参数。新调用在查询后使用 present_result。 */
 object ToolShow {
     const val PARAM = "show"
-    const val DESCRIPTION = "旧版展示参数。新调用使用 present_result。"
 
     fun requested(argsJson: String): Boolean = runCatching {
         AppJson.parseToJsonElement(argsJson).jsonObject[PARAM].safeStringOrNull().equals("true", ignoreCase = true)

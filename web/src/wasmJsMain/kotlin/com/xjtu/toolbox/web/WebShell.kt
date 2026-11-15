@@ -100,7 +100,7 @@ internal val WEB_SHELL_TABS: ShellTabs = ShellTabs(
         ),
         ShellTab(
             id = "PIDAI",
-            label = "屁岱",
+            label = "小岱",
             icon = Icons.Filled.SmartToy,
             iconSize = 27.dp,
             target = ShellTarget.App(AppRoute.Agent),

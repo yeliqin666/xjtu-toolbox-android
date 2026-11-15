@@ -76,13 +76,13 @@ internal class TranscriptViewModel(
                     workflowProgress = label
                     return block()
                 }
-                val linkage = step("正在获取学籍信息...") { source.getLinkageData(ctx, type) }
-                val first = step("正在保存申请...") { source.submitCreate(ctx, linkage, type) }
-                step("正在生成成绩单...") { source.generatePreviewPdf(ctx.workflowId, type, first.requestId) }
-                val second = step("正在处理签章...") { source.reloadAndForward(ctx, first, type) }
-                val info = step("正在获取下载链接...") { source.getDownloadInfo(second) }
+                val linkage = step("正在获取学籍信息…") { source.getLinkageData(ctx, type) }
+                val first = step("正在保存申请…") { source.submitCreate(ctx, linkage, type) }
+                step("正在生成成绩单…") { source.generatePreviewPdf(ctx.workflowId, type, first.requestId) }
+                val second = step("正在处理签章…") { source.reloadAndForward(ctx, first, type) }
+                val info = step("正在获取下载链接…") { source.getDownloadInfo(second) }
                 downloadInfo = info
-                pdfBytes = step("正在下载成绩单...") { source.downloadPdf(info.downloadUrl) }
+                pdfBytes = step("正在下载成绩单…") { source.downloadPdf(info.downloadUrl) }
                 workflowState = WorkflowState.SUCCESS
                 workflowProgress = "成绩单已生成"
             } catch (e: CancellationException) {

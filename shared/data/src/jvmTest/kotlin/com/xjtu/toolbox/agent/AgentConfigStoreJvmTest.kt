@@ -169,6 +169,15 @@ class AgentConfigStoreJvmTest {
     }
 
     @Test
+    fun `存着旧默认名的老用户读出新默认名，自定义名不动`() {
+        val s = store()
+        s.save(AgentConfig(assistantName = AgentConfig.LEGACY_ASSISTANT_NAME))
+        assertEquals(AgentConfig.DEFAULT_ASSISTANT_NAME, s.load().assistantName)
+        s.save(AgentConfig(assistantName = "屁岱二号"))
+        assertEquals("屁岱二号", s.load().assistantName)
+    }
+
+    @Test
     fun `按账号分开命名空间，换账号看不到上一个人的配置`() {
         val names = mutableListOf<String>()
         val s = store(plain = { name -> names += name; keyValueStore(name) })

@@ -22,10 +22,12 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.Image
+import com.xjtu.toolbox.ui.glass.tabContentPadding
 import com.xjtu.toolbox.html.HtmlContent
 import com.xjtu.toolbox.platform.showBriefMessage
 import com.xjtu.toolbox.ui.adaptive.readableWidth
 import com.xjtu.toolbox.ui.glass.*
+import com.xjtu.toolbox.ui.glass.rememberCouiTopAppBarScrollBehavior
 import kotlinx.coroutines.launch
 import top.yukonga.miuix.kmp.basic.*
 import top.yukonga.miuix.kmp.theme.MiuixTheme
@@ -132,7 +134,7 @@ internal fun BulletinDetailPage(
     onBack: () -> Unit,
 ) {
     val scope = rememberCoroutineScope()
-    val scrollBehavior = MiuixScrollBehavior(rememberTopAppBarState())
+    val scrollBehavior = rememberCouiTopAppBarScrollBehavior()
     val glass = rememberPageGlass()
 
 
@@ -156,15 +158,16 @@ internal fun BulletinDetailPage(
                 .nestedScroll(scrollBehavior.nestedScrollConnection)
         ) {
             LazyColumn(
+                state = com.xjtu.toolbox.ui.glass.rememberReportedLazyListState(scrollBehavior),
                 modifier = Modifier
                     .fillMaxSize()
                     .readableWidth(),
-                contentPadding = PaddingValues(
+                contentPadding = tabContentPadding(PaddingValues(
                     start = 16.dp,
                     end = 16.dp,
                     top = glassTop + 12.dp,
                     bottom = 24.dp
-                )
+                ))
             ) {
                 // 基本信息卡
                 item(key = "info") {
@@ -261,7 +264,8 @@ internal fun BulletinDetailPage(
                                             }
                                         }
                                     },
-                                    enabled = !isDownloading
+                                    enabled = !isDownloading,
+                                    colors = com.xjtu.toolbox.ui.components.appTonalButtonColors(),
                                 ) {
                                     Row(verticalAlignment = Alignment.CenterVertically) {
                                         Icon(Icons.Default.Download, null, modifier = Modifier.size(16.dp))

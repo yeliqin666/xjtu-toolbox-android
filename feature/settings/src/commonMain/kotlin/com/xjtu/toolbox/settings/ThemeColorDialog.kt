@@ -10,7 +10,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import com.xjtu.toolbox.schedule.CourseColors
 import com.xjtu.toolbox.ui.components.AppColorPicker
-import com.xjtu.toolbox.ui.components.AppFilterChip
 import com.xjtu.toolbox.ui.theme.LocalIsDarkTheme
 import com.xjtu.toolbox.ui.theme.XJTUToolBoxTheme
 import top.yukonga.miuix.kmp.basic.*
@@ -44,16 +43,18 @@ internal fun ThemeColorDialog(
     WindowDialog(
         show = true,
         title = "自定义主题色",
-        summary = "浅色和深色分别设置，选中的颜色直接用作主题色",
         onDismissRequest = onDismiss,
     ) {
         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                AppFilterChip(selected = !editingDark, onClick = { editingDark = false }, label = "浅色")
-                AppFilterChip(selected = editingDark, onClick = { editingDark = true }, label = "深色")
-            }
+            com.xjtu.toolbox.ui.components.AppSegmentedTabs(
+                tabs = listOf("浅色", "深色"),
+                selectedTabIndex = if (editingDark) 1 else 0,
+                onTabSelected = { editingDark = it == 1 },
+                compact = true,
+            )
             // 色板和输入框只认当前这一档，切按钮就把它们换成那一档的颜色
-            AppColorPicker(color = color, onColorChanged = { setHex(CourseColors.toHex(it)) })
+            // 不要取色器自带的色条：下面的预览已经把这个色画在真实界面上了
+            AppColorPicker(color = color, onColorChanged = { setHex(CourseColors.toHex(it)) }, showPreview = false)
             TextField(
                 value = hex,
                 onValueChange = setHex,
@@ -79,8 +80,7 @@ internal fun ThemeColorDialog(
                             .background(MiuixTheme.colorScheme.primary, RoundedCornerShape(8.dp)),
                         contentAlignment = Alignment.Center,
                     ) {
-                        // 主题色上的字只跟明暗走（深色白、浅色黑），挑的色再极端也不会自动换字色，
-                        // 所以这一条就是最终效果的预演
+                        // 字色和真实主题同一道对比度门（见 readableOn），这一条就是最终效果
                         Text("主题色上的文字", color = MiuixTheme.colorScheme.onPrimary)
                     }
                 }

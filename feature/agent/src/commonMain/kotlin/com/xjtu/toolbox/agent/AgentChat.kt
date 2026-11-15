@@ -5,10 +5,16 @@ package com.xjtu.toolbox.agent
 import com.xjtu.toolbox.nav.appRouteOf
 import com.xjtu.toolbox.nav.AppRoute
 import com.xjtu.toolbox.ui.glass.LocalGlassStyle
+import com.xjtu.toolbox.ui.glass.rememberCouiPageBackdrop
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.animation.scaleIn
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.togetherWith
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.ExperimentalFoundationApi
@@ -29,6 +35,10 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.ChevronRight
+import androidx.compose.material.icons.filled.AttachFile
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.filled.Key
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
@@ -41,8 +51,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
-import com.kyant.backdrop.backdrops.layerBackdrop
-import com.kyant.backdrop.backdrops.rememberLayerBackdrop
 import com.xjtu.toolbox.platform.showBriefMessage
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.font.FontWeight
@@ -72,9 +80,10 @@ internal fun ChatPanel(
     /** 「这一端的屁岱比手机朴素在哪」那段话（见 [AgentHost.gapNote]）：给文案就画在对话最上面，默认不画。 */
     gapNote: String? = null,
     padding: PaddingValues,
-    scrollBehavior: ScrollBehavior,
+    scrollBehavior: com.xjtu.toolbox.ui.glass.CouiTopBarScrollBehavior?,
     onNavigate: (AppRoute) -> Unit,
     onOpenConfig: () -> Unit,
+    onPushPreferences: () -> Unit = onOpenConfig,
     bottomReserve: Dp = 0.dp,
     /** 玻璃顶栏的高度，放进对话列表的顶部留白（列表铺到顶栏下面）。 */
     listTopPadding: Dp = 0.dp,
@@ -86,6 +95,15 @@ internal fun ChatPanel(
     modifier: Modifier = Modifier
 ) {
     var input by rememberSaveable { mutableStateOf("") }
+    val sharedMaterials = remember(host.accountId) { host.sharedMaterials() }
+    val pageVisible = com.xjtu.toolbox.ui.components.LocalPageVisible.current
+    var showSharedMaterials by remember(host.accountId) { mutableStateOf(false) }
+    LaunchedEffect(host.accountId, AgentShareInbox.generation, pageVisible) {
+        if (pageVisible && sharedMaterials != null && AgentShareInbox.pendingOpen) {
+            showSharedMaterials = true
+            AgentShareInbox.consumeOpen()
+        }
+    }
     LaunchedEffect(vm.draft) {
         vm.draft?.let { input = it; vm.draft = null }
     }
@@ -120,7 +138,15 @@ internal fun ChatPanel(
             editingLast = false
             vm.replaceLastUserAndSend(text, config)
         } else {
-            vm.sendMessage(text, config, images = images)
+            val context = vm.draftContext
+            vm.draftContext = null
+            vm.sendMessage(
+                text,
+                config,
+                llmAnnex = context?.snapshot?.let(AgentAnnex::snapshot),
+                images = images,
+                contextLabel = context?.label,
+            )
         }
     }
 
@@ -137,8 +163,29 @@ internal fun ChatPanel(
         vm.sendMessage(text, config)
     }
 
+    // 卡片按钮（加入日程、待办）走和模型同一套工具，校验与冲突检测一致
+    val widgetTools = remember(config) { host.interactiveTools(config) }
     val glass = LocalGlassStyle.current
-    val chatBackdrop = rememberLayerBackdrop()
+    if (showSharedMaterials && pageVisible && sharedMaterials != null) AgentShareSheet(
+        store = sharedMaterials, host = host, canSend = config.isConfigured && !vm.isLoading,
+        supportsImages = visionEnabled,
+        sendHint = when { !config.isConfigured -> "尚未配置 AI 服务，请先在小岱设置中配置"; vm.isLoading -> "正在生成，完成后可发送"; else -> null },
+        onDismiss = { showSharedMaterials = false },
+        // 材料各自成一段对话，不接在手头的话题后面
+        onSend = { material ->
+            val images = host.copySharedImages(material.images)
+            if (images.size != material.images.size) {
+                host.deleteImageFiles(images)
+                showBriefMessage("图片已失效，请重新分享")
+            } else {
+                vm.newSession()
+                showSharedMaterials = false
+                vm.sendMessage(material.text, config, llmAnnex = AgentAnnex.SHARED_MATERIAL, images = images, contextLabel = "分享材料")
+            }
+        },
+    )
+    // 聊天列表的 COUI 采样层：输入栏的玻璃底采它（不含输入栏自己，避免 RenderNode 环）。
+    val couiChatBackdrop = if (glass) rememberCouiPageBackdrop() else null
     var composerHeightPx by remember { mutableIntStateOf(0) }
     val composerHeight = with(LocalDensity.current) { composerHeightPx.toDp() }
 
@@ -156,24 +203,38 @@ internal fun ChatPanel(
         Box(
             Modifier
                 .fillMaxSize()
-                .then(if (glass) Modifier.layerBackdrop(chatBackdrop) else Modifier)
+                .then(if (glass) couiChatBackdrop?.recordInto(Modifier) ?: Modifier else Modifier)
         ) {
             Box(Modifier.fillMaxSize().clipToBounds()) {
-            key(vm.currentSessionId) {
+            // 切会话（含首屏「接着聊」）：旧会话淡出、新会话略微上浮淡入
+            AnimatedContent(
+                targetState = vm.currentSessionId,
+                transitionSpec = {
+                    (fadeIn(tween(280, delayMillis = 90)) +
+                        slideInVertically(tween(360, easing = FastOutSlowInEasing)) { it / 16 })
+                        .togetherWith(fadeOut(tween(150)))
+                },
+                label = "agentSession",
+            ) { sessionId ->
+                // 退场那一屏停在自己的消息上，不跟着画新会话的内容
+                val live = sessionId == vm.currentSessionId
+                val frozen = remember { arrayOf<List<ChatMessage>>(emptyList()) }
+                val messages: List<ChatMessage> = if (live) vm.messages.toList().also { frozen[0] = it } else frozen[0]
+                val loading = live && vm.isLoading
                 val listState = rememberLazyListState()
-                val chatRows = groupAgentRows(vm.messages, config.showReasoning)
-                LaunchedEffect(chatRows.size, vm.isLoading) {
-                    if (chatRows.isNotEmpty() && AgentPushFocus.highlight == null) listState.scrollToItem(chatRows.lastIndex)
+                val chatRows = groupAgentRows(messages, config.showReasoning, loading)
+                LaunchedEffect(chatRows.size, loading) {
+                    if (live && chatRows.isNotEmpty() && AgentPushFocus.highlight == null) listState.scrollToItem(chatRows.lastIndex)
                 }
                 // #194：滚到被定位的推送，闪完清掉标记
-                val flashAt = AgentPushFocus.highlight
+                val flashAt = AgentPushFocus.highlight.takeIf { live }
                 val showReasoning = config.showReasoning
                 LaunchedEffect(flashAt) {
                     val at = flashAt ?: return@LaunchedEffect
                     try {
                         val idx = withTimeoutOrNull(3000) {
                             snapshotFlow {
-                                groupAgentRows(vm.messages, showReasoning)
+                                groupAgentRows(vm.messages, showReasoning, vm.isLoading)
                                     .indexOfFirst { it is AgentRow.Assistant && it.msg.timestamp == at }
                             }.first { it >= 0 }
                         } ?: return@LaunchedEffect
@@ -183,28 +244,32 @@ internal fun ChatPanel(
                         AgentPushFocus.highlight = null
                     }
                 }
-                val lastUser = vm.messages.lastOrNull { it.role == "user" }
+                val lastUser = messages.lastOrNull { it.role == "user" }
+                // 对话会自动滚到底、换会话（都不经过嵌套滚动）：顶栏的按钮轮廓和折叠按列表实际位置来。
+                // 只有当前会话报：换会话时退场那一屏还在组合里，它晚一步离场会把顶栏摆回「在顶部」
+                if (live) com.xjtu.toolbox.ui.glass.ReportScrollPosition(listState, scrollBehavior)
                 LazyColumn(
                     state = listState,
                     modifier = Modifier
                         .fillMaxSize()
                         .overScrollVertical()
-                        .nestedScroll(scrollBehavior.nestedScrollConnection),
+                        .then(if (scrollBehavior != null) Modifier.nestedScroll(scrollBehavior.nestedScrollConnection) else Modifier),
                     contentPadding = PaddingValues(start = 24.dp, end = 24.dp, top = 16.dp + listTopPadding, bottom = 16.dp + composerHeight),
                     verticalArrangement = Arrangement.spacedBy(14.dp)
                 ) {
-            // 这一端的屁岱缺什么：说在最前面（用户一眼看到"这一端少的那几样"，
-            // 而不是点了一颗不存在的按钮或以为工具坏了）。
+            // 这一端的屁岱缺什么，放在对话最前面
             if (gapNote != null) {
                 item(key = "host-gap") { com.xjtu.toolbox.ui.components.GapNote(gapNote) }
             }
-            if (vm.messages.isEmpty()) {
+            if (messages.isEmpty()) {
                 item(key = "welcome") {
                     AgentWelcome(
                         host = host,
                         hero = hero,
                         greetingName = host.greetingName,
                         configured = config.isConfigured,
+                        recent = vm.sessions.firstOrNull { it.id != AgentPushFocus.SESSION_ID },
+                        onOpenRecent = vm::switchSession,
                         onAsk = ::askFromWidget,
                         onFill = { input = it },
                         onOpenConfig = onOpenConfig,
@@ -218,18 +283,15 @@ internal fun ChatPanel(
                         host = host,
                         showReasoning = config.showReasoning,
                         onNavigate = onNavigate,
-                        canEdit = !vm.isLoading && row.msg === lastUser,
+                        canEdit = live && !loading && row.msg === lastUser,
                         onEdit = {
                             input = row.msg.content
                             editingLast = true
                         },
                     )
-                    is AgentRow.Tools -> Box(Modifier.padding(horizontal = 8.dp)) {
-                        ToolCallNote(row.events)
-                    }
                     is AgentRow.Assistant -> PushFlash(
                         active = flashAt != null && row.msg.timestamp == flashAt,
-                        card = vm.currentSessionId == AgentPushFocus.SESSION_ID,
+                        card = sessionId == AgentPushFocus.SESSION_ID,
                     ) {
                         MessageBubble(
                             msg = row.msg,
@@ -237,24 +299,13 @@ internal fun ChatPanel(
                             showReasoning = config.showReasoning,
                             onNavigate = onNavigate,
                             toolEvents = row.tools,
-                            streaming = vm.isLoading && row === chatRows.last() && row.msg.content.isBlank() &&
-                                vm.messages.lastOrNull()?.role?.let(::isToolRole) != true,
+                            streaming = loading && row === chatRows.last() && row.msg.content.isBlank() &&
+                                messages.lastOrNull()?.role?.let(::isToolRole) != true,
                             onAskFromWidget = ::askFromWidget,
+                            onWidgetTool = { name, args -> widgetTools.execute(name, args) },
+                            onPushPreferences = onPushPreferences.takeIf { sessionId == AgentPushFocus.SESSION_ID },
                         )
                     }
-                }
-            }
-            val last = vm.messages.lastOrNull()
-            // 还没有任何在动的东西可看时给一条「思考中」占位：刚发出去，或者模型在想但思考不显示
-            val showThinking = vm.isLoading && when {
-                last == null || last.role == "user" -> true
-                isToolRole(last.role) -> false
-                last.content.isBlank() -> last.reasoningContent.isBlank() || !config.showReasoning
-                else -> false
-            }
-            if (showThinking) {
-                item {
-                    ReasoningBar(text = "", streaming = true)
                 }
             }
                 }
@@ -315,31 +366,42 @@ internal fun ChatPanel(
             }
         }
 
-        if (editingLast) {
-            Row(
-                Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 4.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text(
-                    // 同上：做不到「真把上一轮换掉」的端在这句话里如实说清它实际做了什么。
-                    host.editLastLabel,
-                    style = MiuixTheme.textStyles.footnote1,
-                    color = MiuixTheme.colorScheme.primary,
-                    modifier = Modifier.weight(1f),
-                )
-                Text(
-                    "取消",
-                    style = MiuixTheme.textStyles.footnote1,
-                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                    modifier = Modifier.clickable {
-                        editingLast = false
-                        input = ""
-                    },
-                )
-            }
+        // 「问小岱」带进来的页面内容：输入栏上方一颗标签，发送时随消息带给模型；叉掉就只发输入框里的话
+        val draftContext = vm.draftContext
+        var shownContextLabel by remember { mutableStateOf("") }
+        if (draftContext != null) shownContextLabel = draftContext.label
+        AnimatedVisibility(
+            visible = draftContext != null,
+            enter = fadeIn(tween(180)) + androidx.compose.animation.expandVertically(tween(240, easing = FastOutSlowInEasing)),
+            exit = fadeOut(tween(140)) + androidx.compose.animation.shrinkVertically(tween(220, easing = FastOutSlowInEasing)),
+        ) {
+            ContextChip(
+                text = "附带：$shownContextLabel",
+                closeDescription = "不附带这段内容",
+                onClose = { vm.draftContext = null },
+            )
+        }
+        // 「改上一条」：输入栏上方一颗胶囊，说明现在发出去会替换上一条，右边叉掉
+        AnimatedVisibility(
+            visible = editingLast,
+            enter = fadeIn(tween(180)) + androidx.compose.animation.expandVertically(tween(240, easing = FastOutSlowInEasing)),
+            exit = fadeOut(tween(140)) + androidx.compose.animation.shrinkVertically(tween(220, easing = FastOutSlowInEasing)),
+        ) {
+            ContextChip(
+                text = host.editLastLabel,
+                icon = Icons.Default.Edit,
+                closeDescription = "取消修改",
+                onClose = {
+                    editingLast = false
+                    input = ""
+                },
+            )
         }
         val composerHint = remember { COMPOSER_HINTS.random() }
-        AgentComposer(
+        // 推送记录只收小岱推来的消息，不在这里对话：换成一行说明和开新对话的入口
+        if (vm.currentSessionId == AgentPushFocus.SESSION_ID) {
+            PushLogFooter(bottomReserve = bottomReserve, onNewChat = { vm.newSession() })
+        } else AgentComposer(
             host = host,
             placeholder = composerHint,
             input = input,
@@ -363,11 +425,44 @@ internal fun ChatPanel(
                 // 还没发出去就撤了，压缩件留着没用。
                 host.deleteImageFiles(listOf(path))
             },
-            backdrop = if (glass) chatBackdrop else null,
+            pageBackdrop = if (glass) couiChatBackdrop else null,
+            onOpenShared = if (sharedMaterials != null) ({ showSharedMaterials = true }) else null,
         )
         }
     }
 }
+/** 输入栏上方的一颗胶囊（附带的上下文、改上一条）：实底浮在聊天内容上，右边叉掉。 */
+@Composable
+private fun ContextChip(
+    text: String,
+    closeDescription: String,
+    onClose: () -> Unit,
+    icon: androidx.compose.ui.graphics.vector.ImageVector = Icons.Default.AttachFile,
+) {
+    val primary = MiuixTheme.colorScheme.primary
+    // 实底：半透明会被下面的气泡透花
+    val chip = androidx.compose.ui.graphics.lerp(MiuixTheme.colorScheme.surface, primary, 0.16f)
+    Row(
+        Modifier.padding(start = 16.dp, end = 16.dp, bottom = 8.dp)
+            .shadow(6.dp, RoundedCornerShape(50), ambientColor = primary.copy(alpha = 0.25f), spotColor = primary.copy(alpha = 0.25f))
+            .clip(RoundedCornerShape(50))
+            .background(chip)
+            .padding(start = 12.dp, end = 4.dp, top = 4.dp, bottom = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(icon, contentDescription = null, tint = primary, modifier = Modifier.size(15.dp))
+        Spacer(Modifier.width(6.dp))
+        Text(text, style = MiuixTheme.textStyles.footnote1, color = primary, fontWeight = FontWeight.Medium, maxLines = 1)
+        Spacer(Modifier.width(4.dp))
+        Box(
+            Modifier.size(26.dp).clip(CircleShape).clickable(onClick = onClose),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(Icons.Default.Close, contentDescription = closeDescription, tint = primary, modifier = Modifier.size(15.dp))
+        }
+    }
+}
+
 /** 三个依次明灭的小圆点（共享的呼吸节奏，逐个错开相位），替代静态"思考中…"。 */
 @Composable
 private fun ThinkingDots() {
@@ -420,82 +515,6 @@ private fun PushFlash(active: Boolean, card: Boolean = false, content: @Composab
     ) { content() }
 }
 
-private fun isToolRole(role: String) = role == "tool_event"
-private sealed class AgentRow {
-    abstract val key: String
-    data class User(val msg: ChatMessage, override val key: String) : AgentRow()
-    data class Tools(val events: List<ChatMessage>, override val key: String) : AgentRow()
-    data class Assistant(
-        val msg: ChatMessage,
-        override val key: String,
-        val tools: List<ChatMessage> = emptyList(),
-    ) : AgentRow()
-}
-/**
- * 把消息流排成聊天行：连续的思考合并成一条挂在下一段正文上（有正文才分段），
- * 不显示思考时纯思考消息不出行；工具记录、结果小卡、跳转按钮归到该轮最后一行。
- */
-private fun groupAgentRows(messages: List<ChatMessage>, showReasoning: Boolean): List<AgentRow> {
-    val out = mutableListOf<AgentRow>()
-    var i = 0
-    while (i < messages.size) {
-        val m = messages[i]
-        if (m.role == "user") {
-            out += AgentRow.User(m, "u-${m.timestamp}-$i")
-            i++
-            continue
-        }
-        val start = i
-        val tools = mutableListOf<ChatMessage>()
-        val block = mutableListOf<ChatMessage>()
-        while (i < messages.size && messages[i].role != "user") {
-            if (isToolRole(messages[i].role)) tools += messages[i] else block += messages[i]
-            i++
-        }
-        val allWidgets = block.flatMap { it.widgets }
-        val allNav = block.flatMap { it.navSuggestions }.distinctBy { it.second }
-
-        // key 取段内第一条消息：思考变长、正文出来时仍是同一行，不闪
-        val rows = mutableListOf<AgentRow.Assistant>()
-        val reasoning = mutableListOf<String>()
-        var segmentStart: ChatMessage? = null
-        fun mergedReasoning() = if (showReasoning) reasoning.joinToString("\n\n") else ""
-        for (a in block) {
-            val first = segmentStart ?: a.also { segmentStart = it }
-            if (a.reasoningContent.isNotBlank()) reasoning += a.reasoningContent.trim()
-            if (a.content.isNotBlank()) {
-                rows += AgentRow.Assistant(
-                    a.copy(reasoningContent = mergedReasoning()),
-                    "a-${first.timestamp}-$start-${rows.size}",
-                )
-                reasoning.clear()
-                segmentStart = null
-            }
-        }
-        val tailStart = segmentStart
-        if (tailStart != null && mergedReasoning().isNotBlank()) {
-            rows += AgentRow.Assistant(
-                block.last().copy(content = "", reasoningContent = mergedReasoning()),
-                "a-${tailStart.timestamp}-$start-${rows.size}",
-            )
-        }
-        if (rows.isEmpty() && (allWidgets.isNotEmpty() || allNav.isNotEmpty())) {
-            val last = block.last()
-            rows += AgentRow.Assistant(last.copy(content = "", reasoningContent = ""), "a-w-${last.timestamp}-$start")
-        }
-        if (rows.isNotEmpty()) {
-            val last = rows.last()
-            rows[rows.lastIndex] = last.copy(
-                msg = last.msg.copy(widgets = allWidgets, navSuggestions = allNav),
-                tools = tools,
-            )
-            out += rows
-        } else if (tools.isNotEmpty()) {
-            out += AgentRow.Tools(tools, "t-${tools.first().timestamp}-$start")
-        }
-    }
-    return out
-}
 /** 思考、工具调用共用的过程小卡：收起时一行摘要，点开看全部。 */
 @Composable
 private fun AgentTraceCard(
@@ -579,6 +598,8 @@ private fun ReasoningBar(
                     color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                     images = images,
                     onLink = { url -> onNavigate(AppRoute.Browser(url)) },
+                    // 和流式阶段的纯文本同一字号，结束时不跳
+                    bodyStyle = MiuixTheme.textStyles.body2,
                 )
             }
         },
@@ -643,6 +664,9 @@ private fun MessageBubble(
     streaming: Boolean = false,
     /** 卡片替用户问一句（如资料卡上点"打开目录"）。 */
     onAskFromWidget: (String) -> Unit = {},
+    /** 卡片上的操作（加入日程等）转给工具执行。 */
+    onWidgetTool: (suspend (String, String) -> String)? = null,
+    onPushPreferences: (() -> Unit)? = null,
 ) {
     // 与 `:core` 其余几屏同一套写法（`community` / `emptyroom`）：
     // 已废弃的 [LocalClipboardManager] 在共享 UI 里是**唯一**能用的一份（新的 `LocalClipboard`
@@ -655,6 +679,20 @@ private fun MessageBubble(
     when (msg.role) {
         "user" -> {
             Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.End) {
+                // 这条消息还悄悄带了 App 给的上下文：标出来源，用户才知道小岱看到的不只是这一句
+                msg.contextLabel?.let { label ->
+                    Row(
+                        Modifier.padding(bottom = 4.dp)
+                            .clip(RoundedCornerShape(50))
+                            .background(MiuixTheme.colorScheme.primary.copy(alpha = 0.10f))
+                            .padding(horizontal = 8.dp, vertical = 2.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Icon(Icons.Default.AttachFile, contentDescription = null, tint = MiuixTheme.colorScheme.primary, modifier = Modifier.size(12.dp))
+                        Spacer(Modifier.width(3.dp))
+                        Text("附带：$label", style = MiuixTheme.textStyles.footnote2, color = MiuixTheme.colorScheme.primary)
+                    }
+                }
                 if (msg.images.isNotEmpty()) {
                     Row(
                         Modifier.padding(bottom = 6.dp),
@@ -695,14 +733,17 @@ private fun MessageBubble(
                     .padding(horizontal = 8.dp),
                 horizontalAlignment = Alignment.Start
             ) {
-                if (showReasoning && msg.reasoningContent.isNotBlank()) {
+                if (showReasoning && msg.reasoningContent.isNotBlank() || streaming && msg.content.isBlank()) {
                     ReasoningBar(
-                        text = msg.reasoningContent,
+                        text = if (showReasoning) msg.reasoningContent else "",
                         streaming = streaming,
                         onNavigate = onNavigate,
                         images = host.images,
                     )
-                    if (msg.content.isNotBlank()) Spacer(Modifier.height(6.dp))
+                    if (msg.content.isNotBlank() && toolEvents.isEmpty()) Spacer(Modifier.height(6.dp))
+                }
+                if (toolEvents.isNotEmpty()) {
+                    ToolCallNote(toolEvents, Modifier.padding(top = 6.dp, bottom = if (msg.content.isNotBlank()) 8.dp else 0.dp))
                 }
                 if (msg.content.isNotBlank()) {
                     MarkdownText(
@@ -720,6 +761,12 @@ private fun MessageBubble(
                         }
                     )
                 }
+                onPushPreferences?.let { open ->
+                    Text("减少此类推送…", style = MiuixTheme.textStyles.footnote1, color = MiuixTheme.colorScheme.primary,
+                        modifier = Modifier.padding(top = 4.dp).clip(RoundedCornerShape(6.dp))
+                            .clickable(role = androidx.compose.ui.semantics.Role.Button, onClick = open)
+                            .padding(horizontal = 4.dp, vertical = 6.dp))
+                }
                 msg.widgets.forEach { widget ->
                     AgentWidgetView(
                         widget,
@@ -731,6 +778,7 @@ private fun MessageBubble(
                         // 历史、限流、工具预算全都照常。
                         onAsk = onAskFromWidget,
                         onNavigate = onNavigate,
+                        onTool = onWidgetTool,
                     )
                 }
                 if (msg.navSuggestions.isNotEmpty()) {
@@ -766,9 +814,6 @@ private fun MessageBubble(
                             }
                         }
                     }
-                }
-                if (toolEvents.isNotEmpty()) {
-                    ToolCallNote(toolEvents, Modifier.padding(top = 8.dp))
                 }
             }
         }

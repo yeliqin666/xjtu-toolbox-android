@@ -56,14 +56,18 @@ import androidx.compose.ui.state.ToggleableState
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.xjtu.toolbox.ui.glass.CouiToolbarActionButton
+import com.xjtu.toolbox.ui.glass.tabContentPadding
 import com.xjtu.toolbox.platform.BackHandler
 import com.xjtu.toolbox.ui.adaptive.readableWidth
 import com.xjtu.toolbox.ui.components.EmptyState
 import com.xjtu.toolbox.ui.glass.GlassTopAppBar
+import com.xjtu.toolbox.ui.glass.CouiPageTopAppBar
+import com.xjtu.toolbox.ui.glass.couiPageBackdropFor
 import com.xjtu.toolbox.ui.glass.glassBarColor
+import com.xjtu.toolbox.ui.glass.rememberCouiTopAppBarScrollBehavior
 import com.xjtu.toolbox.ui.glass.glassSource
 import com.xjtu.toolbox.ui.glass.glassTop
-import com.xjtu.toolbox.ui.glass.glassTopBar
 import com.xjtu.toolbox.ui.glass.rememberPageGlass
 import com.xjtu.toolbox.ui.glass.withoutTop
 import kotlinx.coroutines.delay
@@ -76,13 +80,10 @@ import top.yukonga.miuix.kmp.basic.Checkbox
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.IconButton
 import top.yukonga.miuix.kmp.basic.LinearProgressIndicator
-import top.yukonga.miuix.kmp.basic.MiuixScrollBehavior
 import top.yukonga.miuix.kmp.basic.Scaffold
-import top.yukonga.miuix.kmp.basic.SmallTopAppBar
 import top.yukonga.miuix.kmp.basic.Surface
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextButton
-import top.yukonga.miuix.kmp.basic.rememberTopAppBarState
 import top.yukonga.miuix.kmp.overlay.OverlayDialog
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.utils.PressFeedbackType
@@ -116,6 +117,8 @@ fun DownloadManagerScreen(
     // 多选批量管理。两份选中集合，因为本页有两套彼此独立的数据源：
     // 回放视频任务在存储里（按 id），文件类下载在宿主的登记表里（按 uri）。
     var isCleanupMode by remember { mutableStateOf(false) }
+    // 清理选择态下返回只退出选择，和顶栏的取消按钮一样，不离开页面
+    BackHandler(enabled = isCleanupMode) { isCleanupMode = false }
     val selectedTaskIds = remember { mutableStateListOf<Long>() }
     val selectedFileUris = remember { mutableStateListOf<String>() }
 
@@ -124,9 +127,9 @@ fun DownloadManagerScreen(
 
     // 宿主报上来的一句「没做成」（serve 那一份的 409 / 网络故障）—— 一次性提示，看完就关
     var notice by remember { mutableStateOf<String?>(null) }
-    val scrollBehavior = MiuixScrollBehavior(rememberTopAppBarState())
+    val scrollBehavior = rememberCouiTopAppBarScrollBehavior()
     // 玻璃顶栏（经典风格下为 null，一切照旧），用法见 ui/glass/GlassTopBar.kt。
-    // 批量管理模式下换成 SmallTopAppBar，同样要玻璃化。
+    // 批量管理模式下换成 COUI 钉死的小标题顶栏，同样要玻璃化。
     val glass = rememberPageGlass()
 
     // 加载任务列表（一次拿一个快照：任务与计数来自同一发，不会一前一后对不上）。
@@ -172,18 +175,20 @@ fun DownloadManagerScreen(
     Scaffold(
         topBar = {
             if (isCleanupMode) {
-                SmallTopAppBar(
+                // 批量模式和普通模式同一种 COUI 大标题折叠顶栏，共用一份滚动行为
+                CouiPageTopAppBar(
                     title = "批量管理",
                     color = glassBarColor(glass),
-                    modifier = Modifier.glassTopBar(glass),
+                    pageBackdrop = couiPageBackdropFor(glass),
+                    scrollBehavior = scrollBehavior,
                     navigationIcon = {
-                        IconButton(onClick = { isCleanupMode = false }) {
+                        CouiToolbarActionButton(onClick = { isCleanupMode = false }) {
                             Icon(Icons.Default.Close, contentDescription = "取消清理")
                         }
                     },
                     actions = {
                         // 全选覆盖两类数据源：回放任务（存储）+ 文件类下载（宿主登记表）
-                        IconButton(onClick = {
+                        CouiToolbarActionButton(onClick = {
                             val allSelected = selectedTaskIds.size == allTasks.size &&
                                 selectedFileUris.size == fileDownloads.size &&
                                 (allTasks.isNotEmpty() || fileDownloads.isNotEmpty())
@@ -205,15 +210,20 @@ fun DownloadManagerScreen(
                     scrollBehavior = scrollBehavior,
                     onBack = onBack,
                     actions = {
-                        // 信息按钮 - 显示下载目录
-                        IconButton(onClick = { showDirInfo.value = true }) {
-                            Icon(Icons.Default.Info, contentDescription = "下载目录信息")
-                        }
-                        // 有任何可管理的条目就显示入口。条件不能只看回放任务，
-                        // 否则只下载过文件的用户进不去批量模式。
-                        if (allTasks.isNotEmpty() || fileDownloads.isNotEmpty()) {
-                            IconButton(onClick = { isCleanupMode = true }) {
-                                Icon(Icons.Default.DeleteSweep, contentDescription = "批量管理")
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(2.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            // 信息按钮 - 显示下载目录
+                            CouiToolbarActionButton(onClick = { showDirInfo.value = true }) {
+                                Icon(Icons.Default.Info, contentDescription = "下载目录信息")
+                            }
+                            // 有任何可管理的条目就显示入口。条件不能只看回放任务，
+                            // 否则只下载过文件的用户进不去批量模式。
+                            if (allTasks.isNotEmpty() || fileDownloads.isNotEmpty()) {
+                                CouiToolbarActionButton(onClick = { isCleanupMode = true }) {
+                                    Icon(Icons.Default.DeleteSweep, contentDescription = "批量管理")
+                                }
                             }
                         }
                     },
@@ -278,6 +288,7 @@ fun DownloadManagerScreen(
                                     loadTasks()
                                 }
                             },
+                            colors = com.xjtu.toolbox.ui.components.appTonalButtonColors(),
                             modifier = Modifier.fillMaxWidth(),
                         ) {
                             Text("删除选中")
@@ -292,7 +303,6 @@ fun DownloadManagerScreen(
             if (allTasks.isEmpty() && fileDownloads.isEmpty()) {
                 EmptyState(
                     title = "还没下载过东西",
-                    subtitle = "思源课件和课堂回放会统一显示在这里",
                     icon = Icons.Outlined.CloudOff,
                     modifier = Modifier.align(Alignment.Center),
                 )
@@ -306,7 +316,8 @@ fun DownloadManagerScreen(
                 )
                 LazyColumn(
                     Modifier.fillMaxSize().overScrollVertical(),
-                    contentPadding = PaddingValues(start = 12.dp, end = 12.dp, top = glassTop, bottom = 24.dp),
+                    state = com.xjtu.toolbox.ui.glass.rememberReportedLazyListState(scrollBehavior),
+                    contentPadding = tabContentPadding(PaddingValues(start = 12.dp, end = 12.dp, top = glassTop, bottom = 24.dp)),
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
                     if (stats != null && stats!!.activeCount > 0 && !isCleanupMode) {
@@ -565,7 +576,7 @@ private fun GlobalControls(
                         color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                     )
                 }
-                TextButton(
+                com.xjtu.toolbox.ui.components.TextLink(
                     text = "取消全部",
                     onClick = {
                         scope.launch {
@@ -574,7 +585,7 @@ private fun GlobalControls(
                             onRefresh()
                         }
                     },
-                    colors = ButtonDefaults.textButtonColors(color = Color.Transparent),
+                    color = MiuixTheme.colorScheme.error,
                 )
             }
             Spacer(Modifier.height(10.dp))
@@ -588,9 +599,9 @@ private fun GlobalControls(
                         }
                     },
                     modifier = Modifier.weight(1f),
-                    colors = ButtonDefaults.buttonColors(color = MiuixTheme.colorScheme.secondaryContainer),
+                    colors = com.xjtu.toolbox.ui.components.appTonalButtonColors(),
                 ) {
-                    Text("全部暂停", color = MiuixTheme.colorScheme.onSecondaryContainer)
+                    Text("全部暂停")
                 }
                 Button(
                     onClick = {
@@ -601,8 +612,9 @@ private fun GlobalControls(
                         }
                     },
                     modifier = Modifier.weight(1f),
+                    colors = ButtonDefaults.buttonColorsPrimary(),
                 ) {
-                    Text("全部继续")
+                    Text("全部继续", color = MiuixTheme.colorScheme.onPrimary)
                 }
             }
         }
@@ -821,7 +833,8 @@ private fun DownloadDirInfoDialog(show: MutableState<Boolean>, dirInfo: Download
             TextButton(
                 text = "知道了",
                 onClick = { show.value = false },
-                modifier = Modifier.fillMaxWidth()
+                modifier = Modifier.fillMaxWidth(),
+                colors = ButtonDefaults.textButtonColorsPrimary(),
             )
         }
     }

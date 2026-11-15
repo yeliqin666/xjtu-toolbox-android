@@ -17,6 +17,7 @@ internal object AgentWidgetPresentation {
         "get_card_info" to "card", "list_zyxf" to "files", "get_library" to "library",
         "campus_map" to "map", "my_location" to "map",
         "get_notifications" to "notices",
+        "get_campus_bus" to "bus", "get_lms_activity" to "attachments",
     )
 
     private fun arrayProp(description: String, type: String = "string") = buildJsonObject {
@@ -69,7 +70,7 @@ internal object AgentWidgetPresentation {
         }
         forKind("notices") {
             props["sources"] = arrayProp("按真实来源名筛选。fields: source,date,why。标题与原文链接始终保留。")
-            props["caption"] = agentStrProp("最多 120 字的总括，可留空；事实须来自查询结果。")
+            props["caption"] = agentStrProp("仅通知卡片：最多 120 字的总括，可留空；事实须来自查询结果。")
             props["annotations"] = buildJsonObject {
                 put("type", "array"); put("description", "推荐理由与重要程度。标题、来源、日期、链接沿用查询结果；需要详情时先读原文。")
                 put("items", buildJsonObject {
@@ -91,6 +92,8 @@ internal object AgentWidgetPresentation {
             "rooms" -> arrayOf("original", "seats_desc", "free_desc", "people_asc", "name")
             "card" -> arrayOf("original", "date_asc", "date_desc", "amount_desc")
             "files" -> arrayOf("original", "name", "folders_first")
+            "attachments" -> arrayOf("original", "name")
+            "bus" -> arrayOf("original")
             "schedule", "exams", "attendance" -> arrayOf("original", "date_asc", "date_desc")
             "notices" -> arrayOf("original", "date_asc", "date_desc", "priority_desc")
             "library", "map" -> arrayOf("original")
@@ -111,10 +114,10 @@ internal object AgentWidgetPresentation {
         return JsonObject(definition + ("function" to JsonObject(fn + ("parameters" to parameters))))
     }
 
-    fun toolDefinition(ids: Set<String>) = agentTool(TOOL,
+    fun toolDefinition(results: Map<String, String>) = agentTool(TOOL,
         "先查看查询结果，再用本轮 result_id 展示。数据结果显示卡片和页面入口；仅有页面入口的结果显示入口。display 可筛选已有数据。重复展示替换旧卡。",
-        agentParams("result_id" to agentEnumProp("查询完成后返回的 result_id。", *ids.toTypedArray()),
-            "display" to schema(), required = listOf("result_id")))
+        agentParams("result_id" to agentEnumProp("查询完成后返回的 result_id。", *results.keys.toTypedArray()),
+            "display" to schema(results.values.mapNotNull { kinds[it] }.distinct().singleOrNull()), required = listOf("result_id")))
 
     fun options(args: String): JsonObject? {
         val root = AppJson.parseToJsonElement(args.ifBlank { "{}" }) as? JsonObject ?: error("参数须为对象")
@@ -136,6 +139,9 @@ internal object AgentWidgetPresentation {
             is ZyxfWidget -> w.items.map { "${it.name}｜id=${it.id}" }
             is LibraryWidget -> if (w.areas.isNotEmpty()) w.areas.map { "${it.name}｜${it.free}/${it.total}" } else w.seats.map { it.seatId }
             is CampusMapWidget -> w.places
+            is PlanWidget -> w.items.map { "${it.date} ${it.start}｜${it.title}" }
+            is BusWidget -> w.items.map { "${it.time} ${it.line}｜${it.route}｜余${it.seatsLeft}" }
+            is LmsFileWidget -> w.items.map { it.name + if (it.mine) "｜用户提交" else "｜老师发布" }
         }
         val scope = when (w) {
             is LiveRoomWidget -> "snapshot: realtime_only; slots: unavailable; continuous_vacancy: unknown\n"
@@ -155,20 +161,27 @@ internal object AgentWidgetPresentation {
                 "\ncard_display: rooms; view=${w.display.view}; slots=${if (slots) "shown" else "not_shown"}; realtime=${if (live) "shown" else "not_shown"}; rows=${minOf(w.rooms.size, w.display.limit)}"
             }
             is NoticeWidget -> "\ncard_display: notices; rows=${minOf(w.items.size, w.display.limit)}; fields=${w.display.fields.ifEmpty { listOf("source", "date", "why") }.joinToString(",")}; original_links=clickable"
+            is CardWidget -> "\ncard_display: card; view=${w.display.view}; rows=${minOf(w.transactions.size, w.display.limit)}; shown_details_do_not_repeat_in_text"
             else -> ""
         }
     }
 
     fun apply(widgets: List<AgentWidget>, options: JsonObject?): List<AgentWidget> {
         if (options == null) return widgets
-        val o = Options(options)
+        val known = schema()["properties"]!!.jsonObject.keys
+        require(options.keys.all { it in known }) { "不支持的展示选项：${(options.keys - known).joinToString()}" }
         return widgets.map { w ->
-            o.validate(when (w) {
+            val kind = when (w) {
+                is PlanWidget -> return@map w   // 由 propose_plan 直接出卡，没有筛选项
                 is NoticeWidget -> "notices"
                 is GradeWidget -> "grades"; is ScheduleWidget -> "schedule"; is ExamWidget -> "exams"
                 is RoomWidget, is LiveRoomWidget -> "rooms"; is AttendanceWidget -> "attendance"
                 is CardWidget -> "card"; is ZyxfWidget -> "files"; is LibraryWidget -> "library"; is CampusMapWidget -> "map"
-            })
+                is BusWidget -> "bus"; is LmsFileWidget -> "attachments"
+            }
+            val supported = schema(kind)["properties"]!!.jsonObject.keys
+            val o = Options(JsonObject(options.filterKeys { it in supported }))
+            o.validate(kind)
             when (w) {
                 is NoticeWidget -> {
                     val notes = options["annotations"]?.let { raw ->
@@ -269,6 +282,15 @@ internal object AgentWidgetPresentation {
                     rows = when (o.sort) { "date_asc" -> rows.sortedBy { it.time }; "date_desc" -> rows.sortedByDescending { it.time }; "amount_desc" -> rows.sortedByDescending { kotlin.math.abs(it.amount) }; else -> rows }
                     w.copy(transactions = rows, spend = rows.filter { it.amount < 0 }.sumOf { -it.amount }, income = rows.filter { it.amount > 0 }.sumOf { it.amount }, display = o.display(rows.size, view = view))
                 }
+                is BusWidget -> {
+                    val rows = o.select(w.items)
+                    w.copy(items = rows, display = o.display(rows.size))
+                }
+                is LmsFileWidget -> {
+                    var rows = o.select(w.items)
+                    if (o.sort == "name") rows = rows.sortedBy { it.name }
+                    w.copy(items = rows, display = o.display(rows.size))
+                }
                 is ZyxfWidget -> {
                     val kind = o.enum("kind", setOf("all", "files", "folders"), "all")
                     var rows = o.select(w.items).filter { kind == "all" || it.isFolder == (kind == "folders") }
@@ -283,6 +305,7 @@ internal object AgentWidgetPresentation {
                     val areas = if (w.areas.isEmpty()) w.areas else o.select(w.areas)
                     w.copy(areas = areas, highlightedSeats = ids, display = o.display(w.seats.size, view = view))
                 }
+                is PlanWidget -> w
                 is CampusMapWidget -> {
                     val names = o.strings("place_names")
                     require(names == null || names.all { it in w.places }) { "place_names 只能选择本次结果已有地点" }
@@ -312,7 +335,6 @@ internal object AgentWidgetPresentation {
         }
         fun validate(kind: String) {
             val properties = schema(kind)["properties"]!!.jsonObject
-            require(json.keys.all { it in properties }) { "该卡片不支持参数 ${(json.keys - properties.keys).joinToString()}" }
             val sorts = properties["sort"]!!.jsonObject["enum"]!!.jsonArray.map { it.jsonPrimitive.content }
             require(sort in sorts) { "该卡片排序可选 ${sorts.joinToString()}" }
             val allowedFields = when (kind) {
@@ -324,6 +346,8 @@ internal object AgentWidgetPresentation {
                 "attendance" -> setOf("date", "location", "status")
                 "card" -> setOf("balance", "summary", "transactions")
                 "files" -> setOf("path", "size")
+                "attachments" -> setOf("size")
+                "bus" -> setOf("route", "plate")
                 "library" -> setOf("booking", "summary", "plan")
                 else -> setOf("here", "caption")
             }

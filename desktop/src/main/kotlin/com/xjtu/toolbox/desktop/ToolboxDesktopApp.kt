@@ -50,7 +50,6 @@ import com.xjtu.toolbox.emptyroom.EmptyRoomScreen
 import com.xjtu.toolbox.error.FriendlyError
 import com.xjtu.toolbox.faculty.FacultyApiSource
 import com.xjtu.toolbox.feedback.AppFeedbackSource
-import com.xjtu.toolbox.feedback.FeedbackScreen
 import com.xjtu.toolbox.faculty.FacultyScreen
 import com.xjtu.toolbox.fitness.FitnessApi
 import com.xjtu.toolbox.fitness.FitnessScreen
@@ -69,10 +68,7 @@ import com.xjtu.toolbox.game.hop.HopScreen
 import com.xjtu.toolbox.schedule.AppSchoolCourseSource
 import com.xjtu.toolbox.schedule.ScheduleScreen
 import com.xjtu.toolbox.schedule.SchoolCourseScreen
-import com.xjtu.toolbox.score.ScoreReportScreen
-import com.xjtu.toolbox.score.scoreReportSource
 import com.xjtu.toolbox.game.xiangqi.XiangqiScreen
-import com.xjtu.toolbox.desktop.score.DesktopScoreReportCache
 import com.xjtu.toolbox.inbox.AppInboxSource
 import com.xjtu.toolbox.inbox.InboxScreen
 import com.xjtu.toolbox.jiaocai.AppJiaocaiSource
@@ -139,9 +135,11 @@ import com.xjtu.toolbox.webvpn.WebVpnUtil
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import com.xjtu.toolbox.ui.components.TextLink
+import top.yukonga.miuix.kmp.basic.Button
+import top.yukonga.miuix.kmp.basic.ButtonDefaults
 import top.yukonga.miuix.kmp.basic.CircularProgressIndicator
 import top.yukonga.miuix.kmp.basic.Text
-import top.yukonga.miuix.kmp.basic.TextButton
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 /** 桌面外壳（窗口模式）。 */
@@ -153,7 +151,7 @@ internal fun ToolboxDesktopApp(
     initialTarget: DesktopTarget = desktopStartTarget(desktopSettings.defaultTab),
     /** 公告取数那一枪（[DesktopBulletins.fetch]）。 */
     bulletinFetch: suspend (String) -> BulletinApi.FetchResult? = { BulletinApi.fetch(it) },
-    /** 屁岱的宿主面（`:core` 的 [AgentHost]）。 */
+    /** 小岱的宿主面（`:core` 的 [AgentHost]）。 */
     agentHost: AgentHost? = null,
     /**
      * 单实例锁没抢到时的原因（见 `:shared:model` 的 `InstanceLock`）：非 `null` 就在顶上映一条横幅，
@@ -164,7 +162,7 @@ internal fun ToolboxDesktopApp(
     var target by remember { mutableStateOf(initialTarget) }
     val scope = rememberCoroutineScope()
 
-    // 屁岱的宿主面：进程内一份（与 `:app` 把屁岱挂在导航项上同位 —— 切页不丢会话）。
+    // 小岱的宿主面：进程内一份（与 `:app` 把小岱挂在导航项上同位 —— 切页不丢会话）。
     val agent = agentHost ?: remember(auth) { DesktopAgentHost(auth) }
 
 
@@ -282,7 +280,6 @@ internal val DESKTOP_SUPPORTED_ROUTES = listOf(
     AppRoute.SchoolCourse to "全校课表",
 
     AppRoute.Schedule to "我的课表",
-    AppRoute.ScoreReport to "成绩",
     AppRoute.Judge to "学生评教",
     AppRoute.CampusCard to "校园卡",
     AppRoute.EmptyRoom to "空闲教室",
@@ -290,6 +287,7 @@ internal val DESKTOP_SUPPORTED_ROUTES = listOf(
     AppRoute.Inbox to "消息收纳",
     AppRoute.Notification to "通知公告",
     AppRoute.YellowPage to "黄页",
+    AppRoute.CampusBus to "校车查询",
     AppRoute.Faculty to "教师检索",
     AppRoute.Transcript to "电子成绩单",
     AppRoute.Coupon to "加餐券",
@@ -307,7 +305,6 @@ internal val DESKTOP_SUPPORTED_ROUTES = listOf(
     AppRoute.Iclassface to "快速考勤流水",
     AppRoute.Community to "社区",
 
-    AppRoute.Feedback to "反馈与建议",
 
     AppRoute.Jiaocai to "教材查询",
 
@@ -329,7 +326,7 @@ internal val DESKTOP_SUPPORTED_ROUTES = listOf(
 
     AppRoute.Accounts to "账号管理",
 
-    AppRoute.Agent to "屁岱",
+    AppRoute.Agent to "小岱",
 
     AppRoute.Match to "匹配交友",
 )
@@ -381,7 +378,9 @@ private fun DesktopSiteGate(
                 color = MiuixTheme.colorScheme.onBackgroundVariant,
                 fontSize = 12.sp,
             )
-            TextButton(text = "重试", onClick = { attempt++ }, minWidth = 120.dp)
+            Button(onClick = { attempt++ }, colors = ButtonDefaults.buttonColorsPrimary()) {
+                Text("重试", color = MiuixTheme.colorScheme.onPrimary)
+            }
         }
         else -> Column(
             modifier = Modifier.fillMaxSize(),
@@ -405,7 +404,7 @@ private fun DesktopPage(
     route: AppRoute,
     /** 公告宿主面（只有首页用得上：顶部那条堆叠条）。 */
     bulletins: DesktopBulletins,
-    /** 屁岱的宿主面（只有 `AppRoute.Agent` 用得上；外壳持有，切页不丢会话）。 */
+    /** 小岱的宿主面（只有 `AppRoute.Agent` 用得上；外壳持有，切页不丢会话）。 */
     agentHost: AgentHost,
     /** 外观设置改完之后戳一下外壳（设置屏通过 `DesktopSettingsHost` 回调过来，见 `ToolboxDesktopApp`）。 */
     onAppearanceChanged: () -> Unit,
@@ -432,6 +431,10 @@ private fun DesktopPage(
             api = remember { YellowPageApi(yellowPageClient) },
             onBack = back,
             errorText = { FriendlyError.of(it, "加载黄页") },
+        )
+        AppRoute.CampusBus -> com.xjtu.toolbox.bus.BusScreen(
+            source = remember { com.xjtu.toolbox.bus.BusApi(yellowPageClient) },
+            onBack = back,
         )
         AppRoute.Library -> {
             val hintPrefs = remember { keyValueStore("feature_hints") }
@@ -471,27 +474,6 @@ private fun DesktopPage(
                 },
             )
         }
-        AppRoute.ScoreReport -> DesktopSiteGate(auth, DesktopAuth.JWXT_SITE_KEY, "教务") { site ->
-            val studentId = AccountContext.activeAccountId?.takeIf { it.isNotBlank() }
-            if (studentId == null) {
-                MissingIdentityPage(
-                    onNavigate = onNavigate,
-                    title = "成绩报表要一个学号，现在取不到",
-                    lines = listOf(
-                        "成绩报表按学号取数，学号来自这次登录。取不到通常是登录还没走完，或者这一份装配是" +
-                            "从落盘凭据恢复的 —— 重新登录一次即可。",
-                        "教务那边的会话本身是好的（能进这一屏就说明它建起来了）。",
-                    ),
-                )
-            } else {
-                ScoreReportScreen(
-                    source = remember(site, studentId) { scoreReportSource(site, studentId) },
-                    cache = remember(studentId) { DesktopScoreReportCache(studentId) },
-                    onBack = back,
-                )
-            }
-        }
-
         AppRoute.Judge -> if (AccountContext.activeAccountType == AccountType.POSTGRADUATE) {
             val source = remember { GraduateJudgeSource(auth.sessionManager) }
             val vm: JudgeViewModel<GraduateQuestionnaire> =
@@ -558,13 +540,8 @@ private fun DesktopPage(
                         // `then` 只用来在屏上如实说明「跳不过去」（`DesktopBrowserScreen`）。
                         desktopBrowserTarget(url)?.let { openInBrowser(it) }
                 },
-                    // 「自动识别验证码」那个设置项：以前这个参数没人传 ⇒ 屏内恒走默认 `{ false }`，
-                    // 设置页里的开关点下去什么也不会发生。每次预订现读（VM 侧的约定），与 `:app` 同一个键。
-                    autoSolveCaptcha = { desktopSettings.venueAutoSolveCaptchaEnabled },
                 captchaHost = remember { DesktopSlideCaptchaHost },
-                    // 「功能说明」里那两句由宿传（默认那两句是 `:app` 的 WebView 写法，桌面两句都不成立）：
-                    // 验证码：桌面有解算器也能被设置关掉；支付：交的是系统浏览器，收不到回调。
-                    captchaHint = "验证码默认自动识别（设置里可关）；没识别过就手动滑",
+                    // 桌面没有内置浏览器，支付交给系统浏览器，收不到回调。
                     payHint = "支付用系统浏览器打开：这里没有内置浏览器，登录后那一跳要自己再走一次",
                 showFirstUseHint = !hintPrefs.getBoolean("venue_hint_shown", false),
                 onFirstUseHintRead = { hintPrefs.putBoolean("venue_hint_shown", true) },
@@ -664,7 +641,6 @@ private fun DesktopPage(
                 source = source,
                 studentId = AccountContext.activeAccountId.orEmpty(),
                 onBack = back,
-                onOpenReport = { onNavigate(DesktopTarget.App(AppRoute.ScoreReport)) },
                 onOpenTranscript = if (AccountContext.activeAccountType == AccountType.UNDERGRADUATE) {
                     { onNavigate(DesktopTarget.App(AppRoute.Transcript)) }
                 } else null,
@@ -686,14 +662,6 @@ private fun DesktopPage(
             deviceAuth = remember {
                 GithubOAuthDeviceAuthRepository(GithubNetwork.client, CommunityRepo.CLIENT_ID)
             },
-            onBack = back,
-            onOpenLegacyFeedback = { onNavigate(DesktopTarget.App(AppRoute.Feedback)) },
-        )
-
-        // 反馈：上游是飞书开放平台，不套 `DesktopSiteGate`；凭据没配时表单隐藏、只剩外链。
-        AppRoute.Feedback -> FeedbackScreen(
-            source = remember { AppFeedbackSource },
-            onOpenUrl = { url -> if (url.isNotBlank()) openInBrowser(url) },
             onBack = back,
         )
 
@@ -749,8 +717,8 @@ private fun DesktopPage(
         )
         // 设置：屏在 `:core`（`SettingsScreen`，与 `:app` 同一份），
         // 这一端只装配两样：落盘的偏好存储（`desktopSettings`）与宿主槽位（`DesktopSettingsHost`，
-        // 声明这一端**真会照着办**的行）。宿主没有的那几组（通知与提醒 / 数据与隐私 / 更新）
-        // 整组不画 —— 见那个类的 KDoc 里那张表与 TODO。
+        // 声明这一端**真会照着办**的行）。宿主没有的那几组（通知与提醒 / 更新）整组不画，
+        // 「数据与隐私」已接桌面归档（导出 / 导入数据存档）—— 见那个类的 KDoc 与 honoredRows。
         AppRoute.Settings -> SettingsScreen(
             store = desktopSettings,
             host = remember { DesktopSettingsHost(onAppearanceChanged) },
@@ -846,12 +814,20 @@ private fun DesktopPage(
         AppRoute.Agent -> DesktopAgentScreen(agentHost, onNavigate)
         // 资料站（zyxf）没有桌面端实现：显式给一条分支，不依赖 else。
         AppRoute.Zyxf -> NotPortedScreen(route, onNavigate)
+        // 下面三条同样是「这一端还没接」，也显式列出来——`else` 只留给「加了路由却忘了加分支」：
+        // - 学业进度要一份桌面端能用的 `DegreeSource`（`:data` 里没有），暂时接不了；
+        // - 社区帖子详情 / 公告详情在桌面端是从列表里内联展开的，没有独立一屏。
+        AppRoute.DegreeProgress -> NotPortedScreen(route, onNavigate)
+        is AppRoute.CommunityPost -> NotPortedScreen(route, onNavigate)
+        is AppRoute.NoticeDetail -> NotPortedScreen(route, onNavigate)
+        // 扫一扫是 Android 顶栏的相机入口，桌面端没有这一屏。
+        AppRoute.QrScan -> NotPortedScreen(route, onNavigate)
 
         // 其余路由显示「没搬过来」，不拿有数据的屏冒充。
         else -> NotPortedScreen(route, onNavigate)
     }
 }
-/** 屁岱在桌面的宿主壳 —— `:core` 的 [AgentScreen] 自己不带顶栏。 */
+/** 小岱在桌面的宿主壳 —— `:core` 的 [AgentScreen] 自己不带顶栏。 */
 @Composable
 private fun DesktopAgentScreen(host: AgentHost, onNavigate: (DesktopTarget) -> Unit) {
     // 屏把这三格送上来（见 AgentScreen 的 KDoc）：标题跟着助手名走。
@@ -912,10 +888,11 @@ internal fun RoutesPage(auth: DesktopAuth, onNavigate: (DesktopTarget) -> Unit) 
 
         Text("真能用（${DESKTOP_SUPPORTED_ROUTES.size}）", color = cs.onSurface, fontSize = 13.sp, fontWeight = FontWeight.Bold)
         DESKTOP_SUPPORTED_ROUTES.forEach { (route, label) ->
-            TextButton(
+            TextLink(
                 text = "$label（${route.id}）",
                 onClick = { onNavigate(DesktopTarget.App(route)) },
                 modifier = Modifier.fillMaxWidth(),
+                chevron = true,
             )
         }
 
@@ -937,17 +914,19 @@ internal fun RoutesPage(auth: DesktopAuth, onNavigate: (DesktopTarget) -> Unit) 
             fontSize = 12.sp,
         )
         DESKTOP_PENDING_ROUTES.forEach { (route, label) ->
-            TextButton(
+            TextLink(
                 text = "$label（${route.id}）",
                 onClick = { onNavigate(DesktopTarget.App(route)) },
                 modifier = Modifier.fillMaxWidth(),
+                chevron = true,
             )
         }
 
-        TextButton(
+        TextLink(
             text = "退出登录（清除这条账号的凭据、会话与记录）",
             onClick = { auth.logout() },
             modifier = Modifier.fillMaxWidth(),
+            color = cs.error,
         )
         Text(
             "退出会删掉：这条账号的记录、它的 cookie 与站点快照。" +
@@ -985,11 +964,10 @@ private fun NotPortedScreen(route: AppRoute, onNavigate: (DesktopTarget) -> Unit
             color = cs.onBackgroundVariant,
             fontSize = 12.sp,
         )
-        TextButton(
-            text = "回全部页面",
+        Button(
             onClick = { onNavigate(DesktopTarget.Routes) },
-            minWidth = 120.dp,
-        )
+            colors = ButtonDefaults.buttonColorsPrimary(),
+        ) { Text("回全部页面", color = cs.onPrimary) }
     }
 }
 
@@ -1014,11 +992,10 @@ private fun HostUnavailableScreen(
         lines.forEach { line ->
             Text(line, color = cs.onBackgroundVariant, fontSize = 12.sp)
         }
-        TextButton(
-            text = "回全部页面",
+        Button(
             onClick = { onNavigate(DesktopTarget.Routes) },
-            minWidth = 120.dp,
-        )
+            colors = ButtonDefaults.buttonColorsPrimary(),
+        ) { Text("回全部页面", color = cs.onPrimary) }
     }
 }
 /** 「没有身份就取不了数」的说明。 */
@@ -1041,11 +1018,10 @@ private fun MissingIdentityPage(
                 fontSize = if (index == 0) 13.sp else 12.sp,
             )
         }
-        TextButton(
-            text = "回全部页面",
+        Button(
             onClick = { onNavigate(DesktopTarget.Routes) },
-            minWidth = 120.dp,
-        )
+            colors = ButtonDefaults.buttonColorsPrimary(),
+        ) { Text("回全部页面", color = cs.onPrimary) }
     }
 }
 

@@ -15,7 +15,7 @@ android {
     namespace = "com.xjtu.toolbox"
     // compileSdk 跟随 miuix（其 AAR metadata 声明 minCompileSdk = 37）：
     // 消费方的 compileSdk 低于它时 CheckAarMetadata 直接失败。这只是「用哪套 SDK 编译」，
-    // 不影响设备兼容范围。minSdk / targetSdk 保持不动。
+    // 不影响设备兼容范围。
     compileSdk {
         version = release(37) {
         }
@@ -23,10 +23,11 @@ android {
 
     defaultConfig {
         applicationId = "com.xjtu.toolbox"
-        minSdk = 31
+        // Android 15：PdfRenderer 取文字/检索、COUI 的 Mesh 投影与 clipShader 都是基线能力，不写降级
+        minSdk = 35
         targetSdk = 36
-        versionCode = 93
-        versionName = "5.2.2"
+        versionCode = 95
+        versionName = "6.0.1"
 
         // 反馈后端（飞书多维表格）的凭据。优先读环境变量（CI），否则读
         // 仓库根目录 feedback.properties（已 gitignore）。两者都没有时留空字符串——
@@ -99,11 +100,18 @@ android {
                     keyPassword = p.getProperty("keyPassword")
                 }
             }
-            // minSdk=31 全覆盖 V3 支持范围（API≥28），强制启用以获得更强签名保护和密钥轮换能力
+            // V3 签名（API≥28）支持密钥轮换
             enableV3Signing = true
         }
     }
 
+    // 预览后缀：CI 传 -PpreviewSuffix=beta.N（N 由工作流按同一核心版本已发布的 pre-release
+    // 算出，见 .github/workflows/build.yml「Validate dev version and compute preview version」）。
+    // 两条预览路径共用这一份后缀：
+    // - preview 变体（日常预览）：不传属性就是本地构建，标成 -dev.local，不冒充 beta；
+    // - release 变体（发版前的真机检查，CI 勾 release_preview）：只在传了属性时补后缀，
+    //   main 上的正式发布不传，版本号原样。
+    val previewSuffix = providers.gradleProperty("previewSuffix").orNull?.takeIf { it.isNotBlank() }
     buildTypes {
         debug {
             buildConfigField("boolean", "IS_PREVIEW", "false")
@@ -118,8 +126,7 @@ android {
                 ?.let { signingConfig = it }
             // 带 -PdebugSuffix 构建时包名加 .debug 后缀，与设备上已装的正式版共存。
             // 场景：没有 release.jks 的机器（签名必然与正式版不同，覆盖安装会被拒，
-            // 又不想卸载正式版丢数据）。代价：res/xml/shortcuts.xml 的
-            // targetPackage 硬编码了主包名，共存包的长按快捷方式会失效。
+            // 又不想卸载正式版丢数据）。动态快捷方式会使用当前包名。
             if (project.hasProperty("debugSuffix")) {
                 applicationIdSuffix = ".debug"
             }
@@ -133,15 +140,22 @@ android {
                 "proguard-rules.pro"
             )
             signingConfig = signingConfigs.getByName("release")
+            // 发版前想拿正式构建的方式连验几轮：CI 传 -PpreviewSuffix=beta.N，
+            // 正式包的版本号就补上预览后缀（6.0.1 → 6.0.1-beta.N），仍低于同号正式版，
+            // 正式发布时不带这个参数，版本号原样。
+            previewSuffix?.let { versionNameSuffix = "-$it" }
         }
         create("preview") {
             // 预览渠道包：给愿意尝鲜的用户，也是我们抓问题的主要来源。
-            // - 不混淆不压缩：崩溃堆栈直接可读，proguard 里 -assumenosideeffects 不生效，Log 完整保留。
+            // - R8 与正式版完全同一套规则（initWith(release) 继承 proguardFiles）：
+            //   混淆 + 资源压缩 + 移除 Log.d/v，包体和运行表现对齐正式版，
+            //   也能提前暴露只在 R8 后才出现的 keep / 序列化问题。
+            //   代价：崩溃堆栈需要 mapping retrace，CI 会按预览版本号上传 mapping。
             // - 非 debuggable：debug 包的 Compose 明显卡顿，用户会以为新版本变慢。
             // - 与 release 同签名：可与正式版互相覆盖安装，不丢登录态。
             initWith(getByName("release"))
-            isMinifyEnabled = false
-            isShrinkResources = false
+            isMinifyEnabled = true
+            isShrinkResources = true
             isDebuggable = false
             // initWith 已把 release 的签名配置抄过来；本地没有 keystore 时要显式清掉，
             // 否则 validateSigningPreview 直接失败，而不是产出未签名包。
@@ -150,7 +164,8 @@ android {
             // 依赖库只有 debug/release 两种变体，preview 找不到时回落到 release。
             matchingFallbacks += listOf("release")
             buildConfigField("boolean", "IS_PREVIEW", "true")
-            versionNameSuffix = "-dev.${System.getenv("GITHUB_RUN_NUMBER") ?: "local"}"
+            // CI 上由 -PpreviewSuffix=beta.N 给出；本地直接 assemblePreview 则是 6.0.1-dev.local
+            versionNameSuffix = "-${previewSuffix ?: "dev.local"}"
         }
     }
     // Java / Kotlin 目标 21：miuix 各模块都用 JDK 21 工具链编译，miuix-nav 的 entry<T>() 是 inline 函数，
@@ -175,16 +190,18 @@ android {
         // 存储；运行时跑的是 AOT/JIT 产物，启动速度不受影响（同机交替 A/B 各 18 次冷启动，
         // 压缩 ~335ms vs 不压缩 ~332ms，差异在噪声内）。
         dex { useLegacyPackaging = true }
-        // pdfbox-android 传递引入的 BouncyCastle 带约 4MB 后量子算法参数表（R8 不管 Java 资源），PDF 用不到
-        resources { excludes += "org/bouncycastle/**" }
     }
 }
 
 androidComponents {
-    // 正式发布包只带 ARM 的 so（CameraX、graphics-path 各一份 x86/x86_64，约 110KB）：
-    // 手机与平板都是 ARM。只作用于 `release` 这一个构建类型——baseline profile 插件派生的
-    // nonMinifiedRelease 跑在 x86_64 托管模拟器上，必须保留 x86_64，否则采集时加载 so 失败。
+    // 正式发布包与预览包都只带 ARM 的 so（CameraX、graphics-path 各一份 x86/x86_64，约 170KB）：
+    // 手机与平板都是 ARM。只挑 release / preview 这两个构建类型——baseline profile 插件派生的
+    // nonMinifiedRelease / nonMinifiedPreview 跑在 x86_64 托管模拟器上，必须保留 x86_64，
+    // 否则采集时加载 so 失败。
     onVariants(selector().withBuildType("release")) { variant ->
+        variant.packaging.jniLibs.excludes.addAll("lib/x86/**", "lib/x86_64/**")
+    }
+    onVariants(selector().withBuildType("preview")) { variant ->
         variant.packaging.jniLibs.excludes.addAll("lib/x86/**", "lib/x86_64/**")
     }
 }
@@ -199,22 +216,33 @@ baselineProfile {
     dexLayoutOptimization = true
 }
 
-val pdfTestAssets by configurations.creating { isTransitive = false }
-val unpackPdfTestAssets by tasks.registering(Sync::class) {
-    from(pdfTestAssets.map { zipTree(it) }) { include("assets/**") }
-    into(layout.buildDirectory.dir("pdf-test-assets"))
-}
-android.sourceSets.getByName("test").resources.srcDir(layout.buildDirectory.dir("pdf-test-assets/assets").get().asFile)
-tasks.matching { it.name.startsWith("process") && it.name.endsWith("UnitTestJavaRes") }.configureEach {
-    dependsOn(unpackPdfTestAssets)
-}
-
 dependencies {
     // 三端共用的业务与平台抽象（KMP）；:core 必须能编过 wasmJs（CI 门禁在守）。
     implementation(project(":core"))
     implementation(project(":data"))
+    // `:core` 用 api 转发了全部 :feature:*，但**别依赖那层转发**：:app 的源码是直接按包名
+    // 引用 feature 里的类（@Serializable 路由、各 feature 自带的 AgentTools、archive 那套……），
+    // 一旦转发对 Android 消费者没生效，报的全是「包能解析、类找不到」的 Unresolved，
+    // 排查起来还很绕。这里把用到的 feature 直接声明一遍，compose 的依赖本来就该显式。
+    implementation(project(":feature:account"))
+    implementation(project(":feature:agent"))
+    implementation(project(":feature:attendance"))
+    implementation(project(":feature:campus"))
+    implementation(project(":feature:community"))
+    implementation(project(":feature:game"))
+    implementation(project(":feature:home"))
+    implementation(project(":feature:jiaocai"))
+    implementation(project(":feature:library"))
+    implementation(project(":feature:lms"))
+    implementation(project(":feature:notice"))
+    implementation(project(":feature:schedule"))
+    implementation(project(":feature:score"))
+    implementation(project(":feature:settings"))
+    implementation(project(":feature:webvpn"))
+    // 金标联盟 SharedViewKit：ROM 声明支持时，公告卡 → 公告详情走系统级一镜到底；
+    // 不支持时由 :app 的 KitOneTake 回落成 App 内现有的 Compose 转场（见 KitOneTake.kt）。
+    implementation(libs.sharedview.kit)
     implementation(libs.androidx.core.ktx)
-    implementation(libs.androidx.core.splashscreen)
     implementation(libs.androidx.lifecycle.runtime.ktx)
     implementation(libs.androidx.lifecycle.viewmodel.compose)
     implementation(libs.androidx.activity.compose)
@@ -233,8 +261,6 @@ dependencies {
     implementation(libs.okhttp.brotli)
     implementation(libs.okhttp.java.net.cookiejar)
     implementation(libs.jsoup)
-    implementation("com.tom-roush:pdfbox-android:2.0.27.0")
-    pdfTestAssets("com.tom-roush:pdfbox-android:2.0.27.0@aar")
     implementation(libs.flexmark.html2md)
     implementation(libs.coroutines.android)
     implementation(libs.security.crypto)
@@ -263,8 +289,7 @@ dependencies {
     implementation(libs.miuix.ui)
     implementation(libs.miuix.preference)
     implementation(libs.miuix.icons)
-    // 超椭圆圆角（MIUI/iOS 那种平滑拐角）。设备不支持 RuntimeShader 时库内部
-    // 自动退回普通 RoundedCornerShape，minSdk 31 上安全。
+    // 超椭圆圆角（MIUI/iOS 那种平滑拐角）
     implementation(libs.miuix.squircle)
     // 导航运行时（连续栈、跟手侧滑返回、预测式返回）
     implementation(libs.miuix.nav)

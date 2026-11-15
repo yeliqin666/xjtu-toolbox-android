@@ -72,7 +72,7 @@ import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
-/** 一块屁岱卡的状态：先画缓存，再按需调模型；跑的时候 [progress] 报屁岱在做什么。 */
+/** 一块小岱卡的状态：先画缓存，再按需调模型；跑的时候 [progress] 报小岱在做什么。 */
 @Stable
 class InsightState internal constructor(
     internal var spec: InsightSpec,
@@ -85,7 +85,7 @@ class InsightState internal constructor(
     var progress by mutableStateOf("")
         private set
 
-    /** 这次交给屁岱的输入（「接着问屁岱」时一并带过去）。 */
+    /** 这次交给小岱的输入（「接着问小岱」时一并带过去）。 */
     var input: String? by mutableStateOf(null)
         internal set
 
@@ -100,7 +100,7 @@ class InsightState internal constructor(
             val sec = (Clock.System.now().toEpochMilliseconds() - started) / 1000
             progress = buildString {
                 if (step > 0) append("第 $step 步 · ")
-                append("屁岱").append(doing)
+                append("小岱").append(doing)
                 if (sec >= 2) append(" · ${sec} 秒")
             }
         }
@@ -150,9 +150,9 @@ fun rememberInsight(spec: InsightSpec, input: String?, auto: Boolean = true): In
 }
 
 /**
- * 屁岱卡：和页面其他卡片同一种底，头部是屁岱徽标 + 标题 + 一行状态（在做什么 / 多久前看的），
- * [controls] 放这张卡的选项，结果下面是「接着问屁岱」（把这张卡的输入和结果一并带进对话）。
- * 这一端没有屁岱时整块不画。
+ * 小岱卡：和页面其他卡片同一种底，头部是小岱徽标 + 标题 + 一行状态（在做什么 / 多久前看的），
+ * [controls] 放这张卡的选项，结果下面是「接着问小岱」（把这张卡的输入和结果一并带进对话）。
+ * 这一端没有小岱时整块不画。
  */
 @Composable
 fun PidaiInsightCard(
@@ -161,7 +161,7 @@ fun PidaiInsightCard(
     modifier: Modifier = Modifier,
     /** 没有结果时状态行那句话。 */
     subtitle: String = "",
-    /** 点「接着问屁岱」时说的那句；null = 不显示。 */
+    /** 点「接着问小岱」时说的那句；null = 不显示。 */
     askPrompt: ((JsonObject) -> String)? = null,
     /** 还没生成时的引导语和按钮（按钮点了才调模型）。 */
     idleHint: String = "",
@@ -200,7 +200,7 @@ fun PidaiInsightCard(
                         Text(title, style = MiuixTheme.textStyles.body1, fontWeight = FontWeight.Bold)
                         val status = when {
                             state.loading -> state.progress
-                            ok != null -> "屁岱 · ${insightAge(ok.at)}"
+                            ok != null -> "小岱 · ${insightAge(ok.at)}"
                             else -> subtitle
                         }
                         if (status.isNotBlank()) {
@@ -220,7 +220,7 @@ fun PidaiInsightCard(
                                 .clickable(enabled = !state.loading) { state.refresh() },
                             contentAlignment = Alignment.Center,
                         ) {
-                            Icon(Icons.Filled.Refresh, contentDescription = "让屁岱重新看", modifier = Modifier.size(16.dp),
+                            Icon(Icons.Filled.Refresh, contentDescription = "让小岱重新看", modifier = Modifier.size(16.dp),
                                 tint = MiuixTheme.colorScheme.onSurfaceVariantSummary)
                         }
                     }
@@ -246,12 +246,12 @@ fun PidaiInsightCard(
                                 content(o.json)
                             }
                             if (askPrompt != null && !state.loading) {
-                                PidaiChip("接着问屁岱", icon = Icons.AutoMirrored.Filled.Chat, onClick = {
+                                PidaiChip("接着问小岱", icon = Icons.AutoMirrored.Filled.Chat, onClick = {
                                     insights.ask(askPrompt(o.json), insightSnapshot(title, state.input, o))
                                 })
                             }
                         }
-                        InsightOutcome.Unavailable -> InsightHint("在屁岱页配好 API Key 后，这里由屁岱帮你挑重点。")
+                        InsightOutcome.Unavailable -> InsightHint("在小岱页配好 API Key 后，这里由小岱帮你挑重点。")
                         is InsightOutcome.Failed -> if (!state.loading) InsightHint("这次没看成：${o.message}")
                         null -> if (!state.loading) {
                             if (idleHint.isNotBlank()) InsightHint(idleHint)
@@ -266,7 +266,7 @@ fun PidaiInsightCard(
                 state.spec.card?.let { card ->
                     InsightHint("不再提示") {
                         PidaiCards.set(card, false)
-                        showBriefMessage("已关闭，可在屁岱设置中恢复")
+                        showBriefMessage("已关闭，可在小岱设置中恢复")
                     }
                 }
             }
@@ -274,7 +274,7 @@ fun PidaiInsightCard(
     }
 }
 
-/** 带进对话的快照：这张卡看了什么、查到了什么、给了什么，屁岱接着聊时直接用，不用再查。 */
+/** 带进对话的快照：这张卡看了什么、查到了什么、给了什么，小岱接着聊时直接用，不用再查。 */
 private fun insightSnapshot(title: String, input: String?, ok: InsightOutcome.Ok): String = buildString {
     val minutes = ((kotlin.time.Clock.System.now().toEpochMilliseconds() - ok.at) / 60_000).coerceAtLeast(0)
     append("用户从「$title」卡片点进来。下面是这张卡的数据、你当时查到的工具结果和给出的结果，")
@@ -285,7 +285,7 @@ private fun insightSnapshot(title: String, input: String?, ok: InsightOutcome.Ok
     append("【你给出的结果】\n").append(ok.json.toString())
 }
 
-/** 屁岱的小徽标：主色渐变圆 + 星光；思考时慢慢呼吸。 */
+/** 小岱的小徽标：主色渐变圆 + 星光；思考时慢慢呼吸。 */
 @Composable
 fun PidaiBadge(thinking: Boolean = false, size: androidx.compose.ui.unit.Dp = 30.dp) {
     val primary = MiuixTheme.colorScheme.primary
@@ -380,7 +380,7 @@ fun PidaiInputRow(
                 .clickable(enabled = enabled, onClick = onSubmit),
             contentAlignment = Alignment.Center,
         ) {
-            Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = "让屁岱排", tint = MiuixTheme.colorScheme.onPrimary, modifier = Modifier.size(18.dp))
+            Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = "让小岱排", tint = MiuixTheme.colorScheme.onPrimary, modifier = Modifier.size(18.dp))
         }
     }
 }

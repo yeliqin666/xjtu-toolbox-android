@@ -20,7 +20,7 @@ import com.xjtu.toolbox.archive.archiveFileBackend
 import com.xjtu.toolbox.archive.archiveStoreBackend
 import com.xjtu.toolbox.desktop.DesktopBuildConfig
 import com.xjtu.toolbox.desktop.DesktopScheduleHost
-import com.xjtu.toolbox.desktop.score.DesktopScoreReportCache
+import com.xjtu.toolbox.desktop.accountScopedStoreName
 import com.xjtu.toolbox.platform.Log
 import com.xjtu.toolbox.platform.KeyValueStore
 import com.xjtu.toolbox.platform.keyValueStore
@@ -131,7 +131,7 @@ object DesktopArchiveHost {
         val stores = readStores(archiveStoreBackend())
         // 以文件为规范表示的两族（成绩缓存 / 课表缓存）：端内那份店不进 `stores/`（理由见上面 KDoc）。
         val fileFamilyBases = setOf(
-            DesktopScoreReportCache.STORE_NAME,
+            ArchiveScoreReport.KEY,
             DesktopScheduleHost.SCHEDULE_CACHE_STORE,
         )
         val fileFamilyStores = ArchiveNames.split(stores.map { it.rawName }, suffixes)
@@ -155,7 +155,7 @@ object DesktopArchiveHost {
 
     /**
      * §6.3 逐族迁移（「成绩缓存」那一族）：端内是键值店 `score_report<账号后缀>` 的 `score_report_<学号>`
-     * （[DesktopScoreReportCache]），档案里是**文件** `schedule/score_report.json`，值是 `{"at":<ms>,"grades":[…]}`，
+     * （报表页并入成绩查询后已无写入方，这里只搬旧数据），档案里是**文件** `schedule/score_report.json`，值是 `{"at":<ms>,"grades":[…]}`，
      * 名字里不带学号（账号维度由 `accounts/<suffix>/` 承担）。
      *
      * 读不到这一族的缓存 ⇒ 不出这一条。旧端内形状（裸数组）用那份 properties 的 mtime 补 `at`（§6.3「mtime → at」）；
@@ -166,9 +166,9 @@ object DesktopArchiveHost {
         now: () -> Long = { Clock.System.now().toEpochMilliseconds() },
         storeOf: (String) -> KeyValueStore = { keyValueStore(it) },
     ): List<ArchiveFile> = accountIds.mapNotNull { id ->
-        val rawName = DesktopScoreReportCache.storeName(id)
-        val key = DesktopScoreReportCache.keyFor(id)
-        val legacyName = DesktopScoreReportCache.STORE_NAME
+        val rawName = accountScopedStoreName(ArchiveScoreReport.KEY, id)
+        val key = ArchiveScoreReport.desktopKey(id)
+        val legacyName = ArchiveScoreReport.KEY
         val raw = runCatching { storeOf(rawName).getString(key) }.getOrNull()
             ?: runCatching { storeOf(legacyName).getString(key) }.getOrNull()
             ?: return@mapNotNull null

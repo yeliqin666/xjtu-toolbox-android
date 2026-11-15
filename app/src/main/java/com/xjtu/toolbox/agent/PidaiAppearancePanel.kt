@@ -17,7 +17,12 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
+import com.xjtu.toolbox.report.WeeklyReport
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
@@ -46,7 +51,7 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.utils.SinkFeedback
 
 /**
- * 屁岱形象选择：角色，以及经典屁岱的颜色。
+ * 小岱形象选择：角色，以及经典小岱的颜色。
  *
  * 缩略图**冻结**在同一时刻（[PREVIEW_AT]），不是会动的：一排各自跑帧循环的缩略图
  * 既费电又让人眼花，而且静止帧就足以挑角色。底栏那张才是活的。
@@ -60,11 +65,8 @@ fun PidaiAppearancePanel(modifier: Modifier = Modifier) {
     val characterId = PidaiAppearanceHost.characterId
     val colorId = PidaiAppearanceHost.colorId
     val plain = PidaiAppearanceHost.plain
-    // 经典屁岱那一格画用户选的形状
+    // 经典小岱那一格画用户选的形状
     val shape = botShapeById(PidaiAppearanceHost.shapeId)?.radii
-    val proactiveLevel = ProactiveRules.proactiveLevel
-    // 面板一打开就把落盘的挡位读进内存缓存，保证显示的是用户上次实际选的那一档。
-    LaunchedEffect(Unit) { ProactiveRules.loadProactiveLevel(context) }
     // 选中的墨色：跟随主题时用底栏前景色，深浅色都有对比度
     val ink = pidaiInk(colorId)
 
@@ -73,7 +75,7 @@ fun PidaiAppearancePanel(modifier: Modifier = Modifier) {
         colors = CardDefaults.defaultColors(color = com.xjtu.toolbox.ui.components.AppCardColor),
     ) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Text("屁岱形象", style = MiuixTheme.textStyles.title3, fontWeight = FontWeight.Bold)
+            Text("小岱形象", style = MiuixTheme.textStyles.title3, fontWeight = FontWeight.Bold)
 
             // 朴素图标：不砍功能，角色选择照样保留在存档里，只是暂时不画。颜色选择不受影响。
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
@@ -95,13 +97,13 @@ fun PidaiAppearancePanel(modifier: Modifier = Modifier) {
                 fontWeight = FontWeight.Medium,
                 color = if (plain) MiuixTheme.colorScheme.onSurfaceVariantSummary else MiuixTheme.colorScheme.onSurface,
             )
-            // 3 列网格：经典屁岱打头，后面是全部角色。缩略图直接画角色采出的一帧
+            // 3 列网格：经典小岱打头，后面是全部角色。缩略图直接画角色采出的一帧
             val choices = listOf<Pair<String, CastCharacter?>>(CLASSIC_ID to null) + CAST.map { it.id to it }
             choices.chunked(3).forEach { row ->
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     row.forEach { (id, cast) ->
                         CharacterTile(
-                            label = cast?.label ?: "经典屁岱",
+                            label = cast?.label ?: "经典小岱",
                             selected = id == characterId,
                             ink = ink,
                             cast = cast,
@@ -118,7 +120,7 @@ fun PidaiAppearancePanel(modifier: Modifier = Modifier) {
                 }
             }
 
-            // 形状只对经典屁岱生效。4 列：8 种形状刚好两行，缩略图能看出眼睛有没有被轮廓啃掉
+            // 形状只对经典小岱生效。4 列：8 种形状刚好两行，缩略图能看出眼睛有没有被轮廓啃掉
             if (characterId == CLASSIC_ID && !plain) {
                 Text(
                     "形状",
@@ -145,7 +147,7 @@ fun PidaiAppearancePanel(modifier: Modifier = Modifier) {
                 }
             }
 
-            // 颜色只对经典屁岱生效：新角色自带配色
+            // 颜色只对经典小岱生效：新角色自带配色
             if (characterId == CLASSIC_ID || plain) {
             Text(
                 "颜色",
@@ -173,6 +175,17 @@ fun PidaiAppearancePanel(modifier: Modifier = Modifier) {
             }
             }
 
+            PidaiPushPreferences()
+        }
+    }
+}
+
+@Composable
+fun PidaiPushPreferences() {
+    val context = LocalContext.current
+    val proactiveLevel = ProactiveRules.proactiveLevel
+    LaunchedEffect(Unit) { ProactiveRules.loadProactiveLevel(context) }
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Text(
                 "主动提醒",
                 style = MiuixTheme.textStyles.body2,
@@ -182,7 +195,7 @@ fun PidaiAppearancePanel(modifier: Modifier = Modifier) {
             // 三选一，不给用户填分钟数——普通人不会去算冷却时长该设多少。
             ProactiveLevelRow(
                 title = "关",
-                summary = "屁岱不会冒泡，点它也不说话，也不发简报和定时任务",
+                summary = "小岱不会冒泡，点它也不说话，也不发简报和定时任务",
                 selected = proactiveLevel == ProactiveLevel.OFF,
                 onClick = { ProactiveRules.setProactiveLevel(context, ProactiveLevel.OFF) },
             )
@@ -198,12 +211,12 @@ fun PidaiAppearancePanel(modifier: Modifier = Modifier) {
                 selected = proactiveLevel == ProactiveLevel.STANDARD,
                 onClick = { ProactiveRules.setProactiveLevel(context, ProactiveLevel.STANDARD) },
             )
+            WeeklyReportRow(enabled = proactiveLevel != ProactiveLevel.OFF)
             Text(
                 "后台任务使用你的 API Key，每天最多 ${PidaiJobWorker.DAILY_BUDGET} 次，仅使用已同步的数据。",
                 style = MiuixTheme.textStyles.footnote1,
                 color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
             )
-        }
     }
 }
 
@@ -328,6 +341,35 @@ private fun ColorDot(
                 )
             }
         }
+    }
+}
+
+/** 周报开关：跟着「主动提醒」走，关掉主动提醒时一并不发。 */
+@Composable
+private fun WeeklyReportRow(enabled: Boolean) {
+    val context = LocalContext.current
+    var on by rememberSaveable { mutableStateOf(WeeklyReport.isEnabled(context)) }
+    Row(
+        Modifier.fillMaxWidth().alpha(if (enabled) 1f else 0.45f).padding(vertical = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(Modifier.weight(1f)) {
+            Text("每周日晚发周报", style = MiuixTheme.textStyles.body2)
+            Text(
+                "本周作业、下周 DDL、校园卡消费，外加小岱一句点评；进消息收纳并发通知",
+                style = MiuixTheme.textStyles.footnote1,
+                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+            )
+        }
+        Spacer(Modifier.width(12.dp))
+        Switch(
+            checked = on,
+            enabled = enabled,
+            onCheckedChange = {
+                on = it
+                WeeklyReport.setEnabled(context, it)
+            },
+        )
     }
 }
 

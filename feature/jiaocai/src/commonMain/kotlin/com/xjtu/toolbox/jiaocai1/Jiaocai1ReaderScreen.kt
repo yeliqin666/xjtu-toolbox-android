@@ -1,5 +1,9 @@
 package com.xjtu.toolbox.jiaocai1
 
+
+import com.xjtu.toolbox.ui.glass.CouiPageTopAppBar
+import com.xjtu.toolbox.ui.glass.CouiToolbarActionButton
+import com.xjtu.toolbox.ui.glass.tabContentPadding
 import com.xjtu.toolbox.ui.components.BackButton
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.foundation.Image
@@ -48,20 +52,16 @@ import com.xjtu.toolbox.auth.LocalAuthExpiry
 import com.xjtu.toolbox.ui.components.AppDropdownMenu
 import com.xjtu.toolbox.ui.glass.glassSource
 import com.xjtu.toolbox.ui.glass.glassTop
-import com.xjtu.toolbox.ui.glass.glassTopBar
 import com.xjtu.toolbox.ui.glass.withoutTop
 import androidx.compose.foundation.layout.PaddingValues
-import com.xjtu.toolbox.ui.components.AppDropdownMenuItem
 import com.xjtu.toolbox.ui.components.ErrorState
 import com.xjtu.toolbox.ui.components.LoadingState
 import kotlinx.coroutines.launch
 import top.yukonga.miuix.kmp.basic.CircularProgressIndicator
 import top.yukonga.miuix.kmp.basic.Icon
-import top.yukonga.miuix.kmp.basic.IconButton
 import top.yukonga.miuix.kmp.basic.Scaffold
 import top.yukonga.miuix.kmp.basic.Slider
 import top.yukonga.miuix.kmp.basic.SliderDefaults
-import top.yukonga.miuix.kmp.basic.SmallTopAppBar
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextButton
 import top.yukonga.miuix.kmp.theme.MiuixTheme
@@ -128,9 +128,10 @@ fun Jiaocai1ReaderScreen(
 private fun ReaderShell(title: String, onBack: () -> Unit, body: @Composable () -> Unit) {
     Scaffold(
         topBar = {
-            SmallTopAppBar(
+            CouiPageTopAppBar(
                 title = title,
                 color = MiuixTheme.colorScheme.surface,
+                pinned = true,
                 navigationIcon = {
                     BackButton(onBack)
                 }
@@ -199,41 +200,34 @@ private fun ReaderContent(
     Scaffold(
         topBar = {
             if (chromeVisible) {
-                SmallTopAppBar(
+                CouiPageTopAppBar(
                     title = title,
                     color = com.xjtu.toolbox.ui.glass.glassBarColor(glass),
-                    modifier = Modifier.glassTopBar(glass),
+                    pageBackdrop = com.xjtu.toolbox.ui.glass.couiPageBackdropFor(glass),
+                    pinned = true,
                     navigationIcon = {
                         BackButton(onBack)
                     },
                     actions = {
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(2.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
                         Box {
-                            IconButton(onClick = { showToc = true }) {
-                                Icon(Icons.AutoMirrored.Filled.MenuBook, contentDescription = "目录")
-                            }
-                            AppDropdownMenu(
+                            com.xjtu.toolbox.ui.glass.CouiIconMenu(
                                 expanded = showToc,
-                                onDismissRequest = { showToc = false },
+                                onExpandedChange = { showToc = it },
+                                icon = { Icon(Icons.AutoMirrored.Filled.MenuBook, contentDescription = "目录") },
                             ) {
+                                // COUI 菜单项没有 trailing 槽：页码并进标题（「章节 · 第 N 页」）
                                 Jiaocai1Paging.sectionStarts(pages).forEach { (typeIndex, start) ->
-                                    AppDropdownMenuItem(
-                                        text = { Text(Jiaocai1Paging.TYPE_NAMES[typeIndex]) },
-                                        trailingIcon = {
-                                            Text(
-                                                "第 ${start + 1} 页",
-                                                style = MiuixTheme.textStyles.footnote2,
-                                                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                                            )
-                                        },
-                                        onClick = {
-                                            showToc = false
-                                            jumpTo(start)
-                                        },
-                                    )
+                                    option("${Jiaocai1Paging.TYPE_NAMES[typeIndex]} · 第 ${start + 1} 页") {
+                                        jumpTo(start)
+                                    }
                                 }
                             }
                         }
-                        IconButton(
+                        CouiToolbarActionButton(
                             onClick = {
                                 vertical = !vertical
                                 Jiaocai1Prefs.setVerticalScroll(vertical)
@@ -243,6 +237,7 @@ private fun ReaderContent(
                                 if (vertical) Icons.Default.SwapHoriz else Icons.Default.SwapVert,
                                 contentDescription = if (vertical) "改为左右翻页" else "改为上下滚动",
                             )
+                        }
                         }
                     }
                 )
@@ -263,7 +258,7 @@ private fun ReaderContent(
                     LazyColumn(
                         state = listState,
                         modifier = Modifier.fillMaxSize(),
-                        contentPadding = PaddingValues(top = glassTop),
+                        contentPadding = tabContentPadding(PaddingValues(top = glassTop)),
                         verticalArrangement = Arrangement.spacedBy(6.dp),
                     ) {
                         itemsIndexed(pages, key = { _, p -> p.fileName }) { index, page ->
@@ -418,7 +413,7 @@ private fun PageImage(
                     color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                 )
                 Spacer(Modifier.height(8.dp))
-                TextButton(text = "重新打开", onClick = onFailed)
+                com.xjtu.toolbox.ui.components.TextLink(text = "重新打开", onClick = onFailed)
             }
             else -> Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 CircularProgressIndicator()

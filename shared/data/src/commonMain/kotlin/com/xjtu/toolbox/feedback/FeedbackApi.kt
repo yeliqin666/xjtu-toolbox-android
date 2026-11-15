@@ -37,6 +37,8 @@ object FeedbackApi {
         val deviceLabel: String,
         /** 「系统」列：Android = `"Android ${RELEASE} / API ${SDK_INT}"`；桌面 = 宿主 OS。 */
         val osLabel: String,
+        /** 提交时才取的运行诊断（Android：近几次启动耗时），拼在「系统」列后面；空串不拼。 */
+        val diagnostics: () -> String = { "" },
     )
 
     /** 宿主注入的凭据；没注入（或注入的是空串）时整条链降级回外链，见 [isConfigured]。 */
@@ -104,7 +106,7 @@ object FeedbackApi {
             put("匿名ID", anonId)
             put("版本", version ?: cfg.versionLabel)
             put("机型", cfg.deviceLabel)
-            put("系统", cfg.osLabel)
+            put("系统", runCatching { cfg.diagnostics() }.getOrDefault("").let { if (it.isBlank()) cfg.osLabel else "${cfg.osLabel} · $it" })
         }
         val req = Request.Builder()
             .url("$HOST/bitable/v1/apps/${cfg.baseToken}/tables/${cfg.submitTable}/records")

@@ -20,8 +20,9 @@ import androidx.compose.ui.unit.sp
 import com.xjtu.toolbox.media.VideoPlayRequest
 import com.xjtu.toolbox.media.VideoPlayerHost
 import java.io.Closeable
+import top.yukonga.miuix.kmp.basic.Button
+import top.yukonga.miuix.kmp.basic.ButtonDefaults
 import top.yukonga.miuix.kmp.basic.Text
-import top.yukonga.miuix.kmp.basic.TextButton
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 /** 视频播放在 桌面侧的填法 —— `:core` 的 [VideoPlayerHost] 实现。 */
@@ -96,7 +97,9 @@ object DesktopVideoPlayerHost : VideoPlayerHost {
                 fontSize = 12.sp,
             )
             Spacer(Modifier.height(4.dp))
-            TextButton(text = "返回", onClick = onClose, minWidth = 120.dp)
+            Button(onClick = onClose, colors = ButtonDefaults.buttonColorsPrimary()) {
+                Text("返回", color = MiuixTheme.colorScheme.onPrimary)
+            }
         }
     }
 }

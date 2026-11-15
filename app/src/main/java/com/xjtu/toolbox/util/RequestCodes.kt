@@ -18,9 +18,12 @@ object RequestCodes {
     const val TODO_WIDGET = 1300
     /** + 行号（< 10）。 */
     const val TODO_WIDGET_ROW = 1310
+    const val SMART_WIDGET = 1400
 
     // 2xxx 系统通知
     const val NOTICE_PUSH = 2000
+    /** 通知栏新通知上的「问小岱」按钮。 */
+    const val NOTICE_ASK_PIDAI = 2001
     const val REMINDER_LIBRARY = 2101
     const val REMINDER_SCHEDULE = 2102
     const val REMINDER_EXAM = 2103
@@ -32,10 +35,15 @@ object RequestCodes {
     const val REMINDER_PIDAI = 2107
     /** 图书馆提醒上的「签到」按钮，发给 LibraryActionReceiver 的广播。 */
     const val REMINDER_LIBRARY_ACTION = 2108
+    const val DYNAMIC_SCHEDULE = 2109
+    /** 小岱生成中的前台通知，点开回小岱。 */
+    const val AGENT_GENERATION = 2110
 
     // 5xxx 发给小组件自己的广播
     /** + WidgetSize.ordinal。沿用旧值：AlarmManager 里排着的闹钟要靠同一个码才取消得掉。 */
     const val SCHEDULE_REFRESH_ALARM = 5000
     const val SCHEDULE_DAY_PREV = 5010
     const val SCHEDULE_DAY_NEXT = 5011
+    const val DYNAMIC_SCHEDULE_ALARM = 5020
+    const val SMART_WIDGET_REFRESH = 5040
 }

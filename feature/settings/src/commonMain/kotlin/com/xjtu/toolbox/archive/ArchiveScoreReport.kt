@@ -10,11 +10,12 @@ import kotlinx.serialization.json.longOrNull
  * 「成绩缓存」这一族的**档案形状 + 档案键名**（storage-layout §6.3 逐族迁移规则的一员：
  * 「Android `cache/data_cache<suffix>/<key>.json` → `files/schedule/<key>.json`，`mtime → at`」那一行）。
  *
- * 为什么这一族要单独一条规则：三端**端内**是三种形状，档案要是原样搬运，就有两端的成绩屏读不出来 ——
- * - `:app`：`cache/data_cache<suffix>/score_report_<学号>.json`，内容是**裸数组**，年龄靠文件 mtime
- *   （`DataCache` / `ScoreReportApp`）；
- * - 桌面：`score_report<suffix>` 店里的 `score_report_<学号>` 键，值是 `{"at":<ms>,"grades":[…]}`（`DesktopScoreReportCache`）；
- * - web：`score_report_cache` 店的 `all` 键，同一个形状（`WebScoreReportCache`）。
+ * 为什么这一族要单独一条规则：三端**端内**是三种形状，档案要是原样搬运，就有两端读不出来 ——
+ * - `:app`：`cache/data_cache<suffix>/score_report_<学号>.json`，内容是**裸数组**，年龄靠文件 mtime；
+ * - 桌面：`score_report<suffix>` 店里的 `score_report_<学号>` 键，值是 `{"at":<ms>,"grades":[…]}`；
+ * - web：`score_report_cache` 店的 `all` 键，同一个形状。
+ *
+ * ⚠️ 成绩报表页已并入成绩查询，三端写这份缓存的代码都删了；这里只剩搬运旧数据。
  *
  * 所以本族在档案里定成**一个**规范形状 + **一个**规范名：
  *
@@ -38,8 +39,15 @@ object ArchiveScoreReport {
     /** §2.3：这一族在 `files/` 之下的目录（档案与端内同名）。 */
     const val REL_DIR = "schedule"
 
-    /** 端内键名的公共前缀（三端同一个键名：`ScoreReportApp` / `DesktopScoreReportCache.keyFor` / `WebScoreReportCache.KEY`）。 */
+    /** 端内键名的公共前缀，也是桌面端内店名的前缀（`score_report<账号后缀>`）。 */
     const val KEY = "score_report"
+
+    /** web 端内那一族所在的店与键。 */
+    const val WEB_STORE = "score_report_cache"
+    const val WEB_KEY = "all"
+
+    /** 桌面端内的键：`score_report_<学号>`。 */
+    fun desktopKey(studentId: String): String = "${KEY}_$studentId"
 
     /** 规范的档案路径：不含学号（见类 KDoc）。落在 `files/<relPath>`，即 `accounts/<suffix>/files/schedule/score_report.json`。 */
     const val CANONICAL_REL = "$REL_DIR/$KEY.json"

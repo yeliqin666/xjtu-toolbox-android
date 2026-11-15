@@ -41,7 +41,6 @@ fun agentEnumProp(description: String, vararg values: String): JsonObject = buil
 fun agentIntProp(description: String): JsonObject = agentPropOf("integer", description)
 fun agentBoolProp(description: String): JsonObject = agentPropOf("boolean", description)
 /** 旧调用兼容字段，发送工具表时移除。 */
-fun agentShow(): Pair<String, JsonObject> = ToolShow.PARAM to agentBoolProp(ToolShow.DESCRIPTION)
 fun agentPropOf(type: String, description: String): JsonObject = buildJsonObject {
     put("type", type)
     put("description", description)

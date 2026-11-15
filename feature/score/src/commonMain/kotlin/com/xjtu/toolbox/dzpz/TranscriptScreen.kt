@@ -15,6 +15,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.runtime.*
+import com.xjtu.toolbox.ui.glass.tabContentPadding
 import com.xjtu.toolbox.auth.LocalAuthExpiry
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -35,6 +36,7 @@ import com.xjtu.toolbox.ui.glass.*
 import top.yukonga.miuix.kmp.basic.*
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import com.xjtu.toolbox.nav.AppRoute
+import com.xjtu.toolbox.ui.glass.rememberCouiTopAppBarScrollBehavior
 
 /**
  * 电子成绩单下载页面
@@ -70,7 +72,7 @@ fun TranscriptScreen(
         TranscriptViewModel(source, document)
     }
     LaunchedEffect(vm) { vm.authExpired.collect { authExpiry.onAuthExpired(AppRoute.Transcript, onBack) } }
-    val scrollBehavior = MiuixScrollBehavior(rememberTopAppBarState())
+    val scrollBehavior = rememberCouiTopAppBarScrollBehavior()
 
     // 玻璃顶栏（经典风格下为 null，一切照旧），用法见 ui/glass/GlassTopBar.kt
     val glass = rememberPageGlass()
@@ -89,7 +91,7 @@ fun TranscriptScreen(
         val glassTop = padding.glassTop(glass)
         when {
             vm.isLoading -> LoadingState(
-                message = "正在连接成绩单服务...",
+                message = "正在连接成绩单服务…",
                 modifier = Modifier.fillMaxSize().padding(padding.withoutTop(glass)).glassSource(glass).padding(top = glassTop)
             )
             vm.errorMessage != null -> ErrorState(
@@ -100,6 +102,7 @@ fun TranscriptScreen(
             else -> {
                 val ctx = vm.formContext ?: return@Scaffold
                 val listState = rememberLazyListState()
+                com.xjtu.toolbox.ui.glass.ReportScrollPosition(listState, scrollBehavior)
 
                 // 成功后自动滚动到底部
                 LaunchedEffect(vm.workflowState) {
@@ -115,7 +118,7 @@ fun TranscriptScreen(
                         .padding(padding.withoutTop(glass))
                         .glassSource(glass)
                         .nestedScroll(scrollBehavior.nestedScrollConnection),
-                    contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = glassTop + 12.dp, bottom = 12.dp),
+                    contentPadding = tabContentPadding(PaddingValues(start = 16.dp, end = 16.dp, top = glassTop + 12.dp, bottom = 12.dp)),
                     verticalArrangement = Arrangement.spacedBy(16.dp)
                 ) {
                     item {
@@ -234,9 +237,10 @@ private fun WorkflowProgressCard(
                     Spacer(Modifier.height(16.dp))
                     Button(
                         onClick = onStart,
+                        colors = ButtonDefaults.buttonColorsPrimary(),
                         modifier = Modifier.fillMaxWidth()
                     ) {
-                        Text("一键申请成绩单")
+                        Text("一键申请成绩单", color = MiuixTheme.colorScheme.onPrimary)
                     }
                 }
                 WorkflowState.RUNNING -> {
@@ -293,6 +297,7 @@ private fun WorkflowProgressCard(
                     Spacer(Modifier.height(12.dp))
                     Button(
                         onClick = onStart,
+                        colors = com.xjtu.toolbox.ui.components.appTonalButtonColors(),
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         Text("重新申请")
@@ -408,15 +413,17 @@ private fun DownloadSuccessCard(
                 // 操作按钮
                 Button(
                     onClick = { saver.save(info.filename, pdfBytes) },
+                    colors = ButtonDefaults.buttonColorsPrimary(),
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Icon(
                         Icons.Default.SaveAlt,
                         contentDescription = null,
-                        modifier = Modifier.size(18.dp)
+                        modifier = Modifier.size(18.dp),
+                        tint = MiuixTheme.colorScheme.onPrimary,
                     )
                     Spacer(Modifier.width(6.dp))
-                    Text(saver.actionLabel)
+                    Text(saver.actionLabel, color = MiuixTheme.colorScheme.onPrimary)
                 }
                 Spacer(Modifier.height(8.dp))
                 Text(

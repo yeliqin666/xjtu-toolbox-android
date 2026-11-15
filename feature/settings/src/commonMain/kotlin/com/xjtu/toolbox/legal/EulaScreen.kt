@@ -4,15 +4,14 @@ import androidx.compose.animation.*
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import com.xjtu.toolbox.ui.glass.tabContentBottomPadding
+import com.xjtu.toolbox.ui.glass.CouiPageTopAppBar
 import com.xjtu.toolbox.ui.glass.glassSource
 import com.xjtu.toolbox.ui.glass.glassTop
-import com.xjtu.toolbox.ui.glass.glassTopBar
 import com.xjtu.toolbox.ui.glass.withoutTop
+import com.xjtu.toolbox.ui.glass.rememberCouiTopAppBarScrollBehavior
 import top.yukonga.miuix.kmp.basic.Button
 import top.yukonga.miuix.kmp.basic.Scaffold
-import top.yukonga.miuix.kmp.basic.TopAppBar
-import top.yukonga.miuix.kmp.basic.MiuixScrollBehavior
-import top.yukonga.miuix.kmp.basic.rememberTopAppBarState
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.theme.MiuixTheme
@@ -30,7 +29,8 @@ import androidx.compose.ui.unit.dp
 fun EulaScreen(onAccept: () -> Unit) {
     val scrollState = rememberScrollState()
     var canAccept by remember { mutableStateOf(false) }
-    val scrollBehavior = MiuixScrollBehavior(rememberTopAppBarState())
+    val scrollBehavior = rememberCouiTopAppBarScrollBehavior()
+    com.xjtu.toolbox.ui.glass.ReportScrollPosition(scrollState, scrollBehavior)
 
     // 滚动到底部才可同意。
     //
@@ -53,12 +53,12 @@ fun EulaScreen(onAccept: () -> Unit) {
     val glass = com.xjtu.toolbox.ui.glass.rememberPageGlass()
     Scaffold(
         topBar = {
-            top.yukonga.miuix.kmp.basic.TopAppBar(
+            CouiPageTopAppBar(
                 title = "用户协议与免责声明",
                 largeTitle = "用户协议与免责声明",
                 color = com.xjtu.toolbox.ui.glass.glassBarColor(glass),
-                modifier = Modifier.glassTopBar(glass),
-                scrollBehavior = scrollBehavior
+                pageBackdrop = com.xjtu.toolbox.ui.glass.couiPageBackdropFor(glass),
+                scrollBehavior = scrollBehavior,
             )
         }
     ) { padding ->
@@ -76,7 +76,7 @@ fun EulaScreen(onAccept: () -> Unit) {
                 .widthIn(max = 720.dp)
                 .fillMaxWidth()
                 .nestedScroll(scrollBehavior.nestedScrollConnection)
-                .verticalScroll(scrollState)
+                .verticalScroll(scrollState).tabContentBottomPadding()
                 .padding(horizontal = 16.dp)
         ) {
             Spacer(Modifier.height(8.dp + padding.glassTop(glass)))
@@ -105,9 +105,11 @@ fun EulaScreen(onAccept: () -> Unit) {
             Button(
                 onClick = onAccept,
                 enabled = canAccept,
+                // 默认的 buttonColors 是中性灰，主操作要用主题色，和登录页一致
+                colors = top.yukonga.miuix.kmp.basic.ButtonDefaults.buttonColorsPrimary(),
                 modifier = Modifier.fillMaxWidth()
             ) {
-                Text("我已阅读并同意")
+                Text("我已阅读并同意", color = MiuixTheme.colorScheme.onPrimary)
             }
 
             Spacer(Modifier.height(32.dp))

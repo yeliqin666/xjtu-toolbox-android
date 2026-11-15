@@ -22,7 +22,6 @@ import com.xjtu.toolbox.archive.archiveFileBackend
 import com.xjtu.toolbox.archive.archiveSourceOf
 import com.xjtu.toolbox.archive.archiveStoreBackend
 import com.xjtu.toolbox.desktop.DesktopScheduleHost
-import com.xjtu.toolbox.desktop.score.DesktopScoreReportCache
 import com.xjtu.toolbox.platform.KeyValueStore
 import com.xjtu.toolbox.platform.Log
 import com.xjtu.toolbox.platform.secureKeyValueStore
@@ -156,15 +155,14 @@ class DesktopArchiveImportTarget(
         runCatching { AccountContext.activeAccountId }.getOrNull()?.takeIf { it.isNotBlank() }
 
     /**
-     * 成绩缓存那一族在桌面端内所在的店名：`score_report` + 账号后缀（`DesktopScoreReportCache.storeName(accountId)`
-     * 的同一个口径；档案里的 suffix 与 `AccountContext.suffixFor` 同一种写法）。
+     * 成绩缓存那一族在桌面端内所在的店名：`score_report` + 账号后缀（档案里的 suffix 与 `AccountContext.suffixFor` 同一种写法）。
      */
-    private fun scoreReportStoreName(suffix: String): String = DesktopScoreReportCache.STORE_NAME + suffix
+    private fun scoreReportStoreName(suffix: String): String = ArchiveScoreReport.KEY + suffix
 
     /** 这一条是成绩缓存那一族时给出端内键（`score_report_<学号>`）；不是 / 名字里没有学号（规范名）⇒ null。 */
     private fun scoreReportKey(relPath: String): String? =
         if (ArchiveScoreReport.isFamily(relPath)) {
-            ArchiveScoreReport.legacyStudentId(relPath)?.let { DesktopScoreReportCache.keyFor(it) }
+            ArchiveScoreReport.legacyStudentId(relPath)?.let { ArchiveScoreReport.desktopKey(it) }
         } else {
             null
         }

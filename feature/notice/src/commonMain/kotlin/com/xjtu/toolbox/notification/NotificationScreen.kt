@@ -10,8 +10,6 @@ import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.Surface
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.Scaffold
-import top.yukonga.miuix.kmp.basic.MiuixScrollBehavior
-import top.yukonga.miuix.kmp.basic.rememberTopAppBarState
 import top.yukonga.miuix.kmp.basic.CircularProgressIndicator
 import top.yukonga.miuix.kmp.basic.LinearProgressIndicator
 import top.yukonga.miuix.kmp.utils.overScrollVertical
@@ -25,6 +23,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import com.xjtu.toolbox.platform.BackHandler
 import androidx.compose.material.icons.outlined.WarningAmber
+import androidx.compose.material.icons.outlined.Newspaper
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -37,12 +36,15 @@ import com.xjtu.toolbox.util.todayOnCampus
 import kotlinx.datetime.LocalDate
 import kotlinx.datetime.daysUntil
 import com.xjtu.toolbox.nav.AppRoute
+import com.xjtu.toolbox.ui.glass.rememberCouiTopAppBarScrollBehavior
 
 @Composable
 fun NotificationScreen(
     source: NoticeSource,
     onBack: () -> Unit,
     onNavigate: (AppRoute) -> Unit = {},
+    /** 长按一条弹菜单，点「问小岱」转过去。没接小岱的端传 null，长按不响应。 */
+    onAskAgent: ((com.xjtu.toolbox.agent.AgentForward) -> Unit)? = null,
 ) {
     // 与 :app 同一个 ViewModel（只是取数换成了端口）；两端都用 androidx.lifecycle 的
     // `viewModel { }`（:core 里是 JetBrains 版，同 API、同版本）。
@@ -54,8 +56,9 @@ fun NotificationScreen(
     val listState = androidx.compose.foundation.lazy.staggeredgrid.rememberLazyStaggeredGridState()
 
     // 展示的通知：没在搜就是列表；在搜时是站内结果，外加本地已加载里的匹配（合并去重、按日期）
-    val filteredNotifications = remember(notifications, vm.searchQuery, vm.searchResults) {
-        if (!searching) notifications
+    val filteredNotifications = remember(notifications, vm.searchQuery, vm.searchResults, vm.selectedTag) {
+        val tag = vm.selectedTag
+        if (!searching) notifications.filter { tag == null || tag in it.tags }
         else {
             val local = notifications.filter { it.title.contains(vm.searchQuery.trim(), ignoreCase = true) }
             val remote = vm.searchResults
@@ -72,7 +75,7 @@ fun NotificationScreen(
     // 滑动到底自动翻页
     val shouldLoadMore by remember(vm.hasMorePages) {
         derivedStateOf {
-            if (!vm.hasMorePages) return@derivedStateOf false
+            if (!vm.hasMorePages || !vm.tagAutoLoad) return@derivedStateOf false
             // 瀑布流里可见项不一定按下标排好，取最大的下标
             val lastVisibleIndex = listState.layoutInfo.visibleItemsInfo.maxOfOrNull { it.index } ?: return@derivedStateOf false
             val totalItems = listState.layoutInfo.totalItemsCount
@@ -83,25 +86,27 @@ fun NotificationScreen(
         if (shouldLoadMore) vm.loadMore()
     }
 
-    val scrollBehavior = MiuixScrollBehavior(rememberTopAppBarState())
+    val scrollBehavior = rememberCouiTopAppBarScrollBehavior()
     // 玻璃顶栏（经典风格下为 null，一切照旧），用法见 ui/glass/GlassTopBar.kt
     val glass = rememberPageGlass()
     Scaffold(
         topBar = {
+            // 当前来源写在大标题下面，右上角一颗按钮换来源：不再在正文里放一条来源横幅
+            val sources = vm.selectedSources
             GlassTopAppBar(
                 title = "通知公告",
                 glass = glass,
                 scrollBehavior = scrollBehavior,
                 onBack = onBack,
-                bottomContent = {
-                  Column {
-                    NoticeSourceBar(vm.selectedSources) { showSourceSheet = true }
-
-                    // ═══ 加载条 ═══
-                    AnimatedVisibility((vm.isLoading && notifications.isNotEmpty()) || vm.searchLoading, enter = fadeIn(), exit = fadeOut()) {
-                        LinearProgressIndicator(Modifier.fillMaxWidth())
+                subtitle = when {
+                    sources.isEmpty() -> "还没选来源"
+                    sources.size <= 2 -> sources.joinToString("、") { it.displayName }
+                    else -> sources.take(2).joinToString("、") { it.displayName } + " 等 ${sources.size} 个来源"
+                },
+                actions = {
+                    com.xjtu.toolbox.ui.glass.CouiToolbarActionButton(onClick = { showSourceSheet = true }) {
+                        Icon(Icons.Outlined.Newspaper, contentDescription = "选择通知来源")
                     }
-                  }
                 },
             )
         }
@@ -124,16 +129,14 @@ fun NotificationScreen(
                 .fillMaxSize()
                 .nestedScroll(scrollBehavior.nestedScrollConnection)
         ) {
-            // 来源入口在顶栏里（bottomContent）；列表把 glassTop 放进 contentPadding，
-            // 不是列表的几种状态（加载中 / 出错 / 暂无）在这里让出顶栏高度
+            // 列表把 glassTop 放进 contentPadding；不是列表的几种状态（加载中 / 出错 / 暂无）在这里让出顶栏高度
             val listShown = !(vm.isLoading && notifications.isEmpty()) &&
                 !(vm.errorMessage != null && notifications.isEmpty()) &&
                 notifications.isNotEmpty()
             if (!listShown) Spacer(Modifier.height(glassTop))
 
             // 搜索框和「有源不可达」提示：有通知列表时是列表的头两项，跟着列表滚走；
-            // 来源入口是导航，留在顶上。以前这一整段都钉在顶部，占掉小半屏，
-            // 往上划只有下面一截通知在动。没有列表（加载中 / 出错 / 暂无通知）时它们照旧放在这里。
+            // 没有列表（加载中 / 出错 / 暂无通知）时它们照旧放在这里。
             // 搜不到匹配项时列表还在（只剩搜索框和一行「没有匹配」）：要是这时把搜索框挪出列表，
             // 输入框换了位置就会丢焦点，打字打到一半键盘收起来。
             val searchBar: @Composable (Modifier) -> Unit = { m ->
@@ -213,6 +216,7 @@ fun NotificationScreen(
                             topPadding = glassTop,
                             modifier = Modifier.fillMaxSize(),
                         ) {
+                        Box(Modifier.fillMaxSize()) {
                         // 宽屏分两三列排卡片（见 AdaptiveCardGrid），窄屏和原来的单列一样
                         com.xjtu.toolbox.ui.adaptive.AdaptiveCardGrid(
                             modifier = Modifier.fillMaxSize().overScrollVertical(),
@@ -226,6 +230,20 @@ fun NotificationScreen(
                                 }
                             }
                             fullLineItem(key = "search") { searchBar(Modifier) }
+                            // 只有一种分类时筛了也没区别；搜索走的是站内结果，这一版不筛
+                            val tagOptions = noticeTagOptions(notifications)
+                            if (!searching && (tagOptions.size > 1 || vm.selectedTag != null)) {
+                                fullLineItem(key = "tags") {
+                                    // "" 代表「全部」
+                                    com.xjtu.toolbox.ui.components.AppChipTabRow(
+                                        options = (listOf("") + listOfNotNull(vm.selectedTag) + tagOptions).distinct(),
+                                        selected = vm.selectedTag.orEmpty(),
+                                        onSelect = { vm.selectTag(it.ifEmpty { null }) },
+                                        label = { it.ifEmpty { "全部" } },
+                                        bleed = 16.dp,
+                                    )
+                                }
+                            }
                             if (bannerText != null) {
                                 fullLineItem(key = "skipped") { skippedNoticeBanner(Modifier) }
                             }
@@ -248,7 +266,11 @@ fun NotificationScreen(
                                     } else {
                                         EmptyState(
                                             title = "没有匹配的通知",
-                                            subtitle = if (searching) "站内也没搜到，换个关键词试试" else "请尝试更改搜索关键词",
+                                            subtitle = when {
+                                                searching -> "站内也没搜到，换个关键词试试"
+                                                vm.selectedTag != null -> "已加载的通知里没有这个分类"
+                                                else -> "请尝试更改搜索关键词"
+                                            },
                                             modifier = Modifier.fillMaxWidth().padding(vertical = 48.dp)
                                         )
                                     }
@@ -259,19 +281,33 @@ fun NotificationScreen(
                                 key = { index -> "${filteredNotifications[index].source.name}_${index}_${filteredNotifications[index].link.hashCode()}" }
                             ) { index ->
                                 val notification = filteredNotifications[index]
+                                // ROM 支持时从这张卡一镜到底打开原文
+                                val origin = com.xjtu.toolbox.nav.rememberSeamlessOrigin(16.dp)
                                 // 第一屏错峰淡入，之后的直接就位
-                                androidx.compose.foundation.layout.Box(Modifier.enterOnce(index)) {
+                                androidx.compose.foundation.layout.Box(Modifier.enterOnce(index).then(origin.modifier)) {
                                 NotificationCard(
                                     notification = notification,
                                     showSource = vm.selectedSources.size > 1,
+                                    onAskAgent = onAskAgent?.let { ask ->
+                                        { ask(com.xjtu.toolbox.agent.AgentForward.notice(notification)) }
+                                    },
                                     onClick = {
-                                        onNavigate(AppRoute.Browser(notification.link))
+                                        val route = AppRoute.Browser(notification.link)
+                                        origin.open(route) { onNavigate(route) }
                                     }
                                 )
                                 }
                             }
 
-                            if (!searching && (vm.hasMorePages || vm.isLoadingMore)) {
+                            if (!searching && !vm.tagAutoLoad && vm.hasMorePages && !vm.isLoadingMore) {
+                                fullLineItem(key = "keep_looking") {
+                                    com.xjtu.toolbox.ui.components.TextLink(
+                                        text = "继续往前找",
+                                        onClick = vm::keepLookingForTag,
+                                    )
+                                }
+                            }
+                            if (!searching && vm.tagAutoLoad && (vm.hasMorePages || vm.isLoadingMore)) {
                                 fullLineItem {
                                     Box(
                                         modifier = Modifier.fillMaxWidth().padding(16.dp),
@@ -281,6 +317,16 @@ fun NotificationScreen(
                                     }
                                 }
                             }
+                        }
+                        // 刷新 / 站内搜索的进度条浮在顶栏下沿，不占列表位置：放成列表项的话，
+                        // 不在加载时它是一个零高的空项，列表间距照算，顶栏和搜索框之间就多出一截空白
+                        androidx.compose.animation.AnimatedVisibility(
+                            visible = (vm.isLoading && notifications.isNotEmpty()) || vm.searchLoading,
+                            enter = fadeIn(), exit = fadeOut(),
+                            modifier = Modifier.align(Alignment.TopCenter).padding(top = glassTop, start = 16.dp, end = 16.dp),
+                        ) {
+                            LinearProgressIndicator(Modifier.fillMaxWidth(), height = 2.dp)
+                        }
                         }
                         }
                     }
@@ -318,12 +364,53 @@ private fun formatRelativeDate(date: LocalDate): String {
 private fun NotificationCard(
     notification: Notification,
     showSource: Boolean = false,
-    onClick: () -> Unit
+    onAskAgent: (() -> Unit)? = null,
+    onClick: () -> Unit,
+) {
+    var menuOpen by remember { mutableStateOf(false) }
+    val haptics = androidx.compose.ui.platform.LocalHapticFeedback.current
+    Box {
+        NotificationCardBody(
+            notification = notification,
+            showSource = showSource,
+            onLongPress = onAskAgent?.let {
+                {
+                    haptics.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
+                    menuOpen = true
+                }
+            },
+            onClick = onClick,
+        )
+        if (onAskAgent != null) {
+            com.xjtu.toolbox.ui.components.AppDropdownMenu(
+                expanded = menuOpen,
+                onDismissRequest = { menuOpen = false },
+                morph = com.xjtu.toolbox.ui.components.MenuMorph.FromRow,
+            ) {
+                com.xjtu.toolbox.ui.components.AppDropdownMenuItem(
+                    text = { Text("问小岱") },
+                    onClick = {
+                        menuOpen = false
+                        onAskAgent()
+                    },
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun NotificationCardBody(
+    notification: Notification,
+    showSource: Boolean,
+    onLongPress: (() -> Unit)?,
+    onClick: () -> Unit,
 ) {
     top.yukonga.miuix.kmp.basic.Card(
         modifier = Modifier
             .fillMaxWidth(),
         onClick = onClick,
+        onLongPress = onLongPress,
         pressFeedbackType = top.yukonga.miuix.kmp.utils.PressFeedbackType.Sink,
         colors = top.yukonga.miuix.kmp.basic.CardDefaults.defaultColors(color = MiuixTheme.colorScheme.surfaceVariant
         )

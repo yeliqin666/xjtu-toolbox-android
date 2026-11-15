@@ -38,7 +38,14 @@ import androidx.compose.material.icons.outlined.MeetingRoom
 import androidx.compose.material.icons.outlined.PersonSearch
 import androidx.compose.material.icons.outlined.Quiz
 import androidx.compose.material.icons.outlined.Restaurant
+import androidx.compose.material.icons.outlined.AutoAwesome
+import androidx.compose.material.icons.outlined.GridView
+import androidx.compose.material.icons.outlined.History
+import androidx.compose.material.icons.outlined.Place
+import androidx.compose.material.icons.outlined.Schedule
 import androidx.compose.material.icons.outlined.School
+import androidx.compose.material.icons.outlined.Search
+import androidx.compose.material.icons.outlined.TaskAlt
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -101,15 +108,6 @@ data class WelcomeFacts(
 )
 
 
-private class Suggestion(
-    val icon: ImageVector,
-    val tint: Color,
-    val title: String,
-    val preview: String,
-    val question: String,
-    val warn: Boolean = false,
-)
-
 private val TintBlue = Color(0xFF3B82F6)
 private val TintTeal = Color(0xFF14B8A6)
 private val TintAmber = Color(0xFFF59E0B)
@@ -119,89 +117,6 @@ private val TintGreen = Color(0xFF22C55E)
 
 private fun hhmm(t: LocalTime?): String =
     t?.let { "${formatTwoDigits(it.hour)}:${formatTwoDigits(it.minute)}" } ?: ""
-
-/** 按时段排好的问题卡片，最多 4 张（两列排两行正好）。 */
-private fun buildSuggestions(f: WelcomeFacts, now: LocalDateTime): List<Suggestion> {
-    val hour = now.hour
-    val cards = mutableMapOf<String, Suggestion>()
-
-    f.nextToday?.let { c ->
-        val t = hhmm(XjtuTime.getClassTime(c.startSection)?.start)
-        cards["class"] = Suggestion(
-            Icons.Outlined.EventNote, TintBlue, "下节课在哪",
-            listOf(t, c.courseName, c.location).filter { it.isNotBlank() }.joinToString(" · "),
-            "我下节课是什么，在哪上？",
-        )
-    }
-    if (f.tomorrow.isNotEmpty()) {
-        val first = f.tomorrow.first()
-        cards["tomorrow"] = Suggestion(
-            Icons.Outlined.EventNote, TintBlue, "明天有什么课",
-            "${f.tomorrow.size} 节 · ${hhmm(XjtuTime.getClassTime(first.startSection)?.start)} ${first.courseName}",
-            "明天有哪些课？几点开始？",
-        )
-    } else if (f.nextToday == null) {
-        cards["tomorrow"] = Suggestion(
-            Icons.Outlined.EventNote, TintBlue, "这周还有什么课",
-            "按天列出剩下的课",
-            "这周还剩哪些课？",
-        )
-    }
-    f.exam?.let { e ->
-        cards["exam"] = Suggestion(
-            Icons.Outlined.Quiz, TintRose, "最近的考试",
-            "${e.label} · ${e.exam.courseName}",
-            "我最近有哪些考试？时间地点座位号都说一下",
-            warn = e.daysLeft <= 3,
-        )
-    }
-    if (f.balance >= 0f) {
-        val spend = if (f.todaySpend > 0f) " · 今日 ¥${formatFixed(f.todaySpend, 2)}" else ""
-        cards["card"] = Suggestion(
-            Icons.Outlined.AccountBalanceWallet, TintAmber, "饭卡还剩多少",
-            "¥${formatFixed(f.balance, 2)}$spend",
-            "校园卡余额多少？最近都花在哪了？",
-            warn = f.balance < 30f,
-        )
-    }
-    cards["study"] = Suggestion(
-        Icons.Outlined.MeetingRoom, TintTeal, "现在去哪自习",
-        "空教室 + 图书馆座位一起看",
-        "现在想找个地方自习，去哪合适？",
-    )
-    cards["meal"] = Suggestion(
-        Icons.Outlined.Restaurant, TintGreen, "今天吃什么",
-        "食堂、楼层和营业时间",
-        "现在去哪个食堂吃饭比较好？",
-    )
-    cards["grade"] = Suggestion(
-        Icons.Outlined.School, TintViolet, "最近出了什么成绩",
-        "新出的分和 GPA",
-        "最近出了哪些成绩？现在 GPA 多少？",
-    )
-
-    val order = when (hour) {
-        in 5..10 -> listOf("class", "exam", "tomorrow", "study", "card", "grade")
-        in 11..13 -> listOf("meal", "class", "card", "exam", "study", "tomorrow")
-        in 14..16 -> listOf("class", "study", "exam", "card", "tomorrow", "grade")
-        in 17..19 -> listOf("meal", "class", "tomorrow", "card", "exam", "study")
-        else -> listOf("tomorrow", "exam", "grade", "study", "card", "meal")
-    }
-    // 三天内的考试和余额告急优先，不管什么时段
-    val urgent = listOf("exam", "card").filter { cards[it]?.warn == true }
-    return (urgent + order + cards.keys).distinct().mapNotNull { cards[it] }.take(4)
-}
-
-private class Capability(val icon: ImageVector, val label: String, val example: String)
-
-private val CAPABILITIES = listOf(
-    Capability(Icons.Outlined.Alarm, "设闹钟", "明早 7 点叫我起床"),
-    Capability(Icons.Outlined.EditCalendar, "加进日程", "把这周五下午两点的实验加进日程"),
-    Capability(Icons.Outlined.Functions, "讲题", "帮我讲讲这道题：∫ x·eˣ dx 怎么算？"),
-    Capability(Icons.Outlined.PersonSearch, "查老师", "物理学院有哪些老师做凝聚态？"),
-    Capability(Icons.Outlined.AutoStories, "搜资料", "资料站有没有大学物理的历年卷？"),
-    Capability(Icons.Outlined.HelpOutline, "问 App", "这个 App 能把课表放到桌面吗？"),
-)
 
 /** 输入框的占位示范问题，每次打开换一句。 */
 internal val COMPOSER_HINTS = listOf(
@@ -213,18 +128,6 @@ internal val COMPOSER_HINTS = listOf(
     "问一句…",
 )
 
-private class Playful(val icon: ImageVector, val text: String)
-
-/** 「随便聊聊」：不查数据、纯陪聊的问题，点了直接发。 */
-private val PLAYFUL = listOf(
-    Playful(Icons.Outlined.Lightbulb, "讲个交大冷知识"),
-    Playful(Icons.Outlined.FavoriteBorder, "给我打打气"),
-    Playful(Icons.Outlined.WbSunny, "今天适合干点啥"),
-    Playful(Icons.Outlined.Bedtime, "睡不着，陪我聊会儿"),
-)
-
-private val CapTints = listOf(TintAmber, TintBlue, TintViolet, TintTeal, TintGreen, TintRose)
-
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 internal fun AgentWelcome(
@@ -232,6 +135,9 @@ internal fun AgentWelcome(
     host: AgentHost,
     greetingName: String,
     configured: Boolean,
+    /** 最近一次对话；没有就不显示那一条。 */
+    recent: AgentSession?,
+    onOpenRecent: (String) -> Unit,
     onAsk: (String) -> Unit,
     onFill: (String) -> Unit,
     onOpenConfig: () -> Unit,
@@ -244,70 +150,405 @@ internal fun AgentWelcome(
         value = withContext(host.io) { host.welcomeFacts(now) }
     }
     val greeting = com.xjtu.toolbox.home.Greeting.of(now.time)
-    val primary = MiuixTheme.colorScheme.primary
 
-    Column(
-        Modifier
-            .fillMaxWidth()
-            .drawBehind {
-                // 极光：几团不同颜色的柔光叠在一起，静止不动（不给玻璃顶栏添负担）
-                fun blob(color: Color, cx: Float, cy: Float, r: Float) {
-                    drawCircle(
-                        Brush.radialGradient(listOf(color, Color.Transparent), center = Offset(cx, cy), radius = r),
-                        radius = r,
-                        center = Offset(cx, cy),
-                    )
-                }
-                val w = size.width
-                blob(primary.copy(alpha = 0.16f), w * 0.12f, 70.dp.toPx(), 150.dp.toPx())
-                blob(TintTeal.copy(alpha = 0.10f), w * 0.92f, 40.dp.toPx(), 140.dp.toPx())
-                blob(TintRose.copy(alpha = 0.07f), w * 0.7f, 260.dp.toPx(), 170.dp.toPx())
-                blob(TintViolet.copy(alpha = 0.07f), w * 0.15f, 420.dp.toPx(), 160.dp.toPx())
-            }
-            .padding(top = 8.dp, bottom = 8.dp),
-    ) {
+    Column(Modifier.fillMaxWidth().padding(top = 8.dp, bottom = 8.dp)) {
         hero(
             if (greetingName.isBlank()) greeting else "$greeting，$greetingName",
             facts,
             now,
         )
-        TodayStrip(facts)
-        Spacer(Modifier.height(18.dp))
+        Spacer(Modifier.height(20.dp))
         if (!configured) {
+            if (recent != null) {
+                RecentChatRow(recent) { onOpenRecent(recent.id) }
+                Spacer(Modifier.height(12.dp))
+            }
             SetupCard(onOpenConfig)
+            Spacer(Modifier.height(SECTION_GAP))
         } else {
-            SectionTitle("问我点什么")
-            val cards = remember(facts) { buildSuggestions(facts, now) }
-            cards.chunked(2).forEachIndexed { row, pair ->
-                Row(
-                    Modifier.fillMaxWidth().padding(bottom = 10.dp),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
-                ) {
-                    pair.forEachIndexed { col, s ->
-                        SuggestionCard(s, index = row * 2 + col, modifier = Modifier.weight(1f)) { onAsk(s.question) }
+            // 上次的对话并进「此刻」的第一行，不单独占一块
+            val brief = remember(facts, recent) {
+                val resume = recent?.let {
+                    BriefLine(
+                        Icons.Outlined.History, "接着聊", it.title.ifBlank { "上次的对话" }, "",
+                        open = { onOpenRecent(it.id) },
+                    )
+                }
+                listOfNotNull(resume) + buildBrief(facts, now)
+            }
+            SectionTitle("此刻")
+            BriefCard(brief, onAsk)
+            Spacer(Modifier.height(SECTION_GAP))
+            SectionTitle("一句话，办成一串事")
+            ChainShowcase(host.honored, onAsk)
+            Spacer(Modifier.height(SECTION_GAP))
+        }
+        SectionTitle("我能做什么")
+        CapabilityIndex(host.honored, onFill)
+    }
+}
+
+/** 首屏各板块之间的统一间距。 */
+private val SECTION_GAP = 24.dp
+
+/** 首屏卡片统一圆角。 */
+private val WELCOME_RADIUS = 22.dp
+
+/** 首屏最上面的一条：接着上次的对话聊。 */
+@Composable
+private fun RecentChatRow(session: AgentSession, onClick: () -> Unit) {
+    val primary = MiuixTheme.colorScheme.primary
+    val muted = MiuixTheme.colorScheme.onSurfaceVariantSummary
+    val source = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .pressScale(source, pressed = 0.98f)
+            .clip(RoundedCornerShape(WELCOME_RADIUS))
+            .background(com.xjtu.toolbox.ui.components.AppCardColor)
+            .clickable(interactionSource = source, indication = null, onClick = onClick)
+            .padding(horizontal = 14.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        IconTile(Icons.Outlined.History, primary, 36.dp)
+        Spacer(Modifier.width(12.dp))
+        Column(Modifier.weight(1f)) {
+            Text(
+                session.title.ifBlank { "上次的对话" },
+                fontSize = 14.sp,
+                fontWeight = FontWeight.Medium,
+                color = MiuixTheme.colorScheme.onSurface,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Text("接着聊 · ${formatSessionTime(session.updatedAt)}", fontSize = 12.sp, color = muted, maxLines = 1)
+        }
+        Icon(Icons.AutoMirrored.Filled.ArrowForward, null, tint = muted.copy(alpha = 0.5f), modifier = Modifier.size(15.dp))
+    }
+}
+
+/** 浅色底的小图标块，首屏各处统一用它。 */
+@Composable
+private fun IconTile(icon: ImageVector, tint: Color, size: androidx.compose.ui.unit.Dp) {
+    Box(
+        Modifier.size(size).clip(RoundedCornerShape(size * 0.34f)).background(tint.copy(alpha = 0.12f)),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(icon, null, tint = tint, modifier = Modifier.size(size * 0.56f))
+    }
+}
+
+/** 一件要串好几个工具才办得成的事：[steps] 是会用到的那几步，卡上照实写出来。 */
+private class Chain(
+    val icon: ImageVector,
+    val tint: Color,
+    val title: String,
+    val steps: List<String>,
+    val question: String,
+    val needs: AgentCapability? = null,
+)
+
+private val CHAINS = listOf(
+    Chain(
+        Icons.Outlined.EditCalendar, TintBlue,
+        "排一份期末复习计划", listOf("考试安排", "课表空档", "写进日程"),
+        "看看我的考试安排和这几周的课表空档，排一份复习计划，确认后写进日程",
+        AgentCapability.SCHEDULE_EVENT_WRITE,
+    ),
+    Chain(
+        Icons.Outlined.MeetingRoom, TintTeal,
+        "下节课前找个地方自习", listOf("下节课地点", "附近空教室", "步行时间"),
+        "离下节课还有一会儿，在下节课的楼附近找个现在空着的教室，算好走过去要几分钟",
+    ),
+    Chain(
+        Icons.Outlined.School, TintViolet,
+        "找出拉低 GPA 的课", listOf("全部成绩", "学分加权", "对比分析"),
+        "把我所有学期的成绩拉出来，算一下哪几门课最拖 GPA，下学期该注意什么",
+    ),
+    Chain(
+        Icons.Outlined.AutoStories, TintAmber,
+        "读课件出几道自测题", listOf("思源课件", "读 PDF", "出题讲解"),
+        "读一下思源上最新那份课件，总结重点，再出 5 道自测题，答完帮我批改",
+    ),
+    Chain(
+        Icons.Outlined.Alarm, TintRose,
+        "每晚帮我盯着通知", listOf("定时任务", "查通知", "推送提醒"),
+        "每天晚上 9 点帮我看看教务处和学院有没有新的重要通知，有就推送给我",
+    ),
+)
+
+/**
+ * 横向一排卡：标题 + 用到的几步，点了直接发出去。几步竖着排成一条带序号的小时间线，
+ * 一行一步、每步都写得下（以前串成一行「A → B → C」，窄卡里总被截断）。
+ */
+@Composable
+private fun ChainShowcase(honored: Set<AgentCapability>, onAsk: (String) -> Unit) {
+    val ink = MiuixTheme.colorScheme.onSurface
+    val muted = MiuixTheme.colorScheme.onSurfaceVariantSummary
+    val chains = CHAINS.filter { it.needs == null || it.needs in honored }
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .horizontalScroll(androidx.compose.foundation.rememberScrollState()),
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        chains.forEachIndexed { i, c ->
+            val enter = rememberEnter(i + 2)
+            val source = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
+            Column(
+                Modifier
+                    .graphicsLayer {
+                        alpha = enter.value
+                        translationY = (1f - enter.value) * 12.dp.toPx()
                     }
-                    if (pair.size == 1) Spacer(Modifier.weight(1f))
+                    .pressScale(source, pressed = 0.96f)
+                    .width(168.dp)
+                    .clip(RoundedCornerShape(WELCOME_RADIUS))
+                    .background(com.xjtu.toolbox.ui.components.AppCardColor)
+                    // 右上角一团很淡的同色光，每张卡有自己的颜色，又不抢字
+                    .drawBehind {
+                        drawCircle(c.tint.copy(alpha = 0.08f), radius = 70.dp.toPx(), center = Offset(size.width, 0f))
+                    }
+                    .clickable(interactionSource = source, indication = null) { onAsk(c.question) }
+                    .padding(16.dp),
+            ) {
+                IconTile(c.icon, c.tint, 34.dp)
+                Spacer(Modifier.height(12.dp))
+                Text(c.title, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = ink, maxLines = 2, minLines = 2, lineHeight = 20.sp)
+                Spacer(Modifier.height(12.dp))
+                c.steps.forEachIndexed { si, step ->
+                    if (si > 0) {
+                        Box(Modifier.padding(start = 7.5.dp).width(1.dp).height(6.dp).background(c.tint.copy(alpha = 0.3f)))
+                    }
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Box(
+                            Modifier.size(16.dp).clip(CircleShape).background(c.tint.copy(alpha = 0.14f)),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Text("${si + 1}", fontSize = 9.sp, fontWeight = FontWeight.Bold, color = c.tint)
+                        }
+                        Spacer(Modifier.width(8.dp))
+                        Text(step, fontSize = 12.sp, color = muted, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    }
                 }
             }
         }
-        Spacer(Modifier.height(12.dp))
-        SectionTitle("我还能")
-        FlowRow(
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            CAPABILITIES.forEachIndexed { i, cap ->
-                CapabilityChip(cap, tint = CapTints[i % CapTints.size], index = i + 4) { onFill(cap.example) }
+    }
+}
+
+/** 「此刻」里的一行：标签、真实数据、点了发出去的问题；给了 [open] 就改成点了打开（接着上次的对话）。 */
+private class BriefLine(
+    val icon: ImageVector,
+    val label: String,
+    val value: String,
+    val question: String,
+    val warn: Boolean = false,
+    val open: (() -> Unit)? = null,
+)
+
+/**
+ * 按本地缓存拼出此刻最相关的几行，读不到的不出。时段决定最后一行给「吃饭」还是「自习」，
+ * 三天内的考试和余额告急排最前。
+ */
+private fun buildBrief(f: WelcomeFacts, now: LocalDateTime): List<BriefLine> {
+    val lines = mutableListOf<BriefLine>()
+    when {
+        f.chatter.todayHoliday != null -> lines += BriefLine(
+            Icons.Outlined.Celebration, "今天", "${f.chatter.todayHoliday}，没课", "放假这几天学校有什么安排？",
+        )
+        f.nextToday != null -> {
+            val c = f.nextToday
+            val t = hhmm(XjtuTime.getClassTime(c.startSection)?.start)
+            lines += BriefLine(
+                Icons.Outlined.EventNote, "下节课",
+                listOf(t, c.courseName, c.location).filter { it.isNotBlank() }.joinToString(" · ") +
+                    if (f.todayLeft > 1) "（今天还有 ${f.todayLeft} 节）" else "",
+                "我下节课是什么，在哪上？怎么过去最快？",
+            )
+        }
+        f.tomorrow.isNotEmpty() -> {
+            val first = f.tomorrow.first()
+            lines += BriefLine(
+                Icons.Outlined.EventNote, "明天",
+                "${f.tomorrow.size} 节 · ${hhmm(XjtuTime.getClassTime(first.startSection)?.start)} ${first.courseName}",
+                "明天有哪些课？几点开始，要不要定个闹钟？",
+            )
+        }
+    }
+    f.exam?.let { e ->
+        lines += BriefLine(
+            Icons.Outlined.Quiz, "考试", "${e.exam.courseName} ${e.label}",
+            "我最近有哪些考试？时间地点座位号都说一下，再帮我排个复习计划",
+            warn = e.daysLeft <= 3,
+        )
+    }
+    if (f.balance >= 0f) {
+        val spend = if (f.todaySpend > 0f) " · 今天花了 ¥${formatFixed(f.todaySpend, 2)}" else ""
+        lines += BriefLine(
+            Icons.Outlined.AccountBalanceWallet, "饭卡", "¥${formatFixed(f.balance, 2)}$spend",
+            "校园卡余额多少？最近一周都花在哪了？",
+            warn = f.balance < 30f,
+        )
+    }
+    f.chatter.nextHoliday?.let { (name, days) ->
+        lines += BriefLine(Icons.Outlined.BeachAccess, "放假", "距$name $days 天", "最近的假期怎么放？要调休吗？")
+    }
+    lines += if (now.hour in 10..13 || now.hour in 16..19) {
+        BriefLine(Icons.Outlined.Restaurant, "饭点", "附近哪个食堂开着", "现在去哪个食堂吃饭比较好？")
+    } else {
+        BriefLine(Icons.Outlined.MeetingRoom, "自习", "空教室和图书馆座位一起看", "现在想找个地方自习，去哪合适？")
+    }
+    return lines.sortedByDescending { it.warn }
+}
+/** 「此刻」：一张纸面卡，几行真实数据，点一行就把对应的问题发出去。 */
+@Composable
+private fun BriefCard(lines: List<BriefLine>, onAsk: (String) -> Unit) {
+    val ink = MiuixTheme.colorScheme.onSurface
+    val muted = MiuixTheme.colorScheme.onSurfaceVariantSummary
+    val enter = rememberEnter(1)
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .graphicsLayer {
+                alpha = enter.value
+                translationY = (1f - enter.value) * 12.dp.toPx()
+            }
+            .clip(RoundedCornerShape(WELCOME_RADIUS))
+            .background(com.xjtu.toolbox.ui.components.AppCardColor),
+    ) {
+        lines.forEachIndexed { i, line ->
+            if (i > 0) com.xjtu.toolbox.ui.components.RowDivider(startInset = 52.dp)
+            val accent = if (line.warn) MiuixTheme.colorScheme.error else MiuixTheme.colorScheme.primary
+            val source = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .clickable(interactionSource = source, indication = top.yukonga.miuix.kmp.utils.SinkFeedback()) {
+                        line.open?.invoke() ?: onAsk(line.question)
+                    }
+                    .padding(horizontal = 16.dp, vertical = 13.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Icon(line.icon, contentDescription = null, tint = accent, modifier = Modifier.size(20.dp))
+                Spacer(Modifier.width(16.dp))
+                Text(line.label, fontSize = 13.sp, color = muted, maxLines = 1, modifier = Modifier.width(52.dp))
+                Text(
+                    line.value,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Medium,
+                    color = if (line.warn) accent else ink,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f),
+                )
+                Icon(
+                    Icons.AutoMirrored.Filled.ArrowForward, contentDescription = "问小岱",
+                    tint = muted.copy(alpha = 0.5f), modifier = Modifier.size(15.dp),
+                )
             }
         }
-        Spacer(Modifier.height(18.dp))
-        SectionTitle("随便聊聊")
-        FlowRow(
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            PLAYFUL.forEachIndexed { i, p ->
-                PlayfulChip(p, index = i + 10) { onAsk(p.text) }
+    }
+}
+
+/** 能力目录里的一项：名字和点了填进输入框的示范问题；[needs] 非空时这一端得声明了那项能力才列出。 */
+private class Ability(val label: String, val example: String, val needs: AgentCapability? = null)
+
+private class AbilityGroup(val icon: ImageVector, val tint: Color, val title: String, val items: List<Ability>)
+
+/** 小岱的工具全貌，分四类列出（与工具表一一对应，加了工具就在这里登记）。 */
+private val ABILITIES = listOf(
+    AbilityGroup(
+        Icons.Outlined.Search, TintBlue, "学业与生活",
+        listOf(
+            Ability("课表", "这周还剩哪些课？"),
+            Ability("考试", "我最近有哪些考试？座位号多少？"),
+            Ability("成绩", "最近出了哪些成绩？GPA 多少？"),
+            Ability("考勤", "这学期我有没有缺勤？"),
+            Ability("校园卡", "最近一周饭卡都花在哪了？"),
+            Ability("空教室", "主楼现在哪些教室空着？"),
+            Ability("图书馆", "兴庆图书馆现在还有空座吗？"),
+            Ability("通知", "最近有没有推免相关的通知？"),
+            Ability("思源作业", "思源上还有哪些作业没交？"),
+            Ability("体测", "我的体测成绩怎么样？"),
+        ),
+    ),
+    AbilityGroup(
+        Icons.Outlined.TaskAlt, TintGreen, "替你办事",
+        listOf(
+            Ability("定闹钟", "明早 7 点叫我起床", AgentCapability.ALARM),
+            Ability("加日程", "把这周五下午两点的实验加进日程", AgentCapability.SCHEDULE_EVENT_WRITE),
+            Ability("记待办", "记一下：周三前交实验报告"),
+            Ability("定时任务", "每天晚上 9 点帮我看看有没有新通知"),
+            Ability("存文件", "把大学物理的历年卷存到手机里"),
+        ),
+    ),
+    AbilityGroup(
+        Icons.Outlined.Lightbulb, TintAmber, "学习答疑",
+        listOf(
+            Ability("讲题", "帮我讲讲这道题：∫ x·eˣ dx 怎么算？"),
+            Ability("看图", "我拍了一道题，帮我看看", AgentCapability.IMAGE_INPUT),
+            Ability("读课件", "帮我总结一下思源上最新那份课件"),
+            Ability("联网搜", "搜一下今年数模竞赛什么时候报名"),
+            Ability("读公众号", "仲英学辅最近发了什么？"),
+        ),
+    ),
+    AbilityGroup(
+        Icons.Outlined.Place, TintTeal, "校园指南",
+        listOf(
+            Ability("地图导航", "从西 2 楼走到梧桐苑要多久？"),
+            Ability("食堂", "兴庆校区哪些食堂晚上还开？"),
+            Ability("老师", "物理学院有哪些老师做凝聚态？"),
+            Ability("黄页", "教务处电话多少？"),
+            Ability("问 App", "这个 App 能把课表放到桌面吗？"),
+        ),
+    ),
+)
+
+/** 能力目录：每类一行标题（图标 + 名字），下面一排可点的名字，点了把示范问题填进输入框（不直接发）。 */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun CapabilityIndex(honored: Set<AgentCapability>, onFill: (String) -> Unit) {
+    val ink = MiuixTheme.colorScheme.onSurface
+    val enter = rememberEnter(3)
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .graphicsLayer {
+                alpha = enter.value
+                translationY = (1f - enter.value) * 12.dp.toPx()
+            }
+            .clip(RoundedCornerShape(WELCOME_RADIUS))
+            .background(com.xjtu.toolbox.ui.components.AppCardColor)
+            .padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(18.dp),
+    ) {
+        ABILITIES.forEach { group ->
+            val items = group.items.filter { it.needs == null || it.needs in honored }
+            Column {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    IconTile(group.icon, group.tint, 26.dp)
+                    Spacer(Modifier.width(10.dp))
+                    Text(group.title, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = ink)
+                }
+                Spacer(Modifier.height(10.dp))
+                FlowRow(
+                    Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    items.forEach { a ->
+                        Text(
+                            a.label,
+                            fontSize = 13.sp,
+                            color = ink,
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(group.tint.copy(alpha = 0.08f))
+                                .clickable { onFill(a.example) }
+                                .padding(horizontal = 12.dp, vertical = 7.dp),
+                        )
+                    }
+                }
             }
         }
     }
@@ -349,179 +590,21 @@ private fun plainHeroLine(facts: WelcomeFacts, now: LocalDateTime): String =
         ?.text
         ?: "课表、考试、空教室、饭卡，直接问我就行"
 
-/** 今日速览：一排小胶囊，把课、考试、余额、假期这些「此刻最相关的数」摆出来。读不到的不出。 */
-@Composable
-private fun TodayStrip(f: WelcomeFacts) {
-    val items = buildList {
-        when {
-            f.chatter.todayHoliday != null -> add(Triple(Icons.Outlined.Celebration, "${f.chatter.todayHoliday}", TintRose))
-            f.todayLeft > 0 -> add(Triple(Icons.Outlined.EventNote, "今天还有 ${f.todayLeft} 节", TintBlue))
-            f.tomorrow.isNotEmpty() -> add(Triple(Icons.Outlined.EventNote, "明天 ${f.tomorrow.size} 节", TintBlue))
-        }
-        f.exam?.let { add(Triple(Icons.Outlined.Quiz, "${it.exam.courseName} ${it.label}", if (it.daysLeft <= 3) TintRose else TintViolet)) }
-        f.chatter.nextHoliday?.let { (name, days) -> add(Triple(Icons.Outlined.BeachAccess, "距$name $days 天", TintTeal)) }
-    }
-    // 只有一颗时孤零零挂着反而像多余的装饰，至少两项才出
-    if (items.size < 2) return
-    val enter = rememberEnter(1)
-    Row(
-        Modifier
-            .fillMaxWidth()
-            .padding(top = 6.dp)
-            .graphicsLayer { alpha = enter.value }
-            .horizontalScroll(androidx.compose.foundation.rememberScrollState()),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        items.forEach { (icon, text, tint) ->
-            Row(
-                Modifier
-                    .clip(RoundedCornerShape(12.dp))
-                    .background(tint.copy(alpha = 0.12f))
-                    .padding(horizontal = 10.dp, vertical = 6.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Icon(icon, contentDescription = null, tint = tint, modifier = Modifier.size(14.dp))
-                Spacer(Modifier.width(5.dp))
-                Text(
-                    text,
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    color = tint,
-                    maxLines = 1,
-                )
-            }
-        }
-    }
-}
-
+/** 板块标题：正文色、一个字号，各板块同一个样子，读起来是一页而不是几块拼起来的。 */
 @Composable
 private fun SectionTitle(text: String) {
     Text(
         text,
-        style = MiuixTheme.textStyles.footnote1,
+        fontSize = 16.sp,
         fontWeight = FontWeight.SemiBold,
-        color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-        modifier = Modifier.padding(start = 4.dp, bottom = 10.dp),
+        color = MiuixTheme.colorScheme.onSurface,
+        modifier = Modifier.padding(start = 4.dp, bottom = 12.dp),
     )
 }
 
 /** 进场动画：全 App 共用的那一份（见 ui/components/Motion.kt），按序号错开依次浮上来，只播一次。 */
 @Composable
 fun rememberEnter(index: Int) = com.xjtu.toolbox.ui.components.rememberEnterProgress(index)
-
-@Composable
-private fun SuggestionCard(s: Suggestion, index: Int, modifier: Modifier, onClick: () -> Unit) {
-    val enter = rememberEnter(index + 2)
-    val accent = if (s.warn) MiuixTheme.colorScheme.error else s.tint
-    val source = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
-    Box(
-        modifier
-            .graphicsLayer {
-                alpha = enter.value
-                translationY = (1f - enter.value) * 16.dp.toPx()
-            }
-            .pressScale(source, pressed = 0.95f)
-            .heightIn(min = 116.dp)
-            .clip(RoundedCornerShape(20.dp))
-            .background(
-                Brush.linearGradient(
-                    listOf(accent.copy(alpha = 0.15f), com.xjtu.toolbox.ui.components.AppCardColor),
-                    start = Offset.Zero,
-                    end = Offset(600f, 600f),
-                )
-            )
-            .clickable(interactionSource = source, indication = null, onClick = onClick),
-    ) {
-        // 右下角一枚放大、很淡的同款图标当水印
-        Icon(
-            s.icon,
-            contentDescription = null,
-            tint = accent.copy(alpha = 0.10f),
-            modifier = Modifier
-                .align(Alignment.BottomEnd)
-                .padding(end = 6.dp, bottom = 4.dp)
-                .size(64.dp)
-                .graphicsLayer { rotationZ = -12f },
-        )
-        Column(Modifier.padding(14.dp)) {
-            Box(
-                Modifier
-                    .size(34.dp)
-                    .clip(RoundedCornerShape(11.dp))
-                    .background(accent.copy(alpha = 0.18f)),
-                contentAlignment = Alignment.Center,
-            ) {
-                Icon(s.icon, contentDescription = null, tint = accent, modifier = Modifier.size(19.dp))
-            }
-            Spacer(Modifier.height(10.dp))
-            Text(
-                s.title,
-                fontSize = 15.sp,
-                fontWeight = FontWeight.Bold,
-                color = MiuixTheme.colorScheme.onSurface,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-            Spacer(Modifier.height(3.dp))
-            Text(
-                s.preview,
-                style = MiuixTheme.textStyles.footnote1,
-                color = if (s.warn) accent else MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-            )
-        }
-    }
-}
-
-@Composable
-private fun CapabilityChip(cap: Capability, tint: Color, index: Int, onClick: () -> Unit) {
-    val enter = rememberEnter(index)
-    val source = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
-    Row(
-        Modifier
-            .graphicsLayer { alpha = enter.value }
-            .pressScale(source, pressed = 0.95f)
-            .clip(RoundedCornerShape(14.dp))
-            .background(com.xjtu.toolbox.ui.components.AppCardColor)
-            .clickable(interactionSource = source, indication = null, onClick = onClick)
-            .padding(start = 6.dp, end = 12.dp, top = 6.dp, bottom = 6.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Box(
-            Modifier
-                .size(26.dp)
-                .clip(RoundedCornerShape(9.dp))
-                .background(tint.copy(alpha = 0.15f)),
-            contentAlignment = Alignment.Center,
-        ) {
-            Icon(cap.icon, contentDescription = null, tint = tint, modifier = Modifier.size(15.dp))
-        }
-        Spacer(Modifier.width(7.dp))
-        Text(cap.label, style = MiuixTheme.textStyles.footnote1, fontWeight = FontWeight.Medium, color = MiuixTheme.colorScheme.onSurface)
-    }
-}
-
-@Composable
-private fun PlayfulChip(p: Playful, index: Int, onClick: () -> Unit) {
-    val enter = rememberEnter(index)
-    val source = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
-    val primary = MiuixTheme.colorScheme.primary
-    Row(
-        Modifier
-            .graphicsLayer { alpha = enter.value }
-            .pressScale(source, pressed = 0.95f)
-            .clip(RoundedCornerShape(20.dp))
-            .background(Brush.linearGradient(listOf(primary.copy(alpha = 0.10f), TintRose.copy(alpha = 0.08f))))
-            .clickable(interactionSource = source, indication = null, onClick = onClick)
-            .padding(horizontal = 12.dp, vertical = 8.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Icon(p.icon, contentDescription = null, tint = primary, modifier = Modifier.size(15.dp))
-        Spacer(Modifier.width(6.dp))
-        Text(p.text, style = MiuixTheme.textStyles.footnote1, fontWeight = FontWeight.Medium, color = MiuixTheme.colorScheme.onSurface)
-    }
-}
 
 /** 没配模型：一张主色引导卡 + 一小段示范对话，先让人知道配好之后能干什么。 */
 @Composable
@@ -538,7 +621,7 @@ private fun SetupCard(onOpenConfig: () -> Unit) {
             }
             .pressScale(source, pressed = 0.95f)
             .clip(RoundedCornerShape(24.dp))
-            .background(Brush.linearGradient(listOf(primary, TintViolet.copy(alpha = 0.85f))))
+            .background(primary)
             .drawBehind {
                 // 右上角两圈半透明的光环当装饰
                 drawCircle(Color.White.copy(alpha = 0.10f), radius = 90.dp.toPx(), center = Offset(size.width, 0f))

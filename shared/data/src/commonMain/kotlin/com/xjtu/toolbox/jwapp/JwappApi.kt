@@ -74,8 +74,9 @@ class JwappApi(private val site: SiteSession) {
 
                 val courseName = s.get("courseName").safeString()
 
-                // 从 "课程名(课程号)" 提取 courseCode（CjcxApi enrichment 会覆盖）
-                val extractedCode = Regex("\\(([A-Z]{2,}\\d{4,}\\w*)\\)$")
+                // 从 "课程名(课程号)" 提取 courseCode（CjcxApi enrichment 会覆盖）。
+                // 不要求字母开头：教务会把课号录成 0HYS303500 这样，学业进度那边要靠它对上方案
+                val extractedCode = Regex("\\(([A-Za-z0-9]{6,})\\)$")
                     .find(courseName.trim())?.groupValues?.get(1)
 
                 ScoreItem(

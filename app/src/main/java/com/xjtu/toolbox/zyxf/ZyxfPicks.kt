@@ -88,7 +88,7 @@ internal fun ZyxfPicksCard(
         title = "为你找资料",
         state = state,
         modifier = modifier,
-        subtitle = if (input == null) "日程页同步过课表后，屁岱按你的课来找" else "按你这学期的课和考试找",
+        subtitle = if (input == null) "日程页同步过课表后，小岱按你的课来找" else "按你这学期的课和考试找",
         askPrompt = { "学辅里这几份资料，挑最该看的帮我讲讲重点。" },
     ) { json ->
         json["summary"].safeStringOrNull()?.takeIf { it.isNotBlank() }?.let {
@@ -125,7 +125,7 @@ private fun PickRow(
         PidaiChipRow {
             PidaiChip("预览", icon = Icons.Filled.Visibility, onClick = { onPreview(entry) })
             PidaiChip(downloadState(id) ?: "下载", icon = Icons.Filled.Download, enabled = downloadState(id) == null, onClick = { onDownload(entry) })
-            PidaiChip("让屁岱讲", icon = Icons.AutoMirrored.Filled.Chat, emphasized = true, onClick = {
+            PidaiChip("让小岱讲", icon = Icons.AutoMirrored.Filled.Chat, emphasized = true, onClick = {
                 AgentInsightHub.insights.ask(
                     "帮我讲讲学辅资料「$name」：先读它（file_id $id），再挑重点讲，有题就讲思路。",
                     null,

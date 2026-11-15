@@ -2,6 +2,7 @@
 
 package com.xjtu.toolbox.faculty
 
+
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.background
@@ -49,22 +50,23 @@ import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.xjtu.toolbox.ui.glass.tabContentPadding
+import com.xjtu.toolbox.ui.glass.tabContentBottomPadding
 import com.xjtu.toolbox.ui.components.AppSearchBar
 import com.xjtu.toolbox.ui.components.EmptyState
 import com.xjtu.toolbox.ui.components.ErrorState
 import com.xjtu.toolbox.ui.components.LoadingState
 import com.xjtu.toolbox.ui.components.rememberRetainedLazyListState
 import com.xjtu.toolbox.ui.glass.*
+import com.xjtu.toolbox.ui.glass.rememberCouiTopAppBarScrollBehavior
 import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.CardDefaults
 import top.yukonga.miuix.kmp.basic.HorizontalDivider
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.IconButton
-import top.yukonga.miuix.kmp.basic.MiuixScrollBehavior
 import top.yukonga.miuix.kmp.basic.Scaffold
 import top.yukonga.miuix.kmp.basic.Surface
 import top.yukonga.miuix.kmp.basic.Text
-import top.yukonga.miuix.kmp.basic.rememberTopAppBarState
 import top.yukonga.miuix.kmp.overlay.OverlayBottomSheet
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.utils.PressFeedbackType
@@ -89,7 +91,7 @@ fun FacultyScreen(
     avatar: @Composable (FacultyMember, Int) -> Unit = { member, size -> InitialsFacultyAvatar(member, size) },
 ) {
     val vm: FacultyViewModel = viewModel { FacultyViewModel(source) }
-    val scrollBehavior = MiuixScrollBehavior(rememberTopAppBarState())
+    val scrollBehavior = rememberCouiTopAppBarScrollBehavior()
     val listState = rememberRetainedLazyListState("faculty_results")
     var picker by remember { mutableStateOf<PickerTarget?>(null) }
     val members = vm.members
@@ -191,10 +193,11 @@ fun FacultyScreen(
             }
             }
 
+            com.xjtu.toolbox.ui.glass.ReportScrollPosition(listState, scrollBehavior)
             LazyColumn(
                 state = listState,
                 modifier = Modifier.fillMaxSize().overScrollVertical(),
-                contentPadding = PaddingValues(start = 12.dp, end = 12.dp, top = padding.glassTop(glass), bottom = 24.dp),
+                contentPadding = tabContentPadding(PaddingValues(start = 12.dp, end = 12.dp, top = padding.glassTop(glass), bottom = 24.dp)),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 item(key = "search") { searchBar() }
@@ -402,6 +405,8 @@ private fun FacultyDetailSheet(
     OverlayBottomSheet(
         show = member != null,
         title = shown.name,
+        // 抽屉默认白底，详情里的信息卡也是白的；垫 surface 灰底才分得出
+        backgroundColor = MiuixTheme.colorScheme.surface,
         onDismissRequest = onDismiss,
     ) {
         FacultyDetailBody(
@@ -439,7 +444,7 @@ private fun FacultyDetailPane(
         Modifier
             .fillMaxSize()
             .overScrollVertical()
-            .verticalScroll(rememberScrollState())
+            .verticalScroll(rememberScrollState()).tabContentBottomPadding()
             .padding(horizontal = 20.dp),
     ) {
         Spacer(Modifier.height(topPadding + 12.dp))

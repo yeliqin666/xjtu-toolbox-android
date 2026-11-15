@@ -73,6 +73,9 @@ fun AppTabPager(
         // 按下标做 key：各栏的 rememberSaveable（列表滚动位置等）跟着页走，切走再切回来还在。
         key = { it },
     ) { page ->
-        content(page)
+        // 只有选中的那页向顶栏报滚动位置（相邻页也在组合里，见 LocalScrollReportActive）
+        androidx.compose.runtime.CompositionLocalProvider(
+            com.xjtu.toolbox.ui.glass.LocalScrollReportActive provides (pagerState.targetPage == page),
+        ) { content(page) }
     }
 }

@@ -84,7 +84,7 @@ interface AgentTools {
 
 /** 按 DeepSeek 错误码表转成能照着办的中文；400/422 等参数类错误保留服务端原文，便于排查。 */
 fun agentHttpErrorText(code: Int, serverMessage: String): String = when (code) {
-    401 -> "API Key 无效，请到屁岱设置里检查。"
+    401 -> "API Key 无效，请到小岱设置里检查。"
     402 -> "AI 服务商账户余额不足，请先充值。"
     429 -> "请求太频繁，请稍后再试。"
     500, 502, 503 -> "AI 服务商暂时繁忙（HTTP $code），请稍后再试。"

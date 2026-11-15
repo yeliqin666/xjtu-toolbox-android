@@ -170,8 +170,12 @@ fun OnlineLobbyContent(
                 Spacer12()
                 // 开房的人定规则：先后手、以及各棋自己的参数（围棋路数）
                 LobbyOptionRow("先后手") {
-                    LobbyChip("我先走", state.hostFirst) { state.hostFirst = true }
-                    LobbyChip("对方先走", !state.hostFirst) { state.hostFirst = false }
+                    com.xjtu.toolbox.ui.components.AppSegmentedTabs(
+                        tabs = listOf("我先走", "对方先走"),
+                        selectedTabIndex = if (state.hostFirst) 0 else 1,
+                        onTabSelected = { state.hostFirst = it == 0 },
+                        compact = true,
+                    )
                 }
                 hostOptions?.let {
                     Box(Modifier.height(8.dp))
@@ -182,7 +186,7 @@ fun OnlineLobbyContent(
                     Text("创建房间（我显示二维码）", color = MiuixTheme.colorScheme.onPrimary)
                 }
                 Spacer(8.dp)
-                Button(onClick = { withBlePermission { state.beginScanning() } }, modifier = Modifier.fillMaxWidth()) {
+                Button(onClick = { withBlePermission { state.beginScanning() } }, modifier = Modifier.fillMaxWidth(), colors = com.xjtu.toolbox.ui.components.appTonalButtonColors()) {
                     Text("加入房间（我扫对方的码）")
                 }
                 Spacer(8.dp)
@@ -201,7 +205,7 @@ fun OnlineLobbyContent(
                 Spacer(8.dp)
                 Text(state.statusText, style = MiuixTheme.textStyles.body2, textAlign = TextAlign.Center)
                 Spacer12()
-                TextButton(text = "取消等待", onClick = cancel)
+                com.xjtu.toolbox.ui.components.TextLink(text = "取消等待", onClick = cancel)
             }
 
             LobbyStage.JOIN_SCANNING -> {
@@ -222,7 +226,7 @@ fun OnlineLobbyContent(
                     )
                 }
                 Spacer12()
-                TextButton(text = "取消", onClick = cancel)
+                com.xjtu.toolbox.ui.components.TextLink(text = "取消", onClick = cancel)
             }
 
             LobbyStage.JOIN_CONNECTING -> {
@@ -230,7 +234,7 @@ fun OnlineLobbyContent(
                 Spacer(8.dp)
                 Text(state.statusText, style = MiuixTheme.textStyles.body2, textAlign = TextAlign.Center)
                 Spacer12()
-                TextButton(text = "取消", onClick = cancel)
+                com.xjtu.toolbox.ui.components.TextLink(text = "取消", onClick = cancel)
             }
 
             LobbyStage.FAILED -> {
@@ -238,11 +242,11 @@ fun OnlineLobbyContent(
                 Spacer12()
                 Text(state.failReason, style = MiuixTheme.textStyles.body2, textAlign = TextAlign.Center)
                 Spacer12()
-                Button(onClick = { state.reset() }, modifier = Modifier.fillMaxWidth()) {
-                    Text("重试")
+                Button(onClick = { state.reset() }, modifier = Modifier.fillMaxWidth(), colors = ButtonDefaults.buttonColorsPrimary()) {
+                    Text("重试", color = MiuixTheme.colorScheme.onPrimary)
                 }
                 Spacer(8.dp)
-                TextButton(text = "返回", onClick = cancel)
+                com.xjtu.toolbox.ui.components.TextLink(text = "返回", onClick = cancel)
             }
         }
     }

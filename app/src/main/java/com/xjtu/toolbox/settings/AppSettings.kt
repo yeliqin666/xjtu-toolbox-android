@@ -4,7 +4,6 @@ import android.Manifest
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
-import android.os.Build
 import android.provider.Settings
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -73,6 +72,8 @@ import com.xjtu.toolbox.notification.SourceCategory
 import com.xjtu.toolbox.platform.BackHandler
 import com.xjtu.toolbox.schedule.ScheduleSource
 import com.xjtu.toolbox.ui.components.AppFilterChip
+import com.xjtu.toolbox.ui.components.ArrowPreference
+import com.xjtu.toolbox.ui.components.SwitchPreference
 import com.xjtu.toolbox.update.AppChangelog
 import com.xjtu.toolbox.update.AppUpdateInfo
 import com.xjtu.toolbox.update.AppUpdater
@@ -92,15 +93,13 @@ import top.yukonga.miuix.kmp.basic.Surface
 import top.yukonga.miuix.kmp.basic.ButtonDefaults
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.RadioButton
-import top.yukonga.miuix.kmp.basic.SmallTitle
+import com.xjtu.toolbox.ui.components.SmallTitle
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextButton
 import top.yukonga.miuix.kmp.basic.TextField
 import top.yukonga.miuix.kmp.overlay.OverlayBottomSheet
 import top.yukonga.miuix.kmp.overlay.OverlayDialog
-import top.yukonga.miuix.kmp.preference.ArrowPreference
 import top.yukonga.miuix.kmp.preference.OverlayDropdownPreference
-import top.yukonga.miuix.kmp.preference.SwitchPreference
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 /** Android 侧的设置页宿主。 */
@@ -108,12 +107,14 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
 fun rememberAppSettingsHost(
     credentialStore: CredentialStore,
     onNetworkModeChanged: suspend () -> Unit,
+    /** 「设置 → 小岱」那一整页；`AppSettings` 在 `:app`，小岱面板在 `:feature:agent`，从外面递进来。 */
+    agentPage: (@Composable (onBack: () -> Unit) -> Unit)? = null,
 ): SettingsHost {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val uriHandler = LocalUriHandler.current
-    return remember(credentialStore, context, scope, uriHandler) {
-        AppSettingsHost(context, credentialStore, scope, onNetworkModeChanged) { uriHandler.openUri(it) }
+    return remember(credentialStore, context, scope, uriHandler, agentPage) {
+        AppSettingsHost(context, credentialStore, scope, onNetworkModeChanged, agentPage) { uriHandler.openUri(it) }
     }
 }
 
@@ -122,8 +123,11 @@ private class AppSettingsHost(
     private val credentialStore: CredentialStore,
     private val scope: CoroutineScope,
     private val notifyNetworkModeChanged: suspend () -> Unit,
+    private val agentPageImpl: (@Composable (onBack: () -> Unit) -> Unit)?,
     private val openUri: (String) -> Unit,
 ) : SettingsHost {
+
+    override val agentPage: (@Composable (onBack: () -> Unit) -> Unit)? get() = agentPageImpl
 
     override val versionText: String =
         "v${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})${if (BuildConfig.IS_PREVIEW) "（预览版）" else ""}"
@@ -143,6 +147,7 @@ private class AppSettingsHost(
         ScheduleSource.entries.map { ScheduleSourceOption(it.key, it.label) }
 
     override val noticeSection: @Composable () -> Unit = { NoticeAndReminderSection(context, scope) }
+    override val launcherShortcutPreference: @Composable () -> Unit = { com.xjtu.toolbox.shortcuts.LauncherShortcutPreference() }
 
     override val dataPrivacySection: @Composable () -> Unit = { DataPrivacySection(context, scope) }
 
@@ -229,11 +234,7 @@ private fun NoticeAndReminderSection(context: Context, scope: CoroutineScope) {
             commitReminder(kind, false)
             return
         }
-        val needAsk = Build.VERSION.SDK_INT >= 33 &&
-            ContextCompat.checkSelfPermission(
-                context,
-                Manifest.permission.POST_NOTIFICATIONS
-            ) != PackageManager.PERMISSION_GRANTED
+        val needAsk = ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
         if (needAsk) {
             pendingReminder = kind
             reminderPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
@@ -260,14 +261,10 @@ private fun NoticeAndReminderSection(context: Context, scope: CoroutineScope) {
         SwitchPreference(
             title = "新通知提醒",
             checked = noticeWatchEnabled,
-            startAction = { SettingsIcon(Icons.Default.Notifications) },
+            startAction = { SettingsIcon(Icons.Default.Notifications, SettingsColors.Orange) },
             onCheckedChange = { on ->
                 if (on) {
-                    val needAsk = Build.VERSION.SDK_INT >= 33 &&
-                        ContextCompat.checkSelfPermission(
-                            context,
-                            Manifest.permission.POST_NOTIFICATIONS
-                        ) != PackageManager.PERMISSION_GRANTED
+                    val needAsk = ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
                     if (needAsk) {
                         noticePermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
                     } else {
@@ -281,37 +278,38 @@ private fun NoticeAndReminderSection(context: Context, scope: CoroutineScope) {
         ArrowPreference(
             title = "推送来源",
             summary = noticeWatchSummary,
-            startAction = { SettingsIcon(Icons.Default.CloudSync) },
+            startAction = { SettingsIcon(Icons.Default.CloudSync, SettingsColors.Blue) },
             onClick = { showNoticeSources = true }
         )
     }
+    DynamicSchedulePreference()
     SmallTitle("后台提醒")
     SettingsCard {
         SwitchPreference(
             title = ReminderKind.LIBRARY.title,
             summary = "签到快超时、暂离未返座",
             checked = reminderLibrary,
-            startAction = { SettingsIcon(Icons.Default.EventSeat) },
+            startAction = { SettingsIcon(Icons.Default.EventSeat, SettingsColors.Teal) },
             onCheckedChange = { on -> applyReminder(ReminderKind.LIBRARY, on) }
         )
         SwitchPreference(
             title = ReminderKind.SCHEDULE.title,
             summary = "调课、停课、考前 3 天",
             checked = reminderSchedule,
-            startAction = { SettingsIcon(Icons.Default.CalendarMonth) },
+            startAction = { SettingsIcon(Icons.Default.CalendarMonth, SettingsColors.Blue) },
             onCheckedChange = { on -> applyReminder(ReminderKind.SCHEDULE, on) }
         )
         SwitchPreference(
             title = ReminderKind.LMS.title,
             summary = "作业截止前 48 小时未交",
             checked = reminderLms,
-            startAction = { SettingsIcon(Icons.AutoMirrored.Filled.Assignment) },
+            startAction = { SettingsIcon(Icons.AutoMirrored.Filled.Assignment, SettingsColors.Indigo) },
             onCheckedChange = { on -> applyReminder(ReminderKind.LMS, on) }
         )
         ArrowPreference(
             title = "提醒不准时？",
             summary = "在系统设置里取消省电限制",
-            startAction = { SettingsIcon(Icons.Default.BatteryAlert) },
+            startAction = { SettingsIcon(Icons.Default.BatteryAlert, SettingsColors.Orange) },
             onClick = {
                 // 只跳系统的电池优化列表，不申请 REQUEST_IGNORE_BATTERY_OPTIMIZATIONS
                 // 直接弹窗：那个权限要在清单里声明，且上架审核会追问用途。
@@ -331,14 +329,14 @@ private fun NoticeAndReminderSection(context: Context, scope: CoroutineScope) {
             title = ReminderKind.COMMUNITY_REPLY.title,
             summary = "自己发的帖子有新回复，需先登录社区",
             checked = reminderReply,
-            startAction = { SettingsIcon(Icons.Default.Forum) },
+            startAction = { SettingsIcon(Icons.Default.Forum, SettingsColors.Purple) },
             onCheckedChange = { on -> commitReminder(ReminderKind.COMMUNITY_REPLY, on) }
         )
         SwitchPreference(
             title = ReminderKind.COMMUNITY_MENTION.title,
             summary = "任意帖子或评论里 @ 了我",
             checked = reminderMention,
-            startAction = { SettingsIcon(Icons.Default.AlternateEmail) },
+            startAction = { SettingsIcon(Icons.Default.AlternateEmail, SettingsColors.Indigo) },
             onCheckedChange = { on -> commitReminder(ReminderKind.COMMUNITY_MENTION, on) }
         )
     }
@@ -355,7 +353,7 @@ private fun NoticeAndReminderSection(context: Context, scope: CoroutineScope) {
 
 @Composable
 private fun DataPrivacySection(context: Context, scope: CoroutineScope) {
-    var cacheSizeText by remember { mutableStateOf("计算中...") }
+    var cacheSizeText by remember { mutableStateOf("计算中…") }
     var showClearCacheDialog by remember { mutableStateOf(false) }
     var crashReportEnabled by remember { mutableStateOf(com.xjtu.toolbox.error.CrashReporter.isEnabled(context)) }
 
@@ -421,14 +419,14 @@ private fun DataPrivacySection(context: Context, scope: CoroutineScope) {
         ArrowPreference(
             title = "清除缓存",
             summary = cacheSizeText,
-            startAction = { SettingsIcon(Icons.Default.Refresh) },
+            startAction = { SettingsIcon(Icons.Default.Refresh, SettingsColors.BlueGray) },
             onClick = { showClearCacheDialog = true }
         )
         SwitchPreference(
             title = "自动上报崩溃日志",
             summary = "匿名，已去除学号等个人信息",
             checked = crashReportEnabled,
-            startAction = { SettingsIcon(Icons.Default.BugReport) },
+            startAction = { SettingsIcon(Icons.Default.BugReport, SettingsColors.Pink) },
             onCheckedChange = {
                 crashReportEnabled = it
                 com.xjtu.toolbox.error.CrashReporter.setEnabled(context, it)
@@ -437,7 +435,7 @@ private fun DataPrivacySection(context: Context, scope: CoroutineScope) {
         ArrowPreference(
             title = "导出数据存档",
             summary = "把本机数据导出成一份 zip（不含密码等凭据），同时在本机留一份目录副本",
-            startAction = { SettingsIcon(Icons.Default.Upload) },
+            startAction = { SettingsIcon(Icons.Default.Upload, SettingsColors.Teal) },
             onClick = {
                 scope.launch {
                     val archive = withContext(Dispatchers.IO) { runCatching { AppArchiveUx.exportArchive(context) }.getOrNull() }
@@ -454,7 +452,7 @@ private fun DataPrivacySection(context: Context, scope: CoroutineScope) {
         ArrowPreference(
             title = "导入数据存档",
             summary = "从 zip 档案导入（默认不覆盖本机数据）",
-            startAction = { SettingsIcon(Icons.Default.Download) },
+            startAction = { SettingsIcon(Icons.Default.Download, SettingsColors.Blue) },
             onClick = { importLauncher.launch(arrayOf("*/*")) },
         )
     }
@@ -586,6 +584,7 @@ private fun DataPrivacySection(context: Context, scope: CoroutineScope) {
                             // 重新计算实际缓存大小，刷新 UI
                             val newSize = runCatching { clearableCacheBytes(context) }.map(::formatFileSize).getOrDefault("0 B")
                             com.xjtu.toolbox.widget.ScheduleWidgetUpdater.requestUpdate(context)
+                            com.xjtu.toolbox.notification.DynamicScheduleScheduler.requestRefresh(context)
                             withContext(Dispatchers.Main) {
                                 cacheSizeText = newSize
                                 Toast.makeText(
@@ -613,11 +612,11 @@ private fun UpdateSection(context: Context, scope: CoroutineScope, credentialSto
 
     SmallTitle("更新")
     SettingsCard {
-        OverlayDropdownPreference(
+        com.xjtu.toolbox.ui.components.AppDropdownPreference(
             title = "更新渠道",
             items = AppUpdater.channelLabels,
             selectedIndex = AppUpdater.channelKeys.indexOf(updateChannel).coerceAtLeast(0),
-            startAction = { SettingsIcon(Icons.Default.Star) },
+            startAction = { SettingsIcon(Icons.Default.Star, SettingsColors.Green) },
             onSelectedIndexChange = { idx ->
                 val v = AppUpdater.channelKeys[idx]
                 updateChannel = v
@@ -628,7 +627,7 @@ private fun UpdateSection(context: Context, scope: CoroutineScope, credentialSto
             title = "接收预览版更新",
             summary = if (receivePreviewUpdates) "预览版可能不稳定" else null,
             checked = receivePreviewUpdates,
-            startAction = { SettingsIcon(Icons.Default.CloudSync) },
+            startAction = { SettingsIcon(Icons.Default.CloudSync, SettingsColors.Blue) },
             onCheckedChange = { checked ->
                 if (checked) {
                     showPreviewConfirmDialog = true
@@ -642,7 +641,7 @@ private fun UpdateSection(context: Context, scope: CoroutineScope, credentialSto
         ArrowPreference(
             title = "立即检查更新",
             summary = if (checkingUpdate) "正在检查…" else null,
-            startAction = { SettingsIcon(Icons.Default.Refresh) },
+            startAction = { SettingsIcon(Icons.Default.Refresh, SettingsColors.Teal) },
             onClick = {
                 if (checkingUpdate) return@ArrowPreference
                 checkingUpdate = true
@@ -721,9 +720,12 @@ private fun NoticeSourceSheet(
     val context = LocalContext.current
     var selected by remember(show) { mutableStateOf(NoticeWatchStore.sources(context)) }
     var keywords by remember(show) { mutableStateOf(NoticeWatchStore.keywordsRaw(context)) }
+    var aiTags by remember(show) { mutableStateOf(NoticeWatchStore.aiTagsEnabled(context)) }
+    val agentConfigured = remember(show) { com.xjtu.toolbox.agent.AgentConfigStore().load().isConfigured }
     fun close() {
         NoticeWatchStore.setSources(context, selected)
         NoticeWatchStore.setKeywords(context, keywords)
+        NoticeWatchStore.setAiTagsEnabled(context, aiTags)
         onDismiss()
     }
     BackHandler(enabled = show) { close() }
@@ -797,42 +799,24 @@ private fun NoticeSourceSheet(
                 modifier = Modifier.fillMaxWidth(),
                 singleLine = true,
             )
+            SwitchPreference(
+                title = "小岱给推送加标签",
+                summary = if (agentConfigured) "标出与你相关、要报名、可忽略。每批新通知调用一次你配置的模型，会消耗额度；通知标题和你的身份信息会发给模型"
+                else "先在小岱里配置模型才能开启",
+                checked = aiTags && agentConfigured,
+                onCheckedChange = { aiTags = it },
+                enabled = agentConfigured,
+                modifier = Modifier.padding(top = 12.dp),
+            )
             Spacer(Modifier.height(16.dp))
         }
     }
 }
 
-/** 设置页的「一行一图标」，与共享屏的 `SettingsIcon` 视觉一致。 */
-@Composable
-private fun SettingsIcon(icon: androidx.compose.ui.graphics.vector.ImageVector) {
-    val color = MiuixTheme.colorScheme.primary
-    top.yukonga.miuix.kmp.basic.Surface(
-        shape = androidx.compose.foundation.shape.CircleShape,
-        color = color.copy(alpha = 0.12f),
-        modifier = Modifier.size(32.dp)
-    ) {
-        androidx.compose.foundation.layout.Box(
-            contentAlignment = androidx.compose.ui.Alignment.Center,
-            modifier = Modifier.fillMaxSize()
-        ) {
-            Icon(icon, contentDescription = null, modifier = Modifier.size(18.dp), tint = color)
-        }
-    }
-    Spacer(Modifier.width(12.dp))
-}
-
 /** 设置页分组卡片的外壳（与共享屏的私有 `SettingsCard` 一致）。 */
 @Composable
-private fun SettingsCard(content: @Composable androidx.compose.foundation.layout.ColumnScope.() -> Unit) {
-    top.yukonga.miuix.kmp.basic.Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 4.dp),
-        cornerRadius = 16.dp,
-        colors = top.yukonga.miuix.kmp.basic.CardDefaults.defaultColors(color = MiuixTheme.colorScheme.surfaceVariant)
-    ) {
-        Column(content = content)
-    }
+private fun SettingsCard(content: @Composable () -> Unit) {
+    com.xjtu.toolbox.ui.components.CouiSettingsCard(content = content)
 }
 
 /** 清缓存时保留 cacheDir 下的 updates/：已经下载好、等着安装的更新包。 */

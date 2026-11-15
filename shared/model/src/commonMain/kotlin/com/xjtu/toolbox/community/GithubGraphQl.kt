@@ -166,6 +166,28 @@ class GraphQlGithubDiscussionsRepository(
         buildJsonObject { put("owner", owner); put("name", name); put("number", number) }
     ) { discussion(it.getValue("repository").jsonObject.getValue("discussion").jsonObject) }
 
+    // 编号是整数，直接拼进查询；查不到的编号 GitHub 会报 NOT_FOUND，其余结果照常返回
+    override suspend fun referenceKinds(owner: String, name: String, numbers: Set<Int>): Result<Map<Int, GithubRefKind>> {
+        if (numbers.isEmpty()) return Result.success(emptyMap())
+        val fields = numbers.joinToString(" ") { "d$it:discussion(number:$it){number} i$it:issueOrPullRequest(number:$it){__typename}" }
+        return execute(
+            "query(\$owner:String!,\$name:String!){repository(owner:\$owner,name:\$name){$fields}}",
+            buildJsonObject { put("owner", owner); put("name", name) },
+            allowPartial = true,
+        ) { data ->
+            val repository = data["repository"] as? JsonObject ?: return@execute emptyMap()
+            numbers.mapNotNull { number ->
+                val issue = repository["i$number"] as? JsonObject
+                when {
+                    repository["d$number"] is JsonObject -> number to GithubRefKind.DISCUSSION
+                    issue == null -> null
+                    issue.optText("__typename") == "PullRequest" -> number to GithubRefKind.PULL_REQUEST
+                    else -> number to GithubRefKind.ISSUE
+                }
+            }.toMap()
+        }
+    }
+
     /** 删除整个帖子（仓库管理员或发帖人）。 */
     override suspend fun deleteDiscussion(id: String): Result<Unit> = execute(
         "mutation(\$input:DeleteDiscussionInput!){deleteDiscussion(input:\$input){clientMutationId}}",
@@ -252,7 +274,12 @@ class GraphQlGithubDiscussionsRepository(
             buildJsonObject { put("input", input) }) { Unit }
 
     /** 一次 GraphQL 往返：鉴权头、401 回调、限流/错误判定、`data` 的取出——全在这一处。 */
-    private suspend fun <T> execute(query: String, variables: JsonObject, decode: (JsonObject) -> T): Result<T> = withContext(dispatcher) {
+    private suspend fun <T> execute(
+        query: String,
+        variables: JsonObject,
+        allowPartial: Boolean = false,
+        decode: (JsonObject) -> T,
+    ): Result<T> = withContext(dispatcher) {
         githubRunCatching {
             val accessToken = token() ?: throw GithubSignedOutException()
             val body = buildJsonObject { put("query", query); put("variables", variables) }
@@ -261,7 +288,7 @@ class GraphQlGithubDiscussionsRepository(
             if (response.status !in 200..299) throw githubApiExceptionOf(response)
             val payload = Json.parseToJsonElement(response.body).jsonObject
             val errors = payload["errors"]?.jsonArray
-            if (errors?.isNotEmpty() == true) {
+            if (errors?.isNotEmpty() == true && !(allowPartial && payload["data"] is JsonObject)) {
                 throw GithubDiscussionException(errors.first().jsonObject["message"]?.jsonPrimitive?.contentOrNull)
             }
             decode(payload.getValue("data").jsonObject)

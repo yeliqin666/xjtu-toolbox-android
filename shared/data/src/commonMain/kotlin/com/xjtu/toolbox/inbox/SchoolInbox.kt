@@ -58,6 +58,13 @@ object SchoolInbox {
         }
     }
 
+    /** 只重拉事务中心待办。失败保留上次结果。 */
+    suspend fun refreshTodos(site: SiteSession, account: String?) = withContext(Dispatchers.IO) {
+        runCatching { InboxStore.setTodos(InboxCategories.SCHOOL_TODO, parseTodos(get(site, TODOS)), account) }
+            .onFailure { Log.w(TAG, "todos: ${it.message}") }
+        Unit
+    }
+
     private suspend fun get(site: SiteSession, url: String): JsonObject =
         site.executeWithReAuth(Request.Builder().url(url).get().build()).use { resp ->
             if (!resp.isSuccessful) error("HTTP ${resp.code}")

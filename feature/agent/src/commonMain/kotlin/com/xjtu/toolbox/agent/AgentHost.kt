@@ -33,12 +33,11 @@ interface AgentHost {
     val configHint: String get() = "API Key 配好就能聊"
 
     /**
-     * 「改上一条」那条横幅左边的字（`AgentChat`：正在改上一条时画在输入栏上方）。
+     * 「改上一条」胶囊上的字（`AgentChat`：正在改上一条时画在输入栏上方）。
      *
-     * 默认值就是 `:app` 上的那三个字。做不到「真把上一轮换掉」的端（浏览器：serve 契约里没有替换上一轮的
-     * 入口）要在这里如实说清它实际做了什么，而不是接着用一句说不出口的短话。
+     * 做不到「真把上一轮换掉」的端（浏览器：serve 契约里没有替换上一轮的入口）要在这里如实说清它实际做了什么。
      */
-    val editLastLabel: String get() = "改上一条"
+    val editLastLabel: String get() = "改上一条，发送后替换原问题"
 
     // ── 1. 端装配 ─────────────────────────────────────────────────────────────
 
@@ -120,11 +119,17 @@ interface AgentHost {
     /** 删掉这些附件文件（会话被删、附件被撤回时调用）。 */
     fun deleteImageFiles(paths: List<String>): Unit = Unit
 
+    fun sharedMaterials(): AgentShareStore? = null
+    fun copySharedImages(paths: List<String>): List<String> = emptyList()
+
     /** 读工具落下的平面图缓存（图书馆座位卡的底图，`:app` = `cacheDir/library_plan/<name>`）。 */
     suspend fun readPlanImage(name: String): DecodedPlanImage? = null
 
     /** 把仲英学辅资料站的一个文件存进「下载」（资料卡那一行的动作）。 */
     suspend fun saveZyxfFile(fileId: Int): String? = null
+
+    /** 生成开始 / 结束（`:app` 借此挂前台服务，切出 App 后进程不被冻结、流式不断）。 */
+    fun generating(active: Boolean) {}
 
     companion object {
 

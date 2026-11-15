@@ -8,6 +8,16 @@
     <uses-permission android:name="com.android.alarm.permission.SET_ALARM" />
 
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- 小岱生成期间的前台服务（agent/AgentGenerationService.kt）：切出应用不被冻结 -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+    <!-- 动态课程/日程通知在开始、结束时切换；可选授权，未授权时使用非精确闹钟。 -->
+    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
+    <!-- 课表壁纸：把一周课表设为锁屏或桌面壁纸 -->
+    <uses-permission android:name="android.permission.SET_WALLPAPER" />
+    <!-- 上课自动勿扰：调用 setInterruptionFilter 需要它，另由用户在系统「勿扰模式访问」里授权。 -->
+    <uses-permission android:name="android.permission.ACCESS_NOTIFICATION_POLICY" />
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <!-- 富触感反馈（ui/Haptics.kt）：没有这个权限，VibrationEffect 组合振动会静默失效 -->
     <uses-permission android:name="android.permission.VIBRATE" />
 
@@ -25,7 +35,6 @@
     <!-- 棋类联机：只走 BLE GATT（校园网 AP 隔离，局域网直连实测不通，已下线）。只在用户点
          「创建 / 加入房间」时才申请这三个蓝牙权限（见 game/net/OnlinePermissions.kt），
          单机、同屏双人完全碰不到。
-         minSdk 31（Android 12）起蓝牙权限已经是新模型，不用再考虑旧版"扫描等于定位"那一套。
          BLUETOOTH_SCAN 声明 neverForLocation：本应用的 BLE 扫描只用来找同一局对局的服务
          UUID，不用扫描结果推断位置，这样就不用连带申请定位权限。 -->
     <uses-permission android:name="android.permission.BLUETOOTH_SCAN"
@@ -38,17 +47,19 @@
         android:name=".XjtuApp"
         android:allowBackup="true"
         android:dataExtractionRules="@xml/data_extraction_rules"
-        android:enableOnBackInvokedCallback="true"
+        android:enableOnBackInvokedCallback="false"
         android:icon="@mipmap/ic_launcher"
         android:label="@string/app_name"
         android:networkSecurityConfig="@xml/network_security_config"
         android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
         android:theme="@style/Theme.XJTUToolBox">
+        <!-- singleTask：系统分享面板带 NEW_DOCUMENT|MULTIPLE_TASK，singleTop 下每次分享都会另起一个实例，
+             后台实例会抢走分享材料等一次性信号；单实例时所有入口都经 onNewIntent 回到同一处 -->
         <activity
             android:name=".MainActivity"
             android:exported="true"
-            android:launchMode="singleTop"
+            android:launchMode="singleTask"
             android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|uiMode"
             android:windowSoftInputMode="adjustResize"
             android:label="@string/app_name"
@@ -67,11 +78,20 @@
                 <data android:scheme="xjtu" />
             </intent-filter>
 
-            <!-- 启动器长按快捷入口：5 个 static shortcuts，定义在 res/xml/shortcuts.xml -->
-            <meta-data
-                android:name="android.app.shortcuts"
-                android:resource="@xml/shortcuts" />
         </activity>
+
+        <!-- 金标联盟 SharedViewKit 一镜到底的通用页面宿主：ROM 声明支持时，首页卡片点开由 KitOneTake
+             用系统级 Activity 转场启动本页（内容复用 appPageEntries）；其余设备压普通 Compose 路由。
+             enableOnBackInvokedCallback=false：跨 Activity 的预测式返回会和 KIT 自己的关闭动画打架，
+             这里让系统走传统返回（页面内的返回栈由 NavDisplay 处理，退到底时 finish() 触发 ROM 关闭动画）。 -->
+        <activity
+            android:name=".sharedview.SeamlessPageActivity"
+            android:exported="false"
+            android:launchMode="singleTop"
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|uiMode"
+            android:windowSoftInputMode="adjustResize"
+            android:enableOnBackInvokedCallback="false"
+            android:theme="@style/Theme.XJTUToolBox" />
 
         <activity-alias
             android:name=".agent.ReadWithPidai"
@@ -96,23 +116,34 @@
                 <data android:mimeType="application/xhtml+xml" />
             </intent-filter>
             <intent-filter>
-                <action android:name="android.intent.action.SEND" />
-                <category android:name="android.intent.category.DEFAULT" />
-                <data android:mimeType="text/plain" />
-                <data android:mimeType="text/html" />
-            </intent-filter>
-            <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <data android:scheme="content" />
                 <data android:scheme="file" />
                 <data android:mimeType="image/*" />
             </intent-filter>
+        </activity-alias>
+
+        <activity-alias
+            android:name=".agent.AskPidaiFromNotice"
+            android:targetActivity=".MainActivity"
+            android:exported="false" />
+
+        <activity-alias
+            android:name=".agent.ShareWithPidai"
+            android:targetActivity=".MainActivity"
+            android:exported="true"
+            android:label="@string/pidai_share_name"
+            android:icon="@drawable/shortcut_agent_icon">
             <intent-filter>
                 <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="*/*" />
+            </intent-filter>
+            <intent-filter>
                 <action android:name="android.intent.action.SEND_MULTIPLE" />
                 <category android:name="android.intent.category.DEFAULT" />
-                <data android:mimeType="image/*" />
+                <data android:mimeType="*/*" />
             </intent-filter>
         </activity-alias>
 
@@ -172,8 +203,31 @@
         </receiver>
 
         <receiver
+            android:name=".widget.SmartWidgetProvider"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/smart_widget_info" />
+        </receiver>
+
+        <receiver
             android:name=".notification.LibraryActionReceiver"
             android:exported="false" />
+
+        <receiver
+            android:name=".notification.DynamicScheduleReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+                <action android:name="android.intent.action.TIME_SET" />
+                <action android:name="android.intent.action.TIMEZONE_CHANGED" />
+                <action android:name="android.app.action.SCHEDULE_EXACT_ALARM_PERMISSION_STATE_CHANGED" />
+            </intent-filter>
+        </receiver>
 
         <receiver
             android:name=".widget.WidgetRefreshReceiver"
@@ -184,6 +238,11 @@
                 <action android:name="android.intent.action.TIME_SET" />
             </intent-filter>
         </receiver>
+
+        <service
+            android:name=".agent.AgentGenerationService"
+            android:exported="false"
+            android:foregroundServiceType="dataSync" />
 
         <service
             android:name=".widget.ScheduleWidgetRemoteViewsService"

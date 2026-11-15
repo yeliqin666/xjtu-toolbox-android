@@ -4,11 +4,14 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.CardDefaults
 import top.yukonga.miuix.kmp.basic.Text
-import top.yukonga.miuix.kmp.basic.TextButton
+import top.yukonga.miuix.kmp.basic.Button
+import top.yukonga.miuix.kmp.basic.ButtonDefaults
+import com.xjtu.toolbox.ui.components.TextLink
 import top.yukonga.miuix.kmp.basic.Surface
 import top.yukonga.miuix.kmp.basic.CircularProgressIndicator
 import top.yukonga.miuix.kmp.basic.Checkbox
 
+import com.xjtu.toolbox.ui.glass.tabContentBottomPadding
 import com.xjtu.toolbox.platform.BackHandler
 import com.xjtu.toolbox.platform.CodeMatrix
 import com.xjtu.toolbox.ui.components.CodeMatrixView
@@ -174,7 +177,7 @@ fun PaymentCodeScreen(
         Column(
             Modifier
                 .padding(20.dp)
-                .verticalScroll(rememberScrollState())
+                .verticalScroll(rememberScrollState()).tabContentBottomPadding()
         ) {
             Text(
                 "付款码",
@@ -211,7 +214,10 @@ fun PaymentCodeScreen(
                             fontSize = 14.sp
                         )
                         Spacer(Modifier.height(12.dp))
-                        TextButton(text = "点击重试", onClick = { refreshTrigger++ })
+                        Button(
+                            onClick = { refreshTrigger++ },
+                            colors = ButtonDefaults.buttonColorsPrimary(),
+                        ) { Text("点击重试", color = MiuixTheme.colorScheme.onPrimary) }
                     }
                 }
 
@@ -386,7 +392,7 @@ private fun VoucherSelectorCard(
                         maxLines = 2,
                         overflow = TextOverflow.Ellipsis
                     )
-                    TextButton(text = "重试", onClick = onRetry)
+                    TextLink(text = "重试", onClick = onRetry)
                 }
                 else -> Column(Modifier.padding(top = 10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     vouchers.take(4).forEach { voucher ->

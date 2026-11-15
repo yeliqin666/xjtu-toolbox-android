@@ -340,7 +340,9 @@ abstract class SiteSession(
             ?: response.request.url.toString()
         Log.w(
             TAG,
-            "[$siteKey] auth failure: code=${response.code} url=${failedUrl.redactUrl()} " +
+            // 路径是判据（哪个接口），敏感的只在参数里，去掉参数即可
+            "[$siteKey] auth failure: code=${response.code} path=${failedUrl.substringBefore('?')} " +
+                "title=${bodyPreview?.let { Regex("<title>(.*?)</title>", RegexOption.IGNORE_CASE).find(it)?.groupValues?.get(1) }.redactBody(80)} " +
                 "preview=${bodyPreview.redactBody(160)}"
         )
         withContext(Dispatchers.IO) { response.close() }

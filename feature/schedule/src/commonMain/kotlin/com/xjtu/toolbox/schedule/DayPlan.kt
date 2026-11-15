@@ -71,7 +71,7 @@ private val DAY_PLAN = InsightSpec(
     card = PidaiCard.DAY_PLAN,
 )
 
-/** 交给屁岱的今日快照（本地已有的数据，屁岱就不必再查课表）。 */
+/** 交给小岱的今日快照（本地已有的数据，小岱就不必再查课表）。 */
 internal fun dayPlanSnapshot(today: LocalDate, entries: List<String>, upcoming: List<UpcomingItem>): String = buildString {
     append("日期：$today\n今天的固定安排（开始–结束｜事项｜地点）：\n")
     if (entries.isEmpty()) append("- 无\n") else entries.forEach { append("- $it\n") }
@@ -81,7 +81,7 @@ internal fun dayPlanSnapshot(today: LocalDate, entries: List<String>, upcoming: 
     }
 }
 
-/** 排日程卡里能加进去的一项（课、考试、赶路不算）。[todo] 由屁岱判断：只需到点前办完的进待办，其余进日程。 */
+/** 排日程卡里能加进去的一项（课、考试、赶路不算）。[todo] 由小岱判断：只需到点前办完的进待办，其余进日程。 */
 data class PlanItem(val title: String, val startMinute: Int, val endMinute: Int, val place: String, val note: String, val todo: Boolean = false)
 
 private val HHMM = Regex("""(\d{1,2}):(\d{2})""")
@@ -89,7 +89,7 @@ private val HHMM = Regex("""(\d{1,2}):(\d{2})""")
 private fun minuteOf(text: String?): Int? =
     HHMM.matchEntire(text?.trim().orEmpty())?.destructured?.let { (h, m) -> (h.toInt() * 60 + m.toInt()).takeIf { it in 0 until 24 * 60 } }
 
-/** 屁岱给的一块安排能不能加进日程；不能就 null。没写结束时间按一小时算。 */
+/** 小岱给的一块安排能不能加进日程；不能就 null。没写结束时间按一小时算。 */
 private fun planItemOf(block: JsonObject): PlanItem? {
     if (block["kind"].safeStringOrNull() in setOf("class", "exam", "move")) return null
     val title = block["title"].safeStringOrNull()?.trim()?.takeIf { it.isNotBlank() } ?: return null
@@ -147,7 +147,7 @@ internal fun DayPlanCard(
     }
     val choices = remember(today) { dayChoices(today) }
     PidaiInsightCard(
-        title = "屁岱排日程",
+        title = "小岱排日程",
         state = state,
         modifier = modifier,
         subtitle = "选一天、说一句，按你的要求整理",
@@ -263,7 +263,7 @@ private fun PlanRow(block: JsonObject, todo: Boolean, added: Boolean, onAdd: (()
                 Text(sub.joinToString(" · "), style = MiuixTheme.textStyles.footnote1, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
             }
         }
-        // 课和考试本来就在课表里；其余安排按屁岱标的类型进日程或待办
+        // 课和考试本来就在课表里；其余安排按小岱标的类型进日程或待办
         if (onAdd != null) {
             PidaiChip(
                 if (added) "已加入" else if (todo) "加入待办" else "加入日程",

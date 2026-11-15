@@ -7,7 +7,7 @@ import org.jetbrains.compose.desktop.application.dsl.TargetFormat
  * 桌面包的版本号（jpackage 的 `--app-version`）。⚠️ 必须与 `:app` 的 `versionName` 逐字相同：
  * 两个手抄本会漂（App 5.2.0 / 安装包 5.1.1 就是这么来的），`DesktopPackageVersionJvmTest` 盯着这件事。
  */
-val desktopPackageVersion = "5.2.2"
+val desktopPackageVersion = "6.0.1"
 
 /** 反馈后端的凭据（与 `:app` 同一份来源） */
 val desktopFeedbackConfig: Map<String, String> = run {
@@ -147,6 +147,22 @@ tasks.register<JavaExec>("renderScreens") {
     mainClass.set("com.xjtu.toolbox.desktop.RenderScreensKt")
     classpath = sourceSets["test"].runtimeClasspath
     args = listOf(layout.buildDirectory.dir("screenshots").get().asFile.absolutePath)
+}
+
+tasks.register<JavaExec>("renderDegreePreview") {
+    group = "verification"
+    description = "Render the degree progress screen with offline fixtures"
+    mainClass.set("com.xjtu.toolbox.desktop.RenderDegreePreviewKt")
+    classpath = sourceSets["test"].runtimeClasspath
+    args = listOf(layout.buildDirectory.dir("degree-preview").get().asFile.absolutePath)
+}
+
+tasks.register<JavaExec>("renderBusPreview") {
+    group = "verification"
+    description = "Render the campus bus screen with offline fixtures at phone, landscape and tablet sizes"
+    mainClass.set("com.xjtu.toolbox.desktop.RenderBusPreviewKt")
+    classpath = sourceSets["test"].runtimeClasspath
+    args = listOf(layout.buildDirectory.dir("bus-preview").get().asFile.absolutePath)
 }
 
 tasks.register<JavaExec>("renderHomePreview") {

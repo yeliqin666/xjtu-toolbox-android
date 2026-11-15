@@ -41,7 +41,6 @@ class DesktopSettingsJvmTest {
         assertEquals(SettingsStore.TAB_KEY_SCHEDULE, SettingsStore.normalizeDefaultTab(store.defaultTab), "默认启动 Tab 是日程（规范化之后）")
         assertEquals(SettingsStore.NETWORK_AUTO, store.networkMode, "连接模式默认自动检测")
         assertTrue(store.scheduleAttendanceBadge, "考勤角标默认开")
-        assertTrue(store.venueAutoSolveCaptchaEnabled, "场馆验证码自动识别默认开")
         assertTrue(store.showQuickActions, "常用功能默认显示")
         assertEquals(SettingsStore.SCHEDULE_SOURCE_JWXT, store.scheduleSource, "课表来源默认教务")
 
@@ -65,7 +64,7 @@ class DesktopSettingsJvmTest {
     }
 
     @Test
-    fun `桌面宿主的如实降级：只声明真会照办的三行，没有的行与组是 null`() {
+    fun `桌面宿主的如实降级：只声明真会照办的四行，没有的行与组是 null`() {
         var ticked = 0
         val host = DesktopSettingsHost { ticked++ }
 
@@ -74,14 +73,13 @@ class DesktopSettingsJvmTest {
                 SettingsRow.DARK_MODE,
                 SettingsRow.DYNAMIC_COLOR,
                 SettingsRow.HOME_HERO,
+                SettingsRow.HOME_SETTINGS,
                 SettingsRow.DEFAULT_TAB,
-                SettingsRow.VENUE_CAPTCHA,
                 SettingsRow.SCHEDULE_ATTENDANCE,
                 SettingsRow.NAV_STYLE,
             ),
             host.honoredRows,
-            "桌面外壳接了深色模式 / 取色 / 首页主题 + B-2 接上的默认启动 Tab 与场馆验证码" +
-                " + C-1b 接上的界面风格（见 honoredRows 与 DesktopSettingsHost 的 KDoc）",
+            "桌面外壳接了深色模式 / 取色 / 首页卡片外观 / 主页设置抽屉 + 默认启动 Tab + 界面风格",
         )
         assertNull(host.noticeSection, "桌面没有系统通知权限与 WorkManager 排程 ⇒ 整组不画")
         assertNotNull(

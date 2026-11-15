@@ -14,6 +14,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.Key
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.outlined.DeleteOutline
 import androidx.compose.runtime.*
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
@@ -23,11 +24,13 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import com.xjtu.toolbox.ui.sensitive
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.xjtu.toolbox.platform.keyValueStore
 import kotlinx.coroutines.launch
 import top.yukonga.miuix.kmp.basic.*
+import com.xjtu.toolbox.ui.glass.CouiTopBarScrollBehavior
 import top.yukonga.miuix.kmp.basic.CardDefaults
 import top.yukonga.miuix.kmp.preference.OverlaySpinnerPreference
 import top.yukonga.miuix.kmp.theme.MiuixTheme
@@ -44,7 +47,7 @@ internal fun ConfigPanel(
     apiKeySection: (@Composable () -> Unit)? = null,
     /** 「记住的偏好」那一块。 */
     memorySection: (@Composable () -> Unit)? = null,
-    scrollBehavior: ScrollBehavior,
+    scrollBehavior: CouiTopBarScrollBehavior,
     onSave: (AgentConfig) -> Unit,
     modifier: Modifier = Modifier,
     /** 玻璃顶栏的高度，放进列表的顶部留白。 */
@@ -121,11 +124,9 @@ internal fun ConfigPanel(
         }
     }
 
-    val providerItems = AgentConfig.PROVIDERS.map {
-        top.yukonga.miuix.kmp.basic.DropdownItem(text = AgentConfig.providerLabel(it))
-    }
+    val providerItems = AgentConfig.PROVIDERS.map { AgentConfig.providerLabel(it) }
     val providerIndex = AgentConfig.PROVIDERS.indexOf(provider).coerceAtLeast(0)
-    val searchEngineItems = AgentConfig.SEARCH_ENGINES.map { DropdownItem(text = AgentConfig.searchEngineLabel(it)) }
+    val searchEngineItems = AgentConfig.SEARCH_ENGINES.map { AgentConfig.searchEngineLabel(it) }
     val searchEngineIndex = AgentConfig.SEARCH_ENGINES.indexOf(searchEngine).coerceAtLeast(0)
 
     LazyColumn(
@@ -140,7 +141,7 @@ internal fun ConfigPanel(
         item {
             Card(colors = CardDefaults.defaultColors(color = com.xjtu.toolbox.ui.components.AppCardColor)) {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    OverlaySpinnerPreference(
+                    com.xjtu.toolbox.ui.components.AppDropdownPreference(
                         title = "服务商",
                         summary = AgentConfig.providerLabel(provider),
                         items = providerItems,
@@ -156,7 +157,7 @@ internal fun ConfigPanel(
                             assistantName = sanitizeAgentTitle(it, "")
                             scheduleSave()
                         },
-                        label = "助手名字（默认 屁岱，新对话生效）",
+                        label = "助手名字（默认 小岱，新对话生效）",
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth(),
                         keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
@@ -173,7 +174,7 @@ internal fun ConfigPanel(
                         },
                         label = "API Key *",
                         singleLine = true,
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier = Modifier.fillMaxWidth().sensitive(),
                         visualTransformation = PasswordVisualTransformation(),
                         keyboardOptions = KeyboardOptions(
                             keyboardType = KeyboardType.Password,
@@ -261,10 +262,10 @@ internal fun ConfigPanel(
                         val extra = trimmed.takeIf { it.isNotEmpty() && it !in availableModels }
                         val options: List<String> = listOf("") + listOfNotNull(extra) + availableModels
                         val selIdx = options.indexOf(trimmed).coerceAtLeast(0)
-                        OverlaySpinnerPreference(
+                        com.xjtu.toolbox.ui.components.AppDropdownPreference(
                             title = "选择模型",
                             summary = trimmed.ifBlank { "默认（$defaultModel）" },
-                            items = options.map { DropdownItem(text = it.ifBlank { "默认（$defaultModel）" }) },
+                            items = options.map { it.ifBlank { "默认（$defaultModel）" } },
                             selectedIndex = selIdx,
                             onSelectedIndexChange = {
                                 model = options[it]
@@ -331,7 +332,7 @@ internal fun ConfigPanel(
                         }
                         if (thinkingEnabled) {
                             val efforts = AgentConfig.REASONING_EFFORTS
-                            OverlaySpinnerPreference(
+                            com.xjtu.toolbox.ui.components.AppDropdownPreference(
                                 title = "思考强度",
                                 summary = when (reasoningEffort) {
                                     AgentConfig.REASONING_AUTO -> "自动（由服务端按模型默认档）"
@@ -339,7 +340,7 @@ internal fun ConfigPanel(
                                 },
                                 // 选项文案从 efforts 现推，别再手写一份平行列表——
                                 // 两边靠下标对齐，档位一多就会错位成"选高得到最大"。
-                                items = efforts.map { DropdownItem(text = AgentConfig.reasoningEffortLabel(it)) },
+                                items = efforts.map { AgentConfig.reasoningEffortLabel(it) },
                                 selectedIndex = efforts.indexOf(reasoningEffort).coerceAtLeast(0),
                                 onSelectedIndexChange = {
                                     reasoningEffort = efforts[it]
@@ -374,7 +375,7 @@ internal fun ConfigPanel(
         item {
             Card(colors = CardDefaults.defaultColors(color = com.xjtu.toolbox.ui.components.AppCardColor)) {
                 Column(Modifier.padding(bottom = 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    OverlaySpinnerPreference(
+                    com.xjtu.toolbox.ui.components.AppDropdownPreference(
                         title = "联网搜索",
                         summary = AgentConfig.searchEngineLabel(searchEngine),
                         items = searchEngineItems,
@@ -396,7 +397,7 @@ internal fun ConfigPanel(
                                 },
                                 label = "DeepSeek API Key（联网搜索用）",
                                 singleLine = true,
-                                modifier = Modifier.fillMaxWidth(),
+                                modifier = Modifier.fillMaxWidth().sensitive(),
                                 visualTransformation = PasswordVisualTransformation(),
                                 keyboardOptions = KeyboardOptions(
                                     keyboardType = KeyboardType.Password,
@@ -408,13 +409,13 @@ internal fun ConfigPanel(
                         Text(
                             when {
                                 searchEngine == AgentConfig.SEARCH_OFF ->
-                                    "不联网搜索、不读网页。"
+                                    "不联网搜索、不读网页，也不识别扫描件。"
                                 needsOwnKey && apiKeySection != null ->
                                     "搜索用的 DeepSeek Key${if (config.searchKeyConfigured) "已配置" else "未配置"}，在运行 serve 的机器上设置。"
                                 needsOwnKey ->
-                                    "聊天没走 DeepSeek，联网搜索要单独一个 DeepSeek Key；留空则不联网搜索。"
+                                    "聊天没走 DeepSeek，联网搜索和扫描件识别要单独一个 DeepSeek Key；留空则都不用。"
                                 else ->
-                                    "DeepSeek 官方搜索，和聊天共用 Key，每千次 0.75 美元。"
+                                    "DeepSeek 官方搜索（每千次 5 元）与扫描件识别（每千页 1.5 元），和聊天共用 Key。"
                             },
                             style = MiuixTheme.textStyles.footnote1,
                             color = MiuixTheme.colorScheme.onSurfaceVariantSummary
@@ -438,7 +439,11 @@ internal fun ConfigPanel(
                         TextField(value = mcpToken, onValueChange = { mcpToken = it; mcpStatus = null; scheduleSave() },
                             label = "Bearer 令牌（可选）", visualTransformation = PasswordVisualTransformation(),
                             singleLine = true, modifier = Modifier.fillMaxWidth())
-                        TextButton(text = if (mcpTesting) "连接中…" else "测试连接", enabled = !mcpTesting && mcpEndpoint.isNotBlank(), onClick = {
+                        TextButton(
+                            text = if (mcpTesting) "连接中…" else "测试连接",
+                            enabled = !mcpTesting && mcpEndpoint.isNotBlank(),
+                            colors = com.xjtu.toolbox.ui.components.appTonalTextButtonColors(),
+                            onClick = {
                             val snapshot = config.copy(mcpEnabled = true, mcpEndpoint = mcpEndpoint.trim(), mcpToken = mcpToken.trim())
                             mcpTesting = true
                             scope.launch {
@@ -454,7 +459,7 @@ internal fun ConfigPanel(
                 }
             }
         }
-        // 页面上的屁岱卡只有挂了屁岱的端才有（见 AgentInsightHub）
+        // 页面上的小岱卡只有挂了小岱的端才有（见 AgentInsightHub）
         if (AgentInsightHub.insights.available) item { PidaiCardsSection() }
         // 形象选择：形状 + 颜色。即时生效、设备级持久化，不参与 AgentConfig 的存取
         //（见 `PidaiAppearanceHost`）。**只有有形象的端才画**：`:app` 交 `PidaiAppearancePanel`，
@@ -470,13 +475,13 @@ internal fun ConfigPanel(
     }
 }
 
-/** 各页面屁岱卡的开关，见 [PidaiCards]。 */
+/** 各页面小岱卡的开关，见 [PidaiCards]。 */
 @Composable
 private fun PidaiCardsSection() {
     val off by PidaiCards.off.collectAsState()
     Card(colors = CardDefaults.defaultColors(color = com.xjtu.toolbox.ui.components.AppCardColor)) {
         Column(Modifier.padding(vertical = 16.dp)) {
-            Text("页面里的屁岱卡", style = MiuixTheme.textStyles.title3, fontWeight = FontWeight.Bold,
+            Text("页面里的小岱卡", style = MiuixTheme.textStyles.title3, fontWeight = FontWeight.Bold,
                 modifier = Modifier.padding(horizontal = 16.dp))
             Text(
                 "关掉的卡不再出现，也不会调用模型。",
@@ -519,22 +524,24 @@ private fun AgentMemorySection() {
                                 color = MiuixTheme.colorScheme.onSurfaceVariantSummary
                             )
                         }
-                        TextButton(
-                            text = "删除",
-                            onClick = {
+                        IconButton(
+                            modifier = Modifier.size(32.dp), onClick = {
                                 memory.forget(k)
                                 memories = memory.all()
                             },
-                        )
+                        ) {
+                            Icon(Icons.Outlined.DeleteOutline, "删除偏好：$k", modifier = Modifier.size(18.dp),
+                                tint = MiuixTheme.colorScheme.onSurfaceVariantSummary)
+                        }
                     }
                 }
-                TextButton(
+                com.xjtu.toolbox.ui.components.TextLink(
                     text = "全部清空",
                     onClick = {
                         memory.clear()
                         memories = memory.all()
                     },
-                    modifier = Modifier.fillMaxWidth(),
+                    color = MiuixTheme.colorScheme.error,
                 )
             }
         }

@@ -1,5 +1,6 @@
 package com.xjtu.toolbox.auth
 
+import com.xjtu.toolbox.ui.glass.tabContentBottomPadding
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -24,6 +25,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import com.xjtu.toolbox.ui.sensitive
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -63,7 +65,7 @@ fun LoginScreen(
                 .fillMaxWidth()
                 // 竖屏手机上占满、桌面窗口里限宽 —— 桌面窗口比手机宽得多，不限宽输入框会拉成一条线
                 .widthIn(max = 420.dp)
-                .verticalScroll(rememberScrollState())
+                .verticalScroll(rememberScrollState()).tabContentBottomPadding()
                 .padding(horizontal = 24.dp, vertical = 32.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
@@ -92,7 +94,7 @@ fun LoginScreen(
                 singleLine = true,
                 enabled = !busy,
                 visualTransformation = PasswordVisualTransformation(),
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier.fillMaxWidth().sensitive(),
             )
 
             (state as? LoginUiState.Failed)?.let { failed ->

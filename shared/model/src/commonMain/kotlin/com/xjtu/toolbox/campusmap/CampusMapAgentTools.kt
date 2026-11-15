@@ -4,7 +4,6 @@ import com.xjtu.toolbox.agent.AgentTools
 import com.xjtu.toolbox.agent.AgentWidget
 import com.xjtu.toolbox.agent.CampusMapWidget
 import com.xjtu.toolbox.agent.ToolReply
-import com.xjtu.toolbox.agent.ToolShow
 import com.xjtu.toolbox.util.AppJson
 import com.xjtu.toolbox.util.safeStringOrNull
 import kotlinx.serialization.json.JsonArray
@@ -58,7 +57,6 @@ class CampusMapAgentTools(
                             put("enum", JsonArray(KINDS.keys.map { JsonPrimitive(it) }))
                         },
                         "campus" to prop("string", "兴庆/雁塔/曲江/创新港。缺省：按地点名自动找。"),
-                        ToolShow.PARAM to prop("boolean", ToolShow.DESCRIPTION),
                     ),
                     listOf("from"),
                 ),
@@ -66,7 +64,7 @@ class CampusMapAgentTools(
                     tool(
                         "my_location",
                         "用户此刻在哪：定位一次（第一次会请用户授权），换算成所在校区和最近的楼；show 时附简图。用户问「附近」「我这儿」时先调它。",
-                        mapOf(ToolShow.PARAM to prop("boolean", ToolShow.DESCRIPTION)),
+                        emptyMap(),
                         emptyList(),
                     )
                 },

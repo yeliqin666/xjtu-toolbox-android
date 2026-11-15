@@ -9,7 +9,9 @@ import top.yukonga.miuix.kmp.basic.CardDefaults
 import top.yukonga.miuix.kmp.basic.Text
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.rememberScrollState
@@ -28,7 +30,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.text.font.FontWeight
@@ -37,12 +38,13 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.xjtu.toolbox.ui.glass.CouiGlassCard
 import kotlin.math.ceil
 import kotlin.math.floor
 
 // ── 共享常量 ──────────────────────────────
 
-val DAY_HEADERS = listOf("一", "二", "三", "四", "五", "六", "日")
+val DAY_HEADERS = listOf("周一", "周二", "周三", "周四", "周五", "周六", "周日")
 private val SECTION_HEIGHT: Dp = 50.dp
 /** 一节课多少分钟：时段带放开时按「这么多分钟 = 一个节次行高」的比例。 */
 private const val SECTION_MINUTES = 50f
@@ -51,15 +53,15 @@ private val BAND_MAX_HEIGHT: Dp = SECTION_HEIGHT * 3
 private val LEFT_COL_WIDTH: Dp = 56.dp
 /** 跨作息那一周左轴要多标一行「冬14:00-14:50」，放宽一点才放得下。 */
 private val LEFT_COL_WIDTH_MIXED: Dp = 68.dp
-/**
- * 没课的节次压到本体的多少。0.56（= 28dp）是"刚好放得下节号 + 一行起止时间"的下限：
- * 再矮就只能像以前那样只画节号了，那样虽然更短，但压扁的行看不出上下课时间。
- */
-private const val EMPTY_SECTION_SCALE = 0.56f
-/** 空着的时段带（午休 / 晚休）的高度；带上有条目时按钟点比例放开，见 [ScheduleGrid]。 */
+/** 空着的时段带（早间 / 夜间）的高度；带上有条目时按钟点比例放开，见 [ScheduleGrid]。 */
 private val REST_HEIGHT: Dp = 22.dp
 /** 课程块在格子里的内缩（格间距）。 */
 private val CELL_GAP: Dp = 3.dp
+/** 好友课的圆角，与课程卡片一致，虚线框才贴得住。 */
+private val FRIEND_CORNER: Dp = 12.dp
+
+/** 叠加对比的好友课：包一层只为在排好的条目里认出它。节次课，起止按作息表查。 */
+private class FriendSlot(val course: CourseItem) : ScheduleSlot by course
 
 // 纵轴按节次排版（节号与起止时间画在左轴，大空档插成「午休」「晚休」带），条目按真实钟点落位，
 // 见 WeekGridLayout。
@@ -78,7 +80,6 @@ fun ScheduleGrid(
     isCurrentWeek: Boolean = false,  // 是否显示当前时间线
     weekDates: List<LocalDate>? = null,
     holidayNames: Map<LocalDate, String> = emptyMap(),
-    enableCompression: Boolean = false,  // 没课的节次是否压扁（0.56 高）
     bottomPadding: androidx.compose.ui.unit.Dp = 0.dp,
     /** 顶部留白，放在纵向滚动里面：顶栏是玻璃时，星期头和网格要能从它下面滚过去。 */
     topPadding: androidx.compose.ui.unit.Dp = 0.dp,
@@ -89,9 +90,14 @@ fun ScheduleGrid(
      * 它在每一格的组合里被调用，做 IO 就等于把课表渲染绑在别的站点上。
      */
     slotBadge: (ScheduleSlot) -> SlotMark? = { null },
+    /** 叠加对比的好友课：只画不参与冲突分组，见下面「好友课」两层。 */
+    overlaySlots: List<CourseItem> = emptyList(),
+    onOverlayClick: (CourseItem) -> Unit = {},
     onSlotClick: (ScheduleSlot) -> Unit = {}
 ) {
     val scrollState = rememberScrollState()
+    // 周网格按实际滚动位置告诉顶栏要不要铺毛玻璃：内容不满一屏时上滑只是回弹，不算压到顶栏下面
+    com.xjtu.toolbox.ui.glass.ReportScrollPosition(scrollState)
     val courseColors = rememberCourseColors(allCourseNames)
     // 左轴标哪一套作息：默认跟这一周自己的令时；这一周跨了令时切换（5/1 起夏秋、10/1 起冬春）就按
     // "今天"所在令时标，另一套时间不同的节次在下面补一行。课块各按自己那天的作息对齐（见 WeekGridLayout）。
@@ -100,8 +106,9 @@ fun ScheduleGrid(
     val mixedWeek = (weekSeasons?.size ?: 1) > 1
     val axisSummer = if (mixedWeek) todaySummer else (weekSeasons?.firstOrNull() ?: todaySummer)
 
-    val layout = remember(slots, weekDates, axisSummer) {
-        layoutWeekGrid(slots) { day ->
+    // 好友课一起参与排行（早课、第 11 节也要放开行），分组和画法与自己的课分开
+    val layout = remember(slots, overlaySlots, weekDates, axisSummer) {
+        layoutWeekGrid(slots + overlaySlots.map(::FriendSlot)) { day ->
             weekDates?.getOrNull(day - 1)?.let { XjtuTime.isSummerTime(it.monthNumber) } ?: axisSummer
         }
     }
@@ -109,9 +116,9 @@ fun ScheduleGrid(
     val axisTimes = layout.times(axisSummer)
     val otherTimes = layout.times(!axisSummer)
     val leftColWidth = if (mixedWeek) LEFT_COL_WIDTH_MIXED else LEFT_COL_WIDTH
-    // 行高：有条目的节次全高，空的节次可压扁（总长度随一周的课量伸缩）。时段带里被条目占着的几段
-    // 按时长画（一节 50 分钟 = 一行高），空着的几段合起来收成一条窄带，不留大片空白。
-    val compressed = rows.indices.map { i -> rows[i].section != null && enableCompression && !layout.isOccupied(i) }
+    // 行高：节次行一律全高（没课的也不再压扁，左轴照常写节号和起止时间）。时段带里被条目占着的
+    // 几段按时长画（一节 50 分钟 = 一行高），空着的几段合起来收成一条窄带；两节之间的无名空档
+    // （午休 / 晚休）空着时高度为 0，等于没有这一行。
     val bandPieces: List<List<Pair<WeekGridLayout.Piece, Dp>>?> = rows.indices.map { i ->
         if (rows[i].section != null || !layout.isOccupied(i)) return@map null
         val pieces = layout.pieces(i)
@@ -126,8 +133,10 @@ fun ScheduleGrid(
     }
     val targetHeights = rows.mapIndexed { i, row ->
         when {
-            row.section != null -> if (compressed[i]) SECTION_HEIGHT * EMPTY_SECTION_SCALE else SECTION_HEIGHT
-            else -> bandPieces[i]?.fold(0.dp) { sum, (_, h) -> sum + h } ?: REST_HEIGHT
+            row.section != null -> SECTION_HEIGHT
+            // 无名的空档（午休 / 晚休）空着时不占高度；早间 / 夜间这类有名的带留一条窄带
+            else -> bandPieces[i]?.fold(0.dp) { sum, (_, h) -> sum + h }
+                ?: if (row.label.isBlank()) 0.dp else REST_HEIGHT
         }
     }
     val rowHeights = rows.mapIndexed { i, row ->
@@ -202,7 +211,7 @@ fun ScheduleGrid(
                         )
                     } else if (date != null) {
                         Text(
-                            "${date.monthNumber}月${date.dayOfMonth}日",
+                            "${date.monthNumber}/${date.dayOfMonth}",
                             fontSize = 8.sp,
                             color = if (isToday) MiuixTheme.colorScheme.primary
                             else MiuixTheme.colorScheme.onSurfaceVariantSummary,
@@ -222,7 +231,7 @@ fun ScheduleGrid(
         ) {
             val dayWidth = (maxWidth - leftColWidth) / 7
 
-            // 背景层：左轴（节号 + 起止时间）+ 时段通栏带。没课的节次被压扁时只留节号。
+            // 背景层：左轴（节号 + 起止时间）+ 时段通栏带。
             val axisTextColor = MiuixTheme.colorScheme.onSurfaceVariantSummary
             Column(Modifier.fillMaxSize()) {
                 rows.forEachIndexed { i, row ->
@@ -233,24 +242,30 @@ fun ScheduleGrid(
                         (if (axisSummer) "冬" else "夏") +
                             "${formatMinuteOfDay(otherTimes[i].first)}-${formatMinuteOfDay(otherTimes[i].second)}"
                     } else null
-                    if (row.section == null && bandPieces[i] == null) {
-                        // 空着的时段带：一条通栏窄带，名字居中
-                        Box(
-                            Modifier.fillMaxWidth().height(rowHeights[i]),
-                            contentAlignment = Alignment.Center,
-                        ) {
-                            Text(row.label, fontSize = 10.sp, color = axisTextColor)
-                        }
-                    } else if (row.section == null) {
-                        // 有条目的时段带：名字和起止挪到左轴，不压在课块上
-                        Column(
-                            Modifier.width(leftColWidth).height(rowHeights[i]),
-                            verticalArrangement = Arrangement.Center,
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                        ) {
-                            Text(row.label, fontSize = 10.sp, fontWeight = FontWeight.Bold, color = axisTextColor)
-                            Text("$startText-$endText", fontSize = 8.sp, color = axisTextColor)
-                            if (otherText != null) Text(otherText, fontSize = 8.sp, color = axisTextColor.copy(alpha = 0.75f))
+                    if (row.section == null) {
+                        // 时段带：空着的「早间 / 夜间」留一条通栏窄带写名字；两节之间的大空档
+                        // （午休 / 晚休）高度为 0，不画。有条目落进来的带只标起止时间，不写名字。
+                        if (bandPieces[i] == null) {
+                            if (row.label.isNotBlank()) {
+                                Box(
+                                    Modifier.fillMaxWidth().height(rowHeights[i]),
+                                    contentAlignment = Alignment.Center,
+                                ) {
+                                    Text(row.label, fontSize = 10.sp, color = axisTextColor)
+                                }
+                            }
+                        } else {
+                            Column(
+                                Modifier.width(leftColWidth).height(rowHeights[i]),
+                                verticalArrangement = Arrangement.Center,
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                            ) {
+                                if (row.label.isNotBlank()) {
+                                    Text(row.label, fontSize = 10.sp, fontWeight = FontWeight.Bold, color = axisTextColor)
+                                }
+                                Text("$startText-$endText", fontSize = 8.sp, color = axisTextColor)
+                                if (otherText != null) Text(otherText, fontSize = 8.sp, color = axisTextColor.copy(alpha = 0.75f))
+                            }
                         }
                     } else {
                         Box(Modifier.fillMaxWidth().height(rowHeights[i])) {
@@ -259,22 +274,7 @@ fun ScheduleGrid(
                                 verticalArrangement = Arrangement.Center,
                                 horizontalAlignment = Alignment.CenterHorizontally,
                             ) {
-                                // 按**目标**（不是动画中的行高）决定排版：行高在动画中会跨过阈值，
-                                // 拿它判断的话文字会在两套排版之间闪一下
-                                if (compressed[i]) {
-                                    // 压扁的行放不下完整三行，收成「节号 + 一行起止时间」
-                                    Text(
-                                        "${row.section}",
-                                        fontSize = 11.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        color = axisTextColor,
-                                    )
-                                    Text(
-                                        "$startText-$endText",
-                                        fontSize = 8.sp,
-                                        color = axisTextColor.copy(alpha = 0.75f),
-                                    )
-                                } else if (otherText != null) {
+                                if (otherText != null) {
                                     Text(
                                         "${row.section}",
                                         fontSize = 15.sp,
@@ -299,8 +299,35 @@ fun ScheduleGrid(
                 }
             }
 
+            // 好友课底层：浅底加课名，压在自己的课下面，只在自己空着的格子里露出来
+            val friendPlaced = remember(layout) { layout.slots.filter { it.slot is FriendSlot } }
+            val friendInk = MiuixTheme.colorScheme.onSurfaceVariantSummary
+            fun Modifier.friendCell(placed: PlacedSlot): Modifier {
+                val top = yOf(placed.start)
+                return offset(x = leftColWidth + dayWidth * (placed.slot.slotDayOfWeek - 1), y = top)
+                    .width(dayWidth)
+                    .height(yOf(placed.end) - top)
+                    .padding(CELL_GAP)
+            }
+            friendPlaced.forEach { placed ->
+                val course = (placed.slot as FriendSlot).course
+                Column(
+                    Modifier
+                        .friendCell(placed)
+                        .clip(RoundedCornerShape(FRIEND_CORNER))
+                        .background(friendInk.copy(alpha = 0.10f))
+                        .clickable { onOverlayClick(course) }
+                        .padding(4.dp),
+                ) {
+                    Text(course.courseName, fontSize = 10.sp, lineHeight = 12.sp, color = friendInk, maxLines = 4, overflow = TextOverflow.Ellipsis)
+                    if (course.location.isNotBlank()) {
+                        Text(course.location, fontSize = 8.sp, lineHeight = 10.sp, color = friendInk, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                    }
+                }
+            }
+
             // 前景层：课程卡片（冲突课程翻页显示）
-            val conflictGroups = remember(layout) { buildConflictGroups(layout.slots) }
+            val conflictGroups = remember(layout) { buildConflictGroups(layout.slots.filter { it.slot !is FriendSlot }) }
 
             conflictGroups.forEach { group ->
                 val topOffset = yOf(group.start)
@@ -346,6 +373,22 @@ fun ScheduleGrid(
                         )
                     }
                 }
+            }
+
+            // 好友课顶层：只描虚线框，压在自己的课上就是两人这时都有课。不接点击，点到的仍是自己的课
+            friendPlaced.forEach { placed ->
+                Box(
+                    Modifier.friendCell(placed).drawBehind {
+                        drawRoundRect(
+                            color = friendInk,
+                            cornerRadius = androidx.compose.ui.geometry.CornerRadius(FRIEND_CORNER.toPx()),
+                            style = androidx.compose.ui.graphics.drawscope.Stroke(
+                                width = 1.5.dp.toPx(),
+                                pathEffect = androidx.compose.ui.graphics.PathEffect.dashPathEffect(floatArrayOf(4.dp.toPx(), 3.dp.toPx())),
+                            ),
+                        )
+                    },
+                )
             }
 
             // ── 当前时间线（横跨整行 + "现在"标签）──
@@ -492,78 +535,73 @@ fun CourseCell(
     onClick: () -> Unit = {}
 ) {
     val textColor = if (color.luminance() > 0.5f) Color.Black else Color.White
-    top.yukonga.miuix.kmp.basic.Card(
-        modifier = Modifier
-            .fillMaxSize(),
-        onClick = onClick,
+    // 颜色块走 COUI 有色玻璃：AGSL 材质、边缘光、内光晕、轮廓投影、按压弹簧（不带跟手形变）。
+    // 没有顶栏采样源（经典风格 / 非 Android）时自动退回半透明色块。
+    CouiGlassCard(
+        color = color,
+        modifier = Modifier.fillMaxSize(),
         cornerRadius = 12.dp,
-        pressFeedbackType = top.yukonga.miuix.kmp.utils.PressFeedbackType.Sink,
-        colors = top.yukonga.miuix.kmp.basic.CardDefaults.defaultColors(color = color.copy(alpha = 0.85f))
+        onClick = onClick,
     ) {
-        // Card 的 content 是 ColumnScope，角标要 align，补一层 Box。
+        // 角标要 align 到右上角，单独补一层 Box。
         Box(Modifier.fillMaxSize()) {
-        Column(
-            Modifier
-                .fillMaxSize()
-                .background(
-                    Brush.verticalGradient(
-                        listOf(Color.White.copy(alpha = 0.08f), Color.Black.copy(alpha = 0.10f))
-                    )
-                )
-                .padding(horizontal = 4.dp, vertical = 3.dp),
-            verticalArrangement = Arrangement.Center,
-            horizontalAlignment = Alignment.CenterHorizontally
-        ) {
-            Text(
-                name, fontSize = 10.sp, fontWeight = FontWeight.Bold,
-                color = textColor,
-                textAlign = TextAlign.Center,
-                maxLines = when {
-                    spanSections >= 4 -> 5
-                    spanSections >= 3 -> 4
-                    else -> 2
-                },
-                overflow = TextOverflow.Ellipsis,
-                lineHeight = 12.sp
-            )
-            if (spanSections >= 2 && location.isNotEmpty()) {
-                Spacer(Modifier.height(1.dp))
-                Text(
-                    "@$location", fontSize = 8.sp,
-                    color = textColor.copy(alpha = 0.85f),
-                    textAlign = TextAlign.Center,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis
-                )
-            }
-            if (weekInfo.isNotEmpty() && spanSections >= 2) {
-                Text(
-                    weekInfo, fontSize = 7.sp,
-                    color = textColor.copy(alpha = 0.65f),
-                    textAlign = TextAlign.Center, maxLines = 1, overflow = TextOverflow.Ellipsis
-                )
-            }
-        }
-        // 叠在最上层不占布局，格子已经很挤。描一圈免得跟课程色撞在一起。
-        badge?.let { mark ->
-            // 中性标记用课格自己的文字色：深浅底都看得见，又不抢眼。
-            val dot = mark.color ?: textColor.copy(alpha = 0.9f)
-            val ring = if (mark.color == null) {
-                if (textColor == Color.White) Color.Black.copy(alpha = 0.35f)
-                else Color.White.copy(alpha = 0.55f)
-            } else {
-                textColor.copy(alpha = 0.55f)
-            }
-            Box(
+            Column(
                 Modifier
-                    .align(Alignment.TopEnd)
-                    .padding(3.dp)
-                    .size(if (mark.color == null) 6.dp else 7.dp)
-                    .background(ring, CircleShape)
-                    .padding(1.dp)
-                    .background(dot, CircleShape)
-            )
-        }
+                    .fillMaxSize()
+                    .padding(horizontal = 4.dp, vertical = 3.dp),
+                verticalArrangement = Arrangement.Center,
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Text(
+                    name, fontSize = 10.sp, fontWeight = FontWeight.Bold,
+                    color = textColor,
+                    textAlign = TextAlign.Center,
+                    maxLines = when {
+                        spanSections >= 4 -> 5
+                        spanSections >= 3 -> 4
+                        else -> 2
+                    },
+                    overflow = TextOverflow.Ellipsis,
+                    lineHeight = 12.sp
+                )
+                if (spanSections >= 2 && location.isNotEmpty()) {
+                    Spacer(Modifier.height(1.dp))
+                    Text(
+                        "@$location", fontSize = 8.sp,
+                        color = textColor.copy(alpha = 0.85f),
+                        textAlign = TextAlign.Center,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+                if (weekInfo.isNotEmpty() && spanSections >= 2) {
+                    Text(
+                        weekInfo, fontSize = 7.sp,
+                        color = textColor.copy(alpha = 0.65f),
+                        textAlign = TextAlign.Center, maxLines = 1, overflow = TextOverflow.Ellipsis
+                    )
+                }
+            }
+            // 叠在最上层不占布局，格子已经很挤。描一圈免得跟课程色撞在一起。
+            badge?.let { mark ->
+                // 中性标记用课格自己的文字色：深浅底都看得见，又不抢眼。
+                val dot = mark.color ?: textColor.copy(alpha = 0.9f)
+                val ring = if (mark.color == null) {
+                    if (textColor == Color.White) Color.Black.copy(alpha = 0.35f)
+                    else Color.White.copy(alpha = 0.55f)
+                } else {
+                    textColor.copy(alpha = 0.55f)
+                }
+                Box(
+                    Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(3.dp)
+                        .size(if (mark.color == null) 6.dp else 7.dp)
+                        .background(ring, CircleShape)
+                        .padding(1.dp)
+                        .background(dot, CircleShape)
+                )
+            }
         }
     }
 }

@@ -33,7 +33,6 @@ import com.xjtu.toolbox.core.net.CampusFeedbackApi
 import com.xjtu.toolbox.core.net.CampusPayApi
 import com.xjtu.toolbox.core.net.CampusWebVpnApi
 import com.xjtu.toolbox.core.net.CampusJwxtScheduleApi
-import com.xjtu.toolbox.feedback.FeedbackScreen
 import com.xjtu.toolbox.pay.PaymentCodeScreen
 import com.xjtu.toolbox.pay.PaymentSelectionStore
 import com.xjtu.toolbox.social.MatchScreen
@@ -71,13 +70,11 @@ import com.xjtu.toolbox.core.net.CampusFitnessApi
 import com.xjtu.toolbox.core.net.CampusSchoolCourseApi
 import com.xjtu.toolbox.core.net.CampusFacultyApi
 import com.xjtu.toolbox.core.net.CampusNoticeApi
-import com.xjtu.toolbox.core.net.CampusGradesApi
 import com.xjtu.toolbox.core.net.CampusSchoolCalendarApi
 import com.xjtu.toolbox.core.net.CampusYellowPageApi
 import com.xjtu.toolbox.error.FriendlyError
 import com.xjtu.toolbox.faculty.FacultyScreen
 import com.xjtu.toolbox.fitness.FitnessScreen
-import com.xjtu.toolbox.score.ScoreReportScreen
 import com.xjtu.toolbox.game.GamesScreen
 import com.xjtu.toolbox.game.gomoku.GomokuScreen
 import com.xjtu.toolbox.game.go.GoScreen
@@ -105,8 +102,9 @@ import com.xjtu.toolbox.ui.glass.glassNavStyle
 import com.xjtu.toolbox.yellowpage.YellowPageScreen
 import io.ktor.client.HttpClient
 import kotlinx.coroutines.withTimeoutOrNull
+import top.yukonga.miuix.kmp.basic.Button
+import top.yukonga.miuix.kmp.basic.ButtonDefaults
 import top.yukonga.miuix.kmp.basic.Text
-import top.yukonga.miuix.kmp.basic.TextButton
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 /** Web 外壳：共享壳 + `:core` 的屏。 */
@@ -330,9 +328,9 @@ private fun AppPage(
 
         AppRoute.Agent -> if (mode != ApiMode.SERVE) {
             WebServeOnlyScreen(
-                title = "屁岱",
+                title = "小岱",
                 endpoints = "GET/POST /api/agent/{config,models,sessions*,memory*} + POST /api/agent/chat（SSE） + /stop",
-                why = "屁岱的模型调用、工具取数、会话与记忆、API Key 全在 serve 那一侧（campus-api 形态下这几个域没有端点）。",
+                why = "小岱的模型调用、工具取数、会话与记忆、API Key 全在 serve 那一侧（campus-api 形态下这几个域没有端点）。",
                 section = "§5.11",
             )
         } else {
@@ -360,13 +358,6 @@ private fun AppPage(
         AppRoute.Fitness -> FitnessScreen(
             source = remember(client, mode) { CampusFitnessApi(client, API_BASE, mode) },
             onBack = back,
-        )
-        // 成绩：与 Android 同一个屏与模型（:core/score），取数换成 campus-api 的精确成绩。
-        // 两个端上游不是同一个接口（:app 解析帆软报表 HTML），字段对齐写在 CampusGradesApi 的 KDoc 里。
-        AppRoute.ScoreReport -> ScoreReportScreen(
-            source = remember(client, mode) { CampusGradesApi(client, API_BASE, mode) },
-            onBack = back,
-            cache = remember { WebScoreReportCache() },
         )
         AppRoute.YellowPage -> YellowPageScreen(
             api = remember(client, mode) { CampusYellowPageApi(client, API_BASE, mode) },
@@ -675,7 +666,6 @@ private fun AppPage(
                         source = scoreSource,
                         studentId = "",
                         onBack = back,
-                        onOpenReport = { onNavigate(WebTarget.App(AppRoute.ScoreReport)) },
                         // 成绩单只有本科生的流程，而「是不是本科生」要身份才知道（本端没有那条链）
                         // ⇒ 不画那个入口（成绩单在首页宫格里本来就有入口，见 WebSupport）。
                         onOpenTranscript = null,
@@ -740,34 +730,6 @@ private fun AppPage(
             }
         }
 
-        AppRoute.Feedback -> if (mode != ApiMode.SERVE) {
-            WebServeOnlyScreen(
-                title = "反馈与建议",
-                endpoints = "GET /api/feedback/replies + /api/feedback/public-qa + POST /api/feedback/submit",
-                why = "反馈没有校园站点会话：凭据由 serve 进程启动时读 FEEDBACK_* 环境变量注入。",
-                section = "§5.7",
-            )
-        } else {
-            Column(Modifier.fillMaxSize()) {
-                WebGapNote(
-                    "三处如实缺口：① 这一族**不套会话** —— 反馈没有学校站点，所谓「登录」是服务端拿" +
-                        "`app_id` + `app_secret` 换一张租户令牌，所以本端没有「先登录校园账号」那一步；" +
-                        "② 提交要服务端配了那三个 `FEEDBACK_*` 环境变量：没配全时三条端点一律答 502（含提交那一枪），" +
-                        "而屏把取数失败吞掉了 ⇒「我提过的 / 大家在问」会显示成「没有新回复」；" +
-                        "③ 提交那一发在服务端**真的**往多维表格里加一行，而且工单号是**屏自己生成**的" +
-                        "（`FeedbackStore`，本端落在 localStorage ⇒ 换了浏览器就找不回旧工单）。" +
-                        "⚠️ 写的那一格只该走回环 + 令牌闸门：对外部署要先加反代 + 鉴权（§3.3）。",
-                )
-                Box(Modifier.weight(1f)) {
-                    FeedbackScreen(
-                        source = remember(client, mode) { CampusFeedbackApi(client, API_BASE, mode) },
-                        onOpenUrl = { openInNewTab(it) },
-                        onBack = back,
-                    )
-                }
-            }
-        }
-
         // 匹配交友：共享屏 + `WebMatchHost`，只读本机缓存；扫码走 `WebMatchScanner`。
         AppRoute.Match -> MatchScreen(
             host = remember { WebMatchHost() },
@@ -809,7 +771,13 @@ private fun AppPage(
             // 登录页本身是共享屏，输入框由 supportsManualToken 长出来，:app 那边不会出现。
             deviceAuth = remember(session) { WebGithubDeviceAuth(session) },
             onBack = back,
-            onOpenLegacyFeedback = {},
+        )
+
+        is AppRoute.CommunityPost -> CommunityScreen(
+            session = session,
+            deviceAuth = remember(session) { WebGithubDeviceAuth(session) },
+            onBack = back,
+            discussionNumber = route.number,
         )
 
         AppRoute.Accounts -> if (mode != ApiMode.SERVE) {
@@ -845,10 +813,6 @@ private fun AppPage(
             onBack = back,
         )
 
-        // 学辅资料站：下载 / 预览 / 落盘那一整档都在 `:app`（`ZyxfDownloader` 要 Context 与文件系统），
-        // 浏览器这一端没有对应屏 ⇒ 如实画占位页（这一条同时在 WebSupport 文件头的「什么不在清单里」里）
-        is AppRoute.Zyxf -> NotPortedScreen(route, onNavigate)
-
         // 兜底：清单说能开却没有分支 ⇒ 本端 bug，画指名道姓的页；其余路由显示「没搬过来」。
         else -> if (WebSupport.isOpenable(route)) WebSupportMismatchScreen(route, onNavigate)
         else NotPortedScreen(route, onNavigate)
@@ -878,6 +842,9 @@ private fun NotPortedScreen(route: AppRoute, onNavigate: (WebTarget) -> Unit) {
             color = cs.onBackgroundVariant,
             fontSize = 12.sp,
         )
-        TextButton(text = "回日程", onClick = { onNavigate(WebTarget.App(AppRoute.Schedule)) }, minWidth = 96.dp)
+        Button(
+            onClick = { onNavigate(WebTarget.App(AppRoute.Schedule)) },
+            colors = ButtonDefaults.buttonColorsPrimary(),
+        ) { Text("回日程", color = cs.onPrimary) }
     }
 }

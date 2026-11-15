@@ -19,14 +19,6 @@ interface ScoreReportSource {
     suspend fun grades(): List<ReportedGrade>
 }
 
-/** 成绩的 SWR 缓存端口（先给旧值秒显、后台再刷）。 */
-interface ScoreReportCache {
-    /** 读不到就是 null（含解析失败、过期）。 */
-    fun read(): List<ReportedGrade>?
-
-    fun write(grades: List<ReportedGrade>)
-}
-
 /** `"%.2f".format(value)` 的跨端等价实现。 */
 fun formatTwoDecimals(value: Double): String = formatFixed(value, 2)
 

@@ -27,18 +27,17 @@ import com.xjtu.toolbox.ui.components.EmptyState
 import com.xjtu.toolbox.ui.components.ErrorState
 import com.xjtu.toolbox.ui.components.SkeletonList
 import com.xjtu.toolbox.ui.glass.*
+import com.xjtu.toolbox.ui.glass.rememberCouiTopAppBarScrollBehavior
 import top.yukonga.miuix.kmp.basic.Button
 import top.yukonga.miuix.kmp.basic.ButtonDefaults
 import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.IconButton
 import top.yukonga.miuix.kmp.basic.LinearProgressIndicator
-import top.yukonga.miuix.kmp.basic.MiuixScrollBehavior
 import top.yukonga.miuix.kmp.basic.Scaffold
 import top.yukonga.miuix.kmp.basic.Surface
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextButton
-import top.yukonga.miuix.kmp.basic.rememberTopAppBarState
 import top.yukonga.miuix.kmp.overlay.OverlayDialog
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.utils.overScrollVertical
@@ -52,7 +51,7 @@ fun <Q> JudgeListScreen(title: String, vm: JudgeViewModel<Q>, onBack: () -> Unit
     // 0=未评, 1=已评
     var selectedTab by rememberSaveable { mutableIntStateOf(0) }
     var confirming by remember { mutableStateOf(false) }
-    val scrollBehavior = MiuixScrollBehavior(rememberTopAppBarState())
+    val scrollBehavior = rememberCouiTopAppBarScrollBehavior()
     // 玻璃顶栏（经典风格下为 null，一切照旧），用法见 ui/glass/GlassTopBar.kt
     val glass = rememberPageGlass()
     Scaffold(
@@ -62,21 +61,24 @@ fun <Q> JudgeListScreen(title: String, vm: JudgeViewModel<Q>, onBack: () -> Unit
                 glass = glass,
                 scrollBehavior = scrollBehavior,
                 onBack = onBack,
-                // 分段标签不跟着滚：挂在顶栏里和顶栏一起做一整块玻璃，课程卡从它下面滚过去
                 bottomContent = {
-                    CompositionLocalProvider(LocalOnGlassBar provides (glass != null)) {
-                        AppSegmentedTabs(
-                            tabs = listOf("未评 (${vm.unfinished.size})", "已评 (${vm.finished.size})"),
-                            selectedTabIndex = selectedTab,
-                            onTabSelected = { selectedTab = it },
-                            modifier = Modifier.readableWidth(),
-                        )
-                    }
+                    com.xjtu.toolbox.ui.components.DockedPageTabs(
+                        tabs = listOf("未评 (${vm.unfinished.size})", "已评 (${vm.finished.size})"),
+                        selectedTabIndex = selectedTab,
+                        onTabSelected = { selectedTab = it },
+                    )
                 },
             )
-        }
+        },
     ) { padding ->
         val glassTop = padding.glassTop(glass)
+        // 未评 / 已评
+        com.xjtu.toolbox.ui.components.PageBottomTabsHost(
+            tabs = listOf("未评 (${vm.unfinished.size})", "已评 (${vm.finished.size})"),
+            selectedTabIndex = selectedTab,
+            onTabSelected = { selectedTab = it },
+            modifier = Modifier.fillMaxSize(),
+        ) {
         // 课程卡分两三列铺开（AdaptiveCardGrid），标签和「一键好评」这种控件限宽居中
         Column(
             Modifier
@@ -133,7 +135,7 @@ fun <Q> JudgeListScreen(title: String, vm: JudgeViewModel<Q>, onBack: () -> Unit
                             com.xjtu.toolbox.ui.adaptive.AdaptiveCardGrid(
                                 modifier = Modifier.fillMaxSize().overScrollVertical(),
                                 spacing = 10.dp,
-                                contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 12.dp + glassTop, bottom = 12.dp)
+                                contentPadding = tabContentPadding(PaddingValues(start = 16.dp, end = 16.dp, top = 12.dp + glassTop, bottom = 12.dp))
                             ) {
                                 // 一键好评是「未评」列表的第一项，跟着列表滚
                                 // 一键好评是「未评」列表的第一项，跟着列表滚。
@@ -154,6 +156,7 @@ fun <Q> JudgeListScreen(title: String, vm: JudgeViewModel<Q>, onBack: () -> Unit
                 }
             }
         }
+        }
     }
 }
 
@@ -164,11 +167,12 @@ private fun <Q> AutoJudgeBlock(vm: JudgeViewModel<Q>, onClick: () -> Unit) {
         Button(
             onClick = { if (!vm.isAutoJudging) onClick() },
             modifier = Modifier.fillMaxWidth(0.84f).height(44.dp).align(Alignment.CenterHorizontally),
-            enabled = !vm.isAutoJudging
+            enabled = !vm.isAutoJudging,
+            colors = ButtonDefaults.buttonColorsPrimary(),
         ) {
-            Icon(Icons.Default.ThumbUp, contentDescription = null)
+            Icon(Icons.Default.ThumbUp, contentDescription = null, tint = MiuixTheme.colorScheme.onPrimary)
             Spacer(Modifier.width(8.dp))
-            Text(if (vm.isAutoJudging) "评教中..." else "一键全部好评")
+            Text(if (vm.isAutoJudging) "评教中…" else "一键全部好评", color = MiuixTheme.colorScheme.onPrimary)
         }
         if (!vm.isAutoJudging && vm.autoJudgeMessage.isEmpty()) return@Column
         Spacer(Modifier.height(8.dp))
@@ -243,7 +247,7 @@ private fun QuestionnaireCard(card: JudgeCard, finished: Boolean, undoing: Boole
                     colors = ButtonDefaults.buttonColors(color = MiuixTheme.colorScheme.secondaryContainer)
                 ) {
                     Text(
-                        if (undoing) "撤回中..." else "撤回评教",
+                        if (undoing) "撤回中…" else "撤回评教",
                         color = MiuixTheme.colorScheme.onSecondaryContainer,
                         style = MiuixTheme.textStyles.footnote1,
                         fontWeight = FontWeight.Medium

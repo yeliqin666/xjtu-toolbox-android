@@ -3,9 +3,11 @@ package com.xjtu.toolbox.schedule
 /**
  * 周视图网格的纵轴布局。
  *
- * 纵轴一行是一节课，或一段时段带：相邻两节间隔一小时以上的「午休」「晚休」，以及有条目落在
- * 第 1 节之前、末节之后时补的「早间」「夜间」。节间十来分钟的课间不占高度，落在里面的时刻贴到
- * 下一行的上沿。第 11 节平时几乎不排课，不画；有条目落到那里才加上。
+ * 纵轴一行是一节课。相邻两节之间的大空档（午休、晚休）不再单独占一行：只留一条没有名字的
+ * 时段带，空着时高度为 0，真有条目落在里面时才按钟点放开（见 `ScheduleGrid`）。
+ * 相邻两节间隔一小时以上的判断仍在这里；第 1 节之前、末节之后补的「早间」「夜间」照旧。
+ * 节间十来分钟的课间也不占高度，落在里面的时刻贴到下一行的上沿。第 11 节平时几乎不排课，
+ * 不画；有条目落到那里才加上。
  *
  * 每一行在两套作息下各有自己的起止（[times]）：冬令第 5 节是 14:00–14:50，夏令是 14:30–15:20。
  * 条目按**它那天**的作息换算真实起止（[CourseItem.clockMinutes]），再按那天作息的行起止落位，
@@ -63,7 +65,7 @@ class WeekGridLayout(
 data class GridRow(
     /** 节次行的节号；时段带为 null。 */
     val section: Int?,
-    /** 时段带的名字（午休、晚休、早间、夜间）。 */
+    /** 时段带的名字（早间、夜间）；两节之间的大空档不给名字。 */
     val label: String = "",
 )
 
@@ -110,7 +112,8 @@ fun layoutWeekGrid(
     val hasEarly = clocks.any { (_, summer, clock) -> clock.first < sectionsOf(summer).getValue(sections.first()).first }
     val hasLate = clocks.any { (_, summer, clock) -> clock.second > sectionsOf(summer).getValue(lastSection).second }
 
-    // 行结构两套作息共用（两套作息的午休、晚休都在第 4/5、第 8/9 节之间），起止各算各的
+    // 行结构两套作息共用（起止各算各的）；两节之间的大空档只留一条无名时段带：
+    // 空着时高度为 0，有日程落进去时才按钟点放开，见 ScheduleGrid 的 bandPieces。
     val rows = mutableListOf<GridRow>()
     val summerTimes = mutableListOf<Pair<Int, Int>>()
     val winterTimes = mutableListOf<Pair<Int, Int>>()
@@ -127,7 +130,8 @@ fun layoutWeekGrid(
             val summerGap = summerSections.getValue(prev).second to summerSections.getValue(section).first
             val winterGap = winterSections.getValue(prev).second to winterSections.getValue(section).first
             if (summerGap.second - summerGap.first >= REST_GAP_MINUTES) {
-                add(GridRow(null, if (summerGap.second < 16 * 60) "午休" else "晚休"), summerGap, winterGap)
+                // 午休 / 晚休不再单独占一行：无名、空着时高度 0（见 ScheduleGrid）。
+                add(GridRow(null), summerGap, winterGap)
             }
         }
         add(GridRow(section), summerSections.getValue(section), winterSections.getValue(section))

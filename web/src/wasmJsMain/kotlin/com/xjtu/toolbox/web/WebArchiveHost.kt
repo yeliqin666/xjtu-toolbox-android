@@ -55,14 +55,14 @@ internal object WebArchiveHost {
         // §6.3 逐族迁移（「成绩缓存」那一族）：端内是店、档案里是文件 ⇒ 这一族的店**不进 `stores/`**
         // （否则同一份缓存会在档案里出现两份；Android 那边还会把它当 prefs 店落下来）。
         return buildArchive(
-            stores = stores.filterNot { it.rawName == WebScoreReportCache.STORE_NAME },
+            stores = stores.filterNot { it.rawName == ArchiveScoreReport.WEB_STORE },
             files = WebArchiveRows.filesOf() + listOfNotNull(scoreFileOf(stores)),
             now = now,
         )
     }
 
     /**
-     * §6.3 逐族迁移（「成绩缓存」那一族）：端内是店 `score_report_cache` 的 `all` 键（[WebScoreReportCache]），
+     * §6.3 逐族迁移（「成绩缓存」那一族）：端内是店 `score_report_cache` 的 `all` 键（已无写入方，只搬旧数据），
      * 档案里是**文件** `schedule/score_report.json`，值是 `{"at":<ms>,"grades":[…]}`，名字里不带学号。
      *
      * 本端没有账号维度（全在 `global/`）。端内值已经带着 `at`；旧形状（裸数组）用导出时刻补上。
@@ -72,8 +72,8 @@ internal object WebArchiveHost {
         stores: List<StoreSnapshot>,
         now: () -> Long = { Clock.System.now().toEpochMilliseconds() },
     ): ArchiveFile? {
-        val raw = stores.firstOrNull { it.rawName == WebScoreReportCache.STORE_NAME }
-            ?.keys?.get(WebScoreReportCache.KEY) as? StoreValue.S ?: return null
+        val raw = stores.firstOrNull { it.rawName == ArchiveScoreReport.WEB_STORE }
+            ?.keys?.get(ArchiveScoreReport.WEB_KEY) as? StoreValue.S ?: return null
         val canonical = ArchiveScoreReport.toCanonical(raw.v, now()) ?: return null
         return ArchiveFile("", ArchiveScoreReport.CANONICAL_REL, canonical)
     }

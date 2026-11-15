@@ -1,8 +1,6 @@
 package com.xjtu.toolbox.ui.components
 
 import android.graphics.RuntimeShader
-import android.os.Build
-import androidx.annotation.RequiresApi
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
@@ -26,10 +24,6 @@ import kotlinx.coroutines.delay
 
 @Composable
 actual fun HeroPixelBackground(modifier: Modifier, animated: Boolean) {
-    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
-        CpuHeroPixelBackground(modifier)
-        return
-    }
     val lifecycleOwner = LocalLifecycleOwner.current
     val lifecycleState by lifecycleOwner.lifecycle.currentStateAsState()
     val running = animated && LocalPageVisible.current && lifecycleState.isAtLeast(Lifecycle.State.RESUMED)
@@ -111,7 +105,6 @@ half4 main(float2 fragCoord) {
 }
 """
 
-@RequiresApi(Build.VERSION_CODES.TIRAMISU)
 @Composable
 private fun RuntimePixel(modifier: Modifier, seconds: () -> Float) {
     val cell = with(LocalDensity.current) { 1.dp.toPx() }

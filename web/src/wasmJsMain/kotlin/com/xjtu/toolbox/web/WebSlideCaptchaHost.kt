@@ -34,7 +34,6 @@ import com.xjtu.toolbox.platform.decodeImageFull
 import com.xjtu.toolbox.venue.CaptchaData
 import com.xjtu.toolbox.venue.SlideCaptchaHost
 import com.xjtu.toolbox.venue.SliderResult
-import com.xjtu.toolbox.venue.SolvedCaptcha
 import com.xjtu.toolbox.venue.TrackPoint
 import kotlin.io.encoding.Base64
 import kotlin.math.roundToInt
@@ -58,9 +57,6 @@ object WebSlideCaptchaHost : SlideCaptchaHost {
             onSlideComplete = onSolved,
         )
     }
-
-    /** 浏览器里没有识别器 ⇒ null。 */
-    override suspend fun solve(data: CaptchaData, shownAtMillis: Long): SolvedCaptcha? = null
 }
 
 /** 浏览器里的滑块面板。 */

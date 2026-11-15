@@ -37,6 +37,7 @@ import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
+import kotlinx.datetime.daysUntil
 import top.yukonga.miuix.kmp.basic.*
 import top.yukonga.miuix.kmp.window.WindowDialog
 import top.yukonga.miuix.kmp.theme.MiuixTheme
@@ -110,6 +111,35 @@ internal class LmsPageCache(private val disk: LmsCacheStore?) {
         submittedById.putAll(found)
     }
 
+    /** 本学期各课还没截止的作业（课 id → 按截止排好）；null = 还没扫。交没交由 [submitted] 现查，交完返回即更新。 */
+    var openHomework by mutableStateOf<Map<Int, List<LmsActivity>>?>(null)
+        private set
+    private var scanStarted = false
+
+    /** 进课程列表时扫一遍本学期每门课的活动（顺带预热了点进课程要用的缓存），再查这些作业交没交。每次进入只扫一次。 */
+    suspend fun scanOpenHomework(source: LmsSource, current: List<LmsCourseSummary>) {
+        if (scanStarted) return
+        scanStarted = true
+        val gate = Semaphore(3)
+        coroutineScope {
+            current.filter { !activitiesSynced(it.id) }.map { c ->
+                async { gate.withPermit { runCatching { syncActivities(source, c.id) } } }
+            }.awaitAll()
+        }
+        val now = kotlin.time.Clock.System.now()
+        val open = current.associate { c ->
+            c.id to activities[c.id].orEmpty()
+                .filter { it.type == LmsActivityType.HOMEWORK && !it.isClosed && (it.deadlineInstant()?.let { d -> d > now } == true) }
+                .sortedBy { it.deadlineInstant() }
+        }
+        runCatching { syncSubmitted(source, open.values.flatten()) }
+        openHomework = open
+    }
+
+    /** 没交的（查不到交没交的不算，免得误报）。 */
+    fun pendingOf(courseId: Int): List<LmsActivity> =
+        openHomework?.get(courseId).orEmpty().filter { submitted(it) == false }
+
     /** 落盘失败只记日志，不影响这一次取数的结果。 */
     private inline fun writeSafe(block: () -> Unit) {
         runCatching { block() }.onFailure { Log.w("LmsPageCache", "write lms cache failed", it) }
@@ -137,6 +167,16 @@ private sealed class LmsPage {
         val startInDual: Boolean = false,
     ) : LmsPage()
 }
+
+/** 子页面 rememberSaveable 状态的键，与各页 ScrollMemory 的键同粒度。 */
+private val LmsPage.stateKey: String get() = when (this) {
+    LmsPage.CourseList -> "courses"
+    is LmsPage.ActivityList -> "activities_${course.id}"
+    is LmsPage.ActivityDetail -> "detail_${activity.id}"
+    is LmsPage.BulletinDetail -> "bulletin_${bulletin.id}"
+    is LmsPage.ForumTopicDetail -> "topic_${topic.id}"
+    is LmsPage.VideoPlayer -> "video"
+}
 // ════════════════════════════════════════
 //  入口
 // ════════════════════════════════════════
@@ -158,12 +198,16 @@ fun LmsScreen(
     /** 「功能说明」弹过了没。`:app` 与原实现同一个 pref 文件、同一个键（`feature_hints` / `lms_hint_shown`）。 */
     showFirstUseHint: Boolean = false,
     onFirstUseHintRead: () -> Unit = {},
+    /** 把活动转给小岱（列表长按、详情页顶栏）。没接小岱的端传 null，两个入口都不出现。 */
+    onAskAgent: ((com.xjtu.toolbox.agent.AgentForward) -> Unit)? = null,
     /** 视频播放槽位：`:app` 传 ExoPlayer 全屏页，桌面交给系统播放器；都不传时给一句说明页。 */
     videoPlayer: VideoPlayerHost? = null,
 ) {
     val authExpiry = LocalAuthExpiry.current
 
     var currentPage by remember { mutableStateOf<LmsPage>(LmsPage.CourseList) }
+    // 子页面切走即销毁：列表位置由 ScrollMemory 恢复，顶栏折叠等 rememberSaveable 状态靠它一起恢复
+    val pageStates = androidx.compose.runtime.saveable.rememberSaveableStateHolder()
     // 落盘缓存按账号分命名空间（`:app` 的实现是 `AppLmsCache`，切账号会换新实例），
     // 所以那份实例由调用方 remember 后传进来，这里只按它缓存数据。
     val cache = remember(cacheStore) { LmsPageCache(cacheStore) }
@@ -174,6 +218,8 @@ fun LmsScreen(
     // 不能跟着 pendingCourseId 一起清：清掉它和切到活动页是同一帧，AnimatedContent 里淡出中的
     // 旧页会用新状态重组一次——占位变成完整课程列表，用户就看到「中间闪过思源学堂主页」。
     var listPlaceholder by remember { mutableStateOf(initialCourseId != null) }
+    // 深链落地的那一页：从它返回直接退出思源，回到来处（日程、消息），不掉进用户没进过的上一层
+    var entryPage by remember { mutableStateOf<LmsPage?>(null) }
     LaunchedEffect(Unit) {
         // 占位期间 CourseListPage 没被组合，它那个"进页面就加载"的 effect 不会跑，
         // 得在这里把列表拉起来，否则一直转圈。不以 pendingCourseId 为键：落盘的列表一到就可能
@@ -213,6 +259,7 @@ fun LmsScreen(
                 com.xjtu.toolbox.platform.showBriefMessage("未能打开这项作业，请在课程中查找或刷新后重试")
             }
         }
+        if (hit != null) entryPage = currentPage
         // 活动列表拉取完成才消费意图，避免改变 effect 的 key 取消自己。
         pendingCourseId = null
     }
@@ -233,7 +280,6 @@ fun LmsScreen(
         WindowDialog(
             show = showHint.value,
             title = "功能说明",
-            summary = "数据来自思源学堂 lms.xjtu.edu.cn",
             onDismissRequest = { dismissHint() }
         ) {
             Column(Modifier.fillMaxWidth()) {
@@ -246,21 +292,17 @@ fun LmsScreen(
                 TextButton(
                     text = "知道了",
                     onClick = { dismissHint() },
-                    modifier = Modifier.fillMaxWidth()
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = ButtonDefaults.textButtonColorsPrimary(),
                 )
             }
         }
     }
 
-    // 返回处理
-    // 从日程页深链进来看某门课时，返回应当直接回日程，而不是先落到课程列表——
-    // 用户并没有"进过"那个列表，退到那儿等于凭空多一层。
-    // 合并成一个 BackHandler：多个同时启用时后注册的先被调用，
-    // 拆成两个很容易被顺序坑到。
-    val deepLinked = initialCourseId != null
+    // 合并成一个 BackHandler：多个同时启用时后注册的先被调用，拆成两个很容易被顺序坑到
     BackHandler(enabled = currentPage !is LmsPage.CourseList) {
         val cur = currentPage
-        if (deepLinked && cur is LmsPage.ActivityList) {
+        if (cur == entryPage) {
             onBack()
             return@BackHandler
         }
@@ -317,7 +359,7 @@ fun LmsScreen(
         },
         label = "LmsPage"
     ) { page ->
-        when (page) {
+        pageStates.SaveableStateProvider(page.stateKey) { when (page) {
             // 带着 courseId 进来时先显示占位：课程列表要等接口回来才能匹配到那门课，
             // 这中间把列表画出来，用户看到的就是"闪一下列表又跳走"。
             is LmsPage.CourseList -> if (listPlaceholder) {
@@ -334,19 +376,24 @@ fun LmsScreen(
                 source = source,
                 cache = cache,
                 course = page.course,
-                // 标题栏的返回箭头要和系统返回键一致：深链进来的直接退出，
-                // 否则点箭头仍会掉进那个用户没进过的课程列表。
-                onBack = { if (deepLinked) onBack() else currentPage = LmsPage.CourseList },
+                // 标题栏返回箭头与系统返回键一致
+                onBack = { if (page == entryPage) onBack() else currentPage = LmsPage.CourseList },
                 onActivitySelected = { currentPage = LmsPage.ActivityDetail(page.course, it) },
-                onBulletinSelected = { currentPage = LmsPage.BulletinDetail(page.course, it) }
+                onBulletinSelected = { currentPage = LmsPage.BulletinDetail(page.course, it) },
+                onAskAgent = onAskAgent,
             )
             is LmsPage.ActivityDetail -> ActivityDetailPage(
                 source = source,
                 cache = cache,
                 course = page.course,
                 activity = page.activity,
-                onBack = { currentPage = LmsPage.ActivityList(page.course) },
+                onBack = { if (page == entryPage) onBack() else currentPage = LmsPage.ActivityList(page.course) },
+                // 从别处直达这项作业时，给一个去课程页的入口；之后从课程页返回就回到课程列表
+                onOpenCourse = if (page == entryPage) {
+                    { entryPage = null; listPlaceholder = false; currentPage = LmsPage.ActivityList(page.course) }
+                } else null,
                 onTopicSelected = { topic -> currentPage = LmsPage.ForumTopicDetail(page.course, page.activity, topic) },
+                onAskAgent = onAskAgent,
                 onPlayVideo = { title, instrUrl, encUrl, isLive, headers, startInDual ->
                     currentPage = LmsPage.VideoPlayer(
                         title = title,
@@ -374,7 +421,7 @@ fun LmsScreen(
                 onBack = { currentPage = LmsPage.ActivityList(page.course) }
             )
             is LmsPage.VideoPlayer -> { /* handled above */ }
-        }
+        } }
     }
 }
 // ════════════════════════════════════════
@@ -393,8 +440,10 @@ internal fun BoxScope.LoadingIndicator(text: String) {
 internal fun BoxScope.ErrorRetry(message: String, onRetry: () -> Unit) {
     Column(Modifier.align(Alignment.Center).padding(16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
         Text(message, color = MiuixTheme.colorScheme.error)
-        Spacer(Modifier.height(8.dp))
-        TextButton(text = "重试", onClick = onRetry)
+        Spacer(Modifier.height(12.dp))
+        Button(onClick = onRetry, colors = ButtonDefaults.buttonColorsPrimary()) {
+            Text("重试", color = MiuixTheme.colorScheme.onPrimary)
+        }
     }
 }
 @Composable
@@ -471,7 +520,9 @@ private fun LmsVideoUnavailable(request: VideoPlayRequest, onBack: () -> Unit) {
             color = MiuixTheme.colorScheme.error,
             fontSize = 13.sp,
         )
-        TextButton(text = "返回", onClick = onBack, minWidth = 120.dp)
+        Button(onClick = onBack, colors = ButtonDefaults.buttonColorsPrimary()) {
+            Text("返回", color = MiuixTheme.colorScheme.onPrimary)
+        }
     }
 }
 internal fun fileTypeIcon(type: String): ImageVector = when {
@@ -513,6 +564,19 @@ fun lmsActivityTimeLine(activity: LmsActivity): String {
     }
 }
 /** 将带偏移量的上游时间转换为学校时区；无偏移量的旧格式视为学校墙钟时间。 */
+/** 截止的口语说法：今天 / 明天 / 周几（一周内）/ M/d，后跟 HH:mm。 */
+internal fun dueLabel(due: kotlin.time.Instant): String {
+    val at = com.xjtu.toolbox.util.campusDateTimeOf(due.toEpochMilliseconds())
+    val days = com.xjtu.toolbox.util.todayOnCampus().daysUntil(at.date)
+    val day = when (days) {
+        0 -> "今天"
+        1 -> "明天"
+        in 2..6 -> "周" + "一二三四五六日"[at.date.dayOfWeek.ordinal]
+        else -> "${at.month.ordinal + 1}/${at.day}"
+    }
+    return "$day ${at.hour.toString().padStart(2, '0')}:${at.minute.toString().padStart(2, '0')}"
+}
+
 fun formatLmsTime(raw: String): String {
     val text = raw.trim()
     val instant = lmsInstant(text)

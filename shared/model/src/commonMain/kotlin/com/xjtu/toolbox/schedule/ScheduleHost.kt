@@ -40,6 +40,21 @@ enum class ScheduleCapability {
 
     /** 课表变更（调课/停课/换教室）要冒一条气泡。 */
     SCHEDULE_CHANGE_BUBBLE,
+
+    /** 上课自动勿扰（决定菜单那一行与首次提示画不画）。 */
+    AUTO_DND,
+}
+
+/** 上课自动勿扰的宿主侧：开关、授权引导与首次提示都走它。 */
+interface AutoDndAccess {
+    val enabled: Boolean
+    val granted: Boolean
+
+    /** 没开、也没点过「不再提示」：课表页顶部提示一次。 */
+    fun shouldPrompt(): Boolean
+    fun dismissPrompt()
+    fun setEnabled(on: Boolean)
+    fun openAccessSettings()
 }
 
 /** 日程页的宿主槽位 —— 「这一端有什么」，而不是「这一端是不是 Android」。 */
@@ -91,6 +106,9 @@ interface ScheduleHost {
 
     /** 「课表显示考勤角标」这个设置项（`:app` 在 `CredentialStore` 里）。 */
     val attendanceBadgeEnabled: Boolean get() = false
+
+    /** 上课自动勿扰。`null` = 这一端没接（桌面、网页）。 */
+    val autoDnd: AutoDndAccess? get() = null
 
     /** 联网判定。没有这一档的端点走默认值 true（真发请求时失败自然会被当成失败）。 */
     fun isOnline(): Boolean = true

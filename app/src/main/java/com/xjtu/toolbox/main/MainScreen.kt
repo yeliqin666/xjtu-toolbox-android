@@ -10,6 +10,7 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
@@ -17,6 +18,8 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.asPaddingValues
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.displayCutout
 import androidx.compose.foundation.layout.exclude
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -27,7 +30,6 @@ import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.union
 import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.Search
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
@@ -43,18 +45,29 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
+import androidx.compose.runtime.Stable
+import androidx.compose.ui.unit.toSize
+import androidx.compose.ui.layout.layout
+import androidx.compose.ui.unit.Constraints
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.sp
+import androidx.compose.material.icons.outlined.Notifications
+import kotlin.math.roundToInt
+import androidx.compose.ui.graphics.graphicsLayer
+import com.xjtu.toolbox.nav.ExpandOriginSource
+import com.xjtu.toolbox.nav.expandOriginSource
+import com.xjtu.toolbox.nav.rememberExpandOriginSource
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.size
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
-import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
@@ -62,14 +75,13 @@ import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.kyant.backdrop.backdrops.LayerBackdrop
+import androidx.lifecycle.viewmodel.compose.viewModel
 import com.xjtu.toolbox.account.AccountManager
 import com.xjtu.toolbox.agent.AgentOverlays
 import com.xjtu.toolbox.agent.AgentInsightEngine
 import com.xjtu.toolbox.agent.AgentInsightHub
 import com.xjtu.toolbox.agent.AgentPendingPrompt
 import com.xjtu.toolbox.agent.AndroidAgentHost
-import com.xjtu.toolbox.agent.BubbleArrowSide
 import com.xjtu.toolbox.agent.ProactiveBubbleHost
 import com.xjtu.toolbox.agent.ProactiveBubbleView
 import com.xjtu.toolbox.agent.ProactiveMessage
@@ -81,7 +93,7 @@ import com.xjtu.toolbox.card.CampusCardCache
 import com.xjtu.toolbox.data.AppearanceSettings
 import com.xjtu.toolbox.data.CredentialStore
 import com.xjtu.toolbox.feedback.FeedbackPromptSheet
-import com.xjtu.toolbox.home.GlobalSearchScreen
+import com.xjtu.toolbox.home.GlobalSearchBody
 import com.xjtu.toolbox.home.HomeSignals
 import com.xjtu.toolbox.home.HomeStats
 import com.xjtu.toolbox.home.HomeStatsRefresher
@@ -91,6 +103,8 @@ import com.xjtu.toolbox.library.LibraryQrArea
 import com.xjtu.toolbox.nav.AppRoute
 import com.xjtu.toolbox.nav.AppPageAsTab
 import com.xjtu.toolbox.nav.AppPageDeps
+import com.xjtu.toolbox.nav.LocalSeamlessOpener
+import com.xjtu.toolbox.nav.SeamlessCardSource
 import com.xjtu.toolbox.inbox.InboxBell
 import com.xjtu.toolbox.profile.ProfileTab
 import com.xjtu.toolbox.qrlogin.QrLoginScreen
@@ -103,29 +117,46 @@ import com.xjtu.toolbox.shell.ShellAccountBadge
 import com.xjtu.toolbox.shell.ShellHandles
 import com.xjtu.toolbox.shell.ShellNavState
 import com.xjtu.toolbox.shell.ShellTab
-import com.xjtu.toolbox.ui.components.pressScale
-import com.xjtu.toolbox.ui.glass.LocalAppBackdrop
+import com.xjtu.toolbox.ui.glass.CouiPageTopAppBar
+import com.xjtu.toolbox.ui.glass.LocalCouiGlassBarBackdrop
+import com.xjtu.toolbox.ui.glass.androidBackdrop
+import com.xjtu.toolbox.ui.glass.coui.CollapsingTopAppBar
+import com.xjtu.toolbox.ui.glass.coui.CouiCollapsingAppBarState
+import com.xjtu.toolbox.ui.glass.coui.CouiTopAppBarButtonDefaults
+import com.xjtu.toolbox.ui.glass.coui.CouiTopAppBarSearchState
+import com.xjtu.toolbox.ui.glass.coui.CouiToolbarStyle
+import com.xjtu.toolbox.ui.glass.coui.CouiTopAppBarDefaults
+import com.xjtu.toolbox.ui.glass.coui.LocalCouiContentColor
+import com.xjtu.toolbox.ui.glass.coui.TopAppBarSearch
+import com.xjtu.toolbox.ui.glass.coui.TopAppBarSearchButton
+import com.xjtu.toolbox.ui.glass.coui.couiBackdrop
+import com.xjtu.toolbox.ui.glass.coui.rememberCouiBackdrop
+import com.xjtu.toolbox.ui.glass.coui.rememberCouiCollapsingAppBarState
+import com.xjtu.toolbox.ui.glass.coui.rememberCouiSearchBarState
+import com.xjtu.toolbox.ui.glass.coui.rememberCouiTopAppBarSearchState
+import com.xjtu.toolbox.ui.glass.CouiTopBarScrollBehavior
+import com.xjtu.toolbox.ui.glass.CouiToolbarActionButton
+import com.xjtu.toolbox.ui.glass.LocalCouiPageBackdrop
 import com.xjtu.toolbox.ui.glass.LocalOnGlassBar
-import com.xjtu.toolbox.ui.glass.glassBarSurface
-import com.xjtu.toolbox.ui.glass.glassBarTint
+import com.xjtu.toolbox.ui.glass.rememberCouiTopAppBarScrollBehavior
+import com.xjtu.toolbox.ui.glass.couiContentTrack
 import com.xjtu.toolbox.ui.isWideLayout
-import com.xjtu.toolbox.ui.theme.LocalIsDarkTheme
 import com.xjtu.toolbox.ui.rememberHaptics
+import com.xjtu.toolbox.ui.theme.LocalIsDarkTheme
 import com.xjtu.toolbox.zyxf.ZyxfBrowseScreen
+import com.xjtu.toolbox.zyxf.ZyxfBrowseViewModel
+import com.xjtu.toolbox.zyxf.ZyxfTopBarSearch
+import com.xjtu.toolbox.zyxf.ZyxfTopBarSortChips
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import top.yukonga.miuix.kmp.basic.ButtonDefaults
 import top.yukonga.miuix.kmp.basic.Icon
-import top.yukonga.miuix.kmp.basic.IconButton
-import top.yukonga.miuix.kmp.basic.MiuixScrollBehavior
-import top.yukonga.miuix.kmp.basic.ScrollBehavior
-import top.yukonga.miuix.kmp.basic.SmallTopAppBar
 import top.yukonga.miuix.kmp.basic.SnackbarHost
+import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextButton
-import top.yukonga.miuix.kmp.basic.TopAppBar
-import top.yukonga.miuix.kmp.basic.rememberTopAppBarState
 import top.yukonga.miuix.kmp.overlay.OverlayDialog
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import java.time.Duration
@@ -149,6 +180,9 @@ internal fun MainScreen(
     onHeroBulletinDismiss: (Bulletin) -> Unit,
 ) {
     val context = LocalContext.current
+    // 顶栏圆钮也是「从这一块打开某页」的起点：ROM 支持一镜到底时走系统转场，否则用原来的 Compose 浮层/放大。
+    val seamlessOpener = LocalSeamlessOpener.current
+    val density = LocalDensity.current
     val appearance = AppearanceSettings.get(context)
     val navBarStyle by appearance.navBarStyle.collectAsStateWithLifecycle()
     val showQuickActions by appearance.showQuickActions.collectAsStateWithLifecycle()
@@ -158,7 +192,7 @@ internal fun MainScreen(
     val pidaiInBar = bar.any { it.core == BottomTab.PIDAI }
     LaunchedEffect(bar) { tabs.bar = bar }
 
-    // 各页的屁岱卡（通知精选、荐座……）都走这一个入口；「接着问屁岱」切到屁岱 tab
+    // 各页的小岱卡（通知精选、荐座……）都走这一个入口；「接着问小岱」切到小岱 tab
     remember(loginState) {
         AgentInsightHub.insights = AgentInsightEngine(AndroidAgentHost(context.applicationContext, loginState)) { prompt, snapshot ->
             AgentPendingPrompt.set(prompt, snapshot)
@@ -171,17 +205,92 @@ internal fun MainScreen(
     LaunchedEffect(selectedBarTab.id) { tabs.selectedId = selectedBarTab.id }
     /** 选中的原生格；选中的是放上来的子页时为 null。 */
     val selectedTab: BottomTab? = selectedBarTab.core
+    // 学辅的搜索在顶栏里，ViewModel 提到这一层和页面共用；第一次上屏才发请求（见 ensureStarted）
+    val zyxfVm: ZyxfBrowseViewModel = viewModel(key = "zyxf") { ZyxfBrowseViewModel(context) }
+    val zyxfSearchState = rememberCouiSearchBarState(expanded = true)
+    // 在宿主层读：顶栏是子组合，这样排序胶囊不会拿到旧的选中态
+    val zyxfSort = zyxfVm.sort
+    val zyxfDesc = zyxfVm.desc
+    val zyxfSearching = zyxfVm.searching
     val navAccountCount = remember(loginState.accountId) { accountManager.accountList().size }
     var lastBackPressTime by remember { mutableLongStateOf(0L) }
-    var showGlobalSearch by remember { mutableStateOf(false) }
     var showQrLogin by remember { mutableStateOf(false) }
+    // 首页搜索：顶栏是 COUI 搜索组件这一层，下面是搜索结果内容层，两者分开。
+    var homeSearchExpanded by rememberSaveable { mutableStateOf(false) }
+    var homeSearchQuery by rememberSaveable { mutableStateOf("") }
+    val homeSearchState = rememberCouiTopAppBarSearchState(homeSearchExpanded)
+    val homeSearchStyle = CouiTopAppBarButtonDefaults.style(
+        dark = LocalIsDarkTheme.current,
+        search = true,
+    )
+    val homeSearchKeyboard = LocalSoftwareKeyboardController.current
+    val homeSearchContent: @Composable () -> Unit = {
+        TopAppBarSearch(
+            modifier = Modifier.fillMaxWidth(),
+            state = homeSearchState,
+            style = homeSearchStyle,
+            query = homeSearchQuery,
+            onQueryChange = { homeSearchQuery = it },
+            onSearch = { homeSearchKeyboard?.hide() },
+            placeholder = "搜索功能",
+            focusPending = homeSearchExpanded,
+            onFocused = {},
+            action = {
+                Text(
+                    "取消",
+                    color = LocalCouiContentColor.current,
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.Medium,
+                )
+            },
+            onActionClick = { homeSearchExpanded = false },
+        ) { }
+    }
+    val homeSearchBody: @Composable (Dp) -> Unit = { top ->
+        GlobalSearchBody(
+            topPadding = top,
+            query = homeSearchQuery,
+            onQueryChange = { homeSearchQuery = it },
+            accountType = loginState.accountType,
+            onNavigate = { route ->
+                homeSearchExpanded = false
+                router.open(route)
+            },
+            onAskAgent = { prompt ->
+                homeSearchExpanded = false
+                AgentPendingPrompt.set(prompt)
+                router.selectTab(BottomTab.PIDAI)
+            },
+            onOpenUrl = { url ->
+                homeSearchExpanded = false
+                router.open(AppRoute.Browser(url))
+            },
+            onOpenWithWebVpn = { vpnUrl ->
+                homeSearchExpanded = false
+                pageDeps.onOpenWithWebVpn(vpnUrl)
+            },
+            modifier = Modifier.fillMaxSize(),
+        )
+    }
+    BackHandler(enabled = homeSearchExpanded) { homeSearchExpanded = false }
+    LaunchedEffect(selectedTab) {
+        if (selectedTab != BottomTab.HOME) homeSearchExpanded = false
+    }
+    // 扫一扫从哪颗圆钮长出来；null = 从别处打开，直接淡入
+    var revealSource by remember { mutableStateOf<ExpandOriginSource?>(null) }
+    // 扫一扫覆盖层的展开进度：底下的页面跟着往后退
+    val qrReveal = remember { androidx.compose.animation.core.Animatable(0f) }
 
     // ── 各 Tab 独立的滚动折叠状态 ──
-    val homeScrollBehavior = MiuixScrollBehavior(rememberTopAppBarState())
-    val coursesScrollBehavior = MiuixScrollBehavior(rememberTopAppBarState())
-    val toolsScrollBehavior = MiuixScrollBehavior(rememberTopAppBarState())
-    val profileScrollBehavior = MiuixScrollBehavior(rememberTopAppBarState())
-    val agentScrollBehavior = MiuixScrollBehavior(rememberTopAppBarState())
+    // 主 tab 的大字顶栏是 COUI 原版 LargeTopAppBar，折叠状态就是 COUI 的
+    // CouiCollapsingAppBarState（弹簧、吸附、反向展开全在原厂代码里）。
+    val coursesScrollBehavior = rememberCouiTopAppBarScrollBehavior()
+    // 学辅用 COUI 原版 CollapsingTopAppBar（标题 + 常驻搜索同属一块表面），折叠状态由这里持有，
+    // 行为照样走统一的位置上报。列表为空时松手要把标题放回来，否则只剩一块收起的搜索栏。
+    val toolsAppBarState = rememberCouiCollapsingAppBarState(canScroll = { zyxfVm.entries.isNotEmpty() })
+    val toolsScrollBehavior = rememberCouiTopAppBarScrollBehavior(toolsAppBarState)
+    val profileScrollBehavior = rememberCouiTopAppBarScrollBehavior()
+    val agentScrollBehavior = rememberCouiTopAppBarScrollBehavior()
 
     val isWide = isWideLayout()
 
@@ -189,19 +298,21 @@ internal fun MainScreen(
     val glassStyle = navBarStyle == CredentialStore.NAV_STYLE_FLOATING
 
     // COURSES tab 副标题 + actions slot + bottomContent slot
-    var courseSubtitle by remember { mutableStateOf("") }
     var courseHeaderActions by remember { mutableStateOf<(@Composable RowScope.() -> Unit)?>(null) }
     var courseHeaderBottomContent by remember { mutableStateOf<(@Composable () -> Unit)?>(null) }
 
-    // PIDAI tab 的标题与顶栏按钮，由屁岱页反向送上来
-    var agentTitle by remember { mutableStateOf("屁岱") }
-    var agentSubtitle by remember { mutableStateOf("") }
+    // PIDAI tab 的标题与顶栏按钮，由小岱页反向送上来
+    var agentTitle by remember { mutableStateOf("小岱") }
     val agentOverlays = remember { AgentOverlays() }
     var agentHeaderActions by remember { mutableStateOf<(@Composable RowScope.() -> Unit)?>(null) }
     var agentHeaderNavIcon by remember { mutableStateOf<(@Composable () -> Unit)?>(null) }
 
     // 首页数据拉取挂在这里而不是 HomeTab：tab 懒加载，默认启动 tab 不是首页时也要拉
     LaunchedEffect(loginState.accountId, loginState.campusCardCacheVersion) {
+        launch {
+            HomeStatsRefresher.refreshDue(context, loginState.sessionManager, loginState.accountType)
+            HomeSignals.bumpStatsVersion()
+        }
         if (loginState.accountId.isEmpty()) return@LaunchedEffect
         // 校内外判定和刷新并行：跟随全局模式的站点在 SessionManager 里等判定落定，直连站点（教务等）不必等
         launch { runCatching { loginState.ensureCampusDetected() } }
@@ -218,21 +329,20 @@ internal fun MainScreen(
                 )
                 HomeSignals.scheduleVersion++
                 com.xjtu.toolbox.widget.ScheduleWidgetUpdater.requestUpdate(context, resetToToday = false)
+                com.xjtu.toolbox.notification.DynamicScheduleScheduler.requestRefresh(context)
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
             } catch (e: Exception) {
                 android.util.Log.w("MainScreen", "补课表缓存失败", e)
             }
         }
-        HomeStatsRefresher.refreshDue(context, loginState.sessionManager, loginState.accountType)
-        HomeSignals.bumpStatsVersion()
     }
     // 切回前台也跑一轮：各源按 TTL 决定拉不拉，图书馆签到这类有时效的状态不会停在上次打开时。
     // 和上面撞车时 refreshDue 自己会跳过后到的那次
     val resumeScope = rememberCoroutineScope()
     androidx.lifecycle.compose.LifecycleEventEffect(androidx.lifecycle.Lifecycle.Event.ON_RESUME) {
+        com.xjtu.toolbox.notification.DynamicScheduleScheduler.requestRefresh(context)
         com.xjtu.toolbox.widget.ScheduleWidgetUpdater.requestUpdate(context, resetToToday = false)
-        if (loginState.accountId.isEmpty()) return@LifecycleEventEffect
         resumeScope.launch {
             launch { runCatching { loginState.ensureCampusDetected() } }
             HomeStatsRefresher.refreshDue(context, loginState.sessionManager, loginState.accountType)
@@ -242,7 +352,7 @@ internal fun MainScreen(
 
     ProactiveReminderLoop(loginState)
 
-    // 在屁岱页时不自动冒泡（会遮输入框）
+    // 在小岱页时不自动冒泡（会遮输入框）
     LaunchedEffect(selectedTab) {
         ProactiveBubbleHost.autoSuppressed = selectedTab == BottomTab.PIDAI
     }
@@ -250,7 +360,7 @@ internal fun MainScreen(
     // 只有手动点 tab 才震动，程序切 tab 不震
     val haptics = rememberHaptics()
 
-    // 点屁岱：切 tab，并让它在首屏说句闲话（底栏上的闲话气泡收掉，正事气泡保留）
+    // 点小岱：切 tab，并让它在首屏说句闲话（底栏上的闲话气泡收掉，正事气泡保留）
     val onPidaiTap: () -> Unit = {
         if (selectedTab != BottomTab.PIDAI) haptics.tick()
         tabs.select(BottomTab.PIDAI)
@@ -261,7 +371,7 @@ internal fun MainScreen(
             ProactiveBubbleHost.heroPokes++
         }
     }
-    // 共享壳点某一格只走这一条回调（它不认哪一格是谁）：屁岱那一格顺带冒气泡，其余格只切 + 震一下
+    // 共享壳点某一格只走这一条回调（它不认哪一格是谁）：小岱那一格顺带冒气泡，其余格只切 + 震一下
     val onSelectTab: (ShellTab) -> Unit = { tab ->
         if (tab.id == BottomTab.PIDAI.name) {
             onPidaiTap()
@@ -272,7 +382,7 @@ internal fun MainScreen(
         }
     }
 
-    // 屁岱那一格的自绘（会动的机器人 + 气泡的锚点）；屁岱不在栏上时锚点作废
+    // 小岱那一格的自绘（会动的机器人 + 气泡的锚点）；小岱不在栏上时锚点作废
     var pidaiAnchor by remember { mutableStateOf<Rect?>(null) }
     val tabArt = remember(shellTabs) {
         AndroidShellTabArt(
@@ -288,6 +398,7 @@ internal fun MainScreen(
         target = selectedBarTab.shellTab().target,
         onSelect = onSelectTab,
         accountBadge = ShellAccountBadge.of(navAccountCount, loginState.isLoggedIn),
+        returning = tabs.returning,
     )
 
     // 新气泡出现时轻震一下
@@ -296,21 +407,18 @@ internal fun MainScreen(
         if (bubbleId != null) haptics.lowTick()
     }
 
-    // 屁岱提醒气泡，底栏版和侧栏版共用这一份，各自只管定位。玻璃采样层从共享壳手里拿
-    // （见 `ShellHandles`）：尖角伸到底栏上时采「页面 + 底栏」的合成层。
-    val bubbleView: @Composable (ShellHandles, ProactiveMessage, BubbleArrowSide, Dp, Dp?) -> Unit =
-        { handles, msg, arrowSide, maxWidth, arrowFromStart ->
+    // 小岱提醒气泡，底栏版和侧栏版共用这一份，各自只管定位。玻璃采样层从共享壳手里拿
+    // （见 `ShellHandles` 与 `LocalCouiGlassBarBackdrop`）：COUI 面板采的就是页面内容那层。
+    val bubbleView: @Composable (ShellHandles, ProactiveMessage, Dp) -> Unit =
+        { handles, msg, maxWidth ->
             ProactiveBubbleView(
                 message = msg,
-                arrowSide = arrowSide,
-                arrowFromStart = arrowFromStart,
                 maxWidth = maxWidth,
-                backdrop = if (arrowSide != BubbleArrowSide.Start && handles.glassBarPresent) {
-                    handles.combinedBackdrop
+                pageBackdrop = if (handles.glassBarPresent) {
+                    LocalCouiGlassBarBackdrop.current?.asPageBackdrop()
                 } else {
-                    handles.contentBackdrop
+                    null
                 },
-                glass = glassStyle,
                 onOpen = {
                     ProactiveRules.markUseful(context, msg.id)
                     ProactiveBubbleHost.clear()
@@ -334,8 +442,27 @@ internal fun MainScreen(
             )
         }
 
-    // 宽屏气泡定位用：侧栏屁岱的根坐标，减去覆盖层自己的根坐标（转场平移时两者会不同）
+    // 宽屏气泡定位用：侧栏小岱的根坐标，减去覆盖层自己的根坐标（转场平移时两者会不同）
     var overlayOrigin by remember { mutableStateOf(Offset.Zero) }
+
+    // 学辅 tab 顶栏里的搜索槽。搜索框和排序胶囊绑在一起，都在 COUI 顶栏表面里；
+    // 上滑后标题收起，搜索 + 排序一起悬浮在页面顶部。检索中排序让位给结果。
+    val toolsSearchBar: @Composable () -> Unit = {
+        Column {
+            ZyxfTopBarSearch(
+                vm = zyxfVm,
+                searchState = zyxfSearchState,
+                shadowProgress = toolsAppBarState.collapsedFraction,
+            )
+            if (!zyxfSearching) {
+                ZyxfTopBarSortChips(
+                    sort = zyxfSort,
+                    desc = zyxfDesc,
+                    onPick = zyxfVm::pickSort,
+                )
+            }
+        }
+    }
 
     AppShell(
         nav = navState,
@@ -357,83 +484,71 @@ internal fun MainScreen(
         },
         tabArt = tabArt,
         snackbarHost = { SnackbarHost(router.messages) },
-        topBar = { _, handles ->
-            // 顶栏留在这一端：它有 Android 的扫一扫图标（`R.drawable.ic_scan`）与每格自己的表头槽位
+        topBar = { shellTab, handles ->
+            // 顶栏留在这一端：它有 Android 的扫一扫图标（`R.drawable.ic_scan`）与每格自己的表头槽位。
+            // 每页一份，按这一页自己的格子画，不看当前选中项
+            val barTab = shellTab?.id?.let(BottomTab::of)
             MainTopBar(
-                selectedTab = selectedTab,
+                selectedTab = barTab,
                 glassStyle = glassStyle,
-                backdrop = handles.contentBackdrop,
-                scrollBehavior = when (selectedTab) {
-                    BottomTab.HOME, null -> homeScrollBehavior
-                    BottomTab.COURSES -> coursesScrollBehavior
+                couiScrollBehavior = when (barTab) {
                     BottomTab.PIDAI -> agentScrollBehavior
+                    BottomTab.COURSES -> coursesScrollBehavior
                     BottomTab.TOOLS -> toolsScrollBehavior
                     BottomTab.PROFILE -> profileScrollBehavior
+                    else -> null
                 },
                 agentTitle = agentTitle,
-                agentSubtitle = agentSubtitle,
                 agentNavIcon = agentHeaderNavIcon,
                 agentActions = agentHeaderActions,
-                courseSubtitle = courseSubtitle,
                 courseActions = courseHeaderActions,
                 courseBottomContent = courseHeaderBottomContent,
-                onScan = { ProactiveBubbleHost.clear(); showQrLogin = true },
-                onSearch = { ProactiveBubbleHost.clear(); showGlobalSearch = true },
-                onInbox = { ProactiveBubbleHost.clear(); router.open(AppRoute.Inbox) },
+                toolsAppBarState = toolsAppBarState,
+                toolsSearchBar = toolsSearchBar,
+                onScan = { source ->
+                    ProactiveBubbleHost.clear()
+                    val from = source.boundsInWindow()
+                    val opener = seamlessOpener
+                    if (from != null && opener != null && com.xjtu.toolbox.sharedview.KitOneTake.supported) {
+                        // 扫一扫也有独立一镜到底宿主：ROM 支持时从这颗圆钮长成整屏扫码页。
+                        opener(
+                            AppRoute.QrScan,
+                            SeamlessCardSource(from, with(density) { (from.width / 2f).toDp() }),
+                        )
+                    } else {
+                        // 不支持 / 拿不到起点：还是原来那颗圆钮长出来的整屏浮层。
+                        revealSource = source
+                        showQrLogin = true
+                    }
+                },
             )
         },
         barBubble = { handles ->
             val msg = ProactiveBubbleHost.message
             if (msg != null && selectedTab != BottomTab.PIDAI) {
                 val screenWidth = with(LocalDensity.current) { LocalWindowInfo.current.containerSize.width.toDp() }
-                // 屁岱不在底栏上时没有可指的，气泡不画尖角
-                val side = if (pidaiInBar) BubbleArrowSide.Bottom else BubbleArrowSide.None
-                BarBubbleSlot(anchorX = pidaiAnchor?.center?.x?.takeIf { pidaiInBar }) { arrowFromStart ->
-                    bubbleView(handles, msg, side, (screenWidth - 32.dp).coerceAtLeast(200.dp), arrowFromStart)
+                BarBubbleSlot(anchorX = pidaiAnchor?.center?.x?.takeIf { pidaiInBar }) {
+                    bubbleView(handles, msg, (screenWidth - 32.dp).coerceAtLeast(200.dp))
                 }
             }
         },
-        // 宽屏侧栏屁岱旁的气泡（侧栏内部会裁掉溢出内容，所以做成并列的覆盖层）
+        // 宽屏侧栏小岱旁的气泡（侧栏内部会裁掉溢出内容，所以做成并列的覆盖层）
         railOverlay = { handles ->
             RailProactiveBubble(
                 anchor = { pidaiAnchor?.takeIf { pidaiInBar } },
                 overlayOrigin = { overlayOrigin },
-                bubbleView = { msg, side, maxWidth -> bubbleView(handles, msg, side, maxWidth, null) },
+                bubbleView = { msg, maxWidth -> bubbleView(handles, msg, maxWidth) },
             )
         },
         // 搜索、扫一扫是盖满整屏的浮层：共享壳把它们放在最外层，不放进 Scaffold 的内容区
         overlays = { handles ->
-            // 屁岱的历史对话侧栏和设置页：盖住顶栏和底栏
+            // 小岱的历史对话侧栏和设置页：盖住顶栏和底栏
             if (selectedTab == BottomTab.PIDAI) agentOverlays.Content()
-            AnimatedVisibility(visible = showGlobalSearch, enter = OverlayEnter, exit = OverlayExit) {
-                CompositionLocalProvider(
-                    LocalAppBackdrop provides if (glassStyle) handles.contentBackdrop else null,
-                ) {
-                    GlobalSearchScreen(
-                        onBack = { showGlobalSearch = false },
-                        onNavigate = { route ->
-                            showGlobalSearch = false
-                            router.open(route)
-                        },
-                        onAskAgent = { prompt ->
-                            showGlobalSearch = false
-                            AgentPendingPrompt.set(prompt)
-                            router.selectTab(BottomTab.PIDAI)
-                        },
-                        onOpenUrl = { url ->
-                            showGlobalSearch = false
-                            router.open(AppRoute.Browser(url))
-                        },
-                        onOpenWithWebVpn = { vpnUrl ->
-                            showGlobalSearch = false
-                            pageDeps.onOpenWithWebVpn(vpnUrl)
-                        },
-                        accountType = loginState.accountType,
-                    )
-                }
-            }
-
-            AnimatedVisibility(visible = showQrLogin, enter = OverlayEnter, exit = OverlayExit) {
+            RevealOverlay(
+                visible = showQrLogin,
+                source = revealSource,
+                progress = qrReveal,
+            ) {
                 QrLoginScreen(
                     sessionManager = accountManager.sessionManager,
                     onBack = { showQrLogin = false },
@@ -464,8 +579,10 @@ internal fun MainScreen(
         onBack = {
             when {
                 showQrLogin -> showQrLogin = false
-                showGlobalSearch -> showGlobalSearch = false
-                selectedTab != BottomTab.HOME -> tabs.select(BottomTab.HOME)
+                homeSearchExpanded -> homeSearchExpanded = false
+                // 先退回上一格（当前页缩回自己的按钮）；没有历史了再回首页
+                tabs.back(bar.mapTo(HashSet()) { it.id }) -> Unit
+                selectedTab != BottomTab.HOME -> tabs.jumpHome()
                 else -> {
                     val now = System.currentTimeMillis()
                     if (now - lastBackPressTime < 2000) {
@@ -480,7 +597,13 @@ internal fun MainScreen(
         restoring = isRestoring,
         restoreStep = restoreStep,
         page = { shellPage, insets ->
-            Box(Modifier.fillMaxSize().pointerInput(Unit) {
+            Box(Modifier.fillMaxSize().graphicsLayer {
+                // 扫一扫覆盖层放大时，底下的页面慢慢往后退（搜索页只做淡入，不后退）
+                val reveal = qrReveal.value
+                val s = androidx.compose.ui.util.lerp(1f, com.xjtu.toolbox.nav.ButtonZoom.RECEDE_SCALE, reveal)
+                scaleX = s
+                scaleY = s
+            }.pointerInput(Unit) {
                 awaitPointerEventScope {
                     while (true) {
                         val event = awaitPointerEvent(androidx.compose.ui.input.pointer.PointerEventPass.Initial)
@@ -506,11 +629,42 @@ internal fun MainScreen(
                         onBulletinDismiss = onHeroBulletinDismiss,
                         contentTopPadding = insets.contentTopPadding,
                         contentTopShift = insets.contentTopShift,
+                        topBarSearch = homeSearchContent,
+                        searching = homeSearchExpanded,
+                        searchContent = homeSearchBody,
                         topActions = {
                             HomeTopActions(
-                                onInbox = { router.open(AppRoute.Inbox) },
-                                onScan = { showQrLogin = true },
-                                onSearch = { showGlobalSearch = true },
+                                onInbox = { source ->
+                                    // 收纳页以这颗圆钮为支点放大（转场按圆形起点走 ButtonZoom）
+                                    val from = source.boundsInWindow()
+                                    if (from != null) {
+                                        com.xjtu.toolbox.nav.ExpandOrigins.arm(
+                                            AppRoute.Inbox.id,
+                                            com.xjtu.toolbox.nav.ExpandOrigins.Origin(
+                                                from,
+                                                from.width / 2f,
+                                                // 面板上画的是圆钮每帧的真实画面，落地时和原位一致（见 RevealOverlay）
+                                                snapshot = source.content,
+                                                source = source,
+                                                restFill = Color.Transparent,
+                                                restShadow = false,
+                                            ),
+                                        )
+                                    }
+                                    // 交给宿主决定走 KIT 还是 Compose 放大；两条路都以这颗圆钮为起点。
+                                    val opener = seamlessOpener
+                                    if (from != null && opener != null) {
+                                        opener(AppRoute.Inbox, SeamlessCardSource(from, with(density) { (from.width / 2f).toDp() }))
+                                    } else {
+                                        router.open(AppRoute.Inbox)
+                                    }
+                                },
+                                // 搜索钮展开时，右侧铃铛按同一进度渐小、渐淡让位；
+                                // 收起时反过来长回来。
+                                searchState = homeSearchState,
+                                searchStyle = homeSearchStyle,
+                                onSearchExpand = { homeSearchExpanded = true },
+                                searching = homeSearchExpanded,
                             )
                         },
                     )
@@ -520,11 +674,9 @@ internal fun MainScreen(
                         onNavigate = router::open,
                         // 输入栏钉在底边，要让开浮在上面的底栏
                         extraBottomPadding = insets.bottomBarReserve,
-                        hostBottomPadding = insets.scaffoldBottomPadding,
                         contentTopPadding = insets.contentTopPadding,
                         scrollBehavior = agentScrollBehavior,
                         onTitleChange = { agentTitle = it },
-                        onSubtitleChange = { agentSubtitle = it },
                         onActionsChange = { agentHeaderActions = it },
                         onNavIconChange = { agentHeaderNavIcon = it },
                         overlays = agentOverlays,
@@ -536,15 +688,16 @@ internal fun MainScreen(
                         scrollBehavior = coursesScrollBehavior,
                         extraBottomPadding = insets.bottomBarReserve,
                         contentTopPadding = insets.contentTopPadding,
-                        onSubtitleChange = { courseSubtitle = it },
                         onActionsChange = { courseHeaderActions = it },
                         onBottomContentChange = { courseHeaderBottomContent = it },
                     )
 
                     BottomTab.TOOLS.name -> ZyxfBrowseScreen(
+                        vm = zyxfVm,
                         contentPadding = PaddingValues(bottom = insets.bottomBarReserve),
                         scrollBehavior = toolsScrollBehavior,
                         contentTopPadding = insets.contentTopPadding,
+                        searchInTopBar = true,
                     )
 
                     BottomTab.PROFILE.name -> ProfileTab(
@@ -569,116 +722,222 @@ internal fun MainScreen(
     )
 }
 
-private val OverlayEnter = fadeIn(tween(220)) + slideInVertically(tween(260)) { it / 16 }
-private val OverlayExit = fadeOut(tween(180)) + slideOutVertically(tween(200)) { it / 16 }
-
-/** 首页最上面一行右侧的三个圆钮：搜索、扫一扫、消息。 */
+/**
+ * 搜索、扫一扫这类整屏覆盖层的进出场：给了 [source] 就从那颗圆钮长成整页、收起时缩回去
+ * （见 ButtonZoom）；没有起点就淡入淡出。
+ *
+ * 圆钮全程「挪进」覆盖层（[ExpandOriginSource.lifted]）：面板里画的是它每帧的真实画面（玻璃透出的底色、
+ * 高光都在），收起落地那一帧再换回原位，前后像素一致。
+ */
 @Composable
-private fun HomeTopActions(onInbox: () -> Unit, onScan: () -> Unit, onSearch: () -> Unit) {
-    val tint = MiuixTheme.colorScheme.onSurface
-    Row(
-        horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(8.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        HomeRoundAction(onClick = onSearch, size = HomeTopActionSize) {
-            Icon(Icons.Outlined.Search, contentDescription = "搜索", tint = tint, modifier = Modifier.size(21.dp))
+private fun RevealOverlay(
+    visible: Boolean,
+    source: ExpandOriginSource?,
+    progress: androidx.compose.animation.core.Animatable<Float, androidx.compose.animation.core.AnimationVector1D>,
+    content: @Composable () -> Unit,
+) {
+    var shown by remember { mutableStateOf(false) }
+    if (visible) shown = true
+    // 起点在打开那一下定死，收起时回到同一处
+    val button = remember(shown) { source?.takeIf { shown } }
+    val from = remember(button) { button?.boundsInWindow() }
+    val screenCornerPx = with(LocalDensity.current) {
+        top.yukonga.miuix.kmp.nav.core.rememberNavSystemCornerRadius().toPx()
+    }
+    LaunchedEffect(visible) {
+        if (visible) {
+            if (from != null) button?.lifted = { progress.value }
+            progress.animateTo(1f, tween(480, easing = com.xjtu.toolbox.nav.ButtonZoom.Easing))
+        } else if (shown) {
+            progress.animateTo(0f, tween(400, easing = com.xjtu.toolbox.nav.ButtonZoom.Easing))
+            // 同一帧：覆盖层撤走、圆钮回原位
+            button?.lifted = null
+            shown = false
         }
-        HomeRoundAction(onClick = onScan, size = HomeTopActionSize) {
-            Icon(
-                androidx.compose.ui.res.painterResource(com.xjtu.toolbox.R.drawable.ic_scan),
-                contentDescription = "扫一扫",
-                tint = tint,
-                modifier = Modifier.size(20.dp),
-            )
-        }
-        HomeRoundAction(onClick = onInbox, size = HomeTopActionSize) {
-            InboxBell(onInbox, clickable = false, iconSize = 22.dp, containerSize = HomeTopActionSize)
+    }
+    // 覆盖层被直接移出组合时也把圆钮还回去
+    androidx.compose.runtime.DisposableEffect(button) { onDispose { button?.lifted = null } }
+    if (!shown) return
+    // 一层淡灰压住后面的内容（底栏也在覆盖层下面），和子页转场的变暗同一个意思
+    Box(Modifier.fillMaxSize().drawBehind { drawRect(Color.Black.copy(alpha = com.xjtu.toolbox.nav.ButtonZoom.RECEDE_DIM * progress.value)) }) {
+        Box(
+            Modifier
+                .fillMaxSize()
+                .graphicsLayer {
+                    val t = progress.value
+                    if (from != null && size.width > 0f) {
+                        com.xjtu.toolbox.nav.ButtonZoom.apply(this, from, size, t, screenCornerPx)
+                        alpha = com.xjtu.toolbox.nav.ButtonZoom.contentAlpha(t)
+                    } else {
+                        alpha = t
+                    }
+                },
+        ) { content() }
+        if (from != null && button != null) {
+            var full by remember { mutableStateOf(androidx.compose.ui.geometry.Size.Zero) }
+            Box(Modifier.fillMaxSize().onSizeChanged { full = androidx.compose.ui.geometry.Size(it.width.toFloat(), it.height.toFloat()) }) {
+                com.xjtu.toolbox.nav.ButtonMorphCover(
+                    from, { full }, { progress.value }, screenCornerPx, MiuixTheme.colorScheme.surface,
+                    // 圆钮本身是玻璃、只有一圈白色微光：面板从透明长起，贴近按钮时不带深色投影
+                    restFill = Color.Transparent,
+                    restShadow = false,
+                ) { button.content(Modifier.fillMaxSize()) }
+            }
         }
     }
 }
 
-/** 首页顶栏圆钮的直径：比原来的 40dp 略大，铃铛的角标才不会挤到圈外。 */
-private val HomeTopActionSize = 44.dp
+/** 顶栏的「扫一扫」圆钮。[onScan] 收到这颗圆钮，覆盖层从它长出来。 */
+@Composable
+private fun ScanAction(onScan: (ExpandOriginSource) -> Unit) {
+    val tint = MiuixTheme.colorScheme.onSurface
+    val source = rememberExpandOriginSource()
+    HomeRoundAction(onClick = { onScan(source) }, source = source) {
+        Icon(
+            androidx.compose.ui.res.painterResource(com.xjtu.toolbox.R.drawable.ic_scan),
+            contentDescription = "扫一扫",
+            tint = tint,
+            modifier = Modifier.size(24.dp),
+        )
+    }
+}
+
+/** 首页顶栏右上角那一排圆钮：可展开搜索、消息。 */
+@Composable
+private fun HomeTopActions(
+    onInbox: (ExpandOriginSource) -> Unit,
+    searchState: CouiTopAppBarSearchState,
+    searchStyle: CouiToolbarStyle,
+    onSearchExpand: () -> Unit,
+    /** 搜索是否处于展开态：动作区的布局宽度要在第一帧就让到位，见下面的注释。 */
+    searching: Boolean,
+) {
+    val inboxSource = rememberExpandOriginSource()
+    val density = LocalDensity.current
+    val actionFullWidth = with(density) { 48.dp.roundToPx() }
+    // 融球展开/收起同一条进度：0 = 圆钮，1 = 搜索框 + 取消胶囊。
+    val searchProgress = searchState.progress.coerceIn(0f, 1f)
+    Row(
+        horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(2.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        // 搜索圆钮是融球的起点：展开时和头像一样**当帧**让出宽度。
+        // 让位不能跟着 progress 慢慢来：搜索槽的终边如果还在动画里继续右移，
+        // 搜索框的右边缘就会先向左再回来（宽度增长落后于左端点的左移）。
+        Box(
+            Modifier
+                .layout { measurable, constraints ->
+                    val width = if (searching) 0 else (actionFullWidth * (1f - searchProgress)).roundToInt().coerceAtLeast(0)
+                    val placeable = measurable.measure(Constraints.fixed(width, constraints.maxHeight))
+                    layout(width, placeable.height) { placeable.place(0, 0) }
+                }
+                .graphicsLayer {
+                    val f = 1f - searchProgress
+                    alpha = f
+                    scaleX = f
+                    scaleY = f
+                },
+        ) {
+            TopAppBarSearchButton(
+                state = searchState,
+                style = searchStyle,
+                onClick = onSearchExpand,
+                contentDescription = "搜索",
+            )
+        }
+        // 右侧铃铛也给取消胶囊让位：布局宽度当帧交还（同搜索圆钮），
+        // 缩放/透明度仍跟融球同一条进度。内容固定按 48dp 量、右边缘钉在动作区末端，
+        // 所以布局让位时铃铛画在原位，不会跟着布局一起缩走。
+        Box(
+            Modifier
+                .layout { measurable, constraints ->
+                    val width = if (searching) 0 else (actionFullWidth * (1f - searchProgress)).roundToInt().coerceAtLeast(0)
+                    val placeable = measurable.measure(Constraints.fixed(actionFullWidth, constraints.maxHeight))
+                    layout(width, placeable.height) { placeable.place(width - placeable.width, 0) }
+                },
+        ) {
+            Box(
+                Modifier.graphicsLayer {
+                    // 视觉宽度始终不超过布局宽度，避免和分裂中的取消胶囊重叠
+                    val f = 1f - searchProgress
+                    alpha = f
+                    scaleX = f
+                    scaleY = f
+                },
+            ) {
+                HomeRoundAction(
+                    onClick = { onInbox(inboxSource) },
+                    source = inboxSource,
+                ) {
+                    InboxBell(
+                        {},
+                        clickable = false,
+                        iconSize = 24.dp,
+                        containerSize = HomeTopActionSize,
+                        showBadge = false,
+                    )
+                }
+                com.xjtu.toolbox.inbox.InboxUnreadBadge(
+                    Modifier
+                        .align(Alignment.TopEnd)
+                        .offset(x = (-2).dp, y = 8.dp)
+                        .graphicsLayer { alpha = if (com.xjtu.toolbox.nav.ExpandOrigins.isHidden(inboxSource)) 0f else 1f },
+                )
+            }
+        }
+    }
+}
+
+/** 首页顶栏圆钮的视觉直径：COUI 顶栏按钮是 40dp 圆（外加 48dp 最小交互尺寸）。 */
+private val HomeTopActionSize = 40.dp
 
 /**
- * 顶栏圆钮：半透明白底 + 常驻白色高光，直接透出下面的顶栏模糊，不再单独采样/模糊。
- * 按压用共享的 [pressScale]（小圆钮压深一点）；onClick 为 null 时只画底，不接管点击。
+ * 顶栏圆钮：COUI-Kit `TopAppBarButton` 原样——40dp 圆形视觉 + 48dp 交互尺寸、AGSL 浮层材质
+ * （边缘光、内光晕、轮廓投影、跟手形变与按压弹簧）。材质采的是首页顶栏表面录下的那一层
+ * （`LocalCouiToolbarBackdrop`），**两套首页布局下是同一颗钮**，切换功能区不会换材质。
+ *
+ * [source] 只用于「覆盖层从这颗钮长出来」的一镜到底起点。
  */
 @Composable
 private fun HomeRoundAction(
-    onClick: (() -> Unit)?,
-    size: Dp = HomeTopActionSize,
-    content: @Composable () -> Unit,
+    onClick: () -> Unit,
+    /** 记下这颗圆钮的位置：点开的页面 / 覆盖层从它长出来。 */
+    source: ExpandOriginSource? = null,
+    content: @Composable BoxScope.() -> Unit,
 ) {
-    val interaction = remember { MutableInteractionSource() }
-    val isDark = LocalIsDarkTheme.current
-    val fill = MiuixTheme.colorScheme.surfaceContainerHigh.copy(alpha = if (isDark) 0.52f else 0.6f)
-    val ring = Brush.verticalGradient(
-        0f to Color.White.copy(alpha = 1f),
-        0.55f to Color.White.copy(alpha = 0.5f),
-        1f to Color.White.copy(alpha = 0.2f),
-    )
-    Box(
-        Modifier
-            .size(size)
-            .pressScale(interaction, pressed = 0.92f)
-            .shadow(
-                elevation = 10.dp,
-                shape = CircleShape,
-                clip = false,
-                ambientColor = Color.White.copy(alpha = if (isDark) 0.28f else 0.6f),
-                spotColor = Color.White.copy(alpha = if (isDark) 0.28f else 0.6f),
-            )
-            .background(fill, CircleShape)
-            // 高光圈画在内容底下：铃铛角标要压在圈上，不能被圈盖住
-            .drawBehind {
-                val stroke = 1.5.dp.toPx()
-                drawCircle(ring, radius = this.size.minDimension / 2 - stroke / 2, style = Stroke(stroke))
-            }
-            .then(
-                if (onClick != null) {
-                    Modifier.clickable(interactionSource = interaction, indication = null, onClick = onClick)
-                } else {
-                    Modifier
-                }
-            ),
-        contentAlignment = Alignment.Center,
-    ) { content() }
+    Box(Modifier.then(if (source != null) Modifier.expandOriginSource(source) else Modifier)) {
+        CouiToolbarActionButton(onClick = onClick, content = content)
+    }
 }
 
-/** 主界面顶栏，玻璃风格下采样 tab 内容区。 */
+/** 主界面顶栏：glass 风格下由 COUI 顶栏表面采样这一页正文（主 tab 大字、小岱钉死小标题）。 */
 @Composable
 private fun MainTopBar(
     /** null = 选中的是放上来的子页（自带顶栏）。 */
     selectedTab: BottomTab?,
     glassStyle: Boolean,
-    backdrop: LayerBackdrop,
-    scrollBehavior: ScrollBehavior,
+    /** COUI 折叠行为：主 tab 的 COUI 大字顶栏用它（首页/子页不用）。 */
+    couiScrollBehavior: CouiTopBarScrollBehavior?,
     agentTitle: String,
-    agentSubtitle: String,
     agentNavIcon: (@Composable () -> Unit)?,
     agentActions: (@Composable RowScope.() -> Unit)?,
-    courseSubtitle: String,
     courseActions: (@Composable RowScope.() -> Unit)?,
     courseBottomContent: (@Composable () -> Unit)?,
-    onScan: () -> Unit,
-    onSearch: () -> Unit,
-    onInbox: () -> Unit,
+    /** 学辅 tab：标题 + 常驻搜索同属 COUI CollapsingTopAppBar。 */
+    toolsAppBarState: CouiCollapsingAppBarState?,
+    toolsSearchBar: (@Composable () -> Unit)?,
+    onScan: (ExpandOriginSource) -> Unit,
 ) {
-    val tint = glassBarTint()
     val color = if (glassStyle) Color.Transparent else MiuixTheme.colorScheme.surface
-    val modifier = if (glassStyle) Modifier.glassBarSurface(backdrop, tint) else Modifier
     // 首页没有顶栏（标题「岱宗盒子」没有信息量）：按钮挪进首页内容里，状态栏留白由 Scaffold 的 insets 给；
     // 放到底栏上的子页自带顶栏
     if (selectedTab == null || selectedTab == BottomTab.HOME) return
-    // 屁岱是自下而上的聊天，只用小标题
     if (selectedTab == BottomTab.PIDAI) {
-        SmallTopAppBar(
+        CouiPageTopAppBar(
             title = agentTitle,
-            subtitle = agentSubtitle,
+            scrollBehavior = couiScrollBehavior,
             color = color,
-            modifier = modifier,
-            scrollBehavior = scrollBehavior,
+            pageBackdrop = LocalCouiPageBackdrop.current,
             navigationIcon = { agentNavIcon?.invoke() },
             actions = { agentActions?.invoke(this) },
         )
@@ -689,29 +948,66 @@ private fun MainTopBar(
         BottomTab.TOOLS -> ZYXF_TITLE
         else -> selectedTab.label
     }
-    TopAppBar(
-        color = color,
-        modifier = modifier,
-        title = title,
-        largeTitle = title,
-        subtitle = if (selectedTab == BottomTab.COURSES) courseSubtitle else "",
-        scrollBehavior = scrollBehavior,
-        actions = {
-            if (selectedTab == BottomTab.COURSES) courseActions?.invoke(this)
-        },
-        bottomContent = {
-            if (selectedTab == BottomTab.COURSES) {
-                // 日程的标签行、周标题栏和顶栏是一整块玻璃，分开画接缝处会有模糊边
+    // 学辅：COUI 原版 CollapsingTopAppBar，标题和常驻搜索同一块表面；顶栏只跟列表滚动折叠，不传 searchState。
+    if (selectedTab == BottomTab.TOOLS && toolsAppBarState != null && toolsSearchBar != null) {
+        val pageBackdrop = LocalCouiPageBackdrop.current.androidBackdrop()
+        // 经典风格没有页面采样源：录一层实色底给顶栏渐变和搜索胶囊取样
+        val solid = if (pageBackdrop == null) rememberCouiBackdrop() else null
+        Box(Modifier.fillMaxWidth().couiContentTrack(toolsAppBarState)) {
+            if (solid != null) {
+                // 经典风格 = 兜底：纯白 / 纯黑实底
+                Box(
+                    Modifier.matchParentSize().couiBackdrop(solid)
+                        .background(if (LocalIsDarkTheme.current) Color.Black else Color.White),
+                )
+            }
+            CollapsingTopAppBar(
+                modifier = Modifier.fillMaxWidth(),
+                state = toolsAppBarState,
+                title = title,
+                color = MiuixTheme.colorScheme.onSurface,
+                backdrop = pageBackdrop ?: solid!!,
+                dark = LocalIsDarkTheme.current,
+                searchBar = toolsSearchBar,
+            )
+        }
+        return
+    }
+    // 日程：和其它主 tab 一样的可折叠大标题，多一行标签（今日 / 周 / 学期）挂在顶栏里
+    if (selectedTab == BottomTab.COURSES) {
+        CouiPageTopAppBar(
+            title = title,
+            largeTitle = title,
+            color = color,
+            scrollBehavior = couiScrollBehavior,
+            pageBackdrop = LocalCouiPageBackdrop.current,
+            actions = { courseActions?.invoke(this) },
+            bottomContent = {
+                // 标签行、周标题栏和顶栏是一整块玻璃，分开画接缝处会有模糊边
                 CompositionLocalProvider(LocalOnGlassBar provides glassStyle) {
                     courseBottomContent?.invoke()
                 }
-            }
+            },
+        )
+        return
+    }
+    // 其余主 tab 的大字顶栏就是 COUI 原版 LargeTopAppBar：110dp → 52dp、原版 AppBarLayout 测量与
+    // CouiTopAppBarSurface 渐变模糊；折叠进度由 COUI 自己的 scrollBehavior 驱动。
+    // 「我的」右上角放扫一扫：扫的是电脑端登录码 / 图书馆座位码，放在账号这一页更好找。
+    CouiPageTopAppBar(
+        color = color,
+        title = title,
+        largeTitle = title,
+        scrollBehavior = couiScrollBehavior,
+        pageBackdrop = LocalCouiPageBackdrop.current,
+        actions = {
+            if (selectedTab == BottomTab.PROFILE) ScanAction(onScan = onScan)
         },
     )
 }
 
 /**
- * 屁岱主动提醒：定时用本地缓存算一条提醒塞进 [ProactiveBubbleHost]，不发请求。
+ * 小岱主动提醒：定时用本地缓存算一条提醒塞进 [ProactiveBubbleHost]，不发请求。
  * 节流由 [ProactiveRules.pick] 的冷却负责。
  */
 @Composable
@@ -773,10 +1069,9 @@ private fun ProactiveReminderLoop(loginState: AppLoginState) {
 internal fun CoursesTab(
     loginState: AppLoginState,
     onNavigate: (AppRoute) -> Unit,
-    scrollBehavior: ScrollBehavior,
+    scrollBehavior: CouiTopBarScrollBehavior,
     extraBottomPadding: Dp,
     contentTopPadding: Dp,
-    onSubtitleChange: (String) -> Unit,
     onActionsChange: ((@Composable RowScope.() -> Unit)?) -> Unit,
     onBottomContentChange: ((@Composable () -> Unit)?) -> Unit,
 ) {
@@ -790,13 +1085,15 @@ internal fun CoursesTab(
         ScheduleScreen(
             host = scheduleHost,
             onBack = {},
-            onSubtitleChange = onSubtitleChange,
             onActionsChange = onActionsChange,
             onBottomContentChange = onBottomContentChange,
             contentBottomPadding = extraBottomPadding,
             contentTopPadding = contentTopPadding,
             topAppBarScrollBehavior = scrollBehavior,
             onNavigate = onNavigate,
+            wallpaperEditor = { courses, week, onDismiss ->
+                com.xjtu.toolbox.schedule.ScheduleWallpaperEditor(courses, week, onDismiss)
+            },
         )
     }
 }
@@ -828,3 +1125,4 @@ private fun PasswordInvalidatedDialog(loginState: AppLoginState, onUpdatePasswor
         }
     }
 }
+

@@ -1,5 +1,10 @@
 package com.xjtu.toolbox.library
 
+
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Row
+import com.xjtu.toolbox.ui.glass.tabContentPadding
+import com.xjtu.toolbox.ui.glass.tabContentBottomPadding
 import com.xjtu.toolbox.error.FriendlyError
 import com.xjtu.toolbox.ui.components.AppPullToRefresh
 import com.xjtu.toolbox.ui.components.pressScale
@@ -14,8 +19,6 @@ import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.HorizontalDivider
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.Scaffold
-import top.yukonga.miuix.kmp.basic.MiuixScrollBehavior
-import top.yukonga.miuix.kmp.basic.rememberTopAppBarState
 import top.yukonga.miuix.kmp.basic.TextButton
 import top.yukonga.miuix.kmp.basic.CircularProgressIndicator
 import top.yukonga.miuix.kmp.basic.LinearProgressIndicator
@@ -32,6 +35,13 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.material.icons.filled.ExpandMore
+import androidx.compose.ui.graphics.lerp
+import com.xjtu.toolbox.ui.components.AppCardColor
+import com.xjtu.toolbox.ui.components.appCardShadow
+import com.xjtu.toolbox.ui.theme.LocalIsDarkTheme
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.foundation.combinedClickable
@@ -46,8 +56,8 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.MoreHoriz
+import androidx.compose.material.icons.filled.QrCodeScanner
 import com.xjtu.toolbox.ui.components.AppDropdownMenu
-import com.xjtu.toolbox.ui.components.AppDropdownMenuItem
 import top.yukonga.miuix.kmp.basic.IconButton
 import androidx.compose.material.icons.filled.EventSeat
 import androidx.compose.material.icons.filled.Star
@@ -70,6 +80,7 @@ import com.xjtu.toolbox.ui.glass.*
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 import com.xjtu.toolbox.nav.AppRoute
+import com.xjtu.toolbox.ui.glass.rememberCouiTopAppBarScrollBehavior
 import androidx.lifecycle.viewmodel.compose.viewModel
 
 /** 图书馆座位主页面：校区→ 楼层→ 区域→ 座位（列表 / 平面图），外加预约、换座与「我的预约」上的那几个动作。 */
@@ -89,6 +100,8 @@ fun LibraryScreen(
     /** 「首次使用提示」还没读过吗。 */
     showFirstUseHint: Boolean = false,
     onFirstUseHintRead: () -> Unit = {},
+    /** 顶栏「扫一扫」：宿主打开扫码层，扫到座位码时调传进去的回调。`null` = 这一端扫不了码。 */
+    onScan: ((onSeat: (LibraryFocus.Target) -> Unit) -> Unit)? = null,
 ) {
     val appAuthExpiry = LocalAuthExpiry.current
     val scope = rememberCoroutineScope()
@@ -200,10 +213,9 @@ fun LibraryScreen(
             fl.copy(seats = fl.seats.filter { it.seatId in areaCodes }).takeIf { it.seats.isNotEmpty() }?.let { it to fi }
         }
     }
-    val showAreaChips = !planMode || (!vm.floorPlanLoading && floorAreasOnPlan == null)
 
     // ══════ UI ══════
-    val scrollBehavior = MiuixScrollBehavior(rememberTopAppBarState())
+    val scrollBehavior = rememberCouiTopAppBarScrollBehavior()
     // 玻璃顶栏（经典风格下为 null，一切照旧），用法见 ui/glass/GlassTopBar.kt
     val glass = rememberPageGlass()
     Scaffold(
@@ -214,37 +226,46 @@ fun LibraryScreen(
                 scrollBehavior = scrollBehavior,
                 onBack = onBack,
                 actions = {
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(2.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
                     // 校区、平面图 / 列表都收进这个菜单：一次选定就很少再改，不值得各占一整行
                     if (vm.campusSwitching) CircularProgressIndicator(size = 16.dp, strokeWidth = 2.dp)
-                    Box {
-                        IconButton(onClick = { menuOpen = true }) {
-                            Icon(Icons.Default.MoreHoriz, contentDescription = "校区与视图")
+                    // 扫桌上的座位码：在这一页直接定位、弹出预约
+                    if (onScan != null && source.canBook) {
+                        com.xjtu.toolbox.ui.glass.CouiToolbarActionButton(onClick = { onScan(vm::focusOn) }) {
+                            Icon(Icons.Default.QrCodeScanner, contentDescription = "扫座位码")
                         }
-                        AppDropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
-                            @Composable
-                            fun option(label: String, checked: Boolean, enabled: Boolean = true, onClick: () -> Unit) = AppDropdownMenuItem(
-                                text = { Text(label) },
-                                trailingIcon = if (checked) {
-                                    { Icon(Icons.Default.Check, null, Modifier.size(18.dp), tint = MiuixTheme.colorScheme.primary) }
-                                } else null,
-                                enabled = enabled,
-                                onClick = { menuOpen = false; onClick() },
-                            )
+                    }
+                    Box {
+                        com.xjtu.toolbox.ui.glass.CouiIconMenu(
+                            expanded = menuOpen,
+                            onExpandedChange = { menuOpen = it },
+                            icon = { Icon(Icons.Default.MoreHoriz, contentDescription = "校区与视图") },
+                        ) {
                             // 只读端切不了校区（那是改账号资料的写操作）⇒ 一档都不画
                             if (source.canBook) {
-                                LibraryCampus.entries.forEach { c ->
-                                    // 切换会写回账号资料（rplace），切换期间别让人连点
-                                    option("${c.displayName}校区", campus == c, enabled = !vm.campusSwitching) { vm.switchCampus(c) }
+                                submenu(title = "校区", summary = "${campus.displayName}校区") {
+                                    LibraryCampus.entries.forEach { c ->
+                                        // 切换会写回账号资料（rplace），切换期间别让人连点。
+                                        // 原来的勾选图标由 COUI 的 selected 表达
+                                        option("${c.displayName}校区", selected = campus == c, enabled = !vm.campusSwitching) {
+                                            vm.switchCampus(c)
+                                        }
+                                    }
                                 }
-                                HorizontalDivider(Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
                             }
                             // 没有布局/底图端点的端不出现「平面图」（切过去只会是一张空图）⇒ 只留列表
-                            listOf(VIEW_PLAN, VIEW_LIST)
-                                .filter { it != VIEW_PLAN || source.hasSeatPlan }
-                                .forEach { mode ->
-                                    option(mode, vm.viewMode == mode) { vm.changeViewMode(mode) }
-                                }
+                            submenu(title = "视图", summary = vm.viewMode) {
+                                listOf(VIEW_PLAN, VIEW_LIST)
+                                    .filter { it != VIEW_PLAN || source.hasSeatPlan }
+                                    .forEach { mode ->
+                                        option(mode, selected = vm.viewMode == mode) { vm.changeViewMode(mode) }
+                                    }
+                            }
                         }
+                    }
                     }
                 },
             )
@@ -285,7 +306,8 @@ fun LibraryScreen(
                             showHint = false
                             onFirstUseHintRead()
                         },
-                        modifier = Modifier.fillMaxWidth()
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = ButtonDefaults.textButtonColorsPrimary(),
                     )
                 }
             }
@@ -403,24 +425,94 @@ fun LibraryScreen(
         // 座位列表模式下它们是座位网格的第一项，和座位一起滚：以前固定在顶部，
         // 占掉大半屏，往上划只有下面一小块座位在动，半个屏幕纹丝不动，很别扭。
         // 加载中、出错、没有座位时没有可滚的列表，它们仍然钉在顶上。
+        // 楼层、区域和它们控制的内容同属一件事：平面图模式下直接放在图的卡片里，列表模式放头部
+        val floorSelector: @Composable () -> Unit = {
+            Column {
+                if (floors.isNotEmpty()) {
+                    AppSegmentedTabs(
+                        tabs = floors,
+                        selectedTabIndex = campus.floorCodes.indexOf(vm.selectedFloorCode).coerceAtLeast(0),
+                        onTabSelected = { index ->
+                            campus.floorCodes.getOrNull(index)?.let { vm.loadFloor(it) }
+                        },
+                        embedded = true,
+                    )
+                }
+                // 平面图模式下区域行长在座位图卡里（能在整层图上点选），这里只管列表模式
+                if (!planMode && areaCodes.size >= 2) {
+                    var areaMenuOpen by remember { mutableStateOf(false) }
+                    Box {
+                        AreaSwitchRow(
+                            areaName = selectedArea,
+                            freeText = null,
+                            switchable = true,
+                            open = areaMenuOpen,
+                            onClick = { areaMenuOpen = true },
+                        )
+                        com.xjtu.toolbox.ui.components.AppDropdownMenu(
+                            expanded = areaMenuOpen,
+                            onDismissRequest = { areaMenuOpen = false },
+                            morph = com.xjtu.toolbox.ui.components.MenuMorph.FromRow,
+                        ) {
+                            areaCodes.forEach { code ->
+                                com.xjtu.toolbox.ui.components.AppDropdownOption(
+                                    text = vm.floorAreas[code] ?: code,
+                                    selected = vm.selectedAreaCode == code,
+                                    onClick = { areaMenuOpen = false; vm.selectArea(code) },
+                                )
+                            }
+                        }
+                    }
+                }
+                // 列表模式的筛选；空闲数就写在「可用」上，平面图模式写在图下的信息条里
+                if (!planMode && seats.isNotEmpty()) {
+                    val scopes = listOf(
+                        "可用" to availableCount,
+                        "收藏" to seats.count { it.seatId in favorites },
+                        "全部" to totalCount
+                    )
+                    com.xjtu.toolbox.ui.components.AppSegmentedTabs(
+                        tabs = scopes.map { (label, count) -> "$label $count" },
+                        selectedTabIndex = scopes.indexOfFirst { it.first == seatScope }.coerceAtLeast(0),
+                        onTabSelected = { seatScope = scopes[it].first },
+                        modifier = Modifier.padding(top = 8.dp, bottom = 10.dp),
+                    )
+                }
+            }
+        }
         val headerContent: @Composable ColumnScope.() -> Unit = {
             // ── 当前预约 ──（头部两张卡依次登场）
+            val bookingUnknown = !vm.myBookingKnown && vm.myBookingFailed
+            val dark = LocalIsDarkTheme.current
+            val isExpiredBooking = vm.myBooking?.statusText in INACTIVE_BOOKING_STATUSES
+            val bookingActive = vm.myBooking != null && !isExpiredBooking
+            val bookingAccent = when {
+                bookingUnknown -> MiuixTheme.colorScheme.error
+                bookingActive -> MiuixTheme.colorScheme.primary
+                else -> MiuixTheme.colorScheme.onSurfaceVariantSummary
+            }
+            // 淡彩色贴近灰背景：只有生效中和查询失败才上色，其余就是一张普通白卡
+            val bookingTinted = bookingActive || bookingUnknown
+            val bookingBase = if (bookingTinted) lerp(AppCardColor, bookingAccent, if (dark) 0.22f else 0.16f) else AppCardColor
+            val bookingShape = RoundedCornerShape(24.dp)
             Card(
-                Modifier.enterOnce(0).fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp),
-                colors = CardDefaults.defaultColors(
-                    color = if (vm.myBooking != null) {
-                        MiuixTheme.colorScheme.secondaryContainer
-                    } else {
-                        MiuixTheme.colorScheme.surfaceVariant
-                    }
-                )
+                Modifier.enterOnce(0).fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)
+                    .appCardShadow(bookingShape)
+                    .then(if (bookingTinted) Modifier.border(1.dp, bookingAccent.copy(alpha = if (dark) 0.30f else 0.18f), bookingShape) else Modifier),
+                cornerRadius = 24.dp,
+                colors = CardDefaults.defaultColors(color = bookingBase),
             ) {
-                Column(Modifier.padding(12.dp)) {
+                // 没预约时矮一些：只说明状态，没有要操作的
+                val hasBooking = vm.myBooking != null
+                Column(Modifier.padding(horizontal = 16.dp, vertical = if (hasBooking) 16.dp else 10.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Default.EventSeat, null, Modifier.size(20.dp),
-                            tint = if (vm.myBooking != null) MiuixTheme.colorScheme.primary
-                            else MiuixTheme.colorScheme.onSurfaceVariantSummary)
-                        Spacer(Modifier.width(8.dp))
+                        Box(
+                            Modifier.size(if (hasBooking) 42.dp else 32.dp).background(bookingAccent.copy(alpha = if (dark) 0.22f else 0.12f), RoundedCornerShape(if (hasBooking) 14.dp else 10.dp)),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Icon(Icons.Default.EventSeat, null, Modifier.size(if (hasBooking) 23.dp else 18.dp), tint = bookingAccent)
+                        }
+                        Spacer(Modifier.width(12.dp))
                         Column(Modifier.weight(1f)) {
                             if (vm.myBooking != null) {
                                 Text(
@@ -440,15 +532,14 @@ fun LibraryScreen(
                                 val unknown = !vm.myBookingKnown && vm.myBookingFailed
                                 Text(if (unknown) "预约状态没查到" else "还没有预约", style = MiuixTheme.textStyles.body1,
                                     fontWeight = FontWeight.Medium)
-                                Text(
-                                    if (unknown) "下拉刷新重试" else "从下方选择区域和座位",
+                                if (unknown) Text(
+                                    "下拉刷新重试",
                                     style = MiuixTheme.textStyles.footnote1,
                                     color = MiuixTheme.colorScheme.onSurfaceVariantSummary
                                 )
                             }
                         }
                     }
-                    val isExpiredBooking = vm.myBooking?.statusText in INACTIVE_BOOKING_STATUSES
                     val actions = if (isExpiredBooking) null else vm.myBooking?.actionUrls
                     // 这些按钮全是写操作（签到 / 中途离开 / 中途返回 / 退座），本端做不到就一条都不画；
                     // 只读端的 actionUrls 本来就是空的（上游只给按钮文案、不给地址，见 CampusLibraryApi 的 KDoc）
@@ -469,7 +560,7 @@ fun LibraryScreen(
                                     enabled = !vm.isBooking,
                                     colors = ButtonDefaults.buttonColors(
                                         color = if ("取消" in label) MiuixTheme.colorScheme.errorContainer
-                                        else MiuixTheme.colorScheme.secondaryContainer
+                                        else MiuixTheme.colorScheme.primary.copy(alpha = 0.12f)
                                     ),
                                     insideMargin = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
                                     modifier = Modifier.height(32.dp)
@@ -480,69 +571,11 @@ fun LibraryScreen(
                 }
             }
 
-            // ── 楼层 / 区域选择（校区和视图在右上角菜单里） ──
-            Card(
+            // ── 楼层 / 区域选择（校区和视图在右上角菜单里）；手机平面图模式下它长在图的卡片里 ──
+            if (!planMode || com.xjtu.toolbox.ui.isWideLayout()) Card(
                 modifier = Modifier.enterOnce(1).fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp),
                 colors = CardDefaults.defaultColors(color = com.xjtu.toolbox.ui.components.AppCardColor)
-            ) {
-                Column {
-                    if (floors.isNotEmpty()) {
-                        CompositionLocalProvider(LocalOnGlassBar provides (glass != null)) {
-                            AppSegmentedTabs(
-                                tabs = floors,
-                                selectedTabIndex = campus.floorCodes.indexOf(vm.selectedFloorCode).coerceAtLeast(0),
-                                onTabSelected = { index ->
-                                    campus.floorCodes.getOrNull(index)?.let { vm.loadFloor(it) }
-                                },
-                                embedded = true,
-                            )
-                        }
-                    }
-                    val divider = @Composable {
-                        HorizontalDivider(
-                            modifier = Modifier.padding(horizontal = 16.dp),
-                            color = MiuixTheme.colorScheme.outline.copy(alpha = 0.08f)
-                        )
-                    }
-                    if (showAreaChips && areaCodes.isNotEmpty()) {
-                        divider()
-                        Row(
-                            Modifier
-                                .fillMaxWidth()
-                                .horizontalScroll(rememberScrollState())
-                                .padding(horizontal = 16.dp, vertical = 6.dp),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            areaCodes.forEach { code ->
-                                com.xjtu.toolbox.ui.components.AppFilterChip(
-                                    selected = vm.selectedAreaCode == code,
-                                    onClick = { vm.selectArea(code) },
-                                    label = vm.floorAreas[code] ?: code
-                                )
-                            }
-                        }
-                    }
-                    // 列表模式的筛选；空闲数就写在「可用」上，平面图模式写在图下的信息条里
-                    if (!planMode && seats.isNotEmpty()) Row(
-                        Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 10.dp),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        listOf(
-                            "可用" to availableCount,
-                            "收藏" to seats.count { it.seatId in favorites },
-                            "全部" to totalCount
-                        ).forEach { (label, count) ->
-                            com.xjtu.toolbox.ui.components.AppFilterChip(
-                                selected = seatScope == label,
-                                onClick = { seatScope = label },
-                                label = "$label $count",
-                                modifier = Modifier.weight(1f)
-                            )
-                        }
-                    }
-                }
-            }
+            ) { floorSelector() }
 
             Spacer(Modifier.height(4.dp))
 
@@ -572,6 +605,7 @@ fun LibraryScreen(
             properties = fullscreenDialogProperties,
         )
         val gridState = androidx.compose.foundation.lazy.grid.rememberLazyGridState()
+        com.xjtu.toolbox.ui.glass.ReportScrollPosition(gridState, scrollBehavior)
         Row(Modifier.fillMaxSize().nestedScroll(scrollBehavior.nestedScrollConnection)) {
         if (wideLibrary) {
             Column(
@@ -579,7 +613,7 @@ fun LibraryScreen(
                     .width(420.dp)
                     .fillMaxHeight()
                     .overScrollVertical()
-                    .verticalScroll(rememberScrollState())
+                    .verticalScroll(rememberScrollState()).tabContentBottomPadding()
             ) {
                 Spacer(Modifier.height(glassTop))
                 headerContent()
@@ -591,11 +625,11 @@ fun LibraryScreen(
             LazyVerticalGrid(
                 state = gridState,
                 columns = GridCells.Adaptive(minSize = 56.dp),
-                contentPadding = PaddingValues(
+                contentPadding = tabContentPadding(PaddingValues(
                     start = 12.dp, end = 12.dp,
                     top = if (wideLibrary) glassTop + 6.dp else 0.dp,
                     bottom = 16.dp,
-                ),
+                )),
                 verticalArrangement = Arrangement.spacedBy(4.dp),
                 horizontalArrangement = Arrangement.spacedBy(4.dp),
                 modifier = Modifier.fillMaxSize().overScrollVertical()
@@ -642,7 +676,7 @@ fun LibraryScreen(
                                 // 区域都没拉到时（这一层为空、楼层接口出错）重拉楼层；拉座位没用，那时还没有区域可拉
                                 Button(onClick = {
                                     vm.reload()
-                                }) { Text("重试") }
+                                }, colors = ButtonDefaults.buttonColorsPrimary()) { Text("重试", color = MiuixTheme.colorScheme.onPrimary) }
                                 // 认证相关错误 → 提供重新认证。本端没有可重登的会话时（Web）这条不画：
                                 // 它只会让人点了看见同一个错误。
                                 val reAuth = reAuthenticate
@@ -662,7 +696,8 @@ fun LibraryScreen(
                                                 isReAuth = false
                                             }
                                         },
-                                        enabled = !isReAuth
+                                        enabled = !isReAuth,
+                                        colors = com.xjtu.toolbox.ui.components.appTonalButtonColors(),
                                     ) {
                                         if (isReAuth) CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
                                         else Text("重新认证")
@@ -690,10 +725,16 @@ fun LibraryScreen(
                         val planHeight = (viewportHeight - (if (wideLibrary) glassTop + 22.dp else 16.dp))
                             .coerceAtLeast(320.dp)
                         // 网格左右 12dp，再缩 4dp，和头部卡片的 16dp 边距对齐
+                        Column(
+                            Modifier.padding(start = 4.dp, end = 4.dp, top = 4.dp).fillMaxWidth()
+                                .clip(RoundedCornerShape(20.dp)).background(AppCardColor),
+                        ) {
+                        if (!wideLibrary) floorSelector()
                         SeatPlanPanel(
                             // 整层图照全部矩形取景，只有开放的区域能点，楼梯、出口按钮不响应
                             floor = if (floorAreasOnPlan != null) vm.floorPlan else null,
                             pickableAreas = areaCodes.toSet(),
+                            areaNames = vm.floorAreas,
                             selectedArea = vm.selectedAreaCode,
                             areaName = selectedArea,
                             freeText = if (totalCount > 0) "空闲 $availableCount / $totalCount" else null,
@@ -715,8 +756,8 @@ fun LibraryScreen(
                             agentPicks = seatPickIds(seatPicks),
                             state = seatPlanUi,
                             hostFullscreen = false,
-                            modifier = Modifier.padding(start = 4.dp, end = 4.dp, top = 4.dp),
                         )
+                        }
                       }
                     }
 

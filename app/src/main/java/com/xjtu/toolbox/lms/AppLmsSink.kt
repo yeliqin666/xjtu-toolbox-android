@@ -83,4 +83,11 @@ class AppLmsSink(context: Context) : LmsDownloadSink {
             )
         return tasks.size
     }
+
+    override suspend fun replayDownloadStates(activityId: Int): Map<String, String> =
+        com.xjtu.toolbox.media.AppDownloadManager.getInstance(appContext).getAllTasks()
+            .filter { it.activityId == activityId }
+            // 同一个文件排过多次时取最新那条
+            .sortedBy { it.createTime }
+            .associate { com.xjtu.toolbox.lms.replayDownloadKey(it.videoUrl) to it.status }
 }

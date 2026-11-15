@@ -53,9 +53,18 @@ interface LmsSource {
         videos: List<LmsReplayVideo>,
     ): Int
 
+    /**
+     * 这项活动的回放在本端下载队列里的状态：键是 [replayDownloadKey]，值是队列的状态串
+     * （`pending` / `downloading` / `paused` / `completed` / `failed` / `cancelled`）。没排过的不在表里。
+     */
+    suspend fun replayDownloadStates(activityId: Int): Map<String, String> = emptyMap()
+
     /** 「下载到哪儿」的展示用前缀（批下对话框与结果卡上那句话要它），各端给各自的真实位置。 */
     fun publicPathLabel(): String
 }
+
+/** 回放地址在下载队列里的对照键：去掉查询串（签名每次取都不一样，路径才是同一个文件）。 */
+fun replayDownloadKey(url: String): String = url.substringBefore('?')
 
 /** 一份要落盘的东西。 */
 data class LmsDownloadJob(

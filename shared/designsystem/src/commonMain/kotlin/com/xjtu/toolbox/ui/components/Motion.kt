@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.Stable
 import androidx.compose.runtime.State
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
@@ -109,8 +110,36 @@ fun rememberEnterProgress(index: Int, maxAnimated: Int = ENTER_MAX): State<Float
     rememberRevealProgress(
         delayMillis = index * ENTER_STAGGER_MS,
         spec = tween(ENTER_MS, easing = FastOutSlowInEasing),
-        skip = index >= maxAnimated,
+        skip = index >= maxAnimated || !LocalEnterAnimations.current,
     )
+
+/** 这一页的控件要不要各自错峰入场。整页一起放大进来时关掉，否则控件和页面不同步。 */
+val LocalEnterAnimations = androidx.compose.runtime.compositionLocalOf { true }
+
+/** 切页错峰的档数、每档延迟与跟上的弹性（照 SleepDown 的主页切换：6 档、18ms、阻尼 .74 / 刚度 260）。 */
+private const val SWITCH_STAGGER_MS = 18L
+private const val SWITCH_DAMPING = 0.74f
+private const val SWITCH_STIFFNESS = 260f
+
+/**
+ * 底栏切页的运动：只有「正切进来」的那一页会提供。
+ *
+ * 页面整体按 [ShellTabHost] 的进度滑进来，里面的 [enterOnce] 元素再按自己的分档进度追上来——
+ * 于是先滑进来的是空白的页，元素随后错落补齐，而不是整块一起平移。
+ */
+@Stable
+class TabSwitchMotion(
+    /** 这一页第几次被切进来：变了就重播错峰。 */
+    val generation: Int,
+    /** 页面滑动进度 0 → 1。 */
+    val progress: () -> Float,
+    /** 进场方向：+1 从右边进来，-1 从左边进来。 */
+    val direction: () -> Float,
+    /** 页面宽度（px），把「进度差」换算成像素。 */
+    val width: () -> Int,
+)
+
+val LocalTabSwitch = androidx.compose.runtime.staticCompositionLocalOf<TabSwitchMotion?> { null }
 
 /**
  * 常驻循环的相位 0→1（周期 [periodMillis]）：按约 30 帧/秒推进，页面不可见就停。
@@ -141,15 +170,52 @@ fun breath(phase: Float, low: Float = 0.35f, offset: Float = 0f): Float {
 @Composable
 fun Modifier.enterOnce(index: Int, maxAnimated: Int = ENTER_MAX): Modifier {
     val p = rememberEnterProgress(index, maxAnimated)
+    // 底栏切页时，这一块额外按自己的分档进度横向滞后于页面（见 [TabSwitchMotion]）
+    val switch = LocalTabSwitch.current
+    val track = if (switch != null && index < maxAnimated) rememberTabSwitchTrack(switch, index) else null
     return graphicsLayer {
         val v = p.value
         alpha = v
         translationY = (1f - v) * 8.dp.toPx()
+        if (switch != null && track != null) {
+            val width = switch.width().toFloat()
+            if (width > 0f) {
+                // 页面在滑，这一块按自己的进度跟：进度差 × 页宽 = 还差多少没跟上。
+                // 差值允许为负——弹簧越过 1 的那一点点就是 SleepDown 那种回弹感。
+                translationX = switch.direction() * width * (switch.progress() - track.value)
+            }
+        }
     }
 }
 
+/** 某个分档的跟进进度：页面一切进来就从 0 弹到 1，第 [index] 档晚 [index] × 18ms 起步。 */
+@Composable
+private fun rememberTabSwitchTrack(switch: TabSwitchMotion, index: Int): State<Float> {
+    // 先按「已就位」开局：这块要是切页之后才组合出来的（数据刚回来、条件块刚出现），
+    // 第一帧就不会被「页面进度 1、自己进度 0」推出一整页宽再弹回来。
+    val track = remember { Animatable(1f) }
+    // 记下这一块出生时的世代：同世代里才组合出来的块（晚到的内容）不参与这次错峰。
+    val initialGeneration = remember { switch.generation }
+    LaunchedEffect(switch.generation) {
+        if (switch.generation == initialGeneration) return@LaunchedEffect
+        track.snapTo(0f)
+        if (index > 0) delay(index * SWITCH_STAGGER_MS)
+        track.animateTo(
+            1f,
+            spring(dampingRatio = SWITCH_DAMPING, stiffness = SWITCH_STIFFNESS, visibilityThreshold = 0.0015f),
+        )
+    }
+    return track.asState()
+}
+
+/** 一上来就快、越走越慢的指数减速（取自 HyperOS 系统菜单的实测节奏）：弹出面板、整页放大都用它。 */
+val AppDecelerate: androidx.compose.animation.core.Easing = androidx.compose.animation.core.Easing { x ->
+    val k = 2.8f
+    (1f - kotlin.math.exp(-k * x)) / (1f - kotlin.math.exp(-k))
+}
+
 /**
- * 按下时缩小、松手弹回来，摸起来是「软」的。卡片、圆钮用它；小圆钮可以压得更深（如 0.92）。
+ * 按下时缓缓缩小、松手慢慢回来，不回弹。卡片、圆钮用它；小圆钮可以压得更深（如 0.92）。
  * 整行的列表项用 [pressHighlight]：一整行跟着缩放太晃。
  */
 @Composable
@@ -157,7 +223,7 @@ fun Modifier.pressScale(source: MutableInteractionSource, pressed: Float = 0.96f
     val isPressed by source.collectIsPressedAsState()
     val s = animateFloatAsState(
         if (isPressed) pressed else 1f,
-        spring(dampingRatio = 0.5f, stiffness = 600f),
+        if (isPressed) tween(200) else tween(360),
         label = "pressScale",
     )
     return graphicsLayer {
@@ -166,11 +232,11 @@ fun Modifier.pressScale(source: MutableInteractionSource, pressed: Float = 0.96f
     }
 }
 
-/** 列表行的按压：盖一层淡淡的前景色，按下即现、松手淡出；深浅色主题下都看得见。 */
+/** 列表行的按压：盖一层淡淡的前景色，缓缓压暗、松手慢慢退；深浅色主题下都看得见。 */
 @Composable
 fun Modifier.pressHighlight(source: MutableInteractionSource): Modifier {
     val isPressed by source.collectIsPressedAsState()
-    val a = animateFloatAsState(if (isPressed) 1f else 0f, tween(if (isPressed) 60 else 220), label = "pressHighlight")
+    val a = animateFloatAsState(if (isPressed) 1f else 0f, tween(if (isPressed) 200 else 440), label = "pressHighlight")
     val tint = MiuixTheme.colorScheme.onSurface
     return drawWithContent {
         drawContent()
@@ -297,7 +363,8 @@ fun SegmentedBar(
 }
 
 /**
- * 一天的节次条（空闲教室）：每格一节，空闲用 [freeColor]，占用用浅灰，当前节加深。
+ * 一天的节次条（空闲教室）：每格一节，空闲用 [freeColor]，占用用浅灰，当前节加深并描边。
+ * [breaks] 是分段处（这些下标之后留宽缝，如上午 / 下午 / 晚上）。
  * 一个 drawBehind 画完全部格子，不拆成十几个 Box；进场时各格从左到右依次亮起。
  */
 @Composable
@@ -308,6 +375,7 @@ fun SlotStripe(
     currentIndex: Int = -1,
     busyColor: Color = Color.Gray.copy(alpha = 0.16f),
     height: Dp = 6.dp,
+    breaks: Set<Int> = emptySet(),
 ) {
     val reveal = rememberRevealProgress(spec = tween(450, easing = FastOutSlowInEasing))
     Box(
@@ -318,22 +386,33 @@ fun SlotStripe(
                 val n = free.size
                 if (n == 0) return@drawBehind
                 val gap = 3.dp.toPx()
-                val w = (size.width - gap * (n - 1)) / n
+                val wideGap = 8.dp.toPx()
+                val wideCount = breaks.count { it in 0 until n - 1 }
+                val w = (size.width - gap * (n - 1 - wideCount) - wideGap * wideCount) / n
                 val r = CornerRadius(size.height / 2f)
+                var x = 0f
                 free.forEachIndexed { i, f ->
                     // 第 i 格在揭开进度走到它时才从 0 长到满透明度
                     val local = ((reveal.value * n) - i).coerceIn(0f, 1f)
                     val base = if (f) freeColor.copy(alpha = if (i == currentIndex) 1f else 0.55f) else busyColor
-                    drawRoundRect(
-                        base.copy(alpha = base.alpha * local),
-                        topLeft = Offset(i * (w + gap), 0f),
-                        size = Size(w, size.height),
-                        cornerRadius = r,
-                    )
+                    drawRoundRect(base.copy(alpha = base.alpha * local), Offset(x, 0f), Size(w, size.height), r)
+                    // 当前节占用时也要看得出「现在」在哪
+                    if (i == currentIndex && !f) {
+                        val s = 1.dp.toPx()
+                        drawRoundRect(
+                            freeColor.copy(alpha = local),
+                            Offset(x + s / 2, s / 2), Size(w - s, size.height - s), r,
+                            style = Stroke(s),
+                        )
+                    }
+                    x += w + if (i in breaks) wideGap else gap
                 }
             },
     )
 }
+
+/** 一天 11 节的分段处：第 4、8 节之后（上午 / 下午 / 晚上）。 */
+val DaySlotBreaks: Set<Int> = setOf(3, 7)
 
 /**
  * 页面大卡的流动底色：[accent] 按 [weights] 的浓度混进 [base]。封装的是首页 Hero 那套做法，
@@ -393,13 +472,13 @@ fun SkeletonBlock(modifier: Modifier = Modifier, cornerRadius: Dp = 12.dp) {
 /** 「成功」的绿色：打勾动画和成功文案共用。 */
 val SuccessGreen = Color(0xFF34C759)
 
-/** 一次性描出来的对勾（登录、预订、生成成功这类时刻）：外圈弹一下，对勾沿路径画出。 */
+/** 一次性描出来的对勾（登录、预订、生成成功这类时刻）：外圈放大到位，对勾沿路径画出。 */
 @Composable
 fun DrawCheckmark(color: Color = SuccessGreen, modifier: Modifier = Modifier, size: Dp = 72.dp) {
     val ring = remember { Animatable(0.6f) }
     val stroke = remember { Animatable(0f) }
     LaunchedEffect(Unit) {
-        ring.animateTo(1f, spring(dampingRatio = 0.45f, stiffness = 380f))
+        ring.animateTo(1f, tween(420, easing = AppDecelerate))
     }
     LaunchedEffect(Unit) {
         delay(120)

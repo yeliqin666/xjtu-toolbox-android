@@ -11,8 +11,8 @@ android {
     }
 
     defaultConfig {
-        // macrobenchmark 要求 minSdk ≥ 28；跟着 :app 的 31 走即可
-        minSdk = 31
+        // 跟 :app 一致
+        minSdk = 35
         targetSdk = 36
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -34,6 +34,9 @@ android {
             device = "Pixel 6"
             apiLevel = 34
             systemImageSource = "aosp"
+            // aosp 镜像不支持 NDK 转译；AGP 9 默认 x86_64，AGP 10 起会改成 arm64-v8a，
+            // 到时测试会跑不起来。显式钉住当前行为。
+            testedAbi = "x86_64"
         }
     }
 }

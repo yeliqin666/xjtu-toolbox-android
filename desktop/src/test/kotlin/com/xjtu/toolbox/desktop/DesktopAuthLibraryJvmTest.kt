@@ -793,19 +793,6 @@ class DesktopAuthLibraryJvmTest {
         assertEquals("up", result.trackList.last().type)
         assertEquals(130, result.trackList.last().x, "(130 * 260 / 260) 落在 260 坐标系")
         assertEquals(900L + 1600L, result.trackList.last().t, "up 点时刻 = 出现延迟 + 真实拖动时长")
-
-        // ── 识别委托：合成图上有缺口 ⇒ 盖章后的轨迹与 release 时长都非空 ──
-        val data = CaptchaData(
-            id = VenueFakeUpstream.CAPTCHA_ID,
-            backgroundImage = VenueCaptchaFixture.backgroundDataUri(),
-            sliderImage = VenueCaptchaFixture.sliderDataUri(),
-            bgWidth = 260, bgHeight = 160, sliderWidth = 50, sliderHeight = 50,
-        )
-        val solved = runBlocking { DesktopSlideCaptchaHost.solve(data, now) }
-        assertNotNull(solved, "共享路径应当识别出合成图上的缺口")
-        assertEquals(VenueCaptchaFixture.EXPECTED_SOLVE_TARGET_X, solved.sliderResult.trackList.last().x)
-        assertTrue(solved.sliderResult.startSlidingTime.isNotBlank())
-        assertTrue(solved.releaseAfterMillis > 0)
     }
 
 

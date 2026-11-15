@@ -167,7 +167,7 @@ class DesktopAgentJvmTest {
         val names = (AppJson.parseToJsonElement(tools.toolDefinitions) as JsonArray)
             .map { it.jsonObject.getValue("function").jsonObject.getValue("name").jsonPrimitive.content }
         // 末尾是各端共用的校园地图；没配搜索 Key 时不带联网搜索
-        assertEquals(DESKTOP_AGENT_TOOLS + "campus_map", names, "工具表与「这一端接得上的那几件」对不上")
+        assertEquals(DESKTOP_AGENT_TOOLS + "campus_map" + "get_campus_bus", names, "工具表与「这一端接得上的那几件」对不上")
 
         // 没接的档一个字都不画（画了就得能用）——调过来只会回 not_found
         for (missing in listOf(

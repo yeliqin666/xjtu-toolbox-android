@@ -7,6 +7,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.getValue
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.EventNote
 import androidx.compose.material.icons.filled.Assessment
@@ -14,11 +16,18 @@ import androidx.compose.material.icons.filled.AssignmentTurnedIn
 import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.CreditCard
 import androidx.compose.material.icons.filled.Description
+import androidx.compose.material.icons.filled.DirectionsBus
+import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.Image
+import androidx.compose.material.icons.filled.PictureAsPdf
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.MeetingRoom
 import androidx.compose.material.icons.filled.NotificationsNone
 import androidx.compose.material.icons.filled.EventSeat
+import androidx.compose.material.icons.filled.AddTask
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.EventAvailable
 import androidx.compose.ui.draw.drawBehind
 import com.xjtu.toolbox.util.formatFixed
 import com.xjtu.toolbox.util.formatTwoDigits
@@ -73,6 +82,8 @@ fun AgentWidgetView(
     modifier: Modifier = Modifier,
     onAsk: (String) -> Unit = {},
     onNavigate: (AppRoute) -> Unit = {},
+    /** 卡片上的操作（如「加入日程」）转给对应工具执行；null = 只陈列。 */
+    onTool: (suspend (name: String, args: String) -> String)? = null,
 ) {
     when (widget) {
         is NoticeWidget     -> NoticeWidgetView(widget, modifier, onNavigate)
@@ -86,6 +97,9 @@ fun AgentWidgetView(
         is CardWidget       -> CardWidgetView(widget, modifier)
         is ZyxfWidget       -> ZyxfWidgetView(widget, host, modifier, onAsk)
         is CampusMapWidget  -> CampusMapWidgetView(widget, modifier)
+        is PlanWidget       -> PlanWidgetView(widget, modifier, onTool)
+        is BusWidget        -> BusWidgetView(widget, modifier, onNavigate)
+        is LmsFileWidget    -> LmsFileWidgetView(widget, host, modifier, onNavigate, onTool)
     }
 }
 
@@ -832,3 +846,209 @@ private fun LibraryWidgetView(w: LibraryWidget, host: AgentHost, modifier: Modif
     }
 }
 
+
+// ── 小岱提议的安排 ─────────────────────────────────────────────────────
+
+private sealed interface PlanAddState {
+    data object Idle : PlanAddState
+    data object Busy : PlanAddState
+    data object Added : PlanAddState
+    data class Conflict(val with: String) : PlanAddState
+    data object Failed : PlanAddState
+}
+
+/** 加过的条目按内容记在本机：重绘历史消息、重启后仍显示「已加入」，不会重复写。 */
+private object PlanAddedLog {
+    private const val KEY = "keys"
+    private val store get() = com.xjtu.toolbox.platform.keyValueStore("agent_plan_added" + com.xjtu.toolbox.account.AccountContext.safeSuffix())
+    private fun keyOf(p: PlanProposal) = listOf(p.title, p.date, p.start, p.todo).joinToString("|")
+    private fun all(): List<String> = store.getString(KEY)?.split('\n')?.filter { it.isNotEmpty() }.orEmpty()
+    fun contains(p: PlanProposal) = keyOf(p) in all()
+    fun add(p: PlanProposal) = store.putString(KEY, (all() - keyOf(p) + keyOf(p)).takeLast(300).joinToString("\n"))
+}
+
+@Composable
+private fun PlanWidgetView(w: PlanWidget, modifier: Modifier, onTool: (suspend (String, String) -> String)?) {
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
+    val states = remember(w) {
+        androidx.compose.runtime.mutableStateMapOf<Int, PlanAddState>().apply {
+            w.items.forEachIndexed { i, p -> if (PlanAddedLog.contains(p)) put(i, PlanAddState.Added) }
+        }
+    }
+    suspend fun addOne(i: Int, force: Boolean) {
+        val run = onTool ?: return
+        val item = w.items[i]
+        states[i] = PlanAddState.Busy
+        val (name, args) = AgentPlanCard.addCall(item, force)
+        val reply = runCatching { run(name, args) }.getOrElse { "error: ${it.message}" }
+        states[i] = when {
+            reply.startsWith("ok:") -> PlanAddState.Added.also { PlanAddedLog.add(item) }
+            "conflict" in reply -> PlanAddState.Conflict(reply.substringAfter("with: ", "").substringBefore("; retry").ifBlank { "已有安排" })
+            else -> PlanAddState.Failed
+        }
+    }
+    val pending = w.items.indices.filter { states[it] == null || states[it] == PlanAddState.Failed }
+    WidgetCard(
+        title = "可加入的安排", icon = Icons.Default.CalendarMonth, accent = MiuixTheme.colorScheme.primary,
+        subtitle = if (onTool == null) "${w.items.size} 项" else "${w.items.size} 项 · 点「加入」才会写入",
+        modifier = modifier,
+    ) {
+        if (w.caption.isNotBlank()) Text(w.caption, style = MiuixTheme.textStyles.body2,
+            color = MiuixTheme.colorScheme.onSurfaceVariantSummary, modifier = Modifier.padding(bottom = 10.dp))
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            w.items.forEachIndexed { i, p ->
+                PlanProposalRow(p, states[i] ?: PlanAddState.Idle,
+                    onAdd = onTool?.let { { force: Boolean -> scope.launch { addOne(i, force) }; Unit } })
+            }
+        }
+        if (onTool != null && pending.size > 1) {
+            Row(Modifier.padding(top = 10.dp)) {
+                com.xjtu.toolbox.ui.components.PidaiChip("全部加入（${pending.size}）", icon = Icons.Default.EventAvailable,
+                    onClick = { scope.launch { pending.forEach { addOne(it, false) } } })
+            }
+        }
+    }
+}
+
+@Composable
+private fun PlanProposalRow(p: PlanProposal, state: PlanAddState, onAdd: ((Boolean) -> Unit)?) {
+    val summary = MiuixTheme.colorScheme.onSurfaceVariantSummary
+    Row(
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(com.xjtu.toolbox.ui.components.AppInsetColor)
+            .padding(horizontal = 12.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(Modifier.width(52.dp)) {
+            Text(p.start.ifEmpty { "全天" }, style = MiuixTheme.textStyles.body2, fontWeight = FontWeight.Bold)
+            Text(if (p.todo) "截止" else p.end.ifEmpty { "1 小时" }, style = MiuixTheme.textStyles.footnote2, color = summary)
+        }
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Text(p.title, style = MiuixTheme.textStyles.body2, fontWeight = FontWeight.Medium, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            val day = runCatching { LocalDate.parse(p.date) }.getOrNull()?.let { "${it.monthNumber}月${it.dayOfMonth}日 ${DAY_NAMES[it.dayOfWeek.ordinal + 1]}" } ?: p.date
+            Text(listOf(day, p.place, p.note).filter { it.isNotBlank() }.joinToString(" · "),
+                style = MiuixTheme.textStyles.footnote1, color = summary, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            when (state) {
+                is PlanAddState.Conflict -> Text("与 ${state.with} 时间重叠", style = MiuixTheme.textStyles.footnote2, color = MiuixTheme.colorScheme.error)
+                PlanAddState.Failed -> Text("没加上，可再试一次", style = MiuixTheme.textStyles.footnote2, color = MiuixTheme.colorScheme.error)
+                else -> Unit
+            }
+        }
+        if (onAdd != null) {
+            val todoLabel = if (p.todo) "加入待办" else "加入日程"
+            com.xjtu.toolbox.ui.components.PidaiChip(
+                when (state) {
+                    PlanAddState.Added -> "已加入"
+                    PlanAddState.Busy -> "加入中"
+                    is PlanAddState.Conflict -> "仍然加入"
+                    else -> todoLabel
+                },
+                icon = when (state) {
+                    PlanAddState.Added -> Icons.Default.Check
+                    else -> if (p.todo) Icons.Default.AddTask else Icons.Default.EventAvailable
+                },
+                enabled = state != PlanAddState.Added && state != PlanAddState.Busy,
+                onClick = { onAdd(state is PlanAddState.Conflict) },
+            )
+        }
+    }
+}
+
+@Composable
+private fun BusWidgetView(w: BusWidget, modifier: Modifier, onNavigate: (AppRoute) -> Unit) {
+    val cs = MiuixTheme.colorScheme
+    val shown = w.items.take(w.display.limit)
+    WidgetCard(title = "校车", icon = Icons.Default.DirectionsBus, accent = cs.primary, subtitle = w.title.ifBlank { null }, modifier = modifier) {
+        if (shown.isEmpty()) WidgetMore("没有匹配的班次")
+        shown.forEach { run ->
+            WidgetRow(
+                primary = "${run.time}  ${run.line}",
+                secondary = listOfNotNull(
+                    run.route.takeIf { w.display.shows("route") && it.isNotBlank() },
+                    run.plate.takeIf { w.display.shows("plate") && it.isNotBlank() },
+                ).joinToString(" · "),
+                modifier = Modifier.clip(RoundedCornerShape(12.dp)).clickable { onNavigate(AppRoute.CampusBus) },
+                trailing = {
+                    Text(
+                        if (run.seatsLeft <= 0) "已满" else "余 ${run.seatsLeft}",
+                        style = MiuixTheme.textStyles.footnote1,
+                        fontWeight = FontWeight.Bold,
+                        color = if (run.tight || run.seatsLeft <= 0) cs.error else cs.onSurface,
+                    )
+                },
+            )
+        }
+        if (w.items.size > shown.size) WidgetMore("还有 ${w.items.size - shown.size} 班，点开校车页看全部")
+        WidgetMore(com.xjtu.toolbox.bus.BusRules.BOARDING_TIP)
+    }
+}
+
+/** 点一行去活动详情（预览在那边，地址现取）；右边的按钮直接存进下载管理。 */
+@Composable
+private fun LmsFileWidgetView(
+    w: LmsFileWidget,
+    host: AgentHost,
+    modifier: Modifier,
+    onNavigate: (AppRoute) -> Unit,
+    onTool: (suspend (name: String, args: String) -> String)?,
+) {
+    val cs = MiuixTheme.colorScheme
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
+    val canSave = AgentCapability.FILE_SAVE in host.honored && onTool != null
+    val states = androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateMapOf<Int, String>() }
+    val shown = w.items.take(w.display.limit)
+    WidgetCard(
+        title = w.activityTitle.ifBlank { "思源附件" },
+        icon = Icons.Default.FolderOpen,
+        accent = cs.primary,
+        subtitle = w.courseName.ifBlank { null },
+        modifier = modifier,
+    ) {
+        if (shown.isEmpty()) WidgetMore("没有匹配的附件")
+        shown.forEach { file ->
+            val lower = file.name.lowercase()
+            val icon = when {
+                lower.endsWith(".pdf") -> Icons.Default.PictureAsPdf
+                listOf(".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp").any(lower::endsWith) -> Icons.Default.Image
+                else -> Icons.Default.Description
+            }
+            val state = states[file.id]
+            WidgetRow(
+                primary = file.name,
+                secondary = listOfNotNull(
+                    file.sizeText.takeIf { w.display.shows("size") && it.isNotBlank() },
+                    "我提交的".takeIf { file.mine },
+                    state,
+                ).joinToString(" · "),
+                modifier = Modifier.clip(RoundedCornerShape(12.dp)).clickable {
+                    onNavigate(AppRoute.Lms(w.courseId.takeIf { it > 0 }, w.activityId.takeIf { it > 0 }))
+                },
+                leading = { Icon(icon, null, tint = cs.primary, modifier = Modifier.size(22.dp)) },
+                trailing = if (!canSave) null else {
+                    {
+                        Icon(
+                            Icons.Default.Download,
+                            contentDescription = "保存到下载管理",
+                            tint = cs.onSurfaceVariantSummary,
+                            modifier = Modifier.size(32.dp).clip(RoundedCornerShape(8.dp)).clickable(enabled = state != LMS_SAVING) {
+                                states[file.id] = LMS_SAVING
+                                scope.launch {
+                                    val args = buildJsonObject {
+                                        put("source", "lms")
+                                        put("course", w.courseName)
+                                        put("activity", w.activityTitle)
+                                        put("file", file.id.toString())
+                                    }.toString()
+                                    val reply = runCatching { onTool?.invoke("save_file", args) }.getOrNull().orEmpty()
+                                    states[file.id] = if (reply.startsWith("ok")) "已存到下载管理" else "保存失败"
+                                }
+                            }.padding(6.dp),
+                        )
+                    }
+                },
+            )
+        }
+        if (w.items.size > shown.size) WidgetMore("还有 ${w.items.size - shown.size} 个附件，点开活动看全部")
+    }
+}
+
+private const val LMS_SAVING = "保存中…"

@@ -21,9 +21,11 @@ import com.xjtu.toolbox.core.net.ApiMode
 import com.xjtu.toolbox.home.AppService
 import com.xjtu.toolbox.home.ServiceCategory
 import com.xjtu.toolbox.nav.AppRoute
+import com.xjtu.toolbox.ui.components.TextLink
+import top.yukonga.miuix.kmp.basic.Button
+import top.yukonga.miuix.kmp.basic.ButtonDefaults
 import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.Text
-import top.yukonga.miuix.kmp.basic.TextButton
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 /** Web 这一端做不到的那几格的落点，以及「学辅」那一格自己的页。 */
@@ -76,11 +78,10 @@ internal fun WebSupportMismatchScreen(route: AppRoute, onNavigate: (WebTarget) -
             "或者把 AppRoute.$name 从 `WebSupport.openableRouteIds` 里去掉（本端确实没有这一屏）",
         ),
     ) {
-        TextButton(
-            text = "回首页",
+        Button(
             onClick = { onNavigate(WebTarget.App(AppRoute.Main)) },
-            minWidth = 128.dp,
-        )
+            colors = ButtonDefaults.buttonColorsPrimary(),
+        ) { Text("回首页", color = MiuixTheme.colorScheme.onPrimary) }
     }
 }
 
@@ -129,11 +130,7 @@ internal fun WebServicesScreen(serveMode: Boolean, onNavigate: (WebTarget) -> Un
                 color = cs.onBackgroundVariant,
                 fontSize = 12.sp,
             )
-            TextButton(
-                text = "打开会话屏",
-                onClick = { onNavigate(WebTarget.Serve) },
-                minWidth = 128.dp,
-            )
+            TextLink(text = "登录管理", onClick = { onNavigate(WebTarget.Serve) }, chevron = true)
         } else {
             Text(
                 "会话屏要 serve 模式（`:server` 的 `GET /api/session`）才有意义；" +
@@ -142,11 +139,7 @@ internal fun WebServicesScreen(serveMode: Boolean, onNavigate: (WebTarget) -> Un
                 fontSize = 12.sp,
             )
         }
-        TextButton(
-            text = "后端自检",
-            onClick = { onNavigate(WebTarget.Probe) },
-            minWidth = 128.dp,
-        )
+        TextLink(text = "后端自检", onClick = { onNavigate(WebTarget.Probe) }, chevron = true)
     }
 }
 

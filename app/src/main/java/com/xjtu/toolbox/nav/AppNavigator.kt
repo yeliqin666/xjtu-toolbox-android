@@ -27,7 +27,7 @@ class AppNavigator(val backStack: NavBackStack) {
             backStack.lastOrNull() == route -> Unit
             route in backStack -> popUntil { it == route }
             else -> {
-                ExpandOrigins.onPush(route)
+                ExpandOrigins.onPush(route, aboveRoot = backStack.size == 1)
                 backStack.add(route)
             }
         }

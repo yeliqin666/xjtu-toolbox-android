@@ -1,5 +1,6 @@
 package com.xjtu.toolbox.schedule
 
+import com.xjtu.toolbox.ui.glass.tabContentBottomPadding
 import com.xjtu.toolbox.platform.BackHandler
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
@@ -31,7 +32,9 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.dp
 import com.xjtu.toolbox.ui.glass.*
-import com.xjtu.toolbox.ui.components.AppFilterChip
+import com.xjtu.toolbox.ui.components.AppCardColor
+import com.xjtu.toolbox.ui.components.AppChipTabRow
+import com.xjtu.toolbox.ui.components.AppSegmentedTabs
 import com.xjtu.toolbox.ui.components.ErrorState
 import com.xjtu.toolbox.ui.components.LoadingState
 import top.yukonga.miuix.kmp.basic.*
@@ -41,6 +44,7 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.utils.SinkFeedback
 import top.yukonga.miuix.kmp.utils.overScrollVertical
 import com.xjtu.toolbox.nav.AppRoute
+import com.xjtu.toolbox.ui.glass.rememberCouiTopAppBarScrollBehavior
 import androidx.lifecycle.viewmodel.compose.viewModel
 
 // ── 主屏幕 ────────────────────────────────
@@ -114,7 +118,7 @@ fun SchoolCourseScreen(
     }
 
     // Scaffold 布局
-    val scrollBehavior = MiuixScrollBehavior(rememberTopAppBarState())
+    val scrollBehavior = rememberCouiTopAppBarScrollBehavior()
     // 玻璃顶栏（经典风格下为 null，一切照旧），用法见 ui/glass/GlassTopBar.kt
     val glass = rememberPageGlass()
 
@@ -131,12 +135,12 @@ fun SchoolCourseScreen(
     ) { padding ->
         val glassTop = padding.glassTop(glass)
         if (vm.isInitializing) {
-            LoadingState("正在加载课程查询...", Modifier.padding(padding.withoutTop(glass)).glassSource(glass))
+            LoadingState("正在加载课程查询…", Modifier.fillMaxSize().padding(padding.withoutTop(glass)).glassSource(glass).padding(top = glassTop))
             return@Scaffold
         }
 
         if (vm.initError != null) {
-            ErrorState(vm.initError.orEmpty(), onRetry = vm::loadOptions, modifier = Modifier.padding(padding.withoutTop(glass)).glassSource(glass))
+            ErrorState(vm.initError.orEmpty(), onRetry = vm::loadOptions, modifier = Modifier.fillMaxSize().padding(padding.withoutTop(glass)).glassSource(glass).padding(top = glassTop))
             return@Scaffold
         }
 
@@ -156,12 +160,12 @@ fun SchoolCourseScreen(
         ) {
             // ── 学期选择 ──
             fullLineItem(key = "term_selector") {
-                val termEntries = vm.termList.map { DropdownItem(title = it.name) }
+                val termEntries = vm.termList.map { it.name }
                 val selectedIdx = vm.termList.indexOfFirst { it.code == selectedTermCode }.coerceAtLeast(0)
 
                 Card(Modifier.readableWidth().fillMaxWidth(), cornerRadius = 16.dp) {
                     if (termEntries.isNotEmpty()) {
-                        OverlaySpinnerPreference(
+                        com.xjtu.toolbox.ui.components.AppDropdownPreference(
                             items = termEntries,
                             selectedIndex = selectedIdx,
                             title = "学期",
@@ -211,32 +215,33 @@ fun SchoolCourseScreen(
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             val filterCount = currentQuery().activeFilterCount
-                            Text(
-                                if (filterCount > 0) "已选 $filterCount 项筛选" else "未设置筛选",
-                                style = MiuixTheme.textStyles.footnote1,
-                                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                                modifier = Modifier.weight(1f, fill = false)
-                            )
-                            if (filterCount > 0) {
+                            Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
                                 Text(
-                                    "清空筛选",
+                                    if (filterCount > 0) "已选 $filterCount 项筛选" else "未设置筛选",
                                     style = MiuixTheme.textStyles.footnote1,
-                                    color = MiuixTheme.colorScheme.primary,
+                                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis,
-                                    modifier = Modifier
-                                        .padding(start = 4.dp)
-                                        .clip(RoundedCornerShape(8.dp))
-                                        .clickable(
-                                            interactionSource = remember { MutableInteractionSource() },
-                                            indication = SinkFeedback()
-                                        ) { clearFilters() }
-                                        .padding(horizontal = 4.dp, vertical = 6.dp)
+                                    modifier = Modifier.weight(1f, fill = false)
                                 )
+                                if (filterCount > 0) {
+                                    Text(
+                                        "清空筛选",
+                                        style = MiuixTheme.textStyles.footnote1,
+                                        color = MiuixTheme.colorScheme.primary,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                        modifier = Modifier
+                                            .padding(start = 4.dp)
+                                            .clip(RoundedCornerShape(8.dp))
+                                            .clickable(
+                                                interactionSource = remember { MutableInteractionSource() },
+                                                indication = SinkFeedback()
+                                            ) { clearFilters() }
+                                            .padding(horizontal = 4.dp, vertical = 6.dp)
+                                    )
+                                }
                             }
-                            Spacer(Modifier.weight(1f))
                             Row(
                                 modifier = Modifier
                                     .clip(RoundedCornerShape(8.dp))
@@ -292,13 +297,13 @@ fun SchoolCourseScreen(
                                 // 见 SchoolCourseSource 的能力开关）——比「出现了却筛不动」诚实。
                                 if (source.supportsDepartmentFilter) {
                                     val deptEntries = buildList {
-                                        add(DropdownItem(title = "不限"))
-                                        vm.departmentList.forEach { add(DropdownItem(title = it.name)) }
+                                        add("不限")
+                                        vm.departmentList.forEach { add(it.name) }
                                     }
                                     val deptIdx = if (selectedDeptCode.isBlank()) 0
                                         else (vm.departmentList.indexOfFirst { it.code == selectedDeptCode } + 1).coerceAtLeast(0)
                                     Card(Modifier.fillMaxWidth(), cornerRadius = 12.dp) {
-                                        OverlaySpinnerPreference(
+                                        com.xjtu.toolbox.ui.components.AppDropdownPreference(
                                             items = deptEntries,
                                             selectedIndex = deptIdx,
                                             title = "开课单位",
@@ -314,44 +319,27 @@ fun SchoolCourseScreen(
 
                                 // 校区筛选
                                 Text("校区", style = MiuixTheme.textStyles.footnote1, fontWeight = FontWeight.Medium)
-                                Spacer(Modifier.height(6.dp))
-                                val campusList = vm.campusList
-                                FlowRow(
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                    verticalArrangement = Arrangement.spacedBy(6.dp)
-                                ) {
-                                    AppFilterChip(
-                                        selected = selectedCampusCode.isBlank(),
-                                        onClick = { selectedCampusCode = "" },
-                                        label = "全部"
-                                    )
-                                    campusList.forEach { campus ->
-                                        AppFilterChip(
-                                            selected = selectedCampusCode == campus.code,
-                                            onClick = { selectedCampusCode = if (selectedCampusCode == campus.code) "" else campus.code },
-                                            label = campus.name
-                                        )
-                                    }
-                                }
+                                val campusNames = vm.campusList.associate { it.code to it.name }
+                                AppChipTabRow(
+                                    options = listOf("") + campusNames.keys,
+                                    selected = selectedCampusCode,
+                                    onSelect = { selectedCampusCode = it },
+                                    label = { campusNames[it] ?: "全部" },
+                                    containerColor = AppCardColor,
+                                    bleed = 16.dp,
+                                )
 
-                                Spacer(Modifier.height(12.dp))
+                                Spacer(Modifier.height(6.dp))
 
                                 // 星期筛选
                                 Text("星期", style = MiuixTheme.textStyles.footnote1, fontWeight = FontWeight.Medium)
                                 Spacer(Modifier.height(6.dp))
-                                val weekDayLabels = listOf("不限", "一", "二", "三", "四", "五", "六", "日")
-                                FlowRow(
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                    verticalArrangement = Arrangement.spacedBy(6.dp)
-                                ) {
-                                    weekDayLabels.forEachIndexed { index, label ->
-                                        AppFilterChip(
-                                            selected = selectedWeekday == index,
-                                            onClick = { selectedWeekday = index },
-                                            label = label
-                                        )
-                                    }
-                                }
+                                AppSegmentedTabs(
+                                    tabs = listOf("不限", "一", "二", "三", "四", "五", "六", "日"),
+                                    selectedTabIndex = selectedWeekday,
+                                    onTabSelected = { selectedWeekday = it },
+                                    compact = true,
+                                )
 
                                 Spacer(Modifier.height(12.dp))
 
@@ -360,11 +348,11 @@ fun SchoolCourseScreen(
                                 Spacer(Modifier.height(6.dp))
                                 Row(verticalAlignment = Alignment.CenterVertically) {
                                     val sectionEntries = buildList {
-                                        add(DropdownItem(title = "不限"))
-                                        for (i in 1..14) add(DropdownItem(title = "第${i}节"))
+                                        add("不限")
+                                        for (i in 1..14) add("第${i}节")
                                     }
                                     Card(Modifier.weight(1f), cornerRadius = 12.dp) {
-                                        OverlaySpinnerPreference(
+                                        com.xjtu.toolbox.ui.components.AppDropdownPreference(
                                             items = sectionEntries,
                                             selectedIndex = selectedStartSection,
                                             title = "开始",
@@ -377,7 +365,7 @@ fun SchoolCourseScreen(
                                     }
                                     Text(" ~ ", Modifier.padding(horizontal = 8.dp), color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
                                     Card(Modifier.weight(1f), cornerRadius = 12.dp) {
-                                        OverlaySpinnerPreference(
+                                        com.xjtu.toolbox.ui.components.AppDropdownPreference(
                                             items = sectionEntries,
                                             selectedIndex = selectedEndSection,
                                             title = "结束",
@@ -397,56 +385,31 @@ fun SchoolCourseScreen(
                                 if (source.supportsElectiveFilter) {
                                 Text("课程类型", style = MiuixTheme.textStyles.footnote1, fontWeight = FontWeight.Medium)
                                 Spacer(Modifier.height(6.dp))
-                                FlowRow(
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                    verticalArrangement = Arrangement.spacedBy(6.dp)
-                                ) {
-                                    AppFilterChip(
-                                        selected = isPublicElectiveFilter == null,
-                                        onClick = { isPublicElectiveFilter = null; selectedElectiveCat = "" },
-                                        label = "全部"
-                                    )
-                                    AppFilterChip(
-                                        selected = isPublicElectiveFilter == true,
-                                        onClick = {
-                                            isPublicElectiveFilter = if (isPublicElectiveFilter == true) null else true
-                                        },
-                                        label = "校公选课"
-                                    )
-                                    AppFilterChip(
-                                        selected = isPublicElectiveFilter == false,
-                                        onClick = {
-                                            isPublicElectiveFilter = if (isPublicElectiveFilter == false) null else false
-                                            selectedElectiveCat = ""
-                                        },
-                                        label = "非公选课"
-                                    )
-                                }
+                                val electiveChoices = listOf(null, true, false)
+                                AppSegmentedTabs(
+                                    tabs = listOf("全部", "校公选课", "非公选课"),
+                                    selectedTabIndex = electiveChoices.indexOf(isPublicElectiveFilter),
+                                    onTabSelected = {
+                                        isPublicElectiveFilter = electiveChoices[it]
+                                        if (isPublicElectiveFilter != true) selectedElectiveCat = ""
+                                    },
+                                    compact = true,
+                                )
 
                                 // 公选课类别
                                 AnimatedVisibility(isPublicElectiveFilter == true) {
                                     Column {
-                                        Spacer(Modifier.height(8.dp))
+                                        Spacer(Modifier.height(12.dp))
                                         Text("公选课类别", style = MiuixTheme.textStyles.footnote1, fontWeight = FontWeight.Medium)
-                                        Spacer(Modifier.height(6.dp))
-                                        val categories = vm.electiveCategories
-                                        FlowRow(
-                                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                            verticalArrangement = Arrangement.spacedBy(6.dp)
-                                        ) {
-                                            AppFilterChip(
-                                                selected = selectedElectiveCat.isBlank(),
-                                                onClick = { selectedElectiveCat = "" },
-                                                label = "全部"
-                                            )
-                                            categories.forEach { cat ->
-                                                AppFilterChip(
-                                                    selected = selectedElectiveCat == cat.code,
-                                                    onClick = { selectedElectiveCat = if (selectedElectiveCat == cat.code) "" else cat.code },
-                                                    label = cat.name
-                                                )
-                                            }
-                                        }
+                                        val categoryNames = vm.electiveCategories.associate { it.code to it.name }
+                                        AppChipTabRow(
+                                            options = listOf("") + categoryNames.keys,
+                                            selected = selectedElectiveCat,
+                                            onSelect = { selectedElectiveCat = it },
+                                            label = { categoryNames[it] ?: "全部" },
+                                            containerColor = AppCardColor,
+                                            bleed = 16.dp,
+                                        )
                                     }
                                 }
                                 }
@@ -459,13 +422,15 @@ fun SchoolCourseScreen(
                         Button(
                             onClick = { doSearch() },
                             modifier = Modifier.fillMaxWidth(),
-                            enabled = !vm.isSearching && selectedTermCode.isNotBlank()
+                            enabled = !vm.isSearching && selectedTermCode.isNotBlank(),
+                            colors = ButtonDefaults.buttonColorsPrimary(),
                         ) {
                             if (vm.isSearching) {
-                                CircularProgressIndicator(modifier = Modifier.size(18.dp))
+                                // 尺寸要用组件自己的 size 参数：只给 Modifier.size 时圈还是默认大小，会溢出按钮盖到字上
+                                CircularProgressIndicator(size = 18.dp, strokeWidth = 2.dp)
                                 Spacer(Modifier.width(8.dp))
                             }
-                            Text(if (vm.isSearching) "搜索中..." else "搜索")
+                            Text(if (vm.isSearching) "搜索中…" else "搜索", color = MiuixTheme.colorScheme.onPrimary)
                         }
                     }
                 }
@@ -507,7 +472,7 @@ fun SchoolCourseScreen(
             // ── 搜索中/空状态 ──
             if (vm.isSearching && vm.result == null) {
                 fullLineItem(key = "loading") {
-                    LoadingState("正在查询...")
+                    LoadingState("正在查询…")
                 }
             }
 
@@ -767,10 +732,10 @@ private fun PaginationBar(
             verticalAlignment = Alignment.CenterVertically
         ) {
             // 上一页
-            TextButton(
+            com.xjtu.toolbox.ui.components.TextLink(
                 text = "上一页",
                 onClick = { if (currentPage > 1) onPageChange(currentPage - 1) },
-                enabled = currentPage > 1 && !isSearching
+                enabled = currentPage > 1 && !isSearching,
             )
 
             Spacer(Modifier.width(8.dp))
@@ -809,10 +774,11 @@ private fun PaginationBar(
             Spacer(Modifier.width(8.dp))
 
             // 下一页
-            TextButton(
+            com.xjtu.toolbox.ui.components.TextLink(
                 text = "下一页",
                 onClick = { if (currentPage < totalPages) onPageChange(currentPage + 1) },
-                enabled = currentPage < totalPages && !isSearching
+                enabled = currentPage < totalPages && !isSearching,
+                chevron = true,
             )
         }
     }
@@ -856,7 +822,7 @@ private fun CourseDetailSheet(
             Modifier
                 .fillMaxWidth()
                 .overScrollVertical()
-                .verticalScroll(rememberScrollState())
+                .verticalScroll(rememberScrollState()).tabContentBottomPadding()
                 .navigationBarsPadding()
         ) {
             Card(
@@ -876,6 +842,12 @@ private fun CourseDetailSheet(
                         style = MiuixTheme.textStyles.footnote1,
                         color = MiuixTheme.colorScheme.onSurfaceVariantSummary
                     )
+                    Text(
+                        listOf(course.teacher.ifBlank { "教师未知" }, course.department).filter { it.isNotBlank() }.joinToString(" · "),
+                        style = MiuixTheme.textStyles.body2,
+                        color = MiuixTheme.colorScheme.onSurface,
+                        modifier = Modifier.padding(top = 6.dp),
+                    )
                     Spacer(Modifier.height(14.dp))
                     Row(Modifier.fillMaxWidth()) {
                         HeadlineStat("学分", "${course.credit}", Modifier.weight(1f))
@@ -894,26 +866,22 @@ private fun CourseDetailSheet(
                             )
                         }
                     }
-                    Spacer(Modifier.height(14.dp))
                     CapacityBar(course)
+                    HoursBar(course)
                 }
             }
 
-            SmallTitle("基本信息")
+            Spacer(Modifier.height(12.dp))
             DetailCard {
-                DetailRow("开课单位", course.department)
-                DetailRow("教师", course.teacher.ifBlank { "未知" })
-                course.lectureHours?.takeIf { it > 0 }?.let { DetailRow("授课学时", "${it.toInt()}") }
-                course.labHours?.takeIf { it > 0 }?.let { DetailRow("实验学时", "${it.toInt()}") }
-                course.practiceHours?.takeIf { it > 0 }?.let { DetailRow("实践学时", "${it.toInt()}") }
-                course.weeklyHours?.takeIf { it > 0 }?.let { DetailRow("周学时", "$it") }
-                DetailRow("校区", course.campus.ifBlank { "未知" })
-            }
-
-            if (course.scheduleLocation.isNotBlank()) {
-                SmallTitle("时间地点")
-                DetailCard {
-                    course.scheduleLocation.split(",")
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("时间地点", style = MiuixTheme.textStyles.body2, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+                    Text(course.campus.ifBlank { "校区未知" }, style = MiuixTheme.textStyles.footnote1, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
+                }
+                Spacer(Modifier.height(4.dp))
+                if (course.scheduleLocation.isBlank()) {
+                    Text("没有排课信息", style = MiuixTheme.textStyles.body2, color = MiuixTheme.colorScheme.onSurfaceVariantSummary, modifier = Modifier.padding(vertical = 5.dp))
+                }
+                course.scheduleLocation.split(",")
                         .map { it.trim() }
                         .filter { it.isNotEmpty() }
                         .forEach { slot ->
@@ -932,36 +900,27 @@ private fun CourseDetailSheet(
                                 Text(slot, style = MiuixTheme.textStyles.body2)
                             }
                         }
-                }
             }
 
-            // 「选课情况」整块依赖人数类字段；这一端不知道就整块不出现，不留空标题。
-            if (course.capacity != null && course.enrollCount != null) {
-                SmallTitle("选课情况")
-                DetailCard {
-                    DetailRow("选课人数", "${course.enrollCount} / ${course.capacity}")
-                    course.maleEnrollCount?.let { DetailRow("男生", "$it 人") }
-                    course.femaleEnrollCount?.let { DetailRow("女生", "$it 人") }
-                }
+            // 零碎信息收成一行标签 + 一行脚注，不再各占一个分区
+            val tags = listOfNotNull(
+                if (course.isPublicElective) "校公选" + course.electiveCategory.takeIf { it.isNotBlank() }?.let { " · $it" }.orEmpty() else null,
+                course.className.takeIf { it.isNotBlank() },
+            )
+            if (tags.isNotEmpty()) {
+                androidx.compose.foundation.layout.FlowRow(
+                    Modifier.fillMaxWidth().padding(top = 12.dp),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                ) { tags.forEach { SmallTag(it, MiuixTheme.colorScheme.primary) } }
             }
-
-            val hasExtra = course.isPublicElective ||
-                course.className.isNotBlank() ||
-                course.teachingClassId.isNotBlank()
-            if (hasExtra) {
-                SmallTitle("其他")
-                DetailCard {
-                    if (course.isPublicElective) {
-                        DetailRow("校公选课", "是")
-                        if (course.electiveCategory.isNotBlank()) {
-                            DetailRow("公选类别", course.electiveCategory)
-                        }
-                    }
-                    if (course.className.isNotBlank()) DetailRow("上课班级", course.className)
-                    if (course.teachingClassId.isNotBlank()) {
-                        DetailRow("教学班 ID", course.teachingClassId)
-                    }
-                }
+            if (course.teachingClassId.isNotBlank()) {
+                Text(
+                    "教学班 ID ${course.teachingClassId}",
+                    style = MiuixTheme.textStyles.footnote2,
+                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                    modifier = Modifier.padding(start = 4.dp, top = 10.dp),
+                )
             }
 
             Spacer(Modifier.height(16.dp))
@@ -992,39 +951,75 @@ private fun HeadlineStat(
     }
 }
 
+/** 一条分段横条 + 下面一行图例：选课人数（男/女占容量）、学时构成都用它。 */
 @Composable
-private fun CapacityBar(course: SchoolCourse) {
-    // 这一端不知道容量就什么都不画（调用方已经在 null 时不进来，这里再兜一层）
-    val ratio = course.fillRatio ?: return
-    val fillColor = when {
-        ratio >= 0.95f -> Color(0xFFD32F2F)
-        ratio >= 0.8f -> Color(0xFFE65100)
-        ratio >= 0.5f -> Color(0xFFF9A825)
-        else -> Color(0xFF2E7D32)
-    }
-    Column {
-        Box(
-            Modifier
-                .fillMaxWidth()
-                .height(6.dp)
-                .clip(RoundedCornerShape(3.dp))
-                .background(MiuixTheme.colorScheme.onBackground.copy(alpha = 0.08f))
-        ) {
-            Box(
-                Modifier
-                    .fillMaxHeight()
-                    .fillMaxWidth(ratio.coerceIn(0f, 1f))
-                    .clip(RoundedCornerShape(3.dp))
-                    .background(fillColor)
-            )
+private fun SegmentBar(title: String, trailing: String, segments: List<Triple<String, Float, Color>>, total: Float) {
+    val cs = MiuixTheme.colorScheme
+    Column(Modifier.padding(top = 14.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(title, style = MiuixTheme.textStyles.footnote1, fontWeight = FontWeight.Medium, color = cs.onSurface, modifier = Modifier.weight(1f))
+            Text(trailing, style = MiuixTheme.textStyles.footnote1, color = cs.onSurfaceVariantSummary)
         }
         Spacer(Modifier.height(6.dp))
-        Text(
-            "已选 ${(ratio * 100).toInt()}%",
-            style = MiuixTheme.textStyles.footnote2,
-            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-        )
+        Row(
+            Modifier.fillMaxWidth().height(8.dp).clip(RoundedCornerShape(4.dp))
+                .background(cs.onBackground.copy(alpha = 0.08f)),
+        ) {
+            segments.filter { it.second > 0f }.forEach { (_, value, color) ->
+                Box(Modifier.fillMaxHeight().weight(value.coerceAtLeast(0.0001f)).background(color))
+            }
+            val rest = total - segments.sumOf { it.second.toDouble() }.toFloat()
+            if (rest > 0f) Spacer(Modifier.weight(rest))
+        }
+        Row(Modifier.padding(top = 6.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            segments.filter { it.second > 0f }.forEach { (label, value, color) ->
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(Modifier.size(7.dp).clip(CircleShape).background(color))
+                    Spacer(Modifier.width(4.dp))
+                    Text("$label ${value.toInt()}", style = MiuixTheme.textStyles.footnote2, color = cs.onSurfaceVariantSummary)
+                }
+            }
+        }
     }
+}
+
+@Composable
+private fun CapacityBar(course: SchoolCourse) {
+    // 这一端不知道容量就不画
+    val capacity = course.capacity ?: return
+    val enrolled = course.enrollCount ?: return
+    if (capacity <= 0) return
+    val ratio = enrolled.toFloat() / capacity
+    val tight = when {
+        ratio >= 0.95f -> Color(0xFFD32F2F)
+        ratio >= 0.8f -> Color(0xFFE65100)
+        else -> MiuixTheme.colorScheme.primary
+    }
+    val male = course.maleEnrollCount
+    val female = course.femaleEnrollCount
+    val segments = if (male != null && female != null && male + female > 0) {
+        listOf(
+            Triple("男", male.toFloat(), tight),
+            Triple("女", female.toFloat(), tight.copy(alpha = 0.45f)),
+        )
+    } else {
+        listOf(Triple("已选", enrolled.toFloat(), tight))
+    }
+    SegmentBar("选课人数", "$enrolled / $capacity · ${(ratio * 100).toInt()}%", segments, maxOf(capacity, enrolled).toFloat())
+}
+
+/** 学时构成：授课 / 实验 / 实践占总学时多少。只有一种时不画条，头部的总学时已经说清了。 */
+@Composable
+private fun HoursBar(course: SchoolCourse) {
+    val primary = MiuixTheme.colorScheme.primary
+    val parts = listOf(
+        Triple("授课", (course.lectureHours ?: 0.0).toFloat(), primary),
+        Triple("实验", (course.labHours ?: 0.0).toFloat(), Color(0xFF26A69A)),
+        Triple("实践", (course.practiceHours ?: 0.0).toFloat(), Color(0xFFFFA726)),
+    )
+    if (parts.count { it.second > 0f } < 2) return
+    val total = parts.sumOf { it.second.toDouble() }.toFloat()
+    SegmentBar("学时构成", course.weeklyHours?.takeIf { it > 0 }?.let { "周学时 $it" }.orEmpty(), parts, total)
 }
 
 @Composable
@@ -1038,31 +1033,3 @@ private fun DetailCard(content: @Composable ColumnScope.() -> Unit) {
     }
 }
 
-@Composable
-private fun DetailRow(
-    label: String,
-    value: String,
-    valueColor: Color? = null
-) {
-    Row(
-        Modifier
-            .fillMaxWidth()
-            .padding(vertical = 3.dp),
-        horizontalArrangement = Arrangement.SpaceBetween
-    ) {
-        Text(
-            label,
-            style = MiuixTheme.textStyles.body2,
-            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-        )
-        Spacer(Modifier.width(16.dp))
-        Text(
-            value,
-            style = MiuixTheme.textStyles.body2,
-            fontWeight = FontWeight.Medium,
-            color = valueColor ?: MiuixTheme.colorScheme.onSurface,
-            textAlign = TextAlign.End,
-            modifier = Modifier.weight(1f)
-        )
-    }
-}

@@ -1,6 +1,7 @@
 package com.xjtu.toolbox.jiaocai1
 
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.xjtu.toolbox.ui.glass.tabContentPadding
 import com.xjtu.toolbox.platform.BackHandler
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -38,6 +39,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -50,7 +52,6 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.xjtu.toolbox.ui.components.AppCardColor
-import com.xjtu.toolbox.ui.components.AppFilterChip
 import com.xjtu.toolbox.ui.components.AppInsetColor
 import com.xjtu.toolbox.ui.components.AppSearchBar
 import com.xjtu.toolbox.ui.components.EmptyState
@@ -83,12 +84,11 @@ import com.xjtu.toolbox.auth.LocalAuthExpiry
 import com.xjtu.toolbox.ui.components.AppSegmentedTabs
 import com.xjtu.toolbox.ui.components.AppTabPager
 import com.xjtu.toolbox.ui.glass.*
-import top.yukonga.miuix.kmp.basic.MiuixScrollBehavior
 import top.yukonga.miuix.kmp.basic.Scaffold
-import top.yukonga.miuix.kmp.basic.rememberTopAppBarState
 import kotlin.time.Clock
 import com.xjtu.toolbox.nav.AppRoute
 import com.xjtu.toolbox.util.campusDateTimeOf
+import com.xjtu.toolbox.ui.glass.rememberCouiTopAppBarScrollBehavior
 
 /**
  * 教材全文库那一屏（书架 + 五种字段检索 + 中图法分类树）。
@@ -125,7 +125,7 @@ fun Jiaocai1LibraryScreen(
     Jiaocai1UsageNotice(onDecline = onBack)
 
     var selectedTab by rememberSaveable { mutableIntStateOf(1) }
-    val scrollBehavior = MiuixScrollBehavior(rememberTopAppBarState())
+    val scrollBehavior = rememberCouiTopAppBarScrollBehavior()
     val glass = rememberPageGlass()
     Scaffold(
         topBar = {
@@ -135,24 +135,29 @@ fun Jiaocai1LibraryScreen(
                 scrollBehavior = scrollBehavior,
                 onBack = onBack,
                 bottomContent = {
-                    CompositionLocalProvider(LocalOnGlassBar provides (glass != null)) {
-                        AppSegmentedTabs(
-                            tabs = listOf("书架", "全文库"),
-                            selectedTabIndex = selectedTab,
-                            onTabSelected = { selectedTab = it },
-                            modifier = Modifier.readableWidth(),
-                        )
-                    }
+                    com.xjtu.toolbox.ui.components.DockedPageTabs(
+                        tabs = listOf("书架", "全文库"),
+                        selectedTabIndex = selectedTab,
+                        onTabSelected = { selectedTab = it },
+                    )
                 },
             )
         },
     ) { padding ->
         val glassTop = padding.glassTop(glass)
+        // 书架 / 全文库
+        com.xjtu.toolbox.ui.components.PageBottomTabsHost(
+            tabs = listOf("书架", "全文库"),
+            selectedTabIndex = selectedTab,
+            onTabSelected = { selectedTab = it },
+            modifier = Modifier.fillMaxSize(),
+        ) {
         Column(
             Modifier
                 .padding(padding.withoutTop(glass))
                 .fillMaxSize()
                 .glassSource(glass)
+                .nestedScroll(scrollBehavior.nestedScrollConnection)
         ) {
             AppTabPager(
                 pageCount = 2,
@@ -167,6 +172,7 @@ fun Jiaocai1LibraryScreen(
                     }
                 }
             }
+        }
         }
     }
 }
@@ -259,7 +265,7 @@ private fun ShelfTab(
         WindowDialog(
             show = true,
             title = "移出书架",
-            summary = "将「${target.title.ifBlank { "未命名教材" }}」移出书架，阅读进度会一并清除。书本身仍可通过检索重新打开。",
+            summary = "将「${target.title.ifBlank { "未命名教材" }}」移出书架，阅读进度一并清除",
             onDismissRequest = { pendingRemove = null },
         ) {
             Row(Modifier.fillMaxWidth()) {
@@ -291,8 +297,7 @@ private fun ShelfTab(
 
     if (items.isEmpty()) {
         EmptyState(
-            title = "书架还是空的",
-            subtitle = "打开过的书和读到哪页会记在这里",
+            title = "书架尚空",
             icon = Icons.AutoMirrored.Filled.LibraryBooks,
             modifier = Modifier.fillMaxSize(),
         )
@@ -480,18 +485,12 @@ private fun SearchTab(
                     modifier = Modifier.fillMaxWidth(),
                 )
                 Spacer(Modifier.height(10.dp))
-                FlowRow(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    Jiaocai1SearchField.entries.forEach { f ->
-                        AppFilterChip(
-                            selected = f == field,
-                            onClick = { onFieldChange(f) },
-                            label = f.label,
-                        )
-                    }
-                }
+                com.xjtu.toolbox.ui.components.AppSegmentedTabs(
+                    tabs = Jiaocai1SearchField.entries.map { it.label },
+                    selectedTabIndex = field.ordinal,
+                    onTabSelected = { onFieldChange(Jiaocai1SearchField.entries[it]) },
+                    compact = true,
+                )
                 if (clsName.isNotBlank()) {
                     Spacer(Modifier.height(10.dp))
                     Row(
@@ -541,7 +540,7 @@ private fun SearchTab(
             error != null -> ErrorState(error, onRetry = onSearch, modifier = Modifier.weight(1f).fillMaxSize())
             result == null -> EmptyState(
                 title = "输入书名或选个分类",
-                subtitle = "试试按分类浏览，常比关键词好找",
+                subtitle = "按分类浏览常比关键词好找",
                 icon = Icons.AutoMirrored.Filled.LibraryBooks,
                 modifier = Modifier.weight(1f).fillMaxSize(),
             )
@@ -575,7 +574,7 @@ private fun SearchTab(
                             Box(
                                 Modifier.fillMaxWidth().padding(vertical = 16.dp),
                                 contentAlignment = Alignment.Center
-                            ) { TextButton(text = "加载失败，点击重试", onClick = onLoadMore) }
+                            ) { com.xjtu.toolbox.ui.components.TextLink(text = "加载失败，点击重试", onClick = onLoadMore) }
                         } else {
                             LaunchedEffect(result.currentPage) { onLoadMore() }
                             Box(
@@ -746,7 +745,7 @@ private fun CategoryTab(
                 state = listState,
                 // 分类树是一张长卡片，宽屏限宽居中就好，分列反而打乱层级
                 modifier = Modifier.weight(1f).readableWidth().overScrollVertical(),
-                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+                contentPadding = tabContentPadding(PaddingValues(horizontal = 16.dp, vertical = 8.dp)),
             ) {
                 if (vm.categoryPath.isNotEmpty()) {
                     item {

@@ -106,11 +106,13 @@
 
 ---
 
-## ① `enum SettingsRow`（11 项）× 三端 `honoredRows`
+## ① `enum SettingsRow`（12 项）× 三端 `honoredRows`
 
-三端声明本体：A = `app/src/main/java/com/xjtu/toolbox/settings/AppSettings.kt:124`（`SettingsRow.entries.toSet()`，11/11）；
-D = `desktop/src/main/kotlin/com/xjtu/toolbox/desktop/DesktopSettings.kt:60-61`（3 项）；
-W = `web/src/wasmJsMain/kotlin/com/xjtu/toolbox/web/WebSettingsHost.kt:45-46`（2 项）。
+三端声明本体：A = `app/src/main/java/com/xjtu/toolbox/settings/AppSettings.kt`（`SettingsRow.entries.toSet()`，全量）；
+D = `desktop/src/main/kotlin/com/xjtu/toolbox/desktop/DesktopSettings.kt`（4 项：`DARK_MODE` `DYNAMIC_COLOR` `HOME_HERO` `HOME_SETTINGS`）；
+W = `web/src/wasmJsMain/kotlin/com/xjtu/toolbox/web/WebSettingsHost.kt`（3 项：`DARK_MODE` `DYNAMIC_COLOR` `HOME_SETTINGS`）。
+> 2026-11 首页重构：`SettingsRow` 新增 `HOME_SETTINGS`（下表第 12b 行）。本轮重排过 `SettingsScreen.kt` / `SettingsHost.kt`，
+> 其余各行证据里的行号可能已偏移，以「文件名 + 符号名」为准。
 
 | 功能点 | Android | 桌面 | web | 证据(文件:行) | 补它要动什么(一句话) |
 | --- | --- | --- | --- | --- | --- |
@@ -125,7 +127,8 @@ W = `web/src/wasmJsMain/kotlin/com/xjtu/toolbox/web/WebSettingsHost.kt:45-46`（
 | 9. `NETWORK_MODE` 连接模式 | ✅ | 🔧 | 🔧 | `AppSettings.kt:124,145`（`onNetworkModeChanged`） · `SettingsScreen.kt:95`（双条件：honored **且** 回调非 null） · `AppLoginState.kt:311-315`（读 `networkMode` 短路探测） · `DesktopSettings.kt:73`（null） · `WebSettingsHost.kt:63`（null） | 桌面：campus-api 直连/反代两种形态与"直连/WebVPN"不是一套，要先定义桌面这一端的两种模式；web：本端只有服务端给的那条路 |
 | 10. `SCHEDULE_SOURCE` 课表来源 | ✅ | 🔧 | 🔧 | `AppSettings.kt:124,134` · `ScheduleSourceRouter.kt:32-43`（`of()` 读设置）、`:65-66`（`manager == null` 时短路成教务） · `SettingsScreen.kt:291-293` · `DesktopSettings.kt:65`（空表 → 不画） · `WebSettingsHost.kt:52`（空表） · 两端无 `ScheduleSourceRouter` 调用（`grep` 只命中 `:app`/`:server`） | 两端：先得有第二个来源 —— 考勤系统那条路要校园会话（`manager`），现在两头都传不进 |
 | 11. `SCHEDULE_ATTENDANCE` 考勤角标 | ✅ | 🔧 | 🔧 | `AppSettings.kt:124` · `AppScheduleHost.kt:62` · `feature/schedule/.../ScheduleScreen.kt:908` 与 `CourseLinkSections.kt:100`（`ATTENDANCE in honored && attendanceBadgeEnabled`） · 共享默认 `shared/model/.../schedule/ScheduleHost.kt:79`（false） · 桌面 `DesktopScheduleHost.kt:24-32`（无 `ATTENDANCE`） · web `WebScheduleHost.kt:33-38`（无 `ATTENDANCE`） | 两端：先要有考勤取数口，再给宿主 `honored` 加 `ATTENDANCE`（设置行才有意义） |
-| 12. `VENUE_CAPTCHA` 场馆验证码自动识别 | ✅ | 🔧 | 🔧 | `AppSettings.kt:124` · `AppNavHost.kt:310`（读 `venueAutoSolveCaptchaEnabled` 喂识别器） · `SettingsScreen.kt:110,327-331` · `DesktopSettings.kt:61`（未列） · `WebSettingsHost.kt:46`（未列） · web 已有滑块识别器 `web/src/wasmJsMain/kotlin/com/xjtu/toolbox/web/WebSlideCaptchaHost.kt`（无设置读取者） | web：把恒开的识别器改成受设置控制（读完即一行 honored）；桌面：要先有场馆预约那条路 |
+| 12. ~~`VENUE_CAPTCHA` 场馆验证码自动识别~~ | — | — | — | 已删除（识别器与设置项一并移除，三端都只剩手动拖动滑块） | — |
+| 12b. `HOME_SETTINGS` 主页设置抽屉 | ✅ | ✅ | ✅ | 声明 `feature/settings/.../SettingsHost.kt`（`HOME_SETTINGS`）· 抽屉 `feature/settings/.../HomeSettingsSheet.kt`（`HomeSettingsSheet`，`OverlayBottomSheet` 范式，与其他设置抽屉一致；滑条一律走 MIUIX `SliderPreference`，见 `SettingsSliderRow`）· 入口 `feature/settings/.../SettingsScreen.kt`（外观组「主页设置」）+ 首页编辑态齿轮**直接在原地打开**（不跳设置页，经 `HomeTab` 挂的同一抽屉；旧的 `pendingHomeSettings` 旗标机制已删）· 导出：那一组改名叫「备份与重置」，三行是 `导出布局到文件`（把 `HomeLayoutStore.saved` 按 `HomeLayoutCodec` 写成固定名的 `.txt`）/ `从文件导入布局`（解不出来只提示、解出来先确认再 `importLayout` 落盘）/ `恢复默认分组和布局`；文件通道走 `shared/designsystem/.../platform/TextFile*.kt` 的 `rememberSaveTextFile` / `rememberPickTextFile`（Android = SAF「新建文档 / 打开文档」，桌面 = `JFileChooser`，Web = 浏览器下载 + `<input type=file>`）· 落盘：背景 / 材质 / 顶栏排法在 `SettingsStore.kt`（`home_background` `home_wallpaper_*` `home_liquid_card` `home_top_actions_right` `home_layout`），卡片组独有的网格 / 圆角 / 不透明度 / 整页快照在 `shared/navigation/.../HomeLayoutStore.kt` | 无（三端共用同一份抽屉与首页）。**抽屉里的「首页功能区」二选一**：经典分类卡（回落）/ 卡片组（`home_layout` = `classic` / `cards`，由 `feature/home/.../HomeScreen.kt` 这个薄分派选屏：`classic` 走 `HomeClassicScreen`，`cards` 走 `HomeCardGroupScreen`）。原来的「小组件」**不是第三个选项**——它和卡片组是同一个功能的两代，已经并进卡片组（材质、一镜到底接线、付款码、内容分档都搬过来了），老存档 `widgets` 读出来按 `cards`，没设置过也是 `cards`。桌面 / web 的首页顶栏没有齿轮入口，从设置页进。抽屉里的「顶栏 → 功能按钮统一右对齐」只有 `:app` 认领（`SettingsRow.HOME_TOP_BAR`：桌面 / web 的首页顶栏在外壳里，那一组不画；键 `home_top_actions_right` 默认 true，开 = 整套改造前顶栏：交小西头像 + 三个圆钮在右 + 不画居中标题；编辑态两套排法都是 ✕ / ⚙ / ✓）。另外「主页背景」是 `solid` / `gradient` / `image` 三选一（`home_background`），两套布局共用，所以渐变在桌面 / web 也一样生效。行为规格见 `docs/home-interaction-spec.md` |
 
 ## ② `SettingsHost` 其它槽位
 
@@ -1196,3 +1199,27 @@ rebase 要 `--force-with-lease`。merge 只解一轮、不动历史、push 是�
 `default_tab` 归一化位置、`Zyxf` 分支、差集字面量）忘了再 `git add`，推上去之后 CI 在
 `:web:compileKotlinWasmJs` 上红了一次（`Unresolved reference CampusDormPowerApi`），补在下一个提交里。
 **教训**：`git add -A` 之后再改文件，提交前必须再 `git status` 一眼 —— 本地绿不等于提交里绿。
+
+### 8.14 再对到新 dev（2026-11-15，merge 路线）
+
+`dev` 从 `4050b036` 到 `c6a6d212`（+130 个提交），15 个文件冲突。上游三处删减直接影响本批：
+
+| 上游变化 | 本批跟着怎么改 |
+|---|---|
+| `88d44ba1` 砍掉场馆验证码自动识别（`SettingsRow.VENUE_CAPTCHA`、解算器、`autoSolveCaptcha` 全删） | 桌面 honoredRows 去掉 `VENUE_CAPTCHA`；`VenueScreen` 删 `captchaHint` 槽位（三端都只能手滑，文案统一取上游），只留 `payHint`；Web 设置缺口说明删掉验证码那句 |
+| `311dd03b` 删除旧版反馈页与 `AppRoute.Feedback` | Web 的反馈分支与清单条目随之删除 |
+| `c790f002` 成绩报表并入成绩查询，三端报表缓存删除 | `WebScoreReportCache` 接受删除；存档层用到的店名/键名并进 `ArchiveScoreReport`（`WEB_STORE`/`WEB_KEY`/`desktopKey`）。⚠️ 这一族现在**没有任何写入方**，只剩搬运旧数据 —— 要不要整族删掉留给下一轮定 |
+
+其余冲突：
+
+- `web/WebSupport.kt` / `WebRouteCoverageTest.kt`：上游把清单改成按类型判定（`openableRouteTypes`），并新增 4 条
+  路由（`CampusBus`/`DegreeProgress`/`NoticeDetail`/`QrScan`）。取上游写法，把本批补齐的 `Jiaocai1`/`Jiaocai1Reader`/
+  `DownloadManager` 加进清单（按类型判定后带参的 `Jiaocai1Reader` 也能进），差集剩 6 条。
+  不变量改回上游那条「多出来的分支只有 `Browser`」——否则新增的 4 条都要补占位分支；`Zyxf` 那条占位分支随之删掉（`else` 兜底画的是同一页）。
+- `HomeScreen.kt`：上游拆成 `HomeClassicScreen` / `HomeCardGroupScreen` 两套布局，取上游，`host.gapNote` 补进两套布局底部。
+- `ScheduleScreen.kt`：菜单换成 `option`/`submenu` DSL，放不下卡片 ⇒ 交不出文件的端「导出日历 (ICS)」那一项点了弹缺口说明。
+- `AgentChat.kt`：「改上一条」换成上游的胶囊，文字仍走 `host.editLastLabel`（默认值同步成上游那句）。
+- 设置三处：图标统一用上游的共享 `SettingsIcon(icon, color)`；honoredRows 取并集（加 `HOME_SETTINGS`）。
+- 非冲突但编不过：上游新增的 `WeeklyReport` 还按旧签名调 `LmsDueStore.load(context, account)`，改成本批的 `load(account)`。
+
+门禁：本机只跑了 `:app:compileDebugKotlin`；桌面 / Web / 测试任务交给 CI。

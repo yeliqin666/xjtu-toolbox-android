@@ -8,12 +8,18 @@
 
 - **分支分工**：
   - `main`：正式发布分支。CI 构建 `release` 变体、打 `v*` tag、发 GitHub Latest Release、全量同步至 Gitee。
-  - `dev`：日常开发集成分支。CI 默认构建 `preview` 变体、打 `dev-N` tag、发 GitHub Pre-release（`make_latest: false`），**不同步 Gitee**；本次不发布时在 head commit / PR 标题写 `[skip preview]`。
+  - `dev`：日常开发集成分支。CI 默认构建 `preview` 变体、打 `v<版本>-beta.N` tag、发 GitHub Pre-release（`make_latest: false`），**不同步 Gitee**；本次不发布时在 head commit / PR 标题写 `[skip preview]`。
 - **构建类型 `preview`**：
-  - 不混淆、不压缩（保留完整可读崩溃堆栈与 Log）。
+  - `initWith(release)`：混淆、资源压缩、`proguardFiles` 与正式版完全同一套，包体和运行表现对齐正式版，也能提前暴露只在 R8 后才出现的 keep / 序列化问题。
+  - 堆栈因此是混淆过的，CI 按预览版本号上传 `mapping.txt`，崩溃要靠它 retrace。
   - **非 debuggable**（避免 Compose 调试卡顿）。
   - 正式签名，与正式版同签名同包名，可直接互相覆盖安装不丢登录态与本地数据。
-  - `versionNameSuffix` 为 `-dev.${GITHUB_RUN_NUMBER}`。
+  - `versionNameSuffix` 为 `-beta.N`：`N` 是同一核心版本内的 beta 序号，从 1 开始。CI 不数计数器，而是查 GitHub 上已发布的预览 tag（`v<核心版本>-beta.N`）取最大 `N` 再加 1 —— 所以带 `[skip preview]` 的推送不占号，同一个 run 重跑会按提交 SHA 找回上次发布的号（重发同一个 beta，不跳号）。
+- **发版前的「release 方式」预览**：
+  - 手动在 Actions 运行 `Build & Release`、选 `dev`，勾上 `release_preview`：改为构建 `release` 变体（`assembleRelease`，命令与 main 上的正式发布一致），版本号靠 `-PpreviewSuffix` 补上同样的 `-beta.N`。
+  - 不想手点也可以：head commit 信息里带 `[release preview]`，这次 dev 推送就用 release 方式构建（与 `[skip preview]` 同一套约定）。
+  - 它只换构建变体，走的仍是预览渠道：写 `preview.json`、发 GitHub Pre-release、打 `v<版本>-beta.N` tag；不写 `stable.json`、不动 `latest` 别名、不打正式 `v*` tag、不同步 Gitee，所以不是正式版。
+  - 用途：正式版上线前，用最接近正式版的包在真机上连验几轮。
 - **预览版全量推送**：
   - 仅对在「设置 → 更新」中开启「接收预览版更新」的用户生效（GitHub 渠道）。
   - 开启后不做灰度分桶，所有预览版都会推送给这些用户；`rollout` 字段固定为 `100`，只为兼容旧客户端保留。
@@ -27,11 +33,12 @@
    - 开发者从 `dev` 分支拉出功能分支（例如 `feat/...` 或 `fix/...`）。
    - 开发测试完成后，提 PR 合并回 `dev` 分支。
 2. **预览包按需发出**：
-   - PR 合并或 push 到 `dev` 后，CI 默认运行 `Build Preview APK`，构建出 `xjtu-toolbox-X.Y.Z-dev.N.apk` 并创建 GitHub Pre-release。
+   - PR 合并或 push 到 `dev` 后，CI 默认运行 `Build Preview APK`，构建出 `xjtu-toolbox-X.Y.Z-beta.N.apk` 并创建 GitHub Pre-release。
    - 如果本次改动暂不发预览，在本次推送的 head commit（通过 PR 合并时写在 PR 标题）加入 `[skip preview]`。CI 只跑校验、测试与 release 收缩检查，不构建、不发布预览包；改动会在下一次发布预览时一并进入 beta。详见 [DEVELOP.md](../DEVELOP.md) §1.6。
    - 只想补发当前 `dev` 上累积的改动时，可在 Actions 中手动运行 `Build & Release`，选择 `dev` 并勾选 `publish_preview`。
+   - 正式版上线前想拿接近正式版的包连验几轮：同样手动运行，但改勾 `release_preview`（见 §1）。它仍旧是预览版，只是构建方式与正式版一致。
    - 预览版全量推送，不设灰度比例。
-   - CI 会自动清理：GitHub Pre-release 与 OSS 上的预览 APK 都只保留最近 5 个版本；OSS 的历史版本与删除标记由 bucket 生命周期策略兜底清理。
+   - CI 会自动清理：GitHub Pre-release 与 OSS 上的预览 APK 都只保留最近 5 个版本；迁移前的 `-dev.N` 目录也在清理范围内。OSS 的历史版本与删除标记由 bucket 生命周期策略兜底清理。
 
 ---
 
@@ -61,6 +68,7 @@
    - **同一个提交里**在 `AppChangelog.kt` 的 `ENTRIES` 顶部加一个新版本号的条目（内容可以先占位，发版前补全）。`AppChangelog` 启动时会校验当前版本有条目，缺了预览包会一打开就崩；CI 也会检查，缺条目时预览构建直接失败。
    - 提交并推送到 `dev`。
    - *防呆保证*：如果忘记此步骤，CI 的预览构建步骤会校验 dev 版本必须大于最新正式 tag，若不满足则会直接报错退出，避免发出比正式版还“旧”的预览版。
+   - *`versionCode` 同理*：CI 的 `Validate versionCode` 步骤要求新版本的 code 大于上一个正式版、且不低于同核心版本已发布的 beta（正式版可以与 beta 同号）；忘了递增会直接失败，而不是发出去一个装不上的包。
 
 ---
 

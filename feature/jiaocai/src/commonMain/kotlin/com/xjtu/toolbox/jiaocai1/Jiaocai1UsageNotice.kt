@@ -1,6 +1,5 @@
 package com.xjtu.toolbox.jiaocai1
 
-import com.xjtu.toolbox.platform.BackHandler
 import com.xjtu.toolbox.platform.keyValueStore
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
@@ -25,8 +24,10 @@ private const val KEY = "jiaocai1_hint_shown"
  * 用 WindowDialog：浏览页和阅读器都能弹，不依赖哪一层 Scaffold。
  *
  * 这是一份需要用户真正表态的声明，所以**只有点「我已阅读并同意」才算同意**：
- * 点弹窗外部不关闭（[WindowDialog] 的 onDismissRequest 传 null 即为空操作），
- * 返回键等同于「不同意」——退出功能，且不写入已读标记，下次进来照旧弹。
+ * 返回键和点弹窗外部都等同于「不同意」——退出功能，且不写入已读标记，下次进来照旧弹。
+ *
+ * onDismissRequest 不能传 null：[WindowDialog] 是独立窗口，返回键由它自己处理，先藏内容再回调。
+ * 没有回调的话透明窗口还盖在页面上，吃掉之后所有触摸和返回键，页面就退不出去了。
  *
  * @param onDecline 用户拒绝或按返回时调用，应当把用户带离本功能。
  */
@@ -48,13 +49,11 @@ fun Jiaocai1UsageNotice(onDecline: () -> Unit) {
         onDecline()
     }
 
-    BackHandler { decline() }
     WindowDialog(
         show = show.value,
         title = "使用声明",
         summary = "教材全文库仅供本校师生线上教学与个人学习使用。本功能不开放下载。",
-        // 传 null：点外部不再被当作同意
-        onDismissRequest = null,
+        onDismissRequest = { decline() },
     ) {
         Column(Modifier.fillMaxWidth()) {
             Text(

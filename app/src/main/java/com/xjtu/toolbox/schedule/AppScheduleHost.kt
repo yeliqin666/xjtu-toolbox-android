@@ -36,6 +36,8 @@ internal class AppScheduleHost(
     override val customCourses: CustomCourseStore =
         RoomCustomCourseStore(AppDatabase.getInstance(app).customCourseDao())
 
+    override val autoDnd: AutoDndAccess = com.xjtu.toolbox.notification.AndroidAutoDnd(app)
+
     override val login: ScheduleLogin = object : ScheduleLogin {
         override val accountId: String get() = loginState.accountId
         override val studentId: String get() = loginState.activeUsername
@@ -71,6 +73,7 @@ internal class AppScheduleHost(
     override fun onScheduleSynced() {
         HomeSignals.scheduleVersion++
         ScheduleWidgetUpdater.requestUpdate(app)
+        com.xjtu.toolbox.notification.DynamicScheduleScheduler.requestRefresh(app)
     }
 
     override fun shareFile(content: String, fileName: String, mimeType: String): Boolean {

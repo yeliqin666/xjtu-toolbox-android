@@ -100,7 +100,7 @@ private fun ExamEndedGroup(
         ),
     ) {
         Column {
-            ExamEndedToggleRow(count = exams.size, expanded = expanded, onToggle = onToggle)
+            EndedToggleRow("已考完的考试 · ${exams.size} 场", expanded = expanded, onToggle = onToggle)
             if (expanded) {
                 exams.forEach { exam ->
                     top.yukonga.miuix.kmp.basic.HorizontalDivider(
@@ -115,14 +115,11 @@ private fun ExamEndedGroup(
 }
 
 /**
- * 已考完的场次收起来的那一行。
- *
- * 以前是一行光秃秃的「已结束 5 场」：说不清是什么结束了，也看不出能点开，第一次看到的人都会愣一下。
- * 现在写明「已考完的考试」、给出能做的动作（查看 / 收起）。它是 [ExamEndedGroup] 那张卡的卡头，
- * 展开的考试接在它下面同一张卡里。
+ * 已结束的一组收起来的卡头（已考完的考试、学期栏里已结束的课）。[label] 写明是什么结束了，
+ * 右侧给出能做的动作（查看 / 收起）；展开的条目接在它下面同一张卡里。
  */
 @Composable
-private fun ExamEndedToggleRow(count: Int, expanded: Boolean, onToggle: () -> Unit) {
+internal fun EndedToggleRow(label: String, expanded: Boolean, onToggle: () -> Unit) {
     // 卡头本身不是一张卡，外面由 ExamEndedGroup 包住
     Row(
         Modifier
@@ -139,7 +136,7 @@ private fun ExamEndedToggleRow(count: Int, expanded: Boolean, onToggle: () -> Un
         )
         Spacer(Modifier.width(10.dp))
         Text(
-            "已考完的考试 · $count 场",
+            label,
             style = MiuixTheme.textStyles.body2,
             fontWeight = FontWeight.Medium,
             color = MiuixTheme.colorScheme.onSurface,

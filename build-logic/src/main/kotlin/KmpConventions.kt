@@ -20,7 +20,7 @@ internal val Project.flatName: String
 
 /**
  * android（AGP 9 KMP 库插件）+ jvm（+ 可选 wasmJs）三端的公共配置，与原 `:core` / `:data` 的写法逐项一致：
- * JVM 21、compileSdk 37、minSdk 31、namespace = com.xjtu.toolbox.<模块路径>。
+ * JVM 21、compileSdk 37、minSdk 35、namespace = com.xjtu.toolbox.<模块路径>。
  */
 internal fun Project.configureKmpLibrary(wasm: Boolean) {
     with(pluginManager) {
@@ -41,7 +41,7 @@ internal fun Project.configureKmpLibrary(wasm: Boolean) {
         as KotlinMultiplatformAndroidLibraryTarget
     android.namespace = "com.xjtu.toolbox." + path.removePrefix(":").replace(':', '.')
     android.compileSdk = 37
-    android.minSdk = 31
+    android.minSdk = 35
 
     kmp.jvm()
 

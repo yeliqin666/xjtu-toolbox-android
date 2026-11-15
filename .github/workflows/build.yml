@@ -3,12 +3,23 @@ name: Build & Release
 on:
   push:
     branches: [ main, dev ]
+    # 纯文档 / CI 脚本的提交不跑整条构建：以前改一篇 md 也要十几分钟，还会占住
+    # 并发组、把正在跑的代码提交的构建取消掉。
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+      - '.github/ISSUE_TEMPLATE/**'
+      - '.github/scripts/**'
   workflow_dispatch:
     inputs:
       publish_preview:
         description: "在 dev 上发布预览版（main 忽略此项）"
         type: boolean
         default: true
+      release_preview:
+        description: "以 release 方式构建预览版：真 R8、正式签名，版本号仍带 -beta.N；发版前真机检查用，仍不是正式版"
+        type: boolean
+        default: false
 
 concurrency:
   group: build-${{ github.ref }}
@@ -23,6 +34,12 @@ jobs:
       # dev 推送默认发布预览版；head commit 带 [skip preview] 时只跑检查、不发布。
       # 手动触发时用 publish_preview 输入控制，便于把之前跳过的改动补发成一个 beta。
       PUBLISH_PREVIEW: ${{ github.ref == 'refs/heads/dev' && ((github.event_name == 'workflow_dispatch' && (github.event.inputs.publish_preview == true || github.event.inputs.publish_preview == 'true')) || (github.event_name == 'push' && !contains(github.event.head_commit.message, '[skip preview]'))) }}
+      # 手动在 dev 上勾选 release_preview 时，用正式变体（assembleRelease）出包并发到预览渠道：
+      # 包与正式版同一套 R8、同一份签名，版本号仍带 -beta.N（靠 -PpreviewSuffix 补上），
+      # 只是不写 stable.json、不动 latest 别名、不打 v* tag、不同步 Gitee，所以它仍然只是预览版。
+      # 发版前想拿接近正式版的包在真机上连验几轮，用它；日常预览仍走 preview 变体。
+      # 推送时也可以不问人：head commit 带 [release preview] 就走这种方式（与 [skip preview] 同一套约定）。
+      PREVIEW_RELEASE_BUILD: ${{ github.ref == 'refs/heads/dev' && ((github.event_name == 'workflow_dispatch' && (github.event.inputs.release_preview == true || github.event.inputs.release_preview == 'true')) || (github.event_name == 'push' && contains(github.event.head_commit.message, '[release preview]'))) }}
 
     steps:
       - name: Checkout
@@ -50,14 +67,6 @@ jobs:
         # 同时保留 36 供 targetSdk 使用
         run: $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager "platforms;android-37.0" "build-tools;37.0.0" "platforms;android-36" "build-tools;36.0.0" --channel=3
 
-      - name: Unit tests
-        # 单测不过就不出包
-        run: ./gradlew :app:testDebugUnitTest
-
-      - name: Verify release shrinking
-        if: github.ref == 'refs/heads/dev'
-        run: ./gradlew :app:minifyReleaseWithR8
-
       - name: Extract version name
         id: version
         run: |
@@ -66,6 +75,100 @@ jobs:
           echo "version=$VERSION" >> $GITHUB_OUTPUT
           echo "version_code=$VERSION_CODE" >> $GITHUB_OUTPUT
           echo "tag=v$VERSION" >> $GITHUB_OUTPUT
+
+      - name: Validate versionCode
+        # versionCode 是安装器判升降级的唯一依据（客户端判更新只看 versionName），所以必须
+        # 不低于线上任何已发布包；正式版之间还要真正往前推。拦两类真实事故：
+        #   1) dev 上把 versionCode 改小 → 新预览包比已装的旧预览低，安装器直接拒绝降级；
+        #   2) 忘了递增 → 正式版 code 不高于上一个正式版，用户收不到更新（DEVELOP.md §1.7）。
+        # 规则（正式版可以与同核心版本的 beta 同号）：
+        #   - 重发已发布过的 versionName（tag 已存在）：code 不得低于当时发布的号；
+        #   - 新版本（tag 不存在）：code 必须严格大于上一个正式版 —— 正式版之间要真正往前推，
+        #     dev 的预览包也必须盖得过线上正式版，忘了递增就在这里红；
+        #   - 最近预览版与本次同核心版本时：code 不得低于它（正式版可与它同号，不能更低）；
+        #     预览版核心号不同（更旧或更新）只打印不拦 —— 老版本的 main 重发不该被新预览卡住。
+        # 正式版的 code 从 tag 里读（离线、判定稳）；预览版的 code 只在公开清单里，
+        # 拿不到清单时只警告，不因 OSS 抖动红掉构建。
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          VERSION_CODE: ${{ steps.version.outputs.version_code }}
+          OSS_PUBLIC_BASE: ${{ secrets.OSS_PUBLIC_BASE }}
+        run: |
+          set -euo pipefail
+          case "${VERSION_CODE:-}" in
+            ''|*[!0-9]*) echo "::error::versionCode 解析失败: '${VERSION_CODE:-}'"; exit 1 ;;
+          esac
+          # 上一个正式版：按创建时间取最新非预发布 tag（与 dev 的核心版本校验同一套口径）
+          STABLE_TAG=$(git tag -l 'v*' --sort=-creatordate | { grep -vE -- '-(beta|alpha|rc)\.' || true; } | head -1)
+          STABLE_NAME=""
+          STABLE_CODE=0
+          if [ -n "$STABLE_TAG" ]; then
+            STABLE_NAME="${STABLE_TAG#v}"
+            STABLE_CODE=$(git show "${STABLE_TAG}:app/build.gradle.kts" | grep -m1 "versionCode" | sed -E "s/.*=[[:space:]]*([0-9]+).*/\1/")
+            case "${STABLE_CODE:-}" in
+              ''|*[!0-9]*) echo "::error::读不出 $STABLE_TAG 的 versionCode"; exit 1 ;;
+            esac
+          fi
+          PREVIEW_NAME=""
+          PREVIEW_CODE=0
+          PREVIEW_LABEL="未校验"
+          PREVIEW_OK=0
+          # preview.json 是对外公开的：先走 secrets 里的公网直链，取不到再退到客户端用的同一个域名。
+          # 都失败时把 curl 原文打出来，别让它静默。
+          rm -f /tmp/preview.json /tmp/curl_err.txt
+          for url in "${OSS_PUBLIC_BASE:+${OSS_PUBLIC_BASE%/}/preview.json}" \
+                     "https://dzhz.zyxf.top/xjtu-toolbox/preview.json"; do
+            [ -n "$url" ] || continue
+            if curl -fsSL --max-time 20 --retry 2 -o /tmp/preview.json "$url" 2>/tmp/curl_err.txt; then
+              echo "preview 清单来自 $url"
+              VALUES=$(python3 -c 'import json; m = json.load(open("/tmp/preview.json", encoding="utf-8")); print(str(m.get("versionName") or "-"), int(m.get("versionCode") or 0))' 2>/tmp/curl_err.txt || true)
+              if [ -n "$VALUES" ]; then
+                read -r PREVIEW_NAME PREVIEW_CODE <<<"$VALUES"
+                case "${PREVIEW_CODE:-}" in
+                  ''|*[!0-9]*) echo "::error::preview.json 里的 versionCode 不合法"; exit 1 ;;
+                esac
+                PREVIEW_LABEL="$PREVIEW_CODE"
+                PREVIEW_OK=1
+                break
+              fi
+              echo "::warning::$url 不是合法的预览清单：$(tr '\n' ' ' < /tmp/curl_err.txt)"
+            else
+              echo "::warning::取不到 $url：$(tr '\n' ' ' < /tmp/curl_err.txt)"
+            fi
+          done
+          if [ "$PREVIEW_OK" != "1" ]; then
+            # dev 推送不因 CDN 抖动红掉；正式发布则必须能校验「不低于同核心版本的 beta」
+            if [ "${GITHUB_REF:-}" = "refs/heads/main" ]; then
+              echo "::error::正式发布前读不到 preview.json，无法校验同核心版本 beta 的 versionCode；稍后重跑一次"
+              exit 1
+            fi
+            echo "::warning::没有可用的 preview.json，本次跳过「不低于最近预览版」的比对"
+          fi
+          CORE_CURRENT="${VERSION%%-*}"
+          CORE_PREVIEW="${PREVIEW_NAME%%-*}"
+          echo "current=$VERSION ($VERSION_CODE) | stable=$STABLE_NAME ($STABLE_CODE) | preview=$PREVIEW_NAME ($PREVIEW_LABEL)"
+          if git rev-parse -q --verify "refs/tags/v${VERSION}" >/dev/null; then
+            # 重发同一个 versionName（main 重跑）：不低于当初发布的号即可
+            REPUBLISH_CODE=$(git show "v${VERSION}:app/build.gradle.kts" | grep -m1 "versionCode" | sed -E "s/.*=[[:space:]]*([0-9]+).*/\1/")
+            case "${REPUBLISH_CODE:-}" in
+              ''|*[!0-9]*) echo "::error::读不出 v${VERSION} 的 versionCode"; exit 1 ;;
+            esac
+            echo "重发 $VERSION：该 tag 当初的 versionCode=$REPUBLISH_CODE"
+            if [ "$VERSION_CODE" -lt "$REPUBLISH_CODE" ]; then
+              echo "::error::重发 $VERSION 的 versionCode $VERSION_CODE 低于已发布的 $REPUBLISH_CODE，用户不会收到这个包"
+              exit 1
+            fi
+          elif [ "$VERSION_CODE" -le "$STABLE_CODE" ]; then
+            # 新版本（正式发布或 dev 预览）要严格越过上一个正式版
+            echo "::error::versionCode $VERSION_CODE 必须大于上一个正式版 $STABLE_NAME 的 $STABLE_CODE；请在 app/build.gradle.kts 递增 versionCode"
+            exit 1
+          fi
+          # 同核心版本的 beta：正式版可以与它同号，但不能更低
+          if [ -n "$PREVIEW_NAME" ] && [ "$CORE_PREVIEW" = "$CORE_CURRENT" ] && [ "$VERSION_CODE" -lt "$PREVIEW_CODE" ]; then
+            echo "::error::versionCode $VERSION_CODE 低于同核心版本已发布的预览版 $PREVIEW_NAME 的 $PREVIEW_CODE，预览用户装不上这次正式版；请递增 versionCode"
+            exit 1
+          fi
+          echo "versionCode ok"
 
       - name: Decode Keystore
         env:
@@ -79,7 +182,10 @@ jobs:
           print(f'Keystore decoded: {len(data)} bytes')
           "
 
-      - name: Build Release APK
+      - name: Unit tests + Build Release APK
+        # 单测直接跑在要发布的 release 变体上，和 assembleRelease 共用同一份编译产物：
+        # 以前是 debug 跑一遍测试、release 再编一遍（AGP 9 默认只为 debug 建单测任务，
+        # 这条属性把 release/preview 的单测任务也建出来，本地开发者的习惯不受影响）。
         if: github.ref == 'refs/heads/main'
         env:
           KEYSTORE_PATH: ${{ runner.temp }}/release.jks
@@ -92,7 +198,9 @@ jobs:
           FEEDBACK_BASE_TOKEN: ${{ secrets.FEEDBACK_BASE_TOKEN }}
           FEEDBACK_TABLE_SUBMIT: ${{ secrets.FEEDBACK_TABLE_SUBMIT }}
           FEEDBACK_TABLE_REPLY: ${{ secrets.FEEDBACK_TABLE_REPLY }}
-        run: ./gradlew :app:assembleRelease
+        run: >-
+          ./gradlew :app:testReleaseUnitTest :app:assembleRelease
+          -Pandroid.onlyEnableUnitTestForTheTestedBuildType=false
 
       - name: Verify release APK is signed
         if: github.ref == 'refs/heads/main'
@@ -414,6 +522,7 @@ jobs:
         id: preview
         env:
           BASE: ${{ steps.version.outputs.version }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           # dev 上的 versionName 不能已带后缀
           case "$BASE" in *-*) echo "::error::dev 的 versionName 不应带后缀: $BASE"; exit 1;; esac
@@ -432,12 +541,59 @@ jobs:
             echo "::error::AppChangelog.kt 缺少 \"$BASE\" 条目，预览包会启动即崩。升版本号时请同时在 ENTRIES 顶部加一个条目（可先占位）"
             exit 1
           fi
-          VER="${BASE}-dev.${GITHUB_RUN_NUMBER}"
+          # 两种方式都发预览号：release 方式只是换变体构建，版本号照样补 -beta.N。
+          if [ "$PREVIEW_RELEASE_BUILD" = "true" ]; then
+            VARIANT="release"
+          else
+            VARIANT="preview"
+          fi
+          # ── beta 序号 N：同一核心版本内从 1 开始递增 ──
+          # 以 GitHub 上已发布的 pre-release 为准（tag 形如 vX.Y.Z-beta.N）：取最大 N + 1。
+          # 用「已发布的号」而不是 CI 计数器，跳过发布的推送没有 release 也就不占号；
+          # 同一个 run 重跑时按提交 SHA 找回上次已发布的号 —— 重跑是重发同一个 beta，
+          # 不该凭空多占一个序号（发布步骤会更新同名 tag 的 pre-release）。
+          gh api "repos/${GITHUB_REPOSITORY}/releases?per_page=100" \
+            --jq '.[] | select(.prerelease) | {tag: .tag_name, body: (.body // "")}' > /tmp/preview_releases.jsonl
+          python3 - <<'PY' > /tmp/beta.txt
+          import json, os, re
+          base = re.escape(os.environ["BASE"])
+          sha = os.environ["GITHUB_SHA"]
+          pattern = re.compile(r"^v" + base + r"-beta\.(\d+)$")
+          best = 0
+          reuse = 0
+          for line in open("/tmp/preview_releases.jsonl", encoding="utf-8"):
+              line = line.strip()
+              if not line:
+                  continue
+              release = json.loads(line)
+              match = pattern.match(release["tag"])
+              if not match:
+                  continue
+              number = int(match.group(1))
+              best = max(best, number)
+              if sha and sha in release["body"]:
+                  reuse = max(reuse, number)
+          print(reuse if reuse else best + 1, "reuse" if reuse else "new")
+          PY
+          read -r BETA BETA_MODE < /tmp/beta.txt
+          case "$BETA" in ''|*[!0-9]*) echo "::error::算不出 beta 序号: $BETA"; exit 1;; esac
+          VER="${BASE}-beta.${BETA}"
+          echo "variant=$VARIANT" >> $GITHUB_OUTPUT
+          echo "beta=$BETA" >> $GITHUB_OUTPUT
           echo "version=$VER" >> $GITHUB_OUTPUT
-          echo "tag=dev-${GITHUB_RUN_NUMBER}" >> $GITHUB_OUTPUT
+          echo "tag=v${VER}" >> $GITHUB_OUTPUT
+          if [ "$BETA_MODE" = "reuse" ]; then
+            echo "::notice::同一提交重跑，沿用已发布的 $VER"
+          else
+            echo "::notice::本次预览版本 $VER"
+          fi
 
-      - name: Build Preview APK
-        if: env.PUBLISH_PREVIEW == 'true'
+      - name: Unit tests + preview lint + Build Preview APK
+        # 三步合成一次 Gradle 调用：单测 / lint / 打包共用同一份编译产物，
+        # lint 还能和 R8、打包并行；[skip preview] 时只跑测试和 lint。
+        # 默认用 preview 变体（initWith(release)，proguardFiles / minify / shrinkResources
+        # 与正式版同一套）；勾了 release_preview 时改用正式变体，命令与 main 上完全一致。
+        if: github.ref == 'refs/heads/dev'
         env:
           KEYSTORE_PATH: ${{ runner.temp }}/release.jks
           STORE_PASSWORD: ${{ secrets.STORE_PASSWORD }}
@@ -448,16 +604,33 @@ jobs:
           FEEDBACK_BASE_TOKEN: ${{ secrets.FEEDBACK_BASE_TOKEN }}
           FEEDBACK_TABLE_SUBMIT: ${{ secrets.FEEDBACK_TABLE_SUBMIT }}
           FEEDBACK_TABLE_REPLY: ${{ secrets.FEEDBACK_TABLE_REPLY }}
-        run: ./gradlew :app:assemblePreview
+          # 本次算出的 beta 序号，作为 -PpreviewSuffix 传给 Gradle（两条路都用它）
+          BETA: ${{ steps.preview.outputs.beta }}
+        run: |
+          # 两条路都带同一个预览后缀 -PpreviewSuffix=beta.N：
+          # - preview 变体（日常预览）直接把它拼在 versionName 后面；
+          # - release 变体（release_preview 的真机检查）也靠它把 6.0.1 补成 6.0.1-beta.N，
+          #   仍低于同号正式版，main 上的正式发布不传这个参数。
+          EXTRA="-PpreviewSuffix=beta.${BETA}"
+          if [ "$PREVIEW_RELEASE_BUILD" = "true" ]; then
+            TASKS=":app:testReleaseUnitTest :app:lintVitalRelease"
+            if [ "$PUBLISH_PREVIEW" = "true" ]; then TASKS="$TASKS :app:assembleRelease"; fi
+          else
+            TASKS=":app:testPreviewUnitTest :app:lintVitalPreview"
+            if [ "$PUBLISH_PREVIEW" = "true" ]; then TASKS="$TASKS :app:assemblePreview"; fi
+          fi
+          echo "Gradle tasks: $TASKS $EXTRA"
+          ./gradlew $TASKS $EXTRA -Pandroid.onlyEnableUnitTestForTheTestedBuildType=false
 
       - name: Verify preview APK
         if: env.PUBLISH_PREVIEW == 'true'
         env:
           VERSION: ${{ steps.preview.outputs.version }}
+          VARIANT: ${{ steps.preview.outputs.variant }}
         run: |
-          APK=app/build/outputs/apk/preview/app-preview.apk
-          test -f "$APK" || { echo "::error::app-preview.apk 不存在"; ls -la app/build/outputs/apk/preview/ || true; exit 1; }
-          # 必须是正式签名（未签名时文件名会是 app-preview-unsigned.apk，上面已拦）
+          APK=app/build/outputs/apk/$VARIANT/app-$VARIANT.apk
+          test -f "$APK" || { echo "::error::app-$VARIANT.apk 不存在"; ls -la app/build/outputs/apk/$VARIANT/ || true; exit 1; }
+          # 必须是正式签名（未签名时文件名会带 -unsigned，上面已拦）
           BT=$ANDROID_HOME/build-tools/37.0.0
           $BT/aapt dump badging "$APK" | grep -E "package:|application-debuggable" || true
           if $BT/aapt dump badging "$APK" | grep -q application-debuggable; then
@@ -466,6 +639,17 @@ jobs:
           $BT/aapt dump badging "$APK" | grep -q "versionName='$VERSION'" \
             || { echo "::error::APK 内 versionName 与预期 $VERSION 不一致"; exit 1; }
           cp "$APK" "xjtu-toolbox-$VERSION.apk"
+          # 预览版与正式版同一套 R8 规则，堆栈已混淆，mapping 必须随构建留档供 retrace
+          test -f app/build/outputs/mapping/$VARIANT/mapping.txt \
+            || { echo "::error::$VARIANT mapping.txt 缺失，崩溃堆栈无法 retrace"; exit 1; }
+
+      - name: Upload preview R8 mapping
+        if: env.PUBLISH_PREVIEW == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: mapping-preview-${{ steps.preview.outputs.version }}
+          path: app/build/outputs/mapping/${{ steps.preview.outputs.variant }}/mapping.txt
+          retention-days: 90
 
       - name: Publish preview to OSS (primary)
         id: oss_preview_publish
@@ -475,7 +659,7 @@ jobs:
           VERSION: ${{ steps.preview.outputs.version }}
           VERSION_CODE: ${{ steps.version.outputs.version_code }}
           # 预览版已改为全量推送：rollout 固定 100，保留字段只为兼容旧客户端。
-          RUN_NUMBER: ${{ github.run_number }}
+          TAG: ${{ steps.preview.outputs.tag }}
           COMMIT_SHA: ${{ github.sha }}
           OSS_ACCESS_KEY_ID: ${{ secrets.OSS_ACCESS_KEY_ID }}
           OSS_ACCESS_KEY_SECRET: ${{ secrets.OSS_ACCESS_KEY_SECRET }}
@@ -500,7 +684,7 @@ jobs:
           version = os.environ["VERSION"]
           base = os.environ["OSS_PUBLIC_BASE"].rstrip("/")
           repo = os.environ["GITHUB_REPO"]
-          run_number = os.environ["RUN_NUMBER"]
+          tag = os.environ["TAG"]
           apk = f"xjtu-toolbox-{version}.apk"
           manifest = {
               "schema": 1,
@@ -509,12 +693,12 @@ jobs:
               "versionCode": int(os.environ["VERSION_CODE"]),
               "apkUrl": f"{base}/apk/preview/{version}/app-preview.apk",
               "mirrors": [
-                  f"https://github.com/{repo}/releases/download/dev-{run_number}/xjtu-toolbox-{version}.apk",
+                  f"https://github.com/{repo}/releases/download/{tag}/xjtu-toolbox-{version}.apk",
               ],
               "sha256": hashlib.sha256(open(apk, "rb").read()).hexdigest(),
               "size": os.path.getsize(apk),
               "notes": f"预览版 {version}（提交 {os.environ['COMMIT_SHA']}）\n\n这是尚在测试的版本，仅推送给在设置中开启「接收预览版更新」的用户。",
-              "releaseUrl": f"https://github.com/{repo}/releases/tag/dev-{run_number}",
+              "releaseUrl": f"https://github.com/{repo}/releases/tag/{tag}",
               "publishedAt": datetime.datetime.now(datetime.timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z"),
               "rollout": 100,
           }
@@ -559,7 +743,7 @@ jobs:
         with:
           tag_name: ${{ steps.preview.outputs.tag }}
           target_commitish: ${{ github.sha }}
-          # 客户端从 name 读完整版本号（tag 是 dev-N，不含版本）
+          # 客户端从 name 读完整版本号（tag 是 v6.0.1-beta.N，name 是 6.0.1-beta.N）
           name: ${{ steps.preview.outputs.version }}
           prerelease: true
           make_latest: false
@@ -567,6 +751,8 @@ jobs:
             预览版 ${{ steps.preview.outputs.version }}（提交 ${{ github.sha }}）
 
             这是尚在测试的版本，仅推送给在设置中开启「接收预览版更新」的用户。
+
+            ${{ steps.preview.outputs.variant == 'release' && '本包按正式版的方式构建（R8、正式签名，版本号仍带 -beta），用于发版前的真机检查，不是正式版。' || '' }}
 
             rollout: 100
           files: xjtu-toolbox-${{ steps.preview.outputs.version }}.apk
@@ -576,9 +762,10 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          # 只保留最近 5 个预览版，连同 tag 一起删
+          # 只保留最近 5 个预览版，连同 tag 一起删。
+          # 新的预览 tag 形如 v6.0.1-beta.N；旧的 dev-<run> 也一并纳入，迁移期间的遗留由这里收掉。
           gh release list --limit 100 --json tagName,isPrerelease,createdAt \
-            --jq '[.[] | select(.isPrerelease and (.tagName|startswith("dev-")))] | sort_by(.createdAt) | reverse | .[5:] | .[].tagName' \
+            --jq '[.[] | select(.isPrerelease) | select((.tagName|startswith("dev-")) or (.tagName|test("-beta\\.[0-9]+$")))] | sort_by(.createdAt) | reverse | .[5:] | .[].tagName' \
           | while read -r t; do
               echo "delete $t"; gh release delete "$t" --yes --cleanup-tag || true
             done

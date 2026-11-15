@@ -118,7 +118,7 @@ internal fun WebAccountsScreen(
             val message = accounts.errorMessage
             when {
                 accounts.loading -> FullPageState(Modifier.fillMaxSize()) {
-                    LoadingState("正在读取账号表...", Modifier.fillMaxSize())
+                    LoadingState("正在读取账号表…", Modifier.fillMaxSize())
                 }
 
                 message != null -> FullPageState(Modifier.fillMaxSize()) {

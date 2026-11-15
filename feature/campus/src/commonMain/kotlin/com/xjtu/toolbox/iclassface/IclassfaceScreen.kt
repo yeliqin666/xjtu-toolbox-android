@@ -1,5 +1,6 @@
 package com.xjtu.toolbox.iclassface
 
+import com.xjtu.toolbox.ui.glass.tabContentPadding
 import com.xjtu.toolbox.error.SessionExpiredFailure
 
 import com.xjtu.toolbox.ui.components.AppPullToRefresh
@@ -54,13 +55,12 @@ import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.CardDefaults
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.IconButton
-import top.yukonga.miuix.kmp.basic.MiuixScrollBehavior
 import top.yukonga.miuix.kmp.basic.Scaffold
 import top.yukonga.miuix.kmp.basic.Text
-import top.yukonga.miuix.kmp.basic.rememberTopAppBarState
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.utils.overScrollVertical
 import com.xjtu.toolbox.nav.AppRoute
+import com.xjtu.toolbox.ui.glass.rememberCouiTopAppBarScrollBehavior
 
 /**
  * 人脸识别签到查询页。
@@ -117,7 +117,7 @@ fun IclassfaceScreen(
 
     LaunchedEffect(Unit) { load(selectedDate) }
 
-    val scrollBehavior = MiuixScrollBehavior(rememberTopAppBarState())
+    val scrollBehavior = rememberCouiTopAppBarScrollBehavior()
     val isToday = selectedDate == todayOnCampus()
     // 玻璃顶栏（经典风格下为 null，一切照旧），用法见 ui/glass/GlassTopBar.kt
     val glass = rememberPageGlass()
@@ -164,10 +164,11 @@ fun IclassfaceScreen(
                 )
             }
             else -> LazyColumn(
+                state = com.xjtu.toolbox.ui.glass.rememberReportedLazyListState(),
                 modifier = Modifier
                     .fillMaxSize()
                     .overScrollVertical(),
-                contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = glassTop + 12.dp, bottom = 12.dp),
+                contentPadding = tabContentPadding(PaddingValues(start = 16.dp, end = 16.dp, top = glassTop + 12.dp, bottom = 12.dp)),
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 item {
@@ -189,7 +190,6 @@ fun IclassfaceScreen(
                     item {
                         EmptyState(
                             title = if (isToday) "今天还没有签到/刷卡记录" else "当天没有签到/刷卡记录",
-                            subtitle = "数据来自人脸识别签到系统"
                         )
                     }
                 } else {

@@ -3,9 +3,7 @@ package com.xjtu.toolbox.game.blocks
 import com.xjtu.toolbox.platform.BackHandler
 import com.xjtu.toolbox.platform.KeepScreenOn
 import androidx.compose.animation.core.Animatable
-import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateIntAsState
-import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
@@ -305,7 +303,7 @@ private fun BlocksPlay(mode: BlocksMode, best: Int, palette: BlocksPalette, onRe
                 // 直落：棋盘被砸得往下一沉再弹回
                 launch {
                     bump.snapTo(with(density) { 4.dp.toPx() })
-                    bump.animateTo(0f, spring(dampingRatio = 0.4f, stiffness = Spring.StiffnessMedium))
+                    bump.animateTo(0f, tween(200, easing = androidx.compose.animation.core.FastOutSlowInEasing))
                 }
             }
             val ev = game.clearEvent

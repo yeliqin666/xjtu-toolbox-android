@@ -50,14 +50,14 @@ class AgentConfigTest {
 
     @Test
     fun `助手名折叠空白、超 12 字截断、空则回落默认`() {
-        assertEquals("屁岱", sanitizeAgentTitle(""))
-        assertEquals("屁岱", sanitizeAgentTitle("   "))
+        assertEquals("小岱", sanitizeAgentTitle(""))
+        assertEquals("小岱", sanitizeAgentTitle("   "))
         assertEquals("小 屁 岱", sanitizeAgentTitle("小 \n 屁\t岱"))
         // 12 字（一/二/…/十/十/一）不截断，13 字开始截
         assertEquals("一二三四五六七八九十十一", sanitizeAgentTitle("一二三四五六七八九十十一"))
         assertEquals("一二三四五六七八九十十一…", sanitizeAgentTitle("一二三四五六七八九十十一十二"))
         // effectiveName 走的就是这条判据
-        assertEquals("屁岱", AgentConfig(assistantName = "").effectiveName)
+        assertEquals("小岱", AgentConfig(assistantName = "").effectiveName)
     }
 
     @Test

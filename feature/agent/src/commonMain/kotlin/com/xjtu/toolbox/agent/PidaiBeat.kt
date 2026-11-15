@@ -21,8 +21,8 @@ fun PidaiBeat.holdMs(cast: CastCharacter?): Long? {
         PidaiBeat.IDLE -> 1_600L
         // poke：0.7s 收回静息脸
         PidaiBeat.TAP -> 700L
-        // 彗星：核在 1.85s 后开始长回、2.45s 长完，再留一点余量让尾巴融进 idle 的入场形变
-        PidaiBeat.COMET -> 2_500L
+        // 连戳彩蛋（转圈转晕）：2.5s 回到静息脸
+        PidaiBeat.COMET -> 2_600L
         else -> null
     }
 }

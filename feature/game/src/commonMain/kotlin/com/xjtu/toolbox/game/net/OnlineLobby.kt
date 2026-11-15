@@ -2,7 +2,6 @@ package com.xjtu.toolbox.game.net
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -205,7 +204,7 @@ fun rememberOnlineLobbyState(scope: CoroutineScope, host: OnlineLobbyHost): Onli
     return state
 }
 
-/** 大厅里的一行选项：左边名称，右边一排互斥的小块。 */
+/** 大厅里的一行选项：左边名称，右边放选择控件。 */
 @Composable
 fun LobbyOptionRow(label: String, content: @Composable () -> Unit) {
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
@@ -215,10 +214,6 @@ fun LobbyOptionRow(label: String, content: @Composable () -> Unit) {
             color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
             modifier = Modifier.width(64.dp),
         )
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) { content() }
+        Box(Modifier.weight(1f)) { content() }
     }
 }
-
-@Composable
-fun LobbyChip(text: String, selected: Boolean, onClick: () -> Unit) =
-    com.xjtu.toolbox.ui.components.AppFilterChip(selected = selected, onClick = onClick, label = text)

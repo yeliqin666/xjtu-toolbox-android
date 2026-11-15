@@ -1,11 +1,13 @@
 package com.xjtu.toolbox.community
 
-import com.xjtu.toolbox.ui.components.BackButton
+import com.xjtu.toolbox.ui.glass.CouiToolbarActionButton
+import kotlinx.coroutines.launch
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.aspectRatio
@@ -59,6 +61,9 @@ import coil3.compose.AsyncImage
 import coil3.compose.LocalPlatformContext
 import coil3.request.ImageRequest
 import coil3.request.crossfade
+import coil3.size.Dimension
+import coil3.size.Size as CoilSize
+import androidx.compose.ui.platform.LocalWindowInfo
 import com.mikepenz.markdown.coil3.Coil3ImageTransformerImpl
 import com.mikepenz.markdown.compose.Markdown
 import com.mikepenz.markdown.compose.components.markdownComponents
@@ -68,16 +73,17 @@ import com.mikepenz.markdown.model.DefaultMarkdownTypography
 import com.mikepenz.markdown.model.markdownAlertColors
 import com.mikepenz.markdown.model.markdownAnnotator
 import com.mikepenz.markdown.model.markdownAnnotatorConfig
-import com.xjtu.toolbox.ui.glass.glassBarColor
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.ui.input.nestedscroll.nestedScroll
+import com.xjtu.toolbox.ui.glass.GlassTopAppBar
+import com.xjtu.toolbox.ui.glass.LocalTabRoot
 import com.xjtu.toolbox.ui.glass.glassSource
 import com.xjtu.toolbox.ui.glass.glassTop
-import com.xjtu.toolbox.ui.glass.glassTopBar
 import com.xjtu.toolbox.ui.glass.rememberPageGlass
 import com.xjtu.toolbox.ui.glass.withoutTop
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.IconButton
 import top.yukonga.miuix.kmp.basic.Scaffold
-import top.yukonga.miuix.kmp.basic.SmallTopAppBar
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import kotlin.time.Clock
@@ -85,47 +91,66 @@ import kotlin.time.Instant
 import kotlinx.datetime.TimeZone
 import kotlinx.datetime.toLocalDateTime
 import com.xjtu.toolbox.util.CampusTimeZone
+import com.xjtu.toolbox.ui.glass.rememberCouiTopAppBarScrollBehavior
 
 /**
- * 社区各页的外壳：App 自己的玻璃小标题栏，内容铺到顶栏下面做采样源。
+ * 社区各页的外壳：和其他二级页同一套可折叠大标题（玻璃风格下内容铺到顶栏下面做采样源）。
  * [content] 拿到的 top 是要放进滚动内容里的顶部留白。
+ *
+ * [root] = 社区首页本身。社区被放到底栏上时只有它没有上一级；帖子、发帖、编辑这些
+ * 往里走的页面永远要有返回键，所以对它们把 [LocalTabRoot] 摘掉。
  */
 @Composable
 fun CommunityPage(
     title: String,
     onBack: () -> Unit,
+    root: Boolean = false,
     actions: @Composable RowScope.() -> Unit = {},
     floatingActionButton: @Composable () -> Unit = {},
     bottomBar: @Composable () -> Unit = {},
     content: @Composable (top: Dp) -> Unit,
 ) {
     val glass = rememberPageGlass()
+    val scrollBehavior = rememberCouiTopAppBarScrollBehavior()
     Scaffold(
         topBar = {
-            SmallTopAppBar(
-                title = title,
-                color = glassBarColor(glass),
-                modifier = Modifier.glassTopBar(glass),
-                navigationIcon = {
-                    BackButton(onBack)
-                },
-                actions = actions,
-            )
+            CompositionLocalProvider(LocalTabRoot provides (root && LocalTabRoot.current)) {
+                GlassTopAppBar(
+                    title = title,
+                    glass = glass,
+                    scrollBehavior = scrollBehavior,
+                    onBack = onBack,
+                    actions = actions,
+                )
+            }
         },
         bottomBar = bottomBar,
         floatingActionButton = floatingActionButton,
     ) { padding ->
         val top = padding.glassTop(glass)
+        val handled = padding.withoutTop(glass)
         Box(
             Modifier
                 .fillMaxSize()
-                .padding(padding.withoutTop(glass))
+                .padding(handled)
+                // 垫过的声明消费：页里的 imePadding 才不会把底栏 / 导航条再算一遍
+                .consumeWindowInsets(handled)
                 .glassSource(glass)
+                .nestedScroll(scrollBehavior.nestedScrollConnection)
         ) {
-            content(top)
+            CompositionLocalProvider(
+                LocalCommunityBarScroll provides scrollBehavior,
+                com.xjtu.toolbox.ui.glass.LocalCouiScrollReporter provides scrollBehavior,
+            ) {
+                content(top)
+            }
         }
     }
 }
+
+/** 这一页顶栏的折叠状态：页内下拉刷新要它，才能先展开大标题、展开完才算下拉。 */
+internal val LocalCommunityBarScroll =
+    androidx.compose.runtime.staticCompositionLocalOf<com.xjtu.toolbox.ui.glass.CouiTopBarScrollBehavior?> { null }
 
 /**
  * 社区里页与页之间的转场：往里走（列表 → 帖子 → 编辑）新页从右边推进来、旧页往左让一点并变淡；
@@ -149,10 +174,10 @@ fun <S> AnimatedContentTransitionScope<S>.communitySlide(forward: Boolean): Cont
     }
 }
 
-/** 顶栏上的图标按钮。 */
+/** 顶栏上的图标按钮：和首页右上角同一套 COUI 圆钮材质。 */
 @Composable
 fun CommunityBarAction(icon: ImageVector, description: String, enabled: Boolean = true, onClick: () -> Unit) {
-    IconButton(onClick = onClick, enabled = enabled) {
+    CouiToolbarActionButton(onClick = onClick, enabled = enabled) {
         Icon(icon, contentDescription = description, tint = MiuixTheme.colorScheme.onSurface)
     }
 }
@@ -198,7 +223,11 @@ fun MarkdownText(markdown: String, modifier: Modifier = Modifier.fillMaxWidth())
     )
     // 段内单个换行按硬换行显示，与 GitHub 评论一致（#214）；代码块不经此路径
     val annotator = remember { markdownAnnotator(config = markdownAnnotatorConfig(eolAsNewLine = true)) }
-    val linked = remember(markdown) { linkMentions(markdown) }
+    val refs = LocalIssueRefs.current
+    val refNumbers = remember(markdown) { issueNumbersIn(markdown) }
+    androidx.compose.runtime.LaunchedEffect(refs, refNumbers) { refs?.request(refNumbers) }
+    val knownRefs = refs?.kinds?.filterKeys { it in refNumbers }.orEmpty()
+    val linked = remember(markdown, knownRefs) { linkIssues(linkMentions(markdown), knownRefs) }
     // 引用垫一层浅底圆角，和正文分得开；内容仍是标准的「> 」引用，只是这边画得像卡片
     val quoteBackground = colors.onSurface.copy(alpha = 0.05f)
     val components = markdownComponents(
@@ -276,6 +305,9 @@ private fun PostImage(image: PostPart.Image) {
     var attempt by remember(image.url) { mutableStateOf(0) }
     var viewing by remember { mutableStateOf(false) }
     val summary = MiuixTheme.colorScheme.onSurfaceVariantSummary
+    // 按屏宽解码、高不限（#384）：不给尺寸时 Coil 按首帧那块 180dp 高的占位去缩图，
+    // 盒子按真实比例撑开后显示的还是那张小图，于是发糊
+    val decodeWidth = LocalWindowInfo.current.containerSize.width.coerceAtLeast(1)
     Box(
         Modifier
             .then(if (image.width != null && image.width > 0) Modifier.widthIn(max = image.width.dp) else Modifier)
@@ -291,7 +323,8 @@ private fun PostImage(image: PostPart.Image) {
     ) {
         androidx.compose.runtime.key(attempt) {
             AsyncImage(
-                model = ImageRequest.Builder(LocalPlatformContext.current).data(image.url).crossfade(true).build(),
+                model = ImageRequest.Builder(LocalPlatformContext.current).data(image.url).crossfade(true)
+                    .size(CoilSize(Dimension(decodeWidth), Dimension.Undefined)).build(),
                 contentDescription = image.alt.ifBlank { null },
                 contentScale = ContentScale.Fit,
                 modifier = Modifier.fillMaxSize(),
@@ -327,7 +360,8 @@ private fun CommunityImageViewer(url: String, alt: String, onDismiss: () -> Unit
         Box(Modifier.fillMaxSize().background(Color.Black)) {
             com.xjtu.toolbox.ui.components.ZoomableBox(Modifier.fillMaxSize(), key = url, onTap = onDismiss) { zoom ->
                 AsyncImage(
-                    model = ImageRequest.Builder(LocalPlatformContext.current).data(url).build(),
+                    // 全屏要能放大看细节：解原图，不按屏幕尺寸缩
+                    model = ImageRequest.Builder(LocalPlatformContext.current).data(url).size(CoilSize.ORIGINAL).build(),
                     contentDescription = alt.ifBlank { null },
                     contentScale = ContentScale.Fit,
                     modifier = zoom,
@@ -348,6 +382,16 @@ private val MENTION = Regex("""(^|[\s(（，。、：；！？])@([A-Za-z0-9](?:
  */
 internal fun linkMentions(markdown: String): String {
     if ('@' !in markdown) return markdown
+    return mapOutsideCode(markdown) { text ->
+        MENTION.replace(text) { m ->
+            val name = m.groupValues[2]
+            "${m.groupValues[1]}[@$name](https://github.com/$name)"
+        }
+    }
+}
+
+/** 只改代码块和行内代码以外的文字。 */
+private fun mapOutsideCode(markdown: String, transform: (String) -> String): String {
     val out = StringBuilder(markdown.length + 32)
     var fenced = false
     markdown.split('\n').forEachIndexed { i, line ->
@@ -358,19 +402,71 @@ internal fun linkMentions(markdown: String): String {
             out.append(line)
             return@forEachIndexed
         }
-        if (fenced || '@' !in line) { out.append(line); return@forEachIndexed }
+        if (fenced) { out.append(line); return@forEachIndexed }
         // 按反引号切开，奇数段是行内代码
         line.split('`').forEachIndexed { j, part ->
             if (j > 0) out.append('`')
-            if (j % 2 == 1) out.append(part)
-            else out.append(MENTION.replace(part) { m ->
-                val name = m.groupValues[2]
-                "${m.groupValues[1]}[@$name](https://github.com/$name)"
-            })
+            out.append(if (j % 2 == 1) part else transform(part))
         }
     }
     return out.toString()
 }
+
+private val ISSUE_REF = Regex("""(^|[\s(（，。、：；！？])#(\d{1,7})(?![\w-])""")
+private const val MAX_REFS_PER_QUERY = 40
+
+/** 正文里出现的 `#编号`，代码里的不算。 */
+internal fun issueNumbersIn(markdown: String): Set<Int> {
+    if ('#' !in markdown) return emptySet()
+    val found = linkedSetOf<Int>()
+    mapOutsideCode(markdown) { text ->
+        ISSUE_REF.findAll(text).forEach { m -> m.groupValues[2].toIntOrNull()?.let(found::add) }
+        text
+    }
+    return found
+}
+
+/** 把确认存在的 `#编号` 换成链接；没查到的保持普通文字。 */
+internal fun linkIssues(markdown: String, kinds: Map<Int, GithubRefKind>): String {
+    if (kinds.isEmpty()) return markdown
+    val base = "https://github.com/${CommunityRepo.OWNER}/${CommunityRepo.NAME}"
+    return mapOutsideCode(markdown) { text ->
+        ISSUE_REF.replace(text) { m ->
+            val number = m.groupValues[2].toIntOrNull()
+            val path = when (kinds[number]) {
+                GithubRefKind.DISCUSSION -> "discussions"
+                GithubRefKind.PULL_REQUEST -> "pull"
+                GithubRefKind.ISSUE -> "issues"
+                null -> null
+            }
+            if (path == null) m.value else "${m.groupValues[1]}[#$number]($base/$path/$number)"
+        }
+    }
+}
+
+/** 一页里各楼层的编号合并成一次查询，查过的不再查。 */
+internal class IssueRefResolver(private val repo: GithubDiscussionsRepository, private val scope: kotlinx.coroutines.CoroutineScope) {
+    val kinds = androidx.compose.runtime.mutableStateMapOf<Int, GithubRefKind>()
+    private val asked = mutableSetOf<Int>()
+    private val pending = mutableSetOf<Int>()
+    private var job: kotlinx.coroutines.Job? = null
+
+    fun request(numbers: Set<Int>) {
+        pending += numbers - asked
+        if (pending.isEmpty() || job?.isActive == true) return
+        job = scope.launch {
+            kotlinx.coroutines.delay(120)
+            while (pending.isNotEmpty()) {
+                val batch = pending.take(MAX_REFS_PER_QUERY).toSet()
+                pending -= batch
+                asked += batch
+                repo.referenceKinds(CommunityRepo.OWNER, CommunityRepo.NAME, batch).onSuccess { kinds += it }
+            }
+        }
+    }
+}
+
+internal val LocalIssueRefs = androidx.compose.runtime.staticCompositionLocalOf<IssueRefResolver?> { null }
 
 /** 光标前正在输入的 @前缀（不含 @）；没在输 @ 时返回 null。 */
 fun mentionQuery(text: String, cursor: Int): String? {
@@ -490,7 +586,7 @@ fun CommunityAction(
     LaunchedEffect(active) {
         if (active) {
             scale.animateTo(1.25f, androidx.compose.animation.core.tween(120))
-            scale.animateTo(1f, androidx.compose.animation.core.spring(dampingRatio = 0.4f))
+            scale.animateTo(1f, androidx.compose.animation.core.tween(280, easing = androidx.compose.animation.core.FastOutSlowInEasing))
         }
     }
     Row(

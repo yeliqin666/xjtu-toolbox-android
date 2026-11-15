@@ -27,6 +27,7 @@ import com.xjtu.toolbox.agent.bot.cast.CastCharacter
 import com.xjtu.toolbox.agent.bot.cast.CastEngine
 import com.xjtu.toolbox.agent.bot.cast.Sketch
 import com.xjtu.toolbox.agent.bot.cast.Tone
+import com.xjtu.toolbox.ui.components.LocalPageVisible
 
 /**
  * 新角色的 Compose 渲染器：[CastEngine] 每帧在 [Sketch] 上记下笔画，这里转成 Path 画出来。
@@ -41,11 +42,18 @@ internal fun CastIcon(
     gaze: () -> Offset?,
     glance: PidaiGlance?,
     pokeSerial: Int,
+    kickSerial: Int,
 ) {
     val engine = remember(cast) { CastEngine(cast) }
     val sketch = remember { Sketch() }
     val paths = remember { ArrayList<Path>() }
     val clock = remember { BotClock() }
+    val seenKicks = remember { intArrayOf(kickSerial) }
+    LaunchedEffect(kickSerial, engine) {
+        if (kickSerial == seenKicks[0]) return@LaunchedEffect
+        seenKicks[0] = kickSerial
+        engine.kick(clock.now())
+    }
     var tick by remember { mutableIntStateOf(0) }
     val currentBeat by rememberUpdatedState(beat)
     val currentGaze by rememberUpdatedState(gaze)
@@ -87,8 +95,9 @@ internal fun CastIcon(
             clock.stateChangedAt = now
             engine.play(act, now, replay = true)
         }
-        LaunchedEffect(engine) {
-            while (true) {
+        val pageVisible = LocalPageVisible.current
+        LaunchedEffect(engine, pageVisible) {
+            while (pageVisible) {
                 val t = clock.now()
                 val looking = steer(t)
                 val resting = currentBeat == PidaiBeat.REST && t - clock.stateChangedAt > 0.6 &&

@@ -1,45 +1,13 @@
 package com.xjtu.toolbox.home
 
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.layout.navigationBarsPadding
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.CheckCircle
-import androidx.compose.material.icons.filled.RemoveCircleOutline
 import androidx.compose.runtime.Composable
-import androidx.compose.ui.Alignment
-import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.xjtu.toolbox.auth.AppLoginState
-import com.xjtu.toolbox.auth.LoginType
-import com.xjtu.toolbox.auth.siteKey
 import com.xjtu.toolbox.bulletin.Bulletin
-import com.xjtu.toolbox.data.CredentialStore
 import com.xjtu.toolbox.nav.AppRoute
-import com.xjtu.toolbox.platform.BackHandler
-import top.yukonga.miuix.kmp.basic.Icon
-import top.yukonga.miuix.kmp.basic.ScrollBehavior
-import top.yukonga.miuix.kmp.basic.Text
-import top.yukonga.miuix.kmp.overlay.OverlayBottomSheet
-import top.yukonga.miuix.kmp.theme.MiuixTheme
+import com.xjtu.toolbox.ui.glass.CouiTopBarScrollBehavior
 
-// ══════════════════════════════════════════
-//  Tab 1 — 首页（`:app` 这一端：宿主面 + 那一层弹窗）
-// ══════════════════════════════════════════
-
-/**
- * 首页在 `:app` 的宿主：画法在 `:core` 的 [HomeScreen]，这里只接 [HomeHost] 并挂「子系统连接状态」弹窗（它要读 `AppLoginState`）。
- */
+/** 首页在 `:app` 的宿主：画法在 `:core` 的 [HomeScreen]，这里只接 [HomeHost] 并挂主页设置抽屉。 */
 @Composable
 internal fun HomeTab(
     loginState: AppLoginState,
@@ -48,18 +16,23 @@ internal fun HomeTab(
     onNavigate: (AppRoute) -> Unit,
     onNavigateToProfile: () -> Unit = {},
     onNavigateToCourses: () -> Unit = {},
-    scrollBehavior: ScrollBehavior? = null,
+    scrollBehavior: CouiTopBarScrollBehavior? = null,
     /** 悬浮底栏的总占位高度（= MainScreen 的 floatingBarReserve）：底栏浮在内容之上，页面末尾得自己留出来。 */
     extraBottomPadding: androidx.compose.ui.unit.Dp = 0.dp,
     showQuickActions: Boolean = true,
     bulletins: List<Bulletin> = emptyList(),
     onBulletinTap: (Bulletin) -> Unit = {},
     onBulletinDismiss: (Bulletin) -> Unit = {},
-    /** 玻璃顶栏的高度：内容铺到顶栏下面，这段留白放进滚动内容里。经典风格为 0。 */
+    /** 页面顶边到内容的留白（状态栏，玻璃风格下还有壳的顶栏）。 */
     contentTopPadding: androidx.compose.ui.unit.Dp = 0.dp,
     /** 壳把整页上移的量（见 `ShellPageInsets.contentTopShift`）；首页模糊带按它补回屏幕顶边。 */
     contentTopShift: () -> androidx.compose.ui.unit.Dp = { 0.dp },
     topActions: (@Composable () -> Unit)? = null,
+    /** 顶栏中段的可展开搜索（`:app` 是 COUI 搜索组件）；null = 没有。 */
+    topBarSearch: (@Composable () -> Unit)? = null,
+    /** 搜索展开态与搜索结果内容层（`:app` 提供）；null = 没有。 */
+    searching: Boolean = false,
+    searchContent: (@Composable (topPadding: androidx.compose.ui.unit.Dp) -> Unit)? = null,
 ) {
     val home = rememberAppHome(
         loginState = loginState,
@@ -72,7 +45,10 @@ internal fun HomeTab(
         onBulletinTap = onBulletinTap,
         onBulletinDismiss = onBulletinDismiss,
     )
-    SubsystemStatusSheet(loginState, home.showStatusSheet)
+    com.xjtu.toolbox.settings.HomeSettingsSheet(
+        home.showSettingsSheet.value,
+        onDismiss = { home.showSettingsSheet.value = false },
+    )
     HomeScreen(
         host = home.host,
         scrollBehavior = scrollBehavior,
@@ -80,52 +56,8 @@ internal fun HomeTab(
         contentTopPadding = contentTopPadding,
         contentTopShift = contentTopShift,
         topActions = topActions,
+        topBarSearch = topBarSearch,
+        searching = searching,
+        searchContent = searchContent,
     )
-}
-
-private val STATUS_GREEN = Color(0xFF2E7D32)
-
-/** 子系统连接明细。原来挂在首页那排小胶囊上，现在由 Hero 的状态行打开。 */
-@Composable
-private fun SubsystemStatusSheet(loginState: AppLoginState, show: androidx.compose.runtime.MutableState<Boolean>) {
-    if (!show.value) return
-    BackHandler { show.value = false }
-    OverlayBottomSheet(
-        show = show.value,
-        title = "子系统连接状态",
-        onDismissRequest = { show.value = false }
-    ) {
-        Column(
-            Modifier.fillMaxWidth().navigationBarsPadding()
-                .heightIn(max = 460.dp)
-                .verticalScroll(rememberScrollState())   // 子系统较多，弹窗内容需要可滚动。
-                .padding(horizontal = 16.dp, vertical = 8.dp)
-        ) {
-            LoginType.entries.forEach { t ->
-                val ready = loginState.sessionManager?.getSiteOrNull(t.siteKey())?.hasLogin == true
-                Row(
-                    Modifier.fillMaxWidth().padding(vertical = 8.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    val statusColor = if (ready) STATUS_GREEN else MiuixTheme.colorScheme.onSurfaceVariantSummary
-                    Icon(
-                        if (ready) Icons.Default.CheckCircle else Icons.Default.RemoveCircleOutline,
-                        contentDescription = null,
-                        tint = statusColor,
-                        modifier = Modifier.size(16.dp)
-                    )
-                    Spacer(Modifier.width(10.dp))
-                    Column(Modifier.weight(1f)) {
-                        Text(t.label, style = MiuixTheme.textStyles.body1, fontWeight = FontWeight.Medium)
-                        Text(t.description, style = MiuixTheme.textStyles.footnote1, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
-                    }
-                    Text(
-                        if (ready) "已连接" else "未登录",
-                        style = MiuixTheme.textStyles.footnote1,
-                        color = statusColor
-                    )
-                }
-            }
-        }
-    }
 }

@@ -27,6 +27,9 @@ interface LmsDownloadSink {
         videos: List<LmsReplayVideo>,
     ): Int
 
+    /** 见 `LmsSource.replayDownloadStates`；没有下载队列的端恒为空表。 */
+    suspend fun replayDownloadStates(activityId: Int): Map<String, String> = emptyMap()
+
     companion object {
         /** 没有宿主的缺省槽位：任何落盘都失败、不支持回放队列。 */
         val Unsupported = object : LmsDownloadSink {

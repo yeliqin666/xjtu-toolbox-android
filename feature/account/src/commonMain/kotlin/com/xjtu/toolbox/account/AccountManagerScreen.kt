@@ -1,5 +1,7 @@
 package com.xjtu.toolbox.account
 
+import com.xjtu.toolbox.ui.glass.CouiToolbarActionButton
+import com.xjtu.toolbox.ui.glass.tabContentBottomPadding
 import com.xjtu.toolbox.ui.adaptive.readableWidth
 import com.xjtu.toolbox.platform.BackHandler
 import androidx.compose.foundation.background
@@ -41,6 +43,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import com.xjtu.toolbox.ui.sensitive
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.foundation.text.KeyboardOptions
@@ -58,17 +61,14 @@ import top.yukonga.miuix.kmp.basic.CircularProgressIndicator
 import top.yukonga.miuix.kmp.basic.HorizontalDivider
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.IconButton
-import top.yukonga.miuix.kmp.basic.MiuixScrollBehavior
 import top.yukonga.miuix.kmp.basic.ProgressIndicatorDefaults
 import top.yukonga.miuix.kmp.basic.Scaffold
-import top.yukonga.miuix.kmp.basic.SmallTitle
+import com.xjtu.toolbox.ui.components.SmallTitle
 import top.yukonga.miuix.kmp.basic.Surface
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextField
 import top.yukonga.miuix.kmp.basic.TextButton
-import top.yukonga.miuix.kmp.basic.TopAppBar
 import top.yukonga.miuix.kmp.basic.TooltipBox
-import top.yukonga.miuix.kmp.basic.rememberTopAppBarState
 import top.yukonga.miuix.kmp.icon.MiuixIcons
 import top.yukonga.miuix.kmp.icon.extended.Add
 import top.yukonga.miuix.kmp.icon.extended.Back
@@ -79,6 +79,7 @@ import top.yukonga.miuix.kmp.overlay.OverlayDialog
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.utils.overScrollVertical
 import com.xjtu.toolbox.util.campusDateTimeOf
+import com.xjtu.toolbox.ui.glass.rememberCouiTopAppBarScrollBehavior
 
 /**
  * 多账号管理页。
@@ -122,7 +123,7 @@ fun AccountManagerScreen(
 
     fun refresh() { accounts = orderedAccounts() }
 
-    val scrollBehavior = MiuixScrollBehavior(rememberTopAppBarState())
+    val scrollBehavior = rememberCouiTopAppBarScrollBehavior()
     val pageBusy = globalBusy || busyAccountId != null
     val activeAccount = accounts.firstOrNull { it.accountId == activeId }
 
@@ -134,21 +135,21 @@ fun AccountManagerScreen(
     val glass = rememberPageGlass()
     Scaffold(
         topBar = {
-            TopAppBar(
+            CouiPageTopAppBar(
                 title = "账号管理",
                 largeTitle = "账号管理",
                 color = glassBarColor(glass),
-                modifier = Modifier.glassTopBar(glass),
+                pageBackdrop = couiPageBackdropFor(glass),
                 scrollBehavior = scrollBehavior,
                 navigationIcon = {
-                    IconButton(onClick = onBack) {
+                    CouiToolbarActionButton(onClick = onBack) {
                         Icon(MiuixIcons.Back, contentDescription = "返回")
                     }
                 },
                 actions = {
-                    IconButton(
+                    CouiToolbarActionButton(
                         onClick = { showAddSheet = true },
-                        enabled = !pageBusy
+                        enabled = !pageBusy,
                     ) {
                         Icon(MiuixIcons.Add, contentDescription = "新增账号")
                     }
@@ -163,10 +164,11 @@ fun AccountManagerScreen(
                 // 采样源必须挂在滚动之前：挂在 verticalScroll 后面录下的是整条跟着滚的长内容，
                 // 不是屏幕上这块视口，顶栏按屏幕位置采样就对不上，只剩透明没有模糊
                 .glassSource(glass)
-                .background(MiuixTheme.colorScheme.background)
+                // 页面是 surface 灰底，卡片（AppCardColor）才看得出边界；用 background 就和白卡同色
+                .background(MiuixTheme.colorScheme.surface)
                 .nestedScroll(scrollBehavior.nestedScrollConnection)
                 .overScrollVertical()
-                .verticalScroll(rememberScrollState())
+                .verticalScroll(com.xjtu.toolbox.ui.glass.rememberReportedScrollState(scrollBehavior)).tabContentBottomPadding()
                 .padding(padding.withoutTop(glass))
         ) {
             Spacer(Modifier.height(padding.glassTop(glass)))
@@ -348,7 +350,7 @@ private fun ActiveAccountPanel(
             .fillMaxWidth()
             .padding(horizontal = 16.dp, vertical = 10.dp),
         cornerRadius = 24.dp,
-        colors = CardDefaults.defaultColors(color = MiuixTheme.colorScheme.surface)
+        colors = CardDefaults.defaultColors(color = com.xjtu.toolbox.ui.components.AppCardColor)
     ) {
         Column(Modifier.fillMaxWidth().padding(18.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -424,7 +426,7 @@ private fun EmptyAccountsPanel(
             .fillMaxWidth()
             .padding(horizontal = 16.dp, vertical = 8.dp),
         cornerRadius = 20.dp,
-        colors = CardDefaults.defaultColors(color = MiuixTheme.colorScheme.surface)
+        colors = CardDefaults.defaultColors(color = com.xjtu.toolbox.ui.components.AppCardColor)
     ) {
         Column(
             Modifier.fillMaxWidth().padding(22.dp),
@@ -451,7 +453,7 @@ private fun EmptyAccountsPanel(
                 color = MiuixTheme.colorScheme.onSurfaceVariantSummary
             )
             Spacer(Modifier.height(14.dp))
-            Button(onClick = onAdd, enabled = enabled) { Text("添加账号") }
+            Button(onClick = onAdd, enabled = enabled, colors = ButtonDefaults.buttonColorsPrimary()) { Text("添加账号", color = MiuixTheme.colorScheme.onPrimary) }
         }
     }
 }
@@ -472,7 +474,7 @@ private fun AccountListPanel(
             .fillMaxWidth()
             .padding(horizontal = 16.dp, vertical = 4.dp),
         cornerRadius = 20.dp,
-        colors = CardDefaults.defaultColors(color = MiuixTheme.colorScheme.surface),
+        colors = CardDefaults.defaultColors(color = com.xjtu.toolbox.ui.components.AppCardColor),
     ) {
         Column {
             accounts.forEachIndexed { index, account ->
@@ -752,7 +754,6 @@ private fun AddAccountDialog(
     OverlayDialog(
         show = true,
         title = "添加账号",
-        summary = "输入统一身份认证账号，登录验证通过后保存。",
         onDismissRequest = onDismiss
     ) {
         Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -765,7 +766,7 @@ private fun AddAccountDialog(
             TextField(
                 value = password, onValueChange = { password = it; error = null },
                 label = "密码", singleLine = true,
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier.fillMaxWidth().sensitive(),
                 visualTransformation = if (pwdVisible) VisualTransformation.None else PasswordVisualTransformation(),
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
                 trailingIcon = {
@@ -811,7 +812,7 @@ private fun SwitchConfirmDialog(
     OverlayDialog(
         show = true,
         title = "切换账号",
-        summary = "切换到 ${target.nickname ?: target.accountId}，当前账号的缓存会保留，随时可切回。",
+        summary = "切换到 ${target.nickname ?: target.accountId}，当前账号的数据会保留",
         onDismissRequest = onDismiss
     ) {
         Row(Modifier.fillMaxWidth()) {
@@ -847,7 +848,7 @@ private fun EditPasswordDialog(
             TextField(
                 value = pwd, onValueChange = { pwd = it; error = null },
                 label = "新密码", singleLine = true,
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier.fillMaxWidth().sensitive(),
                 visualTransformation = if (visible) VisualTransformation.None else PasswordVisualTransformation(),
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
                 trailingIcon = {

@@ -69,7 +69,9 @@ data class AgentConfig(
     val isConfigured: Boolean get() = apiKey.isNotBlank() || keyConfigured
 
     companion object {
-        const val DEFAULT_ASSISTANT_NAME = "屁岱"
+        const val DEFAULT_ASSISTANT_NAME = "小岱"
+        /** 旧默认名：存着它的老用户等于没改过名，跟着换成新默认。 */
+        const val LEGACY_ASSISTANT_NAME = "屁岱"
         const val PROVIDER_DEEPSEEK = "deepseek"
         const val PROVIDER_OPENAI = "openai"
         const val PROVIDER_CUSTOM = "custom"
@@ -113,10 +115,14 @@ data class AgentConfig(
     }
 }
 
-fun sanitizeAgentTitle(raw: String, fallback: String = AgentConfig.DEFAULT_ASSISTANT_NAME): String {
+/** 会话标题的硬上限（字）：模型被要求写 8 字以内，留两字余量。助手名字仍按默认的 12 字。 */
+const val AGENT_TITLE_MAX_CHARS = 10
+
+/** 折叠空白、空则回落 [fallback]；超过 [maxChars] 截断加省略号。 */
+fun sanitizeAgentTitle(raw: String, fallback: String = AgentConfig.DEFAULT_ASSISTANT_NAME, maxChars: Int = 12): String {
     val normalized = raw
         .replace(Regex("\\s+"), " ")
         .trim()
         .ifBlank { fallback }
-    return if (normalized.length <= 12) normalized else normalized.take(12) + "…"
+    return if (normalized.length <= maxChars) normalized else normalized.take(maxChars) + "…"
 }

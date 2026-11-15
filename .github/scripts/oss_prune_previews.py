@@ -3,9 +3,13 @@
 
 Preview APKs are stored under version-specific keys, so the bucket lifecycle rule
 for noncurrent versions cannot clean them. This mirrors the GitHub pre-release
-retention: keep the newest N version directories (by the dev run number in the
-name) and delete older directories with all their object versions and delete
-markers.
+retention: keep the newest N version directories and delete older directories with
+all their object versions and delete markers.
+
+Version directory names are either the current scheme ``6.0.1-beta.3`` (beta number
+restarts at 1 for every core version) or the legacy ``6.0.0-dev.384`` (CI run number,
+kept only as history). Both are recognized so the migration leftovers get pruned too;
+ordering is by core version first, then by scheme (``beta`` beats ``dev``) and number.
 """
 import argparse
 import os
@@ -15,28 +19,39 @@ import oss2
 from oss2.models import BatchDeleteObjectVersion, BatchDeleteObjectVersionList
 
 DEFAULT_PREFIX = "xjtu-toolbox/apk/preview/"
-VERSION_SUFFIX = re.compile(r"-dev\.(\d+)$")
+VERSION_SHAPE = re.compile(r"^(\d+(?:\.\d+)*)-(beta|dev)\.(\d+)$")
+# 同一核心版本内，迁移后的 -beta.N 比遗留的 -dev.N 新。
+SCHEME_ORDER = {"dev": 0, "beta": 1}
 BATCH_SIZE = 1000
 
 
+def sort_key(version):
+    """Version directory -> ordering key; None when the name is not a preview version."""
+    match = VERSION_SHAPE.match(version)
+    if not match:
+        return None
+    core, scheme, number = match.groups()
+    return tuple(int(part) for part in core.split(".")), SCHEME_ORDER[scheme], int(number)
+
+
 def find_preview_versions(bucket, prefix):
-    """Map preview version directory -> dev run number; skip unrecognized names."""
+    """Map preview version directory -> ordering key; skip unrecognized names."""
     found = {}
     for obj in oss2.ObjectIterator(bucket, prefix=prefix):
         version, sep, _ = obj.key[len(prefix):].partition("/")
         if not sep or not version:
             continue
-        match = VERSION_SUFFIX.search(version)
-        if not match:
+        key = sort_key(version)
+        if key is None:
             print(f"skip unrecognized preview version: {version}")
             continue
-        found[version] = int(match.group(1))
+        found[version] = key
     return found
 
 
 def prune_versions(found, keep):
     """Return version directories to delete, newest `keep` excluded."""
-    ordered = sorted(found.items(), key=lambda item: (item[1], item[0]), reverse=True)
+    ordered = sorted(found.items(), key=lambda item: item[1], reverse=True)
     return [version for version, _ in ordered[keep:]]
 
 

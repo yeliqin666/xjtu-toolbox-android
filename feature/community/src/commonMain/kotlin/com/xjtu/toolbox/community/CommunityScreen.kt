@@ -3,13 +3,14 @@ package com.xjtu.toolbox.community
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.text.AnnotatedString
+import com.xjtu.toolbox.ui.glass.tabContentBottomPadding
 import com.xjtu.toolbox.platform.BackHandler
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.Crossfade
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -31,6 +32,7 @@ import top.yukonga.miuix.kmp.overlay.OverlayDialog
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.ui.text.style.TextDecoration
 import com.xjtu.toolbox.platform.Log
+import com.xjtu.toolbox.platform.showBriefMessage
 import io.ktor.client.network.sockets.SocketTimeoutException
 import okio.IOException
 import top.yukonga.miuix.kmp.theme.MiuixTheme
@@ -47,11 +49,12 @@ fun CommunityScreen(
     /** 设备码登录的实现（okhttp，留在 :app）。由导航层注入，界面不再自己造。 */
     deviceAuth: GithubDeviceAuthRepository,
     onBack: () -> Unit,
-    onOpenLegacyFeedback: () -> Unit,
+    /** 非空时直接打开这一帖，从帖子返回即退出社区。 */
+    discussionNumber: Int? = null,
 ) {
     // MIUIX 的 OverlayDialog 只在某个 Scaffold 底下才渲染得出来：账号弹窗、删除确认、放弃编辑这些
     // 都写在各页 Scaffold 的外面，这一层外壳给它们兜底，弹窗也就铺满全屏
-    Scaffold { _ -> CommunityContent(session, deviceAuth, onBack, onOpenLegacyFeedback) }
+    Scaffold { _ -> CommunityContent(session, deviceAuth, onBack, discussionNumber) }
 }
 
 @Composable
@@ -59,15 +62,15 @@ private fun CommunityContent(
     session: GithubSession,
     deviceAuth: GithubDeviceAuthRepository,
     onBack: () -> Unit,
-    onOpenLegacyFeedback: () -> Unit,
+    discussionNumber: Int?,
 ) {
     val login by session.login.collectAsStateWithLifecycle()
     // 登录 / 退出时两套界面淡入淡出地换
     Crossfade(targetState = login, animationSpec = tween(300), label = "communityLogin") { signedIn ->
         if (signedIn == null) {
-            CommunityLoginScreen(session, deviceAuth, onBack, onOpenLegacyFeedback)
+            CommunityLoginScreen(session, deviceAuth, onBack)
         } else {
-            CommunityForum(session, signedIn, onBack, onOpenLegacyFeedback)
+            CommunityForum(session, signedIn, onBack, discussionNumber)
         }
     }
 }
@@ -80,12 +83,16 @@ private sealed interface ForumPage {
     data class Detail(val discussion: GithubDiscussion) : ForumPage { override val depth = 1 }
 }
 
+/** 同一篇帖子的内容更新（点赞数之类）还是同一页：不重播转场、不换存档。 */
+private fun pageKey(page: ForumPage): String =
+    if (page is ForumPage.Detail) "detail:${page.discussion.id}" else page.toString()
+
 @Composable
 private fun CommunityForum(
     session: GithubSession,
     signedIn: String,
     onBack: () -> Unit,
-    onOpenLegacyFeedback: () -> Unit,
+    discussionNumber: Int?,
 ) {
     val repo = session.repository
     val vm: DiscussionsViewModel = viewModel(key = "community-$signedIn") {
@@ -94,13 +101,26 @@ private fun CommunityForum(
     }
     val state by vm.state.collectAsStateWithLifecycle()
     var open by remember { mutableStateOf<GithubDiscussion?>(null) }
-    // 列表页在 AnimatedContent 里，进帖子会被销毁；滚动位置放在这层，返回时还在原处
-    val listState = rememberLazyListState()
+    // 各页在 AnimatedContent 里，换页时会被销毁：页内 rememberSaveable 的状态（滚动位置、大标题折叠）按页存在这里，回来原样恢复
+    val saved = rememberSaveableStateHolder()
     var accountDialog by remember { mutableStateOf(false) }
     val uriHandler = LocalUriHandler.current
     // 发帖成功直接进新帖
     LaunchedEffect(state.created) {
         state.created?.let { open = it; vm.consumeCreated() }
+    }
+    // 直达某帖：拉到详情就进；取不到就留在列表并说一声
+    LaunchedEffect(discussionNumber) {
+        val number = discussionNumber ?: return@LaunchedEffect
+        repo.detail(CommunityRepo.OWNER, CommunityRepo.NAME, number)
+            .onSuccess { open = it }
+            .onFailure { showBriefMessage("帖子加载失败，已打开社区列表") }
+    }
+    val closeDetail: () -> Unit = {
+        // 关掉的帖子不留状态，下次打开从头看
+        open?.let { saved.removeState(pageKey(ForumPage.Detail(it))) }
+        if (discussionNumber != null) onBack() else open = null
+        Unit
     }
 
     val page: ForumPage = when {
@@ -110,21 +130,46 @@ private fun CommunityForum(
     }
     AnimatedContent(
         targetState = page,
-        // 同一篇帖子的内容更新（点赞数之类）不算换页，不要重播转场
-        contentKey = { if (it is ForumPage.Detail) "detail:${it.discussion.id}" else it.toString() },
+        contentKey = ::pageKey,
         transitionSpec = { communitySlide(forward = targetState.depth >= initialState.depth) },
         label = "communityPage",
     ) { shown ->
+        saved.SaveableStateProvider(pageKey(shown)) {
         when (shown) {
             is ForumPage.Detail -> {
-                BackHandler { open = null }
-                DiscussionDetailScreen(
-                    initial = shown.discussion,
-                    repo = repo,
-                    onChanged = vm::replace,
-                    onDeleted = { vm.remove(shown.discussion.id); open = null },
-                    onBack = { open = null },
-                )
+                BackHandler(onBack = closeDetail)
+                val linkScope = androidx.compose.runtime.rememberCoroutineScope()
+                val refs = remember(repo) { IssueRefResolver(repo, linkScope) }
+                // 帖子里的 #编号：讨论留在 App 内，issue 和 PR 交给浏览器
+                val discussionUrl = "https://github.com/${CommunityRepo.OWNER}/${CommunityRepo.NAME}/discussions/"
+                val links = remember(uriHandler) {
+                    object : androidx.compose.ui.platform.UriHandler {
+                        override fun openUri(uri: String) {
+                            val number = uri.removePrefix(discussionUrl).takeIf { uri.startsWith(discussionUrl) }?.toIntOrNull()
+                            if (number == null) {
+                                uriHandler.openUri(uri)
+                            } else {
+                                linkScope.launch {
+                                    repo.detail(CommunityRepo.OWNER, CommunityRepo.NAME, number)
+                                        .onSuccess { open = it }
+                                        .onFailure { uriHandler.openUri(uri) }
+                                }
+                            }
+                        }
+                    }
+                }
+                androidx.compose.runtime.CompositionLocalProvider(
+                    LocalIssueRefs provides refs,
+                    LocalUriHandler provides links,
+                ) {
+                    DiscussionDetailScreen(
+                        initial = shown.discussion,
+                        repo = repo,
+                        onChanged = vm::replace,
+                        onDeleted = { vm.remove(shown.discussion.id); closeDetail() },
+                        onBack = closeDetail,
+                    )
+                }
             }
             ForumPage.Compose -> {
                 BackHandler { if (!state.submitting) vm.setComposing(false) }
@@ -149,9 +194,8 @@ private fun CommunityForum(
                 onAuthor = vm::selectAuthor,
                 me = signedIn,
                 onAccount = { accountDialog = true },
-                onLegacyFeedback = onOpenLegacyFeedback,
-                listState = listState,
             )
+        }
         }
     }
 
@@ -159,7 +203,7 @@ private fun CommunityForum(
         OverlayDialog(
             show = true,
             title = "GitHub 账号",
-            summary = "已登录 @$signedIn。退出只清除本机授权；彻底撤销请到 GitHub 设置 → Applications。",
+            summary = "@$signedIn",
             onDismissRequest = { accountDialog = false },
         ) {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -189,7 +233,6 @@ private fun CommunityLoginScreen(
     session: GithubSession,
     auth: GithubDeviceAuthRepository,
     onBack: () -> Unit,
-    onOpenLegacyFeedback: () -> Unit,
 ) {
     val uriHandler = LocalUriHandler.current
     val scope = rememberCoroutineScope()
@@ -222,11 +265,11 @@ private fun CommunityLoginScreen(
     }
     if (pending != null) BackHandler { authorization = null }
 
-    CommunityPage(title = "社区", onBack = onBack) { top ->
+    CommunityPage(title = "社区", onBack = onBack, root = true) { top ->
         Column(
             Modifier
                 .fillMaxSize()
-                .verticalScroll(rememberScrollState())
+                .verticalScroll(rememberScrollState()).tabContentBottomPadding()
                 .padding(horizontal = 16.dp)
                 .padding(top = top + 24.dp, bottom = 24.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
@@ -243,7 +286,7 @@ private fun CommunityLoginScreen(
             Spacer(Modifier.height(4.dp))
             when {
                 !auth.isConfigured && !auth.supportsManualToken ->
-                    Text("社区登录还没配置好，敬请期待。",
+                    Text("社区登录暂不可用",
                         color = colors.error,
                         style = MiuixTheme.textStyles.body2)
 
@@ -338,9 +381,6 @@ private fun CommunityLoginScreen(
                     modifier = Modifier.clickable(onClick = onClick),
                 )
             }
-
-            Spacer(Modifier.height(8.dp))
-            LegacyFeedbackEntry(onOpenLegacyFeedback)
         }
     }
 }
@@ -361,7 +401,7 @@ private fun ManualTokenLogin(
 
     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Text(
-            "浏览器里走不通 GitHub 的设备码流程（那边不给跨源响应）。粘贴一个带 discussions 写权限的 token 即可登录，它只存在这台设备的浏览器里。",
+            "粘贴一个有 discussions 写权限的 GitHub token 登录，只存在这台设备的浏览器里。",
             style = MiuixTheme.textStyles.body2,
             color = colors.onSurfaceVariantSummary,
             textAlign = TextAlign.Center,
@@ -426,11 +466,4 @@ private fun ManualTokenLogin(
 private const val GITHUB_NEW_TOKEN_URL =
     "https://github.com/settings/tokens/new?scopes=public_repo,write:discussion&description=XJTU%20Toolbox%20community"
 
-/** 旧的页内反馈（飞书多维表格）挪到社区里当二级入口，准备停用。 */
-@Composable
-fun LegacyFeedbackEntry(onClick: () -> Unit) =
-    com.xjtu.toolbox.ui.components.SecondaryEntry(
-        androidx.compose.material.icons.Icons.Default.Info, MiuixTheme.colorScheme.onSurfaceVariantSummary,
-        "旧版反馈", "不用登录的页内反馈，建议改到社区发帖", status = "即将停用", onClick = onClick,
-    )
 

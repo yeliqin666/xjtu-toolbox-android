@@ -1,5 +1,6 @@
 package com.xjtu.toolbox.webvpn
 
+import com.xjtu.toolbox.ui.glass.tabContentBottomPadding
 import com.xjtu.toolbox.util.redactUrl
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -20,14 +21,13 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.xjtu.toolbox.ui.components.AppSegmentedTabs
 import com.xjtu.toolbox.ui.glass.*
+import com.xjtu.toolbox.ui.glass.rememberCouiTopAppBarScrollBehavior
 import top.yukonga.miuix.kmp.basic.Button
 import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.Icon
-import top.yukonga.miuix.kmp.basic.MiuixScrollBehavior
 import top.yukonga.miuix.kmp.basic.Scaffold
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextField
-import top.yukonga.miuix.kmp.basic.rememberTopAppBarState
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.utils.overScrollVertical
 
@@ -68,7 +68,7 @@ fun WebVpnConverterScreen(
     onOpenApply: (() -> Unit)? = null,
 ) {
     val scope = rememberCoroutineScope()
-    val scrollBehavior = MiuixScrollBehavior(rememberTopAppBarState())
+    val scrollBehavior = rememberCouiTopAppBarScrollBehavior()
     var inputUrl by remember { mutableStateOf("") }
     var convertedUrl by remember { mutableStateOf("") }
     var error by remember { mutableStateOf<String?>(null) }
@@ -112,8 +112,8 @@ fun WebVpnConverterScreen(
                     )
                     if (onOpenApply != null) {
                         Spacer(Modifier.height(12.dp))
-                        Button(onClick = onOpenApply, modifier = Modifier.fillMaxWidth()) {
-                            Text("申请 WebVPN 权限")
+                        Button(onClick = onOpenApply, modifier = Modifier.fillMaxWidth(), colors = top.yukonga.miuix.kmp.basic.ButtonDefaults.buttonColorsPrimary()) {
+                            Text("申请 WebVPN 权限", color = MiuixTheme.colorScheme.onPrimary)
                         }
                     }
                 }
@@ -126,7 +126,7 @@ fun WebVpnConverterScreen(
                 .glassSource(glass)
                 .nestedScroll(scrollBehavior.nestedScrollConnection)
                 .overScrollVertical()
-                .verticalScroll(rememberScrollState())
+                .verticalScroll(com.xjtu.toolbox.ui.glass.rememberReportedScrollState(scrollBehavior)).tabContentBottomPadding()
                 .padding(horizontal = 16.dp, vertical = 12.dp),
         ) {
             Spacer(Modifier.height(glassTop))
@@ -218,8 +218,9 @@ fun WebVpnConverterScreen(
                                 Log.d("WebVpnConverter", "convert reversed=$reversed input=$normalized output=${convertedUrl.redactUrl()}")
                             }
                         },
+                        colors = top.yukonga.miuix.kmp.basic.ButtonDefaults.buttonColorsPrimary(),
                         modifier = Modifier.fillMaxWidth()
-                    ) { Text("转换") }
+                    ) { Text("转换", color = MiuixTheme.colorScheme.onPrimary) }
 
                     if (convertedUrl.isNotBlank()) {
                         Spacer(Modifier.height(12.dp))
@@ -237,12 +238,13 @@ fun WebVpnConverterScreen(
                             Spacer(Modifier.height(12.dp))
                             Button(
                                 onClick = { onOpenWithWebVpn(convertedUrl) },
+                                colors = top.yukonga.miuix.kmp.basic.ButtonDefaults.buttonColorsPrimary(),
                                 modifier = Modifier.fillMaxWidth()
                             ) {
-                                Icon(Icons.Default.OpenInBrowser, null, modifier = Modifier.size(18.dp))
+                                Icon(Icons.Default.OpenInBrowser, null, modifier = Modifier.size(18.dp), tint = MiuixTheme.colorScheme.onPrimary)
                                 Spacer(Modifier.width(8.dp))
                                 // 没连上会自动登录再打开，用户不用先去别处登录
-                                Text("用 WebVPN 打开")
+                                Text("用 WebVPN 打开", color = MiuixTheme.colorScheme.onPrimary)
                             }
                         }
                     }

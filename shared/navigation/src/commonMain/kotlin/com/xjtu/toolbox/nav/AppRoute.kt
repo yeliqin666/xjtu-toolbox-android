@@ -1,8 +1,7 @@
 package com.xjtu.toolbox.nav
 
-import com.xjtu.toolbox.account.AccountContext
-import com.xjtu.toolbox.auth.AccountType
 import com.xjtu.toolbox.auth.LoginType
+import com.xjtu.toolbox.bulletin.Bulletin
 import com.xjtu.toolbox.util.decodeUrlComponentOrNull
 import com.xjtu.toolbox.util.encodeUrlComponent
 import kotlinx.serialization.Serializable
@@ -70,8 +69,7 @@ sealed interface AppRoute : NavKey {
     }
     @Serializable data object Judge : AppRoute {
         override val id get() = "judge"
-        // 研究生评教走 gste + gmis，由页面自己登
-        override val loginType get() = if (isPostgraduateSession()) null else LoginType.JWXT
+        override val loginType get() = LoginType.QMS
     }
     @Serializable data object JwappScore : AppRoute {
         override val id get() = "jwapp_score"
@@ -89,10 +87,6 @@ sealed interface AppRoute : NavKey {
     @Serializable data object Coupon : AppRoute {
         override val id get() = "coupon"
         override val loginType get() = LoginType.COUPON
-    }
-    @Serializable data object ScoreReport : AppRoute {
-        override val id get() = "score_report"
-        override val loginType get() = LoginType.JWXT
     }
     @Serializable data object Transcript : AppRoute {
         override val id get() = "transcript"
@@ -136,6 +130,15 @@ sealed interface AppRoute : NavKey {
         override val id get() = "yellow_page"
         override val needsNetwork get() = true
     }
+    @Serializable data object DegreeProgress : AppRoute {
+        override val id get() = "degree_progress"
+        // 页面自己登教务和移动教务
+        override val needsNetwork get() = true
+    }
+    @Serializable data object CampusBus : AppRoute {
+        override val id get() = "campus_bus"
+        override val needsNetwork get() = true
+    }
     @Serializable data object Fitness : AppRoute {
         override val id get() = "fitness"
         override val loginType get() = LoginType.FITNESS
@@ -147,12 +150,52 @@ sealed interface AppRoute : NavKey {
     /** [then] 非空时，[url] 先加载完并走完登录，再自动跳到 [then]（支付页要先过一遍登录）。 */
     @Serializable data class Browser(val url: String = "", val then: String = "") : AppRoute {
         override val id get() = "browser?url=${encode(url)}" + if (then.isEmpty()) "" else "&then=${encode(then)}"
+        override val loginType get() = LoginType.DZPZ.takeIf { url.startsWith("https://dzpz.xjtu.edu.cn/") }
     }
     @Serializable data object Settings : AppRoute { override val id get() = "settings" }
     /** 消息收纳：待办与消息。 */
     @Serializable data object Inbox : AppRoute { override val id get() = "inbox" }
-    @Serializable data object Feedback : AppRoute { override val id get() = "feedback" }
+
+    /**
+     * 扫一扫（电脑端登录二维码 / 图书馆座位码）。Android 顶栏圆钮的落点；
+     * ROM 支持金标联盟一镜到底时由独立 Activity 宿主承载，其它端没有这一屏。
+     */
+    @Serializable data object QrScan : AppRoute { override val id get() = "qr_scan" }
     @Serializable data object Community : AppRoute { override val id get() = "community" }
+    /** 直达社区里的某一帖（首页卡片、链接）；返回时直接退出社区。 */
+    @Serializable data class CommunityPost(val number: Int) : AppRoute { override val id get() = "community/$number" }
+
+    /**
+     * 站内公告详情。内容随路由带上（公告本身很短），所以进程被杀、深链进来都能恢复；
+     * 首页公告条「查看详情」在 ROM 支持金标联盟一镜到底时走独立 Activity，不支持时压这条路由。
+     */
+    @Serializable data class NoticeDetail(
+        val noticeId: String,
+        val level: String = "info",
+        val title: String = "",
+        val body: String = "",
+        val url: String = "",
+    ) : AppRoute {
+        override val id: String
+            get() = buildString {
+                append("notice_detail/").append(encode(noticeId))
+                append("?level=").append(encode(level))
+                append("&title=").append(encode(title))
+                if (body.isNotEmpty()) append("&body=").append(encode(body))
+                if (url.isNotEmpty()) append("&url=").append(encode(url))
+            }
+
+        companion object {
+            /** 首页/通知里的公告 → 详情路由。 */
+            fun of(bulletin: Bulletin): NoticeDetail = NoticeDetail(
+                noticeId = bulletin.id,
+                level = bulletin.level.name.lowercase(),
+                title = bulletin.title,
+                body = bulletin.body,
+                url = bulletin.url.orEmpty(),
+            )
+        }
+    }
 
     /** 教师主页检索，公开站点。 */
     @Serializable data object Faculty : AppRoute { override val id get() = "faculty" }
@@ -178,10 +221,10 @@ private val simpleRoutes: Map<String, AppRoute> = listOf(
     AppRoute.Main, AppRoute.Schedule, AppRoute.Agent, AppRoute.Zyxf, AppRoute.PaymentCode,
     AppRoute.EmptyRoom, AppRoute.Notification, AppRoute.Attendance, AppRoute.Judge,
     AppRoute.JwappScore, AppRoute.Library, AppRoute.CampusCard, AppRoute.Coupon,
-    AppRoute.ScoreReport, AppRoute.Transcript, AppRoute.Venue, AppRoute.DownloadManager,
+    AppRoute.Transcript, AppRoute.Venue, AppRoute.DownloadManager,
     AppRoute.Jiaocai, AppRoute.Jiaocai1, AppRoute.SchoolCourse, AppRoute.SchoolCalendar,
-    AppRoute.YellowPage, AppRoute.Fitness, AppRoute.Iclassface, AppRoute.Settings, AppRoute.Inbox,
-    AppRoute.Feedback, AppRoute.Community, AppRoute.Faculty, AppRoute.Accounts,
+    AppRoute.YellowPage, AppRoute.CampusBus, AppRoute.DegreeProgress, AppRoute.Fitness, AppRoute.Iclassface, AppRoute.Settings, AppRoute.Inbox, AppRoute.QrScan,
+    AppRoute.Community, AppRoute.Faculty, AppRoute.Accounts,
     AppRoute.WebVpnConverter, AppRoute.Games, AppRoute.Game2048, AppRoute.GameMerge,
     AppRoute.GameBlocks, AppRoute.GameHop, AppRoute.GameGomoku, AppRoute.GameGo, AppRoute.GameXiangqi, AppRoute.Match,
 ).associateBy { it.id }
@@ -204,6 +247,21 @@ fun appRouteOf(id: String): AppRoute? {
             param("activityId")?.toIntOrNull()?.takeIf { it > 0 },
         )
         path == "browser" -> AppRoute.Browser(param("url").orEmpty(), param("then").orEmpty())
+        path.startsWith("community/") -> path.removePrefix("community/").toIntOrNull()?.takeIf { it > 0 }?.let(AppRoute::CommunityPost)
+        path.startsWith("notice_detail/") -> {
+            val noticeId = path.removePrefix("notice_detail/")
+            if (noticeId.isBlank()) {
+                null
+            } else {
+                AppRoute.NoticeDetail(
+                    noticeId = noticeId,
+                    level = param("level").orEmpty().ifEmpty { "info" },
+                    title = param("title").orEmpty(),
+                    body = param("body").orEmpty(),
+                    url = param("url").orEmpty(),
+                )
+            }
+        }
         path.startsWith("jiaocai1_reader/") -> {
             val ssno = path.removePrefix("jiaocai1_reader/")
             if (ssno.isBlank()) null else AppRoute.Jiaocai1Reader(ssno, param("title").orEmpty())
@@ -214,10 +272,5 @@ fun appRouteOf(id: String): AppRoute? {
 
 /** 学校系统维护中的页面 → 显示名。命中时入口直接提示，不登录也不跳转（免得批量 401）。 */
 val maintenanceRoutes: Map<AppRoute, String> = mapOf()
-
-/** 当前账号是否研究生。 */
-/** 当前账号是否研究生。 */
-fun isPostgraduateSession(): Boolean =
-    AccountContext.activeAccountType == AccountType.POSTGRADUATE
 
 private fun encode(value: String): String = encodeUrlComponent(value)

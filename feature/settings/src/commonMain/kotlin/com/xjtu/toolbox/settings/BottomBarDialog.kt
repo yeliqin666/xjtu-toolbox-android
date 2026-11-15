@@ -109,8 +109,8 @@ internal fun BottomBarDialog(
                 style = MiuixTheme.textStyles.body2,
                 modifier = Modifier.padding(bottom = 8.dp),
             )
-            // 候选有二十来个，列表单独滚，按钮留在底下
-            Column(Modifier.heightIn(max = 360.dp).verticalScroll(rememberScrollState())) {
+            // 列表单独滚；weight 让平板横屏弹窗被限高时先压列表，按钮不被裁掉
+            Column(Modifier.weight(1f, fill = false).heightIn(max = 360.dp).verticalScroll(rememberScrollState())) {
                 rows.forEach { route ->
                     // 按路由定身份：换位时这一行连同正在进行的拖动手势一起挪过去
                     key(route) {

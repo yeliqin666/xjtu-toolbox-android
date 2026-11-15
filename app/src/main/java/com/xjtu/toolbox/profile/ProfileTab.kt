@@ -6,7 +6,7 @@ import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -24,7 +24,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.automirrored.filled.Logout
 import androidx.compose.material.icons.filled.*
-import androidx.compose.material.icons.outlined.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
@@ -40,11 +39,15 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import com.xjtu.toolbox.ui.sensitive
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.xjtu.toolbox.auth.*
+import com.xjtu.toolbox.home.EnrollmentCertificate
 import com.xjtu.toolbox.ui.components.AppCardColor
+import com.xjtu.toolbox.ui.components.ArrowPreference
+import com.xjtu.toolbox.ui.components.CouiPreferenceSpec
 import com.xjtu.toolbox.ui.components.appCardShadow
 import com.xjtu.toolbox.ui.components.enterOnce
 import com.xjtu.toolbox.ui.components.pressHighlight
@@ -66,10 +69,11 @@ import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.IconButton
 import top.yukonga.miuix.kmp.basic.LinearProgressIndicator
 import top.yukonga.miuix.kmp.basic.ProgressIndicatorDefaults
-import top.yukonga.miuix.kmp.basic.ScrollBehavior
+import com.xjtu.toolbox.ui.glass.CouiTopBarScrollBehavior
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextButton
 import top.yukonga.miuix.kmp.basic.TextField
+import top.yukonga.miuix.kmp.overlay.OverlayBottomSheet
 import top.yukonga.miuix.kmp.overlay.OverlayDialog
 import top.yukonga.miuix.kmp.squircle.squircleBackground
 import top.yukonga.miuix.kmp.squircle.squircleClip
@@ -101,10 +105,10 @@ private fun ProfileInfoCard(p: com.xjtu.toolbox.hello.HelloProfile, modifier: Mo
             .background(AppCardColor)
     ) {
         ProfileMenuRow(
-            icon = Icons.Outlined.School,
-            tint = MiuixTheme.colorScheme.primary,
+            icon = Icons.Default.School,
+            tint = TINT_BLUE,
             title = "学籍信息",
-            subtitle = listOf(p.departmentName, p.className).filter { it.isNotBlank() }.joinToString(" · ").ifBlank { null },
+            subtitle = p.departmentName.takeIf { it.isNotBlank() },
             trailingIcon = if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
             onClick = { expanded = !expanded },
         )
@@ -242,8 +246,8 @@ private fun Modifier.pressOverlay(
 }
 
 /**
- * 菜单行：浅色底的图标徽记 + 标题 / 说明 + 右箭头。
- * 「我的」页所有入口都用它，一组放进同一张卡，行间用缩进的细线分开。
+ * 菜单行：纯图标（不带底块）+ 标题 / 说明 + 右箭头，行高、字号、图标尺寸都跟设置页那套
+ * COUI 规格走（`CouiPreferenceSpec`：60dp 行高、24dp 图标、16dp 间隔、16sp/13sp 文字）。
  */
 @Composable
 private fun ProfileMenuRow(
@@ -254,30 +258,40 @@ private fun ProfileMenuRow(
     subtitle: String? = null,
     titleColor: Color = MiuixTheme.colorScheme.onSurface,
     trailingIcon: ImageVector? = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+    /** 点了打开的页面：ROM 支持时从这一行一镜到底，不支持就普通打开（不做 Compose 放大）。 */
+    route: AppRoute? = null,
 ) {
-    val dark = com.xjtu.toolbox.ui.theme.LocalIsDarkTheme.current
+    val origin = com.xjtu.toolbox.nav.rememberSeamlessOrigin(16.dp, composeFallback = false)
     Row(
         Modifier
             .fillMaxWidth()
-            .pressOverlay(onClick = onClick)
-            .padding(horizontal = 16.dp, vertical = 13.dp),
-        verticalAlignment = Alignment.CenterVertically
+            .defaultMinSize(minHeight = CouiPreferenceSpec.rowMinHeight)
+            .then(if (route != null) origin.modifier else Modifier)
+            .pressOverlay(onClick = { if (route != null) origin.open(route, onClick) else onClick() })
+            .padding(
+                horizontal = CouiPreferenceSpec.rowPaddingHorizontal,
+                vertical = CouiPreferenceSpec.rowPaddingVertical,
+            ),
+        verticalAlignment = Alignment.CenterVertically,
     ) {
-        Box(
-            Modifier
-                .size(34.dp)
-                .squircleBackground(tint.copy(alpha = if (dark) 0.22f else 0.12f), 11.dp),
-            contentAlignment = Alignment.Center,
+        Icon(icon, contentDescription = null, tint = tint, modifier = Modifier.size(CouiPreferenceSpec.iconSize))
+        Spacer(Modifier.width(CouiPreferenceSpec.iconSpacing))
+        Column(
+            Modifier.weight(1f),
+            verticalArrangement = Arrangement.spacedBy(CouiPreferenceSpec.summarySpacing),
         ) {
-            Icon(icon, contentDescription = null, tint = tint, modifier = Modifier.size(18.dp))
-        }
-        Spacer(Modifier.width(12.dp))
-        Column(Modifier.weight(1f)) {
-            Text(title, style = MiuixTheme.textStyles.body1, fontWeight = FontWeight.Medium, color = titleColor)
+            Text(
+                title,
+                fontSize = CouiPreferenceSpec.titleSize,
+                fontWeight = FontWeight.Medium,
+                color = titleColor,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
             if (!subtitle.isNullOrBlank()) {
                 Text(
                     subtitle,
-                    style = MiuixTheme.textStyles.footnote2,
+                    fontSize = CouiPreferenceSpec.summarySize,
                     color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
@@ -293,17 +307,9 @@ private fun ProfileMenuRow(
     }
 }
 
-/** 同一组菜单行之间的细线：从图标右边开始，不横穿徽记。 */
+/** 同一组菜单行之间的细线：直接用设置页那条共享的实现（1px、从文字起点开始）。 */
 @Composable
-private fun MenuDivider() {
-    Box(
-        Modifier
-            .padding(start = 62.dp)
-            .fillMaxWidth()
-            .height(0.5.dp)
-            .background(MiuixTheme.colorScheme.outline.copy(alpha = 0.18f))
-    )
-}
+private fun MenuDivider() = com.xjtu.toolbox.ui.components.CouiSectionDivider()
 
 /** 一组菜单行的外壳。 */
 @Composable
@@ -317,11 +323,16 @@ private fun MenuGroup(modifier: Modifier = Modifier, content: @Composable Column
     )
 }
 
-private val TINT_TEAL = Color(0xFF1F9E8F)
-private val TINT_SLATE = Color(0xFF6B7A90)
+// 图标配色与设置页同一套固定色板，不跟主题色走：主题色可能被设成黑色这类极端色，
+// 跟着它走时有的图标底块看得见、有的看不见，一页里就不齐了
+private val TINT_TEAL = com.xjtu.toolbox.settings.SettingsColors.Teal
+private val TINT_SLATE = com.xjtu.toolbox.settings.SettingsColors.BlueGray
+private val TINT_BLUE = com.xjtu.toolbox.settings.SettingsColors.Blue
+private val TINT_INDIGO = com.xjtu.toolbox.settings.SettingsColors.Indigo
+private val TINT_ORANGE = com.xjtu.toolbox.settings.SettingsColors.Orange
 
 /**
- * 顶部的身份卡：头像 + 姓名 + 学号 / 专业 + 一行标签。
+ * 顶部的身份卡：头像 + 姓名 + 学号、专业各一行 + 一行标签。
  *
  * 高度固定：第三行在档案没加载到时换成一句提示，而不是空着——以前专业那一行要等档案回来
  * 才出现，整块往下一挤，看着像「抽了一下」。
@@ -367,7 +378,7 @@ private fun ProfileHeroCard(
             LaunchedEffect(avatarVersion) {
                 if (avatarVersion > 0) {
                     pop.snapTo(0.84f)
-                    pop.animateTo(1f, spring(dampingRatio = 0.45f, stiffness = 420f))
+                    pop.animateTo(1f, tween(320, easing = androidx.compose.animation.core.FastOutSlowInEasing))
                 }
             }
             Box(
@@ -397,7 +408,7 @@ private fun ProfileHeroCard(
                             style = MiuixTheme.textStyles.title2,
                             fontWeight = FontWeight.Bold,
                         )
-                        else -> Icon(Icons.Outlined.Person, null, Modifier.size(38.dp), tint = MiuixTheme.colorScheme.onPrimary)
+                        else -> Icon(Icons.Default.Person, null, Modifier.size(38.dp), tint = MiuixTheme.colorScheme.onPrimary)
                     }
                 }
                 if (isLoggedIn) {
@@ -429,12 +440,13 @@ private fun ProfileHeroCard(
                 )
                 Spacer(Modifier.height(3.dp))
                 Text(
-                    if (isLoggedIn) listOfNotNull(studentId, profile?.professionName?.takeIf { it.isNotBlank() }).joinToString(" · ")
+                    if (isLoggedIn) listOfNotNull(studentId, profile?.professionName?.takeIf { it.isNotBlank() })
+                        .joinToString("\n")
                     else "登录以使用全部功能",
                     style = MiuixTheme.textStyles.footnote1,
                     color = muted,
-                    // 给两行：专业名长一点（「能源与动力工程（钱学森班）」这类）挤在一行里
-                    // 只能吃省略号，而学号在前面，被截掉的正好是专业名。
+                    // 学号和专业各占一行（以前用「·」串成一行，专业名一长就要折行，
+                    // 折完第二行只剩半截专业名，还顶着上一行的学号）。专业太长时自己吃省略号。
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
                 )
@@ -488,7 +500,7 @@ internal fun ProfileTab(
     credentialStore: CredentialStore,
     accountManager: com.xjtu.toolbox.account.AccountManager,
     onNavigate: (AppRoute) -> Unit,
-    scrollBehavior: ScrollBehavior? = null,
+    scrollBehavior: CouiTopBarScrollBehavior? = null,
     /** 悬浮底栏的总占位高度（= MainScreen 的 floatingBarReserve）：底栏浮在内容之上，页面末尾得自己留出来。 */
     extraBottomPadding: androidx.compose.ui.unit.Dp = 0.dp,
     onWarmupRequest: () -> Unit = {},
@@ -572,7 +584,7 @@ internal fun ProfileTab(
         loginState.prepareCredentialsForLogin(user, pwd)
 
         scope.launch {
-            loginStage = "认证中..."
+            loginStage = "认证中…"
             loginProgress = 0.1f
             try {
                 withContext(Dispatchers.IO) {
@@ -666,7 +678,7 @@ internal fun ProfileTab(
         ) {
             Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 TextButton(
-                    text = if (avatarSaving) "处理中..." else "从相册选择",
+                    text = if (avatarSaving) "处理中…" else "从相册选择",
                     onClick = {
                         if (!avatarSaving) {
                             avatarPicker.launch(
@@ -680,6 +692,10 @@ internal fun ProfileTab(
                 if (hasCustomAvatar) {
                     TextButton(
                         text = "恢复默认头像",
+                        colors = ButtonDefaults.textButtonColors(
+                            color = MiuixTheme.colorScheme.error.copy(alpha = 0.10f),
+                            textColor = MiuixTheme.colorScheme.error,
+                        ),
                         onClick = {
                             if (!avatarSaving) {
                                 com.xjtu.toolbox.hello.HelloProfileStore.clearCustomAvatar(ctx)
@@ -755,7 +771,7 @@ internal fun ProfileTab(
             .fillMaxSize()
             .then(if (scrollBehavior != null) Modifier.nestedScroll(scrollBehavior.nestedScrollConnection) else Modifier)
             .overScrollVertical()
-            .verticalScroll(rememberScrollState())
+            .verticalScroll(com.xjtu.toolbox.ui.glass.rememberReportedScrollState(scrollBehavior))
     ) {
         // 玻璃顶栏：内容铺到顶栏下面，留白放在滚动内容里
         Spacer(Modifier.height(contentTopPadding))
@@ -812,7 +828,7 @@ internal fun ProfileTab(
                         label = "密码",
                         singleLine = true,
                         enabled = !isLoggingIn,
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier = Modifier.fillMaxWidth().sensitive(),
                         visualTransformation = if (passwordVisible) androidx.compose.ui.text.input.VisualTransformation.None else PasswordVisualTransformation(),
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
                         trailingIcon = {
@@ -859,7 +875,7 @@ internal fun ProfileTab(
                         Spacer(Modifier.height(14.dp))
                         val animatedProgress by animateFloatAsState(
                             targetValue = loginProgress,
-                            animationSpec = spring(dampingRatio = 0.85f, stiffness = 500f),
+                            animationSpec = tween(320, easing = androidx.compose.animation.core.FastOutSlowInEasing),
                             label = "loginProgress"
                         )
                         LinearProgressIndicator(
@@ -872,7 +888,7 @@ internal fun ProfileTab(
                     }
                     Spacer(Modifier.height(12.dp))
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Outlined.Lock, null, Modifier.size(12.dp), tint = MiuixTheme.colorScheme.onSurfaceVariantSummary.copy(alpha = 0.6f))
+                        Icon(Icons.Default.Lock, null, Modifier.size(12.dp), tint = MiuixTheme.colorScheme.onSurfaceVariantSummary.copy(alpha = 0.6f))
                         Spacer(Modifier.width(4.dp))
                         Text(
                             "密码加密保存在本机，只发往学校统一认证",
@@ -884,7 +900,7 @@ internal fun ProfileTab(
                 }
                 Spacer(Modifier.height(PROFILE_GAP))
                 MenuGroup(Modifier.enterOnce(2)) {
-                    ProfileMenuRow(Icons.Outlined.Settings, TINT_SLATE, "设置", onClick = { onNavigate(AppRoute.Settings) })
+                    ProfileMenuRow(Icons.Default.Settings, TINT_SLATE, "设置", onClick = { onNavigate(AppRoute.Settings) }, route = AppRoute.Settings)
                 }
             } else {
                 // ━━ 已登录 ━━
@@ -893,39 +909,80 @@ internal fun ProfileTab(
                     Spacer(Modifier.height(PROFILE_GAP))
                 }
 
-                MenuGroup(Modifier.enterOnce(2)) {
+                if (loginState.accountType == AccountType.UNDERGRADUATE) {
+                    var showCertificate by remember { mutableStateOf(false) }
+                    // 不再单起「学业材料」小标题：和上面几张卡一样，靠大卡片本身分组
+                    MenuGroup(Modifier.enterOnce(2)) {
+                        ProfileMenuRow(Icons.Default.School, TINT_TEAL, "学业进度", subtitle = "培养方案与毕业要求", onClick = { onNavigate(AppRoute.DegreeProgress) }, route = AppRoute.DegreeProgress)
+                        MenuDivider()
+                        ProfileMenuRow(Icons.Default.Description, TINT_TEAL, "电子成绩单", onClick = { onNavigate(AppRoute.Transcript) }, route = AppRoute.Transcript)
+                        MenuDivider()
+                        ProfileMenuRow(Icons.Default.School, TINT_TEAL, "在读证明", subtitle = "中文或中英文",
+                            onClick = { showCertificate = true })
+                    }
+                    Spacer(Modifier.height(PROFILE_GAP))
+                    if (showCertificate) OverlayBottomSheet(
+                        show = true, title = "在读证明", onDismissRequest = { showCertificate = false },
+                    ) {
+                        Column(Modifier.navigationBarsPadding()) {
+                            EnrollmentCertificate.entries.forEach { certificate ->
+                                ArrowPreference(
+                                    title = certificate.label, summary = "在学校电子凭证平台申请与下载",
+                                    onClick = {
+                                        showCertificate = false
+                                        onNavigate(AppRoute.Browser(certificate.url))
+                                    },
+                                )
+                            }
+                        }
+                    }
+                }
+
+                MenuGroup(Modifier.enterOnce(3)) {
                     ProfileMenuRow(
-                        Icons.Outlined.ManageAccounts, MiuixTheme.colorScheme.primary, "账号管理",
+                        Icons.Default.ManageAccounts, TINT_INDIGO, "账号管理",
                         onClick = { onNavigate(AppRoute.Accounts) },
                         subtitle = if (accountCount > 0) "已保存 $accountCount 个账号" else "切换或添加账号",
+                        route = AppRoute.Accounts,
                     )
                     MenuDivider()
                     ProfileMenuRow(
-                        Icons.Outlined.Download, TINT_TEAL, "下载管理",
+                        Icons.Default.Download, TINT_ORANGE, "下载管理",
                         onClick = { onNavigate(AppRoute.DownloadManager) },
                         subtitle = downloadSummary ?: "查看下载进度和记录",
+                        route = AppRoute.DownloadManager,
                     )
                 }
                 Spacer(Modifier.height(PROFILE_GAP))
-                MenuGroup(Modifier.enterOnce(3)) {
-                    ProfileMenuRow(Icons.Outlined.Settings, TINT_SLATE, "设置", onClick = { onNavigate(AppRoute.Settings) })
+                MenuGroup(Modifier.enterOnce(4)) {
+                    ProfileMenuRow(Icons.Default.Settings, TINT_SLATE, "设置", onClick = { onNavigate(AppRoute.Settings) }, route = AppRoute.Settings)
                 }
                 Spacer(Modifier.height(PROFILE_GAP))
 
                 // 退出登录单独一张：危险操作不和日常入口挤在一组里
                 val showLogoutDialog = remember { mutableStateOf(false) }
-                MenuGroup(Modifier.enterOnce(4)) {
+                MenuGroup(Modifier.enterOnce(5)) {
                     Box(
                         Modifier
                             .fillMaxWidth()
-                            .pressOverlay { showLogoutDialog.value = true }
-                            .padding(vertical = 15.dp),
+                            .defaultMinSize(minHeight = CouiPreferenceSpec.rowMinHeight)
+                            .pressOverlay { showLogoutDialog.value = true },
                         contentAlignment = Alignment.Center,
                     ) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(Icons.AutoMirrored.Filled.Logout, null, Modifier.size(18.dp), tint = MiuixTheme.colorScheme.error)
-                            Spacer(Modifier.width(8.dp))
-                            Text("退出登录", style = MiuixTheme.textStyles.body1, fontWeight = FontWeight.Medium, color = MiuixTheme.colorScheme.error)
+                            Icon(
+                                Icons.AutoMirrored.Filled.Logout,
+                                null,
+                                Modifier.size(CouiPreferenceSpec.iconSize),
+                                tint = MiuixTheme.colorScheme.error,
+                            )
+                            Spacer(Modifier.width(CouiPreferenceSpec.iconSpacing))
+                            Text(
+                                "退出登录",
+                                fontSize = CouiPreferenceSpec.titleSize,
+                                fontWeight = FontWeight.Medium,
+                                color = MiuixTheme.colorScheme.error,
+                            )
                         }
                     }
                 }

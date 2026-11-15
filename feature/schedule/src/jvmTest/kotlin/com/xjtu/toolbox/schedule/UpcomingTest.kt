@@ -41,6 +41,7 @@ class UpcomingTest {
         val notSubmitted = due(title = "没交", deadline = "2027-01-12T16:00:00Z", submitted = false)
         val result = buildUpcoming(emptyList(), listOf(submitted, notSubmitted), now)
         assertEquals(listOf("[课程] 没交"), result.map { it.title })
+        assertEquals(com.xjtu.toolbox.nav.AppRoute.Lms(notSubmitted.courseId, notSubmitted.activityId), result.single().route)
     }
 
     @Test

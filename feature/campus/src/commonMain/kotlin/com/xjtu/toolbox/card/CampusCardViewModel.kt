@@ -21,6 +21,8 @@ import kotlinx.coroutines.withContext
 import kotlinx.datetime.DateTimeUnit
 import kotlinx.datetime.LocalDate
 import kotlinx.datetime.minus
+import kotlinx.datetime.number
+import kotlinx.datetime.yearMonth
 
 internal enum class TimeRange(val label: String, val months: Int?) {
     ONE_MONTH("1个月", 1),
@@ -38,6 +40,27 @@ internal enum class TimeRange(val label: String, val months: Int?) {
     }
 }
 
+/**
+ * 「自定义」子菜单里的常用区间。学期按学年对半分（9–2 月秋季、3–8 月春季）：
+ * 假期不刷卡，多算进来的几周不影响统计。
+ */
+internal fun quickRanges(today: LocalDate): List<Pair<String, Pair<LocalDate, LocalDate>>> {
+    val month = today.yearMonth
+    val last = month.minus(1, DateTimeUnit.MONTH)
+    val m = today.month.number
+    val termStart = when {
+        m >= 9 -> LocalDate(today.year, 9, 1)
+        m <= 2 -> LocalDate(today.year - 1, 9, 1)
+        else -> LocalDate(today.year, 3, 1)
+    }
+    return listOf(
+        "本月" to (month.firstDay to today),
+        "上月" to (last.firstDay to last.lastDay),
+        "本学期" to (termStart to today),
+        "上学期" to (termStart.minus(6, DateTimeUnit.MONTH) to termStart.minus(1, DateTimeUnit.DAY)),
+    )
+}
+
 /** 按当前流水算出的各项统计；流水一变整份重算。 */
 internal data class CardStats(
     val monthly: List<MonthlyStats> = emptyList(),
@@ -52,6 +75,8 @@ internal data class CardStats(
     val weekdayWeekend: Pair<DayTypeStats, DayTypeStats>? = null,
     /** 干饭人账单，按当前选的时间范围算。 */
     val mealReport: MealReport? = null,
+    /** 吃饭画像标签，见 [CampusCardAnalysis.personaTags]。 */
+    val tags: List<Pair<String, String>> = emptyList(),
 )
 
 internal sealed interface CampusCardEvent {
@@ -138,16 +163,19 @@ internal class CampusCardViewModel(
 
     private fun computeStats(all: List<Transaction>, start: LocalDate, end: LocalDate): CardStats {
         val (meals, days) = analyzeMealTimes(all)
+        val food = breakdownFood(all)
+        val hourly = hourlyMeals(all)
         return CardStats(
             monthly = calculateMonthlyStats(all, start, end),
             categories = categorizeSpending(all),
-            food = breakdownFood(all),
+            food = food,
             mealTimes = meals,
             activeDays = days,
-            hourly = hourlyMeals(all),
+            hourly = hourly,
             dailyRate = dailySpendRate(all),
             weekdayWeekend = analyzeWeekdayVsWeekend(all),
             mealReport = MealReport.build(all) { categoryOf(it) == "餐饮" },
+            tags = CampusCardAnalysis.personaTags(food, meals, days, hourly, slotRegular(all)),
         )
     }
 

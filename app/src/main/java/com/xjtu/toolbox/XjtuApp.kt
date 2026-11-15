@@ -18,7 +18,18 @@ import kotlinx.coroutines.launch
  *
  * 其余启动钩子（性能打点 / 渠道开关）保持空。
  */
-class XjtuApp : Application() {
+class XjtuApp : Application(), coil3.SingletonImageLoader.Factory {
+    /** 图片磁盘缓存封顶，不用 Coil 的默认上限，免得社区看多了占掉一大块空间。 */
+    override fun newImageLoader(context: coil3.PlatformContext): coil3.ImageLoader =
+        coil3.ImageLoader.Builder(context)
+            .diskCache {
+                coil3.disk.DiskCache.Builder()
+                    .directory(okio.Path.Companion.run { cacheDir.resolve("coil3_disk_cache").absolutePath.toPath() })
+                    .maxSizeBytes(100L * 1024 * 1024)
+                    .build()
+            }
+            .build()
+
     /** 应用级协程作用域：跟随进程存活，给页面销毁后仍要做完的收尾工作（如保存进度）用。 */
     val applicationScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
@@ -66,7 +77,7 @@ class XjtuApp : Application() {
         com.xjtu.toolbox.platform.initDataPlatform(this)
         // 反馈后端的凭据：`:data` 的 FeedbackApi 不读 BuildConfig（`:data` 是 JVM/Android
         // 共用的模块）⇒ 宿主在这里注入一次。必须在下面那发 CrashReporter 上传之前。
-        com.xjtu.toolbox.feedback.AppFeedback.install()
+        com.xjtu.toolbox.feedback.AppFeedback.install(this)
         CrashReporter.install(this)
         // 桌面小组件那条缝：InboxStore 在 :core，写一次收纳就该重画一次小组件，
         // 而重画要 Context 与 AppWidgetManager（都在 :app）⇒ 用回调挂上去（见 InboxWidgetHook）。
@@ -93,6 +104,7 @@ class XjtuApp : Application() {
         // 后台调度要读账号（AccountStore → 加密存储首次打开要走 keystore），不占主线程。
         // 顺带预热了 SecurePrefs 的缓存，首帧里界面再取账号时直接命中。
         applicationScope.launch {
+            com.xjtu.toolbox.notification.DynamicScheduleScheduler.refresh(this@XjtuApp)
             com.xjtu.toolbox.notification.NoticeWatchScheduler.apply(this@XjtuApp)
             com.xjtu.toolbox.notification.ScheduleWatchScheduler.apply(this@XjtuApp)
             com.xjtu.toolbox.notification.LmsDeadlineScheduler.apply(this@XjtuApp)

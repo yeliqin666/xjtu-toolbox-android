@@ -47,7 +47,6 @@ internal fun SessionDrawer(
     sessions: List<AgentSession>,
     currentId: String?,
     onClose: () -> Unit,
-    onNew: () -> Unit,
     onSelect: (String) -> Unit,
     onLongPress: (AgentSession) -> Unit,
 ) {
@@ -68,22 +67,23 @@ internal fun SessionDrawer(
         )
     }
     BoxWithConstraints(Modifier.fillMaxSize().zIndex(2f)) {
+        // 开关按钮在顶栏右边，侧栏也从右边滑出
         AnimatedVisibility(
             visible = open,
-            enter = slideInHorizontally(animationSpec = tween(260)) { -it },
-            exit = slideOutHorizontally(animationSpec = tween(220)) { -it },
+            enter = slideInHorizontally(animationSpec = tween(260)) { it },
+            exit = slideOutHorizontally(animationSpec = tween(220)) { it },
+            modifier = Modifier.align(Alignment.CenterEnd),
         ) {
             Surface(
                 modifier = Modifier
                     .fillMaxHeight()
                     .width(minOf(maxWidth * 0.85f, 320.dp)),
-                shape = RoundedCornerShape(topEnd = 24.dp, bottomEnd = 24.dp),
+                shape = RoundedCornerShape(topStart = 24.dp, bottomStart = 24.dp),
                 color = MiuixTheme.colorScheme.surfaceContainer,
             ) {
                 SessionListPane(
                     sessions = sessions,
                     currentId = currentId,
-                    onNew = onNew,
                     onSelect = onSelect,
                     onLongPress = onLongPress,
                     modifier = Modifier.statusBarsPadding(),
@@ -101,7 +101,6 @@ internal fun SessionDrawer(
 internal fun SessionListPane(
     sessions: List<AgentSession>,
     currentId: String?,
-    onNew: () -> Unit,
     onSelect: (String) -> Unit,
     onLongPress: (AgentSession) -> Unit,
     modifier: Modifier = Modifier,
@@ -115,39 +114,13 @@ internal fun SessionListPane(
             .padding(horizontal = 12.dp)
             .padding(top = 8.dp, bottom = 12.dp)
     ) {
-        Row(
-            Modifier.fillMaxWidth().padding(start = 6.dp, bottom = 8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text(
-                "历史对话",
-                modifier = Modifier.weight(1f),
-                style = MiuixTheme.textStyles.title3,
-                fontWeight = FontWeight.Bold,
-            )
-            Row(
-                Modifier
-                    .clip(RoundedCornerShape(14.dp))
-                    .background(MiuixTheme.colorScheme.primary.copy(alpha = 0.14f))
-                    .clickable(onClick = onNew)
-                    .padding(horizontal = 12.dp, vertical = 7.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Icon(
-                    Icons.Default.Add,
-                    contentDescription = null,
-                    tint = MiuixTheme.colorScheme.primary,
-                    modifier = Modifier.size(16.dp),
-                )
-                Spacer(Modifier.width(4.dp))
-                Text(
-                    "新对话",
-                    style = MiuixTheme.textStyles.body2,
-                    fontWeight = FontWeight.Medium,
-                    color = MiuixTheme.colorScheme.primary,
-                )
-            }
-        }
+        // 新对话在顶栏右边，这里不再放一份
+        Text(
+            "历史对话",
+            modifier = Modifier.padding(start = 6.dp, top = 6.dp, bottom = 10.dp),
+            style = MiuixTheme.textStyles.title3,
+            fontWeight = FontWeight.Bold,
+        )
 
         TextField(
             value = query,
@@ -167,7 +140,7 @@ internal fun SessionListPane(
                 item {
                     EmptyHint(
                         title = if (sessions.isEmpty()) "还没有任何对话" else "没有匹配的对话",
-                        detail = if (sessions.isEmpty()) "点上面「新对话」开始" else "换个关键词试试",
+                        detail = if (sessions.isEmpty()) "" else "换个关键词试试",
                     )
                 }
             }
@@ -221,12 +194,14 @@ private fun EmptyHint(title: String, detail: String) {
         )
         Spacer(Modifier.height(12.dp))
         Text(title, style = MiuixTheme.textStyles.body2, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
-        Spacer(Modifier.height(4.dp))
-        Text(
-            detail,
-            style = MiuixTheme.textStyles.footnote1,
-            color = MiuixTheme.colorScheme.onSurfaceVariantSummary.copy(alpha = 0.7f),
-        )
+        if (detail.isNotBlank()) {
+            Spacer(Modifier.height(4.dp))
+            Text(
+                detail,
+                style = MiuixTheme.textStyles.footnote1,
+                color = MiuixTheme.colorScheme.onSurfaceVariantSummary.copy(alpha = 0.7f),
+            )
+        }
     }
 }
 
@@ -289,7 +264,7 @@ private fun SessionRow(
     }
 }
 
-private fun formatSessionTime(ts: Long): String =
+internal fun formatSessionTime(ts: Long): String =
     // `SimpleDateFormat("MM-dd HH:mm")` 的跨端等价（commonMain 没有 `java.text`）：
     // 北京时间 + 同样补零，年月日之外的部分本来就是稳定格式。
     campusDateTimeOf(ts)

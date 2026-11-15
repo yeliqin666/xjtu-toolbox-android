@@ -197,25 +197,78 @@ val STATE_POKE = StateDef(
 
 private const val POKE_PRESS = 0.07
 
-val STATE_COMET = StateDef(
-    id = "comet",
-    duration = 2.4,
-    morph = 0.45,
+/**
+ * 连戳彩蛋「被戳成陀螺」：接着戳的那一下按得更扁，弹起来原地转两圈（眼睛从一侧转到脑后、
+ * 再从另一侧转回来，腰上甩出三道彩带），停下后晕头转向：身子左右晃、两眼一大一小来回换、
+ * 头顶三颗小星星打转，最后眨一下眼回到静息脸。
+ * 身体始终是用户选的形状，只做压扁和晃动，所以和戳、待命之间没有跳变。
+ */
+val STATE_DIZZY = StateDef(
+    id = "dizzy",
+    duration = 2.6,
+    morph = 0.1,
     blinkIn = false,
-    baseBody = false,
+    baseBody = true,
     baseFace = false,
     pose = { t ->
-        val collapse = 1.0 - (1.0 - COMET_DOT) * Easings.easeOutQuint(clamp01(t / 0.55))
-        val regrow = Easings.easeOutQuint(clamp01((t - 1.85) / 0.6))
-        val fade = clamp01((t - 0.15) / 0.25) * clamp01((1.95 - t) / 0.3)
+        // 压扁到矮 20%，随后阻尼回弹
+        val u = t - DIZZY_PRESS
+        val squash = if (u < 0.0) -0.2 * Easings.easeOutCubic(clamp01(t / DIZZY_PRESS))
+        else -0.2 * exp(-u * 7.0) * cos(u * 16.0)
+        // 转两圈：取模后停在 0°，离场混合时不会倒着转回去
+        val turn = Easings.easeInOutCubic(clamp01((t - 0.15) / 1.25))
+        val yaw = (720.0 * turn) % 360.0
+        val whirl = Easings.easeInOutCubic(clamp01((t - 0.2) / 0.25)) *
+            (1.0 - Easings.easeInOutCubic(clamp01((t - 1.2) / 0.25)))
+        // 停下后晕：摇晃随时间衰减，[relax] 收回静息脸
+        val d = maxOf(0.0, t - DIZZY_STOP)
+        val relax = Easings.easeInOutCubic(clamp01((t - 2.0) / 0.5))
+        val sway = (if (t < DIZZY_STOP) 0.0 else exp(-d * 2.2) * sin(d * 7.5)) * (1.0 - relax)
+        val swap = (if (t < DIZZY_STOP) 0.0 else exp(-d * 1.2) * sin(d * 11.0)) * (1.0 - relax)
+        val stars = clamp01(d / 0.15) * clamp01((2.25 - t) / 0.25)
+
+        val sy = 1.0 + squash + 0.04 * whirl
+        val open = Easings.easeOutCubic(clamp01((t - 0.2) / 0.15))
+        val rest = EXPRESSION_ATTENTIF
+        fun eye(k: Double) = EyeCfg(
+            w = lerp(lerp(0.36, 0.24, open) * k, rest.eyes[0].w, relax),
+            h = lerp(lerp(0.09, 0.5, open) * k, rest.eyes[0].h, relax),
+            // 回神时眨一下
+            open = 1.0 - sin(clamp01((t - 2.05) / 0.22) * PI),
+        )
         base(
-            // 点先缩成 0.129 的核（带 0.035 的垂直微漂），彩带绕着它转，最后长回。
-            sil = circle(collapse + (1.0 - collapse) * regrow, cy = sin(clamp01(t / 1.7) * PI) * 0.035),
-            eyeAlpha = clamp01((t - 2.0) / 0.35),
-            arcs = COMET_RIBBONS.map { ArcSpec(seed = it, t = t, opacity = fade) },
+            sil = circle(
+                1.0,
+                cx = 0.06 * sway,
+                cy = (1.0 - sy) * 0.6,
+                sx = 1.0 - squash * 0.5 - 0.05 * whirl,
+                sy = sy,
+            ),
+            gaze = HeadGaze(
+                yaw = lerp(yaw + 22.0 * sway, rest.gaze.yaw, relax),
+                pitch = lerp(lerp(-4.0, 3.0, open) + 7.0 * swap, rest.gaze.pitch, relax),
+                roll = lerp(15.0 * sway, rest.gaze.roll, relax),
+            ),
+            split = lerp(17.0, rest.split, relax),
+            eyes = listOf(eye(1.0 + 0.32 * swap), eye(1.0 - 0.32 * swap)),
+            dots = if (stars <= 0.01) emptyList() else List(3) { i ->
+                val a = t * 5.5 + i * TAU / 3
+                // 转到后面的那颗小一点
+                DotSpec(
+                    x = 0.06 * sway + 0.52 * cos(a),
+                    y = -1.05 + 0.08 * sin(a),
+                    r = 0.05 + 0.012 * sin(a),
+                    opacity = stars,
+                )
+            },
+            arcs = SPIN_RIBBONS.map { ArcSpec(seed = it, t = t, opacity = whirl) },
         )
     },
 )
+
+private const val DIZZY_PRESS = 0.1
+/** 转完两圈、开始发晕的时刻。 */
+private const val DIZZY_STOP = 1.4
 
 val STATE_THINKING = StateDef(
     id = "orbit",
@@ -261,7 +314,7 @@ val BOT_STATES: Map<String, StateDef> = mapOf(
     STATE_THINKING.id to STATE_THINKING,
     STATE_NOTIFY.id to STATE_NOTIFY,
     STATE_BURST.id to STATE_BURST,
-    STATE_COMET.id to STATE_COMET,
+    STATE_DIZZY.id to STATE_DIZZY,
     STATE_POKE.id to STATE_POKE,
 )
 

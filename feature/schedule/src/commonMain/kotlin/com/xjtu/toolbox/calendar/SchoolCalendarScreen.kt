@@ -25,6 +25,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CloudOff
+import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -41,6 +42,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.xjtu.toolbox.ui.glass.tabContentPadding
 import com.xjtu.toolbox.error.FriendlyError
 import com.xjtu.toolbox.schedule.CourseColors
 import com.xjtu.toolbox.ui.components.AnimatedBar
@@ -49,23 +51,24 @@ import com.xjtu.toolbox.ui.components.BackButton
 import com.xjtu.toolbox.ui.components.HeroMesh
 import com.xjtu.toolbox.ui.components.RollingNumberText
 import com.xjtu.toolbox.ui.components.enterOnce
+import com.xjtu.toolbox.ui.glass.CouiPageTopAppBar
+import com.xjtu.toolbox.ui.glass.couiPageBackdropFor
 import com.xjtu.toolbox.ui.glass.glassBarColor
 import com.xjtu.toolbox.ui.glass.glassSource
 import com.xjtu.toolbox.ui.glass.glassTop
-import com.xjtu.toolbox.ui.glass.glassTopBar
 import com.xjtu.toolbox.ui.glass.rememberPageGlass
 import com.xjtu.toolbox.ui.glass.withoutTop
 import com.xjtu.toolbox.ui.isWideLayout
 import com.xjtu.toolbox.util.todayOnCampus
+import com.xjtu.toolbox.ui.glass.CouiTopBarScrollBehavior
+import com.xjtu.toolbox.ui.glass.rememberCouiTopAppBarScrollBehavior
 import kotlin.math.roundToInt
 import kotlinx.datetime.LocalDate
 import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.CircularProgressIndicator
 import top.yukonga.miuix.kmp.basic.Icon
-import top.yukonga.miuix.kmp.basic.MiuixScrollBehavior
 import top.yukonga.miuix.kmp.basic.Scaffold
 import top.yukonga.miuix.kmp.basic.Text
-import top.yukonga.miuix.kmp.basic.TopAppBar
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 /**
@@ -91,7 +94,7 @@ fun SchoolCalendarScreen(
 
     val today = remember { todayOnCampus() }
     val scrollState = rememberLazyListState()
-    val scrollBehavior = MiuixScrollBehavior()
+    val scrollBehavior = rememberCouiTopAppBarScrollBehavior()
     // 玻璃顶栏（经典风格下为 null，一切照旧），用法见 ui/glass/GlassTopBar.kt
     val glass = rememberPageGlass()
 
@@ -111,12 +114,31 @@ fun SchoolCalendarScreen(
 
     Scaffold(
         topBar = {
-            TopAppBar(
+            CouiPageTopAppBar(
                 title = "校历",
+                // 学期切换收进右上角了，当前是哪个学期写在这里
+                subtitle = terms.getOrNull(selectedTermIndex)?.termName.orEmpty(),
                 color = glassBarColor(glass),
-                modifier = Modifier.glassTopBar(glass),
+                pageBackdrop = couiPageBackdropFor(glass),
+                actions = {
+                    if (terms.size > 1) {
+                        var termMenuOpen by remember { mutableStateOf(false) }
+                        com.xjtu.toolbox.ui.glass.CouiIconMenu(
+                            expanded = termMenuOpen,
+                            onExpandedChange = { termMenuOpen = it },
+                            icon = { Icon(Icons.Default.DateRange, contentDescription = "切换学期") },
+                        ) {
+                            terms.forEachIndexed { index, term ->
+                                option(term.termName, selected = index == selectedTermIndex) {
+                                    selectedTermIndex = index
+                                }
+                            }
+                        }
+                    }
+                },
                 navigationIcon = {
-                    BackButton(onBack, modifier = Modifier.padding(start = 8.dp))
+                    // COUI 顶栏自己按 12dp 排导航槽，圆钮视觉边正好落在内容的 16dp 上，不用再补 padding
+                    BackButton(onBack)
                 },
                 scrollBehavior = scrollBehavior
             )
@@ -131,7 +153,7 @@ fun SchoolCalendarScreen(
                             CircularProgressIndicator(size = 40.dp, strokeWidth = 3.dp)
                             Spacer(Modifier.height(12.dp))
                             Text(
-                                "正在加载校历...",
+                                "正在加载校历…",
                                 color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                             )
                         }
@@ -164,11 +186,8 @@ fun SchoolCalendarScreen(
                 else -> {
                     val currentTerm = terms.getOrNull(selectedTermIndex) ?: terms.first()
                     TermContent(
-                        terms = terms,
                         currentTerm = currentTerm,
                         today = today,
-                        selectedIndex = selectedTermIndex,
-                        onSelectTerm = { selectedTermIndex = it },
                         listState = scrollState,
                         scrollBehavior = scrollBehavior,
                         glassTop = glassTop,
@@ -182,13 +201,10 @@ fun SchoolCalendarScreen(
 
 @Composable
 private fun TermContent(
-    terms: List<SchoolTerm>,
     currentTerm: SchoolTerm,
     today: LocalDate,
-    selectedIndex: Int,
-    onSelectTerm: (Int) -> Unit,
     listState: LazyListState,
-    scrollBehavior: top.yukonga.miuix.kmp.basic.ScrollBehavior,
+    scrollBehavior: CouiTopBarScrollBehavior,
     glassTop: androidx.compose.ui.unit.Dp = 0.dp,
     calendarImage: (@Composable (selectedYear: String?) -> Unit)? = null,
 ) {
@@ -203,54 +219,8 @@ private fun TermContent(
     // 宽屏两栏：左边是「这学期现在到哪了」（学期切换、状态卡、统计），右边是整学期的日程时间轴。
     // 以前整页限宽 720 居中，平板横屏左右各空一大块，时间轴还得滚过状态卡才看得到。
     val wide = isWideLayout()
-    val termTabs: @Composable () -> Unit = {
-        Row(
-            Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 8.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            terms.forEachIndexed { idx, term ->
-                val isSelected = idx == selectedIndex
-                val bgColor by animateColorAsState(
-                    if (isSelected) MiuixTheme.colorScheme.primary
-                    else MiuixTheme.colorScheme.secondaryContainer,
-                    label = "tabBg"
-                )
-                val textColor by animateColorAsState(
-                    if (isSelected) MiuixTheme.colorScheme.onPrimary
-                    else MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                    label = "tabText"
-                )
-                Box(
-                    modifier = Modifier
-                        .weight(1f)
-                        .clip(RoundedCornerShape(12.dp))
-                        .background(bgColor)
-                        .clickable { onSelectTerm(idx) }
-                        .padding(vertical = 8.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text(
-                        text = term.termName
-                            .replace("学年", "\n")
-                            .replace("第", "")
-                            .replace("学期", "学期"),
-                        color = textColor,
-                        fontSize = 12.sp,
-                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                }
-            }
-        }
-    }
-    // 状态区：学期切换 + 英雄卡片（当前状态 + 进度）+ 统计信息行
+    // 状态区：英雄卡片（当前状态 + 进度）+ 统计信息行；学期切换在顶栏右上角
     val statusItems: androidx.compose.foundation.lazy.LazyListScope.() -> Unit = {
-        if (terms.size > 1) {
-            item { termTabs() }
-        }
         // 整页依次登场：学期卡 → 统计 → 日程标题 → 时间轴前几项
         item {
             Box(Modifier.enterOnce(0)) {
@@ -288,11 +258,13 @@ private fun TermContent(
     // ── 事件时间轴 ──────────────────────────────────
     val timelineItems: androidx.compose.foundation.lazy.LazyListScope.() -> Unit = {
         item {
+            // 分组小标题：和设置页各组同一种（小号、次要色），不再用一行粗体大字压在列表上
             Text(
-                "日程安排",
-                style = MiuixTheme.textStyles.subtitle,
-                fontWeight = FontWeight.Bold,
-                modifier = Modifier.enterOnce(2).padding(start = 20.dp, top = 20.dp, bottom = 8.dp)
+                "日程安排 · ${currentTerm.events.size} 项",
+                style = MiuixTheme.textStyles.footnote1,
+                fontWeight = FontWeight.Medium,
+                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                modifier = Modifier.enterOnce(2).padding(start = 32.dp, end = 32.dp, top = 20.dp, bottom = 8.dp),
             )
         }
 
@@ -304,16 +276,18 @@ private fun TermContent(
                 event = event,
                 isPast = isPast,
                 isCurrent = isCurrent,
+                isFirst = index == 0,
                 isLast = index == currentTerm.events.lastIndex
             )
         }
     }
 
+    com.xjtu.toolbox.ui.glass.ReportScrollPosition(listState, scrollBehavior)
     if (!wide) {
         LazyColumn(
             state = listState,
             modifier = Modifier.fillMaxSize().nestedScrollToTopAppBar(scrollBehavior),
-            contentPadding = PaddingValues(top = glassTop, bottom = 24.dp)
+            contentPadding = tabContentPadding(PaddingValues(top = glassTop, bottom = 24.dp))
         ) {
             statusItems()
             timelineItems()
@@ -322,14 +296,14 @@ private fun TermContent(
         Row(Modifier.fillMaxSize().nestedScrollToTopAppBar(scrollBehavior)) {
             LazyColumn(
                 modifier = Modifier.width(440.dp).fillMaxHeight(),
-                contentPadding = PaddingValues(top = glassTop, bottom = 24.dp)
+                contentPadding = tabContentPadding(PaddingValues(top = glassTop, bottom = 24.dp))
             ) {
                 statusItems()
             }
             LazyColumn(
                 state = listState,
                 modifier = Modifier.weight(1f).fillMaxHeight(),
-                contentPadding = PaddingValues(top = glassTop, bottom = 24.dp)
+                contentPadding = tabContentPadding(PaddingValues(top = glassTop, bottom = 24.dp))
             ) {
                 timelineItems()
             }
@@ -517,11 +491,17 @@ private fun StatChip(value: String, label: String, modifier: Modifier = Modifier
     }
 }
 
+/**
+ * 日程表的一行，整列连成一张卡（首行圆上角、末行圆下角，行间细线）：
+ * 左边一颗事件色圆点，中间名字和天数，右边日期右对齐成一列。
+ * 进行中的那行日期用事件色、带「进行中」；过去的只把文字换成次要色，不整行半透明（半透明会透出卡片底下的东西）。
+ */
 @Composable
 private fun EventTimelineItem(
     event: CalendarEvent,
     isPast: Boolean,
     isCurrent: Boolean,
+    isFirst: Boolean,
     isLast: Boolean,
     modifier: Modifier = Modifier,
 ) {
@@ -529,93 +509,96 @@ private fun EventTimelineItem(
     val accentColor = remember(event.colorHex) {
         CourseColors.parseHex(event.colorHex) ?: fallbackColor
     }
-    val alpha = if (isPast) 0.45f else 1f
+    val muted = MiuixTheme.colorScheme.onSurfaceVariantSummary
+    val radius = 20.dp
+    val shape = RoundedCornerShape(
+        topStart = if (isFirst) radius else 0.dp, topEnd = if (isFirst) radius else 0.dp,
+        bottomStart = if (isLast) radius else 0.dp, bottomEnd = if (isLast) radius else 0.dp,
+    )
 
-    Row(
+    Column(
         modifier
             .fillMaxWidth()
-            .padding(horizontal = 20.dp)
-            .alpha(alpha)
+            .padding(horizontal = 16.dp)
+            .clip(shape)
+            .background(AppCardColor)
     ) {
-        // 时间线竖轴
-        Column(
-            horizontalAlignment = Alignment.CenterHorizontally,
-            modifier = Modifier.width(20.dp)
+        val ink = if (isPast) muted else MiuixTheme.colorScheme.onSurface
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 14.dp),
+            verticalAlignment = Alignment.CenterVertically,
         ) {
             Box(
                 Modifier
-                    .size(if (isCurrent) 12.dp else 8.dp)
-                    .clip(CircleShape)
-                    .background(if (isCurrent) accentColor else accentColor.copy(alpha = 0.6f))
+                    .size(8.dp)
+                    .clip(RoundedCornerShape(50))
+                    .background(accentColor.copy(alpha = if (isPast) 0.4f else 1f))
             )
-            if (!isLast) {
-                Box(
-                    Modifier
-                        .width(2.dp)
-                        .height(if (isCurrent) 60.dp else 52.dp)
-                        .background(MiuixTheme.colorScheme.dividerLine)
-                )
-            }
-        }
-
-        Spacer(Modifier.width(12.dp))
-
-        // 事件内容
-        Column(
-            Modifier
-                .weight(1f)
-                .padding(bottom = if (isLast) 0.dp else 4.dp)
-        ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                if (isCurrent) {
-                    Box(
-                        Modifier
-                            .clip(RoundedCornerShape(4.dp))
-                            .background(accentColor)
-                            .padding(horizontal = 6.dp, vertical = 2.dp)
-                    ) {
+            Spacer(Modifier.width(12.dp))
+            Column(Modifier.weight(1f)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        event.name,
+                        style = MiuixTheme.textStyles.body1,
+                        fontWeight = if (isCurrent) FontWeight.SemiBold else FontWeight.Medium,
+                        color = ink,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f, fill = false),
+                    )
+                    if (isCurrent) {
+                        Spacer(Modifier.width(6.dp))
                         Text(
                             "进行中",
                             fontSize = 10.sp,
-                            color = Color.White,
-                            fontWeight = FontWeight.Bold
+                            color = accentColor,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(50))
+                                .background(accentColor.copy(alpha = 0.14f))
+                                .padding(horizontal = 7.dp, vertical = 2.dp),
                         )
                     }
-                    Spacer(Modifier.width(6.dp))
                 }
+                val span = if (event.startDate == event.endDate) "${event.days}天"
+                else "${event.days}天 · 至 ${monthDayCn(event.endDate)}"
                 Text(
-                    event.name,
-                    style = MiuixTheme.textStyles.body1,
-                    fontWeight = if (isCurrent) FontWeight.Bold else FontWeight.Normal,
-                    color = MiuixTheme.colorScheme.onSurface
+                    span,
+                    style = MiuixTheme.textStyles.footnote1,
+                    color = muted,
+                    modifier = Modifier.padding(top = 2.dp)
                 )
+                if (event.remark.isNotEmpty() && isCurrent) {
+                    Text(
+                        event.remark,
+                        style = MiuixTheme.textStyles.footnote1,
+                        color = muted,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.padding(top = 4.dp)
+                    )
+                }
             }
-
-            val dateRange = if (event.startDate == event.endDate)
-                monthDayCn(event.startDate)
-            else
-                "${monthDayCn(event.startDate)} ~ ${monthDayCn(event.endDate)}"
-
-            Text(
-                "$dateRange · ${event.days}天",
-                fontSize = 12.sp,
-                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                modifier = Modifier.padding(top = 2.dp)
-            )
-
-            if (event.remark.isNotEmpty() && isCurrent) {
+            Spacer(Modifier.width(12.dp))
+            Column(horizontalAlignment = Alignment.End) {
                 Text(
-                    event.remark,
+                    monthDayCn(event.startDate),
                     style = MiuixTheme.textStyles.body2,
-                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.padding(top = 2.dp, bottom = 4.dp)
+                    fontWeight = FontWeight.Medium,
+                    color = if (isCurrent) accentColor else ink,
                 )
-            } else if (!isLast) {
-                Spacer(Modifier.height(12.dp))
+                Text(
+                    weekdayCn(event.startDate),
+                    style = MiuixTheme.textStyles.footnote2,
+                    color = muted,
+                    modifier = Modifier.padding(top = 2.dp),
+                )
             }
         }
+        // 文字起点：16 边距 + 8 圆点 + 12
+        if (!isLast) com.xjtu.toolbox.ui.components.RowDivider(startInset = 36.dp)
     }
 }
 
@@ -647,6 +630,6 @@ private fun int0(value: Float): String = value.roundToInt().toString()
 private fun percent0(value: Float): String = "${value.roundToInt()}%"
 
 /** LazyColumn 嵌套滚动接入 TopAppBar */
-private fun Modifier.nestedScrollToTopAppBar(scrollBehavior: top.yukonga.miuix.kmp.basic.ScrollBehavior): Modifier {
+private fun Modifier.nestedScrollToTopAppBar(scrollBehavior: CouiTopBarScrollBehavior): Modifier {
     return this.then(nestedScroll(scrollBehavior.nestedScrollConnection))
 }

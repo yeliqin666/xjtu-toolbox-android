@@ -12,9 +12,9 @@ import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.platform.LocalDensity
+import com.xjtu.toolbox.ui.glass.CouiToolbarActionButton
+import com.xjtu.toolbox.ui.glass.tabContentBottomPadding
 import com.xjtu.toolbox.ui.components.GradientAppIcon
-import com.xjtu.toolbox.nav.expandOriginSource
-import com.xjtu.toolbox.nav.rememberExpandOriginSource
 import com.xjtu.toolbox.ui.components.AppCardColor
 import top.yukonga.miuix.kmp.squircle.squircleBackground
 import top.yukonga.miuix.kmp.squircle.squircleClip
@@ -57,17 +57,15 @@ import androidx.compose.ui.unit.dp
 import com.xjtu.toolbox.ui.adaptive.readableWidth
 import com.xjtu.toolbox.ui.glass.*
 import top.yukonga.miuix.kmp.basic.Icon
-import top.yukonga.miuix.kmp.basic.IconButton
-import top.yukonga.miuix.kmp.basic.MiuixScrollBehavior
 import top.yukonga.miuix.kmp.basic.Scaffold
 import top.yukonga.miuix.kmp.basic.Text
-import top.yukonga.miuix.kmp.basic.TopAppBar
-import top.yukonga.miuix.kmp.basic.rememberTopAppBarState
 import top.yukonga.miuix.kmp.icon.MiuixIcons
 import top.yukonga.miuix.kmp.icon.extended.Back
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.utils.overScrollVertical
 import com.xjtu.toolbox.nav.AppRoute
+import com.xjtu.toolbox.nav.rememberSeamlessOrigin
+import com.xjtu.toolbox.ui.glass.rememberCouiTopAppBarScrollBehavior
 
 /**
  * 小游戏合集页。
@@ -83,7 +81,7 @@ fun GamesScreen(
     /** 本端能不能联机（Android 有 BLE ⇒ true；Web 没有⇒ false）。 */
     supportsOnline: Boolean = true,
 ) {
-    val scrollBehavior = MiuixScrollBehavior(rememberTopAppBarState())
+    val scrollBehavior = rememberCouiTopAppBarScrollBehavior()
     androidx.compose.runtime.LaunchedEffect(Unit) { GameSound.prepare() }
 
     // 返回本页时 remember 还在，战绩靠 GameStore.version 失效重读
@@ -164,18 +162,18 @@ fun GamesScreen(
     val glass = rememberPageGlass()
     Scaffold(
         topBar = {
-            TopAppBar(
+            CouiPageTopAppBar(
                 title = "小游戏",
                 largeTitle = "小游戏",
                 // 这页顶栏原来用 background 而非 surface（卡片本身才是 surface），
                 // 玻璃时透明，经典时保持原色，不借 glassBarColor 的默认值
                 color = if (glass != null) Color.Transparent else MiuixTheme.colorScheme.background,
-                modifier = Modifier.glassTopBar(glass),
+                pageBackdrop = couiPageBackdropFor(glass),
                 scrollBehavior = scrollBehavior,
                 navigationIcon = { com.xjtu.toolbox.ui.components.BackButton(onBack) },
                 actions = {
                     // 所有小游戏共用这一个音效开关
-                    IconButton(onClick = { GameSound.enabled = !GameSound.enabled }) {
+                    CouiToolbarActionButton(onClick = { GameSound.enabled = !GameSound.enabled }) {
                         Icon(
                             if (GameSound.enabled) Icons.AutoMirrored.Filled.VolumeUp else Icons.AutoMirrored.Filled.VolumeOff,
                             contentDescription = if (GameSound.enabled) "关闭游戏音效" else "打开游戏音效",
@@ -196,7 +194,7 @@ fun GamesScreen(
                     .fillMaxSize()
                     .nestedScroll(scrollBehavior.nestedScrollConnection)
                     .overScrollVertical()
-                    .verticalScroll(rememberScrollState())
+                    .verticalScroll(com.xjtu.toolbox.ui.glass.rememberReportedScrollState(scrollBehavior)).tabContentBottomPadding()
                     .padding(horizontal = 16.dp),
             ) {
                 Spacer(Modifier.height(glassTop + 8.dp))
@@ -278,22 +276,19 @@ private fun battleRecord(
  */
 @Composable
 private fun ArcadeCard(entry: GameEntry, onClick: () -> Unit, modifier: Modifier = Modifier) {
-    val origin = rememberExpandOriginSource()
-    val density = LocalDensity.current
+    // ROM 支持时从这张卡一镜到底；不支持就普通打开，不做 Compose 放大
+    val origin = rememberSeamlessOrigin(26.dp, composeFallback = false)
     val top = lerp(entry.color, Color.White, 0.18f)
     val bottom = lerp(entry.color, Color.Black, 0.18f)
     Box(
         modifier
-            .expandOriginSource(origin)
+            .then(origin.modifier)
             .squircleClip(26.dp)
             .background(Brush.linearGradient(listOf(top, entry.color, bottom)))
             .clickable(
                 interactionSource = remember { MutableInteractionSource() },
                 indication = SinkFeedback(),
-                onClick = {
-                    origin.arm(entry.route.id, 26.dp, density)
-                    onClick()
-                },
+                onClick = { origin.open(entry.route, onClick) },
             ),
     ) {
         Icon(
@@ -336,20 +331,17 @@ private fun ArcadeCard(entry: GameEntry, onClick: () -> Unit, modifier: Modifier
 /** 棋类一行：App 式渐变图标、名称与说明、对局方式标签，右侧战绩。 */
 @Composable
 private fun BoardGameRow(entry: GameEntry, onClick: () -> Unit) {
-    val origin = rememberExpandOriginSource()
-    val density = LocalDensity.current
+    // ROM 支持时从这一行一镜到底；不支持就普通打开，不做 Compose 放大
+    val origin = rememberSeamlessOrigin(18.dp, composeFallback = false)
     val muted = MiuixTheme.colorScheme.onSurfaceVariantSummary
     Row(
         Modifier
             .fillMaxWidth()
-            .expandOriginSource(origin)
+            .then(origin.modifier)
             .clickable(
                 interactionSource = remember { MutableInteractionSource() },
                 indication = SinkFeedback(),
-                onClick = {
-                    origin.arm(entry.route.id, 18.dp, density)
-                    onClick()
-                },
+                onClick = { origin.open(entry.route, onClick) },
             )
             .padding(horizontal = 14.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,

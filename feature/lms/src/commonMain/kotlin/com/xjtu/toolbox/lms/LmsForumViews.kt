@@ -1,5 +1,6 @@
 package com.xjtu.toolbox.lms
 
+import com.xjtu.toolbox.ui.glass.tabContentPadding
 import com.xjtu.toolbox.platform.Log
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
@@ -28,6 +29,7 @@ import com.xjtu.toolbox.html.HtmlContent
 import com.xjtu.toolbox.ui.adaptive.readableWidth
 import com.xjtu.toolbox.ui.components.rememberRetainedLazyListState
 import com.xjtu.toolbox.ui.glass.*
+import com.xjtu.toolbox.ui.glass.rememberCouiTopAppBarScrollBehavior
 import kotlinx.coroutines.launch
 import top.yukonga.miuix.kmp.basic.*
 import top.yukonga.miuix.kmp.theme.MiuixTheme
@@ -356,7 +358,7 @@ internal fun LmsForumTopicDetailPage(
         if (cache.topicReplies[topic.id] == null) loadReplies()
     }
 
-    val scrollBehavior = MiuixScrollBehavior(rememberTopAppBarState())
+    val scrollBehavior = rememberCouiTopAppBarScrollBehavior()
     val glass = rememberPageGlass()
 
     Scaffold(
@@ -377,10 +379,11 @@ internal fun LmsForumTopicDetailPage(
                 .glassSource(glass)
                 .nestedScroll(scrollBehavior.nestedScrollConnection)
         ) {
+            com.xjtu.toolbox.ui.glass.ReportScrollPosition(listState, scrollBehavior)
             LazyColumn(
                 state = listState,
                 modifier = Modifier.fillMaxSize().readableWidth(),
-                contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = glassTop + 12.dp, bottom = 24.dp)
+                contentPadding = tabContentPadding(PaddingValues(start = 16.dp, end = 16.dp, top = glassTop + 12.dp, bottom = 24.dp))
             ) {
                 // 主帖卡片
                 item(key = "topic_main") {
@@ -475,7 +478,7 @@ internal fun LmsForumTopicDetailPage(
                         item(key = "replies_empty") {
                             Box(Modifier.fillMaxWidth().padding(24.dp), contentAlignment = Alignment.Center) {
                                 Text(
-                                    "暂无回复，快来抢沙发吧~",
+                                    "暂无回复",
                                     fontSize = 14.sp,
                                     color = MiuixTheme.colorScheme.onSurfaceVariantSummary
                                 )

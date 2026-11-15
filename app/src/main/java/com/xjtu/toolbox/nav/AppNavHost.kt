@@ -16,6 +16,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -23,6 +24,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
@@ -40,7 +42,9 @@ import com.xjtu.toolbox.attendance.AttendanceScreen
 import com.xjtu.toolbox.attendance.AppAttendanceSource
 import com.xjtu.toolbox.auth.AppLoginState
 import com.xjtu.toolbox.auth.SiteSession
+import com.xjtu.toolbox.auth.ensureSite
 import com.xjtu.toolbox.browser.BrowserScreen
+import com.xjtu.toolbox.bulletin.NoticeDetailScreen
 import com.xjtu.toolbox.calendar.SchoolCalendarScreen
 import com.xjtu.toolbox.card.AppCampusCardSource
 import com.xjtu.toolbox.card.appCampusCardStore
@@ -65,7 +69,6 @@ import com.xjtu.toolbox.faculty.FacultyApiSource
 import com.xjtu.toolbox.faculty.FacultyAvatar
 import com.xjtu.toolbox.faculty.FacultyScreen
 import com.xjtu.toolbox.feedback.AppFeedbackSource
-import com.xjtu.toolbox.feedback.FeedbackScreen
 import com.xjtu.toolbox.fitness.FitnessScreen
 import com.xjtu.toolbox.game.GamesScreen
 import com.xjtu.toolbox.game.g2048.Gpa2048Screen
@@ -84,7 +87,6 @@ import com.xjtu.toolbox.jiaocai.AppJiaocaiScreen
 import com.xjtu.toolbox.jiaocai1.Jiaocai1ReaderScreen
 import com.xjtu.toolbox.jiaocai1.AppJiaocai1ShelfStore
 import com.xjtu.toolbox.jiaocai1.AppJiaocai1Source
-import com.xjtu.toolbox.judge.GraduateJudgeScreen
 import com.xjtu.toolbox.judge.JudgeScreen
 import com.xjtu.toolbox.jwapp.AppJwappScoreSource
 import com.xjtu.toolbox.jwapp.JwappScoreScreen
@@ -106,10 +108,7 @@ import com.xjtu.toolbox.notification.AppNoticeSource
 import com.xjtu.toolbox.notification.NotificationScreen
 import com.xjtu.toolbox.schedule.AppSchoolCourseSource
 import com.xjtu.toolbox.schedule.SchoolCourseScreen
-import com.xjtu.toolbox.score.ScoreReportScreen
 import com.xjtu.toolbox.platform.keyValueStore
-import com.xjtu.toolbox.score.appScoreReportCache
-import com.xjtu.toolbox.score.scoreReportSource
 import com.xjtu.toolbox.settings.SettingsScreen
 import com.xjtu.toolbox.settings.SettingsStore
 import com.xjtu.toolbox.settings.rememberAppSettingsHost
@@ -125,6 +124,7 @@ import com.xjtu.toolbox.yellowpage.appYellowPageApi
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
+import top.yukonga.miuix.kmp.nav.core.LocalNavTransitionScope
 import top.yukonga.miuix.kmp.nav.core.NavBackStack
 import top.yukonga.miuix.kmp.nav.core.NavDisplay
 import top.yukonga.miuix.kmp.nav.core.NavEntryBuilder
@@ -146,6 +146,29 @@ class AppPageDeps(
 )
 
 /**
+ * 这个路由能不能在一镜到底的独立 Activity 宿主（`SeamlessPageActivity`）里单独画：
+ * 只有 [appPageEntries] 注册过 entry 的页面才行；`Main` 是栈底、`PaymentCode` 是 AppRoot 的覆盖层，都不算。
+ */
+fun isStandaloneHostable(route: AppRoute): Boolean = when (route) {
+    is AppRoute.Main, is AppRoute.PaymentCode, is AppRoute.Schedule, is AppRoute.Agent, is AppRoute.Zyxf -> false
+    is AppRoute.Lms, is AppRoute.Jiaocai1Reader, is AppRoute.Browser, is AppRoute.CommunityPost, is AppRoute.NoticeDetail -> true
+    else -> route in standaloneHostedRoutes
+}
+
+/** [appPageEntries] 里以 data object 形式注册过的页面（带参数的上面单独判断）。 */
+private val standaloneHostedRoutes: Set<AppRoute> = setOf(
+    AppRoute.EmptyRoom, AppRoute.Notification, AppRoute.Attendance, AppRoute.Judge,
+    AppRoute.JwappScore, AppRoute.Library, AppRoute.CampusCard, AppRoute.Coupon,
+    AppRoute.Transcript, AppRoute.Venue, AppRoute.DownloadManager, AppRoute.Jiaocai,
+    AppRoute.Jiaocai1, AppRoute.SchoolCourse, AppRoute.SchoolCalendar, AppRoute.YellowPage, AppRoute.CampusBus, AppRoute.DegreeProgress,
+    AppRoute.Fitness, AppRoute.Iclassface, AppRoute.Settings, AppRoute.Inbox, AppRoute.QrScan,
+    AppRoute.Community, AppRoute.Faculty, AppRoute.Accounts, AppRoute.WebVpnConverter,
+    AppRoute.Games, AppRoute.Game2048, AppRoute.GameMerge, AppRoute.GameBlocks,
+    AppRoute.GameHop, AppRoute.GameGomoku, AppRoute.GameGo, AppRoute.GameXiangqi,
+    AppRoute.Match,
+)
+
+/**
  * 返回栈：栈底是主界面，其余子页见 [appPageEntries]。转场用 miuix-nav 默认，首页格子进来的页面从那一格放大。
  *
  * @param mainContent 栈底的主界面
@@ -162,7 +185,27 @@ fun AppNavHost(
     val back: () -> Unit = deps.router::back
     Box(Modifier.fillMaxSize()) {
         NavDisplay(backStack = backStack, onBack = back) {
-            entry<AppRoute.Main> { mainContent() }
+            entry<AppRoute.Main> {
+                val navScope = LocalNavTransitionScope.current
+                // 上面的页缩回去时还算盖着，落定才恢复
+                val covered by remember(navScope) { derivedStateOf { navScope.relativeDepth > 0.001f } }
+                Box(Modifier.fillMaxSize()) {
+                    // 被上面的页盖住时算不可见：液态背景这些循环动画要停下，
+                    // 否则它每帧都让整页玻璃重画，正好和转场抢时间
+                    androidx.compose.runtime.CompositionLocalProvider(
+                        com.xjtu.toolbox.ui.components.LocalPageVisible provides (backStack.size <= 1 && !covered),
+                    ) { mainContent() }
+                    // 压暗由这一页被盖住的深度现算：页面落定时深度必为 0，不会残留
+                    Box(
+                        Modifier.fillMaxSize().drawBehind {
+                            if (!ExpandOrigins.coveredFromOrigin.value) return@drawBehind
+                            // 跟飞回那一块的进度走（见 recedeDepth），落地时正好不压暗，不在结束那帧一下子变亮
+                            val dim = ButtonZoom.RECEDE_DIM * ButtonZoom.recedeDepth(navScope.relativeDepth).coerceIn(0f, 1f)
+                            if (dim > 0f) drawRect(androidx.compose.ui.graphics.Color.Black.copy(alpha = dim))
+                        },
+                    )
+                }
+            }
             appPageEntries(deps, back) { type -> expandTransitions.getOrPut(type) { expandFromOrigin(type, screenCornerPx) } }
         }
         ExpandOriginPopOverlay(screenCornerPx)
@@ -224,7 +267,12 @@ fun NavEntryBuilder.appPageEntries(
             )
         }
         entry<AppRoute.Notification>(transition = expand(AppRoute.Notification::class)) {
-            NotificationScreen(source = remember { AppNoticeSource() }, onBack = back, onNavigate = router::open)
+            NotificationScreen(
+                source = remember { AppNoticeSource() },
+                onBack = back,
+                onNavigate = router::open,
+                onAskAgent = { sendToPidai(it, router::open) },
+            )
         }
         entry<AppRoute.Attendance>(transition = expand(AppRoute.Attendance::class)) {
             val attendanceContext = LocalContext.current
@@ -247,7 +295,6 @@ fun NavEntryBuilder.appPageEntries(
                 source = scoreSource,
                 studentId = loginState.activeUsername,
                 onBack = back,
-                onOpenReport = { router.open(AppRoute.ScoreReport) },
                 // 成绩单只有本科生的流程，研究生不显示入口
                 onOpenTranscript = if (loginState.accountType == AccountType.UNDERGRADUATE) { { router.open(AppRoute.Transcript) } } else null,
                 jwxt = scoreSource,
@@ -257,12 +304,7 @@ fun NavEntryBuilder.appPageEntries(
             )
         }
         entry<AppRoute.Judge>(transition = expand(AppRoute.Judge::class)) {
-            val sm = loginState.sessionManager
-            when {
-                sm == null -> LaunchedEffect(Unit) { back() }
-                isPostgraduateSession() -> GraduateJudgeScreen(sessionManager = sm, onBack = back)
-                else -> WithSite("jwxt") { JudgeScreen(site = it, username = loginState.activeUsername, onBack = back) }
-            }
+            WithSite("qms") { JudgeScreen(site = it, onBack = back) }
         }
         entry<AppRoute.Library>(transition = expand(AppRoute.Library::class)) {
             val libraryContext = LocalContext.current
@@ -270,7 +312,11 @@ fun NavEntryBuilder.appPageEntries(
                 val hintPrefs = remember(libraryContext) {
                     libraryContext.getSharedPreferences("feature_hints", Context.MODE_PRIVATE)
                 }
+                // 页内扫一扫：扫码层盖在图书馆页上，扫到座位码交回页面定位（null = 没在扫）
+                var onScannedSeat by remember { mutableStateOf<((com.xjtu.toolbox.library.LibraryFocus.Target) -> Unit)?>(null) }
+                Box(Modifier.fillMaxSize()) {
                 LibraryScreen(
+                    onScan = { onSeat -> onScannedSeat = onSeat },
                     source = remember(site) { AppLibrarySource(site, libraryContext) },
                     onBack = back,
                     onBookingChanged = { LibraryStatus.publish(libraryContext, it) },
@@ -295,6 +341,23 @@ fun NavEntryBuilder.appPageEntries(
                     showFirstUseHint = !hintPrefs.getBoolean("library_hint_shown", false),
                     onFirstUseHintRead = { hintPrefs.edit().putBoolean("library_hint_shown", true).apply() },
                 )
+                onScannedSeat?.let { onSeat ->
+                    com.xjtu.toolbox.qrlogin.QrLoginScreen(
+                        sessionManager = loginState.sessionManager,
+                        onBack = { onScannedSeat = null },
+                        onLibrarySeat = { qr ->
+                            onScannedSeat = null
+                            onSeat(
+                                com.xjtu.toolbox.library.LibraryFocus.Target(
+                                    campusId = com.xjtu.toolbox.library.LibraryQrArea.campusOf(qr.areaCode).id,
+                                    areaCode = qr.areaCode,
+                                    seatId = qr.seat,
+                                ),
+                            )
+                        },
+                    )
+                }
+                }
             }
         }
         entry<AppRoute.CampusCard>(transition = expand(AppRoute.CampusCard::class)) {
@@ -314,7 +377,7 @@ fun NavEntryBuilder.appPageEntries(
                     couponStat = {
                         withContext(Dispatchers.IO) {
                             HomeStats.pushed(cardContext, AppRoute.Coupon)?.let { stat ->
-                                CouponEntryStat(stat.value, stat.detail)
+                                CouponEntryStat(stat.value, stat.detail, stat.count ?: 0)
                             }
                         }
                     },
@@ -328,19 +391,10 @@ fun NavEntryBuilder.appPageEntries(
                 CouponScreen(
                     source = remember(site) { AppCouponSource(site) },
                     onBack = back,
-                    onSummary = { value, detail -> HomeStats.push(couponContext, AppRoute.Coupon, value, detail) },
-                )
-            }
-        }
-        entry<AppRoute.ScoreReport>(transition = expand(AppRoute.ScoreReport::class)) {
-            WithSite("jwxt") { site ->
-                val scoreContext = LocalContext.current
-                val studentId = loginState.activeUsername
-                ScoreReportScreen(
-                    source = remember(site, studentId) { scoreReportSource(site, studentId) },
-                    onBack = back,
-                    cache = remember(loginState.accountId, studentId) {
-                        appScoreReportCache(scoreContext, loginState.accountId.takeIf { it.isNotEmpty() }, studentId)
+                    onSummary = { value, detail, count ->
+                        // 只查了一类时张数不全，沿用上次算全的那个数（后台刷新会再算准）
+                        val badge = count ?: HomeStats.pushed(couponContext, AppRoute.Coupon)?.count
+                        HomeStats.push(couponContext, AppRoute.Coupon, value, detail, count = badge)
                     },
                 )
             }
@@ -356,7 +410,6 @@ fun NavEntryBuilder.appPageEntries(
             }
         }
         entry<AppRoute.Venue>(transition = expand(AppRoute.Venue::class)) {
-            // 「自动识别验证码」每次预订现读设置，lambda 用 `remember` 稳住。
             val context = LocalContext.current
             val hintPrefs = remember(context) {
                 context.getSharedPreferences("feature_hints", Context.MODE_PRIVATE)
@@ -366,9 +419,6 @@ fun NavEntryBuilder.appPageEntries(
                     source = remember(site) { AppVenueSource(site) },
                     onBack = back,
                     onOpenBrowser = { url, then -> router.open(AppRoute.Browser(url, then)) },
-                    autoSolveCaptcha = remember(credentialStore) {
-                        { credentialStore.venueAutoSolveCaptchaEnabled }
-                    },
                     captchaHost = VenueSlideCaptchaHost,
                     showFirstUseHint = !hintPrefs.getBoolean("venue_hint_shown", false),
                     onFirstUseHintRead = { hintPrefs.edit().putBoolean("venue_hint_shown", true).apply() },
@@ -379,12 +429,21 @@ fun NavEntryBuilder.appPageEntries(
             AppDownloadManagerScreen(onBack = back)
         }
         entry<AppRoute.Lms>(transition = expand(AppRoute.Lms::class)) { route ->
-            WithSite("lms") { site ->
+            val manager = loginState.sessionManager
+            if (manager == null) {
+                LaunchedEffect(Unit) { back() }
+            } else {
                 val lmsContext = LocalContext.current
                 val accountId = loginState.accountId
                 val hintPrefs = remember { lmsContext.getSharedPreferences("feature_hints", Context.MODE_PRIVATE) }
                 LmsScreen(
-                    source = remember(site) { AppLmsSource(site, AppLmsSink(lmsContext)) },
+                    // 第一次取数时才登录，页面不用等
+                    source = remember(manager) {
+                        AppLmsSource.lazy(
+                            { manager.ensureSite(requireNotNull(route.loginType), userInitiated = true) },
+                            AppLmsSink(lmsContext),
+                        )
+                    },
                     onBack = back,
                     initialCourseId = route.courseId,
                     initialActivityId = route.activityId,
@@ -392,6 +451,7 @@ fun NavEntryBuilder.appPageEntries(
                     showFirstUseHint = !hintPrefs.getBoolean("lms_hint_shown", false),
                     onFirstUseHintRead = { hintPrefs.edit().putBoolean("lms_hint_shown", true).apply() },
                     videoPlayer = AndroidVideoPlayerHost,
+                    onAskAgent = { sendToPidai(it, router::open) },
                 )
             }
         }
@@ -464,11 +524,35 @@ fun NavEntryBuilder.appPageEntries(
                 errorText = { FriendlyError.of(it, "加载") },
             )
         }
+        entry<AppRoute.DegreeProgress>(transition = expand(AppRoute.DegreeProgress::class)) {
+            val degreeContext = LocalContext.current
+            val degreeSource = remember(loginState.sessionManager) {
+                loginState.sessionManager?.let { com.xjtu.toolbox.degree.appDegreeSource(degreeContext, it) }
+            }
+            if (degreeSource != null) {
+                com.xjtu.toolbox.degree.DegreeScreen(
+                    source = degreeSource,
+                    onBack = back,
+                    onAskAgent = { sendToPidai(it, router::open) },
+                )
+            }
+        }
+        entry<AppRoute.CampusBus>(transition = expand(AppRoute.CampusBus::class)) {
+            com.xjtu.toolbox.bus.BusScreen(source = com.xjtu.toolbox.bus.appBusApi, onBack = back)
+        }
         entry<AppRoute.Fitness>(transition = expand(AppRoute.Fitness::class)) {
+            val fitnessContext = LocalContext.current
+            val account = loginState.accountId.takeIf { it.isNotEmpty() }
             WithSite("fitness") { site ->
                 FitnessScreen(
                     source = remember(site) { com.xjtu.toolbox.fitness.FitnessApi(site) },
                     onBack = back,
+                    onScoreLoaded = { year, score ->
+                        val stat = com.xjtu.toolbox.home.fitnessHomeStat(year.name, score)
+                        HomeStats.push(fitnessContext, AppRoute.Fitness, stat.value, stat.detail, account, stat.lines)
+                        HomeStats.markFetched(fitnessContext, AppRoute.Fitness, account)
+                        com.xjtu.toolbox.home.HomeSignals.bumpStatsVersion()
+                    },
                 )
             }
         }
@@ -499,6 +583,7 @@ fun NavEntryBuilder.appPageEntries(
                     null
                 },
                 extraCookieDomains = listOfNotNull(host, destinationHost),
+                onAskAgent = { sendToPidai(it, router::open) },
                 onBack = back,
             )
         }
@@ -508,6 +593,16 @@ fun NavEntryBuilder.appPageEntries(
                 host = rememberAppSettingsHost(
                     credentialStore = credentialStore,
                     onNetworkModeChanged = { loginState.onNetworkChanged() },
+                    agentPage = { onAgentBack ->
+                        val agentContext = androidx.compose.ui.platform.LocalContext.current
+                        com.xjtu.toolbox.agent.AgentSettingsStandalone(
+                            host = remember(agentContext, loginState) {
+                                com.xjtu.toolbox.agent.AndroidAgentHost(agentContext, loginState)
+                            },
+                            onBack = onAgentBack,
+                            appearanceSection = { com.xjtu.toolbox.agent.PidaiAppearancePanel() },
+                        )
+                    },
                 ),
                 onBack = back,
             )
@@ -532,6 +627,41 @@ fun NavEntryBuilder.appPageEntries(
                     )
                     router.open(AppRoute.Agent)
                 },
+                onForwardToAgent = { sendToPidai(it, router::open) },
+                termStart = androidx.compose.runtime.produceState<kotlinx.datetime.LocalDate?>(null, inboxContext) {
+                    value = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                        runCatching {
+                            com.xjtu.toolbox.schedule.ScheduleCache.readCurrentTermSchedule(com.xjtu.toolbox.data.DataCache(inboxContext))?.start
+                        }.getOrNull()
+                    }
+                }.value,
+            )
+        }
+        // 扫一扫：顶栏圆钮的落点。ROM 支持金标联盟一镜到底时由 sharedview.SeamlessPageActivity
+        // 承载这一屏；其余设备由主界面自己的整屏浮层承载（不压这条路由，见 MainScreen 的 onScan）。
+        entry<AppRoute.QrScan>(transition = expand(AppRoute.QrScan::class)) {
+            com.xjtu.toolbox.qrlogin.QrLoginScreen(
+                sessionManager = loginState.sessionManager,
+                onBack = back,
+                onLibrarySeat = { qr ->
+                    com.xjtu.toolbox.library.LibraryFocus.request(
+                        com.xjtu.toolbox.library.LibraryFocus.Target(
+                            campusId = com.xjtu.toolbox.library.LibraryQrArea.campusOf(qr.areaCode).id,
+                            areaCode = qr.areaCode,
+                            seatId = qr.seat,
+                        ),
+                    )
+                    router.open(AppRoute.Library)
+                },
+            )
+        }
+        // 公告详情：首页公告条「查看详情」的落点。ROM 支持金标联盟一镜到底时由
+        // sharedview.SeamlessPageActivity 承载同一个屏；其余设备压这条路由，从公告卡放大进来。
+        entry<AppRoute.NoticeDetail>(transition = expand(AppRoute.NoticeDetail::class)) { route ->
+            NoticeDetailScreen(
+                notice = route,
+                onBack = back,
+                onOpenUrl = { url -> router.open(AppRoute.Browser(url)) },
             )
         }
         entry<AppRoute.Community>(transition = expand(AppRoute.Community::class)) {
@@ -544,22 +674,14 @@ fun NavEntryBuilder.appPageEntries(
                     )
                 },
                 onBack = back,
-                onOpenLegacyFeedback = { router.open(AppRoute.Feedback) },
             )
         }
-        entry<AppRoute.Feedback>(transition = expand(AppRoute.Feedback::class)) {
-            val feedbackContext = LocalContext.current
-            FeedbackScreen(
-                source = AppFeedbackSource,
-                onOpenUrl = { url ->
-                    runCatching {
-                        feedbackContext.startActivity(
-                            Intent(Intent.ACTION_VIEW, Uri.parse(url))
-                                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                        )
-                    }
-                },
+        entry<AppRoute.CommunityPost>(transition = expand(AppRoute.CommunityPost::class)) { route ->
+            CommunityScreen(
+                session = remember { SecureGithubSession.get() },
+                deviceAuth = remember { GithubOAuthDeviceAuthRepository(GithubNetwork.client, CommunityRepo.CLIENT_ID) },
                 onBack = back,
+                discussionNumber = route.number,
             )
         }
         entry<AppRoute.Faculty>(transition = expand(AppRoute.Faculty::class)) {
@@ -618,52 +740,10 @@ fun NavEntryBuilder.appPageEntries(
     }
 }
 
-/**
- * 返回时的源元素叠加层：窗口缩到中段以后，页面内容会让位给真实的图标 / 行块。
- * 外层灰底和窗口尺寸继续按转场的进度缩到原位，所以看不到页面顶栏叠在目标元素上。
- */
+/** 打开和返回都使用同一个源卡片叠加层，与目标页双向渐变。 */
 @Composable
-private fun ExpandOriginPopOverlay(screenCornerPx: Float) {
-    val pop = ExpandOrigins.pop.value ?: return
-    val origin = pop.origin
-    val snapshot = origin.snapshot ?: return
-    val win = ExpandOrigins.windowOf(origin, pop.progress, pop.full)
-    // 0.55 → 0.35：页面渐隐、源元素渐显；之后整个窗口继续缩到原位。
-    val cover = ((0.55f - pop.progress) / 0.2f).coerceIn(0f, 1f)
-    if (cover <= 0f) return
-    val widthPx = win.bounds.width
-    val heightPx = win.bounds.height
-    if (widthPx <= 0f || heightPx <= 0f) return
-
-    val density = LocalDensity.current
-    val surface = MiuixTheme.colorScheme.surface
-    val cornerPx = lerp(origin.cornerPx, screenCornerPx, win.grow)
-    val scale = widthPx / origin.bounds.width.coerceAtLeast(1f)
-    val winWidth = with(density) { widthPx.toDp() }
-    val winHeight = with(density) { heightPx.toDp() }
-    val corner = with(density) { cornerPx.toDp() }
-    val originWidth = with(density) { origin.bounds.width.toDp() }
-    val originHeight = with(density) { origin.bounds.height.toDp() }
-
-    Box(
-        Modifier
-            .offset { IntOffset(win.bounds.left.roundToInt(), win.bounds.top.roundToInt()) }
-            .size(winWidth, winHeight)
-            .clip(RoundedCornerShape(corner))
-            .background(surface.copy(alpha = cover)),
-    ) {
-        Box(
-            Modifier
-                .align(Alignment.Center)
-                .graphicsLayer {
-                    scaleX = scale
-                    scaleY = scale
-                    alpha = cover
-                },
-        ) {
-            snapshot(Modifier.size(originWidth, originHeight))
-        }
-    }
+internal fun ExpandOriginPopOverlay(screenCornerPx: Float) {
+    OriginContentOverlay(screenCornerPx, com.xjtu.toolbox.ui.components.AppCardColor)
 }
 
 /** 等站点会话出现再显示（刚登上时可能晚一两帧注册），约 1.5 秒还没有就 [onTimeout]。 */
@@ -694,6 +774,7 @@ fun AwaitSite(
 
 /** 内置浏览器打开某个站点时带哪套登录会话的 cookie。 */
 private fun siteKeyForHost(host: String): String = when {
+    host == "dzpz.xjtu.edu.cn" -> "dzpz"
     "tyxylp.xjtu.edu.cn" in host -> "fitness"
     "rg.lib.xjtu.edu.cn" in host -> "library"
     "jwapp.xjtu.edu.cn" in host -> "jwapp"
@@ -724,4 +805,13 @@ private fun rememberPickEvidenceFiles(context: Context): suspend () -> List<Pair
         launcher.launch(arrayOf("*/*"))
         deferred.await()
     }
+}
+
+/**
+ * 把通知、活动、网页转给小岱：开新对话，问题填进输入框、页面内容挂成「附带」标签，
+ * 由用户自己改一改再点发送（不替他发）。
+ */
+private fun sendToPidai(forward: com.xjtu.toolbox.agent.AgentForward, open: (AppRoute) -> Unit) {
+    com.xjtu.toolbox.agent.AgentPendingPrompt.set(forward.text, snapshot = forward.snapshot, draftOnly = true, label = forward.label)
+    open(AppRoute.Agent)
 }

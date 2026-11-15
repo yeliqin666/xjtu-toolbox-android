@@ -18,7 +18,7 @@ import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalView
 
 /**
- * 降级链（§11.2）：`VibrationEffect.startComposition()`（minSdk=31 全覆盖，不需要版本判断）
+ * 降级链（§11.2）：`VibrationEffect.startComposition()`
  * 探测到的基本振动 → `View.performHapticFeedback` → Compose 自己的 `LocalHapticFeedback`。
  * 不同厂商支持的基本振动不一样，第一层的探测结果只和硬件有关、不会中途变化，缓存在进程里。
  */

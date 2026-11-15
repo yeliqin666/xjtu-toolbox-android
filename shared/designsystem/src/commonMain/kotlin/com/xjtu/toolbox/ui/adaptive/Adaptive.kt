@@ -31,6 +31,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import com.xjtu.toolbox.ui.glass.tabContentPadding
 import com.xjtu.toolbox.ui.isWideLayout
 import top.yukonga.miuix.kmp.basic.VerticalDivider
 
@@ -89,6 +90,8 @@ fun AdaptiveCardGrid(
     content: LazyStaggeredGridScope.() -> Unit,
 ) {
     val wide = isWideLayout()
+    // 实际滚动位置报给本页顶栏（按钮轮廓、折叠状态都按它）；外面没有顶栏时不报
+    com.xjtu.toolbox.ui.glass.ReportScrollPosition(state)
     LazyVerticalStaggeredGrid(
         columns = if (wide) StaggeredGridCells.Adaptive(minColumnWidth) else StaggeredGridCells.Fixed(1),
         modifier = if (wide) {
@@ -97,7 +100,7 @@ fun AdaptiveCardGrid(
             modifier
         },
         state = state,
-        contentPadding = contentPadding,
+        contentPadding = tabContentPadding(contentPadding),
         verticalItemSpacing = spacing,
         horizontalArrangement = Arrangement.spacedBy(horizontalSpacing),
         content = content,
@@ -124,6 +127,7 @@ fun AdaptiveRowGrid(
     content: LazyGridScope.() -> Unit,
 ) {
     val wide = isWideLayout()
+    com.xjtu.toolbox.ui.glass.ReportScrollPosition(state)
     LazyVerticalGrid(
         columns = if (wide) GridCells.Adaptive(minColumnWidth) else GridCells.Fixed(1),
         modifier = if (wide) {
@@ -132,7 +136,7 @@ fun AdaptiveRowGrid(
             modifier
         },
         state = state,
-        contentPadding = contentPadding,
+        contentPadding = tabContentPadding(contentPadding),
         verticalArrangement = Arrangement.spacedBy(spacing),
         horizontalArrangement = Arrangement.spacedBy(horizontalSpacing),
         content = content,

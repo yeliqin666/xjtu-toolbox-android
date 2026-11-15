@@ -21,6 +21,8 @@ import androidx.compose.ui.unit.dp
 import com.xjtu.toolbox.archive.ArchiveImportMode
 import com.xjtu.toolbox.settings.ChangelogEntry
 import com.xjtu.toolbox.settings.ScheduleSourceOption
+import com.xjtu.toolbox.settings.SettingsColors
+import com.xjtu.toolbox.settings.SettingsIcon
 import com.xjtu.toolbox.settings.SettingsHost
 import com.xjtu.toolbox.settings.SettingsRow
 import top.yukonga.miuix.kmp.basic.Card
@@ -46,6 +48,7 @@ internal class WebSettingsHost(
             SettingsRow.DARK_MODE,
             SettingsRow.DYNAMIC_COLOR,
             SettingsRow.HOME_HERO,
+            SettingsRow.HOME_SETTINGS,
             SettingsRow.DEFAULT_TAB,
             SettingsRow.NAV_STYLE,
         )
@@ -67,9 +70,8 @@ internal class WebSettingsHost(
 
     /** Web 端暂不支持的设置说明。 */
     override val gapNote: String =
-        "网页版没有这些设置（要调请用 App）：常用功能、连接模式、考勤角标、场馆验证码" +
-            "——常用功能是手机首页上的快捷入口，网页外壳另做了一层；场馆验证码要靠图片解码，" +
-            "而本端那个解码恒空（`WebSlideCaptchaHost`），停在手动滑动那一档。" +
+        "网页版没有这些设置（要调请用 App）：常用功能、连接模式、考勤角标" +
+            "——常用功能是手机首页上的快捷入口，网页外壳另做了一层。" +
             "课表来源只有教务一个：考勤那一路要站点会话，serve 端还没有转发。" +
             "这里也没有「通知与提醒」和「更新」两组——网页版随 serve 一起更新，没有单独的更新通道；" +
             "提醒能不能弹，看这个站点有没有拿到浏览器通知权限。"
@@ -89,13 +91,13 @@ private fun WebDataPrivacySection(archive: WebArchiveActions) {
         ArrowPreference(
             title = "导出数据存档",
             summary = "把本机数据打包成 zip 下载（不含密码等凭据）",
-            startAction = { WebSettingsIcon(Icons.Default.Upload) },
+            startAction = { SettingsIcon(Icons.Default.Upload, SettingsColors.Teal) },
             onClick = { archive.export() },
         )
         ArrowPreference(
             title = "导入数据存档",
             summary = "选一份 zip 档案读进来（先自校验，默认不覆盖本机数据）",
-            startAction = { WebSettingsIcon(Icons.Default.Download) },
+            startAction = { SettingsIcon(Icons.Default.Download, SettingsColors.Blue) },
             onClick = {
                 archive.mode = ArchiveImportMode.MERGE
                 archive.choose()
@@ -113,22 +115,6 @@ private fun WebDataPrivacySection(archive: WebArchiveActions) {
 
     // 有待确认的导入 ⇒ 弹窗选档（默认档恒为 MERGE）；确认调 confirm()、取消调 cancel()。
     if (archive.pending) WebArchiveImportDialog(archive)
-}
-
-/** 设置页一行左侧的图标（与 `:core` 设置屏的 `SettingsIcon` 同一视觉）。 */
-@Composable
-private fun WebSettingsIcon(icon: ImageVector) {
-    val color = MiuixTheme.colorScheme.primary
-    Surface(
-        shape = CircleShape,
-        color = color.copy(alpha = 0.12f),
-        modifier = Modifier.size(32.dp),
-    ) {
-        Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
-            Icon(icon, contentDescription = null, modifier = Modifier.size(18.dp), tint = color)
-        }
-    }
-    Spacer(Modifier.width(12.dp))
 }
 
 /** 设置页分组卡片的外壳（与共享屏的私有 `SettingsCard` 一致）。 */

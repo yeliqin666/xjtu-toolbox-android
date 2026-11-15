@@ -70,7 +70,7 @@ class JudgeViewModel<Q>(private val source: JudgeSource<Q>) : ViewModel() {
         isAutoJudging = true
         total = list.size
         progress = 0
-        autoJudgeMessage = "正在准备..."
+        autoJudgeMessage = "正在准备…"
         viewModelScope.launch {
             var failed = 0
             var lastError = ""

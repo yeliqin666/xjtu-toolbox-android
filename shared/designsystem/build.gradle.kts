@@ -14,6 +14,8 @@ kotlin {
             implementation(libs.androidx.graphics.shapes)
             implementation(libs.androidx.core.ktx)
             implementation(libs.androidx.activity.compose)
+            // COUI 底栏（ui.glass.coui）的弹簧与附件收放动画
+            implementation(libs.androidx.dynamicanimation)
         }
         wasmJsMain.dependencies {
             implementation(libs.kotlinx.browser)

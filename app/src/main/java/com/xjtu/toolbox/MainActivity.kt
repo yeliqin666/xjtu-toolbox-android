@@ -13,12 +13,16 @@ import androidx.activity.ComponentActivity
 import androidx.activity.SystemBarStyle
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
+import androidx.compose.ui.Modifier
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.lifecycleScope
 import com.xjtu.toolbox.agent.AgentPendingPrompt
+import com.xjtu.toolbox.account.AccountContext
+import com.xjtu.toolbox.account.restoreIfNeeded
 import com.xjtu.toolbox.agent.PidaiAppearanceHost
 import com.xjtu.toolbox.agent.attachAgentImage
 import com.xjtu.toolbox.auth.SessionKeepAlive
@@ -29,6 +33,7 @@ import com.xjtu.toolbox.main.BottomTab
 import com.xjtu.toolbox.nav.AppRoute
 import com.xjtu.toolbox.nav.DeepLinkRouter
 import com.xjtu.toolbox.nav.appRouteOf
+import com.xjtu.toolbox.ui.glass.coui.menu.ProvideCouiMenuBackdrop
 import com.xjtu.toolbox.ui.theme.XJTUToolBoxTheme
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -76,12 +81,16 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
-        installSplashScreen().setKeepOnScreenCondition { !isAppReady }
         super.onCreate(savedInstanceState)
+        // 系统启动屏挡到首帧就绪：之前的帧不画，启动屏就一直留着
+        val content = findViewById<android.view.View>(android.R.id.content)
+        content.viewTreeObserver.addOnPreDrawListener(object : android.view.ViewTreeObserver.OnPreDrawListener {
+            override fun onPreDraw(): Boolean = isAppReady.also { if (it) content.viewTreeObserver.removeOnPreDrawListener(this) }
+        })
         applyOrientationPolicy(resources.configuration)
         com.xjtu.toolbox.agent.AgentLocation.register(this)
         if (savedInstanceState == null) consumeLaunchIntent(intent)
-        // 导航条全透明：默认样式在 API 29–34 上会加一层半透明 scrim，三键导航由系统自己保证对比度
+        // 导航条全透明，三键导航由系统自己保证对比度
         enableEdgeToEdge(
             navigationBarStyle = SystemBarStyle.auto(Color.TRANSPARENT, Color.TRANSPARENT),
         )
@@ -99,13 +108,23 @@ class MainActivity : ComponentActivity() {
                 customColorHex = customColorHex,
                 customDarkColorHex = customDarkColorHex,
             ) {
-                AppRoot(
-                    initialRoute = launchRoute.value,
-                    onInitialRouteConsumed = { launchRoute.value = null },
-                    initialTab = launchTab.value,
-                    onInitialTabConsumed = { launchTab.value = null },
-                    onReady = { isAppReady = true },
-                )
+                // 全窗口采样源：右上角 COUI 菜单的毛玻璃 / 描边材质从这里取被盖住的窗口内容。
+                // 菜单窗口是 Popup，不在采样树里，所以挂在组合根上最稳；isolateContent = false
+                // 是 COUI demo 用的模式（空闲时不强制整窗离屏），内容异常时改单参数版本。
+                ProvideCouiMenuBackdrop(isolateContent = false) { windowSource ->
+                    Box(Modifier.fillMaxSize().then(windowSource)) {
+                        AppRoot(
+                            initialRoute = launchRoute.value,
+                            onInitialRouteConsumed = { launchRoute.value = null },
+                            initialTab = launchTab.value,
+                            onInitialTabConsumed = { launchTab.value = null },
+                            onReady = {
+                                if (!isAppReady) reportFullyDrawn() // 进启动统计（ApplicationStartInfo 的 FULLY_DRAWN）
+                                isAppReady = true
+                            },
+                        )
+                    }
+                }
             }
         }
     }
@@ -113,6 +132,9 @@ class MainActivity : ComponentActivity() {
     override fun onStart() {
         super.onStart()
         SessionKeepAlive.start()
+        lifecycleScope.launch(Dispatchers.IO) { com.xjtu.toolbox.shortcuts.LauncherShortcuts.sync(this@MainActivity) }
+        // 后台预热金标联盟一镜到底的能力探测：首次点击公告卡不再付反射探测的钱。
+        lifecycleScope.launch(Dispatchers.IO) { com.xjtu.toolbox.sharedview.KitOneTake.prewarm() }
     }
 
     override fun onStop() {
@@ -130,6 +152,7 @@ class MainActivity : ComponentActivity() {
     private fun consumeLaunchIntent(intent: Intent?) {
         incomingImages?.cancel()
         val deepLink = intent?.let(DeepLinkRouter::resolve)
+        if (deepLink?.sharedMaterial == true) AccountContext.restoreIfNeeded()
         val extras = intent?.takeIf { it.data == null && it.component?.className != DeepLinkRouter.PIDAI_LINK_ALIAS }
         launchRoute.value = deepLink?.route
             ?: extras?.getStringExtra(EXTRA_LAUNCH_ROUTE)?.let(::appRouteOf)
@@ -143,11 +166,63 @@ class MainActivity : ComponentActivity() {
             ?.let(com.xjtu.toolbox.agent.AgentPushFocus::set)
         launchTab.value = extras?.getStringExtra(EXTRA_LAUNCH_TAB)
             ?.let { name -> BottomTab.entries.firstOrNull { it.name == name } }
-        if (deepLink?.imageUris?.isNotEmpty() == true) importSharedImages(deepLink)
-        else deepLink?.prompt?.let { AgentPendingPrompt.set(it, draftOnly = !deepLink.autoSend) }
+        consumeAskPidaiFromNotice(intent)
+        when {
+            deepLink == null -> Unit
+            deepLink.sharedMaterial -> importSharedMaterial(deepLink)
+            deepLink.imageUris.isNotEmpty() -> importSharedImages(deepLink)
+            else -> deepLink.prompt?.let { AgentPendingPrompt.set(it, draftOnly = !deepLink.autoSend) }
+        }
+    }
+
+    /**
+     * 通知栏的「问小岱」。别名不导出，外部应用进不来，所以可以自动发送（外部深链都只填草稿）。
+     * 读完就摘掉 extra；从最近任务重新打开时不再发一遍，免得重复花钱。
+     */
+    private fun consumeAskPidaiFromNotice(intent: Intent?) {
+        if (intent?.component?.className != DeepLinkRouter.PIDAI_NOTICE_ALIAS) return
+        if (intent.flags and Intent.FLAG_ACTIVITY_LAUNCHED_FROM_HISTORY != 0) return
+        val text = intent.getStringExtra(com.xjtu.toolbox.notification.NoticeNotifier.EXTRA_ASK_TEXT) ?: return
+        val snapshot = intent.getStringExtra(com.xjtu.toolbox.notification.NoticeNotifier.EXTRA_ASK_SNAPSHOT)
+        val inboxIds = intent.getStringArrayExtra(com.xjtu.toolbox.notification.NoticeNotifier.EXTRA_ASK_INBOX_IDS).orEmpty().toList()
+        intent.removeExtra(com.xjtu.toolbox.notification.NoticeNotifier.EXTRA_ASK_TEXT)
+        AccountContext.restoreIfNeeded()
+        // 点按钮不会触发 autoCancel，要自己收
+        androidx.core.app.NotificationManagerCompat.from(this).cancel(com.xjtu.toolbox.notification.NoticeNotifier.NOTIFICATION_ID)
+        com.xjtu.toolbox.inbox.InboxStore.markRead(inboxIds)
+        // 和页内「问小岱」一样：只填进输入框、通知内容挂成「附带」标签，由用户自己发
+        AgentPendingPrompt.set(text, snapshot = snapshot, draftOnly = true, label = "通知")
+        launchRoute.value = com.xjtu.toolbox.nav.AppRoute.Agent
+    }
+
+    private fun importSharedMaterial(target: DeepLinkRouter.DeepLinkTarget) {
+        val account = AccountContext.activeAccountId
+        incomingImages = lifecycleScope.launch {
+            var imported: com.xjtu.toolbox.agent.ImportedAgentShare? = null
+            var delivered = false
+            try {
+                val material = com.xjtu.toolbox.agent.importAgentShare(this@MainActivity, target.prompt.orEmpty(), target.imageUris, target.mimeType)
+                imported = material
+                ensureActive()
+                if (account != AccountContext.activeAccountId) return@launch
+                if (material.text.isNotBlank() || material.images.isNotEmpty()) {
+                    com.xjtu.toolbox.agent.receiveAgentShare(material.text, material.images)
+                    delivered = true
+                }
+                val notice = when {
+                    material.unsupported -> if (delivered) "已导入可读取内容，部分附件暂不支持" else "暂不支持此文件，请分享文字、链接或图片"
+                    target.imageCount > target.imageUris.size -> "已接收前 ${target.imageUris.size} 张图片，每次最多 ${target.imageUris.size} 张"
+                    else -> null
+                }
+                notice?.let { Toast.makeText(this@MainActivity, it, Toast.LENGTH_SHORT).show() }
+            } finally {
+                if (!delivered) imported?.images?.forEach { File(it).delete() }
+            }
+        }
     }
 
     private fun importSharedImages(target: DeepLinkRouter.DeepLinkTarget) {
+        val account = AccountContext.activeAccountId
         incomingImages = lifecycleScope.launch {
             val paths = mutableListOf<String>()
             var delivered = false
@@ -159,15 +234,16 @@ class MainActivity : ComponentActivity() {
                     }
                 }
                 ensureActive()
+                if (account != AccountContext.activeAccountId) return@launch
                 if (paths.isEmpty()) {
                     Toast.makeText(this@MainActivity, "图片读取失败，请重新分享", Toast.LENGTH_SHORT).show()
                 } else {
-                    AgentPendingPrompt.set(target.prompt.orEmpty(), images = paths)
+                    AgentPendingPrompt.set(target.prompt.orEmpty(), images = paths, draftOnly = !target.autoSend)
                     delivered = true
-                    if (target.imageCount > paths.size) Toast.makeText(this@MainActivity,
-                        if (target.imageCount > 4) "已接收前 ${paths.size} 张图片，每次最多 4 张"
-                        else "已接收 ${paths.size} 张图片，其余图片读取失败", Toast.LENGTH_SHORT).show()
                 }
+                if (delivered && target.imageCount > paths.size) Toast.makeText(this@MainActivity,
+                    if (target.imageCount > 4) "已接收前 ${paths.size} 张图片，每次最多 4 张"
+                    else "已接收 ${paths.size} 张图片，其余图片读取失败", Toast.LENGTH_SHORT).show()
             } finally {
                 if (!delivered) paths.forEach { File(it).delete() }
             }

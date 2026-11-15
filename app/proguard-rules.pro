@@ -19,9 +19,6 @@
 # ── flexmark HTML→Markdown（web_fetch，对应 smolagents markdownify）──
 -dontwarn com.vladsch.flexmark.**
 
-# PDFBox 的 JPEG2000 解码器是可选依赖；页面图由系统 PdfRenderer 渲染。
--dontwarn com.gemalto.jp2.JP2Decoder
-
 # ── Kotlin ────────────────────────────
 -keep class kotlin.Metadata { *; }
 -dontwarn kotlin.**
@@ -40,7 +37,8 @@
 # 后果是用户账号被清空，而这个库只有十来个类，删了也省不出体积，不值当冒这个险。
 -keep class androidx.security.crypto.** { *; }
 
-# ── Release 版移除 debug/verbose 日志（安全：避免泄露 token/cookie 信息）──
+# ── 移除 debug/verbose 日志（安全：避免泄露 token/cookie 信息）──
+# release 与 preview 共用：预览版与正式版用同一套 R8 规则。
 -assumenosideeffects class android.util.Log {
     public static int d(...);
     public static int v(...);
@@ -49,6 +47,6 @@
 # ── miuix-nav 返回栈（nav/AppRoute.kt）──
 # 返回栈用 kotlinx.serialization 存进 rememberSaveable，切后台时序列化、进程被杀后读回来。
 # 库自带的规则覆盖了常规写法，这里再显式留住整个路由层级和生成的序列化器当保险：
-# 预览包不混淆，这类问题只会在正式版上才暴露。
+# 预览版与正式版现在用同一套 R8 规则，这类问题能在预览阶段就提前暴露。
 -keep class com.xjtu.toolbox.nav.AppRoute { *; }
 -keep class com.xjtu.toolbox.nav.AppRoute$* { *; }

@@ -1,5 +1,7 @@
 package com.xjtu.toolbox.jwapp
 
+import com.xjtu.toolbox.ui.glass.CouiToolbarActionButton
+import com.xjtu.toolbox.ui.glass.tabContentBottomPadding
 import com.xjtu.toolbox.ui.components.AppPullToRefresh
 import com.xjtu.toolbox.ui.components.FullPageState
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -17,11 +19,7 @@ import top.yukonga.miuix.kmp.basic.Button
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.Surface
 import top.yukonga.miuix.kmp.basic.Icon
-import top.yukonga.miuix.kmp.basic.IconButton
 import top.yukonga.miuix.kmp.basic.Scaffold
-import top.yukonga.miuix.kmp.basic.TopAppBar
-import top.yukonga.miuix.kmp.basic.MiuixScrollBehavior
-import top.yukonga.miuix.kmp.basic.rememberTopAppBarState
 import top.yukonga.miuix.kmp.basic.CircularProgressIndicator
 import top.yukonga.miuix.kmp.basic.LinearProgressIndicator
 import top.yukonga.miuix.kmp.basic.ProgressIndicatorDefaults
@@ -37,8 +35,8 @@ import top.yukonga.miuix.kmp.utils.SinkFeedback
 
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateContentSize
-import androidx.compose.animation.core.Spring
-import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -78,11 +76,16 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.background
 import androidx.compose.foundation.BorderStroke
 import com.xjtu.toolbox.ui.components.AppCardColor
-import com.xjtu.toolbox.ui.components.AppFilterChip
+import com.xjtu.toolbox.ui.components.AppChipTabRow
+import com.xjtu.toolbox.ui.components.AppMultiChipTabRow
 import com.xjtu.toolbox.ui.components.AppSearchBar
 import com.xjtu.toolbox.ui.components.LoadingState
 import com.xjtu.toolbox.ui.components.ErrorState
 import com.xjtu.toolbox.ui.glass.*
+import com.xjtu.toolbox.ui.glass.rememberCouiTopAppBarScrollBehavior
+
+/** 成绩页入场动画覆盖的条数：大约一屏（总结卡、学期标题与十来门课），再往后直接就位。 */
+private const val SCORE_ENTER_MAX = 12
 
 /**
  * 成绩查询。
@@ -95,7 +98,6 @@ fun JwappScoreScreen(
     source: JwappScoreSource?,
     studentId: String = "",
     onBack: () -> Unit,
-    onOpenReport: () -> Unit = {},
     /** 电子成绩单入口；只有本科生传，研究生不传就不显示。 */
     onOpenTranscript: (() -> Unit)? = null,
     jwxt: JwxtScoreSupplement? = null,
@@ -123,6 +125,12 @@ fun JwappScoreScreen(
     // GPA 选课计算模式
     var gpaSelectMode by rememberSaveable { mutableStateOf(false) }
     var selectedCourseIds by rememberSaveable { mutableStateOf<Set<String>>(emptySet()) }
+    // 选择态下返回只退出选择，和顶栏的关闭按钮一样，不离开页面
+    // 成绩页可以放在底栏：切到别的 tab 时不拦
+    com.xjtu.toolbox.platform.BackHandler(enabled = gpaSelectMode && com.xjtu.toolbox.ui.components.LocalPageVisible.current) {
+        gpaSelectMode = false
+        selectedCourseIds = emptySet()
+    }
     val showGpaTips = remember { mutableStateOf(false) }
 
     // 搜索 & 过滤
@@ -196,22 +204,24 @@ fun JwappScoreScreen(
         }
     }
 
-    val scrollBehavior = MiuixScrollBehavior(rememberTopAppBarState())
-    var termMenuExpanded by remember { mutableStateOf(false) }
+    val latestTerm = remember(allTermScores) { ScoreReportFill.latestTerm(allTermScores) }
+    var showReport by remember { mutableStateOf(false) }
+
+    val scrollBehavior = rememberCouiTopAppBarScrollBehavior()
     // 玻璃顶栏（经典风格下为 null，一切照旧），用法见 ui/glass/GlassTopBar.kt
     val glass = rememberPageGlass()
     Scaffold(
         snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
-            TopAppBar(
+            CouiPageTopAppBar(
                 title = if (gpaSelectMode) "选课算 GPA" else "成绩查询",
                 largeTitle = if (gpaSelectMode) "选课算 GPA" else "成绩查询",
                 color = glassBarColor(glass),
-                modifier = Modifier.glassTopBar(glass),
+                pageBackdrop = couiPageBackdropFor(glass),
                 scrollBehavior = scrollBehavior,
                 navigationIcon = {
                     // 放在底栏上时没有上一级，只在选课模式下留「关闭」
-                    if (gpaSelectMode || !com.xjtu.toolbox.ui.glass.LocalTabRoot.current) IconButton(onClick = {
+                    if (gpaSelectMode || !com.xjtu.toolbox.ui.glass.LocalTabRoot.current) CouiToolbarActionButton(onClick = {
                         if (gpaSelectMode) { gpaSelectMode = false; selectedCourseIds = emptySet() }
                         else onBack()
                     }) {
@@ -222,31 +232,32 @@ fun JwappScoreScreen(
                     }
                 },
                 actions = {
-                    // 成绩报表（FR 报表，含加权 GPA）——此前无入口，补回右上角
-                    IconButton(onClick = onOpenReport) {
-                        Icon(Icons.Default.Assessment, contentDescription = "成绩报表")
-                    }
-                    // GPA 映射表
-                    IconButton(onClick = { showGpaTips.value = true }) {
-                        Icon(Icons.Default.Info, contentDescription = "GPA 映射")
-                    }
-                    // 选课算 GPA 切换
-                    if (!gpaSelectMode) {
-                        IconButton(onClick = {
-                            gpaSelectMode = true
-                            // 默认全选当前学期
-                            selectedCourseIds = currentTermScores.map { it.id }.toSet()
-                        }) {
-                            Icon(Icons.Default.Calculate, contentDescription = "选课算GPA")
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(2.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        // GPA 映射表
+                        CouiToolbarActionButton(onClick = { showGpaTips.value = true }) {
+                            Icon(Icons.Default.Info, contentDescription = "GPA 映射")
                         }
-                    } else {
-                        // 全选/取消当前筛选范围内的课程
-                        IconButton(onClick = {
-                            val filteredIds = filteredScores.map { it.id }.toSet()
-                            val allFilteredSelected = filteredIds.isNotEmpty() && filteredIds.all { it in selectedCourseIds }
-                            selectedCourseIds = if (allFilteredSelected) selectedCourseIds - filteredIds else selectedCourseIds + filteredIds
-                        }) {
-                            Icon(Icons.Default.SelectAll, contentDescription = "全选当前")
+                        // 选课算 GPA 切换
+                        if (!gpaSelectMode) {
+                            CouiToolbarActionButton(onClick = {
+                                gpaSelectMode = true
+                                // 默认全选当前学期
+                                selectedCourseIds = currentTermScores.map { it.id }.toSet()
+                            }) {
+                                Icon(Icons.Default.Calculate, contentDescription = "选课算GPA")
+                            }
+                        } else {
+                            // 全选/取消当前筛选范围内的课程
+                            CouiToolbarActionButton(onClick = {
+                                val filteredIds = filteredScores.map { it.id }.toSet()
+                                val allFilteredSelected = filteredIds.isNotEmpty() && filteredIds.all { it in selectedCourseIds }
+                                selectedCourseIds = if (allFilteredSelected) selectedCourseIds - filteredIds else selectedCourseIds + filteredIds
+                            }) {
+                                Icon(Icons.Default.SelectAll, contentDescription = "全选当前")
+                            }
                         }
                     }
                 }
@@ -255,6 +266,17 @@ fun JwappScoreScreen(
     ) { padding ->
         // GPA 映射表弹窗
         GpaMappingDialog(show = showGpaTips)
+        // miuix 的抽屉要挂在 Scaffold 底下才画得出来
+        ReportSheet(
+            show = showReport,
+            termName = termList.firstOrNull { it.first == latestTerm }?.second.orEmpty(),
+            grades = vm.reportGrades,
+            filled = vm.reportFilled.values.toSet(),
+            loading = vm.reportLoading,
+            failed = vm.reportFailed,
+            onRetry = { vm.loadReport(force = true) },
+            onDismiss = { showReport = false },
+        )
 
         // 内容铺到顶栏下面，顶部留白放进各个列表里；下拉指示器也从顶栏下面出来
         val glassTop = padding.glassTop(glass)
@@ -263,7 +285,7 @@ fun JwappScoreScreen(
                 FullPageState(
                     Modifier.fillMaxSize().padding(padding.withoutTop(glass)).glassSource(glass),
                     contentPadding = PaddingValues(top = glassTop),
-                ) { LoadingState(message = "正在加载成绩数据...", modifier = Modifier.fillMaxSize()) }
+                ) { LoadingState(message = "正在加载成绩数据…", modifier = Modifier.fillMaxSize()) }
             }
 
             vm.errorMessage != null -> {
@@ -326,108 +348,52 @@ fun JwappScoreScreen(
                     onOpenTranscript?.let { open ->
                         fullLineItem { com.xjtu.toolbox.ui.components.SecondaryEntry(
                             androidx.compose.material.icons.Icons.Default.Description, com.xjtu.toolbox.ui.theme.serviceColor(com.xjtu.toolbox.nav.AppRoute.Transcript.id),
-                            "电子成绩单", "生成官方成绩单 PDF，可下载分享", onClick = open,
+                            "电子成绩单", "官方签章 PDF，升学求职可直接提交", onClick = open,
                         ) }
                     }
 
                     fullLineItem {
                         Column(Modifier.enterOnce(1)) {
-                            Row(
-                                Modifier.fillMaxWidth(),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
-                            ) {
-                                if (termList.isNotEmpty()) {
-                                    val termLabel = if (selectedTermIndex == 0) "全部学期"
-                                    else termList.getOrNull(selectedTermIndex - 1)?.second ?: "学期"
-                                    Box {
-                                        Row(
-                                            Modifier
-                                                .clip(RoundedCornerShape(12.dp))
-                                                .clickable { termMenuExpanded = true }
-                                                .padding(horizontal = 10.dp, vertical = 8.dp),
-                                            verticalAlignment = Alignment.CenterVertically
-                                        ) {
-                                            Text(
-                                                termLabel,
-                                                style = MiuixTheme.textStyles.body2,
-                                                fontWeight = FontWeight.Medium,
-                                                maxLines = 1,
-                                                overflow = TextOverflow.Ellipsis,
-                                                modifier = Modifier.widthIn(max = 120.dp)
-                                            )
-                                            Icon(
-                                                Icons.Default.ExpandMore,
-                                                contentDescription = "选择学期",
-                                                modifier = Modifier.size(18.dp),
-                                                tint = MiuixTheme.colorScheme.onSurfaceVariantSummary
-                                            )
-                                        }
-                                        val termChoices = listOf("全部学期") + termList.map { it.second }
-                                        OverlayListPopup(
-                                            show = termMenuExpanded,
-                                            alignment = PopupPositionProvider.Align.Start,
-                                            onDismissRequest = { termMenuExpanded = false }
-                                        ) {
-                                            ListPopupColumn {
-                                                termChoices.forEachIndexed { idx, name ->
-                                                    DropdownImpl(
-                                                        text = name,
-                                                        optionSize = termChoices.size,
-                                                        isSelected = idx == selectedTermIndex,
-                                                        onSelectedIndexChange = {
-                                                            selectedTermIndex = it
-                                                            expandedCourseId = null
-                                                            termMenuExpanded = false
-                                                        },
-                                                        index = idx
-                                                    )
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                                AppSearchBar(
-                                    query = searchQuery,
-                                    onQueryChange = { searchQuery = it },
-                                    label = "搜索课程",
-                                    modifier = Modifier.weight(1f)
+                            // 搜索独占一行；学期和分类合成下面一行横滑，同一种胶囊、同一个高度
+                            AppSearchBar(
+                                query = searchQuery,
+                                onQueryChange = { searchQuery = it },
+                                label = "搜索课程",
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                            // 学期一排单选、类别一排多选，都是 COUI 分类胶囊；出血到屏幕边，滚动渐隐落在边缘
+                            if (termList.isNotEmpty()) {
+                                AppChipTabRow(
+                                    options = (0..termList.size).toList(),
+                                    selected = selectedTermIndex,
+                                    onSelect = { selectedTermIndex = it; expandedCourseId = null },
+                                    // 只写「2026 夏」这样的简称（见 shortTermName）
+                                    label = { if (it == 0) "全部学期" else shortTermName(termList[it - 1].second) },
+                                    bleed = 16.dp,
                                 )
                             }
                             if (allCategories.isNotEmpty()) {
-                                if (gpaSelectMode) {
-                                    Text(
-                                        "筛选后可用右上角全选",
-                                        style = MiuixTheme.textStyles.footnote1,
-                                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                                        modifier = Modifier.padding(top = 6.dp)
-                                    )
-                                }
-                                @OptIn(ExperimentalLayoutApi::class)
-                                FlowRow(
-                                    modifier = Modifier.padding(top = 6.dp),
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                                ) {
-                                    AppFilterChip(
-                                        selected = selectedGroups.isEmpty(),
-                                        onClick = { selectedGroups = emptySet() },
-                                        label = "全部"
-                                    )
-                                    allCategories.forEach { group ->
-                                        val isSelected = group in selectedGroups
-                                        AppFilterChip(
-                                            selected = isSelected,
-                                            onClick = {
-                                                selectedGroups = if (isSelected)
-                                                    (selectedGroups - group).let { if (it.isEmpty()) emptySet() else it }
-                                                else
-                                                    selectedGroups + group
-                                            },
-                                            label = group.label
-                                        )
-                                    }
-                                }
+                                val all = "全部类别"
+                                AppMultiChipTabRow(
+                                    options = listOf<Any>(all) + allCategories,
+                                    selected = if (selectedGroups.isEmpty()) setOf(all) else selectedGroups,
+                                    onToggle = { picked ->
+                                        selectedGroups = when (picked) {
+                                            is CourseGroup -> if (picked in selectedGroups) selectedGroups - picked else selectedGroups + picked
+                                            else -> emptySet()
+                                        }
+                                    },
+                                    label = { (it as? CourseGroup)?.label ?: all },
+                                    bleed = 16.dp,
+                                )
+                            }
+                            if (allCategories.isNotEmpty() && gpaSelectMode) {
+                                Text(
+                                    "筛选后可用右上角全选",
+                                    style = MiuixTheme.textStyles.footnote1,
+                                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                                    modifier = Modifier.padding(top = 6.dp)
+                                )
                             }
                             if (vm.reportHint != null) {
                                 Text(
@@ -447,28 +413,50 @@ fun JwappScoreScreen(
                             }
                         }
                     } else {
+                        // 入场按整页的先后统一编号：学期标题行与各门成绩连续排下去（以前每个学期从头算、
+                        // 标题行又不挂，于是几个学期的前几门同时动、后面的和标题行不动）
+                        var order = 2
                         groupedTerms.forEach { (termCode, termName, termScores) ->
-                            if (selectedTermIndex == 0 || groupedTerms.size > 1) {
+                            // 最新学期的标题行一直显示：右侧「报表」是匹配漏掉时的兜底
+                            val reportEntry = termCode == latestTerm && vm.canOpenReport
+                            if (selectedTermIndex == 0 || groupedTerms.size > 1 || reportEntry) {
+                                val headerOrder = order++
                                 fullLineItem(key = "term_$termCode") {
-                                    Text(
-                                        "$termName · ${termScores.size} 门",
-                                        style = MiuixTheme.textStyles.body2,
-                                        fontWeight = FontWeight.Medium,
-                                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                                        modifier = Modifier.padding(start = 4.dp, top = 4.dp)
-                                    )
+                                    Row(Modifier.enterOnce(headerOrder, SCORE_ENTER_MAX).fillMaxWidth().padding(start = 4.dp, top = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                                        Text(
+                                            "$termName · ${termScores.size} 门",
+                                            style = MiuixTheme.textStyles.body2,
+                                            fontWeight = FontWeight.Medium,
+                                            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                                            modifier = Modifier.weight(1f)
+                                        )
+                                        if (reportEntry) {
+                                            Text(
+                                                "报表",
+                                                style = MiuixTheme.textStyles.footnote1,
+                                                fontWeight = FontWeight.Medium,
+                                                color = MiuixTheme.colorScheme.primary,
+                                                modifier = Modifier.clip(RoundedCornerShape(50))
+                                                    .background(MiuixTheme.colorScheme.primary.copy(alpha = 0.10f))
+                                                    .clickable { showReport = true; vm.loadReport() }
+                                                    .padding(horizontal = 12.dp, vertical = 5.dp)
+                                            )
+                                        }
+                                    }
                                 }
                             }
+                            val rowsOrder = order
+                            order += termScores.size
                             itemsIndexed(termScores, key = { _, it -> "${termCode}_${it.id}" }) { rowIndex, scoreItem ->
                                             val isFromReport = scoreItem.source == ScoreSource.REPORT
-                                            val isUnevaluated = scoreItem.courseName in vm.unevaluatedCourses
+                                            val isUnevaluated = ScoreReportFill.isHidden(scoreItem.score)
                                             val isExpanded = expandedCourseId == scoreItem.id
                                             val detail = vm.courseDetails[scoreItem.id]
                                             val isDetailLoading = vm.detailLoading == scoreItem.id
                                             val isSelected = scoreItem.id in selectedCourseIds
                                             ScoreRow(
-                                                // 第一屏错峰淡入，后面的直接就位
-                                                modifier = Modifier.enterOnce(rowIndex + 2),
+                                                // 第一屏按整页顺序错峰淡入，后面的直接就位
+                                                modifier = Modifier.enterOnce(rowsOrder + rowIndex, SCORE_ENTER_MAX),
                                                 scoreItem = scoreItem,
                                                 isExpanded = isExpanded && !isFromReport,
                                                 detail = detail,
@@ -477,6 +465,13 @@ fun JwappScoreScreen(
                                                 isSelected = isSelected,
                                                 isFromReport = isFromReport,
                                                 isUnevaluated = isUnevaluated,
+                                                // 长按只选这一门：多半是想挑几门算，不是从全选里一门门去掉
+                                                onLongPress = if (gpaSelectMode) null else {
+                                                    {
+                                                        gpaSelectMode = true
+                                                        selectedCourseIds = setOf(scoreItem.id)
+                                                    }
+                                                },
                                                 onToggle = {
                                                     if (gpaSelectMode) {
                                                         selectedCourseIds = if (isSelected) {
@@ -516,18 +511,14 @@ fun GpaCard(
     onPrecisionToggle: () -> Unit = {},
     extraContent: @Composable ColumnScope.() -> Unit = {},
 ) {
+    val selectAccent = gpaSelectAccent()
     val containerColor by androidx.compose.animation.animateColorAsState(
-        if (isSelectMode) MiuixTheme.colorScheme.secondaryContainer
+        if (isSelectMode) androidx.compose.ui.graphics.lerp(MiuixTheme.colorScheme.surfaceVariant, selectAccent, 0.18f)
         else MiuixTheme.colorScheme.surfaceVariant,
-        animationSpec = spring(dampingRatio = 0.85f, stiffness = 500f),
+        animationSpec = tween(260),
         label = "gpaCardBg"
     )
-    val textColor by androidx.compose.animation.animateColorAsState(
-        if (isSelectMode) MiuixTheme.colorScheme.onSecondaryContainer
-        else MiuixTheme.colorScheme.onSurface,
-        animationSpec = spring(dampingRatio = 0.85f, stiffness = 500f),
-        label = "gpaCardText"
-    )
+    val textColor = MiuixTheme.colorScheme.onSurface
     val accentColor = textColor.copy(alpha = 0.12f)
 
     top.yukonga.miuix.kmp.basic.Card(
@@ -536,14 +527,12 @@ fun GpaCard(
     ) {
       Box(Modifier.fillMaxWidth()) {
         // 平时是这页的主角，铺一层主题色流动底色（6 秒后停，它在玻璃顶栏下面）；
-        // 选课算均分时换成 secondaryContainer 纯色，表示「这是临时的计算结果」
-        if (!isSelectMode) {
-            com.xjtu.toolbox.ui.components.HeroMesh(
-                base = containerColor,
-                accent = MiuixTheme.colorScheme.primary,
-                modifier = Modifier.matchParentSize(),
-            )
-        }
+        // 选课算均分时换成一种非主题色，表示「这是临时的计算结果」，但不褪成一片灰（#358）
+        com.xjtu.toolbox.ui.components.HeroMesh(
+            base = containerColor,
+            accent = if (isSelectMode) selectAccent else MiuixTheme.colorScheme.primary,
+            modifier = Modifier.matchParentSize(),
+        )
         Column(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 12.dp)) {
             if (isSelectMode) {
                 Row(
@@ -671,8 +660,10 @@ private fun ScoreRow(
     isFromReport: Boolean = false,
     isUnevaluated: Boolean = false,
     onToggle: () -> Unit,
+    onLongPress: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
+    val haptics = androidx.compose.ui.platform.LocalHapticFeedback.current
     val reallyPassed = com.xjtu.toolbox.score.ScoreCalculator.isPassed(scoreItem)
     // 跨模块取不到 smart cast（ScoreItem 现在住在 :core，public API property 不能自动转非空）⇒ 落成本地 val
     val scoreValue = scoreItem.scoreValue
@@ -690,15 +681,21 @@ private fun ScoreRow(
             ?: scoreItem.majorFlag?.takeIf { it.isNotBlank() }?.let { add(it) }
         if (scoreItem.examProp.isNotEmpty() && scoreItem.examProp != "初修") add(scoreItem.examProp)
         if (scoreItem.examType.isNotEmpty()) add(scoreItem.examType)
-        if (courseGpa != null) add("GPA ${formatFixed(courseGpa, 1)}")
-    }.joinToString("  ·  ")
+    }.joinToString(" · ")
 
+    // 报表补上的成绩整张卡片换成主题色淡底，一眼和教务给的分开
+    val primary = MiuixTheme.colorScheme.primary
     Card(
-        modifier = modifier.fillMaxWidth().animateContentSize(
-            animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessLow)
-        ),
-        colors = CardDefaults.defaultColors(color = AppCardColor),
+        // 展开明细由里面的 AnimatedVisibility 负责长高，卡片外层不再叠尺寸动画（叠了下面的卡会慢半拍）
+        modifier = modifier.fillMaxWidth(),
+        colors = CardDefaults.defaultColors(color = if (isFromReport) androidx.compose.ui.graphics.lerp(AppCardColor, primary, 0.10f) else AppCardColor),
         onClick = onToggle,
+        onLongPress = onLongPress?.let { enter ->
+            {
+                haptics.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
+                enter()
+            }
+        },
         pressFeedbackType = PressFeedbackType.Sink,
     ) {
         Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 14.dp)) {
@@ -710,6 +707,9 @@ private fun ScoreRow(
                     Checkbox(
                         state = if (isSelected) ToggleableState.On else ToggleableState.Off,
                         onClick = onToggle,
+                        colors = top.yukonga.miuix.kmp.basic.CheckboxDefaults.checkboxColors(
+                            checkedBackgroundColor = gpaSelectAccent(),
+                        ),
                     )
                     Spacer(Modifier.width(12.dp))
                 }
@@ -727,11 +727,15 @@ private fun ScoreRow(
                             modifier = Modifier.weight(1f, fill = false)
                         )
                         if (isFromReport) {
-                            ScoreTag("报表", MiuixTheme.colorScheme.primary, MiuixTheme.colorScheme.primary.copy(alpha = 0.12f))
+                            ScoreTag("报表补全", primary, primary.copy(alpha = 0.14f))
                         }
                         if (isUnevaluated) {
-                            ScoreTag("未评教", MiuixTheme.colorScheme.error, MiuixTheme.colorScheme.error.copy(alpha = 0.12f))
+                            ScoreTag("看不到成绩", MiuixTheme.colorScheme.error, MiuixTheme.colorScheme.error.copy(alpha = 0.12f))
                         }
+                    }
+                    if (isFromReport) {
+                        Spacer(Modifier.height(4.dp))
+                        Text("教务暂不显示这门成绩（多为未评教），此处取自成绩报表", style = MiuixTheme.textStyles.footnote2, color = primary)
                     }
                     if (meta.isNotEmpty()) {
                         Spacer(Modifier.height(4.dp))
@@ -745,18 +749,29 @@ private fun ScoreRow(
                     }
                 }
                 Spacer(Modifier.width(12.dp))
-                Column(horizontalAlignment = Alignment.End) {
+                // 分数右对齐成一列，只用字色分档；卡片已经是容器，不再套一块色底
+                Column(
+                    Modifier.widthIn(min = 48.dp),
+                    horizontalAlignment = Alignment.End,
+                ) {
                     Text(
                         scoreItem.score,
-                        style = MiuixTheme.textStyles.title3,
+                        style = MiuixTheme.textStyles.title2,
                         fontWeight = FontWeight.SemiBold,
-                        color = scoreColor
+                        color = scoreColor,
+                        maxLines = 1,
                     )
-                    if (!reallyPassed) {
+                    val sub = when {
+                        !reallyPassed -> scoreItem.specificReason ?: "未通过"
+                        courseGpa != null -> "绩点 ${formatFixed(courseGpa, 1)}"
+                        else -> null
+                    }
+                    if (sub != null) {
                         Text(
-                            scoreItem.specificReason ?: "未通过",
-                            style = MiuixTheme.textStyles.footnote1,
-                            color = MiuixTheme.colorScheme.error
+                            sub,
+                            style = MiuixTheme.textStyles.footnote2,
+                            color = if (reallyPassed) MiuixTheme.colorScheme.onSurfaceVariantSummary else scoreColor,
+                            maxLines = 1,
                         )
                     }
                 }
@@ -764,10 +779,11 @@ private fun ScoreRow(
 
             AnimatedVisibility(
                 visible = isExpanded && !showCheckbox,
-                enter = expandVertically(animationSpec = spring(stiffness = Spring.StiffnessLow)) + fadeIn(),
-                exit = shrinkVertically(animationSpec = spring(stiffness = Spring.StiffnessLow)) + fadeOut()
+                enter = expandVertically(animationSpec = tween(320, easing = FastOutSlowInEasing)) + fadeIn(),
+                exit = shrinkVertically(animationSpec = tween(320, easing = FastOutSlowInEasing)) + fadeOut()
             ) {
-                Column(Modifier.padding(top = 12.dp)) {
+                // 明细从加载圈换成内容时由这一层平滑长高
+                Column(Modifier.padding(top = 12.dp).animateContentSize(tween(320, easing = FastOutSlowInEasing))) {
                     if (isDetailLoading) {
                         Box(Modifier.fillMaxWidth().padding(vertical = 12.dp), contentAlignment = Alignment.Center) {
                             CircularProgressIndicator(size = 22.dp)
@@ -791,6 +807,21 @@ private fun ScoreRow(
     }
 }
 
+/**
+ * 胶囊上的学期简称：自然年 + 季节，「2025-2026学年 第一学期」→「2025 秋」、第二学期 →「2026 春」、
+ * 夏季小学期 →「2026 夏」。完整名字留在下拉菜单里。认不出的格式原样返回。
+ */
+private fun shortTermName(name: String): String {
+    val match = Regex("""^(\d{4})-(\d{4})学年\s*(.*)$""").find(name.trim()) ?: return name
+    val (first, second, rest) = match.destructured
+    return when {
+        "第一" in rest || "秋" in rest -> "$first 秋"
+        "夏" in rest || "小学期" in rest -> "$second 夏"
+        "第二" in rest || "春" in rest -> "$second 春"
+        else -> name
+    }
+}
+
 @Composable
 private fun ScoreTag(text: String, color: androidx.compose.ui.graphics.Color, container: androidx.compose.ui.graphics.Color) {
     Text(
@@ -798,10 +829,11 @@ private fun ScoreTag(text: String, color: androidx.compose.ui.graphics.Color, co
         style = MiuixTheme.textStyles.footnote2,
         color = color,
         fontWeight = FontWeight.Medium,
+        // 和筛选胶囊同一种形状
         modifier = Modifier
-            .clip(RoundedCornerShape(6.dp))
+            .clip(RoundedCornerShape(50))
             .background(container)
-            .padding(horizontal = 6.dp, vertical = 2.dp)
+            .padding(horizontal = 8.dp, vertical = 2.dp)
     )
 }
 
@@ -837,7 +869,7 @@ fun GpaMappingDialog(show: MutableState<Boolean>) {
         onDismissRequest = { show.value = false }
     ) {
             Column(
-                modifier = Modifier.overScrollVertical().verticalScroll(rememberScrollState()),
+                modifier = Modifier.overScrollVertical().verticalScroll(rememberScrollState()).tabContentBottomPadding(),
                 verticalArrangement = Arrangement.spacedBy(6.dp)
             ) {
                 Text("4.3 绩点制", style = MiuixTheme.textStyles.body1, fontWeight = FontWeight.Bold)
@@ -875,6 +907,7 @@ fun GpaMappingDialog(show: MutableState<Boolean>) {
         Spacer(Modifier.height(16.dp))
         Button(
             onClick = { show.value = false },
+            colors = com.xjtu.toolbox.ui.components.appTonalButtonColors(),
             modifier = Modifier.fillMaxWidth()
         ) {
             Text("知道了")
@@ -985,3 +1018,85 @@ fun GpaModeBreakdown(
         ) { body() }
     }
 }
+
+/**
+ * 最新学期的成绩报表：列出报表里这一学期的全部课。上面列表的匹配是软性的，
+ * 对不上的课在这里也看得到；已补进上面列表的标「已补全」。
+ */
+@Composable
+private fun ReportSheet(
+    show: Boolean,
+    termName: String,
+    grades: List<com.xjtu.toolbox.score.ReportedGrade>?,
+    filled: Set<com.xjtu.toolbox.score.ReportedGrade>,
+    loading: Boolean,
+    failed: Boolean,
+    onRetry: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val summary = MiuixTheme.colorScheme.onSurfaceVariantSummary
+    OverlayBottomSheet(show = show, title = "成绩报表", onDismissRequest = onDismiss) {
+        Column(Modifier.fillMaxWidth().navigationBarsPadding().padding(bottom = 12.dp)) {
+            Text(
+                listOf(termName, "未评教的课这里也能看到成绩").filter { it.isNotBlank() }.joinToString(" · "),
+                style = MiuixTheme.textStyles.footnote1, color = summary, modifier = Modifier.padding(bottom = 10.dp),
+            )
+            when {
+                grades == null && loading -> Box(Modifier.fillMaxWidth().padding(vertical = 24.dp), contentAlignment = Alignment.Center) {
+                    CircularProgressIndicator(size = 22.dp)
+                }
+                grades == null -> Text(
+                    if (failed) "成绩报表暂时拉不到，点此重试" else "还没有报表数据，点此加载",
+                    style = MiuixTheme.textStyles.body2, color = MiuixTheme.colorScheme.primary,
+                    modifier = Modifier.clip(RoundedCornerShape(8.dp)).clickable(onClick = onRetry).padding(vertical = 12.dp),
+                )
+                grades.isEmpty() -> Text("报表里这一学期还没有成绩", style = MiuixTheme.textStyles.body2, color = summary,
+                    modifier = Modifier.padding(vertical = 12.dp))
+                else -> Column(
+                    Modifier.heightIn(max = 460.dp).verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    grades.forEach { g ->
+                        val used = g in filled
+                        Row(
+                            Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp))
+                                .background(MiuixTheme.colorScheme.onSurface.copy(alpha = 0.045f))
+                                .padding(horizontal = 12.dp, vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Column(Modifier.weight(1f)) {
+                                Text(g.courseName, style = MiuixTheme.textStyles.body2, fontWeight = FontWeight.Medium)
+                                Text(
+                                    listOfNotNull("${g.coursePoint} 学分", g.gpa?.let { "GPA ${formatFixed(it, 1)}" }).joinToString("  ·  "),
+                                    style = MiuixTheme.textStyles.footnote2, color = summary,
+                                )
+                            }
+                            if (used) {
+                                ScoreTag("已补全", MiuixTheme.colorScheme.primary, MiuixTheme.colorScheme.primary.copy(alpha = 0.14f))
+                                Spacer(Modifier.width(8.dp))
+                            }
+                            Text(g.score, style = MiuixTheme.textStyles.body1, fontWeight = FontWeight.SemiBold)
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/** 「选课算 GPA」专用色：故意不跟主题走。默认琥珀；主题本身偏橙黄时换青色，别和主题撞。 */
+internal fun gpaSelectAccentFor(primary: androidx.compose.ui.graphics.Color): androidx.compose.ui.graphics.Color {
+    val max = maxOf(primary.red, primary.green, primary.blue)
+    val min = minOf(primary.red, primary.green, primary.blue)
+    val delta = max - min
+    val hue = when {
+        delta == 0f -> return androidx.compose.ui.graphics.Color(0xFFF59E0B)
+        max == primary.red -> 60f * (((primary.green - primary.blue) / delta + 6f) % 6f)
+        max == primary.green -> 60f * ((primary.blue - primary.red) / delta + 2f)
+        else -> 60f * ((primary.red - primary.green) / delta + 4f)
+    }
+    return if (hue in 15f..70f) androidx.compose.ui.graphics.Color(0xFF00897B) else androidx.compose.ui.graphics.Color(0xFFF59E0B)
+}
+
+@Composable
+private fun gpaSelectAccent(): androidx.compose.ui.graphics.Color = gpaSelectAccentFor(MiuixTheme.colorScheme.primary)

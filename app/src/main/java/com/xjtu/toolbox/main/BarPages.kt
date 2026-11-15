@@ -33,6 +33,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.viewmodel.compose.viewModel
+import com.xjtu.toolbox.ui.glass.LocalTabBottomPadding
 import com.xjtu.toolbox.auth.LoginType
 import com.xjtu.toolbox.auth.ensureSite
 import com.xjtu.toolbox.auth.siteKey
@@ -41,8 +43,9 @@ import com.xjtu.toolbox.home.BottomBarTabs
 import com.xjtu.toolbox.ui.components.MorphingLoader
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.withTimeoutOrNull
+import top.yukonga.miuix.kmp.basic.Button
+import top.yukonga.miuix.kmp.basic.ButtonDefaults
 import top.yukonga.miuix.kmp.basic.Text
-import top.yukonga.miuix.kmp.basic.TextButton
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import com.kyant.backdrop.backdrops.LayerBackdrop
 import com.xjtu.toolbox.agent.AgentOverlays
@@ -58,19 +61,19 @@ import com.xjtu.toolbox.shell.ShellPageInsets
 import com.xjtu.toolbox.ui.components.BackButton
 import com.xjtu.toolbox.ui.glass.LocalOnGlassBar
 import com.xjtu.toolbox.ui.glass.LocalTabRoot
+import com.xjtu.toolbox.ui.glass.CouiPageTopAppBar
+import com.xjtu.toolbox.ui.glass.coui.CouiTopAppBarDefaults
+import com.xjtu.toolbox.ui.glass.couiPageBackdropFor
 import com.xjtu.toolbox.ui.glass.glassBarColor
 import com.xjtu.toolbox.ui.glass.glassSource
 import com.xjtu.toolbox.ui.glass.glassTop
-import com.xjtu.toolbox.ui.glass.glassTopBar
 import com.xjtu.toolbox.ui.glass.rememberPageGlass
 import com.xjtu.toolbox.ui.glass.withoutTop
 import com.xjtu.toolbox.zyxf.ZyxfBrowseScreen
-import top.yukonga.miuix.kmp.basic.MiuixScrollBehavior
+import com.xjtu.toolbox.zyxf.ZyxfBrowseViewModel
+import com.xjtu.toolbox.ui.glass.rememberCouiTopAppBarScrollBehavior
 import top.yukonga.miuix.kmp.basic.Scaffold
-import top.yukonga.miuix.kmp.basic.ScrollBehavior
-import top.yukonga.miuix.kmp.basic.SmallTopAppBar
-import top.yukonga.miuix.kmp.basic.TopAppBar
-import top.yukonga.miuix.kmp.basic.rememberTopAppBarState
+import com.xjtu.toolbox.ui.glass.CouiTopBarScrollBehavior
 
 /*
  * 底栏那几格的页，在两种宿主里画：挂在底栏上（MainScreen，顶栏由主界面画），
@@ -79,8 +82,8 @@ import top.yukonga.miuix.kmp.basic.rememberTopAppBarState
 
 /**
  * 子页挂到底栏上。子页原本是全屏页：顶栏自带状态栏留白、底部自己让导航条。
- * 这里统一让出底栏占的高度，再把壳已经垫过的 inset 标成已消费，页面里的 windowInsetsPadding 不会再加一遍；
- * 无限下拉的列表也就压不到底栏下面（代价是内容不从玻璃底栏下穿过）。顶部：壳不画主顶栏、
+ * 底栏占位交给页面的滚动内容，页面继续铺到玻璃底栏下；已由壳处理的 inset 标成已消费。
+ * 顶部：壳不画主顶栏、
  * 也不给这一格做跟随位移（`ShellTab.drawsOwnTopBar`），玻璃风格下页面从屏幕顶边画起、自己让状态栏。
  *
  * 要登录站点的页先过 [TabLoginGate]：压栈时这一步由 AppRouter 在跳转前做，放在底栏上没有跳转这一步，
@@ -102,10 +105,12 @@ internal fun RouteTabPage(
     Box(
         Modifier
             .fillMaxSize()
-            .padding(bottom = insets.bottomBarReserve)
             .consumeWindowInsets(handled),
     ) {
-        CompositionLocalProvider(LocalTabRoot provides true) {
+        CompositionLocalProvider(
+            LocalTabRoot provides true,
+            LocalTabBottomPadding provides if (insets.bottomBarReserve > 0.dp) insets.bottomBarReserve + 12.dp else 0.dp,
+        ) {
             val type = route.loginType
             if (type == null) content() else TabLoginGate(type, BottomBarTabs.label(route), loginState, content)
         }
@@ -159,7 +164,11 @@ private fun TabLoginGate(type: LoginType, title: String, loginState: AppLoginSta
             Text("正在连接${type.label}…", color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
         } else {
             Text(message, color = MiuixTheme.colorScheme.onSurfaceVariantSummary, textAlign = TextAlign.Center)
-            if (loginState.hasCredentials) TextButton(text = "重试", onClick = { attempt++ })
+            if (loginState.hasCredentials) {
+                Button(onClick = { attempt++ }, colors = ButtonDefaults.buttonColorsPrimary()) {
+                    Text("重试", color = MiuixTheme.colorScheme.onPrimary)
+                }
+            }
         }
     }
 }
@@ -167,36 +176,35 @@ private fun TabLoginGate(type: LoginType, title: String, loginState: AppLoginSta
 /** 与 AppRouter 自动登录同一档：多跳 OAuth 的站点也够用。 */
 private const val TAB_LOGIN_TIMEOUT_MS = 120_000L
 
-/** 屁岱页（两种宿主共用）：Android 这一端的端装配与形象那几块。 */
+/** 小岱页（两种宿主共用）：Android 这一端的端装配与形象那几块。 */
 @Composable
 internal fun AndroidAgentScreen(
     loginState: AppLoginState,
     onNavigate: (AppRoute) -> Unit,
     extraBottomPadding: Dp,
-    hostBottomPadding: Dp,
     contentTopPadding: Dp,
-    scrollBehavior: ScrollBehavior,
+    /** 宿主 COUI 大标题顶栏的折叠行为，挂到对话列表上。 */
+    scrollBehavior: CouiTopBarScrollBehavior? = null,
     onTitleChange: (String) -> Unit,
-    onSubtitleChange: (String) -> Unit,
     onActionsChange: ((@Composable RowScope.() -> Unit)?) -> Unit,
     onNavIconChange: ((@Composable () -> Unit)?) -> Unit,
     overlays: AgentOverlays,
 ) {
     val context = LocalContext.current
     AgentScreen(
-        // 端装配与端上资源：`:core` 的屁岱只认这条缝（见 AgentHost）
+        // 端装配与端上资源：`:core` 的小岱只认这条缝（见 AgentHost）
         host = remember { AndroidAgentHost(context, loginState) },
         // 系统相册挑图（`:app` 的适配器）：`:core` 拿不到 ActivityResultLauncher
         imagePicker = rememberAndroidAgentImagePicker(),
-        // 屁岱形象那三块（首屏问候头、戳一下的回应气泡、形象选择）认 `ProactiveBubbleHost` / 形象设置 / `PidaiPokes`
+        contentModifier = com.xjtu.toolbox.agent.rememberAgentDropTarget(),
+        // 小岱形象那三块（首屏问候头、戳一下的回应气泡、形象选择）认 `ProactiveBubbleHost` / 形象设置 / `PidaiPokes`
         hero = { title, facts, now -> AndroidPidaiHero(title, facts, now) },
         pokeWhisper = { AndroidPokeWhisper(it) },
         appearanceSection = { PidaiAppearancePanel() },
+        pushPreferences = { com.xjtu.toolbox.agent.PidaiPushPreferences() },
         extraBottomPadding = extraBottomPadding,
-        hostBottomPadding = hostBottomPadding,
         scrollBehavior = scrollBehavior,
         onTitleChange = onTitleChange,
-        onSubtitleChange = onSubtitleChange,
         onActionsChange = onActionsChange,
         onNavIconChange = onNavIconChange,
         overlays = overlays,
@@ -205,26 +213,28 @@ internal fun AndroidAgentScreen(
     )
 }
 
-/** 移出底栏的屁岱：自带小标题顶栏，屏送上来的导航钮排在返回键后面。 */
+/** 移出底栏的小岱：自带小标题顶栏，屏送上来的导航钮排在返回键后面。 */
 @Composable
 internal fun AgentRoutePage(loginState: AppLoginState, onNavigate: (AppRoute) -> Unit, onBack: () -> Unit) {
-    var title by remember { mutableStateOf("屁岱") }
-    var subtitle by remember { mutableStateOf("") }
+    val tabBottomPadding = LocalTabBottomPadding.current
+    var title by remember { mutableStateOf("小岱") }
     var actions by remember { mutableStateOf<(@Composable RowScope.() -> Unit)?>(null) }
     var navIcon by remember { mutableStateOf<(@Composable () -> Unit)?>(null) }
     val overlays = remember { AgentOverlays() }
-    val scrollBehavior = MiuixScrollBehavior(rememberTopAppBarState())
+    val scrollBehavior = rememberCouiTopAppBarScrollBehavior()
     Box(Modifier.fillMaxSize()) {
     StandalonePage(
         topBar = { glass ->
-            SmallTopAppBar(
+            CouiPageTopAppBar(
                 title = title,
-                subtitle = subtitle,
                 color = glassBarColor(glass),
-                modifier = Modifier.glassTopBar(glass),
                 scrollBehavior = scrollBehavior,
+                pageBackdrop = couiPageBackdropFor(glass),
                 navigationIcon = {
-                    Row {
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
                         BackButton(onBack)
                         navIcon?.invoke()
                     }
@@ -232,16 +242,14 @@ internal fun AgentRoutePage(loginState: AppLoginState, onNavigate: (AppRoute) ->
                 actions = { actions?.invoke(this) },
             )
         },
-    ) { topPadding, bottomPadding ->
+    ) { topPadding, _ ->
         AndroidAgentScreen(
             loginState = loginState,
             onNavigate = onNavigate,
-            extraBottomPadding = 0.dp,
-            hostBottomPadding = bottomPadding,
+            extraBottomPadding = tabBottomPadding,
             contentTopPadding = topPadding,
             scrollBehavior = scrollBehavior,
             onTitleChange = { title = it },
-            onSubtitleChange = { subtitle = it },
             onActionsChange = { actions = it },
             onNavIconChange = { navIcon = it },
             overlays = overlays,
@@ -251,22 +259,21 @@ internal fun AgentRoutePage(loginState: AppLoginState, onNavigate: (AppRoute) ->
     }
 }
 
-/** 移出底栏的日程：副标题、按钮、标签行照样由日程页送上来，挂到自己的顶栏上。 */
+/** 移出底栏的日程：按钮、标签行照样由日程页送上来，挂到自己的顶栏上。 */
 @Composable
 internal fun ScheduleRoutePage(loginState: AppLoginState, onNavigate: (AppRoute) -> Unit, onBack: () -> Unit) {
-    var subtitle by remember { mutableStateOf("") }
+    val tabBottomPadding = LocalTabBottomPadding.current
     var actions by remember { mutableStateOf<(@Composable RowScope.() -> Unit)?>(null) }
     var bottomContent by remember { mutableStateOf<(@Composable () -> Unit)?>(null) }
-    val scrollBehavior = MiuixScrollBehavior(rememberTopAppBarState())
+    val scrollBehavior = rememberCouiTopAppBarScrollBehavior()
     StandalonePage(
         topBar = { glass ->
-            TopAppBar(
+            CouiPageTopAppBar(
                 title = "日程",
                 largeTitle = "日程",
-                subtitle = subtitle,
                 color = glassBarColor(glass),
-                modifier = Modifier.glassTopBar(glass),
                 scrollBehavior = scrollBehavior,
+                pageBackdrop = couiPageBackdropFor(glass),
                 navigationIcon = { BackButton(onBack) },
                 actions = { actions?.invoke(this) },
                 bottomContent = {
@@ -280,9 +287,8 @@ internal fun ScheduleRoutePage(loginState: AppLoginState, onNavigate: (AppRoute)
             loginState = loginState,
             onNavigate = onNavigate,
             scrollBehavior = scrollBehavior,
-            extraBottomPadding = 0.dp,
+            extraBottomPadding = tabBottomPadding,
             contentTopPadding = topPadding,
-            onSubtitleChange = { subtitle = it },
             onActionsChange = { actions = it },
             onBottomContentChange = { bottomContent = it },
         )
@@ -292,21 +298,27 @@ internal fun ScheduleRoutePage(loginState: AppLoginState, onNavigate: (AppRoute)
 /** 移出底栏的学辅资料站。 */
 @Composable
 internal fun ZyxfRoutePage(onBack: () -> Unit) {
-    val scrollBehavior = MiuixScrollBehavior(rememberTopAppBarState())
+    val tabBottomPadding = LocalTabBottomPadding.current
+    val scrollBehavior = rememberCouiTopAppBarScrollBehavior()
+    val context = LocalContext.current
+    // 搜索框画在页面顶部的列表里（压栈页没有学辅 tab 那条带搜索的顶栏），
+    // ViewModel 提到这里只是为了和 tab 共用同一份数据与包名。
+    val vm: ZyxfBrowseViewModel = viewModel { ZyxfBrowseViewModel(context) }
     StandalonePage(
         topBar = { glass ->
-            TopAppBar(
+            CouiPageTopAppBar(
                 title = ZYXF_TITLE,
                 largeTitle = ZYXF_TITLE,
                 color = glassBarColor(glass),
-                modifier = Modifier.glassTopBar(glass),
                 scrollBehavior = scrollBehavior,
+                pageBackdrop = couiPageBackdropFor(glass),
                 navigationIcon = { BackButton(onBack) },
             )
         },
     ) { topPadding, _ ->
         ZyxfBrowseScreen(
-            contentPadding = PaddingValues(0.dp),
+            vm = vm,
+            contentPadding = PaddingValues(bottom = tabBottomPadding),
             scrollBehavior = scrollBehavior,
             contentTopPadding = topPadding,
         )
@@ -334,7 +346,9 @@ private fun StandalonePage(
                 .consumeWindowInsets(padding)
                 .glassSource(glass),
         ) {
-            content(glassTop, padding.calculateBottomPadding())
+            CompositionLocalProvider(LocalTabBottomPadding provides 0.dp) {
+                content(glassTop, padding.calculateBottomPadding())
+            }
         }
     }
 }

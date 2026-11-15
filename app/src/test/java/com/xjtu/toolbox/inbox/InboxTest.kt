@@ -51,6 +51,20 @@ class InboxTest {
     }
 
     @Test
+    fun `未开始作业到点才进入待办与角标，无需重新拉取`() {
+        val start = kotlin.time.Instant.parse("2026-11-02T00:00:00+08:00").toEpochMilliseconds()
+        val due = com.xjtu.toolbox.lms.LmsDue(
+            courseId = 1, activityId = 2, title = "明天开始",
+            startTime = "2026-11-02T00:00:00+08:00[Asia/Shanghai]", deadline = "2026-11-03T00:00:00Z",
+        )
+        val data = InboxData(todos = mapOf(InboxCategories.LMS to OwnInbox.lmsTodos(listOf(due))))
+        assertTrue(InboxRules.todos(data, start - 1).isEmpty())
+        assertEquals(0, InboxRules.badge(data, start - 1))
+        assertEquals(listOf("lms:1:2"), InboxRules.todos(data, start).map { it.id })
+        assertEquals(1, InboxRules.badge(data, start))
+    }
+
+    @Test
     fun `思源作业：未截止未提交的进待办，过期和已交的不进`() {
         // #121 样本账号的当前学期作业，英语排在课程列表第 9
         val at = java.time.Instant.parse("2026-10-08T04:00:00Z")

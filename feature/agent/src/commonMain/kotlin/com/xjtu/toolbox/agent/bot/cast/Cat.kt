@@ -1,18 +1,21 @@
 package com.xjtu.toolbox.agent.bot.cast
 
+import kotlin.math.PI
 import kotlin.math.abs
 import kotlin.math.cos
+import kotlin.math.exp
 import kotlin.math.min
 import kotlin.math.sin
 
 /**
- * 喵：一颗橘色虎斑猫头。粉耳朵、额头三道虎斑、白嘴套、粉鼻头、「ω」嘴，黄绿色竖瞳猫眼。
+ * 喵：一颗橘色虎斑猫头。粉耳朵、额头三道虎斑、两腮炸出的小毛尖和红晕、白嘴套、粉鼻头、「ω」嘴，
+ * 一对占半张脸的黄绿色大圆眼。五官压在脸的下半截，留出大脑门。
  * 待命偶尔抖耳朵、瞳孔跟着视线。动作都是整颗头在动：
  * - 微动：歪头慢眨眼（猫式「我爱你」）；
  * - 思考：毛线球绕着头转，整颗头跟着球歪来歪去、瞳孔放大成圆的，球转到前面时伸出肉垫爪子拍它；
  * - 提醒：耳朵唰地竖高、整颗头往上一弹；
  * - 被戳：「猫猫震惊」表情包：蹦起来、浑身炸毛成一圈尖刺、瞪圆眼、瞳孔缩成一点、小嘴「o」；
- * - 彩蛋：「猫猫拳」：眯眼蓄力，左右肉垫交替连打、越打越快，最后眯成 ^^ 收招。
+ * - 彩蛋：「猫猫拳」：眯眼蓄力，左右肉垫交替连打、越打越快，最后眯成 ^^ 收招；打着时再戳，耳朵一竖瞪圆眼再接着打。
  */
 object Cat : CastCharacter("cat", "喵") {
     override val microSec = 1.6
@@ -52,7 +55,9 @@ object Cat : CastCharacter("cat", "喵") {
         val jab = fist * sin(beat * Sketch.TAU / 2)
         // 提醒：往上一弹，耳朵竖高
         val spring = alert * wobble(ta, 15.0, 4.5)
-        val perk = maxOf(alert, shock)
+        // 出拳时又被戳：耳朵一竖、眼睛瞪圆一下，接着打
+        val startle = p.kick(0.05, 0.3, 0.5)
+        val perk = maxOf(alert, shock, startle)
         val tilt = micro * bump(tm / 1.5)
 
         // 毛线球绕头转；转到前面时伸爪拍它
@@ -63,8 +68,8 @@ object Cat : CastCharacter("cat", "喵") {
         val lookX = mix(p.lookX, cos(ang), think) * (1 - fist)
         val lookY = mix(mix(p.lookY, 0.5 * sin(ang), think), 0.3, fist)
 
-        val rx = 100.0
-        val ry = 76.0 * (1 + 0.012 * p.breath)
+        val rx = 97.0
+        val ry = 78.0 * (1 + 0.012 * p.breath)
         val cy = 24.0
 
         if (think > 0.01 && sin(ang) < 0) yarn(s, ballX, ballY, ang, think)
@@ -81,54 +86,57 @@ object Cat : CastCharacter("cat", "喵") {
             val twR = 16 * wobble(twitchR.since(now), 30.0, 8.0)
             ear(s, -1, rx, ry, twL, perk)
             ear(s, 1, rx, ry, twR, perk)
-            // 炸毛：轮廓变成一圈尖刺
+            // 轮廓：两腮各两撮小毛尖；炸毛时整圈变成尖刺
             s.blob(0.0, 0.0, 112) { th ->
                 val saw = 1 - abs(((th / Sketch.TAU * 14) % 1.0) * 2 - 1)
-                superR(th, rx, ry, 2.2) * (1 + 0.14 * poof * saw - 0.03 * poof)
+                superR(th, rx, ry, 2.2) * (1 + 0.14 * poof * saw - 0.03 * poof + tuft(th) * (1 - poof))
             }
             s.fill(FUR)
 
             // 额头三道虎斑
             for (k in -1..1) {
-                val x = k * 20.0
-                s.line(x, -ry + 6, x * 0.8, -ry + (if (k == 0) 30.0 else 22.0))
+                val x = k * 19.0
+                s.line(x, -ry + 7, x * 0.8, -ry + (if (k == 0) 27.0 else 20.0))
                 s.stroke(8.0, STRIPE)
             }
 
-            // 白嘴套、粉鼻头、ω 嘴
-            val my = ry * 0.42
+            // 白嘴套、粉鼻头、ω 嘴、腮红
+            val my = ry * 0.47
             for (side in intArrayOf(-1, 1)) {
-                s.ellipse(side * 17.0, my, 25.0, 19.0)
+                s.ellipse(side * 66.0, my - 4, 13.0, 7.5)
+                s.fill(EAR_IN, 0.75)
+                s.ellipse(side * 14.0, my, 20.0, 15.0)
                 s.fill(MUZZLE)
             }
-            s.moveTo(-8.0, my - 14)
-            s.lineTo(8.0, my - 14)
+            s.moveTo(-6.5, my - 12)
+            s.lineTo(6.5, my - 12)
             s.lineTo(0.0, my - 5)
             s.close()
             s.fill(NOSE)
-            s.stroke(5.0, NOSE)
+            s.stroke(4.5, NOSE)
             if (shock > 0.3) {
-                s.ellipse(0.0, my + 10, 6.0, 9.0 * shock)
+                s.ellipse(0.0, my + 9, 5.5, 8.0 * shock)
                 s.fill(MOUTH)
             } else {
-                s.moveTo(-15.0, my + 1)
-                s.quadTo(-7.5, my + 10, 0.0, my - 1)
-                s.quadTo(7.5, my + 10, 15.0, my + 1)
-                s.stroke(4.5, MOUTH)
+                s.moveTo(-12.0, my + 2)
+                s.quadTo(-6.0, my + 10, 0.0, my)
+                s.quadTo(6.0, my + 10, 12.0, my + 2)
+                s.stroke(4.0, MOUTH)
             }
 
             val ex = lookX * 4 * (1 - shock)
-            val ey = -ry * 0.12
+            val ey = -ry * 0.04
             when {
-                smug > 0.3 -> s.joy(ex, ey, 1.0, 36.0, MOUTH)
+                smug > 0.3 -> s.joy(ex, ey, 1.1, EYE_X / 1.1, MOUTH)
                 else -> {
                     // 慢眨眼：慢慢闭上、停一下、慢慢睁开
                     val slow = micro * window(tm, 0.0, 0.5, 0.9, 1.4)
-                    // 瞳孔：平时竖条，兴奋（思考盯球、提醒、出拳）放大成圆，震惊缩成一点；出拳时眯眼较劲
-                    val dilate = maxOf(think, alert, squint) * (1 - shock)
+                    // 瞳孔：平时竖椭圆，兴奋（思考盯球、提醒、出拳）放大到撑满，震惊缩成一点；出拳时眯眼较劲
+                    val dilate = maxOf(think, alert, squint, startle) * (1 - shock)
+                    val narrow = 0.5 * squint * (1 - startle)
                     for (i in 0..1) {
                         val side = if (i == 0) -1 else 1
-                        catEye(s, ex + side * 36.0, ey, p.eye[i] * (1 - slow) * (1 - 0.5 * squint), lookX, lookY, dilate, shock)
+                        catEye(s, ex + side * EYE_X, ey, p.eye[i] * (1 - slow) * (1 - narrow), lookX, lookY, dilate, shock)
                     }
                 }
             }
@@ -168,27 +176,45 @@ object Cat : CastCharacter("cat", "喵") {
     }
 
 
-    /** 猫眼：深色眼眶 + 黄绿虹膜 + 竖瞳 + 高光。[open] 太小就画成闭眼弧线。 */
+    /** 两腮的小毛尖：轮廓半径的相对增量。θ 从右边起顺时针，所以 0.2 / 0.5 在右下腮。 */
+    private fun tuft(th: Double): Double {
+        var v = 0.0
+        for (c in TUFTS) {
+            val d = (th - c) / 0.11
+            v += 0.075 * exp(-d * d)
+        }
+        return v
+    }
+
+    private val TUFTS = doubleArrayOf(0.2, 0.5, PI - 0.2, PI - 0.5)
+
+    /** 两眼中心到脸中线的距离。 */
+    private const val EYE_X = 39.0
+
+    /** 猫眼：深棕眼眶 + 黄绿虹膜 + 大瞳孔 + 一大一小两点高光。[open] 太小就画成闭眼弧线。 */
     private fun catEye(s: Sketch, x: Double, y: Double, open: Double, lx: Double, ly: Double, dilate: Double, shock: Double) {
-        val r = 16.0 * (1 + 0.3 * shock)
+        val r = 19.0 * (1 + 0.22 * shock)
         if (open < 0.22) {
-            s.moveTo(x - r, y)
-            s.quadTo(x, y + r * 0.7, x + r, y)
+            s.moveTo(x - r * 0.85, y)
+            s.quadTo(x, y + r * 0.6, x + r * 0.85, y)
             s.stroke(6.0, MOUTH)
             return
         }
-        val ry = (r + 2) * open
-        s.ellipse(x, y, r + 3.5, ry + 3.5)
-        s.fill(EYE_DARK)
+        val ry = r * open
+        s.ellipse(x, y, r + 3, ry + 3)
+        s.fill(MOUTH)
         s.ellipse(x, y, r, ry)
         s.fill(if (shock > 0.3) WHITE else IRIS)
-        val px = x + lx * r * 0.3 * (1 - shock)
-        val py = y + ly * ry * 0.2 * (1 - shock)
-        val pw = mix(mix(4.5, 11.0, dilate), 4.0, shock)
-        val ph = mix(mix(r * 0.85, r * 0.8, dilate), 4.0, shock) * open
+        val pw = mix(mix(9.0, 14.5, dilate), 4.0, shock)
+        val ph = mix(mix(r * 0.84, r * 0.8, dilate), 4.0, shock) * open
+        val px = x + lx * (r - pw) * 0.7 * (1 - shock)
+        val py = y + ly * ry * 0.12 * (1 - shock)
         s.ellipse(px, py, pw, ph)
         s.fill(EYE_DARK)
-        s.dot(px + pw * 0.4 + 2, py - ph * 0.45, 3.6, Tone.COLOR, 1.0, WHITE)
+        if (shock < 0.3) {
+            s.dot(px + pw * 0.3 + 2, py - ph * 0.42, 5.0 * open.coerceAtLeast(0.6), Tone.COLOR, 1.0, WHITE)
+            s.dot(px - pw * 0.45, py + ph * 0.45, 2.4, Tone.COLOR, 0.95, WHITE)
+        }
     }
 
     /** 耳朵：底边贴在头顶，内侧一块粉。[twitch] 抖动角度，[perk] 竖高。 */
@@ -196,13 +222,13 @@ object Cat : CastCharacter("cat", "喵") {
         s.group {
             translate(side * rx * 0.54, -ry * 0.7)
             rotate(side * 16.0 + twitch * side)
-            val h = 48 + 16 * perk
-            s.poly(-30.0, 22.0, -4.0 * side, -h, 30.0, 22.0)
+            val h = 46 + 16 * perk
+            s.poly(-31.0, 22.0, -4.0 * side, -h, 31.0, 22.0)
             s.fill(FUR)
-            s.stroke(14.0, FUR)
-            s.poly(-15.0, 16.0, -3.0 * side, -h * 0.6, 15.0, 16.0)
+            s.stroke(18.0, FUR)
+            s.poly(-14.0, 16.0, -3.0 * side, -h * 0.55, 14.0, 16.0)
             s.fill(EAR_IN)
-            s.stroke(6.0, EAR_IN)
+            s.stroke(8.0, EAR_IN)
         }
     }
 

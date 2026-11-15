@@ -2,9 +2,12 @@ package com.xjtu.toolbox.agent
 
 import android.Manifest
 import android.content.Context
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.location.Location
 import android.location.LocationManager
+import android.provider.Settings
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.result.ActivityResultLauncher
 import androidx.activity.result.contract.ActivityResultContracts
@@ -24,13 +27,36 @@ object AgentLocation {
 
     private var launcher: ActivityResultLauncher<Array<String>>? = null
     private var pending: CompletableDeferred<Boolean>? = null
+    private var settingsLauncher: ActivityResultLauncher<Intent>? = null
+    private var settingsPending: CompletableDeferred<Unit>? = null
 
-    /** 在 Activity.onCreate 里登记权限弹窗（必须在 STARTED 之前）。 */
+    /** 在 Activity.onCreate 里登记权限弹窗和定位设置页（必须在 STARTED 之前）。 */
     fun register(activity: ComponentActivity) {
         launcher = activity.registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { result ->
             pending?.complete(result.values.any { it })
             pending = null
         }
+        settingsLauncher = activity.registerForActivityResult(ActivityResultContracts.StartActivityForResult()) {
+            settingsPending?.complete(Unit)
+            settingsPending = null
+        }
+    }
+
+    private fun enabledProviders(lm: LocationManager) =
+        listOf(LocationManager.FUSED_PROVIDER, LocationManager.GPS_PROVIDER, LocationManager.NETWORK_PROVIDER)
+            .filter { runCatching { lm.isProviderEnabled(it) }.getOrDefault(false) }
+
+    /** 定位总开关关着时跳系统定位设置，等用户返回。 */
+    private suspend fun ensureEnabled(context: Context, lm: LocationManager): Boolean {
+        if (lm.isLocationEnabled) return true
+        val l = settingsLauncher ?: return false
+        val wait = CompletableDeferred<Unit>().also { settingsPending = it }
+        withContext(Dispatchers.Main) {
+            Toast.makeText(context, "请打开定位后返回", Toast.LENGTH_SHORT).show()
+            l.launch(Intent(Settings.ACTION_LOCATION_SOURCE_SETTINGS))
+        }
+        wait.await()
+        return lm.isLocationEnabled
     }
 
     private fun granted(context: Context) =
@@ -52,8 +78,8 @@ object AgentLocation {
     suspend fun current(context: Context): Pair<Double, Double>? {
         if (!ensurePermission(context)) return null
         val lm = context.getSystemService(LocationManager::class.java) ?: return null
-        val providers = listOf(LocationManager.FUSED_PROVIDER, LocationManager.GPS_PROVIDER, LocationManager.NETWORK_PROVIDER)
-            .filter { runCatching { lm.isProviderEnabled(it) }.getOrDefault(false) }
+        if (!ensureEnabled(context, lm)) return null
+        val providers = enabledProviders(lm)
         val now = System.currentTimeMillis()
         providers.mapNotNull { runCatching { lm.getLastKnownLocation(it) }.getOrNull() }
             .filter { now - it.time < 2 * 60_000 }

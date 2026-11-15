@@ -167,7 +167,7 @@ internal class WebAgentSession(
 
     // ── 一轮对话 ────────────────────────────────────────────────────────────
 
-    override fun sendMessage(userText: String, config: AgentConfig, llmAnnex: String?, images: List<String>) {
+    override fun sendMessage(userText: String, config: AgentConfig, llmAnnex: String?, images: List<String>, contextLabel: String?) {
         // 与 `AgentViewModel` 同一判据：正在生成就静默忽略（同一页里撞不上；两个标签页那种并发由服务端答 409）
         if (userText.isBlank()) return
         if (isLoading) {

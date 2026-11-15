@@ -1,7 +1,26 @@
 package com.xjtu.toolbox.settings
 
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import com.xjtu.toolbox.platform.KeyValueStore
 import com.xjtu.toolbox.platform.keyValueStore
+
+/** 首页功能区设置落盘后的进程内信号：设置页与首页各读一份，改完靠它一起重读。 */
+object HomeLayoutRevision {
+    var current by mutableIntStateOf(0)
+        private set
+
+    fun bump() {
+        current++
+    }
+}
+
+/** 主页设置抽屉此刻是否开着：首页据此停掉背后的持续动画，抽屉拖动与滚动才不卡。 */
+object HomeSettingsOverlay {
+    var open by mutableStateOf(false)
+}
 
 /** 设置页那些偏好的读写。 */
 class SettingsStore(private val store: KeyValueStore = keyValueStore(APP_SETTINGS_FILE)) {
@@ -118,10 +137,59 @@ class SettingsStore(private val store: KeyValueStore = keyValueStore(APP_SETTING
             .coerceIn(HERO_IMAGE_BRIGHTNESS_MIN, HERO_IMAGE_BRIGHTNESS_MAX)
         set(value) = store.putInt("hero_image_brightness", value.coerceIn(HERO_IMAGE_BRIGHTNESS_MIN, HERO_IMAGE_BRIGHTNESS_MAX))
 
-    /** 场馆滑块验证码自动识别开关。 */
-    var venueAutoSolveCaptchaEnabled: Boolean
-        get() = store.getBoolean(KEY_VENUE_AUTO_SOLVE_CAPTCHA, true)
-        set(value) = store.putBoolean(KEY_VENUE_AUTO_SOLVE_CAPTCHA, value)
+    /**
+     * 首页功能区用哪一套：`classic` = 经典分类卡（回落），`cards` = 卡片组（合并了原「小组件」那套
+     * 能力的唯一现代实现）。
+     *
+     * 老存档里的 `widgets`（dev 上那套小组件）**没有独立选项了**：它已经并进卡片组，读到就当成
+     * `cards`，升级后用户看到的是合并后的新实现；没设置过的也按 `cards` 走。
+     */
+    var homeLayout: String
+        get() = when (store.getString("home_layout")) {
+            HOME_LAYOUT_CLASSIC -> HOME_LAYOUT_CLASSIC
+            else -> HOME_LAYOUT_CARDS
+        }
+        set(value) = store.putString("home_layout", value.takeIf { it in HOME_LAYOUTS } ?: HOME_LAYOUT_CARDS)
+
+    /**
+     * **历史键**：原「小组件」那套布局的分组与尺寸（每组一行 `#id\t标题\t颜色`，下面跟本组的
+     * `路由id:尺寸`）；null = 没编辑过。
+     *
+     * 小组件那套实现已经并进卡片组（见 `HOME_LAYOUT_CARDS`），卡片组用的是 `HomeLayoutStore` 里
+     * 那份整页快照，所以这个键现在**只读不写**，留着是为了不删用户硬盘上的旧数据、将来要迁移
+     * 旧布局时还有得读。
+     */
+    var homeWidgets: List<String>?
+        get() = store.getString("home_widgets")?.split('\n')?.filter { it.isNotBlank() }
+        set(value) = store.putString("home_widgets", value?.joinToString("\n"))
+
+
+    var homeBackground: String
+        get() = store.getString("home_background") ?: when {
+            store.getString("home_widget_material") == WIDGET_MATERIAL_PAPER -> "solid"
+            homeWallpaperImage.isNotEmpty() -> "image"
+            else -> "solid"
+        }
+        set(value) = store.putString("home_background", value)
+
+    /** 首页自定义背景，WebP Base64。 */
+    var homeWallpaperImage: String
+        get() = store.getString("home_wallpaper_image").orEmpty()
+        set(value) = store.putString("home_wallpaper_image", value.ifEmpty { null })
+
+    /**
+     * 首页背景图的模糊半径，取值范围同首页大卡的自定义背景。
+     *
+     * 糊到 [HOME_WALLPAPER_BLUR_HIDES_GLASS] 及以上时，卡片上的模糊与折射就看不出差别了，
+     * 那时卡片退成薄色玻璃（见那个常量的说明）——这里只负责存值，判定在渲染与设置面板。
+     *
+     * 原来还有一条「亮度」（键 `home_wallpaper_brightness`）：那**功能整个删掉了**（2026-11），
+     * 键不再读也不再写，壁纸按原图铺。自定义壁纸的明暗交给「背景不透明度」那条滑条调
+     * （往下拨就把主题底色盖回去）——亮度与它调的是同一件事，两条一起拨只会互相抵消。
+     */
+    var homeWallpaperBlur: Int
+        get() = store.getInt("home_wallpaper_blur", HERO_IMAGE_BLUR_MIN).coerceIn(HERO_IMAGE_BLUR_MIN, HERO_IMAGE_BLUR_MAX)
+        set(value) = store.putInt("home_wallpaper_blur", value.coerceIn(HERO_IMAGE_BLUR_MIN, HERO_IMAGE_BLUR_MAX))
 
     /** 课表格子上叠考勤角标。 */
     var scheduleAttendanceBadge: Boolean
@@ -144,9 +212,35 @@ class SettingsStore(private val store: KeyValueStore = keyValueStore(APP_SETTING
         }
         /** 非敏感的应用设置（外观、协议、更新……），普通 SharedPreferences。 */
         const val APP_SETTINGS_FILE = "app_settings"
+        const val HOME_LAYOUT_CLASSIC = "classic"
+        const val HOME_LAYOUT_CARDS = "cards"
+
+        /**
+         * 历史值：dev 上那套「小组件」布局。它已经并进 [HOME_LAYOUT_CARDS]，不再是可选项，
+         * 只在读老存档时被认出来并映射过去。
+         */
+        const val HOME_LAYOUT_WIDGETS = "widgets"
+
+        /** 合法的首页布局取值（写盘校验用）；`widgets` 只进不出。 */
+        val HOME_LAYOUTS = setOf(HOME_LAYOUT_CLASSIC, HOME_LAYOUT_CARDS)
+        const val WIDGET_MATERIAL_PAPER = "paper"
 
         const val HERO_IMAGE_BLUR_MIN = 0
         const val HERO_IMAGE_BLUR_MAX = 10
+
+        /**
+         * 背景图糊到这个半径（dp）及以上，卡片上的**模糊与折射就都看不出差别**了
+         * （2026-11 维护者给的阈值）。
+         *
+         * 模糊是真高斯，半径翻倍等于细节对折再对折：到 5dp 时壁纸已经是一片色块，卡片再采它一遍
+         * 糊出来的和「薄色底」几乎分不出，折射折的也是同一片色块——但这两层是全页最贵的
+         * （每张卡一次离屏位移采样）。所以此时按「纯色 / 渐变背景」那套处理：
+         * 不录卡片那层、不模糊、不折射，只留活力 / 高光 / 轮廓 / 投影。
+         *
+         * 注意这**不是**把用户的折射开关改成关：开关照原样显示、只是置灰（见主页设置），
+         * 换回不糊的图片或把模糊调小就立刻恢复。
+         */
+        const val HOME_WALLPAPER_BLUR_HIDES_GLASS = 5
         const val HERO_IMAGE_BRIGHTNESS_MIN = 20
         const val HERO_IMAGE_BRIGHTNESS_MAX = 100
 
@@ -157,7 +251,6 @@ class SettingsStore(private val store: KeyValueStore = keyValueStore(APP_SETTING
         private const val KEY_BOTTOM_BAR = "bottom_bar_tabs"
         private const val KEY_NETWORK_MODE = "network_mode"
         private const val KEY_SHOW_QUICK_ACTIONS = "show_quick_actions"
-        private const val KEY_VENUE_AUTO_SOLVE_CAPTCHA = "venue_auto_solve_captcha"
         private const val KEY_SCHEDULE_ATTENDANCE_BADGE = "schedule_attendance_badge"
         private const val KEY_SCHEDULE_SOURCE = "schedule_source"
 

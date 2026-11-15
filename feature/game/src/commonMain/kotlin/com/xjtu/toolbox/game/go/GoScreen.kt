@@ -60,7 +60,6 @@ import com.xjtu.toolbox.game.net.GameKind
 import com.xjtu.toolbox.game.net.OnlineConnState
 import com.xjtu.toolbox.game.net.OnlineGameEvent
 import com.xjtu.toolbox.game.net.OnlineGameSession
-import com.xjtu.toolbox.game.net.LobbyChip
 import com.xjtu.toolbox.game.net.LobbyOptionRow
 import com.xjtu.toolbox.game.net.OnlineLobby
 import com.xjtu.toolbox.game.net.OnlineLobbyState
@@ -74,7 +73,7 @@ import top.yukonga.miuix.kmp.basic.ButtonDefaults
 import top.yukonga.miuix.kmp.basic.Scaffold
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextButton
-import top.yukonga.miuix.kmp.basic.TopAppBar
+import com.xjtu.toolbox.ui.glass.CouiPageTopAppBar
 import top.yukonga.miuix.kmp.overlay.OverlayDialog
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import kotlin.math.roundToInt
@@ -112,10 +111,11 @@ fun GoScreen(onBack: () -> Unit, onlineLobby: OnlineLobby? = null) {
 
     Scaffold(
         topBar = {
-            TopAppBar(
+            CouiPageTopAppBar(
                 title = "围棋",
                 navigationIcon = { LeaveButton(inProgress, leave::request) },
                 color = MiuixTheme.colorScheme.background,
+                pinned = true,
             )
         },
     ) { padding ->
@@ -553,9 +553,12 @@ private fun GoOnlineSection(
             onCancel = {},
             hostOptions = {
                 LobbyOptionRow("棋盘") {
-                    ONLINE_GO_SIZES.forEach { size ->
-                        LobbyChip("$size 路", match.hostSize == size) { match.hostSize = size }
-                    }
+                    com.xjtu.toolbox.ui.components.AppSegmentedTabs(
+                        tabs = ONLINE_GO_SIZES.map { "$it 路" },
+                        selectedTabIndex = ONLINE_GO_SIZES.indexOf(match.hostSize).coerceAtLeast(0),
+                        onTabSelected = { match.hostSize = ONLINE_GO_SIZES[it] },
+                        compact = true,
+                    )
                 }
             },
         )

@@ -5,7 +5,6 @@ ksp = "2.3.12"
 room = "2.8.5"
 work = "2.12.0"
 coreKtx = "1.19.1"
-coreSplashscreen = "1.2.0"
 lifecycle = "2.11.0"
 activityCompose = "1.13.0"
 # 钉死的正式版（latest.release 会让同一份源码构建出不同版本）
@@ -27,6 +26,8 @@ zxing = "3.5.4"
 camerax = "1.6.2"
 media3 = "1.11.1"
 backdrop = "2.0.1"
+# 只有 vendored backdrop 的 Lens 用（圆角形状采样），版本跟上游 2.0.1 声明的一致
+kyantShapes = "1.2.1"
 graphicsShapes = "1.1.0"
 kotlinxSerialization = "1.11.0"
 # okhttp 只发布 jvm/android 变体，非 Android 端用 Ktor。
@@ -41,6 +42,9 @@ composeMaterialIcons = "1.7.3"
 kotlinxBrowser = "0.5.0"
 # 屁岱公式排版 huarangmeng/latex（MIT）；fonts-katex 为配套字体
 latex = "1.6.3"
+# 金标联盟 SharedViewKit（一镜到底）：发布在联盟内测 Nexus（HTTP），版本必须钉死。
+# 仓库声明在 settings.gradle.kts 的 dependencyResolutionManagement。
+sharedViewKit = "1.0.0.5"
 junit = "4.13.2"
 junitVersion = "1.3.0"
 espressoCore = "3.7.0"
@@ -51,7 +55,8 @@ uiautomator = "2.4.0"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
-androidx-core-splashscreen = { group = "androidx.core", name = "core-splashscreen", version.ref = "coreSplashscreen" }
+# COUI 底栏的弹簧（CouiSpring / CouiTouchMotion / 跟手光）用厂商同款 SpringAnimation，版本与 COUI-Kit 锁定一致
+androidx-dynamicanimation = { group = "androidx.dynamicanimation", name = "dynamicanimation", version = "1.1.0" }
 androidx-lifecycle-runtime-ktx = { group = "androidx.lifecycle", name = "lifecycle-runtime-ktx", version.ref = "lifecycle" }
 androidx-lifecycle-viewmodel-compose = { group = "androidx.lifecycle", name = "lifecycle-viewmodel-compose", version.ref = "lifecycle" }
 androidx-activity-compose = { group = "androidx.activity", name = "activity-compose", version.ref = "activityCompose" }
@@ -91,6 +96,10 @@ miuix-icons = { group = "top.yukonga.miuix.kmp", name = "miuix-icons-android", v
 miuix-squircle = { group = "top.yukonga.miuix.kmp", name = "miuix-squircle-android", version.ref = "miuix" }
 miuix-nav = { group = "top.yukonga.miuix.kmp", name = "miuix-nav-android", version.ref = "miuix" }
 kyant-backdrop = { group = "io.github.kyant0", name = "backdrop", version.ref = "backdrop" }
+# vendored 的 :thirdparty:backdrop 自己声明依赖时用（根 build.gradle.kts 会把上面那条坐标顶替成它）
+kyant-shapes = { group = "io.github.kyant0", name = "shapes", version.ref = "kyantShapes" }
+jb-compose-ui = { group = "org.jetbrains.compose.ui", name = "ui", version.ref = "composeMultiplatform" }
+jb-compose-foundation = { group = "org.jetbrains.compose.foundation", name = "foundation", version.ref = "composeMultiplatform" }
 androidx-graphics-shapes = { group = "androidx.graphics", name = "graphics-shapes", version.ref = "graphicsShapes" }
 kotlinx-serialization-json = { group = "org.jetbrains.kotlinx", name = "kotlinx-serialization-json", version.ref = "kotlinxSerialization" }
 junit = { group = "junit", name = "junit", version.ref = "junit" }
@@ -134,6 +143,8 @@ jb-lifecycle-runtime-compose = { group = "org.jetbrains.androidx.lifecycle", nam
 compose-material-icons-extended = { group = "org.jetbrains.compose.material", name = "material-icons-extended", version.ref = "composeMaterialIcons" }
 # 多平台 BackHandler（android 变体委派给 androidx.activity）。
 compose-ui-backhandler = { group = "org.jetbrains.compose.ui", name = "ui-backhandler", version.ref = "composeMultiplatform" }
+# 金标联盟 SharedViewKit：Activity 转场式的系统级「一镜到底」；只对声明支持的 ROM 生效。
+sharedview-kit = { group = "gsai.sdk", name = "sharedview-kit", version.ref = "sharedViewKit" }
 
 [plugins]
 kotlin-jvm = { id = "org.jetbrains.kotlin.jvm", version.ref = "kotlin" }

@@ -57,13 +57,13 @@ internal class WebArchiveImportTarget(
      */
     override fun readFile(suffix: String, relPath: String): String? =
         if (!ArchiveScoreReport.isFamily(relPath)) null
-        else storeOf(WebScoreReportCache.STORE_NAME).getString(WebScoreReportCache.KEY)
+        else storeOf(ArchiveScoreReport.WEB_STORE).getString(ArchiveScoreReport.WEB_KEY)
 
     /** 自建日程并进端内键值店；其余条目导入前已滤掉。 */
     override fun putFile(suffix: String, relPath: String, content: String) {
         // 成绩缓存那一族写回它自己的店（`score_report_cache` 的 `all` 键）
         if (ArchiveScoreReport.isFamily(relPath)) {
-            storeOf(WebScoreReportCache.STORE_NAME).putString(WebScoreReportCache.KEY, content)
+            storeOf(ArchiveScoreReport.WEB_STORE).putString(ArchiveScoreReport.WEB_KEY, content)
             return
         }
         WebArchiveRows.land(suffix, relPath, content, storeOf = storeOf)
