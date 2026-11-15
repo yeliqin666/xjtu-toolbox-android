@@ -1875,6 +1875,80 @@ web 那一份逐条调：好处是**失败只影响那一条**，坏处是 N 发
 夹具那一处：`:testkit` 的 `Jiaocai1FakeUpstream` **零改动**（分类树 / 检索 / reader / 页图 / 封面五条它早就齐了）；
 `ServeEndpointTestSupport` 新增两个小工具（`getBytes` 按字节读、`delete`）—— 二进制那几条不能按字符串读。
 
+### 5.15 评教切到 QMS（2026-11-15，B 批 A 路）：`/api/jwxt/evaluations*` 改接 `QmsJudgeApi`
+
+路径不变，上游从教务 `wspjyyapp` 换成学生评教 QMS（`qms.xjtu.edu.cn`，站点 key `qms`，公网直连），与安卓 `117d819b` 同一个平台。`ServeSession` 与桌面 `DesktopAuth` 都注册 `QmsSession`，登录时尽力预热。
+
+| 端点 | 请求 | `data` | 说明 |
+|---|---|---|---|
+| `GET /api/jwxt/evaluations` | `?finished=0\|1\|all`（默认 `0`） | `{canSubmit:true, comment, items:[…]}` | 只看进行中的学生评教任务；`?terms=` / `?type=` 不再有意义，忽略。`comment` = 提交时主观题统一填的那句（`QmsJudgeApi.DEFAULT_COMMENT`） |
+| `GET /api/jwxt/evaluations/status` | —— | `{canSubmit:true}` | 撤回（QMS 支持）本批不开放 |
+| `POST /api/jwxt/evaluations/submit` | `{responseId}` | `{submitted, message}` | 每题按最好一档填答后 PUT；已评（非 DRAFT）⇒ 200 + `submitted:false`（幂等）；不在进行中的任务里 ⇒ 404；QMS 拒收 ⇒ 409，`message` 是 QMS 的 violations 原文 |
+
+`items` 每行：`key`（= `responseId`，与 `QmsJudgeSource.card` 的 `JudgeCard.key` 相同）、`responseId`、`course`、`teacher`（教师用「、」连接，没有就是「未知教师」）、`lecturers`、`plan`（任务名）、`tag`（期中 / 期末 / 过程评教）、`status`（QMS 原文，`DRAFT` 算未评）、`finished`。旧的 `wjdm` / `jxbid` / `type` / `term` / `startTime` / `endTime` 与提交体 `{term,type,wjdm,jxbid}` 一并作废（取代 §5.12 里评教提交那一行）。
+
+- **消费方（`:web`）**：`CampusJudgeApi` 在 serve 形态读上面的形状，提交只发 `{responseId}`，确认文案带上 `comment`；屏标题改为「学生评教」。campus-api 形态不变（只读）。
+- **桌面**：本科分支改用 `QmsJudgeSource`；研究生仍走 gste / gmis（`GraduateJudgeSource`）。`UndergraduateJudgeSource` 已无调用方，已删除。
+- **夹具**：`testkit` 新增 `QmsFakeUpstream`（任务列表 → 分组课程 → 答卷详情 → PUT 提交），`ServeP0Group2Test` 与 `DesktopAuthLibraryJvmTest` 按它重写。上游请求形状只在这份夹具上验证过。
+
+### 5.16 学业进度那一族（2026-11-15 落地）：`/api/degree`
+
+学业进度（培养方案树 + 按课程重算的进度 + 没归位的课 + 转专业规划）。与其余各族同一条做法：**`:data` 里早有取数实现**
+（`AppDegreeSource`，Android 直连在用，本批桌面也接上），本层只做投影。会话借教务（`jwxt`）与移动教务（`jwapp`）两个站点，
+**一个新站点都没注册**。全部在令牌闸门后，未登录 `401`，上游失败 `502`（§4）。
+
+| 端点 | 方法 | 请求 / 参数 | 响应 |
+|---|---|---|---|
+| `/api/degree/progress` | GET | —— | `{planCode,planName,required,notes,grade,groups,courses,report,grades,currentCourses}` |
+| `/api/degree/plans` | GET | `keyword` 与 `grade` **至少给一个** | `{total,plans:[{code,name,college,grade}]}` |
+| `/api/degree/plan` | GET | `code` **必填**；`name`、`college`、`grade` 照 `plans` 那一行原样带上 | 同 `progress`，`report` 恒为空 |
+| `/api/degree/current-courses` | GET | —— | `{courses:[{code,name,term}]}` |
+| `/api/degree/recalculate` | POST | `{}` | `{done}`（`false` = 教务那边等超时） |
+
+- **`groups` / `courses` / `report` 是上游原始行**：屏与小岱共用的 `DegreeBuilder` 按教务的原始字段名（`KZH`、`KCH`、`fanbx` 等）解析，
+  转成固定 DTO 会漂，所以原样转发。**§5.2 红线**：转发前在任意深度剥掉本人身份字段（`XH`、`XM`、`SJH`、`SFZJH` 等，
+  全表见 `DegreeRoutes.kt` 的 `DEGREE_IDENTITY_KEYS`）。`grades` 七格、`currentCourses` 三格是 `:shared:model` 同名数据类逐字投影。
+- **在修课程**取最近两个有课的学期（往回最多看四个），读 serve 侧按账号的课表缓存（与小岱 `get_schedule` 同一份店），缺了才去教务补；
+  `progress` 里已经带上，单独那条端点给只要课表那一半的调用方。
+- **`plan` 是「换方案」**：用用户自己的成绩对照别的方案（规划转专业），教务报告只针对本人方案，所以没有。
+- **`recalculate` 是写**：触发教务的「重新计算」并等结果，只在用户点按钮时调。它不碰本人凭据，不在 §5.10 那条 HTTPS 门槛的范围内。
+- **消费方**：`:web` 的 `CampusDegreeApi : DegreeSource`（campus-api 形态里没有这条链，画「要 serve 模式」那张如实页）。
+  小岱的 `get_degree_progress` 在 serve 上由 `DegreeAgentTools` 挂进工具表（`ServeAgent` 的 `extras`），取数是同一份 `AppDegreeSource`。
+- **测试**：`ServeDegreeTest` 用假的 `DegreeSource` 钉住 401、400、逐字段、身份剥离、换方案参数、`recalculate` 与 `502`。
+  教务那串培养方案请求本身只靠 Android 端既有实现，serve 侧没有夹具。
+
+### 5.17 作业截止的采集与成绩报表补分（批 B，C 路）
+
+#### `GET /api/lms/due`：读之前先按 TTL 采集
+
+- 采集器 `LmsDueCollector` 已从 `:app` 移到 `:data`（`data/.../lms/LmsDueCollector.kt`），Android、桌面、serve 共用一份。
+- serve 和桌面都没有后台排程，所以就在读缓存的入口采集：距上次采集超过 `LmsDueCollector.REFRESH_TTL`（30 分钟）时，按当前账号静默确保学堂会话（`silent = true`，碰到短信验证直接放弃、不弹窗），拉最新学期的课程和活动，补上提交状态，再写回 `LmsDueStore`。
+- 节流按账号分别计时，同一时刻只跑一轮；采集失败也计时，免得学堂登不上时每次请求都卡在重新登录上。
+- 采集失败只写日志：这个端点照旧返回缓存（可能为空），不因为学堂而返回 502。响应形状不变，仍然是 `{count, items[]}`。
+- 桌面的 `DesktopScheduleHost.dueHomeworks` 走同一个入口，所以日程页「接下来」那一栏在桌面上也能看到数据。
+
+#### Web 的成绩报表补分：复用 `GET /api/jwxt/grades`
+
+- 不新增端点。`JwxtScoreSupplement.reportedGrades()` 不再带学号参数，由实现按当前账号自己取：serve 和桌面的账号 id 就是学号，Android 用登录态里的用户名。
+- `:web` 的 `CampusJwappScoreApi.reportedGrades()` 调 `GET /api/jwxt/grades`（不带参数），`data.grades[]` 的字段和 `ReportedGrade` 一一对应。学号只在服务端由会话决定，请求里不带，符合 §5.2 的红线。
+- 成绩页的 VM 和屏里不再有 `studentId`：有教务端口（`jwxt != null`）就显示报表入口，最新学期没出分的课从报表补上，三端行为一致。
+
+### 5.18 校车（2026-11-15，B 批 D 路）：`GET /api/bus/runs`
+
+免登录。serve 用 `:shared:network` 的 `BusApi` 转发 `xjbus.xjtu.edu.cn` 的司机页接口（安卓、桌面直连用的同一份），只做投影。
+
+| 端点 | 方法 | 参数 | 响应 `data` |
+|---|---|---|---|
+| `/api/bus/runs` | GET | `date`：`yyyy-MM-dd`，缺省 = 校园时区今天；形状不对 ⇒ `400` | `{date, runs:[{lineName,time,category,seats,usedSeats,plate,from,to,stops:[{name,time,remark}]}]}` |
+
+- `runs` 按发车时间升序；`time` 是 `HH:mm`。`stops[].time` 多数站点为 `null`，发车站的上游占位 `00:00` 已换成发车时间；`remark` 已去掉重复的站名前缀。
+- 余量、是否满员等由客户端按 `seats` / `usedSeats` 算（`BusRun.seatsLeft` 等），不另投影。
+- 上游响应里的乘客名单（`stationUserMap`）在 `BusApi` 解析时就不读，不会出现在响应、日志或落盘里。
+- 失败：上游非 2xx 或 `success != true` ⇒ `502`；当天没有班次是 `200` + 空 `runs`。
+- 与其他端点同一道令牌闸门。
+- 消费方：Web `CampusBusApi`（serve 形态画 `BusScreen`，campus-api 形态画 `WebServeOnlyScreen`）。
+- 小岱：serve 的工具表在 `ServeAgent` 的 `extras` 里并入 `BusAgentTools`（`get_campus_bus`），与安卓、桌面同一份实现；它不在 `:core` 的工具目录里，所以不经 `ServeAgentTools.NAMES`。
+
 ### 5.19 批 B-E（2026-11-15 落地）：Web 账号写操作接上已有的 `/api/accounts/{switch,add,delete,password}`
 
 **决策来源**：三端一致 B 批 E 路。serve 写侧已在 §5.10（2026-10-20）落地，本条只补消费方，不改 serve。
@@ -2361,81 +2435,3 @@ Kotlin 那一格）在本测试源集里**断言不了** —— `kotlin.test` �
   只读四域的四个是 2026-10-13 接线时补的，本文件草拟时那一族还是 13 个）；
   `:core` 里 12 个取数端口的接口 KDoc；`web/tools/serve-same-origin.py`（serve 模式的雏形）。
 - 未核实的部分已标 `TODO`/`待确认`，**不要当成结论用**。
-
-### 5.15 评教切到 QMS（2026-11-15，B 批 A 路）：`/api/jwxt/evaluations*` 改接 `QmsJudgeApi`
-
-路径不变，上游从教务 `wspjyyapp` 换成学生评教 QMS（`qms.xjtu.edu.cn`，站点 key `qms`，公网直连），与安卓 `117d819b` 同一个平台。`ServeSession` 与桌面 `DesktopAuth` 都注册 `QmsSession`，登录时尽力预热。
-
-| 端点 | 请求 | `data` | 说明 |
-|---|---|---|---|
-| `GET /api/jwxt/evaluations` | `?finished=0\|1\|all`（默认 `0`） | `{canSubmit:true, comment, items:[…]}` | 只看进行中的学生评教任务；`?terms=` / `?type=` 不再有意义，忽略。`comment` = 提交时主观题统一填的那句（`QmsJudgeApi.DEFAULT_COMMENT`） |
-| `GET /api/jwxt/evaluations/status` | —— | `{canSubmit:true}` | 撤回（QMS 支持）本批不开放 |
-| `POST /api/jwxt/evaluations/submit` | `{responseId}` | `{submitted, message}` | 每题按最好一档填答后 PUT；已评（非 DRAFT）⇒ 200 + `submitted:false`（幂等）；不在进行中的任务里 ⇒ 404；QMS 拒收 ⇒ 409，`message` 是 QMS 的 violations 原文 |
-
-`items` 每行：`key`（= `responseId`，与 `QmsJudgeSource.card` 的 `JudgeCard.key` 相同）、`responseId`、`course`、`teacher`（教师用「、」连接，没有就是「未知教师」）、`lecturers`、`plan`（任务名）、`tag`（期中 / 期末 / 过程评教）、`status`（QMS 原文，`DRAFT` 算未评）、`finished`。旧的 `wjdm` / `jxbid` / `type` / `term` / `startTime` / `endTime` 与提交体 `{term,type,wjdm,jxbid}` 一并作废（取代 §5.12 里评教提交那一行）。
-
-- **消费方（`:web`）**：`CampusJudgeApi` 在 serve 形态读上面的形状，提交只发 `{responseId}`，确认文案带上 `comment`；屏标题改为「学生评教」。campus-api 形态不变（只读）。
-- **桌面**：本科分支改用 `QmsJudgeSource`；研究生仍走 gste / gmis（`GraduateJudgeSource`）。`UndergraduateJudgeSource` 已无调用方，已删除。
-- **夹具**：`testkit` 新增 `QmsFakeUpstream`（任务列表 → 分组课程 → 答卷详情 → PUT 提交），`ServeP0Group2Test` 与 `DesktopAuthLibraryJvmTest` 按它重写。上游请求形状只在这份夹具上验证过。
-
----
-
-### 5.17 作业截止的采集与成绩报表补分（批 B，C 路）
-
-#### `GET /api/lms/due`：读之前先按 TTL 采集
-
-- 采集器 `LmsDueCollector` 已从 `:app` 移到 `:data`（`data/.../lms/LmsDueCollector.kt`），Android、桌面、serve 共用一份。
-- serve 和桌面都没有后台排程，所以就在读缓存的入口采集：距上次采集超过 `LmsDueCollector.REFRESH_TTL`（30 分钟）时，按当前账号静默确保学堂会话（`silent = true`，碰到短信验证直接放弃、不弹窗），拉最新学期的课程和活动，补上提交状态，再写回 `LmsDueStore`。
-- 节流按账号分别计时，同一时刻只跑一轮；采集失败也计时，免得学堂登不上时每次请求都卡在重新登录上。
-- 采集失败只写日志：这个端点照旧返回缓存（可能为空），不因为学堂而返回 502。响应形状不变，仍然是 `{count, items[]}`。
-- 桌面的 `DesktopScheduleHost.dueHomeworks` 走同一个入口，所以日程页「接下来」那一栏在桌面上也能看到数据。
-
-#### Web 的成绩报表补分：复用 `GET /api/jwxt/grades`
-
-- 不新增端点。`JwxtScoreSupplement.reportedGrades()` 不再带学号参数，由实现按当前账号自己取：serve 和桌面的账号 id 就是学号，Android 用登录态里的用户名。
-- `:web` 的 `CampusJwappScoreApi.reportedGrades()` 调 `GET /api/jwxt/grades`（不带参数），`data.grades[]` 的字段和 `ReportedGrade` 一一对应。学号只在服务端由会话决定，请求里不带，符合 §5.2 的红线。
-- 成绩页的 VM 和屏里不再有 `studentId`：有教务端口（`jwxt != null`）就显示报表入口，最新学期没出分的课从报表补上，三端行为一致。
-
-### 5.16 学业进度那一族（2026-11-15 落地）：`/api/degree`
-
-学业进度（培养方案树 + 按课程重算的进度 + 没归位的课 + 转专业规划）。与其余各族同一条做法：**`:data` 里早有取数实现**
-（`AppDegreeSource`，Android 直连在用，本批桌面也接上），本层只做投影。会话借教务（`jwxt`）与移动教务（`jwapp`）两个站点，
-**一个新站点都没注册**。全部在令牌闸门后，未登录 `401`，上游失败 `502`（§4）。
-
-| 端点 | 方法 | 请求 / 参数 | 响应 |
-|---|---|---|---|
-| `/api/degree/progress` | GET | —— | `{planCode,planName,required,notes,grade,groups,courses,report,grades,currentCourses}` |
-| `/api/degree/plans` | GET | `keyword` 与 `grade` **至少给一个** | `{total,plans:[{code,name,college,grade}]}` |
-| `/api/degree/plan` | GET | `code` **必填**；`name`、`college`、`grade` 照 `plans` 那一行原样带上 | 同 `progress`，`report` 恒为空 |
-| `/api/degree/current-courses` | GET | —— | `{courses:[{code,name,term}]}` |
-| `/api/degree/recalculate` | POST | `{}` | `{done}`（`false` = 教务那边等超时） |
-
-- **`groups` / `courses` / `report` 是上游原始行**：屏与小岱共用的 `DegreeBuilder` 按教务的原始字段名（`KZH`、`KCH`、`fanbx` 等）解析，
-  转成固定 DTO 会漂，所以原样转发。**§5.2 红线**：转发前在任意深度剥掉本人身份字段（`XH`、`XM`、`SJH`、`SFZJH` 等，
-  全表见 `DegreeRoutes.kt` 的 `DEGREE_IDENTITY_KEYS`）。`grades` 七格、`currentCourses` 三格是 `:shared:model` 同名数据类逐字投影。
-- **在修课程**取最近两个有课的学期（往回最多看四个），读 serve 侧按账号的课表缓存（与小岱 `get_schedule` 同一份店），缺了才去教务补；
-  `progress` 里已经带上，单独那条端点给只要课表那一半的调用方。
-- **`plan` 是「换方案」**：用用户自己的成绩对照别的方案（规划转专业），教务报告只针对本人方案，所以没有。
-- **`recalculate` 是写**：触发教务的「重新计算」并等结果，只在用户点按钮时调。它不碰本人凭据，不在 §5.10 那条 HTTPS 门槛的范围内。
-- **消费方**：`:web` 的 `CampusDegreeApi : DegreeSource`（campus-api 形态里没有这条链，画「要 serve 模式」那张如实页）。
-  小岱的 `get_degree_progress` 在 serve 上由 `DegreeAgentTools` 挂进工具表（`ServeAgent` 的 `extras`），取数是同一份 `AppDegreeSource`。
-- **测试**：`ServeDegreeTest` 用假的 `DegreeSource` 钉住 401、400、逐字段、身份剥离、换方案参数、`recalculate` 与 `502`。
-  教务那串培养方案请求本身只靠 Android 端既有实现，serve 侧没有夹具。
-
----
-
-### 5.18 校车（2026-11-15，B 批 D 路）：`GET /api/bus/runs`
-
-免登录。serve 用 `:shared:network` 的 `BusApi` 转发 `xjbus.xjtu.edu.cn` 的司机页接口（安卓、桌面直连用的同一份），只做投影。
-
-| 端点 | 方法 | 参数 | 响应 `data` |
-|---|---|---|---|
-| `/api/bus/runs` | GET | `date`：`yyyy-MM-dd`，缺省 = 校园时区今天；形状不对 ⇒ `400` | `{date, runs:[{lineName,time,category,seats,usedSeats,plate,from,to,stops:[{name,time,remark}]}]}` |
-
-- `runs` 按发车时间升序；`time` 是 `HH:mm`。`stops[].time` 多数站点为 `null`，发车站的上游占位 `00:00` 已换成发车时间；`remark` 已去掉重复的站名前缀。
-- 余量、是否满员等由客户端按 `seats` / `usedSeats` 算（`BusRun.seatsLeft` 等），不另投影。
-- 上游响应里的乘客名单（`stationUserMap`）在 `BusApi` 解析时就不读，不会出现在响应、日志或落盘里。
-- 失败：上游非 2xx 或 `success != true` ⇒ `502`；当天没有班次是 `200` + 空 `runs`。
-- 与其他端点同一道令牌闸门。
-- 消费方：Web `CampusBusApi`（serve 形态画 `BusScreen`，campus-api 形态画 `WebServeOnlyScreen`）。
-- 小岱：serve 的工具表在 `ServeAgent` 的 `extras` 里并入 `BusAgentTools`（`get_campus_bus`），与安卓、桌面同一份实现；它不在 `:core` 的工具目录里，所以不经 `ServeAgentTools.NAMES`。
