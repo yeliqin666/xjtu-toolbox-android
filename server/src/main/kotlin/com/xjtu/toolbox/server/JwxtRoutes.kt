@@ -4,8 +4,10 @@ import com.xjtu.toolbox.account.AccountContext
 import com.xjtu.toolbox.auth.SiteSession
 import com.xjtu.toolbox.core.net.ScheduleData
 import com.xjtu.toolbox.core.net.TermStartData
-import com.xjtu.toolbox.judge.JudgeApi
-import com.xjtu.toolbox.judge.Questionnaire
+import com.xjtu.toolbox.judge.QmsException
+import com.xjtu.toolbox.judge.QmsJudgeApi
+import com.xjtu.toolbox.judge.QmsJudgeSource
+import com.xjtu.toolbox.judge.QmsQuestionnaire
 import com.xjtu.toolbox.schedule.AppSchoolCourseSource
 import com.xjtu.toolbox.schedule.CourseItem
 import com.xjtu.toolbox.schedule.ExamItem
@@ -218,39 +220,25 @@ internal fun Route.jwxtRoutes(session: ServeSession) {
             }
         }
 
-        // ── 评教问卷（wspjyyapp：未评 / 已评，可 ?terms=?type=?finished=）────
+        // ── 评教问卷（QMS：进行中的学生评教任务，?finished=0|1|all）────────
         get(JWXT_EVALUATIONS) {
             if (!session.authenticated) return@get call.respondLoginRequired()
-            val params = call.request.queryParameters
-            // `?terms=`：逗号分隔、最多 4 个；没给 ⇒ 用当前学期（emptyList 哨兵）
-            val termsSpec = params.evalTerms() ?: return@get call.respondBadRequestMessage("terms 最多 4 个学期，逗号分隔")
-            val type = params["type"]?.trim()
-            val finishedSpec = params["finished"]?.trim()?.ifBlank { null } ?: "0"
+            val finishedSpec = call.request.queryParameters["finished"]?.trim()?.ifBlank { null } ?: "0"
             if (finishedSpec !in setOf("0", "1", "all")) {
                 return@get call.respondBadRequestMessage("finished 只能是 0（未评）/ 1（已评）/ all")
             }
-            if (type != null && type !in setOf("01", "05")) {
-                return@get call.respondBadRequestMessage("type 只能是 01（期末）或 05（过程）")
-            }
             try {
-                val api = JudgeApi(session.jwxtSite())
-                val terms = termsSpec.ifEmpty { listOf(api.getCurrentTerm()) }
-                val items = mutableListOf<EvaluationDto>()
-                for (term in terms) {
-                    val wantFinished = finishedSpec == "1" || finishedSpec == "all"
-                    val wantUnfinished = finishedSpec == "0" || finishedSpec == "all"
-                    if (type == null) {
-                        // 与 :data 的 UndergraduateJudgeSource.load 同一个查询顺序：先过程（05）再期末（01）
-                        if (wantUnfinished) items += api.getQuestionnaires("05", term, finished = false).map { it.toDto(false) }
-                        if (wantUnfinished) items += api.getQuestionnaires("01", term, finished = false).map { it.toDto(false) }
-                        if (wantFinished) items += api.getQuestionnaires("05", term, finished = true).map { it.toDto(true) }
-                        if (wantFinished) items += api.getQuestionnaires("01", term, finished = true).map { it.toDto(true) }
-                    } else {
-                        if (wantUnfinished) items += api.getQuestionnaires(type, term, finished = false).map { it.toDto(false) }
-                        if (wantFinished) items += api.getQuestionnaires(type, term, finished = true).map { it.toDto(true) }
-                    }
+                val source = QmsJudgeSource(session.qmsSite())
+                val (unfinished, finished) = source.load()
+                val items = buildList {
+                    if (finishedSpec != "1") unfinished.forEach { add(it.toDto(source)) }
+                    if (finishedSpec != "0") finished.forEach { add(it.toDto(source)) }
                 }
-                call.respond(ApiEnvelope.ok(EvaluationsData(canSubmit = EVALUATIONS_CAN_SUBMIT, items = items)))
+                call.respond(
+                    ApiEnvelope.ok(
+                        EvaluationsData(canSubmit = EVALUATIONS_CAN_SUBMIT, comment = QmsJudgeApi.DEFAULT_COMMENT, items = items),
+                    ),
+                )
             } catch (e: Exception) {
                 call.respondUpstreamFailure(e, "加载评教问卷")
             }
@@ -259,43 +247,25 @@ internal fun Route.jwxtRoutes(session: ServeSession) {
         // ── 评教模块状态 ─────────────────────────────────────────────
         get(JWXT_EVALUATIONS_STATUS) {
             if (!session.authenticated) return@get call.respondLoginRequired()
-            // 写端点在下面（提交）；撤回（undo）仍未实现。canSubmit 字段必须出现（契约 §5）
+            // 撤回（undo）未开放。canSubmit 字段必须出现（契约 §5）
             call.respond(ApiEnvelope.ok(EvaluationsStatusData(canSubmit = EVALUATIONS_CAN_SUBMIT)))
         }
 
-        // ── 评教提交（B-12；评教季有时间窗）──────────────────────────
+        // ── 评教提交（QMS：按最好一档填答后 PUT）────────────────────────
         //
-        // 幂等判据是**目标状态**：这门课这张问卷已经评过了（它出现在已评列表里）⇒ 回 `submitted=false`
-        // 的成功包，不再打提交那一枪。屏上的二次确认文案由消费方负责，本层不加一层确认。
+        // 幂等判据是目标状态：这张答卷已经不是 DRAFT ⇒ 回 `submitted=false`，不再提交。
         post(JWXT_EVALUATIONS_SUBMIT) {
             if (!session.authenticated) return@post call.respondLoginRequired()
             val body = call.receiveOrNull<EvaluationSubmitRequest>()
                 ?: return@post call.respondBadRequestMessage(EVALUATION_SUBMIT_BODY_MESSAGE)
-            val term = body.term.trim()
-            val type = body.type.trim()
-            val wjdm = body.wjdm.trim()
-            val jxbid = body.jxbid.trim()
-            if (term.isEmpty()) {
-                return@post call.respondBadRequestMessage("term 必填（取自 /api/jwxt/evaluations 的 term）")
-            }
-            if (type !in setOf("01", "05")) {
-                return@post call.respondBadRequestMessage(EVALUATION_SUBMIT_TYPE_MESSAGE)
-            }
-            if (wjdm.isEmpty() || jxbid.isEmpty()) {
-                return@post call.respondBadRequestMessage("wjdm 与 jxbid 必填（取自 /api/jwxt/evaluations 的同名两格）")
-            }
-            // 参评人（学号）只在本层用来给自动填报那一枪（与 APP 端 UndergraduateJudgeSource 同一个用法），
-            // 一个字都不会进响应（契约 §5.2）。
-            val actor = AccountContext.activeAccountId?.trim().orEmpty()
-            if (actor.isEmpty()) return@post call.respondLoginRequired()
+            val responseId = body.responseId.trim()
+            if (responseId.isEmpty()) return@post call.respondBadRequestMessage(EVALUATION_SUBMIT_BODY_MESSAGE)
             try {
-                val api = JudgeApi(session.jwxtSite())
-                val target = api.getQuestionnaires(type, term, finished = false)
-                    .firstOrNull { it.WJDM == wjdm && it.JXBID == jxbid }
+                val source = QmsJudgeSource(session.qmsSite())
+                val (unfinished, finished) = source.load()
+                val target = unfinished.firstOrNull { it.responseId == responseId }
                 if (target == null) {
-                    val alreadyDone = api.getQuestionnaires(type, term, finished = true)
-                        .any { it.WJDM == wjdm && it.JXBID == jxbid }
-                    if (alreadyDone) {
+                    if (finished.any { it.responseId == responseId }) {
                         return@post call.respond(
                             ApiEnvelope.ok(EvaluationSubmitResult(submitted = false, message = EVALUATION_ALREADY_MESSAGE)),
                         )
@@ -305,10 +275,10 @@ internal fun Route.jwxtRoutes(session: ServeSession) {
                         ApiEnvelope<Unit>(ApiErrors.NOT_FOUND, message = EVALUATION_NOT_FOUND_MESSAGE),
                     )
                 }
-                val answers = api.autoFillQuestionnaire(target, actor)
-                val (ok, message) = api.submitQuestionnaire(target, answers)
-                if (!ok) {
-                    return@post call.respondActionRejected(message.ifBlank { EVALUATION_REJECTED_MESSAGE })
+                try {
+                    source.judge(target)
+                } catch (e: QmsException) {
+                    return@post call.respondActionRejected(e.message.orEmpty().ifBlank { EVALUATION_REJECTED_MESSAGE })
                 }
                 call.respond(
                     ApiEnvelope.ok(EvaluationSubmitResult(submitted = true, message = EVALUATION_SUBMITTED_MESSAGE)),
@@ -451,43 +421,39 @@ internal data class SchoolCourseDto(
 @Serializable
 internal data class EvaluationsData(
     val canSubmit: Boolean,
+    /** 提交时主观题统一填的那句话（屏上的确认文案要告诉用户）。 */
+    val comment: String,
     val items: List<EvaluationDto>,
 )
 
-/** `POST /api/jwxt/evaluations/submit` 的请求体：四格全取自 `/api/jwxt/evaluations` 的同名字段。 */
+/** `POST /api/jwxt/evaluations/submit` 的请求体：`responseId` 取自 `/api/jwxt/evaluations` 的同名字段。 */
 @Serializable
-internal data class EvaluationSubmitRequest(
-    val term: String = "",
-    /** `01` 期末 / `05` 过程（与 `EvaluationDto.type` 同一个口径）。 */
-    val type: String = "",
-    val wjdm: String = "",
-    val jxbid: String = "",
-)
+internal data class EvaluationSubmitRequest(val responseId: String = "")
 
 /**
  * `POST /api/jwxt/evaluations/submit` 的 `data`。
  *
- * [submitted] = 这一发真的打出了一枪；`false` = 幂等命中（这张问卷本来就已评过）。
+ * [submitted] = 这一发真的提交了；`false` = 幂等命中（这张答卷本来就已评过）。
  */
 @Serializable
 internal data class EvaluationSubmitResult(val submitted: Boolean, val message: String)
-/** 一份问卷卡片的投影（字段名与 `Questionnaire` / `JudgeCard` 同源，不重起名）。 */
+
+/** 一份 QMS 答卷的投影（`key` / `teacher` / `tag` 与 `QmsJudgeSource.card` 同源）。 */
 @Serializable
 internal data class EvaluationDto(
-    /** 与 `JudgeCard.key` 同一个键公式：`${WJDM}_${JXBID}_${BPR}`。 */
+    /** 与 `JudgeCard.key` 相同，就是 [responseId]。 */
     val key: String,
-    val wjdm: String,
-    val jxbid: String,
+    val responseId: String,
     val course: String,
+    /** 授课教师用「、」连起来；一个都没有时是「未知教师」。 */
     val teacher: String,
-    /** `PGLXDM` 原文：`01` 期末 / `05` 过程。 */
-    val type: String,
-    /** `PGLXDM` 的显示名（判据与 `UndergraduateJudgeSource.card` 相同）。 */
+    val lecturers: List<String>,
+    /** 评教任务名（如「2026-2027-1 期末评教」）。 */
+    val plan: String,
     val tag: String,
-    val term: String,
+    /** QMS 原始状态：`DRAFT` 未评，其余算已评。 */
+    val status: String,
     val finished: Boolean,
-    val startTime: String,
-    val endTime: String,
 )
 
 /** `GET /api/jwxt/evaluations/status` 的 `data`。 */
@@ -549,23 +515,20 @@ private fun com.xjtu.toolbox.schedule.SchoolCourse.toDto() = SchoolCourseDto(
     fillRatio = fillRatio,
 )
 
-private fun Questionnaire.toDto(finished: Boolean) = EvaluationDto(
-    key = "${WJDM}_${JXBID}_${BPR}",
-    wjdm = WJDM,
-    jxbid = JXBID,
-    course = KCM,
-    teacher = BPJS,
-    type = PGLXDM,
-    tag = when (PGLXDM) {
-        "01" -> "期末评教"
-        "05" -> "过程评教"
-        else -> "评教"
-    },
-    term = XNXQDM,
-    finished = finished,
-    startTime = KSSJ,
-    endTime = JSSJ,
-)
+private fun QmsQuestionnaire.toDto(source: QmsJudgeSource): EvaluationDto {
+    val card = source.card(this)
+    return EvaluationDto(
+        key = card.key,
+        responseId = responseId,
+        course = card.course,
+        teacher = card.teacher,
+        lecturers = lecturers,
+        plan = planTitle,
+        tag = card.tag,
+        status = status,
+        finished = finished,
+    )
+}
 
 // ── 常量与小工具 ───────────────────────────────────────────────────
 
@@ -587,38 +550,29 @@ internal const val JWXT_PARAM_TERM = "term"
 /** `?merged=`：只有 `1` 算数（`/api/jwxt/schedule` 那一条，见 §5.9）。 */
 internal const val JWXT_PARAM_MERGED = "merged"
 
-/** 本层有没有提交评教的能力（提交端点在下面；撤回 undo 仍未实现）。 */
+/** 本层有没有提交评教的能力（撤回 undo 未开放）。 */
 private const val EVALUATIONS_CAN_SUBMIT = true
 
 /** `POST /api/jwxt/evaluations/submit` 的形状不对。 */
 private const val EVALUATION_SUBMIT_BODY_MESSAGE =
-    "请求体需要 term / type / wjdm / jxbid 四格（都取自 /api/jwxt/evaluations 的同名字段）"
+    "请求体需要 responseId（取自 /api/jwxt/evaluations 的同名字段）"
 
-/** `type` 只认两种（与只读的 `/api/jwxt/evaluations` 同一句口径）。 */
-private const val EVALUATION_SUBMIT_TYPE_MESSAGE = "type 只能是 01（期末）或 05（过程）"
-
-/** 幂等命中：这张问卷已经在已评列表里。 */
+/** 幂等命中：这张答卷已经评过了。 */
 internal const val EVALUATION_ALREADY_MESSAGE = "这张问卷已经评过了"
 
-/** 未评列表、已评列表里都没有它（学期/类型可能填错，或评教窗已关）。 */
-internal const val EVALUATION_NOT_FOUND_MESSAGE = "问卷不在该学期的未评名单里：可能已截止，或 term/type 传错了"
+/** 进行中的评教任务里没有这张答卷（可能已截止，或 responseId 传错了）。 */
+internal const val EVALUATION_NOT_FOUND_MESSAGE = "问卷不在进行中的评教任务里：可能已截止，或 responseId 传错了"
 
-/** 上游说 ok 但没给理由时的那句。 */
-internal const val EVALUATION_REJECTED_MESSAGE = "教务没有接受这次提交"
+/** 上游拒收但没给理由时的那句。 */
+internal const val EVALUATION_REJECTED_MESSAGE = "评教系统没有接受这次提交"
 
 internal const val EVALUATION_SUBMITTED_MESSAGE = "评教已提交"
 
-/** `?terms=` 的读法：逗号分隔、最多 4 个学期（与 :core 客户端先例同一个上限）；没给 = 空表。 */
-private fun io.ktor.http.Parameters.evalTerms(): List<String>? {
-    val raw = get("terms")?.trim()?.takeIf { it.isNotEmpty() } ?: return emptyList()
-    val terms = raw.split(",").map { it.trim() }.filter { it.isNotEmpty() }
-    if (terms.isEmpty() || terms.size > 4) return null
-    return terms
-}
-
-
 /** 教务站点会话（`ServeSession` 注册过的那个）。 */
 internal fun ServeSession.jwxtSite(): SiteSession = sessionManager.getSite(ServeSession.JWXT_SITE_KEY)
+
+/** 学生评教（QMS）站点会话。 */
+internal fun ServeSession.qmsSite(): SiteSession = sessionManager.getSite(ServeSession.QMS_SITE_KEY)
 
 /** 「这个请求问的是哪个学期」（`/api/jwxt/term-start` 与 `/api/jwxt/schedule` 共用）。 */
 private suspend fun currentTerm(session: ServeSession): String {

@@ -57,8 +57,8 @@ import com.xjtu.toolbox.judge.GraduateJudgeSource
 import com.xjtu.toolbox.judge.GraduateQuestionnaire
 import com.xjtu.toolbox.judge.JudgeListScreen
 import com.xjtu.toolbox.judge.JudgeViewModel
-import com.xjtu.toolbox.judge.Questionnaire
-import com.xjtu.toolbox.judge.UndergraduateJudgeSource
+import com.xjtu.toolbox.judge.QmsJudgeSource
+import com.xjtu.toolbox.judge.QmsQuestionnaire
 import com.xjtu.toolbox.game.GamesScreen
 import com.xjtu.toolbox.game.blocks.BlocksScreen
 import com.xjtu.toolbox.game.g2048.Gpa2048Screen
@@ -480,24 +480,11 @@ private fun DesktopPage(
                 viewModel(key = "judge-postgraduate") { JudgeViewModel(source) }
             JudgeListScreen("学生评教", vm, back)
         } else {
-            DesktopSiteGate(auth, DesktopAuth.JWXT_SITE_KEY, "教务") { site ->
-                val username = AccountContext.activeAccountId?.takeIf { it.isNotBlank() }
-                if (username == null) {
-                    MissingIdentityPage(
-                        onNavigate = onNavigate,
-                        title = "评教要一个学号，现在取不到",
-                        lines = listOf(
-                            "评教是按学号取「我的问卷」的，学号来自这次登录。取不到通常是登录还没走完，或者" +
-                                "这一份装配是从落盘凭据恢复的 —— 重新登录一次即可。",
-                            "教务那边的会话本身是好的（能进这一屏就说明它建起来了）。",
-                        ),
-                    )
-                } else {
-                    val source = remember(site, username) { UndergraduateJudgeSource(site, username) }
-                    val vm: JudgeViewModel<Questionnaire> =
-                        viewModel(key = "judge-undergraduate") { JudgeViewModel(source) }
-                    JudgeListScreen("学生评教", vm, back)
-                }
+            DesktopSiteGate(auth, DesktopAuth.QMS_SITE_KEY, "评教") { site ->
+                val source = remember(site) { QmsJudgeSource(site) }
+                val vm: JudgeViewModel<QmsQuestionnaire> =
+                    viewModel(key = "judge-qms") { JudgeViewModel(source) }
+                JudgeListScreen("学生评教", vm, back)
             }
         }
 
@@ -981,7 +968,7 @@ private fun HostUnavailableScreen(
 ) {
     val cs = MiuixTheme.colorScheme
     Column(
-        // 自己画底：`NotPortedScreen` / `MissingIdentityPage` 那两页没画，靠窗口底色 —— 而离屏
+        // 自己画底：`NotPortedScreen` 那一页没画，靠窗口底色 —— 而离屏
         // 证据图里没有窗口，于是深色模式下会变成「浅字透明底」（图上看着像坏了）。这里补上。
         modifier = Modifier.fillMaxSize().background(cs.background).padding(24.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),
@@ -991,32 +978,6 @@ private fun HostUnavailableScreen(
         Text("路由 id：${route.id}", color = cs.onBackgroundVariant, fontSize = 12.sp)
         lines.forEach { line ->
             Text(line, color = cs.onBackgroundVariant, fontSize = 12.sp)
-        }
-        Button(
-            onClick = { onNavigate(DesktopTarget.Routes) },
-            colors = ButtonDefaults.buttonColorsPrimary(),
-        ) { Text("回全部页面", color = cs.onPrimary) }
-    }
-}
-/** 「没有身份就取不了数」的说明。 */
-@Composable
-private fun MissingIdentityPage(
-    onNavigate: (DesktopTarget) -> Unit,
-    title: String,
-    lines: List<String>,
-) {
-    val cs = MiuixTheme.colorScheme
-    Column(
-        modifier = Modifier.fillMaxSize().padding(24.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp),
-    ) {
-        Text(title, color = cs.onSurface, fontSize = 18.sp, fontWeight = FontWeight.Bold)
-        lines.forEachIndexed { index, line ->
-            Text(
-                line,
-                color = cs.onBackgroundVariant,
-                fontSize = if (index == 0) 13.sp else 12.sp,
-            )
         }
         Button(
             onClick = { onNavigate(DesktopTarget.Routes) },

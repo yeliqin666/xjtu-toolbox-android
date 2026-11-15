@@ -17,6 +17,7 @@ import com.xjtu.toolbox.auth.JsSession
 import com.xjtu.toolbox.auth.JwxtSession
 import com.xjtu.toolbox.auth.LoginUiState
 import com.xjtu.toolbox.auth.LibrarySession
+import com.xjtu.toolbox.auth.QmsSession
 import com.xjtu.toolbox.auth.SessionBackend
 import com.xjtu.toolbox.auth.SessionManager
 import com.xjtu.toolbox.auth.SiteSession
@@ -45,7 +46,7 @@ class DesktopAuth(
         // 搬一个注册一个（`:data:commonMain` 的 `Sites.kt` 那一批）。
         register(LibrarySession())
         register(FitnessSession())
-        // 教务：全校课表 / 成绩报表 / 本科评教三条路由共用的站点（`:data` 的 `JwxtSession` + `JwxtLogin`）。
+        // 教务：全校课表 / 成绩报表共用的站点（`:data` 的 `JwxtSession` + `JwxtLogin`）。
         register(JwxtSession())
         // 研究生评教要的两个站点：gste（问卷）与 gmis（课程详情 + 学位课）。它们**只**服务研究生，
         // 本科账号登它们会失败 —— 所以登录页那一步只是「尽力预热」，失败只记不抛（见 `login()`）。
@@ -70,6 +71,9 @@ class DesktopAuth(
         register(JiaocaiSession())
 
         register(LmsSession())
+
+        // 学生评教（QMS）：本科评教走它；公网直连，不走 WebVPN。
+        register(QmsSession())
     }
 
     /** 图书馆站点会话。冷启动时它还是「从快照恢复、待确认」，第一次取数会自己探活/重登。 */
@@ -275,7 +279,7 @@ class DesktopAuth(
         const val LIBRARY_SITE_KEY = "library"
         const val FITNESS_SITE_KEY = "fitness"
 
-        /** 教务：全校课表 + 成绩报表 + 本科评教共用的那一个站点。 */
+        /** 教务：全校课表 + 成绩报表共用的那一个站点。 */
         const val JWXT_SITE_KEY = "jwxt"
 
         /** 研究生评教：问卷在 gste、课程信息在 gmis（两个站点，都只服务研究生）。 */
@@ -317,6 +321,9 @@ class DesktopAuth(
         /** 教材全文库（`jiaocai1`）那两条路由进门时用的站点。 */
         const val JIAOCAI_SITE_KEY = JiaocaiSession.SITE_KEY
 
+        /** 学生评教（`qms`）。本科评教那一屏进门时用它。 */
+        const val QMS_SITE_KEY = QmsSession.SITE_KEY
+
         /** 登录页那一步一次建起会话的站点：`:core` 里有屏 + `:data` 里有站点类与取数的那几个。 */
         private val SESSION_SITE_KEYS = listOf(
             LIBRARY_SITE_KEY,
@@ -339,6 +346,7 @@ class DesktopAuth(
             ICLASSFACE_SITE_KEY,
             // 教材全文库那两条路由借的就是教材中心的会话（站点 key = `jiaocai`）
             JIAOCAI_SITE_KEY,
+            QMS_SITE_KEY,
         )
     }
 }

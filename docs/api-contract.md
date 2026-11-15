@@ -2339,3 +2339,19 @@ Kotlin 那一格）在本测试源集里**断言不了** —— `kotlin.test` �
   只读四域的四个是 2026-10-13 接线时补的，本文件草拟时那一族还是 13 个）；
   `:core` 里 12 个取数端口的接口 KDoc；`web/tools/serve-same-origin.py`（serve 模式的雏形）。
 - 未核实的部分已标 `TODO`/`待确认`，**不要当成结论用**。
+
+### 5.15 评教切到 QMS（2026-11-15，B 批 A 路）：`/api/jwxt/evaluations*` 改接 `QmsJudgeApi`
+
+路径不变，上游从教务 `wspjyyapp` 换成学生评教 QMS（`qms.xjtu.edu.cn`，站点 key `qms`，公网直连），与安卓 `117d819b` 同一个平台。`ServeSession` 与桌面 `DesktopAuth` 都注册 `QmsSession`，登录时尽力预热。
+
+| 端点 | 请求 | `data` | 说明 |
+|---|---|---|---|
+| `GET /api/jwxt/evaluations` | `?finished=0\|1\|all`（默认 `0`） | `{canSubmit:true, comment, items:[…]}` | 只看进行中的学生评教任务；`?terms=` / `?type=` 不再有意义，忽略。`comment` = 提交时主观题统一填的那句（`QmsJudgeApi.DEFAULT_COMMENT`） |
+| `GET /api/jwxt/evaluations/status` | —— | `{canSubmit:true}` | 撤回（QMS 支持）本批不开放 |
+| `POST /api/jwxt/evaluations/submit` | `{responseId}` | `{submitted, message}` | 每题按最好一档填答后 PUT；已评（非 DRAFT）⇒ 200 + `submitted:false`（幂等）；不在进行中的任务里 ⇒ 404；QMS 拒收 ⇒ 409，`message` 是 QMS 的 violations 原文 |
+
+`items` 每行：`key`（= `responseId`，与 `QmsJudgeSource.card` 的 `JudgeCard.key` 相同）、`responseId`、`course`、`teacher`（教师用「、」连接，没有就是「未知教师」）、`lecturers`、`plan`（任务名）、`tag`（期中 / 期末 / 过程评教）、`status`（QMS 原文，`DRAFT` 算未评）、`finished`。旧的 `wjdm` / `jxbid` / `type` / `term` / `startTime` / `endTime` 与提交体 `{term,type,wjdm,jxbid}` 一并作废（取代 §5.12 里评教提交那一行）。
+
+- **消费方（`:web`）**：`CampusJudgeApi` 在 serve 形态读上面的形状，提交只发 `{responseId}`，确认文案带上 `comment`；屏标题改为「学生评教」。campus-api 形态不变（只读）。
+- **桌面**：本科分支改用 `QmsJudgeSource`；研究生仍走 gste / gmis（`GraduateJudgeSource`）。`UndergraduateJudgeSource` 已无调用方，已删除。
+- **夹具**：`testkit` 新增 `QmsFakeUpstream`（任务列表 → 分组课程 → 答卷详情 → PUT 提交），`ServeP0Group2Test` 与 `DesktopAuthLibraryJvmTest` 按它重写。上游请求形状只在这份夹具上验证过。

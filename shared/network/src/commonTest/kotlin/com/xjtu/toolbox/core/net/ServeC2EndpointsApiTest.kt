@@ -131,37 +131,61 @@ class ServeC2EndpointsApiTest {
         assertNull(course)
     }
 
-    // ── 评教提交（B-12 / C-2）──────────────────────────────────────────
+    // ── 评教（QMS，契约 §5.15）──────────────────────────────────────────
 
     @Test
-    fun `serve 形态下评教能提交：请求体四格、已经在已评名单也当成功（幂等）`() = runTest {
+    fun `serve 形态下评教列表读 QMS 投影：key 是 responseId，评语进确认文案`() = runTest {
+        val calls = mutableListOf<Call>()
+        val api = CampusJudgeApi(
+            createToolboxClient(
+                engine = engineFor(
+                    "/api/jwxt/evaluations" to """{"code":0,"data":{"canSubmit":true,"comment":"示例评语。","items":[
+                        {"key":"R1","responseId":"R1","course":"高等数学（上）","teacher":"示例教师、示例乙","lecturers":["示例教师","示例乙"],"plan":"2026-2027-1 期末评教","tag":"期末评教","status":"DRAFT","finished":false},
+                        {"key":"R2","responseId":"R2","course":"大学物理","teacher":"示例丙","lecturers":["示例丙"],"plan":"2026-2027-1 期末评教","tag":"期末评教","status":"ENABLED","finished":true}
+                    ]}}""",
+                    calls = calls,
+                ),
+            ),
+            "",
+            ApiMode.SERVE,
+        )
+        val (unfinished, finished) = api.load()
+        assertEquals("all", calls.single().query["finished"], "一次取全，客户端自己分未评 / 已评")
+        assertEquals(listOf("R1"), unfinished.map { it.responseId })
+        assertEquals(listOf("R2"), finished.map { it.responseId })
+        val card = api.card(unfinished.single())
+        assertEquals("R1", card.key)
+        assertEquals("高等数学（上）", card.course)
+        assertEquals("示例教师、示例乙", card.teacher)
+        assertEquals("期末评教", card.tag)
+        assertTrue(api.confirmText.contains("示例评语。"), "确认文案要说清主观题填什么：${api.confirmText}")
+    }
+
+    @Test
+    fun `serve 形态下评教能提交：请求体只带 responseId、已评过也当成功（幂等）`() = runTest {
         val calls = mutableListOf<Call>()
         val api = CampusJudgeApi(
             createToolboxClient(engine = engineFor("/api/jwxt/evaluations/submit" to """{"code":0,"data":{"submitted":true}}""", calls = calls)),
             "",
             ApiMode.SERVE,
-            term = "2026-2027-1",
         )
-        assertTrue(api.canSubmit, "serve 形态下真能提交（契约 §5.12）")
+        assertTrue(api.canSubmit, "serve 形态下真能提交（契约 §5.15）")
 
-        api.judge(CampusQuestionnaire(wjdm = "W1", jxbid = "J1", courseName = "高等数学（上）", teacher = "示例教师", pgType = "01", finished = false))
+        api.judge(CampusQuestionnaire("", "", "高等数学（上）", "示例教师", "", false, responseId = "R1", tag = "期末评教"))
 
         val call = calls.single()
         assertEquals(HttpMethod.Post, call.method)
         assertEquals("/api/jwxt/evaluations/submit", call.path)
-        val body = call.body.orEmpty()
-        for (needle in listOf("\"term\":\"2026-2027-1\"", "\"type\":\"01\"", "\"wjdm\":\"W1\"", "\"jxbid\":\"J1\"")) {
-            assertTrue(body.contains(needle), "请求体里该有 $needle，实际：$body")
-        }
+        assertEquals("""{"responseId":"R1"}""", call.body)
 
-        // `submitted:false`（这门课已经在已评名单里）也是成功：契约写明那一档是幂等的 200
+        // `submitted:false`（已评过）也是成功：契约写明那一档是幂等的 200
         calls.clear()
         val again = CampusJudgeApi(
             createToolboxClient(engine = engineFor("/api/jwxt/evaluations/submit" to """{"code":0,"data":{"submitted":false}}""", calls = calls)),
             "",
             ApiMode.SERVE,
         )
-        again.judge(CampusQuestionnaire("W1", "J1", "高等数学（上）", "示例教师", "01", true))
+        again.judge(CampusQuestionnaire("", "", "高等数学（上）", "示例教师", "", true, responseId = "R1"))
         assertEquals(1, calls.size, "幂等那一档照旧接受，不抛错")
     }
 
@@ -170,14 +194,14 @@ class ServeC2EndpointsApiTest {
         val api = CampusJudgeApi(
             createToolboxClient(
                 engine = engineFor(
-                    "/api/jwxt/evaluations/submit" to """{"code":409,"message":"这门课当前不在评教窗口里"}""",
+                    "/api/jwxt/evaluations/submit" to """{"code":409,"message":"这份问卷当前不在评教窗口里"}""",
                 ),
             ),
             "",
             ApiMode.SERVE,
         )
         val error = assertFailsWith<IllegalStateException> {
-            api.judge(CampusQuestionnaire("W1", "J1", "高等数学（上）", "示例教师", "01", false))
+            api.judge(CampusQuestionnaire("", "", "高等数学（上）", "示例教师", "", false, responseId = "R1"))
         }
         assertTrue(error.message.orEmpty().contains("评教窗口"), "实际：${error.message}")
     }
