@@ -17,7 +17,7 @@ interface AccountsController {
     suspend fun addAccount(username: String, password: String, accountType: AccountType): Result<Account>
 
     /** 更新账号密码（用户在设置页改密后调用）。 */
-    fun updatePassword(accountId: String, newPassword: String)
+    suspend fun updatePassword(accountId: String, newPassword: String)
 
     /** 删除账号：清它的凭据与会话（要不要连本地缓存一起清是 [deleteCache]）。 */
     suspend fun removeAccount(accountId: String, deleteCache: Boolean): Boolean

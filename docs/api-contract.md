@@ -1393,20 +1393,21 @@ Location: http://202.117.17.144/pay/show.html?id=VT20261013001
 - **switch / add 不联网、也不写 `AccountStore.active_account`**（那是桌面端的主键，上文已写明 serve 不写不读它）。
 - **add 不探活**：密码打错要到下一次取数才暴露（`401/502`）。理由：探活会触发短信二验，且违反「可重放」要求。
 
-**消费方（`:web`）**：`WebAccountsHost` 的四个写方法已接上（2026-10-20）；未启用 HTTPS 时页顶与失败 toast 说明「要开 HTTPS」。
+**消费方（`:web`）**：`WebAccountsHost` 的四个写方法已接上（2026-11-15，见 §5.19）；未启用 HTTPS 时页顶与失败 toast 说明「要开 HTTPS」，并且客户端不会发出写请求。
 
-#### 消费方（`:web`）：**已落地**（2026-10-15，本批）
+#### 消费方（`:web`）：**已落地**（2026-10-15 读侧 / 2026-11-15 写侧）
 
 | 屏（`:core`） | 用了哪一格 | 真画了什么 | 如实不画 / 做不到（缺口） |
 |---|---|---|---|
-| 账号管理 `AccountManagerScreen`（取数 `:core/net` 的 `CampusAccountsApi.accounts()`） | `GET /api/accounts` | **与 App / 桌面同一份屏、同一套层级**（当前账号、账号列表、身份与「上次使用」都由那一份共享屏画）；打码 id 就是屏上的显示名 | ① 四个写动作这一端**一个都没有**（切换 / 新增 / 删除 / 改密）⇒ 页顶一行与失败 toast 如实指路到 App / 桌面端（见上）；② **campus-api 形态**下这一族不存在 ⇒ 落 `WebServeOnlyScreen`（「切到 serve 模式就能用」），不是一张空账号表；③ 头像那一格照旧 `null`（证件照缓存是 `:app` 的 `HelloProfileStore`，要 `Context` 与 Bitmap）⇒ 走首字母圆，与桌面端同一条 |
+| 账号管理 `AccountManagerScreen`（取数 `:core/net` 的 `CampusAccountsApi`） | `GET /api/accounts`；写侧 `POST /api/accounts/{switch,add,delete,password}`（§5.19） | **与 App / 桌面同一份屏、同一套层级**（当前账号、账号列表、身份与「上次使用」都由那一份共享屏画）；打码 id 就是屏上的显示名；四个写动作已接上，页顶说明跟随 `readOnly` | ① 明文 HTTP 时写动作被本端拦下（不把密码送上明文链路），页顶提示要给 serve 加 `--https`；删掉当前账号后 serve 退出登录，不自动切到下一条，页顶请用户再切；② **campus-api 形态**下这一族不存在 ⇒ 落 `WebServeOnlyScreen`（「切到 serve 模式就能用」），不是一张空账号表；③ 头像那一格照旧 `null`（证件照缓存是 `:app` 的 `HelloProfileStore`，要 `Context` 与 Bitmap）⇒ 走首字母圆，与桌面端同一条 |
 
 夹具与用例（§7 的第 1 条，三处同改）：`:testkit` 新增 `AccountsFixture`（两个**编造**账号 + 密码 / 姓名 /
 指纹 / 公钥常量，纯字符串 —— `:testkit` 一个工程依赖都没有，装不了 `:core` 的 `Account` 对象）；
 `:server:test` 新增 `ServeAccountsTest`（**3** 例：未登录且空表 + 闸门 401 · 登录态 + 表里一条别的账号
 （打码逐字段、`active` 只标 serve 那一条、`lastUsedAt` 的 `null`、红线与「键集合」钉死）· 表里也有当前
-会话那一条时合成成一行）；`:core` 新增 `ServeAccountsApiTest`（**3** 例：四格逐字段与 ISO → epoch 往返 ·
-`readOnly` 缺了按只读 + 空 id 行丢掉 + 认不出的身份落回本科 · campus-api 形态抛错且**一个请求都不发**）。
+会话那一条时合成成一行）；`:shared:network` 的 `ServeAccountsApiTest`（**3** 例：四格逐字段与 ISO → epoch 往返 ·
+`readOnly` 缺了按只读 + 空 id 行丢掉 + 认不出的身份落回本科 · campus-api 形态抛错且**一个请求都不发**）
+以及 `ServeAccountsWriteApiTest`（路径与请求体形状、401 / 403 映射、密码不出现在结果或异常里）。
 
 
 ### 5.11 批⑤（2026-10-15 落地）：`/api/agent/*` —— 屁岱（Agent）在浏览器上（D10，**S-a → S-d 四件全部落地**）
@@ -1873,6 +1874,27 @@ web 那一份逐条调：好处是**失败只影响那一条**，坏处是 N 发
 每一步回整份，且**全程不碰上游**）。
 夹具那一处：`:testkit` 的 `Jiaocai1FakeUpstream` **零改动**（分类树 / 检索 / reader / 页图 / 封面五条它早就齐了）；
 `ServeEndpointTestSupport` 新增两个小工具（`getBytes` 按字节读、`delete`）—— 二进制那几条不能按字符串读。
+
+### 5.19 批 B-E（2026-11-15 落地）：Web 账号写操作接上已有的 `/api/accounts/{switch,add,delete,password}`
+
+**决策来源**：三端一致 B 批 E 路。serve 写侧已在 §5.10（2026-10-20）落地，本条只补消费方，不改 serve。
+
+**不改 serve**：路径、请求体、HTTPS 硬前提、`readOnly = !httpsEnabled`、改密只换库存与当前会话凭据（不重新登录），全部保持 §5.10 的实现。
+
+**消费方（`:web`）**
+
+- `CampusAccountsApi` 增加四条写方法，路径与请求体与 §5.10 逐字相同：
+  - `POST /api/accounts/switch`，请求体 `{"id"}`（不收密码）；
+  - `POST /api/accounts/add`，请求体 `{"username","password","accountType","activate"}`（Web 默认 `activate:true`，与安卓「添加后切过去」一致；serve 仍不探活，密码打错要到下一次取数才暴露）；
+  - `POST /api/accounts/delete`，请求体 `{"id","confirm":true}`；
+  - `POST /api/accounts/password`，请求体 `{"id","newPassword"}`。
+- `WebAccountsHost` 四个写方法接上上述端点。页顶说明跟随 `snapshot.readOnly`：明文 HTTP 时提示要开 `--https`，并且**不会发出写请求**（避免密码走在明文链路上）。可写且没有刚退出登录时，不显示只读提示。
+- 删除当前账号后：按 serve 的语义退出登录（不自动切到下一条，与安卓「删完切到下一个」不同），页顶请用户再切换。
+- **密码红线**：密码只出现在请求体；不写日志、不进异常 / `toString` / 错误文案；成功或失败后弹窗关闭，输入框随之销毁。投影到屏上的 `Account.password` 保持空串。
+- 401 / 403（未开 HTTPS）/ 其它失败：信封里的中文短句原样交给 toast。
+
+**夹具与用例**：`:shared:network` 的 `ServeAccountsWriteApiTest` 钉住路径与请求体形状、401 / 403 映射，以及密码不出现在结果、`toString` 和异常里。
+
 
 ## 6. 夹具契约测试（D5 要求，不能只写文档）
 

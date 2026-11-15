@@ -85,7 +85,7 @@ internal class DesktopAccounts(
         Result.success(persisted)
     }
 
-    override fun updatePassword(accountId: String, newPassword: String) {
+    override suspend fun updatePassword(accountId: String, newPassword: String) {
         store.update(accountId) { it.copy(password = newPassword) }
         if (AccountContext.activeAccountId == accountId) {
             auth.sessionManager.setCredentials(accountId, newPassword)

@@ -187,7 +187,7 @@ class AccountManager(
     /**
      * 更新账号密码（用户在设置页改密后调用）。同步清除密码失效熔断。
      */
-    override fun updatePassword(accountId: String, newPassword: String) {
+    override suspend fun updatePassword(accountId: String, newPassword: String) {
         accountStore.update(accountId) { it.copy(password = newPassword) }
         if (AccountContext.activeAccountId == accountId) {
             holder.savedPassword = newPassword
