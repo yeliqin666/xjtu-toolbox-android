@@ -810,13 +810,13 @@ class ServeAgentTest {
         AccountContext.activeAccountId = null
         try {
             val agent = ServeAgent.forServe(ServeSession())
-            // S-c 已落地 ⇒ 真给模型的工具表就是白名单那九件（与 `/api/agent/config`
-            // 的 `toolAllowlist` 同一份定义；这里故意**手写**那九个名字，不从常量抄，免得变成同义反复）
+            // 真给模型的工具表（与 `/api/agent/config` 的 `toolAllowlist` 同一份定义）；
+            // 故意手写名字、不从常量抄，免得变成同义反复
             assertEquals(
                 listOf(
                     "get_calendar", "get_schedule", "get_exam_schedule", "get_empty_rooms",
                     "search_yellow_page", "preference", "find_faculty", "app_guide", "calculate", "campus_map",
-                    "get_campus_bus",
+                    "get_campus_bus", "get_degree_progress",
                 ),
                 agent.toolAllowlist(AgentConfig()),
             )
