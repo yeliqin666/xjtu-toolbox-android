@@ -275,6 +275,7 @@ fun AgentScreen(
                 config = config,
                 host = host,
                 imagePicker = imagePicker,
+                gapNote = host.gapNote,
                 hero = hero,
                 pokeWhisper = pokeWhisper,
                 padding = padding,

@@ -507,6 +507,8 @@ class ServeAgent(
             // 黄页与教师检索都免登录：与 `/api/info/yellowpage` 那一条路由同一份实现（同一条客户端缝）。
             val yellowPage = YellowPageApi(createToolboxClient(), cache = null)
             val faculty = FacultyApi()
+            // 工具表每轮现搭，客户端放外面，免得每轮新建连接池
+            val bus = com.xjtu.toolbox.bus.BusApi(createToolboxClient())
 
             return ServeAgent(
                 session = session,
@@ -527,6 +529,8 @@ class ServeAgent(
                         ),
                         extras = listOfNotNull(
                             com.xjtu.toolbox.campusmap.CampusMapAgentTools(),
+                            com.xjtu.toolbox.bus.BusAgentTools(bus),
+                            com.xjtu.toolbox.degree.DegreeAgentTools(session.degreeSource()),
                             config.webSearchKey.takeIf { it.isNotEmpty() }?.let { DeepSeekWebTools(it) },
                         ),
                     )

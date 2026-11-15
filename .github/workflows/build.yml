@@ -30,6 +30,9 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+    outputs:
+      tag: ${{ steps.version.outputs.tag }}
+      released: ${{ steps.gh_release.outcome }}
     env:
       # dev 推送默认发布预览版；head commit 带 [skip preview] 时只跑检查、不发布。
       # 手动触发时用 publish_preview 输入控制，便于把之前跳过的改动补发成一个 beta。
@@ -381,12 +384,7 @@ jobs:
               print(f"::warning::latest alias Cache-Control is {cache_control!r}, expected 'no-cache'")
           print("manifest/APK ok:", remote["versionName"], remote["sha256"], remote["size"])
           PY
-          # 公共 CDN 只做抽样；GitHub runner 跨境访问偶发超时不应阻断发布。
-          curl -fsS --max-time 20 "$OSS_PUBLIC_BASE/stable.json" >/dev/null \
-            || echo "::warning::public CDN manifest check timed out; OSS objects are verified"
-          # 固定别名带版本号查询串绕过 CDN 缓存，确认新包已经能被公网取到。
-          curl -fsSI --max-time 20 "$OSS_PUBLIC_BASE/apk/latest/app-release.apk?v=$VERSION" >/dev/null \
-            || echo "::warning::public CDN latest-apk check timed out; OSS objects are verified"
+          # 不再从 runner 抽查公网 CDN：跨境访问几乎每次超时，SDK 校验已证明对象就位
           echo "OSS primary publish verified"
 
       - name: Delete existing tag (if any)
@@ -398,6 +396,7 @@ jobs:
           git push origin ":refs/tags/$TAG" 2>/dev/null || true
 
       - name: Create GitHub Release
+        id: gh_release
         if: github.ref == 'refs/heads/main'
         uses: softprops/action-gh-release@v2
         with:
@@ -733,8 +732,6 @@ jobs:
           assert head.content_length == local["size"], (head.content_length, local["size"])
           print("preview manifest/APK ok:", remote["versionName"], remote["sha256"], remote["size"])
           PY
-          curl -fsS --max-time 20 "$OSS_PUBLIC_BASE/preview.json" >/dev/null \
-            || echo "::warning::public CDN manifest check timed out; OSS objects are verified"
           echo "OSS preview publish verified"
 
       - name: Create GitHub Pre-release
@@ -771,9 +768,8 @@ jobs:
             done
 
       - name: Prune old OSS previews
-        # 预览 APK 是按版本号分目录的独立 key，生命周期规则（只管同一 key 的历史版本）
-        # 清不到它们。这里与上一步 GitHub 的保留数对齐，只保留最近 5 个版本目录，
-        # 其余连同历史版本与删除标记一起删；失败不阻塞发布（发布本身已经成功）。
+        # 预览 APK 按版本号分目录，与 GitHub 保留数对齐只留最近 5 个；
+        # 删除后留下的历史版本交给 bucket 生命周期规则清。
         if: env.PUBLISH_PREVIEW == 'true' && steps.oss_sdk.outcome == 'success'
         continue-on-error: true
         env:
@@ -794,3 +790,25 @@ jobs:
         run: |
           echo "::error::OSS preview publish failed; GitHub pre-release fallback was published. Re-run the workflow to fix OSS."
           exit 1
+
+  # ── 正式版的桌面两端：安卓 Release 发出后再出包，挂到同一个 Release，不上 OSS ──
+  # 用 always() 是为了 OSS 失败（build 最后一步判红）时 Release 已在，桌面包照样补上。
+  desktop-linux:
+    needs: build
+    if: always() && github.ref == 'refs/heads/main' && needs.build.outputs.released == 'success'
+    permissions:
+      contents: write
+    uses: ./.github/workflows/desktop-linux.yml
+    with:
+      release_tag: ${{ needs.build.outputs.tag }}
+    secrets: inherit
+
+  desktop-windows:
+    needs: build
+    if: always() && github.ref == 'refs/heads/main' && needs.build.outputs.released == 'success'
+    permissions:
+      contents: write
+    uses: ./.github/workflows/desktop-windows.yml
+    with:
+      release_tag: ${{ needs.build.outputs.tag }}
+    secrets: inherit

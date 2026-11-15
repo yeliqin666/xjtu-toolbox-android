@@ -1,231 +1,101 @@
 name: Desktop Windows Packaging
 
-# Windows 安装包的出包通道。**为什么必须是一条独立的 workflow、而且只能在 windows-latest 上跑**：
-# jpackage 不接受交叉构建 —— 出 `.msi` / `.exe` 要调 Windows 自己的 WiX（`candle.exe` / `light.exe`），
-# 在 Linux 上执行那两个任务会直接失败（见 desktop/build.gradle.kts 里那段注释）。
-#
-# WiX v3 工具链在下面显式发现 / 安装，WIX_PATH 交给 Compose Desktop。
-#
-# 与 core-gate.yml 同一种风格：独立触发、按路径过滤、并发去重。这里**不做**发布（不上传 Release）——
-# 桌面产物现在只作为 artifact 留档，要不要发进 Release 由发版流程那一轮定（见 docs/windows-delivery.md）。
+# 出 .exe 安装包（jpackage 不能交叉构建，只能在 Windows 上打）。PR 上只在打包配置、图标、版本目录或
+# DPAPI 代码变动时跑，并在真 Windows 上验 DPAPI（Linux 上这几条会自行跳过）；
+# 正式发版时由 build.yml 在安卓 Release 发完后调用，把产物挂到同一个 Release（不走 OSS）。
 
 on:
   pull_request:
-    # 只保留会改变 Windows 产物或行为的输入：desktop/**（打包配置与桌面端代码）、
-    # data/**（:desktop 的直接依赖）、shared/data/**（DPAPI 凭据保护）。
-    # core/**、shared/**（除 data）、feature/** 编译出的 JVM 字节码与平台无关，
-    # 由 core-gate.yml + desktop-linux.yml 覆盖；再打一次 MSI 不会产生新信息。
     paths:
-      - 'desktop/**'
-      - 'data/**'
-      - 'shared/data/**'
-      - 'build-logic/**'
-      - 'gradle/**'
-      - 'gradlew'
-      - 'gradlew.bat'
-      - 'settings.gradle.kts'
+      - 'desktop/build.gradle.kts'
+      - 'desktop/icons/**'
+      - 'gradle/libs.versions.toml'
+      - 'shared/data/src/jvmMain/kotlin/com/xjtu/toolbox/platform/**'
+      - 'shared/data/src/jvmTest/kotlin/com/xjtu/toolbox/platform/**'
       - '.github/workflows/desktop-windows.yml'
+  workflow_call:
+    inputs:
+      release_tag:
+        type: string
+        required: true
   workflow_dispatch:
 
 concurrency:
-  group: desktop-windows-${{ github.ref }}
-  cancel-in-progress: true
+  group: desktop-windows-${{ github.ref }}-${{ inputs.release_tag }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   package:
     runs-on: windows-latest
-    # 卡死的护栏：WiX / jlink / jpackage 卡住时 GitHub 默认会白白跑 6 小时。60 分钟与
-    # desktop-linux.yml 同一个数字（那边本机实测出包 6 分 39 秒；Windows 这条路还要额外下载
-    # WiX，只能估）。⚠️ 这个数字没在 CI 上量过。
-    timeout-minutes: 60
+    timeout-minutes: 45
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Set up JDK 21
-        # 与 gradle/libs.versions.toml 的 kotlin 2.4.20 + 三个模块的 jvmToolchain(21) 对齐
-        uses: actions/setup-java@v4
+      - uses: actions/setup-java@v4
         with:
           java-version: "21"
           distribution: "temurin"
 
-      - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@v4
+      - uses: gradle/actions/setup-gradle@v4
 
-      - name: 确认 Android SDK 在（:app 的 AGP 在**配置期**就要它）
-        # 我们只编 :desktop，但 Gradle 会配置整个构建，包括 apply 了 AGP 的 :app。
-        # windows-latest 的镜像自带 Android SDK（ANDROID_HOME/ANDROID_SDK_ROOT 已设）；
-        # 万一将来镜像变了，这一步会**响亮地**失败在这里，而不是让人去猜后面那条报错。
-        shell: pwsh
-        run: |
-          if (-not $env:ANDROID_HOME -and -not $env:ANDROID_SDK_ROOT) {
-            throw "镜像里没有 Android SDK：:app 的 AGP 在配置期就要 ANDROID_HOME"
-          }
-          Write-Host "ANDROID_HOME=$env:ANDROID_HOME"
+      - name: DPAPI 凭据保护测试
+        if: inputs.release_tag == ''
+        run: .\gradlew.bat :shared:data:jvmTest --tests "com.xjtu.toolbox.platform.*"
 
-      - name: 编译桌面端
-        # 先编一遍：编译错误（比如只有 Windows 才走的分支）在这里就报，不必等到 jlink 跑完
-        run: .\gradlew.bat :desktop:compileKotlin
-
-      - name: 核对 windows.ico 是多尺寸 ICO
-        # 为什么要这一步：jpackage 在 Windows 上只收 `.ico`，而 `windows.iconFile` 指过去之后
-        # 能不能被 WiX 吃下，本机（Linux）验不了（jpackage 不能交叉出包）——docs/windows-delivery.md
-        # §7 第 3 条把这件事一直挂着。这里只能验「文件本身是合法 ICO、且带 256×256 那张」
-        # （MSI 的控制面板/开始菜单图标用它），验不了「WiX 真的接受它」；但能在花十几分钟跑
-        # WiX 之前，先把「转错了格式 / 传了个空文件」这类错拦下来。
-        # 这段脚本本机用 pwsh 跑过（正例 + 缺文件 / magic 错 / 没 256 三个负例），见
-        # docs/windows-delivery.md §3。
-        shell: pwsh
-        run: |
-          $ico = "desktop/icons/windows.ico"
-          if (-not (Test-Path $ico)) { throw "找不到 $ico（jpackage 的 --icon 就指它）" }
-          $bytes = [System.IO.File]::ReadAllBytes($ico)
-          if ($bytes.Length -lt 6 -or $bytes[0] -ne 0 -or $bytes[1] -ne 0 -or $bytes[2] -ne 1 -or $bytes[3] -ne 0) {
-            throw "$ico 不是 ICO 文件（头四字节应为 00 00 01 00）——检查是不是转错了格式"
-          }
-          $count = [BitConverter]::ToUInt16($bytes, 4)
-          $sizes = @()
-          for ($i = 0; $i -lt $count; $i++) {
-            $o = 6 + 16 * $i
-            $w = if ($bytes[$o] -eq 0) { 256 } else { [int]$bytes[$o] }
-            $sizes += $w
-          }
-          Write-Host "windows.ico: $count 张图，尺寸 $($sizes -join ' / ')"
-          if ($sizes -notcontains 256) { throw "$ico 里没有 256×256 那张（MSI 的控制面板图标用它）" }
-
-      - name: 装 WiX 3.14 并把 WIX_PATH 交给 Compose（jpackage 要 candle.exe / light.exe）
-        # JDK 21 的 jpackage 使用 WiX v3 的 candle/light；复用 runner 上的 3.14，缺少时再安装。
-        # WIX_PATH 指向包含工具及扩展 DLL 的 bin 目录，避免 Compose 自动下载旧版 3.11。
+      # JDK 21 的 jpackage 用 WiX v3；只认 ≥3.14（3.11 要 .NET 3.5，镜像不带），并用 WIX_PATH 阻止 Compose 去下旧版
+      - name: 准备 WiX
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-
           function Find-WixBin {
-            $roots = @()
-            foreach ($pattern in @('C:\Program Files (x86)\WiX Toolset*', 'C:\Program Files\WiX Toolset*')) {
-              $roots += Get-ChildItem -Path $pattern -Directory -ErrorAction SilentlyContinue
-            }
-            # 只留真带 bin\light.exe 的；按目录名倒序 ⇒ 版本最高的在前
-            $cands = $roots |
-              Where-Object { Test-Path (Join-Path $_.FullName 'bin\light.exe') } |
-              Sort-Object -Property Name -Descending
-            foreach ($c in $cands) {
-              $bin = Join-Path $c.FullName 'bin'
-              $ver = (Get-Item (Join-Path $bin 'light.exe')).VersionInfo.FileVersion
-              # 3.14 走 .NET 4.x；3.11 要 .NET 3.5（windows-latest 不带）⇒ 只认 3.14 及以上
-              if ($ver -notmatch '^3\.(1[4-9]|[2-9][0-9])') { continue }
-              return @{ Bin = $bin; Version = $ver }
-            }
-            return $null
+            Get-ChildItem 'C:\Program Files (x86)\WiX Toolset*', 'C:\Program Files\WiX Toolset*' -Directory -ErrorAction SilentlyContinue |
+              ForEach-Object { Join-Path $_.FullName 'bin' } |
+              Where-Object { (Test-Path "$_\light.exe") -and ((Get-Item "$_\light.exe").VersionInfo.FileVersion -match '^3\.(1[4-9]|[2-9]\d)') } |
+              Sort-Object -Descending | Select-Object -First 1
           }
-
-          $wix = Find-WixBin
-          if (-not $wix) {
-            Write-Host "runner 上没有 ≥3.14 的 WiX，装一份（choco 失败不直接判红，装完再发现一次）"
-            choco install wixtoolset --no-progress -y
-            $wix = Find-WixBin
-          }
-          if (-not $wix) {
-            throw "找不到可用的 WiX（要 ≥3.14、且带 bin\light.exe）——choco 也失败了，看上面 choco 的输出"
-          }
-
-          Write-Host "WiX 目录: $($wix.Bin)（light.exe FileVersion=$($wix.Version)）"
-          "WIX_PATH=$($wix.Bin)" | Out-File -FilePath $env:GITHUB_ENV -Append
-          Write-Host "WIX_PATH=$($wix.Bin)"
-          # 上面的发现已验证工具存在；不要让可选安装的旧退出码覆盖成功结果。
+          $bin = Find-WixBin
+          if (-not $bin) { choco install wixtoolset --no-progress -y; $bin = Find-WixBin }
+          if (-not $bin) { throw "找不到 ≥3.14 的 WiX" }
+          "WIX_PATH=$bin" | Out-File -FilePath $env:GITHUB_ENV -Append
+          Write-Host "WIX_PATH=$bin"
           exit 0
 
-      - name: 给构建目录与临时目录加 Defender 排除（MSI 随机失败的头号嫌疑）
-        # light.exe 退出 311、无输出、两轮换着档位失败 ⇒ 先排除「实时扫描锁住输出文件」这个成因。
-        # 排除失败**不**让这一步红（拿不到权限时照样往下跑，重试那一步兜底），但要打出来。
+      # light.exe 偶发无输出退出 311：排除 Defender 实时扫描并重试 3 次
+      - name: 打 .exe
         shell: pwsh
+        env:
+          FEEDBACK_APP_ID: ${{ secrets.FEEDBACK_APP_ID }}
+          FEEDBACK_APP_SECRET: ${{ secrets.FEEDBACK_APP_SECRET }}
+          FEEDBACK_BASE_TOKEN: ${{ secrets.FEEDBACK_BASE_TOKEN }}
+          FEEDBACK_TABLE_SUBMIT: ${{ secrets.FEEDBACK_TABLE_SUBMIT }}
+          FEEDBACK_TABLE_REPLY: ${{ secrets.FEEDBACK_TABLE_REPLY }}
         run: |
-          $paths = @($env:GITHUB_WORKSPACE, $env:RUNNER_TEMP, $env:TEMP)
-          foreach ($p in $paths) {
-            try {
-              Add-MpPreference -ExclusionPath $p -ErrorAction Stop
-              Write-Host "已排除: $p"
-            } catch {
-              Write-Host "::warning::加 Defender 排除失败（$p）：$($_.Exception.Message)"
-            }
+          foreach ($p in @($env:GITHUB_WORKSPACE, $env:RUNNER_TEMP, $env:TEMP)) {
+            try { Add-MpPreference -ExclusionPath $p -ErrorAction Stop } catch { Write-Host "::warning::Defender 排除失败：$p" }
           }
-
-      - name: 打 Windows 安装包（.msi 与 .exe）
-        # ⚠️ 这一步本机（Linux）跑不了，只能在这里验。WiX 是上面那一步装好、由 WIX_PATH 指过去的。
-        # 不加 `-Pcompose.desktop.verbose=true`：在 Windows 上这一行会被拆成 `-Pcompose` 与
-        # `.desktop.verbose=true` 两段（Gradle 报 `Task '.desktop.verbose=true' not found`，实测过一轮）。
-        # 这一步失败时需要的 jpackage 完整命令行与 WiX 自己的输出，靠下面的 artifact
-        # （`desktop/build/compose/logs/**`）拿，不靠那个开关。
-        # `--info`：让 Gradle 把 jpackage 与 WiX（candle.exe / light.exe）的完整过程打到控制台 ——
-        #   jpackage 自己的 out.txt 实测是空的、-err.txt 只有一行 IOException，WiX 子进程的输出
-        #   只有它能抬出来（实测两轮里 light.exe 一个字的错误都没打印，所以它不是靠山）。
-        # `--stacktrace`：失败那层的 Java 栈（哪个任务、哪条异常链），光靠 G 厂的一行摘要看不出来。
-        # 两个都是安全 token：不会像 `-P…` 那样被拆成两段；三个尝试**都**带它们 —— 随机失败要的是
-        #   失败**那一次**的现场，而失败那次未必是最后一次。
-        # 重试 3 次：见下面 run 的第一段注释。
-        shell: pwsh
-        run: |
-          # 为什么重试：这一步在 CI 上**随机**失败 —— light.exe 退出 311、一个字的错误都不打印，
-          # 两轮里换着档位出现（一轮是 .exe 失败、一轮是 .msi 失败）。这类随机失败重试是标准处置；
-          # 若三次都失败，说明不是随机（例如 WiX 装错、图标被拒），照样响亮失败。
-          $attempts = 3
-          for ($i = 1; $i -le $attempts; $i++) {
-            Write-Host "=== 第 $i / $attempts 次：:desktop:packageMsi :desktop:packageExe ==="
-            .\gradlew.bat :desktop:packageMsi :desktop:packageExe --info --stacktrace
-            if ($LASTEXITCODE -eq 0) { Write-Host "出包成功（第 $i 次）"; exit 0 }
-            Write-Host "第 $i 次失败（exit=$LASTEXITCODE）"
-            if ($i -lt $attempts) { Start-Sleep -Seconds 20 }
+          for ($i = 1; $i -le 3; $i++) {
+            .\gradlew.bat :desktop:packageExe --info --stacktrace
+            if ($LASTEXITCODE -eq 0) { exit 0 }
+            Write-Host "第 $i 次出包失败（exit=$LASTEXITCODE）"
+            if ($i -lt 3) { Start-Sleep -Seconds 20 }
           }
-          throw "打包连续 $attempts 次都失败 —— 不是随机失败，去看 desktop/build/compose/logs/ 下的 jpackage-*-err.txt"
+          throw "连续 3 次出包失败，看 desktop/build/compose/logs/ 下的 jpackage 日志"
 
-      - name: 列出产物
-        shell: pwsh
-        run: |
-          Get-ChildItem -Recurse desktop\build\compose\binaries\main -File |
-            Select-Object FullName, @{Name="MB";Expression={[math]::Round($_.Length / 1MB, 1)}}
-
-      - name: 上传产物
-        uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v4
         with:
           name: xjtu-toolbox-windows
-          path: |
-            desktop/build/compose/binaries/main/msi/*.msi
-            desktop/build/compose/binaries/main/exe/*.exe
-          # 没产物就是出包失败，别当成「跑过了」：Compose Desktop 对与宿主不兼容的 target
-          # 会把任务**静默 SKIPPED**（连任务体都不跑，命令却仍然是绿的 —— 实测见
-          # docs/windows-delivery.md §1，两条工作流各自那一节：docs/linux-delivery.md §4 /
-          # docs/windows-delivery.md §3），所以「命令绿了但什么都没出包」是可能的 —— 这条设置把它变成响亮失败。
+          path: desktop/build/compose/binaries/main/exe/*.exe
           if-no-files-found: error
 
-      # ── 验证步骤刻意放在出包**之后**：万一有平台相关的用例红了，产物仍然留得下来给人查。
-      #    跑的都是「指定类」而不是整套：整套在 Windows 上现在会红，原因见 docs/windows-delivery.md
-      #    的未验证项清单（DesktopAuthLibraryJvmTest 断言 0600 POSIX 权限，Windows 没有这个概念）。
-
-      - name: 凭据保护的单元测试（平台上真跑：这几条含真 DPAPI 往返/篡改）
-        # Windows 上 secretProtectorForPlatform 真给 DPAPI ⇒ 这两条用例在这里**真跑**
-        # （Linux 上它们自己跳过，所以这是它们唯一的验证现场）
-        run: .\gradlew.bat :shared:data:jvmTest --tests "com.xjtu.toolbox.platform.*"
-
-      - name: 更新骨架的单元测试
-        # 纯函数那半（挑发布、比版本）与注入假响应的那条 GET：与平台无关，Windows 上也该绿
-        run: .\gradlew.bat :desktop:test --tests "com.xjtu.toolbox.desktop.DesktopUpdateJvmTest"
-
-      - name: 收集 jpackage 的临时目录（失败时才有价值）
-        # jpackage 在 %TEMP%\jdk.jpackage* 里建 config / wixobj / images，light.exe 的现场就在那儿；
-        # 它的 stdout/stderr 不进 compose 的 out.txt（实测为空），所以只能把这些目录整个收走。
-        # ⚠️ 实测这一轮收到 **0 个文件**：jpackage 失败时也会清掉自己的 %TEMP%\jdk.jpackage*，
-        #    所以这份 artifact 现在主要靠 `desktop/build/compose/logs/**`；这一步留着是为将来
-        #    某一轮 jpackage 没清干净时还能捞到东西。
-        if: failure()
+      - name: 挂到 Release
+        if: inputs.release_tag != ''
         shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
-          $dst = "desktop\build\diagnostics\jpackage-tmp"
-          New-Item -ItemType Directory -Force -Path $dst | Out-Null
-          Get-ChildItem -Path (Join-Path $env:TEMP 'jdk.jpackage*') -Directory -ErrorAction SilentlyContinue | ForEach-Object {
-            Write-Host "收集 $($_.FullName)"
-            Copy-Item -Recurse -Force $_.FullName (Join-Path $dst $_.Name)
-          }
-          Get-ChildItem -Recurse -File $dst -ErrorAction SilentlyContinue | Measure-Object | ForEach-Object { Write-Host "共 $($_.Count) 个文件" }
+          $files = Get-ChildItem desktop\build\compose\binaries\main\exe\*.exe | ForEach-Object FullName
+          gh release upload "${{ inputs.release_tag }}" --repo "${{ github.repository }}" --clobber @files
+          if ($LASTEXITCODE -ne 0) { throw "上传 Release 失败" }
 
       - name: 失败时保留诊断报告
         if: failure()
@@ -235,9 +105,6 @@ jobs:
           retention-days: 7
           if-no-files-found: warn
           path: |
-            desktop/build/reports/tests/**
-            desktop/build/test-results/**
+            shared/data/build/reports/tests/**
             desktop/build/compose/logs/**
             desktop/build/compose/tmp/*.args.txt
-            desktop/build/diagnostics/**
-            desktop/build/compose/binaries/**

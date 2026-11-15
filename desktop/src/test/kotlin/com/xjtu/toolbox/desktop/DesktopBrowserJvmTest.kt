@@ -54,20 +54,22 @@ class DesktopBrowserJvmTest {
     }
 
     @Test
-    fun `去支付带了 then 时走第二跳 —— 交出去的是支付页`() {
+    fun `去支付带了 then 也只交第一跳 —— 不替用户跳过登录`() {
         val login = "https://org.example.invalid/web/cas/oauth2url.html?appId=1659"
         val pay = "https://venue.example.invalid/pay/show.html?id=VT-假-0001"
 
+        // ⚠️ 这条以前断言「交出去的是支付页」。`then` 的约定是**先登录、再跳**：桌面把地址交出去之后收不到
+        // 任何回调，直开 then 就是跳过登录去敲支付页 —— 正是 then 想避免的事。所以现在只交第一跳。
         assertEquals(
-            pay,
-            desktopBrowserTarget(login, pay),
-            "`:app` 是两跳（先 OAuth 入口，`isAuthHop` 判完再 loadUrl(支付页)）；" +
-                "`openInBrowser` 只交一个地址、收不到回调 ⇒ 桌面的等价物是第二跳那个地址",
+            login,
+            desktopBrowserTarget(login),
+            "桌面收不到回调 ⇒ 只交 OAuth 入口那一跳；第二跳（支付页）由用户在那个站里登录后自己点，屏上如实说明",
         )
-        assertEquals(login, desktopBrowserTarget(login, ""))
-        // 两个都空 ⇒ null：本端不编一个假地址，也不假弹一次浏览器（调用方自己决定怎么办）
-        assertNull(desktopBrowserTarget("", ""))
-        assertNull(desktopBrowserTarget("   ", "\t"))
+        assertNotEquals(pay, desktopBrowserTarget(login), "不许把 then 直开出去（那样等于绕过登录）")
+        assertEquals(login, desktopBrowserTarget(login))
+        // 空 / 全空白 ⇒ null：本端不编一个假地址，也不假弹一次浏览器（调用方自己决定怎么办）
+        assertNull(desktopBrowserTarget(""))
+        assertNull(desktopBrowserTarget("   "))
     }
 
     /** 四处 `is AppRoute.Browser ->` 用的是同一个判据（纯源码断言：这一条不渲染、不弹浏览器）。 */

@@ -35,6 +35,9 @@ private class FileKeyValueStore(private val file: File) : KeyValueStore {
     }
 
     private fun persist() {
+        // 只读（单实例锁被别人掌着 ⇒ `StoreWriteGate`）：整份回写会把写者刚存的凭据抹掉，
+        // 所以一个字都不落盘（B-13）。读照旧：内存那份就是 init 时从这个文件读回来的。
+        if (!StoreWriteGate.allowsWrites) return
         val dir = file.parentFile
         if (dir != null && !dir.exists()) dir.mkdirs()
         FileOutputStream(file).use { props.store(it, null) }
@@ -95,6 +98,10 @@ private class FileKeyValueStore(private val file: File) : KeyValueStore {
 }
 
 // 桌面没有「老明文文件迁进来」那一步（[legacyFallbackName] 只对 Android 有意义），参数收下不用。
+// 桌面没有「老明文文件迁进来」那一步（[legacyFallbackName] 只对 Android 有意义），参数收下不用。
+// ⚠️ 已知耦合（2026-10-19 记）：memo 只按 `name`（**不含根目录**）。进程级单例（如 `SecureGithubSession`）
+// 与测试必须拿到**同一个实例**才成立；但代价是测试临时换 `dataRootOverride` 时句柄仍指旧根。
+// 改根目录缓存会打破那个单例设计（`GithubCommunityJvmTest` 就是靠它成立的），因此本轮**不动**。
 actual fun secureKeyValueStore(name: String, legacyFallbackName: String?): KeyValueStore = stores.computeIfAbsent(name) {
     FileKeyValueStore(File(dataRoot(), "$name.properties"))
 }

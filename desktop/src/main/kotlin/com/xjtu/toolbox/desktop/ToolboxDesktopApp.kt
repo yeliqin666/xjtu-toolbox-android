@@ -57,8 +57,8 @@ import com.xjtu.toolbox.judge.GraduateJudgeSource
 import com.xjtu.toolbox.judge.GraduateQuestionnaire
 import com.xjtu.toolbox.judge.JudgeListScreen
 import com.xjtu.toolbox.judge.JudgeViewModel
-import com.xjtu.toolbox.judge.Questionnaire
-import com.xjtu.toolbox.judge.UndergraduateJudgeSource
+import com.xjtu.toolbox.judge.QmsJudgeSource
+import com.xjtu.toolbox.judge.QmsQuestionnaire
 import com.xjtu.toolbox.game.GamesScreen
 import com.xjtu.toolbox.game.blocks.BlocksScreen
 import com.xjtu.toolbox.game.g2048.Gpa2048Screen
@@ -87,6 +87,7 @@ import com.xjtu.toolbox.coupon.CouponScreen
 import com.xjtu.toolbox.lms.AppLmsSource
 import com.xjtu.toolbox.lms.LmsScreen
 import com.xjtu.toolbox.desktop.lms.DesktopLmsSaver
+import com.xjtu.toolbox.desktop.media.DesktopDownloadedFilesHost
 import com.xjtu.toolbox.desktop.media.DesktopDownloads
 import com.xjtu.toolbox.desktop.media.DesktopVideoPlayerHost
 import com.xjtu.toolbox.media.DownloadManagerScreen
@@ -115,6 +116,7 @@ import com.xjtu.toolbox.shell.ShellPageHost
 import com.xjtu.toolbox.shell.ShellTarget
 import com.xjtu.toolbox.ui.LocalIsWideLayout
 import com.xjtu.toolbox.ui.calculateIsWideLayout
+import com.xjtu.toolbox.ui.glass.glassNavStyle
 import com.xjtu.toolbox.ui.theme.XJTUToolBoxTheme
 import com.xjtu.toolbox.library.LibraryScreen
 import com.xjtu.toolbox.account.AccountManagerScreen
@@ -144,11 +146,18 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
 @Composable
 internal fun ToolboxDesktopApp(
     auth: DesktopAuth,
-    initialTarget: DesktopTarget = DesktopTarget.App(AppRoute.Main),
+    // 开场那一页 = 设置里那格「默认启动 Tab」（规范化值 → 本端页面的映射表在 [desktopStartTarget]）：
+    // 以前这里是写死的 `AppRoute.Main`，设置页里那一行成了一个真能点、但没人读的假开关。
+    initialTarget: DesktopTarget = desktopStartTarget(desktopSettings.defaultTab),
     /** 公告取数那一枪（[DesktopBulletins.fetch]）。 */
     bulletinFetch: suspend (String) -> BulletinApi.FetchResult? = { BulletinApi.fetch(it) },
     /** 小岱的宿主面（`:core` 的 [AgentHost]）。 */
     agentHost: AgentHost? = null,
+    /**
+     * 单实例锁没抢到时的原因（见 `:shared:model` 的 `InstanceLock`）：非 `null` 就在顶上映一条横幅，
+     * 如实说明这一端只读。`null` = 本进程就是写者（正常那一档）。
+     */
+    readOnlyReason: String? = null,
 ) {
     var target by remember { mutableStateOf(initialTarget) }
     val scope = rememberCoroutineScope()
@@ -163,6 +172,8 @@ internal fun ToolboxDesktopApp(
     var appearanceTick by remember { mutableIntStateOf(0) }
     val darkModeOverride = remember(appearanceTick) { desktopSettings.darkMode }
     val dynamicColor = remember(appearanceTick) { desktopSettings.dynamicColor }
+    // 界面风格（`nav_bar_style`）：与深色模式同一条路 —— 设置页改完走 `onAppearanceChanged`（appearanceTick++）重读
+    val navBarStyle = remember(appearanceTick) { desktopSettings.navBarStyle }
 
     val customColorHex = remember(appearanceTick) { desktopSettings.themeSeedHex(dark = false) }
     val customDarkColorHex = remember(appearanceTick) { desktopSettings.themeSeedHex(dark = true) }
@@ -172,6 +183,10 @@ internal fun ToolboxDesktopApp(
         customColorHex = customColorHex,
         customDarkColorHex = customDarkColorHex,
     ) {
+
+    Column(Modifier.fillMaxSize()) {
+        // 只读横幅：锁被别人拿走了就在最上面说一句（不遮不盖，也不假装写得了）
+        readOnlyReason?.let { DesktopReadOnlyBar(it) }
 
     // 冷启动：有落盘凭据就直接进主界面（幂等，重复组合无害）
     LaunchedEffect(auth) { auth.restore() }
@@ -203,13 +218,15 @@ internal fun ToolboxDesktopApp(
         )
         // 窗口形状喂给共享壳（`:app` 那边由 `AppNavigation` 算好往下提供）：窗口够宽时底栏换侧栏，
         // 判据就是 `:core` 那条 `calculateIsWideLayout` —— 与 Android 在宽屏 / 折叠屏上同一套。
-        CompositionLocalProvider(LocalIsWideLayout provides calculateIsWideLayout()) {
+            val wideLayout = calculateIsWideLayout()
+            CompositionLocalProvider(LocalIsWideLayout provides wideLayout) {
             AppShell(
                 nav = navState,
                 // 这一端的导航模型是**路由表**（43 条里 37 条不属于任何一格）⇒ 只画当前这一页，
                 // 不做「进过的 tab 常驻」（那是 `:app` 五格的形态，见 ShellPageHost）。
                 pageHost = ShellPageHost.CURRENT_ONLY,
-                glassStyle = false,
+                    // 真读设置里的界面风格（与 `:app` 同一个键）：不宽屏时是玻璃胶囊底栏，选「经典」就是今天这一套
+                    glassStyle = glassNavStyle(navBarStyle, wideLayout),
                 // 没有系统栏、没有刘海：窗口 chrome 全是 0（壳那边于是只剩底栏本体）
                 bottomInset = 0.dp,
                 contentWindowInsets = WindowInsets(0),
@@ -250,6 +267,7 @@ internal fun ToolboxDesktopApp(
         )
     }
     }
+}
 }
 
 
@@ -450,7 +468,7 @@ private fun DesktopPage(
                 onBack = back,
                 onNavigate = { r ->
                     when (r) {
-                        is AppRoute.Browser -> desktopBrowserTarget(r.url, r.then)?.let { openInBrowser(it) }
+                            is AppRoute.Browser -> desktopBrowserTarget(r.url)?.let { openInBrowser(it) }
                         else -> onNavigate(DesktopTarget.App(r))
                     }
                 },
@@ -462,24 +480,11 @@ private fun DesktopPage(
                 viewModel(key = "judge-postgraduate") { JudgeViewModel(source) }
             JudgeListScreen("学生评教", vm, back)
         } else {
-            DesktopSiteGate(auth, DesktopAuth.JWXT_SITE_KEY, "教务") { site ->
-                val username = AccountContext.activeAccountId?.takeIf { it.isNotBlank() }
-                if (username == null) {
-                    MissingIdentityPage(
-                        onNavigate = onNavigate,
-                        title = "评教要一个学号，现在取不到",
-                        lines = listOf(
-                            "评教是按学号取「我的问卷」的，学号来自这次登录。取不到通常是登录还没走完，或者" +
-                                "这一份装配是从落盘凭据恢复的 —— 重新登录一次即可。",
-                            "教务那边的会话本身是好的（能进这一屏就说明它建起来了）。",
-                        ),
-                    )
-                } else {
-                    val source = remember(site, username) { UndergraduateJudgeSource(site, username) }
-                    val vm: JudgeViewModel<Questionnaire> =
-                        viewModel(key = "judge-undergraduate") { JudgeViewModel(source) }
-                    JudgeListScreen("学生评教", vm, back)
-                }
+            DesktopSiteGate(auth, DesktopAuth.QMS_SITE_KEY, "评教") { site ->
+                val source = remember(site) { QmsJudgeSource(site) }
+                val vm: JudgeViewModel<QmsQuestionnaire> =
+                    viewModel(key = "judge-qms") { JudgeViewModel(source) }
+                JudgeListScreen("学生评教", vm, back)
             }
         }
 
@@ -517,11 +522,14 @@ private fun DesktopPage(
                 source = remember(site) { AppVenueSource(site, canBook = true) },
                 onBack = back,
                 onOpenBrowser = { url, then ->
-                    // 见 `DesktopBrowser.kt` 的 `desktopBrowserTarget`：桌面收不到回调 ⇒ 只挑一个地址
-                    //（优先第二跳那个支付页）；两个都空时不替它编一个地址。
-                    desktopBrowserTarget(url, then)?.let { openInBrowser(it) }
+                        // 见 `DesktopBrowser.kt` 的 `desktopBrowserTarget`：桌面收不到回调 ⇒ **只交第一跳**
+                        //（url 是 OAuth 入口，then 是登录后那一站；直开 then 等于跳过登录）。两个都空时不替它编一个地址。
+                        // `then` 只用来在屏上如实说明「跳不过去」（`DesktopBrowserScreen`）。
+                        desktopBrowserTarget(url)?.let { openInBrowser(it) }
                 },
                 captchaHost = remember { DesktopSlideCaptchaHost },
+                    // 桌面没有内置浏览器，支付交给系统浏览器，收不到回调。
+                    payHint = "支付用系统浏览器打开：这里没有内置浏览器，登录后那一跳要自己再走一次",
                 showFirstUseHint = !hintPrefs.getBoolean("venue_hint_shown", false),
                 onFirstUseHintRead = { hintPrefs.putBoolean("venue_hint_shown", true) },
             )
@@ -554,7 +562,7 @@ private fun DesktopPage(
                         onBack = back,
                         onOpen = { id ->
                             when (val r = appRouteOf(id)) {
-                                is AppRoute.Browser -> desktopBrowserTarget(r.url, r.then)?.let { openInBrowser(it) }
+                                    is AppRoute.Browser -> desktopBrowserTarget(r.url)?.let { openInBrowser(it) }
                                 null -> Unit
                                 else -> onNavigate(DesktopTarget.App(r))
                             }
@@ -569,7 +577,7 @@ private fun DesktopPage(
             onBack = back,
             onNavigate = { r ->
                 when (r) {
-                    is AppRoute.Browser -> desktopBrowserTarget(r.url, r.then)?.let { openInBrowser(it) }
+                        is AppRoute.Browser -> desktopBrowserTarget(r.url)?.let { openInBrowser(it) }
                     else -> onNavigate(DesktopTarget.App(r))
                 }
             },
@@ -589,12 +597,15 @@ private fun DesktopPage(
         }
 
 
-        // 考勤：有自己的独立登录入口，会话进门时才建；桌面没有 SAF 选择器 ⇒ 不发附件。
+        // 考勤：有自己的独立登录入口，会话进门时才建。请假附件走系统文件对话框
+        // （`DesktopFileDialogs.pickEvidenceFiles`，与 `:app` 的 SAF 那一格同语义：取消 = 空表）。
         AppRoute.Attendance -> DesktopSiteGate(auth, DesktopAuth.ATTENDANCE_SITE_KEY, "考勤") { site ->
             AttendanceScreen(
                 source = remember(site) { AppAttendanceSource(site) },
                 onBack = back,
                 onOpenIclassface = { onNavigate(DesktopTarget.App(AppRoute.Iclassface)) },
+                // FileDialog 是**阻塞**的，不在 UI 线程上弹（主线程那侧会卡住整张画面）
+                pickEvidenceFiles = { withContext(Dispatchers.IO) { DesktopFileDialogs.pickEvidenceFiles() } },
             )
         }
         is AppRoute.Lms -> DesktopSiteGate(auth, DesktopAuth.LMS_SITE_KEY, "思源学堂") { site ->
@@ -615,7 +626,6 @@ private fun DesktopPage(
             val source = remember(auth) { AppJwappScoreSource(auth.sessionManager) }
             JwappScoreScreen(
                 source = source,
-                studentId = AccountContext.activeAccountId.orEmpty(),
                 onBack = back,
                 onOpenTranscript = if (AccountContext.activeAccountType == AccountType.UNDERGRADUATE) {
                     { onNavigate(DesktopTarget.App(AppRoute.Transcript)) }
@@ -639,6 +649,14 @@ private fun DesktopPage(
                 GithubOAuthDeviceAuthRepository(GithubNetwork.client, CommunityRepo.CLIENT_ID)
             },
             onBack = back,
+        )
+        is AppRoute.CommunityPost -> CommunityScreen(
+            session = remember { SecureGithubSession.get() },
+            deviceAuth = remember {
+                GithubOAuthDeviceAuthRepository(GithubNetwork.client, CommunityRepo.CLIENT_ID)
+            },
+            onBack = back,
+            discussionNumber = route.number,
         )
 
         AppRoute.Jiaocai1 -> DesktopSiteGate(auth, DesktopAuth.JIAOCAI_SITE_KEY, "教材中心") { site ->
@@ -684,10 +702,11 @@ private fun DesktopPage(
             )
         }
         AppRoute.DownloadManager -> DownloadManagerScreen(
-            manager = DesktopDownloads.manager,
+                host = DesktopDownloads.manager,
             onBack = back,
             dirInfo = DesktopDownloads.dirInfo,
-            files = null,
+            // 文件那一组：桌面的「登记表」就是 ~/Downloads 这个目录本身（见那个 object 的 KDoc）
+            files = DesktopDownloadedFilesHost,
             onPlayTask = { task -> DesktopDownloads.openDownloadedFile(task.filePath) },
         )
         // 设置：屏在 `:core`（`SettingsScreen`，与 `:app` 同一份），
@@ -781,15 +800,27 @@ private fun DesktopPage(
             host = remember(auth) { DesktopMatchHost(auth) },
             onBack = back,
             scanner = null,
+            // 那两颗扫码按钮不画（桌面没有相机/相册），但"为什么没有"得说一句：
+            // 否则用户会以为这一端坏了，或以为码只能手打。
+            gapNote = "这一端没有相机，也没有相册，扫不了码：请用手机的「匹配」扫一下，或者让对方把文字码发给你、" +
+                "粘在下面那一格（粘进来的码照常能算，契合度是在本机算的）。",
         )
         AppRoute.Agent -> DesktopAgentScreen(agentHost, onNavigate)
         // 资料站（zyxf）没有桌面端实现：显式给一条分支，不依赖 else。
         AppRoute.Zyxf -> NotPortedScreen(route, onNavigate)
-        // 下面三条同样是「这一端还没接」，也显式列出来——`else` 只留给「加了路由却忘了加分支」：
-        // - 学业进度要一份桌面端能用的 `DegreeSource`（`:data` 里没有），暂时接不了；
-        // - 社区帖子详情 / 公告详情在桌面端是从列表里内联展开的，没有独立一屏。
-        AppRoute.DegreeProgress -> NotPortedScreen(route, onNavigate)
-        is AppRoute.CommunityPost -> NotPortedScreen(route, onNavigate)
+        // 学业进度：取数与课表缓存都是本机的，在修课程读日程屏写的那份缓存。
+        AppRoute.DegreeProgress -> DesktopSiteGate(auth, DesktopAuth.JWXT_SITE_KEY, "教务") { _ ->
+            val source = remember(auth) {
+                com.xjtu.toolbox.degree.AppDegreeSource(auth.sessionManager) {
+                    com.xjtu.toolbox.degree.degreeCurrentCourses(
+                        auth.sessionManager,
+                        DesktopScheduleHost(auth).cache(AccountContext.activeAccountId),
+                    )
+                }
+            }
+            com.xjtu.toolbox.degree.DegreeScreen(source = source, onBack = back)
+        }
+        // 公告详情在桌面端是从列表里内联展开的，没有独立一屏；`else` 只留给「加了路由却忘了加分支」。
         is AppRoute.NoticeDetail -> NotPortedScreen(route, onNavigate)
         // 扫一扫是 Android 顶栏的相机入口，桌面端没有这一屏。
         AppRoute.QrScan -> NotPortedScreen(route, onNavigate)
@@ -824,6 +855,9 @@ private fun DesktopAgentScreen(host: AgentHost, onNavigate: (DesktopTarget) -> U
         }
         AgentScreen(
             host = host,
+            // 挑图走系统文件对话框（`rememberDesktopAgentImagePicker`）；这一档由 honored 里
+            // 的 IMAGE_INPUT 决定要不要给入口，两边同源。
+            imagePicker = rememberDesktopAgentImagePicker(),
             onNavigate = { route -> onNavigate(DesktopTarget.App(route)) },
             onTitleChange = { title = it },
             onActionsChange = { actions = it },
@@ -949,7 +983,7 @@ private fun HostUnavailableScreen(
 ) {
     val cs = MiuixTheme.colorScheme
     Column(
-        // 自己画底：`NotPortedScreen` / `MissingIdentityPage` 那两页没画，靠窗口底色 —— 而离屏
+        // 自己画底：`NotPortedScreen` 那一页没画，靠窗口底色 —— 而离屏
         // 证据图里没有窗口，于是深色模式下会变成「浅字透明底」（图上看着像坏了）。这里补上。
         modifier = Modifier.fillMaxSize().background(cs.background).padding(24.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),
@@ -959,32 +993,6 @@ private fun HostUnavailableScreen(
         Text("路由 id：${route.id}", color = cs.onBackgroundVariant, fontSize = 12.sp)
         lines.forEach { line ->
             Text(line, color = cs.onBackgroundVariant, fontSize = 12.sp)
-        }
-        Button(
-            onClick = { onNavigate(DesktopTarget.Routes) },
-            colors = ButtonDefaults.buttonColorsPrimary(),
-        ) { Text("回全部页面", color = cs.onPrimary) }
-    }
-}
-/** 「没有身份就取不了数」的说明。 */
-@Composable
-private fun MissingIdentityPage(
-    onNavigate: (DesktopTarget) -> Unit,
-    title: String,
-    lines: List<String>,
-) {
-    val cs = MiuixTheme.colorScheme
-    Column(
-        modifier = Modifier.fillMaxSize().padding(24.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp),
-    ) {
-        Text(title, color = cs.onSurface, fontSize = 18.sp, fontWeight = FontWeight.Bold)
-        lines.forEachIndexed { index, line ->
-            Text(
-                line,
-                color = cs.onBackgroundVariant,
-                fontSize = if (index == 0) 13.sp else 12.sp,
-            )
         }
         Button(
             onClick = { onNavigate(DesktopTarget.Routes) },

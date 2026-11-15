@@ -1,5 +1,6 @@
 package com.xjtu.toolbox.server
 
+import com.xjtu.toolbox.account.Account
 import com.xjtu.toolbox.account.AccountContext
 import com.xjtu.toolbox.auth.AccountType
 import com.xjtu.toolbox.auth.AttendanceSession
@@ -17,6 +18,7 @@ import com.xjtu.toolbox.auth.JwxtSession
 import com.xjtu.toolbox.auth.LibrarySession
 import com.xjtu.toolbox.auth.LmsSession
 import com.xjtu.toolbox.auth.MfaRequest
+import com.xjtu.toolbox.auth.QmsSession
 import com.xjtu.toolbox.auth.SessionBackend
 import com.xjtu.toolbox.auth.SessionManager
 import com.xjtu.toolbox.auth.VenueSession
@@ -54,7 +56,7 @@ class ServeSession(private val credentials: JvmCredentialStore = JvmCredentialSt
         // 其余站点的类与它们的 `*Login` 还在 `:app`，搬一个注册一个。
         register(LibrarySession())
         register(FitnessSession())
-        // 教务：全校课表 / 成绩报表 / 本科评教三条路由共用的站点。
+        // 教务：全校课表 / 成绩报表共用的站点。
         register(JwxtSession())
         // 研究生评教要的两个站点：gste（问卷）与 gmis（课程详情）。它们**只**服务研究生，
         // 本科账号登它们会失败 —— 所以登录那一步只是「尽力预热」（失败只记不抛）。
@@ -84,6 +86,8 @@ class ServeSession(private val credentials: JvmCredentialStore = JvmCredentialSt
         // 人脸识别签到（`iclassface`）：`/api/iclassface/records` 要它。走 CAS OAuth2 `client_id=1543`
         // → 开放平台 `authorizesw` → 回本站种下 `PHPSESSID`（`mustUseWebVpn = true`，同上）。
         register(IclassfaceSession())
+        // 学生评教（QMS）：`/api/jwxt/evaluations*` 要它；公网直连，不走 WebVPN。
+        register(QmsSession())
     }
 
     /** MFA 宿主的常驻挂载凭据。 */
@@ -215,6 +219,42 @@ class ServeSession(private val credentials: JvmCredentialStore = JvmCredentialSt
         }
     }
 
+    /**
+     * 把一条**已保存**的账号认成「当前身份」：命名空间、凭据、指纹、RSA 公钥一起换（与
+     * `:desktop` 的 `DesktopAuth.adoptAccount` 逐条同源）。
+     *
+     * ⚠️ **不联网**：站点会话是懒的（第一次真取数时自己 ensure）—— 切账号这个动作不该等一次 CAS 往返，
+     * 密码错会在下一次取数时报 401/502，而不是在这一刻。
+     * ⚠️ **不写** `AccountStore` 的激活指针（`active_account`）：那是桌面端的主键，见 `docs/api-contract.md` §5.10。
+     */
+    internal fun adoptAccount(account: Account) {
+        AccountContext.activeAccountId = account.accountId
+        AccountContext.activeAccountType = account.accountType
+        sessionManager.reconfigureForAccount(AccountContext.suffixFor(account.accountId))
+        sessionManager.setCredentials(account.accountId, account.password)
+        sessionManager.accountType = account.accountType.toXjtuLoginAccountType()
+        // 带进来的指纹与公钥省下两次往返（且指纹换了会被学校当成新设备、多一发短信）
+        sessionManager.fpVisitorId = account.fpVisitorId
+        sessionManager.cachedRsaKey = account.rsaPublicKey
+        // 落盘那一份也要换：否则重启后冷启动恢复到的是上一个账号
+        credentials.save(account.accountId, account.password)
+        account.fpVisitorId?.let { credentials.fpVisitorId = it }
+        account.rsaPublicKey?.let { credentials.rsaPublicKey = it }
+        credentials.accountType = sessionManager.accountType
+        loggedIn = true
+    }
+
+    /**
+     * 改密之后把内存会话与落盘的那份凭据一起换成新密码（只给「改的正是当前账号」用）。
+     *
+     * 不叫 `setCredentials` 就是为了让人一眼看出它同时动了两个地方：不一起换的话，
+     * 站点下一次 ensure 还在用旧密码，而重启后冷启动恢复到的也是旧密码。
+     */
+    internal fun rekeyAccount(accountId: String, newPassword: String) {
+        sessionManager.setCredentials(accountId, newPassword)
+        credentials.save(accountId, newPassword)
+    }
+
     private fun restore(saved: Pair<String, String>) {
         val (user, password) = saved
         val accountType = credentials.accountType
@@ -255,6 +295,9 @@ class ServeSession(private val credentials: JvmCredentialStore = JvmCredentialSt
         /** 人脸识别签到（`iclassface`）。`/api/iclassface/records` 进门时用它。 */
         const val ICLASSFACE_SITE_KEY = IclassfaceSession.SITE_KEY
 
+        /** 学生评教（`qms`）。`/api/jwxt/evaluations*` 进门时用它。 */
+        const val QMS_SITE_KEY = QmsSession.SITE_KEY
+
         /** 登录那一步一次建起会话的站点（与 `:desktop` 的 `DesktopAuth.SESSION_SITE_KEYS` 同一份清单）。 */
         private val SESSION_SITE_KEYS = listOf(
             LIBRARY_SITE_KEY,
@@ -272,6 +315,7 @@ class ServeSession(private val credentials: JvmCredentialStore = JvmCredentialSt
             JWAPP_SITE_KEY,
             ICLASSFACE_SITE_KEY,
             JIAOCAI_SITE_KEY,
+            QMS_SITE_KEY,
         )
 
         /** MFA 一共允许几次验证码（`SessionManager.MFA_MAX_ATTEMPTS` 的对外投影）。 */
@@ -283,4 +327,10 @@ class ServeSession(private val credentials: JvmCredentialStore = JvmCredentialSt
 private fun XJTULogin.AccountType.toCoreAccountType(): AccountType = when (this) {
     XJTULogin.AccountType.UNDERGRADUATE -> AccountType.UNDERGRADUATE
     XJTULogin.AccountType.POSTGRADUATE -> AccountType.POSTGRADUATE
+}
+
+/** `:core` 的账号身份 → `:data` 的 CAS 账号类型（[toCoreAccountType] 的反向）。 */
+private fun AccountType.toXjtuLoginAccountType(): XJTULogin.AccountType = when (this) {
+    AccountType.UNDERGRADUATE -> XJTULogin.AccountType.UNDERGRADUATE
+    AccountType.POSTGRADUATE -> XJTULogin.AccountType.POSTGRADUATE
 }

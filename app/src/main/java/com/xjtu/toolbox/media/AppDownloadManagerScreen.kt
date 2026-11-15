@@ -13,7 +13,7 @@ fun AppDownloadManagerScreen(onBack: () -> Unit) {
     val dirInfo = remember { appDownloadDirInfo() }
 
     DownloadManagerScreen(
-        manager = manager,
+        host = manager,
         onBack = onBack,
         dirInfo = dirInfo,
         files = files,

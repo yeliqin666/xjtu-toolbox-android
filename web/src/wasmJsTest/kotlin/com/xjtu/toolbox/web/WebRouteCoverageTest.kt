@@ -76,11 +76,6 @@ class WebRouteCoverageTest {
         assertEquals(
             listOf(
                 "Browser",
-                "CampusBus",
-                "DegreeProgress",
-                "DownloadManager",
-                "Jiaocai1",
-                "Jiaocai1Reader",
                 "NoticeDetail",
                 "QrScan",
                 "Zyxf",
@@ -88,7 +83,8 @@ class WebRouteCoverageTest {
             notOpenableNames.sorted(),
             "差集变了（现在 ${notOpenableNames}）：$criterion；" +
                 "新补上一屏就把它从差集里拿掉（同时改 AppPage 的分支与 WebSupport 的文件头说明），" +
-                "差集里多出新的一条就要在文件头里写清「为什么这一端做不到」",
+                "差集里多出新的一条就要在文件头里写清「为什么它进不了这份清单」" +
+                "（本端做不到 / 清单只认定值 id，两句都要写出来）",
         )
 
         val explained = WebSourceSnapshot.WEB_SUPPORT
@@ -153,7 +149,8 @@ class WebRouteCoverageTest {
         assertTrue(WebSupport.isOpenable(AppRoute.Lms()))
         assertTrue(WebSupport.isOpenable(AppRoute.Lms(courseId = 42, activityId = 7)))
         assertFalse(WebSupport.isOpenable(AppRoute.Browser("https://example.com")))
-        assertFalse(WebSupport.isOpenable(AppRoute.DownloadManager))
-        assertFalse(WebSupport.isOpenable(AppRoute.Jiaocai1Reader("123", "教材")))
+        assertTrue(WebSupport.isOpenable(AppRoute.DownloadManager))
+        assertTrue(WebSupport.isOpenable(AppRoute.Jiaocai1Reader("123", "教材")))
+        assertFalse(WebSupport.isOpenable(AppRoute.Zyxf))
     }
 }

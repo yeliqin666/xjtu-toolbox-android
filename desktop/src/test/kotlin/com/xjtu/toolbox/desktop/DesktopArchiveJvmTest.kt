@@ -55,14 +55,10 @@ class DesktopArchiveJvmTest {
         val suffix = AccountContext.suffixFor(STUDENT_ID)
         assertEquals("_2253415556", suffix, "后缀规则照 AccountContext.suffixFor 逐字")
 
-        // 与 DesktopScheduleHost.cache() 同一行代码：课表族缓存落在 `<数据根>/schedule_cache<suffix>.properties`
-        wipeSecureStore(DesktopScheduleHost.SCHEDULE_CACHE_STORE + suffix)
-        val cache = KeyValueScheduleCacheStore(
-            secureKeyValueStore(DesktopScheduleHost.SCHEDULE_CACHE_STORE + suffix),
-        )
-        ScheduleCache.writeCurrentTerm(cache, "2026-2027-1")
-
-        val physical = File(root, "schedule_cache_2253415556.properties")
+        // 判据用一个**仍然走 `stores/`** 的账号档店来钉：课表缓存族已按 B-9 收成 `files/schedule/`，
+        // 它在档案里不再有 `stores/schedule_cache.json` 这条路径（见下面那条端到端用例）。
+        keyValueStore("course_colors$suffix").putString("高等数学", "#1F8A70")
+        val physical = File(root, "course_colors_2253415556.properties")
         assertTrue(physical.exists(), "端内那份文件应当真的落在这个根下：${physical.absolutePath}")
 
         val accounts = listOf(ArchiveAccount(STUDENT_ID, suffix, "UNDERGRADUATE", FIXED_NOW))
@@ -73,8 +69,8 @@ class DesktopArchiveJvmTest {
             now = { FIXED_NOW },
         )
 
-        val path = "accounts/$suffix/stores/${DesktopScheduleHost.SCHEDULE_CACHE_STORE}.json"
-        assertEquals("accounts/_2253415556/stores/schedule_cache.json", path, "A13 逐字")
+        val path = "accounts/$suffix/stores/course_colors.json"
+        assertEquals("accounts/_2253415556/stores/course_colors.json", path, "A13 逐字")
         assertTrue(path in archive, "档案里应当有这条路径（实际：${archive.keys.sorted()}）")
     }
 
@@ -82,10 +78,10 @@ class DesktopArchiveJvmTest {
     fun `A13 档案路径到数据根文件名是纯字符串拼接（反向两个方向）`() = withRoot { root ->
         val suffixes = listOf("_2253415556", "default", "_")
 
-        // 档案路径 → 数据根文件名
+        // 档案路径 → 数据根文件名（只有 `stores/` 那一层才拼得出端内文件名）
         assertEquals(
-            File(root, "schedule_cache_2253415556.properties"),
-            DesktopArchiveIo.dataRootTarget(root, "accounts/_2253415556/stores/schedule_cache.json"),
+            File(root, "course_colors_2253415556.properties"),
+            DesktopArchiveIo.dataRootTarget(root, "accounts/_2253415556/stores/course_colors.json"),
         )
         assertEquals(
             File(root, "app_settings.properties"),
@@ -93,11 +89,18 @@ class DesktopArchiveJvmTest {
         )
         assertNull(DesktopArchiveIo.dataRootTarget(root, "manifest.json"))
         assertNull(DesktopArchiveIo.dataRootTarget(root, "global/files/agent_sessions/index.json"))
+        // B-9 之后课表族走文件层 ⇒ 它这一条也不该拼出端内 store 文件名
+        assertNull(
+            DesktopArchiveIo.dataRootTarget(
+                root,
+                "accounts/_2253415556/files/schedule/schedule_current_term.json",
+            ),
+        )
 
         // 数据根文件名 → 档案路径（拆分要靠后缀清单，§2.0）
         assertEquals(
-            "accounts/_2253415556/stores/schedule_cache.json",
-            DesktopArchiveIo.storeArchivePath("schedule_cache_2253415556", suffixes),
+            "accounts/_2253415556/stores/course_colors.json",
+            DesktopArchiveIo.storeArchivePath("course_colors_2253415556", suffixes),
         )
         assertEquals(
             "global/stores/app_settings.json",
@@ -105,13 +108,13 @@ class DesktopArchiveJvmTest {
         )
 
         // 两个方向互为逆：拼出来的名字再拆回去还是同一条路径
-        val path = "accounts/_2253415556/stores/schedule_cache.json"
+        val path = "accounts/_2253415556/stores/course_colors.json"
         val file = DesktopArchiveIo.dataRootTarget(root, path)!!
         assertEquals(path, DesktopArchiveIo.storeArchivePath(file.name.removeSuffix(".properties"), suffixes))
     }
 
     @Test
-    fun `A13 端到端：导出到数据根后，档案里那份值与原读法读出的是同一份（A10 的 at 也在）`() = withRoot { root ->
+    fun `A13 端到端：导出到数据根后，课表族只剩 files schedule 一份且值与原读法同源`() = withRoot { root ->
         wipeSecureStore("xjtu_accounts")
         val suffix = AccountContext.suffixFor(STUDENT_ID)
         wipeSecureStore(DesktopScheduleHost.SCHEDULE_CACHE_STORE + suffix)
@@ -136,18 +139,27 @@ class DesktopArchiveJvmTest {
         assertEquals(dataFilesDir().absolutePath, archiveDataRoot(), "A13 前半：与 :data 的数据根同值")
 
         // 端内原读法读出来的值（不是从档案里读的）
-        val fromStore = ScheduleCache.readCurrentTerm(cache)
-        assertEquals("2026-2027-1", fromStore)
+        assertEquals("2026-2027-1", ScheduleCache.readCurrentTerm(cache))
 
-        val path = "accounts/$suffix/stores/${DesktopScheduleHost.SCHEDULE_CACHE_STORE}.json"
-        val record = ArchiveCodec.decodeStore(outcome.directory.resolve(path).readText())
-        assertEquals(DesktopScheduleHost.SCHEDULE_CACHE_STORE + suffix, record.snapshot.rawName)
-        // 值本身是 AppJson 编出来的 JSON 串（§2.3「原样搬运、不重新建模」）⇒ 档案里是带引号的原文
-        assertEquals(StoreValue.S("\"2026-2027-1\""), record.snapshot.keys["schedule_current_term"])
-        assertEquals(FIXED_NOW, record.snapshot.writtenAt["schedule_current_term"])
+        val archive = DesktopArchiveIo.readDirectory(outcome.directory)
+
+        // B-9 收口：课表族在档案里**只有** `files/schedule/` 这一份（不再在 stores 里出现第二遍）
         assertFalse(
-            record.snapshot.keys.keys.any { it.endsWith(ArchiveCodec.WRITTEN_AT_SUFFIX) },
-            "档案的 keys 里永不出现 *${ArchiveCodec.WRITTEN_AT_SUFFIX}（A10）",
+            "accounts/$suffix/stores/${DesktopScheduleHost.SCHEDULE_CACHE_STORE}.json" in archive,
+            "课表族的店不进 stores（实际：${archive.keys.sorted()}）",
+        )
+        val path = "accounts/$suffix/files/schedule/schedule_current_term.json"
+        // 值本身是 AppJson 编出来的 JSON 串（§2.3「原样搬运、不重新建模」）⇒ 档案里是带引号的原文
+        assertEquals("\"2026-2027-1\"", outcome.directory.resolve(path).readText(), "档案里那份值：$path")
+        assertTrue(
+            "schedule/schedule_current_term.json" in ArchiveCodec
+                .decodeManifest(outcome.directory.resolve("manifest.json").readText()).files,
+            "manifest 的 files 清单里应当有这一条",
+        )
+        // A10 的同一句话在文件层也成立：侧挂的 `#written_at` 不落成条目（年龄只在端内）
+        assertTrue(
+            archive.keys.none { it.endsWith(ArchiveCodec.WRITTEN_AT_SUFFIX) },
+            "档案里不该出现 *${ArchiveCodec.WRITTEN_AT_SUFFIX} 的条目（A10）",
         )
     }
 

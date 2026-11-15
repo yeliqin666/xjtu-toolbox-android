@@ -62,10 +62,12 @@ internal fun Route.serveEndpointRoutes(
 ) {
     calendarRoutes(calendar)
     infoRoutes(yellowpage, faculty)
+    busRoutes()
     fitnessRoutes(session)
     notificationRoutes(notification)
     inboxRoutes(session)
     emptyRoomRoutes(session)
+    degreeRoutes(session)
 }
 
 

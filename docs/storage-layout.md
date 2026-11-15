@@ -10,9 +10,9 @@
 
 1. **三端端内形状今天就已经是三种**：Android = `shared_prefs/<name>.xml` + Room + `cache/data_cache<suffix>/*.json`；桌面 = `~/.local/share/xjtu-toolbox/<name>.properties`（0600）；web = `localStorage["xjtu-toolbox.<store>.<key>"]`。**没有任何一端读得懂另一端的落盘**（今天不存在跨端读路径）。
 2. **键名层面已经高度统一**：三端都走同一批 store 名与键名（`:core` 的 `keyValueStore(name)` 缝），所以「唯一真源」的缺口只剩**容器形状**（XML / Properties / localStorage）与**四种值类型编码分歧**（见 §3.5）。
-3. **后端有一批 store 在桌面上根本没落盘**（`:core` 的 jvm actual 是进程内内存，`KeyValueStore.jvm.kt:8`、`:41`）。在补这个缺口之前，「档案可直接拷过去用」在桌面上是**假的**：`library_favorites` / `venue_favorites` / `inbox*` / `feature_hints` / `empty_room` / `course_colors*` / `schedule_diff*` / `bulletin_store` / `feedback` / `games` / `haptics_prefs` / `jiaocai1_reader_prefs` / `schedule_source*` / `schedule_changes*` / `attendance_records_*` / `score_report` **全部只活在内存里**。这是本规格的**第 0 号前置条件**。
+3. **桌面那一批 store 已经落盘了**（2026-10-19 复核）：`shared/model/src/jvmMain/.../KeyValueStore.jvm.kt` 现在是 `JvmFileKeyValueStore`（0600 的 `.properties`），全仓已搜不到 `MemoryKeyValueStore`。⇒ 原先那条「第 0 号前置条件」**已闭环**，本节这句是**历史记录**，不再是待办。
 4. **已发现 5 处「同名同键、形状不同」的真实分歧**（§5.1、§3.5），其中 `favorite_venue_ids` 是**同一 (store, key) 两种值类型**，直接违反「键名逐字即等价」的假设。
-5. **「旧形状只读、新形状写」这条在 Android 上做不到**（一做就破坏 C1 行为不变），必须回用户面前改口径 —— 见未决问题 #2（这条是 §16.4 第三点的内在矛盾，不是口味问题）。
+5. **「旧形状只读、新形状写」这条在 Android 上做不到**（一做就破坏 C1 行为不变）⇒ **2026-10-19 已拍板改口径**：端内 store 的**键名与值语义逐字不变**、**档案是它的投影**、**端内容器形状（XML / Properties / localStorage）不追求统一**，统一的只有键名、值语义与档案层。详见 §6.1 第 2 条。
 
 ---
 
@@ -211,7 +211,7 @@
 | 39 | `onboarding` | 无 | `OnboardingStore.kt:20,21,31` | `done` | 全 |
 | 40 | `notice_watch` | 无 | `NoticeWatchStore.kt:12-20,103,106` | `enabled` `sources` `sources_configured` `seen_links` `baselined_sources` `last_sync_at`(long) `last_titles` `push_keywords` | 全 |
 | 41 | `reminder_watch` | 无 | `ReminderStore.kt:41` | 开关 `enabled_<kind>`（library / schedule / lms / community_reply / community_mention；**self_todo 只有游标、没有开关**）、去重游标 `seen_<kind>`、`baselined_<kind>` | 全 |
-| 42 | `session_keepalive` | 无 | `SessionKeepAlive.kt:68,75,76` | `enabled` `interval_min` | 全 |
+| 42 | `session_keepalive` | 无 | `SessionKeepAlive.kt:19-24`（**2026-10-19 更正**：原引 `:68,75,76` 越界 —— 该文件只有 55 行；也**没有** `enabled` / `interval_min` 这两个键，全仓只在本文档里出现过） | 无落盘键（只有“前台每 10 分钟预热一次”，启停挂在 `MainActivity.kt:97`/`:102`） | **更正**（原写「全」是错的） |
 | 43 | `campus_probe` | 无 | `CampusProbe.kt:50` | `code` `data` `ywtb_token` | 全 |
 | 44 | `lms_downloads` | 无 | `LmsDownloadStore.kt:18,19,34,134` | `records` | 全 |
 | 45 | `schedule_widget_prefs` | 无 | `ScheduleWidgetProvider.kt:87,161,165,171` | 浏览日期键（`getLong`） | 部分 |
@@ -219,10 +219,11 @@
 | 47 | `serve` | 无 | 桌面 `serve.properties` | `access_token` —— 不进档案 | 全 |
 | 48 | `download_tasks` | 无 | 桌面 `DesktopDownloadTaskStore.kt:48,194,195`；Android = Room 表 | `rows`（桌面）/ Room 列（`AppDatabase.kt:29-50`） | 全 |
 | 49 | `jiaocai1_shelf` | 无 | 桌面 `DesktopJiaocai1Storage.kt:46,133,134`；Android = Room 表 | `rows` / Room 列（`AppDatabase.kt:84-101`） | 全 |
-| 50 | `score_report`（桌面） / `score_report_cache`（web） | 无 | `DesktopScoreReportCache.kt:41` / `WebScoreReportCache.kt:18,34,35` | 键 `score_report_<学号>`（桌面）/ `all`（web）；见 §5.1② | 全 |
+| 50 | `score_report`（桌面） / `score_report_cache`（web） | 无 | `DesktopScoreReportCache.kt:41` / `WebScoreReportCache.kt` | 键 `score_report_<学号>`（桌面）/ `all`（web）；**2026-10-19 起 web 也带 `at` + 7d TTL**（旧裸数组仍可读、按“无年龄”当已过期）；档案里这一族统一成 `files/schedule/score_report.json` + `{"at","grades"}`（不含学号，见 §6.3） | 全 |
 | 51 | `schedule_cache` | **桌面=是，web=否** | `DesktopScheduleHost.kt:84` / `WebScheduleHost.kt:73,104` | 见 §3.3 | 全 |
 | 52 | `custom_courses` | 无 | `KeyValueCustomCourseStore.KEY`；桌面 `DesktopScheduleHost.kt:88`；web `WebScheduleHost.kt:76,107`；Android = Room 表 | `custom_courses`（单键，含全部账号的行） | 全 |
 | 53 | `data_cache_meta` | 无 | `DataCache.kt:68` | `install_stamp` —— 不进档案 | 全 |
+| 54 | `lms_due<suffix>` | 是 | `:data` 的 `LmsDueStore`（**B-5 下沉，2026-10-20**） | `lms_due_items`（键名**逐字不变**；旧数据在 `data_cache<suffix>/lms_due_items.json`，首次读时一次性搬迁、**旧文件只读不写**） | 全 |
 
 ### 3.3 课表族键名（唯一真源：`ScheduleCache`，值走 `ScheduleCacheStore` 缝）
 
@@ -301,7 +302,7 @@ fun suffixFor(accountId: String?): String {
 |---|---|---|---|---|
 | 1 | 课表族（`ScheduleCache`） | `DataCache`：TTL 按**文件 mtime**，过期**读时删文件**；`TERM_TTL_MS`=90d；`FOREVER`=`Long.MAX_VALUE`；写入 `.tmp` + rename **原子** | `KeyValueScheduleCacheStore`：TTL 按**同 store 的 `<key>#written_at`**，过期读时删**两个键**；**没有原子写**（KDoc 如实声明） | 同桌面（同一份 `KeyValueScheduleCacheStore`），只是落在 localStorage |
 | 2 | 空闲教室 | `EmptyRoomCache`：TTL 按 `<key>_time`(long)，过期**不删**，只返回 null；另有 `readJsonAnyAge`/`readRoomListStale` **忽略 TTL** 的兜底档；CDN 1d / 直查 7d / 代码表 7d / 座位 365d | **不缓存**（`EmptyRoomStore` 传 null） | **不缓存** |
-| 3 | 成绩报表 | `DataCache`，7d，mtime | `at` 在载荷里，7d，过期删键；**但它的默认 store 是 `keyValueStore` ⇒ jvm 上是内存，等于没缓存**（`DesktopScoreReportCache.kt:41`） | **无 TTL、无 `at`** |
+| 3 | 成绩报表 | `DataCache`，7d，mtime | `at` 在载荷里，7d，过期删键；**2026-10-19 复核：它的 store 已是落盘版**（jvm 的 `keyValueStore` 现在是 `JvmFileKeyValueStore`，不再是内存） | **2026-10-19 起带 `at` + 7d TTL**（旧裸数组仍可读、按“无年龄”当已过期） |
 | 4 | 站点快照 | `at` 在载荷里，12h，过期**不删**（只是不恢复）；另拒绝过期 JWT | 同 Android（同一份 `SiteSnapshots`） | 无（web 无站点会话） |
 | 5 | 凭据 RSA 公钥 | 24h（`last_auto_update_check_at` 那种 long 同族） | 24h（`JvmCredentialStore`，`rsa_key_time` 存**字符串**；`:app` 侧读的是 `getLong` ⇒ 同一键两种类型，见 §8.6） | 无（凭据不在浏览器） |
 | 6 | 反馈回复 | `reply_fetch_at` 6h / 挂起 10min | 同 | 同（`:core` `FeedbackStore`） |
@@ -331,7 +332,7 @@ fun suffixFor(accountId: String?): String {
 ### 6.1 三条不变量
 
 1. **幂等**：`import(archive)` 跑两次 == 跑一次（合并语义见 6.4）。
-2. **旧形状只读**：迁移**读**旧形状，**写**新形状。⚠️ 这条在 Android 上只做到 §8.2 那种弱形式 —— 见未决问题 #2。
+2. **端内形状不追求统一**（旧口径「旧形状只读」已废，2026-10-19 拍板）：**端内 store 的键名与值语义逐字不变；档案是它的投影；三端新读取方只读档案、或读同一批键名**。端内容器形状（XML / Properties / localStorage）**不追求统一** —— 统一的只有键名、值语义与档案层。（原「迁移读旧形状、写新形状」在 Android 上做不到：Android 的运行期写路径**就是**旧形状，见 §8.2。）
 3. **失败可回滚**：导入**先在临时目录/临时 prefs 命名空间里全量落地并自校验，再原子换名**；任何一步失败 ⇒ 端内文件一个都没变。（现成先例：`AccountMigration` 的闸门 + 「关键步骤抛异常即不置 `migration_done`，下次启动重试」+「目标已存在则跳过」，以及 `DataCache` 的 `.tmp`+rename。）
 
 ### 6.2 触发时机（三端各一）
@@ -358,11 +359,18 @@ fun suffixFor(accountId: String?): String {
 
 ### 6.4 冲突与合并（导入时）
 
-- 档案与本端**都有的键**：按 `at` 新者胜；任一方缺 `at` ⇒ **本端胜**（移植时不动本机已有偏好，这比「档案无条件覆盖」更安全，也更符合「旧形状只读」）。
+- 档案与本端**都有的键**：按 `at` 新者胜；任一方缺 `at` ⇒ **本端胜**（移植时不动本机已有偏好，比「档案无条件覆盖」安全）。
 - 本端有、档案没有：**保持不变**（这是「不丢键」断言 A6 的内容）。
 - 档案有、本端没有：写入。
 - `manifest.version` 不认识 / `format` 不对 / 缺少 `manifest.json`：**明确失败**，端内零改动。
 - `set` 值：并集还是覆盖？**覆盖**（同 `at` 规则）—— 并集会让「取消收藏」永远无法同步。
+
+**显式镜像档（2026-10-19 拍板，三端同一套）**：导入时用户可以**显式选一次**「以档案为准」（不选就走上面那套默认规则）。选它时：
+
+- 只对**档案里声明过的范围**生效：档案里有 `stores/<store>.json` ⇒ 该 store 按档案对齐（**删掉档案里没有的键**）；档案里**没出现**的 store（含所有账号档）⇒ **一个字不动**；`files/` 与 Room 三族同理，按档案里出现过的族对齐。
+- **红线清单永不删**：`xjtu_credentials` / `xjtu_accounts` / `xjtu_cookies` / `cookies_*` / `sites_*` / `agent_config_secure*` / `github_community` / `serve` / `*_fallback` / `data_cache_meta` —— 无论档案长什么样，一概不删（档案按设计本就不含它们，见 A8）。
+- **不做“后悔药”**：覆盖前不自动备份（2026-10-19 拍板，用户明确接受）。
+- 默认仍是「**只补上本机没有的键**」；弹窗在导入那一刻出现一次。
 
 ---
 
@@ -375,14 +383,14 @@ fun suffixFor(accountId: String?): String {
 | **A3** | **导出字节稳定**：注入固定时钟后 `export(x)` 两次字节相同（`keys`/`set`/`stores[]`/`files[]` 已排序） | `:core` jvmTest（注入 now） |
 | **A4** | **往返可读**：`import(export(端A))` 之后，端 A 用**原来的读法**读出的每条与导出前逐字相同（例：`SettingsStore().darkMode`、`ScheduleCache.readCurrentTerm(cache)`、`LibraryFavorites.all()`） | 三端各自的门禁 |
 | **A5** | **跨端互换**：**同一份档案夹具**在三端各 `import` 一次，各自断言同一批值（这是 D14「存档层互认测试」的落点） | 夹具放 `:core` 的 commonTest（**不能放 `:testkit`** —— 那个模块是 `kotlin.jvm` 插件，wasm 消费不了，见 `testkit/build.gradle.kts`） |
-| **A6** | **不丢键 + 不覆盖本机**：导入前后「端内键集合 ⊇ 档案键集合」，且「档案没有、端内有」的键**值不变** | 合并规则的单测 |
+| **A6** | **不丢键**：**默认档**下「导入前后端内键集合 ⊇ 档案键集合」，且「档案没有、端内有」的键**值不变**；**显式镜像档**下本机键集合按档案对齐（删本机多余的键），但**红线清单永不删**（见 §6.4） | 合并规则的单测 + 镜像档的单测 |
 | **A7** | **坏档案不动端**：空目录 / 缺 manifest / `version=99` / JSON 截断 ⇒ 返回明确失败，且端内所有 store 的键集合与值**零变化** | 表驱动用例 |
 | **A8** | **凭据默认不出现**：档案里不含 `xjtu_credentials` / `cookies_*` / `sites_*` / `agent_config_secure*` / `github_community` / `serve` 的条目（除非显式开关，此时 `redacted` 字段为空、且有一条 warn 日志） | 对 `export()` 的产物做「禁止路径」断言 |
 | **A9** | **后缀规则逐字**：`suffixFor(null)=="default"`、`suffixFor("")=="_"`、`suffixFor("2253415556")=="_2253415556"`、`suffixFor("2-2534")=="_2_2534"`、`suffixFor("a-b")==suffixFor("a_b")`（碰撞必须被**检测并报错**而不是合并） | `:core` 纯函数用例 |
-| **A10** | **`#written_at` 归一化**：档案的 `keys` 里**永不出现** `*#written_at`；该时间出现在 `at`；导回桌面/web 后 `KeyValueScheduleCacheStore.ageMsOfJson` 能算出同一个 age | `:core` + 桌面 |
+| **A10** | **`#written_at` 归一化**：档案的 `keys` 里**永不出现** `*#written_at`；该时间出现在 `at`；导回桌面/web 后 `KeyValueScheduleCacheStore.ageMsOfJson` 能算出同一个 age。⚠️ **本判据只对桌面/web 成立** —— Android 侧不产旁挂键（2026-10-19 拍板不引入；Android 那一方向由 §6.4 的**显式镜像档**覆盖） | `:core` + 桌面 |
 | **A11** | **桌面的断言对象只能是「解析后的键值」** —— `.properties` 的首行注释带时间戳，**字节不可比**（本机实测：`#Wed Oct 14 08:10:56 CST 2026`）；`Properties.store` 还把所有非 ASCII 转成 `\uXXXX`（`DesktopScheduleJvmTest` 已有一条注释钉着这点） | 桌面门禁的写法约束 |
-| **A12** | **`:app:testDebugUnitTest` 通过数 ≥ 429**（基线见 `docs/desktop-port-plan.md` §14.5/§14.6 的 429 例 / 0 失败） | 现有门禁，不需新写 |
-| **A13** | **桌面「档案→数据根」的映射是纯字符串拼接**：`accounts/_2253415556/stores/schedule_cache.json` ⇄ `schedule_cache_2253415556.properties`（可用一次 `cp -r` + import + 读值三连来端到端钉） | 桌面 jvmTest（`dataRootOverride`） |
+| **A12** | **`:app:testDebugUnitTest` 通过数不低于当前基线**：**450**（2026-10-19 实测：79 个 XML / 0 失败；`@Test` 注解数复算同值）。⚠️ 交接文档里的 **453 是对着 kmp-tail 工作区测的过时基线**：差 3 条来自 dev 线的**功能变更**（「联网改用 DeepSeek」删掉旧搜索解析代码 ⇒ `AgentWebTest` 少 5 条；新增公式测试 ⇒ `TexLiteTest` 多 2 条），**不是重构丢的** | 现有门禁，不需新写 |
+| **A13** | **桌面「档案→数据根」的映射是纯字符串拼接**：`accounts/_2253415556/stores/course_colors.json` ⇄ `course_colors_2253415556.properties`（可用一次 `cp -r` + import + 读值三连来端到端钉）。⚠️ **2026-10-20 起示例店改用 `course_colors` / `app_settings`** —— 课表族（`schedule_cache*`）在档案里**只走 `files/schedule/`**（桌面导出时已把对应 store 剔掉，B-9 收口，与成绩族同一套“剔店”做法），拿它当示例会指向一个已不存在的路径 | 桌面 jvmTest（`dataRootOverride`） |
 
 ---
 
@@ -411,14 +419,14 @@ fun suffixFor(accountId: String?): String {
    - 我按 D8 原文「**JSON 形状**」+ 本任务要求「逐文件 JSON schema」选了 **JSON 目录**。
    - 张力：这样「落盘形状也统一」只统一到**档案层**，桌面数据根仍不是档案本体（拷过去要跑一次 import）。
    - 若用户坚持字面全等：档案改成 `<store>.properties`，桌面数据根**直接就是档案的一个视图**（`cp -r` 零步骤）。代价：**wasm 没有 `java.util.Properties`**，必须在 commonMain 重写它的转义规则（`\uXXXX`、ISO-8859-1、行续接、`= : # !` 与首部空格的转义），并与 JVM `Properties.store/load` 逐字节往返一致 —— 这是一份新增的易错代码，且值类型标签仍要另外解决（Properties 只有字符串）。**建议：JSON。**
-2. **「旧形状只读、新形状写」在 Android 上做不到**（§8.2）。**建议改口径为**：「端内 store 的**键名与值语义**逐字不变；档案是它的投影；三端**新读取方**一律只读档案或读同一批键名」。这既保住 C1，又保住 D8 的实际目标（跨端互认）。
+2. **「旧形状只读、新形状写」在 Android 上做不到**（§8.2）。**2026-10-19 已拍板**：口径改为「端内 store 的**键名与值语义**逐字不变；档案是它的投影；**端内容器形状不追求统一**；三端**新读取方**一律只读档案或读同一批键名」。这既保住 C1，又保住 D8 的实际目标（跨端互认）。
 3. **Android 的档案落地通道未定**（SAF 选择器 / `adb push` 到 `filesDir/archive/` / 分享出 zip）。**建议**：落地目录 `filesDir/archive/`（与 `dataFilesDir()` 同根，零新权限），导入用一次 SAF 读取或 adb push；导出用现有分享缝（`Share.android.kt`）发 zip。这需要一次「权限/体验」确认，我没核到任何既有实现。
 4. **web 的档案落地与账号归属**：浏览器无 FS（只能 download/upload），且 **web 今天没有账号**（`WebScheduleHost.kt:38-40`）。**建议**：D9 落地前，web 导出的档案只写 `global/` + `manifest.noAccount=true`；D9 之后 web 的 suffix 取 **serve 进程当前账号**（会话在服务端，浏览器只发消息 —— 与 D10 的屁岱口径一致）。
 5. **凭据是否进档案**（`xjtu_credentials` / `cookies_*` / `sites_*` / `agent_config_secure.api_key` / `github_community.token` / `serve.access_token`）。**建议默认不导出**，理由见 §8.10；要导出必须显式开关 + 明确警告 + 写进 `manifest.redacted`。**这条要不要请示用户，取决于用户对「拷过去就能用」的期望里包不包含「不用重新登录」** —— 我认为包不包含都很重要，所以列为未决而不是直接决定。
 6. **隐私口径**：档案里 `accountId`（学号）/`accounts[].password`（若不导出凭据则无）是明文。**建议不加密**（加密了另两端读不了），但在 `manifest` 显式写出、并在 UI 上提示「这份档案里含学号」。
 7. **TTL 是否进 manifest**。**建议只作提示字段**，不作为裁决依据（§5.2 第 2 条）—— 否则同一份数据换端会被另一个 TTL 判死，反而破坏「档案可直接拷过去用」。
 8. **`schedule_cache` 在 web 上要不要加后缀**。**建议加**（对齐 Android/桌面），但只能在 D9 之后做（web 没有账号，suffix 只能来自 serve）。加之前必须处理「已有的无后缀 localStorage 数据」→ 一次性读入（旧键只读）。
-9. **导入是合并还是替换**。**建议合并**（§6.4：`at` 新者胜，缺 `at` 本端胜，`set` 覆盖），并把「替换」留成显式选项（`mode=replace`），因为替换会静默删掉用户在本机新加的收藏/日程。
+9. **导入是合并还是替换**。**2026-10-19 已拍板**：**默认合并**（§6.4：`at` 新者胜，缺 `at` 本端胜，`set` 覆盖），并把「替换」做成**导入时弹一次的显式选择**（「以档案为准」= 真镜像），默认仍是「只补上本机没有的键」；镜像射程只覆盖**档案声明过的范围**、**红线清单永不删**，且**不做自动备份**。详见 §6.4 的「显式镜像档」。
 10. **未核对项**（不要当结论用）：`score_cursor<suffix>` 的键、`schedule_diff<suffix>` 的 `snap_*` 全键、`course_colors<suffix>` 的键形态、`home_usage` 的键、`pidai_appearance` 的完整键集、`schedule_widget_prefs` 的键、`empty_room_cache<suffix>` 的全部业务键名（我只核到机制：`<key>` + `<key>_time`）。核对方法：按 §3.2 表的文件路径逐个 `grep -n "put[A-Z]\|get[A-Z]"`。
 
 ### 与并行会话（`sa-1e6c6838`）的协调说明

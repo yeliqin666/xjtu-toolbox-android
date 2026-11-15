@@ -1,0 +1,61 @@
+name: PR Gate
+
+# 唯一的 PR 门禁：一次 Gradle 调用跑完安卓编译与各端测试，--continue 让所有失败一次报全。
+# 安卓出包由 build.yml 在推送时做；桌面安装包只在打包配置变动时由 desktop-*.yml 出。
+
+on:
+  pull_request:
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+  workflow_dispatch:
+
+concurrency:
+  group: pr-gate-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          java-version: "21"
+          distribution: "temurin"
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      # 与 build.yml 一致：compileSdk 37 不在镜像里
+      - name: 装 Android SDK 37
+        run: |
+          yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses > /dev/null || true
+          $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager "platforms;android-37.0" "build-tools;37.0.0" --channel=3 > /dev/null
+
+      - name: 装中日字体（离屏布局测试要量中文字宽）
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q --no-install-recommends fonts-noto-cjk
+          fc-list :lang=zh | grep -q . || { echo "::error::装完 fonts-noto-cjk 仍查不到中文字体"; exit 1; }
+
+      # :app:compileDebugKotlin 顺带编出所有共享模块的 android 变体；jvmTest 按任务名选中所有 KMP 模块；
+      # :web:wasmJsBrowserTest 顺带证明 :core 等 commonMain 能编到 wasm。
+      - name: 编译与测试
+        run: >-
+          ./gradlew --continue
+          :app:compileDebugKotlin
+          jvmTest :server:test :desktop:test
+          :web:wasmJsBrowserTest
+
+      - name: 失败时保留测试报告
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pr-gate-reports
+          retention-days: 7
+          if-no-files-found: warn
+          path: |
+            **/build/reports/tests/**
+            **/build/test-results/**

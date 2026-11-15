@@ -35,7 +35,17 @@ interface AttendanceSource {
 
     suspend fun getStreams(startDate: String, endDate: String): List<AttendanceStream>
 
-    fun computeCourseStatsFromRecords(records: List<AttendanceWaterRecord>): List<CourseAttendanceStat>
+    /**
+     * 按课程统计那一栏。
+     *
+     * ⚠️ **是 `suspend`**（2026-10-22 批5 改）：serve 那一份的统计要打一发 `/api/attendance/stats`
+     *（算路在 `:data`，只有 JVM/Android 变体，浏览器里没有它），而本机那两份只是把纯函数包一层
+     * —— 语义一字未改，调用方（`AttendanceViewModel`）本来就在协程里。
+     *
+     * [records] 是调用方刚拉到的那一份学期流水：本机那一份就是拿它算的；serve 那一份忽略它
+     *（服务端按**同一个学期**跑同一条算路，数字与拿这份流水算出来的逐格相同）。
+     */
+    suspend fun computeCourseStatsFromRecords(records: List<AttendanceWaterRecord>): List<CourseAttendanceStat>
 
     // ── 请假（LeaveApi 那半）─────────────────────────────────────────
 

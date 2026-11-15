@@ -64,7 +64,7 @@ class JwappScoreViewModelTest {
         val source = FakeJwappScoreSource(grades = listOf(coarseGrade))
         val jwxt = FakeJwxtScoreSupplement(precise = precise)
         val cache = FakeJwappScoreCache(stored = listOf(coarseGrade))
-        val vm = JwappScoreViewModel(source, jwxt, STUDENT_ID, cache)
+        val vm = JwappScoreViewModel(source, jwxt, cache)
 
         assertTrue(awaitIdle(vm), "加载应当在超时前落地")
         // 教务的精确总评/绩点覆盖了 jwapp 那份粗分（按「学期 + 课名」对上）
@@ -98,7 +98,7 @@ class JwappScoreViewModelTest {
                 ReportedGrade(courseName = "大学物理", coursePoint = 4.0, score = "80", gpa = 3.3, term = "2025-2026-2"),
             ),
         )
-        val vm = JwappScoreViewModel(source, jwxt, STUDENT_ID)
+        val vm = JwappScoreViewModel(source, jwxt)
 
         assertTrue(awaitIdle(vm), "加载应当在超时前落地")
         val term = vm.allTermScores.first { it.termCode == TERM }
@@ -109,23 +109,23 @@ class JwappScoreViewModelTest {
         assertEquals("暂不能查看", vm.allTermScores.first { it.termCode == "2025-2026-2" }.scoreList.single().score, "旧学期不补")
         assertEquals(1, vm.reportGrades?.size, "抽屉只放最新学期")
         assertEquals("最新学期有 1 门看不到成绩，已从成绩报表补上 1 门", vm.reportHint)
-        assertEquals(STUDENT_ID, jwxt.lastReportedStudentId)
+        assertEquals(1, jwxt.reportCalls)
     }
 
     @Test
     fun `最新学期没有看不到的成绩时不拉报表`() {
         val jwxt = FakeJwxtScoreSupplement(precise = precise)
-        val vm = JwappScoreViewModel(FakeJwappScoreSource(grades = listOf(coarseGrade)), jwxt, STUDENT_ID)
+        val vm = JwappScoreViewModel(FakeJwappScoreSource(grades = listOf(coarseGrade)), jwxt)
 
         assertTrue(awaitIdle(vm), "加载应当在超时前落地")
-        assertNull(jwxt.lastReportedStudentId)
+        assertEquals(0, jwxt.reportCalls)
         assertNull(vm.reportHint)
     }
 
     @Test
     fun `教务那一站拿不到时不早退失败：只出 jwapp 那一份（与搬迁前的 null 早退同义）`() {
         val source = FakeJwappScoreSource(grades = listOf(coarseGrade))
-        val vm = JwappScoreViewModel(source, jwxt = null, studentId = STUDENT_ID)
+        val vm = JwappScoreViewModel(source, jwxt = null)
 
         assertTrue(awaitIdle(vm), "加载应当在超时前落地")
         val item = vm.allTermScores.single().scoreList.single()
@@ -140,7 +140,6 @@ class JwappScoreViewModelTest {
         val withCache = JwappScoreViewModel(
             FakeJwappScoreSource(failure = FakeSessionExpired()),
             jwxt = null,
-            studentId = STUDENT_ID,
             cache = FakeJwappScoreCache(stored = listOf(coarseGrade)),
         )
         assertTrue(awaitIdle(withCache), "加载应当在超时前落地")
@@ -153,7 +152,6 @@ class JwappScoreViewModelTest {
         val noCache = JwappScoreViewModel(
             FakeJwappScoreSource(failure = FakeSessionExpired()),
             jwxt = null,
-            studentId = STUDENT_ID,
         )
         assertTrue(awaitIdle(noCache), "加载应当在超时前落地")
         assertTrue(noCache.allTermScores.isEmpty())
@@ -164,7 +162,7 @@ class JwappScoreViewModelTest {
     @Test
     fun `重试：先强制重登一枪，再重新拉一遍`() {
         val source = FakeJwappScoreSource(failure = FakeSessionExpired())
-        val vm = JwappScoreViewModel(source, jwxt = null, studentId = STUDENT_ID)
+        val vm = JwappScoreViewModel(source, jwxt = null)
         assertTrue(awaitIdle(vm), "第一次加载应当在超时前落地")
         assertEquals(1, source.gradeCalls)
 
@@ -219,15 +217,15 @@ class JwappScoreViewModelTest {
         var reported: List<ReportedGrade> = emptyList(),
     ) : JwxtScoreSupplement {
         var preciseCalls = 0
-        var lastReportedStudentId: String? = null
+        var reportCalls = 0
 
         override suspend fun preciseScores(): List<CjcxScore> {
             preciseCalls++
             return precise
         }
 
-        override suspend fun reportedGrades(studentId: String): List<ReportedGrade> {
-            lastReportedStudentId = studentId
+        override suspend fun reportedGrades(): List<ReportedGrade> {
+            reportCalls++
             return reported
         }
     }
@@ -253,6 +251,5 @@ class JwappScoreViewModelTest {
     private companion object {
         const val TERM = "2026-2027-1"
         const val COURSE_NAME = "高等数学（上）"
-        const val STUDENT_ID = "2021000001"
     }
 }

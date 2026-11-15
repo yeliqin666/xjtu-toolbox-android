@@ -38,7 +38,7 @@ class DesktopSettingsJvmTest {
         assertEquals(SettingsStore.DARK_MODE_SYSTEM, store.darkMode, "深色模式默认跟随系统")
         assertTrue(!store.dynamicColor, "取色默认关")
         assertEquals(SettingsStore.NAV_STYLE_FLOATING, store.navBarStyle, "界面风格默认玻璃")
-        assertEquals(SettingsStore.TAB_COURSES, store.defaultTab, "默认启动 Tab 是日程")
+        assertEquals(SettingsStore.TAB_KEY_SCHEDULE, SettingsStore.normalizeDefaultTab(store.defaultTab), "默认启动 Tab 是日程（规范化之后）")
         assertEquals(SettingsStore.NETWORK_AUTO, store.networkMode, "连接模式默认自动检测")
         assertTrue(store.scheduleAttendanceBadge, "考勤角标默认开")
         assertTrue(store.showQuickActions, "常用功能默认显示")
@@ -74,9 +74,12 @@ class DesktopSettingsJvmTest {
                 SettingsRow.DYNAMIC_COLOR,
                 SettingsRow.HOME_HERO,
                 SettingsRow.HOME_SETTINGS,
+                SettingsRow.DEFAULT_TAB,
+                SettingsRow.SCHEDULE_ATTENDANCE,
+                SettingsRow.NAV_STYLE,
             ),
             host.honoredRows,
-            "桌面外壳接了深色模式 / 取色 / 首页卡片外观 / 主页设置抽屉（与 app 共用同一份 SettingsScreen）",
+            "桌面外壳接了深色模式 / 取色 / 首页卡片外观 / 主页设置抽屉 + 默认启动 Tab + 界面风格",
         )
         assertNull(host.noticeSection, "桌面没有系统通知权限与 WorkManager 排程 ⇒ 整组不画")
         assertNotNull(

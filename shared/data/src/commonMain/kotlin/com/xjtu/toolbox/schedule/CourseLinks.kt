@@ -3,8 +3,6 @@ package com.xjtu.toolbox.schedule
 import com.xjtu.toolbox.platform.Log
 import com.xjtu.toolbox.account.AccountContext
 import com.xjtu.toolbox.attendance.AttendanceRecordStore
-import com.xjtu.toolbox.attendance.AttendanceWaterRecord
-import com.xjtu.toolbox.attendance.WaterType
 import com.xjtu.toolbox.auth.AccountType
 import com.xjtu.toolbox.auth.LoginType
 import com.xjtu.toolbox.auth.SessionManager
@@ -13,7 +11,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
-import java.time.LocalDate
 import java.util.concurrent.ConcurrentHashMap
 
 private const val TAG = "CourseLinks"
@@ -23,12 +20,15 @@ private const val TAG = "CourseLinks"
  * 只管解析，不管展示——两套日程布局共用同一份结果。每一项独立可失败，调用方按项渲染。
  * 所有登录都走 `silent = true`：点开课程详情不该让用户收到短信验证码。
  *
- * ## 教材那半按能力切走了
+ * ## 纯判据都切到共享层了
  *
- * `textbooksFor` 是**纯匹配**（吃一份教材表 + 课名/课程号，不碰会话、网络、落盘）
- * ⇒ 它留在 `:core` 的 [TextbookLinks]，屏三端同一份判据。这里只管要会话的那两项。
- * 名字归一化（`normalizedCourseName`，两个系统对齐课名用）也跟着过去了 —— 它是那一族的
- * 公共工具，`lmsCourseFor` 直接用它。
+ * - 教材：`textbooksFor`（吃一份教材表 + 课名/课程号，不碰会话、网络、落盘）
+ *   ⇒ `:shared:model` 的 [TextbookLinks]，三端同一份判据（含 `normalizedCourseName`）。
+ * - 思源课程配对 + 考勤建索引：`lmsCourseMatched` / `attendanceMarksOf`
+ *   ⇒ `:shared:model` 的 `CourseLinkMatching.kt`，那两份也是纯函数，wasm 能编。
+ *
+ * 这里只剩**要会话、要落盘**的取数：拉思源课程表、拉一学期考勤流水并缓存/落盘。
+ * 判据一律调共享层，本文件不再持有任何匹配规则。
  */
 object CourseLinks {
 
@@ -57,57 +57,17 @@ object CourseLinks {
                 ?.also { if (c.isCurrent()) c.lmsCourses = Box(it) }
                 ?: return null
         }
-        if (all.isEmpty()) return null
-
-        val code = course.courseCode.trim()
-        if (code.isNotEmpty()) {
-            all.firstOrNull { it.courseCode.trim().equals(code, ignoreCase = true) }?.let { return it }
-            val stem = code.substringBefore('-').trim()
-            if (stem.length >= 4) {
-                all.firstOrNull {
-                    it.courseCode.trim().substringBefore('-').equals(stem, ignoreCase = true)
-                }?.let { return it }
-            }
-        }
-        val target = course.courseName.normalizedCourseName()
-        if (target.isEmpty()) return null
-        return all.firstOrNull { it.name.normalizedCourseName() == target }
+        return lmsCourseMatched(all, course)
     }
 
     // ── 考勤 ──────────────────────────────────────────────
-
-    /** 考勤流水与课表格子的联合键。 */
-    data class SlotKey(val week: Int, val dayOfWeek: Int, val startSection: Int)
-
-    /**
-     * 一学期的考勤流水，按 [SlotKey] 建索引。
-     *
-     * 这三个字段两边同源于教务排课数据，逐字相等。教室不能当键：考勤拼的是
-     * 「楼宇名-房间号」，课表是教务原始的 `JASMC`，格式不同。
-     */
-    class AttendanceIndex(
-        private val byKey: Map<SlotKey, AttendanceWaterRecord>,
-    ) : AttendanceMarks {
-
-        override fun statusOf(week: Int, dayOfWeek: Int, startSection: Int): WaterType? =
-            statusRecordOf(week, dayOfWeek, startSection)?.status
-
-        fun statusRecordOf(week: Int, dayOfWeek: Int, startSection: Int): AttendanceWaterRecord? =
-            byKey[SlotKey(week, dayOfWeek, startSection)]
-
-        /** 指定周次的那一次考勤。没有记录 = 还没上，或这门课不考勤。 */
-        override fun recordOn(course: CourseItem, week: Int): AttendanceWaterRecord? =
-            statusRecordOf(week, course.dayOfWeek, course.startSection)
-
-        val isEmpty: Boolean get() = byKey.isEmpty()
-
-    }
 
     /**
      * 拉一学期考勤并建索引。
      *
      * 必须放在旁路协程里：考勤站点比教务慢得多，任何情况下都不能挡住课表渲染。
-     * 失败返回 null，界面当作没有角标。研究生只换 [LoginType]，其余一致。
+     * 失败返回 null，界面当作没有角标。研究生只换 `LoginType`，其余一致。
+     * 索引本身的判据在共享层（`:shared:model` 的 `attendanceMarksOf`），这里只管取数与落盘。
      */
     suspend fun attendanceIndex(
         manager: SessionManager?,
@@ -122,7 +82,7 @@ object CourseLinks {
         termCode: String,
         /** 详情面板是用户点开的、正在等结果，传 true 豁免站点级失败冷却。角标是后台的，保持 false。 */
         userInitiated: Boolean = false,
-    ): AttendanceIndex? {
+    ): SlotAttendanceMarks? {
         // 缓存必须带学期：不带的话切到别的学期还会拿到上一个学期的索引，
         // 表现就是"换了学期角标和考勤记录都不动"。
         val c = caches()
@@ -139,7 +99,7 @@ object CourseLinks {
         accountType: AccountType,
         termCode: String,
         userInitiated: Boolean,
-    ): AttendanceIndex? {
+    ): SlotAttendanceMarks? {
         // 先看落盘缓存能不能免掉这次请求。存储和刷新策略在 AttendanceRecordStore，
         // 考勤页和课表角标共用同一份。
         val pg = accountType == AccountType.POSTGRADUATE
@@ -152,7 +112,7 @@ object CourseLinks {
         )
         AttendanceRecordStore.logPlan(termCode, plan, shard)
         if (plan == AttendanceRecordStore.Plan.NONE && shard != null) {
-            return indexOf(shard.records)
+            return attendanceMarksOf(shard.records)
         }
         return fetchAttendanceIndexInner(c, manager, accountType, termCode, userInitiated, shard, plan)
     }
@@ -175,21 +135,6 @@ object CourseLinks {
         storageAttached = enabled
         sealedTerms.addAll(finishedTerms)
     }
-
-    private fun indexOf(records: List<AttendanceWaterRecord>): AttendanceIndex {
-        val byKey = HashMap<SlotKey, AttendanceWaterRecord>()
-        for (r in records) {
-            val dow = r.date.parseDayOfWeek() ?: continue
-            if (r.week <= 0 || r.startTime <= 0) continue
-            // 同一格重复上报时保留"更坏"的那条：缺勤 > 迟到 > 请假 > 正常。
-            // 把异常盖成正常等于丢信息。
-            val key = SlotKey(r.week, dow, r.startTime)
-            val old = byKey[key]
-            if (old == null || r.status.severity() > old.status.severity()) byKey[key] = r
-        }
-        return AttendanceIndex(byKey = byKey)
-    }
-
     private suspend fun fetchAttendanceIndexInner(
         c: Caches,
         manager: SessionManager?,
@@ -198,7 +143,7 @@ object CourseLinks {
         userInitiated: Boolean,
         shard: AttendanceRecordStore.Shard?,
         plan: AttendanceRecordStore.Plan,
-    ): AttendanceIndex? {
+    ): SlotAttendanceMarks? {
         val site = manager.siteOrNull(LoginType.ATTENDANCE, userInitiated) ?: return null
         return withContext(Dispatchers.IO) {
             val index = runCatching {
@@ -277,7 +222,7 @@ object CourseLinks {
                         "code=${all.firstOrNull()?.courseCode}",
                 )
                 Log.d(TAG, "attendance index: ${records.size} 条流水")
-                indexOf(records)
+                attendanceMarksOf(records)
             }.rethrowCancellation().getOrElse {
                 Log.w(TAG, "attendance index failed", it)
                 null
@@ -306,7 +251,7 @@ object CourseLinks {
      */
     private class Caches(val accountId: String?) {
         @Volatile var lmsCourses: Box<List<com.xjtu.toolbox.lms.LmsCourseSummary>>? = null
-        @Volatile var attendance: Pair<String, Box<AttendanceIndex>>? = null
+        @Volatile var attendance: Pair<String, Box<SlotAttendanceMarks>>? = null
 
         /**
          * 同一时刻只允许一次考勤拉取。
@@ -367,17 +312,4 @@ object CourseLinks {
         (exceptionOrNull() as? kotlinx.coroutines.CancellationException)?.let { throw it }
     }
 
-    private fun WaterType.severity() = when (this) {
-        WaterType.ABSENCE -> 3
-        WaterType.LATE -> 2
-        WaterType.LEAVE -> 1
-        WaterType.NORMAL -> 0
-        // 未识别状态不确定好坏，按"最坏"处理，避免被一条正常记录悄悄盖掉。
-        WaterType.UNKNOWN -> 4
-    }
-
-    /** 考勤的 `checkdate` 形如 `2025-09-15`，可能带时间后缀，取前 10 位解析。 */
-    private fun String.parseDayOfWeek(): Int? = runCatching {
-        LocalDate.parse(take(10)).dayOfWeek.value
-    }.getOrNull()
 }

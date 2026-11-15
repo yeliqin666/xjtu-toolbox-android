@@ -217,7 +217,7 @@ grep -rn "5\.[0-9]\+\.[0-9]\+" --include="*.kts" --include="*.kt" --include="*.m
   ./gradlew :app:testDebugUnitTest
   ```
 
-- CI 会运行 `core-gate`：`:core` 与 `:web` 必须能编译到 wasmJs，`:shared:*`、`:feature:*`、`:data`、`:desktop` 的测试也要通过。不要把 Android/JVM 专属依赖带进 `:core` 的 `commonMain`。
+- CI 会运行 `pr-gate`：`:app` 必须能编译，`:core` 与 `:web` 必须能编译到 wasmJs，所有 KMP 模块的 `jvmTest` 以及 `:server`、`:desktop` 的测试都要通过。不要把 Android/JVM 专属依赖带进 `:core` 的 `commonMain`。
 - 修改桌面端时运行 `./gradlew :desktop:test`；涉及安装包时确认 `desktopPackageVersion` 已同步。
 - 不得提交构建产物、APK/AAB、`build/` 目录、签名文件或本地配置。
 

@@ -19,6 +19,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import kotlinx.coroutines.runBlocking
 
@@ -178,22 +179,43 @@ class DesktopScheduleJvmTest {
             setOf(
                 ScheduleCapability.CUSTOM_COURSE_EDIT,
                 ScheduleCapability.LMS_LINK,
+                // 调课 / 停课 / 换教室冒一条气泡（与 Web 同一份写法，收纳走同一个 InboxStore）。
+                ScheduleCapability.SCHEDULE_CHANGE_BUBBLE,
+                // 详情里「N座」：走 CDN 每日预生成的全校教室表（无需登录）。
+                ScheduleCapability.SEAT_COUNT,
+                // 「导出日历 (ICS)」：桌面没有分享面板，但**有系统保存框**（FileDialog）⇒
+                // 这一格做的是「另存为 .ics」（语义同分享，用户拿到那份文件）。
+                ScheduleCapability.SHARE_FILE,
                 // 课表落地后要给首页发信号：这一端现在有首页了（`AppRoute.Main`），
                 // 它盯的就是 `DesktopHomeSignals.scheduleVersion`。
                 ScheduleCapability.HOME_SIGNALS,
+                // 课表格子上的考勤角标 + 详情「本次考勤」：这一端本来就有考勤域（同一个考勤站点会话
+                // + 同一份 `AttendanceRecordStore` 落盘）⇒ 只差把它列进来。
+                ScheduleCapability.ATTENDANCE,
+                // 今日栏「接下来」的作业截止：B-5 下沉后桌面直接读 `:data` 那份落盘缓存
+                // （`LmsDueStore`，键名逐字不变）⇒ 这一档也接上了。
+                ScheduleCapability.DUE_HOMEWORK,
             ),
             host.honored,
-            "桌面只有「自建日程」与「思源入口」这两档（见 DesktopScheduleHost 的表与 TODO）—— " +
+            "桌面只声明它真接得上的那几档（见 DesktopScheduleHost 的表与 TODO）—— " +
                 "改这里就等于屏上多画一档，先确认那一档的宿主面真接上了",
         )
         assertFalse(ScheduleCapability.WIDGET_REFRESH in host.honored, "桌面没有桌面小组件")
+        // 考勤那一档：声明了就要真画得出来 —— 开关读的是设置里那一格（默认开），
+        // 而“没接”的缺口说明不该再存在。
+        assertEquals(desktopSettings.scheduleAttendanceBadge, host.attendanceBadgeEnabled, "开关读的就是设置页那一格（默认开）")
+        assertNull(host.gapNotes[ScheduleCapability.ATTENDANCE], "接上了就不该再留“桌面没有考勤”那句缺口说明")
+        // B-5 下沉后「作业截止」也接上了 ⇒ 缺口说明同样不该再留（接了就不能说没接）。
+        assertNull(host.gapNotes[ScheduleCapability.DUE_HOMEWORK], "接上了就不该再留作业截止那句缺口说明")
         val before = DesktopHomeSignals.scheduleVersion
         host.onScheduleSynced()
         assertEquals(before + 1, DesktopHomeSignals.scheduleVersion, "课表落地应当叫醒首页")
-        // 没接的那几档要在行为上也是「没有」，不能只是没列进集合
-        assertFalse(ScheduleCapability.SHARE_FILE in host.honored)
-        assertEquals(false, host.shareFile("BEGIN:VCALENDAR", "x.ics", "text/calendar"), "桌面没有分享面板")
-        assertEquals(null, runBlocking { host.roomSeatCount("主楼A-101") }, "座位数那一档还没接")
+        // 没接的那几档要在行为上也是「没有」，不能只是没列进集合。
+        // 注意 SHARE_FILE 不在此列：它现在走系统保存框，单测里**不能调**
+        // （`shareFile` 会弹真对话框把测试卡住）——那一格只靠 honored 这张表断言。
+        // 座位数那一档已经接上（走 CDN 的当天全校教室表）⇒ **这里不断言它的值**：
+        // 那是真网络请求，而单测不许打真站点；要断言值就在 `:testkit` 夹具上做。
+        assertEquals(true, ScheduleCapability.SEAT_COUNT in host.honored, "座位数那一档应当已声明")
         assertEquals(emptyList(), runBlocking { host.dueHomeworks("2021000001") }, "作业截止那一档还没接")
     }
 }

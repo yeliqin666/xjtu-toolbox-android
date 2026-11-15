@@ -1,7 +1,9 @@
 package com.xjtu.toolbox.archive
 
 import kotlin.test.Test
+import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
 /** 分类表（§2.4 / §8.10）的验收。 */
@@ -28,6 +30,23 @@ class ArchiveRegistryTest {
         assertTrue(ArchiveRegistry.isExcluded("serve"))
         assertTrue(ArchiveRegistry.isExcluded("agent_config_fallback"))
         assertFalse(ArchiveRegistry.isExcluded("app_settings"))
+    }
+
+    @Test
+    fun `dev 新加的本地店已登记：作用域与载体`() {
+        val expected = mapOf(
+            "friend_timetables" to ArchiveRegistry.Scope.GLOBAL,
+            "self_todos" to ArchiveRegistry.Scope.ACCOUNT,
+            "degree" to ArchiveRegistry.Scope.ACCOUNT,
+            "agent_shares" to ArchiveRegistry.Scope.ACCOUNT,
+        )
+        expected.forEach { (name, scope) ->
+            val entry = assertNotNull(ArchiveRegistry.allEntries()[name], "未登记：$name")
+            assertEquals(scope, entry.scope, "作用域不对：$name")
+            assertEquals(ArchiveRegistry.Carrier.PLAIN_KV, entry.carrier, "载体不对：$name")
+            assertFalse(ArchiveRegistry.isCredential(name), "不应是凭据族：$name")
+            assertFalse(ArchiveRegistry.isExcluded(name), "不应端内私有：$name")
+        }
     }
 
     @Test

@@ -32,7 +32,7 @@ internal object WeeklyReport {
     /** 没有可说的内容返回 null。 */
     fun facts(context: Context, account: String, nowMs: Long): Facts? {
         val lines = mutableListOf<String>()
-        val dues = LmsDueStore.load(context, account)
+        val dues = LmsDueStore.load(account)
         fun deadlineMs(d: LmsDue): Long? = lmsInstant(d.deadline)?.toEpochMilliseconds()
 
         val thisWeek = dues.filter { d -> deadlineMs(d)?.let { it in nowMs - 7 * DAY_MS..nowMs } == true }

@@ -1,6 +1,5 @@
 package com.xjtu.toolbox.core.net
 
-import com.xjtu.toolbox.platform.keyValueStore
 import com.xjtu.toolbox.util.AppJson
 import com.xjtu.toolbox.util.arr
 import com.xjtu.toolbox.util.encodeUrlComponent
@@ -18,6 +17,7 @@ import com.xjtu.toolbox.venue.OrderInfo
 import com.xjtu.toolbox.venue.OrderPage
 import com.xjtu.toolbox.venue.PendingOrder
 import com.xjtu.toolbox.venue.Venue
+import com.xjtu.toolbox.venue.VenueFavorites
 import com.xjtu.toolbox.venue.VenueSource
 import io.ktor.client.HttpClient
 import io.ktor.client.request.get
@@ -311,23 +311,19 @@ class CampusVenueApi(
         return OrderActionResult(outcome.ok, outcome.message)
     }
 
-    // ─── 收藏（localStorage）───────────────────────────────────
+    // ─── 收藏（走共享落盘）───────────────────────────────────
 
-    override suspend fun favorites(): Set<Int> =
-        favoritesStore.getString(KEY_FAVORITES)
-            .orEmpty()
-            .split(',')
-            .mapNotNull { it.trim().toIntOrNull() }
-            .toSet()
+    /**
+     * 已收藏的场馆 id。
+     *
+     * 落盘交给 [VenueFavorites]（`:shared:model`，`:app` 的 `AppVenueSource` 用的也是它）：同一个 store
+     * （`venue_favorites`）、同一个键（`favorite_venue_ids`），值类型统一是 `getStringSet/putStringSet`。
+     * 以前这里自己用 `getString/split(',')` 读，同一个键被两种值类型写过 ⇒ 跨端导入档案时
+     * `ClassCastException`。
+     */
+    override suspend fun favorites(): Set<Int> = VenueFavorites.all()
 
-    override suspend fun toggleFavorite(venueId: Int): Boolean {
-        val current = favorites().toMutableSet()
-        val isFavorite = if (current.remove(venueId)) false else { current.add(venueId); true }
-        favoritesStore.putString(KEY_FAVORITES, current.joinToString(","))
-        return isFavorite
-    }
-
-    private val favoritesStore by lazy { keyValueStore("venue_favorites") }
+    override suspend fun toggleFavorite(venueId: Int): Boolean = VenueFavorites.toggle(venueId)
 
     /** campus-api 那条路没有这个能力（写方法被调到就是有人画了不该画的按钮）—— 得吭声。 */
     private fun readOnly(): Nothing = throw RuntimeException("本端只读：campus-api 不提供场馆预订/取消")
@@ -367,9 +363,7 @@ class CampusVenueApi(
 
         /** 支付那一跳（§5.3.2 第 6 条）：serve 的代跳端点（302 → 80 端口那台站点上的支付页地址）。 */
         const val VENUE_PAY_PATH = "/api/venue/pay"
-
-        /** 收藏的键名沿用 Android 那个（排查时好认）；值形态不同，见类 KDoc。 */
-        const val KEY_FAVORITES = "favorite_venue_ids"
+        // 收藏的键名/落盘形态统一由 `:shared:model` 的 `VenueFavorites` 管，这里不再自带一份。
     }
 }
 

@@ -73,14 +73,17 @@ class CampusJwappScoreApi(
             ?: error("serve 分项成绩响应的 detail 不是对象（$id）")
     }
 
-    /** 见类 KDoc：它要学号（§5.2）。 */
-    override suspend fun reportedGrades(studentId: String): List<ReportedGrade> = throw UnsupportedOperationException(
-        "serve 契约不端「按学号取成绩报表」：它要学号（契约 §5.2 红线，例外清单里没有这一族）" +
-            "—— 本端的 studentId 传空串，VM 不会调它（docs/api-contract.md §5.6）",
-    )
+    /** 成绩报表（`GET /api/jwxt/grades`）：学号由服务端按当前账号取，本端不传（§5.2 红线）。 */
+    override suspend fun reportedGrades(): List<ReportedGrade> {
+        requireServe()
+        val data = client.serveData("加载成绩报表", baseUrl, GRADES_PATH)
+        val grades = data.arr("grades") ?: return emptyList()
+        // 服务端的 `GradeDto` 与 `:model` 的 `ReportedGrade` 字段一一对应 ⇒ 直接按模型解码
+        return AppJson.decodeFromJsonElement<List<ReportedGrade>>(grades)
+    }
 
     private fun requireServe() {
-        if (mode != ApiMode.SERVE) serveOnly("移动教务成绩取数", "$SCORES_PATH + $PRECISE_SCORES_PATH + $SCORE_DETAIL_PATH")
+        if (mode != ApiMode.SERVE) serveOnly("移动教务成绩取数", "$SCORES_PATH + $PRECISE_SCORES_PATH + $SCORE_DETAIL_PATH + $GRADES_PATH")
     }
 }
 
@@ -146,6 +149,9 @@ private const val PRECISE_SCORES_PATH = "/api/jwapp/precise-scores"
 
 /** 一门课的分项成绩（屏上「点开一门课」那一格；§5.8）。 */
 private const val SCORE_DETAIL_PATH = "/api/jwapp/score-detail"
+
+/** 教务成绩报表（最新学期未评教的课从这里补）。 */
+private const val GRADES_PATH = "/api/jwxt/grades"
 
 private const val COURSE_ID_PARAM = "courseId"
 

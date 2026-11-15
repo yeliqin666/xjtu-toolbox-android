@@ -291,14 +291,21 @@ fun AccountManagerScreen(
             target = target,
             onDismiss = { pendingEditPwd = null },
             onSubmit = { newPwd ->
-                try {
-                    accountManager.updatePassword(target.accountId, newPwd)
-                    refresh()
-                    toast = "已更新 ${target.accountId} 的密码"
-                } catch (e: Exception) {
-                    toast = FriendlyError.of(e, "更新密码")
-                } finally {
-                    pendingEditPwd = null
+                pendingEditPwd = null
+                busyAccountId = target.accountId
+                scope.launch {
+                    try {
+                        accountManager.updatePassword(target.accountId, newPwd)
+                        refresh()
+                        toast = "已更新 ${target.accountId} 的密码"
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (e: Exception) {
+                        toast = FriendlyError.of(e, "更新密码")
+                    } finally {
+                        busyAccountId = null
+                        refresh()
+                    }
                 }
             }
         )

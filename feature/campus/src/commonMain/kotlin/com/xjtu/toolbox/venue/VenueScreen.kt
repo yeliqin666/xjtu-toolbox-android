@@ -58,6 +58,8 @@ import kotlinx.datetime.plus
 import top.yukonga.miuix.kmp.basic.*
 import top.yukonga.miuix.kmp.overlay.OverlayDialog
 import top.yukonga.miuix.kmp.theme.MiuixTheme
+/** 「功能说明」里支付那一句的默认值（`:app` 的内置浏览器写法）。 */
+const val VENUE_PAY_HINT = "支付在内置浏览器里完成，登录一般自动通过"
 
 /**
  * 体育场馆预订主页面。
@@ -75,6 +77,13 @@ fun VenueScreen(
     onOpenBrowser: (url: String, then: String) -> Unit = { _, _ -> },
     /** 滑块验证码宿主槽位（见类 KDoc）：Android/桌面 = 各端宿主，只读端 = null。 */
     captchaHost: SlideCaptchaHost? = null,
+    /**
+     * 「功能说明」里支付那一句（正文，不带 `• ` 与换行）：默认值 = [VENUE_PAY_HINT]。
+     *
+     * 桌面实际用**系统浏览器**开、web 用**新标签页**开，两者都收不到回调 ⇒ 都不能说
+     * 「内置浏览器」「登录自动通过」（那是 `:app` 的 WebView 才有的事）。
+     */
+    payHint: String = VENUE_PAY_HINT,
     /** 「功能说明」还没读过吗。 */
     showFirstUseHint: Boolean = false,
     onFirstUseHintRead: () -> Unit = {},
@@ -190,11 +199,12 @@ fun VenueScreen(
                 Column(Modifier.fillMaxWidth()) {
                     Text(
                         // 后两条只在能下单的那一端成立（只读端没有验证码弹窗、也没有支付入口）；
+                        // 支付那句由宿主传（`payHint`）：三端都能下单，但打开支付页的方式不同。
                         // 只读端那一条再按 `canCancel` 分：能取消就说能取消。
                         buildString {
                             if (canBook) {
                                 append("• 下单前拖动滑块完成验证\n")
-                                append("• 支付在内置浏览器里完成，登录一般自动通过\n")
+                                append("• $payHint\n")
                             } else {
                                 // 「能不能取消」是**另一条**能力（`canCancel`），不要跟着 `canBook` 一起说死：
                                 // 桌面端就是「能取消、不能预订」（预订要滑块验证码，那个控件还是 Android 专属）。

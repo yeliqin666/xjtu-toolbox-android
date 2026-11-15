@@ -4,7 +4,9 @@ import com.xjtu.toolbox.FakeCampusProxy
 import com.xjtu.toolbox.account.AccountContext
 import com.xjtu.toolbox.card.CampusCardFakeUpstream
 import com.xjtu.toolbox.jwxt.JwxtFakeUpstream
+import com.xjtu.toolbox.judge.QmsJudgeApi
 import com.xjtu.toolbox.library.LibraryFakeUpstream
+import com.xjtu.toolbox.qms.QmsFakeUpstream
 import com.xjtu.toolbox.platform.JvmCredentialStore
 import com.xjtu.toolbox.platform.dataRootOverride
 import com.xjtu.toolbox.platform.wipeSecureStore
@@ -292,82 +294,117 @@ class ServeP0Group2Test {
         assertEquals(ApiErrors.BAD_REQUEST, envelopeCode(badWeekday))
     }
 
-    // ── jwxt：evaluations / status ─────────────────────────────────────
+    // ── jwxt：evaluations / status（QMS，契约 §5.15）──────────────────────
 
     @Test
-    fun `jwxt evaluations：未评逐字段 + canSubmit 恒 false + status`() = withServe { serve ->
+    fun `jwxt evaluations：QMS 投影逐字段 + finished 三档 + canSubmit 如实 true + status`() = withServe { serve ->
         val http = serve.http
+        assertEquals(401, http.get("/api/jwxt/evaluations").statusCode(), "没登录先 401")
         assertEquals(200, serve.login().statusCode())
 
-        // 默认：当前学期、未评（finished=0）⇒ 过程 1 行 + 期末 2 行
+        // 默认 finished=0：只要 DRAFT 那两份，按课程名排序（大学物理 < 高等数学）
         val response = http.get("/api/jwxt/evaluations")
         assertEquals(200, response.statusCode())
         assertEquals(ApiEnvelope.CODE_OK, envelopeCode(response))
         assertNoIdentity(response.body(), "GET /api/jwxt/evaluations", IDENTITY)
         val data = envelopeData(response)
-        assertEquals(false, data.optBoolean("canSubmit"), "只读投影 ⇒ canSubmit 必须出现且为 false（契约 §5）")
-        val items = data.getValue("items").jsonArray
-        assertEquals(3, items.size)
+        assertEquals(setOf("canSubmit", "comment", "items"), data.keys)
+        assertEquals(true, data.optBoolean("canSubmit"))
+        assertEquals(QmsJudgeApi.DEFAULT_COMMENT, data.optString("comment"))
+        val items = data.getValue("items").jsonArray.map { it as JsonObject }
+        assertEquals(listOf(QmsFakeUpstream.RESPONSE_DRAFT_B, QmsFakeUpstream.RESPONSE_DRAFT_A), items.map { it.optString("responseId") })
 
-        val mid = items[0] as JsonObject // PGLXDM=05（过程），夹具未评·过程一行
-        assertEquals(JwxtFakeUpstream.JUDGE_WJDM_MID, mid.optString("wjdm"))
-        assertEquals(JwxtFakeUpstream.JUDGE_JXBID_MID, mid.optString("jxbid"))
-        assertEquals(JwxtFakeUpstream.JUDGE_COURSE_MID, mid.optString("course"))
-        assertEquals(JwxtFakeUpstream.JUDGE_TEACHER_MID, mid.optString("teacher"))
-        assertEquals("05", mid.optString("type"))
-        assertEquals("过程评教", mid.optString("tag"))
-        assertEquals(JwxtFakeUpstream.JUDGE_TERM, mid.optString("term"))
-        assertEquals(false, mid.optBoolean("finished"))
-        assertEquals("2026-10-01 08:00:00", mid.optString("startTime"))
-        assertEquals("2026-10-25 23:59:00", mid.optString("endTime"))
+        val a = items[1]
         assertEquals(
-            "${JwxtFakeUpstream.JUDGE_WJDM_MID}_${JwxtFakeUpstream.JUDGE_JXBID_MID}_${JwxtFakeUpstream.JUDGE_TEACHER_MID}",
-            mid.optString("key"),
+            setOf("key", "responseId", "course", "teacher", "lecturers", "plan", "tag", "status", "finished"),
+            a.keys,
         )
+        assertEquals(QmsFakeUpstream.RESPONSE_DRAFT_A, a.optString("key"), "key 就是 responseId（与 JudgeCard.key 同源）")
+        assertEquals(QmsFakeUpstream.COURSE_A, a.optString("course"))
+        assertEquals("${QmsFakeUpstream.LECTURER_A1}、${QmsFakeUpstream.LECTURER_A2}", a.optString("teacher"))
+        assertEquals(
+            listOf(QmsFakeUpstream.LECTURER_A1, QmsFakeUpstream.LECTURER_A2),
+            a.getValue("lecturers").jsonArray.map { it.jsonPrimitive.content },
+        )
+        assertEquals(QmsFakeUpstream.PLAN_TITLE, a.optString("plan"))
+        assertEquals("期末评教", a.optString("tag"))
+        assertEquals("DRAFT", a.optString("status"))
+        assertEquals(false, a.optBoolean("finished"))
+        assertEquals("未知教师", items[0].optString("teacher"), "没有教师名 ⇒ 与安卓同一句兜底")
 
-        val final1 = items[1] as JsonObject // PGLXDM=01（期末）
-        assertEquals(JwxtFakeUpstream.JUDGE_WJDM_FINAL, final1.optString("wjdm"))
-        assertEquals(JwxtFakeUpstream.JUDGE_COURSE_FINAL, final1.optString("course"))
-        assertEquals(JwxtFakeUpstream.JUDGE_TEACHER_FINAL, final1.optString("teacher"))
-        assertEquals("01", final1.optString("type"))
-        assertEquals("期末评教", final1.optString("tag"))
-        assertEquals("2027-01-10 23:59:00", final1.optString("endTime"), "夹具期末行 JSSJ")
-
-        // ?finished=1：已评（过程空表 + 期末 1 行）
-        val done = http.get("/api/jwxt/evaluations?finished=1")
-        assertEquals(200, done.statusCode())
-        assertEquals(ApiEnvelope.CODE_OK, envelopeCode(done))
-        assertNoIdentity(done.body(), "GET /api/jwxt/evaluations?finished=1", IDENTITY)
-        val doneItems = envelopeData(done).getValue("items").jsonArray
-        assertEquals(1, doneItems.size, "已评只有期末那一条（过程是空表）")
-        val doneRow = doneItems[0] as JsonObject
-        assertEquals(JwxtFakeUpstream.JUDGE_WJDM_DONE, doneRow.optString("wjdm"))
-        assertEquals(JwxtFakeUpstream.JUDGE_COURSE_DONE, doneRow.optString("course"))
-        assertEquals(true, doneRow.optBoolean("finished"))
-        assertEquals("", doneRow.optString("teacher"), "夹具已评行缺 BPJS ⇒ 空串")
-
-        // ?type=05：只查过程
-        val midOnly = http.get("/api/jwxt/evaluations?type=05")
-        assertEquals(200, midOnly.statusCode())
-        val midItems = envelopeData(midOnly).getValue("items").jsonArray
-        assertEquals(1, midItems.size)
-        assertEquals("05", (midItems[0] as JsonObject).optString("type"))
-
-        // 参数形状：terms 超过 4 个 ⇒ 400；finished 不是 0/1/all ⇒ 400
-        assertEquals(400, http.get("/api/jwxt/evaluations?terms=a,b,c,d,e").statusCode())
+        // finished=1：只有 ENABLED 那一份；all：三份
+        val done = envelopeData(http.get("/api/jwxt/evaluations?finished=1")).getValue("items").jsonArray
+        assertEquals(listOf(QmsFakeUpstream.RESPONSE_DONE), done.map { (it as JsonObject).optString("responseId") })
+        assertEquals(true, (done[0] as JsonObject).optBoolean("finished"))
+        assertEquals(3, envelopeData(http.get("/api/jwxt/evaluations?finished=all")).getValue("items").jsonArray.size)
         assertEquals(400, http.get("/api/jwxt/evaluations?finished=2").statusCode())
+        assertTrue(serve.fake.qms.taskListCalls.get() >= 3, "每次列表都真打到 QMS 任务列表")
 
         val status = http.get("/api/jwxt/evaluations/status")
         assertEquals(200, status.statusCode())
-        assertEquals(ApiEnvelope.CODE_OK, envelopeCode(status))
         assertNoIdentity(status.body(), "GET /api/jwxt/evaluations/status", IDENTITY)
-        assertEquals(
-            setOf("canSubmit"),
-            envelopeData(status).keys,
-            "status 的 data 就该是这一个小巧的形状：{ canSubmit }",
-        )
-        assertEquals(false, envelopeData(status).optBoolean("canSubmit"))
+        assertEquals(setOf("canSubmit"), envelopeData(status).keys)
+        assertEquals(true, envelopeData(status).optBoolean("canSubmit"))
     }
+
+    @Test
+    fun `jwxt evaluations submit：按 responseId 真提交一发 + 已评幂等 + 上游拒收 409`() = withServe { serve ->
+        val http = serve.http
+        val qms = serve.fake.qms
+        val path = "/api/jwxt/evaluations/submit"
+        assertEquals(401, http.postJson(path, submitBody(QmsFakeUpstream.RESPONSE_DRAFT_A)).statusCode(), "没登录先 401")
+        assertEquals(200, serve.login().statusCode())
+
+        // 形状：空体 / 空 responseId ⇒ 400；查无此卷 ⇒ 404
+        assertEquals(400, http.postJson(path, "{}").statusCode())
+        assertEquals(400, http.postJson(path, submitBody("  ")).statusCode())
+        val missing = http.postJson(path, submitBody("R-查无此卷"))
+        assertEquals(404, missing.statusCode())
+        assertEquals(ApiErrors.NOT_FOUND, envelopeCode(missing))
+        assertEquals(0, qms.submitCalls.get(), "400 / 404 都不该提交")
+
+        // 上游拒收 ⇒ 409，QMS 的 violations 文案原样回给屏
+        qms.rejectSubmit.set(true)
+        try {
+            val rejected = http.postJson(path, submitBody(QmsFakeUpstream.RESPONSE_DRAFT_B))
+            assertEquals(409, rejected.statusCode())
+            assertEquals(ApiErrors.ACTION_REJECTED, envelopeCode(rejected))
+            assertEquals(QmsFakeUpstream.REJECT_MESSAGE, envelopeMessage(rejected))
+        } finally {
+            qms.rejectSubmit.set(false)
+        }
+
+        // 真提交：PUT 一发，载荷照 QmsJudgeApi 的形状（状态 ENABLED、每题最好一档、主观题填评语）
+        val before = qms.submitCalls.get()
+        val ok = http.postJson(path, submitBody(QmsFakeUpstream.RESPONSE_DRAFT_A))
+        assertEquals(200, ok.statusCode())
+        assertNoIdentity(ok.body(), "POST $path", IDENTITY)
+        assertEquals(true, envelopeData(ok).optBoolean("submitted"))
+        assertEquals(EVALUATION_SUBMITTED_MESSAGE, envelopeData(ok).optString("message"))
+        assertEquals(before + 1, qms.submitCalls.get(), "只提交一发")
+        val (id, payload) = qms.submissions.last()
+        assertEquals(QmsFakeUpstream.RESPONSE_DRAFT_A, id)
+        for (needle in listOf(
+            "\"status\":\"ENABLED\"",
+            "\"survey_id\":\"${QmsFakeUpstream.SURVEY_ID}\"",
+            "\"answer\":\"C-best\"",
+            "\"score\":100",
+            QmsJudgeApi.DEFAULT_COMMENT,
+        )) {
+            assertTrue(payload.contains(needle), "提交载荷里该有 $needle，实际：$payload")
+        }
+        assertFalse(payload.contains("Q-title"), "标题题不作答")
+
+        // 幂等：同一份再交一次 ⇒ 200 + submitted=false，不再 PUT
+        val afterOk = qms.submitCalls.get()
+        val again = http.postJson(path, submitBody(QmsFakeUpstream.RESPONSE_DRAFT_A))
+        assertEquals(200, again.statusCode())
+        assertEquals(false, envelopeData(again).optBoolean("submitted"))
+        assertEquals(EVALUATION_ALREADY_MESSAGE, envelopeData(again).optString("message"))
+        assertEquals(afterOk, qms.submitCalls.get(), "幂等命中不得再提交")
+    }
+
+    private fun submitBody(responseId: String): String = """{"responseId":"$responseId"}"""
 
     // ── library：campus / areas / seats / my ───────────────────────────
 

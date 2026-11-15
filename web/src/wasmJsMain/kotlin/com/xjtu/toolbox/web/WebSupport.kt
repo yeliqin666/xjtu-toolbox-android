@@ -13,11 +13,9 @@ import kotlin.reflect.KClass
  *
  * ## 什么不在清单里
  *
- * - `Browser`：有分支但不是一屏，直接 `navigateSameTab` 交给浏览器；
- * - `DownloadManager` / `Jiaocai1` / `Jiaocai1Reader`：本端没有屏，落 `NotPortedScreen`；
+ * - `Browser`：有分支但不是一屏，直接 `navigateSameTab` 交给浏览器。只认 `url`、丢掉 `then`：
+ *   第二跳要内置浏览器才做得到，用户登录完自行继续（与桌面 `desktopBrowserTarget` 同一口径）；
  * - `Zyxf`：资料站依赖 Android 端的下载/预览/文件能力，本端没有对应屏，落 `NotPortedScreen`；
- * - `CampusBus`：校车查询的屏在 `:feature:campus`，本端还没接（serve 也没有班次接口），落 `NotPortedScreen`；
- * - `DegreeProgress`：学业进度要按培养方案走教务的一串请求（还要课表缓存），serve 侧没暴露这条链路，落 `NotPortedScreen`；
  * - `NoticeDetail`：公告详情在 App 里是独立一屏（还带一镜到底），web 端在列表里内联展开，没有这一屏；
  * - `QrScan`：扫一扫是 Android 顶栏的相机浮层（金标联盟一镜到底的独立宿主），本端没有这一屏。
  */
@@ -32,6 +30,7 @@ internal object WebSupport {
         AppRoute.SchoolCalendar::class,
         AppRoute.Fitness::class,
         AppRoute.YellowPage::class,
+        AppRoute.CampusBus::class,
         AppRoute.Notification::class,
         AppRoute.Faculty::class,
         AppRoute.SchoolCourse::class,
@@ -55,8 +54,14 @@ internal object WebSupport {
         // `Lms` 的课程 / 活动深链同样支持；宫格是否展示入口仍由 AppServices 目录决定。
         AppRoute.Lms::class,
         AppRoute.Jiaocai::class,
+        // 教材全文库与阅读器：宿主走契约 §5.14 的 `/api/jiaocai1/*`，书架落在 serve 侧（见 `WebJiaocai1Source`）。
+        // 阅读器的门在书架与检索结果里，目录里没有它。
+        AppRoute.Jiaocai1::class,
+        AppRoute.Jiaocai1Reader::class,
         AppRoute.JwappScore::class,
         AppRoute.Iclassface::class,
+        // 学业进度：取数走契约 §5.16 的 `/api/degree/*`，campus-api 形态下画「要 serve 模式」那张页。
+        AppRoute.DegreeProgress::class,
         AppRoute.PaymentCode::class,
         AppRoute.Match::class,
         AppRoute.WebVpnConverter::class,
@@ -76,6 +81,8 @@ internal object WebSupport {
         // 「点了会有个说法」——而且这一条能看见的是**真数据**（账号表与当前账号）。
         AppRoute.Accounts::class,
         AppRoute.Agent::class,
+        // 下载管理：宿主走契约 §5.13 的 `/api/downloads`，队列与落盘在 serve 那台机器上（见 `WebDownloadsHost`）。
+        AppRoute.DownloadManager::class,
     )
 
     /** 这一端真能打开 [route] 吗（见文件头：清单与 `AppPage` 的分支必须同时改）。 */

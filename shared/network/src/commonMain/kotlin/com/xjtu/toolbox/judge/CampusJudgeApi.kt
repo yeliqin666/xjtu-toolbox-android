@@ -1,6 +1,7 @@
 package com.xjtu.toolbox.judge
 
 import com.xjtu.toolbox.core.net.ApiMode
+import com.xjtu.toolbox.core.net.serveAction
 import com.xjtu.toolbox.core.net.serveData
 import com.xjtu.toolbox.util.AppJson
 import com.xjtu.toolbox.util.arr
@@ -14,9 +15,11 @@ import io.ktor.client.request.get
 import io.ktor.client.request.parameter
 import io.ktor.client.statement.bodyAsText
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.put
 
-/** campus-api 的评教行 → 共享 [JudgeSource] 能吃的模型。 */
+/** 评教行 → 共享 [JudgeSource] 能吃的模型。campus-api 形态填 wjdm / jxbid / pgType，serve 形态填 responseId / tag。 */
 data class CampusQuestionnaire(
     val wjdm: String,
     val jxbid: String,
@@ -24,9 +27,13 @@ data class CampusQuestionnaire(
     val teacher: String,
     val pgType: String,
     val finished: Boolean,
+    /** QMS 答卷 id（serve 形态，契约 §5.15）。 */
+    val responseId: String = "",
+    /** serve 端算好的标签（期中 / 期末 / 过程评教）。 */
+    val tag: String = "",
 )
 
-/** 评教的 campus-api 版取数：给 Web 端用（Android 端走 `:app` 的 `JudgeApi`）。 */
+/** Web 端评教取数：serve 形态走 QMS（契约 §5.15），campus-api 形态只读。 */
 class CampusJudgeApi(
     private val client: HttpClient,
     private val baseUrl: String = "",
@@ -36,34 +43,48 @@ class CampusJudgeApi(
     private val term: String? = null,
 ) : JudgeSource<CampusQuestionnaire> {
 
-    /** 只读（见类 KDoc）。 */
-    override val canSubmit: Boolean get() = false
+    /** serve 形态能提交（`POST /api/jwxt/evaluations/submit`）；campus-api 没有提交端点。屏上的「一键评教」块按它画不画。 */
+    override val canSubmit: Boolean get() = mode == ApiMode.SERVE
 
-    override val confirmText: String get() = "，确定继续？"
+    /** serve 列表带回的主观题评语（没加载过就是空）。 */
+    private var serveComment: String = ""
+
+    override val confirmText: String
+        get() = if (serveComment.isNotBlank()) "（主观题统一填写「$serveComment」），确定继续？" else "，确定继续？"
 
     override suspend fun load(): Pair<List<CampusQuestionnaire>, List<CampusQuestionnaire>> {
         val all = fetchRows(term = term).map { parse(it) }
         return all.filter { !it.finished } to all.filter { it.finished }
     }
 
-    override fun card(q: CampusQuestionnaire): JudgeCard = JudgeCard(
-        key = "${q.wjdm}_${q.jxbid}",
-        course = q.courseName,
-        teacher = q.teacher,
-        // 与 :app 的 `UndergraduateJudgeSource.card` 用同一套文案（campus-api 的 pgTypeLabel 措辞不同）
-        tag = when (q.pgType) { "01" -> "期末评教"; "05" -> "过程评教"; else -> "评教" },
-    )
+    override fun card(q: CampusQuestionnaire): JudgeCard =
+        if (mode == ApiMode.SERVE) {
+            JudgeCard(key = q.responseId, course = q.courseName, teacher = q.teacher, tag = q.tag.ifBlank { "评教" })
+        } else {
+            JudgeCard(
+                key = "${q.wjdm}_${q.jxbid}",
+                course = q.courseName,
+                teacher = q.teacher,
+                tag = when (q.pgType) { "01" -> "期末评教"; "05" -> "过程评教"; else -> "评教" },
+            )
+        }
 
-    /** 只读：见类 KDoc。不实现 [JudgeSource.judge] 就等于「这一端交不了」。 */
-    override suspend fun judge(q: CampusQuestionnaire): Unit = error("Web 端评教是只读的（campus-api 永不实现提交）")
+    /**
+     * 一键评教：一份答卷一发 `POST /api/jwxt/evaluations/submit`（契约 §5.15）。
+     *
+     * `submitted:false` 不是失败：已评过 ⇒ 200 + `submitted:false`（幂等），屏上照样从「未评」里移走。
+     */
+    override suspend fun judge(q: CampusQuestionnaire) {
+        if (mode != ApiMode.SERVE) error("Web 端评教是只读的（campus-api 永不实现提交）")
+        val body = buildJsonObject { put("responseId", q.responseId) }.toString()
+        val outcome = client.serveAction(baseUrl, SUBMIT_PATH, body)
+        if (!outcome.ok) error("提交评教：${outcome.message}")
+    }
 
     private suspend fun fetchRows(term: String?): List<JsonObject> {
         if (mode == ApiMode.SERVE) {
-            val data = getData(
-                "/api/jwxt/evaluations",
-                "terms" to term.orEmpty(),
-                "finished" to "all",
-            )
+            val data = getData("/api/jwxt/evaluations", "finished" to "all")
+            serveComment = data["comment"].safeString().trim()
             return data.arr("items").orEmpty().mapNotNull { if (it.isObject) it.jsonObject else null }
         }
         val data = getData(
@@ -74,14 +95,28 @@ class CampusJudgeApi(
         return data.arr("rows").orEmpty().mapNotNull { if (it.isObject) it.jsonObject else null }
     }
 
-    private fun parse(item: JsonObject): CampusQuestionnaire = CampusQuestionnaire(
-        wjdm = item["wjdm"].safeString().trim(),
-        jxbid = item["jxbid"].safeString().trim(),
-        courseName = item[if (mode == ApiMode.SERVE) "course" else "courseName"].safeString().trim(),
-        teacher = item["teacher"].safeString().trim(),
-        pgType = item[if (mode == ApiMode.SERVE) "type" else "pgType"].safeString().trim(),
-        finished = item["finished"].safeBoolean(),
-    )
+    private fun parse(item: JsonObject): CampusQuestionnaire =
+        if (mode == ApiMode.SERVE) {
+            CampusQuestionnaire(
+                wjdm = "",
+                jxbid = "",
+                courseName = item["course"].safeString().trim(),
+                teacher = item["teacher"].safeString().trim(),
+                pgType = "",
+                finished = item["finished"].safeBoolean(),
+                responseId = item["responseId"].safeString().trim(),
+                tag = item["tag"].safeString().trim(),
+            )
+        } else {
+            CampusQuestionnaire(
+                wjdm = item["wjdm"].safeString().trim(),
+                jxbid = item["jxbid"].safeString().trim(),
+                courseName = item["courseName"].safeString().trim(),
+                teacher = item["teacher"].safeString().trim(),
+                pgType = item["pgType"].safeString().trim(),
+                finished = item["finished"].safeBoolean(),
+            )
+        }
 
     private suspend fun getData(path: String, vararg query: Pair<String, String>): JsonObject {
         // serve 契约（§4）的信封见 ApiMode / serveData：code == HTTP 状态码、失败文案在 message
@@ -98,3 +133,7 @@ class CampusJudgeApi(
             ?: error("campus-api 评教返回缺少 data：${text.take(120)}")
     }
 }
+
+/** 提交评教（契约 §5.15）：请求体 `{responseId}`，serve 端按最好一档填答后提交。 */
+private const val SUBMIT_PATH = "/api/jwxt/evaluations/submit"
+

@@ -102,7 +102,7 @@ fun AttendanceScreen(
     onOpenIclassface: (() -> Unit)? = null,
     /** 宿主的 saved state（「上次选的学期」在进程被回收后要还在）。 */
     savedState: CreationExtras.() -> SavedStateHandle = { SavedStateHandle() },
-    /** 请假表单「添加附件」的取文件槽位：Android = 系统多选文件；桌面还没有文件选择宿主⇒ 默认返回空（不发附件，表单其余功能照旧）。 */
+    /** 请假表单「添加附件」的取文件槽位：Android = 系统多选文件（SAF），桌面 = AWT 文件对话框（`DesktopFileDialogs.pickEvidenceFiles`）。不传 = 这一端没有选择器（web）：默认返回空（不发附件，表单其余功能照旧）。 */
     pickEvidenceFiles: suspend () -> List<Pair<String, ByteArray>> = { emptyList() },
 ) {
     val authExpiry = LocalAuthExpiry.current
