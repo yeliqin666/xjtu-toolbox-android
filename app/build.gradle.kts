@@ -26,8 +26,8 @@ android {
         // Android 15：PdfRenderer 取文字/检索、COUI 的 Mesh 投影与 clipShader 都是基线能力，不写降级
         minSdk = 35
         targetSdk = 36
-        versionCode = 94
-        versionName = "6.0.0"
+        versionCode = 95
+        versionName = "6.0.1"
 
         // 反馈后端（飞书多维表格）的凭据。优先读环境变量（CI），否则读
         // 仓库根目录 feedback.properties（已 gitignore）。两者都没有时留空字符串——
@@ -105,6 +105,13 @@ android {
         }
     }
 
+    // 预览后缀：CI 传 -PpreviewSuffix=beta.N（N 由工作流按同一核心版本已发布的 pre-release
+    // 算出，见 .github/workflows/build.yml「Validate dev version and compute preview version」）。
+    // 两条预览路径共用这一份后缀：
+    // - preview 变体（日常预览）：不传属性就是本地构建，标成 -dev.local，不冒充 beta；
+    // - release 变体（发版前的真机检查，CI 勾 release_preview）：只在传了属性时补后缀，
+    //   main 上的正式发布不传，版本号原样。
+    val previewSuffix = providers.gradleProperty("previewSuffix").orNull?.takeIf { it.isNotBlank() }
     buildTypes {
         debug {
             buildConfigField("boolean", "IS_PREVIEW", "false")
@@ -133,12 +140,10 @@ android {
                 "proguard-rules.pro"
             )
             signingConfig = signingConfigs.getByName("release")
-            // 发版前想拿正式构建的方式连验几轮：CI 传 -PreleasePreviewSuffix=dev.N，
-            // 正式包的版本号就补上预览后缀（6.0.0 → 6.0.0-dev.N），仍低于同号正式版，
+            // 发版前想拿正式构建的方式连验几轮：CI 传 -PpreviewSuffix=beta.N，
+            // 正式包的版本号就补上预览后缀（6.0.1 → 6.0.1-beta.N），仍低于同号正式版，
             // 正式发布时不带这个参数，版本号原样。
-            providers.gradleProperty("releasePreviewSuffix").orNull
-                ?.takeIf { it.isNotBlank() }
-                ?.let { versionNameSuffix = "-$it" }
+            previewSuffix?.let { versionNameSuffix = "-$it" }
         }
         create("preview") {
             // 预览渠道包：给愿意尝鲜的用户，也是我们抓问题的主要来源。
@@ -159,7 +164,8 @@ android {
             // 依赖库只有 debug/release 两种变体，preview 找不到时回落到 release。
             matchingFallbacks += listOf("release")
             buildConfigField("boolean", "IS_PREVIEW", "true")
-            versionNameSuffix = "-dev.${System.getenv("GITHUB_RUN_NUMBER") ?: "local"}"
+            // CI 上由 -PpreviewSuffix=beta.N 给出；本地直接 assemblePreview 则是 6.0.1-dev.local
+            versionNameSuffix = "-${previewSuffix ?: "dev.local"}"
         }
     }
     // Java / Kotlin 目标 21：miuix 各模块都用 JDK 21 工具链编译，miuix-nav 的 entry<T>() 是 inline 函数，

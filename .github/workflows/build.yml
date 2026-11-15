@@ -17,7 +17,7 @@ on:
         type: boolean
         default: true
       release_preview:
-        description: "以 release 方式构建预览版：真 R8、正式签名，版本号仍带 -dev；发版前真机检查用，仍不是正式版"
+        description: "以 release 方式构建预览版：真 R8、正式签名，版本号仍带 -beta.N；发版前真机检查用，仍不是正式版"
         type: boolean
         default: false
 
@@ -35,7 +35,7 @@ jobs:
       # 手动触发时用 publish_preview 输入控制，便于把之前跳过的改动补发成一个 beta。
       PUBLISH_PREVIEW: ${{ github.ref == 'refs/heads/dev' && ((github.event_name == 'workflow_dispatch' && (github.event.inputs.publish_preview == true || github.event.inputs.publish_preview == 'true')) || (github.event_name == 'push' && !contains(github.event.head_commit.message, '[skip preview]'))) }}
       # 手动在 dev 上勾选 release_preview 时，用正式变体（assembleRelease）出包并发到预览渠道：
-      # 包与正式版同一套 R8、同一份签名，版本号仍带 -dev（靠 -PreleasePreviewSuffix 补上），
+      # 包与正式版同一套 R8、同一份签名，版本号仍带 -beta.N（靠 -PpreviewSuffix 补上），
       # 只是不写 stable.json、不动 latest 别名、不打 v* tag、不同步 Gitee，所以它仍然只是预览版。
       # 发版前想拿接近正式版的包在真机上连验几轮，用它；日常预览仍走 preview 变体。
       # 推送时也可以不问人：head commit 带 [release preview] 就走这种方式（与 [skip preview] 同一套约定）。
@@ -428,6 +428,7 @@ jobs:
         id: preview
         env:
           BASE: ${{ steps.version.outputs.version }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           # dev 上的 versionName 不能已带后缀
           case "$BASE" in *-*) echo "::error::dev 的 versionName 不应带后缀: $BASE"; exit 1;; esac
@@ -446,16 +447,52 @@ jobs:
             echo "::error::AppChangelog.kt 缺少 \"$BASE\" 条目，预览包会启动即崩。升版本号时请同时在 ENTRIES 顶部加一个条目（可先占位）"
             exit 1
           fi
-          # 两种方式都发预览号：release 方式只是换变体构建，版本号照样补 -dev.N。
+          # 两种方式都发预览号：release 方式只是换变体构建，版本号照样补 -beta.N。
           if [ "$PREVIEW_RELEASE_BUILD" = "true" ]; then
             VARIANT="release"
           else
             VARIANT="preview"
           fi
-          VER="${BASE}-dev.${GITHUB_RUN_NUMBER}"
+          # ── beta 序号 N：同一核心版本内从 1 开始递增 ──
+          # 以 GitHub 上已发布的 pre-release 为准（tag 形如 vX.Y.Z-beta.N）：取最大 N + 1。
+          # 用「已发布的号」而不是 CI 计数器，跳过发布的推送没有 release 也就不占号；
+          # 同一个 run 重跑时按提交 SHA 找回上次已发布的号 —— 重跑是重发同一个 beta，
+          # 不该凭空多占一个序号（发布步骤会更新同名 tag 的 pre-release）。
+          gh api "repos/${GITHUB_REPOSITORY}/releases?per_page=100" \
+            --jq '.[] | select(.prerelease) | {tag: .tag_name, body: (.body // "")}' > /tmp/preview_releases.jsonl
+          python3 - <<'PY' > /tmp/beta.txt
+          import json, os, re
+          base = re.escape(os.environ["BASE"])
+          sha = os.environ["GITHUB_SHA"]
+          pattern = re.compile(r"^v" + base + r"-beta\.(\d+)$")
+          best = 0
+          reuse = 0
+          for line in open("/tmp/preview_releases.jsonl", encoding="utf-8"):
+              line = line.strip()
+              if not line:
+                  continue
+              release = json.loads(line)
+              match = pattern.match(release["tag"])
+              if not match:
+                  continue
+              number = int(match.group(1))
+              best = max(best, number)
+              if sha and sha in release["body"]:
+                  reuse = max(reuse, number)
+          print(reuse if reuse else best + 1, "reuse" if reuse else "new")
+          PY
+          read -r BETA BETA_MODE < /tmp/beta.txt
+          case "$BETA" in ''|*[!0-9]*) echo "::error::算不出 beta 序号: $BETA"; exit 1;; esac
+          VER="${BASE}-beta.${BETA}"
           echo "variant=$VARIANT" >> $GITHUB_OUTPUT
+          echo "beta=$BETA" >> $GITHUB_OUTPUT
           echo "version=$VER" >> $GITHUB_OUTPUT
-          echo "tag=dev-${GITHUB_RUN_NUMBER}" >> $GITHUB_OUTPUT
+          echo "tag=v${VER}" >> $GITHUB_OUTPUT
+          if [ "$BETA_MODE" = "reuse" ]; then
+            echo "::notice::同一提交重跑，沿用已发布的 $VER"
+          else
+            echo "::notice::本次预览版本 $VER"
+          fi
 
       - name: Unit tests + preview lint + Build Preview APK
         # 三步合成一次 Gradle 调用：单测 / lint / 打包共用同一份编译产物，
@@ -473,14 +510,17 @@ jobs:
           FEEDBACK_BASE_TOKEN: ${{ secrets.FEEDBACK_BASE_TOKEN }}
           FEEDBACK_TABLE_SUBMIT: ${{ secrets.FEEDBACK_TABLE_SUBMIT }}
           FEEDBACK_TABLE_REPLY: ${{ secrets.FEEDBACK_TABLE_REPLY }}
+          # 本次算出的 beta 序号，作为 -PpreviewSuffix 传给 Gradle（两条路都用它）
+          BETA: ${{ steps.preview.outputs.beta }}
         run: |
-          # release 方式的预览跑正式变体的单测、lint 和打包，命令与 main 上的正式发布一致，
-          # 只多一个后缀参数，让正式包的版本号带上 -dev.N。
-          EXTRA=""
+          # 两条路都带同一个预览后缀 -PpreviewSuffix=beta.N：
+          # - preview 变体（日常预览）直接把它拼在 versionName 后面；
+          # - release 变体（release_preview 的真机检查）也靠它把 6.0.1 补成 6.0.1-beta.N，
+          #   仍低于同号正式版，main 上的正式发布不传这个参数。
+          EXTRA="-PpreviewSuffix=beta.${BETA}"
           if [ "$PREVIEW_RELEASE_BUILD" = "true" ]; then
             TASKS=":app:testReleaseUnitTest :app:lintVitalRelease"
             if [ "$PUBLISH_PREVIEW" = "true" ]; then TASKS="$TASKS :app:assembleRelease"; fi
-            EXTRA="-PreleasePreviewSuffix=dev.${GITHUB_RUN_NUMBER}"
           else
             TASKS=":app:testPreviewUnitTest :app:lintVitalPreview"
             if [ "$PUBLISH_PREVIEW" = "true" ]; then TASKS="$TASKS :app:assemblePreview"; fi
@@ -609,7 +649,7 @@ jobs:
         with:
           tag_name: ${{ steps.preview.outputs.tag }}
           target_commitish: ${{ github.sha }}
-          # 客户端从 name 读完整版本号（tag 是 dev-N，不含版本）
+          # 客户端从 name 读完整版本号（tag 是 v6.0.1-beta.N，name 是 6.0.1-beta.N）
           name: ${{ steps.preview.outputs.version }}
           prerelease: true
           make_latest: false
@@ -618,7 +658,7 @@ jobs:
 
             这是尚在测试的版本，仅推送给在设置中开启「接收预览版更新」的用户。
 
-            ${{ steps.preview.outputs.variant == 'release' && '本包按正式版的方式构建（R8、正式签名，版本号仍带 -dev），用于发版前的真机检查，不是正式版。' || '' }}
+            ${{ steps.preview.outputs.variant == 'release' && '本包按正式版的方式构建（R8、正式签名，版本号仍带 -beta），用于发版前的真机检查，不是正式版。' || '' }}
 
             rollout: 100
           files: xjtu-toolbox-${{ steps.preview.outputs.version }}.apk
@@ -628,9 +668,10 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          # 只保留最近 5 个预览版，连同 tag 一起删
+          # 只保留最近 5 个预览版，连同 tag 一起删。
+          # 新的预览 tag 形如 v6.0.1-beta.N；旧的 dev-<run> 也一并纳入，迁移期间的遗留由这里收掉。
           gh release list --limit 100 --json tagName,isPrerelease,createdAt \
-            --jq '[.[] | select(.isPrerelease and (.tagName|startswith("dev-")))] | sort_by(.createdAt) | reverse | .[5:] | .[].tagName' \
+            --jq '[.[] | select(.isPrerelease) | select((.tagName|startswith("dev-")) or (.tagName|test("-beta\\.[0-9]+$")))] | sort_by(.createdAt) | reverse | .[5:] | .[].tagName' \
           | while read -r t; do
               echo "delete $t"; gh release delete "$t" --yes --cleanup-tag || true
             done

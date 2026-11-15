@@ -34,6 +34,13 @@ object AppChangelog {
      * 新增版本只在最前面追加即可。
      */
     val ENTRIES: List<Pair<String, VersionChangelog>> = listOf(
+        "6.0.1" to VersionChangelog(
+            items = listOf(
+                "🪶" to "工欲善其事，必先利其器。",
+                "🧭" to "页头分类多到一屏放不下时改为左右横滑，不再每项都缩成省略号；选中的分类会自动滚进可视区（思源学堂课程页 7 个分类就是这样）",
+                "🏷️" to "二级页的大标题不再提前截断：展开时用满整行宽度，长课程名只缩必要的字号，少截一截",
+            )
+        ),
         "6.0.0" to VersionChangelog(
             items = listOf(
                 "🪶" to "不徐不疾，得之于手而应于心。",
@@ -668,7 +675,7 @@ object AppChangelog {
 
     /**
      * `(lastSeen, current]` 区间内的条目，按完整版本号比较。开发版不单独写条目，它的那一条往往要到发正式版才写全，
-     * 所以 `5.2.0-dev.N` 算在 `5.2.0` 之前：升到 dev 不弹，等升到正式版再弹完整的一条。
+     * 所以 `5.2.0-beta.N` 算在 `5.2.0` 之前：升到 beta 不弹，等升到正式版再弹完整的一条。
      * [lastSeen] 为 null（全新安装）只给当前那一条。
      */
     internal fun since(
