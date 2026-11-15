@@ -77,7 +77,6 @@ class WebRouteCoverageTest {
             listOf(
                 "Browser",
                 "CampusBus",
-                "DegreeProgress",
                 "NoticeDetail",
                 "QrScan",
                 "Zyxf",

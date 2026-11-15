@@ -2373,3 +2373,29 @@ Kotlin 那一格）在本测试源集里**断言不了** —— `kotlin.test` �
 - 不新增端点。`JwxtScoreSupplement.reportedGrades()` 不再带学号参数，由实现按当前账号自己取：serve 和桌面的账号 id 就是学号，Android 用登录态里的用户名。
 - `:web` 的 `CampusJwappScoreApi.reportedGrades()` 调 `GET /api/jwxt/grades`（不带参数），`data.grades[]` 的字段和 `ReportedGrade` 一一对应。学号只在服务端由会话决定，请求里不带，符合 §5.2 的红线。
 - 成绩页的 VM 和屏里不再有 `studentId`：有教务端口（`jwxt != null`）就显示报表入口，最新学期没出分的课从报表补上，三端行为一致。
+
+### 5.16 学业进度那一族（2026-11-15 落地）：`/api/degree`
+
+学业进度（培养方案树 + 按课程重算的进度 + 没归位的课 + 转专业规划）。与其余各族同一条做法：**`:data` 里早有取数实现**
+（`AppDegreeSource`，Android 直连在用，本批桌面也接上），本层只做投影。会话借教务（`jwxt`）与移动教务（`jwapp`）两个站点，
+**一个新站点都没注册**。全部在令牌闸门后，未登录 `401`，上游失败 `502`（§4）。
+
+| 端点 | 方法 | 请求 / 参数 | 响应 |
+|---|---|---|---|
+| `/api/degree/progress` | GET | —— | `{planCode,planName,required,notes,grade,groups,courses,report,grades,currentCourses}` |
+| `/api/degree/plans` | GET | `keyword` 与 `grade` **至少给一个** | `{total,plans:[{code,name,college,grade}]}` |
+| `/api/degree/plan` | GET | `code` **必填**；`name`、`college`、`grade` 照 `plans` 那一行原样带上 | 同 `progress`，`report` 恒为空 |
+| `/api/degree/current-courses` | GET | —— | `{courses:[{code,name,term}]}` |
+| `/api/degree/recalculate` | POST | `{}` | `{done}`（`false` = 教务那边等超时） |
+
+- **`groups` / `courses` / `report` 是上游原始行**：屏与小岱共用的 `DegreeBuilder` 按教务的原始字段名（`KZH`、`KCH`、`fanbx` 等）解析，
+  转成固定 DTO 会漂，所以原样转发。**§5.2 红线**：转发前在任意深度剥掉本人身份字段（`XH`、`XM`、`SJH`、`SFZJH` 等，
+  全表见 `DegreeRoutes.kt` 的 `DEGREE_IDENTITY_KEYS`）。`grades` 七格、`currentCourses` 三格是 `:shared:model` 同名数据类逐字投影。
+- **在修课程**取最近两个有课的学期（往回最多看四个），读 serve 侧按账号的课表缓存（与小岱 `get_schedule` 同一份店），缺了才去教务补；
+  `progress` 里已经带上，单独那条端点给只要课表那一半的调用方。
+- **`plan` 是「换方案」**：用用户自己的成绩对照别的方案（规划转专业），教务报告只针对本人方案，所以没有。
+- **`recalculate` 是写**：触发教务的「重新计算」并等结果，只在用户点按钮时调。它不碰本人凭据，不在 §5.10 那条 HTTPS 门槛的范围内。
+- **消费方**：`:web` 的 `CampusDegreeApi : DegreeSource`（campus-api 形态里没有这条链，画「要 serve 模式」那张如实页）。
+  小岱的 `get_degree_progress` 在 serve 上由 `DegreeAgentTools` 挂进工具表（`ServeAgent` 的 `extras`），取数是同一份 `AppDegreeSource`。
+- **测试**：`ServeDegreeTest` 用假的 `DegreeSource` 钉住 401、400、逐字段、身份剥离、换方案参数、`recalculate` 与 `502`。
+  教务那串培养方案请求本身只靠 Android 端既有实现，serve 侧没有夹具。

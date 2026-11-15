@@ -66,6 +66,7 @@ internal fun Route.serveEndpointRoutes(
     notificationRoutes(notification)
     inboxRoutes(session)
     emptyRoomRoutes(session)
+    degreeRoutes(session)
 }
 
 

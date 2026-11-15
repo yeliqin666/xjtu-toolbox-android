@@ -527,6 +527,7 @@ class ServeAgent(
                         ),
                         extras = listOfNotNull(
                             com.xjtu.toolbox.campusmap.CampusMapAgentTools(),
+                            com.xjtu.toolbox.degree.DegreeAgentTools(session.degreeSource()),
                             config.webSearchKey.takeIf { it.isNotEmpty() }?.let { DeepSeekWebTools(it) },
                         ),
                     )

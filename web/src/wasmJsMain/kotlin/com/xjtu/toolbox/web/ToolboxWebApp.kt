@@ -678,6 +678,17 @@ private fun AppPage(
             }
         }
 
+        AppRoute.DegreeProgress -> if (mode != ApiMode.SERVE) {
+            WebServeOnlyScreen(
+                title = "学业进度",
+                endpoints = "GET /api/degree/progress + /api/degree/plans + /api/degree/plan，POST /api/degree/recalculate",
+                why = "培养方案、成绩和在修课程都走教务的会话，在修课程还要 serve 侧的课表缓存。",
+            )
+        } else {
+            val degreeSource = remember(client, mode) { com.xjtu.toolbox.core.net.CampusDegreeApi(client, API_BASE, mode) }
+            com.xjtu.toolbox.degree.DegreeScreen(source = degreeSource, onBack = back)
+        }
+
         AppRoute.Iclassface -> if (mode != ApiMode.SERVE) {
             WebServeOnlyScreen(
                 title = "快速考勤流水",

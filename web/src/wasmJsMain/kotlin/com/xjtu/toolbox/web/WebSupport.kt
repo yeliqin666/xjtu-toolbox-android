@@ -17,7 +17,6 @@ import kotlin.reflect.KClass
  *   第二跳要内置浏览器才做得到，用户登录完自行继续（与桌面 `desktopBrowserTarget` 同一口径）；
  * - `Zyxf`：资料站依赖 Android 端的下载/预览/文件能力，本端没有对应屏，落 `NotPortedScreen`；
  * - `CampusBus`：校车查询的屏在 `:feature:campus`，本端还没接（serve 也没有班次接口），落 `NotPortedScreen`；
- * - `DegreeProgress`：学业进度要按培养方案走教务的一串请求（还要课表缓存），serve 侧没暴露这条链路，落 `NotPortedScreen`；
  * - `NoticeDetail`：公告详情在 App 里是独立一屏（还带一镜到底），web 端在列表里内联展开，没有这一屏；
  * - `QrScan`：扫一扫是 Android 顶栏的相机浮层（金标联盟一镜到底的独立宿主），本端没有这一屏。
  */
@@ -61,6 +60,8 @@ internal object WebSupport {
         AppRoute.Jiaocai1Reader::class,
         AppRoute.JwappScore::class,
         AppRoute.Iclassface::class,
+        // 学业进度：取数走契约 §5.16 的 `/api/degree/*`，campus-api 形态下画「要 serve 模式」那张页。
+        AppRoute.DegreeProgress::class,
         AppRoute.PaymentCode::class,
         AppRoute.Match::class,
         AppRoute.WebVpnConverter::class,
