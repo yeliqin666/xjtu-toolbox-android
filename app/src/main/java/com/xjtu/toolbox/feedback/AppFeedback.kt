@@ -27,6 +27,7 @@ object AppFeedback {
 
     /** 近几次冷启动「拉起进程 → 首帧」的耗时，用户说「打开慢」时有据可查。 */
     private fun startupSummary(context: Context): String {
+        if (android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.VANILLA_ICE_CREAM) return ""
         val starts = context.getSystemService(ActivityManager::class.java)?.getHistoricalProcessStartReasons(10).orEmpty()
         val cold = starts.filter { it.startType == ApplicationStartInfo.START_TYPE_COLD }.mapNotNull { info ->
             val t = info.startupTimestamps

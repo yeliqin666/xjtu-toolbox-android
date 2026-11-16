@@ -1,5 +1,6 @@
 package com.xjtu.toolbox.ui.components
 
+import com.xjtu.toolbox.ui.glass.coui.couiEffectsSupported
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -25,6 +26,7 @@ internal actual fun <K : Any> PlatformChipTabRow(
     reselectable: Boolean,
     multi: Set<K>?,
 ) {
+    if (!couiEffectsSupported) return FilterChipRow(options, selected, onSelect, label, modifier, multi)
     val labels = options.map(label)
     val items = remember(options, labels) { options.zip(labels) { key, text -> CouiChipTabItem(key, text) } }
     // 顶栏里采顶栏那层模糊；页面里自己垫一条底色——不采整页，页面采样源里也录着这排胶囊自己

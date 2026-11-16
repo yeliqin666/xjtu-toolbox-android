@@ -27,6 +27,8 @@ import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.asComposeRenderEffect
 import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
 import androidx.compose.ui.graphics.drawscope.translate
+import androidx.compose.ui.graphics.drawscope.withTransform
+import androidx.compose.ui.graphics.drawOutline
 import androidx.compose.ui.graphics.layer.CompositingStrategy
 import androidx.compose.ui.graphics.layer.GraphicsLayer
 import androidx.compose.ui.graphics.layer.drawLayer
@@ -87,13 +89,22 @@ class CouiFloatingRenderer private constructor(internal val surfaceCount: Int) {
     constructor() : this(3)
 
     internal val standalone = surfaceCount == 1
-    internal val shaders = if (standalone) listOf(RuntimeShader(couiFloatingStandaloneShader()))
+    internal val shaders by lazy {
+        if (standalone) listOf(RuntimeShader(couiFloatingStandaloneShader()))
         else listOf(RuntimeShader(couiFloatingShader(1)), RuntimeShader(couiFloatingShader(2)))
-    internal val causticShaders = List(surfaceCount) { RuntimeShader(CouiCausticShader) }
+    }
+    internal val causticShaders by lazy { List(surfaceCount) { RuntimeShader(CouiCausticShader) } }
     internal val shadowRenderer = CouiShadowRenderer(surfaceCount)
-    internal val destinationEffect = RenderEffect.createRuntimeShaderEffect(
-        RuntimeShader("uniform shader image; half4 main(float2 p) { return image.eval(p); }"), "image",
-    )
+    internal val destinationEffect by lazy {
+        RenderEffect.createRuntimeShaderEffect(
+            RuntimeShader("uniform shader image; half4 main(float2 p) { return image.eval(p); }"), "image",
+        )
+    }
+
+    init {
+        // 创建时编译片段, 失败在宿主这一侧暴露; 低版本不跑 AGSL。
+        if (couiEffectsSupported) { shaders; causticShaders; destinationEffect }
+    }
 
     companion object {
         fun standalone(): CouiFloatingRenderer = CouiFloatingRenderer(1)
@@ -205,6 +216,7 @@ private fun Modifier.floatingSurfaces(
     val recordingDensity = LocalDensity.current
     val density = recordingDensity.density
     val view = LocalView.current
+    val fallbackColor = if (LocalCouiDarkTheme.current == true) Color(0xFF2B2B2B) else Color(0xFFF5F5F5)
     val shadowLayers = List(renderer.surfaceCount) { rememberGraphicsLayer() }
     val causticLayers = List(renderer.surfaceCount) { rememberGraphicsLayer() }
     val materialLayers = List(renderer.surfaceCount) { rememberGraphicsLayer() }
@@ -299,6 +311,22 @@ private fun Modifier.floatingSurfaces(
                 }
                 contentLayers[index].setOutline(outlines[index])
                 contentLayers[index].clip = true
+            }
+            if (!couiEffectsSupported) {
+                // 低版本：主体画成纯色形状，不采样、不画光效与投影。
+                return@drawWithCache onDrawWithContent {
+                    drawContent()
+                    nodes.indices.sortedBy { drawOrder?.indexOf(it) ?: it }.forEach { index ->
+                        val node = nodes[index]
+                        if (!node.visible || node.alpha <= InvisibleAlpha) return@forEach
+                        withTransform({
+                            translate(node.bounds.left, node.bounds.top)
+                            scale(node.scaleX, node.scaleY, Offset(node.bounds.width / 2f, node.bounds.height / 2f))
+                        }) { drawOutline(outlines[index], fallbackColor, alpha = node.alpha) }
+                        beforeContent?.invoke(this, index, beforeClips[index])
+                        drawLayer(contentLayers[index])
+                    }
+                }
             }
             floatingDrawGroups(shadows.map { it.elevation }).forEach { indices ->
                 // 全透明的浮层（收起动画的末尾、alpha 归零的按钮）整套都不画：

@@ -1,7 +1,6 @@
 package com.xjtu.toolbox.ui.components
 
-import android.os.Build
-import androidx.annotation.RequiresApi
+import com.xjtu.toolbox.ui.glass.coui.couiEffectsSupported
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
@@ -14,7 +13,6 @@ import com.xjtu.toolbox.ui.theme.LocalIsDarkTheme
  * Android 上就是 COUI 原版分段选择器：顶栏里采顶栏那层表面（透明模糊），
  * 卡片 / 弹层里没有采样源时走 COUI 的普通填色外观；renderer 建不起来也退回普通填色。
  */
-@RequiresApi(Build.VERSION_CODES.UPSIDE_DOWN_CAKE)
 @Composable
 internal actual fun PlatformSegmentedTabs(
     labels: List<String>,
@@ -24,6 +22,7 @@ internal actual fun PlatformSegmentedTabs(
     small: Boolean,
     reselectable: Boolean,
 ) {
+    if (!couiEffectsSupported) return SegmentedTabsFallback(labels, selectedIndex, onSelected, modifier, small, reselectable)
     val toolbar = LocalCouiToolbarBackdrop.current
     val renderer = remember(toolbar) {
         if (toolbar == null) null else runCatching { CouiFloatingRenderer.standalone() }.getOrNull()

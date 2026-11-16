@@ -19,7 +19,7 @@ kotlin {
         compileSdk {
             version = release(37) { }
         }
-        minSdk = 35
+        minSdk = 31
     }
 
     jvm()
