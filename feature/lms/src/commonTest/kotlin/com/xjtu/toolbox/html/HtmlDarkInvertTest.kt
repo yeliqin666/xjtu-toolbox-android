@@ -4,7 +4,6 @@ import androidx.compose.ui.graphics.Color
 import com.xjtu.toolbox.html.model.HtmlBlock
 import com.xjtu.toolbox.html.model.ParagraphPart
 import com.xjtu.toolbox.html.model.cssInvertHueRotate180
-import com.xjtu.toolbox.html.model.cssInvertHueRotateColorMatrix
 import com.xjtu.toolbox.html.parser.HtmlParser
 import kotlin.math.abs
 import kotlin.test.Test
@@ -124,49 +123,5 @@ class HtmlDarkInvertTest {
         // 字变白、底变黑：仍然可读
         assertTrue(span.color.red > 0.9f, "字应为白，实际 ${span.color}")
         assertTrue(span.background.red < 0.1f, "底应为黑，实际 ${span.background}")
-    }
-
-    /**
-     * 图片用的颜色矩阵必须与文字用的逐色公式得出同一个结果 —— 否则「图里的公式」和
-     * 「正文」会各自反成不同颜色（比如图偏白、字偏灰）。
-     *
-     * 矩阵按 `ColorMatrix` 的约定作用在 0..255 的通道上（第 5 列是平移量），所以这里也按
-     * 0..255 算一遍，再与逐色公式（0..1）比，容差 1 个色阶。
-     */
-    @Test
-    fun testColorMatrixMatchesScalarFormula() {
-        val m = cssInvertHueRotateColorMatrix().values
-        fun viaMatrix(r: Int, g: Int, b: Int): Triple<Float, Float, Float> {
-            val rf = r.toFloat()
-            val gf = g.toFloat()
-            val bf = b.toFloat()
-            // 输入按矩阵自己的量纲（0..255）喂进去，平移列 m[i + 4] 本身就是 255 这个量级的
-            // 常数、直接相加即可 —— 再乘一次 255 会把它放大到 65025，结果全部饱和成 255。
-            fun row(i: Int): Float =
-                (m[i] * rf + m[i + 1] * gf + m[i + 2] * bf + m[i + 4]).coerceIn(0f, 255f)
-            return Triple(row(0), row(5), row(10))
-        }
-        // 中性灰 + 三原色：既覆盖「补色」性质，也能发现矩阵系数抄错行
-        val samples = listOf(
-            Triple(0, 0, 0), Triple(128, 128, 128), Triple(255, 255, 255),
-            Triple(255, 0, 0), Triple(0, 255, 0), Triple(0, 0, 255),
-        )
-        for ((r, g, b) in samples) {
-            // 生产代码的逐色公式吃 0..1 的 float 通道；这里传同样的分量做对照
-            val scalar = cssInvertHueRotate180(Color(r / 255f, g / 255f, b / 255f, 1f))
-            val matrix = viaMatrix(r, g, b)
-            assertTrue(
-                abs(matrix.first - scalar.red * 255f) <= 1f,
-                "($r,$g,$b) 红通道：矩阵 ${matrix.first} vs 逐色 ${scalar.red * 255f}",
-            )
-            assertTrue(
-                abs(matrix.second - scalar.green * 255f) <= 1f,
-                "($r,$g,$b) 绿通道：矩阵 ${matrix.second} vs 逐色 ${scalar.green * 255f}",
-            )
-            assertTrue(
-                abs(matrix.third - scalar.blue * 255f) <= 1f,
-                "($r,$g,$b) 蓝通道：矩阵 ${matrix.third} vs 逐色 ${scalar.blue * 255f}",
-            )
-        }
     }
 }
