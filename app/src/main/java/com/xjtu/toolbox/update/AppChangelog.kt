@@ -34,6 +34,11 @@ object AppChangelog {
      * 新增版本只在最前面追加即可。
      */
     val ENTRIES: List<Pair<String, VersionChangelog>> = listOf(
+        "6.0.2" to VersionChangelog(
+            items = listOf(
+                "🖼️" to "思源学堂的配图恢复原色：作业描述、课程公告、讨论区里的截图和照片在深色模式下不再变成负片；看不清的图点一下就能全屏放大、双指缩放",
+            )
+        ),
         "6.0.1" to VersionChangelog(
             items = listOf(
                 "🪶" to "不徐不疾，得之于手而应于心。",

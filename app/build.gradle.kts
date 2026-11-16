@@ -26,8 +26,8 @@ android {
         // Android 15：PdfRenderer 取文字/检索、COUI 的 Mesh 投影与 clipShader 都是基线能力，不写降级
         minSdk = 35
         targetSdk = 36
-        versionCode = 95
-        versionName = "6.0.1"
+        versionCode = 96
+        versionName = "6.0.2"
 
         // 反馈后端（飞书多维表格）的凭据。优先读环境变量（CI），否则读
         // 仓库根目录 feedback.properties（已 gitignore）。两者都没有时留空字符串——
