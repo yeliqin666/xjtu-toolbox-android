@@ -4,7 +4,9 @@ import android.graphics.RenderEffect
 import android.graphics.RuntimeShader
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.BlurEffect
 import androidx.compose.ui.graphics.RectangleShape
+import androidx.compose.ui.graphics.TileMode
 import androidx.compose.ui.graphics.CompositingStrategy as ComposeCompositingStrategy
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.asComposeRenderEffect
@@ -109,7 +111,7 @@ private class GradientBackdropNode(
 /** 原厂渐进 Gaussian 先横后纵, 每遍保留原尺寸中间图, 不使用多级缩小图混合。 */
 private class CouiGradientRenderer(
     private val fadeHeightPx: Float,
-    referenceBlurRadiusPx: Float,
+    private val referenceBlurRadiusPx: Float,
     private val gradientSpeed: Float?,
     private val density: Density,
     private val passes: List<GraphicsLayer>,
@@ -118,13 +120,15 @@ private class CouiGradientRenderer(
     private val kernelRadius = ceil(
         (referenceBlurRadiusPx * SigmaScale + 0.5f) * 3f / BlurOffsetPx,
     ).toInt()
-    private val shaders = List(2) { index ->
-        RuntimeShader(gradientGaussianShader(kernelRadius, gradientSpeed)).apply {
-            setFloatUniform(
-                "in_blurOffset",
-                if (index == 0) BlurOffsetPx else 0f,
-                if (index == 1) BlurOffsetPx else 0f,
-            )
+    private val shaders by lazy {
+        List(2) { index ->
+            RuntimeShader(gradientGaussianShader(kernelRadius, gradientSpeed)).apply {
+                setFloatUniform(
+                    "in_blurOffset",
+                    if (index == 0) BlurOffsetPx else 0f,
+                    if (index == 1) BlurOffsetPx else 0f,
+                )
+            }
         }
     }
     private var lastSize = IntSize.Zero
@@ -165,6 +169,14 @@ private class CouiGradientRenderer(
 
     private fun updateEffects(size: IntSize) {
         if (lastSize == size && lastHeight == height) return
+        if (!couiEffectsSupported) {
+            // 低版本：整块均匀模糊，没有渐隐。
+            passes[0].renderEffect = BlurEffect(referenceBlurRadiusPx, referenceBlurRadiusPx, TileMode.Decal)
+            passes[1].renderEffect = null
+            lastSize = size
+            lastHeight = height
+            return
+        }
         shaders.forEachIndexed { index, shader ->
             shader.setFloatUniform("inputSize", size.width.toFloat(), size.height.toFloat())
             val gradientHeight = if (gradientSpeed == null) fadeHeightPx else height

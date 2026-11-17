@@ -28,13 +28,13 @@ enum class CouiShadowOutline { Oval, SmoothCapsule, RoundRect }
 
 /** 原 Skia 网格、A8 表与厂商 inverse clip 的公开 API 承载; 每个主体仅保留当前两路资源。 */
 class CouiShadowRenderer(surfaceCount: Int = 1) {
-    private val specifications = Array(4) { index ->
+    private val specifications by lazy { Array(4) { index ->
         MeshSpecification.make(arrayOf(
             MeshSpecification.Attribute(MeshSpecification.TYPE_FLOAT2, 0, "position"),
             MeshSpecification.Attribute(MeshSpecification.TYPE_FLOAT3, 8, "shadow")), 20,
             arrayOf(MeshSpecification.Varying(MeshSpecification.TYPE_FLOAT3, "shadow")),
             ShadowVertexShader, shadowFragmentShader(fast = index < 2, oval = index % 2 == 0))
-    }
+    } }
     private val lut = Bitmap.createBitmap(128, 1, Bitmap.Config.ALPHA_8).apply {
         val bytes = ByteBuffer.allocate(rowBytes)
         repeat(128) { i ->
@@ -45,14 +45,16 @@ class CouiShadowRenderer(surfaceCount: Int = 1) {
         copyPixelsFromBuffer(bytes)
     }
     private val lutShader = BitmapShader(lut, Shader.TileMode.CLAMP, Shader.TileMode.CLAMP)
-    private val clipShaders = arrayOf(RuntimeShader(shadowClipShader(oval = true, image = true)),
-        RuntimeShader(shadowClipShader(oval = false, image = true)))
+    private val clipShaders by lazy {
+        arrayOf(RuntimeShader(shadowClipShader(oval = true, image = true)),
+            RuntimeShader(shadowClipShader(oval = false, image = true)))
+    }
     private val materialClipSource = shadowClipShader(oval = false, image = false)
     private val slots = Array(surfaceCount) { arrayOfNulls<ProjectionDraw>(2) }
 
     init {
         // 创建时检查裁剪片段, 不把失败延迟到首次绘制。
-        RuntimeShader(materialClipSource)
+        if (couiEffectsSupported) RuntimeShader(materialClipSource)
     }
 
     /** 长度均为像素; 网格包含轴向缩放, Canvas 只承接平移, alpha 不再由外层重复相乘。 */
@@ -60,6 +62,7 @@ class CouiShadowRenderer(surfaceCount: Int = 1) {
         windowX: Float, windowY: Float, alpha: Float, color: Int, elevation: Float,
         lightY: Float, lightZ: Float, lightRadius: Float, outline: CouiShadowOutline,
         radius: Float = min(width, height) * 0.5f, clipping: Boolean = true) {
+        if (!couiEffectsSupported) return
         if (alpha <= 0f || width <= 0f || height <= 0f || sx <= 0f || sy <= 0f || elevation <= 0f) return
         require(!clipping || outline != CouiShadowOutline.RoundRect) { "普通圆角投影尚未提供 inverse clip" }
         val fast = isFastShadowGeometry(width, height, sx, sy, outline == CouiShadowOutline.Oval)

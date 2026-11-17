@@ -307,13 +307,14 @@ fun CampusCardScreen(
                         // 内容从顶栏下面穿过以后，这一层铺满整页、从屏幕顶边算起；
                         // 不告诉它顶栏和标签行有多高，指示器就会从屏幕顶边拉出来，而不是大标题下面。
                         topPadding = topContentPadding,
-                        modifier = Modifier.fillMaxSize(),
+                        // 采样层和页面底色挂在刷新层外面：挂在内容上的话，内容排在刷新头后面、
+                        // 底色会把刷新头盖住，只从顶栏下沿露出一截。
+                        modifier = Modifier.fillMaxSize().then(pageSource).followTopBar({ stableTop.value }, padding),
                     ) {
                         // 横滑切栏（概览/流水/分析），用契约组件 AppTabPager；标签行仍由下面的
-                        // AppSegmentedTabs 负责点击切换，两者共用同一个 selectedTab。挂上
-                        // layerBackdrop，顶栏才能采到「余额卡从这里滚过去」的画面。
+                        // AppSegmentedTabs 负责点击切换，两者共用同一个 selectedTab。
                         if (isWide) {
-                            Row(Modifier.fillMaxSize().then(pageSource).followTopBar({ stableTop.value }, padding)) {
+                            Row(Modifier.fillMaxSize()) {
                                 Box(Modifier.weight(0.42f).fillMaxHeight()) {
                                     // 右栏就是完整的流水，左栏不再重复「最近交易」
                                     OverviewTab(
@@ -352,7 +353,7 @@ fun CampusCardScreen(
                             pageCount = 3,
                             selectedTabIndex = selectedTab,
                             onTabSelected = { selectedTab = it },
-                            modifier = Modifier.fillMaxSize().then(pageSource).followTopBar({ stableTop.value }, padding),
+                            modifier = Modifier.fillMaxSize(),
                         ) { tab ->
                             when (tab) {
                                 0 -> OverviewTab(

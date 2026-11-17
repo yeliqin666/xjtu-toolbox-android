@@ -1,19 +1,20 @@
 package com.xjtu.toolbox.html.model
 
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.ColorMatrix
 import androidx.compose.ui.text.SpanStyle
 
 /**
- * CSS `filter: invert(100%) hue-rotate(180deg)` 的换算，分两种用法：
+ * CSS `filter: invert(100%) hue-rotate(180deg)` 的换算，**只作用于纯色**（文字、底色、行内写死的
+ * `color` / `background-color`）→ [cssInvertHueRotate180]，逐色算。
  *
- * - 纯色（文字、底色、行内写的 `color`）→ [cssInvertHueRotate180]，逐色算；
- * - 位图（HTML 里的 `<img>`，比如转成图片的公式、文档截图）→ [cssInvertHueRotateColorMatrix]，
- *   交给 `ColorFilter.colorMatrix` 逐像素算。
+ * 图片**不**走这条换算：学堂富文本里的 `<img>` 是作业截图、板书照片、转成图片的公式混在一起的，
+ * 反色后照片会成负片、公式图反而是白底，两头都不对。所以图片一律原样显示（照片就是照片），
+ * 细节靠点击全屏放大去看（见 `com.xjtu.toolbox.html.renderer.HtmlImage`）。代价是「白底黑字的
+ * 公式图」在深色页面上仍是一块白 —— 但那是图片本来的样子，比负片可接受。
  *
  * 为什么文字用逐色换算而不是也给整个子树挂滤镜：Compose 跨端没有一层能挂在任意 composable 上的
  * 像素滤镜（Android 的 `RenderEffect` 要 API 31+，`:desktop` / `:web` 根本没有）。文字的颜色都是
- * 我们自己给的单色，逐色算与 CSS 逐像素算的结果完全一致；图片只能用 `ColorFilter` 逐像素算。
+ * 我们自己给的单色，逐色算与 CSS 逐像素算的结果完全一致。
  *
  * 两个滤镜可以合并成一次线性运算。`invert(100%)` 是 `c' = 1 - c`；`hue-rotate(180deg)` 在
  * sRGB 空间是无平移项的 3×3 线性变换，且它每一行系数之和为 1（白色转完仍是白色），于是
@@ -41,33 +42,6 @@ internal fun cssInvertHueRotate180(color: Color): Color {
         blue = outB.coerceIn(0f, 1f),
         alpha = color.alpha,
     )
-}
-
-/**
- * 同一套滤镜的 4×5 颜色矩阵（给图片用）。
- *
- * 上面的逐色公式是「1 - M(c)」，展开成矩阵就是 `-M` 再加一个平移项「1」（纯白）。`ColorMatrix`
- * 的矩阵作用在 0..255 的通道上、第 5 列是平移量，所以平移写 255 而不是 1（这是该 API 在
- * Android 与 Skia 两侧共用的约定）。alpha 行保持原值（末列 0）。
- *
- * 与 [cssInvertHueRotate180] 的一致性由 `HtmlDarkInvertTest` 逐通道比对（阈值 1 个色阶）。
- */
-internal fun cssInvertHueRotateColorMatrix(): ColorMatrix = ColorMatrix().apply {
-    // 第 1 行（R 输出）：-(hue-rotate 第 1 行) 乘上各通道 + 255
-    values[0] = 0.574f
-    values[1] = -1.430f
-    values[2] = -0.144f
-    values[4] = 255f
-    // 第 2 行（G 输出）
-    values[5] = -0.426f
-    values[6] = -0.430f
-    values[7] = -0.144f
-    values[9] = 255f
-    // 第 3 行（B 输出）
-    values[10] = -0.426f
-    values[11] = -1.430f
-    values[12] = 0.856f
-    values[14] = 255f
 }
 
 /**

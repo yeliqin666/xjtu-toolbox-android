@@ -21,6 +21,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.datetime.isoDayNumber
 import com.xjtu.toolbox.util.formatTwoDigits
 import com.xjtu.toolbox.util.nowOnCampus
+import com.xjtu.toolbox.util.singletonState
 import kotlin.time.Clock
 
 /**
@@ -54,7 +55,7 @@ data class ChatMessage(
  * 挂在导航项上，而底栏常驻，需要全局可观察（同 ProactiveBubbleHost 的路子）。
  */
 object AgentThinkingHost {
-    var isThinking by mutableStateOf(false)
+    var isThinking by singletonState { mutableStateOf(false) }
 }
 
 class AgentViewModel(private val host: AgentHost) : ViewModel(), AgentChatSession {

@@ -95,6 +95,7 @@ fun rememberCouiSpotlight(
     cancelOnConsumedMove: Boolean = false,
     onDiagnostic: (SpotlightDiagnostic) -> Unit = {},
 ): Pair<Modifier, (DrawScope.() -> Unit)?> {
+    if (!couiEffectsSupported) return Modifier to null
     val style = SpotlightStyle(
         intensity = intensity ?: if (dark) preset.darkIntensity else preset.lightIntensity,
         ambient = ambient ?: preset.ambient,

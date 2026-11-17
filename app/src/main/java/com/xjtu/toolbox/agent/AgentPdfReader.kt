@@ -11,7 +11,7 @@ import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 
 /**
- * PDF 用系统 [PdfRenderer]（API 35 起能取文字、检索）：文字页直接读；空文字页有 DeepSeek Key 时逐页 OCR，
+ * PDF 用系统 [PdfRenderer]（API 35 起能取文字、检索，更低版本只能转图或 OCR）：文字页直接读；空文字页有 DeepSeek Key 时逐页 OCR，
  * 否则转页面图给模型看。系统接口不给书签，info 改列每页首行，search 按关键词找页。
  */
 internal object AgentPdfReader {
@@ -98,8 +98,10 @@ internal object AgentPdfReader {
         }
     }
 
+    /** 系统取文字要 Android 15；更低版本一律当无文字页，交给 OCR 或转图。 */
     private fun pageText(pdf: PdfRenderer, page: Int): String =
-        pdf.openPage(page - 1).use { p -> p.textContents.joinToString("\n") { it.text } }.trim()
+        if (android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.VANILLA_ICE_CREAM) ""
+        else pdf.openPage(page - 1).use { p -> p.textContents.joinToString("\n") { it.text } }.trim()
 
     private fun render(pdf: PdfRenderer, page: Int): ByteArray = pdf.openPage(page - 1).use { p ->
         val h = (p.height.toFloat() / p.width * PAGE_WIDTH).toInt().coerceIn(1, PAGE_WIDTH * 3)
@@ -157,6 +159,9 @@ internal object AgentPdfReader {
 
     private fun search(pdf: PdfRenderer, query: String): String {
         if (query.isEmpty()) return ToolReply.missing("query")
+        if (android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.VANILLA_ICE_CREAM) {
+            return "search_unavailable: 系统低于 Android 15，不能检索 PDF 文字；用 mode=auto 或 mode=images 读取"
+        }
         val hits = mutableListOf<String>()
         var hitPages = 0
         var blank = 0

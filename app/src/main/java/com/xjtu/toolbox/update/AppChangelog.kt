@@ -34,6 +34,15 @@ object AppChangelog {
      * 新增版本只在最前面追加即可。
      */
     val ENTRIES: List<Pair<String, VersionChangelog>> = listOf(
+        "6.0.2" to VersionChangelog(
+            items = listOf(
+                "🪶" to "万物并育而不相害，道并行而不相悖。",
+                "📱" to "Android 12–14 重新可以安装和升级：液态玻璃会换成纯色或普通模糊，动态背景变为静态；小岱读 PDF 改用识图、不能检索文字，付款码录屏时不自动遮挡。Android 15 及以上不受影响",
+                "🖼️" to "思源学堂的配图恢复原色：作业描述、课程公告、讨论区里的截图和照片在深色模式下不再变成负片；看不清的图点一下就能全屏放大、双指缩放",
+                "🧩" to "桌面智能卡片不再显示「小组件加载失败」",
+                "🛠️" to "修复打开日程等页面、从网页或小游戏返回时偶发闪退；校园卡下拉刷新的提示不再藏在顶栏后面只露半截",
+            )
+        ),
         "6.0.1" to VersionChangelog(
             items = listOf(
                 "🪶" to "不徐不疾，得之于手而应于心。",

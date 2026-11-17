@@ -32,9 +32,9 @@ fun HtmlContent(
 ) {
     if (html.isBlank()) return
 
-    // 解析只依赖这三样：链接色、代码底色（进 AnnotatedString），以及「要不要反色」。
-    // 不把整个 style 当 key：它含 ColorFilter（非 data class，每次反色都会新建实例），
-    // 拿它作 key 会让深色模式下的每次重组都重新解析一遍 HTML。
+    // 解析只依赖这几样：链接色、代码底色（进 AnnotatedString），以及「要不要反色」。
+    // 所以 key 只列这几项而不是整份 style：解析结果与它们的其余字段无关，多列一项就多失效一次
+    // （深色下每次换主题都会把整篇 HTML 重解析一遍）。
     val document = remember(html, style.linkColor, style.codeBackgroundColor, style.isDarkInverted, onLinkClick) {
         HtmlParser.parse(html, style = style, onLinkClick = onLinkClick)
     }

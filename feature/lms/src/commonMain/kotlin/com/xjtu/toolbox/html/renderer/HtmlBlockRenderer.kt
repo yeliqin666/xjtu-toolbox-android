@@ -57,8 +57,6 @@ fun HtmlBlockRenderer(
                 alt = block.alt,
                 imageLoader = imageLoader, baseUrl = baseUrl,
                 cornerRadius = style.imageCornerRadius,
-                // 深色模式下图片也走同一套反色矩阵，白底黑字的公式图会变成黑底白字
-                colorFilter = style.imageColorFilter,
                 modifier = modifier,
             )
         }
@@ -94,7 +92,6 @@ fun ParagraphRenderer(
                         alt = part.alt,
                         imageLoader = imageLoader, baseUrl = baseUrl,
                         cornerRadius = style.imageCornerRadius,
-                        colorFilter = style.imageColorFilter,
                     )
                 }
             }

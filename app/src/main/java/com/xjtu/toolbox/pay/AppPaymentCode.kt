@@ -21,7 +21,7 @@ fun PaymentCodeDialog(
     val activity = context as? Activity
     // 录屏、投屏、共享屏幕时系统把付款码这块遮掉（不影响自己截图）
     val view = LocalView.current
-    DisposableEffect(view) {
+    if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.VANILLA_ICE_CREAM) DisposableEffect(view) {
         val old = view.contentSensitivity
         view.contentSensitivity = View.CONTENT_SENSITIVITY_SENSITIVE
         onDispose { view.contentSensitivity = old }

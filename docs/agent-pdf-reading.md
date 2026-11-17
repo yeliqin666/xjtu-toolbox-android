@@ -4,7 +4,7 @@ Android 的 `get_lms_activity`（带 `file`）和 `read_zyxf_file` 共用 `Agent
 
 ## PDF
 
-用系统 `PdfRenderer`（minSdk 35 起能取文字、检索），不再依赖 pdfbox。
+用系统 `PdfRenderer`（Android 15 起能取文字、检索；更低版本每页都当无文字页，走 OCR 或转图，`search` 不可用），不再依赖 pdfbox。
 
 - `mode=info`：页数，以及每页首行（幻灯片多半就是标题，前 150 页）当目录用；无文字的页合并成区间列出。系统接口不提供书签。
 - `mode=search` + `query`：逐页 `searchText`，列出命中页、处数和片段（前 30 页）。扫描页无文字层，检索不到。

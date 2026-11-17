@@ -14,6 +14,7 @@ enum class CouiMaterialBlendMode { Overlay, ColorDodge }
 fun rememberCouiMaterialEffect(mix: Color, blend: Color,
     blendMode: CouiMaterialBlendMode = CouiMaterialBlendMode.Overlay): RenderEffect =
     remember(mix, blend, blendMode) {
+        if (!couiEffectsSupported) return@remember RenderEffect.createOffsetEffect(0f, 0f)
         val shader = RuntimeShader(CouiMaterialShader)
         shader.setFloatUniform("uMixColor", mix.red, mix.green, mix.blue, mix.alpha)
         shader.setFloatUniform("uBlendColor", blend.red, blend.green, blend.blue, blend.alpha)

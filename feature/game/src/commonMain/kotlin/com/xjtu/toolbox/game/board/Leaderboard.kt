@@ -7,6 +7,7 @@ import com.xjtu.toolbox.game.GameIds
 import com.xjtu.toolbox.game.blocks.BlocksMode
 import com.xjtu.toolbox.game.blocks.blocksRecordId
 import com.xjtu.toolbox.platform.Log
+import com.xjtu.toolbox.util.singletonState
 
 /**
  * 小游戏全服榜。榜单的入口、询问时机、提交都从这里走，各游戏只管在开局/结束时叫一声。
@@ -34,11 +35,11 @@ object Leaderboard {
     val enabled: Boolean get() = LeaderboardApi.configured
 
     /** 玩家主动打开的榜单浮层。全 App 一个，由 [LeaderboardHost] 渲染（挂在导航外层）。 */
-    var sheet: Sheet? by mutableStateOf(null)
+    var sheet: Sheet? by singletonState { mutableStateOf(null) }
         private set
 
     /** 盖在榜单之上的改名框。非空时榜单还在下面，改完回来并刷新。 */
-    var renaming: Renaming? by mutableStateOf(null)
+    var renaming: Renaming? by singletonState { mutableStateOf(null) }
         private set
 
     sealed interface Sheet {

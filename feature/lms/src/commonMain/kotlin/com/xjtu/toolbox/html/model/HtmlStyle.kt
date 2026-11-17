@@ -3,7 +3,6 @@ package com.xjtu.toolbox.html.model
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -23,10 +22,10 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
  *    「半黑半白」的根因：正文跟着主题变浅、写死的黑字不变；
  * 3. 图片 —— 完全不归主题管。
  *
- * 换成「整体反色」以后三条走同一条规则：写死的 `#000` 变白、写死的 `#FFF` 底变黑，与正文的
- * 相对关系保持不变。图片走同一套矩阵（[imageColorFilter]）：转成图片的公式、白底的文档截图
- * 都会翻成深底浅字，公式在暗色下就是白的。注意这一条对照片类图片同样生效——反色后是负片，
- * 这是「整层反色」这个做法的固有代价，换来的是公式与正文一定对得上。
+ * 前两条走「整体反色」：写死的 `#000` 变白、写死的 `#FFF` 底变黑，与正文的相对关系保持不变。
+ * 第三条**不反色**：学堂富文本里作业截图、板书照片、转成图片的公式混在一起，一处反色必然把其中
+ * 一类弄成负片（照片变反色片，或者公式图变成白底）。图片一律原样显示，看不清就点击全屏放大
+ * （见 `com.xjtu.toolbox.html.renderer.HtmlImage`）。
  */
 @Immutable
 data class HtmlStyle(
@@ -39,12 +38,6 @@ data class HtmlStyle(
     val dividerColor: Color,
     val bodyStyle: TextStyle,
     val imageCornerRadius: Dp = 8.dp,
-    /**
-     * 图片的像素滤镜。深色模式下是 `invert(100%) hue-rotate(180deg)` 的颜色矩阵（与文字同一套
-     * 系数，见 [cssInvertHueRotateColorMatrix]），这样「白底黑字」的公式图会变成「黑底白字」——
-     * 公式在深色页面上就成了白色。明亮模式下是 null（原样）。
-     */
-    val imageColorFilter: ColorFilter? = null,
     /**
      * 这份样式是否已经过 [invertHueRotate180]（即当前是深色模式）。
      *
@@ -81,7 +74,6 @@ data class HtmlStyle(
                 // 但反色逻辑必须拿「原色」算，否则这里就成了一个会随调用顺序变化的陷阱）。
                 bodyStyle = textStyles.body2.copy(color = LightInk),
                 imageCornerRadius = 8.dp,
-                imageColorFilter = null,
                 blockSpacing = 10.dp,
                 paragraphSpacing = 8.dp,
             )
@@ -119,6 +111,8 @@ data class HtmlStyle(
      * （推导见 [com.xjtu.toolbox.html.model.cssInvertHueRotate180]）。
      * [bodyStyle] 自带的 `color` 也要一起换：某些调用方会 copy 出带颜色的正文样式，漏了它
      * 就会出现「段落色反了、里面的文字没反」。
+     *
+     * **图片不在其中**：图片没有任何颜色字段可换，也不该换（见类注释第 3 条）。
      */
     internal fun invertHueRotate180(): HtmlStyle = copy(
         textColor = cssInvertHueRotate180(textColor),
@@ -133,7 +127,6 @@ data class HtmlStyle(
                 if (bodyStyle.color == Color.Unspecified) textColor else bodyStyle.color
             ),
         ),
-        imageColorFilter = ColorFilter.colorMatrix(cssInvertHueRotateColorMatrix()),
         isDarkInverted = true,
     )
 }

@@ -5,6 +5,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.setValue
 import com.xjtu.toolbox.platform.keyValueStore
 import com.xjtu.toolbox.nav.AppRoute
+import com.xjtu.toolbox.util.singletonState
 
 /**
  * 小游戏的本地记录：最高分与胜负战绩。
@@ -58,7 +59,7 @@ object GameStore {
     }
 
     /** 战绩每变一次加一，合集页据此重读。 */
-    var version by mutableIntStateOf(0)
+    var version by singletonState { mutableIntStateOf(0) }
         private set
 
     // ── 分数类（2048、合成西交大…）──

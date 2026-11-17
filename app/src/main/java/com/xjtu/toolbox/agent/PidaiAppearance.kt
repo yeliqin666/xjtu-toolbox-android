@@ -13,6 +13,7 @@ import com.xjtu.toolbox.agent.bot.botColorById
 import com.xjtu.toolbox.agent.bot.botShapeById
 import com.xjtu.toolbox.agent.bot.cast.CastCharacter
 import com.xjtu.toolbox.agent.bot.cast.castById
+import com.xjtu.toolbox.util.singletonState
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import java.io.File
 
@@ -29,15 +30,15 @@ const val CLASSIC_ID = "classic"
  * 外观偏好，不是某个学号的业务数据。跟着账号走会让切账号时形象莫名重置。
  */
 object PidaiAppearanceHost {
-    var characterId by mutableStateOf(CLASSIC_ID)
-    var shapeId by mutableStateOf(DEFAULT_SHAPE_ID)
-    var colorId by mutableStateOf(DEFAULT_COLOR_ID)
+    var characterId by singletonState { mutableStateOf(CLASSIC_ID) }
+    var shapeId by singletonState { mutableStateOf(DEFAULT_SHAPE_ID) }
+    var colorId by singletonState { mutableStateOf(DEFAULT_COLOR_ID) }
 
     /**
      * 朴素图标：不播动画、没有装饰，只显示一个静态图标。[PidaiNavButton] 自己读这个
      * 状态（不是走参数），这样底栏、侧栏两处调用都不用改就能自动生效。
      */
-    var plain by mutableStateOf(false)
+    var plain by singletonState { mutableStateOf(false) }
         private set
 
     /** 当前角色；null = 经典屁岱。 */

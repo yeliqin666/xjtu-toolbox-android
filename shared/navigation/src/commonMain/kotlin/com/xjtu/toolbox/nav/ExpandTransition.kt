@@ -38,6 +38,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.util.lerp
 import top.yukonga.miuix.kmp.nav.runtime.NavChange
+import com.xjtu.toolbox.util.singletonState
 import top.yukonga.miuix.kmp.nav.transition.NavTransition
 import top.yukonga.miuix.kmp.nav.transition.navGraphicsTransition
 import kotlin.reflect.KClass
@@ -102,9 +103,9 @@ object ExpandOrigins {
     /** 返回窗口：屏幕坐标里的矩形，以及窗口从格子长到全屏的进度（0 = 格子，1 = 全屏）。 */
     data class Window(val bounds: Rect, val grow: Float)
 
-    private val contentState = mutableStateOf<ContentTransition?>(null)
+    private val contentState = singletonState { mutableStateOf<ContentTransition?>(null) }
 
-    private val coveredFromOriginState = mutableStateOf(false)
+    private val coveredFromOriginState = singletonState { mutableStateOf(false) }
 
     /**
      * 这个元素此刻正在转场里飞着。绘制阶段读。

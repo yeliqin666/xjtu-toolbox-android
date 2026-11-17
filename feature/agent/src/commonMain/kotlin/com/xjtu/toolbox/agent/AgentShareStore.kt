@@ -5,6 +5,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.setValue
 import com.xjtu.toolbox.platform.KeyValueStore
 import com.xjtu.toolbox.util.AppJson
+import com.xjtu.toolbox.util.singletonState
 import kotlinx.serialization.Serializable
 import kotlin.time.Clock
 
@@ -64,7 +65,7 @@ class AgentShareStore(
 }
 
 object AgentShareInbox {
-    var generation by mutableIntStateOf(0)
+    var generation by singletonState { mutableIntStateOf(0) }
         private set
     var pendingOpen = false
         private set
