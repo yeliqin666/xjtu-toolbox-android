@@ -452,8 +452,9 @@ fun NavEntryBuilder.appPageEntries(
                     videoPlayer = AndroidVideoPlayerHost,
                     onAskAgent = { sendToPidai(it, router::open) },
                     // 「去提交作业」：只开官方 h5 提交页，提交本身在学堂网页里做。走 App 内置浏览器，
-                    // 它会先把 App 的登录态 cookie 注进 WebView（见 BrowserScreen.syncCookiesToWebView）；
-                    // lms-h5 与 lms 不共享会话时，就在那一层按统一认证再登一次。
+                    // 它会先把 App 的登录态 cookie（含统一认证的 TGC）注进 WebView，UA 也与 OkHttp
+                    // 同一串（TGC 绑定 UA）—— 和图书馆、教务那些站点的自动登录是同一条链路，
+                    // 所以到了 lms-h5 也是 SSO 直通，不用再输密码。
                     onOpenUrl = { url -> router.open(AppRoute.Browser(url)) },
                 )
             }
