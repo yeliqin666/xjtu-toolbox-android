@@ -762,11 +762,19 @@ private fun SettingsGroup(title: String, categories: List<InboxCategory>, data: 
 private fun InboxDetailDialog(item: InboxItem, onAskPidai: (() -> Unit)? = null, onDismiss: () -> Unit) {
     WindowDialog(show = true, title = item.title, summary = "${item.source} · ${timeLabel(item.time)}", onDismissRequest = onDismiss) {
         Column {
-            Text(
-                item.body.ifBlank { item.title },
-                style = MiuixTheme.textStyles.body2,
-                modifier = Modifier.weight(1f, fill = false).heightIn(max = 360.dp).verticalScroll(rememberScrollState()),
-            )
+            // 正文可以长按选中、复制：自建待办的备注常常就是要抄走的一段（日期、地点、一串编号），
+            // 以前只能干看着。标题由 `WindowDialog` 自己画，包不进选择层，所以只有正文这一格。
+            //
+            // 限定高度与滚动都留在**外层**：`weight` 是 `ColumnScope` 的扩展，而 `SelectionContainer`
+            // 的内容是 `BoxScope`，写进去连编都编不过；滚动也不该落在选择层里面。
+            androidx.compose.foundation.text.selection.SelectionContainer(
+                Modifier.weight(1f, fill = false).heightIn(max = 360.dp).verticalScroll(rememberScrollState()),
+            ) {
+                Text(
+                    item.body.ifBlank { item.title },
+                    style = MiuixTheme.textStyles.body2,
+                )
+            }
             if (onAskPidai == null) {
                 TextButton(text = "知道了", onClick = onDismiss, modifier = Modifier.fillMaxWidth().padding(top = 12.dp), colors = ButtonDefaults.textButtonColorsPrimary())
             } else {
