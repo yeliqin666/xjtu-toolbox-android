@@ -42,8 +42,25 @@ class SettingsStoreTest {
         raw.putInt("hero_seed", -100)
         assertEquals("auto", reopened.heroPalette)
         assertEquals("auto", reopened.heroMotion)
-        assertEquals("#2F7CFF", reopened.heroColorHex)
+        assertEquals("", reopened.heroColorHex, "认不出的色值 = 没挑过 ⇒ 纯色模式跟随主题色")
         assertEquals(-1, reopened.heroSeed)
+    }
+
+    /**
+     * 2026-11 维护者要求：头卡纯色模式默认用主题色。
+     * 「没挑过」必须和「挑了个具体的色」分得开 —— 所以没挑过存的是空串，不是某个写死的蓝。
+     */
+    @Test
+    fun `头卡没挑过色时是空串，跟随主题色`() {
+        val raw = freshStore()
+        val settings = SettingsStore(raw)
+        assertEquals("", settings.heroColorHex)
+        assertEquals("", settings.heroColorHex(dark = true), "深色档没单独选过也回退到空串")
+        settings.setHeroColorHex(dark = false, value = "#123456")
+        assertEquals("#123456", SettingsStore(raw).heroColorHex(dark = false))
+        // 清回「跟随主题色」：落盘的是空串，不能再退回旧键里那个具体的色
+        settings.setHeroColorHex(dark = false, value = "")
+        assertEquals("", SettingsStore(raw).heroColorHex(dark = false))
     }
 
     @Test

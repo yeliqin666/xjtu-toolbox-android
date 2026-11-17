@@ -1516,7 +1516,9 @@ private fun EditorialFrontPage(
     val appearance = remember(HeroAppearanceRevision.current, dark) { HeroAppearance.read(appearanceStore, dark) }
     var showAppearance by remember { mutableStateOf(false) }
     val configure = { showAppearance = true }
-    val ink = appearance.contentColor
+    // 纯色模式没挑过色时铺的就是主题色，所以字色也得按「实际那个底」算
+    val heroPrimary = MiuixTheme.colorScheme.primary
+    val ink = appearance.contentColorOn(heroPrimary)
     val muted = ink.copy(alpha = 0.78f)
     val accent = if (ink == Color.White) LiquidCardAccent else ink.copy(alpha = 0.8f)
     val rule = ink.copy(alpha = 0.18f)
@@ -1525,7 +1527,7 @@ private fun EditorialFrontPage(
         if (hasLead) {
             Box(Modifier.fillMaxWidth().liquidPaper()) {
                 when (appearance.background) {
-                    "solid" -> Box(Modifier.matchParentSize().background(appearance.solidColor))
+                    "solid" -> Box(Modifier.matchParentSize().background(appearance.solidColorOn(heroPrimary)))
                     "forest" -> {
                         HeroForestBackground(Modifier.matchParentSize())
                         Box(Modifier.matchParentSize().background(HeroForestScrim))

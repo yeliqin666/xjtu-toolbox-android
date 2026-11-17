@@ -100,11 +100,18 @@ class SettingsStore(private val store: KeyValueStore = keyValueStore(APP_SETTING
         get() = store.getString("hero_palette")?.takeIf { it in HERO_PALETTES } ?: "auto"
         set(value) = store.putString("hero_palette", value.takeIf { it in HERO_PALETTES } ?: "auto")
 
+    /**
+     * 头卡「纯色」底色。**空串 = 没挑过，跟随主题色**（见 `HeroAppearance.solidColorOn`）：
+     * 2026-11 维护者要求纯色模式默认就用主题色，而不是写死一个蓝。
+     *
+     * 以前这里兜底 `#2F7CFF`，把「没挑过」和「挑了个和主题色无关的蓝」压成同一个值，
+     * 所以现在把「没挑过」如实存成空串。
+     */
     var heroColorHex: String
-        get() = normalizeThemeColor(store.getString("hero_color_hex").orEmpty()).ifEmpty { "#2F7CFF" }
+        get() = normalizeThemeColor(store.getString("hero_color_hex").orEmpty())
         set(value) = store.putString("hero_color_hex", normalizeThemeColor(value))
 
-    /** 浅色 / 深色各存一份自选色；没单独选过的那一档回退到旧键。 */
+    /** 浅色 / 深色各存一份自选色；没单独选过的那一档回退到旧键。空串 = 跟随主题色。 */
     fun heroColorHex(dark: Boolean): String =
         normalizeThemeColor(store.getString(if (dark) "hero_color_hex_dark" else "hero_color_hex_light").orEmpty())
             .ifEmpty { heroColorHex }
