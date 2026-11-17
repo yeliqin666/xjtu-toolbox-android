@@ -56,7 +56,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.MoreHoriz
-import androidx.compose.material.icons.filled.QrCodeScanner
 import com.xjtu.toolbox.ui.components.AppDropdownMenu
 import top.yukonga.miuix.kmp.basic.IconButton
 import androidx.compose.material.icons.filled.EventSeat
@@ -232,10 +231,11 @@ fun LibraryScreen(
                     ) {
                     // 校区、平面图 / 列表都收进这个菜单：一次选定就很少再改，不值得各占一整行
                     if (vm.campusSwitching) CircularProgressIndicator(size = 16.dp, strokeWidth = 2.dp)
-                    // 扫桌上的座位码：在这一页直接定位、弹出预约
+                    // 扫桌上的座位码：在这一页直接定位、弹出预约。
+                    // 图标与「我的」右上角那颗扫一扫同一份（`ScanIcon`），别再用 Material 的 QrCodeScanner
                     if (onScan != null && source.canBook) {
                         com.xjtu.toolbox.ui.glass.CouiToolbarActionButton(onClick = { onScan(vm::focusOn) }) {
-                            Icon(Icons.Default.QrCodeScanner, contentDescription = "扫座位码")
+                            Icon(com.xjtu.toolbox.ui.components.ScanIcon, contentDescription = "扫座位码")
                         }
                     }
                     Box {

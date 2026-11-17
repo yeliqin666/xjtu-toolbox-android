@@ -793,8 +793,9 @@ private fun ScanAction(onScan: (ExpandOriginSource) -> Unit) {
     val tint = MiuixTheme.colorScheme.onSurface
     val source = rememberExpandOriginSource()
     HomeRoundAction(onClick = { onScan(source) }, source = source) {
+        // 图标与图书馆页顶栏那颗「扫座位码」是同一份矢量（`ScanIcon`）：同一件事不画两个样子
         Icon(
-            androidx.compose.ui.res.painterResource(com.xjtu.toolbox.R.drawable.ic_scan),
+            com.xjtu.toolbox.ui.components.ScanIcon,
             contentDescription = "扫一扫",
             tint = tint,
             modifier = Modifier.size(24.dp),
