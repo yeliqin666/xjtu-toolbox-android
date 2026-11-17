@@ -34,6 +34,12 @@ object AppChangelog {
      * 新增版本只在最前面追加即可。
      */
     val ENTRIES: List<Pair<String, VersionChangelog>> = listOf(
+        "6.0.3" to VersionChangelog(
+            items = listOf(
+                "🪶" to "君子藏器于身，待时而动。",
+                "📝" to "思源学堂的作业可以直接去交了：作业详情页下方新增「去提交作业」，点开就是学堂官方的提交页面，选附件、写正文、点提交都在那一页完成；交过还想改的显示「再交一次」",
+            )
+        ),
         "6.0.2" to VersionChangelog(
             items = listOf(
                 "🪶" to "万物并育而不相害，道并行而不相悖。",
