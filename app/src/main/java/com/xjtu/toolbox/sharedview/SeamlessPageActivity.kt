@@ -189,7 +189,8 @@ private fun SeamlessPageHost(initialRoute: AppRoute, onExit: () -> Unit) {
     BackHandler(enabled = !ready) { onExit() }
 
     val backStack = rememberNavBackStack<AppRoute>(initialRoute)
-    val navigator = remember(backStack) { AppNavigator(backStack) }
+    val hostView = androidx.compose.ui.platform.LocalView.current
+    val navigator = remember(backStack, hostView) { AppNavigator(backStack, hostView) }
     val tabs = remember { MainTabState(BottomTab.HOME.name) }
     val router = remember(navigator, tabs) {
         AppRouter(navigator, tabs, loginState, credentialStore, appContext, scope)

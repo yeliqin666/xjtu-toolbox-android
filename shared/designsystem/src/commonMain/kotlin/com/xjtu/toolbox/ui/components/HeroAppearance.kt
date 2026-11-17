@@ -34,6 +34,7 @@ import com.xjtu.toolbox.platform.decodeImageSize
 import com.xjtu.toolbox.schedule.CourseColors
 import com.xjtu.toolbox.settings.SettingsStore
 import com.xjtu.toolbox.ui.theme.LocalIsDarkTheme
+import com.xjtu.toolbox.util.singletonState
 import kotlin.io.encoding.Base64
 import kotlin.io.encoding.ExperimentalEncodingApi
 import kotlin.random.Random
@@ -110,7 +111,7 @@ data class HeroAppearance(
  * 改了之后靠它让两边一起重新读，不依赖谁还留在组合里。
  */
 object HeroAppearanceRevision {
-    var current by mutableIntStateOf(0)
+    var current by singletonState { mutableIntStateOf(0) }
         private set
 
     internal fun bump() {

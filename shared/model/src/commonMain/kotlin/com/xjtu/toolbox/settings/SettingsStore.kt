@@ -6,10 +6,11 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import com.xjtu.toolbox.platform.KeyValueStore
 import com.xjtu.toolbox.platform.keyValueStore
+import com.xjtu.toolbox.util.singletonState
 
 /** 首页功能区设置落盘后的进程内信号：设置页与首页各读一份，改完靠它一起重读。 */
 object HomeLayoutRevision {
-    var current by mutableIntStateOf(0)
+    var current by singletonState { mutableIntStateOf(0) }
         private set
 
     fun bump() {
@@ -19,7 +20,7 @@ object HomeLayoutRevision {
 
 /** 主页设置抽屉此刻是否开着：首页据此停掉背后的持续动画，抽屉拖动与滚动才不卡。 */
 object HomeSettingsOverlay {
-    var open by mutableStateOf(false)
+    var open by singletonState { mutableStateOf(false) }
 }
 
 /** 设置页那些偏好的读写。 */

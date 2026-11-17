@@ -7,6 +7,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.setValue
 import com.xjtu.toolbox.account.AccountContext
 import com.xjtu.toolbox.util.AppJson
+import com.xjtu.toolbox.util.singletonState
 import kotlinx.serialization.Serializable
 import kotlin.time.Clock
 import kotlinx.datetime.atStartOfDayIn
@@ -312,7 +313,7 @@ object InboxWidgetHook {
 object InboxStore {
     private var cached: Pair<String, InboxData>? = null
 
-    var version by mutableIntStateOf(0)
+    var version by singletonState { mutableIntStateOf(0) }
         private set
 
     /** 持久化：`keyValueStore("inbox<账号后缀>")`。 */

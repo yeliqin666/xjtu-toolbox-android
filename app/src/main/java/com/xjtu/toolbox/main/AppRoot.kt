@@ -113,7 +113,8 @@ fun AppRoot(
 
     // 类型参数必须写父类型，否则推断成 AppRoute.Main，存盘时序列化失败
     val backStack = rememberNavBackStack<AppRoute>(AppRoute.Main)
-    val navigator = remember(backStack) { AppNavigator(backStack) }
+    val hostView = androidx.compose.ui.platform.LocalView.current
+    val navigator = remember(backStack, hostView) { AppNavigator(backStack, hostView) }
     val tabs = rememberSaveable(saver = MainTabState.Saver) {
         MainTabState(credentialStore.defaultTab)
     }

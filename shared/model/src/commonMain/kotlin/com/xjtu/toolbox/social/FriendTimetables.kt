@@ -7,6 +7,7 @@ import com.xjtu.toolbox.account.AccountContext
 import com.xjtu.toolbox.platform.keyValueStore
 import com.xjtu.toolbox.schedule.CourseItem
 import com.xjtu.toolbox.util.AppJson
+import com.xjtu.toolbox.util.singletonState
 import kotlinx.serialization.Serializable
 import kotlin.time.Clock
 
@@ -31,7 +32,7 @@ object FriendTimetables {
     private fun overlayKey() = "overlay" + AccountContext.safeSuffix()
 
     /** 每写一次加一：界面以它为键重新读（键值存储没有监听）。 */
-    var revision by mutableIntStateOf(0)
+    var revision by singletonState { mutableIntStateOf(0) }
         private set
 
     fun all(): List<FriendTimetable> = store.getString(listKey())
