@@ -38,7 +38,8 @@ object LmsDownloadStore {
                             mimeType = item.optString("mimeType", "application/octet-stream"),
                             uri = item.getString("uri"),
                             savedAt = item.optLong("savedAt"),
-                            category = item.optString("category", inferCategory(item.optString("name"), item.optString("mimeType")))
+                            category = item.optString("category", inferCategory(item.optString("name"), item.optString("mimeType"))),
+                            size = item.optLong("size"),
                         )
                     )
                 }
@@ -104,6 +105,7 @@ object LmsDownloadStore {
                     uri = uri.toString(),
                     savedAt = System.currentTimeMillis(),
                     category = category,
+                    size = bytes.size.toLong(),
                 )
             )
             uri.toString()
@@ -123,6 +125,7 @@ object LmsDownloadStore {
                     .put("uri", record.uri)
                     .put("savedAt", record.savedAt)
                     .put("category", record.category)
+                    .put("size", record.size)
             )
         }
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
@@ -137,7 +140,10 @@ object LmsDownloadStore {
             MediaStore.Downloads.DISPLAY_NAME,
             MediaStore.Downloads.MIME_TYPE,
             MediaStore.Downloads.DATE_ADDED,
-            MediaStore.Downloads.RELATIVE_PATH
+            MediaStore.Downloads.RELATIVE_PATH,
+            // 大小也扫出来：思源附件卡靠「同名 + 同大小」判这份已经下过，
+            // 只从登记表里来的老记录没有大小，扫一遍 MediaStore 才能把这一格补齐
+            MediaStore.Downloads.SIZE,
         )
         context.contentResolver.query(
             MediaStore.Downloads.EXTERNAL_CONTENT_URI,
@@ -152,6 +158,7 @@ object LmsDownloadStore {
                 val mimeIndex = cursor.getColumnIndexOrThrow(MediaStore.Downloads.MIME_TYPE)
                 val dateIndex = cursor.getColumnIndexOrThrow(MediaStore.Downloads.DATE_ADDED)
                 val pathIndex = cursor.getColumnIndexOrThrow(MediaStore.Downloads.RELATIVE_PATH)
+                val sizeIndex = cursor.getColumnIndexOrThrow(MediaStore.Downloads.SIZE)
                 while (cursor.moveToNext()) {
                     val name = cursor.getString(nameIndex).orEmpty()
                     val mime = cursor.getString(mimeIndex).orEmpty().ifBlank { "application/octet-stream" }
@@ -166,7 +173,8 @@ object LmsDownloadStore {
                             mimeType = mime,
                             uri = uri.toString(),
                             savedAt = cursor.getLong(dateIndex) * 1000L,
-                            category = if (path == LEGACY_RELATIVE_PATH) CATEGORY_LMS else inferCategory(name, mime)
+                            category = if (path == LEGACY_RELATIVE_PATH) CATEGORY_LMS else inferCategory(name, mime),
+                            size = cursor.getLong(sizeIndex),
                         )
                     )
                 }

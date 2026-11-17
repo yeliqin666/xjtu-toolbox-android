@@ -3,6 +3,7 @@ package com.xjtu.toolbox.desktop.media
 import com.xjtu.toolbox.account.AccountContext
 import com.xjtu.toolbox.media.DownloadedFile
 import com.xjtu.toolbox.media.DownloadedFilesHost
+import com.xjtu.toolbox.media.matchesUpload
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -53,6 +54,13 @@ object DesktopDownloadedFilesHost : DownloadedFilesHost {
             .take(MAX_LIMIT)
     }
 
+    override suspend fun findDownloaded(name: String, size: Long): DownloadedFile? =
+        withContext(Dispatchers.IO) {
+            val root = saveDirectory
+            if (!root.isDirectory) return@withContext null
+            collect(root, 0).firstOrNull { it.matchesUpload(name, size) }
+        }
+
     override fun open(record: DownloadedFile) {
         // 用系统默认程序打开（xdg-open / open / start，最后退到 AWT 的 Desktop.open）
         openWithSystemProgram(record.uri)
@@ -83,6 +91,8 @@ object DesktopDownloadedFilesHost : DownloadedFilesHost {
                 savedAt = e.lastModified(),
                 // 一层子目录 = 思源课件按课程分的夹；根目录下的（成绩单等）算「其他」
                 category = if (depth > 0) DownloadedFile.CATEGORY_LMS else DownloadedFile.CATEGORY_OTHER,
+                // 磁盘上的长度随手就有：思源附件卡「同名 + 同大小」那条判据要它
+                size = e.length(),
             )
         }
         return out

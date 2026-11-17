@@ -622,6 +622,9 @@ private fun DesktopPage(
                 // 「去提交作业」：桌面端没有内置浏览器（见 `DesktopBrowser.kt` 那段说明），
                 // 把学堂官方 h5 提交页交给系统浏览器 —— 那里没有本 App 的统一认证会话，要自己登一次。
                 onOpenUrl = { url -> desktopBrowserTarget(url)?.let { openInBrowser(it) } },
+                // 附件「已经下过就不再重复下载、点一下打开」用的登记表 —— 桌面这一端的登记表
+                // 就是 ~/Downloads 这个目录本身（与下载管理那一屏同一份实现）
+                files = DesktopDownloadedFilesHost,
             )
         }
 

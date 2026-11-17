@@ -37,8 +37,18 @@ class AppLmsSink(context: Context) : LmsDownloadSink {
         val uri = resolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, cv)
             ?: return LmsDownloadResult.Failed
         return try {
-            val result = resolver.openOutputStream(uri)?.use { out -> write(out) }
-                ?: LmsDownloadResult.Failed
+            // 写出去多少字节自己数：思源附件卡靠「同名 + 同大小」判这份已经下过，
+            // 这个数就是那条判据的另一半（文件名旁边没有可信的大小）
+            var written = 0L
+            val result = resolver.openOutputStream(uri)?.use { out ->
+                val counting = object : OutputStream() {
+                    override fun write(b: Int) { out.write(b); written++ }
+                    override fun write(b: ByteArray, off: Int, len: Int) { out.write(b, off, len); written += len }
+                    override fun flush() = out.flush()
+                    override fun close() = out.close()
+                }
+                write(counting)
+            } ?: LmsDownloadResult.Failed
             if (result == LmsDownloadResult.Ok) {
                 cv.clear()
                 cv.put(MediaStore.Downloads.IS_PENDING, 0)
@@ -51,6 +61,7 @@ class AppLmsSink(context: Context) : LmsDownloadSink {
                         uri = uri.toString(),
                         savedAt = System.currentTimeMillis(),
                         category = LmsDownloadStore.CATEGORY_LMS,
+                        size = written,
                     ),
                 )
             } else {

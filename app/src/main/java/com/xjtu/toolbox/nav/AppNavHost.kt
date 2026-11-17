@@ -456,6 +456,8 @@ fun NavEntryBuilder.appPageEntries(
                     // 同一串（TGC 绑定 UA）—— 和图书馆、教务那些站点的自动登录是同一条链路，
                     // 所以到了 lms-h5 也是 SSO 直通，不用再输密码。
                     onOpenUrl = { url -> router.open(AppRoute.Browser(url)) },
+                    // 附件「已经下过就不再重复下载、点一下打开」用的登记表 —— 与「我的-下载管理」同一份
+                    files = remember(lmsContext) { com.xjtu.toolbox.media.AppDownloadedFilesHost(lmsContext) },
                 )
             }
         }

@@ -213,7 +213,7 @@
 | 41 | `reminder_watch` | 无 | `ReminderStore.kt:41` | 开关 `enabled_<kind>`（library / schedule / lms / community_reply / community_mention；**self_todo 只有游标、没有开关**）、去重游标 `seen_<kind>`、`baselined_<kind>` | 全 |
 | 42 | `session_keepalive` | 无 | `SessionKeepAlive.kt:19-24`（**2026-10-19 更正**：原引 `:68,75,76` 越界 —— 该文件只有 55 行；也**没有** `enabled` / `interval_min` 这两个键，全仓只在本文档里出现过） | 无落盘键（只有“前台每 10 分钟预热一次”，启停挂在 `MainActivity.kt:97`/`:102`） | **更正**（原写「全」是错的） |
 | 43 | `campus_probe` | 无 | `CampusProbe.kt:50` | `code` `data` `ywtb_token` | 全 |
-| 44 | `lms_downloads` | 无 | `LmsDownloadStore.kt:18,19,34,134` | `records` | 全 |
+| 44 | `lms_downloads` | 无 | `LmsDownloadStore.kt:18,19,34,134` | `records`（每条 `name` `mimeType` `uri` `savedAt` `category` `size`；**`size` 是 2026-11 新增**，思源附件卡靠「同名 + 同大小」判这份资料是否已下过，见 `AppDownloadedFilesHost.findDownloaded`） | 全 |
 | 45 | `schedule_widget_prefs` | 无 | `ScheduleWidgetProvider.kt:87,161,165,171` | 浏览日期键（`getLong`） | 部分 |
 | 46 | `notice_widget_cache` | 无 | `NoticeWidgetStore.kt:15,17,27,39,44` | `updated_at`(long) `day_<i>`(long) | 全 |
 | 47 | `serve` | 无 | 桌面 `serve.properties` | `access_token` —— 不进档案 | 全 |
