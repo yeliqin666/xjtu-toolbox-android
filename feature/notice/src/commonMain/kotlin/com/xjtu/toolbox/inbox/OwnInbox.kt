@@ -42,14 +42,20 @@ object OwnInbox {
         route = AppRoute.Browser(n.link).id,
     )
 
-    /** 社区里别人的回复或 @。标题用帖子标题，同一帖的多条在收纳里折成一组；点开直达那一楼。 */
+    /**
+     * 社区里别人的回复或 @。标题用帖子标题，同一帖的多条在收纳里折成一组。
+     *
+     * 点开落到 App 内的那一帖（[AppRoute.CommunityPost]），不再丢给浏览器里的 github.com：
+     * 社区本来就是 App 里自带的页面，跳出去等于让用户重新登录一遍 GitHub。
+     * 只有编号拿不到（老数据 / 接口没给）时才退回网页。
+     */
     fun community(a: CommunityActivity) = InboxItem(
         id = "community:${a.id}", category = InboxCategories.COMMUNITY, source = "社区",
         title = a.title,
         body = a.author + (if (a.kind == CommunityActivityKind.MENTION) " @了你：" else " 回复：") +
             a.body.replace(Regex("\\s+"), " ").trim().take(80),
         time = runCatching { Instant.parse(a.createdAt).toEpochMilliseconds() }.getOrElse { Clock.System.now().toEpochMilliseconds() },
-        route = AppRoute.Browser(a.url).id,
+        route = a.number.takeIf { it > 0 }?.let { AppRoute.CommunityPost(it).id } ?: AppRoute.Browser(a.url).id,
     )
 
     /** 工具箱公告。时间取开始时间，没有就取 id 开头的日期（公告 id 都以发布日期开头），再没有就算现在。 */

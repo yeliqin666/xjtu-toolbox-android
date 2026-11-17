@@ -83,6 +83,16 @@ internal class LibraryViewModel(private val source: LibrarySource) : ViewModel()
     var isBooking by mutableStateOf(false); private set
     /** 扫桌面二维码进来要约的座位；校区一定下来就弹确认。 */
     var scanSeat by mutableStateOf<ScanSeatPrompt?>(null)
+
+    /**
+     * 手上这张预约是**在座位前扫码**约下来的：人此刻就坐在那儿，只是还没走入馆签到。
+     *
+     * 自动勿扰要用：学校显示的仍是「已预约」，而远程预约也是「已预约」，只有这个标记能区分。
+     * 进程内记着就够——关掉 App 后再开，人是不是还在座位上本来就不知道了，
+     * 那时以学校返回的「使用中」为准。
+     */
+    var bookedAtDesk by mutableStateOf(false); private set
+
     var myBooking by mutableStateOf<MyBookingInfo?>(null); private set
     /** 成功查到过「我的预约」；在此之前 [myBooking] 为 null 只代表还不知道，不能当成没有预约往外发。 */
     var myBookingKnown by mutableStateOf(false); private set
@@ -537,12 +547,30 @@ internal class LibraryViewModel(private val source: LibrarySource) : ViewModel()
         source.bookSeat(seatId, area, autoSwap = true)
     }
 
+    /**
+     * 扫座位码约座：除了 [book] 那一套，还要记下「人就在这个座位前」。
+     *
+     * 自动勿扰靠这个标记区分两种「已预约」：坐在座位前扫的（人已入座，该开勿扰）
+     * 和在宿舍远程约的（人不在馆，不该开）。标记只对真约成的那一次生效，
+     * 约失败就作废——不然人还站在馆外，勿扰先挂上了。
+     */
+    fun bookAtDesk(seatId: String, areaOverride: String? = null) =
+        seatAction(seatId, areaOverride, "预约", atDesk = true) { area ->
+            source.bookSeat(seatId, area, autoSwap = true)
+        }
+
     /** 已有预约时直接换座（/updateseat/），不走 /seat/ 的检测。 */
     fun swap(seatId: String, areaOverride: String? = null) = seatAction(seatId, areaOverride, "换座") { area ->
         source.swapSeat(seatId, area)
     }
 
-    private fun seatAction(seatId: String, areaOverride: String?, label: String, call: suspend (String) -> BookResult) {
+    private fun seatAction(
+        seatId: String,
+        areaOverride: String?,
+        label: String,
+        atDesk: Boolean = false,
+        call: suspend (String) -> BookResult,
+    ) {
         val area = areaFor(seatId, areaOverride) ?: run { bookingResult = BookResult(false, "无法确定区域"); return }
         isBooking = true
         bookingResult = null
@@ -551,6 +579,9 @@ internal class LibraryViewModel(private val source: LibrarySource) : ViewModel()
                 val result = call(area)
                 bookingResult = result
                 adoptCampusIfBooked(result)
+                // 「人在座位前」只在这次真约成时成立；失败则作废。
+                // 换座（atDesk=false）但成功、且原来就是扫码约上的，人还在馆里，保留标记。
+                bookedAtDesk = result.success && (atDesk || bookedAtDesk)
                 // 结果一出来就放开按钮，刷新放后面
                 isBooking = false
                 if (result.success) delay(400)
@@ -558,6 +589,7 @@ internal class LibraryViewModel(private val source: LibrarySource) : ViewModel()
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
+                bookedAtDesk = false
                 bookingResult = BookResult(false, FriendlyError.of(e, label))
             }
             isBooking = false

@@ -11,7 +11,11 @@ import android.widget.RemoteViews
 import com.xjtu.toolbox.MainActivity
 import com.xjtu.toolbox.R
 import com.xjtu.toolbox.account.restoreIfNeeded
+import com.xjtu.toolbox.attendance.AttendanceRecordStore
+import com.xjtu.toolbox.attendance.WaterType
 import com.xjtu.toolbox.nav.AppRoute
+import com.xjtu.toolbox.schedule.SlotAttendanceMarks
+import com.xjtu.toolbox.schedule.attendanceMarksOf
 import com.xjtu.toolbox.util.CampusZoneId
 import com.xjtu.toolbox.util.RequestCodes
 import kotlinx.coroutines.CoroutineScope
@@ -19,24 +23,38 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import java.time.LocalDateTime
 
-/** 卡片此刻要显示的一屏：场景标签、主信息、补充、底部去处和点开去哪儿。 */
+/**
+ * 卡片此刻要显示的一屏：场景标签、主信息、补充、底部去处和点开去哪儿。
+ *
+ * [status] 非空时，补充那一行下面再单独画一行状态（考勤结果），并染上 [statusColor]。
+ */
 internal data class SmartWidgetScene(
     val label: String,
     val title: String,
     val detail: String,
     val action: String,
     val route: AppRoute,
+    val status: String? = null,
+    val statusColor: Int? = null,
 )
 
 /**
  * 智能卡片（#408）：只读本机缓存，按此刻挑一屏。
- * - 课前 [CLASS_LEAD_MIN] 分钟到下课：这节课，点开看考勤（考勤要登录站点，卡片里不查）；
+ * - 课前 [CLASS_LEAD_MIN] 分钟到下课：这节课，**并把本堂考勤状态直接写在卡片上**
+ *   （读考勤流水落在本机的那份，不登录站点、不发请求）。以前这里只有一颗「查看考勤 ›」，
+ *   用户还得点进去才知道到底记上没有，最该一眼看到的那个信息反而藏在里面；
  * - 饭点：余额，点开付款码（付款码不画在桌面上，谁都能扫）；
  * - 其他时间：今天下一节课，没有了就显示余额。
  */
 object SmartWidgetUpdater {
     const val ACTION_REFRESH = "com.xjtu.toolbox.widget.ACTION_REFRESH_SMART_WIDGET"
     private const val CLASS_LEAD_MIN = 20
+
+    // 考勤状态的语义色：和课表格子上的角标同一套（缺勤红、迟到黄、请假灰、正常用主题蓝偏深的那支）
+    private const val COLOR_NORMAL = 0xFF2E6BE6.toInt()
+    private const val COLOR_LATE = 0xFFF5A524.toInt()
+    private const val COLOR_ABSENT = 0xFFE5484D.toInt()
+    private const val COLOR_LEAVE = 0xFF8A9099.toInt()
 
     /** 早、午、晚饭的窗口（距 00:00 的分钟）。 */
     private val MEALS = listOf(
@@ -55,7 +73,17 @@ object SmartWidgetUpdater {
         val now = LocalDateTime.now(CampusZoneId)
         val nowMinute = now.hour * 60 + now.minute
         val courses = runCatching { ScheduleWidgetUpdater.todayCourses(context) }.getOrDefault(emptyList())
-        val scene = sceneOf(courses, nowMinute, balanceText(context))
+        // 今天第几周 + 星期几：考勤索引按「周次 + 星期 + 节次」这一格取
+        val week = runCatching { ScheduleWidgetUpdater.todayTermAndWeek(context) }.getOrNull()?.second ?: 0
+        val dayOfWeek = now.dayOfWeek.value
+        val scene = sceneOf(
+            courses = courses,
+            nowMinute = nowMinute,
+            balance = balanceText(context),
+            attendance = runCatching { todayAttendance(context) }.getOrNull(),
+            week = week,
+            dayOfWeek = dayOfWeek,
+        )
         val launch = Intent(context, MainActivity::class.java).apply {
             putExtra(MainActivity.EXTRA_LAUNCH_ROUTE, scene.route.id)
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
@@ -70,18 +98,63 @@ object SmartWidgetUpdater {
             views.setTextViewText(R.id.widget_smart_title, scene.title)
             views.setTextViewText(R.id.widget_smart_detail, scene.detail)
             views.setTextViewText(R.id.widget_smart_action, scene.action)
+            // 考勤那一行：有状态才显示，顺带换色；没有就整行隐掉，别留一条空行
+            views.setTextViewText(R.id.widget_smart_status, scene.status.orEmpty())
+            views.setViewVisibility(
+                R.id.widget_smart_status,
+                if (scene.status.isNullOrEmpty()) android.view.View.GONE else android.view.View.VISIBLE,
+            )
+            scene.statusColor?.let { views.setTextColor(R.id.widget_smart_status, it) }
             views.setOnClickPendingIntent(R.id.widget_smart_root, pending)
             manager.updateAppWidget(id, views)
         }
         scheduleNext(context, courses, now)
     }
 
-    internal fun sceneOf(courses: List<WidgetCourse>, nowMinute: Int, balance: String): SmartWidgetScene {
+    /**
+     * 今天这一格上的考勤索引。
+     *
+     * 读的是考勤流水落在本机的那份（[AttendanceRecordStore]），也就是课表格子角标用的同一份数据。
+     * **卡片里绝不登录考勤站点**：小组件会随桌面反复刷新、还会被系统在后台拉起，
+     * 为此反复登录既慢又容易被判异常访问。
+     *
+     * @return 拿不到落盘缓存时返回 null（卡片就当「还没记录」）。
+     */
+    internal fun todayAttendance(context: Context): SlotAttendanceMarks? {
+        val (termCode, _) = ScheduleWidgetUpdater.todayTermAndWeek(context) ?: return null
+        val postgraduate = com.xjtu.toolbox.account.AccountContext.activeAccountType ==
+            com.xjtu.toolbox.auth.AccountType.POSTGRADUATE
+        val shard = AttendanceRecordStore.load(postgraduate, termCode) ?: return null
+        return attendanceMarksOf(shard.records)
+    }
+
+    /**
+     * @param attendance 今天这一天的考勤索引；null = 本机还没有记录（卡片写「考勤未记录」）。
+     * @param week 今天属于第几周；0 = 算不出来，这时不查考勤。
+     * @param dayOfWeek 今天星期几（1=周一）；0 = 不查。
+     */
+    internal fun sceneOf(
+        courses: List<WidgetCourse>,
+        nowMinute: Int,
+        balance: String,
+        attendance: SlotAttendanceMarks? = null,
+        week: Int = 0,
+        dayOfWeek: Int = 0,
+    ): SmartWidgetScene {
         val inClass = courses.firstOrNull { nowMinute >= it.startMinute - CLASS_LEAD_MIN && nowMinute < it.endMinute }
         if (inClass != null) {
             val started = nowMinute >= inClass.startMinute
             val label = if (started) "上课中" else "${inClass.startMinute - nowMinute} 分钟后上课"
-            return SmartWidgetScene(label, inClass.name, timeAndPlace(inClass), "查看考勤 ›", AppRoute.Attendance)
+            val (status, color) = attendanceOf(attendance, inClass, week, dayOfWeek)
+            return SmartWidgetScene(
+                label = label,
+                title = inClass.name,
+                detail = timeAndPlace(inClass),
+                action = "查看考勤 ›",
+                route = AppRoute.Attendance,
+                status = status,
+                statusColor = color,
+            )
         }
         MEALS.firstOrNull { (_, start, end) -> nowMinute in start until end }?.let { (label, _, _) ->
             return SmartWidgetScene(label, "付款码", "校园卡余额 $balance", "打开付款码 ›", AppRoute.PaymentCode)
@@ -92,6 +165,32 @@ object SmartWidgetUpdater {
         }
         val label = if (courses.isEmpty()) "今天没课" else "今天的课上完了"
         return SmartWidgetScene(label, "校园卡 $balance", "饭点会自动换成付款码入口", "查看校园卡 ›", AppRoute.CampusCard)
+    }
+
+    /**
+     * 这节课的考勤：一句话 + 该染的颜色。查不到这一格返回「考勤未记录」。
+     *
+     * 正常也照写：只报异常的话，全勤的人整学期在这张卡片上就看不到任何反馈，
+     * 反而分不清「没缺勤」和「根本没记上」——而后者才是要立刻处理的事。
+     */
+    private fun attendanceOf(
+        attendance: SlotAttendanceMarks?,
+        course: WidgetCourse,
+        week: Int,
+        dayOfWeek: Int,
+    ): Pair<String?, Int?> {
+        if (attendance == null || week <= 0 || dayOfWeek <= 0 || course.startSection <= 0) {
+            return "考勤未记录" to COLOR_LEAVE
+        }
+        return when (attendance.statusOf(week, dayOfWeek, course.startSection)) {
+            WaterType.NORMAL -> "已记考勤 · 正常" to COLOR_NORMAL
+            WaterType.LATE -> "已记考勤 · 迟到" to COLOR_LATE
+            WaterType.ABSENCE -> "已记考勤 · 缺勤" to COLOR_ABSENT
+            WaterType.LEAVE -> "已记考勤 · 请假" to COLOR_LEAVE
+            // 未识别的状态码不冒充正常，也不吓人，原样说「有记录」
+            WaterType.UNKNOWN -> "已记考勤 · 状态未知" to COLOR_LEAVE
+            null -> "考勤未记录" to COLOR_LEAVE
+        }
     }
 
     /** 下一个场景边界：课前提醒起点、上课、下课、饭点起止；今天没有了就到明天零点。 */

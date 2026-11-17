@@ -318,7 +318,7 @@ fun NavEntryBuilder.appPageEntries(
                     onScan = { onSeat -> onScannedSeat = onSeat },
                     source = remember(site) { AppLibrarySource(site, libraryContext) },
                     onBack = back,
-                    onBookingChanged = { LibraryStatus.publish(libraryContext, it) },
+                    onBookingChanged = { booking, atDesk -> LibraryStatus.publish(libraryContext, booking, bookedAtDesk = atDesk) },
                     reAuthenticate = {
                         val creds = loginState.sessionManager?.credentials ?: error("未配置凭据")
                         withContext(Dispatchers.IO) {

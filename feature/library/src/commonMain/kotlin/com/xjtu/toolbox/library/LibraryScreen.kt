@@ -88,8 +88,11 @@ fun LibraryScreen(
     /** 本端的取数 + 落盘 + 写操作（Android = `AppLibrarySource`，Web = [com.xjtu.toolbox.core.net.CampusLibraryApi]）。 */
     source: LibrarySource,
     onBack: () -> Unit,
-    /** 拿到一份新的「我的预约」就往外发（`:app` = `LibraryStatus.publish`：后台提醒 + 首页信号 + 收纳待办）。 */
-    onBookingChanged: ((MyBookingInfo?) -> Unit)? = null,
+    /**
+     * 拿到一份新的「我的预约」就往外发（`:app` = `LibraryStatus.publish`：后台提醒 + 首页信号 + 收纳待办）。
+     * 第二个参数 = 这张是**在座位前扫码**约上的（人已在馆，只是还没签到），宿主用来判断要不要开自动勿扰。
+     */
+    onBookingChanged: ((MyBookingInfo?, bookedAtDesk: Boolean) -> Unit)? = null,
     /** 「重新认证」这一枪（`:app` = 读 App 的凭据 + `site.ensureLogin(force = true, userInitiated = true)`）。 */
     reAuthenticate: (suspend () -> Unit)? = null,
     /** 全屏看座位图时的方向锁定（`:app` = Activity 转横屏，离开时恢复进全屏前的方向）。 */
@@ -126,9 +129,10 @@ fun LibraryScreen(
         vm.bookingResult = null
     }
 
-    // 预约状态一变就往外发（提醒、首页信号、收纳）：预约 / 换座 / 中途离开 / 签到最后都会刷新 myBooking，盯结果比盯动作少漏
-    LaunchedEffect(vm.myBookingKnown, vm.myBooking?.actionUrls?.keys, vm.myBooking?.seatId) {
-        if (vm.myBookingKnown) onBookingChanged?.invoke(vm.myBooking)
+    // 预约状态一变就往外发（提醒、首页信号、收纳）：预约 / 换座 / 中途离开 / 签到最后都会刷新 myBooking，盯结果比盯动作少漏。
+    // 第三个参数是「这张是在座位前扫码约上的」——宿主据此决定算不算人已在馆（自动勿扰）。
+    LaunchedEffect(vm.myBookingKnown, vm.myBooking?.actionUrls?.keys, vm.myBooking?.seatId, vm.bookedAtDesk) {
+        if (vm.myBookingKnown) onBookingChanged?.invoke(vm.myBooking, vm.bookedAtDesk)
     }
 
     var confirmDialog by remember { mutableStateOf<Pair<String, () -> Unit>?>(null) }
@@ -164,12 +168,13 @@ fun LibraryScreen(
 
     // 已有预约时先确认换座；跨校区不能直接换，只能先取消原预约
     // areaOverride：扫码时二维码上的区域码，页面选中的区域可能还没加载到那个区
-    fun bookSeat(seatId: String, areaOverride: String? = null) {
+    // atDesk：这条是扫座位码约的（人就在座位前），只影响自动勿扰那一档，见 LibraryViewModel.bookAtDesk
+    fun bookSeat(seatId: String, areaOverride: String? = null, atDesk: Boolean = false) {
         val booking = vm.myBooking
         val existing = booking?.seatId
         val isExpired = booking?.statusText?.let { "超时" in it || "过期" in it || "失效" in it } == true
         if (existing == null || isExpired) {
-            vm.book(seatId, areaOverride)
+            if (atDesk) vm.bookAtDesk(seatId, areaOverride) else vm.book(seatId, areaOverride)
             return
         }
         val bookedArea = booking.area
@@ -361,7 +366,8 @@ fun LibraryScreen(
                         onClick = {
                             val qr = ss?.qr
                             vm.scanSeat = null
-                            if (qr != null) bookSeat(qr.seat, areaOverride = qr.areaCode)
+                            // 扫码进来的这一条走 bookAtDesk：记下「人就在座位前」，自动勿扰据此开
+                            if (qr != null) bookSeat(qr.seat, areaOverride = qr.areaCode, atDesk = true)
                         },
                         modifier = Modifier.weight(1f),
                         colors = ButtonDefaults.textButtonColorsPrimary()
