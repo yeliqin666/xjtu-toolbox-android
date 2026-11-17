@@ -200,6 +200,13 @@ fun LmsScreen(
     onFirstUseHintRead: () -> Unit = {},
     /** 把活动转给小岱（列表长按、详情页顶栏）。没接小岱的端传 null，两个入口都不出现。 */
     onAskAgent: ((com.xjtu.toolbox.agent.AgentForward) -> Unit)? = null,
+    /**
+     * 作业详情页「去提交作业」用的浏览器槽位（[ActivityDetailPage] 的同一个参数）。
+     *
+     * 作业提交只走学堂官方的 h5 页面，本 App 不实现提交：这里只负责把那一页打开。
+     * 没接浏览器那一层的端传 null，按钮不出现（桌面端就是这样，它只把地址交给系统浏览器）。
+     */
+    onOpenUrl: ((String) -> Unit)? = null,
     /** 视频播放槽位：`:app` 传 ExoPlayer 全屏页，桌面交给系统播放器；都不传时给一句说明页。 */
     videoPlayer: VideoPlayerHost? = null,
 ) {
@@ -394,6 +401,7 @@ fun LmsScreen(
                 } else null,
                 onTopicSelected = { topic -> currentPage = LmsPage.ForumTopicDetail(page.course, page.activity, topic) },
                 onAskAgent = onAskAgent,
+                onOpenUrl = onOpenUrl,
                 onPlayVideo = { title, instrUrl, encUrl, isLive, headers, startInDual ->
                     currentPage = LmsPage.VideoPlayer(
                         title = title,

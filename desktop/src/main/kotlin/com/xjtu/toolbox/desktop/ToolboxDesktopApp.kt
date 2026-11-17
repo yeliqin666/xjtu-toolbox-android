@@ -619,6 +619,9 @@ private fun DesktopPage(
                 showFirstUseHint = !hintPrefs.getBoolean("lms_hint_shown", false),
                 onFirstUseHintRead = { hintPrefs.putBoolean("lms_hint_shown", true) },
                 videoPlayer = DesktopVideoPlayerHost,
+                // 「去提交作业」：桌面端没有内置浏览器（见 `DesktopBrowser.kt` 那段说明），
+                // 把学堂官方 h5 提交页交给系统浏览器 —— 那里没有本 App 的统一认证会话，要自己登一次。
+                onOpenUrl = { url -> desktopBrowserTarget(url)?.let { openInBrowser(it) } },
             )
         }
 

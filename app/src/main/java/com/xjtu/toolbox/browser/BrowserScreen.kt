@@ -110,7 +110,7 @@ internal fun syncCookiesToWebView(
                 "login.xjtu.edu.cn", "cas.xjtu.edu.cn", "org.xjtu.edu.cn",
                 "jwxt.xjtu.edu.cn", "ywtb.xjtu.edu.cn", "bkkq.xjtu.edu.cn",
                 "ncard.xjtu.edu.cn", "rg.lib.xjtu.edu.cn", "jwapp.xjtu.edu.cn",
-                "lms.xjtu.edu.cn", "webvpn.xjtu.edu.cn"
+                "lg.xjtu.edu.cn", "lms.xjtu.edu.cn", "lms-h5.xjtu.edu.cn", "webvpn.xjtu.edu.cn"
             ) + extraDomains).distinct()
             var count = 0
             for (domain in domains) {

@@ -1,5 +1,8 @@
 package com.xjtu.toolbox.lms
 
+// `lmsHomeworkSubmissionUrl` 的 KDoc 里按名字引用了 `:feature:lms` 那个函数：跨模块不能用 KDoc
+// 链接语法（`[lmsHomeworkSubmissionUrl]` 在这里解析不到，dokka 会报 unresolved），只写名字。
+
 /** 思源学堂（`lms.xjtu.edu.cn`）的取数端口 —— 屏与批量下载的编排都在 `:core`，「谁来取数、谁把文件落到哪儿」由各端自己实现。 */
 interface LmsSource {
 
@@ -26,6 +29,15 @@ interface LmsSource {
 
     /** 作业已提交次数（只有详情接口给 `user_submit_count`）。 */
     suspend fun userSubmitCount(activityId: Int): Int
+
+    /**
+     * 当前登录者的用户 id（`/user/index` 的 `globalData.user.id`）。
+     *
+     * 只为一件事存在：拼官方 h5 的作业提交页 `/course/{c}/homework/{h}/submission/create/{committerId}`
+     * ——个人作业那一格要的就是这个 id（见 `feature/lms` 的 `lmsHomeworkSubmissionUrl`）。
+     * 拿不到就返回 null，调用方退到作业详情页，不拿猜出来的号去拼地址。
+     */
+    suspend fun currentUserId(): Int? = null
 
     /** 活动正文（HTML）转纯文本。 */
     suspend fun htmlToPlainText(html: String): String
