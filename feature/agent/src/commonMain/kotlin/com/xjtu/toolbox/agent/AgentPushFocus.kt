@@ -5,6 +5,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import com.xjtu.toolbox.util.AppJson
+import com.xjtu.toolbox.util.singletonState
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.contentOrNull
@@ -25,15 +26,15 @@ object AgentPushFocus {
     var pending: Long? = null
         private set
 
-    var generation by mutableIntStateOf(0)
+    var generation by singletonState { mutableIntStateOf(0) }
         private set
 
     /** 后台每追加一条就加一，开着这个会话的屁岱页据此重读。 */
-    var appended by mutableIntStateOf(0)
+    var appended by singletonState { mutableIntStateOf(0) }
         private set
 
     /** 当前要闪的那条消息的时间戳；闪完由聊天列表置回 null。 */
-    var highlight by mutableStateOf<Long?>(null)
+    var highlight by singletonState { mutableStateOf<Long?>(null) }
 
     fun set(timestamp: Long) {
         pending = timestamp

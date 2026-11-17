@@ -136,7 +136,7 @@ fun SegmentedControl(
     val indicatorPress = rememberCouiPressMotion()
     val labelPresses = labels.indices.map { key(it) { rememberCouiPressMotion() } }
     val contourEnabled = backdrop != null && LocalCouiContourGlowEnabled.current
-    val contour = remember(contourEnabled) { if (contourEnabled) CouiContour(style = CouiContourStyle.Button) else null }
+    val contour = remember(contourEnabled) { if (contourEnabled && couiEffectsSupported) CouiContour(style = CouiContourStyle.Button) else null }
     val edgePaint = remember { Paint(Paint.ANTI_ALIAS_FLAG) }
     val indicatorShape = remember { CouiShape(999.dp, 2f) }
     val indicatorDrawing = remember(density, rtl) { SegmentIndicatorDrawing() }

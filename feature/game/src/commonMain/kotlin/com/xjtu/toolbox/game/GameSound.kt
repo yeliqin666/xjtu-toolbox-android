@@ -3,6 +3,7 @@ package com.xjtu.toolbox.game
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import com.xjtu.toolbox.util.singletonState
 
 /** 小游戏共用的卡通音效。全部现场合成，不带素材文件。 */
 enum class Sfx {
@@ -14,7 +15,7 @@ object GameSound {
     private const val PREF = "game_sound"
 
     // 开关值惰性读盘；没有 Android 平台的 JVM 单测里读盘必失败，回退到默认开而不是让 object 初始化崩。
-    private val enabledState = mutableStateOf(true)
+    private val enabledState = singletonState { mutableStateOf(true) }
     private var enabledLoaded = false
 
     private fun ensureEnabledLoaded() {

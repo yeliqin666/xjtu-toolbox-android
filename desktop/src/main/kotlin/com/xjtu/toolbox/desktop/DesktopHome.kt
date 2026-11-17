@@ -28,6 +28,7 @@ import com.xjtu.toolbox.inbox.InboxStore
 import com.xjtu.toolbox.nav.AppRoute
 import com.xjtu.toolbox.schedule.ScheduleCache
 import com.xjtu.toolbox.schedule.ScheduleCacheStore
+import com.xjtu.toolbox.util.singletonState
 import com.xjtu.toolbox.util.todayOnCampus
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -240,7 +241,7 @@ private fun dateLabel(today: LocalDate): String =
 /** 「课表落地了」这条跨层信号在桌面上的落点 —— `:app` 那份是 `HomeSignals`（首页 Hero 靠它重读课表缓存）。 */
 internal object DesktopHomeSignals {
 
-    var scheduleVersion by mutableIntStateOf(0)
+    var scheduleVersion by singletonState { mutableIntStateOf(0) }
         private set
 
     fun onScheduleSynced() {

@@ -30,6 +30,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import com.xjtu.toolbox.util.singletonState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -136,7 +137,7 @@ object ProactiveRules {
     private fun prefs(ctx: Context) = ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
 
     /** 当前挡位，给设置面板做即时回显；`pick()` 自己每次都直接从磁盘读，不依赖这份缓存。 */
-    var proactiveLevel by mutableStateOf(ProactiveLevel.STANDARD)
+    var proactiveLevel by singletonState { mutableStateOf(ProactiveLevel.STANDARD) }
         private set
 
     /** 从磁盘读一次并写入上面那份缓存。设置面板打开时调一次即可。 */
@@ -638,7 +639,7 @@ fun ProactiveBubbleView(
  * 用一个进程内单例中转。
  */
 object ProactiveBubbleHost {
-    var message by mutableStateOf<ProactiveMessage?>(null)
+    var message by singletonState { mutableStateOf<ProactiveMessage?>(null) }
 
     /**
      * 自动冒泡的抑制开关。用户正待在屁岱这一页时置 true。
@@ -646,15 +647,15 @@ object ProactiveBubbleHost {
      * 人都已经在跟它聊天了，再让它从底栏探出头说句不相干的闲话，既遮挡输入框也很怪。
      * 只挡自动的那一路；用户主动点按钮逗它照常回应。
      */
-    var autoSuppressed by mutableStateOf(false)
+    var autoSuppressed by singletonState { mutableStateOf(false) }
 
     /**
      * 待在屁岱页时点底栏屁岱，闲话不从底栏冒泡（会挡住输入框），而是交给首屏的屁岱说：
      * 首屏读这一句替换它的问候第二行，[heroPokes] 每戳一次 +1，让它翻个跟头。
      * 这样首屏问候和底栏气泡也不会同时各说一句，显得重复。
      */
-    var heroLine by mutableStateOf<String?>(null)
-    var heroPokes by mutableStateOf(0)
+    var heroLine by singletonState { mutableStateOf<String?>(null) }
+    var heroPokes by singletonState { mutableIntStateOf(0) }
 
     fun clear() {
         message = null

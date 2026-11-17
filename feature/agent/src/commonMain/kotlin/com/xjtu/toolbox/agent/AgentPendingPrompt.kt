@@ -3,6 +3,7 @@ package com.xjtu.toolbox.agent
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.setValue
+import com.xjtu.toolbox.util.singletonState
 import kotlin.concurrent.Volatile
 
 /** 页外请求在屁岱页新开对话，或仅填入草稿。 */
@@ -22,7 +23,7 @@ object AgentPendingPrompt {
     @Volatile
     private var pending: Pending? = null
 
-    var generation by mutableIntStateOf(0)
+    var generation by singletonState { mutableIntStateOf(0) }
         private set
 
     fun set(text: String, snapshot: String? = null, draftOnly: Boolean = false, images: List<String> = emptyList(), label: String? = null) {

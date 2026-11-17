@@ -20,7 +20,7 @@ class CouiEdge(
     contourGlowEnabled: Boolean = true,
     private val lineAlpha: Float = if (style == CouiEdgeStyle.Light) 0.55f else 0.5f,
 ) {
-    private val shader = RuntimeShader(CouiEdgeShader)
+    private val shader by lazy { RuntimeShader(CouiEdgeShader) }
     private var lastSize = Size.Zero
     private var lastDensity = 0f
     private var cachedEffect: RenderEffect? = null
@@ -30,6 +30,10 @@ class CouiEdge(
         require(cornerWeight.isFinite() && cornerWeight >= 2f) { "圆角权重必须为有限值且不小于 2, 与裁剪 Shape 保持一致" }
         require(innerGlowAlpha.isFinite() && innerGlowAlpha in 0f..1f) { "内晕透明度必须为 0 到 1 的有限值" }
         require(lineAlpha.isFinite() && lineAlpha in 0f..1f) { "描边透明度必须为 0 到 1 的有限值" }
+        if (couiEffectsSupported) initShader(style, mix, blend, contourGlowEnabled)
+    }
+
+    private fun initShader(style: CouiEdgeStyle, mix: Color, blend: Color, contourGlowEnabled: Boolean) {
         shader.setFloatUniform("uMixColor", mix.red, mix.green, mix.blue, mix.alpha)
         shader.setFloatUniform("uBlendColor", blend.red, blend.green, blend.blue, blend.alpha)
         shader.setFloatUniform("uUseLightEdgeColor", if (style == CouiEdgeStyle.Light) 1f else 0f)
@@ -38,8 +42,9 @@ class CouiEdge(
 
     fun renderEffect(size: Size, density: Float): RenderEffect {
         cachedEffect?.let { effect ->
-            if (size == lastSize && density == lastDensity) return effect
+            if (!couiEffectsSupported || size == lastSize && density == lastDensity) return effect
         }
+        if (!couiEffectsSupported) return RenderEffect.createOffsetEffect(0f, 0f).also { cachedEffect = it }
         shader.setCouiContourUniforms(size, density, radiusPx, cornerWeight, innerGlowAlpha, lineAlpha)
         // 与现有模糊层一致, uniform 更新后重建 effect, 不复用旧尺寸的 native 快照。
         val effect = RenderEffect.createRuntimeShaderEffect(shader, "content")

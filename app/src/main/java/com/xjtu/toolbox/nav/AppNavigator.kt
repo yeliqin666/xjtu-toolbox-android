@@ -1,5 +1,6 @@
 package com.xjtu.toolbox.nav
 
+import android.view.View
 import top.yukonga.miuix.kmp.nav.core.NavBackStack
 
 /**
@@ -8,7 +9,7 @@ import top.yukonga.miuix.kmp.nav.core.NavBackStack
  * 只管栈本身。「去某个地方」要不要先登录、是不是切 tab、付款码之类的覆盖层，
  * 统一在 [com.xjtu.toolbox.main.AppRouter.open] 里决定，别处不要直接调这里的 [navigate]。
  */
-class AppNavigator(val backStack: NavBackStack) {
+class AppNavigator(val backStack: NavBackStack, private val hostView: View? = null) {
 
     /** 栈顶页面。栈空（理论上不会）时当作首页。 */
     val current: AppRoute
@@ -35,6 +36,7 @@ class AppNavigator(val backStack: NavBackStack) {
 
     /** 返回上一页。只剩首页时不动，交给系统（退到桌面）。 */
     fun popBackStack(): Boolean = if (backStack.size > 1) {
+        dropEmbeddedFocus()
         backStack.removeAt(backStack.lastIndex)
         true
     } else {
@@ -44,7 +46,21 @@ class AppNavigator(val backStack: NavBackStack) {
     /** 一直退到 [predicate] 命中的那一页为止，至少留下首页。 */
     fun popUntil(predicate: (AppRoute) -> Boolean) {
         while (backStack.size > 1 && (backStack.last() as? AppRoute)?.let(predicate) != true) {
+            dropEmbeddedFocus()
             backStack.removeAt(backStack.lastIndex)
         }
+    }
+
+    /**
+     * 出栈前拿走内嵌 View（WebView 等）的焦点。它带着焦点被移除时，Android 会在 Compose 应用变更的途中
+     * 同步重分配焦点，焦点搜索去组合首页 Pager 里尚未应用的页，抛 "pending composition has not been applied"。
+     * 顺带设成不可聚焦，免得重分配时又落回还在退场动画里的它。
+     */
+    private fun dropEmbeddedFocus() {
+        val root = hostView ?: return
+        val focused = root.findFocus() ?: return
+        if (focused === root) return
+        focused.isFocusable = false
+        focused.clearFocus()
     }
 }

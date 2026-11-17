@@ -210,8 +210,15 @@ class BleGattHostServer(private val context: Context) {
             for (fragment in fragments) {
                 val ack = CompletableDeferred<Boolean>()
                 pendingNotifyAck = ack
-                val sent = gattServer?.notifyCharacteristicChanged(device, char, false, fragment) ==
-                    android.bluetooth.BluetoothStatusCodes.SUCCESS
+                val sent = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+                    gattServer?.notifyCharacteristicChanged(device, char, false, fragment) ==
+                        android.bluetooth.BluetoothStatusCodes.SUCCESS
+                } else {
+                    @Suppress("DEPRECATION")
+                    char.value = fragment
+                    @Suppress("DEPRECATION")
+                    gattServer?.notifyCharacteristicChanged(device, char, false) == true
+                }
                 if (!sent) break
                 // 等这一片真正发出去（onNotificationSent）再发下一片：GATT 同一时刻只能有一个
                 // 未完成的操作，不排队会互相踩踏、丢片。

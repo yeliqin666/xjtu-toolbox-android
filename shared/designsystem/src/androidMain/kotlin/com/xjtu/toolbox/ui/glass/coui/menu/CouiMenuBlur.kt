@@ -5,7 +5,10 @@ import android.graphics.RuntimeShader
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.BlurEffect
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.TileMode
+import com.xjtu.toolbox.ui.glass.coui.couiEffectsSupported
 import androidx.compose.ui.graphics.asComposeRenderEffect
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.withTransform
@@ -43,8 +46,8 @@ class CouiMenuBlur internal constructor(
     private val radius: Int,
     private val layers: List<GraphicsLayer>,
 ) {
-    private val downsampleShader = RuntimeShader(MenuDownsampleShader)
-    private val blurShaders = List(9) { RuntimeShader(MenuKawaseShader) }
+    private val downsampleShader by lazy { RuntimeShader(MenuDownsampleShader) }
+    private val blurShaders by lazy { List(9) { RuntimeShader(MenuKawaseShader) } }
     private var firstSize = IntSize.Zero
     private var recordedBlurSize = IntSize.Zero
     private var recordedDensity: Density? = null
@@ -131,6 +134,12 @@ class CouiMenuBlur internal constructor(
     private fun updateEffects(captureSize: IntSize, blurSize: IntSize) {
         if (firstSize == captureSize) return
         firstSize = captureSize
+        if (!couiEffectsSupported) {
+            // 低版本：缩小图上做一次普通高斯模糊，后面几层原样传递。
+            val sigma = (radius / 160f) * 4f
+            layers[1].renderEffect = BlurEffect(sigma, sigma, TileMode.Clamp)
+            return
+        }
         downsampleShader.setFloatUniform("inputSize", captureSize.width.toFloat(), captureSize.height.toFloat())
         layers[0].renderEffect = RenderEffect.createRuntimeShaderEffect(downsampleShader, "child")
             .asComposeRenderEffect()

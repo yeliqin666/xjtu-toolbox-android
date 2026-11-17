@@ -1,6 +1,7 @@
 package com.xjtu.toolbox.ui.components
 
 import android.graphics.RuntimeShader
+import com.xjtu.toolbox.ui.glass.coui.couiEffectsSupported
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
@@ -24,6 +25,7 @@ import kotlinx.coroutines.delay
 
 @Composable
 actual fun HeroPixelBackground(modifier: Modifier, animated: Boolean) {
+    if (!couiEffectsSupported) return CpuHeroPixelBackground(modifier)
     val lifecycleOwner = LocalLifecycleOwner.current
     val lifecycleState by lifecycleOwner.lifecycle.currentStateAsState()
     val running = animated && LocalPageVisible.current && lifecycleState.isAtLeast(Lifecycle.State.RESUMED)

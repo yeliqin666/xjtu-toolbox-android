@@ -1,7 +1,6 @@
 package com.xjtu.toolbox.ui.components
 
-import android.os.Build
-import androidx.annotation.RequiresApi
+import com.xjtu.toolbox.ui.glass.coui.couiEffectsSupported
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.Box
@@ -23,7 +22,6 @@ import com.xjtu.toolbox.ui.theme.LocalIsDarkTheme
  * Android：菜单是 COUI 原厂组件（毛玻璃材质、开合动画、两级子菜单都在那边），
  * 用默认的触点模式——从这一行按下的位置长出来，就是「设置行展开成菜单」那套效果。
  */
-@RequiresApi(Build.VERSION_CODES.UPSIDE_DOWN_CAKE)
 @Composable
 actual fun AppDropdownPreference(
     title: String,
@@ -35,6 +33,9 @@ actual fun AppDropdownPreference(
     enabled: Boolean,
     startAction: (@Composable () -> Unit)?,
 ) {
+    if (!couiEffectsSupported) return DropdownPreferenceLegacy(
+        title, items, selectedIndex, onSelectedIndexChange, modifier, summary, enabled, startAction,
+    )
     var open by remember { mutableStateOf(false) }
     // 当前值：菜单展开时淡掉，收起时等菜单缩回去才回来
     val valueAlpha by animateFloatAsState(

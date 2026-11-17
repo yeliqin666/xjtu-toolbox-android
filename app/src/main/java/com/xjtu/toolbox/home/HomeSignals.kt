@@ -4,6 +4,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import com.xjtu.toolbox.util.singletonState
 
 /**
  * 首页相关的跨层信号。
@@ -25,7 +26,7 @@ object HomeSignals {
      * 代价是**没进过首页时它是 null**，此时与"几分钟后上课"相关的那条提醒不触发；
      * 余额、成绩、通知、图书馆四条不依赖它，照常工作。
      */
-    var scheduleReminder by mutableStateOf<ScheduleFocus?>(null)
+    var scheduleReminder by singletonState { mutableStateOf<ScheduleFocus?>(null) }
 
     /**
      * 课表缓存版本号：网络课表落地（日程页 paintCourses / refreshSchedule 写缓存）后自增。
@@ -34,7 +35,7 @@ object HomeSignals {
      * 在日程页同步课表后首页不会重算，要退出重登才刷新。把首页的加载 key 上这个
      * 版本号，同步一落地首页就跟着重读。
      */
-    var scheduleVersion by mutableIntStateOf(0)
+    var scheduleVersion by singletonState { mutableIntStateOf(0) }
 
     /**
      * 图书馆座位当前有没有"必须马上做"的操作，有的话是哪一个（入馆签到 / 中途返回）。
@@ -43,7 +44,7 @@ object HomeSignals {
      * 状态是学校页面的原文，措辞会变；这里存的是 `LibraryApi.classifyActionLabel`
      * 归一化后的 label，只有固定几个值。见 `:core` 的 `URGENT_BOOKING_ACTIONS`。
      */
-    var libraryUrgentAction by mutableStateOf<String?>(null)
+    var libraryUrgentAction by singletonState { mutableStateOf<String?>(null) }
 
     /**
      * 本周考勤新出现的异常，没有则为 null。
@@ -51,18 +52,18 @@ object HomeSignals {
      * 判据是异常数**增加**，不是"有异常"：一次缺勤会挂在本周统计里一整周，
      * 每轮刷新都当新事报一遍就成了骚扰。冒过气泡后由 MainActivity 清掉。
      */
-    var attendanceAlert by mutableStateOf<String?>(null)
+    var attendanceAlert by singletonState { mutableStateOf<String?>(null) }
 
     /**
      * 加餐券里有时限的那件事：待领取，或即将到期。没有则为 null。
      *
      * 待领取优先于到期——没领的券点一下就有，快到期的券要专门跑一趟去花。
      */
-    var couponAlert by mutableStateOf<String?>(null)
+    var couponAlert by singletonState { mutableStateOf<String?>(null) }
 
 
     /** [HomeStatsRefresher.refreshDue] 跑完一轮就自增，首页据此重新读缓存刷新展示。 */
-    var statsVersion by mutableIntStateOf(0)
+    var statsVersion by singletonState { mutableIntStateOf(0) }
         private set
 
     fun bumpStatsVersion() {

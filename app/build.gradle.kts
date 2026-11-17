@@ -23,8 +23,8 @@ android {
 
     defaultConfig {
         applicationId = "com.xjtu.toolbox"
-        // Android 15：PdfRenderer 取文字/检索、COUI 的 Mesh 投影与 clipShader 都是基线能力，不写降级
-        minSdk = 35
+        // Android 12 起可装；低于 Android 15 时玻璃特效统一退回朴素外观（见 GlassSupport），PDF 取文字不可用
+        minSdk = 31
         targetSdk = 36
         versionCode = 96
         versionName = "6.0.2"

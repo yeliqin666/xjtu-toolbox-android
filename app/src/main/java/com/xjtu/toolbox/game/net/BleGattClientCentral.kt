@@ -108,7 +108,14 @@ class BleGattClientCentral(private val context: Context) {
                     if (!readyDeferred.isCompleted) readyDeferred.complete(false)
                     return
                 }
-                gatt.writeDescriptor(cccd, BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE)
+                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+                    gatt.writeDescriptor(cccd, BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE)
+                } else {
+                    @Suppress("DEPRECATION")
+                    cccd.value = BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE
+                    @Suppress("DEPRECATION")
+                    gatt.writeDescriptor(cccd)
+                }
             }
 
             override fun onDescriptorWrite(gatt: BluetoothGatt, descriptor: BluetoothGattDescriptor, status: Int) {
@@ -159,9 +166,17 @@ class BleGattClientCentral(private val context: Context) {
                 for (fragment in fragments) {
                     val ack = CompletableDeferred<Boolean>()
                     pendingWriteAck = ack
-                    val ok2 = gattRef?.writeCharacteristic(
-                        char, fragment, BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT,
-                    ) == android.bluetooth.BluetoothStatusCodes.SUCCESS
+                    val ok2 = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+                        gattRef?.writeCharacteristic(
+                            char, fragment, BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT,
+                        ) == android.bluetooth.BluetoothStatusCodes.SUCCESS
+                    } else {
+                        char.writeType = BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT
+                        @Suppress("DEPRECATION")
+                        char.value = fragment
+                        @Suppress("DEPRECATION")
+                        gattRef?.writeCharacteristic(char) == true
+                    }
                     if (!ok2) break
                     withTimeoutOrNull(2_000) { ack.await() }
                 }

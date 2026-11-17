@@ -8,6 +8,7 @@ import com.xjtu.toolbox.nav.AppRoute
 import com.xjtu.toolbox.platform.KeyValueStore
 import com.xjtu.toolbox.platform.keyValueStore
 import com.xjtu.toolbox.settings.SettingsStore
+import com.xjtu.toolbox.util.singletonState
 
 /**
  * 默认分组 + 默认摆放。
@@ -320,7 +321,7 @@ private const val KEY_CARD_CORNER = "home_card_corner"
  * 主页设置面板、编辑态、首页自己各持一份状态，靠它一起重读，不依赖谁还留在组合里。
  */
 object HomeLayoutRevision {
-    var current by mutableIntStateOf(0)
+    var current by singletonState { mutableIntStateOf(0) }
         private set
 
     internal fun bump() {
@@ -336,7 +337,7 @@ object HomeLayoutRevision {
  * 正摆着的草稿冲掉）。恢复默认是一次「推倒重来」，所以它同时也 bump [HomeLayoutRevision]。
  */
 object HomeLayoutResetRevision {
-    var current by mutableIntStateOf(0)
+    var current by singletonState { mutableIntStateOf(0) }
         private set
 
     internal fun bump() {

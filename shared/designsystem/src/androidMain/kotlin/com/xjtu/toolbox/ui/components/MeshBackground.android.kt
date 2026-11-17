@@ -1,6 +1,7 @@
 package com.xjtu.toolbox.ui.components
 
 import android.graphics.RuntimeShader
+import com.xjtu.toolbox.ui.glass.coui.couiEffectsSupported
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
@@ -40,7 +41,7 @@ internal actual fun PlatformMeshBackground(
     val gridRows = vertexColors.size
     val gridColumns = vertexColors.firstOrNull()?.size ?: 0
     // 着色器只做 3x3（现在唯一的用法就是 3x3）；别的形状走静止的 MeshGradientPainter
-    if (gridRows == 3 && gridColumns == 3) {
+    if (gridRows == 3 && gridColumns == 3 && couiEffectsSupported) {
         val lifecycleOwner = LocalLifecycleOwner.current
         val lifecycleState by lifecycleOwner.lifecycle.currentStateAsState()
         val running = animated && LocalPageVisible.current && lifecycleState.isAtLeast(Lifecycle.State.RESUMED)

@@ -20,6 +20,7 @@ import com.xjtu.toolbox.account.AccountContext
 import com.xjtu.toolbox.platform.keyValueStore
 import com.xjtu.toolbox.ui.components.AppColorPicker
 import com.xjtu.toolbox.ui.components.hsvComponents
+import com.xjtu.toolbox.util.singletonState
 import top.yukonga.miuix.kmp.basic.ButtonDefaults
 import top.yukonga.miuix.kmp.basic.TextButton
 import top.yukonga.miuix.kmp.basic.TextField
@@ -37,7 +38,7 @@ import top.yukonga.miuix.kmp.window.WindowDialog
 object CourseColors {
 
     /** 每次改色加一；[of] 和 [revision] 读它来订阅，改完所有用到课程色的地方立刻重组。 */
-    private var version by mutableIntStateOf(0)
+    private var version by singletonState { mutableIntStateOf(0) }
 
     val revision: Int get() = version
 
