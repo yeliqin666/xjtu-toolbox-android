@@ -33,7 +33,7 @@ import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 import top.yukonga.miuix.kmp.basic.Text
 
-/** 共享壳在两种窗口形状下的形态：六格是画成侧栏、还是画成底栏，以及六格挤不挤得下。 */
+/** 共享壳在两种窗口形状下的形态：五格是画成侧栏、还是画成底栏，以及五格挤不挤得下。 */
 @OptIn(ExperimentalComposeUiApi::class)
 class DesktopShellRailJvmTest {
 
@@ -92,7 +92,7 @@ class DesktopShellRailJvmTest {
         }
 
     @Test
-    fun `宽窗里六格画在左侧栏里（不是底栏），文字也没被挤掉`() {
+    fun `宽窗里五格画在左侧栏里（不是底栏），文字也没被挤掉`() {
         val tabs = desktopTabs()
         val scene = shellScene(width = 900, height = 900)
         try {
@@ -114,16 +114,16 @@ class DesktopShellRailJvmTest {
                     "「${tab.label}」的文字宽度是 $w（侧栏内宽 80dp）—— 要么没画出来、要么被挤到换行/截断",
                 )
             }
-            // 侧栏是竖着排的：六格的纵坐标依次变大（底栏那一排六格会是同一个 y）
+            // 侧栏是竖着排的：五格的纵坐标依次变大（底栏那一排五格会是同一个 y）
             val tops = tabs.tabs.map { assertNotNull(nodes.clickable(it.label), "${it.label} 不在").boundsInRoot.top }
-            assertEquals(tops.sorted(), tops, "六格没有按竖序排：$tops —— 这看着像还画着底栏")
+            assertEquals(tops.sorted(), tops, "五格没有按竖序排：$tops —— 这看着像还画着底栏")
         } finally {
             scene.close()
         }
     }
 
     @Test
-    fun `窄窗（手机比例）里六格画在底栏里（不是侧栏）`() {
+    fun `窄窗（手机比例）里五格画在底栏里（不是侧栏）`() {
         val tabs = desktopTabs()
         val scene = shellScene(width = 520, height = 900)
         try {
@@ -139,34 +139,34 @@ class DesktopShellRailJvmTest {
                     "窄窗（520×900）里「${tab.label}」不在底栏里（或底栏被挤到窗外了）：" +
                         "top=${box.top} bottom=${box.bottom}",
                 )
-                assertTrue(box.width > 40f, "底栏那一格只有 ${box.width} 宽 —— 六格挤不下?")
+                assertTrue(box.width > 40f, "底栏那一格只有 ${box.width} 宽 —— 五格挤不下?")
             }
-            // 底栏是一排：六格的横坐标依次变大
+            // 底栏是一排：五格的横坐标依次变大
             val lefts = tabs.tabs.map { assertNotNull(nodes.clickable(it.label), "${it.label} 不在").boundsInRoot.left }
-            assertEquals(lefts.sorted(), lefts, "六格没有按横序排：$lefts —— 这看着像还画着侧栏")
+            assertEquals(lefts.sorted(), lefts, "五格没有按横序排：$lefts —— 这看着像还画着侧栏")
         } finally {
             scene.close()
         }
     }
 
     @Test
-    fun `侧栏里点「全部」那一格，回调拿到的就是 AllPages`() {
+    fun `侧栏里点「游戏」那一格，回调拿到的就是游戏页`() {
         var picked: ShellTarget? = null
         val scene = shellScene(width = 900, height = 900, onSelect = { picked = it.target })
         try {
             scene.render(0L)
             val owner = assertNotNull(scene.semanticsOwners.firstOrNull(), "读不到语义树")
-            val all = assertNotNull(nodesOf(owner).clickable("全部"), "侧栏里找不到「全部」那一格")
-            val action = assertNotNull(all.config.getOrNull(SemanticsActions.OnClick), "「全部」那一格不可点")
-            assertEquals(true, action.action?.invoke(), "「全部」那一格的点击没被处理")
-            assertEquals(ShellTarget.AllPages, picked, "点了「全部」却没回 AllPages（这一格接错页了）")
+            val games = assertNotNull(nodesOf(owner).clickable("游戏"), "侧栏里找不到「游戏」那一格")
+            val action = assertNotNull(games.config.getOrNull(SemanticsActions.OnClick), "「游戏」那一格不可点")
+            assertEquals(true, action.action?.invoke(), "「游戏」那一格的点击没被处理")
+            assertEquals(ShellTarget.App(AppRoute.Games), picked, "点了「游戏」却没回游戏页（这一格接错页了）")
         } finally {
             scene.close()
         }
     }
 
     @Test
-    fun `玻璃风格在宽窗里与经典同形：六格仍然在左侧栏里`() {
+    fun `玻璃风格在宽窗里与经典同形：五格仍然在左侧栏里`() {
         val tabs = desktopTabs()
         val scene = shellScene(width = 900, height = 900, glass = true)
         try {

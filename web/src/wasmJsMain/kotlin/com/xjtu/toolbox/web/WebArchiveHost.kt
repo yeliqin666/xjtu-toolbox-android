@@ -135,19 +135,12 @@ internal object WebArchiveHost {
     private fun importAndReport(picked: PickedArchive.Entries): String {
         val unlandedFiles = unlandedFilesCount(picked.entries)
         return when (val result = importArchive(picked.entries)) {
-            is ImportResult.Failed -> "「${picked.fileName}」不可用：${result.reason}（本机数据未改动）"
+            is ImportResult.Failed -> "「${picked.fileName}」无法导入，数据未改动：${result.reason}"
             is ImportResult.Ok -> buildString {
-                append("「${picked.fileName}」已导入：:core 的 StoreArchive.import 按 §6.4 写入 ")
-                append(result.keysWritten)
-                append(" 个键 / 保持 ")
-                append(result.keysKept)
-                append(" 个")
-                if (result.filesWritten > 0) {
-                    append("；自建日程落了 ${result.filesWritten} 条")
-                }
-                if (unlandedFiles > 0) {
-                    append("；本端没有文件系统，$unlandedFiles 个其他 files/ 条目未落地")
-                }
+                append("「${picked.fileName}」已导入：写入 ${result.keysWritten} 项，保留 ${result.keysKept} 项")
+                if (result.filesWritten > 0) append("，自建日程 ${result.filesWritten} 条")
+                // 浏览器没有文件系统，其余 files/ 条目没有落点
+                if (unlandedFiles > 0) append("，$unlandedFiles 项网页版不支持")
             }
         }
     }
@@ -257,12 +250,12 @@ internal class WebArchiveActions {
         mergePlan = null
         mirrorPlan = null
         status = when (val result = WebArchiveHost.applyImport(planned)) {
-            is ImportResult.Failed -> "导入没做成：${result.reason}（本机数据未改动）"
+            is ImportResult.Failed -> "导入失败，数据未改动：${result.reason}"
             is ImportResult.Ok -> buildString {
-                append(if (mode == ArchiveImportMode.MIRROR) "已按“以档案为准”导入：" else "已按默认档导入：")
-                append("写入 ${result.keysWritten} 个键 / 保持 ${result.keysKept} 个")
+                append("已导入：写入 ${result.keysWritten} 项，保留 ${result.keysKept} 项")
+                // 删除不碰红线清单上的键
                 if (result.keysDeleted > 0 || result.filesDeleted > 0) {
-                    append("；删掉 ${result.keysDeleted + result.filesDeleted} 条（红线清单上的不动）")
+                    append("，删除 ${result.keysDeleted + result.filesDeleted} 项")
                 }
             }
         }
@@ -280,7 +273,7 @@ internal class WebArchiveActions {
         when (this) {
             is WebArchivePlanOutcome.Planned -> this
             is WebArchivePlanOutcome.Failed -> {
-                status = "「$fileName」不可用：$reason（本机数据未改动）"
+                status = "「$fileName」无法导入，数据未改动：$reason"
                 null
             }
         }

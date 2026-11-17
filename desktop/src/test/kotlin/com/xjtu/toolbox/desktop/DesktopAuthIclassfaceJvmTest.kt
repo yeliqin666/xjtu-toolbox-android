@@ -63,7 +63,7 @@ class DesktopAuthIclassfaceJvmTest {
         val auth = newAuth()
         auth.username = LibraryFakeUpstream.USERNAME
         auth.password = LibraryFakeUpstream.PASSWORD
-        assertTrue(runBlocking { auth.login() }, "用假上游的账号密码应当登得上：${auth.loginState}")
+        assertTrue(runBlocking { auth.login().also { auth.awaitPrewarm() } }, "用假上游的账号密码应当登得上：${auth.loginState}")
 
         runBlocking { auth.ensureSession(DesktopAuth.ICLASSFACE_SITE_KEY) }
         val site = auth.sessionManager.getSiteOrNull(DesktopAuth.ICLASSFACE_SITE_KEY)

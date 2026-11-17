@@ -371,8 +371,7 @@ class AppLoginStateViewModel(application: android.app.Application) : androidx.li
     val sessionManager = com.xjtu.toolbox.auth.SessionManager()
 
     init {
-        sessionManager.onAccountSwitched = { CampusProbe.ywtbToken = null }
-        sessionManager.onYwtbToken = { CampusProbe.ywtbToken = it }
+        CampusProbe.attach(sessionManager)
     }
 
     /** 多账号编排器。 */

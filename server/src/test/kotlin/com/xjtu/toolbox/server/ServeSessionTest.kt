@@ -232,12 +232,12 @@ class ServeSessionTest {
     /** 短信二验取消：`POST {"cancel":true}` 之后，挂起的那一发登录以 4xx 收尾。 */
     @Test
     fun `短信二验取消：POST cancel 之后挂起的那一发登录以 4xx 收尾`() = withServeSession { serve ->
-        fake.library.requireSafetyVerify.set(true)
+        fake.jwxt.requireSafetyVerify.set(true)
         val pending = serve.http.postJsonAsync(SESSION_PATH + "/login", LOGIN_BODY)
 
         val first = awaitMfa(serve) { it.pending }
-        assertEquals("图书馆", first.siteName, "这一次拦住登录的是主站（硬要求的那个）")
-        assertEquals(1, fake.library.safetyVerifyLandings.get(), "凭据对之后应当被拦到二次认证页")
+        assertEquals("教务系统", first.siteName, "拦住登录的是第一个验证站点")
+        assertEquals(1, fake.jwxt.safetyVerifyLandings.get(), "凭据对之后应当被拦到二次认证页")
 
         val cancel = serve.http.postJson(SESSION_PATH + "/mfa", """{"cancel":true}""")
         assertEquals(200, cancel.statusCode())
@@ -255,8 +255,9 @@ class ServeSessionTest {
         assertEquals(false, authenticatedField(serve.http.get(SESSION_PATH)))
         assertNull(JvmCredentialStore().load())
         assertEquals(false, awaitMfa(serve) { !it.pending }.pending)
-        assertEquals(0, fake.library.safetyVerifySubmissions.get(), "取消之后不该回提 secState 表单")
-        assertEquals(0, fake.jwxt.casRedirects.get(), "主站就失败了，根本不该走到预热的那些站点")
+        assertEquals(0, fake.jwxt.safetyVerifySubmissions.get(), "取消之后不该回提 secState 表单")
+        assertEquals(0, fake.ywtb.portalLandings.get(), "教务就失败了，不该再走到一网通办")
+        assertEquals(0, fake.fitness.casRedirects.get(), "也不该走到预热的那些站点")
     }
 
     // ── 测试脚手架 ────────────────────────────────────────────────────────────────

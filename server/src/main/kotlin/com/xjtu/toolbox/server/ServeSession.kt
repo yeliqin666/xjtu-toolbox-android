@@ -5,6 +5,7 @@ import com.xjtu.toolbox.account.AccountContext
 import com.xjtu.toolbox.auth.AccountType
 import com.xjtu.toolbox.auth.AttendanceSession
 import com.xjtu.toolbox.auth.CampusCardSession
+import com.xjtu.toolbox.auth.CampusProbe
 import com.xjtu.toolbox.auth.CouponSession
 import com.xjtu.toolbox.auth.DzpzSession
 import com.xjtu.toolbox.auth.FitnessSession
@@ -29,7 +30,10 @@ import com.xjtu.toolbox.error.FriendlyError
 import com.xjtu.toolbox.error.UserFacingFailure
 import com.xjtu.toolbox.platform.JvmCredentialStore
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -88,7 +92,11 @@ class ServeSession(private val credentials: JvmCredentialStore = JvmCredentialSt
         register(IclassfaceSession())
         // 学生评教（QMS）：`/api/jwxt/evaluations*` 要它；公网直连，不走 WebVPN。
         register(QmsSession())
+        CampusProbe.attach(this)
     }
+
+    /** 冷启动恢复后在后台判校内外（登录那一步是同步判的）。 */
+    private val networkScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     /** MFA 宿主的常驻挂载凭据。 */
     private val mfaHostKeepAlive: () -> Unit = sessionManager.attachMfaHost()
@@ -159,10 +167,13 @@ class ServeSession(private val credentials: JvmCredentialStore = JvmCredentialSt
             sessionManager.cachedRsaKey = credentials.rsaPublicKey
 
             return try {
-                // 硬要求主站：它证明这组凭据真能过统一认证（userInitiated = true ⇒ 豁免站点级 60 秒冷却）
-                sessionManager.ensureSite(LIBRARY_SITE_KEY, userInitiated = true)
+                // 用教务 + 一网通办验证凭据（与桌面、安卓同一判据）：这两个站校外也能直连。
+                // 图书馆只在校内可达，不能当判据。userInitiated = true ⇒ 豁免站点级 60 秒冷却
+                VERIFY_SITE_KEYS.forEach { sessionManager.ensureSite(it, userInitiated = true) }
+                // 校外时只在校内可达的站点（图书馆、考勤……）改走内置 WebVPN
+                CampusProbe.applyAccessMode(sessionManager)
                 // 其余站点**尽力而为**（失败只记不抛）：不能因为某个子系统自己挂了就把人挡在门外。
-                SESSION_SITE_KEYS.filter { it != LIBRARY_SITE_KEY }.forEach { key ->
+                SESSION_SITE_KEYS.filter { it !in VERIFY_SITE_KEYS }.forEach { key ->
                     runCatching { sessionManager.ensureSite(key, userInitiated = true) }
                         .onFailure {
                             sessionManager.recordDiagnostic("WARN", key, "登录时预热失败（不阻塞登录）：${it.message}")
@@ -265,6 +276,8 @@ class ServeSession(private val credentials: JvmCredentialStore = JvmCredentialSt
         sessionManager.accountType = accountType
         sessionManager.fpVisitorId = credentials.fpVisitorId
         sessionManager.cachedRsaKey = credentials.rsaPublicKey
+        sessionManager.unsettleAccessMode()
+        networkScope.launch { CampusProbe.applyAccessMode(sessionManager) }
     }
 
     companion object {
@@ -297,6 +310,9 @@ class ServeSession(private val credentials: JvmCredentialStore = JvmCredentialSt
 
         /** 学生评教（`qms`）。`/api/jwxt/evaluations*` 进门时用它。 */
         const val QMS_SITE_KEY = QmsSession.SITE_KEY
+
+        /** 登录时用来验证账号的站点，必须成功。 */
+        private val VERIFY_SITE_KEYS = listOf(JWXT_SITE_KEY, YWTB_SITE_KEY)
 
         /** 登录那一步一次建起会话的站点（与 `:desktop` 的 `DesktopAuth.SESSION_SITE_KEYS` 同一份清单）。 */
         private val SESSION_SITE_KEYS = listOf(

@@ -69,7 +69,7 @@ class DesktopAuthJiaocai1JvmTest {
     private fun login(auth: DesktopAuth): Boolean {
         auth.username = LibraryFakeUpstream.USERNAME
         auth.password = LibraryFakeUpstream.PASSWORD
-        return runBlocking { auth.login() }
+        return runBlocking { auth.login().also { auth.awaitPrewarm() } }
     }
 
     @Test

@@ -225,7 +225,7 @@ class DesktopArchiveJvmTest {
     fun `数据根扫描：没有档案时静默跳过，导出后能扫到目录形态与 zip 形态`() = withRoot { root ->
         assertTrue(DesktopArchiveHost.pendingArchives().isEmpty())
         assertNull(DesktopArchiveHost.maybeImportPendingArchive(), "没档案 ⇒ 静默跳过（§6.2 第 1 条）")
-        assertEquals("数据根下没有待导入的档案", importStatusText())
+        assertEquals("没有待导入的存档", importStatusText())
 
         DesktopArchiveHost.exportToDataRoot(now = { FIXED_NOW })
 
@@ -242,8 +242,8 @@ class DesktopArchiveJvmTest {
         )
 
         val text = importStatusText()
-        assertTrue(text.startsWith("发现待导入档案 ${DesktopArchiveHost.ARCHIVE_DIR}"), text)
-        assertTrue(text.contains("StoreArchive.import"), "如实交代「合并那一半还没落地」：$text")
+        assertTrue(text.startsWith("存档 ${DesktopArchiveHost.ARCHIVE_DIR}"), text)
+        assertTrue(text.contains("已导入"), text)
     }
 
     @Test

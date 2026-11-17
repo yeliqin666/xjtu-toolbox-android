@@ -176,11 +176,10 @@ class WebArchiveImportTest {
             )
 
             assertTrue(text.contains("已导入"), text)
-            assertTrue(text.contains("StoreArchive.import"), text)
-            assertTrue(text.contains("写入 7 个键"), text)
+            assertTrue(text.contains("写入 7 项"), text)
             // 夹具里有 2 条 `files/`：自建日程那一族（空数组）落地了，`agent_sessions/index.json` 没有落点
-            assertTrue(text.contains("落了 1 条"), text)
-            assertTrue(text.contains("1 个其他 files/ 条目未落地"), text)
+            assertTrue(text.contains("自建日程 1 条"), text)
+            assertTrue(text.contains("1 项网页版不支持"), text)
         } finally {
             cleanup()
         }
@@ -197,8 +196,8 @@ class WebArchiveImportTest {
                 ),
             )
 
-            assertTrue(text.contains("不可用"), text)
-            assertTrue(text.contains("本机数据未改动"), text)
+            assertTrue(text.contains("无法导入"), text)
+            assertTrue(text.contains("数据未改动"), text)
         } finally {
             cleanup()
         }

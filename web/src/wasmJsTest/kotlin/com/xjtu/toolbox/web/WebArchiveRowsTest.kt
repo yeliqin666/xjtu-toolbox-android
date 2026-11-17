@@ -202,8 +202,8 @@ class WebArchiveRowsTest {
             assertNull(keyValueStore("jiaocai1_shelf").getString("rows"), "同上")
 
             val text = WebArchiveHost.importStatusText(PickedArchive.Entries("fixture.zip", archive))
-            assertTrue(text.contains("落了 1 条"), text)
-            assertTrue(text.contains("3 个其他 files/ 条目未落地"), text)
+            assertTrue(text.contains("自建日程 1 条"), text)
+            assertTrue(text.contains("3 项网页版不支持"), text)
         } finally {
             clearCustomCourses()
         }

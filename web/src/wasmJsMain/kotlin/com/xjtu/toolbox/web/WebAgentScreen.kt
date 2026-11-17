@@ -50,21 +50,15 @@ internal fun WebAgentScreen(
     var reloadNonce by remember { mutableStateOf(0) }
     LaunchedEffect(session, reloadNonce) { host.reload() }
 
-    // 读到 serve 上的配置之前不画屏：否则默认值会被写回 serve 覆盖掉真实配置。
+    // 读到 serve 上的配置（GET /api/agent/config）之前不画屏：否则默认值会被写回 serve 覆盖掉真实配置。
     if (host.config == null) {
-        WebUnavailableScreen(
-            title = "小岱（Web 这一端）",
-            why = host.configError
-                ?: "正在读取运行 serve 的那台机器上的小岱配置（GET /api/agent/config）…",
-            missing = listOf(
-                "这一屏的模型调用 / 工具取数 / 会话与记忆 / API Key 全在 serve 那一侧",
-                "配置没读回来之前不画屏：拿默认值画出来的表单一保存就会把 serve 上的配置覆盖掉",
-            ),
-        ) {
-            Button(
-                onClick = { reloadNonce++ },
-                colors = ButtonDefaults.buttonColorsPrimary(),
-            ) { Text("重新读一次", color = MiuixTheme.colorScheme.onPrimary) }
+        WebUnavailableScreen(title = "小岱", why = host.configError ?: "正在加载…") {
+            if (host.configError != null) {
+                Button(
+                    onClick = { reloadNonce++ },
+                    colors = ButtonDefaults.buttonColorsPrimary(),
+                ) { Text("重试", color = MiuixTheme.colorScheme.onPrimary) }
+            }
         }
         return
     }

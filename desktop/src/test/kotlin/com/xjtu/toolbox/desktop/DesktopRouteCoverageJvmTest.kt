@@ -61,7 +61,7 @@ class DesktopRouteCoverageJvmTest {
         return branches
     }
 
-    /** 兜底那一支的原文（`else -> NotPortedScreen(route, onNavigate)`）。 */
+    /** 兜底那一支的原文（`else -> NotPortedScreen(onNavigate)`）。 */
     private fun hasNotPortedElse(): Boolean =
         Regex("""^\s*else\s*->\s*NotPortedScreen\(""", RegexOption.MULTILINE).containsMatchIn(desktopAppSource)
 

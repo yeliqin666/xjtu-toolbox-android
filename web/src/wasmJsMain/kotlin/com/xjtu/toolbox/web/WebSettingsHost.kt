@@ -90,13 +90,13 @@ private fun WebDataPrivacySection(archive: WebArchiveActions) {
     WebSettingsCard {
         ArrowPreference(
             title = "导出数据存档",
-            summary = "把本机数据打包成 zip 下载（不含密码等凭据）",
+            summary = "不含密码",
             startAction = { SettingsIcon(Icons.Default.Upload, SettingsColors.Teal) },
             onClick = { archive.export() },
         )
         ArrowPreference(
             title = "导入数据存档",
-            summary = "选一份 zip 档案读进来（先自校验，默认不覆盖本机数据）",
+            summary = "默认与现有数据合并",
             startAction = { SettingsIcon(Icons.Default.Download, SettingsColors.Blue) },
             onClick = {
                 archive.mode = ArchiveImportMode.MERGE

@@ -214,7 +214,7 @@ fun ProbeScreen() {
                         color = cs.primary,
                         fontSize = 12.sp,
                         modifier = Modifier.clickable {
-                            WebPwa.showTestNotification("西交工具箱", "这是一条测试通知（点它会把窗口拉到前台）。") { ok, why ->
+                            WebPwa.showTestNotification("岱宗盒子","这是一条测试通知（点它会把窗口拉到前台）。") { ok, why ->
                                 action = if (ok) "发出去了（点通知试试）" else "发不出去：$why"
                             }
                         },
