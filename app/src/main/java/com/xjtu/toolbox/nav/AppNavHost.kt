@@ -451,6 +451,11 @@ fun NavEntryBuilder.appPageEntries(
                     onFirstUseHintRead = { hintPrefs.edit().putBoolean("lms_hint_shown", true).apply() },
                     videoPlayer = AndroidVideoPlayerHost,
                     onAskAgent = { sendToPidai(it, router::open) },
+                    // 「去提交作业」：只开官方 h5 提交页，提交本身在学堂网页里做。走 App 内置浏览器，
+                    // 它会先把 App 的登录态 cookie（含统一认证的 TGC）注进 WebView，UA 也与 OkHttp
+                    // 同一串（TGC 绑定 UA）—— 和图书馆、教务那些站点的自动登录是同一条链路，
+                    // 所以到了 lms-h5 也是 SSO 直通，不用再输密码。
+                    onOpenUrl = { url -> router.open(AppRoute.Browser(url)) },
                 )
             }
         }
@@ -780,7 +785,9 @@ private fun siteKeyForHost(host: String): String = when {
     "ywtb.xjtu.edu.cn" in host || "workflow.xjtu.edu.cn" in host -> "ywtb"
     "ncard.xjtu.edu.cn" in host -> "campus_card"
     "kq.xjtu.edu.cn" in host -> "new_attendance"
-    "lms.xjtu.edu.cn" in host -> "lms"
+    // 学堂的移动端站点（作业提交页在那儿）。与 lms 同一个站点会话：不写这一条会落到 else 的
+    // 「jwxt」，虽然眼下两者都锁在 NORMAL backend、拿的是同一罐 cookie，但那是巧合不是语义。
+    "lms-h5.xjtu.edu.cn" in host || "lms.xjtu.edu.cn" in host -> "lms"
     "202.117.17.144" in host -> "venue"
     else -> "jwxt"
 }

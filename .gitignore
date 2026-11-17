@@ -88,3 +88,6 @@ miuix-ref/
 # Python Х└ Ф°╛О╪┬.github/scriptsО╪┴Е°╗ CI Д╦▌Ф°╛Ф°╨Х╥▒Х©┤Д╧▀Е░▌Д╪ Г∙≥Д╦▀Е╜≈Х┼┌Г═│Г╪⌠Е╜≤
 __pycache__/
 *.pyc
+
+# лА╫╩пео╒аый╠нд╪Чё╗╠╬╩З amend сцё╘
+.git-commit-msg.tmp

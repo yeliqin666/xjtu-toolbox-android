@@ -64,6 +64,12 @@ internal fun ActivityDetailPage(
     onOpenCourse: (() -> Unit)? = null,
     onTopicSelected: (LmsForumTopic) -> Unit = {},
     onAskAgent: ((com.xjtu.toolbox.agent.AgentForward) -> Unit)? = null,
+    /**
+     * 打开一个外部网页。作业的「提交」这一档只走学堂官方页面（h5），本 App 不自己实现提交
+     * （选附件、正文、点提交都在官方页里）：[LmsActivityDetail] 只负责把地址拼出来交给它。
+     * 没接浏览器那一层的端传 null，那个按钮就不出现。
+     */
+    onOpenUrl: ((String) -> Unit)? = null,
     onPlayVideo: (title: String, instructorUrl: String?, encoderUrl: String?, isLive: Boolean, headers: Map<String, String>, startInDual: Boolean) -> Unit
 ) {
     val authExpiry = LocalAuthExpiry.current
@@ -258,6 +264,21 @@ internal fun ActivityDetailPage(
                         // 作业信息 + 提交记录
                         if (d.type == LmsActivityType.HOMEWORK) {
                             item(key = "hw_meta") { HomeworkMetaCard(d) }
+
+                            // 「去提交作业」：只把学堂官方的 h5 提交页打开，本 App 不实现提交本身
+                            // （选附件、填正文、点提交都在官方页里）。活动已结束时不给这个入口 ——
+                            // 学堂自己在那一侧也会拒，画一个点了只会报错的按钮没有任何意义。
+                            val openUrl = onOpenUrl
+                            if (openUrl != null && !d.isClosed) {
+                                item(key = "hw_submit") {
+                                    OpenOfficialPageButton(
+                                        text = if (d.userSubmitCount > 0) "再交一次（学堂网页）" else "去提交作业",
+                                        source = source,
+                                        activity = d,
+                                        onOpenUrl = openUrl,
+                                    )
+                                }
+                            }
 
                             // 提交记录：那一块里有提交人的姓名与学号（红线）⇒ serve 形态拿不到
                             // （`submissionList` 恒 null）。此时**整块不画** —— 画「还没有提交记录」
@@ -727,15 +748,45 @@ private fun NoSubmissionCard(closed: Boolean) {
                 fontSize = 14.sp,
                 fontWeight = FontWeight.Medium,
             )
-            Spacer(Modifier.height(4.dp))
-            Text(
-                "提交请前往思源学堂网页端",
-                fontSize = 12.sp,
-                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-            )
         }
     }
 }
+
+/**
+ * 「去提交作业」：把学堂官方的 h5 提交页打开，提交本身在官方页里做。
+ *
+ * 地址里那个 committerId（个人作业 = 登录者 id）要现问一次 `/user/index`，所以**进页面时先问好**，
+ * 点击时全程同步 —— 一是点击里不该卡一下再跳，二是 `:web` 那端的 `window.open` 丢了用户手势会被
+ * 浏览器拦掉。问不到（或本端没有这个接口）就退回作业详情页：官方那页自己会给提交入口，
+ * 多一次点击，但不拿猜出来的号去拼一个 404。
+ */
+@Composable
+private fun OpenOfficialPageButton(
+    text: String,
+    source: LmsSource,
+    activity: LmsActivity,
+    onOpenUrl: (String) -> Unit,
+) {
+    // 分组作业的 committerId 就在详情里（groupId），只有个人作业才需要问这一次
+    var myUserId by remember(activity.id) { mutableStateOf<Int?>(null) }
+    LaunchedEffect(source, activity.id, activity.submitByGroup) {
+        myUserId = if (activity.submitByGroup) null else source.currentUserIdOrNull()
+    }
+
+    Button(
+        onClick = { onOpenUrl(lmsHomeworkSubmissionUrl(activity, myUserId)) },
+        colors = ButtonDefaults.buttonColorsPrimary(),
+        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+    ) {
+        Icon(Icons.Default.Upload, null, Modifier.size(18.dp), tint = MiuixTheme.colorScheme.onPrimary)
+        Spacer(Modifier.width(6.dp))
+        Text(text, color = MiuixTheme.colorScheme.onPrimary)
+    }
+}
+
+/** [LmsSource.currentUserId] 的「取不到就当没有」包装：拼地址这一步失败不该拦住页面。 */
+private suspend fun LmsSource.currentUserIdOrNull(): Int? =
+    runCatching { currentUserId() }.onFailure { Log.w(TAG, "currentUserId failed", it) }.getOrNull()
 /**
  * `"%.1f".format(x)` 的跨端等价（`java.util.Formatter` 是 JVM 专属，`:core` 还要编到 wasm ——
  * 与 `:data` 里 `LmsReplayVideo` 的 `oneDecimalMb` 同一条手写口径）。
