@@ -96,4 +96,14 @@ interface LmsCacheStore {
     suspend fun writeActivities(courseId: Int, activities: List<LmsActivity>)
     suspend fun readBulletins(courseId: Int): List<LmsBulletin>? = null
     suspend fun writeBulletins(courseId: Int, bulletins: List<LmsBulletin>) {}
+
+    /**
+     * 作业 id → 交过没有。
+     *
+     * 列表接口**不给** `user_submit_count`，只能一条作业一次请求去问详情（见
+     * `LmsSource.userSubmitCount`）。不落盘的话每次重进思源学堂都要重新问一遍：网一慢或某条
+     * 查询失败，「已提交」那几个字就整片消失，用户以为还要再交一次。所以查到的结论留一份。
+     */
+    suspend fun readSubmitted(): Map<Int, Boolean>? = null
+    suspend fun writeSubmitted(byId: Map<Int, Boolean>) {}
 }

@@ -97,8 +97,35 @@ internal class LmsPageCache(private val disk: LmsCacheStore?) {
     fun submitted(activity: LmsActivity): Boolean? =
         details[activity.id]?.let { it.userSubmitCount > 0 } ?: submittedById[activity.id]
 
+    /**
+     * 查过的「交没交」结论是否已经从盘上捞过一遍。
+     *
+     * 捞过一次就够了：盘上那份只做首屏兜底，之后 [syncSubmitted] 查到什么就以什么为准。
+     * 挪成字段而不是每次判空，是因为「一次都没查过」和「查过、盘上还没有」要分清——
+     * 后者不必反复去读盘。
+     */
+    private var submittedRestored = false
+
+    /**
+     * 首屏先把上次落盘的「交没交」捞出来。
+     *
+     * 列表接口不返回提交态，只能一条作业一次请求现查；重进思源学堂的那一刻，用户看到的
+     * 是**一片没有「已提交」的作业**，要等那串请求陆续回来才慢慢补齐，中间还会因为失败
+     * 而漏掉几条。所以查到的结论留一份在盘上，下次进来先按上次的结论画。
+     */
+    suspend fun restoreSubmitted() {
+        if (submittedRestored) return
+        submittedRestored = true
+        val saved = runCatching { disk?.readSubmitted() }.getOrNull().orEmpty()
+        if (saved.isNotEmpty()) {
+            // 本次进来已经现查到的（比如详情页看过）优先，别被盘上的旧结论盖掉
+            saved.forEach { (id, done) -> if (submittedById[id] == null) submittedById[id] = done }
+        }
+    }
+
     /** 并发查没查过的作业，查完一起写入，列表只重排一次；查失败的下次再查。 */
     suspend fun syncSubmitted(source: LmsSource, homework: List<LmsActivity>) {
+        restoreSubmitted()
         val todo = homework.filter { submitted(it) == null }
         if (todo.isEmpty()) return
         val gate = Semaphore(4)
@@ -109,6 +136,15 @@ internal class LmsPageCache(private val disk: LmsCacheStore?) {
             }.awaitAll().filterNotNull()
         }
         submittedById.putAll(found)
+        // **只落「已提交」的那几条**：没交的不必记，记了反而会在用户刚交完之后还显示成没交；
+        // 这里写整份而不是只写这一批，免得小批量把别的课查到的结论覆盖掉。
+        //
+        // 不走下面那个 `writeSafe`：它收的是非挂起 lambda，而 `writeSubmitted` 是挂起的
+        // （各端自己包 IO，wasm 没有 IO 调度器），写在里面编不过。
+        if (found.any { it.second }) {
+            runCatching { disk?.writeSubmitted(submittedById.filterValues { it }) }
+                .onFailure { Log.w("LmsPageCache", "write lms submitted failed", it) }
+        }
     }
 
     /** 本学期各课还没截止的作业（课 id → 按截止排好）；null = 还没扫。交没交由 [submitted] 现查，交完返回即更新。 */
@@ -207,6 +243,12 @@ fun LmsScreen(
      * 没接浏览器那一层的端传 null，按钮不出现（桌面端就是这样，它只把地址交给系统浏览器）。
      */
     onOpenUrl: ((String) -> Unit)? = null,
+    /**
+     * 已下载文件的登记表（与「我的-下载管理」同一份）。给了它，附件卡就能判断「这份资料是不是
+     * 已经下过了」：下过且文件相同就不再重复下载，点一下直接打开（打开走下载管理那同一条路）。
+     * `null` = 本端没有登记表 ⇒ 与以前一样：点了就下。
+     */
+    files: com.xjtu.toolbox.media.DownloadedFilesHost? = null,
     /** 视频播放槽位：`:app` 传 ExoPlayer 全屏页，桌面交给系统播放器；都不传时给一句说明页。 */
     videoPlayer: VideoPlayerHost? = null,
 ) {
@@ -402,6 +444,7 @@ fun LmsScreen(
                 onTopicSelected = { topic -> currentPage = LmsPage.ForumTopicDetail(page.course, page.activity, topic) },
                 onAskAgent = onAskAgent,
                 onOpenUrl = onOpenUrl,
+                files = files,
                 onPlayVideo = { title, instrUrl, encUrl, isLive, headers, startInDual ->
                     currentPage = LmsPage.VideoPlayer(
                         title = title,

@@ -129,6 +129,9 @@ internal fun ActivityListPage(
     // 只看作业时（筛了「作业」，或这门课只有作业且当前全览）补查提交态，交过的沉底
     val selectedActivityType = (filter as? CourseContentFilter.Activity)?.type
     val homeworkOnly = (selectedActivityType ?: types.singleOrNull()) == LmsActivityType.HOMEWORK
+    // 提交态先按上次落盘的结论画上：联网那串逐条查询要几秒，中间不该是一片「没交过」。
+    // 只读盘，不发请求 —— 现查仍走下面那条 homeworkOnly 的分支。
+    LaunchedEffect(Unit) { cache.restoreSubmitted() }
     LaunchedEffect(homeworkOnly, activities) {
         if (homeworkOnly) cache.syncSubmitted(source, activities.filter { it.type == LmsActivityType.HOMEWORK })
     }
