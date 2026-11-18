@@ -1,0 +1,53 @@
+name: Handle discussion commands
+
+# 监听 Discussion 新评论里的命令，统一入口：
+#
+#   /toissue <type> <priority> [flags] [assignee]
+#     type     bug / feature
+#     priority 0 / 1 / 2 / 3
+#     flags    q 加 Question；t 把 Awaiting Assignment 换成 Awaiting Triage
+#     assignee @用户名，可省略；指定后状态标签用 In Progress（t 优先）
+#     顶层回复默认转换讨论主帖，楼中楼默认转换父评论（replyTo）。
+#     命令后空一行写 `## 标题`，再空一行写正文时，用这段内容作为 issue；
+#     没有 `## 标题` 时忽略后面的文字，回退到默认来源。
+#     已转换过的来源会在 issue 正文里留隐藏标记，重复命令只更新/回链，不会重复建 issue。
+#
+#   /attachcomment <issue_no>
+#     issue_no 必填，`#123` 或 `GH-123`；把内容以评论形式附加到已有 issue。
+#     顶层回复附加主帖（`## 标题` + 正文）；楼中楼附加被回复的评论。
+#     命令后空一行写的内容（details）覆盖默认来源；楼中楼 details 开头的
+#     自动引用块会去掉，没有 details 时命令开头的引用块当作附加内容。
+#
+# 只有仓库 write / maintain / admin 权限的作者会触发；权限不足静默跳过。
+# GitHub 不允许回复楼中楼，所以对楼中楼命令的回复会落在同一线程顶层，并引用具体评论。
+# 命令要求单独占一行（行首可有空格）；引用行（>）和围栏代码块里的不算。
+# 注意：discussion_comment 事件只认默认分支上的 workflow，改动要先合到 main。
+
+on:
+  discussion_comment:
+    types: [created]
+
+# 读取讨论、创建/更新 issue、回帖都需要写权限。
+permissions:
+  contents: read
+  discussions: write
+  issues: write
+
+# 同一讨论内的命令串行处理，避免同一来源并发创建两个 issue。
+concurrency:
+  group: discussion-commands-${{ github.event.discussion.number }}
+  cancel-in-progress: false
+
+jobs:
+  commands:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Handle command
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          COMMENT_NODE_ID: ${{ github.event.comment.node_id }}
+        run: python3 .github/scripts/discussion_commands.py
