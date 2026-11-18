@@ -36,13 +36,7 @@ internal data class SmartWidgetScene(
     val route: AppRoute,
     val status: String? = null,
     val statusColor: Int? = null,
-    /**
-     * 这一屏显示的结论**还会自己变**：正在等用户刷卡。
-     *
-     * 为真时卡片每 [SmartWidgetUpdater.ATTENDANCE_RETRY_MIN] 分钟回来重画一次，
-     * 而不是只在场景边界时刻画 —— 否则刷上了也要等下课才看得见。
-     */
-    val needsWatching: Boolean = false,
+
     /**
      * 这个结论是什么时候的事实（`刚刚查过` / `3 分钟前查过` / `还未查询`）。
      *
@@ -51,12 +45,11 @@ internal data class SmartWidgetScene(
      */
     val meta: String? = null,
     /**
-     * 这一屏要求的自查间隔（分钟）；null = 不必再自查。
+     * 这一屏的考勤结论只是**按本机数据/时钟推出来的**，不是学校写下的定论。
      *
-     * 分档是有道理的：课前十分钟起人陆续到楼下，那段时间答案随时会变，问得稀了就白等；
-     * 而上课五六分钟之后还没刷上基本已成定局，再一分钟问一次只是白耗电、白打学校接口。
+     * 用在两处：点上「刷新」后显示「正在查询…」；以及让人知道这句话随时可能被学校那条记录推翻。
      */
-    val pollMinutes: Int? = null,
+    val statusIsGuess: Boolean = false,
 )
 
 /**
@@ -68,13 +61,7 @@ internal data class AttendanceOutcome(
     val color: Int,
     /** 学校已经写下结论（正常/迟到/缺勤/请假）：这条不会再变了。 */
     val recorded: Boolean,
-    /**
-     * 还值得再问一次学校。
-     *
-     * 只有「压根还没刷」才为真 —— 那时答案随时会变，得让后台自己去问。
-     * 已经刷上了（只差结算）就不再空转：结算往往要到下课后，为它五分钟问一次不值当。
-     */
-    val watch: Boolean,
+
     /** 结论的时效说明；[recorded] 为真时不需要（有记录就是定论）。 */
     private val pendingMeta: String? = null,
 ) {
@@ -126,22 +113,7 @@ object SmartWidgetUpdater {
     /** 上课后多少分钟还没记录就按「迟到」提示。学校刷卡有延迟，留五分钟。 */
     private const val LATE_AFTER_MIN = 5
 
-    /**
-     * 上课窗口内、还没刷上时的自查间隔。
-     *
-     * 这一段是唯一「本机数据还会自己变」的场合：人正在楼里刷卡，学校那边几分钟内就会写出流水。
-     * 不主动回来看，卡片就只能停在「待考勤」到下课 —— 而这段时间恰恰是还来得及补刷的窗口。
-     */
-    private const val ATTENDANCE_RETRY_MIN = 5
 
-    /** 课前这么久开始自查（再早就没必要问了：那会儿教学楼下还没人刷卡）。 */
-    private const val POLL_FROM_BEFORE_MIN = 10
-
-    /** 课前这么久起进入「高频档」。 */
-    private const val POLL_HOT_BEFORE_MIN = 5
-
-    /** 上课后这么久起退出「高频档」。 */
-    private const val POLL_HOT_AFTER_MIN = 5
 
     /** 早、午、晚饭的窗口（距 00:00 的分钟）。 */
     private val MEALS = listOf(
@@ -178,7 +150,7 @@ object SmartWidgetUpdater {
         )
         // 「正在查询…」只在真正答不上来的那一屏上顶替时效文案：用户点了刷新要能看到反应，
         // 但不能把「已打卡 · 正常」这种实打实的结论也换成在查。
-        val scene = if (querying && built.pollMinutes != null) built.copy(meta = "正在查询…") else built
+        val scene = if (querying && built.statusIsGuess) built.copy(meta = "正在查询…") else built
         val launch = Intent(context, MainActivity::class.java).apply {
             putExtra(MainActivity.EXTRA_LAUNCH_ROUTE, scene.route.id)
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
@@ -210,19 +182,11 @@ object SmartWidgetUpdater {
             views.setOnClickPendingIntent(R.id.widget_smart_refresh, refreshNowIntent(context))
             manager.updateAppWidget(id, views)
         }
-        // 这一屏答不上来（还没刷上/只有刷卡没结算）：让后台自己去问学校一次。
-        // 学校没有推送，这是唯一能让卡片「不点也对」的办法。两道门都过才问：
-        // ① 屏幕亮着（熄屏时没人看，一次都不该问）；② Worker 里按档节流。
-        if (scene.needsWatching && runCatching { WidgetVisibility.isLikelyVisible(context) }.getOrDefault(true)) {
-            runCatching { AttendanceWidgetSync.requestSync(context, scene.pollMinutes) }
-        }
-        // 上课窗口内还没刷上：这一屏是「等他去补刷」的，必须自己回来看一眼。
-        // 只靠场景边界重画的话，刷上了也要等到下课才变 —— 那时早就被记迟到了。
-        scheduleNext(
-            context, courses, now,
-            retryWhileInClass = scene.needsWatching,
-            pollMinutes = scene.pollMinutes,
-        )
+        // 这里**不做任何联网自查**（2026-11-18 定）：学校没有推送，只能靠问，而问就是一次次
+        // 登录/请求；一节课几分钟一轮，全天纯属白耗电、白打学校接口。改成用户点卡片上的
+        // 「刷新」才查（见 SmartWidgetProvider.onReceive 的 ACTION_REFRESH_NOW）。
+        // 卡片照旧只在场景边界重画 —— 那是原本就有的行为，本地渲染，不联网。
+        scheduleNext(context, courses, now)
     }
 
     /**
@@ -281,10 +245,9 @@ object SmartWidgetUpdater {
                 route = AppRoute.Attendance,
                 status = outcome.text,
                 statusColor = outcome.color,
-                // 还没记录 = 这个结论随时会被学校那条记录推翻，得自己回来重画
-                needsWatching = outcome.watch,
+                // 这一行是推断（不是学校写下的结论）：卡片据此标注时效、并在点刷新时显示「正在查询」
                 meta = outcome.meta(checkedAgoMin),
-                pollMinutes = if (outcome.watch) attendancePollInterval(inClass, nowMinute) else null,
+                statusIsGuess = !outcome.recorded,
             )
         }
         MEALS.firstOrNull { (_, start, end) -> nowMinute in start until end }?.let { (label, _, _) ->
@@ -338,7 +301,7 @@ object SmartWidgetUpdater {
                 // 未识别的状态码不冒充正常，也不吓人，原样说「有记录」
                 WaterType.UNKNOWN -> "已打卡 · 状态未知" to COLOR_LEAVE
             }
-            return AttendanceOutcome(text, color, recorded = true, watch = false)
+            return AttendanceOutcome(text, color, recorded = true)
         }
 
         // 考勤结果还没结算，但**刷卡流水是实时的**：这段时间里刷过卡，就照实说「已刷卡」，
@@ -352,37 +315,14 @@ object SmartWidgetUpdater {
                 text = "已刷卡 · 待结算",
                 color = COLOR_NORMAL,
                 recorded = false,
-                // 已经刷上了，只差结算：不再五分钟问一次（结算往往要到下课后）
-                watch = false,
                 pendingMeta = "刷卡 ${swipeInThisClass.clock}",
             )
         }
 
         // 这一格还没有记录：按此刻距上课多久给一个即时结论
         val lateAt = course.startMinute + LATE_AFTER_MIN
-        return if (nowMinute < lateAt) AttendanceOutcome("待考勤", COLOR_PENDING, recorded = false, watch = true)
-        else AttendanceOutcome("迟到 · 还没刷上", COLOR_LATE, recorded = false, watch = true)
-    }
-
-    /**
-     * 这一节该多久自查一次（分钟）；null = 现在不必查。
-     *
-     * 分档按用户 2026-11-18 的要求定：
-     * - 课前 [POLL_FROM_BEFORE_MIN] 分钟起：每 2 分钟（人陆续到楼下，答案开始会变）
-     * - 课前 [POLL_HOT_BEFORE_MIN] 分钟 ～ 上课后 [POLL_HOT_AFTER_MIN] 分钟：**每 1 分钟**
-     *   （刷卡高峰，也是唯一还来得及补刷的窗口）
-     * - 之后到下课：退回每 [ATTENDANCE_RETRY_MIN] 分钟（已成定局，只为发现补刷）
-     * - 下课之后这一屏就不显示考勤了，不再自查
-     */
-    internal fun attendancePollInterval(course: WidgetCourse, nowMinute: Int): Int? {
-        val fromStart = nowMinute - course.startMinute // 负数 = 还没上课
-        return when {
-            fromStart < -POLL_FROM_BEFORE_MIN -> null
-            fromStart < -POLL_HOT_BEFORE_MIN -> 2
-            fromStart <= POLL_HOT_AFTER_MIN -> 1
-            nowMinute < course.endMinute -> ATTENDANCE_RETRY_MIN
-            else -> null
-        }
+        return if (nowMinute < lateAt) AttendanceOutcome("待考勤", COLOR_PENDING, recorded = false)
+        else AttendanceOutcome("迟到 · 还没刷上", COLOR_LATE, recorded = false)
     }
 
     /**
@@ -392,54 +332,24 @@ object SmartWidgetUpdater {
      * 少了「上课后 5 分钟」这一条，卡片就会一直停在「待考勤」：系统只在边界时刻重画，
      * 而准时上课的人根本收不到那条迟到提醒——偏偏那是这张卡片最有用的信息。
      *
-     * @param retryWhileInClass 这一屏在等学校写出记录（见 [SmartWidgetScene.needsWatching]）。
-     * @param pollMinutes 这一屏要求的自查间隔；比下一个场景边界更近时以它为准 ——
-     *   否则「刷上了」这个变化要等到下课才看得见。
      */
     private fun scheduleNext(
         context: Context,
         courses: List<WidgetCourse>,
         now: LocalDateTime,
-        retryWhileInClass: Boolean = false,
-        pollMinutes: Int? = null,
     ) {
         val nowMinute = now.hour * 60 + now.minute
         val boundaries = courses.flatMap {
             listOf(it.startMinute - CLASS_LEAD_MIN, it.startMinute, it.startMinute + LATE_AFTER_MIN, it.endMinute)
         } + MEALS.flatMap { listOf(it.second, it.third) }
-        val nextBoundary = boundaries.filter { it > nowMinute }.minOrNull()
-        val step = when {
-            retryWhileInClass -> pollMinutes ?: ATTENDANCE_RETRY_MIN
-            else -> null
-        }
-        val at = when {
-            // 自查按**绝对时间网格**对齐（1/2/5 分钟都是 60 的约数）：同一分钟里算几次都得到
-            // 同一个时刻，于是卡片重画得再频繁也不会把自查时刻一路往后推——不需要额外记状态。
-            step != null -> {
-                val grid = ((nowMinute / step) + 1) * step
-                val target = if (nextBoundary != null && nextBoundary in (nowMinute + 1) until grid) {
-                    // 场景边界更早：那一刻的信息更关键，醒来一起处理
-                    nextBoundary
-                } else {
-                    grid
-                }
-                now.toLocalDate().atStartOfDay().plusMinutes(target.toLong())
-            }
-            nextBoundary != null -> now.toLocalDate().atStartOfDay().plusMinutes(nextBoundary.toLong())
-            else -> now.toLocalDate().plusDays(1).atStartOfDay()
-        }
+        val at = boundaries.filter { it > nowMinute }.minOrNull()
+            ?.let { now.toLocalDate().atStartOfDay().plusMinutes(it.toLong()) }
+            ?: now.toLocalDate().plusDays(1).atStartOfDay()
         val millis = at.atZone(CampusZoneId).toInstant().toEpochMilli()
-        val alarms = context.getSystemService(AlarmManager::class.java) ?: return
-        // 一分钟粒度必须走精确闹钟；没授权（用户撤了「闹钟和提醒」）就退回系统窗口，
-        // 那时候只能接受晚几分钟 —— 反正卡片上有「N 分钟前查过」把时效说清楚。
-        if (step != null && alarms.canScheduleExactAlarms()) {
-            runCatching { alarms.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, millis, refreshIntent(context)) }
-                .onFailure { alarms.setWindow(AlarmManager.RTC, millis, 2 * 60_000L, refreshIntent(context)) }
-        } else {
-            alarms.setWindow(AlarmManager.RTC, millis, 2 * 60_000L, refreshIntent(context))
-        }
+        // 非精准闹钟就够：场景切换晚一两分钟无妨，不必为此申请精准闹钟权限
+        context.getSystemService(AlarmManager::class.java)
+            ?.setWindow(AlarmManager.RTC, millis, 2 * 60_000L, refreshIntent(context))
     }
-
     internal fun cancel(context: Context) {
         context.getSystemService(AlarmManager::class.java)?.cancel(refreshIntent(context))
     }
@@ -502,7 +412,7 @@ class SmartWidgetProvider : AppWidgetProvider() {
             // 点了卡片上的「刷新」：先把「正在查询…」挂上让人看见反应，再绕过节流去问一次
             SmartWidgetUpdater.ACTION_REFRESH_NOW -> {
                 AttendanceWidgetSync.markQuerying(context)
-                AttendanceWidgetSync.requestSync(context, force = true)
+                AttendanceWidgetSync.requestSync(context)
                 updateAsync(context) {
                     AppWidgetManager.getInstance(context).getAppWidgetIds(ComponentName(context, SmartWidgetProvider::class.java))
                 }

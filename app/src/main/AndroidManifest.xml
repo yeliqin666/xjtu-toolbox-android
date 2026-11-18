@@ -239,16 +239,7 @@
             </intent-filter>
         </receiver>
 
-        <!-- 亮屏/灭屏/解锁：智能卡片据此决定要不要自查考勤（没人看桌面时一次都不查）。 -->
-        <receiver
-            android:name=".widget.ScreenStateReceiver"
-            android:exported="false">
-            <intent-filter>
-                <action android:name="android.intent.action.SCREEN_ON" />
-                <action android:name="android.intent.action.SCREEN_OFF" />
-                <action android:name="android.intent.action.USER_PRESENT" />
-            </intent-filter>
-        </receiver>
+
 
         <service
             android:name=".agent.AgentGenerationService"

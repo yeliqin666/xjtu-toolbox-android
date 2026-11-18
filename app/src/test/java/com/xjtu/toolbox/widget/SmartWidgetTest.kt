@@ -110,14 +110,13 @@ class SmartWidgetTest {
     }
 
     @Test
-    fun `只有真的记录才不需要再盯着看`() {
-        // 没记录 = 结论随时会被学校那条记录推翻，卡片要自己回来看一眼
-        assertTrue("待考勤要盯着", scene(10 * 60 + 1, null).needsWatching)
-        assertTrue("迟到·还没刷上更要盯着", scene(10 * 60 + 6, null).needsWatching)
-        assertFalse("有记录就不必再回来", scene(10 * 60 + 10, marks(WaterType.NORMAL)).needsWatching)
-        assertFalse("请假也是定论", scene(10 * 60 + 10, marks(WaterType.LEAVE)).needsWatching)
-        // 不是上课那一屏就没有「等他刷卡」这回事
-        assertFalse("别的场景不用盯", scene(9 * 60 + 30, marks(WaterType.NORMAL)).needsWatching)
+    fun `只有学校写下的结论才算定论`() {
+        // 没记录时那句话是推断（「待考勤」/「迟到 · 还没刷上」），点刷新要显示「正在查询…」
+        assertTrue("待考勤是推断", scene(10 * 60 + 1, null).statusIsGuess)
+        assertTrue("迟到·还没刷上也是推断", scene(10 * 60 + 6, null).statusIsGuess)
+        // 学校给了结论就是定论，不用再标时效
+        assertFalse("正常是定论", scene(10 * 60 + 10, marks(WaterType.NORMAL)).statusIsGuess)
+        assertFalse("请假是定论", scene(10 * 60 + 10, marks(WaterType.LEAVE)).statusIsGuess)
     }
 
     @Test
@@ -127,7 +126,7 @@ class SmartWidgetTest {
         val s = scene(10 * 60 + 6, attendance = null, swipe = swipe)
         assertEquals("已刷卡 · 待结算", s.status)
         assertEquals("要如实说这是刷卡时刻，不是「刚刚查过」", "刷卡 09:58", s.meta)
-        assertFalse("已经刷上了，只差结算，不必再五分钟问一次", s.needsWatching)
+        assertTrue("刷卡已记录也是「还没结算」的推断，点刷新能再看一次", s.statusIsGuess)
     }
 
     @Test
@@ -158,24 +157,5 @@ class SmartWidgetTest {
         assertNull(minuteOfDay(""))
         assertNull(minuteOfDay("乱麻"))
         assertNull(minuteOfDay("99:99"))
-    }
-
-    @Test
-    fun `自查分档：课前十分钟起两分钟一次，课前五到上课后五一分钟一次`() {
-        // 这门课 10:00 开始、11:40 下课
-        val start = 10 * 60
-        // 课前 20～10 分钟：还不必问（人还没到楼下）
-        assertNull(SmartWidgetUpdater.attendancePollInterval(course, start - 12))
-        // 课前 10 分钟起：每 2 分钟
-        assertEquals(2, SmartWidgetUpdater.attendancePollInterval(course, start - 10))
-        assertEquals(2, SmartWidgetUpdater.attendancePollInterval(course, start - 6))
-        // 课前 5 分钟 ～ 上课后 5 分钟：刷卡高峰，每 1 分钟
-        assertEquals(1, SmartWidgetUpdater.attendancePollInterval(course, start - 5))
-        assertEquals(1, SmartWidgetUpdater.attendancePollInterval(course, start))
-        assertEquals(1, SmartWidgetUpdater.attendancePollInterval(course, start + 5))
-        // 之后到下课：已成定局，退回 5 分钟（只为发现补刷）
-        assertEquals(5, SmartWidgetUpdater.attendancePollInterval(course, start + 6))
-        // 下课之后这一屏不再显示考勤，也不该再查
-        assertNull(SmartWidgetUpdater.attendancePollInterval(course, course.endMinute))
     }
 }

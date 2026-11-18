@@ -6,7 +6,6 @@ import androidx.work.ExistingWorkPolicy
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
-import androidx.work.workDataOf
 import com.xjtu.toolbox.account.AccountContext
 import com.xjtu.toolbox.account.AccountStore
 import com.xjtu.toolbox.account.restoreIfNeeded
@@ -21,8 +20,8 @@ import com.xjtu.toolbox.util.todayOnCampus
 
 private const val TAG = "AttendanceSync"
 
-/** 没人指定间隔时的兜底节流（比如首页那种不着急的场合）。 */
-private const val DEFAULT_INTERVAL_MS = 4L * 60 * 1000
+/** 连点两下刷新的防抖：一次查询要几秒，别让它排成队。 */
+private const val RAPID_TAP_MS = 8_000L
 
 /** 「正在查询」这个提示最多挂多久：Worker 被系统掐掉时别让卡片永远显示在查。 */
 private const val QUERYING_WINDOW_MS = 90_000L
@@ -47,27 +46,21 @@ internal data class LocalSwipe(
     val location: String = "",
 ) {
     /** `14:14`，直接画在卡片上。 */
-    val clock: String get() = "%02d:%02d".format(minuteOfDay / 60, minuteOfDay % 60)
+    val clock: String = "%02d:%02d".format(minuteOfDay / 60, minuteOfDay % 60)
 }
 
 /**
- * 智能卡片的考勤自查：**不点开 App 也要能变对**。
+ * 智能卡片的考勤取数：**只在用户点「刷新」时才去问学校**。
  *
- * 为什么只能靠轮询：学校那边**没有推送**，它不会告诉我们"这人刷卡了"，
- * 所以「注册一个事件监听签到成功」这种事在这个系统上无从挂起。
+ * 走过一次自动轮询，结论是不做（2026-11-18 定）：学校那边没有推送，只能靠问，而问就是
+ * 一次次登录/请求 —— 一节课几分钟一轮，全天下来纯属白耗电和白打学校接口。改成按需：
  *
- * 但可以问得比读考勤结果聪明得多：**刷卡流水（[AttendanceApi.getStreams]）是实时的**，
- * 而考勤结果要等老师/系统结算，后者往往要到下课后才有。于是：
- *
- * - 只在**上课前后那一段**才问（见 `SmartWidgetUpdater.attendancePollInterval` 的分档），
- *   一节课最多十几次；这节课已经有记录、或者已经问到刷卡之后就不再问；
- * - 每次成功查询都记下时刻，卡片上如实写出「N 分钟前查过」——**卡片说的是哪一刻的状态，
- *   用户一眼能看见**。宁可显得旧，也不假装是此刻的事实；
- * - 卡片上另有一个「刷新」按钮：用户想立刻知道时点一下，**不打开 App**，
- *   走 [requestSync] 的 force 分支绕过节流。
- *
- * 轮询走 WorkManager（[AttendanceSyncWorker]）+ [HeadlessSessions]（静默，撞上短信验证就
- * 放弃这一轮），不占小组件那十几秒的 goAsync 预算，也不弹任何界面。
+ * - 卡片右下角「刷新」→ [requestSync] → 后台问一次 → 重画卡片，**全程不打开 App**；
+ * - 除此之外，只有原本就有的那些触发点（切到考勤页、切到校园卡、换包/改时间等）会重画卡片，
+ *   它们本来就存在，这里不做任何删改；
+ * - 拿到的刷卡事实会落在本机，卡片据此说「已刷卡 · 待结算」并标出刷卡时刻；
+ * - 卡片上那行小字如实写「N 分钟前查过 / 还未查询过」，**说的就是哪一刻的事实**，
+ *   不假装是此刻 —— 不自动刷新的前提下，这一点比什么都重要。
  */
 internal object AttendanceWidgetSync {
 
@@ -83,32 +76,23 @@ internal object AttendanceWidgetSync {
         return LocalSwipe(minute, p.getString(KEY_SWIPE_LOCATION, null).orEmpty())
     }
 
-    /** 正在后台查（点了刷新按钮之后那一小会儿）。 */
+    /** 正在后台查（点了刷新之后那一小会儿）。 */
     fun isQuerying(context: Context): Boolean =
         System.currentTimeMillis() < syncPrefs(context).getLong(KEY_QUERYING_UNTIL, 0L)
 
     /**
-     * 请后台去问一次。
+     * 去问一次学校（用户点了「刷新」）。
      *
-     * 用 KEEP 而不是 REPLACE：同一时刻只排一个任务，系统频繁拉起小组件时不会排出一队来。
-     * 这里先挡一道节流：Worker 查完会反过来重画卡片，卡片又可能再叫一次 ——
-     * 不挡的话就是「重画 → 排队 → 空跑 → 再重画」的无谓循环（Worker 里那道是兜底）。
-     *
-     * @param pollMinutes 这一屏要求的自查间隔（见 `SmartWidgetUpdater.attendancePollInterval`）；
-     *   null 用兜底间隔。
-     * @param force 用户点了卡片上的「刷新」：绕过节流、立刻去问。
+     * 用 KEEP 而不是 REPLACE：连点两下也只排一个任务；[RAPID_TAP_MS] 内重复点直接忽略。
      */
-    fun requestSync(context: Context, pollMinutes: Int? = null, force: Boolean = false) {
-        val intervalMs = pollMinutes?.let { it * 60_000L } ?: DEFAULT_INTERVAL_MS
-        val since = System.currentTimeMillis() - lastCheckAt(context)
-        if (!force && since < throttleMs(intervalMs)) return
+    fun requestSync(context: Context) {
+        val now = System.currentTimeMillis()
+        if (now - lastCheckAt(context) < RAPID_TAP_MS && isQuerying(context)) return
         runCatching {
             WorkManager.getInstance(context.applicationContext).enqueueUniqueWork(
                 "attendance_widget_sync",
                 ExistingWorkPolicy.KEEP,
-                OneTimeWorkRequestBuilder<AttendanceSyncWorker>()
-                    .setInputData(workDataOf("interval_ms" to intervalMs, "force" to force))
-                    .build(),
+                OneTimeWorkRequestBuilder<AttendanceSyncWorker>().build(),
             )
         }.onFailure { Log.w(TAG, "排不上自查任务", it) }
     }
@@ -123,13 +107,6 @@ internal object AttendanceWidgetSync {
     internal fun clearQuerying(context: Context) {
         syncPrefs(context).edit().remove(KEY_QUERYING_UNTIL).apply()
     }
-
-    /**
-     * 节流要比间隔略短一点：闹钟可能正好在间隔那一秒醒来，
-     * 严格相等就会把这一次判成"太近"而白跑一趟。
-     */
-    internal fun throttleMs(intervalMs: Long): Long =
-        (intervalMs - 15_000L).coerceAtLeast(30_000L)
 }
 
 /**
@@ -154,15 +131,7 @@ class AttendanceSyncWorker(context: Context, params: WorkerParameters) :
         // 没配账号 / 没密码就别折腾：后台没法弹登录
         if (!HeadlessSessions.hasAccount()) return Result.success()
 
-        val intervalMs = inputData.getLong("interval_ms", DEFAULT_INTERVAL_MS)
-        val force = inputData.getBoolean("force", false)
         val now = System.currentTimeMillis()
-        // 离上次成功查询太近就不问了（系统可能在几分钟内反复拉起小组件）。
-        // 用户主动点刷新（force）时例外：那一刻就是要立刻知道。
-        if (!force && now - AttendanceWidgetSync.lastCheckAt(context) < AttendanceWidgetSync.throttleMs(intervalMs)) {
-            return Result.success()
-        }
-
         val day = todayOnCampus().toString()
         val site = runCatching { HeadlessSessions.site(LoginType.ATTENDANCE) }.getOrNull()
             ?: return Result.success()
@@ -188,7 +157,7 @@ class AttendanceSyncWorker(context: Context, params: WorkerParameters) :
         // 只有真的问到了才推进这个时刻：拉取失败时卡片不该显示「刚刚查过」
         editor.putLong(KEY_LAST_CHECK, now).apply()
 
-        Log.d(TAG, "自查完成：今日有效刷卡 ${effective.size} 条，最新 ${latest?.collectTime}")
+        Log.d(TAG, "刷新完成：今日有效刷卡 ${effective.size} 条，最新 ${latest?.collectTime}")
 
         // 顺手把今天的考勤结果补一次：结算出来了就让卡片换成「已打卡 · 正常/迟到」
         refreshTodayResult(site, day)
