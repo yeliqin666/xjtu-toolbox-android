@@ -50,11 +50,15 @@ object SmartWidgetUpdater {
     const val ACTION_REFRESH = "com.xjtu.toolbox.widget.ACTION_REFRESH_SMART_WIDGET"
     private const val CLASS_LEAD_MIN = 20
 
-    // 考勤状态的语义色：和课表格子上的角标同一套（缺勤红、迟到黄、请假灰、正常用主题蓝偏深的那支）
+    // 考勤状态的语义色：和课表格子上的角标同一套（缺勤红、迟到黄、请假灰、正常蓝）
     private const val COLOR_NORMAL = 0xFF2E6BE6.toInt()
     private const val COLOR_LATE = 0xFFF5A524.toInt()
     private const val COLOR_ABSENT = 0xFFE5484D.toInt()
     private const val COLOR_LEAVE = 0xFF8A9099.toInt()
+    private const val COLOR_PENDING = 0xFF8A9099.toInt()
+
+    /** 上课后多少分钟还没记录就按「迟到」提示。学校刷卡有延迟，留五分钟。 */
+    private const val LATE_AFTER_MIN = 5
 
     /** 早、午、晚饭的窗口（距 00:00 的分钟）。 */
     private val MEALS = listOf(
@@ -73,16 +77,12 @@ object SmartWidgetUpdater {
         val now = LocalDateTime.now(CampusZoneId)
         val nowMinute = now.hour * 60 + now.minute
         val courses = runCatching { ScheduleWidgetUpdater.todayCourses(context) }.getOrDefault(emptyList())
-        // 今天第几周 + 星期几：考勤索引按「周次 + 星期 + 节次」这一格取
-        val week = runCatching { ScheduleWidgetUpdater.todayTermAndWeek(context) }.getOrNull()?.second ?: 0
-        val dayOfWeek = now.dayOfWeek.value
         val scene = sceneOf(
             courses = courses,
             nowMinute = nowMinute,
             balance = balanceText(context),
             attendance = runCatching { todayAttendance(context) }.getOrNull(),
-            week = week,
-            dayOfWeek = dayOfWeek,
+            date = now.toLocalDate().toString(),
         )
         val launch = Intent(context, MainActivity::class.java).apply {
             putExtra(MainActivity.EXTRA_LAUNCH_ROUTE, scene.route.id)
@@ -112,40 +112,49 @@ object SmartWidgetUpdater {
     }
 
     /**
-     * 今天这一格上的考勤索引。
+     * 这一学期落在本机的考勤索引。
      *
      * 读的是考勤流水落在本机的那份（[AttendanceRecordStore]），也就是课表格子角标用的同一份数据。
      * **卡片里绝不登录考勤站点**：小组件会随桌面反复刷新、还会被系统在后台拉起，
      * 为此反复登录既慢又容易被判异常访问。
      *
-     * @return 拿不到落盘缓存时返回 null（卡片就当「还没记录」）。
+     * 账号类型必须现问 [AccountStore]：小组件进程是被系统拉起的，[restoreIfNeeded] 只补了
+     * `activeAccountId`，`activeAccountType` 还是默认的「本科」——研究生会去读本科那份分片，
+     * 永远读不到自己的记录，表现同样是「考勤未记录」。
+     *
+     * @return 拿不到落盘缓存时返回 null。
      */
     internal fun todayAttendance(context: Context): SlotAttendanceMarks? {
-        val (termCode, _) = ScheduleWidgetUpdater.todayTermAndWeek(context) ?: return null
-        val postgraduate = com.xjtu.toolbox.account.AccountContext.activeAccountType ==
-            com.xjtu.toolbox.auth.AccountType.POSTGRADUATE
-        val shard = AttendanceRecordStore.load(postgraduate, termCode) ?: return null
+        val termCode = ScheduleWidgetUpdater.currentTermCode(context) ?: return null
+        val account = com.xjtu.toolbox.account.AccountContext.activeAccountId
+            ?: com.xjtu.toolbox.account.AccountStore().activeAccountId()
+        val postgraduate = runCatching {
+            com.xjtu.toolbox.account.AccountStore().activeAccount()?.accountType ==
+                com.xjtu.toolbox.auth.AccountType.POSTGRADUATE
+        }.getOrDefault(
+            com.xjtu.toolbox.account.AccountContext.activeAccountType ==
+                com.xjtu.toolbox.auth.AccountType.POSTGRADUATE,
+        )
+        val shard = AttendanceRecordStore.load(postgraduate, termCode, account) ?: return null
         return attendanceMarksOf(shard.records)
     }
 
     /**
-     * @param attendance 今天这一天的考勤索引；null = 本机还没有记录（卡片写「考勤未记录」）。
-     * @param week 今天属于第几周；0 = 算不出来，这时不查考勤。
-     * @param dayOfWeek 今天星期几（1=周一）；0 = 不查。
+     * @param attendance 这一学期落在本机的考勤索引；null = 本机还没有考勤缓存。
+     * @param date 今天的日期（`2026-11-18`），按日期 + 节次找这一格的记录。
      */
     internal fun sceneOf(
         courses: List<WidgetCourse>,
         nowMinute: Int,
         balance: String,
         attendance: SlotAttendanceMarks? = null,
-        week: Int = 0,
-        dayOfWeek: Int = 0,
+        date: String = "",
     ): SmartWidgetScene {
         val inClass = courses.firstOrNull { nowMinute >= it.startMinute - CLASS_LEAD_MIN && nowMinute < it.endMinute }
         if (inClass != null) {
             val started = nowMinute >= inClass.startMinute
             val label = if (started) "上课中" else "${inClass.startMinute - nowMinute} 分钟后上课"
-            val (status, color) = attendanceOf(attendance, inClass, week, dayOfWeek)
+            val (status, color) = attendanceOf(attendance, inClass, date, nowMinute)
             return SmartWidgetScene(
                 label = label,
                 title = inClass.name,
@@ -168,36 +177,59 @@ object SmartWidgetUpdater {
     }
 
     /**
-     * 这节课的考勤：一句话 + 该染的颜色。查不到这一格返回「考勤未记录」。
+     * 这节课的考勤：一句话 + 该染的颜色。
      *
-     * 正常也照写：只报异常的话，全勤的人整学期在这张卡片上就看不到任何反馈，
-     * 反而分不清「没缺勤」和「根本没记上」——而后者才是要立刻处理的事。
+     * 判据按用户要求的口径（2026-11-18 反馈）：
+     * - 有记录就照实报：正常 / 迟到 / 缺勤 / 请假（请假单独说，不带「打卡」）；
+     * - **课前到上课 5 分钟内没记录 ⇒「待考勤」**——这时候学校还没到出结论的点，
+     *   说「未记录」像是在报错；
+     * - **上课 5 分钟后仍没记录 ⇒「迟到 · 还没刷上」**，这是用户要的即时提醒：
+     *   过了这个点还没刷上，基本就要被记迟到了，得赶紧去补。
+     *
+     * 这一屏只在「课前 [CLASS_LEAD_MIN] 分钟 ～ 下课」之间出现，所以下课之后的「缺勤」
+     * 由学校的流水自己给，不能靠这里按时钟猜。
+     *
+     * 找记录用日期 + 节次 + 课名（[SlotAttendanceMarks.recordAt]），**不用周次**：
+     * 教务和考勤系统算周次的起始日未必同一天，差一天就整体错一周，
+     * 于是明明记了考勤却查不到——正是「考勤正常却显示未记录」的成因。
      */
     private fun attendanceOf(
         attendance: SlotAttendanceMarks?,
         course: WidgetCourse,
-        week: Int,
-        dayOfWeek: Int,
+        date: String,
+        nowMinute: Int,
     ): Pair<String?, Int?> {
-        if (attendance == null || week <= 0 || dayOfWeek <= 0 || course.startSection <= 0) {
-            return "考勤未记录" to COLOR_LEAVE
+        val record = attendance
+            ?.takeIf { course.startSection > 0 && date.isNotBlank() }
+            ?.recordAt(date, course.startSection, course.endSection, course.name)
+        if (record != null) {
+            return when (record.status) {
+                WaterType.NORMAL -> "已打卡 · 正常" to COLOR_NORMAL
+                WaterType.LATE -> "已打卡 · 迟到" to COLOR_LATE
+                WaterType.ABSENCE -> "已打卡 · 缺勤" to COLOR_ABSENT
+                WaterType.LEAVE -> "已请假" to COLOR_LEAVE
+                // 未识别的状态码不冒充正常，也不吓人，原样说「有记录」
+                WaterType.UNKNOWN -> "已打卡 · 状态未知" to COLOR_LEAVE
+            }
         }
-        return when (attendance.statusOf(week, dayOfWeek, course.startSection)) {
-            WaterType.NORMAL -> "已记考勤 · 正常" to COLOR_NORMAL
-            WaterType.LATE -> "已记考勤 · 迟到" to COLOR_LATE
-            WaterType.ABSENCE -> "已记考勤 · 缺勤" to COLOR_ABSENT
-            WaterType.LEAVE -> "已记考勤 · 请假" to COLOR_LEAVE
-            // 未识别的状态码不冒充正常，也不吓人，原样说「有记录」
-            WaterType.UNKNOWN -> "已记考勤 · 状态未知" to COLOR_LEAVE
-            null -> "考勤未记录" to COLOR_LEAVE
-        }
+        // 这一格还没有记录：按此刻距上课多久给一个即时结论
+        val lateAt = course.startMinute + LATE_AFTER_MIN
+        return if (nowMinute < lateAt) "待考勤" to COLOR_PENDING
+        else "迟到 · 还没刷上" to COLOR_LATE
     }
 
-    /** 下一个场景边界：课前提醒起点、上课、下课、饭点起止；今天没有了就到明天零点。 */
+    /**
+     * 下一个场景边界：课前提醒起点、上课、**上课后 5 分钟**（「待考勤」→「迟到」那一跳）、
+     * 下课、饭点起止；今天没有了就到明天零点。
+     *
+     * 少了「上课后 5 分钟」这一条，卡片就会一直停在「待考勤」：系统只在边界时刻重画，
+     * 而准时上课的人根本收不到那条迟到提醒——偏偏那是这张卡片最有用的信息。
+     */
     private fun scheduleNext(context: Context, courses: List<WidgetCourse>, now: LocalDateTime) {
         val nowMinute = now.hour * 60 + now.minute
-        val boundaries = courses.flatMap { listOf(it.startMinute - CLASS_LEAD_MIN, it.startMinute, it.endMinute) } +
-            MEALS.flatMap { listOf(it.second, it.third) }
+        val boundaries = courses.flatMap {
+            listOf(it.startMinute - CLASS_LEAD_MIN, it.startMinute, it.startMinute + LATE_AFTER_MIN, it.endMinute)
+        } + MEALS.flatMap { listOf(it.second, it.third) }
         val at = boundaries.filter { it > nowMinute }.minOrNull()
             ?.let { now.toLocalDate().atStartOfDay().plusMinutes(it.toLong()) }
             ?: now.toLocalDate().plusDays(1).atStartOfDay()

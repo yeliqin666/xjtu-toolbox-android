@@ -26,6 +26,8 @@ data class AttendanceSlotKey(val week: Int, val dayOfWeek: Int, val startSection
  */
 class SlotAttendanceMarks(
     private val byKey: Map<AttendanceSlotKey, AttendanceWaterRecord>,
+    /** 原始流水，按日期取记录时用（见 [recordAt]）。周次算不出来的行也在这里。 */
+    private val records: List<AttendanceWaterRecord> = byKey.values.toList(),
 ) : AttendanceMarks {
 
     override fun statusOf(week: Int, dayOfWeek: Int, startSection: Int): WaterType? =
@@ -37,6 +39,53 @@ class SlotAttendanceMarks(
     /** 指定周次的那一次考勤。没有记录 = 还没上，或这门课不考勤。 */
     override fun recordOn(course: CourseItem, week: Int): AttendanceWaterRecord? =
         statusRecordOf(week, course.dayOfWeek, course.startSection)
+
+    /**
+     * 按**日期 + 节次**找这一个格子的记录，智能卡片用它。
+     *
+     * 为什么不共用 [statusOf] 的「周次」键：那是两套系统各自算的周次。教务的开学日期和
+     * 考勤系统的学期起始日未必是同一天（一个从注册周算，一个从第一教学周算），
+     * 差一天就整体错一周 —— 于是明明记了考勤，按周次去查却是空的，界面上就成了
+     * 「考勤未记录」。日期是学校写在流水里的原样字符串，没有换算，不会错位。
+     *
+     * 同一天同一时间常有好几门课（同节次不同课），所以末尾用 [courseName] 收口，
+     * 免得把隔壁班的记录当成自己的。
+     *
+     * @param date `2026-11-17` 这样的日期
+     * @param startSection 这一格的起始节次
+     * @param endSection 这一格的结束节次；学校可能只报起始节
+     * @param courseName 课程名，空串则不参与匹配
+     */
+    fun recordAt(
+        date: String,
+        startSection: Int,
+        endSection: Int = startSection,
+        courseName: String = "",
+    ): AttendanceWaterRecord? {
+        if (date.isBlank() || startSection <= 0) return null
+        val sameDay = byDate[date].orEmpty().filter {
+            courseName.isBlank() || it.courseName.trim() == courseName.trim()
+        }
+        if (sameDay.isEmpty()) return null
+        // 先按起始节精确命中，再容忍「流水里的节次落在这门课的节次区间内」
+        return sameDay.firstOrNull { it.startTime == startSection }
+            ?: sameDay.firstOrNull { it.startTime >= startSection && it.startTime <= maxOf(startSection, endSection) }
+    }
+
+    /**
+     * 日期 → 那天的记录，**按「节次 + 课名」一格一条**。
+     *
+     * 直接从原始流水建，不复用 [byKey]：索引键带着周次，周次算不出来（0）的行进不去，
+     * 而按日期取恰恰要能看见那些行。同一格重复上报时和 [attendanceMarksOf] 一样留「更坏」的。
+     */
+    private val byDate: Map<String, List<AttendanceWaterRecord>> by lazy {
+        records.filter { it.startTime > 0 && it.date.isNotBlank() }
+            .groupBy { it.date.take(10) }
+            .mapValues { (_, sameDay) ->
+                sameDay.groupBy { it.startTime to it.courseName.trim() }
+                    .mapNotNull { (_, rows) -> rows.maxByOrNull { it.status.severity() } }
+            }
+    }
 }
 
 /**
@@ -54,7 +103,7 @@ fun attendanceMarksOf(records: List<AttendanceWaterRecord>): SlotAttendanceMarks
         val old = byKey[key]
         if (old == null || r.status.severity() > old.status.severity()) byKey[key] = r
     }
-    return SlotAttendanceMarks(byKey = byKey)
+    return SlotAttendanceMarks(byKey = byKey, records = records)
 }
 
 /**
