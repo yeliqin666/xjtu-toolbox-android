@@ -1,28 +1,27 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""处理 Discussion 评论里的 /toissue 命令。
-
-命令约定：
+"""处理 Discussion 评论里的讨论命令。
 
     /toissue <type> <priority> [flags] [assignee]
 
-* type：bug / feature；
-* priority：0 / 1 / 2 / 3；
+* type：bug / feature；priority：0 / 1 / 2 / 3；
 * flags：q 加 Question 标签，t 把 Awaiting Assignment 换成 Awaiting Triage；
   顺序无关，大小写不敏感，未定义字符忽略并在回复末尾提示；
-* assignee：@用户名，可省略；flags 位置以 @ 开头时跳过 flags；
-  指定后状态标签用 In Progress（t 优先）。
+* assignee：@用户名，可省略；flags 位置以 @ 开头时跳过 flags。
 
-建出的 issue 正文注明来源链接和触发命令的操作者。
+建出的 issue 正文注明来源链接和触发命令的操作者。触发位置决定默认来源：顶层回复 →
+讨论主帖；楼中楼 → 父评论（replyTo）。命令后空一行写 `## 标题`，再空一行写正文时，用
+这段内容作为 issue；没有标题则忽略后面文字，回退到默认来源。只有仓库 write / maintain /
+admin 权限的作者会触发，权限不足静默跳过。转出的 issue 正文带隐藏标记
+`<!-- toissue:source=... -->` 用于去重。
 
-触发位置决定默认来源：顶层回复 → 讨论主帖；楼中楼 → 父评论（replyTo）。
-命令后空一行写 `## 标题`，再空一行写正文时，用这段内容作为 issue；没有标题则忽略后面
-文字，回退到默认来源。只有仓库 write / maintain / admin 权限的作者会触发；权限不足时
-静默跳过。
+    /attachcomment <issue_no>
 
-幂等：转出的 issue 正文里带隐藏标记 `<!-- toissue:source=... -->`，再次收到同一来源的
-命令时用 GitHub 搜索找回已有 issue；有自定义标题时以命令评论为来源，否则按默认来源
-（主帖/父评论）去重。标签组一致只回链接，不一致则更新标签并说明。
+* issue_no：必填，`#123` 或 `GH-123`；把内容以评论形式附加到已有 issue；
+* details：命令后空一行开始的内容，覆盖默认来源；
+* 默认来源：顶层回复 → 讨论主帖（`## 标题` + 正文）；楼中楼 → 被回复的评论；
+* 楼中楼里 GitHub 自动带上的 `>` 引用块：有 details 时去掉 details 开头的引用块，
+  没有 details 且命令正文开头就是引用块时，把引用正文当作附加内容。
 
 这是给以后更多讨论区命令用的最小框架：命令注册在 HANDLERS，每个 handler 只负责
 解析自己的参数并返回回复正文，GitHub 读写统一走 GitHub 类。
@@ -45,6 +44,13 @@ from typing import Any, Optional
 
 GRAPHQL_URL = "https://api.github.com/graphql"
 REST_URL = "https://api.github.com"
+
+# workflow runner 的 stdout 默认就是 UTF-8；这里兜底 Windows 本地调试时的 GBK 控制台。
+for _stream in (sys.stdout, sys.stderr):
+    try:
+        _stream.reconfigure(encoding="utf-8")  # type: ignore[attr-defined]
+    except (AttributeError, ValueError):
+        pass
 
 # 评论里的时间统一按北京时间展示；固定偏移，避免 runner 缺 tzdata。
 BEIJING = timezone(timedelta(hours=8))
@@ -74,7 +80,7 @@ TITLE_PREFIX_RE = re.compile(r"^\s*\[(?:bug|功能|feature)\]\s*", re.IGNORECASE
 COMMAND_RE = re.compile(r"^[ \t]*(/[A-Za-z][A-Za-z0-9-]*)(?:[ \t]+(.*))?$")
 LOGIN_RE = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?$")
 
-USAGE = """用法：
+TOISSUE_USAGE = """用法：
 
 `/toissue <type> <priority> [flags] [assignee]`
 
@@ -89,6 +95,15 @@ USAGE = """用法：
 - 命令下方空一行后可写 `## 标题`，标题与正文之间至少空一行（正文可留空）；没有 `## 标题` 时忽略后面的文字，回退到主帖/父评论
 
 示例：`/toissue bug 1 qt @someone`"""
+
+ATTACH_USAGE = """用法：
+
+`/attachcomment <issue_no>`
+
+- `issue_no`：必填，写成 `#123` 或 `GH-123`
+- 命令下方空一行可写要附加的内容（details），覆盖默认来源
+- 默认来源：主楼下 → 讨论主帖（`## 标题` + 正文）；楼中楼 → 被回复的评论
+- 楼中楼里 GitHub 自动带上的 `>` 引用块：details 开头的会去掉；没有 details 时把引用块内容当来源"""
 
 
 def log(message: str) -> None:
@@ -167,7 +182,7 @@ class GitHub:
             headers={
                 "Authorization": f"bearer {self.token}",
                 "Content-Type": "application/json",
-                "User-Agent": "xjtu-toolbox-toissue",
+                "User-Agent": "xjtu-toolbox-discussion-bot",
             },
         )
 
@@ -206,7 +221,7 @@ class GitHub:
             headers={
                 "Authorization": f"bearer {self.token}",
                 "Accept": "application/vnd.github+json",
-                "User-Agent": "xjtu-toolbox-toissue",
+                "User-Agent": "xjtu-toolbox-discussion-bot",
             },
         )
         try:
@@ -234,13 +249,14 @@ query($id: ID!) {
       url
       authorAssociation
       author { login }
-      replyTo { id databaseId body url }
+      replyTo { id databaseId body url author { login } }
       discussion {
         id
         number
         title
         body
         url
+        author { login }
         repository { id }
       }
     }
@@ -314,6 +330,14 @@ mutation($discussionId: ID!, $replyToId: ID, $body: String!) {
 }
 """
 
+ADD_ISSUE_COMMENT_MUTATION = """
+mutation($input: AddCommentInput!) {
+  addComment(input: $input) {
+    comment { id url }
+  }
+}
+"""
+
 
 @dataclass
 class Discussion:
@@ -322,6 +346,7 @@ class Discussion:
     title: str
     body: str
     url: str
+    author_login: str
     repository_id: str
 
 
@@ -337,6 +362,7 @@ class Comment:
     reply_to_node_id: Optional[str]
     reply_to_body: str
     reply_to_url: str
+    reply_to_author_login: str
     discussion: Discussion
 
     @property
@@ -361,6 +387,19 @@ class ToIssueArgs:
     flags: set[str] = field(default_factory=set)
     assignee: Optional[str] = None
     warnings: list[str] = field(default_factory=list)
+
+
+@dataclass
+class AttachArgs:
+    issue_number: int
+
+
+@dataclass
+class Attachment:
+    link: str
+    author: str
+    content: str
+    where: str
 
 
 @dataclass
@@ -422,6 +461,7 @@ def fetch_comment(client: GitHub, node_id: str) -> Comment:
         title=discussion_data.get("title") or "",
         body=discussion_data.get("body") or "",
         url=discussion_data.get("url") or "",
+        author_login=(discussion_data.get("author") or {}).get("login") or "",
         repository_id=(discussion_data.get("repository") or {}).get("id") or "",
     )
     return Comment(
@@ -435,6 +475,7 @@ def fetch_comment(client: GitHub, node_id: str) -> Comment:
         reply_to_node_id=reply_to.get("id"),
         reply_to_body=reply_to.get("body") or "",
         reply_to_url=reply_to.get("url") or "",
+        reply_to_author_login=(reply_to.get("author") or {}).get("login") or "",
         discussion=discussion,
     )
 
@@ -484,6 +525,46 @@ def parse_tail(body: str, command_line_index: int) -> Optional[Tail]:
     while index < len(lines) and not lines[index].strip():
         index += 1
     return Tail(title, "\n".join(lines[index:]).strip())
+
+
+def parse_details(body: str, command_line_index: int) -> Optional[str]:
+    """读取命令后空一行开始的内容；与命令之间没有空行时返回 None。"""
+    lines = body.splitlines()
+    index = command_line_index + 1
+    if index >= len(lines) or lines[index].strip():
+        return None
+    details = "\n".join(lines[index:]).strip()
+    return details or None
+
+
+def split_leading_quote(text: str) -> tuple[str, str]:
+    """拆开开头的 Markdown 引用块，返回 (引用正文, 剩余内容)。
+
+    引用块允许中间夹空行（GitHub 回复楼中楼时自动带上的就是这种）；没有引用块时
+    引用正文为空、剩余内容为原文。
+    """
+    lines = text.splitlines()
+    index = 0
+    while index < len(lines) and not lines[index].strip():
+        index += 1
+    quoted: list[str] = []
+    while index < len(lines):
+        if lines[index].lstrip().startswith(">"):
+            quoted.append(re.sub(r"^\s*>\s?", "", lines[index]))
+            index += 1
+            continue
+        if not lines[index].strip():
+            lookahead = index
+            while lookahead < len(lines) and not lines[lookahead].strip():
+                lookahead += 1
+            if lookahead < len(lines) and lines[lookahead].lstrip().startswith(">"):
+                quoted.extend([""] * (lookahead - index))
+                index = lookahead
+                continue
+        break
+    if not quoted:
+        return "", text
+    return "\n".join(quoted).strip(), "\n".join(lines[index:]).strip()
 
 
 def first_content_line(body: str) -> str:
@@ -540,6 +621,54 @@ def pick_source(comment: Comment, command_line_index: int) -> Source:
         where="父评论",
         fallback_title=f"Discussion #{discussion.number} 的父评论",
     )
+
+
+def pick_attachment(ctx: Context) -> Attachment:
+    """挑附加内容：details > 楼中楼引用块 > 父评论 / 主帖。"""
+    comment = ctx.comment
+    discussion = comment.discussion
+    command_link = f"[discussioncomment-{comment.database_id}]({comment.url})"
+
+    details = parse_details(comment.body, ctx.command_line_index)
+    if details is not None:
+        quoted, rest = split_leading_quote(details)
+        # 楼中楼里 GitHub 会自动带上被回复评论的引用块，details 开头的要去掉。
+        if comment.reply_to_id is not None and quoted:
+            details = rest
+        if details.strip():
+            return Attachment(command_link, comment.author_login, details, "本评论")
+        # details 被引用块吃空时回退到默认来源。
+
+    if comment.reply_to_id is not None:
+        quoted, _ = split_leading_quote(comment.body)
+        if quoted:
+            # shortcut: 引用块里的原文作者无法从 API 取到，统一记成命令操作者；
+            # 要精确归属时再按引用文本匹配讨论里的评论。
+            return Attachment(command_link, comment.author_login, quoted, "本评论")
+        parent_link = f"[discussioncomment-{comment.reply_to_id}]({comment.reply_to_url})"
+        return Attachment(parent_link, comment.reply_to_author_login, comment.reply_to_body, "父评论")
+
+    title = discussion.title.strip()
+    content = f"## {title}\n\n{discussion.body}" if title else discussion.body
+    discussion_link = f"[Discussion #{discussion.number}]({discussion.url})"
+    return Attachment(discussion_link, discussion.author_login, content, "本讨论主帖")
+
+
+ISSUE_NO_RE = re.compile(r"^#(\d+)$|^GH-(\d+)$", re.IGNORECASE)
+
+
+def parse_issue_number(args: list[str]) -> AttachArgs:
+    if not args:
+        raise UsageNeeded()
+    if len(args) > 1:
+        raise ParseError("只接受一个 issue_no 参数。")
+    match = ISSUE_NO_RE.match(args[0])
+    if not match:
+        raise ParseError(f"issue_no 必须写成 `#123` 或 `GH-123`，收到 `{brief(args[0])}`。")
+    number = int(match.group(1) or match.group(2))
+    if number < 1:
+        raise ParseError("issue_no 必须是正整数。")
+    return AttachArgs(number)
 
 
 def parse_toissue(args: list[str]) -> ToIssueArgs:
@@ -774,11 +903,26 @@ def build_issue_body(source_key: str, source_link: str, operator: str, command_u
     return body
 
 
+def build_attach_body(link: str, author: str, operator: str, content: str) -> str:
+    header = f"> 来自于 {link} 的附加信息，由 @{author} 提出，并由 @{operator} 附加于此"
+    return f"{header}\n\n{content.strip()}"
+
+
+def add_issue_comment(client: GitHub, issue_id: str, body: str) -> str:
+    data = client.graphql(
+        ADD_ISSUE_COMMENT_MUTATION,
+        {"input": {"subjectId": issue_id, "body": body}},
+        # 不重试 mutation：服务端可能已经建好评论，只是响应丢了。
+        retries=1,
+    )
+    return data["addComment"]["comment"]["url"]
+
+
 class ToIssueHandler(CommandHandler):
     """把 Discussion 主帖 / 楼中楼转成 issue。"""
 
     name = "/toissue"
-    usage = USAGE
+    usage = TOISSUE_USAGE
 
     def handle(self, ctx: Context, args: list[str]) -> str:
         try:
@@ -856,8 +1000,59 @@ class ToIssueHandler(CommandHandler):
         return reply + warning_suffix(parsed.warnings)
 
 
+class AttachCommentHandler(CommandHandler):
+    """把讨论主帖 / 楼中楼 / details 以评论形式附加到已有 issue。"""
+
+    name = "/attachcomment"
+    usage = ATTACH_USAGE
+
+    def handle(self, ctx: Context, args: list[str]) -> str:
+        try:
+            parsed = parse_issue_number(args)
+        except UsageNeeded:
+            return self.usage
+        except ParseError as error:
+            raise CommandFailure(str(error)) from None
+
+        try:
+            return self.execute(ctx, parsed)
+        except CommandFailure:
+            raise
+        except GitHubError as error:
+            log(f"::error::/attachcomment API 调用失败：{error}；{json.dumps(error.errors, ensure_ascii=False)}")
+            raise CommandFailure(public_api_message(error), fatal=True) from None
+        except Exception as error:
+            log(f"::error::/attachcomment 处理异常：{type(error).__name__}: {error}")
+            raise CommandFailure("处理命令时发生内部错误，请联系维护者。", fatal=True) from None
+
+    def execute(self, ctx: Context, parsed: AttachArgs) -> str:
+        issue = fetch_issue(ctx.client, ctx.owner, ctx.repo, parsed.issue_number)
+        if not issue:
+            raise CommandFailure(f"找不到 issue #{parsed.issue_number}（可能不存在，或不是 issue）。")
+
+        attachment = pick_attachment(ctx)
+        if not attachment.content.strip():
+            raise CommandFailure("要附加的内容为空。")
+
+        body = build_attach_body(
+            attachment.link, attachment.author, ctx.comment.author_login, attachment.content
+        )
+        try:
+            comment_url = add_issue_comment(ctx.client, issue["id"], body)
+        except GitHubError as error:
+            log(f"::error::往 issue #{issue['number']} 写评论失败：{error}")
+            raise CommandFailure(public_api_message(error), fatal=True) from None
+
+        state_note = "（当前 issue 已关闭）" if issue.get("state") == "CLOSED" else ""
+        return (
+            f"已将{attachment.where}的附加信息写入 issue #{issue['number']}："
+            f"{issue['url']}{state_note}\n\n新评论：{comment_url}"
+        )
+
+
 HANDLERS: dict[str, CommandHandler] = {
     ToIssueHandler.name: ToIssueHandler(),
+    AttachCommentHandler.name: AttachCommentHandler(),
 }
 
 
@@ -911,22 +1106,28 @@ def self_test() -> None:
     assert parse_tail("/toissue bug 1\n\n##  \n\n正文", 0) is None
     assert parse_tail("/toissue bug 1\n\n  ## 标题  \n\n正文", 0) == Tail("标题", "正文")
 
-    discussion = Discussion("D", 7, "讨论标题", "主帖正文", "durl", "R")
+    discussion = Discussion("D", 7, "讨论标题", "主帖正文", "durl", "d作者", "R")
 
     def make_comment(
-        body: str, reply_to_id: Optional[int] = None, parent_body: str = "", parent_url: str = "purl"
+        body: str,
+        reply_to_id: Optional[int] = None,
+        parent_body: str = "",
+        parent_url: str = "purl",
+        author: str = "u",
+        parent_author: str = "p作者",
     ) -> Comment:
         return Comment(
             "C",
             2,
             body,
             "curl",
-            "u",
+            author,
             "COLLABORATOR",
             reply_to_id,
             "P" if reply_to_id else None,
             parent_body,
             parent_url,
+            parent_author,
             discussion,
         )
 
@@ -968,7 +1169,7 @@ def self_test() -> None:
             raise AssertionError(f"应当拒绝：{bad!r}")
 
     handler = ToIssueHandler()
-    assert handler.handle(None, []) == USAGE
+    assert handler.handle(None, []) == TOISSUE_USAGE
     try:
         handler.handle(None, ["bug", "9"])
     except CommandFailure as error:
@@ -978,11 +1179,74 @@ def self_test() -> None:
     else:
         raise AssertionError("非法 priority 应当返回 CommandFailure")
 
+    # /attachcomment
+    assert parse_issue_number(["#451"]).issue_number == 451
+    assert parse_issue_number(["GH-451"]).issue_number == 451
+    assert parse_issue_number(["gh-7"]).issue_number == 7
+    for bad in ([], ["451"], ["#"], ["#0"], ["GH-"], ["#x"], ["#451", "x"]):
+        try:
+            parse_issue_number(bad)
+        except (UsageNeeded, ParseError):
+            pass
+        else:
+            raise AssertionError(f"应当拒绝：{bad!r}")
+
+    assert parse_details("/attachcomment #451\n\ndetails", 0) == "details"
+    assert parse_details("/attachcomment #451\n\n\ndetails", 0) == "details"
+    assert parse_details("/attachcomment #451\ndetails", 0) is None
+    assert parse_details("/attachcomment #451\n\n", 0) is None
+
+    assert split_leading_quote("> a\n> b\n\nrest") == ("a\nb", "rest")
+    assert split_leading_quote("> a\n\n> b") == ("a\n\nb", "")
+    assert split_leading_quote("> a\nrest") == ("a", "rest")
+    assert split_leading_quote("rest") == ("", "rest")
+
+    def attach(text: str, index: int = 0, **kwargs: object) -> Attachment:
+        ctx = Context(None, "o", "r", make_comment(text, **kwargs), index)  # type: ignore[arg-type]
+        return pick_attachment(ctx)
+
+    attachment = attach("/attachcomment #451")
+    assert attachment.where == "本讨论主帖" and attachment.author == "d作者"
+    assert attachment.content == "## 讨论标题\n\n主帖正文"
+    assert attachment.link == "[Discussion #7](durl)"
+
+    attachment = attach("/attachcomment #451", reply_to_id=9, parent_body="父评论正文")
+    assert attachment.where == "父评论" and attachment.author == "p作者"
+    assert attachment.content == "父评论正文"
+    assert attachment.link == "[discussioncomment-9](purl)"
+
+    # 楼中楼没有 details 时，命令开头的引用块就是来源。
+    attachment = attach("> 引用原文\n\n/attachcomment #451", 2, reply_to_id=9, parent_body="父评论正文")
+    assert attachment.where == "本评论" and attachment.author == "u"
+    assert attachment.content == "引用原文"
+
+    # 楼中楼 details 开头的自动引用块要去掉；主楼下的 details 保留。
+    assert attach("/attachcomment #451\n\n> 自动引用\n\ndetails", reply_to_id=9).content == "details"
+    assert attach("/attachcomment #451\n\n> 用户引用\n\ndetails").content == "> 用户引用\n\ndetails"
+
+    # details 被引用块吃空时回退到父评论。
+    assert attach("/attachcomment #451\n\n> 只有引用", reply_to_id=9, parent_body="父评论正文").content == "父评论正文"
+
+    assert build_attach_body("[c](u)", "alice", "bob", "正文") == (
+        "> 来自于 [c](u) 的附加信息，由 @alice 提出，并由 @bob 附加于此\n\n正文"
+    )
+
+    handler = AttachCommentHandler()
+    assert handler.handle(None, []) == ATTACH_USAGE
+    try:
+        handler.handle(None, ["451"])
+    except CommandFailure as error:
+        assert not error.fatal
+        body = failure_body(handler.name, handler.usage, error.message)
+        assert "`/attachcomment`" in body and "用法" in body
+    else:
+        raise AssertionError("非法 issue_no 应当返回 CommandFailure")
+
     print("self-test ok")
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="处理 Discussion 里的 /toissue 命令")
+    parser = argparse.ArgumentParser(description="处理 Discussion 里的讨论命令（/toissue、/attachcomment）")
     parser.add_argument(
         "--comment-node-id",
         default=os.environ.get("COMMENT_NODE_ID") or "",

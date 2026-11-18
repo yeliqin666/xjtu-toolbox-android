@@ -10,6 +10,7 @@ on:
       - 'docs/**'
       - '.github/ISSUE_TEMPLATE/**'
       - '.github/scripts/**'
+      - '.github/workflows/**'
   workflow_dispatch:
     inputs:
       publish_preview:
