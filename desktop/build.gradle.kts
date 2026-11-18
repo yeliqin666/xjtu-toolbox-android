@@ -9,6 +9,9 @@ import org.jetbrains.compose.desktop.application.dsl.TargetFormat
  */
 val desktopPackageVersion = "6.0.3"
 
+/** 打包机是不是 Windows：jpackage 不能交叉构建，安装包与 app-image 都在本机系统上产出。 */
+val isWindowsHost = System.getProperty("os.name").startsWith("Windows", ignoreCase = true)
+
 /** 反馈后端的凭据（与 `:app` 同一份来源） */
 val desktopFeedbackConfig: Map<String, String> = run {
     val fp = rootProject.file("feedback.properties")
@@ -100,15 +103,13 @@ compose.desktop {
                 TargetFormat.AppImage,
                 TargetFormat.Exe,
             )
-            packageName = "xjtu-toolbox"
+            // 应用名 = 安装目录、启动器与快捷方式的名字。Windows 用中文（代码页见下面 `windowsResourceDir`）；
+            // Linux 的 deb 路径与 desktop-linux.yml 的校验写死了 xjtu-toolbox。按打包机的系统取。
+            packageName = if (isWindowsHost) "岱宗盒子" else "xjtu-toolbox"
             // jpackage 只接受 x.y.z 形式的版本号。
             packageVersion = desktopPackageVersion
-            // ⚠️ 只能用 ASCII：jpackage 在 Windows 上固定 `-cultures:en-us` ⇒ MSI 代码页 1252，
-            // 中文会让 WiX 的 light.exe 报 `LGHT0311`（退出码 311，且不打印任何错误）⇒ CI 上随机失败。
-            // 将来若要中文，得绕开 Compose 插件直接给 jpackage 传 `--resource-dir`（塞一份 overrides.wxi
-            // 把 `Product/@Codepage` 设成 936/65001）——那个口子插件目前没暴露。
-            // （Linux 的 .deb / .AppImage 描述读的也是同一个值，会跟着变英文；DSL 没有分平台的 description。）
-            description = "XJTU ToolBox (desktop preview)"
+            // ⚠️ 只能用 ASCII：MSI 的 Summary 信息不走本地化代码页，中文描述会让 light.exe 报 LGHT0311。
+            description = "Daizong Box"
             vendor = "XJTU ToolBox"
             copyright = "Copyright © XJTU ToolBox contributors"
 
@@ -120,7 +121,7 @@ compose.desktop {
             modules("jdk.httpserver")
 
             linux {
-                // 应用自己的图标（由自适应图标矢量光栅化，见 docs/linux-delivery.md §2.1）；⚠️ 不要用 `mipmap-*/ic_launcher.webp`，那是模板占位图。
+                // 由 App 图标导出（见 docs/desktop.md）。
                 iconFile.set(project.file("icons/linux.png"))
                 menuGroup = "Education"
                 appCategory = "Education"
@@ -188,6 +189,19 @@ tasks.register<JavaExec>("renderCampusExperience") {
     mainClass.set("com.xjtu.toolbox.desktop.RenderCampusExperienceKt")
     classpath = sourceSets["test"].runtimeClasspath
     args = listOf(layout.buildDirectory.dir("campus-experience-preview").get().asFile.absolutePath)
+}
+
+/**
+ * Windows 安装包的 WiX 资源：一份 zh-cn 的 wxl（代码页 936），产品名与快捷方式才能用中文。
+ * Compose 自己会传 `--resource-dir`（指向一个每次先清空的临时目录，Windows 上是空的），且没有可插的钩子；
+ * jpackage 对重复的单值参数取后一个，所以从 freeArgs 再传一个指向这里。
+ */
+val windowsResourceDir = layout.projectDirectory.dir("packaging/windows")
+tasks.withType<org.jetbrains.compose.desktop.application.tasks.AbstractJPackageTask>().configureEach {
+    if (isWindowsHost && name.contains("Exe")) {
+        inputs.dir(windowsResourceDir)
+        freeArgs.addAll("--resource-dir", windowsResourceDir.asFile.absolutePath)
+    }
 }
 
 /** `./gradlew :desktop:packageTarGz` —— 把 jpackage 的 app-image（免安装目录）打成 `tar.gz`。 */

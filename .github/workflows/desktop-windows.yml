@@ -9,6 +9,7 @@ on:
     paths:
       - 'desktop/build.gradle.kts'
       - 'desktop/icons/**'
+      - 'desktop/packaging/**'
       - 'gradle/libs.versions.toml'
       - 'shared/data/src/jvmMain/kotlin/com/xjtu/toolbox/platform/**'
       - 'shared/data/src/jvmTest/kotlin/com/xjtu/toolbox/platform/**'
@@ -80,6 +81,15 @@ jobs:
             if ($i -lt 3) { Start-Sleep -Seconds 20 }
           }
           throw "连续 3 次出包失败，看 desktop/build/compose/logs/ 下的 jpackage 日志"
+
+      # 安装包按应用名「岱宗盒子-x.y.z.exe」产出；GitHub 会把资产名里的非 ASCII 字符换掉，上传前改回 ASCII
+      - name: 安装包改成 ASCII 文件名
+        shell: pwsh
+        run: |
+          Get-ChildItem desktop\build\compose\binaries\main\exe\*.exe | ForEach-Object {
+            $version = $_.BaseName -replace '^.*-', ''
+            Rename-Item $_.FullName "xjtu-toolbox-$version.exe"
+          }
 
       - uses: actions/upload-artifact@v4
         with:
