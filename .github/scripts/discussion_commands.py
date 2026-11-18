@@ -333,7 +333,7 @@ mutation($discussionId: ID!, $replyToId: ID, $body: String!) {
 ADD_ISSUE_COMMENT_MUTATION = """
 mutation($input: AddCommentInput!) {
   addComment(input: $input) {
-    comment { id url }
+    commentEdge { node { id url } }
   }
 }
 """
@@ -915,7 +915,7 @@ def add_issue_comment(client: GitHub, issue_id: str, body: str) -> str:
         # 不重试 mutation：服务端可能已经建好评论，只是响应丢了。
         retries=1,
     )
-    return data["addComment"]["comment"]["url"]
+    return data["addComment"]["commentEdge"]["node"]["url"]
 
 
 class ToIssueHandler(CommandHandler):
@@ -1040,7 +1040,7 @@ class AttachCommentHandler(CommandHandler):
         try:
             comment_url = add_issue_comment(ctx.client, issue["id"], body)
         except GitHubError as error:
-            log(f"::error::往 issue #{issue['number']} 写评论失败：{error}")
+            log(f"::error::往 issue #{issue['number']} 写评论失败：{error}；{json.dumps(error.errors, ensure_ascii=False)}")
             raise CommandFailure(public_api_message(error), fatal=True) from None
 
         state_note = "（当前 issue 已关闭）" if issue.get("state") == "CLOSED" else ""
