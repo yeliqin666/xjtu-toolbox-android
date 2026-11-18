@@ -159,4 +159,23 @@ class SmartWidgetTest {
         assertNull(minuteOfDay("乱麻"))
         assertNull(minuteOfDay("99:99"))
     }
+
+    @Test
+    fun `自查分档：课前十分钟起两分钟一次，课前五到上课后五一分钟一次`() {
+        // 这门课 10:00 开始、11:40 下课
+        val start = 10 * 60
+        // 课前 20～10 分钟：还不必问（人还没到楼下）
+        assertNull(SmartWidgetUpdater.attendancePollInterval(course, start - 12))
+        // 课前 10 分钟起：每 2 分钟
+        assertEquals(2, SmartWidgetUpdater.attendancePollInterval(course, start - 10))
+        assertEquals(2, SmartWidgetUpdater.attendancePollInterval(course, start - 6))
+        // 课前 5 分钟 ～ 上课后 5 分钟：刷卡高峰，每 1 分钟
+        assertEquals(1, SmartWidgetUpdater.attendancePollInterval(course, start - 5))
+        assertEquals(1, SmartWidgetUpdater.attendancePollInterval(course, start))
+        assertEquals(1, SmartWidgetUpdater.attendancePollInterval(course, start + 5))
+        // 之后到下课：已成定局，退回 5 分钟（只为发现补刷）
+        assertEquals(5, SmartWidgetUpdater.attendancePollInterval(course, start + 6))
+        // 下课之后这一屏不再显示考勤，也不该再查
+        assertNull(SmartWidgetUpdater.attendancePollInterval(course, course.endMinute))
+    }
 }

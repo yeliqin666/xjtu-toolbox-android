@@ -80,13 +80,33 @@
         android:layout_weight="1"
         android:importantForAccessibility="no" />
 
-    <TextView
-        android:id="@+id/widget_smart_action"
-        android:layout_width="wrap_content"
+    <!-- 底部：左边去处理，右边「刷新」——点一下立刻问一次学校，不打开 App。 -->
+    <LinearLayout
+        android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:maxLines="1"
-        android:textColor="@color/widget_on_surface"
-        android:textSize="13sp"
-        android:textStyle="bold" />
+        android:gravity="center_vertical"
+        android:orientation="horizontal">
+
+        <TextView
+            android:id="@+id/widget_smart_action"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:maxLines="1"
+            android:textColor="@color/widget_on_surface"
+            android:textSize="13sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:id="@+id/widget_smart_refresh"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="8dp"
+            android:paddingHorizontal="8dp"
+            android:paddingVertical="2dp"
+            android:text="@string/smart_widget_refresh"
+            android:textColor="@color/widget_on_surface_secondary"
+            android:textSize="12sp" />
+    </LinearLayout>
 
 </LinearLayout>

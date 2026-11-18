@@ -46,4 +46,7 @@ object RequestCodes {
     const val SCHEDULE_DAY_NEXT = 5011
     const val DYNAMIC_SCHEDULE_ALARM = 5020
     const val SMART_WIDGET_REFRESH = 5040
+
+    /** 卡片上那颗「刷新」：用户主动要立刻查一次，与定时自查分开一个码。 */
+    const val SMART_WIDGET_REFRESH_NOW = 5041
 }

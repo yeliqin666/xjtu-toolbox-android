@@ -50,6 +50,13 @@ internal data class SmartWidgetScene(
      * 用户看到「5 分钟前查过 · 还没刷上」会知道去补，看到「还没查询」就会知道是没同步上。
      */
     val meta: String? = null,
+    /**
+     * 这一屏要求的自查间隔（分钟）；null = 不必再自查。
+     *
+     * 分档是有道理的：课前十分钟起人陆续到楼下，那段时间答案随时会变，问得稀了就白等；
+     * 而上课五六分钟之后还没刷上基本已成定局，再一分钟问一次只是白耗电、白打学校接口。
+     */
+    val pollMinutes: Int? = null,
 )
 
 /**
@@ -97,6 +104,8 @@ internal data class AttendanceOutcome(
  */
 object SmartWidgetUpdater {
     const val ACTION_REFRESH = "com.xjtu.toolbox.widget.ACTION_REFRESH_SMART_WIDGET"
+    /** 用户点了卡片上的「刷新」：立刻去问一次学校，不等下一个自查时刻。 */
+    const val ACTION_REFRESH_NOW = "com.xjtu.toolbox.widget.ACTION_REFRESH_NOW_SMART_WIDGET"
     private const val CLASS_LEAD_MIN = 20
 
     // 考勤状态的语义色：和课表格子上的角标同一套（缺勤红、迟到黄、请假灰、正常蓝）
@@ -122,10 +131,17 @@ object SmartWidgetUpdater {
      *
      * 这一段是唯一「本机数据还会自己变」的场合：人正在楼里刷卡，学校那边几分钟内就会写出流水。
      * 不主动回来看，卡片就只能停在「待考勤」到下课 —— 而这段时间恰恰是还来得及补刷的窗口。
-     *
-     * 五分钟一次、且只在「这节课 + 还没记录」这一屏出现，不是常驻轮询：一节课最多十几次。
      */
     private const val ATTENDANCE_RETRY_MIN = 5
+
+    /** 课前这么久开始自查（再早就没必要问了：那会儿教学楼下还没人刷卡）。 */
+    private const val POLL_FROM_BEFORE_MIN = 10
+
+    /** 课前这么久起进入「高频档」。 */
+    private const val POLL_HOT_BEFORE_MIN = 5
+
+    /** 上课后这么久起退出「高频档」。 */
+    private const val POLL_HOT_AFTER_MIN = 5
 
     /** 早、午、晚饭的窗口（距 00:00 的分钟）。 */
     private val MEALS = listOf(
@@ -150,7 +166,8 @@ object SmartWidgetUpdater {
         val lastCheck = runCatching { AttendanceWidgetSync.lastCheckAt(context) }.getOrDefault(0L)
         val checkedAgoMin = lastCheck.takeIf { it > 0L }
             ?.let { ((System.currentTimeMillis() - it) / 60_000).toInt() }
-        val scene = sceneOf(
+        val querying = runCatching { AttendanceWidgetSync.isQuerying(context) }.getOrDefault(false)
+        val built = sceneOf(
             courses = courses,
             nowMinute = nowMinute,
             balance = balanceText(context),
@@ -159,6 +176,9 @@ object SmartWidgetUpdater {
             swipe = swipe,
             checkedAgoMin = checkedAgoMin,
         )
+        // 「正在查询…」只在真正答不上来的那一屏上顶替时效文案：用户点了刷新要能看到反应，
+        // 但不能把「已打卡 · 正常」这种实打实的结论也换成在查。
+        val scene = if (querying && built.pollMinutes != null) built.copy(meta = "正在查询…") else built
         val launch = Intent(context, MainActivity::class.java).apply {
             putExtra(MainActivity.EXTRA_LAUNCH_ROUTE, scene.route.id)
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
@@ -187,16 +207,22 @@ object SmartWidgetUpdater {
                 if (scene.meta.isNullOrEmpty()) android.view.View.GONE else android.view.View.VISIBLE,
             )
             views.setOnClickPendingIntent(R.id.widget_smart_root, pending)
+            views.setOnClickPendingIntent(R.id.widget_smart_refresh, refreshNowIntent(context))
             manager.updateAppWidget(id, views)
         }
         // 这一屏答不上来（还没刷上/只有刷卡没结算）：让后台自己去问学校一次。
-        // 学校没有推送，这是唯一能让卡片「不点也对」的办法；Worker 里有节流，不会打爆。
-        if (scene.needsWatching) {
-            runCatching { AttendanceWidgetSync.requestSync(context) }
+        // 学校没有推送，这是唯一能让卡片「不点也对」的办法。两道门都过才问：
+        // ① 屏幕亮着（熄屏时没人看，一次都不该问）；② Worker 里按档节流。
+        if (scene.needsWatching && runCatching { WidgetVisibility.isLikelyVisible(context) }.getOrDefault(true)) {
+            runCatching { AttendanceWidgetSync.requestSync(context, scene.pollMinutes) }
         }
         // 上课窗口内还没刷上：这一屏是「等他去补刷」的，必须自己回来看一眼。
         // 只靠场景边界重画的话，刷上了也要等到下课才变 —— 那时早就被记迟到了。
-        scheduleNext(context, courses, now, retryWhileInClass = scene.needsWatching)
+        scheduleNext(
+            context, courses, now,
+            retryWhileInClass = scene.needsWatching,
+            pollMinutes = scene.pollMinutes,
+        )
     }
 
     /**
@@ -258,6 +284,7 @@ object SmartWidgetUpdater {
                 // 还没记录 = 这个结论随时会被学校那条记录推翻，得自己回来重画
                 needsWatching = outcome.watch,
                 meta = outcome.meta(checkedAgoMin),
+                pollMinutes = if (outcome.watch) attendancePollInterval(inClass, nowMinute) else null,
             )
         }
         MEALS.firstOrNull { (_, start, end) -> nowMinute in start until end }?.let { (label, _, _) ->
@@ -338,6 +365,27 @@ object SmartWidgetUpdater {
     }
 
     /**
+     * 这一节该多久自查一次（分钟）；null = 现在不必查。
+     *
+     * 分档按用户 2026-11-18 的要求定：
+     * - 课前 [POLL_FROM_BEFORE_MIN] 分钟起：每 2 分钟（人陆续到楼下，答案开始会变）
+     * - 课前 [POLL_HOT_BEFORE_MIN] 分钟 ～ 上课后 [POLL_HOT_AFTER_MIN] 分钟：**每 1 分钟**
+     *   （刷卡高峰，也是唯一还来得及补刷的窗口）
+     * - 之后到下课：退回每 [ATTENDANCE_RETRY_MIN] 分钟（已成定局，只为发现补刷）
+     * - 下课之后这一屏就不显示考勤了，不再自查
+     */
+    internal fun attendancePollInterval(course: WidgetCourse, nowMinute: Int): Int? {
+        val fromStart = nowMinute - course.startMinute // 负数 = 还没上课
+        return when {
+            fromStart < -POLL_FROM_BEFORE_MIN -> null
+            fromStart < -POLL_HOT_BEFORE_MIN -> 2
+            fromStart <= POLL_HOT_AFTER_MIN -> 1
+            nowMinute < course.endMinute -> ATTENDANCE_RETRY_MIN
+            else -> null
+        }
+    }
+
+    /**
      * 下一个场景边界：课前提醒起点、上课、**上课后 5 分钟**（「待考勤」→「迟到」那一跳）、
      * 下课、饭点起止；今天没有了就到明天零点。
      *
@@ -345,37 +393,51 @@ object SmartWidgetUpdater {
      * 而准时上课的人根本收不到那条迟到提醒——偏偏那是这张卡片最有用的信息。
      *
      * @param retryWhileInClass 这一屏在等学校写出记录（见 [SmartWidgetScene.needsWatching]）。
-     *   为真时把下一个重画时刻压到 [ATTENDANCE_RETRY_MIN] 分钟以内 —— 场景边界那一刻还远，
-     *   等它的话「刷上了」这个变化要等到下课才看得见。
+     * @param pollMinutes 这一屏要求的自查间隔；比下一个场景边界更近时以它为准 ——
+     *   否则「刷上了」这个变化要等到下课才看得见。
      */
     private fun scheduleNext(
         context: Context,
         courses: List<WidgetCourse>,
         now: LocalDateTime,
         retryWhileInClass: Boolean = false,
+        pollMinutes: Int? = null,
     ) {
         val nowMinute = now.hour * 60 + now.minute
         val boundaries = courses.flatMap {
             listOf(it.startMinute - CLASS_LEAD_MIN, it.startMinute, it.startMinute + LATE_AFTER_MIN, it.endMinute)
         } + MEALS.flatMap { listOf(it.second, it.third) }
         val nextBoundary = boundaries.filter { it > nowMinute }.minOrNull()
+        val step = when {
+            retryWhileInClass -> pollMinutes ?: ATTENDANCE_RETRY_MIN
+            else -> null
+        }
         val at = when {
-            // 在等记录：就近回来看一眼（也别越过下一个真正的边界，那时刻信息更关键）
-            retryWhileInClass -> now.plusMinutes(ATTENDANCE_RETRY_MIN.toLong()).let { soon ->
-                val soonMinute = soon.hour * 60 + soon.minute
-                if (nextBoundary != null && nextBoundary < soonMinute && nextBoundary > nowMinute) {
-                    now.toLocalDate().atStartOfDay().plusMinutes(nextBoundary.toLong())
+            // 自查按**绝对时间网格**对齐（1/2/5 分钟都是 60 的约数）：同一分钟里算几次都得到
+            // 同一个时刻，于是卡片重画得再频繁也不会把自查时刻一路往后推——不需要额外记状态。
+            step != null -> {
+                val grid = ((nowMinute / step) + 1) * step
+                val target = if (nextBoundary != null && nextBoundary in (nowMinute + 1) until grid) {
+                    // 场景边界更早：那一刻的信息更关键，醒来一起处理
+                    nextBoundary
                 } else {
-                    soon
+                    grid
                 }
+                now.toLocalDate().atStartOfDay().plusMinutes(target.toLong())
             }
             nextBoundary != null -> now.toLocalDate().atStartOfDay().plusMinutes(nextBoundary.toLong())
             else -> now.toLocalDate().plusDays(1).atStartOfDay()
         }
         val millis = at.atZone(CampusZoneId).toInstant().toEpochMilli()
-        // 非精准闹钟就够：场景切换晚一两分钟无妨，不必为此申请精准闹钟权限
-        context.getSystemService(AlarmManager::class.java)
-            ?.setWindow(AlarmManager.RTC, millis, 2 * 60_000L, refreshIntent(context))
+        val alarms = context.getSystemService(AlarmManager::class.java) ?: return
+        // 一分钟粒度必须走精确闹钟；没授权（用户撤了「闹钟和提醒」）就退回系统窗口，
+        // 那时候只能接受晚几分钟 —— 反正卡片上有「N 分钟前查过」把时效说清楚。
+        if (step != null && alarms.canScheduleExactAlarms()) {
+            runCatching { alarms.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, millis, refreshIntent(context)) }
+                .onFailure { alarms.setWindow(AlarmManager.RTC, millis, 2 * 60_000L, refreshIntent(context)) }
+        } else {
+            alarms.setWindow(AlarmManager.RTC, millis, 2 * 60_000L, refreshIntent(context))
+        }
     }
 
     internal fun cancel(context: Context) {
@@ -385,6 +447,18 @@ object SmartWidgetUpdater {
     private fun refreshIntent(context: Context): PendingIntent = PendingIntent.getBroadcast(
         context, RequestCodes.SMART_WIDGET_REFRESH,
         Intent(context, SmartWidgetProvider::class.java).setAction(ACTION_REFRESH),
+        PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+    )
+
+    /**
+     * 卡片上那颗「刷新」：发一条广播给小组件自己。
+     *
+     * **不打开 App**：点一下只做「立刻问一次学校 + 重画卡片」，这是用户想要「马上知道」时
+     * 最省事的一条路，也让下面那套自动自查不必为了响应速度一路高频。
+     */
+    private fun refreshNowIntent(context: Context): PendingIntent = PendingIntent.getBroadcast(
+        context, RequestCodes.SMART_WIDGET_REFRESH_NOW,
+        Intent(context, SmartWidgetProvider::class.java).setAction(ACTION_REFRESH_NOW),
         PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
     )
 
@@ -421,9 +495,17 @@ class SmartWidgetProvider : AppWidgetProvider() {
 
     override fun onReceive(context: Context, intent: Intent?) {
         super.onReceive(context, intent)
-        if (intent?.action == SmartWidgetUpdater.ACTION_REFRESH) {
-            updateAsync(context) {
+        when (intent?.action) {
+            SmartWidgetUpdater.ACTION_REFRESH -> updateAsync(context) {
                 AppWidgetManager.getInstance(context).getAppWidgetIds(ComponentName(context, SmartWidgetProvider::class.java))
+            }
+            // 点了卡片上的「刷新」：先把「正在查询…」挂上让人看见反应，再绕过节流去问一次
+            SmartWidgetUpdater.ACTION_REFRESH_NOW -> {
+                AttendanceWidgetSync.markQuerying(context)
+                AttendanceWidgetSync.requestSync(context, force = true)
+                updateAsync(context) {
+                    AppWidgetManager.getInstance(context).getAppWidgetIds(ComponentName(context, SmartWidgetProvider::class.java))
+                }
             }
         }
     }
