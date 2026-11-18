@@ -88,12 +88,12 @@ jobs:
         run: |
           Get-ChildItem desktop\build\compose\binaries\main\exe\*.exe | ForEach-Object {
             $version = $_.BaseName -replace '^.*-', ''
-            Rename-Item $_.FullName "xjtu-toolbox-$version.exe"
+            Rename-Item $_.FullName "xjtu-dzhz-$version.exe"
           }
 
       - uses: actions/upload-artifact@v4
         with:
-          name: xjtu-toolbox-windows
+          name: xjtu-dzhz-windows
           path: desktop/build/compose/binaries/main/exe/*.exe
           if-no-files-found: error
 

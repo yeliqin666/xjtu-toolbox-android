@@ -104,8 +104,9 @@ compose.desktop {
                 TargetFormat.Exe,
             )
             // 应用名 = 安装目录、启动器与快捷方式的名字。Windows 用中文（代码页见下面 `windowsResourceDir`）；
-            // Linux 的 deb 路径与 desktop-linux.yml 的校验写死了 xjtu-toolbox。按打包机的系统取。
-            packageName = if (isWindowsHost) "岱宗盒子" else "xjtu-toolbox"
+            // Linux 的 deb 包名与 /opt 目录只认 ASCII，用 xjtu-dzhz（desktop-linux.yml 的图标校验跟着它）。
+            // 数据目录（~/.local/share/xjtu-toolbox 等）与它无关，不随之改名。
+            packageName = if (isWindowsHost) "岱宗盒子" else "xjtu-dzhz"
             // jpackage 只接受 x.y.z 形式的版本号。
             packageVersion = desktopPackageVersion
             // ⚠️ 只能用 ASCII：MSI 的 Summary 信息不走本地化代码页，中文描述会让 light.exe 报 LGHT0311。
@@ -207,10 +208,10 @@ tasks.withType<org.jetbrains.compose.desktop.application.tasks.AbstractJPackageT
 /** `./gradlew :desktop:packageTarGz` —— 把 jpackage 的 app-image（免安装目录）打成 `tar.gz`。 */
 tasks.register<org.gradle.api.tasks.bundling.Tar>("packageTarGz") {
     group = "distribution"
-    description = "把 app-image 打成 tar.gz（免安装：解压后直接跑 bin/xjtu-toolbox）"
+    description = "把 app-image 打成 tar.gz（免安装：解压后直接跑 bin/xjtu-dzhz）"
     dependsOn("createDistributable")
     compression = org.gradle.api.tasks.bundling.Compression.GZIP
-    archiveFileName.set("xjtu-toolbox-$desktopPackageVersion-linux-x64.tar.gz")
+    archiveFileName.set("xjtu-dzhz-$desktopPackageVersion-linux-x64.tar.gz")
     destinationDirectory.set(layout.buildDirectory.dir("compose/binaries/main/tar"))
     from(layout.buildDirectory.dir("compose/binaries/main/app"))
 }
